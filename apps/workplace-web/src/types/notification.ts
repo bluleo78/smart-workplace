@@ -26,7 +26,10 @@ export interface NotificationResponse {
     // WP-913: AI 위임 작업이 검토를 요청함(REVIEW) / 실패·거절함(FAILED·REJECTED) — AI 를 맡긴 사람(AI 담당 행의 assigned_by) 1명이 받는다.
     // 그 사람이 AI 이거나 이슈를 더 이상 볼 수 없으면 보고자가 받는다(보고자도 같으면 안 보냄). 이슈 상세로 연다.
     | "AI_REVIEW_REQUESTED"
-    | "AI_WORK_FAILED";
+    | "AI_WORK_FAILED"
+    // WP-1170: 다른 사람(관리자)이 내 개인 비서의 AI 연결을 해제함 — 비서 주인이 받는다. 일회성 정리가 해제한 경우 actor 가 null.
+    // 이슈·일정·노트 id 없이 온다. 클릭하면 다시 연결할 내 비서 설정(/settings/assistant)으로 간다.
+    | "PERSONAL_ASSISTANT_REVOKED";
   actorId: number | null;
   actorName: string | null;
   actorKind: string | null; // 'HUMAN' | 'AGENT' | null

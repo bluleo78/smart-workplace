@@ -30,6 +30,18 @@ public class PushContentService {
     // 가른다 — MENTION 카테고리의 이슈 챗 알림이 일정 분기로 빠져 푸시가 사라지지 않게(WP-452).
     PushCategory category = e.category();
     if (isWikiShare(e.type())) return forWikiShare(e, category, actor);
+    // 개인 비서 연결 회수(WP-1170) — 가리킬 이슈·일정이 없다. 다시 연결할 내 비서 설정으로 보낸다(프론트 notifTarget 과 같은 경로).
+    if (e.type() == NotificationType.PERSONAL_ASSISTANT_REVOKED) {
+      return new PushMessage(
+          e.tenantId(),
+          category,
+          "개인 비서 연결 해제",
+          e.actorId() == null ? "내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요" : actor + label(e.type()),
+          "/settings/assistant",
+          "personal-assistant-revoked",
+          "normal",
+          INBOX_TTL);
+    }
     if (PushCategory.of(e.type()) != PushCategory.CALENDAR) {
       if (e.issueId() == null) return null;
       return repo.findIssue(e.issueId())
@@ -197,6 +209,7 @@ public class PushContentService {
       // AI 작업 상태 알림(WP-913) — 실패의 기본 문구는 FAILED, 거절(REJECTED)은 issueLabel 이 따로 고른다.
       case AI_REVIEW_REQUESTED -> "님이 검토를 요청했습니다";
       case AI_WORK_FAILED -> "님이 작업에 실패했습니다";
+      case PERSONAL_ASSISTANT_REVOKED -> "님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요";
     };
   }
 }

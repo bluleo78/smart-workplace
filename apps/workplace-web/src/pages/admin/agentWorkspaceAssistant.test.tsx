@@ -47,6 +47,8 @@ function openSection(opts: {
   models?: Model[] | 502
   provider?: string
   settingsStatus?: number
+  /** 관리자가 설정할 수 있는 에이전트인지 — 개인 비서면 false(WP-1170). 기본 true. */
+  canConfigure?: boolean
 }) {
   let ws = opts.ws
   const calls = { put: [] as unknown[], del: 0, settings: [] as unknown[], modelGets: 0 }
@@ -81,7 +83,7 @@ function openSection(opts: {
       return HttpResponse.json({ provider: opts.provider ?? 'anthropic', models: opts.models ?? [] })
     }),
   ]
-  const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure />, { path: `/settings/agents?agent=${AGENT_ID}`, handlers, auth: ADMIN })
+  const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure={opts.canConfigure ?? true} />, { path: `/settings/agents?agent=${AGENT_ID}`, handlers, auth: ADMIN })
   return { ...view, calls }
 }
 
@@ -270,5 +272,45 @@ describe('에이전트 목록 — 안내 배너·개인 비서 표시', () => {
     await waitFor(() => expect(screen.queryByTestId('agent-row-9')).not.toBeInTheDocument())
     expect(screen.getByTestId('agent-row-5')).toBeInTheDocument()
     expect(includes).toEqual(['true', null])
+  })
+})
+
+// WP-1170 — 개인 비서는 공통 비서로 지정할 수 없지만, 예전에 지정된 채 남은 개인 비서는 관리자가 끌 수 있어야 한다.
+describe('개인 비서의 공통 비서 지정 (WP-1170)', () => {
+  // 관리자가 연결을 회수해 토큰이 없는 채로 지정만 남은 경우 — 끄는 데는 연결이 필요 없다.
+  test('지정이 남은 개인 비서는 「✓ 지정됨」과 끄는 스위치를 보이고, 끄면 경고 확인 뒤 DELETE 를 보낸 뒤 블록이 사라진다', async () => {
+    const { user, calls } = openSection({ ws: current({ hasActiveToken: false }), credential: null, canConfigure: false })
+    expect(await screen.findByTestId('workspace-assistant-current')).toHaveTextContent('✓ 지정됨')
+    await waitFor(() => expect(toggle()).toBeChecked())
+    expect(toggle()).toBeEnabled()
+    // 관리자가 할 수 없는 「토큰 등록」 안내는 보이지 않는다.
+    expect(screen.queryByTestId('workspace-assistant-warn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-assistant-token-gate')).not.toBeInTheDocument()
+
+    await user.click(toggle())
+    await user.click(await screen.findByTestId('workspace-assistant-clear-confirm-confirm'))
+    await waitFor(() => expect(calls.del).toBe(1))
+    expect(calls.put).toHaveLength(0)
+    // 끈 뒤에는 다시 지정할 길이 없다.
+    await waitFor(() => expect(screen.queryByTestId('agent-connection-assistant-toggle')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('workspace-assistant-current')).not.toBeInTheDocument()
+  })
+
+  test('지정되지 않은 개인 비서에는 공통 비서 지정 스위치·배지가 없다', async () => {
+    openSection({ ws: unassigned(), credential: credential(), canConfigure: false })
+    expect(await screen.findByTestId('credential-provider-badge')).toBeInTheDocument()
+    expect(screen.getByTestId('connection-personal-hint')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-connection-assistant-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-assistant-current')).not.toBeInTheDocument()
+  })
+
+  // 연결도 없고 둘 버튼도 없으면 빈 버튼 줄(flex gap)이 틈을 남기지 않게 그리지 않는다.
+  test('연결이 없는 개인 비서는 빈 버튼 줄을 그리지 않는다', async () => {
+    openSection({ ws: unassigned(), credential: null, canConfigure: false })
+    await screen.findByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.')
+    const section = screen.getByTestId('agent-connection-section')
+    expect(section.querySelector('div.flex.gap-2:empty')).toBeNull()
+    expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('oauth-token-revoke')).not.toBeInTheDocument()
   })
 })

@@ -3,8 +3,10 @@
 import {
   isCalendarType,
   isMentionLike,
+  isPersonalAssistantRevokedType,
   isWikiShareType,
   notifTarget,
+  PERSONAL_ASSISTANT_LABEL,
 } from "@/components/home/notifTarget";
 import type { NotificationResponse } from "@/types/notification";
 
@@ -35,6 +37,7 @@ export interface GroupedNotifs {
 
 // 알림 단건 섹션 분류. ASSIGNED(나에게 직접 배정)·이슈 챗 AI 질문·이슈 챗 멘션(WP-452) = 행동 필요.
 // AI 작업 검토 요청·실패(WP-913)도 내가 검토하거나 다시 맡겨야 하는 알림이라 행동 필요.
+// 개인 비서 연결 해제(WP-1170)는 내가 다시 연결해야 비서가 동작하므로 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
   // 나를 호출한 알림(코멘트 멘션 WP-650·이슈 챗 멘션·AI 질문 WP-452)은 홈 「멘션」과 같은 판정(isMentionLike)을 쓴다 — 두 곳이 갈리지 않게(WP-1092).
@@ -44,6 +47,7 @@ export function notifSection(n: NotificationResponse): NotifSection {
     n.type === "WIKI_SHARE_ACCESS_REQUESTED" ||
     n.type === "AI_REVIEW_REQUESTED" ||
     n.type === "AI_WORK_FAILED" ||
+    isPersonalAssistantRevokedType(n) ||
     isMentionLike(n)
     ? "mine"
     : "updates";
@@ -52,6 +56,8 @@ export function notifSection(n: NotificationResponse): NotifSection {
 // 그룹 키 — 같은 대상 객체를 한 줄로 묶는다.
 // 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 issueId 대신 eventId 로 묶는다(#489).
 function groupKey(n: NotificationResponse): string {
+  // 개인 비서 연결 해제(WP-1170)는 대상이 내 비서 하나뿐이라 한 줄로 묶는다(이슈 키가 없어 이슈 분기로 새지 않게 먼저 본다).
+  if (isPersonalAssistantRevokedType(n)) return "assistant";
   // 노트 공유 알림(WP-579)은 같은 노트라도 유형별로 따로 둔다 — 접근 요청(행동 필요·공유 창을 여는 딥링크)이 공유받음과 한 줄로 섞이지 않게.
   if (isWikiShareType(n))
     return n.wikiPageId != null
@@ -66,6 +72,7 @@ function groupKey(n: NotificationResponse): string {
 
 // 표시 제목 — 캘린더 알림은 일정 제목, 이슈는 'KEY-번호 · 제목'.
 function repTitle(n: NotificationResponse): string {
+  if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL; // WP-1170
   if (isWikiShareType(n)) return n.wikiPageTitle ?? "노트";
   if (isCalendarType(n)) return n.eventTitle ?? "일정 알림";
   return `${n.projectKey}-${n.issueNumber} · ${n.issueTitle}`;
@@ -73,6 +80,7 @@ function repTitle(n: NotificationResponse): string {
 
 // 딥링크/aria 라벨 — 제목만(기존 위젯 호환).
 function repLabel(n: NotificationResponse): string {
+  if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL; // WP-1170
   if (isWikiShareType(n)) return n.wikiPageTitle ?? "노트";
   return isCalendarType(n) ? (n.eventTitle ?? "일정 알림") : n.issueTitle;
 }
@@ -97,6 +105,7 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "WIKI_SHARE_ACCESS_REQUESTED",
   "WIKI_SHARED",
   "WIKI_SHARE_ACCESS_APPROVED",
+  "PERSONAL_ASSISTANT_REVOKED", // WP-1170
 ];
 function deltaSummary(group: NotificationResponse[]): string {
   const counts = new Map<NotificationResponse["type"], number>();
@@ -131,6 +140,9 @@ function deltaSummary(group: NotificationResponse[]): string {
       parts.push(c > 1 ? `접근 요청 ${c}건` : "접근 요청");
     else if (t === "WIKI_SHARED") parts.push("노트 공유");
     else if (t === "WIKI_SHARE_ACCESS_APPROVED") parts.push("접근 승인");
+    else if (t === "PERSONAL_ASSISTANT_REVOKED")
+      parts.push(c > 1 ? `개인 비서 연결 해제 ${c}건` : "개인 비서 연결 해제"); // WP-1170
+
   }
   return parts.join(" · ");
 }

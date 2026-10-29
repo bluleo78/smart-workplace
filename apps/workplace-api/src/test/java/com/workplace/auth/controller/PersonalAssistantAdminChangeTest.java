@@ -1,6 +1,8 @@
 package com.workplace.auth.controller;
 
 import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
+import static com.workplace.jooq.Tables.AUDIT_LOG;
+import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.WORKSPACE_ASSISTANT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -11,11 +13,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.auth.outbound.PersonalAssistantCredentialRevokedEvent;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.notify.service.NotificationService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
@@ -29,6 +33,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -39,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 돌거나 주인의 대화가 관리자 연결로 나갔다 — 둘 다 403 이고, 막기 전에 들어간 공통 비서 지정은 V235 가 지운다. 회수는 정리 수단으로 남는다.
  */
 @Transactional
+@RecordApplicationEvents
 class PersonalAssistantAdminChangeTest extends IntegrationTestBase {
 
   private static final String TOKEN = "sk-ant-oat-" + "x".repeat(40);
@@ -51,6 +58,8 @@ class PersonalAssistantAdminChangeTest extends IntegrationTestBase {
   @Autowired AiAgentCredentialRepository credentialRepo;
   @Autowired WorkspaceAssistantRepository workspaceRepo;
   @Autowired AssistantResolver resolver;
+  @Autowired NotificationService notificationService;
+  @Autowired ApplicationEvents events;
 
   private long admin;
   private long owner;
@@ -133,6 +142,119 @@ class PersonalAssistantAdminChangeTest extends IntegrationTestBase {
                     .eq(assistant)
                     .and(AI_AGENT_CREDENTIAL.REVOKED_AT.isNull())))
         .isZero();
+  }
+
+  /**
+   * WP-1170 — 관리 경로는 관리자 자기 개인 비서도 등록·재발급하지 않는다(화면이 모든 개인 비서에서 버튼을 숨기는 규칙과 맞춘다). 주인은 내 설정 경로를 쓴다.
+   */
+  @Test
+  void 관리_경로는_관리자_자기_개인_비서도_등록하지_못한다() throws Exception {
+    long mine = TestFixtures.createPersonalAssistant(dsl, admin);
+    TestFixtures.addMember(dsl, mine, 1L);
+
+    asAdmin(
+            post("/api/v1/admin/agents/" + mine + "/provider-credential")
+                .content("{\"provider\":\"anthropic\",\"token\":\"" + TOKEN + "\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.message").value("개인 비서의 AI 연결은 주인만 등록할 수 있습니다"));
+
+    assertThat(credentialRepo.findActive(mine)).isEmpty();
+  }
+
+  /** WP-1170 — 주인 확인 없이 부르면(callerId 없음) NPE 대신 막는다. */
+  @Test
+  void 호출자가_없으면_개인_비서_연결을_등록하지_못한다() {
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> credentialService.register(null, assistant, "anthropic", TOKEN, null, null))
+        .isInstanceOf(
+            com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException.class);
+  }
+
+  /**
+   * WP-1170 — 관리자가 개인 비서 연결을 회수하면 감사 로그에 「개인 비서 정리」 사유가 남고 주인에게 알릴 이벤트가 나간다. 주인이 스스로 회수(비서 해제)할 때는
+   * 나가지 않는다.
+   */
+  @Test
+  void 관리자가_개인_비서_연결을_회수하면_주인에게_알리고_사유를_남긴다() throws Exception {
+    credentialService.register(owner, assistant, "anthropic", TOKEN, "주인 토큰", null);
+
+    asAdmin(delete("/api/v1/admin/agents/" + assistant + "/provider-credential"))
+        .andExpect(status().isNoContent());
+
+    assertThat(events.stream(PersonalAssistantCredentialRevokedEvent.class))
+        .containsExactly(new PersonalAssistantCredentialRevokedEvent(1L, owner, admin));
+    var audit =
+        dsl.selectFrom(AUDIT_LOG)
+            .where(AUDIT_LOG.ACTION_TYPE.eq("AGENT_OAUTH_TOKEN_REVOKED"))
+            .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(assistant)))
+            .fetchOne();
+    assertThat(audit).isNotNull();
+    assertThat(audit.getMetadata().data()).contains("개인 비서 정리");
+  }
+
+  @Test
+  void 주인이_스스로_회수하면_알리지_않는다() {
+    credentialService.register(owner, assistant, "anthropic", TOKEN, "주인 토큰", null);
+
+    credentialService.revoke(owner, assistant);
+
+    assertThat(events.stream(PersonalAssistantCredentialRevokedEvent.class)).isEmpty();
+  }
+
+  /** WP-1170 — 회수 알림은 알림 설정과 무관하게 주인 인박스에 들어가고 목록에 보인다(가리킬 이슈·일정이 없어도). */
+  @Test
+  void 회수_알림은_주인_인박스에_들어간다() {
+    notificationService.createPersonalAssistantRevokedAndFanOut(owner, admin);
+
+    assertThat(notificationService.listRecent(owner, 10, 0))
+        .anySatisfy(
+            n -> {
+              assertThat(n.type()).isEqualTo("PERSONAL_ASSISTANT_REVOKED");
+              assertThat(n.actorId()).isEqualTo(admin);
+            });
+    // 스스로 한 회수(actor==owner)는 알림을 만들지 않는다.
+    notificationService.createPersonalAssistantRevokedAndFanOut(owner, owner);
+    assertThat(
+            dsl.fetchCount(
+                NOTIFICATION,
+                NOTIFICATION
+                    .RECIPIENT_ID
+                    .eq(owner)
+                    .and(NOTIFICATION.TYPE.eq("PERSONAL_ASSISTANT_REVOKED"))))
+        .isEqualTo(1);
+  }
+
+  /**
+   * WP-1170 V241 — 막기 전에 관리자가 바꿔 둔 개인 비서 연결(created_by ≠ 주인)은 회수하고, 둘이 함께 속한 워크스페이스에서 주인에게 알린다. 주인이
+   * 등록한 연결과 일반 AI 의 연결은 그대로 둔다.
+   */
+  @Test
+  void 관리자가_바꿔_둔_개인_비서_연결은_마이그레이션이_회수하고_주인에게_알린다() throws Exception {
+    // 막기 전 상태를 그대로 재현한다 — 관리자 토큰으로 바뀐 주인의 비서 연결.
+    credentialRepo.insert(assistant, "anthropic", "enc", "관리자가 바꿈", admin);
+    long other = TestFixtures.createHuman(dsl);
+    TestFixtures.addMember(dsl, other, 1L);
+    long othersAssistant = TestFixtures.createPersonalAssistant(dsl, other);
+    credentialRepo.insert(othersAssistant, "anthropic", "enc", "주인 토큰", other);
+    long agent = TestFixtures.createAgentNoToken(dsl);
+    credentialRepo.insert(agent, "anthropic", "enc", "관리자 등록", admin);
+
+    dsl.execute(
+        new ClassPathResource(
+                "db/migration/V241__revoke_overwritten_personal_assistant_credentials.sql")
+            .getContentAsString(StandardCharsets.UTF_8));
+
+    assertThat(credentialRepo.findActive(assistant)).isEmpty();
+    assertThat(credentialRepo.findActive(othersAssistant)).isPresent();
+    assertThat(credentialRepo.findActive(agent)).isPresent();
+    var notes =
+        dsl.selectFrom(NOTIFICATION)
+            .where(NOTIFICATION.TYPE.eq("PERSONAL_ASSISTANT_REVOKED"))
+            .fetch();
+    assertThat(notes).hasSize(1);
+    assertThat(notes.get(0).getRecipientId()).isEqualTo(owner);
+    assertThat(notes.get(0).getActorId()).isNull();
+    assertThat(notes.get(0).getTenantId()).isEqualTo(1L);
   }
 
   @Test

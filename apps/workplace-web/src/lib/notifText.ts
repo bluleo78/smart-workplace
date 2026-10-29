@@ -29,7 +29,12 @@ export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   // WP-913 AI 위임 작업 알림 — 서버 푸시 문구(PushContentService)와 같다. 실패·거절은 agentWorkState 로 갈린다(notificationAction).
   AI_REVIEW_REQUESTED: '님이 검토를 요청했습니다',
   AI_WORK_FAILED: '님이 작업에 실패했습니다',
+  // WP-1170 내 개인 비서 연결 해제 — 행위자(관리자)가 없으면(일회성 정리) InboxList 가 PERSONAL_ASSISTANT_REVOKED_NO_ACTOR 를 쓴다.
+  PERSONAL_ASSISTANT_REVOKED: '님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요',
 };
+
+// 행위자 없는 개인 비서 연결 해제 문구(WP-1170) — 일회성 정리가 해제해 actor 가 null 인 알림.
+export const PERSONAL_ASSISTANT_REVOKED_NO_ACTOR = '내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요';
 
 // AI 작업 상태 → 문구(WP-913) — 종류 기본 문구(ACTION_LABEL)와 다른 상태만 둔다. 검토 대기(REVIEW)·실패(FAILED)·모르는 상태·상태 없음은
 // 종류 문구로 떨어진다(AI 질문은 「이슈 챗에서 질문」, 실패 알림은 「작업에 실패」). 서버 PushContentService 의 같은 이름 표와 같다.

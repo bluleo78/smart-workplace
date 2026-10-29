@@ -432,6 +432,19 @@ public class NotificationService {
   }
 
   /**
+   * 개인 비서 연결 회수 알림(WP-1170) — 주인이 아닌 사람이 주인의 개인 비서 AI 연결을 회수했을 때 주인에게. 내 비서가 멈춘 것을 알리는 계정 알림이라 알림
+   * 설정과 무관하게 늘 보낸다(설정 줄이 없다). 주인이 직접 회수하면(actor==recipient) 만들지 않는다. insert 후 SSE fan-out·푸시.
+   */
+  @Transactional
+  public void createPersonalAssistantRevokedAndFanOut(long ownerId, long actorId) {
+    if (actorId == ownerId) return;
+    NotificationType type = NotificationType.PERSONAL_ASSISTANT_REVOKED;
+    repo.insertAccountNotice(ownerId, type, actorId);
+    registry.fanOut(List.of(ownerId), "notify.created", Map.of("type", type.name()));
+    publishPush(type, PushCategory.of(type), List.of(ownerId), actorId, null, null);
+  }
+
+  /**
    * 일정 변경·취소 알림(WP-712) — 주최자가 시간·장소를 바꿨거나 일정을 지웠을 때 참석자에게. 알림 행에 그때의 제목·시작 시각을 남긴다(취소는 가리킬 일정이 없어
    * eventId=null). 행위자 본인은 받지 않는다. insert 후 SSE fan-out·푸시.
    */

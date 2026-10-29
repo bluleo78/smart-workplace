@@ -65,6 +65,7 @@ interface Props {
   /**
    * 관리자가 연결을 등록·재발급하고 공통 비서로 지정할 수 있는지. 구성원의 개인 비서는 주인의 자격증명으로 주인만을 위해 움직여
    * 서버가 둘 다 막으므로(WP-1163) false 를 넘긴다 — 연결 상태는 보이고 회수만 정리 수단으로 남는다.
+   * 예전에 공통 비서로 지정된 채 남은 개인 비서는 지정을 끄는 스위치만 함께 남는다(WP-1170).
    */
   canConfigure: boolean;
 }
@@ -94,6 +95,8 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
   const hasToken = meta != null;
   // 현재 공통 비서 여부 — 모델/생각의 깊이 편집 가능 조건과 동일(기존 WorkspaceAssistantSection 규칙 유지).
   const isCurrent = ws?.agentUserId === agentUserId;
+  // 공통 비서 지정 블록 노출(WP-1170) — 관리자가 설정할 수 있는 에이전트면 늘, 개인 비서는 지정이 남아 있을 때만(끄기 전용).
+  const showAssistantToggle = canConfigure || isCurrent;
 
   // 모델 목록 — 공통 비서일 때만 조회. 저장된 자격증명 기준.
   const { data: modelsData, isLoading: modelsLoading } = useAgentModels(
@@ -246,35 +249,38 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
             </p>
           )}
 
-          <div className="flex gap-2">
-            {meta ? (
-              <>
-                {canConfigure && (
+          {/* WP-1170: 개인 비서인데 연결도 없으면 둘 버튼이 없다 — 빈 줄(flex gap)이 틈을 남기지 않게 그리지 않는다. */}
+          {(meta || canConfigure) && (
+            <div className="flex gap-2">
+              {meta ? (
+                <>
+                  {canConfigure && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDialogOpen(true)}
+                      data-testid="oauth-token-reissue"
+                    >
+                      재발급
+                    </Button>
+                  )}
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => setDialogOpen(true)}
-                    data-testid="oauth-token-reissue"
+                    variant="destructive"
+                    onClick={onRevokeClick}
+                    disabled={revoke.isPending}
+                    data-testid="oauth-token-revoke"
                   >
-                    재발급
+                    회수
                   </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={onRevokeClick}
-                  disabled={revoke.isPending}
-                  data-testid="oauth-token-revoke"
-                >
-                  회수
+                </>
+              ) : canConfigure ? (
+                <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
+                  연결하기
                 </Button>
-              </>
-            ) : canConfigure ? (
-              <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
-                연결하기
-              </Button>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          )}
 
           {/* WP-1163: 개인 비서는 연결 등록·재발급과 공통 비서 지정을 주인만 정한다 — 버튼·스위치 대신 안내. */}
           {!canConfigure && (
@@ -361,8 +367,10 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
             </div>
           ) : null}
 
-          {/* 공통 비서 지정 — 토글 하나로 지정/해제. 연결 안 됐으면 비활성 + 안내. 개인 비서는 지정할 수 없어 그리지 않는다. */}
-          {canConfigure && (
+          {/* 공통 비서 지정 — 토글 하나로 지정/해제. 연결 안 됐으면 비활성 + 안내. 개인 비서는 지정할 수 없어 그리지 않는다.
+              WP-1170: 단, 예전에 공통 비서로 지정된 채 남은 개인 비서는 관리자가 끌 수 있게 「✓ 지정됨」과 끄는 스위치를 보인다.
+              꺼지면 isCurrent 가 거짓이 되어 블록이 사라지므로 다시 지정할 길은 없다. */}
+          {showAssistantToggle && (
             <div className="flex items-center justify-between border-t pt-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -379,12 +387,13 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
                     </Badge>
                   ) : null}
                 </div>
-                {isCurrent && ws && !ws.hasActiveToken ? (
+                {/* 토큰 등록 안내는 관리자가 연결을 정할 수 있을 때만 — 개인 비서는 주인만 연결한다(WP-1170). */}
+                {canConfigure && isCurrent && ws && !ws.hasActiveToken ? (
                   <p data-testid="workspace-assistant-warn" className="text-sm text-destructive">
                     이 비서에 활성 OAuth 토큰이 없어요. 위 연결에서 토큰을 등록(또는 재발급)해야
                     공통 비서가 동작합니다.
                   </p>
-                ) : !hasToken ? (
+                ) : !hasToken && !isCurrent ? (
                   <p data-testid="workspace-assistant-token-gate" className="text-sm text-muted-foreground">
                     먼저 연결해야 공통 비서로 지정할 수 있어요.
                   </p>
@@ -396,7 +405,8 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
                 checked={isCurrent}
                 onCheckedChange={(checked) => void onToggleAssistant(checked)}
                 disabled={
-                  !hasToken || setAssistant.isPending || clearAssistant.isPending || probing
+                  // 지정에는 연결이 필요하지만, 이미 지정된 비서를 끄는 데는 필요 없다 — 연결이 회수된 채 남은 지정도 끌 수 있게(WP-1170).
+                  (!hasToken && !isCurrent) || setAssistant.isPending || clearAssistant.isPending || probing
                 }
               />
             </div>

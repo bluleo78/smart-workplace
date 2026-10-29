@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 
 import {
   isCalendarType,
+  isPersonalAssistantRevokedType,
   isWikiShareType,
   notifTarget,
 } from "@/components/home/notifTarget";
@@ -20,7 +21,10 @@ import {
 } from "@/hooks/queries/useNotifications";
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
-import { notificationAction } from "@/lib/notifText";
+import {
+  notificationAction,
+  PERSONAL_ASSISTANT_REVOKED_NO_ACTOR,
+} from "@/lib/notifText";
 import { cn } from "@/lib/utils";
 import type { NotificationResponse } from "@/types/notification";
 
@@ -163,6 +167,22 @@ export function InboxList({
                           {formatDateTimeMinute(n.eventStartsAt)}
                         </span>
                       </>
+                    ) : isPersonalAssistantRevokedType(n) ? (
+                      // 개인 비서 연결 해제(WP-1170) — 이슈 줄 없이 문구만. 행위자(관리자)가 있으면 이름 + 동작 문구,
+                      // 없으면(일회성 정리) 「시스템님이」로 읽히지 않게 행위자 없는 문구.
+                      n.actorName ? (
+                        <>
+                          <span className="font-medium">{n.actorName}</span>
+                          <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
+                          <span className="text-muted-foreground">
+                            {notificationAction(n)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="font-medium">
+                          {PERSONAL_ASSISTANT_REVOKED_NO_ACTOR}
+                        </span>
+                      )
                     ) : isWikiShareType(n) ? (
                       // 노트 공유 알림(WP-579) — 문구에 노트 제목이 들어간다. 공유받음은 보낸 사람의 메시지를 한 줄 더 보인다.
                       <>

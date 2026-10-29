@@ -45,8 +45,17 @@ class NotificationSettingItemTest {
   @Test
   void everyNotificationType_mapsToAnItem() {
     for (NotificationType t : NotificationType.values()) {
+      // 개인 비서 연결 회수(WP-1170)는 설정 없이 늘 보내는 계정 알림이라 줄이 없다 — 아래 테스트가 따로 본다.
+      if (t == NotificationType.PERSONAL_ASSISTANT_REVOKED) continue;
       assertThat(NotificationSettingItem.of(t)).isNotNull();
     }
+  }
+
+  @Test
+  void personalAssistantRevoked_hasNoSettingItem() {
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> NotificationSettingItem.of(NotificationType.PERSONAL_ASSISTANT_REVOKED))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test

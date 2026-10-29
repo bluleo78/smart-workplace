@@ -131,6 +131,9 @@ export default function AgentManagementPage() {
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
   const external = selected?.runtime === 'EXTERNAL';
+  // 관리자가 설정할 수 있는 에이전트인지(WP-1170) — 구성원의 개인 비서는 주인 전용이라(WP-1163) 키 발급·활성/역할·연결 등록과
+  // 공통 비서 지정을 막는다. 흩어져 있던 `type !== 'PERSONAL'` 판정을 한곳에 모았다.
+  const canAdminConfigure = selected != null && selected.type !== 'PERSONAL';
   // 키 발급 폼 + 키 목록 — 내부(API 키 블록)·외부(① 키 발급) 두 레이아웃이 공유한다. key 로 행 전환 시 label 입력 리셋.
   const keysSection =
     selected != null ? (
@@ -138,7 +141,7 @@ export default function AgentManagementPage() {
         key={selected.id}
         agentId={selected.id}
         external={external}
-        canIssue={selected.type !== 'PERSONAL'}
+        canIssue={canAdminConfigure}
         onIssued={setPlaintext}
         onRevoke={onRevoke}
       />
@@ -332,7 +335,7 @@ export default function AgentManagementPage() {
                 {selected.isActive && <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />}
 
                 {/* 활성 상태·역할 할당 — 구성원 화면에서 옮겨 왔다(WP-1075). 개인 비서는 주인 전용이라 보이지 않는다. */}
-                {selected.type !== 'PERSONAL' && <AgentAccessSections key={`ac-${selected.id}`} agent={selected} />}
+                {canAdminConfigure && <AgentAccessSections key={`ac-${selected.id}`} agent={selected} />}
 
                 {!selected.isActive ? (
                   /* 사용 중지된 AI(WP-705·WP-1075) — 연결·키·실행 방식은 다시 켠 뒤에 다룬다. 정지된 AI 에 키를 발급하거나 공통 비서로 지정하지 않게 숨긴다. */
@@ -435,7 +438,7 @@ export default function AgentManagementPage() {
                       {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
                       <AgentConnectionSection
                         agentUserId={selected.id}
-                        canConfigure={selected.type !== 'PERSONAL'}
+                        canConfigure={canAdminConfigure}
                       />
 
                       {/* 인증 — API 키. */}
