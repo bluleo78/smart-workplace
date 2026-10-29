@@ -1,5 +1,6 @@
 package com.workplace.messaging.outbound;
 
+import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.messaging.dto.LinkPreviewResponse;
 import com.workplace.messaging.dto.MessageResponse;
@@ -47,7 +48,7 @@ public final class MessagingDomainEvents {
       String agentName,
       String streamId,
       String phase,
-      Object steps) {}
+      List<AiProgressStep> steps) {}
 
   /**
    * messaging 메시지가 AI 응답을 유발할 때만 발행. MessageService.create 가 트리거 조건을 판단해(채널 kind·멤버 정보 보유)

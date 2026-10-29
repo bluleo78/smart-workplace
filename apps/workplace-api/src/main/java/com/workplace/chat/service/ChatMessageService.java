@@ -20,6 +20,7 @@ import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.drive.service.DriveLinkService;
+import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
@@ -247,7 +248,7 @@ public class ChatMessageService {
    */
   @Transactional(readOnly = true)
   public void notifyProgress(
-      long callerId, long threadId, String streamId, String phase, Object steps) {
+      long callerId, long threadId, String streamId, String phase, List<AiProgressStep> steps) {
     ensureMember(threadId, callerId);
     String name = hydrator.summaryOf(callerId).name();
     publisher.publishEvent(

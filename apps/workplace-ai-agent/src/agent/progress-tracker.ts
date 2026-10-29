@@ -29,6 +29,9 @@ interface InternalStep extends ProgressStep {
   terminal?: boolean;
 }
 
+/** 한 진행 알림에 싣는 최근 단계 수 — api 상한(100, AiProgressStep.MAX_STEPS)보다 넉넉히 작게. */
+export const MAX_SNAPSHOT_STEPS = 50;
+
 export class ProgressTracker {
   private steps: InternalStep[] = [];
 
@@ -54,7 +57,12 @@ export class ProgressTracker {
     return false;
   }
 
+  // 보내는 단계는 최근 MAX_SNAPSHOT_STEPS 개까지 — api 가 한 알림의 단계 수를 100개로 묶는다(WP-1191). 넘겨 400 이 나면
+  // 그 뒤 진행 알림(마지막 done·error 포함)이 모두 거절돼 「AI 작업 중」 말풍선이 멈춘 채 남는다.
   snapshot(phase: ProgressState['phase']): ProgressState {
-    return { phase, steps: this.steps.map((s) => ({ label: s.label, status: s.status })) };
+    return {
+      phase,
+      steps: this.steps.slice(-MAX_SNAPSHOT_STEPS).map((s) => ({ label: s.label, status: s.status })),
+    };
   }
 }

@@ -1,5 +1,6 @@
 package com.workplace.global.security;
 
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 
 /**
@@ -15,5 +16,10 @@ public enum InternalOnBehalfOf {
   /** 이 요청이 ai-agent 의 Internal 대행 호출인가. */
   public static boolean isInternal(Authentication authentication) {
     return authentication != null && authentication.getDetails() == INSTANCE;
+  }
+
+  /** ai-agent 대행 호출이 아니면 403(message) — ai-agent 전용 엔드포인트의 첫 줄(WP-1191). */
+  public static void requireInternal(Authentication authentication, String message) {
+    if (!isInternal(authentication)) throw new AccessDeniedException(message);
   }
 }
