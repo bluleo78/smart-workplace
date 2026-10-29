@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.auth.outbound.PersonalAssistantDisabled;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AgentWorkTransition;
@@ -219,6 +220,21 @@ public class AgentWorkService {
     } else {
       return;
     }
+    if (changedIssueIds.isEmpty()) return;
+    notifyChanged(issueRepository.findByIds(changedIssueIds), null);
+  }
+
+  /**
+   * 개인 비서가 해제되면(WP-1190) 그 비서가 돌리던 반복을 모두 거두고, 반복 때문에 남은 「다음 회차 대기」(SCHEDULED) 작업을 취소한다 — 그대로 두면
+   * 상세에 「다음 실행 …」, AI 위임 작업에 「다음 회차 대기」가 남아 비서 없이도 실행될 것처럼 보였다. 담당과 다른 상태의 작업(검토 대기 등 사람이 볼 결과)은
+   * 그대로 둔다 — 같은 비서를 다시 등록하면 그 AGENT 를 다시 쓴다. auth 모듈 해제와 같은 트랜잭션의 동기 리스너.
+   */
+  @EventListener
+  public void onPersonalAssistantDisabled(PersonalAssistantDisabled e) {
+    recurrenceRepository.retireForAgent(e.agentUserId());
+    List<Long> changedIssueIds =
+        repository.endActiveForWorkerInStates(
+            e.agentUserId(), List.of(AgentWorkState.SCHEDULED), AgentWorkState.CANCELED);
     if (changedIssueIds.isEmpty()) return;
     notifyChanged(issueRepository.findByIds(changedIssueIds), null);
   }

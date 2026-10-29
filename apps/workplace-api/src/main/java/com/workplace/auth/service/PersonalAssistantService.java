@@ -3,6 +3,7 @@ package com.workplace.auth.service;
 import com.workplace.auth.dto.AssistantStatusResponse;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
+import com.workplace.auth.outbound.PersonalAssistantDisabled;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
@@ -13,6 +14,7 @@ import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,7 @@ public class PersonalAssistantService {
   private final RoleRepository roleRepository;
   private final AssistantSettingsWriter settingsWriter;
   private final SuggestionModelPolicy suggestionModelPolicy;
+  private final ApplicationEventPublisher publisher;
 
   /**
    * 자격증명 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 자격증명을 등록(기존 active 는 자동 revoke).
@@ -73,7 +76,10 @@ public class PersonalAssistantService {
     userRepository.updateName(agentId, normalized);
   }
 
-  /** 개인 비서 해제 — active 토큰을 revoke 하고 FK 를 null 로 끊는다(AGENT row 는 보존). */
+  /**
+   * 개인 비서 해제 — active 토큰을 revoke 하고 FK 를 null 로 끊는다(AGENT row 는 보존). 그 비서가 돌리던 반복은 더 실행될 수 없으므로
+   * {@link PersonalAssistantDisabled} 로 issue 모듈에 알려 같은 트랜잭션에서 거둔다(WP-1190).
+   */
   public void disable(long callerId) {
     personalRepo
         .findAgentId(callerId)
@@ -81,6 +87,7 @@ public class PersonalAssistantService {
             agentId -> {
               credentialService.revoke(callerId, agentId);
               personalRepo.setAgentId(callerId, null);
+              publisher.publishEvent(new PersonalAssistantDisabled(agentId));
             });
   }
 
