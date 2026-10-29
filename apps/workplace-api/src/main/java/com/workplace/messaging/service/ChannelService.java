@@ -166,6 +166,9 @@ public class ChannelService {
         throw new IllegalArgumentException("보관된 채널만 새 이름으로 해제할 수 있습니다");
       applyRename(callerId, channelId, normalizeName(rawName));
     } else {
+      // 이미 활성인 채널은 해제할 것이 없다 — 이름 겹침을 견주면, 남이 볼 수 없던 비공개 채널과 같은 이름의 공개 채널이 생긴 경우처럼 활성끼리
+      // 겹친 채널에 「새 이름으로 보관 해제」 창을 띄우는데 그 창은 「보관된 채널만」으로 거절돼 막다른 길이 된다(WP-1149).
+      if (!channelRepo.isArchived(channelId)) return;
       String current = channelRepo.findName(channelId).orElse("");
       if (channelRepo.existsVisibleChannelName(current, callerId, channelId)) {
         throw new ChannelUnarchiveNameTakenException();

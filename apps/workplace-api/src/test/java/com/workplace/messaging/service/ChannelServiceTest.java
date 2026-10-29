@@ -174,6 +174,22 @@ class ChannelServiceTest extends IntegrationTestBase {
         .isInstanceOf(ChannelUnarchiveNameTakenException.class);
   }
 
+  /**
+   * WP-1149: 이미 활성인 채널의 해제는 이름 겹침을 견주지 않는다 — 비공개 채널과 같은 이름의 공개 채널이 생겨 활성끼리 겹쳐도 사유 예외 없이 그대로 둔다(그
+   * 예외는 웹에 「새 이름으로 보관 해제」 창을 띄우지만, 그 창은 활성 채널이라 거절되는 막다른 길이었다).
+   */
+  @Test
+  void unarchive_activeChannel_sameNameAsVisibleChannel_isNoop() {
+    long owner = seedUser();
+    ChannelResponse priv = channelService.create(owner, "일반", "PRIVATE");
+    channelService.create(seedUser(), "일반", "PUBLIC");
+
+    channelService.unarchive(owner, priv.id());
+
+    assertThat(channelRepo.isArchived(priv.id())).isFalse();
+    assertThat(channelService.getDetail(owner, priv.id()).name()).isEqualTo("일반");
+  }
+
   /** 이름은 보관 해제와 함께일 때만 받는다 — 활성 채널을 이 경로로 이름 바꾸지 못한다. */
   @Test
   void unarchive_withName_onActiveChannel_rejected() {
