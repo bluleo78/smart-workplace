@@ -1,6 +1,7 @@
 package com.workplace.home.service;
 
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -85,5 +86,23 @@ class HomeActivityServiceTest extends IntegrationTestBase {
         .execute();
 
     assertThat(activityService.recent(s.assigneeId(), null, null, 20).items()).isEmpty();
+  }
+
+  /** WP-1158 — 프로젝트가 삭제되면 그 프로젝트 이슈의 history 도 활동 피드에서 빠진다(이슈는 열 수 없어 404, 알림 WP-563 과 같다). */
+  @Test
+  void activity_excludesHistoryForDeletedProject() {
+    ChatFixtures.Setup s = fx.setup();
+    historyRepo.insert(s.issueId(), s.reporterId(), "STATUS", "TODO", "IN_PROGRESS");
+
+    assertThat(activityService.recent(s.assigneeId(), null, null, 20).items()).hasSize(1);
+
+    // 프로젝트 삭제는 프로젝트 행에만 deleted_at 을 찍는다 — 이슈·담당·구독 행은 그대로 남는다.
+    dsl.update(PROJECT)
+        .set(PROJECT.DELETED_AT, OffsetDateTime.now())
+        .where(PROJECT.ID.eq(s.projectId()))
+        .execute();
+
+    assertThat(activityService.recent(s.assigneeId(), null, null, 20).items()).isEmpty();
+    assertThat(activityService.recent(s.watcherId(), null, null, 20).items()).isEmpty();
   }
 }

@@ -55,7 +55,13 @@ public class HomeActivityRepository {
                     .where(ISSUE_WATCHER.USER_ID.eq(userId)));
 
     // 이슈가 소프트삭제되면(#622, #618 알림·#621 채팅과 동일 패턴) history 행은 남지만 죽은 참조이므로 제외한다.
-    Condition where = ISSUE_HISTORY.ISSUE_ID.in(myIssues).and(ISSUE.DELETED_AT.isNull());
+    // 프로젝트 삭제는 프로젝트 행에만 deleted_at 을 찍고 이슈·담당·구독은 남기므로, 그 프로젝트의 이슈도 함께 뺀다(WP-1158, 알림 WP-563 과 같다).
+    Condition where =
+        ISSUE_HISTORY
+            .ISSUE_ID
+            .in(myIssues)
+            .and(ISSUE.DELETED_AT.isNull())
+            .and(PROJECT.DELETED_AT.isNull());
     if (actorKind != null && !actorKind.isBlank()) {
       where = where.and(USER.KIND.eq(actorKind));
     }
