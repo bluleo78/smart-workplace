@@ -7,6 +7,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { ATTENDEE_CHIP_PREVIEW } from '@/components/calendar/AttendeeSection'
 import { calendarHandlers, capture, pinNow, renderEventDialog } from '@/test/kits/calendar/testkit-b8'
 import type { Attendee, CalendarEvent } from '@/types/calendar'
 import type { UserGroupMemberHit } from '@/types/userGroup'
@@ -224,4 +225,68 @@ test('외부 참석자는 이메일 칩으로 보이고 제거 버튼이 없다 
   expect(within(externalChip).queryByRole('button')).not.toBeInTheDocument()
   // 대조: 내부 참석자는 주최자가 제거할 수 있다
   expect(screen.getByTestId('attendee-remove-3')).toBeInTheDocument()
+})
+
+/** 고르기 창에서 개발팀(10)을 골라 「N명 추가」로 넣고 창을 닫는다 — 칩 줄은 창이 닫혀야 누를 수 있다(창이 열리면 뒤가 막힌다). */
+async function addDevTeamAndClose(user: ReturnType<typeof renderEventDialog>['user']) {
+  await user.click(screen.getByTestId('attendee-add-btn'))
+  await user.click(await screen.findByTestId('attendee-picker-department-10'))
+  await user.click(await screen.findByTestId('attendee-group-add'))
+  await user.keyboard('{Escape}')
+}
+
+test('새 일정: 조직으로 많이 넣으면 칩은 앞 10개만 보이고 「외 N명 더 보기」로 접히며, 저장 본문엔 전원이 실린다(WP-1189)', async () => {
+  const { user, onSubmit } = renderEventDialog(null, [memberSearch, bigTeam(25), ...groupHandlers, ...calendarHandlers({ calendars: CALENDARS })])
+  await addDevTeamAndClose(user)
+
+  const chips = await screen.findByTestId('attendee-selected-chips')
+  expect(within(chips).getAllByTestId(/^attendee-selected-\d+$/)).toHaveLength(ATTENDEE_CHIP_PREVIEW)
+  const toggle = screen.getByTestId('attendee-chips-toggle')
+  expect(toggle).toHaveTextContent(`외 ${25 - ATTENDEE_CHIP_PREVIEW}명 더 보기`)
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+  // 모두 보기 → 전원, 접기 → 다시 10개
+  await user.click(toggle)
+  expect(within(chips).getAllByTestId(/^attendee-selected-\d+$/)).toHaveLength(25)
+  expect(toggle).toHaveTextContent('접기')
+  await user.click(toggle)
+  expect(within(chips).getAllByTestId(/^attendee-selected-\d+$/)).toHaveLength(ATTENDEE_CHIP_PREVIEW)
+
+  fireEvent.change(screen.getByTestId('calendar-form-title'), { target: { value: '전사 회의' } })
+  await user.click(screen.getByTestId('calendar-form-submit'))
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+  expect(onSubmit.mock.calls[0][0].attendeeUserIds).toHaveLength(25)
+})
+
+test('새 일정: 칩을 펼친 채 사람이나 조직을 더 넣으면 다시 접힌다 — 「＋ 참석자」와 고르기 창이 밀려나지 않게(WP-1189)', async () => {
+  const { user } = renderEventDialog(null, [memberSearch, bigTeam(30), ...groupHandlers, ...calendarHandlers({ calendars: CALENDARS })])
+  await addDevTeamAndClose(user)
+  const toggle = await screen.findByTestId('attendee-chips-toggle')
+
+  // 펼친 채 사람 한 명(홍길동)을 넣으면 접힌다
+  await user.click(toggle)
+  expect(toggle).toHaveTextContent('접기')
+  await pickHong(user)
+  expect(toggle).toHaveTextContent(`외 ${31 - ATTENDEE_CHIP_PREVIEW}명 더 보기`)
+
+  // 펼친 채 내 그룹(홍길동·김민수 → 김민수만 새로)을 넣어도 접힌다
+  await user.keyboard('{Escape}')
+  await user.click(toggle)
+  await user.click(screen.getByTestId('attendee-add-btn'))
+  await user.click(await screen.findByTestId('attendee-picker-personal-group-20'))
+  await user.click(await screen.findByTestId('attendee-group-add'))
+  expect(toggle).toHaveTextContent(`외 ${32 - ATTENDEE_CHIP_PREVIEW}명 더 보기`)
+})
+
+test('편집 모드: 참석자가 10명을 넘으면 주최자부터 10개만 칩으로 보이고 나머지는 「외 N명」으로 접힌다(WP-1189)', async () => {
+  const many: Attendee[] = Array.from({ length: 14 }, (_, i) => ({ ...AGENT, userId: 200 + i, kind: 'HUMAN', name: `참석자${i}` }))
+  const { list, detail } = organizerEvent([...many, ORGANIZER])
+  const { user } = renderEventDialog(list, calendarHandlers({ calendars: CALENDARS, events: [detail] }))
+  const chips = await screen.findByTestId('attendee-chips')
+  expect(within(chips).getAllByTestId(/^attendee-chip-/)).toHaveLength(ATTENDEE_CHIP_PREVIEW)
+  // 주최자가 맨 앞이라 접혀도 보인다
+  expect(within(chips).getByTestId('attendee-chip-u-1')).toBeInTheDocument()
+  expect(within(chips).queryByTestId('attendee-chip-u-213')).not.toBeInTheDocument()
+  await user.click(screen.getByTestId('attendee-chips-toggle'))
+  expect(within(chips).getAllByTestId(/^attendee-chip-/)).toHaveLength(15)
 })

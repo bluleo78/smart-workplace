@@ -14,6 +14,7 @@ import { LinkedText } from '@/components/LinkedText'
 import { DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
+import { useShowMore } from '@/hooks/useShowMore'
 import { eventDisplayColor } from '@/lib/calendar'
 import type { ReadOnlyLabel } from '@/lib/calendarEventForm'
 import {
@@ -115,7 +116,6 @@ function AttendeeRow({ attendee, isMe }: { attendee: Attendee; isMe: boolean }) 
  * 제목(다이얼로그 제목) → 캘린더·사유 칩 → 시간 → 장소 → 참석자 → 알림 → 설명 순서. 응답 버튼은 아래에 고정.
  */
 export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp, myUserId }: EventDetailViewProps) {
-  const [showAllAttendees, setShowAllAttendees] = useState(false)
   // Teams 초대 안내문(밑줄 구분선 사이 덩어리) 펼침 — 기본은 접어 둔다
   const [showMeetingInfo, setShowMeetingInfo] = useState(false)
 
@@ -123,8 +123,8 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
   const recurrence = recurrenceLabel(event)
   const reminder = reminderLabel(event.reminderMinutes)
   const attendees = sortAttendeesForView(event.attendees ?? [], myUserId)
-  const hiddenCount = Math.max(0, attendees.length - ATTENDEE_PREVIEW)
-  const visibleAttendees = showAllAttendees ? attendees : attendees.slice(0, ATTENDEE_PREVIEW)
+  const moreAttendees = useShowMore(attendees.length, ATTENDEE_PREVIEW)
+  const visibleAttendees = attendees.slice(0, moreAttendees.limit)
   const summary = rsvpSummary(attendees)
   // 설명에서 Teams 안내문을 떼어 접는다 — 참가 링크는 위 참가 버튼이 대신한다.
   // 서버가 회의를 찾지 못해 버튼이 없으면(onlineMeeting 없음) 접지 않는다: 안내문 속 참가 링크가 숨겨지면 들어갈 길이 사라진다.
@@ -226,15 +226,15 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
                   />
                 ))}
               </ul>
-              {hiddenCount > 0 && (
+              {moreAttendees.overflow > 0 && (
                 <button
                   type="button"
                   className="mt-1.5 text-sm text-primary hover:underline"
-                  onClick={() => setShowAllAttendees((v) => !v)}
-                  aria-expanded={showAllAttendees}
+                  onClick={moreAttendees.toggle}
+                  aria-expanded={moreAttendees.expanded}
                   data-testid="event-detail-attendees-toggle"
                 >
-                  {showAllAttendees ? '접기' : `외 ${hiddenCount}명 더 보기`}
+                  {moreAttendees.label}
                 </button>
               )}
             </DetailRow>

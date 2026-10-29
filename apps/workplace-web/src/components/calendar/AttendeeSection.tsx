@@ -6,6 +6,8 @@
 //   (참석 응답이 사람별이라 그룹 자체는 참석자로 두지 않는다 — 에픽 WP-1054). 큰 부서도 이 확인 한 번이다.
 // 서버 참석자 중 AGENT 는 AgentBadge 표시, RSVP 상태는 아이콘으로 구분. (이슈 #489)
 // 일정 폼의 참석자 아이콘 줄(배치 B) 안에 들어가 이름표 없이 칩과 「＋ 참석자」를 한 줄에 잇는다(넘치면 다음 줄).
+// 조직으로 수백 명을 넣을 수 있어 칩은 앞의 ATTENDEE_CHIP_PREVIEW 개만 그리고 나머지는 「외 N명 더 보기」로 접는다(WP-1189,
+// 상세 보기와 같은 문구) — 전원을 그리면 창이 수천 px 길어지고, 칩 뒤의 「＋ 참석자」에 붙은 고르기 창이 화면 밖으로 밀려났다.
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, Clock, HelpCircle, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -19,10 +21,16 @@ import { Button } from '@/components/ui/button'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { groupAllMembersQuery } from '@/hooks/queries/useGroupMemberSearch'
 import { useAuth } from '@/hooks/useAuth'
-import { attendeeDisplayName, attendeeKey } from '@/lib/calendarEventView'
+import { useShowMore } from '@/hooks/useShowMore'
+import { attendeeDisplayName, attendeeKey, sortAttendeesForView } from '@/lib/calendarEventView'
+import { HIT_AREA_CHIP_COARSE } from '@/lib/hitArea'
+import { cn } from '@/lib/utils'
 import type { Attendee, RsvpStatus } from '@/types/calendar'
 
 import { ATTENDEE_LIMIT, groupInviteDetail, groupInviteTitle, isOverLimit } from './attendeeGroups'
+
+/** 접힌 상태에서 그리는 참석자 칩 수 — 넘으면 「외 N명 더 보기」로 접는다(WP-1189). */
+export const ATTENDEE_CHIP_PREVIEW = 10
 
 /** 생성 모드에서 선택된 멤버의 표시 정보 — id 외에 이름을 저장해 칩 렌더에 활용(고르기 창이 사람만 찾아 종류는 두지 않는다, WP-1059) */
 export interface SelectedMember {
@@ -85,6 +93,8 @@ export function AttendeeSection({
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const meId = user?.id
+  // 칩 접기 — 서버 참석자(편집) 또는 로컬 선택(만들기) 중 그리는 쪽의 수로 센다. 기본은 앞 ATTENDEE_CHIP_PREVIEW 개만.
+  const moreChips = useShowMore(attendees?.length ?? selectedMembers.length, ATTENDEE_CHIP_PREVIEW)
 
   // 지금 참석자 id — 외부 참석자(userId=null)는 고르기 창에서 고를 수 없어 내부 userId 만 본다.
   const existingIds = attendees?.map((a) => a.userId).filter((id): id is number => id != null) ?? selectedMembers.map((m) => m.id)
@@ -94,9 +104,11 @@ export function AttendeeSection({
   const excludeSet = new Set(meId != null ? [meId] : [])
 
   // 사람 넣기 — 편집 모드(onInvite 있음): 즉시 invite API 호출. 생성 모드: 로컬 state 업데이트(이름 포함). 중복은 넣지 않는다.
+  // 넣으면 칩을 다시 접는다 — 펼친 채 늘면 칩 뒤 「＋ 참석자」와 거기 붙은 고르기 창이 다시 밀려난다(WP-1189).
   const addPeople = (people: SelectedMember[]) => {
     const fresh = people.filter((p) => !existingSet.has(p.id))
     if (fresh.length === 0) return
+    moreChips.collapse()
     if (onInvite) onInvite(fresh.map((p) => p.id))
     else onChange([...selectedMembers, ...fresh])
   }
@@ -138,14 +150,9 @@ export function AttendeeSection({
     setOpen(next)
   }
 
-  // 주최자를 먼저 정렬
-  const sortedAttendees = attendees
-    ? [...attendees].sort((a, b) => {
-        if (a.role === 'ORGANIZER') return -1
-        if (b.role === 'ORGANIZER') return 1
-        return 0
-      })
-    : null
+  // 주최자, 나, 나머지 순 — 접혀도 내 칩(응답 상태)은 앞에 보인다(상세 보기와 같은 순서).
+  const sortedAttendees = attendees ? sortAttendeesForView(attendees, meId) : null
+
 
   // 조직·내 그룹 확인 줄 — 고르기 창 목록 아래. 넣을 사람이 없거나 한도를 넘으면 추가 단추를 막는다.
   // 알림 영역(role=status)은 글만 감싼다 — 단추까지 감싸면 바뀔 때마다 단추 이름까지 읽힌다.
@@ -225,7 +232,7 @@ export function AttendeeSection({
       {sortedAttendees && sortedAttendees.length > 0 && (
         // contents — 칩이 「＋ 참석자」와 같은 줄에 이어지도록 감싸는 상자를 레이아웃에서 뺀다(testid 는 유지)
         <div className="contents" data-testid="attendee-chips">
-          {sortedAttendees.map((a, i) => {
+          {sortedAttendees.slice(0, moreChips.limit).map((a, i) => {
               const chipKey = attendeeKey(a, i)
               const removeId = a.userId // 외부 참석자는 제거 대상 아님(null)
               return (
@@ -259,7 +266,7 @@ export function AttendeeSection({
       {/* 생성 모드에서 로컬 선택 칩(서버 데이터 없을 때) — 고르기 창이 사람만 찾으므로 AI 배지는 없다(WP-1059) */}
       {!sortedAttendees && selectedMembers.length > 0 && (
         <div className="contents" data-testid="attendee-selected-chips">
-          {selectedMembers.map((member) => (
+          {selectedMembers.slice(0, moreChips.limit).map((member) => (
             <span
               key={member.id}
               className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
@@ -277,6 +284,20 @@ export function AttendeeSection({
             </span>
           ))}
         </div>
+      )}
+
+      {/* 접힌 칩 펼치기·접기 — 칩 줄 안의 글자 단추 */}
+      {moreChips.overflow > 0 && (
+        // 칩 줄의 「＋」 칩처럼 터치에서 위아래로 넓혀 44px 넘게 눌린다
+        <button
+          type="button"
+          className={cn('rounded-full px-1.5 py-0.5 text-xs text-primary hover:underline', HIT_AREA_CHIP_COARSE)}
+          onClick={moreChips.toggle}
+          aria-expanded={moreChips.expanded}
+          data-testid="attendee-chips-toggle"
+        >
+          {moreChips.label}
+        </button>
       )}
 
       {/* 참석자 추가 — 사람·조직도 부서·내 그룹 고르기 창 */}

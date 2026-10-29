@@ -290,3 +290,39 @@ for (const viewport of [
     await expect(page.getByTestId('attendee-section')).toContainText('사람0')
   })
 }
+
+// 조직으로 수백 명을 넣으면 칩이 모두 펼쳐져 일정 창이 수천 px 길어지고, 칩 뒤 「＋ 참석자」에 붙은 고르기 창이 화면 밖으로
+// 밀려났다(WP-1189) — 칩을 앞 10개만 그리고 「외 N명 더 보기」로 접는다. 실제 레이아웃(높이·창 위치)으로 본다.
+for (const viewport of [
+  { name: '1440×900', width: 1440, height: 900 },
+  { name: '모바일', width: 390, height: 844 },
+]) {
+  test(`조직으로 498명을 넣어도 ${viewport.name} 에서 참석자 줄이 짧고 고르기 창이 화면 안에 있다(WP-1189)`, { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await stubCalendar(page, [], makeDetailEvent())
+    await mockApi(page, 'GET', '/api/v1/members', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 1 })
+    await mockApi(page, 'GET', '/api/v1/user-groups', tree({ shared: [sharedNode({ name: '중간부서' })], personal: [] }))
+    const hits: UserGroupMemberHit[] = Array.from({ length: 498 }, (_, i) => ({
+      targetType: 'MEMBER', targetId: 100 + i, name: `사람${String(i).padStart(3, '0')}`, email: null, title: null,
+      organization: null, groupId: 10, groupPath: [],
+    }))
+    await mockApi(page, 'GET', '/api/v1/user-groups/10/members/search', hits)
+
+    await page.goto('/calendar?new=true')
+    await page.getByTestId('attendee-add-btn').click()
+    await page.getByTestId('attendee-picker-department-10').click()
+    await page.getByTestId('attendee-group-add').click()
+    await expect(page.getByTestId('attendee-chips-toggle')).toHaveText('외 488명 더 보기')
+
+    // 고르기 창은 열린 채 화면 안에 있다 — 이어 치는 글자가 보이지 않는 검색칸으로 들어가지 않는다.
+    const pop = await boxOf(page.getByTestId('attendee-picker-search'))
+    expect(pop.y).toBeGreaterThanOrEqual(0)
+    expect(pop.y + pop.height).toBeLessThanOrEqual(viewport.height)
+    // 참석자 줄 높이가 인원에 비례해 늘지 않는다(접기 전: 데스크톱 약 3,250px·휴대폰 약 7,500px).
+    const section = await boxOf(page.getByTestId('attendee-section'))
+    expect(section.height).toBeLessThan(300)
+  })
+}
