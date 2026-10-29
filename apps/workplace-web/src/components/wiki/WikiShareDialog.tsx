@@ -633,7 +633,7 @@ export function WikiShareDialog({
                                 <X aria-hidden="true" />
                               </Button>
                             </div>
-                            {membersOpen && <GroupMembers groupId={g.groupId} testId={`wiki-share-group-members-${g.groupId}`} className="mt-1 mb-0 ml-8" />}
+                            {membersOpen && <GroupMembers groupId={g.groupId} testId={`wiki-share-group-members-${g.groupId}`} inset="share-row" />}
                           </li>
                         )
                       })}
