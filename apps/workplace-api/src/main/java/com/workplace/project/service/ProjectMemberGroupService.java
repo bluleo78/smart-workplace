@@ -14,6 +14,7 @@ import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.repository.ProjectMemberGroupRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import java.util.LinkedHashMap;
@@ -138,6 +139,35 @@ public class ProjectMemberGroupService {
             e.tenantId(),
             e.groupIds(),
             memberRepository.findDepartmentUserIdsByProjects(projectIds)));
+  }
+
+  /**
+   * 조직도 부서의 구성원이 늘었다(WP-1102 이벤트, WP-1166) — 그 부서(상위 부서도 담겨 온다)를 멤버로 둔 프로젝트마다 부서 행 변경 알림을 낸다. 들어오는
+   * 사람만 늘어 정리할 사람은 없다({@link #add} 와 같다) — 멤버 창의 부서 인원·사이드바·후보 목록이 다시 받게만 알린다. 수신자는 커밋 직전에 실효 멤버로
+   * 다시 조회되므로 새로 들어온 사람의 화면에도 프로젝트가 나타난다. 알림은 이 동기 리스너에서 낸다 — 커밋 직전 리스너 안에서 낸 변경 알림은 발송기에 닿지 않는다.
+   */
+  @EventListener
+  public void onDepartmentMembersGrown(DepartmentMembersGrown e) {
+    TenantContext.runAs(
+        e.tenantId(),
+        () -> {
+          Map<Long, List<Long>> groupsByProject = groups.findGroupIdsByProjectAmong(e.groupIds());
+          if (groupsByProject.isEmpty()) {
+            return;
+          }
+          // 프로젝트마다 자기 멤버 부서 id 만 싣는다 — 이벤트의 상위 부서는 그 프로젝트에 없을 수 있다.
+          projectRepository
+              .findActiveByIdsInOrder(List.copyOf(groupsByProject.keySet()))
+              .forEach(
+                  p ->
+                      changeNotifier.changed(
+                          ProjectChangeNotifier.RESOURCE_PROJECT_MEMBER_GROUP,
+                          OP_UPDATED,
+                          p,
+                          groupsByProject.get(p.id()),
+                          null,
+                          List.of()));
+        });
   }
 
   /**

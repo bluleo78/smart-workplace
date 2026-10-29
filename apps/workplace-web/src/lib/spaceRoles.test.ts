@@ -71,12 +71,11 @@ describe('isLockedMemberRow (WP-656)', () => {
 })
 
 describe('departmentRoleNote', () => {
-  it('부서 역할이 직접 역할보다 높을 때만 「조직으로 …」', () => {
-    expect(departmentRoleNote({ role: 'VIEWER', departmentRole: 'EDITOR' })).toBe('조직으로 편집자')
-    expect(departmentRoleNote({ role: 'EDITOR', departmentRole: 'EDITOR' })).toBeNull()
-    expect(departmentRoleNote({ role: 'OWNER', departmentRole: 'EDITOR' })).toBeNull()
-    expect(departmentRoleNote({ role: 'EDITOR', departmentRole: 'VIEWER' })).toBeNull()
-    expect(departmentRoleNote({ role: 'VIEWER', departmentRole: null })).toBeNull()
-    expect(departmentRoleNote({ role: 'VIEWER' })).toBeNull()
+  // 서버가 부서 역할이 직접 역할보다 높을 때만 싣는다(WP-1166) — 화면은 값이 있을 때만 안내한다.
+  it('부서 역할이 실려 오면 「조직으로 …」, 없으면 null', () => {
+    expect(departmentRoleNote({ departmentRole: 'EDITOR' })).toBe('조직으로 편집자')
+    expect(departmentRoleNote({ departmentRole: 'VIEWER' })).toBe('조직으로 보기 전용')
+    expect(departmentRoleNote({ departmentRole: null })).toBeNull()
+    expect(departmentRoleNote({})).toBeNull()
   })
 })

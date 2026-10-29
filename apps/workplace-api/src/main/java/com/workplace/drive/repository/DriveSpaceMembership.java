@@ -6,9 +6,11 @@ import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER_GROUP;
 import com.workplace.global.org.Departments;
 import com.workplace.jooq.tables.DriveSpaceMember;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup;
+import java.util.Collection;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.Record1;
+import org.jooq.Record2;
 import org.jooq.Select;
 import org.jooq.impl.DSL;
 
@@ -44,14 +46,14 @@ public final class DriveSpaceMembership {
             .from(m)
             .where(m.SPACE_ID.eq(spaceId))
             .and(m.USER_ID.eq(userId))
-            // 부서 쪽은 멤버 창 안내와 같은 규칙(departmentRole) 하나로 — 둘이 어긋나지 않게(WP-1102). 부서 역할이 없으면(NULL) 행을
-            // 내지 않는다 — NULL 행이 직접 VIEWER 와 같은 높이로 정렬돼 실효 역할이 NULL 로 나오지 않게.
-            .unionAll(
-                DSL.select(departmentRole(spaceId, userId).as("role"))
-                    .where(departmentRole(spaceId, userId).isNotNull()))
+            // 부서 쪽은 멤버 창 안내와 같은 규칙(departmentRole) 하나로 — 둘이 어긋나지 않게(WP-1102).
+            .unionAll(DSL.select(departmentRole(spaceId, userId).as("role")))
             .asTable("dsm_er");
     Field<String> role = roles.field("role", String.class);
-    return DSL.field(DSL.select(role).from(roles).orderBy(rank(role).desc()).limit(1));
+    // 부서 역할이 없으면(NULL) 바깥에서 거른다 — NULL 행이 직접 VIEWER 와 같은 높이로 정렬돼 실효 역할이 NULL 로 나오지 않게. 안쪽 조건에 다시 쓰면
+    // 부서 쪽 재귀 질의가 두 번 돌아 여기서 한 번만 거른다(WP-1166).
+    return DSL.field(
+        DSL.select(role).from(roles).where(role.isNotNull()).orderBy(rank(role).desc()).limit(1));
   }
 
   /**
@@ -67,6 +69,28 @@ public final class DriveSpaceMembership {
             .and(g.GROUP_ID.in(Departments.withAncestorsOf(userId)))
             .orderBy(rank(g.ROLE).desc())
             .limit(1));
+  }
+
+  /**
+   * 사람들(userIds)이 스페이스(spaceId)에서 멤버 부서로 받는 역할 행 — (사람, 역할)을 부서 행마다 낸다(WP-1166). 멤버 목록처럼 여러 사람의 부서
+   * 역할이 필요할 때 사람마다 {@link #departmentRole}(사람마다 재귀 질의)을 부르지 않고, 스페이스의 멤버 부서 트리를 한 번 펼쳐 구한다. 같은 규칙이다
+   * — 멤버 부서와 그 하위 부서의 활성 사람 구성원({@link Departments#subtreeMembers}). 가장 높은 것을 고르는 것은 쓰는 쪽({@link
+   * #higher})이 한다.
+   */
+  public static Select<Record2<Long, String>> departmentRoles(
+      Field<Long> spaceId, Collection<Long> userIds) {
+    DriveSpaceMemberGroup roots = DRIVE_SPACE_MEMBER_GROUP.as("dsm_drs_r");
+    Departments.SubtreeMembers sm =
+        Departments.subtreeMembers(
+            "dsm_drs",
+            DSL.select(roots.GROUP_ID).from(roots).where(roots.SPACE_ID.eq(spaceId)),
+            userIds);
+    DriveSpaceMemberGroup g = DRIVE_SPACE_MEMBER_GROUP.as("dsm_drs_g");
+    return DSL.select(sm.userId(), g.ROLE)
+        .from(sm.table())
+        .join(g)
+        .on(g.GROUP_ID.eq(sm.rootId()))
+        .and(g.SPACE_ID.eq(spaceId));
   }
 
   /**

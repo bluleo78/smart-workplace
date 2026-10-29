@@ -4,9 +4,11 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.share.SpaceRoles;
 import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.wiki.dto.WikiMemberResponse;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -149,23 +151,33 @@ public class WikiSpaceMemberRepository {
             .except(WikiSpaceMembership.memberUserIds(DSL.val(targetSpaceId))));
   }
 
-  /** 직접 멤버 목록(이름순) — 사람마다 멤버 부서로 받는 역할도 함께 싣는다(WP-1102, 없으면 null). */
+  /**
+   * 직접 멤버 목록(이름순) — 부서로 받는 역할이 직접 역할보다 높은 사람은 그 역할도 싣는다(WP-1102, 아니면 null). 부서 역할은 멤버 부서 트리를 한 번 펼친
+   * 질의 하나로 모두 구한다(WP-1166 — 예전에는 멤버 행마다 재귀 질의가 돌았다). 높은지는 서버가 판정해 화면이 역할 서열을 따로 갖지 않게 한다.
+   */
   public List<WikiMemberResponse> listMembers(long spaceId) {
-    var departmentRole =
-        WikiSpaceMembership.departmentRole(DSL.val(spaceId), WIKI_SPACE_MEMBER.USER_ID)
-            .as("department_role");
-    return dsl.select(WIKI_SPACE_MEMBER.USER_ID, USER.NAME, WIKI_SPACE_MEMBER.ROLE, departmentRole)
-        .from(WIKI_SPACE_MEMBER)
-        .join(USER)
-        .on(USER.ID.eq(WIKI_SPACE_MEMBER.USER_ID))
-        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
-        .orderBy(USER.NAME.asc())
-        .fetch(
-            r ->
-                new WikiMemberResponse(
-                    r.get(WIKI_SPACE_MEMBER.USER_ID),
-                    r.get(USER.NAME),
+    var rows =
+        dsl.select(WIKI_SPACE_MEMBER.USER_ID, USER.NAME, WIKI_SPACE_MEMBER.ROLE)
+            .from(WIKI_SPACE_MEMBER)
+            .join(USER)
+            .on(USER.ID.eq(WIKI_SPACE_MEMBER.USER_ID))
+            .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+            .orderBy(USER.NAME.asc())
+            .fetch();
+    if (rows.isEmpty()) return List.of();
+    Map<Long, String> deptRole = new HashMap<>();
+    dsl.fetch(
+            WikiSpaceMembership.departmentRoles(
+                DSL.val(spaceId), rows.getValues(WIKI_SPACE_MEMBER.USER_ID)))
+        .forEach(r -> deptRole.merge(r.value1(), r.value2(), SpaceRoles::higher));
+    return rows.map(
+        r ->
+            new WikiMemberResponse(
+                r.get(WIKI_SPACE_MEMBER.USER_ID),
+                r.get(USER.NAME),
+                r.get(WIKI_SPACE_MEMBER.ROLE),
+                SpaceRoles.departmentRoleAbove(
                     r.get(WIKI_SPACE_MEMBER.ROLE),
-                    r.get(departmentRole)));
+                    deptRole.get(r.get(WIKI_SPACE_MEMBER.USER_ID)))));
   }
 }

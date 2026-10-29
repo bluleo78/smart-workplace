@@ -26,6 +26,7 @@ import com.workplace.user.service.UserGroupService;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceChangedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceGrownEvent;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSpaceMemberGroupService;
@@ -56,7 +57,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>실효 역할 = 직접 멤버 역할과 부서 역할 중 가장 높은 것 — 스페이스 단건·목록·홈 공용 메모리가 같은 값을 보인다.
  *   <li>부서 행은 EDITOR·VIEWER 만, 조직도 부서(SHARED)만(개인·없는 그룹 400). 부서를 지우면 행도 사라진다(CASCADE).
  *   <li>검색은 직접·부서 양쪽에 걸려도 페이지를 한 번만 낸다.
- *   <li>부서로 들어오는 사람이 바뀌면 스페이스 단위 신호(WikiSpaceAudienceChangedEvent) — 편집을 잃은 사람이 만든 공유는 해제된다.
+ *   <li>부서로 들어오는 사람이 줄면 스페이스 단위 신호(WikiSpaceAudienceChangedEvent) — 편집을 잃은 사람이 만든 공유는 해제된다. 늘기만 하면
+ *       WikiSpaceAudienceGrownEvent — 편집기 재판정만 하고 공유 정리는 돌지 않는다(WP-1166).
  * </ul>
  *
  * <p>@Transactional: MockMvc 요청이 테스트 트랜잭션에 합류해 시드를 보고 끝나면 롤백된다({@link WikiShareGroupTest} 와 같은 방식).
@@ -158,6 +160,28 @@ class WikiSpaceMemberGroupTest extends IntegrationTestBase {
     assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
     // 백엔드는 자기 부서(VIEWER)와 상위 부서(EDITOR) 중 높은 쪽.
     assertThat(byUser.get(backendMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
+  }
+
+  /**
+   * 부서 역할은 직접 역할보다 <b>높을 때만</b> 싣는다(WP-1166) — 화면이 역할 서열을 따로 갖지 않고 값이 있을 때만 「조직으로 편집자」를 보이게. 직접
+   * EDITOR 에 부서도 EDITOR 면 null, 직접 VIEWER 에 부서 EDITOR 면 EDITOR. 여러 사람의 부서 역할을 한 번에 구해도 사람마다 맞다.
+   */
+  @Test
+  void member_list_carries_department_role_only_when_higher_than_direct() throws Exception {
+    spaceService.addMember(ownerId, spaceId, devMemberId, "VIEWER");
+    spaceService.addMember(ownerId, spaceId, backendMemberId, "EDITOR");
+    addGroup(devId, "EDITOR").andExpect(status().isCreated());
+
+    JsonNode list =
+        json(
+            call(get("/api/v1/wiki/spaces/{id}/members", spaceId), ownerId)
+                .andExpect(status().isOk()));
+    Map<Long, JsonNode> byUser = new HashMap<>();
+    list.forEach(n -> byUser.put(n.get("userId").asLong(), n));
+    assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(backendMemberId).get("role").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(backendMemberId).get("departmentRole").isNull()).isTrue();
     assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
   }
 
@@ -335,10 +359,12 @@ class WikiSpaceMemberGroupTest extends IntegrationTestBase {
 
   /**
    * 부서 구성원 증가(WP-1102) — 하위 부서에 사람을 넣으면 그 부서를 멤버로 둔 스페이스에 행위자 없는 변경 알림이 나가고, 새로 들어온 사람이 멤버 명단(커밋 직전
-   * 수신자 조회)에 들어 있다. 늘기만 했으니 공유 정리·연결 재검증 신호는 내지 않는다.
+   * 수신자 조회)에 들어 있다. 역할이 오를 수 있어 연결 재검증 신호(증가 전용)는 내지만, 늘기만 했으니 공유 정리를 돌리는 감소·변경 신호는 내지
+   * 않는다(WP-1166).
    */
   @Test
-  void department_member_growth_notifies_space_without_audience_revalidation() throws Exception {
+  void department_member_growth_notifies_space_and_revalidates_without_share_cleanup()
+      throws Exception {
     TestFixtures.grantRole(dsl, ownerId, "ADMIN"); // 조직도 쓰기 권한
     addGroup(devId, "EDITOR").andExpect(status().isCreated());
     long newcomerId = human();
@@ -355,9 +381,10 @@ class WikiSpaceMemberGroupTest extends IntegrationTestBase {
               assertThat(e.scopeId()).isEqualTo(spaceId);
               assertThat(e.actorId()).isNull();
             });
-    assertThat(appEvents.stream(WikiSpaceAudienceChangedEvent.class))
+    assertThat(appEvents.stream(WikiSpaceAudienceGrownEvent.class))
         .singleElement()
         .satisfies(e -> assertThat(e.spaceIds()).containsExactly(spaceId));
+    assertThat(appEvents.stream(WikiSpaceAudienceChangedEvent.class)).isEmpty();
     assertThat(spaceMembers.memberUserIds(spaceId)).contains(newcomerId);
   }
 

@@ -42,7 +42,7 @@ export interface DriveMember {
   userId: number
   name: string
   role: DriveRole
-  // 멤버 부서로 받는 역할(WP-1102) — 없으면 null. 실효 역할은 role 과 이 값 중 높은 쪽.
+  // 멤버 부서로 받는 역할(WP-1102) — 직접 역할보다 높을 때만 서버가 싣는다(WP-1166), 아니면 null.
   departmentRole?: Exclude<DriveRole, 'OWNER'> | null
 }
 
