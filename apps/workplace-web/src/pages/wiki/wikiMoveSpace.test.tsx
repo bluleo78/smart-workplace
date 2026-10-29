@@ -90,12 +90,16 @@ test('옮겨진 노트의 예전 스페이스 주소를 열면 노트의 실제 
 
 test('보던 노트를 다른 스페이스로 옮기면 낡은 상세 캐시 때문에 옛 스페이스 주소로 되돌아가지 않는다', async () => {
   const moves: unknown[] = []
+  // 늦은 재조회 응답이 도착했는지 — 테스트가 이 응답을 기다리지 않고 끝나면 jsdom 이 내려간 뒤 msw 가 XHR 에 응답을 보내다
+  // 「ProgressEvent is not defined」로 터져, 테스트가 모두 통과해도 vitest 전체가 실패했다(WP-1164).
+  let lateDetailServed = false
   // 옮긴 뒤의 상세 재조회는 늦게 온다 — 그동안 화면은 캐시만 본다(캐시가 옛 spaceId 면 옛 주소로 튄다).
   // 앞에 둔 핸들러가 먼저 맞는다 — 기본 상세 핸들러(늘 스페이스 1)보다 앞에 둔다.
   const handlers = [
     http.get('/api/v1/wiki/pages/10', async () => {
       if (moves.length === 0) return HttpResponse.json(wikiPageDetail({ id: 10, spaceId: 1, title: '옮길 문서' }))
       await delay(800)
+      lateDetailServed = true
       return HttpResponse.json(wikiPageDetail({ id: 10, spaceId: 2, title: '옮길 문서' }))
     }),
     ...baseHandlers(moves),
@@ -116,4 +120,8 @@ test('보던 노트를 다른 스페이스로 옮기면 낡은 상세 캐시 때
     await new Promise((r) => setTimeout(r, 100))
     expect(view.location()).toBe('/wiki/spaces/2/pages/10')
   }
+  // 늦은 재조회까지 받아 화면이 새 상세로 다시 그려진 뒤에 끝낸다 — 남은 요청 없이 끝나야 다음 파일이 같은 워커에서 깨지지 않는다(WP-1164).
+  await waitFor(() => expect(lateDetailServed).toBe(true))
+  await new Promise((r) => setTimeout(r, 0))
+  expect(view.location()).toBe('/wiki/spaces/2/pages/10')
 })
