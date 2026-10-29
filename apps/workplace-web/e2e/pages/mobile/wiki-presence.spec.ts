@@ -228,6 +228,64 @@ test.describe('모바일 화면 회전 읽던 줄 고정', { tag: '@layout' }, (
     await nextFrame(a)
     expect(Math.abs((await lineTop()) - y0)).toBeLessThanOrEqual(2)
   })
+
+  // 무엇을: 폭은 그대로인데 칼럼만 짧아져 scrollTop 이 잘릴 때, 잘림의 scroll 이벤트가 크기 콜백보다 먼저 와도 읽던 줄이 제자리인지(WP-1145).
+  // 왜: WP-1088 의 가드는 폭만 봐서, 높이만 줄어든 잘림의 scroll 이벤트는 여전히 기준점을 다시 잡아 잘린 몫을 삼켰다.
+  //   맨 아래까지 내려 읽는 중에 위쪽 문단만 줄인다(아래 내용은 그대로라 되돌릴 자리가 남는다). 에디터 DOM 은 건드리지 않고
+  //   스타일만 넣는다 — ProseMirror 가 되돌리지 않게. 위 테스트처럼 한 태스크에서 강제 레이아웃 뒤 scroll 이벤트를 바로 보낸다.
+  test('폭은 그대로이고 칼럼만 짧아져 잘린 scroll 이벤트가 크기 콜백보다 먼저 와도 읽던 줄이 제자리에 있다', async ({ authenticatedPage: a }) => {
+    const { scroller } = await readMiddleOfLongParagraph(a)
+    // 맨 아래로 내리고 scroll 이벤트가 앱에 닿을 때까지 기다린다.
+    await scroller.evaluate(
+      (sc) =>
+        new Promise<void>((resolve) => {
+          sc.addEventListener('scroll', () => requestAnimationFrame(() => resolve()), { once: true })
+          sc.scrollTop = sc.scrollHeight
+        }),
+    )
+    /** 화면 맨 위에 걸친 문단(읽던 줄)의 화면 top. */
+    const readingTop = () =>
+      scroller.evaluate((sc) => {
+        const p = [...document.querySelectorAll('.ProseMirror > p')].find((e) => e.textContent!.startsWith('뒤 문단 '))!
+        const top = sc.getBoundingClientRect().top
+        const at = [...document.querySelectorAll('.ProseMirror > p')].find((e) => e.getBoundingClientRect().bottom > top + 4) ?? p
+        return { text: at.textContent, top: at.getBoundingClientRect().top }
+      })
+    const before = await readingTop()
+
+    const result = await scroller.evaluate((sc) => {
+      const prev = { top: sc.scrollTop, width: sc.clientWidth }
+      const style = document.createElement('style')
+      style.textContent = '.ProseMirror > p:nth-child(-n+10) { display: none !important; }' // 위쪽 짧은 문단 10개를 접는다.
+      document.head.append(style)
+      void sc.scrollHeight // 강제 레이아웃 — 문서가 짧아져 맨 아래의 scrollTop 이 이 자리에서 잘린다.
+      sc.dispatchEvent(new Event('scroll')) // 잘림의 scroll 이벤트가 크기 콜백보다 먼저 닿은 상황.
+      return { clamped: sc.scrollTop < prev.top, sameWidth: sc.clientWidth === prev.width }
+    })
+    // 잘림이 실제로 일어나고 폭은 그대로여야(높이만 줄어든 경우) 이 순서를 시험한다.
+    expect(result).toEqual({ clamped: true, sameWidth: true })
+    await nextFrame(a)
+    const after = await readingTop()
+    expect(after.text).toBe(before.text)
+    expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(2)
+  })
+
+  // 무엇을: 폭이 바뀐 뒤 크기 콜백보다 blur 가 먼저 와도 읽던 줄이 제자리인지(WP-1145).
+  // 왜: blur 는 기준점을 다시 잡는데(캐럿 기준을 버리려고), 크기 콜백 전이면 WP-1088 과 같이 잘린 몫을 삼켰다.
+  test('폭이 바뀐 뒤 크기 콜백보다 blur 가 먼저 와도 읽던 줄이 제자리에 있다', async ({ authenticatedPage: a }) => {
+    const { scroller, lineTop, y0 } = await readMiddleOfLongParagraph(a)
+
+    const clamped = await scroller.evaluate((sc) => {
+      const before = sc.scrollTop
+      sc.style.width = '700px'
+      void sc.scrollHeight // 강제 레이아웃 — 문서가 짧아져 scrollTop 이 이 자리에서 잘린다.
+      sc.querySelector('.ProseMirror')!.dispatchEvent(new Event('blur')) // 크기 콜백보다 먼저 닿은 blur.
+      return sc.scrollTop < before
+    })
+    expect(clamped).toBe(true)
+    await nextFrame(a)
+    expect(Math.abs((await lineTop()) - y0)).toBeLessThanOrEqual(2)
+  })
 })
 
 test.describe('모바일 복귀', { tag: '@platform' }, () => {
