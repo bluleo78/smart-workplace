@@ -347,6 +347,33 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
     assertThat(history(wp1, "EXTERNAL_LINK_REMOVED")).hasSize(1);
   }
 
+  /**
+   * WP-1107: 제목이 보이지 않는 글자(제로폭 공백·한글 채움 등)뿐이면 공백만일 때처럼 「제목을 입력해 주세요」로 막는다 — 추가·수정 모두. 관계 카드에 ↗ 아이콘만
+   * 남아 무슨 링크인지 알 수 없었다. 보이는 글자가 있으면 앞뒤 보이지 않는 글자만 다듬어 저장한다.
+   */
+  @Test
+  void rejectsInvisibleOnlyTitle() throws Exception {
+    for (String invisible : new String[] {"\u200B\u200B", "\u3164", "\u2800 \uFEFF"}) {
+      add(alice, wp, wp1, "RELATES", null, "https://docs.example.com/spec/page", null, invisible)
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors.title").value("제목을 입력해 주세요"));
+    }
+    assertThat(linkCount(wp1)).isZero();
+
+    long id =
+        json(add(alice, wp, wp1, "RELATES", null, JIRA, "CL-1867", "\u200B처음 제목\u200B")
+                .andExpect(status().isOk()))
+            .get(0)
+            .get("id")
+            .asLong();
+    assertThat(detail(alice, wp, wp1).toString()).doesNotContain("\u200B");
+    update(alice, wp, wp1, id, "RELATES", null, JIRA, "CL-1867", "\u200B")
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.title").value("제목을 입력해 주세요"));
+    assertThat(detail(alice, wp, wp1).get("externalLinks").get(0).get("title").asText())
+        .isEqualTo("처음 제목");
+  }
+
   /** 다른 이슈 주소로는 남의 링크를 고치지도(404) 지우지도(204 이지만 그대로) 못 한다. */
   @Test
   void linkOfAnotherIssueUntouched() throws Exception {

@@ -34,6 +34,7 @@ import {
   relationOptions,
 } from '@/lib/issueRelations';
 import { cn } from '@/lib/utils';
+import { hasVisibleText } from '@/lib/visibleText';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useAddIssueDependency } from '../../../hooks/queries/useIssueDependencies';
@@ -165,6 +166,7 @@ function RelationDialogBody({
 
   // 외부 링크 입력 검사 — 누르기 전엔 숨기고, 한 번 누른 뒤부터 보인다.
   const trimmedUrl = url.trim();
+  const trimmedTitle = title.trim();
   const urlError = editing
     ? undefined
     : !trimmedUrl
@@ -173,9 +175,10 @@ function RelationDialogBody({
         ? 'http:// 또는 https:// 로 시작하는 주소를 입력해 주세요'
         : undefined;
   const keyError = extKey.trim().length > MAX_KEY ? `키는 ${MAX_KEY}자 이하로 입력해 주세요` : undefined;
-  const titleError = !title.trim()
+  // 제로폭 공백·한글 채움처럼 보이지 않는 글자만 있어도 비어 있는 것으로 본다 — 관계 카드에 ↗ 만 남지 않게(WP-1107).
+  const titleError = !hasVisibleText(title)
     ? '제목을 입력해 주세요'
-    : title.trim().length > MAX_TITLE
+    : trimmedTitle.length > MAX_TITLE
       ? `제목은 ${MAX_TITLE}자 이하로 입력해 주세요`
       : undefined;
 
@@ -211,10 +214,10 @@ function RelationDialogBody({
           // 처음 선택지가 서버가 준 쪽이라 지금 고른 쪽을 그대로 보내도 저장된 방향이 뒤집히지 않는다.
           await updateExternal.mutateAsync({
             linkId: editing.id,
-            body: { typeId: option.typeId, side: option.side, key, title: title.trim() },
+            body: { typeId: option.typeId, side: option.side, key, title: trimmedTitle },
           });
         } else {
-          await addExternal.mutateAsync({ typeId: option.typeId, side: option.side, url: trimmedUrl, key, title: title.trim() });
+          await addExternal.mutateAsync({ typeId: option.typeId, side: option.side, url: trimmedUrl, key, title: trimmedTitle });
         }
       }
       onDone();
