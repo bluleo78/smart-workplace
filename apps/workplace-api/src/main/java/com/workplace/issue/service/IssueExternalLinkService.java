@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.IssueExternalLinkView;
 import com.workplace.issue.dto.IssueHistoryEventType;
 import com.workplace.issue.dto.IssueRelationTypeRow;
@@ -101,7 +102,7 @@ public class IssueExternalLinkService {
     IssueRelationTypeRow type = requireUsableType(req.typeId());
     boolean isSource = issueIsSource(type, IssueRelationService.parseSide(req.side()));
 
-    String key = normalizeKey(req.key());
+    String key = req.key();
     String title = req.title();
 
     if (!insertOrSkip(issue.id(), type, isSource, url, key, title, callerId)) {
@@ -143,13 +144,21 @@ public class IssueExternalLinkService {
             ? old.issueIsSource()
             : IssueRelationService.parseSide(req.side());
     boolean isSource = issueIsSource(type, requestedSource);
-    String key = normalizeKey(req.key());
+    String key = req.key();
     String title = req.title();
 
+    // 저장된 값도 같은 기준으로 다듬어 본다(WP-1171) — 다듬기 전에 저장된 옛 행(앞뒤 제로폭·줄바꿈)이 손대지 않은 저장에 「변경」 이력·알림을 남기거나,
+    // 유형만 바꿨는데 이력에 제목·키까지 바뀐 것처럼 남지 않게.
+    String oldKey = SingleLineTitles.normalizeOptional(old.key());
+    String oldTitle = SingleLineTitles.normalize(old.title());
     if (type.id() == old.typeId()
         && isSource == old.issueIsSource()
-        && Objects.equals(key, old.key())
-        && title.equals(old.title())) {
+        && Objects.equals(key, oldKey)
+        && title.equals(oldTitle)) {
+      // 보이는 값은 같지만 저장된 값이 다듬어지지 않았으면 이력·알림 없이 다듬은 값으로 고쳐 둔다.
+      if (!Objects.equals(key, old.key()) || !title.equals(old.title())) {
+        linkRepository.update(linkId, type.id(), isSource, key, title);
+      }
       return listFor(issue.id());
     }
     linkRepository.update(linkId, type.id(), isSource, key, title);
@@ -158,7 +167,7 @@ public class IssueExternalLinkService {
         callerId,
         issue.id(),
         new ExternalLinkSnapshot(
-            oldType.labelFor(old.issueIsSource()), old.key(), old.title(), old.url()),
+            oldType.labelFor(old.issueIsSource()), oldKey, oldTitle, old.url()),
         new ExternalLinkSnapshot(type.labelFor(isSource), key, title, old.url()));
     changeNotifier.updatedWithoutTouch(project, issue.number(), issue.id(), callerId);
     return listFor(issue.id());
@@ -201,7 +210,7 @@ public class IssueExternalLinkService {
           type,
           issueIsSource(type, l.issueIsSource()),
           normalizeUrl(l.url()),
-          normalizeKey(l.key()),
+          l.key(),
           l.title(),
           callerId);
     }
@@ -235,14 +244,6 @@ public class IssueExternalLinkService {
       throw IssueRelationException.externalLinkUrlInvalid();
     }
     return url;
-  }
-
-  /** 키 — 앞뒤 공백을 떼고, 비면 null(선택 값). */
-  private static String normalizeKey(String key) {
-    if (key == null || key.isBlank()) {
-      return null;
-    }
-    return key.trim();
   }
 
   /**

@@ -157,9 +157,13 @@ public record ImportIssueRequest(
       @Size(max = 50, message = "외부 링크 키는 50자 이하여야 합니다.") String key,
       @NotBlank(message = "외부 링크 제목은 필수입니다.") @Size(max = 300, message = "외부 링크 제목은 300자 이하여야 합니다.")
           String title) {
-    /** 화면에서 넣는 외부 링크와 같이 제목을 한 줄로 다듬는다 — 보이지 않는 글자뿐이면 빈 제목이 되어 필수 검증이 막는다(WP-1107). */
+    /**
+     * 화면에서 넣는 외부 링크와 같이 제목·키를 한 줄로 다듬는다 — 보이지 않는 글자뿐인 제목은 빈 제목이 되어 필수 검증이 막고(WP-1107), 키는 없는 키가
+     * 된다(WP-1171).
+     */
     public ExternalLink {
       title = SingleLineTitles.normalize(title);
+      key = SingleLineTitles.normalizeOptional(key);
     }
   }
 

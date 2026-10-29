@@ -2,6 +2,10 @@ package com.workplace.global.util;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /** SingleLineTitles.normalize — 한 줄로 다듬기·앞뒤 보이지 않는 문자 제거, 그려지는 글자가 없으면 빈 문자열(WP-724). */
@@ -46,5 +50,31 @@ class SingleLineTitlesTest {
     assertThat(SingleLineTitles.orUntitled("")).isEqualTo("제목 없음");
     assertThat(SingleLineTitles.orUntitled("   ")).isEqualTo("제목 없음");
     assertThat(SingleLineTitles.orUntitled(" 로드맵 ")).isEqualTo("로드맵");
+  }
+
+  /**
+   * 화면 visibleText.ts 와 같은 픽스처({@code apps/workplace-web/src/lib/visible-text-cases.json})로 보이는 글자
+   * 판정·한 줄 다듬기를 함께 검사한다 — 화면 정규식이 서버를 손으로 옮긴 것이라 한쪽만 바뀌면 둘 중 하나가 깨진다(WP-1171).
+   */
+  @Test
+  void matchesSharedFixtureWithWeb() throws Exception {
+    JsonNode cases =
+        new ObjectMapper()
+            .readTree(
+                Files.readString(Path.of("../workplace-web/src/lib/visible-text-cases.json")));
+    cases
+        .get("invisible")
+        .forEach(
+            t -> assertThat(PersonNames.hasVisibleChar(t.asText())).as(t.toString()).isFalse());
+    cases
+        .get("visible")
+        .forEach(t -> assertThat(PersonNames.hasVisibleChar(t.asText())).as(t.toString()).isTrue());
+    cases
+        .get("singleLine")
+        .forEach(
+            c ->
+                assertThat(SingleLineTitles.normalize(c.get("in").asText()))
+                    .as(c.get("in").toString())
+                    .isEqualTo(c.get("out").asText()));
   }
 }

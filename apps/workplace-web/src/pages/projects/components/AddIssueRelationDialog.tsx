@@ -34,7 +34,7 @@ import {
   relationOptions,
 } from '@/lib/issueRelations';
 import { cn } from '@/lib/utils';
-import { hasVisibleText } from '@/lib/visibleText';
+import { normalizeSingleLine } from '@/lib/visibleText';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useAddIssueDependency } from '../../../hooks/queries/useIssueDependencies';
@@ -166,7 +166,9 @@ function RelationDialogBody({
 
   // 외부 링크 입력 검사 — 누르기 전엔 숨기고, 한 번 누른 뒤부터 보인다.
   const trimmedUrl = url.trim();
-  const trimmedTitle = title.trim();
+  // 제목·키는 서버(SingleLineTitles)와 같은 기준으로 다듬어 재고 보낸다 — NFD 한글·앞쪽 제로폭에서 화면만 300자로 거절하지 않게(WP-1171).
+  const trimmedTitle = normalizeSingleLine(title);
+  const trimmedKey = normalizeSingleLine(extKey);
   const urlError = editing
     ? undefined
     : !trimmedUrl
@@ -174,9 +176,9 @@ function RelationDialogBody({
       : trimmedUrl.length > MAX_URL || !HTTP_URL.test(trimmedUrl)
         ? 'http:// 또는 https:// 로 시작하는 주소를 입력해 주세요'
         : undefined;
-  const keyError = extKey.trim().length > MAX_KEY ? `키는 ${MAX_KEY}자 이하로 입력해 주세요` : undefined;
+  const keyError = trimmedKey.length > MAX_KEY ? `키는 ${MAX_KEY}자 이하로 입력해 주세요` : undefined;
   // 제로폭 공백·한글 채움처럼 보이지 않는 글자만 있어도 비어 있는 것으로 본다 — 관계 카드에 ↗ 만 남지 않게(WP-1107).
-  const titleError = !hasVisibleText(title)
+  const titleError = !trimmedTitle
     ? '제목을 입력해 주세요'
     : trimmedTitle.length > MAX_TITLE
       ? `제목은 ${MAX_TITLE}자 이하로 입력해 주세요`
@@ -209,7 +211,8 @@ function RelationDialogBody({
           setShowErrors(true);
           return;
         }
-        const key = extKey.trim() || null;
+        // 보이지 않는 글자뿐인 키는 없는 키로 보낸다 — 빈 키 칩이 생기지 않게(WP-1171).
+        const key = trimmedKey || null;
         if (editing) {
           // 처음 선택지가 서버가 준 쪽이라 지금 고른 쪽을 그대로 보내도 저장된 방향이 뒤집히지 않는다.
           await updateExternal.mutateAsync({

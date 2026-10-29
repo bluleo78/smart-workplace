@@ -24,7 +24,12 @@ public record SaveIssueExternalLinkRequest(
     @Size(max = 2000) String url,
     @Size(max = 50) String key,
     @NotBlank(message = "제목을 입력해 주세요") @Size(max = 300) String title) {
+  /**
+   * 받을 때 제목·키를 한 줄로 다듬는다 — 검증(@NotBlank·@Size)이 다듬은 값을 재도록 생성자에서 한다. 보이지 않는 글자뿐인 제목은 빈 제목이 되어 막히고,
+   * 키는 없는 키(null)가 된다(WP-1171).
+   */
   public SaveIssueExternalLinkRequest {
     title = SingleLineTitles.normalize(title);
+    key = SingleLineTitles.normalizeOptional(key);
   }
 }

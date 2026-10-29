@@ -23,6 +23,25 @@ export function hasVisibleText(text: string): boolean {
  * 입력 칸 검사에서 이 값이 비면 「…을 입력해 주세요」로 막는다 — `trim()` 은 제로폭 공백·점자 빈칸을 남겨 이름 없는 행이 저장됐다.
  */
 export function trimInvisible(value: string): string {
-  const trimmed = value.normalize('NFC').replace(INVISIBLE_EDGES, '')
+  return stripInvisibleEdges(value.normalize('NFC'))
+}
+
+/** NFC 로 맞춘 값에서 앞뒤의 보이지 않는 글자를 지운다 — 그려지는 글자가 없으면 빈 문자열. */
+function stripInvisibleEdges(nfc: string): string {
+  const trimmed = nfc.replace(INVISIBLE_EDGES, '')
   return hasVisibleText(trimmed) ? trimmed : ''
+}
+
+/** 줄을 바꾸는 문자 — 제어 문자(줄바꿈·탭 등 C0·C1)와 줄/문단 구분자. 서버 `SingleLineTitles.LINE_BREAKS` 와 같다. */
+const LINE_BREAKS = /[\p{Cc}\u2028\u2029]+/gu
+/** 양방향 제어 문자 — 뒤 글자의 표시 순서를 뒤집어 제목을 속일 수 있어 지운다. 서버 `SingleLineTitles.BIDI_CONTROLS` 와 같다. */
+const BIDI_CONTROLS = /[\u202A-\u202E\u2066-\u2069]/gu
+
+/**
+ * 한 줄 제목으로 다듬은 값 — 서버 `SingleLineTitles.normalize` 와 같은 순서(NFC → 양방향 제어 지움 → 줄바꿈·탭을 공백 하나로 → 앞뒤 보이지 않는 글자 지움)라
+ * 화면이 재는 글자 수·보내는 값이 서버가 저장할 값과 같다(WP-1171). 그려지는 글자가 없으면 빈 문자열.
+ */
+export function normalizeSingleLine(value: string): string {
+  const oneLine = value.normalize('NFC').replace(BIDI_CONTROLS, '').replace(LINE_BREAKS, ' ')
+  return stripInvisibleEdges(oneLine)
 }
