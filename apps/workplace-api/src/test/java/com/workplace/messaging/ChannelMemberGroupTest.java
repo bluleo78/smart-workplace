@@ -170,10 +170,8 @@ class ChannelMemberGroupTest extends IntegrationTestBase {
     assertThat(isMember(devMemberId)).isTrue();
     call(get("/api/v1/messaging/channels/{id}/messages", channelId), backendMemberId)
         .andExpect(status().isForbidden());
-    // 알림은 요청 흐름에서 미리 낸다 — 빠질 사람(변경 전 멤버)이 추가 수신자.
-    assertThat(channelEvents())
-        .singleElement()
-        .satisfies(ev -> assertThat(ev.extraRecipients()).contains(backendMemberId));
+    // 알림은 요청 흐름에서 미리 내지 않는다 — 맞춘 뒤 바뀐 채널에만 디스패처로 바로 낸다(WP-1186, 수신자는 커밋 테스트가 본다).
+    assertThat(channelEvents()).isEmpty();
     assertThat(lastRoster()).doesNotContain(backendMemberId);
   }
 
@@ -545,6 +543,11 @@ class ChannelMemberGroupTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(om.writeValueAsString(Map.of("groupId", devId))),
             backendMemberId)
+        .andExpect(status().isNotFound());
+    // 빼기도 더하기와 같게 답한다 — 참여자 400, 비참여자 404(WP-1186, 예전에는 참여자에게 403).
+    call(delete("/api/v1/messaging/channels/{id}/member-groups/{g}", dm, devId), devMemberId)
+        .andExpect(status().isBadRequest());
+    call(delete("/api/v1/messaging/channels/{id}/member-groups/{g}", dm, devId), backendMemberId)
         .andExpect(status().isNotFound());
 
     long personal = group("내그룹-" + suffix, "PERSONAL", null, ownerId);

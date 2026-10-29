@@ -8,12 +8,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.global.realtime.ResourceSseDispatcher;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.service.ChannelMemberGroupService;
+import com.workplace.messaging.service.ChannelMemberGroupSync;
+import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
@@ -24,6 +27,10 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +56,8 @@ class ChannelMemberGroupCommitTest extends ExternalClientMockedTestBase {
   @Autowired ChannelMemberGroupService memberGroupService;
   @Autowired ChannelMemberRepository memberRepo;
   @Autowired UserGroupService groupService;
+  @Autowired ChannelMemberService channelMemberService;
+  @Autowired ChannelMemberGroupSync sync;
 
   private final List<Long> users = new ArrayList<>();
   private final List<Long> groups = new ArrayList<>();
@@ -139,7 +148,135 @@ class ChannelMemberGroupCommitTest extends ExternalClientMockedTestBase {
     assertThat(channelRecipients()).contains(newcomer);
   }
 
+  /**
+   * 부서 추가와 내보내기가 겹쳐도 내보낸 사람이 다시 들어오지 않는다(WP-1186) — 부서 추가 트랜잭션이 커밋되기 전에 그 부서 사람을 내보내면, 예전에는 내보내기가
+   * 커밋되지 않은 부서를 보지 못해 개인 제외를 남기지 않았고 다음 맞추기가 그 사람을 다시 넣었다. 이제 내보내기는 채널 잠금을 기다렸다가 부서를 본다.
+   */
+  @Test
+  void kick_during_uncommitted_department_add_keeps_member_out() throws Exception {
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    long[] ids = new long[2];
+    callInTenant(
+        TENANT,
+        () -> {
+          ids[0] = human();
+          ids[1] = group("기획팀-" + suffix, null);
+          member(ids[1], ids[0]);
+          channelMemberService.add(ownerId, channelId, ids[0]); // 직접 멤버로 먼저 있다
+          return null;
+        });
+    long planner = ids[0];
+    long planId = ids[1];
+
+    CountDownLatch added = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CompletableFuture<Void> addTx =
+        CompletableFuture.runAsync(
+            () ->
+                callInTenant(
+                    TENANT,
+                    () -> {
+                      memberGroupService.add(ownerId, channelId, planId);
+                      added.countDown();
+                      await(release); // 부서 추가를 커밋하지 않은 채 쥔다
+                      return null;
+                    }));
+    assertThat(added.await(10, TimeUnit.SECONDS)).isTrue();
+    CompletableFuture<Void> kick =
+        CompletableFuture.runAsync(
+            () ->
+                callInTenant(
+                    TENANT,
+                    () -> {
+                      channelMemberService.remove(ownerId, channelId, planner);
+                      return null;
+                    }));
+    // 잠금이 있으면 내보내기는 부서 추가가 커밋될 때까지 기다린다 — 잠시 두고 놓아준다(없으면 그사이 먼저 끝난다).
+    try {
+      kick.get(1, TimeUnit.SECONDS);
+    } catch (TimeoutException expected) {
+      // 기다리는 중
+    }
+    release.countDown();
+    addTx.get(10, TimeUnit.SECONDS);
+    kick.get(10, TimeUnit.SECONDS);
+
+    callInTenant(TENANT, () -> sync.reconcile(channelId));
+    assertThat(isMember(planner)).isFalse();
+  }
+
+  /** 부서에서 빠졌어도 채널에서 빠진 사람이 없으면(직접 멤버) 채널 멤버십 SSE 를 내지 않는다(WP-1186 — 예전에는 관련 채널 멤버 전원에게 냈다). */
+  @Test
+  void department_shrink_without_channel_change_sends_no_channel_sse() {
+    callInTenant(
+        TENANT,
+        () -> {
+          channelMemberService.add(ownerId, channelId, backendMemberId); // 직접 멤버로 고정
+          return null;
+        });
+    clearInvocations(registry);
+
+    callInTenant(
+        TENANT,
+        () -> {
+          groupService.removeMember(ownerId, backendId, "MEMBER", backendMemberId);
+          return null;
+        });
+
+    assertThat(isMember(backendMemberId)).isTrue();
+    assertThat(channelFanOuts()).isZero();
+  }
+
+  /** 사람 행이 그대로여도 멤버 부서를 지워 부서 행이 사라졌으면 열린 멤버 창이 다시 받게 채널 SSE 를 낸다(WP-1186). */
+  @Test
+  void deleting_department_of_direct_members_still_notifies_group_change() {
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    long[] ids = new long[2];
+    callInTenant(
+        TENANT,
+        () -> {
+          ids[0] = human();
+          ids[1] = group("QA-" + suffix, null);
+          member(ids[1], ids[0]);
+          memberGroupService.add(ownerId, channelId, ids[1]);
+          channelMemberService.add(ownerId, channelId, ids[0]); // 직접 멤버로 고정
+          return null;
+        });
+    clearInvocations(registry);
+
+    callInTenant(
+        TENANT,
+        () -> {
+          groupService.delete(ownerId, ids[1]);
+          return null;
+        });
+
+    assertThat(isMember(ids[0])).isTrue();
+    assertThat(channelFanOuts()).isEqualTo(1);
+  }
+
   // --- 헬퍼 ---
+
+  private static void await(CountDownLatch latch) {
+    try {
+      latch.await(10, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /** 이 채널의 resource.changed(channel) 전송 횟수. */
+  @SuppressWarnings("unchecked")
+  private long channelFanOuts() {
+    return mockingDetails(registry).getInvocations().stream()
+        .filter(inv -> inv.getMethod().getName().equals("fanOut"))
+        .map(inv -> (Map<String, Object>) inv.getArgument(2))
+        .filter(
+            p ->
+                "channel".equals(p.get("resource"))
+                    && ((Collection<?>) p.get("ids")).contains(channelId))
+        .count();
+  }
 
   /** 이 채널의 resource.changed(channel) 전송 대상 전부(여러 번 보냈으면 합친다). */
   @SuppressWarnings("unchecked")
