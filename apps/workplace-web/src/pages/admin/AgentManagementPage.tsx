@@ -395,9 +395,15 @@ export default function AgentManagementPage() {
                         />
                         <p className="text-xs text-muted-foreground">Claude Code 안에서 시작하기</p>
                         <CopyableCommand command={buildWorkLoopStartCommand()} testId="agent-work-loop-start-command" />
-                        <p className="text-xs text-muted-foreground">
-                          이 AI 에게 할당된 이슈를 하나씩 가져와 구현·검증·main 머지까지 하고 검토 대기로 올립니다. push·배포는
-                          하지 않아요.
+                        {/* work-loop 는 PR 흐름이다(WP-963·964) — 이슈 브랜치를 push 해 PR 을 만들고 검토자가 머지한다(WP-1151). */}
+                        <p className="text-xs text-muted-foreground" data-testid="agent-work-loop-flow">
+                          이 AI 에게 할당된 이슈를 하나씩 가져와 구현·검증한 뒤 이슈 브랜치를 push 해 GitHub PR 을 만들고, 검토자가
+                          머지하면 검토 대기로 올립니다. main 직접 push·배포는 하지 않아요.
+                        </p>
+                        <p className="text-xs text-muted-foreground" data-testid="agent-work-loop-github">
+                          PR 을 만들려면 이 AI 가 도는 서버에 <code className="font-mono">gh</code> 설치와 GitHub 토큰(
+                          <code className="font-mono">GH_TOKEN</code>)이 필요해요. 준비가 안 돼 있으면 그 이슈를 「인증 필요」로
+                          멈추고 알려 줍니다.
                         </p>
                         <p className="text-xs text-muted-foreground">
                           권한을 묻지 않는 모드라 이 AI 전용 터미널에서만 쓰세요. Claude Code 가 열려 있는 동안만 돌고 7일 뒤
