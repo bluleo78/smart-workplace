@@ -5,6 +5,7 @@ import com.workplace.user.dto.AddMemberRequest;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UpdateUserGroupRequest;
 import com.workplace.user.dto.UserGroupDetail;
+import com.workplace.user.dto.UserGroupMemberCount;
 import com.workplace.user.dto.UserGroupMemberHit;
 import com.workplace.user.dto.UserGroupTreeResponse;
 import com.workplace.user.service.UserGroupService;
@@ -58,6 +59,16 @@ public class UserGroupController {
       @PathVariable("id") long id,
       @RequestParam(value = "q", required = false) String q) {
     return ResponseEntity.ok(service.searchMembers(callerId, id, q));
+  }
+
+  /**
+   * 그룹마다 하위 조직 포함 구성원 수(WP-1135) — 구성원 찾기와 같은 규칙으로 센 수만 돌려준다. 메일 받는 사람 후보 줄의 「N명」용. ids 는 1~10개
+   * (넘거나 비면 400), 읽을 수 없는 그룹이 하나라도 있으면 그 그룹 조회와 같은 오류다.
+   */
+  @GetMapping("/member-counts")
+  public ResponseEntity<List<UserGroupMemberCount>> countMembers(
+      @AuthenticationPrincipal Long callerId, @RequestParam("ids") List<Long> ids) {
+    return ResponseEntity.ok(service.countMembers(callerId, ids));
   }
 
   /** 그룹 생성. */

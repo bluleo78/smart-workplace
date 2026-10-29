@@ -7,6 +7,7 @@ import com.workplace.user.dto.AddMemberRequest;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UpdateUserGroupRequest;
 import com.workplace.user.dto.UserGroupDetail;
+import com.workplace.user.dto.UserGroupMemberCount;
 import com.workplace.user.dto.UserGroupMemberHit;
 import com.workplace.user.dto.UserGroupNode;
 import com.workplace.user.dto.UserGroupTreeResponse;
@@ -104,6 +105,32 @@ public class UserGroupService {
     }
     return nearest.values().stream()
         .map(r -> UserGroupMemberHit.of(r.groupId(), pathFrom(byId, id, r.groupId()), r.member()))
+        .toList();
+  }
+
+  /** 한 번에 셀 수 있는 그룹 수 — 받는 사람 후보는 4개까지 보이므로 넉넉히 둔다. */
+  public static final int MEMBER_COUNT_LIMIT = 10;
+
+  /**
+   * 그룹마다 하위 조직 포함 구성원 수(WP-1135) — 구성원 찾기(빈 검색어)와 같은 조회·같은 중복 제거를 그대로 써서 「N명」과 고를 때 풀리는 사람 수가 늘 같게
+   * 한다. 구성원 목록 대신 수만 돌려주어, 받는 사람 칸에 글자를 칠 때마다 그룹마다 구성원 전체를 내려받지 않게 한다. 같은 id 는 한 번만 센다.
+   *
+   * @throws InvalidUserGroupException 그룹이 없거나 {@link #MEMBER_COUNT_LIMIT} 개를 넘음(400)
+   */
+  @Transactional(readOnly = true)
+  public List<UserGroupMemberCount> countMembers(long callerId, List<Long> ids) {
+    List<Long> distinct = ids.stream().distinct().toList();
+    if (distinct.isEmpty() || distinct.size() > MEMBER_COUNT_LIMIT) {
+      throw new InvalidUserGroupException("그룹은 1~" + MEMBER_COUNT_LIMIT + "개까지 셀 수 있습니다");
+    }
+    return distinct.stream()
+        .map(
+            id -> {
+              List<UserGroupMemberHit> hits = searchMembers(callerId, id, null);
+              int external =
+                  (int) hits.stream().filter(h -> "EXTERNAL".equals(h.targetType())).count();
+              return new UserGroupMemberCount(id, hits.size(), external);
+            })
         .toList();
   }
 

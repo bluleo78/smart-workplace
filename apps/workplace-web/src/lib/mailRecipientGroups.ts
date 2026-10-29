@@ -1,5 +1,5 @@
 // 메일 받는사람에 조직·내 그룹 넣기(WP-1060) — 후보로 보일 부서·내 그룹 고르기, 보이는 인원 수, 고를 때 구성원 주소 칩으로 풀기, 결과 안내 문구.
-// 인원 수와 풀기가 같은 구성원 목록(groupRecipients)을 쓴다 — 줄에 보인 「N명」이 고른 뒤 넣은 수·뺀 수·주소 없는 수의 합과 같게.
+// 줄의 「N명」은 서버가 구성원 찾기와 같은 규칙으로 센 수(WP-1135)이고, 풀기는 그 찾기 결과(groupRecipients)를 쓴다 — 고른 뒤 넣은 수·뺀 수·주소 없는 수의 합과 같게.
 import type { GroupOption } from '../components/members/groupOptions'
 import type { UserGroupMemberHit } from '../types/userGroup'
 import { type RecipientChip, toChip } from './mailRecipientSuggest'
@@ -22,9 +22,9 @@ export interface RecipientGroupSuggestion {
   path: string
   /** 하위 그룹이 있는지 — 「하위 부서 포함」 안내를 붙인다 */
   hasChildren: boolean
-  /** 하위 그룹까지 모은 지금 구성원 — 아직 받는 중이면 undefined(그동안은 고를 수 없다) */
-  members: UserGroupMemberHit[] | undefined
-  /** 구성원을 받지 못했는지 — 고를 수 없고 줄에 그 사실을 보인다 */
+  /** 하위 그룹까지 센 인원(전체·외부 연락처, WP-1135) — 아직 세는 중이면 undefined(그동안은 고를 수 없다) */
+  count: { total: number; external: number } | undefined
+  /** 인원을 세지 못했는지 — 줄에 그 사실을 보인다(고르면 구성원을 새로 받아 다시 해 본다) */
   failed: boolean
 }
 
@@ -60,16 +60,6 @@ export function groupRecipients(members: UserGroupMemberHit[]): UserGroupMemberH
     seen.add(key)
     return true
   })
-}
-
-/** 후보 줄에 보이는 인원 수 — 고르면 풀리는 사람 수(groupRecipients 와 같은 규칙). */
-export function groupRecipientCount(members: UserGroupMemberHit[]): number {
-  return groupRecipients(members).length
-}
-
-/** 그룹 구성원 중 외부 연락처 수 — 내 그룹 줄에 「외부 연락처 N명 포함」으로 보인다. */
-export function groupExternalCount(members: UserGroupMemberHit[]): number {
-  return groupRecipients(members).filter((m) => m.targetType === 'EXTERNAL').length
 }
 
 /** 그룹을 풀어 넣은 결과. */

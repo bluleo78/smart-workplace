@@ -1,9 +1,10 @@
 // 메일 받는사람 자동완성 후보(WP-945) — 최근 수신인(보낸 메일)과 연락처(구성원·주소록)를 함께 찾아 한 목록으로 합친다.
 // 조직도 부서·내 그룹(WP-1060)도 같은 조각으로 찾아 따로 돌려준다 — 고르면 구성원 주소로 풀린다.
-import { keepPreviousData, type QueryClient, useQueries, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, type QueryClient, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { fetchRecentRecipients } from '../../api/mailMessages'
+import { userGroupsApi } from '../../api/userGroups'
 import { flattenGroupTree } from '../../components/members/groupOptions'
 import { matchRecipientGroups, type RecipientGroupOption, type RecipientGroupSuggestion } from '../../lib/mailRecipientGroups'
 import { mergeRecipientSuggestions, type RecipientSuggestion } from '../../lib/mailRecipientSuggest'
@@ -11,19 +12,16 @@ import type { UserGroupMemberHit } from '../../types/userGroup'
 import { useDebounceValue } from '../useDebounceValue'
 import { useContactsHead } from './useContacts'
 import { groupAllMembersQuery } from './useGroupMemberSearch'
+import { userGroupKeys } from './userGroupKeys'
 import { useUserGroups } from './useUserGroups'
 
 /** 드롭다운에 보이는 후보 수 — 출처마다 이만큼 받아 합친 뒤 자른다. */
 const SUGGESTION_LIMIT = 8
 
-/**
- * 사람 후보 아래 보이는 부서·내 그룹 수 — 그룹마다 구성원(하위 포함)을 받아 인원 수를 세므로 적게 둔다.
- * 그룹 트리(/user-groups)에는 인원 수가 없고, 「· N명」을 주는 다른 응답(노트·드라이브 스페이스 부서 행)은 스페이스에 넣은 부서에만 있어
- * 이름이 맞는 그룹마다 구성원 찾기를 부른다. 조각이 바뀌어도 같은 그룹은 캐시(1분)를 다시 쓰고, 고를 때는 따로 새로 받는다.
- */
+/** 사람 후보 아래 보이는 부서·내 그룹 수 — 사람 후보를 밀어내지 않게 적게 둔다. */
 const GROUP_LIMIT = 4
 
-/** 인원 수를 세려고 받아 둔 그룹 구성원을 다시 쓰는 시간 — 고를 때는 이 캐시를 쓰지 않고 새로 받는다(fetchRecipientGroupMembers). */
+/** 그룹 인원 수를 다시 쓰는 시간 — 고를 때는 수와 상관없이 구성원을 새로 받는다(fetchRecipientGroupMembers). */
 const GROUP_COUNT_STALE_MS = 60_000
 
 /** 한 번 받아 두는 최근 수신인 수 — 서버는 최근 보낸 메일 300통에서 모은다. */
@@ -77,38 +75,38 @@ export function useRecipientSuggestions(query: string, exclude: ReadonlySet<stri
     [tree.data],
   )
   const matched = useMemo(() => matchRecipientGroups(groupOptions, q, GROUP_LIMIT), [groupOptions, q])
-  // 찾은 그룹마다 하위 그룹까지 모은 지금 구성원 — 줄의 인원 수와 고를 때 풀 주소가 같은 조회·같은 규칙이다.
-  // 공유 창·스페이스 멤버 창의 부서 펼침과 같은 조회·같은 캐시(빈 검색어 구성원 찾기)를 쓴다.
-  // 실패는 자동으로 다시 시도하지 않는다 — 줄에 「불러오지 못했습니다」가 바로 보이게. 그 줄을 고르면 새로 받으며 다시 해 본다(fetchRecipientGroupMembers).
-  // combine 결과는 바뀐 것이 없으면 같은 참조라 아래 groups·입력 칸의 후보 목록 memo 가 매 렌더 새로 만들어지지 않는다.
-  const memberResults = useQueries({
-    queries: matched.map((g) => ({
-      ...groupAllMembersQuery(g.id),
-      enabled: active,
-      staleTime: GROUP_COUNT_STALE_MS,
-      retry: false,
-    })),
-    combine: (results) => results.map((r) => ({ data: r.data, isError: r.isError })),
+  // 찾은 그룹들의 하위 조직 포함 인원 수 — 그룹마다 구성원 전체를 받지 않고 한 번에 수만 받는다(WP-1135). 서버가 고를 때 쓰는 구성원 찾기와
+  // 같은 규칙(같은 사람 한 번, 주소 없는 사람 포함)으로 세어, 줄의 「N명」이 고른 뒤 넣은 수·뺀 수·주소 없는 수의 합과 같다.
+  // 같은 그룹 묶음은 캐시(1분)를 다시 쓴다. 실패는 자동으로 다시 시도하지 않는다 — 줄에 「불러오지 못했습니다」가 바로 보이게(고르면 구성원을 새로 받아 다시 해 본다).
+  const countIds = useMemo(() => matched.map((g) => g.id).sort((a, b) => a - b), [matched])
+  const counts = useQuery({
+    queryKey: userGroupKeys.memberCounts(countIds),
+    queryFn: () => userGroupsApi.countMembers(countIds).then((r) => r.data),
+    enabled: active && countIds.length > 0,
+    staleTime: GROUP_COUNT_STALE_MS,
+    retry: false,
   })
-  const groups = useMemo<RecipientGroupSuggestion[]>(
-    () =>
-      matched.map((g, i) => ({
+  const groups = useMemo<RecipientGroupSuggestion[]>(() => {
+    const byId = new Map((counts.data ?? []).map((c) => [c.groupId, c]))
+    return matched.map((g) => {
+      const c = byId.get(g.id)
+      return {
         id: g.id,
         kind: g.kind,
         name: g.name,
         path: g.path,
         hasChildren: g.subtreeIds.length > 1,
-        members: memberResults[i]?.data,
-        failed: memberResults[i]?.isError ?? false,
-      })),
-    [matched, memberResults],
-  )
+        count: c ? { total: c.total, external: c.external } : undefined,
+        failed: counts.isError,
+      }
+    })
+  }, [matched, counts.data, counts.isError])
   return { query: q, items, groups }
 }
 
 /**
- * 그룹을 고르는 순간의 구성원(WP-1060) — 줄의 인원 수용 캐시가 아니라 서버에서 새로 받는다(그사이 들고 난 사람이 맞게 풀리도록).
- * 받은 결과는 같은 키에 넣어 줄의 인원 수도 함께 새것이 된다. 실패하면 던진다(부르는 쪽이 오류 토스트를 띄운다).
+ * 그룹을 고르는 순간의 구성원(WP-1060) — 서버에서 새로 받는다(그사이 들고 난 사람이 맞게 풀리도록). 받은 결과는 공유 창의 부서 펼침과 같은 키에 둔다.
+ * 실패하면 던진다(부르는 쪽이 오류 토스트를 띄운다).
  */
 export function fetchRecipientGroupMembers(queryClient: QueryClient, groupId: number): Promise<UserGroupMemberHit[]> {
   return queryClient.fetchQuery({

@@ -5,8 +5,7 @@ import type { UserGroupMemberHit } from '../types/userGroup'
 import {
   expandGroupRecipients,
   groupExpansionToast,
-  groupExternalCount,
-  groupRecipientCount,
+  groupRecipients,
   matchRecipientGroups,
   type RecipientGroupOption,
 } from './mailRecipientGroups'
@@ -39,9 +38,10 @@ describe('인원 수와 풀기', () => {
     hit({ targetId: 1, name: '김개발', email: 'kim@x.kr' }),
   ]
 
-  it('줄의 인원 수는 풀리는 사람 수(같은 사람은 한 번, 주소 없는 사람도 센다)', () => {
-    expect(groupRecipientCount(members)).toBe(4)
-    expect(groupExternalCount(members)).toBe(1)
+  // 줄의 인원 수는 서버(UserGroupService.countMembers)가 같은 규칙으로 센다(WP-1135) — 여기서는 풀기 대상 규칙을 지킨다.
+  it('풀리는 사람은 같은 사람이 한 번이고 주소 없는 사람도 든다', () => {
+    expect(groupRecipients(members)).toHaveLength(4)
+    expect(groupRecipients(members).filter((m) => m.targetType === 'EXTERNAL')).toHaveLength(1)
   })
 
   it('이 칸에 이미 있는 주소(대소문자 무시)는 빼고, 주소 없는 사람은 넣지 않고 이름을 돌려준다 — 외부 연락처도 넣는다', () => {
@@ -50,7 +50,7 @@ describe('인원 수와 풀기', () => {
     expect(result.skipped).toBe(1)
     expect(result.noAddress).toEqual(['정AI'])
     // 넣은 수 + 뺀 수 + 주소 없는 수 = 줄의 인원 수
-    expect(result.chips.length + result.skipped + result.noAddress.length).toBe(groupRecipientCount(members))
+    expect(result.chips.length + result.skipped + result.noAddress.length).toBe(groupRecipients(members).length)
   })
 
   it('그룹 안에서 주소가 겹치면 조용히 한 번만 넣는다 — 「이미 들어 있는」 수(skipped)에는 세지 않는다', () => {
