@@ -5,8 +5,10 @@ import { useLayoutEffect, useRef, useState } from 'react'
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { eventDisplayColor, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
+import type { CalendarEvent } from '@/types/calendar'
 
 import type { ViewProps } from './TimeGrid'
 
@@ -100,23 +102,17 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
 
               {/* 이벤트 칩 (셀 높이만큼) — DECLINED 는 반투명 처리 (이슈 #489) */}
               {visible.map((e) => (
-                <button
+                <EventChip
                   key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
-                  data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
-                  onClick={(ev) => {
-                    ev.stopPropagation()
-                    onSelectEvent(e)
-                  }}
-                  className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
-                >
-                  <ExtraTagDots event={e} />
-                  {e.title}
-                </button>
+                  event={e}
+                  testId={`calendar-event-${eventKey(e)}`}
+                  onSelect={onSelectEvent}
+                />
               ))}
 
-              {/* +N 오버플로 표시 */}
+              {/* +N — 누르면 그날 일정 전체를 팝오버로 보인다(WP-1139). 칸의 「새 일정」으로 올라가지 않는다 */}
               {overflow > 0 && (
-                <div className="text-xs text-muted-foreground pl-1">+{overflow}</div>
+                <MoreEvents day={day} dateLabel={dateLabel} events={dayEvents} overflow={overflow} onSelect={onSelectEvent} />
               )}
 
               {/* 이슈 마감일 칩 (읽기전용, 일정과 구분) */}
@@ -130,5 +126,86 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
         })}
       </div>
     </div>
+  )
+}
+
+/** 일정 칩 test id 의 키 — 반복 일정은 회차 날짜까지 붙여 회차마다 다르게 한다. */
+function eventKey(e: CalendarEvent) {
+  return e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id
+}
+
+/** 월 보기 일정 칩 — 누르면 일정을 연다. 칸 클릭(새 일정)으로 올라가지 않게 막는다. */
+function EventChip({ event: e, testId, onSelect }: { event: CalendarEvent; testId: string; onSelect: (e: CalendarEvent) => void }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={(ev) => {
+        ev.stopPropagation()
+        onSelect(e)
+      }}
+      className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
+    >
+      <ExtraTagDots event={e} />
+      {e.title}
+    </button>
+  )
+}
+
+/**
+ * 칸에 다 못 그린 일정 「+N」 — 버튼이라 키보드·스크린리더로도 닿고, 누르면 그날 일정 전체를 팝오버로 보인다(WP-1139).
+ * 팝오버에서 일정을 고르면 닫고 그 일정을 연다. 팝오버는 포털로 그려지지만 React 이벤트는 칸까지 올라가므로
+ * 팝오버 안의 클릭도 막아야 칸의 「새 일정」이 열리지 않는다.
+ */
+function MoreEvents({
+  day,
+  dateLabel,
+  events,
+  overflow,
+  onSelect,
+}: {
+  day: Date
+  dateLabel: string
+  events: CalendarEvent[]
+  overflow: number
+  onSelect: (e: CalendarEvent) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={`calendar-more-${dateLabel}`}
+          aria-label={`${format(day, 'M월 d일')} 일정 ${overflow}개 더 보기`}
+          onClick={(ev) => ev.stopPropagation()}
+          className="w-full rounded px-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          +{overflow}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        collisionPadding={16}
+        className="w-64 max-w-[calc(100vw-2rem)] p-2"
+        data-testid={`calendar-more-popover-${dateLabel}`}
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <p className="mb-2 px-1 text-xs font-medium text-muted-foreground">{format(day, 'M월 d일')} 일정 {events.length}개</p>
+        <div className="max-h-72 overflow-y-auto">
+          {events.map((e) => (
+            <EventChip
+              key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
+              event={e}
+              testId={`calendar-more-event-${eventKey(e)}`}
+              onSelect={(picked) => {
+                setOpen(false)
+                onSelect(picked)
+              }}
+            />
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
