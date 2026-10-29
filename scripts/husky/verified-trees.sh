@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# 「전체 회귀를 통과한 트리」 기록 — full-regression.sh·gate-bundle.sh 가 쓰고 pre-push.sh 가 읽는다 (WP-446).
+# 「전체 회귀를 통과한 트리」 기록 — full-regression.sh 가 쓰고 pre-push.sh 가 읽는다 (WP-446).
 # 기록 파일은 git common dir 에 둬 모든 워크트리가 공유한다. PREPUSH_VERIFIED_FILE 로 바꿀 수 있다(테스트용).
 # 한 줄 = 트리 하나. 범위를 줄여 통과했으면 「<트리> <범위>」(gate-scope.sh, WP-1208), 전체로 통과했으면 트리만 쓴다.
 #   트리만 쓴 줄은 이 형식 전부터 있던 「전체 통과」 기록이다. 범위 통과를 트리만으로 쓰면 옛 스크립트(다른 워크트리의 이전 main)가

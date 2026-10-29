@@ -1,6 +1,6 @@
 {
   "name": "genia-works",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "displayName": "Gen:iA Works",
   "description": "genia-works MCP 연결, 세션별 접속 신원(내 토큰 / AI 키) 선택, 이슈 작업 보고·마무리·자동 이슈 처리 스킬",
   "author": { "name": "Gen:iA Works" },

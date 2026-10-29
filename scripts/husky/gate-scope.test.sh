@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# push 게이트 범위·묶음 검증 (WP-1208) — 임시 git 저장소(+ bare 원격)에 실제 브랜치를 만들어
+# push 게이트 범위 검증 (WP-1208) — 임시 git 저장소(+ bare 원격)에 실제 브랜치를 만들어
 #   1) 범위 판정(gate-scope.sh), 2) 범위와 함께 남는 검증 기록과 옛 형식 호환(verified-trees.sh),
-#   3) pre-push 가 필요한 범위를 덮는 기록만 인정하는지, 4) 묶음 게이트(gate-bundle.sh)의 통과·실패·충돌·도중 변경을 단언한다.
+#   3) pre-push 가 필요한 범위를 덮는 기록만 인정하는지를 단언한다(묶음 게이트는 기차로 바뀌었다 — train.test.sh, WP-1216).
 # 회귀는 FULL_REGRESSION_CMD(가짜 회귀)로 대신한다 — 고른 범위는 GATE_SCOPE 로 넘어온다.
 #
 # 사용: 리포지토리 루트에서 `sh scripts/husky/gate-scope.test.sh`
@@ -130,73 +130,5 @@ check "HEAD 가 web 인데 api 브랜치를 push → 전체로 회귀" "$(decide
 git checkout -q -b p-web-api p-web; commit_file apps/workplace-api/src/Q.java 'q'
 check "HEAD(api 포함) push → 전체로 회귀" "$(decide "$(line p-web-api)")" "범위 full"
 git checkout -q main
-
-# ---- 4) 묶음 게이트 ----
-branch_with b-web1 apps/workplace-web/src/e.ts
-branch_with b-web2 apps/workplace-web/src/f.ts
-branch_with b-admin apps/workplace-admin/src/g.ts
-out=$(FULL_REGRESSION_CMD='echo "scope=$GATE_SCOPE"' sh "$HOOKS/gate-bundle.sh" b-web1 b-web2 b-admin 2>&1)
-check "묶음 — 셋을 합쳐 한 번, 범위는 합(web+admin)" "$out" "scope=web+admin"
-check "묶음 — 브랜치마다 기록" "$out" "b-admin: 통과"
-check "묶음 통과한 web 브랜치 push → 생략" "$(decide "$(line b-web1)")" "회귀 생략" "전체 회귀 실행"
-check "묶음 통과한 admin 브랜치 push → 생략" "$(decide "$(line b-admin)")" "회귀 생략" "전체 회귀 실행"
-check "임시 워크트리를 지움" "$(git worktree list | grep -c _gate-bundle || true)" "0"
-
-branch_with f-web1 apps/workplace-web/src/h.ts
-branch_with f-web2 apps/workplace-web/src/i.ts
-out=$(FULL_REGRESSION_CMD=false sh "$HOOKS/gate-bundle.sh" f-web1 f-web2 2>&1 || echo "(종료 코드 $?)")
-check "묶음 실패 → 실패 종료, 원인 가리기 안내" "$out" "원인 가리기" "통과 — 검증"
-check "묶음 실패 → 어느 브랜치도 기록 안 됨" "$(decide "$(line f-web1)")" "전체 회귀 실행" "회귀 생략"
-# 원인(f-web2)을 뺀 나머지로 다시 묶으면 그 브랜치만 통과
-out=$(FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" f-web1 2>&1)
-check "원인을 뺀 재실행 → 나머지 push 생략" "$(decide "$(line f-web1)")" "회귀 생략"
-check "원인 브랜치는 여전히 미검증" "$(decide "$(line f-web2)")" "전체 회귀 실행"
-
-branch_with c-1 apps/workplace-web/src/same.ts
-git checkout -q -b c-2 main; commit_file apps/workplace-web/src/same.ts 'other'; git checkout -q main
-out=$(FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" c-1 c-2 2>&1)
-check "서로 충돌하는 브랜치는 빼고 알림" "$out" "c-2: 앞서 합친 브랜치와 충돌"
-check "충돌로 뺀 브랜치는 기록 안 됨" "$(decide "$(line c-2)")" "전체 회귀 실행"
-check "충돌 없는 쪽은 기록" "$(decide "$(line c-1)")" "회귀 생략"
-# origin/main 과 바로 충돌하는 브랜치는 rebase 하라고 알린다
-git checkout -q -b c-main main~1; commit_file apps/workplace-api/src/C.java 'conflict with main'; git checkout -q main
-out=$(FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" c-main 2>&1 || true)
-check "origin/main 과 충돌 → rebase 안내" "$out" "c-main: origin/main 과 충돌"
-
-# 게이트 도는 동안 브랜치가 바뀌면 그 브랜치는 기록하지 않는다
-branch_with m-1 apps/workplace-web/src/m.ts
-out=$(FULL_REGRESSION_CMD='git -C '"$TMP/work"' branch -f m-1 main' sh "$HOOKS/gate-bundle.sh" m-1 2>&1)
-check "도중에 ref 가 바뀐 브랜치는 기록 안 함" "$out" "커밋이 바뀜"
-
-# 마이그레이션 번호가 겹치면 돌기 전에 멈춘다
-M=apps/workplace-api/src/main/resources/db/migration
-branch_with v-1 "$M/V5__a.sql"
-branch_with v-2 "$M/V5__b.sql"
-out=$(FULL_REGRESSION_CMD='echo RAN' sh "$HOOKS/gate-bundle.sh" v-1 v-2 2>&1 || true)
-check "마이그레이션 번호가 겹치면 게이트를 돌지 않음" "$out" "번호가 겹칩니다" "RAN"
-
-# git 커밋 신원이 없는 환경(AI 에이전트 서버)에서도 합친다 — 신원 환경변수를 빼고, 전역 설정은 「설정된 신원만 쓴다」로 막는다(WP-1213)
-branch_with n-1 apps/workplace-web/src/n1.ts
-branch_with n-2 apps/workplace-web/src/n2.ts
-printf '[user]\n\tuseConfigOnly = true\n' > "$TMP/noident.gitconfig"
-out=$(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
-  HOME="$TMP" GIT_CONFIG_GLOBAL="$TMP/noident.gitconfig" GIT_CONFIG_NOSYSTEM=1 EMAIL= \
-  FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" n-1 n-2 2>&1 || true)
-check "신원 없는 환경 — 둘 다 묶음" "$out" "묶은 브랜치: n-1 n-2" "충돌"
-check "신원 없는 환경 — 기록" "$(decide "$(line n-2)")" "회귀 생략"
-
-# 충돌이 아닌 머지 실패는 충돌로 알리지 않고 git 이 낸 이유를 보인다(머지 커밋 훅이 막는 경우로 흉내)
-branch_with h-1 apps/workplace-web/src/h1.ts
-mkdir -p "$TMP/hooks"
-printf '#!/bin/sh\necho "pre-merge-commit 가 막음" >&2\nexit 1\n' > "$TMP/hooks/pre-merge-commit"
-chmod +x "$TMP/hooks/pre-merge-commit"
-git config core.hooksPath "$TMP/hooks"
-out=$(FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" h-1 2>&1 || true)
-git config --unset core.hooksPath
-check "충돌 아닌 실패 — 충돌로 알리지 않음" "$out" "h-1: 합치지 못함(충돌 아님)" "충돌 —"
-check "충돌 아닌 실패 — git 이유를 보임" "$out" "pre-merge-commit 가 막음"
-
-out=$(env -u PREPUSH_VERIFIED_FILE FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" b-web1 2>&1 || true)
-check "가짜 회귀를 공유 기록 경로로 쓰면 거부" "$out" "테스트 전용"
 
 finish

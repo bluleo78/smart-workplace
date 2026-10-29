@@ -614,3 +614,45 @@ test('process-issue.md 9번: 게이트를 띄우기 전에 돌릴지부터 판�
   assert.ok(project.includes('`plugins/genia-works/` — 게이트가 돌지 않는다. `pnpm test:plugin`'));
   assert.ok(project.includes('web·admin·api·collab 의 제품 코드나 `scripts/` 가 하나라도 바뀌었으면 해당하지 않는다'));
 });
+
+// WP-1216 기차 — 저장소가 project.md 「기차」 절로 켜면 이슈마다 PR 대신 통합 브랜치에 쌓아 기차마다 게이트 한 번·PR 하나로 올린다.
+test('기차: 저장소가 켜면 9~11번 대신 쌓기 → 출발 → 통합 PR 이고, 앞 기차가 머지되기 전에는 떠나지 않는다 (WP-1216)', () => {
+  const skill = body(workLoop('SKILL.md'));
+  const pi = workLoop('process-issue.md');
+  assert.ok(skill.includes('- **기차 흐름** — `MAIN/.work-loop/project.md` 에 「기차」 절이 있으면'));
+  assert.ok(pi.includes('- **기차** — `.work-loop/project.md` 에 「기차」 절이 있으면 9~11번 대신 아래 「기차」 절을 따른다'));
+  assertBefore(pi, '\n### 기차 (저장소가 켰을 때)\n', '\n### PR 리뷰·머지 (검토자)\n');
+  const train = pi.slice(pi.indexOf('### 기차 (저장소가 켰을 때)'), pi.indexOf('### PR 리뷰·머지 (검토자)'));
+  // 1~7: feature 에서 끝냄 → 이슈당 커밋 하나로 쌓기 → 앞 기차 머지 뒤 출발 → 실패·반려는 수정 커밋 → 출발한 기차는 충돌할 때만 rebase
+  for (const anchor of [
+    '전체 게이트는 돌리지 않고 feature 브랜치는 push 하지 않는다',
+    '운행 중(출발했고 아직 머지되지 않은)인 기차에는 새 이슈를 넣지 않는다',
+    '**앞 기차가 main 에 들어가기 전에는 다음 기차는 떠나지 않는다**',
+    '하나만 쌓였어도 출발한다',
+    '"통합 <키1>·<키2>·…"',
+    '**수정 커밋을 더해**',
+    '**그 기차를 다른 일보다 먼저** 처리한다(`SKILL.md` 3번 ⓪)',
+    '출발한 기차는 main 과 **충돌할 때만** rebase 한다',
+    "note: '다음 기차 대기",
+    "note: '<검토자 이름> 리뷰 — 통합 PR 에 실림",
+  ]) assert.ok(train.includes(anchor), anchor);
+  assertBefore(train, '1. **feature 에서 끝낸다**', '2. **쌓기**');
+  assertBefore(train, '2. **쌓기**', '3. **출발**');
+  // 검토자: 이슈 단위 리뷰, 하나라도 문제면 PR 전체 반려, --admin 없이 머지 뒤 이슈마다 검토 대기
+  const review = pi.slice(pi.indexOf('### PR 리뷰·머지 (검토자)'));
+  assert.ok(review.includes('하나라도 문제면 **PR 전체를 반려**한다'));
+  assert.ok(review.includes('`--admin` 금지'));
+  assert.ok(review.includes('실린 이슈마다 `report_agent_work({ issueKey, state: \'REVIEW\''));
+  // 실패·반려된 기차가 다른 후보보다 먼저, 맨 위 갈래는 통합 PR 제목의 키 목록도 본다
+  assert.ok(skill.includes('순서: ⓪ 기차가 반려됐거나 게이트가 실패해 작업 중으로 되돌린 이슈'));
+  assert.ok(pi.includes('통합 PR 제목 `통합 <키>·…` 의 키 목록에 이 이슈 키가 있는 것'));
+  // 예전 묶음 게이트 문장은 남지 않는다.
+  assert.ok(!pi.includes('묶음 게이트'));
+});
+
+// WP-1216 — 대기 중(PR 리뷰 대기 = 기차 대기)은 자리를 쥐지 않는다. slots 가 없는 옛 서버의 셈도 같은 기준.
+test('SKILL.md 3번: slots 가 없을 때 대기 중은 동시 진행에 세지 않는다 (WP-1216)', () => {
+  const skill = body(workLoop('SKILL.md'));
+  assert.ok(skill.includes('내 행이 작업 중·답변 필요·인증 필요이고 `stale` 이 아닌 이슈를 세되(대기 중은 세지 않는다'));
+  assert.ok(!skill.includes('작업 중·대기 중·답변 필요·인증 필요'));
+});

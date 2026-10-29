@@ -21,8 +21,8 @@ public record AiAgentStatusResponse(List<AiAgentStatus> agents, int slotLimit) {
    * @param lastEndedAt 마지막으로 작업을 끝낸 시각 — 「쉬는 중 n분째」의 기준
    * @param works 열린 작업 중 호출자가 볼 수 있는 것
    * @param hiddenWorks 호출자가 볼 수 없는 프로젝트의 열린 작업 수
-   * @param slotsUsed 동시 진행 상한에 세는 작업 수(볼 수 없는 것 포함) — 작업 중·대기 중·답변 필요·인증 필요, 무소식 아님, 작업 중인 하위가 있는
-   *     부모 아님
+   * @param slotsUsed 동시 진행 상한에 세는 작업 수(볼 수 없는 것 포함) — 작업 중·답변 필요·인증 필요(대기 중은 세지 않는다 — WP-1216), 무소식
+   *     아님, 작업 중인 하위가 있는 부모 아님
    */
   public record AiAgentStatus(
       UserSummary agent,

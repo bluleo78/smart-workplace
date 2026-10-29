@@ -47,13 +47,12 @@ public class AiAgentStatusService implements AgentSlotCounter {
    */
   static final Duration RECONNECT_GRACE = Duration.ofMinutes(3);
 
-  /** 상한에 세는 상태 — 작업 중·대기 중·답변 필요·인증 필요(막힘·다음 회차 대기·일시 중지·검토 필요는 세지 않는다). */
+  /**
+   * 상한에 세는 상태 — 작업 중·답변 필요·인증 필요(대기 중·막힘·다음 회차 대기·일시 중지·검토 필요는 세지 않는다). 대기 중(PR 리뷰 대기 등 남의 차례)은 기차
+   * 흐름(WP-1216)에서 통합 PR 에 실린 이슈라, 세면 기차가 커질수록 새 일을 가져가지 못한다.
+   */
   private static final Set<String> SLOT_STATES =
-      Set.of(
-          AgentWorkState.WORKING,
-          AgentWorkState.WAITING,
-          AgentWorkState.INPUT_REQUIRED,
-          AgentWorkState.AUTH_REQUIRED);
+      Set.of(AgentWorkState.WORKING, AgentWorkState.INPUT_REQUIRED, AgentWorkState.AUTH_REQUIRED);
 
   private final AiAgentRepository aiAgentRepository;
   private final IssueRepository issueRepository;

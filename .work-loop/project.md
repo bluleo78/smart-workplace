@@ -56,7 +56,6 @@ payload·쿼리·4xx/5xx 메시지·권한/조건부 렌더·유효성·빈/로�
 ```sh
 pnpm lint && pnpm typecheck && pnpm test:plugin
 pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전체(preview) → admin E2E → api gradle 전체. push 게이트와 같다(10분 이상)
-pnpm test:bundle <브랜치>...   # 내 브랜치 여러 개를 최신 origin/main 위에 합쳐 test:full 을 한 번 — 통과하면 브랜치마다 기록(아래 「묶음 게이트」)
 ```
 
 - 통과하면 그 커밋 트리를 「검증 완료」로 기록해, 같은 트리(스쿼시·`--no-ff` 머지 결과가 같을 때)를 push 할 때 pre-push 가 회귀를 다시 돌지 않는다 — 커밋한 상태에서 돌려야 기록된다.
@@ -66,15 +65,22 @@ pnpm test:bundle <브랜치>...   # 내 브랜치 여러 개를 최신 origin/ma
 - 락을 기다리는 게이트는 로그에 `[test-lock] 다른 세션이 테스트 게이트 실행 중 — 대기합니다` 만 있고, 잡으면 `[test-lock] 락 획득 — 게이트 실행` 이 찍힌다.
 - 병렬·부하에서만 깨지는 테스트는 제외하지 말고 원인을 고친다(시간 단언·실시간 데드라인을 없애 결정적으로).
 
-### 묶음 게이트 (WP-1208)
+### 기차 (WP-1216 — 개발 PR 의 기본 경로)
 
-게이트를 띄울 차례에 **내 다른 이슈 중 검증까지 끝나 push 만 남은 브랜치**(notes 의 `검증한 HEAD SHA` 가 그 브랜치 HEAD 이고 아직 통과 기록이 없는 것)가 더 있으면 함께 묶어 `pnpm test:bundle <브랜치>...` 를 한 번 돌린다. 묶으려고 일부러 기다리지 않는다 — 내 게이트가 아직 락을 기다리는 중(위 「락 획득」 줄이 로그에 없음)에 다른 브랜치가 준비되면, 그 작업을 끝내고(`bg-job stop`) 둘을 묶어 다시 띄운다.
-- 다른 AI 의 브랜치는 묶지 않는다(실패했을 때 책임이 갈리지 않게). 마이그레이션을 더한 브랜치끼리 번호가 겹치면 스크립트가 돌기 전에 멈춘다 — 번호를 옮긴 뒤 다시 묶는다.
-- 서로 충돌하는 브랜치는 스크립트가 빼고 알린다 — 뺀 브랜치는 따로 게이트를 돈다.
-- **통과**: 시작 때와 커밋이 같은 브랜치마다 그 트리가 묶음 범위로 기록된다. 각 워크트리에서 push 하면 pre-push 가 다시 돌지 않는다. PR 은 이슈마다 따로 올린다(이슈 하나 = PR 하나 = 머지 하나).
-- **실패**: 어느 브랜치도 기록되지 않는다(게이트는 처음 실패한 단계에서 멈춰 뒤 단계가 돌지 않았다). 로그에서 실패한 테스트를 묶은 브랜치마다 그 워크트리에서 돌려 원인 브랜치를 가린다 — 원인 브랜치는 고쳐 6번부터, 나머지는 다시 묶어(하나만 남으면 그 워크트리에서 `pnpm test:full`) 돌린다.
-- 알려진 위험: 묶인 브랜치를 혼자서는 돌리지 않는다 — A+B 가 통과한 뒤 B 가 반려되면 A 혼자의 트리는 검증되지 않은 채 머지된다. 검토자의 머지 전 확인(아래 7번)과 main CI `verify` 가 받친다고 본다.
-- 합치는 곳은 `MAIN/.claude/worktrees/_gate-bundle-<pid>` 다(끝나면 스크립트가 지운다). 설치·빌드는 락 밖에서 한다.
+이 저장소는 기차 흐름을 켠다(`process-issue.md` 「기차」). 이슈마다 PR 을 내지 않고, 끝낸 이슈를 내 통합 브랜치 `integ/<AI 이름>-<번호>`(AI 이름 = 내 username 의 `@` 앞, 예: `integ/developer3-4`)에 커밋 하나씩 쌓아 기차마다 push 게이트 한 번·PR 하나로 올린다. 게이트 락이 이 저장소 사본마다 하나라 이슈마다 게이트를 띄우면 한 AI 의 이슈들이 한 줄로 기다리고, 예전 묶음 게이트(WP-1208)는 게이트만 합쳐 돌고 PR 은 이슈마다 내서 A+B 로 통과한 뒤 B 가 반려되면 A 혼자의 트리가 검증 없이 머지됐다.
+
+```sh
+pnpm train stack <AI 이름> <feature 브랜치> <이슈 키>   # 다음 기차에 커밋 하나로 쌓는다(출발한 기차는 건너뛰고, 없으면 새 번호를 origin/main 에서)
+pnpm train rebase <기차 브랜치>                         # 출발 전 → 최신 origin/main 으로. 출발한 기차 → main 과 충돌할 때만
+pnpm train next <AI 이름>                               # 아직 출발하지 않은 기차(없으면 빈 출력)
+pnpm train keys <기차 브랜치>                           # 실린 이슈 키 「K1·K2」 — PR 제목 `통합 K1·K2`
+```
+
+- 스크립트는 `scripts/husky/train.sh`(테스트 `train.test.sh`). 「출발」 = 기차 브랜치를 origin 에 push 한 것. 기차마다 워크트리 `MAIN/.claude/worktrees/integ-<AI 이름>-<번호>` 를 스크립트가 만든다 — 게이트·수정 커밋·push 는 그 안에서 한다. 처음 게이트를 돌기 전에 1절처럼 설치·빌드한다.
+- 쌓기는 feature 의 커밋 하나(제목 끝 `(<이슈 키>)`, 작성자 유지)를 그대로 옮긴다. 마이그레이션 번호가 origin/main·앞서 실린 이슈와 겹치거나 앞서 실린 이슈와 충돌하면 쌓지 않고 멈춘다 — feature 에서 고쳐 다시 쌓는다.
+- 출발: 내 앞 기차의 PR 이 main 에 머지됐거나 처음일 때만. 최신 origin/main 으로 rebase → 기차 워크트리에서 `pnpm test:full`(백그라운드) → `git push -u origin <기차>` → PR(제목 `통합 <키>·…`, 본문 첫 줄 `개발: <username>`, 이슈마다 요약·검증 근거·라이브 검증).
+- 게이트 실패·반려: 같은 기차에 수정 커밋(제목 끝에 고친 이슈 키)을 더해 다시 돈다. 출발한 기차는 main 과 충돌할 때만 rebase 한다(그때는 게이트를 다시 돌고 `--force-with-lease`).
+- 다른 AI 의 이슈는 내 기차에 싣지 않는다.
 
 ### 커밋 훅으로 충분한 것 (`process-issue.md` 9번 「돌릴지부터 판단」, WP-1209)
 
@@ -94,11 +100,11 @@ work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백
 |---|---|
 | `pnpm test:full`(push 게이트) | 45분 |
 | `pnpm test:full` — web 만 바꾼 범위(admin E2E·gradle 빠짐) | 36분 |
-| `pnpm test:bundle <브랜치>...`(묶음 게이트) | 범위에 따라 위와 같음 + 설치 2분 |
+| 기차 출발 게이트(`pnpm test:full`, 기차 워크트리) | 실린 이슈들의 범위에 따라 위와 같음 |
 | `E2E_SERVER=preview pnpm test:e2e`(웹 E2E 전체, `apps/workplace-web`) | 35분 |
 | `./gradlew test`(api 전체, `apps/workplace-api`) | 10분 |
 
-- **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/noncode.sh && . scripts/husky/gate-scope.sh && . scripts/husky/verified-trees.sh && is_verified_head'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. HEAD 에 필요한 범위를 origin/main 기준으로 구해 pre-push 와 같게 판정한다). 다른 브랜치도 준비돼 있으면 위 「묶음 게이트」로 한 번에 돌린다.
+- **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/noncode.sh && . scripts/husky/gate-scope.sh && . scripts/husky/verified-trees.sh && is_verified_head'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. HEAD 에 필요한 범위를 origin/main 기준으로 구해 pre-push 와 같게 판정한다). 기차는 기차 워크트리에서 이렇게 돌린다(위 「기차」).
 - 한 번에 `test:full` 하나만 돈다(전역 락). 다른 이슈의 게이트를 띄우면 락을 기다리느라 그만큼 늦게 끝난다.
 
 ## 4. 격리 라이브 스택 (`process-issue.md` 8·10번)
@@ -159,8 +165,9 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 ## 7. PR (`process-issue.md` 9번·「PR 리뷰·머지」)
 
 - 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
-- 브랜치: `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123`). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
-- PR 제목 `<이슈 키> <이슈 제목>`, 머지 커밋 제목 `merge: <이슈 키> <이슈 제목>`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다).
+- 브랜치: 이슈마다 feature `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123` — push 하지 않는다), PR 은 기차 `integ/<AI 이름>-<번호>`(3절 「기차」). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
+- PR 제목 `통합 <키1>·<키2>·…`, 머지 커밋 제목 `merge: 통합 <키1>·<키2>·…`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다). 기차가 생기기 전에 올린 이슈 PR(제목 `<이슈 키> <이슈 제목>`, 머지 커밋 `merge: <이슈 키> <이슈 제목>`)은 그대로 리뷰·머지한다.
+- **통합 PR 리뷰(WP-1216)**: 이슈 단위로 리뷰하고(이슈 하나 = 커밋 하나 + 그 키를 단 수정 커밋) 게이트 통과·마이그레이션 번호(아래 0번)·합친 상태 검사(아래 1번)를 확인한다. 하나라도 문제면 PR 전체를 반려하고 어느 이슈가 왜 문제인지 적는다 — 개발자는 같은 PR 에 수정 커밋을 더한다. 통과하면 머지하고 실린 이슈마다 검토 대기(REVIEW)로 올린다 — 머지 커밋은 `message` 에.
 - 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. 전체 E2E·api JUnit 은 이 게이트만 돌린다 — 검토자는 origin/main 과 **충돌하는** 브랜치만 개발자에게 rebase 를 요청하고(검토자는 push 하지 않는다), 충돌 없이 main 이 앞서 있기만 한 브랜치는 그대로 머지한다(WP-998 — 낡았다는 이유로 돌려보내면 rebase 마다 게이트를 다시 돌아 머지가 멈춘다). 다만 마이그레이션 번호와, main 이 같은 앱을 고친 경우는 아래 「검토자 머지 판단」대로 머지 전에 본다. 그 밖의 합친 결과의 회귀는 머지 뒤 아래 CI 와 다음 push 게이트가 잡는다.
 - **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`·웹 vitest)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다.
   - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다).
