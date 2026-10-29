@@ -4,7 +4,7 @@
 // 뒤쪽 항목이 다음 줄로 넘어간다(에이전트 유형·마지막 보고는 항상 전체 글자).
 // 프로젝트 구간(WP-426): 서버가 프로젝트 단위로 이어 준 행을 프로젝트 머리(배지·이름·키 · 건수) 아래에 묶어 그린다.
 // 에픽 묶음(WP-375): 서버가 묶음 단위로 정렬해 준 행을 머리(아이콘·키·제목·└ n/m) 아래에 이어 그린다. 하위 행은 기존 행 그대로.
-import { Fragment } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -22,9 +22,9 @@ import { splitByProject } from '@/lib/projectRuns'
 import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
-import { type EpicHead, groupAiTasks } from './aiTaskGroups'
+import { type AiTaskEntry, groupAiTasks } from './aiTaskGroups'
 import { AiTaskAssignee } from './AiTasksTable'
-import { EpicHeadTitle } from './EpicHeadTitle'
+import { EpicHeadTitle, NoEpicHeadTitle } from './EpicHeadTitle'
 
 /** 기존 모바일 행 그대로(묶음 안에서도 같은 모양). */
 function MobileRow({ it }: { it: IssueResponse }) {
@@ -76,17 +76,14 @@ function MobileRow({ it }: { it: IssueResponse }) {
   )
 }
 
-/** 에픽 묶음 머리 — 이슈 목록 모바일 그룹 머리(bg-muted/40)와 같은 모양: 아이콘·키·제목·하위 진행.
+/** 묶음 머리 — 이슈 목록 모바일 그룹 머리(bg-muted/40)와 같은 모양의 한 줄에 제목 조각(에픽 아이콘·키·제목·하위 진행, 「에픽 없음」 대시·건수 — WP-1211).
  *  에픽 자신의 AI 작업이 있을 때만 머리 아래 메타 한 줄에 AI 진행·최근 보고. */
-function MobileEpicHead({ epic, head }: { epic: EpicHead; head: IssueResponse | null }) {
+function MobileGroupHead({ tid, head, children }: { tid: string; head: IssueResponse | null; children: ReactNode }) {
   const w = head ? primaryWork(head.agentWork) : null
   const state = head ? displayState(head) : null
-  const tid = `ai-epic-${epic.number}`
   return (
     <li className="border-b bg-muted/40 px-1 py-2" data-testid={tid}>
-      <div className="flex min-h-7 min-w-0 items-center gap-1.5">
-        <EpicHeadTitle epic={epic} tid={tid} />
-      </div>
+      <div className="flex min-h-7 min-w-0 items-center gap-1.5">{children}</div>
       {head && state && (
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-[22px] text-xs text-muted-foreground" data-testid={`${tid}-meta`}>
           <AgentStateBadge state={state} to={state === 'INPUT_REQUIRED' ? issueChatPath(head.projectKey, head.number) : undefined} />
@@ -96,6 +93,16 @@ function MobileEpicHead({ epic, head }: { epic: EpicHead; head: IssueResponse | 
       )}
     </li>
   )
+}
+
+/** 묶음 항목의 머리 — 에픽 묶음은 에픽 제목, 「에픽 없음」 묶음은 건수. */
+function mobileGroupHead(e: Exclude<AiTaskEntry, { kind: 'row' }>) {
+  if (e.kind === 'noEpic') {
+    const tid = `ai-no-epic-${e.projectKey}`
+    return <MobileGroupHead tid={tid} head={null}><NoEpicHeadTitle size={e.size} tid={tid} /></MobileGroupHead>
+  }
+  const tid = `ai-epic-${e.epic.number}`
+  return <MobileGroupHead tid={tid} head={e.head}><EpicHeadTitle epic={e.epic} tid={tid} /></MobileGroupHead>
 }
 
 export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
@@ -113,7 +120,7 @@ export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
                 <MobileRow key={e.issue.id} it={e.issue} />
               ) : (
                 <Fragment key={e.key}>
-                  <MobileEpicHead epic={e.epic} head={e.head} />
+                  {mobileGroupHead(e)}
                   {e.children.map((c) => <MobileRow key={c.id} it={c} />)}
                 </Fragment>
               ),

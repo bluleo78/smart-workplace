@@ -321,11 +321,12 @@ public class AiTaskRepository {
   }
 
   /**
-   * 프로젝트·에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6, WP-426 §4.1). 묶음 키 = 에픽이면 자기 id, 부모가 에픽이면 부모 id, 그 밖은 자기
-   * id. 정렬: 프로젝트 순위 ASC → (최근 시각, id) 두 키(미완료면 id 가 먼저 — WP-690) → 묶음 안 최소 순위 ASC → (묶음 최근 보고, 묶음
-   * 키) 두 키(미완료면 묶음 키가 먼저) → 머리(에픽 행) 먼저 → 순위 ASC, (정렬 시각, id) 두 키(미완료면 id 가 먼저). 미완료 보기는 최근 시각이
-   * 보고마다 바뀌는 휘발성 값이라 id 를 먼저 비교해 같은 순위 동률을 고정하고, 완료 보기는 최근 시각(종료 시각)이 안정적이고 "최근 종료가 있는 프로젝트가 위"가
-   * 의도된 동작이라 그대로 최근 시각을 먼저 둔다(어느 쪽인지는 {@link #search} 의 {@code liveTieBreak}).
+   * 프로젝트·에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6, WP-426 §4.1). 묶음 키 = 에픽이면 자기 id, 부모가 같은 프로젝트 에픽이면 부모 id,
+   * 그 밖은 음수 프로젝트 id(프로젝트마다 하나인 「에픽 없음」 묶음 — WP-1211, 이슈 id 가 아니다). 정렬: 프로젝트 순위 ASC → (최근 시각, id) 두
+   * 키(미완료면 id 가 먼저 — WP-690) → 묶음 안 최소 순위 ASC → (묶음 최근 보고, 묶음 키) 두 키(미완료면 묶음 키가 먼저) → 머리(에픽 행) 먼저 →
+   * 순위 ASC, (정렬 시각, id) 두 키(미완료면 id 가 먼저). 미완료 보기는 최근 시각이 보고마다 바뀌는 휘발성 값이라 id 를 먼저 비교해 같은 순위 동률을
+   * 고정하고, 완료 보기는 최근 시각(종료 시각)이 안정적이고 "최근 종료가 있는 프로젝트가 위"가 의도된 동작이라 그대로 최근 시각을 먼저 둔다(어느 쪽인지는 {@link
+   * #search} 의 {@code liveTieBreak}).
    *
    * <p>프로젝트 자리는 "그 프로젝트의 첫 행이 프로젝트 키 없는 정렬에서 서는 자리"다 — 프로젝트 순위 = 프로젝트 안 최소 묶음 순위, 프로젝트 최근 시각 = 그
    * 순위인 묶음들의 최근 시각 중 가장 최근((묶음 순위 ASC, 묶음 최근 시각 DESC) 첫 값). 프로젝트 전체의 최근 시각을 쓰면 덜 급한 최근 행이 프로젝트를 위로
@@ -351,14 +352,16 @@ public class AiTaskRepository {
     var selfType = ISSUE_TYPE_DEF.as("ai_self_type");
     var parent = ISSUE.as("ai_parent");
     var parentType = ISSUE_TYPE_DEF.as("ai_parent_type");
-    // 묶음 키·에픽 번호 — 자기가 에픽이면 자기, 부모가 에픽이면 부모, 그 밖은 자기 id(에픽 번호 없음 → ELSE 생략으로 NULL).
-    // 묶음은 프로젝트 머리 아래에 그려지고 에픽 번호를 같은 프로젝트로 읽으므로, 다른 프로젝트 에픽(WP-1038)의 하위는 묶지 않고 단독 행으로 둔다.
+    // 묶음 키·에픽 번호 — 자기가 에픽이면 자기, 부모가 에픽이면 부모, 그 밖은 프로젝트마다 하나인 「에픽 없음」 묶음(WP-1211 — 에픽 번호
+    // 없음 → ELSE 생략으로 NULL). 「에픽 없음」 키는 음수 프로젝트 id 라 이슈 id(양수)와 겹치지 않고 머리 순서(묶음 키 = 자기 id)에도 걸리지
+    // 않는다. 묶음은 프로젝트 머리 아래에 그려지고 에픽 번호를 같은 프로젝트로 읽으므로, 다른 프로젝트 에픽(WP-1038)의 하위는 에픽 묶음에 넣지
+    // 않고 「에픽 없음」 묶음에 둔다(화면은 부모 칩을 남긴다).
     var sameProjectEpicParent =
         parentType.NAME.eq(EPIC).and(parent.PROJECT_ID.eq(ISSUE.PROJECT_ID));
     Field<Long> groupKey =
         when(selfType.NAME.eq(EPIC), ISSUE.ID)
             .when(sameProjectEpicParent, ISSUE.PARENT_ISSUE_ID)
-            .otherwise(ISSUE.ID);
+            .otherwise(ISSUE.PROJECT_ID.neg());
     Field<Integer> epicNumber =
         when(selfType.NAME.eq(EPIC), ISSUE.NUMBER).when(sameProjectEpicParent, parent.NUMBER);
 

@@ -79,9 +79,10 @@ public class AiTaskSearchService {
     List<IssueResponse> withGroups = new ArrayList<>(items.size());
     for (int i = 0; i < items.size(); i++) {
       AiTaskRow r = rows.get(i);
+      // 에픽 번호가 없으면 프로젝트의 「에픽 없음」 묶음(WP-1211) — 모든 행이 머리 줄 하나 아래에 놓인다.
       AiTaskGroup g =
           r.epicNumber() == null
-              ? null
+              ? AiTaskGroup.noEpic(r.groupSize())
               : new AiTaskGroup(
                   r.epicNumber(),
                   r.groupSize(),

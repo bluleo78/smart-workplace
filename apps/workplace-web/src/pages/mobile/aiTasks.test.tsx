@@ -52,6 +52,17 @@ describe('모바일 AI 위임 작업', () => {
     expect(screen.getByTestId('ai-row-413')).toBeInTheDocument()
   })
 
+  // WP-1211: 에픽 없는 행은 「에픽 없음 · n건」 머리 아래에 모인다.
+  test('에픽 없는 행은 「에픽 없음」 머리 아래에 모인다', async () => {
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(GROUPED_ROWS, { all: 8 }) })
+    const head = await screen.findByTestId('ai-no-epic-WP')
+    expect(head).toHaveTextContent(/^에픽 없음2건$/)
+    const order = [...document.querySelectorAll('[data-testid]')]
+      .map((e) => e.getAttribute('data-testid')!)
+      .filter((t) => /^ai-(row-\d+|epic-\d+|no-epic-[A-Z]+)$/.test(t))
+    expect(order.slice(-3)).toEqual(['ai-no-epic-WP', 'ai-row-430', 'ai-row-431'])
+  })
+
   // 완료 보기(WP-396): 모바일 메타 줄엔 칸 제목이 없어 시간 앞에 「종료」를 붙이고, 실패 배지는 옅은 위험 tint 다.
   test('완료 보기 행은 「종료 n분 전」과 실패 배지를 보인다', async () => {
     const failed = createIssue({

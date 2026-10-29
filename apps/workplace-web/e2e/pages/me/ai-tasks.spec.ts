@@ -195,8 +195,8 @@ test('에픽 묶음 하위 행 제목 칸이 20px 들여쓰기된다', { tag: '@
   await expect(titleCell).toHaveCSS('padding-left', '20px')
 })
 
-// 키·부모 제목 문구는 vitest — 여기서는 부모 제목이 폭 0 으로 숨지 않는지만 잰다.
-test('묶이지 않은 행의 부모 칩 제목이 폭 0 으로 숨지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+// 키·부모 제목 문구는 vitest — 여기서는 「에픽 없음」 묶음(WP-1211)에 들여쓴 행의 부모 제목이 폭 0 으로 숨지 않는지만 잰다.
+test('「에픽 없음」 묶음 행의 부모 칩 제목이 폭 0 으로 숨지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page, GROUPED_ROWS)
   await page.goto('/me/ai-tasks')
   await expect(page.getByTestId('issue-row-431-parent')).toContainText('WP-377')

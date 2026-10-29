@@ -393,8 +393,19 @@ describe('AI 위임 작업 묶음', () => {
     expect(within(screen.getByTestId('ai-epic-420')).queryByTestId('ai-row-420-state')).not.toBeInTheDocument()
   })
 
-  // 묶이지 않은 행의 부모 칩은 키 + 부모 제목(폭은 @layout E2E).
-  test('묶이지 않은 행의 부모 칩은 키를 먼저 보인다', async () => {
+  // WP-1211: 에픽 없는 행은 「에픽 없음 · n건」 머리 줄 하나 아래에 모이고(건수는 서버 size), 머리는 에픽 묶음처럼 행 앞에 온다.
+  test('에픽 없는 행은 「에픽 없음」 머리 줄 아래에 모인다', async () => {
+    renderAiTasks('/me/ai-tasks', GROUPED_ROWS)
+    const head = await screen.findByTestId('ai-no-epic-WP')
+    expect(head).toHaveTextContent(/^에픽 없음2건$/)
+    expect(screen.getByTestId('ai-no-epic-WP-count')).toHaveTextContent(/^2건$/)
+    expect(rowOrder(document.body, /^ai-(row-\d+|epic-\d+|no-epic-[A-Z]+)$/)).toEqual([
+      'ai-epic-412', 'ai-row-413', 'ai-row-414', 'ai-row-415', 'ai-epic-420', 'ai-row-421', 'ai-row-422', 'ai-no-epic-WP', 'ai-row-430', 'ai-row-431',
+    ])
+  })
+
+  // 「에픽 없음」 묶음 안 행의 부모 칩(비에픽·다른 프로젝트 에픽 부모)은 남고 키 + 부모 제목을 보인다(폭은 @layout E2E).
+  test('「에픽 없음」 묶음 안 행의 부모 칩은 남고 키를 먼저 보인다', async () => {
     renderAiTasks('/me/ai-tasks', GROUPED_ROWS)
     const parent = await screen.findByTestId('issue-row-431-parent')
     expect(parent).toHaveTextContent(/^WP-377.*AI 작업 기록/)

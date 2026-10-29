@@ -3,7 +3,7 @@
 // 행 순서는 서버가 준 급한 순 그대로(클라이언트 재정렬 금지 — 무한 스크롤 페이지 경계와 어긋나지 않게).
 // 프로젝트별 구간(WP-426): 서버가 프로젝트 단위로 이어 준 행을 머리 줄(배지·이름·키 · 건수) 아래에 묶어 그린다.
 // 에픽 묶음은 서버가 묶음 단위로 정렬해 연속으로 준다(WP-375) — 화면은 묶음 머리 + 들여쓴 하위 행으로 그린다.
-import { Fragment } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -28,8 +28,8 @@ import { isInactiveUser, withInactiveSuffix } from '@/lib/userStatus'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
-import { type EpicHead, groupAiTasks } from './aiTaskGroups'
-import { EpicHeadTitle } from './EpicHeadTitle'
+import { type AiTaskEntry, groupAiTasks } from './aiTaskGroups'
+import { EpicHeadTitle, NoEpicHeadTitle } from './EpicHeadTitle'
 
 const DASH = <span className="text-muted-foreground">—</span>
 
@@ -117,8 +117,9 @@ function AiCells({ it, tid }: { it: IssueResponse | null; tid: string }) {
   )
 }
 
-/** 일반 행 — inGroup 이면 제목 칸만 들여쓰고 에픽 부모 칩을 숨긴다(이슈 목록 groupBy epic 의 hideEpic 과 같은 규칙). */
-function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
+/** 일반 행 — inGroup 이면 제목 칸만 들여쓴다. 에픽 묶음 하위는 부모 칩을 숨기고(이슈 목록 groupBy epic 의 hideEpic 과 같은 규칙),
+ *  「에픽 없음」 묶음 하위(showParent — 다른 프로젝트 에픽·비에픽 부모, WP-1211)는 머리가 부모를 말하지 않으니 칩을 남긴다. */
+function AiTaskRow({ it, inGroup, showParent = !inGroup }: { it: IssueResponse; inGroup: boolean; showParent?: boolean }) {
   const tid = `ai-row-${it.id}`
   return (
     <tr className="row-divider hover:bg-accent" data-testid={tid}>
@@ -131,16 +132,21 @@ function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
           {it.type && (
             <span className="shrink-0"><IssueTypeBadge type={it.type} size="sm" iconOnly /></span>
           )}
-          {/* 부모 칩이 붙는 행은 제목을 줄이지 않고 칩 몫으로 9rem 을 남긴다(키 뒤에 부모 제목 앞 글자가 보이게). */}
+          {/* 부모 칩이 붙는 행은 제목을 줄이지 않고 칩 몫으로 9rem 을 남긴다(키 뒤에 부모 제목 앞 글자가 보이게).
+              들여쓴 「에픽 없음」 묶음 행(WP-1211)은 제목 최소 폭을 들여쓰기(1.25rem)만큼 줄여, 좁은 표에서도 칩 몫이 들여쓰기 전과 같게 남는다. */}
           <Link
             to={`/projects/${it.projectKey}/issues/${it.number}`}
-            className={cn('min-w-[6rem] truncate font-medium hover:underline', it.parent && !inGroup && 'shrink-0 max-w-[calc(100%-9rem)]')}
+            className={cn(
+              'truncate font-medium hover:underline',
+              it.parent && showParent && inGroup ? 'min-w-[4.75rem]' : 'min-w-[6rem]',
+              it.parent && showParent && 'shrink-0 max-w-[calc(100%-9rem)]',
+            )}
             title={it.title}
           >
             {it.title}
           </Link>
           <ChildProgress done={it.childDoneCount} total={it.childCount} testId={`${tid}-child-progress`} />
-          {it.parent && !inGroup && (
+          {it.parent && showParent && (
             <span className="ml-auto flex min-w-0 justify-end overflow-hidden">
               <ParentChip projectKey={it.projectKey} parent={it.parent} issueNumber={it.number} showKey />
             </span>
@@ -152,19 +158,27 @@ function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
   )
 }
 
-/** 에픽 묶음 머리 줄 — 앞 4칸(상태·우선순위·ID·제목)을 합쳐 「Layers · 키 · 제목 · └ n/m」, 뒤 6칸은 에픽 자신의 AI 작업(없으면 비움). */
-function EpicHeadRow({ epic, head }: { epic: EpicHead; head: IssueResponse | null }) {
-  const tid = `ai-epic-${epic.number}`
+/** 묶음 머리 줄 — 앞 4칸(상태·우선순위·ID·제목)을 합쳐 제목 조각(에픽 「Layers · 키 · 제목 · └ n/m」, 「에픽 없음」 「대시 · 에픽 없음 · n건」 — WP-1211),
+ *  뒤 6칸은 에픽 자신의 AI 작업(없거나 「에픽 없음」이면 비움). */
+function GroupHeadRow({ tid, head, children }: { tid: string; head: IssueResponse | null; children: ReactNode }) {
   return (
     <tr className="row-divider bg-muted/40" data-testid={tid}>
       <td colSpan={4} className="py-2">
-        <div className="flex min-w-0 items-center gap-1.5 pr-4">
-          <EpicHeadTitle epic={epic} tid={tid} />
-        </div>
+        <div className="flex min-w-0 items-center gap-1.5 pr-4">{children}</div>
       </td>
       <AiCells it={head} tid={head ? `ai-row-${head.id}` : tid} />
     </tr>
   )
+}
+
+/** 묶음 항목의 머리 줄 — 에픽 묶음은 에픽 제목, 「에픽 없음」 묶음은 건수. */
+function groupHead(e: Exclude<AiTaskEntry, { kind: 'row' }>) {
+  if (e.kind === 'noEpic') {
+    const tid = `ai-no-epic-${e.projectKey}`
+    return <GroupHeadRow tid={tid} head={null}><NoEpicHeadTitle size={e.size} tid={tid} /></GroupHeadRow>
+  }
+  const tid = `ai-epic-${e.epic.number}`
+  return <GroupHeadRow tid={tid} head={e.head}><EpicHeadTitle epic={e.epic} tid={tid} /></GroupHeadRow>
 }
 
 /** done — 완료 보기(WP-396): 마지막 칸이 마지막 보고 대신 종료 시각이라 칸 제목을 「종료」로 바꾼다. */
@@ -213,8 +227,8 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
                   <AiTaskRow key={e.issue.id} it={e.issue} inGroup={false} />
                 ) : (
                   <Fragment key={e.key}>
-                    <EpicHeadRow epic={e.epic} head={e.head} />
-                    {e.children.map((c) => <AiTaskRow key={c.id} it={c} inGroup />)}
+                    {groupHead(e)}
+                    {e.children.map((c) => <AiTaskRow key={c.id} it={c} inGroup showParent={e.kind === 'noEpic'} />)}
                   </Fragment>
                 ),
               )}
