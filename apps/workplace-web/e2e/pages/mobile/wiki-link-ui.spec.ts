@@ -137,4 +137,31 @@ test.describe('모바일 노트 링크 시트', () => {
     await popup.close()
     await expect(page.getByTestId('wiki-link-sheet')).toHaveCount(0)
   })
+
+  // 앱 링크 칩(WP-1147) — 편집 중 칩을 탭해도 노트를 떠나지 않는다. 주소에 건 링크면 시트를, 맨 주소면 커서를 그 자리에 둬 원래 주소를 드러낸다.
+  test('편집 중 앱 링크 칩을 탭하면 노트에 남아 링크 시트를 열거나 원래 주소를 드러낸다', { tag: '@input' }, async ({ authenticatedPage: page, baseURL }) => {
+    const card = { kind: 'ISSUE', title: '로그인 오류 고치기', issueKey: 'WP-12', statusName: '진행 중', statusCategory: 'IN_PROGRESS', assignees: [], priority: 'MID' }
+    for (const n of [12, 13]) {
+      await page.route(`**/api/v1/app-links/issues/WP/${n}`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...card, issueKey: `WP-${n}` }) }))
+    }
+    const linked = `${baseURL}/projects/WP/issues/12`
+    const bare = `${baseURL}/projects/WP/issues/13`
+    await open(page, `링크 [${linked}](${linked})\n\n맨 주소 ${bare} 끝`)
+    const editorUrl = page.url()
+    const chips = page.getByTestId('wiki-app-link-chip')
+    await expect(chips).toHaveCount(2)
+
+    await chips.first().tap()
+    await expect(page.getByTestId('wiki-link-sheet')).toBeVisible()
+    await expect(page.getByTestId('wiki-link-sheet-url')).toHaveText(linked)
+    expect(page.url()).toBe(editorUrl)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('wiki-link-sheet')).toHaveCount(0)
+
+    await page.getByTestId('wiki-app-link-chip').filter({ hasText: 'WP-13' }).tap()
+    await expect(page.getByTestId('wiki-app-link-chip').filter({ hasText: 'WP-13' })).toHaveCount(0)
+    await expect(page.locator('.ProseMirror p', { hasText: '맨 주소' })).toContainText(bare)
+    expect(page.url()).toBe(editorUrl)
+  })
 })

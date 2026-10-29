@@ -46,6 +46,7 @@ import type {
   WikiPageSummary,
   WikiSharePermission,
 } from '../../types/wiki'
+import { useWikiAppLinkChips } from './useWikiAppLinkChips'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
 import { useWikiLinkUi } from './useWikiLinkUi'
 import { useWikiRevisionHistory } from './useWikiRevisionHistory'
@@ -54,6 +55,7 @@ import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { insertAiMarkdown } from './wikiAiInsert'
 import { announceAiWriting } from './wikiAiPresence'
 import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
+import { chipSource } from './wikiAppLinkChips'
 import { showAwayToast } from './wikiAwayToast'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { wikiBodyColumnClass } from './wikiBodyWidth'
@@ -665,6 +667,9 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
     [page.id, session.doc],
   )
 
+  // 본문 앱 링크 칩의 카드를 보는 사람 권한으로 받는다(WP-1147).
+  useWikiAppLinkChips(editor)
+
   // 업로드 중 에디터가 재마운트돼도(셸 전환) 새 뷰에서 업로드를 마무리하도록 살아 있는 뷰를 등록한다.
   useEffect(() => {
     if (!editor) return
@@ -872,6 +877,24 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const { openSheetFromAnchor } = linkUi
   const onBodyClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // 앱 링크 칩(WP-1147) — 앱 안에서 이동한다(숨겨 둔 원래 링크의 새 탭 열기 대신). ⌘/Ctrl+클릭은 다른 링크처럼 새 탭.
+      const chip = (e.target as Element).closest('[data-app-link-to]')
+      if (chip) {
+        e.preventDefault()
+        // 터치 셸 편집 중엔 떠나지 않는다 — 화살표 키가 없어 칩이 가린 링크를 고치거나 지울 길이 없어진다. 주소에 건 링크면 다른 링크처럼
+        // 링크 시트(열기·고치기·해제)를, 맨 주소면 커서를 그 자리에 둬 원래 글자를 드러낸다.
+        const ed = editorRef.current
+        if (isTouchShell && ed?.isEditable) {
+          const { pos, anchor } = chipSource(ed.view, chip)
+          if (anchor) openSheetFromAnchor(anchor)
+          else ed.chain().focus().setTextSelection(pos + 1).run()
+          return
+        }
+        const to = chip.getAttribute('data-app-link-to')!
+        if (e.metaKey || e.ctrlKey) window.open(to, '_blank', 'noopener,noreferrer')
+        else navigate(to)
+        return
+      }
       // 터치 셸 편집 중 링크 탭 → 링크 시트(WP-312). 보기 전용이면 렌더된 <a target=_blank> 가 그대로 열린다.
       if (isTouchShell && editorRef.current?.isEditable) {
         const anchor = (e.target as Element).closest('.ProseMirror a[href]')
@@ -892,7 +915,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
       }
       onChipClick(e)
     },
-    [canEdit, onChipClick, isTouchShell, openSheetFromAnchor],
+    [canEdit, onChipClick, isTouchShell, openSheetFromAnchor, navigate],
   )
 
   // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀. 결과는 완료 시에만 삽입하므로 받은 부분 결과는 버려진다(WP-255).

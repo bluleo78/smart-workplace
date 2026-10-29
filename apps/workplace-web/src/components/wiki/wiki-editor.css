@@ -159,6 +159,12 @@
 .wiki-editor .ProseMirror[contenteditable='false'] a[href] {
   cursor: pointer;
 }
+/* 앱 링크 칩(WP-1147) — 칩도 <a href> 지만 본문 링크의 파란 밑줄 대신 멘션 칩처럼 accent 바탕·글자로 보이고, 편집 중에도 누를 수 있다. */
+.wiki-editor .ProseMirror a.wiki-app-link-chip {
+  color: var(--accent-foreground);
+  text-decoration: none;
+  cursor: pointer;
+}
 
 /* 돌아와 따라잡은 변경(WP-293) — 잠깐(2초 = CATCHUP_HIGHLIGHT_MS (collabResume.ts)) 옅은 정보색 바탕. 내 화면 전용 노드 데코레이션. 모션 줄이기면 서서히 사라지지 않고 바로 꺼진다.
    바탕이 글자 끝에 딱 붙지 않게 좌우로 0.375rem 더 칠한다 — 패딩·음수 마진은 목록(ul/ol) 들여쓰기를 지우고 글자를 다시 흘리므로,

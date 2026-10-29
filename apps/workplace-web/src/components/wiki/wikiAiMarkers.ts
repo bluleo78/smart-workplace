@@ -12,6 +12,7 @@ import { ySyncPluginKey } from 'y-prosemirror'
 import type { AwarenessStates } from '@/lib/collab/presence'
 import type { AwarenessChanges, PresenceAwareness } from '@/lib/collab/presenceAwareness'
 
+import { type LucideShapes, lucideSvg } from './lucideSvg'
 import { clampPos, resolveJson, ySyncOf } from './wikiCollabPosition'
 import { cancelFitTags, observeTagRoot, scheduleFitTags } from './wikiTagLayout'
 
@@ -62,7 +63,7 @@ export function markerPos(doc: PMNode, pos: number): number {
 }
 
 // lucide Sparkles(lucide-react 1.16 의 iconNode 그대로) — 위젯은 React 밖 DOM 이라 컴포넌트를 쓸 수 없다. 모양은 AiLabel 의 Sparkles 와 같다.
-const SPARKLES: Array<[string, Record<string, string>]> = [
+const SPARKLES: LucideShapes = [
   [
     'path',
     {
@@ -73,28 +74,6 @@ const SPARKLES: Array<[string, Record<string, string>]> = [
   ['path', { d: 'M22 4h-4' }],
   ['circle', { cx: '4', cy: '20', r: '2' }],
 ]
-
-function sparklesIcon(): SVGElement {
-  const ns = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(ns, 'svg')
-  const attrs: Record<string, string> = {
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': '2',
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
-    'aria-hidden': 'true',
-    class: 'wiki-ai-marker__icon',
-  }
-  for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v)
-  for (const [tag, a] of SPARKLES) {
-    const el = document.createElementNS(ns, tag)
-    for (const [k, v] of Object.entries(a)) el.setAttribute(k, v)
-    svg.append(el)
-  }
-  return svg
-}
 
 /** 위젯 DOM — 폭 0 의 캐럿 + 위쪽 태그(✦ 이름). 편집·선택 대상이 아니다. 이름이 비면 "AI" 로 보인다. key 는 쌓는 순서(fitTags)용(data-tag-key — wikiTagLayout). */
 function markerWidget(name: string, key: string): HTMLElement {
@@ -112,7 +91,7 @@ function markerWidget(name: string, key: string): HTMLElement {
   const label = document.createElement('span')
   label.className = 'wiki-ai-marker__name'
   label.textContent = shown
-  tag.append(sparklesIcon(), label)
+  tag.append(lucideSvg(SPARKLES, 'wiki-ai-marker__icon'), label)
   el.append(caret, tag)
   return el
 }

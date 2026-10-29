@@ -11,6 +11,9 @@ export type AppLink =
   | { kind: 'PAGE'; to: string; pageId: number }
   | { kind: 'FILE'; to: string; fileId: number }
 
+/** 앱 링크 종류의 화면 이름 — 채팅 카드와 노트 칩이 같은 말을 쓴다. */
+export const APP_LINK_KIND_LABEL: Record<AppLink['kind'], string> = { ISSUE: '이슈', PAGE: '노트', FILE: '파일' }
+
 // 마크다운 링크 [글](url) — 서버 LinkUrlExtractor.MD_LINK 와 같은 모양. 주소만 남겨 글 쪽 URL 과 한 토큰으로 붙지 않게 한다.
 const MD_LINK = /\[[^\]\n]*\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g
 
