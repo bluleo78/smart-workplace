@@ -8,6 +8,7 @@ import com.workplace.global.share.ProjectMembership;
 import com.workplace.project.dto.ProjectMemberGroupResponse;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -123,6 +124,21 @@ public class ProjectMemberGroupRepository {
         .where(PROJECT_MEMBER_GROUP.GROUP_ID.in(groupIds))
         .orderBy(PROJECT_MEMBER_GROUP.PROJECT_ID.asc())
         .fetch(PROJECT_MEMBER_GROUP.PROJECT_ID);
+  }
+
+  /**
+   * 주어진 부서 중 하나를 멤버로 둔 프로젝트별 멤버 부서 id(WP-1166) — 프로젝트 id 오름차순, 키마다 그 프로젝트에 실제로 들어 있는 부서만. 조직도 변경
+   * 알림이 프로젝트마다 자기 부서 행만 싣게 한다(이벤트에는 상위 부서도 함께 담겨 온다).
+   */
+  public Map<Long, List<Long>> findGroupIdsByProjectAmong(Collection<Long> groupIds) {
+    if (groupIds.isEmpty()) {
+      return Map.of();
+    }
+    return dsl.select(PROJECT_MEMBER_GROUP.PROJECT_ID, PROJECT_MEMBER_GROUP.GROUP_ID)
+        .from(PROJECT_MEMBER_GROUP)
+        .where(PROJECT_MEMBER_GROUP.GROUP_ID.in(groupIds))
+        .orderBy(PROJECT_MEMBER_GROUP.PROJECT_ID.asc(), PROJECT_MEMBER_GROUP.GROUP_ID.asc())
+        .fetchGroups(PROJECT_MEMBER_GROUP.PROJECT_ID, PROJECT_MEMBER_GROUP.GROUP_ID);
   }
 
   /**

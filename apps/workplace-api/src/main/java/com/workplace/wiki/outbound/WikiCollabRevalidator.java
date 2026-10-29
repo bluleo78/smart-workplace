@@ -7,6 +7,7 @@ import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageSpaceChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiShareAccessChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceChangedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceGrownEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,13 @@ public class WikiCollabRevalidator {
   @Async("wikiCollabRevalidateExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onSpaceAudienceChanged(WikiSpaceAudienceChangedEvent e) {
+    e.spaceIds().forEach(spaceId -> send(new RevalidateRequest(e.tenantId(), spaceId, null, null)));
+  }
+
+  /** 조직도 부서로 들어오는 사람이 늘기만 함(WP-1166) — 역할이 오를 수 있어 위와 같이 그 스페이스의 열린 연결을 모두 다시 판정한다. */
+  @Async("wikiCollabRevalidateExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onSpaceAudienceGrown(WikiSpaceAudienceGrownEvent e) {
     e.spaceIds().forEach(spaceId -> send(new RevalidateRequest(e.tenantId(), spaceId, null, null)));
   }
 

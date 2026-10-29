@@ -182,6 +182,28 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
   }
 
   /**
+   * 부서 역할은 직접 역할보다 <b>높을 때만</b> 싣는다(WP-1166) — 화면이 역할 서열을 따로 갖지 않고 값이 있을 때만 「조직으로 편집자」를 보이게. 직접
+   * EDITOR 에 부서도 EDITOR 면 null, 직접 VIEWER 에 부서 EDITOR 면 EDITOR. 여러 사람의 부서 역할을 한 번에 구해도 사람마다 맞다.
+   */
+  @Test
+  void member_list_carries_department_role_only_when_higher_than_direct() throws Exception {
+    spaceService.addMember(ownerId, spaceId, devMemberId, "VIEWER");
+    spaceService.addMember(ownerId, spaceId, backendMemberId, "EDITOR");
+    addGroup(devId, "EDITOR").andExpect(status().isCreated());
+
+    JsonNode list =
+        json(
+            call(get("/api/v1/drive/spaces/{id}/members", spaceId), ownerId)
+                .andExpect(status().isOk()));
+    Map<Long, JsonNode> byUser = new HashMap<>();
+    list.forEach(n -> byUser.put(n.get("userId").asLong(), n));
+    assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(backendMemberId).get("role").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(backendMemberId).get("departmentRole").isNull()).isTrue();
+    assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
+  }
+
+  /**
    * 실효 역할은 가장 높은 것 — 직접 VIEWER + 부서 EDITOR → EDITOR(목록에 한 번만). 거꾸로 직접 EDITOR + 부서 VIEWER 도 EDITOR.
    */
   @Test

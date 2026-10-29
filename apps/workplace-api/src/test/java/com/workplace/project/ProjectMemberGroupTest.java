@@ -464,6 +464,41 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
     assertThat(guard.viewerRole(row(team), backendMemberId)).isEqualTo("MEMBER");
   }
 
+  /**
+   * 조직도 부서에 사람이 들어오면(WP-1166) 그 부서(상위 포함)를 멤버로 둔 프로젝트에 부서 행 변경 알림(행위자 없음)이 한 번 나가고, 새로 들어온 사람이
+   * 수신자(실효 멤버)에 든다 — 멤버 창의 부서 인원과 새 사람의 사이드바가 다시 받게. 정리할 사람은 없어 멤버 제거 알림은 없다. 이미 들어 있는 사람을 다시 넣으면
+   * 알림도 없다.
+   */
+  @Test
+  void department_member_growth_notifies_member_groups() throws Exception {
+    TestFixtures.grantRole(dsl, ownerId, "ADMIN"); // 조직도 쓰기 권한
+    addGroup(team.key(), devId, null).andExpect(status().isCreated());
+    long newcomerId = human("newcomer");
+    actAs(ownerId);
+    appEvents.clear();
+
+    groupService.addMember(
+        ownerId, backendId, new com.workplace.user.dto.AddMemberRequest("MEMBER", newcomerId));
+
+    assertThat(resourceEvents("project-member")).isEmpty();
+    assertThat(resourceEvents("project-member-group"))
+        .singleElement()
+        .satisfies(
+            ev -> {
+              assertThat(ev.op()).isEqualTo("updated");
+              assertThat(ev.scopeId()).isEqualTo(team.id());
+              assertThat(ev.actorId()).isNull();
+              // 이벤트의 상위 부서가 아니라 이 프로젝트의 멤버 부서만 싣는다.
+              assertThat(ev.ids()).containsExactly(devId);
+            });
+    assertThat(guard.viewerRole(row(team), newcomerId)).isEqualTo("MEMBER");
+
+    appEvents.clear();
+    groupService.addMember(
+        ownerId, backendId, new com.workplace.user.dto.AddMemberRequest("MEMBER", newcomerId));
+    assertThat(resourceEvents("project-member-group")).isEmpty();
+  }
+
   /** 부서를 지우면 멤버 부서 행도 사라지고(CASCADE) 그 구성원은 더 열 수 없다. */
   @Test
   void deleting_department_removes_row() throws Exception {
