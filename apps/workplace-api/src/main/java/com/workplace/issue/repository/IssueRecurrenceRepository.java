@@ -148,12 +148,20 @@ public class IssueRecurrenceRepository {
             .orderBy(ISSUE_RECURRENCE.ISSUE_ID)
             .forUpdate()
             .fetch();
-    for (var row : rows) {
-      long issueId = row.value1();
-      if (row.value2() == null) delete(issueId);
-      else tombstone(issueId);
-    }
+    for (var row : rows) retireLocked(row.value1(), row.value2() != null);
     return rows.size();
+  }
+
+  /**
+   * 이미 잠근 반복 행 하나를 거둔다 — 결과를 기다리는 회차가 없으면 지우고, 있으면 묘비(deleted, 꺼짐)로 남긴다. 묘비의 그 회차 결과는 도착하면 이슈 챗에
+   * 남기고 그때 행을 지운다(끝내 안 오면 대기 시간 초과 정리가 지운다). 이슈 종료·담당 해제({@link #retire}), 사람의 삭제와 스케줄러의 안전망
+   * ({@code IssueRecurrenceService#cancel})이 이 한 규칙을 쓴다.
+   *
+   * @param running 결과를 기다리는 회차가 있는지(pending_run_id 가 있음)
+   */
+  public void retireLocked(long issueId, boolean running) {
+    if (running) tombstone(issueId);
+    else delete(issueId);
   }
 
   /**

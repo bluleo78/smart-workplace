@@ -496,6 +496,40 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
   }
 
+  @Test
+  void 회차_실행_중에_스케줄러가_담당_해제를_발견해도_묘비로_남기고_그_회차_결과는_받는다() throws Exception {
+    // WP-1116 — 닫기·담당 해제 서비스를 거치지 않고 어긋난 행(담당 행만 직접 빠짐)은 스케줄러의 안전망이 거둔다. 그때도 도는 회차의 결과는 받는다.
+    String runId = dispatchOnce();
+    assigneeRepository.remove(issueId, agent);
+    setNextRunAt(Instant.now().minusSeconds(30));
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(lastWorkState()).isEqualTo("CANCELED");
+
+    report(agent, runId, true, "해제 전 결과").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("해제 전 결과");
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+  }
+
+  @Test
+  void 회차_실행_중에_스케줄러가_지워진_작업을_발견해도_묘비로_남기고_결과가_안_오면_정리가_지운다() throws Exception {
+    // 서비스의 retire 를 거치지 않고 지워진 행(삭제 표시만 바뀜) — 스케줄러가 묘비로 남기고, 결과가 끝내 안 오면 대기 시간 초과 정리가 지운다.
+    dispatchOnce();
+    dsl.update(com.workplace.jooq.Tables.ISSUE)
+        .set(com.workplace.jooq.Tables.ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
+        .execute();
+    setNextRunAt(Instant.now().minusSeconds(30));
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+
+    recurrenceService.runDue(
+        Instant.now().plus(IssueRecurrenceService.PENDING_TIMEOUT).plusSeconds(60));
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(agentMessages()).isEmpty();
+  }
+
   // ───────────────────────────── 결과 보고 ─────────────────────────────
 
   @Test

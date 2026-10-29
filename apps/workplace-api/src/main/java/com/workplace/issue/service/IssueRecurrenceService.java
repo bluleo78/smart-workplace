@@ -176,23 +176,13 @@ public class IssueRecurrenceService {
   /**
    * 반복을 지운다(없어도 성공 — 멱등). 그 AI 의 진행 중 작업 기록은 취소로 끝낸다.
    *
-   * <p>회차가 도는 중(결과 대기)이면 행을 바로 지우지 않고 묘비(deleted, 꺼짐)로 남긴다 — 이미 시킨 회차의 결과는 사용자가 기다리는 것이라, 도착하면 이슈
-   * 챗에 남기고 그때 행을 지운다(결과가 끝내 안 오면 스케줄러의 대기 시간 초과 정리가 지운다). 묘비는 조회·목록·스케줄러에서 빠지고, 다시 저장하면 되살아난다.
+   * <p>회차가 도는 중이면 묘비로 남긴다({@link #cancel}). 묘비는 조회·목록·스케줄러에서 빠지고, 다시 저장하면 되살아난다. 이미 묘비인 반복은 다시 거두지
+   * 않는다 — 다시 지우기(재시도 포함)가 그 AI 의 작업 기록을 또 취소하지 않게.
    */
   public void delete(long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);
     var issue = issue(project, projectKey, number);
-    repository
-        .findForUpdate(issue.id())
-        .ifPresent(
-            row -> {
-              if (row.pendingRunId() == null) {
-                cancel(row);
-                return;
-              }
-              repository.tombstone(issue.id());
-              cancelWork(issue.id(), row.agentUserId());
-            });
+    repository.findForUpdate(issue.id()).filter(row -> !row.deleted()).ifPresent(this::cancel);
   }
 
   // ───────────────────────────── 스케줄러 ─────────────────────────────
@@ -204,7 +194,8 @@ public class IssueRecurrenceService {
    *   <li>대기 시간 초과 정리 — 보낸 지 {@link #PENDING_TIMEOUT} 이 지나도록 결과가 오지 않은 회차를 실패로 세고(「이전 회차 결과를 받지
    *       못했습니다」) 작업을 「다음 회차 대기」로 되돌린다. 묘비는 지운다.
    *   <li>회차 실행 — 회차 시각이 된 반복마다 이슈 상태·담당을 확인한 뒤 회차 이벤트를 발행하고(커밋 뒤 ai-agent 로 나간다), 다음 회차를 「지금 이후의 첫
-   *       회차」로 옮기고, AI 작업을 「작업 중」으로 바꾼다. 이슈가 끝났거나(삭제 포함) 담당에서 AI 가 빠졌으면 회차를 건너뛰고 반복을 지운다.
+   *       회차」로 옮기고, AI 작업을 「작업 중」으로 바꾼다. 이슈가 끝났거나(삭제 포함) 담당에서 AI 가 빠졌으면 회차를 건너뛰고 반복을 거둔다({@link
+   *       #cancel} — 도는 회차가 있으면 묘비).
    * </ol>
    *
    * 보낸 회차 수를 돌려준다.
@@ -249,6 +240,8 @@ public class IssueRecurrenceService {
     ProjectRow project =
         issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
     if (issue == null || project == null || !live(issue, row.agentUserId())) {
+      // 정상 경로는 닫기·담당 해제 때 이미 거뒀다(WP-1114). 여기는 다른 경로로 어긋난 행의 안전망이다 — 회차가 도는 중이면 사람이 지울 때처럼
+      // 묘비로 남겨 그 회차 결과는 글로 받는다(WP-1116).
       log.info("[recurrence] 반복 해제 — 이슈 종료·삭제 또는 담당 해제. issueId={}", row.issueId());
       cancel(row);
       return false;
@@ -355,8 +348,11 @@ public class IssueRecurrenceService {
 
     if (row.deleted()) {
       // 지운 반복의 마지막 회차 결과 — 사용자가 시킨 회차라 글은 남기고, 작업 기록(지울 때 취소됨)은 건드리지 않는다.
+      // 프로젝트에서 빠져 더는 볼 수 없는 AI 이름으로는 글을 남길 수 없다(챗이 거절해 보고 전체가 되돌려지고 묘비가 남는다) — 그때는 지우기만 한다.
       repository.delete(issueId);
-      if (issue != null && project != null) post(agentId, project, issue, body);
+      if (issue != null && project != null && accessGuard.canRead(project, agentId)) {
+        post(agentId, project, issue, body);
+      }
       return 0;
     }
 
@@ -413,9 +409,13 @@ public class IssueRecurrenceService {
     }
   }
 
-  /** 반복을 지우고 그 AI 의 작업 기록을 취소로 끝낸다. */
+  /**
+   * 잠근 반복 행을 거두고 그 AI 의 작업 기록을 취소로 끝낸다 — 지울지 묘비로 남길지는 {@link
+   * IssueRecurrenceRepository#retireLocked} 한 규칙이다. 사람이 지울 때({@link #delete})와 스케줄러가 끝난 이슈·담당 해제를
+   * 발견했을 때 같은 규칙을 쓴다(WP-1116 — 스케줄러 쪽은 행을 바로 지워 그 회차 결과가 버려졌다).
+   */
   private void cancel(IssueRecurrenceRow row) {
-    repository.delete(row.issueId());
+    repository.retireLocked(row.issueId(), row.pendingRunId() != null);
     cancelWork(row.issueId(), row.agentUserId());
   }
 
