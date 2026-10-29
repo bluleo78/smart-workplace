@@ -19,7 +19,7 @@ import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
-import { columnCellClass, type ColumnDefs, type IssueListColumnDef } from './issueListColumnDefs';
+import { type ColumnDefs, type IssueListColumnDef } from './issueListColumnDefs';
 import { IssueRowMobileCell } from './IssueRowMobileCell';
 import { RowMenuButton } from './RowMenuButton';
 
@@ -159,16 +159,16 @@ export const IssueRow = memo(function IssueRow({
         </td>
         {/* ID 왼쪽 선택 열(우선순위) — 열 정의(issueListColumnDefs)가 정한다. */}
         {columns.left.map((c) => renderCell(c, it, projectKey))}
+        {/* 칸 폭(7rem)은 table-fixed 가 지킨다 — 긴 키(10자)·큰 번호면 키 글자를 말줄임해 제목 칸을 덮지 않는다(WP-1143). */}
         <td className="font-mono text-muted-foreground text-xs">
-          <span className="flex items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5">
             {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
-            <span>{projectKey}-{it.number}</span>
+            <span className="min-w-0 truncate" data-testid={`issue-row-${it.number}-key`}>{projectKey}-{it.number}</span>
           </span>
         </td>
         {/* pr-2 — 말줄임된 제목이 다음 칸(담당자 아바타 등)에 붙지 않게 간격을 둔다.
-            w-full max-w-0 — 자동 레이아웃 표에서 nowrap 제목의 최소 폭이 글자 폭 전체라 긴 제목이 표를 가로로 넘기던 것을 막는다
-            (셀이 남은 폭에 맞춰 줄어야 안쪽 flex 의 truncate/min-w-0 가 동작, WP-194). */}
-        <td className="w-full max-w-0 pr-2" data-testid={`issue-row-${it.number}-title-cell`}>
+            칸 폭은 표(table-fixed)가 남은 폭으로 정한다 — 폭을 주지 않은 제목 칸이 나머지를 가져간다(WP-1143, 이전엔 자동 레이아웃용 w-full max-w-0). */}
+        <td className="pr-2" data-testid={`issue-row-${it.number}-title-cell`}>
           {/* @container — 레이블 노출을 뷰포트가 아니라 제목 칸 폭으로 정한다(에픽 패널을 열고 닫으면 같은 창에서도 칸 폭이 바뀐다, WP-505). */}
           <div className="@container">
             <div className="flex min-w-0 items-center gap-1.5 font-medium">
@@ -243,7 +243,8 @@ function renderCell(def: IssueListColumnDef, issue: IssueResponse, projectKey: s
   return (
     <td
       key={def.key}
-      className={columnCellClass(def, issue)}
+      // 칸 폭은 머리 행이 정한다(table-fixed, WP-1143) — 셀에는 값에 따른 톤만.
+      className={def.cellClass?.(issue)}
       title={def.cellTitle?.(issue)}
       data-testid={def.testId?.(issue.number)}
     >

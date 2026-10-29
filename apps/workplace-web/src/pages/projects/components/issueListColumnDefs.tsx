@@ -28,24 +28,15 @@ import { IssueClosedDate } from './IssueClosedDate';
 export type ColumnWidthRem = 2.25 | 5 | 7 | 8;
 
 /**
- * 폭(rem) → 헤더 칸 클래스 — `w-*`(table-fixed 사이클 구간) + `min-w-*`(자동 레이아웃 평면 목록 하한).
- * 폭의 원천은 rem 하나이고 클래스는 여기서만 얻는다. Tailwind 는 소스의 글자 그대로를 읽으므로 계산하지 않고 정적 문자열로 둔다.
+ * 폭(rem) → 헤더 칸 클래스 `w-*` — 평면 목록·사이클 구간 표 모두 table-fixed 라 머리 행의 이 폭이 곧 열 폭이다.
+ * 긴 값·헤더 이름·칩이 칸을 넓히지 못한다(WP-1143 — 자동 레이아웃에서 걸던 칸 상한 max-width 는 표 칸에선 명세상 정의되지 않아
+ * 브라우저마다 달랐다). 폭의 원천은 rem 하나이고 클래스는 여기서만 얻는다. Tailwind 는 소스의 글자 그대로를 읽으므로 정적 문자열로 둔다.
  */
 export const WIDTH_CLASS: Record<ColumnWidthRem, string> = {
-  2.25: 'w-9 min-w-9',
-  5: 'w-20 min-w-20',
-  7: 'w-28 min-w-28',
-  8: 'w-32 min-w-32',
-};
-
-/**
- * 폭(rem) → 셀(td) 폭 상한 — 글자를 말줄임하는 열(텍스트·날짜, 7·8rem)만. 평면 목록 표는 자동 레이아웃이라 헤더의 w-* 는 하한일 뿐,
- * 상한이 없으면 긴 값(텍스트 커스텀 필드·마일스톤·지난해 완료일)의 한 줄 폭만큼 칸이 넓어져 뒤 열이 화면 밖으로 밀린다(WP-1091).
- * 아이콘·아바타 열(2.25·5rem)은 내용 폭이 정해져 있고, 담당자 「+N」 은 칸 폭을 조금 넘을 수 있어 상한을 걸지 않는다(걸면 다음 칸을 덮는다).
- */
-export const CELL_MAX_WIDTH_CLASS: Partial<Record<ColumnWidthRem, string>> = {
-  7: 'max-w-28',
-  8: 'max-w-32',
+  2.25: 'w-9',
+  5: 'w-20',
+  7: 'w-28',
+  8: 'w-32',
 };
 
 /** 선택 열 하나의 정의. */
@@ -58,7 +49,7 @@ export interface IssueListColumnDef {
   /** 'left' = ID 왼쪽(우선순위만), 'right' = 제목 뒤. */
   side: 'left' | 'right';
   /**
-   * 헤더 칸 폭(rem) — 칸 클래스는 WIDTH_CLASS 에서 얻는다. 사이클 구간 표(table-fixed)는 열이 늘면 칸 합이 화면보다 넓어져도
+   * 헤더 칸 폭(rem) — 칸 클래스는 WIDTH_CLASS 에서 얻는다. 목록 표(평면·사이클 구간 모두 table-fixed)는 열이 늘면 칸 합이 화면보다 넓어져도
    * 표가 넓어지지 않고 제목만 0 으로 줄어든다. 그래서 목록 전체 최소 폭을 열 폭 합으로 잡아 가로 스크롤시킨다(issueListMinWidthRem).
    */
   widthRem: ColumnWidthRem;
@@ -77,8 +68,8 @@ export interface IssueListColumnDef {
 
 /**
  * 항상 보이는 고정 열과 폭(rem) — 가로 스크롤 하한(issueListMinWidthRem)·그룹 헤더 colSpan(issueListColumnCount)의 기준.
- * ID 는 sm 이상 폭(w-28), 제목은 기본 밖의 열이 켜졌을 때의 최소 폭(min-w-64)이다.
- * 헤더 칸 클래스는 화면마다 달라(평면 목록은 min-w-* 를 함께, 사이클 구간은 w-* 만, ID 는 반응형) 각 화면이 직접 쓴다.
+ * ID 는 sm 이상 폭(w-28), 제목은 기본 밖의 열이 켜졌을 때의 최소 폭(16rem — 표 최소 폭으로 지킨다)이다.
+ * 헤더 칸 클래스는 화면마다 달라(ID 머리 들여쓰기·여백 등) 각 화면이 직접 쓴다.
  */
 const FIXED_COLUMNS = [
   { key: 'select', widthRem: 2.25 },
@@ -139,7 +130,7 @@ function customFieldTitle(entry: IssueFieldEntry | undefined): string | undefine
  * 다음 칸으로 번진다. 말줄임하고 정확한 값은 셀 툴팁(title)으로 본다.
  */
 const DATE_CELL = 'overflow-hidden text-ellipsis whitespace-nowrap pr-3 text-muted-foreground';
-/** 텍스트 칸 공통 — 칸 폭 안에서 말줄임(안쪽 span 이 truncate). 칸 폭 상한은 columnCellClass 가 건다. */
+/** 텍스트 칸 공통 — 칸 폭 안에서 말줄임(안쪽 span 이 truncate). 칸 폭은 머리 행이 정한다(table-fixed). */
 const TEXT_CELL = 'pr-3';
 
 /** 셀 testid — `issue-row-{n}-{key}`. */
@@ -183,7 +174,8 @@ function builtinDef(key: BuiltinColumnKey): IssueListColumnDef {
     case 'assignee':
       return {
         key, header: '담당자', side: 'right', widthRem: 5, testId: tid,
-        // 제목 칸이 w-full 로 남은 폭을 가져가므로 whitespace-nowrap·pr-3 으로 「+N」 이 다음 칸에 붙지 않게 한다(WP-194).
+        // whitespace-nowrap — 아바타·「+N」 이 줄바꿈되지 않게. 아바타 셋 + 「+NN」(약 4.8rem)은 칸 오른쪽 여백(pr-3) 안에서 끝나 다음 칸을 덮지 않는다
+        // (칸 폭 5rem 은 table-fixed 가 지킨다, WP-1143). 칸을 overflow-hidden 으로 자르지 않는다 — 첫 아바타의 ring 이 왼쪽에서 잘린다.
         cellClass: () => 'whitespace-nowrap pr-3',
         cell: (it) => (
           <span className="flex items-center -space-x-1">
@@ -375,15 +367,17 @@ export function columnHeadCells(
 ): ReactNode[] {
   return defs.map((d) => (
     <th key={d.key} className={cn(WIDTH_CLASS[d.widthRem], thClass)}>
-      <span className={cn((d.srOnlyHeader || hideLabel) && 'sr-only')}>{d.header}</span>
+      {/* 긴 필드 이름(띄어쓰기 없는 것 포함)은 칸 안에서 말줄임하고 전체는 툴팁으로 본다 — 칸 폭은 table-fixed 가 지킨다(WP-1143).
+          툴팁은 이름이 사람 손에 달린 커스텀 필드 열에만 — 짧은 고정 문구(마감·담당자)에 같은 글자를 또 띄우지 않는다. */}
+      {d.srOnlyHeader || hideLabel ? (
+        <span className="sr-only">{d.header}</span>
+      ) : (
+        <span className="block truncate" title={d.key.startsWith('cf') ? d.header : undefined}>{d.header}</span>
+      )}
     </th>
   ));
 }
 
-/** 셀(td) 클래스 — 열 폭에서 얻는 폭 상한 + 값에 따른 톤(cellClass). 평면 목록·사이클 구간 행이 모두 이것으로 칸을 그린다. */
-export function columnCellClass(def: IssueListColumnDef, issue: IssueResponse): string {
-  return cn(CELL_MAX_WIDTH_CLASS[def.widthRem], def.cellClass?.(issue));
-}
 
 /** 표의 전체 열 수 — 고정 열(체크·상태·ID·제목·⋯) + 선택 열. 그룹 헤더 colSpan 에 쓴다. */
 export function issueListColumnCount(defs: IssueListColumnDef[]): number {
@@ -399,7 +393,7 @@ export function hasExtraColumns(defs: IssueListColumnDef[]): boolean {
 }
 
 /**
- * 표 최소 폭(rem) — 고정 열(제목 16rem 포함) + 선택 열 폭 합. 사이클 구간 목록(table-fixed)의 가로 스크롤 하한.
+ * 표 최소 폭(rem) — 고정 열(제목 16rem 포함) + 선택 열 폭 합. 평면·사이클 구간 목록(table-fixed)의 가로 스크롤 하한.
  * 기본 열 밖의 열이 없으면 null — 지금처럼 제목이 남은 폭에 맞춰 줄어든다(hasExtraColumns).
  */
 export function issueListMinWidthRem(defs: IssueListColumnDef[]): number | null {

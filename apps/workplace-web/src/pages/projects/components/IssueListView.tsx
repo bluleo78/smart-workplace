@@ -32,7 +32,7 @@ import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
-import { columnHeadCells, hasExtraColumns, issueListColumnCount, useColumnDefs } from './issueListColumnDefs';
+import { columnHeadCells, issueListColumnCount, issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
 import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 
@@ -69,6 +69,8 @@ export function IssueListView({
   const isMobile = useIsMobile();
   // 선택 열 정의 — 커스텀 필드 열이 있을 때만 필드 정의를 불러온다(기본 열 화면은 요청이 늘지 않게).
   const columnDefs = useColumnDefs(projectKey, columns);
+  // 표 최소 폭 — 기본 밖의 열을 켰을 때만(없으면 null, 제목이 남은 폭에 맞춰 줄어든다).
+  const minWidthRem = issueListMinWidthRem(columnDefs.defs);
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
   // 저장한 뷰·필터를 바꾸면 새 결과가 올 때까지 이전 목록을 흐리게 둔다(WP-1049) — 스켈레톤은 처음 열 때만.
   const searchQuery = useIssueSearchKeepingPrevious(projectKey, scopedFilters);
@@ -221,16 +223,21 @@ export function IssueListView({
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
       <RefreshingResults refreshing={refreshing} className="min-h-0 flex-1">
         <div ref={setScrollEl} className="h-full overflow-auto" data-testid="issue-list-scroll">
-          {/* 모바일은 table-fixed — 자동 레이아웃이면 한 칸 행의 메타 줄(nowrap truncate)의 min-content 가
-              열 너비가 되어 표가 컨테이너보다 넓어지고, 긴 제목이 오른쪽에서 잘린다(WP-194). 데스크톱은 그대로. */}
-          <table className={cn('w-full text-sm', isMobile && 'table-fixed')} role="table">
+          {/* table-fixed — 칸 폭을 머리 행의 열 폭이 정하고 내용(긴 값·헤더 이름·칩)이 넓히지 못한다(WP-1143).
+              자동 레이아웃에선 열 폭이 하한일 뿐이라 칸 상한(max-width)에 기대야 했는데, 표 칸의 max-width 는 명세상 정의되지 않아
+              브라우저마다 다르다. 모바일은 한 칸 행의 메타 줄(nowrap truncate)이 표를 넓히던 것을 같은 이유로 막는다(WP-194).
+              기본 밖의 열을 켜면 제목이 16rem 아래로 줄지 않게 표 최소 폭을 열 폭 합으로 잡아 가로 스크롤시킨다(사이클 구간 목록과 같다). */}
+          <table
+            className="w-full table-fixed text-sm"
+            style={isMobile || minWidthRem == null ? undefined : { minWidth: `${minWidthRem}rem` }}
+            role="table"
+          >
             {!isMobile && (
               <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
-                {/* min-w-* — 제목 칸이 w-full(IssueRow)로 남은 폭을 가져가면 자동 레이아웃 표는 다른 칸의 w-* 를 무시하고
-                    최소 내용폭까지 줄인다(ID 가 제목에 붙음). min-width 로 기존 칸 폭을 하한으로 고정한다(WP-194). */}
+                {/* 이 행의 w-* 가 열 폭이다(table-fixed) — 폭을 주지 않은 제목 칸이 남은 폭을 가져간다. */}
                 {/* 열 머리 모양은 공용 LIST_HEAD_CELL_CLASS — 사이클 구간 목록 헤더·내 작업과 같다(WP-919). */}
                 <tr>
-                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}>
+                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9')}>
                     <SelectAllCheckbox
                       checked={allSelected}
                       indeterminate={someSelected}
@@ -241,16 +248,15 @@ export function IssueListView({
                     />
                   </th>
                   {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">상태</span></th>
+                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9')}><span className="sr-only">상태</span></th>
                   {/* 선택 열(우선순위 등)은 열 정의(issueListColumnDefs)에서 — ID 왼쪽 / 제목 뒤 순서로 그린다(WP-270). */}
                   {columnHeadCells(columnDefs.left, { thClass: LIST_HEAD_CELL_CLASS })}
                   {/* 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다. */}
-                  <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28 min-w-28')}>ID</th>
-                  {/* min-w-64 — 기본 밖의 열을 켜면 제목이 안 보일 만큼 줄지 않게 하한을 두고, 넘치면 표가 가로 스크롤된다.
-                      기본 열 구성에선 걸지 않는다 — 좁은 데스크톱(1024px)에서 지금처럼 가로 스크롤 없이 제목이 줄어든다. */}
-                  <th className={cn(LIST_HEAD_CELL_CLASS, hasExtraColumns(columnDefs.defs) && 'min-w-64')}>제목</th>
+                  <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28')}>ID</th>
+                  {/* 제목 하한(16rem)은 표 최소 폭(위 style)이 지킨다 — 기본 열 구성에선 걸지 않아 좁은 데스크톱(1024px)에서 가로 스크롤 없이 제목이 줄어든다. */}
+                  <th className={LIST_HEAD_CELL_CLASS}>제목</th>
                   {columnHeadCells(columnDefs.right, { thClass: LIST_HEAD_CELL_CLASS })}
-                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8 min-w-8')}><span className="sr-only">작업</span></th>
+                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8')}><span className="sr-only">작업</span></th>
                 </tr>
               </thead>
             )}
