@@ -92,6 +92,18 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
 
   @AfterEach
   void cleanup() {
+    // 정리 중 하나가 실패해도 테넌트 문맥·시계는 되돌린다 — 같은 스레드의 다음 테스트로 새지 않게(WP-1177).
+    try {
+      cleanupData();
+    } finally {
+      TenantContext.clear();
+      // 시계를 고정한 테스트가 다음 테스트로 새지 않게 되돌린다.
+      scheduler.useClock(Clock.systemUTC());
+      queryService.useClock(Clock.systemUTC());
+    }
+  }
+
+  private void cleanupData() {
     cleanupInTenant(tenantId, workspaceAssistantRepo::deleteAssistant);
     cleanupInTenant(
         tenantId,
@@ -120,10 +132,22 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
             dsl.deleteFrom(USER).where(USER.ID.eq(id)).execute();
           }
         });
-    TenantContext.clear();
-    // 시계를 고정한 테스트가 다음 테스트로 새지 않게 되돌린다.
-    scheduler.useClock(Clock.systemUTC());
-    queryService.useClock(Clock.systemUTC());
+  }
+
+  /** 저장 행을 그대로 넣는다(테넌트 문맥 안에서). */
+  private void storeRows(long userId, List<PriorityItemRow> rows) {
+    callInTenant(
+        tenantId,
+        () -> {
+          repo.replaceForUser(userId, rows);
+          return null;
+        });
+  }
+
+  /** 지금은 후보가 아닌(없는 이슈를 가리키는) 이슈 마감 행 — 정리되면 사라져야 한다. */
+  private static PriorityItemRow staleIssueRow() {
+    return new PriorityItemRow(
+        PriorityItemRow.ISSUE_DUE, "987654321", "이미 끝난 이슈", "/x", 90, 90, "마감 지남");
   }
 
   /** 후보 있는 HUMAN 사용자 1명 생성 — 테넌트 멤버십 + 개인 프로젝트 + 오늘까지 마감인(지남) 이슈 하나(assignee=본인). */
@@ -315,6 +339,126 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     verify(aiClient, times(AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE)).classify(any());
   }
 
+  @Test
+  @DisplayName("ai-agent 불가로 분류를 멈춘 뒤의 사용자도 끝난 항목은 정리된다(WP-1177)")
+  void ai_agent_불가로_분류를_멈춰도_남은_사용자의_끝난_항목은_정리된다() {
+    for (int n = 0; n < 3; n++) {
+      seedUserWithOverdueIssue("aaa-out" + n);
+    }
+    // 네 번째(이름순 마지막) 사용자 — 분류는 건너뛰지만, 저장해 둔 끝난 이슈 행은 지워지고 지금 후보 행은 남아야 한다.
+    long lastIssueId = seedUserWithOverdueIssue("aaa-out9");
+    long lastUser = userIdOfIssue(lastIssueId);
+    PriorityItemRow current =
+        new PriorityItemRow(
+            PriorityItemRow.ISSUE_DUE, String.valueOf(lastIssueId), "지금 후보", "/x", 60, 60, "마감 지남");
+    storeRows(lastUser, List.of(staleIssueRow(), current));
+    when(aiClient.classify(any()))
+        .thenThrow(
+            new PriorityAiException(
+                "AI 우선순위 분류 요청에 실패했어요.", new ResourceAccessException("Connection refused")));
+
+    scheduler.runOnce();
+
+    verify(aiClient, times(AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE)).classify(any());
+    assertThat(repo.findForUser(lastUser))
+        .extracting(PriorityItemRow::sourceId)
+        .containsExactly(String.valueOf(lastIssueId));
+  }
+
+  @Test
+  @DisplayName("ai-agent 호출이 실패한 사용자도 끝난 항목은 정리되고 지금 후보의 이전 점수는 남는다(WP-1177)")
+  void ai_호출이_실패해도_끝난_항목은_정리된다() {
+    long issueId = seedUserWithOverdueIssue("aaa-fail");
+    long userId = userIdOfIssue(issueId);
+    storeRows(
+        userId,
+        List.of(
+            staleIssueRow(),
+            new PriorityItemRow(
+                PriorityItemRow.ISSUE_DUE,
+                String.valueOf(issueId),
+                "지금 후보",
+                "/x",
+                60,
+                60,
+                "마감 지남")));
+    // 사용자 한 명만의 실패(잘못된 응답 등) — 다음 사용자로 넘어가는 경로.
+    when(aiClient.classify(any())).thenThrow(new IllegalStateException("잘못된 응답"));
+
+    scheduler.runOnce();
+
+    assertThat(repo.findForUser(userId))
+        .singleElement()
+        .satisfies(
+            r -> {
+              assertThat(r.sourceId()).isEqualTo(String.valueOf(issueId));
+              assertThat(r.importanceScore()).isEqualTo(60);
+            });
+  }
+
+  @Test
+  @DisplayName("비서가 없어 분류하지 않는 사용자도 끝난 항목은 정리된다(WP-1177)")
+  void 비서가_없어도_끝난_항목은_정리된다() {
+    long issueId = seedUserWithOverdueIssue("aaa-noasst");
+    long userId = userIdOfIssue(issueId);
+    storeRows(userId, List.of(staleIssueRow()));
+    // 공용 비서를 지워 개인·공용 비서가 모두 없게 한다.
+    cleanupInTenant(tenantId, workspaceAssistantRepo::deleteAssistant);
+
+    scheduler.runOnce();
+
+    verify(aiClient, times(0)).classify(any());
+    assertThat(repo.findForUser(userId)).isEmpty();
+  }
+
+  @Test
+  @DisplayName("이슈 후보가 상한에 걸리면 마감이 오늘에 가까운 이슈부터 남는다 — 오래 손대지 않은 오늘 마감 이슈도 빠지지 않는다(WP-1177)")
+  void 이슈_후보는_마감이_가까운_순으로_상한까지_고른다() {
+    long firstId = seedUserWithOverdueIssue("aaa-order");
+    long userId = userIdOfIssue(firstId);
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(firstId))
+            .fetchOne(ISSUE.PROJECT_ID);
+    // 오늘 마감이지만 한 달 동안 손대지 않은 이슈 — updated_at 순이면 가장 뒤라 상한(20)에서 잘렸다.
+    IssueRow dueToday = insertDueIssue(projectId, 2, userId, "오래된 오늘 마감", kstToday());
+    baseDsl
+        .update(ISSUE)
+        .set(ISSUE.UPDATED_AT, java.time.OffsetDateTime.now().minusDays(30))
+        .where(ISSUE.ID.eq(dueToday.id()))
+        .execute();
+    // 그보다 최근에 고친, 열흘 전 마감 이슈 20개.
+    for (int n = 3; n <= 22; n++) {
+      insertDueIssue(projectId, n, userId, "열흘 전 마감 " + n, kstToday().minusDays(10));
+    }
+    when(aiClient.classify(any())).thenReturn(new PriorityClassifyResult(List.of()));
+
+    scheduler.runOnce();
+
+    ArgumentCaptor<PriorityClassifyRequest> captor =
+        ArgumentCaptor.forClass(PriorityClassifyRequest.class);
+    verify(aiClient, atLeastOnce()).classify(captor.capture());
+    List<String> issueCandidates =
+        captor.getAllValues().stream()
+            .flatMap(r -> r.items().stream())
+            .filter(c -> PriorityItemRow.ISSUE_DUE.equals(c.sourceType()))
+            .map(PriorityClassifyRequest.CandidateLine::sourceId)
+            // 다른 사용자(다른 테스트 잔여)의 후보는 뺀다 — 이 프로젝트의 이슈만 본다.
+            .filter(
+                id ->
+                    dsl.fetchExists(
+                        dsl.selectOne()
+                            .from(ISSUE)
+                            .where(ISSUE.ID.eq(Long.parseLong(id)))
+                            .and(ISSUE.PROJECT_ID.eq(projectId))))
+            .toList();
+    assertThat(issueCandidates)
+        .contains(String.valueOf(dueToday.id()))
+        // 오늘 마감(1) + 어제 마감(시드 1) + 열흘 전 마감 18 = 상한 20 — 열흘 전 마감 중 둘이 잘린다.
+        .hasSize(20);
+  }
+
   /** 시드한 issue 의 reporter(=담당자=시드 시 지정한 userId) 를 되짚어 찾는다. */
   private long userIdOfIssue(long issueId) {
     return dsl.select(com.workplace.jooq.Tables.ISSUE.REPORTER_ID)
@@ -454,8 +598,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
 
     // 다음 배치 전(또는 ai-agent 장애로 배치가 멈춘 동안) — 저장된 다섯 행이 그대로지만, 읽는 쪽은 지금 상태로 걸러 열린 이슈 하나만 보인다.
     assertThat(repo.findForUser(userId)).hasSize(5);
-    TenantContext.set(tenantId);
-    assertThat(queryService.listForUser(userId))
+    assertThat(callInTenant(tenantId, () -> queryService.listForUser(userId)))
         .extracting(r -> r.sourceId())
         .containsExactly(String.valueOf(openId));
 
@@ -502,8 +645,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
         .satisfies(c -> assertThat(c.context()).isEqualTo("오늘 마감"));
 
     // 저장된 행도 읽을 때 빠지지 않는다.
-    TenantContext.set(tenantId);
-    repo.replaceForUser(
+    storeRows(
         userId,
         List.of(
             new PriorityItemRow(
@@ -514,7 +656,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
                 50,
                 50,
                 "오늘")));
-    assertThat(queryService.listForUser(userId))
+    assertThat(callInTenant(tenantId, () -> queryService.listForUser(userId)))
         .extracting(r -> r.sourceId())
         .containsExactly(String.valueOf(dueToday.id()));
   }
@@ -534,8 +676,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     for (int n = 2; n <= 21; n++) {
       ids.add(insertOverdueIssue(projectId, n, userId, "마감 지난 이슈 " + n).id());
     }
-    TenantContext.set(tenantId);
-    repo.replaceForUser(
+    storeRows(
         userId,
         ids.stream()
             .map(
@@ -549,7 +690,6 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
                         50,
                         "마감 지남"))
             .toList());
-    TenantContext.clear();
 
     when(aiClient.classify(any())).thenReturn(new PriorityClassifyResult(List.of()));
     scheduler.runOnce();
