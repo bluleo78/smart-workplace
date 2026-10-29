@@ -356,6 +356,15 @@ describe('allDayDisplayDates / allDayRangeFromDates', () => {
     expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-28T00:00').endDate).toBe('2026-10-27')
     expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-26T00:00').endDate).toBe('2026-10-25')
   })
+  // WP-1103 — 시작 칸을 비운 사이에도 종료 칸은 마지막 날이어야 한다. 배타적 끝을 보이면 시작을 다시 넣을 때 하루 늘었다.
+  it('시작이 비었거나 날짜가 아니어도 종료 칸은 마지막 날이고, 시작을 지웠다 다시 넣어도 끝이 그대로다', () => {
+    expect(allDayDisplayDates('', '2026-06-13T00:00')).toEqual({ startDate: '', endDate: '2026-06-12' })
+    expect(allDayDisplayDates('20271-06-10T00:00', '2026-06-13T00:00').endDate).toBe('2026-06-12')
+    // 칸이 하는 일 그대로: 시작을 비움 → 보이는 종료 칸 값으로 폼 값을 다시 만듦 → 시작을 다시 넣음.
+    const cleared = allDayRangeFromDates('', allDayDisplayDates('2026-06-10T00:00', '2026-06-13T00:00').endDate)
+    const refilled = allDayRangeFromDates('2026-06-10', allDayDisplayDates(cleared.start, cleared.end).endDate)
+    expect(refilled).toEqual({ start: '2026-06-10T00:00', end: '2026-06-13T00:00' })
+  })
   it('날짜 칸 → 폼 값: 종료일 다음 날 0시가 끝이다(왕복이 같다)', () => {
     expect(allDayRangeFromDates('2026-10-28', '2026-11-01')).toEqual({ start: '2026-10-28T00:00', end: '2026-11-02T00:00' })
     const r = allDayRangeFromDates('2026-10-28', '2026-10-28')

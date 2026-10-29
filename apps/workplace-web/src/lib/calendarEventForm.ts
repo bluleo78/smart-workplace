@@ -165,8 +165,10 @@ export function normalizeAllDayRange(start: string, end: string): { start: strin
 export function allDayDisplayDates(start: string, end: string): { startDate: string; endDate: string } {
   const startDate = localDateOnly(start)
   const exclusiveEnd = localDateOnly(end)
-  // 비었거나 날짜로 읽을 수 없으면(연도 5자리 등) 그대로 보인다 — 날짜 연산이 던지지 않게, 오류는 스키마가 알린다(WP-902).
-  if (!isDateOnly(startDate) || !isDateOnly(exclusiveEnd)) return { startDate, endDate: exclusiveEnd }
+  // 종료가 비었거나 날짜로 읽을 수 없으면(연도 5자리 등) 그대로 보인다 — 날짜 연산이 던지지 않게, 오류는 스키마가 알린다(WP-902).
+  // 시작의 상태는 보지 않는다 — 시작 칸을 비운 사이 종료 칸에 배타적 끝을 보이면, 시작을 다시 넣을 때 그 값이 마지막 날로 읽혀
+  // 하루 늘었다(WP-1103). 종료 칸 값과 폼 값은 시작과 상관없이 늘 왕복으로 같다.
+  if (!isDateOnly(exclusiveEnd)) return { startDate, endDate: exclusiveEnd }
   // 폼 값 그대로의 마지막 날을 보인다 — 시작일로 고쳐 보이면 칸과 폼 값이 어긋나, 오류가 남은 채 같은 날을 다시 골라도
   // 칸 값이 바뀌지 않아(change 없음) 고칠 수 없었다(WP-1090). 종료가 시작 이하이면 화면에서도 시작일보다 앞선 날로 보이고 스키마가 알린다.
   return { startDate, endDate: addDaysToDateOnly(exclusiveEnd, -1) }
