@@ -131,6 +131,6 @@ describe('모바일 AI 위임 작업', () => {
     expect(within(card).getByTestId('ai-agent-11-since')).toHaveTextContent('38분째')
     expect(within(card).getByTestId('ai-agent-11-lead')).toHaveTextContent('AI별로 보고 싶다')
     expect(within(card).getByTestId('ai-agent-11-work-WP-1090')).toBeInTheDocument()
-    expect(within(card).getByTestId('ai-agent-11-slots')).toHaveTextContent('1/3')
+    expect(within(card).getByTestId('ai-agent-11-slots')).toHaveTextContent('1/5')
   })
 })

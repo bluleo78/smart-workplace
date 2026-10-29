@@ -43,7 +43,8 @@ export function AiAgentsView({ scope }: { scope: 'mine' | 'all' }) {
     setParams(next, { replace: true })
   }
 
-  const limit = query.data?.slotLimit ?? 3
+  // 서버 값(slotLimit)이 오기 전 기본값 — 서버 상한(AiAgentStatusService.SLOT_LIMIT, WP-1209)과 같게.
+  const limit = query.data?.slotLimit ?? 5
   return (
     <>
       <AiTasksToolbar view="agents" scope={scope} />

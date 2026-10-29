@@ -38,8 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AiAgentStatusService implements AgentSlotCounter {
 
-  /** 동시 진행 상한(WP-1040). */
-  public static final int SLOT_LIMIT = 3;
+  /** 동시 진행 상한(WP-1040). 3 이면 push 게이트·PR 리뷰 대기만으로 자리가 차 대기열이 멈춰 5 로 늘렸다(WP-1209). */
+  public static final int SLOT_LIMIT = 5;
 
   /**
    * 다시 붙는 사이의 끊김을 연결로 보는 시간 — work-loop 의 알림 구독(gw-events)은 서버 연결이 1시간마다 끝나 다시 붙고, 감시(Monitor)가

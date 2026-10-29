@@ -107,7 +107,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
     JsonNode body = getJson("/api/v1/me/ai-agents?scope=ALL");
 
-    assertThat(body.get("slotLimit").asInt()).isEqualTo(3);
+    assertThat(body.get("slotLimit").asInt()).isEqualTo(5);
     JsonNode b = agent(body, busy);
     assertThat(b.get("agent").get("kind").asText()).isEqualTo("AGENT");
     assertThat(b.get("slotsUsed").asInt()).isEqualTo(2);
@@ -215,7 +215,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     JsonNode roster = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
 
     assertThat(slots.get("used").asInt()).isEqualTo(roster.get("slotsUsed").asInt()).isEqualTo(2);
-    assertThat(slots.get("limit").asInt()).isEqualTo(3);
+    assertThat(slots.get("limit").asInt()).isEqualTo(5);
     assertThat(texts(slots.get("issues"))).containsExactly(issueKey(child));
   }
 

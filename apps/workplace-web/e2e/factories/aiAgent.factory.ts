@@ -33,6 +33,6 @@ export function createAiAgentStatus(id: number, name: string, o: Partial<AiAgent
   }
 }
 
-export function createAiAgentsResponse(agents: AiAgentStatus[], slotLimit = 3): AiAgentsResponse {
+export function createAiAgentsResponse(agents: AiAgentStatus[], slotLimit = 5): AiAgentsResponse {
   return { agents, slotLimit }
 }

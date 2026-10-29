@@ -3,7 +3,7 @@ package com.workplace.global.ai;
 import java.util.List;
 
 /**
- * AI 의 동시 진행 자리 수(WP-1205) — AI 위임 작업 「AI별」 보기의 n/3 과 work-loop 의 동시 진행 상한(WP-1040)이 같은 값을 쓰게 한다.
+ * AI 의 동시 진행 자리 수(WP-1205) — AI 위임 작업 「AI별」 보기의 n/상한 과 work-loop 의 동시 진행 상한(WP-1040)이 같은 값을 쓰게 한다.
  * 구현은 issue 모듈(AiAgentStatusService)에 있고, member 모듈이 AI 본인 단건 조회(get_member("me"))에 싣는다 — member 가
  * issue 를 직접 import 하지 않게 뒤집은 의존이다(AiMemoryReader 와 같은 방식).
  */
