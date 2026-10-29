@@ -409,6 +409,39 @@ test('bg-job start: 돌고 있으면 새로 띄우지 않고 running 으로 exit
   assert.equal(job(['status', main, 'WP-2']).stdout.trim(), 'none');
 });
 
+// WP-1207 — dash(우분투 /bin/sh)의 kill 은 `kill -TERM -- <음수>`·`kill -TERM -<pgid>` 같은 꼴을 「Illegal number」로 거절해, stop 이 아무것도
+// 끝내지 못하고 「ok」만 냈다. 위 테스트는 /bin/sh 가 dash 인 곳에서만 이 회귀를 잡는다(macOS 는 bash 라 통과) — 어디서나 잡히게 꼴도 고정한다.
+test('bg-job stop: 어느 sh 에서나 받는 `kill -s <신호> -- <그룹>` 꼴로만 신호를 보낸다 (WP-1207)', () => {
+  const text = readFileSync(join(scripts, 'bg-job'), 'utf8');
+  const code = text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  assert.ok(code.includes('kill -s TERM -- "-$_bj_pid"'));
+  // `kill -s …` 가 아닌 `kill -<신호>` 꼴로 음수(그룹)를 넘기면 dash 가 거절한다.
+  assert.ok(!/kill -(?!s\b)[A-Za-z0-9]+\s+(--\s+)?"?-/.test(code), 'dash 가 거절하는 `kill -<신호> [--] -<그룹>` 꼴이 남아 있다');
+});
+
+test('bg-job stop: dash 로 불러도 그룹이 실제로 끝난 뒤에 ok 를 낸다 (WP-1207)', (t) => {
+  const dash = spawnSync('sh', ['-c', 'command -v dash']).stdout.toString().trim();
+  if (!dash) return t.skip('dash 가 없다');
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
+  let pid = '';
+  try {
+    const started = spawnSync(dash, [join(scripts, 'bg-job'), 'start', main, 'WP-3', work, '--', 'sleep', '30']);
+    assert.match(started.stdout.toString(), /^started \d+/);
+    pid = readFileSync(join(main, '.work-loop', 'state', 'jobs', 'WP-3.pid'), 'utf8').split('-')[0];
+    const alive = () => spawnSync('ps', ['-axo', 'pgid=']).stdout.toString().split('\n').some((g) => g.trim() === pid);
+    assert.ok(alive(), '띄운 그룹이 돌고 있어야 한다');
+    const r = spawnSync(dash, [join(scripts, 'bg-job'), 'stop', main, 'WP-3']);
+    assert.equal(r.stdout.toString().trim(), 'ok', r.stderr.toString());
+    // stop 이 끝날 때까지 기다리므로 ok 를 낸 때 이미 그룹이 없다.
+    assert.equal(alive(), false, 'dash 로 부른 stop 이 그룹을 끝내지 않고 ok 를 냈다');
+  } finally {
+    if (pid) try { process.kill(-Number(pid), 'SIGKILL'); } catch {}
+    rmSync(main, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test('bg-job status: exit 파일 없이 프로세스가 사라졌거나 pid 가 재사용됐으면 lost, clear 뒤에는 none', () => {
   const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
   const dir = join(main, '.work-loop', 'state', 'jobs');
