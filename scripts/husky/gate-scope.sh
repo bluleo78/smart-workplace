@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# push 게이트 범위 판정 (WP-1208) — full-regression.sh·pre-push.sh·gate-bundle.sh 가 source 해 같은 규칙을 쓴다.
+# push 게이트 범위 판정 (WP-1208) — full-regression.sh·pre-push.sh 가 source 해 같은 규칙을 쓴다.
 # E2E 는 실제 API 를 띄워 돌므로 api 변경은 E2E 까지 필요하다. 반대 방향만 줄인다:
 #   web 만 바꿨으면 admin E2E·gradle 을, admin 만 바꿨으면 web vitest·web E2E·gradle 을 건너뛴다.
 # 범위 값: full | web | admin | web+admin (web+admin 은 두 앱만 바꾼 변경 — api 를 건드리지 않으니 gradle 만 건너뛴다).

@@ -99,10 +99,12 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     long waiting = issue(projectId, "대기 중 이슈", me);
     long blocked = issue(projectId, "막힌 이슈", me);
     long review = issue(projectId, "검토 대기 이슈", me);
+    long asking = issue(projectId, "답변 필요 이슈", me);
     work(working, busy, "WORKING", Instant.now());
     work(waiting, busy, "WAITING", T0);
     work(blocked, busy, "BLOCKED", T0);
     work(review, busy, "REVIEW", T0);
+    work(asking, busy, "INPUT_REQUIRED", T0);
     endedWork(issue(projectId, "끝난 이슈", me), idle, Instant.parse("2026-10-09T03:00:00Z"));
 
     JsonNode body = getJson("/api/v1/me/ai-agents?scope=ALL");
@@ -110,10 +112,11 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(body.get("slotLimit").asInt()).isEqualTo(5);
     JsonNode b = agent(body, busy);
     assertThat(b.get("agent").get("kind").asText()).isEqualTo("AGENT");
+    // 작업 중·답변 필요만 자리를 쥔다 — 대기 중(PR 리뷰 대기 = 기차 대기)·막힘·검토 대기는 세지 않는다(WP-1216).
     assertThat(b.get("slotsUsed").asInt()).isEqualTo(2);
     assertThat(b.get("hiddenWorks").asInt()).isZero();
     assertThat(field(b.get("works"), "title"))
-        .containsExactly("작업 중 이슈", "대기 중 이슈", "막힌 이슈", "검토 대기 이슈");
+        .containsExactly("작업 중 이슈", "대기 중 이슈", "막힌 이슈", "검토 대기 이슈", "답변 필요 이슈");
     JsonNode first = b.get("works").get(0);
     assertThat(first.get("state").asText()).isEqualTo("WORKING");
     assertThat(first.get("projectKey").asText()).isNotBlank();
@@ -167,7 +170,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
   void list_whenWorkInInvisibleProject_countsHiddenAndSlot() throws Exception {
     long agent = createAgentUserWithMembership("ag-hide");
     work(issue(hiddenProjectId, "못 보는 이슈", other), agent, "WORKING", Instant.now());
-    work(issue(projectId, "보이는 이슈", me), agent, "WAITING", T0);
+    work(issue(projectId, "보이는 이슈", me), agent, "INPUT_REQUIRED", T0);
 
     JsonNode a = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
 
@@ -183,7 +186,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     long parent = issue(projectId, "부모", me);
     long child = issue(projectId, "하위", me);
     dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, parent).where(ISSUE.ID.eq(child)).execute();
-    work(parent, agent, "WAITING", Instant.now());
+    work(parent, agent, "INPUT_REQUIRED", Instant.now());
     work(child, agent, "WORKING", Instant.now());
     work(issue(projectId, "무소식", me), agent, "WORKING", Instant.now().minusSeconds(3 * 3600));
 
@@ -195,7 +198,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
   /**
    * AI 본인 조회(get_member("me") 가 부르는 GET /members/{내 id})에 실리는 자리(WP-1205)는 AI별 보기의 자리 수와 같은 값이다 — 못
-   * 보는 프로젝트 작업은 세고, 작업 중인 하위가 있는 부모·무소식·막힘은 세지 않는다. 자리를 쥔 이슈 키도 함께 싣는다.
+   * 보는 프로젝트 작업은 세고, 작업 중인 하위가 있는 부모·무소식·막힘·대기 중(WP-1216)은 세지 않는다. 자리를 쥔 이슈 키도 함께 싣는다.
    */
   @Test
   void memberSelf_whenAgent_carriesSameSlotsAsRoster() throws Exception {
@@ -206,10 +209,11 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     long child = issue(projectId, "하위", me);
     dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, parent).where(ISSUE.ID.eq(child)).execute();
     work(hidden, agent, "WORKING", Instant.now());
-    work(parent, agent, "WAITING", Instant.now());
+    work(parent, agent, "INPUT_REQUIRED", Instant.now());
     work(child, agent, "WORKING", Instant.now());
     work(issue(projectId, "무소식", me), agent, "WORKING", Instant.now().minusSeconds(3 * 3600));
     work(issue(projectId, "막힌 이슈", me), agent, "BLOCKED", T0);
+    work(issue(projectId, "리뷰 대기", me), agent, "WAITING", Instant.now());
 
     JsonNode slots = getJson("/api/v1/members/" + agent, agent).get("slots");
     JsonNode roster = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
