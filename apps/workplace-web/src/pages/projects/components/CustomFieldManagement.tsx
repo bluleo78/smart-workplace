@@ -144,26 +144,37 @@ export function CustomFieldManagement({
       ) : (
         <ul className="space-y-1">
           {(fields.data ?? []).map((f) => (
+            // 줄 배치(WP-1124) — 옵션 칩이 많거나 길어도 이름·타입이 한 줄로 읽히게 한다. 예전엔 옵션 묶음이 칩 전부를
+            // 한 줄에 놓을 폭을 가져가 이름이 한두 글자씩, 타입(「선택」)이 한 글자씩 세로로 꺾였다.
+            // - 이름: 남는 폭에서 한 줄 말줄임(전체 이름은 title). 데스크톱은 줄 폭의 40% 까지만 써 옵션 자리를 남긴다.
+            // - 타입·버튼: 줄지 않는다(shrink-0·nowrap).
+            // - 옵션: 데스크톱은 남은 폭(basis-0 flex-1) 안에서 줄바꿈, 모바일은 이름 아래 줄 전체(order-last basis-full).
             <li
               key={f.id}
-              className="flex items-center gap-2 row-divider py-2"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 row-divider py-2"
               data-testid={`custom-field-row-${f.id}`}
             >
-              <span className="font-medium">{f.name}</span>
+              <span className="min-w-0 flex-1 truncate font-medium sm:max-w-[40%] sm:flex-none" title={f.name}>
+                {f.name}
+              </span>
               {/* 한국어 레이블로 표시 (#317) */}
-              <span className="text-xs text-muted-foreground">{FIELD_TYPE_LABEL[f.type]}</span>
+              <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{FIELD_TYPE_LABEL[f.type]}</span>
               {/* 옵션 목록 — raw 배열 텍스트 대신 Badge 칩으로 표시 (#784) */}
               {f.options && f.options.length > 0 && (
-                <div className="flex flex-wrap gap-1">
+                <div
+                  className="order-last flex min-w-0 basis-full flex-wrap gap-1 sm:order-none sm:flex-1 sm:basis-0"
+                  data-testid={`custom-field-options-${f.id}`}
+                >
                   {f.options.map((opt) => (
-                    <Badge key={opt} variant="outline" className="text-xs">
+                    // 띄어쓰기 없는 긴 옵션(최대 40자)도 칩 안에서 줄바꿈 — Badge 기본 nowrap 이면 칩 하나가 줄을 넘친다.
+                    <Badge key={opt} variant="outline" className="max-w-full whitespace-normal text-xs wrap-anywhere">
                       {opt}
                     </Badge>
                   ))}
                 </div>
               )}
               {isOwner && (
-                <div className="ml-auto flex gap-2">
+                <div className="ml-auto flex shrink-0 gap-2">
                   {/* 편집 — 이름·옵션 고치기(WP-611). 예전엔 없어서 옵션 하나를 더하려면 필드를 지워야 했다. */}
                   <Button
                     variant="ghost"
