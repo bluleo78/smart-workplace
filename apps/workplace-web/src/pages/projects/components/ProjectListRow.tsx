@@ -6,6 +6,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { formatRelativeTime } from '@/lib/formatters'
 import { completionPct } from '@/lib/progress'
 import { nameColor, nameInitial, projectColor, projectInitial } from '@/lib/project-color'
+import { PROJECT_TYPE_LABEL } from '@/lib/projectType'
 import { cn } from '@/lib/utils'
 import type { ProjectResponse } from '@/types/project'
 
@@ -18,6 +19,13 @@ type RowProps = {
 }
 
 // 데스크톱·모바일 행이 공유하는 파생값 — 배지 색·완료율(바 너비와 라벨이 같은 값)·개인 여부.
+// 유형 칩 색 — 개인 초록, 팀 남색, 공개 접수함 주황(팀과 구분되게, WP-1157).
+const TYPE_CHIP_CLASS: Record<ProjectResponse['type'], string> = {
+  PERSONAL: 'bg-green-50 text-green-700',
+  TEAM: 'bg-indigo-50 text-indigo-700',
+  OPEN: 'bg-amber-50 text-amber-700',
+}
+
 function rowBasics(p: ProjectResponse) {
   return {
     c: projectColor(p.key),
@@ -57,15 +65,10 @@ export function ProjectListRow(props: RowProps) {
         </span>
       </Link>
 
-      {/* 유형 칩 */}
+      {/* 유형 칩 — 이름은 설정·모바일과 같은 PROJECT_TYPE_LABEL(WP-1157), 색은 유형마다 따로. */}
       <span className="max-lg:hidden">
-        <span
-          className={cn(
-            'rounded-full px-2 py-0.5 text-xs font-medium',
-            isPersonal ? 'bg-green-50 text-green-700' : 'bg-indigo-50 text-indigo-700',
-          )}
-        >
-          {isPersonal ? '개인' : '팀'}
+        <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', TYPE_CHIP_CLASS[p.type])} data-testid="project-type-chip">
+          {PROJECT_TYPE_LABEL[p.type]}
         </span>
       </span>
 
@@ -139,7 +142,7 @@ function ProjectListRowMobile({ project: p, fav, onToggleFav }: RowProps) {
   // 보조줄 진행 정보 — OPEN 은 유형이 우선(이슈 0건이어도 「접수함」), 그 외 0건은 「이슈 없음」.
   const meta =
     p.type === 'OPEN' ? (
-      <span>접수함</span>
+      <span>{PROJECT_TYPE_LABEL.OPEN}</span>
     ) : p.issueTotal === 0 ? (
       <span>이슈 없음</span>
     ) : (

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { PROJECT_TYPE_LABEL } from '@/lib/projectType';
 import { cn, subjectParticle } from '@/lib/utils';
 
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
@@ -32,7 +33,6 @@ import { handleApiError } from '../../lib/api-error';
 import { canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { canEditStatuses } from '../../lib/projectStatuses';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
-import type { ProjectType } from '../../types/project';
 import { ComponentManagement } from './components/ComponentManagement';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
@@ -43,7 +43,6 @@ import { RepositorySettings } from './components/RepositorySettings';
 import { StatusManagement } from './components/status/StatusManagement';
 
 /** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
-const PROJECT_TYPE_LABEL: Record<ProjectType, string> = { TEAM: '팀', PERSONAL: '개인', OPEN: '접수함' };
 
 // 프로젝트 설정 — 기본 정보 수정 + 멤버 관리 + 위험 구역(삭제).
 export default function ProjectSettingsPage() {
