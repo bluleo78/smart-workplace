@@ -1083,7 +1083,7 @@ public class IssueRepository {
   }
 
   /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
-  private static final ZoneId FILTER_ZONE = ZoneId.of("Asia/Seoul");
+  private static final ZoneId FILTER_ZONE = com.workplace.issue.dto.IssueDueWindow.ZONE;
 
   /**
    * 날짜 범위 조건 — 단일/횡단 검색 공용. 마감일(due_date)은 DATE 컬럼이라 그대로 비교하고, 종료일·생성일(WP-307)은 시각 컬럼이라 Asia/Seoul
@@ -1910,5 +1910,35 @@ public class IssueRepository {
         .limit(1)
         .fetchOptional()
         .map(r -> r.value1() + "-" + r.value2());
+  }
+
+  /**
+   * 주어진 이슈 중 지금도 이 사용자의 「마감 지남·오늘」 후보인 것(WP-1104) — 홈 AI 우선순위가 저장해 둔 이슈 마감 행을 읽을 때 다시 맞춘다. 배치가 후보를
+   * 모으는 내 이슈 검색(assignee=me, 열린 범주, 마감 1년 전~오늘, {@link #memberScopeCondition})과 같은 조건이다 — 그사이 끝났거나
+   * 볼 수 없게 됐거나(이슈·프로젝트 삭제, 프로젝트에서 빠짐) 담당에서 빠졌거나 마감이 옮겨진 이슈는 빠진다.
+   *
+   * @param userId 담당자
+   * @param issueIds 다시 볼 이슈 id(비면 빈 집합)
+   * @param today 마감 기준일
+   */
+  public java.util.Set<Long> findStillDueAssignedIds(
+      long userId, java.util.Collection<Long> issueIds, java.time.LocalDate today) {
+    if (issueIds.isEmpty()) return java.util.Set.of();
+    return new java.util.HashSet<>(
+        dsl.select(ISSUE.ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.in(issueIds))
+            .and(memberScopeCondition(userId))
+            .andExists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.ISSUE_ASSIGNEE)
+                    .where(
+                        com.workplace.jooq.Tables.ISSUE_ASSIGNEE
+                            .ISSUE_ID
+                            .eq(ISSUE.ID)
+                            .and(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.USER_ID.eq(userId))))
+            .and(ISSUE.STATUS.in(IssueStatuses.OPEN))
+            .and(ISSUE.DUE_DATE.between(com.workplace.issue.dto.IssueDueWindow.from(today), today))
+            .fetch(ISSUE.ID));
   }
 }

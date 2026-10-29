@@ -60,7 +60,8 @@ class PriorityItemControllerTest extends IntegrationTestBase {
         userId,
         List.of(
             new PriorityItemRow("MENTION", "low", "낮은 항목", "/x", 10, 10, "낮음"),
-            new PriorityItemRow("ISSUE_DUE", "high", "높은 항목", "/y", 90, 90, "높음")));
+            // 정렬만 보는 테스트라 이슈를 읽어 거르지 않는 소스로 둔다(ISSUE_DUE 는 실제 이슈를 다시 본다 — WP-1104).
+            new PriorityItemRow("MAIL_NEEDS_REPLY", "high", "높은 항목", "/y", 90, 90, "높음")));
 
     mockMvc
         .perform(
