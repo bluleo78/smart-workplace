@@ -107,3 +107,7 @@ deploy/helm/tls/
 /release.env
 /security/
 /.trivycache/
+
+# 매뉴얼 촬영 중 중단되면 남는 임시 그림(성공 시 .png 로 바뀐다)과 확정 중 되돌리기용 예전 그림
+docs/manual/shots/**/*.png.tmp
+docs/manual/shots/**/*.png.bak

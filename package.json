@@ -9,6 +9,11 @@
     "test:plugin": "node --test plugins/genia-works/tests/*.test.mjs",
     "test:helm": "node --test deploy/helm/tests/*.test.mjs",
     "test:release": "node --test deploy/release/tests/*.test.mjs",
+    "manual:check": "node docs/manual/scripts/check.mjs",
+    "manual:prose": "node docs/manual/scripts/prose.mjs",
+    "manual:pdf": "node docs/manual/scripts/build.mjs",
+    "manual:shots": "node docs/manual/scripts/capture.mjs",
+    "test:manual": "node --test docs/manual/scripts/*.test.mjs",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:hooks": "for t in scripts/husky/*.test.sh; do sh \"$t\" || exit 1; done",
     "test:full": "sh scripts/husky/full-regression.sh",
@@ -27,6 +32,7 @@
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
+    "marked": "18.0.10",
     "turbo": "^2.5.0"
   },
   "packageManager": "pnpm@10.11.0"
