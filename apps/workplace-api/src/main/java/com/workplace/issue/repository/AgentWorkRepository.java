@@ -94,6 +94,27 @@ public class AgentWorkRepository {
     return ISSUE.STATUS.notIn(IssueStatuses.CLOSED);
   }
 
+  /**
+   * 무소식(stale) — 작업 중인데 마지막 보고가 {@link #STALE_AFTER} 넘게 지났다. JVM 이 아니라 DB 시계로 판정해 updated_at 을 찍는
+   * 시계와 맞춘다.
+   */
+  public static Condition stale() {
+    return AGENT_WORK.STATE.eq(AgentWorkState.WORKING).and(AGENT_WORK.UPDATED_AT.le(staleBefore()));
+  }
+
+  /** 예정 지연(overdue, WP-450) — 다음 회차 대기인데 예정 시각이 지났다. 시각 없는 양보형(next_run_at null)은 대상이 아니다. */
+  public static Condition overdue() {
+    return AGENT_WORK
+        .STATE
+        .eq(AgentWorkState.SCHEDULED)
+        .and(AGENT_WORK.NEXT_RUN_AT.le(staleBefore()));
+  }
+
+  private static Field<OffsetDateTime> staleBefore() {
+    return DSL.field(
+        "now() - make_interval(secs => {0})", OffsetDateTime.class, STALE_AFTER.toSeconds());
+  }
+
   /** (이슈, 작업자)의 진행 중 작업 1건. */
   public Optional<AgentWorkRow> findActive(long issueId, long workerId) {
     return dsl.selectFrom(AGENT_WORK)
@@ -479,25 +500,8 @@ public class AgentWorkRepository {
    */
   public Map<Long, List<AgentWorkWithWorker>> findActiveByIssueIds(Collection<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
-    // 무소식(stale) 은 JVM 이 아니라 DB 시계로 판정 — updated_at 을 찍는 시계와 같아야 서버 간 시계 차이에 흔들리지 않는다.
-    Field<OffsetDateTime> staleBefore =
-        DSL.field(
-            "now() - make_interval(secs => {0})", OffsetDateTime.class, STALE_AFTER.toSeconds());
-    Field<Boolean> staleField =
-        DSL.field(
-                AGENT_WORK
-                    .STATE
-                    .eq(AgentWorkState.WORKING)
-                    .and(AGENT_WORK.UPDATED_AT.le(staleBefore)))
-            .as("is_stale");
-    // 예정 지연(overdue, WP-450) — 다음 회차 대기인데 예정 시각이 지났다. 시각 없는 양보형(next_run_at null)은 대상이 아니다.
-    Field<Boolean> overdueField =
-        DSL.field(
-                AGENT_WORK
-                    .STATE
-                    .eq(AgentWorkState.SCHEDULED)
-                    .and(AGENT_WORK.NEXT_RUN_AT.le(staleBefore)))
-            .as("is_overdue");
+    Field<Boolean> staleField = DSL.field(stale()).as("is_stale");
+    Field<Boolean> overdueField = DSL.field(overdue()).as("is_overdue");
     var rows =
         dsl.select(AGENT_WORK.fields())
             .select(USER.USERNAME, USER.NAME, USER.KIND)

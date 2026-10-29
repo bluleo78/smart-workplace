@@ -19,6 +19,7 @@ import {
   KST_1430,
   minutesAgo,
 } from '../../../e2e/factories/agentWork.factory'
+import { createAiAgentsResponse, createAiAgentStatus, createAiAgentWork } from '../../../e2e/factories/aiAgent.factory'
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { GROUPED_ROWS } from '../../../e2e/fixtures/ai-tasks-groups'
 import { projectRows } from '../../../e2e/fixtures/ai-tasks-projects'
@@ -99,5 +100,26 @@ describe('모바일 AI 위임 작업', () => {
     await screen.findByTestId('ai-row-611')
     expect(screen.getByTestId('ai-row-611-recurrence')).toHaveTextContent(/^매일 08:30$/)
     expect(screen.getByTestId('ai-row-611-meta')).toContainElement(screen.getByTestId('ai-row-611-recurrence'))
+  })
+
+  // AI별 보기(WP-1201) — 모바일은 표 대신 AI 한 명이 카드 하나: 머리(이름·상태·n째) · 지금 하는 일 · 맡은 일 칩 + 자리.
+  test('AI별 보기는 AI 마다 카드로 상태·지금 하는 일·맡은 일·자리를 보인다', async () => {
+    const roster = [
+      createAiAgentStatus(11, 'AI 개발자1', {
+        works: [createAiAgentWork({ number: 1090, title: 'AI별로 보고 싶다', state: 'INPUT_REQUIRED', stateChangedAt: minutesAgo(38) })],
+      }),
+    ]
+    renderScreen(<AiDelegatedTasksPage />, {
+      path: '/me/ai-tasks?view=agents',
+      handlers: [http.get('/api/v1/me/ai-agents', () => HttpResponse.json(createAiAgentsResponse(roster)))],
+    })
+    const card = await screen.findByTestId('ai-agent-11')
+    expect(screen.getByTestId('ai-roster-mobile')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-roster-table')).not.toBeInTheDocument()
+    expect(within(card).getByTestId('ai-agent-11-state')).toHaveTextContent('답변 필요')
+    expect(within(card).getByTestId('ai-agent-11-since')).toHaveTextContent('38분째')
+    expect(within(card).getByTestId('ai-agent-11-lead')).toHaveTextContent('AI별로 보고 싶다')
+    expect(within(card).getByTestId('ai-agent-11-work-WP-1090')).toBeInTheDocument()
+    expect(within(card).getByTestId('ai-agent-11-slots')).toHaveTextContent('1/3')
   })
 })

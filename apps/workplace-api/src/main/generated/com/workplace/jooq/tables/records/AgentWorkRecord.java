@@ -216,6 +216,20 @@ public class AgentWorkRecord extends UpdatableRecordImpl<AgentWorkRecord> {
         return (OffsetDateTime) get(13);
     }
 
+    /**
+     * Setter for <code>public.agent_work.state_changed_at</code>.
+     */
+    public void setStateChangedAt(OffsetDateTime value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_work.state_changed_at</code>.
+     */
+    public OffsetDateTime getStateChangedAt() {
+        return (OffsetDateTime) get(14);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -239,7 +253,7 @@ public class AgentWorkRecord extends UpdatableRecordImpl<AgentWorkRecord> {
     /**
      * Create a detached, initialised AgentWorkRecord
      */
-    public AgentWorkRecord(Long id, Long tenantId, Long issueId, Long workerId, String tool, String state, String note, Short progress, Short stepsDone, Short stepsTotal, OffsetDateTime startedAt, OffsetDateTime updatedAt, OffsetDateTime endedAt, OffsetDateTime nextRunAt) {
+    public AgentWorkRecord(Long id, Long tenantId, Long issueId, Long workerId, String tool, String state, String note, Short progress, Short stepsDone, Short stepsTotal, OffsetDateTime startedAt, OffsetDateTime updatedAt, OffsetDateTime endedAt, OffsetDateTime nextRunAt, OffsetDateTime stateChangedAt) {
         super(AgentWork.AGENT_WORK);
 
         setId(id);
@@ -256,6 +270,7 @@ public class AgentWorkRecord extends UpdatableRecordImpl<AgentWorkRecord> {
         setUpdatedAt(updatedAt);
         setEndedAt(endedAt);
         setNextRunAt(nextRunAt);
+        setStateChangedAt(stateChangedAt);
         resetChangedOnNotNull();
     }
 }

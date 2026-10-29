@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IssueFilters, IssueResponse } from '@/types/issue';
 
-import { buildAiTasksContext, buildIssueDetailContext, buildIssueListContext, buildMyTasksContext } from './issue';
+import { buildAiAgentsContext, buildAiTasksContext, buildIssueDetailContext, buildIssueListContext, buildMyTasksContext } from './issue';
 
 const issue = {
   projectKey: 'WP',
@@ -180,6 +180,21 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
       },
     });
     expect(buildAiTasksContext({ facets: {}, scope: 'mine' }).scope).toEqual({ label: 'AI 위임 작업' });
+  });
+  it('AI 위임 작업 AI별 보기(WP-1201) — 보기·범위·AI 상태 칩 + 보이는 AI 수', () => {
+    expect(buildAiAgentsContext({ scope: 'all', rosterLabel: '막힘', count: 2 }).scope).toEqual({
+      label: 'AI 위임 작업',
+      facts: [
+        { label: '보기', value: 'AI별' },
+        { label: '범위', value: '전체' },
+        { label: 'AI 상태', value: '막힘' },
+      ],
+      count: 2,
+    });
+    expect(buildAiAgentsContext({ scope: 'mine', rosterLabel: null }).scope).toEqual({
+      label: 'AI 위임 작업',
+      facts: [{ label: '보기', value: 'AI별' }],
+    });
   });
   it('AI 위임 작업 — 서버가 무시하는 마감·차단됨 facet 은 facts 에 싣지 않는다', () => {
     const ctx = buildAiTasksContext({ facets: { priority: 'HIGH', dueTo: '2026-10-01', blocked: 'true' }, count: 1 });

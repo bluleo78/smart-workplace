@@ -21,6 +21,7 @@ import {
   KST_1430,
   minutesAgo,
 } from '../../../e2e/factories/agentWork.factory'
+import { createAiAgentsResponse, createAiAgentStatus, createAiAgentWork } from '../../../e2e/factories/aiAgent.factory'
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { GROUPED_ROWS } from '../../../e2e/fixtures/ai-tasks-groups'
 import { projectRows } from '../../../e2e/fixtures/ai-tasks-projects'
@@ -445,5 +446,145 @@ describe('AI 위임 작업 묶음', () => {
     const wp = screen.getByTestId('ai-project-WP')
     expect(within(wp).getByTestId('ai-epic-412')).toBeInTheDocument()
     expect(rowOrder(wp, /^ai-(row|epic)-\d+$/)).toEqual(['ai-epic-412', 'ai-row-413', 'ai-row-414', 'ai-row-418', 'ai-row-430'])
+  })
+})
+
+// ---------------------------------------------------------------- AI별 보기(WP-1201)
+
+const AGENTS = '/api/v1/me/ai-agents'
+
+/** 급한 순이 아닌 순서로 준 AI 들 — 화면이 대표 상태·그 상태로 있은 시간으로 다시 줄 세운다. */
+const ROSTER = [
+  createAiAgentStatus(13, 'AI 개발자3', { description: '개발 — WP 저장소', lastEndedAt: minutesAgo(70) }),
+  createAiAgentStatus(15, 'AI 개발자5', {
+    works: [
+      createAiAgentWork({ projectKey: 'WD', number: 433, title: '관리 API 권한 우회', note: '원인 확인', stateChangedAt: minutesAgo(128), updatedAt: minutesAgo(2) }),
+      createAiAgentWork({ projectKey: 'WD', number: 441, state: 'WAITING', stateChangedAt: minutesAgo(200) }),
+      createAiAgentWork({ projectKey: 'WD', number: 440, state: 'WAITING', stateChangedAt: minutesAgo(240) }),
+    ],
+  }),
+  createAiAgentStatus(22, 'AI 테스터2', {
+    connected: false,
+    disconnectedAt: minutesAgo(47),
+    works: [createAiAgentWork({ projectKey: 'WD', number: 363, title: '자율 결함 탐색 9회차' })],
+  }),
+  createAiAgentStatus(11, 'AI 개발자1', {
+    description: '개발 — WP 저장소\n두 번째 줄',
+    works: [
+      createAiAgentWork({ number: 1090, title: 'AI별로 보고 싶다', state: 'INPUT_REQUIRED', note: '정렬 기준을 묻습니다', stateChangedAt: minutesAgo(38), updatedAt: minutesAgo(38) }),
+      createAiAgentWork({ number: 1077, title: '지시 따르기', state: 'REVIEW' }),
+    ],
+    hiddenWorks: 1,
+    slotsUsed: 2,
+  }),
+]
+
+function renderAgents(path: string, agents = ROSTER, status = 200) {
+  const seen: URLSearchParams[] = []
+  const { handlers: issueHandlers, seen: issueSeen } = aiHandlers()
+  const handlers = [
+    ...issueHandlers,
+    http.get(AGENTS, ({ request }) => {
+      seen.push(new URL(request.url).searchParams)
+      return status === 200
+        ? HttpResponse.json(createAiAgentsResponse(agents))
+        : HttpResponse.json({ message: 'boom' }, { status })
+    }),
+  ]
+  return { ...renderScreen(<AiDelegatedTasksPage />, { path, handlers }), seen, issueSeen }
+}
+
+describe('AI 위임 작업 AI별 보기', () => {
+  test('보기 전환 아이콘을 누르면 URL 에 view=agents, 이슈 필터·빠른 칩은 숨고 범위 그대로 AI 현황을 부른다', async () => {
+    const { user, location, seen } = renderAgents('/me/ai-tasks')
+    await screen.findByTestId('ai-row-412')
+    expect(screen.getByTestId('ai-view-issues')).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByTestId('ai-view-agents'))
+
+    await waitFor(() => expect(location()).toMatch(/[?&]view=agents/))
+    await screen.findByTestId('ai-agent-11')
+    expect(seen.at(-1)?.get('scope')).toBe('MINE')
+    expect(screen.getByTestId('ai-view-agents')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByTestId('ai-quick-chips')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-tasks-table')).not.toBeInTheDocument()
+
+    // 전체 범위 → scope=ALL, 이슈별로 돌아가면 view 키가 빠진다.
+    await user.click(screen.getByTestId('ai-scope-all'))
+    await waitFor(() => expect(seen.at(-1)?.get('scope')).toBe('ALL'))
+    await user.click(screen.getByTestId('ai-view-issues'))
+    await screen.findByTestId('ai-row-412')
+    expect(new URL(location(), 'http://x').searchParams.has('view')).toBe(false)
+  })
+
+  test('AI 를 급한 순으로 줄 세우고 상태·그 상태로 있은 시간·지금 하는 일·맡은 일·자리를 보인다', async () => {
+    const { issueSeen } = renderAgents('/me/ai-tasks?view=agents&scope=all')
+    await screen.findByTestId('ai-agent-11')
+    // 이슈별 목록은 부르지 않는다.
+    expect(issueSeen.list).toHaveLength(0)
+    expect(rowOrder(document.body, /^ai-agent-\d+$/)).toEqual(['ai-agent-11', 'ai-agent-22', 'ai-agent-15', 'ai-agent-13'])
+
+    const dev1 = screen.getByTestId('ai-agent-11')
+    expect(within(dev1).getByTestId('ai-agent-11-state')).toHaveTextContent('답변 필요')
+    expect(within(dev1).getByTestId('ai-agent-11-since')).toHaveTextContent('38분째')
+    expect(within(dev1).getByTestId('ai-agent-11-lead')).toHaveTextContent('WP-1090AI별로 보고 싶다')
+    expect(within(dev1).getByTestId('ai-agent-11-lead')).toHaveTextContent('정렬 기준을 묻습니다')
+    // 설명은 첫 줄만, 답변 필요 칩은 이슈 챗으로, 검토 필요는 칩이 아니라 건수.
+    expect(dev1).toHaveTextContent('개발 — WP 저장소')
+    expect(dev1).not.toHaveTextContent('두 번째 줄')
+    expect(within(dev1).getByTestId('ai-agent-11-work-WP-1090')).toHaveAttribute('href', expect.stringContaining('/projects/WP/issues/1090'))
+    expect(within(dev1).queryByTestId('ai-agent-11-work-WP-1077')).not.toBeInTheDocument()
+    expect(within(dev1).getByTestId('ai-agent-11-reviews')).toHaveTextContent('검토 대기 1')
+    expect(within(dev1).getByTestId('ai-agent-11-hidden')).toHaveTextContent('+다른 프로젝트 1')
+    expect(within(dev1).getByTestId('ai-agent-11-slots')).toHaveTextContent('2/3')
+    expect(within(dev1).getByTestId('ai-agent-11-live')).toHaveAttribute('data-connected', 'true')
+
+    const tester = screen.getByTestId('ai-agent-22')
+    expect(within(tester).getByTestId('ai-agent-22-state')).toHaveTextContent('연결 끊김')
+    expect(within(tester).getByTestId('ai-agent-22-since')).toHaveTextContent('47분째 신호 없음')
+    expect(within(tester).getByTestId('ai-agent-22-live')).toHaveAttribute('data-connected', 'false')
+
+    // 대표 작업은 같은 묶음에서 그 상태로 오래 있은 것, 3자리가 차면 3/3.
+    expect(within(screen.getByTestId('ai-agent-15')).getByTestId('ai-agent-15-lead')).toHaveTextContent('WD-433')
+    expect(within(screen.getByTestId('ai-agent-15')).getByTestId('ai-agent-15-slots')).toHaveTextContent('3/3')
+
+    const idle = screen.getByTestId('ai-agent-13')
+    expect(within(idle).getByTestId('ai-agent-13-state')).toHaveTextContent('쉬는 중')
+    expect(within(idle).getByTestId('ai-agent-13-since')).toHaveTextContent('1시간 10분째')
+    expect(within(idle).getByTestId('ai-agent-13-lead')).toHaveTextContent('맡은 일 없음')
+  })
+
+  test('상태 칩 건수와 누르면 그 상태만, 다시 누르면 해제(URL roster)', async () => {
+    const { user, location } = renderAgents('/me/ai-tasks?view=agents&scope=all')
+    await screen.findByTestId('ai-agent-11')
+    expect(screen.getByTestId('ai-roster-count-all')).toHaveTextContent(/^4$/)
+    expect(screen.getByTestId('ai-roster-count-needs')).toHaveTextContent(/^1$/)
+    expect(screen.getByTestId('ai-roster-count-offline')).toHaveTextContent(/^1$/)
+    expect(screen.getByTestId('ai-roster-count-working')).toHaveTextContent(/^1$/)
+    expect(screen.getByTestId('ai-roster-count-idle')).toHaveTextContent(/^1$/)
+    expect(screen.getByTestId('ai-roster-count-blocked')).toHaveTextContent(/^0$/)
+
+    await user.click(screen.getByTestId('ai-roster-chip-needs'))
+    await waitFor(() => expect(location()).toMatch(/[?&]roster=needs/))
+    expect(rowOrder(document.body, /^ai-agent-\d+$/)).toEqual(['ai-agent-11'])
+    expect(screen.getByTestId('ai-roster-chip-needs')).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByTestId('ai-roster-chip-blocked'))
+    await screen.findByTestId('ai-agents-empty')
+    expect(screen.getByTestId('ai-agents-empty')).toHaveTextContent('이 상태의 AI 가 없습니다.')
+
+    await user.click(screen.getByTestId('ai-roster-chip-blocked'))
+    await waitFor(() => expect(new URL(location(), 'http://x').searchParams.has('roster')).toBe(false))
+    expect(rowOrder(document.body, /^ai-agent-\d+$/)).toHaveLength(4)
+  })
+
+  test('나와 관련에 AI 가 없으면 전체로 안내, 실패는 오류 안내', async () => {
+    renderAgents('/me/ai-tasks?view=agents', [])
+    expect(await screen.findByTestId('ai-agents-empty')).toHaveTextContent('「전체」에서 모든 AI 를 볼 수 있습니다')
+  })
+
+  test('불러오기 실패는 오류 안내', async () => {
+    renderAgents('/me/ai-tasks?view=agents', ROSTER, 500)
+    expect(await screen.findByTestId('ai-agents-error')).toHaveTextContent('AI 현황을 불러오지 못했습니다')
   })
 })

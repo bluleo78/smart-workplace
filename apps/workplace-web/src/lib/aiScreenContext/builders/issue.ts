@@ -172,3 +172,13 @@ export function buildAiTasksContext(input: {
   // 칩은 scope.label 이 view 를 포함하면 범위 라벨만 보여 준다 → 'AI 위임 작업' 한 번만 표시.
   return { view: 'AI 위임 작업', app: 'ISSUE', scope: withListState({ label: 'AI 위임 작업', facts }, input) };
 }
+
+/** AI 위임 작업 「AI별」 보기(WP-1201) — count 는 보이는 AI 수(켜진 상태 칩으로 거른 뒤). facts 는 보기·범위 「전체」·켜진 AI 상태 칩. */
+export function buildAiAgentsContext(input: { scope: 'mine' | 'all'; rosterLabel: string | null; count?: number }): AiScreenContext {
+  const facts = buildFacts([
+    ['보기', 'AI별'],
+    ['범위', input.scope === 'all' ? '전체' : null],
+    ['AI 상태', input.rosterLabel],
+  ]);
+  return { view: 'AI 위임 작업', app: 'ISSUE', scope: withListState({ label: 'AI 위임 작업', facts }, input) };
+}

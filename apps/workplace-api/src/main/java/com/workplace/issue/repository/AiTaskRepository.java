@@ -307,8 +307,8 @@ public class AiTaskRepository {
             .and(USER.KIND.eq(UserKind.AGENT)));
   }
 
-  /** "나와 관련" 이슈 단위 조건(WP-395) — 내가 보고자이거나 담당자. */
-  private static Condition issueMine(long callerId) {
+  /** "나와 관련" 이슈 단위 조건(WP-395) — 내가 보고자이거나 담당자. AI별 보기({@link AiAgentRepository})도 같은 기준을 쓴다. */
+  static Condition issueMine(long callerId) {
     return ISSUE
         .REPORTER_ID
         .eq(callerId)

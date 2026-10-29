@@ -135,6 +135,11 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
      */
     public final TableField<AgentWorkRecord, OffsetDateTime> NEXT_RUN_AT = createField(DSL.name("next_run_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.agent_work.state_changed_at</code>.
+     */
+    public final TableField<AgentWorkRecord, OffsetDateTime> STATE_CHANGED_AT = createField(DSL.name("state_changed_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
+
     private AgentWork(Name alias, Table<AgentWorkRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -204,7 +209,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.AGENT_WORK_ACTIVE_UQ, Indexes.AGENT_WORK_ISSUE_IDX, Indexes.AGENT_WORK_WORKER_ACTIVE_IDX, Indexes.IDX_AGENT_WORK_TENANT);
+        return Arrays.asList(Indexes.AGENT_WORK_ACTIVE_UQ, Indexes.AGENT_WORK_ISSUE_IDX, Indexes.AGENT_WORK_WORKER_ACTIVE_IDX, Indexes.AGENT_WORK_WORKER_ENDED_IDX, Indexes.IDX_AGENT_WORK_TENANT);
     }
 
     @Override
