@@ -280,7 +280,13 @@ describe('버전 이력', () => {
     expect(screen.getByTestId('version-row-1')).not.toHaveTextContent('0KB')
 
     await user.click(screen.getByTestId('rollback-1'))
-    expect(await screen.findByTestId('rollback-confirm-dialog')).toBeInTheDocument()
+    const confirm = await screen.findByTestId('rollback-confirm-dialog')
+    // WP-1109: 실제 동작(고른 버전을 복사해 새 버전을 하나 쌓고 기존 버전은 남김)대로 안내하고, 「v1으로」 같은 틀린 조사를 쓰지 않는다.
+    expect(confirm).toHaveTextContent('v1 내용으로 롤백')
+    expect(confirm).toHaveTextContent('v1 내용을 복사해 새 버전 하나를 만들고 현재 버전으로 둡니다')
+    expect(confirm).toHaveTextContent('기존 버전은 이력에 그대로 남습니다')
+    expect(confirm).not.toHaveTextContent('새 버전으로 보존')
+    expect(confirm).not.toHaveTextContent(/v\d+으로/)
     expect(rollbacks).toBe(0)
     await user.click(screen.getByTestId('rollback-confirm-action'))
     await waitFor(() => expect(rollbacks).toBe(1))

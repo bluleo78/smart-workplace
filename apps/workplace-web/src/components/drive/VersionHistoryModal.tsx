@@ -1,7 +1,7 @@
 // 파일 버전 이력 모달(#79) — 버전 목록·다운로드·롤백.
 // - 버전 목록 표시 (현재 버전 표식)
 // - 개별 버전 다운로드
-// - 이전 버전으로 롤백 (현재 버전 제외)
+// - 지난 버전으로 롤백 (현재 버전 제외) — 고른 버전을 복사해 새 버전을 하나 더 쌓는다(기존 버전은 남는다)
 
 import { useEffect, useState } from 'react';
 
@@ -42,6 +42,8 @@ export function VersionHistoryModal({ file, open, onClose, onChanged, readOnly =
   const [busy, setBusy] = useState(false);
   // 롤백 확인 대기 중인 버전 번호 — null 이면 확인 다이얼로그 닫힘 (#815)
   const [pendingRollback, setPendingRollback] = useState<number | null>(null);
+  // 확인창에 보일 버전 번호 — 닫히는 애니메이션 동안 pendingRollback 이 null 이 돼도 「vnull」이 비치지 않게 마지막 값을 남긴다(WP-1109).
+  const [shownRollback, setShownRollback] = useState<number | null>(null);
 
   // 모달 열릴 때(또는 파일 변경 시) 버전 목록 로드.
   async function load() {
@@ -108,7 +110,10 @@ export function VersionHistoryModal({ file, open, onClose, onChanged, readOnly =
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => setPendingRollback(v.versionNo)}
+                    onClick={() => {
+                      setPendingRollback(v.versionNo);
+                      setShownRollback(v.versionNo);
+                    }}
                     className="text-xs text-primary disabled:opacity-50"
                     data-testid={`rollback-${v.versionNo}`}
                   >
@@ -133,9 +138,13 @@ export function VersionHistoryModal({ file, open, onClose, onChanged, readOnly =
       >
         <AlertDialogContent data-testid="rollback-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>버전으로 롤백</AlertDialogTitle>
+            <AlertDialogTitle>v{shownRollback} 내용으로 롤백</AlertDialogTitle>
             <AlertDialogDescription>
-              v{pendingRollback}으로 롤백하시겠습니까? 현재 내용은 새 버전으로 보존됩니다.
+              {/* WP-1109: 롤백은 고른 버전을 복사해 새 버전을 하나 더 쌓는다(서버 rollback — 비파괴). 지금 버전이 「새 버전으로 보존」되는
+                  것이 아니다. 「v4으로」 같은 조사 틀림을 피하려고 버전 번호 뒤에는 조사를 붙이지 않는다. 새 버전 번호는 그 사이 다른 사람이
+                  올리면 달라져 미리 적지 않는다 — 롤백 뒤 다시 받은 목록이 보인다. */}
+              v{shownRollback} 내용을 복사해 새 버전 하나를 만들고 현재 버전으로 둡니다. 지금 버전을 포함한 기존 버전은 이력에 그대로
+              남습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
