@@ -28,9 +28,8 @@ const C = createIssue({ id: 3, number: 9, projectKey: KEY, title: '첨부 미리
 type Call = { method: string; path: string; body: unknown }
 
 /** 목록·메타·변경 API — 변경은 메모리 db 에 반영해 재조회에도 유지된다. 쓰기 요청은 calls 에 쌓는다. */
-function issueApi() {
+function issueApi(members = [ME, KIM, BOT]) {
   const db = new Map([A, B, C].map((i) => [i.number, structuredClone(i)]))
-  const members = [ME, KIM, BOT]
   const calls: Call[] = []
   const handlers = [
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))),
@@ -86,8 +85,8 @@ async function openSubmenu(user: ScreenUser, testId: string) {
 }
 
 /** 목록(또는 보드)을 열고 첫 행이 뜰 때까지 기다린다. */
-async function open(view = 'list&group=none') {
-  const api = issueApi()
+async function open(view = 'list&group=none', members?: Parameters<typeof issueApi>[0]) {
+  const api = issueApi(members)
   const page = renderProjectScreen(`/projects/${KEY}?view=${view}`, { handlers: api.handlers })
   await screen.findByTestId(view.startsWith('board') ? 'issue-card-7' : 'issue-row-7')
   return { ...page, api }
@@ -122,6 +121,24 @@ describe('이슈 행 메뉴 — 목록', () => {
     await waitFor(() => expect(screen.getByTestId('row-menu-assignee-1')).toHaveAttribute('aria-checked', 'true'))
     await user.click(screen.getByTestId('row-menu-assignee-2'))
     await waitFor(() => expect(api.calls[1]?.body).toEqual({ userIds: [1] }))
+  })
+
+  // WP-1160: 후보를 지금 담당자로 다시 계산해, 정지된 담당자를 해제하는 순간 줄이 말없이 사라졌다. 메뉴를 연 동안은 줄이 남아
+  // 해제한 것이 보이고, 서버가 정지된 사람을 새로 넣는 것을 거부하므로(WP-487) 다시 체크는 막힌다(담당자 선택기와 같음).
+  test('담당자 › 정지된 담당자를 해제해도 메뉴를 연 동안 줄이 남고, 다시 체크는 막힌다', async () => {
+    const { user, api } = await open('list&group=none', [ME, { ...KIM, active: false }, BOT])
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId('issue-row-7') })
+    await openSubmenu(user, 'row-menu-assignee')
+    const kim = await screen.findByTestId('row-menu-assignee-2')
+    expect(kim).toHaveAttribute('aria-checked', 'true')
+    expect(kim).not.toHaveAttribute('aria-disabled')
+    expect(kim).toHaveTextContent('비활성')
+    await user.click(kim)
+    await waitFor(() => expect(api.calls[0]).toEqual({ method: 'PUT', path: `${ISSUES}/7/assignees`, body: { userIds: [] } }))
+    await waitFor(() => expect(screen.getByTestId('row-menu-assignee-2')).toHaveAttribute('aria-checked', 'false'))
+    expect(screen.getByTestId('row-menu-assignee-2')).toHaveAttribute('aria-disabled', 'true')
+    await user.click(screen.getByTestId('row-menu-assignee-2'))
+    expect(api.calls).toHaveLength(1)
   })
 
   test('AI에게 맡기기 → 기존 담당자 + AI 멤버로 PUT, 이미 AI 담당이면 항목이 없다', async () => {

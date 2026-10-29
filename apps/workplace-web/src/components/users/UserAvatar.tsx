@@ -28,6 +28,7 @@ export function UserAvatar({
   agent = false,
   inactive = false,
   title,
+  decorative = false,
 }: {
   user: AvatarUser;
   size?: 'xs' | 'sm' | 'md' | 'lg';
@@ -41,6 +42,9 @@ export function UserAvatar({
   inactive?: boolean;
   // 마우스 툴팁만 바꿀 때(accessible name 은 그대로) — 예: AI 위임 작업 표가 숨긴 에이전트 유형을 「이름 · 도구」로 보일 때(WP-917).
   title?: string;
+  // 옆에 이름·「비활성」 배지·AgentBadge 를 글자로 함께 보이는 줄(담당자 선택기 등)에서 켠다 — 스크린리더가 이름·상태를 두 번 읽지
+  // 않게 아바타를 접근성 트리에서 뺀다(WP-1160).
+  decorative?: boolean;
 }) {
   const seed = user.name || user.username || '?';
   const initial = avatarInitials(seed);
@@ -56,12 +60,14 @@ export function UserAvatar({
       : '';
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${inactive ? 'bg-muted-foreground/15 text-muted-foreground' : 'bg-presence text-presence-foreground'} ${ringClass}`}
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${inactive ? 'border border-dashed border-muted-foreground bg-muted-foreground/15 text-muted-foreground' : 'bg-presence text-presence-foreground'} ${ringClass}`}
       // 흐림(opacity·grayscale) 대신 회색 바탕 — AGENT ring·Bot 마커를 지우지 않고 겹친 아바타가 비치지 않게
       // 비활성 바탕은 /15 — /30 이면 xs 이니셜 대비가 라이트 3.68:1 로 4.5:1 에 못 미쳤다(WP-1100 실측: /15 라이트 4.6·다크 5.68).
+      // 바탕만으로는 호버된 행·겹친 아바타에서 원이 거의 보이지 않아 점선 테두리로 모양을 그린다(WP-1160) — 색이 아니라 모양으로도 「비활성」이 보인다.
       style={inactive ? undefined : presenceStyle(user.id)}
       title={title ?? label}
-      aria-label={label}
+      aria-label={decorative ? undefined : label}
+      aria-hidden={decorative ? true : undefined}
       data-testid={`user-avatar-${user.id}`}
       data-agent={agent ? 'true' : undefined}
       data-inactive={inactive ? 'true' : undefined}
@@ -90,4 +96,12 @@ export function AssigneeAvatar({
   ...rest
 }: { user: UserSummary } & Omit<Parameters<typeof UserAvatar>[0], 'user' | 'agent' | 'inactive'>) {
   return <UserAvatar user={user} agent={user.kind === 'AGENT'} inactive={isInactiveUser(user)} {...rest} />;
+}
+
+/**
+ * 후보 줄 아바타(WP-1160) — 담당자 선택기·행 메뉴·모바일 시트처럼 이름·AgentBadge·「비활성」 배지를 글자로 함께 보이는 줄에서 쓴다.
+ * 비활성은 회색·점선으로 그리되 장식(decorative)으로 두고 AI 링·Bot 표식도 뺀다 — 같은 줄에서 AI·비활성을 두 번 보이거나 읽지 않게.
+ */
+export function CandidateAvatar({ user }: { user: UserSummary }) {
+  return <UserAvatar user={user} size="xs" inactive={isInactiveUser(user)} decorative />;
 }

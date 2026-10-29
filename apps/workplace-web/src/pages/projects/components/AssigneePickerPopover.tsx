@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { AgentBadge } from '../../../components/users/AgentBadge';
-import { AssigneeAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar, CandidateAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAssignees';
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
@@ -142,8 +142,9 @@ export function AssigneePickerPopover({
                 onChange={() => toggle(m.userId)}
                 aria-label={m.name}
               />
-              {/* 위쪽 담당자 칸과 같은 표기(WP-1100) — 정지된 구성원은 회색 아바타 + 「비활성」 배지. */}
-              <AssigneeAvatar user={toSummary(m)} size="xs" />
+              {/* 위쪽 담당자 칸과 같은 표기(WP-1100) — 정지된 구성원은 회색 아바타 + 「비활성」 배지.
+                  이름·AgentBadge·「비활성」 배지가 글자로 함께 있어 아바타는 장식으로 두고 AI 표식도 뺀다(WP-1160 — AI·비활성을 두 번 표시·낭독). */}
+              <CandidateAvatar user={toSummary(m)} />
               <span className="min-w-0 truncate text-sm">{m.name}</span>
               <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}

@@ -47,10 +47,9 @@ const PROGRESS_COL_CLASS = 'hidden @min-[53.25rem]/ai:table-cell'
 /** 담당자 칸 — 아바타만(AI 구성원은 아바타의 에이전트 표식으로 구분).
  *  대표 작업 작업자 → 없으면 첫 AI 담당자 → 그 외 첫 담당자. 진행 중 작업이 2건 이상이면 +N. */
 export function AiTaskAssignee({ issue, work, testId }: { issue: IssueResponse; work: AgentWorkView | null; testId?: string }) {
-  const picked = work?.worker ?? issue.assignees.find((a) => a.kind === 'AGENT') ?? issue.assignees[0]
-  if (!picked) return DASH
-  // 작업자 요약에는 active 가 없다(서버가 담당자에만 싣는다) — 같은 사람의 담당자 요약이 있으면 그것으로 정지 여부를 본다(WP-1100).
-  const u = issue.assignees.find((a) => a.id === picked.id) ?? picked
+  // 작업자 요약에도 서버가 active 를 싣는다(WP-1160) — 담당에서 빠진 작업자도 정지 여부를 안다.
+  const u = work?.worker ?? issue.assignees.find((a) => a.kind === 'AGENT') ?? issue.assignees[0]
+  if (!u) return DASH
   const more = (issue.agentWork?.length ?? 0) - 1
   // 좁은 폭에서 에이전트 유형 칸이 숨어도 도구를 알 수 있게 툴팁에 「이름 · 도구」(WP-917). 도구를 모르면 이름만.
   const tool = work?.tool ? agentToolLabel(work.tool) : null

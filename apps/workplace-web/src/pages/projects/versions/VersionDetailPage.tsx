@@ -18,7 +18,7 @@ import { useVersionIssues, useVersions, type VersionIssueKind } from '../../../h
 import { useCanManageProject } from '../../../hooks/useCanManageProject';
 import { buildVersionDetailContext } from '../../../lib/aiScreenContext/builders/version';
 import { kstDateKey } from '../../../lib/formatters';
-import { displayNameWithStatus, othersInactiveSuffix } from '../../../lib/userStatus';
+import { peopleSummary } from '../../../lib/userStatus';
 import {
   alsoInOtherVersions,
   daysLeftLabel,
@@ -236,13 +236,9 @@ function IssueRow({
 }) {
   const also = showAlso ? alsoInOtherVersions(it, versionId) : [];
   // 정지된 첫 담당자는 「(비활성)」 꼬리(WP-1080 — 작업 목록·담당자 칸과 같은 표기), 「외 N」에 묶인 정지된 사람은 「(비활성 n)」(WP-1100)
-  const first = it.assignees[0] ? displayNameWithStatus(it.assignees[0]) : null;
+  const { first, others, othersInactive } = peopleSummary(it.assignees);
   const assignee =
-    first === null
-      ? null
-      : it.assignees.length === 1
-        ? first
-        : `${first} 외 ${it.assignees.length - 1}${othersInactiveSuffix(it.assignees)}`;
+    first === null ? null : others === 0 ? first : [`${first} 외 ${others}`, othersInactive].filter(Boolean).join(' ');
   return (
     <li>
       <Link

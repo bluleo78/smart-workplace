@@ -90,7 +90,7 @@ describe('모바일 이슈 행 ⋯ 시트', () => {
   })
 
   // WP-1100: 데스크톱 행 메뉴와 같은 후보·표기 — 정지된 구성원은 빼되 지금 담당 중이면 해제할 수 있게 남기고 회색 아바타로 그린다.
-  test('담당자 시트 — 정지된 구성원은 후보에서 빠지고, 담당 중인 정지된 사람은 남아 「(비활성)」 아바타로 보인다', async () => {
+  test('담당자 시트 — 정지된 구성원은 후보에서 빠지고, 담당 중인 정지된 사람은 남아 회색 아바타·「비활성」 글자로 보인다', async () => {
     const GONE = createMember({ userId: 7, name: '퇴사자', username: 'gone', role: 'MEMBER', active: false })
     const { user } = await openSheet([ME, { ...KIM, active: false }, BOT, GONE])
     await user.click(screen.getByTestId('mobile-action-assignee'))
@@ -98,7 +98,10 @@ describe('모바일 이슈 행 ⋯ 시트', () => {
     expect(within(sheet).queryByTestId('picker-option-7')).toBeNull()
     const kim = within(sheet).getByTestId('picker-option-2')
     expect(within(kim).getByTestId('user-avatar-2')).toHaveAttribute('data-inactive', 'true')
-    expect(within(kim).getByTestId('user-avatar-2')).toHaveAccessibleName('김개발 (비활성)')
+    // 색만이 아니라 글자로도 비활성(WCAG 1.4.1, WP-1160). 아바타는 장식이라 줄 이름이 「비활성」을 한 번만 읽는다.
+    expect(within(kim).getByTestId('issue-assignee-picker-2-inactive')).toHaveTextContent('비활성')
+    expect(within(kim).getByTestId('user-avatar-2')).toHaveAttribute('aria-hidden', 'true')
+    expect(kim).toHaveTextContent(/김개발.*비활성/)
     expect(within(within(sheet).getByTestId('picker-option-1')).getByTestId('user-avatar-1')).not.toHaveAttribute('data-inactive')
   })
 

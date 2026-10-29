@@ -4,9 +4,11 @@ import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.IssueStatuses;
@@ -506,11 +508,14 @@ public class AgentWorkRepository {
     Field<Boolean> overdueField = DSL.field(overdue()).as("is_overdue");
     var rows =
         dsl.select(AGENT_WORK.fields())
-            .select(USER.USERNAME, USER.NAME, USER.KIND)
+            .select(USER.USERNAME, USER.NAME, USER.KIND, WORKER_ACTIVE)
             .select(staleField, overdueField)
             .from(AGENT_WORK)
             .join(USER)
             .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
+            // 멤버십은 RLS 밖 전역 테이블이라 작업 행의 테넌트로 붙인다(WorkspaceActive 참조, WP-1160).
+            .leftJoin(MEMBERSHIP)
+            .on(WorkspaceActive.join(AGENT_WORK.WORKER_ID, AGENT_WORK.TENANT_ID))
             .join(ISSUE)
             .on(ISSUE.ID.eq(AGENT_WORK.ISSUE_ID))
             .where(AGENT_WORK.ISSUE_ID.in(issueIds))
@@ -535,10 +540,12 @@ public class AgentWorkRepository {
     if (workIds == null || workIds.isEmpty()) return Map.of();
     Map<Long, AgentWorkWithWorker> result = new HashMap<>();
     dsl.select(AGENT_WORK.fields())
-        .select(USER.USERNAME, USER.NAME, USER.KIND)
+        .select(USER.USERNAME, USER.NAME, USER.KIND, WORKER_ACTIVE)
         .from(AGENT_WORK)
         .join(USER)
         .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(AGENT_WORK.WORKER_ID, AGENT_WORK.TENANT_ID))
         .where(AGENT_WORK.ID.in(workIds))
         .and(AGENT_WORK.ENDED_AT.isNotNull())
         .fetch()
@@ -550,11 +557,22 @@ public class AgentWorkRepository {
     return result;
   }
 
-  /** AGENT_WORK 컬럼 + 작업자(USERNAME·NAME·KIND) 를 가진 Record → 작업 행 + 작업자 요약. */
+  /**
+   * 작업자가 이 워크스페이스에서 활성인가(WP-1160) — 담당자 요약처럼 작업자 요약에도 싣는다. 담당자가 아닌 작업자(담당에서 빠졌지만 작업 행이 남음)는 화면이 담당자
+   * 요약으로 정지 여부를 알 수 없었다.
+   */
+  private static final Field<Boolean> WORKER_ACTIVE = WorkspaceActive.field();
+
+  /** AGENT_WORK 컬럼 + 작업자(USERNAME·NAME·KIND·활성) 를 가진 Record → 작업 행 + 작업자 요약. */
   private static AgentWorkWithWorker withWorker(Record r, boolean stale, boolean overdue) {
     var row = toRow(r);
     var worker =
-        new UserSummary(row.workerId(), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND));
+        new UserSummary(
+            row.workerId(),
+            r.get(USER.USERNAME),
+            r.get(USER.NAME),
+            r.get(USER.KIND),
+            r.get(WORKER_ACTIVE));
     return new AgentWorkWithWorker(row, worker, stale, overdue);
   }
 

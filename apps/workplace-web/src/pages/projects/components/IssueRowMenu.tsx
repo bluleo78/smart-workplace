@@ -16,16 +16,18 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 import { EpicColorDot } from '../../../components/issues/EpicColorDot';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { AgentBadge } from '../../../components/users/AgentBadge';
-import { AssigneeAvatar, UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar, CandidateAvatar, UserAvatar } from '../../../components/users/UserAvatar';
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
 import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { type RowMenuItems, toSummary } from '../../../lib/issueRowMenu';
 import { isSameParent } from '../../../lib/parentRef';
+import { isInactiveUser } from '../../../lib/userStatus';
 import type { IssuePriority, IssueResponse } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 import type { ProjectStatus } from '../../../types/projectStatus';
@@ -135,8 +137,10 @@ export function IssueRowMenu({
               {bulk && (
                 <DropdownMenuItem onSelect={() => onBulkAssign([])} data-testid="row-menu-assignee-none">미지정</DropdownMenuItem>
               )}
-              {/* 비활성 구성원은 후보에서 빼되, 단건이면 이미 담당 중인 사람은 해제할 수 있게 남긴다(WP-487). */}
-              {assigneeCandidates(members, bulk ? [] : assigneeIds).map((m) =>
+              {/* 비활성 구성원은 후보에서 빼되, 단건이면 메뉴를 열 때 담당 중이던 사람은 남긴다(WP-487) — 지금 담당자로 다시 계산하면
+                  정지된 사람을 해제하는 순간 줄이 말없이 사라졌다(WP-1160). 해제한 뒤에는 남겨 두되 다시 체크는 막는다 — 서버가 정지된 사람을
+                  새로 담당자로 넣는 것을 거부한다(WP-487, 담당자 선택기와 같음). */}
+              {assigneeCandidates(members, bulk ? [] : (target?.issue.assignees.map((a) => a.id) ?? [])).map((m) =>
                 bulk ? (
                   <DropdownMenuItem key={m.userId} onSelect={() => onBulkAssign([m.userId])} data-testid={`row-menu-assignee-${m.userId}`}>
                     <AssigneeAvatar user={toSummary(m)} size="xs" />
@@ -147,15 +151,21 @@ export function IssueRowMenu({
                   <DropdownMenuCheckboxItem
                     key={m.userId}
                     checked={assigneeIds.includes(m.userId)}
+                    disabled={isInactiveUser(m) && !assigneeIds.includes(m.userId)}
                     onSelect={(e) => {
                       e.preventDefault();
                       onToggleAssignee(m);
                     }}
                     data-testid={`row-menu-assignee-${m.userId}`}
                   >
-                    <AssigneeAvatar user={toSummary(m)} size="xs" />
+                    <CandidateAvatar user={toSummary(m)} />
                     <span className="truncate">{m.name}</span>
                     {m.kind === 'AGENT' && <AgentBadge size="xs" />}
+                    {isInactiveUser(m) && (
+                      <StatusBadge type="inactive" className="shrink-0">
+                        비활성
+                      </StatusBadge>
+                    )}
                   </DropdownMenuCheckboxItem>
                 ),
               )}
