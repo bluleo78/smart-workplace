@@ -983,6 +983,44 @@ describe('ganttAxisBounds', () => {
   it('막대가 없으면 null', () => {
     expect(ganttAxisBounds(null, null, period, today)).toBeNull();
   });
+
+  // WP-1146 — SVAR 자동 범위는 막대만 덮어, 막대보다 이른 지난달 마감 마일스톤이 축 밖에 숨고 스크롤로도 닿을 수 없었다.
+  describe('마일스톤·버전 마커(WP-1146)', () => {
+    it('조회 기간 안 마커가 막대보다 이르면 그 마커의 달부터 축을 연다', () => {
+      // 막대는 이번 주(10월 하순)뿐, 마일스톤은 10-01 — 축이 10월 1일부터 시작해야 칩이 보인다.
+      expect(ganttAxisBounds(d('2026-10-18'), d('2026-10-25'), period, today, [d('2026-10-01')])).toEqual({
+        start: d('2026-10-01'),
+        end: d('2026-11-01'),
+      });
+      // 8월 마일스톤이면 8월부터.
+      expect(ganttAxisBounds(d('2026-10-18'), d('2026-10-25'), period, today, [d('2026-08-15')])?.start).toEqual(d('2026-08-01'));
+    });
+
+    it('막대보다 늦은 마커(다음 버전 출시일)면 그 달 끝까지 축을 넓힌다', () => {
+      expect(ganttAxisBounds(d('2026-10-18'), d('2026-10-25'), period, today, [d('2027-02-10')])).toEqual({
+        start: d('2026-10-01'),
+        end: d('2027-03-01'),
+      });
+    });
+
+    it('막대만 있을 때와 같은 범위 안의 마커면 null(SVAR 자동 범위 그대로)', () => {
+      expect(ganttAxisBounds(d('2026-09-01'), d('2026-12-31'), period, today, [d('2026-10-01')])).toBeNull();
+    });
+
+    it('조회 기간 밖 마커로는 넓히지 않는다 — 오래된 마일스톤이 축을 몇 년 늘리지 않게', () => {
+      expect(ganttAxisBounds(d('2026-10-18'), d('2026-10-25'), period, today, [d('2024-01-01'), d('2027-04-21')])).toBeNull();
+      // 기간 끝날 당일은 기간 안이다.
+      expect(ganttAxisBounds(d('2026-10-18'), d('2026-10-25'), period, today, [d('2027-04-20')])?.end).toEqual(d('2027-05-01'));
+    });
+
+    it('막대가 없어도 기간 안 마커가 있으면 그 마커를 덮는 축', () => {
+      expect(ganttAxisBounds(null, null, period, today, [d('2026-10-01')])).toEqual({ start: d('2026-10-01'), end: d('2026-11-01') });
+    });
+
+    it('기간 「전체」(null)면 오늘 앞뒤 5년 안 마커까지 담는다', () => {
+      expect(ganttAxisBounds(d('2026-10-18'), d('2026-10-25'), null, today, [d('2025-03-03'), d('2010-01-01')])?.start).toEqual(d('2025-03-01'));
+    });
+  });
 });
 
 // WP-605 — 주 보기 위쪽 월 칸을 주 경계에 맞춘 「주 단위 달」로 그린다. 한 주는 그 달이 4일 이상 차지하는 달(주 시작+3일의 달) 소속.

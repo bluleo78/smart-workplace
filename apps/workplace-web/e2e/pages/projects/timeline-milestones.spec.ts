@@ -126,6 +126,31 @@ test('차트 왼쪽 밖의 마일스톤은 칩·점선을 그리드 위에 그�
   expect((await page.getByTestId('milestone-chip-3').boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
 });
 
+// WP-1146: 간트 축이 이슈 막대만으로 정해져, 막대보다 이른 지난 마감 마일스톤(조회 기간 안)은 축 밖에 숨고 왼쪽으로 스크롤해도 닿지 않았다.
+test('조회 기간 안의 지난 마감 마일스톤은 막대보다 일러도 왼쪽으로 스크롤하면 차트 안에 보인다', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  await setupStubs(page, {
+    milestones: [{ id: 4, projectId: 1, name: '지난달 마감', dueDate: isoFromToday(-20), description: null, createdAt: '', updatedAt: '' }],
+  });
+  // 막대는 이번 주 이후뿐 — 축이 막대로만 정해지면 이번 주부터 시작한다.
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [createIssue({ number: 1, title: '이번 주 이슈', startDate: isoFromToday(1), dueDate: isoFromToday(5) })];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
+  const scroller = page.locator('.timeline-gantt-root .wx-chart').first();
+  await expect(page.getByTestId('milestone-lane')).toBeVisible();
+
+  // 차트를 왼쪽 끝까지 스크롤하면 마일스톤 칩이 차트 영역 안에 보인다.
+  await scroller.evaluate((el) => el.scrollTo({ left: 0 }));
+  const chip = page.getByTestId('milestone-chip-4');
+  await expect(chip).toBeVisible();
+  const chartLeft = await scroller.evaluate((el) => el.getBoundingClientRect().left);
+  expect((await chip.boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
+});
+
 // WP-1027: 같은 마감일 칩을 옆으로 밀어 뒤 칩이 다른 날에 있는 것처럼 보였다 — 같은 날짜는 칩 하나로 묶는다.
 // WP-1047: 날짜가 달라도 화면에서 칩 폭보다 가까우면(주 보기에서 하루 차이) 밀지 않고 한 칩으로 묶어, 가장 늦은 날짜 점선 가운데에 세운다.
 test('가까운 마감일 마일스톤은 묶음 칩 하나가 가장 늦은 날짜 점선 가운데에 서고, 점선은 마일스톤마다 제 날짜에 남는다', { tag: '@layout' }, async ({

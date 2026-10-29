@@ -866,22 +866,45 @@ const GANTT_AXIS_ALL_MONTHS = 60;
  * 간트 축 범위 상한(WP-595). SVAR 는 기본으로 모든 막대를 덮게 축을 넓히는데, 1900~2099 같은 이슈 하나가 축을 200년(약 100만 px)으로
  * 늘리면 처음 열 때도 「오늘」을 눌러도 엉뚱한 해(2005년 근처)가 보였다. 막대 범위가 조회 기간 앞뒤 12개월(전체면 오늘 앞뒤 5년)을 넘을
  * 때만 그 안으로 자른 범위를 돌려주고, 넘지 않으면 null — SVAR 자동 범위를 그대로 쓴다. 넘는 막대는 축 끝에서 잘려 보인다.
+ *
+ * markerDates — 마일스톤 마감·버전 출시일(WP-1146). SVAR 자동 범위는 막대만 덮어, 막대보다 이른(늦은) 마커는 축 밖에서 숨은 채
+ * 스크롤로도 닿을 수 없었다(지난달 마감 마일스톤). 조회 기간 안(전체면 축 상한 안)의 마커가 막대 범위 밖에 있으면 그 마커까지 덮는
+ * 월 경계 범위를 돌려준다. 기간 밖의 마커로는 넓히지 않는다 — 오래된 마일스톤 하나가 축을 몇 년씩 늘리지 않게.
  */
 export function ganttAxisBounds(
   dataStart: Date | null,
   dataEnd: Date | null,
   period: Pick<TimelinePeriod, 'from' | 'to'> | null | undefined,
   today: Date,
+  markerDates: Date[] = [],
 ): { start: Date; end: Date } | null {
-  if (!dataStart || !dataEnd) return null;
   const margin = period ? GANTT_AXIS_MARGIN_MONTHS : GANTT_AXIS_ALL_MONTHS;
   const lo = subMonths(period ? parseISO(period.from) : today, margin);
   const hi = addMonths(period ? parseISO(period.to) : today, margin);
-  if (dataStart >= lo && dataEnd <= hi) return null;
+  // 축에 담을 마커 — 조회 기간 안(기간의 끝날 하루 전체 포함), 전체면 축 상한 안.
+  const markerLo = period ? parseISO(period.from) : lo;
+  const markerHi = period ? addDays(parseISO(period.to), 1) : hi;
+  let start = dataStart;
+  let end = dataEnd;
+  let widened = false;
+  for (const m of markerDates) {
+    if (m < markerLo || m >= markerHi) continue;
+    const mEnd = addDays(m, 1); // 마커가 선 날 칸까지 축에 들어오게
+    if (!start || m < start) {
+      start = m;
+      widened = true;
+    }
+    if (!end || mEnd > end) {
+      end = mEnd;
+      widened = true;
+    }
+  }
+  if (!start || !end) return null;
+  if (!widened && start >= lo && end <= hi) return null;
   // 축 끝은 월 경계에 맞춘다 — 월 중간에서 시작하면 SVAR 의 월 칸이 어긋나 오늘(10월) 위에 「8월」이 적혔다.
   return {
-    start: startOfMonth(dataStart < lo ? lo : dataStart),
-    end: startOfMonth(addMonths(dataEnd > hi ? hi : dataEnd, 1)),
+    start: startOfMonth(start < lo ? lo : start),
+    end: startOfMonth(addMonths(end > hi ? hi : end, 1)),
   };
 }
 
