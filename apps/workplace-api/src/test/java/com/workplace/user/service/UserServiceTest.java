@@ -22,6 +22,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -439,22 +440,28 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void findByEmailIgnoreCase_ambiguousExistingDuplicates_returnsEmpty() {
-    // WP-613: 이 수정 전에 이미 대소문자만 다른 이메일 두 계정이 있으면 누구인지 정할 수 없다 — 아무나 고르지 않고 없음으로 본다.
+  void caseOnlyDuplicateEmail_isRejectedByDb() {
+    // WP-613 은 대소문자만 다른 이메일 두 계정이 있으면 누구인지 정할 수 없어 없음으로 봤다. WP-1156(V242)부터는 DB 가 lower(email) 고유
+    // 인덱스로 그런 두 번째 계정을 막으므로, 대소문자를 달리 적어도 한 사람만 찾는다.
     dsl.insertInto(USER)
         .set(USER.USERNAME, "dup-case-a@example.com")
         .set(USER.PASSWORD, "password")
         .set(USER.NAME, "A")
         .set(USER.EMAIL, "dup-case@example.com")
         .execute();
-    dsl.insertInto(USER)
-        .set(USER.USERNAME, "dup-case-b@example.com")
-        .set(USER.PASSWORD, "password")
-        .set(USER.NAME, "B")
-        .set(USER.EMAIL, "DUP-CASE@example.com")
-        .execute();
+    assertThatThrownBy(
+            () ->
+                dsl.insertInto(USER)
+                    .set(USER.USERNAME, "dup-case-b@example.com")
+                    .set(USER.PASSWORD, "password")
+                    .set(USER.NAME, "B")
+                    .set(USER.EMAIL, "DUP-CASE@example.com")
+                    .execute())
+        .isInstanceOf(DuplicateKeyException.class);
+  }
 
-    assertThat(userRepository.findByEmailIgnoreCase("Dup-Case@example.com")).isEmpty();
+  @Test
+  void findByEmailIgnoreCase_differentCase_findsTheUser() {
     assertThat(userRepository.findByEmailIgnoreCase("TEST@example.com"))
         .hasValueSatisfying(u -> assertThat(u.id()).isEqualTo(testUserId));
   }
