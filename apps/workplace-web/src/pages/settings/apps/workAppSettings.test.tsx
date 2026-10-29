@@ -140,6 +140,27 @@ test('비어 있으면 보내지 않고 검증 문구, 이름이 이미 있으�
   expect(calls[1].body).toMatchObject({ name: '연관' })
 })
 
+// WP-1106 — 제로폭 공백·점자 빈칸만 넣은 칸은 빈 칸과 같다. 앞뒤에 붙은 보이지 않는 글자는 지우고 보낸다.
+test('보이지 않는 글자만 넣으면 보내지 않고 검증 문구, 앞뒤의 보이지 않는 글자는 지우고 보낸다', async () => {
+  const { user, calls } = await openWorkApp()
+  await user.click(byTestId('relation-type-add'))
+  const dialog = within(await screen.findByTestId('relation-type-dialog'))
+  await fill(user, dialog.getByTestId('relation-type-name'), '\u200B\u200B')
+  await fill(user, dialog.getByTestId('relation-type-outward'), '\u200B')
+  await fill(user, dialog.getByTestId('relation-type-inward'), '\u2800')
+  await user.click(dialog.getByTestId('relation-type-submit'))
+  expect(await dialog.findByText('이름을 입력해 주세요')).toBeInTheDocument()
+  expect(dialog.getAllByText('말을 입력해 주세요')).toHaveLength(2)
+  expect(calls).toHaveLength(0)
+
+  await fill(user, dialog.getByTestId('relation-type-name'), '\u200B점검\u2800')
+  await fill(user, dialog.getByTestId('relation-type-outward'), '확인한다\u200B')
+  await fill(user, dialog.getByTestId('relation-type-inward'), '\u200B확인받는다')
+  await user.click(dialog.getByTestId('relation-type-submit'))
+  await waitFor(() => expect(screen.queryByTestId('relation-type-dialog')).not.toBeInTheDocument())
+  expect(calls[0].body).toEqual({ name: '점검', directed: true, outwardLabel: '확인한다', inwardLabel: '확인받는다' })
+})
+
 test('편집 — PUT payload·표 반영, 쓰이는 유형은 방향 선택이 잠긴다', async () => {
   const { user, calls } = await openWorkApp(
     [customType({ id: 7 }), customType({ id: 8, name: '검토', outwardLabel: '검토함', inwardLabel: '검토받음' })],

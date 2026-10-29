@@ -50,6 +50,8 @@ public class IssueRecurrenceRepository {
   /**
    * 반복을 저장한다 — 없으면 만들고 있으면 규칙·시각·실행 AI 를 바꾼다. 저장하면 켜지고(enabled=true) 연속 실패 수는 0 으로 돌아간다(꺼진 반복을 다시
    * 켜는 길). 지금까지의 회차 수·결과 대기 중인 회차 id 는 그대로 둔다 — 실행 중인 회차의 결과 보고를 잃지 않게.
+   *
+   * @param assistantEnrolled 이 반복이 실행 AI 를 담당에 직접 넣었는지 — 서비스가 계산해 넘긴다(WP-1119)
    */
   public void upsert(
       long issueId,
@@ -57,7 +59,8 @@ public class IssueRecurrenceRepository {
       LocalTime runTime,
       long agentUserId,
       long createdBy,
-      Instant nextRunAt) {
+      Instant nextRunAt,
+      boolean assistantEnrolled) {
     OffsetDateTime next = utc(nextRunAt);
     dsl.insertInto(ISSUE_RECURRENCE)
         .set(ISSUE_RECURRENCE.ISSUE_ID, issueId)
@@ -69,6 +72,7 @@ public class IssueRecurrenceRepository {
         .set(ISSUE_RECURRENCE.NEXT_RUN_AT, next)
         .set(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES, 0)
         .set(ISSUE_RECURRENCE.DELETED, false)
+        .set(ISSUE_RECURRENCE.ASSISTANT_ENROLLED, assistantEnrolled)
         .onConflict(ISSUE_RECURRENCE.ISSUE_ID)
         .doUpdate()
         .set(ISSUE_RECURRENCE.RRULE, rrule)
@@ -79,6 +83,7 @@ public class IssueRecurrenceRepository {
         .set(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES, 0)
         // 묘비(실행 중에 지운 반복)를 다시 저장하면 새 반복으로 되살린다.
         .set(ISSUE_RECURRENCE.DELETED, false)
+        .set(ISSUE_RECURRENCE.ASSISTANT_ENROLLED, assistantEnrolled)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .execute();
   }
@@ -148,12 +153,20 @@ public class IssueRecurrenceRepository {
             .orderBy(ISSUE_RECURRENCE.ISSUE_ID)
             .forUpdate()
             .fetch();
-    for (var row : rows) {
-      long issueId = row.value1();
-      if (row.value2() == null) delete(issueId);
-      else tombstone(issueId);
-    }
+    for (var row : rows) retireLocked(row.value1(), row.value2() != null);
     return rows.size();
+  }
+
+  /**
+   * 이미 잠근 반복 행 하나를 거둔다 — 결과를 기다리는 회차가 없으면 지우고, 있으면 묘비(deleted, 꺼짐)로 남긴다. 묘비의 그 회차 결과는 도착하면 이슈 챗에
+   * 남기고 그때 행을 지운다(끝내 안 오면 대기 시간 초과 정리가 지운다). 이슈 종료·담당 해제({@link #retire}), 사람의 삭제와 스케줄러의 안전망
+   * ({@code IssueRecurrenceService#cancel})이 이 한 규칙을 쓴다.
+   *
+   * @param running 결과를 기다리는 회차가 있는지(pending_run_id 가 있음)
+   */
+  public void retireLocked(long issueId, boolean running) {
+    if (running) tombstone(issueId);
+    else delete(issueId);
   }
 
   /**
@@ -241,6 +254,7 @@ public class IssueRecurrenceRepository {
         r.getRunCount(),
         r.getPendingRunId(),
         instant(r.getLastRunAt()),
-        Boolean.TRUE.equals(r.getDeleted()));
+        Boolean.TRUE.equals(r.getDeleted()),
+        Boolean.TRUE.equals(r.getAssistantEnrolled()));
   }
 }

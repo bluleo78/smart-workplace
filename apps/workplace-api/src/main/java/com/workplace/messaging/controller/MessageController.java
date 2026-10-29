@@ -1,16 +1,18 @@
 package com.workplace.messaging.controller;
 
+import com.workplace.global.dto.AiProgressRequest;
+import com.workplace.global.security.InternalOnBehalfOf;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MarkReadRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
-import com.workplace.messaging.dto.MessagingProgressRequest;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.service.MessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -93,12 +95,19 @@ public class MessageController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 진행 알림 — DB 변경 없이 채널 멤버에게 SSE progress 이벤트 발행. ai-agent 전용(Internal+X-On-Behalf-Of). */
+  /**
+   * 진행 알림 — DB 변경 없이 채널 멤버에게 SSE progress 이벤트 발행. ai-agent 전용(Internal+X-On-Behalf-Of).
+   *
+   * <p>사람 JWT·PAT·AI 키로는 403(WP-1191) — 멤버 확인만 하던 때는 사람 멤버가 다른 멤버 화면에 기록에 남지 않는 가짜 「AI 작업 중」 말풍선을
+   * 띄울 수 있었다.
+   */
   @PostMapping("/channels/{id}/progress")
   public ResponseEntity<Void> progress(
+      Authentication auth,
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long channelId,
-      @RequestBody MessagingProgressRequest req) {
+      @Valid @RequestBody AiProgressRequest req) {
+    InternalOnBehalfOf.requireInternal(auth, AiProgressRequest.INTERNAL_ONLY_MESSAGE);
     messageService.notifyProgress(callerId, channelId, req.streamId(), req.phase(), req.steps());
     return ResponseEntity.noContent().build();
   }

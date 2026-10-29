@@ -11,16 +11,21 @@ export type WeekdayCode = (typeof WEEKDAY_CODES)[number];
 /** 요일 코드 → 한 글자(월~일). */
 export const WEEKDAY_SHORT: Record<WeekdayCode, string> = { MO: '월', TU: '화', WE: '수', TH: '목', FR: '금', SA: '토', SU: '일' };
 
-/** 반복 편집 폼 — freq 'NONE' 은 「반복 안 함」. byDay 는 매주, monthDay 는 매월에서만 쓴다. time 은 한국 시간 'HH:mm'. */
+/**
+ * 반복 편집 폼 — freq 'NONE' 은 「반복 안 함」. byDay 는 매주, monthDay·otherMonthDays 는 매월에서만 쓴다. time 은 한국 시간 'HH:mm'.
+ * 편집기는 날짜 하나(monthDay)만 고치게 한다. API·AI 로 저장된 여러 날짜(1,15)의 나머지는 otherMonthDays 에 그대로 두어
+ * 열고 저장해도 빠지지 않게 한다(WP-1117).
+ */
 export interface TaskRecurrenceForm {
   freq: RecurrenceFreq;
   byDay: WeekdayCode[];
   monthDay: number;
+  otherMonthDays: number[];
   time: string;
 }
 
 /** 새 반복 기본값 — 반복 안 함, 고르면 매주 월요일·매월 1일·09:00 부터 시작한다. */
-export const DEFAULT_TASK_RECURRENCE_FORM: TaskRecurrenceForm = { freq: 'NONE', byDay: ['MO'], monthDay: 1, time: '09:00' };
+export const DEFAULT_TASK_RECURRENCE_FORM: TaskRecurrenceForm = { freq: 'NONE', byDay: ['MO'], monthDay: 1, otherMonthDays: [], time: '09:00' };
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -30,6 +35,11 @@ function monthDays(raw: string | undefined): number[] {
   const nums = raw.split(',').map((v) => Number(v));
   if (nums.some((n) => !Number.isInteger(n) || n < 1 || n > 31)) return [];
   return [...new Set(nums)].sort((a, b) => a - b);
+}
+
+/** 편집하는 날짜 밖에 함께 반복하는 날짜 — 편집 날짜와 같은 값은 뺀다(오름차순). 편집기 안내·저장에 쓴다. */
+export function otherMonthDaysOf(form: Pick<TaskRecurrenceForm, 'monthDay' | 'otherMonthDays'>): number[] {
+  return form.otherMonthDays.filter((d) => d !== form.monthDay);
 }
 
 /** 이 날짜가 없는 달이 있는가(29~31일) — 서버는 RFC 5545 대로 그 달을 건너뛴다. 편집기 안내용. */
@@ -51,16 +61,21 @@ export function buildTaskRRule(form: TaskRecurrenceForm): string | null {
   if (form.freq === 'NONE') return null;
   const base = `FREQ=${form.freq}`;
   if (form.freq === 'WEEKLY') return `${base};BYDAY=${sortDays(form.byDay).join(',')}`;
-  if (form.freq === 'MONTHLY') return `${base};BYMONTHDAY=${form.monthDay}`;
+  if (form.freq === 'MONTHLY') {
+    // 편집한 날짜와 함께 읽어 둔 나머지 날짜도 넣는다 — 「1,15」를 열고 저장해도 15일이 남는다(WP-1117).
+    const days = [...new Set([form.monthDay, ...form.otherMonthDays])].sort((a, b) => a - b);
+    return `${base};BYMONTHDAY=${days.join(',')}`;
+  }
   return base;
 }
 
 /**
  * 서버의 RRULE·시각 → 폼. 반복이 없거나(null) 읽을 수 없는 규칙이면 기본값(반복 안 함)에 시각만 옮긴다.
+ * 매월 여러 날짜(1,15)는 첫 날짜를 편집 날짜로, 나머지를 otherMonthDays 로 읽는다.
  * 매주인데 BYDAY 가 없으면 월요일, 매월인데 날짜가 없거나 범위 밖이면 1일로 채운다(서버가 거절하는 모양이라 드묾).
  */
 export function parseTaskRRule(rrule: string | null | undefined, time?: string | null): TaskRecurrenceForm {
-  const form: TaskRecurrenceForm = { ...DEFAULT_TASK_RECURRENCE_FORM, byDay: [...DEFAULT_TASK_RECURRENCE_FORM.byDay] };
+  const form: TaskRecurrenceForm = { ...DEFAULT_TASK_RECURRENCE_FORM, byDay: [...DEFAULT_TASK_RECURRENCE_FORM.byDay], otherMonthDays: [] };
   if (time && TIME_RE.test(time)) form.time = time;
   if (!rrule) return form;
   // 토큰화는 캘린더 반복 유틸과 같은 방식으로 한 번만 — 지원하지 않는 FREQ(또는 누락)는 반복 안 함.
@@ -69,9 +84,12 @@ export function parseTaskRRule(rrule: string | null | undefined, time?: string |
   form.freq = freq === 'DAILY' || freq === 'WEEKLY' || freq === 'MONTHLY' ? freq : 'NONE';
   const days = sortDays((map.get('BYDAY') ?? '').split(','));
   if (days.length > 0) form.byDay = days;
-  // 편집기는 날짜 하나만 다룬다 — 여러 날짜(1,15)면 첫 날짜로 시작한다(요약 문구는 전부 보인다).
-  const mds = monthDays(map.get('BYMONTHDAY'));
-  if (mds.length > 0) form.monthDay = mds[0];
+  // 편집기는 날짜 하나만 고치게 한다 — 여러 날짜(1,15)면 첫 날짜를 편집하고 나머지는 저장 때 그대로 넣는다.
+  const [first, ...rest] = monthDays(map.get('BYMONTHDAY'));
+  if (first !== undefined) {
+    form.monthDay = first;
+    form.otherMonthDays = rest;
+  }
   return form;
 }
 

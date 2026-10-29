@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.service.UserMentionHydrator;
@@ -521,7 +522,7 @@ public class MessageService {
    */
   @Transactional(readOnly = true)
   public void notifyProgress(
-      long callerId, long channelId, String streamId, String phase, Object steps) {
+      long callerId, long channelId, String streamId, String phase, List<AiProgressStep> steps) {
     ensureMember(channelId, callerId);
     String name = mentionHydrator.summaryOf(callerId).name();
     publisher.publishEvent(

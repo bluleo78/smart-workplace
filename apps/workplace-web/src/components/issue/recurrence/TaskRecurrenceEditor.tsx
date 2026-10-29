@@ -11,6 +11,7 @@ import {
   buildTaskRRule,
   monthDayMaySkip,
   nextRunText,
+  otherMonthDaysOf,
   parseTaskRRule,
   recurrencePausedText,
   type TaskRecurrenceForm,
@@ -70,6 +71,8 @@ export function TaskRecurrenceEditor({
   const remove = useDeleteIssueRecurrence(projectKey, number);
   const pending = save.isPending || remove.isPending;
   const error = validateTaskRecurrence(form);
+  // 편집 날짜 밖에 함께 반복하는 날짜(API·AI 로 저장된 「1,15」의 15) — 안내·빼기·건너뜀 안내에 쓴다(WP-1117).
+  const otherDays = otherMonthDaysOf(form);
   const patch = (p: Partial<TaskRecurrenceForm>) => setForm((f) => ({ ...f, ...p }));
 
   const onSave = () => {
@@ -142,8 +145,25 @@ export function TaskRecurrenceEditor({
             />
             <span className="shrink-0">일</span>
           </label>
+          {/* API·AI 로 저장된 여러 날짜 — 편집기는 날짜 하나만 고치고 나머지는 저장 때 그대로 둔다는 것을 알리고,
+              나머지를 빼고 편집 날짜만 남길 수 있게 한다(WP-1117). */}
+          {otherDays.length > 0 && (
+            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-testid="task-recurrence-other-monthdays">
+              <span>{otherDays.join('·')}일에도 반복합니다</span>
+              {Number.isInteger(form.monthDay) && (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => patch({ otherMonthDays: [] })}
+                  className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                >
+                  {form.monthDay}일만 반복
+                </button>
+              )}
+            </p>
+          )}
           {/* 29~31일 — 서버는 RFC 5545 대로 그 날짜가 없는 달(2월·30일까지인 달)을 건너뛴다. */}
-          {monthDayMaySkip(form.monthDay) && (
+          {[form.monthDay, ...otherDays].some(monthDayMaySkip) && (
             <p className="text-xs text-muted-foreground" data-testid="task-recurrence-monthday-hint">
               그 날짜가 없는 달은 건너뜁니다
             </p>

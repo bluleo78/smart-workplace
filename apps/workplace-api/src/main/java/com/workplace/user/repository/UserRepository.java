@@ -175,16 +175,48 @@ public class UserRepository {
    * `__assistant_u`)를 제외한다 — 개인 비서는 사용자별 비공개이며 각자 /settings/assistant 에서 관리하므로 워크스페이스 에이전트 관리 목록의
    * 기본 노출 대상이 아니다. (접두어는 PersonalAssistantService.ensurePersonalAgent 의 생성 규칙과 일치.)
    */
-  public List<AgentResponse> findAgents(Long tenantId, boolean includePersonal) {
-    // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
-    com.workplace.jooq.tables.User owner = USER.as("owner");
-    // WP-1075: 사용을 중지한(멤버십 정지) AGENT 도 내려 준다 — 관리 화면이 「비활성」 배지로 구별하고 상세의 활성 상태로 다시 켠다.
-    // 삭제 때 기록이 남아 정지된 AI(WP-705)도 여기 포함된다. 활성 여부는 아래 WORKSPACE_ACTIVE 로 싣는다.
+  /** 이 테넌트의 AI 구성원(멤버십을 붙인 USER) — 관리 목록과 AI 위임 작업 「AI별」 보기(WP-1201)가 같은 기준을 쓴다. */
+  private static Condition workspaceAgents(Long tenantId, boolean includePersonal) {
     Condition where = MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(UserKind.AGENT));
     if (!includePersonal) {
       // startsWith 는 LIKE 와일드카드를 이스케이프하므로 `__` 가 임의문자로 해석되지 않는다.
       where = where.and(USER.USERNAME.startsWith(AgentUsernames.PERSONAL_ASSISTANT_PREFIX).not());
     }
+    return where;
+  }
+
+  /** 활성 AI 한 명의 요약 — AI 위임 작업 「AI별」 보기(WP-1201)용. */
+  public record ActiveAgent(
+      long id, String username, String name, String runtime, String description) {}
+
+  /**
+   * 이 테넌트에서 활성(워크스페이스 기준)인 AI — 개인 비서 제외, 이름순. 관리 목록({@link #findAgents})과 같은 기준이되 30초마다 읽는 화면용이라 키
+   * 사용 시각·소유자·공통 비서 조인 없이 가볍게 읽는다.
+   */
+  public List<ActiveAgent> findActiveAgents(long tenantId) {
+    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.AGENT_RUNTIME, USER.DESCRIPTION)
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
+        .where(workspaceAgents(tenantId, false))
+        .and(WorkspaceActive.condition())
+        .orderBy(USER.NAME.asc(), USER.ID.asc())
+        .fetch(
+            r ->
+                new ActiveAgent(
+                    r.get(USER.ID),
+                    r.get(USER.USERNAME),
+                    r.get(USER.NAME),
+                    r.get(USER.AGENT_RUNTIME),
+                    r.get(USER.DESCRIPTION)));
+  }
+
+  public List<AgentResponse> findAgents(Long tenantId, boolean includePersonal) {
+    // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
+    com.workplace.jooq.tables.User owner = USER.as("owner");
+    // WP-1075: 사용을 중지한(멤버십 정지) AGENT 도 내려 준다 — 관리 화면이 「비활성」 배지로 구별하고 상세의 활성 상태로 다시 켠다.
+    // 삭제 때 기록이 남아 정지된 AI(WP-705)도 여기 포함된다. 활성 여부는 아래 WORKSPACE_ACTIVE 로 싣는다.
+    Condition where = workspaceAgents(tenantId, includePersonal);
     // WP-371: 에이전트별 "마지막 키 사용 시각" = 폐기되지 않은 키의 last_used_at 최댓값(키 없으면 null). 목록에 나온 에이전트 행마다
     // 상관 서브쿼리로 계산한다 — 전 테넌트 키를 집계하는 파생 테이블과 달리 대상 에이전트 키만 idx_agent_api_key_user(V14)로 읽는다.
     Field<OffsetDateTime> keyLastUsed =

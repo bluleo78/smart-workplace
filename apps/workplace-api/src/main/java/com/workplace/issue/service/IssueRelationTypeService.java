@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.domain.IssueRelationBuiltIns;
 import com.workplace.issue.dto.IssueRelationTypeAdminResponse;
 import com.workplace.issue.dto.IssueRelationTypeResponse;
@@ -13,6 +14,7 @@ import com.workplace.user.repository.UserRepository;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -81,10 +83,11 @@ public class IssueRelationTypeService {
    */
   @Transactional(readOnly = true)
   public Optional<IssueRelationTypeRow> resolveByCodeOrName(String codeOrName) {
-    if (codeOrName == null || codeOrName.isBlank()) {
+    // 저장할 때와 같은 규칙으로 다듬어 찾는다(WP-1106) — 「관련」 끝에 제로폭 공백이 붙어 와도 저장된 「관련」을 찾는다.
+    String key = SingleLineTitles.normalize(codeOrName);
+    if (key == null || key.isEmpty()) {
       return Optional.empty();
     }
-    String key = codeOrName.trim();
     return repo.findByCode(key).or(() -> repo.findByNameIgnoreCase(key));
   }
 
@@ -251,18 +254,23 @@ public class IssueRelationTypeService {
     }
   }
 
-  /** 저장할 값 — 이름·말은 앞뒤 공백을 떼고, 방향 없는 유형은 B 쪽 말을 버린다. */
+  /** 저장할 값 — 이름·말은 한 줄 제목처럼 다듬고, 방향 없는 유형은 B 쪽 말을 버린다. */
   private record Fields(String name, boolean directed, String outwardLabel, String inwardLabel) {}
 
+  /**
+   * 이름·말을 한 줄 제목 규칙({@link SingleLineTitles#normalize})으로 다듬는다 — 앞뒤의 공백·제로폭 공백·점자 빈칸을 지우고(WP-1106),
+   * 그려지는 글자가 없으면 빈 값이 된다. 이름 중복 검사도 이 값으로 해 「관련​」(끝에 제로폭 공백)이 기본 유형 「관련」을 빠져나가지 않는다. 이름·A 쪽 말이 비는
+   * 경우는 요청 검증({@code @VisibleText})이 먼저 막고, B 쪽 말은 방향 있는 유형에서만 여기서 막는다.
+   */
   private Fields normalize(SaveIssueRelationTypeRequest req) {
-    String inward = req.inwardLabel() == null ? "" : req.inwardLabel().trim();
+    String inward = Objects.requireNonNullElse(SingleLineTitles.normalize(req.inwardLabel()), "");
     if (req.directed() && inward.isEmpty()) {
       throw IssueRelationException.inwardLabelRequired();
     }
     return new Fields(
-        req.name().trim(),
+        SingleLineTitles.normalize(req.name()),
         req.directed(),
-        req.outwardLabel().trim(),
+        SingleLineTitles.normalize(req.outwardLabel()),
         req.directed() ? inward : null);
   }
 

@@ -1,5 +1,5 @@
 import {
-  addDays, eachDayOfInterval, endOfDay, endOfMonth, format,
+  addDays, eachDayOfInterval, endOfDay, endOfMonth, format, isSameDay, isSameYear,
   startOfDay, startOfMonth, startOfWeek,
 } from 'date-fns'
 
@@ -197,10 +197,34 @@ export function isLocalRangeReversed(startsAt: string, endsAt: string): boolean 
 /**
  * 일정 제안 카드의 읽기전용 시간 표시 — 'YYYY-MM-DD HH:mm ~ HH:mm'(종료 없으면 시작만).
  * UTC 로 저장된 제안 시각을 브라우저 로컬(KST)로 바꿔 보여 준다 — 확인 대기·확정 블록이 같은 규칙을 쓴다.
+ * 끝나는 날이 다르면 종료에 날짜(MM-DD, 해가 다르면 YYYY-MM-DD)를 붙인다 — 시각만 붙이면 이틀 일정이 두 시간짜리로 보였다(WP-1120).
+ * 끝은 배타적이라 정확히 다음 날 0시에 끝나면 같은 날 '~ 24:00' 이다(캘린더 일정 상세의 eventTimeLines 와 같은 규칙).
+ * 종일이면 시각 없이 'YYYY-MM-DD (종일)', 여러 날이면 'YYYY-MM-DD ~ MM-DD (종일)'. 날짜는 캘린더 화면과 같은
+ * {@link allDayLocalDate} 로 복원하고 종료는 배타적(다음 날 자정)이라 하루를 뺀다 — instant 로 보면 '00:00 ~ 00:00' 이었다.
+ * 읽을 수 없는 시작은 빈 문자열, 읽을 수 없는 종료는 없는 것으로 본다 — 렌더 중 format 이 던지지 않게.
  */
-export function proposalTimeRange(startsAt: string, endsAt: string | null | undefined): string {
-  const start = isoToLocalInput(startsAt).replace('T', ' ')
-  return endsAt ? `${start} ~ ${isoToLocalInput(endsAt).slice(11, 16)}` : start
+export function proposalTimeRange(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  allDay?: boolean | null,
+): string {
+  const start = new Date(startsAt)
+  if (Number.isNaN(start.getTime())) return ''
+  const parsedEnd = endsAt ? new Date(endsAt) : null
+  const end = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null
+  if (allDay) {
+    const first = allDayLocalDate(startsAt)
+    const last = end ? addDays(allDayLocalDate(end.toISOString()), -1) : first
+    const from = format(first, 'yyyy-MM-dd')
+    if (last <= first) return `${from} (종일)`
+    return `${from} ~ ${format(last, isSameYear(first, last) ? 'MM-dd' : 'yyyy-MM-dd')} (종일)`
+  }
+  const from = format(start, 'yyyy-MM-dd HH:mm')
+  if (!end) return from
+  if (isSameDay(start, end)) return `${from} ~ ${format(end, 'HH:mm')}`
+  // 배타적 끝 — 1ms 앞이 시작과 같은 날이면 자정에 끝나는 일정이다.
+  if (end > start && isSameDay(start, new Date(end.getTime() - 1))) return `${from} ~ 24:00`
+  return `${from} ~ ${format(end, isSameYear(start, end) ? 'MM-dd HH:mm' : 'yyyy-MM-dd HH:mm')}`
 }
 
 export { addDays, endOfMonth, startOfMonth }

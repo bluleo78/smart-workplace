@@ -58,9 +58,14 @@ export interface AiTaskParams {
   state: QuickState | null
 }
 
+/** 범위 — 이슈별·AI별 보기가 같은 URL 값을 쓴다(WP-1201). 없거나 모르는 값이면 나와 관련. */
+export function aiTaskScope(params: URLSearchParams): 'mine' | 'all' {
+  return params.get('scope') === 'all' ? 'all' : 'mine'
+}
+
 /** URL 을 읽어 목록·건수 요청 파라미터를 만든다. 모르는 값은 기본값으로 떨어뜨린다(잘못된 링크 방어). */
 export function aiTaskParams(params: URLSearchParams): AiTaskParams {
-  const scope = params.get('scope') === 'all' ? 'all' : 'mine'
+  const scope = aiTaskScope(params)
   const raw = params.get('state')
   const state = QUICK_STATES.find((s) => s === raw) ?? null
   const all = meFacetParams(params)

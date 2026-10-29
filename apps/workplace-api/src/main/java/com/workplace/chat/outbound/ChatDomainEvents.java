@@ -2,6 +2,7 @@ package com.workplace.chat.outbound;
 
 import com.workplace.chat.dto.ChatMessageAttachmentResponse;
 import com.workplace.drive.dto.DriveLinkResponse;
+import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.UserSummary;
 import java.time.Instant;
 import java.util.List;
@@ -56,5 +57,10 @@ public final class ChatDomainEvents {
 
   /** thread 진행(progress) 알림 — AI 작업 단계 표시용 transient 이벤트(DB 저장 없음). */
   public record ChatThreadProgressEvent(
-      long threadId, long agentId, String agentName, String streamId, String phase, Object steps) {}
+      long threadId,
+      long agentId,
+      String agentName,
+      String streamId,
+      String phase,
+      List<AiProgressStep> steps) {}
 }

@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
 import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
+import { createAiAgentsResponse, createAiAgentStatus, createAiAgentWork } from '../../factories/aiAgent.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
@@ -356,4 +357,29 @@ test('헤더 셀은 text-xs·font-normal', { tag: '@layout' }, async ({ authenti
   const styles = await page.getByTestId('ai-tasks-table').locator('thead th').evaluateAll((els) =>
     els.map((e) => ({ weight: getComputedStyle(e).fontWeight, size: getComputedStyle(e).fontSize })))
   for (const s of styles) expect(s).toEqual({ weight: '400', size: '12px' })
+})
+
+// AI별 보기(WP-1201) — 보기 전환 → /me/ai-agents → AI 한 줄. 행 내용·정렬·칩·필터는 aiTasksPage.test.tsx(vitest)가 지킨다.
+test('AI별 보기로 바꾸면 AI 현황 API 결과가 AI 한 줄씩 보인다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
+  await setup(page)
+  const agents = await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/ai-agents',
+    createAiAgentsResponse([
+      createAiAgentStatus(11, 'AI 개발자1', {
+        works: [createAiAgentWork({ number: 1090, title: 'AI별로 보고 싶다', state: 'INPUT_REQUIRED' })],
+      }),
+    ]),
+    { capture: true },
+  )
+  await page.goto('/me/ai-tasks')
+  await page.getByTestId('ai-view-agents').click()
+
+  const row = page.getByTestId('ai-agent-11')
+  await expect(row).toContainText('AI 개발자1')
+  await expect(page.getByTestId('ai-agent-11-state')).toContainText('답변 필요')
+  await expect(page.getByTestId('ai-agent-11-work-WP-1090')).toBeVisible()
+  await expect(page).toHaveURL(/[?&]view=agents/)
+  expect(agents.lastRequest()?.searchParams.get('scope')).toBe('MINE')
 })

@@ -217,11 +217,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   void 비서가_멤버도_담당도_아니면_저장이_넣어준다() throws Exception {
     // 개인 작업 화면에는 AI 를 멤버로 넣는 길이 없다 — 비서가 멤버도 담당도 아닌 이슈.
     assigneeRepository.remove(issueId, agent);
-    long projectId =
-        dsl.select(com.workplace.jooq.Tables.ISSUE.PROJECT_ID)
-            .from(com.workplace.jooq.Tables.ISSUE)
-            .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
-            .fetchOne(com.workplace.jooq.Tables.ISSUE.PROJECT_ID);
+    long projectId = projectId();
     projectMemberRepository.delete(projectId, agent);
     assertThat(projectMemberRepository.isDirectMember(projectId, agent)).isFalse();
 
@@ -496,6 +492,40 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
   }
 
+  @Test
+  void 회차_실행_중에_스케줄러가_담당_해제를_발견해도_묘비로_남기고_그_회차_결과는_받는다() throws Exception {
+    // WP-1116 — 닫기·담당 해제 서비스를 거치지 않고 어긋난 행(담당 행만 직접 빠짐)은 스케줄러의 안전망이 거둔다. 그때도 도는 회차의 결과는 받는다.
+    String runId = dispatchOnce();
+    assigneeRepository.remove(issueId, agent);
+    setNextRunAt(Instant.now().minusSeconds(30));
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(lastWorkState()).isEqualTo("CANCELED");
+
+    report(agent, runId, true, "해제 전 결과").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("해제 전 결과");
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+  }
+
+  @Test
+  void 회차_실행_중에_스케줄러가_지워진_작업을_발견해도_묘비로_남기고_결과가_안_오면_정리가_지운다() throws Exception {
+    // 서비스의 retire 를 거치지 않고 지워진 행(삭제 표시만 바뀜) — 스케줄러가 묘비로 남기고, 결과가 끝내 안 오면 대기 시간 초과 정리가 지운다.
+    dispatchOnce();
+    dsl.update(com.workplace.jooq.Tables.ISSUE)
+        .set(com.workplace.jooq.Tables.ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
+        .execute();
+    setNextRunAt(Instant.now().minusSeconds(30));
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+
+    recurrenceService.runDue(
+        Instant.now().plus(IssueRecurrenceService.PENDING_TIMEOUT).plusSeconds(60));
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(agentMessages()).isEmpty();
+  }
+
   // ───────────────────────────── 결과 보고 ─────────────────────────────
 
   @Test
@@ -675,13 +705,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     String runId = dispatchOnce();
     long agent2 = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, owner));
     personalAssistantRepository.setAgentId(owner, agent2);
-    projectMemberRepository.insert(
-        dsl.select(com.workplace.jooq.Tables.ISSUE.PROJECT_ID)
-            .from(com.workplace.jooq.Tables.ISSUE)
-            .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
-            .fetchOne(com.workplace.jooq.Tables.ISSUE.PROJECT_ID),
-        agent2,
-        "MEMBER");
+    projectMemberRepository.insert(projectId(), agent2, "MEMBER");
     assigneeRepository.add(issueId, agent2, owner);
     call(put(path()).content(req("FREQ=DAILY", "08:00")), owner).andExpect(status().isOk());
 
@@ -691,6 +715,62 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(activeWorkOrNull()).isNull();
     report(agent, runId, true, "예전 AI 결과").andExpect(status().isNoContent());
     assertThat(agentMessages()).isEmpty();
+  }
+
+  @Test
+  void 비서가_바뀌면_반복이_넣었던_예전_비서는_담당에서_빠진다() throws Exception {
+    // WP-1119: 반복 저장이 넣은 비서 A → 개인 비서를 B 로 바꿔 다시 저장하면 A 는 빠지고 B 만 담당이다.
+    assigneeRepository.remove(issueId, agent);
+    call(put(path()).content(req("FREQ=DAILY", "08:00")), owner).andExpect(status().isOk());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.ASSISTANT_ENROLLED)).isTrue();
+    // 같은 비서로 다시 저장해도(이미 담당이라 이번엔 넣지 않음) 이 반복이 넣은 담당이라는 기록은 남는다.
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.ASSISTANT_ENROLLED)).isTrue();
+    // 이미 몇 회차 돈 반복 — 비서를 바꿔도 회차 수·지난 실행 시각이 이어져야 한다.
+    dsl.update(ISSUE_RECURRENCE)
+        .set(ISSUE_RECURRENCE.RUN_COUNT, 5)
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+    setLastRunAt(Instant.now().minusSeconds(3600));
+
+    long agent2 = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, owner));
+    personalAssistantRepository.setAgentId(owner, agent2);
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+
+    assertThat(assigneeRepository.findUserIdsByIssue(issueId)).containsExactly(agent2);
+    var row = recurrenceRow();
+    assertThat(row.get(ISSUE_RECURRENCE.AGENT_USER_ID)).isEqualTo(agent2);
+    assertThat(row.get(ISSUE_RECURRENCE.ASSISTANT_ENROLLED)).isTrue();
+    // 예전 비서를 담당에서 빼도(담당 해제가 그 AI 의 반복을 거둔다) 이 반복은 지워지지 않고 이어진다.
+    assertThat(row.get(ISSUE_RECURRENCE.DELETED)).isFalse();
+    assertThat(row.get(ISSUE_RECURRENCE.RUN_COUNT)).isEqualTo(5);
+    assertThat(row.get(ISSUE_RECURRENCE.LAST_RUN_AT)).isNotNull();
+    assertThat(activeWorkOrNull()).as("예전 비서의 작업 기록은 끝난다").isNull();
+    assertThat(activeWorkOrNull(agent2).get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+    // 프로젝트 멤버에서는 빼지 않는다 — 같은 개인 프로젝트의 다른 반복이 쓰고 있을 수 있다.
+    assertThat(projectMemberRepository.isDirectMember(projectId(), agent)).isTrue();
+    // 빼고 넣기를 한 번의 담당 교체로 한다 — 이력·이벤트가 한 번.
+    var last =
+        events.stream(com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent.class)
+            .reduce((a, b) -> b)
+            .orElseThrow();
+    assertThat(last.added()).extracting(u -> u.id()).containsExactly(agent2);
+    assertThat(last.removed()).extracting(u -> u.id()).containsExactly(agent);
+  }
+
+  @Test
+  void 사람이_먼저_넣은_비서는_비서가_바뀌어도_담당에_남는다() throws Exception {
+    // 시드는 반복을 저장하기 전에 사람이 agent 를 담당으로 넣어 두었다 — 반복이 넣은 담당이 아니다.
+    call(put(path()).content(req("FREQ=DAILY", "08:00")), owner).andExpect(status().isOk());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.ASSISTANT_ENROLLED)).isFalse();
+
+    long agent2 = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, owner));
+    personalAssistantRepository.setAgentId(owner, agent2);
+    call(put(path()).content(req("FREQ=DAILY", "08:00")), owner).andExpect(status().isOk());
+
+    assertThat(assigneeRepository.findUserIdsByIssue(issueId))
+        .containsExactlyInAnyOrder(agent, agent2);
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.ASSISTANT_ENROLLED)).isTrue();
   }
 
   @Test
@@ -803,6 +883,14 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     return dsl.selectFrom(ISSUE_RECURRENCE).where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId)).fetchOne();
   }
 
+  /** 시드 이슈의 개인 프로젝트 id. */
+  private long projectId() {
+    return dsl.select(com.workplace.jooq.Tables.ISSUE.PROJECT_ID)
+        .from(com.workplace.jooq.Tables.ISSUE)
+        .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
+        .fetchOne(com.workplace.jooq.Tables.ISSUE.PROJECT_ID);
+  }
+
   private Record activeWork() {
     Record r = activeWorkOrNull();
     assertThat(r).as("진행 중 AI 작업").isNotNull();
@@ -810,9 +898,14 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   }
 
   private Record activeWorkOrNull() {
+    return activeWorkOrNull(agent);
+  }
+
+  /** 그 AI 의 진행 중(끝나지 않은) 작업 기록 — 없으면 null. */
+  private Record activeWorkOrNull(long workerId) {
     return dsl.selectFrom(AGENT_WORK)
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
-        .and(AGENT_WORK.WORKER_ID.eq(agent))
+        .and(AGENT_WORK.WORKER_ID.eq(workerId))
         .and(AGENT_WORK.ENDED_AT.isNull())
         .fetchOne();
   }

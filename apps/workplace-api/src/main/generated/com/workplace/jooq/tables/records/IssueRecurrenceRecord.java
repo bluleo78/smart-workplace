@@ -231,6 +231,20 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         return (OffsetDateTime) get(14);
     }
 
+    /**
+     * Setter for <code>public.issue_recurrence.assistant_enrolled</code>.
+     */
+    public void setAssistantEnrolled(Boolean value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.assistant_enrolled</code>.
+     */
+    public Boolean getAssistantEnrolled() {
+        return (Boolean) get(15);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -254,7 +268,7 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
     /**
      * Create a detached, initialised IssueRecurrenceRecord
      */
-    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled) {
         super(IssueRecurrence.ISSUE_RECURRENCE);
 
         setIssueId(issueId);
@@ -272,6 +286,7 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         setLastRunAt(lastRunAt);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setAssistantEnrolled(assistantEnrolled);
         resetChangedOnNotNull();
     }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ProgressTracker } from './progress-tracker.js';
+import { MAX_SNAPSHOT_STEPS, ProgressTracker } from './progress-tracker.js';
 
 describe('ProgressTracker', () => {
   it('tool_use 는 한국어 라벨 running 단계를 추가하고 true 반환', () => {
@@ -48,5 +48,17 @@ describe('ProgressTracker', () => {
     const t = new ProgressTracker();
     t.apply({ kind: 'tool_use', toolName: 'add_channel_message' });
     expect(Object.keys(t.snapshot('tool').steps[0]).sort()).toEqual(['label', 'status']);
+  });
+
+  it('단계가 많아도 최근 MAX_SNAPSHOT_STEPS 개만 보낸다 — api 상한(100)에 걸려 진행 알림이 거절되지 않게(WP-1191)', () => {
+    const t = new ProgressTracker();
+    for (let i = 0; i < MAX_SNAPSHOT_STEPS + 20; i++) {
+      t.apply({ kind: 'tool_use', toolName: `tool_${i}` });
+      t.apply({ kind: 'tool_result' });
+    }
+    const steps = t.snapshot('done').steps;
+    expect(steps).toHaveLength(MAX_SNAPSHOT_STEPS);
+    expect(steps[0].label).toBe('tool_20');
+    expect(steps.at(-1)?.label).toBe(`tool_${MAX_SNAPSHOT_STEPS + 19}`);
   });
 });

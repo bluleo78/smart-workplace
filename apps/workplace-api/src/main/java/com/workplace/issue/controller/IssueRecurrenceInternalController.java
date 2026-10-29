@@ -5,7 +5,6 @@ import com.workplace.issue.dto.IssueRecurrenceRunReport;
 import com.workplace.issue.service.IssueRecurrenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,9 +26,7 @@ public class IssueRecurrenceInternalController {
   @PostMapping("/api/v1/internal/issue-recurrence/{issueId}/runs")
   public ResponseEntity<Void> report(
       Authentication auth, @PathVariable long issueId, @RequestBody IssueRecurrenceRunReport body) {
-    if (!InternalOnBehalfOf.isInternal(auth)) {
-      throw new AccessDeniedException("내부 호출만 반복 회차 결과를 보고할 수 있습니다");
-    }
+    InternalOnBehalfOf.requireInternal(auth, "내부 호출만 반복 회차 결과를 보고할 수 있습니다");
     recurrenceService.reportRun((Long) auth.getPrincipal(), issueId, body);
     return ResponseEntity.noContent().build();
   }
