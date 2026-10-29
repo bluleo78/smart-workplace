@@ -70,6 +70,40 @@ class ReactionToggleTest extends IntegrationTestBase {
     messageId = messageService.create(author, channelId, new CreateMessageRequest("hi")).id();
   }
 
+  /**
+   * WP-1199: 같은 하트를 FE0F 유무·개수만 다르게 보내도 하나의 리액션으로 모인다 — 칩 「❤️ 3」 하나. 한 사람이 표기만 바꿔 다시 달아도 늘지 않고,
+   * FE0F 없이 떼도 떨어진다.
+   */
+  @Test
+  void sameHeartWithDifferentVariationSelectors_mergesIntoOneReaction() {
+    long third = seedUser();
+    channelService.join(third, channelId);
+    reactionService.add(author, messageId, "\u2764\uFE0F");
+    reactionService.add(reactor, messageId, "\u2764");
+    reactionService.add(third, messageId, "\u2764\uFE0F\uFE0F");
+    // 같은 사람이 표기만 바꿔 다시 달면 멱등(늘지 않음).
+    reactionService.add(reactor, messageId, "\u2764\uFE0F\uFE0F");
+
+    assertThat(reactionsFor(reactor))
+        .singleElement()
+        .satisfies(
+            r -> {
+              assertThat(r.emoji()).isEqualTo("\u2764\uFE0F");
+              assertThat(r.count()).isEqualTo(3);
+              assertThat(r.reacted()).isTrue();
+            });
+
+    // FE0F 없이 떼도 저장된 「❤️」가 떨어진다.
+    reactionService.remove(reactor, messageId, "\u2764");
+    assertThat(reactionsFor(reactor))
+        .singleElement()
+        .satisfies(
+            r -> {
+              assertThat(r.count()).isEqualTo(2);
+              assertThat(r.reacted()).isFalse();
+            });
+  }
+
   /** add → count=1, reactor 본인 reacted=true / author 시점 reacted=false. */
   @Test
   void add_aggregatesCount_andReactedPerCaller() {

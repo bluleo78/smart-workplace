@@ -51,4 +51,31 @@ class ReactionEmojisTest {
     }
     assertThat(ReactionEmojis.isSingleEmoji(null)).isFalse();
   }
+
+  /** WP-1199: 같은 그림으로 보이는 표기는 하나로 — 웹 피커가 보내는 완전한 표기와 같게. */
+  @Test
+  void normalizesVariationSelectorsToFullyQualifiedForm() {
+    String heart = "\u2764\uFE0F";
+    assertThat(ReactionEmojis.normalize("\u2764")).isEqualTo(heart);
+    assertThat(ReactionEmojis.normalize(heart)).isEqualTo(heart);
+    assertThat(ReactionEmojis.normalize("\u2764\uFE0F\uFE0F")).isEqualTo(heart);
+    assertThat(ReactionEmojis.normalize("\u00A9")).isEqualTo("\u00A9\uFE0F");
+    // 기본이 그림 표시인 문자는 FE0F 를 뗀다.
+    assertThat(ReactionEmojis.normalize("\uD83D\uDE00\uFE0F")).isEqualTo("\uD83D\uDE00");
+    assertThat(ReactionEmojis.normalize("👍")).isEqualTo("👍");
+    // 여러 글자 묶음은 이어 붙은 FE0F 만 줄인다.
+    assertThat(ReactionEmojis.normalize("1\uFE0F\uFE0F\u20E3")).isEqualTo("1\uFE0F\u20E3");
+    assertThat(ReactionEmojis.normalize("👩‍💻")).isEqualTo("👩‍💻");
+    assertThat(ReactionEmojis.normalize("🛠️")).isEqualTo("🛠️");
+    // 이모지가 아니면 그대로.
+    assertThat(ReactionEmojis.normalize("승인함")).isEqualTo("승인함");
+  }
+
+  /** 웹 피커 이모지는 정규화해도 그대로다 — 기존에 저장된 피커 리액션과 새 리액션이 갈리지 않게. */
+  @Test
+  void webPickerEmojisAreAlreadyNormalized() {
+    for (String e : new String[] {"👍", "❤️", "✅", "❌", "✨", "⭐", "⚡", "🛠️", "☕", "🔥", "🙏"}) {
+      assertThat(ReactionEmojis.normalize(e)).as(e).isEqualTo(e);
+    }
+  }
 }

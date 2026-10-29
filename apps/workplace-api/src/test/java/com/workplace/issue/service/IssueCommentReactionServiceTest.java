@@ -102,6 +102,20 @@ class IssueCommentReactionServiceTest extends IntegrationTestBase {
     assertThat(changedEvents()).isEqualTo(1);
   }
 
+  /** WP-1199: FE0F 유무·개수만 다른 하트는 같은 반응 — 한 번만 달리고, FE0F 없이 떼도 떨어진다(채팅과 같다). */
+  @Test
+  void same_heart_with_different_variation_selectors_is_one_reaction() {
+    reactionService.add(s.memberId(), s.issueId(), commentId, "\u2764");
+    reactionService.add(s.memberId(), s.issueId(), commentId, "\u2764\uFE0F\uFE0F");
+    var enriched =
+        reactionService.enrich(commentService.list(s.memberId(), s.issueId()), s.memberId());
+    assertThat(enriched.getFirst().reactions())
+        .containsExactly(new CommentReactionResponse("\u2764\uFE0F", 1, true));
+
+    reactionService.remove(s.memberId(), s.issueId(), commentId, "\u2764");
+    assertThat(commentService.list(s.memberId(), s.issueId()).getFirst().reactions()).isEmpty();
+  }
+
   /** OPEN 프로젝트의 읽기만 가능한 사람은 반응을 달 수 없다(403). 반응자 목록은 볼 수 있다. */
   @Test
   void reader_cannot_react() {

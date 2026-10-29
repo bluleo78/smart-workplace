@@ -58,6 +58,8 @@ public class IssueCommentReactionService {
     if (!ReactionEmojis.isSingleEmoji(emoji)) {
       throw new IllegalArgumentException("반응에는 이모지 하나만 쓸 수 있습니다");
     }
+    // 같은 그림의 표기 차이(FE0F 유무·개수)를 하나로 맞춰 저장·비교한다 — 칩이 갈리지 않고 상한도 같은 이모지로 센다(WP-1199).
+    emoji = ReactionEmojis.normalize(emoji);
     // 코멘트 행을 잠가 같은 코멘트의 반응 추가를 한 줄로 세운다 — 잠금 없이는 동시 요청이 모두 상한 미만으로 읽고 함께 넣어 1인 20개·50종을
     // 넘겼다(WP-829).
     // 그 사이 코멘트가 지워졌으면 없는 코멘트와 같은 404.
@@ -82,7 +84,9 @@ public class IssueCommentReactionService {
   /** 반응 취소(멱등 — 없으면 이벤트 없음). 이모지 검사는 하지 않는다 — 이 규칙 전에 붙은 값도 본인이 뗄 수 있게(채팅과 같다). */
   public void remove(long callerId, long issueId, long commentId, String emoji) {
     var target = requireWritableComment(callerId, issueId, commentId);
-    if (reactionRepository.remove(commentId, callerId, emoji))
+    // 받은 값 그대로 먼저 뗀다(정규화 전에 붙은 값·칩 값). 없으면 정규화한 값으로 — 채팅과 같다(WP-1199).
+    if (reactionRepository.remove(commentId, callerId, emoji)
+        || reactionRepository.remove(commentId, callerId, ReactionEmojis.normalize(emoji)))
       publishChanged(target, commentId, callerId);
   }
 
