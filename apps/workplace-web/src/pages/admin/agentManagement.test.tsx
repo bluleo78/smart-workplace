@@ -278,6 +278,11 @@ test('내부 → 외부로 바꾸면 AI 연결 대신 외부 연결 카드(설�
   )
   expect(within(card).getByTestId('agent-work-loop-start-command')).toHaveTextContent('/loop /genia-works:work-loop <프로젝트 키>')
   expect(within(card).getByTestId('agent-work-loop')).toHaveTextContent('/genia-works:work-on')
+  // 동작 안내는 PR 흐름이다 — 옛 「main 머지까지·push 는 하지 않아요」가 남지 않고 GitHub 준비를 알린다(WP-1151).
+  expect(within(card).getByTestId('agent-work-loop-flow')).toHaveTextContent('이슈 브랜치를 push 해 GitHub PR 을 만들고')
+  expect(within(card).getByTestId('agent-work-loop-flow')).toHaveTextContent('main 직접 push·배포는 하지 않아요')
+  expect(within(card).getByTestId('agent-work-loop-github')).toHaveTextContent('GH_TOKEN')
+  expect(card).not.toHaveTextContent('main 머지까지')
   // 다른 방법은 접혀 있다 — 펼쳐야 키를 직접 넘기는 명령이 보인다.
   expect(screen.queryByTestId('agent-fallback-command')).not.toBeInTheDocument()
   await user.click(screen.getByTestId('agent-fallback'))
