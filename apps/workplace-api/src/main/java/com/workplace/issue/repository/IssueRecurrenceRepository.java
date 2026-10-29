@@ -171,6 +171,15 @@ public class IssueRecurrenceRepository {
                     .from(rows)));
   }
 
+  /**
+   * 이 AI 가 돌리던 반복을 이슈와 상관없이 모두 거둔다 — 개인 비서를 해제해 더 실행할 수 없을 때(WP-1190). 규칙은 {@link #retire} 와 같다.
+   *
+   * @return 거둔 행 수
+   */
+  public int retireForAgent(long agentId) {
+    return retireWhere(ISSUE_RECURRENCE.AGENT_USER_ID.eq(agentId));
+  }
+
   /** 조건에 맞는 살아 있는 반복 행을 잠그고 하나씩 거둔다({@link #retireLocked}). */
   private int retireWhere(Condition where) {
     var scope = where.and(ISSUE_RECURRENCE.DELETED.isFalse());

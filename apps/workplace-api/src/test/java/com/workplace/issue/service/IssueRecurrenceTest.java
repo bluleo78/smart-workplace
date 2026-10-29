@@ -477,6 +477,37 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(activeWork()).isNotNull();
   }
 
+  // WP-1190 — 개인 비서를 해제하면 그 비서가 돌리던 반복을 그 자리에서 거둔다(상세 「다음 실행 …」·AI 위임 작업 「다음 회차 대기」가 남지 않게).
+
+  @Test
+  void 비서를_해제하면_그_자리에서_반복이_지워지고_다음회차대기는_취소된다() throws Exception {
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+
+    call(delete("/api/v1/users/me/assistant"), owner).andExpect(status().is2xxSuccessful());
+
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(activeWorkOrNull()).isNull();
+    assertThat(lastWorkState()).isEqualTo("CANCELED");
+    // 담당은 그대로 — 같은 비서를 다시 등록하면 그 AGENT 를 다시 쓴다.
+    assertThat(assigneeRepository.findUserIdsByIssue(issueId)).contains(agent);
+  }
+
+  @Test
+  void 회차_실행_중에_비서를_해제하면_묘비로_남기고_그_회차_결과는_받는다() throws Exception {
+    String runId = dispatchOnce();
+    call(delete("/api/v1/users/me/assistant"), owner).andExpect(status().is2xxSuccessful());
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+    // 일하던 회차 작업은 다음 회차 대기가 아니라 그대로 둔다 — 결과가 오면 남긴다.
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
+
+    report(agent, runId, true, "해제 전 결과").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("해제 전 결과");
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+  }
+
   @Test
   void 회차_실행_중에_완료하면_묘비로_남기고_그_회차_결과는_받는다() throws Exception {
     String runId = dispatchOnce();
