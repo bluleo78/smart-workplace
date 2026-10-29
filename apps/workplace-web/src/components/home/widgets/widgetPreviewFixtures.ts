@@ -93,7 +93,9 @@ const sampleMailSummary: MailSummaryItem[] = [
   { id: 1, accountId: 1, subject: '이번 주 스프린트 리뷰 일정 안내', fromAddress: 'lead@example.com', fromName: '김리드', snippet: '금요일 오후 2시에 진행 예정입니다...', receivedAt: now, seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: true },
 ]
 
-// notifications: '내 차례'(ASSIGNED 1건) + '업데이트'(COMMENTED 1건) 구분을 위해 서로 다른 이슈로 배치.
+// notifications: '내 차례'(ASSIGNED·코멘트 멘션) + '업데이트'(COMMENTED·STATUS_CHANGED) 구분을 위해 서로 다른 이슈로 배치.
+// 코멘트 멘션(ISSUE_COMMENT_MENTION)은 「종합」 미리보기의 멘션 수·「지금 신경 쓸 일」 멘션 줄을 채운다 —
+// COMMENTED 는 멘션이 아니어서(WP-1092) 이것이 없으면 미리보기가 멘션 0·멘션 줄 없음으로 보인다(WP-1141).
 const sampleNotifications: NotificationResponse[] = [
   {
     id: 1, type: 'ASSIGNED', actorId: 1, actorName: '김리드', actorKind: 'HUMAN',
@@ -109,6 +111,11 @@ const sampleNotifications: NotificationResponse[] = [
     id: 3, type: 'STATUS_CHANGED', actorId: 3, actorName: 'AI 비서', actorKind: 'AGENT',
     issueId: 3, projectKey: 'SW', issueNumber: 103, issueTitle: '알림 설정 화면 정리',
     commentId: null, eventId: null, eventTitle: null, eventStartsAt: null, read: false, createdAt: now,
+  },
+  {
+    id: 4, type: 'ISSUE_COMMENT_MENTION', actorId: 1, actorName: '김리드', actorKind: 'HUMAN',
+    issueId: 4, projectKey: 'SW', issueNumber: 104, issueTitle: 'API 응답 스키마 검토',
+    commentId: 11, eventId: null, eventTitle: null, eventStartsAt: null, read: false, createdAt: now,
   },
 ]
 
@@ -165,7 +172,7 @@ export const widgetPreviewFixtures: Record<string, unknown> = {
   // my_tasks: MyTasksBody 가 소비하는 useMyIssues/useWatchedIssues 응답(IssueSearchResponse)과 동일 형태.
   my_tasks: { assigned: sampleIssues, watched: sampleIssues },
   calendar_today: sampleEvents,
-  // notifications: groupNotifications() 원본 입력(NotificationResponse[]) — ASSIGNED 1건('내 차례') + 그 외 2건('업데이트').
+  // notifications: groupNotifications() 원본 입력(NotificationResponse[]) — ASSIGNED·코멘트 멘션('내 차례') + COMMENTED·STATUS_CHANGED('업데이트').
   notifications: sampleNotifications,
   recent_chats: sampleConversations,
   unread_mail: sampleMailSummary,

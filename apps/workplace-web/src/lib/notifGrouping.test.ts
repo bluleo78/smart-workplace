@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { isMentionLike } from '@/components/home/notifTarget'
 import type { NotificationResponse } from '@/types/notification'
 
 import { groupNotifications, notifSection } from './notifGrouping'
@@ -54,6 +55,52 @@ describe('notifSection', () => {
     expect(mine).toHaveLength(1)
     expect(mine[0].deltaSummary).toBe('코멘트 멘션 · 코멘트 1건')
     expect(mine[0].target).toBe('/projects/WP/issues/7')
+  })
+})
+
+// 알림 유형 전부 — 유형이 늘면 satisfies 가 컴파일 오류로 알려 아래 판정 표를 함께 고치게 한다(WP-1141).
+const ALL_TYPES = Object.keys({
+  ASSIGNED: true,
+  REPORTER_ASSIGNED: true,
+  COMMENTED: true,
+  STATUS_CHANGED: true,
+  PRIORITY_CHANGED: true,
+  REMINDER: true,
+  CALENDAR_INVITED: true,
+  CALENDAR_RSVP_CHANGED: true,
+  AI_QUESTION: true,
+  ISSUE_CHAT_MENTION: true,
+  ISSUE_COMMENT_MENTION: true,
+  WIKI_SHARED: true,
+  WIKI_SHARE_ACCESS_REQUESTED: true,
+  WIKI_SHARE_ACCESS_APPROVED: true,
+  CALENDAR_EVENT_UPDATED: true,
+  CALENDAR_EVENT_CANCELED: true,
+  AI_REVIEW_REQUESTED: true,
+  AI_WORK_FAILED: true,
+} satisfies Record<NotificationResponse['type'], true>) as NotificationResponse['type'][]
+
+describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
+  it('모든 유형의 받은편지함 구역을 고정한다 — 멘션 없는 일반 댓글(COMMENTED)은 업데이트', () => {
+    const mine = ALL_TYPES.filter((type) => notifSection(notif({ type })) === 'mine').sort()
+    expect(mine).toEqual(
+      [
+        'AI_QUESTION',
+        'AI_REVIEW_REQUESTED',
+        'AI_WORK_FAILED',
+        'ASSIGNED',
+        'ISSUE_CHAT_MENTION',
+        'ISSUE_COMMENT_MENTION',
+        'REPORTER_ASSIGNED',
+        'WIKI_SHARE_ACCESS_REQUESTED',
+      ].sort(),
+    )
+  })
+
+  it('홈 「멘션」(isMentionLike)으로 세는 유형은 받은편지함에서도 모두 내 차례다 — 두 판정이 갈리지 않는다', () => {
+    const mentionTypes = ALL_TYPES.filter((type) => isMentionLike(notif({ type })))
+    expect(mentionTypes.sort()).toEqual(['AI_QUESTION', 'ISSUE_CHAT_MENTION', 'ISSUE_COMMENT_MENTION'])
+    for (const type of mentionTypes) expect(notifSection(notif({ type })), type).toBe('mine')
   })
 })
 
