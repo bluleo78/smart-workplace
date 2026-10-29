@@ -101,39 +101,58 @@ export function timedEventBox(event: CalendarEvent, day: Date): { top: number; h
   }
 }
 
-/** 시간 그리드 블록 배치 — 그날 위치·높이에 더해, 겹치는 일정끼리 나눈 열 번호(lane)와 그 묶음의 열 수(lanes). */
+/**
+ * 시간 그리드 블록 배치 — 그날 위치·높이(정수 px)에 더해, 겹치는 일정끼리 나눈 열 번호(lane)·그 묶음의 열 수(lanes)·오른쪽으로 넓혀
+ * 차지하는 열 수(span).
+ */
 export interface TimedEventLayout {
   event: CalendarEvent
   top: number
   height: number
   lane: number
   lanes: number
+  span: number
 }
 
 /**
  * 그날의 타임드 일정을 겹치는 묶음마다 열로 나눈다(WP-1138). 모든 블록을 같은 자리·폭으로 그리면 뒤 일정이 앞 일정을 덮어
  * 제목도 안 보이고 누를 수도 없었다. 그려지는 세로 구간(최소 높이 16px 포함)이 이어지는 일정들을 한 묶음으로 보고, 시작이 이른 순(같으면 긴
- * 것 먼저)으로 비어 있는 가장 왼쪽 열에 넣는다 — 묶음의 열 수만큼 폭을 똑같이 나눈다. 겹치지 않는 일정은 한 열(전체 폭) 그대로다.
+ * 것 먼저)으로 비어 있는 가장 왼쪽 열에 넣는다. 겹치지 않는 일정은 한 열(전체 폭) 그대로다.
+ * 묶음 열 수로 폭을 똑같이 나누면 오른쪽 열이 그 시간에 비어 있어도 짧은 일정이 좁게 그려졌다(WP-1154) — 오른쪽 열들이 그 일정의 세로
+ * 구간에서 비어 있는 만큼 넓혀(span) 그린다.
  */
 export function layoutTimedEvents(events: CalendarEvent[], day: Date): TimedEventLayout[] {
+  // 위치·높이는 정수 px 로 맞춘다 — 분 단위 px 는 소수라(01:10 = 56.000…01px) 맞닿은 일정이 겹친 것으로 갈렸고, 겹침 판정만
+  // 반올림하고 그리기는 소수로 하면 「겹치지 않는다」고 본 두 블록이 1px 미만 포개져 그려졌다(WP-1154). 판정과 그리기가 같은 값을 쓴다.
   const boxes = events
-    .map((event) => ({ event, ...timedEventBox(event, day), lane: 0, lanes: 1 }))
+    .map((event) => {
+      const box = timedEventBox(event, day)
+      const top = Math.round(box.top)
+      return { event, top, height: Math.round(box.top + box.height) - top, lane: 0, lanes: 1, span: 1 }
+    })
     .sort((a, b) => a.top - b.top || b.height - a.height)
   let cluster: TimedEventLayout[] = []
   let laneEnds: number[] = []
   let clusterEnd = -Infinity
   const closeCluster = () => {
-    for (const b of cluster) b.lanes = laneEnds.length
+    const lanes = laneEnds.length
+    // 열별 블록 — 넓히기 판정에서 그 열의 블록만 본다(span 은 1 에서 시작).
+    const byLane: TimedEventLayout[][] = Array.from({ length: lanes }, () => [])
+    for (const b of cluster) byLane[b.lane].push(b)
+    for (const b of cluster) {
+      b.lanes = lanes
+      // 오른쪽 열마다 그 일정의 세로 구간과 겹치는 블록이 없으면 넓힌다 — 처음 막히는 열에서 멈춘다.
+      const bottom = b.top + b.height
+      while (b.lane + b.span < lanes && !byLane[b.lane + b.span].some((c) => c.top < bottom && b.top < c.top + c.height)) b.span++
+    }
     cluster = []
     laneEnds = []
   }
   for (const box of boxes) {
-    // 겹침은 정수 px 로 본다 — 분 단위 px 는 소수라(01:10 = 56.000…01px) 맞닿은 일정이 겹친 것으로 잘못 갈렸다.
-    const top = Math.round(box.top)
-    const bottom = Math.round(box.top + box.height)
+    const bottom = box.top + box.height
     // 지금 묶음의 가장 아래보다 아래에서 시작하면 겹치지 않는다 — 묶음을 닫고 새로 시작한다.
-    if (top >= clusterEnd) closeCluster()
-    const free = laneEnds.findIndex((end) => end <= top)
+    if (box.top >= clusterEnd) closeCluster()
+    const free = laneEnds.findIndex((end) => end <= box.top)
     box.lane = free === -1 ? laneEnds.length : free
     laneEnds[box.lane] = bottom
     cluster.push(box)
@@ -141,6 +160,29 @@ export function layoutTimedEvents(events: CalendarEvent[], day: Date): TimedEven
   }
   closeCluster()
   return boxes
+}
+
+/**
+ * 블록의 가로 위치·폭(CSS) — 날짜 칸 양옆 2px 안쪽을 묶음 열 수로 나눠, lane 열부터 span 열만큼 차지한다(WP-1154).
+ * 예전에는 폭에 최소 4px 를 두고 left 는 열 비율 그대로라, 좁은 모바일 칸에 10개쯤 겹치면 마지막 블록이 옆 날짜로 넘쳤다. 이제 폭은 늘 자기
+ * 열 몫 안이라 칸을 넘지 않는다. 옆 블록과의 2px 틈은 열 몫이 넉넉할 때만 두고, 좁으면 틈을 줄여 블록이 사라지지 않게 한다.
+ * 맨 오른쪽 열에 닿는 블록은 틈을 두지 않는다(칸 오른쪽 2px 여백이 이미 있다). 안쪽 여백도 열 몫에 맞춰 줄인다.
+ */
+export function timedEventColumnStyle(
+  lane: number,
+  span: number,
+  lanes: number,
+): { left: string; width: string; paddingInline: string } {
+  const inner = '(100% - 4px)'
+  // 이 블록이 차지하는 열 몫(span 열).
+  const share = `calc(${inner} * ${span / lanes})`
+  return {
+    left: `calc(2px + ${inner} * ${lane / lanes})`,
+    // 좁으면 틈을 줄여 최소 4px(열 몫이 그보다 작으면 열 몫 전부)을 지킨다 — 예전 최소 4px 처럼 보이되 칸 밖으로는 넘지 않는다.
+    width: lane + span >= lanes ? share : `max(calc(${share} - 2px), min(4px, ${share}))`,
+    // 좌우 안쪽 여백도 열 몫에 맞춰 줄인다 — 고정 4px 이면 border-box 폭이 여백 합(8px)보다 작아지지 못해 좁은 칸에서 다시 넘쳤다.
+    paddingInline: `min(4px, calc(${share} / 4))`,
+  }
 }
 
 // 해당 날짜(yyyy-MM-dd)에 마감인 이슈 마커. dueDate 는 날짜 단위라 시각 비교 없이 키 매칭.

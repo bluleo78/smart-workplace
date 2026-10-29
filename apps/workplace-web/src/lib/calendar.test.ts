@@ -24,6 +24,7 @@ import {
   providerLabel,
   saveLastView,
   timedEventBox,
+  timedEventColumnStyle,
   toggleCalendar,
   visibleRange,
   weekDays,
@@ -436,5 +437,92 @@ describe('layoutTimedEvents', () => {
     const e = at(1, '10:00', '11:30')
     const [l] = layoutTimedEvents([e], day)
     expect({ top: l.top, height: l.height }).toEqual(timedEventBox(e, day))
+  })
+
+  it('위치·높이는 겹침 판정과 같은 정수 px 다 — 겹치지 않는다고 본 두 블록이 1px 미만 포개지지 않는다(WP-1154)', () => {
+    const [a, b] = layoutTimedEvents([at(1, '00:05', '01:10'), at(2, '01:10', '02:00')], day)
+    for (const l of [a, b]) {
+      expect(Number.isInteger(l.top)).toBe(true)
+      expect(Number.isInteger(l.height)).toBe(true)
+    }
+    expect(a.top + a.height).toBeLessThanOrEqual(b.top)
+  })
+
+  const spansOf = (events: CalendarEvent[]) =>
+    Object.fromEntries(layoutTimedEvents(events, day).map((l) => [l.event.id, l.span]))
+
+  it('오른쪽 열들이 그 시간에 비어 있으면 짧은 일정을 넓힌다 — 셋이 겹친 뒤 하나만 남은 시간의 일정은 두 열(WP-1154)', () => {
+    // 1: 09–12(0열), 2·3: 09–10(1·2열), 4: 11–12 는 1열에 들어가고 2열도 그 시간에 비어 있다.
+    const events = [at(1, '09:00', '12:00'), at(2, '09:00', '10:00'), at(3, '09:00', '10:00'), at(4, '11:00', '12:00')]
+    expect(lanesOf(events)[4]).toEqual([1, 3])
+    expect(spansOf(events)).toEqual({ 1: 1, 2: 1, 3: 1, 4: 2 })
+  })
+
+  it('오른쪽에서 처음 막히는 열에서 멈춘다 — 그 너머 빈 열까지 건너 넓히지 않는다', () => {
+    // 1: 08:00–10(0열), 2: 08:30–12(1열), 3: 08:45–10(2열), 4: 10–11 은 0열에 들어가 바로 오른쪽 1열(2번)에 막힌다 — 2열은 비어도 넓히지 않는다.
+    const events = [at(1, '08:00', '10:00'), at(2, '08:30', '12:00'), at(3, '08:45', '10:00'), at(4, '10:00', '11:00')]
+    expect(lanesOf(events)[4]).toEqual([0, 3])
+    expect(spansOf(events)[4]).toBe(1)
+  })
+
+  it('겹치지 않는 일정과 나란한 일정은 한 열만 차지한다', () => {
+    expect(spansOf([at(1, '09:00', '10:00')])).toEqual({ 1: 1 })
+    expect(spansOf([at(1, '09:00', '10:00'), at(2, '09:30', '10:30')])).toEqual({ 1: 1, 2: 1 })
+  })
+})
+
+describe('timedEventColumnStyle', () => {
+  // CSS calc 를 칸 폭(px)으로 풀어 블록의 왼쪽·오른쪽 끝을 구한다 — 넘침 판정을 숫자로 본다.
+  const resolve = (expr: string, column: number) =>
+    Function(
+      'return ' +
+        expr
+          .replace(/calc|max|min/g, (m) => (m === 'calc' ? '' : `Math.${m}`))
+          .replace(/100%/g, String(column))
+          .replace(/px/g, ''),
+    )() as number
+  const edges = (lane: number, span: number, lanes: number, column: number) => {
+    const { left, width } = timedEventColumnStyle(lane, span, lanes)
+    const l = resolve(left, column)
+    return { left: l, right: l + resolve(width, column), width: resolve(width, column) }
+  }
+
+  it('한 열이면 칸 양옆 2px 안쪽 전체 폭이다', () => {
+    expect(edges(0, 1, 1, 200)).toEqual({ left: 2, right: 198, width: 196 })
+  })
+
+  it('좁은 칸(44px)에 10개가 겹쳐도 마지막 블록이 칸 밖으로 넘치지 않고 폭도 0 이 되지 않는다(WP-1154)', () => {
+    for (let lane = 0; lane < 10; lane++) {
+      const e = edges(lane, 1, 10, 44)
+      expect(e.right).toBeLessThanOrEqual(44 - 2)
+      expect(e.width).toBeGreaterThan(0)
+    }
+  })
+
+  it('좁은 칸에서도 블록 폭은 최소 4px(열 몫이 더 작으면 열 몫 전부)이고, 안쪽 여백이 폭을 넘지 않는다', () => {
+    // 44px 칸 12열 → 열 몫 40/12 ≈ 3.33px: 틈 없이 열 몫 전부. 200px 칸 12열 → 열 몫 16.3px: 2px 틈.
+    expect(edges(0, 1, 12, 44).width).toBeCloseTo(40 / 12)
+    expect(edges(0, 1, 12, 200).width).toBeCloseTo(196 / 12 - 2)
+    expect(edges(0, 1, 40, 200).width).toBe(4) // 열 몫 4.9px — 틈 2px 를 빼면 2.9px 라 4px 로 올린다
+    for (const [lanes, column] of [[12, 44], [3, 200], [1, 200]]) {
+      const { paddingInline } = timedEventColumnStyle(0, 1, lanes)
+      const pad = resolve(paddingInline, column)
+      expect(pad).toBeLessThanOrEqual(4)
+      expect(pad * 2).toBeLessThanOrEqual(edges(0, 1, lanes, column).width + 1e-9)
+    }
+  })
+
+  it('나란한 블록은 서로 겹치지 않는다 — 앞 블록의 오른쪽 끝이 다음 블록의 왼쪽 끝을 넘지 않는다', () => {
+    for (const column of [44, 200]) {
+      for (let lane = 0; lane < 9; lane++) {
+        expect(edges(lane, 1, 10, column).right).toBeLessThanOrEqual(edges(lane + 1, 1, 10, column).left + 1e-9)
+      }
+    }
+  })
+
+  it('span 만큼 열을 차지한다 — 1열부터 두 열이면 오른쪽 끝까지', () => {
+    const e = edges(1, 2, 3, 302)
+    expect(e.left).toBeCloseTo(2 + 298 / 3)
+    expect(e.right).toBeCloseTo(300)
   })
 })

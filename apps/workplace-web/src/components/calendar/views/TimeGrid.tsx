@@ -6,7 +6,7 @@ import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } fro
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents } from '@/lib/calendar'
+import { dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents, timedEventColumnStyle } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -60,9 +60,19 @@ export function TimeGrid({
   // 시간 구간 끌어 만들기(WP-949) — 마우스·펜만. 터치는 세로 스크롤과 겹쳐 지금처럼 칸 탭(정각 + 1시간)만 둔다.
   const [drag, setDragState] = useState<DragSelection | null>(null)
   // 날짜별 타임드 일정 배치(겹침 열 나누기, WP-1138) — 끌기 중 포인터가 움직일 때마다 다시 그리므로 일정·날짜가 바뀔 때만 계산한다.
+  // 부르는 쪽(주·일 보기)은 렌더마다 새 days 배열을 넘기므로 배열이 아니라 날짜 값으로 메모한다(WP-1154 — 배열 기준이면 끌기 중 매번
+  // 다시 계산됐다). 블록 가로 위치·폭도 여기서 함께 만든다.
+  const dayKey = days.map((d) => d.getTime()).join(',')
   const layoutsByDay = useMemo(
-    () => days.map((day) => layoutTimedEvents(eventsOnDay(events, day).filter((e) => !e.allDay), day)),
-    [events, days],
+    () =>
+      dayKey.split(',').map((t) => {
+        const day = new Date(Number(t))
+        return layoutTimedEvents(eventsOnDay(events, day).filter((e) => !e.allDay), day).map((l) => ({
+          ...l,
+          columnStyle: timedEventColumnStyle(l.lane, l.span, l.lanes),
+        }))
+      }),
+    [events, dayKey],
   )
   // 이벤트 처리기는 이 ref 의 최신 값을 읽는다 — 빠르게 튕기듯 끌면 다시 그리기 전에 pointerup 이 와서, 렌더 때 값(drag)으로는
   // 움직이지 않은 것으로 보고 정각 클릭으로 열 수 있었다. state 는 하이라이트를 그리는 데만 쓴다.
@@ -229,7 +239,7 @@ export function TimeGrid({
 
               {/* 절대 위치 타임드 이벤트 블록 — 그날에 걸친 구간만(자정 넘김은 날짜별로 잘림 — WP-539),
                   겹치는 일정은 열을 나눠 나란히 그린다(WP-1138). */}
-              {layoutsByDay[dayIndex].map(({ event: e, top, height, lane, lanes }) => {
+              {layoutsByDay[dayIndex].map(({ event: e, top, height, columnStyle }) => {
                 return (
                   <button
                     key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
@@ -238,15 +248,14 @@ export function TimeGrid({
                       position: 'absolute',
                       top,
                       height,
-                      left: `calc(${(lane / lanes) * 100}% + 2px)`,
-                      // 좁은 모바일 열에 겹침이 많아도 블록이 0 이하로 사라지지 않게 최소 폭을 둔다.
-                      width: `max(calc(${100 / lanes}% - 4px), 4px)`,
+                      // 겹친 묶음의 열 몫 안에서만 그린다 — 좁은 칸에서도 옆 날짜로 넘치지 않고, 오른쪽이 빈 일정은 넓힌다(WP-1154).
+                      ...columnStyle,
                     }}
                     onClick={(ev) => {
                       ev.stopPropagation()
                       onSelectEvent(e)
                     }}
-                    className={`text-xs text-left px-1 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden`}
+                    className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden`}
                   >
                     <ExtraTagDots event={e} />
                     {formatClockTimePadded(e.startsAt)} {e.title}

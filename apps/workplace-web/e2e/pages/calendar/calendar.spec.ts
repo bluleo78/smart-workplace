@@ -1,6 +1,6 @@
 // 캘린더 E2E — 브라우저가 필요한 판정만 남겼다(WP-966).
 // - @wiring: /calendar 진입 → 일정 API → 월 보기 칩 + 보기 전환(화면당 1건)
-// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138), 모바일 오늘 배지 넘침
+// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138)·좁은 칸 넘침과 빈 열 넓히기(WP-1154), 모바일 오늘 배지 넘침
 // - @input: 주 보기 시간 구간 끌어 만들기
 // - @platform: 다시 들어오면 마지막 보기(localStorage, 데스크톱·모바일 따로)
 // 헤더 접근성 이름·요일·오늘 강조·일정 색·반복 회차 표시, 만들기·수정·삭제·반복 범위 선택 payload, 일정 폼 입력·검증은
@@ -214,6 +214,68 @@ test.describe('주 보기 종일·시간 그리드 기하 (KST 고정)', { tag: 
       }
     },
   )
+
+  // WP-1154: 묶음 전체 열 수로 폭을 똑같이 나눠, 셋이 겹친 뒤 하나만 남은 시간의 짧은 일정이 오른쪽이 비어 있어도 1/3 폭으로 그려졌다 —
+  // 그 시간에 비어 있는 오른쪽 열까지 넓혀 칸 오른쪽 끝까지 닿는다.
+  test('주 뷰 — 오른쪽 열이 비어 있는 시간의 일정은 빈 열까지 넓게 그려진다 (WP-1154)', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    await stubCalendarEvents(page, [
+      calendarEvent({ id: 21, title: '긴 회의', startsAt: '2026-06-10T09:00:00+09:00', endsAt: '2026-06-10T12:00:00+09:00' }),
+      calendarEvent({ id: 22, title: '짧은1', startsAt: '2026-06-10T09:00:00+09:00', endsAt: '2026-06-10T10:00:00+09:00' }),
+      calendarEvent({ id: 23, title: '짧은2', startsAt: '2026-06-10T09:00:00+09:00', endsAt: '2026-06-10T10:00:00+09:00' }),
+      calendarEvent({ id: 24, title: '뒤 일정', startsAt: '2026-06-10T11:00:00+09:00', endsAt: '2026-06-10T12:00:00+09:00' }),
+    ])
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-view-week-btn').click()
+    const later = page.getByTestId('calendar-event-24')
+    await expect(later).toHaveCount(1)
+
+    const m = await later.evaluate((el) => {
+      const c = (el.closest('[data-testid="calendar-day-column"]') as HTMLElement).getBoundingClientRect()
+      const b = el.getBoundingClientRect()
+      const lane = (document.querySelector('[data-testid="calendar-event-22"]') as HTMLElement).getBoundingClientRect()
+      return { right: b.right, width: b.width, columnRight: c.right, laneWidth: lane.width }
+    })
+    // 1열(짧은1 자리)과 2열(짧은2 자리 — 11시엔 비어 있음) 두 열을 차지해 칸 오른쪽 2px 안쪽까지 닿는다.
+    expect(m.width, '뒤 일정 폭이 한 열보다 넓다').toBeGreaterThan(m.laneWidth * 1.5)
+    expect(Math.abs(m.columnRight - 2 - m.right), '칸 오른쪽 끝까지').toBeLessThan(1.5)
+  })
+})
+
+// WP-1154: 모바일 주 보기 넘침 — 뷰포트를 처음부터 휴대폰 폭으로 띄운다(앱을 이어 쓰면 데스크톱 폭으로 그린 앱이 남아 보기 셀렉트가 늦게 나왔다).
+test.describe('모바일 주 보기 시간 그리드 기하 (KST 고정)', { tag: '@layout' }, () => {
+  test.use({ timezoneId: 'Asia/Seoul', viewport: { width: 390, height: 844 } })
+
+  // WP-1154: 폭에 최소 4px 를 두고 left 는 열 비율 그대로라, 좁은 모바일 날짜 칸(약 44px)에 10개 넘게 겹치면 마지막 블록들이
+  // 옆 날짜 칸으로 넘쳤다 — 모든 블록이 자기 날짜 칸 안에 있고 폭이 0 이 아니어야 한다.
+  test('모바일 주 뷰 — 좁은 날짜 칸에 12개가 겹쳐도 블록이 옆 날짜로 넘치지 않는다 (WP-1154)', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    const ids = Array.from({ length: 12 }, (_, i) => 100 + i)
+    await stubCalendarEvents(
+      page,
+      ids.map((id) =>
+        calendarEvent({ id, title: `겹침${id}`, startsAt: '2026-06-10T01:00:00+09:00', endsAt: '2026-06-10T02:00:00+09:00' }),
+      ),
+    )
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-view-select').selectOption('week')
+    await expect(page.getByTestId(`calendar-event-${ids[11]}`)).toHaveCount(1)
+
+    const m = await page.getByTestId(`calendar-event-${ids[0]}`).evaluate((el) => {
+      const column = el.closest('[data-testid="calendar-day-column"]') as HTMLElement
+      const c = column.getBoundingClientRect()
+      const blocks = [...column.querySelectorAll('button[data-testid^="calendar-event-"]')].map((b) => b.getBoundingClientRect())
+      return { columnLeft: c.left, columnRight: c.right, lefts: blocks.map((b) => b.left), rights: blocks.map((b) => b.right), widths: blocks.map((b) => b.width) }
+    })
+    expect(m.rights.length).toBe(12)
+    expect(Math.max(...m.rights), '가장 오른쪽 블록의 오른쪽 끝').toBeLessThanOrEqual(m.columnRight + 0.5)
+    expect(Math.min(...m.lefts), '가장 왼쪽 블록의 왼쪽 끝').toBeGreaterThanOrEqual(m.columnLeft - 0.5)
+    // 블록은 사라지지 않는다 — 열 몫((칸 폭 - 4px) / 12)이 4px 보다 작으면 열 몫 전부를 차지한다.
+    const share = (m.columnRight - m.columnLeft - 4) / 12
+    expect(Math.min(...m.widths), '가장 좁은 블록 폭').toBeGreaterThanOrEqual(Math.min(4, share) - 0.5)
+  })
 })
 
 // WP-556: 모바일 주 보기의 좁은 날짜 열에서 오늘 배지가 고정 높이(h-7)라 두 줄로 접힌 「6.16 (화)」 위아래가 잘렸다 —
