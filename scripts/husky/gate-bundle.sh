@@ -37,8 +37,9 @@ git rev-parse --verify --quiet "$BASE" >/dev/null || { echo "[gate-bundle] origi
 COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd)
 WT="$(dirname "$COMMON")/.claude/worktrees/_gate-bundle-$$"
 INPUTS=$(mktemp)
+MERGE_LOG=$(mktemp)
 cleanup() {
-  rm -f "$INPUTS"
+  rm -f "$INPUTS" "$MERGE_LOG"
   [ -d "$WT" ] && git worktree remove --force "$WT" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -50,15 +51,26 @@ for b in "$@"; do
 done
 
 # 2) 최신 origin/main 위에 차례로 합친다 — 앞서 합친 것과 충돌하는 브랜치는 빼고 알린다.
+# 합치기 커밋은 버리는 임시 커밋이라 고정 신원을 준다(WP-1213) — git 커밋 신원이 없는 환경(AI 에이전트 서버)에서 머지가
+# 「Committer identity unknown」으로 실패해 모든 브랜치가 충돌로 빠졌다. GIT_AUTHOR_*·GIT_COMMITTER_* 가 있으면 그쪽이 앞선다.
 git worktree add --detach --quiet "$WT" "$BASE"
 INCLUDED=""
 while read -r b sha tree; do
-  if (cd "$WT" && git merge --no-ff --no-edit --quiet "$sha" >/dev/null 2>&1); then
+  if (cd "$WT" && git -c user.name=gate-bundle -c user.email=gate-bundle@localhost \
+      merge --no-ff --no-edit --quiet "$sha" >"$MERGE_LOG" 2>&1); then
     INCLUDED="$INCLUDED $b"
   else
-    (cd "$WT" && git merge --abort >/dev/null 2>&1) || true
-    # 실패 이유를 가른다 — origin/main 과 바로 충돌하면 rebase 할 일이고, 아니면 앞서 합친 브랜치와의 충돌이다.
-    if ! git merge-tree --write-tree "$BASE" "$sha" >/dev/null 2>&1; then
+    # 풀지 못한 파일이 남았으면 충돌이다 — 그 밖의 실패(신원·훅·잠금 등)는 충돌로 알리지 않고 git 이 낸 이유를 보인다.
+    unmerged=$(cd "$WT" && git diff --name-only --diff-filter=U 2>/dev/null) || unmerged=""
+    # 되돌리기가 안 되면(MERGE_HEAD 없이 실패한 경우 등) 합친 지점으로 강제로 되돌린다 — 더러운 채 두면 뒤 브랜치가 모두 실패한다.
+    (cd "$WT" && git merge --abort >/dev/null 2>&1) || (cd "$WT" && git reset --hard --quiet HEAD) || true
+    if [ -z "$unmerged" ]; then
+      # git 이 낸 이유 — fatal:/error: 줄이 있으면 그것을, 없으면(훅 출력 등) 마지막 줄들을 보인다.
+      reason=$(grep -E '^(fatal|error):' "$MERGE_LOG" | head -n 3 | tr '\n' ' ')
+      [ -n "$reason" ] || reason=$(grep -v '^[[:space:]]*$' "$MERGE_LOG" | tail -n 3 | tr '\n' ' ')
+      say "$b: 합치지 못함(충돌 아님) — 묶음에서 뺍니다. git: $reason"
+    # 충돌이면 이유를 가른다 — origin/main 과 바로 충돌하면 rebase 할 일이고, 아니면 앞서 합친 브랜치와의 충돌이다.
+    elif ! git merge-tree --write-tree "$BASE" "$sha" >/dev/null 2>&1; then
       say "$b: origin/main 과 충돌 — 묶음에서 뺍니다(rebase 해 충돌을 푼 뒤 게이트를 돌리세요)"
     else
       say "$b: 앞서 합친 브랜치와 충돌 — 묶음에서 뺍니다(따로 게이트를 돌리세요)"
