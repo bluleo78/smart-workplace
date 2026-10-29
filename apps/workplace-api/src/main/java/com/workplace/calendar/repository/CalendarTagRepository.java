@@ -1,5 +1,7 @@
 package com.workplace.calendar.repository;
 
+import static com.workplace.jooq.Tables.CALENDAR;
+import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
 import static com.workplace.jooq.Tables.CALENDAR_TAG;
 
@@ -57,12 +59,23 @@ public class CalendarTagRepository {
     return DSL.lower(CALENDAR_TAG.NAME).collate(DSL.collation(DSL.name("C")));
   }
 
-  /** 이 태그가 붙은 일정 수(연결 행 수) 집계식. */
+  /**
+   * 이 태그가 붙은 일정 중 태그 주인이 지금 볼 수 있는 일정 수 집계식 — 목록·구독 주소({@code listTagged})와 같은 접근 규칙(주인이거나 참석자, 끊긴
+   * 메일 계정의 달력이 아님)으로 센다. 전에는 연결 행을 그대로 세어, 주최자가 나를 참석자에서 빼거나 메일 계정을 끊어 더 볼 수 없는 일정까지 「1개」로
+   * 보였다(WP-1173). 연결 행은 지우지 않는다 — 다시 초대받거나 계정을 다시 이으면 붙였던 태그가 그대로 돌아온다. CALENDAR_TAG 가 바깥 쿼리에 있어야
+   * 한다.
+   */
   private static org.jooq.Field<Integer> eventCountField() {
     return DSL.field(
         DSL.selectCount()
             .from(CALENDAR_EVENT_TAG)
-            .where(CALENDAR_EVENT_TAG.TAG_ID.eq(CALENDAR_TAG.ID)));
+            .join(CALENDAR_EVENT)
+            .on(CALENDAR_EVENT.ID.eq(CALENDAR_EVENT_TAG.EVENT_ID))
+            .leftJoin(CALENDAR)
+            .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+            .where(CALENDAR_EVENT_TAG.TAG_ID.eq(CALENDAR_TAG.ID))
+            .and(CalendarEventRepository.accessibleBy(CALENDAR_TAG.USER_ID))
+            .and(CalendarEventRepository.visibleExternalCondition()));
   }
 
   /** 이 태그에 Outlook 범주 동기화 연결이 하나라도 있는지 — 이름 바꾸기를 막는 기준(fromOutlook). */
@@ -136,9 +149,14 @@ public class CalendarTagRepository {
                     r.getFeedCreatedAt()));
   }
 
-  /** 이 태그가 붙은 일정 수. */
+  /** 이 태그가 붙은 일정 중 주인이 볼 수 있는 일정 수({@link #eventCountField}). 없는 태그면 0. */
   public int countEvents(long tagId) {
-    return dsl.fetchCount(CALENDAR_EVENT_TAG, CALENDAR_EVENT_TAG.TAG_ID.eq(tagId));
+    Integer n =
+        dsl.select(eventCountField())
+            .from(CALENDAR_TAG)
+            .where(CALENDAR_TAG.ID.eq(tagId))
+            .fetchOne(0, Integer.class);
+    return n == null ? 0 : n;
   }
 
   /** 이 태그에 Outlook 범주 동기화 연결이 있는지 — 있으면 앱에서 이름을 못 바꾼다. */

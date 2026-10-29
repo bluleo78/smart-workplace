@@ -255,6 +255,30 @@ class CalendarTagServiceTest extends IntegrationTestBase {
     assertThat(events.get(org, eventId).tags()).isEmpty();
   }
 
+  /**
+   * WP-1173: 초대받은 사람이 태그를 붙인 뒤 주최자가 그 사람을 참석자에서 빼면, 그 일정은 더 볼 수 없으니 태그 일정 수(사이드바·구독 주소 창·태그 지우기
+   * 확인)에서도 빠진다. 전에는 연결 행을 그대로 세어 「1개」로 남았다. 주최자 자신의 태그 수는 그대로다.
+   */
+  @Test
+  void removedAttendee_tagCount_excludesEventNoLongerVisible() {
+    long org = seedUser("org");
+    long guest = seedUser("guest");
+    long eventId = newEvent(org, "빠질 회의", null, List.of(guest));
+    long guestTag = tag(guest, "피드태그");
+    long orgTag = tag(org, "주최");
+    tags.setEventTags(guest, eventId, List.of(guestTag));
+    tags.setEventTags(org, eventId, List.of(orgTag));
+    assertThat(tags.list(guest)).extracting(CalendarTagResponse::eventCount).containsExactly(1);
+    assertThat(tagRepo.countEvents(guestTag)).isEqualTo(1);
+
+    events.removeAttendee(org, eventId, guest);
+
+    assertThat(tags.list(guest)).extracting(CalendarTagResponse::eventCount).containsExactly(0);
+    assertThat(tagRepo.countEvents(guestTag)).isZero();
+    assertThat(tags.list(org)).extracting(CalendarTagResponse::eventCount).containsExactly(1);
+    assertThat(tagRepo.countEvents(orgTag)).isEqualTo(1);
+  }
+
   /** 남의 태그는 붙일 수 없고(404), 볼 수 없는 일정에는 붙일 수 없다(404). */
   @Test
   void setEventTags_rejectsOthersTag_andInvisibleEvent() {
