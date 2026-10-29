@@ -15,6 +15,7 @@ import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.AgentWorkRepository.InsertOutcome;
 import com.workplace.issue.repository.IssueAssigneeRepository;
+import com.workplace.issue.repository.IssueRecurrenceRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectRepository;
@@ -51,6 +52,9 @@ public class AgentWorkService {
   private final AgentWorkRepository repository;
   // 터치 처리에서 담당자 여부를 재확인한다(담당 해제 직후 되살아나지 않게).
   private final IssueAssigneeRepository assigneeRepository;
+  // 작업 기록을 닫는 경로(이슈 종료·삭제·담당 해제)에서 반복도 함께 거둔다(WP-1114). 반복을 먼저 잠가 결과 보고(반복 → 작업 기록)와 잠금 순서를
+  // 맞춘다.
+  private final IssueRecurrenceRepository recurrenceRepository;
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
   private final IssueChangeNotifier notifier;
@@ -169,22 +173,25 @@ public class AgentWorkService {
 
   /**
    * 이슈 완료(DONE)로 진행 중 작업을 모두 닫는다 — 일하던 작업은 COMPLETED, 아직 착수 전(SUBMITTED)이던 작업은 한 번도 일하지 않았으니
-   * CANCELED. 알림은 호출자(이슈 updated 알림)가 이미 낸다.
+   * CANCELED. 그 이슈의 반복도 거둔다(WP-1114 — 상세에 「다음 실행 …」이 남지 않게). 알림은 호출자(이슈 updated 알림)가 이미 낸다.
    */
   public void endAllOnIssueDone(Collection<Long> issueIds) {
+    recurrenceRepository.retire(issueIds, null);
     repository.endActiveOnIssueDone(issueIds);
   }
 
   /**
-   * 이슈들의 진행 중 작업을 모두 취소한다 — 이슈 취소(CANCELED) 진입·이슈 삭제(부모와 함께 지워진 자식 포함). 알림은 호출자(이슈 updated·deleted
-   * 알림)가 이미 낸다.
+   * 이슈들의 진행 중 작업을 모두 취소한다 — 이슈 취소(CANCELED) 진입·이슈 삭제(부모와 함께 지워진 자식 포함). 그 이슈들의 반복도 거둔다(WP-1114).
+   * 알림은 호출자(이슈 updated·deleted 알림)가 이미 낸다.
    */
   public void cancelAllForIssues(Collection<Long> issueIds) {
+    recurrenceRepository.retire(issueIds, null);
     repository.endActive(issueIds, AgentWorkState.CANCELED);
   }
 
-  /** 이슈에서 지정한 작업자들의 진행 중 작업만 취소한다(담당 해제). 알림은 호출자가 이미 낸다. */
+  /** 이슈에서 지정한 작업자들의 진행 중 작업만 취소하고, 그 AI 들이 돌리던 반복도 거둔다(담당 해제, WP-1114). 알림은 호출자가 이미 낸다. */
   public void cancelForWorkers(long issueId, Collection<Long> workerIds) {
+    recurrenceRepository.retire(List.of(issueId), workerIds);
     repository.endActiveForWorkers(issueId, workerIds, AgentWorkState.CANCELED);
   }
 

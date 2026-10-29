@@ -6,6 +6,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
+import com.workplace.issue.repository.IssueRecurrenceRepository;
 import com.workplace.issue.service.IssueHistoryRecorder;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.outbound.ProjectChangeNotifier;
@@ -45,6 +46,7 @@ public class ProjectMemberDeparture {
   private final IssueAssigneeRepository issueAssigneeRepository;
   private final IssueHistoryRecorder historyRecorder;
   private final AgentWorkRepository agentWorkRepository;
+  private final IssueRecurrenceRepository recurrenceRepository;
   private final UserRepository userRepository;
   private final ProjectChangeNotifier changeNotifier;
 
@@ -115,6 +117,8 @@ public class ProjectMemberDeparture {
         }
       }
     }
+    // 그 AI 가 돌리던 반복도 거둔다(WP-1114) — 회차 시각까지 상세에 「다음 실행 …」이 남지 않게. 결과 보고와 같은 순서(반복 → 작업 기록)로 잠근다.
+    recurrenceRepository.retire(unassignedIssueIds, List.of(userId));
     // 담당 매핑이 사라진 이슈에 진행 중 AI 작업이 고아로 남지 않게 함께 끝낸다(WP-377).
     agentWorkRepository.endActiveForWorkerInProject(project.id(), userId, AgentWorkState.CANCELED);
   }

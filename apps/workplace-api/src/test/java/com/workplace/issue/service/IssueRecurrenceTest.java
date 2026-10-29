@@ -74,6 +74,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   @Autowired ProjectMemberRepository projectMemberRepository;
   @Autowired IssueService issueService;
   @Autowired IssueAssigneeRepository assigneeRepository;
+  @Autowired IssueAssigneeService assigneeService;
   @Autowired PersonalAssistantRepository personalAssistantRepository;
   @Autowired AiAgentCredentialService credentialService;
 
@@ -420,6 +421,79 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
     assertThat(activeWorkOrNull()).isNull();
     assertThat(lastWorkState()).isEqualTo("CANCELED");
+  }
+
+  // WP-1114 — 이슈를 끝내거나 담당에서 AI 를 빼면 회차 시각을 기다리지 않고 그 자리에서 반복을 거둔다(상세에 「다음 실행 …」이 남지 않게).
+
+  @Test
+  void 작업을_완료하면_그_자리에서_반복이_지워진다() throws Exception {
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    issueService.updateStatus(owner, key, number, "DONE");
+    // 스케줄러를 돌리지 않아도 반복이 없다.
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(activeWorkOrNull()).isNull();
+  }
+
+  @Test
+  void 작업을_취소하면_그_자리에서_반복이_지워진다() throws Exception {
+    call(put(path()).content(req("FREQ=MONTHLY;BYMONTHDAY=5,31", "08:30")), owner)
+        .andExpect(status().isOk());
+    issueService.updateStatus(owner, key, number, "CANCELED");
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+  }
+
+  @Test
+  void 작업을_지우면_그_자리에서_반복이_지워진다() throws Exception {
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    issueService.softDelete(owner, key, number);
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(activeWorkOrNull()).isNull();
+  }
+
+  @Test
+  void 비서를_프로젝트_멤버에서_빼면_그_자리에서_반복이_지워진다() throws Exception {
+    // 멤버 제거는 담당 변경 서비스를 거치지 않고 담당·작업 기록을 직접 정리한다(ProjectMemberDeparture) — 그 경로도 반복을 거둔다.
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    projectService.removeMember(owner, key, agent);
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(lastWorkState()).isEqualTo("CANCELED");
+  }
+
+  @Test
+  void 담당에서_비서를_빼면_그_자리에서_반복이_지워진다() throws Exception {
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    assigneeService.replace(owner, key, number, List.of(owner));
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(lastWorkState()).isEqualTo("CANCELED");
+  }
+
+  @Test
+  void 비서가_아닌_담당자를_빼면_반복은_그대로다() throws Exception {
+    assigneeService.replace(owner, key, number, List.of(owner, agent));
+    call(put(path()).content(req("FREQ=DAILY", "09:00")), owner).andExpect(status().isOk());
+    assigneeService.replace(owner, key, number, List.of(agent));
+    call(get(path()), owner)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.enabled").value(true));
+    assertThat(activeWork()).isNotNull();
+  }
+
+  @Test
+  void 회차_실행_중에_완료하면_묘비로_남기고_그_회차_결과는_받는다() throws Exception {
+    String runId = dispatchOnce();
+    issueService.updateStatus(owner, key, number, "DONE");
+    // 묘비 — 조회·스케줄러에서는 없는 반복이다.
+    call(get(path()), owner).andExpect(status().isNoContent());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+    setNextRunAt(Instant.now().minusSeconds(30));
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+
+    report(agent, runId, true, "완료 전 결과").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("완료 전 결과");
+    assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
   }
 
   // ───────────────────────────── 결과 보고 ─────────────────────────────
