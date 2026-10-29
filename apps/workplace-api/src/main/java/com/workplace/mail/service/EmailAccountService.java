@@ -16,6 +16,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -79,11 +80,28 @@ public class EmailAccountService {
     if (!result.success()) {
       throw new MailConnectionException(result);
     }
-    long id = repo.insert(userId, req, encryption.encrypt(req.password()));
+    long id;
+    try {
+      id = repo.insert(userId, req, encryption.encrypt(req.password()));
+    } catch (DuplicateKeyException e) {
+      // 위 검사 뒤 대소문자만 다른 같은 주소가 동시에 등록됨 — DB 인덱스(lower, WP-1179)가 막은 것을 검사와 같은 409 로 돌려준다.
+      throw asDuplicateAddress(e, req.emailAddress());
+    }
     // 첫 동기화를 3분 주기 스케줄러까지 기다리지 않도록 즉시 동기화를 트리거(AFTER_COMMIT 에서 소비 — 커밋 후 신규 행이 보여야 sync 가능).
     events.publishEvent(new MailAccountConnectedEvent(userId, id));
     notifier.accountChanged(ResourceChangedEvent.OP_CREATED, userId, id, userId);
     return repo.findByIdAndUser(userId, id).orElseThrow();
+  }
+
+  /**
+   * 주소 유일성 인덱스(uq_email_account_user_addr·_ci) 위반만 「이미 등록된 주소」로 바꾼다 — 다른 유일성 위반은 원래 예외 그대로 둬 원인을
+   * 가리지 않는다.
+   */
+  private static RuntimeException asDuplicateAddress(DuplicateKeyException e, String emailAddress) {
+    String msg = e.getMostSpecificCause().getMessage();
+    return msg != null && msg.contains("uq_email_account_user_addr")
+        ? new DuplicateEmailAccountException(emailAddress)
+        : e;
   }
 
   /** 계정 수정 — 비밀번호 빈 값이면 기존 유지. 연결 테스트 통과 필수. 본인 소유 아니면 404. */
@@ -105,7 +123,12 @@ public class EmailAccountService {
     if (!result.success()) {
       throw new MailConnectionException(result);
     }
-    repo.update(userId, id, req, encryption.encrypt(effectivePassword));
+    try {
+      repo.update(userId, id, req, encryption.encrypt(effectivePassword));
+    } catch (DuplicateKeyException e) {
+      // 위 검사 뒤 다른 계정이 같은 주소(대소문자 무시)로 동시에 등록·수정됨 — 검사와 같은 409(WP-1179).
+      throw asDuplicateAddress(e, req.emailAddress());
+    }
 
     // AI 분류 off→on 전환 시에만 최근 안읽음 classify 백필(비동기). 가드가 곧 중복 방지.
     if (!before.aiEnabled() && req.aiEnabled()) {

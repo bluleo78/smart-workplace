@@ -1,6 +1,7 @@
 package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.mail.dto.AiAccountRef;
 import com.workplace.mail.dto.EmailAccountRequest;
@@ -15,6 +16,7 @@ import java.util.Optional;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 
 /** EmailAccountRepository CRUD·소유 격리·soft delete 통합 테스트. 메서드 @Transactional 로 공유 test DB 롤백. */
@@ -127,20 +129,29 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
         .contains(id);
   }
 
-  /** 대소문자만 다른 계정이 이미 여럿이면(WP-1111 이전 데이터) 주소가 그대로 같은 계정을 고른다. */
+  /**
+   * DB 인덱스가 대소문자만 다른 활성 주소를 막는다(WP-1179) — 앱 검사를 지나 동시에 들어온 등록도 둘 다 저장되지 않는다. 비활성 계정은 인덱스 밖이라 같은
+   * 주소로 다시 등록할 수 있다.
+   */
   @Test
-  void existingCaseDuplicates_preferExactAddress() {
+  void caseVariantActiveAddress_isRejectedByIndex_butDisabledIsNot() {
     long user = TestFixtures.createHuman(dsl);
     repo.insert(user, sampleReq("admin@work-loop.local"), "ENC");
-    long exact = repo.insert(user, sampleReq("Admin@work-loop.local"), "ENC");
 
-    assertThat(repo.findFirstByUserAndEmail(user, "Admin@work-loop.local"))
-        .map(EmailAccountResponse::id)
-        .contains(exact);
-    assertThat(
-            repo.upsertGraphAccount(
-                user, "Admin@work-loop.local", "ENC-R", "ENC-A", OffsetDateTime.now(), false))
-        .isEqualTo(exact);
+    assertThatThrownBy(() -> repo.insert(user, sampleReq("Admin@Work-Loop.local"), "ENC"))
+        .isInstanceOf(DuplicateKeyException.class);
+  }
+
+  /** 비활성(삭제 대기) 계정과 대소문자만 다른 주소는 새 활성 계정으로 등록된다 — 부분 인덱스 밖. */
+  @Test
+  void caseVariantOfDisabledAddress_canBeRegistered() {
+    long user = TestFixtures.createHuman(dsl);
+    long first = repo.insert(user, sampleReq("admin@work-loop.local"), "ENC");
+    repo.softDelete(user, first);
+
+    long second = repo.insert(user, sampleReq("Admin@Work-Loop.local"), "ENC");
+
+    assertThat(second).isNotEqualTo(first);
   }
 
   /** M365 연결 주소가 기존 IMAP 계정과 대소문자만 다르면 새 행을 만들지 않고 그 계정을 전환한다(WP-1111). */

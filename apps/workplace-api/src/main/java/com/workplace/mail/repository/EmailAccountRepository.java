@@ -18,7 +18,6 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
-import org.jooq.SortField;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -180,14 +179,6 @@ public class EmailAccountRepository {
     return lower(EMAIL_ACCOUNT.EMAIL_ADDRESS).eq(lower(val(emailAddress)));
   }
 
-  /** 대소문자만 다른 활성 계정이 이미 여럿일 때(WP-1111 이전 데이터) 고를 순서 — 주소가 그대로 같은 계정을 먼저, 그다음 오래된 계정. */
-  private static SortField<?>[] exactAddressFirst(String emailAddress) {
-    return new SortField<?>[] {
-      DSL.when(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress), 0).otherwise(1).asc(),
-      EMAIL_ACCOUNT.ID.asc()
-    };
-  }
-
   /** 본인 활성 계정 중 같은 이메일 주소(대소문자 무시) 존재 여부(중복 등록 방지). */
   public boolean existsByUserAndAddress(long userId, String emailAddress) {
     return dsl.fetchExists(
@@ -347,33 +338,22 @@ public class EmailAccountRepository {
       boolean aiEnabled) {
     // INSERT ... ON CONFLICT ... DO UPDATE — 단일 원자 쿼리로 TOCTOU 경쟁 제거.
     //
-    // 충돌 타깃: 부분 인덱스 uq_email_account_user_addr ON (tenant_id, user_id, email_address)
-    //   WHERE disabled_at IS NULL
+    // 충돌 타깃: 부분 인덱스 uq_email_account_user_addr_ci ON (tenant_id, user_id, lower(email_address))
+    //   WHERE disabled_at IS NULL — 대소문자만 다른 활성 행도 같은 계정으로 본다(WP-1179).
     // 비활성(disabled_at NOT NULL) 동명 행은 인덱스 밖이므로 충돌 없이 새 활성 행 INSERT — 의도된 동작.
-    // DO UPDATE: 기존 활성 IMAP 행을 Graph 계정으로 전환(IMAP 컬럼 소거, OAuth 토큰 채움).
-    // 인덱스는 주소를 대소문자 그대로 비교하므로, 대소문자만 다른 활성 행이 있으면 그 행의 주소로 맞춰 같은 행을 전환한다(WP-1111).
-    // 이 조회와 INSERT 사이에 대소문자만 다른 주소가 동시에 등록되는 경합은 막지 못한다(인덱스를 lower 로 바꿔야 함 — 기존 중복 정리 필요).
-    String address =
-        dsl.select(EMAIL_ACCOUNT.EMAIL_ADDRESS)
-            .from(EMAIL_ACCOUNT)
-            .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
-            .and(sameAddress(emailAddress))
-            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
-            .orderBy(exactAddressFirst(emailAddress))
-            .limit(1)
-            .fetchOptional(EMAIL_ACCOUNT.EMAIL_ADDRESS)
-            .orElse(emailAddress);
+    // DO UPDATE: 기존 활성 IMAP 행을 Graph 계정으로 전환(IMAP 컬럼 소거, OAuth 토큰 채움). 주소는 바꾸지 않으므로 기존 행의 표기가 남는다.
     return dsl.insertInto(EMAIL_ACCOUNT)
         .set(EMAIL_ACCOUNT.USER_ID, userId)
-        .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, address)
-        .set(EMAIL_ACCOUNT.DISPLAY_NAME, address) // 표시 이름 기본값: 이메일 주소
+        .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, emailAddress)
+        .set(EMAIL_ACCOUNT.DISPLAY_NAME, emailAddress) // 표시 이름 기본값: 이메일 주소
         .set(EMAIL_ACCOUNT.PROVIDER, "M365_GRAPH")
         .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, encRefreshToken)
         .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, encAccessToken)
         .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, expiresAt)
         .set(EMAIL_ACCOUNT.LAST_TESTED_AT, OffsetDateTime.now()) // OAuth 콜백 성공 = 연결 확인
         .set(EMAIL_ACCOUNT.AI_ENABLED, aiEnabled) // 전역 ai_enabled 설정 상속
-        .onConflict(EMAIL_ACCOUNT.TENANT_ID, EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.EMAIL_ADDRESS)
+        .onConflict(
+            EMAIL_ACCOUNT.TENANT_ID, EMAIL_ACCOUNT.USER_ID, lower(EMAIL_ACCOUNT.EMAIL_ADDRESS))
         .where(EMAIL_ACCOUNT.DISABLED_AT.isNull()) // 부분 인덱스 술어와 일치
         .doUpdate()
         // 기존 활성 IMAP → Graph 전환: provider 변경 + IMAP 컬럼 소거 + 토큰 갱신
@@ -429,7 +409,6 @@ public class EmailAccountRepository {
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(sameAddress(emailAddress))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
-        .orderBy(exactAddressFirst(emailAddress))
         .limit(1)
         .fetchOptional(this::toResponse);
   }
