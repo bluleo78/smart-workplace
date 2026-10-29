@@ -5,7 +5,9 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.groups.Tuple.tuple;
 
+import com.workplace.issue.dto.IssueHistoryEntryResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.InvalidDependencyException;
 import com.workplace.issue.exception.IssueNotFoundException;
@@ -19,6 +21,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -82,6 +85,42 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
     assertThat(history).anyMatch(h -> "DEPENDENCY_ADDED".equals(h.eventType()));
   }
 
+  /** WP-1125: 상대 이슈 이력에도 반대 방향으로 남는다 — 막힌 쪽에서 언제·누가 막았는지 보인다. 풀 때도 같다. */
+  @Test
+  void add_and_remove_record_history_on_both_issues_with_opposite_direction() {
+    Long owner = createUser("sa13");
+    var p = newProject(owner, "SA13");
+    var i1 = newTask(p.id(), 1, "막는 이슈", owner);
+    var i2 = newTask(p.id(), 2, "막히는 이슈", owner);
+
+    service.add(owner, p.key(), 1, 2, "blocks");
+    service.remove(owner, p.key(), 1, 2, "blocks");
+
+    var other = historyRepository.findByIssue(i2.id());
+    assertThat(other)
+        .filteredOn(h -> h.eventType().startsWith("DEPENDENCY_"))
+        .extracting(h -> h.eventType(), h -> h.actorId())
+        .containsExactlyInAnyOrder(
+            tuple("DEPENDENCY_ADDED", owner), tuple("DEPENDENCY_REMOVED", owner));
+    assertThat(other)
+        .filteredOn(h -> h.eventType().startsWith("DEPENDENCY_"))
+        .allSatisfy(
+            h ->
+                assertThat(h.toValue())
+                    .contains("\"direction\":\"blockedBy\"")
+                    .contains("\"number\":1")
+                    .contains("막는 이슈"));
+    // 작업한 쪽은 그대로 blocks 로 한 줄씩.
+    assertThat(historyRepository.findByIssue(i1.id()))
+        .filteredOn(h -> h.eventType().startsWith("DEPENDENCY_"))
+        .allSatisfy(
+            h ->
+                assertThat(h.toValue())
+                    .contains("\"direction\":\"blocks\"")
+                    .contains("\"number\":2"))
+        .hasSize(2);
+  }
+
   @Test
   void member_add_blocked_by_creates_reverse_row() {
     Long owner = createUser("sa2");
@@ -94,6 +133,17 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
 
     assertThat(depRepository.findBlocksOf(i2.id())).containsExactly(i1.id());
     assertThat(depRepository.findBlocksOf(i1.id())).isEmpty();
+    // WP-1125: 이력도 방향을 따른다 — 호출 이슈(i1)는 blockedBy, 상대(i2)는 blocks.
+    assertThat(dependencyHistory(i1.id()))
+        .singleElement()
+        .satisfies(h -> assertThat(h.toValue()).contains("\"direction\":\"blockedBy\""));
+    assertThat(dependencyHistory(i2.id()))
+        .singleElement()
+        .satisfies(
+            h ->
+                assertThat(h.toValue())
+                    .contains("\"direction\":\"blocks\"")
+                    .contains("\"number\":1"));
   }
 
   @Test
@@ -155,7 +205,7 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
     Long owner = createUser("sa8");
     var p = newProject(owner, "SA8");
     var i1 = newTask(p.id(), 1, "i1", owner);
-    newTask(p.id(), 2, "i2", owner);
+    var i2 = newTask(p.id(), 2, "i2", owner);
 
     service.add(owner, p.key(), 1, 2, "blocks");
     service.add(owner, p.key(), 1, 2, "blocks"); // 중복
@@ -166,6 +216,8 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
             .filter(h -> "DEPENDENCY_ADDED".equals(h.eventType()))
             .count();
     assertThat(added).isEqualTo(1L);
+    // 상대 이슈에도 첫 추가의 한 줄만 남는다(WP-1125).
+    assertThat(dependencyHistory(i2.id())).hasSize(1);
   }
 
   @Test
@@ -191,7 +243,7 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
     Long owner = createUser("sa10");
     var p = newProject(owner, "SA10");
     var i1 = newTask(p.id(), 1, "i1", owner);
-    newTask(p.id(), 2, "i2", owner);
+    var i2 = newTask(p.id(), 2, "i2", owner);
 
     service.remove(owner, p.key(), 1, 2, "blocks");
 
@@ -200,6 +252,7 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
             .filter(h -> h.eventType().startsWith("DEPENDENCY_"))
             .count();
     assertThat(events).isZero();
+    assertThat(dependencyHistory(i2.id())).isEmpty();
   }
 
   /** WP-586: direction 은 blocks·blockedBy 만 받는다 — 오타가 반대 방향 관계로 저장·삭제되지 않게 400. */
@@ -229,5 +282,12 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
   @SuppressWarnings("unused")
   private void addMember(Long owner, String key, Long user) {
     projectService.addMember(owner, key, new AddMemberRequest(user, "MEMBER"));
+  }
+
+  /** 이슈의 의존성 이력(DEPENDENCY_*)만. */
+  private List<IssueHistoryEntryResponse> dependencyHistory(Long issueId) {
+    return historyRepository.findByIssue(issueId).stream()
+        .filter(h -> h.eventType().startsWith("DEPENDENCY_"))
+        .toList();
   }
 }
