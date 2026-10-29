@@ -22,6 +22,17 @@ const AUDIENCE_FILTER: { value: 'ALL' | WikiShareAudience; label: string }[] = [
   { value: 'PEOPLE', label: '지정한 사람' },
 ]
 
+/** 범위 표시 — 외부 공개는 눈에 띄는 배지, 나머지는 「대상 · 권한」 글자. 넓은 화면은 범위 칸, 휴대폰은 제목 아래에 쓴다(WP-1127). */
+function ShareScope({ item }: { item: WikiShareListItem }) {
+  return item.audience === 'PUBLIC' ? (
+    <Badge variant="destructive" className="font-normal">
+      외부 공개
+    </Badge>
+  ) : (
+    <span className="text-sm">{shareScopeLabel(item.audience, item.permission, item.peopleCount, item.groupCount)}</span>
+  )
+}
+
 /** 만료 칸 — 지났으면 「만료됨」, 없으면 「없음」. */
 function expiryLabel(iso: string | null, now = new Date()): string {
   if (!iso) return '없음'
@@ -155,7 +166,7 @@ export function WikiShareTable({
               </TableHead>
             )}
             <TableHead>페이지</TableHead>
-            <TableHead>범위</TableHead>
+            <TableHead className="hidden md:table-cell">범위</TableHead>
             {showCreator && <TableHead className="hidden md:table-cell">만든 사람</TableHead>}
             <TableHead className="hidden md:table-cell">만료</TableHead>
             <TableHead className="hidden md:table-cell">마지막 열람</TableHead>
@@ -186,21 +197,21 @@ export function WikiShareTable({
                     />
                   </TableCell>
                 )}
-                <TableCell className="max-w-[280px]">
+                {/* 제목 칸은 다른 칸이 쓰고 남은 폭만 차지하고(w-full + max-w-0) 그 안에서 말줄임한다 — 긴 제목 하나가 표를
+                    넓혀 행마다 「해제」가 화면 밖으로 밀리던 것을 막는다(WP-1127). 화면 폭·고르기 칸 유무와 상관없이 맞는다.
+                    휴대폰에서는 범위 칸을 숨기고 범위를 제목 아래 줄로 옮긴다(줄바꿈 허용 — 권한까지 보이게). */}
+                <TableCell className="w-full max-w-0">
                   <span className="block truncate font-medium">{i.title || '제목 없음'}</span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {i.spaceName}
                     {i.includeChildren && ' · 하위 페이지 포함'}
                   </span>
+                  <div className="mt-1 whitespace-normal md:hidden" data-testid="wiki-share-scope-mobile">
+                    <ShareScope item={i} />
+                  </div>
                 </TableCell>
-                <TableCell>
-                  {i.audience === 'PUBLIC' ? (
-                    <Badge variant="destructive" className="font-normal">
-                      외부 공개
-                    </Badge>
-                  ) : (
-                    <span className="text-sm">{shareScopeLabel(i.audience, i.permission, i.peopleCount, i.groupCount)}</span>
-                  )}
+                <TableCell className="hidden md:table-cell">
+                  <ShareScope item={i} />
                 </TableCell>
                 {showCreator && <TableCell className="hidden md:table-cell">{i.createdBy.name}</TableCell>}
                 <TableCell className="hidden text-sm md:table-cell">{expiryLabel(i.expiresAt)}</TableCell>
