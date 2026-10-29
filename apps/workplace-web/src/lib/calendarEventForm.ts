@@ -1,6 +1,6 @@
 // 일정 생성/편집 다이얼로그(EventDialog)의 화면 독립 로직 — 폼 스키마·종일 정규화·요청 조립·편집 가능 판정.
 // 컴포넌트에서 분리해 vitest 로 입력→출력을 직접 검증한다(WP-412). 화면 반영(비활성·숨김)은 E2E 가 담당.
-import { addDays, addMilliseconds, format, parse } from 'date-fns'
+import { addDays, addMilliseconds, format, isValid, parse } from 'date-fns'
 import { z } from 'zod'
 
 import { allDayLocalDate, isNotEventOrganizer } from '@/lib/calendar'
@@ -131,9 +131,22 @@ export type EventFormValues = z.infer<typeof eventFormSchema>
 // 종일 정규화
 // ────────────────────────────────────────────────────────────
 
-/** datetime-local 문자열에서 날짜 부분(YYYY-MM-DD)만 추출 */
+/**
+ * datetime-local 문자열에서 날짜 부분(YYYY-MM-DD)만 추출 — 'T' 앞을 통째로 쓴다.
+ * 앞 10글자로 자르면 다섯 자리 연도(20261-06-10)가 다른 날짜(20261-06-1)로 바뀌어, 스키마가 연도 오류를 알리기 전에 값이 달라졌다(WP-1181).
+ */
 function localDateOnly(local: string): string {
-  return local.slice(0, 10)
+  return local.split('T')[0]
+}
+
+/** datetime-local 문자열의 시각 부분(HH:mm) — 날짜 자릿수와 상관없이 'T' 뒤를 쓴다. 없으면 빈 값. */
+function localTimeOnly(local: string): string {
+  return local.split('T')[1] ?? ''
+}
+
+/** 날짜 + 시각 → datetime-local 값. 빈 날짜는 빈 값으로 둔다 — 'T00:00' 처럼 날짜 없는 값이 스키마의 필수 오류를 피해 갔다(WP-1181). */
+function joinDateTime(date: string, time: string): string {
+  return date && `${date}T${time}`
 }
 
 /** YYYY-MM-DD 문자열에 일 단위를 더한 YYYY-MM-DD 반환 (타임존 독립·달력 날짜 연산만) */
@@ -149,11 +162,22 @@ function addDaysToDateOnly(dateOnly: string, days: number): string {
  * - 시작 날짜는 그대로, 시각만 00:00 으로
  * - 종료가 시작과 같은 날(또는 그 이전)이면 다음날 00:00 으로 밀어 최소 하루 범위를 보장
  * - 이미 여러 날에 걸친 값이면 날짜는 유지하고 시각만 00:00 으로 정규화
+ * - 시작이 비었거나 날짜로 읽을 수 없으면(연도 5자리 등) 비교 기준이 없다 — 시작은 빈 값·그 글자 그대로 두어 스키마가 필수·연도 오류로 알리고,
+ *   종료는 그 날을 마지막 날로 본다(정각 자정에 끝나면 그 자정이 끝). 빈 시작이 'T00:00' 이 되면 오류 없이 날짜 없는 값이 남았다(WP-1181).
+ * - 종료가 날짜로 읽을 수 없으면 그 글자 그대로 둔다 — 문자열 비교로 다른 날짜를 만들지 않는다.
  */
 export function normalizeAllDayRange(start: string, end: string): { start: string; end: string } {
   const startDate = localDateOnly(start)
-  const endDate = end ? localDateOnly(end) : startDate
-  const normalizedEndDate = endDate <= startDate ? addDaysToDateOnly(startDate, 1) : endDate
+  const endDate = localDateOnly(end)
+  if (!isDateOnly(startDate)) {
+    const endsAtMidnight = isDateOnly(endDate) && localTimeOnly(end) === '00:00'
+    return {
+      start: joinDateTime(startDate, '00:00'),
+      end: endsAtMidnight ? `${endDate}T00:00` : allDayRangeFromDates('', endDate).end,
+    }
+  }
+  if (endDate && !isDateOnly(endDate)) return { start: `${startDate}T00:00`, end: `${endDate}T00:00` }
+  const normalizedEndDate = !endDate || endDate <= startDate ? addDaysToDateOnly(startDate, 1) : endDate
   return { start: `${startDate}T00:00`, end: `${normalizedEndDate}T00:00` }
 }
 
@@ -180,7 +204,7 @@ export function allDayDisplayDates(start: string, end: string): { startDate: str
  * 빈 칸은 빈 값, 날짜로 읽을 수 없는 칸은 그 글자 그대로 넘겨 스키마가 필수·연도 오류로 알리게 한다(칸을 지우고 다시 입력할 수 있게).
  */
 export function allDayRangeFromDates(startDate: string, endDate: string): { start: string; end: string } {
-  const toMidnight = (date: string) => date && `${date}T00:00`
+  const toMidnight = (date: string) => joinDateTime(date, '00:00')
   return { start: toMidnight(startDate), end: toMidnight(isDateOnly(endDate) ? addDaysToDateOnly(endDate, 1) : endDate) }
 }
 
@@ -230,10 +254,24 @@ export function restoreTimedRange(
   current: { start: string; end: string },
   remembered: { start: string; end: string },
 ): { start: string; end: string } {
+  const date = localDateOnly(current.start)
+  const startTime = localTimeOnly(remembered.start) || '00:00'
+  const lengthKnown = [remembered.start, remembered.end].every(
+    (v) => isDateOnly(localDateOnly(v)) && isValid(parse(v, LOCAL_INPUT_FORMAT, new Date())),
+  )
+  // 지금 시작이나 기억한 시각의 날짜를 읽을 수 없으면(빈 값·연도 5자리 — WP-1181) 길이를 셀 수 없다. 기억한 시각만 날짜 칸의 날에 얹는다 —
+  // 시작은 지금 시작 날짜(비었으면 빈 값 그대로 두어 스키마가 알린다), 종료는 화면의 마지막 날. 그대로 두면 입력한 시각이 사라지고 자정~자정 일정이 됐다.
+  if (!isDateOnly(date) || !lengthKnown) {
+    const lastDay = allDayDisplayDates(current.start, current.end).endDate
+    return {
+      start: joinDateTime(date, startTime),
+      end: isDateOnly(lastDay) ? joinDateTime(lastDay, localTimeOnly(remembered.end) || '00:00') : current.end,
+    }
+  }
   const durationMs =
     parse(remembered.end, LOCAL_INPUT_FORMAT, new Date()).getTime() -
     parse(remembered.start, LOCAL_INPUT_FORMAT, new Date()).getTime()
-  const start = `${localDateOnly(current.start)}T${remembered.start.slice(11, 16)}`
+  const start = `${date}T${startTime}`
   const end = format(addMilliseconds(parse(start, LOCAL_INPUT_FORMAT, new Date()), durationMs), LOCAL_INPUT_FORMAT)
   return { start, end }
 }
