@@ -74,7 +74,8 @@ class EventListenerConnectionPoolTest extends IntegrationTestBase {
             (Supplier<Object>)
                 () -> new WikiPageCreatedEvent(1L, 1L, null, "제목", null, Instant.now())),
         Arguments.of(
-            "messaging.message.read", (Supplier<Object>) () -> new MessageReadEvent(1L, 1L, 1L)),
+            "messaging.message.read",
+            (Supplier<Object>) () -> new MessageReadEvent(1L, 1L, 1L, null)),
         Arguments.of(
             "chat.thread.read", (Supplier<Object>) () -> new ChatThreadReadEvent(1L, 1L, 1L)),
         Arguments.of(

@@ -12,6 +12,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
 import com.workplace.global.util.PersonNames;
 import com.workplace.messaging.dto.ChannelMemberResponse;
+import com.workplace.messaging.dto.ChannelReadStateResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageProposalResponse;
@@ -306,7 +307,7 @@ public class MessageService {
     threadReadRepo.markRead(rootId, callerId, maxReply);
   }
 
-  /** 채널 멤버가 uptoMessageId 까지 읽음 표시. watermark 갱신 후 AFTER_COMMIT SSE 발행. */
+  /** 채널 멤버가 uptoMessageId 까지 읽음 표시. watermark 가 앞으로 갔을 때만 AFTER_COMMIT SSE 발행. */
   @Transactional
   public void markRead(long callerId, long channelId, long uptoMessageId) {
     ensureMember(channelId, callerId);
@@ -314,8 +315,24 @@ public class MessageService {
     // 고정됐다(WP-514). 메시지가 없으면 올릴 위치가 없다.
     long upto = Math.min(uptoMessageId, messageRepo.maxIdInChannel(channelId));
     if (upto <= 0) return;
-    memberRepo.markRead(channelId, callerId, upto);
-    publisher.publishEvent(new MessageReadEvent(channelId, callerId, upto));
+    // 위치가 실제로 앞으로 갔을 때만 알린다 — 같은·앞 위치의 다시 읽음(스크롤·탭 복귀)마다 전 멤버에게 SSE 를 뿌리지 않게(WP-1176).
+    memberRepo
+        .markRead(channelId, callerId, upto)
+        .ifPresent(
+            readAt ->
+                publisher.publishEvent(
+                    new MessageReadEvent(channelId, callerId, upto, readAt.toInstant())));
+  }
+
+  /**
+   * DM 읽음 표시(WP-1176) — 이 대화의 다른 사람 멤버가 어디까지·언제 읽었는지. 멤버만 본다(비멤버 403). 채널(kind=CHANNEL)은 읽음 표시를 하지
+   * 않아 빈 목록이다 — 인원이 많은 공개 채널에서 누가 읽었는지 드러내지 않는다.
+   */
+  @Transactional(readOnly = true)
+  public List<ChannelReadStateResponse> readStates(long callerId, long channelId) {
+    ensureMember(channelId, callerId);
+    if (!"DM".equals(channelRepo.findKind(channelId))) return List.of();
+    return memberRepo.findReadStates(channelId, callerId);
   }
 
   /**

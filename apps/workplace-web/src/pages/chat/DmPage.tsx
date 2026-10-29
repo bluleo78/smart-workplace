@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
+import { useChannelReadStates } from '@/hooks/queries/useChannelReadStates'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMyDms } from '@/hooks/queries/useMyDms'
@@ -134,6 +135,9 @@ export default function DmPage() {
   const create = useCreateMessage(dmId ?? 0, me)
 
   const dm = dms?.find((d) => d.id === dmId)
+  // DM 읽음 표시(WP-1176) — 상대들의 읽음 위치. 나·AI 를 빼는 것은 서버가 한다(나만 있는 DM 은 빈 목록) — DM 목록에 아직 없는
+  // 대화(바로 연 링크 등)에서도 표시가 빠지지 않게 화면에서 거르지 않는다.
+  const readStates = useChannelReadStates(dmId ?? 0).data
 
   // WP-54: DM 화면 컨텍스트 — 상대 이름(본인 제외, 헤더 표시와 동일 기준. self-DM 이면 본인).
   const screenContext = useMemo(() => {
@@ -208,6 +212,8 @@ export default function DmPage() {
             onOpenThread={(id) => threadParam.open(String(id))}
             unreadDividerBeforeId={unreadDividerBeforeId}
             catchupSlot={catchupSlot}
+            readStates={readStates}
+            markReadWhenVisible
             emptyState={
               data ? (
                 <ChatEmptyState

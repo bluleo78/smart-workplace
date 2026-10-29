@@ -46,3 +46,55 @@ describe('handleMessagingEvent — messaging.message.link-previews', () => {
   })
 })
 
+
+// WP-1176: 다른 사람의 읽음 이벤트는 받아 둔 DM 읽음 목록을 고치고, 본인 읽음은 배지(목록)만 다시 계산한다.
+describe('handleMessagingEvent — messaging.message.read (DM 읽음 표시)', () => {
+  const states = [{ userId: 2, name: '밥', lastReadMessageId: 10, readAt: null }]
+
+  it('다른 사람의 읽음은 그 대화의 읽음 목록 위치·시각을 고친다', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.readStates(7), states)
+    handleMessagingEvent(
+      qc,
+      'messaging.message.read',
+      { channelId: 7, userId: 2, lastReadMessageId: 15, readAt: '2026-10-29T03:40:00Z' },
+      1,
+    )
+    expect(qc.getQueryData(messagingKeys.readStates(7))).toEqual([
+      { userId: 2, name: '밥', lastReadMessageId: 15, readAt: '2026-10-29T03:40:00Z' },
+    ])
+  })
+
+  it('목록에 없던 사람이면 목록을 다시 받고, 받아 둔 목록이 없으면 건드리지 않는다', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.readStates(7), states)
+    const spy = vi.spyOn(qc, 'invalidateQueries')
+    handleMessagingEvent(qc, 'messaging.message.read', { channelId: 7, userId: 3, lastReadMessageId: 15 }, 1)
+    expect(spy).toHaveBeenCalledWith({ queryKey: messagingKeys.readStates(7), exact: true })
+    spy.mockClear()
+    handleMessagingEvent(qc, 'messaging.message.read', { channelId: 8, userId: 3, lastReadMessageId: 15 }, 1)
+    expect(spy).not.toHaveBeenCalled()
+    expect(qc.getQueryData(messagingKeys.readStates(8))).toBeUndefined()
+  })
+
+  it('DM 의 AI 참여자 읽음은 목록에 없어도 다시 받지 않는다(서버가 AI 를 빼므로 늘 없다)', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.readStates(7), states)
+    qc.setQueryData(messagingKeys.dms(), [
+      { id: 7, participants: [{ userId: 1, name: '나', kind: 'HUMAN' }, { userId: 2, name: '밥', kind: 'HUMAN' }, { userId: 50, name: 'AI', kind: 'AGENT' }] },
+    ])
+    const spy = vi.spyOn(qc, 'invalidateQueries')
+    handleMessagingEvent(qc, 'messaging.message.read', { channelId: 7, userId: 50, lastReadMessageId: 15 }, 1)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('본인 읽음은 읽음 목록을 건드리지 않고 채널·DM 목록만 다시 받는다', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(messagingKeys.readStates(7), states)
+    const spy = vi.spyOn(qc, 'invalidateQueries')
+    handleMessagingEvent(qc, 'messaging.message.read', { channelId: 7, userId: 1, lastReadMessageId: 15 }, 1)
+    expect(qc.getQueryData(messagingKeys.readStates(7))).toBe(states)
+    const keys = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
+    expect(keys).toContain(JSON.stringify(messagingKeys.dms()))
+  })
+})

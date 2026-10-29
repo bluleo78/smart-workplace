@@ -8,16 +8,27 @@ import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 
 export function IconHint({
   label,
+  detail,
   children,
   'data-testid': testId,
 }: {
   /** 툴팁·팝오버에 보일 이름. */
   label: string
+  /** 이름 아래에 덧붙일 내용(읽음 표시의 읽은 시각·사람 목록, WP-1176). 없으면 이름만. */
+  detail?: ReactNode
   /** 이름을 붙일 아이콘. */
   children: ReactNode
   'data-testid'?: string
 }) {
   const isCoarse = useIsCoarsePointer()
+  const content = detail ? (
+    <>
+      <span className="block font-medium">{label}</span>
+      {detail}
+    </>
+  ) : (
+    label
+  )
 
   if (isCoarse) {
     return (
@@ -32,7 +43,7 @@ export function IconHint({
             {children}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto px-3 py-1.5 text-xs">{label}</PopoverContent>
+        <PopoverContent className="w-auto px-3 py-1.5 text-xs">{content}</PopoverContent>
       </Popover>
     )
   }
@@ -52,7 +63,7 @@ export function IconHint({
             {children}
           </span>
         </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
+        <TooltipContent>{content}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

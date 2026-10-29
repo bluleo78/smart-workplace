@@ -4,6 +4,7 @@ import type {
   ChannelDriveSpaceResponse,
   ChannelMemberGroup,
   ChannelMemberResponse,
+  ChannelReadState,
   ChannelResponse,
   ChannelRole,
   CreateChannelRequest,
@@ -46,6 +47,10 @@ export const messagingApi = {
       `/messaging/channels/discover${qs ? `?${qs}` : ''}`,
     );
   },
+
+  // DM 읽음 표시(WP-1176) — 다른 사람 멤버의 읽은 위치·시각. 채널이면 빈 목록.
+  getReadStates: (channelId: number) =>
+    client.get<ChannelReadState[]>(`/messaging/channels/${channelId}/read-states`),
 
   getChannel: (channelId: number) =>
     client.get<ChannelResponse>(`/messaging/channels/${channelId}`),

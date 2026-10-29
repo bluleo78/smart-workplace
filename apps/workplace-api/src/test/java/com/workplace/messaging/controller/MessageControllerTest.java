@@ -16,6 +16,7 @@ import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.messaging.dto.ChannelReadStateResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
@@ -96,6 +97,22 @@ class MessageControllerTest extends WebMvcSliceTestBase {
         .perform(get("/api/v1/messaging/channels/1/messages").header("Authorization", "Bearer v"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.items[0].body").value("hello"));
+  }
+
+  /** DM 읽음 표시(WP-1176) — 읽음 목록을 사람별 위치·시각(ISO)으로 내려준다. */
+  @Test
+  void readStates_returnsList() throws Exception {
+    when(messageService.readStates(1L, 7L))
+        .thenReturn(
+            List.of(
+                new ChannelReadStateResponse(2L, "밥", 41L, Instant.parse("2026-10-29T03:40:00Z"))));
+    mockMvc
+        .perform(
+            get("/api/v1/messaging/channels/7/read-states").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].userId").value(2))
+        .andExpect(jsonPath("$[0].lastReadMessageId").value(41))
+        .andExpect(jsonPath("$[0].readAt").value("2026-10-29T03:40:00Z"));
   }
 
   @Test

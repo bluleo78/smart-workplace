@@ -2,6 +2,7 @@ package com.workplace.messaging.controller;
 
 import com.workplace.global.dto.AiProgressRequest;
 import com.workplace.global.security.InternalOnBehalfOf;
+import com.workplace.messaging.dto.ChannelReadStateResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MarkReadRequest;
 import com.workplace.messaging.dto.MessagePage;
@@ -9,6 +10,7 @@ import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.service.MessageService;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -67,6 +69,13 @@ public class MessageController {
       @Valid @RequestBody MarkReadRequest req) {
     messageService.markRead(callerId, channelId, req.uptoMessageId());
     return ResponseEntity.noContent().build();
+  }
+
+  /** DM 읽음 표시(WP-1176) — 다른 사람 멤버의 읽은 위치·시각. 채널이면 빈 목록. 비멤버=403. */
+  @GetMapping("/channels/{id}/read-states")
+  public ResponseEntity<List<ChannelReadStateResponse>> readStates(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long channelId) {
+    return ResponseEntity.ok(messageService.readStates(callerId, channelId));
   }
 
   /** 스레드 패널 열기 — 해당 스레드를 최신 답글까지 읽음 표시. 204. 비멤버=403. */

@@ -84,6 +84,26 @@ describe('DM 화면', () => {
     const header = await screen.findByTestId('dm-header')
     expect(within(header).getByTestId('agent-badge')).toBeInTheDocument()
   })
+
+  // WP-1176: 상대가 읽은 내 마지막 메시지 아래에만 상대 얼굴이 붙는다 — 그 뒤 메시지·상대 메시지에는 붙지 않는다.
+  test('읽음 표시 — 상대가 읽은 내 마지막 메시지 아래에 상대 얼굴', async () => {
+    openDm(
+      createDm({ id: 910, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '김민준' })] }),
+      // 페이지는 최신 먼저(DESC)로 온다.
+      [
+        createMessage({ id: 13, channelId: 910, authorId: 1, body: '아직 안 읽음' }),
+        createMessage({ id: 12, channelId: 910, authorId: 1, body: '수정본 공유' }),
+        createMessage({ id: 11, channelId: 910, authorId: 2, authorName: '김민준', body: '확인했어요' }),
+        createMessage({ id: 10, channelId: 910, authorId: 1, body: '초안 공유' }),
+      ],
+      [http.get(`${API}/messaging/channels/910/read-states`, () => HttpResponse.json([{ userId: 2, name: '김민준', lastReadMessageId: 12, readAt: null }]))],
+    )
+    const receipts = await screen.findByTestId('read-receipts')
+    expect(within(receipts).getByRole('img', { name: '김민준 읽음' })).toBeInTheDocument()
+    expect(screen.getAllByTestId('read-receipts')).toHaveLength(1)
+    // 얼굴은 「수정본 공유」(12) 행 안에 있다.
+    expect(receipts.closest('[data-message-id]')?.getAttribute('data-message-id')).toBe('12')
+  })
 })
 
 describe('새 메시지 — 받는 사람', () => {
