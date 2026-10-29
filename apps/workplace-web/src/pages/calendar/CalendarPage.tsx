@@ -166,6 +166,8 @@ export function CalendarPage() {
   const { data: calendars = [] } = useCalendars()
   // 내 캘린더 id 집합 — filterByCalendar 에서 "내 캘린더인지" 판별.
   const myCalendarIds = useMemo(() => new Set(calendars.map((c) => c.id)), [calendars])
+  // 캘린더 삭제 확인 창에 「어디로 옮겨지는지」를 이름으로 보인다.
+  const defaultCalendarName = calendars.find((c) => c.isDefault)?.name
 
   const createCal = useCreateCalendar()
   const updateCal = useUpdateCalendar()
@@ -173,6 +175,8 @@ export function CalendarPage() {
   const resetCal = useResetCalendarEvents()
   // 리셋 확인 다이얼로그에 표시할 캘린더(null=닫힘).
   const [resettingCal, setResettingCal] = useState<Calendar | null>(null)
+  // 삭제 확인을 기다리는 캘린더 — 편집 창의 「삭제」가 바로 지우지 않고 이 확인을 거친다(WP-1140).
+  const [deletingCal, setDeletingCal] = useState<Calendar | null>(null)
 
   // 태그 관리 다이얼로그 — 모바일 ☰ 시트 밖(이 페이지)에서 열어야 시트가 닫혀도 남는다(WP-578·714).
   const createTag = useCreateCalendarTag()
@@ -508,9 +512,17 @@ export function CalendarPage() {
       createCal.mutate(body, { onSuccess: () => setCalEditOpen(false) })
     }
   }
+  // 편집 창 「삭제」 → 편집 창을 닫고 확인 창을 연다. 소속 일정이 기본 캘린더로 옮겨지는 것을 먼저 알린다(WP-1140).
   const deleteCalendar = () => {
     if (!editingCal) return
-    deleteCal.mutate(editingCal.id, { onSuccess: () => setCalEditOpen(false) })
+    setCalEditOpen(false)
+    setDeletingCal(editingCal)
+  }
+  // 확인 → 삭제. 실패하면 확인 창을 남겨 다시 시도하거나 취소할 수 있게 한다(오류는 훅이 토스트로 알린다).
+  const confirmDeleteCalendar = (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!deletingCal) return
+    deleteCal.mutate(deletingCal.id, { onSuccess: () => setDeletingCal(null) })
   }
 
   // 케밥 "모든 일정 삭제" → 확인 다이얼로그 오픈.
@@ -766,6 +778,30 @@ export function CalendarPage() {
           note={scopeMode === 'edit' && pendingBody?.tagIds !== undefined ? RECURRING_TAGS_NOTE : null}
         />
       )}
+
+      {/* 캘린더 삭제 확인 다이얼로그 — 소속 일정이 어디로 가는지 알린다(WP-1140) */}
+      <AlertDialog open={deletingCal != null} onOpenChange={(o) => !o && setDeletingCal(null)}>
+        <AlertDialogContent data-testid="calendar-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>캘린더 삭제</AlertDialogTitle>
+            <AlertDialogDescription className="wrap-anywhere">
+              「{deletingCal?.name}」 캘린더를 삭제할까요? 이 캘린더의 일정은 기본 캘린더
+              {defaultCalendarName ? `(${defaultCalendarName})` : ''}로 옮겨집니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="calendar-delete-confirm-submit"
+              variant="destructive"
+              disabled={deleteCal.isPending}
+              onClick={confirmDeleteCalendar}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 캘린더 강제 리셋(모든 일정 삭제) 확인 다이얼로그 */}
       <AlertDialog open={resettingCal != null} onOpenChange={(o) => !o && setResettingCal(null)}>

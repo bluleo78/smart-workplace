@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 import { calendarsApi } from '@/api/calendars'
+import { handleApiError } from '@/lib/api-error'
 import type { Calendar, CalendarRequest } from '@/types/calendar'
 
 import { calendarKeys } from './calendarKeys'
@@ -32,11 +34,19 @@ export function useUpdateCalendar() {
   })
 }
 
+/**
+ * 캘린더 삭제 — 서버가 소속 일정을 기본 캘린더로 옮기므로(CalendarService) 성공 안내에 그 결과를 함께 알린다.
+ * 실패는 오류 토스트로 알린다(WP-1140 — 전에는 결과도 실패도 화면에 드러나지 않았다).
+ */
 export function useDeleteCalendar() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => calendarsApi.remove(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: calendarKeys.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: calendarKeys.all })
+      toast.success('캘린더를 삭제했습니다. 일정은 기본 캘린더로 옮겼습니다')
+    },
+    onError: (e) => handleApiError(e, '캘린더 삭제에 실패했습니다'),
   })
 }
 
