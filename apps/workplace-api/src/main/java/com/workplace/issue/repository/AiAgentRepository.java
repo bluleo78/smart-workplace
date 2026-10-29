@@ -66,7 +66,7 @@ public class AiAgentRepository {
       Collection<Long> workerIds, Condition visibleScope, long callerId) {
     if (workerIds.isEmpty()) return List.of();
     Field<Boolean> stale = DSL.field(AgentWorkRepository.stale()).as("is_stale");
-    // 진행 중 행은 V237 백필·기본값으로 늘 값이 있다 — 없을 때만 마지막 보고 시각으로 본다.
+    // 진행 중 행은 V238 백필·기본값으로 늘 값이 있다 — 없을 때만 마지막 보고 시각으로 본다.
     Field<OffsetDateTime> stateChangedAt =
         DSL.coalesce(AGENT_WORK.STATE_CHANGED_AT, AGENT_WORK.UPDATED_AT).as("state_since");
     Field<Boolean> visible = DSL.field(visibleScope).as("is_visible");
@@ -116,7 +116,7 @@ public class AiAgentRepository {
 
   /**
    * 작업자마다 마지막으로 작업을 끝낸 시각 — 끝낸 작업이 없으면 키가 없다. 작업자마다 최근 한 건만 읽는 상관 서브쿼리로, 끝난 행 전체를 모으지 않고
-   * agent_work_worker_ended_idx(V237)를 탄다.
+   * agent_work_worker_ended_idx(V238)를 탄다.
    */
   public Map<Long, Instant> findLastEndedAt(Collection<Long> workerIds) {
     if (workerIds.isEmpty()) return Map.of();
