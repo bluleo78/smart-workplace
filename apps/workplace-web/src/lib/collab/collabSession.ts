@@ -14,6 +14,8 @@ import {
 } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 import * as Y from 'yjs'
 
+import { registerTestReset } from '@/lib/testResets'
+
 import { getAccessToken, refreshAccessTokenOutcome } from '../../api/client'
 import { backoffDelay } from '../backoff'
 import { mobileWidthStore } from '../mobile/mediaQueryStore'
@@ -767,3 +769,7 @@ function updateBeforeUnload(): void {
 export function resetCollabSessionsForTest(): void {
   for (const entry of [...entries.values()]) destroyEntry(entry)
 }
+
+// 화면이 내려가며 놓은 세션의 유예 타이머(GRACE_MS)가 남으면 파일이 끝나 DOM 환경을 내린 뒤 실행돼 게이트를 깬다 —
+// 테스트마다 끝 정리(src/test/setup.ts)가 바로 비우게 등록한다(WP-1206).
+registerTestReset(resetCollabSessionsForTest)

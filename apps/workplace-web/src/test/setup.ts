@@ -7,6 +7,8 @@ import { cleanup, configure, getConfig } from '@testing-library/react'
 import * as React from 'react'
 import { afterAll, afterEach, beforeEach } from 'vitest'
 
+import { runTestResets } from '@/lib/testResets'
+
 import { settleHistory } from './history'
 import { memoryStorage } from './memoryStorage'
 import { server, unhandledRequests } from './msw/server'
@@ -103,6 +105,8 @@ afterEach(async () => {
   // 조회(SSE·대화·공간 목록)와 내려가며 보내는 요청(임시저장·취소)이 이미 비운 핸들러에 걸려, 부하가 큰 전체 실행에서
   // 다음 테스트를 「핸들러 없는 요청」으로 실패시켰다(WP-1002). 내린 뒤 한 틱 기다려 그 요청이 이 테스트의 핸들러로 처리되게 한다.
   cleanup()
+  // 화면이 내려가며 놓은 동기화 세션을 유예(5초) 없이 바로 정리한다 — 남은 타이머가 DOM 환경을 내린 뒤 돌아 게이트를 깼다(WP-1206).
+  runTestResets()
   await new Promise((resolve) => realSetTimeout(resolve, 0))
   server.resetHandlers()
   window.localStorage.clear()
