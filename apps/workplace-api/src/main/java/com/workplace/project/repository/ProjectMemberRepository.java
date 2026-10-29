@@ -123,8 +123,9 @@ public class ProjectMemberRepository {
   private static final Field<Boolean> MEMBER_ACTIVE = WorkspaceActive.field();
 
   /**
-   * 프로젝트의 <b>직접</b> 멤버 행 전체를 USER JOIN 하여 username/name/kind/active 포함된 응답으로 조회. created_at 오름차순.
-   * 부서로 들어온 사람까지 보려면 {@link #findEffectiveByProject}.
+   * 프로젝트의 <b>직접</b> 멤버 행 전체를 USER JOIN 하여 username/name/kind/active 포함된 응답으로 조회. created_at 오름차순,
+   * 같으면 user_id 순 — 한 트랜잭션에서 넣은 멤버(프로젝트를 만들며 넣은 소유자·첫 멤버 등)는 created_at(트랜잭션 시작 시각)이 같아, 동률 기준이 없으면
+   * 실행마다 순서가 달라졌다(WP-1187). 부서로 들어온 사람까지 보려면 {@link #findEffectiveByProject}.
    */
   public List<MemberResponse> findAllByProject(Long projectId) {
     return dsl.select(
@@ -141,7 +142,7 @@ public class ProjectMemberRepository {
         .leftJoin(MEMBERSHIP)
         .on(WorkspaceActive.join(PROJECT_MEMBER.USER_ID, PROJECT_MEMBER.TENANT_ID))
         .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
-        .orderBy(PROJECT_MEMBER.CREATED_AT.asc())
+        .orderBy(PROJECT_MEMBER.CREATED_AT.asc(), PROJECT_MEMBER.USER_ID.asc())
         .fetch(this::mapToMemberResponse);
   }
 
@@ -467,7 +468,11 @@ public class ProjectMemberRepository {
         .join(USER)
         .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
         .where(PROJECT_MEMBER.PROJECT_ID.in(projectIds))
-        .orderBy(PROJECT_MEMBER.PROJECT_ID.asc(), PROJECT_MEMBER.CREATED_AT.asc())
+        // 가입순, 같으면 user_id 순 — findAllByProject 와 같은 순서(WP-1187)
+        .orderBy(
+            PROJECT_MEMBER.PROJECT_ID.asc(),
+            PROJECT_MEMBER.CREATED_AT.asc(),
+            PROJECT_MEMBER.USER_ID.asc())
         .fetch()
         .forEach(r -> direct.computeIfAbsent(r.value1(), k -> new ArrayList<>()).add(r.value2()));
     direct.forEach(
