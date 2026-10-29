@@ -314,7 +314,9 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
           <thead>
             <tr className="text-left text-muted-foreground border-b">
               <th className="py-2 min-w-32">이름</th>
-              <th className="hidden @min-[640px]:table-cell">이메일</th>
+              {/* 이메일 열은 좁은 본문에서 숨기되 칸은 남긴다(폭 0) — display:none 이면 열 자리가 사라져 조직 행의 colSpan={2} 가
+                  역할 열까지 먹고 역할·「제거」가 한 칸씩 밀렸다(WP-1130). */}
+              <th className="w-0 @min-[640px]:w-auto"><span className="hidden @min-[640px]:inline">이메일</span></th>
               <th>역할</th>
               <th className="w-24"></th>
             </tr>
@@ -325,7 +327,8 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
               const open = expandedGroups.has(g.groupId);
               return [
                 <tr key={`g${g.groupId}`} className="row-divider" role="row" data-testid={`member-group-row-${g.groupId}`}>
-                  <td className="py-2 pr-3" colSpan={2}>
+                  {/* max-w-0 — 자동 폭 표에서 긴 조직 이름(nowrap)이 칸의 최소 폭을 키워 표를 화면보다 넓히지 않게, 이름은 남는 폭 안에서 말줄임한다(WP-1130). */}
+                  <td className="max-w-0 py-2 pr-3" colSpan={2}>
                     <span className="flex min-w-0 items-center gap-1.5">
                       <button
                         type="button"
@@ -340,9 +343,14 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
                       <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                         <Building2 className="size-3.5" />
                       </span>
-                      <span className="truncate">{g.name}</span>
-                      <span className="shrink-0 text-muted-foreground">· {g.memberCount}명</span>
-                      <span className="shrink-0 rounded border px-1 text-[11px] leading-4 text-muted-foreground">조직</span>
+                      {/* 좁은 본문은 사람 행의 이메일처럼 인원 수·「조직」을 이름 아래 줄로 — 한 줄에 두면 이름이 한두 글자로 줄었다(WP-1130). */}
+                      <span className="flex min-w-0 flex-1 flex-col @min-[640px]:flex-row @min-[640px]:items-center @min-[640px]:gap-1.5">
+                        <span className="truncate" title={g.name}>{g.name}</span>
+                        <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground @min-[640px]:text-sm">
+                          <span data-testid={`member-group-count-${g.groupId}`}><span className="hidden @min-[640px]:inline">· </span>{g.memberCount}명</span>
+                          <span className="rounded border px-1 text-[11px] leading-4">조직</span>
+                        </span>
+                      </span>
                     </span>
                   </td>
                   <td>
@@ -380,7 +388,7 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
                   {m.name}
                   <div className="text-xs text-muted-foreground @min-[640px]:hidden">{m.username}</div>
                 </td>
-                <td className="hidden pr-3 text-muted-foreground @min-[640px]:table-cell">{m.username}</td>
+                <td className="text-muted-foreground @min-[640px]:pr-3"><span className="hidden @min-[640px]:inline">{m.username}</span></td>
                 <td>
                   {/* 관리 권한이 없거나 개인 프로젝트(역할 고정 — 주인 = 소유자, AI = 멤버, WP-856)면 역할은 글자로만(WP-479).
                       shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}

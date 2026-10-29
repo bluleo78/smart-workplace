@@ -4,7 +4,7 @@ import { createMember } from '../../factories/project.factory'
 import { setupAdminAuth } from '../../fixtures/admin.fixture'
 import { memoryItem, mockAiMemories } from '../../fixtures/ai-memory-mock'
 import { mockApi } from '../../fixtures/api-mock'
-import { expectStacked, settingsSection } from '../../fixtures/layout'
+import { expectEndAligned, expectStacked, settingsSection } from '../../fixtures/layout'
 import { expect, expectBodyNoHorizontalOverflow, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { mockProjectSettings } from '../../fixtures/project-settings-mocks'
 import { installPushManagerStub, mockPushApis } from '../../fixtures/push-mock'
@@ -86,4 +86,38 @@ test('프로젝트 설정: 긴 이름·이메일 멤버도 본문이 가로로 �
   const pop = (await page.getByTestId('project-member-picker-search').boundingBox())!
   expect(pop.x).toBeGreaterThanOrEqual(15)
   expect(pop.x + pop.width).toBeLessThanOrEqual(390 - 15)
+})
+
+// WP-1130: 이름이 긴 조직 행이 말줄임되지 않고 표를 화면보다 넓혀, 모든 행의 「제거」와 조직의 인원 수·역할이 화면 밖으로 밀렸다.
+test('프로젝트 설정: 이름이 긴 조직이 있어도 표가 넓어지지 않고 모든 행의 제거·조직 인원 수·역할이 화면 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockProjectSettings(page, [
+    createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' }),
+    createMember({ userId: 2, username: 'member@example.com', name: '김멤버', role: 'MEMBER' }),
+  ])
+  await mockApi(page, 'GET', '/api/v1/projects/WP/member-groups', [
+    { groupId: 7, name: '디지털전환추진본부 클라우드플랫폼사업부 인프라운영팀', role: 'MEMBER', memberCount: 12 },
+  ])
+  await page.goto('/projects/WP/settings')
+  const row = page.getByTestId('member-group-row-7')
+  await expect(row).toBeVisible()
+  // 멤버 표는 설정 화면 아래쪽 — 세로로 스크롤해 둔 뒤 가로로 화면 안인지 본다(가로 스크롤은 없어야 한다).
+  await row.scrollIntoViewIfNeeded()
+  // 조직 이름은 말줄임되고, 뒤의 「· N명」·「조직」·역할·제거는 화면 안에 다 보인다.
+  const name = row.getByTitle('디지털전환추진본부 클라우드플랫폼사업부 인프라운영팀')
+  const { sw, cw } = await name.evaluate((e) => ({ sw: e.scrollWidth, cw: e.clientWidth }))
+  expect(sw, `조직 이름 scrollWidth ${sw} > clientWidth ${cw} — 말줄임`).toBeGreaterThan(cw)
+  await expect(page.getByTestId('member-group-count-7')).toBeInViewport({ ratio: 1 })
+  // 좁은 본문에서는 인원 수·「조직」이 이름 아래 줄로 내려가 이름이 칸 폭을 쓴다 — 이름이 한두 글자로 줄지 않는다.
+  expect((await name.boundingBox())!.width, '조직 이름 보이는 폭').toBeGreaterThanOrEqual(96)
+  await expect(row.getByText('조직', { exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByTestId('member-group-role-7')).toBeInViewport({ ratio: 1 })
+  for (const tid of ['member-group-remove-7', 'member-remove-2']) {
+    await expect(page.getByTestId(tid)).toBeInViewport({ ratio: 1 })
+  }
+  // 조직 행의 「제거」가 사람 행의 「제거」와 같은 열에 선다 — 숨은 이메일 열을 colSpan 이 세어 한 칸 밀리지 않는다.
+  await expectEndAligned(page.getByTestId('member-group-remove-7'), page.getByTestId('member-remove-2'))
+  const table = page.getByRole('table').first()
+  const { tw, pw } = await table.evaluate((el) => ({ tw: el.scrollWidth, pw: el.parentElement!.clientWidth }))
+  expect(tw, `표 scrollWidth ${tw} vs 부모 ${pw}`).toBeLessThanOrEqual(pw + 1)
+  await expectBodyNoHorizontalOverflow(page)
 })
