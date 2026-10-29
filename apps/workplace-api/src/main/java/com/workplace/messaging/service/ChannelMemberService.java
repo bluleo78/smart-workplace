@@ -94,10 +94,7 @@ public class ChannelMemberService {
       throw new ChannelArchivedException(channelId, "보관된 채널에는 구성원을 초대할 수 없습니다");
     // WP-723: 이 워크스페이스 구성원이지만 정지(또는 전역 비활성)된 대상은 「권한이 없습니다」가 아니라 실제 이유로 거절한다
     // (프로젝트 멤버 추가의 「비활성화된 사용자는 멤버로 추가할 수 없습니다」와 같은 판정).
-    var status = membershipGuard.membershipStatus(targetUserId);
-    if (status.isPresent()
-        && !WorkspaceActive.of(
-            userRepo.findById(targetUserId).map(u -> u.isActive()).orElse(false), status.get())) {
+    if (isInactiveMember(targetUserId)) {
       throw new InactiveMemberException("비활성화된 구성원은 채널에 초대할 수 없습니다");
     }
     // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
@@ -181,6 +178,11 @@ public class ChannelMemberService {
       if (UserKind.isAgent(memberRepo.findUserKind(targetUserId).orElse(null))) {
         throw new AgentCannotOwnChannelException(channelId, targetUserId);
       }
+      // 정지된(또는 전역 비활성) 구성원에게는 넘기지 않는다(WP-1148) — 넘기면 채널을 관리할 사람이 없어진다(정지된 사람은 로그인·관리 불가,
+      // 넘긴 사람은 ADMIN 으로 내려가 되돌리지도 못한다). 웹은 선택지에서 빼지만(WP-1131) 다른 클라이언트에도 API 로 막는다.
+      if (isInactiveMember(targetUserId)) {
+        throw new InactiveMemberException("비활성화된 구성원에게는 채널 소유권을 넘길 수 없습니다");
+      }
       // 소유권 이전 — 호출자가 아니라 "현재 OWNER" 를 강등한다.
       // (시스템 ADMIN 이 비멤버로서 이전을 수행하면 호출자 강등은 0행이 되어 OWNER 가 2명이 되는 버그 방지.)
       memberRepo.demoteOwners(channelId);
@@ -194,6 +196,17 @@ public class ChannelMemberService {
     }
     rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, Set.of());
+  }
+
+  /**
+   * 이 워크스페이스 구성원이지만 정지(또는 전역 비활성)됐는가 — 초대(WP-723)·소유권 이전(WP-1148)이 같은 판정을 쓴다. 이 워크스페이스 멤버십이 없는 사람은
+   * 여기서 false(다른 워크스페이스 사람은 따로 isForeignUser 로 거른다).
+   */
+  private boolean isInactiveMember(long userId) {
+    var status = membershipGuard.membershipStatus(userId);
+    return status.isPresent()
+        && !WorkspaceActive.of(
+            userRepo.findById(userId).map(u -> u.isActive()).orElse(false), status.get());
   }
 
   /** 멤버 부서로 걸리는 사람이면 개인 제외를 남긴다 — 내보내기·나가기 뒤 맞추기가 그 사람을 다시 넣지 않게(WP-1058). */
