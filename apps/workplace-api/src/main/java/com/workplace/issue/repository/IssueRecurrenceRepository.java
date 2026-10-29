@@ -50,6 +50,8 @@ public class IssueRecurrenceRepository {
   /**
    * 반복을 저장한다 — 없으면 만들고 있으면 규칙·시각·실행 AI 를 바꾼다. 저장하면 켜지고(enabled=true) 연속 실패 수는 0 으로 돌아간다(꺼진 반복을 다시
    * 켜는 길). 지금까지의 회차 수·결과 대기 중인 회차 id 는 그대로 둔다 — 실행 중인 회차의 결과 보고를 잃지 않게.
+   *
+   * @param assistantEnrolled 이 반복이 실행 AI 를 담당에 직접 넣었는지 — 서비스가 계산해 넘긴다(WP-1119)
    */
   public void upsert(
       long issueId,
@@ -57,7 +59,8 @@ public class IssueRecurrenceRepository {
       LocalTime runTime,
       long agentUserId,
       long createdBy,
-      Instant nextRunAt) {
+      Instant nextRunAt,
+      boolean assistantEnrolled) {
     OffsetDateTime next = utc(nextRunAt);
     dsl.insertInto(ISSUE_RECURRENCE)
         .set(ISSUE_RECURRENCE.ISSUE_ID, issueId)
@@ -69,6 +72,7 @@ public class IssueRecurrenceRepository {
         .set(ISSUE_RECURRENCE.NEXT_RUN_AT, next)
         .set(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES, 0)
         .set(ISSUE_RECURRENCE.DELETED, false)
+        .set(ISSUE_RECURRENCE.ASSISTANT_ENROLLED, assistantEnrolled)
         .onConflict(ISSUE_RECURRENCE.ISSUE_ID)
         .doUpdate()
         .set(ISSUE_RECURRENCE.RRULE, rrule)
@@ -79,6 +83,7 @@ public class IssueRecurrenceRepository {
         .set(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES, 0)
         // 묘비(실행 중에 지운 반복)를 다시 저장하면 새 반복으로 되살린다.
         .set(ISSUE_RECURRENCE.DELETED, false)
+        .set(ISSUE_RECURRENCE.ASSISTANT_ENROLLED, assistantEnrolled)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .execute();
   }
@@ -249,6 +254,7 @@ public class IssueRecurrenceRepository {
         r.getRunCount(),
         r.getPendingRunId(),
         instant(r.getLastRunAt()),
-        Boolean.TRUE.equals(r.getDeleted()));
+        Boolean.TRUE.equals(r.getDeleted()),
+        Boolean.TRUE.equals(r.getAssistantEnrolled()));
   }
 }
