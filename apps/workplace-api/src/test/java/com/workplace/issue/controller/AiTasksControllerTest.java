@@ -618,27 +618,93 @@ class AiTasksControllerTest extends IntegrationTestBase {
   void 에픽_묶음은_연속이고_가장_급한_행_순위로_자리잡으며_머리가_먼저() throws Exception {
     EpicSeed s = seedEpicGroup();
 
-    // E 묶음 순위 = min(작업중 4, 답변 필요 0, 검토 2) = 0. S2 도 순위 0 이지만 보고 시각이 아니라 묶음 id 역순(WP-690)으로 동률을
-    // 깨 — s2 가 e 보다 나중에 만들어져 id 가 더 크므로 S2 가 먼저. S1(막힘 3)이 맨 뒤.
+    // E 묶음 순위 = min(작업중 4, 답변 필요 0, 검토 2) = 0. 에픽 없는 S1·S2 는 「에픽 없음」 묶음 하나(WP-1211)이고 순위 = min(막힘
+    // 3,
+    // 답변 필요 0) = 0. 동률은 묶음 키 역순(WP-690) — 「에픽 없음」 키는 음수라 같은 순위의 에픽 묶음 뒤. 묶음 안은 급한 순(S2 → S1).
     JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
-    assertThat(titles(body)).containsExactly("S2", "E", "C1", "C2", "S1");
+    assertThat(titles(body)).containsExactly("E", "C1", "C2", "S2", "S1");
     JsonNode items = body.get("items");
-    // 비에픽 단독 행(S2)은 aiGroup 생략.
-    assertThat(items.get(0).has("aiGroup")).isFalse();
-    JsonNode head = items.get(1).get("aiGroup");
+    JsonNode head = items.get(0).get("aiGroup");
     assertThat(head.get("epicNumber").asInt()).isEqualTo(number(s.e()));
     assertThat(head.get("size").asInt()).isEqualTo(3);
     assertThat(head.get("epicChildCount").asInt()).isEqualTo(3); // C1·C2·C3
     assertThat(head.get("epicChildDoneCount").asInt()).isEqualTo(1); // C3
     // 하위 행도 같은 묶음 정보를 싣는다.
-    assertThat(items.get(2).at("/aiGroup/epicNumber").asInt()).isEqualTo(number(s.e()));
-    assertThat(items.get(3).at("/aiGroup/size").asInt()).isEqualTo(3);
-    assertThat(items.get(4).has("aiGroup")).isFalse();
+    assertThat(items.get(1).at("/aiGroup/epicNumber").asInt()).isEqualTo(number(s.e()));
+    assertThat(items.get(2).at("/aiGroup/size").asInt()).isEqualTo(3);
+    // 에픽 없는 행은 「에픽 없음」 묶음 — 에픽 번호 없음, 크기 2, 하위 진행 0.
+    for (int i : List.of(3, 4)) {
+      JsonNode g = items.get(i).get("aiGroup");
+      assertNoEpic(g);
+      assertThat(g.get("size").asInt()).isEqualTo(2);
+      assertThat(g.get("epicChildCount").asInt()).isZero();
+    }
   }
 
   @Test
-  void 부모가_에픽이_아니면_묶지_않고_각자_단독() throws Exception {
-    // 비에픽(TASK) 부모 아래 하위 — 묶음 키가 각자 자기 id 라 개별 정렬, aiGroup 없음.
+  void 하위가_하나뿐인_에픽도_묶음이다() throws Exception {
+    long e = issue("E1", me);
+    setType(e, epicTypeId());
+    long c = issue("C", me);
+    setParent(c, e);
+    assign(c, agent);
+    work(c, agent, "WORKING", REF.minus(Duration.ofMinutes(10)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("C");
+    JsonNode g = body.get("items").get(0).get("aiGroup");
+    assertThat(g.get("epicNumber").asInt()).isEqualTo(number(e));
+    assertThat(g.get("size").asInt()).isEqualTo(1);
+    assertThat(g.get("epicChildCount").asInt()).isEqualTo(1);
+  }
+
+  @Test
+  void 에픽_없음_묶음도_가장_급한_행으로_자리잡아_에픽_묶음보다_앞설_수_있다() throws Exception {
+    // 에픽 E 의 하위 C 는 작업 중(4). 에픽 없는 S(답변 필요 0)·T(작업 중 4) — 「에픽 없음」 묶음 순위 0 이라 E 묶음보다 위, 덜 급한 T 도
+    // 함께 따라온다(맨 아래 고정이 아니다).
+    long e = issue("E", me);
+    setType(e, epicTypeId());
+    long c = issue("C", me);
+    setParent(c, e);
+    long sId = issue("S", me);
+    long t = issue("T", me);
+    for (long id : List.of(c, sId, t)) assign(id, agent);
+    work(c, agent, "WORKING", REF.minus(Duration.ofMinutes(5)));
+    work(sId, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(30)));
+    work(t, agent, "WORKING", REF.minus(Duration.ofMinutes(1)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("S", "T", "C");
+    // 커서로 한 행씩 받아도 「에픽 없음」 묶음이 끊기지 않고 같은 순서다.
+    assertThat(field(walk(1), "title")).containsExactly("S", "T", "C");
+  }
+
+  @Test
+  void 다른_프로젝트_에픽의_하위는_에픽_없음_묶음에_든다() throws Exception {
+    // WP-1038 — 다른 프로젝트 에픽 X 아래 K. 에픽 번호를 같은 프로젝트로 읽으므로 X 로 묶지 않고 K 프로젝트의 「에픽 없음」 묶음에 둔다.
+    long pb = otherProject("P-epic");
+    long x = issueIn(pb, "X", me);
+    setType(x, epicTypeIdIn(pb));
+    long k = issue("K", me);
+    setParent(k, x);
+    long s = issue("S", me);
+    for (long id : List.of(k, s)) assign(id, agent);
+    work(k, agent, "WORKING", REF.minus(Duration.ofMinutes(5)));
+    work(s, agent, "WORKING", REF.minus(Duration.ofMinutes(9)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactlyInAnyOrder("K", "S");
+    body.get("items")
+        .forEach(
+            it -> {
+              assertNoEpic(it.get("aiGroup"));
+              assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(2);
+            });
+  }
+
+  @Test
+  void 부모가_에픽이_아니면_에픽_없음_묶음에_든다() throws Exception {
+    // 비에픽(TASK) 부모 아래 하위 — 부모·하위 모두 프로젝트의 「에픽 없음」 묶음(WP-1211), 묶음 안은 급한 순.
     long p = issue("P", me);
     long k = issue("K", me);
     setParent(k, p);
@@ -649,7 +715,12 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
     JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
     assertThat(titles(body)).containsExactly("K", "P");
-    body.get("items").forEach(it -> assertThat(it.has("aiGroup")).isFalse());
+    body.get("items")
+        .forEach(
+            it -> {
+              assertNoEpic(it.get("aiGroup"));
+              assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(2);
+            });
   }
 
   @Test
@@ -671,7 +742,9 @@ class AiTasksControllerTest extends IntegrationTestBase {
         page.get("items")
             .forEach(
                 it -> {
-                  if (it.has("aiGroup")) assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(3);
+                  // 에픽 묶음 E 는 3행, 「에픽 없음」 묶음(S1·S2)은 2행.
+                  int expected = it.at("/aiGroup/epicNumber").isNumber() ? 3 : 2;
+                  assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(expected);
                 });
         cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
         assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(20);
@@ -684,15 +757,17 @@ class AiTasksControllerTest extends IntegrationTestBase {
   void 빠른_필터를_켜면_걸러진_행끼리만_묶는다() throws Exception {
     EpicSeed s = seedEpicGroup();
 
-    // 답변 필요만: C1(묶음 E 의 유일한 남은 행)과 S2 가 같은 순위라 묶음 id 역순(WP-690)으로 — S2(단독, id 가 더 큼)가 먼저. 에픽 행이
-    // 빠져도 C1 은 에픽 묶음 정보를 싣는다.
+    // 답변 필요만: C1(묶음 E 의 유일한 남은 행)과 S2(「에픽 없음」 묶음) 가 같은 순위라 묶음 키 역순(WP-690) — 「에픽 없음」 키가 음수라
+    // C1 이 먼저. 에픽 행이 빠져도 C1 은 에픽 묶음 정보를, S2 는 걸러진 행만 센 「에픽 없음」 크기 1 을 싣는다.
     JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED&size=100");
-    assertThat(titles(body)).containsExactly("S2", "C1");
-    JsonNode g = body.get("items").get(1).get("aiGroup");
+    assertThat(titles(body)).containsExactly("C1", "S2");
+    JsonNode g = body.get("items").get(0).get("aiGroup");
     assertThat(g.get("epicNumber").asInt()).isEqualTo(number(s.e()));
     assertThat(g.get("size").asInt()).isEqualTo(1);
     assertThat(g.get("epicChildCount").asInt()).isEqualTo(3);
-    assertThat(body.get("items").get(0).has("aiGroup")).isFalse();
+    JsonNode none = body.get("items").get(1).get("aiGroup");
+    assertNoEpic(none);
+    assertThat(none.get("size").asInt()).isEqualTo(1);
   }
 
   @Test
@@ -751,8 +826,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(issueIn(pc, "C-review", other), me, "REVIEW", REF.minus(Duration.ofMinutes(10)));
 
     JsonNode one = getJson("/api/v1/me/ai-tasks?size=100");
-    // A 안에서는 S2(단독, id 가 E 보다 큼)가 에픽 묶음 E 보다 먼저(WP-690, 같은 묶음 순위 0).
-    assertThat(titles(one)).containsExactly("B1", "B2", "S2", "E", "C1", "C2", "S1", "C-review");
+    // A 안에서는 에픽 묶음 E 와 「에픽 없음」 묶음(S2·S1)이 같은 묶음 순위 0 — 묶음 키 역순(WP-690)이라 음수 키인 「에픽 없음」이 뒤.
+    assertThat(titles(one)).containsExactly("B1", "B2", "E", "C1", "C2", "S2", "S1", "C-review");
     List<String> all = field(one.get("items"), "id");
     List<String> keys = field(one.get("items"), "projectKey");
     // 한 번 끝난 프로젝트 키가 다시 나오지 않는다 — 연속 구간 수 = 서로 다른 키 수.
@@ -1034,10 +1109,21 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   /** 이 프로젝트의 EPIC 유형 id(프로젝트 생성 시 시스템 유형으로 시드됨). */
   private long epicTypeId() {
+    return epicTypeIdIn(projectId);
+  }
+
+  /** 지정한 프로젝트의 EPIC 유형 id. */
+  private long epicTypeIdIn(long pid) {
     return dsl.select(ISSUE_TYPE_DEF.ID)
         .from(ISSUE_TYPE_DEF)
-        .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(projectId).and(ISSUE_TYPE_DEF.NAME.eq("EPIC")))
+        .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(pid).and(ISSUE_TYPE_DEF.NAME.eq("EPIC")))
         .fetchOne(ISSUE_TYPE_DEF.ID);
+  }
+
+  /** 「에픽 없음」 묶음(WP-1211) — aiGroup 은 있고 에픽 번호가 없다(null). */
+  private static void assertNoEpic(JsonNode g) {
+    assertThat(g).as("aiGroup").isNotNull();
+    assertThat(g.path("epicNumber").isNull() || g.path("epicNumber").isMissingNode()).isTrue();
   }
 
   /** 유형 직접 갱신 — 규칙 검사 없이 모양만 만든다. */

@@ -1,4 +1,4 @@
-import { Layers } from 'lucide-react'
+import { Layers, Minus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ChildProgress } from '@/components/issues/ChildProgress'
@@ -17,6 +17,17 @@ export function EpicHeadTitle({ epic, tid }: { epic: EpicHead; tid: string }) {
         {epic.title}
       </Link>
       <ChildProgress done={epic.childDoneCount} total={epic.childCount} testId={`${tid}-child-progress`} />
+    </>
+  )
+}
+
+/** 「에픽 없음」 묶음 머리의 제목 조각 「회색 대시 · 에픽 없음 · n건」(WP-1211) — 에픽이 없어 링크·하위 진행 없이 필터 적용 후 건수만. */
+export function NoEpicHeadTitle({ size, tid }: { size: number; tid: string }) {
+  return (
+    <>
+      <Minus className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="min-w-0 truncate font-semibold text-muted-foreground">에픽 없음</span>
+      <span className="shrink-0 text-xs text-muted-foreground" data-testid={`${tid}-count`}>{size}건</span>
     </>
   )
 }

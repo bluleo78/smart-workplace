@@ -10,6 +10,8 @@ const cody: UserSummary = { id: 21, username: 'cody', name: '코디', kind: 'AGE
 const lumi: UserSummary = { id: 22, username: 'lumi', name: '루미', kind: 'AGENT' }
 const epicType = makeEpicType()
 const g = (epicNumber: number, size: number, c: number, d: number): AiTaskGroup => ({ epicNumber, size, epicChildCount: c, epicChildDoneCount: d })
+/** 「에픽 없음」 묶음(WP-1211) — 에픽 번호 없음. 각 프로젝트의 에픽 없는 행은 2건씩. */
+const none: AiTaskGroup = { epicNumber: null, size: 2, epicChildCount: 0, epicChildDoneCount: 0 }
 const parentOf = (number: number, title: string) => ({ number, title, type: epicType, status: 'IN_PROGRESS' as const })
 
 const PROJECTS: Record<string, AiTaskProject> = {
@@ -39,26 +41,32 @@ export function projectRows() {
     }),
     hr12: mk('HR', {
       id: 1012, number: 12, title: '신규 입사자 온보딩 체크리스트 정리', status: 'IN_PROGRESS', assignees: [lumi],
+      aiGroup: none,
       agentWork: [createAgentWork({ worker: lumi, state: 'INPUT_REQUIRED', note: '계정 발급 담당자가 누구인가요?', updatedAt: minutesAgo(22) })],
     }),
     mkt58: mk('MKT', {
       id: 2058, number: 58, title: '10월 뉴스레터 초안 작성', status: 'IN_PROGRESS', assignees: [agentWorker],
+      aiGroup: none,
       agentWork: [createAgentWork({ state: 'REVIEW', tool: 'cursor', note: '초안 3안 작성 완료 — 검토 부탁드려요', progress: 100, updatedAt: minutesAgo(35) })],
     }),
     wp418: mk('WP', {
       id: 418, number: 418, title: '메일 첨부 미리보기 깨짐 수정', status: 'IN_PROGRESS', assignees: [humanWorker],
+      aiGroup: none,
       agentWork: [createAgentWork({ worker: humanWorker, state: 'REVIEW', note: 'PR #88 검토 대기', progress: 100, updatedAt: minutesAgo(48) })],
     }),
     mkt61: mk('MKT', {
       id: 2061, number: 61, title: '경쟁사 가격표 조사', status: 'IN_PROGRESS', assignees: [agentWorker],
+      aiGroup: none,
       agentWork: [createAgentWork({ state: 'WORKING', tool: 'cursor', note: '3개사 중 2개사 정리', stepsDone: 2, stepsTotal: 3, updatedAt: minutesAgo(18) })],
     }),
     wp430: mk('WP', {
       id: 430, number: 430, title: '검색 결과 하이라이트', status: 'IN_PROGRESS', assignees: [lumi],
+      aiGroup: none,
       agentWork: [createAgentWork({ worker: lumi, state: 'WORKING', note: '하이라이트 범위 계산 중', stepsDone: 2, stepsTotal: 5, updatedAt: minutesAgo(33) })],
     }),
     hr15: mk('HR', {
       id: 1015, number: 15, title: '상반기 평가 양식 정리', status: 'IN_PROGRESS', assignees: [humanWorker],
+      aiGroup: none,
       agentWork: [createAgentWork({ worker: humanWorker, state: 'PAUSED', note: '회의 후 이어서 진행', updatedAt: minutesAgo(125) })],
     }),
   }

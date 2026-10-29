@@ -98,9 +98,10 @@ export interface AgentWorkView {
   endedAt?: string;
 }
 
-/** AI 위임 작업 행의 에픽 묶음(WP-375) — /me/ai-tasks 만 싣는다. size 2 이상이면 화면이 묶음 머리를 그린다. */
+/** AI 위임 작업 행의 묶음(WP-375, WP-1211) — /me/ai-tasks 만 싣는다. 모든 행이 묶음 하나에 들고 화면은 묶음마다 머리 줄을 그린다.
+ *  epicNumber 가 null 이면 프로젝트의 「에픽 없음」 묶음(하위 진행은 0). */
 export interface AiTaskGroup {
-  epicNumber: number
+  epicNumber: number | null
   size: number
   epicChildCount: number
   epicChildDoneCount: number

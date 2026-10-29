@@ -1,5 +1,6 @@
 // AI 위임 작업 에픽 묶음(WP-375) 모킹 데이터 — 데스크톱·모바일 spec 과 캡처가 함께 쓴다.
-// 서버가 묶음 단위로 정렬해 준 순서 그대로: WP-412 묶음(에픽 자신 행 + 413·414·415), WP-420 묶음(에픽 행 없음, 421·422), 단독 430·431.
+// 서버가 묶음 단위로 정렬해 준 순서 그대로: WP-412 묶음(에픽 자신 행 + 413·414·415), WP-420 묶음(에픽 행 없음, 421·422),
+// 「에픽 없음」 묶음 430·431(WP-1211 — 431 은 비에픽 부모라 부모 칩을 남긴다).
 import { createAgentWork, humanWorker, minutesAgo } from '../factories/agentWork.factory'
 import { createIssue } from '../factories/issue.factory'
 import { makeEpicType, makeSubtaskType } from '../factories/issueType.factory'
@@ -13,6 +14,8 @@ const epicType = makeEpicType()
 const g = (epicNumber: number, size: number, epicChildCount: number, epicChildDoneCount: number): AiTaskGroup => ({
   epicNumber, size, epicChildCount, epicChildDoneCount,
 })
+/** 「에픽 없음」 묶음(WP-1211) — 에픽 번호 없음. */
+const none = (size: number): AiTaskGroup => ({ epicNumber: null, size, epicChildCount: 0, epicChildDoneCount: 0 })
 const parentOf = (number: number, title: string) => ({ number, title, type: epicType, status: 'IN_PROGRESS' as const })
 
 export const GROUPED_ROWS: IssueResponse[] = [
@@ -48,11 +51,13 @@ export const GROUPED_ROWS: IssueResponse[] = [
   }),
   createIssue({
     id: 430, number: 430, title: '검색 결과 하이라이트', status: 'IN_PROGRESS', assignees: [lumi],
+    aiGroup: none(2),
     agentWork: [createAgentWork({ worker: lumi, state: 'WORKING', note: '하이라이트 범위 계산 중', stepsDone: 2, stepsTotal: 5, updatedAt: minutesAgo(33) })],
   }),
   createIssue({
     id: 431, number: 431, title: '엑셀 내보내기 열 순서', type: makeSubtaskType(), status: 'IN_PROGRESS', assignees: [humanWorker],
     parent: parentOf(377, 'AI 작업 기록'),
+    aiGroup: none(2),
     agentWork: [createAgentWork({ worker: humanWorker, state: 'PAUSED', note: '회의 후 이어서 진행', updatedAt: minutesAgo(125) })],
   }),
 ]
