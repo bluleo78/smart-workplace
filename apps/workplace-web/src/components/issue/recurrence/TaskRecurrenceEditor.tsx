@@ -160,7 +160,10 @@ export function TaskRecurrenceEditor({
             value={form.time}
             disabled={pending}
             onChange={(e) => patch({ time: e.target.value })}
-            className="h-8 w-32"
+            // 폭은 브라우저가 시각 글자에 맞춰 정한다(w-auto) — 고정 128px 는 휴대폰 글자 크기(16px)에서 「01:00 AM」 끝이 시계 아이콘에
+            // 가려졌다(WP-1115).
+            className="h-8 w-auto"
+            data-testid="task-recurrence-time"
           />
           <span className="shrink-0 text-xs text-muted-foreground">한국 시간</span>
         </label>

@@ -141,3 +141,28 @@ test('개인 목록 모바일 행 — 레이블 5개면 칩 1개와 +4, 제목 �
   expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(112);
   await expectNoHorizontalOverflow(page);
 });
+
+test('반복 시트의 「시각」 칸이 시각 글자(오전·오후 포함)를 자르지 않는다(WP-1115)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await stubPersonal(page);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, null);
+  await page.goto(`/projects/${KEY}?task=1`);
+  await page.getByTestId('mobile-prop-recurrence').tap();
+  const sheet = page.getByTestId('issue-recurrence-sheet');
+  await sheet.getByRole('button', { name: '매일' }).tap();
+  const time = sheet.getByTestId('task-recurrence-time');
+  await time.fill('01:00');
+  // 같은 글꼴의 시각 칸을 폭 auto 로 하나 더 만들어 브라우저가 글자에 필요한 폭을 재게 한다 — 실제 칸이 그보다 좁으면 끝이 잘린다.
+  const { actual, needed } = await time.evaluate((el: HTMLInputElement) => {
+    const probe = el.cloneNode() as HTMLInputElement;
+    probe.style.width = 'auto';
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.value = el.value;
+    el.parentElement!.appendChild(probe);
+    const needed = probe.getBoundingClientRect().width;
+    probe.remove();
+    return { actual: el.getBoundingClientRect().width, needed };
+  });
+  expect(actual).toBeGreaterThanOrEqual(needed - 0.5);
+  await expectNoHorizontalOverflow(page);
+});
