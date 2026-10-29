@@ -124,12 +124,19 @@ export default function TokenSettingsPage() {
                     <div className="truncate font-medium" title={t.name}>
                       {t.name}
                     </div>
+                    {/* 요약 줄은 항목 단위로 줄바꿈한다(WP-1126) — 한 줄 말줄임이면 이름 칸(45vw)에서 「사용 …」이 늘 잘려 마지막 사용일을
+                        볼 수 없었다. 만료·사용은 끊기지 않고 통째로 다음 줄로 넘어가며, 앞자리만 칸이 좁을 때 말줄임한다. */}
                     <div
-                      className="truncate text-xs text-muted-foreground md:hidden"
+                      className="flex flex-wrap gap-x-2 text-xs text-muted-foreground md:hidden"
                       data-testid={`token-meta-${t.id}`}
                     >
-                      <span className="font-mono">{t.tokenPrefix}…</span> · 만료 {expiryLabel(t.expiresAt)} · 사용{' '}
-                      {formatDateShort(t.lastUsedAt)}
+                      <span className="min-w-0 max-w-full truncate font-mono">{t.tokenPrefix}…</span>
+                      <span className="whitespace-nowrap" data-testid={`token-meta-${t.id}-expiry`}>
+                        만료 {expiryLabel(t.expiresAt)}
+                      </span>
+                      <span className="whitespace-nowrap" data-testid={`token-meta-${t.id}-used`}>
+                        사용 {formatDateShort(t.lastUsedAt)}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell
