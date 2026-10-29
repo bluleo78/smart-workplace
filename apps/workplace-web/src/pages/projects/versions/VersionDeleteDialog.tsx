@@ -81,14 +81,16 @@ function DeleteForm({
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent data-testid="version-delete-dialog">
-        <DialogHeader>
+        {/* DialogContent 는 grid 라 자식이 줄바꿈 없는 긴 버전 이름 폭까지 늘어나 창을 넘친다(WP-1137) —
+            자식(RadioGroup 도 grid 라 그 안의 칸까지)에 min-w-0 을 주어 창 폭에 묶고, 설명은 줄을 바꾸고 고르는 칸은 말줄임으로 자른다. */}
+        <DialogHeader className="min-w-0">
           <DialogTitle>버전 삭제</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="wrap-anywhere">
             &quot;{version.name}&quot; 버전을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
           </DialogDescription>
         </DialogHeader>
         {hasIssues && (
-          <div className="space-y-2" data-testid="version-delete-impact">
+          <div className="min-w-0 space-y-2" data-testid="version-delete-impact">
             <p className="text-sm text-muted-foreground">
               수정 버전으로 붙은 이슈 {fix}건, 영향 버전으로 붙은 이슈 {affects}건이 있어요.
             </p>
@@ -98,9 +100,9 @@ function DeleteForm({
                 <Label htmlFor="version-delete-move">다른 버전으로 옮기기</Label>
               </div>
               {choice === 'move' && targets.length > 0 && (
-                <div className="pl-6">
+                <div className="min-w-0 pl-6">
                   <Select value={String(moveTo)} onValueChange={(v) => setTarget(Number(v))}>
-                    <SelectTrigger className="w-full" aria-label="옮길 버전" data-testid="version-delete-target">
+                    <SelectTrigger className="w-full min-w-0 *:data-[slot=select-value]:block *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:truncate" aria-label="옮길 버전" data-testid="version-delete-target">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

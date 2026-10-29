@@ -83,12 +83,14 @@ function ReleaseForm({
 
   return (
     <DialogContent data-testid="version-release-dialog">
-      <DialogHeader>
-        <DialogTitle>{version.name} 출시</DialogTitle>
+      {/* DialogContent 는 grid 라 자식이 min-width:auto 로 줄바꿈 없는 긴 버전 이름 폭까지 늘어나 창을 넘친다(WP-1137).
+          자식(RadioGroup 도 grid 라 그 안의 칸까지)에 min-w-0 을 주어 창 폭에 묶고, 제목은 닫기(X) 자리를 비우고 줄을 바꾸며 고르는 칸은 말줄임으로 자른다. */}
+      <DialogHeader className="min-w-0">
+        <DialogTitle className="pr-6 leading-snug wrap-anywhere">{version.name} 출시</DialogTitle>
         <DialogDescription className="sr-only">{version.name} 출시</DialogDescription>
       </DialogHeader>
       <form
-        className="space-y-4"
+        className="min-w-0 space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
@@ -112,9 +114,9 @@ function ReleaseForm({
                 <Label htmlFor="version-release-move">다음 버전으로 옮기기</Label>
               </div>
               {choice === 'move' && targets.length > 0 && (
-                <div className="pl-6">
+                <div className="min-w-0 pl-6">
                   <Select value={targetId == null ? undefined : String(targetId)} onValueChange={(v) => setPickedTarget(Number(v))}>
-                    <SelectTrigger className="w-full" aria-label="옮길 버전" data-testid="version-release-target">
+                    <SelectTrigger className="w-full min-w-0 *:data-[slot=select-value]:block *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:truncate" aria-label="옮길 버전" data-testid="version-release-target">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

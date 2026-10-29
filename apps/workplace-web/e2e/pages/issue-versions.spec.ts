@@ -141,6 +141,80 @@ test.describe('프로젝트 버전 (WP-888)', () => {
     },
   );
 
+  // QA 재현 두 가지(WP-1137) — 모바일은 공백 있는 27자 이름, 데스크톱은 이름 상한(40자)을 꽉 채운 공백 없는 이름에서(제목도 줄을 바꿔야 한다) 넘쳤다.
+  for (const c of [
+    { label: '모바일', viewport: { width: 390, height: 844 }, name: '2026년 4분기 정기 릴리스 모바일·웹 동시 배포' },
+    { label: '데스크톱', viewport: { width: 1280, height: 800 }, name: '2026년4분기정기릴리스모바일·웹동시배포및핫픽스후속점검과회귀확인전용버전' },
+  ]) {
+    test(`${c.label}: 출시·삭제 창은 긴 버전 이름이 있어도 내용을 창 폭 안에 두고 옮길 버전 칸을 말줄임으로 자른다(WP-1137)`, { tag: '@layout' }, async ({
+      authenticatedPage: page,
+    }) => {
+      await page.setViewportSize(c.viewport);
+      await setup(page, {
+        versions: [
+          createVersion({ id: 1, name: '1.0.0' }),
+          createVersion({ id: 2, name: c.name }),
+          createVersion({ id: 3, name: '0.9.0', status: 'ARCHIVED' }),
+        ],
+      });
+      // 끝나지 않은·붙은 이슈가 있어야 「옮길 버전」 칸이 보인다.
+      await page.route(
+        (u) => /\/versions\/\d+\/issue-count$/.test(u.pathname),
+        (route) => route.fulfill(json({ fix: 2, affects: 1, unresolvedFix: 2 })),
+      );
+      await page.goto(`/projects/${KEY}/versions`);
+
+      /** 창 내용이 창보다 넓어지지 않았는지(scrollWidth ≤ clientWidth), 고른 칸의 이름이 말줄임으로 잘렸는지 본다. */
+      const measure = (dialogId: string, triggerId: string) =>
+        page.evaluate(
+          ([d, t]) => {
+            const dialog = document.querySelector(`[data-testid="${d}"]`)!;
+            const value = document.querySelector<HTMLElement>(`[data-testid="${t}"] [data-slot="select-value"]`)!;
+            return {
+              fits: dialog.scrollWidth <= dialog.clientWidth,
+              ellipsis: getComputedStyle(value).textOverflow === 'ellipsis' && value.scrollWidth > value.clientWidth,
+            };
+          },
+          [dialogId, triggerId],
+        );
+
+      // 출시 — 옮길 버전 기본값이 긴 이름(다음 미출시 버전)이다.
+      await page.getByTestId('version-menu-1').click();
+      await page.getByTestId('version-action-release').or(page.getByTestId('mobile-action-release')).click();
+      await expect(page.getByTestId('version-release-target')).toContainText(c.name.slice(0, 6));
+      expect(await measure('version-release-dialog', 'version-release-target')).toEqual({ fits: true, ellipsis: true });
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('version-release-dialog')).toHaveCount(0);
+
+      // 삭제 — 보관한 버전을 지우며 긴 이름 버전으로 옮긴다.
+      await page.getByTestId('version-archived-toggle').click();
+      await page.getByTestId('version-menu-3').click();
+      await page.getByTestId('version-action-delete').or(page.getByTestId('mobile-action-delete')).click();
+      await page.getByRole('radio', { name: '다른 버전으로 옮기기' }).click();
+      await page.getByTestId('version-delete-target').click();
+      await page.getByRole('option', { name: c.name }).click();
+      await expect(page.getByTestId('version-delete-target')).toContainText(c.name.slice(0, 6));
+      expect(await measure('version-delete-dialog', 'version-delete-target')).toEqual({ fits: true, ellipsis: true });
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('version-delete-dialog')).toHaveCount(0);
+
+      // 긴 이름 버전 자신을 출시하면 제목이 줄을 바꾸되 닫기(X) 버튼과 겹치지 않는다.
+      await page.getByTestId('version-menu-2').click();
+      await page.getByTestId('version-action-release').or(page.getByTestId('mobile-action-release')).click();
+      await expect(page.getByTestId('version-release-dialog').getByRole('heading')).toContainText(c.name.slice(0, 6));
+      // 제목 상자는 오른쪽 여백을 포함하므로 글자가 실제로 그려진 끝(Range)과 닫기 버튼 왼쪽을 비교한다.
+      const { textRight, closeLeft } = await page.evaluate(() => {
+        const dialog = document.querySelector('[data-testid="version-release-dialog"]')!;
+        const range = document.createRange();
+        range.selectNodeContents(dialog.querySelector('h2')!);
+        const closeBtn = [...dialog.querySelectorAll('button')].find((b) => b.textContent?.includes('닫기'))!;
+        return { textRight: range.getBoundingClientRect().right, closeLeft: closeBtn.getBoundingClientRect().left };
+      });
+      expect(textRight).toBeLessThanOrEqual(closeLeft);
+      expect((await measure('version-release-dialog', 'version-release-target')).fits).toBe(true);
+    });
+  }
+
   test('버전 상세는 나가는 이슈를 유형별로 묶고 영향 버전 탭을 따로 보인다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     const v1 = createVersion({ id: 1, name: '1.0.0', releaseDate: '2026-12-01', progress: { done: 1, inProgress: 1, todo: 1 }, affectsCount: 1 });
     const v2 = createVersion({ id: 2, name: '1.1.0' });
