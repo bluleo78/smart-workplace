@@ -7,6 +7,10 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -101,6 +105,29 @@ public class ProjectAccessGuard {
    */
   public boolean canReadForViewer(ProjectRow project, Long viewerId) {
     return viewerId == null ? "OPEN".equals(project.type()) : canRead(project, viewerId);
+  }
+
+  /**
+   * {@link #canRead(long, Long)} 를 여러 사람에게 한 번에 — 볼 수 있는 사람 id(WP-1129). 프로젝트 행·ADMIN 여부·실효 멤버를
+   * 사람마다 다시 읽지 않는다. 프로젝트가 없으면(삭제 포함) 아무도 볼 수 없다.
+   */
+  public Set<Long> readableUserIds(long projectId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return Set.of();
+    var project = projectRepository.findById(projectId).orElse(null);
+    if (project == null) return Set.of();
+    if ("OPEN".equals(project.type())) return Set.copyOf(userIds);
+    Set<Long> out =
+        new HashSet<>(
+            memberRepository
+                .findMemberUserIdsByProjects(Map.of(projectId, userIds))
+                .getOrDefault(projectId, Set.of()));
+    // 비PERSONAL 이면 ADMIN 도 볼 수 있다(adminBypass 와 같은 규칙).
+    if (!"PERSONAL".equals(project.type())) {
+      Set<Long> rest = new HashSet<>(userIds);
+      rest.removeAll(out);
+      out.addAll(permissionChecker.usersWithRole(rest, "ADMIN"));
+    }
+    return out;
   }
 
   /** {@link #canRead(long, Long)} 의 행 버전 — 이미 프로젝트 행을 가진 호출부가 같은 행을 다시 읽지 않게 한다. */

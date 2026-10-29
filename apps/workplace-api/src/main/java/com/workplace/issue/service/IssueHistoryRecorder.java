@@ -244,6 +244,21 @@ public class IssueHistoryRecorder {
   }
 
   /**
+   * 여러 (이슈, 빠진 사람) 의 담당자 해제 이력을 한 문장으로 남긴다(WP-1129) — 쌍마다 {@link #recordAssigneesChanged} 로 남기던 것과
+   * 같은 행·모양(이슈마다 사람마다 한 줄, removed 에 그 사람)이다. 부서가 빠져 여러 명이 나갈 때 이력 쓰기가 사람·이슈 수만큼 돌지 않게.
+   */
+  public void recordAssigneesRemoved(Long actorId, List<Map.Entry<Long, UserSummary>> removals) {
+    if (removals.isEmpty()) return;
+    historyRepository.insertRows(
+        removals.stream().map(Map.Entry::getKey).toList(),
+        removals.stream()
+            .map(e -> assigneesPayload(List.of(), List.of(e.getValue()), Map.of()))
+            .toList(),
+        actorId,
+        "ASSIGNEES_CHANGED");
+  }
+
+  /**
    * 구성요소 담당자 자동 지정 한 건을 기록한다(WP-933 §4.3). 담당자 변경과 같은 {@code ASSIGNEES_CHANGED} 유형·모양에 이유를 더한다 —
    * {@code {added:[UserSummary], removed:[], reason:"COMPONENT_DEFAULT", componentId,
    * componentName}}. 화면은 이유가 있으면 「구성요소 X 담당자로 자동 지정」으로 그린다. 구성요소 이름은 당시 값을 남긴다.

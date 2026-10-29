@@ -17,6 +17,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -83,44 +84,56 @@ public class ProjectMemberDeparture {
   }
 
   /**
-   * 이미 실효 멤버가 아니라고 판정된 사람(gone)을 정리한다 — 사람마다 담당 해제·이력·AI 작업 취소를 하고, 알림은 빠진 사람 전원을 담아 <b>한 번</b> 낸다
-   * (부서 하나가 빠져 수백 명이 나가도 SSE·같은 트랜잭션 리스너가 한 번만 돈다 — 리스너와 웹 규칙은 ids 목록을 그대로 다룬다). 빠진 사람은 커밋 뒤 명단에서
-   * 빠지므로 추가 수신자로도 넘긴다.
+   * 이미 실효 멤버가 아니라고 판정된 사람(gone)을 정리한다 — 빠진 사람 전원의 담당 해제·이력·AI 작업 취소를 한꺼번에 하고(사람 수만큼 조회를 돌리지 않게,
+   * WP-1129), 알림은 빠진 사람 전원을 담아 <b>한 번</b> 낸다 (부서 하나가 빠져 수백 명이 나가도 SSE·같은 트랜잭션 리스너가 한 번만 돈다 — 리스너와 웹
+   * 규칙은 ids 목록을 그대로 다룬다). 빠진 사람은 커밋 뒤 명단에서 빠지므로 추가 수신자로도 넘긴다.
    */
   private void cleanup(ProjectRow project, List<Long> gone, Long actorId) {
     if (gone.isEmpty()) {
       return;
     }
     Long actor = actorId != null ? actorId : currentUserId();
-    for (Long userId : gone) {
-      unassign(project, userId, actor);
-    }
+    unassignAll(project, gone, actor);
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_PROJECT_MEMBER, OP_DELETED, project, gone, actor, gone);
   }
 
-  /**
-   * 담당 해제 + 이력 + AI 작업 취소 — 멤버 제거의 담당자 정리 본체. 실효 멤버 여부는 호출자가 판정했다. 담당자가 빠진 이슈별 issue 이벤트는 내지 않는다 —
-   * 웹의 project-member 규칙이 이슈 대상을 무효화한다.
-   */
+  /** 한 사람의 담당 해제 + 이력 + AI 작업 취소 — 직접 멤버 행 제거가 부른다({@link #unassignAll}). */
   @Transactional(propagation = Propagation.MANDATORY)
   public void unassign(ProjectRow project, Long userId, Long actorId) {
-    List<Long> unassignedIssueIds =
-        issueAssigneeRepository.removeByProjectAndUser(project.id(), userId);
-    // 담당자가 빠진 이슈마다 이력을 남긴다(WP-488) — 조용히 지우면 누가 왜 담당자를 뺐는지 이슈에서 알 수 없다.
-    if (!unassignedIssueIds.isEmpty() && actorId != null) {
-      UserSummary summary =
-          userRepository.findById(userId).map(UserResponse::toSummary).orElse(null);
-      if (summary != null) {
-        for (Long issueId : unassignedIssueIds) {
-          historyRecorder.recordAssigneesChanged(actorId, issueId, List.of(), List.of(summary));
-        }
-      }
+    unassignAll(project, List.of(userId), actorId);
+  }
+
+  /**
+   * 담당 해제 + 이력 + AI 작업 취소 — 멤버 제거의 담당자 정리 본체. 실효 멤버 여부는 호출자가 판정했다. 담당자가 빠진 이슈별 issue 이벤트는 내지 않는다 —
+   * 웹의 project-member 규칙이 이슈 대상을 무효화한다. 사람이 여럿이어도 단계마다 한 문장으로 한다(WP-1129) — 300명 부서가 빠져도 조회 수가 늘지
+   * 않게.
+   */
+  private void unassignAll(ProjectRow project, List<Long> userIds, Long actorId) {
+    List<IssueAssigneeRepository.Removed> removed =
+        issueAssigneeRepository.removeByProjectAndUsers(project.id(), userIds);
+    // 담당자가 빠진 이슈마다(빠진 사람마다) 이력을 남긴다(WP-488) — 조용히 지우면 누가 왜 담당자를 뺐는지 이슈에서 알 수 없다.
+    if (!removed.isEmpty() && actorId != null) {
+      Map<Long, UserSummary> summaries =
+          userRepository
+              .findByIds(
+                  removed.stream().map(IssueAssigneeRepository.Removed::userId).distinct().toList())
+              .stream()
+              .collect(Collectors.toMap(UserResponse::id, UserResponse::toSummary));
+      historyRecorder.recordAssigneesRemoved(
+          actorId,
+          removed.stream()
+              .filter(r -> summaries.containsKey(r.userId()))
+              .map(r -> Map.entry(r.issueId(), summaries.get(r.userId())))
+              .toList());
     }
     // 그 AI 가 돌리던 반복도 거둔다(WP-1114) — 회차 시각까지 상세에 「다음 실행 …」이 남지 않게. 결과 보고와 같은 순서(반복 → 작업 기록)로 잠근다.
-    recurrenceRepository.retire(unassignedIssueIds, List.of(userId));
+    // 빠진 (이슈, 사람) 쌍만 — 이슈·사람 목록을 따로 넘기면 곱집합이 되어 남의 반복까지 거둔다.
+    recurrenceRepository.retirePairs(
+        removed.stream().map(r -> Map.entry(r.issueId(), r.userId())).toList());
     // 담당 매핑이 사라진 이슈에 진행 중 AI 작업이 고아로 남지 않게 함께 끝낸다(WP-377).
-    agentWorkRepository.endActiveForWorkerInProject(project.id(), userId, AgentWorkState.CANCELED);
+    agentWorkRepository.endActiveForWorkersInProject(
+        project.id(), userIds, AgentWorkState.CANCELED);
   }
 
   /** 요청 사용자(인증 주체 id) — 조직도 변경·정지처럼 다른 모듈에서 온 정리의 행위자. 요청 밖이면 null. */

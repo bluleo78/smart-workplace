@@ -8,6 +8,8 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.WorkspaceActive;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,20 +113,28 @@ public class IssueAssigneeRepository {
         .execute();
   }
 
+  /** 담당에서 빠진 (이슈, 사람) 한 쌍. */
+  public record Removed(long issueId, long userId) {}
+
   /**
-   * 프로젝트 멤버 제거(#714) 시 호출 — 해당 프로젝트의 이슈들 중 대상 사용자가 담당자로 걸린 매핑을 모두 제거한다. AssigneePolicy 불변식("담당자는 항상
-   * 프로젝트 멤버")을 멤버십 철회 시점에도 유지하기 위함 — 정리하지 않으면 제거된 사용자가 담당자로 남아 자신은 접근 불가한 유령 담당자 상태가 된다.
+   * 프로젝트 멤버에서 빠진 사람들을 그 프로젝트 이슈의 담당자에서 한 문장으로 뺀다(#714) — 「담당자는 늘 프로젝트 멤버」를 지킨다. 부서가 빠져 여러 명이 한꺼번에
+   * 나가도 사람 수만큼 지우지 않는다(WP-1129).
    *
-   * @return 담당자에서 빠진 이슈 id — 호출측이 이슈 이력에 「담당자 해제」를 남긴다(WP-488)
+   * @return 빠진 (이슈, 사람) 쌍 — 사람 id·이슈 id 순(이력을 늘 같은 순서로 남기게)
    */
-  public List<Long> removeByProjectAndUser(Long projectId, Long userId) {
-    return dsl.deleteFrom(ISSUE_ASSIGNEE)
+  public List<Removed> removeByProjectAndUsers(Long projectId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return List.of();
+    return dsl
+        .deleteFrom(ISSUE_ASSIGNEE)
         .where(
-            ISSUE_ASSIGNEE.USER_ID.eq(userId),
+            ISSUE_ASSIGNEE.USER_ID.in(userIds),
             ISSUE_ASSIGNEE.ISSUE_ID.in(
                 dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId))))
-        .returning(ISSUE_ASSIGNEE.ISSUE_ID)
-        .fetch(ISSUE_ASSIGNEE.ISSUE_ID);
+        .returning(ISSUE_ASSIGNEE.ISSUE_ID, ISSUE_ASSIGNEE.USER_ID)
+        .fetch(r -> new Removed(r.getIssueId(), r.getUserId()))
+        .stream()
+        .sorted(Comparator.comparingLong(Removed::userId).thenComparingLong(Removed::issueId))
+        .toList();
   }
 
   /** 프로젝트에서 이 사용자가 담당 중인 (삭제되지 않은) 이슈 수 — 멤버 제거 확인창의 영향 안내(WP-488). */

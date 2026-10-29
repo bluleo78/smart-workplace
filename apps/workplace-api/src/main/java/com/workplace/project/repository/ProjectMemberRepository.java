@@ -1,6 +1,7 @@
 package com.workplace.project.repository;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER_GROUP;
 import static com.workplace.jooq.Tables.USER;
@@ -8,6 +9,7 @@ import static org.jooq.impl.DSL.count;
 
 import com.workplace.global.share.ProjectMembership;
 import com.workplace.global.tenant.WorkspaceActive;
+import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.project.dto.MemberResponse;
 import com.workplace.project.dto.MemberRow;
 import java.time.OffsetDateTime;
@@ -25,6 +27,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.Record2;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -402,44 +405,120 @@ public class ProjectMemberRepository {
   }
 
   /**
-   * 여러 프로젝트의 <b>실효</b> 멤버 이름을 한 번에 모은다(N+1 회피) — 직접 멤버(created_at asc) 뒤에 멤버로 둔 조직도 부서로만 들어온
+   * 사람(userId)이 여러 프로젝트에서 갖는 실효 역할을 한 번에 구한다(WP-1129) — 프로젝트 목록이 행마다 {@link #find} 를 불러 부서 상위 재귀를
+   * 프로젝트 수만큼 돌리던 것을 한 쿼리로 묶는다. 직접 역할이 있으면 그것, 없고 부서로 걸리면 MEMBER({@link
+   * ProjectMembership#effectiveRole} 과 같은 규칙). 부서 쪽은 {@link
+   * ProjectMembership#projectIdsViaDepartment} 를 LEFT JOIN 해 한 번만 계산한다.
+   *
+   * @return projectId → 역할(멤버가 아닌 프로젝트는 없다)
+   */
+  public Map<Long, String> findRolesByProjects(Collection<Long> projectIds, Long userId) {
+    Map<Long, String> out = new HashMap<>();
+    if (projectIds.isEmpty() || userId == null) return out;
+    var viaDept = ProjectMembership.projectIdsViaDepartment(DSL.val(userId)).asTable("pmr_rv");
+    Field<Long> viaDeptProject = viaDept.field(0, Long.class);
+    Field<String> role =
+        DSL.coalesce(
+            PROJECT_MEMBER.ROLE,
+            DSL.when(viaDeptProject.isNotNull(), DSL.inline(ProjectMembership.GROUP_ROLE)));
+    dsl.select(PROJECT.ID, role)
+        .from(PROJECT)
+        .leftJoin(PROJECT_MEMBER)
+        .on(PROJECT_MEMBER.PROJECT_ID.eq(PROJECT.ID).and(PROJECT_MEMBER.USER_ID.eq(userId)))
+        .leftJoin(viaDept)
+        .on(viaDeptProject.eq(PROJECT.ID))
+        .where(PROJECT.ID.in(projectIds))
+        .fetch()
+        .forEach(
+            r -> {
+              if (r.value2() != null) out.put(r.value1(), r.value2());
+            });
+    return out;
+  }
+
+  /** 프로젝트 카드의 멤버 미리보기 — 실효 멤버 수와 앞에서부터 보일 이름(최대 {@code limit}명). */
+  public record MemberPreview(int count, List<String> topNames) {}
+
+  /**
+   * 여러 프로젝트의 <b>실효</b> 멤버 수와 앞 이름을 한 번에 모은다(N+1 회피) — 직접 멤버(created_at asc) 뒤에 멤버로 둔 조직도 부서로만 들어온
    * 사람(이름순, WP-1057). 목록 카드의 「멤버 N명」과 이름 미리보기가 접근 판정과 같은 명단을 보이게.
    *
-   * @return projectId → 멤버 이름 리스트
+   * <p>부서 쪽은 부서 행이 있는 프로젝트만 보고, 사람마다 이름을 다 받지 않고 프로젝트별 인원 수와 앞 {@code limit}명만 받는다(WP-1129) — 큰 부서를
+   * 둔 프로젝트가 목록에 있어도 받는 행이 부서 크기에 비례하지 않게. 직접·부서 양쪽에 걸린 사람은 직접 쪽으로만 센다.
+   *
+   * @return projectId → 멤버 미리보기(멤버가 없는 프로젝트는 없다)
    */
-  public Map<Long, List<String>> findMemberNamesByProjects(List<Long> projectIds) {
-    Map<Long, List<String>> result = new LinkedHashMap<>();
+  public Map<Long, MemberPreview> findMemberPreviewsByProjects(List<Long> projectIds, int limit) {
+    Map<Long, MemberPreview> result = new LinkedHashMap<>();
     if (projectIds.isEmpty()) return result;
-    Map<Long, Set<Long>> seen = new HashMap<>();
-    dsl.select(PROJECT_MEMBER.PROJECT_ID, PROJECT_MEMBER.USER_ID, USER.NAME)
+    Map<Long, List<String>> direct = new LinkedHashMap<>();
+    dsl.select(PROJECT_MEMBER.PROJECT_ID, USER.NAME)
         .from(PROJECT_MEMBER)
         .join(USER)
         .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
         .where(PROJECT_MEMBER.PROJECT_ID.in(projectIds))
         .orderBy(PROJECT_MEMBER.PROJECT_ID.asc(), PROJECT_MEMBER.CREATED_AT.asc())
         .fetch()
-        .forEach(r -> add(result, seen, r.value1(), r.value2(), r.value3()));
-    var dept = departmentAudience("pmr_nm", projectIds, null);
+        .forEach(r -> direct.computeIfAbsent(r.value1(), k -> new ArrayList<>()).add(r.value2()));
+    direct.forEach(
+        (pid, names) ->
+            result.put(pid, new MemberPreview(names.size(), names.stream().limit(limit).toList())));
+    // 부서 행이 있는 프로젝트만 부서 쪽을 본다 — 부서를 쓰지 않는 목록이면 부서 트리 조회를 아예 하지 않는다.
+    List<Long> withGroups =
+        dsl.selectDistinct(PROJECT_MEMBER_GROUP.PROJECT_ID)
+            .from(PROJECT_MEMBER_GROUP)
+            .where(PROJECT_MEMBER_GROUP.PROJECT_ID.in(projectIds))
+            .fetch(PROJECT_MEMBER_GROUP.PROJECT_ID);
+    if (withGroups.isEmpty()) return result;
+    var dept = departmentAudience("pmr_nm", withGroups, null);
     var g = dept.group();
-    dsl.selectDistinct(g.PROJECT_ID, USER.ID, USER.NAME)
-        .from(dept.table())
-        .join(USER)
-        .on(USER.ID.eq(dept.userId()))
-        .orderBy(g.PROJECT_ID.asc(), USER.NAME.asc(), USER.ID.asc())
+    ProjectMember dm = PROJECT_MEMBER.as("pmr_nm_m");
+    // 부서로만 들어온 사람(직접 멤버 제외, 여러 부서로 걸려도 한 번) → 프로젝트별 이름순 번호·인원 수 → 앞 limit 명만.
+    Table<?> people =
+        dsl.selectDistinct(g.PROJECT_ID.as("pid"), USER.ID.as("uid"), USER.NAME.as("name"))
+            .from(dept.table())
+            .join(USER)
+            .on(USER.ID.eq(dept.userId()))
+            .whereNotExists(
+                DSL.selectOne()
+                    .from(dm)
+                    .where(dm.PROJECT_ID.eq(g.PROJECT_ID))
+                    .and(dm.USER_ID.eq(USER.ID)))
+            .asTable("pmr_nm_p");
+    Field<Long> pid = people.field("pid", Long.class);
+    Field<Long> uid = people.field("uid", Long.class);
+    Field<String> name = people.field("name", String.class);
+    Table<?> ranked =
+        dsl.select(
+                pid,
+                name,
+                DSL.rowNumber().over(DSL.partitionBy(pid).orderBy(name.asc(), uid.asc())).as("rn"),
+                DSL.count().over(DSL.partitionBy(pid)).as("cnt"))
+            .from(people)
+            .asTable("pmr_nm_r");
+    Field<Long> rPid = ranked.field("pid", Long.class);
+    Field<String> rName = ranked.field("name", String.class);
+    Field<Integer> rn = ranked.field("rn", Integer.class);
+    Field<Integer> cnt = ranked.field("cnt", Integer.class);
+    Map<Long, Integer> deptCount = new HashMap<>();
+    Map<Long, List<String>> deptNames = new HashMap<>();
+    dsl.select(rPid, rName, cnt)
+        .from(ranked)
+        .where(rn.le(limit))
+        .orderBy(rPid.asc(), rn.asc())
         .fetch()
-        .forEach(r -> add(result, seen, r.value1(), r.value2(), r.value3()));
+        .forEach(
+            r -> {
+              deptCount.put(r.value1(), r.value3());
+              deptNames.computeIfAbsent(r.value1(), k -> new ArrayList<>()).add(r.value2());
+            });
+    deptCount.forEach(
+        (p, n) -> {
+          MemberPreview d = result.get(p);
+          List<String> top = new ArrayList<>(d == null ? List.of() : d.topNames());
+          deptNames.get(p).stream().limit(Math.max(0, limit - top.size())).forEach(top::add);
+          result.put(p, new MemberPreview((d == null ? 0 : d.count()) + n, List.copyOf(top)));
+        });
     return result;
-  }
-
-  /** 이름 모으기 — 직접·부서 양쪽에 걸린 사람은 한 번만 센다. */
-  private static void add(
-      Map<Long, List<String>> result,
-      Map<Long, Set<Long>> seen,
-      Long projectId,
-      Long userId,
-      String name) {
-    if (seen.computeIfAbsent(projectId, k -> new HashSet<>()).add(userId)) {
-      result.computeIfAbsent(projectId, k -> new ArrayList<>()).add(name);
-    }
   }
 }

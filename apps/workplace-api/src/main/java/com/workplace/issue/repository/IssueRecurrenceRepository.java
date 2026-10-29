@@ -14,7 +14,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -142,8 +144,36 @@ public class IssueRecurrenceRepository {
    */
   public int retire(Collection<Long> issueIds, Collection<Long> agentIds) {
     if (issueIds.isEmpty() || (agentIds != null && agentIds.isEmpty())) return 0;
-    var scope = ISSUE_RECURRENCE.ISSUE_ID.in(issueIds).and(ISSUE_RECURRENCE.DELETED.isFalse());
+    Condition scope = ISSUE_RECURRENCE.ISSUE_ID.in(issueIds);
     if (agentIds != null) scope = scope.and(ISSUE_RECURRENCE.AGENT_USER_ID.in(agentIds));
+    return retireWhere(scope);
+  }
+
+  /**
+   * (이슈, AI) 쌍마다 그 AI 가 그 이슈에서 돌리던 반복만 거둔다 — 여러 사람이 담당에서 한꺼번에 빠질 때(WP-1129). {@link #retire} 에
+   * 이슈·AI 목록을 따로 넘기면 곱집합이 되어, 빠지지 않은 이슈의 다른 AI 반복까지 거둘 수 있다.
+   *
+   * @param pairs 이슈 id → AI(사람) id 쌍
+   */
+  public int retirePairs(Collection<Map.Entry<Long, Long>> pairs) {
+    if (pairs.isEmpty()) return 0;
+    // 쌍을 배열 둘로 넘긴다 — 쌍마다 바인드 변수를 두면 부서가 빠져 쌍이 수만 개일 때 PostgreSQL 바인드 상한을 넘는다.
+    var rows =
+        DSL.table(
+            "unnest({0}::bigint[], {1}::bigint[]) as rp(issue_id, user_id)",
+            DSL.val(pairs.stream().map(Map.Entry::getKey).toArray(Long[]::new)),
+            DSL.val(pairs.stream().map(Map.Entry::getValue).toArray(Long[]::new)));
+    return retireWhere(
+        DSL.row(ISSUE_RECURRENCE.ISSUE_ID, ISSUE_RECURRENCE.AGENT_USER_ID)
+            .in(
+                dsl.select(
+                        DSL.field("rp.issue_id", Long.class), DSL.field("rp.user_id", Long.class))
+                    .from(rows)));
+  }
+
+  /** 조건에 맞는 살아 있는 반복 행을 잠그고 하나씩 거둔다({@link #retireLocked}). */
+  private int retireWhere(Condition where) {
+    var scope = where.and(ISSUE_RECURRENCE.DELETED.isFalse());
     // 먼저 행을 잠그고 행마다 판정한다 — 지우기·묘비를 조건부 문장 둘로 나누면 그 사이 결과 보고(findForUpdate → 결과 대기 비움)가 끼어
     // 어느 쪽에도 걸리지 않고 살아남을 수 있다. 이슈 id 순으로 잠가 여러 이슈를 한꺼번에 거둘 때의 교착을 피한다.
     var rows =

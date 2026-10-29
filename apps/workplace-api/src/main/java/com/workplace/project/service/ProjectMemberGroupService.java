@@ -101,7 +101,12 @@ public class ProjectMemberGroupService {
   @Transactional
   public void remove(Long callerId, String projectKey, long groupId) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    // 없는 부서 행(두 번 누르기 등)이면 부서 구성원 전원을 모으는 무거운 조회 전에 404 로 끝낸다(WP-1129).
+    if (!groups.exists(project.id(), groupId)) {
+      throw new ProjectNotFoundException("멤버 부서 없음");
+    }
     Set<Long> before = memberRepository.findDepartmentUserIds(project.id());
+    // 확인과 지우기 사이에 다른 요청이 먼저 지웠으면 그대로 404.
     if (groups.delete(project.id(), groupId) == 0) {
       throw new ProjectNotFoundException("멤버 부서 없음");
     }

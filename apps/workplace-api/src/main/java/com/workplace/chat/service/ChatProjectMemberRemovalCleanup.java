@@ -27,9 +27,10 @@ public class ChatProjectMemberRemovalCleanup {
   public void onResourceChanged(ResourceChangedEvent e) {
     if (ProjectChangeNotifier.RESOURCE_PROJECT_MEMBER.equals(e.resource())
         && ResourceChangedEvent.OP_DELETED.equals(e.op())) {
-      e.ids().stream()
-          .filter(userId -> !lookup.isProjectMember(e.scopeId(), userId))
-          .forEach(userId -> memberRepo.deleteFromProjectThreads(e.scopeId(), userId));
+      // 멤버 판정·지우기를 사람마다 하지 않고 한 번씩(WP-1129) — 부서가 빠져 수백 명이 나가도 조회 수가 늘지 않게.
+      var still = lookup.projectMemberIds(e.scopeId(), e.ids());
+      memberRepo.deleteFromProjectThreads(
+          e.scopeId(), e.ids().stream().filter(id -> !still.contains(id)).toList());
     }
   }
 }
