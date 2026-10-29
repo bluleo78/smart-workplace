@@ -10,7 +10,15 @@ import { appVersionDefine, versionJsonPlugin } from '../../scripts/vite-app-vers
 
 // 개발 프록시 대상(workplace-api).
 const API_HOST = 'localhost'
-const API_PORT = 6060
+
+// 개발 포트 환경변수 — 숫자만 받고, 비었거나 숫자가 아니면 기본값(workplace-web vite.config 의 devPort 와 같은 규칙).
+function devPort(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim() ?? ''
+  return /^\d+$/.test(raw) ? Number(raw) : fallback
+}
+
+// DEV_API_PORT: 매뉴얼 촬영용 격리 스택(API 6166)처럼 다른 포트의 API 에 붙일 때만 준다 — 없으면 기존대로 6060.
+const API_PORT = devPort('DEV_API_PORT', 6060)
 const API_TARGET = `http://${API_HOST}:${API_PORT}`
 
 // 콜드스타트 재시도 설정.

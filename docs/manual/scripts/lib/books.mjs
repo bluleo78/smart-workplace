@@ -7,6 +7,9 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 
 // dir·appFile·appSrc 는 저장소 루트 기준 상대 경로.
 // parts 는 장(part) 번호 → 부 제목. 비어 있으면 그 책은 부 구분이 없고 프론트매터 part 도 요구하지 않는다.
+// capture 는 촬영(capture.mjs) 설정: apiBase 는 장면 api 헬퍼가 로그인·요청하는 API 경로 접두사(사용자 앱은 /api/v1,
+// 운영자 콘솔은 /api/platform — 토큰 평면이 달라 서로의 토큰으로는 요청할 수 없다), usernameSelector 는 로그인 화면의 아이디 칸을
+// 찾는 CSS 선택자. 두 앱의 로그인 화면 마크업이 달라 책마다 둔다.
 export const BOOKS = {
   user: {
     key: 'user',
@@ -17,6 +20,7 @@ export const BOOKS = {
     appFile: 'apps/workplace-web/src/App.tsx',
     appSrc: 'apps/workplace-web/src',
     pdfName: 'genia-works-user-manual.pdf',
+    capture: { apiBase: '/api/v1', usernameSelector: 'input[placeholder="아이디를 입력하세요"]' },
   },
   operator: {
     key: 'operator',
@@ -27,6 +31,15 @@ export const BOOKS = {
     appFile: 'apps/workplace-admin/src/App.tsx',
     appSrc: 'apps/workplace-admin/src',
     pdfName: 'genia-works-operator-manual.pdf',
+    // 운영자 로그인 화면(LoginPage.tsx)의 아이디 칸은 placeholder 가 없어 data-testid 로 찾는다.
+    // 뷰포트를 900px 폭으로 좁힌다: 콘솔은 왼쪽 메뉴(200px) 옆 본문이 화면 폭을 다 쓰는 표·카드라, 1440 폭에서는
+    // 제목과 오른쪽 단추(편집·정지·멤버 추가·삭제)가 원본 2400px 가까이 벌어져 자르기 가독성 기준(1400px)을 지킬 수 없다.
+    // 900 폭이면 본문 652px = 원본 1304px 에 자르기 여백을 더해 1400px 안에 든다.
+    capture: {
+      apiBase: '/api/platform',
+      usernameSelector: '[data-testid="login-username"]',
+      viewport: { width: 900, height: 810 },
+    },
   },
 };
 

@@ -24,8 +24,15 @@ public class TenantPurgeJob {
   private final PlatformTenantRepository tenantRepository;
   private final TenantPurgeService purgeService;
 
-  /** PURGING 상태 테넌트를 id 순으로 하나씩 영구 삭제한다. */
-  @Scheduled(fixedDelayString = "${workplace.tenant-purge.delay-ms:30000}")
+  /**
+   * PURGING 상태 테넌트를 id 순으로 하나씩 영구 삭제한다.
+   *
+   * <p>첫 실행 지연(initial-delay-ms)은 기본 0 — 지정하지 않으면 기동 직후 한 번 돌고 이후 delay-ms 마다 도는 기존 동작 그대로다. 매뉴얼 촬영
+   * 스택처럼 「영구 삭제 중」 상태를 한동안 남겨야 할 때만 두 값을 함께 크게 준다(WP-1195).
+   */
+  @Scheduled(
+      fixedDelayString = "${workplace.tenant-purge.delay-ms:30000}",
+      initialDelayString = "${workplace.tenant-purge.initial-delay-ms:0}")
   @SchedulerLock(name = "TenantPurgeJob.run", lockAtMostFor = "PT30M")
   public void run() {
     for (Long id : tenantRepository.findPurgingTenantIds()) {

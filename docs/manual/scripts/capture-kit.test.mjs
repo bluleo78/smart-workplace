@@ -201,3 +201,117 @@ test('createShotRecorder save refuses to overwrite a corrupt boxes.json', async 
     assert.equal(await readFile(path.join(dir, 'boxes.json'), 'utf8'), '{ "old": ');
   });
 });
+
+// 책별 촬영 설정: 운영자 콘솔은 플랫폼 API·data-testid 아이디 칸, 사용자 앱은 /api/v1·placeholder 아이디 칸(WP-1195).
+test('BOOKS capture config picks api base and login field per book', async () => {
+  const { BOOKS } = await import('./lib/books.mjs');
+  assert.equal(BOOKS.user.capture.apiBase, '/api/v1');
+  assert.equal(BOOKS.operator.capture.apiBase, '/api/platform');
+  assert.equal(BOOKS.user.capture.usernameSelector, 'input[placeholder="아이디를 입력하세요"]');
+  assert.equal(BOOKS.operator.capture.usernameSelector, '[data-testid="login-username"]');
+});
+
+// 책 설정 뷰포트(운영자 900x810): shoot 전에 mark 한 상자도 그 그림 크기(원본 1800x1620)로 잘린다(WP-1195).
+test('createShotRecorder clamps marks to the book viewport', async () => {
+  await withTempDir(async (dir) => {
+    const rec = createShotRecorder({ book: 'operator', dir, viewport: { width: 900, height: 810 } });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await rec.begin();
+      await rec.mark('s', 'wide', fakeLocator({ x: 800, y: 10, width: 300, height: 20 }));
+      await rec.shoot({ ...fakePage(), viewportSize: () => ({ width: 900, height: 810 }) }, 's');
+      await rec.commit();
+      await rec.save();
+    } finally {
+      console.log = log;
+    }
+    const saved = JSON.parse(await readFile(path.join(dir, 'boxes.json'), 'utf8'));
+    assert.deepEqual(saved.s, { w: 1800, h: 1620, boxes: { wide: { x: 1600, y: 20, w: 200, h: 40 } } });
+  });
+});
+
+// 사용자 책은 뷰포트를 지정하지 않는다 — 기록기·컨텍스트가 1440x810 으로 돌아가야 한다(WP-1195).
+test('user book has no viewport and falls back to 1440x810', async () => {
+  const { BOOKS } = await import('./lib/books.mjs');
+  const { newShotContext } = await import('./lib/capture-kit.mjs');
+  assert.equal(BOOKS.user.capture.viewport, undefined);
+  // 컨텍스트: viewport 가 undefined 면 기본 뷰포트로 열고, 모든 문서에 촬영 스타일(토스트 숨김·애니메이션 0초)을 넣는다.
+  let opts;
+  let style;
+  const context = { addInitScript: async (_fn, css) => (style = css) };
+  assert.equal(await newShotContext({ newContext: async (o) => ((opts = o), context) }, BOOKS.user.capture.viewport), context);
+  assert.deepEqual(opts.viewport, { width: 1440, height: 810 });
+  assert.equal(opts.deviceScaleFactor, 2);
+  assert.match(style, /\[data-sonner-toaster\] \{ display: none !important; \}/);
+  assert.match(style, /animation-duration: 0s !important/);
+  assert.match(style, /transition-duration: 0s !important/);
+  // 기록기: shoot 전에 mark 한 상자는 2880x1620 경계로 잘린다.
+  await withTempDir(async (dir) => {
+    const rec = createShotRecorder({ book: 'user', dir, viewport: BOOKS.user.capture.viewport });
+    await rec.begin();
+    await rec.mark('s', 'k', fakeLocator({ x: 1400, y: 800, width: 100, height: 100 }));
+    await rec.commit();
+    await rec.save();
+    const saved = JSON.parse(await readFile(path.join(dir, 'boxes.json'), 'utf8'));
+    assert.deepEqual(saved.s, { w: 2880, h: 1620, boxes: { k: { x: 2800, y: 1600, w: 80, h: 20 } } });
+  });
+});
+
+// 한 장면이 여러 그림을 찍으면 shots 로 밝힌다 — 그림 id 로 골라도 그 장면이 돌아야 한다(WP-1195).
+test('selectScenes and unknownShotIds resolve declared shot ids to their scene', async () => {
+  const { selectScenes, unknownShotIds } = await import('./lib/capture-kit.mjs');
+  // shots 가 없는 장면은 장면 id 하나만 찍는다.
+  const scenes = [{ id: 'a' }, { id: 'p7', shots: ['p7', 'p8', 'p6'] }];
+  assert.deepEqual(unknownShotIds(new Set(['a']), scenes), []);
+  assert.deepEqual(selectScenes(null, scenes), scenes);
+  assert.deepEqual(selectScenes(new Set(['p8']), scenes).map((s) => s.id), ['p7']);
+  assert.deepEqual(selectScenes(new Set(['p6', 'a']), scenes).map((s) => s.id), ['a', 'p7']);
+  assert.deepEqual(unknownShotIds(new Set(['p6', 'p9', 'a']), scenes), ['p9']);
+});
+
+// 다시 찍은 샷은 빈 항목에서 시작한다 — 예전 확정본의 다른 w/h 와 남은 키가 섞이면 안 된다(WP-1195).
+test('createShotRecorder starts a reshot from an empty entry', async () => {
+  await withTempDir(async (dir) => {
+    const old = { w: 2880, h: 1620, boxes: { stale: { x: 1, y: 1, w: 1, h: 1 }, k: { x: 9, y: 9, w: 9, h: 9 } } };
+    await writeFile(path.join(dir, 'boxes.json'), JSON.stringify({ s: old }));
+    const rec = createShotRecorder({ book: 'operator', dir, viewport: { width: 900, height: 810 } });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      // 같은 실행에서 앞 장면이 확정한 샷을 다시 찍어도 그 장면의 키가 섞이지 않는다.
+      await rec.begin();
+      await rec.mark('s', 'first', fakeLocator({ x: 1, y: 1, width: 1, height: 1 }));
+      await rec.commit();
+      await rec.begin();
+      await rec.mark('s', 'k', fakeLocator({ x: 10, y: 20, width: 30, height: 40 }));
+      await rec.shoot({ ...fakePage(), viewportSize: () => ({ width: 900, height: 810 }) }, 's');
+      await rec.commit();
+      await rec.save();
+    } finally {
+      console.log = log;
+    }
+    const saved = JSON.parse(await readFile(path.join(dir, 'boxes.json'), 'utf8'));
+    assert.deepEqual(saved.s, { w: 1800, h: 1620, boxes: { k: { x: 20, y: 40, w: 60, h: 80 } } });
+  });
+});
+
+// 결정적 촬영: shoot 은 입력 커서를 숨긴 채 찍는다(토스트·애니메이션은 촬영 컨텍스트 스타일이 맡는다 — newShotContext)(WP-1195).
+test('shoot hides the caret', async () => {
+  await withTempDir(async (dir) => {
+    let opts;
+    const page = { screenshot: async (o) => { opts = o; await writeFile(o.path, 'x'); }, viewportSize: () => ({ width: 1440, height: 810 }) };
+    const rec = createShotRecorder({ book: 'user', dir });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await rec.begin();
+      await rec.shoot(page, 's');
+    } finally {
+      console.log = log;
+    }
+    assert.equal(opts.caret, 'hide');
+    assert.equal(opts.animations, undefined); // 애니메이션은 컨텍스트 스타일이 0초로 만든다
+    await rec.discard();
+  });
+});
