@@ -2,8 +2,8 @@
 
 import { isAxiosError } from 'axios';
 import { Eye, EyeOff, FileQuestion, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { commentIdFromHash } from '@/lib/issueCommentLink';
 import { cn } from '@/lib/utils';
 
 import { AgentWorkCard } from '../../components/issue/agentWork/AgentWorkCard';
@@ -382,7 +383,8 @@ export default function IssueDetailPage() {
   const navigate = useNavigate();
   // 개인 프로젝트 여부 판별 — 개인 프로젝트의 이슈는 풀페이지 대신 패널로 귀결시킨다.
   const project = useProject(key);
-  const { data, isLoading, error, refetch } = useIssue(key, issueNumber);
+  const issueQuery = useIssue(key, issueNumber);
+  const { data, isLoading, error, refetch } = issueQuery;
   // 탭 제목 — 「{키-번호} {제목}」(WP-814). 불러오기 전에는 주소 기본값(작업 관리).
   useDocumentTitle([data && `${data.summary.projectKey}-${data.summary.number} ${data.summary.title}`]);
   const update = useUpdateIssue(key, issueNumber);
@@ -416,6 +418,18 @@ export default function IssueDetailPage() {
   const isMobile = useIsMobile();
   // 모바일 하단 작성창으로 방금 쓴 코멘트 id — 활동 목록이 그 코멘트까지 스크롤한 뒤 비운다(WP-1016).
   const [postedCommentId, setPostedCommentId] = useState<number | null>(null);
+  // 코멘트 링크(#comment-<id>)로 들어온 코멘트(WP-1175) — 해시 값마다 한 번만 그리로 스크롤한다.
+  // 처리한 해시를 기억해, 코멘트를 달거나 채팅 드로워·첨부 미리보기를 열고 닫아도(useHistoryParam 이 해시를 그대로 둔 채 이동한다)
+  // 되돌아가지 않게 한다. 해시가 사라지거나 다른 코멘트로 바뀌면 다시 처리한다.
+  // 상세를 마운트 뒤 아직 다시 받지 않았으면(캐시가 오래됨) 기다린다 — 옛 목록에는 그 사이 달린 코멘트가 없어 「찾을 수 없음」으로
+  // 잘못 끝난다. isFetching 대신 한 번만 바뀌는 값을 읽는다(읽은 값이 바뀔 때마다 react-query 가 화면 전체를 다시 그린다).
+  const location = useLocation();
+  const [handledHash, setHandledHash] = useState<string | null>(null);
+  if (!location.hash && handledHash !== null) setHandledHash(null);
+  const linkHashId = handledHash === location.hash ? null : commentIdFromHash(location.hash);
+  const linkedCommentId =
+    linkHashId != null && (issueQuery.isFetchedAfterMount || !issueQuery.isStale) ? linkHashId : null;
+  const onLinkedCommentHandled = useCallback(() => setHandledHash(location.hash), [location.hash]);
   // 모바일 하단 편집 바(WP-196) — 제목·본문은 동시에 편집 중일 수 있다(모바일 제목은 blur 저장이 없어 본문을 탭해도 편집 유지).
   // 그래서 편집기별 슬롯을 따로 두고, 마지막에 편집을 시작한 쪽 컨트롤을 보여주되 그쪽이 끝나면 남은 편집기로 넘어간다.
   // 한 슬롯만 쓰면 먼저 끝난 쪽의 cleanup(null)이 다른 편집기의 저장·취소 경로까지 지워버린다.
@@ -841,6 +855,8 @@ export default function IssueDetailPage() {
                 hideComposer={isMobile}
                 scrollToCommentId={postedCommentId}
                 onScrolledToComment={() => setPostedCommentId(null)}
+                linkedCommentId={linkedCommentId}
+                onLinkedCommentHandled={onLinkedCommentHandled}
               />
             </div>
             {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
