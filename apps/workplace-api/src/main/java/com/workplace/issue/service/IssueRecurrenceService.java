@@ -142,7 +142,11 @@ public class IssueRecurrenceService {
     // 이슈 수정과 같은 가드 — 멤버만(개인 프로젝트는 소유자만 멤버다).
     var project = accessGuard.assertMember(projectKey, callerId);
     if (!"PERSONAL".equals(project.type())) throw conflict(NOT_PERSONAL);
-    var issue = issue(project, projectKey, number);
+    // 이슈 행을 잠가 읽는다 — 담당 교체·이슈 닫기와 같은 잠금 순서(이슈 → 반복)이고, 아래에서 읽은 담당 목록이 교체 때까지 그대로다.
+    var issue =
+        issueRepository
+            .findByProjectAndNumberForUpdate(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     String rrule = rules.normalizeRrule(req == null ? null : req.rrule());
     LocalTime time = rules.parseTime(req == null ? null : req.time());
     if (IssueStatuses.CLOSED.contains(issue.status())) throw conflict(ISSUE_CLOSED);
@@ -156,15 +160,21 @@ public class IssueRecurrenceService {
     Instant next = rules.nextRunAfter(rrule, time, Instant.now());
     if (next == null) throw new InvalidIssueRecurrenceException("다음 회차를 정할 수 없는 반복 규칙입니다");
 
-    enrollAssistant(callerId, project, projectKey, issue, agentId);
-
     IssueRecurrenceRow old = repository.findForUpdate(issue.id()).orElse(null);
     boolean agentChanged = old != null && old.agentUserId() != agentId;
+    List<Long> assigneeIds = assigneeRepository.findUserIdsByIssue(issue.id());
+    // WP-1119: 이 반복이 넣은 담당인지(이번에 넣거나 같은 AI 의 앞 기록) — 비서가 바뀌면 이 반복이 넣은 예전 비서만 뺀다.
+    boolean enrolled =
+        !assigneeIds.contains(agentId) || (old != null && !agentChanged && old.assistantEnrolled());
+    Long drop = agentChanged && old.assistantEnrolled() ? old.agentUserId() : null;
     // 비서가 바뀌었으면(개인 비서를 새로 정함 등) 예전 AI 의 반복 작업 기록은 끝낸다 — 두 AI 가 같은 반복을 기다리는 것처럼 보이지 않게.
     if (agentChanged) cancelWork(issue.id(), old.agentUserId());
-    repository.upsert(issue.id(), rrule, time, agentId, callerId, next);
+    // 행의 실행 AI 를 담당 교체보다 먼저 새 비서로 바꾼다 — 예전 비서를 담당에서 빼면 담당 해제가 「그 AI 가 돌리던 반복」을 거두는데(WP-1114),
+    // 그때 행이 아직 예전 비서면 이 반복이 지워져 회차 수·지난 실행 시각을 잃는다.
+    repository.upsert(issue.id(), rrule, time, agentId, callerId, next, enrolled);
     // 예전 AI 가 돌리던 회차의 결과는 받지 않는다(늦게 와도 조용히 무시된다).
     if (agentChanged && old.pendingRunId() != null) repository.clearPending(issue.id());
+    enrollAssistant(callerId, project, projectKey, issue, agentId, assigneeIds, drop);
 
     // 같은 AI 의 회차가 아직 도는 중이면 「작업 중」을 그대로 둔다 — 결과 보고가 「다음 회차 대기」로 바꾼다.
     boolean running = old != null && !agentChanged && old.pendingRunId() != null;
@@ -399,18 +409,30 @@ public class IssueRecurrenceService {
    * 비서를 이 개인 작업의 담당으로 넣는다 — 개인 프로젝트는 멤버만 담당이 될 수 있는데(AssigneePolicy) 개인 작업 화면에는 AI 를 멤버로 넣는 길이 없어,
    * 반복 저장이 대신 멤버(MEMBER)로 넣고 담당에 더한다. 멤버 추가·담당 교체는 사람이 할 때와 같은 서비스 경로를 타서 검증·이력·워처·실시간 갱신이 같다. 다만
    * 담당 지정이 AI 를 깨워 이슈 작업을 시작하게(issue.assigned 실행) 하지는 않는다 — 이 AI 는 반복 회차 이벤트로만 일한다.
+   *
+   * <p>{@code dropAgentId}(이 반복이 넣었던 예전 비서)는 같은 교체에서 담당에서 뺀다(WP-1119). 프로젝트 멤버에서는 빼지 않는다 — 같은 개인
+   * 프로젝트의 다른 반복이 그 AI 를 쓰고 있을 수 있다.
+   *
+   * @param assigneeIds 이슈 행을 잠근 뒤 읽은 지금 담당 목록
    */
   private void enrollAssistant(
-      long callerId, ProjectRow project, String projectKey, IssueRow issue, long agentId) {
+      long callerId,
+      ProjectRow project,
+      String projectKey,
+      IssueRow issue,
+      long agentId,
+      List<Long> assigneeIds,
+      Long dropAgentId) {
     if (!memberRepository.isDirectMember(project.id(), agentId)) {
       projectService.addMember(callerId, projectKey, new AddMemberRequest(agentId, "MEMBER"));
     }
-    List<Long> assigneeIds = assigneeRepository.findUserIdsByIssue(issue.id());
-    if (!assigneeIds.contains(agentId)) {
-      List<Long> withAgent = new ArrayList<>(assigneeIds);
-      withAgent.add(agentId);
-      assigneeService.replace(callerId, projectKey, issue.number(), withAgent, false);
-    }
+    boolean add = !assigneeIds.contains(agentId);
+    boolean drop = dropAgentId != null && assigneeIds.contains(dropAgentId);
+    if (!add && !drop) return;
+    List<Long> target = new ArrayList<>(assigneeIds);
+    if (drop) target.remove(dropAgentId);
+    if (add) target.add(agentId);
+    assigneeService.replace(callerId, projectKey, issue.number(), target, false);
   }
 
   /** 반복을 지우고 그 AI 의 작업 기록을 취소로 끝낸다. */

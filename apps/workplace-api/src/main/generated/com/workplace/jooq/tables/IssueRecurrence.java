@@ -137,6 +137,11 @@ public class IssueRecurrence extends TableImpl<IssueRecurrenceRecord> {
      */
     public final TableField<IssueRecurrenceRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.issue_recurrence.assistant_enrolled</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, Boolean> ASSISTANT_ENROLLED = createField(DSL.name("assistant_enrolled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private IssueRecurrence(Name alias, Table<IssueRecurrenceRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
