@@ -1,6 +1,7 @@
 package com.workplace.messaging.outbound;
 
 import com.workplace.global.realtime.ResourceChangedEvent;
+import com.workplace.global.realtime.ResourceSseDispatcher;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.tenant.outbound.TenantAudienceResolver;
 import java.util.Collection;
@@ -25,6 +26,7 @@ public class ChannelChangeNotifier {
   public static final String RESOURCE_DM = "dm";
 
   private final ApplicationEventPublisher publisher;
+  private final ResourceSseDispatcher dispatcher;
 
   /** 채널 자체 변경(생성·이름·보관·삭제). isPublic 이면 테넌트 전원, 아니면 멤버 + extra. */
   public void channelChanged(
@@ -62,6 +64,23 @@ public class ChannelChangeNotifier {
         extra);
   }
 
+  /**
+   * 커밋 직전 리스너 안에서의 멤버십 변경 — {@link #membershipChanged} 와 같은 알림을 디스패처에 바로 넘긴다(WP-1186). 커밋 직전 리스너
+   * 안에서 발행한 이벤트는 디스패처(역시 커밋 직전)에 닿지 않아서다(스프링이 커밋 직전 콜백 목록을 시작할 때 한 번 떠 둔다). 수신자 조회는 지금(맞춘 뒤 명단),
+   * 전송은 커밋 뒤다.
+   */
+  public void membershipChangedBeforeCommit(long channelId, Collection<Long> extra) {
+    dispatcher.onChanged(
+        event(
+            RESOURCE_CHANNEL,
+            ResourceChangedEvent.OP_UPDATED,
+            ChannelAudienceResolver.SCOPE,
+            channelId,
+            channelId,
+            null,
+            extra));
+  }
+
   /** DM 생성 — DM 멤버 전원(사이드바 DM 목록). */
   public void dmCreated(long channelId, Long actorId) {
     publish(
@@ -82,15 +101,25 @@ public class ChannelChangeNotifier {
       long channelId,
       Long actorId,
       Collection<Long> extra) {
-    publisher.publishEvent(
-        ResourceChangedEvent.of(
-            resource,
-            op,
-            scope,
-            scopeId,
-            List.of(channelId),
-            Map.of("channelId", channelId),
-            actorId,
-            extra));
+    publisher.publishEvent(event(resource, op, scope, scopeId, channelId, actorId, extra));
+  }
+
+  private static ResourceChangedEvent event(
+      String resource,
+      String op,
+      String scope,
+      long scopeId,
+      long channelId,
+      Long actorId,
+      Collection<Long> extra) {
+    return ResourceChangedEvent.of(
+        resource,
+        op,
+        scope,
+        scopeId,
+        List.of(channelId),
+        Map.of("channelId", channelId),
+        actorId,
+        extra);
   }
 }

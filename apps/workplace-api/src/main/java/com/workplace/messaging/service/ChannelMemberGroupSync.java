@@ -43,8 +43,9 @@ public class ChannelMemberGroupSync {
    */
   public Diff reconcile(long channelId) {
     // 채널이 지워졌으면(같은 트랜잭션에서 하드 삭제) 맞출 행이 없다 — 부서 행·사람 행 모두 CASCADE 로 사라졌다.
+    // 채널 행을 잠가 초대·내보내기·부서 추가와 줄 세운다(WP-1186).
     return channelRepo
-        .findState(channelId)
+        .lockState(channelId)
         .map(
             state -> {
               // 빼기를 먼저 — 부서 행이 하나도 남지 않았어도 돈다(마지막 부서를 뺀 경우).
@@ -62,7 +63,7 @@ public class ChannelMemberGroupSync {
    */
   public Diff addGrown(long channelId, Collection<Long> onlyUserIds) {
     return channelRepo
-        .findState(channelId)
+        .lockState(channelId)
         .filter(state -> !state.archived())
         .map(state -> new Diff(groups.insertMissing(channelId, onlyUserIds), List.of()))
         .orElse(Diff.NONE);

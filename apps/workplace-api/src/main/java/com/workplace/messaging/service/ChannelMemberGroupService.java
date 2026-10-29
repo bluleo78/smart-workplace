@@ -9,13 +9,13 @@ import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.repository.ChannelMemberGroupRepository;
-import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.ChannelRepository.ChannelState;
 import com.workplace.messaging.service.ChannelMemberGroupSync.Diff;
 import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +48,6 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class ChannelMemberGroupService {
 
   private final ChannelRepository channelRepo;
-  private final ChannelMemberRepository memberRepo;
   private final ChannelMemberGroupRepository groups;
   private final ChannelPermissions perms;
   private final ChannelMemberGroupSync sync;
@@ -79,10 +78,7 @@ public class ChannelMemberGroupService {
     // DM 은 참여자도 관리 역할이 없어(MEMBER) 권한 검사가 먼저면 403 이 된다 — 읽을 수 있는 사람(참여자·시스템 ADMIN)에게는 이유(400)로,
     // 그 밖의 사람에게는 없는 채널(404)로 답한다(WP-511 존재 은닉).
     if ("DM".equals(state.kind())) {
-      if (!perms.canRead(channelId, callerId) && !perms.isSystemAdmin(callerId)) {
-        throw new ChannelNotFoundException(channelId);
-      }
-      throw new IllegalArgumentException("DM 에는 부서를 멤버로 둘 수 없습니다");
+      rejectDm(callerId, channelId);
     }
     // 권한 먼저 — 비공개 비멤버는 여기서 404 로 존재를 숨긴다(WP-511).
     perms.requireManage(channelId, callerId, "add-member-group");
@@ -93,6 +89,9 @@ public class ChannelMemberGroupService {
     if (state.archived()) {
       throw new ChannelArchivedException(channelId, "보관된 채널에는 부서를 멤버로 둘 수 없습니다");
     }
+    // 넣기 전에 채널 행을 잠근다(권한 검사 뒤) — 들어올 사람을 읽고 넣는 사이 내보내기·나가기가 끼어들면, 그쪽은 아직 커밋되지 않은 이 부서를 보지 못해
+    // 개인 제외를 남기지 않아 내보낸 사람이 다음 맞추기로 다시 들어왔다(WP-1186). 잠금은 커밋까지 쥔다.
+    channelRepo.lockState(channelId);
     // 노트·드라이브·프로젝트 멤버 부서와 같은 검증·문구 — 개인 그룹은 조건으로, 다른 워크스페이스 그룹은 RLS 로 빠진다.
     String name =
         groups
@@ -119,8 +118,15 @@ public class ChannelMemberGroupService {
    */
   @Transactional
   public void remove(long callerId, long channelId, long groupId) {
-    ensureExists(channelId);
+    ChannelState state =
+        channelRepo.findState(channelId).orElseThrow(() -> new ChannelNotFoundException(channelId));
+    // DM 은 더하기와 같게 답한다 — 참여자는 관리 역할이 없어 권한 검사가 먼저면 403 이 됐다(더하기는 400, WP-1186).
+    if ("DM".equals(state.kind())) {
+      rejectDm(callerId, channelId);
+    }
     perms.requireManage(channelId, callerId, "remove-member-group");
+    // 채널 행을 잠가 초대·내보내기와 줄 세운다(WP-1186, 권한 검사 뒤).
+    channelRepo.lockState(channelId);
     if (groups.delete(channelId, groupId) == 0) {
       throw new ChannelMemberGroupNotFoundException();
     }
@@ -176,9 +182,11 @@ public class ChannelMemberGroupService {
    * CASCADE 로 사라지므로 영향받는 채널을 여기서 모으고, 맞추기는 변경이 반영된 뒤(커밋 직전) {@link #onDepartmentAudienceShrunk} 가
    * 한다.
    *
-   * <p>채널 멤버십 변경 알림은 여기서(요청 흐름 안에서) 미리 낸다 — 커밋 직전 리스너 안에서 낸 알림은 SSE 디스패처(역시 커밋 직전)에 닿지 않는다(스프링이 커밋
-   * 직전 콜백 목록을 시작할 때 한 번 떠 둔다). 지금 멤버 전원을 추가 수신자로 넘겨 빠질 사람의 화면에서도 채널이 사라지게 하고, 맞추기를 디스패처보다 먼저 돌려 (아래
-   * {@code @Order}) 새로 들어온 사람도 수신자에 들게 한다.
+   * <p>채널 멤버십 변경 알림은 여기서 미리 내지 않는다 — 누가 빠질지는 맞춘 뒤에야 안다. 미리 내면 실제로 빠진 사람이 없어도 관련된 모든 채널의 모든 멤버가 다시
+   * 불러왔다(WP-1186). 맞추기가 사람 행을 바꿨거나 멤버 부서 행이 사라진(부서 삭제 CASCADE) 채널에만 알린다 — 부서 행 수를 여기서 세어 둔다.
+   *
+   * <p>영향받는 채널 행을 여기서(조직도 변경 전) 잠근다 — 부서 추가처럼 「채널 → 부서(FK)」 순서로 잠그게. 커밋 직전에 처음 잠그면 조직도 변경이 쥔 부서 행
+   * 잠금 뒤라 부서 추가와 순서가 엇갈려 교착할 수 있었다. 채널 id 오름차순이다.
    */
   @EventListener
   public void onDepartmentMembersReduced(DepartmentMembersReduced e) {
@@ -186,17 +194,16 @@ public class ChannelMemberGroupService {
     if (channelIds.isEmpty()) {
       return;
     }
-    publisher.publishEvent(new ChannelDepartmentAudienceShrunk(e.tenantId(), channelIds));
-    Map<Long, List<Long>> members = memberRepo.findMemberIdsByChannels(channelIds);
-    for (long channelId : channelIds) {
-      changeNotifier.membershipChanged(channelId, null, members.getOrDefault(channelId, List.of()));
-    }
+    channelIds.forEach(channelRepo::lockState);
+    publisher.publishEvent(
+        new ChannelDepartmentAudienceShrunk(
+            e.tenantId(), e.groupIds(), groups.countGroupsByChannels(e.groupIds())));
   }
 
   /**
-   * 부서로 들어오던 사람이 줄었을 수 있는 채널 — 커밋 직전(같은 트랜잭션, 조직도 변경이 반영된 뒤) 맞춘다. 변경과 맞추기가 함께 커밋되거나 함께 롤백된다. SSE
-   * 알림은 {@link #onDepartmentMembersReduced} 가 미리 냈으므로 내지 않는다(roster 이벤트 → 연동 드라이브 명단은 동기라 여기서 돈다).
-   * SSE 디스패처(순서 미지정 — 가장 낮은 우선순위)보다 먼저 돌아 그 수신자 조회가 맞춘 뒤 명단을 보게 한다. 테넌트는 이벤트에 담긴 값으로 세운다.
+   * 부서로 들어오던 사람이 줄었을 수 있는 채널 — 커밋 직전(같은 트랜잭션, 조직도 변경이 반영된 뒤) 맞춘다. 변경과 맞추기가 함께 커밋되거나 함께 롤백된다. 사람 행이
+   * 바뀐 채널에만 roster 이벤트(연동 드라이브 명단 — 동기)와 채널 멤버십 변경 알림(SSE — 맞춘 뒤 명단 + 빠진 사람, 커밋 뒤 전송)을 낸다. SSE 는 이
+   * 안에서 발행하면 디스패처에 닿지 않아 디스패처에 바로 넘긴다(WP-1186). 테넌트는 이벤트에 담긴 값으로 세운다.
    */
   @Order(Ordered.HIGHEST_PRECEDENCE)
   @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
@@ -204,9 +211,16 @@ public class ChannelMemberGroupService {
     TenantContext.runAs(
         e.tenantId(),
         () -> {
-          for (long channelId : e.channelIds()) {
-            if (sync.reconcile(channelId).changed()) {
+          // 부서를 지웠으면 멤버 부서 행이 CASCADE 로 사라졌다 — 사람 행이 그대로여도 열린 멤버 창의 부서 목록이 다시 받게 알린다.
+          Map<Long, Integer> groupsAfter = groups.countGroupsByChannels(e.groupIds());
+          for (Map.Entry<Long, Integer> before : e.groupCounts().entrySet()) {
+            long channelId = before.getKey();
+            Diff diff = sync.reconcile(channelId);
+            if (diff.changed()) {
               rosterPublisher.publish(channelId);
+            }
+            if (diff.changed() || groupsAfter.getOrDefault(channelId, 0) < before.getValue()) {
+              changeNotifier.membershipChangedBeforeCommit(channelId, diff.removed());
             }
           }
         });
@@ -223,6 +237,16 @@ public class ChannelMemberGroupService {
     }
   }
 
+  /**
+   * DM 에는 부서를 둘 수 없다 — 읽을 수 있는 사람(참여자·시스템 ADMIN)에게는 이유(400), 그 밖의 사람에게는 없는 채널(404, WP-511 존재 은닉).
+   */
+  private void rejectDm(long callerId, long channelId) {
+    if (!perms.canRead(channelId, callerId) && !perms.isSystemAdmin(callerId)) {
+      throw new ChannelNotFoundException(channelId);
+    }
+    throw new IllegalArgumentException("DM 에는 부서를 멤버로 둘 수 없습니다");
+  }
+
   private void ensureExists(long channelId) {
     if (!channelRepo.exists(channelId)) throw new ChannelNotFoundException(channelId);
   }
@@ -231,7 +255,15 @@ public class ChannelMemberGroupService {
    * 조직도 변경 전 영향받는 채널 — 변경 전 동기 리스너가 모아 커밋 직전 맞추기에 넘기는 내부 이벤트.
    *
    * @param tenantId 변경이 일어난 워크스페이스
-   * @param channelIds 구성원이 줄어든 쪽 부서를 멤버로 둔 채널 id
+   * @param groupIds 구성원이 줄어든 부서(상위 부서 포함)
+   * @param groupCounts 그 부서를 멤버로 둔 채널 id → 변경 전 그 채널에 걸린 이 부서들의 행 수(채널 id 오름차순)
    */
-  public record ChannelDepartmentAudienceShrunk(long tenantId, List<Long> channelIds) {}
+  public record ChannelDepartmentAudienceShrunk(
+      long tenantId, List<Long> groupIds, Map<Long, Integer> groupCounts) {
+
+    /** 영향받는 채널 id. */
+    public Collection<Long> channelIds() {
+      return groupCounts.keySet();
+    }
+  }
 }

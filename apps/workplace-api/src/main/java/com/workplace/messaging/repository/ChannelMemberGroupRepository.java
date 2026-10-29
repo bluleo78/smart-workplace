@@ -12,6 +12,7 @@ import com.workplace.global.org.Departments.SubtreeMembers;
 import com.workplace.messaging.dto.ChannelMemberGroupResponse;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -120,6 +121,24 @@ public class ChannelMemberGroupRepository {
         .where(CHANNEL_MEMBER_GROUP.GROUP_ID.in(groupIds))
         .orderBy(CHANNEL_MEMBER_GROUP.CHANNEL_ID.asc())
         .fetch(CHANNEL_MEMBER_GROUP.CHANNEL_ID);
+  }
+
+  /**
+   * groupIds 중 이 채널에 멤버로 걸린 부서 행 수 — 채널 id 오름차순(LinkedHashMap). 조직도 변경 전후로 세어 부서 행이 사라진(삭제 CASCADE)
+   * 채널을 찾는다(WP-1186).
+   */
+  public Map<Long, Integer> countGroupsByChannels(Collection<Long> groupIds) {
+    if (groupIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<Long, Integer> counts = new LinkedHashMap<>();
+    dsl.select(CHANNEL_MEMBER_GROUP.CHANNEL_ID, DSL.count())
+        .from(CHANNEL_MEMBER_GROUP)
+        .where(CHANNEL_MEMBER_GROUP.GROUP_ID.in(groupIds))
+        .groupBy(CHANNEL_MEMBER_GROUP.CHANNEL_ID)
+        .orderBy(CHANNEL_MEMBER_GROUP.CHANNEL_ID.asc())
+        .forEach(r -> counts.put(r.value1(), r.value2()));
+    return counts;
   }
 
   // --- 부서 판정 ---

@@ -267,6 +267,20 @@ public class ChannelRepository {
   }
 
   /**
+   * 채널 상태를 읽으며 채널 행을 잠근다(FOR NO KEY UPDATE) — 멤버십을 바꾸는 쓰기(초대·내보내기·나가기·멤버 부서 추가/제거·부서 맞추기)를 채널마다 줄
+   * 세운다(WP-1186). 잠금이 없을 때 부서 추가가 들어올 사람을 읽는 사이 내보내기가 끝나면, 내보내기는 아직 커밋되지 않은 부서를 보지 못해 개인 제외를 남기지
+   * 않았고 다음 맞추기가 내보낸 사람을 다시 넣었다. 잠근 뒤의 읽기는 앞선 쓰기의 커밋을 본다(READ COMMITTED). 채널을 FK 로 거는 다른 쓰기(메시지 등)는
+   * 막지 않는다(KEY SHARE 와 부딪히지 않는 잠금). 쓰기 트랜잭션 안에서 불러야 한다.
+   */
+  public Optional<ChannelState> lockState(long channelId) {
+    return dsl.select(CHANNEL.KIND, CHANNEL.VISIBILITY, CHANNEL.ARCHIVED_AT.isNotNull())
+        .from(CHANNEL)
+        .where(CHANNEL.ID.eq(channelId))
+        .forNoKeyUpdate()
+        .fetchOptional(r -> new ChannelState(r.value1(), r.value2(), r.value3()));
+  }
+
+  /**
    * 채널 상태 — {@link #findState} 의 결과.
    *
    * @param kind CHANNEL | DM

@@ -64,6 +64,8 @@ public class ChannelMemberService {
   @Transactional
   public void add(long callerId, long channelId, long targetUserId) {
     checkAdd(callerId, channelId, targetUserId);
+    // 잠금은 권한 검사 뒤 — 볼 수 없는 사람의 요청(404)이 채널의 멤버십 쓰기를 붙잡지 않게.
+    lockExisting(channelId);
     memberRepo.addDirect(channelId, targetUserId);
     groupRepo.deleteExclusion(channelId, targetUserId);
     rosterPublisher.publish(channelId);
@@ -113,6 +115,8 @@ public class ChannelMemberService {
     // 권한 먼저 — 비공개(DM 포함) 비멤버는 여기서 404 로 존재를 숨긴다(WP-511). DM 차단은 그 뒤.
     perms.requireManage(channelId, callerId, "remove-member");
     requireNotDm(callerId, channelId, "remove-member");
+    // 대상 판정(OWNER·부서로 걸리는가) 전에 잠근다 — 동시에 더해지는 부서를 커밋 뒤에 보게(WP-1186).
+    lockExisting(channelId);
     if (memberRepo.findRole(channelId, targetUserId).filter("OWNER"::equals).isPresent()) {
       throw new ChannelForbiddenException(channelId, callerId, "remove-owner");
     }
@@ -130,6 +134,8 @@ public class ChannelMemberService {
    */
   @Transactional
   public void leave(long callerId, long channelId) {
+    // 나갈 수 있는지(멤버인가·OWNER 인가)를 잠근 뒤에 판정한다 — 그사이 부서로 들어온 사람의 나가기가 「이미 비멤버」로 끝나지 않게(WP-1186).
+    lockExisting(channelId);
     if (!checkLeave(callerId, channelId)) return; // 이미 비멤버 — idempotent
     memberRepo.remove(channelId, callerId);
     excludeIfCovered(channelId, callerId);
@@ -169,6 +175,8 @@ public class ChannelMemberService {
     // 권한 먼저 — 비공개(DM 포함) 비멤버는 404 로 존재를 숨긴다(WP-511).
     perms.requireOwner(channelId, callerId, "update-role");
     requireNotDm(callerId, channelId, "update-role");
+    // 부서로만 들어온 사람을 올리면 직접 멤버로 고정된다 — 부서 빼기·맞추기와 줄 세워 그 사이 행이 지워져 0행 갱신으로 끝나지 않게(WP-1186).
+    lockExisting(channelId);
     String normalized = normalizeRole(role);
     if (memberRepo.findRole(channelId, targetUserId).isEmpty()) {
       throw new ChannelForbiddenException(channelId, callerId, "update-role-of-nonmember");
@@ -214,6 +222,14 @@ public class ChannelMemberService {
     if (groupRepo.isCovered(channelId, userId)) {
       groupRepo.insertExclusion(channelId, userId);
     }
+  }
+
+  /**
+   * 채널 행을 잠근다(없으면 404) — 멤버를 넣고 빼는 쓰기를 멤버 부서 추가·맞추기와 줄 세운다(WP-1186). 그래야 내보내기의 개인 제외 판정이 동시에 더해진
+   * 부서를 커밋 뒤에 보고, 그 부서가 내보낸 사람을 다시 넣지 않는다.
+   */
+  private void lockExisting(long channelId) {
+    if (channelRepo.lockState(channelId).isEmpty()) throw new ChannelNotFoundException(channelId);
   }
 
   private void ensureExists(long channelId) {
