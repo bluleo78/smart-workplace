@@ -65,8 +65,12 @@ export const WikiRemoteScrollAnchor = Extension.create({
           let ro: ResizeObserver | null = null
           /** 기준점 — Yjs 상대 위치와, 그 위치의 본문 칼럼 top 기준 높이, 내 캐럿인지(아니면 화면 맨 위 블록), 그때 칼럼의 화면 높이(스크롤 영역 top 기준). */
           let anchor: { rel: Y.RelativePosition; offset: number; caret: boolean; colTop: number } | null = null
-          /** 기준점을 잡을 때의 본문 칼럼 폭 — 폭이 바뀐 뒤 크기 콜백보다 먼저 온 스크롤 이벤트를 가려낸다(아래 onScroll). */
+          /**
+           * 기준점을 잡을 때의 본문 칼럼 크기(border-box — 크기 콜백도 같은 상자를 본다) — 크기가 바뀐 뒤 크기 콜백보다 먼저 온
+           * 스크롤 이벤트·blur 를 가려낸다(아래 resizePending).
+           */
           let colWidth = 0
+          let colHeight = 0
           /** 원격 보정을 이미 한 상태 — 트랜잭션 없는 updateState(속성 갱신)에 remote 플래그가 남아 있어도 다시 보정하지 않는다. */
           let consumed: EditorState | null = null
 
@@ -118,6 +122,7 @@ export const WikiRemoteScrollAnchor = Extension.create({
           const capture = () => {
             if (!scroller || !column) return
             colWidth = column.offsetWidth
+            colHeight = column.offsetHeight
             const a = anchorPos(scroller)
             const rel = a ? toRelative(view.state, a.pos) : null
             anchor = a && rel ? { rel, offset: offsetOf(a.pos, a.caret), caret: a.caret, colTop: columnTop() } : null
@@ -153,15 +158,31 @@ export const WikiRemoteScrollAnchor = Extension.create({
             capture()
           }
           /**
-           * 스크롤 이벤트 — 칼럼 이동은 사용자의 스크롤이라 되돌리지 않고(screen=false) 기준점만 다시 잡는다.
-           * 다만 칼럼 폭이 기준점 때와 다르면 아무것도 하지 않는다 — 폭이 바뀐 뒤 누가 레이아웃을 먼저 읽으면(강제 레이아웃) 다시 줄바꿈과
-           * scrollTop 잘림이 그 자리에서 일어나 잘림의 스크롤 이벤트가 크기 콜백보다 먼저 온다. 여기서 기준점을 다시 잡으면 잘려 칼럼째
-           * 내려간 몫이 기준점에 삼켜져 크기 콜백이 되돌리지 못한다(WP-1088 — 부하에서 읽던 줄이 잘린 만큼 어긋났다).
-           * 기준점을 그대로 두면 곧 올 크기 콜백(settle(true))이 줄바꿈 밀림과 잘림을 함께 되돌리고 새 기준점을 잡는다.
+           * 크기 콜백이 곧 와서 화면을 되돌려야 하는 상태인가 — 그러면 그 전의 스크롤 이벤트·blur 로 기준점을 다시 잡지 않는다.
+           * 크기가 바뀐 뒤 누가 레이아웃을 먼저 읽으면(강제 레이아웃) 다시 줄바꿈과 scrollTop 잘림이 그 자리에서 일어나, 잘림의 스크롤
+           * 이벤트가 크기 콜백보다 먼저 온다. 여기서 기준점을 다시 잡으면 잘려 칼럼째 내려간 몫이 기준점에 삼켜져 크기 콜백이 되돌리지
+           * 못한다(WP-1088 — 부하에서 읽던 줄이 잘린 만큼 어긋났다). 기준점을 그대로 두면 곧 올 크기 콜백(settle(true))이 밀림과
+           * 잘림을 함께 되돌리고 새 기준점을 잡는다.
+           * - 폭이 바뀜(회전·창 크기) — 다시 줄바꿈된다.
+           * - 폭은 그대로인데 칼럼이 짧아졌고 스크롤 영역이 맨 아래에 붙음 — 잘림이 일어난 모양이다(WP-1145). 칼럼이 커질 때나
+           *   맨 아래가 아닐 때의 스크롤은 사용자의 것일 수 있어(이미지가 로드되는 중 스크롤 등) 지금처럼 처리한다 — 크기 콜백이 칼럼
+           *   이동까지 되돌리면(screen) 같은 프레임의 사용자 스크롤을 되돌리게 된다.
            */
+          const resizePending = () => {
+            if (!column || !scroller) return false
+            if (column.offsetWidth !== colWidth) return true
+            const atBottom = scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 1
+            return column.offsetHeight < colHeight && atBottom
+          }
+          /** 스크롤 이벤트 — 칼럼 이동은 사용자의 스크롤이라 되돌리지 않고(screen=false) 기준점만 다시 잡는다. 크기 콜백을 기다리는 중이면 건너뛴다. */
           const onScroll = () => {
-            if (column && column.offsetWidth !== colWidth) return
+            if (resizePending()) return
             settle(false)
+          }
+          /** 에디터를 떠나면 기준점을 다시 고른다 — 크기 콜백을 기다리는 중이면 그 콜백이 다시 잡으므로 건너뛴다(잘린 몫을 삼키지 않게). */
+          const onBlur = () => {
+            if (resizePending()) return
+            capture()
           }
 
           /** 에디터가 화면에 붙었으면 스크롤 영역·칼럼을 찾아 듣기 시작한다(한 번만). */
@@ -172,11 +193,12 @@ export const WikiRemoteScrollAnchor = Extension.create({
             column = columnOf(view.dom, scroller)
             scroller.addEventListener('scroll', onScroll, { passive: true })
             // 에디터를 떠나면 기준점을 다시 고른다 — 남은 캐럿 기준으로 나중의 원격 삽입을 고정하지 않게(맨 위 읽기 정책이 적용되도록).
-            view.dom.addEventListener('blur', capture)
+            view.dom.addEventListener('blur', onBlur)
             // 칼럼 크기 변화 = 화면 위쪽이 늦게 커지거나(이미지·요약 카드·노드뷰) 줄바꿈이 바뀜. 콜백은 레이아웃 뒤·페인트 전이라
             // 밀린 화면이 그려지지 않는다.
+            // border-box 를 본다 — 기준 크기(offsetWidth·offsetHeight)와 같은 상자라, 크기가 다르면 반드시 콜백이 온다.
             ro = new ResizeObserver(() => settle(true))
-            ro.observe(column)
+            ro.observe(column, { box: 'border-box' })
             capture()
           }
 
@@ -201,7 +223,7 @@ export const WikiRemoteScrollAnchor = Extension.create({
             destroy: () => {
               cancelAnimationFrame(raf)
               scroller?.removeEventListener('scroll', onScroll)
-              view.dom.removeEventListener('blur', capture)
+              view.dom.removeEventListener('blur', onBlur)
               ro?.disconnect()
             },
           }
