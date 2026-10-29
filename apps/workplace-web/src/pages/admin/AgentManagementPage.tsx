@@ -427,7 +427,10 @@ export default function AgentManagementPage() {
                   ) : (
                     <>
                       {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
-                      <AgentConnectionSection agentUserId={selected.id} />
+                      <AgentConnectionSection
+                        agentUserId={selected.id}
+                        canConfigure={selected.type !== 'PERSONAL'}
+                      />
 
                       {/* 인증 — API 키. */}
                       {keysSection}

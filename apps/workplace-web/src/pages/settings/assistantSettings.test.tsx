@@ -130,7 +130,7 @@ describe('개인 비서 추천 모델 (WP-139)', () => {
 test('관리자 공통 비서 상세에 추천 질문 모델 칸이 있고 저장 payload 가 맞다 (WP-139)', async () => {
   const AGENT_ID = 5
   const puts: unknown[] = []
-  const { user } = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} />, {
+  const { user } = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure />, {
     path: '/settings/agents',
     handlers: [
       http.get('/api/v1/admin/workspace-assistant', () =>

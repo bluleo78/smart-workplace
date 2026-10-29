@@ -11,10 +11,12 @@ import com.workplace.auth.dto.ProviderCredentialRedeemResponse;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.exception.OAuthTokenNotFoundException;
+import com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.global.security.EncryptionService;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
@@ -63,6 +65,11 @@ public class AiAgentCredentialService {
       String label,
       String model) {
     UserResponse agent = assertAgent(agentUserId);
+    // WP-1163: 개인 비서의 연결은 주인만 등록·재발급한다 — 관리자 경로(AdminProviderCredentialController)도 이 메서드를 쓰므로
+    // 등록 지점 한 곳에서 막는다. 남이 바꾸면 주인의 대화가 주인 모르게 그 사람의 연결로 나간다(403). 회수는 정리 수단으로 남긴다.
+    if (AgentUsernames.isOthersPersonalAssistant(agent.username(), callerId)) {
+      throw new PersonalAssistantAdminChangeForbiddenException("개인 비서의 AI 연결은 주인만 등록할 수 있습니다");
+    }
     if (!PROVIDERS.contains(provider)) {
       throw new InvalidProviderCredentialException("지원하지 않는 provider 입니다: " + provider);
     }

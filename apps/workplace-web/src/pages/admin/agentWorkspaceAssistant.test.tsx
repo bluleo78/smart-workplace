@@ -81,7 +81,7 @@ function openSection(opts: {
       return HttpResponse.json({ provider: opts.provider ?? 'anthropic', models: opts.models ?? [] })
     }),
   ]
-  const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} />, { path: `/settings/agents?agent=${AGENT_ID}`, handlers, auth: ADMIN })
+  const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure />, { path: `/settings/agents?agent=${AGENT_ID}`, handlers, auth: ADMIN })
   return { ...view, calls }
 }
 

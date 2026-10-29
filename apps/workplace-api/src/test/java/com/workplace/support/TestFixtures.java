@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -228,6 +229,23 @@ public final class TestFixtures {
         return rec.getId();
       }
     }
+  }
+
+  /**
+   * ownerId 사용자의 개인 비서 AGENT 를 만든다 — 결정적 username(`__assistant_u{ownerId}`)이 곧 개인 비서 표시다. 멤버십·토큰은
+   * 넣지 않는다.
+   *
+   * @return 생성된 개인 비서 user id
+   */
+  public static long createPersonalAssistant(DSLContext dsl, long ownerId) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, AgentUsernames.personalAssistantOf(ownerId))
+        .setNull(USER.PASSWORD)
+        .set(USER.NAME, "개인 비서")
+        .set(USER.KIND, UserKind.AGENT)
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
   }
 
   /**
