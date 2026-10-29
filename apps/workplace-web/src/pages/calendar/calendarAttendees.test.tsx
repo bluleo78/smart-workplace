@@ -123,6 +123,46 @@ test('새 일정: 조직을 고르면 넣을 인원을 확인받고, 「N명 추
   expect(onSubmit.mock.calls[0][0]).toMatchObject({ attendeeUserIds: [2, 3] })
 })
 
+/** 개발팀(10) 구성원을 n명(100번부터)으로 바꾼 핸들러 — 한도(500명) 경계를 본다. */
+function bigTeam(n: number) {
+  return http.get('/api/v1/user-groups/10/members/search', () =>
+    HttpResponse.json(Array.from({ length: n }, (_, i) => hit(10, 100 + i, `사람${i}`))),
+  )
+}
+
+test('새 일정: 한도를 넘는 조직은 추가가 막히고 「취소」가 포커스를 받아 키보드로 닫는다(WP-1112)', async () => {
+  const { user } = renderEventDialog(null, [memberSearch, bigTeam(501), ...groupHandlers, ...calendarHandlers({ calendars: CALENDARS })])
+  await user.click(screen.getByTestId('attendee-add-btn'))
+  await user.click(await screen.findByTestId('attendee-picker-department-10'))
+
+  expect(await screen.findByTestId('attendee-group-add')).toBeDisabled()
+  // 막힌 추가 단추 대신 취소가 포커스를 받는다 — 검색창에 남으면 Enter 가 같은 조직을 다시 골랐다
+  await waitFor(() => expect(screen.getByTestId('attendee-group-cancel')).toHaveFocus())
+  await user.keyboard('{Enter}')
+  expect(screen.queryByTestId('attendee-group-confirm')).not.toBeInTheDocument()
+  // 닫힌 뒤에는 검색칸으로 돌아와 바로 다시 찾을 수 있다
+  expect(within(screen.getByTestId('attendee-picker-search')).getByLabelText('사람·팀 검색')).toHaveFocus()
+})
+
+test('새 일정: 한도(500명)까지 고르면 사람을 더 넣지 않고 그 까닭을 보이며, 조직 확인도 음수 없이 막는다(WP-1112)', async () => {
+  const { user } = renderEventDialog(null, [memberSearch, bigTeam(500), ...groupHandlers, ...calendarHandlers({ calendars: CALENDARS })])
+  await user.click(screen.getByTestId('attendee-add-btn'))
+  await user.click(await screen.findByTestId('attendee-picker-department-10'))
+  await user.click(await screen.findByTestId('attendee-group-add'))
+
+  // 다 찼다 — 고르기 창 아래에 까닭을 보이고, 사람을 골라도 넣지 않는다
+  expect(await screen.findByTestId('attendee-limit-full')).toHaveTextContent('참석자는 500명까지라 더 넣을 수 없습니다')
+  const popover = screen.getByTestId('attendee-picker-search')
+  fireEvent.change(within(popover).getByLabelText('사람·팀 검색'), { target: { value: '홍' } })
+  await user.click(await screen.findByTestId('attendee-picker-person-2', {}, { timeout: 3000 }))
+  expect(screen.queryByTestId('attendee-selected-2')).not.toBeInTheDocument()
+
+  // 다른 조직을 고르면 남은 자리 0 — 「-N명만」이 아니라 더 넣을 수 없다고 알린다
+  fireEvent.change(within(popover).getByLabelText('사람·팀 검색'), { target: { value: '' } })
+  await user.click(await screen.findByTestId('attendee-picker-personal-group-20'))
+  expect(await screen.findByTestId('attendee-group-confirm-detail')).toHaveTextContent('참석자는 500명까지라 더 넣을 수 없습니다')
+})
+
 test('새 일정: 조직 확인을 취소하면 아무도 넣지 않는다(WP-1059)', async () => {
   const { user } = renderEventDialog(null, [memberSearch, ...groupHandlers, ...calendarHandlers({ calendars: CALENDARS })])
   await user.click(screen.getByTestId('attendee-add-btn'))

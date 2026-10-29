@@ -48,6 +48,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -247,17 +248,13 @@ public class CalendarEventService {
     attendeeUserIds.add(callerId);
 
     // 초대 참석자 삽입(주최자 중복·null 건너뜀). AGENT 사용자는 ACCEPTED 강제, HUMAN 은 NEEDS_ACTION.
-    for (Long uid : req.attendeeUserIdsOrEmpty()) {
-      if (uid == null || uid == callerId) continue;
-      String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
-      boolean added = attendeeRepo.insert(id, uid, callerId, "ATTENDEE", status);
-      attendeeUserIds.add(uid);
-      // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
-      // 요청 목록에 같은 사람이 두 번 있어도 알림은 한 번(WP-540).
-      if (added && notifyAttendees && !isAgent(uid)) {
-        eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(id, uid, callerId));
-      }
-    }
+    // 큰 조직을 한 번에 넣어도 사람 수만큼 조회·삽입하지 않게 종류 조회·삽입을 한 번씩 한다(WP-1112).
+    Invitees invitees = invitees(callerId, req.attendeeUserIdsOrEmpty());
+    Set<Long> added = attendeeRepo.insertAll(id, invitees.rsvp(), callerId, "ATTENDEE");
+    attendeeUserIds.addAll(invitees.rsvp().keySet());
+    // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
+    // 요청 목록에 같은 사람이 두 번 있어도 알림은 한 번(WP-540).
+    if (notifyAttendees) publishInvited(id, callerId, invitees, added);
     // 생성 → 소유자 + 내부 참석자에게 resource.changed (외부 쓰기 분기의 로컬 저장도 이 메서드를 거친다).
     changeNotifier.eventChanged(
         ResourceChangedEvent.OP_CREATED, id, callerId, attendeeUserIds, callerId);
@@ -1167,20 +1164,15 @@ public class CalendarEventService {
         s -> {
           // 반복 일정이면 「이 일정만」 고친 회차(오버라이드)에도 같이 넣는다(WP-536) — 오버라이드는 만들 때 마스터 참석자를 복사한
           // 별도 일정이라, 마스터에만 넣으면 새 참석자가 고친 회차를 보지 못한다. 알림은 일정당 한 번(마스터)만.
-          List<Long> overrideIds = exceptionRepo.overrideEventIds(eventId);
-          for (Long uid : userIds) {
-            if (uid == null || uid == callerId) continue;
-            String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
-            boolean added = attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
-            for (long overrideId : overrideIds) {
-              attendeeRepo.insert(overrideId, uid, callerId, "ATTENDEE", status);
-            }
-            // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
-            // 이미 참석자였던 사람(행이 그대로)에게는 다시 보내지 않는다(WP-540).
-            if (added && notifyAttendees && !isAgent(uid)) {
-              eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
-            }
+          // 사람마다가 아니라 일정(마스터·회차)마다 한 번씩 넣는다(WP-1112).
+          Invitees invitees = invitees(callerId, userIds);
+          Set<Long> added = attendeeRepo.insertAll(eventId, invitees.rsvp(), callerId, "ATTENDEE");
+          for (long overrideId : exceptionRepo.overrideEventIds(eventId)) {
+            attendeeRepo.insertAll(overrideId, invitees.rsvp(), callerId, "ATTENDEE");
           }
+          // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
+          // 이미 참석자였던 사람(행이 그대로)에게는 다시 보내지 않는다(WP-540).
+          if (notifyAttendees) publishInvited(eventId, callerId, invitees, added);
           publishEventChanged(
               ResourceChangedEvent.OP_UPDATED,
               eventId,
@@ -1301,29 +1293,36 @@ public class CalendarEventService {
   private List<GraphAttendeeWrite> buildGraphAttendees(
       long eventId, List<Long> addUserIds, Long excludeUserId) {
     List<GraphAttendeeWrite> out = new ArrayList<>();
-    for (var r : attendeeRepo.findByEvent(eventId)) {
+    List<AttendeeRow> rows = attendeeRepo.findByEvent(eventId);
+    // 기존·새 내부 참석자를 한 번에 조회한다 — 큰 조직 초대에서 사람마다 조회하지 않게(WP-1112).
+    List<Long> lookup = new ArrayList<>();
+    rows.stream().map(AttendeeRow::userId).filter(Objects::nonNull).forEach(lookup::add);
+    addUserIds.stream().filter(Objects::nonNull).forEach(lookup::add);
+    Map<Long, UserResponse> users =
+        userRepo.findByIds(lookup.stream().distinct().toList()).stream()
+            .collect(Collectors.toMap(UserResponse::id, u -> u));
+    for (var r : rows) {
       if ("ORGANIZER".equals(r.role())) continue;
       if (excludeUserId != null && excludeUserId.equals(r.userId())) continue;
       if (r.userId() != null) {
         if ("AGENT".equals(r.kind())) continue; // AGENT 는 Graph 미전송
-        userRepo
-            .findById(r.userId())
-            .ifPresent(
-                u ->
-                    out.add(
-                        new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required")));
+        UserResponse u = users.get(r.userId());
+        if (u != null) {
+          out.add(new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required"));
+        }
       } else {
         out.add(new GraphAttendeeWrite(new GraphEmail(r.name(), r.externalEmail()), "required"));
       }
     }
+    // 이미 참석자(주최자 포함)이거나 요청에 두 번 있는 사람은 공급자 목록에 다시 싣지 않는다 — 같은 주소가 두 번 가지 않게.
+    Set<Long> listed = new HashSet<>();
+    rows.stream().map(AttendeeRow::userId).filter(Objects::nonNull).forEach(listed::add);
     for (Long uid : addUserIds) {
-      if (uid == null) continue;
-      userRepo
-          .findById(uid)
-          .filter(u -> !"AGENT".equals(u.kind()))
-          .ifPresent(
-              u ->
-                  out.add(new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required")));
+      if (uid == null || !listed.add(uid)) continue;
+      UserResponse u = users.get(uid);
+      if (u != null && !"AGENT".equals(u.kind())) {
+        out.add(new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required"));
+      }
     }
     return out;
   }
@@ -1864,6 +1863,39 @@ public class CalendarEventService {
   private void requireOrganizer(long callerId, long id) {
     if (attendeeRepo.isNonOrganizer(id, callerId)) {
       throw new EventNotOrganizerException();
+    }
+  }
+
+  /**
+   * 초대할 내부 참석자와 RSVP 초기값(WP-1112) — null·주최자 본인·중복을 빼고 요청 순서대로. AGENT 는 ACCEPTED, 그 밖(없는 id 포함)은
+   * NEEDS_ACTION. 사람 종류는 한 번에 조회한다.
+   */
+  private Invitees invitees(long callerId, List<Long> userIds) {
+    List<Long> ids =
+        userIds.stream()
+            .filter(Objects::nonNull)
+            .filter(uid -> uid != callerId)
+            .distinct()
+            .toList();
+    Set<Long> agents =
+        userRepo.findByIds(ids).stream()
+            .filter(u -> "AGENT".equals(u.kind()))
+            .map(UserResponse::id)
+            .collect(Collectors.toSet());
+    Map<Long, String> rsvp = new LinkedHashMap<>();
+    for (Long uid : ids) rsvp.put(uid, agents.contains(uid) ? "ACCEPTED" : "NEEDS_ACTION");
+    return new Invitees(rsvp, agents);
+  }
+
+  /** 초대할 참석자(요청 순서) → RSVP 초기값과, 그중 AGENT. */
+  private record Invitees(Map<Long, String> rsvp, Set<Long> agents) {}
+
+  /** 새로 들어간 HUMAN 참석자에게만 초대 알림 이벤트를 낸다 — AGENT 와 이미 참석자였던 사람은 빼고, 요청 순서대로. */
+  private void publishInvited(long eventId, long callerId, Invitees invitees, Set<Long> added) {
+    for (Long uid : invitees.rsvp().keySet()) {
+      if (added.contains(uid) && !invitees.agents().contains(uid)) {
+        eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
+      }
     }
   }
 

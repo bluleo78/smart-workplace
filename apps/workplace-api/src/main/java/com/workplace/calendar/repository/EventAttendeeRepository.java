@@ -7,7 +7,9 @@ import static com.workplace.jooq.Tables.USER;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -62,6 +64,35 @@ public class EventAttendeeRepository {
             .doNothing()
             .execute()
         > 0;
+  }
+
+  /**
+   * 내부 참석자 여러 명을 한 번에 삽입(WP-1112) — 큰 조직을 한꺼번에 초대할 때 사람마다 INSERT 하지 않게 한 문장으로 넣는다. 이미 참석자인 사람은 그대로
+   * 둔다(ON CONFLICT DO NOTHING).
+   *
+   * @param rsvpByUser 넣을 사람 → RSVP 초기값(빈 맵이면 아무것도 하지 않는다)
+   * @return 새로 넣은 user_id(이미 참석자라 무시된 사람은 빠진다 — 초대 알림을 새 참석자에게만 보내려고, WP-540)
+   */
+  public Set<Long> insertAll(
+      long eventId, Map<Long, String> rsvpByUser, Long invitedByUserId, String role) {
+    if (rsvpByUser.isEmpty()) return Set.of();
+    var insert =
+        dsl.insertInto(
+            EVENT_ATTENDEE,
+            EVENT_ATTENDEE.EVENT_ID,
+            EVENT_ATTENDEE.USER_ID,
+            EVENT_ATTENDEE.INVITED_BY_USER_ID,
+            EVENT_ATTENDEE.ROLE,
+            EVENT_ATTENDEE.RSVP_STATUS);
+    for (var e : rsvpByUser.entrySet()) {
+      insert = insert.values(eventId, e.getKey(), invitedByUserId, role, e.getValue());
+    }
+    return new HashSet<>(
+        insert
+            .onConflict(EVENT_ATTENDEE.EVENT_ID, EVENT_ATTENDEE.USER_ID)
+            .doNothing()
+            .returning(EVENT_ATTENDEE.USER_ID)
+            .fetch(EVENT_ATTENDEE.USER_ID));
   }
 
   /**

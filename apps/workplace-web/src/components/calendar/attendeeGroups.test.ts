@@ -42,4 +42,11 @@ describe('확인 줄 문구', () => {
     const plan = planGroupExpansion([hit(3, '김민수'), hit(4, '이서연')], [], 1, 1)
     expect(groupInviteDetail(plan)).toBe(`참석자는 ${ATTENDEE_LIMIT}명까지라 1명만 더 넣을 수 있습니다`)
   })
+
+  test('남은 자리가 0 이하면 음수 대신 더 넣을 수 없다고 알린다(WP-1112)', () => {
+    const hits = [hit(3, '김민수'), hit(4, '이서연')]
+    for (const capacity of [0, -3]) {
+      expect(groupInviteDetail(planGroupExpansion(hits, [], 1, capacity))).toBe(`참석자는 ${ATTENDEE_LIMIT}명까지라 더 넣을 수 없습니다`)
+    }
+  })
 })

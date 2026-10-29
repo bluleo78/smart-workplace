@@ -20,10 +20,13 @@ export function groupInviteTitle(groupName: string, plan: GroupExpansionPlan): s
 export function groupInviteDetail(plan: GroupExpansionPlan): string {
   if (plan.toAdd.length === 0) return ''
   // 만들기에서 이미 고른 사람이 있으면 한도보다 남은 자리가 적다 — 왜 막혔는지 알 수 있게 남은 자리를 함께 알린다.
-  if (isOverLimit(plan))
+  // 남은 자리가 없으면(만들기에서 이미 한도만큼 골랐다) 「0명만·-3명만」이 아니라 더 넣을 수 없다고 알린다(WP-1112).
+  if (isOverLimit(plan)) {
+    if (plan.capacity <= 0) return `참석자는 ${ATTENDEE_LIMIT}명까지라 더 넣을 수 없습니다`
     return plan.capacity < ATTENDEE_LIMIT
       ? `참석자는 ${ATTENDEE_LIMIT}명까지라 ${plan.capacity}명만 더 넣을 수 있습니다`
       : `한 번에 ${ATTENDEE_LIMIT}명까지 넣을 수 있습니다`
+  }
   const excluded = [plan.skipped > 0 ? `이미 있는 ${plan.skipped}명` : '', plan.meIncluded ? '나' : ''].filter(Boolean)
   return [excluded.length > 0 ? `${excluded.join('·')} 제외` : '', '넣은 뒤 한 명씩 뺄 수 있습니다'].filter(Boolean).join(' · ')
 }
