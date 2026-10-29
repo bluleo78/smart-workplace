@@ -154,6 +154,50 @@ class InactiveMemberMessagingTest extends IntegrationTestBase {
         .hasMessage("비활성화된 구성원은 채널에 초대할 수 없습니다");
   }
 
+  /** WP-1148: 웹은 정지된 사람에게 소유자 선택지를 빼지만(WP-1131) API 는 열려 있었다 — 넘기면 관리할 사람이 없는 채널이 된다. */
+  @Test
+  void transferOwnershipToSuspendedMember_isRejected_andOwnerStays() {
+    long owner = seedUser();
+    long member = seedUser();
+    var ch =
+        channelService.create(
+            owner, "정지이전-" + UUID.randomUUID().toString().substring(0, 6), "PUBLIC");
+    memberService.add(owner, ch.id(), member);
+    suspend(member);
+
+    assertThatThrownBy(() -> memberService.updateRole(owner, ch.id(), member, "OWNER"))
+        .isInstanceOf(InactiveMemberException.class)
+        .hasMessage("비활성화된 구성원에게는 채널 소유권을 넘길 수 없습니다");
+    // 거절되면 아무것도 바뀌지 않는다 — 소유자는 그대로, 대상은 멤버 그대로.
+    var roles = memberService.listMembers(owner, ch.id());
+    assertThat(roles.stream().filter(m -> m.userId() == owner).findFirst().orElseThrow().role())
+        .isEqualTo("OWNER");
+    assertThat(roles.stream().filter(m -> m.userId() == member).findFirst().orElseThrow().role())
+        .isEqualTo("MEMBER");
+  }
+
+  /** 정지된 사람이라도 소유권 이전이 아닌 역할 변경(관리자↔멤버)은 지금처럼 된다 — 정리용으로 내리는 길은 막지 않는다. */
+  @Test
+  void demoteSuspendedAdmin_toMember_stillWorks() {
+    long owner = seedUser();
+    long admin = seedUser();
+    var ch =
+        channelService.create(
+            owner, "정지강등-" + UUID.randomUUID().toString().substring(0, 6), "PUBLIC");
+    memberService.add(owner, ch.id(), admin);
+    memberService.updateRole(owner, ch.id(), admin, "ADMIN");
+    suspend(admin);
+
+    memberService.updateRole(owner, ch.id(), admin, "MEMBER");
+    assertThat(
+            memberService.listMembers(owner, ch.id()).stream()
+                .filter(m -> m.userId() == admin)
+                .findFirst()
+                .orElseThrow()
+                .role())
+        .isEqualTo("MEMBER");
+  }
+
   @Test
   void channelMembers_carryWorkspaceActive() {
     long owner = seedUser();
