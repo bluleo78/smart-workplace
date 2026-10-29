@@ -17,6 +17,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.DefaultTenant;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.PersonNames;
+import com.workplace.global.util.RequestInfo;
 import com.workplace.global.util.Texts;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.repository.RoleRepository;
@@ -26,7 +27,6 @@ import com.workplace.tenant.repository.TenantRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
-import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -40,8 +40,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Service
 @RequiredArgsConstructor
@@ -148,9 +146,13 @@ public class AuthService {
   public LoginResult login(LoginRequest request) {
     // 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623, PasswordLoginVerifier).
     // 있는 계정의 실패는 감사 로그 「로그인 실패」로 남긴다(WP-1152) — 기록은 요청 스레드 밖에서 해 응답 시간이 갈리지 않는다.
+    // 요청 정보(IP·UA)는 계정이 있든 없든 검증 전에 뽑는다 — 있는 계정에서만 뽑으면 그만큼 응답 시간이 갈린다(WP-1161).
+    RequestInfo requestInfo = RequestInfo.current();
     UserResponse user =
         passwordLoginVerifier.verify(
-            request.username(), request.password(), loginFailureAuditor::recordFailed);
+            request.username(),
+            request.password(),
+            (failed, reason) -> loginFailureAuditor.recordFailed(failed, reason, requestInfo));
 
     if (!user.isActive()) {
       // 비활성화된 계정 접근 시 한국어 메시지 반환
@@ -391,32 +393,14 @@ public class AuthService {
    */
   private void logAuth(
       UserResponse user, Long tenantId, String action, String description, Object metadata) {
-    String[] requestInfo = extractRequestInfo();
-    if (tenantId == null) {
-      auditLogService.log(
-          user.id(),
-          user.username(),
-          action,
-          "auth",
-          null,
-          description,
-          requestInfo[0],
-          requestInfo[1],
-          "SUCCESS",
-          null,
-          metadata);
-      return;
-    }
-    auditLogService.logInTenant(
+    auditLogService.logInTenantOrGlobal(
         tenantId,
         user.id(),
         user.username(),
         action,
         "auth",
-        null,
         description,
-        requestInfo[0],
-        requestInfo[1],
+        RequestInfo.current(),
         "SUCCESS",
         null,
         metadata);
@@ -434,21 +418,6 @@ public class AuthService {
     LocalDateTime expiresAt =
         LocalDateTime.now().plusSeconds(jwtProperties.refreshExpiration() / 1000);
     refreshTokenRepository.save(userId, tokenHash, expiresAt, familyId);
-  }
-
-  /** HTTP 요청 컨텍스트에서 IP와 User-Agent를 추출한다. 감사 로그에 사용 */
-  private String[] extractRequestInfo() {
-    var attrs = RequestContextHolder.getRequestAttributes();
-    if (attrs instanceof ServletRequestAttributes sra) {
-      HttpServletRequest req = sra.getRequest();
-      String forwarded = req.getHeader("X-Forwarded-For");
-      String ip =
-          (forwarded != null && !forwarded.isBlank())
-              ? forwarded.split(",")[0].trim()
-              : req.getRemoteAddr();
-      return new String[] {ip, req.getHeader("User-Agent")};
-    }
-    return new String[] {null, null};
   }
 
   private String hashToken(String token) {

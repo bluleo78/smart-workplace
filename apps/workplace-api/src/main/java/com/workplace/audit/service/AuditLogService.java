@@ -4,18 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.dto.AuditLogResponse;
 import com.workplace.audit.repository.AuditLogRepository;
 import com.workplace.global.dto.PageResponse;
-import com.workplace.global.util.ClientIpExtractor;
+import com.workplace.global.util.RequestInfo;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.JSONB;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -42,7 +43,7 @@ public class AuditLogService {
       String errorMessage,
       Object metadata) {
     if (ipAddress == null) {
-      ipAddress = currentRequestIp();
+      ipAddress = RequestInfo.current().ip();
     }
     JSONB metadataJsonb = null;
     if (metadata != null) {
@@ -88,32 +89,79 @@ public class AuditLogService {
       String result,
       String errorMessage,
       Object metadata) {
+    return withTenantGuc(
+        String.valueOf(tenantId),
+        () ->
+            log(
+                userId,
+                username,
+                actionType,
+                resource,
+                resourceId,
+                description,
+                ipAddress,
+                userAgent,
+                result,
+                errorMessage,
+                metadata));
+  }
+
+  /** 현재 트랜잭션의 GUC 를 잠시 guc 로 바꿔 body 를 돌리고 이전 값으로 되돌린다. 이미 그 값이면 바꾸지 않는다(문장 둘을 아낀다). */
+  private Long withTenantGuc(String guc, Supplier<Long> body) {
     String previous = auditLogRepository.currentTenantGuc();
-    auditLogRepository.setTenantGuc(String.valueOf(tenantId));
+    if (guc.equals(previous == null ? "" : previous)) {
+      return body.get();
+    }
+    auditLogRepository.setTenantGuc(guc);
     try {
-      return log(
-          userId,
-          username,
-          actionType,
-          resource,
-          resourceId,
-          description,
-          ipAddress,
-          userAgent,
-          result,
-          errorMessage,
-          metadata);
+      return body.get();
     } finally {
       auditLogRepository.setTenantGuc(previous == null ? "" : previous);
     }
   }
 
-  /** 지금 스레드가 처리 중인 HTTP 요청의 클라이언트 IP(감사 열 길이로 자름). 요청 밖이면 null. */
-  private static String currentRequestIp() {
-    if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs) {
-      return ClientIpExtractor.forAudit(ClientIpExtractor.extract(attrs.getRequest()));
+  /**
+   * tenantId 가 있으면 그 워크스페이스의 감사로({@link #logInTenant}), 없으면 워크스페이스 없는 행(운영자 열람)으로 남긴다. 인증
+   * 감사(로그인·로그아웃·로그인 실패)가 들어갈 워크스페이스를 고르기 전일 수 있어 같은 분기를 호출부마다 되풀이하던 것을 모은다(WP-1161). tenantId 가 있으면
+   * 트랜잭션 안에서 불러야 한다.
+   */
+  public Long logInTenantOrGlobal(
+      Long tenantId,
+      Long userId,
+      String username,
+      String actionType,
+      String resource,
+      String description,
+      RequestInfo request,
+      String result,
+      String errorMessage,
+      Object metadata) {
+    Supplier<Long> write =
+        () ->
+            log(
+                userId,
+                username,
+                actionType,
+                resource,
+                null,
+                description,
+                request.ip(),
+                request.userAgent(),
+                result,
+                errorMessage,
+                metadata);
+    boolean inTx = TransactionSynchronizationManager.isActualTransactionActive();
+    if (tenantId != null) {
+      // 자기 호출이라 logInTenant 의 MANDATORY 가 프록시로 걸리지 않는다 — 같은 조건을 직접 지킨다. 트랜잭션 밖이면 GUC 바꾸기가 INSERT 와
+      // 다른
+      // 문장으로 흩어져 행이 엉뚱한 워크스페이스에 들어간다.
+      if (!inTx) {
+        throw new IllegalTransactionStateException("워크스페이스 감사는 트랜잭션 안에서 남겨야 합니다");
+      }
+      return withTenantGuc(String.valueOf(tenantId), write);
     }
-    return null;
+    // 트랜잭션 안이면 GUC 를 비워 워크스페이스 없는 행임을 못 박는다 — 커넥션에 남은 GUC(테스트 DB 의 세션 기본값 등)가 행을 엉뚱한 워크스페이스에 넣지 않게.
+    return inTx ? withTenantGuc("", write) : write.get();
   }
 
   @Transactional(readOnly = true)
