@@ -118,6 +118,8 @@ describe('채널 헤더·설정', () => {
     expect(await screen.findByTestId('rename-channel-name-error')).toHaveTextContent('이미 존재하는 채널 이름입니다: 다른채널')
     expect(screen.getByTestId('rename-channel-modal')).toBeInTheDocument()
     expect(screen.getByTestId('channel-header-name')).toHaveTextContent('구이름')
+    // WP-1150: 같은 오류를 토스트로 또 띄우지 않는다 — 문구는 입력칸 아래 한 곳에만.
+    expect(screen.getAllByText('이미 존재하는 채널 이름입니다: 다른채널')).toHaveLength(1)
   })
 
   // #142·WP-525: 삭제 확인은 destructive 버튼이고, 연동 드라이브 파일도 지워진다고 알린다. 시스템 ADMIN 은 MEMBER 여도 삭제할 수 있다.
