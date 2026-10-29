@@ -6,7 +6,11 @@ import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.ai.SharedAiMemoryReader;
 import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.dto.MentionResponse;
+import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.ChatMarkdownText;
+import com.workplace.global.util.MentionParser;
+import com.workplace.global.util.Texts;
 import com.workplace.messaging.dto.ChannelCatchupResponse;
 import com.workplace.messaging.dto.ChannelCatchupResponse.MentionItem;
 import com.workplace.messaging.dto.ChannelCatchupResponse.SummaryGroup;
@@ -63,6 +67,9 @@ public class ChannelCatchupService {
    */
   private final TransactionTemplate readTx;
 
+  /** 「내 차례」 미리보기의 멘션 토큰(<@id>)을 이름으로 풀 사전 — 대화 목록·스레드 인박스와 같은 hydrator(WP-1188). */
+  private final UserMentionHydrator mentionHydrator;
+
   public ChannelCatchupService(
       MessageRepository messageRepo,
       ChannelMemberRepository memberRepo,
@@ -71,7 +78,8 @@ public class ChannelCatchupService {
       AssistantResolver assistantResolver,
       AiMemoryReader memoryReader,
       PlatformTransactionManager txManager,
-      SharedAiMemoryReader sharedReader) {
+      SharedAiMemoryReader sharedReader,
+      UserMentionHydrator mentionHydrator) {
     this.messageRepo = messageRepo;
     this.memberRepo = memberRepo;
     this.catchupClient = catchupClient;
@@ -79,6 +87,7 @@ public class ChannelCatchupService {
     this.assistantResolver = assistantResolver;
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
+    this.mentionHydrator = mentionHydrator;
     this.readTx = new TransactionTemplate(txManager);
     this.readTx.setReadOnly(true);
   }
@@ -167,7 +176,7 @@ public class ChannelCatchupService {
             ? messageRepo.listUnreadMentioningBefore(
                 channelId, since, unread.getFirst().id(), callerId, MENTION_LIMIT)
             : List.of();
-    List<MentionItem> yourTurn =
+    List<RecentUnread> turns =
         Stream.concat(
                 olderMentions.stream(),
                 unread.stream()
@@ -175,7 +184,17 @@ public class ChannelCatchupService {
                         m ->
                             (m.mentions() != null && m.mentions().contains(callerId))
                                 || (memberCount == 2 && m.authorId() != callerId)))
-            .map(m -> new MentionItem(m.id(), m.authorName(), snippet(m.body())))
+            .toList();
+    // 미리보기 본문의 멘션 이름 — 내 차례 전체의 멘션 id 를 한 번에 조회한다(N+1 방지).
+    List<MentionResponse> names =
+        mentionHydrator.asMentionResponses(
+            turns.stream()
+                .flatMap(m -> MentionParser.parse(m.body()).stream())
+                .distinct()
+                .toList());
+    List<MentionItem> yourTurn =
+        turns.stream()
+            .map(m -> new MentionItem(m.id(), m.authorName(), snippet(m.body(), names)))
             .toList();
     return new Snapshot(maxId, unreadCount, unread, yourTurn);
   }
@@ -203,12 +222,15 @@ public class ChannelCatchupService {
         .toList();
   }
 
-  private static String snippet(String body) {
+  private static String snippet(String body, List<MentionResponse> names) {
     if (body == null) {
       return "";
     }
-    // 「내 차례」 목록에 보이는 미리보기라 서식 기호(**·<u> 등, WP-101)를 지운 글자만 싣는다. 멘션 토큰은 웹이 풀어 그린다.
-    String plain = ChatMarkdownText.toPlain(body);
-    return plain.length() <= SNIPPET_MAX ? plain : plain.substring(0, SNIPPET_MAX) + "…";
+    // 「내 차례」 목록에 보이는 미리보기라 서식 기호(**·<u> 등, WP-101)를 지운 글자만 싣는다. 멘션 토큰(<@id>)은 @이름으로 바꾼다 — 웹은 미리보기를
+    // 글자 그대로 그려 원문 토큰이 보였다(WP-1188). 서식을 먼저 지운다 — 바꾼 뒤 지우면 이름 속 * · ~ 까지 서식으로 오인한다(대화 목록 미리보기와 같은
+    // 순서).
+    String plain = MentionParser.replaceWithNames(ChatMarkdownText.toPlain(body), names);
+    // 글자(코드 포인트) 단위로 자른다 — 이름을 펼치면 자르는 자리가 움직여 이모지 한가운데를 자르면 깨진 글자가 됐다.
+    return Texts.truncateCodePoints(plain, SNIPPET_MAX);
   }
 }
