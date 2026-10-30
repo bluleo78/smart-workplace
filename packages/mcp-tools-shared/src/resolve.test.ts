@@ -76,6 +76,15 @@ describe('resolveTypeId', () => {
   it('유형 이름을 id 로 변환한다', async () => {
     await expect(resolveTypeId(client(), 'WP', 'BUG')).resolves.toBe(2);
   });
+  it('시스템 유형은 화면 이름·소문자 코드로도 찾는다(WP-1223)', async () => {
+    await expect(resolveTypeId(client(), 'WP', '버그')).resolves.toBe(2);
+    await expect(resolveTypeId(client(), 'WP', ' bug ')).resolves.toBe(2);
+  });
+  it('사용자 유형은 대소문자까지 정확히 — 프로토타입 키 같은 값도 목록 오류로', async () => {
+    const c = { getProjectTypes: vi.fn().mockResolvedValue([{ id: 1, name: 'TASK' }, { id: 7, name: 'Design' }]) };
+    await expect(resolveTypeId(c, 'WP', 'design')).rejects.toThrow('사용 가능: TASK, Design');
+    await expect(resolveTypeId(c, 'WP', 'constructor')).rejects.toThrow("유형 'constructor' 을(를) 찾을 수 없습니다");
+  });
   it('없는 유형이면 유효 목록을 담아 throw', async () => {
     await expect(resolveTypeId(client(), 'WP', 'EPIC')).rejects.toThrow(
       "유형 'EPIC' 을(를) 찾을 수 없습니다. 사용 가능: TASK, BUG",
