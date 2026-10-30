@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
+import static com.workplace.jooq.Tables.CALENDAR_TAG;
 import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
@@ -14,6 +16,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -56,6 +59,7 @@ public class AccountPurgeService {
     // 순서: (1) 삭제 전 content_id·blob 해시 후보 수집 → (2) 계정 하드삭제(cascade: 메시지·첨부·캘린더·일정)
     //       → (3) 고아 본문 GC(→content_attachment cascade) → (4) 고아 blob DB 행 삭제(+fileRef 수집)
     //       → (5) 참조가 0 이 된 미리보기 행 삭제 + 같은 트랜잭션에서 그 파일 삭제(WP-432). 다른 계정이 같은 해시를 아직 참조하면 남는다.
+    //       → (6) 일정이 하나도 남지 않은 Outlook 범주 태그 정리(WP-1220).
     List<String> orphanFileRefs =
         new TransactionTemplate(txManager)
             .execute(
@@ -83,6 +87,7 @@ public class AccountPurgeService {
                   // 미리보기 파일은 행 잠금을 쥔 이 트랜잭션 안에서 지운다 — 커밋 뒤에 지우면 그 사이 같은 해시를 다시 선점·변환한
                   // 작업의 결과(결정적 경로라 같은 위치)를 지울 수 있다. 선점 업서트는 이 커밋까지 기다린다.
                   previewRepo.deleteUnreferenced(candidateHashes).forEach(fileStore::deleteQuietly);
+                  deleteOrphanCategoryTags(userId);
                   return refs;
                 });
 
@@ -95,5 +100,27 @@ public class AccountPurgeService {
         accountId,
         userId,
         orphanFileRefs == null ? 0 : orphanFileRefs.size());
+  }
+
+  /**
+   * 계정 하드삭제로 일정·연결이 CASCADE 로 사라진 뒤, 남은 연결이 하나도 없는 이 사용자의 Outlook 범주 태그를 지운다(WP-1220). 그대로 두면 태그
+   * 목록에 「일정 0개」 태그로 남는다.
+   *
+   * <p>지우는 것은 동기화가 새로 만든 태그(origin=OUTLOOK)뿐이다 — 사용자가 만든 태그(동기화가 같은 이름으로 재사용한 것 포함)·사용자가 손본 태그는 APP
+   * 이라 남는다. 다른 계정의 일정이나 앱에서 붙인 일정이 남은 태그, 구독 주소를 만든 태그도 남긴다. 캘린더 도메인 코드를 들이지 않고 앞 단계처럼 테이블을 직접
+   * 다룬다(도메인 간 직접 의존 금지).
+   */
+  private void deleteOrphanCategoryTags(long userId) {
+    int deleted =
+        dsl.deleteFrom(CALENDAR_TAG)
+            .where(CALENDAR_TAG.USER_ID.eq(userId))
+            .and(CALENDAR_TAG.ORIGIN.eq("OUTLOOK"))
+            .and(CALENDAR_TAG.FEED_TOKEN.isNull())
+            .andNotExists(
+                DSL.selectOne()
+                    .from(CALENDAR_EVENT_TAG)
+                    .where(CALENDAR_EVENT_TAG.TAG_ID.eq(CALENDAR_TAG.ID)))
+            .execute();
+    if (deleted > 0) log.info("계정 purge — 일정 없는 Outlook 범주 태그 {}개 정리 userId={}", deleted, userId);
   }
 }
