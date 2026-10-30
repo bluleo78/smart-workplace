@@ -16,10 +16,9 @@
 import { newShotContext } from '../lib/capture-kit.mjs';
 import { BOOKS } from '../lib/books.mjs';
 import { OPERATOR } from '../lib/operator-seed.mjs';
-import { capture, closeDialog, openDialog } from '../lib/scene-kit.mjs';
+import { byTestId, capture, closeDialog, openDialog, WEB } from '../lib/scene-kit.mjs';
 
 const ACCOUNT = OPERATOR.username;
-const WEB = () => process.env.MANUAL_WEB; // capture.mjs 가 촬영 전에 있는지 확인한다
 
 // 테넌트 이름 → id. 목록은 한 번만 받아 두고, 모르는 이름이면(실행 중에 만든 테넌트 등) 다시 받는다.
 let tenantIds = new Map();
@@ -48,7 +47,6 @@ const infoCard = (page) => page.locator('[data-slot=card]').filter({ has: page.g
 // 목록 화면 머리(제목 + 테넌트 생성 + 보기 전환)와 표.
 const listHeader = (page) => [page.getByRole('heading', { name: '테넌트', exact: true }), page.getByTestId('create-tenant-button'), page.getByRole('group', { name: '테넌트 보기' })];
 const listTable = (page) => page.locator('table').first();
-const byTestId = (page, id) => page.getByTestId(id);
 
 export const scenes = [
   // ── 01 소개와 로그인 ──
@@ -68,7 +66,7 @@ export const scenes = [
           username: byTestId(p, 'login-username'),
           password: byTestId(p, 'login-password'),
           submit: byTestId(p, 'login-submit'),
-        });
+        }, { pad: 0 });
       } finally {
         await ctx.close();
       }
@@ -79,7 +77,7 @@ export const scenes = [
     account: ACCOUNT,
     async run({ page, rec }) {
       await openList(page);
-      await capture(page, rec, 'introduction-2', { tenants: byTestId(page, 'admin-nav-테넌트'), user: byTestId(page, 'admin-user-menu') });
+      await capture(page, rec, 'introduction-2', { tenants: byTestId(page, 'admin-nav-테넌트'), user: byTestId(page, 'admin-user-menu') }, { pad: 0 });
     },
   },
   {
@@ -95,7 +93,7 @@ export const scenes = [
         trigger: byTestId(page, 'admin-user-menu'),
         theme: page.getByRole('menuitem', { name: '테마 전환' }),
         logout: page.getByRole('menuitem', { name: '로그아웃' }),
-      });
+      }, { pad: 0 });
       await page.keyboard.press('Escape');
     },
   },
@@ -111,7 +109,7 @@ export const scenes = [
         table: listTable(page),
         toggle: page.getByRole('group', { name: '테넌트 보기' }),
         row: byTestId(page, 'tenant-row').filter({ hasText: '누리커머스' }),
-      });
+      }, { pad: 0 });
     },
   },
   {
@@ -131,7 +129,7 @@ export const scenes = [
         owner: byTestId(page, 'create-tenant-owner'),
         check: byTestId(page, 'create-tenant-owner-check'),
         submit: byTestId(page, 'create-tenant-submit'),
-      });
+      }, { pad: 0 });
       await closeDialog(page); // 제출하지 않는다
     },
   },
@@ -144,7 +142,7 @@ export const scenes = [
         card: infoCard(page),
         quota: byTestId(page, 'quota-section'),
         edit: byTestId(page, 'edit-tenant-button'),
-      });
+      }, { pad: 0 });
     },
   },
   {
@@ -160,7 +158,7 @@ export const scenes = [
         name: byTestId(page, 'edit-tenant-name'),
         slug: byTestId(page, 'edit-tenant-slug'),
         save: byTestId(page, 'edit-tenant-submit'),
-      });
+      }, { pad: 0 });
       await closeDialog(page);
     },
   },
@@ -177,7 +175,7 @@ export const scenes = [
         members: section,
         add: byTestId(page, 'add-member-button'),
         table: section.locator('table'),
-      });
+      }, { pad: 0 });
     },
   },
   {
@@ -196,7 +194,7 @@ export const scenes = [
         found: byTestId(page, 'add-member-found-card'),
         role: byTestId(page, 'add-member-role'),
         submit: byTestId(page, 'add-member-submit'),
-      });
+      }, { pad: 0 });
       await closeDialog(page);
     },
   },
@@ -218,7 +216,7 @@ export const scenes = [
         password: byTestId(page, 'add-member-password'),
         role: byTestId(page, 'add-member-role'),
         submit: byTestId(page, 'add-member-submit'),
-      });
+      }, { pad: 0 });
       await closeDialog(page);
     },
   },
@@ -229,7 +227,7 @@ export const scenes = [
     account: ACCOUNT,
     async run({ page, rec, api }) {
       await openTenant(page, api, '한빛물류');
-      await capture(page, rec, 'tenant-lifecycle-1', { card: infoCard(page), suspend: byTestId(page, 'suspend-button') });
+      await capture(page, rec, 'tenant-lifecycle-1', { card: infoCard(page), suspend: byTestId(page, 'suspend-button') }, { pad: 0 });
     },
   },
   {
@@ -241,7 +239,7 @@ export const scenes = [
         card: infoCard(page),
         status: infoCard(page).getByTestId('tenant-status'),
         activate: byTestId(page, 'activate-button'),
-      });
+      }, { pad: 0 });
     },
   },
   {
@@ -251,7 +249,7 @@ export const scenes = [
       await openTenant(page, api, '다온헬스케어');
       const danger = byTestId(page, 'danger-zone');
       await danger.scrollIntoViewIfNeeded();
-      await capture(page, rec, 'tenant-lifecycle-3', { danger, delete: byTestId(page, 'delete-button') });
+      await capture(page, rec, 'tenant-lifecycle-3', { danger, delete: byTestId(page, 'delete-button') }, { pad: 0 });
     },
   },
   {
@@ -260,7 +258,7 @@ export const scenes = [
     async run({ page, rec, api }) {
       await openTenant(page, api, '다온헬스케어');
       const d = await openDialog(page, 'delete-button');
-      await capture(page, rec, 'tenant-lifecycle-4', { dialog: d, confirm: byTestId(page, 'confirm-delete') });
+      await capture(page, rec, 'tenant-lifecycle-4', { dialog: d, confirm: byTestId(page, 'confirm-delete') }, { pad: 0 });
       await closeDialog(page); // 확정하지 않는다
     },
   },
@@ -274,7 +272,7 @@ export const scenes = [
         banner: byTestId(page, 'tenant-deleted-banner'),
         card: infoCard(page),
         restore: byTestId(page, 'restore-button'),
-      });
+      }, { pad: 0 });
     },
   },
   {
@@ -304,7 +302,7 @@ export const scenes = [
         dialog: d,
         input: byTestId(page, 'purge-confirm-input'),
         confirm: byTestId(page, 'purge-confirm'),
-      });
+      }, { pad: 0 });
 
       await byTestId(page, 'purge-confirm').click();
       const banner = byTestId(page, 'tenant-purging-banner');
@@ -313,7 +311,7 @@ export const scenes = [
         banner,
         card: infoCard(page),
         status: infoCard(page).getByTestId('tenant-status'),
-      });
+      }, { pad: 0 });
 
       // 삭제됨 목록 — 방금 영구 삭제를 시작한 테넌트가 「영구 삭제 중…」 으로 함께 보인다.
       await openList(page, '?view=deleted');
@@ -323,7 +321,7 @@ export const scenes = [
         table: listTable(page),
         toggle: byTestId(page, 'tenant-view-deleted'),
         rows: page.locator('tbody'),
-      });
+      }, { pad: 0 });
     },
   },
 ];

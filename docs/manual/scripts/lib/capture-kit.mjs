@@ -5,7 +5,7 @@ import { access, mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ROOT } from './books.mjs';
 import { writeBoxesDoc } from './boxes-file.mjs';
-import { unionBoxes } from './figure.mjs';
+import { cropRect, unionBoxes } from './figure.mjs';
 
 // 촬영 규격: 1440x810 뷰포트, 배율 2 → 원본 2880x1620 (docs/intro 소개서와 같다).
 // 책 설정이 capture.viewport 를 주면 그 뷰포트로 찍는다(운영자 콘솔 — books.mjs 의 이유 참고). 배율은 같다.
@@ -22,6 +22,26 @@ const SHOT_STYLE = `
   }
 `;
 const DPR = 2;
+
+/**
+ * 가림(redact) 영역 — 남길 사각형(원본 px) 밖을 덮는 사각형들을 CSS px 로 돌려준다(위·아래·왼쪽·오른쪽 띠, 넓이 0 은 뺀다).
+ * 실제 계정을 찍는 장면(M365 메일·캘린더)은 원본 PNG 자체에 매뉴얼 그림 밖의 실제 정보가 남으면 안 된다 —
+ * 그림은 빌드 때 잘라 보이지만 저장소에는 원본 전체가 커밋되기 때문이다.
+ */
+export function redactRects(keep, shotW, shotH, dpr = DPR) {
+  const k = { x: keep.x / dpr, y: keep.y / dpr, x2: (keep.x + keep.w) / dpr, y2: (keep.y + keep.h) / dpr };
+  const W = shotW / dpr;
+  const H = shotH / dpr;
+  return [
+    { x: 0, y: 0, w: W, h: k.y },
+    { x: 0, y: k.y2, w: W, h: H - k.y2 },
+    { x: 0, y: k.y, w: k.x, h: k.y2 - k.y },
+    { x: k.x2, y: k.y, w: W - k.x2, h: k.y2 - k.y },
+  ].filter((r) => r.w > 0 && r.h > 0);
+}
+
+// 가림 덮개 색 — 화면 배경과 구분되는 옅은 회색(가린 자리임을 알 수 있게).
+const REDACT_COLOR = '#d4d4d8';
 
 /** Playwright boundingBox(CSS px) 를 원본 px 로 환산하고 반올림한다. */
 export function toOriginalBox(cssBox, dpr = DPR) {
@@ -61,9 +81,13 @@ export function unknownShotIds(only, scenes) {
   return [...only].filter((id) => !known.has(id));
 }
 
-/** MANUAL_SHOTS_ONLY 로 돌릴 장면을 고른다 — 장면 id 나 그 장면이 찍는 그림 id 가 하나라도 적혀 있으면 그 장면 전체를 돈다. only 가 없으면 전부. */
+/**
+ * MANUAL_SHOTS_ONLY 로 돌릴 장면을 고른다 — 장면 id 나 그 장면이 찍는 그림 id 가 하나라도 적혀 있으면 그 장면 전체를 돈다.
+ * only 가 없으면(전체 재촬영) `once: true` 장면은 뺀다 — 실제 AI 를 불러 결과가 매번 달라지는 장면이라 한 번 찍어 커밋한 그림을
+ * 고정해 두고, 이름을 직접 적었을 때만 다시 찍는다(AI 호출 수도 그때만 든다).
+ */
 export function selectScenes(only, scenes) {
-  if (!only) return scenes;
+  if (!only) return scenes.filter((s) => !s.once);
   return scenes.filter((s) => only.has(s.id) || sceneShots(s).some((id) => only.has(id)));
 }
 
@@ -153,33 +177,61 @@ export function createShotRecorder({
     async discard() {
       await drop();
     },
-    async shoot(page, id) {
+    /**
+     * { redact: [키...] } 를 주면 그 키들의 자르기 영역(그림 지시문 crop 과 같은 cropRect — 합집합 + 여백) 밖을 단색 덮개로 가리고 찍는다.
+     * 덮개는 찍은 뒤 걷는다. 매뉴얼 그림(자르기 안쪽)은 가리지 않을 때와 같다.
+     */
+    async shoot(page, id, { redact } = {}) {
       await mkdir(dir, { recursive: true });
-      // 바로 <id>.png 에 쓰지 않는다: 장면이 끝까지 성공해야 commit 이 제 이름으로 옮긴다.
-      // 입력 커서는 깜빡여 찍을 때마다 달라지므로 숨긴다(토스트·애니메이션은 컨텍스트 스타일이 이미 고정했다 — newShotContext).
-      await page.screenshot({ path: tmpPath(id), type: 'png', caret: 'hide' });
       const s = stage(id);
-      s.png = true;
       const vp = page.viewportSize();
       s.shot.w = vp.width * dpr;
       s.shot.h = vp.height * dpr;
+      if (redact?.length) {
+        const keep = cropRect(s.shot, redact, undefined, id);
+        await page.evaluate(
+          ({ rects, color }) => {
+            for (const r of rects) {
+              const el = document.createElement('div');
+              el.dataset.manualRedact = '';
+              el.style.cssText = `position:fixed;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:${color};z-index:2147483647;pointer-events:none`;
+              document.body.appendChild(el);
+            }
+          },
+          { rects: redactRects(keep, s.shot.w, s.shot.h, dpr), color: REDACT_COLOR },
+        );
+      }
+      // 바로 <id>.png 에 쓰지 않는다: 장면이 끝까지 성공해야 commit 이 제 이름으로 옮긴다.
+      // 입력 커서는 깜빡여 찍을 때마다 달라지므로 숨긴다(토스트·애니메이션은 컨텍스트 스타일이 이미 고정했다 — newShotContext).
+      // 찍다가 실패해도 덮개는 걷는다 — 같은 페이지를 다음 장면이 이어 쓴다.
+      try {
+        await page.screenshot({ path: tmpPath(id), type: 'png', caret: 'hide' });
+      } finally {
+        if (redact?.length) await page.evaluate(() => document.querySelectorAll('[data-manual-redact]').forEach((el) => el.remove()));
+      }
+      s.png = true;
       console.log(`  ${id}.png`);
     },
     /**
-     * 로케이터(여럿이면 합집합)의 위치를 기록한다. 화면에 없으면 오류 — 조용히 빠뜨리지 않는다.
+     * 로케이터(배열이면 합집합)의 위치를 기록한다. 화면에 없으면 오류 — 조용히 빠뜨리지 않는다.
      * 좌표는 그림(뷰포트) 경계로 자른다. 잘라서 남는 것이 없으면(완전히 화면 밖) 역시 화면에 없는 것으로 본다.
-     * 마지막 인자로 { pad } (CSS px)를 주면 상자를 사방으로 그만큼 넓힌다 — 글자 요소의 상자는 글자에 딱 붙거나 글자보다 좁아
+     * { pad } (CSS px)를 주면 상자를 사방으로 그만큼 넓힌다(음수면 줄인다) — 글자 요소의 상자는 글자에 딱 붙거나 글자보다 좁아
      * 빨간 테두리가 글자를 자르거나 덮는다. 넓힌 상자도 그림 경계로 자른다.
      */
-    async mark(id, key, ...args) {
-      const opts = args.length && typeof args.at(-1)?.first !== 'function' ? args.pop() : {};
-      const locators = args;
+    async mark(id, key, locators, { pad: padCss = 0 } = {}) {
+      locators = [locators].flat();
       const missing = () => new Error(`${id}:${key} 표시 대상이 화면에 없다`);
       // 없는 요소는 기본 30초를 기다리지 않고 3초 안에 같은 메시지로 실패시킨다.
       const found = await Promise.all(locators.map((l) => l.first().boundingBox({ timeout: 3000 }).catch(() => null)));
       if (found.length === 0 || found.some((b) => !b)) throw missing();
       const { shot } = stage(id);
-      const pad = Math.round((opts.pad ?? 0) * dpr);
+      // 장면이 뷰포트를 바꿔 찍으면(모바일 폭 등) 그 크기로 자른다 — 책 기본 뷰포트로 자르면 상자가 그림 밖으로 나간다.
+      const vp = typeof locators[0].page === 'function' ? locators[0].page().viewportSize() : null;
+      if (vp) {
+        shot.w = vp.width * dpr;
+        shot.h = vp.height * dpr;
+      }
+      const pad = Math.round(padCss * dpr);
       const grow = (b) => ({ x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
       const boxes = found.map((b) => clampBox(grow(toOriginalBox(b, dpr)), shot.w, shot.h));
       if (boxes.some((b) => !b)) throw missing();

@@ -4,18 +4,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPeople, PEOPLE as CAST } from '../../intro/scripts/seed-demo.mjs';
 import { isLocalHost } from './lib/operator-seed.mjs';
+import { createHash } from 'node:crypto';
+import { inflateSync } from 'node:zlib';
+import { makePdf, makePng } from './lib/sample-files.mjs';
 import {
+  AI_RUN,
+  APP_EXTRAS,
   checkFreshTenant,
   checkManualTarget,
   CHAT_CAL,
+  judgeGenie,
+  parseWaitMs,
+  pickBotIssues,
+  SCENE_ISSUES,
   EXTRAS,
   kstDay,
   loginIntoSlug,
   RESET_HINT,
+  runAiRun,
+  runAppExtrasOnly,
   runChatCalendarOnly,
   runExtrasOnly,
   runManualSeed,
   SeedRefusal,
+  seedAppExtras,
   seedChatCalendarExtras,
   seedManualExtras,
 } from './lib/user-seed.mjs';
@@ -212,6 +224,10 @@ const fakeSteps = (log) => ({
     log.push('chat-calendar');
     return { dmId: 9 };
   },
+  seedAppExtras: async () => {
+    log.push('app');
+    return { agent: 'release-bot' };
+  },
 });
 const run = (server, steps) =>
   runManualSeed({ client: server.client, slug: 'nuri-demo', password: PASS, people: CAST, agent: { username: 'genie', email: 'genie@example.com' }, projectKey: 'MOB', steps });
@@ -244,7 +260,7 @@ test('runManualSeed logs in the owner and every reused member before the first w
   const s = fakeServer({ accounts, humans });
   const log = [];
   const out = await run(s, fakeSteps(log));
-  assert.deepEqual(log, ['agent', 'content', 'extras', 'chat-calendar']); // 보강은 콘텐츠 뒤에
+  assert.deepEqual(log, ['agent', 'content', 'extras', 'chat-calendar', 'app']); // 보강은 콘텐츠 뒤에
   assert.deepEqual(out.extras, { dueToday: 14, overdue: 15 });
   const firstWrite = s.calls.findIndex(isWrite);
   const logins = s.calls.map((c, i) => [c, i]).filter(([c]) => c.path === '/auth/login');
@@ -488,6 +504,8 @@ test('runChatCalendarOnly logs in all five cast members once each before the fir
   const logins = s.calls.map((c, i) => [c, i]).filter(([c]) => c.path === '/auth/login');
   assert.deepEqual(logins.map(([c]) => c.user), CAST.map((p) => p.username));
   assert.ok(logins.every(([, i]) => i < firstWrite));
+  // 쓰기 전 조회(inspectChatCalendar)는 한 번만 한다 — 채널 목록 조회 횟수로 본다.
+  assert.equal(s.calls.filter((c) => c.method === 'GET' && c.path === '/messaging/channels').length, 1);
 });
 
 test('runChatCalendarOnly stops with nothing written on an already-filled or unseeded tenant', async () => {
@@ -495,4 +513,317 @@ test('runChatCalendarOnly stops with nothing written on an already-filled or uns
     await assert.rejects(runChatCal(s), SeedRefusal);
     assert.equal(s.calls.filter(isWrite).length, 0);
   }
+});
+
+// ── 05~16장 앱 장면 보강(WP-1197) ────────────────────────────────────────────
+
+test('makePdf builds a PDF whose startxref points at the xref table', () => {
+  const pdf = makePdf(['Beta test schedule', 'Week 1 (internal)']);
+  const text = pdf.toString('latin1');
+  assert.ok(text.startsWith('%PDF-1.4'));
+  assert.ok(text.trimEnd().endsWith('%%EOF'));
+  const xref = Number(text.match(/startxref\n(\d+)/)[1]);
+  assert.equal(text.slice(xref, xref + 4), 'xref');
+  assert.match(text, /\(Week 1 \\\(internal\\\)\) Tj/); // 괄호는 이스케이프한다
+});
+
+test('makePng output stays byte-identical (zlib.crc32 replaced the hand-written table)', () => {
+  const sha = (buf) => createHash('sha256').update(buf).digest('hex');
+  assert.equal(sha(makePng()), 'e66ecedcd814b5e6009026f3f5d7574c1086262a7fe84efb24ed1ac271dba071');
+  assert.equal(sha(makePng({ band: [220, 38, 38] })), '05a1614708a8cfec4344afc3dfe4fd6dc090aea5f22b69c8031e2f6ec95e5323');
+  assert.equal(sha(makePng({ width: 40, height: 10 })), '478abb91a2dfb39e246f92a39e2f4549dde1e624fb2a8ee7a9b3f721350def48');
+});
+
+test('makePng builds a PNG with the requested size and a decodable image', () => {
+  const png = makePng({ width: 40, height: 10 });
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.equal(png.readUInt32BE(16), 40);
+  assert.equal(png.readUInt32BE(20), 10);
+  const idatLen = png.readUInt32BE(33);
+  assert.equal(png.toString('latin1', 37, 41), 'IDAT');
+  assert.equal(inflateSync(png.subarray(41, 41 + idatLen)).length, (1 + 40 * 3) * 10);
+});
+
+/**
+ * 앱 장면 보강용 가짜 서버. present 에 든 표식은 이미 있는 상태로, missing 에 든 대상은 없는 상태로 응답한다.
+ * agentConflict 면 에이전트 생성이 409. 업로드는 client.upload 로 받아 기록한다(키 응답은 secret 값을 싣는다).
+ */
+function fakeApp({ present = [], missing = [], agentConflict = false } = {}) {
+  const calls = [];
+  let nextId = 900;
+  const A = APP_EXTRAS;
+  const has = (k) => present.includes(k);
+  const issues = A.versionIssues.map((title, i) => ({ id: 40 + i, number: 4 + i, title }));
+  const agents = has('agent') ? [{ id: 8, username: A.agent.username }] : [];
+  const fail = (method, path, status) => {
+    throw Object.assign(new Error(`${method} ${path} → ${status} {}`), { status });
+  };
+  const call = async (token, method, path, body, { allow = [] } = {}) => {
+    calls.push({ token, method, path, body, user: body?.username });
+    if (path === '/auth/login') {
+      return { accessToken: jwt({ sub: body.username, tenant: 7 }), memberships: [{ tenantId: 7, tenantName: '누리커머스', tenantSlug: 'nuri-demo' }] };
+    }
+    if (method === 'GET') {
+      if (path.startsWith('/users?')) return { content: CAST.map((p) => ({ id: IDS[p.key], username: p.username })), totalElements: 5 };
+      if (path === '/messaging/channels') {
+        return [
+          ...(missing.includes('channel') ? [] : [{ id: 1, name: A.channel }]),
+          { id: 2, name: A.noticeChannel },
+        ];
+      }
+      if (path === '/wiki/spaces') return [{ id: 10, type: 'TEAM', name: A.wikiSpace }, { id: 11, type: 'PERSONAL', name: '내 노트' }];
+      if (path === '/wiki/spaces/10/pages') return A.sharedPages.map((title, i) => ({ id: 60 + i, title }));
+      if (path === '/wiki/spaces/11/pages') return has('page') ? [{ id: 70, title: A.scratchPage }] : [];
+      if (path.startsWith('/projects/MOB/issues?')) return { items: issues, nextCursor: null, hasMore: false };
+      if (path === '/drive/spaces') return [{ id: 30, type: 'CHANNEL', name: A.channel }];
+      if (path === '/drive/spaces/30/items') return { folders: [], files: has('drive') ? [{ name: A.channelFiles[0].name }] : [] };
+      if (path === '/projects/MOB/versions') return has('version') ? [{ id: 1, name: A.version.name }] : [];
+      if (/^\/projects\/MOB\/issues\/\d+\/attachments$/.test(path)) return has('attachment') ? [{ originalName: A.issueAttachment.name }] : [];
+      if (path.startsWith('/messaging/channels/2/messages')) return { items: has('notice') ? [{ body: A.noticeMessage.body }] : [] };
+      if (/^\/wiki\/pages\/\d+\/share$/.test(path)) return { share: has('share') ? { audience: 'WORKSPACE' } : null };
+      if (path === '/user-groups') return { shared: has('group') ? [{ name: A.departments[0].name, children: [] }] : [], personal: [] };
+      if (path === '/roles') return [{ id: 3, name: 'AGENT' }, ...(has('role') ? [{ id: 7, name: A.role.name }] : [])];
+      if (path === '/admin/agents') return agents;
+      if (path === '/permissions') return ['project:read', 'user:read', 'contact:read', 'calendar:read', 'role:write'].map((code, i) => ({ id: i + 1, code }));
+    }
+    if (method === 'POST' && path === '/admin/agents') {
+      if (agentConflict) fail(method, path, 409);
+      agents.push({ id: 8, username: body.username });
+      return null;
+    }
+    if (method === 'POST' && /\/keys$/.test(path)) return { id: 1, label: body.label, key: 'ak_SECRET_VALUE' };
+    if (method === 'POST' && path.endsWith('/drive-space')) return { spaceId: 30, archived: false };
+    if (method === 'POST' || method === 'PUT') return { id: nextId++ };
+    throw new Error(`fake: unexpected ${method} ${path}`);
+  };
+  const upload = async (token, path, name, buf, opts = {}) => {
+    calls.push({ token, method: 'UPLOAD', path, name, size: buf.length, field: opts.field ?? 'file', type: opts.type });
+    return opts.field === 'files' ? [{ fileId: nextId++ }] : { id: nextId++ };
+  };
+  return { calls, client: { call, upload, login: () => assert.fail('plain login must not be used') } };
+}
+
+const appWrites = (s) => s.calls.filter(isWrite);
+
+test('seedAppExtras writes only with seoyeon token, agent first, and never returns the key value', async () => {
+  const s = fakeApp();
+  const now = new Date('2026-10-30T03:00:00Z');
+  const r = await seedAppExtras({ client: s.client, ids: IDS, tokens: { pm: 'tok-pm', dev: 'tok-dev' }, projectKey: 'MOB', now });
+  const writes = appWrites(s);
+  assert.ok(writes.every((c) => c.token === 'tok-pm'));
+  assert.equal(writes[0].path, '/admin/agents'); // 아이디 충돌이 날 수 있는 것을 맨 먼저
+  assert.ok(!JSON.stringify(r).includes('SECRET'));
+  assert.deepEqual(writes.find((c) => c.path.endsWith('/runtime')).body, { runtime: 'EXTERNAL' });
+  // 역할 권한은 서버에 있는 코드 중 지정한 것만
+  assert.deepEqual(writes.find((c) => c.path.endsWith('/permissions')).body, { permissionIds: [1, 2, 3, 4] });
+  // 그룹: 조직도 3개(공유) + 내 그룹 1개(개인), 멤버는 등장인물 id
+  const groups = writes.filter((c) => c.path === '/user-groups').map((c) => c.body.visibility);
+  assert.deepEqual(groups, ['SHARED', 'SHARED', 'SHARED', 'PERSONAL']);
+  assert.ok(writes.filter((c) => /\/user-groups\/\d+\/members$/.test(c.path)).every((c) => c.body.targetType === 'MEMBER'));
+  // 버전에 묶은 이슈 4건
+  assert.deepEqual(writes.filter((c) => c.path.endsWith('/versions') && c.method === 'PUT').map((c) => c.path), [
+    '/projects/MOB/issues/4/versions',
+    '/projects/MOB/issues/5/versions',
+    '/projects/MOB/issues/6/versions',
+    '/projects/MOB/issues/7/versions',
+  ]);
+  // 링크 공유: 워크스페이스 전체 보기, 알림 없음, 30일 뒤 만료
+  const shares = writes.filter((c) => c.path.endsWith('/share'));
+  assert.equal(shares.length, 2);
+  for (const c of shares) {
+    assert.equal(c.body.audience, 'WORKSPACE');
+    assert.equal(c.body.notify, null);
+    assert.equal(c.body.expiresAt, '2026-11-29T18:00:00+09:00');
+  }
+  // 파일: 채널 드라이브 2개, 이슈 첨부 1개(files 필드), 공지 채널 첨부 1개 → 그 fileId 로 메시지
+  const uploads = s.calls.filter((c) => c.method === 'UPLOAD');
+  assert.deepEqual(uploads.map((c) => [c.path, c.field, c.type]), [
+    ['/drive/spaces/30/files', 'file', 'application/pdf'],
+    ['/drive/spaces/30/files', 'file', 'image/png'],
+    ['/projects/MOB/issues/7/attachments', 'files', 'image/png'],
+    ['/messaging/channels/2/attachments', 'files', 'application/pdf'],
+  ]);
+  const notice = writes.find((c) => c.path === '/messaging/channels/2/messages');
+  assert.equal(notice.body.fileIds.length, 1);
+  assert.equal(writes.filter((c) => c.path === '/messaging/channels/1/messages').length, 0); // 모바일-주문앱 대화는 그대로
+});
+
+test('seedAppExtras refuses before any write when any item is already there', async () => {
+  for (const marker of ['drive', 'version', 'attachment', 'notice', 'page', 'share', 'group', 'role', 'agent']) {
+    const s = fakeApp({ present: [marker] });
+    await assert.rejects(seedAppExtras({ client: s.client, ids: IDS, tokens: { pm: 'tok-pm' }, projectKey: 'MOB' }), SeedRefusal, marker);
+    assert.equal(appWrites(s).length, 0, marker);
+  }
+});
+
+test('seedAppExtras stops with nothing written when the agent username is taken elsewhere', async () => {
+  const s = fakeApp({ agentConflict: true });
+  await assert.rejects(seedAppExtras({ client: s.client, ids: IDS, tokens: { pm: 'tok-pm' }, projectKey: 'MOB' }), (e) => e instanceof SeedRefusal && /release-bot/.test(e.message));
+  assert.deepEqual(appWrites(s).map((c) => c.path), ['/admin/agents']); // 실패한 생성 요청 하나뿐
+});
+
+const runApp = (s) => runAppExtrasOnly({ client: s.client, slug: 'nuri-demo', password: PASS, people: CAST, projectKey: 'MOB' });
+
+test('runAppExtrasOnly logs in only seoyeon, once, before the first write', async () => {
+  const s = fakeApp();
+  await runApp(s);
+  const logins = s.calls.map((c, i) => [c, i]).filter(([c]) => c.path === '/auth/login');
+  assert.deepEqual(logins.map(([c]) => c.user), ['seoyeon@example.com']);
+  assert.ok(logins[0][1] < s.calls.findIndex(isWrite));
+  // 쓰기 전 조회(inspectAppExtras)는 한 번만 한다 — 노트 스페이스 목록 조회 횟수로 본다.
+  assert.equal(s.calls.filter((c) => c.method === 'GET' && c.path === '/wiki/spaces').length, 1);
+});
+
+test('runAppExtrasOnly stops with nothing written on an already-filled or unseeded tenant', async () => {
+  for (const s of [fakeApp({ present: ['role'] }), fakeApp({ missing: ['channel'] })]) {
+    await assert.rejects(runApp(s), SeedRefusal);
+    assert.equal(appWrites(s).length, 0);
+    assert.equal(s.calls.filter((c) => c.method === 'UPLOAD').length, 0);
+  }
+});
+
+// ── 04장 AI 장면 사전 데이터(--ai-run, WP-1197) ───────────────────────────────
+
+const human = (id) => ({ id, kind: 'HUMAN' });
+const issueRow = (number, extra = {}) => ({ id: 100 + number, number, title: `이슈 ${number}`, status: 'TODO', type: { code: 'TASK' }, assignees: [human(2)], ...extra });
+
+test('pickBotIssues skips epics, finished, scene-used titles, unassigned and AI-assigned issues and takes the lowest numbers', () => {
+  const issues = [
+    issueRow(1, { type: { code: 'EPIC' } }),
+    issueRow(4, { title: APP_EXTRAS.versionIssues[0] }),
+    issueRow(8, { title: SCENE_ISSUES.picker.title }),
+    issueRow(9, { status: 'DONE' }),
+    issueRow(10, { assignees: [] }),
+    issueRow(11, { assignees: [human(2), { id: 6, kind: 'AGENT' }] }),
+    issueRow(13),
+    issueRow(12),
+    issueRow(16, { title: AI_RUN.issue.title }),
+    issueRow(15, { title: EXTRAS.overdue }),
+    issueRow(17),
+  ];
+  assert.deepEqual(pickBotIssues(issues).map((i) => i.number), [12, 13]);
+});
+
+test('judgeGenie reports done, failed or pending from the agent work row and genie comments', () => {
+  const detail = (state) => ({ status: 'IN_PROGRESS', agentWork: state ? [{ worker: { id: 6 }, state }] : [] });
+  const one = [{ authorId: 6 }];
+  assert.equal(judgeGenie({ detail: detail('REVIEW'), comments: [], genieId: 6 }).verdict, 'done');
+  assert.equal(judgeGenie({ detail: detail('COMPLETED'), comments: [], genieId: 6 }).verdict, 'done');
+  assert.equal(judgeGenie({ detail: detail('WORKING'), comments: [...one, ...one], genieId: 6 }).verdict, 'done'); // 착수·결과 코멘트
+  assert.equal(judgeGenie({ detail: detail('FAILED'), comments: one, genieId: 6 }).verdict, 'failed');
+  assert.equal(judgeGenie({ detail: detail('WORKING'), comments: one, genieId: 6 }).verdict, 'pending');
+  assert.match(judgeGenie({ detail: detail(null), comments: [], genieId: 6 }).summary, /지니 작업 없음/);
+});
+
+/**
+ * --ai-run 가짜 서버. genieStates 는 폴링할 때마다 차례로 돌려줄 지니 작업 상태(끝나면 마지막 값을 유지).
+ * present: 'issue'(지니 이슈가 이미 있음)·'bot'(release-bot 이 이미 담당)·'noGenie'(지니 없음).
+ */
+function fakeAi({ genieStates = ['WORKING', 'REVIEW'], present = [], botMember = false } = {}) {
+  const calls = [];
+  let unread = 3;
+  let poll = 0;
+  const GENIE = 6;
+  const BOT = 8;
+  const issues = [
+    issueRow(1, { type: { code: 'EPIC' } }),
+    issueRow(7, { title: SCENE_ISSUES.bug.title }),
+    issueRow(9, { assignees: [human(3)] }),
+    issueRow(10, { assignees: [human(1)] }),
+    issueRow(11, present.includes('bot') ? { assignees: [human(2), { id: BOT, kind: 'AGENT' }] } : {}),
+    ...(present.includes('issue') ? [issueRow(16, { title: AI_RUN.issue.title })] : []),
+  ];
+  const call = async (token, method, path, body, { allow = [] } = {}) => {
+    calls.push({ token, method, path, body, user: body?.username });
+    if (path === '/auth/login') {
+      return { accessToken: jwt({ sub: body.username, tenant: 7 }), memberships: [{ tenantId: 7, tenantName: '누리커머스', tenantSlug: 'nuri-demo' }] };
+    }
+    if (path === '/admin/agents') {
+      return [...(present.includes('noGenie') ? [] : [{ id: GENIE, username: 'genie' }]), { id: BOT, username: 'release-bot' }];
+    }
+    if (path.startsWith('/projects/MOB/issues?')) return { items: issues, nextCursor: null, hasMore: false };
+    if (path === '/users/me') return { id: 3 };
+    if (path === '/notifications/unread-count') return { count: unread };
+    if (method === 'GET' && path === '/projects/MOB/members') return [{ userId: GENIE }, { userId: 3 }, ...(botMember ? [{ userId: BOT }] : [])];
+    if (method === 'POST' && path === '/projects/MOB/members') return { userId: body.userId };
+    if (path === '/projects/MOB/types') return [{ code: 'TASK', typeId: 3 }];
+    if (method === 'POST' && path === '/projects/MOB/issues') return { id: 216, number: 16 };
+    if (method === 'PUT' && path.endsWith('/assignees')) return [];
+    if (method === 'GET' && path === '/projects/MOB/issues/16') {
+      const state = genieStates[Math.min(poll++, genieStates.length - 1)];
+      return { summary: { status: 'IN_PROGRESS', agentWork: [{ worker: { id: GENIE }, state }] }, comments: [] }; // 실제 상세 응답 모양
+    }
+    if (method === 'GET' && path === '/issues/216/comments') return [];
+    throw new Error(`fake: unexpected ${method} ${path}`);
+  };
+  return { calls, client: { call, login: () => assert.fail('plain login must not be used') } };
+}
+
+const runAi = (s, opts = {}) =>
+  runAiRun({ client: s.client, slug: 'nuri-demo', password: PASS, people: CAST, projectKey: 'MOB', sleep: async () => {}, pollMs: 0, ...opts });
+
+test('runAiRun logs in seoyeon and jimin once before writing, keeps human assignees and waits for genie', async () => {
+  const s = fakeAi();
+  const lines = [];
+  const r = await runAi(s, { log: (l) => lines.push(l) });
+  const firstWrite = s.calls.findIndex(isWrite);
+  const logins = s.calls.map((c, i) => [c, i]).filter(([c]) => c.path === '/auth/login');
+  assert.deepEqual(logins.map(([c]) => c.user), ['seoyeon@example.com', 'jimin@example.com']);
+  assert.ok(logins.every(([, i]) => i < firstWrite));
+  const admin = jwt({ sub: 'seoyeon@example.com', tenant: 7 }); // 가짜 서버가 김서연에게 주는 토큰
+  // release-bot: 김서연 토큰으로, 고른 두 건(9·10)에 사람 담당 + release-bot
+  const botPuts = s.calls.filter((c) => c.method === 'PUT' && c.body.userIds.includes(8));
+  assert.deepEqual(botPuts.map((c) => [c.path, c.body.userIds]), [
+    ['/projects/MOB/issues/9/assignees', [3, 8]],
+    ['/projects/MOB/issues/10/assignees', [1, 8]],
+  ]);
+  assert.ok(botPuts.every((c) => c.token === admin));
+  // 담당자는 멤버만 — release-bot 을 김서연이 먼저 MOB 멤버로 넣는다(담당 지정보다 앞)
+  const addMember = s.calls.findIndex((c) => c.method === 'POST' && c.path === '/projects/MOB/members');
+  assert.deepEqual(s.calls[addMember].body, { userId: 8, role: 'MEMBER' });
+  assert.equal(s.calls[addMember].token, admin);
+  assert.ok(addMember < s.calls.indexOf(botPuts[0]));
+  // 지니 이슈: 박지민 토큰으로 만들고(담당 박지민), 박지민·지니로 담당 교체
+  const create = s.calls.find((c) => c.method === 'POST' && c.path === '/projects/MOB/issues');
+  assert.notEqual(create.token, admin);
+  assert.deepEqual(create.body.assigneeIds, [3]);
+  assert.equal(create.body.title, AI_RUN.issue.title);
+  const genieAssign = s.calls.find((c) => c.path === '/projects/MOB/issues/16/assignees');
+  assert.deepEqual(genieAssign.body.userIds, [3, 6]);
+  assert.equal(genieAssign.token, create.token);
+  assert.equal(r.issueKey, 'MOB-16');
+  assert.match(r.status, /REVIEW/);
+  assert.ok(lines.some((l) => /알림\(전\): 3/.test(l)) && lines.some((l) => /알림\(후\): 3/.test(l)));
+});
+
+test('runAiRun stops with nothing written when the data is already there or genie is missing', async () => {
+  for (const marker of ['issue', 'bot', 'noGenie']) {
+    const s = fakeAi({ present: [marker] });
+    await assert.rejects(runAi(s), SeedRefusal, marker);
+    assert.equal(s.calls.filter(isWrite).length, 0, marker);
+  }
+});
+
+test('runAiRun does not retry when genie fails or the wait runs out', async () => {
+  const failed = fakeAi({ genieStates: ['WORKING', 'FAILED'] });
+  await assert.rejects(runAi(failed), (e) => !(e instanceof SeedRefusal) && /실패했습니다/.test(e.message) && /다시 시도하지 않습니다/.test(e.message));
+  const slow = fakeAi({ genieStates: ['WORKING'] });
+  await assert.rejects(runAi(slow, { waitMs: 0 }), /시간 안에 끝나지 않았습니다/);
+  for (const s of [failed, slow]) {
+    assert.equal(s.calls.filter((c) => c.method === 'POST' && c.path === '/projects/MOB/issues').length, 1); // 이슈·지니 맡기기는 한 번뿐
+    assert.equal(s.calls.filter((c) => c.path === '/projects/MOB/issues/16/assignees').length, 1);
+  }
+});
+
+test('runAiRun does not add release-bot to the project again when it is already a member', async () => {
+  const s = fakeAi({ botMember: true });
+  await runAi(s);
+  assert.equal(s.calls.filter((c) => c.method === 'POST' && c.path === '/projects/MOB/members').length, 0);
+});
+
+test('parseWaitMs accepts an empty value or a positive integer and rejects anything else', () => {
+  assert.deepEqual(parseWaitMs(undefined), { ok: true, value: undefined });
+  assert.deepEqual(parseWaitMs(''), { ok: true, value: undefined });
+  assert.deepEqual(parseWaitMs('60000'), { ok: true, value: 60000 });
+  for (const bad of ['abc', '15m', '-1', '0', '1.5', '1e3', 'NaN']) assert.equal(parseWaitMs(bad).ok, false, bad);
 });
