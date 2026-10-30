@@ -148,21 +148,35 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
   }
 
   /**
-   * WP-1024: 대기 중(WAITING)은 다른 쪽 차례라 사람의 「답변 필요」·검토 요청 알림을 만들지 않는다 — 받는 사람을 멘션했으면 그 사람에게 멘션 알림만 간다.
+   * WP-1024: 대기 중(WAITING)은 다른 AI 의 차례라 사람의 「답변 필요」·검토 요청 알림을 만들지 않는다. 사람을 멘션한 대기 중은 WP-1217 부터 답변
+   * 필요로 저장되므로(waitingMentioningHuman_…) 여기서는 사람을 멘션하지 않은 대기 중(AI 의 답 대기)만 본다.
    */
   @Test
-  void waiting_notifiesMentionedOnly_noNeedsInput() {
+  void waiting_withoutHumanMention_noNeedsInput() {
     assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING")));
     assertOk(
         putReport(
             akToken,
             TOOL,
-            Map.of(
-                "state", "WAITING", "note", "PR 리뷰 대기", "message", "<@" + otherId + "> 리뷰 부탁해요")));
+            Map.of("state", "WAITING", "note", "AI 팀장 리뷰 대기", "message", "검토자 AI 의 리뷰를 기다립니다")));
 
-    awaitCount(otherId, MENTION, 1);
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("WAITING");
     assertStays(humanId, AI_QUESTION, 0);
     assertStays(humanId, REVIEW_REQUESTED, 0);
+    assertStays(otherId, AI_QUESTION, 0);
+  }
+
+  /** 바뀌지 않는 대기 중(사람 작업자의 보고)의 멘션은 그대로 멘션 알림 1건 — 답변 필요 질문 알림은 없다(WP-1217 은 AI 작업자만 바꾼다). */
+  @Test
+  void waiting_byHumanWorker_mention_notifiesMentionedOnly() {
+    assertOk(
+        putReport(
+            patToken,
+            TOOL,
+            Map.of("state", "WAITING", "note", "리뷰 대기", "message", "<@" + otherId + "> 리뷰 부탁해요")));
+
+    awaitCount(otherId, MENTION, 1);
+    assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WAITING");
     assertStays(otherId, AI_QUESTION, 0);
   }
 
@@ -292,6 +306,20 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
 
     assertStays(humanId, AI_QUESTION, 1);
     assertThat(ofType(humanId, AI_QUESTION).get(0).agentWorkState()).isEqualTo("INPUT_REQUIRED");
+  }
+
+  /** AI 가 사람을 멘션한 대기 중 보고는 답변 필요 질문으로 저장되므로(WP-1217) 사람 관계자가 질문 알림을 받는다 — 멘션 알림과 겹치지 않게 사람당 1건. */
+  @Test
+  void waitingMentioningHuman_coercedToQuestion_notifiesHumanOnce() {
+    assertOk(
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "WAITING", "message", "<@" + humanId + "> 2번 UX 답을 기다립니다")));
+
+    awaitCount(humanId, AI_QUESTION, 1);
+    assertStays(humanId, AI_QUESTION, 1);
+    assertStays(humanId, MENTION, 0);
   }
 
   // ------------------------------------------------------------------ 답변 필요 AI 깨우기(WP-1067)

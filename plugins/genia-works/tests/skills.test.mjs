@@ -265,11 +265,19 @@ test('SKILL.md 5번: 정리 표가 이슈 하나가 멈춘 뒤 30분 안·넘음
   assert.ok(text.includes('| 30분이 넘음 | 다음 후보를 고르지 않고 끝냄 — 다음 확인 1분 안팎 |'));
 });
 
-// WP-1024 상태 구분 — 남의 차례는 대기 중, 내 일이 도는 백그라운드는 작업 중(끝날 시각), 시각 예약만 다음 회차 대기.
-test('SKILL.md·process-issue.md: 남의 차례는 대기 중, 백그라운드는 작업 중, 시각 예약만 다음 회차 대기로 보고한다', () => {
+// WP-1024 상태 구분 — 다른 AI 의 차례는 대기 중, 내 일이 도는 백그라운드는 작업 중(끝날 시각), 시각 예약만 다음 회차 대기.
+// WP-1217 — 사람에게 묻거나 사람의 답을 기다리면 언제나 답변 필요(대기 중이면 사람의 할 일·질문 알림에 잡히지 않아 이슈가 방치됐다).
+test('SKILL.md·process-issue.md: 사람을 기다리면 답변 필요, 다른 AI 의 차례는 대기 중, 백그라운드는 작업 중, 시각 예약만 다음 회차 대기로 보고한다', () => {
   const text = workLoop('SKILL.md');
   const p = workLoop('process-issue.md');
-  assert.ok(text.includes('**다른 사람·AI 의 차례를 기다리면 대기 중(`WAITING`)이다**'));
+  const workOn = readFileSync(new URL('work-on/SKILL.md', skillsDir), 'utf8');
+  assert.ok(text.includes('**사람에게 묻거나 사람의 답·결정·확인을 기다리면 언제나 답변 필요(`INPUT_REQUIRED`)다**'));
+  assert.ok(text.includes('**다른 AI 의 차례를 기다리면 대기 중(`WAITING`)이다**'));
+  assert.ok(!text.includes('다른 사람·AI 의 차례를 기다리면'));
+  assert.ok(text.includes('대기 중(WAITING — 검토자 AI 의 PR 리뷰·수정 대기, 다른 AI 의 답 대기)'));
+  assert.ok(p.includes('검토자가 사람(HUMAN)이면 대기 중이 아니라 `INPUT_REQUIRED` 로 올린다'));
+  assert.ok(workOn.includes("사람(HUMAN)에게 묻거나 사람의 답·결정·확인을 기다리면 언제나 `state: 'INPUT_REQUIRED'` 다"));
+  assert.ok(!workOn.includes('다른 사람·AI 의 차례를 기다리면'));
   assert.ok(text.includes('작업 중(`WORKING`, note 에 끝날 시각)으로 둔 채 다른 이슈를 처리한다'));
   assert.ok(text.includes('notes 의 `끝날 시각` 이 지났을 때만 고른다'));
   assert.ok(p.includes("내 일이 도는 중이라 작업 중 그대로 둔다 — `report_agent_work({ issueKey, state: 'WORKING'"));

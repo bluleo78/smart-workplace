@@ -9,8 +9,9 @@ import java.util.Set;
  *
  * <p>진행(ended_at IS NULL) 9종과 종료(ended_at 설정) 4종으로 나뉜다. REVIEW·BLOCKED·WAITING·SCHEDULED·PAUSED 는
  * A2A 에 없는 플랫폼 확장이다. SCHEDULED(다음 회차 대기, WP-450)는 AI 가 스스로 양보하고 정한 시각 이후에 이어 가는 상태다. WAITING(대기 중,
- * WP-1024)은 AI 몫을 마치고 다른 사람·AI 의 차례(PR 리뷰·수정, 다른 AI 의 답 등)를 기다리는 상태다 — 사람이 결정해야 하는 INPUT_REQUIRED 와
- * 달리 사람의 할 일·알림에 잡히지 않고, 무엇을 기다리는지는 note 에 적는다.
+ * WP-1024)은 AI 몫을 마치고 다른 AI 의 차례(검토자 AI 의 PR 리뷰, 다른 AI 의 답 등)를 기다리는 상태다 — 사람의 할 일·알림에 잡히지 않고, 무엇을
+ * 기다리는지는 note 에 적는다. 사람에게 묻거나 사람의 답·결정·확인을 기다리면 언제나 INPUT_REQUIRED 다(WP-1217 — AI 가 사람을 멘션한 대기 중
+ * 보고는 서버가 답변 필요로 바꿔 저장한다).
  */
 public final class AgentWorkState {
   // 진행 상태

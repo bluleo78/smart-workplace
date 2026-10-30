@@ -105,12 +105,14 @@ public class AgentWorkReportService {
       // 사람이 자기 도구로 보고한 작업은 AI 작업 상태 알림 대상이 아니다. 글의 멘션은 함께 실어 사람당 1건으로 알린다(WP-1009).
       boolean noticeEnd = agentWorker && ended && AgentWorkNoticeEvent.ON_END.contains(req.state());
       publishNotice(issue, callerId, noticeEnd ? req.state() : null, mentionsOf(req, hasMessage));
-      return new AgentWorkReportResponse(null, true);
+      return new AgentWorkReportResponse(null, true, null);
     }
 
     // 작업을 시작했으면 TODO 이슈는 진행 중으로 — 상태 변경이 자동 터치로 보고를 덮지 않게 이미 억제 구간 안이다.
     // 단, 다음 회차 대기(SCHEDULED) 보고는 아직 착수 전(「월요일 9시에 시작」)이라 이슈 상태를 바꾸지 않는다(WP-450).
-    boolean scheduled = AgentWorkState.SCHEDULED.equals(req.state());
+    // AI 가 사람을 멘션한 대기 중 보고는 답변 필요로 저장한다(WP-1217) — 아래 상태 변경·질문 저장·알림이 모두 바뀐 상태를 따른다.
+    String state = storedState(req, agentWorker, hasMessage);
+    boolean scheduled = AgentWorkState.SCHEDULED.equals(state);
     if (IssueStatuses.TODO.equals(issue.status()) && !scheduled) {
       issueService.updateStatus(callerId, projectKey, number, IssueStatuses.IN_PROGRESS);
     }
@@ -124,7 +126,7 @@ public class AgentWorkReportService {
             tool,
             new AgentWorkPatch(
                 tool,
-                req.state(),
+                state,
                 noteFor(req, hasMessage),
                 clearNote,
                 req.progress(),
@@ -151,7 +153,24 @@ public class AgentWorkReportService {
     if (hasMessage) {
       chatPoster.post(callerId, projectKey, number, req.message(), question, req.fileIds());
     }
-    return new AgentWorkReportResponse(view, false);
+    return new AgentWorkReportResponse(
+        view, false, Objects.equals(state, req.state()) ? null : req.state());
+  }
+
+  /**
+   * 저장할 진행 상태(WP-1217). AI 작업자가 대기 중(WAITING)으로 보고하며 글에서 사람(HUMAN)을 멘션했으면 답변 필요(INPUT_REQUIRED)로
+   * 바꾼다 — 사람에게 묻거나 사람의 답을 기다리는 일은 사람의 할 일·질문 알림에 떠야 하는데, 대기 중이면 잡히지 않아 이슈가 방치됐다. 거절하지 않고 바꿔 저장해 AI
+   * 가 규칙을 놓쳐도 사람에게 질문이 반드시 간다. AI 만 멘션한 대기 중(검토자 AI 리뷰 요청 등)·사람 작업자의 보고·작업 중 보고는 그대로 둔다 — 작업 중 글의
+   * 사람 멘션은 질문인지 알림인지 서버가 가릴 수 없다.
+   */
+  private String storedState(ReportAgentWorkRequest req, boolean agentWorker, boolean hasMessage) {
+    if (!agentWorker || !hasMessage || !AgentWorkState.WAITING.equals(req.state())) {
+      return req.state();
+    }
+    boolean mentionsHuman =
+        mentionHydrator.asMentionResponses(MentionParser.parse(req.message())).stream()
+            .anyMatch(m -> UserKind.HUMAN.equals(m.kind()));
+    return mentionsHuman ? AgentWorkState.INPUT_REQUIRED : req.state();
   }
 
   /**
