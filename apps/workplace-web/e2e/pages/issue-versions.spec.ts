@@ -202,6 +202,8 @@ test.describe('프로젝트 버전 (WP-888)', () => {
       await page.getByTestId('version-menu-2').click();
       await page.getByTestId('version-action-release').or(page.getByTestId('mobile-action-release')).click();
       await expect(page.getByTestId('version-release-dialog').getByRole('heading')).toContainText(c.name.slice(0, 6));
+      // 옮길 버전 칸은 이 버전의 이슈 수 조회(버전마다 새 조회)가 끝나야 그려진다 — 제목만 기다리고 재면 응답이 늦을 때 칸이 없어 깨졌다(WP-1230).
+      await expect(page.getByTestId('version-release-target').locator('[data-slot="select-value"]')).toBeVisible();
       // 제목 상자는 오른쪽 여백을 포함하므로 글자가 실제로 그려진 끝(Range)과 닫기 버튼 왼쪽을 비교한다.
       const { textRight, closeLeft } = await page.evaluate(() => {
         const dialog = document.querySelector('[data-testid="version-release-dialog"]')!;
