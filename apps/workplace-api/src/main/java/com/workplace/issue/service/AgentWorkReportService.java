@@ -40,7 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AgentWorkReportService {
 
   /** message 에서 note 를 만들 때 자르는 길이 — note 컬럼 한도와 같다. */
-  private static final int NOTE_MAX = 120;
+  static final int NOTE_MAX = 120;
 
   private final AgentWorkService agentWorkService;
   private final IssueService issueService;

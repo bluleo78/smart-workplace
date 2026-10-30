@@ -52,6 +52,17 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect((err as { code?: string }).code).toBe('ECONNABORTED');
   });
 
+  // WP-1219: 이슈 실행 시작·끝 보고 — 실행한 AI 대행으로 /internal/issues/{id}/agent-runs 에 보낸다.
+  it('reportAgentRun 은 /internal/issues/{id}/agent-runs 에 대행 헤더로 보낸다', async () => {
+    const body = { phase: 'FINISHED' as const, ok: false, note: '실패' };
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .post(`${PREFIX}/internal/issues/3/agent-runs`, body)
+      .reply(204);
+    await newClient().reportAgentRun(AGENT_ID, 3, body);
+    expect(scope.isDone()).toBe(true);
+  });
+
   // #842: 확인카드 사전검증 — POST /actions/validate 로 actionType+params 를 그대로 보낸다.
   it('validateAction 은 /actions/validate 에 actionType·params 를 보낸다', async () => {
     const scope = nock(BASE)

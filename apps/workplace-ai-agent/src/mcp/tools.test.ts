@@ -236,6 +236,8 @@ function client(): TestClient {
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
     // WP-989: 반복 회차 결과 보고
     reportRecurringRun: vi.fn().mockResolvedValue(undefined),
+    // WP-1219: 이슈 실행 시작·끝 보고
+    reportAgentRun: vi.fn().mockResolvedValue(undefined),
     listThreadIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadThreadIssueAttachment: vi.fn(),
     readChatAttachmentText: vi.fn(),

@@ -22,6 +22,9 @@ describe('buildUserMessage', () => {
     expect(m).toContain('[이벤트: issue.created]');
     expect(m).toContain('WP-42');
     expect(m).toContain('alice');
+    // WP-1219: 작업 방향만 알리고 끝내지 않게 — 담당 지정과 같은 「끝까지 하고 결과를 남긴다」 지시.
+    expect(m).not.toContain('작업 방향을 코멘트로');
+    expect(m).toContain('이번 실행 안에서 끝까지');
   });
 
   it('issue.assigned', () => {
@@ -34,6 +37,12 @@ describe('buildUserMessage', () => {
     expect(m).not.toContain('update_status');
     expect(m).toContain('ok 가 false');
     expect(m).toContain("results.content 가 'failed' 로 시작");
+    // WP-1219: 시작 코멘트만 남기고 끝내던 지시를 고쳤다 — 이 실행 안에서 결과물을 코멘트로 남기고, 못 끝내면 이유를 남긴다.
+    expect(m).not.toContain('시작 코멘트.');
+    expect(m).toContain('이번 실행 안에서 끝까지');
+    expect(m).toContain('다시 깨어나지 않습니다');
+    expect(m).toContain('결과 코멘트 하나에 결과 전체');
+    expect(m).toContain('끝내지 못한 이유');
   });
 
   it('issue.commented', () => {
