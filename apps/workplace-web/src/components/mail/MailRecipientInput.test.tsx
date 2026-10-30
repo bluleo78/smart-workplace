@@ -4,8 +4,9 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
 import type { UserGroupMemberHit } from '@/types/userGroup'
 
@@ -110,9 +111,32 @@ function groupRows() {
   })
 }
 
-/** 그룹 줄이 인원 수까지 받아 고를 수 있게 될 때까지. */
+/**
+ * 이번 테스트에서 사람 후보를 찾은 조각들(`/contacts?search=`) — 요청은 디바운스(150ms)가 지나 후보가 그 조각을 기준으로 바뀐 뒤에 나간다.
+ * 테스트가 바꾼 핸들러(늦게 답하는 `/contacts` 등)에서도 모이게 MSW 요청 시작 이벤트로 듣는다.
+ */
+const searched = new Set<string>()
+const onRequestStart = ({ request }: { request: Request }) => {
+  const url = new URL(request.url)
+  if (url.pathname === `${API}/contacts`) searched.add(url.searchParams.get('search') ?? '')
+}
+beforeEach(() => {
+  searched.clear()
+  server.events.on('request:start', onRequestStart)
+})
+afterEach(() => {
+  server.events.removeListener('request:start', onRequestStart)
+})
+
+/**
+ * 그룹 줄이 지금 쓴 조각으로 찾아지고 인원 수까지 받아 고를 수 있게 될 때까지(WP-1232).
+ * 줄 수만 보면 부하 중 글자 사이에 디바운스가 먼저 끝나 앞 조각(「주간」의 「주」)으로 찾은 같은 줄을 기다린 것이 되어,
+ * 후보가 쓴 글자 기준이 아니라(fresh 아님) ↓·Enter 가 그룹 대신 쓴 글자를 칩으로 굳힌다 — 초점 칸의 조각을 찾았는지도 함께 본다.
+ * 같은 조각을 다시 치면 캐시(10초)를 써 요청이 나가지 않으므로 「한 번이라도 찾았는지」로 본다.
+ */
 async function waitGroupsReady(count: number) {
   await waitFor(() => {
+    expect(searched).toContain((document.activeElement as HTMLInputElement).value.trim())
     const rows = screen.getAllByTestId('mail-recipient-group-suggestion')
     expect(rows).toHaveLength(count)
     for (const r of rows) expect(r).not.toHaveAttribute('aria-disabled')
