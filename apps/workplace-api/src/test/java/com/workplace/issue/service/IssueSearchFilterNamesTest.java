@@ -143,6 +143,45 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
         .satisfies(e -> assertThat(((InvalidIssueFilterException) e).getField()).isEqualTo("type"));
   }
 
+  /** 시스템 유형은 화면 이름(에픽·버그)으로도 찾고, 사용자 유형은 이름 그대로, 모르는 이름은 400 + 목록(WP-1223). */
+  @Test
+  void type_filter_accepts_system_type_korean_labels() {
+    TestUser owner = createUser("fk", true);
+    ProjectResponse p = newProject(owner.id(), "FKT");
+    var epic = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow();
+    var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
+    var design = typeRepository.insert(p.id(), "디자인", "PINK", "Circle", false, 9);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "epic", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "bug", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 3, "design", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 4, "task", null, "MID", null, owner.id());
+    setType(p.id(), 1, epic.id());
+    setType(p.id(), 2, bug.id());
+    setType(p.id(), 3, design.id());
+
+    assertThat(numbers(owner, p, "에픽")).containsExactly(1);
+    assertThat(numbers(owner, p, "epic")).containsExactly(1);
+    assertThat(numbers(owner, p, " 에픽 ,버그")).containsExactlyInAnyOrder(1, 2);
+    assertThat(numbers(owner, p, "디자인")).containsExactly(3);
+    assertThatThrownBy(() -> searchService.search(owner.id(), p.key(), Map.of("type", "에픽스")))
+        .isInstanceOf(InvalidIssueFilterException.class)
+        .hasMessageContaining("EPIC")
+        .hasMessageContaining("디자인");
+  }
+
+  private void setType(Long projectId, int number, Long typeId) {
+    dsl.update(ISSUE)
+        .set(ISSUE.TYPE_ID, typeId)
+        .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.NUMBER.eq(number)))
+        .execute();
+  }
+
+  private List<Integer> numbers(TestUser owner, ProjectResponse p, String type) {
+    return searchService.search(owner.id(), p.key(), Map.of("type", type)).items().stream()
+        .map(i -> i.number())
+        .toList();
+  }
+
   @Test
   void assignee_and_reporter_resolve_username() {
     TestUser owner = createUser("fo", true);

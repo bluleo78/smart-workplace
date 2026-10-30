@@ -111,7 +111,7 @@ class IssueFilterResolver {
     return resolveByName("label", "라벨", tokens, candidates, LabelRow::name, LabelRow::id);
   }
 
-  /** 유형 토큰 → id 목록(유형 필터는 전체가 OR 이라 그룹을 평탄화). */
+  /** 유형 토큰 → id 목록(유형 필터는 전체가 OR 이라 그룹을 평탄화). 시스템 유형은 코드(EPIC)·화면 이름(에픽) 모두 받는다. */
   List<Long> resolveTypeIds(List<String> tokens, Long projectId, Long callerId) {
     Supplier<List<IssueTypeRow>> candidates =
         () ->
@@ -119,7 +119,15 @@ class IssueFilterResolver {
                 ? typeRepository.findByProject(projectId)
                 : typeRepository.findByMemberProjects(callerId);
     return flatten(
-        resolveByName("type", "유형", tokens, candidates, IssueTypeRow::name, IssueTypeRow::id));
+        resolveByName(
+            "type",
+            "유형",
+            tokens,
+            candidates,
+            IssueTypeRow::name,
+            IssueTypeRow::id,
+            true,
+            IssueTypeService::systemTypeKey));
   }
 
   /** 마일스톤 토큰 → id 목록(OR). 예전엔 숫자가 아닌 토큰을 버려 필터 없는 전체 목록을 돌려줬다(WP-735). */

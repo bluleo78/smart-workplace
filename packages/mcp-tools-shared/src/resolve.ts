@@ -68,9 +68,28 @@ export function rowByName<T extends { name: string }>(rows: T[], name: string, w
   return match;
 }
 
-/** 유형 이름 → typeId. */
+/** 시스템 유형의 화면 이름 → 코드(웹 `issueTypeLabels.ts`·서버 `IssueTypeService.SYSTEM_TYPE_LABELS` 와 같은 표). */
+const SYSTEM_TYPE_CODES_BY_LABEL = new Map([
+  ['태스크', 'TASK'],
+  ['버그', 'BUG'],
+  ['스토리', 'STORY'],
+  ['기타', 'CHORE'],
+  ['하위 태스크', 'SUBTASK'],
+  ['에픽', 'EPIC'],
+]);
+const SYSTEM_TYPE_CODES = new Set(SYSTEM_TYPE_CODES_BY_LABEL.values());
+
+/**
+ * 유형 이름 → typeId. 정확히 같은 이름이 먼저고, 없으면 시스템 유형만 화면 이름(「에픽」)·대소문자 무시 코드(「epic」)로 찾는다(WP-1223 —
+ * 서버 목록 필터처럼 화면 이름을 받는다. 사용자 유형은 다른 이름 리졸브와 같이 정확일치뿐이다). 그래도 없으면 사용 가능 목록을 담아 throw 한다.
+ */
 export async function resolveTypeId(client: Pick<ProjectMetaClient, 'getProjectTypes'>, projectKey: string, typeName: string): Promise<number> {
-  return idByName(await client.getProjectTypes(projectKey), typeName, '유형');
+  const rows = await client.getProjectTypes(projectKey);
+  const wanted = typeName.trim();
+  const code = SYSTEM_TYPE_CODES_BY_LABEL.get(wanted) ?? wanted.toUpperCase();
+  const row =
+    rows.find((r) => r.name === typeName) ?? (SYSTEM_TYPE_CODES.has(code) ? rows.find((r) => r.name === code) : undefined);
+  return (row ?? rowByName(rows, typeName, '유형')).id;
 }
 
 /**

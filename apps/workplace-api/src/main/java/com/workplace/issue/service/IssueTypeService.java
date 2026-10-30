@@ -19,6 +19,7 @@ import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,19 @@ public class IssueTypeService {
           "CHORE", "기타",
           "SUBTASK", "하위 태스크",
           "EPIC", "에픽");
+
+  /** 화면 이름 → 시스템 유형 코드(SYSTEM_TYPE_LABELS 의 역표). */
+  private static final Map<String, String> SYSTEM_TYPE_CODES_BY_LABEL =
+      SYSTEM_TYPE_LABELS.entrySet().stream()
+          .collect(Collectors.toUnmodifiableMap(Map.Entry::getValue, Map.Entry::getKey));
+
+  /**
+   * 유형 이름을 비교용 키로 — 시스템 유형의 화면 이름(「에픽」)이면 그 코드(EPIC), 아니면 그대로(WP-1223). 사용자·AI 가 화면에서 본 대로 「에픽」이라
+   * 불러도 유형 필터가 EPIC 을 찾게 한다. 사용자 유형은 이 이름들과 겹치게 만들 수 없어(WP-614) 다른 유형으로 잘못 풀리지 않는다.
+   */
+  static String systemTypeKey(String name) {
+    return SYSTEM_TYPE_CODES_BY_LABEL.getOrDefault(name.strip(), name);
+  }
 
   /**
    * 신규 프로젝트 생성 직후 시스템 유형을 시드한다. ProjectService.create / PersonalProjectProvisioner.createPersonal
