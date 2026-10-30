@@ -3,15 +3,29 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { useUserSearchInfinite } from '@/hooks/queries/useUserSearch'
 import type { SpaceMember } from '@/lib/spaceRoles'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { SpaceMemberDialog } from './SpaceMemberDialog'
 
 // 멤버 검색 훅은 끊는다 — 다이얼로그 분기만 본다.
-vi.mock('@/hooks/queries/useUserSearch', () => ({
-  useUserSearch: () => ({ isLoading: false, isError: false, data: { content: [] } }),
-}))
+// 이어 받기 훅 stub — satisfies 로 실제 반환 모양과 어긋나면(필드 이름 변경 등) 타입 검사에서 걸리게 한다.
+// trimPickerPages 는 한 번만 만들어 창 닫힘 effect 가 렌더마다 다시 돌지 않게 한다.
+vi.mock('@/hooks/queries/useUserSearch', () => {
+  const infinite = {
+    isLoading: false,
+    isError: false,
+    data: undefined,
+    candidates: [],
+    hasNextPage: false,
+    trimPickerPages: () => {},
+  } satisfies Partial<ReturnType<typeof useUserSearchInfinite>>
+  return {
+    useUserSearch: () => ({ isLoading: false, isError: false, data: { content: [] } }),
+    useUserSearchInfinite: () => infinite,
+  }
+})
 
 const onAdd = vi.fn()
 const onChangeRole = vi.fn()
