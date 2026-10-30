@@ -1,6 +1,7 @@
 package com.workplace.user.service;
 
 import com.workplace.file.storage.FileStore;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.AvatarCrop;
@@ -8,6 +9,7 @@ import com.workplace.user.dto.UserAvatarResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
+import com.workplace.user.outbound.AvatarChangeNotifier;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.AvatarImageProcessor.ProcessedAvatar;
 import java.nio.file.Path;
@@ -65,6 +67,7 @@ public class AvatarService {
   private final UserRepository userRepository;
   private final WorkspaceMemberGuard memberGuard;
   private final FileStore fileStore;
+  private final AvatarChangeNotifier notifier;
   private final TransactionTemplate tx;
   private final TransactionTemplate readTx;
 
@@ -73,11 +76,13 @@ public class AvatarService {
       UserRepository userRepository,
       WorkspaceMemberGuard memberGuard,
       FileStore fileStore,
+      AvatarChangeNotifier notifier,
       PlatformTransactionManager txManager) {
     this.processor = processor;
     this.userRepository = userRepository;
     this.memberGuard = memberGuard;
     this.fileStore = fileStore;
+    this.notifier = notifier;
     this.tx = new TransactionTemplate(txManager);
     this.readTx = new TransactionTemplate(txManager);
     this.readTx.setReadOnly(true);
@@ -176,6 +181,8 @@ public class AvatarService {
             String previous = userRepository.findAvatarHashForUpdate(userId).orElse(null);
             userRepository.updateAvatarHash(userId, newHash);
             cleanupOnCompletion(userId, previous, newHash);
+            // 열어 둔 다른 사람 화면의 아바타를 새로고침 없이 바꾸게 알린다(WP-1226) — 커밋 뒤에만 나간다.
+            notifier.avatarChanged(ResourceChangedEvent.OP_UPDATED, userId);
           });
     } catch (RuntimeException e) {
       deleteDirQuietly(newDir);
@@ -195,6 +202,7 @@ public class AvatarService {
           if (previous == null) return;
           userRepository.updateAvatarHash(userId, null);
           cleanupOnCompletion(userId, previous, null);
+          notifier.avatarChanged(ResourceChangedEvent.OP_DELETED, userId);
         });
   }
 

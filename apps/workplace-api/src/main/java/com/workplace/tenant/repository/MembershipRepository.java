@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.TENANT;
 
 import com.workplace.tenant.dto.MembershipResponse;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -60,6 +61,29 @@ public class MembershipRepository {
         .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
         .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE))
         .fetch(MEMBERSHIP.USER_ID);
+  }
+
+  /**
+   * 사용자와 ACTIVE 워크스페이스(테넌트도 ACTIVE)를 하나라도 함께 쓰는 ACTIVE 멤버 userId 전원(본인 포함, 중복 없음) — 테넌트와 무관한 사용자
+   * 속성(아바타) 변경을 그 사람이 보이는 모든 워크스페이스 화면에 알리는 SSE 수신자 조회용(WP-1226). membership 은 RLS 비대상이라 지금 테넌트 밖도
+   * 본다.
+   */
+  @Transactional(readOnly = true)
+  public Set<Long> findActivePeerUserIds(long userId) {
+    var mine = MEMBERSHIP.as("mine");
+    var peer = MEMBERSHIP.as("peer");
+    return new HashSet<>(
+        dsl.selectDistinct(peer.USER_ID)
+            .from(mine)
+            .join(TENANT)
+            .on(TENANT.ID.eq(mine.TENANT_ID))
+            .join(peer)
+            .on(peer.TENANT_ID.eq(mine.TENANT_ID))
+            .where(mine.USER_ID.eq(userId))
+            .and(mine.STATUS.eq(STATUS_ACTIVE))
+            .and(TENANT.STATUS.eq("ACTIVE"))
+            .and(peer.STATUS.eq(STATUS_ACTIVE))
+            .fetch(peer.USER_ID));
   }
 
   /**

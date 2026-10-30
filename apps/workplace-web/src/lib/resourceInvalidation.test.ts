@@ -173,6 +173,14 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
   });
 });
 
+describe('아바타 규칙 (WP-1226)', () => {
+  it('avatar 변경·되돌리기 → 워크스페이스 아바타 표 [avatars] 를 다시 받는다', () => {
+    for (const op of ['updated', 'deleted'] as const) {
+      expect(invalidationTargets({ resource: 'avatar', op, ids: [7] })).toEqual([{ queryKey: ['avatars'] }]);
+    }
+  });
+});
+
 describe('isProtectedKey', () => {
   it('AI 요약·세션 계열은 보호, 일반 키는 아님', () => {
     expect(isProtectedKey(['mail-summary', 5])).toBe(true);
