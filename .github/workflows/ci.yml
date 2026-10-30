@@ -1,4 +1,4 @@
-# PR·main 검사 (WP-993) — 전체 lint·typecheck 와 웹 vitest 를 GitHub 에서 돌린다.
+# PR·main 검사 (WP-993) — 전체 lint·typecheck 를 GitHub 에서 돌린다. 웹 vitest 는 main push 에서만 돈다(WP-1218).
 # main 브랜치 보호의 required status check 로 걸 job 이름은 `verify` 다(바꾸면 보호 설정도 함께 바꾼다).
 # 이미지 빌드 입력 타입 검사(WP-1026): .dockerignore 가 테스트 파일·src/test/ 를 뺀 복사본에서 web·admin·collab 의 tsc 를 다시 돌린다.
 #   테스트 아닌 파일이 src/test/ 를 import 하면 위 typecheck 는 통과하고 이미지 빌드만 깨지기 때문이다(v0.9.24).
@@ -62,7 +62,12 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
+      # 웹 vitest(약 11분)는 main push 에서만 돌린다(WP-1218) — PR 은 이미 커밋 훅·개발자 push 게이트·
+      # 검토자 합친 검사에서 같은 테스트를 거쳐, PR 에서 또 돌리면 머지만 늦어진다.
+      # main push 결과는 남긴다 — 어느 머지가 main 을 깨뜨렸는지 찾는 몫이다.
+      # push 게이트를 건너뛴 PR(--no-verify)은 검토자가 합친 상태로 웹 vitest 전체를 돌린다(.work-loop/project.md 7절).
       - name: web vitest
+        if: github.event_name == 'push'
         run: pnpm --filter @smart-workplace/workplace-web test
 
       # 루트 scripts/ 의 node:test(.dockerignore 해석 등) — 아래 이미지 입력 검사가 기대는 로직을 먼저 본다.
