@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -38,6 +39,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -107,6 +109,11 @@ public class CalendarTag extends TableImpl<CalendarTagRecord> {
      * The column <code>public.calendar_tag.updated_at</code>.
      */
     public final TableField<CalendarTagRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
+
+    /**
+     * The column <code>public.calendar_tag.origin</code>.
+     */
+    public final TableField<CalendarTagRecord, String> ORIGIN = createField(DSL.name("origin"), SQLDataType.VARCHAR(10).nullable(false).defaultValue(DSL.field(DSL.raw("'APP'::character varying"), SQLDataType.VARCHAR)), this, "");
 
     private CalendarTag(Name alias, Table<CalendarTagRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -243,6 +250,13 @@ public class CalendarTag extends TableImpl<CalendarTagRecord> {
      */
     public CalendarEventPath calendarEvent() {
         return calendarEventTag().calendarEvent();
+    }
+
+    @Override
+    public List<Check<CalendarTagRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("calendar_tag_origin_check"), "(((origin)::text = ANY ((ARRAY['APP'::character varying, 'OUTLOOK'::character varying])::text[])))", true)
+        );
     }
 
     @Override

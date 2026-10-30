@@ -146,6 +146,20 @@ public class CalendarTagRecord extends UpdatableRecordImpl<CalendarTagRecord> {
         return (OffsetDateTime) get(8);
     }
 
+    /**
+     * Setter for <code>public.calendar_tag.origin</code>.
+     */
+    public void setOrigin(String value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_tag.origin</code>.
+     */
+    public String getOrigin() {
+        return (String) get(9);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -169,7 +183,7 @@ public class CalendarTagRecord extends UpdatableRecordImpl<CalendarTagRecord> {
     /**
      * Create a detached, initialised CalendarTagRecord
      */
-    public CalendarTagRecord(Long id, Long tenantId, Long userId, String name, String color, String feedToken, OffsetDateTime feedCreatedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public CalendarTagRecord(Long id, Long tenantId, Long userId, String name, String color, String feedToken, OffsetDateTime feedCreatedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, String origin) {
         super(CalendarTag.CALENDAR_TAG);
 
         setId(id);
@@ -181,6 +195,7 @@ public class CalendarTagRecord extends UpdatableRecordImpl<CalendarTagRecord> {
         setFeedCreatedAt(feedCreatedAt);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setOrigin(origin);
         resetChangedOnNotNull();
     }
 }

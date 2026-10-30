@@ -2,6 +2,8 @@ package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
+import static com.workplace.jooq.Tables.CALENDAR_TAG;
 import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
@@ -10,6 +12,7 @@ import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_PREVIEW;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.calendar.repository.CalendarTagRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.MailAttachmentPreviewRepository;
 import com.workplace.mail.repository.MailPreviewKey;
@@ -21,6 +24,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +42,7 @@ class AccountPurgeServiceTest extends IntegrationTestBase {
   @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
   @Autowired MailAttachmentPreviewRepository previewRepo;
   @Autowired MailAttachmentBlobStore blobStore;
+  @Autowired CalendarTagRepository tagRepo;
 
   private static final long TENANT_ID = 1L;
 
@@ -229,6 +235,104 @@ class AccountPurgeServiceTest extends IntegrationTestBase {
           });
       Files.deleteIfExists(file);
     }
+  }
+
+  @Test
+  @DisplayName(
+      "purge 는 일정이 하나도 남지 않은 Outlook 범주 태그만 지우고, 사용자 태그·다른 일정이 남은 태그·구독 주소가 있는 태그는 남긴다(WP-1220)")
+  void purgeAccount_deletesOrphanCategoryTagsOnly() {
+    var tx = new org.springframework.transaction.support.TransactionTemplate(txManager);
+    long[] ids =
+        tx.execute(
+            status -> {
+              long owner = TestFixtures.createHuman(dsl);
+              long other = TestFixtures.createHuman(dsl);
+              long keepAcc = insertAccount(owner, null);
+              long delAcc = insertAccount(owner, OffsetDateTime.now());
+              long delEvt = insertEvent(owner, insertCalendar(owner, delAcc));
+              long keepEvt = insertEvent(owner, insertCalendar(owner, keepAcc));
+
+              long pure = insertTag(owner, "pure", "OUTLOOK", null); // 끊은 계정의 범주에서만 → 지움
+              link(pure, delEvt, "OUTLOOK");
+              long userMade =
+                  insertTag(owner, "userMade", "APP", null); // 사용자가 만든 태그를 동기화가 재사용 → 남김
+              link(userMade, delEvt, "OUTLOOK");
+              long otherAcc = insertTag(owner, "otherAcc", "OUTLOOK", null); // 다른 계정 일정에도 붙음 → 남김
+              link(otherAcc, delEvt, "OUTLOOK");
+              link(otherAcc, keepEvt, "OUTLOOK");
+              long appLinked = insertTag(owner, "appLinked", "OUTLOOK", null); // 앱에서 다른 일정에 붙임 → 남김
+              link(appLinked, delEvt, "OUTLOOK");
+              link(appLinked, keepEvt, "APP");
+              long withFeed =
+                  insertTag(
+                      owner, "withFeed", "OUTLOOK", "feed-" + UUID.randomUUID()); // 구독 주소 → 남김
+              link(withFeed, delEvt, "OUTLOOK");
+              long othersTag = insertTag(other, "others", "OUTLOOK", null); // 다른 사람 태그 → 건드리지 않음
+              return new long[] {
+                owner, delAcc, pure, userMade, otherAcc, appLinked, withFeed, othersTag
+              };
+            });
+
+    purgeService.purgeAccount(ids[0], ids[1]);
+
+    tx.executeWithoutResult(
+        status -> {
+          List<Long> left =
+              dsl.select(CALENDAR_TAG.ID)
+                  .from(CALENDAR_TAG)
+                  .where(CALENDAR_TAG.ID.in(ids[2], ids[3], ids[4], ids[5], ids[6], ids[7]))
+                  .fetch(CALENDAR_TAG.ID);
+          assertThat(left)
+              .as("범주에서만 온 태그만 지워진다")
+              .containsExactlyInAnyOrder(ids[3], ids[4], ids[5], ids[6], ids[7]);
+        });
+  }
+
+  @Test
+  @DisplayName(
+      "범주 동기화가 새로 만든 태그만 출처가 OUTLOOK 이고, 같은 이름의 사용자 태그는 APP 그대로, 사용자가 손보면 APP 이 된다(WP-1220)")
+  void categoryTagOrigin() {
+    var tx = new org.springframework.transaction.support.TransactionTemplate(txManager);
+    tx.executeWithoutResult(
+        status -> {
+          long owner = TestFixtures.createHuman(dsl);
+          long mine = tagRepo.insert(owner, "Mine", "blue");
+          Map<String, Long> ids =
+              tagRepo.findOrCreateByNames(owner, List.of("mine", "Fresh"), n -> "red");
+          assertThat(ids.get("mine")).as("같은 이름 사용자 태그 재사용").isEqualTo(mine);
+          assertThat(originOf(mine)).isEqualTo("APP");
+          long fresh = ids.get("Fresh");
+          assertThat(originOf(fresh)).isEqualTo("OUTLOOK");
+          tagRepo.update(fresh, null, "green");
+          assertThat(originOf(fresh)).as("사용자가 색을 바꾸면 사용자 태그").isEqualTo("APP");
+        });
+  }
+
+  private String originOf(long tagId) {
+    return dsl.select(CALENDAR_TAG.ORIGIN)
+        .from(CALENDAR_TAG)
+        .where(CALENDAR_TAG.ID.eq(tagId))
+        .fetchOne(CALENDAR_TAG.ORIGIN);
+  }
+
+  private long insertTag(long userId, String name, String origin, String feedToken) {
+    return dsl.insertInto(CALENDAR_TAG)
+        .set(CALENDAR_TAG.USER_ID, userId)
+        .set(CALENDAR_TAG.NAME, name + "-" + System.nanoTime())
+        .set(CALENDAR_TAG.COLOR, "blue")
+        .set(CALENDAR_TAG.ORIGIN, origin)
+        .set(CALENDAR_TAG.FEED_TOKEN, feedToken)
+        .returning(CALENDAR_TAG.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  private void link(long tagId, long eventId, String source) {
+    dsl.insertInto(CALENDAR_EVENT_TAG)
+        .set(CALENDAR_EVENT_TAG.TAG_ID, tagId)
+        .set(CALENDAR_EVENT_TAG.EVENT_ID, eventId)
+        .set(CALENDAR_EVENT_TAG.SOURCE, source)
+        .execute();
   }
 
   // --- fixtures ---

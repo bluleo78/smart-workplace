@@ -37,6 +37,12 @@ public class CalendarTagRepository {
   /** 연결 출처 — Outlook 범주 동기화. */
   public static final String SOURCE_OUTLOOK = "OUTLOOK";
 
+  /** 태그를 만든 곳 — 사용자가 앱에서 만들었거나 손본 태그(계정을 끊어도 남긴다). 컬럼 기본값과 같다. */
+  public static final String ORIGIN_APP = "APP";
+
+  /** 태그를 만든 곳 — Outlook 범주 동기화가 새로 만든 태그(WP-1220, 계정을 끊어 연결이 모두 없어지면 정리 대상). */
+  public static final String ORIGIN_OUTLOOK = "OUTLOOK";
+
   private final DSLContext dsl;
 
   /** 태그 한 행(주인 확인 뒤 서비스가 쓰는 값). feedToken 이 null 이면 구독 주소 없음. */
@@ -186,9 +192,15 @@ public class CalendarTagRepository {
         .getId();
   }
 
-  /** 이름·색 갱신(null 은 그대로). 이름 충돌은 DuplicateKeyException. */
+  /**
+   * 이름·색 갱신(null 은 그대로). 이름 충돌은 DuplicateKeyException. 사용자가 손본 태그는 사용자 것으로 본다 — 출처를 APP 으로 바꿔 계정을
+   * 끊어도 정리하지 않는다(WP-1220).
+   */
   public void update(long tagId, String name, String color) {
-    var q = dsl.update(CALENDAR_TAG).set(CALENDAR_TAG.UPDATED_AT, OffsetDateTime.now());
+    var q =
+        dsl.update(CALENDAR_TAG)
+            .set(CALENDAR_TAG.UPDATED_AT, OffsetDateTime.now())
+            .set(CALENDAR_TAG.ORIGIN, ORIGIN_APP);
     if (name != null) q = q.set(CALENDAR_TAG.NAME, name);
     if (color != null) q = q.set(CALENDAR_TAG.COLOR, color);
     q.where(CALENDAR_TAG.ID.eq(tagId)).execute();
@@ -323,10 +335,17 @@ public class CalendarTagRepository {
     String[] input = names.toArray(String[]::new);
     matchByName(userId, input, out);
     if (out.size() < input.length) {
+      // 새로 만드는 태그만 출처 OUTLOOK — 같은 이름의 사용자 태그를 재사용한 경우(충돌로 건너뜀)는 APP 그대로 남는다(WP-1220).
       var insert =
-          dsl.insertInto(CALENDAR_TAG, CALENDAR_TAG.USER_ID, CALENDAR_TAG.NAME, CALENDAR_TAG.COLOR);
+          dsl.insertInto(
+              CALENDAR_TAG,
+              CALENDAR_TAG.USER_ID,
+              CALENDAR_TAG.NAME,
+              CALENDAR_TAG.COLOR,
+              CALENDAR_TAG.ORIGIN);
       for (String n : input) {
-        if (!out.containsKey(n)) insert = insert.values(userId, n, colorOf.apply(n));
+        if (!out.containsKey(n))
+          insert = insert.values(userId, n, colorOf.apply(n), ORIGIN_OUTLOOK);
       }
       insert.onConflictDoNothing().execute();
       matchByName(userId, input, out);
