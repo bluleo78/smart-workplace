@@ -19,6 +19,7 @@ export function useConvertedPreview(item: ViewerItem, enabled: boolean): { state
   // 다시 시도 — 값이 바뀌면 같은 항목도 시작 시각을 새로 잡고 처음부터 묻는다.
   const [attempt, setAttempt] = useState(0)
   const path = item.previewPath
+  const source = item.source
   // 결과는 그 결과를 낸 시도 키와 함께 둔다 — 항목 전환·retry 직후 첫 렌더에 이전 시도의 blob·실패가 비치지 않게(이펙트 안 초기화 setState 대신).
   const attemptKey = `${path}#${attempt}`
   const [result, setResult] = useState<{ key: string; state: ConvertedState } | null>(null)
@@ -47,9 +48,10 @@ export function useConvertedPreview(item: ViewerItem, enabled: boolean): { state
       setState(next)
     }
 
+    // 항목 출처가 있으면(공유 링크 미리보기, WP-1227) 그것으로, 없으면 앱 인증 클라이언트로 묻는다 — 응답 모양은 같다.
+    const fetchConverted = source?.fetchConverted ?? driveApi.fetchConvertedPreview
     const request = (start: boolean) => {
-      driveApi
-        .fetchConvertedPreview(start ? `${path}?start=true` : path, controller.signal)
+      fetchConverted(start ? `${path}?start=true` : path, controller.signal)
         .then((r) => {
           if (!alive) return
           const next = toConvertedState(r)
@@ -66,7 +68,7 @@ export function useConvertedPreview(item: ViewerItem, enabled: boolean): { state
       clearTimeout(deadline)
       controller.abort()
     }
-  }, [path, enabled, attempt])
+  }, [path, source, enabled, attempt])
 
   // 고정 참조 — 본문이 [다시 시도] 버튼·자식 props 로 넘겨도 렌더마다 바뀌지 않게.
   const retry = useCallback(() => setAttempt((n) => n + 1), [])

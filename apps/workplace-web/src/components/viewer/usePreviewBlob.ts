@@ -91,8 +91,9 @@ export function usePreviewBlob(
     if (trackProgress) setProgress({ loaded: 0, total: sizeRef.current ?? null, percent: sizeRef.current ? 0 : null })
     // 넘기거나 닫으면 받던 요청을 끊는다 — 영상·오디오는 최대 25MB 라 버려질 다운로드가 여러 개 겹치면 지금 항목이 느려지고 데이터를 낭비한다.
     const controller = new AbortController()
-    driveApi
-      .fetchBlobByPath(item.contentPath, { onProgress, signal: controller.signal })
+    // 항목 출처가 있으면(공유 링크 미리보기 — 공개 경로 + 열람 토큰) 그것으로, 없으면 앱 인증 클라이언트로 받는다(WP-1227).
+    const fetchBlob = item.source?.fetchBlob ?? driveApi.fetchBlobByPath
+    fetchBlob(item.contentPath, { onProgress, signal: controller.signal })
       // octet-stream 응답은 항목 형식(메일 첨부의 파일명 추론 등)으로 다시 감싸 렌더러·공유 File 이 맞는 형식을 보게 한다.
       .then((b) => alive && setBlob(withItemType(b, item.mimeType)))
       .catch(() => alive && setError(true))
@@ -100,7 +101,7 @@ export function usePreviewBlob(
       alive = false
       controller.abort()
     }
-  }, [item.contentPath, item.mimeType, active, waiting, attempt, trackProgress])
+  }, [item.contentPath, item.mimeType, item.source, active, waiting, attempt, trackProgress])
 
   return {
     blob,

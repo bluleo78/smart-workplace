@@ -672,6 +672,18 @@ public class DriveFileService {
     return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 
+  /**
+   * 공유 링크 미리보기(WP-1227)용 현재 버전 core file.id. {@link #downloadViaShareLink} 와 같은 규칙 — 멤버십 검사 없이(링크
+   * 가드를 통과한 capability), 휴지통·없는 파일은 「공유 링크 없음」(404)으로 내부 id 를 드러내지 않는다. 호출부가 링크 워크스페이스로 컨텍스트를 세운다.
+   */
+  @Transactional(readOnly = true)
+  public long coreFileIdViaShareLink(long driveFileId) {
+    return files
+        .findRow(driveFileId)
+        .orElseThrow(com.workplace.drive.exception.DriveShareLinkNotFoundException::new)
+        .fileId();
+  }
+
   /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
   @Transactional(readOnly = true)
   public Optional<FileContentResult> thumbnail(long callerId, long driveFileId) throws IOException {

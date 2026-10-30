@@ -12,7 +12,7 @@
 // shadcn primitive(components/ui/dialog.tsx)는 편집하지 않고 호출부 props/className 조합으로만 적용한다.
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
-import { useAssistant } from '@/components/ai/AIAssistantContext';
+import { useOptionalAssistant } from '@/components/ai/AIAssistantContext';
 import { inertPageArea, isAiPanelInteraction, isInAiPanelDom } from '@/components/ai/aiPanelSurface';
 import { DialogPortal } from '@/components/ui/dialog';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -62,9 +62,15 @@ interface Result {
   overlay: ReactNode;
 }
 
+/** AI Provider 가 없을 때의 패널 닫기 — 고정 참조라 콜백 의존성이 렌더마다 바뀌지 않는다. */
+const noopClose = () => {};
+
 /** AI 사이드 패널과 공존하는 다이얼로그 props 를 만든다. */
 export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Result {
-  const { mode, close } = useAssistant();
+  // 앱 셸 밖 공개 화면(공유 링크 미리보기, WP-1227)엔 AI Provider 가 없다 — AI 패널이 닫힌 것으로 보고 기존 modal 동작을 쓴다.
+  const assistant = useOptionalAssistant();
+  const mode = assistant?.mode ?? 'closed';
+  const close = assistant?.close ?? noopClose;
   // 모바일(<lg)은 side 패널이 없고 AI 가 곧 시트(다이얼로그 위 z-[60] AI 표면, WP-191)이므로,
   // 데스크톱 side 와 같은 "다이얼로그 위 AI 질문" 흐름을 시트에 적용한다. 데스크톱 fullscreen 은 기존대로 modal.
   const isMobile = useIsMobile();

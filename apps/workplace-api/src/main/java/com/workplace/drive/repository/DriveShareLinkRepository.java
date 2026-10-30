@@ -1,6 +1,8 @@
 package com.workplace.drive.repository;
 
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK;
+import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.drive.dto.ShareLinkResponse;
 import java.time.OffsetDateTime;
@@ -99,6 +101,30 @@ public class DriveShareLinkRepository {
                 r.get("expires_at", OffsetDateTime.class),
                 r.get("revoked_at", OffsetDateTime.class)));
   }
+
+  /**
+   * 링크를 만든 사람 이름(WP-1227 — 공유 화면의 「공유한 사람」). RLS 컨텍스트(링크 워크스페이스)·트랜잭션 안에서 부른다. resolve 함수는 바꾸지
+   * 않고(마이그레이션 없이) 테넌트 범위 조회로 읽는다.
+   */
+  public Optional<String> findCreatorName(String tokenHash) {
+    return dsl.select(USER.NAME)
+        .from(DRIVE_SHARE_LINK)
+        .join(USER)
+        .on(USER.ID.eq(DRIVE_SHARE_LINK.CREATED_BY))
+        .where(DRIVE_SHARE_LINK.TOKEN_HASH.eq(tokenHash))
+        .fetchOptional(USER.NAME);
+  }
+
+  /** 공유 화면에 보일 파일 형식·크기(WP-1227). core file id 기준, RLS 컨텍스트·트랜잭션 안에서 부른다. */
+  public Optional<FileMeta> findFileMeta(long coreFileId) {
+    return dsl.select(FILE.MIME_TYPE, FILE.SIZE_BYTES)
+        .from(FILE)
+        .where(FILE.ID.eq(coreFileId))
+        .fetchOptional(r -> new FileMeta(r.get(FILE.MIME_TYPE), r.get(FILE.SIZE_BYTES)));
+  }
+
+  /** 공유 정보용 파일 형식·크기. */
+  public record FileMeta(String mimeType, long sizeBytes) {}
 
   /** 공개 resolve 결과(RLS 우회로 읽은 최소 필드). */
   public record ResolvedLink(

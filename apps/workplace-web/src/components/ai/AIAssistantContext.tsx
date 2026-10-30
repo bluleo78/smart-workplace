@@ -238,3 +238,12 @@ export function useAssistant(): AIAssistantValue {
   if (!ctx) throw new Error('useAssistant must be used within AIAssistantProvider');
   return ctx;
 }
+
+/**
+ * Provider 밖에서도 부를 수 있는 소비 훅(WP-1227) — 앱 셸(AppLayout) 밖 공개 화면(/s/:token 공유 미리보기)이
+ * 뷰어 다이얼로그를 띄울 때 AI 패널이 없으므로 null 을 돌려준다(그 화면엔 AI 표면이 없어 늘 닫힌 것으로 본다).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOptionalAssistant(): AIAssistantValue | null {
+  return useContext(AIAssistantContext);
+}

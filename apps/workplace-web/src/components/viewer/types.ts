@@ -1,3 +1,6 @@
+import type { BlobProgress } from '../../api/blobContent'
+import type { ConvertedPreviewResponse } from '../../api/drive'
+
 /**
  * 통합 첨부 뷰어가 받는 공통 항목(WP-276).
  * 화면(드라이브·이슈·채팅·메일)은 자기 데이터를 이 형태로 바꿔 넘기기만 하고,
@@ -28,6 +31,24 @@ export interface ViewerItem {
   sourceLink?: string
   /** 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만. */
   unavailable?: boolean
+  /**
+   * 있으면 원본·변환 PDF·다운로드를 이 출처로 받는다(WP-1227 공유 링크 미리보기 — 공개 경로 + 열람 토큰 헤더).
+   * 없으면 기존대로 앱 인증 클라이언트(driveApi)로 받는다 — 드라이브·메일·채팅 뷰어 동작은 그대로다.
+   */
+  source?: ViewerItemSource
+}
+
+/**
+ * 항목별 받기 출처(WP-1227). 앱 로그인 세션이 아닌 다른 인증(공유 열람 토큰)으로 받아야 하는 항목이 쓴다.
+ * 결과 모양은 기본 출처(driveApi.fetchBlobByPath·fetchConvertedPreview)와 같아야 한다 — 뷰어 본문이 출처를 몰라도 같게 그린다.
+ */
+export interface ViewerItemSource {
+  /** 원본 blob — path 는 항목 contentPath. */
+  fetchBlob: (path: string, opts: { onProgress?: BlobProgress; signal?: AbortSignal }) => Promise<Blob>
+  /** 변환 PDF 상태 — path 는 previewPath(첫 요청은 `?start=true` 가 붙는다). 200/202/422/404 는 상태로, 그 밖은 throw. */
+  fetchConverted: (path: string, signal?: AbortSignal) => Promise<ConvertedPreviewResponse>
+  /** 원본 다운로드(브라우저 저장까지). 실패는 throw — 뷰어가 토스트로 알린다. */
+  download: (item: ViewerItem) => Promise<void>
 }
 
 /** ⋯ "드라이브에서 열기" 대상 — 폴더 id 를 모르므로 공간·파일 id·이름(폴더 검색용)만 든다. */

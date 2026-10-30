@@ -28,7 +28,9 @@ export async function downloadViewerItem(item: ViewerItem, blob?: Blob | null): 
     return
   }
   try {
-    await driveApi.downloadByPath(key, item.name)
+    // 항목 출처가 있으면(공유 링크 미리보기 — 공개 /download + 열람 토큰, WP-1227) 그것으로 받는다.
+    if (item.source) await item.source.download(item)
+    else await driveApi.downloadByPath(key, item.name)
   } catch {
     toast.error('파일을 내려받지 못했습니다')
   } finally {

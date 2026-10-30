@@ -58,7 +58,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     long fileId = seedFile(seedSpace(owner));
     var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
     TenantContext.clear(); // 익명 상황 모사
-    var target = service.resolveForDownload(created.token(), null, null, false);
+    var target = service.resolveForDownload(created.token(), null, null, null, false);
     assertThat(target.driveFileId()).isEqualTo(fileId);
     assertThat(target.tenantId()).isEqualTo(1L);
   }
@@ -70,7 +70,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
     service.revoke(owner, created.id());
     TenantContext.clear();
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), null, null, false))
+    assertThatThrownBy(() -> service.resolveForDownload(created.token(), null, null, null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkGoneException.class);
   }
 
@@ -81,10 +81,12 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     var created =
         service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
     TenantContext.clear();
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+    assertThatThrownBy(
+            () -> service.resolveForDownload(created.token(), "wrong", null, null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
     // 정답이면 통과
-    assertThat(service.resolveForDownload(created.token(), "secret", null, false).driveFileId())
+    assertThat(
+            service.resolveForDownload(created.token(), "secret", null, null, false).driveFileId())
         .isEqualTo(fileId);
   }
 
@@ -103,7 +105,8 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     dsl.update(TENANT).set(TENANT.STATUS, "DELETED").where(TENANT.ID.eq(1L)).execute();
     TenantContext.clear();
 
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+    assertThatThrownBy(
+            () -> service.resolveForDownload(created.token(), "wrong", null, null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkNotFoundException.class);
     assertThat(
             dsl.fetchCount(
@@ -124,15 +127,18 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
 
     // 4회는 일반 실패(401 상당) — 아직 잠기지 않음
     for (int i = 0; i < 4; i++) {
-      assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+      assertThatThrownBy(
+              () -> service.resolveForDownload(created.token(), "wrong", null, null, false))
           .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
     }
     // 5번째 실패 — 이번 실패로 잠금 발동 + 감사 로그 기록
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+    assertThatThrownBy(
+            () -> service.resolveForDownload(created.token(), "wrong", null, null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
 
     // 잠긴 상태에서는 정답 비밀번호도 429 상당 예외로 거부
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "secret", null, false))
+    assertThatThrownBy(
+            () -> service.resolveForDownload(created.token(), "secret", null, null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkLockedException.class);
 
     int auditCount =
@@ -155,11 +161,13 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     TenantContext.clear();
 
     for (int i = 0; i < 3; i++) {
-      assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+      assertThatThrownBy(
+              () -> service.resolveForDownload(created.token(), "wrong", null, null, false))
           .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
     }
     // 잠금 임계치(5) 미달 — 정답이면 통과하고 카운터 리셋
-    assertThat(service.resolveForDownload(created.token(), "secret", null, false).driveFileId())
+    assertThat(
+            service.resolveForDownload(created.token(), "secret", null, null, false).driveFileId())
         .isEqualTo(fileId);
   }
 
@@ -169,10 +177,10 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     long fileId = seedFile(seedSpace(owner));
     var created = service.create(owner, fileId, new CreateShareLinkRequest("INTERNAL", null, null));
     TenantContext.clear();
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), null, null, false))
+    assertThatThrownBy(() -> service.resolveForDownload(created.token(), null, null, null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
     // 같은 테넌트 인증 사용자는 통과
-    assertThat(service.resolveForDownload(created.token(), null, 1L, true).driveFileId())
+    assertThat(service.resolveForDownload(created.token(), null, null, 1L, true).driveFileId())
         .isEqualTo(fileId);
   }
 
@@ -183,7 +191,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     long fileId = seedFile(seedSpace(owner));
     var created = service.create(owner, fileId, new CreateShareLinkRequest("INTERNAL", null, null));
     // requesterTenantId=2L(다른 테넌트) → 크로스테넌트 접근 차단
-    assertThatThrownBy(() -> service.resolveForDownload(created.token(), null, 2L, true))
+    assertThatThrownBy(() -> service.resolveForDownload(created.token(), null, null, 2L, true))
         .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
   }
 
@@ -195,7 +203,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
     fileService.delete(owner, fileId); // 휴지통(soft) → findRow 제외
     TenantContext.clear();
-    var target = service.resolveForDownload(created.token(), null, null, false);
+    var target = service.resolveForDownload(created.token(), null, null, null, false);
     // 2-트랜잭션: 컨텍스트 설정 후 다운로드 시도 → trashed → 없는 토큰과 같은 「공유 링크 없음」(WP-533).
     // 파일 NotFound(「드라이브 파일을 찾을 수 없습니다 (id: N)」)는 비로그인 사용자에게 내부 id 와 토큰 유효성을 드러낸다.
     TenantContext.set(target.tenantId());
