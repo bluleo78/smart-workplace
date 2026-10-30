@@ -25,10 +25,14 @@ export async function measureBox(locator: Locator, message = 'boundingBox'): Pro
   return box!;
 }
 
+/** 문서·프레임이 교체되는 순간의 오류 — 새 문서에서 다시 재면 된다. */
+const NAVIGATION_ERRORS = ['Execution context was destroyed', 'Frame was detached'];
+
 /**
  * 문서가 교체되는 순간을 넘겨 측정·조작을 다시 실행한다 — 주로 `locator.evaluate` 를 감싼다.
- * iframe srcdoc 재작성·리마운트 중에 걸리면 "Execution context was destroyed" 로 던지는데, expect.poll 은
- * 콜백 예외를 재시도하지 않고 바로 실패한다. 이 오류만 골라 새 문서가 뜰 때까지 다시 시도한다.
+ * iframe srcdoc 재작성·리마운트 중에 걸리면 "Execution context was destroyed" 로, iframe 요소가 바뀌어 잡아 둔
+ * 프레임이 떨어지면 "Frame was detached" 로 던지는데(WP-1221 — 부하 중 push 게이트에서만 드러났다), expect.poll 은
+ * 콜백 예외를 재시도하지 않고 바로 실패한다. 이 두 오류만 골라 새 문서가 뜰 때까지 다시 시도한다.
  *
  *   await expect.poll(() => retryOnNavigation(() => frame.locator('#a').evaluate((el) => getComputedStyle(el).color)))
  */
@@ -37,7 +41,7 @@ export async function retryOnNavigation<R>(run: () => Promise<R>): Promise<R> {
     try {
       return await run();
     } catch (e) {
-      if (attempt >= 4 || !String(e).includes('Execution context was destroyed')) throw e;
+      if (attempt >= 4 || !NAVIGATION_ERRORS.some((m) => String(e).includes(m))) throw e;
     }
   }
 }
