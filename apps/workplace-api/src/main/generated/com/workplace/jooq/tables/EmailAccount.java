@@ -271,7 +271,7 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_EMAIL_ACCOUNT_TENANT, Indexes.IDX_EMAIL_ACCOUNT_USER, Indexes.UQ_EMAIL_ACCOUNT_USER_ADDR);
+        return Arrays.asList(Indexes.IDX_EMAIL_ACCOUNT_TENANT, Indexes.IDX_EMAIL_ACCOUNT_USER);
     }
 
     @Override

@@ -17,8 +17,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * V59 mail 도메인 RLS 격리 증명: tenant#2 의 email_account/folder/message/attachment 가 tenant#1 GUC 컨텍스트에서
- * 비가시. 더불어 email_account 유니크(uq_email_account_user_addr)가 테넌트별로 동작해 두 테넌트가 같은 (user, 주소) 계정을 생성할 수
- * 있음을 확인한다. 전체 단일 트랜잭션 + 롤백 → 공유 DB 무오염.
+ * 비가시. 더불어 email_account 유니크(uq_email_account_user_addr_ci)가 테넌트별로 동작해 두 테넌트가 같은 (user, 주소) 계정을 생성할
+ * 수 있음을 확인한다. 전체 단일 트랜잭션 + 롤백 → 공유 DB 무오염.
  */
 class MailDomainRlsTest extends IntegrationTestBase {
 
