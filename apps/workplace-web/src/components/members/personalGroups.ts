@@ -33,23 +33,35 @@ export function addGroupMembers(
   return { userIds: [...currentUserIds, ...fresh], added: fresh.length, skipped: candidates.length - fresh.length }
 }
 
-/** 내 그룹을 펼친 뒤의 안내(WP-1023) — 「개발 스터디에서 3명 추가 (이미 있는 1명 제외)」. 더할 사람이 없으면 그 사실만. */
-export function groupExpansionMessage(groupName: string, added: number, skipped: number): string {
+/**
+ * 내 그룹을 펼친 뒤의 안내(WP-1023) — 「개발 스터디에서 3명 추가 (이미 있는 1명 제외)」. 더할 사람이 없으면 그 사실만.
+ * pinned(WP-1186) 는 added 중 부서(조직)로 이미 들어와 있다 직접 멤버로 고정된 사람 수 — 새로 들어온 사람과 나눠 「2명 추가 · 부서로 있던 1명은 직접 멤버로 고정」.
+ */
+export function groupExpansionMessage(groupName: string, added: number, skipped: number, pinned = 0): string {
   if (added === 0) return skipped > 0 ? `${groupName}의 ${skipped}명은 이미 모두 있습니다` : `${groupName}에 추가할 사람이 없습니다`
-  return `${groupName}에서 ${added}명 추가${skipped > 0 ? ` (이미 있는 ${skipped}명 제외)` : ''}`
+  const skippedNote = skipped > 0 ? ` (이미 있는 ${skipped}명 제외)` : ''
+  const pinnedCount = Math.min(pinned, added)
+  if (pinnedCount === 0) return `${groupName}에서 ${added}명 추가${skippedNote}`
+  const pinnedNote = `부서로 있던 ${pinnedCount}명은 직접 멤버로 고정`
+  const fresh = added - pinnedCount
+  return fresh > 0 ? `${groupName}에서 ${fresh}명 추가 · ${pinnedNote}${skippedNote}` : `${groupName}에서 ${pinnedNote}${skippedNote}`
 }
 
-/** 내 그룹을 사람으로 풀어 더한 결과 — 새로 더한·이미 있어 뺀·추가하지 못한 사람 수. */
+/** 내 그룹을 사람으로 풀어 더한 결과 — 새로 더한·이미 있어 뺀·추가하지 못한 사람 수. pinned 는 added 중 부서로 있다 직접 멤버로 고정된 수(WP-1186). */
 export interface GroupMembersAddResult {
   added: number
   skipped: number
   failed: number
+  pinned: number
 }
 
 /** 내 그룹 구성원을 더할 곳(드라이브 팀 공간 WP-1056·채널 WP-1058)마다 다른 부분 — 지금 멤버 읽기, 한 명 더하기, 끝난 뒤 무효화. */
 export interface GroupMemberAdder {
-  /** 이미 있어 뺄 사람 id — 화면 캐시가 아니라 방금 받은 목록(업서트가 그사이 바뀐 역할을 덮지 않게). */
-  readCurrentIds: () => Promise<number[]>
+  /**
+   * 이미 있어 뺄 사람 id — 화면 캐시가 아니라 방금 받은 목록(업서트가 그사이 바뀐 역할을 덮지 않게).
+   * 다른 경로(채널의 부서)로 이미 들어와 있어 더하면 직접 멤버로 고정되는 사람이 있으면 { ids, pinnable } 로 함께 준다(WP-1186) — 결과의 pinned 로 센다.
+   */
+  readCurrentIds: () => Promise<number[] | { ids: number[]; pinnable: number[] }>
   /** 한 명 더하기 — 실패해도 나머지는 계속 더한다. */
   addOne: (userId: number) => Promise<unknown>
   /** 한 명이라도 더하려 했으면 끝에 한 번 부른다. */
@@ -64,13 +76,16 @@ export async function addMembersFromGroup(
   memberIds: number[] | Promise<number[]>,
   adder: GroupMemberAdder,
 ): Promise<GroupMembersAddResult> {
-  const [ids, current] = await Promise.all([memberIds, adder.readCurrentIds()])
+  const [ids, read] = await Promise.all([memberIds, adder.readCurrentIds()])
+  const current = Array.isArray(read) ? read : read.ids
+  const pinnable = new Set(Array.isArray(read) ? [] : read.pinnable)
   const { userIds, skipped } = addGroupMembers(current, ids)
   const fresh = userIds.slice(current.length)
   const results = await Promise.allSettled(fresh.map((userId) => adder.addOne(userId)))
   const failed = results.filter((r) => r.status === 'rejected').length
+  const pinned = fresh.filter((userId, i) => results[i].status === 'fulfilled' && pinnable.has(userId)).length
   if (fresh.length > 0) adder.invalidate()
-  return { added: fresh.length - failed, skipped, failed }
+  return { added: fresh.length - failed, skipped, failed, pinned }
 }
 
 /**
@@ -82,8 +97,8 @@ export async function addPersonalGroupWithNotice(
   add: (memberIds: Promise<number[]>) => Promise<GroupMembersAddResult>,
 ): Promise<void> {
   try {
-    const { added, skipped, failed } = await add(fetchPersonalGroupMemberIds(group))
-    const text = groupExpansionMessage(group.name, added, skipped)
+    const { added, skipped, failed, pinned } = await add(fetchPersonalGroupMemberIds(group))
+    const text = groupExpansionMessage(group.name, added, skipped, pinned)
     if (failed > 0) toast.error(`${text} — ${failed}명은 추가하지 못했습니다`)
     else if (added === 0) toast.info(text)
     else toast.success(text)

@@ -266,7 +266,10 @@ describe('채널 멤버 패널 — 조직도 부서·내 그룹(WP-1058)', () =>
     )
     // 그룹 자체는 서버에 보내지 않는다 — 부서 POST 가 없다.
     expect(writes.some((w) => w.path === 'member-groups')).toBe(false)
-    expect(await screen.findByText('개발 스터디에서 3명 추가 (이미 있는 1명 제외)')).toBeInTheDocument()
+    // 박민수(5)는 개발팀으로 들어와 있던 사람이라 새로 들어온 2명과 나눠 알린다 — 그룹은 풀어 직접 멤버로 고정하는 것이 규칙(WP-1186).
+    expect(
+      await screen.findByText('개발 스터디에서 2명 추가 · 부서로 있던 1명은 직접 멤버로 고정 (이미 있는 1명 제외)'),
+    ).toBeInTheDocument()
     expect(await screen.findByTestId('member-row-11')).toBeInTheDocument()
   })
 

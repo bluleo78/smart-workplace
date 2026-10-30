@@ -81,13 +81,15 @@ export function useRemoveMemberGroup(channelId: number) {
 /**
  * 내 그룹 구성원을 사람 멤버로 한 명씩 초대한다(WP-1058, 드라이브 useAddDriveMembersFromGroup 과 같은 공용 흐름 addMembersFromGroup) — 그룹 자체는 서버에 보내지 않는다.
  * 화면 캐시가 아니라 방금 받은 멤버 목록의 직접 멤버로 걸러, 이미 직접 멤버인 사람에게 다시 초대를 보내지 않는다. 부서로만 들어온 사람(direct=false)은
- * 초대한다 — 서버가 직접 멤버로 고정해(역할·읽음 위치 유지) 부서가 빠져도 남는다.
+ * 초대한다 — 서버가 직접 멤버로 고정해(역할·읽음 위치 유지) 부서가 빠져도 남는다(그룹은 풀어 직접 멤버로 고정하는 것이 규칙 — WP-1186). 그런 사람은
+ * 결과의 pinned 로 따로 세어 안내를 「n명 추가 · 부서로 있던 m명은 직접 멤버로 고정」으로 나눈다.
  * 사람마다 실패 토스트가 뜨지 않게 mutation 대신 API 를 바로 부르고, 끝에 한 번만 무효화한다. 더한·뺀·실패한 수를 돌려준다.
  */
 export function useAddChannelMembersFromGroup(channelId: number) {
   const qc = useQueryClient();
   return (memberIds: number[] | Promise<number[]>): Promise<GroupMembersAddResult> =>
     addMembersFromGroup(memberIds, {
+      // 빼는 것은 직접 멤버, 부서로만 들어와 있던 사람(direct=false)은 더하면 직접 멤버로 고정된다(pinnable).
       readCurrentIds: () =>
         qc
           .fetchQuery({
@@ -95,7 +97,10 @@ export function useAddChannelMembersFromGroup(channelId: number) {
             queryFn: () => messagingApi.listMembers(channelId).then((r) => r.data),
             staleTime: 0,
           })
-          .then((latest) => latest.filter((m) => m.direct).map((m) => m.userId)),
+          .then((latest) => ({
+            ids: latest.filter((m) => m.direct).map((m) => m.userId),
+            pinnable: latest.filter((m) => !m.direct).map((m) => m.userId),
+          })),
       addOne: (userId) => messagingApi.addMember(channelId, userId),
       invalidate: () => invalidateMembership(qc, channelId),
     });
