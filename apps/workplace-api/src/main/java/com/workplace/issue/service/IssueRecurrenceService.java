@@ -15,7 +15,6 @@ import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidIssueRecurrenceException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.IssueRecurrenceConflictException;
-import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -392,13 +391,8 @@ public class IssueRecurrenceService {
         TOOL,
         new AgentWorkPatch(TOOL, AgentWorkState.BLOCKED, note, false, null, null, null));
     // 막힘으로 들어선 순간 — 명시 보고와 같은 AI 작업 알림 경로(AgentWorkNoticeEvent)로 소유자에게 「답변 필요」 알림을 낸다. 수신자는
-    // notify 가 이슈 챗 질문과 같은 규칙으로 고른다(개인 작업이라 소유자). 후보는 보고 경로와 같은 [담당 지정자, 보고자] 순서.
-    List<Long> candidates = new ArrayList<>(2);
-    assigneeRepository.findAssignedBy(issue.id(), agentId).ifPresent(candidates::add);
-    if (issue.reporterId() != null) candidates.add(issue.reporterId());
-    publisher.publishEvent(
-        new AgentWorkNoticeEvent(
-            issue.id(), agentId, AgentWorkState.BLOCKED, candidates, List.of()));
+    // notify 가 이슈 챗 질문과 같은 규칙으로 고른다(개인 작업이라 소유자).
+    agentWorkService.publishEnteredNotice(issue, agentId, AgentWorkState.BLOCKED);
   }
 
   /**
@@ -448,8 +442,7 @@ public class IssueRecurrenceService {
 
   /** 이슈가 아직 열려 있고 AI 가 담당에 있는지 — 작업 기록을 바꿔도 되는지. */
   private boolean live(IssueRow issue, long agentId) {
-    return !IssueStatuses.CLOSED.contains(issue.status())
-        && assigneeRepository.findUserIdsByIssue(issue.id()).contains(agentId);
+    return agentWorkService.isLiveFor(issue, agentId);
   }
 
   // ───────────────────────────── 내부 도우미 ─────────────────────────────

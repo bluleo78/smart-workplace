@@ -10,6 +10,7 @@ import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.AgentWorkAutoStarted;
+import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
@@ -23,6 +24,7 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.outbound.AgentRuntimeChanged;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -170,6 +172,28 @@ public class AgentWorkService {
     }
     notifyChanged(issueId, workerId);
     return true;
+  }
+
+  /**
+   * 서버가 대신 기록하는 작업(반복·서버 AI 실행 — WP-989·WP-1219)을 바꿔도 되는지 — 이슈가 열려 있고 그 AI 가 아직 담당이다. 끝났거나 담당에서
+   * 빠졌으면 종료·담당 해제가 이미 기록을 닫았으므로 되살리지 않는다.
+   */
+  public boolean isLiveFor(IssueRow issue, long agentId) {
+    return !IssueStatuses.CLOSED.contains(issue.status())
+        && assigneeRepository.findUserIdsByIssue(issue.id()).contains(agentId);
+  }
+
+  /**
+   * 서버가 대신 기록하는 작업이 알릴 상태({@link AgentWorkNoticeEvent#ON_ENTER} — 검토 대기·막힘 등)로 들어섰을 때, 명시 보고와 같은 AI
+   * 작업 알림 경로로 알린다. 수신 후보도 보고 경로와 같은 [이 작업자 담당 행을 만든 사람, 보고자] 순서이고, 사람인지·이슈를 볼 수 있는지는 notify 가 판정한다.
+   */
+  public void publishEnteredNotice(IssueRow issue, long agentId, String state) {
+    if (!AgentWorkNoticeEvent.ON_ENTER.contains(state)) return;
+    List<Long> candidates = new ArrayList<>(2);
+    assigneeRepository.findAssignedBy(issue.id(), agentId).ifPresent(candidates::add);
+    if (issue.reporterId() != null) candidates.add(issue.reporterId());
+    publisher.publishEvent(
+        new AgentWorkNoticeEvent(issue.id(), agentId, state, candidates, List.of()));
   }
 
   /**

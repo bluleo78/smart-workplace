@@ -61,7 +61,7 @@ export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>>
 
 /**
  * WP-377: AI Chat·서브에이전트 프로필에 싣지 않는 공유 도구. 외부 클라이언트(Claude Code·Cursor 등) 전용이다 —
- * 서버가 돌리는 AI 는 이슈 진행 기록(report_agent_work)을 남기지 않는다(스펙 §1 "하지 않는 것").
+ * 서버가 돌리는 AI 는 모델이 이슈 진행 기록(report_agent_work)을 보고하지 않는다(스펙 §1 "하지 않는 것") — 그 기록은 run-agent 의 실행 보고로 서버가 남긴다(WP-1219).
  * WP-373: get_issue_chat 도 같다 — 외부 AI 가 맡은 이슈에서 던진 질문의 답을 읽는 도구이고, 서버 AI 는 이슈 챗 스레드(chat 프로필)에서 직접 대화한다. 그래서 sharedTool() 이 이 이름을 거부하고,
  * WP-800: claim_issue 도 같다 — 대기열 라벨 이슈를 스스로 가져가는 외부 AI(work-loop) 전용이고, 서버 AI 는 담당 지정 시점에 일을 받는다.
  * WP-719: add_issue_chat 도 같다 — 외부 AI 가 담당 밖 이슈의 멘션에 이슈 챗으로 답하는 도구이고, 서버 AI 는 이슈 챗 스레드에서 직접 대화한다.

@@ -38,6 +38,14 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload): string {
   );
 }
 
+// WP-1219: 담당 지정·생성 실행의 지시. 예전 지시는 「상태를 진행 중으로 바꾸고 시작 코멘트」에서 끝나, 모델이 「작업을 시작합니다 … 공유하겠습니다」 코멘트만
+// 남기고 실행을 끝냈다(사람이 다시 코멘트해야 결과가 나왔다). 이 실행 하나가 맡은 일 전부라는 것과 끝에 남길 결과를 분명히 한다.
+const DO_THE_WORK =
+  `get_issue_detail 로 본문·코멘트를 읽고 이 이슈가 요청한 일을 이번 실행 안에서 끝까지 하세요. 이 실행이 끝나면 다시 깨어나지 않습니다 — 「시작합니다」·「곧 공유하겠습니다」만 남기고 끝내지 않습니다.\n` +
+  `1. 시작할 때 update_issue 의 status 를 'IN_PROGRESS' 로 바꿉니다(결과의 ok 가 false 이거나 results.content 가 'failed' 로 시작하면 상태가 바뀌지 않은 것이므로 결과 코멘트에 실패를 함께 적습니다). 시작 코멘트는 따로 남기지 않습니다.\n` +
+  `2. 요청한 결과물(체크리스트·정리·초안·답 등)을 만들어 add_comment 로 남깁니다 — 결과 코멘트 하나에 결과 전체를 마크다운으로 담습니다.\n` +
+  `3. 정보가 모자라거나 권한·도구가 없어 끝낼 수 없으면, 한 데까지의 결과와 끝내지 못한 이유·필요한 것을 코멘트로 남깁니다.`;
+
 export function buildUserMessage(env: IssueEventEnvelope): string {
   switch (env.type) {
     case 'issue.created': {
@@ -48,7 +56,8 @@ export function buildUserMessage(env: IssueEventEnvelope): string {
         `이슈키: ${p.issueKey}\n` +
         `제목: ${p.issueTitle}\n` +
         `생성자: @${p.actor.username}\n\n` +
-        `필요시 get_issue_detail 로 본문을 확인하고 작업 방향을 코멘트로 알려주세요.`
+        // WP-1219: 방향만 알리고 끝내지 않게 — 맡은 일을 이번 실행 안에서 끝내 결과를 남기게 한다(issue.assigned 와 같은 지시).
+        DO_THE_WORK
       );
     }
     case 'issue.assigned': {
@@ -59,7 +68,7 @@ export function buildUserMessage(env: IssueEventEnvelope): string {
         `이슈키: ${p.issueKey}\n` +
         `제목: ${p.issueTitle}\n` +
         `지정자: @${p.actor.username}\n\n` +
-        `get_issue_detail 로 컨텍스트 파악 후 작업 시작. update_issue 의 status 를 'IN_PROGRESS' 로 바꾸고(결과의 ok 가 false 이거나 results.content 가 'failed' 로 시작하면 상태가 바뀌지 않은 것이므로 코멘트에 실패를 알립니다) 시작 코멘트.`
+        DO_THE_WORK
       );
     }
     case 'issue.commented': {

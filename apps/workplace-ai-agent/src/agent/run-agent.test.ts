@@ -55,6 +55,8 @@ function client(token: string | Error): WorkplaceApiClient {
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
     // WP-989: 반복 회차 결과 보고
     reportRecurringRun: vi.fn().mockResolvedValue(undefined),
+    // WP-1219: 이슈 실행 시작·끝 보고
+    reportAgentRun: vi.fn().mockResolvedValue(undefined),
   };
   return c;
 }
@@ -185,5 +187,71 @@ describe('runAgent (인-프로세스 SDK)', () => {
     await runAgent(envWithAgent(), { client: c });
     const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
     expect(arg.model).toBe('claude-sonnet-5-5');
+  });
+
+  // WP-1219: 서버 AI 실행도 작업 기록을 남기게 시작·끝을 API 에 보고한다 — 실패 경로에서도 끝 보고를 보내 「작업 중」에 남지 않게.
+  describe('실행 보고(reportAgentRun)', () => {
+    // SDK 원시 결과 줄 — 러너가 RunnerEvent(result ok) 로 바꾼다.
+    const okEvents = [JSON.stringify({ type: 'result', subtype: 'success', result: '완료' })];
+
+    it('정상으로 끝나면 STARTED → FINISHED(ok) 를 그 AI·이슈로 보낸다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(okEvents as never);
+      const c = client('tk-X');
+      await runAgent(envWithAgent(), { client: c });
+      expect(vi.mocked(c.reportAgentRun).mock.calls).toEqual([
+        [201, 1, { phase: 'STARTED', ok: true }],
+        [201, 1, { phase: 'FINISHED', ok: true }],
+      ]);
+    });
+
+    it('결과가 비정상이면 사유 없이 FINISHED(실패) 를 보낸다 — API 가 기본 문구를 쓴다', async () => {
+      const c = client('tk-X');
+      await runAgent(envWithAgent(), { client: c });
+      expect(vi.mocked(c.reportAgentRun).mock.calls.at(-1)).toEqual([201, 1, { phase: 'FINISHED', ok: false }]);
+    });
+
+    it('실행이 던지면 FINISHED(실패, 정해 둔 문구 — 원시 오류는 싣지 않음) 를 보내고 다시 던진다', async () => {
+      vi.mocked(runSdkCollect).mockRejectedValue(new Error('timeout 300000ms'));
+      const c = client('tk-X');
+      await expect(runAgent(envWithAgent(), { client: c })).rejects.toThrow('timeout');
+      expect(vi.mocked(c.reportAgentRun).mock.calls.at(-1)).toEqual([
+        201,
+        1,
+        { phase: 'FINISHED', ok: false, note: 'AI 실행 중 오류가 났습니다' },
+      ]);
+    });
+
+    it('연결 정보를 못 가져오면 시작 없이 FINISHED(실패) 만 보낸다', async () => {
+      const c = client(new Error('boom'));
+      await runAgent(envWithAgent(), { client: c });
+      expect(vi.mocked(c.reportAgentRun).mock.calls).toEqual([
+        [201, 1, { phase: 'FINISHED', ok: false, note: 'AI 의 연결 정보를 가져오지 못했습니다' }],
+      ]);
+    });
+
+    it('보고가 실패해도 실행은 그대로 한다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(okEvents as never);
+      const c = client('tk-X');
+      vi.mocked(c.reportAgentRun).mockRejectedValue(new Error('404'));
+      await runAgent(envWithAgent(), { client: c });
+      expect(runSdkCollect).toHaveBeenCalledOnce();
+    });
+
+    it('상태 변경 알림 실행은 보고하지 않는다(검토 대기를 흔들지 않게)', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(okEvents as never);
+      const c = client('tk-X');
+      const env = {
+        type: 'issue.status_changed',
+        payload: {
+          ...baseCommon,
+          assignees: [{ id: 201, username: 'ai', kind: 'AGENT' }],
+          previousStatus: 'TODO',
+          newStatus: 'IN_PROGRESS',
+        },
+      } as IssueEventEnvelope;
+      await runAgent(env, { client: c });
+      expect(runSdkCollect).toHaveBeenCalledOnce();
+      expect(c.reportAgentRun).not.toHaveBeenCalled();
+    });
   });
 });

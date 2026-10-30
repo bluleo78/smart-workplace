@@ -243,6 +243,12 @@ export interface WorkplaceApiClient {
     issueId: number,
     body: { runId: string; ok: boolean; message: string },
   ): Promise<void>;
+  // WP-1219: 담당 지정·코멘트로 깨어난 이슈 실행의 시작·끝 보고 — 실행한 AI(agentId) 대행. API 가 그 AI 의 작업 기록(작업 중 → 검토 대기·막힘)을 남긴다.
+  reportAgentRun(
+    agentId: number,
+    issueId: number,
+    body: { phase: 'STARTED' | 'FINISHED'; ok: boolean; note?: string },
+  ): Promise<void>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -484,6 +490,13 @@ export function createWorkplaceApiClient(opts: {
     async reportRecurringRun(agentId, issueId, body) {
       // 요청 시간 상한(WP-1118) — 응답 없이 걸린 연결은 끝나지 않아 다시 보내기가 돌지 못한다. 넘으면 응답 없는 오류로 끝나 다시 보낸다.
       await http.post(`/internal/issue-recurrence/${issueId}/runs`, body, {
+        ...onBehalfOf(agentId),
+        timeout: opts.recurringReportTimeoutMs ?? RECURRING_REPORT_TIMEOUT_MS,
+      });
+    },
+    async reportAgentRun(agentId, issueId, body) {
+      // 반복 결과 보고와 같은 요청 시간 상한 — 응답 없는 연결에 실행 마무리가 걸리지 않게.
+      await http.post(`/internal/issues/${issueId}/agent-runs`, body, {
         ...onBehalfOf(agentId),
         timeout: opts.recurringReportTimeoutMs ?? RECURRING_REPORT_TIMEOUT_MS,
       });
