@@ -65,8 +65,6 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 
 ### 04 AI 와 함께 일하기
 
-현재 출처: **소개서 촬영본**(`docs/intro/deck/shots`, 가상 회사 누리커머스·격리 스택). `scripts/import-intro-shots.mjs` 가 복사·좌표 변환한 샘플이며, 매뉴얼 테넌트(WP-1194)가 생기면 WP-1196 에서 `capture.mjs` 장면으로 다시 찍는다.
-
 | 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
 | --- | --- | --- | --- | --- | --- | --- |
 | ai-collaboration-1 | `/me/ai-tasks` | 김서연(PM, 관리자) | 범위 **전체** 를 누른다(행은 누르지 않는다) | `scope+chips+titles` | `scope,chips,titles@r` | AI 결과 — once. --ai-run 시드의 release-bot 담당 MOB-9·10 |

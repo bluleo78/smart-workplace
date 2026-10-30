@@ -13,6 +13,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readBoxesDoc } from '../../manual/scripts/lib/boxes-file.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../../..');
@@ -30,6 +31,14 @@ const browser = await chromium.launch();
 try {
   // 장별 PNG 는 2배율(3840×2160) — 1배율이면 2880px 원본 캡처가 크게 줄어 글자가 뭉개진다.
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 });
+  // 표식 좌표(촬영기가 쓴 boxes.json)를 deck.js 보다 먼저 넣는다 — file:// 문서는 JSON 을 fetch 할 수 없다.
+  // 읽기·검증은 매뉴얼 촬영기와 같은 readBoxesDoc 을 쓴다. 파일이 없거나 깨졌으면 표식 없는 PDF 를 만들지 않고 멈춘다.
+  const boxesFile = path.join(ROOT, 'docs/intro/deck/shots/boxes.json');
+  const { doc: boxes, error } = await readBoxesDoc(boxesFile);
+  if (error || !Object.keys(boxes).length) throw new Error(`표식 좌표를 읽지 못했다(촬영을 먼저 돌린다): ${boxesFile} ${error ?? '비어 있음'}`);
+  await page.addInitScript((doc) => {
+    window.SHOT_BOXES = doc;
+  }, boxes);
   await page.goto(pathToFileURL(DECK).href, { waitUntil: 'load' });
   // 웹폰트·이미지 디코딩이 끝나야 인쇄 결과가 화면과 같다.
   await page.waitForFunction(() => document.body.dataset.ready === 'true'); // deck.js 가 잘라 보기·표시를 끝낼 때까지

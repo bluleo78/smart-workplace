@@ -40,11 +40,11 @@ docs/manual/
     build.mjs               HTML → PDF 빌드
     check.mjs               구조 검사
     prose.mjs               산문 검사
-    capture.mjs             촬영
+    capture.mjs             촬영(실행부 lib/run-scenes.mjs — 제품 소개 자료 docs/intro/scripts/capture.mjs 와 공용)
     scenes/<book>.mjs       촬영 장면(촬영 대상 표를 구현, 공용 도구는 lib/scene-kit.mjs)
+    scenes/user-kit.mjs     사용자 앱 화면 여는 도우미·허용 규칙·고정 시각(제품 소개 자료 장면도 쓴다)
     seed-operator.mjs       운영자 매뉴얼 촬영용 시드(격리 스택, 플랫폼 API)
     seed-user.mjs           사용자 매뉴얼 촬영 테넌트 시드(이미 만든 테넌트, 소유자 토큰으로 HTTP API)
-    import-intro-shots.mjs  소개서 촬영본을 04장 샘플 그림으로 가져오기(샘플 전용, WP-1196 에서 삭제)
     lib/                    공용 모듈(책 설정·명령줄, 장 읽기, 프론트매터, 마크다운 줄·펜스·링크, HTML, 그림, boxes.json, 렌더, 라우터, 화면 문구, 촬영 도구)
 dist/manual/<book>/         빌드 산출물(커밋하지 않음)
 ```
@@ -89,7 +89,7 @@ dist/manual/<book>/         빌드 산출물(커밋하지 않음)
 | 사람(운영자 콘솔) | 테넌트 `누리커머스`(slug `nuri-demo`) 생성, 소유자 `seoyeon@example.com`(이름 김서연, 역할 소유자) 추가 |
 | `seed-user.mjs` | AI 에이전트 지니(+AGENT 역할), 등장인물 4명 계정(`POST /users`), 프로젝트·사이클·마일스톤·이슈 13건·코멘트, 채널 3개와 대화, 노트 3쪽, 일정, 외부 연락처, 드라이브 문서 2개, 소유자의 개인 API 토큰(평문은 버림) |
 
-AI 가 실제로 일하는 장면(`docs/intro/scripts/seed-ai.mjs` — 이슈 위임, AI 코멘트)은 이 시드가 하지 않는다. 운영에서 AI 를 부리는 일은 따로 확인하고 한다.
+AI 가 실제로 일하는 장면(이슈 위임, AI 코멘트)은 이 시드의 전체 실행에 들어가지 않는다(`--ai-run` 으로 따로). 운영에서 AI 를 부리는 일은 따로 확인하고 한다.
 
 **비밀번호.** 소유자와 시드가 만드는 등장인물 모두 같은 비밀번호를 쓴다. 비밀번호는 macOS 키체인 항목(서비스 `genia-works-manual-demo`, 계정 `seoyeon@example.com`)에 두고, 실행할 때 환경변수로만 넘긴다. 파일이나 명령 기록에 적지 않는다. 대문자·소문자·숫자를 섞은 8자 이상이어야 한다(구성원 추가 비밀번호 규칙).
 
