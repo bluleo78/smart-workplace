@@ -349,9 +349,9 @@ test.describe('노트 공유 — 긴 이름(WP-1068)', () => {
 
       await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE}`)
       if (viewport.width < 768) {
-        // 휴대폰은 헤더 공유 버튼 대신 ⋯ 메뉴의 공유 항목으로 연다.
-        await page.getByTestId('wiki-page-menu').click()
-        await page.getByTestId('wiki-menu-share').click()
+        // 휴대폰은 헤더 공유 버튼 대신 ⬆︎ 공유 시트의 「외부 공유 링크…」로 연다(WP-1234).
+        await page.getByTestId('mobile-share-button').click()
+        await page.getByTestId('mobile-action-external-share').click()
       } else {
         await page.getByTestId('wiki-share-button').click()
       }

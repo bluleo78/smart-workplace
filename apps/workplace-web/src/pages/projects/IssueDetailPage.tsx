@@ -1,7 +1,7 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
 import { isAxiosError } from 'axios';
-import { Eye, EyeOff, FileQuestion, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, FileQuestion, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -14,6 +14,11 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
 import type { RenderMention } from '@/components/mentions/parseMessageSegments';
 import type { MentionUser } from '@/components/mentions/types';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu';
+import { CopyLinkButton } from '@/components/share/CopyLinkButton';
+import { LinkMenuItems } from '@/components/share/LinkMenuItems';
+import { ShareSheetButton } from '@/components/share/ShareSheetButton';
+import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +33,9 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { appUrl, issuePath } from '@/lib/appUrl';
 import { commentIdFromHash } from '@/lib/issueCommentLink';
+import type { ShareTarget } from '@/lib/shareTarget';
 import { cn } from '@/lib/utils';
 
 import { AgentWorkCard } from '../../components/issue/agentWork/AgentWorkCard';
@@ -485,6 +492,17 @@ export default function IssueDetailPage() {
   );
   useRegisterAiScreenContext(screenContext);
 
+  // WP-1234 지금 보는 대상 — 🔗·⬆︎·⇧⌘,·⌘. 가 이 이슈의 링크·키를 쓴다. 로딩 전·개인 프로젝트(곧 패널로 옮겨 감)는 등록하지 않는다.
+  const issueTitle = data?.summary.title;
+  const shareTarget = useMemo<ShareTarget | null>(
+    () =>
+      issueTitle != null && project.data != null && project.data.type !== 'PERSONAL'
+        ? { kind: 'issue', url: appUrl(issuePath(key, issueNumber)), title: issueTitle, key: `${key}-${issueNumber}` }
+        : null,
+    [issueTitle, project.data, key, issueNumber],
+  );
+  useRegisterShareTarget(shareTarget);
+
   // #885 이전 화면으로 돌아가기 — 헤더 ← 버튼과 ESC 가 같은 복귀 동작을 쓴다.
   // 로딩·오류·개인 프로젝트 리다이렉트 중에는 헤더가 없으므로 ESC 도 걸지 않는다.
   // AI 패널이 열려 있으면 ESC 는 패널을 닫는 데 쓰이므로(AIChip) 그동안은 양보한다.
@@ -734,9 +752,27 @@ export default function IssueDetailPage() {
         onBack={returnToOrigin}
         // 모바일: 채팅은 ⋯ 밖 아이콘(M5), ⋯ 에는 구독·삭제만. 데스크톱은 actions 한 줄 그대로.
         mobilePrimaryAction={chatButton}
+        // WP-1234 모바일 ⬆︎ — 채팅 앞. 링크 항목은 ⋯ 가 아니라 이 시트에 모은다.
+        mobileShare={shareTarget && <ShareSheetButton target={shareTarget} />}
         mobileActions={secondaryActions}
         actions={
           <>
+            {/* WP-1234 데스크톱 🔗(바로 복사) + ⋯(키 복사·브라우저에서 열기) — 다른 액션 앞. */}
+            {shareTarget && (
+              <>
+                <CopyLinkButton target={shareTarget} />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label="이슈 메뉴" data-testid="issue-link-menu">
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <LinkMenuItems target={shareTarget} />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
             {chatButton}
             {secondaryActions}
           </>

@@ -300,3 +300,18 @@ test('일정 초대 메일(WP-986)은 머리 영역과 본문 사이에 초대 �
   expect(heading.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(card.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
+
+describe('링크 공유(WP-1234)', () => {
+  test('상단바 ⬆︎ 는 메일 제목을 머리로 한 시트를 열고, 링크 복사는 이 메일 링크를 복사한다', async () => {
+    const { user } = await openMail(10)
+    await screen.findByTestId('mail-detail')
+    await user.click(within(screen.getByTestId('mail-back')).getByTestId('mobile-share-button'))
+    const sheet = await screen.findByTestId('share-sheet')
+    expect(within(sheet).getByRole('heading')).toHaveTextContent(SUBJECT)
+    // 이슈가 아니라 키 복사가, 노트·드라이브가 아니라 외부 공유가 없다.
+    expect(within(sheet).queryByTestId('mobile-action-copy-key')).not.toBeInTheDocument()
+    expect(within(sheet).queryByTestId('mobile-action-external-share')).not.toBeInTheDocument()
+    await user.click(within(sheet).getByTestId('mobile-action-copy-link'))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/mail/1?messageId=10`))
+  })
+})

@@ -358,3 +358,30 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect(page.getByTestId('issue-comment-input')).toHaveText('쓰다 만 코멘트');
   });
 });
+
+test.describe('헤더 ⬆︎ 공유(WP-1234)', () => {
+  test('390px 상세 헤더에 ⬆︎·채팅·⋯ 가 넘침 없이 한 줄로 들어가고 이슈 키 제목도 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    await openDetail(page);
+    const header = page.getByTestId('page-header');
+    const share = header.getByTestId('mobile-share-button');
+    await expect(share).toBeVisible();
+    const headerBox = (await header.boundingBox())!;
+    // 오른쪽 클러스터 버튼이 모두 헤더 높이 안 한 줄에, 화면 오른쪽 끝 안에 있다.
+    for (const el of [share, header.getByTestId('mobile-header-more')]) {
+      const box = (await el.boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual(headerBox.y);
+      expect(box.y + box.height).toBeLessThanOrEqual(headerBox.y + headerBox.height + 0.5);
+      expect(box.x + box.width).toBeLessThanOrEqual(390);
+    }
+    // 제목(이슈 키)이 밀려 사라지지 않는다 — 키 글자(WP-7)가 잘리지 않을 만큼 폭이 남는다.
+    const title = header.getByTestId('breadcrumb-current');
+    await expect(title).toContainText('WP-7');
+    const { scrollWidth, clientWidth } = await title.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+    // ⬆︎ 는 공유 시트를 연다(실제 브라우저 탭).
+    await share.click();
+    await expect(page.getByTestId('share-sheet')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
+});

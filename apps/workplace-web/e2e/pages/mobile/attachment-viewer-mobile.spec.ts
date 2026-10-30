@@ -118,18 +118,25 @@ test.describe('모바일 배치', () => {
     await expect(page.getByRole('dialog')).toHaveAccessibleName(`${name} 미리보기`)
   })
 
-  test('360px — ⋯ 메뉴 항목은 터치 높이 44px 이상, 메뉴는 화면 끝에서 띄운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // WP-1234: 드라이브 파일 ⋯ 의 유일한 항목이던 「링크 복사」가 상단 바 ⬆︎ 공유 시트로 옮겨 ⋯ 는 그리지 않는다.
+  // 그 자리의 ⬆︎ 시트 항목이 터치 높이 44px 이상이고, 상단 바(✕·제목·⬆︎)가 360px 안에 들어가는지 본다.
+  test('360px — 상단 바 ⬆︎ 공유 시트 항목은 터치 높이 44px 이상, 바와 시트가 화면 안', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 360, height: 740 })
     await stubDriveFiles(page, [IMG(70)])
     await openViewer(page, '사진70.png')
-    await page.getByTestId('viewer-top-bar').getByRole('button', { name: '더 보기' }).tap()
-    const items = page.getByRole('menuitem')
+    const bar = page.getByTestId('viewer-top-bar')
+    await expect(bar.getByRole('button', { name: '더 보기' })).toHaveCount(0)
+    const share = bar.getByTestId('mobile-share-button')
+    const sb = (await share.boundingBox())!
+    expect(sb.x + sb.width).toBeLessThanOrEqual(360)
+    await share.tap()
+    const sheet = page.getByTestId('share-sheet')
+    const items = sheet.locator('[data-testid^="mobile-action-"]')
     await expect(items.first()).toBeVisible()
-    for (const b of await items.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) {
-      expect(b).toBeGreaterThanOrEqual(44)
+    for (const b of await items.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()))) {
+      expect(b.height).toBeGreaterThanOrEqual(44)
+      expect(b.right).toBeLessThanOrEqual(360 + 0.5)
     }
-    const menu = (await page.getByRole('menu').boundingBox())!
-    expect(menu.x + menu.width).toBeLessThanOrEqual(360 - 8 + 0.5)
   })
 
   test('가로 모드(844×390)도 넘침 없이 전체 화면', { tag: '@layout' }, async ({ authenticatedPage: page }) => {

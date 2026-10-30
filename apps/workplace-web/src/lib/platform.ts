@@ -25,3 +25,13 @@ export function isStandaloneDisplay(): boolean {
 export function isIOSStandalone(): boolean {
   return isIOSDevice() && isStandaloneDisplay()
 }
+
+/** macOS·iOS 계열인가 — 단축키 표기(⌘ 대 Ctrl)를 고른다. 판정은 순수 함수로 두어 테스트에서 플랫폼 문자열을 넣어 본다. */
+export function detectMacLike(platform: string): boolean {
+  return /Mac|iPhone|iPad|iPod/.test(platform)
+}
+
+/** 현재 브라우저가 macOS·iOS 계열인가. */
+export function isMacLike(): boolean {
+  return typeof navigator !== 'undefined' && detectMacLike(navigator.platform)
+}

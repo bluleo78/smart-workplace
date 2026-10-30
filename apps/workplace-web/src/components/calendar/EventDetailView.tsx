@@ -8,6 +8,7 @@ import { type ReactNode, useState } from 'react'
 import { RsvpIcon } from '@/components/calendar/AttendeeSection'
 import { CalendarTagAddButton, CalendarTagChip } from '@/components/calendar/CalendarTagChip'
 import { CalendarTagPicker } from '@/components/calendar/CalendarTagPicker'
+import { EventLinkControl } from '@/components/calendar/EventLinkControl'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { RsvpControls } from '@/components/calendar/RsvpControls'
 import { LinkedText } from '@/components/LinkedText'
@@ -143,8 +144,8 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
     <>
       {/* 본문만 스크롤 — 설명이 길어도 칸 안쪽이 아니라 다이얼로그 본문 하나가 스크롤된다 */}
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-5" data-testid="event-detail-view">
-        {/* 닫기(✕)는 DialogContent 오른쪽 위에 절대 배치 — 제목이 그 아래로 들어가지 않게 오른쪽 여백 */}
-        <DialogHeader className="gap-2 pr-8 text-left">
+        {/* 닫기(✕)·링크(🔗/⬆︎)는 DialogContent 오른쪽 위에 절대 배치 — 제목이 그 아래로 들어가지 않게 두 버튼 폭만큼 오른쪽 여백 */}
+        <DialogHeader className="gap-2 pr-16 text-left">
           <DialogTitle className="text-lg leading-snug break-words break-keep" data-testid="event-detail-title">
             {event.title}
           </DialogTitle>
@@ -291,6 +292,9 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
           <RsvpControls eventId={event.id} current={event.myRsvpStatus} />
         </div>
       )}
+      {/* WP-1234 일정 링크(🔗/⬆︎) — 스크롤 밖(DialogContent 기준 절대 배치)이라 본문을 내려도 ✕ 옆에 남는다.
+          DOM 은 맨 뒤(✕ 바로 앞) — 첫 포커스·탭 순서를 본문보다 앞에 끼우지 않는다(자동 포커스로 툴팁이 열려 Esc 를 먹던 문제). */}
+      <EventLinkControl eventId={event.id} title={event.title} />
     </>
   )
 }

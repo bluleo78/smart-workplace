@@ -11,6 +11,7 @@ import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
 import { EventDetailView } from '@/components/calendar/EventDetailView'
 import { EventFormRow, FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventFormRow'
+import { EventLinkControl } from '@/components/calendar/EventLinkControl'
 import { EventRangeInputs } from '@/components/calendar/EventRangeInputs'
 import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
@@ -376,8 +377,8 @@ export function EventDialog({
           />
         ) : (
           <>
-            {/* 머리 — 다이얼로그 이름은 작게(제목 칸이 주인공). 닫기(✕)가 오른쪽 위 절대 배치라 오른쪽 여백 */}
-            <DialogHeader className="pr-8 text-left">
+            {/* 머리 — 다이얼로그 이름은 작게(제목 칸이 주인공). 닫기(✕)·링크가 오른쪽 위 절대 배치라 오른쪽 여백 */}
+            <DialogHeader className={cn('text-left', isEdit ? 'pr-16' : 'pr-8')}>
               <DialogTitle className="text-sm font-medium text-muted-foreground">{dialogTitle}</DialogTitle>
               <DialogDescription className="sr-only">{dialogTitle}</DialogDescription>
             </DialogHeader>
@@ -779,6 +780,10 @@ export function EventDialog({
                 </div>
               </DialogFooter>
             </form>
+            {/* WP-1234 기존 일정을 고치는 폼에도 일정 링크(🔗/⬆︎) — 내 일정은 대개 상세 보기 대신 폼으로 열린다.
+                절대 배치라 보이는 자리는 ✕ 옆이지만 DOM 은 폼 뒤에 둔다 — 앞에 두면 자동 포커스(모달 복귀 등)가 🔗 로 가
+                툴팁이 열리고, 그 툴팁이 다음 Esc 를 먼저 먹어 다이얼로그가 닫히지 않았다. 탭 순서도 ✕ 바로 앞이 된다. */}
+            {isEdit && eventWithDetail && <EventLinkControl eventId={eventWithDetail.id} title={eventWithDetail.title} />}
           </>
         )}
       </DialogContent>

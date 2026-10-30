@@ -10,6 +10,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { shareTargetStore } from '@/lib/shareTarget'
 import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import { testAuthValue } from '@/test/renderWithProviders'
@@ -330,5 +331,27 @@ describe('요약·참조 패널', () => {
     const panel = await screen.findByTestId('viewer-side-panel')
     await waitFor(() => expect(within(panel).getByTestId('drive-summary-card')).toHaveTextContent('늦은 요약'))
     expect(screen.getByRole('button', { name: 'AI 요약' })).toBeInTheDocument()
+  })
+})
+
+describe('링크 복사(WP-1234)', () => {
+  // 뷰어 헤더 🔗 는 그 파일의 폴더 기준 ?preview 링크를, 폴더 헤더 🔗 는 폴더 링크를 복사한다. ⇧⌘, 대상도 뷰어가 열린 동안만 파일이다.
+  test('뷰어 🔗 는 파일 링크, 닫으면 단축키 대상이 폴더로 돌아간다', async () => {
+    const { user } = renderPreview([{ file: textFile(91, 'link.txt', 'text/plain', { folderId: null }), body: 'L' }])
+    // 폴더 화면 — 헤더 🔗 는 공간 루트 링크.
+    await user.click(await screen.findByRole('button', { name: /^링크 복사 / }, { timeout: PAGE_LOAD_TIMEOUT }))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/drive/spaces/${SPACE_ID}`))
+    await openPreview(user, 'link.txt')
+    const viewer = screen.getByTestId('attachment-viewer')
+    await user.click(within(viewer).getByRole('button', { name: /^링크 복사 / }))
+    const fileUrl = `${window.location.origin}/drive/spaces/${SPACE_ID}?preview=91`
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(fileUrl))
+    expect(await screen.findByText('링크를 복사했어요')).toBeInTheDocument()
+    expect(shareTargetStore.get()?.url).toBe(fileUrl)
+    // ⋯ 의 예전 「링크 복사」를 🔗 로 옮겨, 다른 항목이 없는 드라이브 파일은 빈 ⋯ 를 그리지 않는다.
+    expect(within(viewer).queryByRole('button', { name: '더 보기' })).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('attachment-viewer')).not.toBeInTheDocument())
+    expect(shareTargetStore.get()?.url).toBe(`${window.location.origin}/drive/spaces/${SPACE_ID}`)
   })
 })

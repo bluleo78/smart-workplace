@@ -51,12 +51,15 @@ export function ViewerMobileTopBar({
   meta,
   hidden,
   barRef,
+  share,
   more,
 }: {
   item: ViewerItem
   meta: string
   hidden: boolean
   barRef?: React.Ref<HTMLElement>
+  /** ⬆︎ 공유(WP-1234) — 링크로 다시 열 수 있는 뷰어만. ⋯ 왼쪽에 붙는다. */
+  share?: React.ReactNode
   /** ⋯ 메뉴(ViewerMoreMenu) — 항목이 없으면 null 이어도 제목이 가운데에 남도록 자리는 유지한다. */
   more: React.ReactNode
 }) {
@@ -65,17 +68,29 @@ export function ViewerMobileTopBar({
       ref={barRef}
       inert={hidden}
       data-testid="viewer-top-bar"
-      className={cn(barClass, 'top-0 flex min-h-14 items-center gap-1 px-1 pt-[env(safe-area-inset-top)]', hidden && 'pointer-events-none opacity-0')}
+      // 3칸 격자 [왼쪽 1fr | 제목 | 오른쪽 1fr] — 양쪽 칸 폭이 같아 오른쪽 버튼 수(⬆︎ 유무)와 상관없이 제목이 가운데에 남는다.
+      // 제목 칸은 minmax(0,auto) — 짧으면 제 폭만, 길면 줄어들며 말줄임된다.
+      className={cn(
+        barClass,
+        'top-0 grid min-h-14 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-1 px-1 pt-[env(safe-area-inset-top)]',
+        hidden && 'pointer-events-none opacity-0',
+      )}
     >
-      <DialogClose asChild>
-        <Button variant="ghost" size="icon" className="size-11" aria-label="닫기">
-          <X />
-        </Button>
-      </DialogClose>
-      <div className="min-w-0 flex-1 text-center">
+      <div className="flex justify-start">
+        <DialogClose asChild>
+          <Button variant="ghost" size="icon" className="size-11" aria-label="닫기">
+            <X />
+          </Button>
+        </DialogClose>
+      </div>
+      <div className="min-w-0 text-center">
         <ViewerTitle item={item} meta={meta} />
       </div>
-      <div className="flex size-11 shrink-0 items-center justify-center">{more}</div>
+      <div className="flex items-center justify-end gap-1">
+        {share}
+        {/* ⋯ 가 null 이어도 44px 자리는 남긴다 — ⬆︎ 가 끝으로 밀려 위치가 바뀌지 않게. */}
+        <div className="flex size-11 shrink-0 items-center justify-center">{more}</div>
+      </div>
     </header>
   )
 }

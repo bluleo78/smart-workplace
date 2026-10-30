@@ -32,6 +32,7 @@ export function MailMobileDetailBar({
   onBack,
   onMarkUnread,
   menuItems,
+  share,
 }: {
   title?: string
   /** 제목을 보일지 — 본문 위 큰 제목이 화면에 있는 동안은 같은 글자를 두 번 보이지 않게 숨긴다(투명 + 보조기술에서도 숨김, 큰 제목이 대신 읽힌다). */
@@ -40,6 +41,8 @@ export function MailMobileDetailBar({
   onMarkUnread?: () => void
   /** 「안 읽음」 뒤에 붙는 메뉴 항목(AI 이슈 만들기·원본 배경 토글). */
   menuItems?: ReactNode
+  /** ⬆︎ 공유(WP-1234) — 상세를 받은 뒤에만(로딩·오류 바에는 없다). ⋯ 앞에 둔다. */
+  share?: ReactNode
 }) {
   return (
     <MobileDetailBar
@@ -48,14 +51,17 @@ export function MailMobileDetailBar({
       titleVisible={titleShown}
       onBack={onBack}
       trailing={
-        onMarkUnread && (
-          <MobileHeaderMore label="메일 메뉴">
-            <button type="button" data-testid="mobile-mark-unread" onClick={onMarkUnread}>
-              <Mail className="h-4 w-4" aria-hidden /> 안 읽음
-            </button>
-            {menuItems}
-          </MobileHeaderMore>
-        )
+        <>
+          {share}
+          {onMarkUnread && (
+            <MobileHeaderMore label="메일 메뉴">
+              <button type="button" data-testid="mobile-mark-unread" onClick={onMarkUnread}>
+                <Mail className="h-4 w-4" aria-hidden /> 안 읽음
+              </button>
+              {menuItems}
+            </MobileHeaderMore>
+          )}
+        </>
       }
     />
   )
@@ -204,6 +210,7 @@ function useScrolledPast(root: HTMLElement | null, target: HTMLElement | null): 
  */
 export function MailMobileDetail({
   detail,
+  share,
   onBack,
   onMarkUnread,
   menuItems,
@@ -218,6 +225,8 @@ export function MailMobileDetail({
   aiReply,
 }: {
   detail: EmailMessageDetail
+  /** 상단바 ⬆︎ 공유(WP-1234). */
+  share?: ReactNode
   onBack: () => void
   onMarkUnread: () => void
   menuItems?: ReactNode
@@ -245,6 +254,7 @@ export function MailMobileDetail({
         onBack={onBack}
         onMarkUnread={onMarkUnread}
         menuItems={menuItems}
+        share={share}
       />
       <div data-testid="mail-detail" className="flex min-h-0 flex-1 flex-col">
         {/* container-type:size — HTML 본문 iframe 이 스크롤 영역 높이(100cqh)만큼 차지하게 한다. 머리 영역이 위로 스크롤돼 사라지면

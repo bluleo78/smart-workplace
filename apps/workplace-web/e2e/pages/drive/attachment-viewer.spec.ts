@@ -286,7 +286,16 @@ test('확대한 이미지 안을 클릭하고 → 를 누르면 파일을 넘기
   await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
 })
 
+// 드라이브 파일 미리보기의 ⋯ 는 「링크 복사」가 🔗 로 옮겨 간 뒤(WP-1234) 설치된 앱(standalone)에서만 「브라우저에서 열기」로 남는다.
+// ⋯ 메뉴 동작을 드라이브 뷰어에서 계속 보려고 설치된 앱처럼 띄운다(navigator.standalone — isStandaloneDisplay 의 두 번째 판정).
+async function emulateInstalledApp(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true })
+  })
+}
+
 test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await emulateInstalledApp(page)
   await stubDriveFiles(page, [
     { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
     { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
@@ -294,7 +303,7 @@ test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는�
   await openPreview(page, 80)
   await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
   await page.getByRole('button', { name: '더 보기' }).click()
-  await expect(page.getByRole('menuitem', { name: '링크 복사' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '브라우저에서 열기' })).toBeVisible()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
@@ -303,6 +312,7 @@ test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는�
 })
 
 test('라이트 테마에서도 ⋯ 메뉴는 뷰어처럼 어두운 배경으로 뜬다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await emulateInstalledApp(page)
   await stubDriveFiles(page, [{ id: 82, name: 'c.txt', mimeType: 'text/plain', sizeBytes: 1 }], { 82: 'C' })
   await openPreview(page, 82)
   await page.getByRole('button', { name: '더 보기' }).click()

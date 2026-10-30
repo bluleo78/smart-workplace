@@ -221,7 +221,7 @@ describe('첨부 뷰어 — 조건부 표시', () => {
     expect(await screen.findByRole('menuitem', { name: '드라이브에서 열기' })).toBeInTheDocument()
   })
 
-  test('업로드 첨부는 ✨ 없이 ⋯(링크 복사)·☁ 를 보이고, ☁ → 폴더 고르기 → 드라이브로 가져오기 POST', async () => {
+  test('업로드 첨부는 ✨ 없이 🔗(링크 복사)·☁ 를 보이고, ☁ → 폴더 고르기 → 드라이브로 가져오기 POST', async () => {
     const requests = recordRequests()
     const { user } = await openIssueDetail({
       detail: detail(1),
@@ -236,10 +236,15 @@ describe('첨부 뷰어 — 조건부 표시', () => {
     await user.click(await screen.findByRole('button', { name: 'up.txt 미리보기' }))
     await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent('UP'))
     expect(screen.queryByRole('button', { name: 'AI 요약' })).not.toBeInTheDocument()
+    // WP-1234 링크 복사는 ⋯ 가 아니라 헤더 🔗 — 지금 주소(?preview 포함)를 복사해 같은 뷰어가 열린다.
+    await user.click(within(screen.getByTestId('attachment-viewer')).getByRole('button', { name: /^링크 복사 / }))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}${window.location.pathname}${window.location.search}`))
+    expect(new URL(await navigator.clipboard.readText()).searchParams.get('preview')).toBe('file:7701')
     await user.click(screen.getByRole('button', { name: '더 보기' }))
-    expect(await screen.findByRole('menuitem', { name: '링크 복사' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: '드라이브로 가져오기' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '링크 복사' })).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByRole('menuitem', { name: '링크 복사' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: '드라이브로 가져오기' })).not.toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: '드라이브로 가져오기' }))
     const picker = await screen.findByTestId('folder-picker')
     await user.click(within(picker).getByTestId('folder-picker-confirm'))

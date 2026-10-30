@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -27,6 +27,9 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { TOUCH_ROW_TRIGGER, TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import { SelectAllCheckbox } from '@/components/SelectAllCheckbox'
+import { CopyLinkButton } from '@/components/share/CopyLinkButton'
+import { ShareSheetButton } from '@/components/share/ShareSheetButton'
+import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +59,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
+import { appUrl, driveFolderPath } from '@/lib/appUrl'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
 import { driveFileActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
 import { isDriveSpaceReadOnly } from '@/lib/driveSpaces'
@@ -63,6 +67,7 @@ import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
 import { MULTI_SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
+import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
@@ -78,6 +83,7 @@ import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { Breadcrumb, type BreadcrumbItem, type BreadcrumbRenderItem } from '../../components/layout/Breadcrumb'
 import { SearchInput } from '../../components/ui/search-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
+import { driveFilePath } from '../../components/viewer/driveOpen'
 import { useViewerBundle } from '../../components/viewer/useViewerBundle'
 import { driveFileItem, driveViewerKey, parseViewerKey } from '../../components/viewer/viewerItems'
 import { ViewerNotFound } from '../../components/viewer/ViewerNotFound'
@@ -496,6 +502,28 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         : null,
     preview,
   })
+
+  // WP-1234 지금 보는 폴더 — 데스크톱 🔗·모바일 ⬆︎·⇧⌘, 가 폴더 링크를 쓴다. 채널 서랍(embedded)은 채널 화면이 주인이라,
+  // 휴지통은 폴더가 아니라 두지 않는다. 미리보기가 열리면 뷰어가 파일을 overlay 층으로 등록해 폴더(page)보다 이긴다.
+  const folderTitle = crumbs.at(-1)?.name ?? space?.name
+  const folderShareTarget = useMemo<ShareTarget | null>(
+    () =>
+      !embedded && validSid != null && folderTitle != null && !trashOpen
+        ? { kind: 'folder', url: appUrl(driveFolderPath(validSid, folderId ?? null)), title: folderTitle }
+        : null,
+    [embedded, validSid, folderTitle, trashOpen, folderId],
+  )
+  useRegisterShareTarget(folderShareTarget)
+  // 미리보기 파일의 링크·외부 공유(WP-1234) — 링크는 그 파일의 폴더 기준 ?preview(검색 결과에서 연 파일도 제 폴더로 열린다).
+  // 「외부 공유 링크…」는 행 메뉴의 「공유 링크」와 같은 조건(보기 전용·보관·원본 유실이면 없음)에서만 둔다.
+  const previewLinkPath = preview && validSid != null ? driveFilePath(validSid, preview.folderId, preview.id) : undefined
+  // 뷰어의 shareTarget memo 가 렌더마다 흔들리지 않게 콜백은 preview 가 바뀔 때만 새로 만든다.
+  const canSharePreview =
+    preview != null && !readOnlyRole && !driveFileActionDisabled({ space, missing: preview.available === false }).share
+  const sharePreview = useCallback(() => {
+    if (preview) setShareFile(preview)
+  }, [preview, setShareFile])
+  const openPreviewShare = canSharePreview ? sharePreview : undefined
 
   // 검색 디바운스(300ms). MIN_SEARCH_LEN(2자) 미만이면 결과 해제(브라우즈 복귀).
   // 파일명 검색(driveApi.search)과 콘텐츠 검색(searchDriveContent)을 동시 호출 — 두 검색창을 하나로 통합.
@@ -1319,8 +1347,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         // 데스크톱 풀페이지는 경로를 제목 자리에(§B-1 「위치」, WP-979). 모바일·채널 서랍은 아래 경로 줄을 쓴다.
         leadingGrow={headerPath}
         leading={headerPath ? <Breadcrumb items={pathItems} renderItem={renderPathItem} aria-label="폴더 경로" data-testid="drive-breadcrumb" /> : undefined}
+        // WP-1234 모바일 ⬆︎ — 폴더 링크. actions 는 모바일에서 ⋯ 메뉴가 되므로 🔗 는 데스크톱일 때만 actions 에 둔다.
+        mobileShare={folderShareTarget && <ShareSheetButton target={folderShareTarget} />}
         actions={
           <>
+            {!isMobile && folderShareTarget && <CopyLinkButton target={folderShareTarget} />}
             <SearchInput
               value={query}
               onChange={setQuery}
@@ -1900,6 +1931,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             onIndexChange={viewer.onIndexChange}
             onClose={previewParam.close}
             defaultPanelOpen
+            linkPath={previewLinkPath}
+            onExternalShare={openPreviewShare}
           />
         )}
         {/* 삭제·이동된 파일 딥링크 — 조용히 URL 을 고치지 않고 안내 후 닫기로 되돌린다(WP-208). */}
