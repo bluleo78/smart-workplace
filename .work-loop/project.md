@@ -143,6 +143,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - `docker rm`·`docker stop` 은 내가 띄운 `wl-*-db` 에만 한다(`live-stack.sh down` 이 한다).
 - main 작업 폴더(MAIN)에서 브랜치를 만들거나 바꾸지 않는다. 모든 수정은 이슈 워크트리에서 한다.
 - `.env` 내용을 출력하거나 로그·이슈 챗에 옮기지 않는다.
+- 화면을 바꾸는 이슈는 매뉴얼 장도 같은 PR 에서 고친다(`apps/workplace-web/CLAUDE.md` 「매뉴얼 동반 수정」, WP-1198). 매뉴얼 그림 촬영은 운영 테넌트를 쓰므로 하지 않는다 — 낡은 그림 id 를 PR 본문과 이슈 챗에 「매뉴얼 그림 재촬영 필요」로 남긴다.
 - 커밋 메시지는 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md), 코드 주석은 [docs/CODING_CONVENTION.md](../docs/CODING_CONVENTION.md)(한국어 주석 필수)를 따른다.
 
 ## 6. 대기열 라벨

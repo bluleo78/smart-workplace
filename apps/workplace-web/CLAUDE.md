@@ -60,6 +60,7 @@ src/
 - **한국어 주석 필수**: 컴포넌트·훅·주요 로직 (JSDoc/인라인). 상세는 루트 [코딩 컨벤션](../../docs/CODING_CONVENTION.md)
 - **날짜/시간 표시**: `src/lib/formatters.ts` 공용 포매터만 사용. `toLocaleDateString`/`toLocaleString`/`toLocaleTimeString` 직접 호출은 ESLint 가 에러로 막는다. 용도별 선택 표는 [코딩 컨벤션 — 날짜/시간 표시 포맷](../../docs/CODING_CONVENTION.md#날짜시간-표시-포맷-workplace-web)
 - **Vite 프록시**: `/api` → `localhost:6060` (SSE 응답은 버퍼링 해제 헤더 자동 추가)
+- **매뉴얼 동반 수정 (WP-1198)**: 화면을 바꾸는 작업(라우트·메뉴·단추·라벨·절차)은 같은 작업 안에서 해당 사용자 매뉴얼 장(`docs/manual/user/`)도 고친다. 운영자 콘솔(`workplace-admin`)이면 `docs/manual/operator/`. 집필 규칙은 스킬 `manual-authoring`. `pnpm manual:check`(라우트 대조)·`pnpm manual:prose`(굵게 쓴 화면 문구가 소스에 있는지)가 통과해야 한다. 그림이 낡으면 다시 찍되, 운영 촬영 테넌트에 쓰는 장면(시드·AI 호출)은 사람 확인 뒤에만 찍는다 — 못 찍으면 이슈에 「매뉴얼 그림 재촬영 필요: 그림 id」로 남긴다
 
 ## 테스트 종류 판정 (WP-971)
 
