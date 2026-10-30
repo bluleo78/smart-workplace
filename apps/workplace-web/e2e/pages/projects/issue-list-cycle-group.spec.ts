@@ -136,6 +136,16 @@ async function setup(page: Page, { cycles = CYCLES, savedViews = [] }: SetupOpti
 /** 진행 중 사이클(스프린트 12)·백로그 모두 다음 페이지가 남은 상태 — 첫 페이지 30행(사이클 #200~229·백로그 #500~529),
  * 둘째 페이지 1행(사이클 #109·백로그 #409) (WP-876). */
 async function mockPagedSections(page: Page) {
+  // 다음 페이지가 남은 구간의 전체 수(WP-1231) — 「더 보기」의 「전체 N건 중 M건 표시」.
+  await page.route(
+    (url) => url.pathname === `${ISSUES_PATH}/group-counts`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ groupBy: 'priority', groups: [{ key: 'MID', count: 31 }] }),
+      }),
+  );
   await page.route(
     (url) => url.pathname === ISSUES_PATH && ['1', 'null'].includes(url.searchParams.get('cycle') ?? ''),
     (route) => {

@@ -6,7 +6,9 @@
 // 사용처는 오류 화면을 isLoadingError(첫 페이지 실패)일 때만 그려야 한다 — isError 는 다음 페이지 실패에도
 // true 라서, 그걸로 분기하면 이미 받은 목록이 오류 화면으로 덮이고 이 푸터의 다시 시도도 사라진다.
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
+
+import { ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { type LoadMoreQuery, useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
@@ -21,6 +23,7 @@ export function LoadMoreFooter({
   enabled = true,
   errorLabel = '불러오지 못했습니다 — 다시 시도',
   manualLabel,
+  manualHint,
   className,
   'data-testid': testId,
 }: {
@@ -33,10 +36,13 @@ export function LoadMoreFooter({
   errorLabel?: string;
   // 주면 수동 모드 — sentinel 을 끄고 대기 중엔 이 문구의 버튼을 보인다.
   manualLabel?: string;
+  // 수동 버튼 문구 뒤에 흐리게 붙는 보조 정보(예: 「전체 120건 중 50건 표시」, WP-1231).
+  manualHint?: string;
   className?: string;
   'data-testid'?: string;
 }) {
   const manual = manualLabel != null;
+  const hintId = useId();
   const ref = useLoadMoreSentinel(query, root, enabled && !manual);
   if (!query.hasNextPage) return null;
 
@@ -52,16 +58,28 @@ export function LoadMoreFooter({
     // 수동 모드 — 불러오는 동안에도 같은 버튼을 남겨(문구만 바꿈) 눌렀던 키보드 초점이 body 로 떨어지지 않게 한다.
     // 백그라운드 재조회(무효화) 중에 눌러도 그 재조회를 취소하지 않는다(sentinel 과 같은 cancelRefetch: false).
     body = (
+      // 행 폭 테두리 버튼 + 아이콘 + 표시 중인 수(WP-1231) — 흐린 작은 글자만으로는 구간에 이슈가 더 있다는 것을 놓치기 쉬웠다.
       <Button
-        variant="ghost"
-        size="xs"
-        className="text-muted-foreground"
+        variant="outline"
+        size="sm"
+        className="w-full gap-1.5 text-xs font-medium text-foreground/80"
         aria-disabled={query.isFetchingNextPage}
+        // 접근 이름은 문구만 — 바뀌는 수(보조 정보)는 설명으로 읽혀 이름이 페이지마다 바뀌지 않게 한다.
+        aria-label={query.isFetchingNextPage ? undefined : manualLabel}
+        aria-describedby={!query.isFetchingNextPage && manualHint ? hintId : undefined}
         onClick={() => {
           if (!query.isFetchingNextPage) void query.fetchNextPage({ cancelRefetch: false });
         }}
       >
-        {query.isFetchingNextPage ? '불러오는 중…' : manualLabel}
+        {query.isFetchingNextPage ? (
+          '불러오는 중…'
+        ) : (
+          <>
+            <ChevronDown aria-hidden="true" className="size-3.5" />
+            {manualLabel}
+            {manualHint && <span id={hintId} className="font-normal text-muted-foreground">· {manualHint}</span>}
+          </>
+        )}
       </Button>
     );
   } else if (query.isFetchingNextPage) {

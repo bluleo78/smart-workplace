@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 
 import { CycleProgressBar } from '../../../components/cycle/CycleProgressBar';
 import { cycleSectionQueryKey, useCycleSectionIssues } from '../../../hooks/queries/useCycleSectionIssues';
+import { useIssueTotal } from '../../../hooks/queries/useIssueGroupCounts';
 import {
   type CycleDropData,
   cycleSectionDropId,
@@ -179,8 +180,20 @@ export function IssueCycleSection({
   const blocked = !!dragFrom && dropDisabled;
   // 백로그 헤더 건수 — 로드된 행 수이고, 다음 페이지가 남았으면 "+" 로 하한임을 알린다.
   // 사이클 구간은 건수 대신 진행률을 보인다 — 행은 에픽·SUBTASK 를 뺀 범위라 progress(전체 기준)와 숫자가 어긋나기 때문.
+  // 다음 페이지가 남았으면 같은 필터의 전체 수를 따로 센다(WP-1231) — 「더 보기」에 「전체 N건 중 M건 표시」, 백로그 헤더에 정확한 건수.
+  // 모두 불러왔으면 행 수가 곧 전체라, 자동 로드 사이클 구간은 수를 보일 곳이 없어 요청하지 않는다.
+  // 총계와 행은 따로 받아 잠깐 어긋날 수 있어(낙관적 이동·SSE) 불러온 행 수보다 작게 보이지 않게 한다.
+  const totalQuery = useIssueTotal(projectKey, sectionFilters, !!query?.hasNextPage && (!autoLoadMore || !cycle));
+  const total = totalQuery.data != null ? Math.max(totalQuery.data, items.length) : undefined;
   const backlogCount =
-    !cycle && query?.data ? `${items.length}${query.hasNextPage ? '+' : ''}건` : null;
+    !cycle && query?.data
+      ? `${query.hasNextPage ? (total ?? `${items.length}+`) : items.length}건`
+      : null;
+  const moreHint = query?.hasNextPage
+    ? total != null
+      ? `전체 ${total}건 중 ${items.length}건 표시`
+      : `${items.length}건 표시 중`
+    : undefined;
 
   const emptyText = sectionEmptyText(hasActiveFilters, cycle !== null, progress?.total ?? 0);
 
@@ -350,7 +363,8 @@ export function IssueCycleSection({
           {query && (
             <LoadMoreFooter
               query={query}
-              manualLabel={autoLoadMore ? undefined : '더 보기'}
+              manualLabel={autoLoadMore ? undefined : '이 구간 이슈 더 보기'}
+              manualHint={moreHint}
               className={cn('px-3 py-2', sectionVisible(isMobile))}
               data-testid={`list-cycle-more-${def.key}`}
             />

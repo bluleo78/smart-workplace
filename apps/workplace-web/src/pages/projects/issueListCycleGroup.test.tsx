@@ -242,6 +242,36 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     expect(api.params().some((p) => p.get('cycle') === '5')).toBe(false)
   })
 
+  test('위 구간에 이슈가 더 있으면 「더 보기」가 전체 건수 중 표시 건수를, 백로그 헤더가 정확한 건수를 보인다 (WP-1231)', async () => {
+    const api = setup()
+    const countParams: URLSearchParams[] = []
+    // 사이클 1·백로그는 다음 페이지가 남은 첫 페이지 — 전체 수는 group-counts(우선순위별)의 합으로 센다.
+    const paged = http.get(`${API}/projects/${KEY}/issues`, ({ request }) => {
+      const c = new URL(request.url).searchParams.get('cycle')
+      if (c !== '1' && c !== 'null') return undefined
+      const items = c === '1' ? ISSUES_BY_CYCLE['1'] : ISSUES_BY_CYCLE['null']
+      return HttpResponse.json({ items, nextCursor: 'next', hasMore: true })
+    })
+    const counts = http.get(`${API}/projects/${KEY}/issues/group-counts`, ({ request }) => {
+      const params = new URL(request.url).searchParams
+      countParams.push(params)
+      const groups = params.get('cycle') === '1'
+        ? [{ key: 'HIGH', count: 5 }, { key: null, count: 2 }]
+        : [{ key: 'MID', count: 30 }]
+      return HttpResponse.json({ groupBy: params.get('groupBy'), groups })
+    })
+    renderProjectScreen(`/projects/${KEY}`, { handlers: [paged, counts, ...api.handlers] })
+
+    const more = await screen.findByTestId('list-cycle-more-cycle-1')
+    await waitFor(() => expect(more).toHaveTextContent('전체 7건 중 2건 표시'))
+    expect(within(more).getByRole('button', { name: /이 구간 이슈 더 보기/ })).toBeInTheDocument()
+    // 백로그 헤더 — 「1+건」 대신 같은 필터로 센 정확한 수.
+    await waitFor(() => expect(screen.getByTestId('list-cycle-count-backlog')).toHaveTextContent('30건'))
+    // 총계는 구간 검색과 같은 필터로 센다 — 사이클 구간은 cycle=1, 백로그는 cycle=null.
+    expect(countParams.map((p) => p.get('cycle'))).toEqual(expect.arrayContaining(['1', 'null']))
+    expect(countParams.every((p) => p.get('groupBy') === 'priority')).toBe(true)
+  })
+
   test('빈 백로그 문구는 새 정의(진행 중·예정 사이클 밖)를 따른다', async () => {
     const api = setup({ backlog: [] })
     renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
