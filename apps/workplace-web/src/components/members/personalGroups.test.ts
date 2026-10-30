@@ -1,8 +1,8 @@
 // 내 그룹을 사람으로 펼치기(WP-1023 → WP-1056 공통화) — 중복 빼기·더한 수·안내 문구.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { UserGroupMemberHit } from '../../types/userGroup'
-import { addGroupMembers, groupExpansionMessage, planGroupExpansion } from './personalGroups'
+import { addGroupMembers, addMembersFromGroup, groupExpansionMessage, planGroupExpansion } from './personalGroups'
 
 describe('사람·팀 추가(WP-1023)', () => {
   it('내 그룹 구성원 중 아직 없는 사람만 뒤에 더하고 더한 수·뺀 수를 센다(구성원 중복은 한 번)', () => {
@@ -18,6 +18,35 @@ describe('사람·팀 추가(WP-1023)', () => {
     expect(groupExpansionMessage('개발 스터디', 2, 0)).toBe('개발 스터디에서 2명 추가')
     expect(groupExpansionMessage('개발 스터디', 0, 2)).toBe('개발 스터디의 2명은 이미 모두 있습니다')
     expect(groupExpansionMessage('개발 스터디', 0, 0)).toBe('개발 스터디에 추가할 사람이 없습니다')
+  })
+
+  it('부서로 있다 직접 멤버로 고정된 사람은 새로 들어온 사람과 나눠 알린다(WP-1186)', () => {
+    expect(groupExpansionMessage('개발 스터디', 3, 1, 1)).toBe(
+      '개발 스터디에서 2명 추가 · 부서로 있던 1명은 직접 멤버로 고정 (이미 있는 1명 제외)',
+    )
+    expect(groupExpansionMessage('개발 스터디', 2, 0, 2)).toBe('개발 스터디에서 부서로 있던 2명은 직접 멤버로 고정')
+    // 고정 수가 더한 수보다 크게 와도 더한 수를 넘겨 말하지 않는다.
+    expect(groupExpansionMessage('개발 스터디', 1, 0, 2)).toBe('개발 스터디에서 부서로 있던 1명은 직접 멤버로 고정')
+  })
+})
+
+describe('addMembersFromGroup — 직접 멤버로 고정된 수(WP-1186)', () => {
+  it('부서로 있던 사람 중 실제로 더해진 사람만 pinned 로 센다(실패한 사람은 빼고)', async () => {
+    const invalidate = vi.fn()
+    const result = await addMembersFromGroup([3, 5, 6, 8], {
+      readCurrentIds: async () => ({ ids: [3], pinnable: [5, 6] }),
+      addOne: async (id) => {
+        if (id === 6) throw new Error('fail')
+      },
+      invalidate,
+    })
+    expect(result).toEqual({ added: 2, skipped: 1, failed: 1, pinned: 1 })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('지금 멤버를 id 목록으로만 주면(드라이브 공간) pinned 는 0', async () => {
+    const result = await addMembersFromGroup([4], { readCurrentIds: async () => [], addOne: async () => {}, invalidate: () => {} })
+    expect(result).toEqual({ added: 1, skipped: 0, failed: 0, pinned: 0 })
   })
 })
 
