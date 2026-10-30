@@ -4,7 +4,7 @@
 // 그 spec 의 @layout 1건으로 남는다.
 // 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { screen, waitFor, within } from '@testing-library/react'
-import { delay, http, HttpResponse } from 'msw'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
@@ -55,13 +55,16 @@ describe('이슈 Instant Context 카드', () => {
   })
 
   // 생성 → POST ai-summary 진행 중엔 버튼 잠김(생성 중…) → 끝나면 상세 재조회로 요약이 카드에 보인다.
+  // POST 는 테스트가 풀어 줄 때까지 붙잡는다 — 고정 지연(300ms)이면 부하 중 잠김을 확인하기 전에 끝나 「요약 갱신」으로 깨졌다(WP-1228).
   test('생성 클릭 → POST(진행 중 잠김) → 재조회 → 요약 표시', async () => {
     let posted = 0
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
     const after = detailWith({ summary: '테스트용 AI 현황 요약 텍스트', nextAction: '코드 리뷰 요청', generatedAt: new Date().toISOString(), blockers: [] })
     const before = detailWith(EMPTY)
     const { card, user } = await open(() => (posted ? after : before), [
       http.post(`/api/v1/projects/${KEY}/issues/1/ai-summary`, async () => {
-        await delay(300)
+        await held
         posted++
         return HttpResponse.json(after.aiContext)
       }),
@@ -71,6 +74,7 @@ describe('이슈 Instant Context 카드', () => {
     await user.click(btn)
     await waitFor(() => expect(btn).toBeDisabled())
     expect(btn).toHaveTextContent('생성 중…')
+    release()
     expect(await within(card).findByText('테스트용 AI 현황 요약 텍스트')).toBeInTheDocument()
     expect(posted).toBe(1)
   })
