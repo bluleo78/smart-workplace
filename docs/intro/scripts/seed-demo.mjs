@@ -40,7 +40,7 @@ export const PROJECT_KEY = 'MOB';
  * (기본 `/api/v1`, 운영자 시드는 `/api/platform` 도 쓴다).
  * - call: JSON 호출. 실패하면 응답 본문을 붙여 던져 원인을 바로 보이게 하고, 오류에 status·body 를 싣는다(409 판정 등).
  *   allow 에 든 상태 코드는 null 로 돌려준다(없음 판정용).
- * - upload: 파일 하나를 multipart 로 올린다(드라이브).
+ * - upload: 파일 하나를 multipart 로 올리고 응답을 돌려준다(드라이브·이슈·메시지 첨부).
  * - login: 비밀번호 로그인 → access 토큰. 소속이 하나뿐이면 서버가 그 테넌트로 바로 들어간 토큰을 준다.
  */
 export function makeClient(apiBase, prefix = '/api/v1') {
@@ -61,11 +61,14 @@ export function makeClient(apiBase, prefix = '/api/v1') {
     }
     return text ? JSON.parse(text) : null;
   }
-  async function upload(token, path, name, buf) {
+  // field: multipart 필드 이름(드라이브는 file, 이슈·메시지 첨부는 files). type: 파일 형식(주면 서버가 미리보기·썸네일 종류를 바로 안다).
+  async function upload(token, path, name, buf, { field = 'file', type } = {}) {
     const form = new FormData();
-    form.append('file', new Blob([buf]), name);
+    form.append(field, new Blob([buf], type ? { type } : {}), name);
     const res = await fetch(API + path, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-    if (!res.ok) throw new Error(`업로드 실패 ${name} → ${res.status} ${await res.text()}`);
+    const text = await res.text();
+    if (!res.ok) throw Object.assign(new Error(`업로드 실패 ${name} → ${res.status} ${text}`), { status: res.status, body: text });
+    return text ? JSON.parse(text) : null;
   }
   async function login(username, password) {
     return (await call(null, 'POST', '/auth/login', { username, password })).accessToken;

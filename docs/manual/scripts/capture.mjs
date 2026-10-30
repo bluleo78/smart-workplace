@@ -20,6 +20,7 @@
 import { resolveBooks } from './lib/books.mjs';
 import { loadChromium } from './lib/cli.mjs';
 import { createShotRecorder, selectScenes, signIn, unknownShotIds } from './lib/capture-kit.mjs';
+import { blockedRequests, resetGuard } from './lib/scene-kit.mjs';
 
 const [book] = resolveBooks(process.env.MANUAL_BOOK); // 생략하면 user
 const bookKey = book.key;
@@ -85,6 +86,7 @@ const sessions = new Map();
 try {
   for (const s of todo) {
     console.log(`▶ ${s.id}`);
+    blockedRequests.length = 0; // 이 장면이 막은 요청만 모아 끝에 출력한다
     try {
       await rec.begin(); // 이 장면의 좌표·그림은 성공해야 확정된다
       if (!sessions.has(s.account)) {
@@ -99,7 +101,12 @@ try {
       }
       const { context, api } = sessions.get(s.account);
       // 로그인한 첫 페이지를 쓴다(토큰이 메모리에만 있어 새 페이지는 로그아웃 상태일 수 있다).
-      await s.run({ page: context.pages()[0], rec, api });
+      try {
+        await s.run({ page: context.pages()[0], rec, api });
+      } finally {
+        resetGuard(context); // 장면이 연 허용(allowRead·allowWrite)·추가 차단을 다음 장면에 넘기지 않는다
+        if (blockedRequests.length) console.log(`  막은 요청 ${blockedRequests.length}건: ${[...new Set(blockedRequests)].join(', ')}`);
+      }
       await rec.commit();
     } catch (e) {
       await rec.discard(); // 실패한 장면이 남긴 좌표·임시 그림은 boxes.json·PNG 에 반영하지 않는다

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { access, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { clampBox, createShotRecorder, toOriginalBox } from './lib/capture-kit.mjs';
+import { clampBox, createShotRecorder, redactRects, toOriginalBox } from './lib/capture-kit.mjs';
 import { unionBoxes } from './lib/figure.mjs';
 import { mergeBoxesDoc } from './lib/boxes-file.mjs';
 
@@ -234,6 +234,28 @@ test('BOOKS capture config picks api base and login field per book', async () =>
 });
 
 // 책 설정 뷰포트(운영자 900x810): shoot 전에 mark 한 상자도 그 그림 크기(원본 1800x1620)로 잘린다(WP-1195).
+/** 장면이 뷰포트를 바꾸면(모바일 390 폭) 표식은 책 기본 뷰포트가 아니라 지금 페이지 뷰포트로 잘린다. */
+test('createShotRecorder clamps marks to the page viewport when a scene resizes it', async () => {
+  await withTempDir(async (dir) => {
+    const rec = createShotRecorder({ book: 'user', dir });
+    const page = { ...fakePage(), viewportSize: () => ({ width: 390, height: 844 }) };
+    const loc = { ...fakeLocator({ x: 0, y: 100, width: 394, height: 20 }), page: () => page };
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await rec.begin();
+      await rec.mark('m', 'bar', loc, { pad: 4 });
+      await rec.shoot(page, 'm');
+      await rec.commit();
+      await rec.save();
+    } finally {
+      console.log = log;
+    }
+    const saved = JSON.parse(await readFile(path.join(dir, 'boxes.json'), 'utf8'));
+    assert.deepEqual(saved.m, { w: 780, h: 1688, boxes: { bar: { x: 0, y: 192, w: 780, h: 56 } } });
+  });
+});
+
 test('createShotRecorder clamps marks to the book viewport', async () => {
   await withTempDir(async (dir) => {
     const rec = createShotRecorder({ book: 'operator', dir, viewport: { width: 900, height: 810 } });
@@ -336,4 +358,29 @@ test('shoot hides the caret', async () => {
     assert.equal(opts.animations, undefined); // 애니메이션은 컨텍스트 스타일이 0초로 만든다
     await rec.discard();
   });
+});
+
+// redactRects: 실제 계정 장면은 원본 PNG 에서 자르기 영역 밖을 가린다 — 남길 영역(원본 px) 둘레의 네 띠를 CSS px 로 돌려준다.
+test('redactRects_whenKeepInside_returnsFourBandsInCssPx', () => {
+  const rects = redactRects({ x: 200, y: 100, w: 400, h: 300 }, 2880, 1620, 2);
+  assert.deepEqual(rects, [
+    { x: 0, y: 0, w: 1440, h: 50 },
+    { x: 0, y: 200, w: 1440, h: 610 },
+    { x: 0, y: 50, w: 100, h: 150 },
+    { x: 300, y: 50, w: 1140, h: 150 },
+  ]);
+});
+
+// 남길 영역이 그림 가장자리에 붙으면 넓이 0 인 띠는 빠진다(빈 덮개를 만들지 않는다).
+test('redactRects_whenKeepTouchesEdges_dropsEmptyBands', () => {
+  const rects = redactRects({ x: 0, y: 0, w: 2880, h: 400 }, 2880, 1620, 2);
+  assert.deepEqual(rects, [{ x: 0, y: 200, w: 1440, h: 610 }]);
+});
+
+// once 장면(실제 AI 호출 — 결과가 매번 달라짐)은 전체 재촬영에서 빠지고, 이름을 적었을 때만 돈다.
+test('selectScenes_whenOnceScene_skipsInFullRunButRunsWhenNamed', async () => {
+  const { selectScenes } = await import('./lib/capture-kit.mjs');
+  const scenes = [{ id: 'a' }, { id: 'ai', once: true }];
+  assert.deepEqual(selectScenes(null, scenes).map((s) => s.id), ['a']);
+  assert.deepEqual(selectScenes(new Set(['ai']), scenes).map((s) => s.id), ['ai']);
 });

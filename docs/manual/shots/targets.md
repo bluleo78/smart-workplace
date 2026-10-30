@@ -69,20 +69,17 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 
 | 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
 | --- | --- | --- | --- | --- | --- | --- |
-| ai-collaboration-1 | `/me/ai-tasks` | 김서연(PM, 관리자) | AI 에게 맡긴 이슈가 진행 중일 때 연다 | `nav+rows` | `nav,rows` | MOB 프로젝트, 에이전트 지니에게 맡긴 미완료 이슈 2건 이상 |
-| ai-collaboration-2 | `/projects/MOB/issues/8` | 김서연 | 담당자 칸을 눌러 선택창을 연다 | `picker` | `picker,agent` (`suggest` 도 기록) | 구성원 5명 + 에이전트 지니가 MOB 멤버 |
-| ai-collaboration-3 | `/projects/MOB/issues/<회귀 체크리스트 이슈>` | 김서연 | 코멘트 탭, 마지막 AI 코멘트 머리가 화면 위쪽에 오게 스크롤 | `start+result` | `start,result` | 지니에게 맡겨 끝난 이슈(실제 AI 호출로 만든 착수·결과 코멘트) |
-| ai-collaboration-4 | 위와 같은 이슈 | 김서연 | **이력** 탭을 누른다 | `changes` | `changes` | 위와 같음(AI 의 상태 변경 이력) |
-| ai-collaboration-5 | `/projects/MOB` | 김서연 | **AI 어시스턴트** 를 열어 진행 상황·일정 정리를 요청하고 답이 끝날 때까지 기다린다 | `launcher+answer+context` | `launcher,answer,context` | MOB 이슈·사이클, 김서연의 이번 주 일정 |
+| ai-collaboration-1 | `/me/ai-tasks` | 김서연(PM, 관리자) | 범위 **전체** 를 누른다(행은 누르지 않는다) | `scope+chips+titles` | `scope,chips,titles@r` | AI 결과 — once. --ai-run 시드의 release-bot 담당 MOB-9·10 |
+| ai-collaboration-2 | `/projects/MOB/issues/8` | 김서연 | 담당자 칸을 눌러 선택창을 연다(체크하지 않고 Esc) — 운영 장면(user.mjs) | `field+picker` | `field@l,agent@l` (`picker` 도 기록) | 구성원 5명 + 에이전트 지니가 MOB 멤버 |
+| ai-collaboration-3 | `/projects/MOB/issues/16` | 김서연 | 코멘트 탭(오래된 순), 지니 착수 코멘트 머리가 위쪽에 오게 스크롤 | `start+result` | `start@l,request@l,result@l` | AI 결과 — once. --ai-run 시드 MOB-16(지니 착수 → 박지민 요청 → 지니 체크리스트 → 지니 답) |
+| ai-collaboration-4 | 위와 같은 이슈 | 김서연 | **이력** 탭을 누른다 | `head+list` | `changes@r` | AI 결과 — once. 박지민의 담당자 변경과 지니의 상태 변경(할 일 → 진행 중) |
+| ai-collaboration-5 | `/projects/MOB`(목록) | 김서연 | **AI 결과 — once**(운영 장면). **AI 어시스턴트** 새 대화에 「이번 스프린트에서 마감이 가까운 MOB 이슈와 담당자를 정리해 줘」(POST /ai/chat 만 연다, 읽기만, AI 1회). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`(최근 대화를 다시 열어 AI 를 부르지 않는다) | `launcher+panel` | `launcher,composer@l,answer@l` (`panel` 도 기록) | MOB 이슈·사이클 |
 
 다시 찍을 때 고칠 것(WP-1196) — 샘플 그림은 자르기 폭 기준(원본 1400px 이하, 집필 스킬 「자르기 가독성 기준」)을 넘는다. 표식 상자가 컨테이너 전체를 감싸 자르기를 더 좁힐 수 없기 때문이다.
 
 | 그림 id | 지금 자른 폭(원본 px) | 고칠 것 |
 | --- | --- | --- |
-| ai-collaboration-1 | 2824 | 높이 약 330px 의 띠이기도 하다. `rows` 가 표 전체 폭이다. ID·제목 열만 감싸는 키를 따로 기록하고, 지금 화면에 생긴 범위·상태 칩 줄도 키로 기록한다 |
 | ai-collaboration-2 | 640 | 같은 배율로 단 폭의 약 46% 로 인쇄된다(문제 없음). 담당자 칸까지 감싸는 키를 기록하면 어디서 연 목록인지 보인다 |
-| ai-collaboration-3 | 1680 | `result` 가 화면 아래로 넘어가 이미지 경계에서 잘렸다(가져올 때 잘라 넣음). 결과 코멘트의 머리 부분만 감싸는 키를 기록한다 |
-| ai-collaboration-4 | 1604 | 높이 약 200px 의 얇은 띠라 어느 화면인지 보이지 않는다. 이 샷에는 `changes` 키 하나뿐이라 맥락을 넓힐 수 없었다. **활동** 의 탭 줄(코멘트·이력)과 이력 목록 전체를 감싸는 키를 함께 기록하고, `changes` 는 글자가 있는 폭만 감싼다 |
 | ai-collaboration-5 | 1556 | 패널과 AI 어시스턴트 단추를 함께 담느라 넓다. 단추 위치는 전체 그림으로 따로 보여 주고, 패널만 자르는 것을 검토한다 |
 
 ### 05 대화
@@ -102,10 +99,30 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | chat-9 | `/chat/channels/<모바일-주문앱>` | 김서연 | **뷰포트를 1024x810 으로 좁혀** 채널을 연 그대로 | `own+message+reactions` | `reactions,replies@l` (`message,own` 도 기록) | 박지민 메시지의 반응 3개, 김서연 메시지의 안 읽은 스레드 답글 2건 |
 | chat-10 | `/chat/threads/inbox` | 김서연 | 연 그대로(카드는 누르지 않음) | (전체) | `card,badge@l` (`nav` 도 기록) | 위와 같은 스레드 답글 |
 | chat-11 | `/chat/dms/<이준호>` | 김서연 | 사이드바에서 이준호 DM 을 연다(읽음 처리는 guardReadOnly 가 막는다, **놓친 대화 요약** 은 누르지 않음) | (전체) | `dm@r,header,divider!inside` | 이준호↔김서연 DM 3건(마지막 1건 안 읽음) |
+| chat-12 | `/chat/channels/<모바일-주문앱>` | 김서연 | 채널 머리 **파일** 로 채널 드라이브를 연다(서버의 채널 공간 확인 POST 만 허용 — 공간이 이미 있으면 새로 만들지 않는다) | `area`(머리~마지막 파일 행) | `head,full@l,rows` (`area` 도 기록) | 채널 드라이브 공간과 파일 |
+| chat-13 | `/chat/dms/<이준호>` | 김서연 | **AI 결과 — 한 번 찍어 고정, 재촬영 제외(once)**. 폭 1024, **놓친 대화 요약** 단추를 누른다(캐치업 GET 만 연다, AI 1회 — 같은 구간은 서버 캐시라 다시 찍어도 AI 를 다시 부르지 않는다). **확인했어요** 는 누르지 않는다 | `divider+card` | `card,confirm` | 이준호↔김서연 DM(안 읽은 1건) |
+| chat-14 | `/chat/channels/<모바일-주문앱>` | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「이 채널에서 이번 주에 정한 일을 세 줄로 정리하고, 배포 알리미(release-bot)를 이 채널에 초대해 줘」 — 확인 카드는 승인·거부하지 않는다(대기 제안은 코디네이터가 API 로 거부해 정리) | `area`(카드 안쪽 14px) | `card!inside` | 사람 구성원은 모두 멤버라 비멤버인 release-bot 을 초대 대상으로 |
 
 표식 상자 — 05장부터의 장면은 상자를 글자에서 CSS 4px(원본 8px) 띄워 기록한다(`MARK_PAD`). 글자 요소의 상자는 글자에 딱 붙거나 글자보다 좁아 빨간 테두리가 글자를 자르거나 덮기 때문이다. 일정·마감 칩은 글자가 아니라 칩 전체를 감싼다.
 
 폭 예외 — chat-2·chat-8 은 입력칸·받는 사람 칸이 본문 전체 폭이라 데스크톱 최소 폭(1024)에서도 자른 폭이 원본 약 1500px 이다. 단추·탭 이름은 본문에 굵게 적었다.
+
+### 06 메일
+
+**M365 연결 중에만 찍는다(once — 연결한 뒤 이름을 지정해 찍는다).** 김서연 계정에 사용자가 Microsoft 로그인으로 직접 연결한 실제 Outlook(Microsoft 365) 메일함(dh.yang@iacloud.kr)이라, 연결을 해제하면 이 장면들(mail-1~3, 12장 my-settings-8, 7장 calendar-8)은 찍을 수 없다. 다시 찍을 때 지킬 것:
+
+- 목록은 검색어 「【누리커머스】」 로만 연다(`openMail`). 검색하지 않은 받은편지함에는 실제 메일이 보인다. 서버 검색은 본문 전문 검색이라 옛 사본 「[누리커머스]」 3통도 결과에 섞이므로, 상세는 제목 전체(「【누리커머스】 배송 추적 API 개편 관련 미팅 요청」)로 골라 연다.
+- 목록 행(첫 줄이 보낸 사람 실명)·사이드바(폴더별 안 읽은 수)·레일(메일 배지)·상세의 보낸 사람 줄은 자르기 밖에 둔다. 받는 사람 주소(dh.yang@iacloud.kr)만 허용한다.
+- **원본 PNG 도 가린다.** 그림은 빌드 때 잘라 보이지만 저장소에는 원본 전체가 커밋된다. 이 장면들은 `capture(…, { redact: [자르기 키] })` 로 자르기 영역(그림 지시문 crop 과 같은 키) 밖을 단색 덮개로 가리고 찍는다 — redact 키는 그림 지시문의 crop 키와 늘 같게 둔다.
+- 동기화가 끝난 뒤 찍는다(진행률이 없고 새로고침 단추가 풀릴 때 — 화면은 동기화 중에만 sync-status 를 부른다).
+- 보내기·읽음 처리·옮기기·삭제·AI 요청은 하지 않는다. 쓰기는 guardReadOnly 가, AI 요약 GET(`…/summary`)과 `markSeen=false` 없는 상세 GET 은 `openApp` 의 extraBlock 이 막는다.
+- 캘린더는 달력 칸에 실제 Outlook 일정 제목이, 태그 칸에 실제 Outlook 범주 이름이 보이므로 사이드바 M365 계정 묶음만 자른다.
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| mail-1 | `/mail/<계정>?q=【누리커머스】` | 김서연 | 연 그대로 | `area`(경로~도구 줄, 첫 행 글자 위에서 끊음) | `path,sync,unread,markAll@r` (`area` 도 기록) | M365 연결 + 시연 메일 3통 |
+| mail-2 | 위와 같음 | 김서연 | 제목 전체로 시연 메일을 누른다(읽음 POST 는 막힘) | `area`(단추 줄~본문, 보낸 사람 줄 아래에서 끊음) | `actions@r,body` (`area` 도 기록) | 위와 같음 |
+| mail-3 | 위와 같음 | 김서연 | **편지쓰기** 로 빈 새 메일 창만 연다(보내지 않음) | `dock` | `to,subject,tabs,send` | M365 연결 |
 
 ### 07 캘린더
 
@@ -120,13 +137,15 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | calendar-5 | 위와 같음 | 김서연 | **내 캘린더** 옆 **+** 로 **새 캘린더** 창을 열어 이름을 넣는다(추가하지 않음) | `dialog` | `name,color,submit` | — |
 | calendar-6 | 위와 같음 | 김서연 | 이준호가 주최한 **포인트 결제 UI 구현 범위 논의** 를 눌러 **일정 보기** 를 연다(응답 단추는 누르지 않음) | `dialog` | `readonly@br,attendees@r,rsvp` | 이준호 주최·김서연 응답 전 일정 |
 | calendar-7 | 위와 같음 | 김서연 | 사이드바 태그 **출시** 의 점 세 개 단추로 메뉴를 연다(항목은 누르지 않음) | `tags+menu` | `tags@r,menu@tr,feed@r` | 태그 「출시」·「스프린트」 |
+| calendar-8 | `/calendar` | 김서연 | 연 그대로(M365 연결 중에만) | `area`(사이드바 M365 계정 묶음, 테두리 안쪽으로 14px 줄임) | `calendars!inside,readonly@l` (`account` 도 기록) | M365 연결 |
+| calendar-9 | `/calendar` | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「2026년 11월 3일 화요일 오후 3시에 '베타 회고' 1시간 일정을 잡고 박지민, 이준호 님을 초대해 줘」 — 확인 카드는 누르지 않는다 | `panel` | `answer,card` (`panel` 도 기록) | — |
 
 ### 쓰기로만 만들 수 있는 상태(05·07 시드 보강 후보)
 
 | 쓸 곳 | 상태 | 넣을 데이터 |
 | --- | --- | --- |
-| 05 채널 파일 | 채널 머리 **파일** 의 채널 드라이브 | 모바일-주문앱의 채널 드라이브 공간(처음 열 때 서버가 만든다 — 시드에서 한 번 열어 둔다) |
-| 07 외부 캘린더 | Outlook 에서 동기화된 일정·읽기 전용 칩 | 김서연의 M365 계정 연결(6장 메일 시드와 함께) |
+| 05 채널 파일 | 채널 머리 **파일** 의 채널 드라이브 | 모바일-주문앱의 채널 드라이브 공간과 파일 (보강 시드 `--app-extras` 로 넣음 — 찍음: chat-12) |
+| 07 외부 캘린더 | Outlook 에서 동기화된 일정·읽기 전용 칩 | 김서연의 M365 계정 연결 — 찍음: calendar-8(사이드바 계정 묶음만). 동기화된 일정 칸은 실제 일정 제목이 보여 찍지 않는다 |
 
 ### 08 작업 관리
 
@@ -142,6 +161,9 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | work-6 | 위와 같음 | 김서연 | **상태** 칸을 눌러 목록을 연다(고르지 않음) | `status+list` | `status,list@l` (`panel` 도 기록) | 위와 같음 |
 | work-7 | `/me/tasks/assigned` | 김서연 | 연 그대로 | `tabs+filters+group+row` | `tabs,filters,group,row!inside` | 김서연 담당 MOB 이슈 6건(MOB-15 기한 지남) |
 | work-8 | `/projects/MOB/timeline` | 김서연 | 연 그대로 | (전체) | `scale,filter,list,milestone` | 에픽 3개·마일스톤 베타 오픈 |
+| work-9 | `/projects/MOB/versions/<베타 1.0>` | 김서연 | 버전 목록에서 **베타 1.0** 을 누른다 | `head+actions+issues` | `head,actions@l,tabs,issues` | 버전 베타 1.0·MOB-4~7 |
+| work-10 | `/projects/MOB/issues/6` | 김서연 | **AI 결과 — 한 번 찍어 고정, 재촬영 제외(once)**. **요약 생성** 을 누른다(POST …/issues/6/ai-summary 만 연다, AI 1회 — 서버가 요약을 이슈에 저장) | `card` | `card,generate` | MOB-6 |
+| work-11 | `/projects/MOB`(목록) | 김서연 | **AI 결과 — once**. **새 태스크** 창에 제목·본문을 넣고 **AI 제안 받기**(POST …/issues/ai-classify 만 연다, 저장 없음). **생성** 은 누르지 않는다 | `dialog` | `ai,fields,submit@tr` | — |
 
 ### 09 드라이브
 
@@ -153,6 +175,9 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | drive-2 | 위와 같음(폴더 「기획」) | 김서연 | 폴더를 두 번 눌러 들어가 첫 파일의 점 세 개 메뉴를 연다(항목은 누르지 않음) | (전체) | `path,file,menu@l` | 「기획」 안 문서 2개 |
 | drive-3 | 위와 같음 | 김서연 | **새 폴더** 창에 이름을 넣는다(만들지 않음) | `dialog` | `name,submit@r` | — |
 | drive-4 | 위와 같음(폴더 「기획」) | 김서연 | 첫 파일의 **공유** 로 **공유 링크** 창을 연다(만들지 않음) | `dialog` | `audience,options,create` | 위와 같음 |
+| drive-5 | `/drive/attachments` | 김서연 | 연 그대로 | `filters+save` | `filters,search,group,save@l` | MOB-7·「공지」 채널 첨부 |
+| drive-6 | `/drive`(모바일 주문 앱 › 기획) | 김서연 | PDF 「모바일 주문 앱 2.0 요구사항 정의서.pdf」 를 눌러 미리 보기를 연다 — PDF 는 원본 GET 만(변환 요청 없음), AI 요약 GET 은 막음. 캔버스가 칠해질 때까지 기다림 | (전체) | `actions,next,zoom` (`file` 은 기록 안 함) | 드라이브 시드 |
+| drive-7 | `/drive`(모바일 주문 앱) | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「드라이브 모바일 주문 앱 › 기획 폴더의 '모바일 주문 앱 2.0 요구사항 정의서.pdf'를 세 줄로 요약해 줘」 | `panel` | `answer` (`panel` 도 기록) | 드라이브 시드 |
 
 ### 10 노트
 
@@ -162,7 +187,10 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | --- | --- | --- | --- | --- | --- | --- |
 | wiki-1 | `/wiki/spaces/<모바일 주문 앱>/pages/<PRD>` | 김서연 | 스페이스를 고르고 **제품 요구사항 (PRD)** 를 연다 | (전체) | `space!inside,tree@r,path,header,body!inside` | 팀 스페이스 노트 3쪽 |
 | wiki-2 | 위와 같음 | 김서연 | **페이지 메뉴** 를 연다(항목은 누르지 않음) | `trigger+menu` | `trigger,menu@bl,history@l` | 위와 같음 |
-| wiki-3 | 위와 같음 | 김서연 | **공유** 로 **페이지 공유** 창을 연다(켜지 않음) | `dialog` | `toggle@l` | 위와 같음 |
+| wiki-3 | 위와 같음 | 김서연 | **공유** 로 **페이지 공유** 창을 연다(이미 링크로 공유한 PRD — 아무것도 바꾸지 않음, 상태를 불러와 스위치가 풀릴 때까지 기다림) | `dialog` | `toggle@l,link,fields` | 위와 같음 |
+| wiki-4 | `/wiki/<내 노트>/<연습장>` | 김서연 | 본문에 「/」 를 넣어 블록 메뉴만 연다 — 문서가 맞춰진 뒤 협업 소켓의 보내는 프레임을 버려 저장되지 않게 하고, 끝나면 about:blank 로 나간다 | `slash` | `slash@r` | 내 노트 빈 페이지 「연습장」 |
+| wiki-5 | `/wiki/<내 노트>/<연습장>` | 김서연 | **AI 결과 — once**. 빈 페이지 안내의 **AI 초안 작성** 에 주제 「베타 오픈 회고 회의록 틀. 잘한 점, 아쉬운 점, 다음 할 일 세 칸으로.」(POST …/wiki/pages/{id}/ai 만 연다, AI 1회). 협업 보내기 프레임을 버려 페이지에 저장하지 않는다(실행 뒤 본문 그대로 확인) | (전체) | `body` (`header` 도 기록) | 내 노트 빈 페이지 「연습장」 |
+| wiki-6 | 위와 같음(같은 장면) | 김서연 | 초안 전에 머리 「AI」 메뉴만 연다 | `button+menu` | `menu@l` (`button` 도 기록) | 위와 같음 |
 
 ### 11 연락처
 
@@ -172,15 +200,93 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | --- | --- | --- | --- | --- | --- | --- |
 | contacts-1 | `/contacts` | 김서연 | **한지우** 를 눌러 상세를 연다 | (전체) | `views!inside,groups@r,search,row@r,detail@r,create` | 구성원 5명·외부 연락처 2명 |
 | contacts-2 | 위와 같음 | 김서연 | **새 외부 연락처** 창에 이름·이메일·소속을 넣는다(저장하지 않음) | `dialog` | `name,fields,scope,save@r` | — |
+| contacts-3 | `/contacts` | 김서연 | **조직도** 에서 **제품개발팀** 을 누른다 | (전체) | `org,mine,list@r` | 부서 3개·내 그룹 베타 오픈 TF |
+| contacts-4 | `/contacts` | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「빠른물류 오세훈 님 연락처 알려 줘」 | `panel` | `answer` (`panel` 도 기록) | 외부 연락처 오세훈 |
 
 ### 쓰기로만 만들 수 있는 상태(08~11 시드 보강 후보)
 
 | 쓸 곳 | 상태 | 넣을 데이터 |
 | --- | --- | --- |
-| 08 버전 | **버전** 화면·버전 상세 | MOB 버전 1개(예: 2.0.0)와 묶인 이슈 몇 건 |
-| 09 첨부 모아보기 | 이슈·메시지 첨부 목록 | MOB 이슈 1건과 채널 메시지 1건에 첨부 파일 |
-| 10 블록 메뉴 | 「/」 메뉴 | 촬영 전용 빈 페이지(입력해도 되는 곳) |
-| 11 그룹 | 조직도·내 그룹 | 부서 2~3개(관리자가 만듦), 김서연의 내 그룹 1개 |
+| 08 버전 | **버전** 화면·버전 상세 | MOB 버전 「베타 1.0」 과 MOB-4~7 (보강 시드 `--app-extras` 로 넣음 — 찍음: work-9) |
+| 09 첨부 모아보기 | 이슈·메시지 첨부 목록 | MOB-7 첨부와 「공지」 채널 메시지 첨부 (보강 시드 `--app-extras` 로 넣음 — 찍음: drive-5) |
+| 10 블록 메뉴 | 「/」 메뉴 | 내 노트의 빈 페이지 「연습장」 (보강 시드 `--app-extras` 로 넣음 — 찍음: wiki-4, 협업 쓰기는 막는다) |
+| 11 그룹 | 조직도·내 그룹 | 부서 3개, 김서연의 내 그룹 「베타 오픈 TF」 (보강 시드 `--app-extras` 로 넣음 — 찍음: contacts-3) |
+
+### 12 내 설정
+
+**저장**·**비밀번호 변경**·**등록**·**발급**·**추가** 는 누르지 않는다. 창은 열고 Escape 로 닫는다. API 토큰 목록에는 토큰 앞자리가 보이므로 목록 행은 자르기에 넣지 않는다.
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| my-settings-1 | `/settings/profile` | 김서연 | 연 그대로 | (전체) | `nav!inside,profile,password,guide` | — |
+| my-settings-2 | `/settings/notifications` | 김서연 | 폭 1024 로 연다(헤드리스 브라우저는 알림 권한 차단 안내가 보인다) | `head+device+row` | `device,app,cols,row` | — |
+| my-settings-3 | `/settings/assistant` | 김서연 | 폭 1024 로 연다(토큰 칸은 비어 있다) | `head+mode+memory` | `mode,token,suggest,memory` | — |
+| my-settings-4 | `/settings/tokens` | 김서연 | **토큰 발급** 으로 창을 연다(발급하지 않음) | `dialog` | `name,expiry,submit` | — |
+| my-settings-5 | 위와 같음 | 김서연 | **다른 도구로 연결 (Claude.ai, ChatGPT 등)** 을 펼친다 | `claude+url` | `claude,other,url` | — |
+| my-settings-6 | `/settings/mail` | 김서연 | **계정 추가** 로 창을 연다(공급자 목록은 열지 않음) | `dialog` | `provider,address,imap` | — |
+| my-settings-7 | `/settings/my-shares` | 김서연 | 연 그대로 | `filters+rows+unshare` | `filters,rows,unshare` | PRD·출시 체크리스트 링크 공유 |
+| my-settings-8 | `/settings/mail` | 김서연 | 폭 1024 로 연다(M365 연결 중에만) | `list+add` | `provider,status,add` | M365 연결 |
+| my-settings-9 | `/settings/notifications` | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「휴대폰으로 알림을 받으려면 어디서 켜?」 | `panel` | `answer` (`panel` 도 기록) | — |
+
+### 13 모바일에서 쓰기
+
+뷰포트를 390x844 로 줄여 찍는다(배율 2 → 원본 780x1688, 앱은 폭으로 모바일 셸을 고른다). 고정·순서 저장은 하지 않는다. 가운데 「AI」 는 누르지 않는다(추천 질문 요청이 AI 를 부른다).
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| mobile-1 | `/apps` | 김서연 | 연 그대로 | (전체) | `coach,grid,edit,tabbar!inside` | — |
+| mobile-2 | `/apps/tabs` | 김서연 | 연 그대로(**저장** 은 누르지 않음) | (전체) | `intro!inside,slots@l,add!inside,save` | — |
+| mobile-3 | `/apps` | 김서연 | 드라이브의 핀 표시를 눌러 메뉴를 연다(항목은 누르지 않음) | `row+tile+menu` | `tile,menu` | — |
+
+### 14 구성원과 역할
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| members-1 | `/settings/users` | 김서연 | 연 그대로 | (전체) | `admin!inside,search,list,create` | 구성원 5명 |
+| members-2 | 위와 같음 | 김서연 | **구성원 추가** 로 창을 연다(칸을 채우지 않음) | `dialog` | `id,profile,password,role,more,submit` | — |
+| members-3 | `/settings/users/<박지민>` | 김서연 | 목록에서 **박지민** 을 누른다(폭 1024) | `info+active+roles` | `info,active,roles` | — |
+| members-4 | `/settings/roles/<USER>` | 김서연 | 목록에서 **USER** 를 누른다 | `lock+perms` | `lock,info,perms` | — |
+| members-5 | `/settings/roles/<PARTNER>` | 김서연 | 목록에서 **PARTNER** 를 누른다(저장하지 않음) | `area`(역할 정보~권한 첫 묶음) | `info,perms` (`area` 도 기록) | 역할 PARTNER |
+
+### 15 AI 에이전트 관리
+
+상세 패널 아래쪽(AI 연결 및 모델·공통 비서·API 키)은 찍지 않는다 — **최근 사용** 시각이 AI 가 일할 때마다 바뀐다.
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| agents-1 | `/settings/agents` | 김서연 | 연 그대로 | (전체) | `toggle,create,row` | 에이전트 지니(공통 비서) |
+| agents-2 | 위와 같음 | 김서연 | **지니** 행을 눌러 상세 패널을 연다(저장하지 않음) | `info+active` | `info,mode,active` | 위와 같음 |
+| agents-3 | 위와 같음 | 김서연 | **배포 알리미**(release-bot) 행을 눌러 상세 패널을 열고 ② 플러그인 설치까지 내린다 | `area`(① 키 목록은 밖) | `plugin,login,work` (`area` 도 기록) | 외부 에이전트 release-bot |
+| agents-4 | 위와 같음 | 김서연 | **지니** 상세를 열고 **AI 연결 및 모델** 까지 내린다. 모델 이름이 채워질 때까지 기다림 | `area`(재발급 단추 안쪽 10px — 「최근 사용」 시각 줄은 자르기 밖) | `conn,model,assistant@r,key!inside` (`area` 도 기록) | — |
+
+### 16 로그인·앱 설정
+
+SSO 화면의 **관리자 동의 링크**(앱 등록 client_id 가 든 주소)는 자르기에 넣지 않는다.
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| workspace-settings-1 | `/settings/sso` | 김서연 | 폭 1024 로 연다(켜지 않음) | `section+toggle` | `toggle@l` | — |
+| workspace-settings-2 | `/settings/apps/work` | 김서연 | 연 그대로 | `table+create` | `table,create,hide` | — (기본 관계 유형) |
+| workspace-settings-3 | `/settings/apps/wiki` | 김서연 | 폭 1024 로 연다, 공유 행이 그려질 때까지 기다린다 | `toggle+list` | `toggle,list` | PRD·출시 체크리스트 링크 공유 |
+
+### 17 감사 로그
+
+로그인할 때마다 맨 위에 새 행이 쌓이므로 **설명으로 검색...** 에 「구성원 계정 생성」 을 넣어 시드가 남긴 4행만 남긴다. IP 열(클러스터 내부 주소)은 자르기에 넣지 않는다 — 필터 줄과 표를 따로 찍는다(1440 폭에서는 날짜 칸이 표의 결과·IP 열 위에 있어 한 그림에 넣으면 IP 가 함께 든다). 행은 누르지 않는다(상세에 IP·브라우저 정보가 보인다).
+
+| 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
+| --- | --- | --- | --- | --- | --- | --- |
+| audit-logs-1 | `/settings/audit-logs` | 김서연 | 설명 검색 「구성원 계정 생성」, 폭 1024 로 찍는다(날짜 칸이 둘째 줄로 내려간다) | `area+dates`(area = 칸들보다 8px 안쪽) | `search@l,user!inside,result!inside,dates` (`area` 도 기록) | 시드가 남긴 구성원 계정 생성 기록 4건 |
+| audit-logs-3 | 위와 같음 | 김서연 | 같은 검색, 폭 1440 | `area`(rows 와 같은 범위, 여백 0) | `rows!inside` (`area` 도 기록) | 위와 같음 |
+| audit-logs-2 | 위와 같음 | 김서연 | 같은 검색 뒤 **필터** 를 연다(고르지 않음) | `trigger+menu` | `trigger,menu` | 위와 같음 |
+
+### 쓰기로만 만들 수 있는 상태(12~17 시드 보강 후보)
+
+| 쓸 곳 | 상태 | 넣을 데이터 |
+| --- | --- | --- |
+| 12 메일 계정 | 연결된 메일 계정 목록 | 시드 아님 — 사용자가 Microsoft 로그인으로 직접 연결 — 찍음: my-settings-8(06 메일 절의 「M365 연결 중에만 찍는다」) |
+| 12 내 공유·16 노트 | 공유 중인 페이지 목록 | PRD·출시 체크리스트 링크 공유 (보강 시드 `--app-extras` 로 넣음 — 찍음: my-settings-7·workspace-settings-3) |
+| 14 역할 상세 | 관리자가 만든 역할 | 역할 「PARTNER」 (보강 시드 `--app-extras` 로 넣음 — 찍음: members-5) |
+| 15 에이전트 | 외부 에이전트 연결 | 외부 에이전트 release-bot (보강 시드 `--app-extras` 로 넣음 — 찍음: agents-3, 키 앞자리가 있는 ① 키 목록은 자르기 밖). 내부 에이전트의 「AI 연결 및 모델」 그림은 지니의 「최근 사용」 시각이 바뀌어 아직 못 찍음 |
 
 ## 운영자 매뉴얼
 
