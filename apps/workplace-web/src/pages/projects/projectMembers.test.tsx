@@ -24,6 +24,7 @@ const HUMAN_USER = summary(302, 'coworker', 'Coworker', 'HUMAN')
 test('개인 프로젝트 설정 → AI 어시스턴트 추가 → POST {userId, role: MEMBER} + 토스트 + 표 반영', async () => {
   const members: unknown[] = [{ userId: 1, username: 'me', name: 'Me', kind: 'HUMAN', role: 'OWNER', createdAt: null }]
   const posts: unknown[] = []
+  const searches: string[] = []
   const project = createProject({ id: 10, key: KEY, name: '내 프로젝트', type: 'PERSONAL', isDefault: false })
   // 설정의 「멤버」 섹션만 띄운다 — 개인 프로젝트면 설정 화면이 AI 어시스턴트 전용(agentOnly)·주인 id 로 그린다.
   const { user } = renderScreen(<MemberManagement projectKey={KEY} agentOnly ownerId={project.ownerId} canManage />, {
@@ -32,6 +33,7 @@ test('개인 프로젝트 설정 → AI 어시스턴트 추가 → POST {userId,
       http.get('/api/v1/members', ({ request }) => {
         const url = new URL(request.url)
         const q = url.searchParams.get('search') ?? ''
+        searches.push(q)
         const kind = url.searchParams.get('kind') ?? 'HUMAN'
         const matched = [AGENT_USER, HUMAN_USER]
           .filter((u) => kind === 'ALL' || u.kind === kind)
@@ -52,6 +54,9 @@ test('개인 프로젝트 설정 → AI 어시스턴트 추가 → POST {userId,
   const popover = await screen.findByTestId('member-search-popover')
   await user.click(within(popover).getByPlaceholderText('이름·아이디·이메일로 검색'))
   await user.paste('workplace')
+  // 빈 검색 목록에도 같은 행이 먼저 보인다 — 그 행을 잡아 두면 디바운스 검색이 시작될 때 목록이 비며 떨어져 나가
+  // 클릭이 허공에 간다(부하 중 POST 없이 깨짐, WP-1229). 검색 요청이 간 뒤(이전 목록이 이미 빠진 뒤)에 행을 찾는다.
+  await waitFor(() => expect(searches).toContain('workplace'))
   const row = await within(popover).findByTestId(`member-search-row-${AGENT_USER.userId}`)
   expect(within(popover).queryByTestId(`member-search-row-${HUMAN_USER.userId}`)).not.toBeInTheDocument()
   await user.click(row)
