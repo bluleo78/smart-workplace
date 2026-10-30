@@ -32,6 +32,10 @@ async function mock(page: Page) {
   }
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(CYCLES)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles/progress`, (r) => r.fulfill(json(PROGRESS)));
+  // 다음 페이지가 남은 구간의 전체 수(WP-1231) — 「더 보기」의 「전체 N건 중 M건 표시」.
+  await page.route((u) => u.pathname === `${ISSUES}/group-counts`, (r) =>
+    r.fulfill(json({ groupBy: 'priority', groups: [{ key: 'MID', count: 12 }] })),
+  );
   await page.route((u) => u.pathname === ISSUES, (r) => {
     if (r.request().method() !== 'GET') return r.fallback();
     const cycle = new URL(r.request().url()).searchParams.get('cycle');

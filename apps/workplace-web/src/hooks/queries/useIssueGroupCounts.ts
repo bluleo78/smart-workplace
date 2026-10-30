@@ -27,8 +27,27 @@ export function useIssueGroupCounts(
 ) {
   const serverGroupBy = groupCountsBy(groupBy);
   return useQuery({
-    queryKey: ['issues', 'search', projectKey, 'group-counts', serverGroupBy, filters] as const,
+    queryKey: groupCountsQueryKey(projectKey, serverGroupBy, filters),
     queryFn: () => getIssueGroupCounts(projectKey, filters, serverGroupBy!),
     enabled: !!projectKey && serverGroupBy != null,
+  });
+}
+
+/** 총계 캐시 키 — 그룹 헤더 총계와 구간 전체 수(아래)가 같은 키를 써서 같은 필터·기준이면 캐시를 나눈다. */
+function groupCountsQueryKey(projectKey: string, by: IssueGroupCountsBy | null, filters: IssueFilters) {
+  return ['issues', 'search', projectKey, 'group-counts', by, filters] as const;
+}
+
+/**
+ * 같은 필터에 맞는 이슈 전체 수(WP-1231) — 목록 구간 끝 「더 보기」에 「전체 N건 중 M건 표시」를 보이려고 쓴다. 전용 총계 API 가 없어 group-counts 를
+ * 우선순위로 받아 합한다(0건 그룹은 빠지고 우선순위 없음도 한 그룹이라 합이 전체 수다). 키가 검색 prefix 아래라 이슈 변경 무효화에 함께 걸린다.
+ * enabled 가 false 면(구간이 접혔거나 다음 페이지가 없으면) 요청하지 않는다.
+ */
+export function useIssueTotal(projectKey: string, filters: IssueFilters, enabled: boolean) {
+  return useQuery({
+    queryKey: groupCountsQueryKey(projectKey, 'priority', filters),
+    queryFn: () => getIssueGroupCounts(projectKey, filters, 'priority'),
+    select: (res) => res.groups.reduce((sum, g) => sum + g.count, 0),
+    enabled: !!projectKey && enabled,
   });
 }
