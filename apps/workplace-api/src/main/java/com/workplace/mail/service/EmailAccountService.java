@@ -94,8 +94,8 @@ public class EmailAccountService {
   }
 
   /**
-   * 주소 유일성 인덱스(uq_email_account_user_addr·_ci) 위반만 「이미 등록된 주소」로 바꾼다 — 다른 유일성 위반은 원래 예외 그대로 둬 원인을
-   * 가리지 않는다.
+   * 주소 유일성 인덱스(uq_email_account_user_addr_ci — 옛 _addr 는 V244 가 지움) 위반만 「이미 등록된 주소」로 바꾼다 — 다른 유일성
+   * 위반은 원래 예외 그대로 둬 원인을 가리지 않는다.
    */
   private static RuntimeException asDuplicateAddress(DuplicateKeyException e, String emailAddress) {
     String msg = e.getMostSpecificCause().getMessage();

@@ -142,6 +142,26 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
         .isInstanceOf(DuplicateKeyException.class);
   }
 
+  /**
+   * 주소 유일성 인덱스는 대소문자 무시 인덱스 하나만 남는다(WP-1215 — V244 가 옛 대소문자 그대로 인덱스를 지움). 옛 인덱스가 막던 똑같은 주소의 활성 계정도
+   * 새 인덱스가 막는다.
+   */
+  @Test
+  void addressUniqueness_onlyCaseInsensitiveIndexRemains_andStillRejectsExactDuplicate() {
+    assertThat(
+            dsl.fetch(
+                    "SELECT indexname FROM pg_indexes WHERE tablename = 'email_account'"
+                        + " AND indexname LIKE 'uq_email_account_user_addr%'")
+                .getValues(0, String.class))
+        .containsExactly("uq_email_account_user_addr_ci");
+
+    long user = TestFixtures.createHuman(dsl);
+    repo.insert(user, sampleReq("admin@work-loop.local"), "ENC");
+
+    assertThatThrownBy(() -> repo.insert(user, sampleReq("admin@work-loop.local"), "ENC"))
+        .isInstanceOf(DuplicateKeyException.class);
+  }
+
   /** 비활성(삭제 대기) 계정과 대소문자만 다른 주소는 새 활성 계정으로 등록된다 — 부분 인덱스 밖. */
   @Test
   void caseVariantOfDisabledAddress_canBeRegistered() {
