@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  링크 미리보기 공유 이미지(public/og-image.png) 원본 — render.mjs 가 1200×630 으로 찍어 PNG 를 만든다(WP-1224).
+  Teams 는 이미지를 썸네일 칸(약 1.26:1)에 가운데 기준으로 잘라 채워 가로 x 202~998 만 남긴다. 그래서 로고 타일·이름·소개를
+  가운데로 모아 x 약 265~935 안에 둔다(좌우 약 60px 여유). 카카오톡·Slack 은 전체를 보여 주므로 가로 배치를 그대로 쓴다.
+  글꼴은 렌더하는 컴퓨터의 시스템 글꼴(macOS 의 Apple SD Gothic Neo — 시안과 같다)이다 — 다시 찍을 때는 macOS 에서 찍는다.
+-->
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+      }
+      body {
+        /* 브랜드 primary — favicon.svg 와 같은 인디고 */
+        background: #4338ca;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 32px;
+        font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      }
+      /* 로고 타일 — 반투명 테두리·채움 안에 lucide Boxes(favicon.svg 와 같은 패스) */
+      .tile {
+        box-sizing: border-box;
+        width: 200px;
+        height: 200px;
+        border-radius: 46px;
+        border: 5px solid rgba(255, 255, 255, 0.28);
+        background: rgba(255, 255, 255, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .name {
+        color: #fff;
+        font-size: 78px;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: -0.5px;
+      }
+      .tagline {
+        margin-top: 10px;
+        color: #c7d2fe;
+        font-size: 27px;
+        font-weight: 400;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tile">
+      <svg width="122" height="122" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z" />
+        <path d="m7 16.5-4.74-2.85" />
+        <path d="m7 16.5 5-3" />
+        <path d="M7 16.5v5.17" />
+        <path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z" />
+        <path d="m17 16.5-5-3" />
+        <path d="m17 16.5 4.74-2.85" />
+        <path d="M17 16.5v5.17" />
+        <path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z" />
+        <path d="M12 8 7.26 5.15" />
+        <path d="m12 8 4.74-2.85" />
+        <path d="M12 13.5V8" />
+      </svg>
+    </div>
+    <div>
+      <div class="name">Gen:iA Works</div>
+      <div class="tagline">사람과 AI가 함께 일하는 워크플레이스</div>
+    </div>
+  </body>
+</html>
