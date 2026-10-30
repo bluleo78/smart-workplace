@@ -32,7 +32,7 @@ Gen:iA Works 의 계정은 테넌트와 따로 있고, 한 계정이 여러 테�
 
 다른 테넌트의 구성원처럼 이미 계정이 있는 사람은 계정을 새로 만들지 않고 이 테넌트에만 넣습니다. **멤버 추가** 를 누르면 **멤버 추가** 창이 열립니다.
 
-![멤버 추가 창 — 이메일로 찾은 기존 사용자](shots/operator/tenant-members-2.png){crop=dialog marks=email,check,found,role,submit}
+![멤버 추가 창 — 이메일로 찾은 기존 사용자](shots/operator/tenant-members-2.png){crop=dialog marks=email,check,found,role,submit@br}
 
 1. **이메일** 칸에 넣을 사람의 이메일을 입력합니다.
 2. **확인** 을 누릅니다.
@@ -50,7 +50,7 @@ Gen:iA Works 의 계정은 테넌트와 따로 있고, 한 계정이 여러 테�
 
 계정이 없는 사람은 **멤버 추가** 창에서 계정을 만들면서 넣습니다. **이메일** 칸에 그 사람의 이메일을 입력하고 **확인** 을 누르면, 찾는 사람이 없을 때 **신규 계정을 생성합니다.** 라는 안내와 함께 계정을 만드는 칸이 나옵니다.
 
-![멤버 추가 창 — 새 계정을 만드는 칸](shots/operator/tenant-members-3.png){crop=dialog marks=name,password,role,submit}
+![멤버 추가 창 — 새 계정을 만드는 칸](shots/operator/tenant-members-3.png){crop=dialog marks=name,password,role,submit@br}
 
 1. **이름** 칸에 그 사람의 이름을 입력합니다.
 2. **초기 비밀번호** 칸에 첫 로그인에 쓸 비밀번호를 입력합니다. 8자 이상이고 영문 대문자·소문자·숫자가 하나 이상씩 들어가야 합니다.

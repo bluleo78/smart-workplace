@@ -168,14 +168,20 @@ export function createShotRecorder({
     /**
      * 로케이터(여럿이면 합집합)의 위치를 기록한다. 화면에 없으면 오류 — 조용히 빠뜨리지 않는다.
      * 좌표는 그림(뷰포트) 경계로 자른다. 잘라서 남는 것이 없으면(완전히 화면 밖) 역시 화면에 없는 것으로 본다.
+     * 마지막 인자로 { pad } (CSS px)를 주면 상자를 사방으로 그만큼 넓힌다 — 글자 요소의 상자는 글자에 딱 붙거나 글자보다 좁아
+     * 빨간 테두리가 글자를 자르거나 덮는다. 넓힌 상자도 그림 경계로 자른다.
      */
-    async mark(id, key, ...locators) {
+    async mark(id, key, ...args) {
+      const opts = args.length && typeof args.at(-1)?.first !== 'function' ? args.pop() : {};
+      const locators = args;
       const missing = () => new Error(`${id}:${key} 표시 대상이 화면에 없다`);
       // 없는 요소는 기본 30초를 기다리지 않고 3초 안에 같은 메시지로 실패시킨다.
       const found = await Promise.all(locators.map((l) => l.first().boundingBox({ timeout: 3000 }).catch(() => null)));
       if (found.length === 0 || found.some((b) => !b)) throw missing();
       const { shot } = stage(id);
-      const boxes = found.map((b) => clampBox(toOriginalBox(b, dpr), shot.w, shot.h));
+      const pad = Math.round((opts.pad ?? 0) * dpr);
+      const grow = (b) => ({ x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
+      const boxes = found.map((b) => clampBox(grow(toOriginalBox(b, dpr)), shot.w, shot.h));
       if (boxes.some((b) => !b)) throw missing();
       shot.boxes[key] = boxes.length === 1 ? boxes[0] : unionBoxes(boxes);
     },

@@ -85,6 +85,28 @@ test('createShotRecorder discards entries of a failed scene', async () => {
   });
 });
 
+/** pad(CSS px)는 상자를 사방으로 넓히고(원본 px = pad x 배율 2), 넓힌 상자도 그림 경계로 자른다. */
+test('createShotRecorder mark grows the box by pad and clamps it to the image', async () => {
+  await withTempDir(async (dir) => {
+    const rec = createShotRecorder({ book: 'user', dir });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await rec.begin();
+      await rec.mark('p', 'mid', fakeLocator({ x: 10, y: 20, width: 30, height: 40 }), { pad: 4 });
+      await rec.mark('p', 'edge', fakeLocator({ x: 0, y: 0, width: 10, height: 10 }), { pad: 4 });
+      await rec.shoot(fakePage(), 'p');
+      await rec.commit();
+      await rec.save();
+    } finally {
+      console.log = log;
+    }
+    const saved = JSON.parse(await readFile(path.join(dir, 'boxes.json'), 'utf8'));
+    assert.deepEqual(saved.p.boxes.mid, { x: 12, y: 32, w: 76, h: 96 });
+    assert.deepEqual(saved.p.boxes.edge, { x: 0, y: 0, w: 28, h: 28 });
+  });
+});
+
 test('createShotRecorder does not write boxes.json when nothing was committed', async () => {
   await withTempDir(async (dir) => {
     const rec = createShotRecorder({ book: 'user', dir });

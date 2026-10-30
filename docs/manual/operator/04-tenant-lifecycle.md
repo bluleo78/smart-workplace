@@ -103,7 +103,7 @@ routes: []
 
 삭제된 테넌트의 **위험 구역** 에는 **삭제** 대신 **영구 삭제** 가 있습니다. **영구 삭제** 를 누르면 지울 테넌트의 이름을 묻는 확인 창이 열립니다.
 
-![영구 삭제 확인 창 — 테넌트 이름을 입력해야 단추가 켜집니다](shots/operator/tenant-lifecycle-7.png){crop=dialog marks=input,confirm}
+![영구 삭제 확인 창 — 테넌트 이름을 입력해야 단추가 켜집니다](shots/operator/tenant-lifecycle-7.png){crop=dialog marks=input,confirm@br}
 
 1. 입력 칸에 테넌트 이름을 그대로 입력합니다. 영문 대문자·소문자를 구분합니다.
 2. **영구 삭제** 를 누릅니다. 이름이 정확히 같아야 단추가 켜집니다.
