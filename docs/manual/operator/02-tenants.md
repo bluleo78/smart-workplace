@@ -73,7 +73,7 @@ slug 는 테넌트를 구분하는 영문 이름입니다. 비워 두면 이름�
 
 상세 화면의 **편집** 을 누르면 **테넌트 정보 편집** 창이 열립니다.
 
-![테넌트 정보 편집 창](shots/operator/tenants-4.png){crop=dialog marks=name,slug,save}
+![테넌트 정보 편집 창](shots/operator/tenants-4.png){crop=dialog marks=name,slug,save@br}
 
 1. **이름** 칸의 이름을 고칩니다.
 2. **slug** 칸을 고칩니다. 비우면 이름에서 다시 만들어집니다.

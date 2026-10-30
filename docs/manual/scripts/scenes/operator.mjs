@@ -16,33 +16,10 @@
 import { newShotContext } from '../lib/capture-kit.mjs';
 import { BOOKS } from '../lib/books.mjs';
 import { OPERATOR } from '../lib/operator-seed.mjs';
+import { capture, closeDialog, openDialog } from '../lib/scene-kit.mjs';
 
 const ACCOUNT = OPERATOR.username;
 const WEB = () => process.env.MANUAL_WEB; // capture.mjs 가 촬영 전에 있는지 확인한다
-
-/**
- * 그림 한 장을 찍는다 — 마우스를 구석으로 옮기고(hover 강조 제거), marks 를 적은 순서대로 기록한 뒤 저장한다.
- * marks 는 { 키: 로케이터 | [로케이터...] }. 배열이면 합집합 상자다. 적은 순서가 boxes.json 의 키 순서가 된다.
- */
-async function capture(page, rec, id, marks) {
-  await page.mouse.move(0, 0);
-  for (const [key, loc] of Object.entries(marks)) await rec.mark(id, key, ...[loc].flat());
-  await rec.shoot(page, id);
-}
-
-// 열린 대화 창(일반·확인 창 공용) — 여러 개면 마지막에 열린 것.
-const dialog = (page) => page.locator('[role=dialog], [role=alertdialog]').last();
-
-/** 여는 단추(data-testid)를 눌러 대화 창을 열고, 창이 나타나면 그 창을 돌려준다. */
-async function openDialog(page, openerTestId) {
-  await page.getByTestId(openerTestId).click();
-  const d = dialog(page);
-  await d.waitFor();
-  return d;
-}
-
-/** 대화 창을 제출·확정하지 않고 닫는다. */
-const closeDialog = (page) => page.keyboard.press('Escape');
 
 // 테넌트 이름 → id. 목록은 한 번만 받아 두고, 모르는 이름이면(실행 중에 만든 테넌트 등) 다시 받는다.
 let tenantIds = new Map();

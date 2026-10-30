@@ -51,7 +51,7 @@ AI 가 한 일은 이슈 아래 **활동** 에 사람이 한 일과 같은 방�
 
 ### 이력으로 바뀐 것을 본다
 
-![AI 가 바꾼 이슈 상태가 이력에 남은 모습](shots/user/ai-collaboration-4.png){crop=changes marks=changes}
+![AI 가 바꾼 이슈 상태가 이력에 남은 모습](shots/user/ai-collaboration-4.png){crop=changes marks=changes@r}
 
 1. **이력** 탭을 누르고 AI 가 바꾼 상태를 확인합니다.
 
@@ -61,7 +61,7 @@ AI 는 일을 끝내면 이슈를 완료로 바꾸고 담당자에서 스스로 
 
 AI 에게 맡긴 이슈는 프로젝트가 달라도 **AI 위임 작업** 화면 한곳에 모입니다.
 
-![AI 위임 작업 — AI 가 맡은 이슈 목록](shots/user/ai-collaboration-1.png){crop=nav+rows marks=nav,rows}
+![AI 위임 작업 — AI 가 맡은 이슈 목록](shots/user/ai-collaboration-1.png){crop=nav+rows marks=nav@r,rows}
 
 1. **작업 관리** 의 왼쪽 목록에서 **AI 위임 작업** 을 누릅니다.
 2. 목록에서 이슈 제목을 눌러 이슈를 엽니다.
@@ -76,7 +76,7 @@ AI 에게 맡긴 이슈는 프로젝트가 달라도 **AI 위임 작업** 화면
 
 AI 어시스턴트는 어느 화면에서나 열 수 있는 대화창입니다. 지금 보고 있는 화면의 정보를 함께 받아, 화면에 대해 묻거나 일을 요청할 수 있습니다.
 
-![AI 어시스턴트 — 화면 위 단추로 열고, 오른쪽 패널에서 답을 봅니다](shots/user/ai-collaboration-5.png){crop=launcher+answer+context marks=launcher,answer,context}
+![AI 어시스턴트 — 화면 위 단추로 열고, 오른쪽 패널에서 답을 봅니다](shots/user/ai-collaboration-5.png){crop=launcher+answer+context marks=launcher,answer@l,context}
 
 1. 화면 위 가운데의 **AI 어시스턴트** 를 누릅니다. 오른쪽에 패널이 열립니다.
 2. **AI 에게 요청…** 칸에 요청을 입력하고 **보내기** 를 누릅니다. 답이 패널에 나옵니다.

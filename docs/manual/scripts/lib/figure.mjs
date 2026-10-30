@@ -19,14 +19,71 @@ const MARK_ROOM_CSS_PX = 20;
 // 가장 좁은 경우를 덮도록 600px 로 계산한다(넓은 단에서는 번호가 안쪽으로 조금 더 자주 들어갈 뿐이다).
 const MARK_COLUMN_CSS_PX = 600;
 
+/** 번호 원 하나가 차지하는 자리(원본 px, 틈 포함). 인쇄 배율은 단 폭 / max(자른 폭, FULL_WIDTH_PX)이고, 단 폭은 좁은 컨테이너까지 덮는 보수값을 쓴다. */
+export function markRoom(cropW) {
+  return (MARK_ROOM_CSS_PX * Math.max(cropW, FULL_WIDTH_PX)) / MARK_COLUMN_CSS_PX;
+}
+
+// 번호 원을 둘 자리 후보 — 상자 바깥, 이 순서로 고른다. 위쪽 왼쪽이 기본이고, 세로로 촘촘히 쌓인 상자(레일 아이콘 등)는
+// 위·아래 자리가 이웃과 겹쳐 옆 가운데(l·r)가 뽑힌다. 각 후보는 상자 기준 번호 원 사각형(원본 px)을 돌려준다.
+const POSITIONS = {
+  tl: (b, d) => ({ x: b.x - d, y: b.y - d }),
+  l: (b, d) => ({ x: b.x - d, y: b.y + b.h / 2 - d / 2 }),
+  tr: (b, d) => ({ x: b.x + b.w, y: b.y - d }),
+  r: (b, d) => ({ x: b.x + b.w, y: b.y + b.h / 2 - d / 2 }),
+  bl: (b, d) => ({ x: b.x - d, y: b.y + b.h }),
+  br: (b, d) => ({ x: b.x + b.w, y: b.y + b.h }),
+};
+export const MARK_POSITIONS = Object.keys(POSITIONS);
+
+// 두 사각형이 겹치는지(맞닿기만 하면 겹치지 않음).
+const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+// a 가 b 를 완전히 감싸는지.
+const contains = (a, b) => a.x <= b.x && a.y <= b.y && a.x + a.w >= b.x + b.w && a.y + a.h >= b.y + b.h;
+
 /**
- * 표식 번호를 상자 안쪽에 둬야 하는지. 상자 왼쪽·위쪽과 프레임 가장자리 사이(원본 px)가 번호 원이 들어갈 여유보다 작으면
- * 바깥에 두면 프레임(overflow:hidden)에 잘리므로 안쪽에 둔다. 인쇄 배율은 단 폭 / max(자른 폭, FULL_WIDTH_PX)이며,
- * 단 폭은 좁은 컨테이너까지 덮는 보수값(MARK_COLUMN_CSS_PX)을 쓴다.
+ * 표식 항목을 나눈다. 'key' — 자리를 자동으로 고른다. 'key!inside' — 상자 안 오른쪽 위에 둔다.
+ * 'key@r' 처럼 @자리를 붙이면 후보 순서와 상관없이 그 자리만 쓴다(그 자리도 프레임 안·겹침 없음 검사는 그대로 받는다) —
+ * 자동으로 고른 자리가 표식 없는 화면 요소(머리말 아이콘 등)를 덮을 때 집필자가 고른다. flag 는 알 수 없는 옵션 보고용이다.
  */
-export function markInside(box, crop) {
-  const roomOrig = (MARK_ROOM_CSS_PX * Math.max(crop.w, FULL_WIDTH_PX)) / MARK_COLUMN_CSS_PX;
-  return box.x - crop.x < roomOrig || box.y - crop.y < roomOrig;
+export function parseMark(entry) {
+  const at = entry.indexOf('@');
+  if (at > 0) {
+    const pos = entry.slice(at + 1);
+    return { key: entry.slice(0, at), inside: false, pos, flag: MARK_POSITIONS.includes(pos) ? undefined : `@${pos}` };
+  }
+  const [key, flag] = entry.split('!');
+  const inside = flag === 'inside';
+  return { key, inside, pos: undefined, flag: flag === undefined || inside ? undefined : `!${flag}` };
+}
+
+/**
+ * 그림의 번호 원 자리를 marks 순서대로 고른다 → [{ key, pos }] 또는 자리를 못 찾은 키에 { key, pos: null }.
+ * 후보마다 (a) 번호 원 사각형이 자른 프레임 안에 들어가고 (b) 다른 표식 상자·이미 놓은 번호 원과 겹치지 않아야 한다.
+ * 이 상자를 감싸는 다른 표식 상자(컨테이너)는 (b) 에서 뺀다 — 안쪽 상자의 번호는 어차피 그 컨테이너 안에 놓이기 때문이다.
+ * 'key!inside' 는 바깥 자리를 찾지 않고 상자 안 오른쪽 위 모서리(pos 'in')에 둔다 — 앞쪽 아이콘·글자를 피하는 자리다.
+ */
+export function placeMarks(shot, marks, crop) {
+  const d = markRoom(crop.w);
+  const boxes = marks.map((m) => shot.boxes[parseMark(m).key]);
+  const placed = [];
+  return marks.map((m, i) => {
+    const { key, inside, pos: wanted } = parseMark(m);
+    const b = boxes[i];
+    if (inside) {
+      placed.push({ x: b.x + b.w - d, y: b.y, w: d, h: d });
+      return { key, pos: 'in' };
+    }
+    const others = boxes.filter((o, j) => j !== i && !contains(o, b));
+    for (const pos of wanted ? [wanted] : MARK_POSITIONS) {
+      const r = { ...POSITIONS[pos](b, d), w: d, h: d };
+      if (!contains(crop, r)) continue;
+      if (others.some((o) => overlaps(o, r)) || placed.some((p) => overlaps(p, r))) continue;
+      placed.push(r);
+      return { key, pos };
+    }
+    return { key, pos: null };
+  });
 }
 
 // 퍼센트 값을 소수 3자리로 반올림한다(HTML 이 불필요하게 길어지지 않게).
@@ -74,6 +131,7 @@ export function unionBoxes(boxes) {
 }
 
 // 자르기 여백(원본 px). 표식 번호(지름 18px·2배 촬영)를 상자 바깥 모서리에 둘 자리가 남도록 48 로 둔다.
+// 자른 폭이 FULL_WIDTH_PX 보다 넓으면 인쇄 배율이 작아져 번호 원 자리(markRoom)가 48 보다 커지므로, 그때는 여백을 그만큼 늘린다.
 export const CROP_PAD_PX = 48;
 
 // 자를 영역(원본 px) 계산: 지정한 상자들의 합집합에 pad 만큼 여백을 주고 원본 경계로 자른다.
@@ -81,6 +139,12 @@ export const CROP_PAD_PX = 48;
 export function cropRect(shot, cropKeys, pad = CROP_PAD_PX, shotId = '?') {
   if (!cropKeys.length) return { x: 0, y: 0, w: shot.w, h: shot.h };
   const u = unionBoxes(cropKeys.map((key) => boxOf(shot, shotId, key)));
+  // 여백이 넓어지면 자른 폭도 넓어져 번호 원 자리가 다시 커진다 — 몇 번 되풀이하면 멈춘다(폭 1px 당 1/30px 씩만 커진다).
+  // 기본 여백(48)으로 충분한 좁은 자르기는 건드리지 않는다.
+  for (let i = 0; i < 4; i++) {
+    const need = Math.ceil(markRoom(u.w + 2 * pad));
+    if (need > CROP_PAD_PX) pad = Math.max(pad, need);
+  }
   const x1 = Math.max(0, u.x - pad);
   const y1 = Math.max(0, u.y - pad);
   const x2 = Math.min(shot.w, u.x + u.w + pad);
@@ -111,7 +175,14 @@ export function validateFigure(fig, boxesDoc, { book } = {}) {
     problems.push({ kind: 'shot', subject: fig.shotId, message: `알 수 없는 그림: ${fig.shotId}` });
     return problems;
   }
-  const unknownKeys = [...new Set([...fig.crop, ...fig.marks])].filter((k) => !shot.boxes?.[k]);
+  const badFlags = fig.marks.map(parseMark).filter((m) => m.flag !== undefined);
+  for (const m of badFlags) {
+    const message = `알 수 없는 표식 옵션: ${fig.shotId}:${m.key}${m.flag} (쓸 수 있는 것은 !inside, @${MARK_POSITIONS.join('|@')})`;
+    problems.push({ kind: 'figure', subject: message, message });
+  }
+  if (badFlags.length) return problems;
+  const markKeys = fig.marks.map((m) => parseMark(m).key);
+  const unknownKeys = [...new Set([...fig.crop, ...markKeys])].filter((k) => !shot.boxes?.[k]);
   for (const k of unknownKeys) {
     const subject = `${fig.shotId}:${k}`;
     problems.push({ kind: 'key', subject, message: `알 수 없는 상자 키: ${subject}` });
@@ -125,9 +196,24 @@ export function validateFigure(fig, boxesDoc, { book } = {}) {
   }
   // 표식 상자가 자른 영역 밖으로 나가면 프레임에서 잘려 보이므로 오류로 알린다.
   const c = cropRect(shot, fig.crop, CROP_PAD_PX, fig.shotId);
-  for (const key of fig.marks) {
-    if (insideCrop(shot.boxes[key], c)) continue;
+  const outside = markKeys.filter((key) => !insideCrop(shot.boxes[key], c));
+  for (const key of outside) {
     const message = `표식 상자가 자르기 영역 밖입니다: ${fig.shotId}:${key} (outside the crop)`;
+    problems.push({ kind: 'figure', subject: message, message });
+  }
+  if (outside.length) return problems;
+  // 번호 원을 상자 바깥 어디에도 둘 수 없으면 조용히 안쪽에 넣지 않고 알린다 — 안쪽에 넣으면 가리키는 화면을 덮는다.
+  for (const [i, { key, pos }] of placeMarks(shot, fig.marks, c).entries()) {
+    if (pos) continue;
+    const wanted = parseMark(fig.marks[i]).pos;
+    if (wanted) {
+      const message = `표식 번호를 ${key}@${wanted} 자리에 둘 수 없습니다: ${fig.shotId} — 그 자리가 자른 프레임 밖이거나 다른 표식과 겹칩니다`;
+      problems.push({ kind: 'figure', subject: message, message });
+      continue;
+    }
+    const message =
+      `표식 번호를 둘 자리가 없습니다: ${fig.shotId}:${key} — 상자 바깥(위·옆·아래)에 번호가 들어갈 여백이 없거나 다른 표식과 겹칩니다. ` +
+      `crop 에 이웃 상자를 더해 자르기를 넓히거나, 꼭 필요하면 marks 에 ${key}!inside 로 상자 안 오른쪽 위에 둡니다`;
     problems.push({ kind: 'figure', subject: message, message });
   }
   return problems;
@@ -145,19 +231,19 @@ export function renderFigure(fig, boxesDoc) {
   const imgStyle =
     `position:absolute;width:${pct(shot.w / c.w)}%;` +
     `left:${-pct(c.x / c.w)}%;top:${-pct(c.y / c.h)}%`;
-  const marks = fig.marks
-    .map((key, i) => {
-      const b = shot.boxes[key]; // validateFigure 가 키와 자르기 영역 안을 확인했다
+  const marks = placeMarks(shot, fig.marks, c)
+    .map(({ key, pos }, i) => {
+      const b = shot.boxes[key]; // validateFigure 가 키·자르기·번호 자리를 확인했다
       const left = pct((b.x - c.x) / c.w);
       const top = pct((b.y - c.y) / c.h);
       const w = pct(b.w / c.w);
       const h = pct(b.h / c.h);
-      // 번호는 기본적으로 상자 좌상단 바깥에 두어 상자 안 화면 글자를 가리지 않는다(CSS .mark).
-      // 상자가 프레임 위·왼쪽 가장자리에 가까워 바깥 자리가 없으면 data-inside 로 안쪽에 둔다(프레임 밖으로 잘리지 않게).
-      const inside = markInside(b, c) ? ' data-inside' : '';
+      // 번호 원은 상자 왼쪽 위 모서리를 기준점으로 놓고, 자리(data-pos)에 따라 CSS 가 상자 바깥(또는 !inside 면 안 오른쪽 위)으로 민다.
+      // 기준점은 상자 왼쪽 위이고 상자 폭·높이는 CSS 변수로 넘겨 자리마다 같은 식으로 계산한다.
       return (
         `<span class="mark-box" style="left:${left}%;top:${top}%;width:${w}%;height:${h}%"></span>` +
-        `<span class="mark"${inside} style="left:${left}%;top:${top}%">${i + 1}</span>`
+        `<span class="mark-anchor" style="left:${left}%;top:${top}%;width:${w}%;height:${h}%">` +
+        `<span class="mark" data-pos="${pos}">${i + 1}</span></span>`
       );
     })
     .join('');

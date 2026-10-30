@@ -77,7 +77,9 @@ const chromium = loadChromium();
 
 const rec = createShotRecorder({ book: bookKey, viewport: book.capture.viewport });
 const failures = [];
-const browser = await chromium.launch();
+// 브라우저 UI 언어를 한국어로 띄운다 — 날짜·시각 입력칸(datetime-local)처럼 브라우저가 직접 그리는 칸은 컨텍스트 locale 이 아니라
+// 이 값을 따른다(없으면 「10/29/2026, 06:20 PM」 처럼 영어 형식으로 찍힌다).
+const browser = await chromium.launch({ args: ['--lang=ko-KR'] });
 // 계정별 세션 재사용 — 로그인한 브라우저 컨텍스트와 API 헬퍼. 장면마다 로그인하면 로그인 요청 제한(분당 20회/IP)에 걸릴 수 있다.
 const sessions = new Map();
 try {
