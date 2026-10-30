@@ -12,6 +12,7 @@ import { MobileListHeader } from '@/components/mobile/MobileListHeader'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/overlay/popover'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { AvatarPicture } from '@/components/users/AvatarPicture'
 import { useWhatsNew } from '@/components/whats-new/useWhatsNew'
 import { WhatsNewDialog } from '@/components/whats-new/WhatsNewDialog'
 import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
@@ -172,8 +173,13 @@ export default function AppsPage() {
       {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(WP-318). */}
       {/* 점 기준 박스 — 버튼(44px)이 아니라 아바타 원(32px)의 우상단에 붙인다. */}
       <span className="relative">
+        {/* 올린 이미지가 있으면 이미지(WP-1222), 없으면 이니셜 */}
         <Avatar style={user ? presenceStyle(user.id) : undefined}>
-          <AvatarFallback className="bg-presence font-semibold text-presence-foreground">{initialOf(displayNameOf(user))}</AvatarFallback>
+          <AvatarFallback className="bg-presence font-semibold text-presence-foreground">
+            <AvatarPicture userId={user?.id} name={displayNameOf(user)} px={32}>
+              {initialOf(displayNameOf(user))}
+            </AvatarPicture>
+          </AvatarFallback>
         </Avatar>
         {/* 안 읽은 새 소식 점 — 배경색 링으로 아바타와 분리한다. */}
         {whatsNew.unread && <WhatsNewDot testId="apps-account-avatar-dot" className="absolute right-0 top-0 ring-2 ring-background" />}

@@ -2,6 +2,7 @@
 // Jira 타임라인의 아바타 필터 미러. 최대 5명 + 초과분은 +N 팝오버로 폴백.
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
+import { AvatarPicture } from '@/components/users/AvatarPicture';
 import { avatarInitials } from '@/lib/avatarColor';
 import { presenceStyle } from '@/lib/collab/presence';
 import { cn } from '@/lib/utils';
@@ -33,7 +34,8 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
           title={m.name}
           onClick={() => onToggle(m.userId)}
           className={cn(
-            'flex size-7 items-center justify-center rounded-full border-2 border-background text-xs font-medium transition-opacity',
+            // relative: 올린 이미지(WP-1222)가 테두리 안을 꽉 채운다.
+            'relative flex size-7 items-center justify-center rounded-full border-2 border-background text-xs font-medium transition-opacity',
             'bg-presence text-presence-foreground',
             i > 0 && '-ml-2',
             isSelected(m.userId) && 'ring-2 ring-primary',
@@ -42,7 +44,9 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
           )}
           style={presenceStyle(m.userId)}
         >
-          {avatarInitials(m.name)}
+          <AvatarPicture userId={m.userId} name={m.name} px={28}>
+            {avatarInitials(m.name)}
+          </AvatarPicture>
         </button>
       ))}
       {overflow.length > 0 && (
@@ -67,14 +71,18 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
                     className="w-full justify-start gap-2"
                     onClick={() => onToggle(m.userId)}
                   >
+                    {/* 이름이 바로 옆 글자로 있어 장식 — 이미지 alt·이니셜을 이름과 겹쳐 읽지 않게. */}
                     <span
+                      aria-hidden="true"
                       className={cn(
-                        'flex size-5 items-center justify-center rounded-full text-xs',
+                        'relative flex size-5 shrink-0 items-center justify-center rounded-full text-xs',
                         'bg-presence text-presence-foreground',
                       )}
                       style={presenceStyle(m.userId)}
                     >
-                      {avatarInitials(m.name)}
+                      <AvatarPicture userId={m.userId} name={m.name} px={20}>
+                        {avatarInitials(m.name)}
+                      </AvatarPicture>
                     </span>
                     {m.name}
                   </Button>

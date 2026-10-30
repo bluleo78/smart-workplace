@@ -5,14 +5,18 @@ import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.global.security.RequireWebSession;
 import com.workplace.user.dto.AgentResponse;
+import com.workplace.user.dto.AvatarCrop;
+import com.workplace.user.dto.AvatarResponse;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.SetAgentRuntimeRequest;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.service.AvatarService;
 import com.workplace.user.service.UserService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,7 +27,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /** Phase 5a — ADMIN 의 AGENT 유저 CRUD. user:write 권한이 필요하다 (ADMIN 만 보유). */
 @RestController
@@ -35,6 +41,8 @@ public class AdminAgentController {
 
   private final UserService userService;
   private final AgentRemovalService agentRemoval;
+  // WP-1222 AI 아바타
+  private final AvatarService avatarService;
 
   /** AGENT 목록. includePersonal=false(기본)면 개인 비서(자동 생성 AGENT)를 제외한다. */
   @GetMapping
@@ -91,6 +99,30 @@ public class AdminAgentController {
       @Valid @RequestBody SetAgentRuntimeRequest req) {
     Long callerId = (Long) auth.getPrincipal();
     userService.setAgentRuntime(callerId, userId, req.runtime());
+    return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * AI 아바타 바꾸기(WP-1222) — multipart {@code file} + 선택 자를 영역(cropX·cropY·cropSize). 대상이 이 워크스페이스의 AI
+   * 가 아니면 404.
+   */
+  @PutMapping(value = "/{userId}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  @RequirePermission("user:write")
+  public ResponseEntity<AvatarResponse> setAvatar(
+      @PathVariable Long userId,
+      @RequestPart("file") MultipartFile file,
+      @RequestParam(value = "cropX", required = false) Integer cropX,
+      @RequestParam(value = "cropY", required = false) Integer cropY,
+      @RequestParam(value = "cropSize", required = false) Integer cropSize) {
+    String url = avatarService.setAgentAvatar(userId, file, new AvatarCrop(cropX, cropY, cropSize));
+    return ResponseEntity.ok(new AvatarResponse(url));
+  }
+
+  /** AI 아바타를 기본으로 되돌린다(WP-1222). 대상이 이 워크스페이스의 AI 가 아니면 404. */
+  @DeleteMapping("/{userId}/avatar")
+  @RequirePermission("user:write")
+  public ResponseEntity<Void> deleteAvatar(@PathVariable Long userId) {
+    avatarService.deleteAgentAvatar(userId);
     return ResponseEntity.noContent().build();
   }
 }

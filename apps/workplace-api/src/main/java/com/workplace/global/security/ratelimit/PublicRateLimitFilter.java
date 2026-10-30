@@ -3,6 +3,7 @@ package com.workplace.global.security.ratelimit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.global.net.InternalAddresses;
+import com.workplace.user.service.AvatarService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,8 +24,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 인증 없는 공개 경로 중 비밀번호 해시(bcrypt)를 계산하는 요청을 IP 단위로 제한한다(WP-763).
  *
  * <p>계정별 잠금(5회·15분)은 아이디를 바꿔 가며 보내면 걸리지 않아, 요청마다 약 0.1초 CPU 를 쓰는 해시 계산을 대량 요청으로 소모시킬 수 있었다. 대상은
- * 로그인·가입·운영자 로그인({@link Policy#LOGIN})과 비밀번호를 실은 공유 링크 다운로드({@link Policy#SHARE_PASSWORD})다. 넘치면
- * 429 + Retry-After 와 한국어 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게 한다.
+ * 로그인·가입·운영자 로그인({@link Policy#LOGIN})과 비밀번호를 실은 공유 링크 다운로드({@link Policy#SHARE_PASSWORD})다. 인증 없이
+ * 요청마다 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와
+ * 한국어 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게 한다.
  *
  * <p>클라이언트 IP: 요청이 내부 대역(인그레스·프록시)에서 왔고 X-Forwarded-For 가 있으면 그 마지막 값(바로 앞 프록시가 붙인 주소)을 쓴다. 바깥에서 보낸
  * X-Forwarded-For 를 그대로 믿지 않도록 내부 대역에서 온 요청에만 적용한다. 루프백에서 온 요청(로컬 도구·테스트)은 제한하지 않는다.
@@ -39,10 +41,17 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
   private static final Pattern SHARE_DOWNLOAD =
       Pattern.compile("^/api/v1/public/drive/share/[^/]+/download$");
 
+  /**
+   * 공개 아바타 이미지(WP-1222) — {@code /api/v1/avatars/{userId}/{hash}/{size}} 와 그 아래 모든 주소(404 가 될 잘못된
+   * 주소도 센다). 주소는 AvatarController 매핑·SecurityConfig 와 같은 상수에서 온다.
+   */
+  private static final String AVATAR_PREFIX = AvatarService.PUBLIC_PATH + "/";
+
   /** 제한 정책 — 키 접두와 한도를 고르는 데 쓴다. */
   enum Policy {
     LOGIN,
-    SHARE_PASSWORD
+    SHARE_PASSWORD,
+    AVATAR
   }
 
   private final TokenBucketLimiter limiter;
@@ -66,7 +75,11 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
       return;
     }
     int capacity =
-        policy == Policy.LOGIN ? properties.loginPerMinute() : properties.sharePasswordPerMinute();
+        switch (policy) {
+          case LOGIN -> properties.loginPerMinute();
+          case SHARE_PASSWORD -> properties.sharePasswordPerMinute();
+          case AVATAR -> properties.avatarPerMinute();
+        };
     long retryAfter = limiter.tryConsume(policy.name() + ":" + ip, capacity);
     if (retryAfter == 0) {
       chain.doFilter(request, response);
@@ -76,7 +89,10 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     reject(request, response, retryAfter);
   }
 
-  /** 제한 대상이면 정책, 아니면 null. 공유 다운로드는 비밀번호 헤더가 있을 때만(해시 계산이 있을 때만) 센다. */
+  /**
+   * 제한 대상이면 정책, 아니면 null. 공유 다운로드는 비밀번호 헤더가 있을 때만(해시 계산이 있을 때만) 센다. 아바타는 GET·HEAD 면 모두 센다(인증 없이 해시를
+   * 바꿔 가며 디스크를 두드리는 요청을 막으려는 것 — SecurityConfig 가 둘 다 열고, HEAD 도 같은 핸들러로 파일을 찾는다).
+   */
   static Policy policyOf(HttpServletRequest request) {
     String uri = request.getRequestURI();
     String method = request.getMethod();
@@ -91,6 +107,9 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
         && (request.getHeader("X-Share-Password") != null
             || request.getHeader("X-Share-Password-Encoded") != null)) {
       return Policy.SHARE_PASSWORD;
+    }
+    if (("GET".equals(method) || "HEAD".equals(method)) && uri.startsWith(AVATAR_PREFIX)) {
+      return Policy.AVATAR;
     }
     return null;
   }

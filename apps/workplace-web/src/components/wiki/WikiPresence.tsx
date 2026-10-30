@@ -6,6 +6,7 @@ import { MOBILE_SHEET_ROW, MobileSheetShell } from '@/components/mobile/MobileSh
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Avatar, AvatarBadge, AvatarFallback, AvatarGroup, AvatarGroupCount } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { AvatarPicture } from '@/components/users/AvatarPicture'
 import { avatarInitials } from '@/lib/avatarColor'
 import { type PresencePerson, presenceStyle, splitVisible } from '@/lib/collab/presence'
 import { cn } from '@/lib/utils'
@@ -18,7 +19,7 @@ const MOBILE_MAX = 1
 const ROW = 'flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm'
 
 /**
- * 접속자 아바타 — 사람 색 바탕(bg-presence = 이 요소의 --presence-color, Task 2 @theme inline) + 이니셜. AI 작성 중이면 우하단 ✦ 배지(AI 마커 토큰 — 사람 색 아님, 판정 4).
+ * 접속자 아바타 — 올린 이미지(WP-1222) 또는 사람 색 바탕(bg-presence = 이 요소의 --presence-color, Task 2 @theme inline) + 이니셜. AI 작성 중이면 우하단 ✦ 배지(AI 마커 토큰 — 사람 색 아님, 판정 4).
  * 배지(10px·링 1px)는 우하단 모서리에서 4px 밖으로 걸쳐 둔다(-right-1 -bottom-1) — 안쪽(right-0, 12px·링 2px)에 두면 24px 아바타의
  *   이니셜 오른쪽 아래를 가렸다(Task 11 디자인 리뷰). 4px 만 내밀어 겹친 다음 아바타·"+N" 의 글자에는 닿지 않는다.
  * 다크에선 ai-accent 위 흰 아이콘이 3:1 미달이라 옅은 바탕 + ai-accent 아이콘으로 바꾼다(wiki-editor.css ✦ 태그와 같은 이유).
@@ -33,8 +34,11 @@ export function PresenceAvatar({ person, className, ...rest }: { person: Presenc
       style={presenceStyle(person.userId)}
       {...rest}
     >
+      {/* 올린 이미지가 있으면 이미지(WP-1222, 접속자 userId 로 주소 표에서 찾는다), 없으면 이니셜 */}
       <AvatarFallback className="bg-presence text-xs font-semibold text-presence-foreground">
-        {avatarInitials(person.name)}
+        <AvatarPicture userId={person.userId} name={person.name} px={24}>
+          {avatarInitials(person.name)}
+        </AvatarPicture>
       </AvatarFallback>
       {person.aiWriting && (
         <AvatarBadge

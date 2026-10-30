@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AvatarPicture } from '@/components/users/AvatarPicture'
 import { useWhatsNew } from '@/components/whats-new/useWhatsNew'
 import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { useAuth } from '@/hooks/useAuth'
@@ -52,7 +53,7 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
                 'lg:p-1',
               )}
             >
-              {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(bg-presence + presenceStyle, WP-318) + 이니셜. 사용자 로드 전엔 아이콘. */}
+              {/* 내 아바타 — 올린 이미지(WP-1222) 또는 다른 사람 아바타와 같은 사람 색(bg-presence + presenceStyle, WP-318) + 이니셜. 사용자 로드 전엔 아이콘. */}
               <span
                 data-testid="rail-user-avatar"
                 className={cn(
@@ -61,7 +62,13 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
                 )}
                 style={user ? presenceStyle(user.id) : undefined}
               >
-                {user ? initialOf(displayNameOf(user)) : <UserIcon className="h-4 w-4" />}
+                {user ? (
+                  <AvatarPicture userId={user.id} name={displayNameOf(user)} px={28}>
+                    {initialOf(displayNameOf(user))}
+                  </AvatarPicture>
+                ) : (
+                  <UserIcon className="h-4 w-4" />
+                )}
                 {/* 안 읽은 새 소식 — 아바타 우상단 점. 배경색 링으로 아바타와 분리한다. */}
                 {whatsNew.unread && (
                   <WhatsNewDot testId="rail-user-avatar-dot" className="absolute -right-0.5 -top-0.5 ring-2 ring-background" />

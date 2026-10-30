@@ -106,6 +106,7 @@ import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.controller.UserController;
 import com.workplace.user.controller.UserGroupController;
 import com.workplace.user.repository.UserRepository;
+import com.workplace.user.service.AvatarService;
 import com.workplace.user.service.UserGroupService;
 import com.workplace.user.service.UserService;
 import com.workplace.wiki.controller.WikiPageController;
@@ -191,6 +192,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       AttachmentViewService.class,
       AuditLogService.class,
       AuthService.class,
+      AvatarService.class,
       CalendarEventService.class,
       CalendarService.class,
       CalendarTagFeedService.class,

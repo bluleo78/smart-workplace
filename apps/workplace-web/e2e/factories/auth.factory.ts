@@ -42,6 +42,7 @@ export function createUser(overrides?: Partial<UserResponse>): UserResponse {
     kind: 'HUMAN',
     aiAvailable: false,
     hasPassword: true,
+    avatarUrl: null,
     ...overrides,
   };
 }
@@ -80,6 +81,7 @@ export function createUserDetail(overrides?: Partial<UserDetailResponse>): UserD
     kind: 'HUMAN',
     aiAvailable: false,
     hasPassword: true,
+    avatarUrl: null,
     ...overrides,
   };
 }

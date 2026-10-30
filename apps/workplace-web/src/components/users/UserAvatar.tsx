@@ -1,6 +1,6 @@
-// 사용자 이니셜 아바타 — 이름/유저명에서 첫 글자 1자를 뽑아 배경색으로 식별.
+// 사용자 아바타 — 올린 프로필 이미지가 있으면 이미지(WP-1222), 없으면 이름/유저명 첫 글자 1자 + 배경색으로 식별.
 // 색은 사람 색 토큰(bg-presence + presenceStyle, WP-318) — userId 기반 결정적 매핑이라
-// 같은 사용자는 chat/user 아바타·노트 접속자 어디서나 같은 색이 나온다.
+// 같은 사용자는 chat/user 아바타·노트 접속자 어디서나 같은 색이 나온다. 이미지는 AvatarPicture 가 같은 상자 안에 덮는다.
 
 import { Bot } from 'lucide-react';
 
@@ -9,16 +9,18 @@ import { presenceStyle } from '@/lib/collab/presence';
 import { isInactiveUser, withInactiveSuffix } from '@/lib/userStatus';
 
 import type { UserSummary } from '../../types/user';
+import { AvatarPicture } from './AvatarPicture';
 
 // kind 정보 없이도 호출 가능하도록 식별/표기 필드만 요구하는 좁은 타입.
 type AvatarUser = Pick<UserSummary, 'id' | 'username' | 'name'>;
 
-// 사이즈별 Tailwind 클래스 묶음.
-const SIZE_CLASS: Record<'xs' | 'sm' | 'md' | 'lg', string> = {
-  xs: 'h-5 w-5 text-xs',
-  sm: 'h-6 w-6 text-xs',
-  md: 'h-8 w-8 text-sm',
-  lg: 'h-9 w-9 text-sm',
+// 사이즈별 Tailwind 클래스(cls)와 표시 px(px) — px 는 받을 이미지 크기(2배 규칙) 계산용이라 cls 의 h-* 와 같은 값이어야 한다.
+// 한 표에 둬 둘이 어긋나지 않게 한다.
+const SIZES: Record<'xs' | 'sm' | 'md' | 'lg', { cls: string; px: number }> = {
+  xs: { cls: 'h-5 w-5 text-xs', px: 20 },
+  sm: { cls: 'h-6 w-6 text-xs', px: 24 },
+  md: { cls: 'h-8 w-8 text-sm', px: 32 },
+  lg: { cls: 'h-9 w-9 text-sm', px: 36 },
 };
 
 export function UserAvatar({
@@ -60,7 +62,7 @@ export function UserAvatar({
       : '';
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${inactive ? 'border border-dashed border-muted-foreground bg-muted-foreground/15 text-muted-foreground' : 'bg-presence text-presence-foreground'} ${ringClass}`}
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZES[size].cls} ${inactive ? 'border border-dashed border-muted-foreground bg-muted-foreground/15 text-muted-foreground' : 'bg-presence text-presence-foreground'} ${ringClass}`}
       // 흐림(opacity·grayscale) 대신 회색 바탕 — AGENT ring·Bot 마커를 지우지 않고 겹친 아바타가 비치지 않게
       // 비활성 바탕은 /15 — /30 이면 xs 이니셜 대비가 라이트 3.68:1 로 4.5:1 에 못 미쳤다(WP-1100 실측: /15 라이트 4.6·다크 5.68).
       // 바탕만으로는 호버된 행·겹친 아바타에서 원이 거의 보이지 않아 점선 테두리로 모양을 그린다(WP-1160) — 색이 아니라 모양으로도 「비활성」이 보인다.
@@ -72,7 +74,10 @@ export function UserAvatar({
       data-agent={agent ? 'true' : undefined}
       data-inactive={inactive ? 'true' : undefined}
     >
-      {initial}
+      {/* 비활성 계정은 이미지도 흑백으로 — 점선 테두리와 함께 「비활성」이 색이 아닌 모양으로도 보이게(WP-1160). */}
+      <AvatarPicture userId={user.id} name={user.name || user.username} px={SIZES[size].px} className={inactive ? 'grayscale' : undefined}>
+        {initial}
+      </AvatarPicture>
       {agent && (
         <span
           // 우하단 모서리 Bot 마커 — AgentBadge 와 동일한 ai-accent 토큰으로 색 일관성 유지(#208).

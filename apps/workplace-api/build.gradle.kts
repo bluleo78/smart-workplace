@@ -81,6 +81,9 @@ dependencies {
     implementation("org.apache.httpcomponents.client5:httpclient5")
     // Open Graph 메타 추출용 HTML 파서(WP-874). BOM 비관리라 버전 고정.
     implementation("org.jsoup:jsoup:1.18.3")
+    // 프로필 아바타(WP-1222) — JDK ImageIO 는 WEBP 를 읽지 못한다. 읽기 전용 WEBP 플러그인(SPI 로 ImageIO 에 등록)만 더한다.
+    // 쓰기는 PNG·JPEG(JDK 기본)로만 한다. BOM 비관리라 버전 고정.
+    implementation("com.twelvemonkeys.imageio:imageio-webp:3.15.3")
 
     // 마이그레이션
     implementation("org.flywaydb:flyway-core")

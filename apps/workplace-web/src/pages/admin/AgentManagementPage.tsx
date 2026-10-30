@@ -54,6 +54,7 @@ import {
 import { objectParticle } from '@/lib/utils';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
+import { AvatarPicture } from '../../components/users/AvatarPicture';
 import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
@@ -65,6 +66,7 @@ import {
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import type { AgentResponse } from '../../types/agent';
 import { AgentAccessSections } from './components/AgentAccessSections';
+import { AgentAvatarSection } from './components/AgentAvatarSection';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
@@ -237,12 +239,15 @@ export default function AgentManagementPage() {
                 >
                   <TableCell>
                     <div className="flex items-start gap-2.5 md:items-center">
-                      {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). 모바일은 이름 아래 줄이 붙어 위쪽 정렬. */}
+                      {/* 아바타 — 올린 이미지(WP-1222) 또는 이름 첫 글자. AGENT 정체성 색(ai-accent)·둥근 네모. 모바일은 이름 아래 줄이 붙어 위쪽 정렬. */}
                       <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
+                        className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
                         aria-hidden
+                        data-testid={`agent-avatar-${a.id}`}
                       >
-                        {a.name.slice(0, 1)}
+                        <AvatarPicture userId={a.id} name={a.name} px={28} className="rounded-md">
+                          {a.name.slice(0, 1)}
+                        </AvatarPicture>
                       </span>
                       <div className="min-w-0">
                         {/* 모바일은 긴 이름을 줄바꿈해 칸 안에 둔다(데스크톱은 그대로 한 줄) */}
@@ -316,10 +321,12 @@ export default function AgentManagementPage() {
               <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
                 <SheetTitle className="flex items-center gap-2">
                   <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
+                    className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
                     aria-hidden
                   >
-                    {selected.name.slice(0, 1)}
+                    <AvatarPicture userId={selected.id} name={selected.name} px={28} className="rounded-md">
+                      {selected.name.slice(0, 1)}
+                    </AvatarPicture>
                   </span>
                   {selected.name}
                   <AgentBadge size="xs" />
@@ -330,6 +337,9 @@ export default function AgentManagementPage() {
               <div className="flex-1 space-y-4 px-6 py-4">
                 {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
                 <AgentIdentitySection key={selected.id} agent={selected} />
+
+                {/* 아바타(WP-1222) — 개인 비서는 주인 전용이라 숨긴다. key 로 행 전환 시 고르던 파일·안내를 비운다. */}
+                {canAdminConfigure && <AgentAvatarSection key={`av-${selected.id}`} agent={selected} />}
 
                 {/* 실행 방식 — 내부(서버 실행)/외부(사용자 컴퓨터 등) 선택. */}
                 {selected.isActive && <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />}

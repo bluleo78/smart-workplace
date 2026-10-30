@@ -1,9 +1,10 @@
 // apps/workplace-web/src/pages/settings/ProfileSettingsPage.tsx
-// 설정 > 개인 > 프로필 — 프로필 정보 수정 + 비밀번호 변경. (구 ProfilePage 에서 이전)
+// 설정 > 개인 > 프로필 — 아바타(WP-1222) + 프로필 정보 수정 + 비밀번호 변경. (구 ProfilePage 에서 이전)
 // WP-48: SSO 전용 계정이면 "비밀번호 설정" 섹션으로 대체.
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
+import { useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { usersApi } from '@/api/users'
@@ -14,6 +15,8 @@ import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
+import { AvatarEditor } from '@/components/users/AvatarEditor'
+import { useAfterAvatarChange } from '@/hooks/queries/useAvatars'
 import { useAuth } from '@/hooks/useAuth'
 import { extractApiError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
@@ -22,8 +25,20 @@ import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/use
 
 import { SetPasswordCard } from './components/SetPasswordCard'
 
+/** 아바타 섹션 앵커 — 사용자 메뉴·다른 화면에서 `/settings/profile#avatar` 로 바로 찾아온다. */
+const AVATAR_ANCHOR = 'avatar'
+
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
+  const { hash } = useLocation()
+
+  // `#avatar` 로 들어오면 아바타 섹션으로 내린다 — SPA 이동은 브라우저가 해시 위치로 스크롤해 주지 않는다.
+  useEffect(() => {
+    if (hash === `#${AVATAR_ANCHOR}`) document.getElementById(AVATAR_ANCHOR)?.scrollIntoView({ block: 'start' })
+  }, [hash])
+
+  // 아바타를 바꾸거나 지운 뒤 — 앱 곳곳이 읽는 아바타 목록과 내 정보(레일 메뉴·이 화면의 미리보기)를 함께 새로 받는다(실패는 삼킨다).
+  const afterAvatarChange = useAfterAvatarChange(refreshUser)
 
   const profileForm = useForm<UpdateProfileFormData>({
     resolver: zodResolver(updateProfileSchema),
@@ -83,6 +98,31 @@ export default function ProfileSettingsPage() {
       // WP-414: AI 화면 맥락 — 저장된 이름만(비밀번호 입력값은 절대 싣지 않는다).
       aiContext={user ? { facts: [['이름', user.name]] } : null}
     >
+      {/* 아바타(WP-1222) — 맨 위에 둔다: 사용자 메뉴의 「프로필」로 들어오면 바로 보인다. */}
+      {user && (
+        <SettingsSection
+          id={AVATAR_ANCHOR}
+          data-testid="profile-avatar-section"
+          title="아바타"
+          description="앱 곳곳(채팅·이슈·댓글·노트 접속자)에 보입니다."
+        >
+          <AvatarEditor
+            testId="profile-avatar"
+            userId={user.id}
+            name={user.name || user.username}
+            avatarUrl={user.avatarUrl ?? null}
+            upload={async (file, crop) => {
+              await usersApi.uploadMyAvatar(file, crop)
+              await afterAvatarChange()
+            }}
+            reset={async () => {
+              await usersApi.deleteMyAvatar()
+              await afterAvatarChange()
+            }}
+          />
+        </SettingsSection>
+      )}
+
       {/* 주석 섹션: 넓은 화면에선 왼쪽 제목·설명 / 오른쪽 입력(448px 상한), 좁으면 세로로 쌓인다(WP-397). */}
       <SettingsSection title="프로필 정보" description="다른 구성원에게 보이는 이름과 연락 이메일이에요.">
         {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}

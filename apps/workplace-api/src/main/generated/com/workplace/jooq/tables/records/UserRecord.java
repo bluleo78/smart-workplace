@@ -244,6 +244,20 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         return (String) get(15);
     }
 
+    /**
+     * Setter for <code>public.user.avatar_hash</code>.
+     */
+    public void setAvatarHash(String value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for <code>public.user.avatar_hash</code>.
+     */
+    public String getAvatarHash() {
+        return (String) get(16);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -267,7 +281,7 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
     /**
      * Create a detached, initialised UserRecord
      */
-    public UserRecord(Long id, String username, String email, String password, String name, Boolean isActive, LocalDateTime createdAt, LocalDateTime updatedAt, String kind, Long personalAssistantAgentId, String title, String agentRuntime, Boolean aiSuggestionsEnabled, Boolean aiMemoryEnabled, String description, String instructions) {
+    public UserRecord(Long id, String username, String email, String password, String name, Boolean isActive, LocalDateTime createdAt, LocalDateTime updatedAt, String kind, Long personalAssistantAgentId, String title, String agentRuntime, Boolean aiSuggestionsEnabled, Boolean aiMemoryEnabled, String description, String instructions, String avatarHash) {
         super(User.USER);
 
         setId(id);
@@ -286,6 +300,7 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         setAiMemoryEnabled(aiMemoryEnabled);
         setDescription(description);
         setInstructions(instructions);
+        setAvatarHash(avatarHash);
         resetChangedOnNotNull();
     }
 }
