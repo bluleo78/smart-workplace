@@ -114,4 +114,84 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
                 throw new AssertionError("비밀번호 없는 요청이 제한됨");
             });
   }
+
+  /** 공유 비밀번호 확인(POST unlock, WP-1227)은 다운로드 비밀번호와 같은 버킷으로 늘 센다. 정보·content·preview 는 세지 않는다. */
+  @Test
+  void 공유_비밀번호_확인은_비밀번호_버킷으로_센다() throws Exception {
+    // 다운로드 테스트(203.0.113.x)와 같은 버킷 키를 쓰므로 다른 문서용 대역을 쓴다(.77 은 로그인 테스트가 씀).
+    String ip = "192.0.2." + ThreadLocalRandom.current().nextInt(100, 255);
+    Callable<ResultActions> unlock =
+        () ->
+            mvc.perform(
+                post("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/unlock")
+                    .header("X-Forwarded-For", ip)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"password\":\"x\"}"));
+    for (int i = 0; i < 10; i++) {
+      unlock
+          .call()
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429) throw new AssertionError("한도 전 429");
+              });
+    }
+    untilLimited(unlock, 10).andExpect(content().string(containsString("요청이 너무 많습니다")));
+    // 같은 IP 라도 비밀번호를 받지 않는 공개 경로는 세지 않는다
+    for (String suffix : new String[] {"", "/content", "/preview"}) {
+      mvc.perform(
+              get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + suffix)
+                  .header("X-Forwarded-For", ip)
+                  .header("X-Share-Password", "x"))
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429)
+                  throw new AssertionError("비밀번호 버킷 밖 경로가 제한됨: " + suffix);
+              });
+    }
+  }
+
+  /**
+   * 공유 미리보기 변환 시작(start=true, WP-1227)은 별도 버킷으로 센다 — 익명이 실패한 변환을 거듭 다시 띄우지 못하게. 폴링(start=false)은 세지
+   * 않고, 비밀번호 버킷과도 키가 달라 서로 소모하지 않는다.
+   */
+  @Test
+  void 공유_미리보기_변환_시작은_별도_버킷으로_센다() throws Exception {
+    // 다른 테스트와 버킷 키가 겹치지 않게 별도 문서용 대역(198.51.100.x, .9 는 로그인 테스트가 씀).
+    String ip = "198.51.100." + ThreadLocalRandom.current().nextInt(100, 255);
+    Callable<ResultActions> start =
+        () ->
+            mvc.perform(
+                get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/preview")
+                    .param("start", "true")
+                    .header("X-Forwarded-For", ip));
+    for (int i = 0; i < 10; i++) {
+      start
+          .call()
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429) throw new AssertionError("한도 전 429");
+              });
+    }
+    untilLimited(start, 10).andExpect(content().string(containsString("요청이 너무 많습니다")));
+    // 폴링은 세지 않는다
+    mvc.perform(
+            get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/preview")
+                .param("start", "false")
+                .header("X-Forwarded-For", ip))
+        .andExpect(
+            result -> {
+              if (result.getResponse().getStatus() == 429) throw new AssertionError("폴링이 제한됨");
+            });
+    // 비밀번호 버킷은 따로 — 같은 IP 의 unlock 은 아직 막히지 않는다
+    mvc.perform(
+            post("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/unlock")
+                .header("X-Forwarded-For", ip)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"password\":\"x\"}"))
+        .andExpect(
+            result -> {
+              if (result.getResponse().getStatus() == 429)
+                throw new AssertionError("미리보기 버킷이 비밀번호 버킷을 소모함");
+            });
+  }
 }

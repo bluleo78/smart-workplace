@@ -24,9 +24,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 인증 없는 공개 경로 중 비밀번호 해시(bcrypt)를 계산하는 요청을 IP 단위로 제한한다(WP-763).
  *
  * <p>계정별 잠금(5회·15분)은 아이디를 바꿔 가며 보내면 걸리지 않아, 요청마다 약 0.1초 CPU 를 쓰는 해시 계산을 대량 요청으로 소모시킬 수 있었다. 대상은
- * 로그인·가입·운영자 로그인({@link Policy#LOGIN})과 비밀번호를 실은 공유 링크 다운로드({@link Policy#SHARE_PASSWORD})다. 인증 없이
- * 요청마다 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와
- * 한국어 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게 한다.
+ * 로그인·가입·운영자 로그인({@link Policy#LOGIN})과 비밀번호를 실은 공유 링크 다운로드·비밀번호 확인({@link Policy#SHARE_PASSWORD}),
+ * 공유 링크 미리보기 변환 시작({@link Policy#SHARE_PREVIEW}, WP-1227 — 익명이 변환 작업을 거듭 띄우지 못하게)이다. 인증 없이 요청마다
+ * 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와 한국어
+ * 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게 한다.
  *
  * <p>클라이언트 IP: 요청이 내부 대역(인그레스·프록시)에서 왔고 X-Forwarded-For 가 있으면 그 마지막 값(바로 앞 프록시가 붙인 주소)을 쓴다. 바깥에서 보낸
  * X-Forwarded-For 를 그대로 믿지 않도록 내부 대역에서 온 요청에만 적용한다. 루프백에서 온 요청(로컬 도구·테스트)은 제한하지 않는다.
@@ -47,11 +48,24 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
    */
   private static final String AVATAR_PREFIX = AvatarService.PUBLIC_PATH + "/";
 
+  /** 공유 링크 비밀번호 확인(WP-1227) — 본문에 비밀번호를 싣는 경로라 늘 센다. */
+  private static final Pattern SHARE_UNLOCK =
+      Pattern.compile("^/api/v1/public/drive/share/[^/]+/unlock$");
+
+  /**
+   * 공유 링크 미리보기(WP-1227). start=true 는 실패한 변환을 다시 선점해 변환 작업을 새로 띄울 수 있어(익명 경로) 센다. 폴링(start=false)은
+   * 세지 않는다.
+   */
+  private static final Pattern SHARE_PREVIEW =
+      Pattern.compile("^/api/v1/public/drive/share/[^/]+/preview$");
+
   /** 제한 정책 — 키 접두와 한도를 고르는 데 쓴다. */
   enum Policy {
     LOGIN,
     SHARE_PASSWORD,
-    AVATAR
+    AVATAR,
+    /** 공개 공유 미리보기 변환 시작(WP-1227) — 비밀번호 버킷과 따로 센다(키 접두가 다름), 한도는 같은 값. */
+    SHARE_PREVIEW
   }
 
   private final TokenBucketLimiter limiter;
@@ -77,7 +91,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     int capacity =
         switch (policy) {
           case LOGIN -> properties.loginPerMinute();
-          case SHARE_PASSWORD -> properties.sharePasswordPerMinute();
+          case SHARE_PASSWORD, SHARE_PREVIEW -> properties.sharePasswordPerMinute();
           case AVATAR -> properties.avatarPerMinute();
         };
     long retryAfter = limiter.tryConsume(policy.name() + ":" + ip, capacity);
@@ -90,8 +104,10 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
   }
 
   /**
-   * 제한 대상이면 정책, 아니면 null. 공유 다운로드는 비밀번호 헤더가 있을 때만(해시 계산이 있을 때만) 센다. 아바타는 GET·HEAD 면 모두 센다(인증 없이 해시를
-   * 바꿔 가며 디스크를 두드리는 요청을 막으려는 것 — SecurityConfig 가 둘 다 열고, HEAD 도 같은 핸들러로 파일을 찾는다).
+   * 제한 대상이면 정책, 아니면 null. 공유 다운로드는 비밀번호 헤더가 있을 때만(해시 계산이 있을 때만) 센다. 공유 비밀번호 확인(POST unlock,
+   * WP-1227)은 늘 같은 비밀번호 버킷으로 센다. 공유 미리보기는 변환을 시작하는 start=true 만 별도 버킷으로 센다. 공유 정보·content·미리보기 폴링은
+   * 세지 않는다. 아바타는 GET·HEAD 면 모두 센다(인증 없이 해시를 바꿔 가며 디스크를 두드리는 요청을 막으려는 것 — SecurityConfig 가 둘 다 열고,
+   * HEAD 도 같은 핸들러로 파일을 찾는다).
    */
   static Policy policyOf(HttpServletRequest request) {
     String uri = request.getRequestURI();
@@ -107,6 +123,14 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
         && (request.getHeader("X-Share-Password") != null
             || request.getHeader("X-Share-Password-Encoded") != null)) {
       return Policy.SHARE_PASSWORD;
+    }
+    if ("POST".equals(method) && SHARE_UNLOCK.matcher(uri).matches()) {
+      return Policy.SHARE_PASSWORD;
+    }
+    if ("GET".equals(method)
+        && SHARE_PREVIEW.matcher(uri).matches()
+        && "true".equalsIgnoreCase(request.getParameter("start"))) {
+      return Policy.SHARE_PREVIEW;
     }
     if (("GET".equals(method) || "HEAD".equals(method)) && uri.startsWith(AVATAR_PREFIX)) {
       return Policy.AVATAR;

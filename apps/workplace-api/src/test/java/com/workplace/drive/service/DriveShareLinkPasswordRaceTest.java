@@ -139,17 +139,17 @@ class DriveShareLinkPasswordRaceTest extends IntegrationTestBase {
     assertThat(unauthorized + locked).as("다른 결과 없음: %s", results).isEqualTo(CONCURRENT);
     assertThat(unauthorized).as("비밀번호 비교까지 간 요청(401)").isEqualTo(5);
     // 잠긴 뒤에는 맞는 비밀번호도 15분 동안 거절된다.
-    assertThatThrownBy(() -> service.resolveForDownload(token, "secret", null, false))
+    assertThatThrownBy(() -> service.resolveForDownload(token, "secret", null, null, false))
         .isInstanceOf(DriveShareLinkLockedException.class);
   }
 
   @Test
   void 실패가_5번_미만이면_맞는_비밀번호로_통과하고_카운터가_지워진다() {
     for (int i = 0; i < 4; i++) {
-      assertThatThrownBy(() -> service.resolveForDownload(token, "wrong", null, false))
+      assertThatThrownBy(() -> service.resolveForDownload(token, "wrong", null, null, false))
           .isInstanceOf(DriveShareLinkUnauthorizedException.class);
     }
-    assertThat(service.resolveForDownload(token, "secret", null, false).driveFileId())
+    assertThat(service.resolveForDownload(token, "secret", null, null, false).driveFileId())
         .isEqualTo(driveFileId);
     assertThat(
             baseDsl.fetchCount(
@@ -167,7 +167,7 @@ class DriveShareLinkPasswordRaceTest extends IntegrationTestBase {
     baseDsl.execute("SELECT set_config('app.tenant_id', '', false)");
     try {
       for (int i = 0; i < 5; i++) {
-        assertThatThrownBy(() -> service.resolveForDownload(token, "wrong", null, false))
+        assertThatThrownBy(() -> service.resolveForDownload(token, "wrong", null, null, false))
             .isInstanceOf(DriveShareLinkUnauthorizedException.class);
       }
     } finally {
@@ -204,7 +204,7 @@ class DriveShareLinkPasswordRaceTest extends IntegrationTestBase {
                 () -> {
                   start.await(10, TimeUnit.SECONDS);
                   try {
-                    return service.resolveForDownload(token, "wrong", null, false);
+                    return service.resolveForDownload(token, "wrong", null, null, false);
                   } catch (RuntimeException e) {
                     return e;
                   }
