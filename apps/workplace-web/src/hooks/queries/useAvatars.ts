@@ -7,12 +7,9 @@ import { usersApi } from '@/api/users'
 import { useAuth } from '@/hooks/useAuth'
 import type { AvatarEntry } from '@/types/avatar'
 
-export const avatarKeys = {
-  /** 내 아바타를 바꾸거나 AI 아바타를 바꾸면 이 키를 무효화한다. */
-  all: ['avatars'] as const,
-}
+import { avatarKeys } from './avatarKeys'
 
-/** 5분 — 남의 아바타 변경은 실시간으로 밀어 주지 않는다(계약: 목록을 다시 받을 때 반영). 자주 다시 받을 까닭이 없다. */
+/** 5분 — 남의 아바타 변경은 resource.changed 「avatar」 이벤트로 무효화돼 바로 다시 받는다(WP-1226). 자주 다시 받을 까닭이 없다. */
 const AVATARS_STALE_MS = 5 * 60_000
 
 const EMPTY: ReadonlyMap<number, string> = new Map()

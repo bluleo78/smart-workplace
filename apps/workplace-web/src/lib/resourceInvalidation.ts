@@ -5,6 +5,7 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 
 // 쿼리 키는 api 모듈을 끌어오지 않는 순수 *Keys 팩토리에서만 가져온다(훅 파일 import 시 api·axios 가 딸려 온다).
+import { avatarKeys } from '../hooks/queries/avatarKeys';
 import { calendarKeys } from '../hooks/queries/calendarKeys';
 import { contactKeys } from '../hooks/queries/contactKeys';
 import { driveKeys } from '../hooks/queries/driveKeys';
@@ -183,6 +184,8 @@ const RULES: Record<string, Rule> = {
       : []),
   ],
   dm: () => [{ queryKey: messagingKeys.dms() }, { queryKey: ['messaging-summary'] }],
+  // 아바타(WP-1226) — 누가 아바타를 바꾸거나 되돌리면 그 사람과 워크스페이스를 함께 쓰는 구성원 모두가 받는다. 표가 하나라 통째로 다시 받는다.
+  avatar: () => [{ queryKey: avatarKeys.all }],
   // 연락처·알림 — 즐겨찾기/전체 읽음처럼 ids 가 비어도 루트 전체를 갱신한다.
   contact: () => [{ queryKey: contactKeys.all }],
   notification: () => [{ queryKey: notificationKeys.all }],
