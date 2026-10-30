@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 소개 자료 촬영용 가상 회사 데이터를 격리 스택에 넣는다.
+ * 가상 회사(누리커머스) 데이터를 로컬 격리 스택에 넣는다. 소개 자료·사용자 매뉴얼은 운영 촬영 테넌트(seed-user.mjs 가 이 단계를 다시 씀)를 찍는다.
  *
  *   INTRO_API=http://localhost:6160 node docs/intro/scripts/seed-demo.mjs
  *
@@ -9,7 +9,6 @@
  * 이미 사용자가 있으면 공유 DB 를 오염시키지 않도록 즉시 멈춘다.
  *
  * 계정 도메인은 예약 도메인 example.com 이라 실계정과 겹치지 않는다(smart-dcim 매뉴얼 촬영과 같은 규약).
- * AI 가 실제로 일하는 장면(이슈 위임 → AI 코멘트)은 ai-agent 가 떠 있어야 하므로 seed-ai.mjs 가 따로 맡는다.
  *
  * 단계는 셋으로 나뉜다 — 매뉴얼 촬영 테넌트 시드(docs/manual/scripts/seed-user.mjs)가 뒤의 둘을 그대로 다시 쓴다(WP-1194):
  *   1) 첫 가입(이 파일의 main 에만 있다) → 2) createPeople: 관리자 토큰으로 나머지 등장인물 계정 → 3) seedContent: 나머지 전부.
@@ -17,11 +16,12 @@
  */
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { isLocalHost } from '../../manual/scripts/lib/operator-seed.mjs';
 
 const PASSWORD = process.env.INTRO_PASS ?? 'IntroShot1!';
 const DOMAIN = 'example.com';
 
-/** 소개 자료 격리 스택 주소 — 직접 실행·login()·seed-ai 가 쓴다. 매뉴얼 시드는 자기 client 를 넘기므로 이 값에 기대지 않는다. */
+/** 직접 실행할 때 채울 로컬 스택 주소. 매뉴얼 시드(운영 촬영 테넌트)는 자기 client 를 넘기므로 이 값에 기대지 않는다. */
 export const INTRO_BASE = process.env.INTRO_API ?? 'http://localhost:6160';
 
 /** 등장인물 — 첫 항목이 첫 가입자(ADMIN)이자 촬영 계정이다. */
@@ -74,11 +74,6 @@ export function makeClient(apiBase, prefix = '/api/v1') {
     return (await call(null, 'POST', '/auth/login', { username, password })).accessToken;
   }
   return { call, upload, login };
-}
-
-/** 소개 자료 스택(INTRO_API)에 로그인 — seed-ai·capture-screens·send-demo-mail 이 가져다 쓴다. */
-export async function login(username, password = PASSWORD) {
-  return makeClient(INTRO_BASE).login(username, password);
 }
 
 /** 오늘 기준 상대 날짜(YYYY-MM-DD). 촬영 시점이 달라도 타임라인이 "지금" 주변에 놓이게 한다. */
@@ -147,7 +142,7 @@ export async function createPeople({ client, admin, password, existing = {}, sig
 }
 
 /**
- * AI 에이전트(AGENT) 단계 — 이슈 담당자로 지정 가능한 "팀원". 토큰 등록은 seed-ai.mjs 가 한다.
+ * AI 에이전트(AGENT) 단계 — 이슈 담당자로 지정 가능한 "팀원". AI 연결(토큰 등록)은 사람이 설정 화면에서 한다.
  * 이 테넌트에 이미 있으면(앞선 실행이 중간에 멈춘 경우) 다시 만들지 않는다. 생성 응답 형태에 기대지 않고 목록에서 username 으로 id 를 찾는다.
  * @returns {Promise<{ id: number, created: boolean }>}
  */
@@ -350,6 +345,8 @@ export async function seedContent({ client, admin, ids, tokens }) {
 
 /** 소개 자료 시드 — 빈 DB 의 첫 가입(→ ADMIN) 뒤 계정·콘텐츠 단계를 돈다. */
 async function main() {
+  // 첫 가입 방식이라 로컬 스택에만 돈다 — 운영 촬영 테넌트는 매뉴얼 시드(seed-user.mjs)가 확인값을 받고 채운다.
+  if (!isLocalHost(new URL(INTRO_BASE))) throw new Error(`로컬 스택에만 돕니다(INTRO_API=${INTRO_BASE}). 운영은 seed-user.mjs 를 씁니다.`);
   const client = makeClient(INTRO_BASE);
   // 1) 첫 가입 → ADMIN. 이미 가입자가 있으면 깨끗한 DB 가 아니므로 중단한다.
   const [pm] = PEOPLE;
@@ -365,7 +362,7 @@ async function main() {
   console.log(JSON.stringify(out, null, 2));
 }
 
-// seed-ai.mjs 가 상수·login 을 가져다 쓰므로, 직접 실행할 때만 시드를 돈다.
+// 매뉴얼 시드·촬영 도구가 상수·단계 함수를 가져다 쓰므로, 직접 실행할 때만 시드를 돈다.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => {
     console.error(e.message);

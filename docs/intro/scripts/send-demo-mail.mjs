@@ -2,16 +2,30 @@
 /**
  * 메일 장면용 데모 메일 3통을, 연결된 M365 계정에서 그 계정 자신에게 보낸다.
  *
- *   INTRO_MAIL_TO=<연결한 메일 주소> node docs/intro/scripts/send-demo-mail.mjs
+ *   MANUAL_API=https://genia-works.iacloud.kr MANUAL_TENANT_SLUG=nuri-demo MANUAL_SEED_CONFIRM=nuri-demo \
+ *     MANUAL_PASS="$(security find-generic-password -s genia-works-manual-demo -w)" node docs/intro/scripts/send-demo-mail.mjs
  *
  * 왜 자기 자신에게: 실제 메일함을 연결해 찍으므로, 고객 자료에 실 메일이 나가지 않게 시연용 메일을 따로 만든다.
- * 외부로는 한 통도 나가지 않는다(받는 사람 = 연결 계정 본인). 제목의 【누리커머스】 로 검색해 이 메일만 보여 준다.
+ * 받는 사람은 인자로 받지 않고 연결 계정의 주소로 고정한다 — 외부로는 한 통도 나가지 않는다. 제목의 【누리커머스】 로 검색해 이 메일만 보여 준다.
+ * 서버 주소·확인값 규칙은 매뉴얼 시드와 같다(checkManualTarget): localhost 가 아니면 https 이고 MANUAL_SEED_CONFIRM 이 slug 와 같아야 보낸다.
+ * 보내는 사람은 촬영 계정 김서연(PEOPLE[0]) — 그 계정에 연결된 첫 메일 계정에서 보낸다. 비밀번호는 환경변수로만 받는다.
  */
-import { PEOPLE, login } from './seed-demo.mjs';
+import { checkManualTarget, loginIntoSlug } from '../../manual/scripts/lib/user-seed.mjs';
+import { makeClient, PEOPLE } from './seed-demo.mjs';
 
-const API = (process.env.INTRO_API ?? 'http://localhost:6160') + '/api/v1';
-const TO = process.env.INTRO_MAIL_TO;
-if (!TO) throw new Error('INTRO_MAIL_TO(연결한 메일 주소)가 필요하다');
+const target = checkManualTarget({
+  api: process.env.MANUAL_API ?? '',
+  slug: process.env.MANUAL_TENANT_SLUG,
+  confirm: process.env.MANUAL_SEED_CONFIRM,
+});
+if (!target.ok) {
+  console.error(target.reason);
+  process.exit(2);
+}
+if (!process.env.MANUAL_PASS) {
+  console.error('MANUAL_PASS 가 필요합니다.');
+  process.exit(2);
+}
 
 // 본문은 400자를 넘긴다 — 그 이하는 AI 요약을 생략하도록 설계돼 있다(MailAnalysisService.SUMMARY_MIN_CHARS).
 // 제목 머리말 【누리커머스】 로 검색해 이 메일만 보여 준다(촬영 스크립트의 MAIL_QUERY 와 맞춘다).
@@ -50,27 +64,27 @@ const MAILS = [
   },
 ];
 
-const token = await login(PEOPLE[0].username);
-const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
-const accounts = await (await fetch(`${API}/mail/accounts`, { headers })).json();
+const client = makeClient(target.base);
+const { token } = await loginIntoSlug(client, {
+  username: PEOPLE[0].username,
+  password: process.env.MANUAL_PASS,
+  slug: process.env.MANUAL_TENANT_SLUG,
+});
+const accounts = await client.call(token, 'GET', '/mail/accounts');
 const account = (accounts.content ?? accounts)[0];
 if (!account) throw new Error('연결된 메일 계정이 없다');
+const to = account.emailAddress; // 연결 계정 자신 — 주소는 출력하지 않는다(실제 계정)
 
 const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 for (const m of MAILS) {
-  const res = await fetch(`${API}/mail/accounts/${account.id}/send`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      to: [TO],
-      cc: [],
-      bcc: [],
-      subject: m.subject,
-      bodyText: m.paragraphs.join('\n\n'),
-      // 메일 표시가 white-space 스타일을 걸러 내므로 문단은 <p>, 줄바꿈은 <br> 로 표현한다
-      bodyHtml: m.paragraphs.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join(''),
-    }),
+  await client.call(token, 'POST', `/mail/accounts/${account.id}/send`, {
+    to: [to],
+    cc: [],
+    bcc: [],
+    subject: m.subject,
+    bodyText: m.paragraphs.join('\n\n'),
+    // 메일 표시가 white-space 스타일을 걸러 내므로 문단은 <p>, 줄바꿈은 <br> 로 표현한다
+    bodyHtml: m.paragraphs.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join(''),
   });
-  if (!res.ok) throw new Error(`발송 실패 ${m.subject} → ${res.status} ${await res.text()}`);
   console.log(`✓ ${m.subject}`);
 }

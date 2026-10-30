@@ -3,7 +3,7 @@
  *
  * 1) 잘라 보기 — [data-crop="x,y,w,h"](원본 px) 상자에 원본 캡처의 그 영역만 상자 폭에 맞춰 보여 준다.
  *    원본 PNG 는 가공하지 않는다(원본 파일이 곧 납품용 원본).
- * 2) 표시(annotation) — 화면 위 번호 표시를 촬영 때 기록한 실제 요소 좌표(shots/boxes.js 의 SHOT_BOXES)로 그린다.
+ * 2) 표시(annotation) — 화면 위 번호 표시를 촬영 때 기록한 실제 요소 좌표(shots/boxes.json — build-pdf.mjs 가 SHOT_BOXES 로 넣는다)로 그린다.
  *    눈대중 퍼센트 좌표를 쓰지 않기 위해서다. 종류는 두 가지:
  *    - .ann.area  : 영역 — 빨간 테두리 투명 박스 + 왼쪽 위 번호
  *    - .ann.point : 지점 — 번호 원 + 대상 중심까지 이어진 지시선(data-side 로 번호 위치: left|right|top|bottom)
@@ -11,6 +11,8 @@
  */
 (function () {
   const BOXES = window.SHOT_BOXES || {};
+  // boxes.json 형식(매뉴얼 촬영기와 같다): { 샷: { w, h, boxes: { 대상: {x,y,w,h} } } }
+  const boxOf = (shot, key) => BOXES[shot]?.boxes?.[key];
 
   /** 상자(.shot 또는 .crop) 안 원본 이미지의 배율과 잘라 낸 원점. */
   function geometry(box) {
@@ -41,7 +43,7 @@
   function rectOf(ann) {
     if (ann.dataset.box) {
       const [shot, key] = ann.dataset.box.split(':');
-      const r = BOXES[shot] && BOXES[shot][key];
+      const r = boxOf(shot, key);
       if (!r) {
         ann.classList.add('missing');
         console.warn('표시 좌표 없음:', ann.dataset.box);
@@ -118,7 +120,7 @@
   /** data-crop-box="샷:대상" — 기록된 요소 위치를 중심으로 잘라 보기 영역을 만든다(data-crop-pad: 여백, 원본 px). */
   function resolveCropBox(el) {
     const [shot, key] = el.dataset.cropBox.split(':');
-    const r = BOXES[shot] && BOXES[shot][key];
+    const r = boxOf(shot, key);
     if (!r) {
       console.warn('잘라 보기 좌표 없음:', el.dataset.cropBox);
       el.dataset.crop = '0,0,2880,1620';
