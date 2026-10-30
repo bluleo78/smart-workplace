@@ -158,6 +158,8 @@ export interface ReportAgentWorkBody {
 export interface AgentWorkReport {
   work: Record<string, unknown> | null;
   ended: boolean;
+  /** 서버가 보고한 상태를 바꿔 저장했을 때 원래 상태(WP-1217 — 사람을 멘션한 WAITING 은 INPUT_REQUIRED 로 저장). 바꾸지 않았으면 null. */
+  coercedFrom?: string | null;
 }
 
 /** 관계 유형 행(GET /issue-relation-types, IssueRelationTypeResponse) — 도구가 읽는 필드. 숨긴 유형(hidden)도 함께 온다. */

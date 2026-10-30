@@ -210,6 +210,26 @@ describe('buildSharedIssueTools', () => {
       expect(out.work.worker).toEqual({ username: 'claude', name: 'Claude', kind: 'AI' });
     });
 
+    it('서버가 사람 멘션 WAITING 을 INPUT_REQUIRED 로 바꿔 저장하면 coercedFrom 을 함께 돌려주고, 바꾸지 않았으면 빠진다(WP-1217)', async () => {
+      const c = mockClient();
+      vi.mocked(c.reportAgentWork).mockResolvedValueOnce({
+        work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AGENT' }, tool: 'mcp', state: 'INPUT_REQUIRED', updatedAt: '2026-10-30T00:00:00Z' },
+        ended: false,
+        coercedFrom: 'WAITING',
+      });
+      const coerced = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'WAITING' })));
+      expect(coerced.work.state).toBe('INPUT_REQUIRED');
+      expect(coerced.coercedFrom).toBe('WAITING');
+
+      vi.mocked(c.reportAgentWork).mockResolvedValueOnce({
+        work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AGENT' }, tool: 'mcp', state: 'WAITING', updatedAt: '2026-10-30T00:00:00Z' },
+        ended: false,
+        coercedFrom: null,
+      });
+      const kept = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'WAITING' })));
+      expect(kept).not.toHaveProperty('coercedFrom');
+    });
+
     it('message 의 @username 을 멘션 토큰 <@id> 로 바꿔 보낸다 — 메일 형식 username 도, 일반 메일 주소는 그대로(WP-1009)', async () => {
       const c = mockClient();
       vi.mocked(c.searchMembers).mockImplementation(async ({ search }) =>

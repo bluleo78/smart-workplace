@@ -400,8 +400,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking, AUTH_REQUIRED if you need ' +
-        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, WAITING on another person or AI (note what), SCHEDULED yield until nextRunAt (none = after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
+        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED asking/awaiting a person, AUTH_REQUIRED if you need ' +
+        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, WAITING on another AI (note what), SCHEDULED yield until nextRunAt (none = after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
         'work. message posts to issue chat (@username mentions and notifies); fileIds attach staged files.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
@@ -412,9 +412,10 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (rest.message !== undefined) rest.message = await linkMentions(client, rest.message);
         // 오프셋 없는 시각은 서버가 못 읽어 캘린더 도구처럼 +09:00 로 보정해 보낸다.
         const body = nextRunAt === undefined ? rest : { ...rest, nextRunAt: normalizeTimezone(nextRunAt) };
-        const { work, ended } = await client.reportAgentWork(issueKey, body);
+        const { work, ended, coercedFrom } = await client.reportAgentWork(issueKey, body);
         // 서버 뷰의 숫자 id 는 빼고 사람을 username 으로만 가리킨다(#833). 끝났으면 work 는 null 이라 ended 만 남는다.
-        return JSON.stringify(dropEmpty({ work: work ? toAgentWorkView(work) : null, ended }));
+        // coercedFrom: 서버가 상태를 바꿔 저장한 원래 상태(WP-1217 — 사람을 멘션한 WAITING → INPUT_REQUIRED). 바꾸지 않았으면 빠진다.
+        return JSON.stringify(dropEmpty({ work: work ? toAgentWorkView(work) : null, ended, coercedFrom }));
       },
     },
     {

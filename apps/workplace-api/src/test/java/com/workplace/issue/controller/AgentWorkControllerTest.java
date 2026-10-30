@@ -61,6 +61,60 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     assertThat(m.isQuestion()).isFalse();
   }
 
+  // WP-1217: 사람에게 묻거나 사람의 답을 기다리면 언제나 답변 필요 — AI 가 사람을 멘션한 대기 중 보고는 서버가 답변 필요로 바꿔 저장한다.
+
+  @Test
+  void AI가_사람을_멘션한_대기중_보고는_답변필요_질문으로_저장하고_바꾼_사실을_알린다() {
+    var r =
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "WAITING", "message", "<@" + humanId + "> 2번 UX 를 정해 주세요"));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(json(r).at("/work/state").asText()).isEqualTo("INPUT_REQUIRED");
+    assertThat(json(r).at("/coercedFrom").asText()).isEqualTo("WAITING");
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
+    assertThat(lastChatMessage(issueId).isQuestion()).isTrue();
+  }
+
+  @Test
+  void AI만_멘션한_대기중_보고는_그대로_대기중() {
+    // 검토자 AI 에게 리뷰를 맡기는 경우 — 시드의 AI 구성원(agent)을 멘션한다.
+    var r =
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "WAITING", "message", "<@" + agentId + "> PR 검토 부탁드립니다"));
+    assertThat(json(r).at("/work/state").asText()).isEqualTo("WAITING");
+    assertThat(json(r).at("/coercedFrom").isNull()).isTrue();
+    assertThat(lastChatMessage(issueId).isQuestion()).isFalse();
+  }
+
+  @Test
+  void 멘션_없는_대기중_보고는_그대로_대기중() {
+    var r = putReport(akToken, TOOL, Map.of("state", "WAITING", "message", "다른 AI 의 답을 기다립니다"));
+    assertThat(json(r).at("/work/state").asText()).isEqualTo("WAITING");
+    assertThat(json(r).at("/coercedFrom").isNull()).isTrue();
+  }
+
+  @Test
+  void 사람_작업자의_대기중_보고는_사람을_멘션해도_그대로() {
+    var r =
+        putReport(
+            patToken, TOOL, Map.of("state", "WAITING", "message", "<@" + otherId + "> 확인 부탁"));
+    assertThat(json(r).at("/work/state").asText()).isEqualTo("WAITING");
+    assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WAITING");
+  }
+
+  @Test
+  void AI의_작업중_보고는_사람을_멘션해도_그대로() {
+    // 작업 중 글의 사람 멘션은 질문인지 알림인지 서버가 가릴 수 없어 손대지 않는다(스킬 규칙이 막는다).
+    var r =
+        putReport(akToken, TOOL, Map.of("state", "WORKING", "message", "<@" + humanId + "> 머지했어요"));
+    assertThat(json(r).at("/work/state").asText()).isEqualTo("WORKING");
+    assertThat(lastChatMessage(issueId).isQuestion()).isFalse();
+  }
+
   @Test
   void 사람이_챗에_답하면_AI구성원_INPUT_REQUIRED_이_WORKING() {
     putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED", "message", "질문"));
