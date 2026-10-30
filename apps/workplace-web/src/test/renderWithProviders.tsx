@@ -27,6 +27,7 @@ export const testAuthValue: AuthContextValue = {
     kind: 'HUMAN',
     aiAvailable: true,
     hasPassword: true,
+    avatarUrl: null,
   },
   roles: [],
   isLoading: false,

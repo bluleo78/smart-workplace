@@ -67,6 +67,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       kind: userDetail.kind,
       aiAvailable: userDetail.aiAvailable,
       hasPassword: userDetail.hasPassword,
+      // 아바타 주소(WP-1222) — 필드가 없는 옛 서버 응답도 「기본 아바타」로 읽는다.
+      avatarUrl: userDetail.avatarUrl ?? null,
     };
     setUser(userResponse);
     setRoles(userDetail.roles);

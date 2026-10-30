@@ -49,6 +49,8 @@ export interface UserResponse {
   aiAvailable: boolean;
   // WP-48 비밀번호 보유 여부 — SSO 전용 계정이면 false.
   hasPassword: boolean;
+  // 프로필 이미지 주소(WP-1222) — `/api/v1/avatars/{userId}/{hash}`, 크기는 뒤에 `/64` 처럼 붙인다. 없으면 null(기본 이니셜).
+  avatarUrl: string | null;
 }
 
 export interface ErrorResponse {

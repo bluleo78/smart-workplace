@@ -82,6 +82,8 @@ public class UserService {
   private final UserGroupRepository userGroupRepository;
   // 실행 방식 변경 이벤트 발행(AgentRuntimeChanged) — issue 모듈이 AI 작업 기록을 정리한다.
   private final ApplicationEventPublisher publisher;
+  // WP-1222: AI 계정을 영구 삭제하면 커밋 뒤 그 아바타 폴더도 지운다(공개 주소는 이미 404 라 남겨 두면 디스크만 쓴다).
+  private final AvatarService avatarService;
 
   /** kind 미지정 호출부(설정 > 사용자 관리 등 기존 호출) — HUMAN 만 노출하는 기존 동작 유지. */
   @Transactional(readOnly = true)
@@ -164,6 +166,8 @@ public class UserService {
     List<RoleResponse> roles = roleRepository.findByUserId(id);
     // AI 가용성 — 개인 또는 공통 비서(active token) 보유 여부. 프론트가 AI affordance 게이트에 사용.
     boolean aiAvailable = assistantResolver.resolveOrEmpty(id).isPresent();
+    // 비밀번호 유무·아바타 해시를 한 번에 읽는다(WP-1222) — 아바타 때문에 /users/me 에 조회가 하나 더 늘지 않게.
+    UserRepository.PasswordAndAvatar credentials = userRepository.findPasswordAndAvatar(id);
     return new UserDetailResponse(
         user.id(),
         user.username(),
@@ -174,7 +178,8 @@ public class UserService {
         roles,
         user.kind(),
         aiAvailable,
-        userRepository.hasPassword(id));
+        credentials.hasPassword(),
+        AvatarService.urlOf(id, credentials.avatarHash()));
   }
 
   /** Phase 5a — kind 별 사용자 목록 (AGENT 관리 화면 등). active 테넌트 멤버로 스코프된다. */
@@ -416,6 +421,9 @@ public class UserService {
     userRepository.deleteById(userId);
     auditUserAction(
         callerId, callerUsername, "AGENT_DELETED", userId, "AGENT 유저 삭제: " + user.username(), null);
+    // 맨 끝에 등록한다 — 위에서 던지면(FK 로 막힘 → AgentRemovalService 가 savepoint 만 되돌리고 사용 중지로 이어 감) 바깥 트랜잭션은
+    // 커밋되므로, 그 전에 등록했다면 살아 있는 AI 의 아바타가 지워진다. 삭제가 끝까지 간 경우에만 커밋 뒤 폴더를 지운다.
+    avatarService.deleteAllAfterCommit(userId);
   }
 
   /**

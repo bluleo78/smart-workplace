@@ -4,11 +4,13 @@
 import type { AgentResponse, AgentRuntime } from '../types/agent';
 import type { AgentApiKey, AgentApiKeyIssueResponse } from '../types/agentKey';
 import type { UserResponse } from '../types/auth';
+import type { AvatarCrop, AvatarUploadResponse } from '../types/avatar';
 import type {
   ProviderCredentialMeta,
   ProviderCredentialRegisterRequest,
 } from '../types/providerCredential';
 import { client } from './client';
+import { avatarFormData, MULTIPART } from './users';
 
 // AGENT 유저 목록 조회 — kind=AGENT 만 반환됨. 응답엔 유형(type)·소유자(ownerName) 포함.
 // includePersonal=false(기본)면 개인 비서(자동 생성 AGENT)는 제외된다.
@@ -36,6 +38,17 @@ export async function renameAgent(
   body: { username: string; name: string; description: string; instructions?: string },
 ): Promise<void> {
   await client.put<void>(`/admin/agents/${userId}`, body);
+}
+
+// AI 아바타 바꾸기(WP-1222) — 관리자가 이 워크스페이스의 AGENT 아바타를 바꾼다. AGENT 가 아니면 서버가 404.
+export async function uploadAgentAvatar(userId: number, file: File, crop?: AvatarCrop): Promise<AvatarUploadResponse> {
+  const { data } = await client.put<AvatarUploadResponse>(`/admin/agents/${userId}/avatar`, avatarFormData(file, crop), MULTIPART);
+  return data;
+}
+
+// AI 아바타를 기본(이니셜)으로 되돌린다.
+export async function deleteAgentAvatar(userId: number): Promise<void> {
+  await client.delete<void>(`/admin/agents/${userId}/avatar`);
 }
 
 // 실행 방식 변경 — 공통·개인 비서는 서버가 409(한국어 message)로 거부한다.

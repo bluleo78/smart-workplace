@@ -77,7 +77,8 @@ class UserControllerTest extends WebMvcSliceTestBase {
             List.of(new RoleResponse(1L, "USER", "Regular user", true)),
             "HUMAN",
             false,
-            true);
+            true,
+            null);
     when(userService.getMyProfile(1L)).thenReturn(detail);
 
     mockMvc
@@ -229,7 +230,8 @@ class UserControllerTest extends WebMvcSliceTestBase {
             List.of(),
             "HUMAN",
             false,
-            true);
+            true,
+            null);
     when(userService.getUserById(2L)).thenReturn(detail);
 
     mockMvc

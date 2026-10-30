@@ -10,6 +10,7 @@ import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.global.security.ratelimit.PublicRateLimitFilter;
 import com.workplace.global.security.ratelimit.RateLimitProperties;
 import com.workplace.global.security.ratelimit.TokenBucketLimiter;
+import com.workplace.user.service.AvatarService;
 import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import java.util.List;
@@ -122,6 +123,14 @@ public class SecurityConfig {
                     .requestMatchers(
                         org.springframework.http.HttpMethod.HEAD,
                         "/api/v1/public/calendar/feeds/**")
+                    .permitAll()
+                    // 프로필 아바타 이미지(WP-1222) — <img src> 로 바로 쓰여 토큰을 실을 수 없다. 추측할 수 없는 해시가 든 주소가 곧
+                    // 권한이고, 바꾸기 전 주소는 404 다. 읽기 전용이라 GET·HEAD 만 연다.
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET, AvatarService.PUBLIC_PATH + "/**")
+                    .permitAll()
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.HEAD, AvatarService.PUBLIC_PATH + "/**")
                     .permitAll()
                     // 운영자 콘솔(workplace-admin) 전용 평면. 로그인/리프레시만 공개, 그 외는 플랫폼 토큰(ROLE_PLATFORM) 필수.
                     // 일반 테넌트/에이전트 토큰으로는 접근 불가(권한상승 차단). 매칭 안 된 /api/platform 경로가

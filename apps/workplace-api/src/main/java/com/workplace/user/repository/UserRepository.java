@@ -827,4 +827,58 @@ public class UserRepository {
         .and(USER.IS_ACTIVE.isTrue())
         .fetchOne(0, long.class);
   }
+
+  // ---- 프로필 아바타(WP-1222) ----
+
+  /** 내 정보(/users/me) 부가 값 — 비밀번호가 있는지(SSO 전용 계정 구분)와 아바타 해시(null = 기본 아바타). */
+  public record PasswordAndAvatar(boolean hasPassword, String avatarHash) {}
+
+  /** 비밀번호 유무와 아바타 해시를 한 쿼리로 읽는다 — 따로 읽으면 /users/me 마다 조회가 하나 더 든다. 없는 사용자면 (false, null). */
+  public PasswordAndAvatar findPasswordAndAvatar(Long id) {
+    return dsl.select(DSL.field(USER.PASSWORD.isNotNull()), USER.AVATAR_HASH)
+        .from(USER)
+        .where(USER.ID.eq(id))
+        .fetchOptional(r -> new PasswordAndAvatar(Boolean.TRUE.equals(r.value1()), r.value2()))
+        .orElse(new PasswordAndAvatar(false, null));
+  }
+
+  /**
+   * 사용자 행을 잠그고(SELECT … FOR UPDATE) 지금 아바타 해시를 읽는다. 아바타를 바꾸거나 지우는 두 요청이 겹쳐도 차례로 처리되어, 각자 「자기가 바꾸기
+   * 직전 값」만 옛 값으로 보고 지운다 — 다른 요청이 막 넣은(DB 가 가리키는) 폴더를 지우지 않게. 트랜잭션 안에서만 부른다.
+   */
+  public Optional<String> findAvatarHashForUpdate(Long id) {
+    return dsl.select(USER.AVATAR_HASH)
+        .from(USER)
+        .where(USER.ID.eq(id))
+        .forUpdate()
+        .fetchOptional(USER.AVATAR_HASH);
+  }
+
+  /**
+   * 아바타 해시를 바꾼다(null 이면 기본 아바타로 되돌림). 호출부가 {@link #findAvatarHashForUpdate} 로 행을 잠그고 옛 값을 읽은 뒤 부른다.
+   */
+  public void updateAvatarHash(Long id, String hash) {
+    dsl.update(USER)
+        .set(USER.AVATAR_HASH, hash)
+        .set(USER.UPDATED_AT, LocalDateTime.now())
+        .where(USER.ID.eq(id))
+        .execute();
+  }
+
+  /** 아바타를 가진 이 워크스페이스 구성원 한 명 — (userId, hash). */
+  public record MemberAvatar(long userId, String hash) {}
+
+  /**
+   * 이 워크스페이스 구성원(사람·AI, 정지 포함) 중 아바타가 있는 사람만. user 는 전역 테이블이라 membership 조인으로 테넌트를 명시해 거른다 — 다른
+   * 워크스페이스 사용자를 내보내지 않는다. 정지된 구성원도 넣는 것은 그 사람이 남긴 메시지·이슈에 얼굴이 계속 보여야 하기 때문이다. 웹이 userId 로 맵을 만들어
+   * 찾으므로 순서는 정하지 않는다(정렬 비용을 쓰지 않는다).
+   */
+  public List<MemberAvatar> findMemberAvatars(long tenantId) {
+    return dsl.select(USER.ID, USER.AVATAR_HASH)
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(WorkspaceActive.join(tenantId))
+        .where(USER.AVATAR_HASH.isNotNull())
+        .fetch(r -> new MemberAvatar(r.get(USER.ID), r.get(USER.AVATAR_HASH)));
+  }
 }

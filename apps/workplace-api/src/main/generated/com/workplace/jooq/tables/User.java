@@ -231,6 +231,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, String> INSTRUCTIONS = createField(DSL.name("instructions"), SQLDataType.VARCHAR(4000), this, "");
 
+    /**
+     * The column <code>public.user.avatar_hash</code>.
+     */
+    public final TableField<UserRecord, String> AVATAR_HASH = createField(DSL.name("avatar_hash"), SQLDataType.VARCHAR(64), this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

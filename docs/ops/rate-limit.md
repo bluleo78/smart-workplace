@@ -5,12 +5,13 @@ WP-763에서 넣은 IP 단위 속도 제한이 어떻게 동작하는지 정리�
 ## 지금 구성(api 1대 기준)
 
 - **위치**: 앱 필터 `PublicRateLimitFilter`입니다(`apps/workplace-api/.../global/security/ratelimit/`). CORS 필터 바로 뒤, 인증 필터보다 앞에서 거릅니다.
-- **대상**: 인증 없이 비밀번호 해시(bcrypt, 요청당 약 0.1초 CPU)를 계산하는 경로입니다.
+- **대상**: 인증 없이 비밀번호 해시(bcrypt, 요청당 약 0.1초 CPU)를 계산하는 경로와, 인증 없이 요청마다 디스크를 읽는 공개 아바타 이미지(WP-1222)입니다.
 
   | 정책 | 경로 | 기본 한도(같은 IP) |
   |---|---|---|
   | `LOGIN` | `POST /api/v1/auth/login`, `POST /api/v1/auth/signup`, `POST /api/platform/auth/login` | 1분에 20회 |
   | `SHARE_PASSWORD` | `GET /api/v1/public/drive/share/{token}/download` — `X-Share-Password(-Encoded)` 헤더가 있을 때만 | 1분에 10회 |
+  | `AVATAR` | `GET`·`HEAD /api/v1/avatars/**` — 공개 아바타 이미지. 한 화면이 처음 열릴 때 아바타를 한꺼번에 받고 회사 NAT 뒤에서는 IP 를 나눠 쓰므로 넉넉하게 둡니다(이미지는 브라우저가 영구 캐시) | 1분에 1200회 |
 
 - **알고리즘**: 키(정책+IP)마다 토큰 버킷을 하나씩 둡니다(`TokenBucketLimiter`). 한 번에 한도만큼 몰아 보낼 수 있고, 그 뒤로는 1분에 한도만큼의 비율로 고르게 다시 찹니다. 한도를 넘기면 `429`, `Retry-After`(초), 그리고 한국어 안내 「요청이 너무 많습니다. 잠시 후 다시 시도하세요.」를 돌려줍니다.
 - **상태**: api 인스턴스의 **메모리**에 둡니다. 재시작하면 비워집니다. 키가 1만 개를 넘으면 다 찬(오래 쓰지 않은) 버킷을 지워 메모리가 끝없이 커지지 않게 합니다.
@@ -19,8 +20,9 @@ WP-763에서 넣은 IP 단위 속도 제한이 어떻게 동작하는지 정리�
   - `enabled`(기본 `true`)
   - `login-per-minute`(기본 `20`)
   - `share-password-per-minute`(기본 `10`)
+  - `avatar-per-minute`(기본 `1200`)
 
-  환경 변수로는 `APP_RATELIMIT_ENABLED`, `APP_RATELIMIT_LOGINPERMINUTE`, `APP_RATELIMIT_SHAREPASSWORDPERMINUTE`처럼 씁니다. Spring 규칙에 따라 점은 `_`로 바꾸고 `-`는 뺍니다.
+  환경 변수로는 `APP_RATELIMIT_ENABLED`, `APP_RATELIMIT_LOGINPERMINUTE`, `APP_RATELIMIT_SHAREPASSWORDPERMINUTE`, `APP_RATELIMIT_AVATARPERMINUTE`처럼 씁니다. Spring 규칙에 따라 점은 `_`로 바꾸고 `-`는 뺍니다.
 
 ## 여러 대로 늘릴 때 고려할 점
 

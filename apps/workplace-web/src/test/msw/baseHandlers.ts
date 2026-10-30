@@ -110,6 +110,8 @@ export const shellHandlers = [
   ),
   http.get(`${API}/wiki/pages/:id/backlinks`, () => HttpResponse.json({ items: [] })),
   http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
+  // 아바타 주소 표(WP-1222) — 앱 루트(AvatarsProvider)가 로그인하면 한 번 부른다. 기본은 아무도 아바타가 없다(모두 이니셜).
+  http.get(`${API}/users/avatars`, () => HttpResponse.json([])),
   http.get(`${API}/notifications/unread-count`, () => HttpResponse.json({ count: 0 })),
   // 앱 링크 판정 설정(WP-1165) — 앱 셸이 한 번 부른다. 공개 호스트 없음(지금 호스트만 본다).
   http.get(`${API}/app-links/config`, () => HttpResponse.json({ appHost: null })),

@@ -2,14 +2,17 @@
 // 목록 셀(생성일 포맷·실행 배지·키 사용 시각), 상세 드로어의 확인창(키 회수 취소·삭제·사용 중지 안내), 이름·아이디·설명 PUT,
 // 실행 방식 전환(외부 연결 카드·명령 문구·409 사유·공통 비서 잠금)은 응답 → 화면, 입력 → payload 라 브라우저 없이 판정되므로
 // e2e/pages/admin/agents.spec.ts · agent-runtime.spec.ts 에서 옮겼다.
+// AI 아바타 바꾸기·되돌리기(WP-1222)도 입력 → multipart payload, 응답 → 목록·미리보기라 여기서 본다.
 // E2E 에 남는 것: 생성 → 키 발급 → 회수 배선(@wiring), 행 키보드 진입(@input), 아이디 복사 클립보드(@platform), 375px 드로어 넘침(@layout).
 // 상세 드로어·확인창이 페이지 컴포넌트 안에 있어 AgentManagementPage 를 renderScreen 으로 띄운다(앱 셸·라우트는 거치지 않는다).
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { AvatarsProvider } from '@/components/users/AvatarsProvider'
 import { renderScreen } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
+import type { AvatarEntry } from '@/types/avatar'
 import type { RoleResponse } from '@/types/role'
 
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
@@ -442,4 +445,129 @@ test('일반 AI 의 키에는 「사용 불가」가 붙지 않는다 (WP-1162)'
   await openDrawer(user, 100)
   await screen.findByTestId('key-revoke-1')
   expect(screen.queryByTestId('key-unusable-1')).not.toBeInTheDocument()
+})
+
+// ── AI 아바타(WP-1222) ─────────────────────────────────────────────────────────────
+// 관리자가 AI 상세에서 아바타를 바꾸고 되돌린다 — 내 아바타와 같은 자르기 창, API 만 /admin/agents/{id}/avatar.
+// 아바타 표(GET /users/avatars)는 앱 루트의 AvatarsProvider 가 받으므로 화면을 그것으로 감싼다.
+
+/** 아바타 표 + AI 아바타 쓰기 API — 표는 쓰기 뒤 다시 받으면 바뀐 값을 준다. 쓰기 요청과 multipart 글자 필드를 모은다. */
+function agentAvatarApi(initial: AvatarEntry[], listFailsAfterWrite = false) {
+  let avatars = [...initial]
+  const writes: { method: string; id: number; fields: Record<string, string> }[] = []
+  let listReads = 0
+  const handlers = [
+    http.get('/api/v1/users/avatars', () => {
+      listReads += 1
+      // listFailsAfterWrite — 저장 뒤 표 다시 받기가 실패하는 경우(저장 자체는 성공).
+      if (listFailsAfterWrite && writes.length > 0) return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      return HttpResponse.json(avatars)
+    }),
+    http.put('/api/v1/admin/agents/:id/avatar', async ({ params, request }) => {
+      const fields: Record<string, string> = {}
+      ;(await request.formData()).forEach((v, k) => {
+        fields[k] = typeof v === 'string' ? v : 'FILE'
+      })
+      const id = Number(params.id)
+      writes.push({ method: 'PUT', id, fields })
+      avatars = [...avatars.filter((a) => a.userId !== id), { userId: id, avatarUrl: `/api/v1/avatars/${id}/new` }]
+      return HttpResponse.json({ avatarUrl: `/api/v1/avatars/${id}/new` })
+    }),
+    http.delete('/api/v1/admin/agents/:id/avatar', ({ params }) => {
+      const id = Number(params.id)
+      writes.push({ method: 'DELETE', id, fields: {} })
+      avatars = avatars.filter((a) => a.userId !== id)
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ]
+  return { handlers, writes, listReads: () => listReads }
+}
+
+async function renderAgentsWithAvatars(
+  initial: AvatarEntry[],
+  opts: Parameters<typeof agentApi>[0] = {},
+  listFailsAfterWrite = false,
+) {
+  const api = agentApi(opts)
+  const av = agentAvatarApi(initial, listFailsAfterWrite)
+  const view = renderScreen(
+    <AvatarsProvider>
+      <AgentManagementPage />
+    </AvatarsProvider>,
+    // 아바타 표를 앞에 — 뒤의 `/users/:id`(계정 상세)가 `/users/avatars` 를 id 로 잡지 않게.
+    { path: '/settings/agents', handlers: [...av.handlers, ...api.handlers] },
+  )
+  await screen.findByTestId('agent-row-100')
+  return { ...view, ...av }
+}
+
+test('AI 아바타 — 목록·상세에 올린 이미지가 보이고, 바꾸면 자른 영역과 함께 관리자 API 로 올린 뒤 표를 다시 받는다 (WP-1222)', async () => {
+  const { user, writes, listReads } = await renderAgentsWithAvatars([{ userId: 101, avatarUrl: '/api/v1/avatars/101/h' }])
+  // 이미지가 있는 AI(101)는 목록 칸에 이미지(28px → 64 벌), 없는 AI(100)는 첫 글자.
+  await waitFor(() => expect(screen.getByTestId('agent-avatar-101').querySelector('img')).toHaveAttribute('src', '/api/v1/avatars/101/h/64'))
+  expect(screen.getByTestId('agent-avatar-100').querySelector('img')).toBeNull()
+  expect(screen.getByTestId('agent-avatar-100')).toHaveTextContent('내')
+
+  const drawer = await openDrawer(user, 100)
+  const section = within(drawer).getByTestId('agent-avatar-section')
+  expect(within(section).queryByRole('button', { name: '기본으로 되돌리기' })).not.toBeInTheDocument()
+  await user.upload(within(section).getByLabelText('아바타 이미지 파일'), new File(['png'], 'bot.png', { type: 'image/png' }))
+  const img = await screen.findByTestId('avatar-crop-image')
+  Object.defineProperty(img, 'naturalWidth', { value: 300 })
+  Object.defineProperty(img, 'naturalHeight', { value: 500 })
+  fireEvent.load(img)
+  const readsBefore = listReads()
+  await user.click(within(screen.getByTestId('avatar-crop-dialog')).getByRole('button', { name: '저장' }))
+
+  await waitFor(() => expect(writes).toHaveLength(1))
+  // 300×500 의 가운데 정사각 = (0, 100) 에서 300.
+  expect(writes[0]).toEqual({ method: 'PUT', id: 100, fields: { file: 'FILE', cropX: '0', cropY: '100', cropSize: '300' } })
+  expect(await screen.findByText('아바타를 바꿨습니다.')).toBeInTheDocument()
+  // 표를 다시 받아 미리보기·목록이 새 이미지가 된다.
+  await waitFor(() => expect(listReads()).toBeGreaterThan(readsBefore))
+  await waitFor(() =>
+    expect(within(section).getByTestId('agent-avatar-preview').querySelector('img')).toHaveAttribute('src', '/api/v1/avatars/100/new/256'),
+  )
+  expect(within(section).getByRole('button', { name: '기본으로 되돌리기' })).toBeInTheDocument()
+})
+
+test('AI 아바타 — 저장 뒤 표 다시 받기가 실패해도 저장된 것으로 보고 창을 닫는다 (WP-1222)', async () => {
+  const { user, writes, listReads } = await renderAgentsWithAvatars([], {}, true)
+  const drawer = await openDrawer(user, 100)
+  const section = within(drawer).getByTestId('agent-avatar-section')
+  await user.upload(within(section).getByLabelText('아바타 이미지 파일'), new File(['png'], 'bot.png', { type: 'image/png' }))
+  const img = await screen.findByTestId('avatar-crop-image')
+  Object.defineProperty(img, 'naturalWidth', { value: 300 })
+  Object.defineProperty(img, 'naturalHeight', { value: 300 })
+  fireEvent.load(img)
+  const readsBefore = listReads()
+  await user.click(within(screen.getByTestId('avatar-crop-dialog')).getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect(await screen.findByText('아바타를 바꿨습니다.')).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId('avatar-crop-dialog')).not.toBeInTheDocument())
+  expect(listReads()).toBeGreaterThan(readsBefore)
+  expect(screen.queryByText('아바타를 바꾸지 못했습니다.')).not.toBeInTheDocument()
+})
+
+test('AI 아바타 되돌리기 — DELETE 후 첫 글자로 돌아간다 (WP-1222)', async () => {
+  const { user, writes } = await renderAgentsWithAvatars([{ userId: 101, avatarUrl: '/api/v1/avatars/101/h' }])
+  const drawer = await openDrawer(user, 101)
+  const section = within(drawer).getByTestId('agent-avatar-section')
+  await user.click(await within(section).findByRole('button', { name: '기본으로 되돌리기' }))
+  await waitFor(() => expect(writes).toEqual([{ method: 'DELETE', id: 101, fields: {} }]))
+  expect(await screen.findByText('기본 아바타로 되돌렸습니다.')).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByTestId('agent-avatar-101').querySelector('img')).toBeNull())
+  expect(within(section).queryByRole('button', { name: '기본으로 되돌리기' })).not.toBeInTheDocument()
+})
+
+test('개인 비서는 주인 전용이라 아바타 섹션이 없다 (WP-1222)', async () => {
+  const personal: AgentResponse = { ...base, id: 106, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const { user } = await renderAgentsWithAvatars([], { extraAgents: [personal] })
+  const drawer = await openDrawer(user, 106)
+  await within(drawer).findByTestId('agent-keys-block')
+  expect(within(drawer).queryByTestId('agent-avatar-section')).not.toBeInTheDocument()
+  // 일반 AI 에는 있다.
+  await user.keyboard('{Escape}')
+  const other = await openDrawer(user, 100)
+  expect(within(other).getByTestId('agent-avatar-section')).toBeInTheDocument()
 })

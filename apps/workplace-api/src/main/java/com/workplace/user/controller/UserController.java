@@ -6,18 +6,22 @@ import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.global.security.RequireWebSession;
 import com.workplace.user.dto.*;
+import com.workplace.user.service.AvatarService;
 import com.workplace.user.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 /** 사용자 REST API. @Validated 로 쿼리 파라미터 Bean Validation 활성화. */
 @RestController
@@ -28,6 +32,8 @@ public class UserController {
 
   private final UserService userService;
   private final RefreshTokenCookies refreshTokenCookies;
+  // WP-1222 프로필 아바타
+  private final AvatarService avatarService;
 
   /**
    * 구성원(계정) 추가 — 테넌트 ADMIN 셀프서비스.
@@ -59,6 +65,41 @@ public class UserController {
     Long userId = (Long) authentication.getPrincipal();
     userService.updateProfile(userId, request.name(), request.email());
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 내 아바타 바꾸기(WP-1222) — multipart {@code file} + 선택 자를 영역(cropX·cropY·cropSize, 원본 픽셀·정사각). 사람과
+   * AI(에이전트 토큰) 모두 쓴다 — AGENT 역할도 user:write:self 를 가진다.
+   */
+  @PutMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  @RequirePermission("user:write:self")
+  public ResponseEntity<AvatarResponse> updateMyAvatar(
+      Authentication authentication,
+      @RequestPart("file") MultipartFile file,
+      @RequestParam(value = "cropX", required = false) Integer cropX,
+      @RequestParam(value = "cropY", required = false) Integer cropY,
+      @RequestParam(value = "cropSize", required = false) Integer cropSize) {
+    Long userId = (Long) authentication.getPrincipal();
+    String url = avatarService.setAvatar(userId, file, new AvatarCrop(cropX, cropY, cropSize));
+    return ResponseEntity.ok(new AvatarResponse(url));
+  }
+
+  /** 내 아바타를 기본(이니셜·색)으로 되돌린다(WP-1222). */
+  @DeleteMapping("/me/avatar")
+  @RequirePermission("user:write:self")
+  public ResponseEntity<Void> deleteMyAvatar(Authentication authentication) {
+    Long userId = (Long) authentication.getPrincipal();
+    avatarService.deleteAvatar(userId);
+    return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 지금 워크스페이스 구성원(사람·AI) 중 아바타가 있는 사람 목록(WP-1222). 로그인만 필요하다 — 아바타는 화면 곳곳의 이름 옆에 보이므로 구성원 목록 권한과
+   * 무관하게 모두 받는다.
+   */
+  @GetMapping("/avatars")
+  public ResponseEntity<List<UserAvatarResponse>> listAvatars() {
+    return ResponseEntity.ok(avatarService.listWorkspaceAvatars());
   }
 
   /**

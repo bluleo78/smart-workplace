@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import { AvatarPicture } from '@/components/users/AvatarPicture'
 import type { WhatsNewState } from '@/components/whats-new/useWhatsNew'
 import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { useAuth } from '@/hooks/useAuth'
@@ -108,9 +109,13 @@ export function AccountSheet({ open, onOpenChange, whatsNew }: {
       >
         <div aria-hidden className="mx-auto h-1 w-8 rounded-full bg-muted-foreground/30" />
         <div className="flex items-center gap-3 py-2 pr-8">
-          {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(WP-318). */}
-          <Avatar size="lg" style={user ? presenceStyle(user.id) : undefined}>
-            <AvatarFallback className="bg-presence font-semibold text-presence-foreground">{initialOf(displayName)}</AvatarFallback>
+          {/* 내 아바타 — 올린 이미지(WP-1222) 또는 다른 사람 아바타와 같은 사람 색(WP-318) + 이니셜. */}
+          <Avatar size="lg" style={user ? presenceStyle(user.id) : undefined} data-testid="apps-account-sheet-avatar" aria-hidden="true">
+            <AvatarFallback className="bg-presence font-semibold text-presence-foreground">
+              <AvatarPicture userId={user?.id} name={displayName} px={40}>
+                {initialOf(displayName)}
+              </AvatarPicture>
+            </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
             <SheetTitle className="truncate text-base">{displayName}</SheetTitle>
