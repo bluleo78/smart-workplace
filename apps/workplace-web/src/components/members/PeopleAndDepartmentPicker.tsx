@@ -3,7 +3,10 @@
 //   내 그룹 섹션(showPersonalGroups — 스페이스 멤버는 그룹 자체를 멤버로 두지 않아 끈다), AI 에이전트 포함(includeAgents —
 //   스페이스 일을 AI 에게도 맡길 수 있게), data-testid 접두사(testIdPrefix — 기본 share-target 이라 공유 쪽 테스트가 그대로다),
 //   조직도 부서 섹션(onSelectDepartment 를 줄 때만 — 공개 채널 초대(WP-1058)는 부서를 멤버로 둘 수 없어 주지 않고 사람·내 그룹만 보인다).
-// - 사람: 구성원 디렉터리 검색(useUserSearch, 300ms debounce) — 사람 고르기 팝오버(MemberSearchPopover)와 같은 조회·같은 거르기(비활성 제외).
+// - 사람: 구성원 디렉터리 이어 받기(useUserSearchInfinite, 300ms debounce) — 같은 /members 조회지만 이어 받기 캐시 키라
+//   사람 고르기 팝오버(MemberSearchPopover, 한 페이지)와 캐시는 따로다. 거르기(비활성 제외)는 같다. 창이 열렸을 때만 받는다.
+//   20명씩 받고 목록 끝(사람 섹션 끝 sentinel)에 닿으면 다음 20명을 이어 받는다(WP-1225 — 한 페이지만 받아 검색 없이는 21번째부터 닿을 수 없었다).
+//   이미 추가된 사람은 서버 순서 그 자리에 비활성으로 둔다(숨기거나 뒤로 옮기지 않는다 — 아래 personItems 주석).
 //   공유하는 나·공유를 만든 사람(excludeUserIds)은 이미 열 수 있어 후보에서 뺀다. 이름 옆에 소속 부서를 보여 같은 이름을 가른다(WP-1048).
 // - 조직도 부서·내 그룹: 그룹 트리(GET /user-groups, 공유 조직도 + 내 개인 그룹만 온다)를 한 번 받아 브라우저에서 이름·상위 경로로 거른다.
 //   트리를 못 받으면(권한·오류) 그룹 섹션만 빠지고 사람 검색은 그대로 쓴다 — 공유 창 전체를 막지 않는다.
@@ -23,17 +26,18 @@
 
 import { useQueries } from '@tanstack/react-query'
 import { Building2, ChevronRight, Users } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { cn, directionParticle } from '@/lib/utils'
 
 import { userGroupsApi } from '../../api/userGroups'
 import { groupAllMembersQuery } from '../../hooks/queries/useGroupMemberSearch'
 import { userGroupKeys } from '../../hooks/queries/userGroupKeys'
 import { useUserGroups } from '../../hooks/queries/useUserGroups'
-import { useUserSearch } from '../../hooks/queries/useUserSearch'
+import { useUserSearchInfinite } from '../../hooks/queries/useUserSearch'
 import { useDebounceValue } from '../../hooks/useDebounceValue'
 import type { UserGroupMemberHit, UserGroupNode } from '../../types/userGroup'
 import { AgentBadge } from '../users/AgentBadge'
@@ -161,7 +165,17 @@ export function PeopleAndDepartmentPicker({
   const [kind, setKind] = useState<TargetKind>('all')
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const debounced = useDebounceValue(query, 300)
-  const people = useUserSearch(debounced, includeAgents ? 'ALL' : 'HUMAN')
+  // 창이 열렸을 때만 받는다 — 닫혀도 마운트된 채인 창이 포커스·stale 마다 받아 둔 모든 페이지를 다시 받지 않게(WP-1225).
+  const people = useUserSearchInfinite(debounced, includeAgents ? 'ALL' : 'HUMAN', { enabled: open })
+  // 창이 닫히면(안에서 닫든 부모가 open 을 내리든) 이어 받은 사람 페이지를 첫 페이지만 남긴다 — 다시 열 때 받아 둔 페이지를
+  // 모두 차례로 다시 받지 않게(WP-1225). onOpenChange 가 아니라 open 을 지켜봐야 부모가 닫는 경우도 놓치지 않는다.
+  const { trimPickerPages } = people
+  useEffect(() => {
+    if (!open) trimPickerPages()
+  }, [open, trimPickerPages])
+  // 후보 목록(CommandList)의 스크롤 요소 — 사람 섹션 끝 sentinel 의 IntersectionObserver root(useLoadMoreSentinel: 자체 스크롤 목록은
+  // root 를 넘겨야 선행 로드 여유가 먹는다). 팝오버가 열려 목록이 붙은 뒤에 observer 를 걸도록 콜백 ref 를 state 로 받는다.
+  const [listEl, setListEl] = useState<HTMLDivElement | null>(null)
   // 그룹 트리는 검색창을 열 때만 받는다 — 공유 창을 열 때마다(닫힌 검색 버튼만 있어도) 조직도를 받지 않게.
   const groups = useUserGroups(open)
   // 조직도 부서 id — 펼칠 때 하위 포함 구성원을 받을지(부서), 직속 구성원을 받을지(내 그룹) 가른다.
@@ -199,18 +213,16 @@ export function PeopleAndDepartmentPicker({
   // 지금 검색어의 결과가 아니면 사람 줄을 고르지 못하게 한다(조직·그룹은 브라우저에서 바로 걸러 지금 검색어 그대로다).
   const peopleQuery = debounced.trim()
   const peopleFresh = peopleQuery === q
-  // 사람 후보 — 비활성 사용자·나·공유를 만든 사람은 빼고, 이미 지정한 사람은 뒤로(기본 목록 앞줄이 고를 수 없는 행으로 차지 않게).
-  const fetched = people.data?.content ?? []
-  const personItems = fetched
-    .filter((u) => u.isActive !== false && !excludeUserIds.has(u.id))
-    .sort((a, b) => Number(existingUserIds.has(a.id)) - Number(existingUserIds.has(b.id)))
-  // 탭의 사람 수 — 한 번에 20명까지 받는다.
-  // 이번에 다 받았으면 정확한 수, 더 있으면 「20+」 — 받지 않은 쪽에 나·비활성이 있는지 알 수 없어 총원에서 덜어 낼 수 없다.
-  const peopleCount = people.data
-    ? fetched.length >= people.data.totalElements
-      ? String(personItems.length)
-      : `${personItems.length}+`
-    : undefined
+  // 사람 후보 — 비활성 사용자·나·공유를 만든 사람은 빼고, 이미 지정한 사람은 서버 순서 그 자리에 비활성 「(이미 추가됨)」으로 둔다(WP-1225).
+  // 숨기거나 뒤로 옮기지 않는 까닭: 숨기면 이미 추가된 사람이 많을 때 사람 섹션이 비어 sentinel 이 계속 보여 디렉터리 전체를 연달아 받고
+  // (멤버 300/320 이면 빈 섹션으로 16번), 다음 페이지를 못 받으면 그 사람들이 끝내 안 보이며, 탭 수와 보이는 줄 수가 어긋난다.
+  // 자리를 지키면 회색 줄도 자리를 차지해 sentinel 이 끝에 닿을 때만 받는다. 고를 수 있는 사람에 닿는 길은 이어 받기 자체가 보장한다.
+  // 사람 줄을 고를 수 있는지는 existingUserIds 로 가른다 — 렌더(비활성 「이미 추가됨」)와 Enter 첫 후보(selectablePeople) 두 곳이 같은 판정을 쓴다.
+  const morePeople = people.hasNextPage === true
+  const personItems = people.candidates.filter((u) => u.isActive !== false && !excludeUserIds.has(u.id))
+  // 탭의 사람 수 — 보이는 사람 줄 수와 같다. 다 받았으면 정확한 수, 더 받을 게 있으면 지금까지 받은 수에 「+」(WP-1225 — 전에는 한 페이지뿐이라
+  // 늘 「20+」에 머물렀다). 총원(totalElements)을 쓰지 않는 까닭: 받지 않은 쪽에 나·공유를 만든 사람(excludeUserIds)이 있는지 알 수 없다.
+  const peopleCount = people.data ? (morePeople ? `${personItems.length}+` : String(personItems.length)) : undefined
 
   const sharedTree = groups.data?.shared ?? []
   const personalTree = groups.data?.personal ?? []
@@ -291,7 +303,9 @@ export function PeopleAndDepartmentPicker({
   const peopleShown = show('people') ? personItems : []
   const departmentRows = show('departments') ? departments.rows : []
   const personalRows = show('groups') ? personalGroups.rows : []
-  const nothing = peopleShown.length === 0 && departmentRows.length === 0 && personalRows.length === 0
+  // 사람 섹션을 그릴지 — 보일 사람이 없어도 더 받을 게 있으면 그린다(끝 sentinel 이 있어야 이어 받는다 — 받은 쪽이 모두 나·공유를 만든 사람인 경우).
+  const peopleVisible = show('people') && (peopleShown.length > 0 || morePeople)
+  const nothing = !peopleVisible && departmentRows.length === 0 && personalRows.length === 0
 
   /** 펼친 구성원 행을 고를 수 없는 까닭 — 이미 지정한 사람이거나, 그 조직(또는 상위 조직)이 이미 대상이라 이미 열 수 있다. */
   const memberBlock = (row: Extract<GroupRow, { type: 'member' }>, department: boolean): string | null => {
@@ -520,6 +534,9 @@ export function PeopleAndDepartmentPicker({
           </CommandItem>
         )
       })}
+      {/* 목록 끝 sentinel — 닿으면 다음 20명을 받는다(WP-1225). 받은 뒤에도 보이면(고를 사람이 적어 목록이 짧으면) 이어서 받는다.
+          검색어가 있으면 사람 섹션이 맨 위라 조직도 섹션 위에 놓이지만, 그 자리까지 내려야 받으므로 화면 순서대로다. */}
+      <LoadMoreFooter query={people} root={listEl} className="py-1.5" data-testid={tid('people-more')} />
     </CommandGroup>
   )
 
@@ -592,7 +609,7 @@ export function PeopleAndDepartmentPicker({
               </button>
             ))}
           </div>
-          <CommandList label="사람·팀 후보" className="min-h-0">
+          <CommandList ref={setListEl} label="사람·팀 후보" className="min-h-0">
             {nothing &&
               (people.isLoading || groups.isLoading ? (
                 <CommandEmpty>검색 중…</CommandEmpty>
@@ -601,10 +618,10 @@ export function PeopleAndDepartmentPicker({
               ) : (
                 <CommandEmpty>결과가 없습니다</CommandEmpty>
               ))}
-            {peopleQuery && peopleShown.length > 0 && peopleSection}
+            {peopleQuery && peopleVisible && peopleSection}
             {departmentRows.length > 0 && groupSection(departmentRows, true, departments.hidden)}
             {personalRows.length > 0 && groupSection(personalRows, false, personalGroups.hidden)}
-            {!peopleQuery && peopleShown.length > 0 && peopleSection}
+            {!peopleQuery && peopleVisible && peopleSection}
           </CommandList>
         </Command>
         {/* 확인 줄은 줄어들지 않는다 — 좁은 화면에선 후보 목록이 대신 줄어든다. */}

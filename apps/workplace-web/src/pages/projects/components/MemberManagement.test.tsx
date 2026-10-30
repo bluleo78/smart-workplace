@@ -4,6 +4,7 @@
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { useUserSearchInfinite } from '@/hooks/queries/useUserSearch'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { MemberManagement } from './MemberManagement'
@@ -25,9 +26,22 @@ vi.mock('@/hooks/queries/useProjectMembers', () => {
   }
 })
 // picker 는 닫힌 상태라 조회하지 않지만, 훅 자체는 렌더마다 불리므로 빈 결과로 끊는다.
-vi.mock('@/hooks/queries/useUserSearch', () => ({
-  useUserSearch: () => ({ isLoading: false, isError: false, data: { content: [] } }),
-}))
+// 이어 받기 훅 stub — satisfies 로 실제 반환 모양과 어긋나면(필드 이름 변경 등) 타입 검사에서 걸리게 한다.
+// trimPickerPages 는 한 번만 만들어 창 닫힘 effect 가 렌더마다 다시 돌지 않게 한다.
+vi.mock('@/hooks/queries/useUserSearch', () => {
+  const infinite = {
+    isLoading: false,
+    isError: false,
+    data: undefined,
+    candidates: [],
+    hasNextPage: false,
+    trimPickerPages: () => {},
+  } satisfies Partial<ReturnType<typeof useUserSearchInfinite>>
+  return {
+    useUserSearch: () => ({ isLoading: false, isError: false, data: { content: [] } }),
+    useUserSearchInfinite: () => infinite,
+  }
+})
 
 describe('MemberManagement — 개인/팀 프로젝트 모드', () => {
   beforeEach(() => {

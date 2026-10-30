@@ -2,9 +2,11 @@
 // ▸ 로 하위 부서까지 구성원 펼치기, 확인 뒤 제거), 사람·조직 공통 선택 창으로 부서 추가(payload: role MEMBER 고정)·사람 추가(고른 역할),
 // 내 그룹은 구성원을 한 명씩 펼쳐 더하기, 실효 멤버 목록 중 부서로만 들어온 사람(direct=false)은 표에 사람 행으로 보이지 않기,
 // 그리고 담당자 후보에는 부서로 들어온 사람도 들어가는지를 MSW 로 본다. 개인/팀 모드 분기는 MemberManagement.test.tsx 가 본다.
-import { screen, waitFor, within } from '@testing-library/react'
+// 선택 창의 사람 이어 받기(WP-1225 — 목록 끝에 닿으면 다음 20명, 다 받으면 탭 수가 정확한 수)도 여기서 본다. 실제 스크롤로 끝에 닿는 것은
+// E2E(e2e/pages/projects/member-picker-scroll.spec.ts, @layout)가 맡는다.
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { MemberResponse, ProjectMemberGroup } from '@/types/project'
@@ -52,7 +54,13 @@ const DEV: ProjectMemberGroup = { groupId: 10, name: '개발팀', role: 'MEMBER'
  * 나(1, 소유자)·김하나(2, 직접 멤버), 부서로만 들어온 한지수(7, direct=false)가 실효 멤버인 팀 프로젝트의 멤버 섹션을 띄운다.
  * 받은 쓰기 요청을 모으고, 쓰면 서버 상태를 바꿔 다시 받은 목록이 반영되게 한다.
  */
-function openSection(initialGroups: ProjectMemberGroup[] = [], canManage = true, openProject = false) {
+function openSection(
+  initialGroups: ProjectMemberGroup[] = [],
+  canManage = true,
+  openProject = false,
+  /** 구성원 디렉터리(/members) 응답을 바꿀 때 — 이어 받기 판정(WP-1225)이 페이지별 응답을 준다. */
+  directory?: Parameters<typeof http.get>[1],
+) {
   let groups = [...initialGroups]
   let members: MemberResponse[] = [
     member(1, '나', 'OWNER', true),
@@ -86,14 +94,14 @@ function openSection(initialGroups: ProjectMemberGroup[] = [], canManage = true,
         members = members.filter((m) => m.direct !== false)
         return new HttpResponse(null, { status: 204 })
       }),
-      http.get('/api/v1/members', () => {
+      http.get('/api/v1/members', directory ?? (() => {
         const content = [
           createMember({ userId: 2, username: 'hana', name: '김하나' }),
           createMember({ userId: 8, username: 'yujin', name: '최유진', department: '디자인팀' }),
           createMember({ userId: 50, username: 'ai-dev', name: 'AI 개발자1', kind: 'AGENT' }),
         ]
         return HttpResponse.json({ content, page: 0, size: 20, totalElements: content.length, totalPages: 1 })
-      }),
+      })),
       http.get('/api/v1/user-groups', () => HttpResponse.json(TREE)),
       http.get('/api/v1/user-groups/:id/members/search', ({ params }) => HttpResponse.json(SUBTREE[Number(params.id)] ?? [])),
       http.get('/api/v1/user-groups/:id', () => HttpResponse.json(STUDY)),
@@ -255,5 +263,133 @@ describe('프로젝트 멤버 — 조직도 부서(WP-1057)', () => {
     })
     expect(await screen.findByText('멤버가 없습니다')).toBeInTheDocument()
     expect(screen.queryByTestId('member-groups-error')).not.toBeInTheDocument()
+  })
+})
+
+describe('프로젝트 멤버 추가 창 — 사람 이어 받기(WP-1225)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** IntersectionObserver 를 기록해 두고, 지금 붙어 있는 sentinel 에 「화면에 들어옴」을 보내는 함수를 돌려준다(userList.test 와 같은 방식). */
+  function stubIntersection() {
+    const observers: Array<{ cb: IntersectionObserverCallback; nodes: Element[] }> = []
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        private entry: { cb: IntersectionObserverCallback; nodes: Element[] }
+        constructor(cb: IntersectionObserverCallback) {
+          this.entry = { cb, nodes: [] }
+          observers.push(this.entry)
+        }
+        observe(node: Element) {
+          this.entry.nodes.push(node)
+        }
+        unobserve() {}
+        disconnect() {
+          this.entry.nodes = []
+        }
+        takeRecords() {
+          return []
+        }
+      },
+    )
+    return () =>
+      act(() => {
+        for (const o of observers)
+          for (const target of o.nodes) o.cb([{ isIntersecting: true, target } as IntersectionObserverEntry], {} as IntersectionObserver)
+      })
+  }
+
+  /** 페이지별 디렉터리 응답 — 받은 요청의 page·size·kind·search 를 모은다. */
+  function pagedDirectory(pages: ReturnType<typeof createMember>[][], totalElements: number) {
+    const requests: { page: string | null; size: string | null; kind: string | null; search: string | null }[] = []
+    const handler: Parameters<typeof http.get>[1] = ({ request }) => {
+      const sp = new URL(request.url).searchParams
+      requests.push({ page: sp.get('page'), size: sp.get('size'), kind: sp.get('kind'), search: sp.get('search') })
+      const n = Number(sp.get('page') ?? 0)
+      return HttpResponse.json({ content: pages[n] ?? [], page: n, size: 20, totalElements, totalPages: pages.length })
+    }
+    return { handler, requests }
+  }
+
+  const people = (from: number, count: number) =>
+    Array.from({ length: count }, (_, i) => createMember({ userId: from + i, username: `p${from + i}`, name: `구성원${from + i}` }))
+
+  test('검색어 없이 사람 목록 끝에 닿으면 다음 20명을 받아 이어 붙이고, 다 받으면 탭 수가 「N+」에서 정확한 수가 된다', async () => {
+    const intersect = stubIntersection()
+    // 첫 페이지: 이미 멤버인 김하나(2) + 19명. 둘째 페이지: 2명 + AI 개발자7(에이전트) — 예전엔 둘째 페이지를 받을 길이 없었다.
+    const { handler, requests } = pagedDirectory(
+      [
+        [createMember({ userId: 2, username: 'hana', name: '김하나' }), ...people(100, 19)],
+        [...people(119, 2), createMember({ userId: 200, username: 'ai-dev7', name: 'AI 개발자7', kind: 'AGENT' })],
+      ],
+      23,
+    )
+    const { user } = openSection([], true, false, handler)
+    await openPicker(user)
+    expect(await screen.findByTestId('project-member-picker-person-100')).toBeInTheDocument()
+    // 아직 더 있다 — 받은 수(20)에 「+」.
+    expect(screen.getByTestId('project-member-picker-tab-people')).toHaveTextContent('사람20+')
+    expect(screen.queryByTestId('project-member-picker-person-200')).not.toBeInTheDocument()
+    // 이미 추가된 김하나는 서버 순서 그 자리(첫 줄)에 비활성으로 — 숨기지 않아 탭 수(20+)와 보이는 줄 수가 같다.
+    const firstRows = within(screen.getByTestId('project-member-picker-people')).getAllByRole('option')
+    expect(firstRows).toHaveLength(20)
+    expect(firstRows[0]).toHaveAttribute('data-testid', 'project-member-picker-person-2')
+    expect(firstRows[0]).toHaveAttribute('aria-disabled', 'true')
+    expect(firstRows[0]).toHaveTextContent('(이미 추가됨)')
+    expect(requests).toEqual([{ page: '0', size: '20', kind: 'ALL', search: '' }])
+
+    intersect()
+    expect(await screen.findByTestId('project-member-picker-person-200')).toHaveTextContent('AI 개발자7')
+    expect(requests.at(-1)).toEqual({ page: '1', size: '20', kind: 'ALL', search: '' })
+    // 다 받았다 — 정확한 수, 더 받을 sentinel 은 없다.
+    await waitFor(() => expect(screen.getByTestId('project-member-picker-tab-people')).toHaveTextContent(/^사람23$/))
+    expect(screen.queryByTestId('project-member-picker-people-more')).not.toBeInTheDocument()
+    // 이어 받은 사람은 아래에 붙고, 김하나는 그대로 첫 줄 비활성(뒤로 옮기지 않는다).
+    const rows = within(screen.getByTestId('project-member-picker-people')).getAllByRole('option')
+    expect(rows).toHaveLength(23)
+    expect(rows[0]).toHaveAttribute('data-testid', 'project-member-picker-person-2')
+    expect(rows[0]).toHaveAttribute('aria-disabled', 'true')
+    expect(rows.at(-1)).toHaveAttribute('data-testid', 'project-member-picker-person-200')
+  })
+
+  test('받은 사람이 모두 이미 추가된 사람이면 비활성 줄로 보이고, 끝 sentinel 로 다음 페이지를 이어 받는다', async () => {
+    const intersect = stubIntersection()
+    const { handler, requests } = pagedDirectory(
+      [[createMember({ userId: 2, username: 'hana', name: '김하나' })], [createMember({ userId: 8, username: 'yujin', name: '최유진' })]],
+      2,
+    )
+    const { user } = openSection([], true, false, handler)
+    await openPicker(user)
+    // 이미 추가된 김하나는 숨지 않고 비활성 줄로, 그 아래 이어 받을 자리가 있다.
+    expect(await screen.findByTestId('project-member-picker-person-2')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByTestId('project-member-picker-people-more')).toBeInTheDocument()
+    expect(screen.queryByText('결과가 없습니다')).not.toBeInTheDocument()
+    intersect()
+    expect(await screen.findByTestId('project-member-picker-person-8')).toHaveAttribute('aria-disabled', 'false')
+    expect(requests.map((r) => r.page)).toEqual(['0', '1'])
+    await waitFor(() => expect(screen.getByTestId('project-member-picker-tab-people')).toHaveTextContent(/^사람2$/))
+  })
+
+  test('창이 닫혀 있으면 사람 목록을 받지 않고, 끝까지 받은 뒤 닫았다 다시 열면 첫 페이지만 다시 받는다', async () => {
+    const intersect = stubIntersection()
+    const { handler, requests } = pagedDirectory([people(100, 20), people(120, 2)], 22)
+    const { user } = openSection([], true, false, handler)
+    // 닫힌 창은 조회하지 않는다 — 닫혀도 마운트된 창이 받아 둔 페이지를 모두 다시 받지 않게.
+    await screen.findByTestId('member-add-trigger')
+    expect(requests).toEqual([])
+    await openPicker(user)
+    await screen.findByTestId('project-member-picker-person-100')
+    intersect()
+    await screen.findByTestId('project-member-picker-person-121')
+    expect(requests.map((r) => r.page)).toEqual(['0', '1'])
+    // 닫으면 받아 둔 페이지를 첫 페이지만 남긴다 — 다시 열어도 둘째 페이지까지 차례로 다시 받지 않고, 이어 받을 자리가 다시 생긴다.
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByLabelText('사람·팀 검색')).not.toBeInTheDocument())
+    await openPicker(user)
+    expect(await screen.findByTestId('project-member-picker-people-more')).toBeInTheDocument()
+    expect(screen.queryByTestId('project-member-picker-person-121')).not.toBeInTheDocument()
+    expect(requests.map((r) => r.page).filter((p) => p === '1')).toHaveLength(1)
   })
 })
