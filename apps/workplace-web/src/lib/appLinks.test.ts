@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { appLinksOf, cardUrls, currentAppHosts, parseAppLink, setPublicAppHost, visibleAppLinks } from './appLinks'
+import { appLinksOf, cardUrls, currentAppHosts, issuePath, parseAppLink, setPublicAppHost, visibleAppLinks } from './appLinks'
 
 // 서버 LinkPreviewDispatcherTest 와 함께 읽는 앱 카드 주소 사례 표(WP-1165) — 두 쪽 경로 문법·자릿수 상한이 어긋나면 한쪽이 실패한다.
 const SHARED_TABLE = JSON.parse(
@@ -107,5 +107,11 @@ describe('공개 웹 주소 호스트(WP-1165)', () => {
   it('공개 호스트가 지금 호스트와 같으면 하나만 둔다', () => {
     setPublicAppHost('10.0.0.5')
     expect(currentAppHosts()).toEqual(['10.0.0.5'])
+  })
+})
+
+describe('issuePath', () => {
+  it('이슈 화면 주소', () => {
+    expect(issuePath('WP', 12)).toBe('/projects/WP/issues/12')
   })
 })

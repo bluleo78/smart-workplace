@@ -53,28 +53,7 @@ export function AppLinkCard({ messageId, index, link }: { messageId: number; ind
 }
 
 function CardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
-  if (data.kind === 'ISSUE') {
-    const people = (data.assignees ?? []).map((a) => a.name).join(', ')
-    const meta = [people, data.priority ? `우선순위 ${priorityLabel(data.priority)}` : ''].filter(Boolean).join(' · ')
-    return (
-      <>
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <SquareKanban className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>이슈</span>
-          <span className="font-mono text-foreground" data-testid={`${testId}-key`}>
-            {data.issueKey}
-          </span>
-          {data.statusCategory && (
-            <IssueStatusBadge status={data.statusCategory as IssueStatus} name={data.statusName} className="max-w-32" />
-          )}
-        </div>
-        <div className="mt-0.5 line-clamp-2 font-semibold text-primary [overflow-wrap:anywhere]" data-testid={`${testId}-title`}>
-          {data.title}
-        </div>
-        {meta && <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</div>}
-      </>
-    )
-  }
+  if (data.kind === 'ISSUE') return <IssueCardBody data={data} testId={testId} />
   if (data.kind === 'PAGE') {
     return (
       <>
@@ -98,5 +77,29 @@ function CardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/** 이슈 카드 칸(키·상태·제목·담당자·우선순위) — 채팅 앱 링크 카드와 본문 이슈 키 미리보기(WP-1237)가 같은 모양을 쓴다. */
+export function IssueCardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
+  const people = (data.assignees ?? []).map((a) => a.name).join(', ')
+  const meta = [people, data.priority ? `우선순위 ${priorityLabel(data.priority)}` : ''].filter(Boolean).join(' · ')
+  return (
+    <>
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <SquareKanban className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span>이슈</span>
+        <span className="font-mono text-foreground" data-testid={`${testId}-key`}>
+          {data.issueKey}
+        </span>
+        {data.statusCategory && (
+          <IssueStatusBadge status={data.statusCategory as IssueStatus} name={data.statusName} className="max-w-32" />
+        )}
+      </div>
+      <div className="mt-0.5 line-clamp-2 font-semibold text-primary [overflow-wrap:anywhere]" data-testid={`${testId}-title`}>
+        {data.title}
+      </div>
+      {meta && <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</div>}
+    </>
   )
 }

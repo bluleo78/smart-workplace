@@ -81,6 +81,8 @@ routes: [/projects, /projects/:key, /projects/:key/settings, /projects/:key/cycl
 
 코멘트에서 「@」 를 입력하고 이름을 이어 쓰면 동료를 멘션합니다. 멘션된 동료에게는 알림이 갑니다.
 
+코멘트에 `WP-12` 처럼 내가 속한 프로젝트의 이슈 키를 쓰면 그 이슈로 가는 링크가 됩니다. 링크에 마우스를 올리면(휴대폰은 누르면) 제목·상태·담당자가 미리 보입니다. 자세한 내용은 5장을 봅니다.
+
 ### 상태를 바꾼다
 
 ![상태 목록](shots/user/work-6.png){crop=status+list marks=status,list@l}

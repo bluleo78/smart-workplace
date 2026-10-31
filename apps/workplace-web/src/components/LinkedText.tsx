@@ -1,6 +1,6 @@
 // 평문 안의 URL 을 새 탭 링크로 그리는 공용 컴포넌트 — 채팅 본문(WP-874)·캘린더 일정 설명이 같이 쓴다.
 // 어떤 문자열을 링크로 볼지는 규칙 묶음(lib/textLinks 의 CHAT_LINK_RULES·CALENDAR_LINK_RULES)이 정한다.
-import { type MouseEvent, type ReactNode, useMemo } from 'react'
+import { Fragment, type MouseEvent, type ReactNode, useMemo } from 'react'
 
 import { CHAT_LINK_RULES, type LinkRules, splitLinks } from '@/lib/textLinks'
 
@@ -37,14 +37,27 @@ export function TextLink({
   )
 }
 
-/** 평문 한 조각 — URL 만 링크로 바꾸고 나머지(줄바꿈 포함)는 그대로 둔다. 기본 규칙은 채팅. */
-export function LinkedText({ text, rules = CHAT_LINK_RULES, linkTestId }: { text: string; rules?: LinkRules; linkTestId?: string }) {
+/**
+ * 평문 한 조각 — URL 만 링크로 바꾸고 나머지(줄바꿈 포함)는 그대로 둔다. 기본 규칙은 채팅.
+ * renderPlain 을 주면 URL 이 아닌 글자 조각을 그 함수로 그린다 — 채팅 본문의 이슈 키 링크(WP-1237)가 URL 안의 「WP-12」를 건드리지 않게.
+ */
+export function LinkedText({
+  text,
+  rules = CHAT_LINK_RULES,
+  linkTestId,
+  renderPlain,
+}: {
+  text: string
+  rules?: LinkRules
+  linkTestId?: string
+  renderPlain?: (text: string, key: string) => ReactNode
+}) {
   const segments = useMemo(() => splitLinks(text, rules), [text, rules])
   return (
     <>
       {segments.map((s, i) =>
         s.type === 'text' ? (
-          s.text
+          renderPlain ? <Fragment key={i}>{renderPlain(s.text, `p${i}`)}</Fragment> : s.text
         ) : (
           <TextLink key={i} href={s.href} testId={linkTestId}>
             {s.text}

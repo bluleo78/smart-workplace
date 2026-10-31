@@ -44,6 +44,11 @@ function isAppHost(hostname: string, appHosts: AppHosts): boolean {
   return h !== '' && appHosts.includes(h)
 }
 
+/** 이슈 화면 주소 — 앱 링크 판정(parseAppLink)과 본문 이슈 키 링크(IssueKeyRef)가 같은 경로를 쓰도록 한 곳에 둔다. */
+export function issuePath(projectKey: string, number: number): string {
+  return `/projects/${projectKey}/issues/${number}`
+}
+
 /**
  * URL 하나를 앱 링크로 읽는다. 경로 문법은 서버 LinkPreviewDispatcher.isAppCardUrl 과 같아야 한다 — 두 쪽 테스트가 같은 사례 표
  * (workplace-api 의 test/resources/app-links/app-card-urls.json)를 읽어 어긋나면 실패한다. 호스트가 appHosts 와 같고(포트 무관 — 서버의 OG 제외와 같은 기준) 경로가 이슈·노트·파일 화면일 때만.
@@ -63,7 +68,9 @@ export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
   if (parts.length === 4 && parts[0] === 'projects' && parts[2] === 'issues' && ISSUE_NUMBER.test(parts[3])) {
     const key = parts[1].toUpperCase()
     if (!PROJECT_KEY_RE.test(key)) return null
-    return { kind: 'ISSUE', to: `/projects/${key}/issues/${parts[3]}`, key, number: Number(parts[3]) }
+    // ISSUE_NUMBER 가 0 으로 시작하는 번호를 막으므로 Number 로 바꿔도 주소 글자는 같다.
+    const number = Number(parts[3])
+    return { kind: 'ISSUE', to: issuePath(key, number), key, number }
   }
   if (parts[0] === 'wiki') {
     const spacePage = parts.length === 5 && parts[1] === 'spaces' && ID.test(parts[2]) && parts[3] === 'pages' && ID.test(parts[4])

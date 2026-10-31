@@ -21,6 +21,7 @@ import {
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
 import { ReadReceipts } from '@/components/chat/ReadReceipts'
+import { renderIssueKeyRef } from '@/components/issues/renderIssueKeyRef'
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown'
 import type { RenderMention } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
@@ -293,11 +294,11 @@ export function MessageRow({
         '(삭제됨)'
       ) : m.authorKind === 'AGENT' ? (
         // #356: AI(에이전트) 메시지는 마크다운 렌더. 멘션은 사람 글과 같은 칩(WP-1009).
-        <MarkdownMessage mentions={m.mentions} renderMention={renderMention}>{m.body}</MarkdownMessage>
+        <MarkdownMessage mentions={m.mentions} renderMention={renderMention} renderIssueRef={renderIssueKeyRef}>{m.body}</MarkdownMessage>
       ) : (
         // 사람 메시지 — 채팅 마크다운 부분집합(굵게·목록·코드 등, WP-101). 서식 없는 예전 평문은 예전과 같게 보인다.
-        // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩.
-        <ChatMarkdownText body={m.body} mentions={m.mentions} linkTestId="chat-link" renderMention={renderMention} />
+        // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩, 평문 이슈 키는 이슈 링크 + 미리보기(WP-1237).
+        <ChatMarkdownText body={m.body} mentions={m.mentions} linkTestId="chat-link" renderMention={renderMention} renderIssueRef={renderIssueKeyRef} />
       )}
       {/* 수정됨 표시 — 본문 끝에 인라인(본인은 말풍선 안). 삭제됨 메시지는 제외.
           whitespace-nowrap: 말풍선의 wrap-anywhere 때문에 '(수정'/'됨)' 으로 쪼개지는 것을 막는다. */}

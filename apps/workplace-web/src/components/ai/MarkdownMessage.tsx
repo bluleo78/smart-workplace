@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { mentionSeg, parseMessageSegments, type RenderMention } from '@/components/mentions/parseMessageSegments'
 import type { MentionUser } from '@/components/mentions/types'
 import { chatLinkSessionId, isInternalHref, withChatParam } from '@/lib/aiChatLink'
+import { mayContainIssueKey, type RenderIssueRef, splitIssueKeys } from '@/lib/issueKeyRefs'
 import { cn } from '@/lib/utils'
 
 const REMARK_PLUGINS = [remarkGfm]
@@ -59,7 +60,48 @@ function splitMentionTokens(node: HastNode) {
     )
   })
 }
-const MENTION_REHYPE_PLUGINS = [...REHYPE_PLUGINS, () => splitMentionTokens]
+
+// 이슈 키를 찾지 않는 요소 — 코드(code·pre)·링크(a, remark-gfm 이 맨 URL 도 a 로 만든다) 안의 글자는 그대로 둔다.
+// 멘션 칩 자리(mention)는 글자 자식이 없어 따로 막지 않는다.
+const ISSUE_KEY_SKIP_TAGS = new Set(['code', 'pre', 'a'])
+
+/**
+ * 평문 이슈 키(「WP-12」)를 이슈 키 자리(전용 요소 issueref)로 나눈다(WP-1237). 링크·미리보기는 호출자가 그린다(renderIssueRef).
+ * 보이는 프로젝트인지는 그리는 쪽이 정한다 — 여기서는 모양만 본다.
+ */
+function splitIssueKeyTokens(node: HastNode) {
+  if (ISSUE_KEY_SKIP_TAGS.has(node.tagName ?? '') || !node.children) return
+  node.children = node.children.flatMap((c) => {
+    if (c.type !== 'text' || !c.value) {
+      splitIssueKeyTokens(c)
+      return [c]
+    }
+    // 글자 조각마다 정확히 나눈다 — 키가 없으면(null) 원래 노드를 그대로 둔다.
+    const segs = splitIssueKeys(c.value)
+    if (!segs) return [c]
+    return segs.map((seg): HastNode =>
+      seg.type === 'text'
+        ? { type: 'text', value: seg.text }
+        : {
+            type: 'element',
+            tagName: 'issueref',
+            properties: { dataProjectKey: seg.projectKey, dataNumber: seg.number, dataText: seg.text },
+            children: [],
+          },
+    )
+  })
+}
+const splitMentionPlugin = () => splitMentionTokens
+const splitIssueKeyPlugin = () => splitIssueKeyTokens
+
+/** 쓸 rehype 단계 묶음 — 멘션·이슈 키 나누기는 본문에 그 글자가 있을 수 있을 때만 끼운다(useMemo 로 조합이 바뀔 때만 새 배열). */
+function rehypePluginsFor(withMention: boolean, withIssue: boolean) {
+  return [
+    ...REHYPE_PLUGINS,
+    ...(withMention ? [splitMentionPlugin] : []),
+    ...(withIssue ? [splitIssueKeyPlugin] : []),
+  ]
+}
 
 /** 목록 클래스 — 체크리스트(contains-task-list)면 불릿 없이 얕게, 아니면 지정한 불릿 스타일. */
 function listClass(className: string | undefined, marker: string): string {
@@ -190,6 +232,7 @@ export function MarkdownMessage({
   onPageLink,
   mentions,
   renderMention,
+  renderIssueRef,
 }: {
   children: string
   className?: string
@@ -197,6 +240,8 @@ export function MarkdownMessage({
   /** WP-1009: 채팅의 AI 글·이슈 코멘트(WP-1093) — 멘션 토큰 <@id> 를 사람 글과 같은 칩으로 그린다(이름·종류는 mentions). 없으면 토큰을 다루지 않는다. */
   mentions?: MentionUser[]
   renderMention?: RenderMention
+  /** WP-1237: 채팅의 AI 글·이슈 코멘트 — 코드·링크·멘션 밖의 평문 이슈 키(「WP-12」)를 이 함수로 그린다. 없으면 글자 그대로. */
+  renderIssueRef?: RenderIssueRef
   /** WP-384: AI 답 — 같은 출처 상대 경로를 같은 탭 라우터 링크로(AIChatPanel 이 켠다). 다른 호출자는 이전처럼 모두 새 탭. */
   internalLinks?: boolean
   /** WP-384: 답 안 다른 화면 링크로 이동하기 직전 — 전체 화면 AI 를 내린다(AIChatPanel). */
@@ -215,11 +260,29 @@ export function MarkdownMessage({
             renderMention(mentionSeg(mentionById, Number(node?.properties?.dataMentionId)), 'm'),
         } as Components)
       : withImage
-    const withLinks: Components = internalLinks
-      ? { ...withMentions, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
+    // issueref 도 splitIssueKeyTokens 가 만든 전용 요소다.
+    const withIssueRefs: Components = renderIssueRef
+      ? ({
+          ...withMentions,
+          issueref: ({ node }: { node?: { properties?: Record<string, unknown> } }) => {
+            const p = node?.properties ?? {}
+            return renderIssueRef(
+              { type: 'issue', text: String(p.dataText), projectKey: String(p.dataProjectKey), number: Number(p.dataNumber) },
+              'i',
+            )
+          },
+        } as Components)
       : withMentions
+    const withLinks: Components = internalLinks
+      ? { ...withIssueRefs, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
+      : withIssueRefs
     return withLinks
-  }, [renderImage, internalLinks, onPageLink, mentionById, renderMention])
+  }, [renderImage, internalLinks, onPageLink, mentionById, renderMention, renderIssueRef])
+  const withMention = !!renderMention && children.includes('<@')
+  // 이슈 키가 있을 수도 없으면 나누기 단계를 끼우지 않는다(대부분의 글). 원문은 서식 기호(`_WP-12_`)가 섞여 있어
+  // 경계를 보지 않는 느슨한 후보로만 거른다 — 정확한 판정은 글자 조각마다 splitIssueKeyTokens 가 한다.
+  const withIssue = !!renderIssueRef && mayContainIssueKey(children)
+  const rehypePlugins = useMemo(() => rehypePluginsFor(withMention, withIssue), [withMention, withIssue])
   return (
     <div
       data-testid="markdown-content"
@@ -228,7 +291,7 @@ export function MarkdownMessage({
     >
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={renderMention && children.includes('<@') ? MENTION_REHYPE_PLUGINS : REHYPE_PLUGINS}
+        rehypePlugins={rehypePlugins}
         components={components}
       >
         {children}
