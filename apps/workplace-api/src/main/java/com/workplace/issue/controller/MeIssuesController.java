@@ -18,8 +18,9 @@ public class MeIssuesController {
   private final IssueSearchService issueSearchService;
 
   /**
-   * GET /api/v1/me/issues — params 는 per-project 검색과 동일(assignee=me 권장). 인증 필요, 추가 권한 없음(멤버십으로
-   * 스코프).
+   * GET /api/v1/me/issues — params 는 per-project 검색과 동일(assignee=me 권장,
+   * sort·direction·startFrom·updatedFrom 등 WP-1238 포함 — sort 는 group 과 함께 쓸 수 없다). 인증 필요, 추가 권한
+   * 없음(멤버십으로 스코프).
    */
   @GetMapping("/api/v1/me/issues")
   public ResponseEntity<IssueSearchResponse> mine(

@@ -57,7 +57,25 @@ describe('rememberedIssueQuery', () => {
   })
 })
 
+describe('rememberedIssueQuery — 정렬(WP-1238)', () => {
+  it('정렬(sort·direction)도 기억하고, 모르는 기준은 버린다', () => {
+    expect(rememberedIssueQuery(new URLSearchParams('view=board&sort=dueDate&direction=asc')).toString())
+      .toBe('view=board&sort=dueDate&direction=asc')
+    expect(rememberedIssueQuery(new URLSearchParams('sort=title&direction=asc')).toString()).toBe('')
+  })
+})
+
 describe('useRememberedIssueQuery', () => {
+  it('정렬만 고른 화면도 기억했다가, 조건 없이 다시 들어오면 그 정렬로 되살린다(WP-1238)', () => {
+    const { result } = renderAt('/projects/WP')
+    act(() => result.current.setParams(new URLSearchParams('sort=priority&direction=desc'), { replace: true }))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('sort=priority&direction=desc')
+    act(() => result.current.navigate('/projects/WP'))
+    const s = searchOf(result)
+    expect(s.get('sort')).toBe('priority')
+    expect(s.get('direction')).toBe('desc')
+  })
+
   it('주소에 조건이 없으면 기억한 조건으로 되살리고, 다른 쿼리는 그대로 둔다', () => {
     localStorage.setItem(keyOf('WP'), 'view=board&priority=HIGH')
     const { result } = renderAt('/projects/WP?aiChat=1')

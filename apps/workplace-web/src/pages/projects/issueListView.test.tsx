@@ -276,3 +276,103 @@ describe('사용자 정의 상태 (WP-808)', () => {
     expect(screen.queryByTestId('list-group-TODO')).not.toBeInTheDocument()
   })
 })
+
+// WP-1238: 정렬 — 열 머리 클릭(오름차순 → 내림차순 → 기본)과 필터 막대 「⇅ 정렬」 칩 메뉴가 같은 URL(sort·direction)과 검색 파라미터를 쓴다.
+describe('정렬 (WP-1238)', () => {
+  /** 이슈 본문 목록 검색(에픽 패널 조회 제외 — 그쪽은 정렬을 싣지 않는다)의 마지막 정렬 파라미터. */
+  const lastSort = (api: ReturnType<typeof openList>['api']) => {
+    const u = api.lastBodySearch()
+    return u ? `${u.searchParams.get('sort')}/${u.searchParams.get('direction')}` : null
+  }
+
+  test('정렬 없이 열면 sort·direction 을 보내지 않고, 칩은 「정렬」만 보인다', async () => {
+    const { api } = openList([createIssue({ number: 7 })])
+    await screen.findByTestId('issue-row-7')
+    expect(api.searches.every((u) => !u.searchParams.has('sort') && !u.searchParams.has('direction'))).toBe(true)
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent(/^정렬$/)
+  })
+
+  test('「마감」 머리를 누르면 오름차순 → 내림차순 → 기본으로 돌고, 검색·URL·aria-sort·칩이 따라간다', async () => {
+    const { user, api, location } = openList([createIssue({ number: 7 })])
+    await screen.findByTestId('issue-row-7')
+    const head = screen.getByTestId('issue-sort-head-dueDate')
+    const th = head.closest('th')!
+    expect(th).not.toHaveAttribute('aria-sort')
+
+    await user.click(head)
+    await waitFor(() => expect(lastSort(api)).toBe('dueDate/asc'))
+    expect(location()).toMatch(/sort=dueDate&direction=asc/)
+    expect(th).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent('정렬: 마감일 ↑')
+
+    await user.click(head)
+    await waitFor(() => expect(lastSort(api)).toBe('dueDate/desc'))
+    expect(th).toHaveAttribute('aria-sort', 'descending')
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent('정렬: 마감일 ↓')
+
+    await user.click(head)
+    await waitFor(() => expect(location()).not.toMatch(/sort=/))
+    expect(th).not.toHaveAttribute('aria-sort')
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent(/^정렬$/)
+  })
+
+  test('아이콘 열(상태)의 머리도 정렬 단추이고, 다른 열을 누르면 그 열 오름차순으로 바뀐다', async () => {
+    const { user, api } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?sort=dueDate&direction=desc` })
+    await screen.findByTestId('issue-row-7')
+    expect(lastSort(api)).toBe('dueDate/desc')
+    // 머리 단추는 화살표만 보이고 이름은 sr-only 「상태」 — 표 머리 안에서 이름으로 찾는다(필터 칩 「상태」와 구분).
+    await user.click(within(screen.getByRole('table').querySelector('thead')!).getByRole('button', { name: '상태' }))
+    await waitFor(() => expect(lastSort(api)).toBe('status/asc'))
+    expect(screen.getByTestId('issue-sort-head-status').closest('th')).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByTestId('issue-sort-head-dueDate').closest('th')).not.toHaveAttribute('aria-sort')
+  })
+
+  test('칩 메뉴에서 기준·방향을 고르면 검색에 실리고, 「기본으로」는 정렬을 지운다', async () => {
+    const { user, api, location } = openList([createIssue({ number: 7 })])
+    await screen.findByTestId('issue-row-7')
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    await user.click(await screen.findByTestId('issue-sort-key-priority'))
+    await waitFor(() => expect(lastSort(api)).toBe('priority/asc'))
+    // 메뉴는 열린 채라 이어서 방향을 바꾼다.
+    await user.click(screen.getByTestId('issue-sort-direction-desc'))
+    await waitFor(() => expect(lastSort(api)).toBe('priority/desc'))
+    expect(location()).toMatch(/sort=priority&direction=desc/)
+    await user.click(screen.getByTestId('issue-sort-reset'))
+    await waitFor(() => expect(location()).not.toMatch(/sort=|direction=/))
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent(/^정렬$/)
+  })
+
+  test('기본 상태 메뉴는 수정일·내림차순에 체크돼 있고, 내림차순을 다시 골라도 주소에 정렬이 생기지 않는다', async () => {
+    const { user, location } = openList([createIssue({ number: 7 })])
+    await screen.findByTestId('issue-row-7')
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    expect(await screen.findByTestId('issue-sort-key-updatedAt')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByTestId('issue-sort-direction-desc')).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByTestId('issue-sort-direction-desc'))
+    expect(location()).not.toMatch(/sort=|direction=/)
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent(/^정렬$/)
+  })
+
+  test('정렬만 걸린 0건은 필터 빈 상태가 아니라 「이슈가 없습니다」, 「필터 지우기」도 나오지 않는다', async () => {
+    openList([], { path: `/projects/${KEY}?sort=createdAt&direction=asc` })
+    expect(await screen.findByTestId('empty-no-issues')).toBeInTheDocument()
+    expect(screen.queryByTestId('empty-filter')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('quick-filter-clear-all')).not.toBeInTheDocument()
+  })
+
+  test('「필터 지우기」는 필터만 지우고 정렬은 남긴다', async () => {
+    const { user, location } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?priority=HIGH&sort=assignee&direction=asc` })
+    await screen.findByTestId('issue-row-7')
+    await user.click(screen.getByTestId('quick-filter-clear-all'))
+    await waitFor(() => expect(location()).not.toMatch(/priority=/))
+    expect(location()).toMatch(/sort=assignee&direction=asc/)
+  })
+
+  test('보드도 같은 정렬로 컬럼마다 검색한다(컬럼 안 카드 순서)', async () => {
+    const { api } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?view=board&sort=dueDate&direction=asc` })
+    await waitFor(() => expect(api.searches.some((u) => u.searchParams.has('statusId'))).toBe(true))
+    const columnSearches = api.searches.filter((u) => u.searchParams.has('statusId'))
+    expect(columnSearches.every((u) => u.searchParams.get('sort') === 'dueDate' && u.searchParams.get('direction') === 'asc')).toBe(true)
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent('정렬: 마감일 ↑')
+  })
+})

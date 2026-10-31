@@ -223,6 +223,14 @@ export const listIssuesInput = z.object({
   dueFrom: z.string().optional(),
   closedFrom: z.string().optional(),
   createdFrom: z.string().optional(),
+  // WP-1238: 수정일(KST)·시작일 범위 — 쓰는 법은 다른 범위처럼 도구 설명에 한 번만 적는다(크기 상한).
+  updatedFrom: z.string().optional(),
+  updatedTo: z.string().optional(),
+  startFrom: z.string().optional(),
+  startTo: z.string().optional(),
+  // WP-1238: 정렬 — 서버에 그대로 넘긴다(모르는 기준·방향은 서버가 400). order 는 체크리스트 정렬(order=checklist)이 이미 써서 방향은 direction. 생략하면 updatedAt 내림차순.
+  sort: z.string().optional().describe('CSV: dueDate,priority,createdAt,updatedAt,status,assignee'),
+  direction: z.string().optional().describe('asc|desc CSV; one = all'),
   assignee: z
     .string()
     .optional()

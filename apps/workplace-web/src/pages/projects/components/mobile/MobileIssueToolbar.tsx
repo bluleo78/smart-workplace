@@ -1,5 +1,5 @@
 // 모바일 이슈 목록 한 줄 툴바(WP-194) — 데스크톱 ViewChipBar+IssueFilterBar(4줄로 꺾여 화면 40%)를 대체.
-// 왼쪽: 가로 스크롤 칩 [뷰 ▾][◆ 에픽][그룹: X] (오른쪽 페이드), 오른쪽 고정: 🔍 · 목록/보드 토글.
+// 왼쪽: 가로 스크롤 칩 [뷰 ▾][◆ 에픽][그룹: X][⇅ 정렬] (오른쪽 페이드), 오른쪽 고정: 🔍 · 목록/보드 토글.
 // 그 아래 두 번째 줄 = 빠른 필터 칩 줄(WP-1020, MobileQuickFilterRow) — 예전 툴바의 「필터 N」 칩·필터 시트를 대신한다.
 // 🔍 를 누르면 줄 전체가 검색창+「취소」로 바뀐다 — 취소는 줄만 닫고 검색어(URL q)는 유지, 🔍 에 점으로 표시.
 // 개인 프로젝트(WP-221)는 options(데스크톱 IssueFilterBar 와 같은 IssueFilterBarOptions)·showViewChip=false 로 재사용한다.
@@ -17,6 +17,7 @@ import { type IssueFilterBarOptions, type IssueFilterControls, useIssueFilterCon
 import { type SavedViewState, useSavedViewState } from '../../hooks/useSavedViewState';
 import { HIDE_SCROLLBAR, MOBILE_CHIP } from './chipStyles';
 import { MobileQuickFilterRow } from './MobileQuickFilterRow';
+import { MobileSortChip } from './MobileSortSheet';
 import { MobileViewSheet } from './MobileViewSheet';
 
 type ToolbarProps = {
@@ -88,6 +89,8 @@ function ToolbarBody({
           <button type="button" className={MOBILE_CHIP} onClick={() => setGroupOpen(true)} data-testid="mobile-chip-group">
             그룹: {groupLabel}
           </button>
+          {/* 정렬(WP-1238) — 데스크톱 정렬 칩과 같은 URL 값. 개인 화면(checklist 순서)은 options.showSort=false 로 숨긴다. */}
+          {c.showSort && <MobileSortChip sort={c.sort} onChange={c.setSort} />}
         </div>
         <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background" aria-hidden="true" />
       </div>

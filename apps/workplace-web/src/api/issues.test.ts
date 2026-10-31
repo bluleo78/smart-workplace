@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { parseFilters } from '@/lib/issueFilters';
 
-import { issueFilterParams } from './issues';
+import { client } from './client';
+import { getIssueGroupCounts, issueFilterParams, searchIssues } from './issues';
 
 const EMPTY = parseFilters(new URLSearchParams());
 
@@ -51,5 +52,43 @@ describe('issueFilterParams — 버전', () => {
     expect(p.get('affectsVersion')).toBe('8');
     expect(issueFilterParams(EMPTY).has('fixVersion')).toBe(false);
     expect(issueFilterParams(EMPTY).has('affectsVersion')).toBe(false);
+  });
+});
+
+// WP-1238: 정렬은 목록 검색(searchIssues)에만 실린다 — checklist 정렬(order)과는 함께 보내지 않고, 그룹 총계에도 보내지 않는다.
+describe('searchIssues — 정렬', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const sentQuery = () => {
+    const spy = vi.spyOn(client, 'get').mockResolvedValue({ data: { items: [], nextCursor: null, hasMore: false, groups: [] } });
+    return () => new URL(`http://x${spy.mock.calls.at(-1)![0] as string}`).searchParams;
+  };
+
+  it('고른 정렬을 sort·direction 으로 보내고, 다음 페이지(cursor)에도 같이 싣는다', async () => {
+    const q = sentQuery();
+    await searchIssues('WP', { ...EMPTY, sort: 'dueDate', direction: 'asc' }, 'c-1');
+    expect(q().get('sort')).toBe('dueDate');
+    expect(q().get('direction')).toBe('asc');
+    expect(q().get('cursor')).toBe('c-1');
+  });
+
+  it('정렬이 없으면 보내지 않는다 — 서버 기본(수정일 내림차순) 그대로', async () => {
+    const q = sentQuery();
+    await searchIssues('WP', EMPTY, null);
+    expect(q().has('sort')).toBe(false);
+    expect(q().has('direction')).toBe(false);
+  });
+
+  it('checklist 정렬(order)과 함께면 sort·direction 을 싣지 않는다(서버 계약상 배타)', async () => {
+    const q = sentQuery();
+    await searchIssues('WP', { ...EMPTY, sort: 'priority', direction: 'desc' }, null, 100, { order: 'checklist', mode: 'status' });
+    expect(q().get('order')).toBe('checklist');
+    expect(q().has('sort')).toBe(false);
+    expect(q().has('direction')).toBe(false);
+  });
+
+  it('그룹 총계엔 정렬을 보내지 않는다', async () => {
+    const q = sentQuery();
+    await getIssueGroupCounts('WP', { ...EMPTY, sort: 'status', direction: 'asc' }, 'priority');
+    expect(q().has('sort')).toBe(false);
   });
 });

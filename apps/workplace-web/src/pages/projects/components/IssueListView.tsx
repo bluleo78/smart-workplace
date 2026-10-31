@@ -22,19 +22,22 @@ import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses'
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { useScrollTopWhenSettled } from '../../../hooks/useScrollTopWhenSettled';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
-import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import { filterOnlyKey, filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
 import { DEFAULT_COLUMNS, type IssueListColumnKey } from '../../../lib/issueListColumns';
+import { sortOf } from '../../../lib/issueSort';
 import { labelFg } from '../../../lib/labelColors';
 import { failedWithoutData } from '../../../lib/queryFailure';
 import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
+import { useSetIssueSort } from '../hooks/useIssueSortParam';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { columnHeadCells, issueListColumnCount, issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
 import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
+import { SortableTh } from './IssueSortHeader';
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
@@ -72,6 +75,11 @@ export function IssueListView({
   // 표 최소 폭 — 기본 밖의 열을 켰을 때만(없으면 null, 제목이 남은 폭에 맞춰 줄어든다).
   const minWidthRem = issueListMinWidthRem(columnDefs.defs);
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
+  // 열 머리 정렬(WP-1238) — 지금 정렬은 필터(URL sort·direction)에서, 바꾸기는 URL 로. 서버가 정렬한 순서를 그대로 그린다(그룹 안에서도).
+  const setSort = useSetIssueSort();
+  const { sort: sortKey, direction: sortDirection } = filters;
+  // 정렬 두 값만 의존한다 — 다른 필터가 바뀌어도 머리 칸이 다시 그려지지 않게.
+  const headSort = useMemo(() => ({ sort: sortOf({ sort: sortKey, direction: sortDirection }), onSort: setSort }), [sortKey, sortDirection, setSort]);
   // 저장한 뷰·필터를 바꾸면 새 결과가 올 때까지 이전 목록을 흐리게 둔다(WP-1049) — 스켈레톤은 처음 열 때만.
   const searchQuery = useIssueSearchKeepingPrevious(projectKey, scopedFilters);
   // 이전 조건의 결과로 자리를 채우는 중 — 흐림(RefreshingResults)·건수 보고 보류·스크롤 맨 위로의 기준.
@@ -163,7 +171,8 @@ export function IssueListView({
   // 검색어·필터가 하나라도 적용된 상태인지 판별.
   // filtersToParams 는 기본값(빈 배열, 빈 문자열, topLevel=false 등)을 URL 에서 생략하므로
   // toString() === '' 이면 실질 필터가 없는 초기 상태임.
-  const hasActiveFilters = filtersToParams(filters, 'list', null).toString() !== '';
+  // 정렬(WP-1238)은 필터가 아니라 뺀다 — 정렬만 고른 빈 목록에 「필터 결과 없음」이 뜨지 않게.
+  const hasActiveFilters = filterOnlyKey(filters) !== '';
 
   if (items.length === 0) {
     if (hasActiveFilters) {
@@ -247,15 +256,17 @@ export function IssueListView({
                       className="h-4 w-4"
                     />
                   </th>
-                  {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9')}><span className="sr-only">상태</span></th>
+                  {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only, 정렬 단추는 화살표만 보인다(WP-1238). */}
+                  <SortableTh className={cn(LIST_HEAD_CELL_CLASS, 'w-9')} head={headSort} sortKey="status" label="상태" srOnlyLabel>
+                    <span className="sr-only">상태</span>
+                  </SortableTh>
                   {/* 선택 열(우선순위 등)은 열 정의(issueListColumnDefs)에서 — ID 왼쪽 / 제목 뒤 순서로 그린다(WP-270). */}
-                  {columnHeadCells(columnDefs.left, { thClass: LIST_HEAD_CELL_CLASS })}
+                  {columnHeadCells(columnDefs.left, { thClass: LIST_HEAD_CELL_CLASS, headSort })}
                   {/* 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다. */}
                   <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28')}>ID</th>
                   {/* 제목 하한(16rem)은 표 최소 폭(위 style)이 지킨다 — 기본 열 구성에선 걸지 않아 좁은 데스크톱(1024px)에서 가로 스크롤 없이 제목이 줄어든다. */}
                   <th className={LIST_HEAD_CELL_CLASS}>제목</th>
-                  {columnHeadCells(columnDefs.right, { thClass: LIST_HEAD_CELL_CLASS })}
+                  {columnHeadCells(columnDefs.right, { thClass: LIST_HEAD_CELL_CLASS, headSort })}
                   <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8')}><span className="sr-only">작업</span></th>
                 </tr>
               </thead>

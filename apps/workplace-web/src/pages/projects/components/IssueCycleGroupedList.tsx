@@ -12,13 +12,15 @@ import { useCycleProgress, useCycles } from '../../../hooks/queries/useCycles';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { buildCycleSections } from '../../../lib/issueCycleSections';
-import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import { filterOnlyKey, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { DEFAULT_COLUMNS, type IssueListColumnKey } from '../../../lib/issueListColumns';
+import { sortOf } from '../../../lib/issueSort';
 import { failedWithoutData } from '../../../lib/queryFailure';
 import type { CycleProgress, CycleStatus } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
+import { useSetIssueSort } from '../hooks/useIssueSortParam';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { CycleSectionColumnHead, CycleSectionSkeletonRows, IssueCycleSection } from './IssueCycleSection';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
@@ -73,7 +75,14 @@ export function IssueCycleGroupedList({
   const progress = useCycleProgress(projectKey);
 
   // 다중 선택 — 이슈 number 집합(구간 공통). 필터(직렬화 값)가 바뀌면 이전 기준 선택은 의미가 없어 초기화한다.
-  const filterKey = filtersToParams(filters, 'list', null).toString();
+  // 열 머리 정렬(WP-1238) — 평면 목록과 같은 URL 값. 구간 쿼리는 filters 의 정렬을 그대로 실어 구간마다 서버 순서로 그린다.
+  const setSort = useSetIssueSort();
+  const { sort: sortKey, direction: sortDirection } = filters;
+  // 정렬 두 값만 의존한다 — 다른 필터가 바뀌어도 머리 칸이 다시 그려지지 않게.
+  const headSort = useMemo(() => ({ sort: sortOf({ sort: sortKey, direction: sortDirection }), onSort: setSort }), [sortKey, sortDirection, setSort]);
+
+  // 정렬(WP-1238)은 필터가 아니라 뺀다 — 정렬만 바꿔도 일괄 선택이 풀리거나, 정렬만 고른 빈 구간에 필터 빈 상태가 뜨지 않게.
+  const filterKey = filterOnlyKey(filters);
   const hasActiveFilters = filterKey !== '';
   const { selected, toggle: toggleSelected, clear: clearSelected, settleBulk } = useIssueSelection(filterKey);
 
@@ -150,11 +159,12 @@ export function IssueCycleGroupedList({
         <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
       </div>
       {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
-          구간 테이블마다 스크린리더용 컬럼명이 있으므로 이 행은 보조기기에서 숨긴다. */}
+          정렬 단추(WP-1238)가 있어 보조기기에서 숨기지 않는다 — 숨기면 초점은 가는데 읽히지 않는다(aria-hidden-focus).
+          구간 테이블마다 있는 0 높이 폭 정의 행(스크린리더용 컬럼명)은 그대로 두고, 이 표는 「정렬」 이름으로 구분한다. */}
       {!isMobile && (
-        <div className="border border-transparent pl-3" aria-hidden="true" data-testid="list-cycle-column-head">
-          <table className="w-full table-fixed">
-            <CycleSectionColumnHead visible columns={columnDefs} />
+        <div className="border border-transparent pl-3" data-testid="list-cycle-column-head">
+          <table className="w-full table-fixed" aria-label="열 정렬">
+            <CycleSectionColumnHead visible columns={columnDefs} headSort={headSort} />
           </table>
         </div>
       )}

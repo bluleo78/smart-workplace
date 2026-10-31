@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { getIssueGroupCounts } from '../../api/issues';
+import { withoutSort } from '../../lib/issueFilters';
 import type { IssueClientGroupBy, IssueCountableGroupBy, IssueFilters, IssueGroupCountsBy } from '../../types/issue';
 
 const COUNTABLE: ReadonlySet<IssueClientGroupBy> = new Set<IssueCountableGroupBy>(['status', 'priority', 'assignee']);
@@ -33,9 +34,12 @@ export function useIssueGroupCounts(
   });
 }
 
-/** 총계 캐시 키 — 그룹 헤더 총계와 구간 전체 수(아래)가 같은 키를 써서 같은 필터·기준이면 캐시를 나눈다. */
+/**
+ * 총계 캐시 키 — 그룹 헤더 총계와 구간 전체 수(아래)가 같은 키를 써서 같은 필터·기준이면 캐시를 나눈다.
+ * 정렬(WP-1238)은 뺀다 — 순서만 바뀌고 수는 같으니 정렬을 바꿀 때마다 총계를 다시 받지 않게(서버에도 보내지 않는다).
+ */
 function groupCountsQueryKey(projectKey: string, by: IssueGroupCountsBy | null, filters: IssueFilters) {
-  return ['issues', 'search', projectKey, 'group-counts', by, filters] as const;
+  return ['issues', 'search', projectKey, 'group-counts', by, withoutSort(filters)] as const;
 }
 
 /**

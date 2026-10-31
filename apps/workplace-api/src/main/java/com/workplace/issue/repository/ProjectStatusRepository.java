@@ -33,11 +33,19 @@ public class ProjectStatusRepository {
   private final DSLContext dsl;
 
   /** 범주를 {@link IssueStatuses#CATEGORY_ORDER} 의 순번(0~3)으로 바꾸는 CASE 식 — 범주 순 정렬에 쓴다. */
-  private static final Field<Integer> CATEGORY_RANK = categoryRank();
+  private static final Field<Integer> CATEGORY_RANK = categoryRank(PROJECT_STATUS.CATEGORY);
 
-  private static Field<Integer> categoryRank() {
-    CaseValueStep<String> c = DSL.choose(PROJECT_STATUS.CATEGORY);
-    List<String> order = IssueStatuses.CATEGORY_ORDER;
+  /**
+   * 범주 컬럼 → {@link IssueStatuses#CATEGORY_ORDER} 순번(0~3, 모르는 값은 4). 상태 목록(project_status.category)과
+   * 이슈 사용자 지정 정렬(issue.status, WP-1238)이 같은 순서를 쓰도록 컬럼을 받는다.
+   */
+  static Field<Integer> categoryRank(Field<String> category) {
+    return rank(category, IssueStatuses.CATEGORY_ORDER);
+  }
+
+  /** 정해진 값 목록의 순번 CASE — 목록 순서대로 0, 1, …, 목록에 없는 값은 맨 뒤(목록 길이). 범주·우선순위 정렬 공용. */
+  static Field<Integer> rank(Field<String> col, List<String> order) {
+    CaseValueStep<String> c = DSL.choose(col);
     CaseWhenStep<String, Integer> step = c.when(order.get(0), DSL.inline(0));
     for (int i = 1; i < order.size(); i++) {
       step = step.when(order.get(i), DSL.inline(i));

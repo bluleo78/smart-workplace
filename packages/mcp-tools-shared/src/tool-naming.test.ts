@@ -14,8 +14,9 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  * 16,900 → 17,000: 2026-10-26 WP-888 버전 인자(list_issues fixVersion·affectsVersion, create_issue/update_issue fixVersions·affectsVersions, get_project versions — 도구 수는 그대로)로 늘어 상향했다(2026-10-26 사용자 승인).
  * 17,000 → 17,200, 앱당 18 → 19: 2026-10-27 WP-719 담당 밖 이슈의 멘션에 이슈 챗으로 답하는 도구(add_issue_chat)와 list_issues mentionsMe 로
  *   늘어 상향했다(2026-10-27 사용자 승인).
+ * 17,200 → 17,300: 2026-10-31 WP-1238 list_issues 정렬(sort·direction)·수정일·시작일 범위 인자(도구 수는 그대로)로 늘어 상향했다(2026-10-31 사용자 승인).
  */
-const DEFINITION_TOKEN_CAP = 17_200;
+const DEFINITION_TOKEN_CAP = 17_300;
 /**
  * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
  * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).

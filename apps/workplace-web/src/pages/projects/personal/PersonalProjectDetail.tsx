@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { ProjectResponse } from '@/types/project';
 
-import { parseFilters, parseGroupBy, parseView, toClientGroupBy } from '../../../lib/issueFilters';
+import { parseFilters, parseGroupBy, parseView, toClientGroupBy, withoutSort } from '../../../lib/issueFilters';
 import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
 import { IssueFilterBar } from '../components/IssueFilterBar';
@@ -35,6 +35,8 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
   showClosedFilter: false,
   // 개인 목록은 이슈 표가 아니라 체크리스트라 고를 열이 없다(WP-270).
   showColumnPicker: false,
+  // 정렬 칩도 없다(WP-1238) — 체크리스트는 서버 checklist 순서(order=checklist)라 사용자 정렬과 배타다. 보드도 같은 툴바를 써 함께 숨긴다.
+  showSort: false,
   listLabel: '체크리스트',
   listIcon: ListChecks,
   // 빠른 필터 칩(WP-1020) — 개인 체크리스트는 상태·우선순위만 칩으로, 나머지(상태 범주·라벨·담당자)는 「더 보기」. 칩 설정은 팀 목록과 따로 기억한다.
@@ -55,7 +57,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const view = parseView(params);
   // 개인 뷰는 기존대로 최상위 이슈만 — topLevel 기본값이 팀 보드·목록 기본 범위(에픽 제외·하위 노출)로 바뀌어도
   // 개인 보드/체크리스트의 노출 범위는 유지한다.
-  const filters = { ...parseFilters(params), topLevel: true };
+  // 정렬(WP-1238)은 뺀다 — 개인 화면엔 정렬 칩이 없어, 팀 링크에서 온 sort 가 보이지 않게 보드 순서를 바꾸지 않게.
+  const filters = { ...withoutSort(parseFilters(params)), topLevel: true };
   // 개인 화면엔 사이클이 없다 — URL 에 group=cycle 이 와도(팀 링크 복사 등) 그룹 없음으로 본다.
   const groupBy = toClientGroupBy(parseGroupBy(params));
   const [createOpen, setCreateOpen] = useState(false);

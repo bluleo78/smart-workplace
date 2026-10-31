@@ -14,10 +14,13 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
+import com.workplace.issue.dto.IssueSort;
+import com.workplace.issue.dto.IssueSortCursor;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.MeGroupedCursor;
 import com.workplace.issue.dto.MeIssueGrouping;
 import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
@@ -27,6 +30,8 @@ import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueRepository.ChecklistRow;
+import com.workplace.issue.repository.IssueSortedRepository;
+import com.workplace.issue.repository.IssueSortedRepository.SortedPage;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.issue.repository.MeIssueGroupedRepository;
 import com.workplace.issue.repository.MeIssueGroupedRepository.GroupedRow;
@@ -42,6 +47,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -81,6 +88,8 @@ public class IssueSearchService {
   private final VersionRepository versionRepository;
   // WP-1038: 다른 프로젝트 에픽 부모를 조회자 권한으로 가린다.
   private final ParentRefReader parentRefReader;
+  // WP-1238: 사용자 지정 정렬(sort·direction) — 목록·보드 컬럼·/me/issues 공용.
+  private final IssueSortedRepository sortedRepository;
 
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
@@ -107,9 +116,10 @@ public class IssueSearchService {
 
   /**
    * 검색. params 키: q, status, statusId·statusName(WP-807), assignee, priority, dueFrom, dueTo,
-   * label, type, component(WP-933, id·이름·none), fixVersion·affectsVersion(WP-888, id·이름·none),
-   * cursor, size, watching(WP-356, true 만). assignee·reporter 는 me/숫자 id/username, label·type 은 숫자
-   * id/이름을 받는다(#841).
+   * startFrom·startTo·updatedFrom·updatedTo(WP-1238), label, type, component(WP-933, id·이름·none),
+   * fixVersion·affectsVersion(WP-888, id·이름·none), cursor, size, watching(WP-356, true 만),
+   * sort·direction(WP-1238, {@link IssueSort}). assignee·reporter 는 me/숫자 id/username, label·type 은
+   * 숫자 id/이름을 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -118,8 +128,23 @@ public class IssueSearchService {
     ChecklistOrder order =
         ChecklistOrder.parse(
             params.get("order"), params.get("mode"), params.get("today"), params.get("weekEnd"));
+    // WP-1238: sort 가 있으면 사용자 지정 정렬로. 체크리스트 정렬과는 함께 쓸 수 없다(둘 다 정렬을 정한다).
+    IssueSort sort = IssueSort.parse(params.get("sort"), params.get("direction"));
+    if (order != null && sort != null) {
+      throw new InvalidIssueFilterException("sort", "sort 는 order=checklist 와 함께 쓸 수 없습니다");
+    }
     if (order != null) {
       return searchChecklist(callerId, project.id(), project.key(), params, order);
+    }
+    if (sort != null) {
+      long projectId = project.id();
+      return searchSorted(
+          callerId,
+          projectId,
+          params,
+          sort,
+          (query, cursor) -> sortedRepository.searchProject(projectId, query, sort, cursor),
+          rows -> assembleItems(callerId, rows, pid -> project.key()));
     }
     IssueSearchQuery query = parse(callerId, project.id(), params);
 
@@ -149,13 +174,42 @@ public class IssueSearchService {
     List<ChecklistRow> sorted = issueRepository.searchChecklist(projectId, query, order, cursor);
     List<IssueRow> rows = sorted.stream().map(ChecklistRow::row).toList();
     var items = assembleItems(callerId, rows, pid -> projectKey);
-    String nextCursor = null;
-    boolean hasMore = false;
-    if (!sorted.isEmpty() && sorted.size() >= query.size()) {
-      nextCursor = sorted.get(sorted.size() - 1).toCursor().encode();
-      hasMore = true;
+    return page(items, sorted, query.size(), r -> r.toCursor().encode());
+  }
+
+  /**
+   * WP-1238: 사용자 지정 정렬({@link IssueSort}) 한 페이지 — 범위·필터는 기본 검색과 같고(fetch 가 범위를 고른다), 정렬·커서만 고른 키
+   * 순서다. 프로젝트 목록·보드 컬럼(같은 목록 API 에 statusId 로 좁혀 부른다)·/me/issues 가 함께 쓴다.
+   *
+   * <p>커서는 전용 형식({@link IssueSortCursor})이라 cursor 를 뺀 params 로 parse 한다 — 체크리스트 정렬과 같은 이유. 다른 정렬에서
+   * 나온 커서(키·방향이 다름)나 기존 {@link IssueCursor} 는 400 이다(묶음 정렬의 group 불일치와 같은 처리).
+   *
+   * @param projectId 단일 프로젝트 검색이면 그 id, 횡단이면 null — 이름 필터 해석 스코프
+   * @param fetch 정규화한 쿼리·커서 → 한 페이지(단일 프로젝트 또는 멤버 횡단 범위)
+   * @param assembler 행 → 응답 항목(단일 프로젝트는 상수 키, 횡단은 프로젝트 키 일괄 해석)
+   */
+  private IssueSearchResponse searchSorted(
+      Long callerId,
+      Long projectId,
+      Map<String, String> params,
+      IssueSort sort,
+      BiFunction<IssueSearchQuery, IssueSortCursor, SortedPage> fetch,
+      Function<List<IssueRow>, List<IssueResponse>> assembler) {
+    var withoutCursor = new HashMap<>(params);
+    withoutCursor.remove("cursor");
+    IssueSearchQuery query = parse(callerId, projectId, withoutCursor);
+    String cursorStr = trimToNull(params.get("cursor"));
+    IssueSortCursor cursor = cursorStr == null ? null : IssueSortCursor.decode(cursorStr);
+    if (cursor != null && !cursor.fits(sort)) {
+      throw new InvalidCursorException("cursor 가 sort·direction 과 맞지 않습니다");
     }
-    return new IssueSearchResponse(items, nextCursor, hasMore);
+
+    SortedPage sorted = fetch.apply(query, cursor);
+    return page(
+        assembler.apply(sorted.rows()),
+        sorted.rows(),
+        query.size(),
+        last -> sorted.lastCursor().encode());
   }
 
   /**
@@ -189,14 +243,29 @@ public class IssueSearchService {
   public IssueSearchResponse searchMine(Long callerId, Map<String, String> params) {
     // #841: projectKey 가 오면 그 프로젝트 검색으로 위임한다. 예전엔 조용히 무시돼 "특정 프로젝트 내 이슈" 요청이 횡단 결과를 돌려줬다.
     // 단일 프로젝트 경로는 접근 가드(없는 키 404·권한 403)와 프로젝트 스코프 이름 해석을 함께 제공한다.
+    // WP-915: group 이 있으면 프로젝트 묶음 정렬로. 없으면 아래 기존 (updated_at, id) 경로 그대로.
+    MeIssueGrouping grouping = MeIssueGrouping.parse(trimToNull(params.get("group")));
+    // WP-1238: sort 가 있으면 사용자 지정 정렬로. 프로젝트 묶음 정렬과는 함께 쓸 수 없다(둘 다 정렬을 정한다) — projectKey 위임보다
+    // 먼저 검사해 projectKey 가 있어도 같은 규칙(400)이다(위임하면 group 이 조용히 버려진다).
+    IssueSort sort = IssueSort.parse(params.get("sort"), params.get("direction"));
+    if (grouping != null && sort != null) {
+      throw new InvalidIssueFilterException("sort", "sort 는 group 과 함께 쓸 수 없습니다");
+    }
     String projectKey = trimToNull(params.get("projectKey"));
     if (projectKey != null) {
       return search(callerId, projectKey, params);
     }
-    // WP-915: group 이 있으면 프로젝트 묶음 정렬로. 없으면 아래 기존 (updated_at, id) 경로 그대로.
-    MeIssueGrouping grouping = MeIssueGrouping.parse(trimToNull(params.get("group")));
     if (grouping != null) {
       return searchMineGrouped(callerId, params, grouping);
+    }
+    if (sort != null) {
+      return searchSorted(
+          callerId,
+          null,
+          params,
+          sort,
+          (query, cursor) -> sortedRepository.searchMemberOf(callerId, query, sort, cursor),
+          rows -> assembleCrossProject(callerId, rows));
     }
     IssueSearchQuery query = parse(callerId, null, params);
     var rows = issueRepository.searchMemberOf(callerId, query);
@@ -282,13 +351,7 @@ public class IssueSearchService {
       withGroups.add(items.get(i).withProjectGroup(new AiTaskProject(name, g.projectSize())));
     }
 
-    String nextCursor = null;
-    boolean hasMore = false;
-    if (!grouped.isEmpty() && grouped.size() >= size) {
-      nextCursor = grouped.get(grouped.size() - 1).toCursor().encode();
-      hasMore = true;
-    }
-    return new IssueSearchResponse(withGroups, nextCursor, hasMore);
+    return page(withGroups, grouped, size, g -> g.toCursor().encode());
   }
 
   /**
@@ -411,15 +474,19 @@ public class IssueSearchService {
 
   /** 항목 + 원본 rows 로 커서 페이지 응답을 만든다. 마지막 행의 (updatedAt, id) 가 다음 커서. */
   private IssueSearchResponse pageOf(List<IssueResponse> items, List<IssueRow> rows, int size) {
+    return page(items, rows, size, last -> IssueCursor.encode(last.updatedAt(), last.id()));
+  }
 
-    String nextCursor = null;
-    boolean hasMore = false;
-    if (!rows.isEmpty() && rows.size() >= size) {
-      var last = rows.get(rows.size() - 1);
-      nextCursor = IssueCursor.encode(last.updatedAt(), last.id());
-      hasMore = true;
+  /**
+   * 커서 페이지 응답 공용 규칙 — 받은 행 수가 size 에 닿으면 다음 페이지가 있다고 보고 마지막 행의 커서를 싣는다(마지막 페이지가 꼭 size 면 빈 페이지 하나가
+   * 더 온다 — 모든 목록이 같은 규칙). 정렬마다 커서 형식만 다르므로 인코더를 받는다(기본·체크리스트·사용자 지정 정렬·묶음 정렬 공용).
+   */
+  private static <T> IssueSearchResponse page(
+      List<IssueResponse> items, List<T> rows, int size, Function<T, String> cursorOf) {
+    if (rows.isEmpty() || rows.size() < size) {
+      return new IssueSearchResponse(items, null, false);
     }
-    return new IssueSearchResponse(items, nextCursor, hasMore);
+    return new IssueSearchResponse(items, cursorOf.apply(rows.get(rows.size() - 1)), true);
   }
 
   /**
@@ -459,6 +526,11 @@ public class IssueSearchService {
     LocalDate closedTo = parseDate(p.get("closedTo"));
     LocalDate createdFrom = parseDate(p.get("createdFrom"));
     LocalDate createdTo = parseDate(p.get("createdTo"));
+    // WP-1238: 수정일 범위(Asia/Seoul 날짜, 양끝 포함)·시작일 범위(DATE, 양끝 포함).
+    LocalDate updatedFrom = parseDate(p.get("updatedFrom"));
+    LocalDate updatedTo = parseDate(p.get("updatedTo"));
+    LocalDate startFrom = parseDate(p.get("startFrom"));
+    LocalDate startTo = parseDate(p.get("startTo"));
 
     IssueCursor cursor = null;
     String cursorStr = trimToNull(p.get("cursor"));
@@ -604,7 +676,11 @@ public class IssueSearchService {
         affectsVersionIds,
         affectsVersionNone,
         mentionedUserId,
-        sourceKey);
+        sourceKey,
+        updatedFrom,
+        updatedTo,
+        startFrom,
+        startTo);
   }
 
   private static LocalDate parseDate(String s) {

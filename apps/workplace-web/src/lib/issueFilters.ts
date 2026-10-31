@@ -3,10 +3,13 @@
 
 import {
   ISSUE_PRIORITIES,
+  ISSUE_SORT_KEYS,
   type IssueClientGroupBy,
   type IssueFilters,
   type IssueGroupBy,
   type IssueGroupParam,
+  type IssueSortDirection,
+  type IssueSortKey,
   type IssueView,
 } from '../types/issue';
 import { BOARD_TAB_PARAM } from './boardTabs';
@@ -39,6 +42,69 @@ function positiveIds(raw: string | null): number[] {
   return csv(raw)
     .map((tok) => positiveId(tok))
     .filter((n): n is number => n != null);
+}
+
+/**
+ * 정렬(WP-1238) — URL sort·direction → { sort, direction }. 정렬이 없거나 모르는 기준이면 빈 객체(서버 기본 정렬).
+ * - 서버는 sort 를 CSV(여러 기준)로 받지만 화면은 한 기준만 쓴다 — 첫 토큰만 본다(손으로 쓴 다중 정렬 링크는 첫 기준으로 연다).
+ * - direction 은 첫 토큰의 asc/desc 만(대소문자 무시 — 서버와 같다), 없거나 모르는 값이면 서버 기본과 같은 desc. sort 없이 온 direction 은 버린다.
+ * - 수정일 내림차순(updatedAt·desc)은 서버 기본과 같아 정렬 없음으로 본다 — 같은 순서가 두 주소(정렬 있음/없음)로 갈라지면
+ *   칩이 켜지고 저장 뷰 비교·조건 기억이 달라진다. 메뉴·열 머리도 같은 규칙(issueSort 의 normalizeSort)을 쓴다.
+ * 빈 객체를 펼치면 필드가 아예 없다 — 정렬 없는 필터가 예전 객체와 같은 모양이라(toEqual·쿼리 키) 기존 동작이 그대로다.
+ */
+function parseSort(params: URLSearchParams): { sort?: IssueSortKey; direction?: IssueSortDirection } {
+  const key = csv(params.get('sort'))[0];
+  if (!key || !(ISSUE_SORT_KEYS as readonly string[]).includes(key)) return {};
+  const direction: IssueSortDirection = csv(params.get('direction'))[0]?.toLowerCase() === 'asc' ? 'asc' : 'desc';
+  const s = normalizeSort({ key: key as IssueSortKey, direction });
+  return s ? { sort: s.key, direction: s.direction } : {};
+}
+
+/** 고른 정렬 — 없으면 null(서버 기본 = 수정일 내림차순). 메뉴·열 머리·URL 이 같은 모양을 쓴다. */
+export interface IssueSortValue {
+  key: IssueSortKey;
+  direction: IssueSortDirection;
+}
+
+/** 서버 기본 정렬 — 이 정렬은 「정렬 없음」과 같다(normalizeSort). 메뉴·시트의 기본 상태 체크 표시도 이 값이다. */
+export const DEFAULT_SORT: IssueSortValue = { key: 'updatedAt', direction: 'desc' };
+
+/**
+ * 기본과 같은 정렬을 null 로 — 「수정일 내림차순 = 정렬 없음」 판정은 여기 한 곳뿐이다(파싱·메뉴·열 머리가 모두 부른다).
+ * 같은 순서가 두 주소(정렬 있음/없음)로 갈라지면 칩이 켜지고 저장 뷰 비교·조건 기억이 달라진다.
+ */
+export function normalizeSort(s: IssueSortValue | null): IssueSortValue | null {
+  return s && s.key === DEFAULT_SORT.key && s.direction === DEFAULT_SORT.direction ? null : s;
+}
+
+/** 정렬을 뺀 필터 — 「필터가 걸려 있나」 판정(빈 상태 문구·「전체」 칩·필터 지우기)용. 정렬은 그룹·열처럼 표시 옵션이라 필터로 세지 않는다. */
+export function withoutSort(f: IssueFilters): IssueFilters {
+  if (f.sort === undefined && f.direction === undefined) return f;
+  const rest = { ...f };
+  delete rest.sort;
+  delete rest.direction;
+  return rest;
+}
+
+/**
+ * 정렬을 뺀 필터만의 정규형 문자열 — 「필터가 걸려 있나」(빈 문자열 = 없음)·일괄 선택 초기화 기준.
+ * 정렬·보기·그룹은 필터가 아니라 보지 않는다(목록 빈 상태·사이클 목록 선택·「전체」 판정이 같은 기준을 쓴다).
+ */
+export function filterOnlyKey(f: IssueFilters): string {
+  return filtersToParams(withoutSort(f), 'list', null).toString();
+}
+
+/**
+ * 필터 초기화(「필터 지우기」·빈 상태의 초기화)가 새로 쓰는 쿼리에 지금 정렬을 이어 붙인다 — 정렬은 그룹·보기처럼 필터가 아니라 남긴다.
+ * carryViewOptions 에 넣지 않는 까닭: 그 함수는 정렬을 바꾸는 쓰기(「기본으로」)도 거치므로, 거기서 옛 정렬을 되살리면 정렬을 지울 수 없다.
+ */
+export function carrySort(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {
+  const { sort, direction } = parseSort(prev);
+  if (sort && direction) {
+    next.set('sort', sort);
+    next.set('direction', direction);
+  }
+  return next;
 }
 
 // 알려진 토큰만 통과시켜 잘못된 URL 입력에 대해 안전하게 동작.
@@ -111,6 +177,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     excludeSubtasks,
     closedIn: parseClosedIn(params.get('closedIn')),
     showAllClosed,
+    ...parseSort(params),
   };
 }
 
@@ -237,6 +304,11 @@ export function filtersToParams(
   if (f.excludeSubtasks) p.set('excludeSubtasks', 'true');
   // 「완료 모두 보기」 직렬화 — 켰을 때만 명시(기본 숨김은 빈 정규형).
   if (f.showAllClosed) p.set('closed', 'all');
+  // 정렬(WP-1238) — 고른 때만. 방향은 늘 같이 적어 주소·조건 기억·저장 뷰가 한 가지 모양이 되게 한다(desc 생략 형태와 섞이지 않게).
+  if (f.sort && f.direction) {
+    p.set('sort', f.sort);
+    p.set('direction', f.direction);
+  }
   return p;
 }
 

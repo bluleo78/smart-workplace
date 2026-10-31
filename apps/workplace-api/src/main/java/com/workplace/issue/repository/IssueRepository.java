@@ -605,9 +605,10 @@ public class IssueRepository {
 
   /**
    * 단일 프로젝트 검색 필터 조건(cursor 제외) — 목록(search)·그룹 총계(countGrouped, WP-472)·체크리스트 정렬(searchChecklist,
-   * WP-918)이 같은 조건을 쓰게 한 곳에 둔다. 따로 만들면 필터 하나만 바뀌어도 헤더 수와 목록이 어긋난다.
+   * WP-918)·사용자 지정 정렬({@link IssueSortedRepository}, WP-1238)이 같은 조건을 쓰게 한 곳에 둔다. 따로 만들면 필터 하나만
+   * 바뀌어도 헤더 수와 목록이 어긋난다.
    */
-  private org.jooq.Condition projectFilterCondition(
+  org.jooq.Condition projectFilterCondition(
       Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
 
@@ -1102,19 +1103,28 @@ public class IssueRepository {
   private static final ZoneId FILTER_ZONE = com.workplace.issue.dto.IssueDueWindow.ZONE;
 
   /**
-   * 날짜 범위 조건 — 단일/횡단 검색 공용. 마감일(due_date)은 DATE 컬럼이라 그대로 비교하고, 종료일·생성일(WP-307)은 시각 컬럼이라 Asia/Seoul
-   * 하루 경계로 해석해 양끝을 포함한다. 종료일 필터는 closed_at 이 없는(미종료) 이슈를 자연히 제외한다.
+   * 날짜 범위 조건 — 단일/횡단 검색 공용. 마감일(due_date)·시작일(start_date, WP-1238)은 DATE 컬럼이라 그대로 비교하고,
+   * 종료일·생성일(WP-307)·수정일(WP-1238)은 시각 컬럼이라 Asia/Seoul 하루 경계로 해석해 양끝을 포함한다. 종료일·시작일 필터는 값이 없는 이슈를 자연히
+   * 제외한다.
    */
   private Condition dateRangeCondition(IssueSearchQuery query) {
+    return dateRange(ISSUE.DUE_DATE, query.dueFrom(), query.dueTo())
+        .and(dateRange(ISSUE.START_DATE, query.startFrom(), query.startTo()))
+        .and(seoulDayRange(ISSUE.CLOSED_AT, query.closedFrom(), query.closedTo()))
+        .and(seoulDayRange(ISSUE.CREATED_AT, query.createdFrom(), query.createdTo()))
+        .and(seoulDayRange(ISSUE.UPDATED_AT, query.updatedFrom(), query.updatedTo()));
+  }
+
+  /** DATE 컬럼 범위(양끝 포함). null 쪽은 미적용. */
+  private static Condition dateRange(Field<LocalDate> col, LocalDate from, LocalDate to) {
     Condition c = noCondition();
-    if (query.dueFrom() != null) {
-      c = c.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
+    if (from != null) {
+      c = c.and(col.ge(from));
     }
-    if (query.dueTo() != null) {
-      c = c.and(ISSUE.DUE_DATE.le(query.dueTo()));
+    if (to != null) {
+      c = c.and(col.le(to));
     }
-    return c.and(seoulDayRange(ISSUE.CLOSED_AT, query.closedFrom(), query.closedTo()))
-        .and(seoulDayRange(ISSUE.CREATED_AT, query.createdFrom(), query.createdTo()));
+    return c;
   }
 
   /** 시각 컬럼을 Asia/Seoul 날짜 범위(양끝 포함)로 자른다 — from 00:00 이상, to 다음 날 00:00 미만. null 쪽은 미적용. */

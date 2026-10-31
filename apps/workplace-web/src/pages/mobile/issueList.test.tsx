@@ -191,6 +191,27 @@ describe('모바일 이슈 목록 — 툴바', () => {
     expect(await screen.findByTestId('list-group-epic-30')).toBeInTheDocument()
   })
 
+  // WP-1238 — 정렬 칩 → 바텀시트. 기준·방향은 고르는 즉시 URL(sort·direction)에 반영되고 시트는 열린 채, 「기본으로」가 지운다.
+  test('정렬 시트 — 마감일을 고르면 sort=dueDate&direction=asc, 내림차순으로 바꾸고, 기본으로 지운다', async () => {
+    const { user, location } = await open('')
+    const chip = screen.getByTestId('mobile-chip-sort')
+    expect(chip).toHaveTextContent('⇅ 정렬')
+    await user.click(chip)
+    const sheet = await screen.findByTestId('mobile-sort-sheet')
+    await user.click(within(sheet).getByTestId('mobile-sort-key-dueDate'))
+    await waitFor(() => expect(params(location).get('sort')).toBe('dueDate'))
+    expect(params(location).get('direction')).toBe('asc')
+    expect(within(sheet).getByTestId('mobile-sort-key-dueDate')).toHaveAttribute('aria-selected', 'true')
+    await user.click(within(sheet).getByTestId('mobile-sort-direction-desc'))
+    await waitFor(() => expect(params(location).get('direction')).toBe('desc'))
+    expect(within(sheet).getByTestId('mobile-sort-direction-desc')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('mobile-chip-sort')).toHaveTextContent('정렬: 마감일 ↓')
+    await user.click(within(sheet).getByTestId('mobile-sort-reset'))
+    await waitFor(() => expect(params(location).has('sort')).toBe(false))
+    expect(params(location).has('direction')).toBe(false)
+    expect(screen.getByTestId('mobile-chip-sort')).toHaveTextContent(/^⇅ 정렬$/)
+  })
+
   // WP-1020 — 툴바의 「필터 N」 칩 대신 두 번째 줄의 빠른 필터 칩. 칩(또는 「더 보기」) → 시트에서 체크하면 바로 반영되고,
   // 「완료 · 결과 보기」로 닫으면 걸린 칩이 맨 앞에 파랗게 요약된다. 「필터 지우기」로 다 푼다.
   test('빠른 필터 칩 줄 — 더 보기 › 상태 범주에서 진행 중 → 즉시 status 쿼리, 걸린 칩이 맨 앞, 필터 지우기로 지운다', async () => {
