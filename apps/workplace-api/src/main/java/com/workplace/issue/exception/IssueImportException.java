@@ -20,10 +20,12 @@ public class IssueImportException extends RuntimeException implements CodedExcep
     this.errors = errors;
   }
 
-  /** 관리자가 아니다. */
+  /** 관리자도, 그 프로젝트의 OWNER(사람)도 아니다 — 사유 코드는 스크립트 호환을 위해 예전 이름(IMPORT_ADMIN_ONLY) 그대로 둔다(WP-1239). */
   public static IssueImportException forbidden() {
     return new IssueImportException(
-        HttpStatus.FORBIDDEN, "이슈 가져오기는 관리자만 할 수 있습니다.", Map.of("reason", "IMPORT_ADMIN_ONLY"));
+        HttpStatus.FORBIDDEN,
+        "이슈 가져오기는 관리자나 그 프로젝트의 소유자(OWNER)만 할 수 있습니다.",
+        Map.of("reason", "IMPORT_ADMIN_ONLY"));
   }
 
   /** 개인 프로젝트에는 가져올 수 없다. */

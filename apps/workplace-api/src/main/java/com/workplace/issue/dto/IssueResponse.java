@@ -74,7 +74,97 @@ public record IssueResponse(
     // 읽는 쪽은 유형이 EPIC 일 때만 쓴다. 없으면 JSON 에서 생략(웹은 유형 색으로 대신 칠한다).
     @JsonInclude(JsonInclude.Include.NON_NULL) String epicColor,
     // WP-989 반복 AI 작업 요약 — /me/ai-tasks 만 채운다(반복 행이 있는 이슈). 없으면 JSON 에서 생략.
-    @JsonInclude(JsonInclude.Include.NON_NULL) IssueRecurrenceSummary recurrence) {
+    @JsonInclude(JsonInclude.Include.NON_NULL) IssueRecurrenceSummary recurrence,
+    // WP-1239 가져올 때 받은 원본 시스템 키(예: Jira INFRA-123, issue.import_source_key) — 가져온 이슈를 원래 키로 찾게
+    // 상세·목록에 싣는다.
+    // 가져오지 않았거나 원본 키 없이 가져온 이슈는 null.
+    String sourceKey) {
+
+  /** 원본 키가 없던 40-인자 호환 생성자 — 원본 키를 채우지 않는 기존 호출부용(sourceKey null). */
+  public IssueResponse(
+      Long id,
+      String projectKey,
+      int number,
+      String title,
+      String status,
+      Long statusId,
+      String statusName,
+      String statusColor,
+      String priority,
+      LocalDate dueDate,
+      LocalDate startDate,
+      Long milestoneId,
+      String milestoneName,
+      Long reporterId,
+      Instant createdAt,
+      Instant updatedAt,
+      Instant closedAt,
+      List<LabelSummary> labels,
+      int attachmentCount,
+      IssueTypeSummary type,
+      List<UserSummary> assignees,
+      ParentRef parent,
+      int childCount,
+      int childDoneCount,
+      List<IssueLinkSummary> blockedBy,
+      List<IssueLinkSummary> blocks,
+      boolean blocked,
+      List<IssueFieldEntry> customFields,
+      int version,
+      List<AgentWorkView> agentWork,
+      AiTaskGroup aiGroup,
+      AiTaskProject aiProject,
+      AiTaskProject projectGroup,
+      UserSummary reporter,
+      List<CycleSummary> cycles,
+      List<ComponentSummary> components,
+      List<VersionSummary> fixVersions,
+      List<VersionSummary> affectsVersions,
+      String epicColor,
+      IssueRecurrenceSummary recurrence) {
+    this(
+        id,
+        projectKey,
+        number,
+        title,
+        status,
+        statusId,
+        statusName,
+        statusColor,
+        priority,
+        dueDate,
+        startDate,
+        milestoneId,
+        milestoneName,
+        reporterId,
+        createdAt,
+        updatedAt,
+        closedAt,
+        labels,
+        attachmentCount,
+        type,
+        assignees,
+        parent,
+        childCount,
+        childDoneCount,
+        blockedBy,
+        blocks,
+        blocked,
+        customFields,
+        version,
+        agentWork,
+        aiGroup,
+        aiProject,
+        projectGroup,
+        reporter,
+        cycles,
+        components,
+        fixVersions,
+        affectsVersions,
+        epicColor,
+        recurrence,
+        null);
+  }
 
   /** 반복 요약이 없던 39-인자 호환 생성자 — 반복을 채우지 않는 기존 호출부용(recurrence null). */
   public IssueResponse(
@@ -455,7 +545,8 @@ public record IssueResponse(
         newFixVersions,
         newAffectsVersions,
         epicColor,
-        recurrence);
+        recurrence,
+        sourceKey);
   }
 
   /** 반복 AI 작업 요약을 채운 사본(WP-989 — /me/ai-tasks 조립 단계). */
@@ -500,7 +591,8 @@ public record IssueResponse(
         fixVersions,
         affectsVersions,
         epicColor,
-        r);
+        r,
+        sourceKey);
   }
 
   /**
@@ -547,7 +639,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /**
@@ -595,7 +689,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /** 라벨 + 첨부 카운트까지 채운 버전 — Phase 3b 호출자 호환. type null, assignees 빈 리스트. */
@@ -640,7 +736,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /** 라벨 + 첨부 카운트 + 담당자까지 채운 풀버전 — Phase 3c 호출자 호환. type null. */
@@ -689,7 +787,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /** Phase 4 — 라벨 + 첨부 카운트 + 유형 + 담당자 모두 채운 풀버전. */
@@ -739,7 +839,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /**
@@ -795,7 +897,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /** Phase 4b — 의존성(blockedBy/blocks/blocked) 까지 채운 최신 풀버전. 검색/상세 경로에서 사용. */
@@ -851,7 +955,9 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 
   /**
@@ -910,6 +1016,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         List.of(),
-        r.epicColor());
+        r.epicColor(),
+        null,
+        r.sourceKey());
   }
 }

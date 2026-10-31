@@ -70,6 +70,8 @@ export interface IssueExternalLinkOut {
 
 export interface IssueDetail {
   issueKey: string;
+  /** 가져올 때 받은 원본 시스템 키(WP-1239, 예: Jira INFRA-123) — 가져온 이슈에만 있고, 없으면 키가 없다. */
+  sourceKey?: string;
   title: string;
   body: string | null;
   /** 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED). */
@@ -208,6 +210,8 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
   const projectKey = s.projectKey ?? issueKey.replace(/-\d+$/, '');
   return {
     issueKey,
+    // WP-1239: 원본 키는 가져온 이슈에만 있다 — 없으면 키를 싣지 않는다(대부분 이슈의 출력이 늘지 않게).
+    ...(typeof s.sourceKey === 'string' && s.sourceKey ? { sourceKey: s.sourceKey } : {}),
     title: String(s.title ?? r.title ?? ''),
     body: (r.body ?? s.body ?? null) as string | null,
     status: String(s.status ?? r.status ?? ''),

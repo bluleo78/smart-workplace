@@ -551,6 +551,8 @@ public class IssueSearchService {
     Long pendingForUserId = "true".equalsIgnoreCase(p.get("pendingForMe")) ? callerId : null;
     // WP-719 — mentionsMe=true 면 호출자의 마지막 글 이후 호출자를 멘션한 다른 사람 글이 있는 이슈만. 다른 사용자 기준으로는 열지 않는다.
     Long mentionedUserId = "true".equalsIgnoreCase(p.get("mentionsMe")) ? callerId : null;
+    // WP-1239 — sourceKey=<원본 키> 면 가져올 때 그 원본 키를 받은 이슈만(정확히 일치, 앞뒤 공백은 뗀다). 이관한 Jira 키로 이슈를 찾는다.
+    String sourceKey = trimToNull(p.get("sourceKey"));
 
     Long fieldId = null;
     String fieldValue = trimToNull(p.get("fieldValue"));
@@ -601,7 +603,8 @@ public class IssueSearchService {
         fixVersionNone,
         affectsVersionIds,
         affectsVersionNone,
-        mentionedUserId);
+        mentionedUserId,
+        sourceKey);
   }
 
   private static LocalDate parseDate(String s) {

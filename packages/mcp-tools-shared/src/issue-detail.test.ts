@@ -87,6 +87,11 @@ describe('normalizeIssueDetail', () => {
     expect(normalizeIssueDetail(raw).statusName).toBeNull();
   });
 
+  it('WP-1239: 가져온 이슈는 원본 키(sourceKey)를 싣고, 없으면 키 자체가 없다', () => {
+    expect(normalizeIssueDetail({ ...raw, summary: { ...raw.summary, sourceKey: 'INFRA-123' } }).sourceKey).toBe('INFRA-123');
+    expect(normalizeIssueDetail({ ...raw, summary: { ...raw.summary, sourceKey: null } })).not.toHaveProperty('sourceKey');
+  });
+
   it('summary 를 flatten 하고 issueKey/title/status/priority/assignees 를 top-level 로', () => {
     const d = normalizeIssueDetail(raw);
     expect(d.issueKey).toBe('WP-12');

@@ -1709,7 +1709,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "assignee": {
-          "description": "CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent/mentionsMe",
+          "description": "CSV: me, null (unassigned), any, usernames; default me unless reporter/watching/parent/mentionsMe/sourceKey",
           "type": "string",
         },
         "blocked": {
@@ -1736,7 +1736,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "cycle": {
-          "description": "CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names/"active" need projectKey",
+          "description": "CSV, any match: cycle (사이클) names, active, none, backlog (no active/planned); names/active need projectKey",
           "type": "string",
         },
         "dueFrom": {
@@ -1802,6 +1802,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 100,
           "minimum": 1,
           "type": "integer",
+        },
+        "sourceKey": {
+          "description": "Exact import key",
+          "type": "string",
         },
         "status": {
           "description": "CSV: TODO,IN_PROGRESS,DONE,CANCELED or status names, not both",

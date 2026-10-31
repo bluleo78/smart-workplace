@@ -61,7 +61,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 이슈 가져오기(WP-883 원작성자·원시각 보존, WP-884 알림 억제) — 다른 트래커의 이슈 한 건을 원래 보고자·시각·담당자·워처·필드와 함께 한 트랜잭션으로 넣는다.
- * 남의 이름으로 기록을 남기는 기능이라 워크스페이스 관리자(사람)만 쓸 수 있다.
+ * 남의 이름으로 기록을 남기는 기능이라 워크스페이스 관리자와 그 프로젝트의 소유자(사람)만 쓸 수 있다(WP-1239).
  *
  * <p>일반 생성({@link IssueService#create})과 검증(planCreate)은 공유하되 후속부는 따로 둔다 — 인박스 알림·웹 푸시·AI 착수의 원인이
  * 되는 도메인 이벤트(IssueCreated·IssueAssigned·WatcherAdded·AgentToolWrite)와 시작 전 AI 작업, 워처 자동 등록을 처음부터
@@ -106,14 +106,15 @@ public class IssueImportService {
    * 이슈 한 건을 가져온다. 어느 검증이든 실패하면 아무것도 남지 않는다(한 트랜잭션).
    *
    * @return 만든 이슈(원래 시각·담당자·필드가 반영된 요약)
-   * @throws IssueImportException 관리자·사람이 아님(403), 개인 프로젝트·맞지 않는 사용자·시각(400), 번호·원본 키 중복(409)
+   * @throws IssueImportException 관리자·그 프로젝트 OWNER 인 사람이 아님(403), 개인 프로젝트·맞지 않는 사용자·시각(400), 번호·원본 키
+   *     중복(409)
    */
   public IssueResponse importIssue(long callerId, String projectKey, ImportIssueRequest req) {
-    // 1) 권한 — 테넌트 ADMIN 역할의 사람만. 프로젝트 OWNER 도 안 된다(누구나 프로젝트를 만들면 소유자라 사실상 모두에게 열린다).
-    UserResponse caller = importGuard.requireHumanAdmin(callerId);
-
-    // 2) 프로젝트 — 개인 프로젝트에는 ADMIN 우회가 없어 가져오지 않는다.
-    ProjectRow project = importGuard.resolveImportProject(projectKey);
+    // 1)·2) 권한·프로젝트 — 테넌트 ADMIN 이거나 이 팀 프로젝트의 OWNER 인 사람만(WP-1239). OWNER 는 자기 프로젝트에만, AI 구성원은
+    //    거부, 개인 프로젝트에는 가져오지 않는다 — 규칙은 IssueImportGuard.requireImportAccess 한 곳에.
+    IssueImportGuard.ImportAccess access = importGuard.requireImportAccess(callerId, projectKey);
+    UserResponse caller = access.caller();
+    ProjectRow project = access.project();
 
     // 3) 시각 — 수정·댓글·첨부·이력 시각의 순서를 쓰기 전에 걸러 부분 저장을 피한다. 종료 시각은 상태가 정해진 뒤(5)에 본다.
     validateTimes(req);
@@ -175,7 +176,7 @@ public class IssueImportService {
     linkVersions(project, row.id(), versionLinks);
     fieldValueService.importValues(project.id(), row.id(), req.fields());
     for (Long uid : assigneeIds) {
-      // 지정자는 호출자(관리자) — 원래 지정자는 이력(history)으로 옮긴다.
+      // 지정자는 호출자(가져오는 사람) — 원래 지정자는 이력(history)으로 옮긴다.
       assigneeRepository.add(row.id(), uid, callerId);
     }
     // 워처는 넘긴 목록 그대로 — 일반 생성과 달리 보고자·담당자를 자동으로 넣지 않는다(원본과 달라지고 이관 뒤 알림이 간다).
