@@ -232,12 +232,47 @@ class IssueImportTest extends IssueImportTestSupport {
     return agent;
   }
 
+  /** 프로젝트 소유자(OWNER)는 관리자가 아니어도 자기 팀 프로젝트에 가져올 수 있다(WP-1239). */
   @Test
-  void nonAdmin_403_evenProjectOwner() throws Exception {
-    importAs(owner, body("소유자"))
+  void projectOwner_201() throws Exception {
+    importAs(owner, body("소유자")).andExpect(status().isCreated());
+    assertThat(issueCount()).isEqualTo(1);
+  }
+
+  /** 다른 프로젝트의 소유자는 이 프로젝트에 가져올 수 없다 — 소유자 판정은 대상 프로젝트 기준이다. */
+  @Test
+  void ownerOfOtherProject_403() throws Exception {
+    long otherOwner = human();
+    String otherKey =
+        "IO" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    projectService.create(otherOwner, new CreateProjectRequest(otherKey, "남의 프로젝트", "x"));
+    importAs(otherOwner, body("남의 소유자"))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.errors.reason").value("IMPORT_ADMIN_ONLY"));
     assertThat(issueCount()).isZero();
+  }
+
+  /** 관리자가 아닌 사람에게는 없는 프로젝트도 404 가 아니라 403 이다 — 프로젝트 존재를 드러내지 않는다. */
+  @Test
+  void nonAdmin_unknownProject_403() throws Exception {
+    importAs(owner, "NX" + key.substring(2), body("없는 프로젝트"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.errors.reason").value("IMPORT_ADMIN_ONLY"));
+  }
+
+  /** 관리자가 아닌 소유자의 개인 프로젝트도 가져오기 대상이 아니다 — 관리자와 같은 400, 남의 개인 프로젝트는 존재를 감춰 403. */
+  @Test
+  void nonAdmin_personalProject_ownIs400_othersIs403() throws Exception {
+    var personal =
+        projectService.create(owner, new CreateProjectRequest(null, "내 일", null, "PERSONAL"));
+    Map<String, Object> m = body("개인");
+    m.put("reporter", username(owner));
+    importAs(owner, personal.key(), m)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.reason").value("IMPORT_PERSONAL_PROJECT"));
+    importAs(reporter, personal.key(), m)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.errors.reason").value("IMPORT_ADMIN_ONLY"));
   }
 
   @Test
@@ -391,6 +426,24 @@ class IssueImportTest extends IssueImportTestSupport {
                 .where(ISSUE.PROJECT_ID.eq(projectId))
                 .fetchOne(ISSUE.IMPORT_SOURCE_KEY))
         .isEqualTo("CLIM-17");
+  }
+
+  /** 가져올 때 준 원본 키가 상세·목록에 sourceKey 로 보이고, 목록은 원본 키로 정확히 찾는다(WP-1239). */
+  @Test
+  void sourceKey_shownInDetailAndSearchable() throws Exception {
+    Map<String, Object> m = body("원본 CLIM-18");
+    m.put("sourceKey", "CLIM-18");
+    int number = numberOf(importAs(admin, m).andExpect(status().isCreated()));
+    importAs(admin, body("원본 키 없음")).andExpect(status().isCreated());
+
+    assertThat(issueService.get(admin, key, number).summary().sourceKey()).isEqualTo("CLIM-18");
+    var found = searchService.search(admin, key, Map.of("sourceKey", "CLIM-18")).items();
+    assertThat(found).extracting(r -> r.number()).containsExactly(number);
+    assertThat(searchService.search(admin, key, Map.of("sourceKey", "CLIM-1")).items()).isEmpty();
+    assertThat(searchService.search(admin, key, Map.of()).items())
+        .filteredOn(r -> r.number() != number)
+        .extracting(r -> r.sourceKey())
+        .containsOnlyNulls();
   }
 
   @Test
@@ -610,7 +663,7 @@ class IssueImportTest extends IssueImportTestSupport {
     assertThat(issueCount()).isEqualTo(1);
   }
 
-  /** issue:write 는 있지만 ADMIN 이 아닌 구성원의 개인 토큰 — 인터셉터는 통과하고 서비스가 IMPORT_ADMIN_ONLY 로 거절한다. */
+  /** issue:write 는 있지만 ADMIN 도 소유자도 아닌 구성원의 개인 토큰 — 인터셉터는 통과하고 서비스가 IMPORT_ADMIN_ONLY 로 거절한다. */
   @Test
   void member_personalToken_403_adminOnly() throws Exception {
     long member = plainMember();

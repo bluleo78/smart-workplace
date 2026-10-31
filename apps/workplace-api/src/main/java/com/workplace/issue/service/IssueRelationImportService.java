@@ -37,8 +37,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 관계 일괄 가져오기(WP-887) — 이슈를 모두 가져온 뒤 이슈 사이 관계(관련·중복·복제·원인·사용자 정의, 차단)를 한 번에 넣는다. 관리자(사람)만, 개인 프로젝트
- * 불가 — 이슈 가져오기와 같은 관문({@link IssueImportGuard})이다.
+ * 관계 일괄 가져오기(WP-887) — 이슈를 모두 가져온 뒤 이슈 사이 관계(관련·중복·복제·원인·사용자 정의, 차단)를 한 번에 넣는다. 관리자·프로젝트
+ * 소유자(사람)만(WP-1239), 개인 프로젝트 불가 — 이슈 가져오기와 같은 관문({@link IssueImportGuard})이다.
  *
  * <p>전부 검증한 뒤에 쓴다 — 틀린 줄이 하나라도 있으면 아무것도 쓰지 않고 틀린 줄을 모두 알린다(400). 이미 있는 관계·같은 요청 안의 중복 줄(방향 없는 유형의
  * 뒤집힌 쌍 포함)은 오류 없이 건너뛰어 재시도가 멱등이다. 이력·알림은 만들지 않고, 끝나면 관계가 생긴 프로젝트마다 화면 갱신 신호만 한 번 보낸다(AI 작업 터치 없음).
@@ -84,12 +84,15 @@ public class IssueRelationImportService {
    * 관계를 일괄로 넣는다. 한 트랜잭션 — 어느 검증이든 실패하면 아무것도 남지 않는다.
    *
    * @return 새로 만든 수와 건너뛴 수(이미 있거나 같은 요청 안의 중복)
-   * @throws IssueImportException 관리자·사람이 아님(403), 개인 프로젝트(400), 틀린 줄이 있음(400, {@code errors.rows})
+   * @throws IssueImportException 관리자·그 프로젝트 OWNER 인 사람이 아님(403), 개인 프로젝트(400), 틀린 줄이 있음(400, {@code
+   *     errors.rows})
    */
   public ImportRelationsResponse importRelations(
       long callerId, String projectKey, ImportRelationsRequest req) {
-    UserResponse caller = importGuard.requireHumanAdmin(callerId);
-    ProjectRow project = importGuard.resolveImportProject(projectKey);
+    // 권한·프로젝트 — 테넌트 ADMIN 이거나 이 팀 프로젝트의 OWNER 인 사람만(WP-1239, 이슈 가져오기와 같은 관문).
+    IssueImportGuard.ImportAccess access = importGuard.requireImportAccess(callerId, projectKey);
+    UserResponse caller = access.caller();
+    ProjectRow project = access.project();
 
     List<RowError> errors = new ArrayList<>();
     List<Parsed> parsed = parse(req.relations(), project, errors);
@@ -216,8 +219,8 @@ public class IssueRelationImportService {
       Map<String, Map<Integer, IssueRow>> issues) {}
 
   /**
-   * 형식이 맞는 줄이 가리키는 프로젝트와 이슈를 프로젝트마다 한 번에 읽는다(1000줄이어도 쿼리는 프로젝트 수만큼). 다른 프로젝트는 호출자(관리자)가 읽을 수 있고 개인
-   * 프로젝트가 아니어야 상대가 된다 — 없는 키와 읽을 수 없는 키는 같은 사유로 답한다.
+   * 형식이 맞는 줄이 가리키는 프로젝트와 이슈를 프로젝트마다 한 번에 읽는다(1000줄이어도 쿼리는 프로젝트 수만큼). 다른 프로젝트는 호출자가 읽을 수 있고 개인 프로젝트가
+   * 아니어야 상대가 된다 — 없는 키와 읽을 수 없는 키는 같은 사유로 답한다.
    */
   private Resolved loadIssues(long callerId, ProjectRow project, List<Parsed> parsed) {
     Map<String, Set<Integer>> numbers = new HashMap<>();

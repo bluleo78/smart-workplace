@@ -189,6 +189,8 @@ export function toIssueListItem(it: IssueRow) {
   const { projectKey, number } = it;
   return {
     issueKey: it.issueKey ?? (formatIssueKey(projectKey, number) ?? String(it.id ?? '')),
+    // WP-1239: 가져온 이슈의 원본 키(예: Jira INFRA-123) — 없으면 dropEmpty 가 키를 뺀다.
+    sourceKey: it.sourceKey ?? undefined,
     title: it.title ?? '',
     status: it.status ?? '',
     // WP-807: 범주(status) 안의 프로젝트 상태 이름 — 없으면 dropEmpty 가 키를 뺀다.
@@ -325,10 +327,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: 'issue',
       kind: 'read',
       description:
-        'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters or ' +
-        'say the list is partial. due/closed/created From-To: yyyy-MM-dd, inclusive, closed/created in KST; for finished ' +
-        'work add status=DONE (closed ranges also match CANCELED). Items: issueKey, main fields, parent, children, blocked, ' +
-        'agentWork (empty keys omitted); body/comments: get_issue_detail.',
+        'Lists issues (이슈): {items, hasMore?, nextCursor?}, size 30. If hasMore, pass nextCursor as cursor (same filters) or ' +
+        'say the list is partial. due/closed/created From-To: yyyy-MM-dd inclusive, closed/created KST; done work: ' +
+        'status=DONE (closed ranges also match CANCELED). Items: issueKey, sourceKey, fields, parent, children, ' +
+        'blocked, agentWork; empty omitted; body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, mentionsMe, ...p } = listIssuesInput.parse(args);

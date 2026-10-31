@@ -466,10 +466,12 @@ export function defaultListAssignee(p: {
   watching?: boolean;
   parent?: string;
   mentionsMe?: boolean;
+  sourceKey?: string;
 }): string | undefined {
   // WP-176: "any" 는 담당자 조건 없음 — 기본값 "me" 를 끄고 프로젝트 전체 이슈를 대상으로 한다.
   if (p.assignee?.trim().toLowerCase() === 'any') return undefined;
   // WP-356: 워치 중 이슈·특정 부모의 하위 이슈는 담당자와 무관한 질문이다 — 기본 "me" 가 끼면 내 담당분만 남는다.
   // WP-719: 나를 멘션한 이슈도 담당이 아닌 이슈에서 받은 지시를 찾는 조회라 같다.
-  return p.assignee ?? (p.reporter || p.watching || p.parent || p.mentionsMe ? undefined : 'me');
+  // WP-1239: 원본 키로 찾기도 담당과 무관하다 — 가져온 이슈를 원래 키로 찾는 조회. 빈 키는 서버가 거르지 않으므로 기본 "me" 를 그대로 둔다.
+  return p.assignee ?? (p.reporter || p.watching || p.parent || p.mentionsMe || p.sourceKey?.trim() ? undefined : 'me');
 }

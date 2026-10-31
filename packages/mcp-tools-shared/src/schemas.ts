@@ -227,13 +227,13 @@ export const listIssuesInput = z.object({
     .string()
     .optional()
     .describe(
-      'CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent/mentionsMe',
+      'CSV: me, null (unassigned), any, usernames; default me unless reporter/watching/parent/mentionsMe/sourceKey',
     ),
   cycle: z
     .string()
     .optional()
     .describe(
-      'CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names/"active" need projectKey',
+      'CSV, any match: cycle (사이클) names, active, none, backlog (no active/planned); names/active need projectKey',
     ),
   // WP-356: 아래 넷은 핸들러가 서버 쿼리로 바꾼다(마일스톤 이름→id, 부모 키→번호+projectKey, 필드 이름→fieldId+JSON 값, 워치=호출자).
   milestone: z.string().optional().describe('Milestone names CSV, any match; needs projectKey'),
@@ -244,6 +244,8 @@ export const listIssuesInput = z.object({
   pendingForMe: z.boolean().optional().describe('Others posted or commented since my last post'),
   // WP-719: 담당과 무관하게 내 마지막 글 뒤에 나를 멘션한 남의 글이 있는 이슈 — 담당이 아닌 이슈에서 받은 지시를 찾는다.
   mentionsMe: z.boolean().optional().describe('Others @mentioned me since my last post'),
+  // WP-1239: 가져올 때 받은 원본 키(예: Jira INFRA-123)와 정확히 같은 이슈 — 서버 sourceKey 필터로 그대로 보낸다. 담당과 무관한 조회라 기본 "me" 를 끈다.
+  sourceKey: z.string().optional().describe('Exact import key'),
 });
 
 /** get_issue_chat 입력(WP-373). after 는 이전 응답의 next(메시지 id). 생략하면 내 마지막 글 이후 새 글 + 직전 맥락. */

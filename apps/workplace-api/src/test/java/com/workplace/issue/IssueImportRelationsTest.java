@@ -327,11 +327,11 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
     importAs(admin, m).andExpect(status().isCreated());
   }
 
-  /** 관리자만 — 프로젝트 OWNER(비 ADMIN)·AI(ADMIN 이어도)는 403, 개인 프로젝트는 400. */
+  /** 관리자와 프로젝트 OWNER 만(WP-1239) — 소유자 아닌 구성원·AI(ADMIN 이어도)는 403, 개인 프로젝트는 400. */
   @Test
-  void adminOnly() throws Exception {
+  void adminOrOwnerOnly() throws Exception {
     List<Map<String, Object>> rows = List.of(row("RELATES", n.get(0), n.get(1), null));
-    relations(owner, key, rows)
+    relations(reporter, key, rows)
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.errors.reason").value("IMPORT_ADMIN_ONLY"));
 
@@ -353,6 +353,10 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
         .andExpect(jsonPath("$.errors.reason").value("IMPORT_PERSONAL_PROJECT"));
     assertThat(dsl.fetchCount(ISSUE_RELATION, ISSUE_RELATION.SOURCE_ISSUE_ID.eq(issueId(n.get(0)))))
         .isZero();
+
+    relations(owner, key, rows).andExpect(status().isOk());
+    assertThat(dsl.fetchCount(ISSUE_RELATION, ISSUE_RELATION.SOURCE_ISSUE_ID.eq(issueId(n.get(0)))))
+        .isEqualTo(1);
   }
 
   // ── 도우미 ──────────────────────────────────────────────────────────────────────────────

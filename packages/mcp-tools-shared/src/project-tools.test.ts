@@ -301,6 +301,13 @@ describe('toIssueListItem agentWork (WP-377)', () => {
   });
 });
 
+describe('toIssueListItem sourceKey (WP-1239)', () => {
+  it('가져온 이슈는 원본 키를 싣고, 없으면 키가 없다', () => {
+    expect(toIssueListItem({ projectKey: 'WP', number: 1, sourceKey: 'INFRA-123' }).sourceKey).toBe('INFRA-123');
+    expect(toIssueListItem({ projectKey: 'WP', number: 2, sourceKey: null }).sourceKey).toBeUndefined();
+  });
+});
+
 describe('list_issues', () => {
   it('pendingForMe 를 서버 쿼리로 넘기고 기본 assignee=me 를 유지한다 (WP-373)', async () => {
     const c = mockClient();
@@ -312,6 +319,18 @@ describe('list_issues', () => {
     const c = mockClient();
     await tool(c, 'list_issues').handler({ projectKey: 'WP', mentionsMe: true });
     expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', mentionsMe: true, size: 30 });
+  });
+
+  it('sourceKey 를 서버 쿼리로 넘기고 가져온 이슈를 담당과 무관하게 찾도록 기본 assignee=me 를 붙이지 않는다 (WP-1239)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', sourceKey: 'INFRA-123' });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', sourceKey: 'INFRA-123', size: 30 });
+  });
+
+  it('빈 sourceKey 는 서버가 걸러 필터가 없으니 기본 assignee=me 를 그대로 붙인다 (WP-1239)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', sourceKey: '  ' });
+    expect(issueQuery(c)).toMatchObject({ projectKey: 'WP', assignee: 'me' });
   });
 
   it('assignee·reporter 모두 생략 시 assignee=me, 기본 size 30, undefined 필드는 쿼리에 없다', async () => {

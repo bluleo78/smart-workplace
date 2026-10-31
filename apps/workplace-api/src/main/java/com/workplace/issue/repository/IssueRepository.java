@@ -120,7 +120,9 @@ public class IssueRepository {
     STATUS_NAME,
     STATUS_COLOR,
     // WP-1017 에픽 색
-    ISSUE.EPIC_COLOR
+    ISSUE.EPIC_COLOR,
+    // WP-1239 가져온 이슈의 원본 키
+    ISSUE.IMPORT_SOURCE_KEY
   };
 
   /**
@@ -155,7 +157,9 @@ public class IssueRepository {
         r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null,
         r.indexOf(STATUS_COLOR) >= 0 ? r.get(STATUS_COLOR) : null,
         // 에픽 색(WP-1017) — ROW_FIELDS·RETURNING 모두 싣지만, 열을 골라 SELECT 하는 경로를 위해 없으면 null.
-        r.indexOf(ISSUE.EPIC_COLOR) >= 0 ? r.get(ISSUE.EPIC_COLOR) : null);
+        r.indexOf(ISSUE.EPIC_COLOR) >= 0 ? r.get(ISSUE.EPIC_COLOR) : null,
+        // 원본 키(WP-1239) — 열을 골라 SELECT 하는 경로에는 없을 수 있어 그때는 null.
+        r.indexOf(ISSUE.IMPORT_SOURCE_KEY) >= 0 ? r.get(ISSUE.IMPORT_SOURCE_KEY) : null);
   }
 
   /**
@@ -482,7 +486,8 @@ public class IssueRepository {
         inserted.statusId(),
         statusName,
         statusColor,
-        inserted.epicColor());
+        inserted.epicColor(),
+        inserted.sourceKey());
   }
 
   /**
@@ -682,6 +687,7 @@ public class IssueRepository {
     where = where.and(watcherCondition(query));
     where = where.and(pendingForCondition(query));
     where = where.and(mentionedCondition(query));
+    where = where.and(sourceKeyCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     where = where.and(componentCondition(query));
@@ -993,6 +999,15 @@ public class IssueRepository {
   private Condition mentionedCondition(IssueSearchQuery query) {
     Long uid = query.mentionedUserId();
     return uid == null ? noCondition() : unansweredPostCondition(uid, true);
+  }
+
+  /**
+   * 원본 키 필터(WP-1239) — 가져올 때 받은 원본 키와 정확히 같은 이슈만. 프로젝트마다 고유(uq_issue_project_import_source_key)라
+   * 프로젝트 안에서는 한 건이다.
+   */
+  private Condition sourceKeyCondition(IssueSearchQuery query) {
+    String key = query.sourceKey();
+    return key == null ? noCondition() : ISSUE.IMPORT_SOURCE_KEY.eq(key);
   }
 
   /**
@@ -1332,6 +1347,7 @@ public class IssueRepository {
     where = where.and(watcherCondition(query));
     where = where.and(pendingForCondition(query));
     where = where.and(mentionedCondition(query));
+    where = where.and(sourceKeyCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     where = where.and(componentCondition(query));

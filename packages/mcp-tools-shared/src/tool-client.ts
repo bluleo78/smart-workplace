@@ -102,6 +102,8 @@ export interface IssueRow {
   fixVersions?: { name?: string; [key: string]: unknown }[] | null;
   affectsVersions?: { name?: string; [key: string]: unknown }[] | null;
   milestoneName?: string | null;
+  /** 가져올 때 받은 원본 시스템 키(WP-1239) — 가져오지 않은 이슈는 null. */
+  sourceKey?: string | null;
   // WP-1038 부모는 다른 프로젝트 에픽일 수 있어 projectKey 를 싣고, 조회자가 읽을 수 없으면 hidden=true(번호·제목 없음).
   parent?: { number?: number; title?: string; status?: string; projectKey?: string; hidden?: boolean; [key: string]: unknown } | null;
   childCount?: number;
