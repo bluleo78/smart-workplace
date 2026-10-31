@@ -968,3 +968,9 @@ body:has([data-viewer-above-ai]) [data-sonner-toaster] {
 [data-viewer-stage] * {
   overscroll-behavior: contain;
 }
+
+/* 메시지 링크로 연 메시지(WP-1236) — 잠깐 테두리로 강조한다(useMessageLinkJump 가 달았다 뗀다). 이슈 댓글 강조(ring-2 ring-primary)와 같은 색. */
+[data-message-id][data-link-highlight] {
+  box-shadow: 0 0 0 2px var(--primary);
+  transition: box-shadow 0.3s;
+}

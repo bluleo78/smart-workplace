@@ -83,11 +83,17 @@ public class LinkPreviewDispatcher {
   private static final Pattern FILE_PARAM = Pattern.compile("(?:^|&)file=([^&]*)");
   // 드라이브 미리보기 주소(WP-1235) — 웹의 🔗·⇧⌘, 가 복사하는 파일 링크(/drive/spaces/{s}?folderId=..&preview={id}).
   private static final Pattern PREVIEW_PARAM = Pattern.compile("(?:^|&)preview=([^&]*)");
+  // 메시지·일정·메일 주소(WP-1236) — 웹의 「링크 복사」가 만드는 모양. 그 쿼리가 있어야 카드다(/chat/channels/5·/calendar 만은 아니다).
+  private static final Pattern MESSAGE_PARAM = Pattern.compile("(?:^|&)message=([^&]*)");
+  private static final Pattern EVENT_PARAM = Pattern.compile("(?:^|&)eventId=([^&]*)");
+  private static final Pattern MAIL_PARAM = Pattern.compile("(?:^|&)messageId=([^&]*)");
 
   /**
    * 웹이 앱 카드로 그리는 주소인지 — 호스트가 우리 앱이고 경로가 {@code /projects/{KEY}/issues/{n}}·{@code
    * /wiki/spaces/{s}/pages/{id}}·{@code /wiki/open/{id}}·{@code /drive/spaces/{s}?file={id}}·{@code
-   * /drive/spaces/{s}?preview={id}} 중 하나. 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
+   * /drive/spaces/{s}?preview={id}}·{@code /chat/channels/{c}?message={id}}·{@code
+   * /chat/dms/{c}?message={id}}·{@code /calendar?eventId={id}}·{@code /mail/{a}?messageId={id}} 중
+   * 하나(쿼리 값은 처음 나온 것만 본다). 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
    * 표(test/resources/app-links/app-card-urls.json)를 읽어 어긋나면 실패한다.
    */
   boolean isAppCardUrl(String url) {
@@ -112,7 +118,29 @@ public class LinkPreviewDispatcher {
       boolean byPreview = pv.find() && ID.matcher(pv.group(1)).matches();
       return ID.matcher(p[2]).matches() && (byFile || byPreview);
     }
+    // 메시지(WP-1236): /chat/channels|dms/{c}?message={id} — thread= 등 다른 쿼리가 함께 있어도 된다.
+    if (p.length == 3
+        && p[0].equals("chat")
+        && (p[1].equals("channels") || p[1].equals("dms"))
+        && ID.matcher(p[2]).matches()) {
+      return idParam(MESSAGE_PARAM, m.group(3));
+    }
+    // 일정(WP-1236): /calendar?eventId={id}
+    if (p.length == 1 && p[0].equals("calendar")) {
+      return idParam(EVENT_PARAM, m.group(3));
+    }
+    // 메일(WP-1236): /mail/{accountId}?messageId={id}
+    if (p.length == 2 && p[0].equals("mail") && ID.matcher(p[1]).matches()) {
+      return idParam(MAIL_PARAM, m.group(3));
+    }
     return false;
+  }
+
+  /** 쿼리에서 처음 나온 그 이름의 값이 카드 id(ID 문법)인지. 쿼리가 없으면 false. */
+  private static boolean idParam(Pattern param, String query) {
+    if (query == null) return false;
+    Matcher q = param.matcher(query);
+    return q.find() && ID.matcher(q.group(1)).matches();
   }
 
   /** 테넌트가 없으면(전파 실패) RLS 가 막으므로 건너뛰고 남긴다. 미리보기는 best-effort — 실패는 로그만. */

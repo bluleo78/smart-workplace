@@ -243,8 +243,8 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await expect(page.getByTestId('drive-row-sheet')).toHaveCount(0)
     const menu = page.getByRole('menu')
     await expect(menu).toBeVisible()
-    // 휴대폰 시트와 같은 작업 목록(다운로드·공유·이름 변경·이동·복사·버전·삭제).
-    await expect(menu.getByRole('menuitem')).toHaveCount(7)
+    // 휴대폰 시트와 같은 작업 목록(링크 복사·채팅·이슈로 보내기·다운로드·공유·이름 변경·이동·복사·버전·삭제, WP-1236).
+    await expect(menu.getByRole('menuitem')).toHaveCount(9)
     // WP-363: 삭제 앞에만 구분선 — 데스크톱 ⋯·휴대폰 시트와 같은 모양.
     await expect(menu.getByRole('separator')).toHaveCount(1)
     await expect(menu.locator('[role="separator"] + [role="menuitem"]')).toHaveAttribute('data-testid', 'drive-row-action-delete')

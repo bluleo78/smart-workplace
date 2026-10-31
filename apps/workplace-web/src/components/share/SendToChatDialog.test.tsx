@@ -17,6 +17,8 @@ const API = '/api/v1'
 const ORIGIN = window.location.origin
 const issueTarget: ShareTarget = { kind: 'issue', url: `${ORIGIN}/projects/WP/issues/7`, title: '결제 버그', key: 'WP-7' }
 const eventTarget: ShareTarget = { kind: 'event', url: `${ORIGIN}/calendar?eventId=5`, title: '주간 회의' }
+// 카드 종류가 아닌 대상 — 폴더 링크는 앱 링크 카드가 없다(WP-1236 뒤 일정·메일·메시지는 카드가 있다).
+const folderTarget: ShareTarget = { kind: 'folder', url: `${ORIGIN}/drive/spaces/1?folderId=3`, title: '회의록' }
 // renderScreen 의 고정 로그인 사용자(id 1)·워크스페이스(testAuthValue 의 activeTenant).
 const owner = () => ({ userId: 1, tenantId: 1 })
 
@@ -168,15 +170,15 @@ describe('SendToChatDialog', () => {
     expect(readRecentDestinations(owner())).toEqual([])
   })
 
-  test('카드 종류가 아닌 대상(일정)은 대상 이름으로 미리보고 링크를 그대로 보낸다', async () => {
-    const { user, posted } = open(eventTarget)
+  test('카드 종류가 아닌 대상(폴더)은 대상 이름으로 미리보고 링크를 그대로 보낸다', async () => {
+    const { user, posted } = open(folderTarget)
     await user.click(within(await screen.findByTestId('send-to-chat-channels')).getByText('일반'))
     const preview = screen.getByTestId('send-to-chat-preview')
     expect(preview).toHaveAttribute('data-state', 'fallback')
-    expect(preview).toHaveTextContent('일정')
-    expect(preview).toHaveTextContent('주간 회의')
+    expect(preview).toHaveTextContent('폴더')
+    expect(preview).toHaveTextContent('회의록')
     await user.click(screen.getByTestId('send-to-chat-submit'))
-    await waitFor(() => expect(posted).toEqual([{ url: 'channels/10/messages', body: { body: eventTarget.url } }]))
+    await waitFor(() => expect(posted).toEqual([{ url: 'channels/10/messages', body: { body: folderTarget.url } }]))
   })
 
   test('검색 결과가 입력을 따라오기 전에 누른 Enter 는 앞 결과를 고르지 않고, 결과가 맞춰지면 맨 위 후보를 고른다', async () => {

@@ -31,6 +31,34 @@ describe('parseAppLink', () => {
     expect(parseAppLink('https://works.example.com/drive/spaces/5?preview=file:9', HOST)).toBeNull()
   })
 
+  it('메시지·일정·메일 주소는 그 대상 카드다 — 이동 경로에는 화면이 읽는 쿼리만 남긴다(WP-1236)', () => {
+    expect(parseAppLink('https://works.example.com/chat/channels/5?message=77&x=1', HOST)).toEqual({
+      kind: 'MESSAGE', messageId: 77, to: '/chat/channels/5?message=77',
+    })
+    // 스레드 답글은 루트(?thread)를 남겨 스레드 칸이 함께 열린다.
+    expect(parseAppLink('https://works.example.com/chat/dms/5?message=77&thread=70', HOST)).toEqual({
+      kind: 'MESSAGE', messageId: 77, to: '/chat/dms/5?thread=70&message=77',
+    })
+    expect(parseAppLink('https://works.example.com/calendar?view=week&eventId=42', HOST)).toEqual({
+      kind: 'EVENT', eventId: 42, to: '/calendar?eventId=42',
+    })
+    expect(parseAppLink('https://works.example.com/mail/3?folder=INBOX&messageId=99', HOST)).toEqual({
+      kind: 'MAIL', mailId: 99, to: '/mail/3?messageId=99',
+    })
+  })
+
+  it('코멘트 링크는 이슈 카드이되 누르면 그 코멘트로 간다 — 같은 이슈의 코멘트 둘은 카드 하나(WP-1236)', () => {
+    expect(parseAppLink('https://works.example.com/projects/WP/issues/7#comment-12', HOST)).toEqual({
+      kind: 'ISSUE', to: '/projects/WP/issues/7', key: 'WP', number: 7, fragment: '#comment-12',
+    })
+    // 코멘트 조각이 아닌 조각은 버린다.
+    expect(parseAppLink('https://works.example.com/projects/WP/issues/7#top', HOST)).toEqual({
+      kind: 'ISSUE', to: '/projects/WP/issues/7', key: 'WP', number: 7,
+    })
+    const body = 'https://works.example.com/projects/WP/issues/7#comment-1 https://works.example.com/projects/WP/issues/7#comment-2'
+    expect(appLinksOf(body, HOST)).toHaveLength(1)
+  })
+
   it('호스트는 대소문자·포트와 무관하게 같으면 앱 링크다', () => {
     expect(parseAppLink('http://WORKS.example.com:8443/wiki/open/1', HOST)).toMatchObject({ kind: 'PAGE', pageId: 1 })
   })

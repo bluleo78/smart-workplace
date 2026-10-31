@@ -28,6 +28,23 @@ describe('createShareTargetStore', () => {
     expect(store.get()).toBe(file)
   })
 
+  it('목록에서 고른 줄(selection)은 목록 화면(page)보다 이기고 뷰어(overlay)에는 진다 — 등록 순서와 무관(WP-1236)', () => {
+    const store = createShareTargetStore()
+    const folder: ShareTarget = { kind: 'folder', url: 'http://x/drive/spaces/1', title: '루트' }
+    const row = Symbol('row')
+    // 자식(줄 선택)이 부모(목록 화면)보다 먼저 등록돼도 selection 이 이긴다.
+    store.set(row, issue, 'selection')
+    store.set(Symbol('page'), folder)
+    expect(store.get()).toBe(issue)
+    const viewer = Symbol('viewer')
+    store.set(viewer, file, 'overlay')
+    expect(store.get()).toBe(file)
+    store.release(viewer)
+    // 고른 줄이 풀리면(null) 다시 목록 화면.
+    store.set(row, null, 'selection')
+    expect(store.get()).toBe(folder)
+  })
+
   it('갱신한 값(함수 포함)을 그대로 돌려준다', () => {
     const store = createShareTargetStore()
     const t = Symbol('page')

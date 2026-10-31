@@ -544,3 +544,23 @@ test('상세 동작 줄 끝 🔗 는 이 메일 링크(계정·messageId)를 복
   await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/mail/1?messageId=10`))
   expect(await screen.findByText('링크를 복사했어요')).toBeInTheDocument()
 })
+
+// ── 줄 링크(WP-1236) ─────────────────────────────────────────────
+
+test('메일 줄 우클릭 → 「링크 복사·채팅·이슈로 보내기…」 메뉴, 보내기는 그 메일 링크로 열고 메일은 열지 않는다', async () => {
+  const { fireEvent } = await import('@testing-library/react')
+  const { closeSendToChat, sendToChatTarget } = await import('@/lib/sendToChat')
+  const { handlers } = readStub()
+  const { user, location } = renderMail('/mail/1', { handlers })
+  const row = await screen.findByTestId('mail-row-10')
+  fireEvent.contextMenu(row, { clientX: 0, clientY: 0 })
+  const menu = await screen.findByTestId('mail-row-link-menu-10')
+  expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['링크 복사', '채팅·이슈로 보내기…'])
+  await user.click(within(menu).getByTestId('menu-send-to-chat'))
+  await waitFor(() =>
+    expect(sendToChatTarget()).toMatchObject({ kind: 'mail', url: `${window.location.origin}/mail/1?messageId=10` }),
+  )
+  // 메뉴 누름이 행 열기로 번지지 않는다.
+  expect(location()).toBe('/mail/1')
+  act(() => closeSendToChat())
+})

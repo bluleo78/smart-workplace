@@ -8,8 +8,10 @@ import { ChevronRight, CircleCheckBig, LayoutList } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SelectAllCheckbox } from '@/components/SelectAllCheckbox';
+import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS } from '@/lib/listStyles';
+import { issueShareTarget, type ShareTarget } from '@/lib/shareTarget';
 import { cn } from '@/lib/utils';
 
 import { ListLoadingSkeleton } from '../../../components/issue/ListLoadingSkeleton';
@@ -144,6 +146,13 @@ export function IssueListView({
     projectKey, canEdit, statuses, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
     selected, onBulkSettled: settleBulk, closedHiding,
   });
+  // 체크한 줄이 하나면 ⇧⌘,·⌘. 가 그 이슈의 링크·키를 복사한다(WP-1236) — 목록 화면에는 다른 대상이 없어 selection 층으로 둔다.
+  const selectedOne = selected.size === 1 ? items.find((i) => selected.has(i.number)) : undefined;
+  const selectionTarget = useMemo<ShareTarget | null>(
+    () => (selectedOne ? issueShareTarget(selectedOne.projectKey, selectedOne.number, selectedOne.title) : null),
+    [selectedOne],
+  );
+  useRegisterShareTarget(selectionTarget, 'selection');
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
   // data 객체(쿼리 결과)가 바뀔 때마다 보고한다 — 필터 변경으로 상위가 건수를 비운 뒤, 캐시된 새 결과의 건수가

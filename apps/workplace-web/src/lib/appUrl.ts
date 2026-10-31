@@ -34,3 +34,18 @@ export function calendarEventPath(eventId: number): string {
 export function mailMessagePath(accountId: number, messageId: number): string {
   return `/mail/${accountId}?messageId=${messageId}`
 }
+
+/**
+ * 채널·DM 메시지 경로(WP-1236) — 대화 화면이 ?message 로 그 메시지까지 거슬러 올라가 강조한다.
+ * 스레드 답글은 ?thread(루트)도 붙여 스레드 패널을 함께 연다 — 답글은 본 대화 목록에 없다.
+ */
+export function chatMessagePath(target: {
+  channelId: number
+  dm: boolean
+  messageId: number
+  threadRootId?: number | null
+}): string {
+  const base = `/chat/${target.dm ? 'dms' : 'channels'}/${target.channelId}`
+  const thread = target.threadRootId != null && target.threadRootId !== target.messageId ? `thread=${target.threadRootId}&` : ''
+  return `${base}?${thread}message=${target.messageId}`
+}

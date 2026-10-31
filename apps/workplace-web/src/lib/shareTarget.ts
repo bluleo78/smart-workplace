@@ -1,10 +1,11 @@
 // 지금 보는 대상(WP-1234) — 상세 화면이 등록하고 ⇧⌘,(링크 복사)·⌘.(키 복사) 단축키가 읽는다. React 밖 순수 TS 라 vitest(node)로 검증한다.
 // AI 화면 맥락 스토어(aiScreenContext/store)와 따로 둔다 — 그쪽은 URL 을 만들 정보가 다르고(드라이브 공간·폴더, 메일 계정이 없다)
 // AI 를 쓸 수 없는 워크스페이스에선 등록되지 않기 때문이다.
+import { appUrl, issuePath } from './appUrl'
 import { isMacLike } from './platform'
 
 /** 링크를 딸 수 있는 대상 종류. */
-export type ShareTargetKind = 'issue' | 'page' | 'file' | 'folder' | 'event' | 'mail'
+export type ShareTargetKind = 'issue' | 'page' | 'file' | 'folder' | 'event' | 'mail' | 'message'
 
 /** 지금 보는 대상 — 링크·이름·(이슈면) 키·(노트·드라이브면) 기존 외부 공유 창 열기. */
 export interface ShareTarget {
@@ -21,10 +22,11 @@ export interface ShareTarget {
 
 /**
  * 등록 층 — 'page' 는 상세 화면(이슈·노트·폴더·메일), 'overlay' 는 그 위에 뜨는 뷰어·대화상자(첨부 뷰어·일정 창).
+ * 'selection' 은 목록에서 고른 줄 하나(WP-1236 — 이슈 목록·드라이브의 체크한 줄 하나)로, 그 목록 화면(page)보다 이기고 overlay 에는 진다.
  * 열린 overlay 가 있으면 page 보다 늘 이긴다 — React 는 자식 effect 를 부모보다 먼저 돌리므로
  * 페이지 안에서 연 뷰어가 페이지보다 먼저 등록될 수 있어, 등록 순서만으로는 위에 떠 있는 쪽을 알 수 없기 때문이다.
  */
-export type ShareTargetLayer = 'page' | 'overlay'
+export type ShareTargetLayer = 'page' | 'selection' | 'overlay'
 
 export interface ShareTargetStore {
   set(token: symbol, target: ShareTarget | null, layer?: ShareTargetLayer): void
@@ -39,7 +41,7 @@ interface ShareTargetEntry {
 }
 
 /**
- * 등록자(토큰)별 대상을 삽입 순서 Map 으로 든다. 현재 대상 = 가장 나중에 등록한 overlay(값이 있는 것), 없으면 가장 나중에 등록한 page.
+ * 등록자(토큰)별 대상을 삽입 순서 Map 으로 든다. 현재 대상 = 가장 나중에 등록한 overlay(값이 있는 것), 없으면 selection, 없으면 가장 나중에 등록한 page.
  * 같은 토큰의 갱신(null ↔ 값 포함)은 자리를 지킨 채 값만 바꾼다 — 목록 화면이 다시 그려지거나 잠깐 null 이 되어도 위에 열린 화면을 앞지르지 않게.
  * 자리는 release(언마운트) 때만 뺀다. 값은 비교 없이 늘 바꾼다(onExternalShare 같은 함수가 낡지 않게). 구독자는 없다 — 단축키가 누를 때 get() 으로 읽는다.
  */
@@ -54,16 +56,18 @@ export function createShareTargetStore(): ShareTargetStore {
       entries.delete(token)
     },
     get() {
-      let page: ShareTarget | null = null
-      let overlay: ShareTarget | null = null
+      const latest: Partial<Record<ShareTargetLayer, ShareTarget>> = {}
       for (const { layer, target } of entries.values()) {
-        if (!target) continue
-        if (layer === 'overlay') overlay = target
-        else page = target
+        if (target) latest[layer] = target
       }
-      return overlay ?? page
+      return latest.overlay ?? latest.selection ?? latest.page ?? null
     },
   }
+}
+
+/** 이슈 하나의 링크 대상 — 목록에서 고른 줄(WP-1236)이 쓴다. 키가 있어 ⌘. 「키 복사」도 된다. */
+export function issueShareTarget(projectKey: string, issueNumber: number, title: string): ShareTarget {
+  return { kind: 'issue', url: appUrl(issuePath(projectKey, issueNumber)), title, key: `${projectKey}-${issueNumber}` }
 }
 
 /** 앱 전역 대상 스토어 — 상세 화면(useRegisterShareTarget)과 단축키(useShareHotkeys)가 함께 쓴다. */

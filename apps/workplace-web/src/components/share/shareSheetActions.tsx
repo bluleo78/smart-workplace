@@ -1,5 +1,6 @@
 // 모바일 공유 시트 항목(WP-1234) — 화면별 분기 없이 대상 필드 유무로만 정한다. ShareSheetButton 이 쓰고 테스트가 직접 본다.
 import { Globe, Hash, Link, MessageSquareShare, Send } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { openSendToChat } from '@/lib/sendToChat'
@@ -29,5 +30,16 @@ export function shareSheetActions(target: ShareTarget): MobileSheetAction[] {
     ...(target.onExternalShare
       ? [{ key: 'external-share', label: '외부 공유 링크…', icon: <Globe />, onSelect: () => void setTimeout(target.onExternalShare!, 0) }]
       : []),
+  ]
+}
+
+/**
+ * 줄(메시지·메일·드라이브·이슈 줄·코멘트) 시트의 링크 두 줄(WP-1236) — 「링크 복사」(토스트에 「채팅으로 보내기」)·「채팅·이슈로 보내기」.
+ * 공유 시트(위)의 앞 두 줄과 같은 문구·아이콘이고, 시트 종류(메시지 시트·모바일 시트)에 상관없이 쓰도록 공통 모양만 돌려준다.
+ */
+export function rowLinkActions(target: ShareTarget): { key: string; label: string; icon: ReactNode; onSelect: () => void }[] {
+  return [
+    { key: 'copy-link', label: '링크 복사', icon: <Link />, onSelect: () => void copyShareLink(target) },
+    { key: 'send-to-chat', label: '채팅·이슈로 보내기', icon: <MessageSquareShare />, onSelect: () => openSendToChat(target) },
   ]
 }

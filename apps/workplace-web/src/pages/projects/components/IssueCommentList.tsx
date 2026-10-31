@@ -6,7 +6,7 @@
 // <@id> 토큰의 이름/종류는 코멘트 응답의 mentions(서버가 사용자 테이블에서 풀어 줌 — 프로젝트에서 빠진 사람 포함, WP-1095)와
 // 프로젝트 멤버 목록으로 찾는다(읽기 렌더·수정 폼 초기값 공용). 구버전 서버(mentions 없음)는 멤버 목록만 쓴다.
 
-import { Link2, Pencil, Trash2 } from 'lucide-react';
+import { Link2, MessageSquareShare, Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -34,6 +34,8 @@ import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { appLinksOf, withoutMarkdownCode } from '@/lib/appLinks';
 import { appUrl } from '@/lib/appUrl';
+import { openSendToChat } from '@/lib/sendToChat';
+import type { ShareTarget } from '@/lib/shareTarget';
 import { cn } from '@/lib/utils';
 
 import { uploadIssueImage } from '../../../api/issueImages';
@@ -114,12 +116,23 @@ function CommentItem({
   const editButtonRef = useRef<HTMLButtonElement | null>(null);
   useRestoreFocusOnExit(editing, editButtonRef);
   // 코멘트 링크 복사(WP-1175) — 그 주소로 이슈를 열면 이 코멘트로 바로 간다. 누구의 코멘트든 복사할 수 있다.
-  const copyLink = () => {
-    const url = appUrl(issueCommentPath(projectKey, issueNumber, comment.id));
-    void copyToClipboard(url, { success: '코멘트 링크를 복사했습니다', failure: '코멘트 링크를 복사하지 못했습니다' });
+  // 복사 토스트와 「채팅·이슈로 보내기」(WP-1236)는 같은 대상 — 받는 쪽에는 이슈 카드로 보이고 누르면 이 코멘트로 간다.
+  const linkTarget: ShareTarget = {
+    kind: 'issue',
+    url: appUrl(issueCommentPath(projectKey, issueNumber, comment.id)),
+    title: `${projectKey}-${issueNumber} 코멘트`,
   };
+  const copyLink = () => {
+    void copyToClipboard(linkTarget.url, {
+      success: '코멘트 링크를 복사했습니다',
+      failure: '코멘트 링크를 복사하지 못했습니다',
+      successAction: { label: '채팅으로 보내기', onClick: () => openSendToChat(linkTarget) },
+    });
+  };
+  const sendLink = () => openSendToChat(linkTarget);
   const commentActions: MobileSheetAction[] = [
     { key: 'copy-link', label: '링크 복사', icon: <Link2 />, onSelect: copyLink },
+    { key: 'send-to-chat', label: '채팅·이슈로 보내기', icon: <MessageSquareShare />, onSelect: sendLink },
     ...(isOwn
       ? [
           { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => setEditing(true) },
@@ -263,6 +276,17 @@ function CommentItem({
                 data-testid={`issue-comment-copy-link-${comment.id}`}
               >
                 <Link2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                aria-label="코멘트 링크를 채팅·이슈로 보내기"
+                title="채팅·이슈로 보내기"
+                onClick={sendLink}
+                data-testid={`issue-comment-send-${comment.id}`}
+              >
+                <MessageSquareShare className="h-3.5 w-3.5" />
               </Button>
               {isOwn && (
               <>

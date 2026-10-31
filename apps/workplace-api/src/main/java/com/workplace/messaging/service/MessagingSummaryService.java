@@ -141,8 +141,11 @@ public class MessagingSummaryService {
         aiReason);
   }
 
-  /** DM 표시명 — 본인 외 참가자. 백엔드에서 라벨 확정(프론트 dmDisplayName 과 동일 규칙). */
-  private static String dmLabel(List<DmParticipant> ps, long callerId) {
+  /**
+   * DM 표시명 — 본인 외 참가자. 백엔드에서 라벨 확정(프론트 dmDisplayName 과 동일 규칙). 앱 링크 메시지 카드(WP-1236)도 같은 표기를 쓰도록 패키지
+   * 안에 연다.
+   */
+  static String dmLabel(List<DmParticipant> ps, long callerId) {
     var others = ps.stream().filter(p -> p.userId() == null || p.userId() != callerId).toList();
     if (others.isEmpty()) {
       // 셀프 DM — 본인 이름 + "(나)" (프론트 dm.ts 의 dmDisplayName 과 동일 규칙, #808).

@@ -2,7 +2,7 @@
 // 목록·보드가 메뉴 하나만 소유하고(행 memo 유지), 열린 위치(x,y)에 0 크기 고정 트리거를 두어 Radix 드롭다운을 띄운다.
 // 행 안이 아니라 표 밖 형제로 렌더한다 — 포털이어도 React 이벤트는 부모로 버블하므로, 행 안에 두면 항목 클릭이
 // <tr onClick>(상세 이동)·드래그 리스너까지 올라간다.
-import { Bot, CircleDot, ExternalLink, Hash, Layers, Link2, SignalHigh, Trash2, UserRound } from 'lucide-react';
+import { Bot, CircleDot, ExternalLink, Hash, Layers, Link2, MessageSquareShare, SignalHigh, Trash2, UserRound } from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -60,6 +60,7 @@ export function IssueRowMenu({
   onDelegate,
   onCopyLink,
   onCopyKey,
+  onSendToChat,
   onOpenTab,
   onDelete,
 }: {
@@ -85,6 +86,8 @@ export function IssueRowMenu({
   onDelegate: (agent: MemberResponse) => void;
   onCopyLink: () => void;
   onCopyKey: () => void;
+  // 채팅·이슈로 보내기(WP-1236) — 링크 복사 묶음에 둔다.
+  onSendToChat: () => void;
   onOpenTab: () => void;
   onDelete: () => void;
 }) {
@@ -237,6 +240,7 @@ export function IssueRowMenu({
               <Hash />키 복사
               <span className="ml-auto font-mono text-xs text-muted-foreground">{issue ? `${issue.projectKey}-${issue.number}` : ''}</span>
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onSendToChat} data-testid="row-menu-send-to-chat"><MessageSquareShare />채팅·이슈로 보내기…</DropdownMenuItem>
             <DropdownMenuItem onSelect={onOpenTab} data-testid="row-menu-open-tab"><ExternalLink />새 탭에서 열기</DropdownMenuItem>
           </>
         )}

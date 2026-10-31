@@ -493,6 +493,18 @@ public class MailMessageService {
                 .orElseThrow(() -> new EmailMessageNotFoundException(messageId)));
   }
 
+  /**
+   * 채팅 앱 링크 카드(WP-1236) — 메일 링크(/mail/{accountId}?messageId={id})를 보는 사람이 그 메일 계정의 주인일 때만 제목·보낸
+   * 사람·날짜를 준다. 상세 조회({@link #get})와 같은 소유 판정이고, 타인 메일·없는 메일은 같은 404. 카드는 채팅 화면에 링크마다 불리므로 본문 IMAP
+   * 적재·읽음 처리 없이 저장된 머리 행만 읽는다.
+   */
+  @Transactional(readOnly = true)
+  public EmailMessageRepository.MailLinkCard linkCard(long userId, long messageId) {
+    return messageRepo
+        .findLinkCardByIdAndUser(userId, messageId)
+        .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+  }
+
   /** 계정 동기화 진행 상태(폴링용). 계정이 본인 소유가 아니면 404. */
   @Transactional(readOnly = true)
   public MailSyncStatus syncStatus(long userId, long accountId) {

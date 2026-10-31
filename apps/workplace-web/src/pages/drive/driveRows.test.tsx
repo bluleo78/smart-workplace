@@ -6,7 +6,7 @@
 // drive.spec.ts · drive-file-rename.spec.ts · drive-missing-blob.spec.ts · drive-versioning.spec.ts · drive-bulk.spec.ts · drive-dnd-move.spec.ts ·
 // drive-space-members.spec.ts(보기 전용 롤백 없음).
 // 호버로만 보이는 ⋯·포커스 복원·IME·끌어 옮기기·선택 범위는 각 E2E(@input)가 지킨다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -57,7 +57,7 @@ describe('행 ⋯ 메뉴', () => {
       ],
     })
     let menu = await openRowMenu(user, 'memo.txt')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['이름 변경', '이동', '복사', '버전 이력', '삭제'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '이름 변경', '이동', '복사', '버전 이력', '삭제'])
     expect(within(menu).getAllByRole('separator')).toHaveLength(1)
     expect(within(menu).getByRole('separator').nextElementSibling).toHaveTextContent('삭제')
     expect(within(menu).getByRole('menuitem', { name: '삭제' })).toHaveAttribute('data-variant', 'destructive')
@@ -65,7 +65,7 @@ describe('행 ⋯ 메뉴', () => {
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
     menu = await openRowMenu(user, '문서')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['이름 변경', '복사', '삭제'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '이름 변경', '복사', '삭제'])
     expect(within(menu).getByRole('separator').nextElementSibling).toHaveTextContent('삭제')
     await user.click(within(menu).getByRole('menuitem', { name: '삭제' }))
     expect(await screen.findByTestId('drive-confirm-dialog')).toHaveTextContent('폴더를 휴지통으로 보낼까요?')
@@ -110,8 +110,9 @@ describe('공간 권한', () => {
     expect(screen.getByTestId('drive-row-file-20')).not.toHaveAttribute('aria-roledescription')
   })
 
-  // WP-602: 팀 공간 VIEWER — 새 폴더·업로드·공유·이동이 없고, 파일은 다운로드와 ⋯ 의 버전 이력만 남는다.
-  test('VIEWER 팀 공간은 쓰기 버튼 없이 다운로드·버전 이력만 보인다', async () => {
+  // WP-602: 팀 공간 VIEWER — 새 폴더·업로드·공유·이동이 없고, 파일은 다운로드와 ⋯ 의 링크·버전 이력만 남는다.
+  // 구성원용 앱 링크(링크 복사·채팅·이슈로 보내기, WP-1236)는 볼 수 있으면 쓸 수 있어 폴더에도 ⋯ 가 생긴다.
+  test('VIEWER 팀 공간은 쓰기 버튼 없이 다운로드·링크·버전 이력만 보인다', async () => {
     const { user } = await openDrive(
       { folders: [createFolder({ id: 10, name: '문서' })], files: [createFile({ id: 20, name: '보고서.pdf' })] },
       { team: createSpace({ role: 'VIEWER' }) },
@@ -120,12 +121,15 @@ describe('공간 권한', () => {
     expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
     expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
     const folderRow = await rowOf('문서')
-    expect(within(folderRow).queryAllByRole('button', { name: /이동|더보기/ })).toHaveLength(0)
+    expect(within(folderRow).queryAllByRole('button', { name: /이동/ })).toHaveLength(0)
+    const folderMenu = await openRowMenu(user, '문서')
+    expect(within(folderMenu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기'])
+    await user.keyboard('{Escape}')
     const fileRow = await rowOf('보고서.pdf')
     expect(within(fileRow).getByRole('button', { name: /다운로드/ })).toBeInTheDocument()
     expect(within(fileRow).queryByTestId('share-link-btn')).not.toBeInTheDocument()
     const menu = await openRowMenu(user, '보고서.pdf')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['버전 이력'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '버전 이력'])
   })
 })
 
@@ -427,5 +431,28 @@ describe('여러 개 선택', () => {
     await user.click(screen.getByTestId('drive-confirm-confirm'))
     await waitFor(() => expect(deletes).toEqual([{ fileIds: [20], folderIds: [10] }]))
     await waitFor(() => expect(screen.queryByTestId('bulk-toolbar')).not.toBeInTheDocument())
+  })
+})
+
+describe('줄 링크 (WP-1236)', () => {
+  test('체크한 줄이 하나면 ⇧⌘, 대상이 그 파일·폴더이고, 둘이면 지금 폴더로 돌아간다', async () => {
+    const { shareTargetStore } = await import('@/lib/shareTarget')
+    const { user } = await openDrive({ folders: [createFolder({ id: 10, name: '문서' })], files: [createFile({ id: 20, name: 'memo.txt' })] })
+    await rowOf('memo.txt')
+    const folderTarget = shareTargetStore.get()
+    expect(folderTarget).toMatchObject({ kind: 'folder' })
+    await user.click(screen.getByTestId('select-file-20'))
+    await waitFor(() => expect(shareTargetStore.get()).toMatchObject({ kind: 'file', title: 'memo.txt', url: expect.stringContaining('preview=20') }))
+    await user.click(screen.getByTestId('select-folder-10'))
+    await waitFor(() => expect(shareTargetStore.get()).toMatchObject({ kind: 'folder', url: folderTarget?.url }))
+  })
+
+  test('파일 ⋯ 「채팅·이슈로 보내기」는 그 파일 미리보기 링크로 대화상자를 연다', async () => {
+    const { closeSendToChat, sendToChatTarget } = await import('@/lib/sendToChat')
+    const { user } = await openDrive({ folders: [], files: [createFile({ id: 20, name: 'memo.txt' })] })
+    const menu = await openRowMenu(user, 'memo.txt')
+    await user.click(within(menu).getByRole('menuitem', { name: '채팅·이슈로 보내기' }))
+    await waitFor(() => expect(sendToChatTarget()).toMatchObject({ kind: 'file', title: 'memo.txt', url: expect.stringContaining('preview=20') }))
+    act(() => closeSendToChat())
   })
 })

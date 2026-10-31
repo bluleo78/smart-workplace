@@ -14,6 +14,9 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { CopyLinkButton } from '@/components/share/CopyLinkButton'
+import { RowLinkMenu } from '@/components/share/RowLinkMenu'
+import { type RowLinkMenuAnchor, rowLinkMenuAnchorFromContextMenu } from '@/components/share/rowLinkMenuAnchor'
+import { rowLinkActions } from '@/components/share/shareSheetActions'
 import { ShareSheetButton } from '@/components/share/ShareSheetButton'
 import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget'
 import { Button } from '@/components/ui/button'
@@ -104,6 +107,11 @@ interface MailMoveActions {
 const ROW_ICON_BUTTON_CLASS =
   'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
 
+/** 메일 한 통의 링크 대상(WP-1236) — 목록 줄 길게 누르기·우클릭이 쓴다. 상세의 대상(MailDetail)과 같은 주소·이름. */
+function mailShareTarget(accountId: number, m: Pick<EmailMessageSummary, 'id' | 'subject'>): ShareTarget {
+  return { kind: 'mail', url: appUrl(mailMessagePath(accountId, m.id)), title: mailSubjectText(m.subject) }
+}
+
 /**
  * WP-962 목록 행 hover 작업(데스크톱) — 보관 · 옮기기(메뉴) · 삭제. 읽음 전환 버튼 왼쪽에 둔다. 평소에는 폭 0 으로 접어 자리를
  * 차지하지 않고(보낸사람 이름이 줄지 않게), hover·키보드 포커스·메뉴가 열린 동안에만 펼친다. display 가 아니라 폭으로 접어 탭 순서에 남는다
@@ -169,6 +177,7 @@ function MessageRow({
   showToggle,
   onToggleRead,
   moveActions,
+  linkTarget,
 }: {
   m: EmailMessageSummary
   /** 읽기 창에 열린 메일인가 — 선택 배경 + aria-current. */
@@ -186,132 +195,152 @@ function MessageRow({
   onToggleRead: () => void
   /** WP-962 hover 보관·옮기기·삭제 — 터치 셸·보낸편지함에선 없다(null). 터치는 길게 누르기 시트가 맡는다. */
   moveActions: MailMoveActions | null
+  /** 우클릭 링크 메뉴의 대상을 만든다(WP-1236) — 데스크톱만(터치 셸은 길게 누르기 시트가 맡는다). 메뉴를 열 때만 부른다. */
+  linkTarget?: () => ShareTarget
 }) {
   const navigate = useNavigate()
+  const [linkMenuAt, setLinkMenuAt] = useState<RowLinkMenuAnchor | null>(null)
   // WP-146: 회신필요 판정은 행마다 한 번만 계산. 서버 메일함 보기에서는 AI 배지를 모두 끈다(WP-961).
   const needsReply = aiSignalsVisible && isNeedsReply(m)
   const aiCategory = aiSignalsVisible ? m.aiCategory : null
   return (
     // div role="button" — 내부 AiSignalBadge 가 실제 <button>이므로 바깥을 <button>으로
     // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
-    <div
-      role="button"
-      tabIndex={0}
-      data-testid={`mail-row-${m.id}`}
-      // WP-187: 길게 누르기 등 행 단위 위임 처리에서 메시지 id 를 찾기 위한 표식.
-      data-message-id={m.id}
-      // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
-      // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
-      // 식별에 필수가 아니므로 간결함 우선으로 제외.
-      aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${mailSubjectText(m.subject)}`}
-      aria-current={open ? 'true' : undefined}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onSelect()
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        data-testid={`mail-row-${m.id}`}
+        // WP-187: 길게 누르기 등 행 단위 위임 처리에서 메시지 id 를 찾기 위한 표식.
+        data-message-id={m.id}
+        // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
+        // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
+        // 식별에 필수가 아니므로 간결함 우선으로 제외.
+        aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${mailSubjectText(m.subject)}`}
+        aria-current={open ? 'true' : undefined}
+        onClick={onSelect}
+        onContextMenu={
+          linkTarget
+            ? (e) => {
+                const at = rowLinkMenuAnchorFromContextMenu(e)
+                if (!at) return
+                e.preventDefault()
+                setLinkMenuAt(at)
+              }
+            : undefined
         }
-      }}
-      className={cn(
-        // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
-        'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
-        // 선택은 배경만 — 막대는 안 읽음 표시(아래, 같은 자리·같은 색)와 겹치고, 굵기도 안 읽음 표시라 둘 다 쓰지 않는다.
-        open || sheetTarget ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
-      )}
-    >
-      {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.
-          글자색은 바꾸지 않는다(AI 배지 색과 경쟁 방지). 장식이라 SR 에서 제외. */}
-      {!m.seen && (
-        <span
-          aria-hidden="true"
-          data-testid={`mail-unread-bar-${m.id}`}
-          className="absolute inset-y-0 left-0 w-[3px] bg-primary"
-        />
-      )}
-      <span className="flex items-center gap-2">
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate text-sm',
-            m.seen ? 'text-foreground' : 'font-semibold',
-          )}
-        >
-          {m.fromName || m.fromAddress || '(보낸사람 없음)'}
-        </span>
-        {m.hasAttachment && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-        {moveActions && <MailRowMoveActions id={m.id} actions={moveActions} />}
-        {showToggle && (
-          // WP-187: hover 시 읽음/안읽음 전환 — 행 열기와 분리(stopPropagation).
-          // display 대신 opacity 로 숨겨 탭 순서에 남긴다 — 키보드 포커스 시에도 드러난다(접근성).
-          // onKeyDown 도 멈춘다 — 행의 Enter/Space 처리(preventDefault)가 버튼 키보드 활성화를 삼키지 않게.
-          // WP-237: 터치(coarse) ≥1024 태블릿에선 숨은 채로 남으므로 탭이 닿지 않게 pointer-events 를 끈다 — 탭은 행 열기로 간다.
-          // (휴대폰 폭은 showToggle=false 로 아예 렌더 안 함. 읽음 전환은 메일 열기·상세 툴바로 대신한다.)
-          <button
-            type="button"
-            data-testid={`mail-row-toggle-read-${m.id}`}
-            aria-label={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
-            title={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleRead()
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100 pointer-coarse:pointer-events-none"
-          >
-            {m.seen ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
-          </button>
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect()
+          }
+        }}
+        className={cn(
+          // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
+          'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+          // 선택은 배경만 — 막대는 안 읽음 표시(아래, 같은 자리·같은 색)와 겹치고, 굵기도 안 읽음 표시라 둘 다 쓰지 않는다.
+          open || sheetTarget ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
         )}
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {formatReceivedAt(m.receivedAt)}
-        </span>
-      </span>
-      <span className={cn('truncate text-sm', m.seen ? 'text-muted-foreground' : 'font-medium')}>
-        {mailSubjectText(m.subject)}
-      </span>
-      {m.snippet && (
-        <span
-          data-testid={`mail-snippet-${m.id}`}
-          // a11y(#699): 시각적으로는 유지하되 행 accessible name(aria-label)에 중복 포함되지
-          // 않도록 SR 에서 제외.
-          aria-hidden="true"
-          className="truncate text-xs text-muted-foreground"
-        >
-          {m.snippet}
-        </span>
-      )}
-      {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-      {(aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
-        <span className="mt-0.5 flex items-center gap-1">
-          {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
-          {aiCategory && (
-            <AiSignalBadge
-              variant="info"
-              data-testid={`mail-badge-category-${m.id}`}
+      >
+        {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.
+            글자색은 바꾸지 않는다(AI 배지 색과 경쟁 방지). 장식이라 SR 에서 제외. */}
+        {!m.seen && (
+          <span
+            aria-hidden="true"
+            data-testid={`mail-unread-bar-${m.id}`}
+            className="absolute inset-y-0 left-0 w-[3px] bg-primary"
+          />
+        )}
+        <span className="flex items-center gap-2">
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-sm',
+              m.seen ? 'text-foreground' : 'font-semibold',
+            )}
+          >
+            {m.fromName || m.fromAddress || '(보낸사람 없음)'}
+          </span>
+          {m.hasAttachment && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+          {moveActions && <MailRowMoveActions id={m.id} actions={moveActions} />}
+          {showToggle && (
+            // WP-187: hover 시 읽음/안읽음 전환 — 행 열기와 분리(stopPropagation).
+            // display 대신 opacity 로 숨겨 탭 순서에 남긴다 — 키보드 포커스 시에도 드러난다(접근성).
+            // onKeyDown 도 멈춘다 — 행의 Enter/Space 처리(preventDefault)가 버튼 키보드 활성화를 삼키지 않게.
+            // WP-237: 터치(coarse) ≥1024 태블릿에선 숨은 채로 남으므로 탭이 닿지 않게 pointer-events 를 끈다 — 탭은 행 열기로 간다.
+            // (휴대폰 폭은 showToggle=false 로 아예 렌더 안 함. 읽음 전환은 메일 열기·상세 툴바로 대신한다.)
+            <button
+              type="button"
+              data-testid={`mail-row-toggle-read-${m.id}`}
+              aria-label={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
+              title={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
               onClick={(e) => {
                 e.stopPropagation()
-                navigate(mailViewHref(m.accountId, aiCategory as MailCategory, false))
+                onToggleRead()
               }}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100 pointer-coarse:pointer-events-none"
             >
-              {aiCategory}
-            </AiSignalBadge>
+              {m.seen ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+            </button>
           )}
-          {pendingVisible && m.categoryPending && (
-            // WP-186: 아직 분류를 시도하지 않은 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
-            <span
-              data-testid={`mail-badge-pending-${m.id}`}
-              className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-xs leading-4 text-muted-foreground dark:border-muted-foreground/70"
-            >
-              분류 전
-            </span>
-          )}
-          {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 읽으면 숨김. */}
-          {needsReply && (
-            <AiSignalBadge variant="action" data-testid={`mail-badge-needsreply-${m.id}`}>
-              답장필요
-            </AiSignalBadge>
-          )}
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {formatReceivedAt(m.receivedAt)}
+          </span>
         </span>
+        <span className={cn('truncate text-sm', m.seen ? 'text-muted-foreground' : 'font-medium')}>
+          {mailSubjectText(m.subject)}
+        </span>
+        {m.snippet && (
+          <span
+            data-testid={`mail-snippet-${m.id}`}
+            // a11y(#699): 시각적으로는 유지하되 행 accessible name(aria-label)에 중복 포함되지
+            // 않도록 SR 에서 제외.
+            aria-hidden="true"
+            className="truncate text-xs text-muted-foreground"
+          >
+            {m.snippet}
+          </span>
+        )}
+        {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
+        {(aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
+          <span className="mt-0.5 flex items-center gap-1">
+            {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
+            {aiCategory && (
+              <AiSignalBadge
+                variant="info"
+                data-testid={`mail-badge-category-${m.id}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigate(mailViewHref(m.accountId, aiCategory as MailCategory, false))
+                }}
+              >
+                {aiCategory}
+              </AiSignalBadge>
+            )}
+            {pendingVisible && m.categoryPending && (
+              // WP-186: 아직 분류를 시도하지 않은 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
+              <span
+                data-testid={`mail-badge-pending-${m.id}`}
+                className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-xs leading-4 text-muted-foreground dark:border-muted-foreground/70"
+              >
+                분류 전
+              </span>
+            )}
+            {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 읽으면 숨김. */}
+            {needsReply && (
+              <AiSignalBadge variant="action" data-testid={`mail-badge-needsreply-${m.id}`}>
+                답장필요
+              </AiSignalBadge>
+            )}
+          </span>
+        )}
+      </div>
+      {/* 행 밖(형제)에 둔다 — 포털 안 클릭도 React 트리로는 행에 올라와 행 열기(onClick)가 함께 불린다. */}
+      {/* 열린 동안만 그린다 — 줄마다 메뉴를 늘 마운트하지 않게. */}
+      {linkTarget && linkMenuAt && (
+        <RowLinkMenu target={linkTarget()} anchor={linkMenuAt} onClose={() => setLinkMenuAt(null)} testId={`mail-row-link-menu-${m.id}`} />
       )}
-    </div>
+    </>
   )
 }
 
@@ -1323,6 +1352,8 @@ function MailInbox() {
     },
     { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m, onReply) },
     { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m, onForward) },
+    // 링크(WP-1236) — 이 메일의 앱 링크. 메일은 계정 주인만 열 수 있어 남에게 보내면 「볼 수 없는 메일」로 보인다(나중에 내가 다시 찾기용).
+    ...(accountIdNum != null ? rowLinkActions(mailShareTarget(accountIdNum, m)) : []),
     ...(aiAvailable && aiEnabled
       ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m, onAiIssue) }]
       : []),
@@ -1668,6 +1699,7 @@ function MailInbox() {
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
                   moveActions={touchShell ? null : moveActionsFor(m.id)}
+                  linkTarget={!touchShell && accountIdNum != null ? () => mailShareTarget(accountIdNum, m) : undefined}
                 />
               ))}
               {listEnd}
