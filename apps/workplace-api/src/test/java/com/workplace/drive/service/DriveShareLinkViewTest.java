@@ -22,11 +22,13 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -165,11 +167,27 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.resolveForView(token, expired, null, false))
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
 
-    // 변조 — 서명 마지막 글자 바꿈
+    // 변조 — 서명 바이트 한 비트를 뒤집어 다시 인코딩한다(WP-1244). 마지막 글자를 바꾸면 base64url 43자의 끝 2비트가 쓰이지 않아
+    // 디코딩 결과가 같을 수 있다(약 1/16) — 바이트를 바꾸면 서명 값과 관계없이 늘 다른 서명이 된다.
     String good = service.unlock(token, "secret", null, false).viewToken();
-    char last = good.charAt(good.length() - 1);
-    String tampered = good.substring(0, good.length() - 1) + (last == 'A' ? 'B' : 'A');
+    int dot = good.indexOf('.');
+    byte[] sig = Base64.getUrlDecoder().decode(good.substring(dot + 1));
+    sig[0] ^= 0x01;
+    String tampered =
+        good.substring(0, dot + 1) + Base64.getUrlEncoder().withoutPadding().encodeToString(sig);
     assertThatThrownBy(() -> service.resolveForView(token, tampered, null, false))
+        .isInstanceOf(DriveShareLinkUnauthorizedException.class);
+    // 변조 — 만료를 하루 늦춘 payload 에 원래 서명을 붙여도 거절된다(서명이 payload 를 덮는지).
+    String[] fields =
+        new String(Base64.getUrlDecoder().decode(good.substring(0, dot)), StandardCharsets.UTF_8)
+            .split("\\|", -1);
+    fields[1] = String.valueOf(Long.parseLong(fields[1]) + 86_400);
+    String extended =
+        Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(String.join("|", fields).getBytes(StandardCharsets.UTF_8))
+            + good.substring(dot);
+    assertThatThrownBy(() -> service.resolveForView(token, extended, null, false))
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
     assertThatThrownBy(() -> service.resolveForView(token, "garbage", null, false))
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
