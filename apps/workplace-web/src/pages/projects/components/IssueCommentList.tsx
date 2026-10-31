@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
+import { renderIssueKeyRef } from '@/components/issues/renderIssueKeyRef';
 import { countApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
 import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
 import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
@@ -335,6 +336,8 @@ function CommentItem({
             renderImage={renderImage}
             mentions={commentMentionUsers}
             renderMention={renderMention}
+            // 평문 이슈 키(「WP-12」)는 이슈 링크 + 미리보기(WP-1237) — 보이는 프로젝트의 키만.
+            renderIssueRef={renderIssueKeyRef}
           >
             {comment.body}
           </MarkdownMessage>

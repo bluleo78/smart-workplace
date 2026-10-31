@@ -11,6 +11,7 @@ import { LinkedText, TextLink } from '@/components/LinkedText';
 import { blankLinesBetween, MENTION_TOKEN, parseChatMarkdown, safeHref } from '@/components/mentions/chatMarkdown';
 import { mentionSeg, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import type { MentionUser } from '@/components/mentions/types';
+import { mayContainIssueKey, renderIssueKeys, type RenderIssueRef } from '@/lib/issueKeyRefs';
 
 export type { RenderMention };
 
@@ -19,12 +20,23 @@ interface Props {
   mentions: MentionUser[];
   renderMention: RenderMention;
   linkTestId?: string;
+  /** WP-1237: 평문 이슈 키(「WP-12」)를 그리는 함수 — 주면 코드·링크·URL·멘션 밖의 키를 이 함수로 그린다. 없으면 글자 그대로. */
+  renderIssueRef?: RenderIssueRef;
 }
 
-export function ChatMarkdownText({ body, mentions, renderMention, linkTestId }: Props) {
+export function ChatMarkdownText({ body, mentions, renderMention, linkTestId, renderIssueRef }: Props) {
   const tree = useMemo(() => parseChatMarkdown(body).tree, [body]);
   const byId = useMemo(() => new Map(mentions.map((m) => [m.id, m])), [mentions]);
-  const ctx: Ctx = { byId, renderMention, linkTestId };
+  // URL 이 아닌 글자 조각을 그리는 함수 — 글 조각마다 새로 만들지 않게 컴포넌트에서 한 번 만든다.
+  // 본문에 키 모양 글자가 없으면(대부분의 메시지) 아예 주지 않아 이슈 키 나누기를 통째로 건너뛴다.
+  const renderPlain = useMemo(
+    () =>
+      renderIssueRef && mayContainIssueKey(body)
+        ? (s: string, k: string) => renderIssueKeys(s, renderIssueRef, k)
+        : undefined,
+    [renderIssueRef, body],
+  );
+  const ctx: Ctx = { byId, renderMention, linkTestId, renderPlain };
 
   const out: ReactNode[] = [];
   let prev: RootContent | undefined;
@@ -49,6 +61,8 @@ interface Ctx {
   byId: Map<number, MentionUser>;
   renderMention: RenderMention;
   linkTestId?: string;
+  /** URL 이 아닌 글자 조각 그리기(이슈 키 링크, WP-1237) — 없으면 글자 그대로. */
+  renderPlain?: (text: string, key: string) => ReactNode;
 }
 
 function renderBlock(b: RootContent, ctx: Ctx, key: string): ReactNode {
@@ -141,12 +155,13 @@ function renderPhrasing(nodes: PhrasingContent[], ctx: Ctx, key: string, inLink:
   });
 }
 
-/** 글 조각 — 멘션 토큰은 칩, 나머지는 맨 URL 링크(링크 안이면 글 그대로). */
+/** 글 조각 — 멘션 토큰은 칩, 나머지는 맨 URL 링크(링크 안이면 글 그대로). URL 이 아닌 글자 속 이슈 키는 renderIssueRef 로(WP-1237). */
 function renderText(text: string, ctx: Ctx, key: string, inLink: boolean): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
+  // URL 로 먼저 나눈 뒤(LinkedText) 남은 글자에서만 키를 찾는다 — 「https://x/WP-12」 의 키는 링크 주소의 일부라 그대로 둔다.
   const piece = (s: string, k: string) =>
-    inLink ? s : <LinkedText key={k} text={s} linkTestId={ctx.linkTestId} />;
+    inLink ? s : <LinkedText key={k} text={s} linkTestId={ctx.linkTestId} renderPlain={ctx.renderPlain} />;
   for (const m of text.matchAll(MENTION_TOKEN)) {
     if (m.index > last) out.push(piece(text.slice(last, m.index), `${key}t${last}`));
     out.push(ctx.renderMention(mentionSeg(ctx.byId, Number(m[1])), `${key}m${m.index}`));

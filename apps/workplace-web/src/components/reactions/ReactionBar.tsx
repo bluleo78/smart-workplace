@@ -7,12 +7,13 @@ import { useState } from 'react'
 
 import { ReactionHoverContent } from '@/components/reactions/ReactionHoverContent'
 import type { ReactionResponse, ReactionTarget, ReactorSource } from '@/components/reactions/types'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
-
-/** 호버 카드 열림 지연 — 칩 위를 스쳐 지나갈 때마다 요청하지 않게. */
-const HOVER_OPEN_DELAY_MS = 300
-/** 닫힘 지연 — 칩에서 카드로 마우스를 옮기는 동안 유지(모두 보기 클릭 가능). */
-const HOVER_CLOSE_DELAY_MS = 150
+import {
+  HOVER_CLOSE_DELAY_MS,
+  HOVER_OPEN_DELAY_MS,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card'
 
 interface ReactionBarProps {
   // 반응이 달린 대상(메시지·코멘트) — id 는 testid·호버 판정에, reactions 는 칩 목록에 쓴다.

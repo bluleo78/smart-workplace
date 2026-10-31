@@ -20,6 +20,7 @@ import {
   TOOLBAR_POSITION,
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
+import { renderIssueKeyRef } from '@/components/issues/renderIssueKeyRef';
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown';
 import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import { issueChatBundle } from '@/components/viewer/viewerItems';
@@ -167,15 +168,16 @@ export function ChatMessageRow({
         '(삭제됨)'
       ) : isAgent ? (
         // #356: AI(에이전트) 메시지는 마크다운 렌더. 멘션은 사람 글과 같은 칩(WP-1009).
-        <MarkdownMessage mentions={message.mentions} renderMention={renderMention}>{message.body}</MarkdownMessage>
+        <MarkdownMessage mentions={message.mentions} renderMention={renderMention} renderIssueRef={renderIssueKeyRef}>{message.body}</MarkdownMessage>
       ) : (
         // 사람 메시지 — 채팅 마크다운 부분집합(굵게·목록·코드 등, WP-101). 서식 없는 예전 평문은 예전과 같게 보인다.
-        // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩.
+        // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩, 평문 이슈 키는 이슈 링크 + 미리보기(WP-1237).
         <ChatMarkdownText
           body={message.body}
           mentions={message.mentions}
           linkTestId="chat-link"
           renderMention={renderMention}
+          renderIssueRef={renderIssueKeyRef}
         />
       )}
       <LinkPreviewList messageId={message.id} previews={[]} appLinks={appLinks} />
