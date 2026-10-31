@@ -321,6 +321,27 @@ class PublicWikiShareTest extends IntegrationTestBase {
     anon(publicPath(token) + "/preview-meta?pageId=" + siblingId).andExpect(status().isNoContent());
   }
 
+  /** WP-1243 — 페이지 스타일 CSS·스타일 컨테이너 태그·HTML 블록 소스는 미리보기 설명에 들지 않고 글자만 남는다. */
+  @Test
+  void preview_meta_excerpt_is_text_only_for_styled_and_embed_bodies() throws Exception {
+    String token = saveShare(rootId, "PUBLIC", "VIEW", true, List.of());
+    setBody(
+        rootId,
+        "<style data-wp-style>\n.card{color:red}\n</style>\n\n<div class=\"card\" style=\"padding:4px\">\n\n"
+            + "매출 보고\n\n</div>\n\n```html-embed\n<html><body><script>draw()</script>소스글자</body></html>\n```\n\n끝");
+    String html =
+        anon(publicPath(token) + "/preview-meta")
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString(StandardCharsets.UTF_8);
+    assertThat(html)
+        .contains("<meta property=\"og:description\" content=\"매출 보고 끝\" />")
+        .doesNotContain("color:red")
+        .doesNotContain("소스글자")
+        .doesNotContain("draw()");
+  }
+
   /** 열 수 없는 링크(없는 토큰·내부·만료·정책 꺼짐)는 204 빈 응답 — nginx 가 사이트 공통 메타를 쓴다. 제목이 새지 않는다. */
   @Test
   void preview_meta_no_content_when_link_cannot_open() throws Exception {

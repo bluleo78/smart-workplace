@@ -237,6 +237,42 @@ class WikiSummaryServiceTest extends ExternalClientMockedTestBase {
     verify(agent, times(1)).summarize(any());
   }
 
+  /** WP-1243 — 요약 입력은 글자만: 페이지 스타일 CSS·컨테이너 태그·HTML 블록 소스는 보내지 않고 줄 구조는 남긴다. */
+  @Test
+  void generate_sendsTextOnly() {
+    long u = seedUser();
+    String body =
+        "<style data-wp-style>\n.card{color:red}\n</style>\n\n<div class=\"card\">\n\n"
+            + LONG_BODY
+            + "\n\n</div>\n\n```html-embed\n<html><body><script>draw()</script></body></html>\n```";
+    WikiPageDetail p = pageWithBody(u, body);
+    when(agent.summarize(any())).thenReturn(new WikiAiAgentSummaryClient.Res("요약"));
+
+    summaryService.generate(u, p.id());
+
+    ArgumentCaptor<WikiAiAgentSummaryClient.Req> req =
+        ArgumentCaptor.forClass(WikiAiAgentSummaryClient.Req.class);
+    verify(agent).summarize(req.capture());
+    String sent = req.getValue().body();
+    assertThat(sent).startsWith("회의\n결정 사항을 정리한다.");
+    assertThat(sent).doesNotContain("<", "color:red", "draw()", "html-embed", "card");
+  }
+
+  /** WP-1243 — 요약 대상 길이는 글자로 잰다: CSS·HTML 블록만 길고 글자가 짧은 노트는 TOO_SHORT(빈 입력을 AI 에 보내지 않는다). */
+  @Test
+  void get_markupHeavyShortText_isTooShort() {
+    long u = seedUser();
+    String body =
+        "<style data-wp-style>\n"
+            + ".c{color:red}\n".repeat(100)
+            + "</style>\n\n짧은 메모\n\n```html-embed\n"
+            + "<p>소스</p>\n".repeat(100)
+            + "```";
+    WikiPageDetail p = pageWithBody(u, body);
+
+    assertThat(summaryService.get(u, p.id()).status()).isEqualTo(WikiSummaryStatus.TOO_SHORT);
+  }
+
   /** ai-agent 로 보내는 본문은 32,000자로 자르고, 단발 요약이라 maxTurns 는 1 로 고정한다. */
   @Test
   void generate_capsBodyAndUsesSingleTurn() {

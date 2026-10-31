@@ -258,6 +258,20 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         return (Boolean) get(16);
     }
 
+    /**
+     * Setter for <code>public.wiki_page.search_text</code>.
+     */
+    public void setSearchText(String value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.search_text</code>.
+     */
+    public String getSearchText() {
+        return (String) get(17);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -281,7 +295,7 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
     /**
      * Create a detached, initialised WikiPageRecord
      */
-    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction, String aiSummary, Integer aiSummaryVersion, OffsetDateTime aiSummarizedAt, Boolean fullWidth) {
+    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction, String aiSummary, Integer aiSummaryVersion, OffsetDateTime aiSummarizedAt, Boolean fullWidth, String searchText) {
         super(WikiPage.WIKI_PAGE);
 
         setId(id);
@@ -301,6 +315,7 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         setAiSummaryVersion(aiSummaryVersion);
         setAiSummarizedAt(aiSummarizedAt);
         setFullWidth(fullWidth);
+        setSearchText(searchText);
         resetChangedOnNotNull();
     }
 }

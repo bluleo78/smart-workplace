@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EXCLUSION;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 
 import com.workplace.global.share.WikiSpaceMembership;
+import com.workplace.global.util.Texts;
 import com.workplace.wiki.dto.WikiBacklink;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
@@ -14,6 +15,7 @@ import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.dto.WikiTreeShare;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import com.workplace.wiki.service.WikiPlainText;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -254,6 +256,38 @@ public class WikiPageRepository {
         .fetchOptional(WIKI_PAGE.SPACE_ID);
   }
 
+  /** 검색 평문 백필(WP-1243) 대상 한 행 — 읽은 판(version)이 그대로일 때만 채운다. */
+  public record SearchTextSource(long id, int version, String body) {}
+
+  /**
+   * 검색 평문이 아직 없는 페이지를 id 순으로 limit 개(부분 인덱스 {@code idx_wiki_page_search_text_missing}). 지금
+   * 테넌트(GUC)의 행만 보인다(RLS).
+   */
+  public List<SearchTextSource> findMissingSearchText(int limit) {
+    return dsl.select(WIKI_PAGE.ID, WIKI_PAGE.VERSION, WIKI_PAGE.BODY)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.SEARCH_TEXT.isNull())
+        .orderBy(WIKI_PAGE.ID)
+        .limit(limit)
+        .fetch(r -> new SearchTextSource(r.value1(), r.value2(), r.value3()));
+  }
+
+  /**
+   * 백필한 검색 평문을 채운다 — 아직 비어 있고 읽은 뒤 본문이 바뀌지 않았을 때만(본문 저장은 늘 version 을 올린다). 사이에 저장이 끼었으면 그 저장이 이미
+   * 평문을 썼으므로 덮지 않는다. version·수정 시각·수정자는 건드리지 않는다(사람이 고친 것이 아니다).
+   *
+   * @return 채웠으면 true
+   */
+  public boolean fillSearchText(long pageId, int version, String searchText) {
+    return dsl.update(WIKI_PAGE)
+            .set(WIKI_PAGE.SEARCH_TEXT, searchText)
+            .where(WIKI_PAGE.ID.eq(pageId))
+            .and(WIKI_PAGE.VERSION.eq(version))
+            .and(WIKI_PAGE.SEARCH_TEXT.isNull())
+            .execute()
+        > 0;
+  }
+
   /** 부모 id(최상위면 null) — 이동 전 위치를 기억해 공유 범위 변화를 계산할 때 쓴다. 페이지가 있는지는 호출자가 이미 확인했다. */
   public Long findParentId(long pageId) {
     return dsl.select(WIKI_PAGE.PARENT_ID)
@@ -284,12 +318,17 @@ public class WikiPageRepository {
         .fetchOptional(WIKI_PAGE.TITLE);
   }
 
-  /** 낙관적 동시성 저장: version 일치할 때만 갱신하고 version+1. 영향 행수 반환(0 이면 충돌). */
+  /**
+   * 낙관적 동시성 저장: version 일치할 때만 갱신하고 version+1. 영향 행수 반환(0 이면 충돌). 검색 평문(WP-1243)도 같은 UPDATE 로 바꾼다 —
+   * 본문을 쓰는 곳은 이것과 {@link #saveDerivedBody} 둘뿐이라(REST 저장·AI 적용·복원·동기화 서버 저장이 모두 여기로 온다) 색인이 본문과 어긋나지
+   * 않는다.
+   */
   public int saveIfVersion(
       long pageId, String title, String body, int expectedVersion, long editorId) {
     return dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.TITLE, title)
         .set(WIKI_PAGE.BODY, body)
+        .set(WIKI_PAGE.SEARCH_TEXT, WikiPlainText.fromMarkdown(body))
         .set(WIKI_PAGE.VERSION, WIKI_PAGE.VERSION.plus(1))
         .set(WIKI_PAGE.UPDATED_BY, editorId)
         .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime())
@@ -336,7 +375,7 @@ public class WikiPageRepository {
 
   /**
    * 동기화 서버 파생 저장(WP-286) — 버전 검사 없이 body 를 갱신하고 version+1 한 값을 돌려준다. 동시 편집 병합은 이미 Yjs 가 끝냈으므로 낙관적
-   * 동시성 검사를 하지 않는다.
+   * 동시성 검사를 하지 않는다. 검색 평문(WP-1243)도 함께 바꾼다.
    *
    * @param editorId 이번 저장의 수정자. null 이면 updated_by 를 건드리지 않는다(편집자 없는 서버 내부 적용 — 직전 수정자 유지)
    * @return 갱신 후 version
@@ -345,6 +384,7 @@ public class WikiPageRepository {
     var update =
         dsl.update(WIKI_PAGE)
             .set(WIKI_PAGE.BODY, body)
+            .set(WIKI_PAGE.SEARCH_TEXT, WikiPlainText.fromMarkdown(body))
             .set(WIKI_PAGE.VERSION, WIKI_PAGE.VERSION.plus(1))
             .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime());
     if (editorId != null) {
@@ -386,16 +426,18 @@ public class WikiPageRepository {
       java.time.OffsetDateTime summarizedAt) {}
 
   /**
-   * 앞뒤 공백(스페이스·탭·개행·CR·FF·VT)을 뺀 본문 글자 수. Java {@code strip()} 의 흔한 공백과 같은 기준이다 — 다만 DB 는 코드 포인트로
-   * 세므로 이모지 등 보조 문자는 Java {@code length()} 보다 1 적게 센다(요약 대상 400자 경계에서만 차이).
+   * 요약 대상 판정용 글자 수 — 검색 평문(WP-1243, 태그·CSS·HTML 블록 소스를 뺀 글자)이 있으면 그 길이, 아직 없으면(백필 전) 앞뒤
+   * 공백(스페이스·탭·개행·CR·FF·VT)을 뺀 본문 글자 수. 요약 입력도 평문이라(WikiSummaryService) 스타일·HTML 블록만 큰 노트가 「요약할 만큼
+   * 길다」로 잡혀 빈 입력을 보내지 않게 한다. 평문은 공백이 접혀 있어 이미 strip 된 값이다. DB 는 코드 포인트로 세므로 이모지 등 보조 문자는 Java
+   * {@code length()} 보다 1 적게 센다(요약 대상 400자 경계에서만 차이).
    */
   private static final org.jooq.Field<Integer> STRIPPED_BODY_LENGTH =
       org.jooq
           .impl
           .DSL
           .field(
-              "coalesce(char_length(btrim({0}, E' \\t\\n\\r\\f\\v')), 0)",
-              Integer.class, WIKI_PAGE.BODY)
+              "coalesce(char_length({1}), char_length(btrim({0}, E' \\t\\n\\r\\f\\v')), 0)",
+              Integer.class, WIKI_PAGE.BODY, WIKI_PAGE.SEARCH_TEXT)
           // 별칭을 붙여 SELECT·RETURNING 결과에서 같은 이름으로 꺼낸다.
           .as("stripped_body_length");
 
@@ -570,8 +612,31 @@ public class WikiPageRepository {
   }
 
   /**
-   * 호출자가 멤버인 스페이스의 위키 페이지를 제목·본문 ILIKE 로 검색한다. spaceId 가 null 이면 호출자가 멤버인 전체 스페이스 대상, 지정되면 해당 스페이스
-   * 한정. 멤버십 조건(직접 또는 조직도 부서, WP-1052)으로 접근 불가 스페이스는 결과에서 자연 배제(RLS+멤버십 이중 스코핑).
+   * 검색에 쓰는 본문 글자 — 검색 평문(WP-1243)이 있으면 그것, 아직 없으면(백필 전 기존 행) 본문 원문. 원문으로 찾는 동안은 예전처럼 태그 이름도 걸리지만
+   * 결과에서 빠지지는 않는다.
+   */
+  private static final Field<String> SEARCHABLE_BODY =
+      DSL.coalesce(WIKI_PAGE.SEARCH_TEXT, WIKI_PAGE.BODY);
+
+  /** 검색 결과 스니펫 길이(글자). */
+  private static final int SNIPPET_CHARS = 300;
+
+  /** 검색 결과에서 평문이 없는 행의 원문 열 별칭. */
+  private static final String RAW_BODY = "raw_body";
+
+  /**
+   * 백필 전 행의 스니펫을 만들 때 읽는 원문 앞부분 길이 — 스타일·HTML 블록이 앞에 있어도 300자 평문이 나오기에 넉넉하고, 큰 본문(최대 100만 자)을 통째로
+   * 읽어 오지 않는다. 잘린 끝의 닫히지 않은 HTML 블록은 추출기가 끝까지 지운다.
+   */
+  private static final int RAW_SNIPPET_SOURCE_CHARS = 8000;
+
+  /** 검색 결과 스니펫 열 별칭 — 평문 앞부분만 DB 에서 잘라 읽는다. */
+  private static final String SNIPPET_TEXT = "snippet_text";
+
+  /**
+   * 호출자가 멤버인 스페이스의 위키 페이지를 제목·본문 평문(WP-1243, 없으면 원문) ILIKE 로 검색한다. spaceId 가 null 이면 호출자가 멤버인 전체
+   * 스페이스 대상, 지정되면 해당 스페이스 한정. 멤버십 조건(직접 또는 조직도 부서, WP-1052)으로 접근 불가 스페이스는 결과에서 자연 배제(RLS+멤버십 이중
+   * 스코핑).
    */
   public List<WikiSearchResult> search(long callerId, Long spaceId, String pattern, int limit) {
     // 실효 멤버(직접 또는 조직도 부서, WP-1052)인 스페이스만 — 조인이 아니라 EXISTS 라 양쪽에 걸려도 페이지가 한 번만 나온다.
@@ -581,7 +646,7 @@ public class WikiPageRepository {
                 WIKI_PAGE
                     .TITLE
                     .likeIgnoreCase(pattern, '\\')
-                    .or(WIKI_PAGE.BODY.likeIgnoreCase(pattern, '\\')));
+                    .or(SEARCHABLE_BODY.likeIgnoreCase(pattern, '\\')));
     if (spaceId != null) {
       cond = cond.and(WIKI_PAGE.SPACE_ID.eq(spaceId));
     }
@@ -590,7 +655,13 @@ public class WikiPageRepository {
             WIKI_PAGE.SPACE_ID,
             WIKI_SPACE.NAME,
             WIKI_PAGE.TITLE,
-            WIKI_PAGE.BODY,
+            // 스니펫에 쓸 앞부분만 읽는다 — 평문·원문이 클 수 있어 행마다 통째로 싣지 않는다.
+            DSL.left(WIKI_PAGE.SEARCH_TEXT, SNIPPET_CHARS).as(SNIPPET_TEXT),
+            // 평문이 없는 행만 원문 앞부분을 싣는다.
+            DSL.when(
+                    WIKI_PAGE.SEARCH_TEXT.isNull(),
+                    DSL.left(WIKI_PAGE.BODY, RAW_SNIPPET_SOURCE_CHARS))
+                .as(RAW_BODY),
             WIKI_PAGE.UPDATED_AT)
         .from(WIKI_PAGE)
         .join(WIKI_SPACE)
@@ -600,9 +671,12 @@ public class WikiPageRepository {
         .limit(limit)
         .fetch(
             r -> {
-              String body = r.get(WIKI_PAGE.BODY);
-              String snippet =
-                  body == null ? "" : (body.length() > 300 ? body.substring(0, 300) : body);
+              // 스니펫도 평문에서 — 백필 전 행은 원문을 그 자리에서 평문으로 바꿔 태그·CSS 가 보이지 않게 한다.
+              String text = r.get(SNIPPET_TEXT, String.class);
+              if (text == null) {
+                text = WikiPlainText.fromMarkdown(r.get(RAW_BODY, String.class));
+              }
+              String snippet = Texts.headUtf16(text, SNIPPET_CHARS);
               return new WikiSearchResult(
                   r.get(WIKI_PAGE.ID),
                   r.get(WIKI_PAGE.SPACE_ID),

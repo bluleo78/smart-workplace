@@ -3,6 +3,7 @@
 // update_wiki_page 의 409(기준본 없음 — 만료·기록 없음·현재보다 새 version)는 그대로 throw — 자동 재시도는 하지 않는다. 동시 편집은 서버가 3-way 병합한다(WP-289).
 import { z } from 'zod';
 import { dropEmpty, omitKeys, truncatedView } from './compact.js';
+import { htmlToText } from './html-text.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { WikiPageRow, WikiToolClient } from './tool-client.js';
 
@@ -37,10 +38,14 @@ const MAX_WIKI_TREE_NODES = 500;
 const SEARCH_SERVER_CAP = 50;
 /** get_wiki_page 의 includeRevisions 가 싣는 판 수(최신순). 서버는 최대 200건을 주는데 판마다 편집자·사유가 있어 넘기면 잘라 revisionsOmitted 로 알린다. */
 const MAX_REVISIONS = 30;
+// WP-1243: 만들면서 본문도 쓸 수 있다 — body(마크다운) 또는 html(HTML 산출물을 HTML 블록 하나로). 둘 다 주면 거부한다.
+// title 은 html 의 <title> 로 대신할 수 있어 스키마에서는 선택이고, 둘 다 없으면 핸들러가 거부한다.
 export const createWikiPageInput = z.object({
   spaceId: z.number().int().positive(),
-  title: z.string().min(1).max(255),
+  title: z.string().min(1).max(255).optional(),
   parentId: z.number().int().positive().optional(),
+  body: z.string().optional(),
+  html: z.string().min(1).optional(),
 });
 // 서버가 부분 수정을 지원한다(title/body 생략 = 현재 값 유지). version 은 병합 기준(읽은 판)이라 필수.
 export const updateWikiPageInput = z.object({
@@ -58,6 +63,71 @@ export const moveWikiPageInput = z.object({
   parentId: z.number().int().positive().nullable(),
   position: z.number().int().min(0).optional(),
 });
+
+/**
+ * HTML 블록 펜스(WP-1243) — 소스 안 가장 긴 백틱 줄보다 한 개 더(최소 3개). 소스의 어떤 줄도 펜스를 닫지 못하게 한다.
+ * 웹 노트 편집기 직렬화(packages/wiki-editor-schema 의 htmlEmbedFence)와 같은 규칙을 옮겨 둔다 — 그 패키지는 tiptap 을 peer 로 두는
+ * 소스 전용 패키지라 tsc 로 dist 를 내는 이 패키지가 의존할 수 없다. 규칙을 바꾸면 두 곳을 함께 바꾼다.
+ */
+export function htmlEmbedFence(source: string): string {
+  let longest = 0;
+  for (const run of source.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * HTML 문서 → 노트 본문(WP-1243): HTML 블록 하나(```html-embed). 편집기 직렬화와 같은 모양(펜스 + 정보 문자열 + 소스 + 줄바꿈 + 펜스)이라 웹에서
+ * 열고 저장해도 그대로다. 줄바꿈은 \n 으로 맞추고 끝 공백 줄은 뗀다(문서 끝 공백은 그려지는 모양과 무관).
+ */
+export function htmlToWikiBody(html: string): string {
+  const source = html.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  const fence = htmlEmbedFence(source);
+  return `${fence}html-embed\n${source}\n${fence}`;
+}
+
+/** HTML 문서의 <title> 글자(태그·엔티티를 풀고 공백을 접어 255자까지). 없거나 비면 undefined — create_wiki_page 의 title 대신 쓴다. */
+export function htmlDocumentTitle(html: string): string | undefined {
+  const m = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(html);
+  let title = m ? htmlToText(m[1]).replace(/\s+/g, ' ').trim().slice(0, 255) : '';
+  // 255 에서 잘린 자리가 서로게이트 쌍(이모지 등) 한가운데면 홀로 남은 high surrogate 를 뗀다(서버 상한은 UTF-16 255자).
+  if (/[\uD800-\uDBFF]$/.test(title)) title = title.slice(0, -1);
+  title = title.trim();
+  return title || undefined;
+}
+
+/** body·html 중 하나를 본문으로 — 둘 다 주면 어느 쪽을 뜻했는지 알 수 없어 거부한다. 둘 다 없으면 undefined(빈 페이지). */
+function resolveBody(body: string | undefined, html: string | undefined): string | undefined {
+  if (body !== undefined && html !== undefined) {
+    throw new Error('body 와 html 은 함께 줄 수 없습니다. 마크다운 본문은 body, HTML 산출물을 그대로 넣을 때는 html 하나만 주세요.');
+  }
+  return html !== undefined ? htmlToWikiBody(html) : body;
+}
+
+/**
+ * 노트 본문 형식·편집 규칙(WP-1243) — 본문은 마크다운에 HTML 이 섞일 수 있고(WP-1240 페이지 스타일·스타일 컨테이너, WP-1242 HTML 블록), AI 가
+ * 이 HTML 을 고쳐 쓰거나 지우면 노트 모양이 깨진다.
+ *
+ * 도구 설명에는 짧은 요약만 싣고 전문은 get_wiki_page 응답의 bodyFormat 으로 준다 — 외부 MCP 는 도구 정의를 매 대화에 전부 싣고 그 크기에 상한이
+ * 있다(tool-naming.test.ts 의 DEFINITION_TOKEN_CAP). 전문은 HTML 이 든 본문을 읽었을 때만, 곧 고치기 직전에 실려 비용이 그때만 든다.
+ */
+export const WIKI_BODY_FORMAT_GUIDE =
+  'The body is Markdown that also holds HTML: one page stylesheet <style data-wp-style>...</style>; styled containers written as an ' +
+  'opening tag line (e.g. <div class="card" style="...">, also section, article, ...), a blank line, Markdown content, a blank line, ' +
+  'then the closing tag line; inline <span class/style>; and ```html-embed fenced blocks holding a full HTML document (scripts, canvas) ' +
+  'shown in an isolated frame. When editing: keep the <style data-wp-style> block and container tag lines, with their blank lines, ' +
+  'unchanged when changing text inside them; never edit inside an html-embed block unless asked, and keep its fence (backtick count) ' +
+  'as is; write ordinary text as plain Markdown, never wrap it in HTML. To turn an HTML artifact into a note, either convert it ' +
+  '(static content to Markdown, page CSS into one <style data-wp-style>, styled containers kept with their blank lines, each ' +
+  'script/canvas part as an html-embed block holding a full HTML document with its own styles and scripts), or pass the raw HTML as ' +
+  'create_wiki_page html to keep it whole as one html-embed block.';
+
+/**
+ * 본문에 HTML(한 줄 안에서 닫힌 태그·HTML 블록 펜스)이 있는지 — 있을 때만 get_wiki_page 가 bodyFormat 을 싣는다. 태그 모양은 API 평문 추출
+ * (WikiPlainText.HTML_TAG)과 같다. 비교식이 태그로 잘못 보여도 안내가 더 실릴 뿐이라 해가 없다.
+ */
+export function bodyHasHtml(body: unknown): boolean {
+  return typeof body === 'string' && (/<\/?[A-Za-z][\w-]*(?:\s[^<>\n]*)?\/?>/.test(body) || /^[ \t>*+\-\d.)]*`{3,}html-embed/m.test(body));
+}
 
 /** position 생략 시 보낼 값 — 서버가 0..형제수로 잘라 맨 끝에 놓는다(서버 필드가 Integer). */
 const APPEND_POSITION = 2_147_483_647;
@@ -164,8 +234,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Lists wiki spaces (노트 스페이스) I can access (id = spaceId); my personal space is type PERSONAL ("내 ' +
-        '노트").',
+        'Lists wiki spaces (노트) I can access (id = spaceId); mine is type PERSONAL ("내 노트").',
       inputSchema: z.object({}),
       async handler() {
         // 스페이스 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353) — 내 역할은 role 로 알 수 있다.
@@ -177,10 +246,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order, ' +
-        `at most ${MAX_WIKI_TREE_NODES} (breadth-first). truncated:true: expand a node with hiddenChildren by calling again with its id as ` +
-        'parentId; total counts all nodes (under parentId if given). If a parent has too many direct children, use search_wiki. Without ' +
-        'expanding, say only part was seen.',
+        'Returns a wiki space page tree {items, total, truncated?}: nodes {id (pageId), title, children?} in sidebar order, ' +
+        `max ${MAX_WIKI_TREE_NODES} breadth-first. truncated: call again with a hiddenChildren node id as parentId; total counts ` +
+        'all nodes (under parentId if given). If a parent has too many direct children, use search_wiki. Unexpanded: say only part was seen.',
       inputSchema: listWikiPagesInput,
       async handler(args) {
         const { spaceId, parentId } = listWikiPagesInput.parse(args);
@@ -197,9 +265,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Searches wiki pages (노트) by title and body substring in spaces I can access (or one spaceId), newest edit first: {items, truncated?} (id = pageId), ' +
-        `at most ${SEARCH_SERVER_CAP}. truncated:true means more may exist and there is no next page: refine the query, or say the ` +
-        'result is partial.',
+        'Searches wiki pages (노트) by title and body text in spaces I can access (or one spaceId), newest edit first: {items, truncated?} (id = pageId), ' +
+        `at most ${SEARCH_SERVER_CAP}. truncated: more may exist, no next page: refine the query or say the result is partial.`,
       inputSchema: searchWikiInput,
       async handler(args) {
         const { query, spaceId } = searchWikiInput.parse(args);
@@ -213,9 +280,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Returns a wiki page (노트) by pageId (from search_wiki or list_wiki_pages): Markdown body and version (for update_wiki_page). ' +
-        'includeSummary: stored AI summary (read-only; summaryStatus STALE = page changed since, MISSING/TOO_SHORT/UNAVAILABLE = ' +
-        'none). includeRevisions: latest 30 saved revisions (version is for restore_wiki_revision).',
+        'Returns a wiki page (노트) by pageId: Markdown body, version (for update_wiki_page), ' +
+        'bodyFormat if it has HTML. includeSummary: stored AI summary (read-only; summaryStatus STALE = changed since, ' +
+        'MISSING/TOO_SHORT/UNAVAILABLE = none). includeRevisions: latest 30 revisions (version is for restore_wiki_revision).',
       inputSchema: getWikiPageDetailInput,
       async handler(args) {
         const { pageId, includeSummary, includeRevisions } = getWikiPageDetailInput.parse(args);
@@ -225,8 +292,11 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
           includeSummary ? client.getWikiPageSummary(pageId) : undefined,
           includeRevisions ? client.listWikiRevisions(pageId) : undefined,
         ]);
+        const view = toWikiPageView(page as Record<string, unknown>);
         return JSON.stringify({
-          ...toWikiPageView(page as Record<string, unknown>),
+          ...view,
+          // WP-1243: HTML 이 든 본문에만 형식·편집 규칙을 함께 준다 — 고치기 전에 반드시 읽는 응답이라 여기서 알린다.
+          ...(bodyHasHtml(view.body) && { bodyFormat: WIKI_BODY_FORMAT_GUIDE }),
           ...(includeSummary && toSummaryView(summary)),
           ...(includeRevisions && toRevisionsView(revisions)),
         });
@@ -237,7 +307,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Lists the pages that link to this wiki page (backlinks), only pages I can see.',
+        'Lists pages I can see that link to this wiki page (backlinks).',
       inputSchema: getWikiPageInput,
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);
@@ -250,12 +320,29 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an empty wiki page (노트) in spaceId (from list_wiki_spaces), under parentId or at the top level. Returns it with id and version; ' +
-        'write the body with update_wiki_page.',
+        'Creates a wiki page in spaceId (from list_wiki_spaces), under parentId or top level; returns id and version. Optional ' +
+        'body (Markdown) or html: an HTML artifact kept whole as one html-embed block (<title> = default title). Or convert it: static ' +
+        'parts to Markdown, page CSS in one <style data-wp-style>, script/canvas parts as html-embed blocks (each a full HTML doc).',
       inputSchema: createWikiPageInput,
       async handler(args) {
-        const { spaceId, title, parentId } = createWikiPageInput.parse(args);
-        return JSON.stringify(toWikiPageView((await client.createWikiPage(spaceId, { parentId: parentId ?? null, title })) as Record<string, unknown>));
+        const { spaceId, title, parentId, body, html } = createWikiPageInput.parse(args);
+        const content = resolveBody(body, html);
+        const pageTitle = title ?? (html !== undefined ? htmlDocumentTitle(html) : undefined);
+        if (!pageTitle) {
+          throw new Error('title 이 필요합니다(html 에 <title> 이 없으면 title 을 주세요).');
+        }
+        const created = toWikiPageView((await client.createWikiPage(spaceId, { parentId: parentId ?? null, title: pageTitle })) as Record<string, unknown>);
+        if (!content) {
+          return JSON.stringify(created);
+        }
+        // 서버 생성 API 는 제목만 받는다 — 생성 응답의 version(서버가 기준본을 남긴다)으로 곧바로 본문을 저장한다.
+        try {
+          return JSON.stringify(toWikiPageView((await client.updateWikiPage(created.id as number, { version: created.version as number, body: content })) as Record<string, unknown>));
+        } catch (e) {
+          // 페이지는 이미 만들어졌다 — 다시 만들지 않고 update_wiki_page 로 본문만 넣게 알린다.
+          const reason = e instanceof Error ? e.message : String(e);
+          throw new Error(`페이지(pageId ${String(created.id)})는 만들었지만 본문 저장에 실패했습니다: ${reason} — 새로 만들지 말고 update_wiki_page 로 본문을 저장하세요.`);
+        }
       },
     },
     {
@@ -265,11 +352,12 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       // 본문 전체 대체(3-way 병합). AI 적용은 매번 이전 판 스냅샷을 남기고, 기준본이 만료되면 409 라 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
       description:
-        'Saves a wiki page (노트) title and/or body; omitted fields stay. body replaces the whole Markdown document (anything left out is deleted): ' +
-        'for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording or normalizing). ' +
-        'version: from get_wiki_page or the last save; others\' edits since then are merged (this ' +
-        'request wins on overlap). 409: version unusable (over 1 hour old, unknown or newer than current): re-read and reapply. ' +
-        'fileIds: staged images (PNG/JPEG/GIF/WebP) from upload_file, attached before saving; reference each as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content) in body.',
+        'Saves a wiki page title and/or body; omitted fields stay. body replaces the whole Markdown document (omitted text is deleted): ' +
+        'for a partial edit send it all, copying untouched blocks and HTML byte-for-byte from get_wiki_page (no rewording or ' +
+        'normalizing; see its bodyFormat). version: from ' +
+        "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1 " +
+        'hour old, unknown or newer): re-read and reapply. fileIds: images (PNG/JPEG/GIF/WebP) staged by upload_file; reference each in ' +
+        'body as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content).',
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, fileIds, ...body } = updateWikiPageInput.parse(args);
@@ -287,8 +375,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       // 본문을 그 판으로 덮어쓴다(제목은 그대로). 복원 직전 본문은 RESTORE 사유로 남아 되돌릴 수 있고, 동기화 서버 경로는 호출마다 판이 남을 수 있어 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
       description:
-        'Restores a wiki page (노트) body to a saved revision (version from get_wiki_page includeRevisions); the title stays. The body before ' +
-        'the restore is kept as a revision.',
+        'Restores a wiki page body to a saved revision (version from get_wiki_page includeRevisions); title stays; the ' +
+        'prior body is kept as a revision.',
       inputSchema: restoreWikiRevisionInput,
       async handler(args) {
         const { pageId, version } = restoreWikiRevisionInput.parse(args);
@@ -301,8 +389,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Moves a wiki page with its subpages within its space (not under itself). parentId: new parent pageId, null = top level. position: index ' +
-        'among the new siblings (0 = first, omit = last).',
+        'Moves a wiki page with its subpages within its space (not under itself). parentId: new parent pageId, null = top level. position: sibling ' +
+        'index (0 = first, omit = last).',
       inputSchema: moveWikiPageInput,
       async handler(args) {
         const { pageId, parentId, position } = moveWikiPageInput.parse(args);

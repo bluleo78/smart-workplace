@@ -142,12 +142,12 @@ public class WikiSummaryService {
     AssistantSpec spec =
         assistant.orElseThrow(
             () -> new WikiSummaryFailedException("공용 AI 비서가 없어 요약을 새로 만들 수 없습니다.", null));
-    // 트랜잭션 밖 AI 호출 — 본문은 상한까지만 보낸다.
+    // 트랜잭션 밖 AI 호출 — 본문은 글자만(WP-1243: 태그·페이지 스타일 CSS·HTML 블록 소스는 요약할 내용이 아니고 입력 상한만 먹는다) 상한까지 보낸다.
     WikiAiAgentSummaryClient.Res res =
         agent.summarize(
             new WikiAiAgentSummaryClient.Req(
                 page.title(),
-                capInput(page.body()),
+                capInput(WikiPlainText.fromMarkdownKeepingLines(page.body())),
                 spec.agentUserId(),
                 spec.model(),
                 MAX_TURNS,

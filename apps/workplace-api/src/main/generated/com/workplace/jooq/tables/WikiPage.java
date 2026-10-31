@@ -157,6 +157,11 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
      */
     public final TableField<WikiPageRecord, Boolean> FULL_WIDTH = createField(DSL.name("full_width"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.wiki_page.search_text</code>.
+     */
+    public final TableField<WikiPageRecord, String> SEARCH_TEXT = createField(DSL.name("search_text"), SQLDataType.CLOB, this, "");
+
     private WikiPage(Name alias, Table<WikiPageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -226,7 +231,7 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_WIKI_PAGE_TENANT, Indexes.IDX_WIKI_PAGE_TREE);
+        return Arrays.asList(Indexes.IDX_WIKI_PAGE_SEARCH_TEXT_MISSING, Indexes.IDX_WIKI_PAGE_TENANT, Indexes.IDX_WIKI_PAGE_TREE);
     }
 
     @Override
