@@ -37,6 +37,8 @@ const INSERT_ITEMS: WikiSlashItem[] = [
   { key: 'image', label: '이미지', kind: 'insert' },
   // HTML 블록(WP-1242) — 스크립트가 필요한 HTML(차트 등)을 격리 iframe 으로 그리는 블록. 빈 블록은 소스 편집 칸이 열린 채 들어간다.
   { key: 'htmlEmbed', label: 'HTML 블록', kind: 'insert' },
+  // HTML 파일 넣기(WP-1241) — .html 파일을 골라 노트 블록·모양·HTML 블록으로 바꿔 커서 자리에 넣는다(WikiEditor 의 onHtmlImportRef 경유).
+  { key: 'htmlImport', label: 'HTML 파일 넣기', kind: 'insert' },
 ]
 
 // 기본 서식 블록 6종(#687) — 버블 툴바(WikiAiBubbleToolbar)의 서식 그룹과 대응하는 삽입/전환
@@ -69,17 +71,19 @@ export interface WikiSlashContext {
   onActionRef: { current: (action: GenerateActionKey) => void }
   // '이미지' 항목 선택 시 호출(#751) — WikiEditor 의 숨은 file input 을 연다. 최신값 참조용 ref.
   onImageInsertRef: { current: () => void }
+  // 'HTML 파일 넣기' 항목 선택 시 호출(WP-1241) — WikiEditor 의 숨은 HTML 파일 input 을 연다. 생략하면 항목을 눌러도 트리거만 지운다.
+  onHtmlImportRef?: { current: () => void }
   // AI 항목(초안·이어쓰기)을 보일지 — 공유 링크로 연 편집 화면은 false(WP-579 설계 「하지 않는 것」: 공유로는 AI 를 쓰지 않는다).
   // 생략하면 보인다. 서식·삽입 항목은 편집 가능하면 그대로 쓴다.
   aiEnabledRef?: { current: boolean }
 }
 
-/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'HTML 블록'을 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
+/** 표 안에서 빼는 삽입 항목 — 표 셀은 마크다운 표(한 줄 셀)라 표·여러 줄 소스 블록·모양 영역을 담지 못한다. */
+const NOT_IN_TABLE: ReadonlySet<string> = new Set(['table', 'htmlEmbed', 'htmlImport'])
+
+/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'HTML 블록'·'HTML 파일 넣기'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
 export function filterSlashItems(query: string, opts: { inTable: boolean; aiEnabled: boolean }): WikiSlashItem[] {
-  // 표 안에서는 표·HTML 블록을 뺀다 — 표 셀은 마크다운 표(한 줄 셀)로 저장되어 여러 줄 소스 블록을 담지 못한다.
-  const base = SLASH_ITEMS.filter(
-    (i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && (i.key === 'table' || i.key === 'htmlEmbed')),
-  )
+  const base = SLASH_ITEMS.filter((i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && NOT_IN_TABLE.has(i.key)))
   const q = query.trim().toLowerCase()
   if (!q) return base
   return base.filter((i) => i.label.toLowerCase().includes(q) || i.key.includes(q))
@@ -107,6 +111,12 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
                 // "/이미지" 텍스트만 먼저 지우고, 실제 업로드는 WikiEditor 의 file input 이 맡는다.
                 editor.chain().focus().deleteRange(range).run()
                 ctx.onImageInsertRef.current()
+                return
+              }
+              if (props.key === 'htmlImport') {
+                // 이미지와 같다 — 파일 선택이 비동기라 트리거만 먼저 지우고, 변환·삽입은 WikiEditor 의 파일 input 이 맡는다.
+                editor.chain().focus().deleteRange(range).run()
+                ctx.onHtmlImportRef?.current()
                 return
               }
               if (props.key === 'htmlEmbed') {

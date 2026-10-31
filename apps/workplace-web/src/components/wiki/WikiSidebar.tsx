@@ -17,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { BookOpen, MoreHorizontal } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -52,6 +52,7 @@ import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiDeleteSpaceDialog } from './WikiDeleteSpaceDialog'
 import { WIKI_DND_SCREEN_READER_INSTRUCTIONS, wikiDndAnnouncements } from './wikiDndAnnouncements'
+import { WikiHtmlFileInput } from './WikiHtmlFileInput'
 import { WikiMovePageDialog } from './WikiMovePageDialog'
 import { WikiMoveShareDialog } from './WikiMoveShareDialog'
 import { lastChildPosition } from './wikiMoveTargets'
@@ -197,7 +198,14 @@ export function WikiSidebar() {
   const spacesQuery = useWikiSpaces()
   const spaces = spacesQuery.data
   const { data: pages } = useWikiTree(spaceId)
-  const { create: createPage, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
+  const { create: createPage, createFromHtml, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
+  // HTML 파일로 새 노트(WP-1241) — 숨은 파일 input 하나를 루트(스페이스 ⋯)·하위(행 메뉴)가 함께 쓴다. 고른 파일을 넣을 부모는 연 쪽이 남긴다.
+  const htmlInputRef = useRef<HTMLInputElement>(null)
+  const htmlParentRef = useRef<number | null>(null)
+  const pickHtmlFile = (parentId: number | null) => {
+    htmlParentRef.current = parentId
+    htmlInputRef.current?.click()
+  }
   const deletePage = useDeletePage(spaceId ?? 0)
   const movePage = useMovePage(spaceId ?? 0)
   // 멤버 관리 다이얼로그 열림 상태 — TEAM 스페이스에서만 노출.
@@ -304,14 +312,18 @@ export function WikiSidebar() {
       return next
     })
 
-  // 하위 페이지 생성 — 부모를 자동 펼친 뒤 생성 페이지로 이동.
-  const addSubPage = async (parentId: number) => {
-    if (spaceId == null) return
+  // 부모를 펼친다 — 하위에 새로 만든 페이지(빈 페이지·HTML 파일)가 트리에 바로 보이게.
+  const expandParent = (parentId: number) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
       next.delete(parentId)
       return next
     })
+
+  // 하위 페이지 생성 — 부모를 자동 펼친 뒤 생성 페이지로 이동.
+  const addSubPage = async (parentId: number) => {
+    if (spaceId == null) return
+    expandParent(parentId)
     await createPage(parentId)
   }
 
@@ -487,6 +499,11 @@ export function WikiSidebar() {
                 <DropdownMenuItem data-testid="wiki-space-shared-pages" onSelect={() => setSharedOpen(true)}>
                   공유 중인 페이지
                 </DropdownMenuItem>
+                {canEdit && (
+                  <DropdownMenuItem data-testid="wiki-space-import-html" onSelect={() => pickHtmlFile(null)}>
+                    HTML 파일로 새 노트
+                  </DropdownMenuItem>
+                )}
                 {/* 삭제는 소유자에게만 — 되돌릴 수 없는 동작이라 구분선으로 떼어 둔다. */}
                 {canDeleteSpace && (
                   <>
@@ -561,6 +578,7 @@ export function WikiSidebar() {
                   onAddChild={addSubPage}
                   onRequestDelete={setDeleteTarget}
                   onRequestMove={setMoveTarget}
+                  onImportHtmlChild={pickHtmlFile}
                   canEdit={canEdit}
                 />
               ))}
@@ -569,6 +587,16 @@ export function WikiSidebar() {
         </nav>
       )}
 
+      {/* HTML 파일로 새 노트(WP-1241) — 고른 파일을 변환해 남긴 부모(루트면 null) 아래 새 노트로 만들고 연다. 하위면 부모를 펼친다. */}
+      <WikiHtmlFileInput
+        inputRef={htmlInputRef}
+        testId="wiki-html-new-page-input"
+        onFile={(file) => {
+          const parentId = htmlParentRef.current
+          if (parentId != null) expandParent(parentId)
+          void createFromHtml(parentId, file)
+        }}
+      />
       {/* 멤버 관리 다이얼로그 — TEAM 스페이스 선택 시에만 렌더. */}
       {isTeamSpace && selectedSpace && (
         <WikiSpaceMemberDialog

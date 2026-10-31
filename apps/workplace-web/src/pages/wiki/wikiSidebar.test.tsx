@@ -451,6 +451,127 @@ test('팀 노트 VIEWER 에게는 새 페이지·하위 페이지·행 메뉴가
   expect(within(row).getByRole('button', { name: '문서' })).toBeEnabled()
 })
 
+// ── HTML 파일로 새 노트(WP-1241) ─────────────────────────────────────────────
+
+/** 들여올 HTML 파일 — <title> 이 노트 제목이 되고, 같은 글자의 첫 h1 은 본문에서 빠진다. */
+const htmlFile = (name = '보고서.html') =>
+  new File(
+    ['<!doctype html><html><head><title>3분기 보고서</title><style>.card{padding:8px}</style></head><body><h1>3분기 보고서</h1><div class="card"><p>매출 증가</p></div></body></html>'],
+    name,
+    { type: 'text/html' },
+  )
+
+test('스페이스 ⋯ 「HTML 파일로 새 노트」 → 파일 제목으로 최상위에 만들고, 만든 version 으로 본문을 PUT 한 뒤 연다', async () => {
+  const creates: unknown[] = []
+  const saves: unknown[] = []
+  const { user, location } = open({
+    tree: () => [wikiPageSummary({ id: 1, title: '제품 문서' })],
+    handlers: [
+      http.post('/api/v1/wiki/spaces/1/pages', async ({ request }) => {
+        creates.push(await request.json())
+        return HttpResponse.json(wikiPageDetail({ id: 9, title: '3분기 보고서', version: 4 }), { status: 201 })
+      }),
+      http.put('/api/v1/wiki/pages/9', async ({ request }) => {
+        saves.push(await request.json())
+        return HttpResponse.json(wikiPageDetail({ id: 9, title: '3분기 보고서', version: 5 }))
+      }),
+    ],
+  })
+  await screen.findByTestId('wiki-tree-row-1')
+  await user.click(screen.getByTestId('wiki-space-menu'))
+  const input = screen.getByTestId<HTMLInputElement>('wiki-html-new-page-input')
+  expect(input).toHaveAttribute('accept', '.html,.htm,text/html')
+  // 메뉴 항목이 숨은 파일 input 을 연다 — 대화상자 대신 input 의 click 이 불렸는지 본다.
+  let opened = 0
+  const onClick = (e: Event) => {
+    opened++
+    e.preventDefault()
+  }
+  input.addEventListener('click', onClick)
+  await user.click(await screen.findByRole('menuitem', { name: 'HTML 파일로 새 노트' }))
+  expect(opened).toBe(1)
+  input.removeEventListener('click', onClick)
+  await user.upload(input, htmlFile())
+  await waitFor(() => expect(creates).toEqual([{ parentId: null, title: '3분기 보고서' }]))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/9'))
+  // 본문 심기는 이동 전에 끝난다 — 제목과 같은 첫 h1 은 빠지고 페이지 스타일·모양 영역이 그대로 간다.
+  expect(saves).toEqual([
+    { title: null, body: '<style data-wp-style>\n.card{padding:8px}\n</style>\n\n<div class="card">\n\n매출 증가\n\n</div>', version: 4 },
+  ])
+})
+
+test('행 ⋯ 「HTML 파일로 하위 노트」 → 그 페이지 하위에 만든다. <title>·h1 이 없으면 파일 이름이 제목이다', async () => {
+  const creates: unknown[] = []
+  const saves: unknown[] = []
+  const { user, location } = open({
+    tree: () => [wikiPageSummary({ id: 1, title: '제품 문서' })],
+    handlers: [
+      http.post('/api/v1/wiki/spaces/1/pages', async ({ request }) => {
+        creates.push(await request.json())
+        return HttpResponse.json(wikiPageDetail({ id: 3, parentId: 1, title: '메모', version: 1 }), { status: 201 })
+      }),
+      http.put('/api/v1/wiki/pages/3', async ({ request }) => {
+        saves.push(await request.json())
+        return HttpResponse.json(wikiPageDetail({ id: 3 }))
+      }),
+    ],
+  })
+  await rowMenu(user, 1, 'HTML 파일로 하위 노트')
+  await user.upload(screen.getByTestId('wiki-html-new-page-input'), new File(['<p>그냥 문단</p>'], '메모.htm', { type: 'text/html' }))
+  await waitFor(() => expect(creates).toEqual([{ parentId: 1, title: '메모' }]))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/3'))
+  expect(saves).toEqual([{ title: null, body: '그냥 문단', version: 1 }])
+})
+
+test('본문 심기가 실패하면 알리고 제목만 있는 새 노트를 그대로 연다', async () => {
+  const { user, location } = open({
+    tree: () => [wikiPageSummary({ id: 1, title: '제품 문서' })],
+    handlers: [
+      http.post('/api/v1/wiki/spaces/1/pages', () => HttpResponse.json(wikiPageDetail({ id: 5, title: '3분기 보고서' }), { status: 201 })),
+      http.put('/api/v1/wiki/pages/5', () => HttpResponse.json({ message: '동기화 서버 오류' }, { status: 503 })),
+    ],
+  })
+  await screen.findByTestId('wiki-tree-row-1')
+  await user.upload(screen.getByTestId('wiki-html-new-page-input'), htmlFile())
+  expect(await screen.findByText('HTML 파일 내용을 넣지 못했습니다 — 제목만 있는 노트를 열었습니다.')).toBeInTheDocument()
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/5'))
+})
+
+test('5MB 넘는 HTML 파일은 읽지 않고 알리며 노트를 만들지 않는다', async () => {
+  const creates: unknown[] = []
+  const { user } = open({
+    tree: () => [wikiPageSummary({ id: 1, title: '제품 문서' })],
+    handlers: [
+      http.post('/api/v1/wiki/spaces/1/pages', async ({ request }) => {
+        creates.push(await request.json())
+        return HttpResponse.json(wikiPageDetail({ id: 4 }), { status: 201 })
+      }),
+    ],
+  })
+  await screen.findByTestId('wiki-tree-row-1')
+  const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], '큰 파일.html', { type: 'text/html' })
+  let read = false
+  big.text = async () => {
+    read = true
+    return ''
+  }
+  await user.upload(screen.getByTestId('wiki-html-new-page-input'), big)
+  expect(await screen.findByText('HTML 파일이 너무 큽니다 — 5MB 이하 파일만 가져올 수 있습니다.')).toBeInTheDocument()
+  expect(read).toBe(false)
+  expect(creates).toEqual([])
+})
+
+test('VIEWER 에게는 「HTML 파일로 새 노트」가 없다', async () => {
+  const { user } = open({
+    spaces: () => [wikiSpace({ id: 1, type: 'TEAM', name: '팀 노트', ownerId: 9, role: 'VIEWER' })],
+    tree: () => [wikiPageSummary({ id: 310, title: '문서' })],
+  })
+  await screen.findByTestId('wiki-tree-row-310')
+  await user.click(screen.getByTestId('wiki-space-menu'))
+  await screen.findByTestId('wiki-space-shared-pages')
+  expect(screen.queryByTestId('wiki-space-import-html')).not.toBeInTheDocument()
+})
+
 // ── 이동 대화상자(wiki-move-dialog) ─────────────────────────────────────────
 
 test('「이동…」 목록에는 자기 자신과 자기 하위 페이지가 없다 — 「회의록」을 옮길 때 그 아래 페이지들은 빠진다', async () => {

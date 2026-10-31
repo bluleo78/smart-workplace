@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, ChevronRight, CornerDownRight, Link2, Link2Off, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, CornerDownRight, FileCode, Link2, Link2Off, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
@@ -41,6 +41,7 @@ export function WikiTreeRow({
   onAddChild,
   onRequestDelete,
   onRequestMove,
+  onImportHtmlChild,
   canEdit,
 }: {
   id: number
@@ -59,6 +60,8 @@ export function WikiTreeRow({
   onRequestDelete: (id: number) => void
   /** 「이동…」 — 위치 고르기 대화상자를 연다(WP-839). 끌기 없이 키보드·터치로 다른 페이지 하위에 넣는 길. */
   onRequestMove: (id: number) => void
+  /** 「HTML 파일로 하위 노트」(WP-1241) — HTML 파일을 골라 이 페이지 하위 새 노트로 만든다. 생략하면 항목을 감춘다. */
+  onImportHtmlChild?: (id: number) => void
   /** 이 공간에 쓸 수 있는지(WP-602) — 거짓(VIEWER)이면 하위 페이지·삭제 버튼을 감추고 끌어 옮기기를 끈다(눌러도 403). */
   canEdit: boolean
 }) {
@@ -139,6 +142,9 @@ export function WikiTreeRow({
             isolateEvents
             actions={[
               { key: 'wiki-add-child', label: '하위 페이지 추가', icon: <Plus />, onSelect: () => onAddChild(id) },
+              ...(onImportHtmlChild
+                ? [{ key: 'wiki-import-html-child', label: 'HTML 파일로 하위 노트', icon: <FileCode />, onSelect: () => onImportHtmlChild(id) }]
+                : []),
               { key: 'wiki-move', label: '이동…', icon: <CornerDownRight />, onSelect: requestMove },
               { key: 'wiki-delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: requestDelete },
             ]}
@@ -169,6 +175,12 @@ export function WikiTreeRow({
                   <CornerDownRight />
                   이동…
                 </DropdownMenuItem>
+                {onImportHtmlChild && (
+                  <DropdownMenuItem data-testid={`wiki-tree-import-html-${id}`} onSelect={() => onImportHtmlChild(id)}>
+                    <FileCode />
+                    HTML 파일로 하위 노트
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={requestDelete}>
                   <Trash2 />

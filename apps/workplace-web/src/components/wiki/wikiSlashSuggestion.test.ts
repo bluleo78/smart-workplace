@@ -21,4 +21,10 @@ describe('filterSlashItems', () => {
   it('표 안에서는 표 항목을 뺀다', () => {
     expect(keys('', { inTable: true, aiEnabled: true })).not.toContain('table')
   })
+  it('HTML 파일 넣기(WP-1241)는 표 밖에서만 보이고 「HTML」로 찾힌다', () => {
+    expect(keys('', { inTable: false, aiEnabled: true })).toContain('htmlImport')
+    expect(keys('', { inTable: true, aiEnabled: true })).not.toContain('htmlImport')
+    expect(keys('HTML 파일', { inTable: false, aiEnabled: false })).toEqual(['htmlImport'])
+    expect(keys('html', { inTable: false, aiEnabled: false })).toEqual(['htmlEmbed', 'htmlImport'])
+  })
 })

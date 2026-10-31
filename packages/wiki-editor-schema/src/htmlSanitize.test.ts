@@ -11,9 +11,20 @@ import {
 } from './htmlSanitize'
 
 describe('sanitizeClassName', () => {
-  it('keeps only [A-Za-z0-9_-] tokens joined by one space', () => {
+  it('keeps allowed tokens joined by one space and drops tokens with quotes or angle brackets', () => {
     expect(sanitizeClassName('  card  big\nbadge_1 x-y ')).toBe('card big badge_1 x-y')
-    expect(sanitizeClassName('ok "><script> a.b c:d')).toBe('ok')
+    expect(sanitizeClassName('ok "><script> a.b c:d')).toBe('ok a.b c:d')
+  })
+
+  it('accepts Tailwind variant and arbitrary-value tokens (WP-1241)', () => {
+    const tw = 'md:grid-cols-2 w-1/2 gap-0.5 w-[calc(100%-2rem)] bg-[#0f172a] !mt-0 @container hover:bg-gray-100 grid-cols-[1fr,2fr] [mask-type=luminance]'
+    expect(sanitizeClassName(tw)).toBe(tw)
+  })
+
+  it('still drops tokens with quotes, < > &, backslash, backtick, braces, semicolon, pipe or control characters', () => {
+    for (const bad of ['a"b', "a'b", 'a<b', 'a>b', 'a&b', 'a\\b', 'a`b', 'a{b', 'a}b', 'a;b', 'a|b', 'a\u0000b', 'a\u007fb', 'a$b', 'a*b', 'a+b']) {
+      expect(sanitizeClassName(`ok ${bad}`), bad).toBe('ok')
+    }
   })
 
   it('returns null when nothing is left or the value is not a string', () => {
@@ -90,6 +101,14 @@ describe('sanitizeInlineStyle', () => {
 })
 
 describe('sanitizeStyleSheet', () => {
+  it('keeps backslash-escaped class selectors (Tailwind static export, WP-1241) and still drops escaped at-rule names', () => {
+    const css = String.raw`.md\:grid-cols-2{grid-template-columns:repeat(2,1fr)}.w-1\/2{width:50%}.w-\[calc\(100\%-2rem\)\]{width:calc(100% - 2rem)}.bg-\[\#0f172a\]{background:#0f172a}.\!mt-0{margin-top:0!important}@media (min-width:768px){.md\:p-4{padding:1rem}}`
+    expect(sanitizeStyleSheet(css)).toBe(css)
+    expect(sanitizeStyleSheet(`${css}@\\6d edia all{body{color:red}}`)).toBe(css)
+    // 선택자 가공(범위 가두기)도 이스케이프를 그대로 받는다.
+    expect(sanitizeStyleSheet(String.raw`.w-1\/2{width:50%}`, (p) => `X ${p}`)).toBe(String.raw`X .w-1\/2{width:50%}`)
+  })
+
   it('removes @import and unsafe declarations but keeps formatting of the rest', () => {
     const css = '@import url(https://evil/x.css);\n.card {\n  color: red;\n  background: url(http://t/x.png);\n  padding: 4px\n}\n'
     expect(sanitizeStyleSheet(css)).toBe('\n.card {\n  color: red;\n  padding: 4px\n}\n')

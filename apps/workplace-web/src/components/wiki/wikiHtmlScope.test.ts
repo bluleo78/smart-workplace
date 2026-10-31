@@ -240,3 +240,10 @@ describe('WikiHtmlScope + WikiStyle in an editor', () => {
     }
   })
 })
+
+describe('이스케이프된 class 선택자 (WP-1241)', () => {
+  it('Tailwind 류 이스케이프 선택자(.md\\:x·.w-1\\/2·임의값)를 범위 안으로 그대로 옮긴다', () => {
+    const css = String.raw`.md\:grid-cols-2{a:b}.w-1\/2,.w-\[calc\(100\%-2rem\)\]{c:d}body .bg-\[\#0f172a\]{e:f}`
+    expect(scopeCss(css, '.s')).toBe(String.raw`.s .md\:grid-cols-2 {a:b}.s .w-1\/2, .s .w-\[calc\(100\%-2rem\)\] {c:d}.s .bg-\[\#0f172a\] {e:f}`)
+  })
+})

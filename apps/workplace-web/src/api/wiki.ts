@@ -68,8 +68,14 @@ export const wikiApi = {
   // shareToken: 공유 링크로 연 화면(WP-579) — 스페이스 멤버가 아니어도 이 토큰으로 읽는다.
   getPage: (pageId: number, shareToken?: string) =>
     client.get<WikiPageDetail>(`/wiki/pages/${pageId}`, { params: { base: false }, headers: shareHeaders(shareToken) }),
-  // 제목만 저장 — 본문은 동기화 서버(Yjs)가 원본이라 웹은 본문을 REST 로 보내지 않는다(WP-287). body:null 은 서버 계약상 "본문 유지".
+  // 제목만 저장 — 본문은 동기화 서버(Yjs)가 원본이라 웹은 편집 중인 본문을 REST 로 보내지 않는다(WP-287). body:null 은 서버 계약상 "본문 유지".
+  // 이 규칙은 실시간 편집에 대한 것이다 — 새 노트의 처음 본문 심기(seedPageBody)는 AI 쓰기와 같은 서버 경로를 쓴다.
   // 공유 화면(편집 링크)은 제목만 고칠 수 있다 — 서버는 body 가 없을 때만 공유 토큰을 받는다.
+  // 새 노트의 처음 본문 심기(WP-1241 「HTML 파일로 새 노트」) — 만든 직후 그 응답 version 을 기준으로 본문을 PUT 한다. 서버는 AI 쓰기(MCP)와 같은
+  // 경로로 동기화 서버에 적용(applyMarkdown)을 맡기므로, 페이지를 열면 본문이 이미 동기화 문서에 있다. 동기화 서버가 꺼진 환경은 같은 version 으로
+  // 낙관적 저장을 한다. 실시간 편집 본문은 여전히 REST 로 보내지 않는다(WP-287 — 위 savePageTitle 참조).
+  seedPageBody: (pageId: number, body: string, version: number) =>
+    client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title: null, body, version }),
   savePageTitle: (pageId: number, title: string, shareToken?: string) =>
     client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title, body: null }, { headers: shareHeaders(shareToken) }),
   // 「전체 폭」만 저장(WP-793) — title·body:null 은 서버 계약상 "유지". 공유 화면(편집 링크)도 제목처럼 바꿀 수 있다.

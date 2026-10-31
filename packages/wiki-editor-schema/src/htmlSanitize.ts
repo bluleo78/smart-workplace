@@ -36,10 +36,23 @@ export function sanitizeBoxTag(tag: unknown): WikiHtmlBoxTag {
   return (WIKI_HTML_BOX_TAGS as readonly string[]).includes(t) ? (t as WikiHtmlBoxTag) : 'div'
 }
 
-/** class — [A-Za-z0-9_-] 토큰만 공백 하나로 잇는다. 남는 게 없으면 null(속성을 쓰지 않는다). */
+/**
+ * class 토큰에 허용하는 글자 — 영숫자·_·- 에 더해 Tailwind 정적 내보내기가 쓰는 변형·임의값 글자(WP-1241):
+ * `:`(md:grid-cols-2·hover:bg-x) `/`(w-1/2) `.`(gap-0.5) `[` `]` `(` `)` `,` `=` `%` `#` `@`(w-[calc(100%-2rem)]·bg-[#0f172a]·@container)
+ * `!`(!mt-0). 이 글자들은 직렬화(escapeHtmlAttr)·마크다운 HTML 블록·GFM 표 셀(| 는 허용하지 않는다) 어디서도 뜻이 바뀌지 않는다.
+ * 계속 막는 것: 공백(토큰 구분자)·따옴표·< > &·역슬래시·백틱·{ } ;·제어 문자·그 밖의 글자 — 속성 밖으로 새거나 CSS·HTML 문법이 되는 글자.
+ *
+ * 이 문법은 모든 호출처에 같다 — 노트끼리 붙여넣기·AI 가 쓴 본문(MCP·동기화 서버 적용)·HTML 파일 들여오기 모두 이 함수를 지난다.
+ * 그래도 안전한 이유: class 는 모양을 고르는 이름일 뿐 스스로 아무것도 하지 않는다 — 실제 모양은 페이지 스타일(sanitizeStyleSheet 가 정리하고
+ * 웹이 본문 범위로 가둔다)과 인라인 style(sanitizeInlineStyle)에서 오고, 노트 CSS 가 아닌 앱 CSS 의 class 를 빌려 써도 본문은 contain 으로
+ * 가둬져 앱 화면을 덮지 못한다(WP-1240). 허용 글자는 속성값 안에서 따옴표를 닫거나 태그를 끝낼 수 없고, 직렬화 때 escapeHtmlAttr 를 다시 지난다.
+ */
+const CLASS_TOKEN = /^[A-Za-z0-9_\-:/.[\]%!#@(),=]+$/
+
+/** class — 허용 글자(CLASS_TOKEN)로만 된 토큰만 공백 하나로 잇는다. 남는 게 없으면 null(속성을 쓰지 않는다). */
 export function sanitizeClassName(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  const tokens = value.split(/\s+/).filter((t) => /^[A-Za-z0-9_-]+$/.test(t))
+  const tokens = value.split(/\s+/).filter((t) => CLASS_TOKEN.test(t))
   return tokens.length ? tokens.join(' ') : null
 }
 

@@ -68,6 +68,8 @@ import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { wikiEditorExtensions } from './wikiEditorExtensions'
+import { WikiHtmlFileInput } from './WikiHtmlFileInput'
+import { importHtmlIntoEditor, readHtmlFile } from './wikiHtmlImportInsert'
 import { WikiLinkActionSheet } from './WikiLinkActionSheet'
 import { focusLinkBubble, WikiLinkBubble } from './WikiLinkBubble'
 import { wikiLinkHrefToOpen } from './wikiLinkClick'
@@ -619,6 +621,15 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // ref 들과 달리 렌더마다 갱신하는 useEffect 가 불필요하다.
   const imageInputRef = useRef<HTMLInputElement>(null)
   const onImageInsertRef = useRef<() => void>(() => imageInputRef.current?.click())
+  // 슬래시 메뉴 'HTML 파일 넣기'(WP-1241) — 이미지와 같은 이유로 숨은 HTML 파일 input 을 여는 안정된 함수.
+  // 메뉴를 고른 자리는 Yjs 상대 위치로 붙잡아 둔다 — 파일 대화상자가 떠 있는 동안 선택이 바뀌거나 원격 편집이 들어와도 그 자리에 넣게.
+  const htmlImportInputRef = useRef<HTMLInputElement>(null)
+  const htmlImportAtRef = useRef<((current: Editor) => number) | null>(null)
+  const onHtmlImportRef = useRef<() => void>(() => {
+    const ed = editorRef.current
+    htmlImportAtRef.current = ed ? anchorPosition(ed, ed.state.selection.from) : null
+    htmlImportInputRef.current?.click()
+  })
   // 공유 링크로 연 화면은 AI 를 쓰지 않는다(WP-579 「하지 않는 것」) — 슬래시 메뉴의 AI 항목을 뺀다. 공유 여부는 화면이 떠 있는 동안 바뀌지 않는다.
   const aiEnabledRef = useRef(features.ai)
 
@@ -627,7 +638,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // (RichInput 의 membersRef 패턴 동일 — react-hooks/refs 의 보수적 false positive).
   const slashExtension = useMemo(
     // eslint-disable-next-line react-hooks/refs
-    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef, aiEnabledRef }),
+    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef, onHtmlImportRef, aiEnabledRef }),
     [],
   )
   // 표 단축키 확장 — canEditRef 를 슬래시 확장과 같은 패턴으로 주입(마운트 시 1회 생성).
@@ -700,6 +711,17 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
     // eslint-disable-next-line react-hooks/immutability
     editorRef.current = editor
   })
+
+  // 슬래시 'HTML 파일 넣기'로 고른 파일 — 읽어 변환한 뒤 커서 자리에 모양째 넣는다(붙여넣기 모양 거르기를 지나지 않는 믿는 들여오기).
+  const onHtmlFile = useCallback(async (file: File) => {
+    const ed = editorRef.current
+    if (!ed || !canEditRef.current) return
+    const html = await readHtmlFile(file)
+    if (html == null || ed.isDestroyed) return
+    const at = htmlImportAtRef.current?.(ed)
+    htmlImportAtRef.current = null
+    importHtmlIntoEditor(ed, html, at)
+  }, [])
 
   // 링크 넣기·고치기·해제·열기(WP-312) — 데스크톱은 버블+팝오버, 터치 셸은 바텀시트.
   const isTouchShell = useIsTouchShell()
@@ -1199,6 +1221,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
                 e.target.value = ''
               }}
             />
+            {/* 슬래시 메뉴 'HTML 파일 넣기'(WP-1241) 전용 숨은 파일 input. */}
+            <WikiHtmlFileInput inputRef={htmlImportInputRef} testId="wiki-html-import-input" onFile={(f) => void onHtmlFile(f)} />
             {/* 노트→이슈 생성 다이얼로그 — AI 역할 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
             <WikiCreateIssueDialog
               open={issueDialog.open}

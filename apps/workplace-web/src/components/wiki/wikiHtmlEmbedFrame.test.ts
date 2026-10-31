@@ -100,9 +100,12 @@ describe('watchEmbedHeight', () => {
 
 describe('슬래시 메뉴 HTML 블록', () => {
   let editor: Editor | null = null
-  afterEach(() => {
+  // 편집기를 없앤 뒤 ProseMirror 가 걸어 둔 선택 동기화 타이머(약 20ms)가 끝나기를 기다린다 —
+  // 기다리지 않으면 테스트 환경이 내려간 뒤 타이머가 터져 「document is not defined」 처리 안 된 오류가 난다.
+  afterEach(async () => {
     editor?.destroy()
     editor = null
+    await new Promise((resolve) => setTimeout(resolve, 50))
   })
   const open = (md: string) => {
     editor = new Editor({ extensions: wikiSchemaExtensions(), content: md })
@@ -111,7 +114,9 @@ describe('슬래시 메뉴 HTML 블록', () => {
 
   it('「HTML」로 찾으면 삽입 항목에 있다', () => {
     const items = filterSlashItems('html', { inTable: false, aiEnabled: false })
-    expect(items).toEqual([{ key: 'htmlEmbed', label: 'HTML 블록', kind: 'insert' }])
+    // 「HTML 파일 넣기」(WP-1241)도 함께 찾힌다 — HTML 블록이 먼저다.
+    expect(items[0]).toEqual({ key: 'htmlEmbed', label: 'HTML 블록', kind: 'insert' })
+    expect(items.map((i) => i.key)).toEqual(['htmlEmbed', 'htmlImport'])
   })
 
   it('표 안에서는 HTML 블록 항목을 뺀다(표처럼)', () => {
