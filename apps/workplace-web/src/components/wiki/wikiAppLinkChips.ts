@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { type EditorState, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
-import { File as FileIcon, FileText, type LucideIcon, SquareKanban } from 'lucide-react'
+import { CalendarDays, File as FileIcon, FileText, type LucideIcon, Mail, MessageSquare, SquareKanban } from 'lucide-react'
 
 import type { AppLinkCard } from '@/api/appLinks'
 import { APP_LINK_KIND_LABEL, type AppHosts, type AppLink, parseAppLink } from '@/lib/appLinks'
@@ -132,7 +132,14 @@ export function appLinkChipTargets(state: EditorState): AppLink[] {
 }
 
 // 종류별 아이콘 — 채팅 카드(AppLinkCard)의 아이콘과 같은 lucide 컴포넌트에서 모양을 읽는다(WP-1185).
-const ICONS: Record<AppLink['kind'], LucideIcon> = { ISSUE: SquareKanban, PAGE: FileText, FILE: FileIcon }
+const ICONS: Record<AppLink['kind'], LucideIcon> = {
+  ISSUE: SquareKanban,
+  PAGE: FileText,
+  FILE: FileIcon,
+  MESSAGE: MessageSquare,
+  EVENT: CalendarDays,
+  MAIL: Mail,
+}
 
 // 멘션 칩(WikiMentionChipView)과 같은 바탕 — 이슈 멘션과 이슈 링크 칩이 나란히 있어도 같아 보이게.
 const CHIP_CLASS =

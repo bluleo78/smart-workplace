@@ -573,3 +573,120 @@ describe('앱 링크 카드 (WP-896)', () => {
     await waitFor(() => expect(screen.queryByTestId('link-previews-34')).not.toBeInTheDocument())
   })
 })
+
+describe('메시지·일정·메일 링크 카드 (WP-1236)', () => {
+  const MSG_URL = 'http://localhost/chat/channels/2?message=88'
+  const EVENT_URL = 'http://localhost/calendar?eventId=42'
+  const MAIL_URL = 'http://localhost/mail/3?messageId=99'
+  const handlers = [
+    http.get(`${API}/app-links/messages/:id`, () =>
+      HttpResponse.json({ kind: 'MESSAGE', title: '배포 끝났어요', channelName: '개발', channelKind: 'CHANNEL', authorName: '이진우', sentAt: '2026-10-30T01:00:00Z' }),
+    ),
+    http.get(`${API}/app-links/events/:id`, () =>
+      HttpResponse.json({ kind: 'EVENT', title: '주간 회의', startAt: '2026-11-03T01:00:00Z', endAt: '2026-11-03T02:00:00Z', allDay: false }),
+    ),
+    // 남의 메일 — 서버는 계정 주인에게만 카드를 준다.
+    http.get(`${API}/app-links/mails/:id`, () => HttpResponse.json({ message: '메일을 찾을 수 없습니다' }, { status: 404 })),
+  ]
+
+  test('메시지·일정 카드는 보는 사람 기준 정보, 볼 수 없는 메일은 「볼 수 없는 메일입니다」', async () => {
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({ id: 40, channelId: 1, authorId: 20, authorName: '이진우', body: `이거 ${MSG_URL} 회의 ${EVENT_URL} 메일 ${MAIL_URL}` }),
+    ], { handlers })
+
+    await waitFor(() => expect(screen.getByTestId('app-link-40-0')).toHaveAttribute('data-state', 'ready'))
+    const message = screen.getByTestId('app-link-40-0')
+    expect(message).toHaveTextContent('메시지 · #개발')
+    expect(screen.getByTestId('app-link-40-0-title')).toHaveTextContent('배포 끝났어요')
+    expect(screen.getByTestId('app-link-40-0-meta')).toHaveTextContent('이진우')
+    // 카드를 누르면 그 메시지 위치로 가는 앱 안 이동.
+    expect(message).toHaveAttribute('href', '/chat/channels/2?message=88')
+
+    await waitFor(() => expect(screen.getByTestId('app-link-40-1')).toHaveAttribute('data-state', 'ready'))
+    expect(screen.getByTestId('app-link-40-1')).toHaveTextContent('일정')
+    expect(screen.getByTestId('app-link-40-1-title')).toHaveTextContent('주간 회의')
+    expect(screen.getByTestId('app-link-40-1-meta')).toHaveTextContent('2026-11-03')
+    expect(screen.getByTestId('app-link-40-1')).toHaveAttribute('href', '/calendar?eventId=42')
+
+    await waitFor(() => expect(screen.getByTestId('app-link-40-2')).toHaveAttribute('data-state', 'denied'))
+    expect(screen.getByTestId('app-link-40-2')).toHaveTextContent('볼 수 없는 메일입니다')
+  })
+})
+
+test('코멘트 링크 카드는 이슈 카드이고, 누르면 그 코멘트로 간다(WP-1236)', async () => {
+  openChannel(createChannel({ id: 1, member: true }), [
+    createMessage({ id: 45, channelId: 1, authorId: 20, body: '여기 http://localhost/projects/WP/issues/7#comment-12' }),
+  ], {
+    handlers: [
+      http.get(`${API}/app-links/issues/:key/:number`, () =>
+        HttpResponse.json({ kind: 'ISSUE', title: '결제 버그', issueKey: 'WP-7', statusName: '할 일', statusCategory: 'TODO', assignees: [], priority: 'MID' }),
+      ),
+    ],
+  })
+  await waitFor(() => expect(screen.getByTestId('app-link-45-0')).toHaveAttribute('data-state', 'ready'))
+  expect(screen.getByTestId('app-link-45-0')).toHaveAttribute('href', '/projects/WP/issues/7#comment-12')
+})
+
+describe('메시지 링크 메뉴 (WP-1236)', () => {
+  const channel = createChannel({ id: 1, member: true })
+  const msg = createMessage({ id: 61, channelId: 1, authorId: 20, authorName: '이진우', body: '배포 끝났어요 https://example.com/x' })
+
+  test('툴바 ⋯ 는 「링크 복사·채팅·이슈로 보내기…」 메뉴를 열고, 보내기는 그 메시지 링크로 대화상자를 연다', async () => {
+    const { closeSendToChat, sendToChatTarget } = await import('@/lib/sendToChat')
+    const { user } = openChannel(channel, [msg])
+    await user.click(await screen.findByTestId('message-more-61'))
+    const menu = await screen.findByTestId('message-link-menu-61')
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['링크 복사', '채팅·이슈로 보내기…'])
+    await user.click(within(menu).getByTestId('menu-send-to-chat'))
+    await waitFor(() =>
+      expect(sendToChatTarget()).toEqual({ kind: 'message', url: `${window.location.origin}/chat/channels/1?message=61`, title: '배포 끝났어요 https://example.com/x' }),
+    )
+    act(() => closeSendToChat())
+  })
+
+  test('행 우클릭은 같은 메뉴를 열고, 본문 링크 위 우클릭은 브라우저 메뉴에 맡긴다', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    openChannel(channel, [msg])
+    const row = await screen.findByTestId('message-61')
+    const link = within(screen.getByTestId('message-body-61')).getByRole('link')
+    expect(fireEvent.contextMenu(link)).toBe(true) // 막지 않았다(기본 동작 유지)
+    expect(screen.queryByTestId('message-link-menu-61')).not.toBeInTheDocument()
+    expect(fireEvent.contextMenu(row, { clientX: 0, clientY: 0 })).toBe(false)
+    expect(await screen.findByTestId('message-link-menu-61')).toBeInTheDocument()
+  })
+
+  test('지운 메시지에는 ⋯ 가 없다', async () => {
+    openChannel(channel, [createMessage({ id: 62, channelId: 1, authorId: 20, body: '(삭제됨)', deleted: true })])
+    await screen.findByTestId('message-62')
+    expect(screen.queryByTestId('message-more-62')).not.toBeInTheDocument()
+  })
+})
+
+describe('메시지 링크로 열기 (WP-1236)', () => {
+  const channel = createChannel({ id: 1, member: true })
+  /** 첫 페이지(최신)에 없는 메시지를 둘째 페이지에 둔다 — cursor 로 받은 요청을 적는다. */
+  const pagedMessages = (cursors: (string | null)[]) =>
+    http.get(`${API}/messaging/channels/1/messages`, ({ request }) => {
+      const cursor = new URL(request.url).searchParams.get('cursor')
+      cursors.push(cursor)
+      if (!cursor) {
+        return HttpResponse.json({ items: [createMessage({ id: 20, channelId: 1, body: '최신' })], nextCursor: 'c1' })
+      }
+      return HttpResponse.json({ items: [createMessage({ id: 5, channelId: 1, body: '오래된 메시지' })], nextCursor: null })
+    })
+
+  test('목록에 없는 메시지는 앞 페이지를 받아 찾고 강조한 뒤 ?message 를 지운다', async () => {
+    const cursors: (string | null)[] = []
+    const { location } = renderChat('/chat/channels/1?message=5', { channels: [channel], handlers: [pagedMessages(cursors)] })
+    const row = await screen.findByTestId('message-5')
+    await waitFor(() => expect(row).toHaveAttribute('data-link-highlight', 'true'))
+    expect(cursors).toEqual([null, 'c1'])
+    await waitFor(() => expect(location()).toBe('/chat/channels/1'))
+  })
+
+  test('끝까지 받아도 없으면 「메시지를 찾을 수 없어요」', async () => {
+    const { location } = renderChat('/chat/channels/1?message=4', { channels: [channel], handlers: [pagedMessages([])] })
+    expect(await screen.findByText(/메시지를 찾을 수 없어요/)).toBeInTheDocument()
+    await waitFor(() => expect(location()).toBe('/chat/channels/1'))
+  })
+})

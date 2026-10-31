@@ -13,6 +13,7 @@ import { MessageActionSheet } from '@/components/chat/MessageActionSheet'
 import { MessageRow } from '@/components/chat/MessageRow'
 import { buildMessageSheetActions, messagePreview,type MessageSheetHandlers } from '@/components/chat/messageSheetActions'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
+import { messagePlainText } from '@/components/mentions/parseMessageSegments'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { ReactorsOverlay } from '@/components/reactions/ReactorsOverlay'
 import { findChatBundle, teamChatBundle } from '@/components/viewer/viewerItems'
@@ -31,6 +32,7 @@ import { useToolbarReveal } from '@/hooks/useToolbarReveal'
 import { CATCHUP_TOP_ANCHOR_ID } from '@/lib/chatEntryAnchor'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { shouldStartNewGroup, startsNewDay } from '@/lib/messageGrouping'
+import { messageShareTarget } from '@/lib/messageLinkJump'
 import { readersByMessage } from '@/lib/readReceipts'
 import type { ChannelReadState, MessageResponse } from '@/types/messaging'
 
@@ -62,9 +64,11 @@ interface MessageListProps {
   readStates?: ChannelReadState[]
   // 탭이 보일 때만 읽음 처리(WP-1176) — 상대 화면에 읽음이 뜨는 DM 이 켠다. 백그라운드 탭에 쌓인 메시지를 읽은 것으로 치지 않는다.
   markReadWhenVisible?: boolean
+  // 메시지 링크를 딸 대화의 종류(WP-1236) — 주면 메시지마다 「링크 복사·채팅·이슈로 보내기」(⋯·우클릭·길게 누르기)가 생긴다. true 면 /chat/dms 주소.
+  linkDm?: boolean
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true, readOnly = false, readStates, markReadWhenVisible = false }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true, readOnly = false, readStates, markReadWhenVisible = false, linkDm }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // WP-279: 열린 첨부 키(msg:{메시지}:…) → 이 목록에 그린 그 메시지의 묶음. 앞으로가기·드라이브에서 돌아오기 뒤에도 키만으로 다시 연다.
@@ -143,6 +147,14 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   const listRef = useListFocusRescue(ordered)
   const toggle = (m: MessageResponse, emoji: string) => toggleReaction.mutate({ message: m, emoji })
 
+  // 메시지 링크 대상(WP-1236) — 대화를 받았을 때만. 툴바 ⋯·우클릭(MessageRow)과 시트가 같은 대상을 쓴다.
+  const linkTargetFor = linkDm != null
+    ? (m: MessageResponse) =>
+        messageShareTarget(
+          { channelId, dm: linkDm },
+          { id: m.id, parentMessageId: m.parentMessageId, plainText: messagePlainText(m.body, m.mentions) },
+        )
+    : undefined
   // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(툴바와 같은 규칙 + 복사).
   const sheetHandlers: MessageSheetHandlers<MessageResponse> = {
     currentUserId,
@@ -151,6 +163,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     onDelete: startDelete,
     onDismissPreviews: (m) => dismissPreviews.mutate(m),
     readOnly,
+    linkTarget: linkTargetFor,
   }
   // 확정 메시지는 반응 줄이 늘 있으므로 시트를 열 수 있다. 수정 중인 행은 제외(C2 — 에디터의 선택·붙여넣기 메뉴 유지).
   // 미전송(음수 id) 행은 위임 훅이 먼저 걸러낸다.
@@ -225,6 +238,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
                 readOnly={readOnly}
                 readers={readers?.get(m.id)}
+                // 대상은 메뉴를 열 때 만든다(MessageRow) — 렌더마다 행 50개의 본문을 풀지 않게.
+                linkTarget={linkTargetFor && (() => linkTargetFor(m))}
               />
             </Fragment>
           )

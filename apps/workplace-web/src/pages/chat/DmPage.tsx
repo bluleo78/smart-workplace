@@ -31,6 +31,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useConversationLinkJump } from '@/hooks/useMessageLinkJump'
 import { onChannelProgress } from '@/hooks/useMessageStream'
 import { useOpenThread } from '@/hooks/useOpenThread'
 import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
@@ -63,8 +64,11 @@ export default function DmPage() {
   const dmId = id ? Number(id) : undefined
   const { user } = useAuth()
   const { data: dms, isLoading, isError, refetch } = useMyDms()
-  const { data } = useChannelMessages(dmId)
+  const messagesQuery = useChannelMessages(dmId)
+  const { data } = messagesQuery
   const messages = data?.pages.flatMap((p) => p.items) ?? []
+  // 메시지 링크(?message) — 그 메시지까지 거슬러 올라가 강조한다(WP-1236). 스레드 답글이 아니면 진입 앵커도 그 메시지다.
+  const messageAnchor = useConversationLinkJump(messagesQuery)
 
   // 열린 스레드 = URL ?thread(ChannelPage 와 같은 useOpenThread). 인박스 카드는 루트 메시지를 navigate state 로 넘겨, 첫 페이지에
   // 없는 오래된 루트도 패널을 연다. 루트를 찾았을 때만 그리고, 그때만 모바일 대화 컬럼·탭바를 숨긴다(WP-1083).
@@ -199,11 +203,12 @@ export default function DmPage() {
         >
         <MessageScrollArea
           depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
-          initialAnchor={chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
+          initialAnchor={messageAnchor ?? chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
           anchorPending={detail.isPending}
         >
           <MessageList
             messages={messages}
+            linkDm
             // 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(새로고침 뒤 다시 열기, WP-279).
             ready={messagesLoaded}
             channelId={dm.id}

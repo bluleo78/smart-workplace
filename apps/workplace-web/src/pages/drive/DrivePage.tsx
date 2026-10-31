@@ -28,6 +28,7 @@ import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/M
 import { TOUCH_ROW_TRIGGER, TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import { SelectAllCheckbox } from '@/components/SelectAllCheckbox'
 import { CopyLinkButton } from '@/components/share/CopyLinkButton'
+import { rowLinkActions as linkActionsFor } from '@/components/share/shareSheetActions'
 import { ShareSheetButton } from '@/components/share/ShareSheetButton'
 import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget'
 import {
@@ -514,6 +515,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     [embedded, validSid, folderTitle, trashOpen, folderId],
   )
   useRegisterShareTarget(folderShareTarget)
+  // 체크한 줄이 하나면 ⇧⌘, 가 그 파일·폴더 링크를 복사한다(WP-1236) — 지금 폴더(page)보다 이기는 selection 층. 휴지통·채널 서랍은 두지 않는다.
+  const selectedOneFile = selCount === 1 && visibleSelFiles.size === 1 ? viewItems.files.find((f) => visibleSelFiles.has(f.id)) : undefined
+  const selectedOneFolder = selCount === 1 && visibleSelFolders.size === 1 ? viewItems.folders.find((f) => visibleSelFolders.has(f.id)) : undefined
+  const selectionShareTarget = useMemo<ShareTarget | null>(() => {
+    if (embedded || trashOpen || validSid == null) return null
+    if (selectedOneFile) {
+      return { kind: 'file', url: appUrl(driveFilePath(validSid, selectedOneFile.folderId, selectedOneFile.id)), title: selectedOneFile.name }
+    }
+    if (selectedOneFolder) return { kind: 'folder', url: appUrl(driveFolderPath(validSid, selectedOneFolder.id)), title: selectedOneFolder.name }
+    return null
+  }, [embedded, trashOpen, validSid, selectedOneFile, selectedOneFolder])
+  useRegisterShareTarget(selectionShareTarget, 'selection')
   // 미리보기 파일의 링크·외부 공유(WP-1234) — 링크는 그 파일의 폴더 기준 ?preview(검색 결과에서 연 파일도 제 폴더로 열린다).
   // 「외부 공유 링크…」는 행 메뉴의 「공유 링크」와 같은 조건(보기 전용·보관·원본 유실이면 없음)에서만 둔다.
   const previewLinkPath = preview && validSid != null ? driveFilePath(validSid, preview.folderId, preview.id) : undefined
@@ -899,6 +912,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
+  // 줄 링크 작업(WP-1236) — 구성원용 앱 링크 복사(토스트에 「채팅으로 보내기」)와 앱 안으로 보내기. 외부 공유 링크(share)와 다르다.
+  // 공간 주소를 아직 못 읽었으면(validSid 없음) 링크를 만들 수 없어 두지 않는다.
+  function rowLinkActions(kind: 'file' | 'folder', path: (sid: number) => string, title: string): MobileSheetAction[] {
+    if (validSid == null) return []
+    const target: ShareTarget = { kind, url: appUrl(path(validSid)), title }
+    return linkActionsFor(target)
+  }
+
   // 행 작업 목록 — 휴대폰 ⋮ 시트(WP-216)·터치 태블릿 ⋯(WP-237)·데스크톱 hover 묶음(WP-363)이 모두 이 목록 하나를 쓴다.
   // 읽기 전용 공간(보관·보기 전용, WP-582)은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
   function rowActionsFor(target: RowTarget): MobileSheetAction[] {
@@ -906,6 +927,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     if (target.kind === 'folder') {
       const f = target.item
       return visibleDriveRowActions([
+        ...rowLinkActions('folder', (sid) => driveFolderPath(sid, f.id), f.name),
         { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: readOnly },
         { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: readOnly },
         { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: readOnly },
@@ -917,6 +939,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     // VIEWER 는 다운로드·버전 이력만(WP-602) — 순수 함수 visibleDriveRowActions 가 고른다.
     return visibleDriveRowActions([
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: off.download },
+      ...rowLinkActions('file', (sid) => driveFilePath(sid, f.folderId, f.id), f.name),
       { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: off.share },
       { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: off.rename },
       { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: off.move },
@@ -1805,8 +1828,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {readOnlyRole ? null : isMobile ? (
-                  // VIEWER 는 폴더에 할 수 있는 작업이 없어 ⋮/⋯ 를 그리지 않는다(WP-602).
+                {isMobile ? (
+                  // VIEWER 도 폴더 링크 작업(링크 복사·채팅·이슈로 보내기, WP-1236)이 있어 ⋮/⋯ 를 그린다(쓰기 작업은 rowActionsFor 가 뺀다).
                   !mobileSelecting && renderRowMore(f.name, `folder-${f.id}`, () => setRowSheet({ kind: 'folder', item: f }))
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `folder-${f.id}`, rowActionsFor({ kind: 'folder', item: f }))

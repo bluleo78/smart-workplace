@@ -1,7 +1,7 @@
 // 이슈 행·카드 「⋯」/우클릭 메뉴(WP-273) — 화면 테스트(WP-971, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 메뉴 항목 구성(권한·선택 여부)과 고른 항목의 요청 payload 는 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-row-menu.spec.ts 에서 옮겼다. 호버 때만 보이는 ⋯(@input)과 클립보드 복사(@platform)는 E2E 에 남는다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -188,6 +188,27 @@ describe('이슈 행 메뉴 — 목록', () => {
     expect(dialog).toHaveTextContent('로그인 세션 만료 처리')
     await user.click(within(dialog).getByRole('button', { name: '삭제' }))
     await waitFor(() => expect(api.calls).toEqual([{ method: 'DELETE', path: `${ISSUES}/7`, body: null }]))
+  })
+
+  test('「채팅·이슈로 보내기…」는 그 이슈 링크로 대화상자를 연다(WP-1236)', async () => {
+    const { closeSendToChat, sendToChatTarget } = await import('@/lib/sendToChat')
+    const { user } = await open()
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId('issue-row-9') })
+    await user.click(await screen.findByTestId('row-menu-send-to-chat'))
+    await waitFor(() =>
+      expect(sendToChatTarget()).toMatchObject({ kind: 'issue', url: expect.stringMatching(/\/issues\/9$/), key: expect.stringMatching(/-9$/) }),
+    )
+    act(() => closeSendToChat())
+  })
+
+  test('체크한 줄이 하나면 ⇧⌘,·⌘. 의 대상이 그 이슈다 — 둘이면 대상이 없다(WP-1236)', async () => {
+    // 단축키 자체(useShareHotkeys)는 앱 셸이 건다 — 여기선 목록이 등록한 대상(스토어)만 본다.
+    const { shareTargetStore } = await import('@/lib/shareTarget')
+    const { user } = await open()
+    await user.click(screen.getByTestId('select-issue-7'))
+    await waitFor(() => expect(shareTargetStore.get()).toMatchObject({ kind: 'issue', url: expect.stringMatching(/\/issues\/7$/) }))
+    await user.click(screen.getByTestId('select-issue-8'))
+    await waitFor(() => expect(shareTargetStore.get()).toBeNull())
   })
 
   test('선택된 행에서 열면 선택 전체에 적용, 선택 밖 행이면 그 행만', async () => {

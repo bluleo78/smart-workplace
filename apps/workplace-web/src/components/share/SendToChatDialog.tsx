@@ -3,7 +3,7 @@
 // 본문에 링크를 그대로 담아 보내므로 받는 쪽은 기존 앱 링크 카드(AppLinkCard)로 본다 — 새 메시지 종류를 만들지 않는다.
 // 데스크톱은 가운데 대화상자, 휴대폰은 전체 화면(이슈 만들기 시트와 같은 모양: [취소 · 제목 · 보내기], 시스템 뒤로 가기로 닫힘).
 import { useQueryClient } from '@tanstack/react-query'
-import { Calendar, ChevronLeft, FileText, Folder, Hash, Mail, SquareKanban, User } from 'lucide-react'
+import { Calendar, ChevronLeft, FileText, Folder, Hash, Mail, MessageSquare, SquareKanban, User } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -55,6 +55,7 @@ const KIND_LABEL: Record<ShareTargetKind, string> = {
   folder: '폴더',
   event: '일정',
   mail: '메일',
+  message: '메시지',
 }
 
 /** 받는 곳 종류 아이콘 — 채널 #, 사람, 이슈. */
@@ -75,7 +76,7 @@ function sentMessage(d: SendDestination): string {
   return `${d.projectKey}-${d.number} 댓글로 보냈어요`
 }
 
-/** 보낼 것의 미리보기 — 받는 쪽이 볼 앱 링크 카드. 카드 종류가 아닌 대상(폴더·일정·메일)·카드를 받는 동안은 대상 이름으로 그린다. */
+/** 보낼 것의 미리보기 — 받는 쪽이 볼 앱 링크 카드. 카드 종류가 아닌 대상(폴더)·카드를 받는 동안은 대상 이름으로 그린다. */
 function TargetPreview({ target }: { target: ShareTarget }) {
   const link = parseAppLink(target.url, currentAppHosts())
   const fallback = (
@@ -101,6 +102,7 @@ function TargetKindIcon({ kind, title }: { kind: ShareTargetKind; title: string 
   if (kind === 'page') return <FileText className={cls} aria-hidden />
   if (kind === 'folder') return <Folder className={cls} aria-hidden />
   if (kind === 'event') return <Calendar className={cls} aria-hidden />
+  if (kind === 'message') return <MessageSquare className={cls} aria-hidden />
   return <Mail className={cls} aria-hidden />
 }
 

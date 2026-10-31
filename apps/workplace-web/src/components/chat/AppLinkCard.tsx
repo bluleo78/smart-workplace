@@ -1,6 +1,6 @@
 // 채팅 본문의 우리 앱 링크 카드(WP-896, 시안 A) — 이슈·노트·드라이브 파일 링크 아래에 보는 사람 권한으로 그 순간 채운 정보를 보인다.
 // 카드 전체가 앱 안 이동 링크다(본문 URL 은 지금처럼 새 탭). 볼 수 없거나 없는 대상은 정보 없이 점선 자리에 「볼 수 없는 …」만 둔다.
-import { Ban, FileText, SquareKanban } from 'lucide-react'
+import { Ban, CalendarDays, FileText, Mail, MessageSquare, SquareKanban } from 'lucide-react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -8,6 +8,8 @@ import { type AppLinkCard as AppLinkCardData, isAppLinkDenied as isDenied } from
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
 import { useAppLinkCard } from '@/hooks/queries/useAppLinks'
 import { APP_LINK_KIND_LABEL, type AppLink } from '@/lib/appLinks'
+import { allDayLocalDate } from '@/lib/calendar'
+import { formatDateKey, formatDateTimeMinute, formatListTime } from '@/lib/formatters'
 import { priorityLabel } from '@/lib/issueGrouping'
 import { mimeFromFilename } from '@/lib/mimeFromFilename'
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge'
@@ -53,7 +55,8 @@ export function AppLinkCard({
   }
   return (
     <Link
-      to={link.to}
+      // 코멘트 링크면 그 코멘트로(#comment-<id>, WP-1236).
+      to={link.kind === 'ISSUE' && link.fragment ? `${link.to}${link.fragment}` : link.to}
       data-testid={testId}
       data-state="ready"
       // 채팅 행 클릭·탭 툴바와 겹치지 않게 위로 올리지 않는다(TextLink 와 같다).
@@ -80,20 +83,86 @@ export function AppLinkCardPreview({ link, testId, fallback }: { link: AppLink; 
 }
 
 function CardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
-  if (data.kind === 'ISSUE') return <IssueCardBody data={data} testId={testId} />
-  if (data.kind === 'PAGE') {
-    return (
-      <>
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span className="truncate">노트{data.spaceName ? ` · ${data.spaceName}` : ''}</span>
-        </div>
-        <div className="mt-0.5 line-clamp-2 font-semibold text-primary [overflow-wrap:anywhere]" data-testid={`${testId}-title`}>
-          {data.title}
-        </div>
-      </>
-    )
+  switch (data.kind) {
+    case 'ISSUE':
+      return <IssueCardBody data={data} testId={testId} />
+    case 'PAGE':
+      return (
+        <TitledCardBody icon={<FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />} head={withPart('노트', data.spaceName)} data={data} testId={testId} />
+      )
+    case 'MESSAGE': {
+      // 채널은 #이름, DM 은 상대 이름 — 대화 목록과 같은 표기. 본문 앞부분은 따옴표 없이 제목 자리에 둔다.
+      const where = data.channelName ? (data.channelKind === 'DM' ? data.channelName : `#${data.channelName}`) : undefined
+      const meta = [data.authorName, data.sentAt ? formatListTime(data.sentAt) : ''].filter(Boolean).join(' · ')
+      return (
+        <TitledCardBody icon={<MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />} head={withPart('메시지', where)} data={data} testId={testId} meta={meta} />
+      )
+    }
+    case 'EVENT': {
+      // 종일 일정은 날짜만(시각 00:00 은 뜻이 없다) — 캘린더와 같은 규칙(allDayLocalDate)으로 의도한 날짜를 읽는다(동기화 일정은 UTC 자정 저장).
+      // 시작만 보인다(끝은 상세에서).
+      const when = data.startAt
+        ? data.allDay
+          ? `${formatDateKey(allDayLocalDate(data.startAt))} 종일`
+          : formatDateTimeMinute(data.startAt)
+        : ''
+      return (
+        <TitledCardBody icon={<CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />} head="일정" data={data} testId={testId} meta={when} />
+      )
+    }
+    case 'MAIL':
+      return (
+        <TitledCardBody
+          icon={<Mail className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+          head={withPart('메일', data.authorName)}
+          data={data}
+          testId={testId}
+          meta={data.sentAt ? formatDateTimeMinute(data.sentAt) : ''}
+        />
+      )
+    case 'FILE':
+      return <FileCardBody data={data} testId={testId} />
   }
+}
+
+/** 「종류 · 덧말」 머리글 — 덧말이 없으면 종류만. */
+function withPart(kind: string, part: string | undefined): string {
+  return part ? `${kind} · ${part}` : kind
+}
+
+/** 아이콘·머리글 → 제목(두 줄) → 덧줄 — 노트·메시지·일정·메일 카드가 같은 모양을 쓴다. */
+function TitledCardBody({
+  icon,
+  head,
+  data,
+  testId,
+  meta,
+}: {
+  icon: ReactNode
+  head: string
+  data: AppLinkCardData
+  testId: string
+  meta?: string
+}) {
+  return (
+    <>
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        <span className="truncate">{head}</span>
+      </div>
+      <div className="mt-0.5 line-clamp-2 font-semibold text-primary [overflow-wrap:anywhere]" data-testid={`${testId}-title`}>
+        {data.title}
+      </div>
+      {meta && (
+        <div className="mt-0.5 truncate text-xs text-muted-foreground" data-testid={`${testId}-meta`}>
+          {meta}
+        </div>
+      )}
+    </>
+  )
+}
+
+function FileCardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       <FileTypeIcon mimeType={mimeFromFilename(data.title) ?? 'application/octet-stream'} className="h-5 w-5" />

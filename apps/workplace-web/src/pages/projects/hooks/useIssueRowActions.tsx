@@ -3,7 +3,7 @@
 // - 모바일(WP-273 시안 M1): 「⋯」·길게 누르기 → 액션 시트(줄마다 현재 값) → 상태·담당자·우선순위·에픽·AI 선택 시트.
 // 시트는 한 번에 하나만 연다. 변경은 낙관적 mutation(상태·에픽은 드래그와 같은 경로)을 재사용한다.
 import { useQueryClient } from '@tanstack/react-query';
-import { Bot, Check, CheckSquare, CircleDot, Layers, Link2, SignalHigh, Trash2, UserRound } from 'lucide-react';
+import { Bot, Check, CheckSquare, CircleDot, Layers, Link2, MessageSquareShare, SignalHigh, Trash2, UserRound } from 'lucide-react';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -21,6 +21,7 @@ import { appUrl, issuePath } from '@/lib/appUrl';
 import { copyText } from '@/lib/copyText';
 import { epicTypeSummary } from '@/lib/epicColor';
 import { isSameParent, parentTitleLabel } from '@/lib/parentRef';
+import { openSendToChat } from '@/lib/sendToChat';
 
 import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';
 import { useBulkAssign, useBulkDeleteIssues, useBulkUpdatePriority, useBulkUpdateStatus } from '../../../hooks/queries/useBulkIssueActions';
@@ -219,6 +220,9 @@ export function useIssueRowActions({
   };
   const copyLink = () => issue && void copy(linkOf(issue), '링크');
   const copyKey = () => issue && void copy(`${projectKey}-${issue.number}`, '키');
+  // 채팅·이슈로 보내기(WP-1236) — 상세 ⋯ 와 같은 대화상자. 메뉴·시트가 닫힌 다음 틱에 열린다(openSendToChat 이 미룬다).
+  const sendToChat = () =>
+    issue && openSendToChat({ kind: 'issue', url: linkOf(issue), title: issue.title, key: `${projectKey}-${issue.number}` });
   const openTab = () => issue && window.open(linkOf(issue), '_blank', 'noopener');
   const askDelete = () => issue && setPendingDelete({ numbers, issue });
   const confirmDelete = () => {
@@ -275,6 +279,7 @@ export function useIssueRowActions({
           onDelegate={delegate}
           onCopyLink={copyLink}
           onCopyKey={copyKey}
+          onSendToChat={sendToChat}
           onOpenTab={openTab}
           onDelete={askDelete}
         />
@@ -301,6 +306,7 @@ export function useIssueRowActions({
         // AI 멤버가 하나면 바로 맡기고, 여럿이면 고르는 시트로.
         items.ai && { key: 'ai', label: 'AI에게 맡기기', icon: <Bot />, ai: true, onSelect: () => (agents.length === 1 ? delegate(agents[0]) : toSheet('ai')) },
         { key: 'copy-link', label: '링크 복사', icon: <Link2 />, onSelect: copyLink },
+        { key: 'send-to-chat', label: '채팅·이슈로 보내기', icon: <MessageSquareShare />, onSelect: sendToChat },
         onSelect && { key: 'select', label: isSelected?.(issue) ? '선택 해제' : '선택', icon: <CheckSquare />, onSelect: () => onSelect(issue) },
         items.delete && { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: askDelete },
       ] as (MobileSheetAction | false | undefined)[]).filter((a): a is MobileSheetAction => !!a);

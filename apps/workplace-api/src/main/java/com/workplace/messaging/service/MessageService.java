@@ -14,6 +14,7 @@ import com.workplace.global.util.PersonNames;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.ChannelReadStateResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
+import com.workplace.messaging.dto.MessageLinkCard;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageProposalResponse;
 import com.workplace.messaging.dto.MessageResponse;
@@ -382,6 +383,48 @@ public class MessageService {
         messageRepo.findThreadPage(
             parentMessageId, ref.channelId(), cursor, limit, mentionHydrator::asMentionResponses);
     return enrichProposals(enrichReactions(page, callerId));
+  }
+
+  /**
+   * 채팅 앱 링크 카드(WP-1236) — 메시지 링크(/chat/channels|dms/{c}?message={id})를 보는 사람이 그 메시지를 읽을 수 있을 때만
+   * 미리보기·대화 이름·보낸 사람·보낸 시각을 준다. 없는 메시지·읽을 수 없는 채널(비멤버)·삭제된 메시지는 모두 같은 404 — 카드 요청으로 메시지 id 가 있는지,
+   * 비공개 채널·DM 에 글이 있는지 알 수 없게 한다(WP-591 과 같은 규칙). 읽기 판정은 스레드 조회(listThread)와 같은 canRead.
+   */
+  @Transactional(readOnly = true)
+  public MessageLinkCard linkCard(long callerId, long messageId) {
+    MessageRef ref =
+        messageRepo.findRef(messageId).orElseThrow(() -> new MessageNotFoundException(messageId));
+    if (!perms.canRead(ref.channelId(), callerId)) throw new MessageNotFoundException(messageId);
+    MessageResponse m =
+        messageRepo
+            .findById(messageId, mentionHydrator::asMentionResponses)
+            .orElseThrow(() -> new MessageNotFoundException(messageId));
+    // 삭제된 메시지는 목록에서 「(삭제됨)」으로 남지만 카드로는 내보내지 않는다 — 지운 글이 링크로 다시 퍼지지 않게.
+    if (m.deleted()) throw new MessageNotFoundException(messageId);
+    // 첨부 유무는 푸시 미리보기(publishPushCandidate)와 같이 업로드 첨부 또는 드라이브 링크로 본다 — 본문 없는 첨부 메시지의 문구가 같아진다.
+    List<Long> ids = List.of(messageId);
+    boolean hasAttachments =
+        !attachmentRepo.findByMessageIds(ids).getOrDefault(messageId, List.of()).isEmpty()
+            || !driveLinkService
+                .listLinksBatch("MESSAGE", ids)
+                .getOrDefault(messageId, List.of())
+                .isEmpty();
+    String preview = MessagePushPreview.of(m.body(), m.mentions(), hasAttachments);
+    // 본문도 첨부도 없는 경우(예: 제안 카드만 남은 메시지)는 빈 제목 대신 종류만 알린다.
+    if (preview.isEmpty()) preview = "메시지";
+    boolean dm = "DM".equals(channelRepo.findKind(ref.channelId()));
+    // DM 은 이름이 없다 — 대화 목록과 같은 규칙으로 보는 사람 기준 상대 이름을 붙인다. DM 을 읽을 수 있음 = 멤버라 상세 조회가 늘 있다.
+    String channelName =
+        dm
+            ? MessagingSummaryService.dmLabel(
+                channelRepo
+                    .findDmDetail(ref.channelId(), callerId)
+                    .map(d -> d.participants())
+                    .orElse(List.of()),
+                callerId)
+            : channelRepo.findName(ref.channelId()).orElse(null);
+    return new MessageLinkCard(
+        preview, channelName, dm ? "DM" : "CHANNEL", m.authorName(), m.createdAt());
   }
 
   /** 페이지 내 top-level 메시지에 스레드 미읽음 수/팔로우 여부를 batch hydrate. */

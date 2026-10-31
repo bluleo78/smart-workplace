@@ -7,8 +7,8 @@ import type { UserSummary } from '@/types/user'
 import { client } from './client'
 
 export interface AppLinkCard {
-  kind: 'ISSUE' | 'PAGE' | 'FILE'
-  /** 이슈 제목 / 노트 제목 / 파일 이름 */
+  kind: 'ISSUE' | 'PAGE' | 'FILE' | 'MESSAGE' | 'EVENT' | 'MAIL'
+  /** 이슈 제목 / 노트 제목 / 파일 이름 / 메시지 본문 앞부분 / 일정 제목 / 메일 제목 */
   title: string
   issueKey?: string
   statusName?: string
@@ -16,13 +16,35 @@ export interface AppLinkCard {
   assignees?: UserSummary[]
   priority?: string
   spaceName?: string
+  /** MESSAGE — 채널 이름(DM 이면 상대 이름) */
+  channelName?: string
+  /** MESSAGE — CHANNEL | DM */
+  channelKind?: 'CHANNEL' | 'DM'
+  /** MESSAGE — 작성자 / MAIL — 보낸 사람 */
+  authorName?: string
+  /** MESSAGE — 보낸 시각 / MAIL — 메일 날짜(ISO) */
+  sentAt?: string
+  /** EVENT — 시작·끝(ISO), 종일 여부 */
+  startAt?: string
+  endAt?: string
+  allDay?: boolean
 }
 
 /** 링크 대상의 카드 API 경로 — 대상마다 하나라 카드 캐시 키로도 쓴다. */
 export function appLinkCardPath(link: AppLink): string {
   if (link.kind === 'ISSUE') return `/app-links/issues/${encodeURIComponent(link.key)}/${link.number}`
-  if (link.kind === 'PAGE') return `/app-links/pages/${link.pageId}`
-  return `/app-links/files/${link.fileId}`
+  switch (link.kind) {
+    case 'PAGE':
+      return `/app-links/pages/${link.pageId}`
+    case 'FILE':
+      return `/app-links/files/${link.fileId}`
+    case 'MESSAGE':
+      return `/app-links/messages/${link.messageId}`
+    case 'EVENT':
+      return `/app-links/events/${link.eventId}`
+    case 'MAIL':
+      return `/app-links/mails/${link.mailId}`
+  }
 }
 
 /** 앱 링크 판정 설정(WP-1165) — 공개 웹 주소의 호스트(소문자, 포트 제외). 서버 설정이 비었거나 잘못됐으면 null. */

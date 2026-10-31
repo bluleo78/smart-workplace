@@ -162,6 +162,20 @@ describe('코멘트 링크 (WP-1175)', () => {
     expect(await screen.findByText('코멘트 링크를 복사했습니다')).toBeInTheDocument()
   })
 
+  test('코멘트 「채팅·이슈로 보내기」는 그 코멘트 주소로 대화상자를 열고, 복사 토스트에도 같은 보내기가 있다(WP-1236)', async () => {
+    const { closeSendToChat, sendToChatTarget } = await import('@/lib/sendToChat')
+    const { user } = await open(others())
+    await screen.findByText('타인의 코멘트')
+    const url = `${window.location.origin}${DETAIL_PATH}#comment-12`
+    await user.click(screen.getByTestId('issue-comment-send-12'))
+    await waitFor(() => expect(sendToChatTarget()).toMatchObject({ kind: 'issue', url }))
+    act(() => closeSendToChat())
+    await user.click(screen.getByTestId('issue-comment-copy-link-12'))
+    await user.click(await screen.findByRole('button', { name: '채팅으로 보내기' }))
+    await waitFor(() => expect(sendToChatTarget()).toMatchObject({ kind: 'issue', url }))
+    act(() => closeSendToChat())
+  })
+
   test('#comment-<id> 로 열면 그 코멘트로 스크롤해 잠시 강조하고, 시간이 지나면 강조를 거둔다', async () => {
     const scrolled: Element[] = []
     vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {

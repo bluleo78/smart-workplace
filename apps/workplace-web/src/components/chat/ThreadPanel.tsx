@@ -90,6 +90,7 @@ export function ThreadPanel({ channelId, channelName, isDm = false, parent, memb
           messages={[parent]}
           channelId={channelId}
           currentUserId={me.id}
+          linkDm={isDm}
           members={members}
           disableMarkRead
           readOnly={archived}
@@ -102,6 +103,7 @@ export function ThreadPanel({ channelId, channelName, isDm = false, parent, memb
           ready={data !== undefined}
           channelId={channelId}
           currentUserId={me.id}
+          linkDm={isDm}
           members={members}
           disableMarkRead
           readOnly={archived}

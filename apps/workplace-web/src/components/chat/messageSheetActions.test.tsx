@@ -49,3 +49,38 @@ describe('messageSheetActions 미리보기 지우기', () => {
     expect(has(own, { ...handlers, onDismissPreviews: undefined as never })).toBe(false)
   })
 })
+
+// 메시지 링크(WP-1236) — 팀 채팅이 대상을 넘기면 복사 다음에 「링크 복사」·「채팅·이슈로 보내기」. 확정·미삭제 메시지만.
+describe('messageSheetActions 링크', () => {
+  const own = { id: 10, authorId: 1, deleted: false, body: '본문', mentions: [] }
+  const target = { kind: 'message' as const, url: 'http://x/chat/channels/5?message=10', title: '본문' }
+  const linkTarget = vi.fn(() => target)
+  const handlers = { currentUserId: 1, onThread: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn(), linkTarget }
+
+  it('복사 다음, 수정 앞에 링크 행을 둔다', () => {
+    const keys = buildMessageSheetActions(own, handlers).map((a) => a.key)
+    expect(keys).toEqual(['thread', 'copy', 'copy-link', 'send-to-chat', 'edit', 'delete'])
+    expect(linkTarget).toHaveBeenCalledWith(own)
+  })
+
+  it('「채팅·이슈로 보내기」는 그 메시지 대상으로 보내기 대화상자를 연다', async () => {
+    vi.useFakeTimers()
+    const { sendToChatTarget, closeSendToChat } = await import('@/lib/sendToChat')
+    buildMessageSheetActions(own, handlers).find((a) => a.key === 'send-to-chat')!.onSelect()
+    // 시트가 닫힌 다음 틱에 연다(openSendToChat).
+    vi.runAllTimers()
+    expect(sendToChatTarget()).toEqual(target)
+    closeSendToChat()
+    vi.useRealTimers()
+  })
+
+  it('지운 메시지·전송 중 메시지·대상 없음(이슈 채팅)이면 두지 않는다', () => {
+    const keysOf = (m: typeof own, h: Partial<typeof handlers> = {}) =>
+      buildMessageSheetActions(m, { ...handlers, ...h }).map((a) => a.key)
+    expect(keysOf({ ...own, deleted: true })).not.toContain('copy-link')
+    expect(keysOf({ ...own, id: -1 })).not.toContain('copy-link')
+    expect(keysOf(own, { linkTarget: undefined })).not.toContain('copy-link')
+    // 본문이 없고 스레드·수정이 없어도 링크만으로 시트를 열 수 있다.
+    expect(hasMessageSheetActions({ ...own, body: ' ', authorId: 2 }, { ...handlers, onThread: undefined })).toBe(true)
+  })
+})

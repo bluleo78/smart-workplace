@@ -2,8 +2,8 @@
 //   타인·AGENT: 좌측 거터(아바타 또는 hover 시각) + 전폭 평문.
 //   본인: 우측 말풍선(최대 75%, 아바타·이름 없음). 수정 중에는 전폭 에디터.
 // 뮤테이션·편집 상태는 목록(MessageList)이 갖고, 이 컴포넌트는 콜백만 받아 그린다.
-import { Bot, MessageSquare, Pencil, Trash2, Users } from 'lucide-react'
-import { type ComponentProps, type Ref, useCallback, useMemo, useRef } from 'react'
+import { Bot, MessageSquare, MoreHorizontal, Pencil, Trash2, Users } from 'lucide-react'
+import { type ComponentProps, type Ref, useCallback, useMemo, useRef, useState } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
@@ -29,6 +29,12 @@ import type { MentionCandidate } from '@/components/mentions/types'
 import { EmojiPicker } from '@/components/reactions/EmojiPicker'
 import { ReactionBar } from '@/components/reactions/ReactionBar'
 import { useReactionFocusRestore } from '@/components/reactions/useReactionFocusRestore'
+import { RowLinkMenu } from '@/components/share/RowLinkMenu'
+import {
+  type RowLinkMenuAnchor,
+  rowLinkMenuAnchorFromButton,
+  rowLinkMenuAnchorFromContextMenu,
+} from '@/components/share/rowLinkMenuAnchor'
 import { Button } from '@/components/ui/button'
 import { teamChatBundle } from '@/components/viewer/viewerItems'
 import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
@@ -39,6 +45,8 @@ import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { parseAppLink, visibleAppLinks } from '@/lib/appLinks'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import { itemActionLabel } from '@/lib/itemActionLabel'
+import { messageDomId } from '@/lib/messageLinkJump'
+import type { ShareTarget } from '@/lib/shareTarget'
 import type { ChannelReadState, MessageResponse } from '@/types/messaging'
 
 // 제안 승인 인자 — ProposalCard 가 정의하는 형태를 그대로 따른다.
@@ -78,6 +86,9 @@ interface MessageRowProps {
   readOnly?: boolean
   // DM 읽음 표시(WP-1176) — 이 내 메시지까지 읽은 사람들. 비었거나 없으면 그리지 않는다. 본인 말풍선 아래에만 그린다.
   readers?: ChannelReadState[]
+  // 이 메시지의 링크 대상을 만든다(WP-1236) — 있으면 데스크톱 툴바 ⋯·우클릭이 「링크 복사·채팅·이슈로 보내기」 메뉴를 연다.
+  // 메뉴를 열 때만 부른다(본문 멘션 풀이를 행마다 하지 않게). 이슈 챗 등 링크가 없는 목록은 미전달.
+  linkTarget?: () => ShareTarget
 }
 
 export function MessageRow({
@@ -103,6 +114,7 @@ export function MessageRow({
   onRejectProposal,
   readOnly = false,
   readers,
+  linkTarget,
 }: MessageRowProps) {
   const isPending = m.id < 0
   // 본인 메시지 여부 — 정렬(우측 말풍선)과 편집/삭제 권한 판정에 쓴다.
@@ -180,6 +192,9 @@ export function MessageRow({
 
   // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
   const touchShell = useIsTouchShell()
+  // 링크 메뉴(WP-1236) — 데스크톱 툴바 ⋯·우클릭. 확정·미삭제 메시지만(전송 중 메시지는 아직 주소가 없다). 터치 셸은 길게 누르기 시트가 맡는다.
+  const [linkMenuAt, setLinkMenuAt] = useState<RowLinkMenuAnchor | null>(null)
+  const linkMenuTarget = !touchShell && !isPending && !m.deleted ? linkTarget : undefined
 
   // 터치 셸에선 툴바 자체를 그리지 않는다 — 같은 작업은 길게 누르기 시트가 맡는다(탭 한 번으로 툴바가 뜨던 #884 터치 경로 대체).
   const toolbar = !isEditing && !touchShell && (
@@ -246,6 +261,20 @@ export function MessageRow({
             <Trash2 className="h-3 w-3" />
           </Button>
         </>
+      )}
+      {linkMenuTarget && (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6"
+          aria-label="더 보기"
+          title="더 보기"
+          aria-haspopup="menu"
+          data-testid={`message-more-${m.id}`}
+          onClick={(e) => setLinkMenuAt(rowLinkMenuAnchorFromButton(e.currentTarget))}
+        >
+          <MoreHorizontal className="h-3 w-3" />
+        </Button>
       )}
     </div>
   )
@@ -376,102 +405,121 @@ export function MessageRow({
   )
 
   return (
-    <div
-      ref={setRowRef}
-      data-testid={`message-${m.id}`}
-      data-pending={isPending ? 'true' : undefined}
-      data-group-start={startsGroup ? 'true' : 'false'}
-      data-own={isOwn ? 'true' : 'false'}
-      // 목록 위임 길게 누르기의 대상 표식. 수정 중에도 단다 — 에디터 안 길게 누르기가 작업 시트를 여는 것은 목록의 canOpen(수정 중 false)이
-      // 막고(C2), 에디터 밖 반응 칩은 반응자 시트를 열 수 있어야 하기 때문이다(WP-106).
-      data-message-id={m.id}
-      {...rowProps}
-      className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
-        ownBubble ? 'justify-end' : ''
-      } ${
-        // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석). 수정 중인 행은 풀어 둔다(C2).
-        touchShell && !isEditing ? TOUCH_NO_SELECT_CLASS : ''
-      }`}
-    >
-      {ownBubble ? (
-        <>
-          {/* 본인·후속 줄: hover 시각을 말풍선 왼쪽 옆에 둔다. 자리는 항상 예약(opacity 토글)+nowrap 이라
-              hover 전후로 말풍선 위치·행 높이가 변하지 않는다(a78a39b7 회귀 방지). */}
-          {!startsGroup && (
-            <span
-              className={`shrink-0 self-start pt-2 ${HOVER_TIME_REVEAL_CLASS}`}
-              data-testid={`message-hovertime-${m.id}`}
-            >
-              {formatClockTimeCompact(m.createdAt)}
-            </span>
-          )}
-          {/* 본인 컬럼 — 우측 정렬, 말풍선 최대 폭 75%. 아바타·이름은 그리지 않는다. */}
-          {/* 모바일(lg 미만)은 화면이 좁아 75% 면 한 줄 글자 수가 너무 적다 — 85% 로 넓힌다(L1). */}
-          <div className="flex min-w-0 max-w-[75%] max-lg:max-w-[85%] flex-col items-end">
-            {/* 화면에는 이름을 생략하지만 스크린리더에는 작성자를 알린다(묶음 첫 줄에만). */}
-            {startsGroup && <span className="sr-only">{m.authorName}</span>}
-            {/* 묶음 첫 줄: 말풍선 위 오른쪽에 시각(항상 표시). 툴바는 이 줄 안에서 시각 왼쪽에 뜬다. */}
-            {startsGroup && (
-              <div className="relative text-xs text-muted-foreground">
-                {toolbar}
-                <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
-              </div>
+    <>
+      <div
+        ref={setRowRef}
+        // 메시지 링크(?message)의 진입 앵커 — useStickToBottom 이 id 로 찾는다(WP-1236).
+        id={messageDomId(m.id)}
+        data-testid={`message-${m.id}`}
+        data-pending={isPending ? 'true' : undefined}
+        data-group-start={startsGroup ? 'true' : 'false'}
+        data-own={isOwn ? 'true' : 'false'}
+        // 목록 위임 길게 누르기의 대상 표식. 수정 중에도 단다 — 에디터 안 길게 누르기가 작업 시트를 여는 것은 목록의 canOpen(수정 중 false)이
+        // 막고(C2), 에디터 밖 반응 칩은 반응자 시트를 열 수 있어야 하기 때문이다(WP-106).
+        data-message-id={m.id}
+        {...rowProps}
+        onContextMenu={
+          linkMenuTarget && !isEditing
+            ? (e) => {
+                const at = rowLinkMenuAnchorFromContextMenu(e)
+                if (!at) return
+                e.preventDefault()
+                setLinkMenuAt(at)
+              }
+            : undefined
+        }
+        className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
+          ownBubble ? 'justify-end' : ''
+        } ${
+          // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석). 수정 중인 행은 풀어 둔다(C2).
+          touchShell && !isEditing ? TOUCH_NO_SELECT_CLASS : ''
+        }`}
+      >
+        {ownBubble ? (
+          <>
+            {/* 본인·후속 줄: hover 시각을 말풍선 왼쪽 옆에 둔다. 자리는 항상 예약(opacity 토글)+nowrap 이라
+                hover 전후로 말풍선 위치·행 높이가 변하지 않는다(a78a39b7 회귀 방지). */}
+            {!startsGroup && (
+              <span
+                className={`shrink-0 self-start pt-2 ${HOVER_TIME_REVEAL_CLASS}`}
+                data-testid={`message-hovertime-${m.id}`}
+              >
+                {formatClockTimeCompact(m.createdAt)}
+              </span>
             )}
-            <div className="relative max-w-full min-w-0">
-              {!startsGroup && toolbar}
-              {body}
-            </div>
-            {/* 본인 컬럼 폭(75%)에 묶는 첨부 래퍼 — 이유는 OWN_ATTACHMENTS_CLASS 주석 참조. */}
-            {attachments && <div className={OWN_ATTACHMENTS_CLASS}>{attachments}</div>}
-            {reactions}
-            {threadLink}
-            {readers && <ReadReceipts readers={readers} />}
-          </div>
-        </>
-      ) : (
-        <>
-          {/* 좌측 거터(고정폭) — 타인·AGENT 전용. 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 컴팩트 시각.
-              본인 메시지를 수정 중일 때는 거터 없이 에디터가 전폭을 쓴다. */}
-          {!isOwn && (
-            <div className="w-10 shrink-0 pt-0.5">
-              {startsGroup ? (
-                <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
-              ) : (
-                <span
-                  className={`block pt-px text-right ${HOVER_TIME_REVEAL_CLASS}`}
-                  data-testid={`message-hovertime-${m.id}`}
-                >
-                  {formatClockTimeCompact(m.createdAt)}
-                </span>
+            {/* 본인 컬럼 — 우측 정렬, 말풍선 최대 폭 75%. 아바타·이름은 그리지 않는다. */}
+            {/* 모바일(lg 미만)은 화면이 좁아 75% 면 한 줄 글자 수가 너무 적다 — 85% 로 넓힌다(L1). */}
+            <div className="flex min-w-0 max-w-[75%] max-lg:max-w-[85%] flex-col items-end">
+              {/* 화면에는 이름을 생략하지만 스크린리더에는 작성자를 알린다(묶음 첫 줄에만). */}
+              {startsGroup && <span className="sr-only">{m.authorName}</span>}
+              {/* 묶음 첫 줄: 말풍선 위 오른쪽에 시각(항상 표시). 툴바는 이 줄 안에서 시각 왼쪽에 뜬다. */}
+              {startsGroup && (
+                <div className="relative text-xs text-muted-foreground">
+                  {toolbar}
+                  <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
+                </div>
               )}
+              <div className="relative max-w-full min-w-0">
+                {!startsGroup && toolbar}
+                {body}
+              </div>
+              {/* 본인 컬럼 폭(75%)에 묶는 첨부 래퍼 — 이유는 OWN_ATTACHMENTS_CLASS 주석 참조. */}
+              {attachments && <div className={OWN_ATTACHMENTS_CLASS}>{attachments}</div>}
+              {reactions}
+              {threadLink}
+              {readers && <ReadReceipts readers={readers} />}
             </div>
-          )}
-
-          {/* 본문 컬럼 — 전폭. 헤더/본문/첨부/toolbar/리액션/답글. */}
-          <div className="min-w-0 flex-1">
-            {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각). 타인·AGENT 만 해당. */}
-            {!isOwn && startsGroup && (
-              <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                <span className="font-semibold text-foreground">
-                  {m.authorName}
-                  {/* AI 에이전트 작성자 표시 — 이모지 대신 lucide Bot 아이콘(ai-accent 토큰). */}
-                  {m.authorKind === 'AGENT' && (
-                    <Bot className="ml-0.5 inline h-3 w-3 align-[-0.125em] text-ai-accent" aria-label="에이전트" />
-                  )}
-                </span>
-                <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
+          </>
+        ) : (
+          <>
+            {/* 좌측 거터(고정폭) — 타인·AGENT 전용. 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 컴팩트 시각.
+                본인 메시지를 수정 중일 때는 거터 없이 에디터가 전폭을 쓴다. */}
+            {!isOwn && (
+              <div className="w-10 shrink-0 pt-0.5">
+                {startsGroup ? (
+                  <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
+                ) : (
+                  <span
+                    className={`block pt-px text-right ${HOVER_TIME_REVEAL_CLASS}`}
+                    data-testid={`message-hovertime-${m.id}`}
+                  >
+                    {formatClockTimeCompact(m.createdAt)}
+                  </span>
+                )}
               </div>
             )}
-            {body}
-            {attachments}
-            {toolbar}
-            {reactions}
-            {threadLink}
-          </div>
-        </>
+
+            {/* 본문 컬럼 — 전폭. 헤더/본문/첨부/toolbar/리액션/답글. */}
+            <div className="min-w-0 flex-1">
+              {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각). 타인·AGENT 만 해당. */}
+              {!isOwn && startsGroup && (
+                <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">
+                    {m.authorName}
+                    {/* AI 에이전트 작성자 표시 — 이모지 대신 lucide Bot 아이콘(ai-accent 토큰). */}
+                    {m.authorKind === 'AGENT' && (
+                      <Bot className="ml-0.5 inline h-3 w-3 align-[-0.125em] text-ai-accent" aria-label="에이전트" />
+                    )}
+                  </span>
+                  <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
+                </div>
+              )}
+              {body}
+              {attachments}
+              {toolbar}
+              {reactions}
+              {threadLink}
+            </div>
+          </>
+        )}
+        {onOpenActions && <MessageActionsButton onOpen={onOpenActions} />}
+      </div>
+      {/* 링크 메뉴는 행 밖(형제)에, 열린 동안만 둔다 — 포털 안 클릭·우클릭도 React 트리로는 행 핸들러(우클릭·탭 툴바)에 올라온다.
+          행마다 메뉴를 늘 마운트하지 않게(목록 50줄 = 메뉴 50개) 열 때만 그린다. */}
+      {linkMenuTarget && linkMenuAt && (
+        <RowLinkMenu target={linkMenuTarget()} anchor={linkMenuAt} onClose={() => setLinkMenuAt(null)} testId={`message-link-menu-${m.id}`} />
       )}
-      {onOpenActions && <MessageActionsButton onOpen={onOpenActions} />}
-    </div>
+    </>
   )
 }
 

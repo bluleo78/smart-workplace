@@ -814,6 +814,43 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.MAIL_REFERENCES)));
   }
 
+  /**
+   * 채팅 앱 링크 카드용 메일 머리(WP-1236) — 제목·보낸 사람·날짜만 저장된 행에서 읽는다(본문 IMAP 적재 없음). 소유 판정은 상세
+   * 조회(findDetailByIdAndUser)와 같다 — 계정 주인이고 계정이 꺼지지 않았을 때만. 타인/없음이면 empty.
+   */
+  public Optional<MailLinkCard> findLinkCardByIdAndUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_CONTENT.SUBJECT, // subject 는 email_content 에서 읽음(Task9)
+            EMAIL_MESSAGE.FROM_NAME,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.SENT_AT,
+            EMAIL_MESSAGE.RECEIVED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r -> {
+              // Date 헤더가 없거나 깨진 메일은 sent_at 이 비어 있다 — 받은 시각으로 대신한다.
+              OffsetDateTime at =
+                  r.get(EMAIL_MESSAGE.SENT_AT) != null
+                      ? r.get(EMAIL_MESSAGE.SENT_AT)
+                      : r.get(EMAIL_MESSAGE.RECEIVED_AT);
+              return new MailLinkCard(
+                  r.get(EMAIL_CONTENT.SUBJECT),
+                  r.get(EMAIL_MESSAGE.FROM_NAME),
+                  r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                  at == null ? null : at.toInstant());
+            });
+  }
+
+  /** 앱 링크 카드용 메일 머리(WP-1236). subject·fromName·fromAddress·sentAt 은 비어 있을 수 있다. */
+  public record MailLinkCard(String subject, String fromName, String fromAddress, Instant sentAt) {}
+
   /** 주소 리스트를 쉼표로 합침. 비어있으면 null(TEXT 컬럼). */
   private static String joinOrNull(List<String> addrs) {
     return (addrs == null || addrs.isEmpty()) ? null : String.join(", ", addrs);

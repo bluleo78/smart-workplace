@@ -6,6 +6,9 @@ import { isDriveSpaceReadOnly, isDriveSpaceViewer } from './driveSpaces'
 /** 파일 행 작업 key. */
 export type DriveFileActionKey = 'download' | 'share' | 'rename' | 'move' | 'copy' | 'versions' | 'delete'
 
+/** 링크 작업 key(WP-1236) — 구성원용 앱 링크 복사·앱 안으로 보내기. 볼 수 있으면 누구나(VIEWER 포함) 쓴다. */
+export type DriveLinkActionKey = 'copy-link' | 'send-to-chat'
+
 /**
  * 파일 행 작업별 비활성 여부.
  * - 보관된 채널 공간이거나 내 역할이 보기 전용(WP-582): 쓰기 작업(이름 변경·이동·복사·삭제) 차단.
@@ -32,11 +35,19 @@ export function driveFileActionDisabled({
   }
 }
 
-/** 읽기 권한만으로 되는 행 작업 — VIEWER 에게는 이것만 보인다(WP-602). 공유 링크·복사도 서버가 EDITOR 를 요구한다. */
-const DRIVE_READ_ACTIONS: ReadonlySet<string> = new Set<DriveFileActionKey>(['download', 'versions'])
+/**
+ * 읽기 권한만으로 되는 행 작업 — VIEWER 에게는 이것만 보인다(WP-602). 공유 링크·복사도 서버가 EDITOR 를 요구한다.
+ * 링크 복사·채팅·이슈로 보내기(WP-1236)는 구성원용 앱 링크라 볼 수 있으면 된다(외부 공유 링크와 다르다).
+ */
+const DRIVE_READ_ACTIONS: ReadonlySet<string> = new Set<DriveFileActionKey | DriveLinkActionKey>([
+  'download',
+  'copy-link',
+  'send-to-chat',
+  'versions',
+])
 
 /**
- * 내 역할로 고른 행 작업 목록(WP-602). 읽기 전용(VIEWER)이면 다운로드·버전 이력만 남기고, 폴더는 빈 목록(⋯ 자체를 감춘다).
+ * 내 역할로 고른 행 작업 목록(WP-602). 읽기 전용(VIEWER)이면 다운로드·링크·버전 이력만 남기고, 폴더는 링크 작업만 남는다.
  * 쓰기 작업을 비활성으로 두지 않고 감추는 것은 보관(archived)과 달리 역할은 바뀌지 않는 한 계속 못 쓰기 때문이다.
  */
 export function visibleDriveRowActions<T extends { key: string }>(actions: T[], readOnlyRole: boolean): T[] {

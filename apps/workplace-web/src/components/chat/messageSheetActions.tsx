@@ -1,12 +1,14 @@
 // 메시지 작업 시트(MessageActionSheet)의 작업 행 정의 — 팀 채팅·이슈 채팅이 같은 문구·아이콘·순서·권한을 쓰도록 한곳에 둔다.
-// 순서 규칙: 스레드 → 복사 → 수정 → 미리보기 지우기 → 삭제(파괴적 작업은 맨 아래).
+// 순서 규칙: 스레드 → 복사 → 링크 복사 → 채팅·이슈로 보내기 → 수정 → 미리보기 지우기 → 삭제(파괴적 작업은 맨 아래).
 // 권한은 툴바와 같다: 스레드는 확정 메시지, 수정·삭제는 본인·미삭제·확정 메시지. 복사는 본문이 있는 미삭제 메시지.
 import { Copy, Link2Off, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { messagePlainText } from '@/components/mentions/parseMessageSegments'
+import { rowLinkActions } from '@/components/share/shareSheetActions'
 import { visibleAppLinks } from '@/lib/appLinks'
 import { copyText } from '@/lib/copyText'
+import type { ShareTarget } from '@/lib/shareTarget'
 
 import type { MessageSheetAction } from './MessageActionSheet'
 
@@ -35,6 +37,8 @@ export interface MessageSheetHandlers<T> {
   onDismissPreviews?: (m: T) => void
   // 보관된 채널처럼 읽기 전용이면 수정·삭제를 두지 않는다(WP-508).
   readOnly?: boolean
+  // 메시지 링크 대상(WP-1236) — 팀 채팅만 넘긴다. 있으면 「링크 복사」·「채팅·이슈로 보내기」 행을 둔다(데스크톱 ⋯·우클릭과 같은 항목).
+  linkTarget?: (m: T) => ShareTarget
 }
 
 /** 이 메시지에 허용된 작업 — 행 객체를 만들지 않고 판정만(행마다 "작업이 있나"를 볼 때 쓴다). */
@@ -64,7 +68,7 @@ function permissions(
 /** 시트에 그릴 작업이 하나라도 있는가(반응 줄 제외). */
 export function hasMessageSheetActions<T extends SheetMessage>(m: T, h: MessageSheetHandlers<T>): boolean {
   const p = permissions(m, h)
-  return p.thread || p.copy || p.edit || p.dismissPreviews
+  return p.thread || p.copy || p.edit || p.dismissPreviews || (!!h.linkTarget && m.id >= 0 && !m.deleted)
 }
 
 /** 시트 대상 메시지의 작업 행 목록. 대상 하나에 대해서만 만든다(행마다 만들지 않는다). */
@@ -76,6 +80,10 @@ export function buildMessageSheetActions<T extends SheetMessage>(m: T, h: Messag
     out.push({ key: 'thread', label: '스레드에서 답글', icon: <MessageSquare />, onSelect: () => onThread(m) })
   }
   if (p.copy) out.push(copyAction(messagePlainText(m.body, m.mentions)))
+  // 링크 행 — 확정·미삭제 메시지만(전송 중 메시지는 아직 주소가 없고, 지운 메시지 링크는 열어도 찾을 수 없다).
+  if (h.linkTarget && m.id >= 0 && !m.deleted) {
+    out.push(...rowLinkActions(h.linkTarget(m)))
+  }
   if (p.edit) out.push({ key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => h.onEdit(m) })
   if (p.dismissPreviews && h.onDismissPreviews) {
     const onDismiss = h.onDismissPreviews

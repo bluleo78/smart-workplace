@@ -510,6 +510,14 @@ public class CalendarEventService {
   }
 
   /**
+   * 링크 카드용 머리(WP-1236) — 상세({@link #get})와 같은 접근 판정(주최자이거나 참석자)이지만 참석자·태그를 채우지 않는다. 카드는 제목·시각만 보인다.
+   */
+  @Transactional(readOnly = true)
+  public CalendarEventResponse getHeader(long callerId, long id) {
+    return repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+  }
+
+  /**
    * owner 의 [from,to) 겹침 목록. 구체(비반복) 일정에 더해, 반복 마스터를 회차 전개해 가상 회차를 생성한다. 예외 행(취소/오버라이드)에 해당하는 회차는
    * 건너뛴다(오버라이드 실체는 별도 구체 일정으로 이미 포함됨). 시작 시각 오름차순 정렬.
    */

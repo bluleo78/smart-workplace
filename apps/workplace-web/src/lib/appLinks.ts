@@ -1,6 +1,7 @@
 // 채팅 본문의 우리 앱 링크 읽기(WP-896) — 같은 호스트의 이슈·노트·드라이브 파일 주소를 종류·id 로 바꾼다. DOM 비의존 순수 함수.
 // 카드는 서버가 보는 사람 권한으로 채우고(/api/v1/app-links), 여기서는 어느 링크가 앱 링크인지와 앱 안 이동 경로만 정한다.
-import { issuePath } from '@/lib/appUrl'
+import { calendarEventPath, chatMessagePath, issuePath, mailMessagePath } from '@/lib/appUrl'
+import { commentIdFromHash } from '@/lib/issueCommentLink'
 import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
 import { PROJECT_KEY_RE } from '@/lib/validations/project'
 
@@ -8,12 +9,23 @@ import { PROJECT_KEY_RE } from '@/lib/validations/project'
 export const MAX_LINK_CARDS = 3
 
 export type AppLink =
-  | { kind: 'ISSUE'; to: string; key: string; number: number }
+  // fragment — 코멘트 링크의 조각(#comment-<id>). 채팅 카드를 누르면 to 뒤에 붙여 그 코멘트로 간다.
+  | { kind: 'ISSUE'; to: string; key: string; number: number; fragment?: string }
   | { kind: 'PAGE'; to: string; pageId: number }
   | { kind: 'FILE'; to: string; fileId: number }
+  | { kind: 'MESSAGE'; to: string; messageId: number }
+  | { kind: 'EVENT'; to: string; eventId: number }
+  | { kind: 'MAIL'; to: string; mailId: number }
 
 /** 앱 링크 종류의 화면 이름 — 채팅 카드와 노트 칩이 같은 말을 쓴다. */
-export const APP_LINK_KIND_LABEL: Record<AppLink['kind'], string> = { ISSUE: '이슈', PAGE: '노트', FILE: '파일' }
+export const APP_LINK_KIND_LABEL: Record<AppLink['kind'], string> = {
+  ISSUE: '이슈',
+  PAGE: '노트',
+  FILE: '파일',
+  MESSAGE: '메시지',
+  EVENT: '일정',
+  MAIL: '메일',
+}
 
 // 마크다운 링크 [글](url) — 서버 LinkUrlExtractor.MD_LINK 와 같은 모양. 주소만 남겨 글 쪽 URL 과 한 토큰으로 붙지 않게 한다.
 const MD_LINK = /\[[^\]\n]*\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g
@@ -80,6 +92,8 @@ function isAppHost(hostname: string, appHosts: AppHosts): boolean {
  *   - /projects/{KEY}/issues/{n}
  *   - /wiki/spaces/{spaceId}/pages/{id} · /wiki/open/{id}
  *   - /drive/spaces/{spaceId}?file={id} · /drive/spaces/{spaceId}?preview={id}(드라이브 미리보기, WP-1235)
+ *   - /chat/channels/{id}?message={id} · /chat/dms/{id}?message={id}(스레드 답글은 &thread={rootId} 도) · /calendar?eventId={id}
+ *     · /mail/{accountId}?messageId={id}(WP-1236) — 쿼리가 없으면 대화·캘린더·메일함 화면이라 카드가 아니다
  */
 export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
   let url: URL
@@ -95,7 +109,12 @@ export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
     if (!PROJECT_KEY_RE.test(key)) return null
     // ISSUE_NUMBER 가 0 으로 시작하는 번호를 막으므로 Number 로 바꿔도 주소 글자는 같다.
     const number = Number(parts[3])
-    return { kind: 'ISSUE', to: issuePath(key, number), key, number }
+    // 코멘트 링크(#comment-<id>, WP-1175)는 카드를 눌렀을 때 그 코멘트로 가도록 조각을 따로 든다(WP-1236).
+    // to 는 대상 경로 그대로 둔다 — 노트 칩이 to 를 카드 캐시 키로 쓰고 조각은 스스로 덧붙인다(wikiAppLinkChips).
+    const comment = commentIdFromHash(url.hash)
+    return comment == null
+      ? { kind: 'ISSUE', to: issuePath(key, number), key, number }
+      : { kind: 'ISSUE', to: issuePath(key, number), key, number, fragment: `#comment-${comment}` }
   }
   if (parts[0] === 'wiki') {
     const spacePage = parts.length === 5 && parts[1] === 'spaces' && ID.test(parts[2]) && parts[3] === 'pages' && ID.test(parts[4])
@@ -118,6 +137,26 @@ export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
       return { kind: 'FILE', to: `/drive/spaces/${parts[2]}?${folderQs}preview=${preview}`, fileId: Number(preview) }
     }
   }
+  // 메시지·일정·메일(WP-1236) — 이동 경로는 화면이 읽는 쿼리만 남긴다(다른 쿼리는 버린다).
+  const q = (name: string) => {
+    const v = url.searchParams.get(name)
+    return v && ID.test(v) ? v : null
+  }
+  if (parts.length === 3 && parts[0] === 'chat' && (parts[1] === 'channels' || parts[1] === 'dms') && ID.test(parts[2])) {
+    const message = q('message')
+    if (!message) return null
+    const thread = q('thread')
+    const to = chatMessagePath({ channelId: Number(parts[2]), dm: parts[1] === 'dms', messageId: Number(message), threadRootId: thread ? Number(thread) : null })
+    return { kind: 'MESSAGE', to, messageId: Number(message) }
+  }
+  if (parts.length === 1 && parts[0] === 'calendar') {
+    const event = q('eventId')
+    return event ? { kind: 'EVENT', to: calendarEventPath(Number(event)), eventId: Number(event) } : null
+  }
+  if (parts.length === 2 && parts[0] === 'mail' && ID.test(parts[1])) {
+    const mail = q('messageId')
+    return mail ? { kind: 'MAIL', to: mailMessagePath(Number(parts[1]), Number(mail)), mailId: Number(mail) } : null
+  }
   return null
 }
 
@@ -139,8 +178,18 @@ export function appLinksOf(body: string, appHosts: AppHosts): AppLink[] {
 /** 링크가 가리키는 대상 — 경로가 달라도(/wiki/open/{id} 와 /wiki/spaces/{s}/pages/{id}) 같은 대상이면 같은 값(WP-1165). */
 export function appLinkTarget(link: AppLink): string {
   if (link.kind === 'ISSUE') return `ISSUE:${link.key}-${link.number}`
-  if (link.kind === 'PAGE') return `PAGE:${link.pageId}`
-  return `FILE:${link.fileId}`
+  switch (link.kind) {
+    case 'PAGE':
+      return `PAGE:${link.pageId}`
+    case 'FILE':
+      return `FILE:${link.fileId}`
+    case 'MESSAGE':
+      return `MESSAGE:${link.messageId}`
+    case 'EVENT':
+      return `EVENT:${link.eventId}`
+    case 'MAIL':
+      return `MAIL:${link.mailId}`
+  }
 }
 
 function readAppLinks(body: string, appHosts: AppHosts): AppLink[] {
