@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>방문자 추이</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    .chart-wrap { position: relative; height: 280px; }
+  </style>
+</head>
+<body>
+  <h1>방문자 추이</h1>
+  <p>지난 4주 방문자 수입니다.</p>
+  <div class="card">
+    <h2>주간 방문자</h2>
+    <div class="chart-wrap"><canvas id="visits"></canvas></div>
+    <script>
+      new Chart(document.getElementById('visits'), {
+        type: 'line',
+        data: { labels: ['1주', '2주', '3주', '4주'], datasets: [{ label: '방문자', data: [120, 180, 150, 210] }] },
+        options: { maintainAspectRatio: false }
+      })
+    </script>
+  </div>
+  <h2>해석</h2>
+  <p>4주차에 <em>가장 많이</em> 늘었습니다.</p>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXX"></script>
+</body>
+</html>

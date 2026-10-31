@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3분기 매출 보고서</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR');
+    body { font-family: Inter, sans-serif; background: #f8fafc; color: #0f172a; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .up { background: #dcfce7; color: #166534; }
+    .down { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body onload="track()">
+  <!-- 머리말 -->
+  <div class="wrapper">
+    <h1>3분기 매출 보고서</h1>
+    <p>2026년 3분기 <strong>지역별</strong> 매출 요약입니다. 자세한 내용은 <a href="https://example.com/report">원문</a>을 보세요.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>국내</h3>
+        <p>매출 ₩1.2B <span class="badge up">+18%</span></p>
+      </div>
+      <div class="card">
+        <h3>해외</h3>
+        <p>매출 ₩0.8B <span class="badge down">-4%</span></p>
+      </div>
+      <div class="card" style="border-left: 4px solid #6366f1">
+        <h3>신규</h3>
+        고객 120곳
+      </div>
+    </div>
+    <ul>
+      <li>국내는 신제품 효과</li>
+      <li>해외는 환율 영향</li>
+    </ul>
+    <img src="https://example.com/logo.png" alt="로고">
+    <img src="data:image/png;base64,iVBORw0KGgo=" alt="인라인">
+  </div>
+  <noscript>스크립트를 켜 주세요</noscript>
+</body>
+</html>

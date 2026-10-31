@@ -225,8 +225,9 @@ public class WikiPageService {
   public WikiPageDetail save(
       long callerId, long pageId, SavePageRequest req, boolean ai, String shareToken) {
     String titleShareToken = req.body() == null ? shareToken : null;
-    // WP-327: 새 웹은 본문을 PUT 하지 않으므로(동기화 서버로 저장) 사람(ai=false)의 본문 PUT 은 캐시된 구버전 PWA 뿐이다.
-    // 이 로그가 끊기면 구버전이 사라진 것 — 제출 본문 기준본 후보(submitted_body)를 걷어낼 시점을 판단하는 근거. id 만 남긴다.
+    // WP-327: 새 웹은 편집 중인 본문을 PUT 하지 않으므로(동기화 서버로 저장) 사람(ai=false)의 본문 PUT 은 캐시된 구버전 PWA 와
+    // 새 웹의 「HTML 파일로 새 노트」 처음 본문 심기(WP-1241 — 만든 직후 그 version 으로 한 번)뿐이다. 구버전이 사라졌는지 볼 때는 심기를 빼고 본다
+    // — 심기는 늘 만든 직후 페이지의 첫 본문 저장이다. 제출 본문 기준본 후보(submitted_body)를 걷어낼 시점을 판단하는 근거. id 만 남긴다.
     if (req.body() != null && !ai) {
       log.info("wiki.legacy_body_save page={} user={}", pageId, callerId);
     }

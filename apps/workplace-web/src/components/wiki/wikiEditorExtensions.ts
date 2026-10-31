@@ -11,6 +11,7 @@ import { ImeCommitFlush } from '@/lib/imeCommitFlush'
 import { WikiAiMarkers } from './wikiAiMarkers'
 import { WikiAppLinkChips } from './wikiAppLinkChips'
 import { WikiCatchUpHighlight } from './wikiCatchUpHighlight'
+import { WikiHtmlImportPaste } from './wikiHtmlImportInsert'
 import { WikiImage } from './wikiImageNode'
 import { WikiMention } from './wikiMentionNode'
 import { WikiPresenceCursors } from './wikiPresenceCursors'
@@ -46,6 +47,8 @@ export function wikiEditorExtensions(o: {
     // 본문 실시간 동기화(WP-287) — 동기화 서버와 같은 조각 이름(COLLAB_FRAGMENT)을 쓴다. 본문은 서버 문서가 원본이라
     // content 로 초기화하지 않는다(넣으면 동기화 때 본문이 두 벌이 된다).
     Collaboration.configure({ document: o.doc, field: COLLAB_FRAGMENT }),
+    // HTML 문서 소스 붙여넣기(WP-1241) — 붙여넣은 글자가 문서 전체면 변환해 모양째 넣는다(일반 웹 복사는 위 모양 거르기로 간다).
+    WikiHtmlImportPaste,
     o.mention,
     o.slash,
     Placeholder.configure({

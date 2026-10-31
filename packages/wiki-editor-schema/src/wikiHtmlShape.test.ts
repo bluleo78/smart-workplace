@@ -222,3 +222,32 @@ describe('HTML 모양 보존 (WP-1240)', () => {
     })
   })
 })
+
+// WP-1241 — Tailwind 정적 내보내기의 class(변형·임의값)가 모양 영역·인라인 모양·표 셀 안에서 저장 → 다시 열기에 그대로 남는다.
+describe('Tailwind 류 class 토큰 (WP-1241)', () => {
+  const TOKENS = ['md:grid-cols-2', 'w-1/2', 'gap-0.5', 'w-[calc(100%-2rem)]', 'bg-[#0f172a]', '!mt-0', '@container', 'grid-cols-[1fr,2fr]', '[mask-type=luminance]']
+
+  it.each(TOKENS)('%s — 모양 영역·인라인 모양이 md → doc → md 로 바이트 그대로다', (token) => {
+    const md = [`<div class="${token} card">`, '', `글 <span class="${token}">배지</span> 끝`, '', '</div>'].join('\n')
+    const doc = markdownToDoc(md)
+    expect(doc.firstChild!.attrs.className).toBe(`${token} card`)
+    const span = doc.firstChild!.firstChild!.child(1)
+    expect(span.marks[0].attrs.className).toBe(token)
+    expect(docToMarkdown(doc)).toBe(md)
+  })
+
+  it('GFM 표 셀 안 인라인 모양의 Tailwind class 도 셀을 깨지 않고 왕복한다', () => {
+    const md = ['| a | b |', '| --- | --- |', '| <span class="md:text-lg w-[calc(100%-2rem)] bg-[#0f172a]">x</span> | y |'].join('\n')
+    const { once, twice } = roundtrip(md)
+    // 표 직렬화기는 표 뒤에 줄바꿈 하나를 붙인다(기존 동작) — 표 줄은 바이트 그대로이고 두 번째 저장부터 같다.
+    expect(once.trimEnd()).toBe(md)
+    expect(twice).toBe(once)
+    const cell = markdownToDoc(md).firstChild!.child(1).child(0)
+    expect(cell.textContent).toBe('x')
+  })
+
+  it('위험 글자가 든 토큰은 여전히 버린다(나머지 토큰은 남는다)', () => {
+    const doc = markdownToDoc('<div class="ok a{b a;b a`b a\\b">\n\nx\n\n</div>')
+    expect(doc.firstChild!.attrs.className).toBe('ok')
+  })
+})
