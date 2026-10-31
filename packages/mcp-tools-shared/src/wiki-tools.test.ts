@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WikiToolClient } from './tool-client.js';
-import { buildWikiTools, toWikiPageTree } from './wiki-tools.js';
+import {
+  WIKI_BODY_FORMAT_GUIDE,
+  bodyHasHtml,
+  buildWikiTools,
+  htmlDocumentTitle,
+  htmlEmbedFence,
+  htmlToWikiBody,
+  toWikiPageTree,
+} from './wiki-tools.js';
 import { resultText } from './mcp-content.js';
 
 /** 노트 클라이언트 전 메서드를 vi.fn() 으로 채운 mock. 개별 테스트에서 필요한 것만 재설정한다. */
@@ -183,6 +191,103 @@ describe('buildWikiTools', () => {
     const c = mockClient();
     await expect(tool(c, 'create_wiki_page').handler({ spaceId: 5 })).rejects.toThrow();
     expect(c.createWikiPage).not.toHaveBeenCalled();
+  });
+
+  // WP-1243: HTML 산출물을 노트로 — html 을 HTML 블록 하나로 감싸 본문으로 저장한다.
+  it('WP-1243: htmlEmbedFence 는 소스의 가장 긴 백틱 줄보다 길다(최소 3개) — 웹 htmlEmbedFence 와 같은 규칙', () => {
+    expect(htmlEmbedFence('<p>x</p>')).toBe('```');
+    expect(htmlEmbedFence('<pre>```js\ncode\n```</pre>')).toBe('````');
+    expect(htmlEmbedFence('a ````` b')).toBe('``````');
+  });
+
+  it('WP-1243: htmlToWikiBody 는 펜스 + html-embed + 소스 + 펜스 (CRLF·끝 공백 정리)', () => {
+    expect(htmlToWikiBody('<html>\r\n<body>hi</body>\r\n</html>\n\n')).toBe('```html-embed\n<html>\n<body>hi</body>\n</html>\n```');
+    const withFence = htmlToWikiBody('<pre>```</pre>');
+    expect(withFence).toBe('````html-embed\n<pre>```</pre>\n````');
+  });
+
+  it('WP-1243: htmlDocumentTitle 은 <title> 글자(엔티티 풀고 공백 접음), 없거나 비면 undefined', () => {
+    expect(htmlDocumentTitle('<html><head><TITLE>\n  매출 &amp; 비용\n</TITLE></head></html>')).toBe('매출 & 비용');
+    expect(htmlDocumentTitle('<html><body>x</body></html>')).toBeUndefined();
+    expect(htmlDocumentTitle('<title> </title>')).toBeUndefined();
+    expect(htmlDocumentTitle(`<title>${'가'.repeat(300)}</title>`)).toHaveLength(255);
+  });
+
+  it('WP-1243: create_wiki_page + html → 만든 뒤 생성 version 으로 HTML 블록 본문을 저장, 제목은 <title>', async () => {
+    const c = mockClient();
+    vi.mocked(c.createWikiPage).mockResolvedValue({ id: 2, title: '대시보드', version: 1, updatedBy: 9 });
+    vi.mocked(c.updateWikiPage).mockResolvedValue({ id: 2, title: '대시보드', version: 2, body: 'saved', updatedBy: 9 });
+    const html = '<!doctype html><html><head><title>대시보드</title></head><body><canvas></canvas><script>draw()</script></body></html>';
+    const out = JSON.parse(resultText(await tool(c, 'create_wiki_page').handler({ spaceId: 5, html })));
+    expect(c.createWikiPage).toHaveBeenCalledWith(5, { parentId: null, title: '대시보드' });
+    expect(vi.mocked(c.updateWikiPage).mock.calls[0]).toStrictEqual([2, { version: 1, body: '```html-embed\n' + html + '\n```' }]);
+    expect(out).toMatchObject({ id: 2, version: 2 });
+    expect(out).not.toHaveProperty('updatedBy');
+  });
+
+  it('WP-1243: create_wiki_page + body → 마크다운 본문을 그대로 저장, 준 title 이 <title> 보다 우선', async () => {
+    const c = mockClient();
+    vi.mocked(c.createWikiPage).mockResolvedValue({ id: 3, version: 1 });
+    await tool(c, 'create_wiki_page').handler({ spaceId: 5, title: '회의록', body: '# 안건\n- 하나' });
+    expect(vi.mocked(c.updateWikiPage).mock.calls[0]).toStrictEqual([3, { version: 1, body: '# 안건\n- 하나' }]);
+    vi.mocked(c.createWikiPage).mockClear();
+    await tool(c, 'create_wiki_page').handler({ spaceId: 5, title: '내 제목', html: '<title>문서 제목</title><p>x</p>' });
+    expect(c.createWikiPage).toHaveBeenCalledWith(5, { parentId: null, title: '내 제목' });
+  });
+
+  it('WP-1243: create_wiki_page 는 body·html 이 없으면 본문을 저장하지 않는다(빈 페이지)', async () => {
+    const c = mockClient();
+    vi.mocked(c.createWikiPage).mockResolvedValue({ id: 2, version: 1 });
+    await tool(c, 'create_wiki_page').handler({ spaceId: 5, title: '빈 페이지' });
+    expect(c.updateWikiPage).not.toHaveBeenCalled();
+  });
+
+  it('WP-1243: create_wiki_page 는 body 와 html 을 함께 주거나, title 도 <title> 도 없으면 아무것도 만들지 않고 거부한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'create_wiki_page').handler({ spaceId: 5, title: 't', body: 'a', html: '<p>b</p>' })).rejects.toThrow('함께 줄 수 없습니다');
+    await expect(tool(c, 'create_wiki_page').handler({ spaceId: 5, html: '<p>제목 없음</p>' })).rejects.toThrow('title 이 필요합니다');
+    expect(c.createWikiPage).not.toHaveBeenCalled();
+  });
+
+  it('WP-1243: create_wiki_page 본문 저장이 실패하면 만든 pageId 와 함께 update_wiki_page 로 다시 저장하라고 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createWikiPage).mockResolvedValue({ id: 7, version: 1 });
+    vi.mocked(c.updateWikiPage).mockRejectedValue(new Error('본문이 너무 깁니다'));
+    await expect(tool(c, 'create_wiki_page').handler({ spaceId: 5, title: 't', html: '<p>x</p>' })).rejects.toThrow(
+      /pageId 7.*본문이 너무 깁니다.*update_wiki_page/,
+    );
+  });
+
+  it('WP-1243: get_wiki_page 는 HTML 이 든 본문에만 bodyFormat(형식·편집 규칙)을 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getWikiPage).mockResolvedValue({ id: 7, version: 2, body: '<style data-wp-style>.a{}</style>\n\n# 제목' });
+    const withHtml = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7 })));
+    expect(withHtml.bodyFormat).toBe(WIKI_BODY_FORMAT_GUIDE);
+    vi.mocked(c.getWikiPage).mockResolvedValue({ id: 7, version: 2, body: '# 제목\n\n조건 a<b 이면 **굵게**' });
+    expect(JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7 })))).not.toHaveProperty('bodyFormat');
+  });
+
+  it('WP-1243: bodyHasHtml — 태그·HTML 블록 펜스(목록 안 포함)는 참, 비교식·일반 코드 블록은 거짓', () => {
+    expect(bodyHasHtml('<div class="card">\n\n글\n\n</div>')).toBe(true);
+    expect(bodyHasHtml('글 <span style="color:red">빨강</span>')).toBe(true);
+    expect(bodyHasHtml('````html-embed\n<p>x</p>\n````')).toBe(true);
+    expect(bodyHasHtml('- 항목\n  ```html-embed\nx\n  ```')).toBe(true);
+    expect(bodyHasHtml('1<2 이고 x > y, a<b 이면\n\n```js\nx\n```')).toBe(false);
+    expect(bodyHasHtml(undefined)).toBe(false);
+  });
+
+  it('WP-1243: 본문 형식 안내는 HTML 을 깨지 않는 규칙과 HTML 산출물 → 노트 변환 경로를 담는다', () => {
+    expect(WIKI_BODY_FORMAT_GUIDE).toContain('<style data-wp-style>');
+    expect(WIKI_BODY_FORMAT_GUIDE).toContain('never edit inside an html-embed block unless asked');
+    expect(WIKI_BODY_FORMAT_GUIDE).toContain('keep its fence (backtick count) as is');
+    expect(WIKI_BODY_FORMAT_GUIDE).toContain('never wrap it in HTML');
+    expect(WIKI_BODY_FORMAT_GUIDE).toContain('To turn an HTML artifact into a note');
+    const tools = buildWikiTools(mockClient());
+    const desc = (n: string) => tools.find((t) => t.name === n)!.description;
+    expect(desc('get_wiki_page')).toContain('bodyFormat');
+    expect(desc('update_wiki_page')).toContain('bodyFormat');
+    expect(desc('create_wiki_page')).toContain('html-embed');
+    expect(desc('create_wiki_page')).toContain('<style data-wp-style>');
   });
 
   it('update_wiki_page → client.updateWikiPage(pageId, {version,title,body})', async () => {

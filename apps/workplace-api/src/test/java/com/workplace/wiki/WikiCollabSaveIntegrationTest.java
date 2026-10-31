@@ -51,6 +51,7 @@ import com.workplace.wiki.repository.WikiBodyHistoryRepository;
 import com.workplace.wiki.service.WikiBodyHistoryCleanupScheduler;
 import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiSearchTextBackfillScheduler;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -94,6 +95,7 @@ class WikiCollabSaveIntegrationTest extends ExternalClientMockedTestBase {
   // 스파이 — 응답 판 기준본 기록에 실제 DB 오류를 끼워 넣는다(기본은 실제 동작 그대로).
   @Autowired WikiBodyHistoryRepository bodies;
   @Autowired WikiBodyHistoryCleanupScheduler bodyCleanup;
+  @Autowired WikiSearchTextBackfillScheduler searchTextBackfill;
 
   @Autowired CollabClient collab;
   // WP-420: 멤버십 정지 후 SSE 종료 관찰용 스파이(기본은 실제 동작).
@@ -1002,6 +1004,80 @@ class WikiCollabSaveIntegrationTest extends ExternalClientMockedTestBase {
     long id = TestFixtures.createHuman(dsl);
     seededUserIds.add(id);
     return withMembership(id);
+  }
+
+  /** WP-1243 본문 — 페이지 스타일·스타일 컨테이너·HTML 블록 안에서 「매출 보고」만 글자다. */
+  private static final String STYLED_BODY =
+      "<style data-wp-style>\n.card{color:red}\n</style>\n\n<div class=\"card\">\n\n매출 보고\n\n</div>\n\n"
+          + "```html-embed\n<html><body><script>draw()</script>소스글자</body></html>\n```";
+
+  /** 검색 평문 한 칸 읽기(트랜잭션·테넌트 포함). */
+  private String searchText(long pageId) {
+    tenant1();
+    return new TransactionTemplate(txManager)
+        .execute(
+            s ->
+                dsl.select(WIKI_PAGE.SEARCH_TEXT)
+                    .from(WIKI_PAGE)
+                    .where(WIKI_PAGE.ID.eq(pageId))
+                    .fetchOne(WIKI_PAGE.SEARCH_TEXT));
+  }
+
+  /** WP-1243 — 동기화 서버 파생 저장(내부 저장 엔드포인트 경로)도 검색 평문을 함께 바꾼다. */
+  @Test
+  void collabStoreRefreshesSearchText() {
+    long pageId = seedPage("본문");
+    tenant1();
+    docService.store(
+        pageId,
+        new StoreCollabDocRequest("AQ==", STYLED_BODY, List.of(userId), null, false, null, null));
+    assertThat(searchText(pageId)).isEqualTo("매출 보고");
+  }
+
+  /**
+   * WP-1243 — 열을 더하기 전에 저장된 행(search_text NULL)을 백필이 채운다. 판·수정 시각은 그대로(사람이 고친 것이 아니다), 이미 채운 행은 다시
+   * 건드리지 않는다.
+   */
+  @Test
+  void searchTextBackfillFillsLegacyRowsWithoutTouchingVersion() {
+    // seedPage 는 저장 경로를 거치지 않고 본문을 직접 넣는다 — 옛 행과 같다(search_text NULL).
+    long pageId = seedPage(STYLED_BODY);
+    assertThat(searchText(pageId)).isNull();
+    tenant1();
+    var before =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.select(WIKI_PAGE.VERSION, WIKI_PAGE.UPDATED_AT)
+                        .from(WIKI_PAGE)
+                        .where(WIKI_PAGE.ID.eq(pageId))
+                        .fetchOne());
+
+    searchTextBackfill.backfillAllTenants();
+
+    assertThat(searchText(pageId)).isEqualTo("매출 보고");
+    tenant1();
+    var after =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.select(WIKI_PAGE.VERSION, WIKI_PAGE.UPDATED_AT)
+                        .from(WIKI_PAGE)
+                        .where(WIKI_PAGE.ID.eq(pageId))
+                        .fetchOne());
+    assertThat(after.value1()).isEqualTo(before.value1());
+    assertThat(after.value2()).isEqualTo(before.value2());
+    // 백필 뒤 검색은 평문으로 — 태그 이름·HTML 블록 소스로는 찾지 않고 글자로 찾는다.
+    tenant1();
+    assertThat(pageService.search(userId, "div", null))
+        .extracting(r -> r.id())
+        .doesNotContain(pageId);
+    tenant1();
+    assertThat(pageService.search(userId, "소스글자", null))
+        .extracting(r -> r.id())
+        .doesNotContain(pageId);
+    tenant1();
+    assertThat(pageService.search(userId, "매출", null)).extracting(r -> r.id()).contains(pageId);
   }
 
   /** 호출자 개인 공간에 페이지를 만든다. 본문은 저장 경로(=동기화 서버 위임)를 거치지 않고 직접 넣는다. */

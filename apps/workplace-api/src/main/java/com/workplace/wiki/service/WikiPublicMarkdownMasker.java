@@ -54,8 +54,11 @@ public class WikiPublicMarkdownMasker {
 
   private static final Pattern ATTR_HREF = attrPattern("href");
 
-  /** 마크다운 토큰 {@code <@id>}·{@code <#종류:id>} 와 글자로 이스케이프된 같은 토큰. */
-  private static final Pattern MENTION_TOKEN =
+  /**
+   * 마크다운 토큰 {@code <@id>}·{@code <#종류:id>} 와 글자로 이스케이프된 같은 토큰. 평문 추출({@link WikiPlainText})도 같은 판정을
+   * 쓴다.
+   */
+  static final Pattern MENTION_TOKEN =
       Pattern.compile("(?:<|&lt;)(?:@(\\d+)|#([A-Za-z]+):(\\d+))(?:>|&gt;)");
 
   // ── HTML 링크·이미지 ────────────────────────────────────────────────────
@@ -152,10 +155,10 @@ public class WikiPublicMarkdownMasker {
     // maskEmbedSource).
     StringBuilder out = new StringBuilder(markdown.length());
     int last = 0;
-    for (int[] fence : htmlEmbedSourceRanges(markdown)) {
-      out.append(maskMarkdown(markdown.substring(last, fence[0]), ctx));
-      out.append(maskEmbedSource(markdown.substring(fence[0], fence[1]), ctx));
-      last = fence[1];
+    for (EmbedFence fence : htmlEmbedFences(markdown, false)) {
+      out.append(maskMarkdown(markdown.substring(last, fence.sourceStart()), ctx));
+      out.append(maskEmbedSource(markdown.substring(fence.sourceStart(), fence.sourceEnd()), ctx));
+      last = fence.sourceEnd();
     }
     out.append(maskMarkdown(markdown.substring(last), ctx));
     return out.toString();
@@ -249,7 +252,14 @@ public class WikiPublicMarkdownMasker {
   private static final Pattern LIST_MARKER = Pattern.compile(MARKER);
 
   /**
-   * HTML 블록 소스 범위들(문자 위치 [시작, 끝)) — 여는 줄 다음 줄부터 닫는 줄 앞까지.
+   * HTML 블록 하나의 위치(문자 위치) — 여는 줄 시작 {@code start}, 소스 [{@code sourceStart}, {@code sourceEnd}), 닫는
+   * 줄 끝(줄바꿈 포함) {@code end}. 닫는 줄이 없어 문서 끝까지 본 블록은 sourceEnd = end = 본문 길이.
+   */
+  record EmbedFence(int start, int sourceStart, int sourceEnd, int end) {}
+
+  /**
+   * HTML 블록 펜스 위치들 — 가림은 소스 범위([sourceStart, sourceEnd))만 쓰고, 평문 추출({@link WikiPlainText},
+   * WP-1243)은 블록을 펜스째 지운다.
    *
    * <p>줄 단위로 모든 펜스 코드 블록을 따라간다 — 일반 코드 블록(예: ````markdown 예시) 안에 적힌 {@code ```html-embed} 줄은 HTML
    * 블록이 아니다. HTML 블록은 정보 문자열이 정확히 {@code html-embed}(뒤 공백만 허용)인 백틱 펜스다. 여는 줄은 목록 표시({@code -
@@ -257,9 +267,12 @@ public class WikiPublicMarkdownMasker {
    * 것이다(노트 직렬화기 출력). 목록 밖에서 앞 공백이 4칸 이상이면 들여쓴 코드 블록이라 펜스가 아니다(CommonMark) — 목록 안에서는 그 항목 내용 칸 + 3
    * 까지 허용한다. 같은 접두 + 같은 문자 N개 이상 + 공백뿐인 줄에서 닫힌다. 안쪽 줄이 접두로 시작하지 않거나(빈 줄은 접두 끝 공백을 뗀 것도 허용) 닫는 줄이
    * 없으면 HTML 블록으로 보지 않고 지금처럼 전체를 가린다(덜 가리는 쪽으로 틀리지 않게).
+   *
+   * @param openToEnd true 면 닫는 줄 없이 문서 끝에 닿은 HTML 블록도 끝까지를 블록으로 본다 — 앞부분만 잘라 읽은 본문(링크 미리보기)에서 소스
+   *     글자가 평문에 새지 않게. 가림(false)은 덜 가리는 쪽으로 틀리지 않도록 그런 블록을 HTML 블록으로 보지 않는다
    */
-  static List<int[]> htmlEmbedSourceRanges(String md) {
-    List<int[]> ranges = new ArrayList<>();
+  static List<EmbedFence> htmlEmbedFences(String md, boolean openToEnd) {
+    List<EmbedFence> ranges = new ArrayList<>();
     // 대부분의 노트에는 HTML 블록이 없다 — 줄을 나누지 않고 끝낸다.
     if (!md.contains("html-embed")) {
       return ranges;
@@ -287,6 +300,12 @@ public class WikiPublicMarkdownMasker {
         // 닫히지 않은 일반 코드 블록 — 문서 끝까지 코드다(그 뒤 줄을 다시 펜스로 보지 않는다).
         break;
       }
+      if (close == UNCLOSED && openToEnd) {
+        // 문서 끝까지 닫히지 않은 HTML 블록 — 평문 추출은 끝까지를 블록으로 본다(잘린 본문의 소스가 새지 않게).
+        int srcStart = i + 1 < lines.size() ? lines.get(i + 1).start() : md.length();
+        ranges.add(new EmbedFence(lines.get(i).start(), srcStart, md.length(), md.length()));
+        break;
+      }
       if (close < 0) {
         // 닫히지 않은 HTML 블록 후보 — 그냥 가린다(덜 가리는 쪽으로 틀리지 않게).
         i++;
@@ -294,7 +313,10 @@ public class WikiPublicMarkdownMasker {
       }
       if (embed) {
         // 여는 줄 다음 줄 시작 ~ 닫는 줄 시작 — 펜스 줄 자체(접두·백틱·정보 문자열)는 일반 가림을 그대로 지난다(바꿀 것이 없다).
-        ranges.add(new int[] {lines.get(i + 1).start(), lines.get(close).start()});
+        int end = close + 1 < lines.size() ? lines.get(close + 1).start() : md.length();
+        ranges.add(
+            new EmbedFence(
+                lines.get(i).start(), lines.get(i + 1).start(), lines.get(close).start(), end));
       }
       i = close + 1;
     }
@@ -322,7 +344,16 @@ public class WikiPublicMarkdownMasker {
     return replace(units, LIST_MARKER, m -> " ".repeat(m.group().length()));
   }
 
-  /** 여는 줄 뒤에서 닫는 줄의 줄 번호(없으면 -1). HTML 블록(strict)이면 안쪽 줄이 모두 접두로 시작해야 한다(아니면 -1). */
+  /** {@link #findFenceClose} — 닫는 줄 없이 문서 끝에 닿음. */
+  private static final int UNCLOSED = -1;
+
+  /** {@link #findFenceClose} — HTML 블록(strict) 안쪽 줄이 접두로 시작하지 않아 HTML 블록이 아님. */
+  private static final int PREFIX_MISMATCH = -2;
+
+  /**
+   * 여는 줄 뒤에서 닫는 줄의 줄 번호(없으면 {@link #UNCLOSED}). HTML 블록(strict)이면 안쪽 줄이 모두 접두로 시작해야 한다(아니면 {@link
+   * #PREFIX_MISMATCH}).
+   */
   private static int findFenceClose(
       List<Line> lines, int from, String prefix, String fence, boolean strict) {
     String blankPrefix = prefix.stripTrailing();
@@ -335,7 +366,7 @@ public class WikiPublicMarkdownMasker {
               : line.equals(blankPrefix) ? "" : null;
       if (rest == null) {
         if (strict) {
-          return -1;
+          return PREFIX_MISMATCH;
         }
         continue;
       }
@@ -344,7 +375,7 @@ public class WikiPublicMarkdownMasker {
         return j;
       }
     }
-    return -1;
+    return UNCLOSED;
   }
 
   /** 줄 하나 — 시작 위치와 줄바꿈(\r 포함)을 뗀 글자. */
