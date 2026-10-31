@@ -18,7 +18,6 @@ import {
 } from '@/components/overlay/dropdown-menu'
 import { CopyLinkButton } from '@/components/share/CopyLinkButton'
 import { LinkMenuItems } from '@/components/share/LinkMenuItems'
-import { hasLinkMenuItems } from '@/components/share/shareActions'
 import { ShareSheetButton } from '@/components/share/ShareSheetButton'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -302,8 +301,8 @@ export function WikiPageHeader({
           </>
         )}
         {/* 모바일 공유(WP-579)는 헤더 ⬆︎ 시트의 「외부 공유 링크…」로 옮겼다(WP-1234). */}
-        {/* 데스크톱 링크 항목(WP-1234) — 설치된 앱이면 「브라우저에서 열기」. */}
-        {!isMobile && shareTarget && hasLinkMenuItems(shareTarget) && (
+        {/* 데스크톱 링크 항목(WP-1234·WP-1235) — 「채팅·이슈로 보내기…」, 설치된 앱이면 「브라우저에서 열기」. */}
+        {!isMobile && shareTarget && (
           <>
             <LinkMenuItems target={shareTarget} />
             <DropdownMenuSeparator />

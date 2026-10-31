@@ -1,5 +1,6 @@
 // 채팅 본문의 우리 앱 링크 읽기(WP-896) — 같은 호스트의 이슈·노트·드라이브 파일 주소를 종류·id 로 바꾼다. DOM 비의존 순수 함수.
 // 카드는 서버가 보는 사람 권한으로 채우고(/api/v1/app-links), 여기서는 어느 링크가 앱 링크인지와 앱 안 이동 경로만 정한다.
+import { issuePath } from '@/lib/appUrl'
 import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
 import { PROJECT_KEY_RE } from '@/lib/validations/project'
 
@@ -35,6 +36,35 @@ export function cardUrls(body: string): string[] {
   return out
 }
 
+/**
+ * 마크다운의 코드(닫힌 펜스 블록 ```·~~~, 인라인 `코드`)를 공백으로 지운다 — 코드 안 주소가 카드가 되지 않게(이슈 댓글, WP-1235).
+ * 댓글은 GFM(MarkdownMessage)으로 그려 ~~~ 펜스도 코드다. 닫히지 않은 펜스는 GFM 처럼 끝까지 코드로 본다.
+ * 들여쓴(4칸) 코드 블록은 보지 않는다 — 목록 안 들여쓰기와 구별하려면 파서가 필요해, 드문 경우는 카드가 생겨도 둔다.
+ */
+export function withoutMarkdownCode(body: string): string {
+  const lines = body.split('\n')
+  const out: string[] = []
+  let fence: { char: string; len: number } | null = null
+  for (const line of lines) {
+    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (fence) {
+      // 닫는 펜스 — 같은 글자로 여는 펜스 이상 길이, 뒤에는 공백만.
+      if (m && m[1][0] === fence.char && m[1].length >= fence.len && line.slice(m[0].length).trim() === '') fence = null
+      out.push('')
+      continue
+    }
+    // 여는 ``` 펜스의 정보 문자열에는 ` 가 올 수 없다(GFM) — 그런 줄은 인라인 코드로 본다.
+    if (m && !(m[1][0] === '`' && line.slice(m[0].length).includes('`'))) {
+      fence = { char: m[1][0], len: m[1].length }
+      out.push('')
+      continue
+    }
+    out.push(line)
+  }
+  // 인라인 코드 — 같은 길이의 백틱 줄로 닫힌 구간(줄을 넘을 수 있다).
+  return out.join('\n').replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, ' ')
+}
+
 /** 우리 앱 호스트들(소문자) — 지금 접속한 호스트 + 서버가 알려 준 공개 웹 주소 호스트(WP-1165). */
 export type AppHosts = readonly string[]
 
@@ -44,17 +74,12 @@ function isAppHost(hostname: string, appHosts: AppHosts): boolean {
   return h !== '' && appHosts.includes(h)
 }
 
-/** 이슈 화면 주소 — 앱 링크 판정(parseAppLink)과 본문 이슈 키 링크(IssueKeyRef)가 같은 경로를 쓰도록 한 곳에 둔다. */
-export function issuePath(projectKey: string, number: number): string {
-  return `/projects/${projectKey}/issues/${number}`
-}
-
 /**
  * URL 하나를 앱 링크로 읽는다. 경로 문법은 서버 LinkPreviewDispatcher.isAppCardUrl 과 같아야 한다 — 두 쪽 테스트가 같은 사례 표
  * (workplace-api 의 test/resources/app-links/app-card-urls.json)를 읽어 어긋나면 실패한다. 호스트가 appHosts 와 같고(포트 무관 — 서버의 OG 제외와 같은 기준) 경로가 이슈·노트·파일 화면일 때만.
  *   - /projects/{KEY}/issues/{n}
  *   - /wiki/spaces/{spaceId}/pages/{id} · /wiki/open/{id}
- *   - /drive/spaces/{spaceId}?file={id}
+ *   - /drive/spaces/{spaceId}?file={id} · /drive/spaces/{spaceId}?preview={id}(드라이브 미리보기, WP-1235)
  */
 export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
   let url: URL
@@ -81,9 +106,17 @@ export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
     }
     return null
   }
-  const file = url.searchParams.get('file')
-  if (parts.length === 3 && parts[0] === 'drive' && parts[1] === 'spaces' && ID.test(parts[2]) && file && ID.test(file)) {
-    return { kind: 'FILE', to: `/drive/spaces/${parts[2]}?file=${file}`, fileId: Number(file) }
+  if (parts.length === 3 && parts[0] === 'drive' && parts[1] === 'spaces' && ID.test(parts[2])) {
+    const file = url.searchParams.get('file')
+    if (file && ID.test(file)) return { kind: 'FILE', to: `/drive/spaces/${parts[2]}?file=${file}`, fileId: Number(file) }
+    // 드라이브 미리보기 주소(WP-1235) — 🔗·⇧⌘, 가 복사하는 파일 링크(driveFilePath)다. 드라이브 화면은 지금 폴더 목록에서
+    // 미리볼 파일을 찾으므로, 이동 경로에 폴더(folderId)를 그대로 남겨야 눌렀을 때 그 파일이 열린다.
+    const preview = url.searchParams.get('preview')
+    if (preview && ID.test(preview)) {
+      const folder = url.searchParams.get('folderId')
+      const folderQs = folder && ID.test(folder) ? `folderId=${folder}&` : ''
+      return { kind: 'FILE', to: `/drive/spaces/${parts[2]}?${folderQs}preview=${preview}`, fileId: Number(preview) }
+    }
   }
   return null
 }

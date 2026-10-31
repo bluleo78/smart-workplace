@@ -8,7 +8,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { LinkMenuItems } from '@/components/share/LinkMenuItems'
-import { hasLinkMenuItems } from '@/components/share/shareActions'
 import type { ShareTarget } from '@/lib/shareTarget'
 
 import { Button } from '../ui/button'
@@ -32,11 +31,12 @@ export function ViewerMoreMenu({
   item: ViewerItem
   /** 있으면 "드라이브로 가져오기" 항목을 보인다(item.importFileId 가 있고 가져오기가 가능할 때). */
   onImport?: () => void
-  /** 링크로 다시 열 수 있는 뷰어의 대상(WP-1234) — 있으면 링크 항목(브라우저에서 열기)을 둔다. 없으면(shareable=false) 링크 항목이 없다. */
+  /** 링크로 다시 열 수 있는 뷰어의 대상(WP-1234) — 있으면 링크 항목(채팅·이슈로 보내기·브라우저에서 열기)을 둔다. 없으면(shareable=false) 링크 항목이 없다. */
   shareTarget?: ShareTarget | null
 }) {
   const navigate = useNavigate()
-  const linkItems = shareTarget != null && hasLinkMenuItems(shareTarget)
+  // 링크를 딸 수 있는 뷰어면 링크 항목(「채팅·이슈로 보내기…」 등)이 늘 있다(WP-1235).
+  const linkItems = shareTarget != null
   // 빈 메뉴(⋯ 를 눌러도 아무것도 없음)는 그리지 않는다.
   if (!item.sourceLink && !linkItems && !onImport && !item.driveOpen) return null
   return (

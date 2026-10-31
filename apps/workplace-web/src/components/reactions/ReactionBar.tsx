@@ -7,13 +7,8 @@ import { useState } from 'react'
 
 import { ReactionHoverContent } from '@/components/reactions/ReactionHoverContent'
 import type { ReactionResponse, ReactionTarget, ReactorSource } from '@/components/reactions/types'
-import {
-  HOVER_CLOSE_DELAY_MS,
-  HOVER_OPEN_DELAY_MS,
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from '@/components/ui/hover-card'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
+import { HOVER_CLOSE_DELAY_MS, HOVER_OPEN_DELAY_MS } from '@/lib/hoverDelays'
 
 interface ReactionBarProps {
   // 반응이 달린 대상(메시지·코멘트) — id 는 testid·호버 판정에, reactions 는 칩 목록에 쓴다.

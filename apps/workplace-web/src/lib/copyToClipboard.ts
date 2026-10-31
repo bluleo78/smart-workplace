@@ -8,12 +8,18 @@ import { copyText } from './copyText'
 export interface CopyToastMessages {
   success: string
   failure: string
+  /** 성공 토스트에 붙일 다음 동작 단추(예: 링크 복사 뒤 「채팅으로 보내기」, WP-1235). 없으면 문구만. */
+  successAction?: { label: string; onClick: () => void }
 }
 
 /** text 를 복사하고 결과를 토스트로 알린다. 성공 여부를 돌려준다(예외는 던지지 않는다). */
 export async function copyToClipboard(text: string, messages: CopyToastMessages): Promise<boolean> {
   const ok = await copyText(text)
-  if (ok) toast.success(messages.success)
+  if (ok) {
+    // 다음 동작이 없으면 문구만 넘긴다 — 기존 호출부·테스트가 보던 모양 그대로.
+    if (messages.successAction) toast.success(messages.success, { action: messages.successAction })
+    else toast.success(messages.success)
+  }
   else toast.error(messages.failure)
   return ok
 }

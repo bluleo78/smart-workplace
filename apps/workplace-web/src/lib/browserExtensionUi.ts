@@ -18,13 +18,24 @@ export function isBrowserExtensionUi(target: EventTarget | null): boolean {
 }
 
 /**
+ * 이벤트 대상이 앱 토스트(Sonner 토스터) 안인지 판별한다.
+ * 토스터는 앱 트리 안(다이얼로그 포털 밖)에 그려지므로, 모달 다이얼로그(전체 화면 뷰어 등)가 열린 채 토스트 단추
+ * (「채팅으로 보내기」·「보기」 등, WP-1235)를 누르면 Radix 는 이를 "바깥 클릭"으로 본다.
+ */
+export function isToastUi(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-sonner-toaster]') !== null
+}
+
+/**
  * Radix Dialog/Sheet 의 onInteractOutside 에 끼워 넣는 핸들러.
- * 확장 UI 와의 상호작용(예: 1Password 메뉴에서 계정 선택)을 "바깥 클릭"으로 보고 팝업이 닫히는 것을 막는다.
+ * 확장 UI 와의 상호작용(예: 1Password 메뉴에서 계정 선택)과 토스트 단추 누름을 "바깥 클릭"으로 보고
+ * 팝업이 닫히는 것을 막는다.
  */
 export function preventDismissOnExtensionUi(
   event: CustomEvent<{ originalEvent: Event }>,
 ): void {
-  if (isBrowserExtensionUi(event.detail.originalEvent.target)) {
+  const target = event.detail.originalEvent.target
+  if (isBrowserExtensionUi(target) || isToastUi(target)) {
     event.preventDefault()
   }
 }

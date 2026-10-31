@@ -52,7 +52,8 @@ describe('useShareHotkeys', () => {
     const e = press({ code: 'Comma', key: '<', metaKey: true, shiftKey: true })
     expect(e.defaultPrevented).toBe(true)
     await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(issue.url))
-    expect(success).toHaveBeenCalledWith('링크를 복사했어요')
+    // 토스트에는 같은 링크를 앱 안으로 보내는 「채팅으로 보내기」 단추가 붙는다(WP-1235).
+    expect(success).toHaveBeenCalledWith('링크를 복사했어요', { action: expect.objectContaining({ label: '채팅으로 보내기' }) })
   })
 
   test('Ctrl+. 는 (Windows 에서) 이슈 키를 복사한다', async () => {

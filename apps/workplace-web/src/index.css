@@ -712,6 +712,10 @@
 [data-slot='alert-dialog-overlay']:has(+ [data-ai-confirm]) {
   z-index: 80;
 }
+/* 「채팅·이슈로 보내기」 데스크톱 대화상자(WP-1235) — 콘텐츠는 z-[80] 으로 올리고, 같은 이유로 딤(dialog-overlay)도 콘텐츠 표식을 따라 올린다. */
+[data-slot='dialog-overlay']:has(+ [data-lifted-dialog]) {
+  z-index: 80;
+}
 /* 같은 이유로 AI 시트 안에서 여는 바텀시트(＋ 첨부, WP-234)의 딤 — 콘텐츠 표식(data-ai-layer)을 따라 함께 올린다. */
 [data-slot='sheet-overlay']:has(+ [data-ai-layer]) {
   z-index: 80;
@@ -886,6 +890,14 @@
    「설정 열기」 액션)가 시트 뒤에 가려져 보이지도 눌리지도 않았다. 시트는 aria-modal=false 라 위의 토스트를 눌러도 시트가 닫히지 않는다. */
 [data-sonner-toaster] {
   z-index: 85 !important;
+}
+
+/* 모달 다이얼로그(전체 화면 뷰어 등)가 열리면 Radix 가 body 에 pointer-events: none 을 건다 — 토스터는 앱 트리 안이라
+   함께 막혀, 뷰어 위에 뜬 토스트의 단추(「채팅으로 보내기」·「보기」, WP-1235)가 보이기만 하고 눌리지 않았다.
+   토스트 자체만 다시 받게 한다(토스터 목록의 빈 영역은 Sonner 기본대로 통과). 바깥 클릭으로 닫히는 것은
+   lib/browserExtensionUi 의 preventDismissOnExtensionUi 가 막는다. */
+[data-sonner-toast] {
+  pointer-events: auto;
 }
 
 /* 토스트 문구는 한국어 어절 단위로 줄바꿈한다(WP-55) — 기본값(word-break: normal)은 좁은 토스트에서 "주세/요" 처럼 글자 중간에서 끊는다.
