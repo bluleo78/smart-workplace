@@ -119,6 +119,20 @@ describe('노트 외부 보기(로그인 없음)', () => {
     expect(again.asked).toEqual([String(CHILD)])
   })
 
+  // WP-1242 — HTML 블록은 공개 공유에서도 편집기와 같은 격리 iframe 으로 그린다(소스 편집 단추 없이).
+  test('HTML 블록은 스크립트만 허용한 격리 iframe 으로 그리고 소스 편집 단추·소스 칸은 보이지 않는다', async () => {
+    const src = '<div id="out"></div><script>document.getElementById("out").textContent = "ok"</script>'
+    openPublic(`/wiki/share/${TOKEN}`, () =>
+      HttpResponse.json({ ...share(ROOT), page: { ...share(ROOT).page, markdown: `앞\n\n\`\`\`html-embed\n${src}\n\`\`\`` } }),
+    )
+    const iframe = (await screen.findByTestId('wiki-html-embed-frame', {}, { timeout: 10_000 })) as HTMLIFrameElement
+    expect(iframe.getAttribute('sandbox')).toContain('allow-scripts')
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(iframe.getAttribute('srcdoc')).toContain(src)
+    expect(screen.queryByTestId('wiki-html-embed-toggle')).not.toBeInTheDocument()
+    expect(screen.getByTestId('wiki-html-embed')).not.toHaveAttribute('data-source-open')
+  })
+
   test('하위 응답을 기다리는 동안에도 트리가 남고 본문이 skeleton 으로 깜빡이지 않는다', async () => {
     let release!: () => void
     const gate = new Promise<void>((r) => (release = r))

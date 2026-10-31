@@ -347,6 +347,19 @@ describe('buildRevisionDiff', () => {
       { kind: 'added-node', text: '제목 글자' },
     ])
   })
+
+  // WP-1242 — HTML 블록 소스는 보기 화면에서 숨어 있어 글자 단위 표시가 보이지 않는다. 블록 통째 지움+추가(iframe 테두리)로 보인다.
+  it('HTML 블록 소스가 바뀌면 블록 통째 지움+추가로 표시하고, 같으면 표시가 없다', () => {
+    const before = '앞\n\n```html-embed\n<b>하나</b>\n```'
+    const after = '앞\n\n```html-embed\n<b>둘</b>\n```'
+    expect(diff(before, before).marks).toEqual([])
+    const { read: r, doc } = diff(before, after)
+    expect(r).toEqual([
+      { kind: 'removed-node', text: '<b>하나</b>' },
+      { kind: 'added-node', text: '<b>둘</b>' },
+    ])
+    expect(topTypes(doc)).toEqual(['paragraph', 'wikiHtmlEmbed', 'wikiHtmlEmbed'])
+  })
 })
 
 describe('revisionDiffDecorations', () => {

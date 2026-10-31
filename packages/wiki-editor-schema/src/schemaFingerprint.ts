@@ -16,6 +16,8 @@ export const WIKI_SCHEMA_FINGERPRINTS: Readonly<Record<number, string>> = {
   2: '12514a4b56838d',
   // WP-1240 — 페이지 스타일 wikiStyle·모양 영역 wikiHtmlBox 노드와 인라인 모양 wikiHtmlSpan 마크 추가.
   3: '04ae8301c004d8',
+  // WP-1242 — HTML 블록 wikiHtmlEmbed 노드(```html-embed 펜스, 내용 text*) 추가.
+  4: '1b13cf49e0103b',
 }
 
 /** attrs 한 벌 — 이름과 기본값 유무·기본값(JSON)까지. 기본값이 바뀌면 옛 탭이 만든 노드의 attrs 해석이 달라진다. */

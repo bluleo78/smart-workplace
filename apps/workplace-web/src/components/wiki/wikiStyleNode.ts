@@ -2,15 +2,7 @@ import { WikiStyleSchema } from '@smart-workplace/wiki-editor-schema'
 import { Palette, X } from 'lucide-react'
 
 import { lucideSvg } from './lucideSvg'
-
-/** 칩·지우기 단추·이름표를 노트 CSS 가 숨기거나 옮기거나 클릭을 막지 못하게 인라인 !important 로 고정한다. */
-function pinVisible(el: HTMLElement, display: string): void {
-  el.style.setProperty('display', display, 'important')
-  el.style.setProperty('visibility', 'visible', 'important')
-  el.style.setProperty('opacity', '1', 'important')
-  el.style.setProperty('pointer-events', 'auto', 'important')
-  el.style.setProperty('position', 'static', 'important')
-}
+import { pinVisible } from './wikiPinVisible'
 
 /**
  * 페이지 스타일 노드(WP-1240) — 공용 스키마(WikiStyleSchema)에 화면 칩만 얹는다(스키마는 그대로라 지문이 같다).

@@ -1,4 +1,4 @@
-import { isWikiShapeNode } from '@smart-workplace/wiki-editor-schema'
+import { isWikiShapeNode, WIKI_HTML_EMBED } from '@smart-workplace/wiki-editor-schema'
 import { Extension } from '@tiptap/core'
 import { DOMSerializer, Fragment, type Node as PMNode, type Schema, Slice } from '@tiptap/pm/model'
 import { Plugin } from '@tiptap/pm/state'
@@ -109,11 +109,49 @@ export function stripShapeFromSlice(slice: Slice): Slice {
   )
 }
 
+/** 노트 밖 붙여넣기에서 HTML 블록이 바뀌는 일반 코드 블록의 언어 — 소스 글자는 그대로 보인다. */
+const PASTED_EMBED_LANGUAGE = 'html'
+
+/** 조각 안 HTML 블록(wikiHtmlEmbed)을 같은 글자의 ```html 코드 블록으로 — 바뀐 것이 없으면 같은 조각. */
+function embedsToCodeFragment(fragment: Fragment, schema: Schema): Fragment {
+  let changed = false
+  const out: PMNode[] = []
+  fragment.forEach((node) => {
+    if (node.type.name === WIKI_HTML_EMBED) {
+      changed = true
+      out.push(schema.nodes.codeBlock.create({ language: PASTED_EMBED_LANGUAGE }, node.content))
+      return
+    }
+    if (node.isLeaf || !node.content.size) {
+      out.push(node)
+      return
+    }
+    const content = embedsToCodeFragment(node.content, schema)
+    if (content !== node.content) changed = true
+    out.push(content === node.content ? node : node.copy(content))
+  })
+  return changed ? Fragment.fromArray(out) : fragment
+}
+
+/**
+ * 노트 밖에서 온 붙여넣기의 HTML 블록을 실행되지 않는 ```html 코드 블록으로 바꾼다(WP-1242, 순수 함수).
+ * 왜: 웹 페이지·다른 앱에서 복사한 글이나 ```html-embed 를 친 글자가 붙여넣기만으로 스크립트가 도는 블록이 되지 않게 — 실행 블록은
+ * 슬래시 메뉴로 일부러 넣거나 노트끼리 복사(노트 복사 표지)할 때만 생긴다. 지우지 않고 글자를 남겨 사용자가 소스를 잃지 않는다.
+ * 모양 노드 판정(isWikiShapeNode)과는 따로 둔다 — 그 판정은 화면 범위 가두기(wikiHtmlScope)도 쓰는데, HTML 블록은 iframe 이라 범위와 무관하다.
+ * 열린 깊이는 그대로다 — 블록과 코드 블록은 같은 깊이의 글자 블록이다.
+ */
+export function embedsToCodeBlocks(slice: Slice, schema: Schema): Slice {
+  if (!schema.nodes[WIKI_HTML_EMBED] || !schema.nodes.codeBlock) return slice
+  const content = embedsToCodeFragment(slice.content, schema)
+  return content === slice.content ? slice : new Slice(content, slice.openStart, slice.openEnd)
+}
+
 /**
  * 붙여넣기 모양 거르기 확장 — 노트 본문 편집기(wikiEditorExtensions)와 판 미리보기(복사 원본)에 넣는다.
  * - clipboardSerializer: 복사·끌기 HTML 에 노트 복사 표지를 단다.
  * - transformPastedHTML: 이번 붙여넣기 HTML 이 노트 복사인지 기억만 한다(HTML 은 바꾸지 않는다).
- * - transformPasted: 글자 붙여넣기(plain)거나 노트 복사가 아니면 조각에서 모양을 뺀다. 같은 편집기 안 끌어다 놓기는 그대로.
+ * - transformPasted: 글자 붙여넣기(plain)거나 노트 복사가 아니면 조각에서 모양을 빼고 HTML 블록을 ```html 코드 블록으로 바꾼다.
+ *   같은 편집기 안 끌어다 놓기는 그대로.
  */
 export const WikiPasteShape = Extension.create({
   name: 'wikiPasteShape',
@@ -131,7 +169,8 @@ export const WikiPasteShape = Extension.create({
           transformPasted(slice, view, plain) {
             const internal = !plain && (htmlFromNote || !!view.dragging)
             htmlFromNote = false
-            return internal ? slice : stripShapeFromSlice(slice)
+            // 노트 밖 붙여넣기 — 모양을 떼고, HTML 블록은 실행되지 않는 코드 블록으로 바꾼다(WP-1242).
+            return internal ? slice : embedsToCodeBlocks(stripShapeFromSlice(slice), view.state.schema)
           },
         },
       }),
