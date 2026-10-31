@@ -3,11 +3,19 @@ import { toast } from 'sonner'
 
 import { copyToClipboard } from '@/lib/copyToClipboard'
 import { isStandaloneDisplay } from '@/lib/platform'
+import { openSendToChat } from '@/lib/sendToChat'
 import type { ShareTarget } from '@/lib/shareTarget'
 
-/** 대상 링크를 복사하고 토스트로 알린다. */
+/**
+ * 대상 링크를 복사하고 토스트로 알린다. 토스트의 「채팅으로 보내기」는 같은 링크를 앱 안 채널·DM·이슈 댓글로 보내는
+ * 대화상자를 연다(WP-1235) — 복사한 뒤 붙여 넣을 곳이 앱 안이라면 한 번에 보내게.
+ */
 export function copyShareLink(target: ShareTarget): Promise<boolean> {
-  return copyToClipboard(target.url, { success: '링크를 복사했어요', failure: '링크를 복사하지 못했어요' })
+  return copyToClipboard(target.url, {
+    success: '링크를 복사했어요',
+    failure: '링크를 복사하지 못했어요',
+    successAction: { label: '채팅으로 보내기', onClick: () => openSendToChat(target) },
+  })
 }
 
 /** 이슈 키(WP-12)를 복사한다. 키가 없는 대상이면 아무것도 하지 않는다. */
@@ -38,15 +46,10 @@ export function sendToOtherApp(target: ShareTarget): void {
 }
 
 /**
- * 이 대상에 보일 데스크톱 ⋯ 링크 항목 — LinkMenuItems(그리기)와 hasLinkMenuItems(구분선·빈 ⋯ 판정)가 함께 쓰는 단 하나의 보임 규칙.
- * 키 복사는 키가 있는 대상(이슈)만. 일반 브라우저에는 이미 주소창이 있어 「브라우저에서 열기」는 뜻이 없으므로 standalone 일 때만 둔다.
+ * 이 대상에 보일 데스크톱 ⋯ 링크 항목 중 대상마다 달라지는 것 — LinkMenuItems 가 쓴다.
+ * 키 복사는 키가 있는 대상(이슈)만. 「채팅·이슈로 보내기…」는 모든 대상에 늘 있다(WP-1235) — 그래서 대상이 있는 화면의 ⋯ 에는
+ * 링크 항목이 늘 하나 이상 있어, 예전의 「항목이 하나라도 있는가」(hasLinkMenuItems) 판정은 없앴다. 일반 브라우저에는 이미 주소창이 있어 「브라우저에서 열기」는 뜻이 없으므로 standalone 일 때만 둔다.
  */
 export function linkMenuFlags(target: ShareTarget): { showKey: boolean; showBrowser: boolean } {
   return { showKey: !!target.key, showBrowser: isStandaloneDisplay() }
-}
-
-/** 이 대상에 데스크톱 ⋯ 링크 항목(LinkMenuItems)이 하나라도 있는가 — 없으면 호출부가 구분선·빈 ⋯ 를 두지 않는다. */
-export function hasLinkMenuItems(target: ShareTarget): boolean {
-  const { showKey, showBrowser } = linkMenuFlags(target)
-  return showKey || showBrowser
 }

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { appLinksOf, cardUrls, currentAppHosts, issuePath, parseAppLink, setPublicAppHost, visibleAppLinks } from './appLinks'
+import { appLinksOf, cardUrls, currentAppHosts, parseAppLink, setPublicAppHost, visibleAppLinks, withoutMarkdownCode } from './appLinks'
 
 // 서버 LinkPreviewDispatcherTest 와 함께 읽는 앱 카드 주소 사례 표(WP-1165) — 두 쪽 경로 문법·자릿수 상한이 어긋나면 한쪽이 실패한다.
 const SHARED_TABLE = JSON.parse(
@@ -20,6 +20,15 @@ describe('parseAppLink', () => {
     expect(parseAppLink('https://works.example.com/wiki/spaces/3/pages/41', HOST)).toMatchObject({ kind: 'PAGE', pageId: 41, to: '/wiki/spaces/3/pages/41' })
     expect(parseAppLink('https://works.example.com/wiki/open/41', HOST)).toMatchObject({ kind: 'PAGE', pageId: 41, to: '/wiki/open/41' })
     expect(parseAppLink('https://works.example.com/drive/spaces/5?file=77&x=1', HOST)).toMatchObject({ kind: 'FILE', fileId: 77, to: '/drive/spaces/5?file=77' })
+  })
+
+  it('🔗 가 복사하는 드라이브 미리보기 주소(?preview)도 파일 카드다 — 이동 경로에 폴더를 남겨 그 파일이 열리게(WP-1235)', () => {
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?folderId=3&preview=77', HOST)).toEqual({
+      kind: 'FILE', fileId: 77, to: '/drive/spaces/5?folderId=3&preview=77',
+    })
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?preview=77', HOST)).toMatchObject({ to: '/drive/spaces/5?preview=77' })
+    // 첨부 보기(/drive/attachments)의 file:<id> 모양은 드라이브 파일 id 가 아니다.
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?preview=file:9', HOST)).toBeNull()
   })
 
   it('호스트는 대소문자·포트와 무관하게 같으면 앱 링크다', () => {
@@ -110,8 +119,24 @@ describe('공개 웹 주소 호스트(WP-1165)', () => {
   })
 })
 
-describe('issuePath', () => {
-  it('이슈 화면 주소', () => {
-    expect(issuePath('WP', 12)).toBe('/projects/WP/issues/12')
+describe('withoutMarkdownCode(WP-1235)', () => {
+  const u = (n: number) => `https://app.example/projects/WP/issues/${n}`
+
+  it('닫힌 ``` · ~~~ 펜스와 인라인 코드 안 주소는 지우고, 밖의 주소는 남긴다', () => {
+    const body = ['보세요 ' + u(1), '```ts', u(2), '```', '~~~', u(3), '~~~', `인라인 \`${u(4)}\` 과 \`\`${u(5)}\`\``, u(6)].join('\n')
+    expect(cardUrls(withoutMarkdownCode(body))).toEqual([u(1), u(6)])
+  })
+
+  it('닫히지 않은 펜스는 끝까지 코드다', () => {
+    expect(cardUrls(withoutMarkdownCode(`${u(1)}\n\`\`\`\n${u(2)}\n${u(3)}`))).toEqual([u(1)])
+  })
+
+  it('여는 펜스보다 짧은 줄이나 다른 글자는 닫지 않는다', () => {
+    expect(cardUrls(withoutMarkdownCode(`\`\`\`\`\n\`\`\`\n${u(1)}\n~~~~\n\`\`\`\`\n${u(2)}`))).toEqual([u(2)])
+  })
+
+  it('코드를 거른 뒤 앞에서 3개까지 — 코드 안 주소가 자리를 차지하지 않는다', () => {
+    const body = [`\`${u(1)}\``, u(2), u(3), u(4), u(5)].join(' ')
+    expect(cardUrls(withoutMarkdownCode(body))).toEqual([u(2), u(3), u(4)])
   })
 })

@@ -11,16 +11,12 @@ import { Link } from 'react-router-dom'
 import { appLinkCardQuery, isAppLinkDenied } from '@/api/appLinks'
 import { IssueCardBody } from '@/components/chat/AppLinkCard'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
-import {
-  HOVER_CLOSE_DELAY_MS,
-  HOVER_OPEN_DELAY_MS,
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from '@/components/ui/hover-card'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { useVisibleProjectKeys } from '@/hooks/queries/useProjects'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
-import { type AppLink, issuePath } from '@/lib/appLinks'
+import { type AppLink } from '@/lib/appLinks'
+import { issuePath } from '@/lib/appUrl'
+import { HOVER_CLOSE_DELAY_MS, HOVER_OPEN_DELAY_MS } from '@/lib/hoverDelays'
 
 const LINK_CLASS = 'text-primary underline underline-offset-2'
 

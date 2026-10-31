@@ -348,8 +348,10 @@ describe('링크 복사(WP-1234)', () => {
     await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(fileUrl))
     expect(await screen.findByText('링크를 복사했어요')).toBeInTheDocument()
     expect(shareTargetStore.get()?.url).toBe(fileUrl)
-    // ⋯ 의 예전 「링크 복사」를 🔗 로 옮겨, 다른 항목이 없는 드라이브 파일은 빈 ⋯ 를 그리지 않는다.
-    expect(within(viewer).queryByRole('button', { name: '더 보기' })).not.toBeInTheDocument()
+    // ⋯ 의 예전 「링크 복사」는 🔗 로 옮겼고, 링크를 딸 수 있는 파일의 ⋯ 에는 「채팅·이슈로 보내기…」가 늘 있다(WP-1235).
+    await user.click(within(viewer).getByRole('button', { name: '더 보기' }))
+    expect(await screen.findByTestId('menu-send-to-chat')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByTestId('attachment-viewer')).not.toBeInTheDocument())
     expect(shareTargetStore.get()?.url).toBe(`${window.location.origin}/drive/spaces/${SPACE_ID}`)

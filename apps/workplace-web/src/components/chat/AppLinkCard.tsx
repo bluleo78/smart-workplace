@@ -1,7 +1,7 @@
 // 채팅 본문의 우리 앱 링크 카드(WP-896, 시안 A) — 이슈·노트·드라이브 파일 링크 아래에 보는 사람 권한으로 그 순간 채운 정보를 보인다.
 // 카드 전체가 앱 안 이동 링크다(본문 URL 은 지금처럼 새 탭). 볼 수 없거나 없는 대상은 정보 없이 점선 자리에 「볼 수 없는 …」만 둔다.
 import { Ban, FileText, SquareKanban } from 'lucide-react'
-import type { MouseEvent } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { type AppLinkCard as AppLinkCardData, isAppLinkDenied as isDenied } from '@/api/appLinks'
@@ -15,9 +15,22 @@ import type { IssueStatus } from '@/types/issue'
 
 const CARD_CLASS = 'block w-full min-w-0 rounded-lg border px-3 py-2'
 
-/** 카드 1장. testId 접미사는 메시지 id·본문 순서. */
-export function AppLinkCard({ messageId, index, link }: { messageId: number; index: number; link: AppLink }) {
-  const testId = `app-link-${messageId}-${index}`
+/**
+ * 카드 1장. testId 접미사는 메시지 id·본문 순서. testIdPrefix — 메시지가 아닌 글(이슈 댓글, WP-1235)은 다른 접두를 써
+ * 같은 화면의 메시지 카드 testid 와 겹치지 않게 한다.
+ */
+export function AppLinkCard({
+  messageId,
+  index,
+  link,
+  testIdPrefix = 'app-link',
+}: {
+  messageId: number
+  index: number
+  link: AppLink
+  testIdPrefix?: string
+}) {
+  const testId = `${testIdPrefix}-${messageId}-${index}`
   const { data, error } = useAppLinkCard(link)
 
   // 일시 오류로 끝내 못 받았으면 카드 없이 둔다 — 「볼 수 없는 …」은 권한이 없거나 없는 대상일 때만(본문 링크는 그대로 남는다).
@@ -49,6 +62,20 @@ export function AppLinkCard({ messageId, index, link }: { messageId: number; ind
     >
       <CardBody data={data} testId={testId} />
     </Link>
+  )
+}
+
+/**
+ * 보내기 전 미리보기(WP-1235) — 받는 쪽이 볼 카드와 같은 모양이되 이동 링크가 아니다(대화상자 안에서 눌러 화면을 떠나지 않게).
+ * 카드를 받는 동안·받지 못했을 때는 fallback(대상 이름으로 그린 자리)을 보인다 — 보내는 사람은 이미 그 대상을 보고 있다.
+ */
+export function AppLinkCardPreview({ link, testId, fallback }: { link: AppLink; testId: string; fallback: ReactNode }) {
+  const { data } = useAppLinkCard(link)
+  if (!data) return <>{fallback}</>
+  return (
+    <div data-testid={testId} data-state="ready" className={`${CARD_CLASS} bg-card text-card-foreground`}>
+      <CardBody data={data} testId={testId} />
+    </div>
   )
 }
 

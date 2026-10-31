@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
+import { LinkPreviewList } from '@/components/chat/LinkPreviewCard';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
 import { renderIssueKeyRef } from '@/components/issues/renderIssueKeyRef';
 import { countApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
@@ -31,11 +32,13 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
+import { appLinksOf, withoutMarkdownCode } from '@/lib/appLinks';
 import { appUrl } from '@/lib/appUrl';
 import { cn } from '@/lib/utils';
 
 import { uploadIssueImage } from '../../../api/issueImages';
 import { commentReactorSource } from '../../../hooks/queries/commentReactorSource';
+import { useAppHosts } from '../../../hooks/queries/useAppLinks';
 import { useDeleteComment, useUpdateComment } from '../../../hooks/queries/useIssueComments';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useToggleCommentReaction } from '../../../hooks/queries/useToggleCommentReaction';
@@ -343,6 +346,9 @@ function CommentItem({
           </MarkdownMessage>
         )}
 
+        {/* 앱 링크 카드(WP-1235) — 「채팅·이슈로 보내기」로 이슈 댓글에 보낸 링크가 채팅과 같은 카드로 보이게. 편집 중엔 숨긴다. */}
+        {!editing && <CommentAppLinkCards commentId={comment.id} body={comment.body} />}
+
         {/* 이모지 반응(WP-504) — 본문 아래 칩 줄. 편집 중엔 숨긴다(편집창 아래 칩·버튼이 섞이지 않게). */}
         {!editing && (
           <CommentReactions
@@ -358,6 +364,17 @@ function CommentItem({
       </div>
     </li>
   );
+}
+
+/**
+ * 코멘트 본문의 우리 앱 링크 카드(WP-1235) — 채팅 메시지와 같은 규칙(appLinksOf: 앞에서 3개, 같은 대상은 하나)·같은 묶음(LinkPreviewList).
+ * 코드 블록·인라인 코드 안 주소는 카드로 만들지 않는다(코드로 적은 예시 주소). 외부 링크(OG) 카드는 댓글에 없어 앱 카드만 넘긴다.
+ * 카드는 보는 사람 권한으로 채운다(볼 수 없는 대상은 「볼 수 없는 …」). testid 는 메시지 카드와 겹치지 않게 comment-app-link 접두를 쓴다.
+ */
+function CommentAppLinkCards({ commentId, body }: { commentId: number; body: string }) {
+  const appHosts = useAppHosts();
+  const links = appLinksOf(withoutMarkdownCode(body), appHosts);
+  return <LinkPreviewList messageId={commentId} previews={[]} appLinks={links} testIdPrefix="comment-app-link" />;
 }
 
 // 코멘트 목록을 고른 순서(WP-1016)로 표시하고, 작성창에서 신규 코멘트를 추가.

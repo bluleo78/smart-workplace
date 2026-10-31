@@ -1,11 +1,12 @@
 // 노트 헤더 ⋯ 메뉴의 「전체 폭」 항목(WP-793) — 누구에게·어느 화면에서 보이는지와 상태 표시. 실제 폭 변화·저장 배선은 E2E(wiki-full-width.spec).
-import { screen } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import type { SyncStatus } from '../../lib/collab/collabStatus'
+import { closeSendToChat, sendToChatTarget } from '../../lib/sendToChat'
 import type { ShareTarget } from '../../lib/shareTarget'
 import { WikiPageHeader } from './WikiPageHeader'
 
@@ -109,5 +110,14 @@ describe('WikiPageHeader 링크 복사(WP-1234)', () => {
     await openMenu()
     expect(screen.getByTestId('wiki-menu-source')).toBeInTheDocument()
     expect(screen.queryByTestId('menu-open-in-browser')).not.toBeInTheDocument()
+  })
+
+  it('⋯ 에는 늘 「채팅·이슈로 보내기…」가 있고 누르면 이 노트로 보내기 창을 연다(WP-1235)', async () => {
+    const user = userEvent.setup()
+    renderHeader({ shareTarget: target })
+    await openMenu()
+    await user.click(screen.getByTestId('menu-send-to-chat'))
+    await waitFor(() => expect(sendToChatTarget()).toBe(target))
+    act(() => closeSendToChat())
   })
 })

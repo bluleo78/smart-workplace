@@ -22,6 +22,8 @@ export interface MobileSheetAction {
   hint?: ReactNode;
   /** AI 작업 — AI 강조색(text-ai-accent). */
   ai?: boolean;
+  /** 이름 아래 작은 설명(예: 「채팅·이슈로 보내기」 아래 「앱 안 채널·DM·이슈 댓글」, WP-1235) — 이름만으로 어디로 가는지 모호한 항목에. */
+  description?: string;
 }
 
 export function MobileActionSheet({
@@ -75,7 +77,15 @@ export function MobileActionSheet({
                 {/* 막힌 작업은 아이콘·이름만 흐리게 — 오른쪽 hint 가 막힌 이유일 때 읽혀야 하므로 투명도 밖에 둔다(WP-809). */}
                 <span className="flex min-w-0 items-center gap-3 group-disabled:opacity-50">
                   {a.icon}
-                  {a.label}
+                  {a.description ? (
+                    // 설명이 있으면 두 줄 — 이름(본문 크기) 아래 작은 회색 설명. 행 높이는 내용만큼 늘고 최소 44px 는 그대로다.
+                    <span className="flex min-w-0 flex-col py-1.5">
+                      <span>{a.label}</span>
+                      <span className="text-xs text-muted-foreground">{a.description}</span>
+                    </span>
+                  ) : (
+                    a.label
+                  )}
                 </span>
                 {a.hint != null && (
                   <span className="ml-auto flex min-w-0 items-center gap-1 truncate pl-3 text-sm text-muted-foreground">{a.hint}</span>

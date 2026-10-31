@@ -91,27 +91,30 @@ function LinkPreviewCard({ messageId, preview }: { messageId: number; preview: L
  * 한 메시지의 미리보기 카드 묶음. onDismiss 를 주면(작성자 본인·데스크톱) 첫 카드 오른쪽 위에 ✕ — hover·포커스 때 드러난다.
  * 터치 셸에서는 ✕ 대신 메시지 작업 시트의 「미리보기 지우기」를 쓴다(호출처가 onDismiss 를 넘기지 않는다).
  * appLinks(WP-896)는 우리 앱 링크 카드 — 외부 링크 카드보다 먼저 그린다. 지우면 둘 다 사라진다(호출처가 지운 메시지엔 넘기지 않는다).
+ * testIdPrefix — 메시지가 아닌 글(이슈 댓글, WP-1235)은 다른 접두를 써 같은 화면 메시지 카드와 testid 가 겹치지 않게 한다.
  */
 export function LinkPreviewList({
   messageId,
   previews,
   appLinks = [],
   onDismiss,
+  testIdPrefix,
 }: {
   messageId: number
   previews: LinkPreview[]
   appLinks?: AppLink[]
   onDismiss?: () => void
+  testIdPrefix?: string
 }) {
   if (previews.length === 0 && appLinks.length === 0) return null
   return (
     <div
-      data-testid={`link-previews-${messageId}`}
+      data-testid={testIdPrefix ? `${testIdPrefix}s-${messageId}` : `link-previews-${messageId}`}
       // 말풍선 안에 들어가도 본문의 pre-wrap·wrap-anywhere·이탤릭을 물려받지 않게 되돌린다.
       className="group/card relative mt-1.5 flex w-full max-w-xl flex-col gap-1.5 text-left text-sm whitespace-normal not-italic [overflow-wrap:normal]"
     >
       {appLinks.map((link, i) => (
-        <AppLinkCard key={link.to} messageId={messageId} index={i} link={link} />
+        <AppLinkCard key={link.to} messageId={messageId} index={i} link={link} testIdPrefix={testIdPrefix} />
       ))}
       {previews.map((p) => (
         <LinkPreviewCard key={p.position} messageId={messageId} preview={p} />

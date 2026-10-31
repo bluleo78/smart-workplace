@@ -81,12 +81,14 @@ public class LinkPreviewDispatcher {
   private static final Pattern ID = Pattern.compile("[1-9][0-9]{0,14}");
   private static final Pattern PROJECT_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9]{1,9}");
   private static final Pattern FILE_PARAM = Pattern.compile("(?:^|&)file=([^&]*)");
+  // 드라이브 미리보기 주소(WP-1235) — 웹의 🔗·⇧⌘, 가 복사하는 파일 링크(/drive/spaces/{s}?folderId=..&preview={id}).
+  private static final Pattern PREVIEW_PARAM = Pattern.compile("(?:^|&)preview=([^&]*)");
 
   /**
    * 웹이 앱 카드로 그리는 주소인지 — 호스트가 우리 앱이고 경로가 {@code /projects/{KEY}/issues/{n}}·{@code
-   * /wiki/spaces/{s}/pages/{id}}·{@code /wiki/open/{id}}·{@code /drive/spaces/{s}?file={id}} 중 하나.
-   * 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례 표(test/resources/app-links/app-card-urls.json)를
-   * 읽어 어긋나면 실패한다.
+   * /wiki/spaces/{s}/pages/{id}}·{@code /wiki/open/{id}}·{@code /drive/spaces/{s}?file={id}}·{@code
+   * /drive/spaces/{s}?preview={id}} 중 하나. 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
+   * 표(test/resources/app-links/app-card-urls.json)를 읽어 어긋나면 실패한다.
    */
   boolean isAppCardUrl(String url) {
     Matcher m = URL_PARTS.matcher(url);
@@ -104,7 +106,11 @@ public class LinkPreviewDispatcher {
     }
     if (p.length == 3 && p[0].equals("drive") && p[1].equals("spaces") && m.group(3) != null) {
       Matcher f = FILE_PARAM.matcher(m.group(3));
-      return ID.matcher(p[2]).matches() && f.find() && ID.matcher(f.group(1)).matches();
+      Matcher pv = PREVIEW_PARAM.matcher(m.group(3));
+      // file= 이 우선이고(웹 parseAppLink 와 같은 순서), 쓸 수 없으면 미리보기 id 를 본다.
+      boolean byFile = f.find() && ID.matcher(f.group(1)).matches();
+      boolean byPreview = pv.find() && ID.matcher(pv.group(1)).matches();
+      return ID.matcher(p[2]).matches() && (byFile || byPreview);
     }
     return false;
   }
