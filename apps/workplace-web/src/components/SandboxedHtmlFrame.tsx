@@ -20,13 +20,31 @@ import { withSandboxHead } from '../lib/sandboxedHtml'
  */
 export function SandboxedHtmlFrame({
   html,
+  allowScripts = false,
   ...props
-}: { html: string; title: string } & Omit<ComponentProps<'iframe'>, 'srcDoc' | 'sandbox' | 'src'>) {
+}: {
+  html: string
+  title: string
+  /**
+   * 스크립트 허용(WP-1242 노트 HTML 블록) — 기본 false 는 지금처럼 스크립트 차단(메일·업로드 미리보기). 호출부가 sandbox 문자열을
+   * 직접 고르지 못하고 이 플래그 하나만 준다. 켜도 allow-same-origin 은 주지 않는다 — 문서가 불투명 출처(origin "null")라
+   * 스크립트가 앱 쿠키·localStorage·부모 DOM 에 닿지 못한다(둘을 함께 주면 스크립트가 sandbox 속성을 지워 격리를 풀 수 있다).
+   * 다운로드(차트 「이미지로 저장」)·팝업(링크 — 브라우저가 사용자 동작 없는 팝업은 막는다)은 허용한다. 대화상자(allow-modals)는 주지 않는다 —
+   * alert·confirm·prompt 를 되풀이하는 스크립트가 앱 탭을 잠그지 못하게(WP-1242 결정). 막힌 alert 는 아무 일 없이 지나간다.
+   */
+  allowScripts?: boolean
+} & Omit<ComponentProps<'iframe'>, 'srcDoc' | 'sandbox' | 'src'>) {
   const doc = useMemo(() => withSandboxHead(html), [html])
   // 문서가 바뀔 때마다 올리는 세대 번호 — iframe key. 수 MB 문서 자체를 key 로 쓰지 않으려고 렌더 중에 번호만 갱신한다.
   const [frame, setFrame] = useState({ doc, generation: 0 })
   if (frame.doc !== doc) setFrame({ doc, generation: frame.generation + 1 })
   // 공용 구현부 — srcDoc iframe 직접 사용 금지 규칙(eslint.config.js)의 유일한 예외.
   // eslint-disable-next-line no-restricted-syntax
-  return <iframe key={frame.generation} {...props} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={doc} />
+  return <iframe key={frame.generation} {...props} sandbox={allowScripts ? SCRIPT_SANDBOX : INERT_SANDBOX} srcDoc={doc} />
 }
+
+/** 기본 격리 — 스크립트·폼·same-origin 차단, 링크 팝업만(WP-427). */
+const INERT_SANDBOX = 'allow-popups allow-popups-to-escape-sandbox'
+
+/** 스크립트 허용 격리(WP-1242) — allow-same-origin(있으면 스크립트가 앱 출처로 돈다)·allow-modals(대화상자로 탭 잠금)는 없다. */
+const SCRIPT_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads'

@@ -221,4 +221,150 @@ class WikiPublicMarkdownMaskerTest {
     assertThat(mask("<p><img alt=\"x\" src=\"https://ex.com/i.png\"></p>"))
         .isEqualTo("<p><img alt=\"x\" src=\"https://ex.com/i.png\"></p>");
   }
+
+  // ── HTML 블록(WP-1242) ───────────────────────────────────────────────────
+
+  /** 차트 스크립트 — 링크·주소 속성 가림이 깨던 모양(`data = {`, `a[0](x)`, 마크다운 링크 꼴, 정규식 글자)을 담는다. */
+  private static final String CHART_SOURCE =
+      String.join(
+          "\n",
+          "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>",
+          "<script src=\"//cdn.example.com/x.js\"></script>",
+          "<script>",
+          "const data = {labels: ['a']};",
+          "const fns = [x => x]; fns[0](1); const t = '[x](/issues/1)'.match(/\\d+/);",
+          "new Chart(c, {type: 'bar', data: data}); const re = /wiki/g; s.split('/');",
+          "</script>",
+          "<a href=\"https://ex.com/a\">out</a>",
+          "",
+          "<img src=\"data:image/png;base64,AAAA\">");
+
+  /** HTML 블록 소스는 링크·주소 속성 가림 없이 그대로 — 공유 링크에서도 편집기와 같은 스크립트가 돈다. 블록 밖은 지금처럼 가린다. */
+  @Test
+  void public_keeps_html_embed_source_verbatim() {
+    String md =
+        "앞 [내부](/issues/1)\n\n```html-embed\n" + CHART_SOURCE + "\n```\n\n뒤 [내부](/issues/2)";
+    assertThat(mask(md)).isEqualTo("앞 내부\n\n```html-embed\n" + CHART_SOURCE + "\n```\n\n뒤 내부");
+
+    // 더 긴 펜스 — 소스 안 ``` 줄에서 닫히지 않는다(같은 길이 이상 펜스에서만 닫힌다).
+    String inner = "const md = `\n```\n[x](/issues/1)\n`";
+    assertThat(mask("````html-embed\n" + inner + "\n````\n[y](/issues/2)"))
+        .isEqualTo("````html-embed\n" + inner + "\n````\ny");
+
+    // 목록·인용 안 — 모든 줄에 같은 접두(노트 직렬화기 형태), 빈 줄은 접두 끝 공백을 떼도 된다.
+    String list = "- 항목\n\n  ```html-embed\n  const data = {a: 1};\n\n  fns[0](1)\n  ```";
+    assertThat(mask(list)).isEqualTo(list);
+    String quote = "> ```html-embed\n> const data = {a: 1};\n>\n> ```";
+    assertThat(mask(quote)).isEqualTo(quote);
+  }
+
+  /**
+   * HTML 블록 안 앱 주소 — 따옴표·url( 뒤 절대 경로와 같은 오리진 절대 주소를 글자 그대로 바꾼다. 범위 안 첨부는 공개 첨부 주소, 그 밖의 앱 주소는 빈
+   * 글자, 외부·프로토콜 상대 주소는 그대로. 스크립트 문법(따옴표 짝)은 그대로다.
+   */
+  @Test
+  void public_rewrites_app_urls_inside_html_embed() {
+    String src =
+        String.join(
+            "\n",
+            "<img src=\"/api/v1/wiki/pages/20/attachments/5/content\">",
+            "<img src='/api/v1/wiki/pages/12/attachments/6/content'>",
+            "<a href=\"/wiki/spaces/1/pages/12\">p</a> <a href=\"http://localhost:6173/issues/WP-1?x=1\">i</a>",
+            "<div style=\"background:url(/api/v1/wiki/pages/21/attachments/7/content)\"></div>",
+            "<script>fetch(`/api/v1/issues`); const u = 'http://localhost:6173'; const ok = \"https://ex.com/a\";</script>",
+            "<a href=\"/api/v1/public/wiki/shares/wsh_tok/pages/20/attachments/5\">pub</a>");
+    String expected =
+        String.join(
+            "\n",
+            "<img src=\"/api/v1/public/wiki/shares/wsh_tok/pages/20/attachments/5\">",
+            "<img src=''>",
+            "<a href=\"\">p</a> <a href=\"\">i</a>",
+            "<div style=\"background:url(/api/v1/public/wiki/shares/wsh_tok/pages/21/attachments/7)\"></div>",
+            "<script>fetch(``); const u = ''; const ok = \"https://ex.com/a\";</script>",
+            "<a href=\"/api/v1/public/wiki/shares/wsh_tok/pages/20/attachments/5\">pub</a>");
+    assertThat(mask("```html-embed\n" + src + "\n```"))
+        .isEqualTo("```html-embed\n" + expected + "\n```");
+  }
+
+  /** 목록 안 HTML 블록 — 노트 직렬화기 출력(글머리·번호·중첩·인용 안 목록)과 목록 표시 줄에서 여는 펜스도 HTML 블록이다. */
+  @Test
+  void public_recognizes_html_embed_in_lists() {
+    // 노트 직렬화기 출력 그대로 — 목록 항목 첫 문단 뒤에 블록, 이어지는 줄은 항목 들여쓰기, 빈 줄도 들여쓰기.
+    String bullet = "- a\n\n  ```html-embed\n  const d = {a: 1};\n  \n  f[0](1)\n  ```\n\n- b";
+    assertThat(mask(bullet)).isEqualTo(bullet);
+    String numbered = "1. a\n\n   ```html-embed\n   const d = {a: 1}; f[0](1)\n   ```\n\n2. b";
+    assertThat(mask(numbered)).isEqualTo(numbered);
+    String nested = "- a\n\n  - b\n\n    ```html-embed\n    const d = {a: 1}; f[0](1)\n    ```";
+    assertThat(mask(nested)).isEqualTo(nested);
+    String quotedList = "> - a\n>\n>   ```html-embed\n>   const d = {a: 1}; f[0](1)\n>   ```";
+    assertThat(mask(quotedList)).isEqualTo(quotedList);
+    // 목록 표시 줄에서 바로 여는 펜스(손으로 쓴 마크다운) — 이어지는 줄 접두는 표시 폭만큼 공백.
+    for (String md :
+        new String[] {
+          "- ```html-embed\n  const d = {a: 1}; f[0](1)\n  ```",
+          "* ```html-embed\n  const d = {a: 1}; f[0](1)\n  ```",
+          "+ ```html-embed\n  const d = {a: 1}; f[0](1)\n  ```",
+          "1. ```html-embed\n   const d = {a: 1}; f[0](1)\n   ```",
+          "10) ```html-embed\n    const d = {a: 1}; f[0](1)\n    ```",
+          "- - ```html-embed\n    const d = {a: 1}; f[0](1)\n    ```",
+          "- a\n  - ```html-embed\n    const d = {a: 1}; f[0](1)\n    ```"
+        }) {
+      assertThat(mask(md)).as(md).isEqualTo(md);
+    }
+  }
+
+  /** 목록 밖에서 4칸 이상 들여쓴 펜스는 들여쓴 코드 블록이라 HTML 블록이 아니다(지금처럼 가린다). 3칸까지는 펜스다. */
+  @Test
+  void public_indented_code_is_not_html_embed() {
+    assertThat(mask("    ```html-embed\n    [x](/issues/1)\n    ```"))
+        .isEqualTo("    ```html-embed\n    x\n    ```");
+    assertThat(mask("   ```html-embed\n   [x](/issues/1)\n   ```"))
+        .isEqualTo("   ```html-embed\n   [x](/issues/1)\n   ```");
+    // 목록이 끝난 뒤(덜 들여쓴 문단)에는 다시 목록 밖이다.
+    assertThat(mask("- a\n\nb\n\n    ```html-embed\n    [x](/issues/1)\n    ```"))
+        .isEqualTo("- a\n\nb\n\n    ```html-embed\n    x\n    ```");
+  }
+
+  /** HTML 블록 소스 안에서도 멘션 토큰(사람·이슈·범위 밖 페이지)은 가린다 — 익명 공유에 사람·이슈 id 를 남기지 않는다. */
+  @Test
+  void public_masks_mentions_inside_html_embed() {
+    String md =
+        "```html-embed\n<p><@3> <#issue:7> <#page:20> &lt;@4&gt;</p>\n"
+            + "<span data-mtype=\"USER\" data-id=\"5\">&lt;@5&gt;</span>\n```";
+    assertThat(mask(md))
+        .isEqualTo(
+            "```html-embed\n<p>"
+                + NO_ACCESS
+                + " "
+                + NO_ACCESS
+                + " 1분기 "
+                + NO_ACCESS
+                + "</p>\n"
+                + NO_ACCESS
+                + "\n```");
+  }
+
+  /** 일반 코드 블록·html-embed 가 아닌 정보 문자열·닫히지 않은 펜스·다른 코드 블록 안 예시는 지금처럼 전부 가린다. */
+  @Test
+  void public_still_masks_ordinary_code_and_non_embed_fences() {
+    // 일반 코드 블록(```html 포함) — 지금과 같다(내부 링크 글자만, 주소 속성 안전망).
+    assertThat(mask("```html\n<a href=\"/wiki/1\">in</a> [x](/issues/1)\n```"))
+        .isEqualTo("```html\nin x\n```");
+    assertThat(mask("```\n<@3>\n```")).isEqualTo("```\n" + NO_ACCESS + "\n```");
+    // 정보 문자열이 정확히 html-embed 가 아니면 HTML 블록이 아니다.
+    assertThat(mask("```html-embed2\n[x](/issues/1)\n```")).isEqualTo("```html-embed2\nx\n```");
+    assertThat(mask("```html-embed x\n[x](/issues/1)\n```")).isEqualTo("```html-embed x\nx\n```");
+    // 물결 펜스는 HTML 블록이 아니다(노트 직렬화기는 백틱만 쓴다).
+    assertThat(mask("~~~html-embed\n[x](/issues/1)\n~~~")).isEqualTo("~~~html-embed\nx\n~~~");
+    // 닫히지 않은 HTML 블록 — 그대로 두지 않고 가린다(덜 가리는 쪽으로 틀리지 않게).
+    assertThat(mask("```html-embed\n[x](/issues/1)")).isEqualTo("```html-embed\nx");
+    // 짧은 펜스로는 닫히지 않는다 — 닫는 줄이 없으면 가린다.
+    assertThat(mask("````html-embed\n[x](/issues/1)\n```")).isEqualTo("````html-embed\nx\n```");
+    // 다른 코드 블록 안에 적힌 ```html-embed 예시는 HTML 블록이 아니다.
+    assertThat(mask("````markdown\n```html-embed\n[x](/issues/1)\n```\n````"))
+        .isEqualTo("````markdown\n```html-embed\nx\n```\n````");
+    // 목록 안 블록인데 접두가 어긋난 줄이 있으면(목록이 끝남) HTML 블록으로 보지 않는다.
+    assertThat(mask("- a\n\n  ```html-embed\n[x](/issues/1)\n  ```"))
+        .isEqualTo("- a\n\n  ```html-embed\nx\n  ```");
+  }
 }

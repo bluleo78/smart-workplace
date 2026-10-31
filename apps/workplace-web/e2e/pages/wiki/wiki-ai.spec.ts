@@ -991,11 +991,19 @@ test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내�
   await expect(page.getByTestId('wiki-slash-popover')).toBeVisible()
 
   // 클릭이 아니라 순수 키보드 내비로 검증 — WikiSlashMenu 의 select()/onKeyDown() 은 항목을
-  // items 배열의 전역 인덱스로 찾으므로, insert(표·이미지 2개) → block(제목1/제목2/불릿/번호
+  // items 배열의 전역 인덱스로 찾으므로, insert(표·이미지·HTML 블록) → block(제목1/제목2/불릿/번호
   // 목록/인용/구분선 6개) → ai(3개) 순서와 렌더 시 더해지는 오프셋(insertItems.length +
   // blockItems.length + i)이 어긋나면 여기서만 드러난다(클릭 테스트는 이 어긋남을 못 잡는다).
-  // 순서: 표(0) 이미지(1) 제목1(2) 제목2(3) 불릿목록(4) 번호목록(5) 인용(6) — ArrowDown 6회.
-  for (let i = 0; i < 6; i += 1) await page.keyboard.press('ArrowDown')
+  // 「인용」 앞 항목 수는 화면에 그려진 항목 순서에서 센다 — 삽입 항목이 늘어도(WP-1242 HTML 블록) 숫자를 고치지 않게.
+  // 표(0) 이미지(1) HTML 블록(2) 제목1(3) 제목2(4) 불릿목록(5) 번호목록(6) 인용(7) — 지금은 ArrowDown 7회.
+  const optionIds = await page
+    .getByTestId('wiki-slash-popover')
+    .locator('[data-testid^="wiki-slash-option-"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')))
+  const quoteIndex = optionIds.indexOf('wiki-slash-option-blockquote')
+  // 삽입 그룹(표·이미지·HTML 블록)이 앞에 있어야 오프셋 산식이 실제로 검증된다.
+  expect(quoteIndex).toBeGreaterThanOrEqual(3)
+  for (let i = 0; i < quoteIndex; i += 1) await page.keyboard.press('ArrowDown')
 
   // 실행(Enter) 전에 하이라이트(aria-selected)가 실제로 "인용" 행에 있는지도 확인한다 —
   // command 실행은 items 원본 배열 인덱스를 그대로 쓰므로 offset 산식이 틀려도 성공할 수 있지만,

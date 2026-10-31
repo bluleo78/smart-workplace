@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // WP-1240 — 노트 밖에서 온 붙여넣기(HTML·글자)는 HTML 모양 노드 도입 전과 같은 결과(모양 없음)여야 하고, 노트 편집기에서 복사한 것
 // (노트 복사 표지가 붙은 HTML)만 모양을 옮긴다. 순수 함수와, 확장을 단 에디터에 실제로 붙여넣은 결과(ProseMirror 클립보드 경로)를 함께 본다.
-import { docToMarkdown, getMarkdownSchema, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
+import { docToMarkdown, getMarkdownSchema, markdownToDoc, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
 import { Editor } from '@tiptap/core'
 import { type Node as PMNode, Slice } from '@tiptap/pm/model'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { WikiHtmlScope } from './wikiHtmlScope'
-import { isNoteCopyHtml, NOTE_COPY_ATTR, stripShapeFromSlice, WikiPasteShape } from './wikiPasteShape'
+import { embedsToCodeBlocks, isNoteCopyHtml, NOTE_COPY_ATTR, stripShapeFromSlice, WikiPasteShape } from './wikiPasteShape'
 
 // Google Docs 가 클립보드에 싣는 모양 — 바깥 <b id=docs-internal-guid> 와 서식 span·style 든 div.
 const GOOGLE_DOCS = [
@@ -161,5 +161,49 @@ describe('pasting into an editor with WikiPasteShape', () => {
     expect(typesIn(ed.state.doc).has('bold')).toBe(true)
     expect(hasShape(ed.state.doc)).toBe(false)
     expect(docToMarkdown(ed.state.doc)).toContain('**굵게** s')
+  })
+
+  // WP-1242 — 노트 밖 붙여넣기는 스크립트가 도는 HTML 블록을 만들지 않는다(같은 글자의 ```html 코드 블록), 노트끼리 복사는 블록 그대로.
+  const EMBED_MD = '```html-embed\n<script>alert(1)</script>\n```'
+
+  it('an external HTML paste turns an html-embed into an html code block with the same text', () => {
+    const html = copiedHtml(EMBED_MD).replaceAll(` ${NOTE_COPY_ATTR}=""`, '')
+    const target = mount()
+    target.view.pasteHTML(html, pasteEvent())
+    expect(typesIn(target.state.doc).has('wikiHtmlEmbed')).toBe(false)
+    expect(docToMarkdown(target.state.doc)).toContain('```html\n<script>alert(1)</script>\n```')
+  })
+
+  it('a plain-text paste of an html-embed fence becomes an html code block', () => {
+    const ed = mount()
+    const event = Object.assign(new Event('paste', { bubbles: true, cancelable: true }), {
+      clipboardData: { getData: (type: string) => (type === 'text/plain' ? EMBED_MD : '') },
+    })
+    ed.view.dom.dispatchEvent(event)
+    expect(typesIn(ed.state.doc).has('wikiHtmlEmbed')).toBe(false)
+    expect(docToMarkdown(ed.state.doc)).toContain('```html\n<script>alert(1)</script>\n```')
+  })
+
+  it('a copy between notes keeps the html-embed', () => {
+    const html = copiedHtml(EMBED_MD)
+    expect(isNoteCopyHtml(html)).toBe(true)
+    const target = mount()
+    target.view.pasteHTML(html, pasteEvent())
+    expect(typesIn(target.state.doc).has('wikiHtmlEmbed')).toBe(true)
+    expect(docToMarkdown(target.state.doc)).toContain(EMBED_MD)
+  })
+})
+
+describe('embedsToCodeBlocks', () => {
+  const schema = getMarkdownSchema()
+  it('converts nested embeds (inside a list) and keeps the open depth; returns the same slice without embeds', () => {
+    const doc = markdownToDoc('- a\n\n  ```html-embed\n  <b>x</b>\n  ```')
+    const out = embedsToCodeBlocks(new Slice(doc.content, 0, 0), schema)
+    const item = out.content.firstChild!.firstChild!
+    expect(item.child(1).type.name).toBe('codeBlock')
+    expect(item.child(1).attrs.language).toBe('html')
+    expect(item.child(1).textContent).toBe('<b>x</b>')
+    const plain = new Slice(markdownToDoc('x').content, 1, 1)
+    expect(embedsToCodeBlocks(plain, schema)).toBe(plain)
   })
 })

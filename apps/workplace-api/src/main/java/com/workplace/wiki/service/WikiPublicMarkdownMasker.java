@@ -1,6 +1,8 @@
 package com.workplace.wiki.service;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
@@ -117,12 +119,20 @@ public class WikiPublicMarkdownMasker {
   /** 웹 오리진(끝 / 없음, 소문자) — 같은 오리진 절대 주소를 앱 내부 링크로 본다. */
   private final String origin;
 
+  /** HTML 블록 안 같은 오리진 절대 주소(WP-1242) — 오리진 뒤가 끝이거나 / ? # 로 이어지는 것. 오리진 설정이 없으면 null. */
+  private final Pattern sameOriginUrl;
+
   public WikiPublicMarkdownMasker(@Value("${workplace.public-base-url}") String publicBaseUrl) {
     String b = publicBaseUrl == null ? "" : publicBaseUrl.trim();
     while (b.endsWith("/")) {
       b = b.substring(0, b.length() - 1);
     }
     this.origin = b.toLowerCase(Locale.ROOT);
+    this.sameOriginUrl =
+        origin.isEmpty()
+            ? null
+            : Pattern.compile(
+                "(?i)" + Pattern.quote(origin) + "(?:[/?#]" + URL_CHARS + "*)?(?![\\w.:-])");
   }
 
   /**
@@ -137,11 +147,27 @@ public class WikiPublicMarkdownMasker {
       return "";
     }
     Ctx ctx = new Ctx(sharedPageTitles, token);
-    String s = markdown;
-    // 1) 멘션 — 칩 HTML 을 먼저(안의 토큰 글자째), 남은 여는 태그, 그다음 토큰.
-    s = replace(s, MENTION_SPAN, m -> mentionFromAttrs(m.group(1), ctx));
-    s = replace(s, MENTION_SPAN_OPEN, m -> NO_ACCESS);
-    s = replace(s, MENTION_TOKEN, m -> mentionFromToken(m, ctx));
+    // HTML 블록(WP-1242)은 소스를 그대로 둔다 — 노트 마크다운이 아니라 격리 iframe 에서 실행되는 HTML·스크립트라, 링크·주소 속성 가림이
+    // `const data = {…}`·`a[0](x)` 같은 스크립트 글자를 깨 공유 링크에서 차트가 그려지지 않았다. 멘션 토큰만 가린다(아래
+    // maskEmbedSource).
+    StringBuilder out = new StringBuilder(markdown.length());
+    int last = 0;
+    for (int[] fence : htmlEmbedSourceRanges(markdown)) {
+      out.append(maskMarkdown(markdown.substring(last, fence[0]), ctx));
+      out.append(maskEmbedSource(markdown.substring(fence[0], fence[1]), ctx));
+      last = fence[1];
+    }
+    out.append(maskMarkdown(markdown.substring(last), ctx));
+    return out.toString();
+  }
+
+  /** 마크다운 조각(HTML 블록 소스 밖)을 가린다 — 멘션 → HTML 이미지·링크 → 마크다운 이미지·링크·정의 → 자동 링크 → 주소 속성 안전망. */
+  private String maskMarkdown(String markdown, Ctx ctx) {
+    if (markdown.isEmpty()) {
+      return markdown;
+    }
+    // 1) 멘션.
+    String s = maskMentions(markdown, ctx);
     // 2) HTML 이미지·링크(폴백 표 셀과 본문 raw HTML).
     s = replace(s, HTML_IMG, m -> htmlImage(m.group(), ctx));
     s = replace(s, HTML_A, m -> htmlAnchor(m, ctx));
@@ -153,6 +179,192 @@ public class WikiPublicMarkdownMasker {
     s = replace(s, AUTOLINK, m -> autolink(m, ctx));
     // 4) 마지막 안전망 — 위에서 못 잡은 HTML 주소 속성(iframe·source·area·srcset 포함)은 외부·공개 첨부가 아니면 지운다.
     return neutralizeUrlAttrs(s, ctx);
+  }
+
+  // ── HTML 블록(WP-1242) ─────────────────────────────────────────────────
+
+  /**
+   * HTML 블록 소스 가림 — 마크다운 링크·자동 링크·주소 속성 안전망은 스크립트 글자(`data = {`, `a[0](x)`)를 깨므로 쓰지 않고, 글자 그대로 바꿔도
+   * 문법이 깨지지 않는 것만 바꾼다.
+   *
+   * <ul>
+   *   <li>멘션 토큰(칩 HTML·마크다운 토큰·이스케이프된 토큰) — 익명 공유에 사람·이슈 id 를 남기지 않는다.
+   *   <li>앱 주소 — 같은 오리진 절대 주소(어디서든)와, 따옴표·{@code url(} 바로 뒤의 절대 경로({@code "/wiki/..."}). {@link
+   *       #classify} 로 판정해 범위 안 노트 첨부는 공개 첨부 주소로, 그 밖의 앱 주소는 빈 글자로 바꾼다(문자열 안이라 빈 글자여도 문법이 같다). 외부
+   *       주소는 그대로.
+   * </ul>
+   *
+   * <p>바꾼 글자(자리표시·제목 문자 참조·공개 첨부 주소)에는 백틱이 없어 펜스가 깨지지 않는다. 따옴표 없이 쓴 속성값({@code src=/x})·프로토콜 상대
+   * 주소({@code //host/x} — CDN 이 흔히 쓴다)는 스크립트의 정규식 글자와 가릴 수 없어 건드리지 않는다.
+   */
+  private String maskEmbedSource(String source, Ctx ctx) {
+    String s = maskMentions(source, ctx);
+    if (sameOriginUrl != null) {
+      s = replace(s, sameOriginUrl, m -> embedUrl(m.group(), ctx));
+    }
+    return replace(s, EMBED_PATH, m -> embedUrl(m.group(), ctx));
+  }
+
+  /** 멘션 가림 — 칩 HTML 을 먼저(안의 토큰 글자째), 남은 여는 태그, 그다음 토큰. 마크다운 본문과 HTML 블록 소스가 함께 쓴다. */
+  private String maskMentions(String source, Ctx ctx) {
+    String s = replace(source, MENTION_SPAN, m -> mentionFromAttrs(m.group(1), ctx));
+    s = replace(s, MENTION_SPAN_OPEN, m -> NO_ACCESS);
+    return replace(s, MENTION_TOKEN, m -> mentionFromToken(m, ctx));
+  }
+
+  /** HTML 블록 안 앱 주소 하나 — 범위 안 첨부는 공개 주소, 외부·이미 바꾼 공개 첨부는 그대로, 그 밖은 빈 글자. */
+  private String embedUrl(String url, Ctx ctx) {
+    Target t = classify(url, ctx);
+    return switch (t.kind) {
+      case EXTERNAL -> url;
+      case ATTACHMENT -> t.url;
+      case INTERNAL -> "";
+    };
+  }
+
+  /** 주소 글자에 들 수 없는 끝 — 공백·따옴표·꺾쇠·괄호·백슬래시. */
+  private static final String URL_CHARS = "[^\\s\"'`<>()\\\\]";
+
+  /**
+   * HTML 블록 안 절대 경로 — 따옴표(" ' `)나 {@code url(} 바로 뒤, {@code /} 다음이 글자인 것만. 괄호·{@code =} 뒤는 보지 않는다 —
+   * {@code match(/\d+/)}·{@code re = /x/} 같은 스크립트 정규식 글자와 가릴 수 없다.
+   */
+  private static final Pattern EMBED_PATH =
+      Pattern.compile("(?<=[\"'`]|url\\()/(?![/\\s\"'`])" + URL_CHARS + "*");
+
+  /** 목록 표시({@code - * +}, {@code 1. 1)}) — 아래 패턴들이 함께 쓴다. */
+  private static final String MARKER = "[-*+]|\\d{1,9}[.)]";
+
+  /** 펜스 앞 컨테이너 단위 — 인용 {@code >} 또는 목록 표시 뒤 공백. */
+  private static final String CONTAINER_UNIT = "(?:>[ ]?|(?:" + MARKER + ")[ ]+)[ ]*";
+
+  /** 펜스 여는 줄 — 1=앞 공백, 2=컨테이너 단위들, 3=펜스 문자열(백틱·물결 3개 이상), 4=정보 문자열. */
+  private static final Pattern FENCE_OPEN =
+      Pattern.compile("^([ ]*)((?:" + CONTAINER_UNIT + ")*)(`{3,}|~{3,})(.*)$");
+
+  /** 목록 항목 줄 — 끝 위치가 그 항목 내용의 들여쓰기 칸이다. */
+  private static final Pattern LIST_ITEM = Pattern.compile("^[ ]*(?:" + MARKER + ")[ ]+");
+
+  /** 목록 표시 글자 — 이어지는 줄의 접두에서는 같은 폭의 공백이 된다. */
+  private static final Pattern LIST_MARKER = Pattern.compile(MARKER);
+
+  /**
+   * HTML 블록 소스 범위들(문자 위치 [시작, 끝)) — 여는 줄 다음 줄부터 닫는 줄 앞까지.
+   *
+   * <p>줄 단위로 모든 펜스 코드 블록을 따라간다 — 일반 코드 블록(예: ````markdown 예시) 안에 적힌 {@code ```html-embed} 줄은 HTML
+   * 블록이 아니다. HTML 블록은 정보 문자열이 정확히 {@code html-embed}(뒤 공백만 허용)인 백틱 펜스다. 여는 줄은 목록 표시({@code -
+   * ```html-embed}, {@code 1. ```html-embed}, 중첩 포함)·인용 뒤에 올 수 있고, 이어지는 줄의 접두는 목록 표시를 같은 폭 공백으로 바꾼
+   * 것이다(노트 직렬화기 출력). 목록 밖에서 앞 공백이 4칸 이상이면 들여쓴 코드 블록이라 펜스가 아니다(CommonMark) — 목록 안에서는 그 항목 내용 칸 + 3
+   * 까지 허용한다. 같은 접두 + 같은 문자 N개 이상 + 공백뿐인 줄에서 닫힌다. 안쪽 줄이 접두로 시작하지 않거나(빈 줄은 접두 끝 공백을 뗀 것도 허용) 닫는 줄이
+   * 없으면 HTML 블록으로 보지 않고 지금처럼 전체를 가린다(덜 가리는 쪽으로 틀리지 않게).
+   */
+  static List<int[]> htmlEmbedSourceRanges(String md) {
+    List<int[]> ranges = new ArrayList<>();
+    // 대부분의 노트에는 HTML 블록이 없다 — 줄을 나누지 않고 끝낸다.
+    if (!md.contains("html-embed")) {
+      return ranges;
+    }
+    List<Line> lines = lines(md);
+    int listCol = 0; // 지금 목록 항목 내용 칸(목록 밖이면 0) — 펜스 앞 공백 허용 폭을 정한다.
+    int i = 0;
+    while (i < lines.size()) {
+      String line = lines.get(i).text();
+      // 이 줄의 펜스 판정은 앞 줄들까지의 목록 칸으로, 다음 줄은 이 줄까지 반영한 칸으로 본다.
+      int col = listCol;
+      listCol = nextListCol(line, col);
+      Matcher open = FENCE_OPEN.matcher(line);
+      if (!open.matches()
+          || open.group(1).length() > col + 3
+          || (open.group(3).charAt(0) == '`' && open.group(4).contains("`"))) {
+        i++;
+        continue;
+      }
+      String prefix = open.group(1) + spacesForMarkers(open.group(2));
+      String fence = open.group(3);
+      boolean embed = fence.charAt(0) == '`' && open.group(4).strip().equals("html-embed");
+      int close = findFenceClose(lines, i + 1, prefix, fence, embed);
+      if (close < 0 && !embed) {
+        // 닫히지 않은 일반 코드 블록 — 문서 끝까지 코드다(그 뒤 줄을 다시 펜스로 보지 않는다).
+        break;
+      }
+      if (close < 0) {
+        // 닫히지 않은 HTML 블록 후보 — 그냥 가린다(덜 가리는 쪽으로 틀리지 않게).
+        i++;
+        continue;
+      }
+      if (embed) {
+        // 여는 줄 다음 줄 시작 ~ 닫는 줄 시작 — 펜스 줄 자체(접두·백틱·정보 문자열)는 일반 가림을 그대로 지난다(바꿀 것이 없다).
+        ranges.add(new int[] {lines.get(i + 1).start(), lines.get(close).start()});
+      }
+      i = close + 1;
+    }
+    return ranges;
+  }
+
+  /** 다음 줄을 볼 때의 목록 내용 칸 — 목록 항목 줄이면 그 내용 칸, 빈 줄이면 그대로, 그보다 덜 들여쓴 줄이면 목록 밖(0). */
+  private static int nextListCol(String line, int listCol) {
+    Matcher item = LIST_ITEM.matcher(line);
+    if (item.find()) {
+      return item.end();
+    }
+    if (line.isBlank()) {
+      return listCol;
+    }
+    int lead = 0;
+    while (lead < line.length() && line.charAt(lead) == ' ') {
+      lead++;
+    }
+    return lead < listCol ? 0 : listCol;
+  }
+
+  /** 컨테이너 단위들의 목록 표시를 같은 폭 공백으로 — 이어지는 줄의 접두. 인용 {@code >} 는 그대로. */
+  private static String spacesForMarkers(String units) {
+    return replace(units, LIST_MARKER, m -> " ".repeat(m.group().length()));
+  }
+
+  /** 여는 줄 뒤에서 닫는 줄의 줄 번호(없으면 -1). HTML 블록(strict)이면 안쪽 줄이 모두 접두로 시작해야 한다(아니면 -1). */
+  private static int findFenceClose(
+      List<Line> lines, int from, String prefix, String fence, boolean strict) {
+    String blankPrefix = prefix.stripTrailing();
+    for (int j = from; j < lines.size(); j++) {
+      String line = lines.get(j).text();
+      // 접두 뒤 글자 — 빈 줄은 접두 끝 공백을 뗀 것도 허용. 접두가 어긋나면 null.
+      String rest =
+          line.startsWith(prefix)
+              ? line.substring(prefix.length())
+              : line.equals(blankPrefix) ? "" : null;
+      if (rest == null) {
+        if (strict) {
+          return -1;
+        }
+        continue;
+      }
+      String t = rest.strip();
+      if (t.length() >= fence.length() && t.chars().allMatch(c -> c == fence.charAt(0))) {
+        return j;
+      }
+    }
+    return -1;
+  }
+
+  /** 줄 하나 — 시작 위치와 줄바꿈(\r 포함)을 뗀 글자. */
+  private record Line(int start, String text) {}
+
+  /** 본문을 줄로 나눈다 — 각 줄의 시작 위치를 함께 남겨 범위 계산에 쓴다. */
+  private static List<Line> lines(String md) {
+    List<Line> out = new ArrayList<>();
+    int start = 0;
+    while (start <= md.length()) {
+      int nl = md.indexOf('\n', start);
+      int end = nl < 0 ? md.length() : nl;
+      int contentEnd = end > start && md.charAt(end - 1) == '\r' ? end - 1 : end;
+      out.add(new Line(start, md.substring(start, contentEnd)));
+      if (nl < 0) {
+        break;
+      }
+      start = nl + 1;
+    }
+    return out;
   }
 
   // ── 멘션 ──────────────────────────────────────────────────────────────

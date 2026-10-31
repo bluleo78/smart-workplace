@@ -286,3 +286,63 @@
   background: var(--accent);
   color: var(--accent-foreground);
 }
+
+/* HTML 블록(WP-1242) — 격리 iframe 미리보기 + (편집할 때만) 머리 띠와 소스 편집 칸. WikiHtmlEmbedView.tsx 참조.
+   iframe 은 본문 폭을 다 쓰고 높이는 안 문서가 알려 준 값(인라인 style)을 따른다. 테두리는 옅게 — 원본 모양을 가리지 않게. */
+.wiki-editor .ProseMirror .wiki-html-embed {
+  margin: 0.5em 0;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  user-select: none;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__toggle {
+  margin-left: auto;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__toggle:hover,
+.wiki-editor .ProseMirror .wiki-html-embed__toggle[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+/* 소스 칸은 contentDOM 이라 늘 DOM 에 있다 — 「소스 편집」을 켰을 때만 보인다(보기 전용 화면은 늘 숨김). */
+.wiki-editor .ProseMirror .wiki-html-embed:not([data-source-open]) .wiki-html-embed__source {
+  display: none;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__source {
+  margin: 0 0 0.5rem;
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__frame {
+  display: block;
+  width: 100%;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+/* 판 비교 — 블록 통째 추가·삭제는 iframe 테두리로 보인다(배경색은 iframe 이 덮는다). */
+.wiki-editor .ProseMirror .wiki-diff-removed .wiki-html-embed__frame {
+  opacity: 0.55;
+  outline: 2px solid var(--destructive);
+  outline-offset: 2px;
+}
+.wiki-editor .ProseMirror .wiki-diff-added .wiki-html-embed__frame {
+  outline: 2px solid var(--success);
+  outline-offset: 2px;
+}

@@ -19,6 +19,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js'
 const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
+import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
 import {
   type WikiBlockCommand,
   type WikiSlashItem,
@@ -34,6 +35,8 @@ import {
 const INSERT_ITEMS: WikiSlashItem[] = [
   { key: 'table', label: '표', kind: 'insert' },
   { key: 'image', label: '이미지', kind: 'insert' },
+  // HTML 블록(WP-1242) — 스크립트가 필요한 HTML(차트 등)을 격리 iframe 으로 그리는 블록. 빈 블록은 소스 편집 칸이 열린 채 들어간다.
+  { key: 'htmlEmbed', label: 'HTML 블록', kind: 'insert' },
 ]
 
 // 기본 서식 블록 6종(#687) — 버블 툴바(WikiAiBubbleToolbar)의 서식 그룹과 대응하는 삽입/전환
@@ -71,9 +74,12 @@ export interface WikiSlashContext {
   aiEnabledRef?: { current: boolean }
 }
 
-/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
+/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'HTML 블록'을 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
 export function filterSlashItems(query: string, opts: { inTable: boolean; aiEnabled: boolean }): WikiSlashItem[] {
-  const base = SLASH_ITEMS.filter((i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && i.key === 'table'))
+  // 표 안에서는 표·HTML 블록을 뺀다 — 표 셀은 마크다운 표(한 줄 셀)로 저장되어 여러 줄 소스 블록을 담지 못한다.
+  const base = SLASH_ITEMS.filter(
+    (i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && (i.key === 'table' || i.key === 'htmlEmbed')),
+  )
   const q = query.trim().toLowerCase()
   if (!q) return base
   return base.filter((i) => i.label.toLowerCase().includes(q) || i.key.includes(q))
@@ -101,6 +107,11 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
                 // "/이미지" 텍스트만 먼저 지우고, 실제 업로드는 WikiEditor 의 file input 이 맡는다.
                 editor.chain().focus().deleteRange(range).run()
                 ctx.onImageInsertRef.current()
+                return
+              }
+              if (props.key === 'htmlEmbed') {
+                // 트리거 삭제와 삽입을 한 체인으로(표와 같은 이유). insertHtmlEmbed 참조.
+                editor.chain().focus().deleteRange(range).command(insertHtmlEmbed).run()
                 return
               }
               // 표 — 크기는 그리드에서 확정돼 props 로 온다. 아직 안 골랐으면(rows 미지정) 아무것도
