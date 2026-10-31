@@ -99,8 +99,16 @@ server.listen({
 const realSetTimeout = globalThis.setTimeout
 // renderPage 가 늘린 비동기 대기(WP-1006)를 테스트마다 RTL 기본값으로 되돌린다 — 같은 워커의 다음 컴포넌트 테스트에 새지 않게.
 const DEFAULT_ASYNC_TIMEOUT = getConfig().asyncUtilTimeout
+// 닫히는 중인 알림(sonner)을 마지막으로 본 시각(WP-1259) — sonner 는 알림을 닫을 때 200ms 뒤 목록에서 빼는 타이머를 걸고,
+// 화면이 내려가도 그 타이머를 지우지 않는다. 파일 끝 무렵 그 타이머가 남으면 DOM 환경이 내려간 뒤 터져
+// 「window is not defined」 처리 안 된 오류로 게이트를 깼다. 앞 테스트가 남긴 타이머가 짧은 마지막 테스트 뒤에 터질 수도 있어,
+// 테스트마다 끝날 때 닫히는 알림이 있으면 시각을 적고 파일 끝(afterAll)에서 그 타이머가 끝날 만큼만 기다린다.
+let toastClosingSeenAt = 0
+/** sonner 가 닫히는 알림을 목록에서 빼기까지 걸리는 시간(TIME_BEFORE_UNMOUNT 200ms)보다 조금 길게. */
+const TOAST_REMOVE_WAIT_MS = 250
 afterEach(async () => {
   configure({ asyncUtilTimeout: DEFAULT_ASYNC_TIMEOUT })
+  if (document.querySelector('[data-sonner-toast][data-removed="true"]')) toastClosingSeenAt = Date.now()
   // 화면을 핸들러 초기화보다 먼저 내린다 — RTL 의 자동 cleanup 은 이 afterEach 뒤에 돌아, 그 사이 아직 떠 있는 화면이 보낸
   // 조회(SSE·대화·공간 목록)와 내려가며 보내는 요청(임시저장·취소)이 이미 비운 핸들러에 걸려, 부하가 큰 전체 실행에서
   // 다음 테스트를 「핸들러 없는 요청」으로 실패시켰다(WP-1002). 내린 뒤 한 틱 기다려 그 요청이 이 테스트의 핸들러로 처리되게 한다.
@@ -117,7 +125,11 @@ afterEach(async () => {
 beforeEach(() => {
   unhandledRequests.length = 0
 })
-afterAll(() => server.close())
+afterAll(async () => {
+  server.close()
+  const wait = toastClosingSeenAt + TOAST_REMOVE_WAIT_MS - Date.now()
+  if (wait > 0) await new Promise((resolve) => realSetTimeout(resolve, wait))
+})
 
 // 페이지 테스트는 jsdom 의 실제 세션 히스토리를 쓴다(renderPage, WP-995). 앞 테스트의 화면이 내려가며(RTL cleanup) 시트·상세가
 // history.back() 으로 자기 항목을 닫는데, jsdom 은 이 이동을 타이머 몇 개(이동 예약 → 문서 갱신 → popstate)에 걸쳐 끝낸다 —
