@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  carrySort,
   carryViewOptions,
+  filterOnlyKey,
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
@@ -10,6 +12,7 @@ import {
   resolveListGroupBy,
   toClientGroupBy,
   withDefaultIssueScope,
+  withoutSort,
 } from './issueFilters';
 
 const EMPTY = parseFilters(new URLSearchParams());
@@ -372,5 +375,80 @@ describe('버전 필터 왕복', () => {
     expect(overridesClosedHiding({ ...EMPTY, affectsVersionNone: true })).toBe(true);
     expect(withDefaultIssueScope({ ...EMPTY, fixVersionIds: [1] }).hideInactiveClosed).toBe(false);
     expect(withDefaultIssueScope(EMPTY).hideInactiveClosed).toBe(true);
+  });
+});
+
+// WP-1238: 정렬(sort·direction) — 알려진 한 기준만 통과, 방향은 asc/desc(없거나 모르면 desc), 직렬화는 방향까지 늘 적는다.
+describe('정렬 sort·direction (WP-1238)', () => {
+  const parse = (q: string) => parseFilters(new URLSearchParams(q));
+
+  it('알려진 기준과 방향을 읽고 그대로 직렬화한다', () => {
+    const f = parse('sort=dueDate&direction=asc');
+    expect(f.sort).toBe('dueDate');
+    expect(f.direction).toBe('asc');
+    expect(filtersToParams(f, 'list', null).toString()).toBe('sort=dueDate&direction=asc');
+  });
+
+  it('방향이 없거나 모르는 값이면 서버 기본과 같은 desc 로 읽고, 직렬화에 desc 를 적는다', () => {
+    expect(parse('sort=priority').direction).toBe('desc');
+    expect(parse('sort=priority&direction=sideways').direction).toBe('desc');
+    expect(filtersToParams(parse('sort=priority'), 'list', null).toString()).toBe('sort=priority&direction=desc');
+  });
+
+  it('모르는 기준은 sort·direction 을 모두 버린다 — 필드가 아예 없어 기본 필터와 같은 모양이다', () => {
+    const f = parse('sort=title&direction=asc');
+    expect('sort' in f).toBe(false);
+    expect('direction' in f).toBe(false);
+    expect(f).toEqual(EMPTY);
+    expect(filtersToParams(f, 'list', null).toString()).toBe('');
+  });
+
+  it('direction 은 대소문자를 가리지 않는다(서버와 같다)', () => {
+    expect(parse('sort=dueDate&direction=ASC').direction).toBe('asc');
+    expect(parse('sort=dueDate&direction=Desc').direction).toBe('desc');
+  });
+
+  it('수정일 내림차순은 서버 기본과 같아 정렬 없음으로 읽는다 — 같은 순서가 두 주소로 갈라지지 않게', () => {
+    expect(filtersToParams(parse('sort=updatedAt&direction=desc'), 'list', null).toString()).toBe('');
+    expect(filtersToParams(parse('sort=updatedAt'), 'list', null).toString()).toBe('');
+    expect(filtersToParams(parse('sort=updatedAt&direction=asc'), 'list', null).toString()).toBe('sort=updatedAt&direction=asc');
+  });
+
+  it('sort 없이 온 direction 은 버린다', () => {
+    expect(filtersToParams(parse('direction=asc'), 'list', null).toString()).toBe('');
+  });
+
+  it('CSV(여러 기준)는 첫 기준·첫 방향만 쓴다 — 화면은 한 기준만 고른다', () => {
+    const f = parse('sort=assignee,dueDate&direction=asc,desc');
+    expect(f.sort).toBe('assignee');
+    expect(f.direction).toBe('asc');
+  });
+
+  it('다른 필터와 함께 라운드트립된다', () => {
+    const q = filtersToParams(parse('priority=HIGH&sort=createdAt&direction=asc'), 'board', 'status').toString();
+    expect(parse(q)).toMatchObject({ priorities: ['HIGH'], sort: 'createdAt', direction: 'asc' });
+  });
+
+  it('withoutSort 는 정렬만 빼 「필터 없음」 판정이 정렬에 흔들리지 않게 한다', () => {
+    const f = parse('sort=status&direction=asc');
+    expect(filtersToParams(withoutSort(f), 'list', null).toString()).toBe('');
+    // 정렬이 없으면 같은 객체를 그대로 돌려준다(메모 의존값이 깨지지 않게).
+    expect(withoutSort(EMPTY)).toBe(EMPTY);
+  });
+
+  it('filterOnlyKey 는 정렬·보기·그룹을 빼고 필터만의 정규형을 만든다', () => {
+    expect(filterOnlyKey(parse('sort=status&direction=asc'))).toBe('');
+    expect(filterOnlyKey(parse('priority=HIGH&sort=status&direction=asc'))).toBe('priority=HIGH');
+  });
+
+  it('carrySort 는 이전 쿼리의 정렬만 옮기고, 정렬이 없거나 무효면 아무것도 붙이지 않는다', () => {
+    expect(carrySort(new URLSearchParams('view=board'), new URLSearchParams('priority=HIGH&sort=dueDate&direction=asc')).toString())
+      .toBe('view=board&sort=dueDate&direction=asc');
+    expect(carrySort(new URLSearchParams(), new URLSearchParams('sort=bogus')).toString()).toBe('');
+  });
+
+  it('carryViewOptions 는 정렬을 되살리지 않는다 — 「기본으로」가 정렬을 실제로 지울 수 있게', () => {
+    const next = filtersToParams(EMPTY, 'list', null);
+    expect(carryViewOptions(next, new URLSearchParams('sort=dueDate&direction=asc')).has('sort')).toBe(false);
   });
 });

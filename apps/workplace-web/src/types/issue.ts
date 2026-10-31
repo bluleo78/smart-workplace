@@ -482,7 +482,18 @@ export interface IssueFilters {
   // 백로그 이슈 포함 — 진행 중·예정 사이클에 연결되지 않은 이슈(완료 사이클에만 남은 이슈 포함). URL 비직렬화 파생 필드로,
   // 목록 사이클 그룹의 백로그 구간만 주입하며 cycle 파라미터에 'null' 토큰으로 송신한다(#878). 이름은 토큰 도입 당시 그대로 둔다.
   cycleUnassigned?: boolean;
+  // 정렬 기준(WP-1238) — URL sort. 없으면(기본) 서버 기본 정렬(수정일 내림차순)이라 키를 보내지 않는다. 화면은 한 기준만 고른다.
+  // 필터가 아니라 표시 옵션이다 — 「필터 있음」 판정(빈 상태·「전체」 칩)은 withoutSort 로 뺀 뒤 본다.
+  // 선택 필드라 손으로 만드는 필터 객체(에픽 범위·하위 목록 등)는 건드리지 않아도 기존처럼 정렬 없이 보낸다.
+  sort?: IssueSortKey;
+  // 정렬 방향 — URL direction. sort 가 있을 때만 의미가 있다(parseFilters 가 sort 없이 온 값은 버린다).
+  direction?: IssueSortDirection;
 }
+
+// 이슈 목록 정렬 기준(WP-1238) — 서버 목록 API 의 sort 토큰과 같은 이름. 빈 값(마감 없음·담당자 없음)은 서버가 방향과 무관하게 맨 뒤로 보낸다.
+export const ISSUE_SORT_KEYS = ['updatedAt', 'dueDate', 'priority', 'createdAt', 'status', 'assignee'] as const;
+export type IssueSortKey = (typeof ISSUE_SORT_KEYS)[number];
+export type IssueSortDirection = 'asc' | 'desc';
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.
 export type IssueView = 'list' | 'board';

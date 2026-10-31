@@ -19,10 +19,12 @@ import {
   type IssueListColumnKey,
 } from '../../../lib/issueListColumns';
 import { isOverdue } from '../../../lib/issueOverdue';
+import { columnSortKey } from '../../../lib/issueSort';
 import { cn } from '../../../lib/utils';
 import type { IssueFieldDef, IssueFieldEntry } from '../../../types/customField';
 import type { IssueResponse } from '../../../types/issue';
 import { IssueClosedDate } from './IssueClosedDate';
+import { type HeadSort, SortableTh } from './IssueSortHeader';
 
 /** 열 폭(rem) — 쓰는 폭만 둔다. 새 폭을 쓰려면 아래 WIDTH_CLASS 에도 더해야 컴파일된다. */
 export type ColumnWidthRem = 2.25 | 5 | 7 | 8;
@@ -360,13 +362,22 @@ export function useColumnDefs(projectKey: string, columns: IssueListColumnKey[])
  * 한쪽(ID 왼쪽 / 제목 뒤, ColumnDefs 의 left·right) 선택 열의 헤더 칸들 — 평면 목록 thead 와 사이클 구간 열 이름 행이 같은 문구·폭을 쓰게 한다.
  * thClass 는 화면별 칸 모양(여백·글자), hideLabel 은 사이클 구간 표의 0 높이 폭 정의 행처럼 문구를 스크린리더에만 둘 때.
  * 컴포넌트가 아니라 <th> 배열을 돌려주는 함수 — <tr> 의 직계 자식이어야 해서 감싸는 요소를 둘 수 없다.
+ * headSort 를 주면 정렬 가능한 열(COLUMN_SORT_KEY — 우선순위·담당자·마감·생성일·수정일)의 머리가 정렬 단추가 된다(WP-1238).
+ * 0 높이 폭 정의 행(hideLabel)엔 단추를 만들지 않는다 — 보이지 않는데 초점이 가는 단추가 생기지 않게.
  */
 export function columnHeadCells(
   defs: IssueListColumnDef[],
-  { thClass, hideLabel = false }: { thClass?: string; hideLabel?: boolean } = {},
+  { thClass, hideLabel = false, headSort }: { thClass?: string; hideLabel?: boolean; headSort?: HeadSort } = {},
 ): ReactNode[] {
   return defs.map((d) => (
-    <th key={d.key} className={cn(WIDTH_CLASS[d.widthRem], thClass)}>
+    <SortableTh
+      key={d.key}
+      className={cn(WIDTH_CLASS[d.widthRem], thClass)}
+      head={hideLabel ? undefined : headSort}
+      sortKey={columnSortKey(d.key)}
+      label={d.header}
+      srOnlyLabel={d.srOnlyHeader}
+    >
       {/* 긴 필드 이름(띄어쓰기 없는 것 포함)은 칸 안에서 말줄임하고 전체는 툴팁으로 본다 — 칸 폭은 table-fixed 가 지킨다(WP-1143).
           툴팁은 이름이 사람 손에 달린 커스텀 필드 열에만 — 짧은 고정 문구(마감·담당자)에 같은 글자를 또 띄우지 않는다. */}
       {d.srOnlyHeader || hideLabel ? (
@@ -374,7 +385,7 @@ export function columnHeadCells(
       ) : (
         <span className="block truncate" title={d.key.startsWith('cf') ? d.header : undefined}>{d.header}</span>
       )}
-    </th>
+    </SortableTh>
   ));
 }
 

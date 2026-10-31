@@ -328,7 +328,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'read',
       description:
         'Lists issues (이슈): {items, hasMore?, nextCursor?}, size 30. If hasMore, pass nextCursor as cursor (same filters) or ' +
-        'say the list is partial. due/closed/created From-To: yyyy-MM-dd inclusive, closed/created KST; done work: ' +
+        'say the list is partial. due/start/closed/created/updated From-To: yyyy-MM-dd inclusive, closed/created/updated KST; ' +
+        'default updatedAt desc, empty last; done work: ' +
         'status=DONE (closed ranges also match CANCELED). Items: issueKey, sourceKey, fields, parent, children, ' +
         'blocked, agentWork; empty omitted; body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,

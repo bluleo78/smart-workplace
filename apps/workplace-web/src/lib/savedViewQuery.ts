@@ -3,6 +3,7 @@
 
 import type { IssueGroupParam } from '../types/issue';
 import {
+  filterOnlyKey,
   filtersToParams,
   parseFilters,
   parseGroupParam,
@@ -67,9 +68,10 @@ export function queriesEqualIgnoringView(a: string, b: string): boolean {
 // group 변경과 무관해야 한다 — 저장된 뷰 자체의 활성 판정(queriesEqualIgnoringView)은
 // 여전히 group 을 포함해 비교한다(#58) — 그룹이 저장 뷰 정의에 없으면 뷰 자체는 비활성이어야
 // 하는 기존 동작(view chip 은 그룹 커스터마이즈 상태를 표시하지 않음)을 그대로 둔다.
+// 정렬(WP-1238)도 group 과 같은 표시 옵션이라 뺀다 — 정렬만 바꿔도 「전체」가 켜진 채로 남게. 저장 뷰 자체 비교(위 두 함수)는 정렬을 포함한다.
 export function normalizeIssueQueryIgnoringViewAndGroup(query: string): string {
   const params = new URLSearchParams(query);
-  return filtersToParams(parseFilters(params), 'list', null).toString();
+  return filterOnlyKey(parseFilters(params));
 }
 
 /** 쿼리에 필터가 하나도 없는가(view·group·cols 만) — 「전체」 판정, 필터 없는 저장 뷰 판정(WP-1022). */
@@ -78,11 +80,13 @@ export function queryHasNoFilters(query: string): boolean {
 }
 
 /**
- * 필터 없는 저장 뷰가 주소만 보고 저절로 켜져도 되는가 — 그룹(없음 아님)이나 열 구성을 담았을 때만(WP-1022).
+ * 필터 없는 저장 뷰가 주소만 보고 저절로 켜져도 되는가 — 그룹(없음 아님)·열 구성·정렬을 담았을 때만(WP-1022, WP-1238).
  * 보드 전용·그룹 없음 뷰(#599)는 「전체」에서 그룹 「없음」만 골라도 같아져 저절로 켜지면 안 된다. 그런 뷰는 칩을 눌러 고른 동안만 켜진다.
  */
 export function savedViewShowsDisplayChoice(query: string): boolean {
-  return savedGroup(new URLSearchParams(query)) !== 'none' || savedViewHasColumns(query);
+  const params = new URLSearchParams(query);
+  // 정렬(WP-1238)도 그룹·열과 같은 보기 선택 — 정렬만 담은 뷰도 주소로 열면 그 뷰 칩이 켜진다(「전체」 판정은 정렬을 보지 않으므로).
+  return savedGroup(params) !== 'none' || savedViewHasColumns(query) || parseFilters(params).sort != null;
 }
 
 /**

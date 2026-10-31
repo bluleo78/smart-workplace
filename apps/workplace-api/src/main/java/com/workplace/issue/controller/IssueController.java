@@ -41,7 +41,13 @@ public class IssueController {
   private final IssueAiSummaryService aiSummaryService;
   private final IssueAiClassifyService issueAiClassifyService;
 
-  /** 검색/필터 + cursor 페이징 단일 엔드포인트. */
+  /**
+   * 검색/필터 + cursor 페이징 단일 엔드포인트. 보드 상태 컬럼도 statusId 로 좁혀 이 엔드포인트를 부른다.
+   *
+   * <p>정렬(WP-1238): {@code sort}=dueDate·priority·createdAt·updatedAt·status·assignee 쉼표 목록, {@code
+   * direction}=asc·desc 쉼표 목록(하나면 모든 키에, 생략하면 desc). 없으면 기존 수정 시각 desc. 범위: startFrom·startTo(시작일),
+   * updatedFrom·updatedTo(수정일, KST) — 모두 yyyy-MM-dd, 양끝 포함. 상세는 {@link IssueSearchService#search}.
+   */
   @GetMapping
   @RequirePermission("project:read")
   public ResponseEntity<IssueSearchResponse> list(

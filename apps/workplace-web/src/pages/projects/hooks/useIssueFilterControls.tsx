@@ -24,6 +24,7 @@ import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
 import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
+  carrySort,
   carryViewOptions,
   filtersToParams,
   overridesClosedHiding,
@@ -31,6 +32,7 @@ import {
   parseView,
 } from '../../../lib/issueFilters';
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
+import { type IssueSortValue, sortOf } from '../../../lib/issueSort';
 import type {
   IssueFilters,
   IssueGroupBy,
@@ -41,6 +43,7 @@ import { ClosedRangeExtra } from '../components/ClosedRangeExtra';
 import { assigneeFacetValue, assigneeFilterFromFacet, buildAssigneeFacet } from './assigneeFacet';
 import { buildComponentFacet, componentFacetValue, componentFilterFromFacet } from './componentFacet';
 import { buildStatusFacets } from './statusFacets';
+import { useSetIssueSort } from './useIssueSortParam';
 import { buildVersionFacet, versionFacetValue, versionFilterFromFacet } from './versionFacet';
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
@@ -62,6 +65,7 @@ export interface IssueFilterBarOptions {
   showClosedToggle?: boolean; // 「완료 모두 보기」 노출. 기본 true — 종료 이슈 숨김 범위를 안 쓰는 화면(개인)은 false
   showClosedFilter?: boolean; // 「완료일」 기간 필터 facet 노출(WP-873). 기본 true — 종료 이슈 기능을 안 쓰는 화면(개인)은 false
   showColumnPicker?: boolean; // 목록 「▦ 열」 메뉴 노출(WP-270). 기본 true — 목록이 이슈 표가 아닌 화면(개인 체크리스트)은 false
+  showSort?: boolean; // 「⇅ 정렬」 칩 노출(WP-1238). 기본 true — checklist 정렬을 쓰는 개인 화면은 false(서버가 둘을 같이 받지 않는다)
   groupOptions?: { value: IssueGroupBy | null; label: string }[]; // 기본 GROUP_OPTIONS
   listLabel?: string; // 뷰토글의 'list' 버튼 접근성 라벨. 기본 '리스트'
   listIcon?: LucideIcon; // 뷰토글의 'list' 버튼 아이콘. 기본 List(목록). 개인=ListChecks(체크리스트)
@@ -93,6 +97,9 @@ export interface IssueFilterControls {
   clearFacets: () => void; // q·view·group 유지, facet 값만 비움
   quickChips: readonly string[]; // 빠른 필터 기본 칩
   quickFilterStorageKey: string | undefined; // 칩 고정·숨김 저장 키(화면·사용자별). 로그인 정보가 없으면 undefined(기억 안 함)
+  showSort: boolean; // 정렬 칩 노출(WP-1238)
+  sort: IssueSortValue | null; // 고른 정렬 — null = 기본(수정일 내림차순)
+  setSort: (s: IssueSortValue | null) => void; // 필터·보기·그룹은 두고 정렬만 바꾼다. null = 기본으로
 }
 
 export function useIssueFilterControls(
@@ -103,6 +110,7 @@ export function useIssueFilterControls(
   const showType = options?.showType ?? true;
   const showClosedToggle = options?.showClosedToggle ?? true;
   const showClosedFilter = options?.showClosedFilter ?? true;
+  const showSort = options?.showSort ?? true;
   const groupOptions = options?.groupOptions ?? GROUP_OPTIONS;
   const quickChips = options?.quickChips ?? TEAM_QUICK_CHIPS;
   // 칩 고정·숨김은 화면·사용자별로 기억한다 — 한 브라우저를 여러 계정이 써도 서로 섞이지 않게 사용자 id 를 키에 넣는다.
@@ -158,13 +166,20 @@ export function useIssueFilterControls(
     writeFilters(filters, view, g ?? 'none');
   }
 
-  // 초기화는 view·group(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
+  // 정렬 변경(WP-1238) — 필터·view·group 은 그대로, sort·direction 만 바꾼다. 목록·보드가 같은 URL 값을 보므로 보기를 바꿔도 이어진다.
+  // 열 머리 클릭과 같은 쓰기 경로(useSetIssueSort → withSortParams)라 같은 정렬은 늘 같은 주소가 된다.
+  const setSort = useSetIssueSort();
+  // 고른 정렬 — 정렬 두 값이 바뀔 때만 새 객체(칩·메뉴가 매 렌더 새 값을 받지 않게).
+  const { sort: sortKey, direction: sortDirection } = filters;
+  const sort = useMemo(() => sortOf({ sort: sortKey, direction: sortDirection }), [sortKey, sortDirection]);
+
+  // 초기화는 view·group·정렬(WP-1238)(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
   function reset() {
     setParams((prev) => {
       const p = new URLSearchParams();
       if (view === 'board') p.set('view', 'board');
       if (groupParam) p.set('group', groupParam);
-      return carryViewOptions(p, prev);
+      return carryViewOptions(carrySort(p, prev), prev);
     }, { replace: true });
   }
 
@@ -389,5 +404,8 @@ export function useIssueFilterControls(
     clearFacets,
     quickChips,
     quickFilterStorageKey,
+    showSort,
+    sort,
+    setSort,
   };
 }

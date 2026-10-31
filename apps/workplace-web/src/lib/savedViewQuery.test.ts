@@ -6,9 +6,11 @@ import {
   normalizeIssueQueryIgnoringViewAndGroup,
   queriesEqual,
   queriesEqualIgnoringView,
+  queryHasNoFilters,
   savedViewHasColumns,
   savedViewMatches,
   savedViewQueryToParams,
+  savedViewShowsDisplayChoice,
   savedViewUpdateQuery,
   syncSavedViewColumns,
   withoutColumns,
@@ -173,5 +175,24 @@ describe('syncSavedViewColumns', () => {
     const next = syncSavedViewColumns(new URLSearchParams('priority=HIGH&cols=milestone'), 'priority=HIGH');
     expect(next.has('cols')).toBe(false);
     expect(next.get('priority')).toBe('HIGH');
+  });
+});
+
+// WP-1238: 정렬은 그룹·열과 같은 보기 선택 — 「전체」(필터 없음) 판정엔 들지 않고, 정렬만 담은 뷰는 주소로 열어도 그 뷰 칩이 켜진다.
+describe('정렬(sort·direction)', () => {
+  it('정렬만 걸린 쿼리는 필터 없음이다', () => {
+    expect(queryHasNoFilters('sort=dueDate&direction=asc')).toBe(true);
+  });
+
+  it('정렬만 담은 저장 뷰는 보기 선택을 담은 뷰로 본다', () => {
+    expect(savedViewShowsDisplayChoice('group=none&sort=dueDate&direction=asc')).toBe(true);
+    // 기본과 같은 정렬(수정일 내림차순)은 정렬 없음 — 보기 선택이 아니다.
+    expect(savedViewShowsDisplayChoice('group=none&sort=updatedAt&direction=desc')).toBe(false);
+    expect(savedViewShowsDisplayChoice('group=none')).toBe(false);
+  });
+
+  it('저장 뷰 비교는 정렬 차이를 본다(그룹과 같다)', () => {
+    expect(queriesEqualIgnoringView('sort=dueDate&direction=asc', 'sort=dueDate&direction=desc')).toBe(false);
+    expect(queriesEqualIgnoringView('direction=asc&sort=dueDate', 'sort=dueDate&direction=asc')).toBe(true);
   });
 });

@@ -1739,6 +1739,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "description": "CSV, any match: cycle (사이클) names, active, none, backlog (no active/planned); names/active need projectKey",
           "type": "string",
         },
+        "direction": {
+          "description": "asc|desc CSV; one = all",
+          "type": "string",
+        },
         "dueFrom": {
           "type": "string",
         },
@@ -1803,8 +1807,18 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minimum": 1,
           "type": "integer",
         },
+        "sort": {
+          "description": "CSV: dueDate,priority,createdAt,updatedAt,status,assignee",
+          "type": "string",
+        },
         "sourceKey": {
           "description": "Exact import key",
+          "type": "string",
+        },
+        "startFrom": {
+          "type": "string",
+        },
+        "startTo": {
           "type": "string",
         },
         "status": {
@@ -1817,6 +1831,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "type": {
           "description": "Type names CSV; any matches",
+          "type": "string",
+        },
+        "updatedFrom": {
+          "type": "string",
+        },
+        "updatedTo": {
           "type": "string",
         },
         "watching": {

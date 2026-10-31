@@ -280,3 +280,37 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     )
   })
 })
+
+// WP-1238: 사이클 구간 목록(사이클이 있는 팀의 기본 목록)도 열 머리 정렬이 된다 — 위에 한 번 보이는 머리만 단추이고, 구간 쿼리마다 정렬이 실린다.
+describe('사이클 구간 목록 정렬 (WP-1238)', () => {
+  test('「담당자」 머리를 누르면 모든 구간 요청에 sort=assignee&direction=asc 가 실리고, 단추는 보이는 머리 하나뿐이다', async () => {
+    const { user, api, location } = await open()
+    const heads = screen.getAllByTestId('issue-sort-head-assignee')
+    expect(heads).toHaveLength(1)
+    const before = api.params().length
+    await user.click(heads[0])
+    await waitFor(() => expect(location()).toMatch(/sort=assignee&direction=asc/))
+    await waitFor(() => expect(api.params().slice(before).some((p) => p.get('cycle') === 'null' && p.get('sort') === 'assignee')).toBe(true))
+    const sectionReqs = api.params().slice(before).filter((p) => p.has('cycle'))
+    expect(sectionReqs.length).toBeGreaterThan(0)
+    expect(sectionReqs.every((p) => p.get('sort') === 'assignee' && p.get('direction') === 'asc')).toBe(true)
+    expect(heads[0].closest('th')).toHaveAttribute('aria-sort', 'ascending')
+  })
+
+  test('보이는 열 머리는 보조기기에서 숨기지 않는다 — 초점이 가는 정렬 단추가 읽힌다(aria-hidden-focus 방지)', async () => {
+    await open()
+    const head = screen.getByTestId('list-cycle-column-head')
+    expect(head.closest('[aria-hidden="true"]')).toBeNull()
+    const table = screen.getByRole('table', { name: '열 정렬' })
+    expect(within(table).getByRole('button', { name: '담당자' })).toBeInTheDocument()
+  })
+
+  test('정렬만 바꾸면 일괄 선택이 남는다', async () => {
+    const { user, location } = await open()
+    await user.click(await within(section('backlog')).findByTestId('select-issue-41'))
+    expect(screen.getByTestId('issue-bulk-toolbar')).toHaveTextContent('선택 1개')
+    await user.click(screen.getByTestId('issue-sort-head-dueDate'))
+    await waitFor(() => expect(location()).toMatch(/sort=dueDate/))
+    expect(screen.getByTestId('issue-bulk-toolbar')).toHaveTextContent('선택 1개')
+  })
+})

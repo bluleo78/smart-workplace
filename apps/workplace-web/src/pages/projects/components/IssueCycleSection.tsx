@@ -37,6 +37,7 @@ import type { IssueFilters, IssueResponse } from '../../../types/issue';
 import type { OpenRowMenu } from '../hooks/useIssueRowActions';
 import { type ColumnDefs, columnHeadCells } from './issueListColumnDefs';
 import { IssueRow } from './IssueListRow';
+import { type HeadSort, SortableTh } from './IssueSortHeader';
 
 // 구간 안에서 표가 아닌 요소(빈 문구·오류·「더 보기」)를 보이는 폭에 묶는다 — 열이 많아 목록이 가로 스크롤돼도
 // 화면 왼쪽에 붙어 보이게(WP-270). 100cqw = 목록 바깥 컨테이너(IssueCycleGroupedList)의 보이는 폭, 2px·0.75rem = 구간 테두리·왼쪽 여백.
@@ -63,18 +64,22 @@ function shortDate(d: string | null): string {
  * 선택 열은 평면 목록과 같은 열 정의(issueListColumnDefs)에서 그린다(WP-270) — 문구·폭이 두 곳에서 갈라지지 않게.
  * 데스크톱 전용 — 모바일 행은 컬럼 없는 한 칸 블록이라 호출하는 쪽이 모바일에선 그리지 않는다(WP-194).
  */
-export function CycleSectionColumnHead({ visible = false, columns }: { visible?: boolean; columns: ColumnDefs }) {
+export function CycleSectionColumnHead({ visible = false, columns, headSort }: { visible?: boolean; columns: ColumnDefs; headSort?: HeadSort }) {
   const cell = visible ? LIST_HEAD_CELL_CLASS : 'h-0 p-0 overflow-hidden';
+  // 열 머리 정렬(WP-1238) — 목록 위에 한 번 보이는 머리에서만. 구간마다 있는 0 높이 폭 정의 행엔 단추를 두지 않는다(보이지 않는 초점 방지).
+  const sortable = visible ? headSort : undefined;
   return (
     <thead>
       <tr className={cn(!visible && 'h-0')}>
         <th className={cn('w-9', cell)}><span className="sr-only">선택</span></th>
-        <th className={cn('w-9', cell)}><span className="sr-only">상태</span></th>
-        {columnHeadCells(columns.left, { thClass: cell, hideLabel: !visible })}
+        <SortableTh className={cn('w-9', cell)} head={sortable} sortKey="status" label="상태" srOnlyLabel>
+          <span className="sr-only">상태</span>
+        </SortableTh>
+        {columnHeadCells(columns.left, { thClass: cell, hideLabel: !visible, headSort: sortable })}
         {/* 보이는 머리에선 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다(WP-919). */}
         <th className={cn('w-28', cell, visible && LIST_ID_HEAD_INDENT_CLASS)}><span className={cn(!visible && 'sr-only')}>ID</span></th>
         <th className={cell}><span className={cn(!visible && 'sr-only')}>제목</span></th>
-        {columnHeadCells(columns.right, { thClass: cell, hideLabel: !visible })}
+        {columnHeadCells(columns.right, { thClass: cell, hideLabel: !visible, headSort: sortable })}
         <th className={cn('w-8', cell)}><span className="sr-only">작업</span></th>
       </tr>
     </thead>

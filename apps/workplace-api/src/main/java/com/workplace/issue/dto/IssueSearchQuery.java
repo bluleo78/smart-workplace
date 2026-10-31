@@ -85,9 +85,15 @@ public record IssueSearchQuery(
     // 미적용.
     Long mentionedUserId,
     // 원본 키 필터(WP-1239) — 가져올 때 받은 원본 시스템 키(issue.import_source_key)와 정확히 같은 이슈만. null 이면 미적용.
-    String sourceKey) {
+    String sourceKey,
+    // 수정일(updated_at) 범위 — Asia/Seoul 날짜 기준 양끝 포함(WP-1238, 생성일 범위와 같은 규칙). null 이면 미적용.
+    LocalDate updatedFrom,
+    LocalDate updatedTo,
+    // 시작일(start_date) 범위 — DATE 비교, 양끝 포함(WP-1238, 마감일 범위와 같은 규칙). 시작일 없는 이슈는 제외된다. null 이면 미적용.
+    LocalDate startFrom,
+    LocalDate startTo) {
 
-  /** 원본 키 필터 없는 39-인자 호환 생성자 — 원본 키로 찾지 않는 호출부용(sourceKey null). */
+  /** 원본 키 필터 없는 39-인자 호환 생성자 — 원본 키로 찾지 않는 호출부용(sourceKey·수정일·시작일 범위 null). */
   public IssueSearchQuery(
       String q,
       List<String> statuses,
@@ -166,6 +172,10 @@ public record IssueSearchQuery(
         affectsVersionIds,
         affectsVersionNone,
         mentionedUserId,
+        null,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -242,6 +252,11 @@ public record IssueSearchQuery(
         false,
         null,
         false,
+        null,
+        null,
+        null,
+        null,
+        null,
         null);
   }
 

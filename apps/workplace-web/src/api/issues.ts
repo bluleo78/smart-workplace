@@ -108,6 +108,13 @@ export async function searchIssues(
 ): Promise<IssueSearchResponse> {
   const params = issueFilterParams(filters);
   if (extra) for (const [k, v] of Object.entries(extra)) params.set(k, v);
+  // 정렬(WP-1238) — 목록·보드 컬럼·사이클 구간이 모두 이 함수로 받으므로 여기서 한 번 싣는다(그룹 총계엔 순서가 없어 issueFilterParams 에 두지 않는다).
+  // checklist 정렬(order=checklist, 개인 체크리스트)과는 함께 보내지 않는다 — 서버 계약상 둘은 배타라, 주소·조건 기억에 남은 정렬이 체크리스트로 새도 막는다.
+  // 커서는 정렬별로 만들어지므로 다음 페이지도 같은 sort·direction 을 실어야 한다(쿼리 키가 필터를 담아 늘 같은 값이 간다).
+  if (filters.sort && filters.direction && !extra?.order) {
+    params.set('sort', filters.sort);
+    params.set('direction', filters.direction);
+  }
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(

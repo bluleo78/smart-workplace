@@ -25,6 +25,7 @@ import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
 import type { IssueGroupBy } from '../../../types/issue';
 import { type IssueFilterBarOptions, useIssueFilterControls } from '../hooks/useIssueFilterControls';
 import { IssueColumnPickerButton } from './IssueColumnPicker';
+import { IssueSortMenu } from './IssueSortMenu';
 
 export function IssueFilterBar({
   projectKey,
@@ -114,6 +115,9 @@ export function IssueFilterBar({
             </SelectContent>
           </Select>
         </div>
+        {/* 정렬(WP-1238) — 목록·보드 공용(보드는 컬럼 안 카드 순서). 목록 열 머리 클릭과 같은 URL 값을 보여 준다.
+            checklist 순서를 쓰는 개인 화면은 options.showSort=false 로 숨긴다. */}
+        {c.showSort && <IssueSortMenu sort={c.sort} onChange={c.setSort} />}
         {/* 표시할 열(WP-270) — 표가 있는 목록 뷰에서만. 보드엔 열이 없고, 모바일은 이 막대 대신 모바일 툴바를 쓴다.
             완료일 기간 필터가 걸리면 완료일 열이 자동으로 켜져 메뉴에 「필터로 켜짐」이 보인다. */}
         {c.view === 'list' && (options?.showColumnPicker ?? true) && (

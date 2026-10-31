@@ -628,6 +628,28 @@ describe('list_issues', () => {
     // 종료일 필터는 그대로 서버 쿼리로 간다.
     expect(issueQuery(c)).toMatchObject({ closedFrom: '2026-10-08' });
   });
+
+  it('정렬(sort·direction)과 수정일·시작일 범위는 그대로 서버 쿼리로 간다 (WP-1238)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssues).mockResolvedValue({ items: [] });
+    await tool(c, 'list_issues').handler({
+      projectKey: 'WP',
+      sort: 'dueDate,priority',
+      direction: 'asc,desc',
+      updatedFrom: '2026-10-29',
+      updatedTo: '2026-10-30',
+      startFrom: '2026-10-01',
+      startTo: '2026-10-31',
+    });
+    expect(issueQuery(c)).toMatchObject({
+      sort: 'dueDate,priority',
+      direction: 'asc,desc',
+      updatedFrom: '2026-10-29',
+      updatedTo: '2026-10-30',
+      startFrom: '2026-10-01',
+      startTo: '2026-10-31',
+    });
+  });
 });
 
 describe('list_issues 페이지 (WP-352)', () => {
