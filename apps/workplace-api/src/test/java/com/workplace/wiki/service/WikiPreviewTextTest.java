@@ -33,4 +33,15 @@ class WikiPreviewTextTest {
     assertThat(WikiPreviewText.excerpt("조건 a<b 이면\n결과 c>d, 값 &amp; 비율 &lt;5%"))
         .isEqualTo("조건 a<b 이면 결과 c>d, 값 & 비율 <5%");
   }
+
+  /** WP-1240 — 페이지 스타일 블록은 CSS 내용째 지운다(태그만 지우면 CSS 가 설명에 남는다). 잘려 닫는 태그가 없어도 끝까지 지운다. */
+  @Test
+  void drops_page_style_blocks_with_their_css() {
+    String md =
+        "<style data-wp-style>\n.card{color:red}\n\n#x > p{margin:0}\n</style>\n\n"
+            + "<div class=\"card\">\n\n매출 <span class=\"badge\">좋음</span>\n\n</div>";
+    assertThat(WikiPreviewText.excerpt(md)).isEqualTo("매출 좋음");
+    assertThat(WikiPreviewText.excerpt("앞 글\n\n<STYLE data-wp-style>\n.a{color:red}"))
+        .isEqualTo("앞 글");
+  }
 }

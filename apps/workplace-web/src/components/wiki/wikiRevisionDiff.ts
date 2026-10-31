@@ -41,7 +41,8 @@ export type MentionTextOf = (mtype: WikiMentionType, id: number) => string
 /** 낱말 diff 를 하는 텍스트 블록. */
 const TEXT_BLOCKS = new Set(['paragraph', 'heading', 'codeBlock'])
 /** 다르면 자식으로 내려가 비교하는 컨테이너. 표·행·셀은 innerDiff 가 따로 다루고, 나머지(이미지 등)는 블록 통째로 바꾼 것으로 본다. */
-const CONTAINERS = new Set(['bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote'])
+// 모양 영역(wikiHtmlBox, WP-1240)도 컨테이너다 — 카드 안 글자만 고쳐도 카드 통째 지움+추가로 보이지 않게(class·style 이 같을 때만 내려간다).
+const CONTAINERS = new Set(['bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'wikiHtmlBox'])
 /** 표 셀 — 행 안에서 자리대로 짝지어 셀 안 블록을 비교한다(attrs 는 보지 않는다). */
 const TABLE_CELLS = new Set(['tableCell', 'tableHeader'])
 /** 블록 하나 글자 diff 상한 — 넘으면 블록 단위(지움+추가)로 낮춘다(diff 비용이 글자 수에 비례해 미리보기가 멈추지 않게). */

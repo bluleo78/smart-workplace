@@ -9,4 +9,4 @@
  * 지문 기록(schemaFingerprint.ts)과 가드 테스트(패키지 schemaVersion.test.ts·웹 wikiEditorExtensions.test.ts)가 판을 올리지 않은 스키마 변경을 잡는다.
  * 의존성 없는 모듈이라 웹은 collab-protocol subpath 로 tiptap 없이 가져간다.
  */
-export const WIKI_SCHEMA_VERSION = 2
+export const WIKI_SCHEMA_VERSION = 3

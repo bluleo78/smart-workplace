@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 
 import { WikiCode } from './codeMark'
+import { WikiHtmlBox, WikiHtmlSpan, WikiStyleSchema } from './htmlNodes'
 import { WikiImageSchema } from './imageNode'
 import { WikiLink } from './linkMark'
 import { WikiMarkdownText } from './markdownText'
@@ -15,13 +16,15 @@ import { WikiTable } from './tableNode'
  * 노트 문서 스키마를 정하는 확장 묶음 — 웹 에디터와 동기화 서버가 같은 것을 써야
  * 마크다운 파싱·직렬화와 Yjs 노드 구조가 일치한다.
  * - 기본 history 는 항상 끈다 — 웹은 Collaboration(Yjs undo, 내 편집만 되돌림)을 쓰고 서버 변환기엔 실행 취소가 없다.
- * - image/mention 은 웹이 NodeView 를 붙인 버전을 주입하는 자리(스키마는 동일해야 한다).
+ * - image/mention/style 은 웹이 NodeView 를 붙인 버전을 주입하는 자리(스키마는 동일해야 한다).
  * - 순서는 기존 WikiEditor 와 같게 유지(Markdown 확장이 Text 직렬화기를 덮지 않도록 Text 다음).
  */
 export function wikiSchemaExtensions(
-  opts: { image?: AnyExtension; mention?: AnyExtension } = {},
+  opts: { image?: AnyExtension; mention?: AnyExtension; style?: AnyExtension } = {},
 ): Extensions {
   return [
+    // HTML 인라인 모양 범위(WP-1240) — 마크 순위가 가장 높도록(다른 마크보다 바깥에 직렬화) 맨 앞에 둔다. htmlNodes.ts 참조.
+    WikiHtmlSpan,
     // text 노드만 교체 — 표 셀 안의 | 를 이스케이프한다(#755). markdownText.ts 참조.
     // code 도 교체 — 링크로 감싼 인라인 코드([`code`](url))를 허용한다(WP-300). codeMark.ts 참조.
     StarterKit.configure({ text: false, history: false, code: false }),
@@ -52,5 +55,9 @@ export function wikiSchemaExtensions(
     // 셀 가로 정렬(WP-584) — GFM 열 정렬 마커로 저장한다. tableCellAlign.ts 참조.
     WikiTableHeader,
     WikiTableCell,
+    // HTML 모양 보존(WP-1240) — 페이지 스타일(<style data-wp-style>)과 class·style 을 지닌 컨테이너. htmlNodes.ts 참조.
+    // 블록 노드는 맨 뒤에 둔다 — 앞에 두면 block+ 내용을 채울 때 기본 블록(문단) 자리를 빼앗는다.
+    opts.style ?? WikiStyleSchema,
+    WikiHtmlBox,
   ]
 }

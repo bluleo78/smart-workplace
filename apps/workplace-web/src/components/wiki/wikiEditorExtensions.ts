@@ -1,4 +1,4 @@
-import { COLLAB_FRAGMENT, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
+import { COLLAB_FRAGMENT } from '@smart-workplace/wiki-editor-schema'
 import type { Extension, Extensions } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -15,6 +15,7 @@ import { WikiImage } from './wikiImageNode'
 import { WikiMention } from './wikiMentionNode'
 import { WikiPresenceCursors } from './wikiPresenceCursors'
 import { WikiRemoteScrollAnchor } from './wikiRemoteScrollAnchor'
+import { wikiRenderExtensions } from './wikiRenderExtensions'
 import { WikiUploadPlaceholder } from './wikiUploadPlaceholder'
 
 /**
@@ -38,9 +39,10 @@ export function wikiEditorExtensions(o: {
 }): Extensions {
   return [
     // 문서 스키마(텍스트·마크다운·멘션·이미지·표)는 동기화 서버와 공유하는 공용 묶음(WP-284).
-    // 이미지·멘션은 웹 NodeView 를 붙인 버전을 주입한다 — 스키마 자체는 패키지와 동일.
+    // 이미지·멘션·페이지 스타일은 웹 NodeView 를 붙인 버전을 주입한다 — 스키마 자체는 패키지와 동일.
     // 실행 취소는 Yjs 가 맡으므로(내 편집만 되돌림) 기본 history 는 끈다 — 켜 두면 남의 편집까지 되돌린다.
-    ...wikiSchemaExtensions({ image: WikiImage, mention: WikiMention }),
+    // HTML 모양 범위·붙여넣기 모양 거르기(WP-1240)도 함께 — 노트 본문 화면 공용 묶음(wikiRenderExtensions).
+    ...wikiRenderExtensions({ image: WikiImage, mention: WikiMention, pasteShape: true }),
     // 본문 실시간 동기화(WP-287) — 동기화 서버와 같은 조각 이름(COLLAB_FRAGMENT)을 쓴다. 본문은 서버 문서가 원본이라
     // content 로 초기화하지 않는다(넣으면 동기화 때 본문이 두 벌이 된다).
     Collaboration.configure({ document: o.doc, field: COLLAB_FRAGMENT }),
