@@ -63,7 +63,7 @@ describe('휴대폰 — 없는 공간·잘못된 주소', () => {
 })
 
 describe('휴대폰 — 공유', () => {
-  test('헤더 공유 버튼 대신 「공유 중」 표식과 ⋯ 메뉴 항목으로 공유 창을 연다', async () => {
+  test('헤더 공유 버튼 대신 「공유 중」 표식과 ⬆︎ 공유 시트의 「외부 공유 링크…」로 공유 창을 연다(WP-1234)', async () => {
     const share: WikiPageShare = {
       pageId: 101, token: 'wsh_owner1', audience: 'WORKSPACE', permission: 'VIEW', includeChildren: false, people: [], groups: [],
       createdBy: { userId: 1, name: '나' }, createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z',
@@ -84,8 +84,21 @@ describe('휴대폰 — 공유', () => {
     ])
     expect(await screen.findByTestId('wiki-page-shared-badge')).toBeInTheDocument()
     expect(screen.queryByTestId('wiki-share-button')).not.toBeInTheDocument()
+    // ⋯ 에는 공유 항목이 없다 — 링크·공유는 ⬆︎ 시트에 모았다.
     await user.click(screen.getByTestId('wiki-page-menu'))
-    await user.click(await screen.findByTestId('wiki-menu-share'))
+    expect(await screen.findByTestId('wiki-menu-source')).toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-menu-share')).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByTestId('mobile-share-button'))
+    let sheet = await screen.findByTestId('share-sheet')
+    // 시트 머리는 노트 제목. 「링크 복사」는 스페이스를 몰라도 열리는 노트 링크를 복사한다.
+    expect(within(sheet).getByRole('heading')).toHaveTextContent('제품 로드맵')
+    await user.click(within(sheet).getByTestId('mobile-action-copy-link'))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/wiki/open/101`))
+    await waitFor(() => expect(screen.queryByTestId('share-sheet')).not.toBeInTheDocument())
+    await user.click(screen.getByTestId('mobile-share-button'))
+    sheet = await screen.findByTestId('share-sheet')
+    await user.click(within(sheet).getByTestId('mobile-action-external-share'))
     const dialog = await screen.findByTestId('wiki-share-dialog')
     await waitFor(() => expect(within(dialog).getByTestId('wiki-share-url')).toHaveValue(`${window.location.origin}/wiki/share/wsh_owner1`))
   })

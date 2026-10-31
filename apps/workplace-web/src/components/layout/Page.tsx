@@ -87,6 +87,8 @@ interface PageHeaderProps {
   'data-testid'?: string
   /** 모바일 전용: ⋯ 메뉴 밖에 인라인으로 둘 주 액션 하나(보통 ＋ 아이콘 버튼). */
   mobilePrimaryAction?: ReactNode
+  /** 모바일 전용: ⬆︎ 공유 버튼(ShareSheetButton, WP-1234) — 주 액션 앞에 둔다. 링크를 딸 수 있는 상세 화면만 넘긴다. */
+  mobileShare?: ReactNode
   /**
    * 모바일 전용: ⋯ 메뉴에 담을 내용. 생략하면 actions 전체를 담는다. null 이면 ⋯ 를 두지 않는다
    * (주 액션이 actions 와 같은 버튼일 때 — 같은 testid 가 두 번 렌더되지 않게 페이지가 나눠서 넘긴다).
@@ -125,13 +127,14 @@ function PageHeaderImpl({ mobile = 'bar', ...props }: PageHeaderProps) {
 
 /**
  * 모바일 헤더 — 탭 루트 헤더(큰 제목 + 🔔) 또는 모바일 상세 안의 병합 상세 헤더(‹ + 제목 + ✦).
- * 우측 클러스터 [주 액션] [⋯ 메뉴(나머지 actions)] [☰ 사이드바 시트]. icon·leading·meta 는 모바일에서 렌더하지 않음.
+ * 우측 클러스터 [⬆︎ 공유] [주 액션] [⋯ 메뉴(나머지 actions)] [☰ 사이드바 시트]. icon·leading·meta 는 모바일에서 렌더하지 않음.
  */
 function MobilePageHeader({
   title,
   actions,
   className,
   mobilePrimaryAction,
+  mobileShare,
   mobileActions,
   mobileMenuIcon,
   mobileMenuLabel,
@@ -145,6 +148,7 @@ function MobilePageHeader({
   const menu = mobileActions === undefined ? actions : mobileActions
   const cluster = (
     <>
+      {mobileShare}
       {mobilePrimaryAction}
       {menu != null && menu !== false && (
         <MobileHeaderMore icon={mobileMenuIcon} label={mobileMenuLabel}>{menu}</MobileHeaderMore>

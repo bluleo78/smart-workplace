@@ -292,3 +292,26 @@ describe('읽기 전용 일정 — 상세 보기(WP-708·710)', () => {
     expect(screen.getByTestId('event-detail-recurrence')).toHaveTextContent('매주 월요일')
   })
 })
+
+describe('일정 링크 복사(WP-1234)', () => {
+  test('상세 보기 머리의 🔗 는 이 일정 링크(?eventId)를 복사한다', async () => {
+    const ev = calendarEvent({ id: 42, title: 'M365 회의', calendarId: 10, calendarName: 'M365 캘린더' })
+    const { user } = renderCalendarPage('/calendar', calendarHandlers({ calendars: [LOCAL, M365_READONLY], events: [ev] }))
+    await user.click(await screen.findByTestId('calendar-event-42'))
+    const dialog = await screen.findByTestId('calendar-event-dialog')
+    await within(dialog).findByTestId('event-detail-view')
+    await user.click(within(dialog).getByRole('button', { name: /^링크 복사 / }))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/calendar?eventId=42`))
+    expect(await screen.findByText('링크를 복사했어요')).toBeInTheDocument()
+  })
+
+  test('내가 고칠 수 있는 일정(편집 폼으로 열림)에도 🔗 가 있다', async () => {
+    const ev = calendarEvent({ id: 43, title: '내 회의', calendarId: 1, calendarName: '기본' })
+    const { user } = renderCalendarPage('/calendar', calendarHandlers({ calendars: [LOCAL], events: [ev] }))
+    await user.click(await screen.findByTestId('calendar-event-43'))
+    const dialog = await screen.findByTestId('calendar-event-dialog')
+    expect(within(dialog).queryByTestId('event-detail-view')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /^링크 복사 / }))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/calendar?eventId=43`))
+  })
+})

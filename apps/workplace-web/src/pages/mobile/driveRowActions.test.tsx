@@ -136,3 +136,30 @@ test('선택 모드가 아니면 행 탭은 그대로 미리보기를 연다', a
   await user.click(screen.getByRole('button', { name: LONG_FILE }))
   await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}?preview=70`))
 })
+
+describe('링크 공유 ⬆︎(WP-1234)', () => {
+  // 폴더 화면 헤더 ⬆︎ — 시트의 「링크 복사」는 이 폴더(공간 루트) 링크.
+  test('폴더 헤더 ⬆︎ → 링크 복사는 폴더 링크를 복사한다', async () => {
+    const { user } = await open()
+    await user.click(within(screen.getByTestId('page-header')).getByTestId('mobile-share-button'))
+    const sheet = await screen.findByTestId('share-sheet')
+    // 폴더엔 외부 공유 링크가 없다(파일 단위 기능).
+    expect(within(sheet).queryByTestId('mobile-action-external-share')).not.toBeInTheDocument()
+    await user.click(within(sheet).getByTestId('mobile-action-copy-link'))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/drive/spaces/${SPACE_ID}`))
+  })
+
+  // 뷰어 상단 바 ⬆︎ → 「외부 공유 링크…」는 뷰어를 연 채 그 위에 공유 링크 창을 연다(창은 뷰어 밖 DrivePage 가 그린다).
+  test('뷰어 ⬆︎ → 외부 공유 링크… 는 뷰어 위에 공유 링크 창을 연다', async () => {
+    const { user } = await open()
+    await user.click(screen.getByRole('button', { name: LONG_FILE }))
+    const viewer = await screen.findByTestId('attachment-viewer')
+    await user.click(within(screen.getByTestId('viewer-top-bar')).getByTestId('mobile-share-button'))
+    const sheet = await screen.findByTestId('share-sheet')
+    expect(within(sheet).getByRole('heading')).toHaveTextContent(LONG_FILE)
+    await user.click(within(sheet).getByTestId('mobile-action-external-share'))
+    expect(await screen.findByTestId('share-link-modal')).toBeInTheDocument()
+    expect(viewer).toBeInTheDocument()
+    expect(screen.getByTestId('attachment-viewer')).toBe(viewer)
+  })
+})

@@ -531,3 +531,16 @@ test('보낸편지함엔 행·상세 모두 보관·옮기기·삭제가 없다'
   await screen.findByTestId('mail-detail')
   for (const id of ['mail-archive', 'mail-move', 'mail-trash']) expect(screen.queryByTestId(id)).not.toBeInTheDocument()
 })
+
+test('상세 동작 줄 끝 🔗 는 이 메일 링크(계정·messageId)를 복사한다(WP-1234)', async () => {
+  const { handlers } = readStub()
+  const read = record('post', '/api/v1/mail/messages/10/read')
+  const { user } = renderMail('/mail/1', {
+    handlers: [read.handler, http.get('/api/v1/mail/messages/10', () => HttpResponse.json(detail({ id: 10 }))), ...handlers],
+  })
+  await user.click(await screen.findByTestId('mail-row-10'))
+  const panel = await screen.findByTestId('mail-detail')
+  await user.click(within(panel).getByRole('button', { name: /^링크 복사 / }))
+  await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/mail/1?messageId=10`))
+  expect(await screen.findByText('링크를 복사했어요')).toBeInTheDocument()
+})

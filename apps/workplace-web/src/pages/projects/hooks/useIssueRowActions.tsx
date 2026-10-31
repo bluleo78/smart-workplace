@@ -17,6 +17,7 @@ import { AgentBadge } from '@/components/users/AgentBadge';
 import { CandidateAvatar, UserAvatar } from '@/components/users/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { appUrl, issuePath } from '@/lib/appUrl';
 import { copyText } from '@/lib/copyText';
 import { epicTypeSummary } from '@/lib/epicColor';
 import { isSameParent, parentTitleLabel } from '@/lib/parentRef';
@@ -210,7 +211,8 @@ export function useIssueRowActions({
     // 프로젝트까지 비교 — 다른 프로젝트 에픽(CLA-5) 부모에서 이 프로젝트 에픽 #5 로 옮기는 것도 변경이다(WP-1039).
     if (!isSameParent(issue.parent, to, issue.projectKey)) moveEpic.mutate({ issue, to });
   };
-  const linkOf = (i: IssueResponse) => new URL(linkFor?.(i) ?? `/projects/${projectKey}/issues/${i.number}`, window.location.href).href;
+  // 링크는 공용 빌더(appUrl, WP-1234) — linkFor 가 절대 주소를 주면 그대로 쓴다.
+  const linkOf = (i: IssueResponse) => appUrl(linkFor?.(i) ?? issuePath(projectKey, i.number));
   const copy = async (text: string, what: string) => {
     if (await copyText(text)) toast.success(`${what}를 복사했습니다`);
     else toast.error(`${what}를 복사하지 못했습니다`);

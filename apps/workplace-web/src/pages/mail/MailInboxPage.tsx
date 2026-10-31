@@ -13,6 +13,9 @@ import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
+import { CopyLinkButton } from '@/components/share/CopyLinkButton'
+import { ShareSheetButton } from '@/components/share/ShareSheetButton'
+import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
@@ -26,6 +29,7 @@ import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { handleApiError } from '@/lib/api-error'
+import { appUrl, mailMessagePath } from '@/lib/appUrl'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
@@ -42,6 +46,7 @@ import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
+import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
 
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
@@ -457,6 +462,7 @@ function AttachmentList({
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
+  accountId,
   aiEnabled,
   onReply,
   onReplyAll,
@@ -471,6 +477,8 @@ function MessageDetailPanel({
   onOpenMoveSheet,
 }: {
   messageId: number | null
+  /** 열린 메일의 계정(WP-1234) — 메일 링크(/mail/:accountId?messageId=)를 만든다. 상세 응답에는 계정이 없다. */
+  accountId: number | undefined
   aiEnabled: boolean
   onReply: (detail: EmailMessageDetail) => void
   onReplyAll: (detail: EmailMessageDetail) => void
@@ -494,6 +502,17 @@ function MessageDetailPanel({
   // 휴대폰 폭 판정 — 모바일은 상단바·하단 액션 바 배치(WP-400)로 그린다. 조기 return 앞(훅 순서 고정).
   const isMobile = useIsMobile()
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
+  // WP-1234 지금 보는 메일 — 데스크톱 동작 줄 끝 🔗·모바일 상단바 ⬆︎·⇧⌘, 가 쓴다. 상세를 받은 뒤에만 등록한다.
+  const detailId = detail?.id
+  const detailSubject = detail?.subject
+  const shareTarget = useMemo<ShareTarget | null>(
+    () =>
+      detailId != null && accountId != null
+        ? { kind: 'mail', url: appUrl(mailMessagePath(accountId, detailId)), title: mailSubjectText(detailSubject) }
+        : null,
+    [detailId, detailSubject, accountId],
+  )
+  useRegisterShareTarget(shareTarget)
   // WP-149 요약 생략 메일의 "AI 요약" 버튼 — 누를 때만 생성(결과는 요약 캐시에 바로 반영)
   const generateSummary = useGenerateMailSummary()
   // 생성 중 표시는 이 메일을 생성 중일 때만 — 다른 메일로 옮겨도 스켈레톤이 따라오지 않게
@@ -640,6 +659,7 @@ function MessageDetailPanel({
       <MailMobileDetail
         key={detail.id}
         detail={detail}
+        share={shareTarget && <ShareSheetButton target={shareTarget} />}
         invite={inviteCard}
         onBack={onBack}
         onMarkUnread={onMarkUnread}
@@ -867,6 +887,8 @@ function MessageDetailPanel({
               )}
             </Button>
           )}
+          {/* WP-1234 🔗 — 동작 줄 끝. 이 메일 링크를 바로 복사한다. */}
+          {shareTarget && <CopyLinkButton target={shareTarget} className="size-8" />}
         </div>
         {attachmentList}
       </div>
@@ -1675,6 +1697,7 @@ function MailInbox() {
           {/* 모바일 상세 헤더(‹·제목·⋯·✦)는 MessageDetailPanel 이 그린다 — ⋯ 메뉴(원본 배경·AI 이슈)가 패널 상태를 쓴다(WP-400). */}
           <MessageDetailPanel
             messageId={selectedId}
+            accountId={accountIdNum}
             aiEnabled={aiEnabled}
             aiDraftPending={replyDraft.isPending}
             onReply={onReply}

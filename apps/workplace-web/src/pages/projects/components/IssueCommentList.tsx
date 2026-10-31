@@ -30,6 +30,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
+import { appUrl } from '@/lib/appUrl';
 import { cn } from '@/lib/utils';
 
 import { uploadIssueImage } from '../../../api/issueImages';
@@ -110,7 +111,7 @@ function CommentItem({
   useRestoreFocusOnExit(editing, editButtonRef);
   // 코멘트 링크 복사(WP-1175) — 그 주소로 이슈를 열면 이 코멘트로 바로 간다. 누구의 코멘트든 복사할 수 있다.
   const copyLink = () => {
-    const url = window.location.origin + issueCommentPath(projectKey, issueNumber, comment.id);
+    const url = appUrl(issueCommentPath(projectKey, issueNumber, comment.id));
     void copyToClipboard(url, { success: '코멘트 링크를 복사했습니다', failure: '코멘트 링크를 복사하지 못했습니다' });
   };
   const commentActions: MobileSheetAction[] = [

@@ -1,4 +1,4 @@
-import { ChevronDown, FileCode, History, Link2, Link2Off, Loader2, MoreHorizontal, MoveHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, FileCode, History, Link2, Link2Off, Loader2, MoreHorizontal, MoveHorizontal, Share2, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -16,10 +16,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
+import { CopyLinkButton } from '@/components/share/CopyLinkButton'
+import { LinkMenuItems } from '@/components/share/LinkMenuItems'
+import { hasLinkMenuItems } from '@/components/share/shareActions'
+import { ShareSheetButton } from '@/components/share/ShareSheetButton'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
 
 import { isAccessLost, isTerminalStatus, type SyncStatus } from '../../lib/collab/collabStatus'
@@ -69,6 +74,7 @@ export function WikiPageHeader({
   fullWidth = false,
   onFullWidthChange,
   fullWidthSaving = false,
+  shareTarget,
 }: {
   crumbs: { id: number; title: string }[]
   /** 실시간 동기화 상태(WP-287) — 예전 저장 상태(저장 중/저장됨/충돌)를 대체한다. */
@@ -109,6 +115,8 @@ export function WikiPageHeader({
   onFullWidthChange?: (next: boolean) => void
   /** 「전체 폭」 저장 중 — 항목을 잠가 연타로 요청이 겹치지 않게 한다. */
   fullWidthSaving?: boolean
+  /** 지금 보는 노트의 링크(WP-1234) — 데스크톱 🔗·⋯ 「브라우저에서 열기」, 모바일 ⬆︎ 시트. */
+  shareTarget?: ShareTarget
 }) {
   const isMobile = useIsMobile()
   // 공유 링크 화면(sharedBy 있음)엔 AI 작성을 두지 않는다 — 스페이스 멤버 전용 기능이다(WP-579).
@@ -293,11 +301,13 @@ export function WikiPageHeader({
             <DropdownMenuSeparator />
           </>
         )}
-        {/* 모바일은 헤더 폭이 좁아 공유 버튼 대신 메뉴 항목으로(WP-579). */}
-        {isMobile && onShare && !isAccessLost(syncStatus) && (
-          <DropdownMenuItem data-testid="wiki-menu-share" onSelect={() => setTimeout(onShare, 0)}>
-            <shareUi.Icon className="mr-2 h-4 w-4" aria-hidden="true" /> {shareUi.menu}
-          </DropdownMenuItem>
+        {/* 모바일 공유(WP-579)는 헤더 ⬆︎ 시트의 「외부 공유 링크…」로 옮겼다(WP-1234). */}
+        {/* 데스크톱 링크 항목(WP-1234) — 설치된 앱이면 「브라우저에서 열기」. */}
+        {!isMobile && shareTarget && hasLinkMenuItems(shareTarget) && (
+          <>
+            <LinkMenuItems target={shareTarget} />
+            <DropdownMenuSeparator />
+          </>
         )}
         {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
         <DropdownMenuItem
@@ -349,7 +359,7 @@ export function WikiPageHeader({
                   data-testid="wiki-page-shared-badge"
                   className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-primary/10 px-1 text-[11px] text-primary"
                 >
-                  <Link2 className="size-3" aria-hidden="true" />
+                  <Share2 className="size-3" aria-hidden="true" />
                   공유 중
                 </span>
               )}
@@ -382,6 +392,7 @@ export function WikiPageHeader({
             )}
             {presence}
             {syncChip}
+            {shareTarget && <ShareSheetButton target={shareTarget} />}
             {pageMenu}
           </div>
         }
@@ -420,6 +431,8 @@ export function WikiPageHeader({
           {presence}
           {syncChip}
           {shareButton}
+          {/* WP-1234 🔗 — 지금 노트 링크를 바로 복사. 외부 공유(「공유」)와 다른 일이라 아이콘도 다르다(공유는 Share2). */}
+          {shareTarget && <CopyLinkButton target={shareTarget} />}
           {!aiHidden && aiControl}
           {pageMenu}
         </>
@@ -431,9 +444,10 @@ export function WikiPageHeader({
 /** 이 페이지 자신의 공유 상태(WP-1086) — 없음·살아 있음·만료됨. 서버의 shared·shareExpired 는 함께 참일 수 없다. */
 type ShareState = 'none' | 'live' | 'expired'
 
-/** 공유 상태별 공유 버튼·모바일 메뉴 모양 — 만료된 공유는 링크가 열리지 않으므로 흐린 끊긴 링크로 보인다. */
-const SHARE_UI: Record<ShareState, { Icon: typeof Link2; button: string; menu: string; className?: string }> = {
-  none: { Icon: Link2, button: '공유', menu: '공유' },
-  live: { Icon: Link2, button: '공유 중', menu: '공유 설정', className: 'border-primary/40 text-primary hover:text-primary' },
-  expired: { Icon: Link2Off, button: '공유 만료', menu: '공유 설정(만료됨)', className: 'text-muted-foreground' },
+/** 공유 상태별 공유 버튼 모양 — 만료된 공유는 링크가 열리지 않으므로 흐린 끊긴 링크로 보인다. */
+// 공유 아이콘은 Share2 — 🔗(Link, 링크 복사)와 모양이 겹치지 않게(WP-1234). 만료는 끊긴 링크 그대로.
+const SHARE_UI: Record<ShareState, { Icon: typeof Link2; button: string; className?: string }> = {
+  none: { Icon: Share2, button: '공유' },
+  live: { Icon: Share2, button: '공유 중', className: 'border-primary/40 text-primary hover:text-primary' },
+  expired: { Icon: Link2Off, button: '공유 만료', className: 'text-muted-foreground' },
 }

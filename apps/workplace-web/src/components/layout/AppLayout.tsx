@@ -16,6 +16,7 @@ import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
+import { useShareHotkeys } from '@/components/share/useShareHotkeys'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
 import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
 import { useAppLinkConfig } from '@/hooks/queries/useAppLinks'
@@ -38,6 +39,8 @@ export function AppLayout() {
   const { isConnected } = useEventStream(user?.id ?? 0)
   // 연결 상태를 하위 채팅 UI(끊김 배너)로 전달 — isConnected 변동 시에만 새 value.
   const messagingConn = useMemo(() => ({ isConnected }), [isConnected])
+  // WP-1234 링크 단축키(⇧⌘, 링크 복사·⌘. 키 복사) — AI 사용 여부와 무관하게 앱 셸에서 한 번 건다.
+  useShareHotkeys()
 
   // 앱 진입(로그인·새로고침·테넌트 전환) 시 이 기기 구독을 서버에 재등록 — 계정 전환 시 소유자 이전·VAPID 키 변경 재구독.
   useEffect(() => {

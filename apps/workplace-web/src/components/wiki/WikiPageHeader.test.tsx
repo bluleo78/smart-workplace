@@ -6,13 +6,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import type { SyncStatus } from '../../lib/collab/collabStatus'
+import type { ShareTarget } from '../../lib/shareTarget'
 import { WikiPageHeader } from './WikiPageHeader'
 
 // 휴대폰 헤더는 레이아웃 상세 바 컨텍스트가 있어야 그려진다 — 데스크톱 헤더만 본다(휴대폰 숨김은 같은 조건식의 !isMobile).
 vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
 function renderHeader(
-  props: { fullWidth?: boolean; onFullWidthChange?: (next: boolean) => void; fullWidthSaving?: boolean; syncStatus?: SyncStatus } = {},
+  props: {
+    fullWidth?: boolean
+    onFullWidthChange?: (next: boolean) => void
+    fullWidthSaving?: boolean
+    syncStatus?: SyncStatus
+    onShare?: () => void
+    shareTarget?: ShareTarget
+  } = {},
 ) {
   return renderWithProviders(
     <WikiPageHeader
@@ -29,6 +37,8 @@ function renderHeader(
       fullWidth={props.fullWidth}
       onFullWidthChange={props.onFullWidthChange}
       fullWidthSaving={props.fullWidthSaving}
+      onShare={props.onShare}
+      shareTarget={props.shareTarget}
     />,
   )
 }
@@ -80,5 +90,24 @@ describe('WikiPageHeader 「전체 폭」 항목', () => {
     renderHeader({ onFullWidthChange: vi.fn(), syncStatus: status })
     await openMenu()
     expect(screen.queryByTestId('wiki-menu-full-width')).toBeNull()
+  })
+})
+
+describe('WikiPageHeader 링크 복사(WP-1234)', () => {
+  const target: ShareTarget = { kind: 'page', url: 'http://localhost:3000/wiki/open/1', title: '2026-10-22' }
+
+  it('🔗 는 노트 링크를 바로 복사하고, 「공유」(외부 공유)는 다른 아이콘(Share2)이다', async () => {
+    const user = userEvent.setup()
+    renderHeader({ shareTarget: target, onShare: () => {} })
+    expect(screen.getByTestId('wiki-share-button').querySelector('svg')).toHaveClass('lucide-share-2')
+    await user.click(screen.getByRole('button', { name: /^링크 복사 / }))
+    expect(await navigator.clipboard.readText()).toBe('http://localhost:3000/wiki/open/1')
+  })
+
+  it('일반 브라우저에선 ⋯ 에 「브라우저에서 열기」가 없다(이미 주소창이 있다)', async () => {
+    renderHeader({ shareTarget: target })
+    await openMenu()
+    expect(screen.getByTestId('wiki-menu-source')).toBeInTheDocument()
+    expect(screen.queryByTestId('menu-open-in-browser')).not.toBeInTheDocument()
   })
 })

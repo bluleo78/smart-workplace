@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { useIsCoarsePointer } from '../../hooks/useIsCoarsePointer'
 import { useIsLandscape } from '../../hooks/useIsLandscape'
@@ -7,13 +8,18 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useObservedHeight } from '../../hooks/useObservedHeight'
 import { useResetOnChange } from '../../hooks/useResetOnChange'
 import { elementBackgroundRgb, useThemeColor } from '../../hooks/useThemeColor'
+import { appUrl } from '../../lib/appUrl'
 import { formatFileSize } from '../../lib/formatters'
 import { isIOSStandalone } from '../../lib/platform'
 import { ghostToggleClass } from '../../lib/selectionStyles'
+import type { ShareTarget } from '../../lib/shareTarget'
 import { cn } from '../../lib/utils'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
 import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
 import { FileTypeIcon } from '../drive/FileTypeIcon'
+import { CopyLinkButton } from '../share/CopyLinkButton'
+import { ShareSheetButton } from '../share/ShareSheetButton'
+import { useRegisterShareTarget } from '../share/useRegisterShareTarget'
 import { Button } from '../ui/button'
 import { Dialog, DialogClose, DialogContent } from '../ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
@@ -72,6 +78,8 @@ export function AttachmentViewer({
   onClose,
   defaultPanelOpen,
   shareable = true,
+  linkPath,
+  onExternalShare,
   aboveAiSheet = false,
 }: {
   items: ViewerItem[]
@@ -80,8 +88,15 @@ export function AttachmentViewer({
   onClose: () => void
   /** 저장된 패널 상태가 없을 때 요약 패널을 펼친 채 열지(lg 이상에서만 적용). */
   defaultPanelOpen?: boolean
-  /** URL 로 같은 뷰어를 다시 열 수 있는 호출부인지 — false 면 ⋯ "링크 복사"를 숨긴다(이슈 본문 이미지처럼 히스토리 키가 없는 곳). */
+  /** URL 로 같은 뷰어를 다시 열 수 있는 호출부인지 — false 면 🔗·⬆︎·⇧⌘, 링크를 두지 않는다(이슈 본문 이미지처럼 히스토리 키가 없는 곳). */
   shareable?: boolean
+  /**
+   * 지금 항목의 링크 경로(WP-1234) — 드라이브 화면은 driveFilePath(공간·폴더·?preview)를 넘긴다.
+   * 없으면 지금 주소(경로 + 쿼리, ?preview 포함)를 쓴다 — 이슈 첨부·첨부 모아보기처럼 주소가 곧 이 뷰어인 곳.
+   */
+  linkPath?: string
+  /** 있으면 모바일 공유 시트에 「외부 공유 링크…」(드라이브 공유 링크 창, WP-1234). */
+  onExternalShare?: () => void
   /**
    * 모바일 AI 시트(z-[60]) 안에서 연 뷰어인지(메인 AI 채팅 첨부, WP-279) — 모바일 배치에서만 레이어를 z-[80] 으로 올린다
    * (안 올리면 기본 z-50 이라 시트 아래에 깔려 보이지도 누를 수도 없다). 데스크톱 배치는 그대로 둔다.
@@ -128,6 +143,21 @@ export function AttachmentViewer({
   // 형식(MIME)상 영상·오디오인가(WP-281). 실제 판정에 쓰는 media 는 재생 불가 보고를 반영해 아래에서 정한다.
   const mimeMedia = item.unavailable ? null : kind === 'VIDEO' ? 'video' : kind === 'AUDIO' ? 'audio' : null
   const itemKey = item.key
+  // WP-1234 지금 보는 파일 — 🔗(데스크톱)·⬆︎(모바일)·⇧⌘, 가 쓴다. 다시 열 수 없는 뷰어(shareable=false)·원본 유실 항목은 링크가 없다.
+  // 뷰어는 목록 화면보다 나중에 등록하므로 열린 동안은 이 파일이, 닫히면 다시 아래 화면이 대상이 된다.
+  const location = useLocation()
+  const currentPath = location.pathname + location.search
+  const itemName = item.name
+  const unavailable = item.unavailable === true
+  const shareTarget = useMemo<ShareTarget | null>(
+    () =>
+      shareable && !unavailable
+        ? { kind: 'file', url: appUrl(linkPath ?? currentPath), title: itemName, onExternalShare }
+        : null,
+    [shareable, unavailable, linkPath, currentPath, itemName, onExternalShare],
+  )
+  // 뷰어는 화면 위에 뜨는 층(overlay) — 뷰어를 연 상세 화면(이슈 등)이 나중에 등록해도 뷰어가 대상이 된다.
+  useRegisterShareTarget(shareTarget, 'overlay')
   // 재생 세션 — 직접 연 항목(뷰어를 연 순간의 항목)만 자동재생하고, 그 항목을 한 번 떠나면 다시 자동재생하지 않는다(스펙 §5.3 #5).
   // 재생 위치는 항목 key 별로 기억(넘기면 본문이 리마운트되며 플레이어가 남긴다). 뷰어가 열린 동안 고정 객체 — ViewerBody memo 를 흔들지 않게.
   const [openedKey] = useState(itemKey)
@@ -513,7 +543,9 @@ export function AttachmentViewer({
             meta={mobileMeta}
             hidden={barsHidden}
             barRef={topBarRef}
-            more={<ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />}
+            share={shareTarget && <ShareSheetButton target={shareTarget} aboveAiSheet={lifted} className="text-foreground" />}
+            // 모바일 ⋯ 에는 링크 항목을 두지 않는다 — 링크는 ⬆︎ 시트에 모았다(WP-1234).
+            more={<ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} />}
           />
         )}
         {!mobile && (
@@ -573,7 +605,9 @@ export function AttachmentViewer({
                   <Sparkles />
                 </Button>
               )}
-              <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />
+              {/* WP-1234 🔗 — ⋯ 의 예전 「링크 복사」를 헤더로 꺼냈다. 툴팁은 body 포털이라 뷰어와 같은 다크 토큰을 단다. */}
+              {shareTarget && <CopyLinkButton target={shareTarget} className="pointer-coarse:size-11" tooltipClassName="dark" />}
+              <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareTarget={shareTarget} />
               <div className="mx-1 h-5 w-px bg-border" aria-hidden />
               <DialogClose asChild>
                 <Button variant="ghost" size="icon" className="pointer-coarse:size-11" aria-label="닫기">

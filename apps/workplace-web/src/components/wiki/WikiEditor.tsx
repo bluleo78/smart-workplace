@@ -10,12 +10,15 @@ import * as Y from 'yjs'
 import { AiLabel } from '@/components/ai/AiLabel'
 import { Page, pageBodyInsetClass } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
+import { useRegisterShareTarget } from '@/components/share/useRegisterShareTarget'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
+import { appUrl, wikiPagePath } from '@/lib/appUrl'
+import type { ShareTarget } from '@/lib/shareTarget'
 import { normalizeSingleLineInput } from '@/lib/singleLine'
 import { cn } from '@/lib/utils'
 
@@ -269,6 +272,21 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const ready = body === 'ready'
   // 본문 편집 가능 — 권한(readOnly)과 첫 동기화(ready) 둘 다. 제목은 REST 라 readOnly 만 본다.
   const canEdit = !readOnly && ready
+  // WP-1234 지금 보는 노트 — 🔗·⬆︎·⇧⌘, 가 쓴다. 스페이스 멤버는 스페이스를 몰라도 열리는 /wiki/open/:id,
+  // 공유 링크로 들어온 사람은 그 공유 링크 안 주소(스페이스 주소는 열 수 없다)를 링크로 쓴다.
+  // 공유를 바꿀 수 있고(canShare) 접근을 잃지 않았을 때만 모바일 ⬆︎ 시트에 「외부 공유 링크…」(기존 공유 창)를 둔다 — 예전 ⋯ 「공유」 항목을 옮겼다.
+  const sharePageId = page.id
+  const canOpenShare = canShare && !isAccessLost(syncStatus)
+  const shareTarget = useMemo<ShareTarget>(
+    () => ({
+      kind: 'page',
+      url: appUrl(shareToken != null ? pagePath(sharePageId) : wikiPagePath(sharePageId)),
+      title: title || '제목 없음',
+      onExternalShare: canOpenShare ? () => setShareOpen(true) : undefined,
+    }),
+    [shareToken, pagePath, sharePageId, title, canOpenShare],
+  )
+  useRegisterShareTarget(shareTarget)
   // 헤더 AI 버튼용 3분기 — 로딩(권한 확인 중)과 거부(읽기 전용)를 구분해 사유를 노출한다.
   // 서버가 VIEWER 로 강등했으면(readOnly) 화면 역할과 무관하게 거부.
   // 예전엔 canUseAi=false 하나로 뭉쳐 메뉴를 숨겨서, 스페이스 목록이 아직 안 온 순간에도
@@ -1027,6 +1045,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         shareExpired={page.shareExpired === true}
         // 공유는 이 스페이스에 쓸 수 있는 사람(EDITOR 이상)만 바꾼다 — 보기만 하는 사람이 범위를 넓히지 못하게.
         onShare={canShare ? () => setShareOpen(true) : undefined}
+        shareTarget={shareTarget}
         fullWidth={fullWidth}
         // 「전체 폭」은 제목처럼 편집할 수 있는 사람(EDITOR 이상·편집 공유 링크)만 바꾼다 — 읽기 전용이면 항목을 두지 않는다.
         onFullWidthChange={readOnly ? undefined : (next) => saveFullWidth.mutate({ pageId: page.id, fullWidth: next })}
