@@ -28,6 +28,13 @@ final class WikiPreviewText {
   private static final Pattern TASK_BOX =
       Pattern.compile("(?m)^(\\s*(?:[-*+]|\\d{1,3}[.)])\\s+)\\[[ xX]\\]\\s+");
 
+  /**
+   * 페이지 스타일 블록(WP-1240 {@code <style data-wp-style>…</style>}) — 태그만 지우면 안의 CSS 글자가 설명에 남으므로 내용째
+   * 지운다. 본문은 {@link #SOURCE_LIMIT} 에서 잘려 오므로 닫는 태그가 없으면 끝까지 지운다(여러 줄·대소문자 무시).
+   */
+  private static final Pattern STYLE_BLOCK =
+      Pattern.compile("(?is)<style\\b[^>]*>.*?(?:</style\\s*>|\\z)");
+
   /** HTML 태그 — 한 줄 안에서만, 태그 이름 바로 뒤가 공백·/·> 일 때만(본문의 {@code a<b}·{@code x > y} 비교식을 지우지 않게). */
   private static final Pattern HTML_TAG =
       Pattern.compile("</?[A-Za-z][A-Za-z0-9-]*(?:\\s[^<>\\n]*)?/?>");
@@ -41,7 +48,9 @@ final class WikiPreviewText {
     if (markdown == null || markdown.isBlank()) {
       return "";
     }
-    String s = IMAGE.matcher(markdown).replaceAll(" ");
+    // 페이지 스타일 CSS 는 다른 표기 정리보다 먼저 지운다 — CSS 의 # · > · | 가 제목·인용·표 규칙에 걸리지 않게.
+    String s = STYLE_BLOCK.matcher(markdown).replaceAll(" ");
+    s = IMAGE.matcher(s).replaceAll(" ");
     s = TABLE_DIVIDER.matcher(s).replaceAll("");
     s = RULE.matcher(s).replaceAll("");
     s = HEADING.matcher(s).replaceAll("");

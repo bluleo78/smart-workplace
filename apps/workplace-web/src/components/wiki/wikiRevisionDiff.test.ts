@@ -45,6 +45,19 @@ describe('buildRevisionDiff', () => {
     expect(doc.textContent).toBe('안녕 세상')
   })
 
+  // WP-1240 — 모양 영역 안 글자만 바뀌면 영역은 남기고 낱말만 표시한다. class·style 이 바뀌면 영역 통째(지움+추가).
+  it('모양 영역 안 낱말만 바뀌면 그 낱말만 표시한다', () => {
+    const box = (t: string, cls = 'card') => `<div class="${cls}">\n\n${t}\n\n</div>`
+    const inner = diff(box('매출 상승'), box('매출 하락'))
+    expect(inner.read).toEqual([
+      { kind: 'removed-text', text: '상승' },
+      { kind: 'added-text', text: '하락' },
+    ])
+    expect(topTypes(inner.doc)).toEqual(['wikiHtmlBox'])
+    const reshaped = diff(box('매출 상승'), box('매출 상승', 'card wide'))
+    expect(reshaped.read.map((m) => m.kind)).toEqual(['removed-node', 'added-node'])
+  })
+
   it('끝에 문단을 더하면 그 문단을 끼워 넣고 added-node 로 표시한다', () => {
     const { read: r, doc } = diff('첫 문단\n\n둘째 문단', '첫 문단\n\n둘째 문단\n\n새로 쓴 문단')
     expect(r).toEqual([{ kind: 'added-node', text: '새로 쓴 문단' }])

@@ -1,6 +1,6 @@
 import '../../components/wiki/wiki-editor.css'
 
-import { markdownToDoc, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
+import { markdownToDoc } from '@smart-workplace/wiki-editor-schema'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Link2 } from 'lucide-react'
@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
 import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
+import { wikiRenderExtensions } from '../../components/wiki/wikiRenderExtensions'
 import { WikiSharePageSelect } from '../../components/wiki/WikiSharePageSelect'
 import { WikiShareLoadError, WikiShareTreeNav } from '../../components/wiki/WikiShareViewParts'
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
@@ -172,9 +173,12 @@ export function WikiPublicSharePage() {
   )
 }
 
-/** 읽기 전용 본문 — 문서 스키마만(동기화·슬래시·AI 없음). 이미지·멘션 NodeView 는 로그인 API 를 부르므로 기본 노드로 둔다. */
+/**
+ * 읽기 전용 본문 — 문서 스키마만(동기화·슬래시·AI 없음). 이미지·멘션 NodeView 는 로그인 API 를 부르므로 기본 노드로 둔다.
+ * HTML 모양(WP-1240)은 로그인 없이 그려지므로 편집기와 같은 페이지 스타일 노드·범위 가두기를 넣는다 — 없으면 CSS 가 적용되지 않는다.
+ */
 function PublicBody({ markdown }: { markdown: string }) {
-  const editor = useEditor({ extensions: wikiSchemaExtensions(), editable: false }, [])
+  const editor = useEditor({ extensions: wikiRenderExtensions(), editable: false }, [])
   useEffect(() => {
     if (!editor) return
     editor.commands.setContent(markdownToDoc(markdown).toJSON(), false)

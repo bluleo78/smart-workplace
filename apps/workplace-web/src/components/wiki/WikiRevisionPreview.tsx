@@ -1,6 +1,6 @@
 import './wiki-editor.css'
 
-import { markdownToDoc, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
+import { markdownToDoc } from '@smart-workplace/wiki-editor-schema'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { useEffect, useMemo, useRef } from 'react'
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { WikiImage } from './wikiImageNode'
 import { useMentionChipTextOf, WikiMentionLabelsProvider } from './wikiMentionLabels'
 import { WikiMention } from './wikiMentionNode'
+import { wikiRenderExtensions } from './wikiRenderExtensions'
 import { revisionDiffDecorations } from './wikiRevisionDiff'
 import { previewDocOf, revisionDiffOf, WikiRevisionDiffHighlight, wikiRevisionDiffKey } from './wikiRevisionPreviewDoc'
 
@@ -51,7 +52,12 @@ function RevisionPreviewContent({ body, title, compareTo, showDiff, className }:
   const mentionText = useMentionChipTextOf()
   const editor = useEditor(
     {
-      extensions: [...wikiSchemaExtensions({ image: WikiImage, mention: WikiMention }), WikiRevisionDiffHighlight],
+      // HTML 모양(WP-1240)도 편집기와 같은 범위 가두기로 그린다 — 판 미리보기에서 모양이 달라 보이지 않게.
+      extensions: [
+        // 판 미리보기에서 복사한 모양도 노트 복사로 표시한다(pasteShape) — 옛 판 일부를 편집기에 옮겨 붙일 때 모양이 따라가게(wikiPasteShape.ts).
+        ...wikiRenderExtensions({ image: WikiImage, mention: WikiMention, pasteShape: true }),
+        WikiRevisionDiffHighlight,
+      ],
       editable: false,
     },
     [],

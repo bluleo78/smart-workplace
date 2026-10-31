@@ -237,3 +237,52 @@
   outline: 2px solid var(--success);
   outline-offset: 2px;
 }
+
+/* HTML 모양 보존(WP-1240) — 노트에 HTML 모양(페이지 스타일·모양 영역·인라인 모양)이 있으면 본문 루트에 wiki-html-scope 가 붙는다(wikiHtmlScope.ts).
+   contain: layout paint — 본문이 position:fixed/absolute 자손의 기준 상자가 되고 그리기가 본문 상자 밖으로 나가지 않는다(노트 CSS 가 헤더·사이드바를 덮지 못하게).
+   isolation: isolate — 노트 안 z-index 가 본문 안에서만 겨룬다. 모양 없는 기존 노트에는 붙지 않아 화면이 그대로다. */
+.ProseMirror.wiki-html-scope {
+  contain: layout paint;
+  isolation: isolate;
+}
+/* 모양 영역 경계 — 편집할 때만 옅은 점선 outline(레이아웃을 바꾸지 않고 원본 border 를 덮지 않는다). 보기 전용 화면에는 없다. */
+.wiki-editor .ProseMirror[contenteditable='true'] [data-wiki-html-box] {
+  outline: 1px dashed color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  outline-offset: 2px;
+}
+/* 페이지 스타일 칩 — 「이 노트에 페이지 스타일이 있다」 표시 + 지우기 단추. 편집할 수 있을 때만 보인다.
+   display·visibility·opacity·pointer-events·position 은 NodeView 가 인라인 !important 로 정한다(노트 CSS 가 칩을 가리지 못하게,
+   보기 전용 숨김 포함 — wikiStyleNode.ts). 여기서는 모양만 준다. */
+.wiki-editor .ProseMirror .wiki-style-chip {
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0.25rem 0;
+  padding: 0.125rem 0.25rem 0.125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  user-select: none;
+}
+.wiki-editor .ProseMirror .wiki-style-chip.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+}
+.wiki-editor .ProseMirror .wiki-style-chip__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.wiki-editor .ProseMirror .wiki-style-chip__remove {
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  color: inherit;
+  cursor: pointer;
+}
+.wiki-editor .ProseMirror .wiki-style-chip__remove:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
