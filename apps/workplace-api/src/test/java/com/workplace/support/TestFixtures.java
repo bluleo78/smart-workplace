@@ -293,4 +293,12 @@ public final class TestFixtures {
             .getId();
     return new long[] {uid, acc, fld};
   }
+
+  /** AI 의 실행 방식(user.agent_runtime — INTERNAL|EXTERNAL). 실행 방식·실행 설정 테스트가 함께 쓴다. */
+  public static String runtimeOf(DSLContext dsl, long userId) {
+    return dsl.select(USER.AGENT_RUNTIME)
+        .from(USER)
+        .where(USER.ID.eq(userId))
+        .fetchOne(USER.AGENT_RUNTIME);
+  }
 }

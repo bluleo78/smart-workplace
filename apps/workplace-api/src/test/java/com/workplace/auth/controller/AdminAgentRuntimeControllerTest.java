@@ -100,13 +100,6 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     return id;
   }
 
-  private String runtimeOf(Long userId) {
-    return dsl.select(USER.AGENT_RUNTIME)
-        .from(USER)
-        .where(USER.ID.eq(userId))
-        .fetchOne(USER.AGENT_RUNTIME);
-  }
-
   private org.springframework.test.web.servlet.ResultActions putRuntime(
       Long admin, Long target, String body, String... perms) throws Exception {
     // 요청 필터 체인이 끝나면 TenantContext 가 비워지므로, 한 테스트에서 여러 번 호출해도 tenant#1 로 다시 맞춘다.
@@ -118,28 +111,31 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
             .content(body));
   }
 
+  /** 새 AGENT 의 runtime 기본값은 INTERNAL. */
   @Test
-  void 새_AGENT_의_runtime_기본값은_INTERNAL() {
+  void newAgent_defaultsToInternalRuntime() {
     Long agent = createUser("ai", "AGENT");
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
   }
 
+  /** PUT runtime — EXTERNAL 로 바꾸고 다시 INTERNAL 로 되돌린다(204). */
   @Test
-  void PUT_runtime_EXTERNAL_로_바꾸고_다시_INTERNAL_로_되돌린다_204() throws Exception {
+  void putRuntime_externalThenInternal_returns204() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
 
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isNoContent());
-    assertThat(runtimeOf(agent)).isEqualTo("EXTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("EXTERNAL");
 
     putRuntime(admin, agent, "{\"runtime\":\"INTERNAL\"}", "user:write")
         .andExpect(status().isNoContent());
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
   }
 
+  /** PUT runtime 변경은 감사 로그를 남긴다. */
   @Test
-  void PUT_runtime_변경은_감사_로그를_남긴다() throws Exception {
+  void putRuntime_whenChanged_writesAuditLog() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
 
@@ -155,8 +151,29 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     assertThat(cnt).isEqualTo(1);
   }
 
+  /** 같은 값으로 다시 PUT 하면 실행 방식이 바뀌지 않아 감사 로그를 또 남기지 않는다. */
   @Test
-  void PUT_runtime_잘못된_값은_400() throws Exception {
+  void putRuntime_whenUnchanged_doesNotWriteAuditLogAgain() throws Exception {
+    Long admin = createAdmin();
+    Long agent = createUser("ai", "AGENT");
+
+    putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
+        .andExpect(status().isNoContent());
+    putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
+        .andExpect(status().isNoContent());
+
+    Integer cnt =
+        dsl.fetchOne(
+                "select count(*) from audit_log where action_type = 'AGENT_RUNTIME_CHANGED'"
+                    + " and resource_id = ?",
+                String.valueOf(agent))
+            .get(0, Integer.class);
+    assertThat(cnt).isEqualTo(1);
+  }
+
+  /** PUT runtime 잘못된 값은 400. */
+  @Test
+  void putRuntime_whenInvalidValue_returns400() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     putRuntime(admin, agent, "{\"runtime\":\"CLOUD\"}", "user:write")
@@ -164,16 +181,18 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     putRuntime(admin, agent, "{}", "user:write").andExpect(status().isBadRequest());
   }
 
+  /** PUT runtime 권한 없으면 403. */
   @Test
-  void PUT_runtime_권한없으면_403() throws Exception {
+  void putRuntime_withoutPermission_returns403() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "other:perm")
         .andExpect(status().isForbidden());
   }
 
+  /** PUT runtime 대상이 사람이거나 없는 유저면 404. */
   @Test
-  void PUT_runtime_사람_또는_없는_유저는_404() throws Exception {
+  void putRuntime_whenHumanOrMissingUser_returns404() throws Exception {
     Long admin = createAdmin();
     Long human = createUser("bob", "HUMAN");
     putRuntime(admin, human, "{\"runtime\":\"EXTERNAL\"}", "user:write")
@@ -182,8 +201,9 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
         .andExpect(status().isNotFound());
   }
 
+  /** 공통 비서는 EXTERNAL 로 못 바꾼다(409). */
   @Test
-  void 공통_비서는_EXTERNAL_로_못_바꾼다_409() throws Exception {
+  void putRuntime_whenWorkspaceAssistant_returns409() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     workspaceAssistantService.setAgent(admin, agent);
@@ -191,14 +211,15 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("공통 비서")));
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
     // INTERNAL 로의 변경(no-op 포함)은 막지 않는다.
     putRuntime(admin, agent, "{\"runtime\":\"INTERNAL\"}", "user:write")
         .andExpect(status().isNoContent());
   }
 
+  /** 개인 비서는 EXTERNAL 로 못 바꾼다(409). */
   @Test
-  void 개인_비서는_EXTERNAL_로_못_바꾼다_409() throws Exception {
+  void putRuntime_whenPersonalAssistant_returns409() throws Exception {
     Long admin = createAdmin();
     Long owner = createUser("owner", "HUMAN");
     Long agent = createUser("ai", "AGENT");
@@ -210,7 +231,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("개인 비서")));
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
   }
 
   /**
@@ -218,7 +239,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
    * 중에도 개인 비서 접두어 행은 EXTERNAL 로 못 바꾼다.
    */
   @Test
-  void 해제된_개인_비서도_EXTERNAL_로_못_바꾼다_409() throws Exception {
+  void putRuntime_whenDisabledPersonalAssistant_returns409() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     dsl.update(USER).set(USER.USERNAME, "__assistant_u" + agent).where(USER.ID.eq(agent)).execute();
@@ -226,11 +247,12 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("개인 비서")));
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
   }
 
+  /** EXTERNAL 에이전트를 공통 비서로 지정하면 409. */
   @Test
-  void EXTERNAL_에이전트를_공통_비서로_지정하면_409() throws Exception {
+  void setWorkspaceAssistant_whenExternalAgent_returns409() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(agent)).execute();
@@ -244,8 +266,9 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("외부")));
   }
 
+  /** 목록은 runtime 과 lastKeyUsedAt 을 준다(폐기 키는 제외). */
   @Test
-  void 목록은_runtime_과_lastKeyUsedAt_을_준다_폐기_키는_제외() throws Exception {
+  void list_returnsRuntimeAndLastKeyUsedAt_excludingRevokedKeys() throws Exception {
     Long admin = createAdmin();
     Long used = createUser("used", "AGENT");
     Long unused = createUser("unused", "AGENT");
@@ -300,8 +323,9 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     dsl.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
   }
 
+  /** 다른 테넌트의 공통 비서인 에이전트도 EXTERNAL 로 못 바꾼다(409). */
   @Test
-  void 다른_테넌트의_공통_비서인_에이전트도_EXTERNAL_로_못_바꾼다_409() throws Exception {
+  void putRuntime_whenAssistantInOtherTenant_returns409() throws Exception {
     // 에이전트가 T1·T2 모두의 멤버이고, T2 의 공통 비서다. T1 관리자는 RLS 때문에 T2 의 workspace_assistant 행이 안 보인다.
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
@@ -314,7 +338,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isConflict());
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
   }
 
   /** 현재 테넌트(T1)의 멤버가 아닌 에이전트(다른 테넌트 소속)를 만든다. */
@@ -323,17 +347,19 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     return createUser("foreign-ai", "AGENT", t2);
   }
 
+  /** 다른 테넌트 에이전트의 runtime 변경은 404. */
   @Test
-  void 다른_테넌트_에이전트의_runtime_변경은_404() throws Exception {
+  void putRuntime_forOtherTenantAgent_returns404() throws Exception {
     Long admin = createAdmin();
     Long agent = createForeignAgent();
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isNotFound());
-    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+    assertThat(TestFixtures.runtimeOf(dsl, agent)).isEqualTo("INTERNAL");
   }
 
+  /** 다른 테넌트 에이전트의 이름 변경은 404. */
   @Test
-  void 다른_테넌트_에이전트의_이름_변경은_404() throws Exception {
+  void rename_forOtherTenantAgent_returns404() throws Exception {
     Long admin = createAdmin();
     Long agent = createForeignAgent();
     TenantContext.set(1L);
@@ -347,8 +373,9 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
         .isEqualTo("foreign-ai");
   }
 
+  /** 다른 테넌트 에이전트의 삭제는 404. */
   @Test
-  void 다른_테넌트_에이전트의_삭제는_404() throws Exception {
+  void delete_forOtherTenantAgent_returns404() throws Exception {
     Long admin = createAdmin();
     Long agent = createForeignAgent();
     TenantContext.set(1L);
@@ -360,7 +387,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   /** 공통 비서 지정과 runtime 변경은 같은 user 행 락을 먼저 잡아 직렬화된다(동시 실행 시 검사-후-변경 경합 방지). */
   @Test
-  void 공통_비서_지정과_runtime_변경은_둘_다_에이전트_행_락을_잡는다() throws Exception {
+  void setAssistantAndPutRuntime_bothLockAgentRow() throws Exception {
     Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
 

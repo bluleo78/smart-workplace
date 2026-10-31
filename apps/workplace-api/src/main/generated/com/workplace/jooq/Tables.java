@@ -5,6 +5,9 @@ package com.workplace.jooq;
 
 
 import com.workplace.jooq.tables.AgentApiKey;
+import com.workplace.jooq.tables.AgentLocation;
+import com.workplace.jooq.tables.AgentRunnerToken;
+import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
@@ -159,6 +162,21 @@ public class Tables {
      * The table <code>public.agent_api_key</code>.
      */
     public static final AgentApiKey AGENT_API_KEY = AgentApiKey.AGENT_API_KEY;
+
+    /**
+     * The table <code>public.agent_location</code>.
+     */
+    public static final AgentLocation AGENT_LOCATION = AgentLocation.AGENT_LOCATION;
+
+    /**
+     * The table <code>public.agent_runner_token</code>.
+     */
+    public static final AgentRunnerToken AGENT_RUNNER_TOKEN = AgentRunnerToken.AGENT_RUNNER_TOKEN;
+
+    /**
+     * The table <code>public.agent_runtime_setting</code>.
+     */
+    public static final AgentRuntimeSetting AGENT_RUNTIME_SETTING = AgentRuntimeSetting.AGENT_RUNTIME_SETTING;
 
     /**
      * The table <code>public.agent_work</code>.

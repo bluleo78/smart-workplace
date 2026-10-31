@@ -1,0 +1,11 @@
+# 「기본」 템플릿 — 지금 방식(서버가 이슈·멘션에 바로 답한다). 별도 이미지·실행 설정이 없다.
+# AI 연결·모델 칸은 기존 API(AI 연결 설정)를 그대로 쓰므로 config 는 비워 둔다.
+name: default
+version: "1"
+kind: SERVER
+card:
+  title: 기본
+  description: 이슈·멘션에 바로 답합니다
+  skills: []
+requires: []
+config: []

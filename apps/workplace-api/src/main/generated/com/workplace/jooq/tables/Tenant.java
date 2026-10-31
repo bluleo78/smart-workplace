@@ -6,6 +6,9 @@ package com.workplace.jooq.tables;
 
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
+import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
+import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
@@ -314,6 +317,19 @@ public class Tenant extends TableImpl<TenantRecord> {
         return Arrays.asList(Keys.TENANT_SLUG_KEY);
     }
 
+    private transient AgentRunnerTokenPath _agentRunnerToken;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_runner_token</code> table
+     */
+    public AgentRunnerTokenPath agentRunnerToken() {
+        if (_agentRunnerToken == null)
+            _agentRunnerToken = new AgentRunnerTokenPath(this, null, Keys.AGENT_RUNNER_TOKEN__AGENT_RUNNER_TOKEN_TENANT_ID_FKEY.getInverseKey());
+
+        return _agentRunnerToken;
+    }
+
     private transient AgentWorkEventPath _agentWorkEvent;
 
     /**
@@ -559,6 +575,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _filePreview = new FilePreviewPath(this, null, Keys.FILE_PREVIEW__FILE_PREVIEW_TENANT_ID_FKEY.getInverseKey());
 
         return _filePreview;
+    }
+
+    private transient AgentLocationPath _agentLocation;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_location</code> table
+     */
+    public AgentLocationPath agentLocation() {
+        if (_agentLocation == null)
+            _agentLocation = new AgentLocationPath(this, null, Keys.AGENT_LOCATION__FK_AGENT_LOCATION_TENANT.getInverseKey());
+
+        return _agentLocation;
+    }
+
+    private transient AgentRuntimeSettingPath _agentRuntimeSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_runtime_setting</code> table
+     */
+    public AgentRuntimeSettingPath agentRuntimeSetting() {
+        if (_agentRuntimeSetting == null)
+            _agentRuntimeSetting = new AgentRuntimeSettingPath(this, null, Keys.AGENT_RUNTIME_SETTING__FK_AGENT_RUNTIME_SETTING_TENANT.getInverseKey());
+
+        return _agentRuntimeSetting;
     }
 
     private transient AssistantConfigPath _assistantConfig;
@@ -1858,9 +1900,17 @@ public class Tenant extends TableImpl<TenantRecord> {
 
     /**
      * Get the implicit many-to-many join path to the <code>public.user</code>
-     * table
+     * table, via the <code>agent_runtime_setting_agent_user_id_fkey</code> key
      */
-    public UserPath user() {
+    public UserPath agentRuntimeSettingAgentUserIdFkey() {
+        return agentRuntimeSetting().agentRuntimeSettingAgentUserIdFkey();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>membership_user_id_fkey</code> key
+     */
+    public UserPath membershipUserIdFkey() {
         return membership().user();
     }
 

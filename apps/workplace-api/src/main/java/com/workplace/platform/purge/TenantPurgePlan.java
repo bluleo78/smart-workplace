@@ -173,6 +173,12 @@ public final class TenantPurgePlan {
           // 스테이징 업로드 링크(WP-421) — user·tenant 만 참조하고 file 과 FK 가 없다. 파일을 다루는 표라 file 과 함께 둔다.
           STAGED_UPLOAD_LINK,
           FILE,
+          // AI 실행 위치(WP-1248) — runner 토큰(RLS 없음, tenant_id 로 삭제)과 실행 설정(WP-1247, location_id ON
+          // DELETE
+          // RESTRICT)이 위치를 참조하므로 둘 다 위치보다 먼저.
+          AGENT_RUNTIME_SETTING,
+          AGENT_RUNNER_TOKEN,
+          AGENT_LOCATION,
           // 연락처·그룹
           CONTACT_FAVORITE,
           CONTACT_ENTRY,

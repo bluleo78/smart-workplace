@@ -37,6 +37,10 @@ workplace:
   # 웹 nginx·vite 가 /api 를 api 로 넘기므로 웹 주소 = 공개 API 주소. 기본값 localhost 는 local·test 전용이며
   # prod 프로필은 application-prod.yml 이 기본값을 비우고 PublicBaseUrlCheck 가 비었거나 localhost 면 기동을 막는다.
   public-base-url: ${WEB_BASE_URL:http://localhost:6173}
+  # AI 내부 실행(WP-1245) — 실행 템플릿이 쓸 수 있는 컨테이너 이미지 접두사. 시작 때 템플릿 YAML 을 이 목록으로 검증한다.
+  # docker: 는 작업 공간 보조 컨테이너(dind)용 도커 공식 이미지.
+  agent-runtime:
+    allowed-image-prefixes: [ghcr.io/bluleo78/, "docker:"]
   storage:
     root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./storage-data}
     max-files-per-request: 3

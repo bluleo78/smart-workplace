@@ -8,6 +8,9 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
+import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
+import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
+import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
@@ -366,6 +369,60 @@ public class User extends TableImpl<UserRecord> {
             _agentApiKeyUserIdFkey = new AgentApiKeyPath(this, null, Keys.AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY.getInverseKey());
 
         return _agentApiKeyUserIdFkey;
+    }
+
+    private transient AgentLocationPath _agentLocation;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_location</code> table
+     */
+    public AgentLocationPath agentLocation() {
+        if (_agentLocation == null)
+            _agentLocation = new AgentLocationPath(this, null, Keys.AGENT_LOCATION__AGENT_LOCATION_CREATED_BY_FKEY.getInverseKey());
+
+        return _agentLocation;
+    }
+
+    private transient AgentRunnerTokenPath _agentRunnerToken;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_runner_token</code> table
+     */
+    public AgentRunnerTokenPath agentRunnerToken() {
+        if (_agentRunnerToken == null)
+            _agentRunnerToken = new AgentRunnerTokenPath(this, null, Keys.AGENT_RUNNER_TOKEN__AGENT_RUNNER_TOKEN_CREATED_BY_FKEY.getInverseKey());
+
+        return _agentRunnerToken;
+    }
+
+    private transient AgentRuntimeSettingPath _agentRuntimeSettingAgentUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_runtime_setting</code> table, via the
+     * <code>agent_runtime_setting_agent_user_id_fkey</code> key
+     */
+    public AgentRuntimeSettingPath agentRuntimeSettingAgentUserIdFkey() {
+        if (_agentRuntimeSettingAgentUserIdFkey == null)
+            _agentRuntimeSettingAgentUserIdFkey = new AgentRuntimeSettingPath(this, null, Keys.AGENT_RUNTIME_SETTING__AGENT_RUNTIME_SETTING_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _agentRuntimeSettingAgentUserIdFkey;
+    }
+
+    private transient AgentRuntimeSettingPath _agentRuntimeSettingUpdatedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_runtime_setting</code> table, via the
+     * <code>agent_runtime_setting_updated_by_fkey</code> key
+     */
+    public AgentRuntimeSettingPath agentRuntimeSettingUpdatedByFkey() {
+        if (_agentRuntimeSettingUpdatedByFkey == null)
+            _agentRuntimeSettingUpdatedByFkey = new AgentRuntimeSettingPath(this, null, Keys.AGENT_RUNTIME_SETTING__AGENT_RUNTIME_SETTING_UPDATED_BY_FKEY.getInverseKey());
+
+        return _agentRuntimeSettingUpdatedByFkey;
     }
 
     private transient AgentWorkPath _agentWork;
@@ -1652,6 +1709,14 @@ public class User extends TableImpl<UserRecord> {
     }
 
     /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table, via the <code>fk_agent_runtime_setting_tenant</code> key
+     */
+    public TenantPath fkAgentRuntimeSettingTenant() {
+        return agentRuntimeSettingAgentUserIdFkey().tenant();
+    }
+
+    /**
      * Get the implicit many-to-many join path to the
      * <code>public.channel</code> table, via the
      * <code>channel_member_channel_id_fkey</code> key
@@ -1695,9 +1760,9 @@ public class User extends TableImpl<UserRecord> {
 
     /**
      * Get the implicit many-to-many join path to the <code>public.tenant</code>
-     * table
+     * table, via the <code>membership_tenant_id_fkey</code> key
      */
-    public TenantPath tenant() {
+    public TenantPath membershipTenantIdFkey() {
         return membership().tenant();
     }
 

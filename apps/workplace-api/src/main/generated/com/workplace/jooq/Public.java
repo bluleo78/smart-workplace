@@ -5,6 +5,9 @@ package com.workplace.jooq;
 
 
 import com.workplace.jooq.tables.AgentApiKey;
+import com.workplace.jooq.tables.AgentLocation;
+import com.workplace.jooq.tables.AgentRunnerToken;
+import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
@@ -174,6 +177,21 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_api_key</code>.
      */
     public final AgentApiKey AGENT_API_KEY = AgentApiKey.AGENT_API_KEY;
+
+    /**
+     * The table <code>public.agent_location</code>.
+     */
+    public final AgentLocation AGENT_LOCATION = AgentLocation.AGENT_LOCATION;
+
+    /**
+     * The table <code>public.agent_runner_token</code>.
+     */
+    public final AgentRunnerToken AGENT_RUNNER_TOKEN = AgentRunnerToken.AGENT_RUNNER_TOKEN;
+
+    /**
+     * The table <code>public.agent_runtime_setting</code>.
+     */
+    public final AgentRuntimeSetting AGENT_RUNTIME_SETTING = AgentRuntimeSetting.AGENT_RUNTIME_SETTING;
 
     /**
      * The table <code>public.agent_work</code>.
@@ -910,6 +928,9 @@ public class Public extends SchemaImpl {
     public final List<Table<?>> getTables() {
         return Arrays.asList(
             AgentApiKey.AGENT_API_KEY,
+            AgentLocation.AGENT_LOCATION,
+            AgentRunnerToken.AGENT_RUNNER_TOKEN,
+            AgentRuntimeSetting.AGENT_RUNTIME_SETTING,
             AgentWork.AGENT_WORK,
             AgentWorkEvent.AGENT_WORK_EVENT,
             AiAgentCredential.AI_AGENT_CREDENTIAL,
