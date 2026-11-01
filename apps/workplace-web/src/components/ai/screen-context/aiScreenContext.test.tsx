@@ -13,6 +13,7 @@ import { PAGE_LOAD_TIMEOUT, renderPage, settleHistory } from '@/test/renderPage'
 import type { AiScreenContext } from '@/types/aiScreenContext'
 
 import { createAiTaskCounts } from '../../../../e2e/factories/agentWork.factory'
+import { createAttachment } from '../../../../e2e/factories/attachment.factory'
 import { calendar, calendarEvent } from '../../../../e2e/factories/calendar.factory'
 import { createChatMessagePage, createChatThread } from '../../../../e2e/factories/chat.factory'
 import {
@@ -178,6 +179,39 @@ describe('공통 — 이슈 상세', () => {
     await settleHistory()
     await chipHas('이슈 WP-12 로그인 버그 수정')
     expect((await send(view, '돌아와서 질문')).screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
+  })
+
+  // WP-1261: 이슈 첨부 미리 보기 — 파일이 focus(source=issue·issueKey·attachmentId=core fileId)로, 이슈가 scope 로 실리고
+  // 다음 파일로 넘기면 갱신되며, 닫으면 이슈 focus 로 돌아온다.
+  test('첨부 미리 보기 — 파일 focus 와 이슈 scope 가 함께 실리고 넘기면 갱신·닫으면 해제된다(WP-1261)', async () => {
+    const view = await openPanelAt(
+      '/projects/WP/issues/12',
+      issueDetailHandlers({
+        number: 12,
+        detail: createIssueDetail({ summary: createIssue({ number: 12, title: '로그인 버그 수정' }) }),
+        attachments: [
+          createAttachment({ fileId: 9001, originalName: '로그.txt', mimeType: 'text/plain' }),
+          createAttachment({ fileId: 9002, originalName: '재현.txt', mimeType: 'text/plain' }),
+        ],
+        extra: [http.get('/api/v1/projects/WP/issues/12/attachments/:id/content', () => new HttpResponse('로그', { headers: { 'content-type': 'text/plain' } }))],
+      }),
+    )
+    await view.user.click(await screen.findByRole('button', { name: '로그.txt 미리보기' }))
+    await chipHas('파일 로그.txt')
+    expect((await send(view, '이 첨부 요약해줘')).screenContext).toMatchObject({
+      focus: { type: '파일', label: '로그.txt', refs: { source: 'issue', issueKey: 'WP-12', attachmentId: '9001' } },
+      scope: { label: '이슈 WP-12 로그인 버그 수정', refs: { issueKey: 'WP-12' } },
+    })
+
+    await view.user.click(screen.getByRole('button', { name: '다음 파일' }))
+    await chipHas('파일 재현.txt')
+    expect((await send(view, '이것도')).screenContext).toMatchObject({
+      focus: { label: '재현.txt', refs: { source: 'issue', attachmentId: '9002' } },
+    })
+
+    await view.user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '닫기' }))
+    await chipHas('이슈 WP-12 로그인 버그 수정')
+    expect((await send(view, '이슈는?')).screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 
   // 풀스크린으로 바꿔도 뒤 화면(이슈 상세)의 컨텍스트를 유지한다.
@@ -351,6 +385,45 @@ describe('메일', () => {
     })
   })
 
+  // WP-1261: 첨부 미리 보기를 열면 파일이 focus(source=mail·attachmentId)로, 열린 메일이 scope 로 함께 실리고
+  // 다음 파일로 넘기면 갱신되며, 닫으면 메일 focus 로 돌아온다.
+  test('첨부 미리 보기 — 파일 focus 와 메일 scope 가 함께 실리고 넘기면 갱신·닫으면 해제된다(WP-1261)', async () => {
+    const attachments = [
+      { id: 1, filename: '안건.txt', contentType: 'text/plain', sizeBytes: 1024, contentId: null },
+      { id: 2, filename: '견적서.txt', contentType: 'text/plain', sizeBytes: 2048, contentId: null },
+    ]
+    const view = await openPanelAt('/mail/3?messageId=91', [
+      ...mailExtras(),
+      http.get('/api/v1/mail/accounts', () => HttpResponse.json([mailAccount({ id: 3 })])),
+      http.get('/api/v1/mail/accounts/3/messages', () =>
+        HttpResponse.json([summary({ id: 91, accountId: 3, subject: '견적 요청', fromName: '김철수', fromAddress: 'kim@a.com' })]),
+      ),
+      http.get('/api/v1/mail/messages/91', () => HttpResponse.json(detail({ id: 91, subject: '견적 요청', attachments }))),
+      http.get('/api/v1/mail/attachments/:id/content', () => new HttpResponse('본문', { headers: { 'content-type': 'text/plain' } })),
+    ])
+    await view.user.click(await screen.findByTestId('mail-attachment-open-1'))
+    await chipHas('파일 안건.txt')
+    // view 는 원래 화면(메일함)을 그대로 쓴다 — 미리 보기는 그 위에 겹친 층이다.
+    expect((await send(view, '이 첨부 요약해줘')).screenContext).toMatchObject({
+      view: '메일함',
+      focus: { type: '파일', label: '안건.txt', refs: { source: 'mail', attachmentId: '1' } },
+      scope: { label: '메일 견적 요청', refs: { messageId: '91' } },
+    })
+
+    await view.user.click(screen.getByRole('button', { name: '다음 파일' }))
+    await chipHas('파일 견적서.txt')
+    expect((await send(view, '이것도')).screenContext).toMatchObject({
+      focus: { label: '견적서.txt', refs: { source: 'mail', attachmentId: '2' } },
+    })
+
+    await view.user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '닫기' }))
+    await chipHas('메일 견적 요청')
+    expect((await send(view, '메일은?')).screenContext).toMatchObject({
+      view: '메일함',
+      focus: { type: '메일', refs: { messageId: '91' } },
+    })
+  })
+
   // WP-146: 회신필요 필터에서 연 메일이 읽음 처리로 목록 refetch 에서 빠져도 열린 메일은 컨텍스트에 남는다.
   test('열린 메일이 목록 refetch 로 빠져도 컨텍스트에 유지된다(WP-146)', async () => {
     let listCalls = 0
@@ -454,6 +527,41 @@ describe('채팅', () => {
     expect(body.screenContext!.scope!.facts).toContainEqual({ label: '멤버', value: '8' })
   })
 
+  // WP-1261: 메시지 첨부 미리 보기 — 파일이 focus(source=message·channelId·messageId·attachmentId)로, 채널이 scope 로 실리고
+  // 다음 파일로 넘기면 갱신되며, 닫으면 해제돼 파일 focus 가 빠진다.
+  test('첨부 미리 보기 — 파일 focus 와 채널 맥락이 함께 실리고 넘기면 갱신·닫으면 해제된다(WP-1261)', async () => {
+    const channel = createChannel({ id: 5, name: 'dev', memberCount: 8 })
+    const att = (fileId: number, originalName: string) => ({
+      fileId, messageId: 77, originalName, mimeType: 'text/plain', sizeBytes: 5, attachedById: 2, attachedByName: '김철수', attachedAt: '2026-06-03T00:00:00Z',
+    })
+    const msg = createMessage({ id: 77, channelId: 5, authorId: 2, authorName: '김철수', body: '파일 공유', attachments: [att(801, '메모.txt'), att(802, '일정.txt')] })
+    const view = await openPanelAt('/chat/channels/5', [
+      ...sidebar([channel], []),
+      http.get('/api/v1/messaging/channels/5', () => HttpResponse.json(channel)),
+      http.get('/api/v1/messaging/channels/5/members', () => HttpResponse.json([createChannelMember({ userId: 1, name: '나' })])),
+      http.get('/api/v1/messaging/channels/5/messages', () => HttpResponse.json({ items: [msg], nextCursor: null, hasMore: false })),
+      http.get('/api/v1/messaging/channels/5/messages/77/attachments/:id/content', () => new HttpResponse('메모', { headers: { 'content-type': 'text/plain' } })),
+    ])
+    await chipHas('채널 #dev')
+    await view.user.click(await screen.findByRole('button', { name: '메모.txt 미리보기' }))
+    await chipHas('파일 메모.txt')
+    expect((await send(view, '이 첨부 요약해줘')).screenContext).toMatchObject({
+      view: '채널',
+      focus: { type: '파일', label: '메모.txt', refs: { source: 'message', channelId: '5', messageId: '77', attachmentId: '801' } },
+      scope: { label: '채널 #dev', refs: { channelId: '5' } },
+    })
+
+    await view.user.click(screen.getByRole('button', { name: '다음 파일' }))
+    await chipHas('파일 일정.txt')
+    expect((await send(view, '이것도')).screenContext).toMatchObject({
+      focus: { label: '일정.txt', refs: { attachmentId: '802' } },
+    })
+
+    await view.user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '닫기' }))
+    await chipHas('채널 #dev')
+    expect((await send(view, '채널은?')).screenContext?.focus).toBeUndefined()
+  })
+
   // DM 은 상대 이름과 channelId 가 범위로 실린다.
   test('DM 은 상대 이름과 channelId 가 실린다', async () => {
     const dm = createDm({ id: 9, participants: [createDmParticipant({ userId: 1, name: '나' }), createDmParticipant({ userId: 2, name: '김철수' })] })
@@ -547,6 +655,11 @@ describe('드라이브', () => {
       scope: { label: '드라이브 팀 드라이브', refs: { spaceId: '4' } },
     })
     expect(JSON.stringify(body.screenContext)).not.toContain('999')
+
+    // WP-1261: 미리 보기를 닫으면 파일 focus 가 빠지고 폴더 scope 만 남는다.
+    await view.user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '닫기' }))
+    await chipHas('드라이브 팀 드라이브')
+    expect((await send(view, '폴더는?')).screenContext?.focus).toBeUndefined()
   })
 
   // 폴더 경로 조회가 500 이어도 경로 라벨만 빠지고 spaceId·parentId·파일 focus 는 실린다.

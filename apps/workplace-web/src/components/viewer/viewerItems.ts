@@ -1,6 +1,7 @@
 // 화면별 데이터 → ViewerItem 어댑터와 묶음 해석(WP-277). 순수 함수만 둔다(vitest 대상).
 import { attachmentContentPath } from '../../api/issueAttachments'
 import { homeAttachmentContentPath } from '../../lib/homeChatAttachments'
+import { formatIssueKey } from '../../lib/issueKey'
 import { canonicalMime, isGenericMime, mimeFromFilename } from '../../lib/mimeFromFilename'
 import { CONVERTIBLE_MIMES, type PreviewKind, resolvePreviewKind } from '../../lib/previewKind'
 import type { IssueAttachment } from '../../types/attachment'
@@ -77,6 +78,7 @@ export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
     contentPath: path,
     downloadPath: path,
     ...(CONVERTIBLE_MIMES.has(mimeType) ? { previewPath: `/mail/attachments/${a.id}/preview` } : {}),
+    aiRefs: { source: 'mail', attachmentId: a.id },
   }
 }
 
@@ -105,6 +107,7 @@ export function driveFileItem(f: DriveFile): ViewerItem {
     previewPath: `/drive/files/${f.id}/preview`,
     summaryDriveFileId: f.id,
     backlinksDriveFileId: f.id,
+    aiRefs: { source: 'drive', driveFileId: f.id },
   }
 }
 
@@ -133,6 +136,8 @@ export function issueAttachmentItem(projectKey: string, number: number, a: Issue
     contentPath: path,
     downloadPath: path,
     importFileId: a.fileId,
+    // read_file 의 이슈 첨부 attachmentId 는 core fileId 다(get_issue_detail attachments[].attachmentId 와 같은 값).
+    aiRefs: { source: 'issue', issueKey: formatIssueKey(projectKey, number), attachmentId: a.fileId },
   }
 }
 
@@ -161,7 +166,11 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
     downloadPath: path,
     ...(unavailable
       ? {}
-      : { summaryDriveFileId: l.driveFileId, driveOpen: { spaceId: l.spaceId, driveFileId: l.driveFileId, name: l.name } }),
+      : {
+          summaryDriveFileId: l.driveFileId,
+          driveOpen: { spaceId: l.spaceId, driveFileId: l.driveFileId, name: l.name },
+          aiRefs: { source: 'drive', driveFileId: l.driveFileId },
+        }),
     unavailable,
   }
 }
@@ -171,7 +180,13 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
  * importable 이면 ☁ 드라이브로 가져오기(core fileId — 메시지·이슈 채팅 첨부 소스 프로바이더가 권한을 검사).
  * 원본으로 이동(sourceLink)은 두지 않는다 — 이미 그 메시지를 보고 있는 화면에서 연다.
  */
-function chatUploadItem(key: string, path: string, a: HomeUploadedFile, importable: boolean): ViewerItem {
+function chatUploadItem(
+  key: string,
+  path: string,
+  a: HomeUploadedFile,
+  importable: boolean,
+  aiRefs: Record<string, string | number>,
+): ViewerItem {
   return {
     key,
     name: a.originalName,
@@ -180,6 +195,7 @@ function chatUploadItem(key: string, path: string, a: HomeUploadedFile, importab
     contentPath: path,
     downloadPath: path,
     ...(importable ? { importFileId: a.fileId } : {}),
+    aiRefs,
   }
 }
 
@@ -211,7 +227,8 @@ export function parseChatViewerKey(
  * ✨(업로드 요약 없음)·☁(세션 첨부 가져오기 API 없음)·원본 이동은 없다.
  */
 export function homeChatAttachmentItem(sessionId: string, a: HomeUploadedFile): ViewerItem {
-  return chatUploadItem(`home:${a.fileId}`, homeAttachmentContentPath(sessionId, a.fileId), a, false)
+  // 이 대화의 첨부는 read_chat_attachment({fileId}) 로 읽는다(read_file 이 아니라 source 를 두지 않는다).
+  return chatUploadItem(`home:${a.fileId}`, homeAttachmentContentPath(sessionId, a.fileId), a, false, { fileId: a.fileId })
 }
 
 /** 묶음 원본으로 쓰는 메시지 최소 필드 — 팀(MessageResponse)·이슈 채팅(ChatMessageResponse) 공통. */
@@ -228,6 +245,15 @@ const CHAT_MESSAGES_BASE: Record<'msg' | 'cmsg', (root: number) => string> = {
 }
 
 /**
+ * 표면별 업로드 첨부의 AI 읽기 식별자(read_file) — 팀 채팅은 채널 메시지 첨부, 이슈 채팅은 이슈 챗 첨부.
+ * 이슈 채팅 묶음은 스레드 id 만 알아 issueKey 를 넣지 못한다 — 화면 컨텍스트가 페이지(이슈 상세)의 issueKey 로 채운다(overlayScreenContext).
+ */
+const CHAT_UPLOAD_AI_REFS: Record<'msg' | 'cmsg', (root: number, messageId: number, fileId: number) => Record<string, number | string>> = {
+  msg: (channelId, messageId, fileId) => ({ source: 'message', channelId, messageId, attachmentId: fileId }),
+  cmsg: (_threadId, messageId, fileId) => ({ source: 'issue_chat', messageId, attachmentId: fileId }),
+}
+
+/**
  * 팀·이슈 채팅 메시지 한 건의 묶음 — 업로드(☁ 가져오기 가능) → 드라이브 링크(✨·드라이브에서 열기), 화면 표시 순서.
  * 두 표면은 경로 앞부분(채널·스레드)과 키 접두어만 다르다. 업로드는 메시지 첨부 경로, 링크는 그 표면 권한으로 받는 링크 전용 경로.
  * 팀 채팅은 업로드 형식을 원문 저장하므로 범용 형식이면 파일명으로 추론한다(chatUploadItem → attachmentMime).
@@ -237,7 +263,13 @@ export function chatBundle(surface: 'msg' | 'cmsg', root: number, m: ChatBundleM
   const base = `${CHAT_MESSAGES_BASE[surface](root)}/${m.id}`
   return [
     ...(m.attachments ?? []).map((a) =>
-      chatUploadItem(chatViewerKey(surface, m.id, fileViewerKey(a.fileId)), `${base}/attachments/${a.fileId}/content`, a, true),
+      chatUploadItem(
+        chatViewerKey(surface, m.id, fileViewerKey(a.fileId)),
+        `${base}/attachments/${a.fileId}/content`,
+        a,
+        true,
+        CHAT_UPLOAD_AI_REFS[surface](root, m.id, a.fileId),
+      ),
     ),
     ...(m.driveLinks ?? []).map((l) =>
       driveLinkItem(chatViewerKey(surface, m.id, driveViewerKey(l.driveFileId)), `${base}/drive-links/${l.driveFileId}/content`, l),

@@ -2,7 +2,7 @@
 // 읽기 측(AI 패널)만 useSyncExternalStore 로 값을 구독한다.
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import type { ScreenContextStore } from '@/lib/aiScreenContext/store';
+import type { ScreenContextLayer, ScreenContextStore } from '@/lib/aiScreenContext/store';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 export const AiScreenContextStoreContext = createContext<ScreenContextStore | null>(null);
@@ -10,8 +10,11 @@ export const AiScreenContextStoreContext = createContext<ScreenContextStore | nu
 const noopSubscribe = () => () => {};
 const nullSnapshot = () => null;
 
-/** 페이지가 현재 화면 컨텍스트를 등록한다. 언마운트 시 자동 해제. Provider 밖이면 no-op. */
-export function useRegisterAiScreenContext(ctx: AiScreenContext | null): void {
+/**
+ * 페이지가 현재 화면 컨텍스트를 등록한다. 언마운트 시 자동 해제. Provider 밖이면 no-op.
+ * layer='overlay'(WP-1261 첨부 미리 보기)면 페이지 컨텍스트를 대신하지 않고 그 위에 얹힌다(store 주석).
+ */
+export function useRegisterAiScreenContext(ctx: AiScreenContext | null, layer: ScreenContextLayer = 'page'): void {
   const store = useContext(AiScreenContextStoreContext);
   // 등록자 토큰 — 마운트 동안 고정(지연 초기화라 렌더마다 Symbol 을 새로 만들지 않는다).
   const [token] = useState(() => Symbol('ai-screen-context'));
@@ -26,8 +29,8 @@ export function useRegisterAiScreenContext(ctx: AiScreenContext | null): void {
 
   useEffect(() => {
     if (!store) return;
-    store.set(token, ctxRef.current);
-  }, [store, token, key]);
+    store.set(token, ctxRef.current, layer);
+  }, [store, token, key, layer]);
 
   useEffect(() => {
     if (!store) return;

@@ -8,6 +8,7 @@ import { dismissByOutsideClick } from '../fixtures/wait'
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { mockIssueDetail } from '../fixtures/issue-detail-mock'
+import { createAttachment } from '../factories/attachment.factory'
 import { calendar, calendarEvent } from '../factories/calendar.factory'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../factories/wiki.factory'
 
@@ -102,6 +103,41 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await expect(page.getByTestId('chat-context-live')).toHaveText('화면 정보: 이슈 WP-12 로그인 버그 수정')
     await page.getByTestId('chat-context-remove').click()
     await expect(page.getByTestId('chat-context-live')).toHaveText('화면 정보 빼고 보내요')
+  })
+
+  // WP-1261: 패널이 닫힌 채 첨부 미리 보기(modal)를 열면 Radix 가 body 의 포인터를 막는다 — 실제 클릭으로 칩이 눌려
+  // 패널이 열리고, 뷰어는 그대로 남은 채 패널 입력창에 입력·전송하면 파일 focus 가 실리는지 본다(jsdom 은 pointer-events 를 재지 못한다).
+  test('패널이 닫힌 채 첨부 미리 보기를 열어도 AI 칩이 눌리고, 뷰어를 둔 채 입력하면 파일이 실린다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const chat = await captureChat(page)
+    await mockIssueDetail(page)
+    const base = '/api/v1/projects/WP/issues/12'
+    await page.route((u) => u.pathname === `${base}/attachments`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        createAttachment({ fileId: 9001, issueId: 12, originalName: '로그.txt', mimeType: 'text/plain' }),
+        createAttachment({ fileId: 9002, issueId: 12, originalName: '재현.txt', mimeType: 'text/plain' }),
+      ]) }))
+    await page.route((u) => /\/attachments\/900[12]\/content$/.test(u.pathname), (r) => r.fulfill({ status: 200, contentType: 'text/plain', body: '오류 로그' }))
+    await page.goto('/projects/WP/issues/12')
+
+    await page.getByRole('button', { name: '로그.txt 미리보기' }).click()
+    const viewer = page.getByRole('dialog')
+    await expect(viewer.getByTestId('preview-body')).toBeVisible()
+
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await expect(viewer).toBeVisible()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('파일 로그.txt')
+
+    await page.getByTestId('chat-input').fill('이 첨부 요약해줘')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
+      focus: { type: '파일', label: '로그.txt', refs: { source: 'issue', issueKey: 'WP-12', attachmentId: '9001' } },
+      scope: { label: '이슈 WP-12 로그인 버그 수정' },
+    })
+    // 칩으로 side 를 열어 non-modal 로 다시 마운트된 뷰어의 버튼도 눌린다 — 페이지 dim 이 뷰어를 덮지 않는다.
+    await viewer.getByRole('button', { name: '다음 파일' }).click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('파일 재현.txt')
   })
 
 })

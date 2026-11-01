@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildFacts, buildRefs, chipLabel, clip, contextIdentity, fmtKst, LIMITS, screenContextPayload } from './common';
+import { buildFacts, buildRefs, chipLabel, clip, contextIdentity, fmtKst, LIMITS, overlayScreenContext, screenContextPayload } from './common';
 
 describe('clip', () => {
   it('상한 이하면 trim 만', () => expect(clip('  abc ', 10)).toBe('abc'));
@@ -89,3 +89,56 @@ describe('screenContextPayload (WP-379)', () => {
     expect(ctx.app).toBe('ISSUE');
   });
 });
+
+// WP-1261: 미리 보기(overlay)를 페이지 컨텍스트 위에 얹는 규칙.
+describe('overlayScreenContext', () => {
+  const file = (refs: Record<string, string>) => ({ view: '미리 보기', focus: { type: '파일', label: 'a.pdf', refs } });
+
+  it('페이지 대상(메일)은 범위로 — 대상 식별자를 앞에, 범위 식별자를 뒤에 합친다', () => {
+    const mail = {
+      view: '메일함',
+      app: 'MAIL' as const,
+      scope: { label: '받은편지함', refs: { accountId: '1', folder: 'INBOX' }, count: 20 },
+      focus: { type: '메일', label: '견적서', refs: { messageId: '9' }, facts: [{ label: '보낸 사람', value: 'kim' }] },
+    };
+    expect(overlayScreenContext(mail, file({ source: 'mail', attachmentId: '5' }))).toEqual({
+      view: '메일함',
+      app: 'MAIL',
+      focus: { type: '파일', label: 'a.pdf', refs: { source: 'mail', attachmentId: '5' } },
+      scope: { label: '메일 견적서', refs: { messageId: '9', accountId: '1', folder: 'INBOX' }, facts: [{ label: '보낸 사람', value: 'kim' }] },
+    });
+  });
+
+  it('페이지에 대상이 없으면 페이지 범위를 그대로 둔다', () => {
+    const drive = { view: '드라이브', scope: { label: '드라이브 팀', refs: { spaceId: '4' } } };
+    expect(overlayScreenContext(drive, file({ source: 'drive', driveFileId: '3' }))).toEqual({
+      view: '드라이브',
+      focus: { type: '파일', label: 'a.pdf', refs: { source: 'drive', driveFileId: '3' } },
+      scope: drive.scope,
+    });
+  });
+
+  it('이슈 채팅 첨부에 빠진 issueKey 는 페이지 식별자에서 채운다', () => {
+    const issue = { view: '이슈 상세', focus: { type: '이슈', label: 'WP-12 A', refs: { issueKey: 'WP-12' } }, scope: { label: '프로젝트 WP', refs: { projectKey: 'WP' } } };
+    const ctx = overlayScreenContext(issue, file({ source: 'issue_chat', messageId: '7', attachmentId: '8' }));
+    expect(ctx.focus!.refs).toEqual({ source: 'issue_chat', messageId: '7', attachmentId: '8', issueKey: 'WP-12' });
+    // 공유 메모리 space(projectKey)는 범위에 남는다.
+    expect(ctx.scope!.refs).toEqual({ issueKey: 'WP-12', projectKey: 'WP' });
+  });
+
+  it('이슈가 아닌 첨부에는 issueKey 를 넣지 않는다', () => {
+    const issue = { view: '이슈 상세', focus: { type: '이슈', label: 'WP-12 A', refs: { issueKey: 'WP-12' } } };
+    expect(overlayScreenContext(issue, file({ source: 'drive', driveFileId: '3' })).focus!.refs).toEqual({ source: 'drive', driveFileId: '3' });
+  });
+
+  it('채울 issueKey 가 없으면 이슈 채팅 첨부의 식별자를 비운다 — 읽을 수 없는 인자를 보내지 않게', () => {
+    const home = { view: '홈', scope: { label: '스레드 모아보기' } };
+    expect(overlayScreenContext(home, file({ source: 'issue_chat', messageId: '7', attachmentId: '8' })).focus!.refs).toEqual({});
+    expect(overlayScreenContext(null, file({ source: 'issue_chat', messageId: '7', attachmentId: '8' })).focus!.refs).toEqual({});
+  });
+
+  it('페이지가 없으면 overlay 그대로', () => {
+    expect(overlayScreenContext(null, file({ fileId: '1' }))).toEqual(file({ fileId: '1' }));
+  });
+});
+

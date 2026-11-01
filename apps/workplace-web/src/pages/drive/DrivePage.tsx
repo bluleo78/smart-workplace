@@ -151,6 +151,7 @@ function collapseCrumbs(
 // embedded(채널 서랍 안)는 채널 화면이 주인이므로 등록하지 않는다.
 // 미로드 데이터는 보내지 않는다: 폴더 경로(crumbs)가 현재 폴더와 맞지 않으면 경로 세그먼트만 생략,
 // 폴더·파일 개수는 목록 조회가 끝난 뒤에만 싣는다(placeholder 도 제외).
+// 미리 보는 파일은 여기서 넣지 않는다 — 첨부 뷰어가 overlay 로 얹는다(WP-1261, 메일·이슈·채팅 미리 보기와 같은 경로).
 function useDriveScreenContext(input: {
   embedded: boolean
   spaceId: number | undefined
@@ -159,15 +160,10 @@ function useDriveScreenContext(input: {
   crumbs: DriveFolderPathSegment[]
   q: string
   counts: { folders: number; files: number } | null
-  preview: DriveFile | null
 }) {
-  const { embedded, spaceId, spaceName, folderId, crumbs, q, counts, preview } = input
+  const { embedded, spaceId, spaceName, folderId, crumbs, q, counts } = input
   const folderCount = counts?.folders ?? null
   const fileCount = counts?.files ?? null
-  const previewId = preview?.id
-  const previewName = preview?.name
-  const previewSize = preview?.sizeBytes
-  const previewUpdatedAt = preview?.updatedAt
   const ctx = useMemo(() => {
     if (embedded || spaceId == null) return null
     // 폴더 안인데 경로가 아직 로드 전·실패·이전 폴더 것이면 경로 세그먼트만 비운다(잘못된 경로 미전송).
@@ -181,12 +177,8 @@ function useDriveScreenContext(input: {
       q,
       folderCount,
       fileCount,
-      preview:
-        previewId != null && previewName != null
-          ? { id: previewId, name: previewName, size: previewSize ?? null, updatedAt: previewUpdatedAt ?? null }
-          : null,
     })
-  }, [embedded, spaceId, spaceName, folderId, crumbs, q, folderCount, fileCount, previewId, previewName, previewSize, previewUpdatedAt])
+  }, [embedded, spaceId, spaceName, folderId, crumbs, q, folderCount, fileCount])
   useRegisterAiScreenContext(ctx)
 }
 
@@ -501,7 +493,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       itemsQuery.data && !itemsQuery.isPlaceholderData
         ? { folders: itemsQuery.data.folders.length, files: itemsQuery.data.files.length }
         : null,
-    preview,
   })
 
   // WP-1234 지금 보는 폴더 — 데스크톱 🔗·모바일 ⬆︎·⇧⌘, 가 폴더 링크를 쓴다. 채널 서랍(embedded)은 채널 화면이 주인이라,
