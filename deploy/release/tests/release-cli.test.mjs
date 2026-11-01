@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { main as realChecklist } from '../checklist.mjs';
 import { defaultExec } from '../lib/build.mjs';
+import { deploysWithHelm } from '../lib/catalog.mjs';
 import { VERSION_ENDPOINTS, main, ttyConfirm } from '../release.mjs';
 import { REPO, SHA, baseManifest, catalog, fakeDigest, makeTmp } from './helpers.mjs';
 
@@ -230,7 +231,7 @@ test('deploy: helm upgrade 인자(컨텍스트·네임스페이스·wait·descri
   const imagesJson = JSON.parse(Object.entries(exec.upgradeFiles).find(([k]) => k.endsWith('images.json'))[1]);
   assert.deepEqual(imagesJson.release, { version: '0.9.0', commit: SHA });
   assert.deepEqual(imagesJson.images.api, { repository: manifest09().images.api.repository, digest: manifest09().images.api.digest });
-  assert.equal(Object.keys(imagesJson.images).length, catalog.images.length);
+  assert.equal(Object.keys(imagesJson.images).length, catalog.images.filter(deploysWithHelm).length); // helm: false(실행 위치용)는 helm 값에 넣지 않는다
   // 태그 지점 차트: git archive v0.9.0 deploy/helm → tar -x -C
   const archive = exec.of('git', 'archive')[0];
   assert.deepEqual(archive.args.filter((x) => !x.includes(t.tmp)), ['archive', '--format=tar', '-o', 'v0.9.0', 'deploy/helm']);
@@ -758,7 +759,7 @@ test('status: 매니페스트를 못 받으면(토큰 없음) 경고만 내고 �
   assert.match(t.logs.join('\n'), /경고: .*매니페스트를 받지 못해/);
   const text = t.out.join('');
   assert.match(text, new RegExp(`\\| api \\| - \\| ${m.images.api.digest.slice(0, 19)} \\| - \\|`));
-  assert.equal(text.split('\n').filter((l) => l.startsWith('| ') && !l.includes('---') && !l.includes('원 빌드')).length, catalog.images.length, '카탈로그의 모든 앱');
+  assert.equal(text.split('\n').filter((l) => l.startsWith('| ') && !l.includes('---') && !l.includes('원 빌드')).length, catalog.images.filter(deploysWithHelm).length, '카탈로그의 운영 차트 앱 모두');
 });
 
 test('status: 전환 이전 리비전(release 없음)이면 릴리스 없음 + 매니페스트 조회 없이 실행 digest 만', async () => {
@@ -900,7 +901,7 @@ test('F5: 내려받은 매니페스트에 images 가 없어도 크래시 없이 
   const t = cli(['status'], { exec, download: async () => ({ version: '0.9.0' }) });
   await t.run();
   assert.match(t.logs.join('\n'), /매니페스트를 받지 못해/);
-  assert.equal(t.out.join('').split('\n').filter((l) => l.startsWith('| ') && !l.includes('---') && !l.includes('원 빌드')).length, catalog.images.length);
+  assert.equal(t.out.join('').split('\n').filter((l) => l.startsWith('| ') && !l.includes('---') && !l.includes('원 빌드')).length, catalog.images.filter(deploysWithHelm).length);
 });
 
 test('F6: status — 실패한 최신 리비전 ⚠ 문구, 정상 반영된 리비전이 없으면 그 ⚠ 도 낸다', async () => {

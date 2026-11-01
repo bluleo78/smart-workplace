@@ -1,5 +1,7 @@
 # AI 실행 위치 runner API 계약 (runner 작성자용)
 
+> Pod 와 작업 공간 이미지 사이의 약속(리소스 이름·마운트·환경 변수)은 [agent-pod-contract.md](agent-pod-contract.md) 에 따로 있다.
+
 Works 가 관리하는 AI(실행 템플릿이 「작업 공간」인 AI)를 실제로 띄우는 것은 **실행 위치**(쿠버네티스 클러스터 등)마다 설치한 **runner** 다. runner 는 이 문서의 API 로 「이 위치에 떠 있어야 할 AI」를 받아 가 Pod 를 맞추고, 본 상태를 Works 에 보고한다(WP-1249). Works 는 runner 를 부르지 않는다 — 언제나 runner 가 Works 를 부른다.
 
 ## 인증

@@ -1,4 +1,5 @@
-# 「Claude Code」 템플릿 — Works 가 작업 공간(컨테이너)에서 Claude Code 를 띄워 개발·테스트·PR 까지 맡긴다.
+# 「Claude Code」 템플릿 — Works 가 작업 공간에서 Claude Code 를 띄워 개발·테스트·PR 까지 맡긴다.
+# 이미지는 apps/workplace-agent-claude-code 를 릴리스가 빌드한 것이고, {appVersion} 은 API 가 자기 릴리스 버전으로 채운다.
 name: claude-code
 version: "1"
 kind: WORKSPACE
@@ -6,7 +7,7 @@ card:
   title: Claude Code
   description: 작업 공간에서 개발·테스트하고 PR 을 올립니다
   skills: [개발, 테스트, PR]
-image: ghcr.io/bluleo78/agent-claude-code:1
+image: docker.io/iacloudops/genia-works-agent-claude-code:{appVersion}
 requires: [claude, github]
 config:
   - key: model
@@ -32,13 +33,14 @@ sidecars:
   - name: dind
     image: docker:27-dind
     privileged: true
-# 플러그인 version 은 latest 로 둔다 — WP-1252 에서 DH-VM 의 현재 값으로 고정한다.
+# 플러그인 버전은 이미지에 굳힌 값(apps/workplace-agent-claude-code/plugins.lock — DH-VM 11-01 기준)과 같다.
+# genia-works 는 Pod 가 뜰 때 Works 서버의 버전으로 갱신하므로 latest 로 둔다.
 plugins:
   - { marketplace: genia-works, name: genia-works, version: latest }
-  - { marketplace: anthropic-plugin-directory, name: superpowers, version: latest }
-  - { marketplace: anthropic-plugin-directory, name: code-review-anthropics, version: latest }
-  - { marketplace: anthropic-plugin-directory, name: code-simplifier, version: latest }
-  - { marketplace: anthropic-plugin-directory, name: feature-dev, version: latest }
-  - { marketplace: anthropic-plugin-directory, name: frontend-design, version: latest }
-  - { marketplace: claude-plugins-official, name: jdtls-lsp, version: latest }
-  - { marketplace: claude-plugins-official, name: typescript-lsp, version: latest }
+  - { marketplace: anthropic-plugin-directory, name: superpowers, version: 6.4.2-8ca22dba9a94 }
+  - { marketplace: anthropic-plugin-directory, name: code-review-anthropics, version: 1.0.1-a7ba5b93db0c }
+  - { marketplace: anthropic-plugin-directory, name: code-simplifier, version: 1.0.0-ea0a38e1d671 }
+  - { marketplace: anthropic-plugin-directory, name: feature-dev, version: 1.0.1-a7ba5b93db0c }
+  - { marketplace: anthropic-plugin-directory, name: frontend-design, version: 1.1.1-a7ba5b93db0c }
+  - { marketplace: claude-plugins-official, name: jdtls-lsp, version: 1.0.0 }
+  - { marketplace: claude-plugins-official, name: typescript-lsp, version: 1.0.0 }

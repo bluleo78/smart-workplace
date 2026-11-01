@@ -1,0 +1,113 @@
+{{- /* 필수 값 검증 — 비어 있으면 렌더를 실패시켜 반쯤 설치된 runner 를 막는다 */ -}}
+{{- $url := required "works.url 이 필요합니다(예 https://genia-works.iacloud.kr)" .Values.works.url -}}
+{{- $tag := required "image.tag 가 필요합니다" .Values.image.tag -}}
+{{- $github := required "github.existingSecret 이 필요합니다(키 token 을 가진 GitHub 토큰 Secret)" .Values.github.existingSecret -}}
+{{- if not (or .Values.runnerToken .Values.existingSecret) }}
+{{- fail "runnerToken(--set-file) 또는 existingSecret 이 필요합니다" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "runner.name" . }}
+  labels:
+    {{- include "runner.labels" . | nindent 4 }}
+spec:
+  # runner 는 위치마다 정확히 하나 — 둘이면 같은 Pod 를 두고 서로 조정한다. 교체 때도 겹치지 않게 Recreate.
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "runner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "runner.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "runner.name" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # Secret 파일(0440)을 UID 1000 이 그룹 권한으로 읽게 한다
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: "{{ .Values.image.repository }}:{{ $tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+              name: health
+          env:
+            - name: WORKS_URL
+              value: {{ $url | quote }}
+            # 토큰은 Secret 을 파일로 마운트해 읽는다 — env 로 원문을 두지 않는다
+            - name: RUNNER_TOKEN_FILE
+              value: /run/runner/token
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ALLOWED_IMAGE_PREFIXES
+              value: {{ join "," .Values.allowedImagePrefixes | quote }}
+            - name: AGENT_NODE_SELECTOR
+              value: {{ .Values.agent.nodeSelector | toJson | quote }}
+            - name: AGENT_TOLERATIONS
+              value: {{ .Values.agent.tolerations | toJson | quote }}
+            - name: AGENT_HOST_ALIASES
+              value: {{ .Values.agent.hostAliases | toJson | quote }}
+            {{- if .Values.agent.storageClass }}
+            - name: AGENT_STORAGE_CLASS
+              value: {{ .Values.agent.storageClass | quote }}
+            {{- end }}
+            - name: GITHUB_SECRET_NAME
+              value: {{ $github | quote }}
+            - name: DIND_STORAGE_LIMIT
+              value: {{ .Values.dind.storageLimit | quote }}
+            # dind 사이드카 자원(JSON) — 쿼터가 requests 를 요구해 늘 넣는다
+            - name: DIND_RESOURCES
+              value: {{ .Values.dind.resources | toJson | quote }}
+            - name: TERMINATION_GRACE_SECONDS
+              value: {{ .Values.terminationGraceSeconds | quote }}
+            # AI Pod 도 같은 pull secret 으로 작업 공간 이미지를 받는다(이름만 쉼표로).
+            - name: AGENT_IMAGE_PULL_SECRETS
+              value: {{ include "runner.pullSecretNames" . | quote }}
+          # /healthz 는 Works 가 10분 넘게 죽으면 503 이 된다 — liveness 로 쓰면 Works 장애 동안 runner 가 거듭 재시작하므로
+          # readiness 로만 쓴다(생존 검사는 두지 않는다).
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: runner-token
+              mountPath: /run/runner
+              readOnly: true
+            # 읽기 전용 루트 파일시스템에서도 Node 가 임시 파일을 쓸 수 있게
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: runner-token
+          secret:
+            secretName: {{ include "runner.tokenSecret" . }}
+            items:
+              - key: token
+                path: token
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {}

@@ -524,6 +524,17 @@ test('SKILL.md 5번: 알림 감시(gw-events)를 Monitor 로 걸고, 처리 중�
   assertBefore(text, '### 4. 이슈를 하나씩 처리', '`mark_notification_read({ issueKey })`');
 });
 
+// WP-1252 상시 알림 감시 — 연결은 AI 마다 하나인 감시 창이 들고, start-agent 로 띄운 칸은 agent-events tail 로 깨우기만 받는다.
+test('SKILL.md 알림으로 깨우기: start-agent 칸은 agent-events tail 을 1번 신원 확인 직후 걸고, 감시 창은 닫지 말라고 알린다 (WP-1252)', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('`Monitor` 로 `"<이 스킬 폴더>/../../scripts/agent-events" tail "$GENIA_WORKS_AGENT_DIR" <프로젝트 키>`'));
+  assert.ok(text.includes('**1번 신원 확인 직후**'));
+  assert.ok(text.includes('**깨우기만** 받는다'));
+  assertBefore(text, '바로 알림 감시를 건다', '### 2. 잠금');
+  const start = readFileSync(new URL('start-agent/SKILL.md', skillsDir), 'utf8');
+  assert.ok(start.includes('`events` 창은 이 AI 의 알림 연결을 늘 붙잡고 있는 감시입니다'));
+});
+
 // WP-1011·WP-1046 start-agent — 사람이 만든 홈에서 AI 하나를 골라, 맡은 프로젝트(연결된 저장소)마다 clone 하고 tmux 한 창의 칸으로 work-loop 세션을 띄운다(WP-1053).
 test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만 하고, 그 AI 키로 읽은 연결된 저장소 프로젝트만 AI·프로젝트마다 clone·창으로 띄운다 (WP-1011·WP-1046)', () => {
   const text = readFileSync(new URL('start-agent/SKILL.md', skillsDir), 'utf8');

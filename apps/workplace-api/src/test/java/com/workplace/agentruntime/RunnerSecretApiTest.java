@@ -82,6 +82,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
   private long admin;
   private AgentRuntimeTestFixtures fx;
   private long l1;
+  private long l2;
   private String t1;
   private long a1;
   private long a2;
@@ -96,7 +97,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     var first = locationService.create(admin, new CreateAgentLocationRequest("L1", null, 5));
     l1 = first.location().id();
     t1 = first.plaintextToken();
-    long l2 =
+    l2 =
         locationService
             .create(admin, new CreateAgentLocationRequest("L2", null, 5))
             .location()
@@ -975,5 +976,86 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     assertThat(keyService.managedChain(a1, 1L).keys())
         .extracting(ManagedKeyChain.Key::id)
         .containsExactly(second);
+  }
+
+  /**
+   * 끈 뒤 정리 유예(5분) 안에 다시 켜도 키 발급은 교체가 아니다 — 끄기가 줄여 둔 키는 지워지는 Pod 의 것이라 「지금 쓰는 키」로 치지 않는다. 다시 켤 때마다 막
+   * 뜬 Pod 가 바로 낡아 쉴 때 한 번 더 다시 만들어지지 않게(WP-1251 실측).
+   */
+  @Test
+  void issueAgentKey_afterStopAndStartWithinGrace_doesNotBumpGeneration() throws Exception {
+    issueKey(a1);
+    setObservedGeneration(a1, fx.generationOf(a1));
+    TenantContext.set(1L);
+    settingService.stop(admin, a1);
+    TenantContext.set(1L);
+    settingService.start(admin, a1);
+    long g = fx.generationOf(a1);
+    long before = changedEvents();
+
+    issueKey(a1);
+
+    assertThat(fx.generationOf(a1)).isEqualTo(g);
+    assertThat(changedEvents()).isEqualTo(before);
+    assertThat(applyModeOf(a1)).isEqualTo("NOW");
+  }
+
+  /** 켜진 AI 의 실제 위치를 바꾸면 옛 위치의 Pod 는 바로 지워지므로 managed 키를 끄기처럼 정리 유예로 줄인다. */
+  @Test
+  void put_movingRunningAgentToAnotherLocation_shortensManagedKeysToGrace() throws Exception {
+    long managedId = issueKey(a1).get("keyId").asLong();
+    TenantContext.set(1L);
+
+    settingService.put(
+        admin, a1, new PutAgentRuntimeSettingRequest("claude-code", l2, Map.of(), null));
+
+    assertShortenedToGrace(expiresAtOf(managedId));
+  }
+
+  /**
+   * 다른 위치로 옮겼다가 정리 유예 안에 돌아와도 새 Pod 의 키 발급은 교체가 아니다 — 돌아온 위치의 runner 는 Secret 을 이미 지웠고 어차피 새 Pod 를
+   * 만든다(WP-1251 실측: generation 이 한 번 더 올라 막 뜬 Pod 가 바로 낡았다).
+   */
+  @Test
+  void issueAgentKey_afterMovingAwayAndBackWithinGrace_doesNotBumpGeneration() throws Exception {
+    issueKey(a1);
+    setObservedGeneration(a1, fx.generationOf(a1));
+    TenantContext.set(1L);
+    settingService.put(
+        admin, a1, new PutAgentRuntimeSettingRequest("claude-code", l2, Map.of(), null));
+    TenantContext.set(1L);
+    settingService.put(
+        admin, a1, new PutAgentRuntimeSettingRequest("claude-code", null, Map.of(), null));
+    long g = fx.generationOf(a1);
+    long before = changedEvents();
+
+    issueKey(a1);
+
+    assertThat(fx.generationOf(a1)).isEqualTo(g);
+    assertThat(changedEvents()).isEqualTo(before);
+  }
+
+  /**
+   * 끄고 곧 다시 켜면(runner 가 그 사이를 못 봄) 끄기가 정리 유예로 줄인 키는 desired 에 「쓸 수 있는 키」로 나오지 않는다 — 버전이 null 이라
+   * runner 가 새 키를 받는다. 그 키를 그대로 쓰면 5분 뒤 만료돼 Pod 가 인증을 잃는다(코드 리뷰 지적).
+   */
+  @Test
+  void desired_afterStopAndQuickStart_reportsNoUsableAgentKey() throws Exception {
+    issueKey(a1);
+    setObservedGeneration(a1, fx.generationOf(a1));
+    TenantContext.set(1L);
+    settingService.stop(admin, a1);
+    TenantContext.set(1L);
+    settingService.start(admin, a1);
+
+    JsonNode desired = fx.json(runner(get(BASE + "/desired")).andExpect(status().isOk()));
+
+    JsonNode key = null;
+    for (JsonNode a : desired.get("agents")) {
+      if (a.get("agentUserId").asLong() == a1) key = secretNamed(a.get("secrets"), "agent-key");
+    }
+    assertThat(key).isNotNull();
+    assertThat(key.get("version").isNull()).isTrue();
+    assertThat(key.get("rotateAfter").isNull()).isTrue();
   }
 }

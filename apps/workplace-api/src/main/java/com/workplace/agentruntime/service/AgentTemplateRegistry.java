@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
@@ -35,11 +36,23 @@ public class AgentTemplateRegistry {
   private static final Set<String> KINDS = Set.of("SERVER", "WORKSPACE");
   private static final Set<String> FIELD_TYPES = Set.of("select", "text");
 
+  /**
+   * 템플릿 YAML 의 이미지 태그 자리표시 — 이 API 의 릴리스 버전으로 바꾼다. 작업 공간 이미지는 API 와 같은 릴리스 태그로 빌드되므로(릴리스 카탈로그는 바뀌지
+   * 않은 이미지도 태그를 승계한다), 템플릿을 릴리스마다 고치지 않아도 늘 같은 릴리스의 이미지를 가리킨다.
+   */
+  static final String APP_VERSION_TOKEN = "{appVersion}";
+
+  /** 빌드 인자가 없는 로컬·테스트의 버전 값 — 이때는 이미지 태그를 {@code latest} 로 둔다. */
+  private static final String DEV_VERSION = "dev";
+
   private final AgentRuntimeProperties properties;
+  private final String appVersion;
   private volatile List<AgentTemplate> templates = List.of();
 
-  public AgentTemplateRegistry(AgentRuntimeProperties properties) {
+  public AgentTemplateRegistry(
+      AgentRuntimeProperties properties, @Value("${info.app.version:dev}") String appVersion) {
     this.properties = properties;
+    this.appVersion = appVersion;
   }
 
   /** 시작 때 클래스패스의 모든 템플릿 YAML 을 읽어 검증한다. 하나라도 틀리면 시작 실패. */
@@ -53,7 +66,7 @@ public class AgentTemplateRegistry {
       for (Resource r : resources) {
         sources.add(new String(r.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
       }
-      this.templates = load(sources, properties.allowedImagePrefixes());
+      this.templates = load(sources, properties.allowedImagePrefixes(), appVersion);
     } catch (IOException e) {
       throw new IllegalStateException("실행 템플릿을 읽지 못했습니다", e);
     }
@@ -74,14 +87,19 @@ public class AgentTemplateRegistry {
    *
    * @param yamlSources 템플릿 YAML 본문 목록
    * @param allowedImagePrefixes 메인·보조 컨테이너 이미지가 시작해야 하는 접두사 중 하나
+   * @param appVersion 이 API 의 릴리스 버전 — 본문의 {@value #APP_VERSION_TOKEN} 을 이 값으로(dev 면 latest) 바꾼다
    * @throws IllegalStateException 검증 실패 — 시작을 막는다
    */
   public static List<AgentTemplate> load(
-      List<String> yamlSources, List<String> allowedImagePrefixes) {
+      List<String> yamlSources, List<String> allowedImagePrefixes, String appVersion) {
+    String tag =
+        appVersion == null || appVersion.isBlank() || DEV_VERSION.equals(appVersion)
+            ? "latest"
+            : appVersion.strip();
     List<AgentTemplate> result = new ArrayList<>();
     Set<String> names = new HashSet<>();
     for (String src : yamlSources) {
-      AgentTemplate t = parse(src);
+      AgentTemplate t = parse(src.replace(APP_VERSION_TOKEN, tag));
       validate(t, allowedImagePrefixes);
       if (!names.add(t.name())) {
         throw new IllegalStateException("실행 템플릿 이름이 겹칩니다: " + t.name());

@@ -188,7 +188,8 @@ public class RunnerDesiredStateService {
    *   <li><b>교체</b> — 활성 managed 키가 있고 쓰였으면 generation 을 올리고 쉴 때 적용(IDLE — 아직 반영 안 된 NOW 가 걸려 있으면
    *       그대로)한다. 옛 키는 지금 줄이지 않는다(지금 Pod 가 계속 쓴다). 옛 키가 24시간 안에 만료되면 {@link RolloutPolicy} 가 쉬기를
    *       기다리지 않는다.
-   *   <li><b>첫 발급</b> — generation 을 올리지 않는다.
+   *   <li><b>첫 발급</b> — generation 을 올리지 않는다. 정리 유예에 든 키만 있을 때(끄고 곧 다시 켬·다른 위치로 옮겼다 돌아옴)도 첫 발급으로 본다
+   *       — 그 키는 지워지는 Pod 의 것이고 runner 는 어차피 새 Pod 를 만든다.
    * </ol>
    *
    * <p>새 키 행에는 늘 그 키가 맞춰진 generation(올렸으면 올린 값, 아니면 지금 값)을 교체 generation 으로 남긴다 — 그 generation 의
@@ -204,10 +205,13 @@ public class RunnerDesiredStateService {
             .findRunningAtForUpdate(agentUserId, location.id(), location.isDefault())
             .orElseThrow(RunnerAgentNotFoundException::new);
     ManagedKeyChain chain = agentKeys.managedChain(agentUserId, tenantId);
-    boolean undelivered = chain.isUndelivered(row.generation(), row.observedGeneration());
+    // 교체·재시도 판정은 정리 유예에 든 키(끄기·위치 이동으로 줄인 — 지워지는 Pod 의 키)를 빼고 한다. 죽은 키 판정은 전체 사슬로 한다 — 유예 중인
+    // 키가 있다는 것은 일부러 내린 것(Pod 를 지우는 중)이라 죽은 키를 쥔 채 떠 있는 Pod 가 아니다.
+    ManagedKeyChain live = chain.live(OffsetDateTime.now());
+    boolean undelivered = live.isUndelivered(row.generation(), row.observedGeneration());
     // 올릴 적용 시점 — null 이면 generation 을 올리지 않는다(재시도·첫 발급).
     ApplyMode bump = null;
-    if (!chain.isEmpty() && !undelivered) {
+    if (!live.isEmpty() && !undelivered) {
       bump = ApplyMode.IDLE;
     } else if (chain.isEmpty()
         && row.observedGeneration() != null
@@ -220,7 +224,7 @@ public class RunnerDesiredStateService {
       keyGeneration = settings.bumpGenerationForRotation(agentUserId, bump);
       events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, location.id()));
     }
-    Long replaceKeyId = undelivered ? chain.current().orElseThrow().id() : null;
+    Long replaceKeyId = undelivered ? live.current().orElseThrow().id() : null;
     ManagedKey key =
         agentKeys.issueManaged(agentUserId, tenantId, keyGeneration, replaceKeyId, location.name());
     return new RunnerAgentKeyResponse(
@@ -283,7 +287,7 @@ public class RunnerDesiredStateService {
         shape.sidecars(),
         shape.plugins(),
         row.config(),
-        secretsFor(t, keys, claudeVersion));
+        secretsFor(t, keys.live(now), claudeVersion));
   }
 
   /** 템플릿 한 개의 runner 모양 — 이름@버전마다 한 번만 바꾼다. */
@@ -301,8 +305,8 @@ public class RunnerDesiredStateService {
 
   /**
    * 비밀값 참조 — 원문 없이 이름·출처·버전만. agent-key 는 Works 가 띄우는 AI 모두에(현재 managed 키 id·rotateAfter, 아직 없으면
-   * null), claude 는 템플릿이 요구할 때(활성 연결 id, 없으면 null), github 는 runner 설치 때 위치 쪽에 만든 Secret(Works 는
-   * 이름만).
+   * null — 정리 유예에 든 키만 남았으면 그것도 「없음」이라 runner 가 새로 받는다. 끄고 곧 다시 켰을 때 5분 뒤 만료될 키로 Pod 를 띄우지 않게),
+   * claude 는 템플릿이 요구할 때(활성 연결 id, 없으면 null), github 는 runner 설치 때 위치 쪽에 만든 Secret(Works 는 이름만).
    */
   private static List<RunnerSecretRef> secretsFor(
       AgentTemplate t, ManagedKeyChain keys, Long claudeVersion) {

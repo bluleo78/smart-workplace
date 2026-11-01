@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateCatalog, matchesPath } from '../lib/catalog.mjs';
+import { deploysWithHelm, validateCatalog, matchesPath } from '../lib/catalog.mjs';
 import { REPO, catalog, deps } from './helpers.mjs';
 
 const HELM_IMAGES = fileURLToPath(new URL('../../helm/tests/images.fixture.yaml', import.meta.url));
@@ -24,10 +24,16 @@ const OK = {
   paths: ['apps/workplace-api/'],
 };
 
-test('카탈로그 id 는 Helm images 키와 같다', () => {
+test('카탈로그 id 는 Helm images 키와 같다(helm: false 인 실행 위치용 이미지는 뺀다)', () => {
   const helmIds = [...readFileSync(HELM_IMAGES, 'utf8').matchAll(/^  ([\w-]+):/gm)].map((m) => m[1]);
-  assert.equal(catalog.images.length, 9);
-  assert.deepEqual(catalog.images.map((i) => i.id).sort(), helmIds.sort());
+  assert.equal(catalog.images.length, 11);
+  assert.deepEqual(catalog.images.filter(deploysWithHelm).map((i) => i.id).sort(), helmIds.sort());
+  assert.deepEqual(catalog.images.filter((i) => !deploysWithHelm(i)).map((i) => i.id).sort(), ['agent-claude-code', 'agent-runner']);
+});
+
+test('검증: helm 은 생략하거나 true/false 여야 한다', () => {
+  assert.doesNotThrow(() => validateCatalog(withImages([{ ...OK, helm: false }])));
+  assert.throws(() => validateCatalog(withImages([{ ...OK, helm: 'no' }])), /helm/);
 });
 
 test('카탈로그는 linux/amd64 단일 플랫폼이고 web 은 VITE_MCP_URL 을 빈 값으로 넘긴다', () => {

@@ -80,7 +80,7 @@ test('모든 imagetools create 에 --prefer-index=false 가 있고, 매니페스
   const { exec, calls } = makeExec();
   const m = run({ exec });
   const creates = calls.filter((c) => c.args.join(' ').startsWith('buildx imagetools create'));
-  assert.equal(creates.length, 8);
+  assert.equal(creates.length, 10);
   for (const c of creates) assert.ok(c.args.includes('--prefer-index=false'), c.args.join(' '));
   assert.deepEqual(m.images.web.buildArgs, { VITE_MCP_URL: '' });
   assert.deepEqual(m.images.api.buildArgs, {});
@@ -161,7 +161,7 @@ test('main: 게시된 매니페스트가 없으면 시드하고 파일을 쓴 �
   const c = cli(['--upload'], { exec });
   const manifest = await c.run();
   assert.deepEqual(c.downloads, ['0.8.0']);
-  assert.equal(createCalls(exec).length, 8);
+  assert.equal(createCalls(exec).length, 10);
   assert.deepEqual(JSON.parse(readFileSync(c.out, 'utf8')), manifest);
   assert.equal(c.uploads.length, 1);
   assert.ok(c.logs.some((l) => l.startsWith('\n기준 릴리스 0.8.0')));

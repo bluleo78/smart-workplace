@@ -7,7 +7,7 @@
     "dev": "node scripts/free-ports.mjs 6060 6070 6080 6090 6095 6173 6174 && turbo run dev",
     "test": "turbo run test",
     "test:plugin": "node --test plugins/genia-works/tests/*.test.mjs",
-    "test:helm": "node --test deploy/helm/tests/*.test.mjs",
+    "test:helm": "node --test deploy/helm/tests/*.test.mjs deploy/helm-agent-runner/tests/*.test.mjs",
     "test:release": "node --test deploy/release/tests/*.test.mjs",
     "manual:check": "node docs/manual/scripts/check.mjs",
     "manual:prose": "node docs/manual/scripts/prose.mjs",

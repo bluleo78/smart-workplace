@@ -21,13 +21,13 @@ const built = (r) => Object.values(r).filter((x) => x.action === 'build').map((x
 
 test('기준 태그 없음(changedFiles null) → 전부 build, 사유 no-base', () => {
   const r = run(null, null);
-  assert.equal(built(r).length, 9);
+  assert.equal(built(r).length, 11);
   for (const x of Object.values(r)) assert.deepEqual(x.reasons, ['no-base']);
 });
 
 test('기준 매니페스트가 없으면 변경 파일이 있어도 전부 build(no-base) — 승계할 digest 가 없다', () => {
   const r = run(['docs/x.md'], null);
-  assert.equal(built(r).length, 9);
+  assert.equal(built(r).length, 11);
   for (const x of Object.values(r)) assert.deepEqual(x.reasons, ['no-base']);
 });
 
@@ -57,11 +57,11 @@ test('공용 패키지 변경 → 그 패키지를 쓰는 web·collab 만 build(
   assert.equal(r['ai-agent'].action, 'carry');
 });
 
-test('pnpm-lock.yaml 변경 → Node 앱 5개만 build', () => {
+test('pnpm-lock.yaml 변경 → Node 앱 6개만 build', () => {
   const r = run(['pnpm-lock.yaml']);
-  assert.deepEqual(built(r).sort(), ['admin', 'ai-agent', 'collab', 'mcp', 'web']);
+  assert.deepEqual(built(r).sort(), ['admin', 'agent-runner', 'ai-agent', 'collab', 'mcp', 'web']);
   assert.deepEqual(r.mcp.reasons, ['path:pnpm-lock.yaml']);
-  for (const id of ['api', 'worker', 'converter', 'db']) assert.deepEqual(r[id], { id, action: 'carry', reasons: [] });
+  for (const id of ['api', 'worker', 'converter', 'db', 'agent-claude-code']) assert.deepEqual(r[id], { id, action: 'carry', reasons: [] });
 });
 
 test('releases/0.9.0.md 변경 → web 만 build', () => {

@@ -22,8 +22,9 @@ export const fakeDigest = (seed) => `sha256:${createHash('sha256').update(seed).
 /** 모든 앱을 담은 기준(0.8.0) 매니페스트. */
 export function baseManifest() {
   const images = {};
-  for (const { id, repository, buildArgs } of catalog.images) {
+  for (const { id, repository, buildArgs, helm } of catalog.images) {
     images[id] = { repository, digest: fakeDigest(`base:${id}`), action: 'build', reasons: [], builtVersion: '0.8.0', builtCommit: '1'.repeat(40), buildArgs: buildArgs ?? {} };
+    if (helm === false) images[id].helm = false;
   }
   return { schemaVersion: 1, version: '0.8.0', commit: '1'.repeat(40), baseVersion: null, createdAt: '2026-10-01T00:00:00Z', images };
 }

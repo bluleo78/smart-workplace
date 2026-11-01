@@ -1,0 +1,11 @@
+{{- if .Values.quota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "runner.name" . }}
+  labels:
+    {{- include "runner.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- toYaml .Values.quota.hard | nindent 4 }}
+{{- end }}

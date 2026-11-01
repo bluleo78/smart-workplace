@@ -474,6 +474,12 @@ test('newApps: 기준 매니페스트에 없는 카탈로그 앱만, Helm 템플
   assert.deepEqual(newApps({ catalog, baseManifest: base, helmText }), [{ id: 'converter', helmMissing: false }, { id: 'db', helmMissing: true }]);
 });
 
+test('newApps: helm: false 이미지(실행 위치용)는 새 앱으로 치지 않는다', () => {
+  const base = baseManifest();
+  delete base.images['agent-runner'];
+  assert.deepEqual(newApps({ catalog, baseManifest: base, helmText: '' }), []);
+});
+
 test('newApps: 기준 매니페스트가 null 이면 null(판정하지 않음)', () => {
   assert.equal(newApps({ catalog, baseManifest: null, helmText: '' }), null);
 });

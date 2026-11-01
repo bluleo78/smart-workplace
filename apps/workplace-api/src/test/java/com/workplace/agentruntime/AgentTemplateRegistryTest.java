@@ -19,7 +19,8 @@ import org.springframework.core.io.ClassPathResource;
  */
 class AgentTemplateRegistryTest {
 
-  private static final List<String> ALLOWED = List.of("ghcr.io/bluleo78/", "docker:");
+  private static final List<String> ALLOWED =
+      List.of("docker.io/iacloudops/genia-works-agent-", "docker:");
 
   private static String resource(String name) throws IOException {
     return new String(
@@ -28,7 +29,7 @@ class AgentTemplateRegistryTest {
   }
 
   private static AgentTemplate claudeCode() throws IOException {
-    return AgentTemplateRegistry.load(List.of(resource("claude-code.yaml")), ALLOWED).get(0);
+    return AgentTemplateRegistry.load(List.of(resource("claude-code.yaml")), ALLOWED, "dev").get(0);
   }
 
   /** 최소 SERVER 템플릿 YAML — 검증 실패 케이스를 한 줄씩 바꿔 만들 때 바탕으로 쓴다. */
@@ -48,7 +49,7 @@ class AgentTemplateRegistryTest {
 
     assertThat(t.name()).isEqualTo("claude-code");
     assertThat(t.kind()).isEqualTo("WORKSPACE");
-    assertThat(t.image()).isEqualTo("ghcr.io/bluleo78/agent-claude-code:1");
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-claude-code:latest");
     assertThat(t.requires()).containsExactly("claude", "github");
     assertThat(t.config()).hasSize(2);
     AgentTemplate.ConfigField model = t.config().get(0);
@@ -72,12 +73,31 @@ class AgentTemplateRegistryTest {
     assertThat(t.plugins()).hasSize(8);
   }
 
+  /** 이미지 태그 자리표시는 API 릴리스 버전으로 채운다 — 같은 릴리스로 빌드된 작업 공간 이미지를 가리키게. */
+  @Test
+  void load_whenAppVersionGiven_fillsImageTag() throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(List.of(resource("claude-code.yaml")), ALLOWED, "0.9.40").get(0);
+
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-claude-code:0.9.40");
+  }
+
+  /** 로컬·테스트(버전 dev·없음)는 latest 태그 — 존재하지 않는 dev 태그를 가리키지 않게. */
+  @Test
+  void load_whenDevOrBlankVersion_fallsBackToLatest() throws IOException {
+    for (String v : new String[] {"dev", "", null}) {
+      AgentTemplate t =
+          AgentTemplateRegistry.load(List.of(resource("claude-code.yaml")), ALLOWED, v).get(0);
+      assertThat(t.image()).endsWith(":latest");
+    }
+  }
+
   /** 번들된 두 템플릿(default·claude-code)이 모두 검증을 통과한다. */
   @Test
   void load_whenBundledTemplates_bothPass() throws IOException {
     List<AgentTemplate> all =
         AgentTemplateRegistry.load(
-            List.of(resource("default.yaml"), resource("claude-code.yaml")), ALLOWED);
+            List.of(resource("default.yaml"), resource("claude-code.yaml")), ALLOWED, "dev");
 
     assertThat(all).extracting(AgentTemplate::name).containsExactly("claude-code", "default");
     assertThat(all.stream().filter(t -> t.name().equals("default")).findFirst().get().kind())
@@ -90,7 +110,7 @@ class AgentTemplateRegistryTest {
     String y =
         yaml("x", "WORKSPACE", "image: docker.io/evil/x\nresources: { cpuRequest: \"1\" }\n");
 
-    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED))
+    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED, "dev"))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -100,7 +120,7 @@ class AgentTemplateRegistryTest {
     String a = yaml("dup", "SERVER", "");
     String b = yaml("dup", "SERVER", "");
 
-    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(a, b), ALLOWED))
+    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(a, b), ALLOWED, "dev"))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -109,7 +129,7 @@ class AgentTemplateRegistryTest {
   void load_whenSelectWithoutOptions_throws() {
     String y = yaml("x", "SERVER", "config:\n  - { key: m, label: M, type: select }\n");
 
-    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED))
+    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED, "dev"))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -118,7 +138,7 @@ class AgentTemplateRegistryTest {
   void load_whenWorkspaceKindWithoutImage_throws() {
     String y = yaml("x", "WORKSPACE", "resources: { cpuRequest: \"1\" }\n");
 
-    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED))
+    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED, "dev"))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -158,7 +178,8 @@ class AgentTemplateRegistryTest {
                         "x",
                         "SERVER",
                         "config:\n  - { key: q, label: 라벨, type: text, required: true }\n")),
-                ALLOWED)
+                ALLOWED,
+                "dev")
             .get(0);
 
     assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("q", "  ")))

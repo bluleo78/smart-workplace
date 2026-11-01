@@ -1,0 +1,380 @@
+# 작업 공간 엔트리포인트의 함수들(WP-1252) — bin/entrypoint 와 Dockerfile(빌드 때 플러그인 설치)이 source 한다.
+# Pod 가 주는 것(마운트·env·디스크 배치)은 docs/integrations/agent-pod-contract.md 가 기준이다. 사람이 start-agent 4~6번으로 하던
+# 절차(프로젝트 읽기 → 저장소 받기 → 칸 띄우기)를 같은 플러그인 스크립트로 사람 손 없이 돈다.
+# 테스트가 함수 하나씩 부를 수 있게 나눴고, 경로·시간은 아래 env 로 바꿀 수 있다(운영은 기본값). 맥(bash 3.2)에서도 돌게 쓴다.
+# 키·토큰 원문은 명령줄 인자·로그에 남기지 않는다 — 파일·표준 입력으로만 넘긴다.
+# 플러그인을 찾은 뒤(resolve_plugin_scripts)에는 플러그인의 공용 함수(gw-lib.sh)를 읽어 키 저장·키 검사·경로·파일 쓰기를 플러그인과 같은 규칙으로 한다.
+# 그 앞(필수 확인·마켓플레이스)은 이미지에 genia-works 가 없을 수도 있어(빌더에서 Works 에 닿지 않음) gw-lib 없이 돈다.
+
+GENIA_RUN_DIR=${GENIA_RUN_DIR:-/run/genia}          # runner 가 파일 하나씩(subPath) 꽂는 곳 — 읽기만 한다
+GENIA_WORK=${GENIA_WORK:-/work}                     # PVC — 다시 받기 비싼 것만(AI 폴더·저장소·캐시)
+TMUX_BIN=${GW_TMUX:-tmux}                           # 플러그인 스크립트와 같은 테스트 훅(격리 tmux 서버)
+GENIA_DIND_WAIT=${GENIA_DIND_WAIT:-60}              # docker 소켓을 기다리는 초
+GENIA_SUPERVISE_INTERVAL=${GENIA_SUPERVISE_INTERVAL:-60}
+GENIA_RESTART_AFTER=${GENIA_RESTART_AFTER:-518400}  # 6일 — /loop 반복이 7일 뒤 끝나기 전에 칸을 다시 띄운다
+GENIA_STOP_WAIT=${GENIA_STOP_WAIT:-40}              # SIGTERM 뒤 칸이 끝나기를 기다리는 초(grace 60초 안)
+GENIA_BASE_BROWSERS=${GENIA_BASE_BROWSERS:-/ms-playwright}
+BROWSERS_DIR=${PLAYWRIGHT_BROWSERS_PATH:-$GENIA_WORK/.cache/ms-playwright} # PVC 의 Playwright 브라우저 폴더
+# 운영 Works origin — 빌드(install_plugins)와, 플러그인을 찾기 전이라 gw_api_url 을 쓸 수 없는 마켓플레이스 단계의 기본값.
+# runner 는 GENIA_WORKS_API_URL 을 늘 넣으므로 Pod 에서는 대개 쓰이지 않는다.
+GENIA_DEFAULT_ORIGIN=https://genia-works.iacloud.kr
+
+log() { printf '[entrypoint] %s\n' "$*" >&2; }
+die() {
+  log "$*"
+  exit 1
+}
+
+# 1. 필수 파일·env — 없으면 한 줄 사유로 끝낸다(runner 가 만든 Pod 가 아니거나 Secret·ConfigMap 이 덜 됐다).
+#    플러그인을 찾기 전이라 gw-lib 없이 검사한다.
+check_required() {
+  CONFIG="$GENIA_RUN_DIR/config.json"
+  [ -n "${GENIA_AGENT_NAME:-}" ] || die "GENIA_AGENT_NAME 이 없습니다 — runner 가 만든 Pod 에서만 띄울 수 있습니다"
+  # 이름은 폴더·키 파일·tmux 세션 이름이 된다 — 플러그인(gw_valid_name)과 같은 규칙.
+  case "$GENIA_AGENT_NAME" in
+    . | .. | me | *[!A-Za-z0-9._@-]*) die "GENIA_AGENT_NAME 형식이 아닙니다: $GENIA_AGENT_NAME" ;;
+  esac
+  [ -s "$CONFIG" ] || die "$CONFIG 가 없습니다 — runner 의 ConfigMap 마운트를 확인하세요"
+  jq -e . "$CONFIG" >/dev/null 2>&1 || die "$CONFIG 를 JSON 으로 읽지 못했습니다"
+  [ -s "$GENIA_RUN_DIR/agent-key" ] || die "$GENIA_RUN_DIR/agent-key 가 없습니다 — runner 의 Secret 마운트를 확인하세요"
+  AI_HOME="$GENIA_WORK/agents"
+  AI_DIR="$AI_HOME/$GENIA_AGENT_NAME"
+}
+
+# config.json 한 값(jq 식).
+config_get() { jq -r "$1" "$CONFIG"; }
+
+# /work 아래 폴더 — TMPDIR 이 없으면 dpkg·npm·claude plugin 이 실패한다(PoC). 플러그인 명령보다 먼저 만든다.
+prepare_dirs() {
+  mkdir -p "$GENIA_WORK/tmp" "$GENIA_WORK/.cache" "$GENIA_WORK/.gradle" "$GENIA_WORK/.pnpm-store" "$AI_DIR/state" ||
+    die "$GENIA_WORK 에 폴더를 만들지 못했습니다 — PVC 와 fsGroup 1001 을 확인하세요"
+  seed_browsers
+}
+
+# 베이스 이미지의 Playwright 브라우저(/ms-playwright)를 PVC 의 브라우저 폴더에 링크한다 — 저장소가 같은 버전이면 받지 않아도 된다.
+# 받아 둔 진짜 폴더는 두고, 링크·빈 자리만 이번 이미지를 가리키게 한다(이미지가 바뀌어 끊긴 링크도 치운다).
+seed_browsers() {
+  mkdir -p "$BROWSERS_DIR" || return 0
+  for l in "$BROWSERS_DIR"/*; do
+    [ -L "$l" ] && [ ! -e "$l" ] && rm -f "$l"
+  done
+  [ -d "$GENIA_BASE_BROWSERS" ] || return 0
+  for b in "$GENIA_BASE_BROWSERS"/*; do
+    [ -e "$b" ] || continue
+    target="$BROWSERS_DIR/${b##*/}"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then continue; fi
+    ln -sfn "$b" "$target"
+  done
+}
+
+# Works 의 origin(scheme://host[:port]) — GENIA_WORKS_API_URL(…/api/v1) 에서 뗀다. 마켓플레이스 주소를 만든다.
+# 플러그인을 찾기 전(2번)에 쓰므로 gw_api_url 대신 기본값 상수(GENIA_DEFAULT_ORIGIN)를 쓴다.
+api_origin() {
+  case "${GENIA_WORKS_API_URL:-}" in
+    http://* | https://*)
+      rest=${GENIA_WORKS_API_URL#*://}
+      printf '%s://%s' "${GENIA_WORKS_API_URL%%://*}" "${rest%%/*}"
+      ;;
+    *) printf '%s' "$GENIA_DEFAULT_ORIGIN" ;;
+  esac
+}
+
+# 2. 플러그인 — genia-works 마켓플레이스를 이 Works 의 주소(origin + /claude/marketplace.json)로 맞추고, config.plugins 중 이미지에 없는 것
+#    (템플릿에 새로 넣은 것)을 받는다. 그 주소에 닿으면 굳힌 주소와 같든 다르든 지우고 다시 더한 뒤 genia-works 를 받는다(멱등 — 늘 서버의
+#    버전으로 맞춘다). 닿지 않으면 이미지에 굳힌 것을 그대로 쓴다. 그 결과 주소를 MARKETPLACE_URL 에 둔다(3번 settings 가 같은 주소를 쓴다).
+#    실패는 경고만 — 굳힌 버전으로 계속한다. 지운 뒤 더하기가 실패해 플러그인을 못 찾으면 엔트리포인트가 끝나고,
+#    컨테이너가 다시 뜨면 이미지의 홈(굳힌 플러그인)으로 돌아가 다시 해 본다.
+update_plugins() {
+  want="$(api_origin)/claude/marketplace.json"
+  MARKETPLACE_URL=$want
+  if curl -fsS --connect-timeout 5 --max-time 15 -o /dev/null "$want" 2>/dev/null; then
+    claude plugin marketplace remove genia-works >&2 </dev/null
+    if ! { claude plugin marketplace add "$want" >&2 && claude plugin install genia-works@genia-works >&2; } </dev/null; then
+      log "경고: 마켓플레이스($want)에서 genia-works 를 받지 못했습니다"
+    fi
+  else
+    have=$(jq -r '.["genia-works"].source.url // empty' "$HOME/.claude/plugins/known_marketplaces.json" 2>/dev/null)
+    [ -n "$have" ] && MARKETPLACE_URL=$have
+    log "경고: 마켓플레이스($want)에 닿지 못해 이미지에 굳힌 것(${have:-없음})으로 계속합니다"
+  fi
+  installed=$(claude plugin list --json 2>/dev/null | jq -r '.[].id' 2>/dev/null)
+  for id in $(config_get '(.plugins // [])[] | "\(.name)@\(.marketplace)"'); do
+    printf '%s\n' "$installed" | grep -qxF "$id" && continue
+    claude plugin install "$id" >&2 </dev/null || log "경고: 플러그인 $id 를 받지 못했습니다"
+  done
+  return 0
+}
+
+# 2b. genia-works 플러그인 스크립트 폴더(GW_SCRIPTS)를 찾고 공용 함수(gw-lib.sh)를 읽는다 — 갱신 뒤 설치 경로가 바뀌므로 하드코딩하지 않고
+#     claude 에게 묻는다. AI 폴더는 실제 경로로 바꿔 둔다(claude 신뢰·tmux 칸 폴더와 같은 모양). 아직 없으면(함수 하나만 부르는 테스트) 그대로 둔다.
+resolve_plugin_scripts() {
+  p=$(claude plugin list --json 2>/dev/null | jq -r '[.[] | select(.id == "genia-works@genia-works")][0].installPath // empty' 2>/dev/null)
+  [ -n "$p" ] && [ -x "$p/scripts/agent-project" ] && [ -f "$p/scripts/gw-lib.sh" ] || return 1
+  GW_SCRIPTS="$p/scripts"
+  # shellcheck source=/dev/null # 플러그인 설치 경로는 실행 때 정해진다.
+  . "$GW_SCRIPTS/gw-lib.sh"
+  if real=$(gw_real_dir "$AI_HOME" 2>/dev/null); then
+    AI_HOME=$real
+    AI_DIR="$AI_HOME/$GENIA_AGENT_NAME"
+  fi
+  return 0
+}
+
+# 3. ~/.claude/settings.json — 매번 덮어쓴다(재생성된 Pod 에 옛 값이 남지 않게, Review Focus 5). 플러그인 MCP 주소는 플러그인 설정
+#    server_url(기본은 운영) 이라 GENIA_WORKS_MCP_URL 로 채운다. claude-plugins-official 은 내장이 아니라 빌드 때 더한 것 — 빼면 LSP 플러그인이 사라진다.
+#    genia-works 마켓플레이스 주소는 2번이 정한 MARKETPLACE_URL — 설정의 주소가 등록된 주소와 다르면 그 마켓플레이스가 목록에서 사라진다(실측).
+#    플러그인 명령(install 등)도 이 파일을 고치므로 2번 뒤에 쓴다.
+write_settings() {
+  mkdir -p "$HOME/.claude" || return 1
+  out=$(jq -n --slurpfile c "$CONFIG" --arg mk "$MARKETPLACE_URL" --arg mcp "${GENIA_WORKS_MCP_URL:-}" '
+      $c[0] as $c
+      | (if (($c.config.model // "") | tostring) != "" then { model: $c.config.model } else {} end)
+      + { enabledPlugins: ((($c.plugins // []) | map({ key: "\(.name)@\(.marketplace)", value: true }) | from_entries)
+                           + { "genia-works@genia-works": true }) }
+      + { extraKnownMarketplaces: {
+            "genia-works": { source: { source: "url", url: $mk } },
+            "claude-plugins-official": { source: { source: "github", repo: "anthropics/claude-plugins-official" } } } }
+      + { skipDangerousModePermissionPrompt: true }
+      + (if $mcp != "" then { pluginConfigs: { "genia-works@genia-works": { options: { server_url: $mcp } } } } else {} end)
+    ') && gw_write_atomic "$HOME/.claude/settings.json" "$out"
+}
+
+# 4. ~/.claude.json — 첫 실행 창(온보딩·bypass 확인·폴더 신뢰)이 사람 없는 칸을 막지 않게. 키 이름은 DH-VM 의 것 그대로.
+#    claude 가 적은 다른 값은 둔다. 폴더 신뢰는 상위 폴더 신뢰가 하위에도 미친다(실측) — AI 폴더를 신뢰해 두면 work-loop 가 나중에 받는 저장소도 덮는다.
+mark_trust() {
+  f="$HOME/.claude.json"
+  [ -s "$f" ] || printf '{}\n' > "$f"
+  out=$(jq '.hasCompletedOnboarding = true | .bypassPermissionsModeAccepted = true
+         | reduce $ARGS.positional[] as $p (.; .projects[$p].hasTrustDialogAccepted = true)' "$f" --args "$@") &&
+    gw_write_atomic "$f" "$out"
+}
+
+# 5a. AI 키 — 플러그인의 키 저장(gw-keys add: 키 형식 검사·600·원자적 쓰기)으로 플러그인이 읽는 자리(GW_KEYS/<이름>)에 놓는다.
+#     키는 표준 입력으로만 넘긴다. 홈은 휘발이라 매번 새로 놓는다(옛 키가 남지 않게).
+install_key() {
+  "$GW_SCRIPTS/gw-keys" add "$GENIA_AGENT_NAME" < "$GENIA_RUN_DIR/agent-key"
+}
+
+# 5b. git 신원과 GitHub 자격 증명 — 토큰은 표준 입력으로만 gh 에 넘긴다. 실패는 경고만(저장소 받기가 clone-failed 로 알린다).
+setup_git() {
+  git config --global user.name "$GENIA_AGENT_NAME"
+  git config --global user.email "$GENIA_AGENT_NAME@agents.genia-works.local"
+  token="$GENIA_RUN_DIR/github-token"
+  if [ ! -s "$token" ]; then
+    log "경고: GitHub 토큰($token)이 없습니다 — 저장소를 받지 못할 수 있습니다"
+    return 0
+  fi
+  if ! err=$(gh auth login --hostname github.com --with-token < "$token" 2>&1 >/dev/null); then
+    log "경고: GitHub 로그인 실패 — 토큰 권한(repo·read:org)을 확인하세요: $(printf '%s' "$err" | head -n 1)"
+    return 0
+  fi
+  gh auth setup-git --hostname github.com >/dev/null 2>&1 || log "경고: gh auth setup-git 실패 — git 이 GitHub 자격 증명을 쓰지 못할 수 있습니다"
+  return 0
+}
+
+# 6. dind 소켓 — 없으면 경고만(docker 없이도 칸은 띄운다).
+wait_dind() {
+  case "${DOCKER_HOST:-}" in unix://*) ;; *) return 0 ;; esac
+  sock=${DOCKER_HOST#unix://}
+  n=$GENIA_DIND_WAIT
+  while [ ! -S "$sock" ] && [ "$n" -gt 0 ]; do
+    sleep 1
+    n=$((n - 1))
+  done
+  [ -S "$sock" ] || log "경고: docker 소켓($sock)이 없습니다 — docker 없이 띄웁니다"
+  return 0
+}
+
+# 7a. 맡은 프로젝트 — 「키<탭>저장소<탭>브랜치」 한 줄씩. start-agent 4번과 같은 기준: viewerRole 이 있고(실제 멤버) 연결된 저장소가 있는 것.
+#     키는 폴더·tmux 칸 이름이 되므로 여기서 한 번만 거른다(gw_valid_project_key 와 같은 규칙 — 서버 키는 늘 통과한다).
+list_projects() {
+  page=0
+  while :; do
+    out=$("$GW_SCRIPTS/gw-agent-projects" "$GENIA_AGENT_NAME" "$page") || return 1
+    printf '%s' "$out" | jq -r '.content[]? | select(.viewerRole != null and (.repositoryUrl // "") != ""
+                                                    and ((.key // "") | test("^[A-Za-z0-9_-]+$")))
+                                | [.key, .repositoryUrl, (.repositoryBranch // "")] | @tsv' || return 1
+    total=$(printf '%s' "$out" | jq -r '.totalPages // 0')
+    page=$((page + 1))
+    [ "$page" -lt "$total" ] || break
+  done
+}
+
+# 7b. 저장소의 Playwright 버전 — pnpm-lock.yaml 의 패키지 줄(정확한 버전)을 먼저, 없으면 package.json 의 고정 버전(^·~ 는 뗀다).
+playwright_version() {
+  v=""
+  if [ -f "$1/pnpm-lock.yaml" ]; then
+    v=$(grep -m 1 -oE "^  '?(@playwright/test|playwright)@[0-9]+\.[0-9]+\.[0-9]+" "$1/pnpm-lock.yaml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
+  fi
+  if [ -z "$v" ] && [ -f "$1/package.json" ]; then
+    v=$(jq -r '((.devDependencies // {}) + (.dependencies // {})) | (.["@playwright/test"] // .playwright // empty)' "$1/package.json" 2>/dev/null |
+      sed -E 's/^[~^=v]+//')
+    case "$v" in *[!0-9.]* | '') v="" ;; esac
+  fi
+  [ -n "$v" ] || return 1
+  printf '%s\n' "$v"
+}
+
+# 7c. 그 버전의 chromium — 저장소 Playwright 와 이미지 브라우저 버전이 달라 E2E 가 실패했다(PoC). 받은 버전은 표시를 남겨 다음엔 건너뛴다.
+ensure_playwright() {
+  [ -f "$BROWSERS_DIR/.genia-chromium-$1" ] && return 0
+  mkdir -p "$BROWSERS_DIR"
+  if (cd "$GENIA_WORK/tmp" && npx -y "playwright@$1" install chromium) >&2 </dev/null; then
+    : > "$BROWSERS_DIR/.genia-chromium-$1"
+  else
+    log "경고: Playwright $1 의 chromium 을 받지 못했습니다 — E2E 가 실패할 수 있습니다"
+  fi
+}
+
+# 칸을 띄운 결과를 기록 — 띄운 시각(6일 넘김 판정)과 로그 한 줄.
+note_launch() {
+  stamp="$AI_DIR/state/pane-started-$1"
+  case "$2" in
+    started* | revived* | restarted*)
+      date +%s > "$stamp"
+      log "$1: $2"
+      ;;
+    exists*) [ -f "$stamp" ] || date +%s > "$stamp" ;;
+    *) log "경고: $1 칸을 띄우지 못했습니다 — ${2:-결과 없음}" ;;
+  esac
+}
+
+# 7. 프로젝트 — start-agent 4~6번을 사람 대신. 대기열 라벨·홈 기억 → 저장소마다 받기 → 신뢰 → Playwright → 칸.
+#    BOOT_KEYS 에 띄운 키를 모은다(감독이 살핀다). 프로젝트 목록을 못 읽으면 1(감독이 다음 회차에 다시 한다).
+#    알림 감시 창은 부르는 쪽이 칸을 다 띄운 뒤 한 번 챙긴다(ensure_events).
+start_projects() {
+  list=$(list_projects) || {
+    log "경고: 맡은 프로젝트를 읽지 못했습니다 — 잠시 뒤 다시 합니다"
+    return 1
+  }
+  queue=$(config_get '.config.queue // ""')
+  "$GW_SCRIPTS/agent-home" "$AI_DIR" set queue "$queue" || log "경고: 대기열 라벨을 저장하지 못했습니다: $queue"
+  "$GW_SCRIPTS/agent-project" locate "$GENIA_AGENT_NAME" "$AI_HOME" --set >/dev/null || log "경고: AI 홈을 기억하지 못했습니다"
+  if [ -z "$list" ]; then
+    log "$GENIA_AGENT_NAME 이 멤버인 프로젝트 중 연결된 저장소가 있는 것이 없습니다 — 프로젝트 설정 › 연결된 저장소와 멤버를 확인하세요"
+    return 0
+  fi
+  # 칸을 띄우기 전에 저장소 폴더 신뢰를 한 번에 적는다 — 칸의 claude 가 같은 파일을 쓰기 시작한 뒤에 고치면 서로 덮어쓸 수 있다.
+  # 키는 list_projects 가 형식을 걸렀다(공백 없음) — 단어로 나눠도 된다.
+  set --
+  for key in $(printf '%s\n' "$list" | cut -f1); do set -- "$@" "$AI_DIR/repos/$key"; done
+  mark_trust "$AI_DIR" "$@" || log "경고: ~/.claude.json 에 폴더 신뢰를 적지 못했습니다"
+  pw_done=" "
+  tab=$(printf '\t')
+  while IFS="$tab" read -r key url branch; do
+    # repo 가 낸 줄(cloned·fetched·no-project-md…)은 그대로 로그로. clone-failed·url-changed·busy 면 이번에는 띄우지 않는다.
+    out=$("$GW_SCRIPTS/agent-project" repo "$AI_DIR" "$key" "$url" ${branch:+"$branch"} </dev/null)
+    rc=$?
+    [ -n "$out" ] && log "$key: $(printf '%s' "$out" | tr '\n' ' ')"
+    [ $rc -eq 0 ] || continue
+    if v=$(playwright_version "$AI_DIR/repos/$key"); then
+      case "$pw_done" in *" $v "*) ;; *) ensure_playwright "$v"; pw_done="$pw_done$v " ;; esac
+    fi
+    note_launch "$key" "$(GW_SKIP_EVENTS_ENSURE=1 "$GW_SCRIPTS/agent-project" start "$AI_DIR" "$key" </dev/null)"
+    BOOT_KEYS="${BOOT_KEYS:-} $key"
+  done <<EOF
+$list
+EOF
+  return 0
+}
+
+# 알림 감시 창 — 회차마다 한 번 챙긴다(모든 칸이 쉬는 동안 감시가 죽어도 「연결 끊김」이 길게 가지 않게).
+# 칸을 띄우는 agent-project 는 칸마다 챙기지 않게 꺼 두고(GW_SKIP_EVENTS_ENSURE) 여기서만 부른다.
+ensure_events() {
+  if [ -x "$GW_SCRIPTS/agent-events" ]; then
+    "$GW_SCRIPTS/agent-events" ensure "$AI_DIR" >/dev/null 2>&1 </dev/null || log "경고: 알림 감시 창을 띄우지 못했습니다"
+  elif [ -z "${EVENTS_WARNED:-}" ]; then
+    # 0.1.30 이하 플러그인에는 상시 감시가 없다 — 갱신에 실패했거나 서버가 아직 옛 버전이다. 한 번만 알린다.
+    log "경고: 이 플러그인 버전에는 agent-events 가 없습니다 — 알림 감시를 상시로 띄우지 못합니다"
+    EVENTS_WARNED=1
+  fi
+  return 0
+}
+
+# 8. 감독 한 번 — 칸 상태를 tmux 에서 한 번만 읽어(agent-window --states) 죽었거나 빠진 칸만 띄우고(agent-project start 는 죽은 칸을
+#    그 자리에서 되살린다), 6일 넘은 칸은 다시 띄우고, 끝에 알림 감시 창을 한 번 챙긴다.
+#    살피는 칸은 처음 띄운 키 + 지금 tmux 에 있는 칸(work-loop 가 새로 맡아 띄운 것 포함).
+supervise_once() {
+  if [ "${PROJECTS_READY:-0}" != 1 ]; then
+    start_projects && PROJECTS_READY=1
+  fi
+  now=$(date +%s)
+  # 「키 0|1(죽음)」 한 줄씩. --states 가 없는 옛 플러그인이면 키만 읽는다 — 상태를 모르니 모두 띄워 본다(도는 칸은 exists 로 그대로 둔다).
+  states=$("$GW_SCRIPTS/agent-window" --states "$GENIA_AGENT_NAME" 2>/dev/null) ||
+    states=$("$GW_SCRIPTS/agent-window" --keys "$GENIA_AGENT_NAME" 2>/dev/null)
+  keys=$({
+    for k in ${BOOT_KEYS:-}; do printf '%s\n' "$k"; done
+    printf '%s\n' "$states" | awk 'NF { print $1 }'
+  } | sort -u)
+  for k in $keys; do
+    gw_valid_project_key "$k" && [ -d "$AI_DIR/repos/$k" ] || continue
+    started=$(cat "$AI_DIR/state/pane-started-$k" 2>/dev/null)
+    restart=""
+    [ -n "$started" ] && [ $((now - started)) -ge "$GENIA_RESTART_AFTER" ] && restart=--restart
+    if [ -z "$restart" ] && printf '%s\n' "$states" | grep -qxF "$k 0"; then
+      # 도는 칸은 건드리지 않고 띄운 시각만 남긴다 — work-loop 가 스스로 띄운 칸도 6일 뒤 다시 띄우게.
+      note_launch "$k" exists
+      continue
+    fi
+    # shellcheck disable=SC2086 # restart 는 비었거나 --restart 한 단어다.
+    note_launch "$k" "$(GW_SKIP_EVENTS_ENSURE=1 "$GW_SCRIPTS/agent-project" start $restart "$AI_DIR" "$k" </dev/null)"
+  done
+  ensure_events
+}
+
+# 9. 정리 — 칸마다 SIGTERM(claude 가 스스로 끝내게) → 최대 GENIA_STOP_WAIT 초 기다림 → tmux 서버 끄기.
+#    tmux 는 늘 TMUX_BIN 으로 — 테스트가 사람의 tmux 서버를 끄지 않게.
+stop_all() {
+  pids=$("$TMUX_BIN" list-panes -a -F '#{pane_dead} #{pane_pid}' 2>/dev/null | awk '$1 == 0 { print $2 }')
+  for p in $pids; do kill -TERM "$p" 2>/dev/null; done
+  n=$GENIA_STOP_WAIT
+  while [ "$n" -gt 0 ]; do
+    alive=0
+    for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ "$alive" = 0 ] && break
+    sleep 1
+    n=$((n - 1))
+  done
+  "$TMUX_BIN" kill-server >/dev/null 2>&1
+  return 0
+}
+
+# 빌드 때 — plugins.lock 의 플러그인을 받는다. 마켓플레이스가 버전 지정을 받지 않아 받은 뒤 버전을 lock 과 맞춰 본다.
+# anthropic-plugin-directory 는 내장이라 그대로, claude-plugins-official 과 genia-works 는 먼저 더한다(실측).
+# genia-works 마켓플레이스는 Works 서버라 빌더에서 닿지 않을 수 있다(DH-VM 은 내부 주소를 줘야 닿았다) — 그때는 굳히지 않고 넘어간다.
+# Pod 가 뜰 때 update_plugins 가 자기 Works 에서 받는다(어차피 서버 버전으로 맞춘다). 나머지 플러그인은 받지 못하면 빌드 실패다.
+install_plugins() {
+  lock=$1
+  origin=${2:-$GENIA_DEFAULT_ORIGIN}
+  skip=""
+  claude plugin marketplace add anthropics/claude-plugins-official >&2 </dev/null || return 1
+  if ! claude plugin marketplace add "$origin/claude/marketplace.json" >&2 </dev/null; then
+    echo "경고: genia-works 마켓플레이스($origin)에 닿지 못해 이미지에 굳히지 않습니다 — Pod 가 뜰 때 받습니다" >&2
+    skip=genia-works@genia-works
+  fi
+  while read -r id ver; do
+    case "$id" in '' | '#'*) continue ;; esac
+    [ "$id" = "$skip" ] && continue
+    claude plugin install "$id" >&2 </dev/null || return 1
+  done < "$lock"
+  verify_plugin_lock "$lock" "$skip"
+}
+
+# verify_plugin_lock <lock> [<건너뛸 id>] — 받은 플러그인 버전이 lock 과 같은지. latest 는 맞춰 보지 않는다(설치만 확인). 다르면 무엇이 다른지 한 줄씩 내고 1.
+verify_plugin_lock() {
+  list=$(claude plugin list --json) || return 1
+  bad=0
+  while read -r id ver; do
+    case "$id" in '' | '#'*) continue ;; esac
+    [ "$id" = "${2:-}" ] && continue # 빌드에서 굳히지 않기로 한 것(install_plugins)
+    got=$(printf '%s' "$list" | jq -r --arg id "$id" '[.[] | select(.id == $id)][0].version // empty')
+    if [ -z "$got" ]; then
+      echo "plugins.lock: $id 가 설치되지 않았습니다" >&2
+      bad=1
+    elif [ "$ver" != latest ] && [ "$got" != "$ver" ]; then
+      echo "plugins.lock: $id 버전이 다릅니다 — lock $ver, 받은 것 $got (lock 과 agent-templates/claude-code.yaml 을 함께 고치세요)" >&2
+      bad=1
+    fi
+  done < "$1"
+  return $bad
+}

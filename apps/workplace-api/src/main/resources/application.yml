@@ -40,7 +40,7 @@ workplace:
   # AI 내부 실행(WP-1245) — 실행 템플릿이 쓸 수 있는 컨테이너 이미지 접두사. 시작 때 템플릿 YAML 을 이 목록으로 검증한다.
   # docker: 는 작업 공간 보조 컨테이너(dind)용 도커 공식 이미지.
   agent-runtime:
-    allowed-image-prefixes: [ghcr.io/bluleo78/, "docker:"]
+    allowed-image-prefixes: [docker.io/iacloudops/genia-works-agent-, "docker:"]
     # runner 가 띄운 AI 가 붙을 MCP·REST 주소(WP-1249) — 실행 위치에서 닿는 주소여야 한다. api-url 은 /api/v1 까지.
     # 기본값은 로컬(MCP 6090 · API 6060). 운영은 application-prod.yml 이 공개 웹 주소(WEB_BASE_URL)로 만든다.
     mcp-url: ${AGENT_RUNTIME_MCP_URL:http://localhost:6090/mcp}

@@ -299,6 +299,8 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
     };
     // buildArgs = 「이 이미지를 만든 인자」(다음 릴리스의 build-args 변경 감지 근거). 빌드 앱은 카탈로그 값, 승계 앱은 기준 값을 잇는다
     // (현재 카탈로그 값을 적으면 만들어지지 않은 인자를 기록하게 된다). 기준 항목에 없으면(구 매니페스트) 적지 않는다.
+    // 반영 대상 표시는 지금 카탈로그 값을 따른다(빌드 입력이 아니라 「어디로 반영하나」라서 승계 앱도 같다).
+    if (byId.get(id).helm === false) images[id].helm = false;
     if (!carried) images[id].buildArgs = byId.get(id).buildArgs ?? {};
     else if (carried.buildArgs !== undefined) images[id].buildArgs = { ...carried.buildArgs };
   }

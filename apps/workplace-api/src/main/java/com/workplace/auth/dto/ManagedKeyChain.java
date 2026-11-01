@@ -59,6 +59,17 @@ public record ManagedKeyChain(List<Key> keys) {
     return now.plus(GRACE);
   }
 
+  /**
+   * 정리 유예에 든 키(끄기·삭제·위치 이동·교체 확인 뒤 {@link #graceUntil} 로 줄인 키)를 뺀 사슬. 그 키들은 지워지는 Pod 의 것이라 「지금 쓰는
+   * 키」가 아니다 — 교체 판정이 이것을 쓰지 않으면, 끈 뒤(또는 다른 위치로 옮긴 뒤) 유예 안에 다시 켰을 때 새 Pod 의 첫 키 발급이 교체로 보여
+   * generation 이 한 번 더 오르고 막 뜬 Pod 가 바로 낡는다(WP-1251 실측). 자연 만료가 5분 안에 오는 키도 함께 빠지지만, runner 는 만료 7일
+   * 전부터 미리 다시 받으므로 그런 키가 「지금 쓰는 키」로 남아 있을 일은 없다.
+   */
+  public ManagedKeyChain live(OffsetDateTime now) {
+    OffsetDateTime graceEnd = graceUntil(now);
+    return new ManagedKeyChain(keys.stream().filter(k -> k.expiresAt().isAfter(graceEnd)).toList());
+  }
+
   public boolean isEmpty() {
     return keys.isEmpty();
   }

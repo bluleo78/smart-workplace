@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Claude Code 작업 공간 엔트리포인트(WP-1252) — runner 가 만든 AI Pod 에서 사람 손 없이 Claude Code·플러그인·저장소·work-loop 칸을 띄우고 지킨다.
+# 순서는 계획(2026-11-01-wp1245-agent-runtime-wave-c.md Task 5)의 1~9단계, 함수는 bin/lib.sh. Pod 계약은 docs/integrations/agent-pod-contract.md.
+# - 칸(work-loop)이 DRAIN·RESTART 로 멈춰도 끝내지 않는다 — 끝내면 kubelet 이 같은 generation 으로 다시 띄워 헛돈다(교체는 runner 가 Pod 를 지워서 한다).
+# - SIGTERM 에는 칸들을 정리하고 0 으로 끝낸다.
+set -o pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+
+SLEEP_PID=""
+on_term() {
+  trap - TERM INT
+  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  log "종료 신호 — 칸들을 정리합니다"
+  stop_all
+  exit 0
+}
+trap on_term TERM INT
+
+# 1. 필수 파일·env, /work 폴더(TMPDIR 이 있어야 플러그인 명령이 돈다)
+check_required
+prepare_dirs
+# 2. 플러그인 — genia-works 마켓플레이스를 이 Works 로 맞추고 서버 버전을 받는다(실패해도 굳힌 버전으로 계속).
+#    스크립트 폴더를 찾아 플러그인 공용 함수(gw-lib)를 읽는다 — 못 찾으면 띄울 수 없다. 이 뒤로는 gw-lib 를 쓴다.
+update_plugins
+resolve_plugin_scripts || die "genia-works 플러그인을 찾지 못했습니다 — 이미지를 다시 빌드하세요"
+log "Claude Code $(claude --version 2>/dev/null | head -n 1) · 플러그인 $GW_SCRIPTS"
+# 3. Claude Code 설정(매번 덮어씀 — 2번이 정한 마켓플레이스 주소로)
+write_settings || die "$HOME/.claude/settings.json 을 쓰지 못했습니다"
+# 4. 첫 실행 창·폴더 신뢰(저장소 폴더는 7번에서 더한다)
+mark_trust "$AI_HOME" "$AI_DIR" || die "$HOME/.claude.json 을 쓰지 못했습니다"
+# 5. AI 키(플러그인의 gw-keys 로 검사·저장)·git·GitHub
+install_key || die "AI 키를 놓지 못했습니다"
+setup_git
+# 6. dind
+wait_dind
+# 7. 프로젝트마다 저장소·칸 — 목록을 못 읽으면 감독이 다시 한다. 칸을 다 띄운 뒤 알림 감시 창을 한 번 챙긴다.
+# 둘 다 lib.sh 의 start_projects·supervise_once 가 읽고 쓴다.
+# shellcheck disable=SC2034
+PROJECTS_READY=0
+# shellcheck disable=SC2034
+BOOT_KEYS=""
+# shellcheck disable=SC2034
+start_projects && PROJECTS_READY=1
+ensure_events
+# 8. 감독 — sleep 을 뒤에서 돌리고 wait 로 기다려 SIGTERM 을 바로 받는다(앞쪽 sleep 동안에는 trap 이 돌지 않는다).
+while :; do
+  sleep "$GENIA_SUPERVISE_INTERVAL" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID"
+  SLEEP_PID=""
+  supervise_once
+done

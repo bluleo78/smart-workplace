@@ -13,8 +13,10 @@
 #
 # agent-project start [--restart] <AI 폴더> <프로젝트 키> — 그 AI 신원으로 work-loop 를 도는 claude 를 칸으로 띄운다(agent-window 결과를 그대로 낸다).
 #   대기열 라벨은 AI 폴더에 저장한 값(agent-home get queue)을 쓴다. 칸에는 신원(GENIA_WORKS_AS), AI 폴더(GENIA_WORKS_AGENT_DIR — 새 프로젝트 확인),
-#   자동 압축 40%(work-loop.sh 와 같은 값 — 오래 도는 세션이 무거워지지 않게)를 넘기고, 이 셸에 GENIA_WORKS_API_URL 이 있으면 그것도 넘긴다
-#   (운영이 아닌 서버 — tmux 칸은 이 셸의 환경을 물려받지 않는다). 띄웠으면(started·exists·revived·restarted) 그 키의 실패 기록을 지운다.
+#   자동 압축 40%(work-loop.sh 와 같은 값 — 오래 도는 세션이 무거워지지 않게)를 넘긴다. 이 셸의 PATH·GENIA_WORKS_API_URL·GENIA_WORKS_TENANT 는
+#   agent-window 가 넘긴다(gw-lib 의 GW_TMUX_ENV — tmux 칸은 이 셸의 환경을 물려받지 않는다). 띄웠으면(started·exists·revived·restarted) 그 키의
+#   실패 기록을 지우고, 그 AI 의 알림 감시 창(agent-events ensure — AI 당 하나)도 없거나 죽었으면 띄운다(결과 줄은 내지 않는다).
+#   GW_SKIP_EVENTS_ENSURE=1 이면 감시 창은 챙기지 않는다 — 칸 여럿을 차례로 띄우는 엔트리포인트 감독이 회차 끝에 한 번만 챙긴다(WP-1252).
 #
 # agent-project add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] — work-loop 가 새로 맡은 프로젝트에 쓴다: repo 뒤 start.
 #   repo 처럼 키마다 잠그고(busy, 종료 6), 사람이 손봐야 하는 실패(clone-failed·url-changed·legacy·no-tmux)는 이유를 기록하고
@@ -172,13 +174,16 @@ do_start() {
   queue=$("$here/agent-home" "$aidir" get queue 2>/dev/null) || queue=""
   loop="/loop /genia-works:work-loop $key"
   [ -n "$queue" ] && loop="$loop --queue \"$queue\""
+  # PATH·서버 주소·워크스페이스는 agent-window 가 칸마다 넘긴다(GW_TMUX_ENV).
   set -- env "GENIA_WORKS_AS=$name" "GENIA_WORKS_AGENT_DIR=$aidir" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40"
-  [ -n "${GENIA_WORKS_API_URL:-}" ] && set -- "$@" "GENIA_WORKS_API_URL=$GENIA_WORKS_API_URL"
   # shellcheck disable=SC2086 # restart 는 비었거나 --restart 한 단어다.
   result=$("$here/agent-window" $restart "$name" "$key" "$folder" "$@" claude --permission-mode bypassPermissions "$loop")
   rc=$?
   printf '%s\n' "$result"
   launched "$result" && rm -f "$state/launch-failed-$key"
+  # 그 AI 의 알림 감시 창도 띄워 둔다(WP-1252 — AI 당 하나, 칸은 그 기록만 따라간다). 결과 줄·종료 코드는 칸 결과(위)를 가리지 않게 버린다.
+  # 사람이 부르는 start-agent·work-loop 의 add 는 늘 챙기고, 회차 끝에 따로 챙기는 엔트리포인트 감독만 끈다(GW_SKIP_EVENTS_ENSURE).
+  [ -z "${GW_SKIP_EVENTS_ENSURE:-}" ] && launched "$result" && "$here/agent-events" ensure "$aidir" >/dev/null 2>&1
   return $rc
 }
 

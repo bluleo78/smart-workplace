@@ -1,0 +1,158 @@
+// agent-runner 차트 렌더 검증(WP-1251) — helm template 결과만 본다(클러스터 불필요). node --test deploy/helm-agent-runner/tests
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const CHART = fileURLToPath(new URL('..', import.meta.url));
+
+// 필수값 예시 — 각 테스트가 하나씩 빼거나 덧붙여 본다
+const REQUIRED = {
+  'works.url': 'https://works.example.test',
+  'image.tag': '9.9.9',
+  'github.existingSecret': 'gh-token',
+  runnerToken: 'rt_sentinel_token',
+};
+
+/** helm template 실행 — 실패도 결과로 돌려준다. omit 에 적은 필수값은 뺀다. */
+function render({ omit = [], set = {}, json = {} } = {}) {
+  const args = ['template', 'agent-runner', CHART, '-n', 'agent-pod-test'];
+  for (const [k, v] of Object.entries({ ...REQUIRED, ...set })) {
+    if (!omit.includes(k)) args.push('--set', `${k}=${v}`);
+  }
+  for (const [k, v] of Object.entries(json)) args.push('--set-json', `${k}=${JSON.stringify(v)}`);
+  const r = spawnSync('helm', args, { encoding: 'utf8' });
+  if (r.error) throw r.error;
+  return { ok: r.status === 0, out: r.stdout, err: r.stderr };
+}
+
+/** 렌더 결과에서 한 종류의 문서 본문을 모두 뽑는다. */
+const ofKind = (out, kind) => out.split(/^---$/m).filter((b) => new RegExp(`^kind: ${kind}$`, 'm').test(b));
+
+/** env 항목 한 개의 값(value) */
+const envValue = (out, name) => out.match(new RegExp(`- name: ${name}\\n\\s+value: (.*)`))?.[1];
+
+const BASE = render();
+
+test('renders with required values', () => {
+  assert.ok(BASE.ok, BASE.err);
+});
+
+test('rendersRoleScopedToNamespaceOnly', () => {
+  assert.equal(ofKind(BASE.out, 'Role').length, 1);
+  assert.equal(ofKind(BASE.out, 'RoleBinding').length, 1);
+  assert.equal(ofKind(BASE.out, 'ClusterRole').length, 0);
+  assert.equal(ofKind(BASE.out, 'ClusterRoleBinding').length, 0);
+  // Pod 를 지울 수 있고, 로그는 읽기만
+  const role = ofKind(BASE.out, 'Role')[0];
+  assert.match(role, /pods\/log/);
+  assert.match(role, /metrics\.k8s\.io/);
+});
+
+test('failsWithoutTokenOrExistingSecret', () => {
+  const r = render({ omit: ['runnerToken'] });
+  assert.equal(r.ok, false);
+  assert.match(r.err, /runnerToken|existingSecret/);
+  // existingSecret 이 있으면 통과하고 차트가 토큰 Secret 을 만들지 않는다
+  const ok = render({ omit: ['runnerToken'], set: { existingSecret: 'my-runner-token' } });
+  assert.ok(ok.ok, ok.err);
+  assert.equal(ofKind(ok.out, 'Secret').length, 0);
+  assert.match(ok.out, /secretName: my-runner-token/);
+});
+
+test('failsWithoutGithubSecret', () => {
+  const r = render({ omit: ['github.existingSecret'] });
+  assert.equal(r.ok, false);
+  assert.match(r.err, /github\.existingSecret/);
+});
+
+test('failsWithoutWorksUrlOrImageTag', () => {
+  assert.match(render({ omit: ['works.url'] }).err, /works\.url/);
+  assert.match(render({ omit: ['image.tag'] }).err, /image\.tag/);
+});
+
+test('passesLocationValuesAsJsonEnv', () => {
+  const r = render({
+    set: { 'agent.storageClass': 'fast-ssd' },
+    json: {
+      'agent.nodeSelector': { pool: 'agents' },
+      'agent.tolerations': [{ key: 'dedicated', operator: 'Equal', value: 'agents', effect: 'NoSchedule' }],
+      'agent.hostAliases': [{ ip: '10.0.0.5', hostnames: ['genia-works.iacloud.kr'] }],
+    },
+  });
+  assert.ok(r.ok, r.err);
+  // env 값은 JSON 문자열(quote 로 감싸져 있어 한 번 풀어 파싱한다)
+  assert.deepEqual(JSON.parse(JSON.parse(envValue(r.out, 'AGENT_NODE_SELECTOR'))), { pool: 'agents' });
+  assert.equal(JSON.parse(JSON.parse(envValue(r.out, 'AGENT_TOLERATIONS')))[0].key, 'dedicated');
+  assert.equal(JSON.parse(JSON.parse(envValue(r.out, 'AGENT_HOST_ALIASES')))[0].ip, '10.0.0.5');
+  assert.equal(JSON.parse(envValue(r.out, 'AGENT_STORAGE_CLASS')), 'fast-ssd');
+  assert.equal(JSON.parse(envValue(r.out, 'GITHUB_SECRET_NAME')), 'gh-token');
+  assert.equal(JSON.parse(envValue(r.out, 'WORKS_URL')), 'https://works.example.test');
+  assert.match(JSON.parse(envValue(r.out, 'ALLOWED_IMAGE_PREFIXES')), /^docker\.io\/iacloudops\/genia-works-agent-,docker:$/);
+});
+
+test('passesPullSecretsToRunnerAndAgentPods', () => {
+  // 기본값 — runner·작업 공간 이미지가 비공개 Docker Hub 에 있어 dockerhub-pull 을 runner 와 AI Pod 모두에 쓴다.
+  assert.match(BASE.out, /imagePullSecrets:\n\s+- name: dockerhub-pull/);
+  assert.equal(JSON.parse(envValue(BASE.out, 'AGENT_IMAGE_PULL_SECRETS')), 'dockerhub-pull');
+  const r = render({ json: { imagePullSecrets: [{ name: 'a' }, { name: 'b' }] } });
+  assert.ok(r.ok, r.err);
+  assert.equal(JSON.parse(envValue(r.out, 'AGENT_IMAGE_PULL_SECRETS')), 'a,b');
+  const none = render({ json: { imagePullSecrets: [] } });
+  assert.ok(none.ok, none.err);
+  assert.doesNotMatch(none.out, /imagePullSecrets:/);
+  assert.equal(JSON.parse(envValue(none.out, 'AGENT_IMAGE_PULL_SECRETS')), '');
+});
+
+test('tokenMountedAsFileNotEnv', () => {
+  const dep = ofKind(BASE.out, 'Deployment')[0];
+  assert.match(dep, /RUNNER_TOKEN_FILE\n\s+value: \/run\/runner\/token/);
+  assert.match(dep, /mountPath: \/run\/runner\n\s+readOnly: true/);
+  // 토큰 원문은 Deployment 어디에도 없고 Secret 에만 있다
+  assert.doesNotMatch(dep, /rt_sentinel_token/);
+  assert.doesNotMatch(dep, /secretKeyRef/);
+  assert.match(ofKind(BASE.out, 'Secret')[0], /token: "rt_sentinel_token"/);
+});
+
+test('quotaRenderedByDefault', () => {
+  const quota = ofKind(BASE.out, 'ResourceQuota');
+  assert.equal(quota.length, 1);
+  assert.match(quota[0], /requests\.cpu: "16"/);
+  assert.match(quota[0], /requests\.memory: 64Gi/);
+  assert.match(quota[0], /persistentvolumeclaims: "10"/);
+  assert.equal(ofKind(render({ set: { 'quota.enabled': 'false' } }).out, 'ResourceQuota').length, 0);
+});
+
+test('dindResourcesDefaultAndOverridable', () => {
+  // 쿼터(requests.cpu/memory)가 기본으로 켜져 있어 dind 도 requests 가 있어야 AI Pod 가 승인된다 — 기본은 PoC 값
+  assert.deepEqual(JSON.parse(JSON.parse(envValue(BASE.out, 'DIND_RESOURCES'))), {
+    requests: { cpu: '500m', memory: '1Gi' },
+    limits: { cpu: '4', memory: '6Gi' },
+  });
+  // helm 은 맵을 깊게 합치므로 바꿀 칸을 모두 적는다
+  const custom = { requests: { cpu: '1', memory: '2Gi' }, limits: { cpu: '2', memory: '8Gi' } };
+  const r = render({ json: { 'dind.resources': custom } });
+  assert.ok(r.ok, r.err);
+  assert.deepEqual(JSON.parse(JSON.parse(envValue(r.out, 'DIND_RESOURCES'))), custom);
+});
+
+test('deploymentUsesRecreateAndOneReplica', () => {
+  const dep = ofKind(BASE.out, 'Deployment')[0];
+  assert.match(dep, /replicas: 1\b/);
+  assert.match(dep, /type: Recreate/);
+});
+
+test('healthzUsedForReadinessNotLiveness', () => {
+  const dep = ofKind(BASE.out, 'Deployment')[0];
+  assert.match(dep, /readinessProbe:\n\s+httpGet:\n\s+path: \/healthz/);
+  assert.doesNotMatch(dep, /livenessProbe/);
+  assert.doesNotMatch(dep, /startupProbe/);
+});
+
+test('runnerContainerIsHardened', () => {
+  const dep = ofKind(BASE.out, 'Deployment')[0];
+  for (const re of [/runAsNonRoot: true/, /runAsUser: 1000/, /readOnlyRootFilesystem: true/, /allowPrivilegeEscalation: false/, /drop: \["ALL"\]/]) {
+    assert.match(dep, re);
+  }
+  assert.match(dep, /image: "docker\.io\/iacloudops\/genia-works-agent-runner:9\.9\.9"/);
+});

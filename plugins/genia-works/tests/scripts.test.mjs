@@ -3,9 +3,9 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, utimesSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, utimesSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1074,7 +1074,8 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
     '/loop /genia-works:work-loop WP --queue "AI 개발팀"',
     '',
   ].join('\n'));
-  assert.deepEqual(panes(tmux, 'kodi').map((p) => p.key), ['WP']);
+  // 알림 감시 창(events)은 따로 있다 — 프로젝트 칸만 센다.
+  assert.deepEqual(panes(tmux, 'kodi').filter((p) => p.win !== 'events').map((p) => p.key), ['WP']);
   assert.equal(run('agent-project', ['start', '--restart', d, 'WP'], { env: { GW_TMUX: wrapper } }).stdout, 'restarted kodi\n');
   assert.equal(run('agent-project', ['start', d, 'HR'], { env: { GW_TMUX: wrapper } }).status, 2); // 저장소 폴더가 없다
 });
@@ -1207,4 +1208,222 @@ test('gw-status: 보고가 실패해도(서버 오류·닿지 못함·이상한 
   }
   const noKey = await runAsync('gw-status', ['IDLE'], { GENIA_AGENT_GENERATION: '7', GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
   assert.deepEqual([noKey.status, noKey.stdout], [0, 'RUN\n']);
+});
+
+// ---------------------------------------------------------------- 상시 알림 감시 — agent-events·gw-events --all/--lock (WP-1252)
+// 「연결됨」은 AI 의 알림 SSE 가 지금 열려 있는지로 정해진다 — AI 마다 tmux 창(events) 하나가 SSE 를 들고 wake 줄을
+// <AI 폴더>/state/events.log 에 쓰고, work-loop 칸의 Monitor 는 agent-events tail 로 그 파일만 따라간다.
+
+/**
+ * 연결마다 다른 알림을 내는 가짜 알림 서버 — rounds[i] 는 i 번째 연결에서 낼 알림 목록이고 그 뒤 연결을 끊는다.
+ * rounds 를 다 쓴 뒤의 연결은 빈 채로 열어 둔다. /notifications/unread-count 는 200.
+ */
+async function fakeEventRounds(rounds) {
+  let streams = 0;
+  const server = createServer((req, res) => {
+    if (req.url.endsWith('/events')) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(':connected\n\n');
+      const round = rounds[streams++];
+      if (!round) return;
+      for (const [name, data] of round) res.write(`event:${name}\ndata:${JSON.stringify(data)}\n\n`);
+      res.end();
+      return;
+    }
+    res.writeHead(200);
+    res.end('{"count":0}');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const close = () => {
+    server.closeAllConnections();
+    server.close();
+  };
+  return { url: `http://127.0.0.1:${server.address().port}/api/v1`, close };
+}
+
+const mention = (issueKey, type = 'ISSUE_CHAT_MENTION') => ['notify.created', { type, issueId: 1, issueKey, projectKey: issueKey.split('-')[0] }];
+
+test('gwEvents_all_emitsEveryProject', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventRounds([[mention('HR-3', 'ASSIGNED'), ['notify.created', { type: 'REMINDER' }], mention('WP-12')]]);
+  try {
+    const r = await runEvents(['--all'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url }, 2500);
+    assert.equal(r.out, 'wake HR-3 ASSIGNED\nwake WP-12 ISSUE_CHAT_MENTION\n');
+    assert.equal(r.orphans, '');
+  } finally {
+    srv.close();
+  }
+});
+
+test('gwEvents_lockFile_secondInstanceExitsSilently', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventRounds([]);
+  const lock = join(home, 'agents', 'ai-dev', 'state', 'events.pid');
+  // claude 조상이 없는(세션 키 없음) 실행 — 「하나만」은 잠금 파일로만 지킨다.
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GW_START_PID: '1' };
+  try {
+    const first = runEvents(['--all', '--lock', lock], env, 3000, { inPs: true });
+    await new Promise((r) => setTimeout(r, 800));
+    assert.ok(existsSync(lock));
+    const second = await runEvents(['--all', '--lock', lock], env, 2000);
+    assert.equal(second.code, 0);
+    assert.equal(second.out, '');
+    assert.equal((await first).code, null); // 첫 것은 끝까지 돌다가 테스트가 끝냈다.
+    assert.equal(existsSync(lock), false); // 끝나면 자기 잠금을 지운다.
+  } finally {
+    srv.close();
+  }
+});
+
+/**
+ * agent-events 를 띄우고 during(지금까지의 출력을 읽는 함수)을 마친 뒤, done(출력)이 참이 될 때까지(늦어도 deadlineMs) 기다렸다가
+ * SIGTERM 으로 끝낸다 — 고정 시간 대신 조건을 기다려 부하가 걸려도 결과가 같게 한다. 남은 자식이 없는지도 본다.
+ */
+async function runAgentEvents(args, env, { during, done, deadlineMs = 30000 }) {
+  const p = spawn(join(scripts, 'agent-events'), args, {
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, FAKE_PS_TABLE: table, GW_START_PID: '500', ...env },
+  });
+  let out = '';
+  p.stdout.on('data', (d) => (out += d));
+  const exited = new Promise((r) => p.on('exit', (code) => r(code)));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (during) await during(() => out);
+  for (const end = Date.now() + deadlineMs; Date.now() < end && !done(out); ) await sleep(100);
+  p.kill('SIGTERM');
+  await exited;
+  await sleep(200);
+  const orphans = spawnSync('pgrep', ['-P', String(p.pid)], { encoding: 'utf8' }).stdout.trim();
+  return { out, orphans };
+}
+
+const eventWindows = (tmux) => panes(tmux, 'kodi').filter((p) => p.win === 'events');
+
+tmuxTest('agentEvents_ensure_startsOnceUnderConcurrentCalls', async (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const d = aiDir();
+  const outs = await Promise.all(Array.from({ length: 3 }, () => runAsync('agent-events', ['ensure', d], { GW_TMUX: wrapper })));
+  assert.deepEqual(outs.map((o) => o.stdout).sort(), ['exists\n', 'exists\n', 'started\n']);
+  assert.equal(eventWindows(tmux).length, 1);
+  assert.equal(eventWindows(tmux)[0].dead, false);
+});
+
+tmuxTest('agentEvents_ensure_revivesDeadWindow', async (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const d = aiDir();
+  assert.equal(run('agent-events', ['ensure', d], { env: { GW_TMUX: wrapper } }).stdout, 'started\n');
+  const [before] = eventWindows(tmux);
+  process.kill(Number(before.pid), 'SIGTERM');
+  await until(() => eventWindows(tmux)[0]?.dead);
+  assert.equal(run('agent-events', ['ensure', d], { env: { GW_TMUX: wrapper } }).stdout, 'revived\n');
+  const [after] = eventWindows(tmux);
+  assert.equal(after.id, before.id);
+  assert.equal(after.dead, false);
+  assert.equal(eventWindows(tmux).length, 1);
+  // 쉬는 중(키가 없어 5분 대기)이어도 창이 닫히면(SIGHUP) 바로 끝난다 — 남아 있다가 감시를 하나 더 띄우지 않게.
+  tmux('kill-server');
+  const alive = () => spawnSync('pgrep', ['-f', `agent-events run ${d}`]).status === 0;
+  await until(() => !alive());
+});
+
+test('agentEvents_ensure_noTmux', () => {
+  const r = run('agent-events', ['ensure', aiDir()], { env: { GW_TMUX: '/nonexistent/tmux' } });
+  assert.deepEqual([r.status, r.stdout], [3, 'no-tmux\n']);
+  assert.equal(run('agent-events', ['ensure', join(home, 'nope')]).status, 2);
+});
+
+test('agentEvents_run_appendsWakeLinesAndReconnects', async () => {
+  const d = aiDir();
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  const srv = await fakeEventRounds([[mention('WP-1'), mention('WD-2')], [mention('WP-3')]]);
+  try {
+    // 끊긴 뒤 5초 쉬고 다시 붙는다 — 두 번 끊기므로 10초 남짓. 기대한 줄이 다 쌓일 때까지 기다린다.
+    const logFile = join(d, 'state', 'events.log');
+    const expected = 'wake WP-1 ISSUE_CHAT_MENTION\nwake WD-2 ISSUE_CHAT_MENTION\nwake - reconnect\nwake WP-3 ISSUE_CHAT_MENTION\n';
+    const read = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
+    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url }, { done: () => read().startsWith(expected) });
+    assert.equal(r.out, '');
+    assert.equal(r.orphans, '');
+    const log = read();
+    assert.ok(log.startsWith(expected), log);
+    assert.ok(!log.includes('ak_FAKE_KODI'));
+  } finally {
+    srv.close();
+  }
+});
+
+test('agentEvents_run_marksReconnectWhenWatcherRestarts', async () => {
+  const d = aiDir();
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  const srv = await fakeEventRounds([]); // 연결을 열어 둔 채 아무 알림도 보내지 않는다
+  const logFile = join(d, 'state', 'events.log');
+  const read = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
+  // 감시는 실제 경로(/private/var/… — 맥의 임시 폴더는 링크다)로 잠금 파일을 받으므로 폴더 이름 끝부분으로 찾는다.
+  const watcher = () => spawnSync('pgrep', ['-f', `gw-events --all --lock .*${basename(dirname(d))}/kodi/state/events.pid`], { encoding: 'utf8' }).stdout.trim();
+  try {
+    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url }, {
+      // 붙어 있던 gw-events 가 5초 넘게 돈 뒤 죽으면, 다시 띄우면서 칸들이 놓친 알림을 확인하도록 「다시 붙음」을 남긴다.
+      during: async () => {
+        await until(() => watcher() !== '');
+        await new Promise((res) => setTimeout(res, 5500));
+        for (const pid of watcher().split('\n')) process.kill(Number(pid), 'SIGTERM');
+      },
+      done: () => read().includes('wake - reconnect'),
+    });
+    assert.equal(read(), 'wake - reconnect\n');
+    assert.equal(r.orphans, '');
+  } finally {
+    srv.close();
+  }
+});
+
+test('agentEvents_tail_filtersByProject', async () => {
+  const d = aiDir();
+  const log = join(d, 'state', 'events.log');
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(log, 'wake WD-9 OLD\n'); // tail 을 걸기 전 줄은 내지 않는다.
+  const r = await runAgentEvents(['tail', d, 'wd'], { GW_TMUX: '/nonexistent/tmux' }, {
+    // tail 이 파일을 열었는지 알 수 없으니 표시 줄이 나올 때까지 덧붙인 뒤 진짜 줄을 쓴다.
+    during: async (out) => {
+      for (let i = 0; i < 100 && !out().includes('READY'); i++) {
+        appendFileSync(log, 'wake WD-0 READY\n');
+        await new Promise((res) => setTimeout(res, 100));
+      }
+      appendFileSync(log, 'wake WD-1 ASSIGNED\nwake WP-2 COMMENTED\nwake WDX-3 COMMENTED\ngw-events: 인증 실패(HTTP 401)\nwake - reconnect\n');
+    },
+    done: (out) => out.includes('reconnect'),
+  });
+  assert.equal(r.out.replaceAll('wake WD-0 READY\n', ''), 'wake WD-1 ASSIGNED\nwake - reconnect\n');
+  assert.ok(!r.out.includes('OLD'));
+  assert.equal(r.orphans, '');
+});
+
+tmuxTest('agentProject_start_ensuresEventsWindow', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const d = aiDir();
+  mkdirSync(join(d, 'repos', 'WP'), { recursive: true });
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\nexec sleep 60\n');
+  chmodSync(join(bin, 'claude'), 0o755);
+  // 결과 줄은 그대로 agent-window 의 것이다(감시 창 결과는 내지 않는다).
+  assert.equal(run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper } }).stdout, 'started kodi\n');
+  assert.equal(eventWindows(tmux).length, 1);
+  assert.equal(run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper } }).stdout, 'exists kodi\n');
+  assert.equal(eventWindows(tmux).length, 1);
+});
+
+tmuxTest('agentWindow_keys_excludesEventsWindow', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const d = aiDir();
+  agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']);
+  assert.equal(run('agent-events', ['ensure', d], { env: { GW_TMUX: wrapper } }).stdout, 'started\n');
+  const keys = run('agent-window', ['--keys', 'kodi'], { env: { GW_TMUX: wrapper } });
+  assert.deepEqual([keys.status, keys.stdout], [0, 'WP\n']);
+  // 엔트리포인트 감독이 한 번에 읽는 칸 상태 — 키와 죽음 여부, 감시 창은 뺀다.
+  assert.equal(run('agent-window', ['--states', 'kodi'], { env: { GW_TMUX: wrapper } }).stdout, 'WP 0\n');
+  assert.equal(run('agent-window', ['--paths', 'kodi'], { env: { GW_TMUX: wrapper } }).stdout.split('\n').filter(Boolean).length, 1);
+  assert.deepEqual(run('agent-home', [d, 'missing', 'WP'], { env: { GW_TMUX: wrapper } }).stdout, '');
+  // --restart 는 프로젝트 칸만 다시 띄우고 감시 창은 건드리지 않는다.
+  const [before] = eventWindows(tmux);
+  assert.equal(agentWindow(wrapper, ['--restart', 'kodi', 'WP', home, 'sleep', '61']).stdout, 'restarted kodi\n');
+  const [after] = eventWindows(tmux);
+  assert.deepEqual([after.id, after.pid, after.dead], [before.id, before.pid, false]);
 });

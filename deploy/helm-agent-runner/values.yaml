@@ -1,0 +1,70 @@
+# agent-runner 차트 값 — 실행 위치(네임스페이스 하나)마다 한 번 설치한다. 설치 순서는 README.md.
+
+works:
+  # Works origin(필수) — 예 https://genia-works.iacloud.kr. runner API 는 그 아래 /api/v1/agent-runtime/runner.
+  url: ""
+
+# runner 토큰(rt_…) — 관리자 화면 「AI 실행 위치」에서 발급. 명령줄에 쓰지 말고 --set-file runnerToken=<파일> 로 넘기거나,
+# 미리 만든 Secret(키 token)을 existingSecret 으로 가리킨다. 둘 다 없으면 렌더가 실패한다.
+runnerToken: ""
+existingSecret: ""
+
+image:
+  repository: docker.io/iacloudops/genia-works-agent-runner
+  # 필수 — 릴리스 버전 태그(예 0.9.38).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# 이미지를 받을 pull secret(이 네임스페이스에 미리 만든 것) — runner 와 runner 가 띄우는 AI Pod 모두에 쓴다.
+# runner·작업 공간 이미지는 비공개 Docker Hub(iacloudops)에 있어 기본으로 dockerhub-pull 을 쓴다. 공개 레지스트리면 [] 로 둔다.
+imagePullSecrets:
+  - name: dockerhub-pull
+
+# 템플릿이 시켜도 이 접두어 밖의 이미지는 띄우지 않는다. dind 이미지는 "docker:" 로 허용.
+allowedImagePrefixes:
+  - docker.io/iacloudops/genia-works-agent-
+  - "docker:"
+
+# 이 위치의 모든 AI Pod 에 똑같이 들어가는 값
+agent:
+  nodeSelector: {}
+  tolerations: []
+  hostAliases: []
+  # 작업 디스크 StorageClass — 비우면 클러스터 기본.
+  storageClass: ""
+
+github:
+  # 이 위치에 미리 만든 GitHub 토큰 Secret 이름(필수, 키 token). Pod 가 직접 마운트한다.
+  existingSecret: ""
+
+dind:
+  # dind 의 /var/lib/docker emptyDir 상한
+  storageLimit: 20Gi
+  # dind 사이드카 자원(AI Pod 마다) — 아래 quota 가 requests.cpu/memory 를 걸기 때문에 requests 가 꼭 있어야 한다
+  # (없으면 모든 AI Pod 가 쿼터 승인에서 거절된다). 기본은 PoC 실측값. 수량은 따옴표로 감싼다.
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "4"
+      memory: "6Gi"
+
+terminationGraceSeconds: 60
+
+# 네임스페이스 자원 상한 — AI 가 늘어나 노드를 다 먹지 않게.
+# runner 는 AI Pod 의 모든 컨테이너에 requests 를 둔다: agent 는 템플릿 값(없으면 cpu 1·memory 2Gi), dind 는 dind.resources,
+# 그 밖의 사이드카는 cpu 100m·memory 128Mi. AI 한 명 기본 템플릿(agent 4/8Gi + dind 500m/1Gi)이면 아래 값으로 3명까지 뜬다.
+quota:
+  enabled: true
+  hard:
+    requests.cpu: "16"
+    requests.memory: 64Gi
+    persistentvolumeclaims: "10"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

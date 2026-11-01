@@ -2,7 +2,7 @@
 // git·파일시스템·네트워크에 접근하지 않는다: 호출자(CLI)가 diff 텍스트·파일 목록·커밋 제목·매니페스트를 모아 넘기고,
 // 여기서는 같은 입력이면 항상 같은 결과를 내서 합성 데이터만으로 모든 규칙을 테스트한다.
 import { posix } from 'node:path';
-import { cmp, isPlainObject } from './catalog.mjs';
+import { cmp, deploysWithHelm, isPlainObject } from './catalog.mjs';
 
 const VAR = '[A-Z][A-Z0-9_]*';
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -286,7 +286,7 @@ function hasWorkload(helmText, id) {
 export function newApps({ catalog, baseManifest, helmText }) {
   if (baseManifest === null) return null;
   const helmCode = stripHelmComments(helmText); // 주석 처리된 워크로드는 없는 것
-  return catalog.images.filter(({ id }) => baseManifest.images?.[id] === undefined).map(({ id }) => ({ id, helmMissing: !hasWorkload(helmCode, id) }));
+  return catalog.images.filter((image) => deploysWithHelm(image) && baseManifest.images?.[image.id] === undefined).map(({ id }) => ({ id, helmMissing: !hasWorkload(helmCode, id) }));
 }
 
 const NONE = '없음';

@@ -127,6 +127,11 @@ public class AgentRuntimeSettingService {
       // 자신을 세어 막지 않는다. 옛 위치 자리는 비워질 뿐이라 보지 않는다. 꺼져 있으면 위치가 있는지만 본다.
       if (row.desired() == Desired.RUN) {
         newEffective = claimSeat(req.locationId(), oldEffective).id();
+        // 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — managed 키도 끄기처럼 정리 유예로 줄인다. 그래야 새 위치의 첫
+        // 키 발급이 교체로 보이지 않는다(RunnerDesiredStateService#issueAgentKey).
+        if (!Objects.equals(newEffective, oldEffective)) {
+          agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
+        }
       } else if (req.locationId() != null) {
         newEffective = requireLocation(req.locationId()).id();
       } else {

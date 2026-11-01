@@ -120,6 +120,32 @@
       "paths": [
         "db/"
       ]
+    },
+    {
+      "id": "agent-runner",
+      "repository": "docker.io/iacloudops/genia-works-agent-runner",
+      "context": ".",
+      "dockerfile": "apps/workplace-agent-runner/Dockerfile",
+      "helm": false,
+      "paths": [
+        "apps/workplace-agent-runner/",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        ".npmrc",
+        "patches/",
+        ".dockerignore"
+      ]
+    },
+    {
+      "id": "agent-claude-code",
+      "repository": "docker.io/iacloudops/genia-works-agent-claude-code",
+      "context": "apps/workplace-agent-claude-code",
+      "dockerfile": "apps/workplace-agent-claude-code/Dockerfile",
+      "helm": false,
+      "paths": [
+        "apps/workplace-agent-claude-code/"
+      ]
     }
   ]
 }

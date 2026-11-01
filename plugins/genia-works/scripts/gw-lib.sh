@@ -159,6 +159,36 @@ gw_dir_lock() {
   trap 'rm -rf "$_gw_lock_dir"' EXIT
 }
 
+# tmux 세션·창 이름 — tmux 는 이름의 . 과 : 를 _ 로 바꿔 저장한다. 미리 바꿔 두어야 다시 부를 때 세션·칸 찾기가 맞는다.
+# agent-window(칸)와 agent-events(감시 창)가 같은 세션을 찾고 같은 잠금(gw_session_lock)을 쓰도록 한곳에 둔다(WP-1252).
+gw_tmux_name() { printf '%s' "$1" | tr '.:' '__'; }
+
+# AI 의 tmux 세션 잠금 — 사용: gw_session_lock <세션(gw_tmux_name 으로 바꾼 이름)>. 잡으면 0, 10초(0.1초 × 100) 안에 못 잡으면 1.
+# 같은 세션을 동시에 다루면(세션이 없을 때 둘이 함께 new-session, 칸 여럿이 함께 감시 창을 띄우기 등) 칸·창이 겹친다 —
+# agent-window 와 agent-events 가 반드시 같은 경로로 잠가야 하므로(한쪽만 바뀌면 잠금이 갈라진다) 경로는 여기서만 정한다.
+gw_session_lock() {
+  gw_dir_lock "${TMPDIR:-/tmp}/gw-agent-window-$(id -u)-$1.lock" 100
+}
+
+# 새 tmux 칸·창에 넘길 환경 — 새 칸은 이 셸이 아니라 이미 떠 있는 tmux 서버의 환경을 물려받아서, 서버를 다른 셸에서 띄웠으면
+# claude·gh 가 PATH 에 없거나 운영이 아닌 서버 주소·워크스페이스가 빠질 수 있다 — 이 셸의 값을 넘긴다(없는 값은 빼고).
+# agent-window(work-loop 칸)와 agent-events(감시 창)가 같은 목록을 쓰도록 한곳에 둔다(따로 두었더니 워크스페이스가 한쪽에만 있었다).
+# GENIA_AGENT_GENERATION 같은 Pod 고정 값은 엔트리포인트가 띄운 tmux 서버의 환경으로 칸까지 가므로 넣지 않는다.
+# 펼치지 않은 식이다 — 사용: eval "set -- env $GW_TMUX_ENV \"\$@\"" (eval 이 따옴표 안에서 펼쳐 값의 공백·따옴표가 깨지지 않는다).
+# shellcheck disable=SC2016,SC2034 # 일부러 펼치지 않는다(부르는 쪽의 eval 이 그때의 값으로 펼친다) — source 하는 스크립트가 쓴다.
+GW_TMUX_ENV='"PATH=$PATH" ${GENIA_WORKS_API_URL:+"GENIA_WORKS_API_URL=$GENIA_WORKS_API_URL"} ${GENIA_WORKS_TENANT:+"GENIA_WORKS_TENANT=$GENIA_WORKS_TENANT"}'
+
+# 프로젝트 키 목록 정규화 — 「wp, hr」 같은 인자를 공백 없는 대문자 「WP,HR」 로(서버 페이로드의 키와 맞춘다). gw-events·agent-events tail 공용.
+gw_project_list() {
+  printf '%s' "$1" | tr -d ' ' | tr '[:lower:]' '[:upper:]'
+}
+
+# 이슈 키가 프로젝트 목록(gw_project_list 의 「WP,HR」)의 것인지 — 프로젝트는 이슈 키의 앞부분(WP-12 → WP). 줄마다 부르므로 프로세스를 띄우지 않는다.
+gw_issue_in_projects() {
+  case ",$2," in *",${1%-*},"*) return 0 ;; esac
+  return 1
+}
+
 # 이 세션의 신원 이름 — 세션 선택(gw-session) > GENIA_WORKS_AS. 없거나 me 면 아무것도 내지 않는다(내 토큰).
 # 헤더 스크립트와 알림 구독(gw-events)이 같은 신원을 쓰도록 한곳에 둔다(WP-720). 부르는 스크립트와 같은 폴더의 gw-session-key 를 쓴다.
 gw_identity() {

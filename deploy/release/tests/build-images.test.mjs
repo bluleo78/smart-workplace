@@ -179,7 +179,7 @@ test('조상 태그 없음 + 저장소에 다른 v* 태그 있음 → GIT_DEPTH 
 
   const ok = cli(['--allow-no-base'], { exec: mk() });
   const manifest = await ok.run();
-  assert.equal(buildCalls(ok.exec).length, 9);
+  assert.equal(buildCalls(ok.exec).length, 11);
   assert.equal(manifest.baseVersion, null);
   assert.deepEqual(manifest.images.api.reasons, ['no-base']);
   ok.cleanup();
@@ -194,7 +194,7 @@ test('자기 태그(v0.9.0)만 있는 첫 릴리스 → --allow-no-base 없이�
 
   const ok = cli(['--allow-no-base'], { exec: mk() });
   const manifest = await ok.run();
-  assert.equal(buildCalls(ok.exec).length, 9);
+  assert.equal(buildCalls(ok.exec).length, 11);
   assert.equal(manifest.baseVersion, null);
   ok.cleanup();
 });
@@ -203,14 +203,14 @@ test('dry-run 은 태그가 저장소에 전혀 없어도(태그 만들기 전 �
   const c = cli(['--dry-run'], { exec: makeExec({ merged: [], allTags: [] }) });
   const manifest = await c.run();
   assert.equal(manifest.baseVersion, null);
-  assert.equal(Object.values(manifest.images).filter((i) => i.action === 'build').length, 9);
+  assert.equal(Object.values(manifest.images).filter((i) => i.action === 'build').length, 11);
   c.cleanup();
 });
 
 test('기준 태그는 있는데 매니페스트가 없어도 --allow-no-base 면 전부 build(no-base), 기준 버전은 null', async () => {
   const c = cli(['--allow-no-base']);
   const manifest = await c.run();
-  assert.equal(buildCalls(c.exec).length, 9);
+  assert.equal(buildCalls(c.exec).length, 11);
   assert.equal(manifest.baseVersion, null);
   c.cleanup();
 });
@@ -238,7 +238,7 @@ test('dry-run: 기준 매니페스트를 못 받으면(토큰 없음) 경고하�
   const c = cli(['--dry-run'], { downloadFails: true });
   const manifest = await c.run();
   assert.equal(manifest.baseVersion, null);
-  assert.equal(Object.values(manifest.images).filter((i) => i.action === 'build').length, 9);
+  assert.equal(Object.values(manifest.images).filter((i) => i.action === 'build').length, 11);
   assert.ok(c.logs.some((l) => l.includes('기준 없이 미리 본다')));
   assert.equal(mutatingDocker(c.exec).length, 0, 'dry-run 은 실제 docker 를 부르지 않는다');
   c.cleanup();

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agent-runner
+description: Gen:iA Works AI 실행 위치(네임스페이스 하나)마다 설치하는 agent-runner — 원하는 상태에 맞춰 AI Pod 를 띄우고 정리한다 (WP-1251)
+type: application
+# 차트 자체의 버전. runner 이미지 태그는 values image.tag 로 넘긴다(릴리스 버전과 같게).
+version: 0.1.0

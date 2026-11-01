@@ -39,6 +39,9 @@ export function validateCatalog(catalog) {
     if (!Array.isArray(image.paths) || image.paths.length === 0 || image.paths.some((p) => typeof p !== 'string' || p === '')) {
       throw new Error(`${id}: paths 는 비어 있지 않은 문자열 배열이어야 한다`);
     }
+    // helm: false — 운영 차트(deploy/helm)로 반영하지 않는 이미지(실행 위치마다 따로 설치하는 runner·Pod 가 쓰는 작업 공간, WP-1245).
+    // 빌드·태그 승계는 같게 하고 반영(helm 값·digest 확인)·새 앱 점검에서만 뺀다.
+    if (image.helm !== undefined && typeof image.helm !== 'boolean') throw new Error(`${id}: helm 은 true/false 여야 한다`);
     if (image.buildArgs !== undefined) {
       const args = image.buildArgs;
       if (!isPlainObject(args) || Object.values(args).some((v) => typeof v !== 'string')) {
@@ -52,6 +55,9 @@ export function validateCatalog(catalog) {
   }
   return catalog;
 }
+
+/** 운영 차트로 반영하는 이미지인가 — 카탈로그 항목·매니페스트 항목 모두 `helm: false` 가 아니면 반영한다. */
+export const deploysWithHelm = (image) => image?.helm !== false;
 
 /** 저장소의 카탈로그 파일을 읽어 검증한 뒤 돌려준다. */
 export function loadCatalog(repoRoot) {

@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * AI 내부 실행 설정(WP-1245) — {@code workplace.agent-runtime.*}.
  *
  * @param allowedImagePrefixes 실행 템플릿이 쓸 수 있는 컨테이너 이미지 접두사. 템플릿 YAML 이 엉뚱한 레지스트리의 이미지를 가리켜 특권 컨테이너로
- *     뜨는 일을 시작 때 막는다. 비어 있으면 기본값(자체 레지스트리 + 도커 공식 dind)을 쓴다.
+ *     뜨는 일을 시작 때 막는다. 비어 있으면 기본값(릴리스가 빌드하는 작업 공간 이미지 + 도커 공식 dind)을 쓴다.
  * @param mcpUrl runner 가 띄운 AI 가 붙을 MCP 주소(WP-1249) — 실행 위치(다른 클러스터일 수 있음)에서 닿는 주소여야 한다. desired
  *     응답에 실어 runner 가 Pod 환경으로 넘긴다. 비어 있으면 로컬 기본값.
  * @param apiUrl runner 가 띄운 AI 가 부를 REST 주소(WP-1249) — {@code /api/v1} 까지 포함한다(플러그인의 {@code
@@ -19,7 +19,7 @@ public record AgentRuntimeProperties(
 
   /** 설정이 없을 때의 기본 허용 접두사. */
   public static final List<String> DEFAULT_ALLOWED_IMAGE_PREFIXES =
-      List.of("ghcr.io/bluleo78/", "docker:");
+      List.of("docker.io/iacloudops/genia-works-agent-", "docker:");
 
   /** 설정이 없을 때의 MCP 주소 — 로컬 workplace-mcp(6090). */
   public static final String DEFAULT_MCP_URL = "http://localhost:6090/mcp";

@@ -18,7 +18,7 @@ test('imageValues: 매니페스트의 repository·digest 만 images 로, version
   const v = imageValues(m);
   assert.deepEqual(Object.keys(v), ['images', 'release']);
   assert.deepEqual(v.release, { version: '0.8.0', commit: '1'.repeat(40) });
-  assert.deepEqual(Object.keys(v.images).sort(), Object.keys(m.images).sort());
+  assert.deepEqual(Object.keys(v.images).sort(), Object.keys(m.images).filter((id) => m.images[id].helm !== false).sort());
   assert.deepEqual(v.images.api, { repository: m.images.api.repository, digest: m.images.api.digest });
   assert.deepEqual(Object.keys(v.images.web).sort(), ['digest', 'repository']); // action·reasons·builtVersion 등은 새지 않는다
 });
@@ -153,6 +153,14 @@ test('podDigests: items 가 없거나 containerStatuses 가 없어도 죽지 않
   assert.equal(podDigests({ items: [{}, { status: {} }, null] }).size, 0);
 });
 
+test('imageValues·checkDigests: helm: false 이미지(실행 위치용)는 helm 값에 넣지 않고 운영 파드도 찾지 않는다', () => {
+  const m = baseManifest();
+  assert.equal(m.images['agent-runner'].helm, false);
+  assert.equal('agent-runner' in imageValues(m).images, false);
+  assert.equal('api' in imageValues(m).images, true);
+  assert.equal(checkDigests({ manifest: m, podsByApp: new Map() }).some((r) => r.id.startsWith('agent-')), false);
+});
+
 // ---------- checkDigests ----------
 
 /** 모든 앱이 매니페스트 digest 로 떠 있는 파드 응답. */
@@ -167,7 +175,7 @@ function healthyPods(manifest) {
 test('checkDigests: 전부 일치하면 모두 ok (db 의 컨테이너 이름은 postgres)', () => {
   const m = baseManifest();
   const r = checkDigests({ manifest: m, podsByApp: healthyPods(m) });
-  assert.equal(r.length, Object.keys(m.images).length);
+  assert.equal(r.length, Object.values(m.images).filter((i) => i.helm !== false).length);
   assert.ok(r.every((x) => x.ok));
   const db = r.find((x) => x.id === 'db');
   assert.deepEqual(db, { id: 'db', ok: true, expected: m.images.db.digest, actual: [m.images.db.digest] });

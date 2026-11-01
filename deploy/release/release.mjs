@@ -29,9 +29,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { main as checklistMain } from './checklist.mjs';
 import { SHA_RE, assertVersion, defaultExec, validateBaseManifest } from './lib/build.mjs';
-import { isPlainObject, loadCatalog } from './lib/catalog.mjs';
+import { deploysWithHelm, isPlainObject, loadCatalog } from './lib/catalog.mjs';
 import { isMainModule, tolerate, withTempDir } from './lib/cli.mjs';
-import { checkDigests, currentRelease, hasWarnings, imageValues, parseVersionResponse, renderStatus, revisionModel, rollbackPlan, runningDigests } from './lib/deploy.mjs';
+import { checkDigests, currentRelease, hasWarnings, helmImages, imageValues, parseVersionResponse, renderStatus, revisionModel, rollbackPlan, runningDigests } from './lib/deploy.mjs';
 import { downloadManifest } from './lib/manifest-store.mjs';
 import { compareVersions, parseVersion } from './lib/semver.mjs';
 
@@ -493,7 +493,7 @@ async function status({ values, ctx }) {
     }, null);
   }
 
-  const ids = manifest !== null ? Object.keys(manifest.images) : loadCatalog(repoRoot).images.map((i) => i.id);
+  const ids = manifest !== null ? helmImages(manifest).map(([id]) => id) : loadCatalog(repoRoot).images.filter(deploysWithHelm).map((i) => i.id);
   const podsByApp = tools.podsByApp();
   const matches = manifest === null ? null : new Map(checkDigests({ manifest, podsByApp }).map((r) => [r.id, r.ok]));
   const rows = ids.map((id) => ({

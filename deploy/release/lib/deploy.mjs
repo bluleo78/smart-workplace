@@ -1,7 +1,7 @@
 // 릴리스 반영·롤백·상태 확인의 순수 함수 (WP-443) — helm·kubectl·네트워크에 접근하지 않는다.
 // 호출자(CLI)가 매니페스트·`helm get values/history` 결과·파드 JSON·HTTP 응답 본문을 모아 넘기고, 여기서는 같은 입력이면 항상 같은 결과를 낸다.
 import { DIGEST_RE } from './build.mjs';
-import { isPlainObject } from './catalog.mjs';
+import { deploysWithHelm, isPlainObject } from './catalog.mjs';
 
 /**
  * imageID 끝의 digest — `repo@sha256:…`, `docker-pullable://repo@sha256:…`, 접두 없는 `sha256:…`, `docker://sha256:…` 모두 `sha256:<64hex>` 로 끝난다.
@@ -12,13 +12,18 @@ const IMAGE_ID_DIGEST = new RegExp(`(?:^|[@/])(${DIGEST_RE.source.slice(1, -1)})
 const containerName = (id) => (id === 'db' ? 'postgres' : id);
 const nonEmptyString = (v) => typeof v === 'string' && v !== '';
 
+/** 매니페스트에서 운영 차트로 반영하는 이미지만 `[id, 항목]` 으로 — `helm: false`(실행 위치마다 따로 설치) 는 운영 파드가 없다. */
+export function helmImages(manifest) {
+  return Object.entries(manifest.images).filter(([, img]) => deploysWithHelm(img));
+}
+
 /**
  * 매니페스트 → `helm upgrade -f` 로 넘길 값(JSON 으로 써도 helm 이 읽는다).
  * images 는 repository·digest 만 — action·reasons 같은 빌드 메타는 차트가 쓰지 않는다. release 는 「지금 운영 릴리스」 표식(`helm get values` 로 되읽는다).
  */
 export function imageValues(manifest) {
   const images = {};
-  for (const [id, img] of Object.entries(manifest.images)) images[id] = { repository: img.repository, digest: img.digest };
+  for (const [id, img] of helmImages(manifest)) images[id] = { repository: img.repository, digest: img.digest };
   return { images, release: { version: manifest.version, commit: manifest.commit } };
 }
 
@@ -94,7 +99,7 @@ export function podDigests(podsJson) {
  * 준비된 파드가 없으면(빈 집합) 일치로 보지 않고, 옛·새 파드가 섞여 있으면(롤링 중) 불일치다. actual 은 정렬한 digest 목록.
  */
 export function checkDigests({ manifest, podsByApp }) {
-  return Object.entries(manifest.images).map(([id, img]) => {
+  return helmImages(manifest).map(([id, img]) => {
     const actual = runningDigests(podsByApp, id);
     return { id, ok: actual.length > 0 && actual.every((d) => d === img.digest), expected: img.digest, actual };
   });

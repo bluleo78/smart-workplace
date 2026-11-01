@@ -11,22 +11,32 @@
 #   legacy <세션>    — 예전 구성(프로젝트마다 창)이라 건드리지 않았다 — --restart 로 부르면 칸으로 옮기고 그 옛 창을 닫는다
 #   no-tmux          — tmux 가 없다(종료 코드 3)
 # agent-window --keys <tmux 세션> — 그 세션의 칸마다 한 줄: 키가 달린 칸은 프로젝트 키, 키 없는 칸은 창 이름(예전 구성의 프로젝트 창·home).
+#   알림 감시 창(events — agent-events)은 프로젝트 칸이 아니라 --keys·--paths 모두에서 뺀다.
 #   세션이 없으면 3. 칸을 어떻게 표시하는지는 이 스크립트만 안다 — agent-home(새 프로젝트 확인)·start-agent(남은 칸 찾기)가 이것으로 읽는다.
 # agent-window --paths <tmux 세션> — 칸마다 그 칸이 지금 있는 폴더 한 줄(agent-project locate 가 예전에 띄운 AI 의 홈을 찾는 데 쓴다). 세션이 없으면 3.
+# agent-window --states <tmux 세션> — 칸마다 「<--keys 와 같은 키> <죽었으면 1, 돌면 0>」 한 줄. 엔트리포인트 감독이 tmux 를 한 번만 읽고
+#   죽었거나 빠진 칸만 골라 띄우는 데 쓴다(WP-1252). 세션이 없으면 3.
 # 명령은 셸을 거치지 않고 인자 그대로 넘긴다(tmux 3.0+) — 대기열 라벨처럼 공백·한글이 든 인자도 따옴표 없이 그대로 간다.
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
 # GW_TMUX 는 테스트 전용 훅(격리한 tmux 서버) — 운영에서는 설정하지 않는다.
 tmux=${GW_TMUX:-tmux}
-# tmux 는 세션·창 이름의 . 과 : 를 _ 로 바꿔 저장한다 — 미리 바꿔 두어야 다시 부를 때 세션·칸 찾기가 맞는다.
-tmux_name() { printf '%s' "$1" | tr '.:' '__'; }
 
-if [ "${1:-}" = --keys ] || [ "${1:-}" = --paths ]; then
-  [ $# -eq 2 ] || { echo "사용: agent-window --keys|--paths <tmux 세션>" >&2; exit 2; }
-  if [ "$1" = --keys ]; then format='#{?@gw_key,#{@gw_key},#W}'; else format='#{pane_current_path}'; fi
-  "$tmux" list-panes -s -t "=$(tmux_name "$2")" -F "$format" 2>/dev/null || exit 3
+case "${1:-}" in --keys | --paths | --states)
+  [ $# -eq 2 ] || { echo "사용: agent-window --keys|--paths|--states <tmux 세션>" >&2; exit 2; }
+  keyfmt='#{?@gw_key,#{@gw_key},#W}'
+  case $1 in
+    --keys) format=$keyfmt ;;
+    --paths) format='#{pane_current_path}' ;;
+    *) format="$keyfmt #{pane_dead}" ;;
+  esac
+  # 알림 감시 창(events — agent-events 가 띄운다, WP-1252)은 프로젝트 칸이 아니라 뺀다 — start-agent 가 「연결이 지워졌습니다」로
+  # 잘못 알리거나 홈 찾기가 그 폴더를 보지 않게. 창 이름을 앞에 붙여 읽고 거른다(tmux 는 형식의 탭을 _ 로 바꿔 | 로 나눈다 — 프로젝트 창 이름에는 | 가 없다. tmux 실패는 그대로 3).
+  out=$("$tmux" list-panes -s -t "=$(gw_tmux_name "$2")" -F "#W|$format" 2>/dev/null) || exit 3
+  printf '%s\n' "$out" | awk -F '|' '$1 != "events" { sub(/^[^|]*[|]/, ""); print }'
   exit 0
-fi
+  ;;
+esac
 
 restart=0
 if [ "${1:-}" = --restart ]; then
@@ -37,8 +47,8 @@ if [ $# -lt 4 ]; then
   echo "사용: agent-window [--restart] <tmux 세션> <프로젝트 키> <작업 폴더> <명령> [인자…]" >&2
   exit 2
 fi
-session=$(tmux_name "$1")
-key=$(tmux_name "$2")
+session=$(gw_tmux_name "$1")
+key=$(gw_tmux_name "$2")
 dir=$3
 shift 3
 win=work
@@ -49,15 +59,14 @@ if ! command -v "$tmux" >/dev/null 2>&1; then
 fi
 
 # 같은 세션을 동시에 다루면(start-agent 와 돌고 있는 칸이 새 프로젝트를 함께 띄우는 등) 둘 다 칸을 못 찾고 둘 다 나눌 수 있다 —
-# 세션마다 잠그고 차례로 한다. 한 번은 1초도 안 걸리므로 10초까지 기다린다.
-if ! gw_dir_lock "${TMPDIR:-/tmp}/gw-agent-window-$(id -u)-$session.lock" 100; then
+# 세션마다 잠그고 차례로 한다(agent-events 와 같은 잠금). 한 번은 1초도 안 걸리므로 10초까지 기다린다.
+if ! gw_session_lock "$session"; then
   echo "agent-window: $session 세션을 다른 쪽이 다루고 있습니다" >&2
   exit 1
 fi
 
-# 새 칸은 이 셸이 아니라 이미 떠 있는 tmux 서버의 환경을 물려받는다 — 서버를 다른 셸에서 띄웠으면 claude·gh 가 PATH 에 없을 수 있어
-# 이 셸의 PATH 를 넘긴다(다시 띄울 때도 같다).
-set -- env "PATH=$PATH" "$@"
+# 새 칸은 이 셸이 아니라 이미 떠 있는 tmux 서버의 환경을 물려받는다 — 이 셸의 PATH·서버 주소·워크스페이스를 넘긴다(GW_TMUX_ENV, 다시 띄울 때도 같다).
+eval "set -- env $GW_TMUX_ENV \"\$@\""
 
 # 새로 만든 창의 설정 — 칸 위 테두리에 프로젝트 키, 명령이 끝난 칸은 닫지 않고 남겨(죽은 칸) 보이게 한다. 마우스는 이 세션에만 켠다.
 setup() {
