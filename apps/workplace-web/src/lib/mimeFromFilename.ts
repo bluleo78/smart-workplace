@@ -7,7 +7,7 @@ import { DOC_MIME, DOCX_MIME, HWP_MIME, HWPX_MIME, PPT_MIME, PPTX_MIME, XLS_MIME
  * 확장자(소문자) → 형식. 미리보기 렌더러가 있는 형식만 둔다.
  * - svg 는 넣지 않는다(보안): 범용 형식으로 온 임의 바이트를 SVG 로 바꿔 달면, blob URL 을 새 탭으로 열 때
  *   같은 출처에서 스크립트가 실행될 수 있다. SVG 는 서버가 형식을 명시한 경우에만 그린다.
- * - html·htm: 드라이브와 같은 SandboxedHtmlFrame(스크립트 차단)으로 그린다.
+ * - html·htm: 드라이브와 같은 HTML 미리보기(기본 스크립트 차단, 사용자가 「스크립트 실행」으로 허용 — WP-1260)로 그린다.
  */
 const EXT_MIME: Record<string, string> = {
   pdf: 'application/pdf',

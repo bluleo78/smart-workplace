@@ -26,7 +26,7 @@ export function SandboxedHtmlFrame({
   html: string
   title: string
   /**
-   * 스크립트 허용(WP-1242 노트 HTML 블록) — 기본 false 는 지금처럼 스크립트 차단(메일·업로드 미리보기). 호출부가 sandbox 문자열을
+   * 스크립트 허용(WP-1242 노트 HTML 블록, WP-1260 미리보기에서 사용자가 「스크립트 실행」을 누른 뒤) — 기본 false 는 스크립트 차단(메일·업로드 미리보기). 호출부가 sandbox 문자열을
    * 직접 고르지 못하고 이 플래그 하나만 준다. 켜도 allow-same-origin 은 주지 않는다 — 문서가 불투명 출처(origin "null")라
    * 스크립트가 앱 쿠키·localStorage·부모 DOM 에 닿지 못한다(둘을 함께 주면 스크립트가 sandbox 속성을 지워 격리를 풀 수 있다).
    * 다운로드(차트 「이미지로 저장」)·팝업(링크 — 브라우저가 사용자 동작 없는 팝업은 막는다)은 허용한다. 대화상자(allow-modals)는 주지 않는다 —
@@ -39,8 +39,10 @@ export function SandboxedHtmlFrame({
   const [frame, setFrame] = useState({ doc, generation: 0 })
   if (frame.doc !== doc) setFrame({ doc, generation: frame.generation + 1 })
   // 공용 구현부 — srcDoc iframe 직접 사용 금지 규칙(eslint.config.js)의 유일한 예외.
+  // key 에 스크립트 허용 여부도 넣는다(WP-1260) — 이미 그려진 iframe 의 sandbox 속성을 바꿔도 다음 이동 전까지 반영되지 않아,
+  // 미리보기의 「스크립트 실행」이 새 iframe 으로 다시 그려야 스크립트가 돈다.
   // eslint-disable-next-line no-restricted-syntax
-  return <iframe key={frame.generation} {...props} sandbox={allowScripts ? SCRIPT_SANDBOX : INERT_SANDBOX} srcDoc={doc} />
+  return <iframe key={`${frame.generation}-${allowScripts}`} {...props} sandbox={allowScripts ? SCRIPT_SANDBOX : INERT_SANDBOX} srcDoc={doc} />
 }
 
 /** 기본 격리 — 스크립트·폼·same-origin 차단, 링크 팝업만(WP-427). */

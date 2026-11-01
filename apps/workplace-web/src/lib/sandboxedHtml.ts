@@ -72,3 +72,13 @@ export function withSandboxHead(html: string): string {
   if (end < 0) return SANDBOX_HEAD + html
   return html.slice(0, end) + SANDBOX_HEAD + html.slice(end)
 }
+
+/**
+ * 스크립트가 든 HTML 인지(WP-1260) — 미리보기가 「스크립트 실행」 단추를 보일지 고른다.
+ * `<script>` 요소, 태그 안 인라인 이벤트(onclick= 등), `javascript:` 주소(링크로 넘기는 발표 자료)가 있으면 참. 스크립트가 없는 문서에 단추를 띄우지 않으려는 판정이라
+ * 엄밀한 파서가 아니다 — 본문 글자 「<script>」 처럼 드물게 거짓 양성이 나도 단추가 하나 더 보일 뿐 격리는 그대로다.
+ * 정규식은 백트래킹이 선형인 꼴만 쓴다(수 MB 문서·신뢰 불가 입력).
+ */
+export function htmlHasScripts(html: string): boolean {
+  return /<script[\s>/]/i.test(html) || /<[a-z][^<>]*\son[a-z]+\s*=/i.test(html) || /=\s*["']?\s*javascript:/i.test(html)
+}

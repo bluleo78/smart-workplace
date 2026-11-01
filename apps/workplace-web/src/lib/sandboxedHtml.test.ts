@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { LINK_TARGET_BASE, SANDBOX_HEAD, THIN_SCROLLBAR_STYLE, withSandboxHead } from './sandboxedHtml'
+import { htmlHasScripts, LINK_TARGET_BASE, SANDBOX_HEAD, THIN_SCROLLBAR_STYLE, withSandboxHead } from './sandboxedHtml'
 
 describe('withSandboxHead', () => {
   it('DOCTYPE 이 있으면 그 뒤에 주입해 표준 모드를 유지한다', () => {
@@ -67,5 +67,37 @@ describe('withSandboxHead', () => {
     expect(THIN_SCROLLBAR_STYLE).toContain('*{scrollbar-width:thin}')
     // 상속되는 색은 :root 에만 — 문서가 body 등에 준 scrollbar-color 상속을 끊지 않는다.
     expect(THIN_SCROLLBAR_STYLE).not.toMatch(/\*\{[^}]*scrollbar-color/)
+  })
+})
+
+// WP-1260: 미리보기 「스크립트 실행」 단추를 보일지 고르는 판정.
+describe('htmlHasScripts', () => {
+  it('script 요소가 있으면 참이다(대소문자·속성·자기 닫기 무관)', () => {
+    expect(htmlHasScripts('<html><body><script>fit()</script></body></html>')).toBe(true)
+    expect(htmlHasScripts('<SCRIPT type="module">x</SCRIPT>')).toBe(true)
+    expect(htmlHasScripts('<script/>')).toBe(true)
+  })
+
+  it('태그 안 인라인 이벤트가 있으면 참이다', () => {
+    expect(htmlHasScripts('<button onclick="go()">이동</button>')).toBe(true)
+    expect(htmlHasScripts('<body\nonload = "init()">')).toBe(true)
+  })
+
+  it('javascript: 주소가 있으면 참이다', () => {
+    expect(htmlHasScripts('<a href="javascript:next()">다음</a>')).toBe(true)
+    expect(htmlHasScripts("<a href = ' JavaScript:go()'>")).toBe(true)
+  })
+
+  it('스크립트가 없는 문서는 거짓이다', () => {
+    expect(htmlHasScripts('<!doctype html><html><body><h1>안녕 HTML</h1></body></html>')).toBe(false)
+    // 비슷한 이름(scripts 태그·noscript 아님)·본문 글자 on=·data-on 속성은 스크립트가 아니다.
+    expect(htmlHasScripts('<scripts>목록</scripts><p>switch on = 켜기</p><div data-onclick="x"></div>')).toBe(false)
+  })
+
+  it('수 MB 문서도 즉시 판정한다(백트래킹 회귀 가드)', () => {
+    const big = '<img src="data:image/png;base64,' + 'A'.repeat(3_000_000) + '">' + '<p>'.repeat(200_000)
+    const start = performance.now()
+    expect(htmlHasScripts(big)).toBe(false)
+    expect(performance.now() - start).toBeLessThan(1000)
   })
 })

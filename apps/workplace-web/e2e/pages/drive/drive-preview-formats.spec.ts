@@ -49,6 +49,52 @@ async function stubSpaces(page: Page) {
   )
 }
 
+// HTML 파일 하나를 목록·콘텐츠·부속 조회(썸네일·요약·참조된 곳)로 준다.
+async function stubHtmlFile(page: Page, name: string, body: string) {
+  const HTML_FILE = {
+    id: 110,
+    folderId: null,
+    fileId: 600,
+    name,
+    mimeType: 'text/html',
+    sizeBytes: body.length,
+    category: 'OTHER',
+    createdAt: '2026-07-01T00:00:00Z',
+  }
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ folders: [], files: [HTML_FILE] }),
+          })
+        : route.fallback(),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/thumbnail`,
+    (route) => route.fulfill({ status: 404, body: '' }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/content`,
+    (route) => route.fulfill({ status: 200, contentType: 'text/html', body }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/summary`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ summary: null, status: 'PENDING' }),
+      }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/backlinks`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+}
+
 // 최소 SVG — 브라우저가 크기를 갖도록 width/height 명시.
 const SVG_BODY = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="blue"/></svg>`
 
@@ -184,49 +230,8 @@ test.describe('드라이브 프리뷰 포맷', () => {
   // 과거엔 범용 text/ 분기로 흡수돼 <pre> 소스 덤프됐다 — 이제 격리 iframe 으로 렌더됨을 검증.
   test('HTML 파일은 sandbox iframe 으로 렌더된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
-    const HTML_FILE = {
-      id: 110,
-      folderId: null,
-      fileId: 600,
-      name: 'page.html',
-      mimeType: 'text/html',
-      sizeBytes: 120,
-      category: 'OTHER',
-      createdAt: '2026-07-01T00:00:00Z',
-    }
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ folders: [], files: [HTML_FILE] }),
-            })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/thumbnail`,
-      (route) => route.fulfill({ status: 404, body: '' }),
-    )
     const HTML_BODY = '<!doctype html><html><body><h1>안녕 HTML</h1></body></html>'
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/content`,
-      (route) => route.fulfill({ status: 200, contentType: 'text/html', body: HTML_BODY }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/summary`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ summary: null, status: 'PENDING' }),
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/backlinks`,
-      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    )
+    await stubHtmlFile(page, 'page.html', HTML_BODY)
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: 'page.html' }).click()
@@ -251,6 +256,26 @@ test.describe('드라이브 프리뷰 포맷', () => {
     expect(compatMode).toBe('CSS1Compat')
     // 회귀 가드: TEXT 소스 덤프(<pre>)가 아니어야 한다.
     await expect(body.locator('pre')).toHaveCount(0)
+  })
+
+  // WP-1260: 스크립트로 배치를 잡는 문서(발표 자료)는 「스크립트 실행」을 눌러야 스크립트가 돈다 — 실제 iframe 안에서 실행되는지 본다.
+  // 앞에 20만 자를 넘는 내용을 둬 미리보기가 문서를 자르지 않는 것(끝의 스크립트가 남는 것)도 함께 지킨다.
+  test('스크립트가 든 HTML 은 「스크립트 실행」을 누르면 iframe 안에서 스크립트가 돈다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+    const DECK = `<!doctype html><html><body><p id="state">차단됨</p><div hidden>${'가'.repeat(250_000)}</div><script>document.getElementById('state').textContent = '스크립트 실행됨:' + window.origin</script></body></html>`
+    await stubHtmlFile(page, 'deck.html', DECK)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'deck.html' }).click()
+
+    const body = page.getByTestId('preview-body')
+    const state = page.frameLocator('[data-testid="html-document"]').locator('#state')
+    // 기본은 차단 — 스크립트가 돌지 않아 처음 글자 그대로다.
+    await expect(state).toHaveText('차단됨')
+    await body.getByRole('button', { name: '스크립트 실행' }).click()
+    // 허용하면 스크립트가 돈다. 출처는 불투명(null)이라 앱 쿠키·저장소에 닿지 못한다.
+    await expect(state).toHaveText('스크립트 실행됨:null')
+    await expect(body.getByTestId('html-script-notice')).toHaveCount(0)
   })
 
   // #776: 작은 이미지는 preview-body 가운데(가로·세로)에 놓여 상단에 방치되지 않아야 한다.

@@ -11,9 +11,9 @@ import { FileTypeIcon } from '../drive/FileTypeIcon'
 import { CsvTablePreview } from '../drive/preview/CsvTablePreview'
 import { DocxPreview } from '../drive/preview/DocxPreview'
 import { SheetPreview } from '../drive/preview/SheetPreview'
-import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { Button } from '../ui/button'
 import { ConvertFailedNotice, ConvertingNotice } from './ConvertStateNotice'
+import { HtmlPreview } from './HtmlPreview'
 import { fitImageWidth } from './imageFit'
 import { MediaPlayer, type MediaSession } from './MediaPlayer'
 import { PdfPages } from './PdfPages'
@@ -30,6 +30,13 @@ const TEXT_PREVIEW_LIMIT = 200_000
  * 큰 로그에 동의해도 전체 문자열을 (인코딩 판정 때문에 최대 두 번) 만들지 않아 탭이 멈추지 않는다.
  */
 const TEXT_DECODE_MAX_BYTES = 1024 * 1024
+
+/**
+ * HTML 디코딩 상한(WP-1260) — HTML 은 렌더하는 문서라 텍스트처럼 20만 자로 자르지 않는다(base64 이미지가 든 발표 자료는 수백만 자).
+ * 크기를 아는 10MB 초과 파일은 받기 전에 묻지만, 크기를 모르는 첨부나 동의한 큰 파일도 있어 상한을 둔다 —
+ * 문자열이 디코딩·머리말 주입·srcdoc 으로 여러 벌 생기므로 수백 MB 를 통째로 들이면 탭이 멈춘다.
+ */
+const HTML_DECODE_MAX_BYTES = 20 * 1024 * 1024
 
 /**
  * blob 을 종류별로 변환한 표시 내용 — 한 번에 하나만 있으므로 상태 하나(판별 유니언)로 든다.
@@ -228,8 +235,11 @@ export const ViewerBody = memo(function ViewerBody({
         if (alive) setContent({ k: 'pdf', blob: verified })
       }
       else if (textLike) {
-        const t = await blobToText(blob, { maxBytes: TEXT_DECODE_MAX_BYTES })
-        if (alive) setContent({ k: 'text', text: t.slice(0, TEXT_PREVIEW_LIMIT) })
+        // HTML 은 렌더하는 문서라 글자 수로 자르지 않는다(WP-1260) — 앞부분만 넣으면 뒤쪽 내용과 끝의 스크립트가 빠져 모양이 무너진다.
+        // 소스를 그대로 보이는 텍스트류는 앞부분만 — 큰 로그로 탭이 멈추지 않게.
+        const isHtml = kind === 'HTML'
+        const t = await blobToText(blob, { maxBytes: isHtml ? HTML_DECODE_MAX_BYTES : TEXT_DECODE_MAX_BYTES })
+        if (alive) setContent({ k: 'text', text: isHtml ? t : t.slice(0, TEXT_PREVIEW_LIMIT) })
       } else {
         // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
         const buf = await blob.arrayBuffer()
@@ -354,15 +364,8 @@ export const ViewerBody = memo(function ViewerBody({
           <MarkdownMessage>{text}</MarkdownMessage>
         </PaperCard>
       )}
-      {/* HTML 은 격리 iframe 으로 렌더 — 스크립트/폼/네비게이션 전면 차단(#486 XSS 패턴, #732). */}
-      {!error && kind === 'HTML' && text != null && (
-        <SandboxedHtmlFrame
-          data-testid="html-document"
-          title={item.name}
-          html={text}
-          className="block h-full min-h-[60vh] w-full border-0"
-        />
-      )}
+      {/* HTML 은 격리 iframe 으로 렌더 — 기본 스크립트 차단(#486, #732), 스크립트가 든 문서는 사용자가 허용할 수 있다(WP-1260). */}
+      {!error && kind === 'HTML' && text != null && <HtmlPreview html={text} title={item.name} />}
       {!error && kind === 'TEXT' && text != null && (
         <PaperCard>
           <pre className="whitespace-pre-wrap break-words text-xs">{text}</pre>

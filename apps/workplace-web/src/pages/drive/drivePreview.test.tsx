@@ -121,6 +121,38 @@ describe('형식별 본문', () => {
     expect(screen.queryByTestId('pdf-document')).not.toBeInTheDocument()
   })
 
+  // WP-1260: 스크립트가 든 HTML 은 차단한 채 안내 줄을 보이고, 「스크립트 실행」을 누르면 그 미리보기만 스크립트를 허용해 다시 그린다.
+  // 문서는 자르지 않는다 — 20만 자를 넘는 발표 자료도 맨 끝 스크립트까지 iframe 에 들어간다.
+  test('스크립트가 든 HTML 은 차단 + 안내 줄, 「스크립트 실행」을 누르면 허용해 다시 그린다', async () => {
+    const html = `<!doctype html><html><body><div class="deck">${'가'.repeat(250_000)}</div><script>fit()</script></body></html>`
+    const { user } = renderPreview([{ file: textFile(74, 'deck.html', 'text/html', { sizeBytes: html.length }), body: html }])
+    const body = await openPreview(user, 'deck.html')
+    const notice = await within(body).findByTestId('html-script-notice')
+    expect(notice).toHaveTextContent('이 문서에는 스크립트가 있어 원래 모습과 다르게 보일 수 있어요')
+    const frame = within(body).getByTestId('html-document')
+    // 기본은 스크립트 차단(링크 팝업만).
+    expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox')
+    // 자르지 않음 — 끝의 스크립트까지 들어 있다.
+    expect(frame.getAttribute('srcdoc')).toContain('<script>fit()</script></body></html>')
+
+    await user.click(within(notice).getByRole('button', { name: '스크립트 실행' }))
+    const allowed = within(body).getByTestId('html-document')
+    // 노트 HTML 블록과 같은 격리 — 스크립트는 돌되 same-origin·대화상자는 없다.
+    expect(allowed).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads')
+    // sandbox 는 그려진 iframe 에 나중에 바꾸면 반영되지 않아 새 iframe 이어야 한다.
+    expect(allowed).not.toBe(frame)
+    expect(within(body).queryByTestId('html-script-notice')).not.toBeInTheDocument()
+  })
+
+  // WP-1260: 스크립트가 없는 HTML 에는 안내 줄을 띄우지 않는다(차단 그대로).
+  test('스크립트가 없는 HTML 에는 안내 줄이 없다', async () => {
+    const { user } = renderPreview([{ file: textFile(75, 'plain.html', 'text/html'), body: '<!doctype html><html><body><h1>안녕 HTML</h1></body></html>' }])
+    const body = await openPreview(user, 'plain.html')
+    const frame = await within(body).findByTestId('html-document')
+    expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox')
+    expect(within(body).queryByTestId('html-script-notice')).not.toBeInTheDocument()
+  })
+
   // #775: 콘텐츠가 늦게 오는 동안 빈 화면 대신 스켈레톤, 도착하면 스켈레톤이 빠지고 본문.
   test('콘텐츠 로딩 중에는 스켈레톤이 보인다', async () => {
     let release!: () => void
