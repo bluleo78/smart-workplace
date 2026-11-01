@@ -7,7 +7,9 @@ import { cn } from '../../lib/utils'
 import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { Button } from '../ui/button'
+import { SecurityCheckCard } from './SecurityCheckCard'
 import type { ViewerItem } from './types'
+import type { PanelAvailability } from './usePanelAvailability'
 import { ViewerBacklinks } from './ViewerBacklinks'
 
 /** AI 요약 카드 — 접힘 없이 항상 펼침(패널 자체가 토글). 상태 계산은 summaryCardView(#526·#633·#735)가 맡는다. */
@@ -45,11 +47,13 @@ function SummaryCard({ driveFileId }: { driveFileId: number }) {
   )
 }
 
-/** 패널·시트 공용 내용 — AI 요약 + 참조된 곳. 데스크톱 사이드 패널과 모바일 바텀시트가 같은 내용을 그린다. */
-export function ViewerPanelContent({ item }: { item: ViewerItem }) {
+/** 패널·시트 공용 내용 — AI 요약 + 보안 점검 + 참조된 곳. 데스크톱 사이드 패널과 모바일 바텀시트가 같은 내용을 그린다. */
+export function ViewerPanelContent({ item, panel }: { item: ViewerItem; panel: PanelAvailability }) {
+  const { summary, security } = panel
   return (
     <div className="space-y-4">
-      {item.summaryDriveFileId != null && <SummaryCard driveFileId={item.summaryDriveFileId} />}
+      {summary === 'show' && item.summaryDriveFileId != null && <SummaryCard driveFileId={item.summaryDriveFileId} />}
+      {security && item.securityCheckPath && <SecurityCheckCard path={item.securityCheckPath} />}
       {item.backlinksDriveFileId != null && <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />}
     </div>
   )
@@ -60,19 +64,19 @@ export function ViewerPanelContent({ item }: { item: ViewerItem }) {
  * 데스크톱 배치(lg 이상 = MOBILE_MEDIA_QUERY 밖)에서만 그려 오른쪽 w-80 열이 된다. lg 미만은 모바일 배치라 ViewerSummarySheet 를 쓴다.
  * 그래서 WP-277 의 좁은 화면용 세로 쌓기 클래스(max-h·border-t)는 걷어내고 열 배치만 둔다.
  */
-export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: () => void }) {
+export function ViewerSidePanel({ item, panel, onClose }: { item: ViewerItem; panel: PanelAvailability; onClose: () => void }) {
   return (
     <aside
       data-testid="viewer-side-panel"
       className="w-80 shrink-0 overflow-y-auto border-l border-border p-4"
     >
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium">AI 요약</h2>
+        <h2 className="text-sm font-medium">{panel.title}</h2>
         <Button variant="ghost" size="icon" aria-label="요약 닫기" onClick={onClose}>
           <X />
         </Button>
       </div>
-      <ViewerPanelContent item={item} />
+      <ViewerPanelContent item={item} panel={panel} />
     </aside>
   )
 }
@@ -84,10 +88,13 @@ export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: 
  */
 export function ViewerSummarySheet({
   item,
+  panel,
   onClose,
   sheetRef,
 }: {
   item: ViewerItem
+  /** 패널 가용성·제목 — 호출부(AttachmentViewer)가 한 번 계산해 내려준다. */
+  panel: PanelAvailability
   onClose: () => void
   /** 시트 루트 — 열 때 호출부가 포커스를 시트로 옮긴다(아래 액션 바는 inert 로 덮이므로). */
   sheetRef?: React.Ref<HTMLElement>
@@ -99,7 +106,7 @@ export function ViewerSummarySheet({
       ref={sheetRef}
       // 프로그램 포커스만 받는다(Tab 순서에는 넣지 않음) — 열린 직후 화면낭독기가 "AI 요약" 영역부터 읽게.
       tabIndex={-1}
-      aria-label="AI 요약"
+      aria-label={panel.title}
       data-testid="viewer-summary-sheet"
       className={cn(
         // 좌우 안전영역 — absolute 라 루트 padding 을 받지 못한다(가로 모드 노치).
@@ -129,7 +136,7 @@ export function ViewerSummarySheet({
       </div>
       {/* overscroll-contain — 시트 끝까지 스크롤해도 뒤 본문·페이지로 스크롤이 번지지 않게. 아래 여백은 홈 인디케이터만큼. */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <ViewerPanelContent item={item} />
+        <ViewerPanelContent item={item} panel={panel} />
       </div>
     </section>
   )

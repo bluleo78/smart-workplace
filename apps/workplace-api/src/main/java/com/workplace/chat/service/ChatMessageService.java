@@ -279,6 +279,17 @@ public class ChatMessageService {
     return driveLinkService.getLinkContent(ChatMessageHydrator.SOURCE_TYPE, messageId, driveFileId);
   }
 
+  /** 메시지에 링크된 드라이브 파일의 core file id(WP-1262 보안 점검) — {@link #driveLinkContent} 와 같은 읽기 가드·소속 확인. */
+  @Transactional(readOnly = true)
+  public long driveLinkFileId(long callerId, long threadId, long messageId, long driveFileId) {
+    threadAccess.ensureCanRead(threadId, callerId);
+    if (!messageRepo.belongsToThread(messageId, threadId)) {
+      throw new ChatMessageNotFoundException(messageId);
+    }
+    return driveLinkService.resolveLinkFileId(
+        ChatMessageHydrator.SOURCE_TYPE, messageId, driveFileId);
+  }
+
   private long threadIdOf(long messageId) {
     return messageRepo
         .findThreadId(messageId)

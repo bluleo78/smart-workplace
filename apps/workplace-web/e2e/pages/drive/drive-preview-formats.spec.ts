@@ -258,12 +258,22 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(body.locator('pre')).toHaveCount(0)
   })
 
-  // WP-1260: 스크립트로 배치를 잡는 문서(발표 자료)는 「스크립트 실행」을 눌러야 스크립트가 돈다 — 실제 iframe 안에서 실행되는지 본다.
+  // WP-1260·1262: 스크립트로 배치를 잡는 문서(발표 자료)는 「스크립트 실행」 스위치를 켜야 스크립트가 돈다 — 실제 iframe 안에서 실행되는지 본다.
   // 앞에 20만 자를 넘는 내용을 둬 미리보기가 문서를 자르지 않는 것(끝의 스크립트가 남는 것)도 함께 지킨다.
-  test('스크립트가 든 HTML 은 「스크립트 실행」을 누르면 iframe 안에서 스크립트가 돈다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+  test('스크립트가 든 HTML 은 「스크립트 실행」 스위치를 켜면 iframe 안에서 스크립트가 돈다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     const DECK = `<!doctype html><html><body><p id="state">차단됨</p><div hidden>${'가'.repeat(250_000)}</div><script>document.getElementById('state').textContent = '스크립트 실행됨:' + window.origin</script></body></html>`
     await stubHtmlFile(page, 'deck.html', DECK)
+    // 보안 점검 조회 — 점검 완료(낮음)로 응답한다.
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/files/110/security-check',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'DONE', risk: 'LOW', headline: '문제 없어 보여요', evidence: [], checkedAt: '2026-11-01T01:00:00Z', reason: null }),
+        }),
+    )
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: 'deck.html' }).click()
@@ -272,10 +282,10 @@ test.describe('드라이브 프리뷰 포맷', () => {
     const state = page.frameLocator('[data-testid="html-document"]').locator('#state')
     // 기본은 차단 — 스크립트가 돌지 않아 처음 글자 그대로다.
     await expect(state).toHaveText('차단됨')
-    await body.getByRole('button', { name: '스크립트 실행' }).click()
+    await body.getByRole('switch', { name: '스크립트 실행' }).click()
     // 허용하면 스크립트가 돈다. 출처는 불투명(null)이라 앱 쿠키·저장소에 닿지 못한다.
     await expect(state).toHaveText('스크립트 실행됨:null')
-    await expect(body.getByTestId('html-script-notice')).toHaveCount(0)
+    await expect(body.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
   })
 
   // #776: 작은 이미지는 preview-body 가운데(가로·세로)에 놓여 상단에 방치되지 않아야 한다.

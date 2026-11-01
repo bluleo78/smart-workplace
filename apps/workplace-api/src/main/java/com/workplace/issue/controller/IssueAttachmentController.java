@@ -2,6 +2,8 @@ package com.workplace.issue.controller;
 
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.security.FileSecurityCheckService;
+import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.ClaimAttachmentsRequest;
@@ -43,6 +45,8 @@ public class IssueAttachmentController {
   private final IssueAttachmentService service;
 
   private final AttachmentViewService attachmentView;
+
+  private final FileSecurityCheckService securityChecks;
 
   /** 다중 multipart 업로드. files 필드명 고정. */
   @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -134,5 +138,29 @@ public class IssueAttachmentController {
         ContentDisposition.attachment().filename(f.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(f.sizeBytes());
     return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+  }
+
+  /** HTML 보안 점검 상태(WP-1262) — /content·/view 와 같은 첨부 열람 가드로 file id 를 확인한다. */
+  @GetMapping("/{fileId}/security-check")
+  @RequirePermission("project:read")
+  public SecurityCheckView securityCheck(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable Long fileId) {
+    return securityChecks.view(
+        service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId));
+  }
+
+  /** HTML 보안 점검 요청(WP-1262) — 권한은 조회와 같다(열람할 수 있으면 점검도 요청할 수 있다). */
+  @PostMapping("/{fileId}/security-check")
+  @RequirePermission("project:read")
+  public SecurityCheckView requestSecurityCheck(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable Long fileId) {
+    return securityChecks.request(
+        service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId));
   }
 }

@@ -7,10 +7,11 @@ import request from 'supertest';
 vi.mock('../agent/run-drive-ai.js', () => ({
   runDriveSummarize: vi.fn(),
   runDriveOverview: vi.fn(),
+  runDriveSecurityCheck: vi.fn(),
 }));
 
 import { createDriveRouter } from './drive.js';
-import { runDriveSummarize, runDriveOverview } from '../agent/run-drive-ai.js';
+import { runDriveSummarize, runDriveOverview, runDriveSecurityCheck } from '../agent/run-drive-ai.js';
 
 function app() {
   const a = express();
@@ -99,5 +100,40 @@ describe('POST /drive/overview', () => {
     const res = await request(app()).post('/drive/overview').send(validOverview);
     expect(res.headers['content-type']).toMatch(/text\/event-stream/);
     expect(res.text).toContain('event: error');
+  });
+});
+
+describe('POST /drive/security-check', () => {
+  const valid = {
+    digest: '<script src="https://evil.example/a.js"></script>',
+    fileName: 'page.html',
+    truncated: false,
+    assistantAgentId: 7,
+    model: 'claude-sonnet',
+    maxTurns: 1,
+    timeoutMs: 60000,
+  };
+  const result = {
+    risk: 'CAUTION',
+    headline: '바깥 주소에서 코드를 불러와요',
+    evidence: [{ kind: 'EXTERNAL_REQUEST', detail: 'evil.example' }],
+  };
+
+  it('securityCheck_returns200WithResult_whenValid', async () => {
+    vi.mocked(runDriveSecurityCheck).mockResolvedValue(result as never);
+    const res = await request(app()).post('/drive/security-check').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(result);
+  });
+
+  it('securityCheck_returns400_whenSchemaViolated', async () => {
+    const res = await request(app()).post('/drive/security-check').send({ digest: 'x' });
+    expect(res.status).toBe(400);
+  });
+
+  it('securityCheck_returns502_whenRunnerRejects', async () => {
+    vi.mocked(runDriveSecurityCheck).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/drive/security-check').send(valid);
+    expect(res.status).toBe(502);
   });
 });

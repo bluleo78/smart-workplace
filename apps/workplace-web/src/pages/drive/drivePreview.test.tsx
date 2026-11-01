@@ -27,6 +27,7 @@ type PreviewFile = {
   /** 콘텐츠 응답 본문 — 없으면 콘텐츠 핸들러를 두지 않는다(받으면 안 되는 경우는 counter 로 센다). */
   body?: string | Uint8Array
   summary?: Record<string, unknown> | number
+  security?: Record<string, unknown>
   backlinks?: Record<string, unknown>[]
 }
 
@@ -41,7 +42,7 @@ function renderPreview(files: PreviewFile[], { search = '', handlers = [] as Req
     auth,
     handlers: [
       ...handlers,
-      ...files.flatMap(({ file, body, summary, backlinks }) => [
+      ...files.flatMap(({ file, body, summary, backlinks, security }) => [
         ...(body != null
           ? [
               http.get(`${API}/files/${file.id}/content`, () => {
@@ -50,7 +51,7 @@ function renderPreview(files: PreviewFile[], { search = '', handlers = [] as Req
               }),
             ]
           : []),
-        ...fileSideHandlers(file.id, { summary, backlinks }),
+        ...fileSideHandlers(file.id, { summary, backlinks, security }),
       ]),
       ...driveBaseHandlers({ items: { folders: [], files: files.map((f) => f.file) } }),
     ],
@@ -128,20 +129,22 @@ describe('형식별 본문', () => {
     const { user } = renderPreview([{ file: textFile(74, 'deck.html', 'text/html', { sizeBytes: html.length }), body: html }])
     const body = await openPreview(user, 'deck.html')
     const notice = await within(body).findByTestId('html-script-notice')
-    expect(notice).toHaveTextContent('이 문서에는 스크립트가 있어 원래 모습과 다르게 보일 수 있어요')
+    expect(notice).toHaveTextContent('이 문서에는 스크립트가 있어요')
     const frame = within(body).getByTestId('html-document')
     // 기본은 스크립트 차단(링크 팝업만).
     expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox')
     // 자르지 않음 — 끝의 스크립트까지 들어 있다.
     expect(frame.getAttribute('srcdoc')).toContain('<script>fit()</script></body></html>')
 
-    await user.click(within(notice).getByRole('button', { name: '스크립트 실행' }))
+    // WP-1262: 단추가 스위치로 바뀌었다 — 켜면(기본 위험도에서는 확인 창 없이) 그 미리보기만 허용한다.
+    await user.click(within(notice).getByRole('switch', { name: '스크립트 실행' }))
     const allowed = within(body).getByTestId('html-document')
     // 노트 HTML 블록과 같은 격리 — 스크립트는 돌되 same-origin·대화상자는 없다.
     expect(allowed).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads')
     // sandbox 는 그려진 iframe 에 나중에 바꾸면 반영되지 않아 새 iframe 이어야 한다.
     expect(allowed).not.toBe(frame)
-    expect(within(body).queryByTestId('html-script-notice')).not.toBeInTheDocument()
+    // 안내 줄은 실행 중에도 남아 다시 끌 수 있다.
+    expect(within(body).getByTestId('html-script-notice')).toHaveTextContent('스크립트 실행 중')
   })
 
   // WP-1260: 스크립트가 없는 HTML 에는 안내 줄을 띄우지 않는다(차단 그대로).
@@ -387,5 +390,28 @@ describe('링크 복사(WP-1234)', () => {
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByTestId('attachment-viewer')).not.toBeInTheDocument())
     expect(shareTargetStore.get()?.url).toBe(`${window.location.origin}/drive/spaces/${SPACE_ID}`)
+  })
+})
+
+// WP-1262: HTML 파일의 AI 보안 점검 — 패널 카드, 안내 줄 칩으로 패널 열기.
+describe('HTML 보안 점검 패널', () => {
+  const scriptHtml = '<!doctype html><html><body><p>hi</p><script>run()</script></body></html>'
+  const done = { status: 'DONE', risk: 'CAUTION', headline: '바깥으로 요청해요', evidence: [{ kind: 'EXTERNAL_REQUEST', detail: 'cdn.example' }], checkedAt: '2026-11-01T01:00:00Z', reason: null }
+
+  test('요약과 점검이 같이 있으면 패널 제목은 AI 요약이고 보안 점검 카드가 보인다', async () => {
+    const { user } = renderPreview([{ file: textFile(80, 'page.html', 'text/html'), body: scriptHtml, summary: { summary: '요약 본문', status: 'DONE' }, security: done }])
+    await openPreview(user, 'page.html')
+    const panel = await screen.findByTestId('viewer-side-panel')
+    expect(await within(panel).findByTestId('security-check-card')).toHaveTextContent('바깥 요청: cdn.example')
+    expect(within(panel).getByRole('heading', { name: 'AI 요약' })).toBeInTheDocument()
+  })
+
+  test('안내 줄 칩을 누르면 닫혀 있던 패널이 열린다', async () => {
+    localStorage.setItem('attachment-viewer:summary-panel', '0')
+    const { user } = renderPreview([{ file: textFile(81, 'page.html', 'text/html'), body: scriptHtml, summary: { summary: '요약 본문', status: 'DONE' }, security: done }])
+    const body = await openPreview(user, 'page.html')
+    expect(screen.queryByTestId('viewer-side-panel')).not.toBeInTheDocument()
+    await user.click(await within(body).findByRole('button', { name: '주의 · 근거 1' }))
+    expect(await screen.findByTestId('viewer-side-panel')).toBeInTheDocument()
   })
 })

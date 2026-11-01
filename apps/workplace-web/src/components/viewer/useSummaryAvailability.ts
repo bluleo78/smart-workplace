@@ -2,6 +2,8 @@ import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import type { ViewerItem } from './types'
 
+export type SummaryAvailability = 'none' | 'hidden' | 'loading' | 'show'
+
 /**
  * ✨ 노출 판정 — 드라이브 파일·링크만.
  * - 'none': 요약 대상이 아님(업로드 첨부 등).
@@ -10,7 +12,7 @@ import type { ViewerItem } from './types'
  * - 'show': 요약 쿼리가 성공적으로 응답한 뒤에만(진행 중 상태 행이어도 응답 자체는 성공).
  * 요약 쿼리는 패널 열림과 무관하게 돌려 403 을 미리 알아야 버튼을 숨길 수 있다(캐시 공유라 패널이 같은 쿼리를 재사용).
  */
-export function useSummaryAvailability(item: ViewerItem): 'none' | 'hidden' | 'loading' | 'show' {
+export function useSummaryAvailability(item: ViewerItem): SummaryAvailability {
   const aiAvailable = useAiAvailable()
   const q = useDriveFileSummary(item.summaryDriveFileId ?? 0)
   if (item.summaryDriveFileId == null) return 'none'

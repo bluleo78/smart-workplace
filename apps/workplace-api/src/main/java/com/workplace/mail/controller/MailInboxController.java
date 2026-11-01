@@ -2,6 +2,7 @@ package com.workplace.mail.controller;
 
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.filepreview.PreviewResponses;
 import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.CalendarInvite;
@@ -287,6 +288,23 @@ public class MailInboxController {
       @RequestParam(defaultValue = "0") int offset,
       @RequestParam(defaultValue = "32000") int limit) {
     return attachmentTextService.readText(callerId, attachmentId, offset, limit);
+  }
+
+  /**
+   * 첨부 HTML 보안 점검 상태(WP-1262). 권한은 /content 와 같다(본인 소유 아니면 404). 점검은 메일 추출 사본 file 에 달리므로 사본이 아직
+   * 없으면 status null 이다.
+   */
+  @GetMapping("/attachments/{attachmentId}/security-check")
+  public SecurityCheckView attachmentSecurityCheck(
+      @AuthenticationPrincipal Long callerId, @PathVariable long attachmentId) {
+    return attachmentTextService.securityCheck(callerId, attachmentId);
+  }
+
+  /** 첨부 HTML 보안 점검 요청(WP-1262) — 사본이 없으면 원본을 받아 만들고 원본 바이트로 점검한다. 권한은 조회와 같다. */
+  @PostMapping("/attachments/{attachmentId}/security-check")
+  public SecurityCheckView requestAttachmentSecurityCheck(
+      @AuthenticationPrincipal Long callerId, @PathVariable long attachmentId) {
+    return attachmentTextService.requestSecurityCheck(callerId, attachmentId);
   }
 
   /**

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
-import { runDriveSummarize, runDriveOverview } from '../agent/run-drive-ai.js';
+import { runDriveSummarize, runDriveOverview, runDriveSecurityCheck } from '../agent/run-drive-ai.js';
 import { handler } from './mail.js';
 
 // 요약 요청 스키마 — 파일 본문·메타 + assistant 설정.
@@ -15,6 +15,17 @@ const summarizeSchema = z.object({
   text: z.string(),
   fileName: z.string(),
   mime: z.string(),
+  assistantAgentId: z.number().int().positive(),
+  model: z.string().min(1),
+  maxTurns: z.number().int().positive(),
+  timeoutMs: z.number().int().positive(),
+});
+
+// 보안 점검 요청 스키마 — digest 는 API 가 만든 스크립트 요지(상한 70,000자, 비신뢰 데이터).
+const securityCheckSchema = z.object({
+  digest: z.string().max(70_000),
+  fileName: z.string(),
+  truncated: z.boolean(),
   assistantAgentId: z.number().int().positive(),
   model: z.string().min(1),
   maxTurns: z.number().int().positive(),
@@ -39,6 +50,9 @@ export function createDriveRouter(deps: RunAgentDeps): Router {
 
   // 파일 본문 요약: text+fileName+mime → {summary}.
   router.post('/drive/summarize', handler(summarizeSchema, runDriveSummarize, deps, 'drive-summarize'));
+
+  // HTML 스크립트 요지 보안 점검: digest → {risk, headline, evidence}.
+  router.post('/drive/security-check', handler(securityCheckSchema, runDriveSecurityCheck, deps, 'drive-security-check'));
 
   // 검색 결과 발췌 기반 스트리밍 합성: excerpts → SSE delta 스트림.
   // wiki/compose 패턴 미러: event: delta → event: done / event: error.

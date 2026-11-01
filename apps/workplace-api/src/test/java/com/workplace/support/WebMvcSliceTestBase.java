@@ -43,6 +43,7 @@ import com.workplace.drive.service.DriveTrashService;
 import com.workplace.drive.service.DriveZipService;
 import com.workplace.file.controller.FileUploadController;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.fileai.security.FileSecurityCheckService;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.global.config.SecurityConfig;
@@ -217,6 +218,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       DriveZipService.class,
       EmailAccountService.class,
       FilePreviewService.class,
+      FileSecurityCheckService.class,
       FileUploadService.class,
       HomeChatService.class,
       HomeConversationSearchService.class,

@@ -2,6 +2,8 @@ package com.workplace.issue.controller;
 
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.fileai.security.FileSecurityCheckService;
+import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.service.IssueDriveLinkService;
 import java.io.IOException;
@@ -20,6 +22,8 @@ import org.springframework.web.bind.annotation.*;
 public class IssueDriveLinkController {
 
   private final IssueDriveLinkService service;
+
+  private final FileSecurityCheckService securityChecks;
 
   /** 드라이브 링크 추가 요청 바디. */
   public record AddDriveLinkRequest(long driveFileId) {}
@@ -71,5 +75,27 @@ public class IssueDriveLinkController {
     headers.setContentDisposition(
         ContentDisposition.attachment().filename(f.originalName(), StandardCharsets.UTF_8).build());
     return ResponseEntity.ok().headers(headers).body(f.resource());
+  }
+
+  /** 링크된 드라이브 파일의 HTML 보안 점검 상태(WP-1262) — /content 와 같은 이슈 조회 가드·링크 확인. */
+  @GetMapping("/{driveFileId}/security-check")
+  @RequirePermission("project:read")
+  public SecurityCheckView securityCheck(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable long driveFileId) {
+    return securityChecks.view(service.linkFileId(callerId, key, number, driveFileId));
+  }
+
+  /** 링크된 드라이브 파일의 HTML 보안 점검 요청(WP-1262) — 가드는 조회와 같다. */
+  @PostMapping("/{driveFileId}/security-check")
+  @RequirePermission("project:read")
+  public SecurityCheckView requestSecurityCheck(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable long driveFileId) {
+    return securityChecks.request(service.linkFileId(callerId, key, number, driveFileId));
   }
 }

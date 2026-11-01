@@ -712,6 +712,10 @@
 [data-slot='alert-dialog-overlay']:has(+ [data-ai-confirm]) {
   z-index: 80;
 }
+/* HTML 스크립트 허용 확인창(WP-1262) — 뷰어(z-50·AI 시트 위 z-[80]) 위에 뜬다. 딤도 같은 이유로 콘텐츠 표식을 따라 올린다. */
+[data-slot='alert-dialog-overlay']:has(+ [data-security-confirm]) {
+  z-index: 100;
+}
 /* 「채팅·이슈로 보내기」 데스크톱 대화상자(WP-1235) — 콘텐츠는 z-[80] 으로 올리고, 같은 이유로 딤(dialog-overlay)도 콘텐츠 표식을 따라 올린다. */
 [data-slot='dialog-overlay']:has(+ [data-lifted-dialog]) {
   z-index: 80;

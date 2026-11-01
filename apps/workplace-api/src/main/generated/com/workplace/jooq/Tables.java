@@ -55,6 +55,7 @@ import com.workplace.jooq.tables.EventReminder;
 import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
+import com.workplace.jooq.tables.FileSecurityCheck;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -412,6 +413,11 @@ public class Tables {
      * The table <code>public.file_preview</code>.
      */
     public static final FilePreview FILE_PREVIEW = FilePreview.FILE_PREVIEW;
+
+    /**
+     * The table <code>public.file_security_check</code>.
+     */
+    public static final FileSecurityCheck FILE_SECURITY_CHECK = FileSecurityCheck.FILE_SECURITY_CHECK;
 
     /**
      * The table <code>public.home_action_proposal</code>.

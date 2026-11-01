@@ -32,7 +32,7 @@ import { seekUnlessNativeHandled } from './mediaSeek'
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useItemState } from './useItemState'
-import { useSummaryAvailability } from './useSummaryAvailability'
+import { usePanelAvailability } from './usePanelAvailability'
 import { useViewerGestures, type ZoomAnchor } from './useViewerGestures'
 import { actionSlots, resolveSaveMethod, resolveShareState, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
@@ -255,14 +255,16 @@ export function AttachmentViewer({
       // 저장 실패는 무시 — 이번 세션 상태만 유지.
     }
   }
-  const summary = useSummaryAvailability(item)
-  const showPanel = summary === 'show' && panelOpen
+  // WP-1262: ✨·패널·시트는 요약 + 보안 점검을 합친 판정(show)으로 보인다.
+  const panel = usePanelAvailability(item)
+  const { summary, security, show: panelAvailable } = panel
+  const showPanel = panelAvailable && panelOpen
   // 모바일 요약 시트 — 데스크톱 패널과 따로 든다. 모바일 배치로 들어올 때마다(회전·창 크기) 닫힌 채 시작한다(판정 R10).
   // 같이 들면 데스크톱 배치에서 펼친 패널이 회전 한 번에 본문 절반을 가리는 시트로 바뀐다. 전환은 바 숨김과 같은 useResetOnChange.
   const [sheetPref, setSheetPref] = useResetOnChange(mobile, false)
   // 열면 포커스를 시트로, 닫으면 ✨ 칸으로 돌린다(시트가 덮는 액션 바는 그동안 inert).
   // 사용자가 직접 열고 닫을 때만 옮긴다 — 넘김 중 요약 판정(loading↔show)으로 시트가 잠깐 사라졌다 생겨도 포커스를 흔들지 않게.
-  const sheetOpen = mobile && summary === 'show' && sheetPref
+  const sheetOpen = mobile && panelAvailable && sheetPref
   const [sheetEl, setSheetEl] = useState<HTMLElement | null>(null)
   const sheetFocus = useRef<'open' | 'close' | null>(null)
   // ☁ 가져오기 — 업로드 첨부(importFileId)에서만 공간 조회를 켠다.
@@ -306,7 +308,7 @@ export function AttachmentViewer({
       unavailable: !!item.unavailable,
       share: shareState,
       importable: item.importFileId == null ? 'none' : canImport ? 'ready' : 'disabled',
-      summary: summary === 'show',
+      summary: panelAvailable,
     })
   /**
    * 하단 칸 누름. 공유·iOS 저장은 클릭 핸들러 안에서 await 없이 바로 공유 시트를 연다(제스처 직후 호출 규칙, 스펙 §5.4).
@@ -326,6 +328,13 @@ export function AttachmentViewer({
       sheetFocus.current = sheetOpen ? 'close' : 'open'
       setSheetPref(!sheetOpen)
     }
+  }
+  /** 안내 줄 점검 칩 → AI 패널 열기(WP-1262) — 데스크톱은 사이드 패널(저장 상태 갱신), 모바일은 시트. */
+  const openPanel = () => {
+    if (mobile) {
+      sheetFocus.current = 'open'
+      setSheetPref(true)
+    } else togglePanel(true)
   }
   /** 시트의 요약 닫기 — 포커스를 연 자리(✨ 칸)로 돌려보낸다. */
   const closeSheet = () => {
@@ -598,7 +607,7 @@ export function AttachmentViewer({
                   <Cloud />
                 </Button>
               )}
-              {summary === 'show' && (
+              {panelAvailable && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -643,6 +652,7 @@ export function AttachmentViewer({
                 barsHidden={barsHidden}
                 onSource={setSource}
                 media={mediaSession}
+                onOpenPanel={openPanel}
                 sideInset={mobile && items.length > 1}
               />
             </div>
@@ -695,11 +705,11 @@ export function AttachmentViewer({
               {items.length > 1 ? `${item.name}, ${items.length}개 중 ${idx + 1}번째` : ''}
             </p>
           </div>
-          {showPanel && !mobile && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
+          {showPanel && !mobile && <ViewerSidePanel item={item} panel={panel} onClose={() => togglePanel(false)} />}
         </div>
         {/* ✨ 를 쓸 수 없어도(AI 꺼짐·요약 403) 참조된 곳은 얇은 띠로 보인다 — 비어 있으면 아무것도 그리지 않는다. */}
         {/* 요약 판정 중('loading')에는 띠도 그리지 않는다 — 곧 패널로 옮겨 갈 수 있어 띠→패널 깜빡임을 막는다. */}
-        {!mobile && (summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
+        {!mobile && !security && (summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
           <div className="max-h-32 shrink-0 overflow-y-auto border-t border-border px-4 py-3">
             <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
           </div>
@@ -715,7 +725,7 @@ export function AttachmentViewer({
             covered={sheetOpen}
             onAction={onSlot}
           >
-            {(summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
+            {!security && (summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
               <div className="max-h-24 overflow-y-auto border-b border-border px-4 py-2">
                 <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
               </div>
@@ -723,7 +733,7 @@ export function AttachmentViewer({
           </ViewerActionBar>
         )}
         {/* 모바일 AI 요약 — 본문 아래 쌓는 대신 하단 바 위에 겹치는 반 높이 시트(스펙 §4.2). */}
-        {sheetOpen && <ViewerSummarySheet item={item} sheetRef={setSheetEl} onClose={closeSheet} />}
+        {sheetOpen && <ViewerSummarySheet item={item} panel={panel} sheetRef={setSheetEl} onClose={closeSheet} />}
         {/* 폴더 선택 모달 — 뷰어 Dialog 안에 그려 포커스 트랩 안에 둔다. */}
         {importer.picker}
       </DialogContent>

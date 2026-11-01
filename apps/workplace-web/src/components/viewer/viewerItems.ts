@@ -57,6 +57,18 @@ export function attachmentMime(contentType: string | null | undefined, filename:
   return mimeFromFilename(filename) ?? 'application/octet-stream'
 }
 
+/** 콘텐츠 경로 끝 `/content` → `/security-check`(WP-1262) — 출처마다 점검 API 가 콘텐츠 API 옆에 같은 모양으로 있다. */
+export const securityPathFrom = (contentPath: string): string => contentPath.replace(/\/content$/, '/security-check')
+
+/**
+ * HTML 항목에만 점검 경로를 붙인다(WP-1262) — ViewerBody 가 HTML 로 그리는 판정(resolvePreviewKind === 'HTML')과 같아 본문과 패널이 늘 일치한다.
+ * 경로가 `/content` 로 끝나지 않으면(모르는 출처) 붙이지 않는다. 어댑터가 만든 항목의 mimeType·contentPath 로 파생해 감싼다.
+ */
+function withSecurityCheck(item: ViewerItem): ViewerItem {
+  if (resolvePreviewKind(item.mimeType) !== 'HTML' || !item.contentPath.endsWith('/content')) return item
+  return { ...item, securityCheckPath: securityPathFrom(item.contentPath) }
+}
+
 /** 메일 첨부 표시·저장 이름 — 첨부 칩과 뷰어(제목·접근 이름·저장 파일명)가 같은 이름을 쓰게 한 곳에 둔다. */
 export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `attachment-${a.id}`
 
@@ -70,7 +82,7 @@ export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `att
 export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
   const path = `/mail/attachments/${a.id}/content`
   const mimeType = mailAttachmentMime(a)
-  return {
+  return withSecurityCheck({
     key: mailViewerKey(a.id),
     name: mailAttachmentName(a),
     mimeType,
@@ -79,7 +91,7 @@ export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
     downloadPath: path,
     ...(CONVERTIBLE_MIMES.has(mimeType) ? { previewPath: `/mail/attachments/${a.id}/preview` } : {}),
     aiRefs: { source: 'mail', attachmentId: a.id },
-  }
+  })
 }
 
 /**
@@ -97,7 +109,7 @@ export function itemPreviewKind(item: ViewerItem): PreviewKind {
  * previewPath 는 모든 드라이브 파일에 두고, 실제로 쓸지는 itemPreviewKind 가 형식으로 고른다.
  */
 export function driveFileItem(f: DriveFile): ViewerItem {
-  return {
+  return withSecurityCheck({
     key: driveViewerKey(f.id),
     name: f.name,
     mimeType: canonicalMime(f.mimeType),
@@ -108,12 +120,12 @@ export function driveFileItem(f: DriveFile): ViewerItem {
     summaryDriveFileId: f.id,
     backlinksDriveFileId: f.id,
     aiRefs: { source: 'drive', driveFileId: f.id },
-  }
+  })
 }
 
 /** 첨부 모아보기의 가상 첨부 — 서버가 준 downloadUrl 로 받고, 원본(이슈·메시지)으로 이동할 수 있다. */
 export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
-  return {
+  return withSecurityCheck({
     key: fileViewerKey(a.fileId),
     name: a.name,
     mimeType: a.mimeType,
@@ -122,13 +134,13 @@ export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
     downloadPath: a.downloadUrl,
     importFileId: a.fileId,
     sourceLink: a.deepLink,
-  }
+  })
 }
 
 /** 이슈 업로드 첨부 — 멤버 권한 콘텐츠 경로. 다운로드도 같은 엔드포인트라(api downloadAttachment 와 동일) 경로를 같이 쓴다. */
 export function issueAttachmentItem(projectKey: string, number: number, a: IssueAttachment): ViewerItem {
   const path = attachmentContentPath(projectKey, number, a.fileId)
-  return {
+  return withSecurityCheck({
     key: fileViewerKey(a.fileId),
     name: a.originalName,
     mimeType: a.mimeType,
@@ -138,7 +150,7 @@ export function issueAttachmentItem(projectKey: string, number: number, a: Issue
     importFileId: a.fileId,
     // read_file 의 이슈 첨부 attachmentId 는 core fileId 다(get_issue_detail attachments[].attachmentId 와 같은 값).
     aiRefs: { source: 'issue', issueKey: formatIssueKey(projectKey, number), attachmentId: a.fileId },
-  }
+  })
 }
 
 /**
@@ -156,7 +168,7 @@ export function issueDriveLinkItem(projectKey: string, number: number, l: DriveL
  */
 function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
   const unavailable = l.availability !== 'ACTIVE'
-  return {
+  const item: ViewerItem = {
     key,
     name: l.name,
     // 링크 형식도 업로드와 같은 규칙 — 대소문자·파라미터 정규화, 범용 형식이면 파일명으로 추론(드라이브 업로드도 형식이 범용일 수 있다).
@@ -173,6 +185,8 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
         }),
     unavailable,
   }
+  // 열 수 없는 링크에는 점검 경로를 달지 않는다.
+  return unavailable ? item : withSecurityCheck(item)
 }
 
 /**
@@ -187,7 +201,7 @@ function chatUploadItem(
   importable: boolean,
   aiRefs: Record<string, string | number>,
 ): ViewerItem {
-  return {
+  return withSecurityCheck({
     key,
     name: a.originalName,
     mimeType: attachmentMime(a.mimeType, a.originalName),
@@ -196,7 +210,7 @@ function chatUploadItem(
     downloadPath: path,
     ...(importable ? { importFileId: a.fileId } : {}),
     aiRefs,
-  }
+  })
 }
 
 /**

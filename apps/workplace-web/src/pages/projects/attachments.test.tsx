@@ -221,6 +221,48 @@ describe('첨부 뷰어 — 조건부 표시', () => {
     expect(await screen.findByRole('menuitem', { name: '드라이브에서 열기' })).toBeInTheDocument()
   })
 
+  // WP-1262: 요약이 없는 이슈 HTML 첨부도 보안 점검이 있으면 ✨ 로 패널을 열고, 제목은 「보안 점검」이다.
+  test('이슈 HTML 첨부는 점검 결과가 있으면 ✨ 로 보안 점검 패널을 연다', async () => {
+    const { user } = await openIssueDetail({
+      detail: detail(1),
+      attachments: [createAttachment({ fileId: 7801, originalName: 'page.html', mimeType: 'text/html' })],
+      handlers: [
+        http.get(`${ATT}/7801/content`, () => new HttpResponse('<html><body><script>1</script></body></html>', { headers: { 'Content-Type': 'text/html' } })),
+        http.get(`${ATT}/7801/security-check`, () =>
+          HttpResponse.json({ status: 'DONE', risk: 'LOW', headline: '문제 없어 보여요', evidence: [], checkedAt: '2026-11-01T01:00:00Z', reason: null }),
+        ),
+      ],
+    })
+    await user.click(await screen.findByRole('button', { name: 'page.html 미리보기' }))
+    const toggle = await screen.findByRole('button', { name: 'AI 요약' })
+    await user.click(toggle)
+    const panel = await screen.findByTestId('viewer-side-panel')
+    expect(within(panel).getByRole('heading', { name: '보안 점검' })).toBeInTheDocument()
+    expect(await within(panel).findByTestId('security-check-card')).toHaveTextContent('문제 없어 보여요')
+    expect(within(panel).queryByTestId('drive-summary-card')).not.toBeInTheDocument()
+  })
+
+  // WP-1262: 업로드 직후 PENDING(스크립트 없는 HTML 도 잠깐 거친다)은 패널을 열지 않는다 — CHECKING 부터 연다.
+  test('이슈 HTML 첨부의 점검이 PENDING 이면 ✨ 가 없다', async () => {
+    let securityFetched = false
+    const { user } = await openIssueDetail({
+      detail: detail(1),
+      attachments: [createAttachment({ fileId: 7802, originalName: 'plain.html', mimeType: 'text/html' })],
+      handlers: [
+        http.get(`${ATT}/7802/content`, () => new HttpResponse('<html><body><p>hi</p></body></html>', { headers: { 'Content-Type': 'text/html' } })),
+        http.get(`${ATT}/7802/security-check`, () => {
+          securityFetched = true
+          return HttpResponse.json({ status: 'PENDING', risk: null, headline: null, evidence: [], checkedAt: null, reason: null })
+        }),
+      ],
+    })
+    await user.click(await screen.findByRole('button', { name: 'plain.html 미리보기' }))
+    await waitFor(() => expect(securityFetched).toBe(true))
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: 'AI 요약' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('viewer-side-panel')).not.toBeInTheDocument()
+  })
+
   test('업로드 첨부는 ✨ 없이 🔗(링크 복사)·☁ 를 보이고, ☁ → 폴더 고르기 → 드라이브로 가져오기 POST', async () => {
     const requests = recordRequests()
     const { user } = await openIssueDetail({

@@ -43,7 +43,11 @@ export function driveBaseHandlers({
 /** 파일 하나의 미리보기 부속 조회 — 썸네일(404)·요약·참조된 곳. 콘텐츠는 테스트마다 준다. */
 export function fileSideHandlers(
   id: number,
-  { summary = { summary: null, status: 'PENDING' }, backlinks = [] }: { summary?: Record<string, unknown> | number; backlinks?: Record<string, unknown>[] } = {},
+  {
+    summary = { summary: null, status: 'PENDING' },
+    backlinks = [],
+    security = { status: null, risk: null, headline: null, evidence: [], checkedAt: null, reason: null },
+  }: { summary?: Record<string, unknown> | number; backlinks?: Record<string, unknown>[]; security?: Record<string, unknown> } = {},
 ): RequestHandler[] {
   return [
     http.get(`${API}/files/${id}/thumbnail`, () => new HttpResponse(null, { status: 404 })),
@@ -51,6 +55,8 @@ export function fileSideHandlers(
       typeof summary === 'number' ? new HttpResponse(null, { status: summary }) : HttpResponse.json(summary),
     ),
     http.get(`${API}/files/${id}/backlinks`, () => HttpResponse.json(backlinks)),
+    // WP-1262: HTML 파일의 보안 점검 조회 — 기본은 점검 행 없음(status null).
+    http.get(`${API}/files/${id}/security-check`, () => HttpResponse.json(security)),
   ]
 }
 

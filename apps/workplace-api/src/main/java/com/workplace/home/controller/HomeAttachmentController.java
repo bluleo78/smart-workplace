@@ -2,6 +2,8 @@ package com.workplace.home.controller;
 
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.security.FileSecurityCheckService;
+import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeUploadedFile;
@@ -39,6 +41,8 @@ public class HomeAttachmentController {
   private final HomeAttachmentService service;
 
   private final AttachmentViewService attachmentView;
+
+  private final FileSecurityCheckService securityChecks;
 
   /** 선업로드 — fileId 메타 목록. files 파트가 없으면 서비스가 한국어 400 을 낸다(스프링 기본 오류 대신). */
   @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -111,5 +115,19 @@ public class HomeAttachmentController {
     } catch (InvalidMediaTypeException e) {
       return MediaType.APPLICATION_OCTET_STREAM;
     }
+  }
+
+  /** HTML 보안 점검 상태(WP-1262) — /content 와 같은 가드(세션 소유자·그 세션 첨부, 아니면 404). */
+  @GetMapping("/sessions/{sid}/attachments/{fileId}/security-check")
+  public SecurityCheckView securityCheck(
+      @AuthenticationPrincipal Long callerId, @PathVariable UUID sid, @PathVariable long fileId) {
+    return securityChecks.view(service.resolveViewFileId(callerId, sid, fileId));
+  }
+
+  /** HTML 보안 점검 요청(WP-1262) — 가드는 조회와 같다. */
+  @PostMapping("/sessions/{sid}/attachments/{fileId}/security-check")
+  public SecurityCheckView requestSecurityCheck(
+      @AuthenticationPrincipal Long callerId, @PathVariable UUID sid, @PathVariable long fileId) {
+    return securityChecks.request(service.resolveViewFileId(callerId, sid, fileId));
   }
 }

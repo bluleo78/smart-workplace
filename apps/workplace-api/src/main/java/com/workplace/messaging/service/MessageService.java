@@ -604,6 +604,15 @@ public class MessageService {
     return driveLinkService.getLinkContent("MESSAGE", messageId, driveFileId);
   }
 
+  /** 메시지에 링크된 드라이브 파일의 core file id(WP-1262 보안 점검) — {@link #driveLinkContent} 와 같은 읽기 가드·소속 확인. */
+  @Transactional(readOnly = true)
+  public long driveLinkFileId(long callerId, long channelId, long messageId, long driveFileId) {
+    ensureReadable(channelId, callerId);
+    if (!messageRepo.belongsToChannel(messageId, channelId))
+      throw new MessageNotFoundException(messageId);
+    return driveLinkService.resolveLinkFileId("MESSAGE", messageId, driveFileId);
+  }
+
   /**
    * 메시지 id 로 들어온 요청의 채널을 돌려준다. 메시지가 없거나 호출자가 그 채널 멤버가 아니면 똑같이 404(WP-591) — 메시지 id 는 전역 일련번호라
    * 403/404 가 갈리면 비멤버가 비공개 채널·DM 에 글이 쌓이는 것을 알 수 있다.

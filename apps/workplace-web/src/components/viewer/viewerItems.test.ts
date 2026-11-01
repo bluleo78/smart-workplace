@@ -25,6 +25,7 @@ import {
   parseChatViewerKey,
   parseViewerKey,
   resolveBundle,
+  securityPathFrom,
   teamChatBundle,
   virtualAttachmentItem,
 } from './viewerItems'
@@ -397,5 +398,56 @@ describe('itemPreviewKind — 변환 미리보기 판정(WP-431)', () => {
   })
   it('범용 형식 첨부도 파일명 확장자로 HWP 를 알아본다', () => {
     expect(attachmentMime('application/octet-stream', '보고서.hwp')).toBe('application/x-hwp')
+  })
+})
+
+// WP-1262: HTML 항목에만 보안 점검 경로(`…/content` → `…/security-check`)가 붙는다.
+describe('securityCheckPath', () => {
+  const htmlFile = { ...file, id: 71, mimeType: 'text/html; charset=utf-8', name: 'a.html' } as DriveFile
+  const attachment = (mimeType: string) => ({ fileId: 5, originalName: 'a.html', mimeType, sizeBytes: 1 }) as IssueAttachment
+  const link = (over: Partial<DriveLink> = {}) =>
+    ({ driveFileId: 8, name: 'l.html', mimeType: 'text/html', sizeBytes: 1, availability: 'ACTIVE', spaceId: 1, ...over }) as DriveLink
+  const upload = (over: Partial<HomeUploadedFile> = {}) =>
+    ({ fileId: 6, originalName: 'h.html', mimeType: 'text/html', sizeBytes: 1, ...over }) as HomeUploadedFile
+
+  it('securityPathFrom_replacesTrailingContent', () => {
+    expect(securityPathFrom('/drive/files/1/content')).toBe('/drive/files/1/security-check')
+  })
+
+  it('driveFileItem_hasPath_whenHtmlWithCharsetParam', () => {
+    expect(driveFileItem(htmlFile).securityCheckPath).toBe('/drive/files/71/security-check')
+    expect(driveFileItem(file).securityCheckPath).toBeUndefined()
+  })
+
+  it('virtualAttachmentItem_hasPath_whenHtml', () => {
+    const v = { fileId: 3, name: 'a.html', mimeType: 'text/html', sizeBytes: 1, downloadUrl: '/api/v1/projects/WP/issues/1/attachments/3/content', deepLink: '/x' } as VirtualAttachment
+    expect(virtualAttachmentItem(v).securityCheckPath).toBe('/api/v1/projects/WP/issues/1/attachments/3/security-check')
+  })
+
+  it('issueAttachmentItem_hasNoPath_whenMimeHasCharsetParam', () => {
+    // ViewerBody 는 정확히 text/html 일 때만 HTML 로 그린다 — 파라미터가 붙은 원문 mime 은 본문이 TEXT 라 카드도 두지 않는다.
+    expect(issueAttachmentItem('WP', 1, attachment('text/html; charset=utf-8')).securityCheckPath).toBeUndefined()
+  })
+
+  it('issueAttachmentItem_hasPath_onlyForHtml', () => {
+    expect(issueAttachmentItem('WP', 1, attachment('text/html')).securityCheckPath).toMatch(/\/security-check$/)
+    expect(issueAttachmentItem('WP', 1, attachment('application/pdf')).securityCheckPath).toBeUndefined()
+  })
+
+  it('issueDriveLinkItem_hasPath_onlyWhenActive', () => {
+    expect(issueDriveLinkItem('WP', 1, link()).securityCheckPath).toBe('/projects/WP/issues/1/drive-links/8/security-check')
+    expect(issueDriveLinkItem('WP', 1, link({ availability: 'TRASHED' })).securityCheckPath).toBeUndefined()
+  })
+
+  it('homeAndMailAndChatItems_havePath_whenHtml', () => {
+    expect(homeChatAttachmentItem('s1', upload()).securityCheckPath).toMatch(/\/security-check$/)
+    expect(homeChatAttachmentItem('s1', upload({ mimeType: 'application/pdf', originalName: 'x.pdf' })).securityCheckPath).toBeUndefined()
+    const mail = { id: 4, filename: 'm.html', contentType: 'text/html', sizeBytes: 1 } as EmailAttachmentMeta
+    expect(mailAttachmentItem(mail).securityCheckPath).toBe('/mail/attachments/4/security-check')
+    const team = teamChatBundle(2, { id: 9, attachments: [upload() as unknown as MessageAttachment], driveLinks: [link()] })
+    expect(team.map((i) => i.securityCheckPath)).toEqual([
+      '/messaging/channels/2/messages/9/attachments/6/security-check',
+      '/messaging/channels/2/messages/9/drive-links/8/security-check',
+    ])
   })
 })

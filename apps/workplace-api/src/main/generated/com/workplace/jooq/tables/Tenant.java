@@ -53,6 +53,7 @@ import com.workplace.jooq.tables.EventReminder.EventReminderPath;
 import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
 import com.workplace.jooq.tables.FilePreview.FilePreviewPath;
+import com.workplace.jooq.tables.FileSecurityCheck.FileSecurityCheckPath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.HomeMessageAttachment.HomeMessageAttachmentPath;
@@ -913,6 +914,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _eventReminder = new EventReminderPath(this, null, Keys.EVENT_REMINDER__FK_EVENT_REMINDER_TENANT.getInverseKey());
 
         return _eventReminder;
+    }
+
+    private transient FileSecurityCheckPath _fileSecurityCheck;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.file_security_check</code> table
+     */
+    public FileSecurityCheckPath fileSecurityCheck() {
+        if (_fileSecurityCheck == null)
+            _fileSecurityCheck = new FileSecurityCheckPath(this, null, Keys.FILE_SECURITY_CHECK__FK_FILE_SECURITY_CHECK_TENANT.getInverseKey());
+
+        return _fileSecurityCheck;
     }
 
     private transient FilePath _file;

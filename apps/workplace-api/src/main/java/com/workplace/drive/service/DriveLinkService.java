@@ -185,6 +185,22 @@ public class DriveLinkService {
     return fileUpload.getFileContentTrusted(meta.fileId()).withName(meta.name());
   }
 
+  /**
+   * 링크된 파일의 현재 core file id(WP-1262 보안 점검 키). {@link #getLinkContent} 와 같은 가드 — 이 소스에 링크되지 않았거나 휴지통
+   * 파일이면 404. 바이트를 읽지 않는다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveLinkFileId(String sourceType, long sourceId, long driveFileId) {
+    if (!refRepo.linkExists(driveFileId, sourceType, sourceId)) {
+      throw new DriveFileNotFoundException(driveFileId);
+    }
+    return fileRepo
+        .findLinkMeta(driveFileId)
+        .filter(m -> !m.trashed())
+        .orElseThrow(() -> new DriveFileNotFoundException(driveFileId))
+        .fileId();
+  }
+
   /** 소스 삭제 시 모든 ref 정리. */
   public void purgeSource(String sourceType, long sourceId) {
     refRepo.deleteAllForSource(sourceType, sourceId);

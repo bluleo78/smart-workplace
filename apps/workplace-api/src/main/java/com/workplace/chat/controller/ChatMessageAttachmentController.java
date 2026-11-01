@@ -4,6 +4,8 @@ import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.security.FileSecurityCheckService;
+import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -35,10 +37,15 @@ public class ChatMessageAttachmentController {
 
   private final AttachmentViewService attachmentView;
 
+  private final FileSecurityCheckService securityChecks;
+
   public ChatMessageAttachmentController(
-      ChatMessageAttachmentService service, AttachmentViewService attachmentView) {
+      ChatMessageAttachmentService service,
+      AttachmentViewService attachmentView,
+      FileSecurityCheckService securityChecks) {
     this.service = service;
     this.attachmentView = attachmentView;
+    this.securityChecks = securityChecks;
   }
 
   /** 선업로드 → fileId 메타 목록. 이후 메시지 전송 시 fileIds 에 포함해 바인딩. */
@@ -88,5 +95,29 @@ public class ChatMessageAttachmentController {
         ContentDisposition.attachment().filename(f.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(f.sizeBytes());
     return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+  }
+
+  /**
+   * HTML 보안 점검 상태(WP-1262) — /text·/view 와 같은 열람 가드({@link
+   * ChatMessageAttachmentService#resolveViewFileId}: 스레드 읽기 + 그 스레드 첨부, 이슈 첨부면 이슈 열람 권한)로 file id 를
+   * 확인한다. msgId 는 콘텐츠 경로와 모양을 맞추려고 받는다.
+   */
+  @GetMapping("/threads/{id}/messages/{msgId}/attachments/{fileId}/security-check")
+  public SecurityCheckView securityCheck(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long threadId,
+      @PathVariable("msgId") long messageId,
+      @PathVariable long fileId) {
+    return securityChecks.view(service.resolveViewFileId(callerId, threadId, fileId));
+  }
+
+  /** HTML 보안 점검 요청(WP-1262) — 가드는 조회와 같다. */
+  @PostMapping("/threads/{id}/messages/{msgId}/attachments/{fileId}/security-check")
+  public SecurityCheckView requestSecurityCheck(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long threadId,
+      @PathVariable("msgId") long messageId,
+      @PathVariable long fileId) {
+    return securityChecks.request(service.resolveViewFileId(callerId, threadId, fileId));
   }
 }

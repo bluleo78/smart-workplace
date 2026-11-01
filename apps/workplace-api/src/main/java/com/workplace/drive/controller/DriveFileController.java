@@ -11,6 +11,8 @@ import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.security.FileSecurityCheckService;
+import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.filepreview.PreviewResponses;
 import com.workplace.filepreview.service.FilePreviewService;
@@ -47,6 +49,8 @@ public class DriveFileController {
   private final AttachmentViewService attachmentView;
 
   private final FilePreviewService previewService;
+
+  private final FileSecurityCheckService securityChecks;
 
   @PostMapping(value = "/spaces/{id}/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public ResponseEntity<DriveFileResponse> upload(
@@ -247,5 +251,21 @@ public class DriveFileController {
       throws IOException {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(fileService.copy(callerId, driveFileId, req.targetFolderId()));
+  }
+
+  /**
+   * HTML 보안 점검 상태(WP-1262) — /content 와 같은 보기 가드(없는·휴지통 404, VIEWER 미만 403)로 현재 버전 file id 를 푼다.
+   */
+  @GetMapping("/files/{id}/security-check")
+  public SecurityCheckView securityCheck(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
+    return securityChecks.view(fileService.resolveViewFileId(callerId, driveFileId));
+  }
+
+  /** HTML 보안 점검 요청(WP-1262) — 가드는 조회와 같다. */
+  @PostMapping("/files/{id}/security-check")
+  public SecurityCheckView requestSecurityCheck(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
+    return securityChecks.request(fileService.resolveViewFileId(callerId, driveFileId));
   }
 }

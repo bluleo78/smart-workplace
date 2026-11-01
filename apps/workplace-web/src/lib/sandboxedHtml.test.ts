@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import cases from './htmlHasScripts.cases.json'
 import { htmlHasScripts, LINK_TARGET_BASE, SANDBOX_HEAD, THIN_SCROLLBAR_STYLE, withSandboxHead } from './sandboxedHtml'
 
 describe('withSandboxHead', () => {
@@ -99,5 +100,12 @@ describe('htmlHasScripts', () => {
     const start = performance.now()
     expect(htmlHasScripts(big)).toBe(false)
     expect(performance.now() - start).toBeLessThan(1000)
+  })
+})
+
+// WP-1262: 서버(API)의 스크립트 판정과 같은 공용 예시 — 두 쪽이 같은 JSON 으로 같은 답을 내야 한다.
+describe('htmlHasScripts 공용 예시', () => {
+  it.each(cases.map((c) => [c.note, c] as const))('matchesSharedCase_%s', (_note, c) => {
+    expect(htmlHasScripts(c.html)).toBe(c.hasScripts)
   })
 })

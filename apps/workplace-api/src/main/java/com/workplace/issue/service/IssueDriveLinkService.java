@@ -68,6 +68,13 @@ public class IssueDriveLinkService {
     return driveLinks.getLinkContent(SOURCE, issueId, driveFileId);
   }
 
+  /** 이슈에 링크된 드라이브 파일의 core file id(WP-1262 보안 점검) — {@link #content} 와 같은 조회 가드·링크 확인. */
+  @Transactional(readOnly = true)
+  public long linkFileId(long callerId, String key, int number, long driveFileId) {
+    long issueId = resolveReadableIssue(callerId, key, number).issueId();
+    return driveLinks.resolveLinkFileId(SOURCE, issueId, driveFileId);
+  }
+
   /** 링크 변경을 실시간 무효화로 알림 — 이미 검증한 project 를 재사용한다(중복 조회 방지). */
   private void notifyUpdated(long callerId, ResolvedIssue target) {
     changeNotifier.updated(target.project(), target.number(), target.issueId(), callerId);
