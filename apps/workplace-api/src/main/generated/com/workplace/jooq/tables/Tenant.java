@@ -6,6 +6,7 @@ package com.workplace.jooq.tables;
 
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
@@ -315,6 +316,19 @@ public class Tenant extends TableImpl<TenantRecord> {
     @Override
     public List<UniqueKey<TenantRecord>> getUniqueKeys() {
         return Arrays.asList(Keys.TENANT_SLUG_KEY);
+    }
+
+    private transient AgentApiKeyPath _agentApiKey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_api_key</code> table
+     */
+    public AgentApiKeyPath agentApiKey() {
+        if (_agentApiKey == null)
+            _agentApiKey = new AgentApiKeyPath(this, null, Keys.AGENT_API_KEY__AGENT_API_KEY_TENANT_ID_FKEY.getInverseKey());
+
+        return _agentApiKey;
     }
 
     private transient AgentRunnerTokenPath _agentRunnerToken;

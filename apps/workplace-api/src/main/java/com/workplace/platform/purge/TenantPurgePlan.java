@@ -19,8 +19,13 @@ public final class TenantPurgePlan {
 
   private TenantPurgePlan() {}
 
-  /** tenant FK CASCADE 또는 purge_tenant() 가 처리하므로 목록에서 제외(app_tenant 는 membership DELETE 권한 없음). */
-  public static final Set<String> EXCLUDED = Set.of("membership", "user_api_token");
+  /**
+   * tenant FK CASCADE 또는 purge_tenant() 가 처리하므로 목록에서 제외(app_tenant 는 membership DELETE 권한 없음).
+   * agent_api_key 는 Works 자동 발급 키만 tenant_id 를 갖고 tenant FK CASCADE 로 지워진다(V250, WP-1253) — 관리자 발급
+   * 키(tenant_id NULL)는 AI 와 함께 purge_tenant() 가 정리한다.
+   */
+  public static final Set<String> EXCLUDED =
+      Set.of("membership", "user_api_token", "agent_api_key");
 
   /**
    * tenant_id 컬럼을 가진 public 스키마 BASE TABLE 이름 카탈로그 쿼리. information_schema 는 현재 롤에 권한 있는 테이블만 보여 누락을

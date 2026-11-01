@@ -150,7 +150,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       // GUC 를 주입받아 RLS 하에서 권한을 정상 조회한다.
       var memberships = membershipRepository.findActiveByUser(userId);
       switch (AgentTenantResolver.resolve(
-          memberships, request.getHeader(AgentTenantResolver.TENANT_HEADER))) {
+          memberships, request.getHeader(AgentTenantResolver.TENANT_HEADER), null)) {
         case AgentTenantResolver.Rejected() -> {
           return; // 명시 테넌트 미해석 → 401 (WP-420)
         }

@@ -52,6 +52,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.RunnerTokenAuthenticator;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.home.controller.HomeChatController;
 import com.workplace.home.controller.HomeSessionController;
@@ -242,6 +243,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       ProjectService.class,
       ReactionService.class,
       RoleService.class,
+      // runner 인증 필터(WP-1249)는 Filter 라 슬라이스에 함께 올라온다 — 검증기만 목으로 둔다.
+      RunnerTokenAuthenticator.class,
       SseRegistry.class,
       UserApiTokenRepository.class,
       UserGroupService.class,

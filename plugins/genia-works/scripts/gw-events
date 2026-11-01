@@ -19,9 +19,7 @@ if [ -z "$projects" ]; then
 fi
 api=$(gw_api_url)
 
-name=$(gw_identity)
-key=""
-[ -n "$name" ] && key=$(gw_read_key "$name")
+key=$(gw_identity_key) || key=""
 if [ -z "$key" ]; then
   echo "gw-events: AI 키 신원이 아니어서 알림을 구독하지 않습니다 — 주기 확인만 합니다"
   exit 1

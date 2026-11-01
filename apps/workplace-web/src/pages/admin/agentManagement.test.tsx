@@ -52,11 +52,13 @@ const KEY_1 = {
   id: 1,
   userId: 100,
   keyPrefix: 'ak_test1',
-  label: 'worker-1',
-  createdBy: 1,
+  label: 'worker-1' as string | null,
+  createdBy: 1 as number | null,
   createdAt: '2026-05-20T09:00:00Z',
   lastUsedAt: null,
   revokedAt: null,
+  managed: false,
+  expiresAt: null as string | null,
 }
 
 // 역할 목록 — AI 에게 줄 수 없는 ADMIN·관리 권한 역할(grantsAdmin)과 사람 전용 USER 가 섞였다(WP-728).
@@ -445,6 +447,19 @@ test('일반 AI 의 키에는 「사용 불가」가 붙지 않는다 (WP-1162)'
   await openDrawer(user, 100)
   await screen.findByTestId('key-revoke-1')
   expect(screen.queryByTestId('key-unusable-1')).not.toBeInTheDocument()
+})
+
+// WP-1253: 만료된 키(Works 자동 발급 키의 수명이 다함)는 회수한 키처럼 쓸 수 없다 — 회수 칸에 「만료됨」, 회수 버튼 없음, 회수 안내도 남은 키로 세지 않는다.
+test('만료된 키는 「만료됨」으로 보이고 회수 버튼이 없으며 남은 키로 세지 않는다 (WP-1253)', async () => {
+  const personal: AgentResponse = { ...base, id: 106, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const expired = { ...KEY_1, id: 8, userId: 106, keyPrefix: 'ak_expired', label: 'Works 자동 발급', createdBy: null, managed: true, expiresAt: '2020-01-01T00:00:00Z' }
+  const { user } = await renderAgents({ extraAgents: [personal], personalKeys: [expired] })
+  const drawer = await openDrawer(user, 106)
+  const keys = await within(drawer).findByTestId('agent-keys-block')
+  expect(await within(keys).findByTestId('key-expired-8')).toHaveTextContent('만료됨')
+  expect(within(keys).queryByTestId('key-revoke-8')).not.toBeInTheDocument()
+  expect(within(keys).queryByTestId('key-unusable-8')).not.toBeInTheDocument()
+  expect(within(keys).getByTestId('key-issue-personal-hint')).not.toHaveTextContent('회수')
 })
 
 // ── AI 아바타(WP-1222) ─────────────────────────────────────────────────────────────

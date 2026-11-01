@@ -6,6 +6,7 @@ import com.workplace.global.security.DbBusyResponseFilter;
 import com.workplace.global.security.JsonAuthenticationEntryPoint;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
+import com.workplace.global.security.RunnerTokenAuthenticationFilter;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.global.security.ratelimit.PublicRateLimitFilter;
 import com.workplace.global.security.ratelimit.RateLimitProperties;
@@ -45,6 +46,8 @@ public class SecurityConfig {
   private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
   // 사용자 PAT 인증 (Bearer swp_...) 도 JWT 보다 먼저 시도 (ak_/swp_/JWT 는 prefix 로 상호 배타)
   private final UserTokenAuthenticationFilter userTokenAuthenticationFilter;
+  // runner 토큰(Bearer rt_...) 인증 — runner 전용 경로에서만(WP-1249). 다른 토큰과 prefix 로 상호 배타
+  private final RunnerTokenAuthenticationFilter runnerTokenAuthenticationFilter;
   private final CorsProperties corsProperties;
   private final RateLimitProperties rateLimitProperties;
 
@@ -139,6 +142,12 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/api/platform/**")
                     .hasRole("PLATFORM")
+                    // AI 실행 위치의 runner 전용(WP-1249) — runner 토큰(ROLE_RUNNER)으로만. 사람 JWT·AI 키·개인 토큰은
+                    // 403.
+                    // 주체가 Long 이 아닌 runner 주체(테넌트·위치)라 runner 토큰은 이 경로 밖에서 인증되지 않는다(필터가 건너뛰어 401).
+                    // /api/v1/** 보다 먼저 둔다.
+                    .requestMatchers(RunnerTokenAuthenticationFilter.PATH_PREFIX + "**")
+                    .hasRole("RUNNER")
                     .requestMatchers("/api/v1/**")
                     .authenticated()
                     .anyRequest()
@@ -156,7 +165,9 @@ public class SecurityConfig {
         // ak_ 토큰을 JWT 보다 먼저 시도 (둘 다 Bearer 헤더 — prefix 로 분기)
         .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)
         // swp_ 토큰도 JWT 보다 먼저 시도 (ak_/swp_/JWT 상호 배타)
-        .addFilterBefore(userTokenAuthenticationFilter, JwtAuthenticationFilter.class);
+        .addFilterBefore(userTokenAuthenticationFilter, JwtAuthenticationFilter.class)
+        // rt_ 토큰도 JWT 보다 먼저 — runner 경로에서만 동작한다
+        .addFilterBefore(runnerTokenAuthenticationFilter, JwtAuthenticationFilter.class);
 
     return http.build();
   }

@@ -2,6 +2,7 @@ package com.workplace.global.security;
 
 import com.workplace.tenant.dto.MembershipResponse;
 import java.util.List;
+import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 
 /**
@@ -44,12 +45,25 @@ public final class AgentTenantResolver {
   /**
    * 에이전트 콜백의 active-tenant 를 해석한다.
    *
+   * <ul>
+   *   <li>헤더가 있으면 숫자여야 하고(아니면 {@link Rejected}), 워크스페이스에 묶인 자격증명이면 그 워크스페이스와 같아야 한다(다르면 {@link
+   *       Rejected}).
+   *   <li>목표 테넌트(묶인 워크스페이스 ?? 헤더)가 있으면 그 테넌트의 ACTIVE 멤버십이 있어야 {@link Resolved}, 없으면 {@link
+   *       Rejected} — 헤더는 신뢰하지 않는다(위조 시 fail-closed).
+   *   <li>목표가 없으면(묶이지 않은 자격증명·헤더 없음) 단일 멤버십만 자동 선택하고, 0/다중이면 {@link NoTenant}.
+   * </ul>
+   *
    * @param memberships 대상 에이전트의 ACTIVE 멤버십(테넌트도 ACTIVE)
    * @param requestedTenantHeader {@code X-On-Behalf-Of-Tenant} 헤더 원문(null 가능)
+   * @param boundTenantId 자격증명이 묶인 워크스페이스(Works 자동 발급 키, WP-1253) — 묶이지 않았으면 null. 묶였으면 헤더 없이도 그
+   *     워크스페이스로 들어간다
    * @return 해석 결과 3상태({@link Resolution})
    */
   public static Resolution resolve(
-      List<MembershipResponse> memberships, String requestedTenantHeader) {
+      List<MembershipResponse> memberships,
+      @Nullable String requestedTenantHeader,
+      @Nullable Long boundTenantId) {
+    Long target = boundTenantId;
     if (StringUtils.hasText(requestedTenantHeader)) {
       long requested;
       try {
@@ -57,12 +71,17 @@ public final class AgentTenantResolver {
       } catch (NumberFormatException e) {
         return new Rejected(); // 위조/오타 → fail-closed
       }
-      // 헤더는 신뢰하지 않는다 — 실제 ACTIVE 멤버십에 있을 때만 채택.
-      return memberships.stream().anyMatch(m -> m.tenantId().equals(requested))
-          ? new Resolved(requested)
+      if (target != null && target != requested) return new Rejected();
+      target = requested;
+    }
+    if (target != null) {
+      long t = target;
+      // 헤더·묶인 워크스페이스 모두 실제 ACTIVE 멤버십에 있을 때만 채택.
+      return memberships.stream().anyMatch(m -> m.tenantId() == t)
+          ? new Resolved(t)
           : new Rejected();
     }
-    // 명시 헤더 없음 → 기존 동작: 단일 멤버십만 자동 선택. 0/다중 → 테넌트 없음.
+    // 목표 없음 → 기존 동작: 단일 멤버십만 자동 선택. 0/다중 → 테넌트 없음.
     return memberships.size() == 1 ? new Resolved(memberships.get(0).tenantId()) : new NoTenant();
   }
 }

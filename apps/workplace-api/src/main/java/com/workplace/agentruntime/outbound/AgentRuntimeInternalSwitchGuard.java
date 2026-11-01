@@ -3,6 +3,8 @@ package com.workplace.agentruntime.outbound;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
+import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.outbound.AgentRuntimeChanged;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +18,7 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>Works 가 켜 둔 AI(desired RUN)면 409 를 던져 변경 전체를 롤백한다 — 그대로 두면 클러스터에 AI 가 남아 계속 돈다(먼저 끄기).
- *   <li>꺼져 있으면 실행 설정을 지운다 — 「기본」 템플릿 = 행 없음 + INTERNAL.
+ *   <li>꺼져 있으면 실행 설정을 지우고 Works 가 자동 발급한 키를 정리 유예로 줄인다(WP-1253) — 「기본」 템플릿 = 행 없음 + INTERNAL.
  * </ul>
  *
  * <p>가장 먼저 돌게 해(@Order) 다른 리스너(AI 작업 기록 정리 등)가 일을 벌인 뒤에 거절되는 일이 없게 한다.
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Component;
 public class AgentRuntimeInternalSwitchGuard {
 
   private final AgentRuntimeSettingRepository settings;
+  private final AgentApiKeyService agentKeys;
 
   @EventListener
   @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -38,6 +41,7 @@ public class AgentRuntimeInternalSwitchGuard {
               if (row.desired() == Desired.RUN)
                 throw AgentRuntimeSettingConflictException.running();
               settings.delete(e.agentUserId());
+              agentKeys.shortenManagedToGrace(e.agentUserId(), TenantContext.require());
             });
   }
 }

@@ -146,6 +146,62 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         return (OffsetDateTime) get(8);
     }
 
+    /**
+     * Setter for <code>public.agent_api_key.managed</code>.
+     */
+    public void setManaged(Boolean value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.managed</code>.
+     */
+    public Boolean getManaged() {
+        return (Boolean) get(9);
+    }
+
+    /**
+     * Setter for <code>public.agent_api_key.expires_at</code>.
+     */
+    public void setExpiresAt(OffsetDateTime value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.expires_at</code>.
+     */
+    public OffsetDateTime getExpiresAt() {
+        return (OffsetDateTime) get(10);
+    }
+
+    /**
+     * Setter for <code>public.agent_api_key.rotation_generation</code>.
+     */
+    public void setRotationGeneration(Long value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.rotation_generation</code>.
+     */
+    public Long getRotationGeneration() {
+        return (Long) get(11);
+    }
+
+    /**
+     * Setter for <code>public.agent_api_key.tenant_id</code>.
+     */
+    public void setTenantId(Long value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.tenant_id</code>.
+     */
+    public Long getTenantId() {
+        return (Long) get(12);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -169,7 +225,7 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
     /**
      * Create a detached, initialised AgentApiKeyRecord
      */
-    public AgentApiKeyRecord(Long id, Long userId, String keyPrefix, String keyHash, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt) {
+    public AgentApiKeyRecord(Long id, Long userId, String keyPrefix, String keyHash, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, Boolean managed, OffsetDateTime expiresAt, Long rotationGeneration, Long tenantId) {
         super(AgentApiKey.AGENT_API_KEY);
 
         setId(id);
@@ -181,6 +237,10 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         setCreatedAt(createdAt);
         setLastUsedAt(lastUsedAt);
         setRevokedAt(revokedAt);
+        setManaged(managed);
+        setExpiresAt(expiresAt);
+        setRotationGeneration(rotationGeneration);
+        setTenantId(tenantId);
         resetChangedOnNotNull();
     }
 }

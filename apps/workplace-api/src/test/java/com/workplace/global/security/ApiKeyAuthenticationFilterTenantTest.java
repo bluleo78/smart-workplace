@@ -192,4 +192,63 @@ class ApiKeyAuthenticationFilterTenantTest {
 
     assertThat(captured.get()).as("멤버십 다중 + 헤더 없음 → 미설정 (fail-closed)").isNull();
   }
+
+  /** 워크스페이스에 묶인 키(Works 자동 발급)로 부른 결과 — [TenantContext, 인증]. */
+  private Object[] runBoundKey(long boundTenant, String header) throws Exception {
+    when(agentApiKeyRepository.findActiveByHash(anyString()))
+        .thenReturn(Optional.of(new AgentApiKeyRepository.ActiveKey(KEY_ID, USER_ID, boundTenant)));
+    when(membershipRepository.findActiveByUser(USER_ID))
+        .thenReturn(
+            List.of(
+                new MembershipResponse(1L, "Acme", "acme"),
+                new MembershipResponse(2L, "Beta", "beta")));
+    Object[] seen = new Object[2];
+    FilterChain chain =
+        (req, res) -> {
+          seen[0] = TenantContext.get();
+          seen[1] =
+              org.springframework.security.core.context.SecurityContextHolder.getContext()
+                  .getAuthentication();
+        };
+    MockHttpServletRequest request = apiKeyRequest();
+    if (header != null) request.addHeader(AgentTenantResolver.TENANT_HEADER, header);
+    filter.doFilter(request, new MockHttpServletResponse(), chain);
+    return seen;
+  }
+
+  /** 묶인 키는 여러 워크스페이스에 속한 AI 라도 헤더 없이 묶인 워크스페이스로 들어간다(WP-1253). */
+  @Test
+  void boundKey_withoutHeader_setsBoundTenant() throws Exception {
+    Object[] seen = runBoundKey(2L, null);
+
+    assertThat(seen[0]).isEqualTo(2L);
+    assertThat(seen[1]).isNotNull();
+  }
+
+  /** 묶인 키로 다른 워크스페이스를 밝히면 그 워크스페이스의 멤버여도 인증하지 않는다(401, WP-1253). */
+  @Test
+  void boundKey_withOtherTenantHeader_notAuthenticated() throws Exception {
+    Object[] seen = runBoundKey(2L, "1");
+
+    assertThat(seen[0]).isNull();
+    assertThat(seen[1]).isNull();
+  }
+
+  /** 묶인 키로 같은 워크스페이스를 밝히면 그대로 통한다(WP-1253). */
+  @Test
+  void boundKey_withSameTenantHeader_setsBoundTenant() throws Exception {
+    Object[] seen = runBoundKey(2L, "2");
+
+    assertThat(seen[0]).isEqualTo(2L);
+    assertThat(seen[1]).isNotNull();
+  }
+
+  /** 묶인 워크스페이스의 멤버십이 ACTIVE 가 아니면 인증하지 않는다(WP-1253). */
+  @Test
+  void boundKey_withoutMembershipInBoundTenant_notAuthenticated() throws Exception {
+    Object[] seen = runBoundKey(3L, null);
+
+    assertThat(seen[0]).isNull();
+    assertThat(seen[1]).isNull();
+  }
 }

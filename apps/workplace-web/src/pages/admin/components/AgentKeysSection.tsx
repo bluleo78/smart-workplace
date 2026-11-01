@@ -2,13 +2,22 @@
 // 내부 에이전트("API 키" 블록)와 외부 에이전트("① 키 발급" 카드) 두 레이아웃이 공유하며 external 로 제목·placeholder 만 달라진다.
 // 회수 확인 다이얼로그와 평문 키 1회 표시 다이얼로그는 페이지가 소유하므로 콜백으로 위임한다.
 
-import { useState } from 'react';
+import { useState } from "react";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { formatDateTimeLocale } from '@/lib/formatters';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  API_TOKEN_STATUS_LABEL,
+  type ApiTokenStatus,
+  apiTokenStatus,
+} from "@/lib/apiTokenStatus";
+import { formatDateTimeLocale } from "@/lib/formatters";
 
-import { useAgentKeys, useIssueAgentKey } from '../../../hooks/queries/useAgentKeys';
+import {
+  useAgentKeys,
+  useIssueAgentKey,
+} from "../../../hooks/queries/useAgentKeys";
+import type { AgentApiKey } from "../../../types/agentKey";
 
 interface Props {
   agentId: number;
@@ -25,18 +34,26 @@ interface Props {
   canIssue: boolean;
 }
 
-export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIssue }: Props) {
+export function AgentKeysSection({
+  agentId,
+  external,
+  onIssued,
+  onRevoke,
+  canIssue,
+}: Props) {
   const keys = useAgentKeys(agentId);
   const issue = useIssueAgentKey(agentId);
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState("");
   // 회수되지 않은 키가 없다고 확인될 때만 정리 안내를 뺀다 — 키가 없는데 회수하라고 하지 않게. 목록을 불러오는 중이거나 오류면 남은 키가
   // 있을 수 있으니 안내를 보인다(WP-1162 — 전에는 빈 목록으로 보고 숨겼다).
-  const mayHaveActiveKey = keys.data == null || keys.data.some((k) => k.revokedAt == null);
+  // 만료된 키(Works 자동 발급 키의 수명이 다함)는 회수한 키처럼 더는 인증되지 않으니 활성으로 세지 않는다(WP-1253).
+  const mayHaveActiveKey =
+    keys.data == null || keys.data.some((k) => apiTokenStatus(k) === "active");
 
   const onIssue = async () => {
     try {
       const res = await issue.mutateAsync({ label: label.trim() || null });
-      setLabel('');
+      setLabel("");
       onIssued(res.plaintextKey);
     } catch {
       /* 토스트는 mutation onError 가 처리 */
@@ -47,9 +64,13 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
     <div className="space-y-2" data-testid="agent-keys-block">
       {!external && <h3 className="text-sm font-medium">API 키</h3>}
       {!canIssue ? (
-        <p className="text-xs text-muted-foreground" data-testid="key-issue-personal-hint">
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="key-issue-personal-hint"
+        >
           개인 비서의 키는 관리자가 발급할 수 없어요.
-          {mayHaveActiveKey && ' 남아 있는 키로는 로그인되지 않으니 회수해 정리하세요.'}
+          {mayHaveActiveKey &&
+            " 남아 있는 키로는 로그인되지 않으니 회수해 정리하세요."}
         </p>
       ) : (
         <form
@@ -63,7 +84,7 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
           <Input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder={external ? 'label (예: 맥북)' : 'label (선택)'}
+            placeholder={external ? "label (예: 맥북)" : "label (선택)"}
             maxLength={80}
             aria-label="키 label"
           />
@@ -90,50 +111,30 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
           <tbody>
             {keys.isLoading ? (
               <tr>
-                <td colSpan={6} className="py-4 text-muted-foreground text-center">
+                <td
+                  colSpan={6}
+                  className="py-4 text-muted-foreground text-center"
+                >
                   로딩 중…
                 </td>
               </tr>
             ) : (keys.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-4 text-muted-foreground text-center">
+                <td
+                  colSpan={6}
+                  className="py-4 text-muted-foreground text-center"
+                >
                   키가 없습니다
                 </td>
               </tr>
             ) : (
               (keys.data ?? []).map((k) => (
-                <tr key={k.id} className="border-b" data-testid={`key-row-${k.id}`}>
-                  <td className="py-2 px-3 font-mono">{k.keyPrefix}…</td>
-                  <td className="px-3">{k.label ?? '-'}</td>
-                  <td className="px-3 text-xs text-muted-foreground">
-                    {formatDateTimeLocale(k.createdAt)}
-                  </td>
-                  <td className="px-3 text-xs text-muted-foreground">
-                    {formatDateTimeLocale(k.lastUsedAt)}
-                  </td>
-                  <td className="px-3 text-xs text-muted-foreground">
-                    {/* 개인 비서의 회수 안 된 키는 인증 필터가 거절해 쓸 수 없다 — 빈 회수 칸이 「활성」처럼 보이지 않게 따로 적는다(WP-1162). */}
-                    {k.revokedAt == null && !canIssue ? (
-                      <span className="text-destructive" data-testid={`key-unusable-${k.id}`}>
-                        사용 불가
-                      </span>
-                    ) : (
-                      formatDateTimeLocale(k.revokedAt)
-                    )}
-                  </td>
-                  <td className="px-3">
-                    {k.revokedAt == null && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onRevoke(k.id)}
-                        data-testid={`key-revoke-${k.id}`}
-                      >
-                        회수
-                      </Button>
-                    )}
-                  </td>
-                </tr>
+                <AgentKeyRow
+                  key={k.id}
+                  k={k}
+                  canIssue={canIssue}
+                  onRevoke={onRevoke}
+                />
               ))
             )}
           </tbody>
@@ -141,4 +142,72 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
       </div>
     </div>
   );
+}
+
+interface RowProps {
+  k: AgentApiKey;
+  canIssue: boolean;
+  onRevoke: (keyId: number) => void;
+}
+
+/** 키 목록 한 줄 — 회수·만료된 키는 쓸 수 없어 회수 버튼을 숨긴다(WP-1253). */
+function AgentKeyRow({ k, canIssue, onRevoke }: RowProps) {
+  const status = apiTokenStatus(k);
+  return (
+    <tr className="border-b" data-testid={`key-row-${k.id}`}>
+      <td className="py-2 px-3 font-mono">{k.keyPrefix}…</td>
+      <td className="px-3">{k.label ?? "-"}</td>
+      <td className="px-3 text-xs text-muted-foreground">
+        {formatDateTimeLocale(k.createdAt)}
+      </td>
+      <td className="px-3 text-xs text-muted-foreground">
+        {formatDateTimeLocale(k.lastUsedAt)}
+      </td>
+      <td className="px-3 text-xs text-muted-foreground">
+        <KeyRevokedCell k={k} status={status} canIssue={canIssue} />
+      </td>
+      <td className="px-3">
+        {status === "active" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onRevoke(k.id)}
+            data-testid={`key-revoke-${k.id}`}
+          >
+            회수
+          </Button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * 회수 칸 — 회수 시각을 적되, 쓸 수 없는 키가 빈 칸으로 「활성」처럼 보이지 않게 따로 적는다. 개인 비서의 회수 안 된 키는 인증 필터가 거절해
+ * 「사용 불가」(WP-1162), 수명이 다한 Works 자동 발급 키는 「만료됨」(WP-1253).
+ */
+function KeyRevokedCell({
+  k,
+  status,
+  canIssue,
+}: {
+  k: AgentApiKey;
+  status: ApiTokenStatus;
+  canIssue: boolean;
+}) {
+  if (status === "active" && !canIssue) {
+    return (
+      <span className="text-destructive" data-testid={`key-unusable-${k.id}`}>
+        사용 불가
+      </span>
+    );
+  }
+  if (status === "expired") {
+    return (
+      <span data-testid={`key-expired-${k.id}`}>
+        {API_TOKEN_STATUS_LABEL.expired}
+      </span>
+    );
+  }
+  return <>{formatDateTimeLocale(k.revokedAt)}</>;
 }

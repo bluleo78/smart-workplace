@@ -27,6 +27,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  *
  * <ul>
  *   <li>{@code SseRegistry.sendHeartbeat} — 파드 로컬 SSE 연결에 하트비트를 보낸다. 모든 파드에서 돌아야 한다.
+ *   <li>{@code RunnerSseRegistry.sendHeartbeat} — 파드 로컬 runner 변경 스트림에 하트비트를 보낸다(WP-1249). 모든 파드에서
+ *       돌아야 한다.
  *   <li>{@code MailReanalysisScheduler.tick} — 전용 실행기에 넘기고 바로 돌아와 잠금이 효과가 없다. 계정 단위 선점(버전 CAS)이 중복을
  *       막는다.
  *   <li>{@code MailCategoryBackfillScheduler.tick} — 전용 실행기에 넘기고 바로 돌아와 애너테이션 잠금이 효과가 없다. 실제 회차는
@@ -42,6 +44,7 @@ public class ScheduledLockArchTest {
   private static final Set<String> UNLOCKED =
       Set.of(
           "SseRegistry.sendHeartbeat",
+          "RunnerSseRegistry.sendHeartbeat",
           "MailReanalysisScheduler.tick",
           "MailCategoryBackfillScheduler.tick",
           "DroppedAudits.flush");

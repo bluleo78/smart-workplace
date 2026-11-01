@@ -54,7 +54,7 @@ class AgentApiKeyRepositoryTest extends IntegrationTestBase {
   @Test
   void insert_and_find_by_user() {
     Long id = repo.insert(agentId, "ak_abc12345", "hash-1", "ci-key", adminId);
-    List<AgentApiKeyResponse> keys = repo.findByUser(agentId);
+    List<AgentApiKeyResponse> keys = repo.findByUser(agentId, 1L);
     assertThat(keys).hasSize(1);
     assertThat(keys.get(0).id()).isEqualTo(id);
     assertThat(keys.get(0).label()).isEqualTo("ci-key");
@@ -83,20 +83,20 @@ class AgentApiKeyRepositoryTest extends IntegrationTestBase {
   @Test
   void revoke_sets_revoked_at_and_makes_inactive() {
     Long id = repo.insert(agentId, "ak_revoke", "h-r", "rev", adminId);
-    int updated = repo.revoke(id);
+    int updated = repo.revoke(id, 1L);
     assertThat(updated).isEqualTo(1);
-    assertThat(repo.findById(id).orElseThrow().revokedAt()).isNotNull();
+    assertThat(repo.findById(id, 1L).orElseThrow().revokedAt()).isNotNull();
     assertThat(repo.findActiveByHash("h-r")).isEmpty();
 
     // 두번째 호출은 영향 없음
-    assertThat(repo.revoke(id)).isEqualTo(0);
+    assertThat(repo.revoke(id, 1L)).isEqualTo(0);
   }
 
   @Test
   void touch_last_used_updates_timestamp() {
     Long id = repo.insert(agentId, "ak_touch", "h-t", null, adminId);
-    assertThat(repo.findById(id).orElseThrow().lastUsedAt()).isNull();
+    assertThat(repo.findById(id, 1L).orElseThrow().lastUsedAt()).isNull();
     repo.touchLastUsed(id);
-    assertThat(repo.findById(id).orElseThrow().lastUsedAt()).isNotNull();
+    assertThat(repo.findById(id, 1L).orElseThrow().lastUsedAt()).isNotNull();
   }
 }

@@ -296,8 +296,9 @@ class TenantPurgeIsolationTest extends IntegrationTestBase {
   }
 
   /**
-   * 소유자 커넥션(RLS 우회)으로 tenant_id 를 가진 모든 BASE TABLE 의 해당 테넌트 행 수 합계. membership·user_api_token 제외.
-   * 카탈로그는 pg_class/pg_attribute 로 읽는다(information_schema 는 권한 있는 테이블만 보여준다).
+   * 소유자 커넥션(RLS 우회)으로 tenant_id 를 가진 모든 BASE TABLE 의 해당 테넌트 행 수 합계.
+   * TenantPurgePlan.EXCLUDED(membership·user_api_token·agent_api_key) 제외. 카탈로그는
+   * pg_class/pg_attribute 로 읽는다(information_schema 는 권한 있는 테이블만 보여준다).
    */
   private long countRowsOwner(long tenantId) throws Exception {
     try (Connection conn = owner()) {

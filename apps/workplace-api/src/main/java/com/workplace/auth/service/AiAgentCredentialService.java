@@ -23,6 +23,7 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -217,6 +218,14 @@ public class AiAgentCredentialService {
   }
 
   /**
+   * 여러 AGENT 의 활성 자격증명 id 를 한 번에(WP-1253 — runner desired 의 claude 버전). 없는 AGENT 는 빠진다. 평문/암호문 미포함.
+   */
+  @Transactional(readOnly = true)
+  public Map<Long, Long> findActiveIds(Collection<Long> agentUserIds) {
+    return repo.findActiveIdsByUsers(agentUserIds);
+  }
+
+  /**
    * AGENT 본인 — 평문 자격증명 반환. last_used_at 갱신(실제 LLM 호출 redeem 경로 전용 — ai-agent 의 GET
    * /users/me/provider-credential 에서만 사용). 없으면 404. provider='anthropic'이면 token, 'opencode'이면
    * payload(복호화된 provider config JSON)에 채워진다. model 은 assistant_config.model(없으면 null).
@@ -240,6 +249,27 @@ public class AiAgentCredentialService {
     AiAgentCredentialRow row =
         repo.findActive(agentUserId).orElseThrow(OAuthTokenNotFoundException::new);
     return toRedeemResponse(agentUserId, row);
+  }
+
+  /**
+   * runner 에 넘길 활성 자격증명 원문(WP-1253) — id(=runner 쪽 Secret 버전)·provider·복호화한 원문. last_used_at 은 갱신하지
+   * 않는다(실제 LLM 호출이 아니라 Pod 에 옮겨 담는 것). 없으면 empty. 원문은 응답으로만 나가고 로그·예외에 싣지 않는다.
+   */
+  @Transactional(readOnly = true)
+  public Optional<ActiveProviderSecret> findActiveSecret(Long agentUserId) {
+    return repo.findActive(agentUserId)
+        .map(
+            row ->
+                new ActiveProviderSecret(
+                    row.id(), row.provider(), encryptionService.decrypt(row.encryptedToken())));
+  }
+
+  /** 활성 자격증명 원문 — toString 에 원문을 싣지 않는다. */
+  public record ActiveProviderSecret(long id, String provider, String plaintext) {
+    @Override
+    public String toString() {
+      return "ActiveProviderSecret[id=" + id + ", provider=" + provider + "]";
+    }
   }
 
   private ProviderCredentialRedeemResponse toRedeemResponse(

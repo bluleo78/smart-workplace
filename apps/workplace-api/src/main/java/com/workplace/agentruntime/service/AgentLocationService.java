@@ -8,11 +8,13 @@ import com.workplace.agentruntime.dto.UpdateAgentLocationRequest;
 import com.workplace.agentruntime.exception.AgentLocationConflictException;
 import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
+import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentLocationRepository.Row;
 import com.workplace.agentruntime.repository.AgentRunnerTokenRepository;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.AfterCommit;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.Texts;
 import com.workplace.user.dto.UserResponse;
@@ -53,6 +55,7 @@ public class AgentLocationService {
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
   private final ApplicationEventPublisher events;
+  private final RunnerSseRegistry runnerSse;
 
   /** 모든 위치 — 기본 위치 먼저. 자리 사용 수·연결 상태 포함. */
   @Transactional(readOnly = true)
@@ -75,6 +78,12 @@ public class AgentLocationService {
   @Transactional(readOnly = true)
   public Optional<Long> defaultLocationId() {
     return locations.findDefaultId();
+  }
+
+  /** AI 의 실제 위치 — 지정 위치 ?? 기본 위치(둘 다 없으면 null). 실행 설정·상태 보고가 이벤트를 낼 위치를 정할 때 쓴다. */
+  @Transactional(readOnly = true)
+  public Long effectiveLocationId(Long locationId) {
+    return locationId != null ? locationId : locations.findDefaultId().orElse(null);
   }
 
   /** 위치 등록 + 첫 토큰 발급. 이 워크스페이스의 첫 위치면 자동으로 기본이 된다. 이름이 겹치면 409. */
@@ -165,6 +174,7 @@ public class AgentLocationService {
         "AI 실행 위치 토큰 재발급: " + row.name(),
         Map.of("locationId", id, "name", row.name()));
     // 새 토큰은 아직 쓰이지 않았다 — 마지막 사용 시각이 비어 연결 상태는 PENDING.
+    closeRunnerStreams(id);
     Row rotated = row.withTokenPrefix(token.prefix()).withLastSeenAt(null);
     return new AgentLocationTokenResponse(withUsage(rotated), token.plaintext());
   }
@@ -182,12 +192,22 @@ public class AgentLocationService {
       throw new AgentLocationConflictException("이 실행 위치를 쓰는 AI 가 있습니다. 먼저 AI 의 실행 위치를 바꾸세요");
     }
     locations.delete(id);
+    closeRunnerStreams(id);
     audit(
         callerId,
         "AGENT_LOCATION_DELETED",
         id,
         "AI 실행 위치 삭제: " + row.name(),
         Map.of("locationId", id, "name", row.name()));
+  }
+
+  /**
+   * 커밋 뒤 이 위치의 runner 변경 스트림을 닫는다(WP-1249) — 회수된 옛 토큰으로 연 스트림이 계속 신호를 받지 않게. runner 는 다시 붙으며 토큰을 다시
+   * 검증받는다. 이 인스턴스의 연결만 닫히고, 다른 인스턴스의 연결은 연결 수명(30분)이 지나면 끊긴다.
+   */
+  private void closeRunnerStreams(long locationId) {
+    long tenantId = TenantContext.require();
+    AfterCommit.run(() -> runnerSse.closeAll(tenantId, locationId));
   }
 
   /** 발급한 토큰 — 응답용 평문(한 번만 나간다)과 화면용 앞자리. */

@@ -27,4 +27,8 @@ if [ -z "$key" ]; then
   exit 0
 fi
 
-printf '{"Authorization":"Bearer %s"}\n' "$key"
+# Works 가 띄운 AI 는 일할 워크스페이스(GENIA_WORKS_TENANT)를 함께 보낸다 — MCP 서버가 API 로 넘긴다(WP-1250).
+# 키·워크스페이스 값은 형식 문자열이 아니라 %s 인자로만 넣는다(키 검사가 따옴표·역슬래시를 이미 막는다).
+extra=""
+tenant=$(gw_tenant) && extra=$(printf ',"X-On-Behalf-Of-Tenant":"%s"' "$tenant")
+printf '{"Authorization":"Bearer %s"%s}\n' "$key" "$extra"

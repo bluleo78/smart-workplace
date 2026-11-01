@@ -23,6 +23,7 @@
 | 상태 | 위치 | 늘리면 | 심각도 | 대응 |
 |---|---|---|---|---|
 | 실시간 이벤트(SSE) 연결 | `global/realtime/SseRegistry` | 사용자가 붙은 파드에서 난 이벤트만 받습니다. 다른 파드에서 생긴 채팅·알림·메시지 이벤트를 놓칩니다 | 막힘 | 파드 사이 중계(Redis Pub/Sub 또는 PostgreSQL `LISTEN/NOTIFY`)를 두고, 각 파드가 받은 이벤트를 자기 연결에 뿌리게 합니다 |
+| runner 변경 스트림(SSE) | `agentruntime/realtime/RunnerSseRegistry`(WP-1249) | runner 가 붙은 파드에서 난 원하는 상태 변경만 바로 알립니다. 다른 파드에서 난 변경은 놓칩니다 | 괜찮음 | 계약상 최선 노력 — runner 가 5분마다 desired 를 다시 조회해 맞춥니다([agent-runner-api.md](../integrations/agent-runner-api.md)). 위 SSE 중계를 들이면 함께 태웁니다 |
 | AI 답변 생성 중 취소(■) | `global/realtime/DefaultStreamingGenerationRegistry` | 취소 요청이 생성 중인 파드와 다른 파드로 가면 멈추지 않습니다. 사용자당 동시 생성 상한도 파드마다 따로 셉니다 | 막힘 | 취소를 위 중계로 전파하거나, 생성 요청을 같은 파드로 보내는(sticky) 라우팅이 필요합니다 |
 | 메일 OAuth state | `mail/service/OAuthStateStore` | 시작과 콜백이 다른 파드로 가면 「state 없음」으로 메일 계정 연결이 실패합니다 | 막힘 | state 를 DB 표나 Redis 로 옮깁니다(TTL 10분, 한 번 쓰면 삭제) |
 | 메일 수동 동기화 진행률·동시 실행 가드 | `mail/service/MailSyncProgress` | 진행률 조회가 다른 파드로 가면 「대기」로 보입니다. 같은 계정 동기화가 두 파드에서 겹칠 수 있습니다 | 바꿔야 함 | 진행 상태를 DB 로 옮기거나 DB 행 잠금으로 가드합니다 |

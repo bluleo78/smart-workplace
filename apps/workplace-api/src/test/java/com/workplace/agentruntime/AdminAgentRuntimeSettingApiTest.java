@@ -47,6 +47,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
+  @Autowired com.fasterxml.jackson.databind.ObjectMapper om;
   @Autowired AgentLocationService locationService;
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired WorkspaceAssistantService workspaceAssistantService;
@@ -54,12 +55,14 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
   @Autowired AgentRemovalService agentRemovalService;
 
   private long admin;
+  private AgentRuntimeTestFixtures fx;
 
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
     admin = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createHuman(dsl));
     TestFixtures.grantRole(dsl, admin, "ADMIN");
+    fx = new AgentRuntimeTestFixtures(dsl, om, settingService, admin);
   }
 
   private Authentication auth(long userId) {
@@ -505,13 +508,6 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
         .fetchOne(AGENT_RUNTIME_SETTING.DESIRED);
   }
 
-  private long generationOf(long agent) {
-    return dsl.select(AGENT_RUNTIME_SETTING.GENERATION)
-        .from(AGENT_RUNTIME_SETTING)
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
-        .fetchOne(AGENT_RUNTIME_SETTING.GENERATION);
-  }
-
   /** 켜 둔 AI 를 완전히 지우면 행이 CASCADE 로 사라지기 전에 그 위치의 runner 에게 알린다(자리도 비워진다). */
   @Test
   void removeAgent_whenRunningAndDeleted_publishesToItsLocation() throws Exception {
@@ -537,7 +533,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     long agent = newAgent();
     putClaude(agent);
     action(agent, "start").andExpect(status().isOk());
-    long before = generationOf(agent);
+    long before = fx.generationOf(agent);
     long tenant2 = TestFixtures.createTenant(dsl, "ACTIVE");
     TestFixtures.addMember(dsl, agent, tenant2);
     appEvents.clear();
@@ -548,7 +544,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
 
     TenantContext.set(1L);
     assertThat(desiredOf(agent)).isEqualTo("STOP");
-    assertThat(generationOf(agent)).isEqualTo(before + 1);
+    assertThat(fx.generationOf(agent)).isEqualTo(before + 1);
     assertThat(desiredEvents()).contains(new AgentRuntimeDesiredChanged(1L, loc));
     assertThat(locationService.get(loc).used()).isZero();
   }

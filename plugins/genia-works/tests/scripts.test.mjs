@@ -1118,3 +1118,93 @@ test('gw-plugin-version: 마켓플레이스 기록이 없으면 API 주소의 �
   const down = await runAsync('gw-plugin-version', [], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
   assert.equal(down.stdout, `${installed} ? unknown\n`);
 });
+
+// ---------------------------------------------------------------- gw-status·워크스페이스 헤더 (WP-1250)
+
+test('gw-headers: GENIA_WORKS_TENANT 가 있으면 X-On-Behalf-Of-Tenant 를 함께 낸다 — 숫자가 아니면 빼고, 내 토큰({})에는 붙이지 않는다', () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_ABC123\n' });
+  const r = run('gw-headers', [], { env: { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_TENANT: '7' } });
+  assert.deepEqual(JSON.parse(r.stdout), { Authorization: 'Bearer ak_FAKE_ABC123', 'X-On-Behalf-Of-Tenant': '7' });
+  const bad = run('gw-headers', [], { env: { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_TENANT: '7"x' } });
+  assert.deepEqual(JSON.parse(bad.stdout), { Authorization: 'Bearer ak_FAKE_ABC123' });
+  assert.equal(run('gw-headers', [], { env: { GENIA_WORKS_TENANT: '7' } }).stdout.trim(), '{}');
+});
+
+/** 가짜 상태 보고 서버 — status 와 body 를 내고, 받은 요청(메서드·주소·헤더·본문)을 모은다. */
+async function fakeStatusServer({ status = 200, body = '{"desired":"RUN"}' } = {}) {
+  const reqs = [];
+  const server = createServer((req, res) => {
+    let data = '';
+    req.on('data', (d) => (data += d));
+    req.on('end', () => {
+      reqs.push({ method: req.method, url: req.url, headers: req.headers, body: data });
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(body);
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${server.address().port}/api/v1`, reqs, close: () => server.close() };
+}
+
+test('gw-status: GENIA_AGENT_GENERATION 이 없으면(Works 가 띄운 AI 아님) 서버에 묻지 않고 RUN', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });
+  try {
+    const r = await runAsync('gw-status', ['IDLE'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, 'RUN\n');
+    assert.equal(srv.reqs.length, 0);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-status: generation 이 있으면 AI 키·워크스페이스 헤더로 PUT 하고 받은 동작을 낸다 — 키는 내지 않는다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7', GENIA_WORKS_TENANT: '3' };
+  try {
+    const r = await runAsync('gw-status', ['WORKING', 'WD-12'], env);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, 'DRAIN\n');
+    assert.doesNotMatch(r.stdout + r.stderr, /ak_FAKE_DEV/);
+    const [q] = srv.reqs;
+    assert.equal(q.method, 'PUT');
+    assert.equal(q.url, '/api/v1/agent-runtime/me/status');
+    assert.equal(q.headers.authorization, 'Bearer ak_FAKE_DEV');
+    assert.equal(q.headers['x-on-behalf-of-tenant'], '3');
+    assert.deepEqual(JSON.parse(q.body), { state: 'WORKING', generation: 7, issueKey: 'WD-12' });
+
+    // 쉬는 중 — 빈 이슈 키는 빼고 다음 확인 시각을 싣는다. 워크스페이스가 없으면 헤더도 없다.
+    const idle = await runAsync('gw-status', ['IDLE', '', '2026-11-01T12:00:00+09:00'], { ...env, GENIA_WORKS_TENANT: '' });
+    assert.equal(idle.stdout, 'DRAIN\n');
+    assert.deepEqual(JSON.parse(srv.reqs[1].body), { state: 'IDLE', generation: 7, nextCheckAt: '2026-11-01T12:00:00+09:00' });
+    assert.equal(srv.reqs[1].headers['x-on-behalf-of-tenant'], undefined);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-status: 보고가 실패해도(서버 오류·닿지 못함·이상한 응답·잘못된 인자·키 없음) RUN 을 내고 종료 0', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_AGENT_GENERATION: '7' };
+  for (const [status, body] of [[500, '{}'], [200, '{"desired":"EXPLODE"}'], [401, '{}']]) {
+    const srv = await fakeStatusServer({ status, body });
+    try {
+      const r = await runAsync('gw-status', ['IDLE'], { ...env, GENIA_WORKS_API_URL: srv.url });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, 'RUN\n');
+      assert.match(r.stderr, /^gw-status: /);
+    } finally {
+      srv.close();
+    }
+  }
+  const down = await runAsync('gw-status', ['IDLE'], { ...env, GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.deepEqual([down.status, down.stdout], [0, 'RUN\n']);
+  for (const args of [['SLEEPING'], ['WORKING', 'WD 1'], ['IDLE', '', 'tomorrow"']]) {
+    const r = await runAsync('gw-status', args, { ...env, GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+    assert.deepEqual([r.status, r.stdout], [0, 'RUN\n']);
+  }
+  const noKey = await runAsync('gw-status', ['IDLE'], { GENIA_AGENT_GENERATION: '7', GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.deepEqual([noKey.status, noKey.stdout], [0, 'RUN\n']);
+});

@@ -306,16 +306,53 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     assertThat(sawUsed && sawUnused).isTrue();
   }
 
-  private void insertKey(
+  /**
+   * 만료된 키(Works 자동 발급 키의 수명이 다함)도 폐기 키처럼 lastKeyUsedAt 에서 뺀다(WP-1253) — 더는 인증되지 않는 키의 사용 시각으로 AI 가
+   * 최근까지 쓰인 것처럼 보이지 않게.
+   */
+  @Test
+  void list_lastKeyUsedAt_excludesExpiredKeys() throws Exception {
+    Long admin = createAdmin();
+    Long agent = createUser("expiring", "AGENT");
+    OffsetDateTime active = OffsetDateTime.parse("2026-10-01T00:00:00Z");
+    OffsetDateTime expiredLatest = OffsetDateTime.parse("2026-10-20T00:00:00Z");
+    insertKey(agent, admin, active, null);
+    Long expired = insertKey(agent, admin, expiredLatest, null);
+    dsl.update(AGENT_API_KEY)
+        .set(AGENT_API_KEY.EXPIRES_AT, OffsetDateTime.now().minusMinutes(1))
+        .where(AGENT_API_KEY.ID.eq(expired))
+        .execute();
+
+    var body =
+        mvc.perform(get("/api/v1/admin/agents").with(authentication(auth(admin, "user:write"))))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+    boolean saw = false;
+    for (var n : root) {
+      if (n.get("id").asLong() == agent) {
+        saw = true;
+        assertThat(java.time.Instant.parse(n.get("lastKeyUsedAt").asText()))
+            .isEqualTo(active.toInstant());
+      }
+    }
+    assertThat(saw).isTrue();
+  }
+
+  private Long insertKey(
       Long agent, Long createdBy, OffsetDateTime lastUsed, OffsetDateTime revoked) {
-    dsl.insertInto(AGENT_API_KEY)
+    return dsl.insertInto(AGENT_API_KEY)
         .set(AGENT_API_KEY.USER_ID, agent)
         .set(AGENT_API_KEY.KEY_PREFIX, "k")
         .set(AGENT_API_KEY.KEY_HASH, UUID.randomUUID().toString())
         .set(AGENT_API_KEY.CREATED_BY, createdBy)
         .set(AGENT_API_KEY.LAST_USED_AT, lastUsed)
         .set(AGENT_API_KEY.REVOKED_AT, revoked)
-        .execute();
+        .returning(AGENT_API_KEY.ID)
+        .fetchOne()
+        .getId();
   }
 
   /** 트랜잭션-로컬 RLS GUC 를 바꾼다 — 다른 테넌트 행을 시드할 때만 잠깐 쓰고 곧바로 1 로 되돌린다. */

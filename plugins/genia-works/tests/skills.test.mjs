@@ -35,6 +35,14 @@ test('work-loop SKILL.md 는 신원 확인(get_member)이 후보 고르기(list_
   assertBefore(body(workLoop('SKILL.md')), '`get_member(', '`list_issues(');
 });
 
+test('work-loop SKILL.md 는 상태 보고(gw-status IDLE)가 후보 고르기(list_issues)보다 먼저, 이슈를 집은 뒤 WORKING 을 보고한다', () => {
+  // 꺼지는 중이거나 다시 띄워질 차례(DRAIN·RESTART)인 AI 가 새 이슈를 집으면 일이 중간에 끊긴다(WP-1250).
+  const text = body(workLoop('SKILL.md'));
+  assertBefore(text, '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE`', '`list_issues(');
+  assertBefore(text, '\n### 4. 이슈를 하나씩 처리\n', '`"<이 스킬 폴더>/../../scripts/gw-status" WORKING <이슈 키>`');
+  assertBefore(text, '\n### 5. 다음 확인\n', '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE "" <다음 확인 시각(ISO-8601)>`');
+});
+
 test('process-issue.md 에서 「브랜치 라이브 검증」이 「PR」보다 먼저 나온다', () => {
   // 검증에 실패한 변경을 PR 로 올리면 검토자가 그것을 머지할 수 있다.
   assertBefore(workLoop('process-issue.md'), '\n### 8. 브랜치 라이브 검증\n', '\n### 9. PR\n');

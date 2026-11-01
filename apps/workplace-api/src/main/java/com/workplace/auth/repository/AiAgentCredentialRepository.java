@@ -4,6 +4,8 @@ import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
 
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -57,6 +59,19 @@ public class AiAgentCredentialRepository {
     return dsl.selectFrom(AI_AGENT_CREDENTIAL)
         .where(AI_AGENT_CREDENTIAL.USER_ID.eq(userId).and(AI_AGENT_CREDENTIAL.REVOKED_AT.isNull()))
         .fetchOptional(this::mapRow);
+  }
+
+  /**
+   * 여러 AGENT 의 active 행 id 를 한 번에(WP-1253 — runner desired 의 claude 버전) — AGENT id → 행 id, 없는 AGENT
+   * 는 빠진다.
+   */
+  public Map<Long, Long> findActiveIdsByUsers(Collection<Long> userIds) {
+    if (userIds.isEmpty()) return Map.of();
+    return dsl.select(AI_AGENT_CREDENTIAL.USER_ID, AI_AGENT_CREDENTIAL.ID)
+        .from(AI_AGENT_CREDENTIAL)
+        .where(AI_AGENT_CREDENTIAL.USER_ID.in(userIds))
+        .and(AI_AGENT_CREDENTIAL.REVOKED_AT.isNull())
+        .fetchMap(AI_AGENT_CREDENTIAL.USER_ID, AI_AGENT_CREDENTIAL.ID);
   }
 
   /** active 행 revoke (revoked_at = now()). 영향 row 수 반환 (0 또는 1). */

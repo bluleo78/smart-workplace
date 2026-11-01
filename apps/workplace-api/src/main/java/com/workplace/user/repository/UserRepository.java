@@ -6,6 +6,7 @@ import static org.jooq.impl.DSL.lower;
 import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.val;
 
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.AgentResponse;
@@ -219,11 +220,12 @@ public class UserRepository {
     Condition where = workspaceAgents(tenantId, includePersonal);
     // WP-371: 에이전트별 "마지막 키 사용 시각" = 폐기되지 않은 키의 last_used_at 최댓값(키 없으면 null). 목록에 나온 에이전트 행마다
     // 상관 서브쿼리로 계산한다 — 전 테넌트 키를 집계하는 파생 테이블과 달리 대상 에이전트 키만 idx_agent_api_key_user(V14)로 읽는다.
+    // WP-1253: 만료된 키(Works 자동 발급 키)도 폐기 키처럼 뺀다 — 인증과 같은 활성 키 조건을 쓴다.
     Field<OffsetDateTime> keyLastUsed =
         DSL.select(DSL.max(AGENT_API_KEY.LAST_USED_AT))
             .from(AGENT_API_KEY)
             .where(AGENT_API_KEY.USER_ID.eq(USER.ID))
-            .and(AGENT_API_KEY.REVOKED_AT.isNull())
+            .and(AgentApiKeyRepository.activeAt(OffsetDateTime.now()))
             .asField("last_key_used_at");
     return dsl.select(
             USER.ID,

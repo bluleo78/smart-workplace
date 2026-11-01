@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AgentApiKeyRecord;
 
@@ -15,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -35,6 +37,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -88,7 +91,7 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
     /**
      * The column <code>public.agent_api_key.created_by</code>.
      */
-    public final TableField<AgentApiKeyRecord, Long> CREATED_BY = createField(DSL.name("created_by"), SQLDataType.BIGINT.nullable(false), this, "");
+    public final TableField<AgentApiKeyRecord, Long> CREATED_BY = createField(DSL.name("created_by"), SQLDataType.BIGINT, this, "");
 
     /**
      * The column <code>public.agent_api_key.created_at</code>.
@@ -104,6 +107,26 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
      * The column <code>public.agent_api_key.revoked_at</code>.
      */
     public final TableField<AgentApiKeyRecord, OffsetDateTime> REVOKED_AT = createField(DSL.name("revoked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.agent_api_key.managed</code>.
+     */
+    public final TableField<AgentApiKeyRecord, Boolean> MANAGED = createField(DSL.name("managed"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column <code>public.agent_api_key.expires_at</code>.
+     */
+    public final TableField<AgentApiKeyRecord, OffsetDateTime> EXPIRES_AT = createField(DSL.name("expires_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.agent_api_key.rotation_generation</code>.
+     */
+    public final TableField<AgentApiKeyRecord, Long> ROTATION_GENERATION = createField(DSL.name("rotation_generation"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.agent_api_key.tenant_id</code>.
+     */
+    public final TableField<AgentApiKeyRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT, this, "");
 
     private AgentApiKey(Name alias, Table<AgentApiKeyRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -174,7 +197,7 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_AGENT_API_KEY_HASH, Indexes.IDX_AGENT_API_KEY_USER);
+        return Arrays.asList(Indexes.IDX_AGENT_API_KEY_HASH, Indexes.IDX_AGENT_API_KEY_MANAGED, Indexes.IDX_AGENT_API_KEY_USER);
     }
 
     @Override
@@ -189,7 +212,7 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
 
     @Override
     public List<ForeignKey<AgentApiKeyRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.AGENT_API_KEY__AGENT_API_KEY_CREATED_BY_FKEY, Keys.AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY);
+        return Arrays.asList(Keys.AGENT_API_KEY__AGENT_API_KEY_CREATED_BY_FKEY, Keys.AGENT_API_KEY__AGENT_API_KEY_TENANT_ID_FKEY, Keys.AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY);
     }
 
     private transient UserPath _agentApiKeyCreatedByFkey;
@@ -205,6 +228,18 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
         return _agentApiKeyCreatedByFkey;
     }
 
+    private transient TenantPath _tenant;
+
+    /**
+     * Get the implicit join path to the <code>public.tenant</code> table.
+     */
+    public TenantPath tenant() {
+        if (_tenant == null)
+            _tenant = new TenantPath(this, Keys.AGENT_API_KEY__AGENT_API_KEY_TENANT_ID_FKEY, null);
+
+        return _tenant;
+    }
+
     private transient UserPath _agentApiKeyUserIdFkey;
 
     /**
@@ -216,6 +251,13 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
             _agentApiKeyUserIdFkey = new UserPath(this, Keys.AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY, null);
 
         return _agentApiKeyUserIdFkey;
+    }
+
+    @Override
+    public List<Check<AgentApiKeyRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("ck_agent_api_key_managed_tenant"), "(((NOT managed) OR (tenant_id IS NOT NULL)))", true)
+        );
     }
 
     @Override

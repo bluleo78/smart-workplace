@@ -16,6 +16,7 @@ import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
@@ -61,13 +62,14 @@ public class AgentRuntimeSettingService {
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
   private final ApplicationEventPublisher events;
+  private final AgentApiKeyService agentKeys;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
   public AgentRuntimeSettingResponse get(long agentId) {
     memberGuard.require(agentId);
     Row row = settings.find(agentId).orElseThrow(AgentRuntimeSettingNotFoundException::new);
-    return toResponse(row, effectiveLocationId(row.locationId()));
+    return toResponse(row, locationService.effectiveLocationId(row.locationId()));
   }
 
   /**
@@ -116,7 +118,7 @@ public class AgentRuntimeSettingService {
             .withTemplateVersion(template.version())
             .withLocationId(req.locationId())
             .withConfig(config);
-    Long oldEffective = effectiveLocationId(row.locationId());
+    Long oldEffective = locationService.effectiveLocationId(row.locationId());
     if (next.equals(row)) return toResponse(row, oldEffective);
 
     Long newEffective = oldEffective;
@@ -128,7 +130,7 @@ public class AgentRuntimeSettingService {
       } else if (req.locationId() != null) {
         newEffective = requireLocation(req.locationId()).id();
       } else {
-        newEffective = effectiveLocationId(null);
+        newEffective = locationService.effectiveLocationId(null);
       }
     }
     next =
@@ -146,7 +148,8 @@ public class AgentRuntimeSettingService {
    */
   public AgentRuntimeSettingResponse start(long callerId, long agentId) {
     Row row = lockRow(agentId);
-    if (row.desired() == Desired.RUN) return toResponse(row, effectiveLocationId(row.locationId()));
+    if (row.desired() == Desired.RUN)
+      return toResponse(row, locationService.effectiveLocationId(row.locationId()));
     AgentTemplate template =
         registry
             .find(row.templateName())
@@ -169,13 +172,17 @@ public class AgentRuntimeSettingService {
     return toResponse(next, location.id());
   }
 
-  /** 끄기 — desired STOP·generation+1. 이미 꺼져 있으면 변화 없음. */
+  /**
+   * 끄기 — desired STOP·generation+1. 이미 꺼져 있으면 변화 없음. Works 가 자동 발급한 키는 정리 유예(5분)로 줄인다(WP-1253) —
+   * 지워지는 Pod 가 SIGTERM 유예 안에 마무리할 시간만 남기고, 그 뒤에는 꺼진 AI 의 키가 쓰이지 않게.
+   */
   public AgentRuntimeSettingResponse stop(long callerId, long agentId) {
     Row row = lockRow(agentId);
-    Long effective = effectiveLocationId(row.locationId());
+    Long effective = locationService.effectiveLocationId(row.locationId());
     if (row.desired() == Desired.STOP) return toResponse(row, effective);
     Row next = bumpDesired(row, Desired.STOP, row.applyMode());
     settings.update(next, callerId);
+    agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
     publish(effective);
     audit(callerId, "AGENT_RUNTIME_STOPPED", agentId, "AI 끄기", Map.of());
     return toResponse(next, effective);
@@ -187,7 +194,7 @@ public class AgentRuntimeSettingService {
     if (row.desired() != Desired.RUN) {
       throw new AgentRuntimeSettingConflictException("켜져 있는 AI 만 다시 시작할 수 있습니다");
     }
-    Long effective = effectiveLocationId(row.locationId());
+    Long effective = locationService.effectiveLocationId(row.locationId());
     Row next = bumpDesired(row, Desired.RUN, ApplyMode.NOW);
     settings.update(next, callerId);
     publish(effective);
@@ -195,11 +202,15 @@ public class AgentRuntimeSettingService {
     return toResponse(next, effective);
   }
 
-  /** 실행 설정 삭제 — 켜져 있으면 409(먼저 끄기). 실행 방식은 바꾸지 않는다 — 화면이 이어서 기존 실행 방식 변경 API 를 부른다. */
+  /**
+   * 실행 설정 삭제 — 켜져 있으면 409(먼저 끄기). 실행 방식은 바꾸지 않는다 — 화면이 이어서 기존 실행 방식 변경 API 를 부른다. 남은 자동 발급 키는 정리
+   * 유예로 줄인다(WP-1253 — 끌 때 이미 줄었으면 그대로).
+   */
   public void delete(long callerId, long agentId) {
     Row row = lockRow(agentId);
     if (row.desired() == Desired.RUN) throw AgentRuntimeSettingConflictException.running();
     settings.delete(agentId);
+    agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
     audit(callerId, "AGENT_RUNTIME_SETTING_DELETED", agentId, "AI 실행 설정 삭제", Map.of());
   }
 
@@ -210,18 +221,22 @@ public class AgentRuntimeSettingService {
    *
    * <p>정지 이벤트는 멤버십을 이미 SUSPENDED 로 바꾼 뒤에 오므로 구성원 가드를 거치지 않는다. 잠금은 저장과 같은 순서(AI 행 → 설정 행)로 잡는다.
    *
+   * <p>자동 발급 키는 정리 유예로 줄인다(WP-1253). 키는 발급한 워크스페이스에 묶여 있어 이 워크스페이스의 키만 줄어든다 — 같은 AI 를 다른 워크스페이스에서
+   * Works 가 띄우고 있어도 그쪽 Pod 의 키는 그대로다.
+   *
    * @param actorId 변경한 관리자(모르면 null)
    */
   public void stopForRemoval(long agentId, Long actorId) {
     if (settings.find(agentId).isEmpty()) return;
     agentRuntimePolicy.lock(agentId);
+    agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
     settings
         .findForUpdate(agentId)
         .filter(row -> row.desired() == Desired.RUN)
         .ifPresent(
             row -> {
               settings.update(bumpDesired(row, Desired.STOP, row.applyMode()), actorId);
-              publish(effectiveLocationId(row.locationId()));
+              publish(locationService.effectiveLocationId(row.locationId()));
             });
   }
 
@@ -261,11 +276,6 @@ public class AgentRuntimeSettingService {
   /** 지정 위치 — 없거나 다른 워크스페이스의 것이면 404. */
   private AgentLocationRepository.Row requireLocation(long locationId) {
     return locationRepository.findById(locationId).orElseThrow(AgentLocationNotFoundException::new);
-  }
-
-  /** 지정 위치 ?? 기본 위치(없으면 null). */
-  private Long effectiveLocationId(Long locationId) {
-    return locationId != null ? locationId : locationService.defaultLocationId().orElse(null);
   }
 
   /** 실제 위치마다(겹침·null 제외) 원하는 상태 변경 이벤트를 낸다. */

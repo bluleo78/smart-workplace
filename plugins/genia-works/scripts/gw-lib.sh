@@ -169,6 +169,14 @@ gw_identity() {
   printf '%s' "$_gw_name"
 }
 
+# 이 세션 신원의 AI 키 — gw_identity 가 정한 이름의 키를 gw_read_key 기준으로 낸다. 신원이 없거나(내 토큰) 키가 없거나 깨졌으면
+# 아무것도 내지 않고 0 이 아닌 값. 알림 구독(gw-events)·상태 보고(gw-status)가 같은 방식으로 키를 읽도록 한곳에 둔다.
+gw_identity_key() {
+  _gw_id=$(gw_identity)
+  [ -n "$_gw_id" ] || return 1
+  gw_read_key "$_gw_id"
+}
+
 # REST API 주소 — GENIA_WORKS_API_URL(예: http://localhost:6160/api/v1), 없으면 운영 주소. 끝의 / 는 뗀다(…/api/v1//events 가 되지 않게).
 # 알림 구독(gw-events)과 프로젝트 읽기(gw-agent-projects)가 같은 서버를 보도록 한곳에 둔다(WP-1046).
 gw_api_url() {
@@ -177,7 +185,33 @@ gw_api_url() {
   printf '%s' "$_gw_api"
 }
 
-# curl 설정(표준 입력으로 넘김) 한 줄 — 인증 헤더를 명령줄 인자(ps 에 보인다)·출력에 드러내지 않는다. 사용: gw_curl_auth "$key" | curl --config - …
+# 일할 워크스페이스 id — Works 가 띄운 AI 는 runner 가 GENIA_WORKS_TENANT 를 넣는다(WP-1250). 여러 워크스페이스에 속한 AI 는
+# 이것을 X-On-Behalf-Of-Tenant 로 밝혀야 서버가 워크스페이스를 정한다. 숫자일 때만 내고(헤더·curl 설정을 깨지 않게) 아니면 아무것도 내지 않는다.
+gw_tenant() {
+  case "${GENIA_WORKS_TENANT:-}" in '' | *[!0-9]*) return 1 ;; esac
+  printf '%s' "$GENIA_WORKS_TENANT"
+}
+
+# curl 설정(표준 입력으로 넘김) — 인증 헤더를 명령줄 인자(ps 에 보인다)·출력에 드러내지 않는다. 사용: gw_curl_auth "$key" | curl --config - …
+# GENIA_WORKS_TENANT 가 있으면 워크스페이스 헤더 줄을 덧붙인다(없으면 지금과 같다).
 gw_curl_auth() {
   printf 'header = "Authorization: Bearer %s"\n' "$1"
+  _gw_t=$(gw_tenant) && printf 'header = "X-On-Behalf-Of-Tenant: %s"\n' "$_gw_t"
+  return 0
+}
+
+# REST 한 번 부르기 — 키를 gw_curl_auth 로 표준 입력에 넣고, 본문 뒤에 상태 코드를 한 줄 덧붙여 받아 나눈다.
+# 사용: gw_api_request <키> <연결 제한 초> <전체 제한 초> <curl 인자…> — 결과는 GW_CODE(닿지 못하면 000 또는 빈 값)·GW_BODY 에 둔다.
+# 결과를 전역 변수로 돌려주므로 $(…) 안에서 부르지 않는다. 닿지 않는 서버에 매달리지 않게 시간을 묶는다.
+gw_api_request() {
+  _gw_rk=$1
+  _gw_ct=$2
+  _gw_mt=$3
+  shift 3
+  _gw_out=$(gw_curl_auth "$_gw_rk" |
+    curl -s --connect-timeout "$_gw_ct" --max-time "$_gw_mt" --config - -w '\n%{http_code}' "$@" 2>/dev/null)
+  GW_CODE=${_gw_out##*
+}
+  GW_BODY=${_gw_out%
+*}
 }

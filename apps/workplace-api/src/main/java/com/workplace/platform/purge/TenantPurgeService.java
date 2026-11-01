@@ -35,8 +35,8 @@ import org.springframework.util.FileSystemUtils;
  *   <li>대상 테넌트 GUC 아래 한 트랜잭션: 디스크 경로·AGENT 수집 → {@link TenantPurgePlan#ORDER} 순서 DELETE → 잔여 0행
  *       확인(아니면 예외로 전체 롤백)
  *   <li>커밋 후 디스크 정리(best-effort): {@code tenant-{id}/} 재귀 삭제 + 레거시 절대경로 파일
- *   <li>{@code purge_tenant()} 로 전용 AGENT·tenant 행 제거(membership·user_api_token 은 tenant FK
- *       CASCADE)
+ *   <li>{@code purge_tenant()} 로 전용 AGENT·tenant 행 제거(membership·user_api_token·agent_api_key(자동 발급
+ *       키) 는 tenant FK CASCADE)
  * </ol>
  *
  * <p>단계 1 실패(롤백)만 DELETED + purge_error 로 되돌린다 — 데이터가 그대로라 복원 가능하다. 단계 3 실패는 데이터가 이미 지워졌으므로 PURGING

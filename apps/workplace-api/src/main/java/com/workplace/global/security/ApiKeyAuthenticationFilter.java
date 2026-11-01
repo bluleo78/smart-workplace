@@ -97,9 +97,12 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                               // (3상태 의미는 AgentTenantResolver.Resolution). 반드시 getUserPermissions 호출
                               // 전에 설정.
                               var memberships = membershipRepository.findActiveByUser(user.id());
+                              // WP-1253: Works 가 자동 발급한 키는 발급한 워크스페이스에 묶인다 — 헤더 없이도 그 워크스페이스로
+                              // 들어가고, 다른 워크스페이스를 밝히면(형식 오류 포함) 인증하지 않는다(401). 멤버십은 그대로 확인한다.
                               switch (AgentTenantResolver.resolve(
                                   memberships,
-                                  request.getHeader(AgentTenantResolver.TENANT_HEADER))) {
+                                  request.getHeader(AgentTenantResolver.TENANT_HEADER),
+                                  key.tenantId())) {
                                 case AgentTenantResolver.Rejected() -> {
                                   return; // 명시 테넌트 미해석 → 401
                                 }

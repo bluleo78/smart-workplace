@@ -177,10 +177,9 @@ public class AgentLocationRepository {
    * 지정하지 않은 설정까지 센다(WP-1247).
    */
   public int countRunning(long locationId, boolean includeUnassigned) {
-    var at = AGENT_RUNTIME_SETTING.LOCATION_ID.eq(locationId);
-    if (includeUnassigned) at = at.or(AGENT_RUNTIME_SETTING.LOCATION_ID.isNull());
     return dsl.fetchCount(
-        AGENT_RUNTIME_SETTING, AGENT_RUNTIME_SETTING.DESIRED.eq(Desired.RUN.name()).and(at));
+        AGENT_RUNTIME_SETTING,
+        AgentRuntimeSettingRepository.runningAt(locationId, includeUnassigned));
   }
 
   /**

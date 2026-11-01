@@ -37,15 +37,11 @@ case $? in
     ;;
 esac
 
-# 본문 뒤에 상태 코드를 한 줄 덧붙여 받아 나눈다. 닿지 않는 서버에 매달리지 않게 시간을 묶는다(닿지 못하면 상태 코드 000).
-out=$(gw_curl_auth "$key" |
-  curl -s --connect-timeout 10 --max-time 30 --config - -w '\n%{http_code}' "$api/projects?page=$page&size=100" 2>/dev/null)
-code=${out##*
-}
-body=${out%
-*}
+# 닿지 못하면 상태 코드 000(또는 빈 값).
+gw_api_request "$key" 10 30 "$api/projects?page=$page&size=100"
+code=$GW_CODE
 case $code in
-  200) printf '%s\n' "$body" ;;
+  200) printf '%s\n' "$GW_BODY" ;;
   401)
     echo "gw-agent-projects: $name 키가 거절됐습니다(HTTP 401) — 관리자 › 에이전트에서 다시 발급해 /genia-works:login 으로 바꾸세요" >&2
     exit 4

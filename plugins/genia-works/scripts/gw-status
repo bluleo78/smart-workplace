@@ -1,0 +1,49 @@
+#!/bin/sh
+# gw-status <IDLE|WORKING|BLOCKED> [이슈 키] [다음 확인 시각] — Works 가 띄운 AI 가 지금 상태를 보고하고(PUT /agent-runtime/me/status),
+# 서버가 정한 다음 동작 한 줄(RUN·DRAIN·RESTART)을 낸다(WP-1250). work-loop 가 후보 고르기 전·이슈를 집은 뒤·쉬기 전에 부른다.
+# - GENIA_AGENT_GENERATION(runner 가 Pod 에 넣는 generation)이 없으면 Works 가 띄운 AI 가 아니다 — 서버에 묻지 않고 RUN 을 낸다.
+# - 보고가 실패해도 일을 막지 않는다: RUN 을 내고 표준 오류에 한 줄 알린 뒤 늘 종료 0.
+# - 이슈 키가 빈 값("")이면 보내지 않는다(쉬는 중). 다음 확인 시각은 ISO-8601(예: 2026-11-01T12:00:00+09:00).
+# 키·서버 주소·워크스페이스는 gw-events 와 같은 방식(gw_identity_key·gw_api_url·GENIA_WORKS_TENANT)으로 읽는다.
+# 키는 명령줄 인자로 넘기지 않고(ps 에 보인다) 표준 입력으로 curl 설정에 넣으며, 어디에도 출력하지 않는다.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+# 실패해도 일은 계속한다 — RUN 과 경고 한 줄.
+fallback() {
+  echo "gw-status: $1 — 계속 일합니다" >&2
+  echo RUN
+  exit 0
+}
+
+gen="${GENIA_AGENT_GENERATION:-}"
+if [ -z "$gen" ]; then
+  echo RUN
+  exit 0
+fi
+case "$gen" in *[!0-9]*) fallback "GENIA_AGENT_GENERATION 이 숫자가 아닙니다" ;; esac
+
+state=${1:-}
+case "$state" in IDLE | WORKING | BLOCKED) ;; *) fallback "상태는 IDLE·WORKING·BLOCKED 중 하나여야 합니다: $state" ;; esac
+issue=${2:-}
+case "$issue" in *[!A-Za-z0-9_-]*) fallback "이슈 키 형식이 아닙니다: $issue" ;; esac
+next=${3:-}
+case "$next" in *[!0-9TZ:+.-]*) fallback "다음 확인 시각 형식이 아닙니다: $next" ;; esac
+
+key=$(gw_identity_key) || key=""
+[ -n "$key" ] || fallback "AI 키 신원이 아니어서 보고하지 않았습니다"
+
+body="{\"state\":\"$state\",\"generation\":$gen"
+[ -n "$issue" ] && body="$body,\"issueKey\":\"$issue\""
+[ -n "$next" ] && body="$body,\"nextCheckAt\":\"$next\""
+body="$body}"
+
+gw_api_request "$key" 5 10 -X PUT -H 'Content-Type: application/json' -d "$body" \
+  "$(gw_api_url)/agent-runtime/me/status"
+[ "$GW_CODE" = 200 ] || fallback "상태 보고 실패(HTTP ${GW_CODE:-000})"
+desired=${GW_BODY#*\"desired\":\"}
+desired=${desired%%\"*}
+case "$desired" in
+  RUN | DRAIN | RESTART) echo "$desired" ;;
+  *) fallback "응답을 읽지 못했습니다" ;;
+esac
