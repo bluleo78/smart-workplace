@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 // 「채팅·이슈로 보내기」 순수 규칙(WP-1235) — 본문 모양·키 검색어·최근 대상(localStorage)·열림 스토어.
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { memoryStorage } from '@/test/memoryStorage'
 
 import {
   buildSendBody,
@@ -25,10 +27,13 @@ const general: SendDestination = { kind: 'channel', channelId: 10, name: '일반
 const bob: SendDestination = { kind: 'person', userId: 2, name: '밥' }
 const issue: SendDestination = { kind: 'issue', issueId: 900, projectKey: 'WP', number: 12, title: '로그인 오류' }
 
+// Node 25+ 의 실험적 전역 localStorage 가 jsdom 것을 가려 비어 있으므로 인메모리 저장소를 세운다(memoryStorage 참고).
+beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+
 afterEach(() => {
-  localStorage.clear()
   closeSendToChat()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('buildSendBody', () => {
@@ -76,11 +81,11 @@ describe('최근 대상', () => {
     expect(readRecentDestinations(owner)).toEqual([general])
     localStorage.setItem('send-to-chat.recent:1:7', '{깨짐')
     expect(readRecentDestinations(owner)).toEqual([])
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
       throw new Error('blocked')
     })
     expect(readRecentDestinations(owner)).toEqual([])
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('blocked')
     })
     expect(() => rememberDestination(owner, general)).not.toThrow()
