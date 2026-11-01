@@ -226,6 +226,47 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     action(agent, "start").andExpect(status().isOk()).andExpect(jsonPath("$.generation").value(2));
   }
 
+  /**
+   * 실행에 실패한(FAILED) AI 를 「켜기」하면 다시 시작과 같다 — generation+1·바로 적용(NOW)·다시 시작 감사 기록·runner 알림. 어느 화면의
+   * 켜기든 실패한 AI 를 다시 띄우게 한다.
+   */
+  @Test
+  void start_whenRunningButFailed_restarts() throws Exception {
+    long loc = newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent);
+    action(agent, "start").andExpect(status().isOk());
+    long g = fx.generationOf(agent);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, g)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "FAILED")
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+
+    action(agent, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RUN"))
+        .andExpect(jsonPath("$.generation").value(g + 1))
+        .andExpect(jsonPath("$.applyMode").value("NOW"))
+        .andExpect(jsonPath("$.status").value("STARTING"));
+    assertThat(desiredEvents()).containsExactly(new AgentRuntimeDesiredChanged(1L, loc));
+    assertThat(
+            dsl.fetchCount(
+                AUDIT_LOG,
+                AUDIT_LOG
+                    .ACTION_TYPE
+                    .eq("AGENT_RUNTIME_RESTARTED")
+                    .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(agent)))))
+        .isOne();
+
+    // 다시 띄우는 중(실패가 아님)이면 켜기는 다시 변화 없음.
+    action(agent, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.generation").value(g + 1));
+  }
+
   /** 위치를 지정하지 않았는데 기본 위치도 없으면 켤 수 없다 — 409. */
   @Test
   void start_whenNoDefaultLocation_returns409() throws Exception {

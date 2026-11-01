@@ -10,6 +10,7 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import type { AgentResponse } from '../../../src/types/agent';
+import { mockAgentRuntimeNone } from '../../fixtures/agent-runtime-mock';
 
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const SHOT_DIR = path.resolve(
@@ -49,6 +50,7 @@ function makeAgents(): AgentResponse[] {
 
 // 모킹: 목록(상태 보존) + runtime PUT + 키 목록 + 부수 API.
 async function setup(page: Page) {
+  await mockAgentRuntimeNone(page);
   let agents = makeAgents();
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) =>
     route.request().method() === 'GET'

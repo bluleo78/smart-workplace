@@ -2,7 +2,10 @@ package com.workplace.user.service;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.UserKind;
+import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
+import com.workplace.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +21,7 @@ import org.springframework.stereotype.Component;
 public class WorkspaceMemberGuard {
 
   private final MembershipRepository membershipRepository;
+  private final UserRepository userRepository;
 
   /**
    * 현재 테넌트(인증된 관리자 경로라 컨텍스트가 반드시 있다) 기준 검사.
@@ -33,5 +37,19 @@ public class WorkspaceMemberGuard {
     return membershipRepository
         .findStatus(userId, tenantId)
         .orElseThrow(() -> UserNotFoundException.ofId(userId));
+  }
+
+  /**
+   * 대상이 지금 워크스페이스의 구성원이면서 AI 인지 확인한다(WP-1255) — 아니면(비구성원·없는 사용자·사람) 존재를 숨겨 404. AI 를 대상으로 하는 관리자
+   * API(아바타·작업 공간 프로젝트 등)가 같은 판정을 되풀이하지 않게 둔다.
+   *
+   * @return 대상 AI
+   */
+  public UserResponse requireAgent(long userId) {
+    require(userId);
+    UserResponse user =
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
+    if (!UserKind.isAgent(user.kind())) throw UserNotFoundException.ofId(userId);
+    return user;
   }
 }

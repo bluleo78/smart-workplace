@@ -17,19 +17,23 @@ import com.workplace.agentruntime.dto.RunnerSecretRef;
 import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.RunnerAgentNotFoundException;
 import com.workplace.agentruntime.exception.RunnerSecretNotFoundException;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
+import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.ObservedUpdate;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.auth.dto.ManagedKeyChain;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.auth.service.AgentApiKeyService.ManagedKey;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,6 +73,7 @@ public class RunnerDesiredStateService {
   private final AgentApiKeyService agentKeys;
   private final AiAgentCredentialService credentials;
   private final ApplicationEventPublisher events;
+  private final AgentRuntimeChangeNotifier changeNotifier;
 
   /**
    * 템플릿 이름@버전 → runner 모양으로 바꾼 자원·보조 컨테이너·플러그인. 템플릿은 시작 때 한 번 읽혀 바뀌지 않으므로 요청마다 다시 바꾸지 않는다. 응답과 같은
@@ -129,21 +134,34 @@ public class RunnerDesiredStateService {
 
   /**
    * 관찰 상태 저장 — 실제 위치가 이 위치인 AI 만 고치고, 없는 AI·다른 위치의 AI 는 {@code ignored} 로 돌려준다. generation·원하는 상태는
-   * 바꾸지 않고 변경 이벤트도 내지 않는다(관찰은 원하는 상태가 아니다). 관찰 칸 쓰기는 보고 묶음 전체를 한 번에 보낸다.
+   * 바꾸지 않고 runner 변경 이벤트도 내지 않는다(관찰은 원하는 상태가 아니다). 관찰 칸 쓰기는 보고 묶음 전체를 한 번에 보낸다.
+   *
+   * <p>관리자 화면 실시간 갱신(WP-1254): 관찰 칸을 쓰는 한 문장이 쓰기 전 화면용 값({@code VisibleRuntimeState})도 돌려주므로, 그 값이
+   * 달라진 AI 만 한 이벤트로 알린다 — 같은 상태의 거듭된 보고(60초마다)나 CPU·메모리만 바뀐 보고는 알리지 않는다. 다시 읽지 않는다.
    */
   public RunnerObservedResponse observed(RunnerPrincipal principal, RunnerObservedRequest req) {
     AgentLocationRepository.Row location = requireLocation(principal);
-    List<Boolean> updated =
+    Map<Long, ObservedUpdate> updated =
         settings.updateObserved(location.id(), location.isDefault(), req.agents());
     List<RunnerObservedAgent> applied = new ArrayList<>();
     List<Long> ignored = new ArrayList<>();
-    for (int i = 0; i < updated.size(); i++) {
-      RunnerObservedAgent o = req.agents().get(i);
-      if (updated.get(i)) applied.add(o);
+    for (RunnerObservedAgent o : req.agents()) {
+      if (updated.containsKey(o.agentUserId())) applied.add(o);
       else ignored.add(o.agentUserId());
     }
     afterObservedUpdated(principal.tenantId(), applied);
+    notifyVisibleChanges(updated.values());
     return new RunnerObservedResponse(applied.size(), ignored);
+  }
+
+  /** 고친 AI 들 중 화면에 보이는 값이 쓰기 전과 달라진 AI 만 모아 한 번 알린다(WP-1254) — 쓰기 전 값은 같은 UPDATE 가 돌려준다. */
+  private void notifyVisibleChanges(Collection<ObservedUpdate> updates) {
+    List<Long> changed =
+        updates.stream()
+            .filter(u -> u.before().differsFrom(u.row()))
+            .map(u -> u.row().agentUserId())
+            .toList();
+    changeNotifier.agentsChanged(ResourceChangedEvent.OP_UPDATED, changed, null);
   }
 
   /**
@@ -205,9 +223,9 @@ public class RunnerDesiredStateService {
             .findRunningAtForUpdate(agentUserId, location.id(), location.isDefault())
             .orElseThrow(RunnerAgentNotFoundException::new);
     ManagedKeyChain chain = agentKeys.managedChain(agentUserId, tenantId);
-    // 교체·재시도 판정은 정리 유예에 든 키(끄기·위치 이동으로 줄인 — 지워지는 Pod 의 키)를 빼고 한다. 죽은 키 판정은 전체 사슬로 한다 — 유예 중인
-    // 키가 있다는 것은 일부러 내린 것(Pod 를 지우는 중)이라 죽은 키를 쥔 채 떠 있는 Pod 가 아니다.
-    ManagedKeyChain live = chain.live(OffsetDateTime.now());
+    // 교체·재시도 판정은 정리 유예에 든 키(끄기·위치 이동으로 줄여 retiring_at 이 남은 — 지워지는 Pod 의 키)를 빼고 한다. 죽은 키 판정은 전체
+    // 사슬로 한다 — 유예 중인 키가 있다는 것은 일부러 내린 것(Pod 를 지우는 중)이라 죽은 키를 쥔 채 떠 있는 Pod 가 아니다.
+    ManagedKeyChain live = chain.live();
     boolean undelivered = live.isUndelivered(row.generation(), row.observedGeneration());
     // 올릴 적용 시점 — null 이면 generation 을 올리지 않는다(재시도·첫 발급).
     ApplyMode bump = null;
@@ -223,6 +241,8 @@ public class RunnerDesiredStateService {
     if (bump != null) {
       keyGeneration = settings.bumpGenerationForRotation(agentUserId, bump);
       events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, location.id()));
+      // generation 이 올라 화면 상태가 「적용 대기」로 바뀐다(WP-1254).
+      changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentUserId, null);
     }
     Long replaceKeyId = undelivered ? live.current().orElseThrow().id() : null;
     ManagedKey key =
@@ -287,7 +307,7 @@ public class RunnerDesiredStateService {
         shape.sidecars(),
         shape.plugins(),
         row.config(),
-        secretsFor(t, keys.live(now), claudeVersion));
+        secretsFor(t, keys.live(), claudeVersion));
   }
 
   /** 템플릿 한 개의 runner 모양 — 이름@버전마다 한 번만 바꾼다. */

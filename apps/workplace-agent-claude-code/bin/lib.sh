@@ -185,19 +185,10 @@ wait_dind() {
   return 0
 }
 
-# 7a. 맡은 프로젝트 — 「키<탭>저장소<탭>브랜치」 한 줄씩. start-agent 4번과 같은 기준: viewerRole 이 있고(실제 멤버) 연결된 저장소가 있는 것.
-#     키는 폴더·tmux 칸 이름이 되므로 여기서 한 번만 거른다(gw_valid_project_key 와 같은 규칙 — 서버 키는 늘 통과한다).
+# 7a. 맡은 프로젝트 — 「키<탭>저장소<탭>브랜치」 한 줄씩. 고르는 기준(실제 멤버·연결된 저장소·키 형식)은 플러그인의
+#     gw-agent-projects --assigned 한 곳에 있다(WP-1265 — start-agent 스킬도 같은 것을 부른다). 이미지의 플러그인은 서버 버전(0.1.31+)이다.
 list_projects() {
-  page=0
-  while :; do
-    out=$("$GW_SCRIPTS/gw-agent-projects" "$GENIA_AGENT_NAME" "$page") || return 1
-    printf '%s' "$out" | jq -r '.content[]? | select(.viewerRole != null and (.repositoryUrl // "") != ""
-                                                    and ((.key // "") | test("^[A-Za-z0-9_-]+$")))
-                                | [.key, .repositoryUrl, (.repositoryBranch // "")] | @tsv' || return 1
-    total=$(printf '%s' "$out" | jq -r '.totalPages // 0')
-    page=$((page + 1))
-    [ "$page" -lt "$total" ] || break
-  done
+  "$GW_SCRIPTS/gw-agent-projects" --assigned "$GENIA_AGENT_NAME" </dev/null
 }
 
 # 7b. 저장소의 Playwright 버전 — pnpm-lock.yaml 의 패키지 줄(정확한 버전)을 먼저, 없으면 package.json 의 고정 버전(^·~ 는 뗀다).
@@ -239,7 +230,43 @@ note_launch() {
   esac
 }
 
+# pid 들과 그 자손 전부를 끈다(WP-1267) — 뒤에서 도는 일(agent-project → git clone·npx)은 손자 프로세스가 실제 일을 하므로 서브셸만 끄면
+# 정리 뒤에도 clone 이 영속 폴더에 쓰고 있다. ps 의 pid·ppid 표로 자손을 모은 뒤(끄기 전에 — 끄면 고아가 돼 부모를 잃는다) TERM, 3초 안에
+# 안 끝난 것은 KILL. ps 가 없으면 받은 pid 만 끈다.
+kill_tree() {
+  [ $# -gt 0 ] || return 0
+  tree=$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$*" '
+    BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) want[r[i]] = 1 }
+    { p[NR] = $1; q[NR] = $2 }
+    END { do { c = 0; for (i = 1; i <= NR; i++) if (!(p[i] in want) && (q[i] in want)) { want[p[i]] = 1; c = 1 } } while (c)
+          for (k in want) print k }')
+  [ -n "$tree" ] || tree="$*"
+  # shellcheck disable=SC2086 # pid 들은 숫자 단어다.
+  kill -TERM $tree 2>/dev/null
+  n=30
+  while [ "$n" -gt 0 ]; do
+    alive=0
+    for p in $tree; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ "$alive" = 0 ] && return 0
+    sleep 0.1
+    n=$((n - 1))
+  done
+  # shellcheck disable=SC2086
+  kill -KILL $tree 2>/dev/null
+  return 0
+}
+
+# 종료 신호 때 — 부팅 중이던 뒤의 일들을 자손까지 끄고 임시 폴더를 치운다(on_term 이 부른다).
+abort_boot() {
+  # shellcheck disable=SC2086
+  [ -z "${BG_PIDS:-}" ] || kill_tree $BG_PIDS
+  BG_PIDS=""
+  [ -z "${BOOT_DIR:-}" ] || rm -rf "$BOOT_DIR"
+  BOOT_DIR=""
+}
+
 # 7. 프로젝트 — start-agent 4~6번을 사람 대신. 대기열 라벨·홈 기억 → 저장소마다 받기 → 신뢰 → Playwright → 칸.
+#    저장소 받기·브라우저 받기는 프로젝트별로 동시에 돈다(WP-1267).
 #    BOOT_KEYS 에 띄운 키를 모은다(감독이 살핀다). 프로젝트 목록을 못 읽으면 1(감독이 다음 회차에 다시 한다).
 #    알림 감시 창은 부르는 쪽이 칸을 다 띄운 뒤 한 번 챙긴다(ensure_events).
 start_projects() {
@@ -259,22 +286,57 @@ start_projects() {
   set --
   for key in $(printf '%s\n' "$list" | cut -f1); do set -- "$@" "$AI_DIR/repos/$key"; done
   mark_trust "$AI_DIR" "$@" || log "경고: ~/.claude.json 에 폴더 신뢰를 적지 못했습니다"
-  pw_done=" "
   tab=$(printf '\t')
+  # 받기·브라우저는 프로젝트끼리 서로 기다릴 일이 없다 — 프로젝트가 늘수록 순서대로 하면 부팅이 그만큼 길어진다(WP-1267).
+  # 1) 저장소를 모두 한꺼번에 받고 기다린다 → 2) 성공한 것들의 Playwright 버전(겹치면 한 번)을 한꺼번에 받고 기다린다 → 3) 칸은 차례로.
+  #    칸은 같은 창을 나누고 ~/.claude.json 을 칸의 claude 가 쓰기 시작하므로 계속 하나씩 띄운다(mark_trust 는 위에서 끝냈다).
+  #    각 일의 결과(출력·종료 코드)는 임시 폴더의 프로젝트별 파일에 두고, 로그는 기다린 뒤 목록 순서대로 남긴다.
+  BOOT_DIR=$(mktemp -d "$GENIA_WORK/tmp/boot.XXXXXX") || {
+    log "경고: 임시 폴더를 만들지 못했습니다 — 이번에는 띄우지 않고 다시 합니다"
+    return 1
+  }
+  BG_PIDS=""
   while IFS="$tab" read -r key url branch; do
     # repo 가 낸 줄(cloned·fetched·no-project-md…)은 그대로 로그로. clone-failed·url-changed·busy 면 이번에는 띄우지 않는다.
-    out=$("$GW_SCRIPTS/agent-project" repo "$AI_DIR" "$key" "$url" ${branch:+"$branch"} </dev/null)
-    rc=$?
+    (
+      out=$("$GW_SCRIPTS/agent-project" repo "$AI_DIR" "$key" "$url" ${branch:+"$branch"} </dev/null)
+      rc=$?
+      printf '%s' "$out" > "$BOOT_DIR/$key.out"
+      printf '%s' "$rc" > "$BOOT_DIR/$key.rc" # 끝에 적는다 — 이 파일이 있으면 위 출력도 다 적힌 것
+    ) &
+    BG_PIDS="$BG_PIDS $!"
+  done <<LIST_EOF
+$list
+LIST_EOF
+  # shellcheck disable=SC2086 # pid 들은 숫자 단어다. SIGTERM 이 오면 on_term 이 BG_PIDS 를 끄므로 여기서 오래 붙잡히지 않는다.
+  wait $BG_PIDS
+  ok_list=""
+  pw_versions=" "
+  while IFS="$tab" read -r key url branch; do
+    out=$(cat "$BOOT_DIR/$key.out" 2>/dev/null)
     [ -n "$out" ] && log "$key: $(printf '%s' "$out" | tr '\n' ' ')"
-    [ $rc -eq 0 ] || continue
+    [ "$(cat "$BOOT_DIR/$key.rc" 2>/dev/null)" = 0 ] || continue
+    ok_list="$ok_list $key"
     if v=$(playwright_version "$AI_DIR/repos/$key"); then
-      case "$pw_done" in *" $v "*) ;; *) ensure_playwright "$v"; pw_done="$pw_done$v " ;; esac
+      case "$pw_versions" in *" $v "*) ;; *) pw_versions="$pw_versions$v " ;; esac
     fi
+  done <<LIST_EOF
+$list
+LIST_EOF
+  BG_PIDS=""
+  for v in $pw_versions; do
+    ensure_playwright "$v" &
+    BG_PIDS="$BG_PIDS $!"
+  done
+  # shellcheck disable=SC2086
+  [ -z "$BG_PIDS" ] || wait $BG_PIDS
+  BG_PIDS=""
+  rm -rf "$BOOT_DIR"
+  BOOT_DIR=""
+  for key in $ok_list; do
     note_launch "$key" "$(GW_SKIP_EVENTS_ENSURE=1 "$GW_SCRIPTS/agent-project" start "$AI_DIR" "$key" </dev/null)"
     BOOT_KEYS="${BOOT_KEYS:-} $key"
-  done <<EOF
-$list
-EOF
+  done
   return 0
 }
 

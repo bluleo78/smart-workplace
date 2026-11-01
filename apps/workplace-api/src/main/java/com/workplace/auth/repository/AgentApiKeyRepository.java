@@ -144,7 +144,8 @@ public class AgentApiKeyRepository {
     return new ManagedKeyChain.Key(
         r.get(AGENT_API_KEY.ID),
         r.get(AGENT_API_KEY.EXPIRES_AT),
-        r.get(AGENT_API_KEY.ROTATION_GENERATION));
+        r.get(AGENT_API_KEY.ROTATION_GENERATION),
+        r.get(AGENT_API_KEY.RETIRING_AT));
   }
 
   /** 이 AI 의 이 워크스페이스 활성 managed 키 사슬(WP-1253) — {@link #findActiveManagedByUsers} 의 한 AI 판. */
@@ -165,7 +166,8 @@ public class AgentApiKeyRepository {
             AGENT_API_KEY.USER_ID,
             AGENT_API_KEY.ID,
             AGENT_API_KEY.EXPIRES_AT,
-            AGENT_API_KEY.ROTATION_GENERATION)
+            AGENT_API_KEY.ROTATION_GENERATION,
+            AGENT_API_KEY.RETIRING_AT)
         .from(AGENT_API_KEY)
         .where(AGENT_API_KEY.USER_ID.in(userIds))
         .and(managedIn(tenantId))
@@ -194,6 +196,9 @@ public class AgentApiKeyRepository {
    * keepKeyIds} 는 남길 키(AI 마다 현재 키)다 — 키 id 는 한 AI 에만 속하므로 한 목록으로 넘겨도 된다. 이미 그보다 먼저 만료되는 키는 건드리지 않아
    * 늦추는 일이 없다 — 관찰 보고가 60초마다 와도 만료가 계속 밀리지 않는다. 관리자 발급 키·다른 워크스페이스의 managed 키는 건드리지 않는다.
    *
+   * <p>줄이는 키에는 정리 유예에 들었다는 표시(retiring_at = 지금)를 함께 남긴다(WP-1263) — 「지금 쓰는 키」 판정({@link
+   * ManagedKeyChain#live})이 만료 시각을 견줘 짐작하지 않게. 이미 표시가 있으면 처음 시각을 지킨다.
+   *
    * @return 줄인 키 수
    */
   public int shortenManaged(
@@ -201,6 +206,9 @@ public class AgentApiKeyRepository {
     if (userIds.isEmpty()) return 0;
     return dsl.update(AGENT_API_KEY)
         .set(AGENT_API_KEY.EXPIRES_AT, until)
+        .set(
+            AGENT_API_KEY.RETIRING_AT,
+            DSL.coalesce(AGENT_API_KEY.RETIRING_AT, DSL.val(OffsetDateTime.now())))
         .where(AGENT_API_KEY.USER_ID.in(userIds))
         .and(keepKeyIds.isEmpty() ? DSL.noCondition() : AGENT_API_KEY.ID.notIn(keepKeyIds))
         .and(managedIn(tenantId))

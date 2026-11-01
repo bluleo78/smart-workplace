@@ -11,6 +11,7 @@ import { describe, expect, test, vi } from 'vitest'
 
 import AgentManagementPage from '@/pages/admin/AgentManagementPage'
 import { AgentConnectionSection } from '@/pages/admin/components/AgentConnectionSection'
+import { agentRuntimeApi } from '@/test/kits/admin/agentRuntime'
 import { MOCK_ADMIN_ROLE, MOCK_USER_ROLE } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
@@ -237,6 +238,8 @@ describe('에이전트 목록 — 안내 배너·개인 비서 표시', () => {
         includes.push(include)
         return HttpResponse.json(agents(include === 'true'))
       }),
+      // 목록 「실행」 열 요약(WP-1255) — 이 테스트는 실행 설정 없는 AI 만 쓴다.
+      ...agentRuntimeApi().handlers,
     ]
     return { ...renderScreen(<AgentManagementPage />, { path: '/settings/agents', handlers, auth: ADMIN }), includes }
   }

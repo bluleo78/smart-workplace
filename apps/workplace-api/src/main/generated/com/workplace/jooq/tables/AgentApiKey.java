@@ -128,6 +128,11 @@ public class AgentApiKey extends TableImpl<AgentApiKeyRecord> {
      */
     public final TableField<AgentApiKeyRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT, this, "");
 
+    /**
+     * The column <code>public.agent_api_key.retiring_at</code>.
+     */
+    public final TableField<AgentApiKeyRecord, OffsetDateTime> RETIRING_AT = createField(DSL.name("retiring_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private AgentApiKey(Name alias, Table<AgentApiKeyRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

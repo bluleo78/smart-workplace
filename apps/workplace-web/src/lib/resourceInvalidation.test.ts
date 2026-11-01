@@ -181,6 +181,16 @@ describe('아바타 규칙 (WP-1226)', () => {
   });
 });
 
+describe('AI 실행 규칙 (WP-1245)', () => {
+  it('agent-runtime 변경 → 설정·목록 요약·실행 위치를 다시 받고 템플릿·맡는 프로젝트는 두지 않는다', () => {
+    expect(invalidationTargets({ resource: 'agent-runtime', op: 'updated', ids: [6] })).toEqual([
+      { queryKey: ['agent-runtime', 'setting'] },
+      { queryKey: ['agent-runtime', 'summaries'] },
+      { queryKey: ['agent-runtime', 'locations'] },
+    ]);
+  });
+});
+
 describe('isProtectedKey', () => {
   it('AI 요약·세션 계열은 보호, 일반 키는 아님', () => {
     expect(isProtectedKey(['mail-summary', 5])).toBe(true);

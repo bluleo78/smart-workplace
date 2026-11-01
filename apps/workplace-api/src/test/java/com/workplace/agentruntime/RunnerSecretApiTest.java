@@ -19,6 +19,7 @@ import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
 import com.workplace.agentruntime.dto.RunnerObservedRequest;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
@@ -29,6 +30,7 @@ import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.service.AgentApiKeyExpirySweeper;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.SqlStatementCounter;
@@ -141,9 +143,25 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     return appEvents.stream(AgentRuntimeDesiredChanged.class).count();
   }
 
-  /** 정리 유예(지금+5분) 안으로 줄었는지 — 조금의 실행 시간 여유를 둔다. */
-  private static void assertShortenedToGrace(OffsetDateTime expiresAt) {
-    assertThat(expiresAt).isBefore(OffsetDateTime.now().plusMinutes(5).plusSeconds(5));
+  /** 관리자 화면 실시간 알림(resource agent-runtime) 중 그 op 이고 그 AI 를 담은 것의 수(WP-1254). */
+  private long runtimeEvents(String op, long agent) {
+    return appEvents.stream(ResourceChangedEvent.class)
+        .filter(e -> AgentRuntimeChangeNotifier.RESOURCE_AGENT_RUNTIME.equals(e.resource()))
+        .filter(e -> op.equals(e.op()) && e.ids().contains(agent))
+        .count();
+  }
+
+  private OffsetDateTime retiringAtOf(long keyId) {
+    return dsl.select(AGENT_API_KEY.RETIRING_AT)
+        .from(AGENT_API_KEY)
+        .where(AGENT_API_KEY.ID.eq(keyId))
+        .fetchOne(AGENT_API_KEY.RETIRING_AT);
+  }
+
+  /** 정리 유예에 들었는지 — 만료가 지금+5분 안으로 줄었고(조금의 실행 시간 여유를 둔다) 유예 표시(retiring_at, WP-1263)가 남았다. */
+  private void assertRetiring(long keyId) {
+    assertThat(expiresAtOf(keyId)).isBefore(OffsetDateTime.now().plusMinutes(5).plusSeconds(5));
+    assertThat(retiringAtOf(keyId)).isNotNull();
   }
 
   /** 관리자 웹 세션 인증. */
@@ -184,6 +202,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     JsonNode first = issueKey(a1);
     assertThat(fx.generationOf(a1)).isEqualTo(g0);
     assertThat(changedEvents()).isEqualTo(before);
+    long runtimeBefore = runtimeEvents("updated", a1);
     long oldId = first.get("keyId").asLong();
     OffsetDateTime oldExpires = expiresAtOf(oldId);
     setObservedGeneration(a1, g0);
@@ -193,6 +212,8 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     assertThat(fx.generationOf(a1)).isEqualTo(g0 + 1);
     assertThat(applyModeOf(a1)).isEqualTo("IDLE");
     assertThat(changedEvents()).isEqualTo(before + 1);
+    // generation 이 올라 화면 상태가 「적용 대기」로 바뀌므로 관리자 화면에도 알린다(WP-1254).
+    assertThat(runtimeEvents("updated", a1)).isEqualTo(runtimeBefore + 1);
     assertThat(expiresAtOf(oldId)).isEqualTo(oldExpires);
     assertThat(
             dsl.select(AGENT_API_KEY.ROTATION_GENERATION)
@@ -247,15 +268,19 @@ class RunnerSecretApiTest extends IntegrationTestBase {
 
     observed(a1, rotationGen - 1);
     assertThat(expiresAtOf(oldId)).isEqualTo(oldExpires);
+    assertThat(retiringAtOf(oldId)).isNull();
 
     observed(a1, rotationGen);
-    assertShortenedToGrace(expiresAtOf(oldId));
+    assertRetiring(oldId);
     assertThat(expiresAtOf(newId)).isEqualTo(newExpires);
+    assertThat(retiringAtOf(newId)).isNull();
 
-    // 같은 보고가 다시 와도 만료가 늦춰지지 않는다.
+    // 같은 보고가 다시 와도 만료·유예 표시 시각이 늦춰지지 않는다.
     OffsetDateTime shortened = expiresAtOf(oldId);
+    OffsetDateTime retiring = retiringAtOf(oldId);
     observed(a1, rotationGen);
     assertThat(expiresAtOf(oldId)).isEqualTo(shortened);
+    assertThat(retiringAtOf(oldId)).isEqualTo(retiring);
   }
 
   private void observed(long agent, long generation) throws Exception {
@@ -349,7 +374,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     TenantContext.set(1L);
     settingService.stop(admin, a1);
 
-    assertShortenedToGrace(expiresAtOf(managedId));
+    assertRetiring(managedId);
     assertThat(expiresAtOf(adminKeyId)).isNull();
   }
 
@@ -359,9 +384,11 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     long managedId = issueKey(a1).get("keyId").asLong();
 
     TenantContext.set(1L);
-    settingService.stopForRemoval(a1, admin);
+    settingService.stopForRemoval(a1, admin, true);
+    // AI 삭제는 행이 곧 사라지므로 관리자 화면에 「지워짐」으로 알린다(WP-1254).
+    assertThat(runtimeEvents("deleted", a1)).isEqualTo(1);
 
-    assertShortenedToGrace(expiresAtOf(managedId));
+    assertRetiring(managedId);
   }
 
   /** 꺼진 AI 의 실행 설정 삭제와 「내부 · 기본」 전환도 남은 managed 키를 줄인다. */
@@ -371,14 +398,16 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     long k3 = keyRepo.insertManaged(a3, 1L, "ak_test3", "hash-a3", "Works 자동 발급", far, null);
     TenantContext.set(1L);
     settingService.delete(admin, a3);
-    assertShortenedToGrace(expiresAtOf(k3));
+    assertRetiring(k3);
 
     TenantContext.set(1L);
     settingService.stop(admin, a2);
     long k2 = keyRepo.insertManaged(a2, 1L, "ak_test2", "hash-a2", "Works 자동 발급", far, null);
     TenantContext.set(1L);
     userService.setAgentRuntime(admin, a2, AgentRuntime.INTERNAL);
-    assertShortenedToGrace(expiresAtOf(k2));
+    assertRetiring(k2);
+    // 「내부 · 기본」 전환으로 지운 설정도 관리자 화면에 「지워짐」으로 알린다(WP-1254).
+    assertThat(runtimeEvents("deleted", a2)).isEqualTo(1);
   }
 
   /**
@@ -650,10 +679,10 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     long k1b = issueKey(a1).get("keyId").asLong();
     useTenant(1L);
     observedAs(t1, 1L, a1, fx.generationOf(a1));
-    assertShortenedToGrace(expiresAtOf(k1));
+    assertRetiring(k1);
     TenantContext.set(1L);
     settingService.stop(admin, a1);
-    assertShortenedToGrace(expiresAtOf(k1b));
+    assertRetiring(k1b);
 
     assertThat(expiresAtOf(k2)).isEqualTo(k2Expires);
     assertThat(agentKeyVersion(fx.json(runnerAs(get(BASE + "/desired"), t2, tenant2)), a1))
@@ -1009,7 +1038,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     settingService.put(
         admin, a1, new PutAgentRuntimeSettingRequest("claude-code", l2, Map.of(), null));
 
-    assertShortenedToGrace(expiresAtOf(managedId));
+    assertRetiring(managedId);
   }
 
   /**
@@ -1057,5 +1086,37 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     assertThat(key).isNotNull();
     assertThat(key.get("version").isNull()).isTrue();
     assertThat(key.get("rotateAfter").isNull()).isTrue();
+  }
+
+  /**
+   * 「지금 쓰는 키」는 유예 표시(retiring_at)로만 가른다(WP-1263) — 만료가 5분 안에 오더라도 줄인 적이 없는 키는 desired 에 그대로 나오고, 같은
+   * 만료라도 유예 표시가 있으면 나오지 않는다.
+   */
+  @Test
+  void desired_usesRetiringMarkNotExpiryToPickUsableKey() throws Exception {
+    long keyId = issueKey(a1).get("keyId").asLong();
+    dsl.update(AGENT_API_KEY)
+        .set(AGENT_API_KEY.EXPIRES_AT, OffsetDateTime.now().plusMinutes(3))
+        .where(AGENT_API_KEY.ID.eq(keyId))
+        .execute();
+    assertThat(desiredAgentKeyVersion(a1)).isEqualTo(keyId);
+
+    dsl.update(AGENT_API_KEY)
+        .set(AGENT_API_KEY.RETIRING_AT, OffsetDateTime.now())
+        .where(AGENT_API_KEY.ID.eq(keyId))
+        .execute();
+    assertThat(desiredAgentKeyVersion(a1)).isNull();
+  }
+
+  /** desired 에 실린 그 AI 의 agent-key 버전(없으면 null). */
+  private Long desiredAgentKeyVersion(long agent) throws Exception {
+    JsonNode desired = fx.json(runner(get(BASE + "/desired")).andExpect(status().isOk()));
+    for (JsonNode a : desired.get("agents")) {
+      if (a.get("agentUserId").asLong() == agent) {
+        JsonNode version = secretNamed(a.get("secrets"), "agent-key").get("version");
+        return version.isNull() ? null : version.asLong();
+      }
+    }
+    throw new AssertionError("desired 에 AI 가 없습니다: " + agent);
   }
 }

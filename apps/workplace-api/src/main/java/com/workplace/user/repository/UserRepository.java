@@ -28,6 +28,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.RecordMapper;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -751,17 +752,42 @@ public class UserRepository {
    */
   public int countActiveAdmins(Long tenantId) {
     return dsl.select(count())
-        .from(USER)
-        .join(USER_ROLE)
+        .from(workspaceAdminJoin(tenantId))
+        .where(workspaceActiveAdmin(tenantId))
+        .fetchOne(0, Integer.class);
+  }
+
+  /**
+   * 「이 워크스페이스의 활성 ADMIN」 판정용 조인(사람 + 역할 + 이 테넌트 멤버십) — {@link #countActiveAdmins}·{@link
+   * #findWorkspaceActiveAdminIds}·{@link #isWorkspaceActiveAdmin} 가 같은 규칙을 쓰게 한곳에 둔다.
+   */
+  private static Table<?> workspaceAdminJoin(Long tenantId) {
+    return USER.join(USER_ROLE)
         .on(USER_ROLE.USER_ID.eq(USER.ID))
         .join(ROLE)
         .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
         .join(MEMBERSHIP)
-        .on(WorkspaceActive.join(tenantId))
-        .where(ROLE.NAME.eq("ADMIN"))
+        .on(WorkspaceActive.join(tenantId));
+  }
+
+  /** {@link #workspaceAdminJoin} 위의 술어 — ADMIN 역할 && 이 테넌트 역할 행 && 전역 활성 && 이 테넌트 멤버십 ACTIVE. */
+  private static Condition workspaceActiveAdmin(Long tenantId) {
+    return ROLE.NAME
+        .eq("ADMIN")
         .and(USER_ROLE.TENANT_ID.eq(tenantId))
-        .and(WorkspaceActive.condition())
-        .fetchOne(0, Integer.class);
+        .and(WorkspaceActive.condition());
+  }
+
+  /**
+   * 이 워크스페이스의 활성 ADMIN id 목록(WP-1254) — 관리자 화면 실시간 갱신(TENANT_ADMIN scope)의 수신자. {@link
+   * #countActiveAdmins} 와 같은 조인·술어(ADMIN 역할 && 전역 활성 && 이 테넌트 멤버십 ACTIVE)로 고른다. 역할이 여러 개여도 한 번만
+   * 나온다.
+   */
+  public List<Long> findWorkspaceActiveAdminIds(Long tenantId) {
+    return dsl.selectDistinct(USER.ID)
+        .from(workspaceAdminJoin(tenantId))
+        .where(workspaceActiveAdmin(tenantId))
+        .fetch(USER.ID);
   }
 
   /**
@@ -771,17 +797,9 @@ public class UserRepository {
   public boolean isWorkspaceActiveAdmin(Long userId, Long tenantId) {
     return dsl.fetchExists(
         dsl.selectOne()
-            .from(USER)
-            .join(USER_ROLE)
-            .on(USER_ROLE.USER_ID.eq(USER.ID))
-            .join(ROLE)
-            .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
-            .join(MEMBERSHIP)
-            .on(WorkspaceActive.join(tenantId))
+            .from(workspaceAdminJoin(tenantId))
             .where(USER.ID.eq(userId))
-            .and(ROLE.NAME.eq("ADMIN"))
-            .and(USER_ROLE.TENANT_ID.eq(tenantId))
-            .and(WorkspaceActive.condition()));
+            .and(workspaceActiveAdmin(tenantId)));
   }
 
   public void addRole(Long userId, Long roleId) {

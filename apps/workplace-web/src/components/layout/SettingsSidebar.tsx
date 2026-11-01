@@ -1,7 +1,7 @@
 // apps/workplace-web/src/components/layout/SettingsSidebar.tsx
 // 설정 앱 2차 사이드바 — 개인 설정(전체) + 워크스페이스 관리·앱 설정(어드민 전용) 3그룹.
 // 앱 설정(WP-887): 앱마다 항목 하나(시안 A) — 들어가면 그 앱의 설정 묶음. 앱 설정이 늘어도 사이드바는 앱 수만큼만 는다.
-import { Bell, BookOpen, Bot, FileText, KeyRound, LayoutList, Link2, LogIn, Mail, Settings, Shield, User, Users } from 'lucide-react'
+import { Bell, BookOpen, Bot, FileText, KeyRound, LayoutList, Link2, LogIn, Mail, Server, Settings, Shield, User, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -22,6 +22,7 @@ const PERSONAL_ITEMS = [
 const ADMIN_ITEMS = [
   { label: '구성원', href: '/settings/users', icon: Users },
   { label: '에이전트', href: '/settings/agents', icon: Bot },
+  { label: 'AI 실행 위치', href: '/settings/agent-locations', icon: Server },
   { label: '역할', href: '/settings/roles', icon: Shield },
   { label: 'SSO', href: '/settings/sso', icon: LogIn },
   { label: '감사 로그', href: '/settings/audit-logs', icon: FileText },

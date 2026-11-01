@@ -26,6 +26,7 @@ const SsoSettingsPage = lazy(() => import('./pages/admin/SsoSettingsPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
 const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
+const AgentLocationsPage = lazy(() => import('./pages/admin/AgentLocationsPage'))
 const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
 const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
@@ -291,6 +292,7 @@ export default function App() {
                     <Route path="settings/wiki-sharing" element={<Navigate to="/settings/apps/wiki" replace />} />
                     <Route path="settings/audit-logs" element={<AuditLogListPage />} />
                     <Route path="settings/agents" element={<AgentManagementPage />} />
+                    <Route path="settings/agent-locations" element={<AgentLocationsPage />} />
                   </Route>
                 </Route>
 

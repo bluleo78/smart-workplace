@@ -2,6 +2,7 @@ package com.workplace.agentruntime.service;
 
 import com.workplace.agentruntime.dto.AgentLocationResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
+import com.workplace.agentruntime.dto.AgentRuntimeStatus;
 import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
@@ -11,12 +12,14 @@ import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingNotFoundException;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import com.workplace.agentruntime.service.AgentKeyRetirement.Placement;
 import com.workplace.audit.service.AuditLogService;
-import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
@@ -62,7 +65,8 @@ public class AgentRuntimeSettingService {
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
   private final ApplicationEventPublisher events;
-  private final AgentApiKeyService agentKeys;
+  private final AgentKeyRetirement keyRetirement;
+  private final AgentRuntimeChangeNotifier changeNotifier;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -109,6 +113,7 @@ public class AgentRuntimeSettingService {
       settings.insert(
           agentId, template.name(), template.version(), req.locationId(), config, callerId);
       audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 저장", meta(template, req));
+      changeNotifier.agentChanged(ResourceChangedEvent.OP_CREATED, agentId, callerId);
       return get(agentId);
     }
 
@@ -127,11 +132,6 @@ public class AgentRuntimeSettingService {
       // 자신을 세어 막지 않는다. 옛 위치 자리는 비워질 뿐이라 보지 않는다. 꺼져 있으면 위치가 있는지만 본다.
       if (row.desired() == Desired.RUN) {
         newEffective = claimSeat(req.locationId(), oldEffective).id();
-        // 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — managed 키도 끄기처럼 정리 유예로 줄인다. 그래야 새 위치의 첫
-        // 키 발급이 교체로 보이지 않는다(RunnerDesiredStateService#issueAgentKey).
-        if (!Objects.equals(newEffective, oldEffective)) {
-          agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
-        }
       } else if (req.locationId() != null) {
         newEffective = requireLocation(req.locationId()).id();
       } else {
@@ -142,19 +142,29 @@ public class AgentRuntimeSettingService {
         next.withApplyMode(req.applyMode() == null ? ApplyMode.IDLE : req.applyMode())
             .withGeneration(row.generation() + 1);
     settings.update(next, callerId);
+    // 켜진 채 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — 키 정리는 한 규칙이 정한다(WP-1264).
+    keyRetirement.onTransition(
+        agentId,
+        new Placement(row.desired(), oldEffective),
+        new Placement(next.desired(), newEffective));
     publish(oldEffective, newEffective);
     audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 변경", meta(template, req));
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, newEffective);
   }
 
   /**
    * 켜기 — 실제 위치(지정 위치 ?? 기본, 없으면 409)에 자리가 남았는지 확인한 뒤 desired RUN·generation+1·apply_mode NOW. 템플릿
-   * 버전은 레지스트리의 현재 버전으로 다시 고정한다(설정은 새 템플릿으로 다시 검증하고 없어진 칸은 버린다). 이미 켜져 있으면 변화 없음.
+   * 버전은 레지스트리의 현재 버전으로 다시 고정한다(설정은 새 템플릿으로 다시 검증하고 없어진 칸은 버린다). 이미 켜져 있으면 변화 없음 — 단 실행에 실패한(FAILED)
+   * AI 면 다시 시작과 같다.
    */
   public AgentRuntimeSettingResponse start(long callerId, long agentId) {
     Row row = lockRow(agentId);
-    if (row.desired() == Desired.RUN)
+    if (row.desired() == Desired.RUN) {
+      // 실행에 실패한 AI 를 다시 켜면 다시 시작과 같다 — 어느 화면의 「켜기」든 실패한 AI 를 다시 띄우게(그대로 두면 켜져 있다며 아무것도 하지 않는다).
+      if (statusOf(row) == AgentRuntimeStatus.FAILED) return restartLocked(callerId, agentId, row);
       return toResponse(row, locationService.effectiveLocationId(row.locationId()));
+    }
     AgentTemplate template =
         registry
             .find(row.templateName())
@@ -173,7 +183,10 @@ public class AgentRuntimeSettingService {
             .withGeneration(row.generation() + 1);
     settings.update(next, callerId);
     publish(location.id());
+    keyRetirement.onTransition(
+        agentId, placementOf(row), new Placement(next.desired(), location.id()));
     audit(callerId, "AGENT_RUNTIME_STARTED", agentId, "AI 켜기", Map.of("locationId", location.id()));
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, location.id());
   }
 
@@ -187,9 +200,11 @@ public class AgentRuntimeSettingService {
     if (row.desired() == Desired.STOP) return toResponse(row, effective);
     Row next = bumpDesired(row, Desired.STOP, row.applyMode());
     settings.update(next, callerId);
-    agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
+    keyRetirement.onTransition(
+        agentId, new Placement(row.desired(), effective), new Placement(next.desired(), effective));
     publish(effective);
     audit(callerId, "AGENT_RUNTIME_STOPPED", agentId, "AI 끄기", Map.of());
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, effective);
   }
 
@@ -199,11 +214,19 @@ public class AgentRuntimeSettingService {
     if (row.desired() != Desired.RUN) {
       throw new AgentRuntimeSettingConflictException("켜져 있는 AI 만 다시 시작할 수 있습니다");
     }
+    return restartLocked(callerId, agentId, row);
+  }
+
+  /** 잠가 읽은 켜진 행을 다시 시작한다 — 다시 시작과 실패한 AI 의 「켜기」가 함께 쓴다. */
+  private AgentRuntimeSettingResponse restartLocked(long callerId, long agentId, Row row) {
     Long effective = locationService.effectiveLocationId(row.locationId());
     Row next = bumpDesired(row, Desired.RUN, ApplyMode.NOW);
     settings.update(next, callerId);
+    keyRetirement.onTransition(
+        agentId, new Placement(row.desired(), effective), new Placement(next.desired(), effective));
     publish(effective);
     audit(callerId, "AGENT_RUNTIME_RESTARTED", agentId, "AI 다시 시작", Map.of());
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, effective);
   }
 
@@ -215,8 +238,9 @@ public class AgentRuntimeSettingService {
     Row row = lockRow(agentId);
     if (row.desired() == Desired.RUN) throw AgentRuntimeSettingConflictException.running();
     settings.delete(agentId);
-    agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
+    keyRetirement.onTransition(agentId, placementOf(row), null);
     audit(callerId, "AGENT_RUNTIME_SETTING_DELETED", agentId, "AI 실행 설정 삭제", Map.of());
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_DELETED, agentId, callerId);
   }
 
   /**
@@ -226,23 +250,47 @@ public class AgentRuntimeSettingService {
    *
    * <p>정지 이벤트는 멤버십을 이미 SUSPENDED 로 바꾼 뒤에 오므로 구성원 가드를 거치지 않는다. 잠금은 저장과 같은 순서(AI 행 → 설정 행)로 잡는다.
    *
-   * <p>자동 발급 키는 정리 유예로 줄인다(WP-1253). 키는 발급한 워크스페이스에 묶여 있어 이 워크스페이스의 키만 줄어든다 — 같은 AI 를 다른 워크스페이스에서
-   * Works 가 띄우고 있어도 그쪽 Pod 의 키는 그대로다.
+   * <p>자동 발급 키는 정리 유예로 줄인다(WP-1253) — 키 규칙에는 「AI 가 이 워크스페이스를 떠남 = 행이 없어짐」으로 넘긴다(WP-1264, 꺼져 있었어도
+   * 줄인다). 키는 발급한 워크스페이스에 묶여 있어 이 워크스페이스의 키만 줄어든다 — 같은 AI 를 다른 워크스페이스에서 Works 가 띄우고 있어도 그쪽 Pod 의 키는
+   * 그대로다.
+   *
+   * <p>AI 삭제({@code deleted=true})면 행이 FK CASCADE 로 곧 사라지므로 관리자 화면에 「지워짐」으로 알리고, 사용 중지면 켜져 있다가 꺼졌을
+   * 때만 「바뀜」으로 알린다(WP-1254).
    *
    * @param actorId 변경한 관리자(모르면 null)
+   * @param deleted AI 삭제인지(false 면 이 워크스페이스 사용 중지)
    */
-  public void stopForRemoval(long agentId, Long actorId) {
+  public void stopForRemoval(long agentId, Long actorId, boolean deleted) {
     if (settings.find(agentId).isEmpty()) return;
     agentRuntimePolicy.lock(agentId);
-    agentKeys.shortenManagedToGrace(agentId, TenantContext.require());
-    settings
-        .findForUpdate(agentId)
-        .filter(row -> row.desired() == Desired.RUN)
-        .ifPresent(
-            row -> {
-              settings.update(bumpDesired(row, Desired.STOP, row.applyMode()), actorId);
-              publish(locationService.effectiveLocationId(row.locationId()));
-            });
+    Optional<Row> locked = settings.findForUpdate(agentId);
+    if (locked.isEmpty()) return;
+    Row row = locked.get();
+    keyRetirement.onTransition(agentId, placementOf(row), null);
+    boolean wasRunning = row.desired() == Desired.RUN;
+    if (wasRunning) {
+      settings.update(bumpDesired(row, Desired.STOP, row.applyMode()), actorId);
+      publish(locationService.effectiveLocationId(row.locationId()));
+    }
+    if (deleted) {
+      changeNotifier.agentChanged(ResourceChangedEvent.OP_DELETED, agentId, actorId);
+    } else if (wasRunning) {
+      changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, actorId);
+    }
+  }
+
+  /**
+   * 키 규칙용 모양 — 위치를 견주지 않는 전이(꺼진 행에서 켜기, 행이 없어지는 삭제·AI 가 떠남)의 「전」 쪽으로 쓴다. 기본 위치를 다시 읽지 않고 지정 위치를 그대로
+   * 넣는다({@link Placement} 참고).
+   */
+  static Placement placementOf(Row row) {
+    return new Placement(row.desired(), row.locationId());
+  }
+
+  /** 저장 행의 화면용 실행 상태. */
+  private static AgentRuntimeStatus statusOf(Row r) {
+    return AgentRuntimeStatusResolver.resolve(
+        r.desired(), r.generation(), r.observedGeneration(), r.phase());
   }
 
   /** 구성원 확인 뒤 설정 행을 잠가 읽는다 — 없으면 404. */
@@ -325,8 +373,7 @@ public class AgentRuntimeSettingService {
         r.desired(),
         r.applyMode(),
         r.generation(),
-        AgentRuntimeStatusResolver.resolve(
-            r.desired(), r.generation(), r.observedGeneration(), r.phase()),
+        statusOf(r),
         new ObservedState(
             r.observedGeneration(),
             r.phase(),

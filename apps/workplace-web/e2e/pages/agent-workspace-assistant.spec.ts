@@ -8,6 +8,7 @@ import type { WorkspaceAssistant } from '../../src/types/assistant';
 import type { ProviderCredentialMeta } from '../../src/types/providerCredential';
 import { expect, test } from '../fixtures/auth.fixture';
 import { trackRequests } from '../fixtures/requests';
+import { mockAgentRuntimeNone } from '../fixtures/agent-runtime-mock';
 
 // 테스트용 AGENT 픽스처.
 const AGENT_ID = 5;
@@ -38,6 +39,7 @@ const OAUTH_META_FIXTURE: ProviderCredentialMeta = {
  * 개별 테스트는 workspace-assistant + provider-credential 경로를 별도 등록한다.
  */
 async function setupBase(page: import('@playwright/test').Page) {
+  await mockAgentRuntimeNone(page);
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
   // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {

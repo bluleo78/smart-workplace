@@ -16,6 +16,7 @@ import type { AvatarEntry } from '@/types/avatar'
 import type { RoleResponse } from '@/types/role'
 
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
+import { agentRuntimeApi } from '../../test/kits/admin/agentRuntime'
 import AgentManagementPage from './AgentManagementPage'
 
 const base = {
@@ -152,6 +153,8 @@ function agentApi(
     http.get('/api/v1/admin/workspace-assistant', () =>
       HttpResponse.json({ agentUserId: 103, agentName: '공통봇', hasActiveToken: true, model: null, thinkingDepth: null }),
     ),
+    // AI 실행(WP-1245) — 목록 「실행」 열 요약·상세 실행 방식 섹션의 템플릿·설정 조회(이 화면 테스트는 실행 설정 없는 AI 만 쓴다).
+    ...agentRuntimeApi().handlers,
   ]
   return { calls, handlers }
 }

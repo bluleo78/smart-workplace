@@ -4,11 +4,13 @@ import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.AgentStatusReportRequest;
 import com.workplace.agentruntime.dto.AgentStatusReportResponse;
 import com.workplace.agentruntime.dto.Desired;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.AgentStateUpdate;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import java.time.OffsetDateTime;
 import java.util.Optional;
@@ -27,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>쉬는 중(IDLE)으로 막 바뀌었는데 아직 반영되지 않은 generation 이 있으면 변경 이벤트를 내 runner 가 다시 조회하게 한다 — 그때 {@link
  * RolloutPolicy} 가 지금 적용으로 판정해 미뤄 둔 교체(설정 변경·키 교체)가 적용된다. 이미 쉬는 중이던 AI 의 거듭된 IDLE 보고는 이벤트를 다시 내지
  * 않는다.
+ *
+ * <p>보고로 화면에 보이는 AI 상태(상태·이슈 키·다음 확인 시각)가 달라졌을 때만 관리자 화면에 알린다(WP-1254) — 같은 내용의 거듭된 보고는 알리지 않는다.
  */
 @Service
 @Transactional
@@ -37,6 +41,7 @@ public class AgentStatusReportService {
   private final AgentLocationService locationService;
   private final AgentApiKeyService agentKeys;
   private final ApplicationEventPublisher events;
+  private final AgentRuntimeChangeNotifier changeNotifier;
 
   /**
    * 상태 보고 처리. 순서: 테넌트가 없으면 RUN → agent_* 칸 저장(설정 행이 없으면 RUN) → 쉬는 중으로 막 바뀌었고 교체 대기면 이벤트 → 원하는 상태
@@ -51,8 +56,11 @@ public class AgentStatusReportService {
     Row row = updated.get().row();
     boolean becameIdle =
         req.state() == AgentState.IDLE
-            && !AgentState.IDLE.name().equals(updated.get().previousAgentState());
+            && !AgentState.IDLE.name().equals(updated.get().before().agentState());
     if (becameIdle && row.hasUnappliedGeneration()) publishChanged(tenantId, row.locationId());
+    if (updated.get().before().differsFrom(row)) {
+      changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, userId, null);
+    }
     return new AgentStatusReportResponse(desiredFor(row, req.generation(), tenantId));
   }
 

@@ -22,7 +22,6 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.JSONB;
-import org.jooq.Query;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.Table;
@@ -81,11 +80,10 @@ public class AgentRuntimeSettingRepository {
   }
 
   /**
-   * AI 상태 보고를 쓴 뒤의 행과, 쓰기 전 AI 상태(WP-1250) — 「쉬는 중으로 막 바뀜」을 가려 변경 이벤트를 한 번만 내게 한다.
-   *
-   * @param previousAgentState 쓰기 전 agent_state(없으면 null)
+   * AI 상태 보고를 쓴 뒤의 행과 쓰기 전 화면용 값(WP-1250·1254) — 「쉬는 중으로 막 바뀜」을 가려 변경 이벤트를 한 번만 내고({@code
+   * before.agentState()}), 화면에 보이는 값이 달라졌을 때만 관리자 화면에 알리게 한다. 보고는 agent_* 칸만 바꾸므로 나머지 칸은 쓴 뒤 행과 같다.
    */
-  public record AgentStateUpdate(Row row, String previousAgentState) {}
+  public record AgentStateUpdate(Row row, VisibleRuntimeState before) {}
 
   private Row map(Record r) {
     return new Row(
@@ -115,6 +113,23 @@ public class AgentRuntimeSettingRepository {
     return dsl.selectFrom(AGENT_RUNTIME_SETTING)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
         .fetchOptional(this::map);
+  }
+
+  /** 이 워크스페이스의 모든 실행 설정 — AI id 순(WP-1254 — 관리자 AI 목록의 실행 상태 요약). 다른 워크스페이스의 행은 RLS 로 보이지 않는다. */
+  public List<Row> findAll() {
+    return dsl.selectFrom(AGENT_RUNTIME_SETTING)
+        .orderBy(AGENT_RUNTIME_SETTING.AGENT_USER_ID)
+        .fetch(this::map);
+  }
+
+  /**
+   * 위치를 지정하지 않은(기본 위치를 따르는) 실행 설정들 — AI id 순(WP-1264 — 기본 위치를 옮기면 이 AI 들의 실제 위치가 바뀐다). 켜짐·꺼짐 모두.
+   */
+  public List<Row> findUnassigned() {
+    return dsl.selectFrom(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.LOCATION_ID.isNull())
+        .orderBy(AGENT_RUNTIME_SETTING.AGENT_USER_ID)
+        .fetch(this::map);
   }
 
   /**
@@ -176,9 +191,15 @@ public class AgentRuntimeSettingRepository {
   }
 
   /**
-   * runner 가 본 관찰 상태들을 한 번의 왕복(JDBC 배치)으로 쓴다(WP-1249) — 실제 위치가 그 위치인 행만 고친다(조건을 WHERE 에 두어 읽고 쓰는 사이
-   * 위치가 바뀌어도 남의 행을 고치지 않는다). desired 는 보지 않는다 — 꺼진 AI 의 STOPPING·STOPPED 보고도 받아야 상태가 「끄는 중」에 머물지
-   * 않는다. 원하는 상태 칸·generation·updated_at 은 건드리지 않는다.
+   * runner 관찰 보고 한 건을 쓴 결과(WP-1254) — 쓴 뒤 행과 쓰기 전 화면용 값. 호출자가 「화면에 보이는 것이 바뀌었는지」를 다시 읽지 않고 메모리에서
+   * 견주게 한다.
+   */
+  public record ObservedUpdate(Row row, VisibleRuntimeState before) {}
+
+  /**
+   * runner 가 본 관찰 상태들을 한 문장(UPDATE … FROM (VALUES …) … RETURNING)으로 쓴다(WP-1249·1254) — 실제 위치가 그 위치인
+   * 행만 고친다(조건을 WHERE 에 두어 읽고 쓰는 사이 위치가 바뀌어도 남의 행을 고치지 않는다). desired 는 보지 않는다 — 꺼진 AI 의
+   * STOPPING·STOPPED 보고도 받아야 상태가 「끄는 중」에 머물지 않는다. 원하는 상태 칸·generation·updated_at 은 건드리지 않는다.
    *
    * <p>WP-1253 보강:
    *
@@ -191,69 +212,122 @@ public class AgentRuntimeSettingRepository {
    * </ul>
    *
    * <p>SET 의 오른쪽은 모두 고치기 전 값을 본다(Postgres UPDATE 규칙) — 새 Pod 판정이 옛 started_at·observed_generation 과
-   * 비교된다. 보고는 받은 차례대로 적용된다(같은 AI 가 두 번 오면 뒤의 것이 이긴다).
+   * 비교된다. 쓰기 전 화면용 칸은 이 위치의 행만 잠가 읽는 FROM 부분 질의(before)에서 받아 RETURNING 으로 돌려준다(WP-1254 — 전후를 다시 읽지
+   * 않는다). 한 문장 안에서 같은 행을 두 번 고칠 수 없으므로 같은 AI 의 보고가 여러 번 오면 마지막 것만 쓴다(예전 배치와 같이 뒤의 것이 이긴다).
    *
-   * @return 보고마다 고쳤는지(false 면 없는 AI 이거나 다른 위치의 AI), 받은 차례대로
+   * @return 고친 AI id → 결과(없는 AI·다른 위치의 AI 는 빠진다)
    */
-  public List<Boolean> updateObserved(
+  public Map<Long, ObservedUpdate> updateObserved(
       long locationId, boolean isDefault, List<RunnerObservedAgent> reports) {
-    if (reports.isEmpty()) return List.of();
-    List<Query> queries =
-        reports.stream().map(o -> observedUpdate(locationId, isDefault, o)).toList();
-    int[] counts = dsl.batch(queries).execute();
-    List<Boolean> updated = new ArrayList<>(counts.length);
-    for (int count : counts) updated.add(count > 0);
-    return updated;
-  }
+    if (reports.isEmpty()) return Map.of();
+    Map<Long, RunnerObservedAgent> last = new LinkedHashMap<>();
+    for (RunnerObservedAgent o : reports) last.put(o.agentUserId(), o);
 
-  /** 관찰 보고 한 건의 UPDATE 문({@link #updateObserved} 참고). */
-  private Query observedUpdate(long locationId, boolean isDefault, RunnerObservedAgent o) {
-    Field<Long> reportedGen =
-        DSL.val(o.observedGeneration(), AGENT_RUNTIME_SETTING.OBSERVED_GENERATION);
-    Field<OffsetDateTime> reportedStart = DSL.val(o.startedAt(), AGENT_RUNTIME_SETTING.STARTED_AT);
-    Condition newPod = "STARTING".equals(o.phase()) ? DSL.trueCondition() : DSL.falseCondition();
+    var s = AGENT_RUNTIME_SETTING;
+    List<org.jooq.Row7<Long, Long, String, String, Integer, Long, OffsetDateTime>> rows =
+        new ArrayList<>();
+    for (RunnerObservedAgent o : last.values()) {
+      rows.add(
+          DSL.row(
+              DSL.cast(o.agentUserId(), s.AGENT_USER_ID.getDataType()),
+              DSL.cast(o.observedGeneration(), s.OBSERVED_GENERATION.getDataType()),
+              DSL.cast(o.phase(), s.PHASE.getDataType()),
+              DSL.cast(o.message(), s.OBSERVED_MESSAGE.getDataType()),
+              DSL.cast(o.cpuMillicores(), s.CPU_MILLICORES.getDataType()),
+              DSL.cast(o.memoryBytes(), s.MEMORY_BYTES.getDataType()),
+              DSL.cast(o.startedAt(), s.STARTED_AT.getDataType())));
+    }
+    @SuppressWarnings("unchecked")
+    Table<?> v =
+        DSL.values(rows.toArray(new org.jooq.Row7[0]))
+            .as("v", "agent_user_id", "gen", "phase", "message", "cpu", "mem", "started_at");
+    Field<Long> vId = v.field("agent_user_id", Long.class);
+    Field<Long> vGen = v.field("gen", Long.class);
+    Field<String> vPhase = v.field("phase", String.class);
+    Field<String> vMessage = v.field("message", String.class);
+    Field<Integer> vCpu = v.field("cpu", Integer.class);
+    Field<Long> vMem = v.field("mem", Long.class);
+    Field<OffsetDateTime> vStart = v.field("started_at", OffsetDateTime.class);
+
+    // 쓰기 전 값 — 이 위치의 행만 잠가 읽는다(다른 위치의 AI 는 잠그지도 돌려주지도 않는다).
+    var cur = s.as("cur");
+    Condition curAt = cur.LOCATION_ID.eq(locationId);
+    if (isDefault) curAt = curAt.or(cur.LOCATION_ID.isNull());
+    Table<?> before =
+        dsl.select(
+                cur.AGENT_USER_ID,
+                cur.OBSERVED_GENERATION.as("p_gen"),
+                cur.PHASE.as("p_phase"),
+                cur.OBSERVED_MESSAGE.as("p_message"),
+                cur.STARTED_AT.as("p_started_at"),
+                cur.AGENT_STATE.as("p_agent_state"),
+                cur.AGENT_ISSUE_KEY.as("p_issue_key"),
+                cur.AGENT_NEXT_CHECK_AT.as("p_next_check_at"))
+            .from(cur)
+            .where(cur.AGENT_USER_ID.in(last.keySet()))
+            .and(curAt)
+            .forUpdate()
+            .asTable("before");
+    Field<Long> beforeId = before.field(cur.AGENT_USER_ID.getName(), Long.class);
+    Field<Long> pGen = before.field("p_gen", Long.class);
+    Field<String> pPhase = before.field("p_phase", String.class);
+    Field<String> pMessage = before.field("p_message", String.class);
+    Field<OffsetDateTime> pStart = before.field("p_started_at", OffsetDateTime.class);
+    Field<String> pAgentState = before.field("p_agent_state", String.class);
+    Field<String> pIssueKey = before.field("p_issue_key", String.class);
+    Field<OffsetDateTime> pNextCheck = before.field("p_next_check_at", OffsetDateTime.class);
+
+    // 새 Pod 판정(보고 값이 없으면 그 근거는 보지 않는다) — 예전 건별 문장과 같은 규칙을 보고 값 칸으로 쓴다.
+    Condition newPod =
+        vPhase
+            .eq("STARTING")
+            .or(vStart.isNotNull().and(s.STARTED_AT.isDistinctFrom(vStart)))
+            .or(
+                vGen.isNotNull()
+                    .and(s.OBSERVED_GENERATION.isNull().or(s.OBSERVED_GENERATION.lt(vGen))));
     // AI 보고가 새 Pod 시작 뒤에 왔으면 새 Pod 의 보고라 지우지 않는다.
-    Condition reportedByNewPod = DSL.falseCondition();
-    if (o.startedAt() != null) {
-      newPod = newPod.or(AGENT_RUNTIME_SETTING.STARTED_AT.isDistinctFrom(reportedStart));
-      reportedByNewPod =
-          AGENT_RUNTIME_SETTING
-              .AGENT_REPORTED_AT
-              .isNotNull()
-              .and(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT.ge(reportedStart));
-    }
-    if (o.observedGeneration() != null) {
-      newPod =
-          newPod.or(
-              AGENT_RUNTIME_SETTING
-                  .OBSERVED_GENERATION
-                  .isNull()
-                  .or(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION.lt(reportedGen)));
-    }
+    Condition reportedByNewPod =
+        vStart.isNotNull().and(s.AGENT_REPORTED_AT.isNotNull()).and(s.AGENT_REPORTED_AT.ge(vStart));
     newPod = newPod.andNot(reportedByNewPod);
-    return dsl.update(AGENT_RUNTIME_SETTING)
-        .set(
-            AGENT_RUNTIME_SETTING.OBSERVED_GENERATION,
-            DSL.greatest(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, reportedGen))
-        .set(AGENT_RUNTIME_SETTING.PHASE, o.phase())
-        .set(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE, o.message())
-        .set(AGENT_RUNTIME_SETTING.CPU_MILLICORES, o.cpuMillicores())
-        .set(AGENT_RUNTIME_SETTING.MEMORY_BYTES, o.memoryBytes())
-        .set(AGENT_RUNTIME_SETTING.STARTED_AT, o.startedAt())
-        .set(AGENT_RUNTIME_SETTING.OBSERVED_AT, OffsetDateTime.now())
-        .set(
-            AGENT_RUNTIME_SETTING.AGENT_STATE, clearedIf(newPod, AGENT_RUNTIME_SETTING.AGENT_STATE))
-        .set(
-            AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY,
-            clearedIf(newPod, AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY))
-        .set(
-            AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT,
-            clearedIf(newPod, AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT))
-        .set(
-            AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT,
-            clearedIf(newPod, AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT))
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(o.agentUserId()))
-        .and(locatedAt(locationId, isDefault));
+
+    List<SelectField<?>> returning = new ArrayList<>(List.of(s.fields()));
+    returning.addAll(List.of(pGen, pPhase, pMessage, pStart, pAgentState, pIssueKey, pNextCheck));
+    Map<Long, ObservedUpdate> out = new LinkedHashMap<>();
+    dsl.update(s)
+        .set(s.OBSERVED_GENERATION, DSL.greatest(s.OBSERVED_GENERATION, vGen))
+        .set(s.PHASE, vPhase)
+        .set(s.OBSERVED_MESSAGE, vMessage)
+        .set(s.CPU_MILLICORES, vCpu)
+        .set(s.MEMORY_BYTES, vMem)
+        .set(s.STARTED_AT, vStart)
+        .set(s.OBSERVED_AT, OffsetDateTime.now())
+        .set(s.AGENT_STATE, clearedIf(newPod, s.AGENT_STATE))
+        .set(s.AGENT_ISSUE_KEY, clearedIf(newPod, s.AGENT_ISSUE_KEY))
+        .set(s.AGENT_NEXT_CHECK_AT, clearedIf(newPod, s.AGENT_NEXT_CHECK_AT))
+        .set(s.AGENT_REPORTED_AT, clearedIf(newPod, s.AGENT_REPORTED_AT))
+        .from(v, before)
+        .where(s.AGENT_USER_ID.eq(vId))
+        .and(s.AGENT_USER_ID.eq(beforeId))
+        .and(locatedAt(locationId, isDefault))
+        .returningResult(returning)
+        .fetch()
+        .forEach(
+            r -> {
+              Row row = map(r);
+              out.put(
+                  row.agentUserId(),
+                  new ObservedUpdate(
+                      row,
+                      new VisibleRuntimeState(
+                          r.get(pGen),
+                          r.get(pPhase),
+                          r.get(pMessage),
+                          VisibleRuntimeState.instant(r.get(pStart)),
+                          r.get(pAgentState),
+                          r.get(pIssueKey),
+                          VisibleRuntimeState.instant(r.get(pNextCheck)))));
+            });
+    return out;
   }
 
   /** {@code when} 이면 NULL, 아니면 지금 값 그대로. */
@@ -275,15 +349,24 @@ public class AgentRuntimeSettingRepository {
       long agentUserId, AgentState state, String issueKey, OffsetDateTime nextCheckAt) {
     var cur = AGENT_RUNTIME_SETTING.as("cur");
     Table<?> before =
-        dsl.select(cur.AGENT_USER_ID, cur.AGENT_STATE.as("previous_agent_state"))
+        dsl.select(
+                cur.AGENT_USER_ID,
+                cur.AGENT_STATE.as("previous_agent_state"),
+                cur.AGENT_ISSUE_KEY.as("previous_issue_key"),
+                cur.AGENT_NEXT_CHECK_AT.as("previous_next_check_at"))
             .from(cur)
             .where(cur.AGENT_USER_ID.eq(agentUserId))
             .forUpdate()
             .asTable("before");
     Field<Long> beforeId = before.field(cur.AGENT_USER_ID.getName(), Long.class);
     Field<String> previousState = before.field("previous_agent_state", String.class);
+    Field<String> previousIssueKey = before.field("previous_issue_key", String.class);
+    Field<OffsetDateTime> previousNextCheckAt =
+        before.field("previous_next_check_at", OffsetDateTime.class);
     List<SelectField<?>> returning = new ArrayList<>(List.of(AGENT_RUNTIME_SETTING.fields()));
     returning.add(previousState);
+    returning.add(previousIssueKey);
+    returning.add(previousNextCheckAt);
     return dsl.update(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.AGENT_STATE, state.name())
         .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, issueKey)
@@ -292,7 +375,29 @@ public class AgentRuntimeSettingRepository {
         .from(before)
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(beforeId))
         .returningResult(returning)
-        .fetchOptional(r -> new AgentStateUpdate(map(r), r.get(previousState)));
+        .fetchOptional(
+            r ->
+                agentStateUpdate(
+                    map(r),
+                    r.get(previousState),
+                    r.get(previousIssueKey),
+                    r.get(previousNextCheckAt)));
+  }
+
+  /** 쓴 뒤 행 + 쓰기 전 agent_* 세 칸 → 상태 보고 결과(나머지 화면용 칸은 보고가 바꾸지 않아 쓴 뒤 행 값). */
+  private static AgentStateUpdate agentStateUpdate(
+      Row row, String previousState, String previousIssueKey, OffsetDateTime previousNextCheckAt) {
+    VisibleRuntimeState after = VisibleRuntimeState.of(row);
+    return new AgentStateUpdate(
+        row,
+        new VisibleRuntimeState(
+            after.observedGeneration(),
+            after.phase(),
+            after.observedMessage(),
+            after.startedAt(),
+            previousState,
+            previousIssueKey,
+            VisibleRuntimeState.instant(previousNextCheckAt)));
   }
 
   /** 새 설정 — generation 1·desired STOP·apply_mode IDLE(컬럼 기본값). */

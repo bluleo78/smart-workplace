@@ -26,12 +26,13 @@ public class AgentRuntimeRemovalListener {
   /** AI 삭제 — 행이 지워지기 전에 끄고 그 위치의 runner 에게 알린다. */
   @EventListener
   public void onAgentDeleted(AgentDeleted e) {
-    TenantContext.runAs(e.tenantId(), () -> settingService.stopForRemoval(e.userId(), e.actorId()));
+    TenantContext.runAs(
+        e.tenantId(), () -> settingService.stopForRemoval(e.userId(), e.actorId(), true));
   }
 
   /** 이 작업 공간 멤버십 정지(AI 사용 중지 포함) — 켜져 있으면 끈다. 사람이거나 설정이 없으면 아무것도 하지 않는다. */
   @EventListener
   public void onWorkspaceMembershipSuspended(WorkspaceMembershipSuspended e) {
-    TenantContext.runAs(e.tenantId(), () -> settingService.stopForRemoval(e.userId(), null));
+    TenantContext.runAs(e.tenantId(), () -> settingService.stopForRemoval(e.userId(), null, false));
   }
 }

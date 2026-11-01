@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 
+import { agentRuntimeApi } from '../../test/kits/admin/agentRuntime'
 import AgentManagementPage from '../admin/AgentManagementPage'
 
 // 모바일(iPhone 13 폭·터치) — matchMedia 결과가 파일 안에서 캐시되므로 첫 렌더 전에 한 번.
@@ -35,6 +36,8 @@ const agentHandlers = [
   ),
   http.get('/api/v1/users/:id', () => HttpResponse.json({ ...AGENT, roles: [] })),
   http.get('/api/v1/roles', () => HttpResponse.json([])),
+  // AI 실행(WP-1245) — 목록 요약·템플릿·실행 설정 조회.
+  ...agentRuntimeApi().handlers,
 ]
 
 /** 관리자 로그인 — 에이전트 관리는 관리자 화면이다. */

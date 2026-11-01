@@ -82,6 +82,20 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...BASE, ...patch }, readFile)).toThrow();
   });
 
+  it('loadConfig_whenWorksUrlInvalidAndTokenFileMissing_reportsWorksUrlError', () => {
+    const missing = (): string => {
+      throw new Error('ENOENT');
+    };
+    expect(() => loadConfig({ ...BASE, WORKS_URL: 'ftp://x' }, missing)).toThrow(/WORKS_URL 은 http\(s\)/);
+  });
+
+  it('loadConfig_whenTokenFileMissing_propagatesReadError', () => {
+    const missing = (): string => {
+      throw new Error('ENOENT');
+    };
+    expect(() => loadConfig(BASE, missing)).toThrow('ENOENT');
+  });
+
   it('rejectsEmptyTokenFile', () => {
     expect(() => loadConfig(BASE, () => '  \n')).toThrow(/RUNNER_TOKEN_FILE/);
   });

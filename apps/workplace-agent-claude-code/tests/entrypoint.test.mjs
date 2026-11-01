@@ -41,11 +41,11 @@ const CONFIG = {
 };
 
 /** 원격 저장소(bare) 하나 — 루트에 Playwright 1.60.0 을 적은 pnpm-lock.yaml 이 있다. */
-function bareRepo(root) {
+function bareRepo(root, pw = '1.60.0') {
   const src = join(root, 'src');
   const bare = join(root, 'remote.git');
   mkdirSync(src, { recursive: true });
-  writeFileSync(join(src, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\npackages:\n\n  '@playwright/test@1.60.0':\n    resolution: {}\n");
+  writeFileSync(join(src, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\npackages:\n\n  '@playwright/test@" + pw + "':\n    resolution: {}\n");
   const git = (cwd, ...a) => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...a], { cwd, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
@@ -59,7 +59,7 @@ function bareRepo(root) {
 
 /**
  * 테스트 하나의 격리 환경 — 홈·/run/genia·/work·가짜 명령·가짜 플러그인 폴더·격리 tmux.
- * projects: gw-agent-projects 가 페이지마다 낼 JSON(배열 순서 = 페이지).
+ * projects: 가짜 서버가 페이지마다 낼 JSON(배열 순서 = 페이지). 진짜 gw-agent-projects --assigned 가 가짜 curl 로 이것을 읽는다.
  */
 function fixture(t, { projects, pluginVersions = {}, knownUrl = 'http://127.0.0.1:9/claude/marketplace.json', env: extra = {} } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'gw-entry-')));
@@ -96,13 +96,46 @@ printf 'args %s\\n' "$*" >> "$FAKE_OUT/gh.log"
 [ "$1 $2" = "auth login" ] && { printf 'stdin %s\\n' "$(cat)" >> "$FAKE_OUT/gh.stdin"; }
 exit 0
 `);
-  exe(d('bin', 'npx'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$FAKE_OUT/npx.log"\n`);
+  // 가짜 npx — 받은 인자를 기록하고, 버전마다 시작 표시를 남긴다. FAKE_NPX_RENDEZVOUS=n 이면 n 개가 시작될 때까지 기다린 결과(npx-seen-<버전>)를
+  // 남긴다 — 브라우저 받기가 동시에 도는지(순서대로면 기다리다 시간이 지난다). FAKE_NPX_HANG 이면 오래 붙잡는다(SIGTERM 테스트).
+  exe(d('bin', 'npx'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_OUT/npx.log"
+v=$(printf '%s' "$2" | sed 's/^playwright@//')
+: > "$FAKE_OUT/npx-started-$v"
+if [ -n "\${FAKE_NPX_RENDEZVOUS:-}" ]; then
+  n=100
+  while [ "$(ls "$FAKE_OUT" | grep -c '^npx-started-')" -lt "$FAKE_NPX_RENDEZVOUS" ] && [ $n -gt 0 ]; do sleep 0.1; n=$((n - 1)); done
+  [ $n -gt 0 ] && : > "$FAKE_OUT/npx-seen-$v"
+fi
+if [ -n "\${FAKE_NPX_HANG:-}" ]; then
+  # 손자 프로세스(npx 와 그 자식 sleep)의 pid 를 남긴다 — SIGTERM 뒤 둘 다 없어졌는지 본다.
+  echo $$ >> "$FAKE_OUT/npx-pids"
+  sleep 15 &
+  echo $! >> "$FAKE_OUT/npx-pids"
+  wait
+fi
+exit 0
+`);
+  // 가짜 curl — 프로젝트 목록 요청(…/projects?page=N)만 FAKE_OUT/projects-N.json 으로 답하고, 나머지는 진짜 curl 로 보낸다.
+  const realCurl = spawnSync('sh', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim();
+  exe(d('bin', 'curl'), `#!/bin/sh
+for a in "$@"; do
+  case "$a" in
+    */projects\\?page=*)
+      p=\${a#*page=}; p=\${p%%&*}
+      cat "$FAKE_OUT/projects-$p.json"; printf '\\n200'
+      exit 0 ;;
+  esac
+done
+exec ${realCurl} "$@"
+`);
+  // AI 키 — 진짜 gw-agent-projects 가 읽는 자리에 플러그인의 gw-keys 로 놓는다(엔트리포인트의 install_key 가 같은 값을 다시 놓는다).
+  spawnSync(join(pluginScripts, 'gw-keys'), ['add', 'kodi'], { input: 'ak_testkey123\n', env: { PATH: process.env.PATH, HOME: d('home') } });
 
-  // 가짜 플러그인 폴더 — 서버를 부르는 gw-agent-projects 만 가짜, 나머지는 저장소의 진짜 스크립트로 링크한다.
+  // 가짜 플러그인 폴더 — 저장소의 진짜 스크립트로 링크한다(gw-agent-projects 도 진짜 — 서버 대신 가짜 curl 이 답한다).
   for (const f of readdirSync(pluginScripts)) {
-    if (f !== 'gw-agent-projects') symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
+    symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
   }
-  exe(d('plugin', 'scripts', 'gw-agent-projects'), `#!/bin/sh\ncat "$FAKE_OUT/projects-$2.json"\n`);
   (projects ?? []).forEach((p, i) => writeFileSync(d('out', `projects-${i}.json`), JSON.stringify(p)));
 
   const list = lockEntries.map(([id, version]) => ({
@@ -488,4 +521,61 @@ tmuxTest('doesNotExitWhenLoopsStop', async (t) => {
   assert.equal(e.child.exitCode, null, e.log());
   e.child.kill('SIGTERM');
   assert.equal((await e.exited).code, 0);
+});
+
+/** 프로젝트 여러 개 — 키별 저장소(루트 폴더가 따로 있는 bare repo)와 목록 JSON. */
+function severalProjects(f, specs) {
+  const content = specs.map(({ key, pw, broken }) => ({
+    key,
+    viewerRole: 'MEMBER',
+    repositoryUrl: broken ? f.d('git', 'missing', `${key}.git`) : bareRepo(f.d('git', key), pw),
+  }));
+  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify({ content, page: 0, size: 100, totalElements: content.length, totalPages: 1 }));
+}
+
+tmuxTest('startsSeveralProjectsSkipsFailedCloneAndInstallsSharedPlaywrightOnce', async (t) => {
+  // AA·BB 는 Playwright 1.60.0 을 같이 쓰고, CC 는 1.61.0, DD 는 clone 이 실패한다. 브라우저는 버전마다 한 번씩만, 서로 동시에(WP-1267).
+  const f = fixture(t, { env: { FAKE_NPX_RENDEZVOUS: '2' } });
+  severalProjects(f, [{ key: 'AA' }, { key: 'BB' }, { key: 'CC', pw: '1.61.0' }, { key: 'DD', broken: true }]);
+  const e = startEntrypoint(t, f.env);
+  const aiDir = f.d('work', 'agents', 'kodi');
+  await until(() => ['AA', 'BB', 'CC'].every((k) => existsSync(f.d('out', `pane-${k}.env`))), 'AA·BB·CC 칸의 claude', 40000, e.log);
+  await until(() => panes(f.tmux).some((p) => p.win === 'events'), '알림 감시 창', 10000, e.log);
+  // 실패한 프로젝트는 칸이 없고 이유가 로그에 남는다 — 다른 프로젝트에는 영향이 없다
+  assert.ok(!existsSync(f.d('out', 'pane-DD.env')));
+  assert.deepEqual(panes(f.tmux).filter((p) => p.key).map((p) => p.key).sort(), ['AA', 'BB', 'CC']);
+  assert.match(e.log(), /DD: .*clone-failed/);
+  assert.match(e.log(), /AA: cloned/);
+  assert.match(e.log(), /BB: cloned/);
+  for (const k of ['AA', 'BB', 'CC']) assert.ok(existsSync(join(aiDir, 'repos', k, 'pnpm-lock.yaml')), k);
+  // 버전별 한 번 — 같은 버전을 쓰는 프로젝트가 둘이어도 npx 는 한 번, 두 버전은 서로 기다리지 않고 함께 돌았다
+  assert.deepEqual(f.read('out', 'npx.log').split('\n').filter(Boolean).sort(), ['-y playwright@1.60.0 install chromium', '-y playwright@1.61.0 install chromium']);
+  assert.ok(existsSync(f.d('out', 'npx-seen-1.60.0')) && existsSync(f.d('out', 'npx-seen-1.61.0')), '두 버전이 동시에 돌지 않았습니다');
+  assert.ok(existsSync(f.d('work', '.cache', 'ms-playwright', '.genia-chromium-1.60.0')));
+  assert.ok(existsSync(f.d('work', '.cache', 'ms-playwright', '.genia-chromium-1.61.0')));
+  // 폴더 신뢰는 칸을 띄우기 전에 한 번에 적었다
+  const trust = JSON.parse(f.read('home', '.claude.json')).projects;
+  for (const k of ['AA', 'BB', 'CC']) assert.equal(trust[join(aiDir, 'repos', k)].hasTrustDialogAccepted, true);
+  // 임시 폴더는 남기지 않는다
+  assert.deepEqual(readdirSync(f.d('work', 'tmp')).filter((n) => n.startsWith('boot.')), []);
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
+tmuxTest('sigtermDuringParallelBootExitsZeroWithoutWaiting', async (t) => {
+  // 브라우저를 받는 중(npx 가 15초 붙잡힘)에 SIGTERM — 뒤에서 도는 일들이 on_term 을 막지 않고 바로 정리·종료한다.
+  const f = fixture(t, { env: { FAKE_NPX_HANG: '1' } });
+  severalProjects(f, [{ key: 'AA' }, { key: 'BB', pw: '1.61.0' }]);
+  const e = startEntrypoint(t, f.env);
+  await until(() => existsSync(f.d('out', 'npx-started-1.60.0')) && existsSync(f.d('out', 'npx-started-1.61.0')), '브라우저 받기 시작', 30000, e.log);
+  const t0 = Date.now();
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+  assert.ok(Date.now() - t0 < 10000, 'SIGTERM 이 뒤에서 도는 일을 기다렸습니다');
+  assert.ok(!existsSync(f.d('out', 'pane-AA.env')), '종료 신호를 받은 뒤에는 칸을 띄우지 않는다');
+  // 서브셸뿐 아니라 실제 일을 하는 손자(npx·그 자식)까지 끝났고, 부팅 임시 폴더도 치웠다
+  const pids = f.read('out', 'npx-pids').split('\n').filter(Boolean).map(Number);
+  assert.equal(pids.length, 4); // 버전 둘 × (npx, sleep)
+  for (const pid of pids) assert.throws(() => process.kill(pid, 0), `pid ${pid} 가 아직 살아 있습니다`);
+  assert.deepEqual(readdirSync(f.d('work', 'tmp')).filter((n) => n.startsWith('boot.')), []);
 });

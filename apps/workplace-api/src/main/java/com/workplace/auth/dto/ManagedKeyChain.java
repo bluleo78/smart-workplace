@@ -36,8 +36,15 @@ public record ManagedKeyChain(List<Key> keys) {
    * 활성 managed 키 한 개(평문 없음).
    *
    * @param rotationGeneration 이 키가 맞춰진 실행 설정 generation(모르는 옛 키는 null)
+   * @param retiringAt 정리 유예로 줄인 시각(WP-1263 — 지금 쓰는 키면 null)
    */
-  public record Key(long id, OffsetDateTime expiresAt, Long rotationGeneration) {
+  public record Key(
+      long id, OffsetDateTime expiresAt, Long rotationGeneration, OffsetDateTime retiringAt) {
+    /** 정리 유예에 든 키인지(끄기·삭제·위치 이동·교체 확인 뒤 줄인 키). */
+    public boolean isRetiring() {
+      return retiringAt != null;
+    }
+
     /** runner 가 미리 다시 받을 시각. */
     public OffsetDateTime rotateAfter() {
       return ManagedKeyChain.rotateAfter(expiresAt);
@@ -60,14 +67,15 @@ public record ManagedKeyChain(List<Key> keys) {
   }
 
   /**
-   * 정리 유예에 든 키(끄기·삭제·위치 이동·교체 확인 뒤 {@link #graceUntil} 로 줄인 키)를 뺀 사슬. 그 키들은 지워지는 Pod 의 것이라 「지금 쓰는
-   * 키」가 아니다 — 교체 판정이 이것을 쓰지 않으면, 끈 뒤(또는 다른 위치로 옮긴 뒤) 유예 안에 다시 켰을 때 새 Pod 의 첫 키 발급이 교체로 보여
-   * generation 이 한 번 더 오르고 막 뜬 Pod 가 바로 낡는다(WP-1251 실측). 자연 만료가 5분 안에 오는 키도 함께 빠지지만, runner 는 만료 7일
-   * 전부터 미리 다시 받으므로 그런 키가 「지금 쓰는 키」로 남아 있을 일은 없다.
+   * 정리 유예에 든 키(끄기·삭제·위치 이동·교체 확인 뒤 {@link #graceUntil} 로 줄이며 retiring_at 을 남긴 키)를 뺀 사슬. 그 키들은 지워지는
+   * Pod 의 것이라 「지금 쓰는 키」가 아니다 — 교체 판정이 이것을 쓰지 않으면, 끈 뒤(또는 다른 위치로 옮긴 뒤) 유예 안에 다시 켰을 때 새 Pod 의 첫 키 발급이
+   * 교체로 보여 generation 이 한 번 더 오르고 막 뜬 Pod 가 바로 낡는다(WP-1251 실측).
+   *
+   * <p>WP-1263: 예전에는 만료가 지금 + 5분 안인지로 짐작했다 — 이제는 줄일 때 남긴 칸(retiring_at)으로 가른다. 시각 비교가 없어 자연 만료가 곧
+   * 오는 키를 유예 중으로 잘못 보지 않는다(runner 는 만료 7일 전부터 미리 다시 받으므로 실제로 달라지는 경우는 없다).
    */
-  public ManagedKeyChain live(OffsetDateTime now) {
-    OffsetDateTime graceEnd = graceUntil(now);
-    return new ManagedKeyChain(keys.stream().filter(k -> k.expiresAt().isAfter(graceEnd)).toList());
+  public ManagedKeyChain live() {
+    return new ManagedKeyChain(keys.stream().filter(k -> !k.isRetiring()).toList());
   }
 
   public boolean isEmpty() {

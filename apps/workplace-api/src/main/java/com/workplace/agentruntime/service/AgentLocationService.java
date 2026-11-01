@@ -7,12 +7,16 @@ import com.workplace.agentruntime.dto.LocationConnection;
 import com.workplace.agentruntime.dto.UpdateAgentLocationRequest;
 import com.workplace.agentruntime.exception.AgentLocationConflictException;
 import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentLocationRepository.Row;
 import com.workplace.agentruntime.repository.AgentRunnerTokenRepository;
+import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
+import com.workplace.agentruntime.service.AgentKeyRetirement.Placement;
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.AfterCommit;
 import com.workplace.global.util.CapabilityTokens;
@@ -56,6 +60,9 @@ public class AgentLocationService {
   private final UserRepository userRepository;
   private final ApplicationEventPublisher events;
   private final RunnerSseRegistry runnerSse;
+  private final AgentRuntimeChangeNotifier changeNotifier;
+  private final AgentRuntimeSettingRepository settings;
+  private final AgentKeyRetirement keyRetirement;
 
   /** 모든 위치 — 기본 위치 먼저. 자리 사용 수·연결 상태 포함. */
   @Transactional(readOnly = true)
@@ -111,6 +118,7 @@ public class AgentLocationService {
         Map.of("locationId", id, "name", name, "capacity", capacity));
     // 방금 만든 값으로 응답한다 — 새 위치는 켜진 AI 가 없고(켜려면 위치가 있어야 한다) 토큰은 아직 쓰이지 않았다.
     Row created = new Row(id, name, description, first, capacity, token.prefix(), null);
+    changeNotifier.locationChanged(ResourceChangedEvent.OP_CREATED, id, callerId);
     return new AgentLocationTokenResponse(toResponse(created, 0), token.plaintext());
   }
 
@@ -133,6 +141,7 @@ public class AgentLocationService {
     } catch (DuplicateKeyException e) {
       throw AgentLocationConflictException.nameTaken();
     }
+    changeNotifier.locationChanged(ResourceChangedEvent.OP_UPDATED, id, null);
     return toResponse(
         row.withName(name).withDescription(description).withCapacity(req.capacity()), used);
   }
@@ -142,6 +151,10 @@ public class AgentLocationService {
    *
    * <p>위치를 지정하지 않고 켜져 있는 AI 들은 기본을 따라 새 위치로 옮겨 가므로, 새 위치에 직접 지정돼 켜진 AI 와 합쳐 자리 수를 넘으면 409(WP-1247).
    * 테넌트 락을 잡은 뒤 세어 「켜기」와 차례로 일어나게 한다. 옮기면 두 위치의 runner 에게 알린다.
+   *
+   * <p>위치를 지정하지 않은 AI 들은 실제 위치가 옛 기본 → 새 기본으로 바뀐다 — 켜져 있으면 옛 위치의 runner 가 Pod 를 바로 지우므로, 키 정리 한
+   * 규칙({@link AgentKeyRetirement})에 실제 위치 변화로 넘긴다(켜진 AI 만 줄어든다, WP-1264). 옛 기본이 없었으면 옮겨 갈 Pod 가 없어
+   * 넘기지 않는다. 관리자 화면 알림은 위치 변경 한 건으로 충분하다 — 웹은 이 리소스를 받으면 AI 실행 조회를 모두 다시 읽는다(WP-1254).
    */
   public void setDefault(long id) {
     locations.lockTenantLocations();
@@ -155,9 +168,21 @@ public class AgentLocationService {
     // 부분 유니크(워크스페이스당 기본 1개) 때문에 옛 기본을 먼저 내린 뒤 새 기본을 올린다.
     locations.clearDefault();
     locations.markDefault(id);
+    // 옛 기본이 없었으면 미지정 AI 는 띄워질 곳이 없어 지워질 Pod 도 없다 — 키를 정리하지 않는다.
+    if (oldDefault.isPresent()) {
+      long old = oldDefault.get();
+      for (var setting : settings.findUnassigned()) {
+        keyRetirement.onTransition(
+            setting.agentUserId(),
+            new Placement(setting.desired(), old),
+            new Placement(setting.desired(), id));
+      }
+    }
     long tenantId = TenantContext.require();
     oldDefault.ifPresent(old -> events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, old)));
     events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, id));
+    // 기본 위치가 바뀌면 AI 목록의 실행 위치 표시(기본이면 비움)도 바뀐다(WP-1254).
+    changeNotifier.locationChanged(ResourceChangedEvent.OP_UPDATED, id, null);
   }
 
   /** runner 토큰 재발급 — 옛 토큰을 회수하고 새 평문을 한 번만 돌려준다. 없으면 404. */
@@ -175,6 +200,7 @@ public class AgentLocationService {
         Map.of("locationId", id, "name", row.name()));
     // 새 토큰은 아직 쓰이지 않았다 — 마지막 사용 시각이 비어 연결 상태는 PENDING.
     closeRunnerStreams(id);
+    changeNotifier.locationChanged(ResourceChangedEvent.OP_UPDATED, id, callerId);
     Row rotated = row.withTokenPrefix(token.prefix()).withLastSeenAt(null);
     return new AgentLocationTokenResponse(withUsage(rotated), token.plaintext());
   }
@@ -193,6 +219,7 @@ public class AgentLocationService {
     }
     locations.delete(id);
     closeRunnerStreams(id);
+    changeNotifier.locationChanged(ResourceChangedEvent.OP_DELETED, id, callerId);
     audit(
         callerId,
         "AGENT_LOCATION_DELETED",

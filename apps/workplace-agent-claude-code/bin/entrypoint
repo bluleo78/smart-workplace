@@ -12,6 +12,8 @@ SLEEP_PID=""
 on_term() {
   trap - TERM INT
   [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  # start_projects 가 저장소·브라우저를 받는 중이었다면 그 일들을 자손(git·npx)까지 끄고 임시 폴더를 치운다 — 남기면 정리 뒤에도 clone 이 이어진다.
+  abort_boot
   log "종료 신호 — 칸들을 정리합니다"
   stop_all
   exit 0

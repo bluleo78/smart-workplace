@@ -1,11 +1,14 @@
 package com.workplace.agentruntime.controller;
 
+import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
+import com.workplace.agentruntime.service.AgentRuntimeSummaryService;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -26,12 +29,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminAgentRuntimeSettingController {
 
   private final AgentRuntimeSettingService service;
+  private final AgentRuntimeSummaryService summaryService;
 
   /** 실행 설정 조회 — 없으면 404(=「기본」 템플릿으로 도는 AI). */
   @GetMapping
   @RequirePermission("user:write")
   public ResponseEntity<AgentRuntimeSettingResponse> get(@PathVariable long userId) {
     return ResponseEntity.ok(service.get(userId));
+  }
+
+  /**
+   * AI 가 작업 공간에서 맡을 프로젝트(WP-1255) — 실제 멤버이고 연결된 저장소가 있는 프로젝트(키 순). 구성원이 아니거나 AI 가 아니면 404. 실행 설정이
+   * 없어도 돌려준다.
+   */
+  @GetMapping("/projects")
+  @RequirePermission("user:write")
+  public ResponseEntity<List<AgentRuntimeProjectResponse>> projects(@PathVariable long userId) {
+    return ResponseEntity.ok(summaryService.projects(userId));
   }
 
   /** 실행 설정 저장 — 실행 방식은 EXTERNAL 로 바뀐다. */

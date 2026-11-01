@@ -3,7 +3,7 @@
 // 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
 
 import { ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
@@ -56,13 +56,11 @@ import { objectParticle } from '@/lib/utils';
 import { AgentBadge } from '../../components/users/AgentBadge';
 import { AvatarPicture } from '../../components/users/AvatarPicture';
 import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
+import { useAgentRuntimeSummaries } from '../../hooks/queries/useAgentRuntime';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { useHistoryParam } from '../../hooks/useHistoryParam';
-import {
-  externalKeyStatusText,
-  runtimeBadgeLabel,
-} from '../../lib/agentRuntime';
+import { runtimeView } from '../../lib/agentRuntimeStatus';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import type { AgentResponse } from '../../types/agent';
 import { AgentAccessSections } from './components/AgentAccessSections';
@@ -71,6 +69,7 @@ import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { AgentKeysSection } from './components/AgentKeysSection';
+import { AgentRuntimeCell, AgentRuntimeMetaBadge } from './components/AgentRuntimeCell';
 import { AgentRuntimeSection } from './components/AgentRuntimeSection';
 import { CopyableCommand } from './components/CopyableCommand';
 import { NewAgentDialog } from './components/NewAgentDialog';
@@ -86,6 +85,11 @@ export default function AgentManagementPage() {
   // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
   const [includePersonal, setIncludePersonal] = useState(true);
   const agents = useAgents(includePersonal);
+  // 작업 공간 템플릿으로 도는 AI 의 실행 요약(WP-1255) — 목록 「실행」 열과 상세의 실행 방식 판정에 쓴다.
+  const summaries = useAgentRuntimeSummaries();
+  // 행마다 찾지 않게 한 번 표로 — 표·모바일 두 배치가 같은 렌더에서 함께 부른다.
+  const summaryById = useMemo(() => new Map(summaries.data?.map((s) => [s.agentUserId, s])), [summaries.data]);
+  const summaryOf = (id: number) => summaryById.get(id) ?? null;
   const deleteAgent = useDeleteAgent();
   // 공통 비서 상태 — 테이블 배지 + 빈 상태 배너에 사용.
   const ws = useWorkspaceAssistant();
@@ -132,7 +136,12 @@ export default function AgentManagementPage() {
   };
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
-  const external = selected?.runtime === 'EXTERNAL';
+  // 작업 공간 템플릿 AI 는 DB 에 EXTERNAL 로 저장되지만 화면에서는 내부다 — 외부 연결 안내·키 발급 대신 실행 방식 섹션이 다룬다.
+  // 목록 요약(실행 설정이 있는 AI 만 담김)으로 판정한다. EXTERNAL 인데 요약을 아직 모르면(조회 중·실패) 외부 안내도 AI 연결도
+  // 그리지 않는다 — Works 가 키를 관리하는 AI 에 수동 키를 발급하지 않게.
+  const runtimeKnown = selected?.runtime !== 'EXTERNAL' || summaries.isSuccess;
+  const workspaceRun = selected != null && summaryOf(selected.id) != null;
+  const external = selected != null && runtimeKnown && runtimeView(selected.runtime, workspaceRun) === 'EXTERNAL';
   // 관리자가 설정할 수 있는 에이전트인지(WP-1170) — 구성원의 개인 비서는 주인 전용이라(WP-1163) 키 발급·활성/역할·연결 등록과
   // 공통 비서 지정을 막는다. 흩어져 있던 `type !== 'PERSONAL'` 판정을 한곳에 모았다.
   const canAdminConfigure = selected != null && selected.type !== 'PERSONAL';
@@ -265,9 +274,7 @@ export default function AgentManagementPage() {
                         >
                           <span className="max-w-[60vw] truncate">{a.username}</span>
                           <AgentTypeBadge agent={a} />
-                          <Badge variant={a.runtime === 'EXTERNAL' ? 'info' : 'secondary'}>
-                            {runtimeBadgeLabel(a.runtime)}
-                          </Badge>
+                          <AgentRuntimeMetaBadge agent={a} summary={summaryOf(a.id)} />
                         </div>
                       </div>
                     </div>
@@ -279,20 +286,7 @@ export default function AgentManagementPage() {
                     <AgentTypeBadge agent={a} />
                   </TableCell>
                   <TableCell className="hidden md:table-cell" data-testid={`agent-runtime-cell-${a.id}`}>
-                    {/* 실행 방식 배지 — 외부는 info 토큰. 외부는 키 사용 시각을 함께 보여 연결 여부를 가늠하게 한다. */}
-                    <div className="flex flex-col items-start gap-0.5">
-                      <Badge variant={a.runtime === 'EXTERNAL' ? 'info' : 'secondary'}>
-                        {runtimeBadgeLabel(a.runtime)}
-                      </Badge>
-                      {a.runtime === 'EXTERNAL' && (
-                        <span
-                          className="text-xs text-muted-foreground"
-                          data-testid={`agent-key-status-${a.id}`}
-                        >
-                          {externalKeyStatusText(a.lastKeyUsedAt)}
-                        </span>
-                      )}
-                    </div>
+                    <AgentRuntimeCell agent={a} summary={summaryOf(a.id)} />
                   </TableCell>
                   <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
                     {formatDateOnly(a.createdAt)}
@@ -443,7 +437,7 @@ export default function AgentManagementPage() {
                         </CollapsibleContent>
                       </Collapsible>
                     </section>
-                  ) : (
+                  ) : workspaceRun || !runtimeKnown ? null : (
                     <>
                       {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
                       <AgentConnectionSection

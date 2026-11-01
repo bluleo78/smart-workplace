@@ -202,6 +202,20 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         return (Long) get(12);
     }
 
+    /**
+     * Setter for <code>public.agent_api_key.retiring_at</code>.
+     */
+    public void setRetiringAt(OffsetDateTime value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_api_key.retiring_at</code>.
+     */
+    public OffsetDateTime getRetiringAt() {
+        return (OffsetDateTime) get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -225,7 +239,7 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
     /**
      * Create a detached, initialised AgentApiKeyRecord
      */
-    public AgentApiKeyRecord(Long id, Long userId, String keyPrefix, String keyHash, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, Boolean managed, OffsetDateTime expiresAt, Long rotationGeneration, Long tenantId) {
+    public AgentApiKeyRecord(Long id, Long userId, String keyPrefix, String keyHash, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, Boolean managed, OffsetDateTime expiresAt, Long rotationGeneration, Long tenantId, OffsetDateTime retiringAt) {
         super(AgentApiKey.AGENT_API_KEY);
 
         setId(id);
@@ -241,6 +255,7 @@ public class AgentApiKeyRecord extends UpdatableRecordImpl<AgentApiKeyRecord> {
         setExpiresAt(expiresAt);
         setRotationGeneration(rotationGeneration);
         setTenantId(tenantId);
+        setRetiringAt(retiringAt);
         resetChangedOnNotNull();
     }
 }

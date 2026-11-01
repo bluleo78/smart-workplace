@@ -553,14 +553,17 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   assert.ok(text.includes('설치·로그인은 하지 않는다'));
   assert.ok(text.includes('`command -v git tmux gh`'));
   assert.ok(text.includes('`! gh auth setup-git`'));
-  assert.ok(text.includes('scripts/gw-agent-projects" "<AI 이름>" <페이지>'));
-  assert.ok(text.includes('`page + 1 < totalPages`'));
+  // 맡을 프로젝트를 고르는 기준은 스크립트 한 곳(--assigned)에 둔다 — 스킬이 JSON 을 읽어 직접 거르지 않는다(WP-1265).
+  assert.ok(text.includes('scripts/gw-agent-projects" --assigned "<AI 이름>"'));
+  assert.ok(text.includes('직접 JSON 을 읽어 거르지 않는다'));
+  assert.ok(!text.includes('`page + 1 < totalPages`'));
   // 예전(0.1.21) AI 폴더에서 부르면 위 폴더로 안내하고, 권한·서버 문제는 키를 다시 넣게 하지 않는다.
   assert.ok(text.includes('예전(0.1.21) 방식으로 AI 마다 만든 폴더다'));
   assert.ok(text.includes('키를 바꿔도 풀리지 않으니 키를 다시 넣게 하지 않는다'));
   // 관리자 AI 는 viewerIsMember 가 늘 true — 실제 멤버 역할(viewerRole)로 고른다.
-  assert.ok(text.includes('`viewerRole` 이 있고'));
-  assert.ok(text.includes('`repositoryUrl` 이 있는 프로젝트를 고른다'));
+  assert.ok(text.includes('`viewerRole` 이 있다'));
+  assert.ok(text.includes('`viewerIsMember` 는 관리자면 멤버가 아니어도 true'));
+  assert.ok(text.includes('**연결된 저장소**(`repositoryUrl`)'));
   assert.ok(text.includes('<AI 이름>/repos/<키>'));
   // 저장소 준비·칸 띄우기는 스크립트 하나(agent-project)로 — work-loop 가 새 프로젝트를 스스로 띄울 때도 같은 것을 쓴다(WP-1053).
   assert.ok(text.includes('`agent-project repo "<홈>/<AI 이름>" "<키>" "<repositoryUrl>"`'));

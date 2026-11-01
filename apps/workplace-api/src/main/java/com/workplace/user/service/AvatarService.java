@@ -6,9 +6,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.AvatarCrop;
 import com.workplace.user.dto.UserAvatarResponse;
-import com.workplace.user.dto.UserKind;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
-import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.outbound.AvatarChangeNotifier;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.AvatarImageProcessor.ProcessedAvatar;
@@ -147,12 +145,7 @@ public class AvatarService {
   private void requireWorkspaceAgent(long userId) {
     readTx.executeWithoutResult(
         status -> {
-          memberGuard.require(userId);
-          var user =
-              userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
-          if (!UserKind.isAgent(user.kind())) {
-            throw UserNotFoundException.ofId(userId);
-          }
+          var user = memberGuard.requireAgent(userId);
           if (AgentUsernames.isPersonalAssistant(user.username())) {
             throw new PersonalAssistantRenameForbiddenException("개인 비서의 아바타는 관리자가 바꿀 수 없습니다.");
           }
