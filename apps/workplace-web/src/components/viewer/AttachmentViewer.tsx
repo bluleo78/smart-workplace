@@ -8,6 +8,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useObservedHeight } from '../../hooks/useObservedHeight'
 import { useResetOnChange } from '../../hooks/useResetOnChange'
 import { elementBackgroundRgb, useThemeColor } from '../../hooks/useThemeColor'
+import { buildViewerContext } from '../../lib/aiScreenContext/builders/viewer'
 import { appUrl } from '../../lib/appUrl'
 import { formatFileSize } from '../../lib/formatters'
 import { isIOSStandalone } from '../../lib/platform'
@@ -15,6 +16,7 @@ import { ghostToggleClass } from '../../lib/selectionStyles'
 import type { ShareTarget } from '../../lib/shareTarget'
 import { cn } from '../../lib/utils'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
+import { useRegisterAiScreenContext } from '../ai/screen-context/useAiScreenContext'
 import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
 import { FileTypeIcon } from '../drive/FileTypeIcon'
 import { CopyLinkButton } from '../share/CopyLinkButton'
@@ -158,6 +160,9 @@ export function AttachmentViewer({
   )
   // 뷰어는 화면 위에 뜨는 층(overlay) — 뷰어를 연 상세 화면(이슈 등)이 나중에 등록해도 뷰어가 대상이 된다.
   useRegisterShareTarget(shareTarget, 'overlay')
+  // WP-1261 지금 보는 파일을 AI 화면 컨텍스트에 — 같은 overlay 층이라 페이지 컨텍스트(메일·이슈·채널)를 지우지 않고 그 위에 얹는다.
+  // 넘기면 항목이 바뀌어 다시 등록되고, 닫히면(언마운트) 해제돼 페이지 컨텍스트로 돌아간다. 앱 셸 밖(공유 링크)은 Provider 가 없어 no-op.
+  useRegisterAiScreenContext(buildViewerContext(item), 'overlay')
   // 재생 세션 — 직접 연 항목(뷰어를 연 순간의 항목)만 자동재생하고, 그 항목을 한 번 떠나면 다시 자동재생하지 않는다(스펙 §5.3 #5).
   // 재생 위치는 항목 key 별로 기억(넘기면 본문이 리마운트되며 플레이어가 남긴다). 뷰어가 열린 동안 고정 객체 — ViewerBody memo 를 흔들지 않게.
   const [openedKey] = useState(itemKey)

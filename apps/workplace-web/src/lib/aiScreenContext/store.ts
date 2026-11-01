@@ -3,10 +3,18 @@
 //   → 화면 전환 시 이전 화면의 뒤늦은 cleanup 은 자기 항목만 지우므로 새 화면 컨텍스트가 유지되고,
 //     한 화면에 등록자가 둘(목록 + 열린 패널)이어도 패널이 닫히면 목록 컨텍스트로 자연 복귀한다.
 // - JSON 직렬화 비교로 현재 값이 실제로 바뀐 경우에만 구독자에게 알린다(렌더 루프 방지).
+// - WP-1261: 등록에는 층(page·overlay)이 있다. overlay(첨부 미리 보기)는 페이지 컨텍스트를 덮어쓰지 않고 그 위에 얹혀
+//   (overlayScreenContext) 현재 값이 된다 — 페이지가 뒤에 다시 등록해도(목록 재조회·스레드 열기) 미리 보기가 밀려나지 않는다.
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
+import { overlayScreenContext } from './common';
+
+/** 등록 층 — page: 화면 자신, overlay: 화면 위에 잠시 뜬 미리 보기(페이지 맥락을 유지한 채 대상을 바꾼다). */
+// shareTarget.ts 의 ShareTargetLayer(page·overlay)와 같은 층 규칙 — 첨부 뷰어가 두 저장소에 같은 층으로 등록한다.
+export type ScreenContextLayer = 'page' | 'overlay';
+
 export interface ScreenContextStore {
-  set(token: symbol, ctx: AiScreenContext | null): void;
+  set(token: symbol, ctx: AiScreenContext | null, layer?: ScreenContextLayer): void;
   release(token: symbol): void;
   get(): AiScreenContext | null;
   subscribe(fn: () => void): () => void;
@@ -14,33 +22,38 @@ export interface ScreenContextStore {
 
 export function createScreenContextStore(): ScreenContextStore {
   // 등록자별 { 컨텍스트, 직렬화 키 } — 비교용 JSON 은 등록 시 한 번만 만든다.
-  const entries = new Map<symbol, { ctx: AiScreenContext; key: string }>();
+  const entries = new Map<symbol, { ctx: AiScreenContext; key: string; layer: ScreenContextLayer }>();
   let current: AiScreenContext | null = null;
   let currentKey: string | null = null;
   const listeners = new Set<() => void>();
 
-  // 가장 최근 등록 항목을 현재 값으로 재계산 — 내용(키)이 같으면 참조·알림 유지.
+  // 층마다 가장 최근 등록 항목을 고른 뒤, overlay 가 있으면 page 위에 얹은 값을 현재 값으로 — 내용(키)이 같으면 참조·알림 유지.
   // Map 은 삽입 순서를 보장하므로 마지막으로 순회된 항목이 최신 — 배열 복사 없이 찾는다.
   const recompute = () => {
-    let last: { ctx: AiScreenContext; key: string } | null = null;
-    for (const entry of entries.values()) last = entry;
-    const key = last?.key ?? null;
+    let page: { ctx: AiScreenContext; key: string } | null = null;
+    let overlay: { ctx: AiScreenContext; key: string } | null = null;
+    for (const entry of entries.values()) {
+      if (entry.layer === 'overlay') overlay = entry;
+      else page = entry;
+    }
+    const key = overlay ? `${page?.key ?? ''}\u0000${overlay.key}` : (page?.key ?? null);
     if (key === currentKey) return;
-    current = last?.ctx ?? null;
+    current = overlay ? overlayScreenContext(page?.ctx ?? null, overlay.ctx) : (page?.ctx ?? null);
     currentKey = key;
     listeners.forEach((fn) => fn());
   };
 
   return {
-    set(token, ctx) {
+    set(token, ctx, layer = 'page') {
       if (!ctx) {
         entries.delete(token);
       } else {
         const key = JSON.stringify(ctx);
         // 같은 토큰의 동일 내용 재등록은 순서를 바꾸지 않는다(다른 등록자보다 앞질러 가지 않게).
-        if (entries.get(token)?.key === key) return;
+        const prev = entries.get(token);
+        if (prev?.key === key && prev.layer === layer) return;
         entries.delete(token); // 새 값은 "가장 최근" 으로 이동
-        entries.set(token, { ctx, key });
+        entries.set(token, { ctx, key, layer });
       }
       recompute();
     },

@@ -119,3 +119,36 @@ export function screenContextPayload(ctx: AiScreenContext): Omit<AiScreenContext
   delete out.app;
   return out;
 }
+
+/**
+ * WP-1261: 페이지 컨텍스트 위에 미리 보기(overlay)를 얹는다 — 미리 보는 파일이 대상(focus)이 되고,
+ * 페이지가 보던 대상(메일·이슈·스레드)은 범위(scope)로 내려 「이 메일의 이 첨부」처럼 원래 맥락을 잃지 않는다.
+ * 페이지에 대상이 없으면(드라이브 폴더 목록 등) 페이지 범위를 그대로 둔다. 화면 이름·앱은 페이지 것을 쓴다.
+ * 파일 식별자에 issueKey 가 빠진 이슈 채팅 첨부는 페이지 식별자의 issueKey 로 채운다 — read_file 이 바로 읽을 수 있게.
+ * 채울 issueKey 가 없으면 읽을 수 없는 식별자라 파일 식별자를 비운다(AI 가 빠진 인자로 read_file 을 부르지 않게).
+ */
+export function overlayScreenContext(base: AiScreenContext | null, overlay: AiScreenContext): AiScreenContext {
+  const baseRefs: AiScreenRefs = { ...base?.scope?.refs, ...base?.focus?.refs };
+  let focus = overlay.focus;
+  // 이슈 채팅 묶음은 스레드 id 만 알아 issueKey 가 빠진다.
+  if (focus && focus.refs.source === 'issue_chat' && !focus.refs.issueKey) {
+    focus = { ...focus, refs: baseRefs.issueKey ? buildRefs({ ...focus.refs, issueKey: baseRefs.issueKey }) : {} };
+  }
+  if (!base) return { ...overlay, ...(focus ? { focus } : {}) };
+  let scope = base.scope;
+  if (base.focus) {
+    // 대상 식별자를 앞에 — 상한(5개)에 걸리면 범위 쪽(계정·폴더 등)이 먼저 빠진다.
+    const refs = buildRefs({ ...base.focus.refs, ...base.scope?.refs, ...base.focus.refs });
+    scope = {
+      label: clip(`${base.focus.type} ${base.focus.label}`, LIMITS.label),
+      ...(Object.keys(refs).length ? { refs } : {}),
+      ...(base.focus.facts ? { facts: base.focus.facts } : {}),
+    };
+  }
+  return {
+    view: base.view,
+    ...((base.app ?? overlay.app) ? { app: base.app ?? overlay.app } : {}),
+    ...(focus ? { focus } : {}),
+    ...(scope ? { scope } : {}),
+  };
+}

@@ -35,7 +35,10 @@ export function AIChip() {
         // 패널이 좁으면 (2)>(1) 이라 정적 유지, 넓으면 (2)<(1) 이라 좌측으로 밀려 비겹침 보장.
         // --ai-side-width 미설정(closed/fullscreen/모바일)이면 (2)=100%-70px 라 항상 (1) 채택.
         // 모바일은 AppRail 보정이 불필요하므로 left-1/2 유지.
-        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[left,background-color,color,border-color] duration-200 ease-in-out panel-resizing:transition-none lg:left-[min(calc(50%+28px),calc(100%-var(--ai-side-width,0px)-70px))]',
+        // WP-1261: pointer-events-auto — 패널이 닫힌 채 modal 다이얼로그(첨부 미리 보기 등)가 열리면 Radix 가 body 에
+        // pointer-events:none 을 거는데, body 직속 포털인 칩도 그 차단을 물려받아 눌리지 않았다. 칩만 다시 받게 한다
+        // (data-ai-panel 이라 다이얼로그는 닫히지 않고, side 로 바뀌면 다이얼로그가 non-modal 로 다시 마운트돼 패널 옆으로 비켜선다).
+        'pointer-events-auto fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[left,background-color,color,border-color] duration-200 ease-in-out panel-resizing:transition-none lg:left-[min(calc(50%+28px),calc(100%-var(--ai-side-width,0px)-70px))]',
         open
           ? 'border-ai-accent bg-card text-ai-accent'
           : 'bg-card/90 text-muted-foreground hover:text-foreground',

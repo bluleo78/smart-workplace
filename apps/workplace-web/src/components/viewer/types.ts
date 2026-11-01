@@ -36,6 +36,13 @@ export interface ViewerItem {
    * 없으면 기존대로 앱 인증 클라이언트(driveApi)로 받는다 — 드라이브·메일·채팅 뷰어 동작은 그대로다.
    */
   source?: ViewerItemSource
+  /**
+   * WP-1261: 미리 보는 동안 AI 화면 컨텍스트의 「보고 있는 파일」 식별자 — 키는 AI 도구 인자명 그대로다
+   * (드라이브 `{source:'drive', driveFileId}`, 메일 `{source:'mail', attachmentId}`, 이슈 `{source:'issue', issueKey, attachmentId}`,
+   * 채널 `{source:'message', channelId, messageId, attachmentId}`, 이슈 채팅 `{source:'issue_chat', messageId, attachmentId}`,
+   * 메인 AI 채팅 `{fileId}`(read_chat_attachment)). 없으면 이름·크기만 알린다 — AI 가 내용을 읽을 길이 없는 항목(첨부 모아보기 등).
+   */
+  aiRefs?: Record<string, string | number>
 }
 
 /**

@@ -245,7 +245,8 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     // WP-277: 통합 뷰어는 전체 화면이라 바깥(오버레이)이 없다. 대신 포털 안쪽 클릭이 React 트리로 번져
     // 본문 "클릭=편집 진입" 이 되지 않는지 본다 — 뷰어 본문·헤더를 눌러도 편집창이 열리지 않아야 한다.
     await page.getByTestId('preview-body').click({ position: { x: 5, y: 5 } })
-    await page.getByTestId('preview-meta').click()
+    // 헤더 가운데는 AI 칩(z-[70])이 덮고 칩은 다이얼로그 위에서도 눌린다(WP-1261) — 칩과 겹치지 않는 왼쪽 끝을 누른다.
+    await page.getByTestId('preview-meta').click({ position: { x: 5, y: 5 } })
     await expect(ta).toHaveCount(0)
     await expect(dialog).toBeVisible()
   })

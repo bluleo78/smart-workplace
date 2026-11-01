@@ -40,6 +40,7 @@ describe('driveFileItem', () => {
       downloadPath: '/drive/files/70/download',
       summaryDriveFileId: 70,
       backlinksDriveFileId: 70,
+      aiRefs: { source: 'drive', driveFileId: 70 },
     })
     expect(it.importFileId).toBeUndefined()
   })
@@ -61,6 +62,8 @@ describe('issueAttachmentItem / issueDriveLinkItem', () => {
     const a = { fileId: 5, originalName: '로그.txt', mimeType: 'text/plain', sizeBytes: 3 } as IssueAttachment
     expect(issueAttachmentItem('WP', 12, a)).toMatchObject({
       key: 'file:5', name: '로그.txt', contentPath: '/projects/WP/issues/12/attachments/5/content', importFileId: 5,
+      // WP-1261: read_file 이슈 첨부 식별자 — attachmentId 는 core fileId.
+      aiRefs: { source: 'issue', issueKey: 'WP-12', attachmentId: 5 },
     })
     expect(issueAttachmentItem('WP', 12, a).summaryDriveFileId).toBeUndefined()
   })
@@ -137,6 +140,8 @@ describe('mailAttachmentItem', () => {
     expect(mailAttachmentItem(att())).toEqual({
       key: 'mail:7', name: '안건.pdf', mimeType: 'application/pdf', sizeBytes: 1234,
       contentPath: '/mail/attachments/7/content', downloadPath: '/mail/attachments/7/content',
+      // WP-1261: 미리 보는 동안 AI 가 read_file 로 읽는 식별자 — 메일 messageId 없이 attachmentId 만.
+      aiRefs: { source: 'mail', attachmentId: 7 },
     })
   })
 
@@ -239,6 +244,7 @@ describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
       contentPath: '/messaging/channels/3/messages/42/attachments/5/content',
       downloadPath: '/messaging/channels/3/messages/42/attachments/5/content',
       importFileId: 5,
+      aiRefs: { source: 'message', channelId: 3, messageId: 42, attachmentId: 5 },
     })
   })
   it('팀 채팅은 업로드 형식을 원문 저장한다 — 범용 형식이면 파일명으로 추론', () => {
@@ -253,6 +259,7 @@ describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
       downloadPath: '/messaging/channels/3/messages/42/drive-links/70/content',
       summaryDriveFileId: 70,
       driveOpen: { spaceId: 1, driveFileId: 70, name: '기획안.pdf' },
+      aiRefs: { source: 'drive', driveFileId: 70 },
       unavailable: false,
     })
     expect(it.importFileId).toBeUndefined()
@@ -263,6 +270,8 @@ describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
     expect(it.unavailable).toBe(true)
     expect(it.summaryDriveFileId).toBeUndefined()
     expect(it.driveOpen).toBeUndefined()
+    // 열 수 없는 원본은 AI 에게도 읽을 식별자를 주지 않는다.
+    expect(it.aiRefs).toBeUndefined()
   })
 })
 
@@ -273,6 +282,8 @@ describe('issueChatAttachmentItem / issueChatDriveLinkItem', () => {
       contentPath: '/chat/threads/8/messages/42/attachments/5/content',
       downloadPath: '/chat/threads/8/messages/42/attachments/5/content',
       importFileId: 5,
+      // issueKey 는 묶음이 모른다 — 화면 컨텍스트가 이슈 상세의 issueKey 로 채운다(overlayScreenContext).
+      aiRefs: { source: 'issue_chat', messageId: 42, attachmentId: 5 },
     })
   })
   it('이슈 채팅 드라이브 링크는 링크 경로 + ✨', () => {
@@ -293,6 +304,8 @@ describe('homeChatAttachmentItem', () => {
       key: 'home:77', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9,
       contentPath: '/home/sessions/s-1/attachments/77/content',
       downloadPath: '/home/sessions/s-1/attachments/77/content',
+      // 이 대화의 첨부는 read_chat_attachment({fileId}) 로 읽는다.
+      aiRefs: { fileId: 77 },
     })
   })
 })

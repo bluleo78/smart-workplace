@@ -25,8 +25,10 @@ import { cn } from '@/lib/utils';
 //  - wide: 넓은 미리보기(w-[64rem]·CSS resize)도 드래그로 패널을 덮지 못하게 페이지 영역 폭으로 제한.
 /** 페이지 영역(뷰포트 - 옆 패널 폭) 가운데 — 패널을 가리지 않는 다른 대화상자(메일 작성 크게 보기)도 같은 축을 쓴다. */
 export const AI_SIDE_CENTER_CLASS = 'lg:left-[calc((100%-var(--ai-side-width,0px))/2)]';
-/** 페이지 영역만 덮는 dim — 옆 패널 쪽은 비워 AI 를 그대로 쓰게 한다. */
-export const AI_SIDE_OVERLAY_CLASS = 'fixed inset-0 z-50 bg-black/50 lg:right-[var(--ai-side-width,0px)]';
+/** 페이지 영역만 덮는 dim — 옆 패널 쪽은 비워 AI 를 그대로 쓰게 한다.
+ *  z-[49]: 다이얼로그(z-50)보다 한 단계 아래 — 같은 z 면 DOM 순서로 위아래가 갈리는데, 패널이 닫힌 채 연 다이얼로그에서 칩으로
+ *  side 를 열면 다이얼로그가 non-modal 로 다시 마운트되며 오버레이가 뒤에 붙어 다이얼로그 버튼을 덮었다(WP-1261). */
+export const AI_SIDE_OVERLAY_CLASS = 'fixed inset-0 z-[49] bg-black/50 lg:right-[var(--ai-side-width,0px)]';
 const SIDE_CONTENT_CLASS = {
   default: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(32rem,calc(100%-var(--ai-side-width,0px)-2rem))]`,
   // form: 한 단계 넓은 폼(sm:max-w-xl=36rem, 일정 편집 폼 WP-801) — 기본(32rem)으로 줄이면 시작·종료 두 칸이 한 줄에 안 들어가 꺾였다.
