@@ -57,14 +57,33 @@ describe('HtmlPreview 보안 점검 줄', () => {
     expect(await screen.findByText('AI 가 점검하는 중…')).toBeInTheDocument()
     await waitFor(() => expect(calls.post).toBe(1))
     state = view({ status: 'DONE', risk: 'CAUTION', evidence: ev(3), headline: 'h' })
-    expect(await screen.findByText('주의 · 근거 3', {}, { timeout: 6000 })).toBeInTheDocument()
+    expect(await screen.findByText('주의 · 위협 3', {}, { timeout: 6000 })).toBeInTheDocument()
+  })
+
+  // WP-1283: 지난 판정 기준의 결과는 칩을 그대로 두고 「다시 점검」으로 새 기준 점검을 요청한다.
+  it('offersRecheck_whenResultIsOutdated', async () => {
+    let state: SecurityCheckView = view({ status: 'DONE', risk: 'CAUTION', evidence: ev(2), outdated: true })
+    const calls = mockApi(() => state, () => { state = view({ status: 'PENDING' }); return state })
+    const user = userEvent.setup()
+    renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" securityCheckPath={PATH} />)
+    expect(await screen.findByText('주의 · 위협 2')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '다시 점검' }))
+    await waitFor(() => expect(calls.post).toBe(1))
+    expect(await screen.findByText('AI 가 점검하는 중…')).toBeInTheDocument()
+  })
+
+  it('hidesRecheck_whenResultIsCurrent', async () => {
+    mockApi(() => view({ status: 'DONE', risk: 'LOW', evidence: ev(2), outdated: false }))
+    renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" securityCheckPath={PATH} />)
+    expect(await screen.findByText('낮음 · 위협 없음')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '다시 점검' })).not.toBeInTheDocument()
   })
 
   it('allowsWithoutConfirmAndTurnsOff_whenCaution', async () => {
     mockApi(() => view({ status: 'DONE', risk: 'CAUTION', evidence: ev(3) }))
     const user = userEvent.setup()
     renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" securityCheckPath={PATH} />)
-    await screen.findByText('주의 · 근거 3')
+    await screen.findByText('주의 · 위협 3')
     await user.click(sw())
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(sandbox()).toContain('allow-scripts')
@@ -155,7 +174,7 @@ describe('HtmlPreview 보안 점검 줄', () => {
     const onOpenPanel = vi.fn()
     const user = userEvent.setup()
     renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" securityCheckPath={PATH} onOpenPanel={onOpenPanel} />)
-    await user.click(await screen.findByRole('button', { name: '낮음' }))
+    await user.click(await screen.findByRole('button', { name: '낮음 · 위협 없음' }))
     expect(onOpenPanel).toHaveBeenCalledTimes(1)
   })
 
@@ -183,7 +202,7 @@ describe('HtmlPreview 보안 점검 줄', () => {
     await waitFor(() => expect(calls.post).toBe(1))
     state = view({ status: 'DONE', risk: 'LOW' })
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(await screen.findByText('낮음')).toBeInTheDocument()
+    expect(await screen.findByText('낮음 · 위협 없음')).toBeInTheDocument()
   }, 30_000)
 
   // 안내 줄과 패널 카드가 같은 경로를 함께 볼 때 — 상한 도달 → 줄의 「다시 점검」 하나가 카드의 상한도 되돌린다.
@@ -210,6 +229,10 @@ describe('HtmlPreview 보안 점검 줄', () => {
     await waitFor(() => expect(screen.getAllByText('AI 가 점검하는 중…')).toHaveLength(2))
     state = view({ status: 'DONE', risk: 'LOW' })
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    await waitFor(() => expect(screen.getAllByText('낮음')).toHaveLength(2))
+    // 줄의 칩은 「낮음 · 위협 없음」, 카드의 칩은 위험도만.
+    await waitFor(() => {
+      expect(screen.getByText('낮음 · 위협 없음')).toBeInTheDocument()
+      expect(screen.getByText('낮음')).toBeInTheDocument()
+    })
   }, 30_000)
 })

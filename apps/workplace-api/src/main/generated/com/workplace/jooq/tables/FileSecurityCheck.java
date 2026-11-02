@@ -126,6 +126,11 @@ public class FileSecurityCheck extends TableImpl<FileSecurityCheckRecord> {
      */
     public final TableField<FileSecurityCheckRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.file_security_check.criteria_version</code>.
+     */
+    public final TableField<FileSecurityCheckRecord, Short> CRITERIA_VERSION = createField(DSL.name("criteria_version"), SQLDataType.SMALLINT, this, "");
+
     private FileSecurityCheck(Name alias, Table<FileSecurityCheckRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

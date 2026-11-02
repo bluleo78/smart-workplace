@@ -203,6 +203,20 @@ public class FileSecurityCheckRecord extends UpdatableRecordImpl<FileSecurityChe
         return (Long) get(12);
     }
 
+    /**
+     * Setter for <code>public.file_security_check.criteria_version</code>.
+     */
+    public void setCriteriaVersion(Short value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.file_security_check.criteria_version</code>.
+     */
+    public Short getCriteriaVersion() {
+        return (Short) get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -226,7 +240,7 @@ public class FileSecurityCheckRecord extends UpdatableRecordImpl<FileSecurityChe
     /**
      * Create a detached, initialised FileSecurityCheckRecord
      */
-    public FileSecurityCheckRecord(Long fileId, String status, String risk, String headline, JSONB evidence, String model, Integer attempts, OffsetDateTime leasedUntil, String error, OffsetDateTime checkedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId) {
+    public FileSecurityCheckRecord(Long fileId, String status, String risk, String headline, JSONB evidence, String model, Integer attempts, OffsetDateTime leasedUntil, String error, OffsetDateTime checkedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, Short criteriaVersion) {
         super(FileSecurityCheck.FILE_SECURITY_CHECK);
 
         setFileId(fileId);
@@ -242,6 +256,7 @@ public class FileSecurityCheckRecord extends UpdatableRecordImpl<FileSecurityChe
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
+        setCriteriaVersion(criteriaVersion);
         resetChangedOnNotNull();
     }
 }

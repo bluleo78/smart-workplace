@@ -13,6 +13,9 @@ export const EVIDENCE_KIND_LABEL: Record<string, string> = {
   OTHER: '기타',
 }
 
+/** 판정 기준이 바뀐 결과에 붙이는 안내(WP-1283) — 칩 옆 단추의 title·패널 카드에 함께 쓴다. */
+export const OUTDATED_NOTE = '점검 기준이 바뀌었어요. 다시 점검하면 새 기준으로 봐요'
+
 /** 위험도별 칩 색 — 시맨틱 토큰만(낮음 success·주의 warning·높음 destructive). */
 export const RISK_CHIP_CLASS = {
   LOW: 'bg-success-subtle text-success-text',
@@ -24,7 +27,7 @@ export type SecurityChip =
   | { kind: 'hidden' }
   | { kind: 'idle' }
   | { kind: 'checking' }
-  | { kind: 'result'; risk: SecurityRisk; label: string; evidenceCount: number }
+  | { kind: 'result'; risk: SecurityRisk; label: string; threatCount: number; outdated: boolean }
   | { kind: 'failed'; canRetry: boolean }
 
 /**
@@ -48,8 +51,9 @@ export function securityChip(
       return opts.pollingExhausted ? { kind: 'failed', canRetry: true } : { kind: 'checking' }
     case 'DONE': {
       if (!view.risk) return { kind: 'failed', canRetry: true }
-      const evidenceCount = view.evidence.length
-      return { kind: 'result', risk: view.risk, label: RISK_LABEL[view.risk], evidenceCount }
+      // 「낮음」의 근거는 참고 정보라 위협으로 세지 않는다(WP-1283) — 점검기는 주의·높음일 때 위협 근거만 적는다.
+      const threatCount = view.risk === 'LOW' ? 0 : view.evidence.length
+      return { kind: 'result', risk: view.risk, label: RISK_LABEL[view.risk], threatCount, outdated: !!view.outdated }
     }
     case 'FAILED':
       return { kind: 'failed', canRetry: true }
@@ -61,7 +65,7 @@ export function securityChip(
   }
 }
 
-/** 칩에 보이는 글자 — 결과는 「주의 · 근거 3」(근거 0 건이면 위험도만). */
+/** 칩에 보이는 글자 — 결과는 위협 여부가 드러나게 「낮음 · 위협 없음」·「주의 · 위협 2」(주의·높음인데 근거가 없으면 위험도만). */
 export function chipText(chip: SecurityChip): string {
   switch (chip.kind) {
     case 'idle':
@@ -71,7 +75,9 @@ export function chipText(chip: SecurityChip): string {
     case 'failed':
       return '보안 점검을 하지 못했어요'
     case 'result':
-      return chip.evidenceCount > 0 ? `${chip.label} · 근거 ${chip.evidenceCount}` : chip.label
+      if (chip.threatCount > 0) return `${chip.label} · 위협 ${chip.threatCount}`
+      // 위협 수는 securityChip 이 「낮음」이면 0 으로 정한다 — 낮음만 「위협 없음」, 근거 없는 주의·높음은 위험도만.
+      return chip.risk === 'LOW' ? `${chip.label} · 위협 없음` : chip.label
     default:
       return ''
   }
