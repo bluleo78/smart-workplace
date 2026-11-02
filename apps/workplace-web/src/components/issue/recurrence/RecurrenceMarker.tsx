@@ -1,4 +1,4 @@
-// AI 위임 작업 행의 반복 표식(WP-989) — 「↻ 매주 월·수 08:30」. 꺼진 반복은 뒤에 「· 꺼짐」, 실행을 마친 한 번만 예약(WP-1315)은 「· 실행함」.
+// AI 위임 작업 행의 반복 표식(WP-989) — 「↻ 매주 월·수 08:30」. 꺼진 반복은 뒤에 「· 꺼짐」, 실행을 마친 한 번만 예약(WP-1315)은 「· 실행함」(실패·무응답이면 「· 실패함」).
 import { Repeat } from 'lucide-react';
 
 import { recurrenceLabel, recurrencePausedText } from '@/lib/issueRecurrence';
@@ -14,7 +14,7 @@ export function RecurrenceMarker({
   className?: string;
   'data-testid'?: string;
 }) {
-  // 꺼진 일정은 뒤에 짧은 상태(첫 낱말 — 「꺼짐」·「멈춤」·「실행함」)를 붙인다.
+  // 꺼진 일정은 뒤에 짧은 상태(첫 낱말 — 「꺼짐」·「멈춤」·「실행함」·「실패함」)를 붙인다.
   const paused = recurrencePausedText(recurrence)?.split(' ')[0];
   const text = recurrenceLabel(recurrence.rrule, recurrence.time) + (paused ? ` · ${paused}` : '');
   return (

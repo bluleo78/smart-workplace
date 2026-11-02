@@ -118,6 +118,18 @@ describe('buildUserMessage', () => {
     expect(m).toContain('권한으로 동작');
   });
 
+  // WP-1315: 한 번만 일정은 「반복」이 아니라 한 번 실행하는 예약으로 알린다(PR #1147 리뷰).
+  it('issue.recurring_run — 한 번만 일정', () => {
+    const m = buildUserMessage({
+      type: 'issue.recurring_run',
+      payload: { ...common, ownerUserId: 7, runId: 'r', runAt: '2026-11-03T09:00:00+09:00', recurrence: { rrule: 'FREQ=ONCE;DATE=2026-11-03', time: '09:00' }, issueBody: '회의록 정리' },
+    } as IssueEventEnvelope);
+    expect(m).toContain('한 번만 실행하도록 예약된 작업의 실행입니다');
+    expect(m).toContain('실행 일정: 한 번만 2026-11-03 09:00 KST — 반복이 아니라 한 번 실행하는 예약입니다(다음 회차 없음)');
+    expect(m).not.toContain('반복: FREQ=ONCE');
+    expect(m).not.toContain('반복 작업의');
+  });
+
   // WP-1314: 신원이 AI 자신이면(개인 비서가 아닌 AI) 요청자 대행이라고 하지 않는다.
   it('issue.recurring_run — AI 자기 신원', () => {
     const m = buildUserMessage({

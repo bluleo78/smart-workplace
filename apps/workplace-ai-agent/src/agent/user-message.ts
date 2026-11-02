@@ -26,9 +26,20 @@ function recurringBody(p: IssueRecurringRunPayload): string {
   return p.issueBody?.trim() ? p.issueBody.trim() : NO_BODY;
 }
 
-// 이슈키·제목·반복 규칙 세 줄.
+// WP-1315: 한 번만 일정(FREQ=ONCE;DATE=yyyy-MM-dd)의 날짜 — 한 번만이 아니면 null.
+function onceDate(rrule: string): string | null {
+  const m = /^FREQ=ONCE(?:;DATE=(\d{4}-\d{2}-\d{2}))?$/.exec(rrule.trim());
+  return m ? (m[1] ?? '') : null;
+}
+
+// 이슈키·제목·실행 일정 세 줄. 한 번만은 반복이 아니라 정한 날 한 번 실행하는 예약이라고 알린다(다음 회차가 없다 — PR #1147 리뷰).
 function recurringIssueLines(p: IssueRecurringRunPayload): string {
-  return `이슈키: ${p.issueKey}\n` + `제목: ${p.issueTitle}\n` + `반복: ${p.recurrence.rrule} · ${p.recurrence.time} KST\n`;
+  const date = onceDate(p.recurrence.rrule);
+  const schedule =
+    date === null
+      ? `반복: ${p.recurrence.rrule} · ${p.recurrence.time} KST\n`
+      : `실행 일정: 한 번만${date ? ` ${date}` : ''} ${p.recurrence.time} KST — 반복이 아니라 한 번 실행하는 예약입니다(다음 회차 없음)\n`;
+  return `이슈키: ${p.issueKey}\n` + `제목: ${p.issueTitle}\n` + schedule;
 }
 
 // 도구 권한 줄 — 도구는 API 가 정한 신원(ownerUserId)으로 돈다(WP-1314). 신원이 AI 자신이면 사람을 대신하지 않는다 — 그 AI 가 볼 수 있는
@@ -141,7 +152,9 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload, opts: { te
     `[이벤트: ${recurringEventType(test)}]\n` +
     (test
       ? `반복 작업을 「지금 실행」으로 한 번 시험해 보는 테스트 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n`
-      : `반복 작업의 ${round} 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n`) +
+      : onceDate(p.recurrence.rrule) !== null
+        ? `한 번만 실행하도록 예약된 작업의 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n`
+        : `반복 작업의 ${round} 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n`) +
     recurringIssueLines(p) +
     (p.actor ? `요청자: @${p.actor.username}\n` : '') +
     `\n## 이슈 본문 (이번 회차에 할 일)\n${recurringBody(p)}\n\n` +

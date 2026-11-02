@@ -203,8 +203,14 @@ describe('한 번만·평일 (WP-1315)', () => {
     expect(aiHandoffLabel({ rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', time: '08:30', agentName: '내 비서' })).toBe('내 비서 · ↻ 평일 08:30')
   })
 
-  test('실행을 마친 한 번만은 「실행함」', () => {
-    expect(recurrencePausedText({ enabled: false, consecutiveFailures: 1, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBe('실행함')
+  test('실행을 마친 한 번만은 성공이면 「실행함」, 실패·무응답이면 「실패함」', () => {
+    expect(recurrencePausedText({ enabled: false, consecutiveFailures: 0, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBe('실행함')
+    expect(recurrencePausedText({ enabled: false, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBe('실행함')
+    // 서버는 한 번만 회차가 실패하거나 결과가 오지 않으면(LOST_RUN) consecutiveFailures=1 로 끈다 — 성공처럼 보이면 안 된다(PR #1147 리뷰).
+    const failed = recurrencePausedText({ enabled: false, consecutiveFailures: 1, rrule: 'FREQ=ONCE;DATE=2026-11-03' })
+    expect(failed).toBe('실패함 — 실행이 실패했거나 결과가 오지 않았습니다')
+    // 작업 행 표식·모바일 칩은 첫 낱말만 쓴다.
+    expect(failed?.split(' ')[0]).toBe('실패함')
     expect(recurrencePausedText({ enabled: true, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBeNull()
   })
 

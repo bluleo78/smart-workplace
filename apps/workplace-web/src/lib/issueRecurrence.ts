@@ -256,13 +256,14 @@ export function kstShortDateTime(d: Date): string {
 }
 
 /**
- * 꺼진 반복의 상태 문구 — 켜져 있으면 null, 한 번만 예약이 실행을 마쳤으면(WP-1315) 「실행함」, 연속 실패로 멈췄으면(3회 이상) 「멈춤 — 3회 연속 실패」,
- * 그 밖에는 「꺼짐」. 모바일 칩은 첫 낱말만 쓴다.
+ * 꺼진 반복의 상태 문구 — 켜져 있으면 null, 한 번만 예약(WP-1315)이 실행을 마쳤으면 결과로 가른다: 서버는 회차가 실패하거나 결과가 오지
+ * 않으면(LOST_RUN) consecutiveFailures 를 1 로 두고 끄므로, 실패가 있으면 「실패함 — …」, 없으면 「실행함」(실패를 성공으로 읽지 않게).
+ * 연속 실패로 멈췄으면(3회 이상) 「멈춤 — 3회 연속 실패」, 그 밖에는 「꺼짐」. 모바일 칩·작업 행 표식은 첫 낱말만 쓴다.
  */
 export function recurrencePausedText(r: { enabled: boolean; consecutiveFailures?: number | null; rrule?: string | null }): string | null {
   if (r.enabled) return null;
-  if (isOnceRule(r.rrule)) return '실행함';
   const n = r.consecutiveFailures ?? 0;
+  if (isOnceRule(r.rrule)) return n > 0 ? '실패함 — 실행이 실패했거나 결과가 오지 않았습니다' : '실행함';
   return n >= 3 ? `멈춤 — ${n}회 연속 실패` : '꺼짐';
 }
 
