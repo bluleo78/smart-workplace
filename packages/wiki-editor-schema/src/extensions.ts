@@ -9,6 +9,7 @@ import { WikiHtmlBox, WikiHtmlSpan, WikiStyleSchema } from './htmlNodes'
 import { WikiImageSchema } from './imageNode'
 import { WikiLink } from './linkMark'
 import { WikiMarkdownText } from './markdownText'
+import { WikiMarkdownSerializer } from './markSerializerState'
 import { WikiMention } from './mentionNode'
 import { WikiTableCell, WikiTableHeader } from './tableCellAlign'
 import { WikiTable } from './tableNode'
@@ -37,6 +38,8 @@ export function wikiSchemaExtensions(
     // html 옵션은 기본값 true 를 유지해야 한다 — 기존 페이지에 raw HTML 로 직렬화돼 저장된
     // 표(#742 폴백 경로)를 파싱하는 것이 이 옵션이라, 끄면 로드가 깨진다.
     Markdown.configure({ transformPastedText: true }),
+    // 겹친 굵게·기울임·취소선 저장이 깨지지 않게 직렬화 상태를 바꿔 끼운다(WP-1318). markSerializerState.ts 참조.
+    WikiMarkdownSerializer,
     opts.mention ?? WikiMention,
     // 이미지(#750) — 미등록 시 markdown-it 이 파싱한 이미지를 ProseMirror 가 버려서
     // 이미지가 든 페이지를 열었다 저장하면 영구 삭제됐다(AI/MCP 위키 도구가 본문을 직접 쓴다).
