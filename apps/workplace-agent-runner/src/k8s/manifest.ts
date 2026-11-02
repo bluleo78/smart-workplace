@@ -274,6 +274,11 @@ export function buildAgentResources(
       },
     });
   }
+  // 추가 CA(WP-1276) — 위치에 둔 ConfigMap 의 ca.crt 를 폴더째 꽂는다. 이미지가 시스템 CA 와 합친다(계약 문서 「추가 CA」).
+  if (cfg.caConfigMap) {
+    volumeMounts.push({ name: 'ca-bundle', mountPath: '/run/genia/ca', readOnly: true });
+    volumes.push({ name: 'ca-bundle', configMap: { name: cfg.caConfigMap, items: [{ key: 'ca.crt', path: 'ca.crt' }] } });
+  }
   if (hasDind) volumes.push({ name: 'dind-storage', emptyDir: { sizeLimit: cfg.dindStorageLimit } });
 
   const agentContainer: V1Container = {

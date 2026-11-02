@@ -9,6 +9,8 @@ import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
+import com.workplace.jooq.tables.AgentScreenInput;
+import com.workplace.jooq.tables.AgentScreenSession;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
@@ -187,6 +189,16 @@ public class Tables {
      * The table <code>public.agent_runtime_setting</code>.
      */
     public static final AgentRuntimeSetting AGENT_RUNTIME_SETTING = AgentRuntimeSetting.AGENT_RUNTIME_SETTING;
+
+    /**
+     * The table <code>public.agent_screen_input</code>.
+     */
+    public static final AgentScreenInput AGENT_SCREEN_INPUT = AgentScreenInput.AGENT_SCREEN_INPUT;
+
+    /**
+     * The table <code>public.agent_screen_session</code>.
+     */
+    public static final AgentScreenSession AGENT_SCREEN_SESSION = AgentScreenSession.AGENT_SCREEN_SESSION;
 
     /**
      * The table <code>public.agent_work</code>.

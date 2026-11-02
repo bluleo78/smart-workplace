@@ -1,0 +1,16 @@
+{{- /* 추가 CA(WP-1276) — pem 값이 있고 existingConfigMap 이 없을 때만 만든다. runner 가 AI Pod 의 /run/genia/ca/ca.crt 로 꽂는다. */ -}}
+{{- $ca := .Values.agent.caBundle | default dict }}
+{{- if and $ca.pem (not $ca.existingConfigMap) }}
+{{- if not (contains "-----BEGIN CERTIFICATE-----" $ca.pem) }}
+{{- fail "agent.caBundle.pem 은 PEM 인증서(-----BEGIN CERTIFICATE-----)여야 합니다" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "runner.caConfigMap" . }}
+  labels:
+    {{- include "runner.labels" . | nindent 4 }}
+data:
+  ca.crt: |
+    {{- $ca.pem | nindent 4 }}
+{{- end }}

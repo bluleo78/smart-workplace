@@ -560,6 +560,19 @@ export class Reconciler {
   }
 
   /**
+   * 작업 화면 보기(WP-1277) — 그 AI 의 Pod 가 내 위치에서 떠 있으면(Running, 지우는 중 아님) Pod 이름. desired 를 아직 못 받았으면 null.
+   * 위치 라벨로 거르므로 같은 네임스페이스의 다른 runner 가 띄운 AI 에는 붙지 않는다.
+   */
+  async findRunningAgentPod(agentUserId: number): Promise<string | null> {
+    const desired = this.lastDesired;
+    if (!desired) return null;
+    const { resources } = await this.observeCluster(desired.locationId);
+    const name = podName(agentUserId);
+    const pod = resources.pods.find((p) => p.metadata?.name === name);
+    return pod && !pod.metadata?.deletionTimestamp && pod.status?.phase === 'Running' ? name : null;
+  }
+
+  /**
    * 관찰 보고(60초마다) — desired 의 모든 AI + 지우는 중인 AI. 변화가 없어도, AI 가 하나도 없어도 보낸다
    * (위치의 「연결됨」이 이 호출로 정해진다). metrics.k8s.io 가 없으면 사용량은 비우고 metricsAvailable=false 를 함께 보낸다.
    */

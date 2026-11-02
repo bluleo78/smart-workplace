@@ -155,9 +155,27 @@ install_key() {
   "$GW_SCRIPTS/gw-keys" add "$GENIA_AGENT_NAME" < "$GENIA_RUN_DIR/agent-key"
 }
 
-# 5b. git 신원과 저장소 자격 증명(WP-1268) — runner 가 AI 별·호스트별 토큰을 $GENIA_RUN_DIR/repo-tokens/<github|gitlab>/<host> 파일로 꽂는다.
+# 1b. 추가 CA(WP-1276) — runner 가 위치 값의 CA 를 $GENIA_RUN_DIR/ca/ca.crt 로 꽂으면 시스템 CA 와 합친 번들을 홈에 만들고
+#     git·glab(Go)·curl·python 이 그 번들을, node 는 추가분만(NODE_EXTRA_CA_CERTS 는 더하는 방식) 쓰게 env 를 내보낸다.
+#     SSL_CERT_FILE 등은 시스템 CA 를 「대신」하므로 추가분만 가리키면 github.com 이 깨진다 — 그래서 합친다.
+#     uid 1001 이라 update-ca-certificates 를 쓸 수 없다. 이 뒤에 띄우는 칸(tmux)이 env 를 물려받는다. 실패는 경고만.
+setup_ca() {
+  extra="$GENIA_RUN_DIR/ca/ca.crt"
+  [ -s "$extra" ] || return 0
+  bundle="$HOME/.genia-ca-bundle.pem"
+  if ! cat "${GENIA_SYSTEM_CA:-/etc/ssl/certs/ca-certificates.crt}" "$extra" > "$bundle.tmp" 2>/dev/null || ! mv "$bundle.tmp" "$bundle"; then
+    rm -f "$bundle.tmp"
+    log "경고: 추가 CA 를 시스템 CA 와 합치지 못했습니다 — 자체서명 인증서 저장소에 닿지 못할 수 있습니다"
+    return 0
+  fi
+  export SSL_CERT_FILE="$bundle" GIT_SSL_CAINFO="$bundle" CURL_CA_BUNDLE="$bundle" REQUESTS_CA_BUNDLE="$bundle" NODE_EXTRA_CA_CERTS="$extra"
+  log "추가 CA 를 시스템 CA 와 합쳤습니다($extra)"
+}
+
+# 5b. git 신원과 저장소 자격 증명(WP-1268·WP-1276) — runner 가 AI 별·호스트별 토큰을 $GENIA_RUN_DIR/repo-tokens/<github|gitlab>/<host> 파일로 꽂는다.
 #     GitHub 는 호스트마다 gh 에 로그인(토큰은 표준 입력으로만 — 인자·로그에 남기지 않는다)하고 git 자격 증명 도우미를 건다.
-#     GitLab 은 이번엔 파일이 있다는 것만 알린다(로그인은 WP-1276). 실패는 모두 경고만(저장소 받기가 clone-failed 로 알린다).
+#     GitLab 은 호스트마다 git 자격 증명 도우미가 그때그때 토큰 파일을 읽게 한다(설정·로그에 토큰을 두지 않는다). MR 은 플러그인의
+#     gw-repo 가 같은 파일을 glab 에 넘긴다. 실패는 모두 경고만(저장소 받기가 clone-failed 로 알린다).
 setup_git() {
   git config --global user.name "$GENIA_AGENT_NAME"
   git config --global user.email "$GENIA_AGENT_NAME@agents.genia-works.local"
@@ -176,7 +194,12 @@ setup_git() {
   for token in "$tokens"/gitlab/*; do
     [ -s "$token" ] || continue
     found=1
-    log "GitLab 토큰이 있습니다($(basename "$token")) — GitLab 로그인은 WP-1276 에서 지원합니다"
+    host=$(basename "$token")
+    # 빈 값으로 먼저 지워 다른 도우미(예: 시스템 기본)가 앞서 답하지 않게 한다. 사용자 이름은 GitLab 토큰 규칙대로 oauth2.
+    git config --global "credential.https://$host.helper" "" &&
+      git config --global --add "credential.https://$host.helper" \
+        "!f() { test \"\$1\" = get && printf 'username=oauth2\\npassword=%s\\n' \"\$(cat '$token')\"; }; f" ||
+      log "경고: GitLab 자격 증명 도우미를 걸지 못했습니다($host)"
   done
   if [ "$found" = 0 ]; then
     log "경고: 저장소 토큰($tokens)이 없습니다 — 저장소를 받지 못할 수 있습니다"

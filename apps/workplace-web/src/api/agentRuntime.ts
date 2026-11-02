@@ -124,3 +124,22 @@ export async function registerRepoCredential(
 export async function revokeRepoCredential(userId: number, id: number): Promise<void> {
   await client.delete<void>(`/admin/agents/${userId}/repo-credentials/${id}`);
 }
+
+/** 작업 화면 세션(WP-1277) — ticket 은 30초 동안 한 번만 쓰는 WebSocket 입장권. */
+export interface AgentScreenSession {
+  sessionId: string;
+  ticket: string;
+  expiresAt: string;
+}
+
+// 작업 화면 세션 열기 — 실행 중인 AI 만(아니면 409), 관리자만.
+export async function createAgentScreenSession(userId: number): Promise<AgentScreenSession> {
+  const { data } = await client.post<AgentScreenSession>(`/admin/agents/${userId}/screen-sessions`);
+  return data;
+}
+
+/** 작업 화면 WebSocket 주소 — 지금 페이지의 origin(http→ws, https→wss)에서 만든다. JWT 는 싣지 않고 ticket 만. */
+export function agentScreenSocketUrl(ticket: string, loc: Pick<Location, 'protocol' | 'host'> = window.location): string {
+  const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
+  return `${scheme}://${loc.host}/api/v1/admin/agent-screen?ticket=${encodeURIComponent(ticket)}`;
+}

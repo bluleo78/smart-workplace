@@ -56,6 +56,20 @@ describe('runEventStream', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer rt_secret');
   });
 
+  it('passesScreenEventDataToOnScreen', async () => {
+    // WP-1277 — 작업 화면 열기 신호는 조정 트리거가 아니라 onScreen 으로, 깨진 data 는 버린다
+    const controller = new AbortController();
+    const onChange = vi.fn();
+    const onScreen = vi.fn(() => controller.abort());
+    const fetchImpl = vi.fn(async () =>
+      sseResponse([':connected\n\n', 'event:agent-runtime.screen\ndata:not-json\n\n', 'event:agent-runtime.screen\ndata:{"sessionId":"s-1","agentUserId":7}\n\n']),
+    );
+    await runEventStream({ url: 'https://w/e', token: 't', fetchImpl, onChange, onScreen, sleep: async () => {}, signal: controller.signal, log: silentLog });
+    expect(onScreen).toHaveBeenCalledTimes(1);
+    expect(onScreen).toHaveBeenCalledWith({ sessionId: 's-1', agentUserId: 7 });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('reconnectsAfterServerClose', async () => {
     const controller = new AbortController();
     const onChange = vi.fn(() => controller.abort());

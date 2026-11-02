@@ -43,6 +43,18 @@ agent:
     hostPath: /var/lib/genia-agents
   # 작업 디스크 StorageClass — workDisk.type 이 pvc 일 때만 쓴다. 비우면 클러스터 기본.
   storageClass: ""
+  # 추가로 믿을 CA 인증서(WP-1276) — 사내 GitLab 처럼 자체서명 인증서를 쓰는 저장소가 있을 때. AI Pod 가 시스템 CA 와 합쳐
+  # git·glab·curl·node 가 함께 쓴다. pem(PEM 본문, 여러 개 이어 붙여도 된다)을 주면 차트가 ConfigMap <릴리스>-agent-ca 를 만들고,
+  # existingConfigMap 을 주면 이 네임스페이스의 그 ConfigMap(키 ca.crt)을 쓴다. 둘 다 비우면 시스템 CA 만.
+  caBundle:
+    pem: ""
+    existingConfigMap: ""
+
+# 관리자 화면의 「작업 화면 보기」(WP-1277). 보기는 늘 되고, 입력(관리자가 AI 화면에 키를 치기)은 여기서 켜야만 쓸 수 있다.
+# 입력은 사실상 AI 작업 공간의 셸이다 — AI 의 비밀값(접속 키·저장소 토큰·모델 연결)을 읽을 수 있고, 특권 dind 의 docker 소켓으로
+# 노드에까지 닿을 수 있다. 이 클러스터를 운영하는 쪽이 그 위험을 받아들일 때만 true 로 둔다.
+screen:
+  allowInput: false
 
 dind:
   # dind 의 /var/lib/docker emptyDir 상한

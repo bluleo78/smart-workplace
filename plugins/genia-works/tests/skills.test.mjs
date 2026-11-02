@@ -236,12 +236,12 @@ test('SKILL.md 3번: 세는 상태와 빼는 것, 막는 범위가 정해져 있
 test('SKILL.md 3번: 할 일이 없으면 내가 개발한 열린 PR 과 저장소 점검을 확인하고, 이슈는 새로 만들지 않는다', () => {
   assert.ok(s3.includes('**할 일 없음** — 끝내기 전에 아래를 확인한다. 이슈를 새로 만들지는 않는다.'));
   assert.ok(s3.includes('본문 첫 줄이 `개발: <내 username>` 인 PR 만 본다'));
-  assert.ok(s3.includes('`statusCheckRollup` 에 `FAILURE`'));
+  assert.ok(s3.includes('`checks` 가 `FAIL`'));
   assert.ok(s3.includes('`mergeable` 이 `CONFLICTING`'));
   assert.ok(s3.includes('「할 일 없을 때」 절이 있으면 그대로 한다'));
   // 검토자가 GitHub 에서만 머지·변경 요청을 하면 이슈 챗 새 글이 없어 대기 중이 영영 풀리지 않는다.
-  assert.ok(s3.includes('statusCheckRollup,reviewDecision'));
-  assert.ok(s3.includes('`gh pr view <번호> --json state`'));
+  assert.ok(s3.includes('`gw-repo pr-list`'));
+  assert.ok(s3.includes('`gw-repo pr-view <번호>` 의 `state`'));
 });
 
 // 0.1.17 이하가 PR 대기를 시각 없는 SCHEDULED 로 남겼다 — 올린 뒤에도 미뤄 둔 후보로 매번 다시 고르지 않고 대기 중처럼 다룬다.
@@ -360,11 +360,21 @@ test('SKILL.md: push 는 PR 흐름에서만 하고 main 직접 push·gitlab push
   assert.ok(text.includes('push 는 PR 흐름에서만 한다'));
 });
 
-test('SKILL.md: gh 가 준비되지 않았으면 스스로 설치·로그인하지 않고 AUTH_REQUIRED 로 멈춘다', () => {
+test('SKILL.md: 저장소 CLI 가 준비되지 않았으면 스스로 설치·로그인하지 않고 AUTH_REQUIRED 로 멈춘다', () => {
   // 무인 세션이 바이너리를 받아 깔거나 토큰을 만들면 사람이 모르는 것이 생긴다.
-  const line = lineWith(workLoop('SKILL.md'), 'GitHub 준비는 스스로 하지 않는다');
-  assert.ok(line.includes('`gh auth status`'));
+  const line = lineWith(workLoop('SKILL.md'), '저장소 준비는 스스로 하지 않는다');
+  assert.ok(line.includes('`gw-repo auth-check`'));
   assert.ok(line.includes('`AUTH_REQUIRED`'));
+});
+
+test('SKILL.md·process-issue.md: PR·MR 명령은 gw-repo 로만 — gh·glab 을 직접 부르지 않는다 (WP-1276)', () => {
+  // GitHub 만 가정한 gh 명령이 남으면 GitLab 저장소 프로젝트에서 PR 흐름이 깨진다.
+  for (const text of [workLoop('SKILL.md'), pi]) {
+    assert.ok(!/`gh (pr|api|auth|run)\b/.test(text), 'gh 를 직접 부르는 문구가 남아 있다');
+    assert.ok(!/`glab /.test(text), 'glab 을 직접 부르는 문구가 남아 있다');
+  }
+  assert.ok(workLoop('SKILL.md').includes('scripts/gw-repo"'));
+  assert.ok(pi.includes('`gw-repo pr-merge <번호> --sha <리뷰한 HEAD>'));
 });
 
 test('process-issue.md: 남이 만든 PR 이면 1번보다 먼저 검토자 절로 간다', () => {
@@ -419,7 +429,7 @@ test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순�
   const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 막힘\n'));
   assert.ok(lead.length > 100, '검토자 절이 없다');
   assertBefore(lead, '**리뷰**', '**main 충돌 확인**');
-  assertBefore(lead, '**main 충돌 확인**', '`gh pr merge');
+  assertBefore(lead, '**main 충돌 확인**', '`gw-repo pr-merge');
   // 검토자가 브랜치를 고치면 게이트가 두 번 돌고, 충돌을 코드를 모르는 쪽이 푼다.
   assert.ok(!lead.includes('`git rebase origin/main`'), '검토자가 rebase 한다');
   assert.ok(!lead.includes('git push'), '검토자가 push 한다');
@@ -551,8 +561,9 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   assert.ok(text.includes('`claude plugin marketplace update genia-works`'));
   // 설치·로그인은 안내만.
   assert.ok(text.includes('설치·로그인은 하지 않는다'));
-  assert.ok(text.includes('`command -v git tmux gh`'));
-  assert.ok(text.includes('`! gh auth setup-git`'));
+  assert.ok(text.includes('`command -v git tmux`'));
+  assert.ok(text.includes('`! gh auth setup-git --hostname <호스트>`'));
+  assert.ok(text.includes('`! glab auth login --hostname <호스트>`'));
   // 맡을 프로젝트를 고르는 기준은 스크립트 한 곳(--assigned)에 둔다 — 스킬이 JSON 을 읽어 직접 거르지 않는다(WP-1265).
   assert.ok(text.includes('scripts/gw-agent-projects" --assigned "<AI 이름>"'));
   assert.ok(text.includes('직접 JSON 을 읽어 거르지 않는다'));
@@ -599,8 +610,8 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   assert.ok(text.includes('scripts/agent-window" --keys "<AI 이름>"'));
   // 폴더 확인 → AI 고르기 → 도구 확인 → 프로젝트 읽기 → 띄우기 순.
   assertBefore(text, 'git rev-parse --is-inside-work-tree', 'scripts/gw-keys" list');
-  assertBefore(text, 'scripts/gw-keys" list', '`command -v git tmux gh`');
-  assertBefore(text, '`command -v git tmux gh`', 'scripts/gw-agent-projects');
+  assertBefore(text, 'scripts/gw-keys" list', '`command -v git tmux`');
+  assertBefore(text, '`command -v git tmux`', 'scripts/gw-agent-projects');
   assertBefore(text, 'scripts/gw-plugin-version"', 'git rev-parse --is-inside-work-tree');
   assertBefore(text, 'scripts/gw-agent-projects', 'set queue "<라벨>"');
   assertBefore(text, 'set queue "<라벨>"', '`agent-project start "<홈>/<AI 이름>" "<키>"`');
@@ -675,7 +686,7 @@ test('기차: 저장소가 켜면 9~11번 대신 쌓기 → 출발 → 통합 PR
   // 검토자: 이슈 단위 리뷰, 하나라도 문제면 PR 전체 반려, --admin 없이 머지 뒤 이슈마다 검토 대기
   const review = pi.slice(pi.indexOf('### PR 리뷰·머지 (검토자)'));
   assert.ok(review.includes('하나라도 문제면 **PR 전체를 반려**한다'));
-  assert.ok(review.includes('`--admin` 금지'));
+  assert.ok(review.includes('관리자 권한으로 보호 규칙을 건너뛰지 않는다'));
   assert.ok(review.includes('실린 이슈마다 `report_agent_work({ issueKey, state: \'REVIEW\''));
   // 실패·반려된 기차가 다른 후보보다 먼저, 맨 위 갈래는 통합 PR 제목의 키 목록도 본다
   assert.ok(skill.includes('순서: ⓪ 기차가 반려됐거나 게이트가 실패해 작업 중으로 되돌린 이슈'));

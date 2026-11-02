@@ -87,6 +87,13 @@ spec:
             - name: AGENT_STORAGE_CLASS
               value: {{ .Values.agent.storageClass | quote }}
             {{- end }}
+            {{- with include "runner.caConfigMap" . }}
+            - name: AGENT_CA_CONFIGMAP
+              value: {{ . | quote }}
+            {{- end }}
+            # 작업 화면 입력 허용(WP-1277) — 기본 꺼짐
+            - name: SCREEN_ALLOW_INPUT
+              value: {{ (.Values.screen | default dict).allowInput | default false | toString | quote }}
             - name: DIND_STORAGE_LIMIT
               value: {{ .Values.dind.storageLimit | quote }}
             # dind 사이드카 자원(JSON) — 쿼터가 requests 를 요구해 늘 넣는다

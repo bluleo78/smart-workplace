@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+// gw-repo 테스트용 가짜 gh·glab — 이름(gh|glab)으로 불린다. 받은 인자·환경(토큰이 있었는지·통계 끔)·--input 파일 내용을
+// FAKE_CLI_LOG 에 한 줄 JSON 으로 적고, FAKE_CLI_REPLIES(JSON 파일)의 「<이름> <인자 앞부분>」 열쇠 중 가장 긴 것에 맞는 응답을 낸다.
+// 응답 {out, code, err} — 맞는 열쇠가 없으면 빈 출력·종료 0.
+const { appendFileSync, readFileSync, existsSync } = require('node:fs');
+const { basename } = require('node:path');
+
+const name = basename(process.argv[1]);
+const args = process.argv.slice(2);
+const inputAt = args.indexOf('--input');
+const input = inputAt >= 0 && existsSync(args[inputAt + 1]) ? readFileSync(args[inputAt + 1], 'utf8') : null;
+appendFileSync(
+  process.env.FAKE_CLI_LOG,
+  JSON.stringify({
+    name,
+    args,
+    input,
+    token: process.env.GITLAB_TOKEN ?? null,
+    telemetry: process.env.GLAB_SEND_TELEMETRY ?? null,
+    checkUpdate: process.env.GLAB_CHECK_UPDATE ?? null,
+  }) + '\n',
+);
+const replies = process.env.FAKE_CLI_REPLIES ? JSON.parse(readFileSync(process.env.FAKE_CLI_REPLIES, 'utf8')) : {};
+const line = [name, ...args].join(' ');
+const key = Object.keys(replies)
+  .filter((k) => line.startsWith(k))
+  .sort((a, b) => b.length - a.length)[0];
+const r = key ? replies[key] : {};
+if (r.out !== undefined) process.stdout.write(typeof r.out === 'string' ? r.out : JSON.stringify(r.out));
+if (r.err) process.stderr.write(r.err);
+process.exit(r.code ?? 0);

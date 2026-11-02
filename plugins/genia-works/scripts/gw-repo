@@ -1,0 +1,280 @@
+#!/bin/sh
+# gw-repo — 저장소 호스트(GitHub·GitLab)마다 다른 PR·MR 명령을 하나로 감싼다(WP-1276). work-loop·start-agent 스킬은 gh·glab 을 직접 부르지 않고
+# 이 스크립트만 부른다 — 스킬 본문이 호스트마다 갈리지 않게. 저장소 폴더(clone·워크트리) 안에서 부른다(origin 주소로 호스트를 정한다).
+#
+#   gw-repo kind                                   # github | gitlab
+#   gw-repo auth-check                             # CLI·로그인 확인 — 문제가 있으면 이유 한 줄(stderr)과 종료 3·4
+#   gw-repo pr-list [--all] [--search <이슈 키>]   # 열린(--all 이면 모든) PR·MR 목록 — 아래 「PR 한 건」의 JSON 배열
+#   gw-repo pr-view <번호>                         # PR·MR 한 건 JSON
+#   gw-repo pr-create --head <브랜치> --title <제목> --body-file <파일> [--base <브랜치>]   # {"number","url"}
+#   gw-repo pr-review <번호> --approve [--sha <HEAD>]
+#   gw-repo pr-review <번호> --request-changes|--comment --body-file <파일>
+#   gw-repo pr-merge <번호> --sha <리뷰한 HEAD> --subject <머지 커밋 제목>                   # merge 커밋(squash·rebase 아님), HEAD 가 다르면 거절
+#
+# PR 한 건(두 호스트 같은 모양 — 스킬은 이 이름·값으로만 판단한다):
+#   number · title · body · url · headRefName · headRefOid
+#   state          OPEN | MERGED | CLOSED
+#   mergeable      MERGEABLE | CONFLICTING | UNKNOWN
+#   checks         PASS | FAIL | PENDING | NONE           (CI·파이프라인)
+#   reviewDecision APPROVED | CHANGES_REQUESTED | null
+#   mergeCommit    머지 커밋 SHA | null
+# GitLab 은 「변경 요청」 리뷰 상태를 API 로 남길 수 없어 --request-changes 를 MR 댓글 + 승인 취소로 한다. 그래서 GitLab 의 reviewDecision 은
+# 사람이 화면에서 「변경 요청」을 눌렀을 때만 CHANGES_REQUESTED 다 — AI 검토자의 반려는 이슈 챗(@멘션)으로 개발자에게 간다.
+#
+# 호스트 종류: git config genia-works.repoKind(github|gitlab) > Works 가 띄운 Pod 의 토큰 폴더 $GENIA_RUN_DIR/repo-tokens/<종류>/<호스트>
+#   > 호스트 이름에 github 가 들어가면 github, 아니면 gitlab(사내 GitLab 은 이름이 제각각이다 — Works 화면의 짐작과 같은 규칙).
+# GitLab 토큰: Pod 에서는 토큰 파일을 glab 을 부를 때만 GITLAB_TOKEN 으로 넘긴다(설정 파일에 저장하지 않는다). 사람 컴퓨터에서는 glab auth login 한 것을 쓴다.
+# 포트: 443 이 아닌 HTTPS 포트는 다루지 않는다(호스트 이름만 본다) — Works 의 저장소 토큰도 호스트 이름 단위다(WP-1268).
+# glab 의 사용 통계는 끈다 — 켜 두면 gitlab.com 으로 토큰 헤더를 붙여 보낸다(1.123.0 에서 확인).
+#
+# 종료 코드: 0 성공 · 2 사용법 오류·origin 없음·주소를 못 읽음 · 3 CLI 없음(gh·glab·jq) · 4 로그인 안 됨 · 그 밖은 gh·glab 의 실패(stderr 그대로)
+
+usage() {
+  echo "사용법: gw-repo kind | auth-check | pr-list [--all] [--search <키>] | pr-view <번호> | pr-create --head <브랜치> --title <제목> --body-file <파일> [--base <브랜치>] | pr-review <번호> --approve [--sha <HEAD>] | pr-review <번호> --request-changes|--comment --body-file <파일> | pr-merge <번호> --sha <HEAD> --subject <제목>" >&2
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+cmd=$1
+shift
+
+# origin 주소에서 호스트와 경로를 읽는다 — https://[사용자@]호스트[:포트]/경로(.git), ssh://…, 사용자@호스트:경로.
+# insteadOf 로 바뀌기 전 주소(config)를 쓴다 — agent-project 가 clone 할 때 넣은 그 주소다.
+url=$(git config --get remote.origin.url 2>/dev/null) || { echo "gw-repo: origin 주소가 없습니다 — 저장소 폴더 안에서 부르세요" >&2; exit 2; }
+case "$url" in
+  *://*) rest=${url#*://}; rest=${rest#*@}; hostport=${rest%%/*}; path=${rest#*/} ;;
+  *@*:*) rest=${url#*@}; hostport=${rest%%:*}; path=${rest#*:} ;;
+  *) echo "gw-repo: origin 주소를 읽지 못했습니다: $url" >&2; exit 2 ;;
+esac
+host=$(printf '%s' "${hostport%%:*}" | tr 'A-Z' 'a-z')
+path=${path%/}
+path=${path%.git}
+# 호스트는 소문자로 맞춘 뒤 검사하고, 경로는 대소문자를 그대로 둔다(GitHub·GitLab 모두 MyOrg/Repo 같은 경로가 있다).
+case "$host" in
+  '' | *[!a-z0-9.-]* | *..*) echo "gw-repo: origin 주소를 읽지 못했습니다: $url" >&2; exit 2 ;;
+esac
+case "$path" in
+  '' | *[!A-Za-z0-9./_-]* | *..*) echo "gw-repo: origin 주소를 읽지 못했습니다: $url" >&2; exit 2 ;;
+esac
+[ "$path" != "$hostport" ] && [ -n "$path" ] || { echo "gw-repo: origin 주소에 저장소 경로가 없습니다: $url" >&2; exit 2; }
+
+tokens="${GENIA_RUN_DIR:-/run/genia}/repo-tokens"
+kind=$(git config --get genia-works.repoKind 2>/dev/null)
+if [ -z "$kind" ]; then
+  if [ -f "$tokens/gitlab/$host" ]; then kind=gitlab
+  elif [ -f "$tokens/github/$host" ]; then kind=github
+  else case "$host" in *github*) kind=github ;; *) kind=gitlab ;; esac
+  fi
+fi
+case "$kind" in github | gitlab) ;; *) echo "gw-repo: genia-works.repoKind 는 github 또는 gitlab 이어야 합니다: $kind" >&2; exit 2 ;; esac
+
+if [ "$cmd" = kind ]; then
+  echo "$kind"
+  exit 0
+fi
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "gw-repo: $1 가 없습니다 — $2" >&2; exit 3; }
+}
+need jq "PR 응답을 읽는 데 씁니다(brew install jq 또는 apt install jq)"
+if [ "$kind" = github ]; then
+  need gh "GitHub 저장소($host)의 PR 을 다루는 데 씁니다(https://cli.github.com)"
+else
+  need glab "GitLab 저장소($host)의 MR 을 다루는 데 씁니다(https://gitlab.com/gitlab-org/cli)"
+fi
+
+# glab 호출 — 통계·업데이트 확인 끔(둘 다 gitlab.com 으로 나간다), 이 호스트로 고정, Pod 이면 토큰 파일을 이 호출에만 넘긴다(인자·로그에 남기지 않는다).
+glab_api() {
+  if [ -r "$tokens/gitlab/$host" ]; then
+    GITLAB_TOKEN=$(cat "$tokens/gitlab/$host") GLAB_SEND_TELEMETRY=false GLAB_CHECK_UPDATE=false GLAB_NO_PROMPT=1 glab api --hostname "$host" "$@"
+  else
+    GLAB_SEND_TELEMETRY=false GLAB_CHECK_UPDATE=false GLAB_NO_PROMPT=1 glab api --hostname "$host" "$@"
+  fi
+}
+# 임시 폴더 — 요청 본문(glab api --input - 는 chunked 로 보내 일부 프록시·서버가 끊는다, 1.123.0 에서 확인)과 응답 JSON 을 둔다.
+# 응답은 인자(--argjson)로 넘기지 않는다 — 긴 PR 본문이 여럿이면 인자 하나 상한(리눅스 128KiB)을 넘는다.
+tmpd=$(mktemp -d "${TMPDIR:-/tmp}/gw-repo.XXXXXX") || exit 2
+trap 'rm -rf "$tmpd"' EXIT
+req="$tmpd/req.json"
+# GitLab 프로젝트 id 자리 — 경로의 / 를 %2F 로(경로 문자는 위에서 영문·숫자·._-/ 로 검사했다).
+proj="projects/$(printf '%s' "$path" | sed 's|/|%2F|g')"
+
+# 번호 인자 검사 — 숫자만. 서브셸로 부르지 않는다(거기서 exit 하면 스크립트가 멈추지 않는다) — 결과는 n 에 둔다.
+num() {
+  case "$1" in '' | *[!0-9]*) usage ;; esac
+  n=$1
+}
+
+# gh 의 statusCheckRollup·필드를 공통 모양으로.
+GH_FIELDS=number,title,body,url,headRefName,headRefOid,state,mergeable,statusCheckRollup,reviewDecision,mergeCommit
+GH_NORMALIZE='
+def checks: (. // []) as $c
+  | if ($c | length) == 0 then "NONE"
+    elif any($c[]; ((.conclusion // "") | IN("FAILURE","TIMED_OUT","CANCELLED","ACTION_REQUIRED","STARTUP_FAILURE")) or ((.state // "") | IN("FAILURE","ERROR"))) then "FAIL"
+    elif any($c[]; ((.status // "COMPLETED") != "COMPLETED") or ((.state // "") | IN("PENDING","EXPECTED"))) then "PENDING"
+    else "PASS" end;
+def pr: { number, title, body, url, headRefName, headRefOid, state,
+  mergeable: (if .mergeable == "MERGEABLE" or .mergeable == "CONFLICTING" then .mergeable else "UNKNOWN" end),
+  checks: (.statusCheckRollup | checks),
+  reviewDecision: (if .reviewDecision == "APPROVED" or .reviewDecision == "CHANGES_REQUESTED" then .reviewDecision else null end),
+  mergeCommit: (.mergeCommit.oid // null) };'
+
+# GitLab MR(단건 조회 + 승인·리뷰어)을 공통 모양으로. 입력은 {mr, approvals, reviewers}.
+GL_NORMALIZE='
+def pr: .mr as $m | {
+  number: $m.iid, title: $m.title, body: ($m.description // ""), url: $m.web_url,
+  headRefName: $m.source_branch, headRefOid: $m.sha,
+  state: (if $m.state == "opened" then "OPEN" elif $m.state == "merged" then "MERGED" else "CLOSED" end),
+  mergeable: (if $m.has_conflicts or $m.detailed_merge_status == "need_rebase" then "CONFLICTING"
+    elif (($m.detailed_merge_status // "") | IN("checking","unchecked","preparing","approvals_syncing")) then "UNKNOWN"
+    else "MERGEABLE" end),
+  checks: (($m.head_pipeline.status // null) as $s
+    | if $s == null then "NONE" elif ($s | IN("success","skipped")) then "PASS"
+      elif ($s | IN("failed","canceled")) then "FAIL" else "PENDING" end),
+  reviewDecision: (if any((.reviewers // [])[]; .state == "requested_changes") then "CHANGES_REQUESTED"
+    elif ((.approvals.approved_by // []) | length) > 0 then "APPROVED" else null end),
+  mergeCommit: ($m.merge_commit_sha // $m.squash_commit_sha // null) };'
+
+# GitLab MR 한 건 — 단건 조회(파이프라인이 목록에는 없다)·승인·리뷰어. 승인·리뷰어 조회 실패는 빈 값으로(판단만 약해진다).
+gl_view() {
+  glab_api "$proj/merge_requests/$1" > "$tmpd/mr.json" || return $?
+  glab_api "$proj/merge_requests/$1/approvals" > "$tmpd/ap.json" 2>/dev/null || echo '{}' > "$tmpd/ap.json"
+  glab_api "$proj/merge_requests/$1/reviewers" > "$tmpd/rv.json" 2>/dev/null || echo '[]' > "$tmpd/rv.json"
+  jq -n --slurpfile mr "$tmpd/mr.json" --slurpfile ap "$tmpd/ap.json" --slurpfile rv "$tmpd/rv.json" \
+    "$GL_NORMALIZE {mr: \$mr[0], approvals: \$ap[0], reviewers: \$rv[0]} | pr"
+}
+
+case "$cmd" in
+  auth-check)
+    if [ "$kind" = github ]; then
+      gh auth status --hostname "$host" >/dev/null 2>&1 \
+        || { echo "gw-repo: gh 가 $host 에 로그인돼 있지 않습니다 — gh auth login --hostname $host 뒤 gh auth setup-git --hostname $host" >&2; exit 4; }
+    else
+      # 로그인 기록이 아니라 토큰이 지금 통하는지 본다(폐기된 Pod 토큰도 여기서 잡힌다) — 가장 가벼운 GET /user.
+      glab_api user >/dev/null 2>&1 \
+        || { echo "gw-repo: $host 의 GitLab 토큰이 통하지 않습니다 — 사람 컴퓨터면 glab auth login --hostname $host 뒤 git config --global credential.https://$host.helper '!glab auth git-credential', Works 가 띄운 AI 면 AI 상세의 저장소 연결을 다시 하세요" >&2; exit 4; }
+    fi
+    ;;
+
+  pr-list)
+    all='' search=''
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --all) all=1; shift ;;
+        --search) [ $# -ge 2 ] || usage; search=$2; shift 2 ;;
+        *) usage ;;
+      esac
+    done
+    if [ "$kind" = github ]; then
+      # gh 의 실패를 jq 가 가리지 않게 먼저 파일로 받는다(sh 에는 pipefail 이 없다 — 빈 입력에도 jq 는 0 으로 끝난다).
+      gh pr list --state "$( [ -n "$all" ] && echo all || echo open)" ${search:+--search "$search in:title,body"} --limit 100 --json "$GH_FIELDS" \
+        > "$tmpd/list.json" || exit $?
+      jq "$GH_NORMALIZE [.[] | pr]" "$tmpd/list.json"
+    else
+      q="state=$( [ -n "$all" ] && echo all || echo opened)&per_page=100"
+      if [ -n "$search" ]; then
+        case "$search" in *[!A-Za-z0-9_-]*) usage ;; esac
+        q="$q&search=$search&in=title,description"
+      fi
+      glab_api "$proj/merge_requests?$q" > "$tmpd/list.json" || exit $?
+      # 열린 MR 만 단건으로 다시 본다(파이프라인·승인) — 닫힌 것은 목록 값만으로 충분하다. 한 건씩 파일에 모아 끝에 배열로.
+      : > "$tmpd/out.jsonl"
+      for iid in $(jq -r '.[] | select(.state == "opened") | .iid' "$tmpd/list.json"); do
+        gl_view "$iid" >> "$tmpd/out.jsonl" || exit $?
+      done
+      jq -c "$GL_NORMALIZE .[] | select(.state != \"opened\") | {mr: .} | pr" "$tmpd/list.json" >> "$tmpd/out.jsonl" || exit $?
+      # 목록 순서(최근 것 먼저)로 다시 맞춘다.
+      jq -s --slurpfile l "$tmpd/list.json" '. as $o | [$l[0][] | .iid as $i | $o[] | select(.number == $i)]' "$tmpd/out.jsonl"
+    fi
+    ;;
+
+  pr-view)
+    [ $# -eq 1 ] || usage
+    num "$1"
+    if [ "$kind" = github ]; then
+      gh pr view "$n" --json "$GH_FIELDS" > "$tmpd/pr.json" || exit $?
+      jq "$GH_NORMALIZE pr" "$tmpd/pr.json"
+    else
+      gl_view "$n"
+    fi
+    ;;
+
+  pr-create)
+    head='' title='' bodyfile='' base=main
+    while [ $# -gt 0 ]; do
+      [ $# -ge 2 ] || usage
+      case "$1" in
+        --head) head=$2 ;; --title) title=$2 ;; --body-file) bodyfile=$2 ;; --base) base=$2 ;;
+        *) usage ;;
+      esac
+      shift 2
+    done
+    [ -n "$head" ] && [ -n "$title" ] && [ -r "$bodyfile" ] || usage
+    if [ "$kind" = github ]; then
+      prurl=$(gh pr create --base "$base" --head "$head" --title "$title" --body-file "$bodyfile") || exit $?
+      prurl=$(printf '%s\n' "$prurl" | tail -n 1)
+      jq -n --arg u "$prurl" '{number: ($u | sub(".*/"; "") | tonumber), url: $u}'
+    else
+      jq -n --arg s "$head" --arg t "$base" --arg title "$title" --rawfile d "$bodyfile" \
+        '{source_branch: $s, target_branch: $t, title: $title, description: $d, remove_source_branch: false}' > "$req"
+      created=$(glab_api -X POST "$proj/merge_requests" --input "$req") || exit $?
+      printf '%s' "$created" | jq '{number: .iid, url: .web_url}'
+    fi
+    ;;
+
+  pr-review)
+    [ $# -ge 2 ] || usage
+    num "$1"
+    action=$2
+    shift 2
+    sha='' bodyfile=''
+    while [ $# -gt 0 ]; do
+      [ $# -ge 2 ] || usage
+      case "$1" in --sha) sha=$2 ;; --body-file) bodyfile=$2 ;; *) usage ;; esac
+      shift 2
+    done
+    case "$action" in
+      --approve)
+        if [ "$kind" = github ]; then
+          gh pr review "$n" --approve
+        else
+          glab_api -X POST "$proj/merge_requests/$n/approve" ${sha:+-f sha="$sha"} >/dev/null
+        fi
+        ;;
+      --request-changes | --comment)
+        [ -r "$bodyfile" ] || usage
+        if [ "$kind" = github ]; then
+          gh pr review "$n" "$action" --body-file "$bodyfile"
+        else
+          jq -n --rawfile b "$bodyfile" '{body: $b}' > "$req"
+          glab_api -X POST "$proj/merge_requests/$n/notes" --input "$req" >/dev/null || exit $?
+          # 앞서 내가 승인했으면 거둔다 — 반려한 MR 이 승인된 채 남지 않게(승인한 적이 없으면 실패해도 그만).
+          [ "$action" = --comment ] || glab_api -X POST "$proj/merge_requests/$n/unapprove" >/dev/null 2>&1 || true
+        fi
+        ;;
+      *) usage ;;
+    esac
+    ;;
+
+  pr-merge)
+    [ $# -ge 1 ] || usage
+    num "$1"
+    shift
+    sha='' subject=''
+    while [ $# -gt 0 ]; do
+      [ $# -ge 2 ] || usage
+      case "$1" in --sha) sha=$2 ;; --subject) subject=$2 ;; *) usage ;; esac
+      shift 2
+    done
+    # 리뷰한 HEAD 없이 머지하지 않는다 — 그 사이 누가 브랜치를 바꿨으면 거절돼야 한다.
+    [ -n "$sha" ] && [ -n "$subject" ] || usage
+    if [ "$kind" = github ]; then
+      gh pr merge "$n" --merge --match-head-commit "$sha" --subject "$subject"
+    else
+      jq -n --arg sha "$sha" --arg m "$subject" '{sha: $sha, merge_commit_message: $m, squash: false, should_remove_source_branch: false}' > "$req"
+      glab_api -X PUT "$proj/merge_requests/$n/merge" --input "$req" >/dev/null
+    fi
+    ;;
+
+  *) usage ;;
+esac

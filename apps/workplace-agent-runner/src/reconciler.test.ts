@@ -63,6 +63,24 @@ function decodeSecret(cluster: FakeCluster, name: string) {
 }
 
 describe('Reconciler', () => {
+  it('findRunningAgentPodOnlyForRunningPodOfThisLocation', async () => {
+    // WP-1277 — 작업 화면은 내 위치 라벨의 Running Pod 에만 붙는다(같은 네임스페이스 다른 runner 의 AI 는 null)
+    const cluster = new FakeCluster();
+    const mine = desiredAgent({ agentUserId: 7 });
+    const other = desiredAgent({ agentUserId: 8 });
+    seedRunningAgent(cluster, mine);
+    seedRunningAgent(cluster, other, ctx.locationId + 1);
+    const reconciler = makeReconciler(cluster, new FakeWorks(desired([mine])));
+    expect(await reconciler.findRunningAgentPod(7)).toBeNull(); // desired 를 받기 전
+    await reconciler.reconcileOnce();
+    const pod = cluster.get<V1Pod>('Pod', 'agent-7')!;
+    pod.status = { phase: 'Running' };
+    expect(await reconciler.findRunningAgentPod(7)).toBe('agent-7');
+    expect(await reconciler.findRunningAgentPod(8)).toBeNull();
+    pod.status = { phase: 'Pending' };
+    expect(await reconciler.findRunningAgentPod(7)).toBeNull();
+  });
+
   it('restartWithUnchangedDesiredDoesNotCallAgentKey', async () => {
     const cluster = new FakeCluster();
     const agent = desiredAgent();

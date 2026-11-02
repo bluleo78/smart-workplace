@@ -50,6 +50,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 | `/run/genia/config.json` | ConfigMap 키 `config.json` | 읽기 전용 |
 | `/run/genia/agent-key` | Secret 키 `agent-key` | 읽기 전용 |
 | `/run/genia/repo-tokens/<github\|gitlab>/<host>` | Secret `agent-<id>` 의 `repo-<kind>-<host>` 키(볼륨 `repo-tokens`, items 마다 `path: <kind 소문자>/<host>`) | 읽기 전용. 호스트가 하나도 없으면 볼륨·마운트 자체가 없다 |
+| `/run/genia/ca/ca.crt` | 위치 값 `agent.caBundle` 의 ConfigMap 키 `ca.crt`(볼륨 `ca-bundle`, runner env `AGENT_CA_CONFIGMAP`) | 읽기 전용. 값이 없으면 볼륨·마운트 자체가 없다. 아래 「추가 CA」 |
 | `/work` | 노드 폴더 `<agent.workDisk.hostPath>/agent-<id>`(기본 `/var/lib/genia-agents`, DirectoryOrCreate) 또는 PVC `agent-<id>-work` | 아래 「작업 디스크」 |
 | `/dind` | emptyDir | agent·dind 컨테이너가 docker 소켓을 나눠 쓴다 |
 
@@ -57,9 +58,28 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 
 - 토큰은 AI 마다·저장소 호스트마다 Works 에 저장한다(관리자 화면 AI 상세 › 저장소 연결). runner 는 desired 의 `repos` 참조(`WORKS`)가 가리키는 `GET …/secrets/repos` 로 받아 Secret `agent-<id>` 에 `repo-<kind>-<host>` 키로 넣는다. 템플릿이 `repo`(옛 이름 `github`)를 요구하지 않으면 참조가 없고 키도 지운다.
 - Pod 는 만들 때 Secret 어노테이션 `repo-hosts` 로 볼륨 `repo-tokens` 를 만든다 — 호스트마다 item `{key: repo-<kind>-<host>, path: <kind 소문자>/<host>}` 를 `/run/genia/repo-tokens` 에 읽기 전용으로 마운트한다.
-- 작업 공간 엔트리포인트는 `repo-tokens/github/<host>` 마다 `gh auth login --hostname <host> --with-token`(토큰은 표준 입력으로만)과 `gh auth setup-git --hostname <host>` 를 한다. `repo-tokens/gitlab/<host>` 는 파일이 있다는 것만 알린다(GitLab 로그인은 WP-1276). 토큰 폴더가 없거나 로그인이 실패해도 경고만 하고 뜬다.
+- 작업 공간 엔트리포인트는 `repo-tokens/github/<host>` 마다 `gh auth login --hostname <host> --with-token`(토큰은 표준 입력으로만)과 `gh auth setup-git --hostname <host>` 를 한다. `repo-tokens/gitlab/<host>` 마다 git 자격 증명 도우미 `credential.https://<host>.helper` 를 걸어, git 이 물을 때 그 파일을 읽어 `username=oauth2`·`password=<토큰>` 으로 답하게 한다(설정에 토큰을 두지 않는다 — WP-1276). GitLab MR 은 플러그인 `gw-repo` 가 같은 파일을 glab 을 부를 때만 `GITLAB_TOKEN` 으로 넘긴다. 토큰 폴더가 없거나 로그인이 실패해도 경고만 하고 뜬다.
 - **Pod 재생성**: gh 로그인은 Pod 시작 때 한 번 하고 고정된다. Works 는 토큰 변경에 `generation` 을 올리지 않으므로, runner 는 Pod 어노테이션 `genia.works/repos-version` 이 Secret 의 것과 다르면(없음 ↔ 값 포함) 「모델 연결 교체」와 똑같이 `generation`·`applyNow` 와 무관하게 Pod 를 지우고 다음 회차에 다시 만든다. 토큰을 지워도(값 → 없음) 같다. 허용 밖 이미지면 지우지 않고 `FAILED`.
 - 원문은 Secret·Pod 마운트 밖(로그·어노테이션·오류 메시지)에 남기지 않는다.
+
+## 추가 CA (WP-1276)
+
+- 사내 GitLab(gitlab.iacloud.kr)처럼 자체서명 인증서를 쓰는 저장소용이다. 위치(차트 `agent.caBundle.pem` 또는 `existingConfigMap`)에 두면 runner 가 모든 AI Pod 에 `/run/genia/ca/ca.crt` 로 꽂는다.
+- 엔트리포인트는 맨 앞(플러그인·저장소보다 먼저)에서 시스템 CA(`/etc/ssl/certs/ca-certificates.crt`)와 이 파일을 합쳐 `$HOME/.genia-ca-bundle.pem` 을 만들고 `SSL_CERT_FILE`·`GIT_SSL_CAINFO`·`CURL_CA_BUNDLE`·`REQUESTS_CA_BUNDLE` 을 그 번들로, `NODE_EXTRA_CA_CERTS` 를 추가분으로 내보낸다. 앞의 넷은 시스템 CA 를 「대신」하므로 추가분만 가리키면 github.com 같은 공인 인증서가 깨진다 — 그래서 합친다. 칸(tmux)은 이 env 를 물려받는다.
+- 합치지 못하면 경고만 하고 뜬다(그 저장소의 clone 이 인증서 오류로 실패해 `clone-failed` 로 알린다).
+
+## 작업 공간 이미지의 저장소 CLI (WP-1276)
+
+- 이미지는 `gh` 와 `glab`(공식 릴리스 .deb, 버전·아키텍처별 해시 고정)을 둔다. `GLAB_SEND_TELEMETRY=false`·`GLAB_CHECK_UPDATE=false` — glab 의 사용 통계는 gitlab.com 으로 토큰 헤더를 붙여 보낸다(1.123.0 에서 확인).
+- work-loop 의 PR·MR 명령은 플러그인 `gw-repo` 하나로 부른다 — origin 주소로 호스트를 가리고(토큰 폴더 `repo-tokens/<kind>/<host>` 가 있으면 그 종류) GitHub 은 gh, GitLab 은 glab REST 호출로 같은 모양의 JSON 을 낸다.
+
+## 작업 화면 (WP-1277)
+
+- 이미지는 `/opt/genia/bin/agent-screen` 을 둔다. runner 는 관리자 화면의 「작업 화면 보기」를 이을 때만 agent 컨테이너에 exec 로 이것을 부른다(runner Role `pods/exec`).
+  - `attach <세션 id> [--input] [--window <번호>]`(tty): AI tmux 세션(`GENIA_AGENT_NAME` 의 `.`·`:` 을 `_` 로)과 창을 함께 쓰는 보기 세션 `gw-view-<세션 id>` 를 만들어 붙는다. `--input` 이 없으면 tmux read-only 클라이언트다. 끝나면 보기 세션을 지우고, 비정상으로 남은 보기 세션(붙은 클라이언트 없음)은 다음 attach 가 치운다. runner 는 붙을 때마다 「<화면 세션 id>-<회차>」를 세션 id 로 넘긴다 — 입력 허용을 바꿔 다시 붙을 때 옛 exec 의 정리가 새 보기 세션을 지우지 않게.
+  - `windows [<세션 id>]`: 「번호·이름·폭·높이·보는 창(1|0)」 탭 구분 한 줄씩. `select <세션 id> <번호>`: 보기 세션의 창만 바꾼다(AI 의 현재 창은 그대로).
+  - 보는 동안 AI 창은 관리자 터미널 크기를 따른다(`kubectl exec … tmux attach` 와 같다). 마지막 관리자가 나가면 창을 기본 크기 240x60 으로 되돌린다.
+  - 종료 코드 3 = AI 의 tmux 세션이 아직 없음.
 
 ## 작업 디스크 (WP-1270)
 

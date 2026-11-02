@@ -4,9 +4,12 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { KubeConfig } from '@kubernetes/client-node';
 import { loadConfig } from './config.js';
 import { KubeCluster } from './k8s/cluster.js';
+import { KubePodExec } from './k8s/exec.js';
 import { ReconcileLoop, Reconciler } from './reconciler.js';
+import { openScreen, type ScreenRequest } from './screen.js';
 import { HttpWorksClient } from './works/client.js';
 import { runEventStream, type Logger } from './works/events.js';
+import { connectScreenSocket } from './works/screenSocket.js';
 
 /** 마지막 조정 성공이 이 안이면 건강하다. */
 const HEALTHY_WITHIN_MS = 10 * 60_000;
@@ -52,6 +55,7 @@ async function main() {
   const cluster = new KubeCluster(kc, cfg.namespace);
   const works = new HttpWorksClient(cfg.worksUrl, cfg.runnerToken);
   const reconciler = new Reconciler({ cluster, works, cfg, log });
+  const podExec = new KubePodExec(kc, cfg.namespace);
   const loop = new ReconcileLoop(() => reconciler.reconcileOnce(), log);
   const abort = new AbortController();
 
@@ -70,6 +74,20 @@ async function main() {
     url: `${cfg.worksUrl}/api/v1/agent-runtime/runner/events`,
     token: cfg.runnerToken,
     onChange: () => void loop.trigger(),
+    // 작업 화면 보기(WP-1277) — 화면마다 Works 로 소켓을 열고 AI Pod 에 exec 로 붙는다.
+    onScreen: (data) => {
+      const req = data as Partial<ScreenRequest>;
+      void openScreen(
+        {
+          connect: (sessionId) => connectScreenSocket(cfg.worksUrl, cfg.runnerToken, sessionId),
+          exec: podExec,
+          findAgentPod: (id) => reconciler.findRunningAgentPod(id),
+          log,
+          allowInput: cfg.screenAllowInput,
+        },
+        { sessionId: String(req.sessionId ?? ''), agentUserId: Number(req.agentUserId) },
+      );
+    },
     sleep: (ms) => sleep(ms, undefined, { signal: abort.signal }).catch(() => undefined),
     signal: abort.signal,
     log,

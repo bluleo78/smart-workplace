@@ -24,6 +24,7 @@
 |---|---|---|---|---|
 | 실시간 이벤트(SSE) 연결 | `global/realtime/SseRegistry` | 사용자가 붙은 파드에서 난 이벤트만 받습니다. 다른 파드에서 생긴 채팅·알림·메시지 이벤트를 놓칩니다 | 막힘 | 파드 사이 중계(Redis Pub/Sub 또는 PostgreSQL `LISTEN/NOTIFY`)를 두고, 각 파드가 받은 이벤트를 자기 연결에 뿌리게 합니다 |
 | runner 변경 스트림(SSE) | `agentruntime/realtime/RunnerSseRegistry`(WP-1249) | runner 가 붙은 파드에서 난 원하는 상태 변경만 바로 알립니다. 다른 파드에서 난 변경은 놓칩니다 | 괜찮음 | 계약상 최선 노력 — runner 가 5분마다 desired 를 다시 조회해 맞춥니다([agent-runner-api.md](../integrations/agent-runner-api.md)). 위 SSE 중계를 들이면 함께 태웁니다 |
+| AI 작업 화면 중계(WebSocket) | `agentruntime/screen/AgentScreenRelay`·`AgentScreenTickets`(WP-1277) | 관리자 브라우저 소켓과 runner 소켓을 파드 메모리에서 세션 id 로 짝짓습니다. 두 소켓(과 접속 표를 받은 POST)이 다른 파드로 가면 붙지 못해 화면이 열리지 않습니다. AI 당 열린 화면 3개·「다른 관리자가 이미 입력 중」 판정도 파드마다 따로 셉니다. 새 파드가 뜨면 닫히지 않은 옛 세션 행을 닫으므로, 겹치는 동안 다른 파드의 열린 화면 기록이 먼저 닫힌 것으로 남을 수 있습니다 | 막힘 | 세션 id 로 같은 파드에 보내는(sticky) 라우팅을 두거나, 파드 사이 프레임 중계(Redis Pub/Sub 등)와 공유 표 저장소를 둡니다 |
 | AI 답변 생성 중 취소(■) | `global/realtime/DefaultStreamingGenerationRegistry` | 취소 요청이 생성 중인 파드와 다른 파드로 가면 멈추지 않습니다. 사용자당 동시 생성 상한도 파드마다 따로 셉니다 | 막힘 | 취소를 위 중계로 전파하거나, 생성 요청을 같은 파드로 보내는(sticky) 라우팅이 필요합니다 |
 | 메일 OAuth state | `mail/service/OAuthStateStore` | 시작과 콜백이 다른 파드로 가면 「state 없음」으로 메일 계정 연결이 실패합니다 | 막힘 | state 를 DB 표나 Redis 로 옮깁니다(TTL 10분, 한 번 쓰면 삭제) |
 | 메일 수동 동기화 진행률·동시 실행 가드 | `mail/service/MailSyncProgress` | 진행률 조회가 다른 파드로 가면 「대기」로 보입니다. 같은 계정 동기화가 두 파드에서 겹칠 수 있습니다 | 바꿔야 함 | 진행 상태를 DB 로 옮기거나 DB 행 잠금으로 가드합니다 |

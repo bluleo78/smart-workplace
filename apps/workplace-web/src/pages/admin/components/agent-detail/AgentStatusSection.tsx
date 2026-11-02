@@ -2,7 +2,7 @@
 // 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「실행 시작 / 실행 멈춤 / 다시 시작」.
 // Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
 
-import { Check, Info, X } from 'lucide-react';
+import { Check, Info, MonitorPlay, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -47,6 +47,7 @@ import {
   statusDetail,
   statusPill,
 } from '../../../../lib/agentRuntimeStatus';
+import { canViewScreen } from '../../../../lib/agentScreen';
 import { handleApiError } from '../../../../lib/api-error';
 import { issuePath } from '../../../../lib/appUrl';
 import { missingRepoHosts as missingHostsOf } from '../../../../lib/repoHosts';
@@ -54,6 +55,7 @@ import { parseIssueKeyQuery } from '../../../../lib/sendToChat';
 import { cn, objectParticle, subjectParticle } from '../../../../lib/utils';
 import type { AgentResponse } from '../../../../types/agent';
 import type { AgentRuntimeSetting, AgentTemplate } from '../../../../types/agentRuntime';
+import { AgentScreenDialog } from './AgentScreenDialog';
 import type { WorkSettingsDraft } from './useWorkSettingsDraft';
 
 /** Works 가 실행하는 AI 의 실행 정보 — 상세 페이지가 한 번 읽어 상태·실행 섹션에 함께 내려준다. */
@@ -189,6 +191,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const save = useSaveAgentRuntimeSetting(agent.id);
   const action = useAgentRuntimeAction(agent.id);
   const [nowConfirm, setNowConfirm] = useState<NowConfirm>(null);
+  const [screenOpen, setScreenOpen] = useState(false);
 
   const status = saved?.status ?? 'OFF';
   const observed = saved?.observed ?? null;
@@ -286,7 +289,15 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         {(running || failedOn) && saved?.effectiveLocation && (
           <span className="ml-auto text-xs text-muted-foreground">실행 환경 {saved.effectiveLocation.name}</span>
         )}
+        {/* 작업 화면 보기(WP-1277) — 작업 공간이 떠 있을 때만(시작하는 중·멈추는 중·실패는 붙을 화면이 없다) */}
+        {canViewScreen(status) && (
+          <Button size="xs" variant="outline" className={cn(!saved?.effectiveLocation && 'ml-auto')} onClick={() => setScreenOpen(true)} data-testid="agent-screen-open">
+            <MonitorPlay aria-hidden />
+            작업 화면 보기
+          </Button>
+        )}
       </div>
+      {screenOpen && <AgentScreenDialog agentUserId={agent.id} agentName={agent.name} open={screenOpen} onOpenChange={setScreenOpen} />}
 
       {running && observed && (
         <div className="space-y-1.5">

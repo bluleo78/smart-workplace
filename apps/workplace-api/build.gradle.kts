@@ -53,6 +53,8 @@ dependencies {
     testAnnotationProcessor("org.projectlombok:lombok:1.18.44")
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // AI 작업 화면(WP-1277) — 관리자 브라우저와 runner 사이 터미널 중계. STOMP 없이 평범한 WebSocket 처리기만 쓴다.
+    implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-jooq")

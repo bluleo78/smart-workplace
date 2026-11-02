@@ -104,7 +104,16 @@ agent:
   workDisk:
     type: hostPath
     hostPath: /data/genia-agents
+  # 자체서명 인증서를 쓰는 저장소(예: 사내 GitLab)가 있으면 그 CA — AI Pod 가 시스템 CA 와 합쳐 쓴다.
+  # 이미 이 네임스페이스에 ConfigMap(키 ca.crt)이 있으면 pem 대신 existingConfigMap: <이름>
+  caBundle:
+    pem: |
+      -----BEGIN CERTIFICATE-----
+      ...
+      -----END CERTIFICATE-----
 ```
+
+사내 GitLab 의 CA 는 `openssl s_client -connect gitlab.iacloud.kr:443 -showcerts </dev/null` 로 받은 체인의 루트(자체서명이면 그 인증서)를 씁니다. 바꾼 CA 는 AI 가 다음에 다시 시작할 때부터 쓰입니다.
 
 ## 업그레이드
 
@@ -115,6 +124,13 @@ agent:
 AI 마다 등록한 저장소 토큰만 넣습니다. **업그레이드 전에** 관리자 화면 AI 상세 › **저장소 연결** 에서 이 위치에서 도는 AI 마다 토큰을
 연결하세요. 연결하지 않은 채 Pod 가 다시 만들어지면(설정 변경·다시 시작·노드 장애) 그 AI 는 저장소를 받거나 PR 을 올리지 못합니다.
 옮긴 뒤 `kubectl --context <ctx> -n <ns> delete secret github-token` 으로 옛 Secret 을 지웁니다.
+
+**작업 화면 보기를 쓰려면(WP-1277)** — 차트가 runner 의 Role 에 `pods/exec`(create·get)을 더합니다. runner 는 이 권한으로 AI Pod 의
+`/opt/genia/bin/agent-screen` 만 부릅니다. 옛 차트의 runner 는 이 권한이 없어, 관리자가 작업 화면을 열면
+「실행 환경 runner 에 작업 화면 권한(pods/exec)이 없어요」가 뜹니다 — 차트를 올리면 풀립니다. 작업 공간 이미지도 `agent-screen` 이 든 버전이어야 합니다.
+보기는 늘 되고, **관리자가 AI 화면에 키를 치는 입력은 `screen.allowInput: true` 로 켜야만** 보입니다(기본 꺼짐). 입력은 사실상 AI 작업 공간의
+셸입니다 — AI 의 접속 키·저장소 토큰·모델 연결 토큰을 읽을 수 있고, 특권 dind 의 docker 소켓으로 노드에까지 닿을 수 있습니다. 이 클러스터를
+운영하는 쪽이 그 위험을 받아들일 때만 켜세요. 입력한 내용은 Works 감사 기록에 남습니다.
 
 **작업 디스크를 PVC 로 쓰던 위치를 올릴 때(WP-1270)** — 기본값이 노드 로컬 폴더로 바뀌지만, 이미 PVC 가 있는 AI 는 끌 때까지 그 PVC 를
 계속 씁니다(작업 폴더를 잃지 않게). 끄면 PVC 가 지워지고 다음에 켤 때부터 노드 폴더를 씁니다. 계속 PVC 로 두려면 `agent.workDisk.type: pvc`.

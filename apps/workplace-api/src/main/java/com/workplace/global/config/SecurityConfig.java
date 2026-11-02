@@ -146,6 +146,14 @@ public class SecurityConfig {
                     // 403.
                     // 주체가 Long 이 아닌 runner 주체(테넌트·위치)라 runner 토큰은 이 경로 밖에서 인증되지 않는다(필터가 건너뛰어 401).
                     // /api/v1/** 보다 먼저 둔다.
+                    // AI 작업 화면 브라우저 WebSocket(WP-1277) — 브라우저 WebSocket 은 헤더를 못 실어 JWT 로 인증할 수 없다.
+                    // 로그인한 관리자가
+                    // POST 로 받은 30초짜리 일회용 표를 쿼리로 싣고, 핸드셰이크 가로채기(AgentScreenWebSocketConfig)가 표로만
+                    // 인증한다.
+                    // 표가 곧 권한이다. 업그레이드 요청(GET)만 연다.
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET, "/api/v1/admin/agent-screen")
+                    .permitAll()
                     .requestMatchers(RunnerTokenAuthenticationFilter.PATH_PREFIX + "**")
                     .hasRole("RUNNER")
                     .requestMatchers("/api/v1/**")

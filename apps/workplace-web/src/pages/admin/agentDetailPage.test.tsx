@@ -255,6 +255,17 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(screen.getByTestId('agent-run-mode-lock')).toHaveTextContent('실행 중에는 바꿀 수 없어요')
   })
 
+  test('작업 화면 보기는 작업 공간이 떠 있을 때(실행 중·쉴 때 적용 대기)만 보인다 (WP-1277)', async () => {
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'WORKING' }) }) } }))
+    expect(await screen.findByTestId('agent-screen-open')).toHaveTextContent('작업 화면 보기')
+  })
+
+  test('꺼져 있거나 시작하는 중이면 작업 화면 보기가 없다', async () => {
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'STARTING', desired: 'RUN' }) } }))
+    expect(await screen.findByTestId('agent-runtime-status')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-screen-open')).not.toBeInTheDocument()
+  })
+
   test('실행 환경이 사용량을 잴 수 없다고 알려 왔으면 CPU·메모리는 「알 수 없음」과 이유 한 줄, 잴 수 있으면 값만 보인다 (WP-1280)', async () => {
     const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319', cpuMillicores: 1200, memoryBytes: 3 * 1024 ** 3 })
     const blind = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed, effectiveLocation: createLocation({ metricsAvailable: false }) })

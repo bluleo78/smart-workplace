@@ -12,6 +12,10 @@ ARG JDTLS_BUILD=202610131109
 ARG JDTLS_SHA256=f587dafd8410633c2c2bf005e853a2bbb03cddee88933d49bfe6d9cb1cf09342
 ARG TYPESCRIPT_LANGUAGE_SERVER_VERSION=6.0.2
 ARG TYPESCRIPT_VERSION=5.9.3
+# GitLab CLI(WP-1276) — 플러그인 gw-repo 가 GitLab MR 을 다룰 때 쓴다. apt 에 없어 공식 릴리스 .deb 를 아키텍처별 해시로 확인해 받는다.
+ARG GLAB_VERSION=1.123.0
+ARG GLAB_SHA256_AMD64=0effb3e550b80fd826b5a50655acc7fe7142728d0afe9a1d5d857aa2fc651f5a
+ARG GLAB_SHA256_ARM64=f7c1930977fdd75bea6735eed0b628d4411536b3208c124101db42d6cfb9378e
 # 빌드 때 genia-works 마켓플레이스를 받을 곳 — Pod 는 뜰 때 자기 Works 주소로 갱신한다.
 ARG GENIA_WORKS_ORIGIN=https://genia-works.iacloud.kr
 
@@ -46,6 +50,16 @@ RUN set -eux; \
     rm /tmp/jdtls.tar.gz; \
     ln -s /opt/jdtls/bin/jdtls /usr/local/bin/jdtls
 
+# glab — 공식 릴리스 패키지(gitlab.com/gitlab-org/cli). 아키텍처마다 checksums.txt 의 해시로 확인한다.
+RUN set -eux; \
+    arch=$(dpkg --print-architecture); \
+    case "$arch" in amd64) sum="$GLAB_SHA256_AMD64" ;; arm64) sum="$GLAB_SHA256_ARM64" ;; *) echo "glab: 지원하지 않는 아키텍처 $arch" >&2; exit 1 ;; esac; \
+    curl -fsSL -o /tmp/glab.deb "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.deb"; \
+    echo "${sum}  /tmp/glab.deb" | sha256sum -c -; \
+    dpkg -i /tmp/glab.deb; \
+    rm /tmp/glab.deb; \
+    glab --version
+
 # Claude Code(고정 버전, 자동 업데이트 끔)·TS 언어 서버·pnpm(corepack — 저장소의 packageManager 버전을 쓴다).
 # npm 전역 설치가 가장 단순하고 버전 고정이 확실하다(네이티브 설치는 홈에 깔려 휘발 홈과 맞지 않는다).
 RUN set -eux; \
@@ -70,12 +84,15 @@ RUN set -eux; \
 
 COPY bin/ /opt/genia/bin/
 COPY plugins.lock /opt/genia/plugins.lock
-RUN chmod 755 /opt/genia/bin/entrypoint
+RUN chmod 755 /opt/genia/bin/entrypoint /opt/genia/bin/agent-screen
 
 # 플러그인 8개를 빌드 때 홈에 굳힌다 — 버전이 plugins.lock 과 다르면 빌드를 실패시킨다(마켓플레이스가 버전 지정을 받지 않는다).
 USER 1001
+# glab 의 사용 통계·업데이트 확인은 끈다 — 둘 다 gitlab.com 으로 나가고, 통계는 토큰 헤더까지 붙여 보낸다(1.123.0 에서 확인).
 ENV HOME=/home/agent \
-    DISABLE_AUTOUPDATER=1
+    DISABLE_AUTOUPDATER=1 \
+    GLAB_SEND_TELEMETRY=false \
+    GLAB_CHECK_UPDATE=false
 WORKDIR /home/agent
 RUN bash -c '. /opt/genia/bin/lib.sh && install_plugins /opt/genia/plugins.lock "$0"' "$GENIA_WORKS_ORIGIN" && \
     claude --version

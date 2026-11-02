@@ -46,6 +46,9 @@ test('rendersRoleScopedToNamespaceOnly', () => {
   const role = ofKind(BASE.out, 'Role')[0];
   assert.match(role, /pods\/log/);
   assert.match(role, /metrics\.k8s\.io/);
+  // 작업 화면 보기(WP-1277) — exec 만 더한다(attach·portforward 는 없다)
+  assert.match(role, /resources: \["pods\/exec"\]\n\s+verbs: \["create", "get"\]/);
+  assert.doesNotMatch(role, /pods\/attach|pods\/portforward/);
 });
 
 test('failsWithoutTokenOrExistingSecret', () => {
@@ -101,6 +104,35 @@ test('defaultsWorkDiskToNodeLocalFolder', () => {
 
   const custom = render({ set: { 'agent.workDisk.hostPath': '/data/agents' } });
   assert.equal(JSON.parse(envValue(custom.out, 'AGENT_WORK_HOST_PATH')), '/data/agents');
+});
+
+test('caBundleRendersConfigMapOrUsesExistingAndPassesNameToRunner', () => {
+  // WP-1276 — 기본은 추가 CA 없음
+  assert.equal(envValue(BASE.out, 'AGENT_CA_CONFIGMAP'), undefined);
+  assert.equal(ofKind(BASE.out, 'ConfigMap').length, 0);
+
+  const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n';
+  const r = render({ json: { 'agent.caBundle.pem': pem } });
+  assert.ok(r.ok, r.err);
+  assert.equal(JSON.parse(envValue(r.out, 'AGENT_CA_CONFIGMAP')), 'agent-runner-agent-ca');
+  const [cm] = ofKind(r.out, 'ConfigMap');
+  assert.match(cm, /name: agent-runner-agent-ca/);
+  assert.match(cm, /ca\.crt: \|\n\s+-----BEGIN CERTIFICATE-----\n\s+MIIB/);
+
+  const existing = render({ json: { 'agent.caBundle.pem': pem }, set: { 'agent.caBundle.existingConfigMap': 'corp-ca' } });
+  assert.equal(JSON.parse(envValue(existing.out, 'AGENT_CA_CONFIGMAP')), 'corp-ca');
+  assert.equal(ofKind(existing.out, 'ConfigMap').length, 0);
+
+  const bad = render({ set: { 'agent.caBundle.pem': 'not-a-cert' } });
+  assert.equal(bad.ok, false);
+  assert.match(bad.err, /agent\.caBundle\.pem/);
+});
+
+test('screenInputIsOffByDefaultAndOnlyOnWhenOperatorAllows', () => {
+  // WP-1277 — 입력은 셸 권한과 같아 클러스터 운영자가 켜야만
+  assert.equal(JSON.parse(envValue(BASE.out, 'SCREEN_ALLOW_INPUT')), 'false');
+  const on = render({ set: { 'screen.allowInput': 'true' } });
+  assert.equal(JSON.parse(envValue(on.out, 'SCREEN_ALLOW_INPUT')), 'true');
 });
 
 test('pvcWorkDiskOmitsHostPathAndRejectsUnknownType', () => {

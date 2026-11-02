@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# agent-screen — 관리자 화면의 「작업 화면 보기」(WP-1277)가 runner 의 Pod exec 로 부르는 진입점. AI 의 tmux 세션을 관리자에게 보여 준다.
+#
+#   agent-screen attach <세션 id> [--input] [--window <번호>]   # 보기 세션을 만들어 붙는다(exec 의 tty 가 관리자 터미널이 된다)
+#   agent-screen windows [<세션 id>]                           # 창 목록 「번호<탭>이름<탭>폭<탭>높이<탭>보는 창(1|0)」 한 줄씩
+#   agent-screen select <세션 id> <번호>                       # 그 보기 세션의 창만 바꾼다(AI 의 현재 창은 그대로)
+#
+# 보기 세션 gw-view-<세션 id> 는 attach 마다 하나다(runner 는 다시 붙을 때마다 다른 id 「<화면>-<회차>」를 넘긴다 — 옛 attach 의 정리가 새 보기 세션을 지우지 않게).
+# 이 보기 세션은 AI 세션과 창을 함께 쓰는 묶인 세션(new-session -t)이다 — 관리자가 창을 바꿔도 AI 의 현재 창은 바뀌지 않는다.
+# 보기 전용은 tmux 의 read-only 클라이언트로 붙는다(runner·API 가 입력을 막는 것과 함께 두는 이중 방어). --input 이면 read-only 없이 붙는다.
+# 보는 동안 AI 창은 관리자 터미널 크기를 따른다(kubectl exec … tmux attach 와 같다) — AI 크기(240열)에 맞춰 글자를 줄이면 읽을 수 없다.
+# Claude Code 는 크기가 바뀌면 다시 그릴 뿐 하는 일은 같다. 마지막 관리자가 나가면 창을 기본 크기로 되돌린다(AI 칸이 관리자 크기로 남지 않게).
+# 붙은 tmux 가 끝나면(관리자가 닫음·runner 가 exec 를 끊음) 보기 세션을 지운다. 비정상 종료로 남은 보기 세션은 다음 attach 가 치운다(붙은 클라이언트가 없는 것만).
+#
+# 종료 코드: 0 · 2 사용법 · 3 AI 의 tmux 세션이 없음(아직 띄우는 중이거나 꺼짐)
+set -u
+tmux=${GW_TMUX:-tmux}
+# 기본 창 크기 — agent-events·agent-window 가 세션을 만들 때 쓰는 크기와 같다.
+DEFAULT_SIZE=240x60
+
+usage() {
+  echo "사용법: agent-screen attach <세션 id> [--input] [--window <번호>] | windows [<세션 id>] | select <세션 id> <번호>" >&2
+  exit 2
+}
+
+[ -n "${GENIA_AGENT_NAME:-}" ] || { echo "agent-screen: GENIA_AGENT_NAME 이 없습니다" >&2; exit 2; }
+# 플러그인 gw_tmux_name 과 같은 규칙 — tmux 는 세션 이름의 . 과 : 를 쓸 수 없다.
+session=$(printf '%s' "$GENIA_AGENT_NAME" | tr '.:' '__')
+
+# 보기 세션을 지우고, 다른 관리자가 보고 있지 않으면 AI 창을 기본 크기로 되돌린다.
+leave() {
+  "$tmux" kill-session -t "=$view" >/dev/null 2>&1
+  others=$("$tmux" list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null | awk '$1 ~ /^gw-view-/ && $2 > 0' | wc -l)
+  [ "$others" -eq 0 ] || return 0
+  w=${DEFAULT_SIZE%x*} h=${DEFAULT_SIZE#*x}
+  "$tmux" list-windows -t "=$session" -F '#{window_id}' 2>/dev/null | while read -r id; do
+    "$tmux" resize-window -t "$id" -x "$w" -y "$h" >/dev/null 2>&1
+  done
+}
+
+valid_id() { case "$1" in '' | *[!A-Za-z0-9-]*) usage ;; esac; }
+valid_num() { case "$1" in '' | *[!0-9]*) usage ;; esac; }
+need_session() {
+  "$tmux" has-session -t "=$session" 2>/dev/null || { echo "agent-screen: AI 의 작업 화면이 아직 없습니다($session)" >&2; exit 3; }
+}
+
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+shift
+
+case "$cmd" in
+  attach)
+    sid=${1:-}
+    valid_id "$sid"
+    shift
+    input='' window=''
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --input) input=1; shift ;;
+        --window) [ $# -ge 2 ] || usage; valid_num "$2"; window=$2; shift 2 ;;
+        *) usage ;;
+      esac
+    done
+    need_session
+    view="gw-view-$sid"
+    # 앞서 되돌리며 고정한 크기(resize-window 는 그 창을 manual 로 둔다)를 풀어 관리자 크기를 따르게 한다.
+    "$tmux" list-windows -t "=$session" -F '#{window_id}' 2>/dev/null | while read -r w; do
+      "$tmux" set-option -w -u -t "$w" window-size >/dev/null 2>&1
+    done
+    # 남은 보기 세션 정리 — 붙은 클라이언트가 없는 gw-view-* 만(다른 관리자가 보고 있는 것은 둔다).
+    "$tmux" list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null | while read -r name attached; do
+      case "$name" in gw-view-*) [ "$attached" = 0 ] && [ "$name" != "$view" ] && "$tmux" kill-session -t "=$name" >/dev/null 2>&1 ;; esac
+    done
+    "$tmux" has-session -t "=$view" 2>/dev/null || "$tmux" new-session -d -t "=$session" -s "$view" || exit 3
+    [ -n "$window" ] && "$tmux" select-window -t "=$view:$window" >/dev/null 2>&1
+    trap 'leave' EXIT
+    trap 'exit 0' HUP TERM INT
+    export TERM=xterm-256color
+    # exec 하지 않는다 — tmux 가 끝난 뒤 trap 으로 보기 세션을 지우고 크기를 되돌린다.
+    if [ -n "$input" ]; then
+      "$tmux" attach-session -t "=$view"
+    else
+      "$tmux" attach-session -f read-only -t "=$view"
+    fi
+    ;;
+
+  windows)
+    sid=${1:-}
+    [ -z "$sid" ] || valid_id "$sid"
+    need_session
+    active=''
+    [ -n "$sid" ] && active=$("$tmux" display-message -p -t "=gw-view-$sid:" '#{window_index}' 2>/dev/null)
+    [ -n "$active" ] || active=$("$tmux" display-message -p -t "=$session:" '#{window_index}' 2>/dev/null)
+    # tmux 는 -F 의 탭을 _ 로 바꿔 내므로 | 로 받는다(창 이름은 프로젝트 키·events 라 | 가 없다).
+    "$tmux" list-windows -t "=$session" -F '#{window_index}|#{window_name}|#{window_width}|#{window_height}' 2>/dev/null |
+      while IFS='|' read -r idx name w h; do
+        printf '%s\t%s\t%s\t%s\t%s\n' "$idx" "$name" "$w" "$h" "$([ "$idx" = "$active" ] && echo 1 || echo 0)"
+      done
+    ;;
+
+  select)
+    [ $# -eq 2 ] || usage
+    valid_id "$1"
+    valid_num "$2"
+    "$tmux" select-window -t "=gw-view-$1:$2" >/dev/null 2>&1 || { echo "agent-screen: 그 창이 없습니다($2)" >&2; exit 2; }
+    ;;
+
+  *) usage ;;
+esac

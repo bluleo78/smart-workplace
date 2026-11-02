@@ -9,6 +9,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
+import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AgentLocationRecord;
@@ -255,6 +256,19 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
             _agentRuntimeSetting = new AgentRuntimeSettingPath(this, null, Keys.AGENT_RUNTIME_SETTING__AGENT_RUNTIME_SETTING_LOCATION_ID_FKEY.getInverseKey());
 
         return _agentRuntimeSetting;
+    }
+
+    private transient AgentScreenSessionPath _agentScreenSession;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_screen_session</code> table
+     */
+    public AgentScreenSessionPath agentScreenSession() {
+        if (_agentScreenSession == null)
+            _agentScreenSession = new AgentScreenSessionPath(this, null, Keys.AGENT_SCREEN_SESSION__AGENT_SCREEN_SESSION_LOCATION_ID_FKEY.getInverseKey());
+
+        return _agentScreenSession;
     }
 
     @Override

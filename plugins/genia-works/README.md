@@ -122,10 +122,10 @@ GENIA_WORKS_AS=ai-dev claude
 
 ## 자동으로 이슈 처리하기 (work-loop)
 
-AI 에게 이슈를 할당해 두면, 그 AI 가 자기 이슈를 하나씩 가져와 사람 손 없이 처리합니다. 구현 → 리뷰 → 커밋 하나로 합치기 → 브랜치 라이브 검증 → GitHub PR 까지 마치고, AI 팀장(검토자)이 PR 을 리뷰·머지하면 「검토 대기」로 올립니다. main 직접 push·태그·배포는 하지 않고, 이슈 완료(DONE) 처리는 본문이 시킨 경우에만 합니다. 사람이 검토 대기 이슈를 보고 정합니다.
+AI 에게 이슈를 할당해 두면, 그 AI 가 자기 이슈를 하나씩 가져와 사람 손 없이 처리합니다. 구현 → 리뷰 → 커밋 하나로 합치기 → 브랜치 라이브 검증 → PR(GitHub)·MR(GitLab) 까지 마치고, AI 팀장(검토자)이 PR 을 리뷰·머지하면 「검토 대기」로 올립니다. main 직접 push·태그·배포는 하지 않고, 이슈 완료(DONE) 처리는 본문이 시킨 경우에만 합니다. 사람이 검토 대기 이슈를 보고 정합니다.
 
 - **개발 AI**: 이슈 브랜치(`feat/wp-123`·`fix/wp-123`)를 origin 에 push(pre-push 게이트)하고 PR 을 만든 뒤, 검토자를 담당자에 더하고 이슈 챗에 검토를 부탁합니다. 기다리는 동안은 「대기 중」(검토자 차례 — 사람에게 알림 없음)입니다.
-- **AI 팀장**: 같은 work-loop 로 돕니다. 담당이 된 이슈에 남이 만든 PR 이 있으면 리뷰하고, 고칠 것이 있으면 이슈 챗에 남겨 돌려보냅니다. 브랜치가 최신 main 을 포함하지 않으면 충돌이 없어도 rebase 를 요청해 돌려보내고(충돌은 개발 AI 가 풀고 다시 push — pre-push 게이트가 합친 결과를 검증), 통과하면 GitHub 에서 머지합니다. 팀장은 PR 브랜치에 push 하지 않습니다. 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 봅니다.
+- **AI 팀장**: 같은 work-loop 로 돕니다. 담당이 된 이슈에 남이 만든 PR 이 있으면 리뷰하고, 고칠 것이 있으면 이슈 챗에 남겨 돌려보냅니다. 브랜치가 최신 main 을 포함하지 않으면 충돌이 없어도 rebase 를 요청해 돌려보내고(충돌은 개발 AI 가 풀고 다시 push — pre-push 게이트가 합친 결과를 검증), 통과하면 저장소 호스트(GitHub·GitLab)에서 머지합니다. 팀장은 PR 브랜치에 push 하지 않습니다. 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 봅니다.
 - AI 끼리는 이슈 챗 글로 서로 깨웁니다. 머지되면 팀장과 개발 AI 가 각자 「검토 대기」로 올립니다. gitlab push 는 사람이 합니다.
 - 검토자는 `.work-loop/project.md` 「검토자」 절에 적습니다. 없으면 개발 AI 가 PR 링크와 함께 바로 검토 대기로 올리고 사람이 PR 을 머지합니다.
 
@@ -170,7 +170,7 @@ claude                                  # 처음이면 Claude 로그인
 start-agent 가 차례로 합니다.
 0. **버전 확인** — 설치된 플러그인 버전을 알리고, 서버에 새 버전이 있으면 업데이트 명령을 안내합니다.
 1. **AI 고르기** — 이 컴퓨터에 키가 등록된 AI 중 하나를 고릅니다. 키가 없으면 `/genia-works:login` 으로 넣으라고 안내합니다(키는 대화에 붙이지 않습니다). 홈 세션은 내 토큰이어도 되고, 신원을 바꾸지 않습니다.
-2. **도구·인증 확인** — git·tmux·gh 가 없거나 `gh auth status` 가 실패하면 직접 칠 명령(`! brew install tmux`, `! gh auth login`, `! gh auth setup-git` 등)을 안내합니다. 설치는 하지 않습니다. 다 쳤다고 하면 다시 확인하고 이어 갑니다.
+2. **도구·인증 확인** — git·tmux 가 없거나, 맡을 프로젝트의 저장소 호스트마다 gh(GitHub)·glab(GitLab)이 없거나 로그인이 안 돼 있으면 직접 칠 명령(`! brew install tmux`, `! gh auth login`, `! glab auth login` 등)을 안내합니다. 설치는 하지 않습니다. 다 쳤다고 하면 다시 확인하고 이어 갑니다.
 3. **대기열 라벨** — 처음 한 번 묻습니다. 저장소의 `.work-loop/project.md` 「대기열 라벨」에 적힌 라벨과 「가져오지 않기」 중에서 고르고, 고른 값은 기억해 다시 부르거나 `--restart` 할 때 그대로 씁니다. 바꾸려면 `--queue "<라벨>"`(가져오지 않기는 `--queue ""`)을 붙여 부릅니다.
 4. **띄우기** — 그 AI 의 키로 맡은 프로젝트(멤버이고 연결된 저장소가 있는 것)를 읽어, 프로젝트마다 `<홈>/<AI 이름>/repos/<프로젝트 키>` 로 clone 하고 tmux 세션 「<AI 이름>」의 한 창을 프로젝트마다 칸으로 나눠 `/loop /genia-works:work-loop <키>` 를 겁니다. 칸은 그 AI 신원과 자동 압축 40%(`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)로 돕니다.
 
@@ -226,15 +226,18 @@ AI 를 담당자로 둔 에픽 본문에 회차의 정의를 적어 두면, work
 - **`.work-loop/project.md` 필요**: 저장소마다 다른 것(바뀐 범위별 테스트 명령, 격리 로컬 스택을 띄우고 내리는 방법, 건드리면 안 되는 포트)을 이 파일에 적어 커밋해 둡니다. 없으면 라이브 검증 단계에서 「막힘」으로 멈춥니다.
 - **`.work-loop/state/` 는 git 무시**: 잠금(`loop.lock`)·작업 메모·검증 스크린샷 같은 실행 상태를 둡니다. `.gitignore` 에 `.work-loop/state/` 를 넣으세요.
 - 저장소 폴더 하나에는 work-loop 하나만 돕니다. 같은 폴더에서 실수로 두 번 띄우면 나중 것은 아무것도 하지 않고 끝납니다. AI 여럿이 서로 일을 넘기며 같은 저장소를 다루게 하려면 AI 마다 저장소를 따로 clone 해 그 폴더에서 띄웁니다(다른 PC 여도 됩니다).
-- 작업은 이슈마다 워크트리(`.claude/worktrees/<이슈 키>`, 브랜치 `<커밋 타입>/<이슈 키 소문자>`)에서 합니다. main 작업 폴더는 건드리지 않습니다 — 머지는 GitHub 에서 하고, 사람이 pull 합니다.
+- 작업은 이슈마다 워크트리(`.claude/worktrees/<이슈 키>`, 브랜치 `<커밋 타입>/<이슈 키 소문자>`)에서 합니다. main 작업 폴더는 건드리지 않습니다 — 머지는 저장소 호스트(GitHub·GitLab)에서 하고, 사람이 pull 합니다.
 
 ### PR 흐름 준비
 
 AI 가 실행되는 서버마다 사람이 한 번 해 둡니다. 준비가 안 돼 있으면 work-loop 는 설치·로그인을 스스로 하지 않고 그 이슈를 「인증 필요」로 멈춰 무엇이 빠졌는지 알립니다 — 준비한 뒤 이슈 챗에 남기면 이어 합니다.
 
-1. [`gh`](https://cli.github.com/) 를 설치합니다.
-2. GitHub 토큰(이 저장소의 Contents·Pull requests 쓰기)을 만듭니다. AI 들이 계정 하나를 같이 써도 됩니다 — 누가 개발했는지는 PR 본문의 `개발: <username>` 줄로 가립니다. 다만 같은 계정이면 GitHub 의 「승인(Approve)」을 남길 수 없어 팀장은 승인 대신 댓글을 남기고 머지하므로, main 브랜치 보호에서 승인을 필수로 걸면 머지가 막힙니다(그때는 계정을 나눕니다).
-3. 토큰을 넣어 세션을 띄웁니다: `GH_TOKEN=<토큰> GENIA_WORKS_AS=<AI 이름> claude --permission-mode bypassPermissions`. `gh auth status` 가 통과하면 됩니다.
+PR·MR 명령은 플러그인 스크립트 `gw-repo` 가 저장소 호스트에 맞춰 부릅니다 — GitHub 은 `gh`, GitLab 은 `glab`(MR). 호스트 종류는 origin 주소로 정하고(이름에 github 가 들어가면 GitHub), 다르면 저장소에서 `git config genia-works.repoKind gitlab` 으로 정합니다.
+
+1. [`gh`](https://cli.github.com/)(GitHub) 또는 [`glab`](https://gitlab.com/gitlab-org/cli)(GitLab)을 설치합니다. glab 은 `glab config set telemetry false` 로 사용 통계를 끕니다 — 켜 두면 gitlab.com 으로 토큰 헤더를 붙여 보냅니다.
+2. 토큰을 만듭니다 — GitHub 은 이 저장소의 Contents·Pull requests 쓰기, GitLab 은 `api`·`write_repository`. AI 들이 계정 하나를 같이 써도 됩니다 — 누가 개발했는지는 PR 본문의 `개발: <username>` 줄로 가립니다. 다만 같은 계정이면 GitHub 의 「승인(Approve)」을 남길 수 없어 팀장은 승인 대신 댓글을 남기고 머지하므로, main 브랜치 보호에서 승인을 필수로 걸면 머지가 막힙니다(그때는 계정을 나눕니다).
+3. 토큰을 넣어 세션을 띄웁니다: GitHub 은 `GH_TOKEN=<토큰> GENIA_WORKS_AS=<AI 이름> claude --permission-mode bypassPermissions`(`gh auth status` 가 통과하면 됩니다), GitLab 은 `glab auth login --hostname <호스트>` 와 `git config --global credential.https://<호스트>.helper '!glab auth git-credential'`. 저장소 폴더에서 `gw-repo auth-check` 가 통과하면 됩니다. GitLab 은 「변경 요청」을 API 로 남길 수 없어, AI 팀장의 반려는 MR 댓글과 이슈 챗(@멘션)으로 갑니다.
+   Works 가 띄우는 AI(관리자 › 에이전트 › 실행)는 이 준비가 필요 없습니다 — AI 상세의 저장소 연결 토큰을 Pod 에 넣어 줍니다.
 4. 팀장 AI 의 username 을 `.work-loop/project.md` 「검토자」 절에 적습니다.
 
 ## 키 저장 위치

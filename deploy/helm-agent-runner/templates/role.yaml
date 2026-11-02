@@ -12,6 +12,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  # 관리자 화면의 「작업 화면 보기」(WP-1277) — AI Pod 에 exec 로 이미지의 agent-screen 을 붙인다(다른 명령은 runner 가 부르지 않는다).
+  # exec 는 WebSocket 업그레이드라 create 와 get 이 함께 필요하다.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
   # 관찰 보고의 CPU·메모리(없어도 runner 는 동작한다)
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]

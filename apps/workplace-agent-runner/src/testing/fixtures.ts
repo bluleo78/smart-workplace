@@ -48,6 +48,8 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     workDiskType: 'pvc',
     workHostPath: '/var/lib/genia-agents',
     storageClass: undefined,
+    caConfigMap: undefined,
+    screenAllowInput: false,
     dindStorageLimit: '20Gi',
     dindResources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '4', memory: '6Gi' } },
     healthPort: 8080,

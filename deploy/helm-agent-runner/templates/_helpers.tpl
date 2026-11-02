@@ -26,3 +26,9 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- range .Values.imagePullSecrets -}}{{- $names = append $names .name -}}{{- end -}}
 {{- join "," $names -}}
 {{- end }}
+
+{{/* AI Pod 에 꽂을 추가 CA ConfigMap 이름 — existingConfigMap 이 먼저, pem 이 있으면 차트가 만든 것, 둘 다 없으면 빈 값 */}}
+{{- define "runner.caConfigMap" -}}
+{{- $ca := .Values.agent.caBundle | default dict -}}
+{{- if $ca.existingConfigMap -}}{{ $ca.existingConfigMap }}{{- else if $ca.pem -}}{{ include "runner.name" . }}-agent-ca{{- end -}}
+{{- end }}

@@ -163,6 +163,8 @@ export default defineConfig({
       '/api': {
         target: API_TARGET,
         changeOrigin: true,
+        // 작업 화면 보기(WP-1277) 의 WebSocket(/api/v1/admin/agent-screen)도 같은 API 로
+        ws: true,
         configure: (proxy) => {
           // SSE 스트리밍 응답 버퍼링 방지
           proxy.on('proxyRes', (proxyRes, _req, res) => {

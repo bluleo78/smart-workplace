@@ -249,6 +249,19 @@ describe('buildAgentResources', () => {
     expect(podGeneration({ metadata: {} })).toBeNull();
   });
 
+  it('caConfigMapMountsCaCertFolderOnlyWhenConfigured', () => {
+    const none = buildAgentResources(desiredAgent(), ctx, runnerConfig()).pod;
+    expect(none.spec?.volumes?.some((v) => v.name === 'ca-bundle')).toBe(false);
+
+    const { pod } = buildAgentResources(desiredAgent(), ctx, runnerConfig({ caConfigMap: 'agent-ca' }));
+    expect(pod.spec?.volumes).toContainEqual({
+      name: 'ca-bundle',
+      configMap: { name: 'agent-ca', items: [{ key: 'ca.crt', path: 'ca.crt' }] },
+    });
+    const agent = pod.spec?.containers.find((c) => c.name === 'agent');
+    expect(agent?.volumeMounts).toContainEqual({ name: 'ca-bundle', mountPath: '/run/genia/ca', readOnly: true });
+  });
+
   it('pvcUsesConfiguredStorageClassAndWorkDisk', () => {
     const withClass = buildAgentResources(desiredAgent(), ctx, runnerConfig({ storageClass: 'fast-ssd' })).pvc!;
     expect(withClass.spec).toEqual({

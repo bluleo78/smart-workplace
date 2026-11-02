@@ -25,6 +25,16 @@ export interface RunnerConfig {
   workHostPath: string;
   /** 작업 디스크 StorageClass — pvc 방식에서만 쓴다. 없으면 클러스터 기본. */
   storageClass: string | undefined;
+  /**
+   * 추가로 믿을 CA 인증서 ConfigMap(키 ca.crt, WP-1276) — 사내 GitLab 처럼 자체서명 인증서를 쓰는 저장소용.
+   * 있으면 AI Pod 에 /run/genia/ca/ca.crt 로 꽂고, 이미지가 시스템 CA 와 합쳐 git·glab·curl·node 가 함께 쓰게 한다.
+   */
+  caConfigMap: string | undefined;
+  /**
+   * 작업 화면 입력 허용(WP-1277) — 관리자가 작업 화면에서 키를 치게 둘지. 입력은 사실상 AI 작업 공간의 셸(비밀값·docker 소켓)이라
+   * 클러스터를 운영하는 쪽이 차트 값 screen.allowInput 으로 켜야만 쓴다. 기본 꺼짐(보기 전용만).
+   */
+  screenAllowInput: boolean;
   /** dind 의 /var/lib/docker emptyDir 상한. */
   dindStorageLimit: string;
   /**
@@ -187,6 +197,12 @@ const envSchema = z
         .transform((v) => (v as string).replace(/(.)\/+$/, '$1'))
         .refine((v) => v.startsWith('/'), { error: 'AGENT_WORK_HOST_PATH 는 절대 경로여야 합니다' }),
       AGENT_STORAGE_CLASS: optionalStr(),
+      AGENT_CA_CONFIGMAP: optionalStr(),
+      SCREEN_ALLOW_INPUT: z
+        .string()
+        .optional()
+        .transform((v) => v?.trim() || 'false')
+        .pipe(z.enum(['true', 'false'], { error: 'SCREEN_ALLOW_INPUT 은 true 또는 false 여야 합니다' })),
       DIND_STORAGE_LIMIT: optionalStr('20Gi'),
       DIND_RESOURCES: jsonEnv('DIND_RESOURCES', dindResourcesSchema, DEFAULT_DIND_RESOURCES),
       AGENT_IMAGE_PULL_SECRETS: csvEnv,
@@ -203,6 +219,8 @@ const envSchema = z
         workDiskType: e.AGENT_WORK_DISK_TYPE,
         workHostPath: e.AGENT_WORK_HOST_PATH,
         storageClass: e.AGENT_STORAGE_CLASS,
+        caConfigMap: e.AGENT_CA_CONFIGMAP,
+        screenAllowInput: e.SCREEN_ALLOW_INPUT === 'true',
         dindStorageLimit: e.DIND_STORAGE_LIMIT as string,
         dindResources: e.DIND_RESOURCES,
         healthPort: e.HEALTH_PORT,

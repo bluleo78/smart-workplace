@@ -329,7 +329,7 @@ test('passesGithubTokenOnStdinOnly', (t) => {
   assert.equal(git('user.email'), 'kodi@agents.genia-works.local');
 });
 
-test('logsInToEveryGithubHostAndOnlyNotesGitlab', (t) => {
+test('logsInToEveryGithubHostAndGivesGitlabACredentialHelper', (t) => {
   const f = fixture(t);
   writeFileSync(f.d('run', 'repo-tokens', 'github', 'ghe.example.com'), 'ghp_enterprisetoken\n');
   mkdirSync(f.d('run', 'repo-tokens', 'gitlab'), { recursive: true });
@@ -341,10 +341,43 @@ test('logsInToEveryGithubHostAndOnlyNotesGitlab', (t) => {
   const args = f.read('out', 'gh.log');
   assert.match(args, /auth setup-git --hostname ghe\.example\.com/);
   assert.match(args, /auth setup-git --hostname github\.com/);
-  // GitLab 은 gh 를 부르지 않고 파일이 있다는 것만 알린다
+  // GitLab 은 gh 를 부르지 않는다
   assert.doesNotMatch(args, /gitlab/);
-  assert.match(r.stdout + r.stderr, /gitlab\.iacloud\.kr/);
   assert.doesNotMatch(args + r.stdout + r.stderr, /ghp_|glpat_/);
+  // git 이 자격 증명을 물으면 도우미가 그때 토큰 파일을 읽어 답한다 — 설정 파일에는 토큰이 없다.
+  const fill = spawnSync('git', ['credential', 'fill'], {
+    env: { ...f.env, GIT_TERMINAL_PROMPT: '0' },
+    input: 'protocol=https\nhost=gitlab.iacloud.kr\n\n',
+    encoding: 'utf8',
+  });
+  assert.equal(fill.status, 0, fill.stderr);
+  assert.match(fill.stdout, /username=oauth2\npassword=glpat_gitlabsecret\n/);
+  const gitconfig = readFileSync(join(f.env.HOME, '.gitconfig'), 'utf8');
+  assert.doesNotMatch(gitconfig, /glpat_/);
+  // 토큰이 바뀌면(Pod 를 다시 만들 때 파일이 바뀐다) 설정을 다시 쓰지 않아도 새 값을 답한다.
+  writeFileSync(f.d('run', 'repo-tokens', 'gitlab', 'gitlab.iacloud.kr'), 'glpat_rotated\n');
+  const again = spawnSync('git', ['credential', 'fill'], { env: f.env, input: 'protocol=https\nhost=gitlab.iacloud.kr\n\n', encoding: 'utf8' });
+  assert.match(again.stdout, /password=glpat_rotated/);
+});
+
+test('setupCaMergesExtraCaWithSystemRootsAndExportsForEveryClient', (t) => {
+  const f = fixture(t);
+  writeFileSync(f.d('tmp', 'system.pem'), 'SYSTEM-ROOTS\n');
+  // 추가 CA 가 없으면 아무것도 하지 않는다
+  const none = callLib({ ...f.env, GENIA_SYSTEM_CA: f.d('tmp', 'system.pem') }, 'check_required && setup_ca && echo "ssl=${SSL_CERT_FILE:-}"');
+  assert.match(none.stdout, /^ssl=$/m);
+
+  mkdirSync(f.d('run', 'ca'), { recursive: true });
+  writeFileSync(f.d('run', 'ca', 'ca.crt'), 'CORP-CA\n');
+  const r = callLib(
+    { ...f.env, GENIA_SYSTEM_CA: f.d('tmp', 'system.pem') },
+    'check_required && setup_ca && printf "%s|%s|%s|%s|%s\\n" "$SSL_CERT_FILE" "$GIT_SSL_CAINFO" "$CURL_CA_BUNDLE" "$REQUESTS_CA_BUNDLE" "$NODE_EXTRA_CA_CERTS"',
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const bundle = join(f.env.HOME, '.genia-ca-bundle.pem');
+  assert.equal(r.stdout.trim(), [bundle, bundle, bundle, bundle, f.d('run', 'ca', 'ca.crt')].join('|'));
+  // 시스템 CA 를 대신하지 않고 합친다 — 추가분만이면 github.com 같은 공인 인증서가 깨진다
+  assert.equal(readFileSync(bundle, 'utf8'), 'SYSTEM-ROOTS\nCORP-CA\n');
 });
 
 test('warnsOnlyWhenRepoTokensMissing', (t) => {

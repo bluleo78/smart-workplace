@@ -163,6 +163,32 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 - 연결은 30분이면 서버가 닫는다. 바로 다시 붙는다(토큰을 다시 검증받는다). 위치당 연결은 3개까지이고, 넘으면 가장 오래된 연결이 닫힌다.
 - **이벤트는 빨리 알기 위한 최선 노력이다.** 스트림은 API 인스턴스 메모리에 있어 API 를 여러 대 띄우면 다른 인스턴스에서 난 변경은 오지 않을 수 있고, 끊긴 동안의 변경도 다시 보내지 않는다. **정합성은 `pollIntervalSeconds`(300초)마다의 desired 조회가 맞춘다** — 스트림이 붙어 있어도 주기 조회를 멈추지 않는다.
 
+### 작업 화면(WP-1277)
+
+관리자가 Works 화면에서 실행 중인 AI 의 터미널(tmux)을 보거나 키를 칠 수 있게, runner 가 Works 로 화면 전용 WebSocket 을 연다. Works 는 관리자 브라우저 소켓과 이 소켓을 세션 id 로 짝지어 프레임을 넘긴다(API 한 대 메모리 — [multi-instance.md](../ops/multi-instance.md)).
+
+1. **화면 열기 알림 — 변경 스트림 이벤트.** 관리자 브라우저가 붙으면 그 AI 의 실제 위치 스트림으로 온다.
+
+   ```
+   event:agent-runtime.screen
+   data:{"sessionId":"6f1c…-uuid","agentUserId":12}
+   ```
+
+2. **화면 소켓 — `GET /api/v1/agent-runtime/runner/screen/{sessionId}` (WebSocket 업그레이드).** 다른 runner API 와 같이 `Authorization: Bearer rt_…` 로 인증한다. 세션의 테넌트·위치가 토큰의 것과 같아야 하고(다른 위치의 유효한 토큰도 403), 세션당 runner 소켓은 하나다(두 번째는 403). 알림을 받고 **15초 안에** 붙지 않으면 Works 가 세션을 닫는다(브라우저에 「실행 환경에 연결하지 못했어요」).
+3. **프레임** — 한 프레임은 64KB 까지.
+
+   | 방향 | 종류 | 내용 |
+   |---|---|---|
+   | runner → Works | 바이너리 | 터미널 출력. 그대로 브라우저로 간다 |
+   | runner → Works | 텍스트 | `{"type":"status","state":"attached"\|"ended","reason"?}` · `{"type":"windows","items":[{"index","name","width","height","active"}]}` · `{"type":"input","enabled":bool,"allowed":bool}` · `{"type":"error","message"}` — 그대로 브라우저로 간다 |
+   | Works → runner | 텍스트 | `{"type":"resize","cols","rows"}` · `{"type":"window","index"}` · `{"type":"input","enabled":bool}` (브라우저 요청을 그대로). 그 밖의 종류는 Works 가 버린다 |
+   | Works → runner | 바이너리 | 키 입력. **runner 가 `{"type":"input","enabled":true}` 를 보낸 뒤에만** 온다 |
+
+   - **입력은 runner 가 켰다고 알릴 때 열린다.** 브라우저의 `{"type":"input","enabled":true}` 는 runner 로 넘길 뿐이고, Works 는 runner 가 `{"type":"input","enabled":true,…}` 를 보낸 순간부터 키 입력을 넘기며 그때 세션 기록(`input_enabled_at/by`)과 감사 로그 「작업 화면 입력 허용」을 남긴다. 위치가 입력을 허용하지 않으면(차트 `screen.allowInput` 끔) runner 는 `{"type":"error","message":"이 실행 환경은 작업 화면 입력을 허용하지 않아요"}` 로 답하고 켜지 않는다. runner 가 `enabled:false` 를 보내면(또는 브라우저가 끄기를 보내면 바로) 키 입력을 다시 버린다.
+   - 같은 AI 의 다른 화면이 이미 입력 중이면 Works 는 브라우저의 켜기 요청을 runner 로 넘기지 않고 브라우저에 `{"type":"error","message":"다른 관리자가 이미 입력 중이에요"}` 를 보낸다. 그 사이 runner 가 켰다고 알려 와도 Works 는 runner 에 `{"type":"input","enabled":false}` 를 보내고 그 알림을 넘기지 않는다.
+   - 넘긴 키 입력은 약 1초마다 감사 기록(`agent_screen_input`, 제어 문자는 `\x1b` 표기)에 남는다. 세션당 1MB 까지이고, 넘으면 「[기록 상한 — 이후 입력은 기록하지 않음]」 한 줄을 남기고 기록만 멈춘다(입력은 계속 넘긴다).
+4. **수명** — Works 가 25초마다 양쪽에 ping 을 보낸다. 30분 동안 오간 프레임이 없거나 연 지 4시간이 지나면 닫는다. 한쪽이 닫히면 다른 쪽도 닫힌다 — runner 쪽 소켓이 닫히면 화면 세션은 끝난 것이다(다시 붙지 않는다). Works 가 닫을 때는 브라우저에 `{"type":"status","state":"ended","reason":"…"}` 를 먼저 보낸다.
+
 ## AI 상태 보고 — `PUT /api/v1/agent-runtime/me/status` (Pod 안의 AI 가 부름)
 
 runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer ak_…`, 위 `agent-key`)로 부른다(WP-1250). 플러그인 스크립트 `gw-status` 가 이 호출을 하고, `GENIA_AGENT_GENERATION` 이 없으면(Works 가 띄운 AI 가 아니면) 부르지 않는다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다(플러그인이 env 가 있으면 붙인다).

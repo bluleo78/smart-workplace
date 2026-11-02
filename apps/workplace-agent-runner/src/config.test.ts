@@ -26,6 +26,8 @@ describe('loadConfig', () => {
       workDiskType: 'hostPath',
       workHostPath: '/var/lib/genia-agents',
       storageClass: undefined,
+      caConfigMap: undefined,
+      screenAllowInput: false,
       dindStorageLimit: '20Gi',
       dindResources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '4', memory: '6Gi' } },
       healthPort: 8080,
@@ -47,6 +49,8 @@ describe('loadConfig', () => {
         AGENT_TOLERATIONS: '[{"key":"agents","operator":"Exists"}]',
         AGENT_HOST_ALIASES: '[{"ip":"10.0.0.5","hostnames":["gitlab.local"]}]',
         AGENT_STORAGE_CLASS: 'fast',
+        AGENT_CA_CONFIGMAP: ' agent-ca ',
+        SCREEN_ALLOW_INPUT: 'true',
         DIND_STORAGE_LIMIT: '40Gi',
         TERMINATION_GRACE_SECONDS: '90',
         AGENT_IMAGE_PULL_SECRETS: 'dockerhub-pull, other ',
@@ -57,6 +61,9 @@ describe('loadConfig', () => {
       readFile,
     );
     expect(cfg.nodeSelector).toEqual({ pool: 'agents' });
+    expect(cfg.caConfigMap).toBe('agent-ca');
+    expect(cfg.screenAllowInput).toBe(true);
+    expect(() => loadConfig({ ...BASE, SCREEN_ALLOW_INPUT: 'yes' }, readFile)).toThrow('SCREEN_ALLOW_INPUT 은 true 또는 false 여야 합니다');
     expect(cfg.tolerations).toEqual([{ key: 'agents', operator: 'Exists' }]);
     expect(cfg.hostAliases).toEqual([{ ip: '10.0.0.5', hostnames: ['gitlab.local'] }]);
     expect(cfg.storageClass).toBe('fast');

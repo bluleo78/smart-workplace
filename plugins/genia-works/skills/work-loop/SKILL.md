@@ -1,6 +1,6 @@
 ---
 name: work-loop
-description: Use when the user runs /genia-works:work-loop <프로젝트 키> (usually as "/loop /genia-works:work-loop WP") in an AI-identity session — picks genia-works issues assigned to this AI one at a time and processes each unattended up to review (implement, review, live-verify, open a GitHub PR for the reviewer AI; as the reviewer, review and merge others' PRs or send them back for fixes or a rebase onto main), reporting progress on the issue.
+description: Use when the user runs /genia-works:work-loop <프로젝트 키> (usually as "/loop /genia-works:work-loop WP") in an AI-identity session — picks genia-works issues assigned to this AI one at a time and processes each unattended up to review (implement, review, live-verify, open a PR (GitHub) or MR (GitLab) for the reviewer AI; as the reviewer, review and merge others' PRs/MRs or send them back for fixes or a rebase onto main), reporting progress on the issue.
 ---
 
 # genia-works 할당 이슈 자동 처리
@@ -13,8 +13,9 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - **사람에게 묻는 때는 UI/UX·아키텍처·설계·접근 방안에서 명확하지 않은 부분이 있을 때뿐이다.** 그 밖의 결정은 스스로 내리고 「내가 정한 것」으로 기록한다.
 - **사람에게 보이는 글은 모두 한국어로 쓴다** — 이슈 챗 메시지·note·질문뿐 아니라 실행 끝에 콘솔로 내는 최종 요약도 한국어다(코드·명령·식별자는 그대로).
 - **하지 않는다**: main 직접 push, origin 밖의 원격(gitlab 등) push, 태그, 운영 배포, 이슈 DONE 처리. DONE 의 예외는 아래 「본문 지시」가 시킨 이슈 닫기뿐이다.
-  - **push 는 PR 흐름에서만 한다** — 개발할 때는 내 이슈 브랜치를 origin 에 push 하고 PR 을 만든다(`process-issue.md` 9번). 검토자(아래)일 때는 push 하지 않는다 — 리뷰한 PR 을 GitHub 에서 머지하거나, 고칠 것·main 반영(rebase)을 개발자에게 돌려보낸다(`process-issue.md` 「PR 리뷰·머지」). MAIN 에는 머지하지 않는다.
-  - **GitHub 준비는 스스로 하지 않는다** — `gh` 가 없거나(`gh --version` 실패) 인증이 안 돼 있으면(`gh auth status` 실패) 설치·로그인·토큰 만들기를 하지 않고 그 이슈를 `AUTH_REQUIRED` 로 멈춘다. `message` 에 빠진 것과 준비 방법(`gh` 설치, 이 AI 의 GitHub 계정 토큰을 `GH_TOKEN` 으로 넣어 세션을 다시 띄우기 — 플러그인 README 「PR 흐름 준비」)을 적는다. 브랜치·워크트리는 남기고, 사람이 준비했다고 남기면 이어 한다.
+  - **push 는 PR 흐름에서만 한다** — 개발할 때는 내 이슈 브랜치를 origin 에 push 하고 PR 을 만든다(`process-issue.md` 9번). 검토자(아래)일 때는 push 하지 않는다 — 리뷰한 PR 을 저장소 호스트(GitHub·GitLab)에서 머지하거나, 고칠 것·main 반영(rebase)을 개발자에게 돌려보낸다(`process-issue.md` 「PR 리뷰·머지」). MAIN 에는 머지하지 않는다.
+  - **PR·MR 명령은 `gw-repo` 로만 한다** — 저장소가 GitHub 이면 PR(gh), GitLab 이면 MR(glab)이라 명령이 다르다. 플러그인 스크립트 `"<이 스킬 폴더>/../../scripts/gw-repo"`(아래 `gw-repo`)를 저장소 폴더(MAIN·워크트리) 안에서 부르면 origin 주소로 호스트를 가려 같은 모양(JSON 필드 `number`·`title`·`body`·`url`·`headRefName`·`headRefOid`·`state`·`mergeable`·`checks`·`reviewDecision`·`mergeCommit`)으로 답한다 — 명령은 스크립트 머리말. 이 문서에서 「PR」은 GitLab 의 MR 도 뜻한다. `gh`·`glab` 을 직접 부르지 않는다(`.work-loop/project.md` 가 그 저장소용으로 적어 둔 명령은 예외).
+  - **저장소 준비는 스스로 하지 않는다** — `gw-repo auth-check` 가 실패하면(종료 3 CLI 없음·4 로그인 안 됨) 설치·로그인·토큰 만들기를 하지 않고 그 이슈를 `AUTH_REQUIRED` 로 멈춘다. `message` 에 스크립트가 낸 이유 한 줄과 준비 방법(플러그인 README 「PR 흐름 준비」)을 적는다. 브랜치·워크트리는 남기고, 사람이 준비했다고 남기면 이어 한다.
 - **검토자** = `MAIN/.work-loop/project.md` 「검토자」 절의 username(AI 팀장). 개발한 PR 을 이 사람에게 맡기고, 내가 검토자면 남이 만든 PR 을 리뷰·머지한다. 절이 없거나 username 이 적혀 있지 않으면 검토자 없이 PR 링크와 함께 바로 검토 대기로 올린다(사람이 PR 을 리뷰·머지).
 - **이슈 만들기·담당 바꾸기는 사람처럼 한다** — 내 역할 권한으로 서버가 허락하는 일이다. 일을 나누거나 다른 AI·사람에게 맡겨야 하면 이슈를 만들고 담당자를 지정하고, 찾은 결함도 이슈로 등록한다.
   - 만들기 전에 같은 범위의 이슈가 이미 있는지(닫힌 것까지) `list_issues` 로 찾고, 없을 때만 만든다.
@@ -127,8 +128,8 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 가져간 이슈가 없으면(동시 진행 상한에 걸린 때도) 「할 일 없음」이다.
 
 **할 일 없음** — 끝내기 전에 아래를 확인한다. 이슈를 새로 만들지는 않는다.
-1. **내가 개발한 열린 PR**: `gh pr list --state open --json number,title,body,mergeable,statusCheckRollup,reviewDecision` 에서 본문 첫 줄이 `개발: <내 username>` 인 PR 만 본다(AI 들이 GitHub 계정을 함께 쓸 수 있다). 검사가 실패했거나(`statusCheckRollup` 에 `FAILURE`) main 과 충돌하면(`mergeable` 이 `CONFLICTING`) 그 PR 의 이슈(제목 앞 이슈 키 — 통합 PR `통합 <키>·…` 이면 실린 이슈 모두)를 다음 이슈로 골라 4번으로 처리한다 — 실패는 `process-issue.md` 6번, 충돌은 7번부터 한다(통합 PR 은 「기차」 4·5번).
-   - 대기 중인 내 이슈의 PR(notes 파일의 `PR`)이 변경 요청(`reviewDecision` 이 `CHANGES_REQUESTED`)을 받았거나, 위 목록에 없으면(`gh pr view <번호> --json state` 로 머지·닫힘을 확인) — 검토자가 이슈 챗 없이 GitHub 에서만 답한 경우다 — 그 이슈를 골라 1번 「시작」의 「PR 리뷰 대기」 갈래로 이어 한다.
+1. **내가 개발한 열린 PR**: `gw-repo pr-list` 에서 본문 첫 줄이 `개발: <내 username>` 인 PR 만 본다(AI 들이 저장소 계정을 함께 쓸 수 있다). 검사가 실패했거나(`checks` 가 `FAIL`) main 과 충돌하면(`mergeable` 이 `CONFLICTING`) 그 PR 의 이슈(제목 앞 이슈 키 — 통합 PR `통합 <키>·…` 이면 실린 이슈 모두)를 다음 이슈로 골라 4번으로 처리한다 — 실패는 `process-issue.md` 6번, 충돌은 7번부터 한다(통합 PR 은 「기차」 4·5번).
+   - 대기 중인 내 이슈의 PR(notes 파일의 `PR`)이 변경 요청(`reviewDecision` 이 `CHANGES_REQUESTED`)을 받았거나, 위 목록에 없으면(`gw-repo pr-view <번호>` 의 `state` 로 머지·닫힘을 확인) — 검토자가 이슈 챗 없이 저장소 호스트에서만 답한 경우다(GitLab 은 사람이 화면에서 「변경 요청」을 눌렀을 때만 잡힌다 — AI 검토자의 반려는 이슈 챗으로 온다) — 그 이슈를 골라 1번 「시작」의 「PR 리뷰 대기」 갈래로 이어 한다.
 2. **저장소 점검**: `MAIN/.work-loop/project.md` 에 「할 일 없을 때」 절이 있으면 그대로 한다.
 둘 다 할 것이 없으면 「할 일 없음」으로 끝낸다.
 

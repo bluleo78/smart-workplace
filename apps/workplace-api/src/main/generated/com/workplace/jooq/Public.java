@@ -9,6 +9,8 @@ import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
+import com.workplace.jooq.tables.AgentScreenInput;
+import com.workplace.jooq.tables.AgentScreenSession;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
@@ -202,6 +204,16 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_runtime_setting</code>.
      */
     public final AgentRuntimeSetting AGENT_RUNTIME_SETTING = AgentRuntimeSetting.AGENT_RUNTIME_SETTING;
+
+    /**
+     * The table <code>public.agent_screen_input</code>.
+     */
+    public final AgentScreenInput AGENT_SCREEN_INPUT = AgentScreenInput.AGENT_SCREEN_INPUT;
+
+    /**
+     * The table <code>public.agent_screen_session</code>.
+     */
+    public final AgentScreenSession AGENT_SCREEN_SESSION = AgentScreenSession.AGENT_SCREEN_SESSION;
 
     /**
      * The table <code>public.agent_work</code>.
@@ -963,6 +975,8 @@ public class Public extends SchemaImpl {
             AgentRepoCredential.AGENT_REPO_CREDENTIAL,
             AgentRunnerToken.AGENT_RUNNER_TOKEN,
             AgentRuntimeSetting.AGENT_RUNTIME_SETTING,
+            AgentScreenInput.AGENT_SCREEN_INPUT,
+            AgentScreenSession.AGENT_SCREEN_SESSION,
             AgentWork.AGENT_WORK,
             AgentWorkEvent.AGENT_WORK_EVENT,
             AiAgentCredential.AI_AGENT_CREDENTIAL,

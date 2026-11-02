@@ -12,6 +12,7 @@ import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
 import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
+import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
@@ -455,6 +456,48 @@ public class User extends TableImpl<UserRecord> {
             _agentRuntimeSettingUpdatedByFkey = new AgentRuntimeSettingPath(this, null, Keys.AGENT_RUNTIME_SETTING__AGENT_RUNTIME_SETTING_UPDATED_BY_FKEY.getInverseKey());
 
         return _agentRuntimeSettingUpdatedByFkey;
+    }
+
+    private transient AgentScreenSessionPath _agentScreenSessionAgentUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_screen_session</code> table, via the
+     * <code>agent_screen_session_agent_user_id_fkey</code> key
+     */
+    public AgentScreenSessionPath agentScreenSessionAgentUserIdFkey() {
+        if (_agentScreenSessionAgentUserIdFkey == null)
+            _agentScreenSessionAgentUserIdFkey = new AgentScreenSessionPath(this, null, Keys.AGENT_SCREEN_SESSION__AGENT_SCREEN_SESSION_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _agentScreenSessionAgentUserIdFkey;
+    }
+
+    private transient AgentScreenSessionPath _agentScreenSessionInputEnabledByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_screen_session</code> table, via the
+     * <code>agent_screen_session_input_enabled_by_fkey</code> key
+     */
+    public AgentScreenSessionPath agentScreenSessionInputEnabledByFkey() {
+        if (_agentScreenSessionInputEnabledByFkey == null)
+            _agentScreenSessionInputEnabledByFkey = new AgentScreenSessionPath(this, null, Keys.AGENT_SCREEN_SESSION__AGENT_SCREEN_SESSION_INPUT_ENABLED_BY_FKEY.getInverseKey());
+
+        return _agentScreenSessionInputEnabledByFkey;
+    }
+
+    private transient AgentScreenSessionPath _agentScreenSessionOpenedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_screen_session</code> table, via the
+     * <code>agent_screen_session_opened_by_fkey</code> key
+     */
+    public AgentScreenSessionPath agentScreenSessionOpenedByFkey() {
+        if (_agentScreenSessionOpenedByFkey == null)
+            _agentScreenSessionOpenedByFkey = new AgentScreenSessionPath(this, null, Keys.AGENT_SCREEN_SESSION__AGENT_SCREEN_SESSION_OPENED_BY_FKEY.getInverseKey());
+
+        return _agentScreenSessionOpenedByFkey;
     }
 
     private transient AgentWorkPath _agentWork;

@@ -11,6 +11,8 @@ import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
 import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
+import com.workplace.jooq.tables.AgentScreenInput.AgentScreenInputPath;
+import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
@@ -633,6 +635,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _agentRuntimeSetting = new AgentRuntimeSettingPath(this, null, Keys.AGENT_RUNTIME_SETTING__FK_AGENT_RUNTIME_SETTING_TENANT.getInverseKey());
 
         return _agentRuntimeSetting;
+    }
+
+    private transient AgentScreenInputPath _agentScreenInput;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_screen_input</code> table
+     */
+    public AgentScreenInputPath agentScreenInput() {
+        if (_agentScreenInput == null)
+            _agentScreenInput = new AgentScreenInputPath(this, null, Keys.AGENT_SCREEN_INPUT__FK_AGENT_SCREEN_INPUT_TENANT.getInverseKey());
+
+        return _agentScreenInput;
+    }
+
+    private transient AgentScreenSessionPath _agentScreenSession;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_screen_session</code> table
+     */
+    public AgentScreenSessionPath agentScreenSession() {
+        if (_agentScreenSession == null)
+            _agentScreenSession = new AgentScreenSessionPath(this, null, Keys.AGENT_SCREEN_SESSION__FK_AGENT_SCREEN_SESSION_TENANT.getInverseKey());
+
+        return _agentScreenSession;
     }
 
     private transient AssistantConfigPath _assistantConfig;

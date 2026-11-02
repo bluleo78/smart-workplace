@@ -33,6 +33,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 | `src/secrets.ts` | `secretFetches` — 언제 원문(agent-key·claude·repos)을 다시 받을지(순수) |
 | `src/observe.ts` | `toObserved` — Pod → phase, metrics 수량 해석(순수) |
 | `src/reconciler.ts` | 조정 한 회차(AI 별 동시 4명, STOPPED 는 회차 끝에 200명씩 모아 보냄)·관찰 보고·`ReconcileLoop`(트리거 합치기, `retry` — 일시 오류 5초·지우는 중 기다림 15초·거절 30초, 주기 조회) |
+| `src/screen.ts`·`src/works/screenSocket.ts`·`src/k8s/exec.ts` | 작업 화면 보기(WP-1277) — SSE `agent-runtime.screen` 을 받으면 Works 로 화면 소켓(`…/runner/screen/{sessionId}`)을 열고 AI Pod 에 exec 로 `agent-screen` 을 붙여 바이트를 잇는다. 보기 전용이면 입력 바이트를 버리고, 입력 허용으로 바뀌면 `--input` 으로 다시 붙는다. 입력은 `SCREEN_ALLOW_INPUT=true`(차트 `screen.allowInput`, 기본 꺼짐)일 때만 받는다 — 셸 권한과 같다. 한 runner 에 동시 10개 |
 | `src/main.ts` | 배선·`/healthz`(`HEALTH_PORT`, 기본 8080, 마지막 조정 성공 10분 안이면 200) |
 
 ## 동작 요점
@@ -61,8 +62,8 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 ## env (Helm 차트 `deploy/helm-agent-runner` 가 넣는다)
 
 `WORKS_URL`, `RUNNER_TOKEN_FILE`, `NAMESPACE`, `ALLOWED_IMAGE_PREFIXES`(쉼표), `AGENT_NODE_SELECTOR`·`AGENT_TOLERATIONS`·`AGENT_HOST_ALIASES`(JSON),
-`AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `DIND_STORAGE_LIMIT`(기본 20Gi), `DIND_RESOURCES`(JSON, 기본 requests 500m/1Gi·limits 4/6Gi),
-`AGENT_IMAGE_PULL_SECRETS`(쉼표), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다).
+`AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `AGENT_CA_CONFIGMAP`(추가 CA ConfigMap — 키 `ca.crt` 를 AI Pod `/run/genia/ca` 에 꽂는다, WP-1276), `DIND_STORAGE_LIMIT`(기본 20Gi), `DIND_RESOURCES`(JSON, 기본 requests 500m/1Gi·limits 4/6Gi),
+`AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다).
 
 로컬 실행은 `pnpm --filter @smart-workplace/workplace-agent-runner start:local`(KUBECONFIG·env 필요). `dev` 스크립트는 일부러 없다 —
 루트 `pnpm dev` 가 클러스터를 만지는 runner 를 띄우지 않게.

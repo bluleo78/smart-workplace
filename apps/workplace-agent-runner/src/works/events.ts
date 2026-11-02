@@ -1,4 +1,4 @@
-// 변경 스트림(GET …/runner/events, SSE) — agent-runtime.changed 가 오면 조정을 깨운다.
+// 변경 스트림(GET …/runner/events, SSE) — agent-runtime.changed 가 오면 조정을 깨우고, agent-runtime.screen 이면 작업 화면을 잇는다(WP-1277).
 // 이벤트는 빨리 알기 위한 최선 노력일 뿐이고 정합성은 주기 조회가 맞춘다 — 그래서 끊겨도 조용히 다시 붙기만 한다.
 import { WorksHttpError } from './client.js';
 
@@ -14,6 +14,8 @@ export interface Logger {
 }
 
 const CHANGED_EVENT = 'agent-runtime.changed';
+/** 작업 화면 열기(WP-1277) — data {sessionId, agentUserId}. */
+const SCREEN_EVENT = 'agent-runtime.screen';
 const BACKOFF_START_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 /** 401 — 토큰이 재발급됐을 수 있다. 위치 화면에서 새 토큰을 Secret 에 넣을 때까지 1분 간격으로. */
@@ -54,6 +56,8 @@ export interface EventStreamOptions {
   token: string;
   fetchImpl?: typeof fetch;
   onChange: () => void;
+  /** 작업 화면 열기(WP-1277) — data 를 JSON 으로 읽어 넘긴다(모양 검사는 받는 쪽). */
+  onScreen?: (data: unknown) => void;
   /** 다시 붙기 전 기다리기 — 테스트에서 즉시로 바꾼다. */
   sleep: (ms: number) => Promise<void>;
   signal: AbortSignal;
@@ -107,6 +111,13 @@ async function readOnce(opts: EventStreamOptions): Promise<boolean> {
     buffer = rest;
     for (const e of events) {
       if (e.event === CHANGED_EVENT) opts.onChange();
+      else if (e.event === SCREEN_EVENT && opts.onScreen) {
+        try {
+          opts.onScreen(JSON.parse(e.data));
+        } catch {
+          opts.log.warn('작업 화면 이벤트를 읽지 못했습니다');
+        }
+      }
     }
     if (opts.signal.aborted) break;
   }
