@@ -320,11 +320,11 @@
   line-height: 1.25rem;
   user-select: none;
 }
-/* 평소엔 막대 자리만 두고 감춘다 — 올리거나·선택하거나·소스를 열거나·메뉴를 열거나·고르는 중이거나(WP-1301)·막대 안에 포커스가 있으면 보인다.
+/* 평소엔 막대 자리만 두고 감춘다 — 올리거나·선택하거나·소스를 열거나·메뉴를 열거나·고르는 중이거나(WP-1301)·AI 칸을 열었거나(WP-1302)·막대 안에 포커스가 있으면 보인다.
    글자·테두리·배경을 투명하게만 한다(누르기 대상은 남는다) — 터치 화면은 처음 누를 때 hover 가 되어 막대가 나타나고,
    보이지 않는 막대가 누르기를 막아 아래 요소가 눌리는 일도 없다. */
-.wiki-editor .ProseMirror .wiki-html-embed:not(:hover):not([data-selected]):not([data-source-open]):not([data-menu-open]):not([data-picking]) .wiki-html-embed__bar:not(:focus-within),
-.wiki-editor .ProseMirror .wiki-html-embed:not(:hover):not([data-selected]):not([data-source-open]):not([data-menu-open]):not([data-picking]) .wiki-html-embed__bar:not(:focus-within) * {
+.wiki-editor .ProseMirror .wiki-html-embed:not(:hover):not([data-selected]):not([data-source-open]):not([data-menu-open]):not([data-picking]):not([data-ai-open]) .wiki-html-embed__bar:not(:focus-within),
+.wiki-editor .ProseMirror .wiki-html-embed:not(:hover):not([data-selected]):not([data-source-open]):not([data-menu-open]):not([data-picking]):not([data-ai-open]) .wiki-html-embed__bar:not(:focus-within) * {
   border-color: transparent;
   background: transparent;
   color: transparent;
@@ -475,6 +475,184 @@
 .wiki-editor .ProseMirror .wiki-html-embed__chip-remove svg {
   width: 0.75rem;
   height: 0.75rem;
+}
+/* 「✦ AI로 고치기」(WP-1302) — 막대 단추는 아이콘 + 글자, 블록 아래 입력 칸(지시 · 요청 칩 · 보내기)과 결과 비교(지금 | 바뀐 뒤, 좁으면 위아래).
+   칸 안 요소는 노트 CSS 가 숨기지 못하게 인라인 !important(pinVisible)로 display 등이 박혀 있다. */
+.wiki-editor .ProseMirror .wiki-html-embed__btn--ai,
+.wiki-editor .ProseMirror .wiki-html-embed__btn--primary {
+  gap: 0.25rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn--primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn--primary:hover {
+  background: color-mix(in oklab, var(--primary) 88%, var(--foreground));
+  color: var(--primary-foreground);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai {
+  margin-top: 0.5rem;
+  padding: 0.625rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 35%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+/* 칸 안 칩 줄은 입력 위 — 블록 아래 칩과 같은 모양, 위 여백만 없앤다. */
+.wiki-editor .ProseMirror .wiki-html-embed__ai .wiki-html-embed__picks {
+  margin: 0 0 0.5rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai svg {
+  pointer-events: none;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-input {
+  width: 100%;
+  min-height: 3.25rem;
+  max-height: 12rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  resize: vertical;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-input:focus-visible,
+.wiki-editor .ProseMirror .wiki-html-embed__ai button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-row {
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  user-select: none;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-chips,
+.wiki-editor .ProseMirror .wiki-html-embed__ai-send {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-send {
+  margin-left: auto;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-chip {
+  align-items: center;
+  height: 1.5rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-chip:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-hint {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-status {
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-status--error,
+.wiki-editor .ProseMirror .wiki-html-embed__ai-note {
+  color: var(--destructive-text);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__spin {
+  animation: wiki-html-embed-spin 1s linear infinite;
+}
+@keyframes wiki-html-embed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wiki-editor .ProseMirror .wiki-html-embed__spin {
+    animation: none;
+  }
+}
+/* 결과 비교 — 지금 | 바뀐 뒤 나란히, 블록 폭이 40rem 아래면 위아래(소스 편집과 같은 기준 · 블록 컨테이너 쿼리). */
+.wiki-editor .ProseMirror .wiki-html-embed__ai-compare {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  align-items: start;
+}
+@container (max-width: 40rem) {
+  .wiki-editor .ProseMirror .wiki-html-embed__ai-compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-preview {
+  min-width: 0;
+  margin: 0;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-caption {
+  margin-bottom: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+/* 미리보기 높이는 안 문서가 알려 준 값 — 칸이 끝없이 길어지지 않게 상한 안에서 스크롤한다. */
+.wiki-editor .ProseMirror .wiki-html-embed__ai-frame-box {
+  max-height: min(28rem, 60vh);
+  overflow: auto;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-stats {
+  margin-left: 0.375rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-diff {
+  max-height: min(24rem, 60vh);
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: pre;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-diff-line {
+  display: block;
+  padding: 0 0.75rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-diff-line--added {
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-diff-line--removed {
+  background: var(--destructive-subtle);
+  color: var(--destructive-text);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__ai-diff-line--fold {
+  color: var(--muted-foreground);
+  font-style: italic;
 }
 /* 소스 칸은 contentDOM 이라 늘 DOM 에 있다 — 「소스 편집」을 켰을 때만 보인다(보기 전용 화면은 늘 숨김). */
 .wiki-editor .ProseMirror .wiki-html-embed:not([data-source-open]) .wiki-html-embed__code {

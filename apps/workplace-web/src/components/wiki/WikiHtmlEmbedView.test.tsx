@@ -9,9 +9,11 @@ import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { emitAiStreamEvent } from '@/lib/aiEventBus'
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
+import { type WikiHtmlEmbedAi, WikiHtmlEmbedAiProvider } from './WikiHtmlEmbedAiContext'
 import { HTML_EMBED_DEFAULT_HEIGHT, HTML_EMBED_HEIGHT_SCRIPT, HTML_EMBED_MAX_HEIGHT } from './wikiHtmlEmbedFrame'
 import { HIGHLIGHT_MAX_CHARS } from './wikiHtmlEmbedHighlight'
 import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
@@ -238,7 +240,7 @@ describe('HTML 블록 NodeView', () => {
       for (const id of ['wiki-html-embed-reupload', 'wiki-html-embed-expand', 'wiki-html-embed-delete', 'wiki-html-embed-hint']) {
         expect(within(block).queryByTestId(id)).not.toBeInTheDocument()
       }
-      // 고르기(WP-1301)는 이름표·소스 편집 다음에 늘 있고, AI로 고치기(WP-1302)는 동작이 붙기 전까지 없다.
+      // 고르기(WP-1301)는 이름표·소스 편집 다음에 늘 있고, AI로 고치기(WP-1302)는 AI 를 쓰는 노트 편집 화면(컨텍스트)이 아니면 없다.
       expect(within(bar).getByTestId('wiki-html-embed-pick')).toHaveTextContent('고르기')
       expect(within(block).queryByText(/AI로 고치기/)).not.toBeInTheDocument()
       expect(block).not.toHaveAttribute('data-selected')
@@ -643,5 +645,278 @@ describe('판 미리보기의 HTML 블록', () => {
     expect(frames[0].closest('.wiki-diff-removed')).not.toBeNull()
     expect(frames[1].closest('.wiki-diff-added')).not.toBeNull()
     expect(within(preview).queryByTestId('wiki-html-embed-toggle')).not.toBeInTheDocument()
+  })
+})
+
+// WP-1302 — 「✦ AI로 고치기」. 노트 편집 화면처럼 AI 컨텍스트로 감싼 편집기에서 입력 칸 열기·Esc(글 남김)·요청 칩·고른 요소 칩·요청 본문(MSW)·
+// 스트림(이벤트 버스)·결과 비교(지금/바뀐 뒤 격리 iframe·바뀐 코드)·적용(한 거래·울타리 벗김)·취소·다시 요청을 본다.
+// 실제 키 입력의 포커스(입력 칸 ↔ 편집기)와 ⌘Z 되돌리기는 E2E(@input)가 본다.
+describe('HTML 블록 AI로 고치기', () => {
+  const ITEM = { path: 'h1#t', tag: 'h1', kind: '제목', text: '3분기 회고', html: '<h1 id="t">3분기 회고</h1>', rect: { x: 0, y: 0, width: 10, height: 10 } }
+  const tokenOf = (iframe: HTMLIFrameElement) => /var TOKEN="([^"]+)"/.exec(iframe.getAttribute('srcdoc') ?? '')?.[1]
+  const NEW_SOURCE = '<canvas id="c2"></canvas>\n<script>draw("4분기")</script>'
+
+  /** 노트 편집 화면처럼 AI 컨텍스트로 감싼 편집기 — commit 은 바로 넣는다(핸드셰이크는 aiApplyHandshake.test). */
+  async function mountAi(markdown = BODY, editable = true) {
+    const ai: WikiHtmlEmbedAi = { pageId: 77, commit: vi.fn(async (insert: () => void) => (insert(), true)), onResult: vi.fn() }
+    let ed: Editor | null = null
+    render(
+      <WikiHtmlEmbedAiProvider value={ai}>
+        <Body markdown={markdown} editable={editable} onEditor={(e) => (ed = e)} />
+      </WikiHtmlEmbedAiProvider>,
+    )
+    await waitFor(() => expect(ed).not.toBeNull())
+    return { ed: ed!, ai }
+  }
+
+  /** /ai 시작 요청을 모으고 correlationId 를 돌려준다. 취소(DELETE)도 모은다. */
+  function mockAi() {
+    const starts: Array<Record<string, unknown>> = []
+    const cancels: string[] = []
+    server.use(
+      http.post('/api/v1/wiki/pages/:id/ai', async ({ request, params }) => {
+        starts.push({ pageId: params.id, ...((await request.json()) as Record<string, unknown>) })
+        return HttpResponse.json({ correlationId: `corr-${starts.length}` })
+      }),
+      http.delete('/api/v1/wiki/pages/:id/ai/:cid', ({ params }) => {
+        cancels.push(String(params.cid))
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    return { starts, cancels }
+  }
+
+  const input = () => screen.getByTestId('wiki-html-embed-ai-input') as HTMLTextAreaElement
+  const openPanel = () => fireEvent.click(screen.getByTestId('wiki-html-embed-ai-toggle'))
+  const stream = (cid: string, ...chunks: string[]) =>
+    act(() => {
+      for (const text of chunks) emitAiStreamEvent('wiki.ai.delta', { correlationId: cid, text })
+      emitAiStreamEvent('wiki.ai.done', { correlationId: cid })
+    })
+
+  it('AI 컨텍스트가 있는 편집 화면에서만 막대 맨 앞(이름표 다음)에 보이고, 보기 전용이면 없다', async () => {
+    const { ed } = await mountAi()
+    const bar = await screen.findByTestId('wiki-html-embed-bar')
+    const buttons = Array.from(bar.querySelectorAll(':scope > button')).map((b) => b.getAttribute('data-testid'))
+    expect(buttons.slice(0, 3)).toEqual(['wiki-html-embed-label', 'wiki-html-embed-ai-toggle', 'wiki-html-embed-toggle'])
+    expect(screen.getByTestId('wiki-html-embed-ai-toggle')).toHaveTextContent('AI로 고치기')
+    expect(screen.getByTestId('wiki-html-embed-ai-toggle').style.getPropertyPriority('display')).toBe('important')
+    act(() => ed.setEditable(false))
+    await waitFor(() => expect(screen.queryByTestId('wiki-html-embed-ai-toggle')).not.toBeInTheDocument())
+  })
+
+  it('누르면 블록 아래 입력 칸이 열려 포커스를 받고, Esc 는 쓴 글을 남긴 채 닫고 블록 통째 선택으로 돌아간다', async () => {
+    const { ed } = await mountAi(BODY + '\n\n뒤 문단')
+    const block = await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    const panel = screen.getByTestId('wiki-html-embed-ai')
+    expect(block).toHaveAttribute('data-ai-open')
+    expect(screen.getByTestId('wiki-html-embed-ai-toggle')).toHaveAttribute('aria-pressed', 'true')
+    expect(document.activeElement).toBe(input())
+    // 노트 CSS 가 숨기지 못하게 칸·입력이 고정된다.
+    expect(panel.style.getPropertyPriority('display')).toBe('important')
+    expect(input().style.getPropertyPriority('display')).toBe('important')
+    // 요청 칩 다섯 가지.
+    expect(within(panel).getAllByRole('button').map((b) => b.textContent).slice(0, 5)).toEqual(['값 바꾸기', '색 바꾸기', '제목 바꾸기', '항목 추가', '꺾은선으로'])
+
+    fireEvent.change(input(), { target: { value: '제목을 4분기로' } })
+    fireEvent.keyDown(input(), { key: 'Escape' })
+    expect(screen.queryByTestId('wiki-html-embed-ai')).not.toBeInTheDocument()
+    expect(block).not.toHaveAttribute('data-ai-open')
+    expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+    expect(ed.state.selection.from).toBe(embedTextPos(ed) - 1)
+
+    openPanel()
+    expect(input().value).toBe('제목을 4분기로')
+  })
+
+  it('요청 칩은 입력 칸에 시작 말을 채운다 — 쓴 글은 뒤에 남는다', async () => {
+    await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-chip-color'))
+    expect(input().value).toBe('색을 이렇게 바꿔 줘: ')
+    fireEvent.change(input(), { target: { value: '막대를 빨강으로' } })
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-chip-title'))
+    expect(input().value).toBe('제목을 이렇게 바꿔 줘: 막대를 빨강으로')
+  })
+
+  it('고른 요소 칩은 칸이 열리면 칸 안으로 옮겨 가고(한곳에만), Enter 로 보낸 요청에 고른 요소·지금 소스·지시가 실린다', async () => {
+    const { starts } = mockAi()
+    await mountAi()
+    const iframe = await waitFor(frame)
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', { data: { type: 'wp-html-picker', token: tokenOf(iframe), event: 'state', enabled: true, items: [ITEM] }, source: iframe.contentWindow }),
+      )
+    })
+    expect(screen.getAllByTestId('wiki-html-embed-chip')).toHaveLength(1)
+    openPanel()
+    const panel = screen.getByTestId('wiki-html-embed-ai')
+    expect(screen.getAllByTestId('wiki-html-embed-chip')).toHaveLength(1)
+    expect(within(panel).getByTestId('wiki-html-embed-chip')).toHaveTextContent('1제목 · 3분기 회고')
+    expect(input()).toHaveAttribute('placeholder', '고른 부분을 어떻게 고칠까요?')
+
+    fireEvent.change(input(), { target: { value: '제목을 4분기로' } })
+    // Shift+Enter 는 줄바꿈 — 보내지 않는다. 조합 중 Enter 도 보내지 않는다.
+    fireEvent.keyDown(input(), { key: 'Enter', shiftKey: true })
+    fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() => expect(starts).toHaveLength(1))
+    expect(starts[0]).toEqual({
+      pageId: '77',
+      action: 'fix_html',
+      selection: SOURCE,
+      prompt: '제목을 4분기로',
+      targets: ['선택자: h1#t\n태그: h1\n종류: 제목\n글자: 3분기 회고\nHTML: <h1 id="t">3분기 회고</h1>'],
+    })
+    expect(screen.getByTestId('wiki-html-embed-ai-running')).toHaveTextContent('AI가 고치는 중…')
+  })
+
+  it('고른 요소가 없으면 targets 없이 블록 전체로 보내고, 고치는 중 「취소」는 스트림을 끊고 입력으로 돌아간다', async () => {
+    const { starts, cancels } = mockAi()
+    await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    expect(screen.getByTestId('wiki-html-embed-ai-send')).toBeDisabled()
+    fireEvent.change(input(), { target: { value: '색을 파랑으로' } })
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-send'))
+    await waitFor(() => expect(starts).toHaveLength(1))
+    expect(starts[0]).not.toHaveProperty('targets')
+    // 시작 응답이 와 구독이 붙은 뒤 델타가 받은 글자 수로 보인다.
+    await waitFor(() => {
+      act(() => emitAiStreamEvent('wiki.ai.delta', { correlationId: 'corr-1', text: '<p>' }))
+      expect(screen.getByTestId('wiki-html-embed-ai-running')).toHaveTextContent('자 받음')
+    })
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-stop'))
+    await waitFor(() => expect(cancels).toEqual(['corr-1']))
+    expect(screen.queryByTestId('wiki-html-embed-ai-running')).not.toBeInTheDocument()
+    expect(input().value).toBe('색을 파랑으로')
+  })
+
+  it('결과는 지금/바뀐 뒤 격리 미리보기(고르기 스크립트 없음)와 바뀐 코드로 보이고, 「취소」는 블록을 그대로 둔다', async () => {
+    mockAi()
+    const { ed, ai } = await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    fireEvent.change(input(), { target: { value: '4분기로' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() => {
+      stream('corr-1', '```html\n', NEW_SOURCE, '\n```')
+      expect(screen.getByTestId('wiki-html-embed-ai-result')).toBeInTheDocument()
+    })
+    expect(ai.onResult).toHaveBeenCalled()
+    const before = screen.getByTestId('wiki-html-embed-ai-before-frame')
+    const after = screen.getByTestId('wiki-html-embed-ai-after-frame')
+    expect(within(screen.getByTestId('wiki-html-embed-ai-before')).getByText('지금')).toBeInTheDocument()
+    expect(within(screen.getByTestId('wiki-html-embed-ai-after')).getByText('바뀐 뒤')).toBeInTheDocument()
+    for (const f of [before, after]) {
+      expect(f.getAttribute('sandbox')).toContain('allow-scripts')
+      expect(f.getAttribute('sandbox')).not.toContain('allow-same-origin')
+      expect(f.getAttribute('srcdoc')).not.toContain('data-wp-html-picker')
+    }
+    expect(before.getAttribute('srcdoc')).toContain(SOURCE)
+    // 울타리를 벗긴 소스.
+    expect(after.getAttribute('srcdoc')).toContain(NEW_SOURCE)
+    expect(after.getAttribute('srcdoc')).not.toContain('```')
+
+    const toggle = screen.getByTestId('wiki-html-embed-ai-code-toggle')
+    expect(toggle).toHaveTextContent('바뀐 코드 보기 ▾')
+    expect(toggle).toHaveTextContent('+2 −3')
+    fireEvent.click(toggle)
+    const diff = screen.getByTestId('wiki-html-embed-ai-diff')
+    expect(within(diff).getAllByText(/^\+ /).map((l) => l.textContent)).toEqual(['+ <canvas id="c2"></canvas>', '+ <script>draw("4분기")</script>'])
+    expect(diff.querySelectorAll('[data-kind="removed"]')).toHaveLength(3)
+
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-discard'))
+    expect(screen.queryByTestId('wiki-html-embed-ai-result')).not.toBeInTheDocument()
+    expect(embedSources(ed)).toEqual([SOURCE])
+    expect(ai.commit).not.toHaveBeenCalled()
+    expect(input().value).toBe('4분기로')
+  })
+
+  it('「적용」은 다듬은 결과로 소스를 한 거래에 바꾸고(AI 넣기 길), 칸을 닫아 블록을 통째 선택한다 — 지시는 비운다', async () => {
+    mockAi()
+    const { ed, ai } = await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    fireEvent.change(input(), { target: { value: '4분기로' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() => {
+      stream('corr-1', `\n${NEW_SOURCE}\r\n`)
+      expect(screen.getByTestId('wiki-html-embed-ai-apply')).toBeInTheDocument()
+    })
+    let docChanges = 0
+    const onTr = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) docChanges++
+    }
+    ed.on('transaction', onTr)
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-apply'))
+    await waitFor(() => expect(embedSources(ed)).toEqual([NEW_SOURCE]))
+    ed.off('transaction', onTr)
+    expect(docChanges).toBe(1)
+    expect(ai.commit).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('wiki-html-embed-ai')).not.toBeInTheDocument()
+    expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+    openPanel()
+    expect(input().value).toBe('')
+  })
+
+  it('「다시 요청」은 고친 지시로 다시 보낸다 — 오류 이벤트는 칸에 알린다', async () => {
+    const { starts } = mockAi()
+    await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    fireEvent.change(input(), { target: { value: '꺾은선으로' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() => {
+      stream('corr-1', NEW_SOURCE)
+      expect(screen.getByTestId('wiki-html-embed-ai-retry')).toBeInTheDocument()
+    })
+    fireEvent.change(input(), { target: { value: '꺾은선으로, 점 표시' } })
+    fireEvent.click(screen.getByTestId('wiki-html-embed-ai-retry'))
+    await waitFor(() => expect(starts).toHaveLength(2))
+    expect(starts[1]).toMatchObject({ action: 'fix_html', prompt: '꺾은선으로, 점 표시', selection: SOURCE })
+    await waitFor(() => {
+      act(() => emitAiStreamEvent('wiki.ai.error', { correlationId: 'corr-2', message: 'AI 비서가 설정되지 않았습니다' }))
+      expect(screen.getByTestId('wiki-html-embed-ai-error')).toHaveTextContent('AI 비서가 설정되지 않았습니다')
+    })
+  })
+
+  it('결과를 보는 동안 소스가 바뀌면 알리고, 「지금」 미리보기는 요청 때 소스 그대로 둔다(다시 만들지 않는다)', async () => {
+    mockAi()
+    const { ed } = await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    fireEvent.change(input(), { target: { value: '4분기로' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() => {
+      stream('corr-1', NEW_SOURCE)
+      expect(screen.getByTestId('wiki-html-embed-ai-result')).toBeInTheDocument()
+    })
+    const before = screen.getByTestId('wiki-html-embed-ai-before-frame')
+    expect(screen.queryByTestId('wiki-html-embed-ai-stale')).not.toBeInTheDocument()
+    // 동료·내 편집처럼 블록 소스에 글자가 들어온다.
+    act(() => {
+      ed.commands.insertContentAt(embedTextPos(ed), '<!-- x -->')
+    })
+    expect(screen.getByTestId('wiki-html-embed-ai-stale')).toBeInTheDocument()
+    expect(screen.getByTestId('wiki-html-embed-ai-before-frame')).toBe(before)
+    expect(before.getAttribute('srcdoc')).toContain(SOURCE)
+    expect(before.getAttribute('srcdoc')).not.toContain('<!-- x -->')
+  })
+
+  it('빈 결과는 적용하지 않고 다시 요청하라고 알린다', async () => {
+    mockAi()
+    await mountAi()
+    await screen.findByTestId('wiki-html-embed')
+    openPanel()
+    fireEvent.change(input(), { target: { value: 'x' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() => {
+      stream('corr-1', '```html\n```')
+      expect(screen.getByTestId('wiki-html-embed-ai-error')).toHaveTextContent('빈 결과')
+    })
+    expect(screen.queryByTestId('wiki-html-embed-ai-apply')).not.toBeInTheDocument()
   })
 })

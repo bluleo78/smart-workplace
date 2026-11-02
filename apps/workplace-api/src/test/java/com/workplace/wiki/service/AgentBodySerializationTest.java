@@ -25,6 +25,7 @@ class AgentBodySerializationTest {
             "## 본문",
             null, // selection
             null, // prompt
+            null, // targets(WP-1302)
             900L,
             "claude-opus",
             "NORMAL",
@@ -67,6 +68,7 @@ class AgentBodySerializationTest {
             "본문",
             "선택된 텍스트",
             "이 주제로 써줘",
+            null, // targets(WP-1302)
             901L,
             "claude-sonnet",
             "DEEP",
@@ -107,6 +109,7 @@ class AgentBodySerializationTest {
             "본문",
             null,
             null,
+            null, // targets(WP-1302)
             900L,
             "claude-opus",
             "NORMAL",
@@ -138,6 +141,7 @@ class AgentBodySerializationTest {
             "본문",
             null,
             null,
+            null, // targets(WP-1302)
             900L,
             "claude-opus",
             "NORMAL",

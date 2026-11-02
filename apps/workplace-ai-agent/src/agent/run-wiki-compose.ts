@@ -7,7 +7,7 @@ import { withReadOnlyMemory } from './memory-block.js';
 import { withSharedMemory } from './shared-memory-block.js';
 import { extractTextDelta } from './wiki-delta-parser.js';
 import { thinkingDirective } from './thinking.js';
-import { WIKI_SYSTEM_PROMPT, buildWikiUserMessage, type WikiComposeInput } from './wiki-prompt.js';
+import { buildWikiPrompt, type WikiComposeInput } from './wiki-prompt.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 
@@ -20,13 +20,15 @@ export async function runWikiCompose(
   // 비서 AGENT 의 OAuth 토큰으로 LLM 인증. agentId 는 요청 본문에서 온다.
   const agentId = input.assistantAgentId;
   const credential = await deps.client.getProviderCredential(agentId);
+  // 액션별 시스템 프롬프트·사용자 메시지는 buildWikiPrompt 가 함께 정한다(HTML 고치기 WP-1302 는 HTML 전용 프롬프트).
   // 생각의 깊이는 전용 옵션이 없어 system-prompt 접미 지시문으로 근사한다.
-  const systemPrompt = WIKI_SYSTEM_PROMPT + thinkingDirective(input.thinkingDepth);
+  const prompt = buildWikiPrompt(input);
+  const systemPrompt = prompt.system + thinkingDirective(input.thinkingDepth);
 
   const handle = runnerFor(credential).stream(
     {
       // WP-381: 읽기 전용 메모리 블록을 요청문 맨 앞에(시스템 프롬프트는 그대로). WP-386: 그 뒤에 공용 블록.
-      userMessage: withReadOnlyMemory(input.memories, withSharedMemory(input, buildWikiUserMessage(input))),
+      userMessage: withReadOnlyMemory(input.memories, withSharedMemory(input, prompt.user)),
       systemPrompt,
       // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
       model: input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL,

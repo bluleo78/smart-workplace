@@ -75,6 +75,16 @@ describe('runWikiCompose', () => {
     expect(passed.agentId).toBe(7);
   });
 
+  // WP-1302: HTML 고치기는 마크다운 지시가 든 노트 프롬프트 대신 HTML 전용 시스템 프롬프트를 쓴다.
+  it('fix_html 은 HTML 전용 시스템 프롬프트로 부른다', async () => {
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runWikiCompose({ ...baseInput('continue'), action: 'fix_html', selection: '<p>x</p>', prompt: '색' }, { client: fakeClient }, () => {});
+    const passed = vi.mocked(streamSpy).mock.calls[0][0] as { systemPrompt: string; userMessage: string };
+    expect(passed.systemPrompt).toContain('HTML 문서를 고치는 보조자');
+    expect(passed.systemPrompt).not.toContain('노트 문서 작성 보조자');
+    expect(passed.userMessage).toContain('<p>x</p>');
+  });
+
   it('러너 실패(reject) 가 전파된다', async () => {
     streamSpy.mockReturnValue({
       done: Promise.reject(new Error('sdk boom')),

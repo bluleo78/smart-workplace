@@ -55,6 +55,21 @@ describe('wikiComposeSchema', () => {
     );
   });
 
+  // WP-1302: HTML 블록 고치기 — fix_html 액션과 고른 요소 설명(targets, 10개 · 개당 2000자 상한).
+  it('fix_html 과 targets 를 받고, targets 상한을 넘으면 파싱 실패', () => {
+    const ok = wikiComposeSchema.safeParse(
+      validBody({ action: 'fix_html', selection: '<p>x</p>', prompt: '색', targets: ['a'.repeat(2000)] }),
+    );
+    expect(ok.success).toBe(true);
+    expect(ok.success && ok.data.targets).toEqual(['a'.repeat(2000)]);
+    expect(wikiComposeSchema.safeParse(validBody({ action: 'fix_html', targets: ['a'.repeat(2001)] })).success).toBe(false);
+    expect(
+      wikiComposeSchema.safeParse(validBody({ action: 'fix_html', targets: Array.from({ length: 11 }, () => 'x') })).success,
+    ).toBe(false);
+    // API 는 targets 가 없으면 필드를 뺀다 — null 은 받지 않는다(zod optional).
+    expect(wikiComposeSchema.safeParse(validBody({ targets: null })).success).toBe(false);
+  });
+
   it('비서 필드 누락 → 파싱 실패', () => {
     const { assistantAgentId: _omit, ...rest } = validBody();
     void _omit;
