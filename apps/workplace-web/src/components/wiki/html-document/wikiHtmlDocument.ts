@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 
 import { downloadBlob } from '@/lib/download'
 
-import type { WikiPageKind } from '../../../types/wiki'
+import type { WikiHtmlLockStatus, WikiPageKind, WikiRole } from '../../../types/wiki'
 import { htmlFileBaseName } from '../wikiHtmlImport'
 import { HTML_IMPORT_MAX_BYTES } from '../wikiHtmlImportInsert'
 
@@ -71,4 +71,46 @@ export function htmlDownloadFileName(title: string): string {
  */
 export function downloadHtmlSource(title: string, html: string): void {
   downloadBlob(htmlDownloadFileName(title), new Blob([html], { type: 'application/octet-stream' }))
+}
+
+// ── 편집 잠금(WP-1308) ─────────────────────────────────────────────────
+
+/** 잠금 없음 — 풀림 이벤트·내가 푼 뒤 잠금 캐시에 넣는다. */
+export const UNLOCKED_HTML_LOCK: WikiHtmlLockStatus = {
+  locked: false,
+  mine: false,
+  holderId: null,
+  holderName: null,
+  acquiredAt: null,
+  expiresAt: null,
+  canForceRelease: false,
+}
+
+/**
+ * 잠금 상태의 mine·canForceRelease 를 내 id·스페이스 역할로 다시 가린다 — SSE(wiki.page.lock)는 쥔 사람만 싣고(받는 사람마다 다르다),
+ * 서버 응답과 같은 규칙(mine = 내가 쥠, 강제 풀기 = 남의 잠금을 보는 스페이스 소유자)이라 어느 쪽에서 온 캐시든 같게 보인다.
+ */
+export function deriveHtmlLock(s: WikiHtmlLockStatus, userId: number | undefined, role: WikiRole | undefined): WikiHtmlLockStatus {
+  if (!s.locked) return s
+  const mine = userId != null && s.holderId === userId
+  return { ...s, mine, canForceRelease: !mine && role === 'OWNER' }
+}
+
+/** 잠금을 쥔 사람 이름 — 모르면 「다른 사람」. 띠·확인 창·토스트가 같이 쓴다. */
+export function holderLabel(lock: Pick<WikiHtmlLockStatus, 'holderName'> | null | undefined): string {
+  return lock?.holderName ?? '다른 사람'
+}
+
+/** 위 띠 문구 — 「○○ 님이 편집 중입니다 — 저장될 때까지 보기만 할 수 있어요」. */
+export function htmlLockBannerText(lock: Pick<WikiHtmlLockStatus, 'holderName'> | null | undefined): string {
+  return `${holderLabel(lock)} 님이 편집 중입니다 — 저장될 때까지 보기만 할 수 있어요`
+}
+
+/** 저장·취소 없이 편집이 끝났을 때 안내 끝 — 고치던 내용은 임시 저장본으로 남았다. */
+export const HTML_DRAFT_KEPT_TAIL = '고치던 내용은 다음에 「편집」을 누르면 이어서 고칠 수 있어요'
+
+/** 두 시각 문자열이 같은 순간인지 — 서버 직렬화 모양(소수 자리·오프셋)이 달라도 같은 시각이면 같다. 둘 다 없으면 다르다. */
+export function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (a == null || b == null) return false
+  return Date.parse(a) === Date.parse(b)
 }

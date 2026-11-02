@@ -25,6 +25,8 @@ export const wikiKeys = {
   movePreview: (pageId: number, targetSpaceId: number) => ['wiki', 'movePreview', pageId, targetSpaceId] as const,
   // 알림에서 연 노트의 입구 판정(멤버·공유 대상) — /wiki/open/:pageId.
   entry: (pageId: number) => ['wiki', 'entry', pageId] as const,
+  // 「HTML 문서」 편집 잠금 상태(WP-1308) — page(id) 접두가 아니다(본문 재조회가 잠금을, 잠금 이벤트가 본문을 다시 받지 않게).
+  htmlLock: (pageId: number) => ['wiki', 'htmlLock', pageId] as const,
   myShares: () => ['wiki', 'myShares'] as const,
   allShares: () => ['wiki', 'allShares'] as const,
   sharePolicy: () => ['wiki', 'sharePolicy'] as const,

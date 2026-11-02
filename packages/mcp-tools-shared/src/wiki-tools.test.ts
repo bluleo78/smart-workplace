@@ -316,6 +316,8 @@ describe('buildWikiTools', () => {
     expect(plain).not.toHaveProperty('html');
     // 노트 본문 규칙 대신 HTML 문서 안내를 싣는다(정의가 아닌 응답에).
     expect(plain.bodyFormat).toBe(WIKI_HTML_DOCUMENT_GUIDE);
+    // WP-1308: 사람이 편집 중(잠금)이라 거절된 409 는 다시 시도하지 말고 사용자에게 알리라고 안내한다.
+    expect(WIKI_HTML_DOCUMENT_GUIDE).toContain('edit lock');
     const withSource = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 8, includeSource: true })));
     expect(withSource.html).toBe(page.html);
     expect(withSource).not.toHaveProperty('htmlTruncated');

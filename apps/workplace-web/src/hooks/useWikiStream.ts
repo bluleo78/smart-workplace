@@ -6,8 +6,9 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 
+import { UNLOCKED_HTML_LOCK } from '../components/wiki/html-document/wikiHtmlDocument';
 import { subtreeIds } from '../components/wiki/wikiMoveTargets';
-import type { WikiPageSummary } from '../types/wiki';
+import type { WikiHtmlLockStatus, WikiPageSummary } from '../types/wiki';
 import { dropInactiveWikiPage, wikiKeys } from './queries/wikiKeys';
 
 interface WikiPagePayload {
@@ -68,7 +69,43 @@ function invalidateMovedSubtree(qc: QueryClient, pageId: number) {
   qc.invalidateQueries({ queryKey: ['wiki', 'page'], predicate: (q) => moved.has(q.queryKey[2] as number) });
 }
 
+/** wiki.page.lock payload(백엔드 WikiSseDispatcher.onHtmlLockChanged) — 바뀐 뒤의 잠금. 풀렸으면 locked=false·holder 없음. */
+interface WikiHtmlLockPayload extends WikiPagePayload {
+  locked?: boolean;
+  holderId?: number | null;
+  holderName?: string | null;
+  acquiredAt?: string | null;
+  expiresAt?: string | null;
+}
+
+/**
+ * 잠금 이벤트를 그 페이지 잠금 캐시에 넣는다. 그 잠금을 본 적 없는(캐시 없음) 페이지는 건드리지 않는다 — 스페이스의 모든 잠금 이벤트로 캐시가 쌓이지 않게.
+ * mine·canForceRelease 는 SSE 가 모르므로(받는 사람마다 다르다) false 로 두고, useWikiHtmlLock 의 select 가 내 id·스페이스 역할로 다시 가린다.
+ */
+function applyHtmlLockEvent(qc: QueryClient, p: WikiHtmlLockPayload) {
+  if (typeof p?.pageId !== 'number' || !Number.isFinite(p.pageId)) return;
+  const key = wikiKeys.htmlLock(p.pageId);
+  if (!qc.getQueryState(key)) return;
+  const next: WikiHtmlLockStatus = p.locked
+    ? {
+        locked: true,
+        mine: false,
+        holderId: p.holderId ?? null,
+        holderName: p.holderName ?? null,
+        acquiredAt: p.acquiredAt ?? null,
+        expiresAt: p.expiresAt ?? null,
+        canForceRelease: false,
+      }
+    : UNLOCKED_HTML_LOCK;
+  qc.setQueryData(key, next);
+}
+
 export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknown) {
+  // 「HTML 문서」 편집 잠금 변경(WP-1308) — 실려 온 바뀐 뒤의 잠금으로 그 페이지 잠금 캐시만 바꾼다(다시 받지 않는다). 트리·본문은 그대로다.
+  if (eventName === 'wiki.page.lock') {
+    applyHtmlLockEvent(qc, data as WikiHtmlLockPayload);
+    return;
+  }
   if (!INVALIDATING_EVENTS.has(eventName)) return;
   const p = data as WikiPagePayload;
   if (eventName === 'wiki.page.moved' && typeof p?.pageId === 'number') invalidateMovedSubtree(qc, p.pageId);

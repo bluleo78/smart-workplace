@@ -134,6 +134,8 @@ import com.workplace.jooq.tables.UserGroup;
 import com.workplace.jooq.tables.UserGroupMember;
 import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
+import com.workplace.jooq.tables.WikiHtmlDraft;
+import com.workplace.jooq.tables.WikiHtmlEditLock;
 import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
@@ -826,6 +828,16 @@ public class Public extends SchemaImpl {
     public final UserRole USER_ROLE = UserRole.USER_ROLE;
 
     /**
+     * The table <code>public.wiki_html_draft</code>.
+     */
+    public final WikiHtmlDraft WIKI_HTML_DRAFT = WikiHtmlDraft.WIKI_HTML_DRAFT;
+
+    /**
+     * The table <code>public.wiki_html_edit_lock</code>.
+     */
+    public final WikiHtmlEditLock WIKI_HTML_EDIT_LOCK = WikiHtmlEditLock.WIKI_HTML_EDIT_LOCK;
+
+    /**
      * The table <code>public.wiki_page</code>.
      */
     public final WikiPage WIKI_PAGE = WikiPage.WIKI_PAGE;
@@ -1063,6 +1075,8 @@ public class Public extends SchemaImpl {
             UserGroupMember.USER_GROUP_MEMBER,
             UserPriorityItem.USER_PRIORITY_ITEM,
             UserRole.USER_ROLE,
+            WikiHtmlDraft.WIKI_HTML_DRAFT,
+            WikiHtmlEditLock.WIKI_HTML_EDIT_LOCK,
             WikiPage.WIKI_PAGE,
             WikiPageAttachment.WIKI_PAGE_ATTACHMENT,
             WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY,

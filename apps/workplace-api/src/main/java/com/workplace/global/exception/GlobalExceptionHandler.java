@@ -797,6 +797,20 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
   }
 
+  /**
+   * 「HTML 문서」를 다른 사람이 편집 중(WP-1308) — 409. errors 에 code=HTML_LOCKED(도메인 오류 코드)·holderName 을 실어 화면이
+   * version 충돌 409 와 가르고 「○○ 님이 편집 중」을 띄운다. MCP·AI 는 message 로 이유를 받는다.
+   */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiHtmlLockedException.class)
+  public ResponseEntity<ErrorResponse> handleWikiHtmlLocked(
+      com.workplace.wiki.exception.WikiHtmlLockedException ex, HttpServletRequest request) {
+    Map<String, String> errors = new HashMap<>();
+    errors.put("code", com.workplace.wiki.exception.WikiHtmlLockedException.CODE);
+    errors.put("holderName", ex.getHolderName());
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), errors, request));
+  }
+
   /** HTML 문서 원본 크기 상한 초과(WP-1307) — 413. */
   @ExceptionHandler(com.workplace.wiki.exception.WikiHtmlTooLargeException.class)
   public ResponseEntity<ErrorResponse> handleWikiHtmlTooLarge(

@@ -31,18 +31,21 @@ function groupEntries(data: WikiRevisionList | undefined) {
  * 「HTML 문서」 버전 기록(WP-1307) — 저장할 때마다 남은 이전 원본을 고르고 격리 iframe 으로 미리 본다.
  * 노트 버전 기록(WikiRevisionLayer — 편집기 문서·차이 표시)과 달리 원본 HTML 한 덩어리라 목록 + 미리보기 대화상자로 둔다.
  * 「이 버전으로 되돌리기」(편집자만)는 서버 복원을 부르고, 동기화 서버가 없으므로 응답으로 열린 페이지 캐시를 바로 바꾼다.
+ * restoreBlockedReason 이 있으면(누가 편집 중 — WP-1308, 서버도 409 로 막는다) 되돌리기를 막고 그 이유를 단추 위 title 로 보인다.
  */
 export function WikiHtmlRevisionDialog({
   open,
   onOpenChange,
   page,
   canRestore,
+  restoreBlockedReason,
   spaceId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   page: Pick<WikiPageDetail, 'id' | 'html' | 'title'>
   canRestore: boolean
+  restoreBlockedReason?: string
   spaceId: number
 }) {
   const qc = useQueryClient()
@@ -145,14 +148,17 @@ export function WikiHtmlRevisionDialog({
         </div>
         {canRestore && selected != null && (
           <div className="flex justify-end">
-            <Button
-              type="button"
-              onClick={onRestore}
-              disabled={restore.isPending || previewHtml == null}
-              data-testid="wiki-html-revision-restore"
-            >
-              이 버전으로 되돌리기
-            </Button>
+            {/* 막힌 단추는 포인터를 받지 않아 title 이 뜨지 않으므로 감싼 칸에 단다. */}
+            <span title={restoreBlockedReason} data-testid="wiki-html-revision-restore-wrap">
+              <Button
+                type="button"
+                onClick={onRestore}
+                disabled={restore.isPending || previewHtml == null || restoreBlockedReason != null}
+                data-testid="wiki-html-revision-restore"
+              >
+                이 버전으로 되돌리기
+              </Button>
+            </span>
           </div>
         )}
       </DialogContent>

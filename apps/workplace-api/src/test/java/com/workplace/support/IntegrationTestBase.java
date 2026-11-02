@@ -44,6 +44,7 @@ import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.AiPreferenceService;
 import com.workplace.wiki.repository.WikiBodyHistoryRepository;
+import com.workplace.wiki.service.WikiHtmlLockClock;
 import com.workplace.wiki.service.WikiShareClock;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -117,7 +118,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       UserMailProfileBuilder.class,
       UserRepository.class,
       WikiBodyHistoryRepository.class,
-      WikiShareClock.class
+      WikiShareClock.class,
+      WikiHtmlLockClock.class
     })
 public abstract class IntegrationTestBase {
 

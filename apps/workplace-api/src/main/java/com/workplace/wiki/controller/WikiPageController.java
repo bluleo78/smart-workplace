@@ -3,10 +3,13 @@ package com.workplace.wiki.controller;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.wiki.dto.CollabAccessResponse;
+import com.workplace.wiki.dto.HtmlLockHeartbeatRequest;
 import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SaveHtmlPageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
+import com.workplace.wiki.dto.WikiHtmlLockAcquired;
+import com.workplace.wiki.dto.WikiHtmlLockStatus;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiMovePreviewResponse;
 import com.workplace.wiki.dto.WikiPageDetail;
@@ -14,6 +17,7 @@ import com.workplace.wiki.dto.WikiPageEntryResponse;
 import com.workplace.wiki.dto.WikiRevisionDetail;
 import com.workplace.wiki.dto.WikiRevisionListResponse;
 import com.workplace.wiki.service.WikiCollabDocService;
+import com.workplace.wiki.service.WikiHtmlLockService;
 import com.workplace.wiki.service.WikiHtmlPageService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
@@ -21,6 +25,7 @@ import com.workplace.wiki.service.WikiRevisionService;
 import com.workplace.wiki.service.WikiShareAccess;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -52,6 +57,7 @@ public class WikiPageController {
   private final WikiCollabDocService collabService;
   private final WikiRevisionService revisionService;
   private final WikiHtmlPageService htmlPageService;
+  private final WikiHtmlLockService htmlLockService;
   private final JwtTokenProvider jwtTokenProvider;
   private final WikiShareAccess shareAccess;
 
@@ -145,7 +151,9 @@ public class WikiPageController {
 
   /**
    * 「HTML 문서」 원본 저장(WP-1307) — 소스 저장·다시 올리기·MCP 원본 바꾸기. EDITOR 이상, HTML 문서가 아니면 409, version 충돌
-   * 409, 5MB 초과 413. 저장할 때마다 직전 판을 버전 기록에 남긴다(AI 경로면 ✦ 귀속 — 판정은 {@link #save} 와 같다).
+   * 409, 5MB 초과 413. 저장할 때마다 직전 판을 버전 기록에 남긴다(AI 경로면 ✦ 귀속 — 판정은 {@link #save} 와 같다). 다른 편집 세션이 편집
+   * 중이면 409(errors.code=HTML_LOCKED, WP-1308) — lockToken 이 없는 저장(다시 올리기·MCP·AI)은 누구든 편집 중이면 막힌다.
+   * 편집 「저장」(lockToken)이면 그 편집 잠금이 풀린다.
    */
   @PutMapping("/{id}/html")
   public ResponseEntity<WikiPageDetail> saveHtml(
@@ -155,6 +163,59 @@ public class WikiPageController {
       Authentication authentication) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
     return ResponseEntity.ok(htmlPageService.save(callerId, pageId, req, ai));
+  }
+
+  /**
+   * 「HTML 문서」 편집 잠금 상태(WP-1308). VIEWER 이상. 입력 없이 10분이 지난 잠금은 풀린 것으로 본다. canForceRelease 는 스페이스
+   * 소유자가 남의 잠금을 볼 때 true.
+   */
+  @GetMapping("/{id}/html-lock")
+  public ResponseEntity<WikiHtmlLockStatus> htmlLock(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
+    return ResponseEntity.ok(htmlLockService.status(callerId, pageId));
+  }
+
+  /**
+   * 「편집」 — 새 편집 세션으로 잠금을 얻는다(WP-1308). EDITOR 이상. 남이 편집 중이면 409(errors.code=HTML_LOCKED,
+   * holderName). 세션 표지(token)와 남아 있던 내 임시 저장본·그사이 다른 저장이 있었는지를 함께 돌려준다. 내가 다른 창에서 편집 중이면 이 창이
+   * 넘겨받는다.
+   */
+  @PostMapping("/{id}/html-lock")
+  public ResponseEntity<WikiHtmlLockAcquired> acquireHtmlLock(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
+    return ResponseEntity.ok(htmlLockService.acquire(callerId, pageId));
+  }
+
+  /**
+   * 편집 중 신호(WP-1308) — 그 세션(body.token)의 마지막 입력 시각을 새로 하고 고치던 소스를 임시 저장본으로 남긴다. 세션이 맞지 않으면(잠금을 잃음)
+   * 아무것도 바꾸지 않고 mine=false 로 알린다.
+   */
+  @PutMapping("/{id}/html-lock")
+  public ResponseEntity<WikiHtmlLockStatus> heartbeatHtmlLock(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestBody HtmlLockHeartbeatRequest req) {
+    return ResponseEntity.ok(htmlLockService.heartbeat(callerId, pageId, req));
+  }
+
+  /**
+   * 편집 끝내기(WP-1308). 기본은 「취소」 — 그 세션(token)의 잠금을 풀고 임시 저장본도 지운다. keepDraft=true 면 내용을 남긴 채 편집만 끝낸다.
+   * 세션이 맞지 않으면 아무것도 바꾸지 않는다. force=true 는 「잠금 풀기」 — 스페이스 소유자가 누구의 잠금이든 푼다(token 불요, 편집하던 사람의 임시
+   * 저장본은 남는다, 소유자가 아니면 403).
+   */
+  @DeleteMapping("/{id}/html-lock")
+  public ResponseEntity<Void> releaseHtmlLock(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestParam(value = "force", defaultValue = "false") boolean force,
+      @RequestParam(value = "keepDraft", defaultValue = "false") boolean keepDraft,
+      @RequestParam(value = "token", required = false) UUID token) {
+    if (force) {
+      htmlLockService.forceRelease(callerId, pageId);
+    } else {
+      htmlLockService.release(callerId, pageId, token, !keepDraft);
+    }
+    return ResponseEntity.noContent().build();
   }
 
   /** 버전 기록 목록(WP-297) — 현재 판 + 저장된 판 최신순(최대 200). VIEWER 이상, 비멤버·없는 페이지 404. */

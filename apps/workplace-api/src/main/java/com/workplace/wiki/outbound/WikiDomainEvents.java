@@ -1,6 +1,7 @@
 package com.workplace.wiki.outbound;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -24,6 +25,21 @@ public final class WikiDomainEvents {
 
   /** 페이지 삭제 직후(자식 CASCADE). */
   public record WikiPageDeletedEvent(long spaceId, long pageId, Long actorId, Instant occurredAt) {}
+
+  /**
+   * 「HTML 문서」 편집 잠금이 바뀌었다(WP-1308) — 잠금·저장·취소·강제 풀기. 바뀐 뒤의 잠금(쥔 사람·시각, 풀렸으면 holderId=null)을 실어 그
+   * 페이지를 연 화면이 다시 받지 않고 잠금 상태를 바로 바꾸게 한다(「○○ 님이 편집 중입니다」 띠·단추). 입력이 없어 저절로 풀린 잠금은 이벤트가 없다(화면이 잠금을 본
+   * 동안 가볍게 다시 받는다).
+   */
+  public record WikiHtmlLockChangedEvent(
+      long spaceId,
+      long pageId,
+      Long actorId,
+      Long holderId,
+      String holderName,
+      OffsetDateTime acquiredAt,
+      OffsetDateTime expiresAt,
+      Instant occurredAt) {}
 
   /** 페이지 트리 이동(parent/position 변경) 직후 — 사이드바 트리 재조회용. */
   public record WikiPageMovedEvent(long spaceId, long pageId, Long actorId, Instant occurredAt) {}

@@ -1,5 +1,5 @@
 // 위키 E2E 팩토리 — 스페이스·페이지 응답 모킹용.
-import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../src/types/wiki'
+import type { WikiHtmlLockStatus, WikiPageDetail, WikiPageSummary, WikiSpace } from '../../src/types/wiki'
 
 export function wikiSpace(over: Partial<WikiSpace> = {}): WikiSpace {
   return {
@@ -37,6 +37,21 @@ export function wikiPageDetail(over: Partial<WikiPageDetail> = {}): WikiPageDeta
     updatedAt: '2026-01-01T00:00:00Z',
     aiLastUsedAt: null,
     aiLastAction: null,
+    ...over,
+  }
+}
+
+/** 「HTML 문서」 편집 잠금 상태(WP-1308) — 기본은 잠금 없음. 남이 잠근 상태는 { locked: true, holderName } 로 준다. */
+export function wikiHtmlLock(over: Partial<WikiHtmlLockStatus> = {}): WikiHtmlLockStatus {
+  const locked = over.locked ?? false
+  return {
+    locked,
+    mine: false,
+    holderId: locked ? 2 : null,
+    holderName: locked ? '김민지' : null,
+    acquiredAt: locked ? '2026-11-02T09:00:00Z' : null,
+    expiresAt: locked ? '2026-11-02T09:10:00Z' : null,
+    canForceRelease: false,
     ...over,
   }
 }
