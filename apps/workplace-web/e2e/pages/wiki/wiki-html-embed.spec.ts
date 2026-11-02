@@ -362,4 +362,70 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
       expect(await pre.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('pre')
     })
   })
+
+  // WP-1301 요소 고르기 — iframe 안 고르기 스크립트가 실제 마우스·키를 받는지(@input). 메시지 검증·칩 배선은 WikiHtmlEmbedView.test.tsx.
+  test('「고르기」로 블록 안 요소를 눌러 고르고, Shift 로 더하고, Esc 로 풀고 끄며, 고르는 중에는 링크가 움직이지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const spaceId = 1
+    const pageId = 64
+    const source = [
+      '<h1 id="title" style="margin:8px">3분기 회고</h1>',
+      '<div id="card" style="border:1px solid #ccc;border-radius:8px;padding:8px;margin:8px"><span>출시</span> <b>4건</b></div>',
+      '<p style="margin:8px"><a id="go" href="https://example.com/away">자세히</a></p>',
+      '<svg width="120" height="40" style="margin:8px"><rect id="bar" x="0" y="0" width="60" height="40" fill="#6366f1"></rect></svg>',
+    ].join('')
+    await mockWikiPageEditor(page, { spaceId, pageId, title: '고르기', body: ['앞 문단', '', '```html-embed', source, '```', '', '뒤 문단'].join('\n'), role: 'EDITOR' })
+    await openWikiEditor(page, { spaceId, pageId })
+
+    const block = page.getByTestId('wiki-html-embed')
+    const frame = page.frameLocator('[data-testid="wiki-html-embed-frame"]')
+    const chips = block.getByTestId('wiki-html-embed-chip')
+    await expect(frame.locator('#title')).toHaveText('3분기 회고')
+    const pick = block.getByTestId('wiki-html-embed-pick')
+    await pick.click()
+    await expect(pick).toHaveAttribute('aria-pressed', 'true')
+    await expect(block.getByTestId('wiki-html-embed-picks')).toContainText('누르면 고릅니다')
+
+    // 올리면 점선 + 이름표.
+    await frame.locator('#card').hover()
+    await expect(frame.locator('[data-wp-html-picker-layer]')).toContainText('카드 · 출시')
+    // 누르면 번호 1, Shift+클릭으로 2.
+    await frame.locator('#title').click()
+    await expect(chips).toHaveText(['1제목 · 3분기 회고'])
+    await frame.locator('#card').click({ modifiers: ['Shift'] })
+    await frame.locator('#bar').click({ modifiers: ['Shift'] })
+    await expect(chips).toHaveText(['1제목 · 3분기 회고', '2카드 · 출시 4건', '3차트 요소'])
+    await expect(frame.locator('[data-wp-html-picker-layer] > div')).toHaveCount(3)
+
+    // 고르는 중 링크를 눌러도 이동하지 않고 그 링크가 골라진다(그냥 클릭은 하나로 바꾼다).
+    // 링크는 <base target="_blank"> 로 새 탭(popup)에 열리므로 프레임 주소가 아니라 새 창이 생기지 않았는지 본다.
+    let popups = 0
+    page.on('popup', () => popups++)
+    await frame.locator('#go').click()
+    await expect(chips).toHaveText(['1링크 · 자세히'])
+    await expect(frame.locator('#go')).toBeVisible()
+    expect(page.frames().some((f) => f.url().includes('example.com'))).toBe(false)
+    expect(popups).toBe(0)
+
+    // 칩 ✕ 로 빼기.
+    await block.getByRole('button', { name: '1번 고른 것 빼기' }).click()
+    await expect(chips).toHaveCount(0)
+
+    // Esc — 고른 것이 있으면 풀기만, 없으면 고르기를 끄고 블록을 통째 선택한다.
+    await frame.locator('#title').click()
+    await expect(chips).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(chips).toHaveCount(0)
+    await expect(pick).toHaveAttribute('aria-pressed', 'true')
+    await frame.locator('#title').click()
+    await page.keyboard.press('Escape')
+    await expect(chips).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(pick).toHaveAttribute('aria-pressed', 'false')
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+
+    // 꺼진 채 링크는 그대로 링크다 — ⌘/Ctrl+클릭은 고르기를 켜며 그 요소를 고른다.
+    await frame.locator('#card').click({ modifiers: ['ControlOrMeta'] })
+    await expect(pick).toHaveAttribute('aria-pressed', 'true')
+    await expect(chips).toHaveText(['1카드 · 출시 4건'])
+  })
 })

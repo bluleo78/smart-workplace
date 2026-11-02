@@ -2,11 +2,13 @@
 // WP-1300: 평소엔 미리보기만(올리면 막대), 선택하면 다시 올리기·크게 보기·삭제와 키 안내, 소스 편집은 코드(줄 번호·색 구분)와 미리보기를 나란히.
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps, useEditorState } from '@tiptap/react'
-import { Code2, MoreHorizontal } from 'lucide-react'
+import { Code2, Crosshair, MoreHorizontal, X } from 'lucide-react'
 import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
+import { type HtmlPicker, useHtmlPicker } from '@/hooks/useHtmlPicker'
+import { htmlPickerScript, pickedLabel } from '@/lib/htmlPicker'
 import { isMacLike } from '@/lib/platform'
 
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
@@ -102,7 +104,7 @@ const keepSelection = (e: MouseEvent) => e.preventDefault()
  *   CDN 스크립트 로드는 막지 않는다. 문서 끝에 높이 보고 스크립트를 붙이고, 이 iframe 이 보낸 메시지만 받아 범위로 잘라 높이를 맞춘다.
  * - 막대(편집할 때만, WP-1300): 「⟨⟩ HTML 블록」 이름표(누르면 블록 통째 선택)·「소스 편집」(열면 「완료」)·오른쪽에 선택 땐
  *   「다시 올리기」「크게 보기」「삭제」, 아니면 「⋯」 메뉴(같은 세 가지). 평소엔 자리만 두고 감춘다 — 올리거나(hover)·선택하거나·소스를 열면
- *   보인다(CSS). 자리를 늘 두는 것은 올릴 때마다 아래 글이 밀려 흔들리지 않게. 「✦ AI로 고치기」「◎ 고르기」는 동작이 붙는 하위 이슈에서 넣는다.
+ *   보인다(CSS). 자리를 늘 두는 것은 올릴 때마다 아래 글이 밀려 흔들리지 않게. 「◎ 고르기」(WP-1301)는 이름표·소스 편집 다음에 둔다. 「✦ AI로 고치기」는 WP-1302 에서 넣는다.
  * - 블록이 통째 선택되면 아래에 키 안내(Enter 다음 줄 · Esc 바깥으로 · ⌘/Ctrl+Enter 바로 나가기).
  * - 소스(노드 글자 = Yjs 텍스트)는 NodeViewContent(contentDOM)다 — 늘 DOM 에 두되(ProseMirror 가 글자 자리를 잃지 않게) 「소스 편집」을
  *   켰을 때만 보인다. 열면 코드(왼쪽, 줄 번호 + 색 구분 데코레이션)와 미리보기(오른쪽)를 나란히, 좁으면 위아래로 둔다(CSS 컨테이너 쿼리).
@@ -124,7 +126,18 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
   const nodeSelected = useNodeSelected(editor, getPos)
   const showSelected = editable && nodeSelected
   const previewSource = useDebounceValue(source, showSource ? PREVIEW_DEBOUNCE_MS : REMOTE_PREVIEW_DEBOUNCE_MS)
-  const doc = useMemo(() => htmlEmbedDocument(previewSource), [previewSource])
+  // 요소 고르기(WP-1301) — iframe 안 Esc 로 고르기가 꺼지면 블록을 통째 선택한다(설계 §1, 고른 것 풀기 단계는 훅이 한다).
+  const picker = useHtmlPicker({
+    onExit: () => {
+      const pos = getPos()
+      if (typeof pos === 'number') selectHtmlEmbed(view, pos)
+    },
+  })
+  // 고르기 스크립트는 편집할 수 있는 화면에만 넣는다 — 보기 전용 화면(판 미리보기·공개 공유)은 고를 일이 없다.
+  const doc = useMemo(
+    () => htmlEmbedDocument(previewSource) + (editable ? htmlPickerScript(picker.token) : ''),
+    [previewSource, editable, picker.token],
+  )
   const [height, setHeight] = useState(HTML_EMBED_DEFAULT_HEIGHT)
   const [menuOpen, setMenuOpen] = useState(false)
   const [dialog, setDialog] = useState<EmbedDialog | null>(null)
@@ -132,13 +145,23 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
   const lineCount = useMemo(() => (showSource ? countLines(source) : 0), [showSource, source])
   const lineNumbers = useMemo(() => lineNumberText(lineCount), [lineCount])
 
-  // 높이 보고 — iframe 이 붙으면 그 창을 등록하고 떨어지면(문서가 바뀌어 새 iframe·블록 사라짐) 해제한다(React 19 콜백 ref 정리 함수).
+  // 높이 보고·고르기 — iframe 이 붙으면 그 창을 등록하고 떨어지면(문서가 바뀌어 새 iframe·블록 사라짐) 해제한다(React 19 콜백 ref 정리 함수).
   const frameEl = useRef<HTMLIFrameElement | null>(null)
-  const frameRef = useCallback((el: HTMLIFrameElement | null) => {
-    frameEl.current = el
-    const win = el?.contentWindow
-    return win ? watchEmbedHeight(win, setHeight) : undefined
-  }, [])
+  const attachPicker = picker.attach
+  const frameRef = useCallback(
+    (el: HTMLIFrameElement | null) => {
+      frameEl.current = el
+      const win = el?.contentWindow
+      if (!win) return undefined
+      const detachPicker = attachPicker(win)
+      const unwatch = watchEmbedHeight(win, setHeight)
+      return () => {
+        unwatch()
+        detachPicker()
+      }
+    },
+    [attachPicker],
+  )
 
   // 미리보기(iframe)를 누르면 블록을 통째 선택해 보인다(WP-1288) — iframe 안 클릭은 편집기에 오지 않아, 포커스가 iframe 으로 넘어가며 창이
   // blur 되는 것으로 안다. 포커스는 iframe 에 남긴다 — 블록 안 입력칸·키보드로 다루는 화면이 키를 그대로 받게(편집기로 돌아가려면 블록
@@ -212,6 +235,7 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
       data-selected={showSelected ? '' : undefined}
       data-source-open={showSource ? '' : undefined}
       data-menu-open={menuOpen ? '' : undefined}
+      data-picking={picker.enabled ? '' : undefined}
     >
       {editable && (
         <div ref={pinFlex} className="wiki-html-embed__bar" contentEditable={false} data-testid="wiki-html-embed-bar">
@@ -237,6 +261,19 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
             onClick={toggleSource}
           >
             {sourceOpen ? '완료' : '소스 편집'}
+          </button>
+          {/* 요소 고르기(WP-1301) — 켜면 블록 안을 눌러 고칠 대상을 짚는다(iframe 안 ⌘/Ctrl+클릭으로도 켜진다). */}
+          <button
+            ref={pinInlineFlex}
+            type="button"
+            className="wiki-html-embed__btn wiki-html-embed__btn--pick"
+            aria-pressed={picker.enabled}
+            data-testid="wiki-html-embed-pick"
+            onMouseDown={keepSelection}
+            onClick={() => picker.setEnabled(!picker.enabled)}
+          >
+            <Crosshair className="wiki-html-embed__icon" aria-hidden />
+            {picker.enabled ? '고르기 켜짐' : '고르기'}
           </button>
           <span ref={pinInlineFlex} className="wiki-html-embed__actions">
             {showSelected ? (
@@ -322,6 +359,43 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
         // 늦춘 소스 — 큰 창이 떠 있는 동안 동료·내 타자마다 iframe 을 새로 만들지 않게(블록 미리보기와 같은 박자).
         <WikiHtmlEmbedExpandDialog {...dialogProps('expand')} source={previewSource} />
       )}
+      {editable && (picker.enabled || picker.items.length > 0) && (
+        <HtmlBlockPicks picker={picker} />
+      )}
     </NodeViewWrapper>
+  )
+}
+
+/**
+ * 고르기 안내와 고른 요소 칩(WP-1301) — 블록 바로 아래. 칩은 고른 순서대로 번호 + 짧은 설명이고, 누르면 그 요소를 강조하고 ✕ 로 뺀다.
+ * 「AI로 고치기」 입력 칸이 생기면(WP-1302) 이 칩이 그 칸으로 들어간다 — 고른 목록은 useHtmlPicker 의 items 다.
+ */
+function HtmlBlockPicks({ picker }: { picker: HtmlPicker }) {
+  return (
+    <div ref={pinFlex} className="wiki-html-embed__picks" contentEditable={false} data-testid="wiki-html-embed-picks">
+      {picker.items.length === 0 ? (
+        <span className="wiki-html-embed__picks-hint">누르면 고릅니다 · Shift+클릭 여러 개 · Esc 끄기</span>
+      ) : (
+        picker.items.map((item, i) => (
+          <span key={`${i}-${item.path}`} className="wiki-html-embed__chip" data-testid="wiki-html-embed-chip" title={item.text || item.kind}>
+            <button type="button" className="wiki-html-embed__chip-main" onMouseDown={keepSelection} onClick={() => picker.highlight(i)}>
+              <span className="wiki-html-embed__chip-num" aria-hidden>
+                {i + 1}
+              </span>
+              {pickedLabel(item)}
+            </button>
+            <button
+              type="button"
+              className="wiki-html-embed__chip-remove"
+              aria-label={`${i + 1}번 고른 것 빼기`}
+              onMouseDown={keepSelection}
+              onClick={() => picker.remove(i)}
+            >
+              <X aria-hidden />
+            </button>
+          </span>
+        ))
+      )}
+    </div>
   )
 }

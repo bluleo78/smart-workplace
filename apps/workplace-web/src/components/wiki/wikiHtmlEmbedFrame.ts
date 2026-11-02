@@ -1,3 +1,5 @@
+import { watchFrameMessages } from '@/lib/frameMessages'
+
 /**
  * 노트 HTML 블록(WP-1242) iframe 높이 맞추기 — 화면 없이 판정되는 순수 부분(문서 만들기·메시지 해석·높이 범위).
  *
@@ -63,28 +65,13 @@ export function embedHeightFromMessage(
   return clampEmbedHeight(data.height)
 }
 
-/** iframe 창 → 그 블록의 높이 받기. 창 메시지 듣기는 블록마다가 아니라 모듈에 하나만 둔다(블록이 많은 노트에서 메시지마다 모든 블록이 깨지 않게). */
-const heightWatchers = new Map<Window, (height: number) => void>()
-
-/** 모듈 하나짜리 message 듣기 — 보낸 창으로 그 블록을 찾고, 같은 창인지·모양·범위를 embedHeightFromMessage 로 다시 가린다. */
-function onEmbedMessage(event: MessageEvent): void {
-  const source = event.source as Window | null
-  const onHeight = source ? heightWatchers.get(source) : undefined
-  if (!onHeight) return
-  const height = embedHeightFromMessage(event, source)
-  if (height != null) onHeight(height)
-}
-
 /**
- * iframe 창의 높이 보고를 받기 시작한다 — 돌려준 함수로 그만 받는다. 첫 등록 때 창 message 듣기를 붙이고, 마지막 해제 때 뗀다.
- * iframe 이 문서에 붙은 뒤(contentWindow 가 생긴 뒤) 부른다 — srcdoc 문서가 바뀌어도 같은 iframe 의 창 객체는 같다.
+ * iframe 창의 높이 보고를 받기 시작한다 — 돌려준 함수로 그만 받는다. 창 message 듣기는 모듈에 하나만 둔다(watchFrameMessages).
+ * 같은 창인지·모양·범위는 embedHeightFromMessage 로 가린다.
  */
 export function watchEmbedHeight(frameWindow: Window, onHeight: (height: number) => void): () => void {
-  if (heightWatchers.size === 0) window.addEventListener('message', onEmbedMessage)
-  heightWatchers.set(frameWindow, onHeight)
-  return () => {
-    if (heightWatchers.get(frameWindow) !== onHeight) return
-    heightWatchers.delete(frameWindow)
-    if (heightWatchers.size === 0) window.removeEventListener('message', onEmbedMessage)
-  }
+  return watchFrameMessages(frameWindow, (event) => {
+    const height = embedHeightFromMessage(event, frameWindow)
+    if (height != null) onHeight(height)
+  })
 }
