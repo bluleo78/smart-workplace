@@ -10,6 +10,7 @@ import { ImeCommitFlush } from '@/lib/imeCommitFlush'
 
 import { WikiAiMarkers } from './wikiAiMarkers'
 import { WikiAppLinkChips } from './wikiAppLinkChips'
+import { WikiBlockExit } from './wikiBlockExit'
 import { WikiCatchUpHighlight } from './wikiCatchUpHighlight'
 import { WikiHtmlImportPaste } from './wikiHtmlImportInsert'
 import { WikiImage } from './wikiImageNode'
@@ -49,6 +50,9 @@ export function wikiEditorExtensions(o: {
     Collaboration.configure({ document: o.doc, field: COLLAB_FRAGMENT }),
     // HTML 문서 소스 붙여넣기(WP-1241) — 붙여넣은 글자가 문서 전체면 변환해 모양째 넣는다(일반 웹 복사는 위 모양 거르기로 간다).
     WikiHtmlImportPaste,
+    // HTML 블록·모양 영역 밖으로 나가기(WP-1288) — 모양 영역 끝 빈 줄 Enter·마지막 줄 ↓, 노트 아래 빈자리 클릭으로 다음 줄을 만든다.
+    // 멘션·슬래시 제안보다 앞에 둔다 — 단축키는 목록 뒤쪽 확장이 먼저 받으니, 제안 목록이 열린 채의 Enter 를 제안이 먼저 가져가게.
+    WikiBlockExit,
     o.mention,
     o.slash,
     Placeholder.configure({

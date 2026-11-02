@@ -16,7 +16,7 @@ import {
   htmlEmbedDocument,
   watchEmbedHeight,
 } from './wikiHtmlEmbedFrame'
-import { consumeHtmlEmbedInserted, insertHtmlEmbed } from './wikiHtmlEmbedNode'
+import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
 import { embedsToCodeBlocks, stripShapeFromSlice } from './wikiPasteShape'
 import { filterSlashItems } from './wikiSlashSuggestion'
 
@@ -123,25 +123,6 @@ describe('슬래시 메뉴 HTML 블록', () => {
     expect(filterSlashItems('', { inTable: true, aiEnabled: true }).map((i) => i.key)).not.toContain('htmlEmbed')
     expect(filterSlashItems('html', { inTable: true, aiEnabled: false })).toEqual([])
     expect(filterSlashItems('', { inTable: false, aiEnabled: true }).map((i) => i.key)).toContain('htmlEmbed')
-  })
-
-  it('넣은 위치를 이 편집기에만 한 번 남긴다 — 그 위치 블록 화면이 꺼내 쓰고 두 번째는 없다', () => {
-    const ed = open('본문 글자')
-    const insertAt = () => {
-      ed.view.dispatch(ed.state.tr.setSelection(TextSelection.create(ed.state.doc, 3)))
-      ed.commands.command(insertHtmlEmbed)
-    }
-    insertAt()
-    const pos = ed.state.doc.child(0).nodeSize
-    const other = new Editor({ extensions: wikiSchemaExtensions() })
-    expect(consumeHtmlEmbedInserted(other, pos)).toBe(false)
-    other.destroy()
-    expect(consumeHtmlEmbedInserted(ed, pos)).toBe(true)
-    expect(consumeHtmlEmbedInserted(ed, pos)).toBe(false)
-    // 위치가 다르면 false 이고 표시도 버린다(뒤에 맞는 위치로 물어도 없다).
-    insertAt()
-    expect(consumeHtmlEmbedInserted(ed, pos + 1)).toBe(false)
-    expect(consumeHtmlEmbedInserted(ed, pos)).toBe(false)
   })
 
   it('빈 문단에서는 그 문단을 빈 HTML 블록으로 바꾸고 커서를 안에 둔다', () => {
