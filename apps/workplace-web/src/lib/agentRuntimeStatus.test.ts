@@ -12,6 +12,7 @@ import {
   isRunningStatus,
   locationDeleteBlockReason,
   locationOptionLabel,
+  metricsUnavailable,
   parseMemoryQuantity,
   statusDetail,
   statusPill,
@@ -164,4 +165,12 @@ describe('locationDeleteBlockReason — 실행 환경을 지울 수 없는 이�
   test('기본도 아니고 쓰는 설정도 없으면 지울 수 있다(null)', () => {
     expect(locationDeleteBlockReason({ isDefault: false, settingCount: 0 })).toBeNull()
   })
+})
+
+test('metricsUnavailable — 잴 수 없다고 확인된(false) 실행 환경만, 모름(null)·환경 없음은 아니다 (WP-1280)', () => {
+  expect(metricsUnavailable(createLocation({ metricsAvailable: false }))).toBe(true)
+  expect(metricsUnavailable(createLocation({ metricsAvailable: true }))).toBe(false)
+  expect(metricsUnavailable(createLocation({ metricsAvailable: null }))).toBe(false)
+  expect(metricsUnavailable(null)).toBe(false)
+  expect(metricsUnavailable(undefined)).toBe(false)
 })

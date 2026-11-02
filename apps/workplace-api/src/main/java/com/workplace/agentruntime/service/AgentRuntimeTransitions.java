@@ -92,6 +92,19 @@ public class AgentRuntimeTransitions {
     if (op != null) changeNotifier.agentChanged(op, agentId, actorId);
   }
 
+  /**
+   * 실행 설정은 그대로인데 runner 가 받아 가는 입력(저장소 토큰 등)만 바뀐 경우의 알림 — 켜져 있는 AI 면 실제 위치의 runner 에게 desired 를 다시
+   * 받아 가게 알리고, 관리자 화면에는 「바뀜」을 알린다. 꺼져 있으면 runner 가 할 일이 없어 화면 알림만 낸다.
+   *
+   * @param desired 그 AI 의 원하는 상태
+   * @param effectiveLocationId 실제 위치(지정 위치 ?? 기본, 없으면 null)
+   * @param actorId 바꾼 관리자
+   */
+  public void inputsChanged(long agentId, Desired desired, Long effectiveLocationId, Long actorId) {
+    if (desired == Desired.RUN) publish(effectiveLocationId);
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, actorId);
+  }
+
   /** 실제 위치마다(겹침·null 제외) 원하는 상태 변경 이벤트를 낸다 — 그 위치의 runner 가 다시 받아 간다. */
   private void publish(Long... locationIds) {
     long tenantId = TenantContext.require();

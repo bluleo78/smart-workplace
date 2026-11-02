@@ -4,7 +4,7 @@
 /** desired 의 비밀값 참조 — 원문 없이 이름·출처·버전만. */
 export interface RunnerSecretRef {
   name: string;
-  source: 'WORKS' | 'LOCATION' | string;
+  source: 'WORKS' | string;
   version: number | null;
   rotateAfter: string | null;
 }
@@ -77,6 +77,12 @@ export interface ClaudeSecretResponse {
   payload: string;
 }
 
+/** AI 의 저장소 토큰 전부(활성만, host 오름차순) — 등록이 없으면 version null·빈 배열. */
+export interface RepoSecretsResponse {
+  version: number | null;
+  tokens: { kind: 'GITHUB' | 'GITLAB'; host: string; token: string }[];
+}
+
 export interface ObservedResponse {
   updated: number;
   ignored: number[];
@@ -89,7 +95,10 @@ export interface WorksClient {
   issueAgentKey(agentUserId: number): Promise<AgentKeyResponse>;
   /** 등록된 연결이 없으면(404 RUNNER_SECRET_NOT_FOUND) null. */
   getClaudeSecret(agentUserId: number): Promise<ClaudeSecretResponse | null>;
-  reportObserved(agents: RunnerObservedAgent[]): Promise<ObservedResponse>;
+  /** 저장소 토큰(WP-1268) — 원문이 들어 있으니 로그에 남기지 않는다. */
+  getRepoSecrets(agentUserId: number): Promise<RepoSecretsResponse>;
+  /** metricsAvailable — 사용량 API 가 있는지(WP-1280). 모르면(일시 오류) undefined 라 보내지 않는다. */
+  reportObserved(agents: RunnerObservedAgent[], metricsAvailable?: boolean): Promise<ObservedResponse>;
 }
 
 /**
@@ -171,7 +180,11 @@ export class HttpWorksClient implements WorksClient {
     }
   }
 
-  reportObserved(agents: RunnerObservedAgent[]): Promise<ObservedResponse> {
-    return this.call('POST', '/observed', { agents });
+  getRepoSecrets(agentUserId: number): Promise<RepoSecretsResponse> {
+    return this.call('GET', `/agents/${agentUserId}/secrets/repos`);
+  }
+
+  reportObserved(agents: RunnerObservedAgent[], metricsAvailable?: boolean): Promise<ObservedResponse> {
+    return this.call('POST', '/observed', { agents, metricsAvailable });
   }
 }

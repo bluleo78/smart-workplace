@@ -26,13 +26,16 @@ export function desiredAgent(overrides: Partial<RunnerDesiredAgent> = {}): Runne
     secrets: [
       { name: 'agent-key', source: 'WORKS', version: 812, rotateAfter: '2026-11-24T10:00:00+09:00' },
       { name: 'claude', source: 'WORKS', version: 57, rotateAfter: null },
-      { name: 'github', source: 'LOCATION', version: null, rotateAfter: null },
+      { name: 'repos', source: 'WORKS', version: 1730505600000, rotateAfter: null },
     ],
     ...overrides,
   };
 }
 
-/** 테스트용 runner 설정 — 위치 값(nodeSelector 등)은 비워 두고 필요한 테스트만 채운다. */
+/**
+ * 테스트용 runner 설정 — 위치 값(nodeSelector 등)은 비워 두고 필요한 테스트만 채운다.
+ * 작업 디스크는 기존 PVC 흐름 테스트가 그대로 돌게 pvc 방식으로 둔다 — hostPath(제품 기본) 테스트는 workDiskType 을 덮어쓴다.
+ */
 export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfig {
   return {
     worksUrl: 'https://works.example.test',
@@ -42,8 +45,9 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     nodeSelector: {},
     tolerations: [],
     hostAliases: [],
+    workDiskType: 'pvc',
+    workHostPath: '/var/lib/genia-agents',
     storageClass: undefined,
-    githubSecretName: 'github-token',
     dindStorageLimit: '20Gi',
     dindResources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '4', memory: '6Gi' } },
     healthPort: 8080,

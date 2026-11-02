@@ -16,10 +16,15 @@ export interface RunnerConfig {
   nodeSelector: Record<string, string>;
   tolerations: V1Toleration[];
   hostAliases: V1HostAlias[];
-  /** 작업 디스크 StorageClass — 없으면 클러스터 기본. */
+  /**
+   * 작업 디스크 방식(WP-1270) — hostPath(기본): 노드 로컬 `<workHostPath>/agent-<id>` 를 쓰고 처음 뜬 노드에 고정한다.
+   * pvc: AI 마다 PVC(`storageClass`, 비우면 클러스터 기본). NFS 처럼 느린 기본 StorageClass 를 피하려고 노드 로컬이 기본이다.
+   */
+  workDiskType: 'hostPath' | 'pvc';
+  /** hostPath 방식의 노드 쪽 상위 폴더(절대 경로). */
+  workHostPath: string;
+  /** 작업 디스크 StorageClass — pvc 방식에서만 쓴다. 없으면 클러스터 기본. */
   storageClass: string | undefined;
-  /** 위치에 미리 만든 GitHub 토큰 Secret 이름(키 token) — runner 는 복사하지 않고 Pod 가 직접 마운트한다. */
-  githubSecretName: string;
   /** dind 의 /var/lib/docker emptyDir 상한. */
   dindStorageLimit: string;
   /**
@@ -173,8 +178,15 @@ const envSchema = z
       ),
       AGENT_TOLERATIONS: jsonEnv('AGENT_TOLERATIONS', objectArray<V1Toleration>('AGENT_TOLERATIONS'), []),
       AGENT_HOST_ALIASES: jsonEnv('AGENT_HOST_ALIASES', objectArray<V1HostAlias>('AGENT_HOST_ALIASES'), []),
+      AGENT_WORK_DISK_TYPE: z
+        .string()
+        .optional()
+        .transform((v) => v?.trim() || 'hostPath')
+        .pipe(z.enum(['hostPath', 'pvc'], { error: 'AGENT_WORK_DISK_TYPE 은 hostPath 또는 pvc 여야 합니다' })),
+      AGENT_WORK_HOST_PATH: optionalStr('/var/lib/genia-agents')
+        .transform((v) => (v as string).replace(/(.)\/+$/, '$1'))
+        .refine((v) => v.startsWith('/'), { error: 'AGENT_WORK_HOST_PATH 는 절대 경로여야 합니다' }),
       AGENT_STORAGE_CLASS: optionalStr(),
-      GITHUB_SECRET_NAME: requiredStr('GITHUB_SECRET_NAME'),
       DIND_STORAGE_LIMIT: optionalStr('20Gi'),
       DIND_RESOURCES: jsonEnv('DIND_RESOURCES', dindResourcesSchema, DEFAULT_DIND_RESOURCES),
       AGENT_IMAGE_PULL_SECRETS: csvEnv,
@@ -188,8 +200,9 @@ const envSchema = z
         nodeSelector: e.AGENT_NODE_SELECTOR,
         tolerations: e.AGENT_TOLERATIONS,
         hostAliases: e.AGENT_HOST_ALIASES,
+        workDiskType: e.AGENT_WORK_DISK_TYPE,
+        workHostPath: e.AGENT_WORK_HOST_PATH,
         storageClass: e.AGENT_STORAGE_CLASS,
-        githubSecretName: e.GITHUB_SECRET_NAME,
         dindStorageLimit: e.DIND_STORAGE_LIMIT as string,
         dindResources: e.DIND_RESOURCES,
         healthPort: e.HEALTH_PORT,

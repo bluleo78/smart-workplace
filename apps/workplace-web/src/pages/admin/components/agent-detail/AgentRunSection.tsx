@@ -39,6 +39,7 @@ import type { AgentTemplate } from '../../../../types/agentRuntime';
 import { AgentAiAccountGroup, WorkspaceAssistantGroup } from '../AgentConnectionSection';
 import { AgentKeyIssueDialog } from '../AgentKeyIssueDialog';
 import { AgentKeysSection } from '../AgentKeysSection';
+import { AgentRepoConnectionGroup } from './AgentRepoConnectionGroup';
 import type { WorksRun } from './AgentStatusSection';
 import { DetailGroup } from './DetailGroup';
 import { useWorkSettingsDraft } from './useWorkSettingsDraft';
@@ -298,6 +299,11 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
       {template.requires.includes('claude') && (
         <DetailGroup title="AI 계정" how="바로 반영" data-testid="agent-ai-account-group">
           <AgentAiAccountGroup agentUserId={agent.id} canConfigure />
+        </DetailGroup>
+      )}
+      {template.requires.includes('repo') && (
+        <DetailGroup title="저장소 연결" how="바로 반영" data-testid="agent-repo-group">
+          <AgentRepoConnectionGroup agentUserId={agent.id} />
         </DetailGroup>
       )}
       {draft && (

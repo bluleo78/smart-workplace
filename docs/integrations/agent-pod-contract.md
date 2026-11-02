@@ -4,12 +4,12 @@ runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공�
 
 ## 리소스
 
-AI 한 명(`agentUserId`)마다 runner 가 설치된 네임스페이스에 아래 네 개를 둔다.
+AI 한 명(`agentUserId`)마다 runner 가 설치된 네임스페이스에 아래 리소스를 둔다. PVC 는 작업 디스크를 PVC 로 둘 때(Helm `agent.workDisk.type: pvc`)만 만든다 — 기본은 노드 로컬 폴더다(아래 「작업 디스크」).
 
 | 종류 | 이름 | 수명 |
 |---|---|---|
 | Pod | `agent-<agentUserId>` | generation 이 바뀌고 `applyNow` 일 때, 또는 모델 연결 version 이 Pod 를 만들 때와 달라졌을 때(아래 「모델 연결 교체」) 지우고 다시 만든다 |
-| PersistentVolumeClaim | `agent-<id>-work` | generation 재생성 때 유지, desired 에서 빠지면 바로 삭제 |
+| PersistentVolumeClaim | `agent-<id>-work` | pvc 방식에서만. generation 재생성 때 유지, desired 에서 빠지면 바로 삭제(hostPath 방식이어도 예전에 만든 것이 남아 있으면 이때 지운다) |
 | Secret | `agent-<id>` | 위와 같음 |
 | ConfigMap | `agent-<id>` | desired 에서 빠지면 **마지막에** 삭제 — Pod 가 사라진 뒤 `STOPPED` 보고가 받아들여진 다음. 남아 있으면 「아직 STOPPED 를 보내지 못함」 표시다 |
 
@@ -25,6 +25,10 @@ AI 한 명(`agentUserId`)마다 runner 가 설치된 네임스페이스에 아�
 | Secret 어노테이션 | `genia.works/agent-key-id` | 받은 AI 키 id(`keyId`) |
 | Secret 어노테이션 | `genia.works/agent-key-rotate-after` | 받은 키의 `rotateAfter`(ISO-8601) |
 | Secret 어노테이션 | `genia.works/claude-version` | 받은 모델 연결 `version` |
+| Secret 어노테이션 | `genia.works/repos-version` | 받은 저장소 토큰 `version`(epoch 밀리초). 같으면 다시 받지 않는다 |
+| Secret 어노테이션 | `genia.works/repo-hosts` | 받은 토큰의 `kind:host` 목록(`GITHUB:github.com,GITLAB:gitlab.iacloud.kr`, 원문 없음) — Pod 를 만들 때 볼륨 items 를 이것으로 만든다 |
+| Pod 어노테이션 | `genia.works/claude-version`·`genia.works/repos-version` | Pod 를 만들 때 Secret 에 있던 값. Secret 의 것과 다르면 Pod 를 다시 만든다 |
+| Secret 어노테이션 | `genia.works/work-node` | hostPath 방식에서 Pod 가 처음 배치된 노드(`spec.nodeName`). 다시 만드는 Pod 를 이 노드에 고정한다 |
 
 runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/location` 이 자기 위치(desired `locationId`)인** 리소스만 만지고 지운다 — 한 네임스페이스에 runner(위치)가 둘이어도 서로의 리소스를 지우지도 관찰 보고에 넣지도 않는다. 다른 위치의 리소스와 이름이 겹치면(같은 AI) 만들지 않고 `FAILED` 로 알린다. 그래도 **위치당 네임스페이스 하나**를 권장한다. 어노테이션은 runner 가 재시작해도 「이미 받은 키」를 알게 하는 유일한 기록이다 — AI 키를 다시 받으면 곧 교체(generation+1 → Pod 재생성)이기 때문이다.
 
@@ -35,7 +39,9 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 | `agent-key` | AI 키 원문(`ak_…`). Pod 를 만들기 전에 반드시 있다 |
 | `claude-token` | 모델 연결 원문 — provider 가 `anthropic` 일 때만. 연결이 없으면(`version` null) 키를 지운다 |
 
-GitHub 토큰은 runner 가 복사하지 않는다 — 위치에 미리 만든 Secret(Helm `github.existingSecret`, 키 `token`)을 Pod 가 직접 마운트한다.
+| `repo-<kind 소문자>-<host>` | 저장소 토큰 원문(예 `repo-github-github.com`, `repo-gitlab-gitlab.iacloud.kr`) — AI 마다·호스트마다 하나. 받을 때 기존 `repo-*` 키를 모두 바꿔 넣고(빠진 host 는 지움), 등록이 없으면(`version` null·참조 없음) `repo-*` 키와 두 어노테이션을 지운다 |
+
+위치 단위 GitHub Secret(옛 Helm `github.existingSecret`)은 없다 — 저장소 토큰은 AI 마다 Works 에 저장하고 runner 가 받아 이 Secret 에 넣는다.
 
 ## 마운트
 
@@ -43,9 +49,28 @@ GitHub 토큰은 runner 가 복사하지 않는다 — 위치에 미리 만든 S
 |---|---|---|
 | `/run/genia/config.json` | ConfigMap 키 `config.json` | 읽기 전용 |
 | `/run/genia/agent-key` | Secret 키 `agent-key` | 읽기 전용 |
-| `/run/genia/github-token` | 위치 Secret 키 `token` | 읽기 전용 |
-| `/work` | PVC `agent-<id>-work` | 템플릿 `resources.workDisk` 크기, Helm `agent.storageClass` |
+| `/run/genia/repo-tokens/<github\|gitlab>/<host>` | Secret `agent-<id>` 의 `repo-<kind>-<host>` 키(볼륨 `repo-tokens`, items 마다 `path: <kind 소문자>/<host>`) | 읽기 전용. 호스트가 하나도 없으면 볼륨·마운트 자체가 없다 |
+| `/work` | 노드 폴더 `<agent.workDisk.hostPath>/agent-<id>`(기본 `/var/lib/genia-agents`, DirectoryOrCreate) 또는 PVC `agent-<id>-work` | 아래 「작업 디스크」 |
 | `/dind` | emptyDir | agent·dind 컨테이너가 docker 소켓을 나눠 쓴다 |
+
+## 저장소 토큰 (WP-1268)
+
+- 토큰은 AI 마다·저장소 호스트마다 Works 에 저장한다(관리자 화면 AI 상세 › 저장소 연결). runner 는 desired 의 `repos` 참조(`WORKS`)가 가리키는 `GET …/secrets/repos` 로 받아 Secret `agent-<id>` 에 `repo-<kind>-<host>` 키로 넣는다. 템플릿이 `repo`(옛 이름 `github`)를 요구하지 않으면 참조가 없고 키도 지운다.
+- Pod 는 만들 때 Secret 어노테이션 `repo-hosts` 로 볼륨 `repo-tokens` 를 만든다 — 호스트마다 item `{key: repo-<kind>-<host>, path: <kind 소문자>/<host>}` 를 `/run/genia/repo-tokens` 에 읽기 전용으로 마운트한다.
+- 작업 공간 엔트리포인트는 `repo-tokens/github/<host>` 마다 `gh auth login --hostname <host> --with-token`(토큰은 표준 입력으로만)과 `gh auth setup-git --hostname <host>` 를 한다. `repo-tokens/gitlab/<host>` 는 파일이 있다는 것만 알린다(GitLab 로그인은 WP-1276). 토큰 폴더가 없거나 로그인이 실패해도 경고만 하고 뜬다.
+- **Pod 재생성**: gh 로그인은 Pod 시작 때 한 번 하고 고정된다. Works 는 토큰 변경에 `generation` 을 올리지 않으므로, runner 는 Pod 어노테이션 `genia.works/repos-version` 이 Secret 의 것과 다르면(없음 ↔ 값 포함) 「모델 연결 교체」와 똑같이 `generation`·`applyNow` 와 무관하게 Pod 를 지우고 다음 회차에 다시 만든다. 토큰을 지워도(값 → 없음) 같다. 허용 밖 이미지면 지우지 않고 `FAILED`.
+- 원문은 Secret·Pod 마운트 밖(로그·어노테이션·오류 메시지)에 남기지 않는다.
+
+## 작업 디스크 (WP-1270)
+
+- **hostPath(기본)**: `/work` 는 노드 폴더 `<hostPath>/agent-<id>` 다. kubelet 이 root 소유로 만들고 fsGroup 도 적용되지 않으므로,
+  init 컨테이너 `work-owner`(작업 공간 이미지, root, requests cpu 100m·memory 128Mi)가 `chown 1001:1001 /work` 로 폴더 자체의 주인만 넘긴다.
+  Pod 가 처음 배치되면 runner 가 노드 이름을 Secret 어노테이션 `genia.works/work-node` 에 적고, 그 뒤 다시 만드는 Pod(generation·모델 연결
+  교체)는 `nodeAffinity`(`metadata.name` = 그 노드)로 같은 노드에 고정한다. Secret 은 desired 에서 빠지면 지워지므로 끄고 켜면 고정이 풀린다.
+  노드 폴더는 runner 가 지우지 않는다 — 같은 노드에 다시 뜨면 이어 쓰고, 버릴 때는 관리자가 노드에서 지운다(차트 README 「삭제」).
+- **pvc**: `/work` 는 PVC `agent-<id>-work`(템플릿 `resources.workDisk` 크기, Helm `agent.storageClass`). 노드 고정·init 컨테이너는 없다.
+
+엔트리포인트는 `/work` 가 비어 있어도(처음 뜸) 차 있어도(다시 뜸) 같게 동작해야 한다 — 하위 폴더는 엔트리포인트가 `mkdir -p` 로 만든다.
 
 ## 환경 변수 (agent 컨테이너)
 

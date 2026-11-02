@@ -32,7 +32,8 @@ function mountTable(pod: V1Pod, name: string) {
 
 describe('buildAgentResources', () => {
   it('buildsPodWithContractEnvMountsAndLabels', () => {
-    const { pod, pvc, configMap } = buildAgentResources(desiredAgent(), ctx, runnerConfig());
+    const { pod, pvc: maybePvc, configMap } = buildAgentResources(desiredAgent(), ctx, runnerConfig());
+    const pvc = maybePvc!;
 
     // 이름·라벨
     expect(pod.apiVersion).toBe('v1');
@@ -82,7 +83,6 @@ describe('buildAgentResources', () => {
     expect(mountTable(pod, 'agent')).toEqual({
       '/run/genia/config.json': { source: 'configMap:agent-42', subPath: 'config.json', readOnly: true },
       '/run/genia/agent-key': { source: 'secret:agent-42', subPath: 'agent-key', readOnly: true },
-      '/run/genia/github-token': { source: 'secret:github-token', subPath: 'token', readOnly: true },
       '/work': { source: 'pvc:agent-42-work', subPath: undefined, readOnly: undefined },
       '/dind': { source: 'emptyDir', subPath: undefined, readOnly: undefined },
     });
@@ -209,11 +209,37 @@ describe('buildAgentResources', () => {
   });
 
   it('recordsClaudeVersionAnnotationOnPod', () => {
-    const withClaude = buildAgentResources(desiredAgent(), ctx, runnerConfig(), '57').pod;
+    const withClaude = buildAgentResources(desiredAgent(), ctx, runnerConfig(), { claudeVersion: '57' }).pod;
     expect(withClaude.metadata?.annotations).toEqual({ 'genia.works/claude-version': '57' });
     // 받은 연결이 없으면 어노테이션을 두지 않는다(없음 ↔ 값 비교가 그대로 되게)
     const none = buildAgentResources(desiredAgent(), ctx, runnerConfig()).pod;
     expect(none.metadata?.annotations?.['genia.works/claude-version']).toBeUndefined();
+  });
+
+  it('mountsRepoTokensVolumeFromSecretItemsPerHost', () => {
+    const repos = { version: '1730505600000', hosts: 'GITHUB:ghe.example.com,GITHUB:github.com,GITLAB:gitlab.iacloud.kr' };
+    const { pod } = buildAgentResources(desiredAgent(), ctx, runnerConfig(), { claudeVersion: '57', repos });
+    const vol = pod.spec?.volumes?.find((v) => v.name === 'repo-tokens');
+    expect(vol?.secret?.secretName).toBe('agent-42');
+    expect(vol?.secret?.items).toEqual([
+      { key: 'repo-github-ghe.example.com', path: 'github/ghe.example.com' },
+      { key: 'repo-github-github.com', path: 'github/github.com' },
+      { key: 'repo-gitlab-gitlab.iacloud.kr', path: 'gitlab/gitlab.iacloud.kr' },
+    ]);
+    const mount = pod.spec?.containers.find((c) => c.name === 'agent')?.volumeMounts?.find((m) => m.name === 'repo-tokens');
+    expect(mount).toEqual({ name: 'repo-tokens', mountPath: '/run/genia/repo-tokens', readOnly: true });
+    expect(pod.metadata?.annotations).toEqual({
+      'genia.works/claude-version': '57',
+      'genia.works/repos-version': '1730505600000',
+    });
+  });
+
+  it('omitsRepoTokensVolumeAndLegacyGithubMountWithoutHosts', () => {
+    const { pod } = buildAgentResources(desiredAgent(), ctx, runnerConfig(), { claudeVersion: '57', repos: { version: '5' } });
+    expect(pod.spec?.volumes?.some((v) => v.name === 'repo-tokens' || v.name === 'github-token')).toBe(false);
+    const mounts = pod.spec?.containers.find((c) => c.name === 'agent')?.volumeMounts ?? [];
+    expect(mounts.some((m) => m.mountPath.includes('github-token') || m.mountPath.includes('repo-tokens'))).toBe(false);
+    expect(pod.metadata?.annotations?.['genia.works/repos-version']).toBe('5');
   });
 
   it('podGenerationParsesLabel', () => {
@@ -224,7 +250,7 @@ describe('buildAgentResources', () => {
   });
 
   it('pvcUsesConfiguredStorageClassAndWorkDisk', () => {
-    const withClass = buildAgentResources(desiredAgent(), ctx, runnerConfig({ storageClass: 'fast-ssd' })).pvc;
+    const withClass = buildAgentResources(desiredAgent(), ctx, runnerConfig({ storageClass: 'fast-ssd' })).pvc!;
     expect(withClass.spec).toEqual({
       accessModes: ['ReadWriteOnce'],
       storageClassName: 'fast-ssd',
@@ -232,7 +258,7 @@ describe('buildAgentResources', () => {
     });
 
     // storageClass 를 정하지 않으면 칸을 비워 클러스터 기본을 쓴다
-    const noClass = buildAgentResources(desiredAgent(), ctx, runnerConfig()).pvc;
+    const noClass = buildAgentResources(desiredAgent(), ctx, runnerConfig()).pvc!;
     expect(noClass.spec?.storageClassName).toBeUndefined();
     expect(noClass.spec?.resources?.requests?.storage).toBe('50Gi');
   });
@@ -255,5 +281,49 @@ describe('buildAgentSecret', () => {
       'agent-key': Buffer.from('ak_x').toString('base64'),
       'claude-token': Buffer.from('sk-ant-y').toString('base64'),
     });
+  });
+
+  /** WP-1270 — 기본(hostPath) 방식은 PVC 없이 노드 로컬 폴더를 쓰고, 폴더 주인을 맞추는 init 컨테이너를 둔다. */
+  it('hostPathWorkDisk_mountsNodeFolderWithoutPvc', () => {
+    const cfg = runnerConfig({ workDiskType: 'hostPath', workHostPath: '/var/lib/genia-agents' });
+    const { pod, pvc } = buildAgentResources(desiredAgent(), ctx, cfg);
+
+    expect(pvc).toBeUndefined();
+    expect(pod.spec?.volumes?.find((v) => v.name === 'work')).toEqual({
+      name: 'work',
+      hostPath: { path: '/var/lib/genia-agents/agent-42', type: 'DirectoryOrCreate' },
+    });
+    expect(pod.spec?.initContainers).toEqual([
+      expect.objectContaining({
+        name: 'work-owner',
+        image: desiredAgent().image,
+        command: ['chown', '1001:1001', '/work'],
+        securityContext: { runAsUser: 0, runAsGroup: 0, runAsNonRoot: false },
+        // 쿼터 승인 — init 컨테이너도 requests 가 있어야 한다
+        resources: { requests: { cpu: '100m', memory: '128Mi' } },
+        volumeMounts: [{ name: 'work', mountPath: '/work' }],
+      }),
+    ]);
+    // 기록한 노드가 없으면(처음 뜰 때) 어느 노드든 고른다
+    expect(pod.spec?.affinity).toBeUndefined();
+  });
+
+  it('hostPathWorkDisk_withRecordedNode_pinsPodToThatNode', () => {
+    const cfg = runnerConfig({ workDiskType: 'hostPath', nodeSelector: { pool: 'agents' } });
+    const { pod } = buildAgentResources(desiredAgent(), ctx, cfg, { workNode: 'node-b' });
+
+    expect(pod.spec?.affinity?.nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution).toEqual({
+      nodeSelectorTerms: [{ matchFields: [{ key: 'metadata.name', operator: 'In', values: ['node-b'] }] }],
+    });
+    // 위치의 nodeSelector 는 그대로 함께 둔다
+    expect(pod.spec?.nodeSelector).toEqual({ pool: 'agents' });
+  });
+
+  it('pvcWorkDisk_ignoresRecordedNodeAndHasNoInitContainer', () => {
+    const { pod, pvc } = buildAgentResources(desiredAgent(), ctx, runnerConfig({ workDiskType: 'pvc' }), { workNode: 'node-b' });
+
+    expect(pvc?.metadata?.name).toBe('agent-42-work');
+    expect(pod.spec?.initContainers).toBeUndefined();
+    expect(pod.spec?.affinity).toBeUndefined();
   });
 });

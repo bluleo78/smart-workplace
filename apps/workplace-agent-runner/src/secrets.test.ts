@@ -9,10 +9,11 @@ function refs(
   agentKeyVersion: number | null,
   claudeVersion?: number | null,
   rotateAfter: string | null = '2026-11-24T10:00:00+09:00',
+  reposVersion?: number | null,
 ): RunnerSecretRef[] {
   const out: RunnerSecretRef[] = [{ name: 'agent-key', source: 'WORKS', version: agentKeyVersion, rotateAfter }];
   if (claudeVersion !== undefined) out.push({ name: 'claude', source: 'WORKS', version: claudeVersion, rotateAfter: null });
-  out.push({ name: 'github', source: 'LOCATION', version: null, rotateAfter: null });
+  if (reposVersion !== undefined) out.push({ name: 'repos', source: 'WORKS', version: reposVersion, rotateAfter: null });
   return out;
 }
 
@@ -20,11 +21,12 @@ const ANNOTATED = {
   'genia.works/agent-key-id': '812',
   'genia.works/agent-key-rotate-after': '2026-11-24T01:00:00.000Z',
   'genia.works/claude-version': '57',
+  'genia.works/repos-version': '1730505600000',
 };
 
 describe('secretFetches', () => {
   it('noFetchWhenAnnotationMatchesVersion', () => {
-    expect(secretFetches(refs(812, 57), ANNOTATED, NOW)).toEqual({ agentKey: false, claude: 'keep' });
+    expect(secretFetches(refs(812, 57), ANNOTATED, NOW)).toEqual({ agentKey: false, claude: 'keep', repos: 'clear' });
   });
 
   it('fetchesWhenVersionNull', () => {
@@ -61,5 +63,16 @@ describe('secretFetches', () => {
     expect(secretFetches(refs(812), ANNOTATED, NOW).claude).toBe('clear');
     // 아직 받은 적 없음
     expect(secretFetches(refs(812, 57), { 'genia.works/agent-key-id': '812' }, NOW).claude).toBe('fetch');
+  });
+
+  it('reposFetchesOnVersionChangeAndClearsWithoutRef', () => {
+    const r = (v?: number | null) => refs(812, 57, null, v);
+    expect(secretFetches(r(1730505600000), ANNOTATED, NOW).repos).toBe('keep');
+    expect(secretFetches(r(1730505700000), ANNOTATED, NOW).repos).toBe('fetch');
+    // 아직 받은 적 없음
+    expect(secretFetches(r(1730505600000), { 'genia.works/agent-key-id': '812' }, NOW).repos).toBe('fetch');
+    // 등록이 없음(null) · 템플릿이 요구하지 않음(참조 없음) — 남은 키를 지운다
+    expect(secretFetches(r(null), ANNOTATED, NOW).repos).toBe('clear');
+    expect(secretFetches(r(), ANNOTATED, NOW).repos).toBe('clear');
   });
 });

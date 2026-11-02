@@ -8,8 +8,15 @@ import {
   ANN_AGENT_KEY_ID,
   ANN_AGENT_KEY_ROTATE_AFTER,
   ANN_CLAUDE_VERSION,
+  ANN_REPO_HOSTS,
+  ANN_REPOS_VERSION,
+  ANN_WORK_NODE,
   SECRET_AGENT_KEY,
   SECRET_CLAUDE_TOKEN,
+  SECRET_REPO_PREFIX,
+  formatRepoHosts,
+  repoSecretKey,
+  type RepoMount,
   buildAgentResources,
   buildAgentSecret,
   configMapName,
@@ -77,7 +84,9 @@ export interface ReconcilerDeps {
  * Secret 준비 결과 — ok 면 agent-key 가 Secret 에 있다(Pod 를 만들어도 된다). claudeVersion 은 지금 Secret 에 적힌 모델 연결 version
  * (없으면 undefined) — Pod 어노테이션과 비교해 다르면 Pod 를 다시 만든다.
  */
-type SecretOutcome = { ok: true; claudeVersion: string | undefined } | { ok: false; message?: string };
+type SecretOutcome =
+  | { ok: true; claudeVersion: string | undefined; repos: RepoMount; workNode: string | undefined }
+  | { ok: false; message?: string };
 
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -90,9 +99,12 @@ function decodeData(secret: V1Secret | undefined): Record<string, string> {
 /** 같은 이름의 남의 리소스(runner 라벨 없음·다른 위치)가 있어 만들지 않을 때의 사유. */
 const foreignMessage = (kind: ManagedKind, name: string) => `같은 이름의 리소스(${kind}/${name})가 이미 있어 만들지 않습니다`;
 
-/** 모델 연결 version 이 Pod(만들 때 넣은 것)와 Secret(지금) 사이에 다른지 — 없음 ↔ 값 포함도 다름이다. */
-const claudeChanged = (pod: NonNullable<ActualAgent['pod']>, secretVersion: string | undefined) =>
-  (pod.claudeVersion ?? null) !== (secretVersion ?? null);
+/**
+ * 비밀값 version 이 Pod(만들 때 어노테이션에 넣은 것)와 Secret(지금) 사이에 다른지 — 없음 ↔ 값 포함도 다름이다.
+ * 모델 연결 토큰·gh 로그인은 Pod 시작 때 고정되므로 등록·교체·폐기하면 Pod 를 다시 만들어야 반영된다.
+ */
+const versionChanged = (podVersion: string | undefined, secretVersion: string | undefined) =>
+  (podVersion ?? null) !== (secretVersion ?? null);
 
 /** items 를 limit 개씩 동시에 fn 에 넘기고 결과를 같은 순서로 돌려준다. fn 은 던지지 않아야 한다(부르는 쪽이 잡는다). */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -248,7 +260,7 @@ export class Reconciler {
       this.fail(id, imageProblem);
       return undefined;
     }
-    if (kind === 'create' && current.pvcDeleting) {
+    if (kind === 'create' && this.diskFor(current) === 'pvc' && current.pvcDeleting) {
       // 끄고 곧바로 다시 켬 — 지워지는 중인 PVC 에 새 Pod 를 붙이면 서로 기다리며 멈춘다. 사라진 뒤 새로 만든다(그동안 키도 받지 않는다)
       this.log.info('지워지는 중인 작업 디스크가 사라지기를 기다립니다', { agentUserId: id });
       this.failures.delete(id);
@@ -274,13 +286,17 @@ export class Reconciler {
     }
     // keep 인데 모델 연결이 바뀜 → Pod 를 갈아야 한다. 지우기 전에 이미지를 본다 — 허용 밖이면 지운 뒤 다시 만들지 못한다
     const swapPod =
-      kind === 'keep' && current.pod !== undefined && !current.pod.deleting && claudeChanged(current.pod, secret.claudeVersion);
+      kind === 'keep' &&
+      current.pod !== undefined &&
+      !current.pod.deleting &&
+      (versionChanged(current.pod.claudeVersion, secret.claudeVersion) ||
+        versionChanged(current.pod.reposVersion, secret.repos.version));
     if (swapPod && imageProblem) {
       this.fail(id, imageProblem);
       return undefined;
     }
     // 실패 기록은 이 AI 의 할 일이 끝까지 된 뒤에 지운다 — 중간(Pod apply 거절 등)에 관찰 보고가 끼어들어도 사유가 사라지지 않게
-    const done = await this.convergePod(kind, agent, current, swapPod, secret.claudeVersion, ctx);
+    const done = await this.convergePod(kind, agent, current, swapPod, secret, ctx);
     this.failures.delete(id);
     return done ? undefined : 'wait';
   }
@@ -294,7 +310,7 @@ export class Reconciler {
     agent: RunnerDesiredAgent,
     current: ActualAgent,
     swapPod: boolean,
-    claudeVersion: string | undefined,
+    secret: { claudeVersion: string | undefined; repos: RepoMount; workNode: string | undefined },
     ctx: AgentContext,
   ): Promise<boolean> {
     const id = agent.agentUserId;
@@ -305,7 +321,8 @@ export class Reconciler {
       // 모델 연결 토큰은 env(CLAUDE_CODE_OAUTH_TOKEN)로 들어가 Pod 시작 때 고정된다. Works 는 연결 재등록에 generation 을
       // 올리지 않으므로(언제 다시 만들지는 runner 몫) Secret 의 version 이 Pod 의 것과 다르면 generation·applyNow 와 무관하게
       // 바로 다시 만든다 — 재등록은 대개 옛 토큰이 끊겼을 때라 기다리면 AI 가 모델을 못 부른 채 남는다.
-      this.log.info('모델 연결이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });
+      // 저장소 토큰도 같다 — gh 로그인이 Pod 시작 때 고정되고 Works 는 토큰 변경에 generation 을 올리지 않는다.
+      this.log.info('모델 연결·저장소 토큰이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });
       await this.cluster.delete('Pod', podName(id));
       return false;
     }
@@ -317,20 +334,35 @@ export class Reconciler {
       return false;
     }
 
-    // create — PVC 는 없을 때만(크기를 줄이거나 바꾸는 apply 는 실패할 수 있다), ConfigMap 은 새 generation 으로
-    const { pod, pvc, configMap } = buildAgentResources(agent, ctx, this.cfg, claudeVersion);
-    if (!current.pvc) await this.cluster.apply(pvc);
+    // create — PVC 는 pvc 방식에서 없을 때만(크기를 줄이거나 바꾸는 apply 는 실패할 수 있다), ConfigMap 은 새 generation 으로.
+    // hostPath 방식은 Secret 에 적어 둔 노드에 고정한다(처음이면 아무 노드 — 뜬 뒤 ensureSecret 이 노드를 적는다)
+    const { pod, pvc, configMap } = buildAgentResources(agent, ctx, this.cfg, {
+      claudeVersion: secret.claudeVersion,
+      workNode: secret.workNode,
+      repos: secret.repos,
+      workDisk: this.diskFor(current),
+    });
+    if (pvc && !current.pvc) await this.cluster.apply(pvc);
     await this.cluster.apply(configMap);
     await this.cluster.apply(pod);
     this.log.info('Pod 를 만들었습니다', { agentUserId: id, generation: agent.generation });
     return true;
   }
 
+  /**
+   * 이 AI 의 작업 디스크 방식. 설정이 pvc 이거나, pvc 방식으로 설치했던 위치를 hostPath 로 올린 직후라 이미 (지워지는 중이 아닌) PVC 가 있으면
+   * pvc — 끌 때까지 그 PVC 를 계속 써 작업 폴더를 잃지 않게. 끄면 PVC 가 지워지고 다음에 켤 때부터 노드 폴더를 쓴다.
+   */
+  private diskFor(current: ActualAgent): 'pvc' | 'hostPath' {
+    return this.cfg.workDiskType === 'pvc' || (current.pvc && !current.pvcDeleting) ? 'pvc' : 'hostPath';
+  }
+
   /** runner 라벨이 없는데 이름이 같은 리소스 — 덮어쓰면 남의 것을 가져가게 되니 찾아서 사유를 돌려준다(없으면 null). */
   private async findForeign(current: ActualAgent, id: number): Promise<string | null> {
+    // hostPath 방식은 PVC 를 만들지 않으니 이름 겹침도 보지 않는다(diskFor 가 정한 방식 기준)
     const checks: [ManagedKind, string, boolean][] = [
       ['Secret', secretName(id), current.secret],
-      ['PersistentVolumeClaim', pvcName(id), current.pvc],
+      ...(this.diskFor(current) === 'pvc' ? [['PersistentVolumeClaim', pvcName(id), current.pvc] as [ManagedKind, string, boolean]] : []),
       ['ConfigMap', configMapName(id), current.configMap],
       ['Pod', podName(id), Boolean(current.pod)],
     ];
@@ -408,6 +440,43 @@ export class Reconciler {
       }
     }
 
+    const clearRepos = () => {
+      for (const k of Object.keys(data)) if (k.startsWith(SECRET_REPO_PREFIX)) delete data[k];
+      delete ann[ANN_REPOS_VERSION];
+      delete ann[ANN_REPO_HOSTS];
+    };
+    if (fetches.repos === 'clear') {
+      // 등록 없음·템플릿이 요구하지 않음 — 남은 토큰을 지운다
+      clearRepos();
+    } else if (fetches.repos === 'fetch') {
+      try {
+        const r = await this.works.getRepoSecrets(id);
+        // 기존 repo-* 키를 모두 바꿔 넣는다 — 빠진 호스트의 키는 남기지 않는다. 원문은 로그에 남기지 않는다.
+        clearRepos();
+        if (r.version !== null) {
+          for (const t of r.tokens) data[repoSecretKey(t.kind, t.host)] = t.token;
+          ann[ANN_REPOS_VERSION] = String(r.version);
+          if (r.tokens.length) ann[ANN_REPO_HOSTS] = formatRepoHosts(r.tokens);
+          this.log.info('저장소 토큰을 받았습니다', { agentUserId: id, hosts: r.tokens.length });
+        } else {
+          // desired 는 버전을 냈는데 받으러 간 사이 모두 폐기됨 — desired 의 버전을 적어 두어 desired 가 다시 바뀔 때까지
+          // 회차마다 다시 받으러 가지 않게 한다(토큰 없이 둔다)
+          const desiredVersion = agent.secrets.find((ref) => ref.name === 'repos')?.version;
+          if (desiredVersion != null) ann[ANN_REPOS_VERSION] = String(desiredVersion);
+        }
+      } catch (e) {
+        this.log.warn('저장소 토큰을 받지 못했습니다', { agentUserId: id, error: errMessage(e) });
+        fetchError = fetchError ?? e;
+      }
+    }
+
+    // hostPath 작업 디스크 노드 — Pod 가 처음 배치되면 그 노드를 적어 둔다. 다시 만들 때(generation·모델 연결 교체) 같은 노드에
+    // 고정해 작업 폴더를 잃지 않게. 이미 적힌 값은 바꾸지 않는다(고정된 Pod 는 그 노드에만 뜨므로 같은 값이다).
+    if (this.cfg.workDiskType === 'hostPath' && !ann[ANN_WORK_NODE] && current.pod?.nodeName && !current.pod.deleting) {
+      ann[ANN_WORK_NODE] = current.pod.nodeName;
+      this.log.info('작업 디스크 노드를 기록했습니다', { agentUserId: id, node: current.pod.nodeName });
+    }
+
     if (!sameRecord(data, oldData) || !sameRecord(ann, oldAnn)) {
       await this.cluster.apply(buildAgentSecret(id, ctx.locationId, this.cfg.namespace, data, ann));
     }
@@ -415,7 +484,12 @@ export class Reconciler {
     if (failure) return { ok: false, message: failure };
     if (!data[SECRET_AGENT_KEY]) return { ok: false };
     if (fetchError && !current.pod) return { ok: false };
-    return { ok: true, claudeVersion: ann[ANN_CLAUDE_VERSION] };
+    return {
+      ok: true,
+      claudeVersion: ann[ANN_CLAUDE_VERSION],
+      repos: { version: ann[ANN_REPOS_VERSION], hosts: ann[ANN_REPO_HOSTS] },
+      workNode: ann[ANN_WORK_NODE],
+    };
   }
 
   /**
@@ -487,7 +561,7 @@ export class Reconciler {
 
   /**
    * 관찰 보고(60초마다) — desired 의 모든 AI + 지우는 중인 AI. 변화가 없어도, AI 가 하나도 없어도 보낸다
-   * (위치의 「연결됨」이 이 호출로 정해진다). metrics.k8s.io 가 없으면 사용량은 비운다.
+   * (위치의 「연결됨」이 이 호출로 정해진다). metrics.k8s.io 가 없으면 사용량은 비우고 metricsAvailable=false 를 함께 보낸다.
    */
   async reportObserved(): Promise<void> {
     const desired = this.lastDesired;
@@ -495,10 +569,14 @@ export class Reconciler {
     const { resources, actual } = await this.observeCluster(desired.locationId);
     const podsByName = new Map(resources.pods.map((p) => [p.metadata?.name ?? '', p]));
     let usage = new Map<string, PodUsage>();
+    // 사용량을 잴 수 있는지(WP-1280) — 조회되면 true, 사용량 API 가 없으면(404 — metrics-server 미설치) false,
+    // 그 밖의 실패는 일시 오류라 모름(undefined, 보내지 않아 Works 가 마지막 값을 둔다). 어느 쪽이든 사용량 없이 보고는 나간다.
+    let metricsAvailable: boolean | undefined;
     try {
       usage = await this.cluster.podMetrics();
-    } catch {
-      // metrics.k8s.io 가 없는 클러스터 — 사용량 없이 보낸다
+      metricsAvailable = true;
+    } catch (e) {
+      if (e instanceof ClusterError && e.status === 404) metricsAvailable = false;
     }
 
     const desiredIds = new Set(desired.agents.map((a) => a.agentUserId));
@@ -522,11 +600,11 @@ export class Reconciler {
     ];
 
     if (agents.length === 0) {
-      await this.works.reportObserved([]);
+      await this.works.reportObserved([], metricsAvailable);
       return;
     }
     for (let i = 0; i < agents.length; i += OBSERVED_BATCH) {
-      await this.works.reportObserved(agents.slice(i, i + OBSERVED_BATCH));
+      await this.works.reportObserved(agents.slice(i, i + OBSERVED_BATCH), metricsAvailable);
     }
   }
 }

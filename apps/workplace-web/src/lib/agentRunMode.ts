@@ -108,6 +108,10 @@ export interface StartChecks {
   /** Claude 연결이 필요한 방식인지 — 필요 없으면 항목을 그리지 않는다. */
   needsClaude: boolean;
   claudeOk: boolean;
+  /** 저장소 토큰이 필요한 방식인지(템플릿 requires 에 repo, WP-1268) — 필요 없으면 항목을 그리지 않는다. */
+  needsRepos: boolean;
+  /** 맡는 프로젝트 저장소 호스트 중 토큰이 없는 것. */
+  missingRepoHosts: string[];
   projectCount: number;
   /** 실행 환경이 하나라도 있는지. */
   hasLocation: boolean;
@@ -123,6 +127,7 @@ export interface StartChecks {
 export function startBlockReason(c: StartChecks): string | null {
   if (c.inactive) return '사용 중지된 AI 는 실행할 수 없어요';
   if (c.needsClaude && !c.claudeOk) return 'Claude 를 먼저 연결해 주세요';
+  if (c.needsRepos && c.missingRepoHosts.length > 0) return '저장소를 먼저 연결해 주세요';
   if (c.projectCount === 0) return '맡는 프로젝트를 먼저 정해 주세요';
   if (!c.hasLocation) return '실행 환경을 먼저 추가해 주세요';
   if (!c.seatOk) return '실행 환경에 여유가 없어요';

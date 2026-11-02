@@ -8,7 +8,7 @@ card:
   description: 작업 공간에서 개발·테스트하고 PR 을 올립니다
   skills: [개발, 테스트, PR]
 image: docker.io/iacloudops/genia-works-agent-claude-code:{appVersion}
-requires: [claude, github]
+requires: [claude, repo]
 config:
   - key: model
     label: 모델

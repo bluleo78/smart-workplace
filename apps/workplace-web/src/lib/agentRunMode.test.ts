@@ -116,6 +116,8 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
   const ok: StartChecks = {
     needsClaude: true,
     claudeOk: true,
+    needsRepos: true,
+    missingRepoHosts: [],
     projectCount: 1,
     hasLocation: true,
     seatOk: true,
@@ -128,13 +130,21 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
   test('맡는 프로젝트가 0 이면 막는다(WP-1281 결정)', () => {
     expect(startBlockReason({ ...ok, projectCount: 0 })).toBe('맡는 프로젝트를 먼저 정해 주세요')
   })
+  test('저장소 토큰이 필요 없는 방식이면 빠진 호스트가 있어도 막지 않는다', () => {
+    expect(startBlockReason({ ...ok, needsRepos: false, missingRepoHosts: ['github.com'] })).toBeNull()
+  })
+  test('저장소가 빠졌으면 프로젝트 0 보다 먼저 「저장소를 먼저 연결해 주세요」', () => {
+    expect(startBlockReason({ ...ok, missingRepoHosts: ['github.com'], projectCount: 0 })).toBe('저장소를 먼저 연결해 주세요')
+  })
   test('Claude 가 필요 없는 방식이면 claudeOk 가 false 여도 막지 않는다', () => {
     expect(startBlockReason({ ...ok, needsClaude: false, claudeOk: false })).toBeNull()
   })
-  test('우선순위 — 사용 중지 > Claude > 프로젝트 > 실행 환경 없음 > 자리 > 필수 칸', () => {
+  test('우선순위 — 사용 중지 > Claude > 저장소 > 프로젝트 > 실행 환경 없음 > 자리 > 필수 칸', () => {
     const allBad: StartChecks = {
       needsClaude: true,
       claudeOk: false,
+      needsRepos: true,
+      missingRepoHosts: ['gitlab.iacloud.kr'],
       projectCount: 0,
       hasLocation: false,
       seatOk: false,
@@ -144,6 +154,7 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
     const expected = [
       '사용 중지된 AI 는 실행할 수 없어요',
       'Claude 를 먼저 연결해 주세요',
+      '저장소를 먼저 연결해 주세요',
       '맡는 프로젝트를 먼저 정해 주세요',
       '실행 환경을 먼저 추가해 주세요',
       '실행 환경에 여유가 없어요',
@@ -163,6 +174,7 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
 function fix(c: StartChecks, msg: string): StartChecks {
   if (msg.startsWith('사용 중지')) return { ...c, inactive: false }
   if (msg.startsWith('Claude')) return { ...c, claudeOk: true }
+  if (msg.startsWith('저장소')) return { ...c, missingRepoHosts: [] }
   if (msg.startsWith('맡는')) return { ...c, projectCount: 1 }
   if (msg.startsWith('실행 환경을')) return { ...c, hasLocation: true }
   if (msg.startsWith('실행 환경에')) return { ...c, seatOk: true }

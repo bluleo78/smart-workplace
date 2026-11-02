@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
+import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentWork;
@@ -187,6 +188,7 @@ public class Indexes {
     public static final Index IDX_AGENT_API_KEY_HASH = Internal.createIndex(DSL.name("idx_agent_api_key_hash"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.KEY_HASH }, false);
     public static final Index IDX_AGENT_API_KEY_MANAGED = Internal.createIndex(DSL.name("idx_agent_api_key_managed"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID, AgentApiKey.AGENT_API_KEY.TENANT_ID, AgentApiKey.AGENT_API_KEY.ID }, false);
     public static final Index IDX_AGENT_API_KEY_USER = Internal.createIndex(DSL.name("idx_agent_api_key_user"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, false);
+    public static final Index IDX_AGENT_REPO_CREDENTIAL_AGENT = Internal.createIndex(DSL.name("idx_agent_repo_credential_agent"), AgentRepoCredential.AGENT_REPO_CREDENTIAL, new OrderField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID }, false);
     public static final Index IDX_AGENT_RUNNER_TOKEN_HASH = Internal.createIndex(DSL.name("idx_agent_runner_token_hash"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.TOKEN_HASH }, false);
     public static final Index IDX_AGENT_RUNNER_TOKEN_TENANT = Internal.createIndex(DSL.name("idx_agent_runner_token_tenant"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.TENANT_ID }, false);
     public static final Index IDX_AGENT_RUNTIME_SETTING_AGENT = Internal.createIndex(DSL.name("idx_agent_runtime_setting_agent"), AgentRuntimeSetting.AGENT_RUNTIME_SETTING, new OrderField[] { AgentRuntimeSetting.AGENT_RUNTIME_SETTING.AGENT_USER_ID }, false);
@@ -464,6 +466,7 @@ public class Indexes {
     public static final Index UK_EMAIL_MESSAGE_PROVIDER_MSG = Internal.createIndex(DSL.name("uk_email_message_provider_msg"), EmailMessage.EMAIL_MESSAGE, new OrderField[] { EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID, EmailMessage.EMAIL_MESSAGE.PROVIDER_MESSAGE_ID }, true);
     public static final Index UQ_AAC_ACTIVE = Internal.createIndex(DSL.name("uq_aac_active"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, true);
     public static final Index UQ_AGENT_LOCATION_DEFAULT = Internal.createIndex(DSL.name("uq_agent_location_default"), AgentLocation.AGENT_LOCATION, new OrderField[] { AgentLocation.AGENT_LOCATION.TENANT_ID }, true);
+    public static final Index UQ_AGENT_REPO_CREDENTIAL_ACTIVE = Internal.createIndex(DSL.name("uq_agent_repo_credential_active"), AgentRepoCredential.AGENT_REPO_CREDENTIAL, new OrderField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.TENANT_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.HOST }, true);
     public static final Index UQ_AGENT_RUNNER_TOKEN_ACTIVE = Internal.createIndex(DSL.name("uq_agent_runner_token_active"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.LOCATION_ID }, true);
     public static final Index UQ_CALENDAR_DEFAULT = Internal.createIndex(DSL.name("uq_calendar_default"), Calendar.CALENDAR, new OrderField[] { Calendar.CALENDAR.OWNER_ID, Calendar.CALENDAR.TENANT_ID }, true);
     public static final Index UQ_CALENDAR_EVENT_OWNER_ICAL_UID_LOCAL = Internal.createIndex(DSL.name("uq_calendar_event_owner_ical_uid_local"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.OWNER_ID, CalendarEvent.CALENDAR_EVENT.ICAL_UID }, true);

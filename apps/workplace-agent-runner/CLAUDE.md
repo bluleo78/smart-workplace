@@ -6,7 +6,7 @@
 
 실행 위치(쿠버네티스 네임스페이스 하나)에 설치하는 **runner**(WP-1251). Works 의 runner API
 ([agent-runner-api.md](../../docs/integrations/agent-runner-api.md))에서 「이 위치에 떠 있어야 할 AI」를 받아
-AI 마다 Pod·PVC·Secret·ConfigMap 을 맞추고, 본 상태를 60초마다 보고한다. 리소스 모양(이름·라벨·마운트·env·dind)은
+AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상태를 60초마다 보고한다. 리소스 모양(이름·라벨·마운트·env·dind)은
 [agent-pod-contract.md](../../docs/integrations/agent-pod-contract.md) 하나로 작업 공간 이미지(WP-1252)와 맞물린다 — 바꾸면 두 쪽을 함께 바꾼다.
 
 ## 절대 규칙
@@ -30,7 +30,7 @@ AI 마다 Pod·PVC·Secret·ConfigMap 을 맞추고, 본 상태를 60초마다 �
 | `src/k8s/manifest.ts` | 계약대로 Pod·PVC·ConfigMap·Secret 을 만드는 순수 함수 |
 | `src/k8s/cluster.ts` | `ClusterApi`·`@kubernetes/client-node` 구현(server-side apply, fieldManager `genia-agent-runner`) |
 | `src/plan.ts` | `ownedByLocation`·`collectActual`·`emptyActual`·`planReconcile`·`checkImages`(순수) |
-| `src/secrets.ts` | `secretFetches` — 언제 원문을 다시 받을지(순수) |
+| `src/secrets.ts` | `secretFetches` — 언제 원문(agent-key·claude·repos)을 다시 받을지(순수) |
 | `src/observe.ts` | `toObserved` — Pod → phase, metrics 수량 해석(순수) |
 | `src/reconciler.ts` | 조정 한 회차(AI 별 동시 4명, STOPPED 는 회차 끝에 200명씩 모아 보냄)·관찰 보고·`ReconcileLoop`(트리거 합치기, `retry` — 일시 오류 5초·지우는 중 기다림 15초·거절 30초, 주기 조회) |
 | `src/main.ts` | 배선·`/healthz`(`HEALTH_PORT`, 기본 8080, 마지막 조정 성공 10분 안이면 200) |
@@ -40,6 +40,9 @@ AI 마다 Pod·PVC·Secret·ConfigMap 을 맞추고, 본 상태를 60초마다 �
 - desired 에 있고 Pod 없음 → 만든다(applyNow 무관). generation 이 다르면 `applyNow=true` 일 때만 Pod 를 지우고 다음 회차에 다시 만든다(PVC·Secret 유지).
 - 모델 연결 교체: Pod 어노테이션 `genia.works/claude-version`(만들 때 Secret 의 version)이 Secret 의 것과 다르면(없음 ↔ 값 포함) generation·applyNow 와
   무관하게 Pod 를 다시 만든다 — 토큰이 env 로 고정되고 Works 는 재등록에 generation 을 올리지 않기 때문. 허용 밖 이미지면 지우지 않는다.
+- 저장소 토큰(WP-1268): desired 의 `repos`(WORKS) 참조 version 이 Secret 어노테이션 `genia.works/repos-version` 과 다르면 `GET …/secrets/repos` 로 받아 Secret 의 `repo-<kind>-<host>` 키를 모두 바꿔 넣고(어노테이션 `repo-hosts` 에 `kind:host` 목록), 참조가 없거나 version null 이면 `repo-*` 키·두 어노테이션을 지운다.
+  Pod 는 만들 때 `repo-hosts` 로 볼륨 `repo-tokens`(Secret `agent-<id>`, items `<kind>/<host>`)를 `/run/genia/repo-tokens` 에 마운트하고(호스트 없으면 없음) 어노테이션 `genia.works/repos-version` 을 적는다.
+  gh 로그인이 Pod 시작 때 고정되므로 Secret 의 version 이 Pod 의 것과 다르면 모델 연결 교체처럼 Pod 를 다시 만든다. 위치 GitHub Secret(`GITHUB_SECRET_NAME`)은 없어졌다.
 - agent-key 는 desired `version` 이 null 이거나 기록과 다를 때, 또는 기록한 rotate-after 가 지났을 때만 받는다. 끄기·위치 이동으로 5분 유예에 든 키는
   Works 가 desired 에서 `version=null` 로 내므로 「수명을 줄였는지」는 Works 한 곳이 정한다(runner 는 desired 의 `rotateAfter` 를 견주지 않는다).
 - 클러스터가 apply·delete 를 거절하면(400·403·422 — 쿼터·PodSecurity·검증) 그 AI 를 FAILED(사유 한 줄)로 보고하고 30초 뒤 다시 본다.
@@ -49,13 +52,16 @@ AI 마다 Pod·PVC·Secret·ConfigMap 을 맞추고, 본 상태를 60초마다 �
 - desired 에서 빠짐 → Pod·PVC·Secret 삭제. ConfigMap 은 Pod 가 사라지고 STOPPED 보고가 받아들여진 뒤 마지막에 지운다 — 남아 있으면
   「아직 STOPPED 못 보냄」 표시라 runner 가 재시작해도 STOPPED 를 보낸다. 이미 deletionTimestamp 가 있는 리소스엔 삭제를 다시 내지 않고,
   ConfigMap 이 지워졌는데 PVC 만 Terminating 이면 STOPPED 도 다시 보내지 않는다.
+- 작업 디스크는 기본 노드 로컬 폴더(`AGENT_WORK_DISK_TYPE=hostPath`) — PVC 를 만들지 않고, Pod 가 처음 배치된 노드를 Secret 어노테이션
+  `genia.works/work-node` 에 적어 다시 만드는 Pod 를 그 노드에 고정한다(init 컨테이너 `work-owner` 가 폴더 주인을 1001 로). 노드 폴더는 지우지 않는다.
+  `pvc` 방식에서만 PVC 를 만들고 지우는 중인 PVC 를 기다린다. 예전 PVC 가 남아 있으면 방식과 무관하게 desired 에서 빠질 때 지운다.
 - PVC 는 없을 때만 만든다. ConfigMap 은 Pod 를 만들 때만 쓴다(config.json 에 generation 이 있어 keep 중인 Pod 를 흔들지 않게).
 - 메모리 상태는 마지막 desired 와 AI 별 실패 사유뿐 — 나머지 기록은 모두 클러스터에 있다.
 
 ## env (Helm 차트 `deploy/helm-agent-runner` 가 넣는다)
 
 `WORKS_URL`, `RUNNER_TOKEN_FILE`, `NAMESPACE`, `ALLOWED_IMAGE_PREFIXES`(쉼표), `AGENT_NODE_SELECTOR`·`AGENT_TOLERATIONS`·`AGENT_HOST_ALIASES`(JSON),
-`AGENT_STORAGE_CLASS`, `GITHUB_SECRET_NAME`, `DIND_STORAGE_LIMIT`(기본 20Gi), `DIND_RESOURCES`(JSON, 기본 requests 500m/1Gi·limits 4/6Gi),
+`AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `DIND_STORAGE_LIMIT`(기본 20Gi), `DIND_RESOURCES`(JSON, 기본 requests 500m/1Gi·limits 4/6Gi),
 `AGENT_IMAGE_PULL_SECRETS`(쉼표), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다).
 
 로컬 실행은 `pnpm --filter @smart-workplace/workplace-agent-runner start:local`(KUBECONFIG·env 필요). `dev` 스크립트는 일부러 없다 —

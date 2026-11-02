@@ -139,6 +139,17 @@ export function locationCapacityText(l: Pick<AgentLocation, 'name' | 'capacity' 
   return `${l.name} 에는 AI 를 ${l.capacity}명까지 띄울 수 있고 지금 ${l.used}명이 쓰고 있어요`;
 }
 
+/** 사용량을 잴 수 없는 이유(WP-1280) — 그 실행 환경 클러스터에 metrics-server 가 없다(runner 가 사용량 API 404 로 알린다). */
+export const METRICS_UNAVAILABLE_REASON = '이 실행 환경에는 사용량을 재는 metrics-server 가 없어요.'
+
+/** 실행 환경 표에서 사용량을 잴 수 없을 때 마우스를 올리면 보이는 설치 안내. */
+export const METRICS_INSTALL_HINT = 'CPU·메모리를 보려면 이 클러스터에 metrics-server 를 설치하세요(선택). 설치 명령은 실행 환경을 추가할 때의 설치 순서에 있어요.'
+
+/** 사용량을 잴 수 없다고 확인된 실행 환경인지 — 아직 모르면(null·환경 없음) false 라 지금처럼 값(없으면 -)을 보인다. */
+export function metricsUnavailable(location: Pick<AgentLocation, 'metricsAvailable'> | null | undefined): boolean {
+  return location?.metricsAvailable === false
+}
+
 /**
  * 실행 환경을 지울 수 없는 이유 — 서버 거절 조건과 같다: 기본 실행 환경이거나, 이 환경을 직접 고른 실행 설정이 하나라도 있으면(꺼져 있어도).
  * 지울 수 있으면 null. (예전 화면은 실행 중인 AI 가 있을 때만 막아 서버 409 를 그대로 맞았다.)

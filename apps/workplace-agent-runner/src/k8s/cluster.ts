@@ -183,7 +183,13 @@ export class KubeCluster implements ClusterApi {
 
   async podMetrics(): Promise<Map<string, PodUsage>> {
     // 네임스페이스를 꼭 넘긴다 — 빼면 클러스터 전체 조회라 네임스페이스 Role 이 막는다
-    const list = await this.metrics.getPodMetrics(this.namespace);
+    // 실패는 ClusterError 로 — 부르는 쪽이 HTTP 상태로 「API 없음(404)」과 일시 오류를 가른다(WP-1280)
+    let list: Awaited<ReturnType<Metrics['getPodMetrics']>>;
+    try {
+      list = await this.metrics.getPodMetrics(this.namespace);
+    } catch (e) {
+      throw wrap(e, 'list', 'PodMetrics', this.namespace);
+    }
     const out = new Map<string, PodUsage>();
     for (const item of list.items) {
       let cpu = 0;

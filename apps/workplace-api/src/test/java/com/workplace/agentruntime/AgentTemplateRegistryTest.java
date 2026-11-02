@@ -50,7 +50,7 @@ class AgentTemplateRegistryTest {
     assertThat(t.name()).isEqualTo("claude-code");
     assertThat(t.kind()).isEqualTo("WORKSPACE");
     assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-claude-code:latest");
-    assertThat(t.requires()).containsExactly("claude", "github");
+    assertThat(t.requires()).containsExactly("claude", "repo");
     assertThat(t.config()).hasSize(2);
     AgentTemplate.ConfigField model = t.config().get(0);
     assertThat(model.key()).isEqualTo("model");
@@ -71,6 +71,22 @@ class AgentTemplateRegistryTest {
     assertThat(t.sidecars().get(0).name()).isEqualTo("dind");
     assertThat(t.sidecars().get(0).privileged()).isTrue();
     assertThat(t.plugins()).hasSize(8);
+  }
+
+  /** 옛 요구 이름 github 는 repo 와 같은 뜻으로 읽고, 둘이 함께 있으면 하나로 합친다(WP-1268). */
+  @Test
+  void load_whenRequiresUsesLegacyGithub_normalizesToRepo() {
+    AgentTemplate legacy =
+        AgentTemplateRegistry.load(
+                List.of(yaml("a", "SERVER", "requires: [claude, github]\n")), ALLOWED, "dev")
+            .get(0);
+    assertThat(legacy.requires()).containsExactly("claude", "repo");
+
+    AgentTemplate both =
+        AgentTemplateRegistry.load(
+                List.of(yaml("b", "SERVER", "requires: [github, repo]\n")), ALLOWED, "dev")
+            .get(0);
+    assertThat(both.requires()).containsExactly("repo");
   }
 
   /** 이미지 태그 자리표시는 API 릴리스 버전으로 채운다 — 같은 릴리스로 빌드된 작업 공간 이미지를 가리키게. */

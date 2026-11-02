@@ -6,6 +6,7 @@ import com.workplace.agentruntime.dto.RunnerDesiredResponse;
 import com.workplace.agentruntime.dto.RunnerObservedRequest;
 import com.workplace.agentruntime.dto.RunnerObservedResponse;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
+import com.workplace.agentruntime.dto.RunnerReposSecretResponse;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.agentruntime.service.RunnerDesiredStateService;
 import jakarta.validation.Valid;
@@ -66,6 +67,15 @@ public class RunnerAgentRuntimeController {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
         .body(service.claudeSecret(principal, agentUserId));
+  }
+
+  /** AI 별 저장소 토큰 원문(WP-1268) — 캐시 금지. 이 위치에서 켜져 있는 AI 만(아니면 404). 토큰이 없으면 빈 목록·version null. */
+  @GetMapping("/agents/{agentUserId}/secrets/repos")
+  public ResponseEntity<RunnerReposSecretResponse> reposSecret(
+      @AuthenticationPrincipal RunnerPrincipal principal, @PathVariable long agentUserId) {
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .body(service.reposSecret(principal, agentUserId));
   }
 
   /** 변경 스트림 — 첫 코멘트 connected, 이벤트 agent-runtime.changed {"locationId":n}. */

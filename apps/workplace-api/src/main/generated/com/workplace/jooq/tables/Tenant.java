@@ -8,6 +8,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
+import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
@@ -606,6 +607,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _agentLocation = new AgentLocationPath(this, null, Keys.AGENT_LOCATION__FK_AGENT_LOCATION_TENANT.getInverseKey());
 
         return _agentLocation;
+    }
+
+    private transient AgentRepoCredentialPath _agentRepoCredential;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_repo_credential</code> table
+     */
+    public AgentRepoCredentialPath agentRepoCredential() {
+        if (_agentRepoCredential == null)
+            _agentRepoCredential = new AgentRepoCredentialPath(this, null, Keys.AGENT_REPO_CREDENTIAL__FK_AGENT_REPO_CREDENTIAL_TENANT.getInverseKey());
+
+        return _agentRepoCredential;
     }
 
     private transient AgentRuntimeSettingPath _agentRuntimeSetting;

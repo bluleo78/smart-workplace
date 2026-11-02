@@ -251,6 +251,13 @@ export function agentDetailGuide(
     run.push('실행 중에는 실행 방식을 바꿀 수 없어요. 먼저 실행을 멈춰 주세요.')
     if (template.requires.includes('claude'))
       run.push(`${title} 는 Anthropic(Claude) 계정만 쓸 수 있어요. 실행 중에 연결을 끊으면 다시 시작할 때부터 일하지 못해요.`)
+    if (template.requires.includes('repo'))
+      run.push(
+        '「저장소 연결」에는 이 AI 가 맡는 프로젝트 저장소의 호스트마다 토큰을 붙여 넣어요. 토큰은 AI 마다, 호스트마다 따로 저장하고 저장한 뒤에는 다시 보이지 않아요. 연결이 빠진 호스트가 있으면 실행을 시작할 수 없어요.',
+        'GitHub 토큰은 GitHub › Settings › Developer settings › Fine-grained personal access tokens 에서 만들어요. 대상 저장소를 고르고 Contents 와 Pull requests 를 Read and write 로 주세요.',
+        'GitLab 토큰은 GitLab › Preferences › Access tokens 에서 만드는 Personal access token 이에요. api 와 write_repository 범위를 체크하세요.',
+        '실행 중에 연결을 바꾸거나 끊으면 다음에 다시 시작할 때부터 적용돼요.',
+      )
     if (template.config.some((f) => f.key === 'queue'))
       run.push('대기열 라벨을 적으면 맡긴 이슈 말고도 그 라벨이 붙은 담당자 없는 이슈를 가져가 처리해요.')
     run.push('실행 환경을 바꾸면 쉴 때를 기다리지 않고 바로 옮겨 가요.')

@@ -341,7 +341,8 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     assertThat(secretNamed(secrets, "agent-key").get("source").asText()).isEqualTo("WORKS");
     assertThat(secretNamed(secrets, "agent-key").get("version").isNull()).isTrue();
     assertThat(secretNamed(secrets, "claude").get("version").isNull()).isTrue();
-    assertThat(secretNamed(secrets, "github").get("source").asText()).isEqualTo("LOCATION");
+    assertThat(secretNamed(secrets, "repos").get("source").asText()).isEqualTo("WORKS");
+    assertThat(secretNamed(secrets, "repos").get("version").isNull()).isTrue();
 
     JsonNode key = issueKey(a1);
     TenantContext.set(1L);

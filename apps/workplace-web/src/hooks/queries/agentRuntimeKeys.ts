@@ -4,6 +4,7 @@ export const agentRuntimeKeys = {
   templates: ['agent-runtime', 'templates'] as const,
   setting: (userId: number) => ['agent-runtime', 'setting', userId] as const,
   projects: (userId: number) => ['agent-runtime', 'projects', userId] as const,
+  repoCredentials: (userId: number) => ['agent-runtime', 'repo-credentials', userId] as const,
   summaries: ['agent-runtime', 'summaries'] as const,
   locations: ['agent-runtime', 'locations'] as const,
 };

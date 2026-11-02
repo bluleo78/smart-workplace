@@ -3,11 +3,13 @@
 import type {
   AgentLocation,
   AgentLocationTokenResponse,
+  AgentRepoCredential,
   AgentRuntimeProject,
   AgentRuntimeSetting,
   AgentRuntimeSummary,
   AgentTemplate,
   PutAgentRuntimeSettingRequest,
+  RepoKind,
 } from '../types/agentRuntime';
 import { client } from './client';
 
@@ -101,4 +103,24 @@ export async function rotateAgentLocationToken(id: number): Promise<AgentLocatio
 // 위치 삭제 — 쓰는 AI 가 있으면 409.
 export async function deleteAgentLocation(id: number): Promise<void> {
   await client.delete<void>(`/admin/agent-locations/${id}`);
+}
+
+// 이 AI 의 저장소 토큰 목록(활성만, 호스트 순) — 토큰 원문은 오지 않는다.
+export async function listRepoCredentials(userId: number): Promise<AgentRepoCredential[]> {
+  const { data } = await client.get<AgentRepoCredential[]>(`/admin/agents/${userId}/repo-credentials`);
+  return data;
+}
+
+// 저장소 토큰 등록·교체 — 같은 호스트에 이미 있으면 서버가 이전 것을 폐기하고 새로 저장한다.
+export async function registerRepoCredential(
+  userId: number,
+  body: { kind: RepoKind; host: string; token: string },
+): Promise<AgentRepoCredential> {
+  const { data } = await client.post<AgentRepoCredential>(`/admin/agents/${userId}/repo-credentials`, body);
+  return data;
+}
+
+// 저장소 토큰 연결 끊기.
+export async function revokeRepoCredential(userId: number, id: number): Promise<void> {
+  await client.delete<void>(`/admin/agents/${userId}/repo-credentials/${id}`);
 }

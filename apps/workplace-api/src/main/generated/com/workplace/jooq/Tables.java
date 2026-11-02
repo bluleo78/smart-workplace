@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
+import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentWork;
@@ -171,6 +172,11 @@ public class Tables {
      * The table <code>public.agent_location</code>.
      */
     public static final AgentLocation AGENT_LOCATION = AgentLocation.AGENT_LOCATION;
+
+    /**
+     * The table <code>public.agent_repo_credential</code>.
+     */
+    public static final AgentRepoCredential AGENT_REPO_CREDENTIAL = AgentRepoCredential.AGENT_REPO_CREDENTIAL;
 
     /**
      * The table <code>public.agent_runner_token</code>.

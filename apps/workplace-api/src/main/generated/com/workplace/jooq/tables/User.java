@@ -9,6 +9,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
+import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
@@ -385,6 +386,34 @@ public class User extends TableImpl<UserRecord> {
             _agentLocation = new AgentLocationPath(this, null, Keys.AGENT_LOCATION__AGENT_LOCATION_CREATED_BY_FKEY.getInverseKey());
 
         return _agentLocation;
+    }
+
+    private transient AgentRepoCredentialPath _agentRepoCredentialAgentUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_repo_credential</code> table, via the
+     * <code>agent_repo_credential_agent_user_id_fkey</code> key
+     */
+    public AgentRepoCredentialPath agentRepoCredentialAgentUserIdFkey() {
+        if (_agentRepoCredentialAgentUserIdFkey == null)
+            _agentRepoCredentialAgentUserIdFkey = new AgentRepoCredentialPath(this, null, Keys.AGENT_REPO_CREDENTIAL__AGENT_REPO_CREDENTIAL_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _agentRepoCredentialAgentUserIdFkey;
+    }
+
+    private transient AgentRepoCredentialPath _agentRepoCredentialCreatedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_repo_credential</code> table, via the
+     * <code>agent_repo_credential_created_by_fkey</code> key
+     */
+    public AgentRepoCredentialPath agentRepoCredentialCreatedByFkey() {
+        if (_agentRepoCredentialCreatedByFkey == null)
+            _agentRepoCredentialCreatedByFkey = new AgentRepoCredentialPath(this, null, Keys.AGENT_REPO_CREDENTIAL__AGENT_REPO_CREDENTIAL_CREATED_BY_FKEY.getInverseKey());
+
+        return _agentRepoCredentialCreatedByFkey;
     }
 
     private transient AgentRunnerTokenPath _agentRunnerToken;

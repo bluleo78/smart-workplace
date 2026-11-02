@@ -43,7 +43,7 @@ Works 가 관리하는 AI(실행 템플릿이 「작업 공간」인 AI)를 실�
       "secrets": [
         { "name": "agent-key", "source": "WORKS", "version": 812, "rotateAfter": "2026-11-24T10:00:00+09:00" },
         { "name": "claude", "source": "WORKS", "version": 57, "rotateAfter": null },
-        { "name": "github", "source": "LOCATION", "version": null, "rotateAfter": null }
+        { "name": "repos", "source": "WORKS", "version": 1730505600000, "rotateAfter": null }
       ]
     }
   ]
@@ -76,11 +76,11 @@ AI 를 끄면 desired 목록에서 빠지고, runner 는 그 Pod 를 바로 지�
 
 | name | source | 원문은 어디서 |
 |---|---|---|
-| `github` | `LOCATION` | runner 설치 때 그 위치에 만들어 둔 Secret. **Works 는 이름만 알고 원문을 모른다.** |
 | `agent-key` | `WORKS` | `POST …/agents/{id}/agent-key`(아래). `version` = 지금 쓸 수 있는 Works 자동 발급 키 id(아직 없으면 `null`). 모든 AI 에 실린다. |
 | `claude` | `WORKS` | `GET …/agents/{id}/secrets/claude`(아래). `version` = 관리자가 AI 에 등록한 활성 모델 연결 id(없으면 `null`). 템플릿이 요구할 때만 실린다. |
+| `repos` | `WORKS` | `GET …/agents/{id}/secrets/repos`(아래). `version` = 그 AI 의 저장소 토큰 등록·교체·폐기 시각(epoch 밀리초) 중 가장 늦은 것 — 하나도 없으면 `null`. 템플릿이 `repo`(옛 이름 `github`)를 요구할 때만 실린다. 옛 `github`/`LOCATION`(위치 Secret)은 없어졌다. |
 
-**언제 다시 받나**: runner 쪽 Secret 에 받은 버전을 적어 두고, `version` 이 그것과 다르거나(`null` → 값 포함) `rotateAfter` 가 지났을 때만 원문 엔드포인트를 부른다. `agent-key.version` 이 `null` 이면 Pod 를 띄우기 전에 먼저 받는다. `claude.version` 이 `null` 이면 연결이 없는 것이다(Pod 는 띄울 수 있지만 모델을 부를 수 없다).
+**언제 다시 받나**: runner 쪽 Secret 에 받은 버전을 적어 두고, `version` 이 그것과 다르거나(`null` → 값 포함) `rotateAfter` 가 지났을 때만 원문 엔드포인트를 부른다. `agent-key.version` 이 `null` 이면 Pod 를 띄우기 전에 먼저 받는다. `claude.version` 이 `null` 이면 연결이 없는 것이다(Pod 는 띄울 수 있지만 모델을 부를 수 없다). `repos.version` 이 `null` 이면 등록된 저장소 토큰이 없는 것이다(남은 `repo-*` 키를 지운다). `repos` 참조가 아예 없어도 같다.
 
 ### AI 키 받기 — `POST /api/v1/agent-runtime/runner/agents/{agentUserId}/agent-key`
 
@@ -115,6 +115,20 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 - 이 위치에서 켜져 있는 AI 만(아니면 404 `RUNNER_AGENT_NOT_FOUND`), 등록된 연결이 없으면 404(`RUNNER_SECRET_NOT_FOUND`).
 - 관리자가 연결을 다시 등록하면 `version` 이 바뀐다 — 다시 받아 Secret 을 바꾼다. 이것은 `generation` 을 올리지 않는다(Pod 를 언제 다시 만들지는 runner 가 정한다).
 
+### 저장소 토큰 받기 — `GET /api/v1/agent-runtime/runner/agents/{agentUserId}/secrets/repos`
+
+그 AI 에 관리자가 등록한 저장소 토큰 전부의 원문(`Cache-Control: no-store`). 활성만, host 오름차순.
+
+```json
+{ "version": 1730505600000, "tokens": [
+  { "kind": "GITHUB", "host": "github.com", "token": "ghp_…" },
+  { "kind": "GITLAB", "host": "gitlab.iacloud.kr", "token": "glpat-…" } ] }
+```
+
+- 이 위치에서 켜져 있는 AI 만(아니면 404 `RUNNER_AGENT_NOT_FOUND`). 등록이 없으면 `version: null`·빈 `tokens`(404 가 아니다).
+- 토큰을 등록·교체·폐기하면 `version` 이 바뀐다 — 다시 받아 Secret 의 `repo-*` 키를 모두 바꾼다. 이것은 `generation` 을 올리지 않는다. gh 로그인이 Pod 시작 때 고정되므로 runner 가 Pod 를 다시 만든다(계약 문서 「저장소 토큰」).
+- 받을 때마다 Works 가 각 토큰의 「최근 사용」을 갱신한다. 받은 원문은 로그에 남기지 않는다.
+
 ### 관찰 상태 보고 — `POST /api/v1/agent-runtime/runner/observed`
 
 ```json
@@ -122,7 +136,8 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
   "agents": [
     { "agentUserId": 42, "observedGeneration": 7, "phase": "RUNNING", "message": null,
       "cpuMillicores": 1200, "memoryBytes": 3221225472, "startedAt": "2026-11-01T09:58:00+09:00" }
-  ]
+  ],
+  "metricsAvailable": true
 }
 ```
 
@@ -131,6 +146,7 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 - 응답: `{"updated": 1, "ignored": []}`. 보고는 generation 도, 원하는 상태도 바꾸지 않는다.
 - `observedGeneration` 은 줄지 않는다 — 늦게 도착한 옛 Pod 보고(더 작은 값)는 그 칸을 되돌리지 않고, 값이 없는 보고는 그대로 둔다.
 - 새 Pod 가 보이면(`phase=STARTING`, `startedAt` 이 바뀜, `observedGeneration` 이 오름) 옛 Pod 가 보고한 AI 상태(쉬는 중 등)를 지운다. 단 그 AI 보고가 새 Pod 의 `startedAt` 뒤에 왔으면 새 Pod 의 것이라 남긴다. `startedAt` 을 함께 보내야 이 판정이 정확하다.
+- `metricsAvailable`(선택, WP-1280): 이 위치에서 CPU·메모리 사용량을 잴 수 있는지. 사용량 API(`metrics.k8s.io`)가 **없으면(404) `false`**, 조회가 되면 `true`, 일시 오류(그 밖의 실패)면 **보내지 않는다** — 서버는 값이 올 때만 위치에 적고, 없으면 마지막 값을 둔다. 관리자 화면은 `false` 인 위치의 AI CPU·메모리 칸에 「알 수 없음」과 이유(metrics-server 없음)를 보인다. 실행 위치 응답(`GET /api/v1/admin/agent-locations`)에 같은 이름으로 실린다(`null` = 아직 모름).
 - **변화가 없어도 60초마다 보낸다.** CPU·메모리 갱신과 함께, 관리자 화면의 위치 연결 상태가 이 호출로 정해진다(마지막 호출이 2분 안이면 「연결됨」). desired 조회만 5분마다 하면 그 사이 「끊김」으로 보인다.
 
 ### 변경 스트림 — `GET /api/v1/agent-runtime/runner/events`
@@ -169,11 +185,11 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 AI 가 자기 키(`Authorization: Bearer ak_…`)로 부른다(WP-1275). Works 가 띄운 AI 만이 아니라 사람이 띄운 AI(start-agent)도 쓴다 — 플러그인 `gw-agent-projects --assigned` 가 이 호출을 하고 「키<탭>저장소 주소<탭>브랜치」 줄로 바꾼다. 작업 공간 엔트리포인트(부팅 때 칸 열기)·알림 감시(칸 없는 프로젝트 알림 — WP-1272)·work-loop 의 「새 프로젝트 확인」이 모두 이것을 부른다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant` 를 함께 보낸다.
 
 ```json
-[{ "projectKey": "WP", "name": "Works", "repositoryUrl": "https://github.com/acme/works.git", "repositoryBranch": null }]
+[{ "projectKey": "WP", "name": "Works", "repositoryUrl": "https://github.com/acme/works.git", "repositoryBranch": null, "repositoryHost": "github.com" }]
 ```
 
 - 그 AI 가 **실제 멤버**(직접 멤버 또는 멤버로 둔 부서 — 관리자라 보이기만 하는 프로젝트·공개 열람은 치지 않는다)이고 **연결된 저장소**가 있으며 지워지지 않은 프로젝트만, 키 순으로. 키는 폴더·tmux 칸 이름이 되므로 `^[A-Za-z0-9_-]+$` 형식이 아니면 뺀다. 관리자 화면의 「맡는 프로젝트」와 같은 목록이다.
-- `repositoryBranch` 가 null 이면 저장소의 기본 브랜치를 쓴다. 맡는 프로젝트가 없으면 `[]`.
+- `repositoryBranch` 가 null 이면 저장소의 기본 브랜치를 쓴다. `repositoryHost` 는 저장소 주소의 호스트(소문자)를 서버가 계산한 값이다(읽을 수 없으면 null) — 저장소 토큰을 맞출 때 호스트 기준이다. 맡는 프로젝트가 없으면 `[]`.
 - 워크스페이스가 정해지지 않은 호출(여러 워크스페이스에 속한 AI 가 헤더 없이 부름)은 400(`AGENT_WORKSPACE_REQUIRED`) — `[]` 이면 「맡은 프로젝트 없음」과 구분되지 않는다. AI 키(`ak_`)가 아닌 인증으로 부르면 403(`AGENT_PROJECTS_AGENT_ONLY`).
 
 ## 오류

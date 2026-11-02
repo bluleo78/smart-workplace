@@ -57,6 +57,8 @@ export interface AgentLocation {
   lastSeenAt: string | null;
   /** 토큰 앞부분(rt_xxxx) — 어느 토큰이 설치됐는지 맞춰 보는 용도. */
   tokenPrefix: string | null;
+  /** CPU·메모리 사용량을 잴 수 있는지(WP-1280) — false 면 그 클러스터에 metrics-server 가 없다, null 은 아직 모름. */
+  metricsAvailable: boolean | null;
 }
 
 /** 위치 생성·토큰 재발급 응답 — plaintextToken 은 이때 한 번만 온다. */
@@ -125,10 +127,25 @@ export interface AgentRuntimeSummary {
   message: string | null;
 }
 
+/** AI 한 명의 저장소 토큰(WP-1268) — 호스트마다 하나. 토큰 원문은 서버가 돌려주지 않는다. */
+export interface AgentRepoCredential {
+  id: number;
+  kind: RepoKind;
+  host: string;
+  createdAt: string;
+  /** runner 가 마지막으로 받아 간 때 — 한 번도 안 받았으면 null. */
+  lastUsedAt: string | null;
+}
+
+/** 저장소 호스트 종류. */
+export type RepoKind = 'GITHUB' | 'GITLAB';
+
 /** 이 AI 가 맡는 프로젝트 — 멤버이고 저장소가 연결된 곳(읽기 전용). */
 export interface AgentRuntimeProject {
   projectKey: string;
   name: string;
   repositoryUrl: string | null;
   repositoryBranch: string | null;
+  /** 저장소 URL 의 호스트(소문자) — 서버가 계산한다. 못 읽으면 null. */
+  repositoryHost: string | null;
 }

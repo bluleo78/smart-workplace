@@ -117,11 +117,31 @@ public class AgentTemplateRegistry {
       if (!(raw instanceof Map<?, ?>)) {
         throw new IllegalStateException("실행 템플릿 YAML 이 객체가 아닙니다");
       }
-      return MAPPER.convertValue(raw, AgentTemplate.class);
+      return normalizeRequires(MAPPER.convertValue(raw, AgentTemplate.class));
     } catch (IllegalArgumentException e) {
       // Jackson 변환 실패(모르는 키·타입 불일치) — 시작 실패로 통일한다.
       throw new IllegalStateException("실행 템플릿 형식이 올바르지 않습니다: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * 요구 이름 정규화 — 옛 이름 {@code github} 를 {@code repo}(GitHub·GitLab 저장소 토큰)와 같은 뜻으로 읽는다(WP-1268). 소비
+   * 쪽(desired·켜기 전 확인·화면)이 {@code repo} 한 가지만 보게 이 한 곳에서 바꾸고, 겹치면 하나로 합친다.
+   */
+  private static AgentTemplate normalizeRequires(AgentTemplate t) {
+    List<String> requires =
+        t.requires().stream().map(r -> "github".equals(r) ? "repo" : r).distinct().toList();
+    return new AgentTemplate(
+        t.name(),
+        t.version(),
+        t.kind(),
+        t.card(),
+        t.image(),
+        requires,
+        t.config(),
+        t.resources(),
+        t.sidecars(),
+        t.plugins());
   }
 
   /** 템플릿 한 개의 구조 검증 — 필수 값, 종류, 이미지 접두사, 설정 칸 규칙. */

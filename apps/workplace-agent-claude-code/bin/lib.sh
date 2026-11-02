@@ -155,20 +155,32 @@ install_key() {
   "$GW_SCRIPTS/gw-keys" add "$GENIA_AGENT_NAME" < "$GENIA_RUN_DIR/agent-key"
 }
 
-# 5b. git 신원과 GitHub 자격 증명 — 토큰은 표준 입력으로만 gh 에 넘긴다. 실패는 경고만(저장소 받기가 clone-failed 로 알린다).
+# 5b. git 신원과 저장소 자격 증명(WP-1268) — runner 가 AI 별·호스트별 토큰을 $GENIA_RUN_DIR/repo-tokens/<github|gitlab>/<host> 파일로 꽂는다.
+#     GitHub 는 호스트마다 gh 에 로그인(토큰은 표준 입력으로만 — 인자·로그에 남기지 않는다)하고 git 자격 증명 도우미를 건다.
+#     GitLab 은 이번엔 파일이 있다는 것만 알린다(로그인은 WP-1276). 실패는 모두 경고만(저장소 받기가 clone-failed 로 알린다).
 setup_git() {
   git config --global user.name "$GENIA_AGENT_NAME"
   git config --global user.email "$GENIA_AGENT_NAME@agents.genia-works.local"
-  token="$GENIA_RUN_DIR/github-token"
-  if [ ! -s "$token" ]; then
-    log "경고: GitHub 토큰($token)이 없습니다 — 저장소를 받지 못할 수 있습니다"
-    return 0
+  tokens="$GENIA_RUN_DIR/repo-tokens"
+  found=0
+  for token in "$tokens"/github/*; do
+    [ -s "$token" ] || continue
+    found=1
+    host=$(basename "$token")
+    if ! err=$(gh auth login --hostname "$host" --with-token < "$token" 2>&1 >/dev/null); then
+      log "경고: GitHub 로그인 실패($host) — 토큰 권한(Contents·Pull requests)을 확인하세요: $(printf '%s' "$err" | head -n 1)"
+      continue
+    fi
+    gh auth setup-git --hostname "$host" >/dev/null 2>&1 || log "경고: gh auth setup-git 실패($host) — git 이 GitHub 자격 증명을 쓰지 못할 수 있습니다"
+  done
+  for token in "$tokens"/gitlab/*; do
+    [ -s "$token" ] || continue
+    found=1
+    log "GitLab 토큰이 있습니다($(basename "$token")) — GitLab 로그인은 WP-1276 에서 지원합니다"
+  done
+  if [ "$found" = 0 ]; then
+    log "경고: 저장소 토큰($tokens)이 없습니다 — 저장소를 받지 못할 수 있습니다"
   fi
-  if ! err=$(gh auth login --hostname github.com --with-token < "$token" 2>&1 >/dev/null); then
-    log "경고: GitHub 로그인 실패 — 토큰 권한(repo·read:org)을 확인하세요: $(printf '%s' "$err" | head -n 1)"
-    return 0
-  fi
-  gh auth setup-git --hostname github.com >/dev/null 2>&1 || log "경고: gh auth setup-git 실패 — git 이 GitHub 자격 증명을 쓰지 못할 수 있습니다"
   return 0
 }
 

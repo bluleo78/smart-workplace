@@ -1,9 +1,10 @@
 // 조정 계획 — desired 와 클러스터에 남은 runner 리소스를 맞대어 AI 마다 할 일 하나를 고른다(순수 함수).
-import type { KubernetesObject } from '@kubernetes/client-node';
+import type { KubernetesObject, V1Pod } from '@kubernetes/client-node';
 import type { ManagedResources } from './k8s/cluster.js';
 import {
   AGENT_LABEL,
   ANN_CLAUDE_VERSION,
+  ANN_REPOS_VERSION,
   LOCATION_LABEL,
   MANAGED_BY_KEY,
   MANAGED_BY_VALUE,
@@ -14,8 +15,11 @@ import type { RunnerDesiredAgent } from './works/client.js';
 /** 클러스터에 남은 AI 한 명의 runner 리소스. */
 export interface ActualAgent {
   agentUserId: number;
-  /** Pod 가 있으면 그 generation 라벨, 지우는 중인지, 만들 때 넣은 모델 연결 version(어노테이션, 없으면 undefined). */
-  pod?: { generation: number | null; deleting: boolean; claudeVersion?: string };
+  /**
+   * Pod 가 있으면 그 generation 라벨, 지우는 중인지, 만들 때 넣은 모델 연결 version(어노테이션, 없으면 undefined),
+   * 배치된 노드(spec.nodeName — 아직 배치 전이면 undefined).
+   */
+  pod?: { generation: number | null; deleting: boolean; claudeVersion?: string; reposVersion?: string; nodeName?: string };
   pvc: boolean;
   /** PVC 가 지워지는 중(deletionTimestamp) — 끄고 바로 켠 AI 는 사라질 때까지 기다렸다 새로 만든다. */
   pvcDeleting?: boolean;
@@ -78,6 +82,8 @@ export function collectActual(res: ManagedResources): ActualAgent[] {
       generation: podGeneration(p),
       deleting: Boolean(p.metadata?.deletionTimestamp),
       claudeVersion: p.metadata?.annotations?.[ANN_CLAUDE_VERSION],
+      reposVersion: p.metadata?.annotations?.[ANN_REPOS_VERSION],
+      nodeName: (p as V1Pod).spec?.nodeName || undefined,
     };
   }
   // [목록, 있음 칸, 지우는 중 칸] — 한 번 돌며 둘 다 채운다(ConfigMap 은 지우는 중을 따로 보지 않는다)

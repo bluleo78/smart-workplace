@@ -188,6 +188,8 @@ public final class TenantPurgePlan {
           // DELETE
           // RESTRICT)이 위치를 참조하므로 둘 다 위치보다 먼저.
           AGENT_RUNTIME_SETTING,
+          // AI 별 저장소 토큰(WP-1268) — user 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 비운다.
+          AGENT_REPO_CREDENTIAL,
           AGENT_RUNNER_TOKEN,
           AGENT_LOCATION,
           // 연락처·그룹

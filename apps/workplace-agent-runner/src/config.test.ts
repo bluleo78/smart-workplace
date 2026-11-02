@@ -7,7 +7,6 @@ const BASE = {
   RUNNER_TOKEN_FILE: '/var/run/genia/runner-token',
   NAMESPACE: 'agents',
   ALLOWED_IMAGE_PREFIXES: 'docker.io/iacloudops/genia-works-agent-, docker:',
-  GITHUB_SECRET_NAME: 'github-token',
 };
 const readFile = (path: string) => {
   if (path !== '/var/run/genia/runner-token') throw new Error(`unexpected ${path}`);
@@ -24,14 +23,20 @@ describe('loadConfig', () => {
       nodeSelector: {},
       tolerations: [],
       hostAliases: [],
+      workDiskType: 'hostPath',
+      workHostPath: '/var/lib/genia-agents',
       storageClass: undefined,
-      githubSecretName: 'github-token',
       dindStorageLimit: '20Gi',
       dindResources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '4', memory: '6Gi' } },
       healthPort: 8080,
       terminationGraceSeconds: 60,
       imagePullSecrets: [],
     });
+  });
+
+  it('ignoresLeftoverGithubSecretName', () => {
+    const cfg = loadConfig({ ...BASE, GITHUB_SECRET_NAME: 'github-token' }, readFile);
+    expect(cfg).not.toHaveProperty('githubSecretName');
   });
 
   it('parsesLocationJsonValues', () => {
@@ -67,7 +72,6 @@ describe('loadConfig', () => {
     ['WORKS_URL not http', { WORKS_URL: 'ftp://x' }],
     ['missing NAMESPACE', { NAMESPACE: '' }],
     ['empty ALLOWED_IMAGE_PREFIXES', { ALLOWED_IMAGE_PREFIXES: ' , ' }],
-    ['missing GITHUB_SECRET_NAME', { GITHUB_SECRET_NAME: undefined }],
     ['bad node selector json', { AGENT_NODE_SELECTOR: '{bad' }],
     ['node selector not string map', { AGENT_NODE_SELECTOR: '{"a":1}' }],
     ['tolerations not array', { AGENT_TOLERATIONS: '{}' }],
@@ -99,4 +103,19 @@ describe('loadConfig', () => {
   it('rejectsEmptyTokenFile', () => {
     expect(() => loadConfig(BASE, () => '  \n')).toThrow(/RUNNER_TOKEN_FILE/);
   });
+
+  it('loadConfig_whenWorkDiskTypePvcAndHostPathTrailingSlash_readsBoth', () => {
+    const cfg = loadConfig({ ...BASE, AGENT_WORK_DISK_TYPE: 'pvc', AGENT_WORK_HOST_PATH: '/data/agents/' }, readFile);
+    expect(cfg.workDiskType).toBe('pvc');
+    expect(cfg.workHostPath).toBe('/data/agents');
+  });
+
+  it('loadConfig_whenWorkDiskTypeUnknown_fails', () => {
+    expect(() => loadConfig({ ...BASE, AGENT_WORK_DISK_TYPE: 'nfs' }, readFile)).toThrow('AGENT_WORK_DISK_TYPE 은 hostPath 또는 pvc 여야 합니다');
+  });
+
+  it('loadConfig_whenWorkHostPathRelative_fails', () => {
+    expect(() => loadConfig({ ...BASE, AGENT_WORK_HOST_PATH: 'data/agents' }, readFile)).toThrow('AGENT_WORK_HOST_PATH 는 절대 경로여야 합니다');
+  });
 });
+

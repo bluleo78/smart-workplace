@@ -131,7 +131,7 @@ public class AgentLocationService {
         Map.of("locationId", id, "name", name, "capacity", capacity));
     // 방금 만든 행으로 응답한다(토큰은 아직 쓰이지 않았다). 첫 위치면 기본이 되어 위치를 지정하지 않은 설정이 이리로 오므로, 쓰는 AI·자리 수는
     // 다시 센다.
-    Row created = new Row(id, name, description, first, capacity, token.prefix(), null);
+    Row created = new Row(id, name, description, first, capacity, token.prefix(), null, null);
     changeNotifier.locationChanged(ResourceChangedEvent.OP_CREATED, id, callerId);
     return new AgentLocationTokenResponse(withUsage(created), token.plaintext());
   }
@@ -315,7 +315,8 @@ public class AgentLocationService {
         r.lastSeenAt(),
         r.tokenPrefix(),
         agents,
-        settingCount);
+        settingCount,
+        r.metricsAvailable());
   }
 
   /**

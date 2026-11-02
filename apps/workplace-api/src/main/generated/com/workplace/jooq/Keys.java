@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
+import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentWork;
@@ -155,6 +156,7 @@ import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 import com.workplace.jooq.tables.records.AgentApiKeyRecord;
 import com.workplace.jooq.tables.records.AgentLocationRecord;
+import com.workplace.jooq.tables.records.AgentRepoCredentialRecord;
 import com.workplace.jooq.tables.records.AgentRunnerTokenRecord;
 import com.workplace.jooq.tables.records.AgentRuntimeSettingRecord;
 import com.workplace.jooq.tables.records.AgentWorkEventRecord;
@@ -324,6 +326,7 @@ public class Keys {
     public static final UniqueKey<AgentApiKeyRecord> AGENT_API_KEY_PKEY = Internal.createUniqueKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_pkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.ID }, true);
     public static final UniqueKey<AgentLocationRecord> AGENT_LOCATION_PKEY = Internal.createUniqueKey(AgentLocation.AGENT_LOCATION, DSL.name("agent_location_pkey"), new TableField[] { AgentLocation.AGENT_LOCATION.ID }, true);
     public static final UniqueKey<AgentLocationRecord> UQ_AGENT_LOCATION_NAME = Internal.createUniqueKey(AgentLocation.AGENT_LOCATION, DSL.name("uq_agent_location_name"), new TableField[] { AgentLocation.AGENT_LOCATION.TENANT_ID, AgentLocation.AGENT_LOCATION.NAME }, true);
+    public static final UniqueKey<AgentRepoCredentialRecord> AGENT_REPO_CREDENTIAL_PKEY = Internal.createUniqueKey(AgentRepoCredential.AGENT_REPO_CREDENTIAL, DSL.name("agent_repo_credential_pkey"), new TableField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.ID }, true);
     public static final UniqueKey<AgentRunnerTokenRecord> AGENT_RUNNER_TOKEN_PKEY = Internal.createUniqueKey(AgentRunnerToken.AGENT_RUNNER_TOKEN, DSL.name("agent_runner_token_pkey"), new TableField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.ID }, true);
     public static final UniqueKey<AgentRuntimeSettingRecord> PK_AGENT_RUNTIME_SETTING = Internal.createUniqueKey(AgentRuntimeSetting.AGENT_RUNTIME_SETTING, DSL.name("pk_agent_runtime_setting"), new TableField[] { AgentRuntimeSetting.AGENT_RUNTIME_SETTING.TENANT_ID, AgentRuntimeSetting.AGENT_RUNTIME_SETTING.AGENT_USER_ID }, true);
     public static final UniqueKey<AgentWorkRecord> AGENT_WORK_PKEY = Internal.createUniqueKey(AgentWork.AGENT_WORK, DSL.name("agent_work_pkey"), new TableField[] { AgentWork.AGENT_WORK.ID }, true);
@@ -516,6 +519,9 @@ public class Keys {
     public static final ForeignKey<AgentApiKeyRecord, UserRecord> AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY = Internal.createForeignKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_user_id_fkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentLocationRecord, UserRecord> AGENT_LOCATION__AGENT_LOCATION_CREATED_BY_FKEY = Internal.createForeignKey(AgentLocation.AGENT_LOCATION, DSL.name("agent_location_created_by_fkey"), new TableField[] { AgentLocation.AGENT_LOCATION.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentLocationRecord, TenantRecord> AGENT_LOCATION__FK_AGENT_LOCATION_TENANT = Internal.createForeignKey(AgentLocation.AGENT_LOCATION, DSL.name("fk_agent_location_tenant"), new TableField[] { AgentLocation.AGENT_LOCATION.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
+    public static final ForeignKey<AgentRepoCredentialRecord, UserRecord> AGENT_REPO_CREDENTIAL__AGENT_REPO_CREDENTIAL_AGENT_USER_ID_FKEY = Internal.createForeignKey(AgentRepoCredential.AGENT_REPO_CREDENTIAL, DSL.name("agent_repo_credential_agent_user_id_fkey"), new TableField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
+    public static final ForeignKey<AgentRepoCredentialRecord, UserRecord> AGENT_REPO_CREDENTIAL__AGENT_REPO_CREDENTIAL_CREATED_BY_FKEY = Internal.createForeignKey(AgentRepoCredential.AGENT_REPO_CREDENTIAL, DSL.name("agent_repo_credential_created_by_fkey"), new TableField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
+    public static final ForeignKey<AgentRepoCredentialRecord, TenantRecord> AGENT_REPO_CREDENTIAL__FK_AGENT_REPO_CREDENTIAL_TENANT = Internal.createForeignKey(AgentRepoCredential.AGENT_REPO_CREDENTIAL, DSL.name("fk_agent_repo_credential_tenant"), new TableField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<AgentRunnerTokenRecord, UserRecord> AGENT_RUNNER_TOKEN__AGENT_RUNNER_TOKEN_CREATED_BY_FKEY = Internal.createForeignKey(AgentRunnerToken.AGENT_RUNNER_TOKEN, DSL.name("agent_runner_token_created_by_fkey"), new TableField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentRunnerTokenRecord, AgentLocationRecord> AGENT_RUNNER_TOKEN__AGENT_RUNNER_TOKEN_LOCATION_ID_FKEY = Internal.createForeignKey(AgentRunnerToken.AGENT_RUNNER_TOKEN, DSL.name("agent_runner_token_location_id_fkey"), new TableField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.LOCATION_ID }, Keys.AGENT_LOCATION_PKEY, new TableField[] { AgentLocation.AGENT_LOCATION.ID }, true);
     public static final ForeignKey<AgentRunnerTokenRecord, TenantRecord> AGENT_RUNNER_TOKEN__AGENT_RUNNER_TOKEN_TENANT_ID_FKEY = Internal.createForeignKey(AgentRunnerToken.AGENT_RUNNER_TOKEN, DSL.name("agent_runner_token_tenant_id_fkey"), new TableField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);

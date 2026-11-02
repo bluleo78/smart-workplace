@@ -1,10 +1,11 @@
 // 테스트용 가짜 클러스터·Works — 실제 쿠버네티스·HTTP 없이 조정 흐름을 단언하려고 메모리에 둔다.
 import { vi } from 'vitest';
 import type { KubernetesObject, V1ConfigMap, V1PersistentVolumeClaim, V1Pod, V1Secret } from '@kubernetes/client-node';
-import type { ClusterApi, ManagedKind, ManagedResources } from '../k8s/cluster.js';
+import { ClusterError, type ClusterApi, type ManagedKind, type ManagedResources } from '../k8s/cluster.js';
 import type {
   AgentKeyResponse,
   ClaudeSecretResponse,
+  RepoSecretsResponse,
   RunnerDesired,
   RunnerObservedAgent,
   WorksClient,
@@ -23,6 +24,8 @@ export class FakeCluster implements ClusterApi {
   rejectApply: ((obj: KubernetesObject) => Error | undefined) | undefined;
   metrics = new Map<string, { cpuMillicores?: number; memoryBytes?: number }>();
   failMetrics = false;
+  /** 사용량 API(metrics.k8s.io)가 없는 클러스터 — 404 ClusterError 를 던진다(WP-1280). */
+  missingMetricsApi = false;
 
   private key(kind: string, name: string) {
     return `${kind}/${name}`;
@@ -79,6 +82,7 @@ export class FakeCluster implements ClusterApi {
   }
 
   async podMetrics() {
+    if (this.missingMetricsApi) throw new ClusterError('list', 'PodMetrics', 'agents', 404, 'NotFound');
     if (this.failMetrics) throw new Error('metrics.k8s.io unavailable');
     return this.metrics;
   }
@@ -98,7 +102,12 @@ export class FakeWorks implements WorksClient {
     provider: 'anthropic',
     payload: 'sk-ant-plain',
   }));
-  reportObserved = vi.fn(async (agents: RunnerObservedAgent[]) => ({
+  /** 기본: 모든 AI 가 GitHub 토큰 하나 — AI 별로 다르게 하려면 mockImplementation. */
+  getRepoSecrets = vi.fn(async (agentUserId: number): Promise<RepoSecretsResponse> => ({
+    version: 1730505600000,
+    tokens: [{ kind: 'GITHUB', host: 'github.com', token: `ghp_plain_${agentUserId}` }],
+  }));
+  reportObserved = vi.fn(async (agents: RunnerObservedAgent[], _metricsAvailable?: boolean) => ({
     updated: agents.length,
     ignored: [] as number[],
   }));

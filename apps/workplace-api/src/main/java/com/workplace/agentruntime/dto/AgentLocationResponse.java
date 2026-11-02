@@ -13,6 +13,8 @@ import java.util.List;
  * @param tokenPrefix 쓸 수 있는 토큰의 앞 12자(알아보기용, 없으면 null)
  * @param agents 이 위치를 쓰도록 설정된 AI(켜짐·꺼짐 모두, 이름순) — 기본 위치면 위치를 지정하지 않은 AI 도 포함(WP-1281)
  * @param settingCount 이 위치를 직접 지정한 실행 설정 수 — 0 보다 크면 삭제가 409 다(기본 따라가기 AI 는 세지 않는다)
+ * @param metricsAvailable CPU·메모리 사용량을 잴 수 있는지(WP-1280) — false 면 그 클러스터에 metrics-server 가 없다, null
+ *     은 아직 모름
  */
 public record AgentLocationResponse(
     long id,
@@ -25,4 +27,5 @@ public record AgentLocationResponse(
     OffsetDateTime lastSeenAt,
     String tokenPrefix,
     List<AgentLocationAgent> agents,
-    int settingCount) {}
+    int settingCount,
+    Boolean metricsAvailable) {}

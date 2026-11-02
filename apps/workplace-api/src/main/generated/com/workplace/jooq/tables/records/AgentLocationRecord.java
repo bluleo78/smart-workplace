@@ -146,6 +146,20 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
         return (OffsetDateTime) get(8);
     }
 
+    /**
+     * Setter for <code>public.agent_location.metrics_available</code>.
+     */
+    public void setMetricsAvailable(Boolean value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_location.metrics_available</code>.
+     */
+    public Boolean getMetricsAvailable() {
+        return (Boolean) get(9);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -169,7 +183,7 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
     /**
      * Create a detached, initialised AgentLocationRecord
      */
-    public AgentLocationRecord(Long id, Long tenantId, String name, String description, Boolean isDefault, Integer capacity, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public AgentLocationRecord(Long id, Long tenantId, String name, String description, Boolean isDefault, Integer capacity, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean metricsAvailable) {
         super(AgentLocation.AGENT_LOCATION);
 
         setId(id);
@@ -181,6 +195,7 @@ public class AgentLocationRecord extends UpdatableRecordImpl<AgentLocationRecord
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setMetricsAvailable(metricsAvailable);
         resetChangedOnNotNull();
     }
 }

@@ -10,7 +10,6 @@ const CHART = fileURLToPath(new URL('..', import.meta.url));
 const REQUIRED = {
   'works.url': 'https://works.example.test',
   'image.tag': '9.9.9',
-  'github.existingSecret': 'gh-token',
   runnerToken: 'rt_sentinel_token',
 };
 
@@ -60,10 +59,12 @@ test('failsWithoutTokenOrExistingSecret', () => {
   assert.match(ok.out, /secretName: my-runner-token/);
 });
 
-test('failsWithoutGithubSecret', () => {
-  const r = render({ omit: ['github.existingSecret'] });
-  assert.equal(r.ok, false);
-  assert.match(r.err, /github\.existingSecret/);
+test('rendersWithoutAnyGithubValueAndInjectsNoGithubEnv', () => {
+  // WP-1268 — 저장소 토큰은 AI 별로 Works 에 저장한다. 위치 GitHub Secret 값·env 는 없다
+  const r = render();
+  assert.ok(r.ok, r.err);
+  assert.doesNotMatch(r.out, /GITHUB_SECRET_NAME/);
+  assert.doesNotMatch(r.out, /github-token/);
 });
 
 test('failsWithoutWorksUrlOrImageTag', () => {
@@ -73,7 +74,7 @@ test('failsWithoutWorksUrlOrImageTag', () => {
 
 test('passesLocationValuesAsJsonEnv', () => {
   const r = render({
-    set: { 'agent.storageClass': 'fast-ssd' },
+    set: { 'agent.storageClass': 'fast-ssd', 'agent.workDisk.type': 'pvc' },
     json: {
       'agent.nodeSelector': { pool: 'agents' },
       'agent.tolerations': [{ key: 'dedicated', operator: 'Equal', value: 'agents', effect: 'NoSchedule' }],
@@ -86,9 +87,31 @@ test('passesLocationValuesAsJsonEnv', () => {
   assert.equal(JSON.parse(JSON.parse(envValue(r.out, 'AGENT_TOLERATIONS')))[0].key, 'dedicated');
   assert.equal(JSON.parse(JSON.parse(envValue(r.out, 'AGENT_HOST_ALIASES')))[0].ip, '10.0.0.5');
   assert.equal(JSON.parse(envValue(r.out, 'AGENT_STORAGE_CLASS')), 'fast-ssd');
-  assert.equal(JSON.parse(envValue(r.out, 'GITHUB_SECRET_NAME')), 'gh-token');
   assert.equal(JSON.parse(envValue(r.out, 'WORKS_URL')), 'https://works.example.test');
   assert.match(JSON.parse(envValue(r.out, 'ALLOWED_IMAGE_PREFIXES')), /^docker\.io\/iacloudops\/genia-works-agent-,docker:$/);
+});
+
+test('defaultsWorkDiskToNodeLocalFolder', () => {
+  // WP-1270 — 기본은 노드 로컬 폴더. StorageClass 를 적어도 hostPath 방식이면 넘기지 않는다(쓰지 않는 값)
+  const r = render({ set: { 'agent.storageClass': 'nfs' } });
+  assert.ok(r.ok, r.err);
+  assert.equal(JSON.parse(envValue(r.out, 'AGENT_WORK_DISK_TYPE')), 'hostPath');
+  assert.equal(JSON.parse(envValue(r.out, 'AGENT_WORK_HOST_PATH')), '/var/lib/genia-agents');
+  assert.equal(envValue(r.out, 'AGENT_STORAGE_CLASS'), undefined);
+
+  const custom = render({ set: { 'agent.workDisk.hostPath': '/data/agents' } });
+  assert.equal(JSON.parse(envValue(custom.out, 'AGENT_WORK_HOST_PATH')), '/data/agents');
+});
+
+test('pvcWorkDiskOmitsHostPathAndRejectsUnknownType', () => {
+  const pvc = render({ set: { 'agent.workDisk.type': 'pvc' } });
+  assert.ok(pvc.ok, pvc.err);
+  assert.equal(JSON.parse(envValue(pvc.out, 'AGENT_WORK_DISK_TYPE')), 'pvc');
+  assert.equal(envValue(pvc.out, 'AGENT_WORK_HOST_PATH'), undefined);
+
+  const bad = render({ set: { 'agent.workDisk.type': 'nfs' } });
+  assert.equal(bad.ok, false);
+  assert.match(bad.err, /agent\.workDisk\.type/);
 });
 
 test('putsSharedHostAliasesOnRunnerAndAgentPods', () => {

@@ -3,6 +3,7 @@ package com.workplace.agentruntime.repository;
 import static com.workplace.jooq.Tables.PROJECT;
 
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
+import com.workplace.agentruntime.service.RepoHosts;
 import com.workplace.global.share.ProjectMembership;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,8 @@ public class AgentRuntimeProjectRepository {
         .and(PROJECT.KEY.likeRegex(WORKSPACE_KEY))
         .orderBy(PROJECT.KEY)
         .fetch(
-            r -> new AgentRuntimeProjectResponse(r.value1(), r.value2(), r.value3(), r.value4()));
+            r ->
+                new AgentRuntimeProjectResponse(
+                    r.value1(), r.value2(), r.value3(), r.value4(), RepoHosts.hostOf(r.value3())));
   }
 }

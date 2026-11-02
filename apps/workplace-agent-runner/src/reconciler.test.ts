@@ -9,6 +9,9 @@ import { ctx, desiredAgent, runnerConfig } from './testing/fixtures.js';
 import type { RunnerDesired, RunnerDesiredAgent } from './works/client.js';
 
 const NOW = new Date('2026-11-10T00:00:00Z');
+/** 픽스처 desired 의 repos version(문자열) — seedRunningAgent 가 이 값으로 받아 둔 상태를 만든다. */
+const REPOS_V = '1730505600000';
+const REPO_MOUNT = { version: REPOS_V, hosts: 'GITHUB:github.com' };
 
 function desired(agents: RunnerDesiredAgent[]): RunnerDesired {
   return {
@@ -22,34 +25,36 @@ function desired(agents: RunnerDesiredAgent[]): RunnerDesired {
   };
 }
 
-/** runner 가 기록을 남긴 채 떠 있는 AI 한 명(재시작 직전 상태)을 클러스터에 넣는다. Pod 는 모델 연결 57 로 만든 것. */
+/** runner 가 기록을 남긴 채 떠 있는 AI 한 명(재시작 직전 상태)을 클러스터에 넣는다. Pod 는 모델 연결 57·저장소 토큰 version REPOS_V 로 만든 것. */
 function seedRunningAgent(cluster: FakeCluster, agent: RunnerDesiredAgent, locationId = ctx.locationId) {
-  const { pod, pvc, configMap } = buildAgentResources(agent, { ...ctx, locationId }, runnerConfig(), '57');
+  const { pod, pvc, configMap } = buildAgentResources(agent, { ...ctx, locationId }, runnerConfig(), { claudeVersion: '57', repos: REPO_MOUNT });
   cluster.seed(pod);
-  cluster.seed(pvc);
+  cluster.seed(pvc!);
   cluster.seed(configMap);
   cluster.seed(
     buildAgentSecret(
       agent.agentUserId,
       locationId,
       'agents',
-      { 'agent-key': 'ak_old', 'claude-token': 'sk-ant-old' },
+      { 'agent-key': 'ak_old', 'claude-token': 'sk-ant-old', 'repo-github-github.com': 'ghp_old' },
       {
         'genia.works/agent-key-id': '812',
         'genia.works/agent-key-rotate-after': '2026-11-24T01:00:00.000Z',
         'genia.works/claude-version': '57',
+        'genia.works/repos-version': REPOS_V,
+        'genia.works/repo-hosts': 'GITHUB:github.com',
       },
     ),
   );
 }
 
-function makeReconciler(cluster: FakeCluster, works: FakeWorks, logs: unknown[] = []) {
+function makeReconciler(cluster: FakeCluster, works: FakeWorks, logs: unknown[] = [], cfg = runnerConfig()) {
   const log = {
     info: (...a: unknown[]) => logs.push(a),
     warn: (...a: unknown[]) => logs.push(a),
     error: (...a: unknown[]) => logs.push(a),
   };
-  return new Reconciler({ cluster, works, cfg: runnerConfig(), now: () => NOW, log });
+  return new Reconciler({ cluster, works, cfg, now: () => NOW, log });
 }
 
 function decodeSecret(cluster: FakeCluster, name: string) {
@@ -157,7 +162,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: expect.stringContaining('ghcr.io/evil/miner:1') }),
-    ]);
+    ], true);
   });
 
   it('doesNotCreatePodBeforeAgentKeySecretExists', async () => {
@@ -213,7 +218,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: expect.stringContaining('ghcr.io/evil/miner:2') }),
-    ]);
+    ], true);
   });
 
   it('waitsForTerminatingPvcBeforeCreatingAgain', async () => {
@@ -241,6 +246,101 @@ describe('Reconciler', () => {
     ]);
   });
 
+  describe('hostPath 작업 디스크(WP-1270)', () => {
+    const hostCfg = () => runnerConfig({ workDiskType: 'hostPath' });
+
+    /** hostPath 방식으로 떠 있는 AI — Pod 는 nodeName 노드에 배치됨, Secret 에는 workNode 가 있을 때만 노드 기록. */
+    function seedHostPathAgent(cluster: FakeCluster, agent: RunnerDesiredAgent, nodeName: string, workNode?: string) {
+      const { pod, configMap } = buildAgentResources(agent, ctx, hostCfg(), { claudeVersion: '57', workNode, repos: REPO_MOUNT });
+      cluster.seed({ ...pod, spec: { ...pod.spec!, nodeName } } as V1Pod);
+      cluster.seed(configMap);
+      cluster.seed(
+        buildAgentSecret(
+          agent.agentUserId,
+          ctx.locationId,
+          'agents',
+          { 'agent-key': 'ak_old', 'claude-token': 'sk-ant-old', 'repo-github-github.com': 'ghp_old' },
+          {
+            'genia.works/agent-key-id': '812',
+            'genia.works/agent-key-rotate-after': '2026-11-24T01:00:00.000Z',
+            'genia.works/claude-version': '57',
+            'genia.works/repos-version': REPOS_V,
+            'genia.works/repo-hosts': 'GITHUB:github.com',
+            ...(workNode ? { 'genia.works/work-node': workNode } : {}),
+          },
+        ),
+      );
+    }
+
+    it('recordsScheduledNodeOnSecretOnce', async () => {
+      const cluster = new FakeCluster();
+      seedHostPathAgent(cluster, desiredAgent(), 'node-a');
+      const works = new FakeWorks(desired([desiredAgent()]));
+      const r = makeReconciler(cluster, works, [], hostCfg());
+
+      await r.reconcileOnce();
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/work-node']).toBe('node-a');
+      // 원문(키·토큰)은 그대로
+      expect(decodeSecret(cluster, 'agent-42')['agent-key']).toBe('ak_old');
+
+      // 이미 적었으면 다시 쓰지 않는다
+      cluster.calls.length = 0;
+      await r.reconcileOnce();
+      expect(cluster.calls).toEqual([]);
+    });
+
+    it('recreatePinsNewPodToRecordedNodeWithoutPvc', async () => {
+      const cluster = new FakeCluster();
+      seedHostPathAgent(cluster, desiredAgent(), 'node-a', 'node-a');
+      const works = new FakeWorks(desired([desiredAgent({ generation: 8, applyNow: true })]));
+      const r = makeReconciler(cluster, works, [], hostCfg());
+
+      await r.reconcileOnce();
+      cluster.finishPodDeletion('agent-42');
+      cluster.calls.length = 0;
+      await r.reconcileOnce();
+
+      expect(cluster.calls).toEqual(['apply ConfigMap/agent-42', 'apply Pod/agent-42']);
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42')!;
+      expect(pod.spec?.affinity?.nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms).toEqual([
+        { matchFields: [{ key: 'metadata.name', operator: 'In', values: ['node-a'] }] },
+      ]);
+    });
+
+    it('keepsExistingPvcAfterSwitchingLocationToHostPath', async () => {
+      const cluster = new FakeCluster();
+      // pvc 방식으로 떠 있던 AI — 위치를 hostPath 로 올린 뒤 generation 이 바뀌어 다시 만든다
+      seedRunningAgent(cluster, desiredAgent());
+      const works = new FakeWorks(desired([desiredAgent({ generation: 8, applyNow: true })]));
+      const r = makeReconciler(cluster, works, [], hostCfg());
+      await r.reconcileOnce();
+      cluster.finishPodDeletion('agent-42');
+      await r.reconcileOnce();
+
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42')!;
+      // 끌 때까지는 예전 PVC 를 그대로 쓴다 — 작업 폴더를 잃지 않게
+      expect(pod.spec?.volumes?.find((v) => v.name === 'work')?.persistentVolumeClaim?.claimName).toBe('agent-42-work');
+      expect(pod.spec?.initContainers).toBeUndefined();
+    });
+
+    it('doesNotWaitForTerminatingPvcLeftFromPvcInstall', async () => {
+      const cluster = new FakeCluster();
+      const agent = desiredAgent();
+      // pvc 방식으로 설치했던 위치를 hostPath 로 바꿈 — 옛 PVC 가 지워지는 중이어도 기다리지 않고 띄운다
+      seedRunningAgent(cluster, agent);
+      cluster.finishPodDeletion('agent-42');
+      const pvc = cluster.get<V1PersistentVolumeClaim>('PersistentVolumeClaim', 'agent-42-work')!;
+      pvc.metadata = { ...pvc.metadata, deletionTimestamp: new Date('2026-11-01T01:00:00Z') };
+      const works = new FakeWorks(desired([agent]));
+
+      await makeReconciler(cluster, works, [], hostCfg()).reconcileOnce();
+      expect(cluster.calls).toEqual(['apply ConfigMap/agent-42', 'apply Pod/agent-42']);
+      expect(cluster.get<V1Pod>('Pod', 'agent-42')?.spec?.volumes?.find((v) => v.name === 'work')?.hostPath?.path).toBe(
+        '/var/lib/genia-agents/agent-42',
+      );
+    });
+  });
+
   it('keepsPodAndConfigMapWhenApplyNowFalse', async () => {
     const cluster = new FakeCluster();
     seedRunningAgent(cluster, desiredAgent());
@@ -262,7 +362,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: expect.stringContaining('Secret/agent-42') }),
-    ]);
+    ], true);
   });
 
   it('failsNonAnthropicClaudeConnectionButKeepsAgentKey', async () => {
@@ -285,7 +385,7 @@ describe('Reconciler', () => {
     await r.reportObserved();
     expect(works.reportObserved).toHaveBeenCalledWith([
       expect.objectContaining({ agentUserId: 42, phase: 'FAILED', message: 'Claude Code 템플릿은 Anthropic 연결만 씁니다' }),
-    ]);
+    ], true);
   });
 
   it('applyRejectedReportsFailedWithReason', async () => {
@@ -372,6 +472,155 @@ describe('Reconciler', () => {
     await makeReconciler(cluster, works).reconcileOnce();
     expect(cluster.calls).toEqual([]);
     expect(works.getClaudeSecret).not.toHaveBeenCalled();
+  });
+
+  describe('저장소 토큰(WP-1268)', () => {
+    const withRepos = (agent: RunnerDesiredAgent, version: number | null | 'none') => ({
+      ...agent,
+      secrets: [
+        ...agent.secrets.filter((x) => x.name !== 'repos'),
+        ...(version === 'none' ? [] : [{ name: 'repos', source: 'WORKS' as const, version, rotateAfter: null }]),
+      ],
+    });
+    /** agent-key·claude 는 이미 받은 상태로 둔 새 AI(repos 만 아직) — 키 교체 호출이 섞이지 않게. */
+    const freshAgent = (id = 42) =>
+      desiredAgent({
+        agentUserId: id,
+        secrets: [
+          { name: 'agent-key', source: 'WORKS', version: null, rotateAfter: null },
+          { name: 'claude', source: 'WORKS', version: 57, rotateAfter: null },
+          { name: 'repos', source: 'WORKS', version: 1730505600000, rotateAfter: null },
+        ],
+      });
+
+    it('fetchesReposForNewAgentAndWritesKeysAnnotationsAndPodVolume', async () => {
+      const cluster = new FakeCluster();
+      const works = new FakeWorks(desired([freshAgent()]));
+      works.getRepoSecrets.mockResolvedValue({
+        version: 1730505600000,
+        tokens: [
+          { kind: 'GITHUB', host: 'github.com', token: 'ghp_aaaaaaaaaaaaaaaa' },
+          { kind: 'GITLAB', host: 'gitlab.iacloud.kr', token: 'glpat_bbbbbbbbbbbbbbbb' },
+        ],
+      });
+      await makeReconciler(cluster, works).reconcileOnce();
+
+      expect(decodeSecret(cluster, 'agent-42')).toMatchObject({
+        'repo-github-github.com': 'ghp_aaaaaaaaaaaaaaaa',
+        'repo-gitlab-gitlab.iacloud.kr': 'glpat_bbbbbbbbbbbbbbbb',
+      });
+      const ann = cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations;
+      expect(ann?.['genia.works/repos-version']).toBe('1730505600000');
+      expect(ann?.['genia.works/repo-hosts']).toBe('GITHUB:github.com,GITLAB:gitlab.iacloud.kr');
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42');
+      expect(pod?.metadata?.annotations?.['genia.works/repos-version']).toBe('1730505600000');
+      expect(pod?.spec?.volumes?.find((v) => v.name === 'repo-tokens')?.secret?.items).toEqual([
+        { key: 'repo-github-github.com', path: 'github/github.com' },
+        { key: 'repo-gitlab-gitlab.iacloud.kr', path: 'gitlab/gitlab.iacloud.kr' },
+      ]);
+    });
+
+    it('doesNotRefetchReposWhenVersionSameEvenAfterRunnerRestart', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      const works = new FakeWorks(desired([desiredAgent()]));
+      await makeReconciler(cluster, works).reconcileOnce();
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(works.getRepoSecrets).not.toHaveBeenCalled();
+      expect(cluster.calls).toEqual([]);
+    });
+
+    it('refetchesReposAndRecreatesPodWhenVersionChanges', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      // 토큰 교체 — generation 은 그대로, applyNow=false 라도 gh 로그인을 새로 하려면 Pod 를 다시 만들어야 한다
+      const works = new FakeWorks(desired([withRepos(desiredAgent({ applyNow: false }), 1730509999999)]));
+      works.getRepoSecrets.mockResolvedValue({
+        version: 1730509999999,
+        tokens: [{ kind: 'GITHUB', host: 'ghe.example.com', token: 'ghp_newnewnewnewnew1' }],
+      });
+      const r = makeReconciler(cluster, works);
+
+      const first = await r.reconcileOnce();
+      expect(works.getRepoSecrets).toHaveBeenCalledTimes(1);
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+      expect(first.retry).toBe('wait');
+      // 빠진 host(github.com)의 키는 지운다
+      const data = decodeSecret(cluster, 'agent-42');
+      expect(data['repo-github-ghe.example.com']).toBe('ghp_newnewnewnewnew1');
+      expect(data['repo-github-github.com']).toBeUndefined();
+
+      cluster.finishPodDeletion('agent-42');
+      cluster.calls.length = 0;
+      await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['apply ConfigMap/agent-42', 'apply Pod/agent-42']);
+      expect(cluster.get<V1Pod>('Pod', 'agent-42')?.metadata?.annotations?.['genia.works/repos-version']).toBe('1730509999999');
+    });
+
+    it.each([
+      ['refGone', 'none'],
+      ['versionNull', null],
+    ] as const)('clearsRepoKeysAndAnnotationsWhen_%s', async (_name, version) => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      const works = new FakeWorks(desired([withRepos(desiredAgent(), version)]));
+      await makeReconciler(cluster, works).reconcileOnce();
+
+      expect(works.getRepoSecrets).not.toHaveBeenCalled();
+      expect(Object.keys(decodeSecret(cluster, 'agent-42')).filter((k) => k.startsWith('repo-'))).toEqual([]);
+      const ann = cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations ?? {};
+      expect(ann['genia.works/repos-version']).toBeUndefined();
+      expect(ann['genia.works/repo-hosts']).toBeUndefined();
+      // 토큰이 사라졌으니 Pod 도 다시 만든다(gh 로그인 제거)
+      expect(cluster.calls).toContain('delete Pod/agent-42');
+    });
+
+    it('recordsDesiredVersionWhenTokensVanishedBeforeFetch_soItDoesNotRefetchEveryRound', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      // desired 는 버전 99 를 냈지만 받으러 간 사이 모두 폐기됨 — 응답은 version null
+      const works = new FakeWorks(desired([withRepos(desiredAgent(), 99)]));
+      works.getRepoSecrets.mockResolvedValue({ version: null, tokens: [] });
+      const r = makeReconciler(cluster, works);
+      await r.reconcileOnce();
+      await r.reconcileOnce();
+
+      expect(works.getRepoSecrets).toHaveBeenCalledTimes(1);
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/repos-version']).toBe('99');
+    });
+
+    it('givesEachAgentItsOwnTokens', async () => {
+      const cluster = new FakeCluster();
+      const works = new FakeWorks(desired([freshAgent(42), freshAgent(43)]));
+      works.getRepoSecrets.mockImplementation(async (id: number) => ({
+        version: 1730505600000,
+        tokens: [{ kind: 'GITHUB' as const, host: 'github.com', token: `ghp_agent${id}_xxxxxxxxxxxx` }],
+      }));
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(decodeSecret(cluster, 'agent-42')['repo-github-github.com']).toBe('ghp_agent42_xxxxxxxxxxxx');
+      expect(decodeSecret(cluster, 'agent-43')['repo-github-github.com']).toBe('ghp_agent43_xxxxxxxxxxxx');
+    });
+
+    it('neverLogsTokenPlaintext', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      const works = new FakeWorks(desired([freshAgent()]));
+      works.getRepoSecrets.mockResolvedValue({
+        version: 1730505600000,
+        tokens: [{ kind: 'GITHUB', host: 'github.com', token: 'ghp_SECRETSECRETSECRET' }],
+      });
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+      expect(JSON.stringify(logs)).not.toContain('ghp_SECRETSECRETSECRET');
+    });
+
+    it('createsNoPodWhenReposFetchFailsForNewAgent', async () => {
+      const cluster = new FakeCluster();
+      const works = new FakeWorks(desired([freshAgent()]));
+      works.getRepoSecrets.mockRejectedValue(new Error('boom'));
+      const r = await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.get('Pod', 'agent-42')).toBeUndefined();
+      expect(r.retry).toBeDefined();
+    });
   });
 
   it('doesNotRecreateForClaudeChangeWhenImageNowDisallowed', async () => {
@@ -478,10 +727,25 @@ describe('Reconciler', () => {
       expect.objectContaining({ agentUserId: 2, phase: 'STOPPING' }),
     ]);
 
-    // metrics 가 없어도 보고는 나간다
+    // 조회되면 사용량을 잴 수 있다고 함께 보낸다
+    expect(works.reportObserved.mock.calls.at(-1)?.[1]).toBe(true);
+
+    // 일시 오류여도 보고는 나가고, 잴 수 있는지는 모름(보내지 않음)
     cluster.failMetrics = true;
     await r.reportObserved();
     expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ agentUserId: 1, cpuMillicores: null });
+    expect(works.reportObserved.mock.calls.at(-1)?.[1]).toBeUndefined();
+  });
+
+  it('reportsMetricsUnavailableWhenMetricsApiMissing', async () => {
+    const cluster = new FakeCluster();
+    cluster.missingMetricsApi = true;
+    const works = new FakeWorks(desired([]));
+    const r = makeReconciler(cluster, works);
+    await r.reconcileOnce();
+    await r.reportObserved();
+    // AI 가 없어도 위치의 「잴 수 없음」은 알린다
+    expect(works.reportObserved).toHaveBeenCalledWith([], false);
   });
 
   it('sendsEmptyObservedListToStayConnected', async () => {
@@ -490,7 +754,7 @@ describe('Reconciler', () => {
     const r = makeReconciler(cluster, works);
     await r.reconcileOnce();
     await r.reportObserved();
-    expect(works.reportObserved).toHaveBeenCalledWith([]);
+    expect(works.reportObserved).toHaveBeenCalledWith([], true);
   });
 });
 

@@ -1,5 +1,5 @@
 // 에이전트 › 실행 환경 탭(WP-1256 → WP-1281 이름·구조 변경) — 화면 컴포넌트 테스트.
-// 목록(기본 배지·연결 알약·실행 중/최대·이 환경의 AI), 추가 폼 → POST payload·검증 문구, 토큰 1회 표시 + 설치 4단계(토큰 원문 미포함),
+// 목록(기본 배지·연결 알약·실행 중/최대·이 환경의 AI), 추가 폼 → POST payload·검증 문구, 토큰 1회 표시 + 설치 4단계(토큰 원문 미포함, 마지막은 선택),
 // ⋯ 메뉴(기본 지정·이름/최대 AI 수 바꾸기·토큰 재발급·삭제)의 요청과 비활성 판정을 본다.
 // 에이전트 화면 셸(AgentManagementPage, 주소 /settings/agents/locations)을 renderScreen 으로 띄운다.
 // 설치 순서 문구·실행 환경 설명은 설정 가이드로 옮겨 화면 본문에는 없다(가이드는 settingsGuide.test.tsx).
@@ -115,6 +115,21 @@ test('실행 환경이 없으면 빈 안내', async () => {
   const api = locationApi([])
   renderScreen(<AgentLocationsPage />, { path: '/settings/agents/locations', handlers: api.handlers })
   expect(await screen.findByText(/아직 실행 환경이 없어요/)).toBeInTheDocument()
+})
+
+test('사용량을 잴 수 없는 실행 환경만 연결 배지 옆에 「사용량 측정 안 됨」 — 모름(null)·잴 수 있음은 표시 없음 (WP-1280)', async () => {
+  await renderLocations({
+    initial: [
+      createLocation({ metricsAvailable: true }),
+      createLocation({ id: 2, name: 'PoC', isDefault: false, metricsAvailable: false }),
+      createLocation({ id: 3, name: '사내 GPU', isDefault: false, metricsAvailable: null }),
+    ],
+  })
+  expect(screen.getByTestId('agent-location-metrics-unavailable-2')).toHaveTextContent('사용량 측정 안 됨')
+  // 좁은 화면 줄에도 같은 표시
+  expect(screen.getByTestId('agent-location-metrics-unavailable-m-2')).toHaveTextContent('사용량 측정 안 됨')
+  expect(screen.queryByTestId('agent-location-metrics-unavailable-1')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('agent-location-metrics-unavailable-3')).not.toBeInTheDocument()
 })
 
 test('추가 — 이름·설명·최대 AI 수가 POST payload 로 가고 토큰이 한 번 보이며 설치 4단계가 따라온다', async () => {

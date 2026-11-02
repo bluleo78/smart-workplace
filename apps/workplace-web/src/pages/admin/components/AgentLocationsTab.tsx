@@ -26,6 +26,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
+import { IconHint } from '@/components/ui/icon-hint';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TableEmptyRow } from '@/components/ui/table-empty';
@@ -39,7 +40,13 @@ import {
   useRotateAgentLocationToken,
   useSetDefaultAgentLocation,
 } from '../../../hooks/queries/useAgentRuntime';
-import { connectionPill, locationDeleteBlockReason, statusPill } from '../../../lib/agentRuntimeStatus';
+import {
+  connectionPill,
+  locationDeleteBlockReason,
+  METRICS_INSTALL_HINT,
+  metricsUnavailable,
+  statusPill,
+} from '../../../lib/agentRuntimeStatus';
 import type { AgentLocation, AgentLocationTokenResponse, AgentRuntimeSummary } from '../../../types/agentRuntime';
 import { AgentLocationFormDialog } from './AgentLocationFormDialog';
 import { AgentLocationTokenDialog } from './AgentLocationTokenDialog';
@@ -108,15 +115,19 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
                           <span>
                             {reported ? `${reported} · ` : ''}AI {l.used} / {l.capacity}
                           </span>
+                          {metricsUnavailable(l) && <MetricsUnavailableNote testId={`agent-location-metrics-unavailable-m-${l.id}`} />}
                         </div>
                         {l.agents.length > 0 && <LocationAgents agents={l.agents} summaryById={summaryById} compact />}
                       </div>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex flex-col items-start gap-0.5">
-                        <StatusBadge type={pill.type} data-testid={`agent-location-connection-${l.id}`}>
-                          {pill.label}
-                        </StatusBadge>
+                        <div className="flex flex-wrap items-center gap-x-1.5">
+                          <StatusBadge type={pill.type} data-testid={`agent-location-connection-${l.id}`}>
+                            {pill.label}
+                          </StatusBadge>
+                          {metricsUnavailable(l) && <MetricsUnavailableNote testId={`agent-location-metrics-unavailable-${l.id}`} />}
+                        </div>
                         {reported && <span className="text-xs text-muted-foreground">{reported}</span>}
                       </div>
                     </TableCell>
@@ -272,5 +283,17 @@ function LocationAgents({
       })}
       {restText && <li className="text-xs text-muted-foreground">{restText}</li>}
     </ul>
+  );
+}
+
+/**
+ * 사용량을 잴 수 없는 실행 환경 표시(WP-1280) — 연결 배지 옆 흐린 글씨. 마우스는 hover·포커스 툴팁, 터치는 탭 팝오버({@link IconHint})로
+ * 이유와 metrics-server 설치 안내를 보인다. 글씨만으로도 뜻이 통해 안내를 못 봐도 잃는 정보가 없다.
+ */
+function MetricsUnavailableNote({ testId }: { testId: string }) {
+  return (
+    <IconHint label={METRICS_INSTALL_HINT} data-testid={testId}>
+      <span className="cursor-default text-xs text-muted-foreground">사용량 측정 안 됨</span>
+    </IconHint>
   );
 }

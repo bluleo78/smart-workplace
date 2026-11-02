@@ -9,7 +9,7 @@ import java.util.List;
  *
  * @param kind SERVER(서버가 직접 답함 — 「기본」) 또는 WORKSPACE(작업 공간 컨테이너에서 실행 — 「Claude Code」)
  * @param image WORKSPACE 일 때 메인 컨테이너 이미지(SERVER 는 없음)
- * @param requires 이 템플릿이 쓰려면 AI 에게 갖춰져야 하는 것(예: claude, github)
+ * @param requires 이 템플릿이 쓰려면 AI 에게 갖춰져야 하는 것(예: claude, repo — 옛 이름 github 는 레지스트리가 repo 로 읽는다)
  * @param config 관리자가 고르는 실행 설정 칸
  */
 public record AgentTemplate(

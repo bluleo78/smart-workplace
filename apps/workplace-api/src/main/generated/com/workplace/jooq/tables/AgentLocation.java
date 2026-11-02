@@ -110,6 +110,11 @@ public class AgentLocation extends TableImpl<AgentLocationRecord> {
      */
     public final TableField<AgentLocationRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.agent_location.metrics_available</code>.
+     */
+    public final TableField<AgentLocationRecord, Boolean> METRICS_AVAILABLE = createField(DSL.name("metrics_available"), SQLDataType.BOOLEAN, this, "");
+
     private AgentLocation(Name alias, Table<AgentLocationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -2,7 +2,7 @@
 // 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「실행 시작 / 실행 멈춤 / 다시 시작」.
 // Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
 
-import { Check, X } from 'lucide-react';
+import { Check, Info, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -26,6 +26,7 @@ import { usersApi } from '../../../../api/users';
 import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAgentProviderCredential';
 import {
   useAgentLocations,
+  useAgentRepoCredentials,
   useAgentRuntimeAction,
   useAgentRuntimeProjects,
   useInvalidateRuntime,
@@ -40,12 +41,15 @@ import {
   freeSeats,
   isRunningStatus,
   locationCapacityText,
+  METRICS_UNAVAILABLE_REASON,
+  metricsUnavailable,
   resourceLimitText,
   statusDetail,
   statusPill,
 } from '../../../../lib/agentRuntimeStatus';
 import { handleApiError } from '../../../../lib/api-error';
 import { issuePath } from '../../../../lib/appUrl';
+import { missingRepoHosts as missingHostsOf } from '../../../../lib/repoHosts';
 import { parseIssueKeyQuery } from '../../../../lib/sendToChat';
 import { cn, objectParticle, subjectParticle } from '../../../../lib/utils';
 import type { AgentResponse } from '../../../../types/agent';
@@ -173,13 +177,15 @@ type NowConfirm = 'apply' | 'restart' | null;
 
 /**
  * 「실행」 묶음 — 상태 종류: 꺼짐 · 시작하는 중 · 작업 중 · 쉬는 중 · 막힘 · 실패 · 멈추는 중(statusPill).
- * 꺼져 있으면 실행 전 확인(Claude 연결 · 맡는 프로젝트 · 실행 환경 여유)과 실행 시작, 저장 안 한 작업 설정이 있으면 「저장하고 실행 시작」.
+ * 꺼져 있으면 실행 전 확인(Claude 연결 · 저장소 연결 · 맡는 프로젝트 · 실행 환경 여유)과 실행 시작, 저장 안 한 작업 설정이 있으면 「저장하고 실행 시작」.
  */
 function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const { template, saved, draft } = run;
   const locations = useAgentLocations();
   const projects = useAgentRuntimeProjects(agent.id);
   const credential = useAgentProviderCredentialMeta(agent.id);
+  const needsRepos = template.requires.includes('repo');
+  const repoCredentials = useAgentRepoCredentials(agent.id, needsRepos);
   const save = useSaveAgentRuntimeSetting(agent.id);
   const action = useAgentRuntimeAction(agent.id);
   const [nowConfirm, setNowConfirm] = useState<NowConfirm>(null);
@@ -221,10 +227,14 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const needsClaude = template.requires.includes('claude');
   const claudeOk = credential.data?.provider === 'anthropic';
   const projectCount = projects.data?.length ?? 0;
+  // 맡는 프로젝트 저장소 호스트 중 토큰이 없는 것(WP-1268) — 두 목록을 다 받은 뒤에만 판정해 로딩 중에 잠깐 「빠짐」으로 깜박이지 않게.
+  const missingRepoHosts = needsRepos && projects.data && repoCredentials.data ? missingHostsOf(projects.data, repoCredentials.data) : [];
   const seatOk = target != null && freeSeats(target) > 0;
   const blocked = startBlockReason({
     needsClaude,
     claudeOk,
+    needsRepos,
+    missingRepoHosts,
     projectCount,
     hasLocation: (locations.data?.length ?? 0) > 0,
     seatOk,
@@ -249,6 +259,8 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const applyNow = () => saved && save.mutate({ templateName: saved.templateName, locationId: saved.locationId, config: saved.config, applyMode: 'NOW' });
   const onApplyNow = () => (working ? setNowConfirm('apply') : applyNow());
   const onRestart = () => (working ? setNowConfirm('restart') : action.mutate('restart'));
+  // 실제로 도는 실행 환경이 사용량을 잴 수 없다고 알려 왔으면 CPU·메모리를 「알 수 없음」으로(WP-1280)
+  const usageUnknown = metricsUnavailable(saved?.effectiveLocation);
 
   return (
     <div className="space-y-3 border-t pt-4" data-testid="agent-run-group">
@@ -277,18 +289,27 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
       </div>
 
       {running && observed && (
-        <dl className="grid max-w-md grid-cols-3 gap-2" data-testid="agent-runtime-stats">
-          {[
-            ['CPU', formatCpu(observed.cpuMillicores)],
-            ['메모리', formatMemory(observed.memoryBytes, null)],
-            ['최대', limit ?? '-'],
-          ].map(([k, v]) => (
-            <div key={k} className="min-w-0 rounded-md bg-muted/50 px-3 py-2">
-              <dt className="text-xs text-muted-foreground">{k}</dt>
-              <dd className="truncate text-sm font-medium tabular-nums">{v}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="space-y-1.5">
+          <dl className="grid max-w-md grid-cols-3 gap-2" data-testid="agent-runtime-stats">
+            {[
+              ['CPU', usageUnknown ? '알 수 없음' : formatCpu(observed.cpuMillicores)],
+              ['메모리', usageUnknown ? '알 수 없음' : formatMemory(observed.memoryBytes, null)],
+              ['최대', limit ?? '-'],
+            ].map(([k, v]) => (
+              <div key={k} className="min-w-0 rounded-md bg-muted/50 px-3 py-2">
+                <dt className="text-xs text-muted-foreground">{k}</dt>
+                <dd className="truncate text-sm font-medium tabular-nums">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          {/* 사용량을 잴 수 없는 실행 환경(WP-1280) — 「아직 측정 전」과 구분되게 이유를 한 줄로 */}
+          {usageUnknown && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="agent-runtime-metrics-unavailable">
+              <Info className="size-3.5 shrink-0" aria-hidden />
+              {METRICS_UNAVAILABLE_REASON}
+            </p>
+          )}
+        </div>
       )}
 
       {status === 'APPLY_PENDING' && (
@@ -313,6 +334,17 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
                 {!claudeOk && (
                   <span className="text-xs text-muted-foreground">
                     {credential.data ? '— Claude 가 아닌 AI 계정이 연결돼 있어요. 아래 실행 › AI 계정에서 바꿔 주세요' : '— 아래 실행 › AI 계정에서 연결해 주세요'}
+                  </span>
+                )}
+              </li>
+            )}
+            {needsRepos && (
+              <li className="flex flex-wrap items-center gap-x-2" data-testid="agent-runtime-check-repos">
+                <CheckMark ok={missingRepoHosts.length === 0} />
+                <span>저장소 연결</span>
+                {missingRepoHosts.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    — {missingRepoHosts.join(', ')} 가 연결돼 있지 않아요. 아래 실행 › 저장소 연결에서 연결해 주세요
                   </span>
                 )}
               </li>

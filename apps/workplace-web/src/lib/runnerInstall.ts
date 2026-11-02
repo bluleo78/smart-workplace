@@ -13,6 +13,9 @@ export function isIpv4(value: string): boolean {
   return parts.length === 4 && parts.every((p) => /^(0|[1-9]\d{0,2})$/.test(p) && Number(p) <= 255);
 }
 
+/** metrics-server 매니페스트(PoC 에 설치해 확인한 v0.7.2) — README 「CPU·메모리 사용량」과 같은 주소. */
+export const METRICS_SERVER_MANIFEST = 'https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml';
+
 /** 「설치 대기」가 오래 갈 때 볼 것 — runner 로그에 fetch failed 가 반복되면 이 클러스터에서 Works 주소에 닿지 못하는 것이다. */
 export const RUNNER_LOGS_COMMAND = 'kubectl --context <ctx> -n <ns> logs deploy/agent-runner --tail=50';
 
@@ -39,11 +42,6 @@ export function runnerInstallSteps(worksUrl: string, version: string, internalIp
       note: 'AI 작업 공간의 docker 가 privileged 로 돌아서 필요합니다.',
     },
     {
-      title: 'GitHub 토큰 Secret 을 만듭니다',
-      command: 'kubectl --context <ctx> -n <ns> create secret generic github-token --from-file=token=./github-token.txt',
-      note: '대상 저장소의 Contents · Pull requests 쓰기 권한이 필요합니다.',
-    },
-    {
       title: '이미지 pull secret 을 만듭니다',
       command: [
         'kubectl --context <ctx> -n <ns> create secret docker-registry dockerhub-pull \\',
@@ -57,10 +55,17 @@ export function runnerInstallSteps(worksUrl: string, version: string, internalIp
         `  --set works.url=${worksUrl} \\`,
         `  --set image.tag=${tag} \\`,
         ...hostAliases,
-        '  --set github.existingSecret=github-token \\',
         '  --set-file runnerToken=./runner-token.txt',
       ].join('\n'),
-      note: '차트는 저장소의 deploy/helm-agent-runner 입니다. 설치하고 1분쯤 지나면 이 화면에서 「연결됨」으로 바뀝니다.',
+      note:
+        '차트는 저장소의 deploy/helm-agent-runner 입니다. AI 작업 폴더는 AI 가 뜬 노드의 /var/lib/genia-agents 아래에 생깁니다. ' +
+        '설치하고 1분쯤 지나면 이 화면에서 「연결됨」으로 바뀝니다.',
+    },
+    {
+      // WP-1280 — 없으면 AI 상태의 CPU·메모리가 「알 수 없음」으로 보인다. 클러스터 전체에 한 번 깔며 이미 있으면 건너뛴다.
+      title: '(선택) CPU·메모리 사용량을 보려면 metrics-server 를 설치합니다',
+      command: `kubectl --context <ctx> apply -f ${METRICS_SERVER_MANIFEST}`,
+      note: '클러스터에 이미 있으면 건너뜁니다. 클러스터 전체에 한 번만 설치하며 약 0.1코어·200Mi 를 예약합니다. 없으면 AI 상태의 CPU·메모리가 「알 수 없음」으로 보입니다.',
     },
   ];
 }

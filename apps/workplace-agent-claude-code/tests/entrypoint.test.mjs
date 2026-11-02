@@ -67,7 +67,9 @@ function fixture(t, { projects, pluginVersions = {}, knownUrl = 'http://127.0.0.
   for (const p of ['home/.claude/plugins', 'run', 'work', 'bin', 'out', 'tmp', 'plugin/scripts']) mkdirSync(d(p), { recursive: true });
   writeFileSync(d('run', 'config.json'), JSON.stringify(CONFIG));
   writeFileSync(d('run', 'agent-key'), 'ak_testkey123\n');
-  writeFileSync(d('run', 'github-token'), 'ghp_secrettoken\n');
+  // 저장소 토큰(WP-1268) — runner 가 Secret items 로 꽂는 repo-tokens/<kind>/<host> 파일
+  mkdirSync(d('run', 'repo-tokens', 'github'), { recursive: true });
+  writeFileSync(d('run', 'repo-tokens', 'github', 'github.com'), 'ghp_secrettoken\n');
   writeFileSync(d('home/.claude/plugins/known_marketplaces.json'), JSON.stringify({ 'genia-works': { source: { source: 'url', url: knownUrl } } }));
 
   const exe = (path, body) => {
@@ -93,7 +95,7 @@ exec sleep 300
 `);
   exe(d('bin', 'gh'), `#!/bin/sh
 printf 'args %s\\n' "$*" >> "$FAKE_OUT/gh.log"
-[ "$1 $2" = "auth login" ] && { printf 'stdin %s\\n' "$(cat)" >> "$FAKE_OUT/gh.stdin"; }
+[ "$1 $2" = "auth login" ] && { printf 'stdin %s %s\\n' "$4" "$(cat)" >> "$FAKE_OUT/gh.stdin"; }
 exit 0
 `);
   // 가짜 npx — 받은 인자를 기록하고, 버전마다 시작 표시를 남긴다. FAKE_NPX_RENDEZVOUS=n 이면 n 개가 시작될 때까지 기다린 결과(npx-seen-<버전>)를
@@ -317,14 +319,41 @@ test('passesGithubTokenOnStdinOnly', (t) => {
   const f = fixture(t);
   const r = callLib(f.env, 'check_required && setup_git');
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(f.read('out', 'gh.stdin'), 'stdin ghp_secrettoken\n');
+  assert.equal(f.read('out', 'gh.stdin'), 'stdin github.com ghp_secrettoken\n');
   const args = f.read('out', 'gh.log');
-  assert.match(args, /auth login .*--with-token/);
-  assert.match(args, /auth setup-git/);
+  assert.match(args, /auth login --hostname github\.com --with-token/);
+  assert.match(args, /auth setup-git --hostname github\.com/);
   assert.doesNotMatch(args + r.stderr, /ghp_secrettoken/);
   const git = (k) => spawnSync('git', ['config', '--global', k], { env: f.env, encoding: 'utf8' }).stdout.trim();
   assert.equal(git('user.name'), 'kodi');
   assert.equal(git('user.email'), 'kodi@agents.genia-works.local');
+});
+
+test('logsInToEveryGithubHostAndOnlyNotesGitlab', (t) => {
+  const f = fixture(t);
+  writeFileSync(f.d('run', 'repo-tokens', 'github', 'ghe.example.com'), 'ghp_enterprisetoken\n');
+  mkdirSync(f.d('run', 'repo-tokens', 'gitlab'), { recursive: true });
+  writeFileSync(f.d('run', 'repo-tokens', 'gitlab', 'gitlab.iacloud.kr'), 'glpat_gitlabsecret\n');
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const stdin = f.read('out', 'gh.stdin').trim().split('\n').sort();
+  assert.deepEqual(stdin, ['stdin ghe.example.com ghp_enterprisetoken', 'stdin github.com ghp_secrettoken']);
+  const args = f.read('out', 'gh.log');
+  assert.match(args, /auth setup-git --hostname ghe\.example\.com/);
+  assert.match(args, /auth setup-git --hostname github\.com/);
+  // GitLab 은 gh 를 부르지 않고 파일이 있다는 것만 알린다
+  assert.doesNotMatch(args, /gitlab/);
+  assert.match(r.stdout + r.stderr, /gitlab\.iacloud\.kr/);
+  assert.doesNotMatch(args + r.stdout + r.stderr, /ghp_|glpat_/);
+});
+
+test('warnsOnlyWhenRepoTokensMissing', (t) => {
+  const f = fixture(t);
+  rmSync(f.d('run', 'repo-tokens'), { recursive: true });
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout + r.stderr, /저장소 토큰/);
+  assert.equal(existsSync(f.d('out', 'gh.log')), false);
 });
 
 test('exitsWhenConfigMissing', (t) => {

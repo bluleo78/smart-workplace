@@ -146,7 +146,8 @@ class RunnerApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.agents[0].sidecars[0].name").value("dind"))
         .andExpect(jsonPath("$.agents[0].plugins[0].name").value("genia-works"))
         .andExpect(jsonPath("$.agents[0].config.model").value("opus"))
-        .andExpect(jsonPath("$.agents[0].secrets[?(@.name=='github')].source").value("LOCATION"));
+        .andExpect(jsonPath("$.agents[0].secrets[?(@.name=='repos')].source").value("WORKS"))
+        .andExpect(jsonPath("$.agents[0].secrets[?(@.name=='github')]").isEmpty());
 
     desired(t2)
         .andExpect(status().isOk())
@@ -347,5 +348,26 @@ class RunnerApiTest extends IntegrationTestBase {
     assertThat(s2.getResponse().getContentAsString()).doesNotContain("agent-runtime.changed");
     sseRegistry.closeAll(1L, l1);
     sseRegistry.closeAll(1L, l2);
+  }
+
+  /**
+   * WP-1280 — 관찰 보고의 metricsAvailable 을 위치에 적는다. 값이 없는 보고(일시 오류·옛 runner)는 마지막 값을 두고, 다른 위치에는 번지지
+   * 않는다.
+   */
+  @Test
+  void observed_recordsMetricsAvailableOnLocation() throws Exception {
+    // 아직 보고 전 — 모름
+    assertThat(locationService.get(l1).metricsAvailable()).isNull();
+
+    observed(t1, "{\"agents\":[],\"metricsAvailable\":false}").andExpect(status().isOk());
+    assertThat(locationService.get(l1).metricsAvailable()).isFalse();
+    assertThat(locationService.get(l2).metricsAvailable()).isNull();
+
+    // 값이 없는 보고는 마지막 값을 그대로 둔다
+    observed(t1, "{\"agents\":[]}").andExpect(status().isOk());
+    assertThat(locationService.get(l1).metricsAvailable()).isFalse();
+
+    observed(t1, "{\"agents\":[],\"metricsAvailable\":true}").andExpect(status().isOk());
+    assertThat(locationService.get(l1).metricsAvailable()).isTrue();
   }
 }

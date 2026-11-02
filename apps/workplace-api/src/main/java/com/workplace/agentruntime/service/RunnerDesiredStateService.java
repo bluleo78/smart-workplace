@@ -13,6 +13,7 @@ import com.workplace.agentruntime.dto.RunnerObservedAgent;
 import com.workplace.agentruntime.dto.RunnerObservedRequest;
 import com.workplace.agentruntime.dto.RunnerObservedResponse;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
+import com.workplace.agentruntime.dto.RunnerReposSecretResponse;
 import com.workplace.agentruntime.dto.RunnerSecretRef;
 import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.RunnerAgentNotFoundException;
@@ -72,6 +73,7 @@ public class RunnerDesiredStateService {
   private final ObjectMapper objectMapper;
   private final AgentApiKeyService agentKeys;
   private final AiAgentCredentialService credentials;
+  private final AgentRepoCredentialService repoCredentials;
   private final ApplicationEventPublisher events;
   private final AgentRuntimeChangeNotifier changeNotifier;
 
@@ -105,6 +107,19 @@ public class RunnerDesiredStateService {
               .collect(Collectors.toMap(UserResponse::id, UserResponse::username));
       Map<Long, ManagedKeyChain> chains = agentKeys.managedChains(ids, principal.tenantId());
       Map<Long, Long> claudeVersions = credentials.findActiveIds(ids);
+      // 저장소 토큰 버전은 템플릿이 repo 를 요구하는 AI 만 묻는다 — 쓰지 않는 AI 까지 조회하지 않게.
+      List<Long> repoIds =
+          rows.stream()
+              .filter(
+                  row ->
+                      registry
+                          .find(row.templateName())
+                          .map(t -> t.requires().contains("repo"))
+                          .orElse(false))
+              .map(Row::agentUserId)
+              .toList();
+      Map<Long, Long> reposVersions =
+          repoIds.isEmpty() ? Map.of() : repoCredentials.versions(repoIds);
       for (Row row : rows) {
         long id = row.agentUserId();
         registry
@@ -119,6 +134,7 @@ public class RunnerDesiredStateService {
                             usernames.get(id),
                             chains.getOrDefault(id, ManagedKeyChain.EMPTY),
                             claudeVersions.get(id),
+                            reposVersions.get(id),
                             now)));
       }
     }
@@ -141,6 +157,11 @@ public class RunnerDesiredStateService {
    */
   public RunnerObservedResponse observed(RunnerPrincipal principal, RunnerObservedRequest req) {
     AgentLocationRepository.Row location = requireLocation(principal);
+    // 사용량을 잴 수 있는지(WP-1280) — 모르면(null) 마지막 값을 둔다
+    if (req.metricsAvailable() != null
+        && !req.metricsAvailable().equals(location.metricsAvailable())) {
+      locations.updateMetricsAvailable(location.id(), req.metricsAvailable());
+    }
     Map<Long, ObservedUpdate> updated =
         settings.updateObserved(location.id(), location.isDefault(), req.agents());
     List<RunnerObservedAgent> applied = new ArrayList<>();
@@ -270,6 +291,18 @@ public class RunnerDesiredStateService {
     return new RunnerClaudeSecretResponse(secret.id(), secret.provider(), secret.plaintext());
   }
 
+  /**
+   * AI 의 저장소 토큰 원문(WP-1268) — 캐시 금지 응답으로 나간다. 이 위치에서 켜져 있는 AI 만(아니면 404). 토큰이 없으면 404 가 아니라 빈
+   * 목록·version null 이다(runner 가 남은 키를 지우게). 돌려준 토큰의 last_used_at 을 지금으로 고친다.
+   */
+  public RunnerReposSecretResponse reposSecret(RunnerPrincipal principal, long agentUserId) {
+    AgentLocationRepository.Row location = requireLocation(principal);
+    if (!settings.isRunningAt(agentUserId, location.id(), location.isDefault())) {
+      throw new RunnerAgentNotFoundException();
+    }
+    return repoCredentials.secretsFor(agentUserId);
+  }
+
   /** 토큰의 위치 — 토큰은 위치와 함께 지워지므로 보통 있지만, 없으면 404. */
   private AgentLocationRepository.Row requireLocation(RunnerPrincipal principal) {
     return locations
@@ -284,6 +317,7 @@ public class RunnerDesiredStateService {
    *
    * @param keys 이 AI 의 이 워크스페이스 활성 managed 키 사슬
    * @param claudeVersion 활성 모델 연결 id(없으면 null)
+   * @param reposVersion 저장소 토큰 버전(등록·교체·폐기 시각의 epoch 밀리초, 행이 없으면 null)
    */
   private RunnerDesiredAgent toAgent(
       RunnerPrincipal principal,
@@ -292,6 +326,7 @@ public class RunnerDesiredStateService {
       String username,
       ManagedKeyChain keys,
       Long claudeVersion,
+      Long reposVersion,
       OffsetDateTime now) {
     TemplateShape shape = shapeOf(t);
     return new RunnerDesiredAgent(
@@ -307,7 +342,7 @@ public class RunnerDesiredStateService {
         shape.sidecars(),
         shape.plugins(),
         row.config(),
-        secretsFor(t, keys.live(), claudeVersion));
+        secretsFor(t, keys.live(), claudeVersion, reposVersion));
   }
 
   /** 템플릿 한 개의 runner 모양 — 이름@버전마다 한 번만 바꾼다. */
@@ -326,10 +361,11 @@ public class RunnerDesiredStateService {
   /**
    * 비밀값 참조 — 원문 없이 이름·출처·버전만. agent-key 는 Works 가 띄우는 AI 모두에(현재 managed 키 id·rotateAfter, 아직 없으면
    * null — 정리 유예에 든 키만 남았으면 그것도 「없음」이라 runner 가 새로 받는다. 끄고 곧 다시 켰을 때 5분 뒤 만료될 키로 Pod 를 띄우지 않게),
-   * claude 는 템플릿이 요구할 때(활성 연결 id, 없으면 null), github 는 runner 설치 때 위치 쪽에 만든 Secret(Works 는 이름만).
+   * claude 는 템플릿이 요구할 때(활성 연결 id, 없으면 null), repos 는 템플릿이 {@code repo} 를 요구할 때(AI 별·호스트별 저장소 토큰 묶음의
+   * 버전 — 등록·교체·폐기 시각의 epoch 밀리초, 토큰 행이 없으면 null. WP-1268).
    */
   private static List<RunnerSecretRef> secretsFor(
-      AgentTemplate t, ManagedKeyChain keys, Long claudeVersion) {
+      AgentTemplate t, ManagedKeyChain keys, Long claudeVersion, Long reposVersion) {
     List<RunnerSecretRef> out = new ArrayList<>();
     Optional<ManagedKeyChain.Key> key = keys.current();
     out.add(
@@ -341,8 +377,8 @@ public class RunnerDesiredStateService {
     for (String need : t.requires()) {
       if ("claude".equals(need)) {
         out.add(new RunnerSecretRef("claude", RunnerSecretRef.SOURCE_WORKS, claudeVersion, null));
-      } else if ("github".equals(need)) {
-        out.add(new RunnerSecretRef("github", RunnerSecretRef.SOURCE_LOCATION, null, null));
+      } else if ("repo".equals(need)) {
+        out.add(new RunnerSecretRef("repos", RunnerSecretRef.SOURCE_WORKS, reposVersion, null));
       }
     }
     return out;

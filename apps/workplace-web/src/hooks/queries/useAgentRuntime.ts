@@ -13,7 +13,10 @@ import {
   listAgentRuntimeProjects,
   listAgentRuntimeSummaries,
   listAgentTemplates,
+  listRepoCredentials,
   putAgentRuntimeSetting,
+  registerRepoCredential,
+  revokeRepoCredential,
   rotateAgentLocationToken,
   runAgentRuntimeAction,
   setDefaultAgentLocation,
@@ -21,7 +24,7 @@ import {
 } from '../../api/agentRuntime';
 import { setAgentRuntime } from '../../api/agents';
 import { handleApiError } from '../../lib/api-error';
-import type { PutAgentRuntimeSettingRequest } from '../../types/agentRuntime';
+import type { PutAgentRuntimeSettingRequest, RepoKind } from '../../types/agentRuntime';
 import { agentRuntimeKeys, agentRuntimeLiveKeys } from './agentRuntimeKeys';
 import { agentKeys } from './useAgents';
 
@@ -159,5 +162,38 @@ export function useDeleteAgentLocation() {
       toast.success('실행 환경을 삭제했습니다');
     },
     onError: (e) => handleApiError(e, '실행 환경을 삭제하지 못했습니다'),
+  });
+}
+
+// 이 AI 의 저장소 토큰 — 켜기 전 확인(연결 안 된 호스트)과 「저장소 연결」 묶음이 같은 쿼리를 쓴다.
+export function useAgentRepoCredentials(userId: number, enabled = true) {
+  return useQuery({ queryKey: agentRuntimeKeys.repoCredentials(userId), queryFn: () => listRepoCredentials(userId), enabled });
+}
+
+// 등록·교체 — 목록과 실행 설정(runner 가 다시 받을 때 상태가 바뀐다)을 다시 읽는다. 성공 알림은 호출한 대화상자가 띄운다.
+export function useRegisterAgentRepoCredential(userId: number) {
+  const invalidate = useInvalidateRuntime();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { kind: RepoKind; host: string; token: string }) => registerRepoCredential(userId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: agentRuntimeKeys.repoCredentials(userId) });
+      invalidate();
+    },
+    onError: (e) => handleApiError(e, '저장소를 연결하지 못했습니다'),
+  });
+}
+
+export function useRevokeAgentRepoCredential(userId: number) {
+  const invalidate = useInvalidateRuntime();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => revokeRepoCredential(userId, id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: agentRuntimeKeys.repoCredentials(userId) });
+      invalidate();
+      toast.success('저장소 연결을 끊었습니다');
+    },
+    onError: (e) => handleApiError(e, '저장소 연결을 끊지 못했습니다'),
   });
 }

@@ -47,7 +47,8 @@ public class AgentLocationRepository {
       boolean isDefault,
       int capacity,
       String tokenPrefix,
-      OffsetDateTime lastSeenAt) {}
+      OffsetDateTime lastSeenAt,
+      Boolean metricsAvailable) {}
 
   private Row map(Record r) {
     return new Row(
@@ -57,7 +58,8 @@ public class AgentLocationRepository {
         r.get(AGENT_LOCATION.IS_DEFAULT),
         r.get(AGENT_LOCATION.CAPACITY),
         r.get(AGENT_RUNNER_TOKEN.TOKEN_PREFIX),
-        r.get(AGENT_RUNNER_TOKEN.LAST_USED_AT));
+        r.get(AGENT_RUNNER_TOKEN.LAST_USED_AT),
+        r.get(AGENT_LOCATION.METRICS_AVAILABLE));
   }
 
   /** 위치 + 쓸 수 있는(회수 안 된) 토큰을 left join — 위치당 활성 토큰은 최대 1개(부분 유니크). */
@@ -69,7 +71,8 @@ public class AgentLocationRepository {
             AGENT_LOCATION.IS_DEFAULT,
             AGENT_LOCATION.CAPACITY,
             AGENT_RUNNER_TOKEN.TOKEN_PREFIX,
-            AGENT_RUNNER_TOKEN.LAST_USED_AT)
+            AGENT_RUNNER_TOKEN.LAST_USED_AT,
+            AGENT_LOCATION.METRICS_AVAILABLE)
         .from(AGENT_LOCATION)
         .leftJoin(AGENT_RUNNER_TOKEN)
         .on(
@@ -77,6 +80,15 @@ public class AgentLocationRepository {
                 .LOCATION_ID
                 .eq(AGENT_LOCATION.ID)
                 .and(AGENT_RUNNER_TOKEN.REVOKED_AT.isNull()));
+  }
+
+  /** runner 가 본 「사용량을 잴 수 있는지」를 적는다(WP-1280). 값이 같으면 쓰지 않는다 — 60초마다 오는 보고가 행을 매번 고치지 않게. */
+  public void updateMetricsAvailable(long id, boolean available) {
+    dsl.update(AGENT_LOCATION)
+        .set(AGENT_LOCATION.METRICS_AVAILABLE, available)
+        .where(AGENT_LOCATION.ID.eq(id))
+        .and(AGENT_LOCATION.METRICS_AVAILABLE.isDistinctFrom(available))
+        .execute();
   }
 
   /** 이 워크스페이스의 모든 위치 — 기본 위치가 먼저, 그다음 이름순. */

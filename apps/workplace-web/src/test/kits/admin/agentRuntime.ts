@@ -5,6 +5,7 @@ import { http, HttpResponse } from 'msw'
 import type { AgentResponse } from '@/types/agent'
 import type {
   AgentLocation,
+  AgentRepoCredential,
   AgentRuntimeProject,
   AgentRuntimeSetting,
   AgentRuntimeSummary,
@@ -33,7 +34,7 @@ export const CLAUDE_TEMPLATE: AgentTemplate = {
   kind: 'WORKSPACE',
   card: { title: 'Claude Code', description: '작업 공간에서 개발·테스트하고 PR 을 올립니다', skills: ['개발', '테스트', 'PR'] },
   image: 'x',
-  requires: ['claude', 'github'],
+  requires: ['claude', 'repo'],
   config: [
     {
       key: 'model',
@@ -66,6 +67,7 @@ export function createLocation(overrides: Partial<AgentLocation> = {}): AgentLoc
     connection: 'CONNECTED',
     lastSeenAt: new Date(Date.now() - 30_000).toISOString(),
     tokenPrefix: 'rt_8f2a',
+    metricsAvailable: true,
     ...overrides,
   }
 }
@@ -154,7 +156,7 @@ export function createAgent(id: number, overrides: Partial<AgentResponse> = {}):
 }
 
 export const PROJECTS: AgentRuntimeProject[] = [
-  { projectKey: 'WD', name: 'Gen:iA Data', repositoryUrl: 'https://github.com/bluleo78/smart-fire-hub.git', repositoryBranch: 'main' },
+  { projectKey: 'WD', name: 'Gen:iA Data', repositoryUrl: 'https://github.com/bluleo78/smart-fire-hub.git', repositoryBranch: 'main', repositoryHost: 'github.com' },
 ]
 
 /** 요청 기록 — 쓰기 요청 본문·경로를 순서대로 모은다. */
@@ -167,6 +169,10 @@ export interface RuntimeCalls {
   actions: string[]
   /** PUT /admin/agents/:id/runtime 본문(실행 방식 INTERNAL/EXTERNAL) */
   runtimes: { runtime: string }[]
+  /** POST /admin/agents/:id/repo-credentials 본문(토큰 포함 — 테스트 안에서만 본다) */
+  repoRegisters: { kind: string; host: string; token: string }[]
+  /** DELETE /admin/agents/:id/repo-credentials/:credentialId 의 id 들 */
+  repoRevokes: number[]
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]
 }
@@ -180,6 +186,10 @@ export interface RuntimeApiOptions {
   projects?: AgentRuntimeProject[]
   /** Claude(anthropic) AI 연결이 있는 에이전트 id — 그 밖은 404. */
   claudeFor?: number[]
+  /** 저장소 토큰 — 처음 목록(기본 빈 목록). 등록·끊기는 이 목록에 반영돼 재조회에 보인다. */
+  repoCredentials?: AgentRepoCredential[]
+  /** 저장소 토큰 등록을 이 상태로 실패시킨다. */
+  failRepoRegister?: { status: number; message: string }
   /** 설정 PUT·시작 등 쓰기를 이 상태로 실패시킨다(메시지 포함). */
   failWrites?: { status: number; message: string }
 }
@@ -191,7 +201,8 @@ export interface RuntimeApiOptions {
 export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
   const settings = { ...(opts.settings ?? {}) }
   const claudeFor = opts.claudeFor ?? []
-  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], order: [] }
+  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], order: [] }
+  let repoCredentials = [...(opts.repoCredentials ?? [])]
   const fail = () =>
     opts.failWrites
       ? HttpResponse.json({ message: opts.failWrites.message }, { status: opts.failWrites.status })
@@ -238,6 +249,22 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
         ? HttpResponse.json({ id: 1, provider: 'anthropic', baseUrl: null, label: null, createdAt: '2026-10-20T00:00:00Z', lastUsedAt: null })
         : HttpResponse.json({ message: '없음' }, { status: 404 }),
     ),
+    http.get(`${API}/admin/agents/:id/repo-credentials`, () => HttpResponse.json(repoCredentials)),
+    http.post(`${API}/admin/agents/:id/repo-credentials`, async ({ request }) => {
+      const body = (await request.json()) as { kind: AgentRepoCredential['kind']; host: string; token: string }
+      calls.repoRegisters.push(body)
+      if (opts.failRepoRegister) return HttpResponse.json({ message: opts.failRepoRegister.message }, { status: opts.failRepoRegister.status })
+      const meta: AgentRepoCredential = { id: 100 + calls.repoRegisters.length, kind: body.kind, host: body.host, createdAt: new Date().toISOString(), lastUsedAt: null }
+      // 같은 호스트는 교체 — 서버가 이전 것을 폐기하고 새로 저장한다.
+      repoCredentials = [...repoCredentials.filter((c) => c.host !== body.host), meta].sort((a, b) => a.host.localeCompare(b.host))
+      return HttpResponse.json(meta, { status: 201 })
+    }),
+    http.delete(`${API}/admin/agents/:id/repo-credentials/:credentialId`, ({ params }) => {
+      const id = Number(params.credentialId)
+      calls.repoRevokes.push(id)
+      repoCredentials = repoCredentials.filter((c) => c.id !== id)
+      return new HttpResponse(null, { status: 204 })
+    }),
   ]
   return { handlers, calls, settings }
 }

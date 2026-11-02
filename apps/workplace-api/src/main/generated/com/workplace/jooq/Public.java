@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
+import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentWork;
@@ -186,6 +187,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_location</code>.
      */
     public final AgentLocation AGENT_LOCATION = AgentLocation.AGENT_LOCATION;
+
+    /**
+     * The table <code>public.agent_repo_credential</code>.
+     */
+    public final AgentRepoCredential AGENT_REPO_CREDENTIAL = AgentRepoCredential.AGENT_REPO_CREDENTIAL;
 
     /**
      * The table <code>public.agent_runner_token</code>.
@@ -944,6 +950,7 @@ public class Public extends SchemaImpl {
     @Override
     public final List<Sequence<?>> getSequences() {
         return Arrays.asList(
+            Sequences.AGENT_REPO_CREDENTIAL_CHANGE_SEQ,
             Sequences.DRIVE_TRASH_OP_SEQ
         );
     }
@@ -953,6 +960,7 @@ public class Public extends SchemaImpl {
         return Arrays.asList(
             AgentApiKey.AGENT_API_KEY,
             AgentLocation.AGENT_LOCATION,
+            AgentRepoCredential.AGENT_REPO_CREDENTIAL,
             AgentRunnerToken.AGENT_RUNNER_TOKEN,
             AgentRuntimeSetting.AGENT_RUNTIME_SETTING,
             AgentWork.AGENT_WORK,

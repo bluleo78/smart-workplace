@@ -1,7 +1,6 @@
 {{- /* 필수 값 검증 — 비어 있으면 렌더를 실패시켜 반쯤 설치된 runner 를 막는다 */ -}}
 {{- $url := required "works.url 이 필요합니다(예 https://genia-works.iacloud.kr)" .Values.works.url -}}
 {{- $tag := required "image.tag 가 필요합니다" .Values.image.tag -}}
-{{- $github := required "github.existingSecret 이 필요합니다(키 token 을 가진 GitHub 토큰 Secret)" .Values.github.existingSecret -}}
 {{- if not (or .Values.runnerToken .Values.existingSecret) }}
 {{- fail "runnerToken(--set-file) 또는 existingSecret 이 필요합니다" }}
 {{- end }}
@@ -73,12 +72,21 @@ spec:
               value: {{ .Values.agent.tolerations | toJson | quote }}
             - name: AGENT_HOST_ALIASES
               value: {{ concat (.Values.hostAliases | default list) (.Values.agent.hostAliases | default list) | default list | toJson | quote }}
-            {{- if .Values.agent.storageClass }}
+            {{- $workDisk := .Values.agent.workDisk | default dict }}
+            {{- $workDiskType := $workDisk.type | default "hostPath" }}
+            {{- if not (has $workDiskType (list "hostPath" "pvc")) }}
+            {{- fail "agent.workDisk.type 은 hostPath 또는 pvc 여야 합니다" }}
+            {{- end }}
+            - name: AGENT_WORK_DISK_TYPE
+              value: {{ $workDiskType | quote }}
+            {{- if eq $workDiskType "hostPath" }}
+            - name: AGENT_WORK_HOST_PATH
+              value: {{ $workDisk.hostPath | default "/var/lib/genia-agents" | quote }}
+            {{- end }}
+            {{- if and (eq $workDiskType "pvc") .Values.agent.storageClass }}
             - name: AGENT_STORAGE_CLASS
               value: {{ .Values.agent.storageClass | quote }}
             {{- end }}
-            - name: GITHUB_SECRET_NAME
-              value: {{ $github | quote }}
             - name: DIND_STORAGE_LIMIT
               value: {{ .Values.dind.storageLimit | quote }}
             # dind 사이드카 자원(JSON) — 쿼터가 requests 를 요구해 늘 넣는다

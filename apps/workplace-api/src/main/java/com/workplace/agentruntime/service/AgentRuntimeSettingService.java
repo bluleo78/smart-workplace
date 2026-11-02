@@ -1,6 +1,7 @@
 package com.workplace.agentruntime.service;
 
 import com.workplace.agentruntime.dto.AgentLocationResponse;
+import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeStatus;
 import com.workplace.agentruntime.dto.AgentTemplate;
@@ -14,6 +15,7 @@ import com.workplace.agentruntime.exception.AgentRuntimeSettingNotFoundException
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
+import com.workplace.agentruntime.repository.AgentRuntimeProjectRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.service.AgentRuntimeTransitions.State;
@@ -27,6 +29,7 @@ import com.workplace.user.service.AgentRuntimePolicy;
 import com.workplace.user.service.UserService;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -62,6 +65,8 @@ public class AgentRuntimeSettingService {
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
   private final AgentRuntimeTransitions transitions;
+  private final AgentRuntimeProjectRepository projectRepository;
+  private final AgentRepoCredentialService repoCredentials;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -165,6 +170,7 @@ public class AgentRuntimeSettingService {
                 () ->
                     new AgentRuntimeSettingConflictException(
                         "실행 템플릿을 찾을 수 없어 켤 수 없습니다. 실행 설정을 다시 저장하세요"));
+    requireRepoTokens(agentId, template);
     locationRepository.lockTenantLocations();
     AgentLocationRepository.Row location = claimSeat(row.locationId(), null);
     Row next =
@@ -267,6 +273,25 @@ public class AgentRuntimeSettingService {
         State.of(row, location),
         deleted ? null : State.departing(next, location),
         actorId);
+  }
+
+  /**
+   * 켜기 전 저장소 토큰 확인(WP-1268) — 템플릿이 {@code repo} 를 요구하면, 그 AI 가 맡는 프로젝트 저장소의 호스트 중 활성 토큰이 없는 것이 있을 때
+   * 409. 토큰 없이 띄우면 Pod 안에서 clone·push 가 인증에 실패해 AI 가 일을 못 하므로 켜기 전에 막고 어느 호스트가 빠졌는지 알린다. 호스트를 읽을 수
+   * 없는 URL 은 건너뛴다.
+   */
+  private void requireRepoTokens(long agentId, AgentTemplate template) {
+    if (!template.requires().contains("repo")) return;
+    List<String> needed =
+        RepoHosts.missing(
+            projectRepository.findMemberProjectsWithRepository(agentId).stream()
+                .map(AgentRuntimeProjectResponse::repositoryUrl)
+                .toList(),
+            repoCredentials.activeHosts(agentId));
+    if (!needed.isEmpty()) {
+      throw new AgentRuntimeSettingConflictException(
+          "저장소 토큰이 연결되지 않아 실행할 수 없어요: " + String.join(", ", needed));
+    }
   }
 
   /** 저장 행의 화면용 실행 상태. */

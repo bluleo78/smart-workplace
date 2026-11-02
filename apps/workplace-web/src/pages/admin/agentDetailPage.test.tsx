@@ -11,6 +11,7 @@ import { formatDateMonthDayPadded } from '@/lib/formatters'
 import { renderScreen } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
 import type { AgentApiKey } from '@/types/agentKey'
+import type { AgentRepoCredential } from '@/types/agentRuntime'
 
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
 import {
@@ -21,6 +22,7 @@ import {
   createSetting,
   PROJECTS,
   type RuntimeApiOptions,
+  TEMPLATES,
 } from '../../test/kits/admin/agentRuntime'
 import AgentDetailPage from './AgentDetailPage'
 
@@ -35,6 +37,11 @@ const presentSections = () => SECTION.filter((id) => document.getElementById(id)
 const NOW_KEY: AgentApiKey = {
   id: 1, userId: 0, keyPrefix: 'ak_old', label: null, createdBy: null, createdAt: '2026-10-01T00:00:00Z',
   lastUsedAt: null, revokedAt: null, managed: true, expiresAt: '2026-11-30T12:00:00Z',
+}
+
+/** 저장소 토큰 메타 — 등록 11-02, 최근 사용은 5분 전(없으면 null). */
+function repoCred(id: number, host: string, over: Partial<AgentRepoCredential> = {}): AgentRepoCredential {
+  return { id, kind: host.includes('github') ? 'GITHUB' : 'GITLAB', host, createdAt: '2026-11-02T01:00:00Z', lastUsedAt: new Date(Date.now() - 5 * 60_000).toISOString(), ...over }
 }
 
 interface Opts extends RuntimeApiOptions {
@@ -194,6 +201,8 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
     settings: { [id]: createSetting(id) },
     claudeFor: [id],
+    // 기본 프로젝트(WD)의 저장소 호스트는 이미 연결된 상태 — 저장소 막힘은 따로 본다.
+    repoCredentials: [repoCred(1, 'github.com')],
     ...over,
   })
 
@@ -246,6 +255,25 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(screen.getByTestId('agent-run-mode-lock')).toHaveTextContent('실행 중에는 바꿀 수 없어요')
   })
 
+  test('실행 환경이 사용량을 잴 수 없다고 알려 왔으면 CPU·메모리는 「알 수 없음」과 이유 한 줄, 잴 수 있으면 값만 보인다 (WP-1280)', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319', cpuMillicores: 1200, memoryBytes: 3 * 1024 ** 3 })
+    const blind = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed, effectiveLocation: createLocation({ metricsAvailable: false }) })
+    await renderDetail(works({ settings: { [id]: blind } }))
+    const stats = await screen.findByTestId('agent-runtime-stats')
+    expect(stats).toHaveTextContent('CPU알 수 없음')
+    expect(stats).toHaveTextContent('메모리알 수 없음')
+    expect(screen.getByTestId('agent-runtime-metrics-unavailable')).toHaveTextContent('이 실행 환경에는 사용량을 재는 metrics-server 가 없어요.')
+  })
+
+  test('사용량을 잴 수 있는 실행 환경이면 CPU·메모리 값이 보이고 이유 줄은 없다', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319', cpuMillicores: 1200, memoryBytes: 3 * 1024 ** 3 })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    const stats = await screen.findByTestId('agent-runtime-stats')
+    expect(stats).toHaveTextContent('1.2 코어')
+    expect(stats).toHaveTextContent('3.0 GiB')
+    expect(screen.queryByTestId('agent-runtime-metrics-unavailable')).not.toBeInTheDocument()
+  })
+
   test('저장된 실행 환경은 꽉 찼어도 초안에서 「워크스페이스 기본」을 고르면 기본 환경 자리로 판정해 시작이 열린다', async () => {
     const locations = [
       createLocation({ id: 1, isDefault: true, capacity: 4, used: 1 }),
@@ -291,6 +319,159 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(note).toHaveTextContent(`다음 교체 ${formatDateMonthDayPadded('2026-12-13T12:00:00Z')} 무렵`)
     expect(note).not.toHaveTextContent(formatDateMonthDayPadded('2026-12-20T12:00:00Z'))
     expect(within(screen.getByTestId('agent-managed-keys-group')).getByText('Works 가 관리')).toBeInTheDocument()
+  })
+})
+
+describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
+  const id = 200
+  const projects = [
+    ...PROJECTS,
+    { projectKey: 'WP', name: 'Works', repositoryUrl: 'git@github.com:a/wp.git', repositoryBranch: 'main', repositoryHost: 'github.com' },
+    { projectKey: 'TTP', name: 'TTP', repositoryUrl: 'https://gitlab.iacloud.kr/t/ttp.git', repositoryBranch: 'main', repositoryHost: 'gitlab.iacloud.kr' },
+  ]
+  const works = (over: Partial<Opts> = {}): Opts => ({
+    agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
+    settings: { [id]: createSetting(id) },
+    claudeFor: [id],
+    projects,
+    repoCredentials: [repoCred(1, 'github.com')],
+    ...over,
+  })
+
+  test('AI 계정 아래에 「저장소 연결」 묶음 — 필요한 호스트별로 연결됨·연결 안 됨 줄과 단추를 보인다', async () => {
+    await renderDetail(works())
+    const group = await screen.findByTestId('agent-repo-group')
+    expect(group).toHaveTextContent('저장소 연결')
+    expect(group).toHaveTextContent('바로 반영')
+    const github = await screen.findByTestId('agent-repo-row-github.com')
+    expect(github).toHaveTextContent('GitHub')
+    expect(github).toHaveTextContent('WD · WP 프로젝트 저장소')
+    expect(github).toHaveTextContent('최근 사용 5분 전')
+    expect(within(github).getByTestId('agent-repo-reconnect-github.com')).toBeInTheDocument()
+    expect(within(github).getByTestId('agent-repo-revoke-github.com')).toBeInTheDocument()
+    const gitlab = screen.getByTestId('agent-repo-row-gitlab.iacloud.kr')
+    expect(gitlab).toHaveTextContent('GitLab')
+    expect(gitlab).toHaveTextContent('연결 안 됨')
+    expect(gitlab).toHaveTextContent('TTP 프로젝트 저장소')
+    expect(within(gitlab).getByTestId('agent-repo-connect-gitlab.iacloud.kr')).toBeInTheDocument()
+    // 필요한 호스트 먼저, 호스트 순 — AI 계정 묶음 바로 아래.
+    const order = screen.getAllByTestId(/^agent-(ai-account|repo|work-settings)-group$/).map((e) => e.dataset.testid)
+    expect(order).toEqual(['agent-ai-account-group', 'agent-repo-group', 'agent-work-settings-group'])
+  })
+
+  test('최근 사용이 없으면 「없음」, 필요 없는데 등록된 호스트는 프로젝트 줄 없이 같은 모양으로 붙는다', async () => {
+    await renderDetail(works({ repoCredentials: [repoCred(1, 'github.com', { lastUsedAt: null }), repoCred(2, 'ghe.example.com')] }))
+    expect(await screen.findByTestId('agent-repo-row-github.com')).toHaveTextContent('최근 사용 없음')
+    const extra = screen.getByTestId('agent-repo-row-ghe.example.com')
+    expect(extra).not.toHaveTextContent('프로젝트 저장소')
+    expect(within(extra).getByTestId('agent-repo-revoke-ghe.example.com')).toBeInTheDocument()
+  })
+
+  test('저장소 토큰이 필요 없는 방식(요구에 repo 없음)이면 묶음도 켜기 전 확인 항목도 없다', async () => {
+    const template = { ...TEMPLATES[1], requires: ['claude'] }
+    await renderDetail(works({ templates: [TEMPLATES[0], template] }))
+    await screen.findByTestId('agent-ai-account-group')
+    expect(screen.queryByTestId('agent-repo-group')).not.toBeInTheDocument()
+    await screen.findByTestId('agent-runtime-checks')
+    expect(screen.queryByTestId('agent-runtime-check-repos')).not.toBeInTheDocument()
+  })
+
+  test('연결하기 — 호스트는 고정, 토큰이 짧으면 저장이 닫혀 있고 저장하면 POST {kind, host, token}(공백 제거) 후 닫힌다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    expect(within(dialog).getByTestId('agent-repo-host')).toHaveValue('gitlab.iacloud.kr')
+    expect(within(dialog).getByTestId('agent-repo-host')).toHaveAttribute('readonly')
+    expect(within(dialog).getByTestId('agent-repo-kind-gitlab')).toBeChecked()
+    expect(dialog).toHaveTextContent('api·write_repository 범위의 토큰')
+    const save = within(dialog).getByTestId('agent-repo-save')
+    await user.type(within(dialog).getByTestId('agent-repo-token'), 'short')
+    expect(save).toBeDisabled()
+    await user.clear(within(dialog).getByTestId('agent-repo-token'))
+    await user.type(within(dialog).getByTestId('agent-repo-token'), '  glpat-0123456789abcdefghij  ')
+    await user.click(save)
+    await waitFor(() => expect(calls.repoRegisters).toEqual([{ kind: 'GITLAB', host: 'gitlab.iacloud.kr', token: 'glpat-0123456789abcdefghij' }]))
+    await waitFor(() => expect(screen.queryByTestId('agent-repo-dialog')).not.toBeInTheDocument())
+    // 목록을 다시 읽어 그 호스트가 연결됨으로 바뀐다.
+    await waitFor(() => expect(screen.getByTestId('agent-repo-row-gitlab.iacloud.kr')).toHaveTextContent('최근 사용 없음'))
+  })
+
+  test('다시 연결 — 대화상자를 열어 같은 호스트로 POST 하고 원문은 다시 열어도 비어 있다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-reconnect-github.com'))
+    let dialog = await screen.findByTestId('agent-repo-dialog')
+    expect(dialog).toHaveTextContent('Contents·Pull requests 쓰기 권한이 있는 토큰')
+    await user.type(within(dialog).getByTestId('agent-repo-token'), 'github_pat_0123456789abcdef')
+    await user.click(within(dialog).getByTestId('agent-repo-save'))
+    await waitFor(() => expect(calls.repoRegisters).toEqual([{ kind: 'GITHUB', host: 'github.com', token: 'github_pat_0123456789abcdef' }]))
+    await waitFor(() => expect(screen.queryByTestId('agent-repo-dialog')).not.toBeInTheDocument())
+    await user.click(screen.getByTestId('agent-repo-reconnect-github.com'))
+    dialog = await screen.findByTestId('agent-repo-dialog')
+    expect(within(dialog).getByTestId('agent-repo-token')).toHaveValue('')
+  })
+
+  test('+ 다른 호스트 추가 — 호스트를 적으면 종류를 짐작하고(직접 고른 종류는 존중), 형식이 틀리면 저장이 닫힌다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-add'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    const host = within(dialog).getByTestId('agent-repo-host')
+    await user.type(host, 'https://git.example.com')
+    expect(within(dialog).getByTestId('agent-repo-save')).toBeDisabled()
+    expect(dialog).toHaveTextContent('호스트 이름만 적어 주세요')
+    await user.clear(host)
+    await user.type(host, ' GHE.GitHub.example.com ')
+    expect(within(dialog).getByTestId('agent-repo-kind-github')).toBeChecked()
+    await user.click(within(dialog).getByTestId('agent-repo-kind-gitlab'))
+    await user.clear(host)
+    await user.type(host, 'github.acme.io')
+    expect(within(dialog).getByTestId('agent-repo-kind-gitlab')).toBeChecked()
+    await user.type(within(dialog).getByTestId('agent-repo-token'), 'tok_0123456789abcdef')
+    await user.click(within(dialog).getByTestId('agent-repo-save'))
+    await waitFor(() => expect(calls.repoRegisters).toEqual([{ kind: 'GITLAB', host: 'github.acme.io', token: 'tok_0123456789abcdef' }]))
+  })
+
+  test('연결 끊기 — 확인 창에서 취소하면 보내지 않고, 확인하면 DELETE 후 「연결 안 됨」이 된다', async () => {
+    const { user, calls } = await renderDetail(works())
+    await user.click(await screen.findByTestId('agent-repo-revoke-github.com'))
+    const dialog = await screen.findByTestId('agent-repo-revoke-dialog')
+    expect(dialog).toHaveTextContent('github.com 연결을 끊을까요?')
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    expect(calls.repoRevokes).toEqual([])
+    await user.click(screen.getByTestId('agent-repo-revoke-github.com'))
+    await user.click(await screen.findByTestId('agent-repo-revoke-confirm'))
+    await waitFor(() => expect(calls.repoRevokes).toEqual([1]))
+    await waitFor(() => expect(screen.getByTestId('agent-repo-row-github.com')).toHaveTextContent('연결 안 됨'))
+  })
+
+  test('등록이 실패하면 오류 알림을 띄우고 대화상자와 입력을 그대로 둔다', async () => {
+    const { user } = await renderDetail(works({ failRepoRegister: { status: 400, message: '토큰 형식이 올바르지 않아요' } }))
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    const dialog = await screen.findByTestId('agent-repo-dialog')
+    await user.type(within(dialog).getByTestId('agent-repo-token'), 'glpat-0123456789abcdefghij')
+    await user.click(within(dialog).getByTestId('agent-repo-save'))
+    expect(await screen.findByText('토큰 형식이 올바르지 않아요')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-repo-dialog')).toBeInTheDocument()
+    expect(within(screen.getByTestId('agent-repo-dialog')).getByTestId('agent-repo-token')).toHaveValue('glpat-0123456789abcdefghij')
+  })
+
+  test('켜기 전 확인 — 연결 안 된 호스트를 알리고 실행 시작을 「저장소를 먼저 연결해 주세요」로 막는다(Claude 다음·프로젝트 앞)', async () => {
+    await renderDetail(works())
+    const item = await screen.findByTestId('agent-runtime-check-repos')
+    await waitFor(() => expect(item).toHaveTextContent('gitlab.iacloud.kr 가 연결돼 있지 않아요. 아래 실행 › 저장소 연결에서 연결해 주세요'))
+    expect(screen.getByTestId('agent-runtime-start')).toBeDisabled()
+    expect(screen.getByTestId('agent-run-group')).toHaveTextContent('저장소를 먼저 연결해 주세요')
+    const checks = screen.getByTestId('agent-runtime-checks')
+    const text = checks.textContent ?? ''
+    expect(text.indexOf('Claude 연결')).toBeLessThan(text.indexOf('저장소 연결'))
+    expect(text.indexOf('저장소 연결')).toBeLessThan(text.indexOf('맡는 프로젝트'))
+  })
+
+  test('호스트를 모두 연결하면 ✓ 로 바뀌고 실행 시작이 열린다', async () => {
+    await renderDetail(works({ repoCredentials: [repoCred(1, 'github.com'), repoCred(2, 'gitlab.iacloud.kr')] }))
+    const item = await screen.findByTestId('agent-runtime-check-repos')
+    await waitFor(() => expect(within(item).getByLabelText('통과')).toBeInTheDocument())
+    expect(item).not.toHaveTextContent('연결돼 있지 않아요')
+    await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
   })
 })
 
