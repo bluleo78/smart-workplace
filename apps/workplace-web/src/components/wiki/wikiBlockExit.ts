@@ -9,11 +9,19 @@ import { type EditorState, Plugin, PluginKey, Selection, TextSelection, type Tra
 import type { EditorView } from '@tiptap/pm/view'
 
 /**
+ * 코드 글자를 담는 블록인지(spec.code — 코드 블록·HTML 블록 소스) — 그 안 글자는 코드라 그대로 다룬다. 이어 쓸 줄 판정·HTML 들여오기 자리·
+ * 앱 링크 칩·슬래시(/)·멘션(@) 메뉴가 함께 쓴다(WP-1300 — 소스의 `</p>` 로 슬래시 메뉴가 떠 Esc·Enter 를 가로챘다).
+ */
+export function isCodeText(node: PMNode | null | undefined): boolean {
+  return !!node?.type.spec.code
+}
+
+/**
  * 글을 이어 쓸 줄인지 — 글자 블록(문단·제목)이되 코드 블록·HTML 블록(code)은 뺀다. HTML 블록도 내용이 글자(text*)라 글자 블록이지만
  * 닫혀 있으면 소스가 숨어 있고, 코드 블록은 Enter 가 줄바꿈이라 「다음 줄」로 쓸 수 없다.
  */
 export function isWritableLine(node: PMNode | null | undefined): boolean {
-  return !!node?.isTextblock && !node.type.spec.code
+  return !!node?.isTextblock && !isCodeText(node)
 }
 
 /** pos 블록(크기 size)의 뒤(dir 1)·앞(dir -1) 경계와 그 너머 바로 옆 노드(없으면 null — 문서·영역 끝). */

@@ -11,6 +11,7 @@ import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
 import type { IssueStatus } from '@/types/issue'
 
 import { lucideSvg } from './lucideSvg'
+import { isCodeText } from './wikiBlockExit'
 
 /**
  * 노트 본문의 앱 링크 칩(WP-1147) — 본문에 붙인 Gen:iA Works 이슈·노트·파일 주소를 그 자리의 인라인 칩으로 보인다.
@@ -105,7 +106,7 @@ function rangesInTextblock(block: PmNode, start: number, appHosts: AppHosts, out
 export function collectAppLinkRanges(doc: PmNode, appHosts: AppHosts): AppLinkRange[] {
   const out: AppLinkRange[] = []
   doc.descendants((node, pos) => {
-    if (node.type.spec.code) return false
+    if (isCodeText(node)) return false
     if (!node.isTextblock) return true
     rangesInTextblock(node, pos + 1, appHosts, out)
     return false

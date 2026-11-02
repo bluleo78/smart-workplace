@@ -19,6 +19,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js'
 const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
+import { isCodeText } from './wikiBlockExit'
 import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
 import {
   type WikiBlockCommand,
@@ -102,7 +103,8 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
           // 줄 어디서든 "/" 로 트리거(기본 prefix 제약 해제).
           allowedPrefixes: null,
           // 역할 게이트 — VIEWER 면 false 를 반환해 팝업 자체를 막는다.
-          allow: () => ctx.canEditRef.current,
+          // 코드 블록·HTML 블록 소스 안은 막는다(WP-1300) — `</p>` 의 "/" 로 메뉴가 떠 Esc·Enter 를 가로챘다(소스 칸 Esc 닫기가 안 됐다).
+          allow: ({ state, range }) => ctx.canEditRef.current && !isCodeText(state.doc.resolve(range.from).parent),
           // "/" 트리거 텍스트를 지우고 명령을 실행한다.
           command: ({ editor, range, props }) => {
             if (props.kind === 'insert') {

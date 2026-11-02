@@ -287,37 +287,92 @@
   color: var(--accent-foreground);
 }
 
-/* HTML 블록(WP-1242) — 격리 iframe 미리보기 + (편집할 때만) 머리 띠와 소스 편집 칸. WikiHtmlEmbedView.tsx 참조.
-   iframe 은 본문 폭을 다 쓰고 높이는 안 문서가 알려 준 값(인라인 style)을 따른다. 테두리는 옅게 — 원본 모양을 가리지 않게. */
+/* HTML 블록(WP-1242, 막대·소스 편집 WP-1300) — 격리 iframe 미리보기 + (편집할 때만) 막대·소스 편집 칸·선택 안내. WikiHtmlEmbedView.tsx 참조.
+   iframe 은 본문 폭을 다 쓰고 높이는 안 문서가 알려 준 값(인라인 style)을 따른다. 테두리는 옅게 — 원본 모양을 가리지 않게.
+   막대·단추·안내는 노트 CSS 가 숨기지 못하게 인라인 !important(pinVisible)로 display·visibility·opacity·pointer-events·position 이 박혀 있다 —
+   그래서 평소에 감추는 것은 그 다섯이 아닌 색(투명)으로 한다. */
 .wiki-editor .ProseMirror .wiki-html-embed {
   margin: 0.5em 0;
+  border-radius: var(--radius-md);
+  /* 소스 편집의 나란히/위아래 판정은 화면 폭이 아니라 이 블록 폭으로 한다 — 노트가 좁은 칸(분할 화면·사이드 패널)에 떠도 맞게. */
+  container-type: inline-size;
+}
+/* 올리면 얇은 테두리(편집할 때만) — 선택 테두리(아래 ProseMirror-selectednode)가 있으면 그쪽이 덮는다. */
+.wiki-editor .ProseMirror .wiki-html-embed[data-editable]:hover {
+  outline: 1px solid var(--border);
+  outline-offset: 2px;
 }
 .wiki-editor .ProseMirror .wiki-html-embed__bar {
   display: flex;
   align-items: center;
   gap: 0.375rem;
+  height: 1.75rem;
   margin-bottom: 0.25rem;
   color: var(--muted-foreground);
   font-size: 0.75rem;
   line-height: 1.25rem;
   user-select: none;
 }
+/* 평소엔 막대 자리만 두고 감춘다 — 올리거나·선택하거나·소스를 열거나·메뉴를 열거나·막대 안에 포커스가 있으면 보인다.
+   글자·테두리·배경을 투명하게만 한다(누르기 대상은 남는다) — 터치 화면은 처음 누를 때 hover 가 되어 막대가 나타나고,
+   보이지 않는 막대가 누르기를 막아 아래 요소가 눌리는 일도 없다. */
+.wiki-editor .ProseMirror .wiki-html-embed:not(:hover):not([data-selected]):not([data-source-open]):not([data-menu-open]) .wiki-html-embed__bar:not(:focus-within),
+.wiki-editor .ProseMirror .wiki-html-embed:not(:hover):not([data-selected]):not([data-source-open]):not([data-menu-open]) .wiki-html-embed__bar:not(:focus-within) * {
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+}
 .wiki-editor .ProseMirror .wiki-html-embed__icon {
   width: 0.875rem;
   height: 0.875rem;
 }
-.wiki-editor .ProseMirror .wiki-html-embed__toggle {
-  margin-left: auto;
-  padding: 0 0.5rem;
-  border: 1px solid var(--border);
+/* 단추 안 아이콘은 누르기 대상이 되지 않게 — 대상이 BUTTON 이어야 편집기(NodeView stopEvent)가 그 클릭을 가로채지 않는다. */
+.wiki-editor .ProseMirror .wiki-html-embed__bar svg {
+  pointer-events: none;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__label {
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
   border-radius: var(--radius-sm);
   color: inherit;
   cursor: pointer;
 }
-.wiki-editor .ProseMirror .wiki-html-embed__toggle:hover,
-.wiki-editor .ProseMirror .wiki-html-embed__toggle[aria-pressed='true'] {
+.wiki-editor .ProseMirror .wiki-html-embed__label:hover {
+  color: var(--foreground);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__actions {
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn {
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  color: inherit;
+  cursor: pointer;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn--icon {
+  padding: 0 0.25rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn:hover,
+.wiki-editor .ProseMirror .wiki-html-embed__btn[aria-pressed='true'],
+.wiki-editor .ProseMirror .wiki-html-embed__btn[data-state='open'] {
   background: var(--accent);
   color: var(--accent-foreground);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__btn--danger:hover {
+  background: var(--destructive-subtle);
+  color: var(--destructive-text);
+}
+.wiki-editor .ProseMirror .wiki-html-embed__bar button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 /* 닫힌 HTML 블록은 커서 대신 블록 통째 선택이 된다(WP-1288) — 선택된 것이 보이게 테두리를 준다. ProseMirror 가 선택된 블록 화면(NodeView 바깥 요소)에
    붙이는 ProseMirror-selectednode 를 본다 — 편집할 수 있을 때만. */
@@ -326,15 +381,87 @@
   outline-offset: 2px;
   border-radius: var(--radius-md);
 }
+/* 선택 안내(WP-1300) — 블록 아래 한 줄. */
+.wiki-editor .ProseMirror .wiki-html-embed__hint {
+  margin-top: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  user-select: none;
+}
+
+/* 소스 편집(WP-1300) — 코드(왼쪽)와 미리보기(오른쪽)를 나란히. 블록 폭이 40rem(640px) 아래면 위아래로. */
+.wiki-editor .ProseMirror .wiki-html-embed[data-source-open] .wiki-html-embed__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+@container (max-width: 40rem) {
+  .wiki-editor .ProseMirror .wiki-html-embed[data-source-open] .wiki-html-embed__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 /* 소스 칸은 contentDOM 이라 늘 DOM 에 있다 — 「소스 편집」을 켰을 때만 보인다(보기 전용 화면은 늘 숨김). */
-.wiki-editor .ProseMirror .wiki-html-embed:not([data-source-open]) .wiki-html-embed__source {
+.wiki-editor .ProseMirror .wiki-html-embed:not([data-source-open]) .wiki-html-embed__code {
   display: none;
 }
-.wiki-editor .ProseMirror .wiki-html-embed__source {
-  margin: 0 0 0.5rem;
-  max-height: 24rem;
+/* 줄 번호와 소스가 한 스크롤 상자 — 세로·가로로 함께 움직인다. 줄 번호는 가로 스크롤 때 왼쪽에 붙어 있다(sticky). */
+.wiki-editor .ProseMirror .wiki-html-embed__code {
+  display: flex;
+  align-items: flex-start;
+  max-height: min(32rem, 70vh);
   overflow: auto;
-  white-space: pre-wrap;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+}
+/* 줄 번호·소스 pre·code 가 같은 글꼴·줄 높이여야 줄이 맞는다 — pre 에도 준다(pre 의 본문 줄 높이가 code 줄을 벌려 놓는다). */
+.wiki-editor .ProseMirror .wiki-html-embed__gutter,
+.wiki-editor .ProseMirror .wiki-html-embed__source,
+.wiki-editor .ProseMirror .wiki-html-embed__source code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem; /* 13px = code-block 타이포 토큰 (02-typography.md) */
+  line-height: 1.25rem;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  min-height: 100%;
+  padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+  border-right: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+}
+.wiki-editor .ProseMirror .wiki-html-embed__source {
+  flex: 1 0 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+/* 색 구분(wikiHtmlEmbedHighlight 인라인 데코레이션) — 밝은·어두운 테마 모두 대비가 맞춰진 글자색 토큰만 쓴다. */
+.wiki-editor .ProseMirror .wiki-html-tok--tag {
+  color: var(--epic);
+}
+.wiki-editor .ProseMirror .wiki-html-tok--attr {
+  color: var(--warning-text);
+}
+.wiki-editor .ProseMirror .wiki-html-tok--value {
+  color: var(--success-text);
+}
+.wiki-editor .ProseMirror .wiki-html-tok--comment,
+.wiki-editor .ProseMirror .wiki-html-tok--doctype {
+  color: var(--muted-foreground);
+  font-style: italic;
 }
 .wiki-editor .ProseMirror .wiki-html-embed__frame {
   display: block;

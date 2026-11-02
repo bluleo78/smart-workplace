@@ -1,12 +1,12 @@
 // 노트 HTML 블록 소스 칸 열림 상태(WP-1288) — 블록 화면(WikiHtmlEmbedView)과 노드 확장(wikiHtmlEmbedNode)이 함께 읽는 편집기 플러그인.
 import { WikiHtmlEmbedSchema } from '@smart-workplace/wiki-editor-schema'
-import type { Node as PMNode } from '@tiptap/pm/model'
-import { type EditorState, NodeSelection, Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
+import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
+import { type EditorState, NodeSelection, Plugin, PluginKey, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { ySyncPluginKey } from 'y-prosemirror'
 import type * as Y from 'yjs'
 
-import { moveBesideBlock } from './wikiBlockExit'
+import { isWritableLine, moveBesideBlock, neighborAt } from './wikiBlockExit'
 import { resolveRelative, toRelative, ySyncOf,type YSyncState } from './wikiCollabPosition'
 
 /**
@@ -79,6 +79,65 @@ function restoreAfterSync(prev: DecorationSet, oldState: EditorState, newState: 
 export function selectHtmlEmbed(view: EditorView, pos: number, focus = true): void {
   view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
   if (focus) view.focus()
+}
+
+/** 커서가 소스 칸을 연 HTML 블록의 글자 안에 있으면 그 블록 앞 위치 — 아니면 null. Esc(한 단계 바깥으로)가 쓴다. */
+function openEmbedAtCursor(state: EditorState): number | null {
+  const { $from, $to } = state.selection
+  if (state.selection instanceof NodeSelection || !isEmbed($from.parent) || $to.parent !== $from.parent) return null
+  const at = $from.before()
+  return isHtmlEmbedSourceOpen(state, at) ? at : null
+}
+
+/**
+ * Esc — 한 단계 바깥으로(WP-1300, 설계 §1). 한 번에 한 단계만 나간다.
+ * 1. 소스 칸 안(커서)이면 칸을 닫는다 — 닫는 거래 뒤 선택 다듬기(appendTransaction)가 커서를 블록 통째 선택으로 바꾼다.
+ * 2. 블록이 통째 선택돼 있는데 소스 칸이 열려 있으면(이름표를 눌러 고른 경우) 칸만 닫는다 — 통째 선택은 그대로.
+ * 3. 닫힌 블록이 통째 선택돼 있으면 선택을 풀고 옆 글 줄(뒤 줄 처음, 없으면 앞 줄 끝)로 나간다. 옆에 글 줄이 없으면(노트 끝 등)
+ *    Enter 처럼 뒤에 새 줄을 만들어 나간다 — 안내 문구(Esc 바깥으로)가 늘 맞게.
+ * 해당이 없으면 false(다른 Esc 동작에 넘긴다).
+ */
+export function escapeHtmlEmbed(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const hit = selectedEmbed(state)
+  // 1·2 — 닫을 소스 칸: 커서가 든 열린 블록, 또는 통째 선택된 열린 블록.
+  const openAt = hit ? (isHtmlEmbedSourceOpen(state, hit.pos) ? hit.pos : null) : openEmbedAtCursor(state)
+  if (openAt != null) {
+    dispatch?.(setHtmlEmbedSourceOpen(state.tr, openAt, false))
+    return true
+  }
+  if (!hit) return false
+  for (const dir of [1, -1] as const) {
+    const { edge, node } = neighborAt(state.doc, hit.pos, hit.node.nodeSize, dir)
+    if (!isWritableLine(node)) continue
+    dispatch?.(state.tr.setSelection(TextSelection.create(state.doc, dir > 0 ? edge + 1 : edge - 1)).scrollIntoView())
+    return true
+  }
+  return moveBesideBlock(state, dispatch, hit.pos, hit.node.nodeSize, 1)
+}
+
+/**
+ * pos 블록의 소스(노드 글자)만 text 로 바꾼다 — 「다시 올리기」(WP-1300). 한 거래라 실행 취소 한 번에 되돌아가고, 보통 문서 변경이라
+ * 이전 소스는 판 기록에 남는다. 줄바꿈은 \n 으로 맞춘다(윈도 파일의 \r\n). 빈 글자면 빈 블록. 그 자리에 HTML 블록이 없으면 false.
+ */
+export function replaceHtmlEmbedSource(view: EditorView, pos: number, text: string): boolean {
+  const node = view.state.doc.nodeAt(pos)
+  if (!isEmbed(node)) return false
+  const normalized = text.replace(/\r\n?/g, '\n')
+  const content = normalized ? Fragment.from(view.state.schema.text(normalized)) : Fragment.empty
+  view.dispatch(view.state.tr.replaceWith(pos + 1, pos + node!.nodeSize - 1, content))
+  return true
+}
+
+/**
+ * pos 블록을 지운다 — 「삭제」 단추(WP-1300). 통째 선택 후 deleteSelection 이라 Delete 키와 같다(문서에 블록이 이것뿐이면 빈 문단이 남는다).
+ * 지운 뒤 커서는 그 자리 가까운 곳(ProseMirror 가 지운 범위 옆으로 둔다)에 두고 편집기에 포커스를 준다.
+ */
+export function deleteHtmlEmbed(view: EditorView, pos: number): boolean {
+  const node = view.state.doc.nodeAt(pos)
+  if (!isEmbed(node)) return false
+  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)).deleteSelection().scrollIntoView())
+  view.focus()
+  return true
 }
 
 /**

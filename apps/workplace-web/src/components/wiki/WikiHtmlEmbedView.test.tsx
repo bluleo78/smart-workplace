@@ -2,20 +2,29 @@
 // 격리 iframe(allow-same-origin 없음)·srcdoc(소스 + 높이 스크립트)·높이 메시지(보낸 창 확인·범위)·소스 편집 토글(편집 가능할 때만)을 본다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
-import { NodeSelection } from '@tiptap/pm/state'
+import { AllSelection, NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { http, HttpResponse } from 'msw'
 import { useEffect } from 'react'
+import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { HTML_EMBED_DEFAULT_HEIGHT, HTML_EMBED_HEIGHT_SCRIPT, HTML_EMBED_MAX_HEIGHT } from './wikiHtmlEmbedFrame'
+import { HIGHLIGHT_MAX_CHARS } from './wikiHtmlEmbedHighlight'
 import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
 import { PREVIEW_DEBOUNCE_MS, REMOTE_PREVIEW_DEBOUNCE_MS } from './WikiHtmlEmbedView'
+import { HTML_IMPORT_MAX_BYTES } from './wikiHtmlImportInsert'
 import { wikiRenderExtensions } from './wikiRenderExtensions'
 import { WikiRevisionPreview } from './WikiRevisionPreview'
+
+// 크기 초과 안내(toast.error)를 확인하려고 sonner 의 toast 만 바꾼다.
+vi.mock('sonner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('sonner')>()),
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+}))
 
 const SOURCE = '<canvas id="c"></canvas>\n\n<script>document.title = "</scr" + "ipt>"</script>'
 const BODY = ['앞 문단', '', '```html-embed', SOURCE, '```'].join('\n')
@@ -48,8 +57,18 @@ function embedTextPos(ed: Editor): number {
 }
 
 /** 편집기에 키를 누른다 — 단축키 플러그인(handleKeyDown)을 실제 키 이벤트로 거친다. */
-function pressKey(ed: Editor, key: string) {
-  ed.view.someProp('handleKeyDown', (f) => f(ed.view, new KeyboardEvent('keydown', { key })))
+function pressKey(ed: Editor, key: string, init: KeyboardEventInit = {}) {
+  ed.view.someProp('handleKeyDown', (f) => f(ed.view, new KeyboardEvent('keydown', { key, ...init })))
+}
+
+/** 문서 안 HTML 블록들의 소스 — 순서대로. */
+function embedSources(ed: Editor): string[] {
+  const out: string[] = []
+  ed.state.doc.descendants((n) => {
+    if (n.type.name === 'wikiHtmlEmbed') out.push(n.textContent)
+    return true
+  })
+  return out
 }
 
 const frame = () => screen.getByTestId('wiki-html-embed-frame') as HTMLIFrameElement
@@ -106,6 +125,8 @@ describe('HTML 블록 NodeView', () => {
     expect(block).not.toHaveAttribute('data-source-open')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    // 연 동안 단추는 「완료」(WP-1300).
+    expect(toggle).toHaveTextContent('완료')
     expect(block).toHaveAttribute('data-source-open')
     // 소스 칸은 노드 글자(contentDOM)다 — 빈 줄·</script> 글자까지 그대로.
     expect(screen.getByTestId('wiki-html-embed-source').textContent).toBe(SOURCE)
@@ -188,6 +209,290 @@ describe('HTML 블록 NodeView', () => {
     expect(block).not.toHaveAttribute('data-source-open')
     expect(ed.state.selection).toBeInstanceOf(NodeSelection)
     expect(ed.state.selection.from).toBe(embedTextPos(ed) - 1)
+  })
+
+  describe('막대·선택 안내·소스 편집 개선(WP-1300)', () => {
+    const TWO = ['앞 문단', '', '```html-embed', '<p>첫</p>', '```', '', '가운데', '', '```html-embed', '<p>둘</p>', '```', '', '뒤 문단'].join('\n')
+    const blockAt = (i: number) => screen.getAllByTestId('wiki-html-embed')[i]
+    /** i 번째 HTML 블록 앞 위치. */
+    const embedPos = (ed: Editor, i: number) => {
+      const found: number[] = []
+      ed.state.doc.descendants((n, pos) => {
+        if (n.type.name === 'wikiHtmlEmbed') found.push(pos)
+        return true
+      })
+      return found[i]
+    }
+    const selectBlock = (ed: Editor, i = 0) =>
+      act(() => {
+        ed.view.focus()
+        ed.commands.setNodeSelection(embedPos(ed, i))
+      })
+
+    it('선택하지 않은 블록 막대는 이름표·소스 편집·⋯ 만, 선택하면 다시 올리기·크게 보기·삭제와 키 안내가 보인다', async () => {
+      const ed = await mountEditor(BODY + '\n\n뒤 문단')
+      const block = await screen.findByTestId('wiki-html-embed')
+      const bar = within(block).getByTestId('wiki-html-embed-bar')
+      expect(within(bar).getByTestId('wiki-html-embed-label')).toHaveTextContent('HTML 블록')
+      expect(within(bar).getByTestId('wiki-html-embed-more')).toBeInTheDocument()
+      for (const id of ['wiki-html-embed-reupload', 'wiki-html-embed-expand', 'wiki-html-embed-delete', 'wiki-html-embed-hint']) {
+        expect(within(block).queryByTestId(id)).not.toBeInTheDocument()
+      }
+      // 나중 이슈(AI로 고치기·고르기)의 단추는 동작이 붙기 전까지 없다.
+      expect(within(block).queryByText(/AI로 고치기|고르기/)).not.toBeInTheDocument()
+      expect(block).not.toHaveAttribute('data-selected')
+
+      selectBlock(ed)
+      await waitFor(() => expect(block).toHaveAttribute('data-selected'))
+      expect(within(bar).getByTestId('wiki-html-embed-reupload')).toHaveTextContent('다시 올리기')
+      expect(within(bar).getByTestId('wiki-html-embed-expand')).toHaveTextContent('크게 보기')
+      expect(within(bar).getByTestId('wiki-html-embed-delete')).toHaveTextContent('삭제')
+      expect(within(bar).queryByTestId('wiki-html-embed-more')).not.toBeInTheDocument()
+      // jsdom 의 navigator.platform 은 맥이 아니다 — Ctrl+Enter 로 표기한다.
+      expect(within(block).getByTestId('wiki-html-embed-hint')).toHaveTextContent('Enter 다음 줄 · Esc 바깥으로 · Ctrl+Enter 바로 나가기')
+      // 새로 붙인 막대 요소도 노트 CSS 가 숨기지 못하게 고정된다.
+      for (const el of [within(bar).getByTestId('wiki-html-embed-label'), within(bar).getByTestId('wiki-html-embed-delete'), within(block).getByTestId('wiki-html-embed-hint')]) {
+        expect(el.style.getPropertyPriority('display')).toBe('important')
+      }
+
+      // 선택을 풀면 안내·선택 단추가 사라진다.
+      act(() => {
+        ed.commands.setTextSelection(ed.state.doc.content.size - 1)
+      })
+      await waitFor(() => expect(within(block).queryByTestId('wiki-html-embed-hint')).not.toBeInTheDocument())
+      expect(within(bar).queryByTestId('wiki-html-embed-reupload')).not.toBeInTheDocument()
+    })
+
+    it('막대 이름표를 누르면 블록 통째 선택이 된다', async () => {
+      const ed = await mountEditor(BODY + '\n\n뒤 문단')
+      act(() => {
+        ed.commands.setTextSelection(ed.state.doc.content.size - 1)
+      })
+      fireEvent.click(await screen.findByTestId('wiki-html-embed-label'))
+      expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+      expect(ed.state.selection.from).toBe(embedTextPos(ed) - 1)
+    })
+
+    it('소스 칸 안에서 Esc 를 누르면 칸이 닫히고 블록 통째 선택이 된다 — 그 상태의 Esc 는 옆 글 줄로 나간다', async () => {
+      const ed = await mountEditor(BODY + '\n\n뒤 문단')
+      const block = await screen.findByTestId('wiki-html-embed')
+      fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+      expect(block).toHaveAttribute('data-source-open')
+      // 소스 안 Enter 는 코드 줄바꿈 그대로(다음 줄로 나가지 않는다).
+      act(() => {
+        ed.commands.setTextSelection(embedTextPos(ed) + 3)
+      })
+      act(() => {
+        pressKey(ed, 'Escape')
+      })
+      expect(block).not.toHaveAttribute('data-source-open')
+      expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+      expect(ed.state.selection.from).toBe(embedTextPos(ed) - 1)
+      await waitFor(() => expect(screen.getByTestId('wiki-html-embed-hint')).toBeInTheDocument())
+      // 통째 선택에서 Esc — 뒤 글 줄 처음으로(새 줄을 만들지 않는다).
+      const count = ed.state.doc.childCount
+      act(() => {
+        pressKey(ed, 'Escape')
+      })
+      expect(ed.state.doc.childCount).toBe(count)
+      expect(ed.state.selection.$from.parent.textContent).toBe('뒤 문단')
+      expect(ed.state.selection.$from.parentOffset).toBe(0)
+    })
+
+    it('통째 선택에서 ⌘/Ctrl+Enter 는 바로 다음 줄로 나간다', async () => {
+      const ed = await mountEditor(BODY)
+      selectBlock(ed)
+      act(() => {
+        pressKey(ed, 'Enter', { ctrlKey: true })
+      })
+      expect(ed.state.doc.lastChild!.type.name).toBe('paragraph')
+      expect(ed.state.selection.$from.index(0)).toBe(ed.state.doc.childCount - 1)
+    })
+
+    it('소스를 열면 줄 번호와 색 구분이 붙고, 닫으면 색 구분 데코레이션이 빠진다', async () => {
+      await mountEditor(BODY)
+      const source = await screen.findByTestId('wiki-html-embed-source')
+      const gutter = screen.getByTestId('wiki-html-embed-code').querySelector('.wiki-html-embed__gutter')!
+      expect(gutter).toHaveAttribute('aria-hidden')
+      // 닫힌 동안은 줄 번호를 세지 않는다.
+      expect(gutter.textContent).toBe('')
+      expect(source.querySelectorAll('.wiki-html-tok')).toHaveLength(0)
+      fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+      // SOURCE 는 3줄(빈 줄 포함).
+      expect(gutter.textContent).toBe('1\n2\n3')
+      await waitFor(() => expect(source.querySelectorAll('.wiki-html-tok--tag').length).toBeGreaterThan(0))
+      expect([...source.querySelectorAll('.wiki-html-tok--attr')].map((e) => e.textContent)).toEqual(['id'])
+      expect([...source.querySelectorAll('.wiki-html-tok--value')].map((e) => e.textContent)).toEqual(['"c"'])
+      // 꾸밈만 얹었다 — 노드 글자는 그대로다.
+      expect(source.textContent).toBe(SOURCE)
+      fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+      await waitFor(() => expect(source.querySelectorAll('.wiki-html-tok')).toHaveLength(0))
+    })
+
+    it('블록을 덮는 글자 범위 선택(전체 선택·드래그)은 통째 선택이 아니다 — 선택 단추·안내가 뜨지 않는다', async () => {
+      const ed = await mountEditor(BODY + '\n\n뒤 문단')
+      const block = await screen.findByTestId('wiki-html-embed')
+      selectBlock(ed)
+      await waitFor(() => expect(block).toHaveAttribute('data-selected'))
+      // 노드 선택 → 전체 선택: tiptap 의 selected 는 그대로 참이지만 단추·안내는 사라져야 한다.
+      act(() => {
+        ed.view.dispatch(ed.state.tr.setSelection(new AllSelection(ed.state.doc)))
+      })
+      await waitFor(() => expect(block).not.toHaveAttribute('data-selected'))
+      expect(within(block).queryByTestId('wiki-html-embed-hint')).not.toBeInTheDocument()
+      expect(within(block).queryByTestId('wiki-html-embed-reupload')).not.toBeInTheDocument()
+      // 앞 문단부터 뒤 문단까지 끌어 고른 글자 선택도 같다.
+      act(() => {
+        ed.view.dispatch(ed.state.tr.setSelection(TextSelection.create(ed.state.doc, 1, ed.state.doc.content.size - 1)))
+      })
+      expect(block).not.toHaveAttribute('data-selected')
+      expect(within(block).queryByTestId('wiki-html-embed-hint')).not.toBeInTheDocument()
+    })
+
+    it('통째 선택된 블록의 소스 칸이 열려 있으면 Esc 는 칸만 닫고 통째 선택을 둔다(한 단계씩)', async () => {
+      const ed = await mountEditor(BODY + '\n\n뒤 문단')
+      const block = await screen.findByTestId('wiki-html-embed')
+      fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+      // 이름표로 블록을 고른다 — 소스 칸은 열린 채.
+      fireEvent.click(screen.getByTestId('wiki-html-embed-label'))
+      expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+      expect(block).toHaveAttribute('data-source-open')
+      act(() => {
+        pressKey(ed, 'Escape')
+      })
+      expect(block).not.toHaveAttribute('data-source-open')
+      expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+      expect(ed.state.selection.from).toBe(embedTextPos(ed) - 1)
+    })
+
+    it('옆에 글 줄이 없는 통째 선택 블록(노트 끝)에서 Esc 는 뒤에 새 줄을 만들어 나간다', async () => {
+      const ed = await mountEditor('```html-embed\n<p>a</p>\n```')
+      selectBlock(ed)
+      const count = ed.state.doc.childCount
+      act(() => {
+        pressKey(ed, 'Escape')
+      })
+      expect(ed.state.doc.childCount).toBe(count + 1)
+      expect(ed.state.doc.lastChild!.type.name).toBe('paragraph')
+      expect(ed.state.selection.$from.index(0)).toBe(count)
+    })
+
+    it('소스를 연 채 고치면 바뀐 글자만 새로 칠한다 — 새 속성도 색이 붙는다', async () => {
+      const ed = await mountEditor(BODY)
+      const source = await screen.findByTestId('wiki-html-embed-source')
+      fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+      await waitFor(() => expect(source.querySelectorAll('.wiki-html-tok--attr')).toHaveLength(1))
+      act(() => {
+        const at = embedTextPos(ed)
+        ed.view.dispatch(ed.state.tr.insertText('<b class="x">', at))
+      })
+      await waitFor(() => expect([...source.querySelectorAll('.wiki-html-tok--attr')].map((e) => e.textContent)).toEqual(['class', 'id']))
+      expect([...source.querySelectorAll('.wiki-html-tok--value')].map((e) => e.textContent)).toEqual(['"x"', '"c"'])
+    })
+
+    it('소스가 칠하기 상한(HIGHLIGHT_MAX_CHARS)을 넘으면 열어도 칠하지 않는다', async () => {
+      const long = '<p class="a">x</p>\n'.repeat(Math.ceil(HIGHLIGHT_MAX_CHARS / 19) + 1)
+      await mountEditor(['```html-embed', long, '```'].join('\n'))
+      const source = await screen.findByTestId('wiki-html-embed-source')
+      fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+      await waitFor(() => expect(screen.getByTestId('wiki-html-embed')).toHaveAttribute('data-source-open'))
+      expect(source.querySelectorAll('.wiki-html-tok')).toHaveLength(0)
+    })
+
+    it('「다시 올리기」를 닫은 뒤 늦게 끝난 파일 읽기는 다음에 연 칸에 들어가지 않는다', async () => {
+      const ed = await mountEditor(BODY)
+      selectBlock(ed)
+      fireEvent.click(await screen.findByTestId('wiki-html-embed-reupload'))
+      let dialog = await screen.findByTestId('wiki-html-embed-reupload-dialog')
+      let finish: (text: string) => void = () => {}
+      const slow = { name: 'slow.html', type: 'text/html', size: 10, text: () => new Promise<string>((r) => (finish = r)) }
+      fireEvent.change(within(dialog).getByTestId('wiki-html-embed-reupload-file'), { target: { files: [slow] } })
+      fireEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+      await waitFor(() => expect(screen.queryByTestId('wiki-html-embed-reupload-dialog')).not.toBeInTheDocument())
+      await act(async () => {
+        finish('<p>늦게 온 소스</p>')
+      })
+      fireEvent.click(screen.getByTestId('wiki-html-embed-reupload'))
+      dialog = await screen.findByTestId('wiki-html-embed-reupload-dialog')
+      expect((within(dialog).getByTestId('wiki-html-embed-reupload-text') as HTMLTextAreaElement).value).toBe('')
+      expect(within(dialog).getByTestId('wiki-html-embed-reupload-apply')).toBeDisabled()
+    })
+
+    it('「다시 올리기」에 붙여 넣은 소스로 이 블록 소스만 바꾼다', async () => {
+      const ed = await mountEditor(TWO)
+      selectBlock(ed, 1)
+      await waitFor(() => expect(blockAt(1)).toHaveAttribute('data-selected'))
+      fireEvent.click(within(blockAt(1)).getByTestId('wiki-html-embed-reupload'))
+      const dialog = await screen.findByTestId('wiki-html-embed-reupload-dialog')
+      const apply = within(dialog).getByTestId('wiki-html-embed-reupload-apply')
+      // 손대기 전에는 바꿀 수 없다(실수로 블록을 비우지 않게).
+      expect(apply).toBeDisabled()
+      fireEvent.change(within(dialog).getByTestId('wiki-html-embed-reupload-text'), { target: { value: '<h1>새</h1>\r\n<p>본문</p>' } })
+      fireEvent.click(apply)
+      await waitFor(() => expect(screen.queryByTestId('wiki-html-embed-reupload-dialog')).not.toBeInTheDocument())
+      expect(embedSources(ed)).toEqual(['<p>첫</p>', '<h1>새</h1>\n<p>본문</p>'])
+      expect(ed.state.doc.textBetween(0, ed.state.doc.content.size, '|')).toBe('앞 문단|<p>첫</p>|가운데|<h1>새</h1>\n<p>본문</p>|뒤 문단')
+    })
+
+    it('「다시 올리기」는 5MB 넘는 파일을 거르고(안내), HTML 파일은 칸에 불러온 뒤 바꾼다 — 비운 칸으로 바꾸면 빈 블록', async () => {
+      vi.mocked(toast.error).mockClear()
+      const ed = await mountEditor(TWO)
+      selectBlock(ed, 0)
+      await waitFor(() => expect(blockAt(0)).toHaveAttribute('data-selected'))
+      fireEvent.click(within(blockAt(0)).getByTestId('wiki-html-embed-reupload'))
+      const dialog = await screen.findByTestId('wiki-html-embed-reupload-dialog')
+      const text = within(dialog).getByTestId('wiki-html-embed-reupload-text') as HTMLTextAreaElement
+
+      const big = new File(['<p>big</p>'], 'big.html', { type: 'text/html' })
+      Object.defineProperty(big, 'size', { value: HTML_IMPORT_MAX_BYTES + 1 })
+      fireEvent.drop(within(dialog).getByTestId('wiki-html-embed-dropzone'), { dataTransfer: { files: [big] } })
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('5MB'))
+      expect(text.value).toBe('')
+      expect(within(dialog).getByTestId('wiki-html-embed-reupload-apply')).toBeDisabled()
+
+      // 파일 고르기(숨은 input) — 크기 검사 뒤 칸에 채운다.
+      const ok = new File(['<p>파일</p>'], 'chart.html', { type: 'text/html' })
+      fireEvent.change(within(dialog).getByTestId('wiki-html-embed-reupload-file'), { target: { files: [ok] } })
+      await waitFor(() => expect(text.value).toBe('<p>파일</p>'))
+      expect(within(dialog).getByText('불러온 파일: chart.html')).toBeInTheDocument()
+      fireEvent.change(text, { target: { value: '' } })
+      fireEvent.click(within(dialog).getByTestId('wiki-html-embed-reupload-apply'))
+      expect(embedSources(ed)).toEqual(['', '<p>둘</p>'])
+    })
+
+    it('「크게 보기」는 같은 소스를 격리 iframe(스크립트 허용·same-origin 없음)으로 큰 창에 띄운다', async () => {
+      const ed = await mountEditor(BODY)
+      selectBlock(ed)
+      fireEvent.click(await screen.findByTestId('wiki-html-embed-expand'))
+      const big = await screen.findByTestId('wiki-html-embed-expand-frame')
+      expect(big.getAttribute('srcdoc')).toContain(SOURCE)
+      expect(big.getAttribute('sandbox')).toContain('allow-scripts')
+      expect(big.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    })
+
+    it('「삭제」는 그 블록만 지우고 선택은 문서 안 유효한 자리에 남는다', async () => {
+      const ed = await mountEditor(TWO)
+      selectBlock(ed, 0)
+      await waitFor(() => expect(blockAt(0)).toHaveAttribute('data-selected'))
+      fireEvent.click(within(blockAt(0)).getByTestId('wiki-html-embed-delete'))
+      expect(embedSources(ed)).toEqual(['<p>둘</p>'])
+      expect(ed.state.doc.textBetween(0, ed.state.doc.content.size, '|')).toBe('앞 문단|가운데|<p>둘</p>|뒤 문단')
+      const { from } = ed.state.selection
+      expect(from).toBeGreaterThanOrEqual(0)
+      expect(from).toBeLessThanOrEqual(ed.state.doc.content.size)
+    })
+
+    it('보기 전용이면 블록을 통째 선택해도 막대·안내·선택 단추가 없다', async () => {
+      const ed = await mountEditor(BODY, false)
+      const block = await screen.findByTestId('wiki-html-embed')
+      act(() => {
+        ed.commands.setNodeSelection(embedTextPos(ed) - 1)
+      })
+      for (const id of ['wiki-html-embed-bar', 'wiki-html-embed-label', 'wiki-html-embed-hint', 'wiki-html-embed-reupload', 'wiki-html-embed-more']) {
+        expect(within(block).queryByTestId(id)).not.toBeInTheDocument()
+      }
+      expect(block).not.toHaveAttribute('data-selected')
+    })
   })
 
   describe('미리보기 다시 그리기', () => {
