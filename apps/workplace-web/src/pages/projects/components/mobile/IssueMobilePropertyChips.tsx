@@ -2,7 +2,7 @@
 // 제목 바로 아래 칩(상태·담당자·우선순위·마감·에픽·＋ 속성)으로 올리고, 탭하면 해당 선택 시트를 연다.
 // 에픽 칩은 EPIC(부모 불가)·SUBTASK(부모가 태스크) 이슈에선 숨긴다 — SUBTASK 부모는 「＋ 속성」 시트에서 편집.
 // 개인 작업(WP-221)은 fields 로 [상태·우선순위·마감·담당자·반복·라벨] 구성, 「＋ 속성」 없음. 반복 칩(WP-989)은 개인 작업만 쓴다.
-import { CalendarDays, Diamond, Flag, Plus, Repeat, Tag, User } from 'lucide-react';
+import { Bot, CalendarDays, Diamond, Flag, Plus, Tag, User } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { TaskRecurrenceEditor } from '@/components/issue/recurrence/TaskRecurrenceEditor';
@@ -11,7 +11,7 @@ import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerShe
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 import { useIssueRecurrence } from '@/hooks/queries/useIssueRecurrence';
-import { recurrenceLabel, recurrencePausedText } from '@/lib/issueRecurrence';
+import { aiHandoffLabel, recurrencePausedText } from '@/lib/issueRecurrence';
 import { parentTitleLabel } from '@/lib/parentRef';
 import { cn } from '@/lib/utils';
 
@@ -323,28 +323,28 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
   );
 }
 
-// 반복 칩 + 편집 시트(WP-989) — 개인 작업만 쓴다(팀 상세 fields 에는 없어 반복을 조회하지도 않는다).
-// 칩 글자는 요약(「매주 월·수 08:30」)·없으면 「반복 안 함」, 꺼졌으면 「· 멈춤」/「· 꺼짐」. 시트 본문은 데스크톱 팝오버와 같은 편집기.
+// 「AI 에게 맡기기」 칩 + 편집 시트(WP-989, WP-1314) — 개인 작업 칩 줄에서 쓴다(팀 이슈는 「＋ 속성」 시트의 같은 칸).
+// 칩 글자는 요약(「내 AI 비서 · ↻ 매주 월·수 08:30」)·없으면 「안 함」, 꺼졌으면 「· 멈춤」/「· 꺼짐」. 시트 본문은 데스크톱 팝오버와 같은 편집기.
 function RecurrencePropChip({ projectKey, number, disabled }: { projectKey: string; number: number; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const q = useIssueRecurrence(projectKey, number);
   const r = q.data ?? null;
-  const text = r ? recurrenceLabel(r.rrule, r.time) : '반복 안 함';
+  const text = aiHandoffLabel(r);
   // 칩에는 짧게 — 「멈춤 — 3회 연속 실패」의 앞 단어만. 전체 문구는 시트 머리에 보인다.
   const paused = r ? recurrencePausedText(r)?.split(' ')[0] : null;
-  // 조회 실패 — 「반복 안 함」으로 보이면 있던 반복을 덮어쓸 수 있다. 칩은 실패를 알리고, 누르면 다시 조회만 한다(시트를 열지 않음).
+  // 조회 실패 — 「안 함」으로 보이면 있던 반복을 덮어쓸 수 있다. 칩은 실패를 알리고, 누르면 다시 조회만 한다(시트를 열지 않음).
   if (q.isError) {
     return (
       <button
         type="button"
-        aria-label="반복을 불러오지 못했어요. 다시 시도"
+        aria-label="실행 일정을 불러오지 못했어요. 다시 시도"
         data-testid="mobile-prop-recurrence"
         disabled={q.isFetching}
         onClick={() => void q.refetch()}
         className={cn(MOBILE_CHIP, 'max-w-full text-destructive disabled:opacity-60')}
       >
-        <Repeat className="size-4" aria-hidden />
-        반복을 불러오지 못했어요 · 다시 시도
+        <Bot className="size-4" aria-hidden />
+        실행 일정을 불러오지 못했어요 · 다시 시도
       </button>
     );
   }
@@ -352,18 +352,18 @@ function RecurrencePropChip({ projectKey, number, disabled }: { projectKey: stri
     <>
       <button
         type="button"
-        aria-label={labelWithValue('반복', text, paused)}
+        aria-label={labelWithValue('AI 에게 맡기기', text, paused)}
         data-testid="mobile-prop-recurrence"
         // 조회 전에는 편집기 초기값을 모르니 막는다.
         disabled={disabled || q.isLoading}
         onClick={() => setOpen(true)}
         className={cn(MOBILE_CHIP, 'max-w-full disabled:opacity-60', !r && 'text-muted-foreground', paused && 'text-warning-text')}
       >
-        <Repeat className="size-4" aria-hidden />
+        <Bot className="size-4" aria-hidden />
         <span className="max-w-40 truncate">{text}</span>
         {paused && <span className="shrink-0">· {paused}</span>}
       </button>
-      <MobileSheetShell open={open} onClose={() => setOpen(false)} title="반복" description="반복 주기와 시각을 고르세요." testId="issue-recurrence-sheet">
+      <MobileSheetShell open={open} onClose={() => setOpen(false)} title="AI 에게 맡기기" description="담당 AI 와 실행 일정을 고르세요." testId="issue-recurrence-sheet">
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           {/* 시트가 닫히면 본문이 언마운트되어 다음에 열 때 지금 값으로 폼을 새로 시작한다. */}
           {open && <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />}

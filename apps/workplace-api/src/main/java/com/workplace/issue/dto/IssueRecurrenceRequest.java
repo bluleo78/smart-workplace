@@ -6,5 +6,13 @@ package com.workplace.issue.dto;
  *
  * @param rrule 반복 규칙(FREQ=DAILY | FREQ=WEEKLY;BYDAY=MO,WE | FREQ=MONTHLY;BYMONTHDAY=15)
  * @param time KST 실행 시각 "HH:mm"
+ * @param agentUserId 회차를 실행할 담당 AI(WP-1314, 선택). 없으면 개인 작업은 소유자의 AI 비서, 팀 이슈는 지금 일정의 AI(없으면 저장하는
+ *     사람의 AI 비서)
  */
-public record IssueRecurrenceRequest(String rrule, String time) {}
+public record IssueRecurrenceRequest(String rrule, String time, Long agentUserId) {
+
+  /** 담당 AI 를 고르지 않는 요청(WP-1314 이전 모양) — 기존 호출부·테스트 호환. */
+  public IssueRecurrenceRequest(String rrule, String time) {
+    this(rrule, time, null);
+  }
+}

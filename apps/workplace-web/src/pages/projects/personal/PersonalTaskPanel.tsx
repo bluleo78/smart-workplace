@@ -234,8 +234,8 @@ export function PersonalTaskDetail({
               current={data.summary.assignees}
             />
           </Field>
-          {/* 반복(WP-989) — 정한 시각마다 담당의 AI 비서가 이 작업을 실행한다. */}
-          <Field label="반복">
+          {/* AI 에게 맡기기(WP-989, WP-1314) — 정한 시각마다 담당 AI 가 이 작업을 실행한다(옛 「반복」 칸). */}
+          <Field label="AI 에게 맡기기">
             <TaskRecurrenceField projectKey={projectKey} number={number} />
           </Field>
           <Field label="라벨">

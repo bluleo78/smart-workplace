@@ -1,13 +1,26 @@
-// 개인 작업 반복 편집기(WP-989) — 데스크톱 팝오버와 모바일 바텀시트가 같은 본문을 쓴다.
-// 반복 안 함 / 매일 / 매주(요일 여러 개, 하나 이상) / 매월(1~31일) + 실행 시각(한국 시간 HH:mm).
-// 저장 = PUT(반복 안 함으로 저장하면 기존 반복을 끈다), 「반복 끄기」 = DELETE. 저장하면 서버가 내 AI 비서를 담당에 넣는다.
-// 409(쓸 수 있는 AI 비서 없음·완료된 작업 등)는 훅의 handleApiError 가 토스트로 보인다.
+// 「AI 에게 맡기기」 편집기(WP-989, WP-1314) — 데스크톱 팝오버와 모바일 바텀시트, 개인 작업과 팀 이슈가 같은 본문을 쓴다.
+// 담당 AI(서버 실행 AI 후보 중) + 실행 일정: 안 함 / 매일 / 매주(요일 여러 개, 하나 이상) / 매월(1~31일) + 실행 시각(한국 시간 HH:mm).
+// 저장 = PUT(안 함으로 저장하면 기존 일정을 끈다), 「일정 끄기」 = DELETE. 저장하면 서버가 담당 AI 를 담당자에 넣는다.
+// 담당 AI 가 남의 개인 비서인 일정(editable=false)은 주인만 바꾸므로 읽기 전용으로 보인다.
+// 409(쓸 수 있는 AI 없음·완료된 작업 등)·403 은 훅의 handleApiError 가 토스트로 보인다.
 import { useState } from 'react';
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useDeleteIssueRecurrence, useSaveIssueRecurrence } from '@/hooks/queries/useIssueRecurrence';
 import {
+  useDeleteIssueRecurrence,
+  useIssueRecurrenceAgents,
+  useSaveIssueRecurrence,
+} from '@/hooks/queries/useIssueRecurrence';
+import {
+  agentOptionLabel,
   buildTaskRRule,
   monthDayMaySkip,
   nextRunText,
@@ -24,7 +37,7 @@ import { cn } from '@/lib/utils';
 import type { IssueRecurrence } from '@/types/issueRecurrence';
 
 const FREQ_OPTIONS: { value: RecurrenceFreq; label: string }[] = [
-  // 네 칸 한 줄에 들어가게 짧게 — 칸 위 「반복」 이름표가 맥락을 준다(트리거는 「반복 안 함」 그대로).
+  // 네 칸 한 줄에 들어가게 짧게 — 칸 위 「실행 일정」 이름표가 맥락을 준다.
   { value: 'NONE', label: '안 함' },
   { value: 'DAILY', label: '매일' },
   { value: 'WEEKLY', label: '매주' },
@@ -65,11 +78,30 @@ export function TaskRecurrenceEditor({
   onDone: () => void;
 }) {
   const [form, setForm] = useState<TaskRecurrenceForm>(() => parseTaskRRule(recurrence?.rrule, recurrence?.time));
+  // 남의 개인 비서 일정은 주인만 바꾼다 — 읽기 전용으로 보이고 후보도 받지 않는다(구버전 서버는 editable 이 없어 고칠 수 있음).
+  const editable = recurrence?.editable !== false;
+  const agents = useIssueRecurrenceAgents(projectKey, number, editable);
+  // 고른 담당 AI — 지금 일정의 AI, 없으면 후보 첫째(내 AI 비서가 맨 앞). 고르기 전에는 후보가 오면 정해진다.
+  const [pickedAgentId, setPickedAgentId] = useState<number | null>(recurrence?.agentUserId ?? null);
+  const options = agents.data ?? [];
+  const agentId = pickedAgentId ?? options[0]?.id ?? null;
+  // 고르기 칸의 항목 — 지금 일정의 AI 가 후보에 없으면(구성원에서 빠짐·남의 개인 비서) 이름이라도 보이게 앞에 둔다.
+  const agentChoices = [
+    ...(recurrence && !options.some((o) => o.id === recurrence.agentUserId)
+      ? [{ id: recurrence.agentUserId, label: recurrence.agentName }]
+      : []),
+    ...options.map((o) => ({ id: o.id, label: agentOptionLabel(o) })),
+  ];
+  const noAgent = editable && agents.isSuccess && agentChoices.length === 0;
+  // 후보를 불러오는 중에는 저장하지 않는다 — 고른 AI 없이 보내면 서버 기본값이 화면에 보이지 않던 AI 로 정해진다.
+  const agentPending = editable && agents.isLoading;
   // 저장을 한 번 누른 뒤부터 검사 문구를 보인다(열자마자 빨간 글자가 뜨지 않게).
   const [touched, setTouched] = useState(false);
   const save = useSaveIssueRecurrence(projectKey, number);
   const remove = useDeleteIssueRecurrence(projectKey, number);
   const pending = save.isPending || remove.isPending;
+  // 입력 잠금 — 저장 중이거나 남의 개인 비서 일정.
+  const locked = pending || !editable;
   const error = validateTaskRecurrence(form);
   // 편집 날짜 밖에 함께 반복하는 날짜(API·AI 로 저장된 「1,15」의 15) — 안내·빼기·건너뜀 안내에 쓴다(WP-1117).
   const otherDays = otherMonthDaysOf(form);
@@ -85,7 +117,7 @@ export function TaskRecurrenceEditor({
       else onDone();
       return;
     }
-    save.mutate({ rrule, time: form.time }, { onSuccess: onDone });
+    save.mutate({ rrule, time: form.time, agentUserId: agentId ?? undefined }, { onSuccess: onDone });
   };
 
   const toggleDay = (d: (typeof WEEKDAY_CODES)[number]) =>
@@ -95,13 +127,51 @@ export function TaskRecurrenceEditor({
     <div className="space-y-3" data-testid="task-recurrence-editor">
       <TaskRecurrenceStatus recurrence={recurrence} />
 
-      <div role="group" aria-label="반복 주기" className="grid grid-cols-4 gap-1">
+      {!editable && (
+        <p className="text-xs text-muted-foreground" data-testid="task-recurrence-locked">
+          {recurrence?.agentName}은(는) 다른 사람의 개인 비서라 주인만 일정을 바꾸거나 끌 수 있어요.
+        </p>
+      )}
+
+      {/* 담당 AI(WP-1314) — 서버가 실행하는 AI 중에서 고른다. 남의 개인 비서는 후보에 없다. */}
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-muted-foreground">담당 AI</span>
+        {agents.isError ? (
+          <p role="alert" className="text-xs text-destructive">
+            맡길 수 있는 AI 를 불러오지 못했어요
+          </p>
+        ) : noAgent ? (
+          <p className="text-xs text-muted-foreground" data-testid="task-recurrence-no-agent">
+            맡길 수 있는 AI 가 없어요. 서버가 실행하는 AI 를 프로젝트 구성원으로 넣어 주세요.
+          </p>
+        ) : (
+          <Select
+            value={agentId == null ? undefined : String(agentId)}
+            onValueChange={(v) => setPickedAgentId(Number(v))}
+            disabled={locked || agentPending}
+          >
+            <SelectTrigger className="h-8 w-full" aria-label="담당 AI" data-testid="task-recurrence-agent">
+              <SelectValue placeholder="불러오는 중…" />
+            </SelectTrigger>
+            <SelectContent>
+              {agentChoices.map((a) => (
+                <SelectItem key={a.id} value={String(a.id)}>
+                  {a.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <span className="block text-xs font-medium text-muted-foreground">실행 일정</span>
+      <div role="group" aria-label="실행 일정" className="grid grid-cols-4 gap-1">
         {FREQ_OPTIONS.map((o) => (
           <button
             key={o.value}
             type="button"
             aria-pressed={form.freq === o.value}
-            disabled={pending}
+            disabled={locked}
             onClick={() => patch({ freq: o.value })}
             className={toggleClass(form.freq === o.value)}
           >
@@ -118,7 +188,7 @@ export function TaskRecurrenceEditor({
               type="button"
               aria-label={`${WEEKDAY_SHORT[d]}요일`}
               aria-pressed={form.byDay.includes(d)}
-              disabled={pending}
+              disabled={locked}
               onClick={() => toggleDay(d)}
               className={cn(toggleClass(form.byDay.includes(d)), 'px-0')}
             >
@@ -139,7 +209,7 @@ export function TaskRecurrenceEditor({
               max={31}
               aria-label="날짜"
               value={Number.isFinite(form.monthDay) ? form.monthDay : ''}
-              disabled={pending}
+              disabled={locked}
               onChange={(e) => patch({ monthDay: e.target.value === '' ? NaN : Number(e.target.value) })}
               className="h-8 w-20"
             />
@@ -153,7 +223,7 @@ export function TaskRecurrenceEditor({
               {Number.isInteger(form.monthDay) && (
                 <button
                   type="button"
-                  disabled={pending}
+                  disabled={locked}
                   onClick={() => patch({ otherMonthDays: [] })}
                   className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
                 >
@@ -178,7 +248,7 @@ export function TaskRecurrenceEditor({
             type="time"
             aria-label="실행 시각 (한국 시간)"
             value={form.time}
-            disabled={pending}
+            disabled={locked}
             onChange={(e) => patch({ time: e.target.value })}
             // 폭은 브라우저가 시각 글자에 맞춰 정한다(w-auto) — 고정 128px 는 휴대폰 글자 크기(16px)에서 「01:00 AM」 끝이 시계 아이콘에
             // 가려졌다(WP-1115).
@@ -195,31 +265,33 @@ export function TaskRecurrenceEditor({
         </p>
       )}
 
-      {/* 반복의 동작·결과 위치 안내 — 개인 작업은 사용자가 AI 비서를 담당에 직접 넣을 수 없어 서버가 저장 때 넣는다. */}
+      {/* 동작·결과 위치 안내 — 설명이 지시라는 것(WP-1310 §4)과, 저장하면 담당 AI 가 담당자에 들어간다는 것. */}
       <p className="text-xs text-muted-foreground">
-        반복을 켜면 내 AI 비서가 담당에 들어가요. 정한 시각마다 AI 비서가 이 작업을 하고, 결과는 이 작업의 채팅에 남습니다.
+        설명이 AI 에게 주는 지시가 됩니다. 정한 시각마다 담당 AI 가 이 작업을 하고, 결과는 이 작업의 채팅에 남습니다. 저장하면 담당 AI 가 담당자에 들어가요.
       </p>
 
       <div className="flex items-center gap-2">
-        {recurrence && (
+        {recurrence && editable && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
             className="text-destructive hover:text-destructive"
-            disabled={pending}
+            disabled={locked}
             onClick={() => remove.mutate(undefined, { onSuccess: onDone })}
           >
-            반복 끄기
+            일정 끄기
           </Button>
         )}
         <div className="ml-auto flex gap-2">
           <Button type="button" variant="outline" size="sm" disabled={pending} onClick={onDone}>
-            취소
+            {editable ? '취소' : '닫기'}
           </Button>
-          <Button type="button" size="sm" disabled={pending} onClick={onSave}>
-            저장
-          </Button>
+          {editable && (
+            <Button type="button" size="sm" disabled={pending || ((noAgent || agentPending) && form.freq !== 'NONE')} onClick={onSave}>
+              저장
+            </Button>
+          )}
         </div>
       </div>
     </div>

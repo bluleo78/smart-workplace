@@ -12,6 +12,7 @@ import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { API, type Call, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
+import type { IssueRecurrence } from '@/types/issueRecurrence'
 import type { MilestoneResponse } from '@/types/milestone'
 import type { UserSummary } from '@/types/user'
 
@@ -419,5 +420,61 @@ describe('에픽 계층', () => {
     await waitFor(() => expect(parentCalls.map((c) => c.body)).toEqual([{ parentNumber: 5 }]))
     expect(await screen.findByTestId('parent-badge-5')).toHaveTextContent('분기 에픽')
     expect(screen.queryByTestId('issue-parent-picker')).not.toBeInTheDocument()
+  })
+})
+
+// WP-1314: 팀 이슈 상세에도 「AI 에게 맡기기」 칸 — 담당 AI 후보에서 골라 실행 일정을 저장하고, 남의 개인 비서 일정은 읽기 전용이다.
+describe('AI 에게 맡기기(WP-1314)', () => {
+  const RECURRENCE = `${ISSUE}/recurrence`
+  const TEAM_AI = { id: 7, username: 'team-ai', name: '팀 AI', personalAssistant: false }
+
+  test('후보의 팀 AI 로 매일 09:00 을 저장하면 PUT 에 agentUserId 가 실리고 요약이 「팀 AI · ↻ 매일 09:00」', async () => {
+    const puts: unknown[] = []
+    let saved: IssueRecurrence | null = null
+    const { user } = await openDetail(detailWith({ title: '주간 보고' }), {
+      extra: [
+        http.get(RECURRENCE, () => (saved ? HttpResponse.json(saved) : new HttpResponse(null, { status: 204 }))),
+        http.get(`${RECURRENCE}/agents`, () => HttpResponse.json([TEAM_AI])),
+        http.put(RECURRENCE, async ({ request }) => {
+          const body = (await request.json()) as { rrule: string; time: string; agentUserId: number }
+          puts.push(body)
+          saved = { ...body, enabled: true, nextRunAt: null, consecutiveFailures: 0, lastRunAt: null, agentName: '팀 AI', editable: true } satisfies IssueRecurrence
+          return HttpResponse.json(saved)
+        }),
+      ],
+    })
+    const group = screen.getByTestId('property-group-ai-handoff')
+    const trigger = await within(group).findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toBeEnabled())
+    expect(trigger).toHaveTextContent('안 함')
+
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    await waitFor(() => expect(within(pop).getByRole('combobox', { name: '담당 AI' })).toHaveTextContent('팀 AI'))
+    await user.click(within(pop).getByRole('button', { name: '매일' }))
+    await user.click(within(pop).getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(puts).toEqual([{ rrule: 'FREQ=DAILY', time: '09:00', agentUserId: 7 }]))
+    await waitFor(() => expect(within(group).getByTestId('task-recurrence-trigger')).toHaveTextContent('팀 AI · ↻ 매일 09:00'))
+  })
+
+  test('남의 개인 비서 일정은 요약만 보이고, 열면 주인만 바꿀 수 있다는 안내와 함께 저장·끄기가 없다', async () => {
+    const { user } = await openDetail(detailWith({ title: '주간 보고' }), {
+      extra: [
+        http.get(RECURRENCE, () =>
+          HttpResponse.json({
+            rrule: 'FREQ=WEEKLY;BYDAY=MO', time: '08:30', enabled: true, nextRunAt: null, consecutiveFailures: 0,
+            lastRunAt: null, agentUserId: 5, agentName: '앨리스 비서', editable: false,
+          }),
+        ),
+      ],
+    })
+    const trigger = await within(screen.getByTestId('property-group-ai-handoff')).findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toHaveTextContent('앨리스 비서 · ↻ 매주 월 08:30'))
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    expect(within(pop).getByTestId('task-recurrence-locked')).toHaveTextContent('주인만 일정을 바꾸거나 끌 수 있어요')
+    expect(within(pop).queryByRole('button', { name: '저장' })).toBeNull()
+    expect(within(pop).queryByRole('button', { name: '일정 끄기' })).toBeNull()
   })
 })

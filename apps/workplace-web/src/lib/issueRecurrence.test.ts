@@ -2,6 +2,8 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  agentOptionLabel,
+  aiHandoffLabel,
   buildTaskRRule,
   DEFAULT_TASK_RECURRENCE_FORM,
   monthDayMaySkip,
@@ -109,5 +111,20 @@ describe('recurrencePausedText', () => {
     expect(recurrencePausedText({ enabled: false, consecutiveFailures: 3 })).toBe('멈춤 — 3회 연속 실패')
     expect(recurrencePausedText({ enabled: false, consecutiveFailures: 1 })).toBe('꺼짐')
     expect(recurrencePausedText({ enabled: false })).toBe('꺼짐')
+  })
+})
+
+// WP-1314: 「AI 에게 맡기기」 요약과 담당 AI 후보 이름.
+describe('aiHandoffLabel', () => {
+  test('담당 AI · ↻ 일정, 없으면 「안 함」', () => {
+    expect(aiHandoffLabel({ rrule: 'FREQ=WEEKLY;BYDAY=MO,FR', time: '08:30', agentName: '내 비서' })).toBe('내 비서 · ↻ 매주 월·금 08:30')
+    expect(aiHandoffLabel(null)).toBe('안 함')
+  })
+})
+
+describe('agentOptionLabel', () => {
+  test('내 개인 비서 표시 · 이름이 비면 username', () => {
+    expect(agentOptionLabel({ name: '도우미', username: 'a', personalAssistant: true })).toBe('도우미 (내 AI 비서)')
+    expect(agentOptionLabel({ name: ' ', username: 'team-ai', personalAssistant: false })).toBe('team-ai')
   })
 })

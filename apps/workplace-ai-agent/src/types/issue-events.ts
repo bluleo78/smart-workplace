@@ -60,7 +60,8 @@ export const issueStatusChangedPayload = z.object({
 // runAt 은 KST 오프셋이 붙은 ISO, round 는 몇 번째 회차인지(1부터 — 구 API 가 빼도 받는다), issueBody 는 이슈 본문(없으면 null).
 export const issueRecurringRunPayload = z.object({
   ...common,
-  // 회차의 도구는 반복을 등록한 사람(소유자) 권한으로 돈다 — 홈 AI 채팅과 같은 대행. 없으면 거절(fail-closed: 비서 신원으로 대신 돌리지 않는다).
+  // 회차의 도구를 돌릴 신원 — API 가 AI 종류로 정한다(WP-1314): 개인 비서는 주인, 개인 작업의 공용 비서는 소유자(홈 AI 채팅과 같은 대행),
+  // 그 밖의 AI 는 actingAgentId 자신. 없으면 거절(fail-closed: 신원을 여기서 짐작하지 않는다).
   ownerUserId: z.number().int().positive(),
   // 대행 호출의 테넌트(X-On-Behalf-Of-Tenant) — 소유자가 여러 워크스페이스에 속해도 이 테넌트로만 읽는다.
   tenantId: z.number().int().positive().nullish(),
