@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
@@ -17,7 +18,7 @@ export interface YSyncState {
   type: Y.XmlFragment
   binding: {
     mapping: Parameters<typeof absolutePositionToRelativePosition>[2]
-    /** 원격 반영 뒤 되살릴 내 선택(상대 위치) — Yjs 거래 시작 때 적고 끝나면 비운다. HTML 블록 선택 되살리기 보호가 쓴다(WP-1288). */
+    /** 원격 반영 뒤 되살릴 내 선택(상대 위치) — Yjs 거래 시작 때 적고 끝나면 비운다. 통째 선택 보호(nodeSelectionRestoreGuard — HTML 블록 WP-1288·상자 WP-1303)가 쓴다. */
     beforeTransactionSelection: { type: string; anchor: unknown; head: unknown } | null
   } | null
 }
@@ -25,6 +26,38 @@ export interface YSyncState {
 /** 에디터 상태의 동기화 플러그인 상태. 플러그인이 없으면 undefined. */
 export function ySyncOf(state: EditorState): YSyncState | undefined {
   return ySyncPluginKey.getState(state) as YSyncState | undefined
+}
+
+/**
+ * 동료가 지운 블록을 내가 통째 선택하고 있어도 동기화가 멈추지 않게 한다(플러그인 view 로 붙인다).
+ * y-prosemirror(1.3.7, 최신)는 원격 반영 뒤 노드 선택을 NodeSelection.create(그 자리)로 되살리는데, 선택했던 블록이 지워져 그 자리에 노드가
+ * 없으면(문서 끝) 예외가 나 그 반영이 화면에 들어오지 않는다. 닫힌 HTML 블록(WP-1288)·상자(WP-1303)는 통째 선택되므로, 그 블록이 선택된 채
+ * Yjs 거래가 시작되면 바인딩이 적어 둔 선택 종류를 글자 선택으로 낮춘다 — 그러면 TextSelection.between 으로 가까운 자리를 찾는다.
+ * 블록이 남아 있을 때 다시 통째 선택으로 되살리는 일은 각 블록 플러그인이 한다. 바인딩의 듣기보다 뒤에 붙어야 해서 첫 갱신 때 붙인다.
+ * shouldLower 로 「지금 선택이 낮출 노드 선택인지」를 받는다.
+ */
+export function nodeSelectionRestoreGuard(
+  shouldLower: (state: EditorState) => boolean,
+): (view: EditorView) => { update(): void; destroy(): void } {
+  return (view) => {
+    let attached: { doc: Y.Doc; binding: NonNullable<YSyncState['binding']> } | null = null
+    const lower = () => {
+      const binding = attached?.binding
+      const rel = binding?.beforeTransactionSelection
+      if (binding && rel?.type === 'node' && shouldLower(view.state)) binding.beforeTransactionSelection = { ...rel, type: 'text' }
+    }
+    return {
+      update() {
+        const sync = attached ? null : ySyncOf(view.state)
+        if (!sync?.binding) return
+        attached = { doc: sync.doc, binding: sync.binding }
+        sync.doc.on('beforeAllTransactions', lower)
+      },
+      destroy() {
+        attached?.doc.off('beforeAllTransactions', lower)
+      },
+    }
+  }
 }
 
 /**

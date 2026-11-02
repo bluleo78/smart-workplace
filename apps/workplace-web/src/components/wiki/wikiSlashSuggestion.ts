@@ -20,6 +20,7 @@ const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 import { isCodeText } from './wikiBlockExit'
+import { insertBox } from './wikiBox'
 import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
 import {
   type WikiBlockCommand,
@@ -36,6 +37,8 @@ import {
 const INSERT_ITEMS: WikiSlashItem[] = [
   { key: 'table', label: '표', kind: 'insert' },
   { key: 'image', label: '이미지', kind: 'insert' },
+  // 상자(WP-1303) — 글을 카드처럼 감싸는 블록. 「기본」 모양 빈 상자를 넣고 커서를 그 안에 둔다(insertBox).
+  { key: 'box', label: '상자', kind: 'insert' },
   // HTML 블록(WP-1242) — 스크립트가 필요한 HTML(차트 등)을 격리 iframe 으로 그리는 블록. 빈 블록은 소스 편집 칸이 열린 채 들어간다.
   { key: 'htmlEmbed', label: 'HTML 블록', kind: 'insert' },
   // HTML 파일 넣기(WP-1241) — .html 파일을 골라 노트 블록·모양·HTML 블록으로 바꿔 커서 자리에 넣는다(WikiEditor 의 onHtmlImportRef 경유).
@@ -79,10 +82,10 @@ export interface WikiSlashContext {
   aiEnabledRef?: { current: boolean }
 }
 
-/** 표 안에서 빼는 삽입 항목 — 표 셀은 마크다운 표(한 줄 셀)라 표·여러 줄 소스 블록·모양 영역을 담지 못한다. */
-const NOT_IN_TABLE: ReadonlySet<string> = new Set(['table', 'htmlEmbed', 'htmlImport'])
+/** 표 안에서 빼는 삽입 항목 — 표 셀은 마크다운 표(한 줄 셀)라 표·여러 줄 소스 블록·모양 영역(상자)을 담지 못한다. */
+const NOT_IN_TABLE: ReadonlySet<string> = new Set(['table', 'box', 'htmlEmbed', 'htmlImport'])
 
-/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'HTML 블록'·'HTML 파일 넣기'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
+/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'상자'·'HTML 블록'·'HTML 파일 넣기'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
 export function filterSlashItems(query: string, opts: { inTable: boolean; aiEnabled: boolean }): WikiSlashItem[] {
   const base = SLASH_ITEMS.filter((i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && NOT_IN_TABLE.has(i.key)))
   const q = query.trim().toLowerCase()
@@ -119,6 +122,11 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
                 // 이미지와 같다 — 파일 선택이 비동기라 트리거만 먼저 지우고, 변환·삽입은 WikiEditor 의 파일 input 이 맡는다.
                 editor.chain().focus().deleteRange(range).run()
                 ctx.onHtmlImportRef?.current()
+                return
+              }
+              if (props.key === 'box') {
+                // 트리거 삭제와 상자 삽입을 한 체인으로(표와 같은 이유 — 실행 취소 한 번). insertBox 참조.
+                editor.chain().focus().deleteRange(range).command(insertBox).run()
                 return
               }
               if (props.key === 'htmlEmbed') {

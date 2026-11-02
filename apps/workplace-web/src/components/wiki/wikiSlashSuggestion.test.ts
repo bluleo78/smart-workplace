@@ -27,4 +27,10 @@ describe('filterSlashItems', () => {
     expect(keys('HTML 파일', { inTable: false, aiEnabled: false })).toEqual(['htmlImport'])
     expect(keys('html', { inTable: false, aiEnabled: false })).toEqual(['htmlEmbed', 'htmlImport'])
   })
+  it('상자(WP-1303)는 이미지 다음·HTML 블록 앞에 있고 표 안에서는 빠진다', () => {
+    const k = keys('', { inTable: false, aiEnabled: false })
+    expect(k.slice(0, 4)).toEqual(['table', 'image', 'box', 'htmlEmbed'])
+    expect(keys('', { inTable: true, aiEnabled: false })).not.toContain('box')
+    expect(keys('상자', { inTable: false, aiEnabled: false })).toEqual(['box'])
+  })
 })

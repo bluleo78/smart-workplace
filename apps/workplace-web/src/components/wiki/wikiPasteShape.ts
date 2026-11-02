@@ -52,8 +52,11 @@ export function noteClipboardSerializer(schema: Schema): DOMSerializer {
   })(base.nodes, base.marks)
 }
 
-/** 모양 노드·마크를 뺀 조각 내용 — 페이지 스타일은 지우고, 모양 영역은 풀고, 인라인 모양 마크는 뗀다. */
-function stripFragment(fragment: Fragment): Fragment {
+/**
+ * 모양 노드·마크를 뺀 조각 내용 — 페이지 스타일은 지우고, 모양 영역은 풀고, 인라인 모양 마크는 뗀다.
+ * 상자 막대의 「글만 남기기」(WP-1303)도 이 풀기를 그대로 쓴다(상자 하나를 담은 조각을 넘긴다).
+ */
+export function stripShapeFromFragment(fragment: Fragment): Fragment {
   const out: PMNode[] = []
   fragment.forEach((node) => {
     const name = node.type.name
@@ -63,7 +66,7 @@ function stripFragment(fragment: Fragment): Fragment {
       out.push(node.mark(marks))
       return
     }
-    const content = node.content.size ? stripFragment(node.content) : node.content
+    const content = node.content.size ? stripShapeFromFragment(node.content) : node.content
     if (name === 'wikiHtmlBox') {
       content.forEach((child) => out.push(child))
       return
@@ -100,7 +103,7 @@ export function stripShapeFromSlice(slice: Slice): Slice {
     return !shaped
   })
   if (!shaped) return slice
-  const content = stripFragment(slice.content)
+  const content = stripShapeFromFragment(slice.content)
   if (!content.size) return Slice.empty
   return new Slice(
     content,

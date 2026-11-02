@@ -3,7 +3,7 @@ import type { Command } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 
-import { arrowBesideBlock, moveBesideBlock, neighborAt } from './wikiBlockExit'
+import { arrowBesideBlock, leaveSelected, moveBesideBlock, neighborAt } from './wikiBlockExit'
 import { htmlEmbedHighlightPlugin } from './wikiHtmlEmbedHighlight'
 import { escapeHtmlEmbed, htmlEmbedSourcePlugin, isHtmlEmbedSourceOpen, selectedEmbed, setHtmlEmbedSourceOpen } from './wikiHtmlEmbedSource'
 import { WikiHtmlEmbedView } from './WikiHtmlEmbedView'
@@ -50,10 +50,8 @@ export const WikiHtmlEmbed = WikiHtmlEmbedSchema.extend({
 
   addKeyboardShortcuts() {
     /** 노드 선택된(닫힌) 블록에서 옆으로(WP-1288) — Enter 는 다음 줄(없으면 만든다), 화살표는 옆 블록(끝이면 새 줄)으로. */
-    const leave = (dir: 1 | -1, move: typeof moveBesideBlock) => () => {
-      const hit = selectedEmbed(this.editor.state)
-      return !!hit && move(this.editor.state, this.editor.view.dispatch, hit.pos, hit.node.nodeSize, dir)
-    }
+    const leave = (dir: 1 | -1, move: typeof moveBesideBlock) => () =>
+      leaveSelected(this.editor.state, this.editor.view.dispatch, selectedEmbed, dir, move)
     /**
      * 글 줄 끝(↓)·처음(↑)에서 바로 옆이 닫힌 블록이면 그 블록을 통째 선택한다(WP-1288) — 브라우저 기본 이동은 숨은 소스(display:none)를
      * 건너뛰거나 그 안에 커서를 두는 등 일정하지 않다. 연 블록이면 넘긴다(기본 이동으로 소스 글자 안에 들어간다).
