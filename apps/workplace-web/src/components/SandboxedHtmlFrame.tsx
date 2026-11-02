@@ -1,6 +1,6 @@
 import { type ComponentProps, useMemo, useState } from 'react'
 
-import { withSandboxHead } from '../lib/sandboxedHtml'
+import { buildSandboxDoc } from '../lib/sandboxedHtml'
 
 /**
  * 신뢰할 수 없는 HTML(메일 원문·업로드 파일·LLM 생성물)을 렌더하는 공용 격리 iframe(WP-275).
@@ -12,6 +12,8 @@ import { withSandboxHead } from '../lib/sandboxedHtml'
  *   새 탭은 opener 없이 열린다(target=_blank 는 표준상 noopener 를 함축 — 링크를 연 사이트가 본문 프레임을 조작하지 못한다).
  * - srcDoc 에 링크 대상 `<base>` 와 슬림 스크롤바 스타일을 주입한다 — srcDoc 문서는 앱 CSS 를 상속하지 않아
  *   그대로 두면 OS 기본 두꺼운 스크롤바가 보인다(WP-274 에서 드라이브만 고쳤던 것을 한 곳으로 모음).
+ * - 문서 안 이동 링크(`href="#…"` — 목차)는 새 탭이 아니라 이 프레임 안에서 그 위치로 간다(WP-1271) —
+ *   스크립트 꺼짐이면 링크를 `about:srcdoc#…` 로 바꾸고, 켜짐이면 클릭 처리기를 주입한다(buildSandboxDoc).
  * 주입은 html 이 바뀔 때만 한다 — 수 MB 문서를 렌더마다(폴링·호버 등) 다시 잇지 않게.
  * - 내용이 바뀌면 iframe 을 새로 만든다(key) — 같은 iframe 의 srcDoc 을 바꾸면 iframe 안 이동이 되어 상위 창
  *   뒤로가기 기록에 칸이 쌓인다. 그러면 ‹(history.go)·스와이프가 그 칸만 되돌려 화면이 그대로 남는다.
@@ -34,7 +36,7 @@ export function SandboxedHtmlFrame({
    */
   allowScripts?: boolean
 } & Omit<ComponentProps<'iframe'>, 'srcDoc' | 'sandbox' | 'src'>) {
-  const doc = useMemo(() => withSandboxHead(html), [html])
+  const doc = useMemo(() => buildSandboxDoc(html, allowScripts), [html, allowScripts])
   // 문서가 바뀔 때마다 올리는 세대 번호 — iframe key. 수 MB 문서 자체를 key 로 쓰지 않으려고 렌더 중에 번호만 갱신한다.
   const [frame, setFrame] = useState({ doc, generation: 0 })
   if (frame.doc !== doc) setFrame({ doc, generation: frame.generation + 1 })

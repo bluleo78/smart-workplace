@@ -63,14 +63,101 @@ function leadingDoctypeEnd(html: string): number {
 }
 
 /**
- * 원문 HTML 에 머리말(SANDBOX_HEAD)을 주입한다.
+ * 원문 HTML 에 머리말(기본 SANDBOX_HEAD)을 주입한다.
  * DOCTYPE 앞에 요소를 두면 문서가 quirks 모드로 렌더돼 레이아웃이 달라지므로,
  * DOCTYPE 이 있으면(앞의 주석·XML 선언 포함) 그 바로 뒤에, 없으면 맨 앞에 넣는다.
  */
-export function withSandboxHead(html: string): string {
+export function withSandboxHead(html: string, head: string = SANDBOX_HEAD): string {
   const end = leadingDoctypeEnd(html)
-  if (end < 0) return SANDBOX_HEAD + html
-  return html.slice(0, end) + SANDBOX_HEAD + html.slice(end)
+  if (end < 0) return head + html
+  return html.slice(0, end) + head + html.slice(end)
+}
+
+/*
+ * 문서 안 이동 링크(`href="#..."` — 목차 등, WP-1271).
+ *
+ * 왜: srcdoc 문서의 상대 URL 은 상위 앱 주소 기준으로 풀려 `#summary` 가 `…/drive/spaces/29?preview=260#summary` 가 되고,
+ * 위 `<base target="_blank">` 때문에 새 탭에 앱이 다시 열렸다 — 문서 안으로 가지 않는다.
+ * `<base href="about:srcdoc">` 로 고치지 않는다 — 문서 자신의 `<base href>` 를 덮고 `//cdn…`·`/…` 같은 프로토콜·루트 상대 URL 이 깨진다.
+ * 그래서 스크립트 허용 여부에 따라 나눈다.
+ * - 스크립트 꺼짐: 링크 자체를 `about:srcdoc#…` + `target="_self"` 로 바꾼다(rewriteInPageLinks).
+ * - 스크립트 켜짐: href 를 그대로 둔다 — 목차 스크립트가 `querySelector(a.getAttribute('href'))` 를 흔히 쓴다.
+ *   대신 위임 클릭 처리기(IN_PAGE_LINK_SCRIPT)가 남은 기본 동작을 막고 그 위치로 스크롤한다.
+ * 둘 다 `target` 을 직접 단 링크는 건드리지 않는다 — 문서가 정한 대상을 존중한다.
+ * 스크립트 꺼짐의 조각 이동은 iframe 안 이동이라 상위 창 뒤로 가기 기록에 칸이 남는다 — 스크립트 없이는 피할 수 없고,
+ * 일반 웹 페이지의 목차 클릭과 같은 동작이라 받아들인다(뒤로 가기가 먼저 이전 위치로 되돌린다).
+ * 엄밀한 파서가 아니라 주석·textarea·속성 값 안의 `<a href="#…">` 글자도 바꿀 수 있다 — 드물고, 격리는 그대로다.
+ */
+
+/** `<a ...>`·`<area ...>` 여는 태그. `[^<>]*` 한 덩어리라 백트래킹이 선형이다(수 MB·신뢰 불가 입력). */
+const LINK_OPEN_TAG = /<(a|area)(\s[^<>]*)>/gi
+
+/** 태그 안 속성 하나 — 이름과 (있으면) 큰따옴표·작은따옴표·따옴표 없는 값. 겹치는 반복이 없어 선형이다. */
+const TAG_ATTR = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>=`]+)))?/g
+
+/**
+ * 스크립트 꺼진 격리 문서에서 문서 안 이동 링크를 그 문서 안에서 움직이게 바꾼다(WP-1271).
+ * `target` 이 없고 href 가 `#` 으로 시작하는 `<a>`/`<area>` 만 `href="about:srcdoc#…" target="_self"` 로 바꾼다 —
+ * srcdoc 문서의 주소가 `about:srcdoc` 이라 같은 문서의 조각 이동이 되고, `<base target="_blank">` 대신 자기 프레임에서 열린다.
+ * 외부·상대 링크는 그대로 새 탭으로 열린다(WP-427). 엄밀한 파서가 아니다 — 속성 값에 `>` 가 든 드문 태그는 그대로 둔다.
+ */
+export function rewriteInPageLinks(html: string): string {
+  // `#` 이 없으면 바꿀 링크도 없다 — 대부분의 메일·문서는 여기서 끝나 수 MB 문자열을 다시 만들지 않는다.
+  if (!html.includes('#')) return html
+  return html.replace(LINK_OPEN_TAG, (tag: string, name: string, attrs: string) => {
+    if (!attrs.includes('#')) return tag
+    let href: { attr: string; value: string; quote: string; start: number; end: number } | null = null
+    let hasTarget = false
+    for (const m of attrs.matchAll(TAG_ATTR)) {
+      const attr = m[1].toLowerCase()
+      const value = m[2] ?? m[3] ?? m[4]
+      // 빈 target(공백뿐 포함)은 브라우저가 없는 것으로 보고 `<base target>` 을 따른다 — 정한 대상으로 치지 않는다.
+      if (attr === 'target') hasTarget ||= (value ?? '').trim() !== ''
+      // 같은 속성이 두 번이면 HTML 파서는 첫 것만 쓴다. SVG 안 링크는 xlink:href 를 쓰기도 한다.
+      else if ((attr === 'href' || attr === 'xlink:href') && !href && value !== undefined) {
+        const quote = m[2] !== undefined ? '"' : m[3] !== undefined ? "'" : '"'
+        href = { attr: m[1], value, quote, start: m.index, end: m.index + m[0].length }
+      }
+    }
+    // URL 파서는 앞 공백을 버린다 — ` #x` 도 문서 안 이동이다.
+    if (hasTarget || !href || !/^\s*#/.test(href.value)) return tag
+    const rewritten = `${href.attr}=${href.quote}about:srcdoc${href.value.trimStart()}${href.quote}`
+    return `<${name} target="_self"${attrs.slice(0, href.start)}${rewritten}${attrs.slice(href.end)}>`
+  })
+}
+
+/**
+ * 스크립트 허용 격리 문서에 넣는 문서 안 이동 처리기(WP-1271).
+ * - 기본 동작(`<base target="_blank">` 로 새 탭에 앱 주소 열기)을 막고 `location.hash` 로 같은 문서의 조각 이동을 한다 —
+ *   스크립트 꺼짐의 `about:srcdoc#…` 링크와 같게 `hashchange`·`:target` 이 살아 해시 라우팅 탭·CSS 탭도 움직인다.
+ *   이미 같은 조각이면 해시를 다시 넣어도 스크롤하지 않으므로 그 요소로 직접 스크롤한다.
+ * - DOMContentLoaded 뒤에 window 버블 단계로 건다 — 문서가 파싱 중에 건 처리기(요소·document·window)가 먼저 돈다.
+ *   그쪽이 `preventDefault` 했거나, 수정키·가운데 단추이거나, 링크가 비지 않은 `target` 을 직접 달았으면 건너뛴다.
+ * - 링크는 composedPath 로 찾는다 — 웹 컴포넌트 그림자 트리 안 링크도 잡는다. SVG 링크의 xlink:href 도 본다.
+ * 한계: 문서 처리기가 stopPropagation 만 하고 기본 동작을 막지 않으면 여기까지 오지 않아 예전처럼 새 탭이 열린다.
+ */
+export const IN_PAGE_LINK_SCRIPT =
+  '<script data-in-page-links>addEventListener("DOMContentLoaded",function(){addEventListener("click",function(e){' +
+  'if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;' +
+  'var p=e.composedPath?e.composedPath():[e.target],a=null;' +
+  'for(var i=0;i<p.length;i++){var n=p[i];if(n.tagName&&/^(a|area)$/i.test(n.tagName)){a=n;break}}' +
+  'if(!a)return;var t=a.getAttribute("target");if(t&&t.trim())return;' +
+  'var h=a.getAttribute("href");if(h==null)h=a.getAttributeNS("http://www.w3.org/1999/xlink","href");' +
+  'if(h==null)return;h=h.trim();if(h.charAt(0)!=="#")return;' +
+  'e.preventDefault();if(location.hash!==h&&h.length>1){location.hash=h;return}' +
+  'var id=h.slice(1);try{id=decodeURIComponent(id)}catch(_){}' +
+  'var el=id?document.getElementById(id)||document.getElementsByName(id)[0]:null;' +
+  'if(el)el.scrollIntoView();else if(!id||id.toLowerCase()==="top")scrollTo(0,0)' +
+  '})})</script>'
+
+/** 스크립트 허용 문서에 주입하는 머리말 — 기본 머리말 + 문서 안 이동 처리기. */
+export const SCRIPT_SANDBOX_HEAD = SANDBOX_HEAD + IN_PAGE_LINK_SCRIPT
+
+/**
+ * 격리 iframe 의 srcdoc 을 만든다 — 스크립트 허용 여부에 맞춰 문서 안 이동 링크를 처리하고 머리말을 주입한다(WP-1271).
+ */
+export function buildSandboxDoc(html: string, allowScripts: boolean): string {
+  return withSandboxHead(allowScripts ? html : rewriteInPageLinks(html), allowScripts ? SCRIPT_SANDBOX_HEAD : SANDBOX_HEAD)
 }
 
 /**
