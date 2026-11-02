@@ -245,6 +245,80 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         return (Boolean) get(15);
     }
 
+    /**
+     * Setter for
+     * <code>public.issue_recurrence.pending_question_message_id</code>.
+     */
+    public void setPendingQuestionMessageId(Long value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.issue_recurrence.pending_question_message_id</code>.
+     */
+    public Long getPendingQuestionMessageId() {
+        return (Long) get(16);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.pending_question_text</code>.
+     */
+    public void setPendingQuestionText(String value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.pending_question_text</code>.
+     */
+    public String getPendingQuestionText() {
+        return (String) get(17);
+    }
+
+    /**
+     * Setter for
+     * <code>public.issue_recurrence.pending_question_asked_at</code>.
+     */
+    public void setPendingQuestionAskedAt(OffsetDateTime value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.issue_recurrence.pending_question_asked_at</code>.
+     */
+    public OffsetDateTime getPendingQuestionAskedAt() {
+        return (OffsetDateTime) get(18);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.follow_up_run_id</code>.
+     */
+    public void setFollowUpRunId(String value) {
+        set(19, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.follow_up_run_id</code>.
+     */
+    public String getFollowUpRunId() {
+        return (String) get(19);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.follow_up_dispatched_at</code>.
+     */
+    public void setFollowUpDispatchedAt(OffsetDateTime value) {
+        set(20, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.follow_up_dispatched_at</code>.
+     */
+    public OffsetDateTime getFollowUpDispatchedAt() {
+        return (OffsetDateTime) get(20);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -268,7 +342,7 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
     /**
      * Create a detached, initialised IssueRecurrenceRecord
      */
-    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled) {
+    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled, Long pendingQuestionMessageId, String pendingQuestionText, OffsetDateTime pendingQuestionAskedAt, String followUpRunId, OffsetDateTime followUpDispatchedAt) {
         super(IssueRecurrence.ISSUE_RECURRENCE);
 
         setIssueId(issueId);
@@ -287,6 +361,11 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setAssistantEnrolled(assistantEnrolled);
+        setPendingQuestionMessageId(pendingQuestionMessageId);
+        setPendingQuestionText(pendingQuestionText);
+        setPendingQuestionAskedAt(pendingQuestionAskedAt);
+        setFollowUpRunId(followUpRunId);
+        setFollowUpDispatchedAt(followUpDispatchedAt);
         resetChangedOnNotNull();
     }
 }

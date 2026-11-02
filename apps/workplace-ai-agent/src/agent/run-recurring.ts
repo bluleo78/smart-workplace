@@ -2,6 +2,8 @@
 // 도구는 API 가 정한 신원(ownerUserId — 개인 비서면 주인 대행, 그 밖의 AI 는 자기 자신, WP-1314) 권한으로 실행을 돌리고(WP-1311 부터 쓰기도
 // 확인 카드 없이 바로 한다), 최종 답변을 API 내부 보고(POST /internal/issue-recurrence/{issueId}/runs)로 돌려준다. 결과 글은 API 가
 // 그 AI 이름으로 이슈 챗에 남긴다. 실패도 사유와 함께 보고해야 API 가 연속 실패를 세고 작업 상태를 되돌린다.
+// WP-1312: 회차가 남긴 질문에 반복을 저장한 사람이 답하면 API 가 같은 이벤트를 followUp(질문·답)과 함께 보낸다 — 이 함수가 그대로 같은 신원·권한·프로필로
+// 돌리고 지시문만 이어 처리용(buildRecurringRunMessage 가 고른다)이다. 보고는 이벤트의 runId(이어 처리 id)로 같은 경로에 보낸다.
 import axios from 'axios';
 import { RECURRING_QUESTION_MARKER, RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
 import { buildRecurringRunMessage } from './user-message.js';
@@ -51,7 +53,7 @@ function reason(e: unknown, fallback: string): string {
 export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurringDeps): Promise<void> {
   const agentId = p.actingAgentId;
   const ownerId = p.ownerUserId;
-  const logTag = `agent:issue.recurring_run:${p.issueKey}:${agentId}`;
+  const logTag = `agent:issue.recurring_run${p.followUp ? ':follow_up' : ''}:${p.issueKey}:${agentId}`;
   // 테넌트가 오면 X-On-Behalf-Of-Tenant 를 싣는 스코프 클라이언트로 — 소유자 대행 도구 호출과 결과 보고가 이 테넌트로만 간다(run-ai-chat 과 같은 규칙).
   // LLM 자격 조회는 비서 전역 계정이라 스코프 없이(run-ai-chat 과 같다).
   const scoped = p.tenantId != null ? deps.client.withOnBehalfOfTenant(p.tenantId) : deps.client;

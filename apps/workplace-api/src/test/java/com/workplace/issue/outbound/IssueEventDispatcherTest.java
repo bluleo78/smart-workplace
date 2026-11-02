@@ -387,6 +387,57 @@ class IssueEventDispatcherTest {
     verify(resolver, never()).pickActingAgent(any(), any());
   }
 
+  /**
+   * WP-1312: 질문에 대한 답으로 보내는 이어 처리 — 같은 이벤트에 질문·답을 싣고 회차 번호는 뺀다. 답한 사람은 actor(소유자)로 이름까지 싣는다. 정기
+   * 회차에는 followUp 키가 없다.
+   */
+  @Test
+  void 이어_처리는_질문과_답을_싣는다() {
+    dispatcher = build(true);
+    var base = recurringRun();
+    var followUp =
+        new IssueRecurringRunEvent(
+            base.issueId(),
+            base.projectKey(),
+            base.issueKey(),
+            base.title(),
+            base.actor(),
+            base.assignees(),
+            base.actingAgentId(),
+            base.ownerUserId(),
+            "3-f55",
+            base.runAt(),
+            null,
+            base.rrule(),
+            base.time(),
+            base.issueBody(),
+            base.occurredAt(),
+            new IssueRecurringRunEvent.FollowUp("초안을 채널에 올릴까요?", "올려 줘"));
+    dispatcher.onIssueRecurringRun(base);
+    dispatcher.onIssueRecurringRun(followUp);
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(2)).publish(captor.capture());
+    assertThat(captor.getAllValues().get(0).payload())
+        .doesNotContainKey("followUp")
+        .containsEntry("round", 4);
+    var payload = captor.getAllValues().get(1).payload();
+    assertThat(payload)
+        .containsEntry("runId", "3-f55")
+        .containsEntry("actingAgentId", 201L)
+        .doesNotContainKey("round");
+    @SuppressWarnings("unchecked")
+    var f = (java.util.Map<String, Object>) payload.get("followUp");
+    assertThat(f).containsEntry("question", "초안을 채널에 올릴까요?").containsEntry("answer", "올려 줘");
+    assertThat(f).doesNotContainKey("answerer");
+    @SuppressWarnings("unchecked")
+    var actor = (java.util.Map<String, Object>) payload.get("actor");
+    assertThat(actor)
+        .containsEntry("id", HUMAN_ACTOR.id())
+        .containsEntry("username", HUMAN_ACTOR.username())
+        .containsEntry("name", HUMAN_ACTOR.name());
+  }
+
   /** WP-989: ai-agent 연동이 꺼져 있으면 반복 회차도 발사하지 않는다. */
   @Test
   void 반복_회차도_비활성이면_발사하지_않는다() {
@@ -411,6 +462,7 @@ class IssueEventDispatcherTest {
         "FREQ=DAILY",
         "00:33",
         "오늘 할 일 정리",
-        Instant.now());
+        Instant.now(),
+        null);
   }
 }

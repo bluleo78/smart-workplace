@@ -56,7 +56,8 @@ class ChatSseDispatcherTest {
             List.of(),
             true,
             ChatMessageOrigin.REPORT_QUESTION,
-            Instant.now()));
+            Instant.now(),
+            null));
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), payload.capture());

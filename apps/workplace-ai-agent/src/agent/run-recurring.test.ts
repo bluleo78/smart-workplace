@@ -106,6 +106,46 @@ describe('runRecurring', () => {
     expect(input.userId).toBe(7);
   });
 
+  // WP-1312: 질문에 소유자가 답해 보낸 이어 처리 — 회차와 같은 AI 자격·소유자 대행·recurring 프로필·프롬프트로 돌고, 이어 처리 지시문을 쓰며,
+  // 결과는 이어 처리 runId 로 같은 보고 경로에 돌려준다. 또 확인이 필요하면 다시 question:true.
+  it('이어 처리(followUp) — 같은 신원·권한·프로필로 돌고 이어 처리 runId 로 보고한다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '채널에 초안을 올렸습니다')]);
+    const c = client();
+    const followUp = {
+      ...payload,
+      runId: '3-f991',
+      followUp: { question: '초안을 채널에 올릴까요?', answer: '올려 줘' },
+    };
+    await runRecurring(followUp, { client: c });
+
+    expect(c.getProviderCredential).toHaveBeenCalledWith(201);
+    expect(c.withOnBehalfOfTenant).toHaveBeenCalledWith(5);
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f991', ok: true, message: '채널에 초안을 올렸습니다' });
+    const input = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(input.systemPrompt).toBe(RECURRING_RUN_SYSTEM_PROMPT);
+    expect(input.userId).toBe(7);
+    expect(input.userMessage).toContain('초안을 채널에 올릴까요?');
+    expect(input.userMessage).toContain('올려 줘');
+    expect(input.userMessage).not.toContain('2회차 실행');
+    expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0]).toMatchObject({
+      profile: 'recurring',
+      onBehalfOfId: 7,
+      client: c.scoped,
+    });
+  });
+
+  it('이어 처리가 또 확인이 필요하면 question:true 로 보고한다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '[확인 필요] 받는 사람을 누구로 할까요?')]);
+    const c = client();
+    await runRecurring({ ...payload, runId: '3-f991', followUp: { question: 'q', answer: 'a' } }, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-f991',
+      ok: true,
+      message: '받는 사람을 누구로 할까요?',
+      question: true,
+    });
+  });
+
   // WP-1311: 본문이 확인을 받으라고 해 쓰기를 멈춘 회차는 첫 줄 표지를 떼고 question:true 로 보고한다(API 가 질문 글로 남긴다).
   it('최종 답변이 질문 표지로 시작하면 표지를 떼고 question:true 로 보고한다', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '[확인 필요]\n김대리에게 주간 보고 메일을 보낼까요?')]);

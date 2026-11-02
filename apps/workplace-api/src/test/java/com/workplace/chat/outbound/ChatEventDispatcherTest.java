@@ -81,6 +81,12 @@ class ChatEventDispatcherTest {
   private static final UserSummary AGENT = new UserSummary(99L, "ai-agent", "AI Agent", "AGENT");
 
   private ChatMessageCreatedEvent event(UserSummary actor, List<UserSummary> mentions) {
+    return event(actor, mentions, null);
+  }
+
+  /** followUpAgentId(WP-1312) — 이 글로 반복 회차 이어 처리를 이미 받은 AI. 없으면 null. */
+  private ChatMessageCreatedEvent event(
+      UserSummary actor, List<UserSummary> mentions, Long followUpAgentId) {
     return new ChatMessageCreatedEvent(
         1L,
         10L,
@@ -98,7 +104,26 @@ class ChatEventDispatcherTest {
         List.of(),
         false,
         ChatMessageOrigin.USER,
-        Instant.now());
+        Instant.now(),
+        followUpAgentId);
+  }
+
+  /** WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 는, 답 글이 그 AI 를 멘션해도 챗 응답으로 또 깨우지 않는다. */
+  @Test
+  void 이어_처리로_깨운_AI는_멘션돼도_챗_응답을_보내지_않는다() {
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT), AGENT.id()));
+    verify(client, never()).publish(any());
+  }
+
+  /** WP-1312: 같은 글에 멘션된 다른 AI 는 그대로 챗 응답으로 깨운다. */
+  @Test
+  void 이어_처리와_다른_AI를_멘션하면_그_AI는_깨운다() {
+    var other = new UserSummary(98L, "ai-other", "다른 AI", "AGENT");
+    internalAgents(AGENT.id(), other.id());
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT, other), AGENT.id()));
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+    assertThat(captor.getValue().payload()).containsEntry("actingAgentId", other.id());
   }
 
   /** WP-638: 남(HUMAN id 1)의 것이 아닌 개인 비서(주인 id 7)를 멘션해도 주인의 키로 실행하지 않는다. */

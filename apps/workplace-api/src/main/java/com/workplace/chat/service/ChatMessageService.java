@@ -26,6 +26,7 @@ import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
 import com.workplace.global.util.PersonNames;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
+import com.workplace.issue.outbound.RecurringQuestionAnswers;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
@@ -56,6 +57,8 @@ public class ChatMessageService {
   private final IssueStakeholderLookup issueLookup;
   // WP-213: 이슈 토크 읽기/쓰기 접근 판정 + 보낼 때 자동 참여.
   private final ChatThreadAccess threadAccess;
+  // WP-1312: 사람 글이 반복 회차 질문의 답이면 issue 모듈이 같은 AI 의 이어 처리를 보낸다.
+  private final RecurringQuestionAnswers recurringAnswers;
 
   /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
@@ -127,13 +130,31 @@ public class ChatMessageService {
 
     // 첨부·드라이브 링크 하이드레이트 포함 응답 생성(같은 트랜잭션 내 — RLS 안전).
     ChatMessageResponse saved = findOne(messageId);
-    var created =
-        buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved, origin);
-    publisher.publishEvent(created);
+    var context = contextResolver.resolve(threadId);
+    UserSummary actor = hydrator.summaryOf(callerId);
+    boolean humanReply = !origin.fromReport() && UserKind.HUMAN.equals(actor.kind());
+    // WP-1312: 사람이 화면에서 쓴 글이 반복 회차가 남긴 질문의 답이면(멘션 없어도) issue 모듈이 같은 AI 의 이어 처리를 보낸다. 깨운 AI 를
+    // 챗 이벤트에 실어 같은 글의 @멘션 챗 응답이 그 AI 를 또 깨우지 않게 한다. 이벤트를 만들기 전에 불러야 실을 수 있다.
+    Long followUpAgentId = null;
+    if (humanReply) {
+      var woken = recurringAnswers.answer(context.issueId(), messageId, callerId, req.body());
+      if (woken.isPresent()) followUpAgentId = woken.getAsLong();
+    }
+    publisher.publishEvent(
+        buildEvent(
+            context,
+            threadId,
+            messageId,
+            actor,
+            req.body(),
+            mentionUserIds,
+            saved,
+            origin,
+            followUpAgentId));
     // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
-    if (!origin.fromReport() && UserKind.HUMAN.equals(created.actor().kind())) {
+    if (humanReply) {
       publisher.publishEvent(
-          IssueHumanReplyPosted.chat(created.issueId(), callerId, mentionUserIds));
+          IssueHumanReplyPosted.chat(context.issueId(), callerId, mentionUserIds));
     }
     return saved;
   }
@@ -315,15 +336,15 @@ public class ChatMessageService {
 
   /** 메시지 생성 이벤트 빌드. 하이드레이트된 saved 에서 첨부/드라이브링크를 꺼내 이벤트에 동봉 — SSE 수신자가 추가 조회 없이 렌더 가능. */
   private ChatMessageCreatedEvent buildEvent(
+      ChatThreadContextResolver.Context context,
       long threadId,
       long messageId,
-      long actorId,
+      UserSummary actor,
       String body,
       List<Long> mentionUserIds,
       ChatMessageResponse saved,
-      ChatMessageOrigin origin) {
-    var context = contextResolver.resolve(threadId);
-    UserSummary actor = hydrator.summaryOf(actorId);
+      ChatMessageOrigin origin,
+      Long followUpAgentId) {
     List<UserSummary> mentions = hydrator.summariesOf(mentionUserIds);
     return new ChatMessageCreatedEvent(
         threadId,
@@ -342,6 +363,7 @@ public class ChatMessageService {
         saved.driveLinks(),
         saved.question(),
         origin,
-        Instant.now());
+        Instant.now(),
+        followUpAgentId);
   }
 }

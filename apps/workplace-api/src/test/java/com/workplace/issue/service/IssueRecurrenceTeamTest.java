@@ -66,6 +66,7 @@ class IssueRecurrenceTeamTest extends IntegrationTestBase {
   @Autowired PersonalAssistantRepository personalAssistantRepository;
   @Autowired AiAgentCredentialService credentialService;
   @Autowired IssueRecurrenceService recurrenceService;
+  @Autowired IssueRecurrenceFollowUpService followUpService;
   @Autowired ApplicationEvents events;
 
   private long alice;
@@ -263,7 +264,70 @@ class IssueRecurrenceTeamTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
   }
 
+  // ───────────────────────────── 질문의 답으로 이어 처리(WP-1312) ─────────────────────────────
+
+  @Test
+  void 이어_처리도_정기_회차와_같은_신원으로_돈다_AI_자기_신원() throws Exception {
+    call(put(path()).content(req(teamAi)), bob).andExpect(status().isOk());
+    leaveQuestion("올릴까요?");
+
+    assertThat(followUpService.answer(issueId, Long.MAX_VALUE, bob, "올려 줘")).hasValue(teamAi);
+    var e = followUps().get(0);
+    assertThat(e.actingAgentId()).isEqualTo(teamAi);
+    // 저장·답한 bob 의 권한을 빌리지 않는다 — 정기 회차와 같이 AI 자기 신원. 답한 사람은 actor 로만 실린다.
+    assertThat(e.ownerUserId()).isEqualTo(teamAi);
+    assertThat(e.actor().id()).isEqualTo(bob);
+  }
+
+  @Test
+  void 이어_처리도_개인비서면_주인_대행으로_돈다() throws Exception {
+    call(put(path()).content(req(aliceAi)), alice).andExpect(status().isOk());
+    leaveQuestion("올릴까요?");
+
+    assertThat(followUpService.answer(issueId, Long.MAX_VALUE, alice, "올려 줘")).hasValue(aliceAi);
+    assertThat(followUps().get(0).ownerUserId()).isEqualTo(alice);
+  }
+
+  @Test
+  void 대행할_주인이_프로젝트에서_빠지면_이어_처리를_보내지_않고_질문을_비운다() throws Exception {
+    long bobAi = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, bob));
+    personalAssistantRepository.setAgentId(bob, bobAi);
+    projectMemberRepository.insert(projectId, bobAi, "MEMBER");
+    call(put(path()).content(req(bobAi)), bob).andExpect(status().isOk());
+    leaveQuestion("올릴까요?");
+
+    projectMemberRepository.delete(projectId, bob);
+    assertThat(followUpService.answer(issueId, Long.MAX_VALUE, bob, "올려 줘")).isEmpty();
+    assertThat(followUps()).isEmpty();
+    assertThat(
+            dsl.select(
+                    ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID, ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)
+                .from(ISSUE_RECURRENCE)
+                .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+                .fetchOne())
+        .satisfies(
+            r -> {
+              assertThat(r.value1()).isNull();
+              assertThat(r.value2()).isNull();
+            });
+  }
+
   // ───────────────────────────── 도우미 ─────────────────────────────
+
+  /** 회차가 이슈 챗에 질문을 남긴 상태로 만든다 — 질문 글 id 는 1(그 뒤의 어떤 글이든 답이 될 수 있게). */
+  private void leaveQuestion(String question) {
+    dsl.update(ISSUE_RECURRENCE)
+        .set(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID, 1L)
+        .set(ISSUE_RECURRENCE.PENDING_QUESTION_TEXT, question)
+        .set(ISSUE_RECURRENCE.PENDING_QUESTION_ASKED_AT, Instant.now().atOffset(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /** 지금까지 발행된 이어 처리 이벤트. */
+  private List<IssueRecurringRunEvent> followUps() {
+    return events.stream(IssueRecurringRunEvent.class).filter(e -> e.followUp() != null).toList();
+  }
 
   private long human() {
     long id = withMembership(TestFixtures.createHuman(dsl));
