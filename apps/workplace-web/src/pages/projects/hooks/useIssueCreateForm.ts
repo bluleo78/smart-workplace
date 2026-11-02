@@ -18,6 +18,7 @@ import { hasIssueDraftContent } from '../../../lib/issueDraft';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
 import { defaultStatusOf } from '../../../lib/projectStatuses';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
+import { type CreateMode, useCreateAiHandoff } from './useCreateAiHandoff';
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
 export function useIssueCreateForm({
@@ -46,6 +47,12 @@ export function useIssueCreateForm({
   const componentList = components.data ?? [];
   const showComponents = !intakeOnly && hasActiveComponents(componentList);
   const [componentIds, setComponentIds] = useState<number[]>([]);
+  // 「AI 에게 맡기기」(WP-1315) — 만든 뒤 실행 일정을 저장하고, 「만들고 지금 실행」이면 시험 실행을 보낸다.
+  const ai = useCreateAiHandoff(projectKey, open);
+  // 만들기 뒤 일정 저장·지금 실행까지 도는 동안 버튼을 잠근다(만들기 요청만 끝나도 두 번 누를 수 없게).
+  const [submitting, setSubmitting] = useState(false);
+  // 같은 틱에 두 번 눌러도(버튼 비활성이 그려지기 전 — Enter 연타·더블클릭) 만들기·지금 실행이 두 번 나가지 않게 막는 동기 잠금.
+  const inFlight = useRef(false);
   // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 부모로 송신되고(다른 프로젝트 에픽은 parentKey, WP-1039), EPIC·SUBTASK 유형이면 해제된다.
   const [epic, setEpic] = useState<CreateEpicChoice | null>(null);
   const form = useForm<CreateIssueFormData>({
@@ -132,7 +139,9 @@ export function useIssueCreateForm({
     );
   };
 
-  const submit = async (data: CreateIssueFormData) => {
+  const submit = async (data: CreateIssueFormData, mode: CreateMode) => {
+    // 맡기기 일정이 틀리면(요일 없음·시각 형식) 만들지 않고 문구를 보인다 — 작업만 만들어지고 일정이 빠지지 않게 먼저 막는다.
+    if (!intakeOnly && !ai.check()) return;
     // 업로드가 끝나지 않은 자리표시 토큰이 저장되지 않게 마지막으로 막는다(버튼 비활성의 우회 경로 — Enter 제출 등).
     if (images.pendingBlock(data.body ?? '')) {
       toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
@@ -159,9 +168,14 @@ export function useIssueCreateForm({
       // 고른 구성요소 — 칸이 보일 때만(구성원·사용 중 구성요소 있음). 담당자를 비워 두면 서버가 구성요소 담당자를 자동으로 붙인다.
       componentIds: showComponents && componentIds.length > 0 ? componentIds : undefined,
     };
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSubmitting(true);
     try {
-      await create.mutateAsync(payload);
-      toast.success('태스크를 생성했습니다');
+      const created = await create.mutateAsync(payload);
+      // 맡기기가 켜져 있으면 일정 저장(·지금 실행)까지 하고 그 결과를 토스트로 알린다. 일정 저장이 실패해도 작업은 이미 있어 창을 닫는다.
+      const handled = !intakeOnly && (await ai.afterCreate(created.number, mode));
+      if (!handled) toast.success('태스크를 생성했습니다');
       reset({ priority: 'MID' });
       onOpenChange(false);
     } catch (e) {
@@ -172,6 +186,9 @@ export function useIssueCreateForm({
       } else {
         handleApiError(e, '태스크 생성에 실패했습니다');
       }
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -181,10 +198,17 @@ export function useIssueCreateForm({
     statusNote: !intakeOnly && initialStatus && initialStatus.id !== defaultStatusOf(statuses, 'TODO')?.id ? initialStatus.name : null,
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify, images, bodyRef, bodyField,
-    onSubmit: handleSubmit(submit),
+    // 폼 제출(Enter·주 버튼) — 맡기기가 켜져 있으면 「만들고 지금 실행」, 아니면 만들기.
+    onSubmit: handleSubmit((d) => submit(d, 'run')),
+    // 「만들기만」 — 맡기기 일정은 저장하되 지금 실행하지 않는다.
+    onSubmitOnly: handleSubmit((d) => submit(d, 'only')),
+    ai,
+    // 버튼을 맡기기용(「만들고 지금 실행」/「만들기만」)으로 그릴지 — 맡겼거나 담당 AI 후보를 받는 중(그때는 잠가 둔다). 접수 전용은 맡기지 않는다.
+    aiActions: !intakeOnly && (ai.active || ai.loading),
     // 버튼 비활성 = 생성 요청 중 또는 이미지 업로드 중. 「생성 중…」 문구는 실제 생성 요청 중일 때만(isCreating) — 업로드 중엔 「생성」 유지.
-    isSubmitting: create.isPending || images.isUploading,
-    isCreating: create.isPending,
+    // submitting 이 만들기 요청(create)부터 일정 저장·지금 실행까지 덮는다.
+    isSubmitting: images.isUploading || submitting,
+    isCreating: submitting,
     hasContent, epic, setEpic,
     // 구성요소(WP-933) — 칸 노출 여부·목록(보관 포함)·고른 id.
     showComponents, componentList, componentIds, setComponentIds,

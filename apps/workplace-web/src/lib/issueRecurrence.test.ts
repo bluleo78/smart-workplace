@@ -5,11 +5,16 @@ import {
   agentOptionLabel,
   aiHandoffLabel,
   buildTaskRRule,
+  createHandoffSummary,
   DEFAULT_TASK_RECURRENCE_FORM,
+  isOnceRule,
+  kstShortDateTime,
   monthDayMaySkip,
   nextRunText,
+  onceDateFor,
   otherMonthDaysOf,
   parseTaskRRule,
+  previewNextRun,
   recurrenceLabel,
   recurrencePausedText,
   runNowState,
@@ -38,7 +43,7 @@ describe('parseTaskRRule', () => {
   })
   test('매주·매월 규칙을 폼으로 되읽는다(왕복)', () => {
     const w = parseTaskRRule('FREQ=WEEKLY;BYDAY=WE,MO', '08:30')
-    expect(w).toEqual({ freq: 'WEEKLY', byDay: ['MO', 'WE'], monthDay: 1, otherMonthDays: [], time: '08:30' })
+    expect(w).toEqual({ freq: 'WEEKLY', byDay: ['MO', 'WE'], monthDay: 1, otherMonthDays: [], time: '08:30', onceDate: null })
     expect(buildTaskRRule(w)).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
     const m = parseTaskRRule('FREQ=MONTHLY;BYMONTHDAY=31', '23:59')
     expect(m.freq).toBe('MONTHLY')
@@ -152,5 +157,93 @@ describe('runNowState', () => {
   test('결과를 기다리거나 요청 중이면 「실행 중」으로 잠근다', () => {
     expect(runNowState({ ...r, testRunning: true }, false, false)).toMatchObject({ disabled: true, running: true })
     expect(runNowState(r, false, true)).toMatchObject({ disabled: true, running: true })
+  })
+})
+
+// WP-1315: 「한 번만」(FREQ=ONCE;DATE=…)·「평일」 칩과 만들기 창의 다음 실행 미리보기.
+describe('한 번만·평일 (WP-1315)', () => {
+  // 2026-11-02(월) 23:00Z = 11/3(화) 08:00 KST.
+  const NOW = new Date('2026-11-02T23:00:00Z')
+
+  test('한 번만 날짜는 그 시각이 아직 안 지났으면 오늘, 지났으면(같은 분 포함) 내일 — 서버 resolveOnce 와 같다', () => {
+    expect(onceDateFor('08:30', NOW)).toBe('2026-11-03')
+    expect(onceDateFor('08:00', NOW)).toBe('2026-11-04')
+    expect(onceDateFor('07:59', NOW)).toBe('2026-11-04')
+    expect(onceDateFor('8:00', NOW)).toBeNull()
+  })
+
+  test('한 번만은 날짜 없이 보내고, 저장된 날짜가 아직 오지 않았으면 그대로 둔다', () => {
+    expect(buildTaskRRule(form({ freq: 'ONCE', time: '08:30' }), NOW)).toBe('FREQ=ONCE')
+    expect(buildTaskRRule(form({ freq: 'ONCE', time: '09:00', onceDate: '2026-11-05' }), NOW)).toBe('FREQ=ONCE;DATE=2026-11-05')
+    // 지난 날짜(이미 실행한 예약)는 빼서 서버가 새 때로 정하게 한다.
+    expect(buildTaskRRule(form({ freq: 'ONCE', time: '07:00', onceDate: '2026-11-03' }), NOW)).toBe('FREQ=ONCE')
+  })
+
+  test('평일은 매주 월~금 규칙으로 저장하고, 월~금 규칙은 평일로 되읽는다', () => {
+    expect(buildTaskRRule(form({ freq: 'WEEKDAYS' }))).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')
+    expect(parseTaskRRule('FREQ=WEEKLY;BYDAY=FR,TH,WE,TU,MO', '08:30').freq).toBe('WEEKDAYS')
+    // 월~토는 평일이 아니다.
+    expect(parseTaskRRule('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA').freq).toBe('WEEKLY')
+  })
+
+  test('한 번만 규칙을 폼으로 되읽는다', () => {
+    const f = parseTaskRRule('FREQ=ONCE;DATE=2026-11-05', '09:00')
+    expect(f.freq).toBe('ONCE')
+    expect(f.onceDate).toBe('2026-11-05')
+    expect(isOnceRule('FREQ=ONCE;DATE=2026-11-05')).toBe(true)
+    expect(isOnceRule('FREQ=DAILY')).toBe(false)
+  })
+
+  test('요약 문구 — 한 번만 11/3(화) 08:30, 평일 08:30', () => {
+    expect(recurrenceLabel('FREQ=ONCE;DATE=2026-11-03', '08:30')).toBe('한 번만 11/3(화) 08:30')
+    expect(recurrenceLabel('FREQ=ONCE', '08:30')).toBe('한 번만 08:30')
+    expect(recurrenceLabel('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', '08:30')).toBe('평일 08:30')
+    // 한 번만은 되풀이가 아니라 ↻ 를 붙이지 않는다.
+    expect(aiHandoffLabel({ rrule: 'FREQ=ONCE;DATE=2026-11-03', time: '08:30', agentName: '내 비서' })).toBe('내 비서 · 한 번만 11/3(화) 08:30')
+    expect(aiHandoffLabel({ rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', time: '08:30', agentName: '내 비서' })).toBe('내 비서 · ↻ 평일 08:30')
+  })
+
+  test('실행을 마친 한 번만은 성공이면 「실행함」, 실패·무응답이면 「실패함」', () => {
+    expect(recurrencePausedText({ enabled: false, consecutiveFailures: 0, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBe('실행함')
+    expect(recurrencePausedText({ enabled: false, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBe('실행함')
+    // 서버는 한 번만 회차가 실패하거나 결과가 오지 않으면(LOST_RUN) consecutiveFailures=1 로 끈다 — 성공처럼 보이면 안 된다(PR #1147 리뷰).
+    const failed = recurrencePausedText({ enabled: false, consecutiveFailures: 1, rrule: 'FREQ=ONCE;DATE=2026-11-03' })
+    expect(failed).toBe('실패함 — 실행이 실패했거나 결과가 오지 않았습니다')
+    // 작업 행 표식·모바일 칩은 첫 낱말만 쓴다.
+    expect(failed?.split(' ')[0]).toBe('실패함')
+    expect(recurrencePausedText({ enabled: true, rrule: 'FREQ=ONCE;DATE=2026-11-03' })).toBeNull()
+  })
+
+  test('다음 실행 미리보기 — 서버 다음 회차 계산과 같은 규칙(한국 시간, 지금 뒤의 첫 회차)', () => {
+    const at = (f: Parameters<typeof previewNextRun>[0]) => {
+      const d = previewNextRun(f, NOW)
+      return d ? kstShortDateTime(d) : null
+    }
+    expect(at(form({ freq: 'ONCE', time: '08:30' }))).toBe('11/3(화) 08:30')
+    expect(at(form({ freq: 'ONCE', time: '08:00' }))).toBe('11/4(수) 08:00')
+    expect(at(form({ freq: 'ONCE', time: '09:00', onceDate: '2026-11-10' }))).toBe('11/10(화) 09:00')
+    expect(at(form({ freq: 'DAILY', time: '07:00' }))).toBe('11/4(수) 07:00')
+    expect(at(form({ freq: 'WEEKDAYS', time: '08:30' }))).toBe('11/3(화) 08:30')
+    expect(at(form({ freq: 'WEEKLY', byDay: ['SU'], time: '10:00' }))).toBe('11/8(일) 10:00')
+    expect(at(form({ freq: 'MONTHLY', monthDay: 1, time: '09:00' }))).toBe('12/1(화) 09:00')
+    // 11월은 31일이 없어 12월 31일.
+    expect(at(form({ freq: 'MONTHLY', monthDay: 31, time: '09:00' }))).toBe('12/31(목) 09:00')
+    // 금요일 08:30 KST 뒤의 평일은 다음 주 월요일.
+    const fri = new Date('2026-11-06T00:00:00Z')
+    expect(kstShortDateTime(previewNextRun(form({ freq: 'WEEKDAYS', time: '08:30' }), fri)!)).toBe('11/9(월) 08:30')
+    // 안 함·검사 실패는 null.
+    expect(previewNextRun(form({ freq: 'NONE' }), NOW)).toBeNull()
+    expect(previewNextRun(form({ freq: 'WEEKLY', byDay: [] }), NOW)).toBeNull()
+  })
+})
+
+describe('createHandoffSummary (WP-1315)', () => {
+  const NOW = new Date('2026-11-02T23:00:00Z')
+  const mine = { name: '도우미', username: 'my-ai', personalAssistant: true }
+  test('내 비서는 「내 AI 비서」, 한 번만은 ↻ 없이 미리보기 날짜, 담당 AI 가 없으면 「안 함」', () => {
+    expect(createHandoffSummary(mine, form({ freq: 'WEEKDAYS', time: '08:30' }), NOW)).toBe('내 AI 비서 · ↻ 평일 08:30')
+    expect(createHandoffSummary(mine, form({ freq: 'ONCE', time: '08:30' }), NOW)).toBe('내 AI 비서 · 한 번만 11/3(화) 08:30')
+    expect(createHandoffSummary({ name: null, username: 'team-ai', personalAssistant: false }, form({ freq: 'DAILY' }), NOW)).toBe('team-ai · ↻ 매일 09:00')
+    expect(createHandoffSummary(null, form({ freq: 'DAILY' }), NOW)).toBe('안 함')
   })
 })

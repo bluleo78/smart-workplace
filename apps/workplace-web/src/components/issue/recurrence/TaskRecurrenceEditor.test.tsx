@@ -152,3 +152,31 @@ describe('TaskRecurrenceEditor 담당 AI(WP-1314)', () => {
     expect(agents.enabledCalls.every((e) => e === false)).toBe(true)
   })
 })
+
+// WP-1315: 편집기에도 「한 번만」·「평일」 칩 — 한 번만은 날짜 없이 보내 서버가 그 시각의 다음 때로 정하고, 저장된 예약 날짜는 그대로 둔다.
+describe('TaskRecurrenceEditor 한 번만·평일(WP-1315)', () => {
+  beforeEach(() => {
+    saved.bodies = []
+    agents.options = [{ id: 5, username: 'my-ai', name: '내 비서', personalAssistant: true }]
+    agents.loading = false
+  })
+
+  it('한 번만을 고르면 FREQ=ONCE 로, 평일을 고르면 월~금 매주 규칙으로 저장한다', async () => {
+    renderWithProviders(<TaskRecurrenceEditor projectKey="TM" number={3} recurrence={null} onDone={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: '한 번만' }))
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await userEvent.click(screen.getByRole('button', { name: '평일' }))
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(saved.bodies).toEqual([
+      { rrule: 'FREQ=ONCE', time: '09:00', agentUserId: 5 },
+      { rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', time: '09:00', agentUserId: 5 },
+    ])
+  })
+
+  it('아직 오지 않은 한 번만 예약은 다른 칸만 고쳐 저장해도 날짜를 그대로 보낸다', async () => {
+    open('FREQ=ONCE;DATE=2999-01-05')
+    expect(screen.getByRole('button', { name: '한 번만' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(saved.bodies).toEqual([{ rrule: 'FREQ=ONCE;DATE=2999-01-05', time: '09:00', agentUserId: 9 }])
+  })
+})

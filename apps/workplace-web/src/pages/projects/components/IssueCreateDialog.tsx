@@ -18,6 +18,7 @@ import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN } from '../../../lib/supportedDate';
 import type { IssuePriority } from '../../../types/issue';
 import { useIssueCreateForm } from '../hooks/useIssueCreateForm';
+import { CreateAiHandoffSection } from './CreateAiHandoffSection';
 import { MobileIssueCreateSheet } from './mobile/MobileIssueCreateSheet';
 
 type Props = {
@@ -183,6 +184,8 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               )}
             </div>
           </div>
+          {/* AI 에게 맡기기(WP-1315) — 마감일 바로 아래 늘 보이는 한 줄. 접힌 칸에 숨기지 않는다(설계 §4). */}
+          <CreateAiHandoffSection ai={f.ai} disabled={f.isSubmitting} />
           {/* 구성요소(WP-933) — 우선순위 묶음 바로 아래. 구성원이고 사용 중 구성요소가 있을 때만 보인다. */}
           {f.showComponents && (
             <CreateComponentsField components={f.componentList} value={f.componentIds} onChange={f.setComponentIds} />
@@ -213,7 +216,20 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
           </>)}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={f.isSubmitting}>{f.isCreating ? '생성 중…' : '생성'}</Button>
+            {/* AI 에게 맡겼으면(WP-1315) 주 버튼이 「만들고 지금 실행」, 옆에 「만들기만」(일정만 저장). 아니면 지금처럼 「생성」 하나. */}
+            {/* 담당 AI 후보를 받는 중이면 같은 두 버튼을 잠가 둔다 — 받기 전에 눌러 맡기기가 빠진 채 만들어지지 않게. */}
+            {f.aiActions ? (
+              <>
+                <Button type="button" variant="outline" disabled={f.isSubmitting || f.ai.loading} onClick={() => void f.onSubmitOnly()} data-testid="create-only">
+                  만들기만
+                </Button>
+                <Button type="submit" disabled={f.isSubmitting || f.ai.loading} data-testid="create-and-run">
+                  {f.isCreating ? '만드는 중…' : '만들고 지금 실행'}
+                </Button>
+              </>
+            ) : (
+              <Button type="submit" disabled={f.isSubmitting}>{f.isCreating ? '생성 중…' : '생성'}</Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

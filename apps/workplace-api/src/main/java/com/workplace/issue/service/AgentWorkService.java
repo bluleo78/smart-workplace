@@ -175,6 +175,15 @@ public class AgentWorkService {
   }
 
   /**
+   * 서버가 대신 기록하는 작업을 끝낸다 — 이슈가 열려 있고 그 AI 가 아직 담당일 때만({@link #isLiveFor}). 끝났거나 담당에서 빠졌으면 종료·담당 해제가
+   * 이미 기록을 닫았으므로 건드리지 않는다(WP-1315 — 한 번만 예약의 질문 기한 정리가 쓴다).
+   */
+  public boolean endIfLive(
+      IssueRow issue, long workerId, String terminalState, AgentWorkPatch values) {
+    return isLiveFor(issue, workerId) && end(issue.id(), workerId, terminalState, values);
+  }
+
+  /**
    * 서버가 대신 기록하는 작업(반복·서버 AI 실행 — WP-989·WP-1219)을 바꿔도 되는지 — 이슈가 열려 있고 그 AI 가 아직 담당이다. 끝났거나 담당에서
    * 빠졌으면 종료·담당 해제가 이미 기록을 닫았으므로 되살리지 않는다.
    */

@@ -20,6 +20,7 @@ import { ComponentAutoAssignHint } from '../../../../components/components/Creat
 import { formatDateMonthDay } from '../../../../lib/formatters';
 import { autoAssignHint } from '../../../../lib/issueComponents';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
+import { CreateAiHandoffSection } from '../CreateAiHandoffSection';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
 
@@ -75,8 +76,16 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
             <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
               <Button type="button" variant="ghost" className="-ml-3 h-11 px-3" onClick={requestClose} data-testid="issue-create-cancel">취소</Button>
               <DialogPrimitive.Title className="text-[17px] font-semibold">새 이슈</DialogPrimitive.Title>
-              <Button type="submit" className={`${HIT_EXPAND} h-9 px-4`} disabled={!title.trim() || f.isSubmitting} data-testid="issue-create-submit">
-                {f.isCreating ? '생성 중…' : '생성'}
+              <Button
+                type="submit"
+                className={`${HIT_EXPAND} h-9 px-4`}
+                disabled={!title.trim() || f.isSubmitting || (f.aiActions && f.ai.loading)}
+                data-testid="issue-create-submit"
+              >
+                {/* AI 에게 맡겼으면(WP-1315) 「만들고 지금 실행」 — 「만들기만」은 맡기기 칸 아래에 있다. 담당 AI 후보를 받는 중이면 잠근다. */}
+                {f.aiActions
+                  ? f.isCreating ? '만드는 중…' : '만들고 지금 실행'
+                  : f.isCreating ? '생성 중…' : '생성'}
               </Button>
             </header>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
@@ -153,6 +162,24 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               {startDate && <p className="text-sm text-muted-foreground">시작일 {formatDateMonthDay(startDate)}</p>}
               {errors.startDate && <p role="alert" className="text-sm text-destructive">{errors.startDate.message}</p>}
               {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}
+              {/* AI 에게 맡기기(WP-1315) — 설명 아래 늘 보이는 한 줄(데스크톱은 마감일 아래). 「만들기만」은 헤더 주 버튼 대신 여기 둔다. */}
+              {!f.intakeOnly && (
+                <div className="space-y-2">
+                  <CreateAiHandoffSection ai={f.ai} disabled={f.isSubmitting} />
+                  {f.aiActions && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 w-full"
+                      disabled={!title.trim() || f.isSubmitting || f.ai.loading}
+                      onClick={() => void f.onSubmitOnly()}
+                      data-testid="create-only"
+                    >
+                      만들기만
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
             {/* 구성요소 자동 지정 안내(WP-933) — 구성요소 칩이 있는 맨 아래 칩 줄 바로 위에 붙여, 칩과 안내가 떨어져 보이지 않게 한다.
                 담당자를 이미 골랐으면 자동 지정이 일어나지 않으므로 숨긴다(안내가 없으면 아무것도 그리지 않는다). */}

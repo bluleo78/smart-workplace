@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.IssueRecurrenceRow;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.IssueRecurrenceConflictException;
@@ -121,12 +122,20 @@ public class IssueRecurrenceFollowUpService implements RecurringQuestionAnswers 
     if (row.questionAnswerer() != actorId || messageId <= row.pendingQuestionMessageId()) {
       return null;
     }
+    IssueRow issue = issueRepository.findById(issueId).orElse(null);
     if (!questionWithinTtl(row, now)) {
-      // 기한이 지난 질문 — 답으로 보지 않고 이참에 비운다(만료 질문을 따로 쓸어 내는 일은 두지 않는다).
+      // 기한이 지난 질문 — 답으로 보지 않고 이참에 비운다(정기 반복의 만료 질문을 따로 쓸어 내는 일은 두지 않는다). 끝난 「한 번만」 예약(WP-1315)의
+      // 질문이면 답을 기다리던 작업 기록도 끝낸다 — 스케줄러의 기한 정리(IssueRecurrenceService#runDue)와 같은 결과.
       repository.clearPendingQuestion(issueId);
+      if (issue != null && !row.testQuestion() && IssueRecurrenceService.finishedOnce(row)) {
+        agentWorkService.endIfLive(
+            issue,
+            row.agentUserId(),
+            AgentWorkState.COMPLETED,
+            IssueRecurrenceService.endPatch(IssueRecurrenceService.NOTE_ONCE_UNANSWERED));
+      }
       return null;
     }
-    IssueRow issue = issueRepository.findById(issueId).orElse(null);
     ProjectRow project =
         issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
     long agentId = row.agentUserId();
@@ -156,9 +165,10 @@ public class IssueRecurrenceFollowUpService implements RecurringQuestionAnswers 
     if (!repository.markFollowUpDispatched(issueId, runId, now, test ? actorId : null)) {
       throw new IssueRecurrenceConflictException(RUN_IN_FLIGHT);
     }
-    // 작업은 「작업 중」으로 — 켜진 반복일 때만(멈춘 반복의 「막힘」 등은 그대로 둔다). 결과 보고가 「다음 회차 대기」로 되돌린다. 테스트 이어 처리는
-    // 정기 회차의 작업 기록과 따로라 바꾸지 않는다.
-    if (row.enabled() && !test) {
+    // 작업은 「작업 중」으로 — 켜진 반복일 때만(멈춘 반복의 「막힘」 등은 그대로 둔다). 결과 보고가 「다음 회차 대기」로 되돌린다. 끝난 「한 번만」
+    // 예약(WP-1315)은 꺼져 있어도 답을 기다리던 작업이라 「작업 중」으로 두고, 결과 보고가 작업을 끝낸다. 테스트 이어 처리는 정기 회차의 작업 기록과
+    // 따로라 바꾸지 않는다.
+    if ((row.enabled() || IssueRecurrenceService.finishedOnce(row)) && !test) {
       agentWorkService.startOrUpdateTracked(
           issueId, agentId, IssueRecurrenceService.TOOL, IssueRecurrenceService.followUpPatch());
     }

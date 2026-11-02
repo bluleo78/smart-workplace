@@ -441,6 +441,27 @@ public class IssueRecurrenceRepository {
         .map(IssueRecurrenceRepository::toRow);
   }
 
+  /**
+   * 답 기한이 지난 끝난 「한 번만」 예약의 질문(WP-1315) — 꺼진 한 번만 규칙이고 다음 회차가 없으며, 정기 회차 질문(테스트 질문 아님)을 cutoff 전에 남긴
+   * 행을 잠그고 읽는다(묘비 제외). 다른 트랜잭션이 잡고 있으면 건너뛴다({@link #lockStalePending} 와 같은 규칙).
+   */
+  public List<IssueRecurrenceRow> lockExpiredOnceQuestions(Instant cutoff) {
+    return dsl.selectFrom(ISSUE_RECURRENCE)
+        .where(ISSUE_RECURRENCE.RRULE.startsWith("FREQ=ONCE"))
+        .and(ISSUE_RECURRENCE.ENABLED.isFalse())
+        .and(ISSUE_RECURRENCE.DELETED.isFalse())
+        .and(ISSUE_RECURRENCE.NEXT_RUN_AT.isNull())
+        .and(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID.isNotNull())
+        .and(ISSUE_RECURRENCE.PENDING_QUESTION_ANSWERER.isNull())
+        .and(ISSUE_RECURRENCE.PENDING_QUESTION_ASKED_AT.lt(utc(cutoff)))
+        .orderBy(ISSUE_RECURRENCE.PENDING_QUESTION_ASKED_AT)
+        .limit(BATCH_LIMIT)
+        .forUpdate()
+        .skipLocked()
+        .fetch()
+        .map(IssueRecurrenceRepository::toRow);
+  }
+
   /** 반복을 끈다 — 다음 회차를 정할 수 없을 때. 연속 실패 수·결과 대기는 그대로 둔다. */
   public void disable(long issueId) {
     dsl.update(ISSUE_RECURRENCE)

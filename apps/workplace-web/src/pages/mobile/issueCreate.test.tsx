@@ -190,3 +190,95 @@ describe('모바일 이슈 생성 시트 — 개인 프로젝트', () => {
     expect(screen.queryByTestId('create-chip-epic')).not.toBeInTheDocument()
   })
 })
+
+// WP-1315: 모바일 시트의 「AI 에게 맡기기」 — 설명 아래 늘 보이는 줄, 맡기면 헤더 주 버튼이 「만들고 지금 실행」, 「만들기만」은 맡기기 칸 아래.
+describe('모바일 이슈 생성 시트 — AI 에게 맡기기(WP-1315)', () => {
+  /** 개인 프로젝트에서 시트를 연다. agents 로 후보를 바꾸고, agentsGate 를 주면 후보 응답이 그 약속이 풀릴 때까지 멈춘다. */
+  async function openPersonal({
+    agents = [{ id: 5, username: 'my-ai', name: '도우미', personalAssistant: true }],
+    agentsGate,
+  }: { agents?: { id: number; username: string; name: string; personalAssistant: boolean }[]; agentsGate?: Promise<void> } = {}) {
+    const PKEY = 'PME'
+    const api = projectApi(PKEY, createProject({ id: 7, key: PKEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }), [])
+    const sent: string[] = []
+    const puts: unknown[] = []
+    const handlers = [
+      http.get(`/api/v1/projects/${PKEY}/recurrence-agents`, async () => {
+        if (agentsGate) await agentsGate
+        return HttpResponse.json(agents)
+      }),
+      http.put(`/api/v1/projects/${PKEY}/issues/99/recurrence`, async ({ request }) => {
+        sent.push('PUT recurrence')
+        puts.push(await request.json())
+        return HttpResponse.json({ rrule: 'FREQ=DAILY', time: '09:00', enabled: true, nextRunAt: null, consecutiveFailures: 0, lastRunAt: null, agentUserId: 5, agentName: '도우미' })
+      }),
+      http.post(`/api/v1/projects/${PKEY}/issues/99/recurrence/test-runs`, () => {
+        sent.push('POST test-run')
+        return new HttpResponse(null, { status: 202 })
+      }),
+      ...api.handlers,
+    ]
+    const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${PKEY}`, handlers })
+    const header = await screen.findByTestId('page-header')
+    await page.user.click(await within(header).findByRole('button', { name: '빠른 추가' }))
+    const sheet = await screen.findByTestId('issue-create-sheet')
+    return { ...page, api, sent, puts, sheet }
+  }
+
+  test('줄은 늘 보이고, 맡기면 헤더가 「만들고 지금 실행」 — 「만들기만」은 일정까지만 저장한다', async () => {
+    const { user, api, sent, puts, sheet } = await openPersonal()
+    const toggle = within(sheet).getByTestId('create-ai-handoff-toggle')
+    expect(toggle).toHaveTextContent('AI 에게 맡기기')
+    expect(toggle).toHaveTextContent('안 함')
+    expect(screen.getByTestId('issue-create-submit')).toHaveTextContent('생성')
+
+    fireEvent.change(screen.getByTestId('issue-create-title'), { target: { value: '회의록 정리' } })
+    await user.click(toggle)
+    await waitFor(() => expect(screen.getByTestId('issue-create-submit')).toHaveTextContent('만들고 지금 실행'))
+    await user.click(within(sheet).getByRole('button', { name: '매일' }))
+    expect(within(sheet).getByTestId('create-ai-handoff-summary')).toHaveTextContent('내 AI 비서 · ↻ 매일 09:00')
+
+    await user.click(within(sheet).getByTestId('create-only'))
+    await waitFor(() => expect(sent).toEqual(['PUT recurrence']))
+    expect(api.posts).toHaveLength(1)
+    expect(puts).toEqual([{ rrule: 'FREQ=DAILY', time: '09:00', agentUserId: 5 }])
+  })
+
+  test('헤더의 「만들고 지금 실행」은 일정 저장 뒤 지금 실행까지 보낸다', async () => {
+    const { user, sent, sheet } = await openPersonal()
+    fireEvent.change(screen.getByTestId('issue-create-title'), { target: { value: '회의록 정리' } })
+    await user.click(within(sheet).getByTestId('create-ai-handoff-toggle'))
+    await waitFor(() => expect(screen.getByTestId('issue-create-submit')).toHaveTextContent('만들고 지금 실행'))
+    await user.click(screen.getByTestId('issue-create-submit'))
+    await waitFor(() => expect(sent).toEqual(['PUT recurrence', 'POST test-run']))
+  })
+
+  test('담당 AI 후보를 받는 동안은 헤더 버튼과 「만들기만」을 잠근다 — 받으면 풀린다', async () => {
+    let release = () => {}
+    const agentsGate = new Promise<void>((r) => (release = r))
+    const { user, api, sheet } = await openPersonal({ agentsGate })
+    fireEvent.change(screen.getByTestId('issue-create-title'), { target: { value: '회의록 정리' } })
+    await user.click(within(sheet).getByTestId('create-ai-handoff-toggle'))
+
+    await waitFor(() => expect(within(sheet).getByTestId('create-ai-handoff-summary')).toHaveTextContent('불러오는 중…'))
+    const submit = screen.getByTestId('issue-create-submit')
+    expect(submit).toHaveTextContent('만들고 지금 실행')
+    expect(submit).toBeDisabled()
+    expect(within(sheet).getByTestId('create-only')).toBeDisabled()
+    expect(api.posts).toHaveLength(0)
+
+    release()
+    await waitFor(() => expect(screen.getByTestId('issue-create-submit')).toBeEnabled())
+    expect(within(sheet).getByTestId('create-only')).toBeEnabled()
+  })
+
+  test('맡길 수 있는 AI 가 없으면 안내를 보이고 헤더는 「생성」 — 「만들기만」은 없다', async () => {
+    const { user, sheet } = await openPersonal({ agents: [] })
+    fireEvent.change(screen.getByTestId('issue-create-title'), { target: { value: '회의록 정리' } })
+    await user.click(within(sheet).getByTestId('create-ai-handoff-toggle'))
+    expect(await within(sheet).findByTestId('create-ai-handoff-no-agent')).toHaveTextContent('맡길 수 있는 AI 가 없습니다')
+    expect(screen.getByTestId('issue-create-submit')).toHaveTextContent('생성')
+    expect(screen.getByTestId('issue-create-submit')).toBeEnabled()
+    expect(within(sheet).queryByTestId('create-only')).toBeNull()
+  })
+})

@@ -1,5 +1,6 @@
 // 「AI 에게 맡기기」 편집기(WP-989, WP-1314) — 데스크톱 팝오버와 모바일 바텀시트, 개인 작업과 팀 이슈가 같은 본문을 쓴다.
-// 담당 AI(서버 실행 AI 후보 중) + 실행 일정: 안 함 / 매일 / 매주(요일 여러 개, 하나 이상) / 매월(1~31일) + 실행 시각(한국 시간 HH:mm).
+// 담당 AI(서버 실행 AI 후보 중) + 실행 일정: 안 함 / 한 번만 / 매일 / 평일 / 매주(요일 여러 개, 하나 이상) / 매월(1~31일) + 실행 시각(한국 시간 HH:mm).
+// 일정 칸은 만들기 창과 같은 TaskRecurrenceScheduleFields 를 쓴다(WP-1315).
 // 저장 = PUT(안 함으로 저장하면 기존 일정을 끈다), 「일정 끄기」 = DELETE. 저장하면 서버가 담당 AI 를 담당자에 넣는다.
 // 담당 AI 가 남의 개인 비서인 일정(editable=false)은 주인만 바꾸므로 읽기 전용으로 보인다.
 // 409(쓸 수 있는 AI 없음·완료된 작업 등)·403 은 훅의 handleApiError 가 토스트로 보인다.
@@ -13,7 +14,6 @@ import {
   SelectValue,
 } from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   useDeleteIssueRecurrence,
   useIssueRecurrenceAgents,
@@ -22,34 +22,17 @@ import {
 import {
   agentOptionLabel,
   buildTaskRRule,
-  monthDayMaySkip,
+  EDITOR_FREQS,
   nextRunText,
-  otherMonthDaysOf,
   parseTaskRRule,
   recurrencePausedText,
   type TaskRecurrenceForm,
   validateTaskRecurrence,
-  WEEKDAY_CODES,
-  WEEKDAY_SHORT,
 } from '@/lib/issueRecurrence';
-import type { RecurrenceFreq } from '@/lib/recurrence';
 import { cn } from '@/lib/utils';
 import type { IssueRecurrence } from '@/types/issueRecurrence';
 
-const FREQ_OPTIONS: { value: RecurrenceFreq; label: string }[] = [
-  // 네 칸 한 줄에 들어가게 짧게 — 칸 위 「실행 일정」 이름표가 맥락을 준다.
-  { value: 'NONE', label: '안 함' },
-  { value: 'DAILY', label: '매일' },
-  { value: 'WEEKLY', label: '매주' },
-  { value: 'MONTHLY', label: '매월' },
-];
-
-/** 눌림 토글 버튼 공통 모양 — 켜지면 primary 채움, 아니면 윤곽. */
-const toggleClass = (on: boolean) =>
-  cn(
-    'inline-flex h-8 items-center justify-center rounded-md border px-2 text-sm transition-colors disabled:opacity-60',
-    on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-accent',
-  );
+import { TaskRecurrenceScheduleFields } from './TaskRecurrenceScheduleFields';
 
 /** 지금 반복 상태 줄 — 다음 실행 시각과 꺼짐·멈춤 문구. 반복이 없으면 그리지 않는다. 트리거 아래·편집기 머리에서 같이 쓴다. */
 export function TaskRecurrenceStatus({ recurrence, className }: { recurrence: IssueRecurrence | null | undefined; className?: string }) {
@@ -103,8 +86,6 @@ export function TaskRecurrenceEditor({
   // 입력 잠금 — 저장 중이거나 남의 개인 비서 일정.
   const locked = pending || !editable;
   const error = validateTaskRecurrence(form);
-  // 편집 날짜 밖에 함께 반복하는 날짜(API·AI 로 저장된 「1,15」의 15) — 안내·빼기·건너뜀 안내에 쓴다(WP-1117).
-  const otherDays = otherMonthDaysOf(form);
   const patch = (p: Partial<TaskRecurrenceForm>) => setForm((f) => ({ ...f, ...p }));
 
   const onSave = () => {
@@ -119,9 +100,6 @@ export function TaskRecurrenceEditor({
     }
     save.mutate({ rrule, time: form.time, agentUserId: agentId ?? undefined }, { onSuccess: onDone });
   };
-
-  const toggleDay = (d: (typeof WEEKDAY_CODES)[number]) =>
-    patch({ byDay: form.byDay.includes(d) ? form.byDay.filter((x) => x !== d) : [...form.byDay, d] });
 
   return (
     <div className="space-y-3" data-testid="task-recurrence-editor">
@@ -164,100 +142,7 @@ export function TaskRecurrenceEditor({
         )}
       </div>
 
-      <span className="block text-xs font-medium text-muted-foreground">실행 일정</span>
-      <div role="group" aria-label="실행 일정" className="grid grid-cols-4 gap-1">
-        {FREQ_OPTIONS.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={form.freq === o.value}
-            disabled={locked}
-            onClick={() => patch({ freq: o.value })}
-            className={toggleClass(form.freq === o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-
-      {form.freq === 'WEEKLY' && (
-        <div role="group" aria-label="요일" className="grid grid-cols-7 gap-1">
-          {WEEKDAY_CODES.map((d) => (
-            <button
-              key={d}
-              type="button"
-              aria-label={`${WEEKDAY_SHORT[d]}요일`}
-              aria-pressed={form.byDay.includes(d)}
-              disabled={locked}
-              onClick={() => toggleDay(d)}
-              className={cn(toggleClass(form.byDay.includes(d)), 'px-0')}
-            >
-              {WEEKDAY_SHORT[d]}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {form.freq === 'MONTHLY' && (
-        <div className="space-y-1">
-          <label className="flex items-center gap-2 text-sm">
-            <span className="shrink-0 text-muted-foreground">매월</span>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={31}
-              aria-label="날짜"
-              value={Number.isFinite(form.monthDay) ? form.monthDay : ''}
-              disabled={locked}
-              onChange={(e) => patch({ monthDay: e.target.value === '' ? NaN : Number(e.target.value) })}
-              className="h-8 w-20"
-            />
-            <span className="shrink-0">일</span>
-          </label>
-          {/* API·AI 로 저장된 여러 날짜 — 편집기는 날짜 하나만 고치고 나머지는 저장 때 그대로 둔다는 것을 알리고,
-              나머지를 빼고 편집 날짜만 남길 수 있게 한다(WP-1117). */}
-          {otherDays.length > 0 && (
-            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-testid="task-recurrence-other-monthdays">
-              <span>{otherDays.join('·')}일에도 반복합니다</span>
-              {Number.isInteger(form.monthDay) && (
-                <button
-                  type="button"
-                  disabled={locked}
-                  onClick={() => patch({ otherMonthDays: [] })}
-                  className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
-                >
-                  {form.monthDay}일만 반복
-                </button>
-              )}
-            </p>
-          )}
-          {/* 29~31일 — 서버는 RFC 5545 대로 그 날짜가 없는 달(2월·30일까지인 달)을 건너뛴다. */}
-          {[form.monthDay, ...otherDays].some(monthDayMaySkip) && (
-            <p className="text-xs text-muted-foreground" data-testid="task-recurrence-monthday-hint">
-              그 날짜가 없는 달은 건너뜁니다
-            </p>
-          )}
-        </div>
-      )}
-
-      {form.freq !== 'NONE' && (
-        <label className="flex items-center gap-2 text-sm">
-          <span className="shrink-0 text-muted-foreground">시각</span>
-          <Input
-            type="time"
-            aria-label="실행 시각 (한국 시간)"
-            value={form.time}
-            disabled={locked}
-            onChange={(e) => patch({ time: e.target.value })}
-            // 폭은 브라우저가 시각 글자에 맞춰 정한다(w-auto) — 고정 128px 는 휴대폰 글자 크기(16px)에서 「01:00 AM」 끝이 시계 아이콘에
-            // 가려졌다(WP-1115).
-            className="h-8 w-auto"
-            data-testid="task-recurrence-time"
-          />
-          <span className="shrink-0 text-xs text-muted-foreground">한국 시간</span>
-        </label>
-      )}
+      <TaskRecurrenceScheduleFields form={form} onChange={patch} freqs={EDITOR_FREQS} locked={locked} />
 
       {touched && error && (
         <p role="alert" className="text-xs text-destructive" data-testid="task-recurrence-error">
