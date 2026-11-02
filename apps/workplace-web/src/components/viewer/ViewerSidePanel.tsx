@@ -66,17 +66,17 @@ export function ViewerPanelContent({ item, panel }: { item: ViewerItem; panel: P
  */
 export function ViewerSidePanel({ item, panel, onClose }: { item: ViewerItem; panel: PanelAvailability; onClose: () => void }) {
   return (
-    <aside
-      data-testid="viewer-side-panel"
-      className="w-80 shrink-0 overflow-y-auto border-l border-border p-4"
-    >
-      <div className="mb-3 flex items-center justify-between">
+    <aside data-testid="viewer-side-panel" className="flex w-80 shrink-0 flex-col border-l border-border">
+      {/* 머리는 고정 높이(h-11)·아래 선 — 왼쪽 HTML 스크립트 안내 줄과 높이·선이 이어진다(WP-1282). 내용만 스크롤된다. */}
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border pr-1.5 pl-4">
         <h2 className="text-sm font-medium">{panel.title}</h2>
-        <Button variant="ghost" size="icon" aria-label="요약 닫기" onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" aria-label="요약 닫기" onClick={onClose}>
           <X />
         </Button>
       </div>
-      <ViewerPanelContent item={item} panel={panel} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <ViewerPanelContent item={item} panel={panel} />
+      </div>
     </aside>
   )
 }

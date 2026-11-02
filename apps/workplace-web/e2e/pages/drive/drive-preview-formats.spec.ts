@@ -286,10 +286,12 @@ test.describe('드라이브 프리뷰 포맷', () => {
     const state = page.frameLocator('[data-testid="html-document"]').locator('#state')
     // 기본은 차단 — 스크립트가 돌지 않아 처음 글자 그대로다.
     await expect(state).toHaveText('차단됨')
-    await body.getByRole('switch', { name: '스크립트 실행' }).click()
+    // 스위치는 뷰어 머리줄에 있다(WP-1282).
+    await page.getByRole('switch', { name: '스크립트 실행' }).click()
     // 허용하면 스크립트가 돈다. 출처는 불투명(null)이라 앱 쿠키·저장소에 닿지 못한다.
     await expect(state).toHaveText('스크립트 실행됨:null')
-    await expect(body.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
+    await expect(page.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
+    await expect(body).toBeVisible()
   })
 
   // WP-1271: srcdoc 문서의 `#…` 링크는 상위 앱 주소 기준으로 풀리고 `<base target="_blank">` 에 걸려 새 탭에 앱을 다시 열었다.
@@ -305,7 +307,6 @@ test.describe('드라이브 프리뷰 포맷', () => {
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: 'toc.html' }).click()
-    const body = page.getByTestId('preview-body')
     const frame = page.frameLocator('[data-testid="html-document"]')
     const scrollY = () => frame.locator('body').evaluate(() => window.scrollY)
 
@@ -316,8 +317,9 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect.poll(scrollY).toBeGreaterThan(2000)
 
     // 스크립트 켜짐 — 새 iframe 으로 다시 그려진 뒤 목차를 누르면 역시 2절로 간다.
-    await body.getByRole('switch', { name: '스크립트 실행' }).click()
-    await expect(body.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
+    // 스위치는 뷰어 머리줄에 있다(WP-1282).
+    await page.getByRole('switch', { name: '스크립트 실행' }).click()
+    await expect(page.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
     await expect.poll(() => frame.locator('body').evaluate(() => (window as unknown as { loaded?: boolean }).loaded === true)).toBe(true)
     expect(await scrollY()).toBe(0)
     await frame.locator('#toc').click()
@@ -332,6 +334,40 @@ test.describe('드라이브 프리뷰 포맷', () => {
     // 어느 쪽에서도 새 탭(앱 다시 열기)이 생기지 않는다.
     expect(popups).toEqual([])
   })
+
+  // WP-1282: 스크립트 컨트롤은 문서 영역에 줄을 차지하지 않는다 — 데스크톱은 머리줄 안에 서고 문서(iframe)는 본문 영역 맨 위부터 시작한다.
+  // 모바일은 문서 오른쪽 위에 떠 있되 상단 바 아래·화면 안에 있다. 높이·겹침은 jsdom 이 잴 수 없어 E2E 로 본다.
+  for (const vp of [
+    { name: '데스크톱', width: 1280, height: 800 },
+    { name: '모바일', width: 390, height: 844 },
+  ]) {
+    test(`스크립트 컨트롤은 문서 영역에 줄을 차지하지 않는다(${vp.name})`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await stubSpaces(page)
+      await stubHtmlFile(page, 'deck.html', '<!doctype html><html><body><h1>덱</h1><script>1</script></body></html>')
+      await stubSecurityCheckLow(page)
+      await page.goto(`/drive/spaces/${SPACE_ID}`)
+      await page.getByRole('button', { name: 'deck.html' }).first().click()
+
+      const group = page.getByTestId('html-script-notice')
+      await expect(group).toBeVisible()
+      const frame = (await page.getByTestId('html-document').boundingBox())!
+      const box = (await group.boundingBox())!
+      if (vp.name === '데스크톱') {
+        const header = (await page.getByTestId('attachment-viewer').locator('header').boundingBox())!
+        // 머리줄 안에 서고(세로로 머리줄 범위 안), 문서는 머리줄 바로 아래 본문 영역 맨 위에서 시작한다.
+        expect(box.y).toBeGreaterThanOrEqual(header.y)
+        expect(box.y + box.height).toBeLessThanOrEqual(header.y + header.height)
+        const bodyBox = (await page.getByTestId('preview-body').boundingBox())!
+        expect(Math.abs(frame.y - bodyBox.y)).toBeLessThanOrEqual(1)
+      } else {
+        // 문서 위에 겹쳐 떠 있다 — 문서 영역 안, 화면 오른쪽 끝을 넘지 않는다.
+        expect(box.y).toBeGreaterThanOrEqual(frame.y)
+        expect(box.x + box.width).toBeLessThanOrEqual(vp.width)
+        expect(box.x).toBeGreaterThanOrEqual(0)
+      }
+    })
+  }
 
   // #776: 작은 이미지는 preview-body 가운데(가로·세로)에 놓여 상단에 방치되지 않아야 한다.
   // WP-277: 확대 시 위·왼쪽까지 스크롤되도록 정렬을 items-center 대신 자식 m-auto(안전한 가운데 정렬)로 바꿨으므로
