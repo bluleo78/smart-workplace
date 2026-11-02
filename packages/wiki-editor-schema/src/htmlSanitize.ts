@@ -116,8 +116,9 @@ export function isSafeDeclaration(decl: string, allowRemote = true): boolean {
 
 /**
  * 따옴표·괄호 밖의 구분 글자 위치에서 자른다 — `url(data:image/png;base64,…)` 나 `content:";"` 의 ; 로 선언이 쪼개지지 않게.
+ * 웹의 상자 꾸미기(wikiBoxStyle.ts)도 정리기와 같은 단위로 선언을 세려고 이 함수를 쓴다.
  */
-function splitTopLevel(text: string, sep: string): string[] {
+export function splitTopLevel(text: string, sep: string): string[] {
   const parts: string[] = []
   let depth = 0
   let quote: string | null = null

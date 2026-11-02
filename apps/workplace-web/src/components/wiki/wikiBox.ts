@@ -2,10 +2,10 @@
 // HTML 을 들여올 때 생기는 카드도 같은 상자다. 스키마는 그대로 두고(새 노드 없음 — 지문 불변) 편집기 동작만 얹는다:
 // - 만들기: 슬래시 「상자」(insertBox), 글을 고르고 「상자로 감싸기」(wrapInBox). 새 상자는 「기본」 모양(BOX_BASIC_STYLE)이다.
 // - 고르기: 상자 테두리·안쪽 여백을 누르면 상자 통째 선택(NodeSelection) — 상자 막대(WikiBoxToolbar)가 뜬다.
-// - 상자 막대 동작: ↑/↓ 줄 추가(addLineBesideBox)·글만 남기기(unwrapBox)·삭제(deleteBox).
+// - 상자 막대 동작: 꾸미기(writeSelectedBoxStyle — WP-1304 상자 꾸미기 창, 정리·자리 지킴은 여기 한곳)·↑/↓ 줄 추가(addLineBesideBox)·글만 남기기(unwrapBox)·삭제(deleteBox).
 // - 통째 선택 키: Enter·↓ 다음 줄, ↑ 앞 줄, Esc 한 단계 바깥, Delete·Backspace 지우기(기본 동작). 글 줄 → 상자 밖 Enter·↓ 는 WP-1288(wikiBlockExit).
-import { WIKI_HTML_BOX } from '@smart-workplace/wiki-editor-schema'
-import { type Command, Extension } from '@tiptap/core'
+import { sanitizeInlineStyle, WIKI_HTML_BOX } from '@smart-workplace/wiki-editor-schema'
+import { type Command, type Editor as TiptapEditor, Extension } from '@tiptap/core'
 import { Fragment, type Node as PMNode, NodeRange, type ResolvedPos } from '@tiptap/pm/model'
 import { type EditorState, NodeSelection, Plugin, PluginKey, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { findWrapping } from '@tiptap/pm/transform'
@@ -27,7 +27,7 @@ import {
   selectedNode,
   typingGuardProps,
 } from './wikiBlockExit'
-import { nodeSelectionRestoreGuard } from './wikiCollabPosition'
+import { dispatchAsUndoStep, nodeSelectionRestoreGuard } from './wikiCollabPosition'
 import { stripShapeFromFragment } from './wikiPasteShape'
 
 /**
@@ -35,6 +35,12 @@ import { stripShapeFromFragment } from './wikiPasteShape'
  * 노드의 style 속성(sanitizeInlineStyle 통과)에 그대로 저장한다 — 색은 앱 테마 변수(--border)를 쓰고, 변수가 없는 화면(내보낸 HTML)은 옅은 회색.
  */
 export const BOX_BASIC_STYLE = 'border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 12px 16px'
+
+/**
+ * 상자가 비어 사라지지 않게 하는 자리 지킴 선언(WP-1304) — class 도 style 도 없는 div 는 다시 읽을 때 상자로 잡히지 않는다(htmlNodes BOX_SELECTOR).
+ * 꾸미기를 다 지워도 상자는 남아야 하므로 div 기본값과 같은 이 선언을 둔다(모양은 바뀌지 않는다).
+ */
+export const BOX_EMPTY_STYLE = 'display: block'
 
 /** 선택이 통째 고른 상자(노드 선택) — 아니면 null. 상자 막대·키 동작이 쓴다. */
 export function selectedBox(state: EditorState): SelectedBlock | null {
@@ -167,6 +173,30 @@ export function unwrapBox(state: EditorState, dispatch: ((tr: Transaction) => vo
   const tr = state.tr.replaceWith(pos, pos + node.nodeSize, content)
   dispatch(tr.setSelection(Selection.near(tr.doc.resolve(pos), 1)).scrollIntoView())
   return true
+}
+
+/**
+ * 「상자 꾸미기」(WP-1304) — pos 의 상자 style 속성만 바꾼다(속성 바꾸기 한 단계라 위치·통째 선택이 그대로 남는다).
+ * 실행 취소 한 단계로 따로 내보낸다(dispatchAsUndoStep) — 꾸미기 한 번이 실행 취소 한 번이 되게. 정리는 부르는 쪽(writeSelectedBoxStyle)이 한다.
+ * pos 에 상자가 없으면(동료가 지움) false.
+ */
+export function setBoxStyle(editor: TiptapEditor, pos: number, style: string): boolean {
+  const node = editor.state.doc.nodeAt(pos)
+  if (!isBox(node)) return false
+  if (node.attrs.style !== style) dispatchAsUndoStep(editor, editor.state.tr.setNodeAttribute(pos, 'style', style))
+  return true
+}
+
+/**
+ * 지금 통째 선택된 상자의 style 을 바꾼다 — 상자 style 을 저장하는 유일한 길이라 정리(sanitizeInlineStyle)와 빈 style 의
+ * 자리 지킴 선언(BOX_EMPTY_STYLE)을 여기서만 한다(꾸미기 항목·「CSS 로 직접 고치기」 모두 정리 전 글자를 넘긴다).
+ * 거래 하나라 동료에게 바로 가고 실행 취소 한 번에 돌아온다. 저장한 style 을 돌려준다 — 상자가 선택돼 있지 않으면(동료가 지움) null.
+ */
+export function writeSelectedBoxStyle(editor: TiptapEditor, next: (style: string | null) => string): string | null {
+  const hit = selectedBox(editor.state)
+  if (!hit) return null
+  const style = sanitizeInlineStyle(next(hit.node.attrs.style as string | null)) ?? BOX_EMPTY_STYLE
+  return setBoxStyle(editor, hit.pos, style) ? style : null
 }
 
 /** 「삭제」 — 상자를 안 내용째 지운다(통째 선택 후 deleteSelection — Delete 키와 같다). pos 에 상자가 없으면 false. */

@@ -96,7 +96,8 @@ export function EditorFloatingToolbar({
         // flex-wrap — 좁은 뷰포트에서 버튼 수가 많은 툴바(서식 6 + AI 6, #687)가 maxWidth 를
         // 넘으면 한 줄에 다 들어가지 못한다. wrap 없이는 넘치는 버튼이 클리핑되어 클릭 불가
         // 상태로 숨어버리므로, 넘치면 2줄 이상으로 접히게 한다(좁은 화면 실측 필수 — CLAUDE 메모리).
-        className="flex flex-wrap items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+        // relative — 막대 아래로 떠 보이는 창(상자 꾸미기, WP-1304)이 막대를 기준으로 자리 잡게.
+        className="relative flex flex-wrap items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
       >
         {children}
       </div>

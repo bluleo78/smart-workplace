@@ -82,6 +82,7 @@ import { rememberMentionLabel, WikiMentionLabelsProvider } from './wikiMentionLa
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
 import { type WikiAiState, WikiPageHeader } from './WikiPageHeader'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
+import { WikiPageStyleDialog } from './WikiPageStyleDialog'
 import { WikiPresence } from './WikiPresence'
 import { announcePresence } from './wikiPresenceAnnounce'
 import { revealPresence, scrollToRelative, wikiPresenceCursorsKey } from './wikiPresenceCursors'
@@ -1142,6 +1143,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
               onUnlink={linkUi.unlink}
             />
             <WikiTableContextMenu editor={editor} disabled={!editable} />
+            {/* 페이지 스타일 고치기 창(WP-1304) — 칩 「페이지 스타일」을 누르면 열린다. 닫혀 있으면 DOM 이 없고 열리면 포털이라 형제 순서와 무관하다. */}
+            <WikiPageStyleDialog editor={editor} disabled={!editable} />
             {/* 제목 — 한 줄 값이지만 화면에선 줄바꿈해 보이도록 rows=1 자동 높이 textarea(WP-315·317).
                 개행은 넣지 않는다: Enter 는 아래 핸들러가 본문 이동으로 쓰고, 붙여넣기 등으로 들어온 개행은 공백으로 바꾼다
                 (제목에 개행이 남으면 트리·탭·검색 표시가 깨진다). */}
