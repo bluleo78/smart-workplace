@@ -174,6 +174,20 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
         return (OffsetDateTime) get(10);
     }
 
+    /**
+     * Setter for <code>public.wiki_revision.html_source</code>.
+     */
+    public void setHtmlSource(String value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_revision.html_source</code>.
+     */
+    public String getHtmlSource() {
+        return (String) get(11);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -197,7 +211,7 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
     /**
      * Create a detached, initialised WikiRevisionRecord
      */
-    public WikiRevisionRecord(Long tenantId, Long pageId, Integer version, String title, String body, Long authorId, OffsetDateTime createdAt, Long[] editorIds, Long aiActorId, String reason, OffsetDateTime editedAt) {
+    public WikiRevisionRecord(Long tenantId, Long pageId, Integer version, String title, String body, Long authorId, OffsetDateTime createdAt, Long[] editorIds, Long aiActorId, String reason, OffsetDateTime editedAt, String htmlSource) {
         super(WikiRevision.WIKI_REVISION);
 
         setTenantId(tenantId);
@@ -211,6 +225,7 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
         setAiActorId(aiActorId);
         setReason(reason);
         setEditedAt(editedAt);
+        setHtmlSource(htmlSource);
         resetChangedOnNotNull();
     }
 }

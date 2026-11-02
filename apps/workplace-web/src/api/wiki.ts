@@ -63,6 +63,13 @@ export const wikiApi = {
     client.get<WikiPageSummary[]>(`/wiki/spaces/${spaceId}/pages`),
   createPage: (spaceId: number, parentId: number | null, title: string) =>
     client.post<WikiPageDetail>(`/wiki/spaces/${spaceId}/pages`, { parentId, title }),
+  // 「HTML 문서」 페이지 만들기(WP-1307) — 원본 HTML 을 그대로 보관한다(빈 문서는 html ""). 5MB(UTF-8 바이트)를 넘으면 413.
+  createHtmlPage: (spaceId: number, req: { parentId: number | null; title: string; html: string }) =>
+    client.post<WikiPageDetail>(`/wiki/spaces/${spaceId}/html-pages`, req),
+  // 「HTML 문서」 원본 저장(WP-1307) — 소스 저장·다시 올리기. version 이 낡았으면 409, 5MB 초과는 413. 저장마다 직전 판이 버전 기록에 남는다.
+  // title 을 빼면 제목은 그대로다.
+  saveHtml: (pageId: number, req: { html: string; version: number; title?: string }) =>
+    client.put<WikiPageDetail>(`/wiki/pages/${pageId}/html`, req),
 
   // base=false: 새 웹은 본문을 동기화 서버로 저장하므로 AI 병합 기준본을 남길 필요가 없다(WP-289 — 기본값은 구버전 웹·MCP 용 기록).
   // shareToken: 공유 링크로 연 화면(WP-579) — 스페이스 멤버가 아니어도 이 토큰으로 읽는다.

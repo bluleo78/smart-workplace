@@ -13,10 +13,12 @@ public record WikiRevisionDetail(
     OffsetDateTime createdAt,
     RevisionReason reason,
     List<Person> editors,
-    Person aiActor) {
+    Person aiActor,
+    // WP-1307: HTML 문서 판의 원본 HTML — 판 미리보기를 HTML 그대로 그린다. 노트 판이면 null.
+    String html) {
 
   /** 목록 항목에 본문을 더한 단건 — 목록·단건이 같은 매핑을 쓰게 한다. */
-  public static WikiRevisionDetail of(WikiRevisionItem item, String body) {
+  public static WikiRevisionDetail of(WikiRevisionItem item, String body, String html) {
     return new WikiRevisionDetail(
         item.version(),
         item.title(),
@@ -25,6 +27,7 @@ public record WikiRevisionDetail(
         item.createdAt(),
         item.reason(),
         item.editors(),
-        item.aiActor());
+        item.aiActor(),
+        html);
   }
 }

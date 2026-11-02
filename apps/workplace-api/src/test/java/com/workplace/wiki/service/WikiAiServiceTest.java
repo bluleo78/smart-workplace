@@ -26,6 +26,7 @@ import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiAiRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.outbound.WikiAiAgentStreamClient;
 import com.workplace.wiki.repository.WikiPageRepository;
@@ -107,7 +108,9 @@ class WikiAiServiceTest {
         null,
         false,
         false,
-        false);
+        false,
+        WikiPageKind.NOTE,
+        null);
   }
 
   private AssistantSpec spec() {

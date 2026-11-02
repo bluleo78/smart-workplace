@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -47,6 +48,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -161,6 +163,16 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
      * The column <code>public.wiki_page.search_text</code>.
      */
     public final TableField<WikiPageRecord, String> SEARCH_TEXT = createField(DSL.name("search_text"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.wiki_page.kind</code>.
+     */
+    public final TableField<WikiPageRecord, String> KIND = createField(DSL.name("kind"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'NOTE'::character varying"), SQLDataType.VARCHAR)), this, "");
+
+    /**
+     * The column <code>public.wiki_page.html_source</code>.
+     */
+    public final TableField<WikiPageRecord, String> HTML_SOURCE = createField(DSL.name("html_source"), SQLDataType.CLOB, this, "");
 
     private WikiPage(Name alias, Table<WikiPageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -413,6 +425,13 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _wikiShareAccessRequest = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_PAGE_ID_FKEY.getInverseKey());
 
         return _wikiShareAccessRequest;
+    }
+
+    @Override
+    public List<Check<WikiPageRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("wiki_page_kind_check"), "(((kind)::text = ANY ((ARRAY['NOTE'::character varying, 'HTML'::character varying])::text[])))", true)
+        );
     }
 
     @Override

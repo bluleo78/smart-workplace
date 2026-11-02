@@ -572,6 +572,153 @@ test('VIEWER 에게는 「HTML 파일로 새 노트」가 없다', async () => {
   expect(screen.queryByTestId('wiki-space-import-html')).not.toBeInTheDocument()
 })
 
+// ── 새 노트 ▾ › HTML 문서(WP-1307) ───────────────────────────────────────────
+
+/** 「HTML 문서」 만들기 요청을 모으는 핸들러 — 응답은 kind HTML 상세. */
+function htmlPageCreates(id = 12) {
+  const posts: unknown[] = []
+  const handler = http.post('/api/v1/wiki/spaces/1/html-pages', async ({ request }) => {
+    const body = (await request.json()) as { title: string }
+    posts.push(body)
+    return HttpResponse.json(wikiPageDetail({ id, title: body.title, kind: 'HTML', html: '' }), { status: 201 })
+  })
+  return { posts, handler }
+}
+
+test('▾ 「소스 붙여 넣기」 → 제목·소스로 {parentId:null, title, html} 을 /html-pages 에 보내고 새 문서로 간다', async () => {
+  const { posts, handler } = htmlPageCreates(12)
+  const { user, location } = open({ handlers: [handler] })
+  await user.click(await screen.findByTestId('wiki-new-menu'))
+  await user.click(await screen.findByRole('menuitem', { name: '소스 붙여 넣기' }))
+  const dialog = await screen.findByTestId('wiki-html-paste-dialog')
+  // 소스가 비면 만들 수 없다.
+  expect(within(dialog).getByTestId('wiki-html-paste-create')).toBeDisabled()
+  await user.click(within(dialog).getByTestId('wiki-html-paste-title'))
+  await user.paste('차트 보고서')
+  await user.click(within(dialog).getByTestId('wiki-html-paste-source'))
+  await user.paste('<h1>차트</h1><script>draw()</script>')
+  await user.click(within(dialog).getByTestId('wiki-html-paste-create'))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/12'))
+  expect(posts).toEqual([{ parentId: null, title: '차트 보고서', html: '<h1>차트</h1><script>draw()</script>' }])
+  await waitFor(() => expect(screen.queryByTestId('wiki-html-paste-dialog')).not.toBeInTheDocument())
+})
+
+test('「소스 붙여 넣기」 제목을 비우면 소스의 <title> 을 제목으로 쓴다', async () => {
+  const { posts, handler } = htmlPageCreates(13)
+  const { user, location } = open({ handlers: [handler] })
+  await user.click(await screen.findByTestId('wiki-new-menu'))
+  await user.click(await screen.findByRole('menuitem', { name: '소스 붙여 넣기' }))
+  await user.click(await screen.findByTestId('wiki-html-paste-source'))
+  await user.paste('<html><head><title>월간 지표</title></head><body></body></html>')
+  await user.click(screen.getByTestId('wiki-html-paste-create'))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/13'))
+  expect(posts).toEqual([{ parentId: null, title: '월간 지표', html: '<html><head><title>월간 지표</title></head><body></body></html>' }])
+})
+
+test('▾ 「빈 문서」 → html "" 로 만들고 연다. 「노트」는 지금처럼 빈 노트를 만든다', async () => {
+  const { posts, handler } = htmlPageCreates(14)
+  const notes: unknown[] = []
+  const { user, location } = open({
+    handlers: [
+      handler,
+      http.post('/api/v1/wiki/spaces/1/pages', async ({ request }) => {
+        notes.push(await request.json())
+        return HttpResponse.json(wikiPageDetail({ id: 15 }), { status: 201 })
+      }),
+    ],
+  })
+  await user.click(await screen.findByTestId('wiki-new-menu'))
+  await user.click(await screen.findByRole('menuitem', { name: '빈 문서' }))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/14'))
+  expect(posts).toEqual([{ parentId: null, title: '', html: '' }])
+  await user.click(screen.getByTestId('wiki-new-menu'))
+  await user.click(await screen.findByRole('menuitem', { name: '노트' }))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/15'))
+  expect(notes).toEqual([{ parentId: null, title: '' }])
+})
+
+test('▾ 「파일 올리기」 → 원본 그대로 HTML 문서로 만든다(블록 변환 없음). 제목은 <title>', async () => {
+  const { posts, handler } = htmlPageCreates(16)
+  const { user, location } = open({ handlers: [handler] })
+  await user.click(await screen.findByTestId('wiki-new-menu'))
+  const input = screen.getByTestId<HTMLInputElement>('wiki-html-document-input')
+  let opened = 0
+  const onClick = (e: Event) => {
+    opened++
+    e.preventDefault()
+  }
+  input.addEventListener('click', onClick)
+  await user.click(await screen.findByRole('menuitem', { name: '파일 올리기' }))
+  expect(opened).toBe(1)
+  input.removeEventListener('click', onClick)
+  await user.upload(input, htmlFile())
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/1/pages/16'))
+  expect(posts).toEqual([
+    {
+      parentId: null,
+      title: '3분기 보고서',
+      html: '<!doctype html><html><head><title>3분기 보고서</title><style>.card{padding:8px}</style></head><body><h1>3분기 보고서</h1><div class="card"><p>매출 증가</p></div></body></html>',
+    },
+  ])
+})
+
+test('「파일 올리기」에서 5MB 넘는 파일은 읽지 않고 알리며 요청하지 않는다', async () => {
+  const { posts, handler } = htmlPageCreates()
+  const { user } = open({ handlers: [handler] })
+  await screen.findByTestId('wiki-new-menu')
+  const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], '큰 파일.html', { type: 'text/html' })
+  let read = false
+  big.text = async () => {
+    read = true
+    return ''
+  }
+  await user.upload(screen.getByTestId('wiki-html-document-input'), big)
+  expect(await screen.findByText('HTML 파일이 너무 큽니다 — 5MB 이하 파일만 가져올 수 있습니다.')).toBeInTheDocument()
+  expect(read).toBe(false)
+  expect(posts).toEqual([])
+})
+
+test('서버가 413 이면 서버 문구를 알리고 대화상자를 연 채 둔다', async () => {
+  const { user, location } = open({
+    handlers: [
+      http.post('/api/v1/wiki/spaces/1/html-pages', () =>
+        HttpResponse.json({ status: 413, message: 'HTML 문서는 5MB 까지 올릴 수 있습니다' }, { status: 413 }),
+      ),
+    ],
+  })
+  await user.click(await screen.findByTestId('wiki-new-menu'))
+  await user.click(await screen.findByRole('menuitem', { name: '소스 붙여 넣기' }))
+  await user.click(await screen.findByTestId('wiki-html-paste-source'))
+  await user.paste('<p>큰 문서</p>')
+  await user.click(screen.getByTestId('wiki-html-paste-create'))
+  expect(await screen.findByText('HTML 문서는 5MB 까지 올릴 수 있습니다')).toBeInTheDocument()
+  expect(screen.getByTestId('wiki-html-paste-dialog')).toBeInTheDocument()
+  expect(location()).toBe('/wiki/spaces/1')
+})
+
+test('VIEWER 에게는 ＋·▾ 가 없다', async () => {
+  open({
+    spaces: () => [wikiSpace({ id: 1, type: 'TEAM', name: '팀 노트', ownerId: 9, role: 'VIEWER' })],
+    tree: () => [wikiPageSummary({ id: 310, title: '문서' })],
+  })
+  await screen.findByTestId('wiki-tree-row-310')
+  expect(screen.queryByTestId('wiki-new-menu')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '새 페이지' })).not.toBeInTheDocument()
+})
+
+test('트리 행은 kind HTML 일 때만 「HTML」 표시를 붙인다', async () => {
+  open({
+    tree: () => [
+      wikiPageSummary({ id: 1, title: '대시보드', kind: 'HTML', position: 0 }),
+      wikiPageSummary({ id: 2, title: '회의록', kind: 'NOTE', position: 1 }),
+      wikiPageSummary({ id: 3, title: '옛 노트', position: 2 }),
+    ],
+  })
+  expect(await screen.findByTestId('wiki-tree-html-badge-1')).toHaveTextContent('HTML')
+  expect(screen.queryByTestId('wiki-tree-html-badge-2')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('wiki-tree-html-badge-3')).not.toBeInTheDocument()
+})
+
 // ── 이동 대화상자(wiki-move-dialog) ─────────────────────────────────────────
 
 test('「이동…」 목록에는 자기 자신과 자기 하위 페이지가 없다 — 「회의록」을 옮길 때 그 아래 페이지들은 빠진다', async () => {

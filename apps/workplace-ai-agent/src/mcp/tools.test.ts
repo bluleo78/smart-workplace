@@ -85,6 +85,8 @@ function sharedMock(): MockedShared {
     getWikiPage: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    createWikiHtmlPage: vi.fn().mockResolvedValue({}),
+    saveWikiHtml: vi.fn().mockResolvedValue({}),
     claimWikiImages: vi.fn().mockResolvedValue([]),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),

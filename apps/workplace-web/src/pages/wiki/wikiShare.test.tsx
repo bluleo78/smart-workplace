@@ -133,6 +133,26 @@ describe('노트 외부 보기(로그인 없음)', () => {
     expect(screen.getByTestId('wiki-html-embed')).not.toHaveAttribute('data-source-open')
   })
 
+  test('「HTML 문서」(kind HTML)면 마크다운 편집기 대신 원본을 격리 iframe 으로 그리고, 트리에 HTML 표시를 붙인다(WP-1307)', async () => {
+    const src = '<!doctype html><html><body><canvas id="c"></canvas><script>draw()</script></body></html>'
+    openPublic(`/wiki/share/${TOKEN}`, () =>
+      HttpResponse.json({
+        ...share(ROOT),
+        pages: PAGES.map((p) => (p.id === ROOT ? { ...p, kind: 'HTML' as const } : p)),
+        page: { ...share(ROOT).page, markdown: '뽑은 글자', kind: 'HTML', html: src },
+      }),
+    )
+    const frame = await screen.findByTestId('wiki-public-html-frame')
+    expect(frame.getAttribute('sandbox')).toContain('allow-scripts')
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(frame.getAttribute('srcdoc')).toContain('<canvas id="c"></canvas>')
+    expect(screen.getByRole('heading', { name: '제품 로드맵' })).toBeInTheDocument()
+    // TipTap 본문은 그리지 않는다.
+    expect(publicView().querySelector('.wiki-editor')).toBeNull()
+    expect(within(tree()).getByTestId(`wiki-share-tree-html-badge-${ROOT}`)).toHaveTextContent('HTML')
+    expect(within(tree()).queryByTestId(`wiki-share-tree-html-badge-${CHILD}`)).not.toBeInTheDocument()
+  })
+
   test('하위 응답을 기다리는 동안에도 트리가 남고 본문이 skeleton 으로 깜빡이지 않는다', async () => {
     let release!: () => void
     const gate = new Promise<void>((r) => (release = r))
@@ -312,6 +332,28 @@ describe('노트 공유 링크 — 받는 사람', () => {
     expect(view).toHaveTextContent('다른 회사')
     expect(screen.queryByTestId('wiki-share-unavailable')).not.toBeInTheDocument()
     expect(selects).toEqual([])
+  })
+
+  test('공유받은 「HTML 문서」는 편집기 없이 격리 iframe 으로 보기만 한다 — 소스·다시 올리기·버전 기록은 없고 원본 내려받기는 있다(WP-1307)', async () => {
+    openShareView(
+      () => HttpResponse.json(resolved({ permission: 'EDIT' })),
+      [
+        http.get('/api/v1/wiki/pages/:id', ({ params }) =>
+          HttpResponse.json(
+            wikiPageDetail({ id: Number(params.id), spaceId: SHARE_SPACE, title: '제품 로드맵', kind: 'HTML', html: '<p>공유된 원본</p>' }),
+          ),
+        ),
+      ],
+    )
+    const frame = await screen.findByTestId('wiki-html-frame')
+    expect(frame.getAttribute('srcdoc')).toContain('<p>공유된 원본</p>')
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(screen.getByTestId('wiki-page-shared-by')).toHaveTextContent('김민지님이 공유')
+    expect(screen.queryByTestId('wiki-html-mode-source')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-html-reupload')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-html-history')).not.toBeInTheDocument()
+    expect(screen.getByTestId('wiki-html-download')).toBeInTheDocument()
+    expect(document.querySelector('.wiki-editor')).toBeNull()
   })
 
   test('링크 열기가 일시적으로 실패하면(5xx) 닫힌 링크가 아니라 다시 시도로 안내하고, 다시 시도하면 공유 화면이 열린다', async () => {

@@ -23,7 +23,8 @@ export function createApp(deps: AppDeps): express.Express {
   const app = express();
   // 토큰 검증 성공 기억(WP-1013) — 앱마다 하나라 테스트도 앱을 새로 만들면 비어 있다.
   const authCache = createAuthCache();
-  app.use(express.json({ limit: '4mb' }));
+  // WP-1307: HTML 문서 원본(최대 5MB, UTF-8)을 create_wiki_page·update_wiki_page 로 보낼 수 있게 — JSON 이스케이프로 커지는 몫까지 여유를 둔다.
+  app.use(express.json({ limit: '8mb' }));
   app.use(healthRouter); // 인증 앞 — 무인증
   // 연결 범위(WP-350): /mcp(전체) · /mcp/readonly · /mcp/x/{apps} · /mcp/x/{apps}/readonly. 헤더 X-MCP-Toolsets 는 핸들러가 읽는다.
   // 라우트별로 읽은 범위만 넘기고, 검증(앱 이름)과 도구 선택은 handleMcpPost 가 한다.

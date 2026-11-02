@@ -157,6 +157,8 @@ describe('노트', () => {
     getWikiPage: vi.fn().mockResolvedValue({ id: 5, spaceId: 1, parentId: null, title: 'T', body: 'b', version: 3, updatedBy: 9, updatedAt: 't', aiLastUsedAt: null, aiLastAction: null }),
     createWikiPage: vi.fn().mockResolvedValue({ id: 6, spaceId: 1, parentId: null, title: 'N', body: '', version: 1, updatedBy: 9, updatedAt: 't' }),
     updateWikiPage: vi.fn().mockResolvedValue({ id: 5, spaceId: 1, parentId: null, title: 'T', body: 'c', version: 4, updatedBy: 9, updatedAt: 't' }),
+    createWikiHtmlPage: vi.fn().mockResolvedValue({}),
+    saveWikiHtml: vi.fn().mockResolvedValue({}),
   };
   const tools = buildWikiTools(client as never) as never as Parameters<typeof find>[0];
 

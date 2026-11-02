@@ -40,6 +40,8 @@ public class WikiRevisionRepository {
             .set(WIKI_REVISION.VERSION, current.version())
             .set(WIKI_REVISION.TITLE, current.title())
             .set(WIKI_REVISION.BODY, current.body())
+            // WP-1307: HTML 문서는 원본 HTML 도 판에 남긴다(노트는 null).
+            .set(WIKI_REVISION.HTML_SOURCE, current.html())
             .set(WIKI_REVISION.AUTHOR_ID, current.updatedBy())
             .set(WIKI_REVISION.EDITOR_IDS, editorIds.toArray(Long[]::new))
             .set(WIKI_REVISION.AI_ACTOR_ID, aiActorId)
@@ -83,7 +85,9 @@ public class WikiRevisionRepository {
       OffsetDateTime createdAt,
       RevisionReason reason,
       List<Long> editorIds,
-      Long aiActorId) {}
+      Long aiActorId,
+      // WP-1307: HTML 문서 판의 원본 HTML — 목록 조회·노트 판이면 null.
+      String html) {}
 
   /** 목록·단건 공통 조회 컬럼(본문 제외 — 단건만 BODY 를 더한다). */
   private static final List<SelectField<?>> ROW_FIELDS =
@@ -106,23 +110,23 @@ public class WikiRevisionRepository {
         .where(WIKI_REVISION.PAGE_ID.eq(pageId))
         .orderBy(WIKI_REVISION.CREATED_AT.desc(), WIKI_REVISION.VERSION.desc())
         .limit(limit)
-        .fetch(r -> toRow(r, null));
+        .fetch(r -> toRow(r, null, null));
   }
 
   /** 페이지의 그 version 리비전(본문 포함). 없으면 empty. */
   public Optional<RevisionRow> find(long pageId, int version) {
     return dsl.select(ROW_FIELDS)
-        .select(WIKI_REVISION.BODY)
+        .select(WIKI_REVISION.BODY, WIKI_REVISION.HTML_SOURCE)
         .from(WIKI_REVISION)
         .where(WIKI_REVISION.PAGE_ID.eq(pageId).and(WIKI_REVISION.VERSION.eq(version)))
-        .fetchOptional(r -> toRow(r, r.get(WIKI_REVISION.BODY)));
+        .fetchOptional(r -> toRow(r, r.get(WIKI_REVISION.BODY), r.get(WIKI_REVISION.HTML_SOURCE)));
   }
 
   /**
    * 조회 행 → RevisionRow. 표시 시각·편집자 대체 규칙(edited_at ?? created_at, editor_ids 비면 author_id)을 여기서 한 번만
    * 적용한다.
    */
-  private static RevisionRow toRow(org.jooq.Record r, String body) {
+  private static RevisionRow toRow(org.jooq.Record r, String body, String html) {
     Long[] editors = r.get(WIKI_REVISION.EDITOR_IDS);
     List<Long> editorIds =
         editors != null && editors.length > 0
@@ -139,6 +143,7 @@ public class WikiRevisionRepository {
         createdAt,
         reason != null ? RevisionReason.valueOf(reason) : null,
         editorIds,
-        r.get(WIKI_REVISION.AI_ACTOR_ID));
+        r.get(WIKI_REVISION.AI_ACTOR_ID),
+        html);
   }
 }

@@ -17,6 +17,8 @@ export const getWikiPageInput = z.object({ pageId: z.number().int().positive() }
 export const getWikiPageDetailInput = getWikiPageInput.extend({
   includeSummary: z.boolean().optional(),
   includeRevisions: z.boolean().optional(),
+  // WP-1307: HTML 문서(kind HTML)의 원본 HTML 도 싣는다 — 기본은 본문 글자(body)만.
+  includeSource: z.boolean().optional(),
 });
 // 판 번호는 get_wiki_page 의 revisions[].version 이다(update_wiki_page 의 version 은 저장 기준 판이라 다른 값).
 export const restoreWikiRevisionInput = z.object({
@@ -38,6 +40,11 @@ const MAX_WIKI_TREE_NODES = 500;
 const SEARCH_SERVER_CAP = 50;
 /** get_wiki_page 의 includeRevisions 가 싣는 판 수(최신순). 서버는 최대 200건을 주는데 판마다 편집자·사유가 있어 넘기면 잘라 revisionsOmitted 로 알린다. */
 const MAX_REVISIONS = 30;
+/**
+ * get_wiki_page includeSource 가 싣는 HTML 문서 원본 글자 수 상한(WP-1307) — 원본은 최대 5MB 라 그대로 실으면 대화 토큰을 다 쓴다. 넘으면
+ * 앞부분만 싣고 htmlTruncated 로 알린다(잘린 원본으로 통째 바꾸면 뒷부분이 지워지므로 그때는 바꾸지 않게 안내한다).
+ */
+const MAX_HTML_SOURCE_CHARS = 200_000;
 // WP-1243: 만들면서 본문도 쓸 수 있다 — body(마크다운) 또는 html(HTML 산출물을 HTML 블록 하나로). 둘 다 주면 거부한다.
 // title 은 html 의 <title> 로 대신할 수 있어 스키마에서는 선택이고, 둘 다 없으면 핸들러가 거부한다.
 export const createWikiPageInput = z.object({
@@ -46,6 +53,8 @@ export const createWikiPageInput = z.object({
   parentId: z.number().int().positive().optional(),
   body: z.string().optional(),
   html: z.string().min(1).optional(),
+  // WP-1307: html 을 HTML 블록으로 바꾸지 않고 원본 그대로 「HTML 문서」 페이지로 만든다.
+  asDocument: z.boolean().optional(),
 });
 // 서버가 부분 수정을 지원한다(title/body 생략 = 현재 값 유지). version 은 병합 기준(읽은 판)이라 필수.
 export const updateWikiPageInput = z.object({
@@ -53,6 +62,8 @@ export const updateWikiPageInput = z.object({
   version: z.number().int().min(1),
   title: z.string().max(255).optional(),
   body: z.string().optional(),
+  // WP-1307: HTML 문서(kind HTML) 페이지의 원본 HTML 을 통째로 바꾼다 — body 와 함께 줄 수 없다. 빈 원본(빈 문서)도 받는다.
+  html: z.string().optional(),
   // WP-424: upload_file 로 스테이징한 이미지 — 저장 전에 이 페이지 첨부로 묶고, 응답 images 의 url 을 본문에 쓴다.
   fileIds: z.array(z.number().int().positive()).max(10).optional(),
 });
@@ -122,6 +133,14 @@ export const WIKI_BODY_FORMAT_GUIDE =
   'create_wiki_page html to keep it whole as one html-embed block.';
 
 /**
+ * 「HTML 문서」 페이지(kind HTML, WP-1307) 읽기·고치기 안내 — get_wiki_page 가 HTML 문서를 돌려줄 때만 bodyFormat 으로 싣는다(정의에는 싣지 않는다).
+ */
+export const WIKI_HTML_DOCUMENT_GUIDE =
+  'kind HTML = an HTML document page shown as is in an isolated frame. body is text extracted from it (read-only view). ' +
+  'get_wiki_page includeSource adds the raw html (htmlTruncated: cut at 200000 chars, do not replace the whole source then). ' +
+  'To change it call update_wiki_page with html = the whole new source and version (not body); 409 = changed since, re-read.';
+
+/**
  * 본문에 HTML(한 줄 안에서 닫힌 태그·HTML 블록 펜스)이 있는지 — 있을 때만 get_wiki_page 가 bodyFormat 을 싣는다. 태그 모양은 API 평문 추출
  * (WikiPlainText.HTML_TAG)과 같다. 비교식이 태그로 잘못 보여도 안내가 더 실릴 뿐이라 해가 없다.
  */
@@ -186,8 +205,14 @@ export function toWikiPageTree(rows: WikiPageRow[], opts: { rootId?: number; max
  * 서버 응답에 수정자 이름이 없고(WikiPageDetail 은 id 만), 수정 시각 updatedAt 으로 "언제" 는 알 수 있다 — 이름을 풀려면 id→사용자
  * 일괄 조회가 필요한데 공유 도구에는 없고(구성원 조회는 검색어 기준), 이 값을 입력으로 받는 도구도 없어 서버 필드를 늘리지 않고 뺀다.
  */
-export function toWikiPageView(page: Record<string, unknown>) {
-  return omitKeys(page, 'updatedBy');
+export function toWikiPageView(page: Record<string, unknown>, opts: { includeSource?: boolean } = {}) {
+  const view = omitKeys(page, 'updatedBy', 'html');
+  // WP-1307: HTML 문서는 body 가 원본에서 뽑은 글자다. 원본(html)은 최대 5MB 라 요청했을 때만, 상한까지만 싣는다.
+  if (page.kind !== 'HTML' || !opts.includeSource || typeof page.html !== 'string') return view;
+  const html = page.html;
+  return html.length > MAX_HTML_SOURCE_CHARS
+    ? { ...view, html: html.slice(0, MAX_HTML_SOURCE_CHARS), htmlTruncated: true }
+    : { ...view, html };
 }
 
 type Raw = Record<string, unknown>;
@@ -281,22 +306,25 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Returns a wiki page (노트) by pageId: Markdown body, version (for update_wiki_page), ' +
-        'bodyFormat if it has HTML. includeSummary: stored AI summary (read-only; summaryStatus STALE = changed since, ' +
+        'bodyFormat if it has HTML. includeSummary: stored AI summary (summaryStatus STALE = changed since, ' +
         'MISSING/TOO_SHORT/UNAVAILABLE = none). includeRevisions: latest 30 revisions (version is for restore_wiki_revision).',
       inputSchema: getWikiPageDetailInput,
       async handler(args) {
-        const { pageId, includeSummary, includeRevisions } = getWikiPageDetailInput.parse(args);
+        const { pageId, includeSummary, includeRevisions, includeSource } = getWikiPageDetailInput.parse(args);
         // 옵션이 꺼져 있으면 추가 요청이 없다. 요약은 저장된 값을 읽기만 한다(GET — 생성은 POST 라 AI 호출이 없다).
         const [page, summary, revisions] = await Promise.all([
           client.getWikiPage(pageId),
           includeSummary ? client.getWikiPageSummary(pageId) : undefined,
           includeRevisions ? client.listWikiRevisions(pageId) : undefined,
         ]);
-        const view = toWikiPageView(page as Record<string, unknown>);
+        const view = toWikiPageView(page as Record<string, unknown>, { includeSource });
         return JSON.stringify({
           ...view,
           // WP-1243: HTML 이 든 본문에만 형식·편집 규칙을 함께 준다 — 고치기 전에 반드시 읽는 응답이라 여기서 알린다.
-          ...(bodyHasHtml(view.body) && { bodyFormat: WIKI_BODY_FORMAT_GUIDE }),
+          // HTML 문서(WP-1307)의 body 는 뽑은 글자라 해당 없다.
+          ...(view.kind !== 'HTML' && bodyHasHtml(view.body) && { bodyFormat: WIKI_BODY_FORMAT_GUIDE }),
+          // WP-1307: HTML 문서 안내는 정의 대신 응답에 싣는다 — 정의 크기 상한(DEFINITION_TOKEN_CAP)을 아끼고, HTML 문서를 읽었을 때만 비용이 든다.
+          ...(view.kind === 'HTML' && { bodyFormat: WIKI_HTML_DOCUMENT_GUIDE }),
           ...(includeSummary && toSummaryView(summary)),
           ...(includeRevisions && toRevisionsView(revisions)),
         });
@@ -320,16 +348,24 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates a wiki page in spaceId (from list_wiki_spaces), under parentId or top level; returns id and version. Optional ' +
+        'Creates a wiki page in spaceId, under parentId or top level; returns id, version. Optional ' +
         'body (Markdown) or html: an HTML artifact kept whole as one html-embed block (<title> = default title). Or convert it: static ' +
-        'parts to Markdown, page CSS in one <style data-wp-style>, script/canvas parts as html-embed blocks (each a full HTML doc).',
+        'parts to Markdown, page CSS in one <style data-wp-style>, script/canvas parts as html-embed blocks. ' +
+        'asDocument: HTML document page.',
       inputSchema: createWikiPageInput,
       async handler(args) {
-        const { spaceId, title, parentId, body, html } = createWikiPageInput.parse(args);
+        const { spaceId, title, parentId, body, html, asDocument } = createWikiPageInput.parse(args);
+        if (asDocument && (html === undefined || body !== undefined)) {
+          throw new Error('asDocument 는 html 과 함께(body 없이) 줍니다.');
+        }
         const content = resolveBody(body, html);
         const pageTitle = title ?? (html !== undefined ? htmlDocumentTitle(html) : undefined);
         if (!pageTitle) {
           throw new Error('title 이 필요합니다(html 에 <title> 이 없으면 title 을 주세요).');
+        }
+        // WP-1307: HTML 문서 페이지는 만들면서 원본을 함께 넣는다(한 번의 요청).
+        if (asDocument && html !== undefined) {
+          return JSON.stringify(toWikiPageView((await client.createWikiHtmlPage(spaceId, { parentId: parentId ?? null, title: pageTitle, html })) as Record<string, unknown>));
         }
         const created = toWikiPageView((await client.createWikiPage(spaceId, { parentId: parentId ?? null, title: pageTitle })) as Record<string, unknown>);
         if (!content) {
@@ -353,14 +389,21 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: false },
       description:
         'Saves a wiki page title and/or body; omitted fields stay. body replaces the whole Markdown document (omitted text is deleted): ' +
-        'for a partial edit send it all, copying untouched blocks and HTML byte-for-byte from get_wiki_page (no rewording or ' +
-        'normalizing; see its bodyFormat). version: from ' +
+        'for a partial edit send it all, copying untouched blocks and HTML byte-for-byte from get_wiki_page (no rewording; ' +
+        'see its bodyFormat). version: from ' +
         "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1 " +
-        'hour old, unknown or newer): re-read and reapply. fileIds: images (PNG/JPEG/GIF/WebP) staged by upload_file; reference each in ' +
+        'hour old, unknown or newer): re-read and reapply. fileIds: images staged by upload_file; reference each in ' +
         'body as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content).',
       inputSchema: updateWikiPageInput,
       async handler(args) {
-        const { pageId, fileIds, ...body } = updateWikiPageInput.parse(args);
+        const { pageId, fileIds, html, ...body } = updateWikiPageInput.parse(args);
+        // WP-1307: HTML 문서는 원본을 통째로 바꾼다 — 마크다운 본문·이미지 첨부와 섞지 않는다.
+        if (html !== undefined) {
+          if (body.body !== undefined || fileIds?.length) {
+            throw new Error('html 은 body·fileIds 와 함께 줄 수 없습니다. HTML 문서는 html 하나로 원본 전체를 바꿉니다.');
+          }
+          return JSON.stringify(toWikiPageView((await client.saveWikiHtml(pageId, { version: body.version, ...(body.title !== undefined && { title: body.title }), html })) as Record<string, unknown>));
+        }
         // WP-424: 이미지는 본문 저장 전에 묶는다 — 본문 저장이 참조된 첨부를 영구화하므로 순서가 바뀌면 이미지가 만료로 지워진다.
         // 클레임이 실패하면(만료·이미지 아님 등) 본문을 저장하지 않고 오류를 그대로 전한다.
         const claimed = fileIds?.length ? await client.claimWikiImages(pageId, fileIds) : undefined;
@@ -375,8 +418,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       // 본문을 그 판으로 덮어쓴다(제목은 그대로). 복원 직전 본문은 RESTORE 사유로 남아 되돌릴 수 있고, 동기화 서버 경로는 호출마다 판이 남을 수 있어 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
       description:
-        'Restores a wiki page body to a saved revision (version from get_wiki_page includeRevisions); title stays; the ' +
-        'prior body is kept as a revision.',
+        'Restores a wiki page body to a revision (version from includeRevisions); title stays; prior ' +
+        'body kept as a revision.',
       inputSchema: restoreWikiRevisionInput,
       async handler(args) {
         const { pageId, version } = restoreWikiRevisionInput.parse(args);

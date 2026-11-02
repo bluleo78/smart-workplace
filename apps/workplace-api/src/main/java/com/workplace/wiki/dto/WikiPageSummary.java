@@ -13,4 +13,6 @@ public record WikiPageSummary(
     WikiTreeShare share,
     // WP-1031: 이 페이지에 상위 공유 제외 표시(WP-987)가 있는지 — 이동 경고가 「새 위치의 공유 링크로 보이게 된다」고 잘못 말하지 않게.
     // 공유 링크로 연 목록에는 늘 false.
-    boolean shareExcluded) {}
+    boolean shareExcluded,
+    // WP-1307: 페이지 종류 — 트리 행의 「HTML」 배지.
+    WikiPageKind kind) {}

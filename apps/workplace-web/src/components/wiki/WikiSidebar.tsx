@@ -16,7 +16,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { BookOpen, MoreHorizontal } from 'lucide-react'
+import { BookOpen, ChevronDown, ClipboardPaste, FileCode, FilePlus, FileText, FileUp, MoreHorizontal } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
@@ -47,6 +48,8 @@ import { useDeletePage, useDeleteSpace, useMovePage } from '../../hooks/queries/
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiPageSummary } from '../../types/wiki'
+import { isHtmlPage } from './html-document/wikiHtmlDocument'
+import { WikiHtmlPasteDialog } from './html-document/WikiHtmlPasteDialog'
 import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
@@ -84,6 +87,8 @@ interface FlatItem {
   hasChildren: boolean
   // #736: AI 생성 attribution 존재 여부 — 사이드바 배지 판단용.
   aiLastUsedAt: string | null
+  // WP-1307: 「HTML 문서」 페이지인지 — 트리 행 HTML 표시.
+  html: boolean
 }
 
 // 평면 목록 → depth-first 평면 배열. 형제는 position 순서 유지.
@@ -111,6 +116,7 @@ function flattenTree(pages: WikiPageSummary[], collapsed: Set<number>): FlatItem
         title: c.title,
         hasChildren,
         aiLastUsedAt: c.aiLastUsedAt,
+        html: isHtmlPage(c),
       })
       // 접힌 노드의 자손은 평면화에서 제외(렌더·DnD 모두 보이는 항목만 대상).
       if (!collapsed.has(c.id)) walk(c.id, depth + 1)
@@ -198,7 +204,16 @@ export function WikiSidebar() {
   const spacesQuery = useWikiSpaces()
   const spaces = spacesQuery.data
   const { data: pages } = useWikiTree(spaceId)
-  const { create: createPage, createFromHtml, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
+  const {
+    create: createPage,
+    createFromHtml,
+    createHtmlDocument,
+    createHtmlDocumentFromFile,
+    isPending: createPending,
+  } = useCreateWikiPageAndOpen(spaceId)
+  // 「새 노트 ▾」의 HTML 문서(WP-1307) — 파일 올리기는 블록 변환(htmlInputRef)과 다른 숨은 input, 소스 붙여 넣기는 대화상자.
+  const htmlDocInputRef = useRef<HTMLInputElement>(null)
+  const [htmlPasteOpen, setHtmlPasteOpen] = useState(false)
   // HTML 파일로 새 노트(WP-1241) — 숨은 파일 input 하나를 루트(스페이스 ⋯)·하위(행 메뉴)가 함께 쓴다. 고른 파일을 넣을 부모는 연 쪽이 남긴다.
   const htmlInputRef = useRef<HTMLInputElement>(null)
   const htmlParentRef = useRef<number | null>(null)
@@ -526,14 +541,54 @@ export function WikiSidebar() {
         <span className="text-xs font-semibold uppercase text-muted-foreground">페이지</span>
         <div className="flex items-center gap-1">
           {!spaceUnavailable && canEdit && (
-            <button
-              type="button"
-              onClick={() => createPage(null)}
-              className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent"
-              aria-label="새 페이지"
-            >
-              ＋
-            </button>
+            // 나눈 단추(WP-1307) — ＋ 는 지금처럼 한 번에 빈 노트, ▾ 는 만들 종류(노트·HTML 문서)를 고른다.
+            <>
+              <button
+                type="button"
+                onClick={() => createPage(null)}
+                className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent"
+                aria-label="새 페이지"
+              >
+                ＋
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label="새로 만들 종류"
+                  data-testid="wiki-new-menu"
+                  className="flex h-6 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent pointer-coarse:size-11"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem data-testid="wiki-new-note" onSelect={() => void createPage(null)}>
+                    <FileText />
+                    노트
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <FileCode className="size-3.5" aria-hidden="true" />
+                    HTML 문서
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem data-testid="wiki-new-html-upload" onSelect={() => htmlDocInputRef.current?.click()}>
+                    <FileUp />
+                    파일 올리기
+                  </DropdownMenuItem>
+                  {/* 메뉴가 닫힌 뒤 대화상자를 연다 — 닫히는 메뉴의 포커스 복귀와 겹치지 않게. */}
+                  <DropdownMenuItem data-testid="wiki-new-html-paste" onSelect={() => setTimeout(() => setHtmlPasteOpen(true), 0)}>
+                    <ClipboardPaste />
+                    소스 붙여 넣기
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-testid="wiki-new-html-blank"
+                    disabled={createPending}
+                    onSelect={() => void createHtmlDocument(null, { title: '', html: '' })}
+                  >
+                    <FilePlus />
+                    빈 문서
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
         </div>
       </div>
@@ -568,6 +623,7 @@ export function WikiSidebar() {
                   id={item.id}
                   title={item.title}
                   aiAttributed={item.aiLastUsedAt != null}
+                  htmlDocument={item.html}
                   shareMark={shareMarks.get(item.id)}
                   depth={activeId === item.id && projected ? projected.depth : item.depth}
                   hasChildren={item.hasChildren}
@@ -596,6 +652,18 @@ export function WikiSidebar() {
           if (parentId != null) expandParent(parentId)
           void createFromHtml(parentId, file)
         }}
+      />
+      {/* 「새 노트 ▾ › HTML 문서 › 파일 올리기」(WP-1307) — 원본을 그대로 보관하는 HTML 문서로 만든다(블록 변환 없음). 크기 검사는 input 이 한다. */}
+      <WikiHtmlFileInput
+        inputRef={htmlDocInputRef}
+        testId="wiki-html-document-input"
+        onFile={(file) => void createHtmlDocumentFromFile(null, file)}
+      />
+      <WikiHtmlPasteDialog
+        open={htmlPasteOpen}
+        onOpenChange={setHtmlPasteOpen}
+        pending={createPending}
+        onCreate={(doc) => createHtmlDocument(null, doc)}
       />
       {/* 멤버 관리 다이얼로그 — TEAM 스페이스 선택 시에만 렌더. */}
       {isTeamSpace && selectedSpace && (

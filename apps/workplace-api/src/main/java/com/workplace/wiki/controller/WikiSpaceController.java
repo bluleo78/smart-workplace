@@ -3,6 +3,7 @@ package com.workplace.wiki.controller;
 import com.workplace.wiki.dto.AddMemberGroupRequest;
 import com.workplace.wiki.dto.AddMemberRequest;
 import com.workplace.wiki.dto.ChangeRoleRequest;
+import com.workplace.wiki.dto.CreateHtmlPageRequest;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.CreateSpaceRequest;
 import com.workplace.wiki.dto.WikiMemberGroupResponse;
@@ -10,6 +11,7 @@ import com.workplace.wiki.dto.WikiMemberResponse;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSpaceResponse;
+import com.workplace.wiki.service.WikiHtmlPageService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSpaceMemberGroupService;
 import com.workplace.wiki.service.WikiSpaceService;
@@ -35,6 +37,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class WikiSpaceController {
   private final WikiSpaceService spaceService;
   private final WikiPageService pageService;
+  // WP-1307: 「HTML 문서」 페이지 만들기.
+  private final WikiHtmlPageService htmlPageService;
   private final WikiSpaceMemberGroupService memberGroupService;
 
   @GetMapping("/spaces")
@@ -149,5 +153,15 @@ public class WikiSpaceController {
       @Valid @RequestBody CreatePageRequest req) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(pageService.create(callerId, spaceId, req));
+  }
+
+  /** 「HTML 문서」 페이지 만들기(WP-1307) — 원본 HTML 을 그대로 보관하는 페이지. EDITOR 이상, 원본 5MB 초과 413. */
+  @PostMapping("/spaces/{id}/html-pages")
+  public ResponseEntity<WikiPageDetail> createHtmlPage(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @Valid @RequestBody CreateHtmlPageRequest req) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(htmlPageService.create(callerId, spaceId, req));
   }
 }

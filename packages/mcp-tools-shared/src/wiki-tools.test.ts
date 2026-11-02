@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WikiToolClient } from './tool-client.js';
 import {
   WIKI_BODY_FORMAT_GUIDE,
+  WIKI_HTML_DOCUMENT_GUIDE,
   bodyHasHtml,
   buildWikiTools,
   htmlDocumentTitle,
@@ -22,6 +23,8 @@ function mockClient(): WikiToolClient {
     restoreWikiRevision: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    createWikiHtmlPage: vi.fn().mockResolvedValue({}),
+    saveWikiHtml: vi.fn().mockResolvedValue({}),
     claimWikiImages: vi.fn().mockResolvedValue([]),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
@@ -288,6 +291,50 @@ describe('buildWikiTools', () => {
     expect(desc('update_wiki_page')).toContain('bodyFormat');
     expect(desc('create_wiki_page')).toContain('html-embed');
     expect(desc('create_wiki_page')).toContain('<style data-wp-style>');
+  });
+
+  it('WP-1307: create_wiki_page asDocument → HTML 문서 페이지를 원본 그대로 한 번에 만든다(원본은 응답에 싣지 않는다)', async () => {
+    const c = mockClient();
+    const html = '<html><head><title>3분기 회고</title></head><body><p>출시 4건</p></body></html>';
+    vi.mocked(c.createWikiHtmlPage).mockResolvedValue({ id: 8, kind: 'HTML', version: 2, body: '3분기 회고\n출시 4건', html, updatedBy: 9 });
+    const out = JSON.parse(resultText(await tool(c, 'create_wiki_page').handler({ spaceId: 5, html, asDocument: true })));
+    expect(c.createWikiHtmlPage).toHaveBeenCalledWith(5, { parentId: null, title: '3분기 회고', html });
+    expect(c.createWikiPage).not.toHaveBeenCalled();
+    expect(c.updateWikiPage).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ id: 8, kind: 'HTML', version: 2 });
+    expect(out).not.toHaveProperty('html');
+    expect(out).not.toHaveProperty('updatedBy');
+    // asDocument 는 html 과 함께(body 없이)만.
+    await expect(tool(c, 'create_wiki_page').handler({ spaceId: 5, title: 't', body: '# x', asDocument: true })).rejects.toThrow('asDocument');
+  });
+
+  it('WP-1307: get_wiki_page — HTML 문서는 본문 글자만, includeSource 면 원본(상한 넘으면 잘라 htmlTruncated)', async () => {
+    const c = mockClient();
+    const page = { id: 8, kind: 'HTML', version: 2, body: '출시 4건', html: '<p>출시 <b>4건</b></p>' };
+    vi.mocked(c.getWikiPage).mockResolvedValue(page);
+    const plain = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 8 })));
+    expect(plain).not.toHaveProperty('html');
+    // 노트 본문 규칙 대신 HTML 문서 안내를 싣는다(정의가 아닌 응답에).
+    expect(plain.bodyFormat).toBe(WIKI_HTML_DOCUMENT_GUIDE);
+    const withSource = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 8, includeSource: true })));
+    expect(withSource.html).toBe(page.html);
+    expect(withSource).not.toHaveProperty('htmlTruncated');
+
+    vi.mocked(c.getWikiPage).mockResolvedValue({ ...page, html: 'x'.repeat(200_001) });
+    const big = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 8, includeSource: true })));
+    expect(big.html).toHaveLength(200_000);
+    expect(big.htmlTruncated).toBe(true);
+  });
+
+  it('WP-1307: update_wiki_page html → client.saveWikiHtml(원본 통째), body·fileIds 와 섞으면 거부', async () => {
+    const c = mockClient();
+    vi.mocked(c.saveWikiHtml).mockResolvedValue({ id: 8, kind: 'HTML', version: 3, html: '<p>새</p>' });
+    const out = JSON.parse(resultText(await tool(c, 'update_wiki_page').handler({ pageId: 8, version: 2, html: '<p>새</p>' })));
+    expect(vi.mocked(c.saveWikiHtml).mock.calls[0]).toStrictEqual([8, { version: 2, html: '<p>새</p>' }]);
+    expect(c.updateWikiPage).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ version: 3 });
+    expect(out).not.toHaveProperty('html');
+    await expect(tool(c, 'update_wiki_page').handler({ pageId: 8, version: 2, html: '<p>a</p>', body: 'b' })).rejects.toThrow('html');
   });
 
   it('update_wiki_page → client.updateWikiPage(pageId, {version,title,body})', async () => {
