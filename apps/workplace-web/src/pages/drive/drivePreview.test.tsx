@@ -143,7 +143,7 @@ describe('형식별 본문', () => {
     await user.click(within(notice).getByRole('switch', { name: '스크립트 실행' }))
     const allowed = within(body).getByTestId('html-document')
     // 노트 HTML 블록과 같은 격리 — 스크립트는 돌되 same-origin·대화상자는 없다.
-    expect(allowed).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads')
+    expect(allowed).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-downloads')
     // sandbox 는 그려진 iframe 에 나중에 바꾸면 반영되지 않아 새 iframe 이어야 한다.
     expect(allowed).not.toBe(frame)
     // 컨트롤은 실행 중에도 남아 다시 끌 수 있다.

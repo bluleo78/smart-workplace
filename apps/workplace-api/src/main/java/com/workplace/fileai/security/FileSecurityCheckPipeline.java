@@ -57,7 +57,7 @@ public class FileSecurityCheckPipeline {
   static final long MAX_BYTES = 20L * 1024 * 1024;
 
   /** 자동 점검 최대 시도 횟수. */
-  static final int MAX_ATTEMPTS = 3;
+  public static final int MAX_ATTEMPTS = 3;
 
   /** 단발 점검이라 turn 1 고정. */
   private static final int MAX_TURNS = 1;
@@ -67,7 +67,7 @@ public class FileSecurityCheckPipeline {
    * FileSecurityCheckRepository#LEASE})보다 길면 lease 가 먼저 끝나 스케줄러가 같은 파일을 한 번 더 부르거나, 늦게 온 성공이 이미
    * FAILED 로 판정된 행에 닿지 못한다. lease 안에 끝나도록 여유를 두고 자른다.
    */
-  static final long MAX_AGENT_TIMEOUT_MS = 8L * 60 * 1000;
+  public static final long MAX_AGENT_TIMEOUT_MS = 8L * 60 * 1000;
 
   /** 저장해도 되는 위험도 — ai-agent 가 검증하지만 저장 전에 한 번 더 본다(어긋나면 재시도 대상 실패). */
   private static final Set<String> RISKS = Set.of("LOW", "CAUTION", "HIGH");
@@ -76,7 +76,7 @@ public class FileSecurityCheckPipeline {
   private static final Set<String> EVIDENCE_KINDS =
       Set.of("EXTERNAL_REQUEST", "CREDENTIAL_INPUT", "OBFUSCATION", "NAVIGATION", "OTHER");
 
-  static final String ERROR_TOO_LARGE = "too-large";
+  public static final String ERROR_TOO_LARGE = "too-large";
   static final String ERROR_MISSING_BINARY = "missing-binary";
   static final String ERROR_FILE_NOT_FOUND = "file-not-found";
 
@@ -252,9 +252,9 @@ public class FileSecurityCheckPipeline {
 
   /**
    * 응답 검증 — 비었거나 위험도·근거 종류가 고정 값이 아니면 재시도 대상 실패로 던진다. 저장 단계(markDone)에서 터지면 시도 상한 밖이라 행이 CHECKING 에
-   * 남아 lease 마다 끝없이 다시 돈다.
+   * 남아 lease 마다 끝없이 다시 돈다. 노트 HTML 블록 점검(WP-1290)도 같은 규칙으로 쓴다.
    */
-  private static void validate(SecurityCheckRes res) {
+  public static void validate(SecurityCheckRes res) {
     if (res == null || res.risk() == null) {
       throw new IllegalStateException("security-check: 빈 응답");
     }

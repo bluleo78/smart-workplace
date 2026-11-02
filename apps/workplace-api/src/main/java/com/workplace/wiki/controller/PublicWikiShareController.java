@@ -1,6 +1,7 @@
 package com.workplace.wiki.controller;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.wiki.dto.WikiHtmlScriptsCheckResponse;
 import com.workplace.wiki.dto.WikiPublicShareResponse;
 import com.workplace.wiki.dto.WikiSharePreview;
 import com.workplace.wiki.exception.WikiShareLoginRequiredException;
@@ -54,6 +55,21 @@ public class PublicWikiShareController {
     long tenantId = service.locateTenant(token);
     return ResponseEntity.ok(
         TenantContext.callAs(tenantId, () -> service.view(tenantId, token, pageId)));
+  }
+
+  /**
+   * 외부 보기 HTML 블록 보안 점검 상태(WP-1290) — 보기가 내려보내는 내용의 지문과 점검 결과. 화면은 지문이 같고 점검이 끝났을 때만 HTML 블록의 스크립트를
+   * 돌린다. 점검 행이 없으면 만들어 점검을 시작한다(기존 행은 다시 점검하지 않는다). 열 수 없음은 보기와 같다(내부 링크 401, 그 밖 404).
+   */
+  @GetMapping("/{token}/pages/{pageId}/html-scripts/security-check")
+  public ResponseEntity<WikiHtmlScriptsCheckResponse> htmlScriptsCheck(
+      @PathVariable("token") String token,
+      @PathVariable("pageId") long pageId,
+      HttpServletResponse response) {
+    noIndexNoStore(response);
+    long tenantId = service.locateTenant(token);
+    return ResponseEntity.ok(
+        TenantContext.callAs(tenantId, () -> service.htmlScriptsCheck(token, pageId)));
   }
 
   /**

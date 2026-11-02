@@ -50,5 +50,7 @@ export function SandboxedHtmlFrame({
 /** 기본 격리 — 스크립트·폼·same-origin 차단, 링크 팝업만(WP-427). */
 const INERT_SANDBOX = 'allow-popups allow-popups-to-escape-sandbox'
 
-/** 스크립트 허용 격리(WP-1242) — allow-same-origin(있으면 스크립트가 앱 출처로 돈다)·allow-modals(대화상자로 탭 잠금)는 없다. */
-const SCRIPT_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads'
+/** 스크립트 허용 격리(WP-1242) — allow-same-origin(있으면 스크립트가 앱 출처로 돈다)·allow-modals(대화상자로 탭 잠금)는 없다.
+ * allow-popups-to-escape-sandbox 도 없다(WP-1290) — 스크립트가 연 새 창도 같은 격리를 물려받아, 블록 밖에서 격리 없이 도는 가짜 화면을 띄우지 못한다.
+ * 대가로 블록 안 링크로 연 새 창도 격리된다(로그인이 필요한 사이트가 그 창에서 깨질 수 있음 — 이슈에서 알고 정함). */
+const SCRIPT_SANDBOX = 'allow-scripts allow-popups allow-downloads'

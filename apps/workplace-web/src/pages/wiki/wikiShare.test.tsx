@@ -2,7 +2,7 @@
 // 외부 보기의 응답 → 화면(트리·본문·가린 멘션·링크), 하위 이동의 ?pageId 질의, 만료·하위만 닫힘·해제·일시 오류·로그인 필요(401) 안내,
 // 받는 사람 화면의 외부 보기 전환(409 PUBLIC)·일시 실패(5xx)·접근 요청, 알림 입구의 갈 곳 판정은 브라우저 없이 판정되므로
 // wiki-share-public · wiki-share-view 에서 옮겼다. 공유 창의 「사람·팀 추가」(WP-1023 — 사람·조직도 부서·내 그룹 검색과 저장 payload)도 여기서 본다. 이미지 실제 로드·전체 폭 기하·robots.txt·동기화 서버 연결·워크스페이스 전환 새로고침은 E2E 에 남는다.
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { useState } from 'react'
 import { Route, Routes, useParams } from 'react-router-dom'
@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 
 import { WikiShareDialog } from '@/components/wiki/WikiShareDialog'
 import { WikiSharePublicViewContext } from '@/components/wiki/wikiSharePublicView'
+import { doneView, htmlScriptsCheckHandlers, htmlScriptsHash } from '@/test/kits/wiki/htmlScriptsCheck'
 import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { UserGroupDetail, UserGroupNode, UserGroupTree } from '@/types/userGroup'
@@ -58,7 +59,11 @@ const share = (pageId: number): WikiPublicShare => ({
 })
 
 /** 공개 조회 — respond(pageId) 가 응답을 정한다(기본 200). 받은 ?pageId 를 순서대로 모은다(없으면 null). */
-function openPublic(path: string, respond: (pageId: number | null) => Response | Promise<Response> = (id) => HttpResponse.json(share(id ?? ROOT))) {
+function openPublic(
+  path: string,
+  respond: (pageId: number | null) => Response | Promise<Response> = (id) => HttpResponse.json(share(id ?? ROOT)),
+  extra: RequestHandler[] = htmlScriptsCheckHandlers().handlers,
+) {
   const asked: (string | null)[] = []
   const view = renderScreen(
     <Routes>
@@ -68,6 +73,7 @@ function openPublic(path: string, respond: (pageId: number | null) => Response |
     {
       path,
       handlers: [
+        ...extra,
         http.get(API, ({ request }) => {
           const p = new URL(request.url).searchParams.get('pageId')
           asked.push(p)
@@ -120,32 +126,89 @@ describe('노트 외부 보기(로그인 없음)', () => {
   })
 
   // WP-1242 — HTML 블록은 공개 공유에서도 편집기와 같은 격리 iframe 으로 그린다(소스 편집 단추 없이).
-  test('HTML 블록은 스크립트만 허용한 격리 iframe 으로 그리고 소스 편집 단추·소스 칸은 보이지 않는다', async () => {
-    const src = '<div id="out"></div><script>document.getElementById("out").textContent = "ok"</script>'
-    openPublic(`/wiki/share/${TOKEN}`, () =>
-      HttpResponse.json({ ...share(ROOT), page: { ...share(ROOT).page, markdown: `앞\n\n\`\`\`html-embed\n${src}\n\`\`\`` } }),
+  // HTML 블록 스크립트(WP-1290) — 공개 공유는 기본 멈춤이고, 서버가 같은 내용으로 마친 점검이 「높음」이 아닐 때만 켤 수 있다.
+  const EMBED_SRC = '<div id="out"></div><script>document.getElementById("out").textContent = "ok"</script>'
+  const openEmbed = (check: Parameters<typeof htmlScriptsCheckHandlers>[0]) => {
+    const mock = htmlScriptsCheckHandlers(check)
+    openPublic(
+      `/wiki/share/${TOKEN}`,
+      () => HttpResponse.json({ ...share(ROOT), page: { ...share(ROOT).page, markdown: `앞\n\n\`\`\`html-embed\n${EMBED_SRC}\n\`\`\`` } }),
+      mock.handlers,
     )
-    const iframe = (await screen.findByTestId('wiki-html-embed-frame', {}, { timeout: 10_000 })) as HTMLIFrameElement
-    expect(iframe.getAttribute('sandbox')).toContain('allow-scripts')
-    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin')
-    expect(iframe.getAttribute('srcdoc')).toContain(src)
+    return mock
+  }
+  const embedFrame = async () => (await screen.findByTestId('wiki-html-embed-frame', {}, { timeout: 10_000 })) as HTMLIFrameElement
+  const scriptSwitch = async () => within(await screen.findByTestId('wiki-html-script-bar')).getByRole('switch', { name: '스크립트 실행' })
+
+  test('HTML 블록은 기본 멈춤으로 그리고(스크립트 없는 격리 + 「스크립트 멈춤」) 소스 편집 단추·소스 칸은 보이지 않는다', async () => {
+    const { calls } = openEmbed({})
+    const iframe = await embedFrame()
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-scripts')
+    expect(iframe.getAttribute('srcdoc')).toContain(EMBED_SRC)
+    expect(screen.getByTestId('wiki-html-block-badge')).toHaveTextContent('스크립트 멈춤')
     expect(screen.queryByTestId('wiki-html-embed-toggle')).not.toBeInTheDocument()
     expect(screen.getByTestId('wiki-html-embed')).not.toHaveAttribute('data-source-open')
+    // 보는 사람은 점검을 부르지 않는다 — 공유 토큰 아래 경로로 조회만 한다.
+    await waitFor(() => expect(calls).toContainEqual({ method: 'GET', path: `${API}/pages/${ROOT}/html-scripts/security-check` }))
+    expect(calls.every((c) => c.method === 'GET')).toBe(true)
   })
 
-  test('「HTML 문서」(kind HTML)면 마크다운 편집기 대신 원본을 격리 iframe 으로 그리고, 트리에 HTML 표시를 붙인다(WP-1307)', async () => {
+  test.each([
+    ['결과 없음', async () => ({})],
+    ['서버 지문이 다름(저장 뒤 바뀐 내용)', async () => ({ hash: 'f'.repeat(64), blockCount: 1, view: doneView('LOW') })],
+    [
+      '점검 중',
+      async () => ({ hash: await htmlScriptsHash([EMBED_SRC]), blockCount: 1, view: { ...doneView('LOW'), status: 'CHECKING' as const, risk: null } }),
+    ],
+  ])('같은 내용으로 끝난 점검이 없으면(%s) 스위치를 켤 수 없고 까닭을 알린다', async (_, check) => {
+    openEmbed(await check())
+    const sw = await scriptSwitch()
+    expect(sw).toBeDisabled()
+    expect(screen.getByTestId('html-script-notice')).toHaveTextContent('보안 점검이 끝나면 실행할 수 있어요')
+    expect((await embedFrame()).getAttribute('sandbox')).not.toContain('allow-scripts')
+  })
+
+  test('같은 내용으로 「높음」이면 켤 수 없고, 「낮음」이면 켜서 스크립트를 돌린다', async () => {
+    const hash = await htmlScriptsHash([EMBED_SRC])
+    openEmbed({ hash, blockCount: 1, view: doneView('HIGH', '로그인 화면을 흉내 낸다') })
+    const high = await scriptSwitch()
+    const bar = screen.getByTestId('wiki-html-script-bar')
+    await waitFor(() => expect(bar).toHaveAttribute('data-risk', 'HIGH'))
+    expect(high).toBeDisabled()
+    expect(bar).toHaveTextContent('로그인 화면을 흉내 낸다')
+    expect(screen.getByTestId('html-script-notice')).toHaveTextContent('공유 페이지에서는 실행할 수 없어요')
+    cleanup()
+
+    openEmbed({ hash, blockCount: 1, view: doneView('LOW') })
+    const sw = await scriptSwitch()
+    await waitFor(() => expect(sw).toBeEnabled())
+    fireEvent.click(sw)
+    await waitFor(async () => expect((await embedFrame()).getAttribute('sandbox')?.split(/\s+/)).toContain('allow-scripts'))
+    expect((await embedFrame()).getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(screen.queryByTestId('wiki-html-block-badge')).not.toBeInTheDocument()
+  })
+
+  test('「HTML 문서」(kind HTML)면 마크다운 편집기 대신 원본을 격리 iframe 으로 그리고(스크립트는 같은 규칙으로 멈춤), 트리에 HTML 표시를 붙인다(WP-1307)', async () => {
     const src = '<!doctype html><html><body><canvas id="c"></canvas><script>draw()</script></body></html>'
-    openPublic(`/wiki/share/${TOKEN}`, () =>
-      HttpResponse.json({
-        ...share(ROOT),
-        pages: PAGES.map((p) => (p.id === ROOT ? { ...p, kind: 'HTML' as const } : p)),
-        page: { ...share(ROOT).page, markdown: '뽑은 글자', kind: 'HTML', html: src },
-      }),
+    const hash = await htmlScriptsHash([src])
+    openPublic(
+      `/wiki/share/${TOKEN}`,
+      () =>
+        HttpResponse.json({
+          ...share(ROOT),
+          pages: PAGES.map((p) => (p.id === ROOT ? { ...p, kind: 'HTML' as const } : p)),
+          page: { ...share(ROOT).page, markdown: '뽑은 글자', kind: 'HTML', html: src },
+        }),
+      htmlScriptsCheckHandlers({ hash, blockCount: 1, view: doneView('LOW') }).handlers,
     )
     const frame = await screen.findByTestId('wiki-public-html-frame')
-    expect(frame.getAttribute('sandbox')).toContain('allow-scripts')
-    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts')
     expect(frame.getAttribute('srcdoc')).toContain('<canvas id="c"></canvas>')
+    const sw = await scriptSwitch()
+    await waitFor(() => expect(sw).toBeEnabled())
+    fireEvent.click(sw)
+    await waitFor(() => expect(screen.getByTestId('wiki-public-html-frame').getAttribute('sandbox')?.split(/\s+/)).toContain('allow-scripts'))
+    expect(screen.getByTestId('wiki-public-html-frame').getAttribute('sandbox')).not.toContain('allow-same-origin')
     expect(screen.getByRole('heading', { name: '제품 로드맵' })).toBeInTheDocument()
     // TipTap 본문은 그리지 않는다.
     expect(publicView().querySelector('.wiki-editor')).toBeNull()

@@ -7,7 +7,6 @@ import { toast } from 'sonner'
 import type { PickedElement } from '@/lib/htmlPicker'
 
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
-import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { useEmbedFrame } from './useEmbedFrame'
 import {
   buildFixHtmlRequest,
@@ -20,6 +19,7 @@ import {
   lineDiffStats,
   prefillChip,
 } from './wikiHtmlAiFix'
+import { NoteScriptFrame } from './wikiHtmlBlockSecurity'
 import type { WikiHtmlEmbedAi } from './WikiHtmlEmbedAiContext'
 import { keepFocus, pinBlock, pinFlex, pinGrid, pinInlineFlex } from './wikiPinVisible'
 
@@ -396,10 +396,12 @@ function ComparePreview({ label, html, testId }: { label: string; html: string; 
         {label}
       </figcaption>
       <div ref={pinBlock} className="wiki-html-embed__ai-frame-box">
-        <SandboxedHtmlFrame
+        {/* 노트 스위치를 따른다(WP-1290) — 노트 스크립트가 멈춘 동안은 전후 비교도 스크립트 없이 그린다. */}
+        <NoteScriptFrame
           ref={frameRef}
-          allowScripts
+          register={false}
           html={doc}
+          scriptSource={html}
           title={`HTML 블록 ${label}`}
           className="wiki-html-embed__frame"
           data-testid={`${testId}-frame`}

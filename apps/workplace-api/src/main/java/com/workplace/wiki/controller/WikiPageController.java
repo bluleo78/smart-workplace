@@ -10,6 +10,7 @@ import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiHtmlLockAcquired;
 import com.workplace.wiki.dto.WikiHtmlLockStatus;
+import com.workplace.wiki.dto.WikiHtmlScriptsCheckResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiMovePreviewResponse;
 import com.workplace.wiki.dto.WikiPageDetail;
@@ -19,6 +20,7 @@ import com.workplace.wiki.dto.WikiRevisionListResponse;
 import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHtmlLockService;
 import com.workplace.wiki.service.WikiHtmlPageService;
+import com.workplace.wiki.service.WikiHtmlScriptsCheckService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiRevisionService;
@@ -60,6 +62,7 @@ public class WikiPageController {
   private final WikiHtmlLockService htmlLockService;
   private final JwtTokenProvider jwtTokenProvider;
   private final WikiShareAccess shareAccess;
+  private final WikiHtmlScriptsCheckService htmlScriptsCheckService;
 
   /** 단건 상세. base=false 면 AI 병합 기준본을 남기지 않는다(새 웹 에디터 — 본문은 동기화 서버로 저장). */
   @GetMapping("/{id}")
@@ -69,6 +72,30 @@ public class WikiPageController {
       @RequestParam(value = "base", defaultValue = "true") boolean base,
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     return ResponseEntity.ok(pageService.read(callerId, pageId, base, shareToken));
+  }
+
+  /**
+   * HTML 블록 보안 점검 상태(WP-1290) — 저장된 내용의 지문과 점검 결과. 읽기만 한다(점검을 시작하지 않는다). 페이지를 볼 수 있어야 한다(멤버 또는 공유
+   * 링크 헤더).
+   */
+  @GetMapping("/{id}/html-scripts/security-check")
+  public ResponseEntity<WikiHtmlScriptsCheckResponse> htmlScriptsCheck(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.ok(htmlScriptsCheckService.view(callerId, pageId, shareToken));
+  }
+
+  /**
+   * HTML 블록 보안 점검 요청(WP-1290) — 저장된 내용으로 점검 행을 만들거나(FAILED·지난 기준이면 되돌려) 점검을 시작한다. 화면의 「다시 점검」과 공유
+   * 창의 게시 전 점검이 부른다. 조회와 같은 권한.
+   */
+  @PostMapping("/{id}/html-scripts/security-check")
+  public ResponseEntity<WikiHtmlScriptsCheckResponse> requestHtmlScriptsCheck(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.ok(htmlScriptsCheckService.request(callerId, pageId, shareToken));
   }
 
   /**

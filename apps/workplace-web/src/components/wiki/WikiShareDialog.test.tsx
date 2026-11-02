@@ -1,14 +1,18 @@
 // 노트 공유 창(WP-579) 컴포넌트 판정 — 외부 공유 정책에 따른 선택지, 외부일 때 권한 고정, 넓히는 변경의 확인,
 // 사람 추가가 보내는 notify payload, 접근 요청 승인, 상위 공유 상속 상자·제외(WP-987).
 // 실제 API 배선·요청 payload 는 E2E(wiki-share-owner)가 맡는다.
-import { fireEvent, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, type HttpHandler, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { doneView, htmlScriptsCheckHandlers } from '@/test/kits/wiki/htmlScriptsCheck'
+import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import type { WikiPageShare, WikiPageShareState } from '../../types/wiki'
 import { WikiShareDialog } from './WikiShareDialog'
+import { shareScriptsBlocking } from './WikiShareHtmlBlockChecks'
 
 // 공유 훅은 끊고, 쓰기 mutate 호출만 기록한다. 공유 저장은 차례대로 mutateAsync 로 보낸다(WP-1023).
 const state = vi.hoisted(() => ({ data: undefined as unknown, isPending: false }))
@@ -57,6 +61,8 @@ vi.mock('../members/PeopleAndDepartmentPicker', () => ({
 }))
 
 beforeEach(() => {
+  // 외부 공개 확인 창은 노트 스크립트 점검(WP-1290)을 부른다 — 기본은 스크립트 블록이 없는 노트.
+  server.use(...htmlScriptsCheckHandlers().handlers)
   save.mockReset()
   regenerate.mockReset()
   revoke.mockReset()
@@ -173,6 +179,67 @@ describe('확인 절차', () => {
     const body = save.mock.calls[0][0]
     expect(body).toMatchObject({ audience: 'PUBLIC', permission: 'VIEW', includeChildren: false })
     expect(typeof body.expiresAt).toBe('string')
+  })
+
+  /** 외부로 바꿔 확인 창을 연다 — 노트 스크립트 점검 응답(WP-1290)을 정해 둔다. */
+  const openPublicConfirm = async (check: Parameters<typeof htmlScriptsCheckHandlers>[0], ...first: HttpHandler[]) => {
+    const mock = htmlScriptsCheckHandlers(check)
+    server.use(...first, ...mock.handlers)
+    renderDialog(baseState())
+    await userEvent.click(screen.getByTestId('wiki-share-audience'))
+    await userEvent.click(await screen.findByRole('option', { name: /링크가 있는 누구나\(외부\)/ }))
+    return { confirm: await screen.findByTestId('wiki-share-confirm'), calls: mock.calls }
+  }
+
+  it('스크립트가 「높음」인 노트는 위험을 알고 공개한다는 동의를 받아야 외부 공개 단추가 켜진다(WP-1290)', async () => {
+    const { confirm, calls } = await openPublicConfirm({ hash: 'a'.repeat(64), blockCount: 2, view: doneView('HIGH', '입력값을 외부로 보낸다') })
+    const checks = await within(confirm).findByTestId('wiki-share-html-checks')
+    expect(checks).toHaveTextContent('스크립트가 있는 HTML 블록 2개 — AI 보안 점검')
+    expect(checks).toHaveTextContent('입력값을 외부로 보낸다')
+    const publish = within(confirm).getByRole('button', { name: '외부 공개' })
+    expect(publish).toBeDisabled()
+    await userEvent.click(within(confirm).getByRole('checkbox', { name: '위험을 알고 공개' }))
+    expect(publish).toBeEnabled()
+    await userEvent.click(publish)
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ audience: 'PUBLIC' }))
+    // 창을 열 때 한 번 점검을 요청(POST)한다 — 서버가 저장된 노트로 결과가 없으면 점검에 넣는다.
+    expect(calls.filter((c) => c.method === 'POST')).toEqual([{ method: 'POST', path: '/api/v1/wiki/pages/5/html-scripts/security-check' }])
+  })
+
+  it('점검이 끝나지 않았으면 외부 공개를 막고, 점검 실패는 막지 않는다(WP-1290)', async () => {
+    const checking = await openPublicConfirm({ hash: 'a'.repeat(64), blockCount: 1, view: { ...doneView('LOW'), status: 'CHECKING', risk: null } })
+    expect(await within(checking.confirm).findByText('점검이 끝나면 공개할 수 있어요.')).toBeInTheDocument()
+    expect(within(checking.confirm).getByRole('button', { name: '외부 공개' })).toBeDisabled()
+    cleanup()
+
+    const failed = await openPublicConfirm({ hash: 'a'.repeat(64), blockCount: 1, view: { ...doneView('LOW'), status: 'FAILED', risk: null } })
+    expect(await within(failed.confirm).findByText('점검 못 함')).toBeInTheDocument()
+    expect(within(failed.confirm).getByRole('button', { name: '외부 공개' })).toBeEnabled()
+  })
+
+  it('창을 연 순간의 점검 요청(POST)이 돌아오기 전에는 외부 공개를 막는다(WP-1290)', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const slowPost = http.post('/api/v1/wiki/pages/:id/html-scripts/security-check', async () => {
+      await gate
+      return HttpResponse.json({ hash: 'a'.repeat(64), blockCount: 1, view: doneView('LOW') })
+    })
+    // 확인 창 도우미가 기본 목을 나중에(앞에) 깔므로 이 POST 를 그 뒤에 다시 앞세운다.
+    const { confirm } = await openPublicConfirm({ hash: 'a'.repeat(64), blockCount: 1, view: doneView('LOW') }, slowPost)
+    const publish = within(confirm).getByRole('button', { name: '외부 공개' })
+    expect(publish).toBeDisabled()
+    release()
+    await waitFor(() => expect(publish).toBeEnabled())
+  })
+
+  it('점검이 상한 시간을 넘기면 더 막지 않는다 — 요청 중·점검 중·높음 동의 전만 막는다(WP-1290)', () => {
+    const base = { requesting: false, checking: false, exhausted: false, high: false, agreed: false }
+    expect(shareScriptsBlocking(base)).toBe(false)
+    expect(shareScriptsBlocking({ ...base, requesting: true })).toBe(true)
+    expect(shareScriptsBlocking({ ...base, checking: true })).toBe(true)
+    expect(shareScriptsBlocking({ ...base, checking: true, exhausted: true })).toBe(false)
+    expect(shareScriptsBlocking({ ...base, high: true })).toBe(true)
+    expect(shareScriptsBlocking({ ...base, high: true, agreed: true })).toBe(false)
   })
 
   it('넓히지 않는 변경(하위 페이지 포함)은 묻지 않고 바로 저장한다', async () => {

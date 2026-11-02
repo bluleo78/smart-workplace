@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { isShareExpired } from '@/components/wiki/wikiShare'
 import { wikiLastVisitedKey,writeWikiLastVisited } from '@/lib/wikiLastVisited'
+import { htmlScriptsCheckHandlers } from '@/test/kits/wiki/htmlScriptsCheck'
 import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { renderScreen } from '@/test/renderScreen'
 import type {
@@ -430,6 +431,8 @@ function openShareOwner(server: ServerShare, { role = 'OWNER' as WikiRole, path 
     detail: (id) =>
       wikiPageDetail({ id, spaceId: SHARE_SPACE, title: SHARE_TITLE, shared: server.share != null && !shareExpired(server), shareExpired: shareExpired(server) }),
     handlers: [
+      // 외부 공개 확인 창이 부르는 노트 스크립트 점검(WP-1290) — 스크립트 블록이 없는 노트.
+      ...htmlScriptsCheckHandlers().handlers,
       http.get(sharePath, async ({ request }) => {
         await record(request)
         const state: WikiPageShareState = { share: server.share, externalShareEnabled: true, inheritedFrom: null, accessRequests: server.accessRequests, excludedFromParent: false, excludedPages: [] }

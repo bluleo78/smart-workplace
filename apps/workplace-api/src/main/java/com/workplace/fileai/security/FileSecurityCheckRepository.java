@@ -31,7 +31,7 @@ public class FileSecurityCheckRepository {
    * timeoutMs(상한 없음)와 이어지지 않아 호출 도중 lease 가 끝나 두 번 부르거나 FAILED 로 오판할 수 있었다 — 호출 timeout 은 파이프라인이
    * 8분으로 잘라 이 안에 끝나게 한다({@link FileSecurityCheckPipeline#MAX_AGENT_TIMEOUT_MS}).
    */
-  static final Duration LEASE = WorkerJobRepository.SUMMARY_LEASE_DURATION;
+  public static final Duration LEASE = WorkerJobRepository.SUMMARY_LEASE_DURATION;
 
   /**
    * 판정 기준 판(WP-1283). 프롬프트·요지의 판정 기준을 바꿀 때 올린다 — 이보다 낮은(또는 NULL) 판으로 낸 DONE 결과는 낡은 결과로 보고 「다시 점검」

@@ -4,7 +4,7 @@
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps, useEditorState } from '@tiptap/react'
 import { Code2, Crosshair, MoreHorizontal, Sparkles, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
@@ -14,6 +14,7 @@ import { isMacLike } from '@/lib/platform'
 
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { useEmbedFrame } from './useEmbedFrame'
+import { useHtmlSourceScripts } from './wikiHtmlBlockSecurity'
 import { useWikiHtmlEmbedAi } from './WikiHtmlEmbedAiContext'
 import { WikiHtmlEmbedAiPanel } from './WikiHtmlEmbedAiPanel'
 import { WikiHtmlEmbedExpandDialog, WikiHtmlEmbedReuploadDialog } from './WikiHtmlEmbedDialogs'
@@ -119,6 +120,9 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
   const nodeSelected = useNodeSelected(editor, getPos)
   const showSelected = editable && nodeSelected
   const previewSource = useDebounceValue(source, showSource ? PREVIEW_DEBOUNCE_MS : REMOTE_PREVIEW_DEBOUNCE_MS)
+  // 블록 화면 요소 — 노트가 문서에서 떨어진(언마운트되지 않고 남은) 블록을 세지 않게 넘긴다(WP-1290).
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const script = useBlockScript(previewSource, wrapperRef)
   // 요소 고르기(WP-1301) — iframe 안 Esc 로 고르기가 꺼지면 블록을 통째 선택한다(설계 §1, 고른 것 풀기 단계는 훅이 한다).
   const picker = useHtmlPicker({
     onExit: () => {
@@ -132,6 +136,12 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
     extraScript: editable ? htmlPickerScript(picker.token) : '',
     onAttach: picker.attach,
   })
+  // 노트 스크립트가 멈추면(스위치를 끔·블록이 바뀜) 고르기도 끈다 — 멈춘 iframe 에는 고르기 스크립트가 돌지 않는다(WP-1290).
+  const pickerEnabled = picker.enabled
+  const setPickerEnabled = picker.setEnabled
+  useEffect(() => {
+    if (!script.running && pickerEnabled) setPickerEnabled(false)
+  }, [script.running, pickerEnabled, setPickerEnabled])
   // 「AI로 고치기」(WP-1302) — 쓸 수 있는 화면이면 조건(페이지 id·넣기 길), 칸 열림, 쓴 지시(칸을 닫아도 남긴다).
   const ai = useWikiHtmlEmbedAi()
   const showAi = editable && ai != null
@@ -227,6 +237,7 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
 
   return (
     <NodeViewWrapper
+      ref={wrapperRef}
       className="wiki-html-embed"
       data-testid="wiki-html-embed"
       data-editable={editable ? '' : undefined}
@@ -283,6 +294,9 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
             className="wiki-html-embed__btn wiki-html-embed__btn--pick"
             aria-pressed={picker.enabled}
             data-testid="wiki-html-embed-pick"
+            // 고르기는 블록 안 스크립트로 돈다 — 노트 스크립트가 멈춘 동안은 쓸 수 없어 까닭을 보인다(WP-1290).
+            disabled={!script.running}
+            title={script.running ? undefined : '노트 스크립트를 켜면 고를 수 있어요'}
             onMouseDown={keepFocus}
             onClick={() => picker.setEnabled(!picker.enabled)}
           >
@@ -351,9 +365,10 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
           />
         </div>
         <div className="wiki-html-embed__preview" contentEditable={false} data-testid="wiki-html-embed-preview">
+          {script.badge}
           <SandboxedHtmlFrame
             ref={frameRef}
-            allowScripts
+            allowScripts={script.running}
             html={doc}
             title="HTML 블록"
             className="wiki-html-embed__frame"
@@ -423,4 +438,15 @@ function HtmlBlockPicks({ picker }: { picker: HtmlPicker }) {
       )}
     </div>
   )
+}
+
+/** 블록 스크립트 차단·실행(WP-1290) — 실행 여부는 노트 하나로 정한다(본문 위 줄). 멈춘 동안은 오른쪽 위에 「스크립트 멈춤」만 작게 둔다. */
+function useBlockScript(source: string, anchor: RefObject<Element | null>) {
+  const { running } = useHtmlSourceScripts(source, anchor)
+  const badge = !running && (
+    <span className="wiki-html-embed__badge" data-testid="wiki-html-block-badge">
+      스크립트 멈춤
+    </span>
+  )
+  return { badge, running }
 }

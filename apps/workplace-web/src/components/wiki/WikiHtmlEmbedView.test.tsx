@@ -1,18 +1,21 @@
 // WP-1242 — HTML 블록 NodeView. 편집기·판 미리보기·공개 공유가 함께 쓰는 확장 묶음(wikiRenderExtensions)으로 띄워
 // 격리 iframe(allow-same-origin 없음)·srcdoc(소스 + 높이 스크립트)·높이 메시지(보낸 창 확인·범위)·소스 편집 토글(편집 가능할 때만)을 본다.
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
 import { AllSelection, NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { http, HttpResponse } from 'msw'
-import { useEffect } from 'react'
+import { type RefObject, useEffect } from 'react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { emitAiStreamEvent } from '@/lib/aiEventBus'
+import { IN_PROGRESS_POLLS } from '@/lib/driveSummary'
+import { doneView, htmlScriptsCheckHandlers, htmlScriptsHash } from '@/test/kits/wiki/htmlScriptsCheck'
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
+import { useHtmlSourceScripts, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from './wikiHtmlBlockSecurity'
 import { type WikiHtmlEmbedAi, WikiHtmlEmbedAiProvider } from './WikiHtmlEmbedAiContext'
 import { HTML_EMBED_DEFAULT_HEIGHT, HTML_EMBED_HEIGHT_SCRIPT, HTML_EMBED_MAX_HEIGHT } from './wikiHtmlEmbedFrame'
 import { HIGHLIGHT_MAX_CHARS } from './wikiHtmlEmbedHighlight'
@@ -80,10 +83,10 @@ describe('HTML 블록 NodeView', () => {
     render(<Body markdown={BODY} editable={false} />)
     const iframe = await waitFor(frame)
     const sandbox = iframe.getAttribute('sandbox')!.split(/\s+/)
-    expect(sandbox).toEqual(
-      expect.arrayContaining(['allow-scripts', 'allow-popups', 'allow-popups-to-escape-sandbox', 'allow-downloads']),
-    )
+    expect(sandbox).toEqual(expect.arrayContaining(['allow-scripts', 'allow-popups', 'allow-downloads']))
     expect(sandbox).not.toContain('allow-same-origin')
+    // 스크립트가 연 새 창도 같은 격리를 물려받는다(WP-1290) — 블록 밖에서 격리 없이 도는 가짜 화면을 띄우지 못하게.
+    expect(sandbox).not.toContain('allow-popups-to-escape-sandbox')
     // 대화상자(alert·confirm 되풀이)로 앱 탭을 잠그지 못하게.
     expect(sandbox).not.toContain('allow-modals')
     expect(sandbox).not.toContain('allow-top-navigation')
@@ -645,6 +648,181 @@ describe('판 미리보기의 HTML 블록', () => {
     expect(frames[0].closest('.wiki-diff-removed')).not.toBeNull()
     expect(frames[1].closest('.wiki-diff-added')).not.toBeNull()
     expect(within(preview).queryByTestId('wiki-html-embed-toggle')).not.toBeInTheDocument()
+    // 지난 판도 스크립트는 기본 멈춤(WP-1290) — 서버가 지난 판은 점검하지 않아 점검 칩 없이 스위치만 둔다.
+    for (const f of frames) expect(f.getAttribute('sandbox')).not.toContain('allow-scripts')
+    const bar = within(preview).getByTestId('wiki-html-script-bar')
+    expect(bar).toHaveTextContent('스크립트가 있는 HTML 블록 2개')
+    expect(within(bar).queryByRole('button', { name: /점검/ })).not.toBeInTheDocument()
+    fireEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
+    await waitFor(() =>
+      within(preview).getAllByTestId('wiki-html-embed-frame').forEach((f) => expect(f.getAttribute('sandbox')).toContain('allow-scripts')),
+    )
+  })
+})
+
+// WP-1290 — 노트 스크립트 스위치. 노트 편집 화면처럼 범위(Provider)로 감싼 편집기에서 기본 멈춤·스위치 하나로 모든 블록 켜기·
+// 블록이 바뀌면 다시 멈춤·서버 지문이 같을 때만 결과를 씀·↻ 요청·「높음」 확인 창·멈춘 블록의 크게 보기와 고르기를 본다.
+describe('노트 HTML 블록 스크립트 스위치(WP-1290)', () => {
+  const SECOND = '<button onclick="go()">이동</button>'
+  const TWO = ['```html-embed', SOURCE, '```', '', '```html-embed', SECOND, '```', '', '```html-embed', '<p>스크립트 없음</p>', '```'].join('\n')
+
+  async function mountNote(check: Parameters<typeof htmlScriptsCheckHandlers>[0], markdown = TWO) {
+    const mock = htmlScriptsCheckHandlers(check)
+    server.use(...mock.handlers)
+    let ed: Editor | null = null
+    renderWithProviders(
+      <WikiHtmlBlockScopeProvider scope={{ pageId: 7 }}>
+        <WikiHtmlScriptBar />
+        <Body markdown={markdown} editable onEditor={(e) => (ed = e)} />
+      </WikiHtmlBlockScopeProvider>,
+    )
+    await waitFor(() => expect(ed).not.toBeNull())
+    return { ed: ed!, calls: mock.calls, bar: await screen.findByTestId('wiki-html-script-bar') }
+  }
+  const sandboxes = () => screen.getAllByTestId('wiki-html-embed-frame').map((f) => f.getAttribute('sandbox') ?? '')
+
+  it('스크립트 블록만 세어 기본 멈춤으로 그리고, 스위치 하나로 모두 켠다 — 스크립트 없는 블록은 처음부터 돈다', async () => {
+    const { bar } = await mountNote({})
+    await waitFor(() => expect(bar).toHaveTextContent('스크립트가 있는 HTML 블록 2개 · 스크립트가 멈춰 있어요'))
+    await waitFor(() => expect(sandboxes()).toHaveLength(3))
+    const [a, b, plain] = sandboxes()
+    expect(a).not.toContain('allow-scripts')
+    expect(b).not.toContain('allow-scripts')
+    expect(plain).toContain('allow-scripts')
+    expect(screen.getAllByTestId('wiki-html-block-badge')).toHaveLength(2)
+    fireEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
+    await waitFor(() => sandboxes().forEach((sb) => expect(sb).toContain('allow-scripts')))
+    expect(bar).toHaveAttribute('data-on', 'true')
+    expect(screen.queryByTestId('wiki-html-block-badge')).not.toBeInTheDocument()
+  })
+
+  it('문서에서 떨어진 채 남은 블록은 세지 않는다 — 개발 모드에서 언마운트되지 않은 NodeView 가 블록을 두 번 세던 것', async () => {
+    server.use(...htmlScriptsCheckHandlers().handlers)
+    // 떨어진 블록 흉내 — 알린 뒤 요소만 문서에서 떼고 컴포넌트는 남긴다(tiptap 이 남긴 NodeView 와 같은 상태).
+    const orphan = document.createElement('div')
+    document.body.append(orphan)
+    const Reporter = ({ source, anchor }: { source: string; anchor?: RefObject<Element | null> }) => {
+      useHtmlSourceScripts(source, anchor)
+      return null
+    }
+    const anchor = { current: orphan }
+    const note = (live: string) => (
+      <WikiHtmlBlockScopeProvider scope={{ pageId: 7 }}>
+        <WikiHtmlScriptBar />
+        <Reporter source={SOURCE} anchor={anchor} />
+        <Reporter source={live} />
+      </WikiHtmlBlockScopeProvider>
+    )
+    const { rerender } = renderWithProviders(note('<script>a()</script>'))
+    const bar = await screen.findByTestId('wiki-html-script-bar')
+    await waitFor(() => expect(bar).toHaveTextContent('스크립트가 있는 HTML 블록 2개'))
+    // 요소가 떨어진 뒤 다른 블록이 바뀌면(다시 알림) 떨어진 블록은 빠진다.
+    orphan.remove()
+    rerender(note('<script>b()</script>'))
+    await waitFor(() => expect(bar).toHaveTextContent('스크립트가 있는 HTML 블록 1개'))
+  })
+
+  it('점검 폴링이 상한에 닿은 뒤 ↻(다시 점검)를 누르면 다시 폴링한다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const hash = await htmlScriptsHash([SOURCE])
+      const checking = { hash, blockCount: 1, view: { ...doneView('LOW'), status: 'CHECKING' as const, risk: null } }
+      const { bar, calls } = await mountNote(checking, ['```html-embed', SOURCE, '```'].join('\n'))
+      const gets = () => calls.filter((c) => c.method === 'GET').length
+      await waitFor(() => expect(gets()).toBeGreaterThan(0))
+      // 상한(IN_PROGRESS_POLLS)을 넘길 만큼 흘려 폴링이 멈추게 한다.
+      for (let i = 0; i < IN_PROGRESS_POLLS + 2; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3000)
+        })
+      }
+      const stopped = gets()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000)
+      })
+      expect(gets()).toBe(stopped)
+      fireEvent.click(within(bar).getByRole('button', { name: /다시 점검|점검/ }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6100)
+      })
+      expect(gets()).toBeGreaterThan(stopped)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('지문을 낼 수 없는 출처(http — crypto.subtle 없음)에서도 앱 안 스위치로 켤 수 있다', async () => {
+    const subtle = vi.spyOn(globalThis.crypto, 'subtle', 'get').mockReturnValue(undefined as unknown as SubtleCrypto)
+    try {
+      const { bar, calls } = await mountNote({})
+      await waitFor(() => expect(sandboxes()).toHaveLength(3))
+      fireEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
+      await waitFor(() => sandboxes().forEach((sb) => expect(sb).toContain('allow-scripts')))
+      // 지문이 없으니 점검은 묻지 않는다.
+      expect(calls).toEqual([])
+    } finally {
+      subtle.mockRestore()
+    }
+  })
+
+  it('켠 뒤 블록 하나가 바뀌면 노트 지문이 달라져 다시 멈춘다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const { ed, bar } = await mountNote({})
+      fireEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
+      await waitFor(() => expect(bar).toHaveAttribute('data-on', 'true'))
+      act(() => {
+        ed.commands.insertContentAt(embedTextPos(ed), '<!-- 고침 -->')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REMOTE_PREVIEW_DEBOUNCE_MS + 50)
+      })
+      await waitFor(() => expect(bar).toHaveAttribute('data-on', 'false'))
+      expect(sandboxes()[0]).not.toContain('allow-scripts')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('서버 지문이 화면 노트와 같을 때만 결과를 보이고(다르면 점검 전), ↻ 는 같은 경로로 다시 점검을 요청한다', async () => {
+    const hash = await htmlScriptsHash([SOURCE, SECOND])
+    const same = await mountNote({ hash, blockCount: 2, view: doneView('LOW') })
+    await waitFor(() => expect(same.bar).toHaveAttribute('data-risk', 'LOW'))
+    fireEvent.click(within(same.bar).getByRole('button', { name: '다시 점검' }))
+    await waitFor(() => expect(same.calls).toContainEqual({ method: 'POST', path: '/api/v1/wiki/pages/7/html-scripts/security-check' }))
+    cleanup()
+
+    const other = await mountNote({ hash: 'f'.repeat(64), blockCount: 2, view: doneView('HIGH', '옛 내용') })
+    await waitFor(() => expect(other.calls.some((c) => c.method === 'GET')).toBe(true))
+    expect(other.bar).not.toHaveAttribute('data-risk')
+    expect(other.bar).not.toHaveTextContent('옛 내용')
+  })
+
+  it('노트가 「높음」이면 줄이 이유를 보이고, 켜기 전에 확인 창을 한 번 거친다', async () => {
+    const hash = await htmlScriptsHash([SOURCE, SECOND])
+    const { bar } = await mountNote({ hash, blockCount: 2, view: doneView('HIGH', '로그인 화면을 흉내 낸다') })
+    await waitFor(() => expect(bar).toHaveAttribute('data-risk', 'HIGH'))
+    expect(bar).toHaveTextContent('로그인 화면을 흉내 낸다')
+    fireEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
+    expect(bar).toHaveAttribute('data-on', 'false')
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('이 노트의 HTML 블록이 모두 실행돼요')
+    fireEvent.click(within(dialog).getByRole('button', { name: /실행/ }))
+    await waitFor(() => expect(bar).toHaveAttribute('data-on', 'true'))
+  })
+
+  it('멈춘 블록은 고르기를 쓸 수 없고(까닭을 보임) 크게 보기도 스크립트 없이 연다', async () => {
+    const { ed } = await mountNote({}, BODY)
+    act(() => {
+      ed.commands.setNodeSelection(embedTextPos(ed) - 1)
+    })
+    const pick = await screen.findByTestId('wiki-html-embed-pick')
+    expect(pick).toBeDisabled()
+    expect(pick).toHaveAttribute('title', '노트 스크립트를 켜면 고를 수 있어요')
+    fireEvent.click(await screen.findByRole('button', { name: '크게 보기' }))
+    const big = await screen.findByTestId('wiki-html-embed-expand-frame')
+    expect(big.getAttribute('sandbox')).not.toContain('allow-scripts')
   })
 })
 

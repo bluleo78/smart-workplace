@@ -26,8 +26,8 @@ import { useWikiSpaces } from '../../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../../hooks/queries/useWikiTree'
 import { isEditRole } from '../../../lib/collab/collabStatus'
 import type { WikiPageDetail, WikiPageSummary } from '../../../types/wiki'
-import { SandboxedHtmlFrame } from '../../SandboxedHtmlFrame'
 import { breadcrumbOrSelf, buildBreadcrumb } from '../wikiBreadcrumb'
+import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../wikiHtmlBlockSecurity'
 import { WikiHtmlFileInput } from '../WikiHtmlFileInput'
 import { readHtmlFile } from '../wikiHtmlImportInsert'
 import { canManageShare, countDescendants } from '../wikiShare'
@@ -64,7 +64,8 @@ export interface WikiHtmlDocumentShare {
  * 「HTML 문서」 페이지 화면(WP-1307) — 원본 HTML 을 그대로 보관·표시하는 페이지. 블록 편집기(동기화 서버)를 쓰지 않는다
  * (서버가 HTML 페이지의 동기화 접근을 409 로 막는다).
  *
- * - 보기: 격리 iframe(SandboxedHtmlFrame allowScripts) — allow-same-origin 이 없어 스크립트·차트는 돌지만 앱 로그인 정보·화면에는 닿지 못한다.
+ * - 보기: 격리 iframe — allow-same-origin 이 없어 스크립트·차트는 돌아도 앱 로그인 정보·화면에는 닿지 못한다. 스크립트는 노트 블록과 같이 기본 멈춤이고
+ *   제목 줄 아래 스크립트 줄의 스위치로 켠다(WP-1290 — 노트 단위 AI 보안 점검).
  * - 소스: 원본 HTML 을 읽기 전용으로 본다.
  * - 편집(편집자만, WP-1308): 잠금을 얻고 왼쪽 소스 칸 + 오른쪽 늦춘 미리보기로 고친다(보이는 화면 편집은 WP-1309). 「저장」은 고치기 시작한 version 으로
  *   PUT(409 면 알리고 다시 받은 version 으로 기준을 옮긴다 — 소스는 남기고, 다시 저장하면 바꾼다), 「취소」는 잠금을 풀고 고친 내용을 버린다.
@@ -83,6 +84,8 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
   const { data: spaceTree } = useWikiTree(share ? null : spaceId)
   const tree = share ? share.pages : spaceTree
   const html = page.html ?? ''
+  // 스크립트 점검 범위(WP-1290) — 공유 링크로 연 화면은 그 토큰으로 조회한다.
+  const blockScope = useMemo(() => ({ pageId: page.id, shareToken: share?.token }), [page.id, share?.token])
 
   // 편집 잠금(WP-1308) — 공유 링크 화면은 보기만 해서 잠금을 보지 않는다. mine·강제 풀기는 내 id·스페이스 역할로 가린다.
   const { user } = useAuth()
@@ -269,6 +272,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
   )
 
   return (
+    <WikiHtmlBlockScopeProvider scope={blockScope}>
     <Page data-testid="wiki-html-document">
       <Page.Header
         data-testid="wiki-page-header"
@@ -316,6 +320,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
             </p>
           )}
         </div>
+        <WikiHtmlScriptBar className="mx-4 mt-2 mb-2" />
         {mode === 'edit' && draft ? (
           // 소스 — 넓으면 [소스 | 미리보기] 나란히, 좁으면 위아래로 쌓는다.
           <div className="grid min-h-0 flex-1 grid-rows-2 md:grid-cols-2 md:grid-rows-1">
@@ -327,8 +332,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
               data-testid="wiki-html-source"
               className="min-h-0 resize-none border-b bg-muted/30 p-3 font-mono text-xs leading-5 outline-none md:border-b-0 md:border-r"
             />
-            <SandboxedHtmlFrame
-              allowScripts
+            <NoteScriptFrame
               html={previewSource}
               title={`${page.title || '제목 없음'} 미리보기`}
               data-testid="wiki-html-preview"
@@ -346,8 +350,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
             className="min-h-0 flex-1 resize-none bg-muted/30 p-3 font-mono text-xs leading-5 outline-none"
           />
         ) : (
-          <SandboxedHtmlFrame
-            allowScripts
+          <NoteScriptFrame
             html={html}
             title={page.title || '제목 없음'}
             data-testid="wiki-html-frame"
@@ -427,5 +430,6 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
         </AlertDialogContent>
       </AlertDialog>
     </Page>
+    </WikiHtmlBlockScopeProvider>
   )
 }

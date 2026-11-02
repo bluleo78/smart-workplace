@@ -1,6 +1,9 @@
 // 노트 스페이스 0개 → 생성 흐름 모킹(WP-143) — 데스크톱·모바일 빈 상태 spec 이 공유한다.
-import { expect, type Page } from '@playwright/test'
+import { createHash } from 'node:crypto'
 
+import { expect, type Locator, type Page } from '@playwright/test'
+
+import type { SecurityCheckView } from '../../src/types/securityCheck'
 import type {
   WikiMentionRef,
   WikiPageDetail,
@@ -257,4 +260,52 @@ export async function mockWikiRevisions(
       current = next
     },
   }
+}
+
+/** 노트 지문에 넣는 블록 구분자 — 화면(wikiHtmlBlockSecurity.joinHtmlScriptSources)·서버(WikiHtmlScripts)와 같아야 한다. */
+const HTML_SCRIPT_BLOCK_SEPARATOR = '\n<!-- wp-html-block -->\n'
+
+/**
+ * 노트 지문(WP-1290) — 스크립트가 든 블록 소스를 화면과 같은 규칙(정렬 → 구분자로 이어 붙임 → UTF-8 SHA-256 16진)으로 계산한다.
+ * 공개 공유는 서버 응답 지문이 화면 지문과 같아야 스위치가 켜지므로, 테스트가 블록 소스로 같은 값을 만들어 응답에 싣는다.
+ */
+export function htmlScriptsHash(sources: string[]): string {
+  return createHash('sha256').update([...sources].sort().join(HTML_SCRIPT_BLOCK_SEPARATOR), 'utf8').digest('hex')
+}
+
+/** 끝난 「낮음」 점검 결과 — 공개 공유에서 스위치를 켤 수 있는 상태. */
+export const htmlScriptsLowView: SecurityCheckView = {
+  status: 'DONE',
+  risk: 'LOW',
+  headline: '문제 없어 보여요',
+  evidence: [],
+  checkedAt: '2026-11-02T12:00:00Z',
+  reason: null,
+}
+
+/**
+ * 노트 HTML 스크립트 점검 조회 목(WP-1290) — 앱 안(`/wiki/pages/:id/...` GET·POST)과 공개 공유(`/public/wiki/shares/:token/pages/:id/...`) 둘 다 받는다.
+ * 스크립트가 든 블록이 있으면 본문 위 줄이 이 점검을 부르는데, 목이 없으면 503 이라 기본은 「점검 행 없음」(지문만 없음)으로 답한다.
+ */
+export async function mockHtmlScriptsCheck(
+  page: Page,
+  check: { hash?: string | null; blockCount?: number; view?: SecurityCheckView | null } = {},
+) {
+  const body = { hash: null, blockCount: 0, view: null, ...check }
+  await page.route(
+    (u) => /^\/api\/v1\/(public\/wiki\/shares\/[^/]+\/pages|wiki\/pages)\/\d+\/html-scripts\/security-check$/.test(u.pathname),
+    (r) => r.fulfill({ json: body }),
+  )
+}
+
+/**
+ * 노트 스크립트 줄의 스위치를 켠다(WP-1290) — 스크립트가 든 블록·HTML 문서는 멈춘 채 그려지므로, 스크립트 결과를 보기 전에 누른다.
+ * 켜진 뒤(줄 data-on=true)까지 기다린다.
+ */
+export async function turnOnNoteScripts(scope: Page | Locator) {
+  const bar = scope.getByTestId('wiki-html-script-bar')
+  const toggle = bar.getByRole('switch', { name: '스크립트 실행' })
+  await expect(toggle).toBeEnabled()
+  await toggle.click()
+  await expect(bar).toHaveAttribute('data-on', 'true')
 }

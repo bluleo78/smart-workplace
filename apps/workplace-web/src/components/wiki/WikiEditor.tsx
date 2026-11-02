@@ -69,6 +69,7 @@ import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { wikiEditorExtensions } from './wikiEditorExtensions'
+import { WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from './wikiHtmlBlockSecurity'
 import { type WikiHtmlEmbedAi, WikiHtmlEmbedAiProvider } from './WikiHtmlEmbedAiContext'
 import { WikiHtmlFileInput } from './WikiHtmlFileInput'
 import { importHtmlIntoEditor, readHtmlFile } from './wikiHtmlImportInsert'
@@ -992,6 +993,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // 제목 저장 — 디바운스·blur/언마운트 즉시 보냄·일시 실패 재시도는 createTitleSaver 가 맡는다(규칙은 wikiTitleSync).
   // 페이지 전환은 key 로 리마운트되므로 사실상 마운트당 한 번 만든다. mutateAsync 는 최신 함수를 ref 로 읽는다.
   const pageId = page.id
+  // 노트 HTML 블록 스크립트 점검 범위(WP-1290) — 공유 링크로 연 화면은 그 토큰으로 조회한다.
+  const blockScope = useMemo(() => ({ pageId, shareToken }), [pageId, shareToken])
   const saveTitleRef = useRef(saveTitle.mutateAsync)
   useEffect(() => {
     saveTitleRef.current = saveTitle.mutateAsync
@@ -1223,12 +1226,16 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
             {ready ? (
               <WikiMentionLabelsProvider pageId={page.id}>
                 <WikiHtmlEmbedAiProvider value={htmlEmbedAi}>
+                {/* 노트 HTML 블록 스크립트 차단·점검(WP-1290) — 블록들이 소스를 알리고, 본문 위 줄 하나로 노트 전체를 켜고 끈다. */}
+                <WikiHtmlBlockScopeProvider scope={blockScope}>
+                  <WikiHtmlScriptBar />
                   <div onClick={onBodyClick} data-presence-stale={stale ? '' : undefined}>
                     <EditorContent
                       editor={editor}
                       className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
                     />
                   </div>
+                </WikiHtmlBlockScopeProvider>
                 </WikiHtmlEmbedAiProvider>
               </WikiMentionLabelsProvider>
             ) : body === 'unreachable' ? (

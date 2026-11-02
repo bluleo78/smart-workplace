@@ -12,6 +12,7 @@ import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
 import com.workplace.jooq.tables.WikiHtmlEditLock.WikiHtmlEditLockPath;
+import com.workplace.jooq.tables.WikiHtmlScriptsCheck.WikiHtmlScriptsCheckPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
@@ -337,6 +338,19 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _wikiHtmlEditLock = new WikiHtmlEditLockPath(this, null, Keys.WIKI_HTML_EDIT_LOCK__WIKI_HTML_EDIT_LOCK_PAGE_ID_FKEY.getInverseKey());
 
         return _wikiHtmlEditLock;
+    }
+
+    private transient WikiHtmlScriptsCheckPath _wikiHtmlScriptsCheck;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_scripts_check</code> table
+     */
+    public WikiHtmlScriptsCheckPath wikiHtmlScriptsCheck() {
+        if (_wikiHtmlScriptsCheck == null)
+            _wikiHtmlScriptsCheck = new WikiHtmlScriptsCheckPath(this, null, Keys.WIKI_HTML_SCRIPTS_CHECK__WIKI_HTML_SCRIPTS_CHECK_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiHtmlScriptsCheck;
     }
 
     private transient WikiPageAttachmentPath _wikiPageAttachment;

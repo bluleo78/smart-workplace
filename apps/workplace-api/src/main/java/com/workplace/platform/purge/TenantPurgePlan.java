@@ -132,6 +132,8 @@ public final class TenantPurgePlan {
           WIKI_HTML_DRAFT, // HTML 문서 임시 저장본(WP-1308) — wiki_page·user 보다 먼저
           WIKI_REFERENCE,
           WIKI_PAGE_ATTACHMENT,
+          // 노트 HTML 블록 보안 점검 결과(WP-1290) — wiki_page 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 페이지보다 먼저 비운다.
+          WIKI_HTML_SCRIPTS_CHECK,
           WIKI_PAGE_BODY_HISTORY,
           WIKI_PAGE_DOC,
           WIKI_REVISION,

@@ -7,10 +7,12 @@ import com.workplace.fileai.outbound.AiAgentDriveClient.Evidence;
 import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.global.util.AfterCommit;
 import com.workplace.jooq.tables.records.FileSecurityCheckRecord;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import lombok.extern.slf4j.Slf4j;
+import org.jooq.JSONB;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -134,17 +136,43 @@ public class FileSecurityCheckService {
                 }));
   }
 
-  /** 행 → 응답. 실패 까닭은 오류 코드로, AI 없음은 점검이 진행될 수 없는 상태(행 없음·PENDING·CHECKING)에서만 알린다. */
+  /** 행 → 응답 — 칸을 {@link #viewOf} 로 넘긴다. */
   private SecurityCheckView toView(FileSecurityCheckRecord row, boolean hasAi) {
     if (row == null) {
+      return viewOf(null, null, null, List.of(), null, null, null, hasAi);
+    }
+    return viewOf(
+        row.getStatus(),
+        row.getRisk(),
+        row.getHeadline(),
+        parseEvidence(objectMapper, row.getEvidence(), "fileId=" + row.getFileId()),
+        row.getCheckedAt(),
+        row.getError(),
+        row.getCriteriaVersion(),
+        hasAi);
+  }
+
+  /**
+   * 점검 행 칸 → 응답. 행이 없으면({@code status} null) status null(AI 가 없으면 reason NO_AI). 실패 까닭은 오류 코드로, AI
+   * 없음은 점검이 진행될 수 없는 상태(행 없음·PENDING·CHECKING)에서만 알린다. 노트 HTML 블록 점검(WP-1290)도 같은 규칙으로 응답을 만든다.
+   */
+  public static SecurityCheckView viewOf(
+      String status,
+      String risk,
+      String headline,
+      List<Evidence> evidence,
+      OffsetDateTime checkedAt,
+      String error,
+      Short criteriaVersion,
+      boolean hasAi) {
+    if (status == null) {
       return new SecurityCheckView(
           null, null, null, List.of(), null, hasAi ? null : SecurityCheckView.REASON_NO_AI);
     }
-    String status = row.getStatus();
     String reason = null;
     if ("FAILED".equals(status)) {
       reason =
-          FileSecurityCheckPipeline.ERROR_TOO_LARGE.equals(row.getError())
+          FileSecurityCheckPipeline.ERROR_TOO_LARGE.equals(error)
               ? SecurityCheckView.REASON_TOO_LARGE
               : SecurityCheckView.REASON_ERROR;
     } else if (!hasAi && ("PENDING".equals(status) || "CHECKING".equals(status))) {
@@ -152,24 +180,18 @@ public class FileSecurityCheckService {
     }
     // 지난 판정 기준의 DONE — 화면이 결과는 그대로 보이되 「다시 점검」을 권한다(WP-1283).
     boolean outdated =
-        "DONE".equals(status) && FileSecurityCheckRepository.isOutdated(row.getCriteriaVersion());
-    return new SecurityCheckView(
-        status,
-        row.getRisk(),
-        row.getHeadline(),
-        parseEvidence(row),
-        row.getCheckedAt(),
-        reason,
-        outdated);
+        "DONE".equals(status) && FileSecurityCheckRepository.isOutdated(criteriaVersion);
+    return new SecurityCheckView(status, risk, headline, evidence, checkedAt, reason, outdated);
   }
 
-  /** 근거 JSON 을 읽는다 — 깨졌으면 빈 목록(결과 표시 전체를 막지 않는다). */
-  private List<Evidence> parseEvidence(FileSecurityCheckRecord row) {
-    if (row.getEvidence() == null) return List.of();
+  /** 근거 JSON 을 읽는다 — 깨졌으면 빈 목록(결과 표시 전체를 막지 않는다). {@code subject} 는 로그용 대상 표시. */
+  public static List<Evidence> parseEvidence(
+      ObjectMapper objectMapper, JSONB json, String subject) {
+    if (json == null) return List.of();
     try {
-      return objectMapper.readValue(row.getEvidence().data(), EVIDENCE_LIST);
+      return objectMapper.readValue(json.data(), EVIDENCE_LIST);
     } catch (Exception e) {
-      log.warn("보안 점검 근거 JSON 파싱 실패: fileId={}", row.getFileId(), e);
+      log.warn("보안 점검 근거 JSON 파싱 실패: {}", subject, e);
       return List.of();
     }
   }

@@ -124,6 +124,7 @@ import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
 import com.workplace.jooq.tables.WikiHtmlDraft;
 import com.workplace.jooq.tables.WikiHtmlEditLock;
+import com.workplace.jooq.tables.WikiHtmlScriptsCheck;
 import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
@@ -450,6 +451,7 @@ public class Indexes {
     public static final Index IX_FILE_EXTRACTION_RESUME = Internal.createIndex(DSL.name("ix_file_extraction_resume"), FileExtraction.FILE_EXTRACTION, new OrderField[] { FileExtraction.FILE_EXTRACTION.STATUS, FileExtraction.FILE_EXTRACTION.LEASED_UNTIL }, false);
     public static final Index IX_FILE_EXTRACTION_SEARCH_TV = Internal.createIndex(DSL.name("ix_file_extraction_search_tv"), FileExtraction.FILE_EXTRACTION, new OrderField[] { FileExtraction.FILE_EXTRACTION.SEARCH_TV }, false);
     public static final Index IX_FILE_SECURITY_CHECK_RESUME = Internal.createIndex(DSL.name("ix_file_security_check_resume"), FileSecurityCheck.FILE_SECURITY_CHECK, new OrderField[] { FileSecurityCheck.FILE_SECURITY_CHECK.STATUS, FileSecurityCheck.FILE_SECURITY_CHECK.LEASED_UNTIL }, false);
+    public static final Index IX_WIKI_HTML_SCRIPTS_CHECK_RESUME = Internal.createIndex(DSL.name("ix_wiki_html_scripts_check_resume"), WikiHtmlScriptsCheck.WIKI_HTML_SCRIPTS_CHECK, new OrderField[] { WikiHtmlScriptsCheck.WIKI_HTML_SCRIPTS_CHECK.STATUS, WikiHtmlScriptsCheck.WIKI_HTML_SCRIPTS_CHECK.LEASED_UNTIL }, false);
     public static final Index IX_WORKER_JOB_CLAIM = Internal.createIndex(DSL.name("ix_worker_job_claim"), WorkerJob.WORKER_JOB, new OrderField[] { WorkerJob.WORKER_JOB.STATUS, WorkerJob.WORKER_JOB.LEASED_UNTIL }, false);
     public static final Index SHARED_AI_MEMORY_CHANGE_CREATED_IDX = Internal.createIndex(DSL.name("shared_ai_memory_change_created_idx"), SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE, new OrderField[] { SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE.CREATED_AT }, false);
     public static final Index SHARED_AI_MEMORY_CHANGE_SPACE_IDX = Internal.createIndex(DSL.name("shared_ai_memory_change_space_idx"), SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE, new OrderField[] { SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE.TENANT_ID, SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE.SPACE_TYPE, SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE.SPACE_ID, SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE.CREATED_AT.desc() }, false);

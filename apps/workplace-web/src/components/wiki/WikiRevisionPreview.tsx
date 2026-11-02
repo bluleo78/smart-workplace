@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { cn } from '@/lib/utils'
 
+import { WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from './wikiHtmlBlockSecurity'
 import { WikiImage } from './wikiImageNode'
 import { useMentionChipTextOf, WikiMentionLabelsProvider } from './wikiMentionLabels'
 import { WikiMention } from './wikiMentionNode'
@@ -42,7 +43,10 @@ export function WikiRevisionPreview(props: WikiRevisionPreviewProps) {
   // 라벨 Provider 를 바깥에 둔다 — 칩 NodeView(EditorContent 포털)와 추가 글자 위젯(아래 effect)이 같은 라벨 조회를 쓴다.
   return (
     <WikiMentionLabelsProvider pageId={props.pageId}>
-      <RevisionPreviewContent {...props} />
+      {/* HTML 블록 스크립트는 지금 노트처럼 기본 멈춤(WP-1290) — 지난 판은 서버가 점검하지 않아 스위치만 둔다. */}
+      <WikiHtmlBlockScopeProvider scope={{ pageId: props.pageId, noCheck: true }}>
+        <RevisionPreviewContent {...props} />
+      </WikiHtmlBlockScopeProvider>
     </WikiMentionLabelsProvider>
   )
 }
@@ -90,6 +94,7 @@ function RevisionPreviewContent({ body, title, compareTo, showDiff, className }:
       {/* 빈 제목은 에디터 제목 입력의 자리표시와 같은 문구를 흐리게 보인다. */}
       <h1 className={cn('mb-4 break-words', pageTitleClass, !title && 'text-muted-foreground')}>{title || '제목 없음'}</h1>
       {/* 칩 NodeView 는 EditorContent 가 렌더하는 포털이라 라벨 Provider(WikiRevisionPreview) 안에 있어야 라벨이 채워진다. */}
+      <WikiHtmlScriptBar />
       <EditorContent editor={editor} className="wiki-editor [&_.ProseMirror]:outline-none" />
     </div>
   )
