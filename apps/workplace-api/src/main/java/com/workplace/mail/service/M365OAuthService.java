@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.config.M365GraphProperties;
@@ -11,8 +12,11 @@ import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.OAuthStateStore.StateData;
 import com.workplace.tenant.repository.TenantRepository;
+import com.workplace.user.dto.UserResponse;
+import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,8 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>{@link #connect}는 인가 코드를 access_token / refresh_token 으로 교환하고, id_token 에서 이메일을 추출하여 DB 에 계정을
  * upsert 한다.
  *
- * <p>⚠️ @Transactional 단독으로는 불충분 — 콜백은 JWT 없는 공개 경로라 TenantContext 가 비어 있다. 호출 전 반드시
- * TenantContext.set(state.tenantId()) 를 try-finally-clear 로 감싸야 RLS GUC 가 주입된다(#444/#492 패턴).
+ * <p>콜백 완료는 로그인한 사용자 요청이라(WP-1289) JWT 필터가 세운 TenantContext 로 @Transactional 이 RLS GUC 를 주입한다.
+ * 컨트롤러가 state 주인과 현재 사용자·테넌트가 같은지 확인한 뒤에만 {@link #connect} 를 부른다.
  */
 @Slf4j
 @Service
@@ -50,6 +54,12 @@ public class M365OAuthService {
   /** WP-879: 워크스페이스 SSO 켜짐 여부 조회(tenant 는 RLS 비대상 전역 테이블). */
   private final TenantRepository tenantRepository;
 
+  /** WP-1289: 남의 state 로 연결을 시도한 기록을 감사 로그에 남긴다. */
+  private final AuditLogService auditLogService;
+
+  /** WP-1289: 감사 로그의 사용자 이름 조회. */
+  private final UserRepository userRepository;
+
   /**
    * 메일 계정 추가 시 Outlook(Microsoft 365)을 기본 공급자로 고를지(WP-879).
    *
@@ -62,6 +72,41 @@ public class M365OAuthService {
   }
 
   /**
+   * 다른 사람에게 발급된 state 로 연결 완료를 부른 시도를 감사 로그(FAILURE)로 남긴다(WP-1289).
+   *
+   * <p>남이 받은 연결 링크를 누르게 해 내 메일함을 그 사람 계정에 잇게 하려는 시도일 수 있어 관리자가 볼 수 있게 남긴다. 감사 저장이 실패해도 거부 응답은 그대로
+   * 나가야 하므로 오류는 삼키고 경고만 남긴다.
+   *
+   * @param callerId 지금 로그인해 완료를 부른 사용자
+   * @param state 소비한 state(발급받은 사용자·테넌트)
+   */
+  @Transactional
+  public void auditForeignState(long callerId, StateData state) {
+    try {
+      auditLogService.log(
+          callerId,
+          userRepository
+              .findById(callerId)
+              .map(UserResponse::username)
+              .orElse(String.valueOf(callerId)),
+          "MAIL_OAUTH_STATE_MISMATCH",
+          "email_account",
+          null,
+          "다른 사용자에게 발급된 M365 메일 연결 state 로 연결 시도 — 거부",
+          null,
+          null,
+          "FAILURE",
+          null,
+          Map.of(
+              "provider", "M365_GRAPH",
+              "stateUserId", state.userId(),
+              "stateTenantId", state.tenantId()));
+    } catch (RuntimeException e) {
+      log.warn("M365 state 불일치 감사 기록 실패 type={}", e.getClass().getName());
+    }
+  }
+
+  /**
    * OAuth2 인가 코드를 교환하고 M365 계정을 DB 에 upsert 한다.
    *
    * <p>id_token 의 payload 세그먼트를 base64url 디코딩해 {@code preferred_username} 또는 {@code email} 클레임으로
@@ -71,7 +116,7 @@ public class M365OAuthService {
    * @param state 사전 발급한 StateData (userId/tenantId 결속)
    * @return 생성 또는 갱신된 email_account ID
    */
-  @Transactional // RLS GUC 주입: 호출 전 TenantContext.set(state.tenantId()) 필수
+  @Transactional // RLS GUC 주입: JWT 필터가 세운 TenantContext(= state.tenantId(), 컨트롤러가 확인)
   public long connect(String code, StateData state) {
     // 인가 코드 → access_token / refresh_token / id_token 교환
     GraphApiClient.TokenResponse tokens = graphApiClient.exchangeCode(code);

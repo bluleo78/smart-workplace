@@ -59,7 +59,8 @@ export async function getM365MailStatus(): Promise<{ preferred: boolean }> {
 }
 
 /**
- * 팝업 콜백 페이지가 AAD 인가 코드를 백엔드로 중계한다(공개 경로 — state 로 신원 복원).
+ * 팝업 콜백 페이지가 AAD 인가 코드를 백엔드로 중계한다. 로그인한 본인이 발급받은 state 만 받는다(WP-1289) — 팝업은
+ * 메모리 토큰이 없어도 첫 401 에서 인터셉터가 refresh 쿠키로 토큰을 받아 다시 보낸다. 남의 state 면 403.
  * 성공 200 {connected:true}, 실패 시 axios 가 4xx 로 throw.
  */
 export async function completeM365OAuth(body: {
