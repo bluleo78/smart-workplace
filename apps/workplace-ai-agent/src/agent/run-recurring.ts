@@ -1,7 +1,7 @@
 // WP-989: 반복 개인 작업의 회차 실행 — issue.recurring_run 이벤트를 받아 반복에 등록된 비서(actingAgentId)의 LLM 자격으로,
-// 도구는 등록한 사람(ownerUserId, 홈 AI 채팅과 같은 대행) 권한으로 실행을 돌리고(WP-1311 부터 쓰기도 확인 카드 없이 바로 한다),
-// 최종 답변을 API 내부 보고(POST /internal/issue-recurrence/{issueId}/runs)로 돌려준다. 결과 글은 API 가 그 AI 이름으로 이슈 챗에
-// 남긴다. 실패도 사유와 함께 보고해야 API 가 연속 실패를 세고 작업 상태를 되돌린다.
+// 도구는 API 가 정한 신원(ownerUserId — 개인 비서면 주인 대행, 그 밖의 AI 는 자기 자신, WP-1314) 권한으로 실행을 돌리고(WP-1311 부터 쓰기도
+// 확인 카드 없이 바로 한다), 최종 답변을 API 내부 보고(POST /internal/issue-recurrence/{issueId}/runs)로 돌려준다. 결과 글은 API 가
+// 그 AI 이름으로 이슈 챗에 남긴다. 실패도 사유와 함께 보고해야 API 가 연속 실패를 세고 작업 상태를 되돌린다.
 import axios from 'axios';
 import { RECURRING_QUESTION_MARKER, RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
 import { buildRecurringRunMessage } from './user-message.js';
@@ -113,7 +113,8 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
       userId: ownerId,
       timeoutMs,
       logTag,
-      // 도구는 소유자(ownerId) 대행 — 홈 AI 채팅처럼 그 사람의 메일·일정·노트 등을 읽고, 본문이 시킨 쓰기를 확인 카드 없이 한다(WP-1311).
+      // 도구는 ownerId 대행 — 개인 비서면 홈 AI 채팅처럼 주인의 메일·일정·노트 등을, 그 밖의 AI 면 자기 권한으로 다루고, 본문이 시킨 쓰기를
+      // 확인 카드 없이 한다(WP-1311·WP-1314).
       mcp: {
         client: scoped,
         onBehalfOfId: ownerId,

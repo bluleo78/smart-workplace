@@ -74,6 +74,9 @@ export const shellHandlers = [
   ),
   http.get(`${API}/projects/:key/issues/:n/cycles`, () => HttpResponse.json([])),
   http.get(`${API}/projects/:key/issues/:n/drive-links`, () => HttpResponse.json([])),
+  // 이슈 상세의 「AI 에게 맡기기」 칸(WP-1314) — 실행 일정 없음(204)과 담당 AI 후보 없음.
+  http.get(`${API}/projects/:key/issues/:n/recurrence`, () => new HttpResponse(null, { status: 204 })),
+  http.get(`${API}/projects/:key/issues/:n/recurrence/agents`, () => HttpResponse.json([])),
   http.get(`${API}/mail/accounts/:id/folders`, () => HttpResponse.json([])),
   http.get(`${API}/me/dashboard`, () => HttpResponse.json({ widgets: [] })),
   http.get(`${API}/me/mail-summary`, () => HttpResponse.json({ unreadCount: 0, recent: [] })),

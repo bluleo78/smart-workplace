@@ -18,14 +18,15 @@ export function formatKst(iso: string): string {
   );
 }
 
-// WP-989·WP-1311: 반복 개인 작업의 회차 실행 지시문. 도구는 등록한 사람 권한으로 돈다. 사람이 지켜보지 않는 실행이라 확인 카드를 띄울 수 없으므로
-// 본문이 시킨 쓰기는 바로 하고, 본문이 확인을 받으라고 한 쓰기는 하지 않고 질문 표지로 묻게 한다. 최종 답변이 그대로 이슈 챗에 올라간다.
+// WP-989·WP-1311: 반복 작업(실행 일정)의 회차 실행 지시문. 도구는 API 가 정한 신원(ownerUserId)으로 돈다 — 개인 비서면 주인, 그 밖의 AI 는
+// 자기 자신(WP-1314). 사람이 지켜보지 않는 실행이라 확인 카드를 띄울 수 없으므로 본문이 시킨 쓰기는 바로 하고, 본문이 확인을 받으라고 한
+// 쓰기는 하지 않고 질문 표지로 묻게 한다. 최종 답변이 그대로 이슈 챗에 올라간다.
 export function buildRecurringRunMessage(p: IssueRecurringRunPayload): string {
   const round = p.round ? `${p.round}회차` : '이번 회차';
   const body = p.issueBody?.trim() ? p.issueBody.trim() : '(본문 없음 — 제목을 보고 할 일을 판단하세요)';
   return (
     `[이벤트: issue.recurring_run]\n` +
-    `반복 개인 작업의 ${round} 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n` +
+    `반복 작업의 ${round} 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n` +
     `이슈키: ${p.issueKey}\n` +
     `제목: ${p.issueTitle}\n` +
     `반복: ${p.recurrence.rrule} · ${p.recurrence.time} KST\n` +
@@ -34,7 +35,10 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload): string {
     `## 이번 회차 규칙\n` +
     `- 이슈 본문이 요청한 일을 이번 회차(${formatKst(p.runAt)}) 기준으로 수행하세요. 본문이 시킨 쓰기(메일 보내기, 이슈·일정 만들기·고치기 등)는 확인 카드 없이 바로 합니다. 본문에 없는 쓰기는 하지 말고 결과 끝의 「제안」 절에 적습니다.\n` +
     `- 본문이 쓰기 전에 확인을 받으라고 하면 그 쓰기를 하지 말고, 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 하려는 일과 확인받을 내용을 적으세요. 그 밖에는 질문하지 않습니다.\n` +
-    `- 도구는 요청자(@${p.actor?.username ?? '등록한 사람'})의 권한으로 동작합니다 — 그 사람의 메일·일정·노트·이슈 등을 직접 조회하고 다룹니다.\n` +
+    // 신원이 AI 자신이면 사람을 대신하지 않는다 — 그 AI 가 볼 수 있는 것만 다룬다(WP-1314).
+    (p.ownerUserId === p.actingAgentId
+      ? `- 도구는 당신(이 AI) 자신의 권한으로 동작합니다 — 이 프로젝트처럼 당신이 볼 수 있는 이슈·노트 등만 조회하고 다룹니다.\n`
+      : `- 도구는 요청자(@${p.actor?.username ?? '등록한 사람'})의 권한으로 동작합니다 — 그 사람의 메일·일정·노트·이슈 등을 직접 조회하고 다룹니다.\n`) +
     `- 최종 답변이 그대로 이슈 챗에 남는 이번 회차 결과입니다. 인사·과정 설명 없이 결과만 간결한 한국어 마크다운으로 쓰세요.`
   );
 }

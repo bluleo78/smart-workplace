@@ -6,6 +6,7 @@
 import { IssueComponentsField } from '../../../components/components/IssueComponentsField';
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
+import { TaskRecurrenceField } from '../../../components/issue/recurrence/TaskRecurrenceField';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
 import { IssueVersionsField } from '../../../components/versions/IssueVersionsField';
@@ -309,6 +310,17 @@ export function IssuePropertyRail({
             }
           />
         </section>
+      </IssuePropertyGroup>
+
+      {/* AI 에게 맡기기(WP-1314) — 담당 AI·실행 일정·다음 실행·멈춤. 개인 작업 상세의 같은 칸을 팀 이슈에도 둔다(레일·모바일 「＋ 속성」 시트 모두).
+          이슈를 고칠 수 없으면 잠그고, 남의 개인 비서 일정은 편집기가 읽기 전용으로 연다. */}
+      <IssuePropertyGroup
+        title="AI 에게 맡기기"
+        storageKey="issue-rail:ai-handoff"
+        defaultOpen={true}
+        testId="property-group-ai-handoff"
+      >
+        <TaskRecurrenceField projectKey={projectKey} number={issueNumber} disabled={!canEditWorkflow} />
       </IssuePropertyGroup>
 
       {/* 그룹 3: 분류 — 라벨. 기본 접힘, 비어있지 않으면 배지 표시 */}

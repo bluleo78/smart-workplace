@@ -117,6 +117,16 @@ describe('buildUserMessage', () => {
     expect(m).toContain('권한으로 동작');
   });
 
+  // WP-1314: 신원이 AI 자신이면(개인 비서가 아닌 AI) 요청자 대행이라고 하지 않는다.
+  it('issue.recurring_run — AI 자기 신원', () => {
+    const m = buildUserMessage({
+      type: 'issue.recurring_run',
+      payload: { ...common, ownerUserId: 201, runId: 'r', runAt: '2026-09-21T00:00:00Z', recurrence: { rrule: 'FREQ=DAILY', time: '09:00' }, issueBody: '정리' },
+    } as IssueEventEnvelope);
+    expect(m).toContain('당신(이 AI) 자신의 권한으로 동작');
+    expect(m).not.toContain('요청자(@');
+  });
+
   it('issue.recurring_run — 본문 없음·회차 번호 없음', () => {
     const m = buildUserMessage({
       type: 'issue.recurring_run',

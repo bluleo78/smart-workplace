@@ -1,11 +1,16 @@
 package com.workplace.issue.service;
 
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.repository.PersonalAssistantRepository;
+import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.Texts;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.dto.IssueRecurrenceAgentOption;
 import com.workplace.issue.dto.IssueRecurrenceRequest;
 import com.workplace.issue.dto.IssueRecurrenceResponse;
 import com.workplace.issue.dto.IssueRecurrenceRow;
@@ -26,6 +31,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.project.service.ProjectService;
+import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
@@ -33,8 +39,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,8 +57,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 개인 작업의 반복 AI 작업(WP-989). 개인 작업 이슈에 반복 규칙을 붙이면 정한 시각(KST)마다 담당 AI 비서에게 회차 실행 이벤트를 보내고, AI 의 결과 보고를
- * 그 AI 이름의 이슈 챗 글로 남긴다.
+ * 이슈의 반복 AI 작업(WP-989, 「실행 일정」). 이슈에 반복 규칙을 붙이면 정한 시각(KST)마다 담당 AI 에게 회차 실행 이벤트를 보내고, AI 의 결과 보고를 그
+ * AI 이름의 이슈 챗 글로 남긴다.
+ *
+ * <p>WP-1314: 개인 작업뿐 아니라 팀 프로젝트 이슈에도 건다. 담당 AI 는 서버가 실행하는(INTERNAL·AI 키가 있는) AI 중에서 고르고, 팀 이슈는 그
+ * 프로젝트 구성원인 AI 만 고른다. 회차의 도구 신원은 AI 종류로 정한다({@link #runAsOf}) — 개인 비서는 주인 대행, 개인 작업의 공용 비서는 소유자
+ * 대행(지금처럼), 그 밖의 AI 는 자기 이름·권한. 담당 AI 가 누군가의 개인 비서인 일정은 그 주인만 저장·고치기·끄기 할 수 있다(WP-638 「남의 개인 비서는 주인
+ * 전용」) — 다른 구성원이 일정을 고쳐 주인 권한으로 남의 일정이 돌지 않게. 주인이 프로젝트를 볼 수 없게 되면 그 일정은 거둔다. 남는 위험(설계 WP-1310 §6,
+ * 이번 범위 밖): 팀 이슈의 설명(=지시)은 팀원이 고칠 수 있어, 개인 비서 일정의 지시가 바뀔 수 있다.
  *
  * <p>AI 작업 기록(agent_work)은 회차 사이 「다음 회차 대기」(SCHEDULED + next_run_at), 실행 중 「작업 중」(WORKING)이다. 3회 연속
  * 실패하면 반복을 끄고 「막힘」(BLOCKED)으로 둔다. 이슈가 끝났거나(완료·취소·삭제) 담당에서 그 AI 가 빠지면 작업 기록을 닫는 그 자리에서 반복도
@@ -72,8 +89,11 @@ public class IssueRecurrenceService {
   /** 이 횟수만큼 연속 실패하면 반복을 끈다. */
   static final int MAX_CONSECUTIVE_FAILURES = 3;
 
-  static final String NOT_PERSONAL = "반복은 개인 작업에서만 쓸 수 있습니다";
   static final String NO_ASSISTANT = "쓸 수 있는 AI 비서가 없습니다 — 개인 비서를 연결하거나 관리자에게 공통 비서 지정을 요청하세요";
+  static final String NOT_SERVER_AGENT = "서버가 실행하는 AI 만 맡길 수 있습니다";
+  static final String NO_AGENT_KEY = "AI 키가 연결되지 않은 AI 에게는 맡길 수 없습니다";
+  static final String NOT_PROJECT_MEMBER = "이 프로젝트 구성원인 AI 에게만 맡길 수 있습니다";
+  static final String OTHERS_ASSISTANT = "다른 사람의 개인 비서 일정은 그 주인만 바꿀 수 있습니다";
   static final String ISSUE_CLOSED = "완료·취소된 작업에는 반복을 둘 수 없습니다";
 
   /** 실패 회차 글의 머리. */
@@ -114,6 +134,10 @@ public class IssueRecurrenceService {
   private final ProjectMemberRepository memberRepository;
   private final IssueAssigneeService assigneeService;
   private final AssistantResolver assistantResolver;
+  // 담당 AI 종류 판정(WP-1314) — 누구의 개인 비서인지·공용 비서인지·AI 키가 있는지.
+  private final PersonalAssistantRepository personalAssistantRepository;
+  private final WorkspaceAssistantRepository workspaceAssistantRepository;
+  private final AiAgentCredentialRepository credentialRepository;
   private final AgentWorkService agentWorkService;
   private final IssueChatPoster chatPoster;
   private final UserRepository userRepository;
@@ -129,18 +153,28 @@ public class IssueRecurrenceService {
     var project = accessGuard.assertReadable(projectKey, callerId);
     var issue = issue(project, projectKey, number);
     // 묘비(실행 중에 지운 반복)는 없는 반복이다.
-    return repository.find(issue.id()).filter(r -> !r.deleted()).map(this::toResponse);
+    return repository.find(issue.id()).filter(r -> !r.deleted()).map(r -> toResponse(r, callerId));
+  }
+
+  /** 이 이슈의 실행 일정에 담당으로 고를 수 있는 AI(WP-1314) — {@link #candidates}. */
+  @Transactional(readOnly = true)
+  public List<IssueRecurrenceAgentOption> agentOptions(
+      long callerId, String projectKey, int number) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    issue(project, projectKey, number);
+    return candidates(project, callerId);
   }
 
   /**
-   * 반복을 저장한다(없으면 만들고 있으면 바꾼다 — 꺼진 반복도 다시 켜진다). 개인 작업이고, 소유자의 AI 비서(개인 비서, 없으면 공용 비서)가 있어야 한다(없으면
-   * 409). 비서가 아직 멤버·담당이 아니면 넣는다. 저장하면 그 AI 의 작업 기록을 「다음 회차 대기」로 시작하거나 바꾼다.
+   * 반복을 저장한다(없으면 만들고 있으면 바꾼다 — 꺼진 반복도 다시 켜진다). 담당 AI 는 요청의 {@code agentUserId}, 없으면 개인 작업은 소유자의 AI
+   * 비서(개인 비서, 없으면 공용 비서), 팀 이슈는 지금 일정의 AI(없으면 후보의 첫째 — 구성원인 내 개인 비서가 맨 앞)다 — 없으면 409. 고른 AI 는 서버가
+   * 실행하는 AI 여야 하고(409), 팀 이슈면 프로젝트 구성원이어야 한다(409). 지금 일정이나 고른 AI 가 남의 개인 비서면 403(주인만). 개인 작업은 AI 가
+   * 아직 멤버·담당이 아니면 넣고, 팀 이슈는 담당에만 넣는다. 저장하면 그 AI 의 작업 기록을 「다음 회차 대기」로 시작하거나 바꾼다.
    */
   public IssueRecurrenceResponse save(
       long callerId, String projectKey, int number, IssueRecurrenceRequest req) {
     // 이슈 수정과 같은 가드 — 멤버만(개인 프로젝트는 소유자만 멤버다).
     var project = accessGuard.assertMember(projectKey, callerId);
-    if (!"PERSONAL".equals(project.type())) throw conflict(NOT_PERSONAL);
     // 이슈 행을 잠가 읽는다 — 담당 교체·이슈 닫기와 같은 잠금 순서(이슈 → 반복)이고, 아래에서 읽은 담당 목록이 교체 때까지 그대로다.
     var issue =
         issueRepository
@@ -149,17 +183,23 @@ public class IssueRecurrenceService {
     String rrule = rules.normalizeRrule(req == null ? null : req.rrule());
     LocalTime time = rules.parseTime(req == null ? null : req.time());
     if (IssueStatuses.CLOSED.contains(issue.status())) throw conflict(ISSUE_CLOSED);
-    long agentId =
-        assistantResolver
-            .resolveOrEmpty(project.ownerId())
-            .map(AssistantSpec::agentUserId)
-            .orElseThrow(() -> conflict(NO_ASSISTANT));
+
+    IssueRecurrenceRow old = repository.findForUpdate(issue.id()).orElse(null);
+    // 남의 개인 비서가 돌리는 일정은 담당 AI 를 바꾸는 것도 주인만 한다 — 바꿔 버리면 주인의 일정을 지운 것과 같다.
+    IssueRecurrenceRow live = old != null && !old.deleted() ? old : null;
+    if (live != null) requireOwnerOf(live.agentUserId(), callerId);
+    long agentId = chooseAgent(callerId, project, req, live);
+    requireOwnerOf(agentId, callerId);
+    requireServerAgent(agentId);
+    // 팀 이슈는 직접 구성원인 AI 만 — 후보 목록과 같은 기준이고, 아래 enrollAssistant 가 팀 프로젝트에 AI 를 멤버로 넣지 않게 한다.
+    if (!isPersonal(project) && !memberRepository.isDirectMember(project.id(), agentId)) {
+      throw conflict(NOT_PROJECT_MEMBER);
+    }
 
     // 켜진 반복은 늘 다음 회차가 있어야 한다 — 계산할 수 없는 규칙은 저장하지 않는다.
     Instant next = rules.nextRunAfter(rrule, time, Instant.now());
     if (next == null) throw new InvalidIssueRecurrenceException("다음 회차를 정할 수 없는 반복 규칙입니다");
 
-    IssueRecurrenceRow old = repository.findForUpdate(issue.id()).orElse(null);
     boolean agentChanged = old != null && old.agentUserId() != agentId;
     List<Long> assigneeIds = assigneeRepository.findUserIdsByIssue(issue.id());
     // WP-1119: 이 반복이 넣은 담당인지(이번에 넣거나 같은 AI 의 앞 기록) — 비서가 바뀌면 이 반복이 넣은 예전 비서만 뺀다.
@@ -179,7 +219,7 @@ public class IssueRecurrenceService {
     boolean running = old != null && !agentChanged && old.pendingRunId() != null;
     agentWorkService.startOrUpdateTracked(
         issue.id(), agentId, TOOL, running ? runningPatch() : scheduledPatch(next));
-    return toResponse(repository.find(issue.id()).orElseThrow());
+    return toResponse(repository.find(issue.id()).orElseThrow(), callerId);
   }
 
   /**
@@ -191,7 +231,13 @@ public class IssueRecurrenceService {
   public void delete(long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);
     var issue = issue(project, projectKey, number);
-    repository.findForUpdate(issue.id()).filter(row -> !row.deleted()).ifPresent(this::cancel);
+    var row = repository.findForUpdate(issue.id()).filter(r -> !r.deleted());
+    // 남의 개인 비서 일정은 주인만 끈다(WP-1314).
+    row.ifPresent(
+        r -> {
+          requireOwnerOf(r.agentUserId(), callerId);
+          cancel(r);
+        });
   }
 
   // ───────────────────────────── 스케줄러 ─────────────────────────────
@@ -275,6 +321,15 @@ public class IssueRecurrenceService {
       return false;
     }
 
+    // 도구 신원은 AI 종류로 정한다(WP-1314) — 저장한 사람(created_by)이 아니라서, 남이 저장해도 대행 주인이 바뀌지 않는다. 대행할 주인이
+    // 이 프로젝트를 더는 볼 수 없으면(프로젝트에서 빠짐) 그 사람 권한으로 결과를 남기지 않게 일정을 거둔다.
+    long runAs = runAsOf(row.agentUserId(), project);
+    if (runAs != row.agentUserId() && !accessGuard.canRead(project, runAs)) {
+      log.info("[recurrence] 반복 해제 — 대행 주인이 프로젝트를 볼 수 없음. issueId={}", row.issueId());
+      cancel(row);
+      return false;
+    }
+
     Instant runAt = row.nextRunAt();
     String runId = row.issueId() + "-" + runAt.getEpochSecond();
     repository.markDispatched(row.issueId(), runId, now, next);
@@ -292,7 +347,7 @@ public class IssueRecurrenceService {
             actor,
             assignees,
             row.agentUserId(),
-            row.createdBy(),
+            runAs,
             runId,
             runAt,
             row.runCount() + 1,
@@ -480,7 +535,7 @@ public class IssueRecurrenceService {
         .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
   }
 
-  private IssueRecurrenceResponse toResponse(IssueRecurrenceRow r) {
+  private IssueRecurrenceResponse toResponse(IssueRecurrenceRow r, long callerId) {
     String agentName =
         userRepository
             .findById(r.agentUserId())
@@ -494,7 +549,113 @@ public class IssueRecurrenceService {
         r.consecutiveFailures(),
         r.lastRunAt(),
         r.agentUserId(),
-        agentName);
+        agentName,
+        !othersAssistant(r.agentUserId(), callerId));
+  }
+
+  // ───────────────────────────── 담당 AI(WP-1314) ─────────────────────────────
+
+  /**
+   * 저장할 담당 AI — 요청이 고른 AI, 없으면 개인 작업은 소유자의 AI 비서(지금처럼 매번 다시 정한다 — 개인 비서를 새로 정했으면 그 비서로 바뀐다), 팀 이슈는
+   * 지금 일정의 AI, 없으면 후보의 첫째(구성원인 내 개인 비서가 맨 앞).
+   */
+  private long chooseAgent(
+      long callerId, ProjectRow project, IssueRecurrenceRequest req, IssueRecurrenceRow live) {
+    if (req != null && req.agentUserId() != null) return req.agentUserId();
+    if (isPersonal(project)) {
+      return assistantResolver
+          .resolveOrEmpty(project.ownerId())
+          .map(AssistantSpec::agentUserId)
+          .orElseThrow(() -> conflict(NO_ASSISTANT));
+    }
+    if (live != null) return live.agentUserId();
+    return candidates(project, callerId).stream()
+        .findFirst()
+        .map(IssueRecurrenceAgentOption::id)
+        .orElseThrow(() -> conflict(NO_ASSISTANT));
+  }
+
+  /**
+   * 담당 AI 후보 — 서버가 실행하는(INTERNAL·워크스페이스 활성·AI 키 있음) AI 중, 팀 이슈는 프로젝트 직접 구성원인 AI, 개인 작업은 구성원 AI 와
+   * 소유자의 AI 비서(저장하면 구성원으로 넣는다). 남의 개인 비서는 빼고, 내 개인 비서를 맨 앞에(나머지는 이름순) 둔다. 키·주인은 한 번에 읽는다.
+   */
+  private List<IssueRecurrenceAgentOption> candidates(ProjectRow project, long callerId) {
+    Set<Long> ids = new LinkedHashSet<>();
+    if (isPersonal(project)) {
+      assistantResolver
+          .resolveOrEmpty(project.ownerId())
+          .ifPresent(spec -> ids.add(spec.agentUserId()));
+    }
+    memberRepository.findAllByProject(project.id()).stream()
+        .filter(m -> UserKind.isAgent(m.kind()))
+        .forEach(m -> ids.add(m.userId()));
+    if (ids.isEmpty()) return List.of();
+    Map<Long, Long> owners = personalAssistantRepository.findOwnerIds(ids);
+    List<IssueRecurrenceAgentOption> out = new ArrayList<>();
+    for (AssigneeInfo info : runnable(ids)) {
+      Long owner = owners.get(info.id());
+      if (owner != null && owner != callerId) continue;
+      out.add(
+          new IssueRecurrenceAgentOption(info.id(), info.username(), info.name(), owner != null));
+    }
+    out.sort(
+        Comparator.comparing((IssueRecurrenceAgentOption o) -> !o.personalAssistant())
+            .thenComparing(o -> o.name() == null ? o.username() : o.name()));
+    return out;
+  }
+
+  /**
+   * 서버가 실행할 수 있는 AI 인지 — INTERNAL·워크스페이스 활성(409), AI 키 연결(409). 후보 목록과 같은 {@link #runnable} 기준이다.
+   */
+  private void requireServerAgent(long agentId) {
+    boolean internal =
+        userRepository.findAssigneeInfos(List.of(agentId), TenantContext.get()).stream()
+            .anyMatch(IssueRecurrenceService::internalActive);
+    if (!internal) throw conflict(NOT_SERVER_AGENT);
+    if (runnable(List.of(agentId)).isEmpty()) throw conflict(NO_AGENT_KEY);
+  }
+
+  /** 이 id 들 중 서버가 실행할 수 있는 AI — INTERNAL·워크스페이스 활성·AI 키 있음. 키는 한 번에 읽는다. */
+  private List<AssigneeInfo> runnable(Collection<Long> ids) {
+    Set<Long> keyed = credentialRepository.findActiveIdsByUsers(ids).keySet();
+    return userRepository.findAssigneeInfos(ids, TenantContext.get()).stream()
+        .filter(i -> internalActive(i) && keyed.contains(i.id()))
+        .toList();
+  }
+
+  private static boolean internalActive(AssigneeInfo info) {
+    return info.isInternalAgent() && info.isActive();
+  }
+
+  /** 남의 개인 비서면 403 — 그 일정은 주인만 저장·고치기·끄기 한다(WP-638). */
+  private void requireOwnerOf(long agentId, long callerId) {
+    if (othersAssistant(agentId, callerId)) throw new AccessDeniedException(OTHERS_ASSISTANT);
+  }
+
+  /** 이 AI 가 callerId 가 아닌 다른 사람의 개인 비서인지. */
+  private boolean othersAssistant(long agentId, long callerId) {
+    return personalAssistantRepository
+        .findOwnerId(agentId)
+        .filter(owner -> owner != callerId)
+        .isPresent();
+  }
+
+  /**
+   * 회차의 도구를 돌릴 신원(WP-1314) — 개인 비서는 그 주인 대행, 개인 작업의 공용 비서는 프로젝트 소유자 대행(WP-989 그대로), 그 밖의 AI 는 자기
+   * 신원이다(이벤트의 ownerUserId — ai-agent 가 이 id 로 X-On-Behalf-Of 를 싣는다). 저장한 사람이 아니라 AI 로 정해, 누가 저장해도
+   * 대행 주인이 바뀌지 않는다.
+   */
+  long runAsOf(long agentId, ProjectRow project) {
+    Optional<Long> owner = personalAssistantRepository.findOwnerId(agentId);
+    if (owner.isPresent()) return owner.get();
+    boolean workspaceAssistant =
+        workspaceAssistantRepository.findAgentId().filter(id -> id == agentId).isPresent();
+    if (workspaceAssistant && isPersonal(project)) return project.ownerId();
+    return agentId;
+  }
+
+  private static boolean isPersonal(ProjectRow project) {
+    return "PERSONAL".equals(project.type());
   }
 
   private static String orDefault(String s, String fallback) {

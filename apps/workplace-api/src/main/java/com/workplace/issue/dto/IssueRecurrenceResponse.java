@@ -8,6 +8,7 @@ import java.time.Instant;
  * @param time KST 실행 시각 "HH:mm"
  * @param enabled 꺼져 있으면(3회 연속 실패) 다시 저장(PUT)해야 돈다
  * @param agentName 회차를 실행할 AI 의 이름(없으면 username)
+ * @param editable 보는 사람이 이 일정을 고치거나 끌 수 있는지(WP-1314) — 담당 AI 가 남의 개인 비서면 주인만 할 수 있어 false
  */
 public record IssueRecurrenceResponse(
     String rrule,
@@ -17,4 +18,5 @@ public record IssueRecurrenceResponse(
     int consecutiveFailures,
     Instant lastRunAt,
     long agentUserId,
-    String agentName) {}
+    String agentName,
+    boolean editable) {}

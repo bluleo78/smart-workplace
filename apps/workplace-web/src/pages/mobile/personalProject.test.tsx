@@ -70,6 +70,10 @@ function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
       seen.putRecurrence.push(body)
       return HttpResponse.json({ ...body, enabled: true, nextRunAt: '2026-10-28T23:30:00Z', consecutiveFailures: 0, lastRunAt: null, agentUserId: 9, agentName: '비서' })
     }),
+    // 담당 AI 후보(WP-1314) — 내 AI 비서 하나.
+    http.get(`/api/v1/projects/${KEY}/issues/1/recurrence/agents`, () =>
+      HttpResponse.json([{ id: 9, username: 'my-ai', name: '비서', personalAssistant: true }]),
+    ),
     http.get(`/api/v1/projects/${KEY}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
     http.get(`/api/v1/chat/threads/${thread.threadId}/messages`, () => HttpResponse.json(createChatMessagePage([]))),
     ...['watchers', 'attachments', 'drive-links', 'labels'].map((s) => http.get(`/api/v1/projects/${KEY}/issues/1/${s}`, () => HttpResponse.json([]))),
@@ -134,35 +138,36 @@ test('보드 카드를 눌러도 모달 대신 같은 전체 화면 상세가 �
     .filter((id) => id !== 'mobile-prop-chips')
   expect(order).toEqual(['mobile-prop-status', 'mobile-prop-priority', 'mobile-prop-due', 'mobile-prop-assignee', 'mobile-prop-recurrence', 'mobile-prop-label'])
   expect(within(layer).getByTestId('mobile-prop-label')).toHaveTextContent('세금')
-  expect(await within(layer).findByTestId('mobile-prop-recurrence')).toHaveTextContent('반복 안 함')
+  expect(await within(layer).findByTestId('mobile-prop-recurrence')).toHaveTextContent('안 함')
 })
 
-// WP-989: 반복 조회 실패 — 칩은 「반복 안 함」 대신 실패를 알리고, 눌러도 시트를 열지 않고 다시 조회한다.
+// WP-989: 실행 일정 조회 실패 — 칩은 「안 함」 대신 실패를 알리고, 눌러도 시트를 열지 않고 다시 조회한다.
 test('반복 조회 실패 — 칩이 실패 안내, 누르면 시트 없이 다시 조회', async () => {
   const { user } = await openTask({ failRecurrence: true })
-  const chip = await screen.findByRole('button', { name: '반복을 불러오지 못했어요. 다시 시도' })
-  expect(chip).toHaveTextContent('반복을 불러오지 못했어요')
-  expect(chip).not.toHaveTextContent('반복 안 함')
+  const chip = await screen.findByRole('button', { name: '실행 일정을 불러오지 못했어요. 다시 시도' })
+  expect(chip).toHaveTextContent('실행 일정을 불러오지 못했어요')
+  expect(chip).not.toHaveTextContent('안 함')
   await waitFor(() => expect(chip).toBeEnabled())
   await user.click(chip)
   expect(screen.queryByTestId('issue-recurrence-sheet')).not.toBeInTheDocument()
 })
 
-// WP-989: 반복 칩 → 시트의 편집기 — 매일 · 07:00 저장 → PUT, 시트가 닫히고 칩이 요약으로 바뀐다.
-test('반복 칩 → 매일 07:00 저장 → PUT 1회, 칩이 「매일 07:00」', async () => {
+// WP-989·WP-1314: 「AI 에게 맡기기」 칩 → 시트의 편집기 — 매일 · 07:00 저장 → PUT(담당 AI 포함), 시트가 닫히고 칩이 요약으로 바뀐다.
+test('AI 에게 맡기기 칩 → 매일 07:00 저장 → PUT 1회, 칩이 「비서 · ↻ 매일 07:00」', async () => {
   const { user, seen } = await openTask()
   const chip = screen.getByTestId('mobile-prop-recurrence')
   await waitFor(() => expect(chip).toBeEnabled())
   await user.click(chip)
   const sheet = await screen.findByTestId('issue-recurrence-sheet')
+  await waitFor(() => expect(within(sheet).getByRole('combobox', { name: '담당 AI' })).toHaveTextContent('비서 (내 AI 비서)'))
   await user.click(within(sheet).getByRole('button', { name: '매일' }))
   const time = within(sheet).getByLabelText('실행 시각 (한국 시간)')
   await user.clear(time)
   await user.type(time, '07:00')
   await user.click(within(sheet).getByRole('button', { name: '저장' }))
-  await waitFor(() => expect(seen.putRecurrence).toEqual([{ rrule: 'FREQ=DAILY', time: '07:00' }]))
+  await waitFor(() => expect(seen.putRecurrence).toEqual([{ rrule: 'FREQ=DAILY', time: '07:00', agentUserId: 9 }]))
   await waitFor(() => expect(screen.queryByTestId('issue-recurrence-sheet')).not.toBeInTheDocument())
-  expect(screen.getByTestId('mobile-prop-recurrence')).toHaveTextContent('매일 07:00')
+  expect(screen.getByTestId('mobile-prop-recurrence')).toHaveTextContent('비서 · ↻ 매일 07:00')
 })
 
 test('상태 칩 → 완료 → PATCH statusId(프로젝트 상태 id)', async () => {

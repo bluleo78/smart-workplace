@@ -34,7 +34,6 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.junit.jupiter.api.AfterEach;
@@ -191,26 +190,6 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     var kst = Instant.parse(monthly.get("nextRunAt").asText()).atZone(IssueRecurrenceRules.KST);
     assertThat(kst.getDayOfMonth()).isEqualTo(15);
     assertThat(kst.getHour()).isEqualTo(23);
-  }
-
-  @Test
-  void 개인작업이_아니면_409() throws Exception {
-    String teamKey =
-        "RT" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
-    projectService.create(owner, new CreateProjectRequest(teamKey, "팀", "x"));
-    int teamNumber =
-        issueService
-            .create(
-                owner,
-                teamKey,
-                new CreateIssueRequest("팀 이슈", null, null, null, null, null, null, null))
-            .number();
-    call(
-            put("/api/v1/projects/" + teamKey + "/issues/" + teamNumber + "/recurrence")
-                .content(req("FREQ=DAILY", "08:00")),
-            owner)
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.message").value(IssueRecurrenceService.NOT_PERSONAL));
   }
 
   @Test

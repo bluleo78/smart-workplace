@@ -1,6 +1,6 @@
-// 개인 작업 반복 API(WP-989) — 이슈 하나에 반복 규칙 하나. GET 204 = 반복 없음.
+// 이슈 반복(실행 일정) API(WP-989) — 이슈 하나에 반복 규칙 하나. GET 204 = 반복 없음.
 
-import type { IssueRecurrence, PutIssueRecurrenceRequest } from '../types/issueRecurrence';
+import type { IssueRecurrence, IssueRecurrenceAgentOption, PutIssueRecurrenceRequest } from '../types/issueRecurrence';
 import { client } from './client';
 
 const path = (projectKey: string, number: number) => `/projects/${projectKey}/issues/${number}/recurrence`;
@@ -26,4 +26,10 @@ export async function putIssueRecurrence(
 /** 반복 끄기(행 삭제) — 서버가 그 AI 의 진행 중 작업도 취소로 끝낸다. */
 export async function deleteIssueRecurrence(projectKey: string, number: number): Promise<void> {
   await client.delete(path(projectKey, number));
+}
+
+/** 담당 AI 후보(WP-1314) — 이 이슈의 실행 일정을 맡길 수 있는 서버 실행 AI(내 AI 비서가 맨 앞). */
+export async function fetchIssueRecurrenceAgents(projectKey: string, number: number): Promise<IssueRecurrenceAgentOption[]> {
+  const { data } = await client.get<IssueRecurrenceAgentOption[]>(`${path(projectKey, number)}/agents`);
+  return data;
 }

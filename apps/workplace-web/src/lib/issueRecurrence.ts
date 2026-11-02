@@ -143,3 +143,14 @@ export function recurrencePausedText(r: { enabled: boolean; consecutiveFailures?
   const n = r.consecutiveFailures ?? 0;
   return n >= 3 ? `멈춤 — ${n}회 연속 실패` : '꺼짐';
 }
+
+/** 「AI 에게 맡기기」 요약(WP-1314) — 「내 AI 비서 · ↻ 평일 08:30」 모양. 일정이 없으면 「안 함」. */
+export function aiHandoffLabel(r: { rrule: string; time: string; agentName: string } | null | undefined): string {
+  return r ? `${r.agentName} · ↻ ${recurrenceLabel(r.rrule, r.time)}` : '안 함';
+}
+
+/** 담당 AI 후보 이름(WP-1314) — 내 개인 비서는 「(내 AI 비서)」를 붙인다. 이름이 비면 username. */
+export function agentOptionLabel(o: { name: string | null; username: string; personalAssistant: boolean }): string {
+  const name = o.name?.trim() || o.username;
+  return o.personalAssistant ? `${name} (내 AI 비서)` : name;
+}
