@@ -229,7 +229,7 @@ describe('HTML 블록 NodeView', () => {
         ed.commands.setNodeSelection(embedPos(ed, i))
       })
 
-    it('선택하지 않은 블록 막대는 이름표·소스 편집·⋯ 만, 선택하면 다시 올리기·크게 보기·삭제와 키 안내가 보인다', async () => {
+    it('선택하지 않은 블록 막대는 이름표·소스 편집·고르기·⋯ 만, 선택하면 다시 올리기·크게 보기·삭제와 키 안내가 보인다', async () => {
       const ed = await mountEditor(BODY + '\n\n뒤 문단')
       const block = await screen.findByTestId('wiki-html-embed')
       const bar = within(block).getByTestId('wiki-html-embed-bar')
@@ -238,8 +238,9 @@ describe('HTML 블록 NodeView', () => {
       for (const id of ['wiki-html-embed-reupload', 'wiki-html-embed-expand', 'wiki-html-embed-delete', 'wiki-html-embed-hint']) {
         expect(within(block).queryByTestId(id)).not.toBeInTheDocument()
       }
-      // 나중 이슈(AI로 고치기·고르기)의 단추는 동작이 붙기 전까지 없다.
-      expect(within(block).queryByText(/AI로 고치기|고르기/)).not.toBeInTheDocument()
+      // 고르기(WP-1301)는 이름표·소스 편집 다음에 늘 있고, AI로 고치기(WP-1302)는 동작이 붙기 전까지 없다.
+      expect(within(bar).getByTestId('wiki-html-embed-pick')).toHaveTextContent('고르기')
+      expect(within(block).queryByText(/AI로 고치기/)).not.toBeInTheDocument()
       expect(block).not.toHaveAttribute('data-selected')
 
       selectBlock(ed)
@@ -531,6 +532,98 @@ describe('HTML 블록 NodeView', () => {
       act(() => vi.advanceTimersByTime(REMOTE_PREVIEW_DEBOUNCE_MS + 10))
       expect(frame()).toBe(drawn)
     })
+  })
+})
+
+// WP-1301 — 요소 고르기. iframe 안 스크립트의 실제 마우스 동작은 E2E(@input)가 보고, 여기서는 부모 쪽 배선을 본다:
+// 편집 화면에만 토큰 실은 고르기 스크립트를 넣고, 그 iframe·그 토큰의 메시지로만 칩을 그리며, 단추·칩·Esc 가 iframe 에 맞는 명령을 보낸다.
+describe('HTML 블록 요소 고르기', () => {
+  const ITEM = (text: string, kind = '제목') => ({ path: `h1#${text}`, tag: 'h1', kind, text, html: '<h1>', rect: { x: 0, y: 0, width: 10, height: 10 } })
+  const tokenOf = (iframe: HTMLIFrameElement) => /var TOKEN="([^"]+)"/.exec(iframe.getAttribute('srcdoc') ?? '')?.[1]
+  const send = (source: Window | null, data: Record<string, unknown>) =>
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'wp-html-picker', ...data }, source }))
+    })
+
+  it('편집 화면에만 블록 토큰을 실은 고르기 스크립트를 넣는다', async () => {
+    const ed = await mountEditor(BODY, true)
+    const iframe = await waitFor(frame)
+    expect(tokenOf(iframe)).toMatch(/^[0-9a-f-]{32,}$/)
+    expect(iframe.getAttribute('srcdoc')).toContain('<script data-wp-html-picker>')
+    act(() => ed.setEditable(false))
+    await waitFor(() => expect(frame().getAttribute('srcdoc')).not.toContain('data-wp-html-picker'))
+    expect(screen.queryByTestId('wiki-html-embed-pick')).not.toBeInTheDocument()
+  })
+
+  it('「고르기」를 누르면 켜짐으로 바뀌고 그 iframe 에 켜기를 보낸다 — 다시 누르면 끈다', async () => {
+    render(<Body markdown={BODY} editable />)
+    const iframe = await waitFor(frame)
+    const postSpy = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    const btn = screen.getByTestId('wiki-html-embed-pick')
+    expect(btn).toHaveTextContent('고르기')
+    fireEvent.click(btn)
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    expect(btn).toHaveTextContent('고르기 켜짐')
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-picker', token: tokenOf(iframe), cmd: 'enable' }, '*')
+    // 켜져 있고 고른 것이 없으면 안내 한 줄.
+    expect(screen.getByTestId('wiki-html-embed-picks')).toHaveTextContent('누르면 고릅니다 · Shift+클릭 여러 개 · Esc 끄기')
+    fireEvent.click(btn)
+    expect(btn).toHaveAttribute('aria-pressed', 'false')
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-picker', token: tokenOf(iframe), cmd: 'disable' }, '*')
+    expect(screen.queryByTestId('wiki-html-embed-picks')).not.toBeInTheDocument()
+  })
+
+  it('그 iframe 이 그 토큰으로 보낸 상태만 칩으로 그린다 — 다른 창·토큰이 틀린 메시지는 무시한다', async () => {
+    render(<Body markdown={BODY} editable />)
+    const iframe = await waitFor(frame)
+    const token = tokenOf(iframe)
+    // 다른 창(상위 창 자신)·다른 블록 토큰 — 무시.
+    send(window, { token, event: 'state', enabled: true, items: [ITEM('남의 창')] })
+    send(iframe.contentWindow, { token: 'other-block', event: 'state', enabled: true, items: [ITEM('남의 블록')] })
+    expect(screen.queryByTestId('wiki-html-embed-chip')).not.toBeInTheDocument()
+    expect(screen.getByTestId('wiki-html-embed-pick')).toHaveAttribute('aria-pressed', 'false')
+    // iframe 안 ⌘+클릭으로 켜지고 두 개를 고른 상태 — 단추도 켜짐을 따라간다.
+    send(iframe.contentWindow, { token, event: 'state', enabled: true, items: [ITEM('3분기 회고'), ITEM('', '차트')] })
+    const chips = screen.getAllByTestId('wiki-html-embed-chip')
+    expect(chips.map((c) => c.textContent)).toEqual(['1제목 · 3분기 회고', '2차트'])
+    expect(screen.getByTestId('wiki-html-embed-pick')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('칩을 누르면 그 요소 강조, ✕ 는 빼기를 보낸다', async () => {
+    render(<Body markdown={BODY} editable />)
+    const iframe = await waitFor(frame)
+    const token = tokenOf(iframe)
+    const postSpy = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    send(iframe.contentWindow, { token, event: 'state', enabled: true, items: [ITEM('가'), ITEM('나')] })
+    fireEvent.click(within(screen.getAllByTestId('wiki-html-embed-chip')[1]).getByText(/나/))
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-picker', token, cmd: 'highlight', index: 1 }, '*')
+    fireEvent.click(screen.getByRole('button', { name: '1번 고른 것 빼기' }))
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-picker', token, cmd: 'remove', index: 0 }, '*')
+  })
+
+  // 고른 것 풀기 단계는 iframe 이 스스로 한다(E2E) — 부모에는 고른 것 없이 누른 Esc 만 온다.
+  it('iframe 안 Esc(고른 것 없음) — 고르기를 끄고 블록을 통째 선택한다', async () => {
+    const ed = await mountEditor(BODY, true)
+    const iframe = await waitFor(frame)
+    const token = tokenOf(iframe)
+    const postSpy = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    send(iframe.contentWindow, { token, event: 'state', enabled: true, items: [] })
+    send(iframe.contentWindow, { token, event: 'escape' })
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-picker', token, cmd: 'disable' }, '*')
+    expect(screen.getByTestId('wiki-html-embed-pick')).toHaveAttribute('aria-pressed', 'false')
+    expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+    expect((ed.state.selection as NodeSelection).node.type.name).toBe('wikiHtmlEmbed')
+  })
+
+  it('새 문서가 뜨면(ready) 고른 것을 비우고, 켜져 있었으면 다시 켜 보낸다', async () => {
+    render(<Body markdown={BODY} editable />)
+    const iframe = await waitFor(frame)
+    const token = tokenOf(iframe)
+    const postSpy = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    send(iframe.contentWindow, { token, event: 'state', enabled: true, items: [ITEM('가')] })
+    send(iframe.contentWindow, { token, event: 'ready' })
+    expect(screen.queryByTestId('wiki-html-embed-chip')).not.toBeInTheDocument()
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-picker', token, cmd: 'enable' }, '*')
   })
 })
 
