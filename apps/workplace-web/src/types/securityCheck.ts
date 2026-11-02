@@ -22,4 +22,6 @@ export interface SecurityCheckView {
   checkedAt: string | null
   /** 점검하지 않은 까닭 — NO_AI(AI 없음)·TOO_LARGE(원본 20MB 초과)·ERROR. */
   reason: 'NO_AI' | 'TOO_LARGE' | 'ERROR' | null
+  /** 지난 판정 기준으로 낸 DONE 결과인지(WP-1283) — 화면이 「다시 점검」을 권한다. 옛 서버 응답에는 없다. */
+  outdated?: boolean
 }

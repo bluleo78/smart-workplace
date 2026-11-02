@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useSecurityCheck } from '../../hooks/queries/useSecurityCheck'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import { htmlHasScripts } from '../../lib/sandboxedHtml'
-import { chipText, RISK_CHIP_CLASS, type SecurityChip,securityChip } from '../../lib/securityCheck'
+import { chipText, OUTDATED_NOTE, RISK_CHIP_CLASS, type SecurityChip,securityChip } from '../../lib/securityCheck'
 import { cn } from '../../lib/utils'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import {
@@ -156,12 +156,23 @@ function SecurityChipView({
       )
     case 'result': {
       const cls = cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', RISK_CHIP_CLASS[chip.risk])
-      return onOpenPanel ? (
+      const result = onOpenPanel ? (
         <button type="button" className={cls} onClick={onOpenPanel} title={view?.headline ?? undefined}>
           {text}
         </button>
       ) : (
         <span className={cls}>{text}</span>
+      )
+      // 지난 기준의 결과는 그대로 보이되 새 기준으로 다시 점검할 단추를 함께 둔다(WP-1283).
+      return chip.outdated ? (
+        <>
+          {result}
+          <Button size="sm" variant="outline" onClick={onRequest} title={OUTDATED_NOTE}>
+            다시 점검
+          </Button>
+        </>
+      ) : (
+        result
       )
     }
     default:

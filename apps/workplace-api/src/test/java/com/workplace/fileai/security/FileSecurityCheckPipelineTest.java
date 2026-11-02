@@ -126,6 +126,8 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
     assertThat(row.getEvidence().data()).contains("EXTERNAL_REQUEST");
     assertThat(row.getCheckedAt()).isNotNull();
     assertThat(row.getModel()).isEqualTo(SPEC.model());
+    // 지금 판정 기준 판을 함께 적는다 — 기준이 바뀌면 이 결과를 낡은 것으로 가른다(WP-1283).
+    assertThat(row.getCriteriaVersion()).isEqualTo(FileSecurityCheckRepository.CRITERIA_VERSION);
     SecurityCheckView view = asTenant(() -> service.view(fileId));
     assertThat(view.evidence()).hasSize(1);
     assertThat(view.reason()).isNull();
@@ -358,7 +360,7 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
     assertThat(row(fileId).getError()).isNull();
   }
 
-  /** DONE 은 다시 요청해도 결과를 그대로 둔다(AI 를 다시 부르지 않는다). */
+  /** 지금 판정 기준의 DONE 은 다시 요청해도 결과를 그대로 둔다(AI 를 다시 부르지 않는다). */
   @Test
   void request_whenDone_keepsResult() {
     long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
@@ -369,6 +371,9 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
                 .set(FILE_SECURITY_CHECK.STATUS, "DONE")
                 .set(FILE_SECURITY_CHECK.RISK, "LOW")
                 .set(FILE_SECURITY_CHECK.HEADLINE, "괜찮아요")
+                .set(
+                    FILE_SECURITY_CHECK.CRITERIA_VERSION,
+                    FileSecurityCheckRepository.CRITERIA_VERSION)
                 .execute());
 
     SecurityCheckView view = asTenant(() -> service.request(fileId));

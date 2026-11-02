@@ -28,9 +28,18 @@ describe('securityChip', () => {
   it('showsResult_whenDone', () => {
     const view: SecurityCheckView = { ...base, status: 'DONE', risk: 'CAUTION', evidence: [{ kind: 'OTHER', detail: 'a' }, { kind: 'OTHER', detail: 'b' }, { kind: 'OTHER', detail: 'c' }] }
     const chip = securityChip(view, ok)
-    expect(chip).toEqual({ kind: 'result', risk: 'CAUTION', label: '주의', evidenceCount: 3 })
-    expect(chipText(chip)).toBe('주의 · 근거 3')
-    expect(chipText(securityChip({ ...view, risk: 'LOW', evidence: [] }, ok))).toBe('낮음')
+    expect(chip).toEqual({ kind: 'result', risk: 'CAUTION', label: '주의', threatCount: 3, outdated: false })
+    expect(chipText(chip)).toBe('주의 · 위협 3')
+    expect(chipText(securityChip({ ...view, risk: 'HIGH', evidence: [] }, ok))).toBe('높음')
+  })
+  // WP-1283: 「낮음」의 근거는 참고 정보라 위협으로 세지 않고, 칩은 위협이 없다고 말한다.
+  it('saysNoThreat_whenLowEvenWithReferenceEvidence', () => {
+    const chip = securityChip({ ...base, status: 'DONE', risk: 'LOW', evidence: [{ kind: 'EXTERNAL_REQUEST', detail: '글꼴 CSS' }] }, ok)
+    expect(chip).toMatchObject({ kind: 'result', threatCount: 0 })
+    expect(chipText(chip)).toBe('낮음 · 위협 없음')
+  })
+  it('marksOutdated_whenServerSaysOldCriteria', () => {
+    expect(securityChip({ ...base, status: 'DONE', risk: 'CAUTION', outdated: true }, ok)).toMatchObject({ outdated: true })
   })
   it('failsWithRetry_whenFailed', () => {
     expect(securityChip({ ...base, status: 'FAILED' }, ok)).toEqual({ kind: 'failed', canRetry: true })

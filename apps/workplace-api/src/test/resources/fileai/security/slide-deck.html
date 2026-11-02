@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>국방 AX 추진 현황</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>body{font-family:Pretendard,sans-serif} .slide{display:none} .slide.active{display:block} .modal{display:none}</style>
+</head><body>
+<section class="slide active" id="s1">
+  <h1>국방 AX 추진 현황</h1>
+  <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="표지">
+</section>
+<section class="slide" id="s2">
+  <h2>언론 보도</h2>
+  <ul>
+      <li><a href="https://www.news1.example.co.kr/article/1001" target="_blank" rel="noopener">관련 기사 1</a></li>
+      <li><a href="https://www.news2.example.co.kr/article/1002" target="_blank" rel="noopener">관련 기사 2</a></li>
+      <li><a href="https://www.news3.example.co.kr/article/1003" target="_blank" rel="noopener">관련 기사 3</a></li>
+      <li><a href="https://www.news0.example.co.kr/article/1004" target="_blank" rel="noopener">관련 기사 4</a></li>
+      <li><a href="https://www.news1.example.co.kr/article/1005" target="_blank" rel="noopener">관련 기사 5</a></li>
+      <li><a href="https://www.news2.example.co.kr/article/1006" target="_blank" rel="noopener">관련 기사 6</a></li>
+      <li><a href="https://www.news3.example.co.kr/article/1007" target="_blank" rel="noopener">관련 기사 7</a></li>
+      <li><a href="https://www.news0.example.co.kr/article/1008" target="_blank" rel="noopener">관련 기사 8</a></li>
+      <li><a href="https://www.news1.example.co.kr/article/1009" target="_blank" rel="noopener">관련 기사 9</a></li>
+      <li><a href="https://www.news2.example.co.kr/article/1010" target="_blank" rel="noopener">관련 기사 10</a></li>
+      <li><a href="https://www.news3.example.co.kr/article/1011" target="_blank" rel="noopener">관련 기사 11</a></li>
+      <li><a href="https://www.news0.example.co.kr/article/1012" target="_blank" rel="noopener">관련 기사 12</a></li>
+      <li><a href="https://www.news1.example.co.kr/article/1013" target="_blank" rel="noopener">관련 기사 13</a></li>
+      <li><a href="https://www.news2.example.co.kr/article/1014" target="_blank" rel="noopener">관련 기사 14</a></li>
+      <li><a href="https://www.news3.example.co.kr/article/1015" target="_blank" rel="noopener">관련 기사 15</a></li>
+      <li><a href="https://www.news0.example.co.kr/article/1016" target="_blank" rel="noopener">관련 기사 16</a></li>
+  </ul>
+  <button onclick="openModal('m1')">자세히</button>
+  <button onclick="window.print()">인쇄</button>
+</section>
+<div class="modal" id="m1"><p>세부 내용</p><button onclick="closeModal('m1')">닫기</button></div>
+<script>
+var cur = 0; var slides = document.querySelectorAll('.slide');
+function show(i) { slides[cur].classList.remove('active'); cur = (i + slides.length) % slides.length; slides[cur].classList.add('active'); }
+document.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') show(cur + 1); if (e.key === 'ArrowLeft') show(cur - 1); });
+function openModal(id) { document.getElementById(id).style.display = 'block'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+</script>
+</body></html>

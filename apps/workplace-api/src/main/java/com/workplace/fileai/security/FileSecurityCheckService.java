@@ -59,9 +59,9 @@ public class FileSecurityCheckService {
   }
 
   /**
-   * 점검 요청(「AI 보안 점검」·「다시 점검」). 행이 없거나 FAILED·SKIPPED 면 PENDING(시도 0)으로 만들고 커밋 뒤 점검한다. PENDING·
-   * CHECKING·DONE 은 그대로 둔다(PENDING 이면 점검을 한 번 더 깨운다 — 선점 CAS 라 겹쳐도 한 번만 돈다). AI 가 없으면 행을 만들지 않고
-   * reason NO_AI.
+   * 점검 요청(「AI 보안 점검」·「다시 점검」). 행이 없거나 FAILED·SKIPPED·지난 기준의 DONE 이면 PENDING(시도 0)으로 만들고 커밋 뒤 점검한다.
+   * PENDING·CHECKING·지금 기준의 DONE 은 그대로 둔다(PENDING 이면 점검을 한 번 더 깨운다 — 선점 CAS 라 겹쳐도 한 번만 돈다). AI 가
+   * 없으면 행을 만들지 않고 reason NO_AI.
    */
   @Transactional
   public SecurityCheckView request(long fileId) {
@@ -106,7 +106,7 @@ public class FileSecurityCheckService {
     return assistantResolver.resolveWorkspaceOrEmpty().isPresent();
   }
 
-  /** FAILED·SKIPPED·행 없음을 PENDING 으로 만든 뒤 현재 행을 읽는다. */
+  /** FAILED·SKIPPED·지난 기준의 DONE·행 없음을 PENDING 으로 만든 뒤 현재 행을 읽는다. */
   private FileSecurityCheckRecord resetAndFind(long fileId) {
     repo.resetToPending(fileId);
     return repo.find(fileId).orElse(null);
@@ -150,8 +150,17 @@ public class FileSecurityCheckService {
     } else if (!hasAi && ("PENDING".equals(status) || "CHECKING".equals(status))) {
       reason = SecurityCheckView.REASON_NO_AI;
     }
+    // 지난 판정 기준의 DONE — 화면이 결과는 그대로 보이되 「다시 점검」을 권한다(WP-1283).
+    boolean outdated =
+        "DONE".equals(status) && FileSecurityCheckRepository.isOutdated(row.getCriteriaVersion());
     return new SecurityCheckView(
-        status, row.getRisk(), row.getHeadline(), parseEvidence(row), row.getCheckedAt(), reason);
+        status,
+        row.getRisk(),
+        row.getHeadline(),
+        parseEvidence(row),
+        row.getCheckedAt(),
+        reason,
+        outdated);
   }
 
   /** 근거 JSON 을 읽는다 — 깨졌으면 빈 목록(결과 표시 전체를 막지 않는다). */

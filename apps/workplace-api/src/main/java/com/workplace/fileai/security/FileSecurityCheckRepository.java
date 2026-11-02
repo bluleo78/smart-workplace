@@ -12,6 +12,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.springframework.stereotype.Repository;
@@ -31,6 +32,12 @@ public class FileSecurityCheckRepository {
    * 8분으로 잘라 이 안에 끝나게 한다({@link FileSecurityCheckPipeline#MAX_AGENT_TIMEOUT_MS}).
    */
   static final Duration LEASE = WorkerJobRepository.SUMMARY_LEASE_DURATION;
+
+  /**
+   * 판정 기준 판(WP-1283). 프롬프트·요지의 판정 기준을 바꿀 때 올린다 — 이보다 낮은(또는 NULL) 판으로 낸 DONE 결과는 낡은 결과로 보고 「다시 점검」
+   * 요청을 받는다. 1판 = WP-1262 첫 기준(칸 없음 = NULL), 2판 = 실제 위협 중심 기준.
+   */
+  public static final short CRITERIA_VERSION = 2;
 
   private static final int ERROR_MAX = 500;
   private static final int HEADLINE_MAX = 300;
@@ -53,9 +60,9 @@ public class FileSecurityCheckRepository {
   }
 
   /**
-   * 다시 점검 요청: 행이 없으면 PENDING 으로 만들고, FAILED·SKIPPED 면 시도 횟수·오류를 비워 PENDING 으로 돌린다. 그 밖의 상태(PENDING·
-   * CHECKING·DONE)는 건드리지 않는다. SKIPPED 를 되돌리는 까닭: 웹은 스크립트를 봤는데 서버 판정이 어긋난 경우(인코딩 등)에도 사용자가 점검을 요청할 수
-   * 있게 한다.
+   * 다시 점검 요청: 행이 없으면 PENDING 으로 만들고, FAILED·SKIPPED 이거나 지난 판정 기준으로 낸 DONE 이면 시도 횟수·오류를 비워 PENDING
+   * 으로 돌린다. 그 밖의 상태(PENDING·CHECKING·지금 기준의 DONE)는 건드리지 않는다 — 지금 기준의 결과를 누를 때마다 AI 를 다시 부르지 않게.
+   * SKIPPED 를 되돌리는 까닭: 웹은 스크립트를 봤는데 서버 판정이 어긋난 경우(인코딩 등)에도 사용자가 점검을 요청할 수 있게 한다.
    */
   public void resetToPending(long fileId) {
     insertPendingIfAbsent(fileId);
@@ -66,8 +73,25 @@ public class FileSecurityCheckRepository {
         .setNull(FILE_SECURITY_CHECK.LEASED_UNTIL)
         .set(FILE_SECURITY_CHECK.UPDATED_AT, OffsetDateTime.now())
         .where(FILE_SECURITY_CHECK.FILE_ID.eq(fileId))
-        .and(FILE_SECURITY_CHECK.STATUS.in("FAILED", "SKIPPED"))
+        .and(FILE_SECURITY_CHECK.STATUS.in("FAILED", "SKIPPED").or(outdatedDone()))
         .execute();
+  }
+
+  /** 이 판정 기준 판이 지금보다 낡았는지(NULL = 1판) — 화면 표시({@code outdated})와 되돌림 조건이 같은 규칙을 쓴다. */
+  public static boolean isOutdated(Short criteriaVersion) {
+    return criteriaVersion == null || criteriaVersion < CRITERIA_VERSION;
+  }
+
+  /** 지난 판정 기준으로 낸 DONE 결과인지(판이 NULL 이면 1판) — {@link #isOutdated} 의 SQL 판. */
+  private static Condition outdatedDone() {
+    return FILE_SECURITY_CHECK
+        .STATUS
+        .eq("DONE")
+        .and(
+            FILE_SECURITY_CHECK
+                .CRITERIA_VERSION
+                .isNull()
+                .or(FILE_SECURITY_CHECK.CRITERIA_VERSION.lt(CRITERIA_VERSION)));
   }
 
   /**
@@ -107,6 +131,7 @@ public class FileSecurityCheckRepository {
         .set(
             FILE_SECURITY_CHECK.EVIDENCE, evidenceJson == null ? null : JSONB.valueOf(evidenceJson))
         .set(FILE_SECURITY_CHECK.MODEL, model)
+        .set(FILE_SECURITY_CHECK.CRITERIA_VERSION, CRITERIA_VERSION)
         .set(FILE_SECURITY_CHECK.CHECKED_AT, now)
         .setNull(FILE_SECURITY_CHECK.ERROR)
         .setNull(FILE_SECURITY_CHECK.LEASED_UNTIL)

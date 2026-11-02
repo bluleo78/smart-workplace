@@ -140,6 +140,38 @@ class SecurityCheckEndpointsTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.status").value("PENDING"));
   }
 
+  /**
+   * 지난 판정 기준(판 NULL = 1판)으로 낸 DONE 은 outdated 로 보이고, 「다시 점검」 POST 가 PENDING 으로 되돌린다(WP-1283). 지금
+   * 기준의 DONE 은 POST 해도 그대로다 — 누를 때마다 AI 를 다시 부르지 않게.
+   */
+  @Test
+  void driveFile_whenDoneUnderOldCriteria_marksOutdatedAndRechecks() throws Exception {
+    long owner = user();
+    long oldDf = driveFile(owner, "old.html", "text/html");
+    long curDf = driveFile(owner, "cur.html", "text/html");
+    seedDone(coreFileId(oldDf), null);
+    seedDone(coreFileId(curDf), FileSecurityCheckRepository.CRITERIA_VERSION);
+    String oldUrl = "/api/v1/drive/files/" + oldDf + "/security-check";
+    String curUrl = "/api/v1/drive/files/" + curDf + "/security-check";
+
+    http(get(oldUrl).header("Authorization", bearer(owner)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("DONE"))
+        .andExpect(jsonPath("$.risk").value("CAUTION"))
+        .andExpect(jsonPath("$.outdated").value(true));
+    http(get(curUrl).header("Authorization", bearer(owner)))
+        .andExpect(jsonPath("$.outdated").value(false));
+
+    http(post(oldUrl).header("Authorization", bearer(owner)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("PENDING"))
+        .andExpect(jsonPath("$.outdated").value(false));
+    http(post(curUrl).header("Authorization", bearer(owner)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("DONE"))
+        .andExpect(jsonPath("$.outdated").value(false));
+  }
+
   /** 공간 멤버가 아니면 콘텐츠 경로와 같은 상태 코드로 막히고 행도 만들지 않는다. */
   @Test
   void driveFile_whenNotMember_forbidden() throws Exception {
@@ -547,6 +579,26 @@ class SecurityCheckEndpointsTest extends ExternalClientMockedTestBase {
         + "/drive-links/"
         + df
         + "/security-check";
+  }
+
+  /** 드라이브 파일의 현재 core file id(점검 행의 키). */
+  private long coreFileId(long driveFileId) {
+    return dsl.select(DRIVE_FILE.FILE_ID)
+        .from(DRIVE_FILE)
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .fetchOne(DRIVE_FILE.FILE_ID);
+  }
+
+  /** 끝난(DONE) 점검 행을 넣는다 — {@code criteriaVersion} 이 null 이면 판 칸이 없던 1판 결과다. */
+  private void seedDone(long fileId, Short criteriaVersion) {
+    dsl.insertInto(FILE_SECURITY_CHECK)
+        .set(FILE_SECURITY_CHECK.FILE_ID, fileId)
+        .set(FILE_SECURITY_CHECK.STATUS, "DONE")
+        .set(FILE_SECURITY_CHECK.RISK, "CAUTION")
+        .set(FILE_SECURITY_CHECK.HEADLINE, "외부 글꼴 CSS 를 불러와요")
+        .set(FILE_SECURITY_CHECK.CRITERIA_VERSION, criteriaVersion)
+        .set(FILE_SECURITY_CHECK.CHECKED_AT, OffsetDateTime.now())
+        .execute();
   }
 
   /** owner 가 OWNER 인 팀 공간 + 실제 바이너리가 있는 core file + drive_file. 업로드 경로를 타지 않아 자동 점검 행이 생기지 않는다. */

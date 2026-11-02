@@ -10,6 +10,7 @@ vi.mock('./run-mail-ai.js', () => ({ runText: vi.fn() }));
 
 import { runDriveOverview, runDriveSecurityCheck } from './run-drive-ai.js';
 import { runText } from './run-mail-ai.js';
+import { DRIVE_SECURITY_CHECK_PROMPT } from './prompts/drive.js';
 
 const fakeClient = { getProviderCredential: vi.fn() } as never;
 
@@ -107,5 +108,33 @@ describe('runDriveSecurityCheck', () => {
     expect(vi.mocked(runText).mock.calls[0][1]).toContain('요지가 길어 일부가 잘렸습니다');
     await run(JSON.stringify({ risk: 'LOW', headline: 'x', evidence: [] }));
     expect(vi.mocked(runText).mock.calls[1][1]).not.toContain('요지가 길어 일부가 잘렸습니다');
+  });
+});
+
+describe('DRIVE_SECURITY_CHECK_PROMPT — 실제 위협 중심 기준 (WP-1283)', () => {
+  it('treatsNonExecutableResourcesAndLinksAsLow', () => {
+    // 글꼴 CSS·data: 이미지·눌러야 열리는 링크·문서 안 모달은 LOW 로 적혀 있어야 한다(사례 문서가 「주의」로 뜨던 원인).
+    const low = DRIVE_SECURITY_CHECK_PROMPT.slice(DRIVE_SECURITY_CHECK_PROMPT.indexOf('- LOW'));
+    expect(low).toContain('모달');
+    expect(low).toContain('스타일시트');
+    expect(low).toContain('data: 이미지');
+    expect(low).toContain('사용자가 눌러야 열리는 일반 링크');
+  });
+
+  it('keepsExfiltrationAndObfuscationAsHigh', () => {
+    const high = DRIVE_SECURITY_CHECK_PROMPT.slice(
+      DRIVE_SECURITY_CHECK_PROMPT.indexOf('- HIGH'),
+      DRIVE_SECURITY_CHECK_PROMPT.indexOf('- CAUTION'),
+    );
+    expect(high).toContain('sendBeacon');
+    expect(high).toContain('로그인·결제 화면');
+    expect(high).toContain('eval');
+    expect(high).toContain('자동 다운로드');
+  });
+
+  it('listsOnlyThreatEvidence_whenNotLow', () => {
+    // 「낮음」 근거는 참고 정보, 「주의」·「높음」 근거는 위협만 — 화면이 위험도로 근거의 성격을 고른다.
+    expect(DRIVE_SECURITY_CHECK_PROMPT).toContain('CAUTION·HIGH 이면 위협 근거만');
+    expect(DRIVE_SECURITY_CHECK_PROMPT).toContain('LOW 이면 확인한 것을 참고 정보로');
   });
 });
