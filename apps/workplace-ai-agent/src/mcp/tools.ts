@@ -303,13 +303,12 @@ const showDriveInput = z.object({
 });
 
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
-// WP-989: recurring — 반복 개인 작업 회차 실행(읽기 전용, RECURRING_RUN_TOOLS).
+// WP-989: recurring — 반복 회차 실행. WP-1311 부터 읽기(RECURRING_RUN_TOOLS)·쓰기(RECURRING_RUN_WRITE_TOOLS·RECURRING_RUN_DIRECT_ACTIONS)를 함께 싣는다.
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring';
 
 /**
- * WP-989: 반복 개인 작업의 회차 실행이 싣는 도구 — 읽기만. 회차는 반복을 등록한 사람(소유자) 권한으로 돌아(홈 AI 채팅과 같은 대행) 그 사람의
- * 이슈·노트·일정·메일·연락처·메시징·드라이브·알림을 읽을 수 있다. 사람이 지켜보지 않는 실행이라 확인 카드를 띄울 수 없으므로 쓰기 도구(초안 만들기
- * 포함)는 두지 않고, 필요한 쓰기는 결과 글의 「제안」으로 남기게 한다(회차 지시문). 결과 글은 도구가 아니라 API 내부 보고로 서버가 AI 이름으로 남긴다.
+ * WP-989: 반복 회차 실행이 싣는 읽기 도구. 회차는 반복을 등록한 사람(소유자) 권한으로 돌아(홈 AI 채팅과 같은 대행) 그 사람의
+ * 이슈·노트·일정·메일·연락처·메시징·드라이브·알림을 읽는다. 쓰기는 아래 RECURRING_RUN_WRITE_TOOLS·RECURRING_RUN_DIRECT_ACTIONS.
  * tools.test.ts 가 전부 읽기 도구(readOnlyHint)임을 고정한다.
  */
 export const RECURRING_RUN_TOOLS: readonly string[] = [
@@ -327,10 +326,50 @@ export const RECURRING_RUN_TOOLS: readonly string[] = [
   // 메시징
   'list_channels', 'list_channel_messages', 'list_thread_replies',
   // 드라이브·파일 본문
-  'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary', 'read_file',
+  'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary', 'read_file', 'list_drive_trash',
   // 알림·홈 현황
   'list_notifications', 'get_home_overview',
 ];
+
+/**
+ * WP-1311: 반복 회차가 싣는 쓰기 공유 도구 — 반복 업무는 이슈 설명의 지시를 실행하는 것이라 시스템이 쓰기를 막지 않는다(에픽 WP-1310 설계 §6).
+ * 소유자 권한으로 도는 홈 AI 채팅(assistant)의 직접 실행 쓰기와 같은 목록이고, 확인 카드로만 하던 공유 도구(CARD_ONLY_SHARED_TOOLS 의 키 —
+ * 일정 만들기·고치기(참석자 포함)·프로젝트 만들기·멤버 추가·채널 초대)도 이 경로에서만 직접 싣는다. 홈 AI 채팅·이슈 챗의 카드 전용 규칙은 그대로다.
+ * 뺀 것: unassign_self(담당에서 빠지면 반복이 거둬진다), create_drive_download_link(지켜보는 사람이 없어 10분 링크를 쓸 곳이 없다).
+ */
+export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
+  // 이슈·프로젝트
+  'add_comment', 'update_comment', 'create_issue', 'update_issue', 'link_issues', 'add_issue_relation', 'remove_issue_relation',
+  'watch_issue', 'update_project', 'create_project_meta', 'update_project_meta', 'create_project', 'add_project_member',
+  // 노트
+  'create_wiki_page', 'update_wiki_page', 'restore_wiki_revision', 'move_wiki_page',
+  // 캘린더
+  'create_event', 'update_event', 'rsvp_event',
+  // 메일 — 발송은 RECURRING_RUN_DIRECT_ACTIONS 의 send_mail
+  'sync_mail', 'mark_mail_read', 'draft_mail_reply', 'draft_issue_from_mail', 'create_issue_from_mail',
+  // 연락처·사용자 그룹
+  'create_external_contact', 'update_external_contact', 'add_contact_favorite', 'remove_contact_favorite',
+  'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member',
+  // 메시징
+  'add_channel_message', 'update_channel_message', 'react', 'create_channel', 'open_dm', 'join_channel', 'leave_channel',
+  'add_channel_member', 'mark_channel_read',
+  // 드라이브
+  'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'copy_drive_item', 'import_attachment_to_drive',
+  'restore_drive_item', 'create_drive_file', 'upload_file',
+  // 알림
+  'mark_notification_read', 'mark_all_notifications_read',
+];
+
+/**
+ * WP-1311: 공유 직접 실행 도구가 없고 확인 카드로만 하던 되돌릴 수 없는 작업 — 반복 회차에서는 카드 대신 바로 실행한다(도구 이름 → 실행기 actionType).
+ * 실행은 카드 승인과 같은 서버 경로(POST /actions/confirm)라 권한·검증이 같다.
+ */
+export const RECURRING_RUN_DIRECT_ACTIONS: Readonly<Record<string, string>> = {
+  send_mail: 'mail.send',
+  delete_event: 'calendar.delete_event',
+  delete_external_contact: 'contacts.delete_contact',
+  delete_user_group: 'contacts.delete_user_group',
+};
 
 /**
  * WP-351: AI Chat 라우터(assistant 프로필의 메인 스레드)가 모델에 싣는 도구 — 라우터가 직접 쓰는 것만 둔다.
@@ -441,13 +480,14 @@ export function buildTools(
     // 요청자 신원(assistant)에만 싣는다 — 에이전트 신원 프로필(issue·messaging·chat)의 기능 확대는 README WP-355 절이 보류한 제품 결정이다.
     allowUploadLink: false,
   });
-  const sharedTool = (name: string): McpTool => {
+  // allowCardOnly: 반복 회차(recurring)만 확인 카드 전용 공유 도구를 직접 싣는다(WP-1311) — 다른 프로필은 지금처럼 거부한다.
+  const sharedTool = (name: string, opts: { allowCardOnly?: boolean } = {}): McpTool => {
     const t = shared.find((x) => x.name === name);
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
     // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
     if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
-    // WP-348: 확인 카드가 있는 작업의 직접 실행 도구는 AI Chat 에 싣지 않는다.
-    if (name in CARD_ONLY_SHARED_TOOLS) throw new Error(`확인 카드로만 하는 공유 도구는 직접 노출할 수 없습니다: ${name}`);
+    // WP-348: 확인 카드가 있는 작업의 직접 실행 도구는 AI Chat 에 싣지 않는다 — 카드를 띄울 수 없는 반복 실행만 allowCardOnly 로 싣는다(WP-1311).
+    if (name in CARD_ONLY_SHARED_TOOLS && !opts.allowCardOnly) throw new Error(`확인 카드로만 하는 공유 도구는 직접 노출할 수 없습니다: ${name}`);
     // WP-377: 외부 클라이언트 전용 도구(진행 보고)는 서버 AI 에 싣지 않는다.
     if (AI_AGENT_EXCLUDED_SHARED_TOOLS.has(name)) throw new Error(`외부 클라이언트 전용 공유 도구는 노출할 수 없습니다: ${name}`);
     // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
@@ -1380,9 +1420,60 @@ export function buildTools(
     ];
   }
 
-  // WP-989: 반복 회차 — 읽기 도구만(RECURRING_RUN_TOOLS).
+  // WP-1311: 반복 회차 전용 — 확인 카드로만 하던 작업을 카드 없이 바로 실행하는 도구. 입력은 대응 확인 카드와 같고(summary 만 없다),
+  // 실행기에 넘기는 params 매핑(eventId·externalId·groupId → id)도 카드 도구와 같다. 서버 거절(4xx)은 사유 그대로 도구 오류가 되어 모델이 고친다.
+  function buildRecurringDirectActionTools(): McpTool[] {
+    const run = async (name: string, params: Record<string, unknown>) =>
+      JSON.stringify({ ok: true, result: await client.executeAction(agentId, RECURRING_RUN_DIRECT_ACTIONS[name], params) });
+    const sendMailInput = proposeSendMailInput.omit({ summary: true });
+    const deleteEventInput = proposeDeleteEventInput.omit({ summary: true });
+    const deleteContactInput = proposeDeleteContactInput.omit({ summary: true });
+    const deleteUserGroupInput = proposeDeleteUserGroupInput.omit({ summary: true });
+    return [
+      {
+        name: 'send_mail',
+        description:
+          '메일을 바로 보냅니다(되돌릴 수 없음). accountId 는 list_mail_accounts 의 발신 계정(본인 소유)입니다. 이슈 설명이 보내기 전에 확인받으라고 하면 보내지 말고 확인을 요청하세요.',
+        inputSchema: sendMailInput,
+        handler: async (args) => run('send_mail', sendMailInput.parse(args)),
+      },
+      {
+        name: 'delete_event',
+        description:
+          '일정을 바로 지웁니다(되돌릴 수 없음). 반복 일정은 scope 로 범위를 정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601).',
+        inputSchema: deleteEventInput,
+        handler: async (args) => {
+          const { eventId, ...rest } = deleteEventInput.parse(args);
+          return run('delete_event', { id: eventId, ...rest });
+        },
+      },
+      {
+        name: 'delete_external_contact',
+        description:
+          '외부 연락처를 바로 지웁니다(되돌릴 수 없음). externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 추측한 숫자를 넣으면 엉뚱한 연락처가 지워집니다.',
+        inputSchema: deleteContactInput,
+        handler: async (args) => run('delete_external_contact', { id: deleteContactInput.parse(args).externalId }),
+      },
+      {
+        name: 'delete_user_group',
+        description:
+          '사용자 그룹을 바로 지웁니다(되돌릴 수 없음). 하위 그룹과 그룹 멤버십도 함께 사라집니다(사람·연락처 자체는 유지). groupId 는 list_user_groups 로 확보합니다.',
+        inputSchema: deleteUserGroupInput,
+        handler: async (args) => run('delete_user_group', { id: deleteUserGroupInput.parse(args).groupId }),
+      },
+    ];
+  }
+
+  // WP-989·WP-1311: 반복 회차 — 소유자 권한의 읽기·쓰기. 사람이 지켜보지 않아 카드를 누를 사람이 없으므로 확인 카드 작업도 바로 실행한다.
   if (profile === 'recurring') {
-    return RECURRING_RUN_TOOLS.map(sharedTool);
+    return [
+      ...RECURRING_RUN_TOOLS.map((n) => sharedTool(n)),
+      ...RECURRING_RUN_WRITE_TOOLS.map((n) =>
+        // create_drive_file 은 AI Chat 과 같이 content 모드만(업로드 링크를 받을 사람이 없다).
+        n === 'create_drive_file' ? createDriveFileTool : sharedTool(n, { allowCardOnly: n in CARD_ONLY_SHARED_TOOLS }),
+      ),
+      ...buildRecurringDirectActionTools(),
+    ];
   }
 
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.

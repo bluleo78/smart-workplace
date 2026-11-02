@@ -240,7 +240,7 @@ public class IssueRecurrenceService {
       repository.delete(row.issueId());
       return;
     }
-    applyResult(row, false, LOST_RUN);
+    applyResult(row, false, LOST_RUN, false);
   }
 
   /** 반복 하나의 이번 회차 — 보냈으면 true, 건너뛰었으면(지움·멈춤) false. */
@@ -340,15 +340,16 @@ public class IssueRecurrenceService {
         report.ok()
             ? orDefault(report.message(), EMPTY_RESULT)
             : FAILED_PREFIX + orDefault(report.message(), "알 수 없는 오류");
-    applyResult(row, report.ok(), body);
+    applyResult(row, report.ok(), body, report.asQuestion());
   }
 
   /**
    * 회차 하나의 결과(보고된 성공·실패, 또는 결과를 못 받은 실패)를 반영한다 — 결과 대기를 비우고 연속 실패 수를 바꾸고, 그 AI 이름으로 이슈 챗에 글을 남기고,
    * 작업 기록을 「다음 회차 대기」나(3회 연속 실패) 「막힘」으로 둔다. 묘비면 글만 남기고 행을 지운다. 바뀐 연속 실패 수를 돌려준다(묘비는 0) — {@link
-   * #MAX_CONSECUTIVE_FAILURES} 이상이면 이번 결과로 반복이 멈춘 것이다.
+   * #MAX_CONSECUTIVE_FAILURES} 이상이면 이번 결과로 반복이 멈춘 것이다. question 이면(WP-1311) 결과 글을 답변이 필요한 질문으로 남긴다
+   * — 작업은 그대로 「다음 회차 대기」라 다음 회차도 돈다(답을 받아 이어 하는 것은 WP-1312).
    */
-  private int applyResult(IssueRecurrenceRow row, boolean ok, String body) {
+  private int applyResult(IssueRecurrenceRow row, boolean ok, String body, boolean question) {
     long issueId = row.issueId();
     long agentId = row.agentUserId();
     IssueRow issue = issueRepository.findById(issueId).orElse(null);
@@ -360,7 +361,7 @@ public class IssueRecurrenceService {
       // 프로젝트에서 빠져 더는 볼 수 없는 AI 이름으로는 글을 남길 수 없다(챗이 거절해 보고 전체가 되돌려지고 묘비가 남는다) — 그때는 지우기만 한다.
       repository.delete(issueId);
       if (issue != null && project != null && accessGuard.canRead(project, agentId)) {
-        post(agentId, project, issue, body);
+        post(agentId, project, issue, body, question);
       }
       return 0;
     }
@@ -371,7 +372,7 @@ public class IssueRecurrenceService {
     repository.recordResult(issueId, failures, enabled);
     if (issue == null || project == null) return failures;
 
-    post(agentId, project, issue, body);
+    post(agentId, project, issue, body, question);
     if (stop && row.enabled()) {
       post(agentId, project, issue, STOPPED_NOTICE);
       block(issue, agentId, NOTE_STOPPED);
@@ -449,11 +450,17 @@ public class IssueRecurrenceService {
 
   /** 그 AI 이름으로 이슈 챗에 글을 남긴다 — 챗 글 한도를 넘으면 자른다. */
   private void post(long agentId, ProjectRow project, IssueRow issue, String body) {
+    post(agentId, project, issue, body, false);
+  }
+
+  /** 그 AI 이름으로 이슈 챗에 글을 남긴다 — question 이면 답변이 필요한 질문 글로(WP-1311). */
+  private void post(
+      long agentId, ProjectRow project, IssueRow issue, String body, boolean question) {
     String text =
         body.length() <= CHAT_BODY_MAX
             ? body
             : Texts.headUtf16(body, CHAT_BODY_MAX - TRUNCATED_MARK.length()) + TRUNCATED_MARK;
-    chatPoster.post(agentId, project.key(), issue.number(), text, false, List.of());
+    chatPoster.post(agentId, project.key(), issue.number(), text, question, List.of());
   }
 
   /** 「작업 중」 작업 패치 — 회차를 보낸 뒤 결과를 기다리는 동안. */

@@ -578,6 +578,23 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(agentMessages()).hasSize(1);
   }
 
+  // WP-1311: 본문이 확인을 받으라고 해 쓰기를 멈춘 회차 — 결과 글을 답변 필요 질문으로 남기고, 다음 회차는 그대로 잡혀 있다.
+  @Test
+  void 질문_보고는_답변필요_질문으로_남고_다음회차대기는_그대로() throws Exception {
+    String runId = dispatchOnce();
+    report(agent, runId, true, "주간 보고 메일을 보낼까요?", true).andExpect(status().isNoContent());
+
+    assertThat(agentMessages()).containsExactly("주간 보고 메일을 보낼까요?");
+    assertThat(agentQuestionFlags()).containsExactly(true);
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.ENABLED)).isTrue();
+
+    // 질문 표시가 없는 보고(WP-1311 전 모양)는 질문이 아니다. 실패 보고는 question 을 보내도 질문이 아니다(사유 글).
+    report(agent, dispatchOnce(), true, "그냥 결과").andExpect(status().isNoContent());
+    report(agent, dispatchOnce(), false, "도구 오류", true).andExpect(status().isNoContent());
+    assertThat(agentQuestionFlags()).containsExactly(true, false, false);
+  }
+
   @Test
   void 실패_보고는_사유를_남기고_3회_연속이면_반복을_멈춘다() throws Exception {
     for (int i = 1; i <= 3; i++) {
@@ -961,6 +978,34 @@ class IssueRecurrenceTest extends IntegrationTestBase {
         .and(CHAT_MESSAGE.AUTHOR_ID.eq(agent))
         .orderBy(CHAT_MESSAGE.ID)
         .fetch(CHAT_MESSAGE.BODY);
+  }
+
+  private List<Boolean> agentQuestionFlags() {
+    return dsl.select(CHAT_MESSAGE.IS_QUESTION)
+        .from(CHAT_MESSAGE)
+        .join(CHAT_THREAD)
+        .on(CHAT_THREAD.ID.eq(CHAT_MESSAGE.THREAD_ID))
+        .where(CHAT_THREAD.ISSUE_ID.eq(issueId))
+        .and(CHAT_MESSAGE.AUTHOR_ID.eq(agent))
+        .orderBy(CHAT_MESSAGE.ID)
+        .fetch(CHAT_MESSAGE.IS_QUESTION);
+  }
+
+  private ResultActions report(long as, String runId, boolean ok, String message, boolean question)
+      throws Exception {
+    var r =
+        mvc.perform(
+            post("/api/v1/internal/issue-recurrence/" + issueId + "/runs")
+                .header("Authorization", "Internal " + INTERNAL_TOKEN)
+                .header("X-On-Behalf-Of", String.valueOf(as))
+                .header("X-On-Behalf-Of-Tenant", "1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    om.writeValueAsString(
+                        Map.of(
+                            "runId", runId, "ok", ok, "message", message, "question", question))));
+    TenantContext.set(1L);
+    return r;
   }
 
   private ResultActions report(long as, String runId, boolean ok, String message) throws Exception {
