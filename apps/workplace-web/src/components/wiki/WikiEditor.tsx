@@ -69,6 +69,7 @@ import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { wikiEditorExtensions } from './wikiEditorExtensions'
+import { type WikiHtmlEmbedAi, WikiHtmlEmbedAiProvider } from './WikiHtmlEmbedAiContext'
 import { WikiHtmlFileInput } from './WikiHtmlFileInput'
 import { importHtmlIntoEditor, readHtmlFile } from './wikiHtmlImportInsert'
 import { WikiLinkActionSheet } from './WikiLinkActionSheet'
@@ -422,6 +423,12 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
    * text 가 비었거나 에디터가 없거나 읽기 전용이면(생성 중 VIEWER 강등 — 서버가 받지 않는 편집이라 내 화면만 어긋남) 보내지도 넣지도 않는다.
    * 미연결이면 핸드셰이크가 즉시 끝나 기존처럼 바로 넣는다(✦ 없음).
    */
+  /** AI 결과를 넣어도 되는지(넣기 직전 다시 본다) — 편집기가 살아 있고 편집할 수 있을 때만. 노트 AI 넣기와 HTML 블록 「적용」(WP-1302)이 함께 쓴다. */
+  const canInsertAi = useCallback(() => {
+    const ed = editorRef.current
+    return !!ed && !ed.isDestroyed && canEditRef.current
+  }, [])
+
   const commitAiResult = useCallback(
     (stopPresence: () => void, fromAt: (ed: Editor) => number, toAt: (ed: Editor) => number, text: string) => {
       const waiting = new AbortController()
@@ -430,10 +437,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         stopPresence()
       }
       abortRef.current = abortWait
-      const canInsert = () => {
-        const ed = editorRef.current
-        return text !== '' && !!ed && !ed.isDestroyed && canEditRef.current
-      }
+      const canInsert = () => text !== '' && canInsertAi()
       void requestAiApply(() => providerRef.current, { canInsert, signal: waiting.signal }).then((apply) => {
         endAiRun(stopPresence, abortWait)
         // 단일 트랜잭션 → 단일 undo. 로컬 편집이라 동기화로 모두에게 전파된다.
@@ -443,7 +447,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         })
       })
     },
-    [endAiRun],
+    [endAiRun, canInsertAi],
   )
 
   // WP-301 요약 캐시를 노트의 새 버전에 맞춘다(낡음 표시·짧던 노트가 길어지면 재조회). 예전엔 자동저장 응답·원격 반영에서 맞췄지만
@@ -712,6 +716,23 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
     // eslint-disable-next-line react-hooks/immutability
     editorRef.current = editor
   })
+
+  // HTML 블록 「AI로 고치기」(WP-1302) — AI 를 쓰는 화면(공유 화면 아님)·편집 역할일 때만 블록에 내려 준다(없으면 단추가 없다).
+  // 「적용」은 다른 AI 넣기와 같은 길(ai-apply 핸드셰이크 → 한 거래)이라 판 기록에 ✦ 로 남는다. 그사이 편집할 수 없게 됐으면 넣지 않는다.
+  const htmlEmbedAi = useMemo<WikiHtmlEmbedAi | null>(
+    () =>
+      features.ai && roleCanEdit
+        ? {
+            pageId: page.id,
+            commit: async (insert, signal) => {
+              const apply = await requestAiApply(() => providerRef.current, { canInsert: canInsertAi, signal })
+              return apply.commit(insert)
+            },
+            onResult: refreshAiAttribution,
+          }
+        : null,
+    [features.ai, roleCanEdit, page.id, refreshAiAttribution, canInsertAi],
+  )
 
   // 슬래시 'HTML 파일 넣기'로 고른 파일 — 읽어 변환한 뒤 커서 자리에 모양째 넣는다(붙여넣기 모양 거르기를 지나지 않는 믿는 들여오기).
   const onHtmlFile = useCallback(async (file: File) => {
@@ -1198,12 +1219,14 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
                 첫 연결이 끝내 안 되면 skeleton 대신 연결 못 함 안내(붙으면 본문으로). */}
             {ready ? (
               <WikiMentionLabelsProvider pageId={page.id}>
-                <div onClick={onBodyClick} data-presence-stale={stale ? '' : undefined}>
-                  <EditorContent
-                    editor={editor}
-                    className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
-                  />
-                </div>
+                <WikiHtmlEmbedAiProvider value={htmlEmbedAi}>
+                  <div onClick={onBodyClick} data-presence-stale={stale ? '' : undefined}>
+                    <EditorContent
+                      editor={editor}
+                      className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
+                    />
+                  </div>
+                </WikiHtmlEmbedAiProvider>
               </WikiMentionLabelsProvider>
             ) : body === 'unreachable' ? (
               <WikiSyncUnreachable />

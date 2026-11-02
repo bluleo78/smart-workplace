@@ -16,8 +16,12 @@ export interface WikiAiStreamArgs {
     | 'expand'
     | 'condense'
     | 'polish'
+    // WP-1302 HTML 블록 「AI로 고치기」 — 결과는 문서에 바로 넣지 않고 호출 측이 미리보기 뒤 「적용」으로 넣는다.
+    | 'fix_html'
   prompt?: string
   selection?: string
+  // WP-1302 fix_html 의 고른 요소 설명 — 빈 목록은 요청을 만드는 쪽(buildFixHtmlRequest)이 빼고 넘긴다(블록 전체가 대상). undefined 는 JSON 에 실리지 않는다.
+  targets?: string[]
   // 토큰 델타 1개 — 호출 측이 버퍼링했다가 onDone 에서 한 번에 삽입한다(조각별 마크다운 파싱 깨짐 방지, WP-255).
   onDelta: (text: string) => void
   // 정상 종료(done 이벤트) — 자동저장 디바운스가 이어받는다.
@@ -41,7 +45,7 @@ interface ErrorPayload {
 
 /** /ai 생성을 시작하고 즉시 { abort } 를 반환한다. 시작 요청·구독은 inner async IIFE 에서 진행. */
 export function startWikiAiStream(args: WikiAiStreamArgs): { abort: () => void } {
-  const { pageId, action, prompt, selection, onDelta, onDone, onError } = args
+  const { pageId, action, prompt, selection, targets, onDelta, onDone, onError } = args
   let aborted = false
   let startedCorrelationId: string | null = null
   let unsubscribeDelta: (() => void) | null = null
@@ -58,7 +62,7 @@ export function startWikiAiStream(args: WikiAiStreamArgs): { abort: () => void }
   void (async () => {
     let correlationId: string
     try {
-      const res = await wikiApi.startAi(pageId, { action, prompt, selection })
+      const res = await wikiApi.startAi(pageId, { action, prompt, selection, targets })
       correlationId = res.data.correlationId
     } catch {
       if (!aborted) onError('AI 생성 시작에 실패했습니다.')

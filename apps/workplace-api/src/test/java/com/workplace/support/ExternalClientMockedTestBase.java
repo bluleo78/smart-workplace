@@ -23,6 +23,7 @@ import com.workplace.messaging.outbound.AiAgentCatchupClient;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
 import com.workplace.notify.push.PushGateway;
 import com.workplace.wiki.outbound.CollabClient;
+import com.workplace.wiki.outbound.WikiAiAgentStreamClient;
 import com.workplace.wiki.outbound.WikiAiAgentSummaryClient;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -65,6 +66,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       GraphTokenService.class,
       PushGateway.class,
       SseRegistry.class,
+      WikiAiAgentStreamClient.class,
       WikiAiAgentSummaryClient.class,
       WorkerClient.class,
       WorkerRenderClient.class

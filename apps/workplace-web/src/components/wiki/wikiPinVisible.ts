@@ -12,3 +12,19 @@ export function pinVisible(el: HTMLElement, display: string): void {
   el.style.setProperty('pointer-events', 'auto', 'important')
   el.style.setProperty('position', 'static', 'important')
 }
+
+/** 고정용 콜백 ref — 붙는 순간 pinVisible 로 박는다. 모듈 값이라 정체가 바뀌지 않아 붙을 때 한 번만 돈다(그릴 때마다 다시 돌지 않게). */
+const pinRef = (display: string) => (el: HTMLElement | null) => {
+  if (el) pinVisible(el, display)
+}
+/** HTML 블록 막대·「AI로 고치기」 칸(WP-1242·WP-1302)이 함께 쓰는 고정 ref — display 값별 하나씩. */
+export const pinBlock = pinRef('block')
+export const pinFlex = pinRef('flex')
+export const pinGrid = pinRef('grid')
+export const pinInlineFlex = pinRef('inline-flex')
+
+/**
+ * 손잡이 단추 공통 mousedown — 기본 동작을 막아 포커스·선택이 단추로 옮겨 가지 않게 한다.
+ * 블록 막대에선 편집기 선택을, 「AI로 고치기」 칸에선 입력 칸 포커스를 그대로 남긴다(포커스·선택은 각 동작이 정한다).
+ */
+export const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault()

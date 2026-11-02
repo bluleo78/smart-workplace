@@ -31,12 +31,16 @@ export const wikiComposeSchema = z.object({
     'expand',
     'condense',
     'polish',
+    // WP-1302 노트 HTML 블록 「AI로 고치기」 — selection = 지금 HTML 소스, prompt = 고칠 지시, targets = 고른 요소 설명.
+    'fix_html',
   ]),
   pageTitle: z.string(),
   pageBody: z.string(),
   selection: z.string().optional(),
   // WP-674: 초안 지시문은 API(WikiAiRequest.prompt)와 같은 4000자 상한 — selection 은 본문 상한(WP-625)을 따르므로 두지 않는다.
   prompt: z.string().max(4000).optional(),
+  // WP-1302: 고른 요소(선택자 경로·태그·짧은 outerHTML·글자) 설명 — API(WikiAiRequest.targets)와 같은 상한(10개 · 개당 2000자).
+  targets: z.array(z.string().max(2000)).max(10).optional(),
   // 비서 설정(ai/compose 와 동일 계약).
   assistantAgentId: z.number().int().positive(),
   model: z.string().min(1),

@@ -68,6 +68,28 @@ class WikiAiActionTest {
     assertThat(mapper.readValue("\"polish\"", WikiAiAction.class)).isEqualTo(WikiAiAction.POLISH);
   }
 
+  /** WP-1302: HTML 블록 고치기 액션도 소문자 와이어(fix_html)로 오가야 ai-agent zod enum 이 받는다. */
+  @Test
+  void fixHtml_roundTripsAsLowercaseWire() throws Exception {
+    assertThat(mapper.writeValueAsString(WikiAiAction.FIX_HTML)).isEqualTo("\"fix_html\"");
+    assertThat(mapper.readValue("\"fix_html\"", WikiAiAction.class))
+        .isEqualTo(WikiAiAction.FIX_HTML);
+  }
+
+  /**
+   * WP-1302: 액션별 규칙 — fix_html 만 노트 본문을 싣지 않고 selection·prompt 가 필수다. 기존 액션은 본문을 쓰고 아무것도 필수가
+   * 아니다(DRAFT 지시문 선택 등 기존 동작 유지).
+   */
+  @Test
+  void actionSpec_onlyFixHtmlSkipsBodyAndRequiresSelectionAndPrompt() {
+    for (WikiAiAction a : WikiAiAction.values()) {
+      boolean fix = a == WikiAiAction.FIX_HTML;
+      assertThat(a.usesPageBody()).as(a + " usesPageBody").isEqualTo(!fix);
+      assertThat(a.requiresSelection()).as(a + " requiresSelection").isEqualTo(fix);
+      assertThat(a.requiresPrompt()).as(a + " requiresPrompt").isEqualTo(fix);
+    }
+  }
+
   @Test
   void deserialize_unknown_throws() {
     assertThatThrownBy(() -> mapper.readValue("\"bogus\"", WikiAiAction.class))

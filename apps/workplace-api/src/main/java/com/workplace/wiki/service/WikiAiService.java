@@ -122,9 +122,13 @@ public class WikiAiService {
                   new AgentBody(
                       req.action(),
                       page.title(),
-                      page.body() == null ? "" : page.body(),
+                      // WP-1302: 노트 본문을 쓰지 않는 액션(fix_html — 블록 소스만 고친다)에는 큰 본문을 싣지 않는다.
+                      page.body() == null || !req.action().usesPageBody() ? "" : page.body(),
                       req.selection(),
                       req.prompt(),
+                      // WP-1302: 고른 요소가 없으면 필드를 뺀다(빈 목록도 null — zod optional 은 null 을 거절, 빈 배열은 뜻이
+                      // 없다).
+                      req.targets() == null || req.targets().isEmpty() ? null : req.targets(),
                       spec.agentUserId(),
                       spec.model(),
                       spec.thinkingDepth(),
@@ -221,6 +225,8 @@ public class WikiAiService {
       String pageBody,
       String selection,
       String prompt,
+      /** WP-1302 fix_html 고른 요소 설명 — null 이면 생략(블록 전체가 대상). */
+      List<String> targets,
       long assistantAgentId,
       String model,
       String thinkingDepth,

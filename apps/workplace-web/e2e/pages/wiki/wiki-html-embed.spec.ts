@@ -6,13 +6,16 @@
 // CDN 은 E2E 네트워크 격리로 닿지 않으므로 인라인 스크립트만 쓴다.
 // 막대·소스 편집 개선(WP-1300) — 나란히 놓인 코드·미리보기(@layout), 소스 칸에서의 Esc·Enter·글자 입력과 「다시 올리기」 파일 끌어다 놓기(@input).
 // 막대 단추 표시·Esc 상태 판정·소스 바꾸기 범위·5MB 거르기는 WikiHtmlEmbedView.test.tsx 가 지킨다.
+// 「✦ AI로 고치기」(WP-1302) — 실제 키 입력이 입력 칸에 머무는지(Enter 보내기·Esc 닫기가 편집기로 새지 않는지)와 적용 뒤 ⌘Z 한 번에 되돌아가는지(@input).
+// 요청 본문·결과 비교·취소·칩 판정은 WikiHtmlEmbedView.test.tsx 가 지킨다. AI 스트림은 wiki-ai.spec 과 같이 POST …/ai(correlationId) + /events 보류 응답으로 흉내 낸다.
 // 노트 끝 블록·모양 영역 밖으로 나가기(WP-1288)는 실제 클릭·키 입력이 숨은 소스 칸·선택을 어떻게 지나는지가 핵심이라 @input 으로 본다(상태 판정은 wikiBlockExit.test.ts).
 import type { Locator, Page } from '@playwright/test'
 
 import type { WikiPublicShare } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { caretAtEnd, caretBeforeChar } from '../../fixtures/collab'
-import { mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { trackRequests } from '../../fixtures/requests'
+import { buildWikiAiSse, mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const TOKEN = 'wsh_e2eHtmlEmbed1'
 
@@ -427,5 +430,76 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
     await frame.locator('#card').click({ modifiers: ['ControlOrMeta'] })
     await expect(pick).toHaveAttribute('aria-pressed', 'true')
     await expect(chips).toHaveText(['1카드 · 출시 4건'])
+  })
+
+  test('「AI로 고치기」 — Esc 는 쓴 글을 남기고 닫으며, Enter 로 보낸 결과를 비교해 적용하면 블록이 바뀌고 ⌘Z 한 번에 돌아간다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const pageId = 68
+    const source = '<h1 id="t">3분기 회고</h1>'
+    const fixed = '<h1 id="t">4분기 회고</h1>'
+    await mockWikiPageEditor(page, {
+      spaceId: 1,
+      pageId,
+      title: 'AI 고치기',
+      body: ['앞 문단', '', '```html-embed', source, '```', '', '뒤 문단'].join('\n'),
+      role: 'EDITOR',
+    })
+    // POST …/ai 는 correlationId 를 바로 주고, /events 는 그 POST 가 온 뒤에 그 id 로 델타(울타리로 감싼 답)·완료를 흘린다(wiki-ai.spec 과 같은 방식).
+    const starts = trackRequests(page, 'POST', '/api/v1/wiki/pages/68/ai')
+    let resolveStarted: (id: string) => void = () => {}
+    const started = new Promise<string>((resolve) => (resolveStarted = resolve))
+    await page.route('**/api/v1/wiki/pages/68/ai', (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      resolveStarted('corr-fix')
+      return route.fulfill({ json: { correlationId: 'corr-fix' } })
+    })
+    await page.route('**/api/v1/events', async (route) =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: buildWikiAiSse(['```html\n', fixed, '\n```'], await started) }),
+    )
+    await openWikiEditor(page, { spaceId: 1, pageId })
+    const block = page.getByTestId('wiki-html-embed')
+    const main = page.frameLocator('[data-testid="wiki-html-embed-frame"]')
+    await expect(main.locator('#t')).toHaveText('3분기 회고')
+
+    // 열면 입력 칸이 포커스를 받는다 — 친 글자는 칸에 들어가고 편집기(블록 다음 줄)로 새지 않는다.
+    await block.getByTestId('wiki-html-embed-ai-toggle').click()
+    const input = block.getByTestId('wiki-html-embed-ai-input')
+    await expect(input).toBeFocused()
+    await page.keyboard.type('제목을 4분기로')
+    // Shift+Enter 는 칸 안 줄바꿈이다(보내지 않는다).
+    await page.keyboard.press('Shift+Enter')
+    await page.keyboard.type('바꿔 줘')
+    await expect(input).toHaveValue('제목을 4분기로\n바꿔 줘')
+    // Esc — 칸을 닫고 블록 통째 선택으로(한 단계 바깥). 쓴 글은 다시 열면 남아 있다.
+    await page.keyboard.press('Escape')
+    await expect(block.getByTestId('wiki-html-embed-ai')).toHaveCount(0)
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    await expect(page.locator('.ProseMirror > p')).toHaveText(['앞 문단', '뒤 문단'])
+    expect(starts.count()).toBe(0)
+    await block.getByTestId('wiki-html-embed-ai-toggle').click()
+    await expect(input).toHaveValue('제목을 4분기로\n바꿔 줘')
+    await expect(input).toBeFocused()
+
+    // Enter 로 보낸다 — 지금 소스·지시가 실리고, 결과의 「바뀐 뒤」 미리보기가 고친 소스를 돌린다(울타리는 벗겨진다).
+    await page.keyboard.press('Enter')
+    await expect.poll(() => starts.lastBody<{ action: string; selection: string; prompt: string }>()).toEqual({
+      action: 'fix_html',
+      selection: source,
+      prompt: '제목을 4분기로\n바꿔 줘',
+    })
+    const after = page.frameLocator('[data-testid="wiki-html-embed-ai-after-frame"]')
+    await expect(after.locator('#t')).toHaveText('4분기 회고')
+    await expect(page.frameLocator('[data-testid="wiki-html-embed-ai-before-frame"]').locator('#t')).toHaveText('3분기 회고')
+    // 결과가 떠 있는 동안 블록은 그대로다.
+    await expect(main.locator('#t')).toHaveText('3분기 회고')
+
+    await block.getByTestId('wiki-html-embed-ai-apply').click()
+    await expect(block.getByTestId('wiki-html-embed-ai')).toHaveCount(0)
+    await expect(main.locator('#t')).toHaveText('4분기 회고')
+    await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', fixed, '```'].join('\n'))
+    // 적용 뒤 블록이 통째 선택되고 편집기가 포커스를 가진다 — ⌘Z 한 번에 고치기 전 소스로 돌아간다.
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect(main.locator('#t')).toHaveText('3분기 회고')
+    await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', source, '```'].join('\n'))
   })
 })
