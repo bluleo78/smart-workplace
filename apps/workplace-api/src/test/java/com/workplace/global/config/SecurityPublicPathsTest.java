@@ -1,6 +1,5 @@
 package com.workplace.global.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,7 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * 인증 없이 열어 둔 경로는 이 앱에 실제로 있는 것만이어야 한다(WP-673). 다른 앱(firehub)에서 옮겨 온 triggers·slack
- * inbound·kakao/slack OAuth 콜백 허용이 남아 있어, 같은 경로로 API 를 추가하면 인증 없이 그대로 공개될 뻔했다.
+ * inbound·kakao/slack OAuth 콜백 허용이 남아 있어, 같은 경로로 API 를 추가하면 인증 없이 그대로 공개될 뻔했다. M365 메일 연결 완료도
+ * WP-1289 에서 공개를 걷었다.
  */
 class SecurityPublicPathsTest extends IntegrationTestBase {
 
@@ -36,17 +36,13 @@ class SecurityPublicPathsTest extends IntegrationTestBase {
     mvc.perform(post(path)).andExpect(status().isUnauthorized());
   }
 
-  /** 실제로 쓰는 M365 메일 연결 완료는 여전히 토큰 없이 닿는다 — 프론트 콜백이 state 로 중계한다. */
+  /** M365 메일 연결 완료는 더 이상 공개가 아니다(WP-1289) — 토큰 없이 부르면 401 이다. */
   @Test
-  void m365_메일_연결_완료는_계속_공개() throws Exception {
-    int code =
-        mvc.perform(
-                post("/api/v1/mail/oauth/m365/complete")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{}"))
-            .andReturn()
-            .getResponse()
-            .getStatus();
-    assertThat(code).isNotEqualTo(401).isNotEqualTo(403);
+  void m365_메일_연결_완료는_토큰_없으면_401() throws Exception {
+    mvc.perform(
+            post("/api/v1/mail/oauth/m365/complete")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isUnauthorized());
   }
 }

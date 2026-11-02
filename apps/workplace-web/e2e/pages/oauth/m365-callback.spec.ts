@@ -1,7 +1,9 @@
 // M365 OAuth 팝업 콜백 E2E — 성공 경로의 배선(라우트 → POST /complete → 성공 UI + opener 통지) 1건만 남긴다.
 // 동의 거부(백엔드 호출 없음)·백엔드 400 의 실패 UI·통지는 화면 테스트 src/pages/publicRoutes.test.tsx 가 지킨다(WP-971).
+// 완료 API 는 로그인한 본인만 부르므로(WP-1289) 팝업도 로그인된 세션(refresh 쿠키)으로 착지한다 — authenticatedPage 를 쓴다.
 import type { Page } from '@playwright/test'
-import { expect, test } from '@playwright/test'
+
+import { expect, test } from '../../fixtures/auth.fixture'
 
 import { trackRequests } from '../../fixtures/requests'
 
@@ -24,7 +26,7 @@ async function installOpenerSpy(page: Page) {
 // 팝업 콜백 페이지: code/state → POST /complete 중계 → 결과 통지 + 성공/실패 UI.
 // opener.postMessage 를 스파이로 가로채 통지 페이로드를 검증한다.
 test.describe('M365 OAuth 콜백 페이지', () => {
-  test('성공: code/state 를 POST /complete 로 보내고 성공 UI + opener 통지', { tag: '@wiring' }, async ({ page }) => {
+  test('성공: code/state 를 POST /complete 로 보내고 성공 UI + opener 통지', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await installOpenerSpy(page)
 
     const completes = trackRequests(page, 'POST', '/api/v1/mail/oauth/m365/complete')

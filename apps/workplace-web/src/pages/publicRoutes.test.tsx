@@ -9,8 +9,10 @@ import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { type ReactNode } from 'react'
 import { Route, Routes } from 'react-router-dom'
+import { toast } from 'sonner'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import { setAccessToken } from '@/api/client'
 import { AuthContext } from '@/hooks/auth-context-value'
 import { AuthProvider } from '@/hooks/AuthContext'
 import { useAuth } from '@/hooks/useAuth'
@@ -186,6 +188,82 @@ describe('M365 OAuth 콜백(팝업)', () => {
     expect(await screen.findByText('연결에 실패했습니다.')).toBeInTheDocument()
     expect(bodies).toEqual([{ code: 'AUTHCODE', state: 'BAD' }])
     expect(posted).toHaveBeenCalledWith({ source: 'm365-oauth', ok: false, error: 'connect_failed' }, window.location.origin)
+  })
+
+  test('토큰 없는 팝업은 첫 401 뒤 refresh 쿠키로 토큰을 받아 로그인한 본인으로 완료한다(WP-1289)', async () => {
+    const posted = withOpener()
+    setAccessToken(null)
+    const auths: (string | null)[] = []
+    renderScreen(<M365CallbackPage />, {
+      path: '/oauth/m365/callback?code=AUTHCODE&state=MINE',
+      handlers: [
+        http.post(`${API}/auth/refresh`, () => HttpResponse.json(createTokenResponse({ accessToken: 'popup-token' }))),
+        // 완료는 로그인한 사용자만 부를 수 있다 — 토큰이 없으면 401.
+        http.post(`${API}/mail/oauth/m365/complete`, ({ request }) => {
+          const auth = request.headers.get('Authorization')
+          auths.push(auth)
+          return auth
+            ? HttpResponse.json({ connected: true })
+            : HttpResponse.json({ status: 401 }, { status: 401 })
+        }),
+      ],
+    })
+    expect(await screen.findByText('연결되었습니다.')).toBeInTheDocument()
+    expect(auths).toEqual([null, 'Bearer popup-token'])
+    expect(posted).toHaveBeenCalledWith({ source: 'm365-oauth', ok: true }, window.location.origin)
+  })
+  test('남의 연결이거나 워크스페이스가 바뀌어 403 이면 직접 다시 연결하라고 안내하고 state_mismatch 통지(WP-1289)', async () => {
+    const posted = withOpener()
+    renderScreen(<M365CallbackPage />, {
+      path: '/oauth/m365/callback?code=AUTHCODE&state=OTHERS',
+      handlers: [
+        http.post(`${API}/mail/oauth/m365/complete`, () =>
+          HttpResponse.json({ connected: false, error: 'state_mismatch' }, { status: 403 }),
+        ),
+      ],
+    })
+    expect(await screen.findByText(/연결을 시작한 본인이, 시작한 워크스페이스에서만/)).toBeInTheDocument()
+    expect(posted).toHaveBeenCalledWith({ source: 'm365-oauth', ok: false, error: 'state_mismatch' }, window.location.origin)
+  })
+
+  test('남의 링크를 팝업이 아닌 창으로 열면 직접 연결하라는 토스트와 함께 메일 계정 화면으로 간다(WP-1289)', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const { location } = renderScreen(<M365CallbackPage />, {
+      path: '/oauth/m365/callback?code=AUTHCODE&state=OTHERS',
+      handlers: [
+        http.post(`${API}/mail/oauth/m365/complete`, () =>
+          HttpResponse.json({ connected: false, error: 'state_mismatch' }, { status: 403 }),
+        ),
+      ],
+    })
+    await waitFor(() => expect(location()).toBe('/settings/mail'))
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Outlook 계정을 연결하지 않았습니다'))
+  })
+
+  test('인증 초기화가 끝나기 전에는 완료를 보내지 않는다(WP-1289)', async () => {
+    withOpener()
+    let completes = 0
+    renderScreen(<M365CallbackPage />, {
+      path: '/oauth/m365/callback?code=AUTHCODE&state=MINE',
+      handlers: [http.post(`${API}/mail/oauth/m365/complete`, () => (completes++, HttpResponse.json({ connected: true })))],
+      auth: { isLoading: true, isAuthenticated: false, user: null },
+    })
+    expect(screen.getByText('계정을 연결하는 중…')).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(completes).toBe(0)
+  })
+
+  test('로그인이 없으면 완료를 부르지 않고 로그인 뒤 다시 하라고 안내한다(WP-1289)', async () => {
+    const posted = withOpener()
+    let completes = 0
+    renderScreen(<M365CallbackPage />, {
+      path: '/oauth/m365/callback?code=AUTHCODE&state=MINE',
+      handlers: [http.post(`${API}/mail/oauth/m365/complete`, () => (completes++, HttpResponse.json({ connected: true })))],
+      auth: { isLoading: false, isAuthenticated: false, user: null },
+    })
+    expect(await screen.findByText(/로그인한 상태에서/)).toBeInTheDocument()
+    expect(completes).toBe(0)
+    expect(posted).toHaveBeenCalledWith({ source: 'm365-oauth', ok: false, error: 'unauthenticated' }, window.location.origin)
   })
 })
 

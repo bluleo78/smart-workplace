@@ -1,5 +1,6 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
@@ -10,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -52,6 +54,7 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
   @Autowired OAuthStateStore stateStore;
   @Autowired EmailAccountRepository accountRepo;
   @Autowired PlatformTransactionManager txManager;
+  @Autowired JwtTokenProvider jwtTokenProvider;
 
   /** 실제 AAD 네트워크 대신 스텁으로 대체. */
   @Autowired GraphApiClient graphApiClient;
@@ -172,116 +175,205 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
     }
   }
 
+  /** tid2 에 커밋된 사람 사용자를 만든다(TransactionTemplate — connect() 트랜잭션에서 보이게). */
+  private long createCommittedUser(String prefix) {
+    return new TransactionTemplate(txManager)
+        .execute(
+            status ->
+                (long)
+                    (Long)
+                        dsl.insertInto(USER)
+                            .set(USER.USERNAME, prefix + System.nanoTime())
+                            .set(USER.NAME, "M365 Callback User")
+                            .set(USER.EMAIL, prefix + System.nanoTime() + "@example.com")
+                            .set(USER.KIND, "HUMAN")
+                            .set(USER.PASSWORD, "pw")
+                            .returning(USER.ID)
+                            .fetchOne()
+                            .getId());
+  }
+
+  /** 그 테넌트 ACTIVE 멤버로 만들고 브라우저 세션과 같은 access token 을 발급한다(JWT 필터가 TenantContext 를 세운다). */
+  private String tokenFor(long uid, long tenantId) {
+    TestFixtures.ensureActiveMember(dsl, uid, tenantId);
+    return jwtTokenProvider.generateAccessToken(uid, "user-" + uid, tenantId);
+  }
+
+  private org.springframework.test.web.servlet.ResultActions complete(String token, String state)
+      throws Exception {
+    var req =
+        post("/api/v1/mail/oauth/m365/complete")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"code\":\"CODE\",\"state\":\"" + state + "\"}");
+    if (token != null) {
+      req = req.header("Authorization", "Bearer " + token);
+    }
+    return mockMvc.perform(req);
+  }
+
   /**
-   * ⭐ 블로커 테스트: 미인증(JWT 없음) HTTP 콜백 경로에서 TenantContext 가 비어도 컨트롤러가 state.tenantId 로 설정해 FORCE RLS
-   * 하에서 계정이 올바른 테넌트로 생성되어야 한다.
+   * ① 본인 연결(WP-1289): 본인이 시작해 받은 state 로 본인이 완료하면 그 사용자·테넌트로 계정이 생긴다.
    *
-   * <p>RED 검증 방법: 컨트롤러의 TenantContext.set/finally-clear 래퍼를 제거하면 GUC=1(세션 기본값)로 INSERT 되어,
-   * TenantContext=2 로 조회 시 비가시 → assertThat 실패 → 테스트 RED.
+   * <p>tid2 사용: JWT 필터가 세운 TenantContext=tid2 가 GUC 로 주입돼야 행이 tid2 에 생긴다 — 세션 GUC=1 로 잘못 들어가면
+   * TenantContext=tid2 조회에서 보이지 않아 RED.
    *
-   * <p>⚠️ @Transactional 없음: 외부 트랜잭션이 connect()의 REQUIRED 에 합류하면 doBegin 이 발화하지 않아 wrapper 효과 무력화.
+   * <p>⚠️ @Transactional 없음: 외부 트랜잭션이 connect()의 REQUIRED 에 합류하면 doBegin 이 발화하지 않는다.
    */
   @Test
-  void callback_setsTenantContext_andCreatesAccountUnderTenant() throws Exception {
-    // 두 번째 테넌트 확보 — 세션 GUC=1 마스킹 회피 핵심
+  void complete_byStateOwner_createsAccountUnderTenant() throws Exception {
     long tid2 = ensureSecondTenant();
-
-    // 사용자 생성 — 두 번째 테넌트의 유저로 커밋(TransactionTemplate)
-    long userId =
-        new TransactionTemplate(txManager)
-            .execute(
-                status -> {
-                  return (long)
-                      (Long)
-                          dsl.insertInto(USER)
-                              .set(USER.USERNAME, "m365-cb-" + System.nanoTime())
-                              .set(USER.NAME, "M365 Callback User")
-                              .set(USER.EMAIL, "m365-cb-" + System.nanoTime() + "@example.com")
-                              .set(USER.KIND, "HUMAN")
-                              .set(USER.PASSWORD, "pw")
-                              .returning(USER.ID)
-                              .fetchOne()
-                              .getId();
-                });
+    long userId = createCommittedUser("m365-cb-");
     createdUserId = userId;
+    String token = tokenFor(userId, tid2);
 
-    // graphApiClient 스텁: exchangeCode 호출 시 토큰 반환
     when(graphApiClient.exchangeCode("CODE"))
         .thenReturn(
             new GraphApiClient.TokenResponse("AT", "RT", 3600, idTokenFor("dh.yang@iacloud.kr")));
-
-    // state 발급 — userId/tenantId=tid2 결속
     String state = stateStore.issue(userId, tid2);
-
-    // 세션 GUC 를 1 로 설정 — 래퍼 없으면 INSERT가 tenant=1 로 오스탬프됨
     setSessionGuc(1L);
-    // TenantContext 비워 미인증 상태 재현
     TenantContext.clear();
 
-    // 공개 HTTP 경로 호출 — 인증 없음. POST /complete JSON.
-    mockMvc
-        .perform(
-            post("/api/v1/mail/oauth/m365/complete")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"code\":\"CODE\",\"state\":\"" + state + "\"}"))
-        .andExpect(status().isOk());
+    complete(token, state)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.connected").value(true));
 
-    // 검증: TenantContext=tid2 로 (트랜잭션 안에서) 계정이 조회되어야 한다.
-    // findFirstByUserAndEmail 이 @Transactional 이 아니므로 TenantAwareTransactionManager.doBegin 이 발화하지
-    // 않는다.
-    // 따라서 TransactionTemplate 으로 tx 를 열고, doBegin 내에서 TenantContext=tid2 → GUC=tid2 주입 → 조회.
-    // 래퍼 없으면 INSERT 가 GUC=1 로 → TenantContext=tid2 tx 에서 비가시 → assertThat 실패(RED).
-    TenantContext.set(tid2); // doBegin 이 읽을 컨텍스트 설정
-    final long finalUserId = userId;
-    final long finalTid2 = tid2;
+    TenantContext.set(tid2); // 조회 트랜잭션 doBegin 이 읽을 컨텍스트
     var found =
         new TransactionTemplate(txManager)
-            .execute(
-                status -> accountRepo.findFirstByUserAndEmail(finalUserId, "dh.yang@iacloud.kr"));
+            .execute(status -> accountRepo.findFirstByUserAndEmail(userId, "dh.yang@iacloud.kr"));
     assertThat(found).isPresent();
     createdAccountId = found.get().id();
-    createdTenantId = finalTid2;
+    createdTenantId = tid2;
     assertThat(found.get().provider()).isEqualTo(com.workplace.mail.dto.MailProvider.M365_GRAPH);
   }
 
   /**
-   * 유효하지 않은(미발급/만료) state 는 400 + 응답 {connected:false} (CSRF/replay 방어).
-   *
-   * <p>bogus state 는 stateStore.consume 에서 empty 를 반환하므로 토큰 교환·DB 도달 전에 early-return — 계정이 생성되지
-   * 않는다. (bogus state 에는 결속된 user/tenant 가 없어 DB 미생성 직접 조회는 비현실적이므로 응답 본문 계약으로 검증한다.)
+   * ② 다른 사용자 state 거부(WP-1289): 공격자가 받은 연결 링크를 피해자가 눌러도 피해자 메일함이 공격자 계정에 연결되지 않는다 — 403, 토큰 교환 없음,
+   * 양쪽 모두 계정 없음, 감사 로그 MAIL_OAUTH_STATE_MISMATCH. state 는 소비돼 공격자도 다시 쓰지 못한다.
    */
   @Test
-  void complete_rejectsInvalidState() throws Exception {
-    mockMvc
-        .perform(
-            post("/api/v1/mail/oauth/m365/complete")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"code\":\"CODE\",\"state\":\"bogus-state\"}"))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.connected").value(false));
+  void complete_withOtherUsersState_isForbidden_andCreatesNothing() throws Exception {
+    long tid2 = ensureSecondTenant();
+    long attacker = createCommittedUser("m365-attacker-");
+    long victim = createCommittedUser("m365-victim-");
+    createdUserId = attacker;
+    String victimToken = tokenFor(victim, tid2);
+    String attackerState = stateStore.issue(attacker, tid2);
+    try {
+      complete(victimToken, attackerState)
+          .andExpect(status().isForbidden())
+          .andExpect(jsonPath("$.connected").value(false))
+          .andExpect(jsonPath("$.error").value("state_mismatch"));
+      verifyNoInteractions(graphApiClient);
+      assertThat(stateStore.consume(attackerState)).isEmpty();
+
+      TenantContext.set(tid2);
+      long accounts =
+          new TransactionTemplate(txManager)
+              .execute(
+                  status ->
+                      (long)
+                          dsl.fetchCount(
+                              EMAIL_ACCOUNT, EMAIL_ACCOUNT.USER_ID.in(attacker, victim)));
+      assertThat(accounts).isZero();
+      long audits =
+          new TransactionTemplate(txManager)
+              .execute(
+                  status ->
+                      (long)
+                          dsl.fetchCount(
+                              AUDIT_LOG,
+                              AUDIT_LOG
+                                  .USER_ID
+                                  .eq(victim)
+                                  .and(AUDIT_LOG.ACTION_TYPE.eq("MAIL_OAUTH_STATE_MISMATCH"))
+                                  .and(AUDIT_LOG.RESULT.eq("FAILURE"))));
+      assertThat(audits).isEqualTo(1);
+    } finally {
+      // 이 테스트가 남긴 감사 행도 회수한다(공유 테스트 DB 에서 감사 행 수를 세는 다른 테스트를 흔들지 않게).
+      cleanupInTenant(
+          tid2,
+          () ->
+              dsl.deleteFrom(AUDIT_LOG)
+                  .where(AUDIT_LOG.USER_ID.eq(victim))
+                  .and(AUDIT_LOG.ACTION_TYPE.eq("MAIL_OAUTH_STATE_MISMATCH"))
+                  .execute());
+      TenantContext.clear();
+      dsl.deleteFrom(USER).where(USER.ID.eq(victim)).execute();
+    }
   }
 
   /**
-   * 정지·삭제·영구 삭제 중인 테넌트에 결속된 state 로는 계정을 연결하지 않는다(WP-341) — 공개 경로라 JWT 필터의 테넌트 상태 검사를 타지 않으므로 컨트롤러가
-   * 직접 막는다. 만료된 state 와 같이 400 invalid_request 로 응답하고 토큰 교환도 시도하지 않는다.
+   * 같은 사용자라도 다른 워크스페이스에서 발급받은 state 는 받지 않는다 — 시작하지 않은 워크스페이스에 메일함이 붙지 않게. 여러 탭으로 생기는 일이라 공격 감사 로그는
+   * 남기지 않는다.
    */
+  @Test
+  void complete_withStateFromOtherTenant_isForbidden() throws Exception {
+    long tid2 = ensureSecondTenant();
+    long userId = createCommittedUser("m365-xt-");
+    createdUserId = userId;
+    String token = tokenFor(userId, tid2);
+    String stateForTenant1 = stateStore.issue(userId, 1L);
+
+    complete(token, stateForTenant1)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.error").value("tenant_mismatch"));
+    verifyNoInteractions(graphApiClient);
+    long audits =
+        callInTenant(
+            tid2,
+            () ->
+                (long)
+                    dsl.fetchCount(
+                        AUDIT_LOG,
+                        AUDIT_LOG
+                            .USER_ID
+                            .eq(userId)
+                            .and(AUDIT_LOG.ACTION_TYPE.eq("MAIL_OAUTH_STATE_MISMATCH"))));
+    assertThat(audits).isZero();
+  }
+
+  /** ③ 비로그인 거부(WP-1289): 유효한 state 가 있어도 토큰 없이 부르면 401 이고 state 도 소비되지 않는다. */
+  @Test
+  void complete_withoutLogin_isUnauthorized() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    createdUserId = userId;
+    String state = stateStore.issue(userId, 1L);
+
+    complete(null, state).andExpect(status().isUnauthorized());
+    verifyNoInteractions(graphApiClient);
+    assertThat(stateStore.consume(state)).isPresent();
+  }
+
+  /**
+   * 유효하지 않은(미발급/만료) state 는 400 + 응답 {connected:false} (CSRF/replay 방어). bogus state 는 consume 에서
+   * empty 라 토큰 교환·DB 도달 전에 끝난다.
+   */
+  @Test
+  void complete_rejectsInvalidState() throws Exception {
+    long tid2 = ensureSecondTenant();
+    long userId = createCommittedUser("m365-bad-");
+    createdUserId = userId;
+
+    complete(tokenFor(userId, tid2), "bogus-state")
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.connected").value(false))
+        .andExpect(jsonPath("$.error").value("invalid_request"));
+    verifyNoInteractions(graphApiClient);
+  }
+
+  /** 정지·삭제·영구 삭제 중인 테넌트의 토큰으로는 연결하지 않는다(WP-341) — JWT 필터가 그 토큰을 인증하지 않아 401, 토큰 교환도 없다. */
   @ParameterizedTest
   @ValueSource(strings = {"SUSPENDED", "DELETED", "PURGING"})
   void complete_rejectsInactiveTenant(String tenantStatus) throws Exception {
     long tid2 = ensureSecondTenant();
-    long userId = TestFixtures.createHuman(dsl);
+    long userId = createCommittedUser("m365-inactive-");
     createdUserId = userId;
+    String token = tokenFor(userId, tid2);
     String state = stateStore.issue(userId, tid2);
     dsl.update(TENANT).set(TENANT.STATUS, tenantStatus).where(TENANT.ID.eq(tid2)).execute();
     try {
-      mockMvc
-          .perform(
-              post("/api/v1/mail/oauth/m365/complete")
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content("{\"code\":\"CODE\",\"state\":\"" + state + "\"}"))
-          .andExpect(status().isBadRequest())
-          .andExpect(jsonPath("$.connected").value(false))
-          .andExpect(jsonPath("$.error").value("invalid_request"));
+      complete(token, state).andExpect(status().isUnauthorized());
       verifyNoInteractions(graphApiClient);
     } finally {
       dsl.update(TENANT).set(TENANT.STATUS, "ACTIVE").where(TENANT.ID.eq(tid2)).execute();

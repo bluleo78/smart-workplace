@@ -2,13 +2,13 @@ package com.workplace.mail.controller;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.service.M365OAuthService;
 import com.workplace.mail.service.OAuthStateStore;
 import com.workplace.mail.service.OAuthStateStore.StateData;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,8 +29,9 @@ import org.springframework.web.bind.annotation.RestController;
  *       고를지(WP-879).
  *   <li>{@code GET /api/v1/mail/oauth/m365/start} — 인증 필수. AAD 인가 URL을 JSON(200)으로 반환. 프론트가 인증된
  *       axios로 받아 window.location.href로 이동한다(C1: Bearer 헤더 유실 방지).
- *   <li>{@code POST /api/v1/mail/oauth/m365/complete} — 공개 경로(SecurityConfig 등록). 프론트 콜백 라우트가
- *       code/state 를 JSON 으로 중계 → state 검증 → token 교환 → 계정 upsert → JSON 응답(302 없음).
+ *   <li>{@code POST /api/v1/mail/oauth/m365/complete} — 인증 필수(WP-1289). 프론트 콜백 라우트가 code/state 를
+ *       JSON 으로 중계 → state 검증 + state 주인이 지금 로그인한 사용자인지 확인 → token 교환 → 계정 upsert → JSON 응답(302
+ *       없음).
  * </ul>
  */
 @Slf4j
@@ -50,8 +51,6 @@ public class M365OAuthController {
   private final M365GraphProperties props;
   private final OAuthStateStore stateStore;
   private final M365OAuthService oauthService;
-  // 공개 경로라 JWT 필터의 테넌트 상태 검사를 타지 않으므로 직접 확인한다(WP-341).
-  private final TenantStatusChecker tenantStatusChecker;
 
   /** /status 응답 DTO — preferred=메일 계정 추가 다이얼로그가 Outlook(Microsoft 365)을 미리 골라 둘지. */
   public record M365StatusResponse(boolean preferred) {}
@@ -101,7 +100,9 @@ public class M365OAuthController {
             + "&scope="
             + scope
             + "&state="
-            + encode(state);
+            + encode(state)
+            // 연결할 Microsoft 계정을 매번 고르게 한다(WP-1289) — 이미 동의한 사용자도 어떤 메일함을 잇는지 화면에서 본다.
+            + "&prompt=select_account";
 
     // 302 리다이렉트 대신 200 JSON — 프론트가 인증 axios로 받아 window.location.href로 이동(C1 수정)
     return ResponseEntity.ok(new M365AuthorizeUrlResponse(authorizeUrl));
@@ -123,24 +124,34 @@ public class M365OAuthController {
   public record M365CompleteResponse(
       /** 연결 성공 여부. */
       boolean connected,
-      /** 실패 사유 코드(invalid_request/connect_failed) — 성공 시 null 로 직렬화에서 생략. */
+      /**
+       * 실패 사유 코드(invalid_request/state_mismatch/tenant_mismatch/connect_failed) — 성공 시 null 로 직렬화에서
+       * 생략.
+       */
       String error) {}
 
   /**
    * 프론트 콜백 라우트가 중계한 인가 코드를 처리한다(302 대신 JSON).
    *
-   * <p>⚠️ 이 엔드포인트는 JWT 없는 공개 경로다 — JwtAuthenticationFilter 가 실행되지 않아 TenantContext 가 비어 있다. {@link
-   * M365OAuthService#connect} 는 @Transactional 이므로 TenantAwareTransactionManager.doBegin 이
-   * TenantContext 를 읽어 GUC 를 주입한다. 컨텍스트가 비면 GUC 미주입 → FORCE RLS fail-closed(#444/#492 패턴). 따라서
-   * stateStore.consume 으로 StateData 를 얻은 후 connect() 호출을 TenantContext.set/finally-clear 로 감싼다.
+   * <p>로그인한 사용자만 부를 수 있고, state 를 발급받은 사람(userId·tenantId)이 지금 로그인한 사람과 같아야 한다(WP-1289). 예전에는 JWT
+   * 없는 공개 경로라 state 에 묶인 userId 만 믿었다 — 남이 발급받은 연결 링크를 누르면 누른 사람의 메일함이 링크를 만든 사람 계정에 연결됐다. 콜백 팝업은
+   * 메모리 토큰이 없어도 첫 401 에서 refresh 쿠키로 토큰을 받아 다시 보낸다(웹 axios 인터셉터).
+   *
+   * <p>JWT 필터가 TenantContext 를 세우고 정지·삭제된 테넌트 토큰은 인증하지 않으므로(WP-341) 여기서 테넌트 상태를 다시 보지 않는다.
    *
    * <p>AAD 동의 거부(error 파라미터)는 프론트 콜백 페이지가 백엔드를 호출하지 않고 처리하므로, 이 엔드포인트는 code 경로만 다룬다.
    *
+   * @param userId JWT 필터가 주입한 현재 사용자 ID (null 이면 401)
    * @param req code/state JSON 본문
-   * @return 성공 200 {connected:true} / 유효하지 않은 state·교환 실패 400 {connected:false, error}
+   * @return 성공 200 {connected:true} / 유효하지 않은 state·교환 실패 400 / 다른 사람의 state 403 {connected:false,
+   *     error}
    */
   @PostMapping("/complete")
-  public ResponseEntity<M365CompleteResponse> complete(@RequestBody M365CompleteRequest req) {
+  public ResponseEntity<M365CompleteResponse> complete(
+      @AuthenticationPrincipal Long userId, @RequestBody M365CompleteRequest req) {
+    if (userId == null) {
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+    }
     // state 1회 소비 — 유효하지 않거나 만료면 거부(CSRF/replay 방어)
     Optional<StateData> stateData =
         req.state() == null ? Optional.empty() : stateStore.consume(req.state());
@@ -150,21 +161,31 @@ public class M365OAuthController {
     }
 
     StateData sd = stateData.get();
-    // 정지·삭제·영구 삭제 중인 테넌트로는 메일 계정을 연결하지 않는다(WP-341) — state 가 만료된 것과 같이 거부한다.
-    if (!tenantStatusChecker.isActive(sd.tenantId())) {
-      log.warn("M365 OAuth complete: 비활성 테넌트 거부: tenantId={}", sd.tenantId());
-      return ResponseEntity.badRequest().body(new M365CompleteResponse(false, "invalid_request"));
+    // state 주인이 지금 로그인한 사람이 아니면 남의 연결 링크다 — 거부하고 감사 로그를 남긴다.
+    // state 는 이미 소비됐으므로 그 링크는 더 쓸 수 없다.
+    if (sd.userId() != userId) {
+      log.warn("M365 OAuth complete: state 주인 불일치 거부: caller={} stateUser={}", userId, sd.userId());
+      oauthService.auditForeignState(userId, sd);
+      return ResponseEntity.status(HttpStatus.FORBIDDEN)
+          .body(new M365CompleteResponse(false, "state_mismatch"));
     }
-    // ⚠️ 핵심: JWT 없는 공개 경로 → TenantContext 수동 설정 → GUC 주입 → RLS 통과
-    TenantContext.set(sd.tenantId());
+    // 같은 사람이라도 시작한 뒤 다른 워크스페이스로 바뀌었으면(여러 탭 — refresh 쿠키는 마지막에 고른 워크스페이스) 연결하지 않는다.
+    // 시작한 워크스페이스가 아닌 곳에 메일함이 붙지 않게 한다. 공격이 아니라 감사 로그는 남기지 않는다.
+    if (!Objects.equals(sd.tenantId(), TenantContext.get())) {
+      log.warn(
+          "M365 OAuth complete: 워크스페이스 불일치 거부: userId={} stateTenant={} currentTenant={}",
+          userId,
+          sd.tenantId(),
+          TenantContext.get());
+      return ResponseEntity.status(HttpStatus.FORBIDDEN)
+          .body(new M365CompleteResponse(false, "tenant_mismatch"));
+    }
     try {
       oauthService.connect(req.code(), sd);
       return ResponseEntity.ok(new M365CompleteResponse(true, null));
     } catch (Exception e) {
       log.error("M365 OAuth 계정 연결 실패: userId={}", sd.userId(), e);
       return ResponseEntity.badRequest().body(new M365CompleteResponse(false, "connect_failed"));
-    } finally {
-      TenantContext.clear(); // 공개 경로이므로 다음 요청에 컨텍스트 누수 방지
     }
   }
 
