@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // WP-1303 — 노트 「상자」(모양 영역 wikiHtmlBox 를 사용자 블록으로). 만들기(슬래시·감싸기)·통째 선택·상자 막대 동작(줄 추가·글만 남기기·삭제)·
 // 상자 키 규칙·동시 편집을 편집기 상태로 본다(그리기·배치는 E2E wiki-box.spec.ts).
-import { COLLAB_FRAGMENT, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
+import { COLLAB_FRAGMENT, docToMarkdown, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
@@ -207,6 +207,14 @@ describe('상자 막대 — 줄 추가·글만 남기기·삭제', () => {
     expect(unwrapBox(ed.state, ed.view.dispatch, posOf(ed, 'wikiHtmlBox'))).toBe(true)
     expect(blocks(ed)).toEqual(['paragraph:앞', 'paragraph:카드', 'wikiStyle:'])
     expect(ed.state.doc.lastChild!.attrs.css).toBe('.card{color:red}')
+  })
+
+  // WP-1305 — 선택 서식 도구로 단 밑줄·글자색(class 없는 서식 span)은 글 서식이라 「글만 남기기」 뒤에도 남는다. 배지(class span)는 뗀다.
+  it('글만 남기기는 서식 span(밑줄·색)은 남기고 배지 같은 class span 만 뗀다', () => {
+    const fmt = '<span style="text-decoration: underline; color: var(--wiki-text-red, #dc2626)">빨강</span>'
+    const ed = open(`${BOX(`${fmt} <span class="badge">배지</span>`)}`)
+    expect(unwrapBox(ed.state, ed.view.dispatch, posOf(ed, 'wikiHtmlBox'))).toBe(true)
+    expect(docToMarkdown(ed.state.doc)).toBe(`${fmt} 배지`)
   })
 
   it('삭제는 상자를 안 내용째 지운다', () => {

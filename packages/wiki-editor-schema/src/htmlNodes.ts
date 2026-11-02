@@ -19,6 +19,7 @@ import type { Mark as PMMark, Node as PMNode } from '@tiptap/pm/model'
 
 import {
   escapeHtmlAttr,
+  parseDeclarations,
   sanitizeBoxTag,
   sanitizeClassName,
   sanitizeInlineStyle,
@@ -55,6 +56,21 @@ const SHAPE_ATTRIBUTES = {
 const WIKI_STYLE = 'wikiStyle'
 export const WIKI_HTML_BOX = 'wikiHtmlBox'
 const WIKI_HTML_SPAN = 'wikiHtmlSpan'
+
+/** 서식 span(WP-1305 선택 서식 도구)이 다루는 CSS 속성 — 밑줄·글자색·배경색. */
+export const FORMAT_PROPS = ['text-decoration', 'color', 'background-color'] as const
+export type FormatProp = (typeof FORMAT_PROPS)[number]
+
+/**
+ * 「서식 span」인지 — class 없이 밑줄·글자색·배경색 선언만 지닌 wikiHtmlSpan 마크(WP-1305).
+ * 사용자가 서식 도구로 단 글 서식이라 모양(가져온 HTML 의 배지·카드)과 달리 다룬다 — 화면 범위 가두기(wikiHtmlScope)를 켜지 않고,
+ * 상자 「글만 남기기」(wikiPasteShape keepFormat)에서 남긴다. 판정을 이 한곳에 둬 세 곳이 어긋나지 않게 한다.
+ */
+export function isFormatSpanMark(mark: PMMark): boolean {
+  if (mark.type.name !== WIKI_HTML_SPAN || mark.attrs.className) return false
+  const decls = parseDeclarations(mark.attrs.style)
+  return decls.length > 0 && decls.every(([p]) => (FORMAT_PROPS as readonly string[]).includes(p))
+}
 
 /** 이 노드가 HTML 모양을 지녔는지 — 페이지 스타일·모양 영역 노드이거나 인라인 모양 마크가 붙은 노드. */
 export function isWikiShapeNode(node: PMNode): boolean {

@@ -23,12 +23,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { normalizeLinkInput } from '@/components/wiki/wikiLinkUrl';
 import { keepFocusProps } from '@/lib/keepFocus';
+import { shortcutKeys } from '@/lib/platform';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
-/** 단축키 표기 — macOS 계열은 ⌘, 그 밖은 Ctrl+. */
-const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
-const SHIFT = MOD === '⌘' ? '⇧' : 'Shift+';
+/** 단축키 표기 — macOS 계열은 ⌘·⇧·⌥, 그 밖은 Ctrl+·Shift+·Alt+(lib/platform 의 shortcutKeys 한 곳에서 판정). */
+const { mod: MOD, shift: SHIFT, alt: ALT } = shortcutKeys();
 
 interface FormatAction {
   key: string;
@@ -49,7 +49,7 @@ const GROUPS: FormatAction[][] = [
   ],
   [
     { key: 'code', label: '인라인 코드', shortcut: `${MOD}E`, icon: Code, isActive: (e) => e.isActive('code'), run: (e) => e.chain().focus().toggleCode().run() },
-    { key: 'codeBlock', label: '코드 블록', shortcut: `${MOD}${MOD === '⌘' ? '⌥' : 'Alt+'}C`, icon: SquareCode, isActive: (e) => e.isActive('codeBlock'), run: (e) => e.chain().focus().toggleCodeBlock().run() },
+    { key: 'codeBlock', label: '코드 블록', shortcut: `${MOD}${ALT}C`, icon: SquareCode, isActive: (e) => e.isActive('codeBlock'), run: (e) => e.chain().focus().toggleCodeBlock().run() },
   ],
   [
     { key: 'bulletList', label: '글머리 목록', shortcut: `${MOD}${SHIFT}8`, icon: List, isActive: (e) => e.isActive('bulletList'), run: (e) => e.chain().focus().toggleBulletList().run() },

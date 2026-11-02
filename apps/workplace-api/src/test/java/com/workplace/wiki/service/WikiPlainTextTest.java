@@ -30,6 +30,20 @@ class WikiPlainTextTest {
     assertThat(out).doesNotContain("div", "card", "style", "span", "color", "section", "<", ">");
   }
 
+  /**
+   * WP-1305 — 선택 서식 도구의 저장 형식. 정렬 감싸개 {@code <div align>}·밑줄·색 {@code <span style>} 은 태그만 빠지고 글자는
+   * 남는다(검색·AI 요약 입력에 태그 글자가 새지 않고 내용도 잃지 않는다).
+   */
+  @Test
+  void unwraps_align_wrappers_and_format_spans() {
+    String md =
+        "<div align=\"center\">\n\n## 가운데 제목\n\n"
+            + "<span style=\"text-decoration: underline; color: var(--wiki-text-red, #dc2626)\">빨강 밑줄</span>"
+            + "\n\n</div>\n\n- <div align=\"right\">\n\n  오른쪽 항목\n\n  </div>";
+    assertThat(WikiPlainText.fromMarkdown(md)).isEqualTo("가운데 제목 빨강 밑줄 오른쪽 항목");
+    assertThat(WikiPlainText.fromMarkdownKeepingLines(md)).isEqualTo("가운데 제목\n빨강 밑줄\n오른쪽 항목");
+  }
+
   /** 닫는 태그가 없는 스타일(앞부분만 잘라 읽은 본문)은 끝까지 지운다. */
   @Test
   void unclosed_style_is_dropped_to_the_end() {

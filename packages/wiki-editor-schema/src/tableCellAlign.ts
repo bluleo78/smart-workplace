@@ -7,14 +7,13 @@
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 
-/** 저장되는 정렬 값 — null 은 기본(왼쪽). */
-export type WikiCellAlign = 'center' | 'right' | null
+import { parseTextAlign, type WikiTextAlign } from './textAlign'
 
-/** HTML 의 text-align(또는 옛 align 속성) 값을 저장 값으로 — center/right 만 남기고 나머지는 기본(null). */
-export function parseCellAlign(value: string | null | undefined): WikiCellAlign {
-  const v = value?.trim().toLowerCase()
-  return v === 'center' || v === 'right' ? v : null
-}
+/** 저장되는 정렬 값 — null 은 기본(왼쪽). 문단·제목 정렬(textAlign.ts, WP-1305)과 같은 값 집합이라 그 타입을 그대로 쓴다. */
+export type WikiCellAlign = WikiTextAlign
+
+/** HTML 의 text-align(또는 옛 align 속성) 값을 저장 값으로 — 문단·제목 정렬과 같은 판정(center/right 만, 나머지는 null). */
+export const parseCellAlign = parseTextAlign
 
 /** 셀·헤더 공통 align 속성 정의. */
 const alignAttribute = {

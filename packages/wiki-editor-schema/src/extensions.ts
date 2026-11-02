@@ -12,6 +12,7 @@ import { WikiMarkdownText } from './markdownText'
 import { WikiMention } from './mentionNode'
 import { WikiTableCell, WikiTableHeader } from './tableCellAlign'
 import { WikiTable } from './tableNode'
+import { WikiHeading, WikiParagraph } from './textAlign'
 
 /**
  * 노트 문서 스키마를 정하는 확장 묶음 — 웹 에디터와 동기화 서버가 같은 것을 써야
@@ -28,7 +29,11 @@ export function wikiSchemaExtensions(
     WikiHtmlSpan,
     // text 노드만 교체 — 표 셀 안의 | 를 이스케이프한다(#755). markdownText.ts 참조.
     // code 도 교체 — 링크로 감싼 인라인 코드([`code`](url))를 허용한다(WP-300). codeMark.ts 참조.
-    StarterKit.configure({ text: false, history: false, code: false }),
+    StarterKit.configure({ text: false, history: false, code: false, paragraph: false, heading: false }),
+    // 문단·제목 교체 — 가로 정렬(textAlign)을 <div align> 감싸개로 저장한다(WP-1305). textAlign.ts 참조.
+    // 문단은 확장 우선순위(1000)가 높아 등록 위치와 무관하게 스키마의 기본 블록으로 남는다.
+    WikiParagraph,
+    WikiHeading,
     WikiMarkdownText,
     WikiCode,
     // 붙여넣기 자동 변환(#753) — 기본값 false 라 터미널·.md 파일에서 복사한 '## 제목' 이

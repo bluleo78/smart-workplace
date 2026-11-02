@@ -182,7 +182,7 @@ describe('HTML 모양 보존 (WP-1240)', () => {
   describe('기존 노트 회귀 없음', () => {
     it('속성 없는 <div>·<span> 은 노드·마크를 만들지 않고 내용만 살린다', () => {
       const doc = markdownToDoc('<div>plain <span>s</span></div>')
-      expect(doc.toJSON()).toEqual({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'plain s' }] }] })
+      expect(doc.toJSON()).toEqual({ type: 'doc', content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [{ type: 'text', text: 'plain s' }] }] })
     })
 
     it('정리 후 남는 속성이 없으면 영역을 만들지 않는다', () => {

@@ -18,6 +18,8 @@ export const WIKI_SCHEMA_FINGERPRINTS: Readonly<Record<number, string>> = {
   3: '04ae8301c004d8',
   // WP-1242 — HTML 블록 wikiHtmlEmbed 노드(```html-embed 펜스, 내용 text*) 추가.
   4: '1b13cf49e0103b',
+  // WP-1305 — 문단·제목에 가로 정렬 textAlign 속성 추가(<div align> 감싸개로 저장).
+  5: '13a6c9ef82beed',
 }
 
 /** attrs 한 벌 — 이름과 기본값 유무·기본값(JSON)까지. 기본값이 바뀌면 옛 탭이 만든 노드의 attrs 해석이 달라진다. */

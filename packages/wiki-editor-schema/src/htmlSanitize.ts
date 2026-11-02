@@ -157,6 +157,22 @@ export function sanitizeInlineStyle(value: unknown): string | null {
   return kept.length ? kept.join('; ') : null
 }
 
+/**
+ * style 글자 → [속성, 값] 목록(WP-1305 선택 서식 도구·서식 span 판정이 쓴다). 콜론 없는 조각은 버린다.
+ * 선언은 따옴표·괄호 밖의 ; 에서만 자른다 — var(…, #fff)·url(data:…;base64) 의 글자로 쪼개지지 않게.
+ * 속성 이름은 소문자로 맞추되, 사용자 정의 속성(--이름)은 대소문자를 가리므로 그대로 둔다(바꾸면 같은 span 의 var(--Accent) 참조가 끊긴다).
+ */
+export function parseDeclarations(style: unknown): [string, string][] {
+  if (typeof style !== 'string' || !style) return []
+  return splitTopLevel(style, ';').flatMap((raw) => {
+    const d = raw.trim()
+    const i = d.indexOf(':')
+    if (i < 0) return []
+    const name = d.slice(0, i).trim()
+    return [[name.startsWith('--') ? name : name.toLowerCase(), d.slice(i + 1).trim()] as [string, string]]
+  })
+}
+
 /** 하위 규칙 목록을 담는 그룹 at-rule — 안쪽도 규칙 목록으로 읽는다(@media 안의 선택자 등). */
 const GROUP_AT_RULES = new Set(['media', 'supports', 'container', 'layer', 'document', '-moz-document', 'scope', 'starting-style'])
 /** 안쪽이 키프레임 선택자(from·to·%) 목록인 at-rule. */
