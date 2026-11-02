@@ -89,6 +89,9 @@ import com.workplace.jooq.tables.UserExternalIdentity.UserExternalIdentityPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserPriorityItem.UserPriorityItemPath;
 import com.workplace.jooq.tables.UserRole.UserRolePath;
+import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
+import com.workplace.jooq.tables.WikiHtmlEditLock.WikiHtmlEditLockPath;
+import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
@@ -1520,6 +1523,32 @@ public class User extends TableImpl<UserRecord> {
         return _userRole;
     }
 
+    private transient WikiHtmlDraftPath _wikiHtmlDraft;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_draft</code> table
+     */
+    public WikiHtmlDraftPath wikiHtmlDraft() {
+        if (_wikiHtmlDraft == null)
+            _wikiHtmlDraft = new WikiHtmlDraftPath(this, null, Keys.WIKI_HTML_DRAFT__WIKI_HTML_DRAFT_USER_ID_FKEY.getInverseKey());
+
+        return _wikiHtmlDraft;
+    }
+
+    private transient WikiHtmlEditLockPath _wikiHtmlEditLock;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_edit_lock</code> table
+     */
+    public WikiHtmlEditLockPath wikiHtmlEditLock() {
+        if (_wikiHtmlEditLock == null)
+            _wikiHtmlEditLock = new WikiHtmlEditLockPath(this, null, Keys.WIKI_HTML_EDIT_LOCK__WIKI_HTML_EDIT_LOCK_USER_ID_FKEY.getInverseKey());
+
+        return _wikiHtmlEditLock;
+    }
+
     private transient WikiPageAttachmentPath _wikiPageAttachment;
 
     /**
@@ -1780,6 +1809,14 @@ public class User extends TableImpl<UserRecord> {
      */
     public RolePath role() {
         return userRole().role();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.wiki_page</code> table
+     */
+    public WikiPagePath wikiPage() {
+        return wikiHtmlDraft().wikiPage();
     }
 
     @Override

@@ -18,10 +18,12 @@ import com.workplace.wiki.dto.WikiTreeShare;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.service.WikiHtmlText;
 import com.workplace.wiki.service.WikiPlainText;
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.jooq.CommonTableExpression;
@@ -358,10 +360,22 @@ public class WikiPageRepository {
    * HTML 문서 저장(WP-1307): version 일치할 때만 원본 HTML·뽑은 글자(body)·검색 평문을 함께 바꾸고 version+1. 영향 행수(0 이면
    * 충돌). 종류가 HTML 인 행만 바꾼다 — 노트 행을 이 경로로 덮지 않게(종류 판정은 서비스가 먼저 하지만 SQL 에서도 막는다).
    *
+   * <p>WP-1308: 편집 잠금도 같은 문장에서 본다 — lockToken 과 다른 편집 세션의 살아 있는 잠금이 있으면 바꾸지 않는다(0). 따로 읽고 쓰면 그 사이에
+   * 잡힌 잠금을 놓친다. 0 이면 호출자가 잠금·version 중 무엇 때문인지 가린다.
+   *
    * @param text 원본에서 뽑은 본문 글자(줄 유지) — body 에 두어 검색·요약·미리보기가 태그 대신 글자를 읽게 한다
+   * @param lockToken 저장하는 편집 세션(없으면 null — 살아 있는 잠금이 하나라도 있으면 막힌다)
+   * @param lockCutoff 이보다 오래전에 마지막으로 입력한 잠금은 풀린 것으로 본다
    */
   public int saveHtmlIfVersion(
-      long pageId, String title, String html, String text, int expectedVersion, long editorId) {
+      long pageId,
+      String title,
+      String html,
+      String text,
+      int expectedVersion,
+      long editorId,
+      UUID lockToken,
+      OffsetDateTime lockCutoff) {
     return dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.TITLE, title)
         .set(WIKI_PAGE.HTML_SOURCE, html)
@@ -374,6 +388,7 @@ public class WikiPageRepository {
         .where(WIKI_PAGE.ID.eq(pageId))
         .and(WIKI_PAGE.KIND.eq(WikiPageKind.HTML.name()))
         .and(WIKI_PAGE.VERSION.eq(expectedVersion))
+        .and(WikiHtmlLockRepository.noOtherLiveLock(WIKI_PAGE.ID, lockToken, lockCutoff))
         .execute();
   }
 

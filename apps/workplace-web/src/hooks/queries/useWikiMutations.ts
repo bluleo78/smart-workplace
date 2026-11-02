@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 
 import { wikiApi } from '../../api/wiki'
 import { subtreeIds } from '../../components/wiki/wikiMoveTargets'
-import { handleApiError, isConflictError } from '../../lib/api-error'
+import { extractApiErrorCode, handleApiError, isConflictError } from '../../lib/api-error'
 import type { WikiMovePreview, WikiPageDetail, WikiPageSummary, WikiShareResolved, WikiSpace } from '../../types/wiki'
 import { dropInactiveWikiPage, wikiKeys, wikiPageKey } from './wikiKeys'
 
@@ -33,15 +33,20 @@ export function useCreateHtmlPage(spaceId: number) {
 export const HTML_SAVE_CONFLICT_MESSAGE =
   '다른 사람이 먼저 저장했습니다 — 한 번 더 저장하면 지금 소스로 바꿉니다(먼저 저장된 내용은 버전 기록에 남습니다)'
 
+/** 서버가 「남이 편집 중」 409 에 싣는 도메인 오류 코드(errors.code, WP-1308) — version 충돌 409 와 가른다. */
+export const HTML_LOCKED_CODE = 'HTML_LOCKED'
+
 /**
  * 「HTML 문서」 원본 저장(WP-1307) — 소스 저장·다시 올리기가 쓴다. version 은 호출부가 고치기 시작할 때 잡아 둔 기준이다
  * (저장 순간의 캐시 version 을 쓰면 그사이 다시 받은 최신 version 으로 남의 저장을 조용히 덮는다).
  * 성공하면 열린 페이지 캐시를 응답으로 바꾸고 버전 기록·(제목이 바뀌면) 트리를 다시 받는다.
  * 409 는 안내 뒤 페이지를 다시 받는다(고치던 소스는 호출부가 그대로 둔다). 413 등 나머지는 서버 문구로 알린다.
+ * 남이 편집 중이라 막힌 409(errors.code HTML_LOCKED, WP-1308)는 서버 문구로 알리고 잠금 상태를 다시 받는다.
  */
 export function useSaveHtml(spaceId: number) {
   const qc = useQueryClient()
-  return useMutation<WikiPageDetail, unknown, { pageId: number; html: string; version: number; title?: string }>({
+  // lockToken: 편집 「저장」의 편집 세션 표지(WP-1308) — 다시 올리기는 주지 않는다.
+  return useMutation<WikiPageDetail, unknown, { pageId: number; html: string; version: number; title?: string; lockToken?: string }>({
     mutationFn: ({ pageId, ...req }) => wikiApi.saveHtml(pageId, req).then((r) => r.data),
     onSuccess: (data, vars) => {
       const prevTitle = qc.getQueryData<WikiPageDetail>(wikiKeys.page(data.id))?.title
@@ -50,6 +55,12 @@ export function useSaveHtml(spaceId: number) {
       if (vars.title != null || prevTitle !== data.title) void qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
     },
     onError: (e, vars) => {
+      // WP-1308: 남이 편집 중(잠금)이라 막혔다 — 서버 문구(「○○ 님이 편집 중입니다 …」)로 알리고 잠금 상태를 다시 받아 띠·단추를 맞춘다.
+      if (extractApiErrorCode(e) === HTML_LOCKED_CODE) {
+        handleApiError(e, 'HTML 문서를 저장하지 못했습니다')
+        void qc.invalidateQueries({ queryKey: wikiKeys.htmlLock(vars.pageId) })
+        return
+      }
       if (isConflictError(e)) {
         toast.error(HTML_SAVE_CONFLICT_MESSAGE)
         void qc.invalidateQueries({ queryKey: wikiKeys.page(vars.pageId), exact: true })

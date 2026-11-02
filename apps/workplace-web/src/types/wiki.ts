@@ -417,3 +417,33 @@ export interface WikiMovePreview {
   /** 공유한 사람이 대상 스페이스 편집자가 아니라 해제되는 공유. */
   revokedShares: WikiMoveSharedPage[]
 }
+
+/**
+ * 「HTML 문서」 편집 잠금 상태(WP-1308, 백엔드 WikiHtmlLockStatus·SSE wiki.page.lock). 입력 없이 10분이 지난 잠금은 풀린 것으로 온다(locked=false).
+ * mine·canForceRelease 는 화면이 내 id·스페이스 역할로 다시 가린다(useWikiHtmlLock — SSE 는 쥔 사람만 싣는다).
+ * canForceRelease: 스페이스 소유자가 남의 잠금을 볼 때만 true — 「잠금 풀기」 단추.
+ */
+export interface WikiHtmlLockStatus {
+  locked: boolean
+  mine: boolean
+  holderId: number | null
+  holderName: string | null
+  acquiredAt: string | null
+  expiresAt: string | null
+  canForceRelease: boolean
+}
+
+/** 내 임시 저장본(WP-1308) — 저장·취소 없이 끝난 편집의 소스. pageChangedSince: 그사이 다른 사람이 저장했는지. */
+export interface WikiHtmlDraftInfo {
+  html: string
+  baseVersion: number
+  updatedAt: string
+  pageChangedSince: boolean
+}
+
+/** 「편집」(잠금 얻기) 응답(WP-1308). token 은 이 편집 세션 표지(신호·취소·저장 때 돌려준다). draft 가 있으면 이어 고칠지 묻는다. */
+export interface WikiHtmlLockAcquired {
+  token: string
+  lock: WikiHtmlLockStatus
+  draft: WikiHtmlDraftInfo | null
+}

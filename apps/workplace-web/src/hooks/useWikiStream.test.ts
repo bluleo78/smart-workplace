@@ -52,6 +52,23 @@ describe('handleWikiEvent', () => {
     expect(qc.getQueryState(wikiKeys.page(10))?.isInvalidated).toBe(false)
   })
 
+  // 「HTML 문서」 편집 잠금(WP-1308) — 다른 사람 화면의 띠·단추가 바로 바뀌게, 실려 온 잠금으로 그 페이지 잠금 캐시만 바꾼다(다시 받지 않는다).
+  it('잠금 이벤트는 다시 받지 않고 실려 온 잠금을 그 페이지 잠금 캐시에 넣는다(본 적 없는 페이지는 건드리지 않는다)', () => {
+    expect(invalidatedKeys('wiki.page.lock', { spaceId: 1, pageId: 7, locked: false })).toEqual([])
+    const qc = new QueryClient()
+    qc.setQueryData(wikiKeys.htmlLock(7), { locked: false })
+    const payload = { spaceId: 1, pageId: 7, actorId: 2, locked: true, holderId: 2, holderName: '김민지', acquiredAt: 'a', expiresAt: 'e' }
+    handleWikiEvent(qc, 'wiki.page.lock', payload)
+    handleWikiEvent(qc, 'wiki.page.lock', { ...payload, pageId: 8 })
+    // mine·canForceRelease 는 받는 사람마다 달라 화면(useWikiHtmlLock select)이 가린다.
+    expect(qc.getQueryData(wikiKeys.htmlLock(7))).toEqual({
+      locked: true, mine: false, holderId: 2, holderName: '김민지', acquiredAt: 'a', expiresAt: 'e', canForceRelease: false,
+    })
+    expect(qc.getQueryData(wikiKeys.htmlLock(8))).toBeUndefined()
+    handleWikiEvent(qc, 'wiki.page.lock', { spaceId: 1, pageId: 7, locked: false, holderId: null })
+    expect(qc.getQueryData(wikiKeys.htmlLock(7))).toMatchObject({ locked: false, holderId: null })
+  })
+
   it('수정 이벤트는 페이지 캐시를 지우지 않는다', () => {
     const qc = new QueryClient()
     qc.setQueryData(wikiKeys.page(7), { id: 7 })

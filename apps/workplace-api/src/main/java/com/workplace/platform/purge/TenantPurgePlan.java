@@ -128,6 +128,8 @@ public final class TenantPurgePlan {
           WIKI_PAGE_SHARE_GROUP, // 공유 대상 조직도 부서(WP-1023) — wiki_page_share·user_group 보다 먼저
           WIKI_PAGE_SHARE,
           WIKI_PAGE_SHARE_EXCLUSION, // 상위 공유 제외 표시(WP-987) — wiki_page 보다 먼저
+          WIKI_HTML_EDIT_LOCK, // HTML 문서 편집 잠금(WP-1308) — wiki_page·user 보다 먼저
+          WIKI_HTML_DRAFT, // HTML 문서 임시 저장본(WP-1308) — wiki_page·user 보다 먼저
           WIKI_REFERENCE,
           WIKI_PAGE_ATTACHMENT,
           WIKI_PAGE_BODY_HISTORY,

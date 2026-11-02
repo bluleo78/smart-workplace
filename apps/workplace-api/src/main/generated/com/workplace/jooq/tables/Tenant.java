@@ -114,6 +114,8 @@ import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserGroupMember.UserGroupMemberPath;
 import com.workplace.jooq.tables.UserPriorityItem.UserPriorityItemPath;
 import com.workplace.jooq.tables.UserRole.UserRolePath;
+import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
+import com.workplace.jooq.tables.WikiHtmlEditLock.WikiHtmlEditLockPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
@@ -1456,6 +1458,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _userRole = new UserRolePath(this, null, Keys.USER_ROLE__FK_USER_ROLE_TENANT.getInverseKey());
 
         return _userRole;
+    }
+
+    private transient WikiHtmlDraftPath _wikiHtmlDraft;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_draft</code> table
+     */
+    public WikiHtmlDraftPath wikiHtmlDraft() {
+        if (_wikiHtmlDraft == null)
+            _wikiHtmlDraft = new WikiHtmlDraftPath(this, null, Keys.WIKI_HTML_DRAFT__FK_WIKI_HTML_DRAFT_TENANT.getInverseKey());
+
+        return _wikiHtmlDraft;
+    }
+
+    private transient WikiHtmlEditLockPath _wikiHtmlEditLock;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_edit_lock</code> table
+     */
+    public WikiHtmlEditLockPath wikiHtmlEditLock() {
+        if (_wikiHtmlEditLock == null)
+            _wikiHtmlEditLock = new WikiHtmlEditLockPath(this, null, Keys.WIKI_HTML_EDIT_LOCK__FK_WIKI_HTML_EDIT_LOCK_TENANT.getInverseKey());
+
+        return _wikiHtmlEditLock;
     }
 
     private transient WorkspaceAssistantPath _workspaceAssistant;

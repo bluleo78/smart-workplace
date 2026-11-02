@@ -138,7 +138,9 @@ export const WIKI_BODY_FORMAT_GUIDE =
 export const WIKI_HTML_DOCUMENT_GUIDE =
   'kind HTML = an HTML document page shown as is in an isolated frame. body is text extracted from it (read-only view). ' +
   'get_wiki_page includeSource adds the raw html (htmlTruncated: cut at 200000 chars, do not replace the whole source then). ' +
-  'To change it call update_wiki_page with html = the whole new source and version (not body); 409 = changed since, re-read.';
+  'To change it call update_wiki_page with html = the whole new source and version (not body); 409 = changed since, re-read. ' +
+  // WP-1308: 사람이 「편집」으로 잠근 동안은 원본을 바꿀 수 없다 — 다시 시도하지 말고 사용자에게 알리게 한다.
+  "409 saying someone is editing (편집 중) = a person holds the edit lock: don't retry, tell the user to try after they save.";
 
 /**
  * 본문에 HTML(한 줄 안에서 닫힌 태그·HTML 블록 펜스)이 있는지 — 있을 때만 get_wiki_page 가 bodyFormat 을 싣는다. 태그 모양은 API 평문 추출

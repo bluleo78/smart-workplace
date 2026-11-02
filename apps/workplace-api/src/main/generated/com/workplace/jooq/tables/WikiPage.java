@@ -9,6 +9,9 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
+import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
+import com.workplace.jooq.tables.WikiHtmlEditLock.WikiHtmlEditLockPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
@@ -310,6 +313,32 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
         return _notification;
     }
 
+    private transient WikiHtmlDraftPath _wikiHtmlDraft;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_draft</code> table
+     */
+    public WikiHtmlDraftPath wikiHtmlDraft() {
+        if (_wikiHtmlDraft == null)
+            _wikiHtmlDraft = new WikiHtmlDraftPath(this, null, Keys.WIKI_HTML_DRAFT__WIKI_HTML_DRAFT_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiHtmlDraft;
+    }
+
+    private transient WikiHtmlEditLockPath _wikiHtmlEditLock;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_html_edit_lock</code> table
+     */
+    public WikiHtmlEditLockPath wikiHtmlEditLock() {
+        if (_wikiHtmlEditLock == null)
+            _wikiHtmlEditLock = new WikiHtmlEditLockPath(this, null, Keys.WIKI_HTML_EDIT_LOCK__WIKI_HTML_EDIT_LOCK_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiHtmlEditLock;
+    }
+
     private transient WikiPageAttachmentPath _wikiPageAttachment;
 
     /**
@@ -425,6 +454,14 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _wikiShareAccessRequest = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_PAGE_ID_FKEY.getInverseKey());
 
         return _wikiShareAccessRequest;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table
+     */
+    public UserPath user() {
+        return wikiHtmlDraft().user();
     }
 
     @Override

@@ -122,6 +122,8 @@ import com.workplace.jooq.tables.UserGroup;
 import com.workplace.jooq.tables.UserGroupMember;
 import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
+import com.workplace.jooq.tables.WikiHtmlDraft;
+import com.workplace.jooq.tables.WikiHtmlEditLock;
 import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
@@ -408,6 +410,8 @@ public class Indexes {
     public static final Index IDX_USER_ROLE_ROLE_ID = Internal.createIndex(DSL.name("idx_user_role_role_id"), UserRole.USER_ROLE, new OrderField[] { UserRole.USER_ROLE.ROLE_ID }, false);
     public static final Index IDX_USER_ROLE_TENANT = Internal.createIndex(DSL.name("idx_user_role_tenant"), UserRole.USER_ROLE, new OrderField[] { UserRole.USER_ROLE.TENANT_ID }, false);
     public static final Index IDX_USER_USERNAME = Internal.createIndex(DSL.name("idx_user_username"), User.USER, new OrderField[] { User.USER.USERNAME }, false);
+    public static final Index IDX_WIKI_HTML_DRAFT_USER = Internal.createIndex(DSL.name("idx_wiki_html_draft_user"), WikiHtmlDraft.WIKI_HTML_DRAFT, new OrderField[] { WikiHtmlDraft.WIKI_HTML_DRAFT.USER_ID }, false);
+    public static final Index IDX_WIKI_HTML_EDIT_LOCK_USER = Internal.createIndex(DSL.name("idx_wiki_html_edit_lock_user"), WikiHtmlEditLock.WIKI_HTML_EDIT_LOCK, new OrderField[] { WikiHtmlEditLock.WIKI_HTML_EDIT_LOCK.USER_ID }, false);
     public static final Index IDX_WIKI_PAGE_ATTACHMENT_DEMOTED = Internal.createIndex(DSL.name("idx_wiki_page_attachment_demoted"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.DEMOTED_AT }, false);
     public static final Index IDX_WIKI_PAGE_ATTACHMENT_PAGE = Internal.createIndex(DSL.name("idx_wiki_page_attachment_page"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.PAGE_ID }, false);
     public static final Index IDX_WIKI_PAGE_ATTACHMENT_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_attachment_tenant"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.TENANT_ID }, false);

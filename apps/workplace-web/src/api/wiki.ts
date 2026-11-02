@@ -5,6 +5,8 @@ import { WIKI_SHARE_TOKEN_HEADER } from '@smart-workplace/wiki-editor-schema/col
 import type {
   WikiAttachment,
   WikiBacklinksResponse,
+  WikiHtmlLockAcquired,
+  WikiHtmlLockStatus,
   WikiMember,
   WikiMemberGroup,
   WikiMentionRef,
@@ -67,9 +69,20 @@ export const wikiApi = {
   createHtmlPage: (spaceId: number, req: { parentId: number | null; title: string; html: string }) =>
     client.post<WikiPageDetail>(`/wiki/spaces/${spaceId}/html-pages`, req),
   // 「HTML 문서」 원본 저장(WP-1307) — 소스 저장·다시 올리기. version 이 낡았으면 409, 5MB 초과는 413. 저장마다 직전 판이 버전 기록에 남는다.
-  // title 을 빼면 제목은 그대로다.
-  saveHtml: (pageId: number, req: { html: string; version: number; title?: string }) =>
+  // title 을 빼면 제목은 그대로다. lockToken: 편집 「저장」만 준다(WP-1308 — 맞으면 저장과 함께 그 편집 잠금이 풀린다, 없으면 누가 편집 중일 때 409).
+  saveHtml: (pageId: number, req: { html: string; version: number; title?: string; lockToken?: string }) =>
     client.put<WikiPageDetail>(`/wiki/pages/${pageId}/html`, req),
+  // 「HTML 문서」 편집 잠금(WP-1308) — 상태 · 「편집」(새 편집 세션 token 으로 잠금 얻기, 남이 편집 중이면 409 HTML_LOCKED)
+  // · 편집 중 신호(그 세션이면 고치던 소스를 임시 저장본으로, html 을 빼면 시각만 미룬다 — 아니면 mine=false)
+  // · 끝내기(그 세션 token 의 잠금만, 기본은 취소 — 임시 저장본도 지운다, keepDraft 면 남긴다) · 「잠금 풀기」(force, 스페이스 소유자 — token 불요).
+  getHtmlLock: (pageId: number) => client.get<WikiHtmlLockStatus>(`/wiki/pages/${pageId}/html-lock`),
+  acquireHtmlLock: (pageId: number) => client.post<WikiHtmlLockAcquired>(`/wiki/pages/${pageId}/html-lock`),
+  heartbeatHtmlLock: (pageId: number, req: { token: string; html?: string; baseVersion?: number }) =>
+    client.put<WikiHtmlLockStatus>(`/wiki/pages/${pageId}/html-lock`, req),
+  releaseHtmlLock: (pageId: number, opts: { force?: boolean; keepDraft?: boolean; token?: string } = {}) =>
+    client.delete<void>(`/wiki/pages/${pageId}/html-lock`, {
+      params: { force: opts.force ?? false, keepDraft: opts.keepDraft ?? false, token: opts.token },
+    }),
 
   // base=false: 새 웹은 본문을 동기화 서버로 저장하므로 AI 병합 기준본을 남길 필요가 없다(WP-289 — 기본값은 구버전 웹·MCP 용 기록).
   // shareToken: 공유 링크로 연 화면(WP-579) — 스페이스 멤버가 아니어도 이 토큰으로 읽는다.
