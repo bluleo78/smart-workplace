@@ -122,13 +122,16 @@ describe('형식별 본문', () => {
     expect(screen.queryByTestId('pdf-document')).not.toBeInTheDocument()
   })
 
-  // WP-1260: 스크립트가 든 HTML 은 차단한 채 안내 줄을 보이고, 「스크립트 실행」을 누르면 그 미리보기만 스크립트를 허용해 다시 그린다.
+  // WP-1260: 스크립트가 든 HTML 은 차단한 채 스크립트 컨트롤을 보이고, 「스크립트 실행」을 누르면 그 미리보기만 스크립트를 허용해 다시 그린다.
   // 문서는 자르지 않는다 — 20만 자를 넘는 발표 자료도 맨 끝 스크립트까지 iframe 에 들어간다.
-  test('스크립트가 든 HTML 은 차단 + 안내 줄, 「스크립트 실행」을 누르면 허용해 다시 그린다', async () => {
+  test('스크립트가 든 HTML 은 차단 + 머리줄 스크립트 컨트롤, 「스크립트 실행」을 누르면 허용해 다시 그린다', async () => {
     const html = `<!doctype html><html><body><div class="deck">${'가'.repeat(250_000)}</div><script>fit()</script></body></html>`
     const { user } = renderPreview([{ file: textFile(74, 'deck.html', 'text/html', { sizeBytes: html.length }), body: html }])
     const body = await openPreview(user, 'deck.html')
-    const notice = await within(body).findByTestId('html-script-notice')
+    // WP-1282: 문서 영역에 안내 줄을 두지 않고, 데스크톱은 뷰어 머리줄의 컨트롤 자리로 옮겨 간다(본문 안에는 없다).
+    const notice = await screen.findByTestId('html-script-notice')
+    expect(screen.getByTestId('viewer-toolbar-slot')).toContainElement(notice)
+    expect(body).not.toContainElement(notice)
     expect(notice).toHaveTextContent('이 문서에는 스크립트가 있어요')
     const frame = within(body).getByTestId('html-document')
     // 기본은 스크립트 차단(링크 팝업만).
@@ -143,17 +146,18 @@ describe('형식별 본문', () => {
     expect(allowed).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads')
     // sandbox 는 그려진 iframe 에 나중에 바꾸면 반영되지 않아 새 iframe 이어야 한다.
     expect(allowed).not.toBe(frame)
-    // 안내 줄은 실행 중에도 남아 다시 끌 수 있다.
-    expect(within(body).getByTestId('html-script-notice')).toHaveTextContent('스크립트 실행 중')
+    // 컨트롤은 실행 중에도 남아 다시 끌 수 있다.
+    expect(screen.getByTestId('html-script-notice')).toHaveTextContent('스크립트 실행 중')
   })
 
-  // WP-1260: 스크립트가 없는 HTML 에는 안내 줄을 띄우지 않는다(차단 그대로).
-  test('스크립트가 없는 HTML 에는 안내 줄이 없다', async () => {
+  // WP-1260: 스크립트가 없는 HTML 에는 스크립트 컨트롤을 띄우지 않는다(차단 그대로) — 머리줄 자리도 비어 차지하지 않는다.
+  test('스크립트가 없는 HTML 에는 스크립트 컨트롤이 없다', async () => {
     const { user } = renderPreview([{ file: textFile(75, 'plain.html', 'text/html'), body: '<!doctype html><html><body><h1>안녕 HTML</h1></body></html>' }])
     const body = await openPreview(user, 'plain.html')
     const frame = await within(body).findByTestId('html-document')
     expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox')
-    expect(within(body).queryByTestId('html-script-notice')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('html-script-notice')).not.toBeInTheDocument()
+    expect(screen.getByTestId('viewer-toolbar-slot')).toBeEmptyDOMElement()
   })
 
   // #775: 콘텐츠가 늦게 오는 동안 빈 화면 대신 스켈레톤, 도착하면 스켈레톤이 빠지고 본문.
@@ -406,12 +410,12 @@ describe('HTML 보안 점검 패널', () => {
     expect(within(panel).getByRole('heading', { name: 'AI 요약' })).toBeInTheDocument()
   })
 
-  test('안내 줄 칩을 누르면 닫혀 있던 패널이 열린다', async () => {
+  test('머리줄 점검 칩을 누르면 닫혀 있던 패널이 열린다', async () => {
     localStorage.setItem('attachment-viewer:summary-panel', '0')
     const { user } = renderPreview([{ file: textFile(81, 'page.html', 'text/html'), body: scriptHtml, summary: { summary: '요약 본문', status: 'DONE' }, security: done }])
-    const body = await openPreview(user, 'page.html')
+    await openPreview(user, 'page.html')
     expect(screen.queryByTestId('viewer-side-panel')).not.toBeInTheDocument()
-    await user.click(await within(body).findByRole('button', { name: '주의 · 위협 1' }))
+    await user.click(await screen.findByRole('button', { name: '주의 · 위협 1' }))
     expect(await screen.findByTestId('viewer-side-panel')).toBeInTheDocument()
   })
 })

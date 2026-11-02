@@ -124,6 +124,7 @@ export const ViewerBody = memo(function ViewerBody({
   media: mediaSession,
   sideInset,
   onOpenPanel,
+  toolbarSlot,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
@@ -149,6 +150,8 @@ export const ViewerBody = memo(function ViewerBody({
   sideInset?: boolean
   /** HTML 보안 점검 칩을 누르면 AI 패널을 연다(WP-1262). */
   onOpenPanel?: () => void
+  /** 뷰어 머리줄의 컨트롤 자리(데스크톱만) — HTML 스크립트 컨트롤이 그리로 옮겨 간다(WP-1282). */
+  toolbarSlot?: HTMLElement | null
 }) {
   const kind = itemPreviewKind(item)
   // 서버 변환 PDF(WP-431) — 원본 대신 변환 결과를 받아 PDF 경로로 그린다. 원본은 받지 않으므로 10MB 확인도 건너뛴다.
@@ -369,7 +372,13 @@ export const ViewerBody = memo(function ViewerBody({
       )}
       {/* HTML 은 격리 iframe 으로 렌더 — 기본 스크립트 차단(#486, #732), 스크립트가 든 문서는 사용자가 허용할 수 있다(WP-1260). */}
       {!error && kind === 'HTML' && text != null && (
-        <HtmlPreview html={text} title={item.name} securityCheckPath={item.securityCheckPath} onOpenPanel={onOpenPanel} />
+        <HtmlPreview
+          html={text}
+          title={item.name}
+          securityCheckPath={item.securityCheckPath}
+          onOpenPanel={onOpenPanel}
+          toolbarSlot={toolbarSlot}
+        />
       )}
       {!error && kind === 'TEXT' && text != null && (
         <PaperCard>

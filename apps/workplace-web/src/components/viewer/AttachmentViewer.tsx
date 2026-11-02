@@ -123,6 +123,8 @@ export function AttachmentViewer({
   const topBarRef = useRef<HTMLElement>(null)
   // 아래로 닫기 때 옅어지는 배경 — 루트 배경을 이 레이어로 옮겨 투명도만 바꾼다(하드코딩 색 없이 토큰 유지).
   const [backdrop, setBackdrop] = useState<HTMLDivElement | null>(null)
+  // 데스크톱 머리줄의 컨트롤 자리(WP-1282) — 본문(HTML 미리보기)이 포털로 컨트롤을 넣는다. 콜백 ref 라 붙은 뒤 다시 그려 본문에 넘어간다.
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null)
   // 모바일 몰입형 화면 — 열린 동안 상태바를 뷰어 배경과 같은 색으로(스펙 §4.2, 판정 R15 수정).
   // 색을 리터럴로 두지 않고 배경 레이어(bg-background 토큰)의 실제 계산값을 rgb 로 읽는다 — 토큰이 바뀌어도 상태바가 따라온다.
   const chromeColor = useMemo(() => (backdrop ? elementBackgroundRgb(backdrop) : null), [backdrop])
@@ -572,6 +574,8 @@ export function AttachmentViewer({
               <ViewerTitle item={item} meta={meta} />
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {/* 본문이 머리줄에 내놓는 컨트롤 자리(WP-1282) — 지금은 HTML 스크립트 컨트롤(점검 칩·실행 스위치)이 포털로 들어온다. 비면 자리를 차지하지 않는다. */}
+              <div ref={setToolbarSlot} className="flex items-center gap-1 empty:hidden" data-testid="viewer-toolbar-slot" />
               {!item.unavailable && (
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
@@ -653,6 +657,7 @@ export function AttachmentViewer({
                 onSource={setSource}
                 media={mediaSession}
                 onOpenPanel={openPanel}
+                toolbarSlot={mobile ? null : toolbarSlot}
                 sideInset={mobile && items.length > 1}
               />
             </div>
