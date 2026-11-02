@@ -197,6 +197,14 @@ public class UserService {
     return userRepository.findAgents(requireTenant(), includePersonal);
   }
 
+  /** AGENT 한 명 — 관리 상세 화면용(WP-1281). 개인 비서·사용 중지 AI 도 열린다. 이 워크스페이스의 AI 가 아니면 404. */
+  @Transactional(readOnly = true)
+  public com.workplace.user.dto.AgentResponse getAgent(long userId) {
+    return userRepository
+        .findAgent(requireTenant(), userId)
+        .orElseThrow(() -> UserNotFoundException.ofId(userId));
+  }
+
   /** 감사 로그용 username 조회 — caller 사용자가 없는 테스트 환경에서는 "system" 으로 대체. */
   /** WP-600: 에이전트 아이디에 쓸 수 있는 글자 — 글자(한글 포함)·숫자와 . _ @ + -. 공백·꺾쇠·따옴표·보이지 않는 문자는 막는다. */
   private static final Pattern AGENT_USERNAME = Pattern.compile("[\\p{L}\\p{N}._@+-]+");

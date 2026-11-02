@@ -1,546 +1,69 @@
-// ADMIN — AGENT 유저 + API 키 관리 페이지.
-// 목록은 테이블, 상세(공통 비서 지정 + 인증)는 우측 Drawer(Sheet)로 표시한다.
-// 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
+// ADMIN — 「에이전트」 화면(WP-1281). 한 화면에 탭 [목록 | 실행 환경].
+// 주소가 곧 탭이다 — /settings/agents = 목록, /settings/agents/locations = 실행 환경(옛 /settings/agent-locations 는 라우트가 이리로 넘긴다).
+// 머리 주 단추와 설정 가이드는 탭을 따라 바뀐다. 에이전트 상세는 시트가 아니라 별도 페이지(/settings/agents/:id, AgentDetailPage).
 
-import { ChevronDown } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { toast } from 'sonner';
+import { useState } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
+import { settingsGuides } from '@/components/settings-guide/settingsGuides';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Label } from '@/components/ui/label';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import { Switch } from '@/components/ui/switch';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { copyText } from '@/lib/copyText';
-import { formatDateOnly } from '@/lib/formatters';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { parseId } from '@/lib/historyParam';
-import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
-import {
-  buildLaunchAsCommand,
-  buildPluginInstallCommands,
-  buildSwitchCommand,
-  buildTokenFallbackCommand,
-  buildWorkLoopLaunchCommand,
-  buildWorkLoopStartCommand,
-  PLUGIN_COMMANDS,
-  PLUGIN_SKILLS,
-} from '@/lib/pluginGuide';
-import { objectParticle } from '@/lib/utils';
 
-import { AgentBadge } from '../../components/users/AgentBadge';
-import { AvatarPicture } from '../../components/users/AvatarPicture';
-import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
-import { useAgentRuntimeSummaries } from '../../hooks/queries/useAgentRuntime';
-import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
-import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
-import { useHistoryParam } from '../../hooks/useHistoryParam';
-import { runtimeView } from '../../lib/agentRuntimeStatus';
-import { clickableRowProps } from '../../lib/clickableRowProps';
-import type { AgentResponse } from '../../types/agent';
-import { AgentAccessSections } from './components/AgentAccessSections';
-import { AgentAvatarSection } from './components/AgentAvatarSection';
-import { AgentConnectionSection } from './components/AgentConnectionSection';
-import { AgentIdentitySection } from './components/AgentIdentitySection';
-import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
-import { AgentKeysSection } from './components/AgentKeysSection';
-import { AgentRuntimeCell, AgentRuntimeMetaBadge } from './components/AgentRuntimeCell';
-import { AgentRuntimeSection } from './components/AgentRuntimeSection';
-import { CopyableCommand } from './components/CopyableCommand';
-import { NewAgentDialog } from './components/NewAgentDialog';
-import { PluginServerUrlStep } from './components/PluginServerUrlStep';
+import { AgentListTab } from './components/AgentListTab';
+import { AgentLocationsTab } from './components/AgentLocationsTab';
 
-// AI 아이디 복사 — 플러그인 로그인 화면의 "이름" 칸에 그대로 붙여 넣게 한다. 실패 시 직접 복사하도록 알린다.
-async function copyUsername(username: string) {
-  if (await copyText(username)) toast.success('아이디를 복사했습니다');
-  else toast.error('복사에 실패했습니다. 아이디를 직접 선택해 복사하세요.');
-}
+type AgentTab = 'list' | 'locations';
+
+/** 탭별 주소(탭을 바꾸면 이 주소로 이동 — 뒤로 가기로 앞 탭에 돌아온다)와 머리 주 단추. */
+const TABS: Record<AgentTab, { path: string; createLabel: string; createTestId: string }> = {
+  list: { path: '/settings/agents', createLabel: '+ 새 에이전트', createTestId: 'new-agent-trigger' },
+  locations: { path: '/settings/agents/locations', createLabel: '+ 실행 환경 추가', createTestId: 'agent-location-new' },
+};
 
 export default function AgentManagementPage() {
-  // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
-  const [includePersonal, setIncludePersonal] = useState(true);
-  const agents = useAgents(includePersonal);
-  // 작업 공간 템플릿으로 도는 AI 의 실행 요약(WP-1255) — 목록 「실행」 열과 상세의 실행 방식 판정에 쓴다.
-  const summaries = useAgentRuntimeSummaries();
-  // 행마다 찾지 않게 한 번 표로 — 표·모바일 두 배치가 같은 렌더에서 함께 부른다.
-  const summaryById = useMemo(() => new Map(summaries.data?.map((s) => [s.agentUserId, s])), [summaries.data]);
-  const summaryOf = (id: number) => summaryById.get(id) ?? null;
-  const deleteAgent = useDeleteAgent();
-  // 공통 비서 상태 — 테이블 배지 + 빈 상태 배너에 사용.
-  const ws = useWorkspaceAssistant();
-  // 열린 에이전트 = URL ?agent(상세 시트 열림의 단일 원천, WP-209). 행 클릭은 push → 시스템 뒤로가기가 시트만 닫는다.
-  const agentParam = useHistoryParam('agent');
-  const selectedId = parseId(agentParam.value);
-  // selectedId 가 null 인 경우 0 으로 두지만, mutate 는 키 행이 있을 때(선택됨)만 호출된다.
-  const revoke = useRevokeAgentKey(selectedId ?? 0);
-  const [showNew, setShowNew] = useState(false);
-  const [plaintext, setPlaintext] = useState<string | null>(null);
-
-  // 파괴적 작업 확인 AlertDialog — API 키 회수 + AGENT 삭제. window.confirm 대체 (#136).
-  const [confirmDialog, setConfirmDialog] = useState<{
-    title: string;
-    description: string;
-    actionLabel: string;
-    action: () => void;
-  } | null>(null);
-
-  // API 키 회수 — AlertDialog 로 확인 후 실행.
-  const onRevoke = (keyId: number) => {
-    setConfirmDialog({
-      title: 'API 키 회수',
-      description: '이 키를 회수하시겠습니까? 즉시 인증이 차단됩니다.',
-      actionLabel: '회수',
-      action: () => revoke.mutate(keyId),
-    });
-  };
-
-  // AGENT 삭제 — AlertDialog 로 확인 후 실행. 삭제되면 Drawer 닫는다.
-  const onDelete = (id: number, name: string) => {
-    setConfirmDialog({
-      title: '에이전트 삭제',
-      // 남은 기록이 있으면 서버가 삭제 대신 사용을 중지한다(WP-705) — 확인 단계에서 미리 알린다.
-      description: `에이전트 "${name}"${objectParticle(name)} 삭제하시겠습니까? 키도 모두 제거됩니다. 이 AI 가 남긴 기록이 있으면 기록은 두고 사용을 중지합니다.`,
-      actionLabel: '삭제',
-      action: () =>
-        deleteAgent.mutate(id, {
-          onSuccess: () => {
-            if (selectedId === id) agentParam.close();
-          },
-        }),
-    });
-  };
-
-  const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
-  // 작업 공간 템플릿 AI 는 DB 에 EXTERNAL 로 저장되지만 화면에서는 내부다 — 외부 연결 안내·키 발급 대신 실행 방식 섹션이 다룬다.
-  // 목록 요약(실행 설정이 있는 AI 만 담김)으로 판정한다. EXTERNAL 인데 요약을 아직 모르면(조회 중·실패) 외부 안내도 AI 연결도
-  // 그리지 않는다 — Works 가 키를 관리하는 AI 에 수동 키를 발급하지 않게.
-  const runtimeKnown = selected?.runtime !== 'EXTERNAL' || summaries.isSuccess;
-  const workspaceRun = selected != null && summaryOf(selected.id) != null;
-  const external = selected != null && runtimeKnown && runtimeView(selected.runtime, workspaceRun) === 'EXTERNAL';
-  // 관리자가 설정할 수 있는 에이전트인지(WP-1170) — 구성원의 개인 비서는 주인 전용이라(WP-1163) 키 발급·활성/역할·연결 등록과
-  // 공통 비서 지정을 막는다. 흩어져 있던 `type !== 'PERSONAL'` 판정을 한곳에 모았다.
-  const canAdminConfigure = selected != null && selected.type !== 'PERSONAL';
-  // 키 발급 폼 + 키 목록 — 내부(API 키 블록)·외부(① 키 발급) 두 레이아웃이 공유한다. key 로 행 전환 시 label 입력 리셋.
-  const keysSection =
-    selected != null ? (
-      <AgentKeysSection
-        key={selected.id}
-        agentId={selected.id}
-        external={external}
-        canIssue={canAdminConfigure}
-        onIssued={setPlaintext}
-        onRevoke={onRevoke}
-      />
-    ) : null;
-  const isEmpty =
-    !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
+  const { pathname, search } = useLocation();
+  const navigate = useNavigate();
+  const tab: AgentTab = pathname.replace(/\/$/, '').endsWith('/locations') ? 'locations' : 'list';
+  // 머리 「+ 새 에이전트」·「+ 실행 환경 추가」가 여는 창 — 창 자체는 각 탭이 그린다. 탭을 바꾸면 닫는다(onValueChange).
+  const [createOpen, setCreateOpen] = useState(false);
+  // 옛 상세 딥링크(?agent=<id>, 시트 시절 WP-209)는 상세 페이지로 넘긴다 — 알림·문서에 남은 링크가 계속 열리게.
+  const legacyAgentId = parseId(new URLSearchParams(search).get('agent'));
+  if (legacyAgentId != null) return <Navigate to={`/settings/agents/${legacyAgentId}`} replace />;
 
   return (
     <SettingsPage
       title="에이전트"
+      guide={tab === 'list' ? settingsGuides.agents : settingsGuides.agentLocations}
       actions={
         /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
-        <Button onClick={() => setShowNew(true)} data-testid="new-agent-trigger">
-          + 새 에이전트
+        <Button onClick={() => setCreateOpen(true)} data-testid={TABS[tab].createTestId}>
+          {TABS[tab].createLabel}
         </Button>
       }
     >
-      {/* 진입 시 안내 배너 — 두 상태를 구분한다.
-          ① 에이전트가 하나도 없으면 먼저 추가하도록 안내(지정할 대상이 없음).
-          ② 에이전트는 있으나 공통 비서가 미지정이면 지정하도록 안내. */}
-      {isEmpty ? (
-        <div
-          data-testid="agent-roster-empty"
-          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
-        >
-          아직 에이전트가 없어요 — 위 ‘+ 새 에이전트’로 에이전트를 추가한 뒤 공통 비서로
-          지정하세요. 공통 비서가 없으면 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
-        </div>
-      ) : ws.data && ws.data.agentUserId == null ? (
-        <div
-          data-testid="workspace-assistant-empty"
-          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
-        >
-          아직 공통 비서가 없어요 — 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
-          아래 표에서 토큰이 등록된 에이전트를 골라 공통 비서로 지정하세요.
-        </div>
-      ) : null}
-
-      {/* 개인 비서 포함 토글 — 기본 숨김. 켜면 자동 생성된 개인 비서까지 목록에 표시. */}
-      <div className="flex items-center justify-end gap-2">
-        <Switch
-          id="include-personal"
-          checked={includePersonal}
-          onCheckedChange={setIncludePersonal}
-          // 32×18 스위치 — 터치에서는 눌림 영역을 넓힌다(WP-734).
-          className={HIT_AREA_COARSE_TIGHT}
-          data-testid="include-personal-toggle"
-        />
-        <Label htmlFor="include-personal" className="text-sm text-muted-foreground">
-          개인 비서 표시
-        </Label>
-      </div>
-
-      {/* 에이전트 목록 — 테이블. 행 클릭 시 우측 Drawer 로 상세를 연다. */}
-      <div className="rounded-md border">
-        <Table aria-label="에이전트 목록">
-          <TableHeader>
-            <TableRow>
-              <TableHead>에이전트</TableHead>
-              {/* 좁은 화면은 나머지 열을 숨기고 이름 아래 한 줄로 모은다 — 표가 휴대폰 폭을 넘었다(WP-639) */}
-              <TableHead className="hidden md:table-cell">아이디</TableHead>
-              <TableHead className="hidden md:table-cell">유형</TableHead>
-              <TableHead className="hidden md:table-cell">실행</TableHead>
-              <TableHead className="hidden md:table-cell">생성일</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {agents.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                  로딩 중…
-                </TableCell>
-              </TableRow>
-            ) : agents.isError ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-destructive">
-                  목록을 불러오지 못했습니다
-                </TableCell>
-              </TableRow>
-            ) : isEmpty ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                  에이전트가 없습니다
-                </TableCell>
-              </TableRow>
-            ) : (
-              (agents.data ?? []).map((a) => (
-                <TableRow
-                  key={a.id}
-                  className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring"
-                  data-testid={`agent-row-${a.id}`}
-                  {...clickableRowProps(() => agentParam.open(String(a.id)), `${a.name} 상세 보기`)}
-                >
-                  <TableCell>
-                    <div className="flex items-start gap-2.5 md:items-center">
-                      {/* 아바타 — 올린 이미지(WP-1222) 또는 이름 첫 글자. AGENT 정체성 색(ai-accent)·둥근 네모. 모바일은 이름 아래 줄이 붙어 위쪽 정렬. */}
-                      <span
-                        className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
-                        aria-hidden
-                        data-testid={`agent-avatar-${a.id}`}
-                      >
-                        <AvatarPicture userId={a.id} name={a.name} px={28} className="rounded-md">
-                          {a.name.slice(0, 1)}
-                        </AvatarPicture>
-                      </span>
-                      <div className="min-w-0">
-                        {/* 모바일은 긴 이름을 줄바꿈해 칸 안에 둔다(데스크톱은 그대로 한 줄) */}
-                        <span className="font-medium break-words whitespace-normal md:whitespace-nowrap">{a.name}</span>
-                        {/* 사용 중지된 AI(삭제 때 기록이 남아 정지된 경우 포함, WP-705)를 구별한다 — 상세의 활성 상태로 다시 켤 수 있다(WP-1075). */}
-                        {!a.isActive && (
-                          <Badge variant="secondary" className="ml-2 align-middle" data-testid={`agent-inactive-${a.id}`}>
-                            비활성
-                          </Badge>
-                        )}
-                        {/* 모바일 전용 — 숨긴 아이디·유형·실행 열의 값(WP-639) */}
-                        <div
-                          className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground md:hidden"
-                          data-testid={`agent-meta-${a.id}`}
-                        >
-                          <span className="max-w-[60vw] truncate">{a.username}</span>
-                          <AgentTypeBadge agent={a} />
-                          <AgentRuntimeMetaBadge agent={a} summary={summaryOf(a.id)} />
-                        </div>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">
-                    {a.username}
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell" data-testid={`agent-type-${a.id}`}>
-                    <AgentTypeBadge agent={a} />
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell" data-testid={`agent-runtime-cell-${a.id}`}>
-                    <AgentRuntimeCell agent={a} summary={summaryOf(a.id)} />
-                  </TableCell>
-                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                    {formatDateOnly(a.createdAt)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* 상세 Drawer — 행 클릭 시 우측에서 슬라이드. 열림 = ?agent 존재(없는 id 면 찾을 수 없음 안내, WP-209). */}
-      <Sheet
-        open={agentParam.value != null}
-        onOpenChange={(open) => {
-          if (!open) agentParam.close();
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          setCreateOpen(false);
+          navigate(TABS[v as AgentTab].path);
         }}
       >
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
-          data-testid="agent-detail-drawer"
-        >
-          {selected != null ? (
-            <>
-              <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
-                <SheetTitle className="flex items-center gap-2">
-                  <span
-                    className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
-                    aria-hidden
-                  >
-                    <AvatarPicture userId={selected.id} name={selected.name} px={28} className="rounded-md">
-                      {selected.name.slice(0, 1)}
-                    </AvatarPicture>
-                  </span>
-                  {selected.name}
-                  <AgentBadge size="xs" />
-                </SheetTitle>
-                <SheetDescription>{selected.username}</SheetDescription>
-              </SheetHeader>
-
-              <div className="flex-1 space-y-4 px-6 py-4">
-                {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
-                <AgentIdentitySection key={selected.id} agent={selected} />
-
-                {/* 아바타(WP-1222) — 개인 비서는 주인 전용이라 숨긴다. key 로 행 전환 시 고르던 파일·안내를 비운다. */}
-                {canAdminConfigure && <AgentAvatarSection key={`av-${selected.id}`} agent={selected} />}
-
-                {/* 실행 방식 — 내부(서버 실행)/외부(사용자 컴퓨터 등) 선택. */}
-                {selected.isActive && <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />}
-
-                {/* 활성 상태·역할 할당 — 구성원 화면에서 옮겨 왔다(WP-1075). 개인 비서는 주인 전용이라 보이지 않는다. */}
-                {canAdminConfigure && <AgentAccessSections key={`ac-${selected.id}`} agent={selected} />}
-
-                {!selected.isActive ? (
-                  /* 사용 중지된 AI(WP-705·WP-1075) — 연결·키·실행 방식은 다시 켠 뒤에 다룬다. 정지된 AI 에 키를 발급하거나 공통 비서로 지정하지 않게 숨긴다. */
-                  <p className="rounded-md border px-4 py-3 text-sm text-muted-foreground" data-testid="agent-inactive-notice">
-                    사용이 중지된 에이전트예요. 위 활성 상태를 켜면 실행 방식·연결·키를 다시 설정할 수 있어요.
-                  </p>
-                ) : (
-                  <>
-                  {external ? (
-                    /* 외부 에이전트 연결 — AI 연결·모델은 숨기고 키 발급 + MCP 연결 안내만 보인다. */
-                    <section className="space-y-3 rounded-md border p-4" data-testid="external-connect-card">
-                      <h3 className="text-sm font-medium">외부 에이전트 연결</h3>
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-medium text-muted-foreground">① 키 발급</h4>
-                        {keysSection}
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-medium text-muted-foreground">
-                          ② genia-works 플러그인 설치 (한 번만 · 설치했으면 건너뛰기)
-                        </h4>
-                        <CopyableCommand command={buildPluginInstallCommands()} testId="plugin-install-command" />
-                        <PluginServerUrlStep />
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-medium text-muted-foreground">
-                          ③ Claude Code 에 이 AI 등록 (컴퓨터마다 한 번)
-                        </h4>
-                        <CopyableCommand command={PLUGIN_COMMANDS.login} testId="agent-login-command" />
-                        <p className="text-xs text-muted-foreground">
-                          「새 AI 추가」를 고르고 ①에서 발급한 키를 붙여 넣으세요. 이름은 이 AI 의 아이디{' '}
-                          <code className="font-mono">{selected.username}</code> 로 넣으면 아래 명령을 그대로 쓸 수 있어요.
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          data-testid="agent-username-copy"
-                          onClick={() => void copyUsername(selected.username)}
-                        >
-                          아이디 복사
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-medium text-muted-foreground">④ 이 AI로 일하기</h4>
-                        <p className="text-xs text-muted-foreground">지금 세션에서 바꾸기</p>
-                        <CopyableCommand command={buildSwitchCommand(selected.username)} testId="agent-switch-command" />
-                        <p className="text-xs text-muted-foreground">처음부터 이 AI로 띄우기</p>
-                        <CopyableCommand command={buildLaunchAsCommand(selected.username)} testId="agent-launch-as-command" />
-                        <p className="text-xs text-muted-foreground">
-                          그 세션만 이 AI로 바뀌고, 다른 세션은 내 계정 그대로예요.{' '}
-                          <code className="font-mono">{PLUGIN_COMMANDS.logout}</code> 하면 내 계정으로 돌아옵니다.
-                        </p>
-                      </div>
-                      <div className="space-y-2" data-testid="agent-work-loop">
-                        <h4 className="text-xs font-medium text-muted-foreground">⑤ 자동으로 이슈 처리</h4>
-                        <p className="text-xs text-muted-foreground">이 AI 전용 터미널에서 띄우기</p>
-                        <CopyableCommand
-                          command={buildWorkLoopLaunchCommand(selected.username)}
-                          testId="agent-work-loop-launch-command"
-                        />
-                        <p className="text-xs text-muted-foreground">Claude Code 안에서 시작하기</p>
-                        <CopyableCommand command={buildWorkLoopStartCommand()} testId="agent-work-loop-start-command" />
-                        {/* work-loop 는 PR 흐름이다(WP-963·964) — 이슈 브랜치를 push 해 PR 을 만들고 검토자가 머지한다(WP-1151). */}
-                        <p className="text-xs text-muted-foreground" data-testid="agent-work-loop-flow">
-                          이 AI 에게 할당된 이슈를 하나씩 가져와 구현·검증한 뒤 이슈 브랜치를 push 해 GitHub PR 을 만들고, 검토자가
-                          머지하면 검토 대기로 올립니다. main 직접 push·배포는 하지 않아요.
-                        </p>
-                        <p className="text-xs text-muted-foreground" data-testid="agent-work-loop-github">
-                          PR 을 만들려면 이 AI 가 도는 서버에 <code className="font-mono">gh</code> 설치와 GitHub 토큰(
-                          <code className="font-mono">GH_TOKEN</code>)이 필요해요. 준비가 안 돼 있으면 그 이슈를 「인증 필요」로
-                          멈추고 알려 줍니다.
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          권한을 묻지 않는 모드라 이 AI 전용 터미널에서만 쓰세요. Claude Code 가 열려 있는 동안만 돌고 7일 뒤
-                          다시 켜야 해요.
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          이슈 하나만 맡길 때는 <code className="font-mono">{PLUGIN_SKILLS.workOn} 이슈키</code> 를 쓰세요.
-                        </p>
-                      </div>
-                      {/* 플러그인 전환을 못 쓰는 환경용 — 기본은 접어 둔다. */}
-                      <Collapsible className="border-t pt-3">
-                        <CollapsibleTrigger
-                          className="group flex w-full items-center justify-between text-left text-xs font-medium text-muted-foreground hover:text-foreground"
-                          data-testid="agent-fallback"
-                        >
-                          다른 방법 (Windows 등 플러그인 전환을 쓸 수 없을 때)
-                          <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-2 pt-2">
-                          <CopyableCommand command={buildTokenFallbackCommand()} testId="agent-fallback-command" />
-                          <p className="text-xs text-muted-foreground">
-                            키를 직접 넘겨 띄웁니다. 셸 기록에 키가 남을 수 있어요.
-                          </p>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </section>
-                  ) : workspaceRun || !runtimeKnown ? null : (
-                    <>
-                      {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
-                      <AgentConnectionSection
-                        agentUserId={selected.id}
-                        canConfigure={canAdminConfigure}
-                      />
-
-                      {/* 인증 — API 키. */}
-                      {keysSection}
-                    </>
-                  )}
-                  </>
-                )}
-              </div>
-
-              {/* 위험 영역 — 에이전트 삭제. */}
-              <div className="shrink-0 border-t px-6 py-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => onDelete(selected.id, selected.name)}
-                  disabled={deleteAgent.isPending}
-                  data-testid={`agent-delete-${selected.id}`}
-                >
-                  에이전트 삭제
-                </Button>
-              </div>
-            </>
-          ) : agents.isLoading ? (
-            <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
-              <SheetTitle>불러오는 중…</SheetTitle>
-              <SheetDescription className="sr-only">에이전트 상세</SheetDescription>
-            </SheetHeader>
-          ) : (
-            // 삭제됐거나 개인 비서 숨김 필터로 목록에서 빠진 id — URL 을 조용히 고치지 않고 닫기로 되돌린다.
-            <SheetHeader data-testid="agent-detail-notfound" className="shrink-0 space-y-0 border-b px-6 py-4">
-              <SheetTitle>에이전트를 찾을 수 없습니다</SheetTitle>
-              <SheetDescription>삭제되었거나 목록 필터로 숨겨진 에이전트입니다.</SheetDescription>
-            </SheetHeader>
-          )}
-        </SheetContent>
-      </Sheet>
-
-      <NewAgentDialog open={showNew} onOpenChange={setShowNew} />
-      <AgentKeyIssueDialog
-        plaintextKey={plaintext}
-        username={external ? selected?.username ?? null : null}
-        open={plaintext != null}
-        onOpenChange={(v) => {
-          if (!v) setPlaintext(null);
-        }}
-      />
-
-      {/* 파괴적 작업 확인 AlertDialog — API 키 회수 + AGENT 삭제. window.confirm 대체 (#136). */}
-      <AlertDialog
-        open={confirmDialog != null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmDialog(null);
-        }}
-      >
-        <AlertDialogContent data-testid="agent-confirm-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmDialog?.description}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="agent-confirm-cancel">
-              취소
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                confirmDialog?.action();
-              }}
-              data-testid="agent-confirm-confirm"
-            >
-              {confirmDialog?.actionLabel ?? '확인'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <TabsList aria-label="에이전트 화면">
+          <TabsTrigger value="list" data-testid="agent-tab-list">
+            목록
+          </TabsTrigger>
+          <TabsTrigger value="locations" data-testid="agent-tab-locations">
+            실행 환경
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {tab === 'list' ? (
+        <AgentListTab createOpen={createOpen} onCreateOpenChange={setCreateOpen} />
+      ) : (
+        <AgentLocationsTab createOpen={createOpen} onCreateOpenChange={setCreateOpen} />
+      )}
     </SettingsPage>
   );
-}
-
-/** 에이전트 유형 배지 — 표의 유형 열과 모바일 이름 아래 줄이 같이 쓴다. */
-function AgentTypeBadge({ agent }: { agent: AgentResponse }) {
-  if (agent.type === 'WORKSPACE') {
-    // 공통 비서 = 이 페이지의 초점이므로 채워진 primary 배지로 강조.
-    return <Badge variant="default">공통</Badge>;
-  }
-  if (agent.type === 'PERSONAL') {
-    // 개인 비서 = secondary 배지 + 소유자 이름(누구의 비서인지). 줄바꿈 방지.
-    return (
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        <Badge variant="secondary">개인</Badge>
-        <span className="text-xs text-muted-foreground">{agent.ownerName ?? '소유자 미상'}</span>
-      </span>
-    );
-  }
-  // 일반 에이전트 = 가장 낮은 강조의 outline 배지.
-  return <Badge variant="outline">일반</Badge>;
 }

@@ -5,6 +5,7 @@
 // 생성일 포맷·키 회수 취소·삭제/사용 중지 토스트·이름·아이디·설명 PUT 은 src/pages/admin/agentManagement.test.tsx 가 지킨다(WP-966).
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { mockAgentDetail, mockAgentRuntimeNone } from '../../fixtures/agent-runtime-mock';
 
 // 단일 AGENT + API 키가 존재하는 상태 — 키보드 진입 테스트용.
 const AGENT_ID = 100;
@@ -30,6 +31,14 @@ const AGENTS_FIXTURE = [
     kind: 'AGENT' as const,
     isActive: true,
     createdAt: '2026-05-20T09:00:00Z',
+    type: 'REGULAR' as const,
+    ownerName: null,
+    // 외부 방식 — 상세에서 접속 키를 발급·폐기하는 흐름이 보인다.
+    runtime: 'EXTERNAL' as const,
+    runMode: 'EXTERNAL' as const,
+    lastKeyUsedAt: null,
+    description: null,
+    instructions: null,
   },
 ];
 const KEYS_FIXTURE: AgentKeyFixture[] = [
@@ -47,6 +56,8 @@ const KEYS_FIXTURE: AgentKeyFixture[] = [
 
 // 키보드 진입 테스트용 — 목록·키·자격증명(없음)·공통 비서(미지정) 조회만 깐다.
 async function setupStatic(page: import('@playwright/test').Page) {
+  await mockAgentRuntimeNone(page);
+  await mockAgentDetail(page, () => AGENTS_FIXTURE as never);
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
   // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) =>
@@ -85,6 +96,13 @@ test.describe('/admin/agents', () => {
         kind: 'HUMAN' | 'AGENT';
         isActive: boolean;
         createdAt: string;
+        type: 'REGULAR';
+        ownerName: null;
+        runtime: 'EXTERNAL';
+        runMode: 'EXTERNAL';
+        lastKeyUsedAt: null;
+        description: null;
+        instructions: null;
       }> = [];
       let keys: Array<{
         id: number;
@@ -98,6 +116,8 @@ test.describe('/admin/agents', () => {
       }> = [];
       let nextAgentId = 100;
       let nextKeyId = 1;
+      await mockAgentRuntimeNone(page);
+      await mockAgentDetail(page, () => agents as never);
 
       // /admin/agents 컬렉션 — GET 목록 + POST 생성.
       // includePersonal 기본값이 true 로 바뀌어 GET 이 쿼리스트링을 동반하므로 경로만 매칭.
@@ -124,6 +144,14 @@ test.describe('/admin/agents', () => {
             kind: 'AGENT' as const,
             isActive: true,
             createdAt: new Date().toISOString(),
+            type: 'REGULAR' as const,
+            ownerName: null,
+            // 새 에이전트는 실행 설정이 없는 외부(수동 키) 방식 — 키 발급은 상세의 「접속 키」에서 한다.
+            runtime: 'EXTERNAL' as const,
+            runMode: 'EXTERNAL' as const,
+            lastKeyUsedAt: null,
+            description: null,
+            instructions: null,
           };
           agents = [...agents, a];
           return route.fulfill({
@@ -240,9 +268,10 @@ test.describe('/admin/agents', () => {
       await expect(row).toBeVisible();
       await expect(row).toContainText('Claude 봇');
       await row.click();
+      await expect(page).toHaveURL(/\/settings\/agents\/\d+$/);
 
-      // 3) 키 label 입력 → "키 발급" 클릭
-      await page.getByLabel('키 label').fill('worker-1');
+      // 3) 키 이름 입력 → "키 발급" 클릭
+      await page.getByLabel('키 이름').fill('worker-1');
       await page.getByRole('button', { name: '키 발급' }).click();
 
       // 4) 평문 dialog + ak_ 접두어 확인
@@ -265,22 +294,25 @@ test.describe('/admin/agents', () => {
       // 7) 회수 — AlertDialog 확인 → revoked_at 표시 (회수 버튼이 사라짐). (#136: window.confirm → AlertDialog)
       const revokeBtn = page.getByTestId(/^key-revoke-\d+$/).first();
       await revokeBtn.click();
-      await expect(page.getByTestId('agent-confirm-dialog')).toBeVisible();
-      await page.getByTestId('agent-confirm-confirm').click();
+      // 폐기 확인 창은 상세 실행 섹션의 공용 AlertDialog(testid 없음) — 역할과 제목으로 찾는다.
+      const confirm = page.getByRole('alertdialog', { name: '키를 폐기할까요?' });
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole('button', { name: '키 폐기' }).click();
       await expect(revokeBtn).toHaveCount(0);
     },
   );
 
-  // #810 — 행이 클릭 전용(role/tabIndex/onKeyDown 부재)이라 키보드로는 상세 드로어에 진입 불가했다.
-  test('에이전트 행을 키보드(Tab+Enter)로 상세 드로어를 열 수 있다 (#810)', { tag: '@input' }, async ({ adminPage: page }) => {
+  // #810 — 행이 클릭 전용(role/tabIndex/onKeyDown 부재)이라 키보드로는 상세에 진입 불가했다. 지금 상세는 시트가 아닌 페이지(/settings/agents/:id)다.
+  test('에이전트 행을 키보드(Tab+Enter)로 눌러 상세 페이지로 갈 수 있다 (#810)', { tag: '@input' }, async ({ adminPage: page }) => {
     await setupStatic(page);
     await page.goto('/settings/agents');
     const row = page.getByRole('button', { name: 'Claude 봇 상세 보기' });
     await expect(row).toBeVisible();
 
-    await expect(page.getByTestId('agent-detail-drawer')).toHaveCount(0);
+    await expect(page.getByTestId('agent-detail-page')).toHaveCount(0);
     await row.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('agent-detail-drawer')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/settings/agents/${AGENT_ID}$`));
+    await expect(page.getByTestId('agent-detail-page')).toBeVisible();
   });
 });

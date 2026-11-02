@@ -62,7 +62,7 @@ export function AgentKeyIssueDialog({
               </p>
               <p>
                 등록한 뒤에는 <code className="font-mono">{buildSwitchCommand(username)}</code> 로 이 AI 로 일할 수
-                있어요. 플러그인이 없다면 에이전트 상세의 ② 를 먼저 하세요.
+                있어요. 플러그인이 없다면 설정 가이드의 ② 를 먼저 하세요.
               </p>
             </div>
           )}

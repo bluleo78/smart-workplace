@@ -1,9 +1,10 @@
 // 설정 영역 공용 페이지 래퍼 — Page 위 얇은 래퍼.
 // 폼형(width='form')은 Page settings 폭(주석 섹션), 목록형은 전체 폭. 헤더·본문이 Page 여백(px-4)을 공유해 시작선이 맞는다(WP-397).
-// 폼형에 guide 가 있으면 화면별 설정 가이드를 붙인다 — 상태·요소는 useSettingsGuide 가 만들고 여기선 제자리에 꽂기만 한다(WP-399).
+// guide 가 있으면 화면별 설정 가이드를 붙인다(목록형은 단추 → 시트만, WP-1281) — 상태·요소는 useSettingsGuide 가 만들고 여기선 제자리에 꽂기만 한다(WP-399).
 import { type ReactNode, useState } from 'react'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { OpenSettingsGuideContext } from '@/components/settings-guide/openSettingsGuide'
 import type { SettingsGuide } from '@/components/settings-guide/types'
 import { useSettingsGuide } from '@/components/settings-guide/useSettingsGuide'
 import { buildSettingsScreenContext, type SettingsAiContextInput } from '@/lib/aiScreenContext/builders/settings'
@@ -19,7 +20,7 @@ interface SettingsPageProps {
   meta?: ReactNode
   actions?: ReactNode
   width?: 'form' | 'full'
-  /** 화면별 설정 가이드 — width='form' 일 때만 그린다(목록형엔 남는 여백이 없어 무시). */
+  /** 화면별 설정 가이드 — 폼형은 넓으면 오른쪽 열·좁으면 시트, 목록형은 옆에 남는 폭이 없어 머리 「가이드」 단추 → 시트로만 연다(WP-1281). */
   guide?: SettingsGuide
   /**
    * WP-414: 화면 핵심 값 — 가이드가 그려지는 화면의 AI 화면 맥락에 덧붙인다(대상은 focus, 상태 값은 facts).
@@ -33,10 +34,9 @@ interface SettingsPageProps {
 export function SettingsPage({ title, icon, meta, actions, width = 'full', guide, aiContext, children, ...rest }: SettingsPageProps) {
   // 본문 스크롤 요소 — 콜백 ref(useState)라 마운트 후 하위 무한 스크롤 sentinel 이 root 로 다시 붙는다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  const shownGuide = width === 'form' ? guide : undefined
-  const guideUi = useSettingsGuide(shownGuide, scrollEl)
+  const guideUi = useSettingsGuide(guide, scrollEl, width === 'form')
   // WP-414: 가이드가 보이는 설정 화면은 AI 화면 맥락(설정 · 제목 + 가이드 요약 + 화면 값)을 등록한다 — 「AI 에게 묻기」가 이 맥락으로 묻는다.
-  useRegisterAiScreenContext(shownGuide ? buildSettingsScreenContext(shownGuide, aiContext) : null)
+  useRegisterAiScreenContext(guide ? buildSettingsScreenContext(guide, aiContext) : null)
   // 데스크톱: 가이드 버튼을 기존 actions 앞에. 모바일: 가이드 버튼은 ⋯ 밖 인라인(mobilePrimaryAction)이고 ⋯ 엔 기존 actions 만 담긴다.
   const headerActions = guideUi?.desktopButton ? <>{guideUi.desktopButton}{actions}</> : actions
 
@@ -52,7 +52,10 @@ export function SettingsPage({ title, icon, meta, actions, width = 'full', guide
           // 가이드 화면은 열이 없어도 null 로 슬롯을 유지한다 — 열↔버튼 전환 때 폼이 리마운트되어 입력값이 날아가지 않게.
           aside={guideUi?.aside}
         >
-          <SettingsScrollRootContext.Provider value={scrollEl}>{children}</SettingsScrollRootContext.Provider>
+          {/* 본문 「가이드 열기」 단추가 쓰는 여는 함수(WP-1281) — 가이드가 없는 화면은 null. */}
+          <OpenSettingsGuideContext.Provider value={guideUi?.open ?? null}>
+            <SettingsScrollRootContext.Provider value={scrollEl}>{children}</SettingsScrollRootContext.Provider>
+          </OpenSettingsGuideContext.Provider>
         </Page.Body>
         {guideUi?.desktopSheet}
       </div>

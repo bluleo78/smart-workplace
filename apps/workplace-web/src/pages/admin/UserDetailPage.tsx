@@ -71,7 +71,7 @@ export default function UserDetailPage() {
   if (!user) return null;
 
   // WP-1075: AI 는 에이전트 화면이 관리한다 — 옛 주소(/settings/users/{에이전트 id})로 들어오면 에이전트 상세로 넘긴다.
-  if (user.kind === 'AGENT') return <Navigate to={`/settings/agents?agent=${user.id}`} replace />;
+  if (user.kind === 'AGENT') return <Navigate to={`/settings/agents/${user.id}`} replace />;
 
   return (
     <SettingsPage

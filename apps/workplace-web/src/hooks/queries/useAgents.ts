@@ -1,11 +1,12 @@
 // AGENT 유저 목록 + 생성/삭제 mutation. queryKey 는 ['agents'] 단일.
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
   createAgent,
   deleteAgent,
+  getAgent,
   listAgents,
   renameAgent,
   setAgentRuntime,
@@ -16,6 +17,8 @@ import type { AgentRuntime } from "../../types/agent";
 export const agentKeys = {
   all: ["agents"] as const,
   list: (includePersonal: boolean) => ["agents", { includePersonal }] as const,
+  // 상세도 agentKeys.all 아래 — 이름 변경·실행 방식 변경 등 에이전트 변경이 목록과 상세를 함께 다시 읽는다.
+  detail: (id: number) => ["agents", "detail", id] as const,
 };
 
 // includePersonal=true 면 개인 비서(자동 생성 AGENT)까지 포함해 조회한다.
@@ -23,6 +26,15 @@ export function useAgents(includePersonal = false) {
   return useQuery({
     queryKey: agentKeys.list(includePersonal),
     queryFn: () => listAgents(includePersonal),
+  });
+}
+
+// 에이전트 한 명 — 상세 페이지용. id 가 숫자가 아니면(잘못된 주소) 부르지 않는다.
+export function useAgent(id: number | null) {
+  return useQuery({
+    queryKey: agentKeys.detail(id ?? 0),
+    queryFn: () => getAgent(id!),
+    enabled: id != null,
   });
 }
 
@@ -59,8 +71,13 @@ export function useDeleteAgent() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: deleteAgent,
-    onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: agentKeys.all });
+    onSuccess: (result, userId) => {
+      // 지운 AI 의 상세 조회는 다시 읽지 않는다 — 상세 화면이 목록으로 넘어가기 전에 404 로 「찾을 수 없어요」가 잠깐 뜨지 않게.
+      const deletedDetail = result === "DELETED" ? agentKeys.detail(userId) : null;
+      qc.invalidateQueries({
+        queryKey: agentKeys.all,
+        predicate: (q) => deletedDetail == null || q.queryHash !== hashKey(deletedDetail),
+      });
       // 남은 기록이 있는 AI 는 서버가 삭제 대신 사용을 중지한다(WP-705) — 무엇이 일어났는지 그대로 알린다.
       toast.success(
         result === "DEACTIVATED"

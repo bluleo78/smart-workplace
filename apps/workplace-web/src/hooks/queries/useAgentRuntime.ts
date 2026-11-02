@@ -32,12 +32,13 @@ export function useAgentTemplates() {
   return useQuery({ queryKey: agentRuntimeKeys.templates, queryFn: listAgentTemplates, staleTime: 10 * 60_000 });
 }
 
-export function useAgentRuntimeSetting(userId: number) {
-  return useQuery({ queryKey: agentRuntimeKeys.setting(userId), queryFn: () => getAgentRuntimeSetting(userId) });
+// enabled — 에이전트 상세는 실행 방식을 안 뒤에만 부른다(기본 방식 AI 는 실행 설정이 없어 404 를 부르지 않게).
+export function useAgentRuntimeSetting(userId: number, enabled = true) {
+  return useQuery({ queryKey: agentRuntimeKeys.setting(userId), queryFn: () => getAgentRuntimeSetting(userId), enabled });
 }
 
-export function useAgentRuntimeProjects(userId: number) {
-  return useQuery({ queryKey: agentRuntimeKeys.projects(userId), queryFn: () => listAgentRuntimeProjects(userId) });
+export function useAgentRuntimeProjects(userId: number, enabled = true) {
+  return useQuery({ queryKey: agentRuntimeKeys.projects(userId), queryFn: () => listAgentRuntimeProjects(userId), enabled });
 }
 
 export function useAgentRuntimeSummaries() {
@@ -56,7 +57,8 @@ export function useAgentLocations(enabled = true) {
 }
 
 // 설정·상태가 바뀌면 상세·목록 요약·위치 자리 수·에이전트 목록(실행 방식)을 함께 다시 읽는다(템플릿 캐시는 둔다).
-function useInvalidateRuntime() {
+// AI 실행 화면 조회 전부 + 에이전트 키 — 실행에 영향을 주는 변경(실행 설정·사용 중지 등) 뒤 함께 다시 읽는다.
+export function useInvalidateRuntime() {
   const qc = useQueryClient();
   return () => {
     for (const queryKey of agentRuntimeLiveKeys) void qc.invalidateQueries({ queryKey });
@@ -83,13 +85,13 @@ export function useUseServerTemplate(userId: number) {
       runtime === 'INTERNAL' ? setAgentRuntime(userId, 'INTERNAL') : deleteAgentRuntimeSetting(userId),
     onSuccess: invalidate,
     onError: (e, runtime) =>
-      handleApiError(e, runtime === 'EXTERNAL' ? '외부로 바꾸지 못했습니다' : '기본 템플릿으로 바꾸지 못했습니다'),
+      handleApiError(e, runtime === 'EXTERNAL' ? '외부로 바꾸지 못했습니다' : '기본으로 바꾸지 못했습니다'),
   });
 }
 
 const ACTION_DONE: Record<AgentRuntimeAction, string> = {
-  start: 'AI 를 켜는 중입니다',
-  stop: 'AI 를 끄는 중입니다',
+  start: '실행을 시작했어요',
+  stop: '실행을 멈추는 중이에요',
   restart: 'AI 를 다시 시작합니다',
 };
 
@@ -110,7 +112,7 @@ export function useCreateAgentLocation() {
   return useMutation({
     mutationFn: createAgentLocation,
     onSuccess: invalidate,
-    onError: (e) => handleApiError(e, '실행 위치를 추가하지 못했습니다'),
+    onError: (e) => handleApiError(e, '실행 환경을 추가하지 못했습니다'),
   });
 }
 
@@ -121,9 +123,9 @@ export function useUpdateAgentLocation() {
       updateAgentLocation(id, body),
     onSuccess: () => {
       invalidate();
-      toast.success('실행 위치를 바꿨습니다');
+      toast.success('실행 환경을 바꿨습니다');
     },
-    onError: (e) => handleApiError(e, '실행 위치를 바꾸지 못했습니다'),
+    onError: (e) => handleApiError(e, '실행 환경을 바꾸지 못했습니다'),
   });
 }
 
@@ -133,9 +135,9 @@ export function useSetDefaultAgentLocation() {
     mutationFn: setDefaultAgentLocation,
     onSuccess: () => {
       invalidate();
-      toast.success('기본 위치로 지정했습니다');
+      toast.success('기본 실행 환경으로 지정했습니다');
     },
-    onError: (e) => handleApiError(e, '기본 위치로 지정하지 못했습니다'),
+    onError: (e) => handleApiError(e, '기본 실행 환경으로 지정하지 못했습니다'),
   });
 }
 
@@ -154,8 +156,8 @@ export function useDeleteAgentLocation() {
     mutationFn: deleteAgentLocation,
     onSuccess: () => {
       invalidate();
-      toast.success('실행 위치를 삭제했습니다');
+      toast.success('실행 환경을 삭제했습니다');
     },
-    onError: (e) => handleApiError(e, '실행 위치를 삭제하지 못했습니다'),
+    onError: (e) => handleApiError(e, '실행 환경을 삭제하지 못했습니다'),
   });
 }

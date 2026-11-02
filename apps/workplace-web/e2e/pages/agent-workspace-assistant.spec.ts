@@ -1,5 +1,5 @@
 // ADMIN — /settings/agents 「AI 연결 및 모델」 공통 비서 지정 E2E — 화면 배선(@wiring) 1건만 남긴다(WP-966).
-// 목록 진입 → 행 선택 → 상세 → 지정 토글 → 프로브 → 강제 확인 → PUT 이 실제로 이어지는지 본다.
+// 목록 진입 → 행 선택 → 상세 페이지(/settings/agents/:id) → 지정 토글 → 프로브 → 강제 확인 → PUT 이 실제로 이어지는지 본다.
 // 프로브 실패·해제 경고 확인/취소·토큰 게이트·활성 토큰 없음 경고·진입 안내 배너·개인 비서 표시 토글, 그리고
 // 옛 workspace-assistant.spec.ts 의 모델 목록·빈 목록·변경 실패 토스트·이미지 입력 저장 규칙은
 // 화면 테스트 src/pages/admin/agentWorkspaceAssistant.test.tsx 가 지킨다.
@@ -8,7 +8,7 @@ import type { WorkspaceAssistant } from '../../src/types/assistant';
 import type { ProviderCredentialMeta } from '../../src/types/providerCredential';
 import { expect, test } from '../fixtures/auth.fixture';
 import { trackRequests } from '../fixtures/requests';
-import { mockAgentRuntimeNone } from '../fixtures/agent-runtime-mock';
+import { mockAgentDetail, mockAgentRuntimeNone } from '../fixtures/agent-runtime-mock';
 
 // 테스트용 AGENT 픽스처.
 const AGENT_ID = 5;
@@ -22,6 +22,9 @@ const AGENT_FIXTURE = {
   createdAt: '2026-05-31T00:00:00Z',
   type: 'REGULAR' as const,
   ownerName: null,
+  // 상세 페이지(GET /admin/agents/{id})가 쓰는 실행 방식 — 기본(서버) 방식이어야 AI 계정·공통 비서 묶음이 보인다.
+  runtime: 'INTERNAL' as const,
+  runMode: 'SERVER' as const,
 };
 
 // 자격증명 메타 픽스처 — anthropic 등록 상태.
@@ -40,6 +43,7 @@ const OAUTH_META_FIXTURE: ProviderCredentialMeta = {
  */
 async function setupBase(page: import('@playwright/test').Page) {
   await mockAgentRuntimeNone(page);
+  await mockAgentDetail(page, () => [AGENT_FIXTURE as never]);
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
   // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
@@ -123,8 +127,9 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       await setupBase(page);
       await page.goto('/settings/agents');
 
-      // 에이전트 행 선택 → 상세 패널 열기.
+      // 에이전트 행 선택 → 상세 페이지로 이동.
       await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+      await expect(page).toHaveURL(new RegExp(`/settings/agents/${AGENT_ID}$`));
 
       // 공통 비서 지정 토글이 활성화되어 있어야 한다(OFF 상태).
       const toggle = page.getByTestId('agent-connection-assistant-toggle');

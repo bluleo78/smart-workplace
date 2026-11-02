@@ -52,6 +52,13 @@ public class AdminAgentController {
     return ResponseEntity.ok(userService.listAgents(includePersonal));
   }
 
+  /** AGENT 한 명(WP-1281) — 에이전트 상세 페이지용. 이 워크스페이스의 AI 가 아니면 404. */
+  @GetMapping("/{userId}")
+  @RequirePermission("user:write")
+  public ResponseEntity<AgentResponse> get(@PathVariable Long userId) {
+    return ResponseEntity.ok(userService.getAgent(userId));
+  }
+
   /** AGENT 생성. */
   @PostMapping
   @RequireWebSession

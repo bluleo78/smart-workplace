@@ -21,6 +21,12 @@ export async function listAgents(includePersonal = false): Promise<AgentResponse
   return data;
 }
 
+// AGENT 한 명 조회 — 에이전트 상세 페이지(/settings/agents/:id)가 쓴다. 목록에서 찾지 않아 개인 비서 숨김 필터와 관계없이 열린다.
+export async function getAgent(userId: number): Promise<AgentResponse> {
+  const { data } = await client.get<AgentResponse>(`/admin/agents/${userId}`);
+  return data;
+}
+
 // 신규 AGENT 유저 생성. password 없이 username/name/email 만 받음.
 export async function createAgent(body: {
   username: string;

@@ -277,14 +277,14 @@ test('다음 페이지가 실패하면 받은 행은 남고 「다시 시도」�
 })
 
 
-test('설정 사이드바 워크스페이스 관리 그룹은 구성원 → 에이전트 → AI 실행 위치 → 역할 → SSO → 감사 로그 순이다', async () => {
+test('설정 사이드바 워크스페이스 관리 그룹은 구성원 → 에이전트 → 역할 → SSO → 감사 로그 순이다', async () => {
+  // 실행 환경은 에이전트 화면의 탭(WP-1281)이라 사이드바에 따로 없다.
   // 관리자에게만 그려지는 그룹 — 노트 공유는 WP-887 에서 「앱 설정 › 노트」로 옮겼다.
   renderScreen(<SettingsSidebar />, { path: '/settings/users', auth: { isAdmin: true } })
   const group = await screen.findByTestId('settings-admin-group')
   expect(within(group).getAllByRole('link').map((link) => link.textContent?.trim())).toEqual([
     '구성원',
     '에이전트',
-    'AI 실행 위치',
     '역할',
     'SSO',
     '감사 로그',

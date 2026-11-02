@@ -214,11 +214,21 @@ public class UserRepository {
   }
 
   public List<AgentResponse> findAgents(Long tenantId, boolean includePersonal) {
+    return selectAgents(tenantId, workspaceAgents(tenantId, includePersonal));
+  }
+
+  /** 이 테넌트의 AI 한 명 — 개인 비서·사용 중지 AI 포함(관리 상세 화면용, WP-1281). 사람이거나 다른 워크스페이스면 비어 있음. */
+  public Optional<AgentResponse> findAgent(Long tenantId, long userId) {
+    return selectAgents(tenantId, workspaceAgents(tenantId, true).and(USER.ID.eq(userId))).stream()
+        .findFirst();
+  }
+
+  /** 관리 목록·상세가 같이 쓰는 AI 조회 — 조건만 다르다. */
+  private List<AgentResponse> selectAgents(Long tenantId, Condition where) {
     // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
     com.workplace.jooq.tables.User owner = USER.as("owner");
     // WP-1075: 사용을 중지한(멤버십 정지) AGENT 도 내려 준다 — 관리 화면이 「비활성」 배지로 구별하고 상세의 활성 상태로 다시 켠다.
     // 삭제 때 기록이 남아 정지된 AI(WP-705)도 여기 포함된다. 활성 여부는 아래 WORKSPACE_ACTIVE 로 싣는다.
-    Condition where = workspaceAgents(tenantId, includePersonal);
     // WP-371: 에이전트별 "마지막 키 사용 시각" = 폐기되지 않은 키의 last_used_at 최댓값(키 없으면 null). 목록에 나온 에이전트 행마다
     // 상관 서브쿼리로 계산한다 — 전 테넌트 키를 집계하는 파생 테이블과 달리 대상 에이전트 키만 idx_agent_api_key_user(V14)로 읽는다.
     // WP-1253: 만료된 키(Works 자동 발급 키)도 폐기 키처럼 뺀다 — 인증과 같은 활성 키 조건을 쓴다.
@@ -241,7 +251,8 @@ public class UserRepository {
             USER.INSTRUCTIONS,
             keyLastUsed,
             owner.NAME,
-            WORKSPACE_ASSISTANT.AGENT_USER_ID)
+            WORKSPACE_ASSISTANT.AGENT_USER_ID,
+            AGENT_RUNTIME_SETTING.AGENT_USER_ID)
         .from(USER)
         .join(MEMBERSHIP)
         .on(USER.ID.eq(MEMBERSHIP.USER_ID))
@@ -251,6 +262,13 @@ public class UserRepository {
         // 이 테넌트의 공통 비서로 지정됐는지(RLS 로 현재 테넌트 행만 보임).
         .leftJoin(WORKSPACE_ASSISTANT)
         .on(WORKSPACE_ASSISTANT.AGENT_USER_ID.eq(USER.ID))
+        // 실행 설정 유무 — 실제 실행 방식(runMode) 판정용(WP-1273). 설정은 워크스페이스·AI 당 1행(PK)이라 행이 늘지 않는다.
+        .leftJoin(AGENT_RUNTIME_SETTING)
+        .on(
+            AGENT_RUNTIME_SETTING
+                .AGENT_USER_ID
+                .eq(USER.ID)
+                .and(AGENT_RUNTIME_SETTING.TENANT_ID.eq(tenantId)))
         .where(where)
         .orderBy(USER.NAME.asc(), USER.ID.asc())
         .fetch(
@@ -276,6 +294,9 @@ public class UserRepository {
                   type,
                   isPersonal ? ownerName : null,
                   r.get(USER.AGENT_RUNTIME),
+                  AgentResponse.runModeOf(
+                      r.get(USER.AGENT_RUNTIME),
+                      r.get(AGENT_RUNTIME_SETTING.AGENT_USER_ID) != null),
                   r.get(keyLastUsed) != null ? r.get(keyLastUsed).toInstant() : null,
                   r.get(USER.DESCRIPTION),
                   r.get(USER.INSTRUCTIONS));

@@ -310,7 +310,7 @@ describe('개인 비서의 공통 비서 지정 (WP-1170)', () => {
   // 연결도 없고 둘 버튼도 없으면 빈 버튼 줄(flex gap)이 틈을 남기지 않게 그리지 않는다.
   test('연결이 없는 개인 비서는 빈 버튼 줄을 그리지 않는다', async () => {
     openSection({ ws: unassigned(), credential: null, canConfigure: false })
-    await screen.findByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.')
+    await screen.findByText('아직 연결하지 않았어요.')
     const section = screen.getByTestId('agent-connection-section')
     expect(section.querySelector('div.flex.gap-2:empty')).toBeNull()
     expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()

@@ -3,18 +3,24 @@ package com.workplace.agentruntime.repository;
 import static com.workplace.jooq.Tables.AGENT_LOCATION;
 import static com.workplace.jooq.Tables.AGENT_RUNNER_TOKEN;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
+import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.agentruntime.dto.AgentLocationAgent;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.global.tenant.TenantContext;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.With;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.Record3;
+import org.jooq.SelectSeekStep2;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -199,5 +205,40 @@ public class AgentLocationRepository {
   /** 이 위치를 직접 지정한 실행 설정 수(켜짐·꺼짐 모두) — 위치 삭제 가드용. */
   public int countSettingsUsing(long locationId) {
     return dsl.fetchCount(AGENT_RUNTIME_SETTING, AGENT_RUNTIME_SETTING.LOCATION_ID.eq(locationId));
+  }
+
+  /**
+   * 한 위치를 쓰도록 설정된 AI(켜짐·꺼짐 모두, 이름순) — 위치 하나의 응답용(WP-1281). {@code includeUnassigned} 면(그 위치가 기본일 때)
+   * 위치를 지정하지 않은 설정도 넣는다. 목록은 위치마다 부르지 않고 {@link #findAgentsByLocation} 을 쓴다.
+   */
+  public List<AgentLocationAgent> findAgentsAt(long locationId, boolean includeUnassigned) {
+    Condition at = AGENT_RUNTIME_SETTING.LOCATION_ID.eq(locationId);
+    return settingAgents(includeUnassigned ? at.or(AGENT_RUNTIME_SETTING.LOCATION_ID.isNull()) : at)
+        .fetch(r -> new AgentLocationAgent(r.value2(), r.value3()));
+  }
+
+  /**
+   * 위치별로 그 위치를 쓰도록 설정된 AI(켜짐·꺼짐 모두, 이름순)를 한 번에 읽는다(WP-1281, 목록용). 키는 지정 위치 id 이고, 위치를 지정하지 않은 설정은 키
+   * {@code null} 로 모인다 — 호출자가 기본 위치에 더한다. 지정 위치 키의 목록 크기가 곧 그 위치의 {@link #countSettingsUsing} 이다.
+   */
+  public Map<Long, List<AgentLocationAgent>> findAgentsByLocation() {
+    Map<Long, List<AgentLocationAgent>> out = new HashMap<>();
+    settingAgents(DSL.noCondition())
+        .forEach(
+            r ->
+                out.computeIfAbsent(r.value1(), k -> new ArrayList<>())
+                    .add(new AgentLocationAgent(r.value2(), r.value3())));
+    return out;
+  }
+
+  /** 실행 설정 × AI 이름(이름순) — 위치별 AI 조회 두 가지가 조건만 달리해 쓴다. 다른 워크스페이스의 설정은 RLS 로 보이지 않는다. */
+  private SelectSeekStep2<Record3<Long, Long, String>, String, Long> settingAgents(
+      Condition where) {
+    return dsl.select(AGENT_RUNTIME_SETTING.LOCATION_ID, USER.ID, USER.NAME)
+        .from(AGENT_RUNTIME_SETTING)
+        .join(USER)
+        .on(USER.ID.eq(AGENT_RUNTIME_SETTING.AGENT_USER_ID))
+        .where(where)
+        .orderBy(USER.NAME.asc(), USER.ID.asc());
   }
 }

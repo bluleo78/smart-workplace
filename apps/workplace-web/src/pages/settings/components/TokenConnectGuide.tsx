@@ -6,11 +6,11 @@
 import { TOOL_APPS } from '@smart-workplace/mcp-tools-shared/tool-apps';
 import { ChevronDown } from 'lucide-react';
 
+import { CopyableCommand } from '@/components/CopyableCommand';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { MCP_ENDPOINT } from '@/lib/mcpEndpoint';
 import { buildPluginInstallCommands } from '@/lib/pluginGuide';
 
-import { CopyableCommand } from '../../admin/components/CopyableCommand';
 import { PluginServerUrlStep } from '../../admin/components/PluginServerUrlStep';
 
 interface TokenConnectGuideProps {

@@ -16,6 +16,10 @@ import java.time.LocalDateTime;
  * <p>WP-455: description 은 설명(역할) — 다른 AI 가 일을 맡길 상대를 고를 때 읽는다. 비어 있으면 null.
  *
  * <p>WP-1077: instructions 는 지시 — 그 AI 자신이 이슈를 맡을 때마다 따르는 규칙(관리자 목록에만, 다른 AI 는 못 본다). 비어 있으면 null.
+ *
+ * <p>WP-1273: runMode 는 서버가 판정한 실제 실행 방식(SERVER|WORKSPACE|EXTERNAL). runtime(DB 값)만으로는 Works 가 작업
+ * 공간을 띄우는 AI(EXTERNAL + 실행 설정)와 직접 띄운 도구가 접속하는 AI(EXTERNAL, 설정 없음)가 구분되지 않아, 화면이 다시 추론하지 않게 서버가 정해
+ * 준다.
  */
 public record AgentResponse(
     Long id,
@@ -27,6 +31,7 @@ public record AgentResponse(
     String type,
     String ownerName,
     String runtime,
+    String runMode,
     Instant lastKeyUsedAt,
     String description,
     String instructions) {
@@ -34,4 +39,22 @@ public record AgentResponse(
   public static final String TYPE_PERSONAL = "PERSONAL";
   public static final String TYPE_WORKSPACE = "WORKSPACE";
   public static final String TYPE_REGULAR = "REGULAR";
+
+  /** 실행 방식 — 「기본」: 서버 ai-agent 가 이슈·멘션에 바로 답한다. */
+  public static final String RUN_MODE_SERVER = "SERVER";
+
+  /** 실행 방식 — Works 가 실행 설정대로 작업 공간(Pod)을 띄워 실행한다. */
+  public static final String RUN_MODE_WORKSPACE = "WORKSPACE";
+
+  /** 실행 방식 — 직접 띄운 도구가 AI 키로 접속한다. */
+  public static final String RUN_MODE_EXTERNAL = "EXTERNAL";
+
+  /**
+   * DB 의 실행 방식과 실행 설정 유무로 실제 실행 방식을 정한다 — INTERNAL 이면 설정이 남아 있어도 「기본」(서버가 답한다), EXTERNAL 이면 실행 설정이
+   * 있을 때만 작업 공간.
+   */
+  public static String runModeOf(String runtime, boolean hasRuntimeSetting) {
+    if (!AgentRuntime.EXTERNAL.equals(runtime)) return RUN_MODE_SERVER;
+    return hasRuntimeSetting ? RUN_MODE_WORKSPACE : RUN_MODE_EXTERNAL;
+  }
 }

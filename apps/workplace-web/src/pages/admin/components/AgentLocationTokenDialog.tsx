@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { CopyableCommand } from '@/components/CopyableCommand';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,6 @@ import { connectionPill } from '../../../lib/agentRuntimeStatus';
 import { copyText } from '../../../lib/copyText';
 import { isIpv4, RUNNER_LOGS_COMMAND, runnerInstallSteps } from '../../../lib/runnerInstall';
 import type { AgentLocationTokenResponse } from '../../../types/agentRuntime';
-import { CopyableCommand } from './CopyableCommand';
 
 interface Props {
   issued: AgentLocationTokenResponse | null;
@@ -45,14 +45,14 @@ export function AgentLocationTokenDialog({ issued, showInstall, onClose }: Props
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" data-testid="agent-location-token-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {issued?.location.name} runner 토큰
+            {issued?.location.name} 연결 토큰
             {pill && (
               <StatusBadge type={pill.type} data-testid="agent-location-token-connection">
                 {pill.label}
               </StatusBadge>
             )}
           </DialogTitle>
-          <DialogDescription className="sr-only">runner 토큰과 설치 순서</DialogDescription>
+          <DialogDescription className="sr-only">연결 토큰과 설치 순서</DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-4">
           <div className="space-y-2">
@@ -101,16 +101,14 @@ export function AgentLocationTokenDialog({ issued, showInstall, onClose }: Props
                 ))}
               </ol>
               <div className="space-y-1.5" data-testid="agent-location-install-troubleshoot">
-                <p className="text-xs text-muted-foreground">
-                  「설치 대기」가 오래 가면 runner 로그를 봅니다. fetch failed 가 거듭 보이면 이 클러스터에서 Works 주소에 닿지 못하는
-                  것이니, 위에 내부 IP 를 넣고 다시 설치하세요.
-                </p>
+                {/* 문제 해결 설명은 설정 가이드(실행 환경)로 옮겼다(WP-1281) — 여기엔 칠 명령만 남긴다. */}
+                <p className="text-xs text-muted-foreground">연결이 안 될 때 연결 프로그램 기록 보기</p>
                 <CopyableCommand command={RUNNER_LOGS_COMMAND} testId="agent-location-install-logs" />
               </div>
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              runner 가 쓰는 Secret 을 새 토큰으로 바꾸고 runner 를 다시 띄우세요. 옛 토큰은 이미 끊겼습니다.
+              클러스터의 연결 프로그램이 새 토큰을 쓰도록 바꾸고 다시 띄우세요. 옛 토큰은 이미 끊겼어요.
             </p>
           )}
         </div>

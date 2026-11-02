@@ -1,8 +1,7 @@
-// AGENT 상세 — "AI 연결 및 모델" 통합 섹션.
-// 기존 OAuthTokenSection(연결 상태/재발급/회수) + WorkspaceAssistantSection(공통 비서 지정 +
-// 모델/생각의 깊이)을 카드 하나로 합쳤다. 모델/생각의 깊이는 이 에이전트가 "공통 비서로 지정"된
-// 경우에만 편집 가능(백엔드에 에이전트별 모델 저장 컬럼이 없고, workspace 전체 공통 비서 슬롯 1개에만
-// model/thinkingDepth 가 저장되기 때문 — 스코프 아웃, 별도 이슈 필요).
+// AGENT 상세 「실행」 섹션의 두 묶음(WP-1281) — 「AI 계정」(연결 상태·다시 연결·연결 끊기)과 「공통 비서」(지정 스위치 + 지정됐을 때 모델·생각의 깊이).
+// 예전엔 「AI 연결 및 모델」 카드 하나였는데, 상세 페이지에서 묶음마다 반영 방식(바로 반영)을 보이려고 둘로 나눴다. 둘 다 바로 반영된다.
+// 모델/생각의 깊이는 이 에이전트가 "공통 비서로 지정"된 경우에만 편집 가능(백엔드에 에이전트별 모델 저장 컬럼이 없고, workspace 전체
+// 공통 비서 슬롯 1개에만 model/thinkingDepth 가 저장되기 때문 — 스코프 아웃, 별도 이슈 필요).
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -48,7 +47,7 @@ import { useAssistantVisionSetting } from '../../../hooks/useAssistantVisionSett
 import { useAuth } from '../../../hooks/useAuth';
 import { providerIdOf } from '../../../lib/ai/suggestionModel';
 import { handleApiError } from '../../../lib/api-error';
-import { formatDateTimeLocale } from '../../../lib/formatters';
+import { formatMonthDayClock } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../../types/assistant';
 import { ProviderCredentialDialog } from './ProviderCredentialDialog';
@@ -70,20 +69,129 @@ interface Props {
   canConfigure: boolean;
 }
 
+/** 묶음 하나를 다 그린다 — 예전 「AI 연결 및 모델」 카드와 같은 순서(테스트·옛 호출부 호환). 상세 페이지는 두 묶음을 따로 쓴다. */
 export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
+  return (
+    <section className="space-y-4" data-testid="agent-connection-section">
+      <AgentAiAccountGroup agentUserId={agentUserId} canConfigure={canConfigure} />
+      <WorkspaceAssistantGroup agentUserId={agentUserId} canConfigure={canConfigure} />
+    </section>
+  );
+}
+
+/** 공급자 이름 — anthropic 은 「Claude 구독」, opencode 는 프리셋 역매핑(미매칭 시 「OpenAI 호환」). */
+function providerLabel(meta: { provider: string; baseUrl: string | null }): string {
+  return meta.provider === 'anthropic' ? 'Claude 구독' : (presetLabelFor(meta.baseUrl) ?? 'OpenAI 호환');
+}
+
+/**
+ * 「AI 계정」 묶음(바로 반영) — 이 AI 가 부를 AI 모델의 연결. 연결 정보(공급자·Base URL·등록·최근 사용) + 다시 연결 · 연결 끊기 / 연결하기.
+ * readOnly(사용 중지된 AI)면 정보만 보인다. 개인 비서(canConfigure=false)는 연결 등록·다시 연결을 주인만 하므로 연결 끊기만 정리 수단으로 남는다(WP-1163).
+ */
+export function AgentAiAccountGroup({ agentUserId, canConfigure, readOnly = false }: Props & { readOnly?: boolean }) {
+  const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
+  const revoke = useRevokeAgentProviderCredential(agentUserId);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  // 연결 끊기 확인 창. window.confirm 대체 (#136).
+  const [revokeOpen, setRevokeOpen] = useState(false);
+
+  const doRevoke = async () => {
+    try {
+      await revoke.mutateAsync();
+      toast.success('AI 계정 연결을 끊었습니다.');
+    } catch (e) {
+      handleApiError(e, 'AI 계정 연결을 끊지 못했습니다');
+    }
+  };
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">불러오는 중…</p>;
+
+  return (
+    <div className="space-y-3" data-testid="agent-ai-account">
+      {meta ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <Badge variant="secondary" data-testid="credential-provider-badge">
+            {providerLabel(meta)}
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            {meta.baseUrl ? <span className="font-mono">{meta.baseUrl} · </span> : null}
+            등록 {formatMonthDayClock(meta.createdAt)} · 최근 사용 {meta.lastUsedAt ? formatMonthDayClock(meta.lastUsedAt) : '없음'}
+          </span>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">아직 연결하지 않았어요.</p>
+      )}
+
+      {/* WP-1170: 개인 비서인데 연결도 없으면 둘 단추가 없다 — 빈 줄이 틈을 남기지 않게 그리지 않는다. */}
+      {!readOnly && (meta || canConfigure) && (
+        <div className="flex gap-2">
+          {meta ? (
+            <>
+              {canConfigure && (
+                <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)} data-testid="oauth-token-reissue">
+                  다시 연결
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setRevokeOpen(true)}
+                disabled={revoke.isPending}
+                data-testid="oauth-token-revoke"
+              >
+                연결 끊기
+              </Button>
+            </>
+          ) : canConfigure ? (
+            <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
+              연결하기
+            </Button>
+          ) : null}
+        </div>
+      )}
+
+      {/* WP-1163: 개인 비서는 연결 등록·다시 연결과 공통 비서 지정을 주인만 정한다 — 단추·스위치 대신 안내. */}
+      {!canConfigure && (
+        <p className="text-xs text-muted-foreground" data-testid="connection-personal-hint">
+          이 AI 의 AI 계정은 주인이 관리해요.
+        </p>
+      )}
+
+      <ProviderCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} agentUserId={agentUserId} isReissue={meta != null} />
+
+      <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+        <AlertDialogContent data-testid="oauth-revoke-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>AI 계정 연결을 끊을까요?</AlertDialogTitle>
+            <AlertDialogDescription>연결을 끊으면 이 AI 는 AI 모델을 부를 수 없어 일하지 못해요.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="oauth-revoke-cancel">취소</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void doRevoke()} data-testid="oauth-revoke-confirm">
+              연결 끊기
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+/**
+ * 「공통 비서」 묶음(바로 반영) — 지정 스위치 · 지정됨 배지 · 지정/해제 확인 창 · 연결 먼저 안내 · 토큰 없음 경고.
+ * 지정됐을 때만 모델·이미지 입력·생각의 깊이·추천 질문 모델(워크스페이스 공통 값)을 고친다.
+ */
+export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
   // 공통 비서 지정/해제 시 관리자 본인의 aiAvailable 도 즉시 갱신(페이지 새로고침 불필요).
   const { refreshUser } = useAuth();
   const queryClient = useQueryClient();
   const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
-  const revoke = useRevokeAgentProviderCredential(agentUserId);
   const { data: ws } = useWorkspaceAssistant();
   const setAssistant = useSetWorkspaceAssistant();
   const clearAssistant = useClearWorkspaceAssistant();
   const updateSettings = useUpdateWorkspaceAssistantSettings();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  // API 키 회수 확인 AlertDialog. window.confirm 대체 (#136).
-  const [revokeOpen, setRevokeOpen] = useState(false);
   // 공통 비서 지정 전 모델 프로브 진행 중 — 토글 중복 클릭 방지 (#643).
   const [probing, setProbing] = useState(false);
   // 프로브 실패(또는 사용 가능 모델 0개)에도 강제 지정할지 확인하는 AlertDialog (#643).
@@ -103,27 +211,6 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
     isCurrent ? agentUserId : null,
   );
   const modelOptions = modelsData?.models ?? [];
-
-  // provider 뱃지 라벨 — anthropic 은 "Claude 구독", opencode 는 프리셋 역매핑(미매칭 시 "OpenAI 호환").
-  const providerBadge =
-    meta == null
-      ? null
-      : meta.provider === 'anthropic'
-        ? 'Claude 구독'
-        : (presetLabelFor(meta.baseUrl) ?? 'OpenAI 호환');
-
-  const onRevokeClick = () => {
-    setRevokeOpen(true);
-  };
-
-  const doRevoke = async () => {
-    try {
-      await revoke.mutateAsync();
-      toast.success('API 키를 회수했습니다.');
-    } catch (e) {
-      handleApiError(e, 'API 키 회수에 실패했습니다');
-    }
-  };
 
   // 실제 공통 비서 지정 API 호출 — 프로브 통과(또는 강제 확인) 후에만 호출된다.
   const doSetAssistant = async () => {
@@ -212,86 +299,55 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
     }
   };
 
+  if (isLoading) return null;
+  if (!showAssistantToggle) return null;
+
   return (
-    <section className="border-t pt-4 mt-4 space-y-3" data-testid="agent-connection-section">
-      <h3 className="text-sm font-medium">AI 연결 및 모델</h3>
-
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">로드 중…</p>
-      ) : (
-        <>
-          {meta ? (
-            <div className="space-y-1 text-sm">
-              <div>
-                <span className="text-muted-foreground">연결: </span>
-                <Badge variant="secondary" data-testid="credential-provider-badge">
-                  {providerBadge}
-                </Badge>
-              </div>
-              {meta.baseUrl ? (
-                <div>
-                  <span className="text-muted-foreground">Base URL: </span>
-                  <span className="font-mono text-xs">{meta.baseUrl}</span>
-                </div>
-              ) : null}
-              <div>
-                <span className="text-muted-foreground">등록일: </span>
-                <span>{formatDateTimeLocale(meta.createdAt)}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">최근 사용: </span>
-                <span>{meta.lastUsedAt ? formatDateTimeLocale(meta.lastUsedAt) : '미사용'}</span>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.
-            </p>
-          )}
-
-          {/* WP-1170: 개인 비서인데 연결도 없으면 둘 버튼이 없다 — 빈 줄(flex gap)이 틈을 남기지 않게 그리지 않는다. */}
-          {(meta || canConfigure) && (
-            <div className="flex gap-2">
-              {meta ? (
-                <>
-                  {canConfigure && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setDialogOpen(true)}
-                      data-testid="oauth-token-reissue"
-                    >
-                      재발급
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={onRevokeClick}
-                    disabled={revoke.isPending}
-                    data-testid="oauth-token-revoke"
+    <div className="space-y-3" data-testid="workspace-assistant-group">
+          {/* 공통 비서 지정 — 토글 하나로 지정/해제. 연결 안 됐으면 비활성 + 안내. 개인 비서는 지정할 수 없어 그리지 않는다.
+              WP-1170: 단, 예전에 공통 비서로 지정된 채 남은 개인 비서는 관리자가 끌 수 있게 「✓ 지정됨」과 끄는 스위치를 보인다.
+              꺼지면 isCurrent 가 거짓이 되어 블록이 사라지므로 다시 지정할 길은 없다. */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="agent-connection-assistant-toggle" className="text-sm font-medium">
+                  이 에이전트를 공통 비서로 지정
+                </Label>
+                {isCurrent ? (
+                  <Badge
+                    variant="secondary"
+                    data-testid="workspace-assistant-current"
+                    className="text-xs"
                   >
-                    회수
-                  </Button>
-                </>
-              ) : canConfigure ? (
-                <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
-                  연결하기
-                </Button>
+                    ✓ 지정됨
+                  </Badge>
+                ) : null}
+              </div>
+              {/* 토큰 등록 안내는 관리자가 연결을 정할 수 있을 때만 — 개인 비서는 주인만 연결한다(WP-1170). */}
+              {canConfigure && isCurrent && ws && !ws.hasActiveToken ? (
+                <p data-testid="workspace-assistant-warn" className="text-xs text-destructive">
+                  이 비서에 연결된 AI 계정이 없어요. 위 AI 계정을 연결해야 공통 비서가 답할 수 있어요.
+                </p>
+              ) : !hasToken && !isCurrent ? (
+                <p data-testid="workspace-assistant-token-gate" className="text-xs text-muted-foreground">
+                  AI 계정을 먼저 연결해야 공통 비서로 지정할 수 있어요.
+                </p>
               ) : null}
             </div>
-          )}
-
-          {/* WP-1163: 개인 비서는 연결 등록·재발급과 공통 비서 지정을 주인만 정한다 — 버튼·스위치 대신 안내. */}
-          {!canConfigure && (
-            <p className="text-xs text-muted-foreground" data-testid="connection-personal-hint">
-              개인 비서의 AI 연결은 주인이 설정에서 정하고, 공통 비서로는 지정할 수 없어요.
-            </p>
-          )}
-
+            <Switch
+              id="agent-connection-assistant-toggle"
+              data-testid="agent-connection-assistant-toggle"
+              checked={isCurrent}
+              onCheckedChange={(checked) => void onToggleAssistant(checked)}
+              disabled={
+                // 지정에는 연결이 필요하지만, 이미 지정된 비서를 끄는 데는 필요 없다 — 연결이 회수된 채 남은 지정도 끌 수 있게(WP-1170).
+                (!hasToken && !isCurrent) || setAssistant.isPending || clearAssistant.isPending || probing
+              }
+            />
+          </div>
           {/* 모델·생각의 깊이 — 공통 비서로 지정된 경우에만 편집 가능(백엔드 제약, 스코프 아웃 항목). */}
           {isCurrent ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 border-t pt-3">
+            <div className="grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="workspace-assistant-model">
                   모델
@@ -317,8 +373,7 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
                     data-testid="workspace-assistant-model-empty"
                     className="text-xs text-muted-foreground"
                   >
-                    사용 가능한 모델이 없어요 — API 키가 등록됐는지, 연결이 정상인지
-                    확인하세요.
+                    고를 수 있는 모델이 없어요. AI 계정 연결이 정상인지 확인하세요.
                   </p>
                 ) : null}
               </div>
@@ -367,91 +422,14 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
             </div>
           ) : null}
 
-          {/* 공통 비서 지정 — 토글 하나로 지정/해제. 연결 안 됐으면 비활성 + 안내. 개인 비서는 지정할 수 없어 그리지 않는다.
-              WP-1170: 단, 예전에 공통 비서로 지정된 채 남은 개인 비서는 관리자가 끌 수 있게 「✓ 지정됨」과 끄는 스위치를 보인다.
-              꺼지면 isCurrent 가 거짓이 되어 블록이 사라지므로 다시 지정할 길은 없다. */}
-          {showAssistantToggle && (
-            <div className="flex items-center justify-between border-t pt-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="agent-connection-assistant-toggle" className="text-sm font-medium">
-                    이 에이전트를 공통 비서로 지정
-                  </Label>
-                  {isCurrent ? (
-                    <Badge
-                      variant="secondary"
-                      data-testid="workspace-assistant-current"
-                      className="text-xs"
-                    >
-                      ✓ 지정됨
-                    </Badge>
-                  ) : null}
-                </div>
-                {/* 토큰 등록 안내는 관리자가 연결을 정할 수 있을 때만 — 개인 비서는 주인만 연결한다(WP-1170). */}
-                {canConfigure && isCurrent && ws && !ws.hasActiveToken ? (
-                  <p data-testid="workspace-assistant-warn" className="text-sm text-destructive">
-                    이 비서에 활성 OAuth 토큰이 없어요. 위 연결에서 토큰을 등록(또는 재발급)해야
-                    공통 비서가 동작합니다.
-                  </p>
-                ) : !hasToken && !isCurrent ? (
-                  <p data-testid="workspace-assistant-token-gate" className="text-sm text-muted-foreground">
-                    먼저 연결해야 공통 비서로 지정할 수 있어요.
-                  </p>
-                ) : null}
-              </div>
-              <Switch
-                id="agent-connection-assistant-toggle"
-                data-testid="agent-connection-assistant-toggle"
-                checked={isCurrent}
-                onCheckedChange={(checked) => void onToggleAssistant(checked)}
-                disabled={
-                  // 지정에는 연결이 필요하지만, 이미 지정된 비서를 끄는 데는 필요 없다 — 연결이 회수된 채 남은 지정도 끌 수 있게(WP-1170).
-                  (!hasToken && !isCurrent) || setAssistant.isPending || clearAssistant.isPending || probing
-                }
-              />
-            </div>
-          )}
-        </>
-      )}
-
-      <ProviderCredentialDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        agentUserId={agentUserId}
-        isReissue={meta != null}
-      />
-
-      {/* API 키 회수 확인 AlertDialog. window.confirm 대체 (#136). */}
-      <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
-        <AlertDialogContent data-testid="oauth-revoke-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>API 키 회수</AlertDialogTitle>
-            <AlertDialogDescription>
-              API 키를 회수하시겠습니까? 에이전트는 LLM 호출 불가 상태가 됩니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="oauth-revoke-cancel">취소</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => void doRevoke()}
-              data-testid="oauth-revoke-confirm"
-            >
-              회수
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* 모델 프로브 실패(또는 사용 가능 모델 0개) 상태에서 강제 지정 확인 (#643). */}
       <AlertDialog open={forceSetOpen} onOpenChange={setForceSetOpen}>
         <AlertDialogContent data-testid="workspace-assistant-force-set-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>연결 검증에 실패했습니다</AlertDialogTitle>
             <AlertDialogDescription>
-              이 에이전트의 저장된 자격증명으로 모델을 확인할 수 없습니다. 그래도 공통
-              비서로 지정하면 워크스페이스 전체가 LLM 호출 불가 상태가 될 수 있습니다.
-              계속하시겠습니까?
+              이 에이전트의 AI 계정으로 모델을 확인하지 못했어요. 그래도 공통 비서로 지정하면 워크스페이스 전체가 AI 를 쓰지
+              못할 수 있어요. 계속할까요?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -499,6 +477,6 @@ export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </div>
   );
 }

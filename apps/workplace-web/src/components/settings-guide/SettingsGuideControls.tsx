@@ -20,10 +20,16 @@ const guideTitleClass = 'text-sm leading-5 font-semibold'
 /** 오른쪽 sticky 열 — 본문과 같은 면(배경·경계선 없음)이고 폼과는 간격으로만 구분한다. */
 export function SettingsGuideAside({
   guide,
+  activeSection,
   maxHeight,
+  width,
   onHide,
 }: {
   guide: SettingsGuide
+  /** 본문에서 지금 보고 있는 섹션 id(WP-1281) — 섹션별 가이드면 그 섹션으로 따라간다. */
+  activeSection?: string | null
+  /** 열 폭(px) — 남는 폭에 따라 280~360(WP-1281). 없으면 280. */
+  width?: number
   /** WP-414: 본문 스크롤 영역의 보이는 높이 — 열이 이보다 길면 열 안에서 스크롤해 끝(「AI에게 묻기」)까지 닿게 한다. */
   maxHeight?: number
   onHide: () => void
@@ -35,8 +41,8 @@ export function SettingsGuideAside({
       // self-start: flex 행 높이로 늘어나지 않아야 sticky 가 스크롤 컨테이너 상단에 붙는다.
       // pt-6: 본문 py-4 + 첫 섹션 pt-2 와 같아 열 머리가 첫 섹션 제목과 같은 높이에 선다.
       // WP-414: 최대 높이 = 본문 보이는 높이 + 넘치면 열 자체 스크롤 — 열이 길어도 폼을 끝까지 내리지 않고 열 끝 버튼에 닿는다.
-      style={maxHeight != null ? { maxHeight } : undefined}
-      className="sticky top-0 w-[280px] shrink-0 self-start overflow-y-auto pt-6 pr-4 pb-4"
+      style={{ maxHeight, width: width ?? 280 }}
+      className="sticky top-0 shrink-0 self-start overflow-y-auto pt-6 pr-4 pb-4"
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className={guideTitleClass}>{GUIDE_TITLE}</h2>
@@ -44,7 +50,7 @@ export function SettingsGuideAside({
           숨기기
         </Button>
       </div>
-      <SettingsGuidePanel guide={guide} />
+      <SettingsGuidePanel guide={guide} activeSection={activeSection} />
     </aside>
   )
 }
@@ -92,12 +98,14 @@ export function SettingsGuideButton({
  */
 export function SettingsGuideDesktopSheet({
   guide,
+  activeSection,
   open,
   id,
   onClose,
   returnFocusRef,
 }: {
   guide: SettingsGuide
+  activeSection?: string | null
   open: boolean
   id: string
   onClose: () => void
@@ -145,7 +153,7 @@ export function SettingsGuideDesktopSheet({
         </div>
         <DialogPrimitive.Description className="sr-only">{GUIDE_DESCRIPTION}</DialogPrimitive.Description>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-          <SettingsGuidePanel guide={guide} onNavigate={onClose} />
+          <SettingsGuidePanel guide={guide} activeSection={activeSection} onNavigate={onClose} />
         </div>
       </DialogPrimitive.Content>
     </DialogPrimitive.Root>
@@ -153,11 +161,21 @@ export function SettingsGuideDesktopSheet({
 }
 
 /** 모바일 하단 시트 — 다른 모바일 시트와 같은 MobileSheetShell(바깥 탭·밀어 닫기) 동작을 따른다. */
-export function SettingsGuideMobileSheet({ guide, open, onClose }: { guide: SettingsGuide; open: boolean; onClose: () => void }) {
+export function SettingsGuideMobileSheet({
+  guide,
+  activeSection,
+  open,
+  onClose,
+}: {
+  guide: SettingsGuide
+  activeSection?: string | null
+  open: boolean
+  onClose: () => void
+}) {
   return (
     <MobileSheetShell open={open} onClose={onClose} title={GUIDE_TITLE} description={GUIDE_DESCRIPTION} testId="settings-guide-mobile-sheet">
       <div className="min-h-0 overflow-y-auto px-4 pb-4">
-        <SettingsGuidePanel guide={guide} onNavigate={onClose} />
+        <SettingsGuidePanel guide={guide} activeSection={activeSection} onNavigate={onClose} />
       </div>
     </MobileSheetShell>
   )

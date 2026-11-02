@@ -1,4 +1,4 @@
-// 실행 위치 추가·변경 대화상자(WP-1256) — 이름·설명·자리 수. 추가하면 runner 토큰이 한 번 발급된다(onCreated 로 넘김).
+// 실행 환경 추가·변경 대화상자(WP-1256, 이름은 WP-1281) — 이름·설명·최대 AI 수. 추가하면 연결 토큰이 한 번 발급된다(onCreated 로 넘김).
 
 import { useState } from 'react';
 
@@ -29,9 +29,9 @@ export function AgentLocationFormDialog({ location, onClose, onCreated }: Props)
   const cap = Number(capacity);
   const capError =
     !Number.isInteger(cap) || cap < 1 || cap > MAX_CAPACITY
-      ? `자리 수는 1~${MAX_CAPACITY} 사이 정수로 넣어 주세요`
+      ? `최대 AI 수는 1~${MAX_CAPACITY} 사이 정수로 넣어 주세요`
       : location && cap < location.used
-        ? `지금 켜진 AI(${location.used})보다 적게 줄일 수 없어요`
+        ? `지금 실행 중인 AI(${location.used}명)보다 적게 줄일 수 없어요`
         : null;
   const valid = name.trim() !== '' && capError == null;
   const pending = create.isPending || update.isPending;
@@ -52,9 +52,9 @@ export function AgentLocationFormDialog({ location, onClose, onCreated }: Props)
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent data-testid="agent-location-form">
         <DialogHeader>
-          <DialogTitle>{location ? '실행 위치 바꾸기' : '실행 위치 추가'}</DialogTitle>
+          <DialogTitle>{location ? '이름·최대 AI 수 바꾸기' : '실행 환경 추가'}</DialogTitle>
           <DialogDescription>
-            {location ? '이름·설명·자리 수를 바꿉니다.' : '만들면 runner 토큰이 한 번 발급되고 설치 순서를 안내합니다.'}
+            {location ? '이름·설명·최대 AI 수를 바꿔요.' : '만들면 연결 토큰이 한 번 발급되고 설치 순서를 안내해요.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -73,7 +73,7 @@ export function AgentLocationFormDialog({ location, onClose, onCreated }: Props)
             <Input id="loc-desc" value={description} maxLength={200} onChange={(e) => setDescription(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="loc-cap">자리 수</Label>
+            <Label htmlFor="loc-cap">최대 AI 수</Label>
             <Input
               id="loc-cap"
               type="number"
@@ -86,7 +86,7 @@ export function AgentLocationFormDialog({ location, onClose, onCreated }: Props)
               className="w-28"
             />
             <p className={capError ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-              {capError ?? '이 위치에서 동시에 켤 수 있는 AI 수입니다. 클러스터 자원에 맞춰 정하세요.'}
+              {capError ?? '이 실행 환경에서 동시에 띄울 수 있는 AI 수예요. 클러스터 자원에 맞춰 정하세요.'}
             </p>
           </div>
           <DialogFooter>

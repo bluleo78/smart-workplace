@@ -1,5 +1,6 @@
 package com.workplace.agentruntime.service;
 
+import com.workplace.agentruntime.dto.AgentLocationAgent;
 import com.workplace.agentruntime.dto.AgentLocationResponse;
 import com.workplace.agentruntime.dto.AgentLocationTokenResponse;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
@@ -25,6 +26,8 @@ import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,14 +67,24 @@ public class AgentLocationService {
   private final AgentRuntimeSettingRepository settings;
   private final AgentKeyRetirement keyRetirement;
 
-  /** 모든 위치 — 기본 위치 먼저. 자리 사용 수·연결 상태 포함. */
+  /** 모든 위치 — 기본 위치 먼저. 자리 사용 수·연결 상태·쓰는 AI 포함. */
   @Transactional(readOnly = true)
   public List<AgentLocationResponse> list() {
-    // 켜진 수는 한 번의 GROUP BY 로 센다 — 위치 미지정(기본 따라가기) 설정은 기본 위치에 더한다.
+    // 켜진 수·쓰는 AI 는 위치마다 묻지 않고 한 번씩 읽는다 — 위치 미지정(기본 따라가기) 설정은 기본 위치에 더한다.
     Map<Long, Integer> running = locations.countRunningByLocation();
     int unassigned = running.getOrDefault(null, 0);
+    Map<Long, List<AgentLocationAgent>> agents = locations.findAgentsByLocation();
+    List<AgentLocationAgent> unassignedAgents = agents.getOrDefault(null, List.of());
     return locations.findAll().stream()
-        .map(r -> toResponse(r, running.getOrDefault(r.id(), 0) + (r.isDefault() ? unassigned : 0)))
+        .map(
+            r -> {
+              List<AgentLocationAgent> direct = agents.getOrDefault(r.id(), List.of());
+              return toResponse(
+                  r,
+                  running.getOrDefault(r.id(), 0) + (r.isDefault() ? unassigned : 0),
+                  r.isDefault() ? merged(direct, unassignedAgents) : direct,
+                  direct.size());
+            })
         .toList();
   }
 
@@ -116,10 +129,11 @@ public class AgentLocationService {
         id,
         "AI 실행 위치 등록: " + name,
         Map.of("locationId", id, "name", name, "capacity", capacity));
-    // 방금 만든 값으로 응답한다 — 새 위치는 켜진 AI 가 없고(켜려면 위치가 있어야 한다) 토큰은 아직 쓰이지 않았다.
+    // 방금 만든 행으로 응답한다(토큰은 아직 쓰이지 않았다). 첫 위치면 기본이 되어 위치를 지정하지 않은 설정이 이리로 오므로, 쓰는 AI·자리 수는
+    // 다시 센다.
     Row created = new Row(id, name, description, first, capacity, token.prefix(), null);
     changeNotifier.locationChanged(ResourceChangedEvent.OP_CREATED, id, callerId);
-    return new AgentLocationTokenResponse(toResponse(created, 0), token.plaintext());
+    return new AgentLocationTokenResponse(withUsage(created), token.plaintext());
   }
 
   /**
@@ -143,7 +157,10 @@ public class AgentLocationService {
     }
     changeNotifier.locationChanged(ResourceChangedEvent.OP_UPDATED, id, null);
     return toResponse(
-        row.withName(name).withDescription(description).withCapacity(req.capacity()), used);
+        row.withName(name).withDescription(description).withCapacity(req.capacity()),
+        used,
+        locations.findAgentsAt(id, row.isDefault()),
+        locations.countSettingsUsing(id));
   }
 
   /**
@@ -265,13 +282,28 @@ public class AgentLocationService {
     if (locations.existsByName(name, exceptId)) throw AgentLocationConflictException.nameTaken();
   }
 
-  /** 저장 행 → 응답 — 자리 사용 수를 센다(기본 위치면 위치 미지정 AI 포함). */
+  /** 저장 행 → 응답 — 이 위치 하나의 자리 사용 수·쓰는 AI·직접 지정 설정 수를 읽는다(기본 위치면 위치 미지정 AI 포함). */
   AgentLocationResponse withUsage(Row r) {
-    return toResponse(r, locations.countRunning(r.id(), r.isDefault()));
+    return toResponse(
+        r,
+        locations.countRunning(r.id(), r.isDefault()),
+        locations.findAgentsAt(r.id(), r.isDefault()),
+        locations.countSettingsUsing(r.id()));
   }
 
-  /** 저장 행 → 응답. 미리 센 자리 사용 수와 연결 상태를 더한다. */
-  private AgentLocationResponse toResponse(Row r, int used) {
+  /** 직접 지정한 AI 와 기본을 따라온 AI 를 이름순으로 합친다(목록에서 기본 위치용). */
+  private static List<AgentLocationAgent> merged(
+      List<AgentLocationAgent> direct, List<AgentLocationAgent> unassigned) {
+    if (unassigned.isEmpty()) return direct;
+    List<AgentLocationAgent> all = new ArrayList<>(direct);
+    all.addAll(unassigned);
+    all.sort(Comparator.comparing(AgentLocationAgent::name).thenComparing(AgentLocationAgent::id));
+    return all;
+  }
+
+  /** 저장 행 → 응답. 미리 센 자리 사용 수·쓰는 AI·직접 지정 설정 수와 연결 상태를 더한다. */
+  private AgentLocationResponse toResponse(
+      Row r, int used, List<AgentLocationAgent> agents, int settingCount) {
     return new AgentLocationResponse(
         r.id(),
         r.name(),
@@ -281,7 +313,9 @@ public class AgentLocationService {
         used,
         connectionOf(r),
         r.lastSeenAt(),
-        r.tokenPrefix());
+        r.tokenPrefix(),
+        agents,
+        settingCount);
   }
 
   /**

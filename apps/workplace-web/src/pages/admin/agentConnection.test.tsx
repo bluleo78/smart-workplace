@@ -118,7 +118,7 @@ async function openOpencode(user: ReturnType<typeof renderScreen>['user']) {
 
 test('미등록 → anthropic 토큰 등록 → payload 는 provider·token 뿐이고 등록 상태(뱃지·재발급·회수)로 바뀐다', async () => {
   const { user, state } = await renderSection(null)
-  expect(screen.getByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.')).toBeInTheDocument()
+  expect(screen.getByText('아직 연결하지 않았어요.')).toBeInTheDocument()
 
   await user.click(screen.getByTestId('oauth-token-register'))
   expect(await screen.findByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
@@ -166,7 +166,7 @@ test('opencode 등록 — 기본 프리셋 URL·프로브 payload·고른 모델
   ])
   // 등록 뒤 뱃지는 baseUrl 을 프리셋으로 역매핑한 이름, baseUrl 도 보인다.
   expect(await screen.findByTestId('credential-provider-badge')).toHaveTextContent('AWS Bedrock')
-  expect(screen.getByText(BEDROCK_URL)).toBeInTheDocument()
+  expect(screen.getByText(BEDROCK_URL, { exact: false })).toBeInTheDocument()
 })
 
 test('opencode 프로브 실패 → 모델 목록 대신 직접 입력이 나오고, 접두 없는 id 에 프리셋 접두를 붙여 보낸다', async () => {
@@ -212,7 +212,7 @@ test('opencode 모델을 정하지 않으면 연결하기가 비활성이고 요
 test('등록된 opencode 의 baseUrl 이 프리셋에 없으면 뱃지는 「OpenAI 호환」이고 baseUrl 이 보인다', async () => {
   await renderSection({ ...ANTHROPIC_META, id: 9, provider: 'opencode', baseUrl: 'https://llm.internal.example.com/v1' })
   expect(screen.getByTestId('credential-provider-badge')).toHaveTextContent('OpenAI 호환')
-  expect(screen.getByText('https://llm.internal.example.com/v1')).toBeInTheDocument()
+  expect(screen.getByText('https://llm.internal.example.com/v1', { exact: false })).toBeInTheDocument()
 })
 
 test('이미 등록돼 있으면 재발급·회수만 보이고, 재발급하면 새 토큰을 보내고 변경 토스트를 띄운다', async () => {
@@ -241,9 +241,9 @@ test('회수 확인창에서 취소하면 DELETE 가 없고, 확인하면 DELETE
 
   await user.click(screen.getByTestId('oauth-token-revoke'))
   await user.click(await screen.findByTestId('oauth-revoke-confirm'))
-  expect(await screen.findByText('API 키를 회수했습니다.')).toBeInTheDocument()
+  expect(await screen.findByText('AI 계정 연결을 끊었습니다.')).toBeInTheDocument()
   expect(state.deletes).toBe(1)
-  expect(await screen.findByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.')).toBeInTheDocument()
+  expect(await screen.findByText('아직 연결하지 않았어요.')).toBeInTheDocument()
   expect(screen.getByTestId('oauth-token-register')).toBeInTheDocument()
 })
 
@@ -280,17 +280,17 @@ test('개인 비서(canConfigure=false)는 재발급·연결하기·공통 비�
   })
   expect(await screen.findByTestId('credential-provider-badge')).toHaveTextContent('Claude 구독')
   expect(screen.getByTestId('connection-personal-hint')).toHaveTextContent(
-    '개인 비서의 AI 연결은 주인이 설정에서 정하고, 공통 비서로는 지정할 수 없어요.',
+    '이 AI 의 AI 계정은 주인이 관리해요.',
   )
   expect(screen.queryByTestId('oauth-token-reissue')).not.toBeInTheDocument()
   expect(screen.queryByTestId('agent-connection-assistant-toggle')).not.toBeInTheDocument()
 
   await user.click(screen.getByTestId('oauth-token-revoke'))
   await user.click(await screen.findByTestId('oauth-revoke-confirm'))
-  expect(await screen.findByText('API 키를 회수했습니다.')).toBeInTheDocument()
+  expect(await screen.findByText('AI 계정 연결을 끊었습니다.')).toBeInTheDocument()
   expect(api.state.deletes).toBe(1)
   // 회수 뒤에도 관리자가 새로 연결할 수 없다.
-  expect(await screen.findByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.')).toBeInTheDocument()
+  expect(await screen.findByText('아직 연결하지 않았어요.')).toBeInTheDocument()
   expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()
   expect(api.state.posts).toEqual([])
 })

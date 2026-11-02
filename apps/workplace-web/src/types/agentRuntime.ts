@@ -45,10 +45,14 @@ export interface AgentLocation {
   name: string;
   description: string | null;
   isDefault: boolean;
-  /** 이 위치에서 동시에 켤 수 있는 AI 수(자리). */
+  /** 이 실행 환경에서 동시에 실행할 수 있는 AI 수(최대 AI 수). */
   capacity: number;
-  /** 지금 이 위치를 쓰는(켜 둔) AI 수. */
+  /** 지금 이 실행 환경에서 실행 중인 AI 수. */
   used: number;
+  /** 이 실행 환경을 쓰도록 설정된 AI — 기본 실행 환경이면 실행 환경을 고르지 않은 AI 도 포함(「AI」 열). */
+  agents: { id: number; name: string }[];
+  /** 이 실행 환경을 직접 고른 실행 설정 수 — 서버 삭제 거절 조건과 같은 판정에 쓴다(기본 환경을 고르지 않은 AI 는 세지 않는다). */
+  settingCount: number;
   connection: LocationConnection;
   lastSeenAt: string | null;
   /** 토큰 앞부분(rt_xxxx) — 어느 토큰이 설치됐는지 맞춰 보는 용도. */

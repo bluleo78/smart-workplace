@@ -26,12 +26,18 @@ export interface SettingsAiContextInput {
   facts?: Array<[string, FactValue]>;
 }
 
-/** 가이드 요약 — 소개 → 주의(되돌리기 어려운 동작, 영향이 커 앞쪽) → 알아두기 순. */
+/**
+ * 가이드 요약 — 소개 → 주의(되돌리기 어려운 동작, 영향이 커 앞쪽) → 알아두기 순.
+ * 섹션별 가이드(WP-1281)는 섹션 주의·알아두기를 「섹션 제목 · 주의/알아두기 n」 으로 펼쳐 싣는다(명령 단계는 싣지 않는다).
+ */
 function guidePairs(guide: SettingsGuide): Array<[string, FactValue]> {
+  const sections = guide.sections ?? [];
   return [
     ['소개', guide.lead],
     ['주의', guide.caution],
+    ...sections.flatMap((s): Array<[string, FactValue]> => (s.caution ? [[`${s.title} · 주의`, s.caution]] : [])),
     ...guide.tips.map((tip, i): [string, FactValue] => [`알아두기 ${i + 1}`, tip]),
+    ...sections.flatMap((s) => (s.tips ?? []).map((tip, i): [string, FactValue] => [`${s.title} · 알아두기 ${i + 1}`, tip])),
   ];
 }
 

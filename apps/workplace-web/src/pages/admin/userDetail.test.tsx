@@ -111,7 +111,7 @@ test('내 계정 상세에서는 활성 상태 스위치가 처음부터 막혀 
 // AI 대상의 역할 거르기(WP-728)는 에이전트 상세로 옮겨 agentManagement.test.tsx 가 본다(WP-1075).
 test('AI 계정의 옛 주소로 들어오면 에이전트 화면의 그 상세로 넘긴다 (WP-1075)', async () => {
   const { location, calls } = renderDetail({ ...INITIAL_USER, kind: 'AGENT' })
-  await waitFor(() => expect(location()).toBe(`/settings/agents?agent=${USER_ID}`))
+  await waitFor(() => expect(location()).toBe(`/settings/agents/${USER_ID}`))
   expect(screen.queryByRole('switch', { name: '활성 상태' })).not.toBeInTheDocument()
   expect(calls.roleSaves).toEqual([])
 })

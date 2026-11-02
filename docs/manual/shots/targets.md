@@ -248,14 +248,16 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 
 ### 15 AI 에이전트 관리
 
-상세 패널 아래쪽(AI 연결 및 모델·공통 비서·API 키)은 찍지 않는다 — **최근 사용** 시각이 AI 가 일할 때마다 바뀐다.
+> 2026-11-02 WP-1281 로 화면이 바뀌어(상세 시트 → 상세 페이지 `/settings/agents/:id`, 실행 위치 → **실행 환경** 탭, 설명·외부 연결 명령은 설정 가이드로) 아래 그림과 장면(`scripts/scenes/user.mjs` 의 agents-1~4)은 옛 화면 기준이다. 15장 본문은 그림 지시문을 빼 두었다 — 릴리스 뒤 장면을 새 testid 로 다시 쓰고 아래 새 행대로 찍어 지시문을 되살린다.
+
+상세 「실행」 섹션의 AI 계정·공통 비서 묶음은 찍지 않는다 — **최근 사용** 시각이 AI 가 일할 때마다 바뀐다.
 
 | 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
 | --- | --- | --- | --- | --- | --- | --- |
-| agents-1 | `/settings/agents` | 김서연 | 연 그대로 | (전체) | `toggle,create,row` | 에이전트 지니(공통 비서) |
-| agents-2 | 위와 같음 | 김서연 | **지니** 행을 눌러 상세 패널을 연다(저장하지 않음) | `info+active` | `info,mode,active` | 위와 같음 |
-| agents-3 | 위와 같음 | 김서연 | **배포 알리미**(release-bot) 행을 눌러 상세 패널을 열고 ② 플러그인 설치까지 내린다 | `area`(① 키 목록은 밖) | `plugin,login,work` (`area` 도 기록) | 외부 에이전트 release-bot |
-| agents-4 | 위와 같음 | 김서연 | **지니** 상세를 열고 **AI 연결 및 모델** 까지 내린다. 모델 이름이 채워질 때까지 기다림 | `area`(재발급 단추 안쪽 10px — 「최근 사용」 시각 줄은 자르기 밖) | `conn,model,assistant@r,key!inside` (`area` 도 기록) | — |
+| agents-1 | `/settings/agents` | 김서연 | 연 그대로(**목록** 탭) | (전체) | `tabs,toggle,create,row` | 에이전트 지니(공통 비서) |
+| agents-2 | `/settings/agents/<지니>` | 김서연 | 목록에서 **지니** 행을 누른다 | `status+profile` | `status,profile` | 위와 같음 |
+| agents-3 | `/settings/agents/<release-bot>` | 김서연 | **배포 알리미**(release-bot) 상세에서 **가이드** 를 열고 **실행** 섹션까지 내린다(가이드가 외부 연결 단계로 따라간다) | `guide` | `keys,steps` | 외부 에이전트 release-bot |
+| agents-4 | `/settings/agents/locations` | 김서연 | **실행 환경** 탭을 연 그대로 | `area` | `create,row,menu` (`area` 도 기록) | 실행 환경 하나 이상 |
 
 ### 16 로그인·앱 설정
 
@@ -284,7 +286,7 @@ SSO 화면의 **관리자 동의 링크**(앱 등록 client_id 가 든 주소)�
 | 12 메일 계정 | 연결된 메일 계정 목록 | 시드 아님 — 사용자가 Microsoft 로그인으로 직접 연결 — 찍음: my-settings-8(06 메일 절의 「M365 연결 중에만 찍는다」) |
 | 12 내 공유·16 노트 | 공유 중인 페이지 목록 | PRD·출시 체크리스트 링크 공유 (보강 시드 `--app-extras` 로 넣음 — 찍음: my-settings-7·workspace-settings-3) |
 | 14 역할 상세 | 관리자가 만든 역할 | 역할 「PARTNER」 (보강 시드 `--app-extras` 로 넣음 — 찍음: members-5) |
-| 15 에이전트 | 외부 에이전트 연결 | 외부 에이전트 release-bot (보강 시드 `--app-extras` 로 넣음 — 찍음: agents-3, 키 앞자리가 있는 ① 키 목록은 자르기 밖). 내부 에이전트의 「AI 연결 및 모델」 그림은 지니의 「최근 사용」 시각이 바뀌어 아직 못 찍음 |
+| 15 에이전트 | 외부 에이전트 연결 | 외부 에이전트 release-bot (보강 시드 `--app-extras` 로 넣음). WP-1281 화면 변경 뒤 다시 찍어야 함(위 15 절 참고) |
 
 ## 운영자 매뉴얼
 

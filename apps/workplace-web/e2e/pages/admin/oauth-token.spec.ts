@@ -8,7 +8,7 @@ import type { Route } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { type RequestTracker, trackRequests } from '../../fixtures/requests';
-import { mockAgentRuntimeNone } from '../../fixtures/agent-runtime-mock';
+import { mockAgentDetail, mockAgentRuntimeNone } from '../../fixtures/agent-runtime-mock';
 
 // 등록된 AGENT 1명만 있는 목록 — 페이지 진입 후 자동 선택은 없으므로 행 클릭으로 선택.
 const AGENT_ID = 100;
@@ -21,6 +21,11 @@ const AGENTS_FIXTURE = [
     kind: 'AGENT' as const,
     isActive: true,
     createdAt: '2026-05-20T09:00:00Z',
+    type: 'REGULAR' as const,
+    ownerName: null,
+    // 상세 페이지가 쓰는 실행 방식 — 기본(서버) 방식이어야 「AI 계정」 묶음이 보인다.
+    runtime: 'INTERNAL' as const,
+    runMode: 'SERVER' as const,
   },
 ];
 
@@ -28,6 +33,7 @@ const AGENTS_FIXTURE = [
 // 자격증명 라우트는 각 테스트가 setupCredential() 로 추가 주입한다.
 async function setupBase(page: import('@playwright/test').Page) {
   await mockAgentRuntimeNone(page);
+  await mockAgentDetail(page, () => AGENTS_FIXTURE as never);
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
   // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
@@ -200,7 +206,7 @@ async function enterAndSelect(page: import('@playwright/test').Page) {
   await page.goto('/settings/agents');
   await expect(page.getByRole('heading', { name: '에이전트' })).toBeVisible();
   await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-  await expect(page.getByRole('heading', { name: 'AI 연결 및 모델' })).toBeVisible();
+  await expect(page.getByTestId('agent-ai-account')).toBeVisible();
 }
 
 test.describe('/admin/agents — AI 연결 및 모델', () => {

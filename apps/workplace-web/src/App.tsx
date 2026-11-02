@@ -26,7 +26,7 @@ const SsoSettingsPage = lazy(() => import('./pages/admin/SsoSettingsPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
 const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
-const AgentLocationsPage = lazy(() => import('./pages/admin/AgentLocationsPage'))
+const AgentDetailPage = lazy(() => import('./pages/admin/AgentDetailPage'))
 const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
 const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
@@ -291,8 +291,11 @@ export default function App() {
                     <Route path="settings/apps/wiki" element={<WikiSharingPage />} />
                     <Route path="settings/wiki-sharing" element={<Navigate to="/settings/apps/wiki" replace />} />
                     <Route path="settings/audit-logs" element={<AuditLogListPage />} />
+                    {/* 에이전트(WP-1281) — 한 화면 두 탭 [목록 | 실행 환경] + 상세 페이지. locations 는 정적 경로라 :id 보다 먼저 맞는다. */}
                     <Route path="settings/agents" element={<AgentManagementPage />} />
-                    <Route path="settings/agent-locations" element={<AgentLocationsPage />} />
+                    <Route path="settings/agents/locations" element={<AgentManagementPage />} />
+                    <Route path="settings/agents/:id" element={<AgentDetailPage />} />
+                    <Route path="settings/agent-locations" element={<Navigate to="/settings/agents/locations" replace />} />
                   </Route>
                 </Route>
 

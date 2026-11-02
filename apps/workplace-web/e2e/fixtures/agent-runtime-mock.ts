@@ -2,6 +2,7 @@
 // 요약이 실패하면 화면이 외부 AI 의 연결 안내를 숨기므로(Works 가 키를 관리하는 AI 에 수동 키를 주지 않게), 에이전트 화면 E2E 는 이것을 먼저 부른다.
 import type { Page } from '@playwright/test';
 
+import type { AgentResponse } from '../../src/types/agent';
 import type { AgentTemplate } from '../../src/types/agentRuntime';
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -31,4 +32,17 @@ export async function mockAgentRuntimeNone(page: Page) {
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/runtime-setting$/, (r) =>
     r.request().method() === 'GET' ? r.fulfill(json({ message: '실행 설정 없음' }, 404)) : r.fallback(),
   );
+}
+
+/**
+ * 에이전트 상세 페이지(/settings/agents/:id)의 단건 조회 모킹 — 상세는 GET /admin/agents/{id} 를 부른다(WP-1281, 예전 시트는 목록 행을 그대로 썼다).
+ * 목록 모킹과 같은 원본을 보게 getAgents 를 함수로 받는다(생성·실행 방식 변경이 상세에도 반영). GET 외(PUT·DELETE)는 다른 모킹으로 넘긴다.
+ */
+export async function mockAgentDetail(page: Page, getAgents: () => AgentResponse[]) {
+  await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (r) => {
+    if (r.request().method() !== 'GET') return r.fallback();
+    const id = Number(r.request().url().match(/agents\/(\d+)$/)![1]);
+    const a = getAgents().find((x) => x.id === id);
+    return a ? r.fulfill(json(a)) : r.fulfill(json({ message: '없음' }, 404));
+  });
 }

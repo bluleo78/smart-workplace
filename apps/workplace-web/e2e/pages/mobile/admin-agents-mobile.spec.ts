@@ -1,8 +1,9 @@
 // WP-639: 관리자 설정 > 에이전트 표 — 휴대폰 폭에서 표가 가로로 넘치지 않고,
-// 숨긴 열(아이디·유형·실행)은 이름 아래 한 줄로 보인다. 행을 누르면 상세 시트가 열린다.
+// 숨긴 열(아이디·유형·실행)은 이름 아래 한 줄로 보인다. 행을 누르면 상세 페이지로 간다.
 import type { Page } from '@playwright/test'
 
 import type { AgentResponse } from '../../../src/types/agent'
+import { mockAgentDetail, mockAgentRuntimeNone } from '../../fixtures/agent-runtime-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 
 // 실데이터 폭 검증용 긴 이름·긴 아이디
@@ -17,6 +18,7 @@ const AGENTS: AgentResponse[] = [
     type: 'WORKSPACE',
     ownerName: null,
     runtime: 'EXTERNAL',
+    runMode: 'EXTERNAL',
     description: null,
     instructions: null,
     lastKeyUsedAt: null,
@@ -31,6 +33,7 @@ const AGENTS: AgentResponse[] = [
     type: 'PERSONAL',
     ownerName: '김민수',
     runtime: 'INTERNAL',
+    runMode: 'SERVER',
     description: null,
     instructions: null,
     lastKeyUsedAt: null,
@@ -38,6 +41,8 @@ const AGENTS: AgentResponse[] = [
 ]
 
 async function stubAgents(page: Page) {
+  await mockAgentRuntimeNone(page)
+  await mockAgentDetail(page, () => AGENTS)
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: AGENTS }) : r.fallback())
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (r) =>
@@ -76,7 +81,8 @@ test('에이전트 표는 휴대폰 폭 안에 들어오고, 아이디·유형·
   await expect(page.getByTestId('agent-meta-101')).toContainText('개인')
   await expect(page.getByTestId('agent-meta-101')).toContainText('김민수')
 
-  // 행을 누르면 상세 시트가 열린다
+  // 행을 누르면 상세 페이지로 간다
   await page.getByTestId('agent-row-100').tap()
-  await expect(page.getByTestId('agent-detail-drawer')).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\/agents\/100$/)
+  await expect(page.getByTestId('agent-detail-page')).toBeVisible()
 })
