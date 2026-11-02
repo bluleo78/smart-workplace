@@ -319,6 +319,92 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         return (OffsetDateTime) get(20);
     }
 
+    /**
+     * Setter for <code>public.issue_recurrence.test_run_id</code>.
+     */
+    public void setTestRunId(String value) {
+        set(21, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.test_run_id</code>.
+     */
+    public String getTestRunId() {
+        return (String) get(21);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.test_run_dispatched_at</code>.
+     */
+    public void setTestRunDispatchedAt(OffsetDateTime value) {
+        set(22, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.test_run_dispatched_at</code>.
+     */
+    public OffsetDateTime getTestRunDispatchedAt() {
+        return (OffsetDateTime) get(22);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.test_run_requested_by</code>.
+     */
+    public void setTestRunRequestedBy(Long value) {
+        set(23, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.test_run_requested_by</code>.
+     */
+    public Long getTestRunRequestedBy() {
+        return (Long) get(23);
+    }
+
+    /**
+     * Setter for
+     * <code>public.issue_recurrence.pending_question_answerer</code>.
+     */
+    public void setPendingQuestionAnswerer(Long value) {
+        set(24, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.issue_recurrence.pending_question_answerer</code>.
+     */
+    public Long getPendingQuestionAnswerer() {
+        return (Long) get(24);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.pending_question_actions</code>.
+     */
+    public void setPendingQuestionActions(String value) {
+        set(25, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.pending_question_actions</code>.
+     */
+    public String getPendingQuestionActions() {
+        return (String) get(25);
+    }
+
+    /**
+     * Setter for <code>public.issue_recurrence.follow_up_test_by</code>.
+     */
+    public void setFollowUpTestBy(Long value) {
+        set(26, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.follow_up_test_by</code>.
+     */
+    public Long getFollowUpTestBy() {
+        return (Long) get(26);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -342,7 +428,7 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
     /**
      * Create a detached, initialised IssueRecurrenceRecord
      */
-    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled, Long pendingQuestionMessageId, String pendingQuestionText, OffsetDateTime pendingQuestionAskedAt, String followUpRunId, OffsetDateTime followUpDispatchedAt) {
+    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled, Long pendingQuestionMessageId, String pendingQuestionText, OffsetDateTime pendingQuestionAskedAt, String followUpRunId, OffsetDateTime followUpDispatchedAt, String testRunId, OffsetDateTime testRunDispatchedAt, Long testRunRequestedBy, Long pendingQuestionAnswerer, String pendingQuestionActions, Long followUpTestBy) {
         super(IssueRecurrence.ISSUE_RECURRENCE);
 
         setIssueId(issueId);
@@ -366,6 +452,12 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         setPendingQuestionAskedAt(pendingQuestionAskedAt);
         setFollowUpRunId(followUpRunId);
         setFollowUpDispatchedAt(followUpDispatchedAt);
+        setTestRunId(testRunId);
+        setTestRunDispatchedAt(testRunDispatchedAt);
+        setTestRunRequestedBy(testRunRequestedBy);
+        setPendingQuestionAnswerer(pendingQuestionAnswerer);
+        setPendingQuestionActions(pendingQuestionActions);
+        setFollowUpTestBy(followUpTestBy);
         resetChangedOnNotNull();
     }
 }

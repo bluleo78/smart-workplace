@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,7 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 이슈의 반복 AI 작업(WP-989, 「실행 일정」) — 이슈 하나의 반복 규칙 조회·저장·삭제와 담당 AI 후보(WP-1314). 저장·삭제는 이슈 수정과 같은
- * 권한(issue:write + 프로젝트 멤버 — 개인 프로젝트는 소유자만)이고, 담당 AI 가 남의 개인 비서인 일정은 그 주인만(403) 바꾼다.
+ * 권한(issue:write + 프로젝트 멤버 — 개인 프로젝트는 소유자만)이고, 담당 AI 가 남의 개인 비서인 일정은 그 주인만(403) 바꾼다. 「지금
+ * 실행」(WP-1313)도 같은 권한이다.
  */
 @RestController
 @RequestMapping("/api/v1/projects/{key}/issues/{number}/recurrence")
@@ -65,5 +67,17 @@ public class IssueRecurrenceController {
       Authentication auth, @PathVariable String key, @PathVariable int number) {
     recurrenceService.delete((Long) auth.getPrincipal(), key, number);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * POST test-runs — 「지금 실행」(WP-1313): 일정과 관계없이 한 번 실행한다(202). 다음 회차·연속 실패 수는 그대로이고, 결과는 테스트 표시를 붙여
+   * 이슈 챗에 남는다. 이미 실행 중이거나 실행할 수 없으면 409, 남의 개인 비서 일정이면 403.
+   */
+  @PostMapping("/test-runs")
+  @RequirePermission("issue:write")
+  public ResponseEntity<Void> runNow(
+      Authentication auth, @PathVariable String key, @PathVariable int number) {
+    recurrenceService.runNow((Long) auth.getPrincipal(), key, number);
+    return ResponseEntity.accepted().build();
   }
 }

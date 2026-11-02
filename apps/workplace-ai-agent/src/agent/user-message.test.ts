@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildRecurringRunMessage, buildUserMessage, formatKst } from './user-message.js';
+import { buildRecurringRunMessage, buildUserMessage, formatKst, TEST_GATED_DESC, TEST_GATED_LABELS } from './user-message.js';
+import { RECURRING_TEST_GATED_TOOLS } from '../mcp/tools.js';
 import { issueEventEnvelope, type IssueEventEnvelope } from '../types/issue-events.js';
 
 const common = {
@@ -219,5 +220,36 @@ describe('buildUserMessage', () => {
   it('formatKst — UTC 를 KST 로, 못 읽는 값은 그대로', () => {
     expect(formatKst('2026-12-31T15:30:00Z')).toBe('2027-01-01(금) 00:30 KST');
     expect(formatKst('oops')).toBe('oops');
+  });
+});
+
+// WP-1313: 테스트 실행 지시문의 「되돌릴 수 없는 쓰기」 목록은 실제로 멈추는 도구(RECURRING_TEST_GATED_TOOLS)와 어긋나면 안 된다 —
+// 모델이 멈추지 않는 쓰기를 묻거나, 멈추는 쓰기를 모른 채 시도하게 된다.
+describe('TEST_GATED_DESC', () => {
+  it('모든 멈춤 도구에 사람 말 이름이 있고 지시문 목록에 들어간다', () => {
+    for (const tool of RECURRING_TEST_GATED_TOOLS) {
+      expect(TEST_GATED_LABELS[tool], tool).toBeTruthy();
+      expect(TEST_GATED_DESC, tool).toContain(TEST_GATED_LABELS[tool]);
+    }
+  });
+
+  it('멈추지 않는 도구의 이름은 목록에 없다', () => {
+    expect(Object.keys(TEST_GATED_LABELS).filter((n) => !RECURRING_TEST_GATED_TOOLS.has(n))).toEqual([]);
+    expect(TEST_GATED_DESC.split(', ')).toHaveLength(RECURRING_TEST_GATED_TOOLS.size);
+  });
+
+  it('테스트 실행 지시문에 목록이 그대로 실린다', () => {
+    const msg = buildRecurringRunMessage(
+      {
+        ...common,
+        ownerUserId: 7,
+        runId: '42-t1',
+        runAt: '2026-09-22T10:00:00+09:00',
+        recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+        issueBody: '매주 보고 메일',
+      },
+      { test: true },
+    );
+    expect(msg).toContain(TEST_GATED_DESC);
   });
 });

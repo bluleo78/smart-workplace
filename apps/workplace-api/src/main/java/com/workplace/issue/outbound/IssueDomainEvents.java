@@ -160,6 +160,8 @@ public final class IssueDomainEvents {
    * @param issueBody 이슈 본문(마크다운). 없으면 null
    * @param followUp 회차가 남긴 질문에 소유자가 답해 보내는 이어 처리면 그 질문과 답(WP-1312), 정기 회차면 null. 이어 처리도 같은 이벤트·같은
    *     실행 경로(같은 AI·소유자 권한·recurring 프로필)를 타고, runId 만 이어 처리 id("<issueId>-f<답 글 id>")다
+   * @param test 「지금 실행」으로 보낸 테스트 실행이거나 그 질문의 답으로 보낸 이어 처리인지(WP-1313) — ai-agent 가 되돌릴 수 없는 쓰기를 멈추는
+   *     도구 프로필(recurring-test)로 돌린다. 테스트 실행의 runId 는 "<issueId>-t<보낸 시각 ms>"다
    */
   public record IssueRecurringRunEvent(
       long issueId,
@@ -177,14 +179,27 @@ public final class IssueDomainEvents {
       String time,
       String issueBody,
       Instant occurredAt,
-      FollowUp followUp) {
+      FollowUp followUp,
+      boolean test) {
 
     /**
      * 이어 처리의 맥락(WP-1312) — ai-agent 가 「질문 X 에 소유자가 Y 라고 답했다, 이어서 하라」는 지시문을 만든다.
      *
      * @param question 회차·이어 처리가 남긴 질문 본문
-     * @param answer 소유자의 답 글 본문(멘션 토큰 포함 원문). 답한 사람은 이벤트 actor(소유자)다 — 소유자만 답할 수 있다
+     * @param answer 답 글 본문(멘션 토큰 포함 원문). 답한 사람은 이벤트 actor 다 — 정기 회차 질문은 소유자, 테스트 질문은 「지금 실행」을 누른
+     *     사람(WP-1313)만 답할 수 있다
+     * @param permittedActions 테스트 질문(WP-1313)이 멈춘 되돌릴 수 없는 쓰기 — 답을 받은 이어 처리가 이 쓰기만(하나당 한 번) 실행할 수
+     *     있다. 정기 회차 질문은 null
      */
-    public record FollowUp(String question, String answer) {}
+    public record FollowUp(
+        String question,
+        String answer,
+        java.util.List<com.workplace.issue.dto.RecurringPausedAction> permittedActions) {
+
+      /** 정기 회차 질문의 이어 처리 — 허락된 쓰기 목록이 없다. */
+      public FollowUp(String question, String answer) {
+        this(question, answer, null);
+      }
+    }
   }
 }

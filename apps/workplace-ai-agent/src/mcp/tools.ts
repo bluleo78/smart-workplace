@@ -35,6 +35,7 @@ import {
   type MemberRow,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { RECURRING_QUESTION_MARKER } from '../agent/system-prompt.js';
 import { findThreadAttachmentMeta } from '../agent/attachment-source.js';
 import { fileKind } from '../agent/attachment-presenter.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
@@ -304,7 +305,9 @@ const showDriveInput = z.object({
 
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 // WP-989: recurring — 반복 회차 실행. WP-1311 부터 읽기(RECURRING_RUN_TOOLS)·쓰기(RECURRING_RUN_WRITE_TOOLS·RECURRING_RUN_DIRECT_ACTIONS)를 함께 싣는다.
-export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring';
+// WP-1313: recurring-test — 「지금 실행」(테스트 실행)과 그 질문의 이어 처리. recurring 과 같은 도구를 싣되 되돌릴 수 없는 쓰기
+// (RECURRING_TEST_GATED_TOOLS)는 실행하지 않고 멈춘다(이어 처리는 허락된 쓰기만 실행).
+export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring' | 'recurring-test';
 
 /**
  * WP-989: 반복 회차 실행이 싣는 읽기 도구. 회차는 반복을 등록한 사람(소유자) 권한으로 돌아(홈 AI 채팅과 같은 대행) 그 사람의
@@ -372,6 +375,22 @@ export const RECURRING_RUN_DIRECT_ACTIONS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * WP-1313: 테스트 실행(recurring-test)이 실행 직전에 멈추는 되돌릴 수 없는 쓰기 — 지금 확인 카드로만 하는 작업(CARD_ONLY_SHARED_TOOLS 의 키:
+ * 일정 만들기·고치기(참석자 초대)·프로젝트 만들기·구성원 추가·채널 초대)과 카드 대신 바로 실행하는 작업(RECURRING_RUN_DIRECT_ACTIONS: 메일
+ * 보내기·일정/연락처/그룹 지우기)이다(설계 WP-1310 §6). 정기 회차(recurring)는 이 도구들을 바로 실행하고, 테스트 실행은 이슈 본문이 「바로
+ * 보내라」여도 한 번 멈춰 이슈 챗에서 묻는다. 되돌릴 수 있는 쓰기는 두 프로필 모두 바로 한다.
+ */
+export const RECURRING_TEST_GATED_TOOLS: ReadonlySet<string> = new Set([
+  ...Object.keys(CARD_ONLY_SHARED_TOOLS),
+  ...Object.keys(RECURRING_RUN_DIRECT_ACTIONS),
+]);
+
+/** WP-1313: 테스트 실행이 되돌릴 수 없는 쓰기를 멈췄을 때 도구 결과로 돌려주는 안내 — 모델이 다시 시도하지 않고 질문 표지로 묻게 한다. */
+export const RECURRING_TEST_PAUSED_MESSAGE =
+  '실행하지 않았습니다(멈춤). 이번은 「지금 실행」 테스트 실행이라 되돌릴 수 없는 쓰기는 사람의 확인을 받은 뒤에만 합니다. ' +
+  `이 쓰기를 다시 시도하지 말고, 최종 답변 첫 줄을 ${RECURRING_QUESTION_MARKER} 로 시작해 하려던 쓰기(받는 사람·제목·일시 등 핵심 내용)를 적고 진행해도 될지 물으세요.`;
+
+/**
  * WP-351: AI Chat 라우터(assistant 프로필의 메인 스레드)가 모델에 싣는 도구 — 라우터가 직접 쓰는 것만 둔다.
  * assistant 프로필 MCP 서버는 서브에이전트와 함께 쓰므로 전 앱 도구 union 을 그대로 등록하고, 라우터만 이 목록으로 좁힌다
  * (Claude 경로의 메인 스레드 에이전트 tools). 쓰기·확인 카드(propose_*)·답 제출은 담당 서브에이전트에만 있다 —
@@ -428,7 +447,8 @@ export function routerToolsFor(profile: McpProfile | undefined): readonly string
 // 구조화 출력을 파일 사이드카(WORKPLACE_*_PATH) 대신 요청별 콜백으로 호스트에 직접 전달한다.
 // (인-프로세스에선 process.env 가 전역 공유라 동시요청 경쟁 발생 → 콜백 클로저로 격리.)
 export interface HostBridge {
-  onProposal(p: { actionType: string; summary: string; params: Record<string, unknown> }): void;
+  // WP-1313: opencode stdio 브리지는 HTTP 로 알려 Promise 를 돌려준다 — 기록이 닿은 뒤 진행해야 하는 호출자(테스트 실행 래퍼)가 기다릴 수 있게.
+  onProposal(p: { actionType: string; summary: string; params: Record<string, unknown> }): void | Promise<void>;
   onSubmitResponse(text: string): void;
   onUnassignResult(r: { ok: boolean; canonical?: string }): void;
 }
@@ -465,6 +485,9 @@ export function buildTools(
   // read_chat_attachment·read_chat_thread_attachment) 모두 pages(PDF 쪽 이미지)를 스키마·설명에서 빼고 스캔 PDF 안내만 바꾼다.
   // 이미지 첨부는 imageInput 과 상관없이 이미지로 돌려준다(이미지를 볼 수 없는 opencode 모델이면 stdio 도구 등록이 결과 이미지를 안내 문구로 바꾼다, WP-241).
   imageInput = true,
+  // WP-1313: recurring-test 프로필에서 실행을 허락한 되돌릴 수 없는 쓰기(도구 이름, 같은 이름이 여러 번이면 그만큼) — 테스트 질문에 사람이 답해
+  // 보낸 이어 처리가 그 질문이 멈춘 쓰기만 하게 한다. 이 실행 안에서 하나당 한 번만 쓰이고, 그 밖의 되돌릴 수 없는 쓰기는 멈춘다.
+  recurringPermits: readonly string[] = [],
 ): McpTool[] {
   // #846: 두 앱 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기) — 프로필이 이름으로 골라 쓴다.
   // 같은 이름의 도구를 여기서 따로 정의하지 않는다(tools.test.ts 패리티 테스트가 강제) — 정의가 두 벌이면 파라미터가 어긋난다.
@@ -1465,8 +1488,8 @@ export function buildTools(
   }
 
   // WP-989·WP-1311: 반복 회차 — 소유자 권한의 읽기·쓰기. 사람이 지켜보지 않아 카드를 누를 사람이 없으므로 확인 카드 작업도 바로 실행한다.
-  if (profile === 'recurring') {
-    return [
+  if (profile === 'recurring' || profile === 'recurring-test') {
+    const tools = [
       ...RECURRING_RUN_TOOLS.map((n) => sharedTool(n)),
       ...RECURRING_RUN_WRITE_TOOLS.map((n) =>
         // create_drive_file 은 AI Chat 과 같이 content 모드만(업로드 링크를 받을 사람이 없다).
@@ -1474,6 +1497,8 @@ export function buildTools(
       ),
       ...buildRecurringDirectActionTools(),
     ];
+    // WP-1313: 테스트 실행은 같은 도구를 싣되 되돌릴 수 없는 쓰기를 멈추는 래퍼로 감싼다(도구 목록·스키마는 같아 모델이 보는 것은 같다).
+    return profile === 'recurring-test' ? gateRecurringTestTools(tools, recurringPermits, hostBridge) : tools;
   }
 
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.
@@ -1494,4 +1519,48 @@ export function buildTools(
     sharedTool('add_issue_relation'), // WP-887: 관계 유형은 get_project 의 relationTypes, 지우기 id 는 get_issue_detail 의 relations·externalLinks
     sharedTool('remove_issue_relation'),
   ];
+}
+
+/**
+ * WP-1313: 테스트 실행(recurring-test)의 되돌릴 수 없는 쓰기(RECURRING_TEST_GATED_TOOLS)를 멈추는 래퍼. 그런 도구를 부르면 실행하지 않고 호스트
+ * 브리지의 onProposal 로 멈춘 쓰기(도구 이름·인자)를 알린 뒤 「멈춤」 안내를 돌려준다 — run-recurring 이 모아 질문과 함께 API 에 보고하고, 사람이 답하면
+ * 이어 처리가 그 쓰기를 permits 로 받는다. 멈춘 쓰기 기록은 모델이 쓴 글이 아니라 이 코드가 남기므로, 모델이 허락을 지어낼 수 없다.
+ *
+ * permits 에 있는 도구는 하나당 한 번만 실제로 실행한다(같은 이름이 두 번 있으면 두 번) — 사람이 확인한 쓰기만 하고, 같은 쓰기를 되풀이하거나 다른
+ * 되돌릴 수 없는 쓰기로 번지지 않게. 브리지가 없으면(호스트가 기록을 받을 수 없음) 실행하지 않고 멈추기만 한다(fail-closed).
+ */
+export function gateRecurringTestTools(
+  tools: McpTool[],
+  permits: readonly string[],
+  hostBridge: HostBridge | undefined,
+): McpTool[] {
+  // 남은 허락 수 — 이 실행(도구 목록 한 벌) 안에서만 줄어든다.
+  const remaining = new Map<string, number>();
+  for (const name of permits) {
+    if (RECURRING_TEST_GATED_TOOLS.has(name)) remaining.set(name, (remaining.get(name) ?? 0) + 1);
+  }
+  return tools.map((t) => {
+    if (!RECURRING_TEST_GATED_TOOLS.has(t.name)) return t;
+    return {
+      ...t,
+      description: `${t.description} (「지금 실행」 테스트 실행에서는 사람이 확인한 쓰기만 실행되고, 그 밖에는 실행하지 않고 멈춥니다.)`,
+      handler: async (args: unknown) => {
+        const left = remaining.get(t.name) ?? 0;
+        if (left > 0) {
+          remaining.set(t.name, left - 1);
+          try {
+            return await t.handler(args);
+          } catch (e) {
+            // 실행되지 못한 호출(인자 검증·API 오류)은 허락을 쓰지 않은 것으로 돌려 둔다 — 고친 인자로 다시 부르면 실행되게.
+            remaining.set(t.name, (remaining.get(t.name) ?? 0) + 1);
+            throw e;
+          }
+        }
+        const params = args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
+        // opencode 는 HTTP 브리지라 기록이 호스트에 닿을 때까지 기다린다 — 실행이 끝난 뒤 닿으면 멈춘 쓰기가 보고에서 빠진다.
+        await hostBridge?.onProposal({ actionType: t.name, summary: '', params });
+        return JSON.stringify({ ok: false, paused: true, tool: t.name, message: RECURRING_TEST_PAUSED_MESSAGE });
+      },
+    };
+  });
 }

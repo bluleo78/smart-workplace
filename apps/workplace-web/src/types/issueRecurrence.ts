@@ -23,6 +23,8 @@ export interface IssueRecurrence extends IssueRecurrenceSummary {
   agentName: string;
   /** 보는 사람이 고치거나 끌 수 있는지(WP-1314) — 담당 AI 가 남의 개인 비서면 주인만 할 수 있어 false. 구버전 서버는 빠진다(=true). */
   editable?: boolean;
+  /** 「지금 실행」(테스트 실행, WP-1313)의 결과를 기다리는 중인지 — 버튼을 「실행 중」으로 잠근다. 구버전 서버는 빠진다(=false). */
+  testRunning?: boolean;
 }
 
 /** 실행 일정의 담당 AI 후보(WP-1314) — GET …/recurrence/agents. 남의 개인 비서는 오지 않는다. */

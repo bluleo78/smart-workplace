@@ -304,6 +304,15 @@ describe('buildOpencodeConfig', () => {
   });
 
   // WP-259: 요청자 테넌트가 stdio MCP env 로 전달된다 — 없으면 다중 멤버십 사용자의 도구 호출이 fail-closed.
+  // WP-1313: 테스트 이어 처리의 허락된 쓰기는 MCP_RECURRING_PERMITS(JSON) 로 넘긴다 — 비어 있으면 키가 없다.
+  it('mcp.recurringPermits 있으면 MCP_RECURRING_PERMITS 추가, 비었으면 키 없음', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const env = (i: RunnerInput) =>
+      (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env(baseInput({ mcp: { client, profile: 'recurring-test', onBehalfOfId: 1, recurringPermits: ['send_mail'] } }))?.MCP_RECURRING_PERMITS).toBe('["send_mail"]');
+    expect(env(baseInput({ mcp: { client, profile: 'recurring-test', onBehalfOfId: 1, recurringPermits: [] } }))).not.toHaveProperty('MCP_RECURRING_PERMITS');
+  });
+
   it('mcp.onBehalfOfTenantId 있으면 MCP_ON_BEHALF_OF_TENANT 추가, 없으면 키 없음', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const env = (i: RunnerInput) =>

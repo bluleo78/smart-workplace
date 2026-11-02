@@ -36,6 +36,7 @@ describe('parseConfigFromEnv', () => {
       bridgeRunId: undefined,
       vision: true,
       imageInput: false,
+      recurringPermits: [],
     });
   });
 
@@ -111,6 +112,18 @@ describe('parseConfigFromEnv', () => {
   it('MCP_ON_BEHALF_OF_TENANT 를 onBehalfOfTenantId 로 파싱한다(WP-259)', () => {
     expect(parseConfigFromEnv(baseEnv({ MCP_ON_BEHALF_OF_TENANT: '5' })).onBehalfOfTenantId).toBe(5);
     expect(parseConfigFromEnv(baseEnv()).onBehalfOfTenantId).toBeUndefined();
+  });
+
+  // WP-1313: 테스트 이어 처리의 허락된 쓰기 — 문자열 배열 JSON 만 받고, 없으면 빈 목록. recurring-test 프로필도 받는다.
+  it('MCP_RECURRING_PERMITS 를 recurringPermits 로 파싱하고 recurring-test 프로필을 받는다(WP-1313)', () => {
+    const cfg = parseConfigFromEnv(baseEnv({ MCP_PROFILE: 'recurring-test', MCP_RECURRING_PERMITS: '["send_mail"]' }));
+    expect(cfg.profile).toBe('recurring-test');
+    expect(cfg.recurringPermits).toEqual(['send_mail']);
+    expect(parseConfigFromEnv(baseEnv()).recurringPermits).toEqual([]);
+  });
+
+  it.each(['not json', '{"a":1}', '[1]'])('MCP_RECURRING_PERMITS 가 문자열 배열이 아니면(%s) throw', (v) => {
+    expect(() => parseConfigFromEnv(baseEnv({ MCP_RECURRING_PERMITS: v }))).toThrow(/MCP_RECURRING_PERMITS/);
   });
 
   it.each(['0', '-1', '1.5', 'abc'])('MCP_ON_BEHALF_OF_TENANT 가 양의 정수가 아니면(%s) throw', (v) => {

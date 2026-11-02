@@ -40,6 +40,9 @@ export interface RunnerMcpConfig {
   // WP-259: 요청자의 active-tenant. Claude 경로는 client 가 이미 테넌트 스코프(withOnBehalfOfTenant)라 쓰지 않고,
   // 별도 프로세스인 opencode stdio MCP 가 env 로 받아 자기 클라이언트에 X-On-Behalf-Of-Tenant 를 싣는 데 쓴다.
   onBehalfOfTenantId?: number;
+  // WP-1313: recurring-test 프로필(「지금 실행」 테스트 실행)에서 실행을 허락한 되돌릴 수 없는 쓰기 — 테스트 질문에 사람이 답해 보낸 이어
+  // 처리가 그 질문이 멈춘 쓰기만 하게 한다. 그 밖의 프로필은 쓰지 않는다. opencode 는 env MCP_RECURRING_PERMITS 로 넘긴다.
+  recurringPermits?: readonly string[];
 }
 
 export interface RunnerInput {

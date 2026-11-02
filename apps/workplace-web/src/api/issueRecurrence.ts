@@ -28,6 +28,14 @@ export async function deleteIssueRecurrence(projectKey: string, number: number):
   await client.delete(path(projectKey, number));
 }
 
+/**
+ * 「지금 실행」(WP-1313) — 일정과 관계없이 한 번 실행한다(202). 다음 실행 시각·실패 횟수는 그대로이고 결과는 이슈 챗에 테스트 표시로 남는다.
+ * 이미 실행 중이면 409, 남의 개인 비서 일정이면 403.
+ */
+export async function postIssueRecurrenceTestRun(projectKey: string, number: number): Promise<void> {
+  await client.post(`${path(projectKey, number)}/test-runs`);
+}
+
 /** 담당 AI 후보(WP-1314) — 이 이슈의 실행 일정을 맡길 수 있는 서버 실행 AI(내 AI 비서가 맨 앞). */
 export async function fetchIssueRecurrenceAgents(projectKey: string, number: number): Promise<IssueRecurrenceAgentOption[]> {
   const { data } = await client.get<IssueRecurrenceAgentOption[]>(`${path(projectKey, number)}/agents`);

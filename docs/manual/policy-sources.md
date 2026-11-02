@@ -14,6 +14,7 @@
 | 03 | AI 우선순위 15분 배치, AI 비서가 없으면 건너뜀 | `api/home/service/PriorityClassificationScheduler.java:112,175-181` |
 | 04 | AI 어시스턴트 앱별 바로 실행·확인 카드 | `agent/agent/subagents/*/agent.md` 도구 목록, `agent/mcp/tools.ts:54-60,484-491`(카드 전용 도구), `agent/mcp/tools.ts:306-372`(반복 실행 도구 — WP-1311) |
 | 04 | 실행 일정의 질문에 일정을 저장한 사람이 이슈 챗에서 답하면(멘션 없이) 같은 AI 가 이어 처리, 질문은 7일 동안 유효, 다음 실행이 질문 없이 끝나면 지난 질문은 무효 | `api/issue/service/IssueRecurrenceFollowUpService.java:48,71-143`, `api/issue/service/IssueRecurrenceService.java:522`(질문 없이 끝난 실행), `api/chat/service/ChatMessageService.java:136-141` (WP-1312) |
+| 04 | 「지금 실행」: 다음 실행 시각·실패 횟수 그대로, 결과에 「[테스트 실행]」, 되돌리기 어려운 일은 묻고 누른 사람이 답하면 그 일만 이어 처리, 남의 개인 비서 일정은 주인만, 실행 중에는 다시 못 누르고 정한 실행은 결과 뒤로 미룸, 멈춘 일정도 실행 가능 | `api/issue/service/IssueRecurrenceService.java`(`runNow`·`applyTestResult`·`runOne` 미루기), `api/issue/service/IssueRecurrenceFollowUpService.java`(테스트 질문 답), `agent/mcp/tools.ts`(`RECURRING_TEST_GATED_TOOLS`·`gateRecurringTestTools`), `web/components/issue/recurrence/RecurrenceRunNowButton.tsx`, `web/lib/issueRecurrence.ts`(`runNowState`) (WP-1313) |
 | 05 | 에이전트 DM·멘션 응답 규칙, 답글만 직접·이슈/일정은 카드 | `api/messaging/service/MessageService.java:170-246`, `agent/agent/run-messaging-agent.ts:20-55`, `agent/mcp/tools.ts:585-697` |
 | 07 | 일정 삭제는 참석자에게서도 사라지고 취소 알림 | `api/calendar/service/CalendarEventService.java:1062-1081` |
 | 07 | 반복 일정 삭제 범위 3가지 | `web/components/calendar/RecurrenceScopeDialog.tsx:26-66`, `CalendarEventService.java:1093-1130` |

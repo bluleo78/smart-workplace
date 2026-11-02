@@ -4,9 +4,12 @@
 // 그 AI 이름으로 이슈 챗에 남긴다. 실패도 사유와 함께 보고해야 API 가 연속 실패를 세고 작업 상태를 되돌린다.
 // WP-1312: 회차가 남긴 질문에 반복을 저장한 사람이 답하면 API 가 같은 이벤트를 followUp(질문·답)과 함께 보낸다 — 이 함수가 그대로 같은 신원·권한·프로필로
 // 돌리고 지시문만 이어 처리용(buildRecurringRunMessage 가 고른다)이다. 보고는 이벤트의 runId(이어 처리 id)로 같은 경로에 보낸다.
+// WP-1313: 「지금 실행」(테스트 실행, issue.recurring_test_run)과 그 질문의 이어 처리도 이 함수가 돌린다 — recurring-test 프로필로 되돌릴 수
+// 없는 쓰기를 멈추고(도구 래퍼가 호스트 브리지로 멈춘 쓰기를 알린다), 하나라도 멈췄으면 결과를 질문으로 보고하면서 멈춘 쓰기 목록을 함께 보낸다. 이어
+// 처리는 답을 받은 테스트 질문이 멈춘 쓰기(followUp.permittedActions)만 실행을 허락받는다.
 import axios from 'axios';
 import { RECURRING_QUESTION_MARKER, RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
-import { buildRecurringRunMessage } from './user-message.js';
+import { buildRecurringRunMessage, TEST_GATED_LABELS } from './user-message.js';
 import { defaultSleep } from './sleep.js';
 import { withSharedMemory } from './shared-memory-block.js';
 import { runnerFor, type ProviderCredential } from './agent-runner.js';
@@ -14,6 +17,7 @@ import { DEFAULT_MODEL } from './model-defaults.js';
 import { finalText, resultOk } from './runner-events.js';
 import type { IssueRecurringRunPayload } from '../types/issue-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import type { HostBridge } from '../mcp/tools.js';
 
 const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -50,10 +54,24 @@ function reason(e: unknown, fallback: string): string {
   return line ? line.slice(0, 300) : fallback;
 }
 
-export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurringDeps): Promise<void> {
+// WP-1313: 멈춘 쓰기 보고 상한 — API 도 상한(20개)으로 자르지만 전송량을 묶는다.
+const PAUSED_ACTIONS_MAX = 20;
+
+/** 테스트 실행이 멈춘 되돌릴 수 없는 쓰기 하나 — 도구 래퍼가 기록한 도구 이름·인자. */
+export interface PausedAction {
+  tool: string;
+  args?: Record<string, unknown>;
+}
+
+export async function runRecurring(
+  p: IssueRecurringRunPayload,
+  deps: RunRecurringDeps,
+  opts: { test?: boolean } = {},
+): Promise<void> {
+  const test = opts.test === true;
   const agentId = p.actingAgentId;
   const ownerId = p.ownerUserId;
-  const logTag = `agent:issue.recurring_run${p.followUp ? ':follow_up' : ''}:${p.issueKey}:${agentId}`;
+  const logTag = `agent:issue.recurring_${test ? 'test_' : ''}run${p.followUp ? ':follow_up' : ''}:${p.issueKey}:${agentId}`;
   // 테넌트가 오면 X-On-Behalf-Of-Tenant 를 싣는 스코프 클라이언트로 — 소유자 대행 도구 호출과 결과 보고가 이 테넌트로만 간다(run-ai-chat 과 같은 규칙).
   // LLM 자격 조회는 비서 전역 계정이라 스코프 없이(run-ai-chat 과 같다).
   const scoped = p.tenantId != null ? deps.client.withOnBehalfOfTenant(p.tenantId) : deps.client;
@@ -62,8 +80,14 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
   // 「결과를 받지 못했습니다」 실패로 세졌다. 끝내 실패해도 던지지 않는다 — 그때는 API 의 결과 대기 시간 초과가 실패로 센다.
   const sleep = deps.sleep ?? defaultSleep;
   const random = deps.random ?? Math.random;
-  const report = async (ok: boolean, message: string, question = false) => {
-    const body = { runId: p.runId, ok, message: message.slice(0, REPORT_MAX_CHARS), ...(question ? { question } : {}) };
+  const report = async (ok: boolean, message: string, question = false, pausedActions: PausedAction[] = []) => {
+    const body = {
+      runId: p.runId,
+      ok,
+      message: message.slice(0, REPORT_MAX_CHARS),
+      ...(question ? { question } : {}),
+      ...(pausedActions.length ? { pausedActions: pausedActions.slice(0, PAUSED_ACTIONS_MAX) } : {}),
+    };
     for (let attempt = 0; ; attempt++) {
       try {
         // 결과 보고는 AI(agentId) 대행 — API 가 그 AI 이름으로 이슈 챗에 글을 남긴다.
@@ -101,7 +125,29 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
   const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
   const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
   // 이슈 이벤트와 같이 공용 메모리(조직 + 그 프로젝트) 블록을 맨 앞에 — 개인 프로젝트라 API 는 조직 몫만 싣는다.
-  const userMessage = withSharedMemory(p, buildRecurringRunMessage(p));
+  const userMessage = withSharedMemory(p, buildRecurringRunMessage(p, { test }));
+
+  // WP-1313: 테스트 실행이 멈춘 되돌릴 수 없는 쓰기 — recurring-test 도구 래퍼가 onProposal 로 알린다(opencode 는 HTTP 브리지 경유).
+  // 카드·답 제출·담당 해제는 이 실행에 없어 무시한다.
+  const paused: PausedAction[] = [];
+  const hostBridge: HostBridge | undefined = test
+    ? {
+        onProposal: (x) => {
+          paused.push({ tool: x.actionType, args: x.params });
+        },
+        onSubmitResponse: () => {},
+        onUnassignResult: () => {},
+      }
+    : undefined;
+  // 테스트 질문의 이어 처리면 그 질문이 멈춘 쓰기만 실행을 허락한다(하나당 한 번 — 도구 래퍼가 센다).
+  const recurringPermits = test ? (p.followUp?.permittedActions ?? []).map((a) => a.tool) : undefined;
+
+  // 실행이 비정상으로 끝났을 때(최대 턴·시간 초과·오류)의 보고. WP-1313: 테스트 실행이 그 전에 되돌릴 수 없는 쓰기를 멈췄으면 실패가 아니라
+  // 질문으로 — 멈춘 쓰기 목록을 함께 보내 누른 사람이 답으로 허락할 수 있게 한다(실패로 보고하면 멈춘 쓰기가 사라져 다시 실행해야 한다).
+  const reportFailure = async (why: string) => {
+    if (paused.length > 0) await report(true, endedEarlyQuestion(why, paused), true, paused);
+    else await report(false, why);
+  };
 
   let text: string;
   try {
@@ -117,24 +163,33 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
       logTag,
       // 도구는 ownerId 대행 — 개인 비서면 홈 AI 채팅처럼 주인의 메일·일정·노트 등을, 그 밖의 AI 면 자기 권한으로 다루고, 본문이 시킨 쓰기를
       // 확인 카드 없이 한다(WP-1311·WP-1314).
+      // WP-1313: 테스트 실행은 recurring-test — 같은 도구에서 되돌릴 수 없는 쓰기만 멈춘다.
       mcp: {
         client: scoped,
         onBehalfOfId: ownerId,
-        profile: 'recurring',
+        profile: test ? 'recurring-test' : 'recurring',
         onBehalfOfTenantId: p.tenantId ?? undefined, // opencode stdio MCP 도 같은 테넌트로 호출
+        ...(hostBridge ? { hostBridge, recurringPermits } : {}),
       },
     });
     if (!resultOk(events)) {
-      await report(false, 'AI 실행이 정상적으로 끝나지 않았습니다');
+      await reportFailure('AI 실행이 정상적으로 끝나지 않았습니다');
       return;
     }
     text = finalText(events);
   } catch (e) {
     console.error('[run-recurring] 실행 실패', { issueKey: p.issueKey, runId: p.runId, error: reason(e, '') });
-    await report(false, reason(e, 'AI 실행 중 오류가 났습니다'));
+    await reportFailure(reason(e, 'AI 실행 중 오류가 났습니다'));
     return;
   }
 
+  // WP-1313: 테스트 실행이 되돌릴 수 없는 쓰기를 멈췄으면 모델이 표지를 빠뜨렸거나 답을 비워도 질문으로 남긴다 — 멈춘 쓰기를 아무도 확인하지
+  // 않은 채 「끝났다」로 보이지 않게. 멈춘 쓰기 목록을 함께 보내 답을 받으면 그 쓰기만 허락한다.
+  if (paused.length > 0) {
+    const asked = text ? (splitQuestion(text) ?? text) : '';
+    await report(true, asked || pausedFallback(paused), true, paused);
+    return;
+  }
   if (!text) {
     await report(false, 'AI 가 결과를 만들지 못했습니다');
     return;
@@ -156,4 +211,28 @@ export function splitQuestion(text: string): string | null {
   if (!head.startsWith(RECURRING_QUESTION_MARKER)) return null;
   const tail = head.slice(RECURRING_QUESTION_MARKER.length).replace(/^[*_`\s]+/, '');
   return [tail, ...rest].join('\n').trim();
+}
+
+// WP-1313: 멈춘 쓰기는 있는데 모델 답이 비었을 때 대신 남기는 질문 — 무엇을 멈췄는지만 알린다.
+function pausedFallback(paused: PausedAction[]): string {
+  const names = [...new Set(paused.map((a) => a.tool))].join(', ');
+  return `테스트 실행이라 되돌릴 수 없는 쓰기(${names})를 하기 전에 멈췄습니다. 진행해도 될까요?`;
+}
+
+// 멈춘 쓰기 인자를 질문 글에 보일 때의 길이 상한 — 무엇을 하려 했는지 알아볼 만큼만.
+const PAUSED_ARGS_SHOWN_CHARS = 200;
+
+// WP-1313: 멈춘 쓰기가 있는 테스트 실행이 중간에 끝났을 때 남기는 질문 — 끝난 사유와 멈춘 쓰기(사람 말 이름·도구 이름·인자 요약)를 적고
+// 진행해도 될지 묻는다. 답하면 이어 처리가 이 쓰기만 허락받아 실행한다.
+export function endedEarlyQuestion(why: string, paused: PausedAction[]): string {
+  const lines = paused.slice(0, PAUSED_ACTIONS_MAX).map((a) => {
+    const label = TEST_GATED_LABELS[a.tool];
+    const args = a.args && Object.keys(a.args).length ? JSON.stringify(a.args) : '';
+    const shown = args.length > PAUSED_ARGS_SHOWN_CHARS ? `${args.slice(0, PAUSED_ARGS_SHOWN_CHARS)}…` : args;
+    return `- ${label ? `${label} (\`${a.tool}\`)` : `\`${a.tool}\``}${shown ? ` ${shown}` : ''}`;
+  });
+  return (
+    `실행이 중간에 끝났습니다(${why}). 그 전에 테스트 실행이라 아래 되돌릴 수 없는 쓰기는 하지 않고 멈춰 두었습니다.\n` +
+    `${lines.join('\n')}\n\n진행해도 될까요? 답하시면 이 쓰기만 이어서 처리합니다.`
+  );
 }

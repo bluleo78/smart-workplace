@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { createWorkplaceApiClient, type WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge, type McpProfile, type McpTool } from './tools.js';
 
-const MCP_PROFILES: readonly McpProfile[] = ['issue', 'chat', 'home', 'messaging', 'assistant', 'recurring'];
+const MCP_PROFILES: readonly McpProfile[] = ['issue', 'chat', 'home', 'messaging', 'assistant', 'recurring', 'recurring-test'];
 
 export interface StdioEntryConfig {
   baseURL?: string;
@@ -37,6 +37,8 @@ export interface StdioEntryConfig {
   vision: boolean;
   // WP-250: 페이지 보기(read_file pages)를 열지(MCP_IMAGE_TOOLS=1). 러너가 이미지를 볼 수 있다고 확인한 모델에만 심는다.
   imageInput: boolean;
+  // WP-1313: recurring-test 프로필에서 실행을 허락한 되돌릴 수 없는 쓰기(MCP_RECURRING_PERMITS, JSON 문자열 배열). 없으면 빈 목록.
+  recurringPermits: string[];
 }
 
 // 이미지를 볼 수 없는 모델에 이미지 대신 넘기는 안내. 시스템 프롬프트 규칙(NO_VISION_PROMPT_RULE)과 짝을 이룬다.
@@ -108,6 +110,21 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
 
   const onBehalfOfTenantId = optionalPositiveIntEnv(env, 'MCP_ON_BEHALF_OF_TENANT');
 
+  // WP-1313: 허락된 쓰기 — 형식이 틀리면 부팅을 거절한다(허락을 짐작해 넓히지 않는다).
+  let recurringPermits: string[] = [];
+  if (env.MCP_RECURRING_PERMITS) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(env.MCP_RECURRING_PERMITS);
+    } catch {
+      throw new Error('MCP_RECURRING_PERMITS 이 올바른 JSON 이 아닙니다.');
+    }
+    if (!Array.isArray(parsed) || !parsed.every((x) => typeof x === 'string')) {
+      throw new Error('MCP_RECURRING_PERMITS 는 문자열 배열이어야 합니다.');
+    }
+    recurringPermits = parsed;
+  }
+
   return {
     baseURL,
     internalToken,
@@ -124,6 +141,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     vision: env.MCP_VISION !== '0',
     // WP-250: MCP_VISION 과 달리 미지정은 닫힘 — 이미지를 볼 수 있는지 모르는 모델에 쓸 수 없는 인자(pages)를 보이지 않는다.
     imageInput: env.MCP_IMAGE_TOOLS === '1',
+    recurringPermits,
   };
 }
 
@@ -156,7 +174,8 @@ async function postBridge(
 export function buildHostBridge(bridgeUrl: string, runId: string, internalToken: string): HostBridge {
   return {
     onProposal(p) {
-      void postBridge(bridgeUrl, runId, internalToken, 'proposal', p);
+      // WP-1313: Promise 를 돌려줘 테스트 실행 래퍼가 멈춘 쓰기 기록이 호스트에 닿을 때까지 기다리게 한다(postBridge 는 실패를 삼킨다).
+      return postBridge(bridgeUrl, runId, internalToken, 'proposal', p);
     },
     onSubmitResponse(text) {
       void postBridge(bridgeUrl, runId, internalToken, 'submit_response', text);
@@ -218,6 +237,7 @@ async function main(): Promise<void> {
     config.chatThreadId,
     config.homeSessionId,
     config.imageInput,
+    config.recurringPermits,
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

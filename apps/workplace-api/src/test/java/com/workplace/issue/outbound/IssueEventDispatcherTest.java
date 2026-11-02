@@ -412,7 +412,8 @@ class IssueEventDispatcherTest {
             base.time(),
             base.issueBody(),
             base.occurredAt(),
-            new IssueRecurringRunEvent.FollowUp("초안을 채널에 올릴까요?", "올려 줘"));
+            new IssueRecurringRunEvent.FollowUp("초안을 채널에 올릴까요?", "올려 줘"),
+            false);
     dispatcher.onIssueRecurringRun(base);
     dispatcher.onIssueRecurringRun(followUp);
 
@@ -436,6 +437,77 @@ class IssueEventDispatcherTest {
         .containsEntry("id", HUMAN_ACTOR.id())
         .containsEntry("username", HUMAN_ACTOR.username())
         .containsEntry("name", HUMAN_ACTOR.name());
+  }
+
+  /**
+   * WP-1313: 「지금 실행」(테스트 실행)과 그 질문의 이어 처리는 issue.recurring_test_run 으로 나가 구 ai-agent 가
+   * 거절한다(fail-closed). 테스트 질문의 이어 처리는 허락된 쓰기를 싣는다.
+   */
+  @Test
+  void 테스트_실행은_따로의_종류로_나가고_허락된_쓰기를_싣는다() {
+    dispatcher = build(true);
+    var b = recurringRun();
+    var testRun =
+        new IssueRecurringRunEvent(
+            b.issueId(),
+            b.projectKey(),
+            b.issueKey(),
+            b.title(),
+            b.actor(),
+            b.assignees(),
+            b.actingAgentId(),
+            b.ownerUserId(),
+            "3-t1790000000123",
+            b.runAt(),
+            null,
+            b.rrule(),
+            b.time(),
+            b.issueBody(),
+            b.occurredAt(),
+            null,
+            true);
+    var testFollowUp =
+        new IssueRecurringRunEvent(
+            b.issueId(),
+            b.projectKey(),
+            b.issueKey(),
+            b.title(),
+            b.actor(),
+            b.assignees(),
+            b.actingAgentId(),
+            b.ownerUserId(),
+            "3-f77",
+            b.runAt(),
+            null,
+            b.rrule(),
+            b.time(),
+            b.issueBody(),
+            b.occurredAt(),
+            new IssueRecurringRunEvent.FollowUp(
+                "메일을 보낼까요?",
+                "보내 줘",
+                List.of(
+                    new com.workplace.issue.dto.RecurringPausedAction(
+                        "send_mail", java.util.Map.of("subject", "주간 보고")))),
+            true);
+    dispatcher.onIssueRecurringRun(b);
+    dispatcher.onIssueRecurringRun(testRun);
+    dispatcher.onIssueRecurringRun(testFollowUp);
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(3)).publish(captor.capture());
+    var all = captor.getAllValues();
+    assertThat(all.get(0).type()).isEqualTo("issue.recurring_run");
+    assertThat(all.get(1).type()).isEqualTo("issue.recurring_test_run");
+    assertThat(all.get(1).payload()).containsEntry("runId", "3-t1790000000123");
+    assertThat(all.get(2).type()).isEqualTo("issue.recurring_test_run");
+    @SuppressWarnings("unchecked")
+    var f = (java.util.Map<String, Object>) all.get(2).payload().get("followUp");
+    @SuppressWarnings("unchecked")
+    var permitted = (List<java.util.Map<String, Object>>) f.get("permittedActions");
+    assertThat(permitted).hasSize(1);
+    assertThat(permitted.get(0)).containsEntry("tool", "send_mail");
+    assertThat(permitted.get(0).get("args")).isEqualTo(java.util.Map.of("subject", "주간 보고"));
   }
 
   /** WP-989: ai-agent 연동이 꺼져 있으면 반복 회차도 발사하지 않는다. */
@@ -463,6 +535,7 @@ class IssueEventDispatcherTest {
         "00:33",
         "오늘 할 일 정리",
         Instant.now(),
-        null);
+        null,
+        false);
   }
 }

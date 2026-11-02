@@ -153,9 +153,26 @@ public class IssueEventDispatcher {
       Map<String, Object> followUp = new HashMap<>();
       followUp.put("question", e.followUp().question());
       followUp.put("answer", e.followUp().answer());
+      // WP-1313: 테스트 질문의 답이면 그 질문이 멈춘 쓰기 — ai-agent 가 이 쓰기만 실행을 허락한다(없으면 키를 뺀다).
+      if (e.followUp().permittedActions() != null) {
+        followUp.put(
+            "permittedActions",
+            e.followUp().permittedActions().stream()
+                .map(
+                    a -> {
+                      Map<String, Object> m = new HashMap<>();
+                      m.put("tool", a.tool());
+                      if (a.args() != null) m.put("args", a.args());
+                      return m;
+                    })
+                .toList());
+      }
       p.put("followUp", followUp);
     }
-    dispatch("issue.recurring_run", p, e.issueKey());
+    // WP-1313: 「지금 실행」(테스트 실행)과 그 질문의 이어 처리는 따로의 이벤트 종류로 보낸다 — ai-agent 가 되돌릴 수 없는 쓰기를 멈추는
+    // 프로필로 돌린다. 페이로드 키(test)로 실으면 그 키를 모르는 구 ai-agent 가 정기 회차처럼 메일을 바로 보낼 수 있어, 모르는 종류로 거절하게
+    // 한다(fail-closed — 거절된 테스트 실행은 결과 대기 시간 초과로 정리된다).
+    dispatch(e.test() ? "issue.recurring_test_run" : "issue.recurring_run", p, e.issueKey());
   }
 
   /**

@@ -1,5 +1,8 @@
 package com.workplace.issue.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AssistantResolver;
@@ -16,6 +19,7 @@ import com.workplace.issue.dto.IssueRecurrenceRow;
 import com.workplace.issue.dto.IssueRecurrenceRunReport;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.dto.RecurringPausedAction;
 import com.workplace.issue.exception.InvalidIssueRecurrenceException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.IssueRecurrenceConflictException;
@@ -73,6 +77,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>회차는 이슈 본문이 시킨 쓰기를 확인 카드 없이 하고, 본문이 확인을 받으라고 하면 결과 글을 질문으로 남긴다(WP-1311). 그 질문은 반복 행에 「답을 기다리는
  * 질문」으로 남고, 소유자가 이슈 챗에 답하면(멘션 없어도) 같은 AI 가 같은 신원·권한으로 이어 처리한다(WP-1312 — {@link
  * IssueRecurrenceFollowUpService}). 이어 처리는 정기 회차와 따로 결과를 받고(자기 실행 id), 연속 실패 수·다음 회차를 바꾸지 않는다.
+ *
+ * <p>「지금 실행」(테스트 실행, WP-1313)은 일정과 관계없이 한 번 실행한다 — 자기 실행 id 로 결과를 따로 받아 다음 회차·연속 실패 수·회차 수·AI 작업
+ * 기록을 바꾸지 않고, 결과 글에는 테스트 표시를 붙인다. 되돌릴 수 없는 쓰기는 ai-agent 가 멈추고 질문으로 남기며(issue.recurring_test_run),
+ * 누른 사람이 답하면 이어 처리가 그 멈춘 쓰기만 실행한다. 한 반복에 결과를 기다리는 실행(정기 회차·이어 처리·테스트 실행)이나 정기 회차가 남긴 답을 기다리는 질문이
+ * 있으면 누를 수 없고(409), 테스트 실행이 도는 동안 정기 회차가 되면 결과를 기다리는 회차처럼 미룬다(WP-989 규칙 재사용).
  */
 @Slf4j
 @Service
@@ -131,6 +140,35 @@ public class IssueRecurrenceService {
   /** 결과 글이 비었을 때 대신 남기는 글. */
   static final String EMPTY_RESULT = "(이번 회차 결과가 비어 있습니다)";
 
+  // ─── 「지금 실행」(테스트 실행, WP-1313) ───
+
+  /** 테스트 실행·그 이어 처리 결과 글의 머리 — 정기 회차 결과와 구별되게 이슈 챗에 표시한다. */
+  static final String TEST_LABEL = "**[테스트 실행]** ";
+
+  /** 실패한 테스트 실행 글의 머리 — 연속 실패로 세지 않는다. */
+  static final String TEST_FAILED_PREFIX = "테스트 실행을 하지 못했습니다: ";
+
+  /** 결과를 {@link #PENDING_TIMEOUT} 안에 받지 못한 테스트 실행을 비울 때 남기는 글. */
+  static final String TEST_LOST = "테스트 실행 결과를 받지 못했습니다";
+
+  /** 테스트 실행 결과 글이 비었을 때 대신 남기는 글. */
+  static final String EMPTY_TEST_RESULT = "(테스트 실행 결과가 비어 있습니다)";
+
+  static final String NO_RECURRENCE = "실행 일정이 없습니다 — 먼저 실행 일정을 저장하세요";
+  static final String RUN_IN_FLIGHT = "이미 실행 중입니다 — 결과가 채팅에 남은 뒤 다시 실행하세요";
+
+  /** 정기 회차가 남긴 질문이 답을 기다리는 동안 「지금 실행」을 거절하는 문구 — 테스트 질문이 그 질문을 덮지 않게(WP-1313). */
+  static final String QUESTION_PENDING = "답을 기다리는 질문이 있습니다 — 그 질문에 답한 뒤 다시 실행하세요";
+
+  static final String AGENT_NOT_ASSIGNED = "담당 AI 가 이 작업의 담당자가 아니라 실행할 수 없습니다";
+  static final String OWNER_LEFT = "AI 가 대신할 사람이 이 프로젝트를 볼 수 없어 실행할 수 없습니다";
+
+  /** 멈춘 쓰기 목록을 보관할 때의 JSON 길이 상한 — 넘으면 인자를 빼고 도구 이름만 남긴다(허락 판정은 이름으로 한다). */
+  static final int PAUSED_ACTIONS_MAX_CHARS = 16_000;
+
+  /** 한 질문에 남기는 멈춘 쓰기 수 상한 — 모델이 같은 쓰기를 끝없이 시도해도 행이 커지지 않게. */
+  static final int PAUSED_ACTIONS_MAX = 20;
+
   /** 이슈 챗 글 한도 — 보고 글(ReportAgentWorkRequest.message)과 같다. 넘으면 자른다. */
   static final int CHAT_BODY_MAX = 4000;
 
@@ -158,6 +196,8 @@ public class IssueRecurrenceService {
   private final ApplicationEventPublisher publisher;
   // 스케줄러 회차를 행마다 세이브포인트로 감싸는 데 쓴다(한 행의 실패가 테넌트 전체를 되돌리지 않게).
   private final PlatformTransactionManager txManager;
+  // 테스트 실행이 멈춘 쓰기 목록(WP-1313)을 반복 행에 JSON 으로 보관·복원한다.
+  private final ObjectMapper objectMapper;
 
   // ───────────────────────────── REST(사람) ─────────────────────────────
 
@@ -256,6 +296,76 @@ public class IssueRecurrenceService {
         });
   }
 
+  /**
+   * 「지금 실행」(테스트 실행, WP-1313) — 일정과 관계없이 담당 AI 에게 한 번 실행을 보낸다. 다음 회차·연속 실패 수·회차 수·AI 작업 기록은 바꾸지 않는다.
+   * 꺼진(3회 연속 실패로 멈춘) 일정도 실행해 볼 수 있다 — 다시 켜기 전에 고쳐졌는지 확인하는 길이다.
+   *
+   * <ul>
+   *   <li>권한: 일정 저장과 같다 — 프로젝트 멤버(개인 작업은 소유자)이고, 담당 AI 가 남의 개인 비서면 그 주인만(403, WP-638·WP-1314).
+   *   <li>409: 일정이 없음, 작업이 끝남, 담당 AI 가 담당에서 빠짐, 서버가 실행할 수 없는 AI, 대행 주인이 프로젝트를 볼 수 없음, 결과를 기다리는
+   *       실행(정기 회차·이어 처리·테스트 실행)이 있음 — 한 반복에 실행은 하나씩이다(버튼을 연달아 눌러도 하나만 나간다). 정기 회차가 남긴 질문이 답을 기다리는
+   *       중 — 테스트 질문이 그 질문을 덮지 않게 먼저 답하게 한다.
+   * </ul>
+   *
+   * 결과는 ai-agent 가 같은 내부 보고로 돌려주고({@link #reportRun}), 테스트 표시를 붙인 그 AI 이름의 이슈 챗 글로 남는다.
+   */
+  public void runNow(long callerId, String projectKey, int number) {
+    Instant now = Instant.now();
+    var project = accessGuard.assertMember(projectKey, callerId);
+    // 저장과 같은 잠금 순서(이슈 → 반복) — 동시에 누른 두 요청 중 하나만 실행 id 를 남긴다.
+    var issue =
+        issueRepository
+            .findByProjectAndNumberForUpdate(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    IssueRecurrenceRow row =
+        repository
+            .findForUpdate(issue.id())
+            .filter(r -> !r.deleted())
+            .orElseThrow(() -> conflict(NO_RECURRENCE));
+    requireOwnerOf(row.agentUserId(), callerId);
+    if (IssueStatuses.CLOSED.contains(issue.status())) throw conflict(ISSUE_CLOSED);
+    if (!live(issue, row.agentUserId())) throw conflict(AGENT_NOT_ASSIGNED);
+    if (row.anyRunInFlight()) throw conflict(RUN_IN_FLIGHT);
+    // 정기 회차(또는 그 이어 처리)가 남긴 질문이 아직 답을 기다리면 누를 수 없다 — 테스트 실행이 물으면 그 질문 자리를 테스트 질문이 차지해 정기
+    // 회차의 질문에 더는 답할 수 없게 된다. 기한(7일)이 지난 질문은 답으로 받지 않으니 막지 않는다. 앞선 테스트 질문은 새 테스트가 바꿔도 된다.
+    if (scheduledQuestionPending(row, now)) throw conflict(QUESTION_PENDING);
+    requireServerAgent(row.agentUserId());
+    // 도구 신원은 정기 회차와 같은 규칙(WP-1314) — 대행 주인이 프로젝트를 볼 수 없으면 실행하지 않는다(일정을 거두는 일은 정기 회차가 한다).
+    OptionalLong runAs = runIdentity.resolve(row.agentUserId(), project);
+    if (runAs.isEmpty()) throw conflict(OWNER_LEFT);
+
+    // 테스트 실행 id 는 보낸 시각(ms)으로 — 정기 회차("<id>-<epoch 초>")·이어 처리("<id>-f<글 id>")와 모양이 달라 결과 보고가 어느 쪽인지
+    // 가른다.
+    String runId = issue.id() + "-t" + now.toEpochMilli();
+    repository.markTestDispatched(issue.id(), runId, now, callerId);
+    log.info("[recurrence] 지금 실행(테스트) 보냄 issueId={} runId={}", issue.id(), runId);
+    publisher.publishEvent(
+        runEvent(
+            userRepository,
+            row,
+            issue,
+            project,
+            runAs.getAsLong(),
+            assigneeRepository.findByIssue(issue.id()),
+            runId,
+            now,
+            null,
+            now,
+            null,
+            callerId,
+            true));
+  }
+
+  /**
+   * 정기 회차(또는 그 이어 처리)가 남긴 질문이 아직 답을 받을 수 있는지(WP-1313) — 테스트 질문이 아니고, 답 기한({@link
+   * IssueRecurrenceFollowUpService#QUESTION_TTL}) 안이다.
+   */
+  private static boolean scheduledQuestionPending(IssueRecurrenceRow row, Instant now) {
+    return row.pendingQuestionMessageId() != null
+        && !row.testQuestion()
+        && IssueRecurrenceFollowUpService.questionWithinTtl(row, now);
+  }
+
   // ───────────────────────────── 스케줄러 ─────────────────────────────
 
   /**
@@ -291,6 +401,14 @@ public class IssueRecurrenceService {
         log.warn("[recurrence] 이어 처리 결과 대기 초과 정리 실패 — 이 행만 건너뛴다. issueId={}", row.issueId(), e);
       }
     }
+    // WP-1313: 결과를 오래 못 받은 테스트 실행 — 실패로 세지 않고 비운 뒤 짧게 알린다.
+    for (IssueRecurrenceRow row : repository.lockStaleTestRuns(now.minus(PENDING_TIMEOUT))) {
+      try {
+        perRow.executeWithoutResult(status -> sweepTestRun(row));
+      } catch (RuntimeException e) {
+        log.warn("[recurrence] 테스트 실행 결과 대기 초과 정리 실패 — 이 행만 건너뛴다. issueId={}", row.issueId(), e);
+      }
+    }
     // 정리가 끝난 뒤에 읽는다 — 방금 실패로 센 회차를 결과 대기로 다시 보지 않게.
     int sent = 0;
     for (IssueRecurrenceRow row : repository.lockDue(now)) {
@@ -307,10 +425,28 @@ public class IssueRecurrenceService {
   private void sweepOne(IssueRecurrenceRow row) {
     log.info("[recurrence] 회차 결과 대기 시간 초과 issueId={} runId={}", row.issueId(), row.pendingRunId());
     if (row.deleted()) {
-      finishTombstone(row, false, null);
+      finishTombstone(row, RunKind.REGULAR, null);
       return;
     }
     applyResult(row, false, LOST_RUN, false);
+  }
+
+  /**
+   * 결과를 오래 못 받은 테스트 실행 하나(WP-1313) — 대기를 비우고 「테스트 실행 결과를 받지 못했습니다」를 남긴다. 연속 실패 수·다음 회차·AI 작업 기록은
+   * 그대로다. 묘비면 글 없이 비우기만 한다(기다리는 다른 실행이 없으면 행을 지운다).
+   */
+  private void sweepTestRun(IssueRecurrenceRow row) {
+    log.info("[recurrence] 테스트 실행 결과 대기 시간 초과 issueId={} runId={}", row.issueId(), row.testRunId());
+    if (row.deleted()) {
+      finishTombstone(row, RunKind.TEST, null);
+      return;
+    }
+    repository.clearTestRun(row.issueId());
+    IssueRow issue = issueRepository.findById(row.issueId()).orElse(null);
+    ProjectRow project =
+        issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
+    if (issue == null || project == null) return;
+    post(row.agentUserId(), project, issue, TEST_LABEL + TEST_LOST);
   }
 
   /**
@@ -321,7 +457,7 @@ public class IssueRecurrenceService {
     log.info(
         "[recurrence] 이어 처리 결과 대기 시간 초과 issueId={} runId={}", row.issueId(), row.followUpRunId());
     if (row.deleted()) {
-      finishTombstone(row, true, null);
+      finishTombstone(row, RunKind.FOLLOW_UP, null);
       return;
     }
     repository.clearFollowUp(row.issueId());
@@ -329,8 +465,10 @@ public class IssueRecurrenceService {
     ProjectRow project =
         issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
     if (issue == null || project == null) return;
-    post(row.agentUserId(), project, issue, FOLLOW_UP_LOST);
-    restoreAfterFollowUp(row, issue);
+    // 테스트 질문의 이어 처리(WP-1313)는 테스트 표시를 붙이고 AI 작업 기록을 건드리지 않는다(시작할 때도 바꾸지 않았다).
+    boolean test = row.followUpTestBy() != null;
+    post(row.agentUserId(), project, issue, (test ? TEST_LABEL : "") + FOLLOW_UP_LOST);
+    if (!test) restoreAfterFollowUp(row, issue);
   }
 
   /** 반복 하나의 이번 회차 — 보냈으면 true, 건너뛰었으면(지움·멈춤) false. */
@@ -351,6 +489,12 @@ public class IssueRecurrenceService {
     // 예: 09:00 회차를 보낸 뒤 09:03 에 시각을 09:05 로 당겨 저장한 경우(리뷰 PR #971).
     if (row.pendingRunId() != null) {
       log.info("[recurrence] 지난 회차 결과 대기 중 — 이번 회차를 미룬다. issueId={}", row.issueId());
+      return false;
+    }
+    // WP-1313: 「지금 실행」(테스트 실행)이 도는 중에 회차 시각이 됐다 — 같은 규칙으로 미룬다(같은 AI 가 같은 일을 겹쳐 돌리지 않게). 회차 시각은
+    // 그대로라 테스트 결과가 오거나 대기 시간이 지난 뒤의 확인(1분 간격)에서 보낸다 — 다음 회차 시각·회차 수는 바뀌지 않는다.
+    if (row.testRunId() != null) {
+      log.info("[recurrence] 테스트 실행 결과 대기 중 — 이번 회차를 미룬다. issueId={}", row.issueId());
       return false;
     }
 
@@ -392,7 +536,9 @@ public class IssueRecurrenceService {
             runAt,
             row.runCount() + 1,
             now,
-            null));
+            null,
+            row.createdBy(),
+            false));
     return true;
   }
 
@@ -407,6 +553,9 @@ public class IssueRecurrenceService {
    * @param assignees 이슈 담당자 — 호출자가 읽어 넘긴다(이어 처리는 담당 확인에 쓴 목록을 그대로 쓴다)
    * @param round 정기 회차 번호(1부터). 이어 처리는 null — 이어 처리 지시문은 회차 번호를 쓰지 않는다
    * @param followUp 이어 처리의 질문·답. 정기 회차는 null
+   * @param actorId 이벤트 actor — 정기 회차·정기 질문의 이어 처리는 반복을 저장한 사람, 테스트 실행은 누른 사람, 테스트 질문의 이어 처리는 답한
+   *     사람(WP-1313). 지시문의 「요청자」·「답한 사람」이 된다
+   * @param test 테스트 실행이거나 테스트 질문의 이어 처리인지(WP-1313) — issue.recurring_test_run 으로 나간다
    */
   static IssueRecurringRunEvent runEvent(
       UserRepository users,
@@ -419,8 +568,10 @@ public class IssueRecurrenceService {
       Instant runAt,
       Integer round,
       Instant now,
-      IssueRecurringRunEvent.FollowUp followUp) {
-    UserSummary owner = users.findById(row.createdBy()).map(UserResponse::toSummary).orElse(null);
+      IssueRecurringRunEvent.FollowUp followUp,
+      long actorId,
+      boolean test) {
+    UserSummary owner = users.findById(actorId).map(UserResponse::toSummary).orElse(null);
     return new IssueRecurringRunEvent(
         issue.id(),
         project.key(),
@@ -437,7 +588,8 @@ public class IssueRecurrenceService {
         IssueRecurrenceRules.formatTime(row.runTime()),
         issue.body() == null || issue.body().isBlank() ? null : issue.body(),
         now,
-        followUp);
+        followUp,
+        test);
   }
 
   // ───────────────────────────── 결과 보고(ai-agent) ─────────────────────────────
@@ -470,19 +622,31 @@ public class IssueRecurrenceService {
     // 않는다.
     boolean regular = row != null && report.runId().equals(row.pendingRunId());
     boolean followUp = row != null && report.runId().equals(row.followUpRunId());
-    if (!regular && !followUp) {
+    // WP-1313: 테스트 실행 id("<id>-t<ms>")도 모양이 달라 겹치지 않는다.
+    boolean test = row != null && report.runId().equals(row.testRunId());
+    if (!regular && !followUp && !test) {
       log.debug("[recurrence] 대기 중이 아닌 회차 보고 무시 issueId={} runId={}", issueId, report.runId());
       return;
     }
     if (row.agentUserId() != callerId) {
       throw new AccessDeniedException("이 반복을 실행하는 AI 만 결과를 보고할 수 있습니다");
     }
+    if (test) {
+      String text =
+          report.ok()
+              ? orDefault(report.message(), EMPTY_TEST_RESULT)
+              : TEST_FAILED_PREFIX + orDefault(report.message(), "알 수 없는 오류");
+      applyTestResult(row, TEST_LABEL + text, report.asQuestion(), report.pausedActions());
+      return;
+    }
     if (followUp) {
       String text =
           report.ok()
               ? orDefault(report.message(), EMPTY_FOLLOW_UP)
               : FOLLOW_UP_FAILED_PREFIX + orDefault(report.message(), "알 수 없는 오류");
-      applyFollowUpResult(row, text, report.asQuestion());
+      // 테스트 질문의 이어 처리(WP-1313)는 테스트 표시를 붙이고, 또 물으면 같은 사람이 답하는 테스트 질문으로 남긴다.
+      if (row.followUpTestBy() != null) text = TEST_LABEL + text;
+      applyFollowUpResult(row, text, report.asQuestion(), report.pausedActions());
       return;
     }
     String body =
@@ -503,7 +667,7 @@ public class IssueRecurrenceService {
   private int applyResult(IssueRecurrenceRow row, boolean ok, String body, boolean question) {
     if (row.deleted()) {
       // 지운 반복의 마지막 회차 결과 — 사용자가 시킨 회차라 글은 남기고, 작업 기록(지울 때 취소됨)은 건드리지 않는다.
-      finishTombstone(row, false, body);
+      finishTombstone(row, RunKind.REGULAR, body);
       return 0;
     }
     long issueId = row.issueId();
@@ -518,10 +682,11 @@ public class IssueRecurrenceService {
     repository.recordResult(issueId, failures, enabled);
     if (issue == null || project == null) return failures;
 
-    postResult(issueId, agentId, project, issue, body, question);
-    if (!question && ok && row.pendingQuestionMessageId() != null) {
+    postResult(issueId, agentId, project, issue, body, question, null, null);
+    if (!question && ok && row.pendingQuestionMessageId() != null && !row.testQuestion()) {
       // 질문 없이 끝난 뒤 회차가 앞선 질문을 낡게 만든다 — 소유자의 다음 아무 글이 지난 회차의 질문(예: 「메일 보낼까요?」)에 대한 답으로
       // 잡혀 소유자 권한으로 이미 의미 없는 쓰기를 하지 않게 지운다. 실패한 회차는 앞선 질문을 대신하지 못하므로 그대로 둔다.
+      // 「지금 실행」이 남긴 테스트 질문(WP-1313)은 정기 회차와 따로라 남긴다 — 누른 사람이 답을 기다리는 질문이 정기 회차에 사라지지 않게.
       repository.clearPendingQuestion(issueId);
     }
     if (stop && row.enabled()) {
@@ -543,9 +708,10 @@ public class IssueRecurrenceService {
    * 질문」으로 둬 대화를 이어 갈 수 있게). 연속 실패 수·다음 회차·켜짐은 바꾸지 않는다 — 실패도 사유 글만 남긴다. 작업은 「다음 회차 대기」로 되돌린다(정기 회차가
    * 도는 중이면 그대로). 묘비면 글만 남기고, 기다리는 정기 회차가 없으면 행을 지운다.
    */
-  private void applyFollowUpResult(IssueRecurrenceRow row, String body, boolean question) {
+  private void applyFollowUpResult(
+      IssueRecurrenceRow row, String body, boolean question, List<RecurringPausedAction> paused) {
     if (row.deleted()) {
-      finishTombstone(row, true, body);
+      finishTombstone(row, RunKind.FOLLOW_UP, body);
       return;
     }
     long issueId = row.issueId();
@@ -554,8 +720,41 @@ public class IssueRecurrenceService {
     ProjectRow project =
         issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
     if (issue == null || project == null) return;
-    postResult(issueId, row.agentUserId(), project, issue, body, question);
-    restoreAfterFollowUp(row, issue);
+    // 테스트 질문의 이어 처리(WP-1313)가 또 물으면 — 같은 사람이 답하는 테스트 질문으로, 새로 멈춘 쓰기와 함께 남긴다. AI 작업 기록은 건드리지 않는다.
+    Long testBy = row.followUpTestBy();
+    postResult(
+        issueId,
+        row.agentUserId(),
+        project,
+        issue,
+        body,
+        question,
+        testBy,
+        testBy == null ? null : pausedJson(paused));
+    if (testBy == null) restoreAfterFollowUp(row, issue);
+  }
+
+  /**
+   * 테스트 실행(WP-1313) 하나의 결과를 반영한다 — 테스트 대기를 비우고 그 AI 이름으로 테스트 표시를 붙인 결과 글을 남긴다. 질문이면(되돌릴 수 없는 쓰기를
+   * 멈췄거나 본문이 확인을 받으라고 함) 누른 사람이 답하는 테스트 질문으로 두고 멈춘 쓰기 목록을 함께 남긴다 — 답을 받은 이어 처리가 그 쓰기만 실행한다. 다음
+   * 회차·연속 실패 수·켜짐·AI 작업 기록은 바꾸지 않는다(실패도 글만). 묘비면 글만 남긴다.
+   */
+  private void applyTestResult(
+      IssueRecurrenceRow row, String body, boolean question, List<RecurringPausedAction> paused) {
+    if (row.deleted()) {
+      finishTombstone(row, RunKind.TEST, body);
+      return;
+    }
+    long issueId = row.issueId();
+    repository.clearTestRun(issueId);
+    IssueRow issue = issueRepository.findById(issueId).orElse(null);
+    ProjectRow project =
+        issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
+    if (issue == null || project == null) return;
+    // 누른 사람이 없으면(구 행 등 — 정상 경로에서는 늘 있다) 반복을 저장한 사람이 답한다.
+    long answerer = row.testRunRequestedBy() != null ? row.testRunRequestedBy() : row.createdBy();
+    postResult(
+        issueId, row.agentUserId(), project, issue, body, question, answerer, pausedJson(paused));
   }
 
   /**
@@ -577,15 +776,23 @@ public class IssueRecurrenceService {
    * 이어 가지 않으니 답할 수 없는 질문 알림을 내지 않게). 프로젝트에서 빠져 더는 볼 수 없는 AI 이름으로는 글을 남길 수 없어(챗이 거절해 보고 전체가 되돌려지고
    * 묘비가 남는다) 그때는 비우기만 한다. 작업 기록(지울 때 취소됨)은 건드리지 않는다.
    *
-   * @param followUp 끝난 것이 이어 처리인지(아니면 정기 회차)
+   * @param kind 끝난 것이 정기 회차·이어 처리·테스트 실행(WP-1313) 중 무엇인지
    * @param body 남길 결과 글. 결과를 못 받아 비우기만 할 때는 null
    */
-  private void finishTombstone(IssueRecurrenceRow row, boolean followUp, String body) {
+  private void finishTombstone(IssueRecurrenceRow row, RunKind kind, String body) {
     long issueId = row.issueId();
-    boolean otherPending = followUp ? row.pendingRunId() != null : row.followUpRunId() != null;
+    boolean otherPending =
+        (kind != RunKind.REGULAR && row.pendingRunId() != null)
+            || (kind != RunKind.FOLLOW_UP && row.followUpRunId() != null)
+            || (kind != RunKind.TEST && row.testRunId() != null);
     if (!otherPending) repository.delete(issueId);
-    else if (followUp) repository.clearFollowUp(issueId);
-    else repository.clearPendingRun(issueId);
+    else {
+      switch (kind) {
+        case REGULAR -> repository.clearPendingRun(issueId);
+        case FOLLOW_UP -> repository.clearFollowUp(issueId);
+        case TEST -> repository.clearTestRun(issueId);
+      }
+    }
     if (body == null) return;
     IssueRow issue = issueRepository.findById(issueId).orElse(null);
     ProjectRow project =
@@ -644,8 +851,7 @@ public class IssueRecurrenceService {
    * 발견했을 때 같은 규칙을 쓴다(WP-1116 — 스케줄러 쪽은 행을 바로 지워 그 회차 결과가 버려졌다).
    */
   private void cancel(IssueRecurrenceRow row) {
-    repository.retireLocked(
-        row.issueId(), row.pendingRunId() != null || row.followUpRunId() != null);
+    repository.retireLocked(row.issueId(), row.anyRunInFlight());
     cancelWork(row.issueId(), row.agentUserId());
   }
 
@@ -677,9 +883,48 @@ public class IssueRecurrenceService {
       ProjectRow project,
       IssueRow issue,
       String body,
-      boolean question) {
+      boolean question,
+      Long answerer,
+      String pausedActions) {
     long messageId = post(agentId, project, issue, body, question);
-    if (question) repository.setPendingQuestion(issueId, messageId, chatText(body), Instant.now());
+    // answerer 가 있으면 테스트 질문(WP-1313) — 그 사람만 답하고, 멈춘 쓰기만 이어 처리가 실행한다. 정기 회차 질문은 둘 다 비운다.
+    if (question) {
+      repository.setPendingQuestion(
+          issueId, messageId, chatText(body), Instant.now(), answerer, pausedActions);
+    }
+  }
+
+  /**
+   * 테스트 실행이 멈춘 쓰기 목록을 반복 행에 보관할 JSON 으로(WP-1313). 없으면 null. 너무 길면 인자를 빼고 도구 이름만 남긴다 — 허락 판정은 이름으로
+   * 하고, 인자는 이어 처리 지시문의 참고일 뿐이다. 이름이 빈 항목은 버린다.
+   */
+  private String pausedJson(List<RecurringPausedAction> paused) {
+    if (paused == null || paused.isEmpty()) return null;
+    List<RecurringPausedAction> kept =
+        paused.stream()
+            .filter(a -> a != null && a.tool() != null && !a.tool().isBlank())
+            .limit(PAUSED_ACTIONS_MAX)
+            .toList();
+    if (kept.isEmpty()) return null;
+    try {
+      String json = objectMapper.writeValueAsString(kept);
+      if (json.length() <= PAUSED_ACTIONS_MAX_CHARS) return json;
+      return objectMapper.writeValueAsString(
+          kept.stream().map(a -> new RecurringPausedAction(a.tool(), null)).toList());
+    } catch (JsonProcessingException e) {
+      throw new IllegalStateException("멈춘 쓰기 목록을 저장하지 못했습니다", e);
+    }
+  }
+
+  /** 보관한 멈춘 쓰기 JSON 을 목록으로(WP-1313) — 이어 처리 이벤트에 「허락된 쓰기」로 싣는다. 없거나 읽을 수 없으면 빈 목록. */
+  static List<RecurringPausedAction> readPaused(ObjectMapper om, String json) {
+    if (json == null || json.isBlank()) return List.of();
+    try {
+      return om.readValue(json, new TypeReference<List<RecurringPausedAction>>() {});
+    } catch (JsonProcessingException e) {
+      log.warn("[recurrence] 멈춘 쓰기 목록을 읽지 못했습니다 — 허락 없이 이어 처리한다", e);
+      return List.of();
+    }
   }
 
   /** 그 AI 이름으로 이슈 챗에 글을 남기고 글 id 를 돌려준다 — question 이면 답변이 필요한 질문 글로(WP-1311). */
@@ -734,7 +979,8 @@ public class IssueRecurrenceService {
         r.lastRunAt(),
         r.agentUserId(),
         agentName,
-        !othersAssistant(r.agentUserId(), callerId));
+        !othersAssistant(r.agentUserId(), callerId),
+        r.testRunId() != null);
   }
 
   // ───────────────────────────── 담당 AI(WP-1314) ─────────────────────────────
@@ -834,5 +1080,12 @@ public class IssueRecurrenceService {
 
   private static IssueRecurrenceConflictException conflict(String message) {
     return new IssueRecurrenceConflictException(message);
+  }
+
+  /** 결과를 기다리는 실행의 종류 — 묘비 정리가 어느 대기를 비울지 가른다(WP-1313). */
+  private enum RunKind {
+    REGULAR,
+    FOLLOW_UP,
+    TEST
   }
 }

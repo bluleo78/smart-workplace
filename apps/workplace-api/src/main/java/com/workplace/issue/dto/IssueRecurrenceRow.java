@@ -22,6 +22,14 @@ import java.time.LocalTime;
  *     지나면 답으로 보지 않는다
  * @param followUpRunId 답을 받아 보낸 이어 처리의 실행 id(WP-1312) — 결과 보고는 정기 회차 id 와 이 값 중 하나와 같을 때 반영한다
  * @param followUpDispatchedAt 이어 처리를 보낸 시각 — 결과 대기 시간 초과 판정에 쓴다
+ * @param testRunId 「지금 실행」으로 보낸 테스트 실행의 실행 id(WP-1313) — 결과 보고가 이 값과 같으면 테스트 결과로 받는다. 정기 회차의 결과
+ *     대기·연속 실패 수·다음 회차와 따로다
+ * @param testRunDispatchedAt 테스트 실행을 보낸 시각 — 결과 대기 시간 초과 판정에 쓴다
+ * @param testRunRequestedBy 「지금 실행」을 누른 사람 — 테스트 실행이 남긴 질문에 답할 사람이다
+ * @param pendingQuestionAnswerer 답을 기다리는 질문에 답할 사람(WP-1313). 값이 있으면 테스트 실행(또는 그 이어 처리)이 남긴 질문이고,
+ *     없으면 정기 회차의 질문이라 반복을 저장한 사람(createdBy)이 답한다
+ * @param pendingQuestionActions 테스트 실행이 멈춘 되돌릴 수 없는 쓰기 목록(JSON 배열) — 답을 받은 이어 처리가 이 쓰기만 실행한다
+ * @param followUpTestBy 지금 도는 이어 처리가 테스트 질문의 답으로 보낸 것이면 답한 사람, 아니면 null
  */
 public record IssueRecurrenceRow(
     long issueId,
@@ -41,4 +49,26 @@ public record IssueRecurrenceRow(
     String pendingQuestionText,
     Instant pendingQuestionAskedAt,
     String followUpRunId,
-    Instant followUpDispatchedAt) {}
+    Instant followUpDispatchedAt,
+    String testRunId,
+    Instant testRunDispatchedAt,
+    Long testRunRequestedBy,
+    Long pendingQuestionAnswerer,
+    String pendingQuestionActions,
+    Long followUpTestBy) {
+
+  /** 답을 기다리는 질문이 테스트 실행(또는 그 이어 처리)이 남긴 것인지(WP-1313). */
+  public boolean testQuestion() {
+    return pendingQuestionAnswerer != null;
+  }
+
+  /** 이 질문에 답할 수 있는 사람 — 테스트 질문은 「지금 실행」을 누른(또는 이어 답한) 사람, 정기 회차 질문은 반복을 저장한 사람. */
+  public long questionAnswerer() {
+    return pendingQuestionAnswerer != null ? pendingQuestionAnswerer : createdBy;
+  }
+
+  /** 결과를 기다리는 일(정기 회차·이어 처리·테스트 실행)이 하나라도 있는지 — 지울 때 묘비로 남길지 정한다. */
+  public boolean anyRunInFlight() {
+    return pendingRunId != null || followUpRunId != null || testRunId != null;
+  }
+}

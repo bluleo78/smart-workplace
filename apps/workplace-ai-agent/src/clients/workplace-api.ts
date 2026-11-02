@@ -6,6 +6,8 @@ import axios, { AxiosInstance } from 'axios';
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
 import type { MemoryKind, MemoryScope } from '../agent/memory-block.js';
+// WP-1313: 멈춘 쓰기 모양은 회차 실행(run-recurring)이 정의한 것 하나만 쓴다.
+import type { PausedAction } from '../agent/run-recurring.js';
 import {
   createSharedToolClient,
   decodeErrorBody,
@@ -241,11 +243,18 @@ export interface WorkplaceApiClient {
   // 오류(422 개인적 내용·503 검사 불가·400 공간 못 정함·403·409)는 AxiosError 로 던진다 — 도구가 코드를 읽어 안내로 바꾼다.
   requestSharedMemory(onBehalfOfId: number, body: { content: string; space?: string; sessionId?: string }): Promise<SharedMemoryRequestDto>;
   // WP-989: 반복 회차 결과 보고 — 실행한 AI(agentId) 대행. runId 는 이벤트가 준 값 그대로(같은 runId 두 번째 보고는 API 가 무시한다).
-  // question(WP-1311)이 true 면 API 가 결과 글을 질문(답변 대기)으로 남긴다.
+  // question(WP-1311)이 true 면 API 가 결과 글을 질문(답변 대기)으로 남긴다. pausedActions(WP-1313)는 테스트 실행이 멈춘 되돌릴 수 없는
+  // 쓰기 — API 가 질문과 함께 보관했다가 답을 받은 이어 처리에 허락된 쓰기로 돌려준다.
   reportRecurringRun(
     agentId: number,
     issueId: number,
-    body: { runId: string; ok: boolean; message: string; question?: boolean },
+    body: {
+      runId: string;
+      ok: boolean;
+      message: string;
+      question?: boolean;
+      pausedActions?: PausedAction[];
+    },
   ): Promise<void>;
   // WP-1219: 담당 지정·코멘트로 깨어난 이슈 실행의 시작·끝 보고 — 실행한 AI(agentId) 대행. API 가 그 AI 의 작업 기록(작업 중 → 검토 대기·막힘)을 남긴다.
   reportAgentRun(

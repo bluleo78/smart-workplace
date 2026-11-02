@@ -12,6 +12,7 @@ import {
   parseTaskRRule,
   recurrenceLabel,
   recurrencePausedText,
+  runNowState,
   validateTaskRecurrence,
 } from './issueRecurrence'
 
@@ -126,5 +127,30 @@ describe('agentOptionLabel', () => {
   test('내 개인 비서 표시 · 이름이 비면 username', () => {
     expect(agentOptionLabel({ name: '도우미', username: 'a', personalAssistant: true })).toBe('도우미 (내 AI 비서)')
     expect(agentOptionLabel({ name: ' ', username: 'team-ai', personalAssistant: false })).toBe('team-ai')
+  })
+})
+
+// WP-1313: 「지금 실행」 버튼 판정 — 서버 규칙(남의 개인 비서는 주인만, 실행은 하나씩)과 같고, 막힌 이유를 돌려준다.
+describe('runNowState', () => {
+  const r = { agentName: '비서', editable: true, testRunning: false }
+  test('일정이 없으면 그리지 않는다', () => {
+    expect(runNowState(null, false, false).visible).toBe(false)
+  })
+  test('고칠 수 있고 실행 중이 아니면 누를 수 있다', () => {
+    expect(runNowState(r, false, false)).toEqual({ visible: true, disabled: false, reason: null, running: false })
+    // 구버전 서버(editable·testRunning 없음)도 누를 수 있다.
+    expect(runNowState({}, false, false).disabled).toBe(false)
+  })
+  test('남의 개인 비서 일정은 주인만 — 읽기 전용·실행 중보다 먼저 그 이유를 보인다', () => {
+    const s = runNowState({ ...r, editable: false, testRunning: true }, true, false)
+    expect(s.disabled).toBe(true)
+    expect(s.reason).toBe('다른 사람의 개인 비서 일정이라 그 주인만 실행할 수 있어요')
+  })
+  test('읽기 전용 이슈는 잠근다', () => {
+    expect(runNowState(r, true, false).reason).toContain('고칠 수 있는 사람만')
+  })
+  test('결과를 기다리거나 요청 중이면 「실행 중」으로 잠근다', () => {
+    expect(runNowState({ ...r, testRunning: true }, false, false)).toMatchObject({ disabled: true, running: true })
+    expect(runNowState(r, false, true)).toMatchObject({ disabled: true, running: true })
   })
 })

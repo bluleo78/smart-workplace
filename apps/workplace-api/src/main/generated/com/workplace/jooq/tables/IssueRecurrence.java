@@ -169,6 +169,37 @@ public class IssueRecurrence extends TableImpl<IssueRecurrenceRecord> {
      */
     public final TableField<IssueRecurrenceRecord, OffsetDateTime> FOLLOW_UP_DISPATCHED_AT = createField(DSL.name("follow_up_dispatched_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.issue_recurrence.test_run_id</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, String> TEST_RUN_ID = createField(DSL.name("test_run_id"), SQLDataType.VARCHAR(64), this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.test_run_dispatched_at</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, OffsetDateTime> TEST_RUN_DISPATCHED_AT = createField(DSL.name("test_run_dispatched_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.test_run_requested_by</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, Long> TEST_RUN_REQUESTED_BY = createField(DSL.name("test_run_requested_by"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column
+     * <code>public.issue_recurrence.pending_question_answerer</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, Long> PENDING_QUESTION_ANSWERER = createField(DSL.name("pending_question_answerer"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.pending_question_actions</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, String> PENDING_QUESTION_ACTIONS = createField(DSL.name("pending_question_actions"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.follow_up_test_by</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, Long> FOLLOW_UP_TEST_BY = createField(DSL.name("follow_up_test_by"), SQLDataType.BIGINT, this, "");
+
     private IssueRecurrence(Name alias, Table<IssueRecurrenceRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -238,7 +269,7 @@ public class IssueRecurrence extends TableImpl<IssueRecurrenceRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_ISSUE_RECURRENCE_AGENT, Indexes.IDX_ISSUE_RECURRENCE_CREATED_BY, Indexes.IDX_ISSUE_RECURRENCE_DUE, Indexes.IDX_ISSUE_RECURRENCE_FOLLOW_UP, Indexes.IDX_ISSUE_RECURRENCE_PENDING);
+        return Arrays.asList(Indexes.IDX_ISSUE_RECURRENCE_AGENT, Indexes.IDX_ISSUE_RECURRENCE_CREATED_BY, Indexes.IDX_ISSUE_RECURRENCE_DUE, Indexes.IDX_ISSUE_RECURRENCE_FOLLOW_UP, Indexes.IDX_ISSUE_RECURRENCE_PENDING, Indexes.IDX_ISSUE_RECURRENCE_TEST_RUN);
     }
 
     @Override

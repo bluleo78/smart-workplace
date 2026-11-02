@@ -471,6 +471,9 @@ describe('AI 에게 맡기기(WP-1314)', () => {
     })
     const trigger = await within(screen.getByTestId('property-group-ai-handoff')).findByTestId('task-recurrence-trigger')
     await waitFor(() => expect(trigger).toHaveTextContent('앨리스 비서 · ↻ 매주 월 08:30'))
+    // WP-1313: 「지금 실행」도 주인만 — 잠그고 이유를 보인다.
+    expect(screen.getByTestId('task-recurrence-run-now')).toBeDisabled()
+    expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveAccessibleName(/주인만 실행할 수 있어요/)
     await user.click(trigger)
     const pop = await screen.findByTestId('task-recurrence-popover')
     expect(within(pop).getByTestId('task-recurrence-locked')).toHaveTextContent('주인만 일정을 바꾸거나 끌 수 있어요')

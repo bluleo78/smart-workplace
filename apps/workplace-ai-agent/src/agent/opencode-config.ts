@@ -65,6 +65,8 @@ function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVisi
   if (mcp.homeSessionId) env.MCP_HOME_SESSION_ID = mcp.homeSessionId;
   // WP-259: 요청자 테넌트 — 없으면 stdio MCP 의 api 호출이 X-On-Behalf-Of-Tenant 없이 나가 다중 멤버십 사용자는 fail-closed 된다.
   if (mcp.onBehalfOfTenantId != null) env.MCP_ON_BEHALF_OF_TENANT = String(mcp.onBehalfOfTenantId);
+  // WP-1313: 테스트 이어 처리의 허락된 쓰기(JSON 배열). env 는 스폰 시 고정되지만 recurring-test 는 hostBridge 를 넘겨 웜 풀에서 빠진다.
+  if (mcp.recurringPermits?.length) env.MCP_RECURRING_PERMITS = JSON.stringify(mcp.recurringPermits);
   // hostBridge(propose/submit/unassign 콜백) 또는 onTool(도구 호출 로깅) 이 필요하면 브리지 좌표를
   // 심는다. 실제 등록(registerBridge)은 러너가 수행 — 이 함수는 순수 config 조립만 담당.
   if (mcp.hostBridge || mcp.onTool) {

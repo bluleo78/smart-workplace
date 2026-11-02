@@ -136,7 +136,7 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const server = buildInProcessWorkplaceMcpServer({
       client, onBehalfOfId: 99, profile: 'messaging', threadBinding, delegationContext,
     });
-    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined, undefined, IMAGES);
+    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined, undefined, IMAGES, undefined);
     // lastCall: 테스트 순서·다른 호출에 영향받지 않게 마지막 호출 인자로 단언.
     const opts = vi.mocked(createSdkMcpServer).mock.lastCall![0] as { name: string; tools: unknown[] };
     expect(opts.name).toBe('workplace');
@@ -148,14 +148,14 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const hostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', hostBridge });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined, undefined, IMAGES);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined, undefined, IMAGES, undefined);
   });
 
   // WP-244: chat 프로필 실행 스레드 바인딩은 7번째 인자.
   it('chatThreadId 를 buildTools 7번째 인자로 전달', () => {
     const client = {} as WorkplaceApiClient;
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'chat', chatThreadId: 17 });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17, undefined, IMAGES);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17, undefined, IMAGES, undefined);
   });
 
   // WP-234: 메인 AI 채팅 세션 바인딩은 8번째 인자.
@@ -163,7 +163,14 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', homeSessionId: sid });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, undefined, undefined, sid, IMAGES);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, undefined, undefined, sid, IMAGES, undefined);
+  });
+
+  // WP-1313: 테스트 이어 처리의 허락된 쓰기를 buildTools 10번째 인자로 전달
+  it('recurringPermits 를 buildTools 10번째 인자로 전달', () => {
+    const client = {} as WorkplaceApiClient;
+    buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'recurring-test', recurringPermits: ['send_mail'] });
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'recurring-test', undefined, undefined, undefined, undefined, undefined, IMAGES, ['send_mail']);
   });
 });
 
