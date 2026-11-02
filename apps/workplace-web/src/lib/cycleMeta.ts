@@ -16,7 +16,15 @@ export function cycleMetaText(c: Pick<CycleResponse, 'startDate' | 'endDate'>, p
 }
 
 /**
- * 종료일이 시작일보다 빠른가(#804). 둘 중 하나라도 비어 있으면 검증하지 않는다(기간 미정 사이클 허용).
+ * 시작일·종료일 중 하나라도 비었는가(WP-1316) — 사이클 기간은 필수라 비면 저장하지 못한다(서버도 400). 날짜 없이 만들어진 예전 사이클도
+ * 수정할 때 기간을 채워야 저장된다.
+ */
+export function isCycleDateMissing(startDate: string, endDate: string): boolean {
+  return !startDate || !endDate
+}
+
+/**
+ * 종료일이 시작일보다 빠른가(#804). 둘 중 하나라도 비어 있으면 이 검사는 넘긴다 — 빈 날짜는 isCycleDateMissing 이 막는다.
  * 값은 yyyy-MM-dd(HTML date input) 라 문자열 비교가 곧 날짜 비교다.
  */
 export function isCycleDateRangeInvalid(startDate: string, endDate: string): boolean {

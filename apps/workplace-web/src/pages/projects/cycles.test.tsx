@@ -103,9 +103,16 @@ describe('사이클 관리', () => {
 
     await user.clear(name)
     await user.paste('스프린트 A')
+    // WP-1316: 기간은 필수 — 비어 있는 동안은 안내를 보이고 저장이 잠긴다.
+    expect(screen.getByTestId('cycle-date-required')).toHaveTextContent('시작일과 종료일을 모두 입력해 주세요')
+    expect(screen.getByTestId('cycle-submit')).toBeDisabled()
+    await user.type(screen.getByLabelText('시작일'), '2026-09-01')
+    expect(screen.getByTestId('cycle-submit')).toBeDisabled()
+    await user.type(screen.getByLabelText('종료일'), '2026-09-14')
+    expect(screen.queryByTestId('cycle-date-required')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('cycle-submit'))
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0]).toMatchObject({ name: '스프린트 A' })
+    expect(posts[0]).toMatchObject({ name: '스프린트 A', startDate: '2026-09-01', endDate: '2026-09-14' })
     expect(await screen.findByTestId('cycle-row-1')).toHaveTextContent('스프린트 A')
   })
 
@@ -136,7 +143,7 @@ describe('사이클 관리', () => {
   })
 
   test('수정 — 이름이 채워져 열리고, 고치면 PATCH { name } 뒤 성공 토스트', async () => {
-    const cycles = { current: [createCycle()] }
+    const cycles = { current: [createCycle({ startDate: '2026-09-01', endDate: '2026-09-14' })] }
     const patches: unknown[] = []
     const { user } = await openCycles(cycles)
     server.use(
@@ -154,9 +161,34 @@ describe('사이클 관리', () => {
     await user.clear(name)
     await user.paste('스프린트 1 (수정됨)')
     await user.click(screen.getByTestId('cycle-submit'))
-    await waitFor(() => expect(patches.at(-1)).toMatchObject({ name: '스프린트 1 (수정됨)' }))
+    await waitFor(() =>
+      expect(patches.at(-1)).toMatchObject({ name: '스프린트 1 (수정됨)', startDate: '2026-09-01', endDate: '2026-09-14' }),
+    )
     expect(await screen.findByText('사이클을 수정했습니다')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('cycle-row-1')).toHaveTextContent('스프린트 1 (수정됨)'))
+  })
+
+  test('날짜 없이 만들어진 예전 사이클은 수정할 때 기간을 채워야 저장된다 (WP-1316)', async () => {
+    const cycles = { current: [createCycle()] }
+    const patches: unknown[] = []
+    const { user } = await openCycles(cycles)
+    server.use(
+      http.patch(`${CYCLES}/1`, async ({ request }) => {
+        patches.push(await request.json())
+        return HttpResponse.json(cycles.current[0])
+      }),
+    )
+    await user.click(within(screen.getByTestId('cycle-row-1')).getByRole('button', { name: '스프린트 1 수정' }))
+    await screen.findByTestId('cycle-name-input')
+    expect(screen.getByTestId('cycle-date-required')).toBeInTheDocument()
+    const submit = screen.getByTestId('cycle-submit')
+    expect(submit).toBeDisabled()
+    await user.click(submit)
+    await user.type(screen.getByLabelText('시작일'), '2026-10-01')
+    await user.type(screen.getByLabelText('종료일'), '2026-10-14')
+    await user.click(submit)
+    await waitFor(() => expect(patches).toHaveLength(1))
+    expect(patches[0]).toMatchObject({ startDate: '2026-10-01', endDate: '2026-10-14' })
   })
 
   test('삭제 — 확인창에 빠질 이슈 수를 알리고(WP-488), 확인하면 DELETE 뒤 행이 사라진다', async () => {

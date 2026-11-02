@@ -105,6 +105,8 @@ test.describe('사이클 관리', () => {
     await page.getByTestId('cycle-new').click();
     const dialog = page.getByTestId('cycle-form-dialog');
     await page.getByTestId('cycle-name-input').fill('오프라인 사이클');
+    await dialog.getByLabel('시작일').fill('2026-09-01');
+    await dialog.getByLabel('종료일').fill('2026-09-14');
     offline = true;
     await page.context().setOffline(true);
     await page.getByTestId('cycle-submit').click();
