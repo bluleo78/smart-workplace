@@ -4,7 +4,7 @@ import { DOMSerializer, Fragment, type Node as PMNode, type Schema, Slice } from
 import { Plugin } from '@tiptap/pm/state'
 
 import { stopUndoCaptureIn } from './wikiCollabPosition'
-import { type PasteChipMemory, pasteChipPlugin } from './wikiPasteChip'
+import { type PasteChipMemory, pasteChipPlugin } from './wikiPasteChipPlugin'
 import { foreignShapeSlice, prepareForeignHtml } from './wikiPasteForeign'
 import { hasStrippableShape, stripShapeFromSlice } from './wikiShapeNormalize'
 
@@ -21,7 +21,7 @@ import { hasStrippableShape, stripShapeFromSlice } from './wikiShapeNormalize'
  * 어떻게: HTML 문자열이 아니라 파싱이 끝난 조각(Slice)에서 거른다(transformPasted) — HTML·글자·끌어다 놓기 붙여넣기가 모두 지나는
  * 한 곳이라 경로마다 따로 막을 필요가 없다. 「글만」(stripShapeFromSlice)은 페이지 스타일(wikiStyle)을 지우고, 모양 영역(wikiHtmlBox)은 풀어
  * 안쪽 블록만 남기고, 인라인 모양(wikiHtmlSpan)은 마크만 뗀다. 굵게·기울임(style 의 font-weight 등으로 읽힌 마크)·표 셀 정렬 같은
- * 다른 노드·마크는 그대로다. 붙인 뒤 칩(wikiPasteChip)으로 모양 유지 ↔ 글만을 바꾼다.
+ * 다른 노드·마크는 그대로다. 붙인 뒤 칩(wikiPasteChipPlugin)으로 모양 유지 ↔ 글만을 바꾼다.
  *
  * 노트끼리 복사 판정: 노트 편집기가 복사·끌기 때 클립보드 HTML 에 표지(NOTE_COPY_ATTR)를 단다(clipboardSerializer).
  * ProseMirror 의 data-pm-slice 는 ProseMirror 기반 앱이면 어디서나 붙으므로 판정에 쓰지 않는다. 같은 편집기 안 끌어다 놓기는
@@ -59,7 +59,7 @@ export function noteClipboardSerializer(schema: Schema): DOMSerializer {
   })(base.nodes, base.marks)
 }
 
-// 「글만」 정리기는 붙여넣기 칩(wikiPasteChip)·노트 밖 정리기(wikiPasteForeign)와 걷기를 함께 쓰려고 wikiShapeNormalize 로 옮겼다 —
+// 「글만」 정리기는 붙여넣기 칩(wikiPasteChipPlugin)·노트 밖 정리기(wikiPasteForeign)와 걷기를 함께 쓰려고 wikiShapeNormalize 로 옮겼다 —
 // 상자 「글만 남기기」(wikiBox)·테스트가 이 모듈에서 읽던 이름을 그대로 쓰게 다시 내보낸다.
 export { stripShapeFromFragment, stripShapeFromSlice } from './wikiShapeNormalize'
 
@@ -109,7 +109,7 @@ export function embedsToCodeBlocks(slice: Slice, schema: Schema): Slice {
  *   - 노트끼리 복사·같은 편집기 안 끌기 → 그대로(모양째).
  *   - 글자 붙여넣기(plain) → 모양·정렬을 빼고(stripShapeFromSlice) HTML 블록을 ```html 코드 블록으로(WP-1242). 칩 없음.
  *   - 노트 밖 HTML(웹 페이지·Google Docs·Word 복사, 끌어다 놓기) → 「모양 유지」가 기본(WP-1306): 카드·색 배경은 상자, 색 글자·밑줄은 서식 span,
- *     정렬은 그대로 두고 글꼴·크기·여백 등은 거른다(foreignShapeSlice). 「글만」 결과(지금의 거르기)와 다르면 붙인 자리에 칩을 띄운다(wikiPasteChip).
+ *     정렬은 그대로 두고 글꼴·크기·여백 등은 거른다(foreignShapeSlice). 「글만」 결과(지금의 거르기)와 다르면 붙인 자리에 칩을 띄운다(wikiPasteChipPlugin).
  *   HTML 문서 소스 붙여넣기(WP-1241)는 handlePaste 가 가져가 이 결과를 쓰지 않는다 — 칩도 뜨지 않는다(칩 판정은 붙여넣기 거래에만 쓰인다).
  * - 붙여넣기 직전에 실행 취소 묶음을 끊는다 — 바로 앞 글자 입력과 묶이지 않아 ⌘Z 한 번에 붙여넣기만 사라진다.
  */

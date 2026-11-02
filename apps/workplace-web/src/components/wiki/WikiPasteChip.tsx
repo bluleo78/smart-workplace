@@ -4,11 +4,11 @@ import { useEditorState } from '@tiptap/react'
 import { EditorFloatingToolbar, EditorToolbarDivider } from '@/components/editor/EditorFloatingToolbar'
 import { Button } from '@/components/ui/button'
 
-import { choosePastePlain, choosePasteShape, pasteChipState, type PasteChoice } from './wikiPasteChip'
+import { choosePastePlain, choosePasteShape, pasteChipState, type PasteChoice } from './wikiPasteChipPlugin'
 
 /**
  * 붙여넣기 칩(WP-1306) — 노트 밖 HTML 을 붙인 자리(붙인 범위 끝) 아래에 「붙여 넣었습니다 · 모양 유지 | 글만」을 띄운다. 지금 고른 쪽이 눌린 상태다.
- * - 상태·동작은 wikiPasteChip.ts(플러그인)가 쥔다 — 여기는 그 상태를 그리고 단추를 잇기만 한다.
+ * - 상태·동작은 wikiPasteChipPlugin.ts(플러그인)가 쥔다 — 여기는 그 상태를 그리고 단추를 잇기만 한다.
  * - 떠 있는 막대(EditorFloatingToolbar)를 쓴다 — 표·상자 막대와 같은 표면·배치. 다만 막대(tiptap BubbleMenu)는 선택·문서가 바뀔 때만 다시 판정하므로,
  *   칩만 닫히는 거래(Esc·밖 누르기 — 메타만 바뀜)에도 숨도록 칩 상태를 거래마다 읽어(useEditorState) 표면을 직접 감춘다(suppressed).
  * - 단추는 mousedown 기본 동작을 막아 편집기 포커스·선택을 지킨다 — 선택이 옮겨지면 칩이 닫힌다.

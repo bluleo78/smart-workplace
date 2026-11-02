@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// WP-1306 — 붙여넣기 칩 상태(wikiPasteChip): 노트 밖 HTML 을 붙이면 칩이 뜨고, 「글만」은 붙인 범위만 거른 결과로 바꾸며(한 단계),
+// WP-1306 — 붙여넣기 칩 상태(wikiPasteChipPlugin): 노트 밖 HTML 을 붙이면 칩이 뜨고, 「글만」은 붙인 범위만 거른 결과로 바꾸며(한 단계),
 // 「모양 유지」는 그 단계를 되돌리고, 입력·선택 이동·Esc·밖 누르기·내 실행 취소에 닫힌다. 노트 본문 편집기처럼 Yjs 동기화(Collaboration)를 단
 // 편집기에서 본다 — 실행 취소가 Yjs UndoManager 라 ⌘Z 한 번에 붙여넣기가 사라지는지도 여기서 본다.
 import { COLLAB_FRAGMENT, docToMarkdown, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
@@ -13,7 +13,7 @@ import * as Y from 'yjs'
 
 import { WikiHtmlImportPaste } from './wikiHtmlImportInsert'
 import { WikiHtmlScope } from './wikiHtmlScope'
-import { changedRange, choosePastePlain, choosePasteShape, pasteChipState,pastedRangeToPlain } from './wikiPasteChip'
+import { changedRange, choosePastePlain, choosePasteShape, pasteChipState,pastedRangeToPlain } from './wikiPasteChipPlugin'
 import { NOTE_COPY_ATTR, WikiPasteShape } from './wikiPasteShape'
 
 const editors: Editor[] = []

@@ -6,7 +6,7 @@ import { type Attrs, Fragment, type Mark, type Node as PMNode, Slice } from '@ti
  * 노트 밖 붙여넣기 「모양 유지」(wikiPasteForeign 의 foreignShapeSlice)가 같은 나무 걷기를 쓰고, 달라지는 것(상자 남기기/풀기·글 마크·정렬)만
  * 정책(ShapePolicy)으로 넘긴다. 걷기·열린 깊이 계산이 두 벌로 나뉘어 어긋나지 않게 한곳에 둔다.
  *
- * wikiPasteShape(붙여넣기 확장)·wikiPasteChip(칩)·wikiPasteForeign 이 모두 쓰므로 따로 모듈로 둔다 — 그 셋 사이의 순환 import 를 피한다.
+ * wikiPasteShape(붙여넣기 확장)·wikiPasteChipPlugin(칩)·wikiPasteForeign 이 모두 쓰므로 따로 모듈로 둔다 — 그 셋 사이의 순환 import 를 피한다.
  */
 
 /** 상자 하나의 처리 — 남기면 새 속성으로, 풀면 안쪽 블록만. 안쪽을 걸을 때 쓸 맥락도 함께 정한다. */
