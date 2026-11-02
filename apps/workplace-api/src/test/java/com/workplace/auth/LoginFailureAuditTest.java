@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workplace.global.util.ClientIpExtractor;
 import com.workplace.support.AsyncPools;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -265,8 +264,9 @@ class LoginFailureAuditTest extends IntegrationTestBase {
   }
 
   @Test
-  void 긴_X_Forwarded_For_도_감사_열_길이로_잘려_로그인이_깨지지_않는다() throws Exception {
+  void 긴_X_Forwarded_For_도_로그인이_깨지지_않고_IP_가_아닌_값은_남지_않는다() throws Exception {
     // WP-1161: 일반 로그인 감사는 IP 를 자르지 않고 넣어, 45자를 넘는 X-Forwarded-For 면 감사 INSERT 가 실패해 로그인이 깨졌다.
+    // WP-1317: IP 가 아닌 값은 클라이언트로 보지 않는다 — 마지막으로 믿은 프록시 주소가 남는다.
     String longIp = "1".repeat(60);
     mvc.perform(
             post("/api/v1/auth/login")
@@ -274,13 +274,27 @@ class LoginFailureAuditTest extends IntegrationTestBase {
                 .header("X-Forwarded-For", longIp + ", 10.0.0.1")
                 .content("{\"username\":\"" + username + "\",\"password\":\"Password123\"}"))
         .andExpect(status().isOk());
+    assertThat(loginAuditIp()).isEqualTo("10.0.0.1");
+  }
 
-    String ip =
-        dsl.select(AUDIT_LOG.IP_ADDRESS)
-            .from(AUDIT_LOG)
-            .where(AUDIT_LOG.USER_ID.eq(userId))
-            .and(AUDIT_LOG.ACTION_TYPE.eq("LOGIN"))
-            .fetchOne(AUDIT_LOG.IP_ADDRESS);
-    assertThat(ip).isEqualTo("1".repeat(ClientIpExtractor.AUDIT_IP_MAX));
+  @Test
+  void 감사_로그에는_위조한_첫_값이_아니라_프록시를_걷은_실제_클라이언트가_남는다() throws Exception {
+    // WP-1317: 운영 경로(ingress → web nginx → api)처럼 끝에 내부 주소가 붙은 X-Forwarded-For — 예전엔 첫 값(위조 가능)을
+    // 남겼다.
+    mvc.perform(
+            post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Forwarded-For", "1.2.3.4, 203.0.113.7, 10.244.3.206, 10.244.4.57")
+                .content("{\"username\":\"" + username + "\",\"password\":\"Password123\"}"))
+        .andExpect(status().isOk());
+    assertThat(loginAuditIp()).isEqualTo("203.0.113.7");
+  }
+
+  private String loginAuditIp() {
+    return dsl.select(AUDIT_LOG.IP_ADDRESS)
+        .from(AUDIT_LOG)
+        .where(AUDIT_LOG.USER_ID.eq(userId))
+        .and(AUDIT_LOG.ACTION_TYPE.eq("LOGIN"))
+        .fetchOne(AUDIT_LOG.IP_ADDRESS);
   }
 }

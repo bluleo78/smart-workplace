@@ -23,8 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 공개 경로 IP 속도 제한(WP-763) — 실제 보안 필터 체인을 거쳐 한도를 넘긴 요청이 429·Retry-After·한국어 안내로 거절되는지 본다.
  *
- * <p>버킷은 애플리케이션 컨텍스트에 하나라 테스트마다 다른 문서용 IP(203.0.113.x)를 쓴다. MockMvc 접속 주소는 127.0.0.1(내부)이라
- * X-Forwarded-For 마지막 값이 클라이언트 IP 가 된다.
+ * <p>버킷은 애플리케이션 컨텍스트에 하나라 테스트마다 다른 문서용 IP(203.0.113.x)를 쓴다. MockMvc 접속 주소는 127.0.0.1(믿는 프록시)이라
+ * X-Forwarded-For 를 오른쪽부터 걷어 내부가 아닌 첫 주소가 클라이언트 IP 가 된다(WP-1317).
  */
 @Transactional
 class PublicRateLimitFilterTest extends IntegrationTestBase {
@@ -75,6 +75,23 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.message").value(PublicRateLimitFilter.MESSAGE));
     // 다른 IP 는 따로 센다 — 앞단이 붙인 마지막 값이 다르면 막히지 않는다.
     mvc.perform(login("198.51.100.9, 192.0.2.77")).andExpect(status().isUnauthorized());
+  }
+
+  /**
+   * WP-1317: 운영 경로(ingress → web nginx → api)는 X-Forwarded-For 끝에 노드·ingress 파드 주소가 붙는다. 예전에는 마지막
+   * 값(ingress 파드)으로 세어 전 사용자가 한 버킷을 썼다 — 이제 내부 주소를 걷은 실제 클라이언트로 센다.
+   */
+  @Test
+  void 같은_프록시_체인을_거친_서로_다른_클라이언트는_로그인_버킷을_나눠_쓰지_않는다() throws Exception {
+    String a = randomDocIp();
+    String b = "192.0.2." + ThreadLocalRandom.current().nextInt(1, 255);
+    String chain = ", 10.244.3.206, 10.244.4.57";
+    for (int i = 0; i < 20; i++) mvc.perform(login(a + chain)).andExpect(status().isUnauthorized());
+    untilLimited(() -> mvc.perform(login(a + chain)), 20);
+    // 위조한 첫 값을 바꿔 가며 보내도 같은 클라이언트면 계속 막힌다.
+    mvc.perform(login("1.2.3.4, " + a + chain)).andExpect(status().isTooManyRequests());
+    // 같은 체인으로 온 다른 클라이언트는 막히지 않는다.
+    mvc.perform(login(b + chain)).andExpect(status().isUnauthorized());
   }
 
   @Test

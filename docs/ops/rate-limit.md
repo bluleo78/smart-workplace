@@ -15,7 +15,8 @@ WP-763에서 넣은 IP 단위 속도 제한이 어떻게 동작하는지 정리�
 
 - **알고리즘**: 키(정책+IP)마다 토큰 버킷을 하나씩 둡니다(`TokenBucketLimiter`). 한 번에 한도만큼 몰아 보낼 수 있고, 그 뒤로는 1분에 한도만큼의 비율로 고르게 다시 찹니다. 한도를 넘기면 `429`, `Retry-After`(초), 그리고 한국어 안내 「요청이 너무 많습니다. 잠시 후 다시 시도하세요.」를 돌려줍니다.
 - **상태**: api 인스턴스의 **메모리**에 둡니다. 재시작하면 비워집니다. 키가 1만 개를 넘으면 다 찬(오래 쓰지 않은) 버킷을 지워 메모리가 끝없이 커지지 않게 합니다.
-- **클라이언트 IP**: 요청이 내부 대역(인그레스 파드 등)에서 왔고 `X-Forwarded-For`가 있으면, 그 **마지막 값**(바로 앞 프록시가 붙인 주소)을 씁니다. 바깥에서 직접 보낸 `X-Forwarded-For`는 믿지 않습니다. 루프백(127.0.0.1·::1)에서 온 요청은 로컬 도구와 테스트이므로 제한하지 않습니다.
+- **클라이언트 IP**: 감사 로그와 같은 판정(`ClientIpExtractor`, WP-1317)을 씁니다. 접속 주소가 믿는 프록시(기본: 사설·CGNAT·루프백 등 내부 대역)면 `X-Forwarded-For`를 **오른쪽부터 걷어** 믿는 프록시가 아닌 첫 주소를 씁니다. 그보다 왼쪽(바깥에서 보낸 값)은 보지 않고, 접속 주소가 바깥이면 헤더를 보지 않고 접속 주소를 씁니다. 판정 결과가 루프백(127.0.0.1·::1)이면 로컬 도구와 테스트이므로 제한하지 않습니다. 자세한 경로는 아래 「클라이언트 IP 판정」.
+- **믿는 프록시 대역**(`app.client-ip.trusted-proxies`, CIDR 목록, 생략 가능): 비우면 내부 대역 전체를 믿습니다. 클러스터 파드·서비스 대역만 믿게 좁히려면 예: `APP_CLIENTIP_TRUSTEDPROXIES=10.244.0.0/16,10.96.0.0/12`. 잘못된 값이면 api 가 기동하지 않습니다.
 - **설정**(`app.rate-limit`, 모두 생략 가능):
   - `enabled`(기본 `true`)
   - `login-per-minute`(기본 `20`)
@@ -46,8 +47,20 @@ WP-763에서 넣은 IP 단위 속도 제한이 어떻게 동작하는지 정리�
 
 ### 3. 클라이언트 IP 판정
 
-- 여러 대여도 앞단이 ingress-nginx 하나면 지금 규칙(내부 대역에서 온 요청의 `X-Forwarded-For` 마지막 값)이 그대로 맞습니다.
-- 앞에 **다른 프록시나 로드밸런서**(CDN·클라우드 LB)가 더 붙으면, 마지막 값이 그 프록시 주소가 되어 모두가 같은 IP로 묶입니다. 이때는 신뢰할 프록시 대역을 설정으로 받아 「오른쪽에서부터 신뢰 대역이 아닌 첫 주소」를 쓰게 바꿔야 합니다. ingress-nginx에서 `use-forwarded-headers`·`proxy-real-ip-cidr`를 설정하는 방법도 있습니다.
+실제 요청 경로는 **앞단 LB → 노드 NodePort → ingress-nginx → web nginx(`/api/`) → api** 입니다. 각 단계에서 `X-Forwarded-For`는 이렇게 됩니다.
+
+| 단계 | 하는 일 | api 가 받는 `X-Forwarded-For` (예) |
+|---|---|---|
+| 노드 NodePort | `externalTrafficPolicy: Cluster` 면 kube-proxy 가 출발지를 노드 주소(cilium_host)로 바꿉니다 | — |
+| ingress-nginx | `use-forwarded-headers` 가 꺼져 있으면 받은 값을 버리고 접속 주소로 새로 시작합니다 | `10.244.3.206`(노드 주소) |
+| web nginx | `$proxy_add_x_forwarded_for` 로 ingress 파드 주소를 덧붙입니다 | `10.244.3.206, 10.244.4.57` |
+
+- 앱은 오른쪽부터 내부 주소를 걷으므로 web nginx 가 붙인 ingress 파드 주소(`10.244.4.57`)는 건너뜁니다. web nginx 의 `real_ip_header`·`set_real_ip_from` 은 쓰지 않습니다 — 앱 판정 하나로 충분하고, ingress 대역을 nginx 와 앱 두 곳에 적어 두면 어긋나기 쉽습니다(WP-1317).
+- **인프라가 실제 주소를 넘기기 전**에는 모든 주소가 내부라 가장 왼쪽(노드 주소)이 클라이언트로 판정됩니다 — 노드마다 버킷 하나(사용자별 아님). 사용자별로 세려면 실제 클라이언트 IP 가 ingress 까지 와야 합니다(사람이 클러스터에서 할 일).
+  - (가) `ingress-nginx-controller` 서비스를 `externalTrafficPolicy: Local` 로 — 컨트롤러가 없는 노드로 간 요청이 버려지므로 컨트롤러를 노드마다(DaemonSet 등) 둡니다.
+  - (나) 앞단 LB 가 proxy-protocol 이나 `X-Forwarded-For` 를 넘기면 ingress-nginx ConfigMap 에 `use-proxy-protocol` 또는 `use-forwarded-headers` + `proxy-real-ip-cidr`(LB 대역)을 켭니다. LB 가 출발지를 바꾸는 방식이면 (가)만으로는 LB 주소만 보여 (나)가 필요합니다.
+  - 반영 뒤 운영 감사 로그(`audit_log.ip_address`)에 실제 외부 IP 가 찍히는지 확인합니다.
+- 앞에 **다른 프록시나 로드밸런서**(CDN·클라우드 LB)가 더 붙어도, 그 주소가 믿는 대역(내부 대역 또는 `app.client-ip.trusted-proxies`)에 들면 같은 규칙으로 걷힙니다. 공인 주소를 가진 프록시면 그 대역을 `trusted-proxies` 에 넣습니다(넣으면 기본 내부 대역은 믿지 않으니 클러스터 대역도 함께 적습니다).
 - 사내 NAT 뒤 사용자는 모두 같은 IP로 보입니다. 사내 사용자가 많다면 한도를 넉넉히 두거나, 사내 대역을 예외 목록으로 받는 설정을 더합니다.
 
 ### 4. 인그레스에서 한 겹 더(선택)
