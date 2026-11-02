@@ -50,7 +50,8 @@ describe('isNoteCopyHtml', () => {
 
 describe('stripShapeFromSlice', () => {
   const schema = getMarkdownSchema()
-  const p = (text: string, marks?: object[]) => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks } : {}) }] })
+  // 문단은 정렬 속성(textAlign, WP-1305)을 지닌다 — toJSON 이 기본값 null 도 싣는다.
+  const p = (text: string, marks?: object[]) => ({ type: 'paragraph', attrs: { textAlign: null }, content: [{ type: 'text', text, ...(marks ? { marks } : {}) }] })
   const span = { type: 'wikiHtmlSpan', attrs: { className: 'b', style: null } }
 
   it('drops page styles, unwraps boxes, removes span marks and merges the text back', () => {
@@ -66,7 +67,7 @@ describe('stripShapeFromSlice', () => {
     expect(out.content.toJSON()).toEqual([
       p('안'),
       p('굵게', [{ type: 'bold' }]),
-      { type: 'paragraph', content: [{ type: 'text', text: '가나' }] },
+      { type: 'paragraph', attrs: { textAlign: null }, content: [{ type: 'text', text: '가나' }] },
     ])
   })
 
@@ -134,6 +135,49 @@ describe('pasting into an editor with WikiPasteShape', () => {
     expect(types.has('wikiHtmlSpan')).toBe(true)
     // jsdom 이 클립보드 직렬화 때 style 을 'padding: 8px;' 로 다시 쓰므로 공백은 보지 않는다.
     expect(docToMarkdown(target.state.doc)).toMatch(/<div class="card" style="padding: ?8px">/)
+  })
+
+  // WP-1305 — 선택 서식 도구로 단 밑줄·글자색·배경색(서식 span)·문단/제목 정렬은 노트끼리 복사에서 그대로 옮겨진다.
+  const FORMATTED_MD = [
+    '<div align="center">',
+    '',
+    '## 가운데 제목',
+    '',
+    '</div>',
+    '',
+    '앞 <span style="text-decoration: underline; color: var(--wiki-text-red, #dc2626); background-color: var(--wiki-mark-yellow, #fef08a)">서식</span> **굵게** ~~취소~~',
+  ].join('\n')
+
+  it('an internal copy between notes keeps underline/color/background spans and paragraph alignment', () => {
+    const source = mount()
+    source.commands.setContent(FORMATTED_MD)
+    const html = source.view.serializeForClipboard(source.state.doc.slice(0, source.state.doc.content.size)).dom.innerHTML
+    expect(isNoteCopyHtml(html)).toBe(true)
+    const target = mount()
+    target.view.pasteHTML(html, pasteEvent())
+    expect(target.state.doc.firstChild!.attrs).toMatchObject({ level: 2, textAlign: 'center' })
+    const md = docToMarkdown(target.state.doc)
+    expect(md).toContain('<div align="center">')
+    // jsdom 이 클립보드 직렬화 때 style 을 다시 써 공백·끝 ; 이 달라질 수 있어 선언 단위로 본다.
+    expect(md).toMatch(/<span style="[^"]*text-decoration: underline[^"]*">서식<\/span>/)
+    expect(md).toMatch(/color: var\(--wiki-text-red, #dc2626\)/)
+    expect(md).toMatch(/background-color: var\(--wiki-mark-yellow, #fef08a\)/)
+    expect(md).toContain('**굵게** ~~취소~~')
+    // 서식 span 만 있는 노트는 범위 가두기(contain)를 켜지 않는다 — 첫 줄 위 접속자 이름표가 잘리지 않게.
+    expect(target.view.dom.classList.contains('wiki-html-scope')).toBe(false)
+  })
+
+  it('an external paste (no note marker) drops the format spans and the paragraph alignment but keeps the text', () => {
+    const ed = mount()
+    ed.view.pasteHTML(
+      '<p style="text-align:center">바깥 <span style="text-decoration:underline;color:red">밑줄</span></p><h2 style="text-align:right">제목</h2>',
+      pasteEvent(),
+    )
+    const aligns: unknown[] = []
+    ed.state.doc.forEach((n) => aligns.push(n.attrs.textAlign))
+    expect(aligns.every((a) => a === null)).toBe(true)
+    expect(hasShape(ed.state.doc)).toBe(false)
+    expect(ed.state.doc.textContent).toContain('바깥 밑줄')
   })
 
   // data-pm-slice 는 ProseMirror 기반 앱이면 어디서나 붙는다 — 노트 복사 표지가 없으면 바깥 붙여넣기다.

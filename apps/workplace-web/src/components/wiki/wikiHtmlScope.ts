@@ -1,4 +1,4 @@
-import { isWikiShapeNode, sanitizeStyleSheet } from '@smart-workplace/wiki-editor-schema'
+import { isFormatSpanMark, isWikiShapeNode, sanitizeStyleSheet } from '@smart-workplace/wiki-editor-schema'
 import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
@@ -103,6 +103,15 @@ export function scopeCss(css: string, scope: string): string {
   })
 }
 
+/**
+ * 서식 span(밑줄·글자색·배경색만 든 class 없는 wikiHtmlSpan, WP-1305)만 지닌 글자인지 — 이 선언들은 본문 밖으로 그려질 수 없어
+ * 범위 가두기(contain)를 켤 까닭이 없다. 켜면 색 글자 하나로 첫 줄 위 접속자 이름표가 잘린다.
+ */
+function isFormatOnlyNode(node: PMNode): boolean {
+  const spans = node.marks.filter((m) => m.type.name === 'wikiHtmlSpan')
+  return spans.length > 0 && spans.every(isFormatSpanMark)
+}
+
 /** 범위 플러그인 상태 — 번호, 문서의 페이지 스타일 CSS(이어 붙인 원문), 모양 노드 유무. */
 interface ScopeState {
   id: string
@@ -124,7 +133,7 @@ function collectShape(doc: PMNode): Omit<ScopeState, 'id'> {
       shaped = true
       return false
     }
-    if (!shaped && isWikiShapeNode(node)) shaped = true
+    if (!shaped && isWikiShapeNode(node) && !isFormatOnlyNode(node)) shaped = true
     return !(shaped && node.isTextblock)
   })
   return { css: css.join('\n'), shaped }

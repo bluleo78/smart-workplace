@@ -199,6 +199,22 @@
   --dtype-json: oklch(0.6 0.16 50);
   --dtype-geometry: oklch(0.55 0.2 15);
   --dtype-uuid: oklch(0.55 0.12 200);
+  /* 노트 글자색·배경색(WP-1305) — 선택 서식 도구가 본문에 var(--wiki-text-<색>, #대체값) 으로 저장한다(wikiTextFormat.ts FORMAT_COLORS).
+     라이트는 흰 본문 위 4.5:1 이상 글자색과 옅은 형광 배경, 다크는 밝힌 글자색과 어둡게 내린 배경 — 테마를 바꿔도 저장 글자는 그대로다. */
+  --wiki-text-gray: oklch(0.52 0 0);
+  --wiki-text-red: oklch(0.5 0.17 25);
+  --wiki-text-orange: oklch(0.5 0.17 50);
+  --wiki-text-yellow: oklch(0.5 0.17 90);
+  --wiki-text-green: oklch(0.5 0.17 150);
+  --wiki-text-blue: oklch(0.5 0.17 255);
+  --wiki-text-purple: oklch(0.5 0.17 305);
+  --wiki-mark-gray: oklch(0.92 0 0);
+  --wiki-mark-red: oklch(0.93 0.06 25);
+  --wiki-mark-orange: oklch(0.93 0.06 50);
+  --wiki-mark-yellow: oklch(0.95 0.06 90);
+  --wiki-mark-green: oklch(0.93 0.06 150);
+  --wiki-mark-blue: oklch(0.93 0.06 255);
+  --wiki-mark-purple: oklch(0.93 0.06 305);
 }
 
 .dark {
@@ -297,6 +313,21 @@
   --dtype-json: oklch(0.72 0.14 50);
   --dtype-geometry: oklch(0.7 0.18 15);
   --dtype-uuid: oklch(0.7 0.1 200);
+  /* 노트 글자색·배경색(다크) — 어두운 본문 위에서 읽히게 글자는 밝히고 배경은 어둡게 내린다(배경 위 본문 글자 4.5:1 이상). */
+  --wiki-text-gray: oklch(0.7 0 0);
+  --wiki-text-red: oklch(0.72 0.13 25);
+  --wiki-text-orange: oklch(0.72 0.13 50);
+  --wiki-text-yellow: oklch(0.72 0.13 90);
+  --wiki-text-green: oklch(0.72 0.13 150);
+  --wiki-text-blue: oklch(0.72 0.13 255);
+  --wiki-text-purple: oklch(0.72 0.13 305);
+  --wiki-mark-gray: oklch(0.32 0 0);
+  --wiki-mark-red: oklch(0.33 0.07 25);
+  --wiki-mark-orange: oklch(0.33 0.07 50);
+  --wiki-mark-yellow: oklch(0.33 0.07 90);
+  --wiki-mark-green: oklch(0.33 0.07 150);
+  --wiki-mark-blue: oklch(0.33 0.07 255);
+  --wiki-mark-purple: oklch(0.33 0.07 305);
 }
 
 /* WP-1051: 목록 행 아래 구분선 — 행마다 border-b + 색을 따로 주지 않고 역할 이름 하나로 쓴다(divide-y 를 못 쓰는 행: 표 tr·가상 목록 등). */

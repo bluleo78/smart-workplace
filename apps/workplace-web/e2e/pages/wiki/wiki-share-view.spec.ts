@@ -173,7 +173,7 @@ test.describe('노트 공유 링크 — 받는 사람', () => {
     })
     const toolbar = page.getByTestId('wiki-ai-toolbar')
     await expect(toolbar.getByTestId('wiki-format-tb-bold')).toBeVisible()
-    await expect(toolbar.getByTestId('wiki-ai-tb-polish')).toHaveCount(0)
+    await expect(toolbar.getByTestId('wiki-ai-tb-menu')).toHaveCount(0)
     await expect(toolbar.getByTestId('wiki-ai-tb-create-issue')).toHaveCount(0)
   })
 

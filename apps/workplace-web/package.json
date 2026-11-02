@@ -33,6 +33,7 @@
     "@tiptap/extension-bold": "2.27.2",
     "@tiptap/extension-bullet-list": "2.27.2",
     "@tiptap/extension-code": "2.27.2",
+    "@tiptap/extension-heading": "2.27.2",
     "@tiptap/extension-code-block": "2.27.2",
     "@tiptap/extension-collaboration": "2.27.3",
     "@tiptap/extension-document": "2.27.2",

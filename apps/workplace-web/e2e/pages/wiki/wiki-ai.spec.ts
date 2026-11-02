@@ -305,6 +305,13 @@ async function typeAndSelectAll(page: Page, text: string) {
   await page.keyboard.press('ControlOrMeta+a')
 }
 
+/** 선택 도구 막대의 「✦ AI ▾」 메뉴에서 변형을 고른다(WP-1305 — AI 변형 버튼을 메뉴 안으로 옮겼다). 톤·번역은 하위 메뉴의 프리셋까지. */
+async function runAiMenu(page: Page, key: 'polish' | 'expand' | 'condense' | 'rewrite_tone' | 'translate', preset?: string) {
+  await page.getByTestId('wiki-ai-tb-menu').click()
+  await page.getByTestId(`wiki-ai-tb-${key}`).click()
+  if (preset) await page.getByTestId(`${key === 'rewrite_tone' ? 'wiki-ai-tone' : 'wiki-ai-lang'}-${preset}`).click()
+}
+
 test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교체', { tag: ['@input', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
@@ -315,7 +322,7 @@ test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교�
   await typeAndSelectAll(page, '원본 문장')
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
-  await page.getByTestId('wiki-ai-tb-polish').click()
+  await runAiMenu(page, 'polish')
 
   await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('polish')
   expect(aiStarts.lastBody<AiStartBody>()?.selection).toBe('원본 문장')
@@ -333,8 +340,7 @@ test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)
   await open(page)
   await typeAndSelectAll(page, '원본 문장')
 
-  await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
-  await page.getByTestId('wiki-ai-tone-격식체').click()
+  await runAiMenu(page, 'rewrite_tone', '격식체')
 
   await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('rewrite_tone')
   expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe('격식체')
@@ -371,7 +377,7 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', {
   await page.clock.fastForward(600)
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
-  await page.getByTestId('wiki-ai-tb-polish').click()
+  await runAiMenu(page, 'polish')
   await expect(page.locator('.ProseMirror')).toContainText('다듬어진 문장')
   await expect(page.locator('.ProseMirror')).not.toContainText('원본 문장')
 
@@ -624,7 +630,7 @@ test('위키 AI 노출 — 빈 상태 "AI 초안으로 시작" 이 페이지를 
   await expect(page.getByRole('dialog').getByRole('textbox')).toBeVisible()
 })
 
-test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 트리거 바로 아래에 열린다 (#733 회귀)', { tag: '@layout' }, async ({
+test('위키 변형 툴바 — ✦ AI 메뉴가 좌측 상단이 아니라 트리거 바로 아래에 열린다 (#733 회귀)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
@@ -645,15 +651,16 @@ test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 �
   })
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
 
-  const trigger = page.getByTestId('wiki-ai-tb-rewrite_tone')
+  // WP-1305 — AI 변형은 「✦ AI ▾」 메뉴 안이다. 같은 포털 없는 메뉴라 #733 함정이 그대로 걸린다.
+  const trigger = page.getByTestId('wiki-ai-tb-menu')
   const tBox = (await trigger.boundingBox())!
   await trigger.click()
-  await expect(page.getByTestId('wiki-ai-tone-격식체')).toBeVisible()
+  await expect(page.getByTestId('wiki-ai-tb-polish')).toBeVisible()
 
   // 1) 드롭다운을 여는 동안 툴바가 hide 되면 안 된다. tippy 는 hide 시 popper 를 DOM 에서 통째로
   //    제거하므로, 툴바가 사라지면 Radix 는 앵커(트리거)를 잃고 메뉴를 0×0@(0,0) 기준으로 그린다.
   const anchorAlive = await page.evaluate(() => {
-    const btn = document.querySelector('[data-testid="wiki-ai-tb-rewrite_tone"]')
+    const btn = document.querySelector('[data-testid="wiki-ai-tb-menu"]')
     return { connected: btn?.isConnected === true, tippyRoots: document.querySelectorAll('[data-tippy-root]').length }
   })
   expect(anchorAlive).toEqual({ connected: true, tippyRoots: 1 })
@@ -665,12 +672,13 @@ test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 �
   expect(mBox.y).toBeGreaterThan(tBox.y)
   expect(mBox.y - (tBox.y + tBox.height)).toBeLessThan(24)
 
-  // 3) 항목 선택이 실제로 동작하는가(툴바가 살아있어야 클릭이 닿는다).
+  // 3) 하위 메뉴(톤 프리셋)까지 열고 항목 선택이 실제로 동작하는가(툴바가 살아있어야 클릭이 닿는다).
+  await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
   await page.getByTestId('wiki-ai-tone-격식체').click()
   await expect(page.getByTestId('wiki-ai-tone-격식체')).toHaveCount(0)
 })
 
-test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운이 화면 안에 들어온다 (#733 회귀)', { tag: '@layout' }, async ({
+test('위키 변형 툴바 — 뷰포트 하단 선택에서도 ✦ AI 메뉴가 화면 안에 들어온다 (#733 회귀)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
@@ -714,14 +722,14 @@ test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운
   const vp = page.viewportSize()!
   // 리사이즈 직후 tippy 가 툴바를 다시 배치하는 중일 수 있어 측정+단언을 재시도한다 (WP-225)
   await expect(async () => {
-    const tBox = await measureBox(page.getByTestId('wiki-ai-tb-rewrite_tone'))
-    // 이 테스트가 공허해지지 않도록: 트리거 아래 여백이 메뉴 높이(약 138px)보다 작아야
+    const tBox = await measureBox(page.getByTestId('wiki-ai-tb-menu'))
+    // 이 테스트가 공허해지지 않도록: 트리거 아래 여백이 메뉴 높이(항목 5개, 약 170px)보다 작아야
     // flip/shift 가 실제로 개입한다.
-    expect(vp.height - (tBox.y + tBox.height)).toBeLessThan(138)
+    expect(vp.height - (tBox.y + tBox.height)).toBeLessThan(170)
   }).toPass()
 
-  await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
-  await expect(page.getByTestId('wiki-ai-tone-격식체')).toBeVisible()
+  await page.getByTestId('wiki-ai-tb-menu').click()
+  await expect(page.getByTestId('wiki-ai-tb-polish')).toBeVisible()
 
   // 메뉴는 열린 뒤 flip/shift 로 위치를 다시 잡으므로 자리 잡을 때까지 재시도한다 (WP-225)
   await expect(async () => {
@@ -829,7 +837,9 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고�
   await expect(page.locator('.ProseMirror strong')).toContainText('굵게 만들 문장')
 })
 
-test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바뀐다 (#687)', { tag: '@input' }, async ({
+// WP-1305 — 선택 서식 도구 개편: 제목은 「크기 ▾」 메뉴, 밑줄·글자색·배경색은 서식 span, 정렬은 <div align> 감싸개로 저장된다.
+// 실제 편집기 + 동기화 서버 저장본까지(@platform) — 메뉴 선택이 편집기 포커스·선택을 잃지 않고 이어서 다음 서식을 걸 수 있는지(@input)도 함께 본다.
+test('위키 서식 — 크기·밑줄·글자색·배경색·정렬을 이어서 걸면 동기화 저장본에 그대로 담긴다 (WP-1305)', { tag: ['@input', '@platform'] }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -838,9 +848,34 @@ test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바
   await typeAndSelectAll(page, '제목이 될 문장')
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
-  await page.getByTestId('wiki-format-tb-heading1').click()
-
+  await page.getByTestId('wiki-format-tb-size').click()
+  await page.getByTestId('wiki-format-size-heading1').click()
   await expect(page.locator('.ProseMirror h1')).toContainText('제목이 될 문장')
+
+  // 메뉴를 닫은 뒤에도 선택이 남아 막대가 그대로다 — ⌘U 단축키로 밑줄, 메뉴로 색·배경·정렬.
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+u')
+  await expect(page.getByTestId('wiki-format-tb-underline')).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('wiki-format-tb-color').click()
+  await page.getByTestId('wiki-format-color-red').click()
+  await page.getByTestId('wiki-format-tb-highlight').click()
+  await page.getByTestId('wiki-format-highlight-yellow').click()
+  await page.getByTestId('wiki-format-tb-align').click()
+  await page.getByTestId('wiki-format-align-center').click()
+
+  await expect(page.locator('.ProseMirror h1')).toHaveCSS('text-align', 'center')
+  await expect(page.locator('.ProseMirror h1 span[data-wiki-html-span]')).toHaveCSS('text-decoration-line', 'underline')
+  await expect
+    .poll(() => savedMarkdown(page, PAGE_ID))
+    .toBe(
+      [
+        '<div align="center">',
+        '',
+        '# <span style="text-decoration: underline; color: var(--wiki-text-red, #dc2626); background-color: var(--wiki-mark-yellow, #fef08a)">제목이 될 문장</span>',
+        '',
+        '</div>',
+      ].join('\n'),
+    )
 })
 
 test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
@@ -885,7 +920,7 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
-  // 좁은 뷰포트(모바일 급)에서도 검증 — 서식 6개 + AI 6개 + 이슈로 만들기 1개 = 13개 컨트롤.
+  // 좁은 뷰포트(모바일 급)에서도 검증 — 글자 모양 4 + 크기·색·배경·정렬 4 + 링크·상자 2 + ✦ AI 1 + 이슈로 만들기 1 = 12개 컨트롤(WP-1305).
   await page.setViewportSize({ width: 375, height: 700 })
 
   await open(page)
@@ -912,20 +947,20 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
     expect(box.height).toBeGreaterThan(40)
   }).toPass()
 
-  // 서식 그룹뿐 아니라 뒤쪽(AI 변형·이슈로 만들기)까지 — 좁은 화면에서 넘치던 건 뒤쪽 버튼들이다.
+  // 서식 그룹뿐 아니라 뒤쪽(✦ AI·이슈로 만들기)까지 — 좁은 화면에서 넘치던 건 뒤쪽 버튼들이다.
   // 전부 실제로 클릭 가능한 크기(0×0 으로 찌그러지지 않음)로 보여야 한다.
   for (const testId of [
     'wiki-format-tb-bold',
     'wiki-format-tb-italic',
-    'wiki-format-tb-heading1',
-    'wiki-format-tb-heading2',
-    'wiki-format-tb-bulletList',
-    'wiki-format-tb-blockquote',
-    'wiki-ai-tb-rewrite_tone',
-    'wiki-ai-tb-translate',
-    'wiki-ai-tb-expand',
-    'wiki-ai-tb-condense',
-    'wiki-ai-tb-polish',
+    'wiki-format-tb-underline',
+    'wiki-format-tb-strike',
+    'wiki-format-tb-size',
+    'wiki-format-tb-color',
+    'wiki-format-tb-highlight',
+    'wiki-format-tb-align',
+    'wiki-format-tb-link',
+    'wiki-format-tb-box',
+    'wiki-ai-tb-menu',
     'wiki-ai-tb-create-issue',
   ]) {
     const btn = page.getByTestId(testId)
@@ -1085,7 +1120,7 @@ test('위키 AI 적용 — 버블 다듬기도 ai-apply 의 ack 를 받고 선�
 
   await open(page)
   await typeAndSelectAll(page, '다듬을 문장')
-  await page.getByTestId('wiki-ai-tb-polish').click()
+  await runAiMenu(page, 'polish')
 
   await expect(page.locator('.ProseMirror')).toContainText('다듬은 결과 문장')
   await expect(page.locator('.ProseMirror')).not.toContainText('다듬을 문장')

@@ -151,13 +151,13 @@ export function addLineBesideBox(state: EditorState, dispatch: ((tr: Transaction
 
 /**
  * 「글만 남기기」 — 상자 모양을 떼고 안 블록을 보통 블록으로 남긴다. 붙여넣기 모양 거르기의 풀기(stripShapeFromFragment)를 그대로 쓴다 —
- * 상자를 풀고, 안쪽의 겹친 상자·배지 같은 인라인 모양도 떼 「글만」 남긴다. 커서는 풀린 첫 줄 처음에 둔다. 한 거래라 실행 취소 한 번에 돌아온다.
+ * 상자를 풀고, 안쪽의 겹친 상자·배지 같은 인라인 모양도 떼 「글만」 남긴다. 사용자가 단 밑줄·글자색·배경색(서식 span)·문단 정렬(WP-1305)은 글 서식이라 남긴다. 커서는 풀린 첫 줄 처음에 둔다. 한 거래라 실행 취소 한 번에 돌아온다.
  */
 export function unwrapBox(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, pos: number): boolean {
   const node = state.doc.nodeAt(pos)
   if (!isBox(node)) return false
   if (!dispatch) return true
-  let content = stripShapeFromFragment(Fragment.from(node))
+  let content = stripShapeFromFragment(Fragment.from(node), { keepFormat: true })
   // 붙여넣기 거르기는 페이지 스타일(wikiStyle)을 버리지만, 상자 안에 든 페이지 스타일은 페이지 전체 CSS 다(전체 선택 후 감싸기·<style> 을 품은
   // 가져온 카드) — 「글만 남기기」가 페이지 모양까지 지우지 않게 상자 밖 블록으로 꺼내 남긴다.
   const pageStyles: PMNode[] = []

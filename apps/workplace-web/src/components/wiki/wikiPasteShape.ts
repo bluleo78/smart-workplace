@@ -1,4 +1,4 @@
-import { isWikiShapeNode, WIKI_HTML_EMBED } from '@smart-workplace/wiki-editor-schema'
+import { isFormatSpanMark, isWikiShapeNode, WIKI_HTML_EMBED } from '@smart-workplace/wiki-editor-schema'
 import { Extension } from '@tiptap/core'
 import { DOMSerializer, Fragment, type Node as PMNode, type Schema, Slice } from '@tiptap/pm/model'
 import { Plugin } from '@tiptap/pm/state'
@@ -53,27 +53,32 @@ export function noteClipboardSerializer(schema: Schema): DOMSerializer {
 }
 
 /**
- * 모양 노드·마크를 뺀 조각 내용 — 페이지 스타일은 지우고, 모양 영역은 풀고, 인라인 모양 마크는 뗀다.
+ * 모양 노드·마크를 뺀 조각 내용 — 페이지 스타일은 지우고, 모양 영역은 풀고, 인라인 모양 마크는 떼고, 문단·제목 정렬(WP-1305)도 지운다.
  * 상자 막대의 「글만 남기기」(WP-1303)도 이 풀기를 그대로 쓴다(상자 하나를 담은 조각을 넘긴다).
+ * keepFormat — 사용자가 선택 서식 도구로 단 글 서식(밑줄·글자색·배경색의 서식 span 과 문단 정렬, WP-1305)은 남긴다(상자 「글만 남기기」).
  */
-export function stripShapeFromFragment(fragment: Fragment): Fragment {
+export function stripShapeFromFragment(fragment: Fragment, opts: { keepFormat?: boolean } = {}): Fragment {
   const out: PMNode[] = []
   fragment.forEach((node) => {
     const name = node.type.name
     if (name === 'wikiStyle') return
-    const marks = node.marks.filter((m) => m.type.name !== 'wikiHtmlSpan')
+    const marks = node.marks.filter((m) => m.type.name !== 'wikiHtmlSpan' || (opts.keepFormat && isFormatSpanMark(m)))
     if (node.isText) {
       out.push(node.mark(marks))
       return
     }
-    const content = node.content.size ? stripShapeFromFragment(node.content) : node.content
+    const content = node.content.size ? stripShapeFromFragment(node.content, opts) : node.content
     if (name === 'wikiHtmlBox') {
       content.forEach((child) => out.push(child))
       return
     }
     // 안쪽이 페이지 스타일뿐이던 블록(표 셀 등)은 비면 스키마가 요구하는 빈 내용(빈 문단)으로 채운다.
+    // 바깥 붙여넣기는 정렬을 뗀다 — 바깥 문서의 <p style="text-align:…"> 가 노트 정렬로 들어오지 않게(노트끼리 복사만 옮긴다).
+    const attrs = !opts.keepFormat && node.attrs.textAlign ? { ...node.attrs, textAlign: null } : node.attrs
     const copy =
-      content.size || !node.content.size ? node.copy(content) : (node.type.createAndFill(node.attrs, content) ?? node.copy(content))
+      attrs === node.attrs && (content.size || !node.content.size)
+        ? node.copy(content)
+        : (node.type.createAndFill(attrs, content) ?? node.type.create(attrs, content))
     out.push(copy.mark(marks))
   })
   // fromArray 가 같은 마크의 이웃 글자를 하나로 잇는다(span 만 다르던 글자들).
@@ -92,14 +97,15 @@ function boxesOnOpenPath(fragment: Fragment, depth: number, side: 'start' | 'end
 }
 
 /**
- * 조각에서 HTML 모양(페이지 스타일·모양 영역·인라인 모양)을 뺀다(순수 함수). 모양이 없으면 같은 조각을 그대로 돌려준다.
+ * 조각에서 HTML 모양(페이지 스타일·모양 영역·인라인 모양)과 문단·제목 정렬을 뺀다(순수 함수). 모양이 없으면 같은 조각을 그대로 돌려준다.
  * 열린 깊이(openStart/openEnd)는 열린 경로 위에서 풀린 영역 수만큼 줄인다 — 붙여넣기가 이어 붙일 자리 계산이 그대로 맞게.
  */
 export function stripShapeFromSlice(slice: Slice): Slice {
   let shaped = false
   slice.content.descendants((node) => {
     if (shaped) return false
-    shaped = isWikiShapeNode(node)
+    // 정렬만 지닌 조각(바깥 문서의 가운데 문단)도 거른다.
+    shaped = isWikiShapeNode(node) || !!node.attrs.textAlign
     return !shaped
   })
   if (!shaped) return slice
@@ -153,7 +159,8 @@ export function embedsToCodeBlocks(slice: Slice, schema: Schema): Slice {
  * 붙여넣기 모양 거르기 확장 — 노트 본문 편집기(wikiEditorExtensions)와 판 미리보기(복사 원본)에 넣는다.
  * - clipboardSerializer: 복사·끌기 HTML 에 노트 복사 표지를 단다.
  * - transformPastedHTML: 이번 붙여넣기 HTML 이 노트 복사인지 기억만 한다(HTML 은 바꾸지 않는다).
- * - transformPasted: 글자 붙여넣기(plain)거나 노트 복사가 아니면 조각에서 모양을 빼고 HTML 블록을 ```html 코드 블록으로 바꾼다.
+ * - transformPasted: 글자 붙여넣기(plain)거나 노트 복사가 아니면 조각에서 모양·문단 정렬을 빼고 HTML 블록을 ```html 코드 블록으로 바꾼다.
+ *   밑줄·글자색·배경색(서식 span, WP-1305)도 인라인 모양이라 바깥 붙여넣기에선 빠지고, 노트끼리 복사에선 그대로 옮겨진다.
  *   같은 편집기 안 끌어다 놓기는 그대로.
  */
 export const WikiPasteShape = Extension.create({
@@ -173,6 +180,7 @@ export const WikiPasteShape = Extension.create({
             const internal = !plain && (htmlFromNote || !!view.dragging)
             htmlFromNote = false
             // 노트 밖 붙여넣기 — 모양을 떼고, HTML 블록은 실행되지 않는 코드 블록으로 바꾼다(WP-1242).
+            // 문단·제목 정렬(WP-1305)도 stripShapeFromSlice 가 뗀다(노트끼리 복사만 옮긴다).
             return internal ? slice : embedsToCodeBlocks(stripShapeFromSlice(slice), view.state.schema)
           },
         },

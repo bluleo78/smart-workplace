@@ -35,3 +35,15 @@ export function detectMacLike(platform: string): boolean {
 export function isMacLike(): boolean {
   return typeof navigator !== 'undefined' && detectMacLike(navigator.platform)
 }
+
+/** 단축키 표기 글자 — macOS 계열은 ⌘·⇧·⌥, 그 밖은 Ctrl+·Shift+·Alt+. 서식 툴바(노트·채팅)의 title 이 같은 표기를 쓰게 한곳에 둔다. */
+export interface ShortcutKeys {
+  mod: string
+  shift: string
+  alt: string
+}
+
+/** 이 브라우저(또는 mac 인자)의 단축키 표기 글자. */
+export function shortcutKeys(mac: boolean = isMacLike()): ShortcutKeys {
+  return mac ? { mod: '⌘', shift: '⇧', alt: '⌥' } : { mod: 'Ctrl+', shift: 'Shift+', alt: 'Alt+' }
+}

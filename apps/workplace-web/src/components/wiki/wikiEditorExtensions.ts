@@ -19,6 +19,7 @@ import { WikiMention } from './wikiMentionNode'
 import { WikiPresenceCursors } from './wikiPresenceCursors'
 import { WikiRemoteScrollAnchor } from './wikiRemoteScrollAnchor'
 import { wikiRenderExtensions } from './wikiRenderExtensions'
+import { WikiTextFormatKeys } from './wikiTextFormat'
 import { WikiUploadPlaceholder } from './wikiUploadPlaceholder'
 
 /**
@@ -56,6 +57,8 @@ export function wikiEditorExtensions(o: {
     WikiBlockExit,
     // 상자(WP-1303) — 상자 테두리·여백 누르면 통째 선택, 통째 선택 키(Enter·↓·↑·Esc)·글자 키 보호. 제안 메뉴보다 앞(위와 같은 이유).
     WikiBox,
+    // 선택 서식 도구 단축키(WP-1305) — ⌘U 밑줄(서식 span). 굵게·기울임·취소선·제목 단축키는 StarterKit 기본.
+    WikiTextFormatKeys,
     o.mention,
     o.slash,
     Placeholder.configure({
