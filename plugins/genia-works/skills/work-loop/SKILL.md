@@ -151,10 +151,10 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 #### 새 프로젝트 확인
 
-start-agent 가 띄운 칸에서만, 다음 확인을 잡기 전에 한다. 내가 중간에 다른 프로젝트에 추가되면(서버는 이것을 알리지 않는다) 그 프로젝트는 칸이 없어 아무도 보지 않는다 — 깨어날 때마다 내 소속 프로젝트를 읽어, 칸이 없는 프로젝트를 start-agent 와 같은 절차로 스스로 준비하고 칸으로 띄운다. 새 칸의 work-loop 가 그 프로젝트를 맡는다. 아래 `agent-home`·`agent-project` 는 `"<이 스킬 폴더>/../../scripts/agent-home"`·`"<이 스킬 폴더>/../../scripts/agent-project"` 이고, `<AI 폴더>` 는 셸이 펼치게 따옴표 안에 그대로 쓰는 `"$GENIA_WORKS_AGENT_DIR"` 다(start-agent 가 칸에 넘긴 값).
+start-agent 가 띄운 칸에서만, 다음 확인을 잡기 전에 한다. 내가 중간에 다른 프로젝트에 추가되면(서버는 이것을 알리지 않는다) 그 프로젝트는 칸이 없어 아무도 보지 않는다 — 깨어날 때마다 내 소속 프로젝트를 읽어, 칸이 없는 프로젝트를 start-agent 와 같은 절차로 스스로 준비하고 칸으로 띄운다. 새 칸의 work-loop 가 그 프로젝트를 맡는다. 칸이 없는 프로젝트에서 알림(할당·멘션 등)이 오면 알림 감시 창이 이 확인을 기다리지 않고 바로 같은 절차로 칸을 연다(WP-1272) — 이 확인은 알림이 없던 프로젝트와 감시가 끊긴 동안을 메운다. 아래 `agent-home`·`agent-project` 는 `"<이 스킬 폴더>/../../scripts/agent-home"`·`"<이 스킬 폴더>/../../scripts/agent-project"` 이고, `<AI 폴더>` 는 셸이 펼치게 따옴표 안에 그대로 쓰는 `"$GENIA_WORKS_AGENT_DIR"` 다(start-agent 가 칸에 넘긴 값).
 1. `agent-home <AI 폴더> due` 가 0 일 때만 이어 간다 — 같은 AI 의 칸들이 함께 깨어나도 5분에 하나만 확인한다. 1 이면(때가 아님·start-agent 로 띄운 칸이 아님) 그만둔다.
-2. `list_projects` 를 끝까지 읽어(`hasMore` 면 `nextPage` 를 `page` 로 넘긴다) `viewerRole` 과 `repositoryUrl` 이 있는 프로젝트를 모은다.
-3. `agent-home <AI 폴더> missing <키>…`(모은 키 전부)이 낸 키마다 — 칸이 없는 프로젝트다 — 차례로 `agent-project add <AI 폴더> "<키>" "<repositoryUrl>"`(`repositoryBranch` 가 있으면 끝에 `"<브랜치>"` — 주소·브랜치는 프로젝트 설정의 값이라 따옴표로 감싼다)를 부른다. clone(또는 fetch)하고 칸을 띄운다.
+2. `"<이 스킬 폴더>/../../scripts/gw-agent-projects" --assigned "$GENIA_WORKS_AS"` 로 맡을 프로젝트를 읽는다 — 서버가 고른(실제 멤버·연결된 저장소·키 형식) 프로젝트를 「키<탭>저장소 주소<탭>브랜치」 한 줄씩 낸다(WP-1275, start-agent 와 같은 기준). 직접 JSON 을 읽어 거르지 않는다. 실패(0 이 아닌 종료)면 이번 확인은 그만둔다.
+3. `agent-home <AI 폴더> missing <키>…`(읽은 키 전부)이 낸 키마다 — 칸이 없는 프로젝트다 — 차례로 `agent-project add <AI 폴더> "<키>" "<저장소 주소>"`(브랜치가 있으면 끝에 `"<브랜치>"` — 주소·브랜치는 프로젝트 설정의 값이라 따옴표로 감싼다)를 부른다. clone(또는 fetch)하고 칸을 띄운다.
    - 종료 0 — 띄웠다. 종료 6(`busy` — 다른 칸·start-agent 가 그 키를 하는 중)·7(`backoff` — 1시간 안에 실패했다)은 조용히 넘어간다.
    - 종료 1 — 사람이 손봐야 하는 실패다(이유는 마지막 줄 — 스크립트 머리 주석). 스크립트가 이유를 기록해 두어 사람이 start-agent 를 부를 때 보이고, 1시간 뒤 다시 해 본다. 이번 부르기의 콘솔 요약에도 「<키> 칸 띄우기 실패 — <마지막 줄>」 한 줄을 남긴다.
 - 칸을 닫거나 저장소 폴더를 지우지 않는다 — 멤버에서 빠진 프로젝트의 칸은 start-agent 를 부를 때 사람에게 알린다.

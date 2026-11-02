@@ -702,40 +702,28 @@ test('gw-agent-projects: 키가 없거나 인자가 잘못되면 서버에 묻�
   assert.equal((await agentProjects(['../x'])).status, 1);
 });
 
-// WP-1265 — 「이 AI 가 맡을 프로젝트」 기준을 한곳(--assigned)에 둔다. start-agent 스킬과 작업 공간 엔트리포인트가 이것을 부른다.
+// WP-1265·1275 — 「이 AI 가 맡을 프로젝트」는 서버(GET /agent-runtime/me/projects)가 고르고 --assigned 가 줄로 바꾼다.
+// start-agent 스킬과 작업 공간 엔트리포인트·알림 감시가 이것을 부른다.
 const hasJq = spawnSync('jq', ['--version']).status === 0;
 const jqTest = (name, fn) => test(name, { skip: !hasJq && 'jq 없음' }, fn);
+const ASSIGNED_URL = '/api/v1/agent-runtime/me/projects';
 
-jqTest('gw-agent-projects --assigned: 실제 멤버·연결된 저장소·올바른 키만 「키<탭>주소<탭>브랜치」로, 모든 페이지를 돈다', async () => {
+jqTest('gw-agent-projects --assigned: 서버가 고른 목록을 한 번에 받아 「키<탭>주소<탭>브랜치」로 낸다', async () => {
   run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
-  const srv = await fakeProjectServer({
-    pages: [
-      {
-        content: [
-          { key: 'WP', viewerRole: 'MEMBER', repositoryUrl: 'https://g/wp.git' },
-          { key: 'HR', viewerRole: null, viewerIsMember: true, repositoryUrl: 'https://g/hr.git' }, // 관리자라 보이기만 함
-          { key: 'XY', viewerRole: 'MEMBER', repositoryUrl: null }, // 연결된 저장소 없음
-          { key: 'EM', viewerRole: 'MEMBER', repositoryUrl: '' },
-          { key: 'bad key', viewerRole: 'MEMBER', repositoryUrl: 'https://g/b.git' }, // 폴더·칸 이름이 될 수 없는 키
-          { key: 'a/../b', viewerRole: 'MEMBER', repositoryUrl: 'https://g/c.git' },
-          { key: 'WD', viewerRole: 'ADMIN', repositoryUrl: 'https://g/wd.git', repositoryBranch: 'develop' },
-        ],
-        page: 0,
-        totalPages: 3,
-      },
-      { content: [], page: 1, totalPages: 3 },
-      { content: [{ key: 'ZZ_9-x', viewerRole: 'MEMBER', repositoryUrl: 'https://g/zz.git' }], page: 2, totalPages: 3 },
-    ],
-  });
+  const body = JSON.stringify([
+    { projectKey: 'WD', name: 'WD', repositoryUrl: 'https://g/wd.git', repositoryBranch: 'develop' },
+    { projectKey: 'WP', name: 'WP', repositoryUrl: 'https://g/wp.git', repositoryBranch: null },
+    { projectKey: 'a/../b', name: 'x', repositoryUrl: 'https://g/c.git' }, // 서버가 걸러도 폴더·칸 이름이 될 수 없는 키는 한 번 더 버린다
+    { projectKey: 'EM', name: 'x', repositoryUrl: '' },
+    { projectKey: 'ZZ_9-x', name: 'x', repositoryUrl: 'https://g/zz.git' },
+  ]);
+  const srv = await fakeProjectServer({ body });
   try {
     const r = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: srv.url });
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.stdout, 'WP\thttps://g/wp.git\t\nWD\thttps://g/wd.git\tdevelop\nZZ_9-x\thttps://g/zz.git\t\n');
-    assert.deepEqual(
-      srv.reqs.map((q) => q.url),
-      [0, 1, 2].map((n) => `/api/v1/projects?page=${n}&size=100`),
-    );
-    assert.ok(srv.reqs.every((q) => q.auth === 'Bearer ak_FAKE_KODI'));
+    assert.equal(r.stdout, 'WD\thttps://g/wd.git\tdevelop\nWP\thttps://g/wp.git\t\nZZ_9-x\thttps://g/zz.git\t\n');
+    // 프로젝트 목록을 쪽마다 받지 않고 한 번만 부른다
+    assert.deepEqual(srv.reqs, [{ url: ASSIGNED_URL, auth: 'Bearer ak_FAKE_KODI' }]);
     assert.doesNotMatch(r.stdout + r.stderr, /ak_FAKE_KODI/);
   } finally {
     srv.close();
@@ -744,7 +732,7 @@ jqTest('gw-agent-projects --assigned: 실제 멤버·연결된 저장소·올바
 
 jqTest('gw-agent-projects --assigned: 맡을 프로젝트가 없으면 빈 출력으로 0', async () => {
   run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
-  const srv = await fakeProjectServer();
+  const srv = await fakeProjectServer({ body: '[]' });
   try {
     const r = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: srv.url });
     assert.equal(r.status, 0);
@@ -754,36 +742,35 @@ jqTest('gw-agent-projects --assigned: 맡을 프로젝트가 없으면 빈 출�
   }
 });
 
-jqTest('gw-agent-projects --assigned: 실패 코드는 한 페이지 읽기와 같고, 중간 페이지 실패도 그대로 끝난다', async () => {
+jqTest('gw-agent-projects --assigned: 401 은 4, AI 키가 아니면(403) 6, 옛 서버(404)·서버 오류·JSON 아님은 5', async () => {
   run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
-  const ok = { content: [{ key: 'WP', viewerRole: 'MEMBER', repositoryUrl: 'https://g/wp.git' }], page: 0, totalPages: 2 };
   for (const [status, code, msg] of [
     [401, 4, /거절됐습니다\(HTTP 401\)/],
-    [403, 6, /권한이 없습니다\(HTTP 403\)/],
+    [403, 6, /AI 의 키인지 확인하세요/],
+    [404, 5, /Works 를 새 버전으로 올리세요/],
     [500, 5, /읽지 못했습니다\(HTTP 500/],
   ]) {
-    for (const pages of [undefined, [ok, status]]) {
-      const srv = await fakeProjectServer({ status: pages ? 200 : status, pages });
-      try {
-        const r = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: srv.url });
-        assert.equal(r.status, code);
-        assert.match(r.stderr, msg);
-        // 첫 페이지를 읽은 뒤 실패해도 이미 읽은 줄을 반쯤 내보내지 않는다 — 실패하면 표준 출력은 비어 있다.
-        if (pages) assert.equal(r.stdout, '');
-      } finally {
-        srv.close();
-      }
+    const srv = await fakeProjectServer({ status });
+    try {
+      const r = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: srv.url });
+      assert.equal(r.status, code);
+      assert.match(r.stderr, msg);
+      assert.equal(r.stdout, '');
+    } finally {
+      srv.close();
     }
   }
   const down = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
   assert.equal(down.status, 5);
-  const bad = await fakeProjectServer({ body: 'not json' });
-  try {
-    const r = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: bad.url });
-    assert.equal(r.status, 5);
-    assert.match(r.stderr, /JSON 으로 읽지 못했습니다/);
-  } finally {
-    bad.close();
+  for (const body of ['not json', '{"content":[]}']) {
+    const bad = await fakeProjectServer({ body });
+    try {
+      const r = await agentProjects(['--assigned', 'kodi'], { GENIA_WORKS_API_URL: bad.url });
+      assert.equal(r.status, 5);
+      assert.match(r.stderr, /JSON 으로 읽지 못했습니다/);
+    } finally {
+      bad.close();
+    }
   }
 });
 
@@ -1353,6 +1340,18 @@ test('gwEvents_all_emitsEveryProject', async () => {
   }
 });
 
+test('gwEvents_all_keepsOnePendingLinePerProject', async () => {
+  // 20초 안에 몰린 알림을 한 줄로 합치면 가운데 프로젝트(WP)의 알림이 빠져 그 칸이 깨지지 않는다 — 프로젝트마다 마지막 한 줄은 남긴다.
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventRounds([[mention('HR-3', 'ASSIGNED'), mention('WP-12'), mention('QA-1'), mention('WP-13', 'COMMENTED')]]);
+  try {
+    const r = await runEvents(['--all'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url }, 2500);
+    assert.equal(r.out, 'wake HR-3 ASSIGNED\nwake QA-1 ISSUE_CHAT_MENTION\nwake WP-13 COMMENTED\n');
+  } finally {
+    srv.close();
+  }
+});
+
 test('gwEvents_lockFile_secondInstanceExitsSilently', async () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeEventRounds([]);
@@ -1438,7 +1437,8 @@ test('agentEvents_run_appendsWakeLinesAndReconnects', async () => {
     const logFile = join(d, 'state', 'events.log');
     const expected = 'wake WP-1 ISSUE_CHAT_MENTION\nwake WD-2 ISSUE_CHAT_MENTION\nwake - reconnect\nwake WP-3 ISSUE_CHAT_MENTION\n';
     const read = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
-    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url }, { done: () => read().startsWith(expected) });
+    // 칸이 없는 프로젝트를 여는 open(WP-1272)은 tmux 를 못 읽으면 아무것도 하지 않는다 — 사람의 tmux 를 건드리지 않게 없는 tmux 를 준다.
+    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url, GW_TMUX: '/nonexistent/tmux' }, { done: () => read().startsWith(expected) });
     assert.equal(r.out, '');
     assert.equal(r.orphans, '');
     const log = read();
@@ -1472,6 +1472,56 @@ test('agentEvents_run_marksReconnectWhenWatcherRestarts', async () => {
   } finally {
     srv.close();
   }
+});
+
+// WP-1272 — 칸이 없는 프로젝트의 알림이 오면 정기 확인을 기다리지 않고 맡는 프로젝트를 다시 읽어 칸을 연다.
+tmuxTest('agentEvents_open_startsPaneForAssignedProjectOnceAndSkipsUnassigned', async (t) => {
+  if (!hasJq) return t.skip('jq 없음');
+  const { wrapper, tmux } = tmuxServer(t);
+  const d = aiDir();
+  const url = remoteRepo();
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\nexec sleep 60\n');
+  chmodSync(join(bin, 'claude'), 0o755);
+  // open 은 감시 창(events — 그 AI 의 tmux 세션)에서 불린다 — 세션이 있어야 칸이 없는지 안다.
+  tmux('new-session', '-d', '-s', 'kodi', '-n', 'events', 'sleep', '60');
+  const srv = await fakeProjectServer({ body: JSON.stringify([{ projectKey: 'WP', repositoryUrl: url }]) });
+  const env = { GW_TMUX: wrapper, GENIA_WORKS_API_URL: srv.url };
+  const open = (key) => runAsync('agent-events', ['open', d, key], env);
+  const logFile = join(d, 'state', 'events.log');
+  const read = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
+  try {
+    // 같은 프로젝트 알림이 한꺼번에 와도 칸은 하나만 생긴다.
+    const outs = await Promise.all([open('WP'), open('WP'), open('WP')]);
+    assert.ok(outs.every((o) => o.status === 0));
+    assert.equal(read().split('\n').filter((l) => l === 'open WP started').length, 1, read());
+    assert.equal(panes(tmux, 'kodi').filter((p) => p.key === 'WP').length, 1);
+    // 칸이 생긴 뒤의 알림은 서버에 묻지도 않는다.
+    const asked = srv.reqs.length;
+    await open('WP');
+    assert.equal(srv.reqs.length, asked);
+    assert.ok(srv.reqs.every((q) => q.url === '/api/v1/agent-runtime/me/projects' && q.auth === 'Bearer ak_FAKE_KODI'));
+
+    // 맡는 프로젝트가 아니면 기록만 남기고, 10분 동안은 다시 묻지 않는다.
+    await open('HR');
+    assert.match(read(), /^open HR not-assigned$/m);
+    const afterSkip = srv.reqs.length;
+    await open('HR');
+    assert.equal(srv.reqs.length, afterSkip);
+    assert.equal(panes(tmux, 'kodi').filter((p) => p.key === 'HR').length, 0);
+    assert.ok(!read().includes('ak_FAKE_KODI'));
+    assert.equal(readdirSync(join(d, 'state')).filter((f) => f.startsWith('open-') && f.endsWith('.lock')).length, 0);
+  } finally {
+    srv.close();
+  }
+});
+
+test('agentEvents_open_withoutTmuxDoesNothing', async () => {
+  const d = aiDir();
+  const r = await runAsync('agent-events', ['open', d, 'WP'], { GW_TMUX: '/nonexistent/tmux', GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.equal(r.status, 0);
+  assert.equal(existsSync(join(d, 'state', 'events.log')), false);
+  assert.equal(run('agent-events', ['open', d, 'bad key']).status, 2);
 });
 
 test('agentEvents_tail_filtersByProject', async () => {

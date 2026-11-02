@@ -25,10 +25,15 @@ allowedImagePrefixes:
   - docker.io/iacloudops/genia-works-agent-
   - "docker:"
 
+# Works 주소를 내부 IP 로 풀어야 하는 클러스터(공인 주소로 닿지 않는 곳)에서 쓴다 — runner 와 runner 가 띄우는 AI Pod 모두에 들어간다(WP-1269).
+# 예: [{ ip: 192.168.100.72, hostnames: [genia-works.iacloud.kr] }]. 비우면 클러스터 DNS 그대로.
+hostAliases: []
+
 # 이 위치의 모든 AI Pod 에 똑같이 들어가는 값
 agent:
   nodeSelector: {}
   tolerations: []
+  # AI Pod 에만 더할 이름 풀이(예: 사내 GitLab) — 위 hostAliases 뒤에 붙는다. runner 자신에게는 들어가지 않는다.
   hostAliases: []
   # 작업 디스크 StorageClass — 비우면 클러스터 기본.
   storageClass: ""

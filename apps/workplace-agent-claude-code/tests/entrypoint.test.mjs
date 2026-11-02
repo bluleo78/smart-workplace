@@ -59,7 +59,7 @@ function bareRepo(root, pw = '1.60.0') {
 
 /**
  * 테스트 하나의 격리 환경 — 홈·/run/genia·/work·가짜 명령·가짜 플러그인 폴더·격리 tmux.
- * projects: 가짜 서버가 페이지마다 낼 JSON(배열 순서 = 페이지). 진짜 gw-agent-projects --assigned 가 가짜 curl 로 이것을 읽는다.
+ * projects: 가짜 서버가 맡는 프로젝트 조회(GET /agent-runtime/me/projects — WP-1275)에 낼 목록. 진짜 gw-agent-projects --assigned 가 가짜 curl 로 이것을 읽는다.
  */
 function fixture(t, { projects, pluginVersions = {}, knownUrl = 'http://127.0.0.1:9/claude/marketplace.json', env: extra = {} } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'gw-entry-')));
@@ -116,14 +116,13 @@ if [ -n "\${FAKE_NPX_HANG:-}" ]; then
 fi
 exit 0
 `);
-  // 가짜 curl — 프로젝트 목록 요청(…/projects?page=N)만 FAKE_OUT/projects-N.json 으로 답하고, 나머지는 진짜 curl 로 보낸다.
+  // 가짜 curl — 맡는 프로젝트 조회(…/agent-runtime/me/projects)만 FAKE_OUT/projects.json 으로 답하고, 나머지는 진짜 curl 로 보낸다.
   const realCurl = spawnSync('sh', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim();
   exe(d('bin', 'curl'), `#!/bin/sh
 for a in "$@"; do
   case "$a" in
-    */projects\\?page=*)
-      p=\${a#*page=}; p=\${p%%&*}
-      cat "$FAKE_OUT/projects-$p.json"; printf '\\n200'
+    */agent-runtime/me/projects)
+      cat "$FAKE_OUT/projects.json"; printf '\\n200'
       exit 0 ;;
   esac
 done
@@ -136,7 +135,7 @@ exec ${realCurl} "$@"
   for (const f of readdirSync(pluginScripts)) {
     symlinkSync(join(pluginScripts, f), d('plugin', 'scripts', f));
   }
-  (projects ?? []).forEach((p, i) => writeFileSync(d('out', `projects-${i}.json`), JSON.stringify(p)));
+  writeFileSync(d('out', 'projects.json'), JSON.stringify(projects ?? []));
 
   const list = lockEntries.map(([id, version]) => ({
     id,
@@ -219,7 +218,7 @@ async function until(cond, what, ms = 30000, log = () => '') {
 }
 
 /** 맡은 프로젝트 WP 하나(멤버·저장소 있음)를 내는 목록. */
-const oneProject = (url) => [{ content: [{ key: 'WP', viewerRole: 'MEMBER', repositoryUrl: url }], page: 0, size: 100, totalElements: 1, totalPages: 1 }];
+const oneProject = (url) => [{ projectKey: 'WP', name: 'WP', repositoryUrl: url, repositoryBranch: null }];
 
 /** 세션 kodi 의 칸 — 창 이름·칸 id·죽음 여부·키·pid. */
 function panes(tmux) {
@@ -345,20 +344,13 @@ test('exitsWhenConfigMissing', (t) => {
 
 // ---------------------------------------------------------------- 프로젝트·Playwright
 
-test('selectsOnlyMemberProjectsWithRepository', (t) => {
+test('listsAssignedProjectsFromServer', (t) => {
   const f = fixture(t, {
+    // 고르기(실제 멤버·연결된 저장소·키 형식)는 서버가 한다 — 이미지는 받은 목록을 그대로 줄로 바꾼다(WP-1275).
     projects: [
-      {
-        content: [
-          { key: 'WP', viewerRole: 'MEMBER', repositoryUrl: 'https://g/wp.git' },
-          { key: 'HR', viewerRole: null, viewerIsMember: true, repositoryUrl: 'https://g/hr.git' }, // 관리자라 보이기만 함
-          { key: 'XY', viewerRole: 'MEMBER', repositoryUrl: null }, // 연결된 저장소 없음
-          { key: 'WD', viewerRole: 'ADMIN', repositoryUrl: 'https://g/wd.git', repositoryBranch: 'develop' },
-        ],
-        page: 0,
-        totalPages: 2,
-      },
-      { content: [{ key: 'ZZ', viewerRole: 'MEMBER', repositoryUrl: 'https://g/zz.git' }], page: 1, totalPages: 2 },
+      { projectKey: 'WP', name: 'WP', repositoryUrl: 'https://g/wp.git', repositoryBranch: null },
+      { projectKey: 'WD', name: 'WD', repositoryUrl: 'https://g/wd.git', repositoryBranch: 'develop' },
+      { projectKey: 'ZZ', name: 'ZZ', repositoryUrl: 'https://g/zz.git' },
     ],
   });
   const r = callLib(f.env, 'check_required && resolve_plugin_scripts && list_projects');
@@ -402,6 +394,13 @@ test('pluginLockMatchesTemplate', () => {
   assert.deepEqual(fromTemplate, fromLock);
 });
 
+test('dockerfileInstallsKoreanFont', () => {
+  // 한글이 WenQuanYi 폭으로 그려지면 배치를 재는 E2E 가 작업 공간에서만 실패한다 — Noto CJK 를 넣고 WenQuanYi 는 지운다(WP-1285).
+  const dockerfile = readFileSync(join(appDir, 'Dockerfile'), 'utf8');
+  assert.match(dockerfile, /apt-get install[^;]*\bfonts-noto-cjk\b/);
+  assert.match(dockerfile, /apt-get purge -y fonts-wqy-zenhei/);
+});
+
 test('buildSkipsGeniaWorksWhenMarketplaceUnreachable', (t) => {
   // 빌더에서 Works 서버에 닿지 않으면 genia-works 만 굳히지 않고 빌드는 계속된다(Pod 가 뜰 때 받는다).
   const f = fixture(t, { env: { FAKE_FAIL_PLUGIN: 'marketplace add https://unreachable.example' } });
@@ -420,7 +419,7 @@ test('buildSkipsGeniaWorksWhenMarketplaceUnreachable', (t) => {
 
 tmuxTest('panesReceiveTenantAndGenerationEnv', async (t) => {
   const f = fixture(t);
-  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))[0]));
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
   const e = startEntrypoint(t, f.env);
   await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
   const lines = f.read('out', 'pane-WP.env').split('\n');
@@ -452,7 +451,7 @@ tmuxTest('panesReceiveTenantAndGenerationEnv', async (t) => {
 
 tmuxTest('supervisorRevivesDeadPane', async (t) => {
   const f = fixture(t);
-  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))[0]));
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
   const e = startEntrypoint(t, f.env);
   await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
   await until(() => panes(f.tmux).some((p) => p.win === 'events'), '알림 감시 창', 10000, e.log);
@@ -472,7 +471,7 @@ tmuxTest('supervisorRevivesDeadPane', async (t) => {
 
 tmuxTest('restartsLongRunningPane', async (t) => {
   const f = fixture(t, { env: { GENIA_RESTART_AFTER: '2' } });
-  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))[0]));
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
   const e = startEntrypoint(t, f.env);
   await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
   rmSync(f.d('out', 'pane-WP.env'));
@@ -486,7 +485,7 @@ tmuxTest('restartsLongRunningPane', async (t) => {
 
 tmuxTest('sigtermStopsPanesAndExitsZero', async (t) => {
   const f = fixture(t);
-  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))[0]));
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
   const e = startEntrypoint(t, f.env);
   await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
   // 감시 창은 엔트리포인트가 칸을 다 띄운 뒤에 챙긴다 — 둘 다 뜬 뒤에 끈다.
@@ -513,7 +512,7 @@ tmuxTest('sigtermStopsPanesAndExitsZero', async (t) => {
 tmuxTest('doesNotExitWhenLoopsStop', async (t) => {
   const f = fixture(t);
   writeFileSync(f.d('out', 'exit-now'), '');
-  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))[0]));
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
   const e = startEntrypoint(t, f.env);
   await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
   // work-loop 가 멈추고(DRAIN 등) claude 가 끝나도 엔트리포인트는 끝내지 않는다 — 끝내면 kubelet 이 같은 generation 으로 헛돈다
@@ -525,12 +524,12 @@ tmuxTest('doesNotExitWhenLoopsStop', async (t) => {
 
 /** 프로젝트 여러 개 — 키별 저장소(루트 폴더가 따로 있는 bare repo)와 목록 JSON. */
 function severalProjects(f, specs) {
-  const content = specs.map(({ key, pw, broken }) => ({
-    key,
-    viewerRole: 'MEMBER',
+  const list = specs.map(({ key, pw, broken }) => ({
+    projectKey: key,
+    name: key,
     repositoryUrl: broken ? f.d('git', 'missing', `${key}.git`) : bareRepo(f.d('git', key), pw),
   }));
-  writeFileSync(f.d('out', 'projects-0.json'), JSON.stringify({ content, page: 0, size: 100, totalElements: content.length, totalPages: 1 }));
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(list));
 }
 
 tmuxTest('startsSeveralProjectsSkipsFailedCloneAndInstallsSharedPlaywrightOnce', async (t) => {

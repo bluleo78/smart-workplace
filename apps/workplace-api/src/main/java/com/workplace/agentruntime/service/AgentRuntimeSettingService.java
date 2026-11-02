@@ -12,15 +12,12 @@ import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingNotFoundException;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
-import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
-import com.workplace.agentruntime.service.AgentKeyRetirement.Placement;
+import com.workplace.agentruntime.service.AgentRuntimeTransitions.State;
 import com.workplace.audit.service.AuditLogService;
-import com.workplace.global.realtime.ResourceChangedEvent;
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -30,13 +27,10 @@ import com.workplace.user.service.AgentRuntimePolicy;
 import com.workplace.user.service.UserService;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +43,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>원하는 상태가 바뀔 때마다 generation 을 1 올리고, 실제 위치(기본 해석 뒤)마다 {@link AgentRuntimeDesiredChanged} 를 내 그
  * 위치의 runner 가 다시 받아 가게 한다. 바뀐 것이 없으면 generation·이벤트 모두 그대로다(재시도·중복 클릭이 헛돌지 않게).
+ *
+ * <p>메서드는 바뀐 다음 행만 계산해 저장하고, 따라붙는 처리(키 정리·runner 알림·관리자 알림)는 {@link
+ * AgentRuntimeTransitions#applyTransition} 한곳에 전·후 모양을 넘겨 맡긴다(WP-1274).
  */
 @Service
 @Transactional
@@ -64,9 +61,7 @@ public class AgentRuntimeSettingService {
   private final UserRepository userRepository;
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
-  private final ApplicationEventPublisher events;
-  private final AgentKeyRetirement keyRetirement;
-  private final AgentRuntimeChangeNotifier changeNotifier;
+  private final AgentRuntimeTransitions transitions;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -113,7 +108,9 @@ public class AgentRuntimeSettingService {
       settings.insert(
           agentId, template.name(), template.version(), req.locationId(), config, callerId);
       audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 저장", meta(template, req));
-      changeNotifier.agentChanged(ResourceChangedEvent.OP_CREATED, agentId, callerId);
+      // 새 행은 꺼진 채라 runner 에게 알릴 것이 없다 — 관리자 화면에만 「생김」.
+      transitions.applyTransition(
+          agentId, null, new State(Desired.STOP, req.locationId(), 1, false), callerId);
       return get(agentId);
     }
 
@@ -142,14 +139,10 @@ public class AgentRuntimeSettingService {
         next.withApplyMode(req.applyMode() == null ? ApplyMode.IDLE : req.applyMode())
             .withGeneration(row.generation() + 1);
     settings.update(next, callerId);
-    // 켜진 채 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — 키 정리는 한 규칙이 정한다(WP-1264).
-    keyRetirement.onTransition(
-        agentId,
-        new Placement(row.desired(), oldEffective),
-        new Placement(next.desired(), newEffective));
-    publish(oldEffective, newEffective);
+    // 켜진 채 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — 옛·새 위치 모두에 알리고 키를 정리한다.
+    transitions.applyTransition(
+        agentId, State.of(row, oldEffective), State.of(next, newEffective), callerId);
     audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 변경", meta(template, req));
-    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, newEffective);
   }
 
@@ -182,11 +175,10 @@ public class AgentRuntimeSettingService {
             .withApplyMode(ApplyMode.NOW)
             .withGeneration(row.generation() + 1);
     settings.update(next, callerId);
-    publish(location.id());
-    keyRetirement.onTransition(
-        agentId, placementOf(row), new Placement(next.desired(), location.id()));
+    // 꺼진 행의 실제 위치도 claimSeat 이 고른 위치와 같다(지정 위치 ?? 기본) — 기본 위치를 다시 읽지 않고 그 값을 쓴다.
+    transitions.applyTransition(
+        agentId, State.of(row, location.id()), State.of(next, location.id()), callerId);
     audit(callerId, "AGENT_RUNTIME_STARTED", agentId, "AI 켜기", Map.of("locationId", location.id()));
-    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, location.id());
   }
 
@@ -200,11 +192,9 @@ public class AgentRuntimeSettingService {
     if (row.desired() == Desired.STOP) return toResponse(row, effective);
     Row next = bumpDesired(row, Desired.STOP, row.applyMode());
     settings.update(next, callerId);
-    keyRetirement.onTransition(
-        agentId, new Placement(row.desired(), effective), new Placement(next.desired(), effective));
-    publish(effective);
+    transitions.applyTransition(
+        agentId, State.of(row, effective), State.of(next, effective), callerId);
     audit(callerId, "AGENT_RUNTIME_STOPPED", agentId, "AI 끄기", Map.of());
-    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, effective);
   }
 
@@ -222,11 +212,9 @@ public class AgentRuntimeSettingService {
     Long effective = locationService.effectiveLocationId(row.locationId());
     Row next = bumpDesired(row, Desired.RUN, ApplyMode.NOW);
     settings.update(next, callerId);
-    keyRetirement.onTransition(
-        agentId, new Placement(row.desired(), effective), new Placement(next.desired(), effective));
-    publish(effective);
+    transitions.applyTransition(
+        agentId, State.of(row, effective), State.of(next, effective), callerId);
     audit(callerId, "AGENT_RUNTIME_RESTARTED", agentId, "AI 다시 시작", Map.of());
-    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
     return toResponse(next, effective);
   }
 
@@ -238,9 +226,9 @@ public class AgentRuntimeSettingService {
     Row row = lockRow(agentId);
     if (row.desired() == Desired.RUN) throw AgentRuntimeSettingConflictException.running();
     settings.delete(agentId);
-    keyRetirement.onTransition(agentId, placementOf(row), null);
+    // 꺼진 채 지워진다 — 위치를 견주지도 runner 에게 알리지도 않으므로 지정 위치를 그대로 넘긴다.
+    transitions.applyTransition(agentId, State.of(row, row.locationId()), null, callerId);
     audit(callerId, "AGENT_RUNTIME_SETTING_DELETED", agentId, "AI 실행 설정 삭제", Map.of());
-    changeNotifier.agentChanged(ResourceChangedEvent.OP_DELETED, agentId, callerId);
   }
 
   /**
@@ -266,25 +254,19 @@ public class AgentRuntimeSettingService {
     Optional<Row> locked = settings.findForUpdate(agentId);
     if (locked.isEmpty()) return;
     Row row = locked.get();
-    keyRetirement.onTransition(agentId, placementOf(row), null);
-    boolean wasRunning = row.desired() == Desired.RUN;
-    if (wasRunning) {
-      settings.update(bumpDesired(row, Desired.STOP, row.applyMode()), actorId);
-      publish(locationService.effectiveLocationId(row.locationId()));
+    // 켜져 있었을 때만 끄고 실제 위치의 runner 에게 알린다 — 꺼져 있었으면 행은 그대로이고 위치를 견주지 않으므로 지정 위치를 그대로 쓴다.
+    Row next = row;
+    Long location = row.locationId();
+    if (row.desired() == Desired.RUN) {
+      next = bumpDesired(row, Desired.STOP, row.applyMode());
+      settings.update(next, actorId);
+      location = locationService.effectiveLocationId(row.locationId());
     }
-    if (deleted) {
-      changeNotifier.agentChanged(ResourceChangedEvent.OP_DELETED, agentId, actorId);
-    } else if (wasRunning) {
-      changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, actorId);
-    }
-  }
-
-  /**
-   * 키 규칙용 모양 — 위치를 견주지 않는 전이(꺼진 행에서 켜기, 행이 없어지는 삭제·AI 가 떠남)의 「전」 쪽으로 쓴다. 기본 위치를 다시 읽지 않고 지정 위치를 그대로
-   * 넣는다({@link Placement} 참고).
-   */
-  static Placement placementOf(Row row) {
-    return new Placement(row.desired(), row.locationId());
+    transitions.applyTransition(
+        agentId,
+        State.of(row, location),
+        deleted ? null : State.departing(next, location),
+        actorId);
   }
 
   /** 저장 행의 화면용 실행 상태. */
@@ -329,14 +311,6 @@ public class AgentRuntimeSettingService {
   /** 지정 위치 — 없거나 다른 워크스페이스의 것이면 404. */
   private AgentLocationRepository.Row requireLocation(long locationId) {
     return locationRepository.findById(locationId).orElseThrow(AgentLocationNotFoundException::new);
-  }
-
-  /** 실제 위치마다(겹침·null 제외) 원하는 상태 변경 이벤트를 낸다. */
-  private void publish(Long... locationIds) {
-    long tenantId = TenantContext.require();
-    Set<Long> distinct = new LinkedHashSet<>();
-    for (Long id : locationIds) if (id != null) distinct.add(id);
-    distinct.forEach(id -> events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, id)));
   }
 
   /** 저장된 설정을 새 템플릿으로 다시 검증한다 — 새 템플릿에 없는 칸은 버리고, 빈 칸은 새 기본값으로 채운다. */

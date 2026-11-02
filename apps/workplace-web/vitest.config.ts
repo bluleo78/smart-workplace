@@ -24,7 +24,8 @@ export default defineConfig({
   // 빌드 상수 — vite.config.ts 와 같은 이름을 정의해야 이를 참조하는 모듈(collabSession 등)을 불러올 수 있다.
   // 단위 테스트는 운영 빌드와 같은 경로(E2E 네임스페이스 없음)를 검증한다.
   // 버전 표기 상수(__APP_VERSION__ 등)도 함께 정의해 이를 참조하는 모듈을 불러올 수 있게 한다(WP-439).
-  define: { __E2E__: 'false', ...appVersionDefine() },
+  // 셸의 APP_VERSION·GIT_SHA 를 읽지 않고 늘 「dev」로 고정한다 — 테스트는 dev 를 가정하므로 릴리스 이미지 안에서 돌려도 결과가 같아야 한다(WP-1279).
+  define: { __E2E__: 'false', ...appVersionDefine({}) },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

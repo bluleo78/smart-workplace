@@ -168,6 +168,9 @@ public class AgentLocationService {
     // 부분 유니크(워크스페이스당 기본 1개) 때문에 옛 기본을 먼저 내린 뒤 새 기본을 올린다.
     locations.clearDefault();
     locations.markDefault(id);
+    // 실행 설정 전이(AgentRuntimeTransitions.applyTransition)가 아니다 — 설정 행·generation 은 그대로이고 실제 위치만 통째로
+    // 옮겨 가므로,
+    // 키 정리는 AI 마다, runner·관리자 알림은 위치 단위로 한 번씩 여기서 낸다(AI 마다 알리면 같은 위치에 이벤트가 AI 수만큼 쌓인다).
     // 옛 기본이 없었으면 미지정 AI 는 띄워질 곳이 없어 지워질 Pod 도 없다 — 키를 정리하지 않는다.
     if (oldDefault.isPresent()) {
       long old = oldDefault.get();

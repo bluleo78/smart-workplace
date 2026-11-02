@@ -91,6 +91,30 @@ test('passesLocationValuesAsJsonEnv', () => {
   assert.match(JSON.parse(envValue(r.out, 'ALLOWED_IMAGE_PREFIXES')), /^docker\.io\/iacloudops\/genia-works-agent-,docker:$/);
 });
 
+test('putsSharedHostAliasesOnRunnerAndAgentPods', () => {
+  // 공용 hostAliases — runner Deployment 에 들어가고, AI Pod 용 env 에는 agent.hostAliases 앞에 붙는다(WP-1269).
+  const r = render({
+    json: {
+      hostAliases: [{ ip: '192.168.100.72', hostnames: ['genia-works.iacloud.kr'] }],
+      'agent.hostAliases': [{ ip: '10.0.0.5', hostnames: ['gitlab.local'] }],
+    },
+  });
+  assert.ok(r.ok, r.err);
+  const deployment = ofKind(r.out, 'Deployment')[0];
+  assert.match(deployment, /hostAliases:\n\s+- hostnames:\n\s+- genia-works\.iacloud\.kr\n\s+ip: 192\.168\.100\.72/);
+  // runner 자신에게는 AI Pod 전용 값이 들어가지 않는다
+  assert.doesNotMatch(deployment, /gitlab\.local\n\s+ip/);
+  assert.deepEqual(
+    JSON.parse(JSON.parse(envValue(r.out, 'AGENT_HOST_ALIASES'))).map((h) => h.ip),
+    ['192.168.100.72', '10.0.0.5'],
+  );
+});
+
+test('omitsRunnerHostAliasesByDefault', () => {
+  assert.doesNotMatch(ofKind(BASE.out, 'Deployment')[0], /hostAliases:/);
+  assert.deepEqual(JSON.parse(JSON.parse(envValue(BASE.out, 'AGENT_HOST_ALIASES'))), []);
+});
+
 test('passesPullSecretsToRunnerAndAgentPods', () => {
   // 기본값 — runner·작업 공간 이미지가 비공개 Docker Hub 에 있어 dockerhub-pull 을 runner 와 AI Pod 모두에 쓴다.
   assert.match(BASE.out, /imagePullSecrets:\n\s+- name: dockerhub-pull/);

@@ -128,6 +128,38 @@ test('추가 — 이름·설명·자리 수가 POST payload 로 가고 토큰이
   expect(await screen.findByTestId('agent-location-row-4')).toHaveTextContent('개발 클러스터')
 })
 
+test('설치 대화상자 — 내부 IP 를 넣으면 설치 명령에 hostAliases 가 들어가고, 잘못된 값이면 안내만 하고 명령은 그대로다', async () => {
+  const { user } = await renderLocations()
+  await user.click(screen.getByTestId('agent-location-new'))
+  await user.type(await screen.findByLabelText('이름'), 'PoC')
+  await user.click(screen.getByTestId('agent-location-submit'))
+  const dialog = await screen.findByTestId('agent-location-token-dialog')
+  const steps = within(dialog).getByTestId('agent-location-install-steps')
+  // 비우면 지금 명령 그대로
+  expect(steps.textContent).not.toContain('hostAliases')
+  // 연결이 안 될 때 볼 로그 명령
+  expect(within(dialog).getByTestId('agent-location-install-troubleshoot')).toHaveTextContent('logs deploy/agent-runner')
+
+  const ipInput = within(dialog).getByLabelText('Works 에 내부 IP 로 접속하는 경우 (선택)')
+  await user.type(ipInput, '192.168.100')
+  expect(dialog).toHaveTextContent('IPv4 주소(예 192.168.100.72)를 넣으세요.')
+  expect(steps.textContent).not.toContain('hostAliases')
+
+  await user.type(ipInput, '.72')
+  expect(steps).toHaveTextContent("--set 'hostAliases[0].ip=192.168.100.72'")
+  expect(steps).toHaveTextContent(`--set 'hostAliases[0].hostnames[0]=${window.location.hostname}'`)
+
+  // 닫고 다른 위치를 만들면 앞 위치의 내부 IP 가 남지 않는다.
+  await user.click(within(dialog).getAllByRole('button', { name: '닫기' }).at(-1)!)
+  await waitFor(() => expect(screen.queryByTestId('agent-location-token-dialog')).not.toBeInTheDocument())
+  await user.click(screen.getByTestId('agent-location-new'))
+  await user.type(await screen.findByLabelText('이름'), 'Other')
+  await user.click(screen.getByTestId('agent-location-submit'))
+  const next = await screen.findByTestId('agent-location-token-dialog')
+  expect(within(next).getByLabelText('Works 에 내부 IP 로 접속하는 경우 (선택)')).toHaveValue('')
+  expect(within(next).getByTestId('agent-location-install-steps').textContent).not.toContain('hostAliases')
+})
+
 test('토큰 대화상자를 닫으면 토큰이 화면에서 사라진다', async () => {
   const { user } = await renderLocations()
   await user.click(screen.getByTestId('agent-location-new'))

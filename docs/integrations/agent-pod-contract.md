@@ -119,7 +119,7 @@ GitHub 토큰은 runner 가 복사하지 않는다 — 위치에 미리 만든 S
 
 ## 위치 값
 
-nodeSelector·tolerations·hostAliases·storageClass·imagePullSecrets 는 위치(Helm 값)마다 하나다. runner 가 env 로 받아 그 위치의 모든 AI Pod 에 똑같이 넣는다. 작업 공간 이미지는 비공개 Docker Hub 에 있어 Helm 기본값이 `dockerhub-pull` 이다.
+nodeSelector·tolerations·hostAliases·storageClass·imagePullSecrets 는 위치(Helm 값)마다 하나다. runner 가 env 로 받아 그 위치의 모든 AI Pod 에 똑같이 넣는다. hostAliases 는 차트의 공용 `hostAliases`(runner Deployment 에도 들어감 — Works 에 내부 IP 로 닿는 위치) 뒤에 `agent.hostAliases`(AI Pod 에만)를 이어 붙인 값이다(WP-1269). 작업 공간 이미지는 비공개 Docker Hub 에 있어 Helm 기본값이 `dockerhub-pull` 이다.
 
 ## 시작·종료
 
@@ -127,4 +127,5 @@ nodeSelector·tolerations·hostAliases·storageClass·imagePullSecrets 는 위�
 - `restartPolicy: Always` — 컨테이너가 죽으면 kubelet 이 그 자리에서 다시 띄운다. Pod 를 지우고 다시 만드는 것(교체)은 runner 만 한다.
 - `terminationGracePeriodSeconds` 기본 60(Helm `terminationGraceSeconds`).
 - 엔트리포인트는 SIGTERM 을 받으면 work-loop 칸들을 정리하고 종료 코드 0 으로 끝낸다.
+- 맡는 프로젝트는 부팅 때 `GET /api/v1/agent-runtime/me/projects`(플러그인 `gw-agent-projects --assigned`)로 읽어 칸을 연다. 그 뒤에 새로 맡은 프로젝트는 알림 감시 창이 그 프로젝트의 알림을 받는 즉시(WP-1272), 알림이 없으면 work-loop 의 「새 프로젝트 확인」(깨어날 때 5분에 한 번)이 칸을 연다.
 - **work-loop 가 DRAIN·RESTART 를 받고 멈춰도 엔트리포인트는 끝내지 않는다.** 끝내면 kubelet 이 같은 generation 으로 다시 띄워 헛돈다. 새 설정은 runner 가 Pod 를 지우고 다시 만들어서 반영한다.

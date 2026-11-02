@@ -19,6 +19,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # 도구 — gh·docker(CLI·compose v2)는 공식 apt 저장소. openjdk postinst 가 man 링크를 만들다 실패하지 않게 man 폴더를 먼저 만든다(PoC).
 # tini 는 PID 1 로 SIGTERM 을 엔트리포인트에 넘기고 고아 프로세스(tmux 서버 등)를 거둔다.
+# fonts-noto-cjk — 베이스의 한글 글꼴은 WenQuanYi·Unifont 뿐이라 한글 폭이 달라져 배치를 재는 E2E 가 작업 공간에서만 깨진다(WP-1285).
+# 베이스의 fonts-wqy-zenhei 는 fontconfig 우선순위가 Noto 보다 높아 남겨 두면 계속 한글을 가져가므로 지운다(중국어도 Noto CJK 가 덮는다).
 RUN set -eux; \
     mkdir -p /usr/share/man/man1 /etc/apt/keyrings; \
     apt-get update; \
@@ -30,7 +32,9 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       tmux git jq tini procps less openssh-client unzip \
-      openjdk-21-jdk-headless gh docker-ce-cli docker-compose-plugin docker-buildx-plugin; \
+      openjdk-21-jdk-headless gh docker-ce-cli docker-compose-plugin docker-buildx-plugin \
+      fonts-noto-cjk; \
+    apt-get purge -y fonts-wqy-zenhei; \
     rm -rf /var/lib/apt/lists/*
 
 # jdtls(jdtls-lsp 플러그인이 PATH 에서 찾는다) — apt 에 없어 Eclipse 공식 milestone 을 해시로 확인해 받는다.
@@ -89,9 +93,10 @@ WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/genia/bin/entrypoint"]
 
 # 릴리스 버전·커밋(WP-436) — 빌드 인자가 바뀌어도 위 레이어 캐시가 깨지지 않도록 스테이지 맨 끝에 둔다.
+# 환경 변수(ENV)로는 두지 않고 라벨로만 남긴다 — 이 이미지는 AI 가 저장소를 빌드·테스트하는 작업 공간이라,
+# APP_VERSION 이 셸에 있으면 웹 빌드·vitest(appVersionDefine)가 그 값을 읽어 「dev」를 가정한 테스트가 깨진다(WP-1279).
 ARG APP_VERSION=dev
 ARG GIT_SHA=dev
-ENV APP_VERSION=$APP_VERSION GIT_SHA=$GIT_SHA
 LABEL org.opencontainers.image.version=$APP_VERSION \
       org.opencontainers.image.revision=$GIT_SHA \
       org.opencontainers.image.source=https://gitlab.iacloud.kr/iacloud/smart-workplace

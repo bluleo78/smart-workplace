@@ -49,6 +49,15 @@ Pod 의 모양은 [agent-pod-contract.md](../../docs/integrations/agent-pod-cont
      --set-file runnerToken=./runner-token.txt
    ```
 
+   **Works 에 내부 IP 로 닿아야 하는 클러스터**(공인 주소로 닿지 않는 사내 클러스터 등)면 Works 호스트 이름을 그 IP 로 푸는
+   `hostAliases` 를 더합니다. runner 와 runner 가 띄우는 AI Pod 모두에 들어갑니다. 대괄호는 zsh 가 glob 으로 읽으므로 따옴표로 감쌉니다.
+   관리자 화면의 설치 순서에서 **Works 에 내부 IP 로 접속하는 경우 (선택)** 칸에 IP 를 넣으면 이 두 줄이 명령에 들어갑니다.
+
+   ```bash
+     --set 'hostAliases[0].ip=192.168.100.72' \
+     --set 'hostAliases[0].hostnames[0]=genia-works.iacloud.kr' \
+   ```
+
    미리 만든 Secret 을 쓰려면(키 `token`):
 
    ```bash
@@ -57,16 +66,27 @@ Pod 의 모양은 [agent-pod-contract.md](../../docs/integrations/agent-pod-cont
    ```
 
 6. 관리자 화면에서 위치가 「연결됨」으로 바뀌는지 확인합니다(runner 가 60초마다 상태를 보고합니다).
+   「설치 대기」에서 넘어가지 않으면 runner 로그를 봅니다. `fetch failed`·timeout 이 거듭 보이면 이 클러스터에서 Works 주소에
+   닿지 못하는 것이므로 위의 `hostAliases`(내부 IP)를 넣어 `helm upgrade` 합니다.
 
-위치 값(노드 지정·톨러레이션 등)은 `values.yaml` 의 `agent.*` 를 `-f my-values.yaml` 로 넘깁니다.
+   ```bash
+   kubectl --context <ctx> -n <ns> logs deploy/agent-runner --tail=50
+   ```
+
+위치 값(노드 지정·톨러레이션 등)은 `values.yaml` 의 `hostAliases`·`agent.*` 를 `-f my-values.yaml` 로 넘깁니다.
+공용 `hostAliases` 는 runner 와 AI Pod 모두에, `agent.hostAliases` 는 AI Pod 에만(예: 사내 GitLab 이름 풀이) 들어갑니다.
 
 ```yaml
+# Works 에 내부 IP 로 닿는 위치 — runner·AI Pod 모두
+hostAliases:
+  - { ip: 192.168.100.72, hostnames: [genia-works.iacloud.kr] }
 agent:
   nodeSelector: { pool: agents }
   tolerations:
     - { key: dedicated, operator: Equal, value: agents, effect: NoSchedule }
+  # AI Pod 에만 더할 이름 풀이
   hostAliases:
-    - { ip: 10.0.0.5, hostnames: [genia-works.iacloud.kr] }
+    - { ip: 10.0.0.5, hostnames: [gitlab.iacloud.kr] }
   storageClass: fast-ssd
 ```
 

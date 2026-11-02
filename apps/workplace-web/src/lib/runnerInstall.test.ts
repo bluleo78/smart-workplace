@@ -1,7 +1,7 @@
 // runner 설치 순서(WP-1256) — README 와 같은 4단계, 토큰 원문 미포함, --set-file, dev 버전 자리표시.
 import { describe, expect, test } from 'vitest'
 
-import { runnerInstallSteps } from './runnerInstall'
+import { isIpv4, runnerInstallSteps } from './runnerInstall'
 
 const URL = 'https://genia-works.iacloud.kr'
 
@@ -43,5 +43,33 @@ describe('runnerInstallSteps', () => {
       expect(s.title).not.toBe('')
       expect(s.command).not.toBe('')
     }
+  })
+
+  test('내부 IP 를 넣으면 설치 명령에 Works 호스트 이름을 그 IP 로 푸는 hostAliases 가 들어간다', () => {
+    const install = runnerInstallSteps(URL, '0.9.38', ' 192.168.100.72 ')[3].command
+    expect(install).toContain("--set 'hostAliases[0].ip=192.168.100.72'")
+    expect(install).toContain("--set 'hostAliases[0].hostnames[0]=genia-works.iacloud.kr'")
+    // 줄 이음이 끊기지 않는다 — 마지막 줄만 역슬래시가 없다
+    const lines = install.split('\n')
+    expect(lines.slice(0, -1).every((l) => l.endsWith('\\'))).toBe(true)
+  })
+
+  test('내부 IP 를 비우면 설치 명령은 지금과 같다', () => {
+    expect(runnerInstallSteps(URL, '0.9.38', '')[3].command).toBe(runnerInstallSteps(URL, '0.9.38')[3].command)
+    expect(runnerInstallSteps(URL, '0.9.38', '   ')[3].command).not.toContain('hostAliases')
+  })
+})
+
+describe('isIpv4', () => {
+  test('점 네 칸의 0~255 만 IP 로 본다', () => {
+    expect(isIpv4('192.168.100.72')).toBe(true)
+    expect(isIpv4('10.0.0.5')).toBe(true)
+    expect(isIpv4('256.1.1.1')).toBe(false)
+    expect(isIpv4('192.168.1')).toBe(false)
+    expect(isIpv4('genia-works.iacloud.kr')).toBe(false)
+    expect(isIpv4('')).toBe(false)
+    // 앞자리 0 은 쿠버네티스가 거절하거나 8진수로 읽는다.
+    expect(isIpv4('192.168.010.072')).toBe(false)
+    expect(isIpv4('10.0.0.0')).toBe(true)
   })
 })

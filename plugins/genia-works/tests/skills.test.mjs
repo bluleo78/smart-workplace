@@ -560,10 +560,10 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   // 예전(0.1.21) AI 폴더에서 부르면 위 폴더로 안내하고, 권한·서버 문제는 키를 다시 넣게 하지 않는다.
   assert.ok(text.includes('예전(0.1.21) 방식으로 AI 마다 만든 폴더다'));
   assert.ok(text.includes('키를 바꿔도 풀리지 않으니 키를 다시 넣게 하지 않는다'));
-  // 관리자 AI 는 viewerIsMember 가 늘 true — 실제 멤버 역할(viewerRole)로 고른다.
-  assert.ok(text.includes('`viewerRole` 이 있다'));
-  assert.ok(text.includes('`viewerIsMember` 는 관리자면 멤버가 아니어도 true'));
-  assert.ok(text.includes('**연결된 저장소**(`repositoryUrl`)'));
+  // 고르는 기준(실제 멤버 — 관리자라 보이기만 하는 것은 아님·연결된 저장소)은 서버 한 곳에 있다(WP-1275).
+  assert.ok(text.includes('관리자라 보이기만 하는 프로젝트는 아니다'));
+  assert.ok(text.includes('**연결된 저장소**'));
+  assert.ok(text.includes('고르는 기준은 서버 한 곳에 있고'));
   assert.ok(text.includes('<AI 이름>/repos/<키>'));
   // 저장소 준비·칸 띄우기는 스크립트 하나(agent-project)로 — work-loop 가 새 프로젝트를 스스로 띄울 때도 같은 것을 쓴다(WP-1053).
   assert.ok(text.includes('`agent-project repo "<홈>/<AI 이름>" "<키>" "<repositoryUrl>"`'));
@@ -612,16 +612,20 @@ test('work-loop: 새 프로젝트 확인은 start-agent 칸에서만, 칸 없는
   assert.ok(text.includes('#### 새 프로젝트 확인'));
   assert.ok(text.includes('`"$GENIA_WORKS_AGENT_DIR"`'));
   assert.ok(text.includes('`agent-home <AI 폴더> due` 가 0 일 때만'));
-  assert.ok(text.includes('`viewerRole` 과 `repositoryUrl` 이 있는 프로젝트를 모은다'));
+  // 맡을 프로젝트는 start-agent 와 같은 스크립트(서버가 고름)로 읽는다(WP-1275).
+  assert.ok(text.includes('scripts/gw-agent-projects" --assigned "$GENIA_WORKS_AS"'));
+  assert.ok(!text.includes('list_projects'));
   assert.ok(text.includes('`agent-home <AI 폴더> missing <키>…`'));
-  assert.ok(text.includes('`agent-project add <AI 폴더> "<키>" "<repositoryUrl>"`'));
+  assert.ok(text.includes('`agent-project add <AI 폴더> "<키>" "<저장소 주소>"`'));
+  // 칸이 없는 프로젝트의 알림은 감시 창이 바로 연다(WP-1272).
+  assert.ok(text.includes('알림 감시 창이 이 확인을 기다리지 않고 바로 같은 절차로 칸을 연다'));
   assert.ok(text.includes('종료 6(`busy`'));
   assert.ok(text.includes('1시간 뒤 다시 해 본다'));
   assert.ok(!text.includes('open_dm'));
   // 다른 프로젝트를 읽는 예외로 「이 세션의 프로젝트만 다룬다」에 적혀 있다.
   assert.ok(text.includes('5번 「새 프로젝트 확인」에서 내 소속 프로젝트 목록을 읽을 때'));
-  assertBefore(text, '`agent-home <AI 폴더> due` 가 0 일 때만', '`list_projects` 를 끝까지');
-  assertBefore(text, '`list_projects` 를 끝까지', '`agent-home <AI 폴더> missing <키>…`');
+  assertBefore(text, '`agent-home <AI 폴더> due` 가 0 일 때만', 'scripts/gw-agent-projects" --assigned');
+  assertBefore(text, 'scripts/gw-agent-projects" --assigned', '`agent-home <AI 폴더> missing <키>…`');
 });
 
 // WP-1209 push 게이트를 돌릴지부터 판단한다 — 커밋 훅으로 충분한 변경이나 버전 문자열만 바뀐 rebase 에도 45분 게이트를 돌던 것을 막는다.

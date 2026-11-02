@@ -185,8 +185,8 @@ wait_dind() {
   return 0
 }
 
-# 7a. 맡은 프로젝트 — 「키<탭>저장소<탭>브랜치」 한 줄씩. 고르는 기준(실제 멤버·연결된 저장소·키 형식)은 플러그인의
-#     gw-agent-projects --assigned 한 곳에 있다(WP-1265 — start-agent 스킬도 같은 것을 부른다). 이미지의 플러그인은 서버 버전(0.1.31+)이다.
+# 7a. 맡은 프로젝트 — 「키<탭>저장소<탭>브랜치」 한 줄씩. 고르는 기준(실제 멤버·연결된 저장소·키 형식)은
+#     서버(GET /agent-runtime/me/projects — gw-agent-projects --assigned, WP-1275) 한 곳에 있다(start-agent 스킬도 같은 것을 부른다).
 list_projects() {
   "$GW_SCRIPTS/gw-agent-projects" --assigned "$GENIA_AGENT_NAME" </dev/null
 }

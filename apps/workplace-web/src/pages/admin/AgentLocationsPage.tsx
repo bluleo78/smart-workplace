@@ -146,6 +146,8 @@ export default function AgentLocationsPage() {
       )}
 
       <AgentLocationTokenDialog
+        // 위치마다 새로 그린다 — 앞 위치에 넣은 내부 IP 가 다음 위치의 설치 명령에 남지 않게.
+        key={issued?.res.location.id ?? 'closed'}
         issued={issued?.res ?? null}
         showInstall={issued?.created ?? false}
         onClose={() => setIssued(null)}

@@ -26,6 +26,11 @@ spec:
         {{- include "runner.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "runner.name" . }}
+      {{- /* Works 에 내부 IP 로 닿아야 하는 위치 — runner 자신도 Works 를 불러야 하므로 공용 hostAliases 를 넣는다(WP-1269) */}}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -67,7 +72,7 @@ spec:
             - name: AGENT_TOLERATIONS
               value: {{ .Values.agent.tolerations | toJson | quote }}
             - name: AGENT_HOST_ALIASES
-              value: {{ .Values.agent.hostAliases | toJson | quote }}
+              value: {{ concat (.Values.hostAliases | default list) (.Values.agent.hostAliases | default list) | default list | toJson | quote }}
             {{- if .Values.agent.storageClass }}
             - name: AGENT_STORAGE_CLASS
               value: {{ .Values.agent.storageClass | quote }}

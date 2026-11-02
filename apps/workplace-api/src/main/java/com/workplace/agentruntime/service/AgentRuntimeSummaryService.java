@@ -3,10 +3,12 @@ package com.workplace.agentruntime.service;
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSummaryResponse;
 import com.workplace.agentruntime.dto.AgentTemplate;
+import com.workplace.agentruntime.exception.AgentWorkspaceRequiredException;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeProjectRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import java.util.List;
 import java.util.Map;
@@ -16,8 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 관리자 화면용 AI 실행 조회 서비스(WP-1254·1255) — AI 목록의 실행 상태 요약과, AI 가 작업 공간에서 맡을 프로젝트. 읽기만 한다. 관리자 권한은
- * 컨트롤러({@code @RequireAdmin})가 책임진다.
+ * AI 실행 조회 서비스(WP-1254·1255) — AI 목록의 실행 상태 요약과, AI 가 작업 공간에서 맡을 프로젝트. 읽기만 한다. 관리자 화면용 조회의 관리자 권한은
+ * 컨트롤러({@code @RequireAdmin})가, AI 자신의 조회({@link #myProjects})의 AI 인증은 컨트롤러가 책임진다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -73,5 +75,15 @@ public class AgentRuntimeSummaryService {
   public List<AgentRuntimeProjectResponse> projects(long agentId) {
     memberGuard.requireAgent(agentId);
     return projects.findMemberProjectsWithRepository(agentId);
+  }
+
+  /**
+   * AI 자신이 맡을 프로젝트(WP-1275) — {@link #projects} 와 같은 기준을 AI 키로 바로 돌려준다. 작업 공간 엔트리포인트·start-agent·알림
+   * 감시가 프로젝트 목록 전체를 쪽마다 받아 거르지 않게 한다. 워크스페이스가 정해지지 않은 키 인증(여러 워크스페이스에 속한 AI 가 밝히지 않음)이면 400 — 빈
+   * 목록이면 「맡은 프로젝트 없음」과 구분되지 않는다.
+   */
+  public List<AgentRuntimeProjectResponse> myProjects(long agentUserId) {
+    if (TenantContext.get() == null) throw new AgentWorkspaceRequiredException();
+    return projects.findMemberProjectsWithRepository(agentUserId);
   }
 }
