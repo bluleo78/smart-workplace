@@ -319,6 +319,13 @@
   background: var(--accent);
   color: var(--accent-foreground);
 }
+/* 닫힌 HTML 블록은 커서 대신 블록 통째 선택이 된다(WP-1288) — 선택된 것이 보이게 테두리를 준다. ProseMirror 가 선택된 블록 화면(NodeView 바깥 요소)에
+   붙이는 ProseMirror-selectednode 를 본다 — 편집할 수 있을 때만. */
+.wiki-editor .ProseMirror[contenteditable='true'] .ProseMirror-selectednode > .wiki-html-embed {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
 /* 소스 칸은 contentDOM 이라 늘 DOM 에 있다 — 「소스 편집」을 켰을 때만 보인다(보기 전용 화면은 늘 숨김). */
 .wiki-editor .ProseMirror .wiki-html-embed:not([data-source-open]) .wiki-html-embed__source {
   display: none;
@@ -345,4 +352,14 @@
 .wiki-editor .ProseMirror .wiki-diff-added .wiki-html-embed__frame {
   outline: 2px solid var(--success);
   outline-offset: 2px;
+}
+
+/* 블록 사이·앞뒤 빈자리 커서(gap cursor, WP-1288) — 기본 모양(검은 20px 선)은 어두운 테마에서 보이지 않아 글자색으로 넓게 그린다. */
+.wiki-editor .ProseMirror .ProseMirror-gapcursor::after {
+  width: 2rem;
+  border-top: 2px solid var(--foreground);
+}
+/* 노트가 글을 쓸 줄이 아닌 블록(HTML 블록·모양 영역·표·코드 블록)으로 끝나면 아래에 클릭할 빈자리를 둔다(WP-1288) — 누르면 그 뒤에 새 줄이 생긴다(wikiBlockExit). */
+.wiki-editor .ProseMirror[contenteditable='true'][data-ends-with-block] {
+  padding-bottom: 2.5rem;
 }

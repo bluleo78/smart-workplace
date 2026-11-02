@@ -53,7 +53,7 @@ const SHAPE_ATTRIBUTES = {
 
 /** 모양 노드·마크 이름 — 화면 범위(wikiHtmlScope)·붙여넣기 거르기(wikiPasteShape)가 같은 판정을 쓰게 한곳에 둔다. */
 const WIKI_STYLE = 'wikiStyle'
-const WIKI_HTML_BOX = 'wikiHtmlBox'
+export const WIKI_HTML_BOX = 'wikiHtmlBox'
 const WIKI_HTML_SPAN = 'wikiHtmlSpan'
 
 /** 이 노드가 HTML 모양을 지녔는지 — 페이지 스타일·모양 영역 노드이거나 인라인 모양 마크가 붙은 노드. */

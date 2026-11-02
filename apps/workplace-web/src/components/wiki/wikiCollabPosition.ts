@@ -15,7 +15,11 @@ import * as Y from 'yjs'
 export interface YSyncState {
   doc: Y.Doc
   type: Y.XmlFragment
-  binding: { mapping: Parameters<typeof absolutePositionToRelativePosition>[2] } | null
+  binding: {
+    mapping: Parameters<typeof absolutePositionToRelativePosition>[2]
+    /** 원격 반영 뒤 되살릴 내 선택(상대 위치) — Yjs 거래 시작 때 적고 끝나면 비운다. HTML 블록 선택 되살리기 보호가 쓴다(WP-1288). */
+    beforeTransactionSelection: { type: string; anchor: unknown; head: unknown } | null
+  } | null
 }
 
 /** 에디터 상태의 동기화 플러그인 상태. 플러그인이 없으면 undefined. */

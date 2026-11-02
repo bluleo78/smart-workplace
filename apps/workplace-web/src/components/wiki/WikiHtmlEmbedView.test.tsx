@@ -2,6 +2,7 @@
 // 격리 iframe(allow-same-origin 없음)·srcdoc(소스 + 높이 스크립트)·높이 메시지(보낸 창 확인·범위)·소스 편집 토글(편집 가능할 때만)을 본다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
+import { NodeSelection } from '@tiptap/pm/state'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { http, HttpResponse } from 'msw'
 import { useEffect } from 'react'
@@ -44,6 +45,11 @@ function embedTextPos(ed: Editor): number {
     return at < 0
   })
   return at
+}
+
+/** 편집기에 키를 누른다 — 단축키 플러그인(handleKeyDown)을 실제 키 이벤트로 거친다. */
+function pressKey(ed: Editor, key: string) {
+  ed.view.someProp('handleKeyDown', (f) => f(ed.view, new KeyboardEvent('keydown', { key })))
 }
 
 const frame = () => screen.getByTestId('wiki-html-embed-frame') as HTMLIFrameElement
@@ -136,36 +142,52 @@ describe('HTML 블록 NodeView', () => {
     expect(await screen.findByTestId('wiki-html-embed')).toHaveAttribute('data-source-open')
   })
 
-  it('닫힌 소스 글자 안으로 커서가 들어오면(화살표 등) 소스 칸을 연다 — 포커스가 없으면 열지 않는다', async () => {
+  it('닫힌 소스 글자 안으로 커서가 들어오면 칸을 열지 않고 블록 통째 선택(선택 테두리)이 된다(WP-1288)', async () => {
     const ed = await mountEditor(BODY)
     const block = await screen.findByTestId('wiki-html-embed')
-    expect(block).not.toHaveAttribute('data-source-open')
-    // 포커스 없는 화면에서 위치만 바뀐 경우(동료 편집 매핑 등)는 그대로.
-    act(() => {
-      ed.commands.setTextSelection(embedTextPos(ed) + 2)
-    })
-    expect(block).not.toHaveAttribute('data-source-open')
-    act(() => {
-      ed.commands.setTextSelection(1)
-    })
     act(() => {
       ed.view.focus()
       ed.commands.setTextSelection(embedTextPos(ed) + 2)
     })
-    await waitFor(() => expect(block).toHaveAttribute('data-source-open'))
+    expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+    expect(block).not.toHaveAttribute('data-source-open')
+    await waitFor(() => expect(block.parentElement).toHaveClass('ProseMirror-selectednode'))
+    // 통째 선택에서 Enter·↓ 는 다음 줄(노트 끝이면 새 줄)로, ↑ 는 앞 줄 끝으로 간다.
+    act(() => {
+      pressKey(ed, 'Enter')
+    })
+    expect(ed.state.doc.lastChild!.type.name).toBe('paragraph')
+    expect(ed.state.selection.$from.index(0)).toBe(ed.state.doc.childCount - 1)
+    await waitFor(() => expect(block.parentElement).not.toHaveClass('ProseMirror-selectednode'))
+    act(() => {
+      ed.commands.setNodeSelection(embedTextPos(ed) - 1)
+      pressKey(ed, 'ArrowUp')
+    })
+    expect(ed.state.selection.$from.parent.textContent).toBe('앞 문단')
+    expect(ed.state.selection.$from.parentOffset).toBe('앞 문단'.length)
+    // 다음 줄이 이미 있으면 Enter·↓ 모두 그 줄로 간다 — 새 줄을 더 만들지 않는다(기본 Enter 는 노드 선택 옆에 문단을 또 만든다).
+    const count = ed.state.doc.childCount
+    for (const key of ['Enter', 'ArrowDown']) {
+      act(() => {
+        ed.commands.setNodeSelection(embedTextPos(ed) - 1)
+        pressKey(ed, key)
+      })
+      expect(ed.state.doc.childCount).toBe(count)
+      expect(ed.state.selection.$from.index(0)).toBe(count - 1)
+    }
   })
 
-  it('커서가 안에 있을 때 닫으면 커서를 블록 뒤로 옮겨 닫힌 채로 남는다', async () => {
+  it('「소스 편집」으로 열면 커서가 소스 끝에 들어가고, 커서가 안에 있을 때 닫으면 블록 통째 선택이 된다', async () => {
     const ed = await mountEditor(BODY + '\n\n뒤 문단')
-    act(() => {
-      ed.view.focus()
-      ed.commands.setTextSelection(embedTextPos(ed) + 2)
-    })
     const block = await screen.findByTestId('wiki-html-embed')
-    await waitFor(() => expect(block).toHaveAttribute('data-source-open'))
+    fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
+    expect(block).toHaveAttribute('data-source-open')
+    expect(ed.state.selection.$from.parent.type.name).toBe('wikiHtmlEmbed')
+    expect(ed.state.selection.$from.parentOffset).toBe(SOURCE.length)
     fireEvent.click(screen.getByTestId('wiki-html-embed-toggle'))
     expect(block).not.toHaveAttribute('data-source-open')
-    expect(ed.state.selection.$from.parent.textContent).toBe('뒤 문단')
+    expect(ed.state.selection).toBeInstanceOf(NodeSelection)
+    expect(ed.state.selection.from).toBe(embedTextPos(ed) - 1)
   })
 
   describe('미리보기 다시 그리기', () => {

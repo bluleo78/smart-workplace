@@ -4,11 +4,19 @@
 // 격리 확인은 로그인·동기화 서버가 필요 없는 공개 공유 화면으로 띄운다 — 편집기·판 미리보기와 같은 확장(wikiRenderExtensions)을 쓴다.
 // 소스 편집은 실제 편집기(동기화 테스트 서버)에서 단추를 누르고 contentEditable 소스 칸에 쳐 본다(@input — ProseMirror 가 단추 클릭을 가로채지 않는지).
 // CDN 은 E2E 네트워크 격리로 닿지 않으므로 인라인 스크립트만 쓴다.
+// 노트 끝 블록·모양 영역 밖으로 나가기(WP-1288)는 실제 클릭·키 입력이 숨은 소스 칸·선택을 어떻게 지나는지가 핵심이라 @input 으로 본다(상태 판정은 wikiBlockExit.test.ts).
+import type { Locator, Page } from '@playwright/test'
+
 import type { WikiPublicShare } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { caretAtEnd, caretBeforeChar } from '../../fixtures/collab'
 import { mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const TOKEN = 'wsh_e2eHtmlEmbed1'
+
+/** 블록 통째 선택 표시 — ProseMirror 가 선택된 블록 화면(NodeView 바깥 요소, 블록 요소의 부모)에 붙이는 class. */
+const SELECTED = /\bProseMirror-selectednode\b/
+const nodeView = (block: Locator) => block.locator('xpath=..')
 const API = `/api/v1/public/wiki/shares/${TOKEN}`
 const PAGE_ID = 61
 
@@ -119,19 +127,123 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
     // 동기화 문서에도 html-embed 펜스로 저장된다.
     await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', `${source}<p id="w">two</p>`, '```'].join('\n'))
 
-    // 다시 누르면 소스 칸이 닫히고 미리보기는 남는다 — 커서는 소스 밖(블록 앞 문단 끝)으로 나가 이어 친 글자가 보이는 곳에 들어간다.
+    // 다시 누르면 소스 칸이 닫히고 미리보기는 남는다 — 커서는 숨은 소스에 남지 않고 블록 통째 선택(테두리)이 된다(WP-1288).
     await toggle.click()
     await expect(sourceBox).toBeHidden()
     await expect(frame.locator('#w')).toHaveText('two')
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    // 통째 선택에서 친 글자는 블록을 지우지도, 숨은 소스에 들어가지도 않는다.
     await page.keyboard.insertText('!')
-    await expect(page.locator('.ProseMirror p').first()).toHaveText('앞 문단!')
-    await expect(sourceBox).toBeHidden()
+    await expect(sourceBox).toHaveText(`${source}<p id="w">two</p>`)
+    // 노트 끝 블록이라도 Enter 로 다음 줄을 만들어 바로 쓴다.
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('다음 줄')
+    await expect(page.locator('.ProseMirror > p').last()).toHaveText('다음 줄')
+    await expect(nodeView(block)).not.toHaveClass(SELECTED)
+    await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', `${source}<p id="w">two</p>`, '```', '', '다음 줄'].join('\n'))
+  })
 
-    // 닫힌 소스 칸(display:none)으로는 화살표 커서가 들어가지 않는다 — 아래 화살표 뒤 친 글자도 보이는 문단에 들어가고 소스는 그대로다.
-    // (커서가 다른 길로 소스 글자 안에 들어오면 칸이 저절로 열리는 것은 WikiHtmlEmbedView.test.tsx 가 본다.)
+  /** HTML 블록 하나로 끝나는 노트를 편집기로 연다. */
+  async function openEndingWithEmbed(page: Page, pageId: number) {
+    await mockWikiPageEditor(page, {
+      spaceId: 1,
+      pageId,
+      title: '끝 블록',
+      body: ['앞 문단', '', '```html-embed', '<p id="v">one</p>', '```'].join('\n'),
+      role: 'EDITOR',
+    })
+    await openWikiEditor(page, { spaceId: 1, pageId })
+    await expect(page.frameLocator('[data-testid="wiki-html-embed-frame"]').locator('#v')).toHaveText('one')
+    return page.getByTestId('wiki-html-embed')
+  }
+
+  test('노트 끝 HTML 블록 — 블록을 누르면 선택 테두리가 보이고 ↓ 로 다음 줄, ↑ 로 앞 줄에 간다(WP-1288)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const block = await openEndingWithEmbed(page, 63)
+    // 닫힌 블록(머리 띠 이름표)을 누르면 숨은 소스에 커서가 들어가지 않고 블록이 선택돼 보인다.
+    await block.getByText('HTML 블록', { exact: true }).click()
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    await expect(block.getByTestId('wiki-html-embed-source')).toBeHidden()
     await page.keyboard.press('ArrowDown')
-    await page.keyboard.insertText('Z')
-    await expect(page.locator('.ProseMirror p').first()).toHaveText('앞 문단!Z')
-    await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', `${source}<p id="w">two</p>`, '```'].join('\n'))
+    await page.keyboard.insertText('아래로')
+    await expect(page.locator('.ProseMirror > p').last()).toHaveText('아래로')
+    await expect(nodeView(block)).not.toHaveClass(SELECTED)
+    // ↑ 로 블록을 지나 앞 줄로 — 블록 선택을 거쳐 앞 문단 끝으로 간다. 캐럿은 상태에 바로 둔다(Home 의 DOM 선택은 늦게 읽힌다 — caretBeforeChar).
+    await caretBeforeChar(page, '아래로', 0)
+    await page.keyboard.press('ArrowUp')
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.insertText('!')
+    await expect(page.locator('.ProseMirror > p').first()).toHaveText('앞 문단!')
+    await expect.poll(() => savedMarkdown(page, 63)).toContain(['앞 문단!', '', '```html-embed', '<p id="v">one</p>', '```', '', '아래로'].join('\n'))
+  })
+
+  test('미리보기를 누르면 블록이 선택돼 보이고, 미리보기 안 입력칸은 키를 그대로 받는다(WP-1288)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await mockWikiPageEditor(page, {
+      spaceId: 1,
+      pageId: 64,
+      title: '입력칸 블록',
+      body: ['앞 문단', '', '```html-embed', '<input id="q">', '```'].join('\n'),
+      role: 'EDITOR',
+    })
+    await openWikiEditor(page, { spaceId: 1, pageId: 64 })
+    const block = page.getByTestId('wiki-html-embed')
+    const input = page.frameLocator('[data-testid="wiki-html-embed-frame"]').locator('#q')
+    await input.click()
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    // 포커스는 iframe 에 남는다 — 친 글자·Enter 가 편집기(새 줄)로 가지 않고 입력칸에 들어간다.
+    await page.keyboard.type('abc')
+    await page.keyboard.press('Enter')
+    await expect(input).toHaveValue('abc')
+    await expect(page.locator('.ProseMirror > p')).toHaveCount(1)
+  })
+
+  test('통째 선택된 블록에서 글자를 치면 블록은 그대로 두고 다음 줄에 들어간다(WP-1288)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const block = await openEndingWithEmbed(page, 67)
+    await block.getByText('HTML 블록', { exact: true }).click()
+    await expect(nodeView(block)).toHaveClass(SELECTED)
+    await page.keyboard.type('ab')
+    await expect(page.locator('.ProseMirror > p').last()).toHaveText('ab')
+    await expect(block).toBeVisible()
+    await expect.poll(() => savedMarkdown(page, 67)).toContain(['```html-embed', '<p id="v">one</p>', '```', '', 'ab'].join('\n'))
+  })
+
+  test('노트 끝 HTML 블록 — 블록 아래 빈자리를 누르면 그 자리에 다음 줄이 생긴다(WP-1288)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const block = await openEndingWithEmbed(page, 65)
+    const box = (await block.boundingBox())!
+    await page.mouse.click(box.x + 40, box.y + box.height + 20)
+    await page.keyboard.insertText('빈자리')
+    await expect(page.locator('.ProseMirror > p').last()).toHaveText('빈자리')
+    await expect.poll(() => savedMarkdown(page, 65)).toContain(['```', '', '빈자리'].join('\n'))
+  })
+
+  test('노트 끝 모양 영역 — 마지막 줄 ↓ 와 끝 빈 줄 Enter 로 영역 밖 다음 줄로 나간다(WP-1288)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const pageId = 66
+    await mockWikiPageEditor(page, {
+      spaceId: 1,
+      pageId,
+      title: '카드 노트',
+      body: ['<div class="card" style="padding:8px">', '', '카드 글', '', '</div>'].join('\n'),
+      role: 'EDITOR',
+    })
+    await openWikiEditor(page, { spaceId: 1, pageId })
+    const card = page.locator('.ProseMirror [data-wiki-html-box]')
+    await expect(card).toContainText('카드 글')
+
+    // 노트 끝 카드의 마지막 줄 끝에서 ↓ → 카드 밖에 새 줄. 캐럿은 상태에 바로 둔다(누름·End 의 DOM 선택은 늦게 읽힌다 — caretAtEnd).
+    await caretAtEnd(page, '카드 글')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.insertText('아래 글')
+    await expect(page.locator('.ProseMirror > p').last()).toHaveText('아래 글')
+    await expect(card).not.toContainText('아래 글')
+
+    // 카드 글 끝에서 Enter → 카드 안 빈 줄, 한 번 더 Enter → 빈 줄을 빼고 카드 밖 다음 줄(이미 있는 「아래 글」 처음)로.
+    await caretAtEnd(page, '카드 글')
+    await page.keyboard.press('Enter')
+    await expect(card.locator('p')).toHaveCount(2)
+    await page.keyboard.press('Enter')
+    await expect(card.locator('p')).toHaveCount(1)
+    await page.keyboard.insertText('밖 ')
+    await expect(page.locator('.ProseMirror > p').last()).toHaveText('밖 아래 글')
+    await expect.poll(() => savedMarkdown(page, pageId)).toMatch(/카드 글\n\n<\/div>\n\n밖 아래 글/)
   })
 })
