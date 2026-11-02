@@ -142,6 +142,33 @@ public class IssueRecurrence extends TableImpl<IssueRecurrenceRecord> {
      */
     public final TableField<IssueRecurrenceRecord, Boolean> ASSISTANT_ENROLLED = createField(DSL.name("assistant_enrolled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column
+     * <code>public.issue_recurrence.pending_question_message_id</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, Long> PENDING_QUESTION_MESSAGE_ID = createField(DSL.name("pending_question_message_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.pending_question_text</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, String> PENDING_QUESTION_TEXT = createField(DSL.name("pending_question_text"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column
+     * <code>public.issue_recurrence.pending_question_asked_at</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, OffsetDateTime> PENDING_QUESTION_ASKED_AT = createField(DSL.name("pending_question_asked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.follow_up_run_id</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, String> FOLLOW_UP_RUN_ID = createField(DSL.name("follow_up_run_id"), SQLDataType.VARCHAR(64), this, "");
+
+    /**
+     * The column <code>public.issue_recurrence.follow_up_dispatched_at</code>.
+     */
+    public final TableField<IssueRecurrenceRecord, OffsetDateTime> FOLLOW_UP_DISPATCHED_AT = createField(DSL.name("follow_up_dispatched_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private IssueRecurrence(Name alias, Table<IssueRecurrenceRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -211,7 +238,7 @@ public class IssueRecurrence extends TableImpl<IssueRecurrenceRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_ISSUE_RECURRENCE_AGENT, Indexes.IDX_ISSUE_RECURRENCE_CREATED_BY, Indexes.IDX_ISSUE_RECURRENCE_DUE, Indexes.IDX_ISSUE_RECURRENCE_PENDING);
+        return Arrays.asList(Indexes.IDX_ISSUE_RECURRENCE_AGENT, Indexes.IDX_ISSUE_RECURRENCE_CREATED_BY, Indexes.IDX_ISSUE_RECURRENCE_DUE, Indexes.IDX_ISSUE_RECURRENCE_FOLLOW_UP, Indexes.IDX_ISSUE_RECURRENCE_PENDING);
     }
 
     @Override

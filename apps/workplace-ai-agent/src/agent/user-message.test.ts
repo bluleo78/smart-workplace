@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildUserMessage, formatKst } from './user-message.js';
+import { buildRecurringRunMessage, buildUserMessage, formatKst } from './user-message.js';
 import { issueEventEnvelope, type IssueEventEnvelope } from '../types/issue-events.js';
 
 const common = {
@@ -135,6 +135,85 @@ describe('buildUserMessage', () => {
     expect(m).toContain('이번 회차 실행');
     expect(m).toContain('본문 없음');
     expect(m).toContain('2026-09-21(월) 09:00 KST');
+  });
+
+  // WP-1312: 회차가 남긴 질문에 소유자가 답해 보낸 이어 처리 — 질문·답을 싣고, 이슈 설명에 따라 이어 하라고 하며, 또 확인이 필요하면 같은 표지로 묻게 한다.
+  it('issue.recurring_run — 이어 처리(followUp)', () => {
+    const m = buildUserMessage({
+      type: 'issue.recurring_run',
+      payload: {
+        ...common,
+        // 답한 사람은 actor(소유자)다 — 이름이 있으면 「이름(@아이디)」로 쓴다.
+        actor: { id: 7, username: 'alice', name: '앨리스', kind: 'HUMAN' },
+        ownerUserId: 7,
+        runId: '42-f991',
+        runAt: '2026-09-22T10:00:00+09:00',
+        round: 3,
+        recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+        issueBody: '초안을 만들고 채널에 올리기 전에 확인받아 줘',
+        followUp: { question: '초안을 채널에 올릴까요?', answer: '올려 줘' },
+      },
+    } as IssueEventEnvelope);
+    expect(m).toContain('[이벤트: issue.recurring_run · 이어 처리]');
+    expect(m).toContain('초안을 채널에 올릴까요?');
+    expect(m).toContain('올려 줘');
+    expect(m).toContain('앨리스(@alice)');
+    expect(m).toContain('초안을 만들고 채널에 올리기 전에 확인받아 줘');
+    expect(m).toContain('`[확인 필요]`');
+    expect(m).toContain('확인 카드 없이 바로');
+    expect(m).toContain('이슈 챗에 남는');
+    // 정기 회차 지시문(「N회차 실행입니다」)이 아니다.
+    expect(m).not.toContain('3회차 실행');
+  });
+
+  it('이어 처리 지시문 — 답한 사람(actor) 이름이 없으면 @아이디로 쓴다', () => {
+    const m = buildRecurringRunMessage({
+      ...common,
+      ownerUserId: 7,
+      runId: '42-f991',
+      runAt: '2026-09-22T10:00:00+09:00',
+      recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+      issueBody: null,
+      followUp: { question: '보낼까요?', answer: '네' },
+    });
+    expect(m).toContain('보낼까요?');
+    expect(m).toContain('네');
+    expect(m).toContain('@alice 님이 이슈 챗에서 답했습니다');
+  });
+
+  // WP-1314: 이어 처리도 정기 회차와 같은 신원 규칙 — 신원이 AI 자신이면 요청자 대행이라고 하지 않는다.
+  it('이어 처리 지시문 — AI 자기 신원이면 대행 문구가 없다', () => {
+    const m = buildRecurringRunMessage({
+      ...common,
+      ownerUserId: 201,
+      runId: '42-f991',
+      runAt: '2026-09-22T10:00:00+09:00',
+      recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+      issueBody: '정리',
+      followUp: { question: '올릴까요?', answer: '네' },
+    });
+    expect(m).toContain('당신(이 AI) 자신의 권한으로 동작');
+    expect(m).not.toContain('요청자(@');
+    // 답한 사람(actor)은 그대로 보인다.
+    expect(m).toContain('@alice 님이 이슈 챗에서 답했습니다');
+  });
+
+  it('스키마 — followUp 이 없는 구 페이로드도, 있는 페이로드도, 예전 모양(answerer 포함)도 받는다', () => {
+    const base = {
+      ...common,
+      ownerUserId: 7,
+      runId: 'r',
+      runAt: '2026-09-21T00:00:00Z',
+      recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+    };
+    expect(issueEventEnvelope.safeParse({ type: 'issue.recurring_run', payload: base }).success).toBe(true);
+    const parsed = issueEventEnvelope.parse({
+      type: 'issue.recurring_run',
+      payload: { ...base, followUp: { question: 'q', answer: 'a', answerer: { id: 7, username: 'alice', name: null, kind: 'HUMAN' } } },
+    });
+    expect(parsed.type === 'issue.recurring_run' && parsed.payload.followUp?.answer).toBe('a');
+    // 모르는 answerer 키는 버린다(zod 기본 strip).
+    expect(parsed.type === 'issue.recurring_run' && parsed.payload.followUp).toEqual({ question: 'q', answer: 'a' });
   });
 
   it('formatKst — UTC 를 KST 로, 못 읽는 값은 그대로', () => {

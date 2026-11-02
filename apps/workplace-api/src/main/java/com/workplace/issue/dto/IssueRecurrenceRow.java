@@ -15,6 +15,13 @@ import java.time.LocalTime;
  * @param deleted 회차 실행 중에 지운 반복의 묘비 — 조회·목록에서는 없는 반복이고, 진행 중 회차 결과만 받아 글로 남긴 뒤 지운다
  * @param assistantEnrolled 이 반복이 실행 AI 를 담당에 직접 넣었는지(WP-1119) — 비서가 바뀔 때 참이면 예전 비서를 담당에서 뺀다. 사람이 먼저
  *     넣은 담당이었으면 거짓이라 건드리지 않는다
+ * @param pendingQuestionMessageId 회차·이어 처리가 남긴, 답을 기다리는 질문 글 id(WP-1312) — 없으면 null. 소유자가 이 글 뒤에 이슈
+ *     챗에 답하면 같은 AI 가 이어 처리한다
+ * @param pendingQuestionText 그 질문 본문 — 이어 처리 지시문에 싣는다
+ * @param pendingQuestionAskedAt 질문을 남긴 시각 — {@code IssueRecurrenceFollowUpService#QUESTION_TTL} 이
+ *     지나면 답으로 보지 않는다
+ * @param followUpRunId 답을 받아 보낸 이어 처리의 실행 id(WP-1312) — 결과 보고는 정기 회차 id 와 이 값 중 하나와 같을 때 반영한다
+ * @param followUpDispatchedAt 이어 처리를 보낸 시각 — 결과 대기 시간 초과 판정에 쓴다
  */
 public record IssueRecurrenceRow(
     long issueId,
@@ -29,4 +36,9 @@ public record IssueRecurrenceRow(
     String pendingRunId,
     Instant lastRunAt,
     boolean deleted,
-    boolean assistantEnrolled) {}
+    boolean assistantEnrolled,
+    Long pendingQuestionMessageId,
+    String pendingQuestionText,
+    Instant pendingQuestionAskedAt,
+    String followUpRunId,
+    Instant followUpDispatchedAt) {}

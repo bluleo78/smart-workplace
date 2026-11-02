@@ -140,12 +140,21 @@ public class IssueEventDispatcher {
     p.put("runId", e.runId());
     // 회차 시각은 KST 오프셋을 붙인 ISO 로 — AI 지시문이 그대로 한국 시각으로 읽는다.
     p.put("runAt", e.runAt().atZone(IssueRecurrenceRules.KST).toOffsetDateTime().toString());
-    p.put("round", e.round());
+    // 이어 처리(WP-1312)는 회차 번호가 없다 — 키를 빼야 ai-agent 스키마(round 는 optional, null 불가)를 통과한다.
+    if (e.round() != null) p.put("round", e.round());
     Map<String, Object> recurrence = new HashMap<>();
     recurrence.put("rrule", e.rrule());
     recurrence.put("time", e.time());
     p.put("recurrence", recurrence);
     p.put("issueBody", e.issueBody());
+    // WP-1312: 질문에 대한 답으로 보내는 이어 처리면 질문·답을 싣는다 — 정기 회차에는 키가 없다(구 ai-agent 는 모르는 키를 무시한다).
+    // 답한 사람은 actor(소유자)다 — 소유자만 답할 수 있다.
+    if (e.followUp() != null) {
+      Map<String, Object> followUp = new HashMap<>();
+      followUp.put("question", e.followUp().question());
+      followUp.put("answer", e.followUp().answer());
+      p.put("followUp", followUp);
+    }
     dispatch("issue.recurring_run", p, e.issueKey());
   }
 
@@ -191,12 +200,16 @@ public class IssueEventDispatcher {
     return p;
   }
 
-  /** UserSummary → 직렬화용 Map. record 직렬화 차이를 회피하기 위해 명시. */
+  /**
+   * UserSummary → 직렬화용 Map. record 직렬화 차이를 회피하기 위해 명시. 이름은 지시문 표시용(WP-1312 — 이어 처리가 「이름(@아이디) 님이
+   * 답했습니다」로 쓴다)이고, 이름을 모르는 구 ai-agent 는 모르는 키를 무시한다.
+   */
   private static Map<String, Object> summary(UserSummary u) {
     if (u == null) return null;
     Map<String, Object> m = new HashMap<>();
     m.put("id", u.id());
     m.put("username", u.username());
+    m.put("name", u.name());
     m.put("kind", u.kind());
     return m;
   }

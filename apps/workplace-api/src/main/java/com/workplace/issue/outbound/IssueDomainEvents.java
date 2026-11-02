@@ -154,10 +154,12 @@ public final class IssueDomainEvents {
    *
    * @param ownerUserId 반복을 등록한 사람(이슈 소유자) — 회차의 도구는 이 사람 권한으로 돈다(홈 AI 채팅과 같은 대행)
    * @param runId 회차 id("<issueId>-<runAt epoch 초>") — 결과 보고가 같은 회차를 두 번 반영하지 않게 쓴다
-   * @param runAt 이번 회차의 예정 시각
-   * @param round 몇 번째 회차인지(1부터)
+   * @param runAt 이번 회차의 예정 시각(이어 처리는 답을 받은 시각)
+   * @param round 몇 번째 회차인지(1부터). 이어 처리(WP-1312)는 null — 페이로드에 싣지 않는다
    * @param time KST 실행 시각 "HH:mm"
    * @param issueBody 이슈 본문(마크다운). 없으면 null
+   * @param followUp 회차가 남긴 질문에 소유자가 답해 보내는 이어 처리면 그 질문과 답(WP-1312), 정기 회차면 null. 이어 처리도 같은 이벤트·같은
+   *     실행 경로(같은 AI·소유자 권한·recurring 프로필)를 타고, runId 만 이어 처리 id("<issueId>-f<답 글 id>")다
    */
   public record IssueRecurringRunEvent(
       long issueId,
@@ -170,9 +172,19 @@ public final class IssueDomainEvents {
       long ownerUserId,
       String runId,
       Instant runAt,
-      int round,
+      Integer round,
       String rrule,
       String time,
       String issueBody,
-      Instant occurredAt) {}
+      Instant occurredAt,
+      FollowUp followUp) {
+
+    /**
+     * 이어 처리의 맥락(WP-1312) — ai-agent 가 「질문 X 에 소유자가 Y 라고 답했다, 이어서 하라」는 지시문을 만든다.
+     *
+     * @param question 회차·이어 처리가 남긴 질문 본문
+     * @param answer 소유자의 답 글 본문(멘션 토큰 포함 원문). 답한 사람은 이벤트 actor(소유자)다 — 소유자만 답할 수 있다
+     */
+    public record FollowUp(String question, String answer) {}
+  }
 }

@@ -47,7 +47,8 @@ export const SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 어시스턴트 "AI 
 // 본문이 확인을 받으라고 한 쓰기는 질문 표지로 묻게 한다. 최종 답변은 서버가 이 AI 이름으로 이슈 챗에 올린다.
 //
 // 회차 결과가 사람의 확인을 기다리는 질문이면 최종 답변 첫 줄에 이 표지를 쓴다 — run-recurring 이 떼어 내고 질문으로 보고해,
-// API 가 이슈 챗에 질문 글(답변 대기)로 남긴다. 답을 받아 이어 하는 것은 WP-1312.
+// API 가 이슈 챗에 질문 글(답변 대기)로 남긴다. 반복을 저장한 사람이 이슈 챗에서 답하면 API 가 같은 issue.recurring_run 을 followUp 과 함께 보내
+// 이어 처리하고(WP-1312), 이어 처리도 또 확인이 필요하면 같은 표지로 묻는다.
 export const RECURRING_QUESTION_MARKER = '[확인 필요]';
 
 export const RECURRING_RUN_SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 입니다. 사용자가 이슈에 걸어 둔 반복 작업(실행 일정)을 정해진 시각마다 실행합니다. 한국어로 응답합니다.

@@ -6,6 +6,8 @@ import { sharedMemoriesRawField, sharedMoreCountRawField } from '../agent/shared
 const userSummary = z.object({
   id: z.number(),
   username: z.string(),
+  // WP-1312: 표시 이름 — 이어 처리 지시문이 「이름(@아이디) 님이 답했습니다」로 쓴다. 구 API 는 싣지 않는다.
+  name: z.string().nullish(),
   kind: z.enum(['HUMAN', 'AGENT']),
 });
 
@@ -70,6 +72,17 @@ export const issueRecurringRunPayload = z.object({
   round: z.number().int().positive().optional(),
   recurrence: z.object({ rrule: z.string(), time: z.string() }),
   issueBody: z.string().nullish(),
+  // WP-1312: 회차가 남긴 질문에 반복을 저장한 사람이 이슈 챗에서 답해 API 가 보낸 이어 처리면 그 질문·답(정기 회차·구 API 는 없음). 답한
+  // 사람은 actor(저장한 사람)다 — 그 사람만 답할 수 있다. 이어 처리도 같은 실행(같은 AI 자격·정기 회차와 같은 도구 신원 ownerUserId·recurring
+  // 프로필)이고, 지시문만
+  // 「질문 X 에 Y 라고 답했다, 이어서 하라」로 바뀐다. runId 는 이어 처리 id("<issueId>-f<답 글 id>")라 같은 보고 경로로 돌려주면
+  // API 가 이어 처리 결과로 받는다. 이어 처리에는 round 가 없다.
+  followUp: z
+    .object({
+      question: z.string(),
+      answer: z.string(),
+    })
+    .nullish(),
 });
 
 // type 별 분기를 zod 가 알아채도록 discriminatedUnion.

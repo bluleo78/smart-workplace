@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -873,7 +874,293 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(item.get("recurrence").get("enabled").asBoolean()).isTrue();
   }
 
+  // ───────────────────────────── 질문에 답하면 이어 처리(WP-1312) ─────────────────────────────
+
+  @Test
+  void 질문에_소유자가_멘션없이_답하면_같은_AI가_소유자_권한으로_이어_처리한다() throws Exception {
+    askQuestion("초안을 채널에 올릴까요?");
+    Long questionId = recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID);
+    assertThat(questionId).isNotNull();
+    Instant nextBefore = recurrenceRow().get(ISSUE_RECURRENCE.NEXT_RUN_AT).toInstant();
+
+    long answerId = chat(owner, "올려 줘");
+
+    var followUps = followUpEvents();
+    assertThat(followUps).hasSize(1);
+    var e = followUps.get(0);
+    // 회차와 같은 신원·권한 — 실행 AI 는 반복의 비서, 도구는 소유자 권한.
+    assertThat(e.actingAgentId()).isEqualTo(agent);
+    assertThat(e.ownerUserId()).isEqualTo(owner);
+    assertThat(e.issueId()).isEqualTo(issueId);
+    assertThat(e.runId()).isEqualTo(issueId + "-f" + answerId);
+    assertThat(e.followUp().question()).isEqualTo("초안을 채널에 올릴까요?");
+    assertThat(e.followUp().answer()).isEqualTo("올려 줘");
+    // 답한 사람은 이벤트 actor(소유자)다. 이어 처리는 회차 번호를 싣지 않는다.
+    assertThat(e.actor().id()).isEqualTo(owner);
+    assertThat(e.round()).isNull();
+    var row = recurrenceRow();
+    assertThat(row.get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNull();
+    assertThat(row.get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isEqualTo(e.runId());
+    Record work = activeWork();
+    assertThat(work.get(AGENT_WORK.STATE)).isEqualTo("WORKING");
+    assertThat(work.get(AGENT_WORK.NOTE)).isEqualTo(IssueRecurrenceService.NOTE_FOLLOW_UP);
+    // 답 글의 챗 이벤트는 이어 처리로 깨운 AI 를 실어, 멘션이 함께 있어도 일반 챗 응답을 또 깨우지 않게 한다.
+    assertThat(answerEvent(answerId).followUpAgentId()).isEqualTo(agent);
+
+    // 이어 처리 결과 — 글로 남기고, 연속 실패 수·다음 회차는 그대로, 작업은 「다음 회차 대기」로 돌아간다.
+    report(agent, e.runId(), true, "채널에 올렸습니다").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("초안을 채널에 올릴까요?", "채널에 올렸습니다");
+    row = recurrenceRow();
+    assertThat(row.get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isNull();
+    assertThat(row.get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isZero();
+    assertThat(row.get(ISSUE_RECURRENCE.NEXT_RUN_AT).toInstant()).isEqualTo(nextBefore);
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+    // 같은 결과를 다시 보내도 한 번만 반영한다.
+    report(agent, e.runId(), true, "채널에 올렸습니다").andExpect(status().isNoContent());
+    assertThat(agentMessages()).hasSize(2);
+  }
+
+  @Test
+  void 남은_질문이_없으면_멘션없는_사람_글은_AI를_깨우지_않는다() throws Exception {
+    report(agent, dispatchOnce(), true, "오늘 정리").andExpect(status().isNoContent());
+    long id = chat(owner, "고마워");
+    assertThat(followUpEvents()).isEmpty();
+    assertThat(answerEvent(id).followUpAgentId()).isNull();
+  }
+
+  @Test
+  void 소유자가_아닌_사람의_답은_이어_처리하지_않는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    long other = withMembership(TestFixtures.createHuman(dsl));
+    TestFixtures.grantRole(dsl, other, "USER");
+    projectMemberRepository.insert(projectId(), other, "MEMBER");
+
+    chat(other, "보내 줘");
+
+    assertThat(followUpEvents()).isEmpty();
+    // 소유자의 답은 아직 받을 수 있다.
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNotNull();
+    chat(owner, "보내 줘");
+    assertThat(followUpEvents()).hasSize(1);
+  }
+
+  @Test
+  void 칠일이_지난_질문에_답해도_이어_처리하지_않는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    dsl.update(ISSUE_RECURRENCE)
+        .set(
+            ISSUE_RECURRENCE.PENDING_QUESTION_ASKED_AT,
+            Instant.now().minus(8, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+
+    chat(owner, "보내 줘");
+
+    assertThat(followUpEvents()).isEmpty();
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNull();
+  }
+
+  @Test
+  void 답을_두_번_해도_이어_처리는_한_번이다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    long second = chat(owner, "아 그리고 제목도 바꿔 줘");
+    assertThat(followUpEvents()).hasSize(1);
+    assertThat(answerEvent(second).followUpAgentId()).isNull();
+  }
+
+  @Test
+  void 멘션과_함께_답해도_이어_처리로만_깨운다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    long id = chat(owner, "<@" + agent + "> 보내 줘");
+    assertThat(followUpEvents()).hasSize(1);
+    // 챗 이벤트가 그 AI 를 이어 처리로 깨웠다고 실어 — ChatEventDispatcher 가 같은 AI 의 챗 응답을
+    // 건너뛴다(ChatEventDispatcherTest).
+    var created = answerEvent(id);
+    assertThat(created.mentions()).extracting(m -> m.id()).contains(agent);
+    assertThat(created.followUpAgentId()).isEqualTo(agent);
+  }
+
+  @Test
+  void 이어_처리가_다시_물으면_새_질문으로_남아_또_답할_수_있다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    report(agent, followRunId, true, "받는 사람을 누구로 할까요?", true).andExpect(status().isNoContent());
+
+    assertThat(agentQuestionFlags()).containsExactly(true, true);
+    var row = recurrenceRow();
+    assertThat(row.get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNotNull();
+    assertThat(row.get(ISSUE_RECURRENCE.PENDING_QUESTION_TEXT)).isEqualTo("받는 사람을 누구로 할까요?");
+
+    chat(owner, "팀장님께");
+    var followUps = followUpEvents();
+    assertThat(followUps).hasSize(2);
+    assertThat(followUps.get(1).followUp().question()).isEqualTo("받는 사람을 누구로 할까요?");
+    assertThat(followUps.get(1).followUp().answer()).isEqualTo("팀장님께");
+  }
+
+  @Test
+  void 이어_처리_실패는_연속_실패로_세지_않는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    report(agent, followRunId, false, "메일 계정 연결이 끊겼습니다").andExpect(status().isNoContent());
+
+    assertThat(agentMessages())
+        .containsExactly(
+            "메일을 보낼까요?", IssueRecurrenceService.FOLLOW_UP_FAILED_PREFIX + "메일 계정 연결이 끊겼습니다");
+    var row = recurrenceRow();
+    assertThat(row.get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isZero();
+    assertThat(row.get(ISSUE_RECURRENCE.ENABLED)).isTrue();
+    assertThat(row.get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isNull();
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+  }
+
+  @Test
+  void 답을_기다리는_중에도_다음_정기_회차는_돈다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    String runId = dispatchOnce();
+    assertThat(runId).isNotNull();
+    assertThat(events.stream(IssueRecurringRunEvent.class).filter(e -> e.followUp() == null))
+        .hasSize(2);
+    // 질문은 그대로 남아 있다.
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNotNull();
+  }
+
+  @Test
+  void 질문_없이_끝난_다음_회차는_앞선_질문을_낡은_것으로_지운다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    // 다음 회차가 묻지 않고 끝났다 — 소유자의 다음 글(그 회차 결과에 대한 인사 등)을 지난 질문의 답으로 잡지 않는다.
+    report(agent, dispatchOnce(), true, "오늘 정리").andExpect(status().isNoContent());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNull();
+
+    chat(owner, "좋네요");
+    assertThat(followUpEvents()).isEmpty();
+  }
+
+  @Test
+  void 실패한_다음_회차는_앞선_질문을_남긴다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    report(agent, dispatchOnce(), false, "연결 오류").andExpect(status().isNoContent());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNotNull();
+
+    chat(owner, "보내 줘");
+    assertThat(followUpEvents()).hasSize(1);
+  }
+
+  @Test
+  void 이어_처리와_정기_회차가_함께_돌아도_결과를_따로_받는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    String runId = dispatchOnce();
+
+    // 정기 회차 결과가 먼저 와도 이어 처리가 도는 중이라 「작업 중」을 유지한다.
+    report(agent, runId, true, "정기 결과").andExpect(status().isNoContent());
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isEqualTo(followRunId);
+
+    report(agent, followRunId, true, "보냈습니다").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("메일을 보낼까요?", "정기 결과", "보냈습니다");
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+  }
+
+  @Test
+  void 이어_처리_결과를_30분_넘게_못_받으면_비우고_알린다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    dsl.update(ISSUE_RECURRENCE)
+        .set(
+            ISSUE_RECURRENCE.FOLLOW_UP_DISPATCHED_AT,
+            Instant.now().minus(31, ChronoUnit.MINUTES).atOffset(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+
+    var row = recurrenceRow();
+    assertThat(row.get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isNull();
+    assertThat(row.get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isZero();
+    assertThat(agentMessages()).containsExactly("메일을 보낼까요?", IssueRecurrenceService.FOLLOW_UP_LOST);
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+    // 늦게 온 결과는 무시한다.
+    report(agent, followRunId, true, "늦은 결과").andExpect(status().isNoContent());
+    assertThat(agentMessages()).hasSize(2);
+  }
+
+  @Test
+  void 이어_처리_중에_반복을_지우면_묘비로_남기고_그_결과는_받는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    call(delete(path()), owner).andExpect(status().isNoContent());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
+
+    report(agent, followRunId, true, "보냈습니다").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("메일을 보낼까요?", "보냈습니다");
+    assertThat(recurrenceRow()).isNull();
+  }
+
+  @Test
+  void 지운_반복의_이어_처리가_다시_물어도_답할_수_없으니_질문으로_남기지_않는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    chat(owner, "보내 줘");
+    String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    call(delete(path()), owner).andExpect(status().isNoContent());
+
+    report(agent, followRunId, true, "받는 사람을 누구로 할까요?", true).andExpect(status().isNoContent());
+    // 질문 표시 없이 일반 글로 — 답해도 이어 가지 않으므로 「답변 필요」 알림을 내지 않는다.
+    assertThat(agentQuestionFlags()).containsExactly(true, false);
+  }
+
+  @Test
+  void 실행_AI가_바뀌면_예전_AI의_질문은_답으로_이어가지_않는다() throws Exception {
+    askQuestion("메일을 보낼까요?");
+    long agent2 = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, owner));
+    personalAssistantRepository.setAgentId(owner, agent2);
+    projectMemberRepository.insert(projectId(), agent2, "MEMBER");
+    assigneeRepository.add(issueId, agent2, owner);
+    call(put(path()).content(req("FREQ=DAILY", "08:00")), owner).andExpect(status().isOk());
+
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNull();
+    chat(owner, "보내 줘");
+    assertThat(followUpEvents()).isEmpty();
+  }
+
   // ───────────────────────────── 도우미 ─────────────────────────────
+
+  /** 정기 회차 하나를 보내고 그 결과를 질문으로 보고한다 — 이슈 챗에 답을 기다리는 질문이 남는다. */
+  private void askQuestion(String question) throws Exception {
+    report(agent, dispatchOnce(), true, question, true).andExpect(status().isNoContent());
+  }
+
+  /** 소유자 등 사람이 이 이슈 챗에 글을 남기고 그 글 id 를 돌려준다(화면과 같은 API). */
+  private long chat(long as, String body) throws Exception {
+    long threadId = chatThreadRepository.insertIfAbsent(issueId);
+    JsonNode r =
+        json(
+            call(
+                    post("/api/v1/chat/threads/" + threadId + "/messages")
+                        .content(om.writeValueAsString(Map.of("body", body))),
+                    as)
+                .andExpect(status().isCreated()));
+    return r.get("id").asLong();
+  }
+
+  /** 지금까지 발행된 이어 처리 이벤트(질문에 대한 답으로 보낸 회차). */
+  private List<IssueRecurringRunEvent> followUpEvents() {
+    return events.stream(IssueRecurringRunEvent.class).filter(e -> e.followUp() != null).toList();
+  }
+
+  /** 그 글의 챗 생성 이벤트. */
+  private ChatMessageCreatedEvent answerEvent(long messageId) {
+    return events.stream(ChatMessageCreatedEvent.class)
+        .filter(e -> e.messageId() == messageId)
+        .findFirst()
+        .orElseThrow();
+  }
 
   /** 매일 08:00 반복을 저장하고 다음 회차를 지난 시각으로 당긴다. */
   private void saveAndMakeDue() throws Exception {

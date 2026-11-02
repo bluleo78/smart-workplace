@@ -15,6 +15,9 @@ public final class ChatDomainEvents {
    * chat 메시지 작성 직후 (생성에만 발행. 수정/삭제는 본 epic 범위 외).
    *
    * <p>mentions 는 resolve 후 UserSummary 로 hydrate 된 결과. AGENT 가 포함되었는지 dispatcher 가 판단한다.
+   *
+   * <p>followUpAgentId(WP-1312): 이 글이 반복 회차가 남긴 질문에 대한 소유자의 답이라 issue 모듈이 그 AI 의 이어 처리를 이미 보냈으면 그
+   * AI id, 아니면 null. 답 글이 그 AI 를 멘션해도 일반 챗 응답(chat.message.posted)을 또 깨우지 않게 dispatcher 가 거른다.
    */
   public record ChatMessageCreatedEvent(
       long threadId,
@@ -40,7 +43,8 @@ public final class ChatDomainEvents {
       // WP-452: 글이 만들어진 경로 — 알림이 화면 글(멘션 알림)·AI 진행 보고(여기서는 알림 없음 — 멘션은 보고 쪽 알림 이벤트, WP-1009)·AI
       // 질문(질문 알림)을 구분한다.
       ChatMessageOrigin origin,
-      Instant occurredAt) {}
+      Instant occurredAt,
+      Long followUpAgentId) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
   public record ChatMessageUpdatedEvent(

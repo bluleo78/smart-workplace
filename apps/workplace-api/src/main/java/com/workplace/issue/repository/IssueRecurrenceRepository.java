@@ -9,6 +9,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -16,6 +17,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -30,6 +32,17 @@ public class IssueRecurrenceRepository {
   /** 스케줄러가 한 번에 잠그는 행 수 — 남은 행은 다음 폴링(1분 뒤)이 가져간다. */
   static final int BATCH_LIMIT = 100;
 
+  /** 답을 기다리는 질문의 열(WP-1312) — 질문을 비울 때 함께 비운다. */
+  private static final List<Field<?>> QUESTION_FIELDS =
+      List.of(
+          ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID,
+          ISSUE_RECURRENCE.PENDING_QUESTION_TEXT,
+          ISSUE_RECURRENCE.PENDING_QUESTION_ASKED_AT);
+
+  /** 결과를 기다리는 이어 처리의 열(WP-1312) — 이어 처리 대기를 비울 때 함께 비운다. */
+  private static final List<Field<?>> FOLLOW_UP_FIELDS =
+      List.of(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID, ISSUE_RECURRENCE.FOLLOW_UP_DISPATCHED_AT);
+
   private final DSLContext dsl;
 
   /** 이슈의 반복 행. 없으면 빈 값. */
@@ -38,6 +51,21 @@ public class IssueRecurrenceRepository {
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .fetchOptional()
         .map(IssueRecurrenceRepository::toRow);
+  }
+
+  /**
+   * 이 글이 그 이슈 반복의 답을 기다리는 질문에 대한 답일 수 있는지 — 잠그지 않는 좁은 존재 확인(WP-1312). 사람의 이슈 챗 글마다 불리므로 행 전체를 읽지
+   * 않는다. 지우지 않은 반복이고, 질문이 있고, 글쓴이가 소유자(created_by)이고, 질문 뒤의 글이어야 한다. 질문 기한은 보지 않는다 — 기한이 지난 질문은 잠근
+   * 뒤의 판정이 비운다({@code IssueRecurrenceFollowUpService}).
+   */
+  public boolean mayAnswerQuestion(long issueId, long messageId, long actorId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(ISSUE_RECURRENCE)
+            .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+            .and(ISSUE_RECURRENCE.DELETED.isFalse())
+            .and(ISSUE_RECURRENCE.CREATED_BY.eq(actorId))
+            .and(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID.lt(messageId)));
   }
 
   /** 이슈의 반복 행을 잠그고 읽는다 — 결과 보고가 같은 회차를 두 번 반영하지 않게(같은 runId 동시 보고). */
@@ -90,10 +118,14 @@ public class IssueRecurrenceRepository {
         .execute();
   }
 
-  /** 결과 대기 회차 id 만 비운다 — 실행 AI 가 바뀌어 예전 AI 의 진행 중 회차 결과를 받지 않을 때. */
+  /**
+   * 예전 AI 의 진행 중인 일을 모두 비운다 — 실행 AI 가 바뀌어 예전 AI 의 진행 중 회차·이어 처리 결과를 받지 않고, 예전 AI 가 남긴 질문의 답으로 새 AI
+   * 를 깨우지 않게(WP-1312).
+   */
   public void clearPending(long issueId) {
     dsl.update(ISSUE_RECURRENCE)
         .setNull(ISSUE_RECURRENCE.PENDING_RUN_ID)
+        .set(cleared(QUESTION_FIELDS, FOLLOW_UP_FIELDS))
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
@@ -101,12 +133,14 @@ public class IssueRecurrenceRepository {
 
   /**
    * 회차 실행 중에 지운 반복을 묘비로 남긴다 — 끄고(enabled=false) 지움 표시를 해 조회·목록·스케줄러에서 빠지지만, 결과 대기 회차 id 는 남겨 진행 중
-   * 회차의 결과 보고를 받아 글로 남길 수 있게 한다.
+   * 회차의 결과 보고를 받아 글로 남길 수 있게 한다. 답을 기다리는 질문(WP-1312)은 비운다 — 지운 반복의 질문은 답으로 이어 가지 않고, 같은 이슈에 반복을 다시
+   * 저장해 묘비가 되살아나도 예전 질문이 답으로 이어지지 않게.
    */
   public void tombstone(long issueId) {
     dsl.update(ISSUE_RECURRENCE)
         .set(ISSUE_RECURRENCE.DELETED, true)
         .set(ISSUE_RECURRENCE.ENABLED, false)
+        .set(cleared(QUESTION_FIELDS))
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
@@ -186,13 +220,17 @@ public class IssueRecurrenceRepository {
     // 먼저 행을 잠그고 행마다 판정한다 — 지우기·묘비를 조건부 문장 둘로 나누면 그 사이 결과 보고(findForUpdate → 결과 대기 비움)가 끼어
     // 어느 쪽에도 걸리지 않고 살아남을 수 있다. 이슈 id 순으로 잠가 여러 이슈를 한꺼번에 거둘 때의 교착을 피한다.
     var rows =
-        dsl.select(ISSUE_RECURRENCE.ISSUE_ID, ISSUE_RECURRENCE.PENDING_RUN_ID)
+        dsl.select(
+                ISSUE_RECURRENCE.ISSUE_ID,
+                ISSUE_RECURRENCE.PENDING_RUN_ID,
+                ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)
             .from(ISSUE_RECURRENCE)
             .where(scope)
             .orderBy(ISSUE_RECURRENCE.ISSUE_ID)
             .forUpdate()
             .fetch();
-    for (var row : rows) retireLocked(row.value1(), row.value2() != null);
+    // 정기 회차든 이어 처리(WP-1312)든 결과를 기다리는 일이 있으면 묘비로 남겨 그 결과를 받는다.
+    for (var row : rows) retireLocked(row.value1(), row.value2() != null || row.value3() != null);
     return rows.size();
   }
 
@@ -201,7 +239,7 @@ public class IssueRecurrenceRepository {
    * 남기고 그때 행을 지운다(끝내 안 오면 대기 시간 초과 정리가 지운다). 이슈 종료·담당 해제({@link #retire}), 사람의 삭제와 스케줄러의 안전망
    * ({@code IssueRecurrenceService#cancel})이 이 한 규칙을 쓴다.
    *
-   * @param running 결과를 기다리는 회차가 있는지(pending_run_id 가 있음)
+   * @param running 결과를 기다리는 회차가 있는지(pending_run_id 나 이어 처리 follow_up_run_id 가 있음 — WP-1312)
    */
   public void retireLocked(long issueId, boolean running) {
     if (running) tombstone(issueId);
@@ -250,6 +288,78 @@ public class IssueRecurrenceRepository {
         .execute();
   }
 
+  // ───────────────────────────── 질문·이어 처리(WP-1312) ─────────────────────────────
+
+  /** 답을 기다리는 질문을 남긴다 — 반복당 하나라 예전 질문이 있으면 바꾼다. */
+  public void setPendingQuestion(long issueId, long messageId, String text, Instant askedAt) {
+    dsl.update(ISSUE_RECURRENCE)
+        .set(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID, messageId)
+        .set(ISSUE_RECURRENCE.PENDING_QUESTION_TEXT, text)
+        .set(ISSUE_RECURRENCE.PENDING_QUESTION_ASKED_AT, utc(askedAt))
+        .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /** 답을 기다리는 질문을 비운다 — 기한(7일)이 지난 질문을 답으로 보지 않을 때, 질문 없이 끝난 뒤 회차가 앞선 질문을 낡게 만들 때. */
+  public void clearPendingQuestion(long issueId) {
+    dsl.update(ISSUE_RECURRENCE)
+        .set(cleared(QUESTION_FIELDS))
+        .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /**
+   * 질문을 답으로 소비하고 이어 처리를 보냈다고 기록한다 — 질문을 비우고 이어 처리 실행 id·보낸 시각을 남긴다. 호출자가 행을 잠근 채로 불러, 빠르게 두 번 답해도
+   * 이어 처리가 하나만 나간다.
+   */
+  public void markFollowUpDispatched(long issueId, String followUpRunId, Instant dispatchedAt) {
+    dsl.update(ISSUE_RECURRENCE)
+        .set(cleared(QUESTION_FIELDS))
+        .set(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID, followUpRunId)
+        .set(ISSUE_RECURRENCE.FOLLOW_UP_DISPATCHED_AT, utc(dispatchedAt))
+        .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /**
+   * 정기 회차의 결과 대기만 비운다 — 묘비의 회차 결과가 끝났는데 이어 처리(WP-1312) 결과를 아직 기다려 행을 지울 수 없을 때. 연속 실패 수·켜짐은 그대로 둔다.
+   */
+  public void clearPendingRun(long issueId) {
+    dsl.update(ISSUE_RECURRENCE)
+        .setNull(ISSUE_RECURRENCE.PENDING_RUN_ID)
+        .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /** 이어 처리 결과를 받았거나(또는 오래 못 받아) 이어 처리 대기를 비운다. 연속 실패 수·다음 회차는 건드리지 않는다. */
+  public void clearFollowUp(long issueId) {
+    dsl.update(ISSUE_RECURRENCE)
+        .set(cleared(FOLLOW_UP_FIELDS))
+        .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /**
+   * 결과를 오래 못 받은 이어 처리 — 보낸 지 cutoff 보다 오래된 행을 잠그고 읽는다(묘비 포함). 다른 트랜잭션이 잡고 있으면 건너뛴다({@link
+   * #lockStalePending} 와 같은 규칙).
+   */
+  public List<IssueRecurrenceRow> lockStaleFollowUps(Instant cutoff) {
+    return dsl.selectFrom(ISSUE_RECURRENCE)
+        .where(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID.isNotNull())
+        .and(ISSUE_RECURRENCE.FOLLOW_UP_DISPATCHED_AT.lt(utc(cutoff)))
+        .orderBy(ISSUE_RECURRENCE.FOLLOW_UP_DISPATCHED_AT)
+        .limit(BATCH_LIMIT)
+        .forUpdate()
+        .skipLocked()
+        .fetch()
+        .map(IssueRecurrenceRepository::toRow);
+  }
+
   /** 반복을 끈다 — 다음 회차를 정할 수 없을 때. 연속 실패 수·결과 대기는 그대로 둔다. */
   public void disable(long issueId) {
     dsl.update(ISSUE_RECURRENCE)
@@ -280,6 +390,14 @@ public class IssueRecurrenceRepository {
     return t == null ? null : t.toInstant();
   }
 
+  /** 주어진 열 묶음을 모두 null 로 두는 SET 맵 — 질문·이어 처리 열을 비우는 여러 문장이 같은 열 목록을 쓰게. */
+  @SafeVarargs
+  private static Map<Field<?>, Object> cleared(List<Field<?>>... groups) {
+    Map<Field<?>, Object> m = new HashMap<>();
+    for (List<Field<?>> g : groups) for (Field<?> f : g) m.put(f, null);
+    return m;
+  }
+
   private static IssueRecurrenceRow toRow(IssueRecurrenceRecord r) {
     return new IssueRecurrenceRow(
         r.getIssueId(),
@@ -294,6 +412,11 @@ public class IssueRecurrenceRepository {
         r.getPendingRunId(),
         instant(r.getLastRunAt()),
         Boolean.TRUE.equals(r.getDeleted()),
-        Boolean.TRUE.equals(r.getAssistantEnrolled()));
+        Boolean.TRUE.equals(r.getAssistantEnrolled()),
+        r.getPendingQuestionMessageId(),
+        r.getPendingQuestionText(),
+        instant(r.getPendingQuestionAskedAt()),
+        r.getFollowUpRunId(),
+        instant(r.getFollowUpDispatchedAt()));
   }
 }

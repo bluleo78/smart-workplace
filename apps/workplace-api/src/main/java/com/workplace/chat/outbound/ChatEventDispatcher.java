@@ -13,6 +13,7 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -27,6 +28,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *   <li>props.enabled() == true
  *   <li>actor.kind() != "AGENT" (self-loop 차단)
  *   <li>mentions 에 서버가 실행하는(kind == "AGENT" 이면서 runtime == INTERNAL) 에이전트가 1명 이상 (WP-371)
+ *   <li>그 에이전트가 이 글로 반복 회차 이어 처리를 이미 받은 AI(followUpAgentId)가 아님 (WP-1312)
  * </ul>
  *
  * 다른 모든 조건은 skip — 일반 사람간 메시지나 mention 안 한 메시지는 ai-agent 로 가지 않는다.
@@ -61,6 +63,8 @@ public class ChatEventDispatcher {
         agentResolver.pickActingAgent(
             e.mentions().stream()
                 .filter(u -> !AgentUsernames.isOthersPersonalAssistant(u.username(), actorId))
+                // WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 는 빼 — 같은 답에 두 번 응답하지 않게.
+                .filter(u -> !Objects.equals(u.id(), e.followUpAgentId()))
                 .toList(),
             TenantContext.get());
     if (acting == null) return;
