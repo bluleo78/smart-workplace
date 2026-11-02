@@ -113,6 +113,7 @@ describe('pasting into an editor with WikiPasteShape', () => {
     return source.view.serializeForClipboard(source.state.doc.slice(0, source.state.doc.content.size)).dom.innerHTML
   }
 
+  // WP-1306 — Google Docs 의 글꼴·크기·검정 글자색·여백 div 는 모양 유지 정리기가 모두 걸러 「글만」과 같은 결과가 된다.
   it('external Google-Docs-like HTML creates no box/span/style nodes and no containment, keeping bold and cell alignment', () => {
     const ed = mount()
     ed.view.pasteHTML(GOOGLE_DOCS, pasteEvent())
@@ -167,27 +168,36 @@ describe('pasting into an editor with WikiPasteShape', () => {
     expect(target.view.dom.classList.contains('wiki-html-scope')).toBe(false)
   })
 
-  it('an external paste (no note marker) drops the format spans and the paragraph alignment but keeps the text', () => {
+  // WP-1306 — 노트 밖 HTML 은 「모양 유지」가 기본이다: 유채색 글자·밑줄은 서식 span, 문단·제목 정렬도 남는다(글만은 칩으로 고른다).
+  it('an external paste (no note marker) keeps colored/underlined text as a format span and the paragraph alignment', () => {
     const ed = mount()
     ed.view.pasteHTML(
-      '<p style="text-align:center">바깥 <span style="text-decoration:underline;color:red">밑줄</span></p><h2 style="text-align:right">제목</h2>',
+      '<p>앞</p><p style="text-align:center">바깥 <span style="text-decoration:underline;color:red;font-family:Arial">밑줄</span></p><h2 style="text-align:right">제목</h2>',
       pasteEvent(),
     )
+    // 첫 문단은 붙여 넣은 자리의 (빈) 문단과 합쳐져 그 문단 속성을 따른다 — 정렬은 둘째·셋째 블록에서 본다.
     const aligns: unknown[] = []
     ed.state.doc.forEach((n) => aligns.push(n.attrs.textAlign))
-    expect(aligns.every((a) => a === null)).toBe(true)
-    expect(hasShape(ed.state.doc)).toBe(false)
-    expect(ed.state.doc.textContent).toContain('바깥 밑줄')
+    expect(aligns).toEqual([null, 'center', 'right'])
+    const md = docToMarkdown(ed.state.doc)
+    expect(md).toContain('<span style="text-decoration: underline; color: red">밑줄</span>')
+    expect(md).not.toContain('font-family')
+    // class 없는 서식 span 뿐이라 범위 가두기(contain)는 켜지지 않는다.
+    expect(ed.view.dom.classList.contains('wiki-html-scope')).toBe(false)
   })
 
-  // data-pm-slice 는 ProseMirror 기반 앱이면 어디서나 붙는다 — 노트 복사 표지가 없으면 바깥 붙여넣기다.
-  it('HTML from another ProseMirror app (data-pm-slice without the note marker) loses the shapes', () => {
+  // data-pm-slice 는 ProseMirror 기반 앱이면 어디서나 붙는다 — 노트 복사 표지가 없으면 바깥 붙여넣기다(class 는 떼고 걸러 들인다).
+  it('HTML from another ProseMirror app (data-pm-slice without the note marker) is filtered like any foreign HTML', () => {
     const html = copiedHtml(SHAPED_HTML).replaceAll(` ${NOTE_COPY_ATTR}=""`, '')
     expect(html).toContain('data-pm-slice')
     const target = mount()
     target.view.pasteHTML(html, pasteEvent())
-    expect(hasShape(target.state.doc)).toBe(false)
-    expect(target.state.doc.textContent).toContain('매출 좋음')
+    // 여백뿐인 div.card 는 보이는 상자가 아니라 풀리고, 유채색 배지 글자만 서식 span 으로 남는다(class 는 뗀다).
+    const md = docToMarkdown(target.state.doc)
+    expect(typesIn(target.state.doc).has('wikiHtmlBox')).toBe(false)
+    // jsdom 이 클립보드 직렬화 때 색을 rgb() 로 다시 쓴다.
+    expect(md).toContain('매출 <span style="color: rgb(22, 163, 74)">좋음</span>')
+    expect(md).not.toContain('class=')
   })
 
   // tiptap-markdown(transformPastedText)은 글자를 html:true 마크다운으로 읽는다 — 친 HTML 이 모양 노드가 되면 안 된다.

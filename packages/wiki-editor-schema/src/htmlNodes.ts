@@ -53,9 +53,9 @@ const SHAPE_ATTRIBUTES = {
 }
 
 /** 모양 노드·마크 이름 — 화면 범위(wikiHtmlScope)·붙여넣기 거르기(wikiPasteShape)가 같은 판정을 쓰게 한곳에 둔다. */
-const WIKI_STYLE = 'wikiStyle'
+export const WIKI_STYLE = 'wikiStyle'
 export const WIKI_HTML_BOX = 'wikiHtmlBox'
-const WIKI_HTML_SPAN = 'wikiHtmlSpan'
+export const WIKI_HTML_SPAN = 'wikiHtmlSpan'
 
 /** 서식 span(WP-1305 선택 서식 도구)이 다루는 CSS 속성 — 밑줄·글자색·배경색. */
 export const FORMAT_PROPS = ['text-decoration', 'color', 'background-color'] as const
