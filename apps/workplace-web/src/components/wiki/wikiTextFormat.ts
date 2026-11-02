@@ -113,7 +113,7 @@ export function withDecl(style: string | null | undefined, prop: string, value: 
 }
 
 /** text-decoration 값에 underline 이 들었는지. */
-function hasUnderline(value: string | null): boolean {
+export function hasUnderline(value: string | null): boolean {
   return !!value && /(^|\s)underline(\s|$)/i.test(value)
 }
 

@@ -12,6 +12,9 @@
  * 받은 고른 목록(글자·outerHTML)은 블록 소스와 같은 믿음 수준의 입력으로 다룬다.
  */
 
+import { frameMessageData, frameScriptPrelude } from './frameMessages'
+import { HTML_EDIT_MARK_ATTRS } from './htmlTextEdit'
+
 /** 메시지 종류 — iframe 안 스크립트와 부모가 같은 이름을 쓴다. */
 export const HTML_PICKER_MESSAGE = 'wp-html-picker'
 
@@ -84,6 +87,14 @@ function htmlPickerPath(el){
   }
   return parts.join(' > ');
 }
+// outerHTML 앞 300자 — 글자 고치기 화면(WP-1309)의 편집 표지(번호·지문·새 문단·contenteditable)는 사본에서 걷은 뒤 자른다.
+// 자른 뒤에 걷으면 300자에서 끊긴 표지 꼬리(닫는 따옴표 없이 끊긴 번호 속성)가 남고, 원본에 없는 속성을 AI 가 따라 쓴다.
+var HTML_EDIT_MARKS=${JSON.stringify(HTML_EDIT_MARK_ATTRS)};
+function htmlPickerHtml(el){
+  var c=el.cloneNode(true),all=c.getElementsByTagName('*');
+  for(var i=-1;i<all.length;i++){var n=i<0?c:all[i];for(var j=0;j<HTML_EDIT_MARKS.length;j++)n.removeAttribute(HTML_EDIT_MARKS[j])}
+  return (c.outerHTML||'').slice(0,300);
+}
 function htmlPickerInfo(el){
   var r=el.getBoundingClientRect();
   var sx=window.scrollX||0,sy=window.scrollY||0;
@@ -92,7 +103,7 @@ function htmlPickerInfo(el){
     tag:el.tagName.toLowerCase(),
     kind:htmlPickerKind(el),
     text:htmlPickerText(el,80),
-    html:(el.outerHTML||'').slice(0,300),
+    html:htmlPickerHtml(el),
     rect:{x:Math.round(r.left+sx),y:Math.round(r.top+sy),width:Math.round(r.width),height:Math.round(r.height)}
   };
 }
@@ -110,11 +121,10 @@ export function htmlPickerScript(token: string): string {
   return (
     '<script data-wp-html-picker>(function(){' +
     HTML_PICKER_CORE +
-    // 토큰은 JSON 문자열로 넣되 < 를 풀어 쓴다 — 어떤 값이 와도 </script> 로 스크립트를 끊지 못하게.
-    `var TOKEN=${JSON.stringify(token).replace(/</g, '\\u003c')},TYPE='${HTML_PICKER_MESSAGE}';` +
+    // TOKEN·TYPE·post·fromParent — 글자 고치기 스크립트와 같은 머리(lib/frameMessages).
+    frameScriptPrelude(HTML_PICKER_MESSAGE, token) +
     // picks = [{el, info}] — 요소 정보는 고를 때 한 번만 만든다(상태를 보낼 때마다 outerHTML·계산 스타일을 다시 읽지 않게).
     "var enabled=false,picks=[],hover=null,hoverLabel='',layer=null,flash=-1,queued=false;" +
-    "function post(m){m.type=TYPE;m.token=TOKEN;parent.postMessage(m,'*')}" +
     "function state(){post({event:'state',enabled:enabled,items:picks.map(function(p){return p.info})})}" +
     'function indexOf(el){for(var i=0;i<picks.length;i++)if(picks[i].el===el)return i;return -1}' +
     "function box(r,solid){var d=document.createElement('div');" +
@@ -154,7 +164,7 @@ export function htmlPickerScript(token: string): string {
     "window.addEventListener('keydown',function(e){if(e.key==='Escape'&&(enabled||picks.length)){stop(e);if(picks.length){picks=[];draw();state()}else post({event:'escape'})}},true);" +
     "window.addEventListener('scroll',function(){if(picks.length||hover)draw()},true);" +
     "window.addEventListener('resize',function(){if(picks.length||hover)draw()});" +
-    "window.addEventListener('message',function(e){var d=e.data;if(e.source!==parent||!d||d.type!==TYPE||d.token!==TOKEN)return;" +
+    "window.addEventListener('message',function(e){var d=fromParent(e);if(!d)return;" +
     "if(d.cmd==='enable'){if(!enabled){enabled=true;state()}}" +
     "else if(d.cmd==='disable'){enabled=false;setHover(null);picks=[];draw();state()}" +
     "else if(d.cmd==='clear'){picks=[];draw();state()}" +
@@ -175,9 +185,8 @@ export function htmlPickerEventFromMessage(
   frameWindow: Window | null | undefined,
   token: string,
 ): HtmlPickerEvent | null {
-  if (!frameWindow || event.source !== frameWindow) return null
-  const data = event.data as Record<string, unknown> | null
-  if (!data || typeof data !== 'object' || data.type !== HTML_PICKER_MESSAGE || data.token !== token) return null
+  const data = frameMessageData(event, frameWindow, HTML_PICKER_MESSAGE, token)
+  if (!data) return null
   if (data.event === 'ready' || data.event === 'escape') return { event: data.event }
   if (data.event !== 'state' || typeof data.enabled !== 'boolean' || !Array.isArray(data.items)) return null
   return { event: 'state', enabled: data.enabled, items: data.items.filter(isPickedElement) }
@@ -197,11 +206,6 @@ function isPickedElement(v: unknown): v is PickedElement {
     typeof r === 'object' &&
     ['x', 'y', 'width', 'height'].every((k) => typeof r[k] === 'number')
   )
-}
-
-/** 부모 → iframe 명령 보내기 — 토큰을 실어 보낸다(iframe 은 불투명 출처라 대상 출처는 '*'). */
-export function postHtmlPickerCommand(frameWindow: Window, token: string, command: HtmlPickerCommand): void {
-  frameWindow.postMessage({ type: HTML_PICKER_MESSAGE, token, ...command }, '*')
 }
 
 /** 칩 글자 — 이름표와 글자 앞부분(「제목 · 3분기 회고」). 글자가 없으면 이름표만. */

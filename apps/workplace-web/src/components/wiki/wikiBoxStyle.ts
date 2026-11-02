@@ -135,14 +135,14 @@ function lastValue(decls: Decl[], ...props: string[]): string | null {
 const BORDER_STYLES = /^(solid|dashed|dotted|double|groove|ridge|inset|outset|none|hidden)$/
 
 /** 테두리 상태 — 굵기·선 모양·색(정해지지 않았으면 null). */
-interface BorderState {
+export interface BorderState {
   width: string | null
   line: string | null
   color: string | null
 }
 
 /** 테두리 shorthand 값을 굵기·선 모양·색 조각으로 나눈다. */
-function borderParts(value: string): BorderState {
+export function borderParts(value: string): BorderState {
   const tokens = splitTopLevel(value.trim(), ' ').filter(Boolean)
   let width: string | null = null
   let line: string | null = null
@@ -163,7 +163,7 @@ const firstToken = (value: string) => splitTopLevel(value.trim(), ' ').find(Bool
  * 선언 순서대로 테두리 상태를 쌓는다 — shorthand(border)는 세 값을 모두 새로 정하고(빠진 값은 초기값), 뒤에 오는
  * 가로 속성(border-width·border-style·border-color)은 그 하나만 덮는다. 들여온 카드의 `border-width: 2px; border-style: solid` 도 읽히게.
  */
-function borderState(decls: Decl[]): BorderState {
+export function borderState(decls: readonly Pick<Decl, 'prop' | 'value'>[]): BorderState {
   let state: BorderState = { width: null, line: null, color: null }
   for (const d of decls) {
     if (d.prop === 'border') state = borderParts(d.value)
@@ -175,7 +175,7 @@ function borderState(decls: Decl[]): BorderState {
 }
 
 /** 테두리 굵기 판정 — 선 모양이 없거나 none/hidden·굵기 0 이면 없음, 2px 이상(thick·medium 포함)이면 굵게, 나머지는 얇게. */
-function borderKind({ width, line }: BorderState): BoxBorder {
+export function borderKind({ width, line }: BorderState): BoxBorder {
   if (!line || line === 'none' || line === 'hidden') return 'none'
   if (width === null || width === 'medium' || width === 'thick') return 'thick'
   if (width === 'thin') return 'thin'

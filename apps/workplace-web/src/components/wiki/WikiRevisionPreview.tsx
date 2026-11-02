@@ -59,7 +59,8 @@ function RevisionPreviewContent({ body, title, compareTo, showDiff, className }:
       // HTML 모양(WP-1240)도 편집기와 같은 범위 가두기로 그린다 — 판 미리보기에서 모양이 달라 보이지 않게.
       extensions: [
         // 판 미리보기에서 복사한 모양도 노트 복사로 표시한다(pasteShape) — 옛 판 일부를 편집기에 옮겨 붙일 때 모양이 따라가게(wikiPasteShape.ts).
-        ...wikiRenderExtensions({ image: WikiImage, mention: WikiMention, pasteShape: true }),
+        // 보기 전용이라 붙여넣기 칩(pasteChip)은 두지 않는다.
+        ...wikiRenderExtensions({ image: WikiImage, mention: WikiMention, pasteShape: true, pasteChip: false }),
         WikiRevisionDiffHighlight,
       ],
       editable: false,

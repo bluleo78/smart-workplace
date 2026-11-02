@@ -1,15 +1,19 @@
 // 노트 HTML 블록 NodeView(WP-1242) — 블록 소스를 격리 iframe 에서 원본처럼 실행해 보이고, 편집할 때만 막대·소스 편집 칸을 연다.
 // WP-1300: 평소엔 미리보기만(올리면 막대), 선택하면 다시 올리기·크게 보기·삭제와 키 안내, 소스 편집은 코드(줄 번호·색 구분)와 미리보기를 나란히.
 // WP-1302: 「✦ AI로 고치기」 — 블록 아래 입력 칸(WikiHtmlEmbedAiPanel)에서 지시하고, 결과를 비교해 「적용」할 때만 소스를 바꾼다.
+// WP-1309: 「글자 고치기」 — 블록 화면 위 글자를 눌러 바로 고친다(HTML 문서 보이는 화면 편집과 같은 공용 모듈 lib/htmlTextEdit).
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps, useEditorState } from '@tiptap/react'
-import { Code2, Crosshair, MoreHorizontal, Sparkles, X } from 'lucide-react'
+import { Code2, Crosshair, MoreHorizontal, Sparkles, Type, X } from 'lucide-react'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
-import { type HtmlPicker, useHtmlPicker } from '@/hooks/useHtmlPicker'
-import { htmlPickerScript, pickedLabel } from '@/lib/htmlPicker'
+import { useHtmlEditFrame } from '@/hooks/useHtmlEditFrame'
+import type { HtmlPicker } from '@/hooks/useHtmlPicker'
+import { pickedLabel } from '@/lib/htmlPicker'
+import type { HtmlTextEdit } from '@/lib/htmlTextEditSource'
 import { isMacLike } from '@/lib/platform'
 
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
@@ -18,7 +22,7 @@ import { useHtmlSourceScripts } from './wikiHtmlBlockSecurity'
 import { useWikiHtmlEmbedAi } from './WikiHtmlEmbedAiContext'
 import { WikiHtmlEmbedAiPanel } from './WikiHtmlEmbedAiPanel'
 import { WikiHtmlEmbedExpandDialog, WikiHtmlEmbedReuploadDialog } from './WikiHtmlEmbedDialogs'
-import { htmlEmbedKeyHint } from './wikiHtmlEmbedHint'
+import { htmlEmbedKeyHint, VISUAL_EDIT_HINT_NONE } from './wikiHtmlEmbedHint'
 import {
   deleteHtmlEmbed,
   hasHtmlEmbedOpenMark,
@@ -84,6 +88,9 @@ function lineNumberText(count: number): string {
 /** 블록 선택 안내 — 플랫폼(⌘·Ctrl)은 화면을 여는 동안 바뀌지 않아 모듈을 불러올 때 한 번 정한다. */
 const KEY_HINT = htmlEmbedKeyHint(isMacLike())
 
+/** 글자 고치기 중 동료가 블록 소스를 바꿨을 때 알림 — 그 전에 고친 글자는 이미 들어갔고, 막 친 글자만 들어가지 못했다. */
+export const TEXT_EDIT_CONFLICT_MESSAGE = '다른 사람이 이 블록을 고쳐 글자 고치기를 마쳤습니다 — 그 전에 고친 글자는 반영되어 있어요'
+
 /** 블록 대화상자 종류 — 「다시 올리기」·「크게 보기」. */
 type EmbedDialog = 'reupload' | 'expand'
 
@@ -111,6 +118,11 @@ type EmbedDialog = 'reupload' | 'expand'
  * - 미리보기는 소스를 늦춰 따라간다 — 소스 칸을 연 채면 PREVIEW_DEBOUNCE_MS, 닫힌 채(동료 편집)면 REMOTE_PREVIEW_DEBOUNCE_MS.
  *   iframe 은 문서 글자가 바뀔 때만 새로 만든다(SandboxedHtmlFrame 이 문자열로 비교) — 기다리는 동안 고쳤다 되돌린 소스는 다시 그리지 않는다.
  * - 높이 보고는 모듈 하나짜리 message 듣기(watchEmbedHeight)에 이 iframe 창을 등록해 받는다.
+ * - 「글자 고치기」(WP-1309): 켜면 그때 소스(base)에 번호·지문을 단 문서(prepareHtmlTextEdit)를 띄우고 글자 고치기 스크립트를 함께 넣는다 — 켜 있는 동안
+ *   iframe 문서는 그대로다(늦춘 미리보기를 따라가지 않는다). 입력이 쉴 때마다 고친 것을 base 에 되돌려 소스를 한 거래로 바꾼다(동료에게 바로 간다).
+ *   바꾸기 전 소스가 마지막으로 내가 쓴 것과 다르면(동료가 고쳤다) 덮지 않고 글자 고치기를 끝낸다(알림). 소스 편집·AI 칸을 열면 먼저 끝낸다.
+ *   노트 스크립트가 멈춘 채(WP-1290) 켜면 「우리 스크립트만」 iframe 으로 띄운다 — 글자 고치기·고르기 스크립트만 돌고 문서 스크립트는 CSP 로 막는다.
+ *   스크립트 실행 여부는 켤 때 굳힌다(설계 docs/design/wiki-html-visual-edit.md 「WP-1290 와의 관계」).
  */
 export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: ReactNodeViewProps) {
   const source = node.textContent
@@ -120,28 +132,53 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
   const nodeSelected = useNodeSelected(editor, getPos)
   const showSelected = editable && nodeSelected
   const previewSource = useDebounceValue(source, showSource ? PREVIEW_DEBOUNCE_MS : REMOTE_PREVIEW_DEBOUNCE_MS)
+  // 글자 고치기(WP-1309) — 켠 때의 소스(base)·노트 스크립트 실행 여부(pageScripts)와 마지막으로 내가 쓴 소스(written, 동료 편집 가리기).
+  // 실행 여부는 켤 때 굳힌다(WP-1290) — 고친 글자가 들어가면 블록 지문이 바뀌어 노트 스크립트가 멈추는데, 그때마다 편집 iframe 을 다시 띄우면
+  // 커서·입력이 끊긴다. 고친 글자는 정리기를 거쳐 스크립트를 더하지 못한다. 쓴 소스는 렌더와 무관해 ref 에 둔다.
+  const [textEdit, setTextEdit] = useState<{ base: string; pageScripts: boolean } | null>(null)
+  const textEditOn = editable && textEdit != null
+  const writtenRef = useRef<string | null>(null)
+  // 글자 고치기를 끈 직후 보일 소스 — 늦춘 미리보기(동료 편집 박자 2초)가 따라올 때까지 고친 소스를 바로 보인다(고치기 전 모습이 잠깐 돌아오지 않게).
+  const [afterTextEdit, setAfterTextEdit] = useState<string | null>(null)
+  if (afterTextEdit != null && previewSource === source) setAfterTextEdit(null)
   // 블록 화면 요소 — 노트가 문서에서 떨어진(언마운트되지 않고 남은) 블록을 세지 않게 넘긴다(WP-1290).
+  // 노트에 알리는 소스는 화면에 보이는 것 — 글자 고치기를 끈 직후엔 고친 소스(afterTextEdit)를 알린다. 늦춘 미리보기를 알리면 그것이 따라올 때
+  // 노트 지문이 한 번 더 바뀌어, 그 사이 켠 스위치가 다시 꺼진다.
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const script = useBlockScript(previewSource, wrapperRef)
-  // 요소 고르기(WP-1301) — iframe 안 Esc 로 고르기가 꺼지면 블록을 통째 선택한다(설계 §1, 고른 것 풀기 단계는 훅이 한다).
-  const picker = useHtmlPicker({
+  const script = useBlockScript(afterTextEdit ?? previewSource, wrapperRef)
+  // 이 iframe 에서 문서 스크립트가 도나 — 글자 고치기 중이면 켤 때 굳힌 값, 아니면 노트 스위치(WP-1290).
+  const pageScriptsOn = textEditOn ? textEdit.pageScripts : script.running
+  // 우리 스크립트(고르기·글자 고치기)가 도나 — 글자 고치기 중이면 노트 스크립트가 멈춰 있어도 「우리 스크립트만」으로 띄워 돈다.
+  const ownScriptsOn = pageScriptsOn || textEditOn
+  // 요소 고르기(WP-1301) + 글자 고치기 배선(HTML 문서 보이는 화면 편집과 같은 useHtmlEditFrame) — 켜 있을 때만 base 로 글자 고치기 문서를 준비한다.
+  // iframe 안 Esc 로 고르기가 꺼지면 블록을 통째 선택한다(설계 §1, 고른 것 풀기 단계는 훅이 한다). 고르기를 켜는 동안 글자 고치기는 멈춘다.
+  const {
+    picker,
+    textEdit: textEditor,
+    prepared,
+    script: editScript,
+    attach: attachFrame,
+  } = useHtmlEditFrame(textEditOn ? textEdit.base : null, {
+    pageScripts: textEditOn ? textEdit.pageScripts : true,
     onExit: () => {
       const pos = getPos()
       if (typeof pos === 'number') selectHtmlEmbed(view, pos)
     },
+    onChange: (edits) => commitTextEdits(edits),
   })
-  // 문서·높이 보고·고르기 — iframe 이 붙으면 그 창을 높이 보고와 고르기에 등록하고, 떨어지면(문서가 바뀌어 새 iframe·블록 사라짐) 해제한다.
+  // 문서·높이 보고·고르기 — iframe 이 붙으면 그 창을 높이 보고와 고르기(·글자 고치기)에 등록하고, 떨어지면(문서가 바뀌어 새 iframe·블록 사라짐) 해제한다.
   // 고르기 스크립트는 편집할 수 있는 화면에만 넣는다 — 보기 전용 화면(판 미리보기·공개 공유)은 고를 일이 없다.
-  const { doc, height, frameRef, frameEl } = useEmbedFrame(previewSource, {
-    extraScript: editable ? htmlPickerScript(picker.token) : '',
-    onAttach: picker.attach,
+  const frameSource = prepared ? prepared.html : (afterTextEdit ?? previewSource)
+  const { ownScript, height, frameRef, frameEl } = useEmbedFrame(frameSource, {
+    extraScript: editable ? editScript : '',
+    onAttach: attachFrame,
   })
-  // 노트 스크립트가 멈추면(스위치를 끔·블록이 바뀜) 고르기도 끈다 — 멈춘 iframe 에는 고르기 스크립트가 돌지 않는다(WP-1290).
+  // 우리 스크립트가 멈추면(노트 스위치를 끔·블록이 바뀜 — 글자 고치기 밖) 고르기도 끈다 — 멈춘 iframe 에는 고르기 스크립트가 돌지 않는다(WP-1290).
   const pickerEnabled = picker.enabled
   const setPickerEnabled = picker.setEnabled
   useEffect(() => {
-    if (!script.running && pickerEnabled) setPickerEnabled(false)
-  }, [script.running, pickerEnabled, setPickerEnabled])
+    if (!ownScriptsOn && pickerEnabled) setPickerEnabled(false)
+  }, [ownScriptsOn, pickerEnabled, setPickerEnabled])
   // 「AI로 고치기」(WP-1302) — 쓸 수 있는 화면이면 조건(페이지 id·넣기 길), 칸 열림, 쓴 지시(칸을 닫아도 남긴다).
   const ai = useWikiHtmlEmbedAi()
   const showAi = editable && ai != null
@@ -193,6 +230,50 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
   const removeBlock = withPos((pos) => deleteHtmlEmbed(view, pos))
   const replaceSource = withPos((pos, next: string) => replaceHtmlEmbedSource(view, pos, next))
 
+  /** 지금 문서의 블록 소스 — 렌더 때 받은 node 는 동료 편집 뒤 낡았을 수 있어 늘 다시 읽는다. 블록이 사라졌으면 null. */
+  const liveSource = (): string | null => {
+    const pos = getPos()
+    if (typeof pos !== 'number' || view.isDestroyed) return null
+    return view.state.doc.nodeAt(pos)?.textContent ?? null
+  }
+  /**
+   * 글자 고치기에서 받은 것을 소스에 넣는다(입력이 쉴 때마다·끝낼 때) — base 에 되돌린 결과로 소스를 한 거래로 바꾼다.
+   * 지금 소스가 마지막으로 내가 쓴 소스와 다르면 동료가 고친 것이다 — 번호가 base 기준이라 덮지 않고 끝낸다(그 전 고침은 이미 들어갔다).
+   */
+  function commitTextEdits(edits: HtmlTextEdit[]) {
+    if (!prepared) return
+    const current = liveSource()
+    if (current == null) return
+    if (current !== writtenRef.current) {
+      endTextEdit()
+      toast.info(TEXT_EDIT_CONFLICT_MESSAGE)
+      return
+    }
+    const next = prepared.apply(edits)
+    if (next !== current && replaceSource(next)) writtenRef.current = next
+  }
+  /** 글자 고치기 끄기 — 이미 넣은 것은 남는다. 블록 문서는 늦춘 미리보기로 돌아간다. */
+  const endTextEdit = () => {
+    setAfterTextEdit(liveSource())
+    setTextEdit(null)
+    textEditor.reset()
+    writtenRef.current = null
+  }
+  /** 「글자 고치기」 켜기 — 지금 소스로 편집 화면을 띄운다. 고르기는 그대로 쓸 수 있다(켜는 동안 멈춤). */
+  const startTextEdit = () => {
+    const current = liveSource()
+    if (current == null) return
+    writtenRef.current = current
+    textEditor.reset()
+    setTextEdit({ base: current, pageScripts: script.running })
+  }
+  /** 「완료」 — iframe 에 남은 입력까지 받아 넣고 끈다(받으면 onChange → commitTextEdits 가 먼저 돈다). */
+  const finishTextEdit = async () => {
+    if (!textEdit) return
+    await textEditor.flush()
+    endTextEdit()
+  }
+
   /** 「AI로 고치기」 칸 닫기 — 한 단계 바깥(블록 통째 선택)으로 돌아간다(설계 §1). 쓴 지시는 남는다. */
   const closeAi = () => {
     setAiOpen(false)
@@ -238,7 +319,7 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
   return (
     <NodeViewWrapper
       ref={wrapperRef}
-      className="wiki-html-embed"
+      className="wiki-html-embed wiki-html-embed-scope"
       data-testid="wiki-html-embed"
       data-editable={editable ? '' : undefined}
       data-selected={showSelected ? '' : undefined}
@@ -246,6 +327,7 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
       data-menu-open={menuOpen ? '' : undefined}
       data-picking={picker.enabled ? '' : undefined}
       data-ai-open={aiPanelOpen ? '' : undefined}
+      data-text-edit={textEditOn ? '' : undefined}
     >
       {editable && (
         <div ref={pinFlex} className="wiki-html-embed__bar" contentEditable={false} data-testid="wiki-html-embed-bar">
@@ -270,7 +352,11 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
               aria-pressed={aiOpen}
               data-testid="wiki-html-embed-ai-toggle"
               onMouseDown={keepFocus}
-              onClick={() => (aiOpen ? closeAi() : setAiOpen(true))}
+              onClick={() => {
+                if (aiOpen) closeAi()
+                else if (textEditOn) void finishTextEdit().then(() => setAiOpen(true))
+                else setAiOpen(true)
+              }}
             >
               <Sparkles className="wiki-html-embed__icon" aria-hidden />
               AI로 고치기
@@ -282,11 +368,28 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
             className="wiki-html-embed__btn"
             aria-pressed={sourceOpen}
             data-testid="wiki-html-embed-toggle"
+            disabled={textEditOn}
+            title={textEditOn ? '글자 고치기를 마친 뒤 소스를 고칠 수 있어요' : undefined}
             onMouseDown={keepFocus}
             onClick={toggleSource}
           >
             {sourceOpen ? '완료' : '소스 편집'}
           </button>
+          {/* 글자 고치기(WP-1309) — 블록 화면 위 글자를 눌러 바로 고친다. 소스 칸을 연 동안은 없다(소스로 고치는 중). */}
+          {!sourceOpen && (
+            <button
+              ref={pinInlineFlex}
+              type="button"
+              className="wiki-html-embed__btn"
+              aria-pressed={textEditOn}
+              data-testid="wiki-html-embed-text-edit"
+              onMouseDown={keepFocus}
+              onClick={() => (textEditOn ? void finishTextEdit() : startTextEdit())}
+            >
+              <Type className="wiki-html-embed__icon" aria-hidden />
+              {textEditOn ? '글자 고치기 완료' : '글자 고치기'}
+            </button>
+          )}
           {/* 요소 고르기(WP-1301) — 켜면 블록 안을 눌러 고칠 대상을 짚는다(iframe 안 ⌘/Ctrl+클릭으로도 켜진다). */}
           <button
             ref={pinInlineFlex}
@@ -295,8 +398,9 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
             aria-pressed={picker.enabled}
             data-testid="wiki-html-embed-pick"
             // 고르기는 블록 안 스크립트로 돈다 — 노트 스크립트가 멈춘 동안은 쓸 수 없어 까닭을 보인다(WP-1290).
-            disabled={!script.running}
-            title={script.running ? undefined : '노트 스크립트를 켜면 고를 수 있어요'}
+            // 글자 고치기 중에는 「우리 스크립트만」 iframe 이라 멈춰 있어도 고를 수 있다.
+            disabled={!ownScriptsOn}
+            title={ownScriptsOn ? undefined : '노트 스크립트를 켜면 고를 수 있어요'}
             onMouseDown={keepFocus}
             onClick={() => picker.setEnabled(!picker.enabled)}
           >
@@ -365,11 +469,14 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
           />
         </div>
         <div className="wiki-html-embed__preview" contentEditable={false} data-testid="wiki-html-embed-preview">
-          {script.badge}
+          {!pageScriptsOn && <ScriptPausedBadge />}
+          {/* 글자 고치기 중 노트 스크립트가 멈춰 있으면 「우리 스크립트만」 — 편집 도구는 돌고 문서 스크립트는 CSP 로 막는다(WP-1290 × WP-1309). */}
           <SandboxedHtmlFrame
             ref={frameRef}
-            allowScripts={script.running}
-            html={doc}
+            allowScripts={ownScriptsOn}
+            pageScripts={pageScriptsOn}
+            html={frameSource}
+            ownScript={ownScript}
             title="HTML 블록"
             className="wiki-html-embed__frame"
             data-testid="wiki-html-embed-frame"
@@ -377,7 +484,12 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
           />
         </div>
       </div>
-      {showSelected && (
+      {textEditOn && (
+        <div ref={pinBlock} className="wiki-html-embed__hint" contentEditable={false} data-testid="wiki-html-embed-text-edit-hint">
+          {prepared && prepared.editable > 0 ? '글자를 눌러 바로 고칩니다 · 고친 글자는 바로 저장됩니다' : VISUAL_EDIT_HINT_NONE}
+        </div>
+      )}
+      {showSelected && !textEditOn && (
         <div ref={pinBlock} className="wiki-html-embed__hint" contentEditable={false} data-testid="wiki-html-embed-hint">
           {KEY_HINT}
         </div>
@@ -410,7 +522,7 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
  * 고르기 안내와 고른 요소 칩(WP-1301) — 블록 바로 아래. 칩은 고른 순서대로 번호 + 짧은 설명이고, 누르면 그 요소를 강조하고 ✕ 로 뺀다.
  * 「AI로 고치기」 칸이 열려 있으면(WP-1302) 이 칩 줄을 그 칸 안에 넣고, 고른 목록(useHtmlPicker 의 items)을 요청에 함께 보낸다.
  */
-function HtmlBlockPicks({ picker }: { picker: HtmlPicker }) {
+export function HtmlBlockPicks({ picker }: { picker: HtmlPicker }) {
   return (
     <div ref={pinFlex} className="wiki-html-embed__picks" contentEditable={false} data-testid="wiki-html-embed-picks">
       {picker.items.length === 0 ? (
@@ -440,13 +552,16 @@ function HtmlBlockPicks({ picker }: { picker: HtmlPicker }) {
   )
 }
 
-/** 블록 스크립트 차단·실행(WP-1290) — 실행 여부는 노트 하나로 정한다(본문 위 줄). 멈춘 동안은 오른쪽 위에 「스크립트 멈춤」만 작게 둔다. */
+/** 블록 스크립트 차단·실행(WP-1290) — 실행 여부는 노트 하나로 정한다(본문 위 줄). */
 function useBlockScript(source: string, anchor: RefObject<Element | null>) {
-  const { running } = useHtmlSourceScripts(source, anchor)
-  const badge = !running && (
+  return useHtmlSourceScripts(source, anchor)
+}
+
+/** 문서 스크립트가 멈춘 동안 블록 오른쪽 위에 작게 두는 표지(WP-1290). */
+function ScriptPausedBadge() {
+  return (
     <span className="wiki-html-embed__badge" data-testid="wiki-html-block-badge">
       스크립트 멈춤
     </span>
   )
-  return { badge, running }
 }

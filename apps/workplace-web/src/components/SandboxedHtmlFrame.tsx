@@ -1,6 +1,6 @@
 import { type ComponentProps, useMemo, useState } from 'react'
 
-import { buildSandboxDoc } from '../lib/sandboxedHtml'
+import { buildSandboxDoc, newScriptNonce } from '../lib/sandboxedHtml'
 
 /**
  * 신뢰할 수 없는 HTML(메일 원문·업로드 파일·LLM 생성물)을 렌더하는 공용 격리 iframe(WP-275).
@@ -23,6 +23,8 @@ import { buildSandboxDoc } from '../lib/sandboxedHtml'
 export function SandboxedHtmlFrame({
   html,
   allowScripts = false,
+  ownScript,
+  pageScripts = true,
   ...props
 }: {
   html: string
@@ -35,8 +37,20 @@ export function SandboxedHtmlFrame({
    * alert·confirm·prompt 를 되풀이하는 스크립트가 앱 탭을 잠그지 못하게(WP-1242 결정). 막힌 alert 는 아무 일 없이 지나간다.
    */
   allowScripts?: boolean
+  /** 문서 뒤에 붙일 우리 스크립트(높이 보고·고르기·글자 고치기 — 신뢰하는 문자열). 스크립트가 꺼져 있으면 붙이지 않는다. */
+  ownScript?: string
+  /**
+   * false 면 「우리 스크립트만」(WP-1290 × WP-1309) — 노트 스크립트가 멈춘 채 편집 도구(ownScript)를 돌릴 때. allow-scripts 로 띄우되
+   * CSP nonce 로 문서 자신의 스크립트·인라인 이벤트·javascript: 주소·하위 프레임을 막는다(buildSandboxDoc). allowScripts 일 때만 뜻이 있다.
+   */
+  pageScripts?: boolean
 } & Omit<ComponentProps<'iframe'>, 'srcDoc' | 'sandbox' | 'src'>) {
-  const doc = useMemo(() => buildSandboxDoc(html, allowScripts), [html, allowScripts])
+  const ownOnly = allowScripts && !pageScripts
+  // nonce 는 문서를 만들 때마다 새로 — 같은 문서를 다시 그릴 때(렌더)는 그대로다.
+  const doc = useMemo(
+    () => buildSandboxDoc(html, allowScripts, { script: ownScript, nonce: ownOnly ? newScriptNonce() : undefined }),
+    [html, allowScripts, ownScript, ownOnly],
+  )
   // 문서가 바뀔 때마다 올리는 세대 번호 — iframe key. 수 MB 문서 자체를 key 로 쓰지 않으려고 렌더 중에 번호만 갱신한다.
   const [frame, setFrame] = useState({ doc, generation: 0 })
   if (frame.doc !== doc) setFrame({ doc, generation: frame.generation + 1 })
@@ -44,7 +58,7 @@ export function SandboxedHtmlFrame({
   // key 에 스크립트 허용 여부도 넣는다(WP-1260) — 이미 그려진 iframe 의 sandbox 속성을 바꿔도 다음 이동 전까지 반영되지 않아,
   // 미리보기의 「스크립트 실행」이 새 iframe 으로 다시 그려야 스크립트가 돈다.
   // eslint-disable-next-line no-restricted-syntax
-  return <iframe key={`${frame.generation}-${allowScripts}`} {...props} sandbox={allowScripts ? SCRIPT_SANDBOX : INERT_SANDBOX} srcDoc={doc} />
+  return <iframe key={`${frame.generation}-${allowScripts}-${ownOnly}`} {...props} sandbox={allowScripts ? SCRIPT_SANDBOX : INERT_SANDBOX} srcDoc={doc} />
 }
 
 /** 기본 격리 — 스크립트·폼·same-origin 차단, 링크 팝업만(WP-427). */

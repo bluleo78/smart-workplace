@@ -6,11 +6,13 @@ import {
   htmlHasScripts,
   IN_PAGE_LINK_SCRIPT,
   LINK_TARGET_BASE,
+  ownScriptsCsp,
   rewriteInPageLinks,
   SANDBOX_HEAD,
   SCRIPT_SANDBOX_HEAD,
   THIN_SCROLLBAR_STYLE,
   withSandboxHead,
+  withScriptNonce,
 } from './sandboxedHtml'
 
 describe('withSandboxHead', () => {
@@ -159,6 +161,29 @@ describe('buildSandboxDoc', () => {
     const doc = buildSandboxDoc(html, true)
     expect(doc).toBe('<!doctype html>' + SCRIPT_SANDBOX_HEAD + '<a href="#s">목차</a><h2 id="s">절</h2>')
     expect(SCRIPT_SANDBOX_HEAD.endsWith(IN_PAGE_LINK_SCRIPT)).toBe(true)
+  })
+
+  it('우리 스크립트는 스크립트 켜짐일 때만 문서 뒤에 붙인다', () => {
+    const own = '<script data-own>x()</script>'
+    expect(buildSandboxDoc(html, true, { script: own })).toBe('<!doctype html>' + SCRIPT_SANDBOX_HEAD + '<a href="#s">목차</a><h2 id="s">절</h2>' + own)
+    expect(buildSandboxDoc(html, false, { script: own })).not.toContain('data-own')
+  })
+
+  // WP-1290 × WP-1309 — 노트 스크립트가 멈춘 채 편집 도구만 돌리는 문서.
+  it('nonce 가 있으면 맨 앞 CSP 로 문서 스크립트를 막고 우리 스크립트(문서 안 이동·own)에만 nonce 를 단다', () => {
+    const page = '<!doctype html><p onclick="evil()">글</p><script>evil()</script>'
+    const doc = buildSandboxDoc(page, true, { script: '<script data-own>ok()</script>', nonce: 'abc123' })
+    expect(doc.startsWith('<!doctype html>' + ownScriptsCsp('abc123'))).toBe(true)
+    expect(ownScriptsCsp('abc123')).toContain(`script-src 'nonce-abc123'`)
+    expect(ownScriptsCsp('abc123')).toContain(`object-src 'none'`)
+    expect(doc).toContain('<script data-in-page-links nonce="abc123">')
+    expect(doc.endsWith('<script data-own nonce="abc123">ok()</script>')).toBe(true)
+    // 문서 자신의 스크립트에는 nonce 를 달지 않는다.
+    expect(doc).toContain('<script>evil()</script>')
+  })
+
+  it('withScriptNonce 는 여는 태그마다 nonce 를 끝에 단다', () => {
+    expect(withScriptNonce('<script>a</script><script data-x>b</script>', 'n')).toBe('<script nonce="n">a</script><script data-x nonce="n">b</script>')
   })
 })
 

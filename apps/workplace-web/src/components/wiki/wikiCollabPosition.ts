@@ -25,10 +25,17 @@ export interface YSyncState {
   } | null
 }
 
-/** 동시 편집 실행 취소(Yjs UndoManager)의 묶음을 끊는다 — 기본은 0.5초 안의 바꿈을 한 번에 되돌린다. 플러그인이 없으면 아무것도 하지 않는다. */
+/**
+ * 동시 편집 실행 취소(Yjs UndoManager)의 묶음을 끊는다 — 기본은 0.5초 안의 바꿈을 한 번에 되돌린다. 플러그인이 없으면 아무것도 하지 않는다.
+ * 편집기 상태만 받는다 — 붙여넣기 거르기(wikiPasteShape)처럼 Editor 없이 ProseMirror 뷰만 쥔 곳도 쓴다(붙여넣기가 앞 글자 입력과 묶이지 않게).
+ */
+export function stopUndoCaptureIn(state: EditorState) {
+  const st = yUndoPluginKey.getState(state) as { undoManager?: { stopCapturing(): void } } | undefined
+  st?.undoManager?.stopCapturing()
+}
+
 function stopUndoCapture(editor: Editor) {
-  const state = yUndoPluginKey.getState(editor.state) as { undoManager?: { stopCapturing(): void } } | undefined
-  state?.undoManager?.stopCapturing()
+  stopUndoCaptureIn(editor.state)
 }
 
 /**

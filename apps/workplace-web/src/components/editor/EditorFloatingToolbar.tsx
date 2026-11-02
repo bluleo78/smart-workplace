@@ -32,8 +32,8 @@ export function EditorFloatingToolbar({
   /** 앵커를 선택 좌표가 아닌 다른 요소로 바꿀 때 사용(표 툴바는 표 상단에 붙인다).
    *  null 을 반환하면 tippy 가 기본 앵커(선택 좌표)를 쓰도록 둔다. */
   getReferenceClientRect?: () => DOMRect | null
-  /** 위치(기본 'top'). 마운트 때 tippyOptions 로 굳어 이후 바꿔도 반영되지 않는다. */
-  placement?: 'top' | 'top-start'
+  /** 위치(기본 'top'). 마운트 때 tippyOptions 로 굳어 이후 바꿔도 반영되지 않는다. 'bottom-start' 는 앵커 아래(붙여넣기 칩, WP-1306 — boundary 없이 쓴다). */
+  placement?: 'top' | 'top-start' | 'bottom-start'
   /**
    * 넘치지 않을 경계(예: 에디터 본문) — 위에 자리가 없으면 아래로 뒤집고 가로로는 경계 안에 머문다.
    * placement 와 같이 마운트 때 굳는다(tiptap BubbleMenu 가 플러그인을 한 번만 등록) — 바꿔도 무시된다.

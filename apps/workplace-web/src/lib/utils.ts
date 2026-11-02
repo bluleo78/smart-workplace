@@ -14,6 +14,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** 글자를 HTML 안에 그대로 보이게 특수 문자(& < > ")를 풀어 쓴다 — 메일 인용(mailQuote)·붙인 글자(htmlTextEditSource)가 함께 쓴다. */
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 /** 마지막 음절 받침 유무에 따라 "을"/"를" 반환 */
 export function eulReul(word: string) {
   const code = word.charCodeAt(word.length - 1) - 0xac00;

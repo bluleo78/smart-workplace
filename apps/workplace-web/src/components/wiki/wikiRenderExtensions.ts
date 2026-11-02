@@ -19,15 +19,17 @@ export function wikiRenderExtensions(
     mention?: AnyExtension
     /** 붙여넣기 모양 거르기·노트 복사 표지(WikiPasteShape)를 넣을지 — 복사·붙여넣기가 있는 화면(편집기·판 미리보기)만. */
     pasteShape?: boolean
+    /** 붙여넣기 칩(WP-1306)을 둘지(기본 둔다) — 보기 전용 판 미리보기는 끈다. pasteShape 일 때만 뜻이 있다. */
+    pasteChip?: boolean
   } = {},
 ): Extensions {
-  const { pasteShape, ...schemaOpts } = opts
+  const { pasteShape, pasteChip = true, ...schemaOpts } = opts
   return [
     // HTML 블록(WP-1242)도 여기서 NodeView 를 얹는다 — 편집기·판 미리보기·공개 공유가 같은 격리 iframe 으로 그리게.
     ...wikiSchemaExtensions({ style: WikiStyle, htmlEmbed: WikiHtmlEmbed, ...schemaOpts }),
     // 페이지 스타일 CSS 를 이 본문에 가둬 주입하고, 모양이 있으면 본문을 contain 으로 가둔다.
     WikiHtmlScope,
     // 노트 밖에서 온 HTML·글자 붙여넣기는 모양 노드를 만들지 않고, 노트끼리 복사만 모양을 옮긴다.
-    ...(pasteShape ? [WikiPasteShape] : []),
+    ...(pasteShape ? [WikiPasteShape.configure({ chip: pasteChip })] : []),
   ]
 }

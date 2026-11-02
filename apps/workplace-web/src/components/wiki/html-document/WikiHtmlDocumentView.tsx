@@ -1,5 +1,5 @@
 import { Download, History, Link2, Pencil, Save, Share2, Unlock, Upload } from 'lucide-react'
-import { type ReactNode, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
@@ -35,6 +35,7 @@ import { WikiShareDialog } from '../WikiShareDialog'
 import { useHtmlEditSession, useWikiHtmlLock } from './useHtmlEditSession'
 import { downloadHtmlSource, holderLabel, htmlLockBannerText, rejectOversizedHtmlSource } from './wikiHtmlDocument'
 import { WikiHtmlRevisionDialog } from './WikiHtmlRevisionDialog'
+import { WikiHtmlVisualEditor, type WikiHtmlVisualEditorHandle } from './WikiHtmlVisualEditor'
 
 /** 소스 칸을 고치는 동안 미리보기를 다시 그리기까지 기다리는 시간(ms) — 글자마다 스크립트를 다시 돌리지 않게(HTML 블록과 같은 값). */
 export const HTML_DOCUMENT_PREVIEW_DEBOUNCE_MS = 500
@@ -45,8 +46,14 @@ export const HTML_DOCUMENT_PREVIEW_DEBOUNCE_MS = 500
  */
 const COMPACT_LABEL = 'max-2xl:sr-only'
 
-/** 보는 방식 — 보기(격리 iframe)·소스(읽기 전용)·편집(잠금을 쥐고 소스 + 미리보기). */
+/** 보는 방식 — 보기(격리 iframe)·소스(읽기 전용)·편집(잠금을 쥐고 고친다 — 아래 EditScreen 둘 중 하나). */
 type HtmlViewMode = 'view' | 'source' | 'edit'
+
+/**
+ * 편집 중 화면(WP-1309) — 보이는 화면에서 글자 고치기(visual, 기본) 또는 소스 + 미리보기(source). 둘 다 같은 편집 세션 소스를 고친다.
+ * visual 은 그 화면을 띄운 기준 원본(base)과 세대(key — 바뀌면 화면을 새로 띄워 고친 목록·토큰을 비운다).
+ */
+type EditScreen = { kind: 'visual'; base: string; scripts: string; key: number } | { kind: 'source' }
 
 /** 다른 창에서 내가 편집 중일 때 다시 올리기·되돌리기를 막는 이유 — 서버가 편집 세션 없는 쓰기를 막는다. */
 const LOCKED_ELSEWHERE_BY_ME = '다른 창에서 편집 중입니다 — 그 창에서 저장하거나 취소한 뒤 할 수 있어요'
@@ -67,7 +74,8 @@ export interface WikiHtmlDocumentShare {
  * - 보기: 격리 iframe — allow-same-origin 이 없어 스크립트·차트는 돌아도 앱 로그인 정보·화면에는 닿지 못한다. 스크립트는 노트 블록과 같이 기본 멈춤이고
  *   제목 줄 아래 스크립트 줄의 스위치로 켠다(WP-1290 — 노트 단위 AI 보안 점검).
  * - 소스: 원본 HTML 을 읽기 전용으로 본다.
- * - 편집(편집자만, WP-1308): 잠금을 얻고 왼쪽 소스 칸 + 오른쪽 늦춘 미리보기로 고친다(보이는 화면 편집은 WP-1309). 「저장」은 고치기 시작한 version 으로
+ * - 편집(편집자만, WP-1308): 잠금을 얻고 고친다. 처음엔 보이는 화면 편집(WP-1309 — 원본 화면에서 글자를 눌러 고치고, 차트 등은 고르기 + AI로 고치기),
+ *   편집 중 「소스」를 누르면 왼쪽 소스 칸 + 오른쪽 늦춘 미리보기, 「편집」으로 돌아오면 고친 소스로 화면을 다시 띄운다. 「저장」은 고치기 시작한 version 으로
  *   PUT(409 면 알리고 다시 받은 version 으로 기준을 옮긴다 — 소스는 남기고, 다시 저장하면 바꾼다), 「취소」는 잠금을 풀고 고친 내용을 버린다.
  *   다른 사람에겐 위 띠 「○○ 님이 편집 중입니다」를 띄우고 편집·다시 올리기를 막는다(서버도 막는다). 스페이스 소유자는 「잠금 풀기」로 강제로 푼다.
  * - 다시 올리기: 고른 파일 원본으로 바꾼다(지금 version 기준). 원본 내려받기: octet-stream Blob 저장(앱 창은 이동하지 않는다).
@@ -91,7 +99,15 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
   const { user } = useAuth()
   const { data: lock } = useWikiHtmlLock(page.id, !share, { userId: user?.id, role })
   const saveHtml = useSaveHtml(spaceId)
-  const session = useHtmlEditSession(page.id, { lock, saving: saveHtml.isPending, userId: user?.id })
+  // 편집 중 화면 — 편집을 시작할 때(새로·이어 고치기) 시작 소스로 보이는 화면을 띄운다. 편집이 끝나면 그대로 두고 다음 시작이 덮는다(편집 중에만 읽는다).
+  const [screen, setScreen] = useState<EditScreen>({ kind: 'source' })
+  /**
+   * 기준 원본으로 보이는 화면을 (다시) 띄운다 — 세대를 올려 화면을 새로 만든다. scripts 는 노트 스크립트 허용을 따질 소스(WP-1290) —
+   * 편집을 열 때·소스에서 돌아올 때·AI 적용 때는 base 와 같고, 스위치가 바뀌어 다시 띄울 때(rebaseVisual)는 앞 것을 그대로 둔다.
+   */
+  const showVisual = (base: string, scripts: string = base) =>
+    setScreen((s) => ({ kind: 'visual', base, scripts, key: (s.kind === 'visual' ? s.key : 0) + 1 }))
+  const session = useHtmlEditSession(page.id, { lock, saving: saveHtml.isPending, userId: user?.id, onBegin: showVisual })
   const draft = session.editing
   const lockedByOther = lock?.locked === true && !lock.mine
   // 띠·막힌 단추가 함께 쓰는 이유 문구 — 한 번만 만든다.
@@ -115,6 +131,43 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
   const [historyOpen, setHistoryOpen] = useState(false)
   const uploadRef = useRef<HTMLInputElement>(null)
   const previewSource = useDebounceValue(draft?.html ?? '', HTML_DOCUMENT_PREVIEW_DEBOUNCE_MS)
+
+  const visualRef = useRef<WikiHtmlVisualEditorHandle>(null)
+  // flush 를 기다리는 사이 바뀐 편집 세션(version 옮김 등)을 보려고 ref 로도 쥔다.
+  const draftRef = useRef(draft)
+  useEffect(() => {
+    draftRef.current = draft
+  })
+  /** 보이는 화면에서 고친 결과(원본에 되돌린 소스) — 달라졌을 때만 편집 세션에 넣는다(임시 저장·10분 규칙의 입력). */
+  const onVisualChange = (next: string) => {
+    if (draftRef.current && next !== draftRef.current.html) session.change(next)
+  }
+  /** 지금 고친 소스 — 보이는 화면이면 iframe 에 남은 입력까지 받아 되돌린다. */
+  const latestSource = async (): Promise<string | null> => {
+    const next = screen.kind === 'visual' && visualRef.current ? await visualRef.current.flush() : (draftRef.current?.html ?? null)
+    if (next != null) onVisualChange(next)
+    return next
+  }
+  /** 편집 중 「소스」 — 보이는 화면에서 고친 것을 소스에 넣고 소스 + 미리보기로. */
+  const toSourceView = async () => {
+    await latestSource()
+    setScreen({ kind: 'source' })
+  }
+  /** 편집 중 「편집」 — 소스에서 고친 것으로 보이는 화면을 다시 띄운다. */
+  const toVisualView = () => {
+    const cur = draftRef.current
+    if (cur) showVisual(cur.html)
+  }
+  /** 노트 스크립트 스위치가 바뀜(보이는 화면) — 고친 것까지 소스에 넣고 그 소스로 다시 띄운다. 허용을 따질 소스는 그대로(고친 글자는 스크립트를 더하지 못한다). */
+  const rebaseVisual = (next: string) => {
+    onVisualChange(next)
+    setScreen((s) => (s.kind === 'visual' ? { ...s, base: next, key: s.key + 1 } : s))
+  }
+  /** AI 「적용」(보이는 화면) — 결과로 소스를 통째로 바꾸고 화면을 그 소스로 다시 띄운다(저장은 「저장」). */
+  const replaceFromAi = (next: string) => {
+    session.change(next)
+    showVisual(next)
+  }
 
   // 제목 — 고치는 중엔 내 입력, 아니면 서버 제목.
   const [titleDraft, setTitleDraft] = useState<string | null>(null)
@@ -143,13 +196,27 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
     ),
   ]
 
-  const saveSource = () => {
-    if (!draft || rejectOversizedHtmlSource(draft.html)) return
-    // 실패(409·413)는 useSaveHtml 이 알린다 — 고치던 소스는 그대로 둔다. 성공하면 서버가 잠금을 풀었다.
-    saveHtml.mutate(
-      { pageId: page.id, html: draft.html, version: draft.baseVersion, lockToken: session.lockToken() },
-      { onSuccess: () => session.finishSaved(), onError: (e) => setConflicted(isConflictError(e)) },
-    )
+  // 「저장」을 받는 중(flush 를 기다리는 사이 ~ 저장 요청이 끝날 때까지) — flush 동안은 saveHtml.isPending 이 아직 false 라 단추가 막히지 않는다.
+  // 두 번 누르면 같은 잠금 표지로 PUT 이 두 번 가 뒤 것이 (앞 저장이 잠금을 풀어) 실패·충돌로 잘못 알려지지 않게 한 번만 보낸다.
+  const savingRef = useRef(false)
+  const saveSource = async () => {
+    if (savingRef.current) return
+    savingRef.current = true
+    try {
+      // 보이는 화면이면 iframe 에 남은 입력(쉬기 전 300ms)까지 받아 원본에 되돌린 뒤 저장한다.
+      const html = await latestSource()
+      const cur = draftRef.current
+      if (!cur || html == null || rejectOversizedHtmlSource(html)) return
+      // 실패(409·413)는 useSaveHtml 이 알린다 — 고치던 소스는 그대로 둔다. 성공하면 서버가 잠금을 풀었다.
+      try {
+        await saveHtml.mutateAsync({ pageId: page.id, html, version: cur.baseVersion, lockToken: session.lockToken() })
+        session.finishSaved()
+      } catch (e) {
+        setConflicted(isConflictError(e))
+      }
+    } finally {
+      savingRef.current = false
+    }
   }
   const onUpload = async (file: File) => {
     const next = await readHtmlFile(file)
@@ -158,25 +225,46 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
   }
   const shareLabel = page.shared ? '공유 중' : page.shareExpired ? '공유 만료' : '공유'
 
-  // 보기 방식 단추 — 지금 mode 하나에서 눌림·막힘을 가린다. 편집 중엔 보기·소스가 막히고, 편집은 남이 편집 중이거나 시작하는 중이면 막힌다.
-  const modeButtons: { mode: HtmlViewMode; label: string; icon?: ReactNode; disabled: boolean; title?: string; onClick: () => void }[] = [
-    { mode: 'view', label: '보기', disabled: mode === 'edit', onClick: () => setShowSource(false) },
+  // 보기 방식 단추 — 지금 mode·편집 화면에서 눌림·막힘을 가린다. 편집 중엔 보기가 막히고 「편집」·「소스」가 보이는 화면·소스 + 미리보기를 오간다.
+  // 편집은 남이 편집 중이거나 시작하는 중이면 막힌다.
+  const editing = mode === 'edit'
+  const modeButtons: {
+    mode: HtmlViewMode
+    label: string
+    icon?: ReactNode
+    pressed: boolean
+    disabled: boolean
+    title?: string
+  }[] = [
+    { mode: 'view', label: '보기', pressed: mode === 'view', disabled: editing },
     ...(canEdit
       ? [
           {
             mode: 'edit' as const,
             label: '편집',
             icon: <Pencil aria-hidden="true" />,
-            disabled: mode !== 'edit' && (lockedByOther || session.start.isPending),
+            pressed: editing && screen.kind === 'visual',
+            disabled: !editing && (lockedByOther || session.start.isPending),
             title: lockText,
-            onClick: () => {
-              if (mode !== 'edit') session.start.mutate()
-            },
           },
         ]
       : []),
-    { mode: 'source', label: '소스', disabled: mode === 'edit', onClick: () => setShowSource(true) },
+    {
+      mode: 'source',
+      label: '소스',
+      pressed: mode === 'source' || (editing && screen.kind === 'source'),
+      disabled: false,
+    },
   ]
+  /** 보기 방식 단추를 눌렀을 때 — 편집 중엔 보이는 화면·소스를 오가고, 아니면 보기·소스(읽기 전용)를 고르거나 편집을 시작한다. */
+  const onModeClick = (target: HtmlViewMode) => {
+    if (target === 'view') setShowSource(false)
+    else if (target === 'edit') {
+      if (!editing) session.start.mutate()
+      else if (screen.kind === 'source') toVisualView()
+    } else if (!editing) setShowSource(true)
+    else if (screen.kind === 'visual') void toSourceView()
+  }
   // 다시 올리기·되돌리기를 막는 이유(편집 세션이 없는 쓰기) — 남이면 띠 문구, 내 다른 창이면 그 안내.
   const blockedWriteReason = lockedElsewhere ? (lockText ?? LOCKED_ELSEWHERE_BY_ME) : undefined
 
@@ -199,12 +287,12 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
               key={b.mode}
               type="button"
               size="sm"
-              variant={mode === b.mode ? 'secondary' : 'ghost'}
-              aria-pressed={mode === b.mode}
+              variant={b.pressed ? 'secondary' : 'ghost'}
+              aria-pressed={b.pressed}
               className="h-7"
               disabled={b.disabled}
               title={b.title}
-              onClick={b.onClick}
+              onClick={() => onModeClick(b.mode)}
               data-testid={`wiki-html-mode-${b.mode}`}
             >
               {b.icon}
@@ -218,7 +306,7 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
           <Button type="button" size="sm" variant="outline" onClick={session.cancel} data-testid="wiki-html-source-cancel">
             취소
           </Button>
-          <Button type="button" size="sm" onClick={saveSource} disabled={saveHtml.isPending} data-testid="wiki-html-source-save">
+          <Button type="button" size="sm" onClick={() => void saveSource()} disabled={saveHtml.isPending} data-testid="wiki-html-source-save">
             <Save aria-hidden="true" />
             저장
           </Button>
@@ -321,7 +409,21 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
           )}
         </div>
         <WikiHtmlScriptBar className="mx-4 mt-2 mb-2" />
-        {mode === 'edit' && draft ? (
+        {mode === 'edit' && draft && screen.kind === 'visual' ? (
+          // 보이는 화면 편집(WP-1309) — 기준 원본이 바뀌면 key 로 새로 띄운다.
+          <WikiHtmlVisualEditor
+            key={screen.key}
+            handleRef={visualRef}
+            base={screen.base}
+            scriptSource={screen.scripts}
+            current={draft.html}
+            pageId={page.id}
+            title={page.title}
+            onChange={onVisualChange}
+            onReplace={replaceFromAi}
+            onRebase={rebaseVisual}
+          />
+        ) : mode === 'edit' && draft ? (
           // 소스 — 넓으면 [소스 | 미리보기] 나란히, 좁으면 위아래로 쌓는다.
           <div className="grid min-h-0 flex-1 grid-rows-2 md:grid-cols-2 md:grid-rows-1">
             <textarea

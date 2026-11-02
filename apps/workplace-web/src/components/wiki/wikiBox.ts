@@ -28,7 +28,8 @@ import {
   typingGuardProps,
 } from './wikiBlockExit'
 import { dispatchAsUndoStep, nodeSelectionRestoreGuard } from './wikiCollabPosition'
-import { stripShapeFromFragment } from './wikiPasteShape'
+// 붙여넣기 확장(wikiPasteShape)이 아니라 정리기 모듈에서 바로 읽는다 — wikiPasteShape → wikiPasteForeign → wikiBoxStyle → wikiBox 순환을 피한다.
+import { stripShapeFromFragment } from './wikiShapeNormalize'
 
 /**
  * 새 상자의 「기본」 모양 — 옅은 테두리·둥근 모서리·안쪽 여백. 꾸미기 묶음(WP-1304 기본·안내·주의·강조)의 「기본」과 같은 글자로 둔다.

@@ -84,6 +84,7 @@ import { createWikiMentionExtension } from './wikiMentionSuggestion'
 import { type WikiAiState, WikiPageHeader } from './WikiPageHeader'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
 import { WikiPageStyleDialog } from './WikiPageStyleDialog'
+import { WikiPasteChip } from './WikiPasteChip'
 import { WikiPresence } from './WikiPresence'
 import { announcePresence } from './wikiPresenceAnnounce'
 import { revealPresence, scrollToRelative, wikiPresenceCursorsKey } from './wikiPresenceCursors'
@@ -1136,6 +1137,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
             <WikiTableToolbar editor={editor} disabled={!editable} />
             {/* 상자 막대(WP-1303) — 상자 통째 선택 때 상자 위에. BubbleMenu 라 조건부 형제보다 앞에 둔다(insertBefore 함정). */}
             <WikiBoxToolbar editor={editor} disabled={!editable} />
+            {/* 붙여넣기 칩(WP-1306) — 노트 밖 HTML 을 붙인 자리 아래 「모양 유지 | 글만」. BubbleMenu 라 조건부 형제보다 앞에 둔다(insertBefore 함정). */}
+            <WikiPasteChip editor={editor} disabled={!editable} />
             {/* 링크 버블(WP-312). BubbleMenu 라 조건부 형제(표 우클릭 메뉴의 인라인 트리거)보다 앞에 둔다(insertBefore 함정). */}
             <WikiLinkBubble
               editor={editor}

@@ -20,15 +20,15 @@ import { type WikiHtmlEmbedAi, WikiHtmlEmbedAiProvider } from './WikiHtmlEmbedAi
 import { HTML_EMBED_DEFAULT_HEIGHT, HTML_EMBED_HEIGHT_SCRIPT, HTML_EMBED_MAX_HEIGHT } from './wikiHtmlEmbedFrame'
 import { HIGHLIGHT_MAX_CHARS } from './wikiHtmlEmbedHighlight'
 import { insertHtmlEmbed } from './wikiHtmlEmbedNode'
-import { PREVIEW_DEBOUNCE_MS, REMOTE_PREVIEW_DEBOUNCE_MS } from './WikiHtmlEmbedView'
+import { PREVIEW_DEBOUNCE_MS, REMOTE_PREVIEW_DEBOUNCE_MS, TEXT_EDIT_CONFLICT_MESSAGE } from './WikiHtmlEmbedView'
 import { HTML_IMPORT_MAX_BYTES } from './wikiHtmlImportInsert'
 import { wikiRenderExtensions } from './wikiRenderExtensions'
 import { WikiRevisionPreview } from './WikiRevisionPreview'
 
-// 크기 초과 안내(toast.error)를 확인하려고 sonner 의 toast 만 바꾼다.
+// 크기 초과 안내(toast.error)·글자 고치기 충돌 알림(toast.info)을 확인하려고 sonner 의 toast 만 바꾼다.
 vi.mock('sonner', async (importOriginal) => ({
   ...(await importOriginal<typeof import('sonner')>()),
-  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
 const SOURCE = '<canvas id="c"></canvas>\n\n<script>document.title = "</scr" + "ipt>"</script>'
@@ -632,6 +632,106 @@ describe('HTML 블록 요소 고르기', () => {
   })
 })
 
+// WP-1309 — 「글자 고치기」. iframe 안 클릭·서식·붙여넣기는 E2E(@input)가 보고, 여기서는 부모 쪽 배선을 본다:
+// 켜면 번호를 단 소스 + 글자 고치기 스크립트로 iframe 을 다시 띄우고, 받은 고친 것을 소스에 한 거래로 되돌리며, 동료가 소스를 바꿨으면 덮지 않고 끝낸다.
+describe('HTML 블록 글자 고치기', () => {
+  const TEXT_SOURCE = '<h1 class="t">3분기 회고</h1>\n<div id="chart"></div>\n<script>document.getElementById("chart").textContent = "차트"</script>'
+  const TEXT_BODY = ['앞 문단', '', '```html-embed', TEXT_SOURCE, '```'].join('\n')
+  const editTokenOf = (iframe: HTMLIFrameElement) => /<script data-wp-html-edit[^>]*>[\s\S]*?var TOKEN="([^"]+)"/.exec(iframe.getAttribute('srcdoc') ?? '')?.[1]
+  const indexOf = (iframe: HTMLIFrameElement, selector: string) => {
+    const tpl = document.createElement('template')
+    tpl.innerHTML = iframe.getAttribute('srcdoc') ?? ''
+    return tpl.content.querySelector(selector)!.getAttribute('data-wp-src')!
+  }
+  const sendEdit = (iframe: HTMLIFrameElement, data: Record<string, unknown>) =>
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', { data: { type: 'wp-html-edit', token: editTokenOf(iframe), ...data }, source: iframe.contentWindow }),
+      )
+    })
+  /** 글자 고치기를 켜고 새로 뜬 iframe(글자 고치기 스크립트를 실은)을 돌려준다. */
+  const startTextEdit = async () => {
+    fireEvent.click(screen.getByTestId('wiki-html-embed-text-edit'))
+    return waitFor(() => {
+      const iframe = frame()
+      expect(editTokenOf(iframe)).toBeTruthy()
+      return iframe
+    })
+  }
+
+  it('막대의 「글자 고치기」를 켜면 번호를 단 소스와 글자 고치기 스크립트로 다시 띄우고, 소스 편집은 끝낼 때까지 막는다', async () => {
+    await mountEditor(TEXT_BODY, true)
+    const btn = await screen.findByTestId('wiki-html-embed-text-edit')
+    expect(btn).toHaveTextContent('글자 고치기')
+    const iframe = await startTextEdit()
+    const srcdoc = iframe.getAttribute('srcdoc') ?? ''
+    expect(srcdoc).toMatch(/<h1 class="t" data-wp-src="\d+" data-wp-t="[0-9a-z]+">3분기 회고<\/h1>/)
+    expect(srcdoc).toContain('<script data-wp-html-picker>')
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin')
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    expect(btn).toHaveTextContent('글자 고치기 완료')
+    expect(screen.getByTestId('wiki-html-embed-toggle')).toBeDisabled()
+    expect(screen.getByTestId('wiki-html-embed-text-edit-hint')).toHaveTextContent('글자를 눌러 바로 고칩니다')
+  })
+
+  it('받은 고친 글자는 소스(노드 글자)에 한 거래로 되돌린다 — 스크립트·편집 표지는 그대로·들어가지 않고, 완료하면 평소 문서로 돌아간다', async () => {
+    const ed = await mountEditor(TEXT_BODY, true)
+    const iframe = await startTextEdit()
+    let steps = 0
+    ed.on('transaction', ({ transaction }) => {
+      if (transaction.docChanged) steps++
+    })
+    sendEdit(iframe, { event: 'edits', items: [{ ref: `s:${indexOf(iframe, 'h1')}`, html: '3분기 회고 <b>(최종)</b>' }] })
+    const edited = TEXT_SOURCE.replace('3분기 회고</h1>', '3분기 회고 <b>(최종)</b></h1>')
+    expect(embedSources(ed)).toEqual([edited])
+    expect(steps).toBe(1)
+    // 같은 것을 다시 받으면 바꾸지 않는다.
+    sendEdit(iframe, { event: 'edits', items: [{ ref: `s:${indexOf(iframe, 'h1')}`, html: '3분기 회고 <b>(최종)</b>' }] })
+    expect(steps).toBe(1)
+    // 완료 — iframe 에 남은 입력을 받고(flush), 평소 문서(고친 소스·번호 없음)로 돌아간다.
+    const postSpy = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    fireEvent.click(screen.getByTestId('wiki-html-embed-text-edit'))
+    expect(postSpy).toHaveBeenCalledWith({ type: 'wp-html-edit', token: editTokenOf(iframe), cmd: 'flush' }, '*')
+    sendEdit(iframe, { event: 'edits', items: [{ ref: `s:${indexOf(iframe, 'h1')}`, html: '3분기 회고 <b>(최종)</b>' }] })
+    await waitFor(() => expect(screen.getByTestId('wiki-html-embed-text-edit')).toHaveAttribute('aria-pressed', 'false'))
+    await waitFor(() => expect(frame().getAttribute('srcdoc')).toContain('3분기 회고 <b>(최종)</b></h1>'))
+    // 번호 속성이 없다(고르기 스크립트가 걷을 표지 이름 목록 글자는 늘 있다).
+    expect(frame().getAttribute('srcdoc')).not.toContain('data-wp-src="')
+    expect(screen.getByTestId('wiki-html-embed-toggle')).toBeEnabled()
+  })
+
+  it('켜 있는 동안 동료가 소스를 바꿨으면 덮지 않고 글자 고치기를 끝내며 알린다', async () => {
+    const ed = await mountEditor(TEXT_BODY, true)
+    const iframe = await startTextEdit()
+    vi.mocked(toast.info).mockClear()
+    // 동료 편집 — 블록 소스 끝에 글자를 넣는다.
+    const pos = embedTextPos(ed)
+    act(() => {
+      ed.view.dispatch(ed.state.tr.insertText('<p>동료</p>', pos + TEXT_SOURCE.length))
+    })
+    sendEdit(iframe, { event: 'edits', items: [{ ref: `s:${indexOf(iframe, 'h1')}`, html: '내 고침' }] })
+    expect(embedSources(ed)).toEqual([`${TEXT_SOURCE}<p>동료</p>`])
+    expect(toast.info).toHaveBeenCalledWith(TEXT_EDIT_CONFLICT_MESSAGE)
+    await waitFor(() => expect(screen.getByTestId('wiki-html-embed-text-edit')).toHaveAttribute('aria-pressed', 'false'))
+  })
+
+  it('고르기를 켜면 글자 고치기를 멈추고, 끄면 다시 켠다 — 소스 칸을 연 동안은 「글자 고치기」가 없다', async () => {
+    await mountEditor(TEXT_BODY, true)
+    const iframe = await startTextEdit()
+    const postSpy = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    fireEvent.click(screen.getByTestId('wiki-html-embed-pick'))
+    expect(postSpy).toHaveBeenCalledWith({ type: 'wp-html-edit', token: editTokenOf(iframe), cmd: 'pause' }, '*')
+    fireEvent.click(screen.getByTestId('wiki-html-embed-pick'))
+    expect(postSpy).toHaveBeenLastCalledWith({ type: 'wp-html-edit', token: editTokenOf(iframe), cmd: 'resume' }, '*')
+  })
+
+  it('소스 칸을 열면 「글자 고치기」 단추가 없다', async () => {
+    await mountEditor(TEXT_BODY, true)
+    fireEvent.click(await screen.findByTestId('wiki-html-embed-toggle'))
+    expect(screen.queryByTestId('wiki-html-embed-text-edit')).not.toBeInTheDocument()
+  })
+})
+
 describe('판 미리보기의 HTML 블록', () => {
   it('읽기 전용으로 같은 격리 iframe 을 그리고, 바뀐 블록은 통째 지움+추가로 표시한다', async () => {
     // 멘션 라벨 조회(WikiMentionLabelsProvider) — 이 본문엔 멘션이 없어 빈 목록.
@@ -823,6 +923,30 @@ describe('노트 HTML 블록 스크립트 스위치(WP-1290)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '크게 보기' }))
     const big = await screen.findByTestId('wiki-html-embed-expand-frame')
     expect(big.getAttribute('sandbox')).not.toContain('allow-scripts')
+  })
+
+  it('멈춘 블록에서도 「글자 고치기」는 우리 스크립트만(CSP nonce) 돌려 쓸 수 있고, 그동안 고르기도 켤 수 있다(WP-1309)', async () => {
+    const { ed } = await mountNote({}, BODY)
+    act(() => {
+      ed.commands.setNodeSelection(embedTextPos(ed) - 1)
+    })
+    fireEvent.click(await screen.findByTestId('wiki-html-embed-text-edit'))
+    const iframe = await waitFor(() => {
+      const f = frame()
+      expect(f.getAttribute('srcdoc')).toContain('data-wp-html-edit')
+      return f
+    })
+    const srcdoc = iframe.getAttribute('srcdoc') ?? ''
+    // 편집 도구 때문에 allow-scripts 지만, 문서 스크립트는 사본에서 빠지고 CSP 가 nonce 없는 스크립트를 막는다.
+    expect(iframe.getAttribute('sandbox')).toContain('allow-scripts')
+    const nonce = /script-src 'nonce-([0-9a-f]+)'/.exec(srcdoc)?.[1]
+    expect(nonce).toBeTruthy()
+    expect(srcdoc).toContain(`<script data-wp-html-edit nonce="${nonce}">`)
+    expect(srcdoc).toContain(`<script data-wp-html-embed-height nonce="${nonce}">`)
+    expect(srcdoc).not.toContain('<script>')
+    // 노트 스크립트는 여전히 멈춤이라 표지는 그대로, 고르기는 쓸 수 있다.
+    expect(screen.getByTestId('wiki-html-block-badge')).toBeInTheDocument()
+    expect(screen.getByTestId('wiki-html-embed-pick')).toBeEnabled()
   })
 })
 

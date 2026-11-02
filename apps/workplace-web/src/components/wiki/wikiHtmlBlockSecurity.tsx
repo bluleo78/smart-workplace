@@ -41,6 +41,8 @@ export interface WikiHtmlScriptsCheck {
 interface PageScripts {
   /** 지금 노트 지문이 실행 허용됐나 — 블록은 이 값 하나로 스크립트를 켠다. */
   running: boolean
+  /** 실행을 허용한 소스 묶음(이어 붙인 것) — 없으면 null. 소스 하나가 허용됐는지 알릴 때를 기다리지 않고 바로 볼 때 쓴다(useNoteAllowsSource). */
+  allowed: string | null
   report: (id: string, source: string | null, anchor?: RefObject<Element | null>) => void
 }
 
@@ -162,7 +164,7 @@ export function WikiHtmlBlockScopeProvider({ scope, children }: { scope: WikiHtm
   const hash = useSourceHash(joined)
   const count = Object.keys(sources).length
   const running = count > 0 && allowedSources === joined
-  const value = useMemo(() => ({ running, report }), [running, report])
+  const value = useMemo(() => ({ running, allowed: allowedSources, report }), [running, allowedSources, report])
   const bar = useMemo(
     () => ({ scope, count, hash, running, onAllow: (on: boolean) => setAllowedSources(on ? joined : null) }),
     [scope, count, hash, running, joined],
@@ -320,6 +322,18 @@ export function NoteScriptFrame({
   const page = useHtmlBlockPageScripts(id, register && hasScripts ? scriptSource : null)
   const running = !hasScripts || (page?.running ?? true)
   return <SandboxedHtmlFrame {...props} html={html} allowScripts={running} />
+}
+
+/**
+ * 소스 하나(HTML 문서 한 장)를 노트가 실행 허용했나 — 알리기(report)가 노트에 닿기를 기다리지 않고 허용한 묶음과 바로 견준다.
+ * 보이는 화면 편집(WP-1309)이 띄울 때 첫 렌더부터 맞는 값을 써야 해서 둔다(알리기 전 첫 렌더의 running 은 지난 소스 기준이라, 허용 안 된
+ * 소스의 스크립트가 한 번 돌 수 있다). 노트에 이 소스 하나만 있을 때 맞다(HTML 문서 페이지). 스크립트가 없거나 범위가 없으면 true.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useNoteAllowsSource(source: string): boolean {
+  const ctx = useContext(PageScriptsContext)
+  const hasScripts = useMemo(() => htmlHasScripts(source), [source])
+  return !hasScripts || !ctx || ctx.allowed === joinHtmlScriptSources([source])
 }
 
 /** 노트 실행 여부만 읽는다(블록 밖 미리보기 — 크게 보기·AI 비교). 범위가 없으면 null. */
