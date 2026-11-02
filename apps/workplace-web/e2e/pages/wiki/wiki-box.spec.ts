@@ -90,9 +90,8 @@ test.describe('노트 상자 (WP-1303)', { tag: '@input' }, () => {
     // 상자 막대는 상자 바로 위에 붙는다.
     const [bar, rect] = [(await toolbar.boundingBox())!, (await card.boundingBox())!]
     expect(bar.y + bar.height).toBeLessThanOrEqual(rect.y + 1)
-    // 막대 단추 — 꾸미기는 자리만 있는 비활성 단추(곧 제공 안내).
-    await expect(toolbar.getByTestId('wiki-box-style')).toBeDisabled()
-    await expect(toolbar.getByTestId('wiki-box-style-slot')).toHaveAttribute('title', '꾸미기는 곧 제공됩니다')
+    // 막대 단추 — 꾸미기(WP-1304)·줄 추가·글만 남기기·삭제.
+    await expect(toolbar.getByTestId('wiki-box-style')).toBeEnabled()
     await expect(toolbar.getByRole('button')).toHaveText(['꾸미기', '↑ 줄 추가', '↓ 줄 추가', '글만 남기기', '삭제'])
     await shot(page, 'box-selected-toolbar')
 
@@ -138,6 +137,53 @@ test.describe('노트 상자 (WP-1303)', { tag: '@input' }, () => {
     await toolbar.getByTestId('wiki-box-delete').click()
     await expect(card).toHaveCount(0)
     await expect(top).toHaveText(['앞 문단', '위 새 줄', '아래 새 줄', '뒤 문단'])
+  })
+
+  // WP-1304 — 꾸미기 창은 떠 있는 막대 안에서 열려 실제 누르기가 편집기 포커스·상자 통째 선택을 지키는지, 고른 모양이 테마 변수까지 풀려
+  // 그려지는지(jsdom 은 CSS 변수를 풀지 못한다)를 본다. 항목별 style 계산·실행 취소·CSS 직접 고치기 정리는 WikiBoxStylePanel.test.tsx.
+  test('상자 꾸미기 — 「꾸미기」로 막대 아래에 창이 열리고, 모양·여백을 누르면 상자가 바로 바뀌며 Esc 로 창만 닫힌다', async ({
+    authenticatedPage: page,
+  }) => {
+    const pageId = 87
+    await openNote(page, pageId, `앞 문단\n\n${CARD}\n\n뒤 문단`)
+    const card = page.locator('.ProseMirror [data-wiki-html-box]')
+    const toolbar = page.getByTestId('wiki-box-toolbar')
+    await clickTopPadding(page, card)
+    await toolbar.getByTestId('wiki-box-style').click()
+    const panel = page.getByTestId('wiki-box-style-panel')
+    await expect(panel).toBeVisible()
+    // 창은 막대 아래에 붙는다.
+    const [bar, box] = [(await toolbar.boundingBox())!, (await panel.boundingBox())!]
+    expect(box.y).toBeGreaterThanOrEqual(bar.y + bar.height - 1)
+
+    // 「안내」 — 옅은 파랑 바탕·둥근 모서리. 바탕은 --wiki-box-info-bg 를 거쳐 디자인 토큰 --info-subtle 로 풀린다(wiki-editor.css 별칭 —
+    // 앱 화면에서는 내보낸 HTML 용 기본값 #eff6ff 가 아니라 토큰 색). 상자 선택·막대는 그대로다.
+    await panel.getByTestId('wiki-box-style-preset-info').click()
+    const infoSubtle = await page.evaluate(() => {
+      const probe = document.createElement('div')
+      probe.style.background = 'var(--info-subtle)'
+      document.body.append(probe)
+      const color = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return color
+    })
+    expect(infoSubtle).not.toBe('rgba(0, 0, 0, 0)')
+    await expect(card).toHaveCSS('background-color', infoSubtle)
+    await expect(card).toHaveCSS('border-radius', '8px')
+    await expect(card).toHaveClass(SELECTED)
+    await expect(panel.getByTestId('wiki-box-style-preset-info')).toHaveAttribute('aria-pressed', 'true')
+    await panel.getByTestId('wiki-box-style-padding-wide').click()
+    await expect(card).toHaveCSS('padding-top', '20px')
+    await shot(page, 'box-style-panel')
+
+    // Esc — 창만 닫고 상자 통째 선택·막대는 남는다.
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await expect(card).toHaveClass(SELECTED)
+    await expect(toolbar).toBeVisible()
+    await expect
+      .poll(() => savedMarkdown(page, pageId))
+      .toContain('<div class="card" style="background: var(--wiki-box-info-bg, #eff6ff); color: var(--wiki-box-info-fg, #1e40af);')
   })
 
   test('통째 선택 키 — Enter·↓ 다음 줄, ↑ 앞 줄, Esc 는 안 글 → 상자 → 바깥 줄, Backspace 는 상자 지우기', async ({ authenticatedPage: page }) => {

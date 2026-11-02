@@ -182,7 +182,7 @@ describe('WikiHtmlScope + WikiStyle in an editor', () => {
   it('pins the chip and its remove button visible with inline !important styles', () => {
     const ed = mount(MD)
     const chip = ed.view.dom.querySelector('[data-testid="wiki-style-chip"]') as HTMLElement
-    const remove = chip.querySelector('button') as HTMLElement
+    const remove = chip.querySelector('button[aria-label="페이지 스타일 지우기"]') as HTMLElement
     for (const [el, display] of [
       [chip, 'inline-flex'],
       [remove, 'inline-flex'],

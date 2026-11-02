@@ -1,4 +1,5 @@
 import type { Editor } from '@tiptap/core'
+import { closeHistory } from '@tiptap/pm/history'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
@@ -6,6 +7,7 @@ import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
+  yUndoPluginKey,
 } from 'y-prosemirror'
 import * as Y from 'yjs'
 
@@ -21,6 +23,23 @@ export interface YSyncState {
     /** 원격 반영 뒤 되살릴 내 선택(상대 위치) — Yjs 거래 시작 때 적고 끝나면 비운다. 통째 선택 보호(nodeSelectionRestoreGuard — HTML 블록 WP-1288·상자 WP-1303)가 쓴다. */
     beforeTransactionSelection: { type: string; anchor: unknown; head: unknown } | null
   } | null
+}
+
+/** 동시 편집 실행 취소(Yjs UndoManager)의 묶음을 끊는다 — 기본은 0.5초 안의 바꿈을 한 번에 되돌린다. 플러그인이 없으면 아무것도 하지 않는다. */
+function stopUndoCapture(editor: Editor) {
+  const state = yUndoPluginKey.getState(editor.state) as { undoManager?: { stopCapturing(): void } } | undefined
+  state?.undoManager?.stopCapturing()
+}
+
+/**
+ * 거래 하나를 실행 취소 한 단계로 따로 내보낸다(WP-1304) — 상자 꾸미기·페이지 CSS 적용처럼 단추 한 번이 실행 취소 한 번이어야 하는 바꿈.
+ * 앞뒤로 Yjs 실행 취소 묶음을 끊어(stopCapturing) 직전 글자 입력·바로 다음 바꿈과 0.5초 묶음으로 섞이지 않게 하고,
+ * 동시 편집이 없는 편집기(ProseMirror history)를 위해 closeHistory 도 단다.
+ */
+export function dispatchAsUndoStep(editor: Editor, tr: Transaction): void {
+  stopUndoCapture(editor)
+  editor.view.dispatch(closeHistory(tr))
+  stopUndoCapture(editor)
 }
 
 /** 에디터 상태의 동기화 플러그인 상태. 플러그인이 없으면 undefined. */

@@ -257,6 +257,29 @@
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+/* 상자 꾸미기 색(WP-1304) — 상자 style 은 `var(--wiki-box-*, 밝은 기본값)` 글자로 저장된다(wikiBoxStyle.ts BOX_PRESETS·견본).
+   앱 화면(편집기·판 미리보기·공개 공유 — 모두 index.css 토큰과 이 파일을 불러온다)은 여기 값으로 테마를 따라가고,
+   변수가 없는 화면(내보낸 HTML)은 wikiBoxStyle.ts 의 밝은 기본값(hex)으로 보인다.
+   맞는 디자인 토큰이 있는 색은 그 토큰을 가리킨다(--wiki-diff-bg 와 같은 방식) — 라이트·다크 값과 글자 대비를 index.css 한곳이 정한다.
+   맞는 토큰이 없는 색(안내 글자·안내 테두리·강조 바탕/글자)만 여기서 라이트·다크 값을 따로 둔다 — 어두운 값은 어두운 바탕에서 읽히게 고른다. */
+:root {
+  --wiki-box-gray-bg: var(--muted);
+  --wiki-box-green-bg: var(--success-subtle);
+  --wiki-box-info-bg: var(--info-subtle);
+  --wiki-box-info-fg: #1e40af;
+  --wiki-box-info-border: #bfdbfe;
+  --wiki-box-warning-bg: var(--warning-subtle);
+  --wiki-box-warning-fg: var(--warning-text);
+  --wiki-box-warning-border: var(--warning);
+  --wiki-box-strong-bg: #1e293b;
+  --wiki-box-strong-fg: #ffffff;
+}
+.dark {
+  --wiki-box-info-fg: #bfdbfe;
+  --wiki-box-info-border: #1e40af;
+  --wiki-box-strong-bg: #334155;
+  --wiki-box-strong-fg: #ffffff;
+}
 /* 페이지 스타일 칩 — 「이 노트에 페이지 스타일이 있다」 표시 + 지우기 단추. 편집할 수 있을 때만 보인다.
    display·visibility·opacity·pointer-events·position 은 NodeView 가 인라인 !important 로 정한다(노트 CSS 가 칩을 가리지 못하게,
    보기 전용 숨김 포함 — wikiStyleNode.ts). 여기서는 모양만 준다. */
@@ -279,6 +302,15 @@
 .wiki-editor .ProseMirror .wiki-style-chip__icon {
   width: 0.875rem;
   height: 0.875rem;
+}
+/* 칩 「페이지 스타일」 글자 — 누르면 CSS 고치기 창(WP-1304). 글자처럼 보이되 마우스를 올리면 밑줄. */
+.wiki-editor .ProseMirror .wiki-style-chip__edit {
+  color: inherit;
+  cursor: pointer;
+}
+.wiki-editor .ProseMirror .wiki-style-chip__edit:hover {
+  color: var(--foreground);
+  text-decoration: underline;
 }
 .wiki-editor .ProseMirror .wiki-style-chip__remove {
   align-items: center;
