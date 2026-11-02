@@ -411,7 +411,7 @@ describe('HTML 보안 점검 패널', () => {
     const { user } = renderPreview([{ file: textFile(81, 'page.html', 'text/html'), body: scriptHtml, summary: { summary: '요약 본문', status: 'DONE' }, security: done }])
     const body = await openPreview(user, 'page.html')
     expect(screen.queryByTestId('viewer-side-panel')).not.toBeInTheDocument()
-    await user.click(await within(body).findByRole('button', { name: '주의 · 근거 1' }))
+    await user.click(await within(body).findByRole('button', { name: '주의 · 위협 1' }))
     expect(await screen.findByTestId('viewer-side-panel')).toBeInTheDocument()
   })
 })
