@@ -253,9 +253,39 @@ public class WikiPublicMarkdownMasker {
 
   /**
    * HTML 블록 하나의 위치(문자 위치) — 여는 줄 시작 {@code start}, 소스 [{@code sourceStart}, {@code sourceEnd}), 닫는
-   * 줄 끝(줄바꿈 포함) {@code end}. 닫는 줄이 없어 문서 끝까지 본 블록은 sourceEnd = end = 본문 길이.
+   * 줄 끝(줄바꿈 포함) {@code end}. 닫는 줄이 없어 문서 끝까지 본 블록은 sourceEnd = end = 본문 길이. {@code prefix} 는 소스 각 줄
+   * 앞의 컨테이너 접두(목록 들여쓰기·인용 {@code >} — 최상위 블록은 빈 글자)로, 편집기가 보는 소스를 되살릴 때 뗀다(WP-1290).
    */
-  record EmbedFence(int start, int sourceStart, int sourceEnd, int end) {}
+  record EmbedFence(int start, int sourceStart, int sourceEnd, int end, String prefix) {}
+
+  /**
+   * 본문의 HTML 블록 소스들 — 편집기(HTML 블록 노드)가 보는 글자 그대로(WP-1290 노트 HTML 보안 점검). 펜스 사이 줄마다 컨테이너 접두를 떼고
+   * ({@link #findFenceClose} 와 같은 규칙 — 빈 줄은 접두 끝 공백을 뗀 것도 허용) {@code \n} 으로 잇는다. 마지막 줄바꿈은 붙이지 않는다 —
+   * 직렬화기가 소스 뒤에 줄바꿈 하나를 더 쓰고 markdown-it 이 그것을 뗀다. 닫히지 않은 블록은 HTML 블록이 아니다(가림과 같은 판정).
+   */
+  static List<String> htmlEmbedSources(String md) {
+    List<String> sources = new ArrayList<>();
+    if (md == null) {
+      return sources;
+    }
+    for (EmbedFence fence : htmlEmbedFences(md, false)) {
+      String prefix = fence.prefix();
+      String blankPrefix = prefix.stripTrailing();
+      List<String> out = new ArrayList<>();
+      // 소스 범위는 닫는 줄 시작 앞의 줄바꿈까지라, 그 범위를 줄로 나눈 마지막 빈 조각(닫는 줄 앞 줄바꿈 뒤)은 버린다.
+      List<Line> lines = lines(md.substring(fence.sourceStart(), fence.sourceEnd()));
+      int count = lines.size() - 1;
+      for (int k = 0; k < count; k++) {
+        String line = lines.get(k).text();
+        out.add(
+            line.startsWith(prefix)
+                ? line.substring(prefix.length())
+                : line.equals(blankPrefix) ? "" : line);
+      }
+      sources.add(String.join("\n", out));
+    }
+    return sources;
+  }
 
   /**
    * HTML 블록 펜스 위치들 — 가림은 소스 범위([sourceStart, sourceEnd))만 쓰고, 평문 추출({@link WikiPlainText},
@@ -303,7 +333,8 @@ public class WikiPublicMarkdownMasker {
       if (close == UNCLOSED && openToEnd) {
         // 문서 끝까지 닫히지 않은 HTML 블록 — 평문 추출은 끝까지를 블록으로 본다(잘린 본문의 소스가 새지 않게).
         int srcStart = i + 1 < lines.size() ? lines.get(i + 1).start() : md.length();
-        ranges.add(new EmbedFence(lines.get(i).start(), srcStart, md.length(), md.length()));
+        ranges.add(
+            new EmbedFence(lines.get(i).start(), srcStart, md.length(), md.length(), prefix));
         break;
       }
       if (close < 0) {
@@ -316,7 +347,11 @@ public class WikiPublicMarkdownMasker {
         int end = close + 1 < lines.size() ? lines.get(close + 1).start() : md.length();
         ranges.add(
             new EmbedFence(
-                lines.get(i).start(), lines.get(i + 1).start(), lines.get(close).start(), end));
+                lines.get(i).start(),
+                lines.get(i + 1).start(),
+                lines.get(close).start(),
+                end,
+                prefix));
       }
       i = close + 1;
     }

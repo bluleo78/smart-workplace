@@ -4,7 +4,7 @@ import { markdownToDoc } from '@smart-workplace/wiki-editor-schema'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Link2 } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { BrandMark } from '@/components/layout/BrandMark'
@@ -16,9 +16,9 @@ import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
-import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
 import { isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
 import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
+import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../../components/wiki/wikiHtmlBlockSecurity'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
 import { wikiRenderExtensions } from '../../components/wiki/wikiRenderExtensions'
 import { WikiSharePageSelect } from '../../components/wiki/WikiSharePageSelect'
@@ -164,21 +164,24 @@ export function WikiPublicSharePage() {
             <WikiPageSkeleton testId="wiki-public-share-skeleton" />
           ) : isHtmlPage(data.page) ? (
             // 「HTML 문서」(WP-1307) — 원본을 격리 iframe 으로 화면 폭 가득 그린다(allow-same-origin 없음 — 스크립트가 이 화면에 닿지 못한다).
-            <article className="flex h-full min-h-0 flex-col" data-testid="wiki-public-html-document">
-              <h1 className="shrink-0 border-b px-4 py-3 text-lg font-semibold break-keep md:px-8">{data.page.title || '제목 없음'}</h1>
-              <SandboxedHtmlFrame
-                allowScripts
-                html={data.page.html ?? ''}
-                title={data.page.title || '제목 없음'}
-                data-testid="wiki-public-html-frame"
-                className="min-h-0 w-full flex-1 border-0 bg-background"
-              />
-            </article>
+            // 스크립트는 노트 블록과 같이 기본 멈춤 — 제목 아래 줄의 스위치로 켠다(WP-1290).
+            <WikiHtmlBlockScopeProvider scope={{ pageId: data.page.id, publicToken: token }}>
+              <article className="flex h-full min-h-0 flex-col" data-testid="wiki-public-html-document">
+                <h1 className="shrink-0 border-b px-4 py-3 text-lg font-semibold break-keep md:px-8">{data.page.title || '제목 없음'}</h1>
+                <WikiHtmlScriptBar className="mx-4 mt-2 mb-2 md:mx-8" />
+                <NoteScriptFrame
+                  html={data.page.html ?? ''}
+                  title={data.page.title || '제목 없음'}
+                  data-testid="wiki-public-html-frame"
+                  className="min-h-0 w-full flex-1 border-0 bg-background"
+                />
+              </article>
+            </WikiHtmlBlockScopeProvider>
           ) : (
             // 본문 칼럼은 로그인 화면과 같은 규칙(가운데 읽기 폭 / 「전체 폭」 페이지는 제한 없음, WP-793).
             <article className={cn('px-4 py-8 md:px-8', wikiBodyColumnClass(data.page.fullWidth))}>
               <h1 className={cn('mb-4 break-keep', pageTitleClass)}>{data.page.title || '제목 없음'}</h1>
-              <PublicBody markdown={data.page.markdown} />
+              <PublicBody markdown={data.page.markdown} pageId={data.page.id} token={token} />
             </article>
           )}
         </main>
@@ -191,11 +194,18 @@ export function WikiPublicSharePage() {
  * 읽기 전용 본문 — 문서 스키마만(동기화·슬래시·AI 없음). 이미지·멘션 NodeView 는 로그인 API 를 부르므로 기본 노드로 둔다.
  * HTML 모양(WP-1240)은 로그인 없이 그려지므로 편집기와 같은 페이지 스타일 노드·범위 가두기를 넣는다 — 없으면 CSS 가 적용되지 않는다.
  */
-function PublicBody({ markdown }: { markdown: string }) {
+function PublicBody({ markdown, pageId, token }: { markdown: string; pageId: number; token: string }) {
   const editor = useEditor({ extensions: wikiRenderExtensions(), editable: false }, [])
   useEffect(() => {
     if (!editor) return
     editor.commands.setContent(markdownToDoc(markdown).toJSON(), false)
   }, [editor, markdown])
-  return <EditorContent editor={editor} className="wiki-editor" />
+  // HTML 블록 스크립트(WP-1290) — 기본 멈춤. 서버가 같은 내용으로 마친 점검이 있어야 본문 위 줄의 스위치로 켤 수 있다.
+  const scope = useMemo(() => ({ pageId, publicToken: token }), [pageId, token])
+  return (
+    <WikiHtmlBlockScopeProvider scope={scope}>
+      <WikiHtmlScriptBar />
+      <EditorContent editor={editor} className="wiki-editor" />
+    </WikiHtmlBlockScopeProvider>
+  )
 }

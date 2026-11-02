@@ -3,6 +3,7 @@ package com.workplace.fileai.security;
 import com.workplace.file.service.MimeNormalizer;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -24,9 +25,27 @@ public final class HtmlScriptRules {
   private static final Pattern EVENT_ATTR =
       Pattern.compile("<[a-z][^<>]*\\son[a-z]+\\s*=", Pattern.CASE_INSENSITIVE);
 
-  /** 속성 값의 {@code javascript:} 주소. */
+  /** 속성 값의 {@code javascript:}·{@code vbscript:} 주소 — {@link #decodeUrlChars} 로 푼 글자에 쓴다. */
   private static final Pattern JS_URL =
-      Pattern.compile("=\\s*[\"']?\\s*javascript:", Pattern.CASE_INSENSITIVE);
+      Pattern.compile("=\\s*[\"']?\\s*(?:java|vb)script:", Pattern.CASE_INSENSITIVE);
+
+  /** 하위 프레임(WP-1290) — srcdoc·data: 문서 안에서 스크립트가 돌 수 있다. */
+  private static final Pattern FRAME_TAG =
+      Pattern.compile("<(?:iframe|frame|object|embed)[\\s>/]", Pattern.CASE_INSENSITIVE);
+
+  /** 숫자 문자 참조({@code &#106;}·{@code &#x6a;}, 끝 {@code ;} 는 없어도 된다). */
+  private static final Pattern NUMERIC_REF =
+      Pattern.compile("&#(x[0-9a-f]+|[0-9]+);?", Pattern.CASE_INSENSITIVE);
+
+  /** 주소를 가릴 때 쓰는 이름 참조. */
+  private static final Pattern NAMED_REF =
+      Pattern.compile("&(tab|newline|colon);", Pattern.CASE_INSENSITIVE);
+
+  /** 풀어 볼 필요가 있는 문서 — 웹 decodeUrlChars 의 거름과 같다. */
+  private static final Pattern DECODE_NEEDED =
+      Pattern.compile("script|&#|&(?:colon|tab|newline);", Pattern.CASE_INSENSITIVE);
+
+  private static final Pattern URL_WHITESPACE = Pattern.compile("[\\t\\n\\r]");
 
   /** 형식을 알려 주지 않는 범용 mime — 이때만 파일명 확장자로 HTML 을 고른다. */
   private static final Set<String> GENERIC_MIMES =
@@ -42,7 +61,47 @@ public final class HtmlScriptRules {
     if (html == null || html.isEmpty()) return false;
     return SCRIPT_TAG.matcher(html).find()
         || EVENT_ATTR.matcher(html).find()
-        || JS_URL.matcher(html).find();
+        || FRAME_TAG.matcher(html).find()
+        || JS_URL.matcher(decodeUrlChars(html)).find();
+  }
+
+  /**
+   * 주소 판정 전에 브라우저가 푸는 것을 푼다(WP-1290) — 숫자 문자 참조, {@code &Tab;}·{@code &NewLine;}·{@code &colon;},
+   * 그리고 주소 안 탭·줄바꿈(지운다). 웹 {@code decodeUrlChars} 와 같다.
+   */
+  private static String decodeUrlChars(String html) {
+    // 가린 주소가 될 수 없는 문서(「script」 글자·문자 참조가 없음)는 그대로 — 수 MB 문서를 매번 세 번 다시 쓰지 않게.
+    if (!DECODE_NEEDED.matcher(html).find()) return html;
+    String decoded =
+        NUMERIC_REF
+            .matcher(html)
+            .replaceAll(
+                m -> {
+                  String code = m.group(1);
+                  long n;
+                  try {
+                    n =
+                        code.charAt(0) == 'x' || code.charAt(0) == 'X'
+                            ? Long.parseLong(code.substring(1), 16)
+                            : Long.parseLong(code);
+                  } catch (NumberFormatException e) {
+                    return Matcher.quoteReplacement(m.group());
+                  }
+                  return n > 0 && n <= 0x10FFFF
+                      ? Matcher.quoteReplacement(Character.toString((int) n))
+                      : Matcher.quoteReplacement(m.group());
+                });
+    decoded =
+        NAMED_REF
+            .matcher(decoded)
+            .replaceAll(
+                m ->
+                    switch (m.group(1).toLowerCase(Locale.ROOT)) {
+                      case "tab" -> "\t";
+                      case "newline" -> "\n";
+                      default -> ":";
+                    });
+    return URL_WHITESPACE.matcher(decoded).replaceAll("");
   }
 
   /**

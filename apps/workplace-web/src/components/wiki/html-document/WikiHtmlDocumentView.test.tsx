@@ -3,9 +3,11 @@
 // 편집 잠금(WP-1308): 남이 편집 중 띠·막힌 단추, 편집 → 저장/취소, 이어 고치기 묻기, 잠금 풀기(소유자), 남이 가져가면 편집 끝.
 // 편집기 쪽 조회(멘션·요약·동기화)는 핸들러를 주지 않는다 — 편집기가 뜨면 처리되지 않은 요청으로 테스트가 실패한다.
 import { act, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test, vi } from 'vitest'
 
+import { htmlScriptsCheckHandlers } from '@/test/kits/wiki/htmlScriptsCheck'
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiHtmlDraftInfo, WikiHtmlLockStatus, WikiPageDetail, WikiRevisionDetail, WikiRevisionList, WikiRole } from '@/types/wiki'
 
@@ -47,6 +49,8 @@ function open({
     path: `/wiki/spaces/1/pages/${PAGE_ID}`,
     handlers: [
       ...handlers,
+      // 노트 스크립트 점검(WP-1290) — 기본은 점검 전(결과 없음).
+      ...htmlScriptsCheckHandlers().handlers,
       http.get('/api/v1/wiki/spaces', () => HttpResponse.json([wikiSpace({ id: 1, name: '팀 노트', role })])),
       http.get('/api/v1/wiki/spaces/1/pages', () =>
         HttpResponse.json([wikiPageSummary({ id: PAGE_ID, title: '분기 대시보드', kind: 'HTML' })]),
@@ -67,12 +71,19 @@ function open({
   return { ...view, lockCalls }
 }
 
-test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다 — sandbox 는 allow-scripts 이고 allow-same-origin 이 없다', async () => {
+test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다 — 스크립트는 기본 멈춤이고 스위치로 켜도 allow-same-origin 은 없다(WP-1290)', async () => {
   open()
   const frame = await screen.findByTestId('wiki-html-frame')
-  const sandbox = frame.getAttribute('sandbox') ?? ''
-  expect(sandbox.split(/\s+/)).toContain('allow-scripts')
+  // 스크립트가 든 문서라 제목 아래 스크립트 줄이 뜨고, 켜기 전에는 스크립트를 돌리지 않는다.
+  expect(frame.getAttribute('sandbox')?.split(/\s+/)).not.toContain('allow-scripts')
+  const bar = await screen.findByTestId('wiki-html-script-bar')
+  expect(bar).toHaveTextContent('스크립트가 있는 HTML 블록 1개')
+  await userEvent.click(within(bar).getByRole('switch', { name: '스크립트 실행' }))
+  const running = await screen.findByTestId('wiki-html-frame')
+  await waitFor(() => expect(running.getAttribute('sandbox')?.split(/\s+/)).toContain('allow-scripts'))
+  const sandbox = screen.getByTestId('wiki-html-frame').getAttribute('sandbox') ?? ''
   expect(sandbox).not.toContain('allow-same-origin')
+  expect(sandbox).not.toContain('allow-popups-to-escape-sandbox')
   expect(frame.getAttribute('srcdoc')).toContain('<h1>매출 차트</h1>')
   // 블록 편집기(TipTap)는 뜨지 않는다.
   expect(document.querySelector('.wiki-editor')).toBeNull()

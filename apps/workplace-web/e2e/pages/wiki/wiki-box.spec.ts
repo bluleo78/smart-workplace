@@ -64,11 +64,9 @@ test.describe('노트 상자 (WP-1303)', { tag: '@input' }, () => {
   test('글을 고르고 「상자로 감싸기」를 누르면 고른 블록이 상자로 감싸지고 상자 막대가 뜬다', async ({ authenticatedPage: page }) => {
     const pageId = 82
     await openNote(page, pageId, '첫 줄\n\n둘째 줄\n\n셋째 줄')
-    // 첫 줄부터 둘째 줄까지 고른다.
+    // 첫 줄부터 둘째 줄까지 고른다 — 고른 범위가 닿은 블록이 감싸진다. Home·End 는 쓰지 않는다(macOS Chromium 에서는 줄이 아니라 문서 끝까지 고른다).
     await page.locator('.ProseMirror p', { hasText: '첫 줄' }).click()
-    await page.keyboard.press('Home')
     await page.keyboard.press('Shift+ArrowDown')
-    await page.keyboard.press('Shift+End')
     await page.getByTestId('wiki-format-tb-box').click()
 
     const box = page.locator('.ProseMirror [data-wiki-html-box]')

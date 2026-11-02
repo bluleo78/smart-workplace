@@ -115,6 +115,7 @@ import com.workplace.wiki.controller.WikiPageController;
 import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHtmlLockService;
 import com.workplace.wiki.service.WikiHtmlPageService;
+import com.workplace.wiki.service.WikiHtmlScriptsCheckService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiRevisionService;
@@ -260,6 +261,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       WikiRevisionService.class,
       WikiHtmlPageService.class,
       WikiHtmlLockService.class,
+      WikiHtmlScriptsCheckService.class,
       WikiShareAccess.class
     })
 public abstract class WebMvcSliceTestBase {}

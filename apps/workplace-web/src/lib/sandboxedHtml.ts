@@ -162,10 +162,30 @@ export function buildSandboxDoc(html: string, allowScripts: boolean): string {
 
 /**
  * 스크립트가 든 HTML 인지(WP-1260) — 미리보기가 「스크립트 실행」 단추를 보일지 고른다.
- * `<script>` 요소, 태그 안 인라인 이벤트(onclick= 등), `javascript:` 주소(링크로 넘기는 발표 자료)가 있으면 참. 스크립트가 없는 문서에 단추를 띄우지 않으려는 판정이라
- * 엄밀한 파서가 아니다 — 본문 글자 「<script>」 처럼 드물게 거짓 양성이 나도 단추가 하나 더 보일 뿐 격리는 그대로다.
- * 정규식은 백트래킹이 선형인 꼴만 쓴다(수 MB 문서·신뢰 불가 입력).
+ * `<script>` 요소, 태그 안 인라인 이벤트(onclick= 등), `javascript:`·`vbscript:` 주소(링크로 넘기는 발표 자료), 하위 프레임(iframe·frame·object·embed —
+ * srcdoc·data: 문서 안에서 스크립트가 돈다)이 있으면 참. 주소는 문자 참조(`&#106;`·`&colon;`)와 탭·줄바꿈을 브라우저처럼 풀고 본다(WP-1290 — 노트는
+ * 스크립트가 없다고 본 블록을 점검 없이 실행하므로 가린 주소를 놓치면 안 된다). 엄밀한 파서가 아니다 — 본문 글자 「<script>」 처럼 드물게 거짓 양성이 나도
+ * 단추가 하나 더 보일 뿐 격리는 그대로다. 정규식은 백트래킹이 선형인 꼴만 쓴다(수 MB 문서·신뢰 불가 입력). 서버 HtmlScriptRules 와 같은 규칙이다
+ * (htmlHasScripts.cases.json 으로 함께 시험).
  */
 export function htmlHasScripts(html: string): boolean {
-  return /<script[\s>/]/i.test(html) || /<[a-z][^<>]*\son[a-z]+\s*=/i.test(html) || /=\s*["']?\s*javascript:/i.test(html)
+  return (
+    /<script[\s>/]/i.test(html) ||
+    /<[a-z][^<>]*\son[a-z]+\s*=/i.test(html) ||
+    /<(?:iframe|frame|object|embed)[\s>/]/i.test(html) ||
+    /=\s*["']?\s*(?:java|vb)script:/i.test(decodeUrlChars(html))
+  )
+}
+
+/** 주소 판정 전에 브라우저가 푸는 것을 푼다 — 숫자 문자 참조, `&Tab;`·`&NewLine;`·`&colon;`, 그리고 주소 안 탭·줄바꿈(지운다). */
+function decodeUrlChars(html: string): string {
+  // 가린 주소가 될 수 없는 문서(「script」 글자·문자 참조가 없음)는 그대로 — 수 MB 문서를 매번 세 번 다시 쓰지 않게.
+  if (!/script|&#|&(?:colon|tab|newline);/i.test(html)) return html
+  return html
+    .replace(/&#(x[0-9a-f]+|[0-9]+);?/gi, (m, code: string) => {
+      const n = code[0] === 'x' || code[0] === 'X' ? parseInt(code.slice(1), 16) : parseInt(code, 10)
+      return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m
+    })
+    .replace(/&(tab|newline|colon);/gi, (_, name: string) => ({ tab: '\t', newline: '\n', colon: ':' })[name.toLowerCase() as 'tab'])
+    .replace(/[\t\n\r]/g, '')
 }

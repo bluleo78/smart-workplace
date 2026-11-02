@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
+import { NoteScriptFrame } from './wikiHtmlBlockSecurity'
 import { htmlEmbedDocument } from './wikiHtmlEmbedFrame'
 import { WikiHtmlFileInput } from './WikiHtmlFileInput'
 import { acceptHtmlFile, readHtmlFile } from './wikiHtmlImportInsert'
@@ -142,9 +142,11 @@ export function WikiHtmlEmbedExpandDialog({
           <DialogTitle>HTML 블록 크게 보기</DialogTitle>
           <DialogDescription className="sr-only">블록 미리보기를 큰 창으로 봅니다. 여기서는 고칠 수 없습니다.</DialogDescription>
         </DialogHeader>
-        <SandboxedHtmlFrame
-          allowScripts
+        {/* 블록과 같이 노트 스위치를 따른다(WP-1290) — 멈춘 블록을 크게 보기로 돌리지 않게. */}
+        <NoteScriptFrame
+          register={false}
           html={doc}
+          scriptSource={source}
           title="HTML 블록 크게 보기"
           data-testid="wiki-html-embed-expand-frame"
           className="block h-[80vh] w-full rounded-md border"

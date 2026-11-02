@@ -8,10 +8,11 @@ import type { WikiHtmlLockStatus } from '../../../src/types/wiki'
 import { wikiHtmlLock, wikiHtmlPageDetail, wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { pushHeldEvents } from '../../fixtures/gatedEvents'
+import { mockHtmlScriptsCheck, turnOnNoteScripts } from '../../fixtures/wiki-mock'
 
 const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
 
-test('HTML 문서 주소를 열면 원본이 스크립트까지 격리 iframe 에서 돌고, sandbox 에 allow-same-origin 이 없다', { tag: ['@wiring', '@smoke'] }, async ({
+test('HTML 문서 주소를 열면 원본이 멈춘 채 격리 iframe 에 그려지고, 스크립트 스위치를 켜면 스크립트까지 돌며, sandbox 에 allow-same-origin 이 없다', { tag: ['@wiring', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   const detail = wikiHtmlPageDetail({
@@ -22,10 +23,15 @@ test('HTML 문서 주소를 열면 원본이 스크립트까지 격리 iframe �
   await page.route('**/api/v1/wiki/spaces/1/pages', (r) => r.fulfill(json([wikiPageSummary({ id: 9, title: detail.title, kind: 'HTML' })])))
   await page.route('**/api/v1/wiki/pages/9?*', (r) => r.fulfill(json(detail)))
   await page.route('**/api/v1/wiki/pages/9/html-lock', (r) => r.fulfill(json(wikiHtmlLock())))
+  // 스크립트가 든 문서는 본문 위 줄이 노트 스크립트 점검을 조회한다(WP-1290) — 목이 없으면 503 이라 「점검 행 없음」으로 답한다.
+  await mockHtmlScriptsCheck(page)
 
   await page.goto('/wiki/spaces/1/pages/9')
   const frame = page.getByTestId('wiki-html-frame')
   await expect(frame).toBeVisible()
+  // 스크립트가 든 문서는 멈춘 채 그려진다(WP-1290) — sandbox 에 allow-scripts 가 없고, 스위치를 켜야 돈다.
+  await expect(frame).not.toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)
+  await turnOnNoteScripts(page)
   // 스크립트가 돈 결과가 iframe 안에 보인다.
   await expect(frame.contentFrame().locator('#t')).toHaveText('스크립트 실행됨')
   await expect(frame).toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)

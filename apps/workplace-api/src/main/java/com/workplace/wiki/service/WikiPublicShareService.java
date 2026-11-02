@@ -2,6 +2,7 @@ package com.workplace.wiki.service;
 
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.SingleLineTitles;
+import com.workplace.wiki.dto.WikiHtmlScriptsCheckResponse;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiPublicShareResponse;
@@ -49,6 +50,7 @@ public class WikiPublicShareService {
   private final WikiShareAccess access;
   private final WikiPublicMarkdownMasker masker;
   private final TenantStatusChecker tenantStatus;
+  private final WikiHtmlScriptsCheckService htmlScriptsCheck;
 
   /**
    * 보기 요청의 워크스페이스 — 외부로 열 수 있는 링크면 그 워크스페이스, 아니면 내부 링크일 수 있으니(401 판정은 그 테넌트 안에서) 대상·만료와 무관하게 토큰의
@@ -133,6 +135,24 @@ public class WikiPublicShareService {
         WikiPreviewText.excerpt(
             masker.mask(source.bodyHead(), titlesOf(sharedPages(opened.share())), token));
     return new WikiSharePreview(title, description.isEmpty() ? title : description);
+  }
+
+  /**
+   * 공개 보기의 HTML 블록 보안 점검 상태(WP-1290) — 보기({@link #view})와 같은 판정으로 연 페이지만, 보기가 내려보내는 바로 그 내용(가린
+   * 본문·HTML 문서 원본)의 지문으로 본다. AI 가 있고 그 지문의 행이 없으면 PENDING 행을 만들어 커밋 뒤 점검한다(기존 행은 되돌리지 않는다). 열람 수는
+   * 올리지 않는다. 지금 테넌트 컨텍스트가 토큰의 워크스페이스여야 한다.
+   *
+   * @throws WikiShareLoginRequiredException 만료 전 내부 링크(401)
+   * @throws WikiShareNotFoundException 그 밖의 열 수 없음(404)
+   */
+  @Transactional
+  public WikiHtmlScriptsCheckResponse htmlScriptsCheck(String token, long pageId) {
+    Opened opened = open(token, pageId);
+    WikiPageDetail detail =
+        pages.findDetail(opened.target()).orElseThrow(WikiPublicShareService::notFound);
+    String markdown = masker.mask(detail.body(), titlesOf(sharedPages(opened.share())), token);
+    return htmlScriptsCheck.ensureForPublic(
+        detail.id(), WikiHtmlScriptSources.of(detail.kind(), markdown, detail.html()));
   }
 
   /** 외부로 연 공유와 볼 페이지. */

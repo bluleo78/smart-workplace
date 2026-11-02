@@ -58,6 +58,7 @@ import {
   shareWidening,
   wikiShareUrl,
 } from './wikiShare'
+import { WikiShareHtmlBlockChecks } from './WikiShareHtmlBlockChecks'
 
 /** 확인을 받는 동작 — 넓히는 변경(외부·범위·편집)과, 이미 연 사람을 끊는 재발급·해제. */
 type Pending =
@@ -330,6 +331,9 @@ export function WikiShareDialog({
       await saveNow({ ...toRequest(latest), userIds, notify: notifyWith }, () => toast.success(text))
     })
   }
+
+  // 외부 공개 확인 창의 HTML 블록 점검(WP-1290) — 공개 단추를 막을지(높음 동의 전·점검 중). 점검 칸이 사라지면 칸이 false 로 돌려놓는다.
+  const [checksBlocking, setChecksBlocking] = useState(false)
 
   const confirm = () => {
     const p = pending
@@ -826,9 +830,20 @@ export function WikiShareDialog({
             <AlertDialogTitle>{copy?.title}</AlertDialogTitle>
             <AlertDialogDescription>{copy?.body}</AlertDialogDescription>
           </AlertDialogHeader>
+          {/* 외부 공개 — 노트 안 스크립트 블록의 점검 결과를 보이고, 「높음」은 동의해야 공개된다(WP-1290). */}
+          {pending?.kind === 'public' && (
+            <WikiShareHtmlBlockChecks
+              pageId={pageId}
+              onBlockingChange={setChecksBlocking}
+            />
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction variant={copy?.destructive ? 'destructive' : 'default'} onClick={confirm}>
+            <AlertDialogAction
+              variant={copy?.destructive ? 'destructive' : 'default'}
+              onClick={confirm}
+              disabled={pending?.kind === 'public' && checksBlocking}
+            >
               {copy?.action}
             </AlertDialogAction>
           </AlertDialogFooter>

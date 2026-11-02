@@ -1,24 +1,12 @@
-import { ChevronRight, Code } from 'lucide-react'
-import { type ReactNode, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { useSecurityCheck } from '../../hooks/queries/useSecurityCheck'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import { htmlHasScripts } from '../../lib/sandboxedHtml'
-import { chipText, OUTDATED_NOTE, type SecurityChip,securityChip } from '../../lib/securityCheck'
-import { cn } from '../../lib/utils'
+import { type SecurityChip, securityChip } from '../../lib/securityCheck'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../ui/alert-dialog'
-import { Switch } from '../ui/switch'
+import { HighRiskScriptConfirm, ScriptControls, SecurityChipView } from './ScriptControls'
 
 /**
  * HTML 파일 미리보기(드라이브·첨부 공용, WP-1260·WP-1262).
@@ -104,164 +92,15 @@ export function HtmlPreview({
         allowScripts={scriptsAllowed}
         className="block min-h-0 w-full flex-1 border-0"
       />
-      {/* 위험 문서 확인 — 뷰어(다크 라이트박스·AI 시트 위 z-[80]) 위에 떠야 해 z-[100] + 딤은 index.css 표식 규칙. */}
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent data-security-confirm className="z-[100]">
-          <AlertDialogHeader>
-            <AlertDialogTitle>위험할 수 있는 스크립트예요</AlertDialogTitle>
-            {/* AI 의 한 줄 이유는 마침표가 없을 수 있어 안내 문장과 줄을 나눈다. */}
-            <AlertDialogDescription className="space-y-1">
-              <span className="block font-medium text-foreground">{view?.headline ?? 'AI 가 이 문서의 스크립트를 위험하게 봤어요.'}</span>
-              <span className="block">이 미리보기에서만 실행되고, 앱의 로그인 정보와 데이터에는 닿지 못해요.</span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setAllowedHtml(html)
-                setConfirmOpen(false)
-              }}
-            >
-              그래도 실행
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* 위험 문서 확인 — 미리보기와 노트 블록 공용 창(WP-1290). */}
+      <HighRiskScriptConfirm
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        headline={view?.headline}
+        fallbackHeadline="AI 가 이 문서의 스크립트를 위험하게 봤어요."
+        scopeNote="이 미리보기에서만 실행되고, 앱의 로그인 정보와 데이터에는 닿지 못해요."
+        onConfirm={() => setAllowedHtml(html)}
+      />
     </div>
-  )
-}
-
-/**
- * 스크립트 컨트롤 묶음(WP-1282) — 테두리 하나로 감싼 높이 32px 의 한 덩어리: [점검 칩 | </> 스크립트 ◯].
- * 머리줄 아이콘 단추와 높이를 맞추고, 조각마다 색·모양이 흩어지지 않게 위험도는 점 색 하나로만 보인다.
- * 안내 문장(「이 문서에는 스크립트가 있어요」·「스크립트 실행 중」·높음 headline)은 줄을 차지하지 않고 툴팁과 화면낭독기 글로 남는다.
- */
-function ScriptControls({
-  floating,
-  high,
-  noticeText,
-  scriptsAllowed,
-  onToggle,
-  security,
-}: {
-  /** 문서 오른쪽 위에 떠 있다(모바일) — 문서 위에 겹치므로 불투명 배경·그림자를 단다. */
-  floating: boolean
-  high: boolean
-  noticeText: string
-  scriptsAllowed: boolean
-  onToggle: (on: boolean) => void
-  security: ReactNode
-}) {
-  return (
-    <div
-      role="group"
-      aria-label="문서 스크립트"
-      title={noticeText}
-      data-testid="html-script-notice"
-      className={cn(
-        'flex h-8 shrink-0 items-center rounded-md border text-xs',
-        high ? 'border-destructive/50' : 'border-border',
-        // 떠 있을 때 위 여백에 노치(안전영역)를 더한다 — 모바일 바를 숨기면 본문 위 여백이 사라져 상태바 밑으로 들어가지 않게.
-        floating && 'absolute top-[calc(0.5rem+env(safe-area-inset-top))] right-3 z-10 bg-popover text-popover-foreground shadow-md',
-      )}
-    >
-      {/* 줄을 없앤 대신 안내 문장은 화면낭독기에 남긴다(지금 상태 — 실행 중·높음 이유 포함). */}
-      <span className="sr-only">{noticeText}</span>
-      {security}
-      <label className={cn('flex h-full items-center gap-1.5 pr-2 pl-2.5', scriptsAllowed ? 'text-foreground' : 'text-muted-foreground')}>
-        <Code className="size-3.5 shrink-0" aria-hidden />
-        <span aria-hidden>스크립트</span>
-        <Switch size="sm" checked={scriptsAllowed} onCheckedChange={onToggle} aria-label="스크립트 실행" className="ml-0.5" />
-      </label>
-    </div>
-  )
-}
-
-/** 위험도 점 색 — 칩 배경 대신 점 하나로 위험도를 보인다(묶음이 한 덩어리로 보이게, WP-1282). */
-const RISK_DOT_CLASS = { LOW: 'bg-success', CAUTION: 'bg-warning', HIGH: 'bg-destructive' } as const
-
-/** 묶음 왼쪽 조각(점검 상태) — 종류별로 단추·글자·결과를 그리고, 뒤에 스위치와 가르는 세로 선을 둔다. 숨김이면 아무것도 없다. */
-function SecurityChipView({
-  chip,
-  view,
-  onRequest,
-  onOpenPanel,
-}: {
-  chip: SecurityChip
-  view: ReturnType<typeof useSecurityCheck>['view']
-  onRequest: () => void
-  onOpenPanel?: () => void
-}) {
-  const text = chipText(chip)
-  // 조각 공통 모양 — 묶음 높이를 꽉 채우고 왼쪽 모서리만 둥글게(묶음 테두리 안쪽).
-  const seg = 'flex h-full shrink-0 items-center gap-1.5 rounded-l-[5px] px-2.5'
-  const action = cn(seg, 'font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50')
-  const divider = <div className="h-4 w-px shrink-0 bg-border" aria-hidden />
-  let body: ReactNode
-  switch (chip.kind) {
-    case 'idle':
-      body = (
-        <button type="button" className={action} onClick={onRequest}>
-          {text}
-        </button>
-      )
-      break
-    case 'checking':
-      body = <span className={cn(seg, 'text-muted-foreground')}>{text}</span>
-      break
-    case 'failed':
-      // 보이는 글은 「점검 못 함」으로 줄이고(묶음이 길어지지 않게) 온전한 문장은 화면낭독기 글로 둔다. 다시 점검은 옆 단추.
-      body = (
-        <>
-          <span className="sr-only">{text}</span>
-          <span aria-hidden title={text} className={cn(seg, 'text-muted-foreground', chip.canRetry && 'pr-1')}>
-            점검 못 함
-          </span>
-          {chip.canRetry && (
-            <button type="button" className={cn(action, 'rounded-none px-1.5 text-primary')} onClick={onRequest}>
-              다시 점검
-            </button>
-          )}
-        </>
-      )
-      break
-    case 'result': {
-      const content = (
-        <>
-          <span className={cn('size-2 shrink-0 rounded-full', RISK_DOT_CLASS[chip.risk])} aria-hidden />
-          {text}
-        </>
-      )
-      // 누르면 AI 패널의 보안 점검 근거가 열린다는 게 보이게 › 를 붙인다.
-      body = onOpenPanel ? (
-        <button type="button" className={action} onClick={onOpenPanel} title={view?.headline ?? undefined}>
-          {content}
-          <ChevronRight className="-mr-1 size-3.5 text-muted-foreground" aria-hidden />
-        </button>
-      ) : (
-        <span className={cn(seg, 'font-medium')}>{content}</span>
-      )
-      // 지난 기준의 결과는 그대로 보이되 새 기준으로 다시 점검할 조각을 결과 옆에 둔다(WP-1283) — 묶음 안 같은 모양의 조각으로.
-      if (chip.outdated) {
-        body = (
-          <>
-            {body}
-            <button type="button" className={cn(action, 'rounded-none px-1.5 text-primary')} onClick={onRequest} title={OUTDATED_NOTE}>
-              다시 점검
-            </button>
-          </>
-        )
-      }
-      break
-    }
-    default:
-      return null
-  }
-  return (
-    <>
-      {body}
-      {divider}
-    </>
   )
 }

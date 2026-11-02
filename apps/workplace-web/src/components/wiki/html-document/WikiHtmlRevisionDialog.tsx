@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { useRestoreWikiRevision, useWikiRevision, useWikiRevisions } from '../../../hooks/queries/useWikiRevisions'
 import { wikiKeys } from '../../../hooks/queries/wikiKeys'
 import type { WikiPageDetail, WikiRevisionItem, WikiRevisionList } from '../../../types/wiki'
-import { SandboxedHtmlFrame } from '../../SandboxedHtmlFrame'
+import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../wikiHtmlBlockSecurity'
 import { groupRevisionsByDay, revisionEditorsLabel, revisionTime, revisionVersionLabel } from '../wikiRevisionFormat'
 
 /** 목록 한 줄 — 지금 판 또는 저장된 판. */
@@ -127,7 +127,7 @@ export function WikiHtmlRevisionDialog({
               ))
             )}
           </div>
-          {/* 미리보기 — 문서 그대로(스크립트 포함) 격리 iframe 에서. */}
+          {/* 미리보기 — 문서 그대로 격리 iframe 에서(스크립트는 스위치로 켠다). */}
           <div className="flex min-h-[50dvh] flex-col overflow-hidden rounded-md border">
             {previewHtml === undefined ? (
               <Skeleton className="m-3 h-40" />
@@ -136,13 +136,16 @@ export function WikiHtmlRevisionDialog({
                 이 판에는 HTML 원본이 없습니다
               </p>
             ) : (
-              <SandboxedHtmlFrame
-                allowScripts
-                html={previewHtml}
-                title={`${page.title || '제목 없음'} 버전 미리보기`}
-                data-testid="wiki-html-revision-frame"
-                className="h-full min-h-[50dvh] w-full flex-1 border-0 bg-background"
-              />
+              // 스크립트는 기본 멈춤(WP-1290) — 지난 판은 서버가 점검하지 않아 스위치만 둔다. 지금 문서의 노트 범위와 섞이지 않게 따로 감싼다.
+              <WikiHtmlBlockScopeProvider scope={{ pageId: page.id, noCheck: true }}>
+                <WikiHtmlScriptBar className="m-2" />
+                <NoteScriptFrame
+                  html={previewHtml}
+                  title={`${page.title || '제목 없음'} 버전 미리보기`}
+                  data-testid="wiki-html-revision-frame"
+                  className="h-full min-h-[50dvh] w-full flex-1 border-0 bg-background"
+                />
+              </WikiHtmlBlockScopeProvider>
             )}
           </div>
         </div>

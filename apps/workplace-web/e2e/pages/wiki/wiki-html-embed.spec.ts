@@ -15,7 +15,16 @@ import type { WikiPublicShare } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { caretAtEnd, caretBeforeChar } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
-import { buildWikiAiSse, mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import {
+  buildWikiAiSse,
+  htmlScriptsHash,
+  htmlScriptsLowView,
+  mockHtmlScriptsCheck,
+  mockWikiPageEditor,
+  openWikiEditor,
+  savedMarkdown,
+  turnOnNoteScripts,
+} from '../../fixtures/wiki-mock'
 
 const TOKEN = 'wsh_e2eHtmlEmbed1'
 
@@ -59,6 +68,9 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
   test('블록 스크립트가 격리 iframe 안에서 그리고, 높이가 내용에 맞으며, 앱 쿠키·저장소·부모 화면에 닿지 못한다', { tag: '@platform' }, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.route((u) => u.pathname === API, (r) => r.fulfill({ json: share }))
+    // 스크립트가 든 블록은 멈춘 채 그려진다(WP-1290) — 공개 공유는 같은 노트 지문으로 끝난 「낮음」 점검이 있어야 스위치를 켤 수 있어,
+    // 블록 소스로 화면과 같은 지문을 계산해 점검 응답에 싣는다.
+    await mockHtmlScriptsCheck(page, { hash: htmlScriptsHash([SOURCE]), blockCount: 1, view: htmlScriptsLowView })
     await page.goto(`/wiki/share/${TOKEN}`)
     // 앱 출처에 비밀 쿠키·저장값을 둔다 — 블록 스크립트가 읽을 수 있으면 안 된다.
     await page.evaluate(() => {
@@ -70,6 +82,10 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
     const iframe = view.getByTestId('wiki-html-embed-frame')
     await expect(iframe).toBeVisible()
     const frame = page.frameLocator('[data-testid="wiki-html-embed-frame"]')
+    // 멈춘 채로는 sandbox 에 allow-scripts 가 없다 — 본문 위 줄의 스위치를 켜야 블록 스크립트가 돈다.
+    await expect(iframe).not.toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)
+    await turnOnNoteScripts(view)
+    await expect(iframe).toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)
 
     // 스크립트가 돌았다 — 캔버스 픽셀이 빨갛고, DOM 에 결과를 썼다.
     const out = frame.locator('#out')
