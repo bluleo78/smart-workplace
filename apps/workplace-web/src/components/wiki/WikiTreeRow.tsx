@@ -15,6 +15,7 @@ import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
+import { WikiHtmlBadge } from './html-document/WikiHtmlBadge'
 import type { TreeShareMark } from './wikiShare'
 
 // 들여쓰기 1단계 폭(px) — 사이드바와 동일 값.
@@ -31,6 +32,7 @@ export function WikiTreeRow({
   id,
   title,
   aiAttributed,
+  htmlDocument = false,
   shareMark,
   depth,
   hasChildren,
@@ -48,6 +50,8 @@ export function WikiTreeRow({
   title: string
   // #736: 이 페이지에 AI 생성 이력이 있는지 — true 면 제목 옆에 AiSignalBadge 노출.
   aiAttributed: boolean
+  /** 「HTML 문서」 페이지인지(WP-1307) — 제목 앞에 코드 문서 아이콘, 뒤에 작은 「HTML」 표시. */
+  htmlDocument?: boolean
   /** 링크 공유 표시(WP-579) — own 은 이 페이지 공유(진한 아이콘), inherited 는 상위 페이지 공유에 포함(흐린 아이콘). */
   shareMark?: TreeShareMark
   depth: number
@@ -118,7 +122,9 @@ export function WikiTreeRow({
             selected && SELECTED_ROW_CLASS,
           )}
         >
+          {htmlDocument && <FileCode className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
           <span className="truncate">{label}</span>
+          {htmlDocument && <WikiHtmlBadge testId={`wiki-tree-html-badge-${id}`} />}
           {aiAttributed && (
             <AiSignalBadge
               variant="info"

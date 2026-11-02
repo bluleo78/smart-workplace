@@ -4,6 +4,7 @@ import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.wiki.dto.CollabAccessResponse;
 import com.workplace.wiki.dto.MovePageRequest;
+import com.workplace.wiki.dto.SaveHtmlPageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
@@ -13,6 +14,7 @@ import com.workplace.wiki.dto.WikiPageEntryResponse;
 import com.workplace.wiki.dto.WikiRevisionDetail;
 import com.workplace.wiki.dto.WikiRevisionListResponse;
 import com.workplace.wiki.service.WikiCollabDocService;
+import com.workplace.wiki.service.WikiHtmlPageService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiRevisionService;
@@ -49,6 +51,7 @@ public class WikiPageController {
   private final WikiHydrationService hydrationService;
   private final WikiCollabDocService collabService;
   private final WikiRevisionService revisionService;
+  private final WikiHtmlPageService htmlPageService;
   private final JwtTokenProvider jwtTokenProvider;
   private final WikiShareAccess shareAccess;
 
@@ -138,6 +141,20 @@ public class WikiPageController {
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
     return ResponseEntity.ok(pageService.save(callerId, pageId, req, ai, shareToken));
+  }
+
+  /**
+   * 「HTML 문서」 원본 저장(WP-1307) — 소스 저장·다시 올리기·MCP 원본 바꾸기. EDITOR 이상, HTML 문서가 아니면 409, version 충돌
+   * 409, 5MB 초과 413. 저장할 때마다 직전 판을 버전 기록에 남긴다(AI 경로면 ✦ 귀속 — 판정은 {@link #save} 와 같다).
+   */
+  @PutMapping("/{id}/html")
+  public ResponseEntity<WikiPageDetail> saveHtml(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @Valid @RequestBody SaveHtmlPageRequest req,
+      Authentication authentication) {
+    boolean ai = AuthDetails.methodOf(authentication) == null;
+    return ResponseEntity.ok(htmlPageService.save(callerId, pageId, req, ai));
   }
 
   /** 버전 기록 목록(WP-297) — 현재 판 + 저장된 판 최신순(최대 200). VIEWER 이상, 비멤버·없는 페이지 404. */

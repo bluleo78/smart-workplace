@@ -24,6 +24,7 @@ import com.workplace.wiki.dto.WikiBacklink;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
@@ -173,7 +174,9 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                     null,
                     false,
                     false,
-                    false),
+                    false,
+                    WikiPageKind.NOTE,
+                    null),
                 null));
     when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>"), isNull()))
         .thenReturn(List.of(new WikiMentionRef("PAGE", 9L, "참조페이지", 3L, null, null)));
@@ -205,7 +208,9 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                 null,
                 false,
                 false,
-                false));
+                false,
+                WikiPageKind.NOTE,
+                null));
     when(hydrationService.backlinks(eq(1L), eq(7L)))
         .thenReturn(
             new WikiBacklinksResponse(

@@ -1,15 +1,17 @@
 // WP-579 공유 링크 화면 조각 — 로그인 공유 화면(WikiSharePage)과 외부 보기(WikiPublicSharePage)가 함께 쓴다.
 
-import { Link2 } from 'lucide-react'
+import { FileCode, Link2 } from 'lucide-react'
 
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import type { WikiPageSummary } from '../../types/wiki'
+import { WikiHtmlBadge } from './html-document/WikiHtmlBadge'
+import { isHtmlPage } from './html-document/wikiHtmlDocument'
 import { flattenShareTree } from './wikiShareTree'
 
-type ShareTreePage = Pick<WikiPageSummary, 'id' | 'parentId' | 'position' | 'title'>
+type ShareTreePage = Pick<WikiPageSummary, 'id' | 'parentId' | 'position' | 'title' | 'kind'>
 
 /**
  * 공유된 하위 트리 목록 — 하위 포함 공유일 때만 그린다. 드래그·추가·삭제 없이 페이지를 옮겨 다니기만 한다.
@@ -42,7 +44,10 @@ export function WikiShareTreeNav({
             r.page.id === activeId && SELECTED_ROW_CLASS,
           )}
         >
+          {/* 「HTML 문서」(WP-1307)는 아이콘·표시를 붙인다 — 스페이스 트리 행과 같은 모양. */}
+          {isHtmlPage(r.page) && <FileCode className="mr-1 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
           <span className="truncate">{r.page.title || '제목 없음'}</span>
+          {isHtmlPage(r.page) && <WikiHtmlBadge className="ml-1" testId={`wiki-share-tree-html-badge-${r.page.id}`} />}
         </button>
       ))}
     </nav>

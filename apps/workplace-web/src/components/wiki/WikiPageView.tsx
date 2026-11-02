@@ -22,6 +22,8 @@ import {
   readWikiLastVisited,
   writeWikiLastVisited,
 } from '../../lib/wikiLastVisited'
+import { isHtmlPage } from './html-document/wikiHtmlDocument'
+import { WikiHtmlDocumentView } from './html-document/WikiHtmlDocumentView'
 import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { WikiEditor } from './WikiEditor'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
@@ -127,6 +129,8 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   }
   // 다른 스페이스로 옮겨진 노트의 예전 주소(WP-988) — 옮긴 스페이스 주소로 연결한다. 옛 스페이스 사이드바에 남지 않게.
   if (page.spaceId !== spaceId) return <Navigate to={`/wiki/spaces/${page.spaceId}/pages/${page.id}`} replace />
+  // 「HTML 문서」(WP-1307)는 블록 편집기(동기화 서버) 대신 원본을 격리 iframe 으로 그리는 화면 — 서버가 동기화 접근을 409 로 막는다.
+  if (isHtmlPage(page)) return <WikiHtmlDocumentView key={page.id} page={page} spaceId={spaceId} />
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
 }
 

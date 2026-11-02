@@ -272,6 +272,34 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         return (String) get(17);
     }
 
+    /**
+     * Setter for <code>public.wiki_page.kind</code>.
+     */
+    public void setKind(String value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.kind</code>.
+     */
+    public String getKind() {
+        return (String) get(18);
+    }
+
+    /**
+     * Setter for <code>public.wiki_page.html_source</code>.
+     */
+    public void setHtmlSource(String value) {
+        set(19, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.html_source</code>.
+     */
+    public String getHtmlSource() {
+        return (String) get(19);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -295,7 +323,7 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
     /**
      * Create a detached, initialised WikiPageRecord
      */
-    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction, String aiSummary, Integer aiSummaryVersion, OffsetDateTime aiSummarizedAt, Boolean fullWidth, String searchText) {
+    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction, String aiSummary, Integer aiSummaryVersion, OffsetDateTime aiSummarizedAt, Boolean fullWidth, String searchText, String kind, String htmlSource) {
         super(WikiPage.WIKI_PAGE);
 
         setId(id);
@@ -316,6 +344,8 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         setAiSummarizedAt(aiSummarizedAt);
         setFullWidth(fullWidth);
         setSearchText(searchText);
+        setKind(kind);
+        setHtmlSource(htmlSource);
         resetChangedOnNotNull();
     }
 }

@@ -12,6 +12,8 @@ import { parseId } from '@/lib/historyParam'
 import { openPushTarget } from '@/lib/push/openTarget'
 
 import { wikiApi } from '../../api/wiki'
+import { isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
+import { WikiHtmlDocumentView } from '../../components/wiki/html-document/WikiHtmlDocumentView'
 import { WikiEditor } from '../../components/wiki/WikiEditor'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
 import {
@@ -128,6 +130,14 @@ export function WikiSharePage() {
             )
           ) : !data || !page.data ? (
             <WikiPageSkeleton testId="wiki-share-skeleton" />
+          ) : isHtmlPage(page.data) ? (
+            // 「HTML 문서」(WP-1307) — 공유 화면은 보기·원본 내려받기만(편집 공유여도 원본 저장은 멤버 화면에서).
+            <WikiHtmlDocumentView
+              key={page.data.id}
+              page={page.data}
+              spaceId={data.spaceId}
+              share={{ token, pages: data.pages, sharedByName: data.sharedBy.name }}
+            />
           ) : (
             <WikiEditor
               key={page.data.id}

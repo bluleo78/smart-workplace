@@ -2,7 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { wikiApi } from '../../api/wiki'
-import { useCreatePage } from '../../hooks/queries/useWikiMutations'
+import { useCreateHtmlPage, useCreatePage } from '../../hooks/queries/useWikiMutations'
+import { htmlDocumentTitleForFile, rejectOversizedHtmlSource } from './html-document/wikiHtmlDocument'
 import { convertHtmlToWiki, htmlFileBaseName } from './wikiHtmlImport'
 import { htmlImportNotice, readHtmlFile } from './wikiHtmlImportInsert'
 
@@ -17,6 +18,9 @@ const TITLE_MAX = 255
  * createFromHtml(WP-1241) — HTML 파일을 노트로 바꿔 새 페이지로 만든다. 제목은 변환 제목(<title>·첫 h1), 없으면 파일 이름.
  * 본문은 만든 직후 그 응답 version 으로 심는다(wikiApi.seedPageBody — AI 쓰기와 같은 서버 경로라 동기화 문서에 바로 들어간다). 그래서
  * 페이지를 열면 본문이 이미 동기화돼 있다. 심기가 실패해도 페이지는 있으므로 알리고 그대로 연다(제목만 있는 노트).
+ *
+ * createHtmlDocument(WP-1307) — 「HTML 문서」 페이지(원본 HTML 을 블록으로 바꾸지 않고 그대로 보관)를 만들고 연다. 빈 문서는 html "".
+ * createHtmlDocumentFromFile — 고른 파일 원본으로 만든다. 제목은 <title>, 없으면 파일 이름. 크기(5MB)는 파일 선택기(WikiHtmlFileInput)가 이미 걸렀다.
  */
 export function useCreateWikiPageAndOpen(spaceId: number | null) {
   const createPage = useCreatePage(spaceId ?? 0)
@@ -49,5 +53,25 @@ export function useCreateWikiPageAndOpen(spaceId: number | null) {
     }
     navigate(`/wiki/spaces/${spaceId}/pages/${created.id}`)
   }
-  return { create, createFromHtml, isPending: createPage.isPending }
+  const createHtmlPage = useCreateHtmlPage(spaceId ?? 0)
+  const createHtmlDocument = async (parentId: number | null, doc: { title: string; html: string }): Promise<boolean> => {
+    if (spaceId == null || rejectOversizedHtmlSource(doc.html)) return false
+    // 만들기 실패(413 등)는 useCreateHtmlPage 의 onError 가 서버 문구로 알린다.
+    const created = await createHtmlPage.mutateAsync({ parentId, title: doc.title, html: doc.html }).catch(() => null)
+    if (!created) return false
+    navigate(`/wiki/spaces/${spaceId}/pages/${created.id}`)
+    return true
+  }
+  const createHtmlDocumentFromFile = async (parentId: number | null, file: File) => {
+    const html = await readHtmlFile(file)
+    if (html == null) return
+    await createHtmlDocument(parentId, { title: htmlDocumentTitleForFile(html, file.name), html })
+  }
+  return {
+    create,
+    createFromHtml,
+    createHtmlDocument,
+    createHtmlDocumentFromFile,
+    isPending: createPage.isPending || createHtmlPage.isPending,
+  }
 }

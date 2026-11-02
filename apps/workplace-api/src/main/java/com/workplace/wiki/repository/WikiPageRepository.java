@@ -11,10 +11,12 @@ import com.workplace.global.util.Texts;
 import com.workplace.wiki.dto.WikiBacklink;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.dto.WikiTreeShare;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import com.workplace.wiki.service.WikiHtmlText;
 import com.workplace.wiki.service.WikiPlainText;
 import java.util.Collection;
 import java.util.List;
@@ -48,11 +50,17 @@ public class WikiPageRepository {
   }
 
   public long insert(long spaceId, Long parentId, String title, int position) {
+    return insert(spaceId, parentId, title, position, WikiPageKind.NOTE);
+  }
+
+  /** 종류를 정해 만든다(WP-1307). HTML 문서는 원본 없이 만들고 곧바로 {@link #saveHtmlIfVersion} 으로 첫 원본을 넣는다. */
+  public long insert(long spaceId, Long parentId, String title, int position, WikiPageKind kind) {
     return dsl.insertInto(WIKI_PAGE)
         .set(WIKI_PAGE.SPACE_ID, spaceId)
         .set(WIKI_PAGE.PARENT_ID, parentId)
         .set(WIKI_PAGE.TITLE, title)
         .set(WIKI_PAGE.POSITION, position)
+        .set(WIKI_PAGE.KIND, kind.name())
         .returning(WIKI_PAGE.ID)
         .fetchOne()
         .getId();
@@ -81,7 +89,8 @@ public class WikiPageRepository {
             WIKI_PAGE_SHARE.AUDIENCE,
             WIKI_PAGE_SHARE.INCLUDE_CHILDREN,
             expired,
-            excluded)
+            excluded,
+            WIKI_PAGE.KIND)
         .from(WIKI_PAGE)
         .leftJoin(WIKI_PAGE_SHARE)
         .on(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))
@@ -101,7 +110,8 @@ public class WikiPageRepository {
                             r.get(WIKI_PAGE_SHARE.AUDIENCE),
                             r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN),
                             Boolean.TRUE.equals(r.get(expired))),
-                    Boolean.TRUE.equals(r.get(excluded))));
+                    Boolean.TRUE.equals(r.get(excluded)),
+                    WikiPageKind.of(r.get(WIKI_PAGE.KIND))));
   }
 
   /**
@@ -143,12 +153,15 @@ public class WikiPageRepository {
           WIKI_PAGE.AI_LAST_USED_AT,
           WIKI_PAGE.AI_LAST_ACTION,
           WIKI_PAGE.FULL_WIDTH,
+          WIKI_PAGE.KIND,
           SHARED,
           SHARE_EXPIRED);
 
   /** 상세 응답 컬럼 — {@link #findDetail} 과 {@link #findDetailRecordingBase} 가 공유한다. */
   private static final List<Field<?>> DETAIL_FIELDS =
-      Stream.concat(DETAIL_META_FIELDS.stream(), Stream.of(WIKI_PAGE.BODY, WIKI_PAGE.VERSION))
+      Stream.concat(
+              DETAIL_META_FIELDS.stream(),
+              Stream.of(WIKI_PAGE.BODY, WIKI_PAGE.VERSION, WIKI_PAGE.HTML_SOURCE))
           .toList();
 
   public Optional<WikiPageDetail> findDetail(long pageId) {
@@ -229,7 +242,11 @@ public class WikiPageRepository {
         r.get(WIKI_PAGE.AI_LAST_ACTION),
         Boolean.TRUE.equals(r.get(SHARED)),
         Boolean.TRUE.equals(r.get(SHARE_EXPIRED)),
-        r.get(WIKI_PAGE.FULL_WIDTH));
+        r.get(WIKI_PAGE.FULL_WIDTH),
+        WikiPageKind.of(r.get(WIKI_PAGE.KIND)),
+        // 원본 HTML 은 상세 컬럼(DETAIL_FIELDS)으로 읽은 행에만 있다 — 본문을 읽지 않는 조회(findDetailWithBody)는 노트 전용 경로라
+        // null.
+        r.field(WIKI_PAGE.HTML_SOURCE.getName()) != null ? r.get(WIKI_PAGE.HTML_SOURCE) : null);
   }
 
   /** 페이지 제목과 스페이스 이름(채팅 앱 링크 카드, WP-896) — 본문은 읽지 않는다. 권한은 호출자가 spaceId 로 확인한다. */
@@ -335,6 +352,37 @@ public class WikiPageRepository {
         .where(WIKI_PAGE.ID.eq(pageId))
         .and(WIKI_PAGE.VERSION.eq(expectedVersion))
         .execute();
+  }
+
+  /**
+   * HTML 문서 저장(WP-1307): version 일치할 때만 원본 HTML·뽑은 글자(body)·검색 평문을 함께 바꾸고 version+1. 영향 행수(0 이면
+   * 충돌). 종류가 HTML 인 행만 바꾼다 — 노트 행을 이 경로로 덮지 않게(종류 판정은 서비스가 먼저 하지만 SQL 에서도 막는다).
+   *
+   * @param text 원본에서 뽑은 본문 글자(줄 유지) — body 에 두어 검색·요약·미리보기가 태그 대신 글자를 읽게 한다
+   */
+  public int saveHtmlIfVersion(
+      long pageId, String title, String html, String text, int expectedVersion, long editorId) {
+    return dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.TITLE, title)
+        .set(WIKI_PAGE.HTML_SOURCE, html)
+        .set(WIKI_PAGE.BODY, text)
+        // 뽑은 글자는 이미 평문이다 — 마크다운 정리(fromMarkdown)를 거치면 화면 글자의 '*'·'#'·'<…>' 등이 지워져 검색에 빠진다. 공백만 접는다.
+        .set(WIKI_PAGE.SEARCH_TEXT, WikiHtmlText.oneLine(text))
+        .set(WIKI_PAGE.VERSION, WIKI_PAGE.VERSION.plus(1))
+        .set(WIKI_PAGE.UPDATED_BY, editorId)
+        .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime())
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .and(WIKI_PAGE.KIND.eq(WikiPageKind.HTML.name()))
+        .and(WIKI_PAGE.VERSION.eq(expectedVersion))
+        .execute();
+  }
+
+  /** 페이지 종류(WP-1307) — 없거나 RLS 로 안 보이면 empty. 동기화 서버 경로가 HTML 문서를 거절할 때 쓴다(본문을 읽지 않는다). */
+  public Optional<WikiPageKind> findKind(long pageId) {
+    return dsl.select(WIKI_PAGE.KIND)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(r -> WikiPageKind.of(r.value1()));
   }
 
   /**

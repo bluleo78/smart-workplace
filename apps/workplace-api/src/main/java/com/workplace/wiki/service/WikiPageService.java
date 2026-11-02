@@ -10,6 +10,7 @@ import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiMovePreviewResponse;
 import com.workplace.wiki.dto.WikiMovePreviewResponse.SharedPage;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.dto.WikiShareGrant;
@@ -17,6 +18,7 @@ import com.workplace.wiki.exception.WikiBaseExpiredException;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
+import com.workplace.wiki.exception.WikiPageKindMismatchException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.outbound.CollabClient;
@@ -79,6 +81,13 @@ public class WikiPageService {
   /** 페이지 생성(말단 position). EDITOR 이상. */
   @Transactional
   public WikiPageDetail create(long callerId, long spaceId, CreatePageRequest req) {
+    return create(callerId, spaceId, req, WikiPageKind.NOTE);
+  }
+
+  /** 종류를 정해 만든다(WP-1307) — HTML 문서는 {@link WikiHtmlPageService#create} 가 이것으로 만든 뒤 첫 원본을 넣는다. */
+  @Transactional
+  public WikiPageDetail create(
+      long callerId, long spaceId, CreatePageRequest req, WikiPageKind kind) {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // #758: 생성 시점의 parentId 도 검증한다 — 이동만 막으면 "다른 공간 페이지를 부모로" 를 생성으로 그대로 만들 수 있다.
     if (req.parentId() != null) {
@@ -88,7 +97,7 @@ public class WikiPageService {
       requireParentInSpace(spaceId, req.parentId());
     }
     int pos = pages.nextPosition(spaceId, req.parentId());
-    long id = pages.insert(spaceId, req.parentId(), req.title(), pos);
+    long id = pages.insert(spaceId, req.parentId(), req.title(), pos, kind);
     // 생성 응답의 version 으로 곧바로 본문을 저장하는 흐름(create_wiki_page → update_wiki_page)도 기준본이 있게 한다.
     WikiPageDetail detail = detailRecordingBase(id);
     // #724: 생성 사실을 스페이스 멤버에게 SSE 로 알려 열린 노트 화면이 즉시 갱신되도록 한다(AFTER_COMMIT fan-out).
@@ -247,7 +256,7 @@ public class WikiPageService {
     Delegation d =
         tx.execute(
             s -> {
-              WikiPageDetail current = loadForEdit(callerId, pageId);
+              WikiPageDetail current = requireNote(loadForEdit(callerId, pageId));
               requireVersionPresent(req, pageId);
               MergeBase base = resolveBase(current, req.version());
               saveTitleIfPresent(current, req, callerId);
@@ -329,7 +338,9 @@ public class WikiPageService {
           c.aiLastAction(),
           c.shared(),
           c.shareExpired(),
-          c.fullWidth());
+          c.fullWidth(),
+          c.kind(),
+          c.html());
     }
   }
 
@@ -397,6 +408,17 @@ public class WikiPageService {
     }
   }
 
+  /**
+   * 마크다운 본문을 저장·병합할 수 있는 노트인지(WP-1307) — HTML 문서면 409. HTML 문서의 원본은 {@link WikiHtmlPageService} 로만
+   * 바꾼다(여기로 오면 body 의 뽑은 글자만 바뀌어 원본과 어긋난다). 제목·전체 폭만 바꾸는 요청은 종류와 무관해 이 검사를 거치지 않는다.
+   */
+  static WikiPageDetail requireNote(WikiPageDetail page) {
+    if (page.kind() == WikiPageKind.HTML) {
+      throw new WikiPageKindMismatchException("HTML 문서의 본문은 원본 HTML 저장으로만 바꿀 수 있습니다");
+    }
+    return page;
+  }
+
   /** 페이지를 읽고 EDITOR 이상인지 확인한다. 트랜잭션 안에서 호출. */
   WikiPageDetail loadForEdit(long callerId, long pageId) {
     return loadForEdit(callerId, pageId, null);
@@ -434,6 +456,7 @@ public class WikiPageService {
       saveFullWidthIfPresent(current, req, callerId);
       return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     }
+    requireNote(current);
     requireVersionPresent(req, pageId);
 
     snapshotIfDue(current, req.body(), forcedReason);

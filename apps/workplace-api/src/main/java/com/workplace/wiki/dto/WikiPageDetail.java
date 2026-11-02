@@ -20,4 +20,8 @@ public record WikiPageDetail(
     // WP-1086: 공유 설정은 남아 있지만 만료돼 링크가 열리지 않는지 — 헤더 「공유 만료」 표시.
     boolean shareExpired,
     // WP-793: 「전체 폭」 — 본문을 읽기 폭(768px) 대신 화면 폭 전체로 보이게 하는 페이지 단위 보기 설정. 그 페이지를 여는 모든 사람에게 같다.
-    boolean fullWidth) {}
+    boolean fullWidth,
+    // WP-1307: 페이지 종류 — NOTE(노트, 동시 편집) / HTML(원본 HTML 문서). HTML 이면 body 는 원본에서 뽑은 본문 글자다.
+    WikiPageKind kind,
+    // WP-1307: HTML 문서의 원본 HTML(노트면 null). 화면은 이것을 격리 iframe 에 그린다.
+    String html) {}

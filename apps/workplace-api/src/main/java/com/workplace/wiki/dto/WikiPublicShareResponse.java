@@ -15,13 +15,19 @@ import java.util.List;
 public record WikiPublicShareResponse(
     String workspaceName, long rootPageId, List<PublicPage> pages, PublicPageBody page) {
 
-  /** 트리 한 줄 — 범위 안 페이지만. */
-  public record PublicPage(long id, Long parentId, String title, int position) {}
+  /** 트리 한 줄 — 범위 안 페이지만. kind 는 「HTML」 배지용(WP-1307). */
+  public record PublicPage(long id, Long parentId, String title, int position, WikiPageKind kind) {}
 
   /**
    * 보는 페이지 — markdown 은 멘션·내부 링크를 가리고 이미지를 공개 첨부 주소로 바꾼 본문. fullWidth 는 페이지의 「전체 폭」 설정(WP-793) —
-   * 본문을 읽기 폭 대신 화면 폭 전체로 보일지.
+   * 본문을 읽기 폭 대신 화면 폭 전체로 보일지. kind·html 은 HTML 문서(WP-1307)의 종류와 원본 — 노트면 html 이 null.
    */
   public record PublicPageBody(
-      long id, String title, String markdown, OffsetDateTime updatedAt, boolean fullWidth) {}
+      long id,
+      String title,
+      String markdown,
+      OffsetDateTime updatedAt,
+      boolean fullWidth,
+      WikiPageKind kind,
+      String html) {}
 }

@@ -31,11 +31,19 @@ export interface WikiMemberGroup {
   memberCount: number
 }
 
+/**
+ * 노트 페이지 종류(WP-1307) — NOTE 는 블록 편집기(동기화 서버) 노트, HTML 은 원본 HTML 을 그대로 보관·표시하는 「HTML 문서」.
+ * 구버전 서버 응답엔 없으므로 모든 필드가 선택이다 — 없으면 NOTE 로 본다(components/wiki/html-document/wikiHtmlDocument 의 isHtmlPage).
+ */
+export type WikiPageKind = 'NOTE' | 'HTML'
+
 export interface WikiPageSummary {
   id: number
   parentId: number | null
   title: string
   position: number
+  // WP-1307: 페이지 종류 — HTML 이면 트리에 HTML 표시를 붙인다.
+  kind?: WikiPageKind
   // #736: AI 생성 attribution — 값 존재 여부만으로 사이드바 트리 배지를 판단(null 이면 AI 이력 없음).
   aiLastUsedAt: string | null
   // WP-579: 이 페이지 자신의 공유(없으면 null) — 사이드바 트리 공유 아이콘과, 하위 포함 공유 안팎으로 옮길 때 경고에 쓴다.
@@ -71,6 +79,9 @@ export interface WikiPageDetail {
   shareExpired?: boolean
   // WP-793: 본문을 읽기 폭(768px) 대신 화면 폭 전체로 펼친다 — 페이지에 저장돼 여는 모든 사람에게 같다. 구버전 서버엔 없어 기본 false.
   fullWidth?: boolean
+  // WP-1307: 페이지 종류와 「HTML 문서」 원본. HTML 페이지면 body 는 원본에서 뽑은 글자(검색·AI 용)이고 화면은 html 을 그린다. 노트면 html 은 null.
+  kind?: WikiPageKind
+  html?: string | null
 }
 
 // 멘션 참조 종류 — 본문 토큰(<@id>·<#page:id>·<#issue:id>) 의 대상 타입.
@@ -164,6 +175,8 @@ export interface WikiRevisionList {
 /** 한 판 본문(백엔드 WikiRevisionDetail) — body 는 마크다운. */
 export interface WikiRevisionDetail extends WikiRevisionItem {
   body: string
+  // WP-1307: 「HTML 문서」 페이지의 그 판 원본 — 노트 판이면 null.
+  html?: string | null
 }
 
 /**
@@ -333,9 +346,10 @@ export interface WikiShareListItem extends WikiSharedPageItem {
 export interface WikiPublicShare {
   workspaceName: string
   rootPageId: number
-  pages: Pick<WikiPageSummary, 'id' | 'parentId' | 'title' | 'position'>[]
+  pages: Pick<WikiPageSummary, 'id' | 'parentId' | 'title' | 'position' | 'kind'>[]
   // fullWidth(WP-793): 페이지 「전체 폭」 설정 — 외부 보기도 같은 폭으로 그린다.
-  page: { id: number; title: string; markdown: string; updatedAt: string; fullWidth?: boolean }
+  // kind·html(WP-1307): 「HTML 문서」면 마크다운 대신 원본 HTML 을 격리 iframe 으로 그린다.
+  page: { id: number; title: string; markdown: string; updatedAt: string; fullWidth?: boolean; kind?: WikiPageKind; html?: string | null }
 }
 
 /**

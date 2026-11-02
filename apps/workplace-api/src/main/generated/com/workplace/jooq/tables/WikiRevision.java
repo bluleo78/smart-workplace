@@ -117,6 +117,11 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
      */
     public final TableField<WikiRevisionRecord, OffsetDateTime> EDITED_AT = createField(DSL.name("edited_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.wiki_revision.html_source</code>.
+     */
+    public final TableField<WikiRevisionRecord, String> HTML_SOURCE = createField(DSL.name("html_source"), SQLDataType.CLOB, this, "");
+
     private WikiRevision(Name alias, Table<WikiRevisionRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

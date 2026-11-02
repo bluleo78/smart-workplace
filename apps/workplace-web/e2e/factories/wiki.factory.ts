@@ -40,3 +40,14 @@ export function wikiPageDetail(over: Partial<WikiPageDetail> = {}): WikiPageDeta
     ...over,
   }
 }
+
+/** 「HTML 문서」 페이지 상세(WP-1307) — 원본 HTML 을 그대로 보관한다. body 는 서버가 원본에서 뽑은 글자. */
+export function wikiHtmlPageDetail(over: Partial<WikiPageDetail> = {}): WikiPageDetail {
+  return wikiPageDetail({
+    title: '분기 대시보드',
+    body: '분기 대시보드',
+    kind: 'HTML',
+    html: '<!doctype html><html><head><title>분기 대시보드</title></head><body><h1>매출 차트</h1><script>document.body.dataset.ran = "1"</script></body></html>',
+    ...over,
+  })
+}

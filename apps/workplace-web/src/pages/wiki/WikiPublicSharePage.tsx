@@ -16,6 +16,8 @@ import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
+import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
+import { isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
 import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
 import { wikiRenderExtensions } from '../../components/wiki/wikiRenderExtensions'
@@ -160,6 +162,18 @@ export function WikiPublicSharePage() {
             />
           ) : !data ? (
             <WikiPageSkeleton testId="wiki-public-share-skeleton" />
+          ) : isHtmlPage(data.page) ? (
+            // 「HTML 문서」(WP-1307) — 원본을 격리 iframe 으로 화면 폭 가득 그린다(allow-same-origin 없음 — 스크립트가 이 화면에 닿지 못한다).
+            <article className="flex h-full min-h-0 flex-col" data-testid="wiki-public-html-document">
+              <h1 className="shrink-0 border-b px-4 py-3 text-lg font-semibold break-keep md:px-8">{data.page.title || '제목 없음'}</h1>
+              <SandboxedHtmlFrame
+                allowScripts
+                html={data.page.html ?? ''}
+                title={data.page.title || '제목 없음'}
+                data-testid="wiki-public-html-frame"
+                className="min-h-0 w-full flex-1 border-0 bg-background"
+              />
+            </article>
           ) : (
             // 본문 칼럼은 로그인 화면과 같은 규칙(가운데 읽기 폭 / 「전체 폭」 페이지는 제한 없음, WP-793).
             <article className={cn('px-4 py-8 md:px-8', wikiBodyColumnClass(data.page.fullWidth))}>

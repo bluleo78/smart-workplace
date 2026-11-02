@@ -789,6 +789,22 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 페이지 종류에 맞지 않는 저장(WP-1307 — HTML 문서에 마크다운 본문 등) — 409. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiPageKindMismatchException.class)
+  public ResponseEntity<ErrorResponse> handleWikiPageKindMismatch(
+      com.workplace.wiki.exception.WikiPageKindMismatchException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** HTML 문서 원본 크기 상한 초과(WP-1307) — 413. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiHtmlTooLargeException.class)
+  public ResponseEntity<ErrorResponse> handleWikiHtmlTooLarge(
+      com.workplace.wiki.exception.WikiHtmlTooLargeException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+        .body(buildError(HttpStatus.PAYLOAD_TOO_LARGE, ex.getMessage(), null, request));
+  }
+
   /** 노트 공간 멤버가 아닌 사용자의 역할 변경 — 404(WP-667, 드라이브의 DriveSpaceMemberNotFoundException 과 같은 응답). */
   @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceMemberNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleWikiSpaceMemberNotFound(

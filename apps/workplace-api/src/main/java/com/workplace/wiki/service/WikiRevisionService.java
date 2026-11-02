@@ -6,6 +6,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.wiki.dto.RevisionReason;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.dto.WikiRevisionDetail;
 import com.workplace.wiki.dto.WikiRevisionItem;
 import com.workplace.wiki.dto.WikiRevisionItem.Person;
@@ -47,6 +48,8 @@ public class WikiRevisionService {
   private final WikiRevisionRepository revisions;
   private final WikiPageDocRepository docs;
   private final WikiPageService pageService;
+  // WP-1307: HTML 문서 판 되돌리기 — 동기화 서버를 거치지 않고 원본 HTML 저장으로 되돌린다.
+  private final WikiHtmlPageService htmlPages;
   private final CollabClient collab;
   private final CollabProperties collabProps;
   // 표시 이름 조회 — wiki 는 user 도메인 패키지를 import 하지 않으므로 global 일괄 조회를 쓴다(N+1 방지).
@@ -89,7 +92,7 @@ public class WikiRevisionService {
     Map<Long, Person> people =
         resolvePeople(
             Stream.concat(r.editorIds().stream(), Stream.ofNullable(r.aiActorId())).toList());
-    return WikiRevisionDetail.of(toItem(r, people), r.body());
+    return WikiRevisionDetail.of(toItem(r, people), r.body(), r.html());
   }
 
   /** 리비전 행 → 목록 항목(편집자·✦ 귀속을 표시 사용자로). 목록·단건이 공유한다. */
@@ -120,6 +123,19 @@ public class WikiRevisionService {
    */
   public WikiPageDetail restore(long callerId, long pageId, int version) {
     TransactionTemplate tx = new TransactionTemplate(txManager);
+    // WP-1307: HTML 문서는 동기화 서버 대상이 아니다 — 켜짐·꺼짐과 무관하게 한 트랜잭션에서 원본 HTML 로 되돌린다.
+    // 종류는 권한(EDITOR) 확인을 거친 상세로 판단한다 — 볼 수 없는 페이지의 종류에 따라 응답이 갈리지 않게.
+    WikiPageDetail restoredHtml =
+        tx.execute(
+            s -> {
+              WikiPageDetail current = pageService.loadForEdit(callerId, pageId);
+              return current.kind() == WikiPageKind.HTML
+                  ? restoreHtmlInTx(current, callerId, pageId, version)
+                  : null;
+            });
+    if (restoredHtml != null) {
+      return restoredHtml;
+    }
     if (!collabProps.enabled()) {
       return tx.execute(s -> restoreInTx(callerId, pageId, version));
     }
@@ -139,6 +155,15 @@ public class WikiRevisionService {
         collab.replaceMarkdown(TenantContext.require(), pageId, r.body(), callerId, r.actorName());
     // ③ 본문 저장 위임과 같은 마무리(응답 판 기준본 최선 노력 기록 + 상세 재조회).
     return pageService.finishDelegation(tx, pageId, r.current(), null, r.body(), callerId, applied);
+  }
+
+  private WikiPageDetail restoreHtmlInTx(
+      WikiPageDetail current, long callerId, long pageId, int version) {
+    RevisionRow rev = findRevision(pageId, version);
+    if (rev.html() == null || rev.html().isBlank()) {
+      throw new CollabBodyRejectedException("원본이 남아 있지 않은 버전은 복원할 수 없습니다.", null);
+    }
+    return htmlPages.restoreInTx(current, rev.html(), callerId);
   }
 
   /** 동기화 서버 위임 복원 ①의 결과. */

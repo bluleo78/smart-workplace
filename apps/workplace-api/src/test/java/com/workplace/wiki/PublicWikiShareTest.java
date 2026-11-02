@@ -122,13 +122,15 @@ class PublicWikiShareTest extends IntegrationTestBase {
     assertThat(res.get("rootPageId").asLong()).isEqualTo(rootId);
     assertThat(ids(res.get("pages"))).containsExactlyInAnyOrder(rootId, childId, grandchildId);
     for (JsonNode p : res.get("pages")) {
-      assertThat(fieldNames(p)).containsExactlyInAnyOrder("id", "parentId", "title", "position");
+      assertThat(fieldNames(p))
+          .containsExactlyInAnyOrder("id", "parentId", "title", "position", "kind");
     }
     assertThat(byId(res.get("pages"), rootId).get("parentId").isNull()).isTrue();
     assertThat(byId(res.get("pages"), childId).get("parentId").asLong()).isEqualTo(rootId);
     JsonNode page = res.get("page");
     assertThat(fieldNames(page))
-        .containsExactlyInAnyOrder("id", "title", "markdown", "updatedAt", "fullWidth");
+        .containsExactlyInAnyOrder(
+            "id", "title", "markdown", "updatedAt", "fullWidth", "kind", "html");
     assertThat(page.get("fullWidth").asBoolean()).isFalse();
     assertThat(page.get("id").asLong()).isEqualTo(rootId);
     assertThat(page.get("title").asText()).isEqualTo("제품 로드맵");

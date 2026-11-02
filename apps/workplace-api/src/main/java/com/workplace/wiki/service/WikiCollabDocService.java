@@ -7,6 +7,8 @@ import com.workplace.wiki.dto.CollabDocResponse;
 import com.workplace.wiki.dto.RevisionReason;
 import com.workplace.wiki.dto.StoreCollabDocRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageKind;
+import com.workplace.wiki.exception.WikiPageKindMismatchException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.repository.WikiPageDocRepository;
 import com.workplace.wiki.repository.WikiPageRepository;
@@ -54,8 +56,10 @@ public class WikiCollabDocService {
   /** 문서 로드 — 저장된 Yjs 상태가 없으면(미이전 페이지) state·bodyVersion 없이 body 만 돌려 동기화 서버가 body 로 문서를 만든다. */
   @Transactional(readOnly = true)
   public CollabDocResponse load(long pageId) {
+    // WP-1307: HTML 문서는 동기화 서버 대상이 아니다 — 불러가 마크다운으로 다시 저장하면 원본과 뽑은 글자가 어긋난다.
     WikiPageDetail page =
-        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+        WikiPageService.requireNote(
+            pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId)));
     return docs.find(pageId)
         .map(
             d ->
@@ -75,8 +79,10 @@ public class WikiCollabDocService {
    */
   @Transactional
   public int store(long pageId, StoreCollabDocRequest req) {
+    // WP-1307: HTML 문서는 동기화 서버가 저장하지 않는다(load 와 같은 거절).
     WikiPageDetail current =
-        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+        WikiPageService.requireNote(
+            pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId)));
     byte[] state = Base64.getDecoder().decode(req.state());
     if (req.stateOnly()) {
       return storeStateOnly(pageId, current, req.bodyVersion(), state);
@@ -164,6 +170,10 @@ public class WikiCollabDocService {
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     WikiShareAccess.EffectiveAccess access =
         shareAccess.effectiveAccess(spaceId, pageId, callerId, shareToken, "VIEWER");
+    // WP-1307: HTML 문서에는 동시 편집 연결을 열지 않는다(권한 판정 뒤 — 볼 수 없는 페이지의 종류를 알려 주지 않게).
+    if (pages.findKind(pageId).orElse(WikiPageKind.NOTE) == WikiPageKind.HTML) {
+      throw new WikiPageKindMismatchException("HTML 문서는 동시 편집 연결을 쓰지 않습니다");
+    }
     return new CollabAccessResponse(
         pageId,
         spaceId,

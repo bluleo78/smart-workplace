@@ -18,6 +18,7 @@ import com.workplace.global.share.WikiShareTargets;
 import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.wiki.dto.WikiMentionRef;
+import com.workplace.wiki.dto.WikiPageKind;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.AccessRequest;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.ExcludedPage;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.Inherited;
@@ -803,7 +804,8 @@ public class WikiShareRepository {
             WIKI_PAGE.PARENT_ID,
             WIKI_PAGE.TITLE,
             WIKI_PAGE.POSITION,
-            WIKI_PAGE.AI_LAST_USED_AT)
+            WIKI_PAGE.AI_LAST_USED_AT,
+            WIKI_PAGE.KIND)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.in(pageIds))
         .orderBy(WIKI_PAGE.PARENT_ID.asc().nullsFirst(), WIKI_PAGE.POSITION.asc())
@@ -816,7 +818,8 @@ public class WikiShareRepository {
                     r.get(WIKI_PAGE.POSITION),
                     r.get(WIKI_PAGE.AI_LAST_USED_AT),
                     null,
-                    false));
+                    false,
+                    WikiPageKind.of(r.get(WIKI_PAGE.KIND))));
   }
 
   /**

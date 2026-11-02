@@ -97,14 +97,17 @@ public class WikiPublicShareService {
             shares.findTenantName(tenantId).orElse(""),
             share.pageId(),
             summaries.stream()
-                .map(s -> new PublicPage(s.id(), s.parentId(), s.title(), s.position()))
+                .map(s -> new PublicPage(s.id(), s.parentId(), s.title(), s.position(), s.kind()))
                 .toList(),
             new PublicPageBody(
                 detail.id(),
                 detail.title(),
                 masker.mask(detail.body(), titles, token),
                 detail.updatedAt(),
-                detail.fullWidth()));
+                detail.fullWidth(),
+                detail.kind(),
+                // WP-1307: HTML 문서는 원본을 그대로 싣는다 — 화면이 격리 iframe 에 그린다(앱 세션·쿠키에 닿지 않는다).
+                detail.html()));
     shares.recordView(share.id());
     return res;
   }

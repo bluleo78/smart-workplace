@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 import { wikiApi } from '../../api/wiki'
 import { subtreeIds } from '../../components/wiki/wikiMoveTargets'
-import { handleApiError } from '../../lib/api-error'
+import { handleApiError, isConflictError } from '../../lib/api-error'
 import type { WikiMovePreview, WikiPageDetail, WikiPageSummary, WikiShareResolved, WikiSpace } from '../../types/wiki'
 import { dropInactiveWikiPage, wikiKeys, wikiPageKey } from './wikiKeys'
 
@@ -14,6 +15,48 @@ export function useCreatePage(spaceId: number) {
     onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
     // #758: 생성도 parentId 를 검증하게 되면서 400 이 처음으로 가능해졌다 — onError 가 없으면 조용히 실패한다.
     onError: (e) => handleApiError(e, '페이지를 만들 수 없습니다'),
+  })
+}
+
+/** 「HTML 문서」 만들기(WP-1307) — 원본 HTML 을 그대로 보관하는 새 페이지. 만들면 트리를 다시 받는다. 413(5MB 초과)은 서버 문구로 알린다. */
+export function useCreateHtmlPage(spaceId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (req: { parentId: number | null; title: string; html: string }) =>
+      wikiApi.createHtmlPage(spaceId, req).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
+    onError: (e) => handleApiError(e, 'HTML 문서를 만들 수 없습니다'),
+  })
+}
+
+/** 409 일 때 보이는 문구 — 다른 사람이 먼저 저장해 기준 version 이 낡았다. */
+export const HTML_SAVE_CONFLICT_MESSAGE =
+  '다른 사람이 먼저 저장했습니다 — 한 번 더 저장하면 지금 소스로 바꿉니다(먼저 저장된 내용은 버전 기록에 남습니다)'
+
+/**
+ * 「HTML 문서」 원본 저장(WP-1307) — 소스 저장·다시 올리기가 쓴다. version 은 호출부가 고치기 시작할 때 잡아 둔 기준이다
+ * (저장 순간의 캐시 version 을 쓰면 그사이 다시 받은 최신 version 으로 남의 저장을 조용히 덮는다).
+ * 성공하면 열린 페이지 캐시를 응답으로 바꾸고 버전 기록·(제목이 바뀌면) 트리를 다시 받는다.
+ * 409 는 안내 뒤 페이지를 다시 받는다(고치던 소스는 호출부가 그대로 둔다). 413 등 나머지는 서버 문구로 알린다.
+ */
+export function useSaveHtml(spaceId: number) {
+  const qc = useQueryClient()
+  return useMutation<WikiPageDetail, unknown, { pageId: number; html: string; version: number; title?: string }>({
+    mutationFn: ({ pageId, ...req }) => wikiApi.saveHtml(pageId, req).then((r) => r.data),
+    onSuccess: (data, vars) => {
+      const prevTitle = qc.getQueryData<WikiPageDetail>(wikiKeys.page(data.id))?.title
+      qc.setQueryData<WikiPageDetail>(wikiKeys.page(data.id), data)
+      void qc.invalidateQueries({ queryKey: wikiKeys.revisions(data.id) })
+      if (vars.title != null || prevTitle !== data.title) void qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
+    },
+    onError: (e, vars) => {
+      if (isConflictError(e)) {
+        toast.error(HTML_SAVE_CONFLICT_MESSAGE)
+        void qc.invalidateQueries({ queryKey: wikiKeys.page(vars.pageId), exact: true })
+        return
+      }
+      handleApiError(e, 'HTML 문서를 저장하지 못했습니다')
+    },
   })
 }
 

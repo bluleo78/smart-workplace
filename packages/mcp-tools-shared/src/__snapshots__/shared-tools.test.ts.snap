@@ -1055,6 +1055,9 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "asDocument": {
+          "type": "boolean",
+        },
         "body": {
           "type": "string",
         },
@@ -1388,6 +1391,9 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "includeRevisions": {
+          "type": "boolean",
+        },
+        "includeSource": {
           "type": "boolean",
         },
         "includeSummary": {
@@ -3481,6 +3487,9 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           },
           "maxItems": 10,
           "type": "array",
+        },
+        "html": {
+          "type": "string",
         },
         "pageId": {
           "exclusiveMinimum": 0,
