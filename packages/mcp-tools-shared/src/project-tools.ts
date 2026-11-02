@@ -455,13 +455,15 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Creates a label, milestone, cycle or version (라벨·마일스톤·사이클·버전) by kind. Per kind (other fields rejected): label color (default GRAY); ' +
-        'milestone dueDate (required), description; cycle goal, startDate, endDate, status PLANNED|ACTIVE|COMPLETED (default PLANNED); version description, startDate, ' +
+        'milestone dueDate (required), description; cycle startDate, endDate (required), goal, status PLANNED|ACTIVE|COMPLETED; version description, startDate, ' +
         'releaseDate. Dates yyyy-MM-dd. Labels: any member; others: OWNER or ADMIN.',
       inputSchema: createProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, color, ...rest } = omitNulls(createProjectMetaInput.parse(args));
         assertMetaFields(kind, { color, ...rest }, 'create');
         if (kind === 'milestone' && !rest.dueDate) throw new Error('마일스톤은 dueDate(yyyy-MM-dd)가 필요합니다.');
+        // WP-1316: 사이클 기간은 필수 — 서버 400(필드 오류)보다 먼저 무엇이 빠졌는지 알린다.
+        if (kind === 'cycle' && (!rest.startDate || !rest.endDate)) throw new Error('사이클은 startDate·endDate(yyyy-MM-dd)가 모두 필요합니다.');
         // 서버 라벨 요청은 colorToken 이 필수다 — 색을 안 주면(빈 문자열 포함) 웹 기본값과 같은 GRAY. 다른 필드도 빈 문자열은 생략과 같다.
         const body = kind === 'label' ? { name, colorToken: labelColor(color) ?? DEFAULT_LABEL_COLOR } : { name, ...blankAs(rest, undefined) };
         return JSON.stringify(toProjectMetaView(kind, (await client.createProjectMeta(projectKey, kind, body)) as Record<string, unknown>));
@@ -497,6 +499,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         const merged: Record<string, unknown> = { name: newName ?? current.name };
         if (kind === 'label') merged.colorToken = labelColor(color) ?? current.colorToken;
         else for (const k of META_FIELDS[kind]) merged[k] = given[k] === undefined ? current[k] : given[k];
+        // WP-1316: 사이클 기간은 비울 수 없다 — 날짜 없이 만들어진 예전 사이클은 두 날짜를 함께 줘야 바뀐다(서버 400 전에 거부).
+        if (kind === 'cycle' && (!merged.startDate || !merged.endDate)) {
+          throw new Error('사이클 startDate·endDate 는 비울 수 없습니다 — 기간이 없는 사이클이면 두 날짜(yyyy-MM-dd)를 함께 주세요.');
+        }
         return JSON.stringify(toProjectMetaView(kind, (await client.updateProjectMeta(projectKey, kind, current.id, merged)) as Record<string, unknown>));
       },
     },

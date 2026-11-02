@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CYCLE_STATUS_LABEL, CYCLE_STATUSES } from '@/types/cycle'
 
-import { canPickCycle, cycleMetaText, isCycleDateRangeInvalid } from './cycleMeta'
+import { canPickCycle, cycleMetaText, isCycleDateMissing, isCycleDateRangeInvalid } from './cycleMeta'
 
 const progress = { cycleId: 1, total: 20, done: 9, byStatus: { DONE: 9, TODO: 11 } }
 
@@ -30,6 +30,15 @@ describe('isCycleDateRangeInvalid (#804)', () => {
     expect(isCycleDateRangeInvalid('2026-09-10', '2026-09-15')).toBe(false)
     expect(isCycleDateRangeInvalid('', '2026-09-01')).toBe(false)
     expect(isCycleDateRangeInvalid('2026-09-10', '')).toBe(false)
+  })
+})
+
+describe('isCycleDateMissing (WP-1316)', () => {
+  it('시작일·종료일 중 하나라도 비면 true, 둘 다 있으면 false', () => {
+    expect(isCycleDateMissing('', '')).toBe(true)
+    expect(isCycleDateMissing('2026-09-10', '')).toBe(true)
+    expect(isCycleDateMissing('', '2026-09-10')).toBe(true)
+    expect(isCycleDateMissing('2026-09-10', '2026-09-15')).toBe(false)
   })
 })
 

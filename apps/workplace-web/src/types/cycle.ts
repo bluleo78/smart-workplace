@@ -35,8 +35,9 @@ export interface CycleSummary {
 export interface CycleRequest {
   name: string;
   goal?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
+  // 기간은 필수(WP-1316) — yyyy-MM-dd. 서버도 비면 400.
+  startDate: string;
+  endDate: string;
   status?: CycleStatus;
 }
 

@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
-import { isCycleDateRangeInvalid } from '../../lib/cycleMeta';
+import { isCycleDateMissing, isCycleDateRangeInvalid } from '../../lib/cycleMeta';
 import { CYCLE_STATUS_LABEL, CYCLE_STATUSES, type CycleResponse, type CycleStatus } from '../../types/cycle';
 
 export function CycleFormDialog({
@@ -39,7 +39,9 @@ export function CycleFormDialog({
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<CycleStatus>('PLANNED');
 
-  // 종료일이 시작일보다 빠른 경우만 오류 — 둘 중 하나라도 비어있으면 검증하지 않음(#804).
+  // 기간은 필수(WP-1316) — 비어 있으면 저장을 잠그고 안내만 보인다(아직 입력 전이라 오류색은 쓰지 않는다).
+  const dateMissing = isCycleDateMissing(startDate, endDate);
+  // 종료일이 시작일보다 빠르면 오류(#804).
   const dateRangeInvalid = isCycleDateRangeInvalid(startDate, endDate);
 
   useEffect(() => {
@@ -53,12 +55,12 @@ export function CycleFormDialog({
   }, [open, cycle]);
 
   function submit() {
-    if (dateRangeInvalid) return;
+    if (dateMissing || dateRangeInvalid) return;
     const body = {
       name: name.trim(),
       goal: goal.trim() || null,
-      startDate: startDate || null,
-      endDate: endDate || null,
+      startDate,
+      endDate,
       status,
     };
     const onDone = () => onOpenChange(false);
@@ -95,6 +97,7 @@ export function CycleFormDialog({
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               aria-label="시작일"
+              required
             />
             <Input
               type="date"
@@ -102,8 +105,14 @@ export function CycleFormDialog({
               onChange={(e) => setEndDate(e.target.value)}
               aria-label="종료일"
               aria-invalid={dateRangeInvalid}
+              required
             />
           </div>
+          {dateMissing && (
+            <p className="text-sm text-muted-foreground" data-testid="cycle-date-required">
+              시작일과 종료일을 모두 입력해 주세요
+            </p>
+          )}
           {dateRangeInvalid && (
             <p className="text-sm text-destructive" data-testid="cycle-date-range-error">
               종료일은 시작일 이후여야 합니다
@@ -131,7 +140,7 @@ export function CycleFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             취소
           </Button>
-          <Button onClick={submit} disabled={!name.trim() || dateRangeInvalid} data-testid="cycle-submit">
+          <Button onClick={submit} disabled={!name.trim() || dateMissing || dateRangeInvalid} data-testid="cycle-submit">
             저장
           </Button>
         </DialogFooter>

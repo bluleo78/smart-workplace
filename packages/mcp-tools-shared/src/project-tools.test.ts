@@ -824,9 +824,28 @@ describe('create_project_meta·update_project_meta (WP-356)', () => {
     ).rejects.toThrow('dueDate');
     await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', color: 'RED' })).rejects.toThrow('color');
     expect(c.createProjectMeta).not.toHaveBeenCalled();
-    await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', startDate: '2026-10-01', goal: '' });
+    // WP-1316: 사이클은 시작일·종료일이 모두 필요하다.
+    await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', startDate: '2026-10-01' })).rejects.toThrow('startDate·endDate');
+    await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', endDate: '2026-10-14', startDate: '' })).rejects.toThrow('startDate·endDate');
+    expect(c.createProjectMeta).not.toHaveBeenCalled();
+    await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', startDate: '2026-10-01', endDate: '2026-10-14', goal: '' });
     // 빈 문자열은 생략과 같다.
-    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'cycle', { name: 'C', startDate: '2026-10-01', goal: undefined });
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'cycle', { name: 'C', startDate: '2026-10-01', endDate: '2026-10-14', goal: undefined });
+  });
+
+  it('WP-1316: 사이클 기간은 수정으로 비울 수 없고, 날짜 없는 예전 사이클은 두 날짜를 함께 줘야 바뀐다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectCycles).mockResolvedValue([
+      { id: 5, name: 'Sprint 3', status: 'ACTIVE', goal: null, startDate: '2026-10-01', endDate: '2026-10-14' },
+      { id: 6, name: '예전', status: 'PLANNED', goal: null, startDate: null, endDate: null },
+    ]);
+    await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'Sprint 3', endDate: '' })).rejects.toThrow('비울 수 없습니다');
+    await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: '예전', status: 'ACTIVE' })).rejects.toThrow('두 날짜');
+    expect(c.updateProjectMeta).not.toHaveBeenCalled();
+    await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: '예전', startDate: '2026-11-01', endDate: '2026-11-14' });
+    expect(c.updateProjectMeta).toHaveBeenCalledWith('WP', 'cycle', 6, {
+      name: '예전', goal: null, startDate: '2026-11-01', endDate: '2026-11-14', status: 'PLANNED',
+    });
   });
 
   it('수정은 지금 이름으로 찾아 준 필드만 바꾼 전체 본문을 보낸다(서버는 덮어쓰기) — "" 는 비우기', async () => {

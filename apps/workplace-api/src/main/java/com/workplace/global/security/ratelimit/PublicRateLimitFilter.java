@@ -2,7 +2,7 @@ package com.workplace.global.security.ratelimit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.ErrorResponse;
-import com.workplace.global.net.InternalAddresses;
+import com.workplace.global.util.ClientIpExtractor;
 import com.workplace.user.service.AvatarService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -29,8 +29,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와 한국어
  * 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게 한다.
  *
- * <p>클라이언트 IP: 요청이 내부 대역(인그레스·프록시)에서 왔고 X-Forwarded-For 가 있으면 그 마지막 값(바로 앞 프록시가 붙인 주소)을 쓴다. 바깥에서 보낸
- * X-Forwarded-For 를 그대로 믿지 않도록 내부 대역에서 온 요청에만 적용한다. 루프백에서 온 요청(로컬 도구·테스트)은 제한하지 않는다.
+ * <p>클라이언트 IP: 감사 로그와 같은 {@link ClientIpExtractor} 판정을 쓴다(WP-1317) — 믿는 프록시에서 온 요청이면
+ * X-Forwarded-For 를 오른쪽부터 걷어 믿는 프록시가 아닌 첫 주소. 예전에는 마지막 값을 써 web nginx 가 붙인 ingress 파드 주소 하나로 전 사용자가
+ * 한 버킷을 썼다. 루프백으로 판정된 요청(로컬 도구·테스트)은 제한하지 않는다.
  */
 @Slf4j
 public class PublicRateLimitFilter extends OncePerRequestFilter {
@@ -83,7 +84,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
       @NonNull FilterChain chain)
       throws ServletException, IOException {
     Policy policy = properties.enabled() ? policyOf(request) : null;
-    String ip = policy == null ? null : clientIp(request);
+    String ip = policy == null ? null : ClientIpExtractor.extract(request);
     if (policy == null || ip == null || isLoopback(ip)) {
       chain.doFilter(request, response);
       return;
@@ -136,29 +137,6 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
       return Policy.AVATAR;
     }
     return null;
-  }
-
-  /** 클라이언트 IP — 내부 대역에서 온 요청이면 X-Forwarded-For 마지막 값, 아니면 접속 주소. */
-  static String clientIp(HttpServletRequest request) {
-    String remote = request.getRemoteAddr();
-    String forwarded = request.getHeader("X-Forwarded-For");
-    if (forwarded != null && !forwarded.isBlank() && isInternal(remote)) {
-      String[] hops = forwarded.split(",");
-      String last = hops[hops.length - 1].trim();
-      if (!last.isEmpty()) return last;
-    }
-    return remote;
-  }
-
-  private static boolean isInternal(String ip) {
-    try {
-      // IP 문자열만 받는다 — 이름이면 조회하지 않고 내부가 아닌 것으로 본다.
-      return ip != null
-          && isIpLiteral(ip)
-          && InternalAddresses.isInternal(InetAddress.getByName(ip));
-    } catch (UnknownHostException e) {
-      return false;
-    }
   }
 
   private static boolean isLoopback(String ip) {
