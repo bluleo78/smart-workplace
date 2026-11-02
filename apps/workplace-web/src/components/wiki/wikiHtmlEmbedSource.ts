@@ -1,13 +1,13 @@
 // 노트 HTML 블록 소스 칸 열림 상태(WP-1288) — 블록 화면(WikiHtmlEmbedView)과 노드 확장(wikiHtmlEmbedNode)이 함께 읽는 편집기 플러그인.
 import { WikiHtmlEmbedSchema } from '@smart-workplace/wiki-editor-schema'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
-import { type EditorState, NodeSelection, Plugin, PluginKey, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { type EditorState, NodeSelection, Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { ySyncPluginKey } from 'y-prosemirror'
 import type * as Y from 'yjs'
 
-import { isWritableLine, moveBesideBlock, neighborAt } from './wikiBlockExit'
-import { resolveRelative, toRelative, ySyncOf,type YSyncState } from './wikiCollabPosition'
+import { deleteBlockAt, leaveBlock, type SelectedBlock, selectedNode, typingGuardProps } from './wikiBlockExit'
+import { nodeSelectionRestoreGuard, resolveRelative, toRelative } from './wikiCollabPosition'
 
 /**
  * 「소스 칸을 연 블록」 표시를 쥐는 플러그인(WP-1288) — 열림은 사람마다 다른 화면 상태라 문서(attrs)가 아니라 이 편집기 플러그인 상태에 둔다.
@@ -47,9 +47,8 @@ export function isHtmlEmbedSourceOpen(state: EditorState, pos: number): boolean 
 }
 
 /** 선택이 감싼 HTML 블록(노드 선택) — 아니면 null. 키 동작이 쓴다. */
-export function selectedEmbed(state: EditorState): { pos: number; node: PMNode } | null {
-  const sel = state.selection
-  return sel instanceof NodeSelection && isEmbed(sel.node) ? { pos: sel.from, node: sel.node } : null
+export function selectedEmbed(state: EditorState): SelectedBlock | null {
+  return selectedNode(state, isEmbed)
 }
 
 /** pos 블록 열림 데코레이션 — 지금 상태에서 블록 앞 위치를 Yjs 상대 위치로 함께 적어 둔다(동기화 반영 뒤 되찾기용). */
@@ -106,13 +105,7 @@ export function escapeHtmlEmbed(state: EditorState, dispatch?: (tr: Transaction)
     return true
   }
   if (!hit) return false
-  for (const dir of [1, -1] as const) {
-    const { edge, node } = neighborAt(state.doc, hit.pos, hit.node.nodeSize, dir)
-    if (!isWritableLine(node)) continue
-    dispatch?.(state.tr.setSelection(TextSelection.create(state.doc, dir > 0 ? edge + 1 : edge - 1)).scrollIntoView())
-    return true
-  }
-  return moveBesideBlock(state, dispatch, hit.pos, hit.node.nodeSize, 1)
+  return leaveBlock(state, dispatch, hit.pos, hit.node.nodeSize)
 }
 
 /**
@@ -133,44 +126,9 @@ export function replaceHtmlEmbedSource(view: EditorView, pos: number, text: stri
  * 지운 뒤 커서는 그 자리 가까운 곳(ProseMirror 가 지운 범위 옆으로 둔다)에 두고 편집기에 포커스를 준다.
  */
 export function deleteHtmlEmbed(view: EditorView, pos: number): boolean {
-  const node = view.state.doc.nodeAt(pos)
-  if (!isEmbed(node)) return false
-  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)).deleteSelection().scrollIntoView())
+  if (!deleteBlockAt(view.state, view.dispatch, pos, isEmbed)) return false
   view.focus()
   return true
-}
-
-/**
- * 동료가 지운 블록을 내가 통째 선택하고 있어도 동기화가 멈추지 않게 한다.
- * y-prosemirror(1.3.7, 최신)는 원격 반영 뒤 노드 선택을 NodeSelection.create(그 자리)로 되살리는데, 선택했던 블록이 지워져 그 자리에 노드가
- * 없으면(문서 끝) 예외가 나 그 반영이 화면에 들어오지 않는다. 닫힌 HTML 블록은 이제 늘 통째 선택되므로(WP-1288), 그 블록이 선택된 채
- * Yjs 거래가 시작되면 바인딩이 적어 둔 선택 종류를 글자 선택으로 낮춘다 — 그러면 TextSelection.between 으로 가까운 자리를 찾고,
- * 블록이 남아 있으면 선택 다듬기(appendTransaction)가 다시 통째 선택으로 바꾼다. 바인딩의 듣기보다 뒤에 붙어야 해서 첫 갱신 때 붙인다.
- */
-function guardNodeSelectionRestore(view: EditorView): { update(): void; destroy(): void } {
-  let attached: { doc: Y.Doc; binding: NonNullable<YSyncState['binding']> } | null = null
-  const lower = () => {
-    const binding = attached?.binding
-    const rel = binding?.beforeTransactionSelection
-    if (binding && rel?.type === 'node' && selectedEmbed(view.state)) binding.beforeTransactionSelection = { ...rel, type: 'text' }
-  }
-  return {
-    update() {
-      const sync = attached ? null : ySyncOf(view.state)
-      if (!sync?.binding) return
-      attached = { doc: sync.doc, binding: sync.binding }
-      sync.doc.on('beforeAllTransactions', lower)
-    },
-    destroy() {
-      attached?.doc.off('beforeAllTransactions', lower)
-    },
-  }
-}
-
-/** 글자를 넣는 키인지 — 글자 하나·IME 조합 시작(Process/229). 단축키(Ctrl·Cmd·Alt 조합)는 뺀다. */
-function isTypingKey(event: KeyboardEvent): boolean {
-  if (event.ctrlKey || event.metaKey || event.altKey) return false
-  return event.key.length === 1 || event.key === 'Process' || event.keyCode === 229
 }
 
 /**
@@ -178,8 +136,8 @@ function isTypingKey(event: KeyboardEvent): boolean {
  * - 닫힌 블록의 소스 글자는 display:none 이라, 그 안에 글자 선택(커서)이 생기면 보이지 않는 곳에 커서가 숨고 Enter 가 숨은 소스에 줄바꿈을 넣었다.
  *   그래서 닫힌 블록 안 글자 선택은 블록 통째 선택(NodeSelection — 선택 테두리)으로 바꾼다. 클릭·화살표·동료 편집 매핑·소스 칸 닫기 모두 이 한곳에서 잡는다.
  * - 편집할 수 없는 화면(판 미리보기·공개 공유)은 선택을 건드리지 않는다.
- * - 통째 선택된 블록에 글자를 치면 블록이 그 글자로 바뀌어 사라진다 — 글자 키·IME 조합 시작 키는 블록 다음 줄로 옮긴 뒤 그 줄에 들어가게 한다
- *   (조합 입력은 handleTextInput 을 거치지 않아 키 단계에서 옮긴다). 그래도 글자가 오면 버린다. 지우기는 Backspace·Delete 로 그대로 된다.
+ * - 통째 선택된 블록에 글자를 치면 블록이 그 글자로 바뀌어 사라진다 — 글자 키는 블록 다음 줄로 옮겨 그 줄에 들어가게 한다(typingGuardProps).
+ * - 동료가 지운 블록을 통째 선택한 채여도 동기화가 멈추지 않게 보호한다(nodeSelectionRestoreGuard) — 낮춘 선택은 아래 선택 다듬기가 되살린다.
  */
 export function htmlEmbedSourcePlugin(isEditable: () => boolean): Plugin<DecorationSet> {
   return new Plugin<DecorationSet>({
@@ -207,15 +165,8 @@ export function htmlEmbedSourcePlugin(isEditable: () => boolean): Plugin<Decorat
       decorations(state) {
         return htmlEmbedSourceKey.getState(state)
       },
-      handleKeyDown(view, event) {
-        const hit = isTypingKey(event) ? selectedEmbed(view.state) : null
-        // 다음 줄로 옮기기만 하고 false — 키의 기본 동작(글자·조합)이 옮긴 자리에서 이어진다.
-        if (hit) moveBesideBlock(view.state, view.dispatch, hit.pos, hit.node.nodeSize, 1)
-        return false
-      },
-      handleTextInput(view) {
-        return selectedEmbed(view.state) !== null
-      },
+      // 통째 선택된 블록 글자 키 보호 — 상자와 같다.
+      ...typingGuardProps(selectedEmbed),
       // 닫힌 블록의 머리 띠·여백을 누르면 통째 선택 — 편집할 수 없는 요소(contentEditable=false)라 브라우저가 커서를 옮기지 않는다.
       handleClickOn(view, _pos, node, nodePos) {
         if (!view.editable || !isEmbed(node) || isHtmlEmbedSourceOpen(view.state, nodePos)) return false
@@ -223,7 +174,7 @@ export function htmlEmbedSourcePlugin(isEditable: () => boolean): Plugin<Decorat
         return true
       },
     },
-    view: guardNodeSelectionRestore,
+    view: nodeSelectionRestoreGuard((state) => selectedEmbed(state) !== null),
     appendTransaction(trs, _old, state) {
       if (!isEditable() || !trs.some((tr) => tr.selectionSet || tr.docChanged || tr.getMeta(htmlEmbedSourceKey))) return null
       const { $from, $to } = state.selection

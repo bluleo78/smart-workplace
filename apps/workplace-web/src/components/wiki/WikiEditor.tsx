@@ -62,6 +62,7 @@ import { chipSource } from './wikiAppLinkChips'
 import { showAwayToast } from './wikiAwayToast'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { wikiBodyColumnClass } from './wikiBodyWidth'
+import { WikiBoxToolbar } from './WikiBoxToolbar'
 import { breadcrumbOrSelf, buildBreadcrumb } from './wikiBreadcrumb'
 import { highlightCatchUp, watchHiddenDoc } from './wikiCatchUpHighlight'
 import { anchorPosition, toRelative } from './wikiCollabPosition'
@@ -1108,6 +1109,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
               onLink={() => openLinkInput()}
             />
             <WikiTableToolbar editor={editor} disabled={!editable} />
+            {/* 상자 막대(WP-1303) — 상자 통째 선택 때 상자 위에. BubbleMenu 라 조건부 형제보다 앞에 둔다(insertBefore 함정). */}
+            <WikiBoxToolbar editor={editor} disabled={!editable} />
             {/* 링크 버블(WP-312). BubbleMenu 라 조건부 형제(표 우클릭 메뉴의 인라인 트리거)보다 앞에 둔다(insertBefore 함정). */}
             <WikiLinkBubble
               editor={editor}

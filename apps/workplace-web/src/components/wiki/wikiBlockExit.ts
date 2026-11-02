@@ -5,8 +5,14 @@
 import { WIKI_HTML_BOX } from '@smart-workplace/wiki-editor-schema'
 import { Extension } from '@tiptap/core'
 import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model'
-import { type EditorState, Plugin, PluginKey, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { type EditorState, NodeSelection, Plugin, PluginKey, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
+
+/** 편집기 dispatch — 명령이 받는 모양(없으면 「할 수 있는지」만 본다). */
+type Dispatch = ((tr: Transaction) => void) | undefined
+
+/** 통째 선택된 블록과 그 앞 위치. */
+export type SelectedBlock = { pos: number; node: PMNode }
 
 /**
  * 코드 글자를 담는 블록인지(spec.code — 코드 블록·HTML 블록 소스) — 그 안 글자는 코드라 그대로 다룬다. 이어 쓸 줄 판정·HTML 들여오기 자리·
@@ -24,6 +30,30 @@ export function isWritableLine(node: PMNode | null | undefined): boolean {
   return !!node?.isTextblock && !isCodeText(node)
 }
 
+/** 모양 영역(상자, wikiHtmlBox)인지 — 상자(WP-1303)·영역 나가기(WP-1288)가 함께 쓴다. */
+export const isBox = (node: PMNode | null | undefined): node is PMNode => node?.type.name === WIKI_HTML_BOX
+
+/** 선택이 pred 를 만족하는 노드를 통째 고른 것(노드 선택)이면 그 노드와 위치 — 아니면 null. HTML 블록·상자의 「통째 선택」 판정이 쓴다. */
+export function selectedNode(state: EditorState, pred: (node: PMNode) => boolean): SelectedBlock | null {
+  const sel = state.selection
+  return sel instanceof NodeSelection && pred(sel.node) ? { pos: sel.from, node: sel.node } : null
+}
+
+/**
+ * $pos 를 감싼 가장 안쪽 상자의 깊이 — fromDepth(기본 $pos.depth)부터 바깥(깊이 1)으로 올라가며 찾는다. 없으면 null.
+ * 더 바깥 상자는 찾은 깊이 - 1 부터 다시 부르면 된다.
+ */
+export function boxAncestor($pos: ResolvedPos, fromDepth = $pos.depth): number | null {
+  for (let d = fromDepth; d > 0; d--) if (isBox($pos.node(d))) return d
+  return null
+}
+
+/** 글자를 넣는 키인지 — 글자 하나·IME 조합 시작(Process/229). 단축키(Ctrl·Cmd·Alt 조합)는 뺀다. 통째 선택 글자 키 보호(typingGuardProps)가 쓴다. */
+export function isTypingKey(event: KeyboardEvent): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey) return false
+  return event.key.length === 1 || event.key === 'Process' || event.keyCode === 229
+}
+
 /** pos 블록(크기 size)의 뒤(dir 1)·앞(dir -1) 경계와 그 너머 바로 옆 노드(없으면 null — 문서·영역 끝). */
 export function neighborAt(doc: PMNode, pos: number, size: number, dir: 1 | -1): { edge: number; $edge: ResolvedPos; node: PMNode | null } {
   const edge = dir > 0 ? pos + size : pos
@@ -37,13 +67,15 @@ export function neighborAt(doc: PMNode, pos: number, size: number, dir: 1 | -1):
  */
 function placeBeside(tr: Transaction, pos: number, size: number, dir: 1 | -1): void {
   const { edge, node } = neighborAt(tr.doc, pos, size, dir)
-  if (isWritableLine(node)) {
-    // 뒤 줄은 처음, 앞 줄은 끝으로 — 화살표로 넘어갈 때와 같은 자리.
-    tr.setSelection(TextSelection.create(tr.doc, dir > 0 ? edge + 1 : edge - 1))
-  } else {
-    tr.insert(edge, tr.doc.type.schema.nodes.paragraph!.create())
-    tr.setSelection(TextSelection.create(tr.doc, edge + 1))
-  }
+  // 뒤 줄은 처음, 앞 줄은 끝으로 — 화살표로 넘어갈 때와 같은 자리.
+  if (isWritableLine(node)) tr.setSelection(TextSelection.create(tr.doc, dir > 0 ? edge + 1 : edge - 1))
+  else insertLineAt(tr, edge)
+}
+
+/** tr 문서의 at 자리에 빈 문단을 넣고 커서를 그 안에 둔다. 문단 종류가 스키마에 있는지는 부르는 쪽이 본다(상자 「줄 추가」도 쓴다). */
+export function insertLineAt(tr: Transaction, at: number): void {
+  tr.insert(at, tr.doc.type.schema.nodes.paragraph!.create())
+  tr.setSelection(TextSelection.create(tr.doc, at + 1))
 }
 
 /**
@@ -73,6 +105,68 @@ export function arrowBesideBlock(state: EditorState, dispatch: ((tr: Transaction
 }
 
 /**
+ * 통째 선택된 블록에서 한 단계 바깥 옆 글 줄로 나간다(Esc — WP-1300 HTML 블록, WP-1303 상자가 함께 쓴다).
+ * 뒤 글 줄 처음, 없으면 앞 글 줄 끝으로 간다. 옆에 글 줄이 없으면(노트 끝 등) Enter 처럼 뒤에 새 줄을 만들어 나간다.
+ */
+export function leaveBlock(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, pos: number, size: number): boolean {
+  for (const dir of [1, -1] as const) {
+    const { edge, node } = neighborAt(state.doc, pos, size, dir)
+    if (!isWritableLine(node)) continue
+    dispatch?.(state.tr.setSelection(TextSelection.create(state.doc, dir > 0 ? edge + 1 : edge - 1)).scrollIntoView())
+    return true
+  }
+  return moveBesideBlock(state, dispatch, pos, size, 1)
+}
+
+/**
+ * 통째 선택된 블록(select 가 고른 것)에서 옆으로 — move 가 moveBesideBlock 이면 Enter(다음 줄, 없으면 만든다),
+ * arrowBesideBlock 이면 화살표(옆 블록, 끝이면 새 줄). 그 블록이 선택돼 있지 않으면 false(다른 키 동작에 넘긴다).
+ * HTML 블록(WP-1288)·상자(WP-1303)의 Enter·↓·↑ 가 함께 쓴다.
+ */
+export function leaveSelected(
+  state: EditorState,
+  dispatch: Dispatch,
+  select: (state: EditorState) => SelectedBlock | null,
+  dir: 1 | -1,
+  move: typeof moveBesideBlock = moveBesideBlock,
+): boolean {
+  const hit = select(state)
+  return !!hit && move(state, dispatch, hit.pos, hit.node.nodeSize, dir)
+}
+
+/**
+ * 통째 선택된 블록 글자 키 보호(플러그인 props 로 펼친다) — 통째 선택된 블록에 글자를 치면 블록이 그 글자로 바뀌어 사라진다.
+ * 글자 키·IME 조합 시작 키는 블록 다음 줄로 옮기기만 하고 false — 키의 기본 동작(글자·조합)이 옮긴 자리에서 이어진다
+ * (조합 입력은 handleTextInput 을 거치지 않아 키 단계에서 옮긴다). 그래도 글자가 오면 버린다. 지우기는 Backspace·Delete 로 그대로 된다.
+ * HTML 블록(WP-1288)·상자(WP-1303)가 select 로 「어느 블록이 선택됐는지」를 넘겨 함께 쓴다.
+ */
+export function typingGuardProps(select: (state: EditorState) => SelectedBlock | null): {
+  handleKeyDown: (view: EditorView, event: KeyboardEvent) => boolean
+  handleTextInput: (view: EditorView) => boolean
+} {
+  return {
+    handleKeyDown(view, event) {
+      const hit = isTypingKey(event) ? select(view.state) : null
+      if (hit) moveBesideBlock(view.state, view.dispatch, hit.pos, hit.node.nodeSize, 1)
+      return false
+    },
+    handleTextInput(view) {
+      return select(view.state) !== null
+    },
+  }
+}
+
+/**
+ * pos 의 블록(pred 를 만족할 때)을 지운다 — 통째 선택 후 deleteSelection 이라 Delete 키와 같다(문서에 블록이 이것뿐이면 빈 문단이 남는다).
+ * 그 자리에 맞는 블록이 없으면(동료가 지움) false. HTML 블록·상자의 「삭제」 단추가 함께 쓴다.
+ */
+export function deleteBlockAt(state: EditorState, dispatch: Dispatch, pos: number, pred: (node: PMNode | null) => boolean): boolean {
+  if (!pred(state.doc.nodeAt(pos))) return false
+  dispatch?.(state.tr.setSelection(NodeSelection.create(state.doc, pos)).deleteSelection().scrollIntoView())
+  return true
+}
+
+/**
  * 커서 줄이 모양 영역의 마지막 직계 문단일 때 그 영역의 깊이 — 아니면 null. Enter 로 나가기가 쓴다.
  * 영역 안 목록·인용 속 문단은 그 목록·인용의 Enter 동작을 따르게 직계 문단만 본다.
  */
@@ -80,7 +174,7 @@ function boxOfLastParagraph($from: ResolvedPos): number | null {
   const d = $from.depth - 1
   if (d < 0 || $from.parent.type.name !== 'paragraph') return null
   const box = $from.node(d)
-  return box.type.name === WIKI_HTML_BOX && $from.index(d) === box.childCount - 1 ? d : null
+  return isBox(box) && $from.index(d) === box.childCount - 1 ? d : null
 }
 
 /**
@@ -110,16 +204,14 @@ export function exitBoxOnEnter(state: EditorState, dispatch?: (tr: Transaction) 
 export function exitBoxOnArrowDown(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, atBottom: boolean): boolean {
   const { $from, empty } = state.selection
   if (!empty || !atBottom || !$from.parent.isTextblock || $from.parentOffset !== $from.parent.content.size) return false
-  // 커서 줄에서 위로 올라가며 「마지막 자식」 사슬이 이어지는 동안 가장 안쪽 모양 영역을 찾는다.
-  for (let d = $from.depth - 1; d >= 0; d--) {
-    if ($from.index(d) !== $from.node(d).childCount - 1) return false
-    if ($from.node(d).type.name !== WIKI_HTML_BOX) continue
-    const boxPos = $from.before(d)
-    const boxEnd = boxPos + $from.node(d).nodeSize
-    if (Selection.findFrom(state.doc.resolve(boxEnd), 1, true)) return false
-    return moveBesideBlock(state, dispatch, boxPos, $from.node(d).nodeSize, 1)
-  }
-  return false
+  // 커서 줄을 감싼 가장 안쪽 모양 영역 — 그 영역부터 커서 줄까지 「마지막 자식」 사슬이 이어져야 영역 끝 줄이다.
+  const d = boxAncestor($from, $from.depth - 1)
+  if (d === null) return false
+  for (let k = d; k < $from.depth; k++) if ($from.index(k) !== $from.node(k).childCount - 1) return false
+  const boxPos = $from.before(d)
+  const boxEnd = boxPos + $from.node(d).nodeSize
+  if (Selection.findFrom(state.doc.resolve(boxEnd), 1, true)) return false
+  return moveBesideBlock(state, dispatch, boxPos, $from.node(d).nodeSize, 1)
 }
 
 /**

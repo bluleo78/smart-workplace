@@ -1,6 +1,6 @@
 import type { Editor } from '@tiptap/core'
 
-import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar'
+import { EditorFloatingToolbar, EditorToolbarDivider } from '@/components/editor/EditorFloatingToolbar'
 import { Button } from '@/components/ui/button'
 
 import {
@@ -14,12 +14,6 @@ import {
   WIKI_TABLE_ALIGNS,
   type WikiTableCommand,
 } from './wikiTableCommands'
-
-
-/** 묶음 사이 세로 구분선. */
-function Divider() {
-  return <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-}
 
 /** 표 조작 툴바 — 커서가 표 안에 있고 선택이 비어 있을 때 표 위에 뜬다.
  *  선택이 비어 있지 않을 때는 AI 변형 툴바가 뜨므로(셀 안 텍스트 축약·번역이 그대로 동작),
@@ -76,7 +70,7 @@ export function WikiTableToolbar({
     >
       {/* 삽입 4종 | 열 정렬 3종(WP-584, 지금 열의 정렬을 눌린 상태로) | 삭제 3종 — 구분선으로 세 묶음을 가른다. */}
       {INSERT_TABLE_COMMANDS.map(renderCommand)}
-      <Divider />
+      <EditorToolbarDivider />
       {WIKI_TABLE_ALIGNS.map((a) => {
         const AlignIcon = a.icon
         const active = snap.columnAlign === a.value
@@ -98,7 +92,7 @@ export function WikiTableToolbar({
           </Button>
         )
       })}
-      <Divider />
+      <EditorToolbarDivider />
       {DESTRUCTIVE_TABLE_COMMANDS.map(renderCommand)}
     </EditorFloatingToolbar>
   )

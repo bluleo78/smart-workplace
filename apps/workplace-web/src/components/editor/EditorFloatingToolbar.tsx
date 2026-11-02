@@ -103,3 +103,8 @@ export function EditorFloatingToolbar({
     </BubbleMenu>
   )
 }
+
+/** 떠 있는 막대 안 묶음 사이 세로 구분선 — 표 막대·상자 막대가 같은 모양으로 쓴다. */
+export function EditorToolbarDivider() {
+  return <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+}

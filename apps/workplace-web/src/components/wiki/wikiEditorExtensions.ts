@@ -11,6 +11,7 @@ import { ImeCommitFlush } from '@/lib/imeCommitFlush'
 import { WikiAiMarkers } from './wikiAiMarkers'
 import { WikiAppLinkChips } from './wikiAppLinkChips'
 import { WikiBlockExit } from './wikiBlockExit'
+import { WikiBox } from './wikiBox'
 import { WikiCatchUpHighlight } from './wikiCatchUpHighlight'
 import { WikiHtmlImportPaste } from './wikiHtmlImportInsert'
 import { WikiImage } from './wikiImageNode'
@@ -53,6 +54,8 @@ export function wikiEditorExtensions(o: {
     // HTML 블록·모양 영역 밖으로 나가기(WP-1288) — 모양 영역 끝 빈 줄 Enter·마지막 줄 ↓, 노트 아래 빈자리 클릭으로 다음 줄을 만든다.
     // 멘션·슬래시 제안보다 앞에 둔다 — 단축키는 목록 뒤쪽 확장이 먼저 받으니, 제안 목록이 열린 채의 Enter 를 제안이 먼저 가져가게.
     WikiBlockExit,
+    // 상자(WP-1303) — 상자 테두리·여백 누르면 통째 선택, 통째 선택 키(Enter·↓·↑·Esc)·글자 키 보호. 제안 메뉴보다 앞(위와 같은 이유).
+    WikiBox,
     o.mention,
     o.slash,
     Placeholder.configure({

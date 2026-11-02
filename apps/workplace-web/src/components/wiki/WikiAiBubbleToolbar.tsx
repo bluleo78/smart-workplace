@@ -4,7 +4,7 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
-import { Bold, ChevronDown, Heading1, Heading2, Italic, Link, List, Quote } from 'lucide-react'
+import { Bold, ChevronDown, Heading1, Heading2, Italic, Link, List, Quote, SquareDashed } from 'lucide-react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar'
@@ -18,6 +18,7 @@ import {
   TRANSFORM_ACTIONS,
   type TransformActionKey,
 } from './wikiAiActions'
+import { canWrapInBox, wrapInBox } from './wikiBox'
 
 // 서식 그룹 — #687: 메일 컴포저(MailComposer.tsx)의 굵게/기울임/목록 버튼 세트를 그대로 이식하고,
 // 노트 특성상 필요한 제목1/제목2/인용을 더했다. AI 그룹 앞에 배치해 "일반 서식"과 "AI 변형"을
@@ -108,6 +109,25 @@ export function WikiAiBubbleToolbar({
           onClick={onLink}
         >
           <Link aria-hidden="true" />
+        </Button>
+      )}
+      {/* 상자로 감싸기(WP-1303) — 고른 글이 걸친 블록들을 「기본」 모양 상자로 감싼다. 감쌀 수 없는 자리(표 안 등)면 두지 않는다.
+          감싼 뒤엔 상자가 통째 선택돼 이 막대 대신 상자 막대가 뜬다. */}
+      {canWrapInBox(editor.state) && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="상자로 감싸기"
+          title="상자로 감싸기"
+          data-testid="wiki-format-tb-box"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            wrapInBox(editor.state, editor.view.dispatch)
+            editor.view.focus()
+          }}
+        >
+          <SquareDashed aria-hidden="true" />
         </Button>
       )}
       {/* AI 변형 묶음(구분선·AI 표시·변형 버튼) — 공유 링크 화면(aiHidden)엔 통째로 두지 않는다. */}
