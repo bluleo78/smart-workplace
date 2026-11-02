@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
 import { link } from './collabTestHarness'
-import { arrowBesideBlock, exitBoxOnArrowDown, exitBoxOnEnter, moveBesideBlock } from './wikiBlockExit'
+import { arrowBesideBlock, exitBoxOnArrowDown, exitBoxOnEnter, isCodeText, moveBesideBlock } from './wikiBlockExit'
 import { htmlEmbedSourceKey, htmlEmbedSourcePlugin, isHtmlEmbedSourceOpen, setHtmlEmbedSourceOpen } from './wikiHtmlEmbedSource'
 
 /** NodeView 없이 열림 플러그인만 얹은 HTML 블록 — 선택 다듬기를 그리기 없이 본다. */
@@ -307,5 +307,16 @@ describe('동시 편집에서 열림 유지', () => {
     again.peer.view.dispatch(again.peer.state.tr.insertText('더', 1))
     expect(again.me.state.selection).toBeInstanceOf(NodeSelection)
     expect(again.me.state.selection.from).toBe(pos + 1)
+  })
+})
+
+describe('isCodeText — 코드 글자 블록 판정(WP-1300, 슬래시·멘션 메뉴·들여오기·앱 링크 칩이 함께 쓴다)', () => {
+  it('HTML 블록 소스·코드 블록은 코드 글자, 보통 문단은 아니다', () => {
+    const ed = open(['앞 문단', '', '```html-embed', '<p>a</p>', '```', '', '```js', 'a / b', '```'].join('\n'))
+    const parentAt = (pos: number) => ed.state.doc.resolve(pos).parent
+    expect(isCodeText(parentAt(posOf(ed, 'wikiHtmlEmbed') + 3))).toBe(true)
+    expect(isCodeText(parentAt(posOf(ed, 'codeBlock') + 2))).toBe(true)
+    expect(isCodeText(parentAt(2))).toBe(false)
+    expect(isCodeText(null)).toBe(false)
   })
 })

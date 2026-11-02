@@ -4,7 +4,8 @@ import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 
 import { arrowBesideBlock, moveBesideBlock, neighborAt } from './wikiBlockExit'
-import { htmlEmbedSourcePlugin, isHtmlEmbedSourceOpen, selectedEmbed, setHtmlEmbedSourceOpen } from './wikiHtmlEmbedSource'
+import { htmlEmbedHighlightPlugin } from './wikiHtmlEmbedHighlight'
+import { escapeHtmlEmbed, htmlEmbedSourcePlugin, isHtmlEmbedSourceOpen, selectedEmbed, setHtmlEmbedSourceOpen } from './wikiHtmlEmbedSource'
 import { WikiHtmlEmbedView } from './WikiHtmlEmbedView'
 
 /**
@@ -43,7 +44,8 @@ export const WikiHtmlEmbed = WikiHtmlEmbedSchema.extend({
   },
 
   addProseMirrorPlugins() {
-    return [htmlEmbedSourcePlugin(() => this.editor.isEditable)]
+    // 색 구분은 열림 상태 뒤에 둔다 — apply 에서 열림 플러그인의 새 상태를 읽는다(WP-1300).
+    return [htmlEmbedSourcePlugin(() => this.editor.isEditable), htmlEmbedHighlightPlugin()]
   },
 
   addKeyboardShortcuts() {
@@ -70,7 +72,10 @@ export const WikiHtmlEmbed = WikiHtmlEmbedSchema.extend({
     }
     return {
       // 소스 칸에서 빠져나가기 — 블록 뒤에 문단을 만들고 옮긴다(코드 블록의 exitCode 와 같다). 마지막 블록이어도 나갈 수 있게.
-      'Mod-Enter': () => this.editor.isActive(this.name) && this.editor.commands.exitCode(),
+      // 통째 선택된 블록에서도 「바로 나가기」(WP-1300 안내 문구) — exitCode 는 글자 선택에서만 돌아 다음 줄 나가기로 받는다.
+      'Mod-Enter': () => leave(1, moveBesideBlock)() || (this.editor.isActive(this.name) && this.editor.commands.exitCode()),
+      // 한 단계 바깥으로(WP-1300) — 소스 칸 안이면 닫고 블록 통째 선택, 통째 선택이면 옆 글 줄로.
+      Escape: () => escapeHtmlEmbed(this.editor.state, this.editor.view.dispatch),
       // 닫힌 블록(노드 선택)에서 Enter·↓ 는 다음 줄, ↑ 는 앞 줄로 — 소스를 연 채면 선택이 글자 안이라 지금처럼 소스 편집 키로 돈다.
       // 옆 줄에서 ↓·↑ 로 닿으면 블록을 통째 선택한다.
       Enter: leave(1, moveBesideBlock),

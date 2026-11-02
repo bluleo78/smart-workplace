@@ -3,6 +3,7 @@ import type { EditorState } from '@tiptap/pm/state'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { toast } from 'sonner'
 
+import { isCodeText } from './wikiBlockExit'
 import { convertHtmlToWiki, looksLikeHtmlDocument, newImportScopeClass, type WikiHtmlImportResult } from './wikiHtmlImport'
 import { isNoteCopyHtml } from './wikiPasteShape'
 
@@ -37,6 +38,19 @@ export function rejectOversizedHtmlFile(file: Pick<File, 'size'>): boolean {
   return true
 }
 
+/**
+ * 들여올 HTML 파일로 받을지 — 종류(확장자 .html·.htm 또는 MIME text/html, 선택기 accept 와 같은 규칙)와 크기(5MB)를 한곳에서 보고,
+ * 아니면 알리고 false. 파일 선택기(WikiHtmlFileInput — 「모든 파일」로 고를 수 있다)와 끌어다 놓기(HTML 블록 「다시 올리기」)가 함께 쓴다.
+ * 확장자와 MIME 둘 다 보는 이유: 운영체제마다 .htm 의 MIME 이 비어 있기도 하다.
+ */
+export function acceptHtmlFile(file: Pick<File, 'name' | 'type' | 'size'>): boolean {
+  if (file.type !== 'text/html' && !/\.html?$/i.test(file.name)) {
+    toast.error('HTML 파일(.html·.htm)만 올릴 수 있습니다.')
+    return false
+  }
+  return !rejectOversizedHtmlFile(file)
+}
+
 /** HTML 파일을 글자로 읽는다 — 실패하면 알리고 null. 슬래시 「HTML 파일 넣기」와 「HTML 파일로 새 노트」가 함께 쓴다. */
 export async function readHtmlFile(file: Pick<File, 'text'>): Promise<string | null> {
   try {
@@ -50,7 +64,7 @@ export async function readHtmlFile(file: Pick<File, 'text'>): Promise<string | n
 /** 이 자리에 HTML 들여오기를 넣을 수 있는지 — 코드 블록·HTML 블록 소스 안(글자로 붙여야 한다)과 표 셀 안(모양·블록을 담지 못한다)은 아니다. */
 export function canImportHtmlAt(state: EditorState): boolean {
   const { $from } = state.selection
-  if ($from.parent.type.spec.code) return false
+  if (isCodeText($from.parent)) return false
   for (let d = $from.depth; d > 0; d--) {
     const name = $from.node(d).type.name
     if (name === 'tableCell' || name === 'tableHeader') return false

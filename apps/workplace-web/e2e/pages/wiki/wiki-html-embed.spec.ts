@@ -4,6 +4,8 @@
 // 격리 확인은 로그인·동기화 서버가 필요 없는 공개 공유 화면으로 띄운다 — 편집기·판 미리보기와 같은 확장(wikiRenderExtensions)을 쓴다.
 // 소스 편집은 실제 편집기(동기화 테스트 서버)에서 단추를 누르고 contentEditable 소스 칸에 쳐 본다(@input — ProseMirror 가 단추 클릭을 가로채지 않는지).
 // CDN 은 E2E 네트워크 격리로 닿지 않으므로 인라인 스크립트만 쓴다.
+// 막대·소스 편집 개선(WP-1300) — 나란히 놓인 코드·미리보기(@layout), 소스 칸에서의 Esc·Enter·글자 입력과 「다시 올리기」 파일 끌어다 놓기(@input).
+// 막대 단추 표시·Esc 상태 판정·소스 바꾸기 범위·5MB 거르기는 WikiHtmlEmbedView.test.tsx 가 지킨다.
 // 노트 끝 블록·모양 영역 밖으로 나가기(WP-1288)는 실제 클릭·키 입력이 숨은 소스 칸·선택을 어떻게 지나는지가 핵심이라 @input 으로 본다(상태 판정은 wikiBlockExit.test.ts).
 import type { Locator, Page } from '@playwright/test'
 
@@ -245,5 +247,119 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
     await page.keyboard.insertText('밖 ')
     await expect(page.locator('.ProseMirror > p').last()).toHaveText('밖 아래 글')
     await expect.poll(() => savedMarkdown(page, pageId)).toMatch(/카드 글\n\n<\/div>\n\n밖 아래 글/)
+  })
+
+  test.describe('막대·소스 편집 개선 (WP-1300)', () => {
+    /** 앞 문단 + HTML 블록 + 뒤 문단 노트를 편집기로 연다. */
+    async function openWithEmbed(page: Page, pageId: number, source = '<p id="v">one</p>') {
+      await mockWikiPageEditor(page, {
+        spaceId: 1,
+        pageId,
+        title: '막대 블록',
+        body: ['앞 문단', '', '```html-embed', source, '```', '', '뒤 문단'].join('\n'),
+        role: 'EDITOR',
+      })
+      await openWikiEditor(page, { spaceId: 1, pageId })
+      await expect(page.frameLocator('[data-testid="wiki-html-embed-frame"]').locator('#v')).toHaveText('one')
+      return page.getByTestId('wiki-html-embed')
+    }
+
+    test('소스 편집에서 코드를 고치면 오른쪽 미리보기가 다시 그려지고, Esc 로 닫으면 블록 선택 → Enter 로 다음 줄에 쓴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      const block = await openWithEmbed(page, 71)
+      const frame = page.frameLocator('[data-testid="wiki-html-embed-frame"]')
+      await block.getByTestId('wiki-html-embed-toggle').click()
+      await expect(block.getByTestId('wiki-html-embed-toggle')).toHaveText('완료')
+      const code = block.getByTestId('wiki-html-embed-source').locator('code')
+      await expect(code).toBeVisible()
+      // 색 구분 — 태그·속성 이름·값이 칠해진다(노드 글자는 그대로).
+      await expect(code.locator('.wiki-html-tok--attr')).toHaveText('id')
+      // 끝에 한 줄 더 — 소스 안 Enter 는 코드 줄바꿈이다(블록 밖으로 나가지 않는다).
+      await code.click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Enter')
+      await page.keyboard.insertText('<p id="w">two</p>')
+      await expect(block.getByTestId('wiki-html-embed-source')).toHaveText('<p id="v">one</p>\n<p id="w">two</p>')
+      await expect(block.locator('.wiki-html-embed__gutter')).toHaveText('1\n2')
+      await expect(frame.locator('#w')).toHaveText('two')
+
+      // Esc — 소스 칸이 닫히고 블록 통째 선택(테두리) + 키 안내.
+      await page.keyboard.press('Escape')
+      await expect(block.getByTestId('wiki-html-embed-source')).toBeHidden()
+      await expect(nodeView(block)).toHaveClass(SELECTED)
+      await expect(block.getByTestId('wiki-html-embed-hint')).toContainText('Enter 다음 줄 · Esc 바깥으로')
+      // Enter — 다음 줄(이미 있는 「뒤 문단」 처음)에서 바로 입력.
+      await page.keyboard.press('Enter')
+      await page.keyboard.insertText('이어서 ')
+      await expect(page.locator('.ProseMirror > p').last()).toHaveText('이어서 뒤 문단')
+      await expect(nodeView(block)).not.toHaveClass(SELECTED)
+      await expect
+        .poll(() => savedMarkdown(page, 71))
+        .toContain(['```html-embed', '<p id="v">one</p>', '<p id="w">two</p>', '```', '', '이어서 뒤 문단'].join('\n'))
+    })
+
+    test('「다시 올리기」에 HTML 파일을 끌어다 놓고 「바꾸기」를 누르면 이 블록 소스만 바뀐다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+      const block = await openWithEmbed(page, 72)
+      // 이름표를 눌러 블록을 고르면 막대에 다시 올리기가 보인다.
+      await block.getByTestId('wiki-html-embed-label').click()
+      await expect(nodeView(block)).toHaveClass(SELECTED)
+      await block.getByTestId('wiki-html-embed-reupload').click()
+      const dialog = page.getByTestId('wiki-html-embed-reupload-dialog')
+      await expect(dialog).toBeVisible()
+      const next = '<p id="v">new</p>'
+      const dataTransfer = await page.evaluateHandle((src) => {
+        const dt = new DataTransfer()
+        dt.items.add(new File([src], 'chart.html', { type: 'text/html' }))
+        return dt
+      }, next)
+      await dialog.getByTestId('wiki-html-embed-dropzone').dispatchEvent('drop', { dataTransfer })
+      await expect(dialog.getByTestId('wiki-html-embed-reupload-text')).toHaveValue(next)
+      await dialog.getByTestId('wiki-html-embed-reupload-apply').click()
+      await expect(dialog).toBeHidden()
+      await expect(page.frameLocator('[data-testid="wiki-html-embed-frame"]').locator('#v')).toHaveText('new')
+      await expect.poll(() => savedMarkdown(page, 72)).toContain(['앞 문단', '', '```html-embed', next, '```', '', '뒤 문단'].join('\n'))
+    })
+
+    test('소스 편집은 넓은 블록에서 코드 왼쪽·미리보기 오른쪽으로 나란히, 좁은 블록에서는 위아래로 놓인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1400, height: 900 })
+      const block = await openWithEmbed(page, 73)
+      await block.getByTestId('wiki-html-embed-toggle').click()
+      const code = block.getByTestId('wiki-html-embed-code')
+      const preview = block.getByTestId('wiki-html-embed-preview')
+      await expect(code).toBeVisible()
+      const wide = async () => {
+        const c = (await code.boundingBox())!
+        const p = (await preview.boundingBox())!
+        return { c, p }
+      }
+      await expect.poll(async () => {
+        const { c, p } = await wide()
+        // 나란히 — 코드 오른쪽 끝이 미리보기 왼쪽보다 왼쪽이고 위쪽이 같다.
+        return c.x + c.width <= p.x && Math.abs(c.y - p.y) < 2
+      }).toBe(true)
+      const { c: wc, p: wp } = await wide()
+      // 둘이 블록 폭을 반씩 나눈다.
+      expect(Math.abs(wc.width - wp.width)).toBeLessThan(4)
+      // 줄 번호 칸과 소스가 같은 줄 높이 — 높이가 같아야 줄 번호가 줄과 맞는다(pre 의 본문 줄 높이가 code 줄을 벌리던 것).
+      const gutterBox = (await block.locator('.wiki-html-embed__gutter').boundingBox())!
+      const preBox = (await block.getByTestId('wiki-html-embed-source').boundingBox())!
+      expect(Math.abs(gutterBox.height - preBox.height)).toBeLessThan(2)
+
+      // 좁은 화면(블록 폭 640px 아래) — 미리보기가 코드 아래로 내려간다.
+      await page.setViewportSize({ width: 560, height: 900 })
+      // 좁은 화면은 모바일 셸로 편집기를 다시 띄워 소스 칸 열림(이 화면 상태)이 풀릴 수 있다 — 닫혀 있으면 다시 연다.
+      const toggle = block.getByTestId('wiki-html-embed-toggle')
+      await expect(async () => {
+        if ((await toggle.textContent()) === '소스 편집') await toggle.click()
+        await expect(code).toBeVisible({ timeout: 1000 })
+      }).toPass()
+      await expect.poll(async () => {
+        const { c, p } = await wide()
+        return p.y >= c.y + c.height && Math.abs(c.x - p.x) < 2
+      }).toBe(true)
+      // 긴 줄은 접지 않고 코드 칸 안에서 가로로 스크롤한다 — 줄 번호와 줄이 어긋나지 않게.
+      const pre = block.getByTestId('wiki-html-embed-source')
+      expect(await pre.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('pre')
+    })
   })
 })
