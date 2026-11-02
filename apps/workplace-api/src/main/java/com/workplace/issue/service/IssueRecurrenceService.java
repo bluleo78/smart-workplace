@@ -120,6 +120,21 @@ public class IssueRecurrenceService {
 
   static final String NOTE_NO_NEXT = "다음 회차를 정할 수 없어 반복을 멈췄습니다";
 
+  /** 「한 번만」 예약(WP-1315)의 회차가 끝났을 때 작업 기록에 남기는 메모 — 성공. */
+  static final String NOTE_ONCE_DONE = "한 번만 실행을 마쳤습니다";
+
+  /** 「한 번만」 예약(WP-1315)의 회차가 실패로 끝났을 때 작업 기록에 남기는 메모. */
+  static final String NOTE_ONCE_FAILED = "한 번만 실행이 실패로 끝났습니다";
+
+  /**
+   * 「한 번만」 예약(WP-1315)의 회차가 질문으로 끝나 답을 기다리는 동안의 작업 메모. 정기 회차 질문처럼 작업은 「다음 회차 대기」(SCHEDULED)로 두되 다음
+   * 회차 시각은 없다 — 답의 이어 처리 결과가 작업을 끝낸다.
+   */
+  static final String NOTE_ONCE_QUESTION = "질문의 답을 기다립니다";
+
+  /** 「한 번만」 예약(WP-1315)이 남긴 질문의 답을 기한(7일) 안에 받지 못해 작업 기록을 끝낼 때 남기는 메모. */
+  static final String NOTE_ONCE_UNANSWERED = "질문의 답을 받지 못한 채 한 번만 실행을 마쳤습니다";
+
   /**
    * 보낸 회차의 결과를 이만큼 기다린다 — 넘으면 결과를 못 받은 회차로 보고 실패로 센 뒤 「다음 회차 대기」로 되돌린다(월 반복이 한 달 내내 작업 중으로 남지 않게).
    */
@@ -220,6 +235,15 @@ public class IssueRecurrenceService {
   }
 
   /**
+   * 이 프로젝트에서 새 작업의 실행 일정에 담당으로 고를 수 있는 AI(WP-1315) — 작업을 만들기 전(만들기 창의 「AI 에게 맡기기」)에 쓴다. 후보는 이슈와
+   * 무관하게 프로젝트로 정해지므로 {@link #agentOptions} 와 같은 {@link #candidates} 다.
+   */
+  @Transactional(readOnly = true)
+  public List<IssueRecurrenceAgentOption> projectAgentOptions(long callerId, String projectKey) {
+    return candidates(accessGuard.assertReadable(projectKey, callerId), callerId);
+  }
+
+  /**
    * 반복을 저장한다(없으면 만들고 있으면 바꾼다 — 꺼진 반복도 다시 켜진다). 담당 AI 는 요청의 {@code agentUserId}, 없으면 개인 작업은 소유자의 AI
    * 비서(개인 비서, 없으면 공용 비서), 팀 이슈는 지금 일정의 AI(없으면 후보의 첫째 — 구성원인 내 개인 비서가 맨 앞)다 — 없으면 409. 고른 AI 는 서버가
    * 실행하는 AI 여야 하고(409), 팀 이슈면 프로젝트 구성원이어야 한다(409). 지금 일정이나 고른 AI 가 남의 개인 비서면 403(주인만). 개인 작업은 AI 가
@@ -234,8 +258,12 @@ public class IssueRecurrenceService {
         issueRepository
             .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    String rrule = rules.normalizeRrule(req == null ? null : req.rrule());
     LocalTime time = rules.parseTime(req == null ? null : req.time());
+    // 날짜 채우기와 다음 회차 계산은 같은 기준 시각을 쓴다 — 두 번 읽으면 그 사이 정한 시각이 지나 「한 번만」이 다음 회차 없음(400)이 될 수 있다.
+    Instant now = Instant.now();
+    // 「한 번만」(WP-1315)은 날짜를 여기서 정한다 — 날짜가 없으면 그 시각의 다음 때, 지난 날짜·시각이면 400.
+    String rrule =
+        rules.resolveOnce(rules.normalizeRrule(req == null ? null : req.rrule()), time, now);
     if (IssueStatuses.CLOSED.contains(issue.status())) throw conflict(ISSUE_CLOSED);
 
     IssueRecurrenceRow old = repository.findForUpdate(issue.id()).orElse(null);
@@ -251,7 +279,7 @@ public class IssueRecurrenceService {
     }
 
     // 켜진 반복은 늘 다음 회차가 있어야 한다 — 계산할 수 없는 규칙은 저장하지 않는다.
-    Instant next = rules.nextRunAfter(rrule, time, Instant.now());
+    Instant next = rules.nextRunAfter(rrule, time, now);
     if (next == null) throw new InvalidIssueRecurrenceException("다음 회차를 정할 수 없는 반복 규칙입니다");
 
     boolean agentChanged = old != null && old.agentUserId() != agentId;
@@ -409,6 +437,17 @@ public class IssueRecurrenceService {
         log.warn("[recurrence] 테스트 실행 결과 대기 초과 정리 실패 — 이 행만 건너뛴다. issueId={}", row.issueId(), e);
       }
     }
+    // WP-1315: 끝난 「한 번만」 예약의 질문이 답 기한(7일)을 넘겼다 — 질문을 비우고 답을 기다리던 작업 기록을 끝낸다. 정기 반복의 질문은 다음 회차가
+    // 작업을 이어 가므로 답할 때 판정하면 되지만, 한 번만은 다음 회차가 없어 쓸어 내지 않으면 작업이 「대기」로 영영 남는다.
+    for (IssueRecurrenceRow row :
+        repository.lockExpiredOnceQuestions(
+            now.minus(IssueRecurrenceFollowUpService.QUESTION_TTL))) {
+      try {
+        perRow.executeWithoutResult(status -> expireOnceQuestion(row));
+      } catch (RuntimeException e) {
+        log.warn("[recurrence] 한 번만 질문 기한 정리 실패 — 이 행만 건너뛴다. issueId={}", row.issueId(), e);
+      }
+    }
     // 정리가 끝난 뒤에 읽는다 — 방금 실패로 센 회차를 결과 대기로 다시 보지 않게.
     int sent = 0;
     for (IssueRecurrenceRow row : repository.lockDue(now)) {
@@ -419,6 +458,21 @@ public class IssueRecurrenceService {
       }
     }
     return sent;
+  }
+
+  /** 답 기한이 지난 끝난 「한 번만」 예약의 질문 하나(WP-1315) — 질문을 비우고 답을 기다리던 작업 기록을 끝낸다. 글은 남기지 않는다. */
+  private void expireOnceQuestion(IssueRecurrenceRow row) {
+    log.info("[recurrence] 한 번만 질문 답 기한 지남 issueId={}", row.issueId());
+    repository.clearPendingQuestion(row.issueId());
+    issueRepository
+        .findById(row.issueId())
+        .ifPresent(
+            issue ->
+                agentWorkService.endIfLive(
+                    issue,
+                    row.agentUserId(),
+                    AgentWorkState.COMPLETED,
+                    endPatch(NOTE_ONCE_UNANSWERED)));
   }
 
   /** 결과를 오래 못 받은 회차 하나 — 묘비면 지우고, 아니면 실패로 센다. */
@@ -468,7 +522,10 @@ public class IssueRecurrenceService {
     // 테스트 질문의 이어 처리(WP-1313)는 테스트 표시를 붙이고 AI 작업 기록을 건드리지 않는다(시작할 때도 바꾸지 않았다).
     boolean test = row.followUpTestBy() != null;
     post(row.agentUserId(), project, issue, (test ? TEST_LABEL : "") + FOLLOW_UP_LOST);
-    if (!test) restoreAfterFollowUp(row, issue);
+    if (test) return;
+    // 끝난 「한 번만」 예약(WP-1315)의 이어 처리는 돌아갈 「다음 회차 대기」가 없다 — 결과를 못 받은 이어 처리로 작업을 실패로 끝낸다.
+    if (finishedOnce(row)) settleOnce(issue, row.agentUserId(), false, false, false);
+    else restoreAfterFollowUp(row, issue);
   }
 
   /** 반복 하나의 이번 회차 — 보냈으면 true, 건너뛰었으면(지움·멈춤) false. */
@@ -499,8 +556,10 @@ public class IssueRecurrenceService {
     }
 
     // 켜진 반복은 늘 다음 회차가 있어야 한다 — 계산할 수 없으면(규칙이 더는 회차를 내지 않음) 반복을 끄고 알린다. null 을 저장하지 않는다.
-    Instant next = rules.nextRunAfter(row.rrule(), row.runTime(), now);
-    if (next == null) {
+    // 「한 번만」(WP-1315)은 이번이 하나뿐인 회차라 다음 회차가 없는 것이 정상이다 — 다음 회차를 비운 채 보내고, 결과 보고가 일정을 끈다.
+    boolean once = IssueRecurrenceRules.isOnce(row.rrule());
+    Instant next = once ? null : rules.nextRunAfter(row.rrule(), row.runTime(), now);
+    if (next == null && !once) {
       log.warn(
           "[recurrence] 다음 회차 계산 불가 — 반복을 끈다. issueId={} rrule={}", row.issueId(), row.rrule());
       repository.disable(row.issueId());
@@ -646,7 +705,7 @@ public class IssueRecurrenceService {
               : FOLLOW_UP_FAILED_PREFIX + orDefault(report.message(), "알 수 없는 오류");
       // 테스트 질문의 이어 처리(WP-1313)는 테스트 표시를 붙이고, 또 물으면 같은 사람이 답하는 테스트 질문으로 남긴다.
       if (row.followUpTestBy() != null) text = TEST_LABEL + text;
-      applyFollowUpResult(row, text, report.asQuestion(), report.pausedActions());
+      applyFollowUpResult(row, report.ok(), text, report.asQuestion(), report.pausedActions());
       return;
     }
     String body =
@@ -677,19 +736,32 @@ public class IssueRecurrenceService {
         issue == null ? null : projectRepository.findById(issue.projectId()).orElse(null);
 
     int failures = ok ? 0 : row.consecutiveFailures() + 1;
+    // 「한 번만」(WP-1315)의 그 회차 결과면(성공·실패 모두) 일정을 끄고 다음 회차를 비운다. 결과를 기다리는 사이 다시 저장해 새 시각이 잡혔으면
+    // (다음 회차가 있음) 새 예약을 살려 둔다 — 지난 예약의 결과가 새 예약을 지우지 않게.
+    boolean onceDone = IssueRecurrenceRules.isOnce(row.rrule()) && row.nextRunAt() == null;
+    // 다음 회차는 보낼 때(markDispatched) 이미 비웠으니 끄기만 하면 된다. 멈춤(3회 연속 실패)은 아래에서 onceDone 다음에 보므로 한 번만에는 쓰이지
+    // 않는다.
     boolean stop = !ok && failures >= MAX_CONSECUTIVE_FAILURES;
-    boolean enabled = row.enabled() && !stop;
+    boolean enabled = row.enabled() && !stop && !onceDone;
     repository.recordResult(issueId, failures, enabled);
     if (issue == null || project == null) return failures;
 
     postResult(issueId, agentId, project, issue, body, question, null, null);
-    if (!question && ok && row.pendingQuestionMessageId() != null && !row.testQuestion()) {
+    if (!question
+        && (ok || onceDone)
+        && row.pendingQuestionMessageId() != null
+        && !row.testQuestion()) {
       // 질문 없이 끝난 뒤 회차가 앞선 질문을 낡게 만든다 — 소유자의 다음 아무 글이 지난 회차의 질문(예: 「메일 보낼까요?」)에 대한 답으로
-      // 잡혀 소유자 권한으로 이미 의미 없는 쓰기를 하지 않게 지운다. 실패한 회차는 앞선 질문을 대신하지 못하므로 그대로 둔다.
+      // 잡혀 소유자 권한으로 이미 의미 없는 쓰기를 하지 않게 지운다. 실패한 회차는 앞선 질문을 대신하지 못하므로 그대로 둔다 — 다만 끝난
+      // 「한 번만」(WP-1315)은 이어 갈 일정이 없고, 남은 질문은 끝난 작업을 답으로 되살리므로 실패여도 지운다.
       // 「지금 실행」이 남긴 테스트 질문(WP-1313)은 정기 회차와 따로라 남긴다 — 누른 사람이 답을 기다리는 질문이 정기 회차에 사라지지 않게.
       repository.clearPendingQuestion(issueId);
     }
-    if (stop && row.enabled()) {
+    if (onceDone) {
+      // 한 번만 실행이 끝났다 — 질문이나 도는 이어 처리가 없으면 작업 기록을 끝낸다(성공은 완료, 실패는 실패). 이슈는 그대로 두어 사람이 결과를
+      // 보고 닫는다.
+      if (row.enabled()) settleOnce(issue, agentId, ok, question, row.followUpRunId() != null);
+    } else if (stop && row.enabled()) {
       post(agentId, project, issue, STOPPED_NOTICE);
       block(issue, agentId, NOTE_STOPPED);
     } else if (enabled && live(issue, agentId)) {
@@ -709,7 +781,11 @@ public class IssueRecurrenceService {
    * 도는 중이면 그대로). 묘비면 글만 남기고, 기다리는 정기 회차가 없으면 행을 지운다.
    */
   private void applyFollowUpResult(
-      IssueRecurrenceRow row, String body, boolean question, List<RecurringPausedAction> paused) {
+      IssueRecurrenceRow row,
+      boolean ok,
+      String body,
+      boolean question,
+      List<RecurringPausedAction> paused) {
     if (row.deleted()) {
       finishTombstone(row, RunKind.FOLLOW_UP, body);
       return;
@@ -731,7 +807,10 @@ public class IssueRecurrenceService {
         question,
         testBy,
         testBy == null ? null : pausedJson(paused));
-    if (testBy == null) restoreAfterFollowUp(row, issue);
+    if (testBy != null) return;
+    // 끝난 「한 번만」 예약(WP-1315)의 질문을 이어 처리한 결과 — 또 물으면 답을 기다리고, 아니면 이 결과로 작업 기록을 끝낸다(일정은 이미 꺼져 있다).
+    if (finishedOnce(row)) settleOnce(issue, row.agentUserId(), ok, question, false);
+    else restoreAfterFollowUp(row, issue);
   }
 
   /**
@@ -768,6 +847,45 @@ public class IssueRecurrenceService {
         row.agentUserId(),
         TOOL,
         row.pendingRunId() != null ? runningPatch() : scheduledPatch(row.nextRunAt()));
+  }
+
+  /**
+   * 끝난 「한 번만」 예약인지(WP-1315) — 한 번만 규칙이고, 그 회차의 결과로 꺼져 다음 회차가 없다(묘비 제외). 이때 남은 질문·도는 이어 처리가 작업 기록을
+   * 끝내는 몫을 이어받는다. 결과를 기다리는 사이 다시 저장한 예약은 켜져 있어 해당하지 않는다.
+   */
+  static boolean finishedOnce(IssueRecurrenceRow row) {
+    return !row.deleted()
+        && !row.enabled()
+        && row.nextRunAt() == null
+        && IssueRecurrenceRules.isOnce(row.rrule());
+  }
+
+  /**
+   * 「한 번만」 예약(WP-1315)의 실행 하나(회차·이어 처리)가 끝난 뒤 작업 기록을 정한다 — 질문으로 끝났으면 정기 회차 질문과 같은 「다음 회차 대기」로 답을
+   * 기다리고, 이어 처리가 아직 돌면 「작업 중」을 유지하고(그 결과가 정한다), 아니면 이 결과로 끝낸다. 이슈·담당이 살아 있을 때만.
+   *
+   * @param followUpInFlight 다른 이어 처리가 결과를 기다리는 중인지
+   */
+  private void settleOnce(
+      IssueRow issue, long agentId, boolean ok, boolean question, boolean followUpInFlight) {
+    if (!live(issue, agentId)) return;
+    if (question) {
+      agentWorkService.startOrUpdateTracked(
+          issue.id(), agentId, TOOL, scheduledPatch(null, NOTE_ONCE_QUESTION));
+    } else if (followUpInFlight) {
+      agentWorkService.startOrUpdateTracked(issue.id(), agentId, TOOL, followUpPatch());
+    } else {
+      agentWorkService.end(
+          issue.id(),
+          agentId,
+          ok ? AgentWorkState.COMPLETED : AgentWorkState.FAILED,
+          endPatch(ok ? NOTE_ONCE_DONE : NOTE_ONCE_FAILED));
+    }
+  }
+
+  /** 작업 기록을 끝낼 때의 패치 — 반복 도구로 메모만 남긴다(WP-1315 한 번만). 질문 기한 정리(이어 처리 서비스)도 쓴다. */
+  static AgentWorkPatch endPatch(String note) {
+    return new AgentWorkPatch(TOOL, null, note, false, null, null, null);
   }
 
   /**
@@ -954,8 +1072,12 @@ public class IssueRecurrenceService {
 
   /** 「다음 회차 대기」 작업 패치 — SCHEDULED + 다음 회차 시각. */
   private static AgentWorkPatch scheduledPatch(Instant next) {
-    return new AgentWorkPatch(
-        TOOL, AgentWorkState.SCHEDULED, NOTE_SCHEDULED, false, null, null, null, next);
+    return scheduledPatch(next, NOTE_SCHEDULED);
+  }
+
+  /** 「다음 회차 대기」 작업 패치 — 메모를 고른다(한 번만이 답을 기다릴 때는 다음 회차 시각 없이, WP-1315). */
+  private static AgentWorkPatch scheduledPatch(Instant next, String note) {
+    return new AgentWorkPatch(TOOL, AgentWorkState.SCHEDULED, note, false, null, null, null, next);
   }
 
   private IssueRow issue(ProjectRow project, String projectKey, int number) {

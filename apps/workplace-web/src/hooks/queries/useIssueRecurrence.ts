@@ -9,6 +9,7 @@ import {
   deleteIssueRecurrence,
   fetchIssueRecurrence,
   fetchIssueRecurrenceAgents,
+  fetchProjectRecurrenceAgents,
   postIssueRecurrenceTestRun,
   putIssueRecurrence,
 } from '../../api/issueRecurrence';
@@ -43,6 +44,18 @@ export function useIssueRecurrenceAgents(projectKey: string, number: number, ena
   return useQuery<IssueRecurrenceAgentOption[], Error>({
     queryKey: [...issueRecurrenceKey(projectKey, number), 'agents'],
     queryFn: () => fetchIssueRecurrenceAgents(projectKey, number),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * 만들기 창의 담당 AI 후보(WP-1315) — 「AI 에게 맡기기」를 펼쳤을 때만 받는다(enabled). 이슈 단위 후보와 같은 목록을 프로젝트 키로 받는다.
+ */
+export function useProjectRecurrenceAgents(projectKey: string, enabled = true) {
+  return useQuery<IssueRecurrenceAgentOption[], Error>({
+    queryKey: ['projects', projectKey, 'recurrence-agents'],
+    queryFn: () => fetchProjectRecurrenceAgents(projectKey),
     enabled,
     staleTime: 30_000,
   });

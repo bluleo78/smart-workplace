@@ -41,3 +41,11 @@ export async function fetchIssueRecurrenceAgents(projectKey: string, number: num
   const { data } = await client.get<IssueRecurrenceAgentOption[]>(`${path(projectKey, number)}/agents`);
   return data;
 }
+
+/**
+ * 프로젝트 단위 담당 AI 후보(WP-1315) — 만들기 창의 「AI 에게 맡기기」는 이슈가 생기기 전에 고르므로 프로젝트 키로 받는다. 이슈 단위 후보와 같은 목록이다.
+ */
+export async function fetchProjectRecurrenceAgents(projectKey: string): Promise<IssueRecurrenceAgentOption[]> {
+  const { data } = await client.get<IssueRecurrenceAgentOption[]>(`/projects/${projectKey}/recurrence-agents`);
+  return data;
+}
