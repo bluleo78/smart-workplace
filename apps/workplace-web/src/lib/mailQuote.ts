@@ -7,6 +7,7 @@
 
 import { formatDateMonthDay, formatDateTimeMinute } from '@/lib/formatters';
 import { collectQuoteInlineImages, type QuoteInlineImage } from '@/lib/mailInlineImages';
+import { escapeHtml } from '@/lib/utils';
 import type { EmailMessageDetail } from '@/types/mailMessage';
 
 /** 인용문 조립 결과 — html 은 발송 본문·프리뷰 공용, text 는 plain-text alternative 용. */
@@ -119,15 +120,6 @@ function extractBlockText(root: Element): string {
   root.childNodes.forEach(walk);
   // 연속 3개 이상 개행은 2개로 압축.
   return parts.join('').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-/** 원문 텍스트를 escape 해 pre 로 감싼다(HTML 본문이 없을 때의 폴백). */
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 /**

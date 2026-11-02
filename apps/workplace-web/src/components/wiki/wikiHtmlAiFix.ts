@@ -43,6 +43,7 @@ export function prefillChip(current: string, starter: string): string {
 export function describePicked(item: PickedElement): string {
   const lines = [`선택자: ${item.path}`, `태그: ${item.tag}`, `종류: ${item.kind}`]
   if (item.text) lines.push(`글자: ${item.text}`)
+  // 글자 고치기 화면(WP-1309)의 편집 표지(번호·지문)는 고르기가 iframe 안에서 걷어 보낸다(htmlPickerHtml).
   if (item.html) lines.push(`HTML: ${item.html}`)
   return clampUtf16(lines.join('\n'), FIX_HTML_MAX_TARGET_CHARS)
 }

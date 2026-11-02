@@ -69,12 +69,17 @@ function isSessionLock(lock: WikiHtmlLockStatus | undefined, s: LockSession): bo
  * - 입력이 10분 없거나, 잠금이 이 세션 것이 아니게 됐거나(강제 풀기·남·내 다른 창), 화면을 떠나면 편집을 끝내고 내용은 임시 저장본으로 남긴다.
  * - forceRelease: 「잠금 풀기」(스페이스 소유자) — 편집하던 사람의 내용은 그 사람의 임시 저장본으로 남는다.
  *
- * lock 은 useWikiHtmlLock 의 결과, userId 는 나다. saving 인 동안은 잠금을 잃은 것으로 보지 않는다 — 내 저장이 푼 잠금의 알림이 저장 응답보다 먼저 와도 「잠금이 풀려
+ * lock 은 useWikiHtmlLock 의 결과, userId 는 나다. onBegin 은 편집을 시작할 때(새로·이어 고치기) 시작 소스로 불린다 — 화면이 편집 화면을 그 소스로 띄운다(WP-1309). saving 인 동안은 잠금을 잃은 것으로 보지 않는다 — 내 저장이 푼 잠금의 알림이 저장 응답보다 먼저 와도 「잠금이 풀려
  * 편집이 끝났다」고 잘못 알리지 않게(저장이 끝나면 finishSaved 가 정리한다).
  */
 export function useHtmlEditSession(
   pageId: number,
-  { lock, saving, userId }: { lock: WikiHtmlLockStatus | undefined; saving: boolean; userId: number | undefined },
+  {
+    lock,
+    saving,
+    userId,
+    onBegin,
+  }: { lock: WikiHtmlLockStatus | undefined; saving: boolean; userId: number | undefined; onBegin?: (html: string) => void },
 ) {
   const qc = useQueryClient()
   // 상태와 ref 를 함께 바꾼다 — 타이머·정리 콜백은 렌더를 기다리지 않고 ref 로 지금 값을 본다(끝낸 직후 도착한 잠금 상태를 「잃음」으로 오해하지 않게).
@@ -91,6 +96,11 @@ export function useHtmlEditSession(
   const lastInputAt = useRef(0)
   const unsent = useRef(false)
   const lastSentHtml = useRef<string | null>(null)
+  // 시작 알림은 최신 콜백을 부른다(begin 을 콜백마다 다시 만들지 않게).
+  const onBeginRef = useRef(onBegin)
+  useEffect(() => {
+    onBeginRef.current = onBegin
+  })
 
   // 잠금 캐시가 아직 이 세션 것이면 「풀림」으로 바꾼다(내가 풀었다) — 그사이 남·다른 창이 가져갔으면 그 상태를 그대로 둔다.
   const clearOwnLock = useCallback(
@@ -152,6 +162,7 @@ export function useHtmlEditSession(
       lastSentHtml.current = null
       setResume(null)
       setEditing({ html, baseVersion, edited: fromDraft })
+      onBeginRef.current?.(html)
     },
     [setEditing],
   )

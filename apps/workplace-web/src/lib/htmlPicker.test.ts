@@ -91,6 +91,18 @@ describe('요소 정보(htmlPickerInfo)', () => {
     expect(info.html).toHaveLength(300)
     expect(info.rect).toEqual({ x: 0, y: 0, width: 0, height: 0 })
   })
+
+  it('글자 고치기 화면(WP-1309)의 편집 표지는 사본에서 걷은 뒤 300자로 자른다 — 요소 자신은 그대로이고, 잘린 표지 꼬리도 남지 않는다', () => {
+    const long = '나'.repeat(260)
+    document.body.innerHTML =
+      `<h1 id="h" class="t" data-wp-src="3" data-wp-t="abc" contenteditable="true">제목 <b data-wp-src="4">굵게</b></h1>` +
+      `<p id="p" data-wp-new="x1" data-wp-after="s:3">${long}<b data-wp-src="12">끝</b></p>`
+    const h = document.getElementById('h')!
+    expect(core.htmlPickerInfo(h).html).toBe('<h1 id="h" class="t">제목 <b>굵게</b></h1>')
+    expect(h.getAttribute('data-wp-src')).toBe('3')
+    // 표지째면 300자를 넘어 끝이 잘린다 — 걷은 뒤 재므로 300자 안에 다 들어온다.
+    expect(core.htmlPickerInfo(document.getElementById('p')!).html).toBe(`<p id="p">${long}<b>끝</b></p>`)
+  })
 })
 
 describe('부모 쪽 메시지 검증(htmlPickerEventFromMessage)', () => {

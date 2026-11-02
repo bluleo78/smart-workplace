@@ -7,8 +7,9 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test, vi } from 'vitest'
 
+import { emitAiStreamEvent } from '@/lib/aiEventBus'
 import { htmlScriptsCheckHandlers } from '@/test/kits/wiki/htmlScriptsCheck'
-import { renderScreen } from '@/test/renderScreen'
+import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { WikiHtmlDraftInfo, WikiHtmlLockStatus, WikiPageDetail, WikiRevisionDetail, WikiRevisionList, WikiRole } from '@/types/wiki'
 
 import { wikiHtmlLock, wikiHtmlPageDetail, wikiPageSummary, wikiSpace } from '../../../../e2e/factories/wiki.factory'
@@ -71,6 +72,12 @@ function open({
   return { ...view, lockCalls }
 }
 
+/** 편집 중 「소스」 — 처음 「편집」은 보이는 화면 편집(WP-1309)이라, 소스 칸으로 고치는 테스트는 소스 + 미리보기로 옮겨 간다. */
+async function toSource(user: ScreenUser) {
+  await user.click(await screen.findByTestId('wiki-html-mode-source'))
+  return screen.findByTestId<HTMLTextAreaElement>('wiki-html-source')
+}
+
 test('kind=HTML 이면 편집기 대신 원본을 격리 iframe 으로 그린다 — 스크립트는 기본 멈춤이고 스위치로 켜도 allow-same-origin 은 없다(WP-1290)', async () => {
   open()
   const frame = await screen.findByTestId('wiki-html-frame')
@@ -122,10 +129,12 @@ test('편집 → 고쳐 저장하면 잠금을 얻고, 고치기 시작한 versi
   })
   await user.click(await screen.findByTestId('wiki-html-mode-edit'))
   expect(lockCalls).toEqual([{ method: 'POST' }])
-  // 편집하는 동안 보기·소스는 잠기고 저장·취소가 보인다.
+  // 편집하는 동안 보기는 잠기고 저장·취소가 보인다. 처음엔 보이는 화면 편집 — 「소스」로 소스 + 미리보기에 간다.
   expect(screen.getByTestId('wiki-html-mode-view')).toBeDisabled()
   expect(screen.queryByTestId('wiki-html-reupload')).not.toBeInTheDocument()
-  const source = screen.getByTestId<HTMLTextAreaElement>('wiki-html-source')
+  expect(await screen.findByTestId('wiki-html-visual-frame')).toBeInTheDocument()
+  const source = await toSource(user)
+  expect(screen.getByTestId('wiki-html-mode-source')).toHaveAttribute('aria-pressed', 'true')
   expect(source.value).toContain('<h1>매출 차트</h1>')
   await user.clear(source)
   await user.click(source)
@@ -158,8 +167,7 @@ test('저장이 409 면 알리고 소스를 남긴 채, 다시 받은 version �
     ],
   })
   await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-  await screen.findByTestId('wiki-html-source')
-  await user.click(screen.getByTestId('wiki-html-source'))
+  await user.click(await toSource(user))
   await user.paste('<p>내 수정</p>')
   version = 4 // 고치는 사이 다른 사람이 저장했다.
   await user.click(screen.getByTestId('wiki-html-source-save'))
@@ -294,7 +302,7 @@ test('스페이스 소유자는 「잠금 풀기」 → 확인으로 남의 잠�
 test('편집 → 취소하면 잠금을 풀고 고친 내용을 버린다(임시 저장본도 지운다) — 보기로 돌아와 원본 그대로를 그린다', async () => {
   const { user, lockCalls } = open()
   await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-  const source = await screen.findByTestId<HTMLTextAreaElement>('wiki-html-source')
+  const source = await toSource(user)
   await user.click(source)
   await user.paste('<p>버릴 수정</p>')
   await user.click(screen.getByTestId('wiki-html-source-cancel'))
@@ -354,7 +362,7 @@ test('남은 임시 저장본이 있으면 이어 고칠지 묻고, 그사이 �
   const dialog = await screen.findByTestId('wiki-html-resume-dialog')
   expect(within(dialog).getByTestId('wiki-html-resume-changed')).toHaveTextContent('그사이 다른 사람이 이 문서를 저장했습니다')
   await user.click(within(dialog).getByTestId('wiki-html-resume-continue'))
-  expect(screen.getByTestId<HTMLTextAreaElement>('wiki-html-source').value).toBe('<p>고치던 내용</p>')
+  expect((await toSource(user)).value).toBe('<p>고치던 내용</p>')
   await user.click(screen.getByTestId('wiki-html-source-save'))
   await waitFor(() => expect(saves).toEqual([{ html: '<p>고치던 내용</p>', version: 5, lockToken: TOKEN }]))
 })
@@ -367,7 +375,7 @@ test('이어 고칠지 물을 때 「새로 시작」이면 지금 원본으로 
   const dialog = await screen.findByTestId('wiki-html-resume-dialog')
   expect(within(dialog).queryByTestId('wiki-html-resume-changed')).not.toBeInTheDocument()
   await user.click(within(dialog).getByTestId('wiki-html-resume-fresh'))
-  expect(screen.getByTestId<HTMLTextAreaElement>('wiki-html-source').value).toContain('<h1>매출 차트</h1>')
+  expect((await toSource(user)).value).toContain('<h1>매출 차트</h1>')
   // 답했으니 잠금은 그대로 쥐고 있다(풀기 요청이 없다).
   expect(lockCalls).toEqual([{ method: 'POST' }])
 })
@@ -378,12 +386,12 @@ test('편집 중 잠금이 남에게 넘어가면(소유자가 풀고 남이 시
     lock: () => (other ? wikiHtmlLock({ locked: true, holderName: '김민지' }) : MY_LOCK),
   })
   await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-  await screen.findByTestId('wiki-html-source')
+  await screen.findByTestId('wiki-html-visual')
   other = true
   // SSE(wiki.page.lock)가 잠금 상태를 다시 받게 한 것과 같다.
   await queryClient.invalidateQueries({ queryKey: wikiKeys.htmlLock(PAGE_ID) })
   expect(await screen.findByText(/김민지 님이 편집을 시작해 내 편집이 끝났습니다/)).toBeInTheDocument()
-  expect(screen.queryByTestId('wiki-html-source')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('wiki-html-visual')).not.toBeInTheDocument()
   expect(await screen.findByTestId('wiki-html-lock-banner')).toHaveTextContent('김민지 님이 편집 중입니다')
   await waitFor(() => expect(lockCalls).toContainEqual({ method: 'DELETE', query: `?force=false&keepDraft=true&token=${TOKEN}` }))
 })
@@ -402,7 +410,7 @@ test('편집 중 입력이 있으면 신호로 고치던 소스를 임시 저장
       ],
     })
     await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-    const source = await screen.findByTestId<HTMLTextAreaElement>('wiki-html-source')
+    const source = await toSource(user)
     await user.click(source)
     await user.paste('<p>고치는 중</p>')
     await act(async () => {
@@ -441,7 +449,7 @@ test('신호 응답이 mine=false 면(내 다른 창이 편집을 넘겨받음) 
       handlers: [http.put(`/api/v1/wiki/pages/${PAGE_ID}/html-lock`, () => HttpResponse.json(otherWindow))],
     })
     await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-    await user.click(await screen.findByTestId('wiki-html-source'))
+    await user.click(await toSource(user))
     await user.paste('<p>옛 창</p>')
     await act(async () => {
       await vi.advanceTimersByTimeAsync(HTML_EDIT_HEARTBEAT_MS)
@@ -459,7 +467,7 @@ test('신호 응답이 mine=false 면(내 다른 창이 편집을 넘겨받음) 
 test('잠금 이벤트(SSE)가 같은 사람의 새 세션을 알리면(시작 시각이 다름) 다시 받지 않고 편집을 끝낸다', async () => {
   const { user, queryClient } = open()
   await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-  await screen.findByTestId('wiki-html-source')
+  await screen.findByTestId('wiki-html-visual')
   act(() => {
     handleWikiEvent(queryClient, 'wiki.page.lock', {
       spaceId: 1,
@@ -472,7 +480,7 @@ test('잠금 이벤트(SSE)가 같은 사람의 새 세션을 알리면(시작 �
     })
   })
   expect(await screen.findByText(/다른 창에서 편집을 시작해 내 편집이 끝났습니다/)).toBeInTheDocument()
-  expect(screen.queryByTestId('wiki-html-source')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('wiki-html-visual')).not.toBeInTheDocument()
 })
 
 test('잠금 이벤트(SSE)는 다시 받지 않고 띠를 바꾼다 — 남이 잡으면 띠, 풀리면 사라진다(소유자면 잠금 풀기도 보인다)', async () => {
@@ -531,11 +539,184 @@ test('남이 편집 중이면 버전 기록의 「되돌리기」가 막히고 �
 test('고친 내용이 있는 동안만 「저장 안 한 입력」으로 등록된다(탭 닫기 경고·자동 새로고침 막기)', async () => {
   const { user } = open()
   await user.click(await screen.findByTestId('wiki-html-mode-edit'))
-  const source = await screen.findByTestId('wiki-html-source')
+  const source = await toSource(user)
   expect(hasUnsavedInput()).toBe(false)
   await user.click(source)
   await user.paste('<p>고침</p>')
   await waitFor(() => expect(hasUnsavedInput()).toBe(true))
   await user.click(screen.getByTestId('wiki-html-source-cancel'))
   await waitFor(() => expect(hasUnsavedInput()).toBe(false))
+})
+
+// ── 보이는 화면 편집(WP-1309) ─────────────────────────────────────────────
+
+/**
+ * 보이는 화면 편집 iframe — 문서(srcdoc)에서 글자 고치기 토큰과 요소 번호를 읽고, iframe 이 보낼 메시지를 흉내 낸다(jsdom 은 iframe 스크립트를 돌리지 않는다).
+ * 실제 클릭·서식 도구·붙여넣기는 E2E(wiki-html-document.spec.ts, @input)가 본다.
+ */
+function visualFrame() {
+  const frame = screen.getByTestId<HTMLIFrameElement>('wiki-html-visual-frame')
+  const srcdoc = frame.getAttribute('srcdoc') ?? ''
+  const token = /<script data-wp-html-edit[^>]*>[\s\S]*?var TOKEN="([^"]+)"/.exec(srcdoc)![1]
+  const doc = new DOMParser().parseFromString(srcdoc, 'text/html')
+  const index = (selector: string) => doc.querySelector(selector)!.getAttribute('data-wp-src')!
+  const send = (data: Record<string, unknown>) =>
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { type: 'wp-html-edit', token, ...data } }))
+    })
+  return { frame, srcdoc, token, index, send }
+}
+
+test('「편집」은 원본 화면 위에서 글자를 고치는 화면이다 — 노트 스크립트가 멈춰 있으면 우리 스크립트만(CSP nonce) 돌린다(WP-1290)', async () => {
+  const { user } = open()
+  await user.click(await screen.findByTestId('wiki-html-mode-edit'))
+  await screen.findByTestId('wiki-html-visual-frame')
+  const { frame, srcdoc } = visualFrame()
+  const sandbox = frame.getAttribute('sandbox') ?? ''
+  // 편집 도구 때문에 allow-scripts 로 띄우지만 allow-same-origin 은 없다.
+  expect(sandbox.split(/\s+/)).toContain('allow-scripts')
+  expect(sandbox).not.toContain('allow-same-origin')
+  // 원본 요소마다 번호, 고칠 수 있는 제목엔 글자 지문.
+  expect(srcdoc).toMatch(/<h1 data-wp-src="\d+" data-wp-t="[0-9a-z]+">매출 차트<\/h1>/)
+  // 스크립트가 멈춘 노트 — 문서 스크립트는 띄울 사본에서 빠지고, 맨 앞 CSP 가 nonce 없는 스크립트를 막는다. 우리 스크립트에만 같은 nonce.
+  const nonce = /script-src 'nonce-([0-9a-f]+)'/.exec(srcdoc)?.[1]
+  expect(nonce).toMatch(/^[0-9a-f]{32}$/)
+  expect(srcdoc.indexOf('Content-Security-Policy')).toBeLessThan(srcdoc.indexOf('<h1'))
+  expect(srcdoc).not.toContain('document.body.dataset.ran = "1"')
+  expect(srcdoc).toContain(`<script data-wp-html-picker nonce="${nonce}">`)
+  expect(srcdoc).toContain(`<script data-wp-html-edit nonce="${nonce}">`)
+  expect(screen.getByTestId('wiki-html-mode-edit')).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByTestId('wiki-html-visual-hint')).toHaveTextContent('글자를 눌러 바로 고칩니다')
+  // 편집 중 스위치를 켜면 고친 것까지 받아 다시 띄운다 — 이번엔 문서 스크립트도 돌고 CSP 는 없다.
+  await user.click(within(screen.getByTestId('wiki-html-script-bar')).getByRole('switch', { name: '스크립트 실행' }))
+  await waitFor(() => expect(visualFrame().srcdoc).toContain('document.body.dataset.ran = "1"'))
+  const running = visualFrame().srcdoc
+  expect(running).not.toContain('Content-Security-Policy')
+  expect(running).toContain('<script data-wp-html-edit>')
+  expect(screen.getByTestId('wiki-html-script-bar')).toHaveAttribute('data-on', 'true')
+})
+
+test('iframe 에서 고친 글자는 원본에 되돌려 저장된다 — 고친 글자만 바뀌고 스크립트·편집 표지는 들어가지 않으며, 「소스」로 옮겨도 이어진다', async () => {
+  const saves: { html: string; version: number }[] = []
+  const { user } = open({
+    handlers: [
+      http.put(`/api/v1/wiki/pages/${PAGE_ID}/html`, async ({ request }) => {
+        const body = (await request.json()) as { html: string; version: number }
+        saves.push(body)
+        return HttpResponse.json(wikiHtmlPageDetail({ id: PAGE_ID, version: 4, html: body.html }))
+      }),
+    ],
+  })
+  await user.click(await screen.findByTestId('wiki-html-mode-edit'))
+  await screen.findByTestId('wiki-html-visual-frame')
+  const v = visualFrame()
+  // iframe 안 스크립트가 보낸 것처럼 — 서식 붙은 글자와, 흉내 낸 스크립트 고치기(버려진다).
+  v.send({
+    event: 'edits',
+    items: [
+      { ref: `s:${v.index('h1')}`, html: '매출 <b>차트</b> (최종)' },
+      { ref: `s:${v.index('body > script')}`, html: 'alert(1)' },
+    ],
+  })
+  const edited =
+    '<!doctype html><html><head><title>분기 대시보드</title></head><body><h1>매출 <b>차트</b> (최종)</h1><script>document.body.dataset.ran = "1"</script></body></html>'
+  // 「소스」로 옮기면 고친 소스가 보이고, 「편집」으로 돌아오면 그 소스로 화면을 다시 띄운다.
+  expect((await toSource(user)).value).toBe(edited)
+  await user.click(screen.getByTestId('wiki-html-mode-edit'))
+  await screen.findByTestId('wiki-html-visual-frame')
+  expect(visualFrame().srcdoc).toContain('(최종)</h1>')
+  await user.click(screen.getByTestId('wiki-html-source-save'))
+  await waitFor(() => expect(saves).toEqual([{ html: edited, version: 3, lockToken: TOKEN }]))
+  expect(saves[0].html).not.toContain('data-wp-')
+})
+
+test('iframe 의 붙여넣기는 부모 정리기를 거쳐 넣으라고 돌려준다 — 굵게는 남고 스크립트·블록은 걸러진다', async () => {
+  const { user } = open()
+  await user.click(await screen.findByTestId('wiki-html-mode-edit'))
+  await screen.findByTestId('wiki-html-visual-frame')
+  const v = visualFrame()
+  const post = vi.spyOn(v.frame.contentWindow!, 'postMessage')
+  v.send({ event: 'paste', html: '<p>웹 <b>굵게</b><script>x()</script></p><p>둘째</p>', text: '웹 굵게' })
+  expect(post).toHaveBeenLastCalledWith({ type: 'wp-html-edit', token: v.token, cmd: 'insert', html: '웹 <b>굵게</b><br>둘째' }, '*')
+  // 다른 토큰은 무시한다.
+  post.mockClear()
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', { source: v.frame.contentWindow, data: { type: 'wp-html-edit', token: 'nope', event: 'paste', html: '<b>x</b>', text: 'x' } }),
+    )
+  })
+  expect(post).not.toHaveBeenCalled()
+})
+
+test('고르기를 켜면 글자 고치기를 멈추고, 「AI로 고치기」는 이 문서를 고칠 입력 칸을 연다', async () => {
+  const { user } = open()
+  await user.click(await screen.findByTestId('wiki-html-mode-edit'))
+  await screen.findByTestId('wiki-html-visual-frame')
+  const v = visualFrame()
+  const post = vi.spyOn(v.frame.contentWindow!, 'postMessage')
+  await user.click(screen.getByTestId('wiki-html-visual-pick'))
+  expect(screen.getByTestId('wiki-html-visual-pick')).toHaveAttribute('aria-pressed', 'true')
+  expect(post).toHaveBeenCalledWith({ type: 'wp-html-edit', token: v.token, cmd: 'pause' }, '*')
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'wp-html-picker', cmd: 'enable' }), '*')
+  await user.click(screen.getByTestId('wiki-html-visual-pick'))
+  expect(post).toHaveBeenLastCalledWith({ type: 'wp-html-edit', token: v.token, cmd: 'resume' }, '*')
+  await user.click(screen.getByTestId('wiki-html-visual-ai'))
+  expect(screen.getByTestId('wiki-html-embed-ai-input')).toHaveAttribute('placeholder', expect.stringContaining('이 문서를 어떻게 고칠까요?'))
+})
+
+test('요소를 골라 「AI로 고치기」로 보낸 결과를 「적용」하면 편집 소스가 바뀌고 저장된다', async () => {
+  const starts: Array<{ action: string; selection: string; prompt: string; targets?: string[] }> = []
+  const saves: { html: string }[] = []
+  const fixed = '<!doctype html><html><head><title>분기 대시보드</title></head><body><h1>매출 차트</h1><svg id="c"><rect fill="red"></rect></svg></body></html>'
+  const { user } = open({
+    handlers: [
+      http.post(`/api/v1/wiki/pages/${PAGE_ID}/ai`, async ({ request }) => {
+        starts.push((await request.json()) as (typeof starts)[number])
+        return HttpResponse.json({ correlationId: 'corr-doc' })
+      }),
+      http.put(`/api/v1/wiki/pages/${PAGE_ID}/html`, async ({ request }) => {
+        const body = (await request.json()) as { html: string }
+        saves.push(body)
+        return HttpResponse.json(wikiHtmlPageDetail({ id: PAGE_ID, version: 4, html: body.html }))
+      }),
+    ],
+  })
+  await user.click(await screen.findByTestId('wiki-html-mode-edit'))
+  await screen.findByTestId('wiki-html-visual-frame')
+  const v = visualFrame()
+  // 고르기 iframe 이 제목을 골랐다고 알린다 — 편집 표지(번호·지문)는 iframe 안에서 걷어 보낸다(htmlPicker.test).
+  const pickerToken = /<script data-wp-html-picker[^>]*>[\s\S]*?var TOKEN="([^"]+)"/.exec(v.srcdoc)![1]
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: v.frame.contentWindow,
+        data: {
+          type: 'wp-html-picker',
+          token: pickerToken,
+          event: 'state',
+          enabled: true,
+          items: [{ path: 'body:nth-of-type(1) > h1:nth-of-type(1)', tag: 'h1', kind: '제목', text: '매출 차트', html: '<h1>매출 차트</h1>', rect: { x: 0, y: 0, width: 10, height: 10 } }],
+        },
+      }),
+    )
+  })
+  expect(await screen.findByTestId('wiki-html-embed-chip')).toHaveTextContent('제목 · 매출 차트')
+  await user.click(screen.getByTestId('wiki-html-visual-ai'))
+  await user.click(screen.getByTestId('wiki-html-embed-ai-input'))
+  await user.paste('아래에 빨간 차트를 넣어 줘')
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(starts).toHaveLength(1))
+  expect(starts[0]).toMatchObject({ action: 'fix_html', prompt: '아래에 빨간 차트를 넣어 줘' })
+  expect(starts[0].selection).toContain('<h1>매출 차트</h1>')
+  expect(starts[0].targets?.[0]).toContain('HTML: <h1>매출 차트</h1>')
+  act(() => {
+    emitAiStreamEvent('wiki.ai.delta', { correlationId: 'corr-doc', text: fixed })
+    emitAiStreamEvent('wiki.ai.done', { correlationId: 'corr-doc' })
+  })
+  await user.click(await screen.findByTestId('wiki-html-embed-ai-apply'))
+  // 적용하면 칸이 닫히고 편집 화면이 고친 소스로 다시 뜬다 — 저장하면 그 소스가 간다.
+  await waitFor(() => expect(screen.queryByTestId('wiki-html-embed-ai')).not.toBeInTheDocument())
+  await waitFor(() => expect(visualFrame().srcdoc).toContain('<rect fill="red" data-wp-src='))
+  await user.click(screen.getByTestId('wiki-html-source-save'))
+  await waitFor(() => expect(saves.map((x) => x.html)).toEqual([fixed]))
 })

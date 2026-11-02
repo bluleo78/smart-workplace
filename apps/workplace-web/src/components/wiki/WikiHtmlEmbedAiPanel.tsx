@@ -5,6 +5,7 @@ import { type KeyboardEvent, memo, type ReactNode, useCallback, useEffect, useMe
 import { toast } from 'sonner'
 
 import type { PickedElement } from '@/lib/htmlPicker'
+import { eulReul } from '@/lib/utils'
 
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import { useEmbedFrame } from './useEmbedFrame'
@@ -55,6 +56,8 @@ export interface WikiHtmlEmbedAiPanelProps {
   onClose: () => void
   /** 「적용」 — 블록 소스를 바꾼다(한 거래). 블록이 사라졌으면 false. */
   onApply: (html: string) => boolean
+  /** 고칠 대상을 부르는 말 — 안내·알림 문구에 쓴다(기본 「블록」, HTML 문서 페이지는 「문서」 — WP-1309). */
+  subject?: string
 }
 
 /**
@@ -75,6 +78,7 @@ export function WikiHtmlEmbedAiPanel({
   onPromptChange,
   onClose,
   onApply,
+  subject = '블록',
 }: WikiHtmlEmbedAiPanelProps) {
   const [run, setRun] = useState<Run>({ phase: 'idle' })
   // 고치는 중 받은 글자 수 — 토큰마다가 아니라 그림 한 번(requestAnimationFrame)에 한 번만 바꾼다(긴 답에서 토큰마다 다시 그리지 않게).
@@ -183,7 +187,7 @@ export function WikiHtmlEmbedAiPanel({
     // 그사이 편집할 수 없게 됐거나(권한 강등·연결 끊김) 블록이 지워졌으면 넣지 않았다 — 결과는 남겨 두고 알린다.
     // 기다리는 사이 칸을 닫았으면(넣지 않음) 사용자가 그만둔 것이라 알리지 않는다. 넣은 뒤 칸이 닫히며 끊긴 것은 넣은 쪽으로 친다.
     if (replaced) onPromptChange('')
-    else if (!waiting.signal.aborted) toast.error('블록을 바꾸지 못했습니다 — 편집할 수 있는 상태인지 확인해 주세요.')
+    else if (!waiting.signal.aborted) toast.error(`${subject}${eulReul(subject)} 바꾸지 못했습니다 — 편집할 수 있는 상태인지 확인해 주세요.`)
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -215,7 +219,7 @@ export function WikiHtmlEmbedAiPanel({
         className="wiki-html-embed__ai-input"
         data-testid="wiki-html-embed-ai-input"
         aria-label="AI에게 고칠 내용"
-        placeholder={picked.length ? '고른 부분을 어떻게 고칠까요?' : '이 블록을 어떻게 고칠까요? 예: 3분기 막대를 빨간색으로'}
+        placeholder={picked.length ? '고른 부분을 어떻게 고칠까요?' : `이 ${subject}${eulReul(subject)} 어떻게 고칠까요? 예: 3분기 막대를 빨간색으로`}
         rows={2}
         maxLength={FIX_HTML_MAX_PROMPT_CHARS}
         value={prompt}
@@ -281,6 +285,7 @@ export function WikiHtmlEmbedAiPanel({
         <AiFixResult
           base={run.base}
           stale={source !== run.base}
+          subject={subject}
           result={run.result}
           applying={applying}
           canRetry={canSend}
@@ -306,9 +311,11 @@ function AiFixResult({
   onApply,
   onRetry,
   onDiscard,
+  subject,
 }: {
   base: string
   stale: boolean
+  subject: string
   result: string
   applying: boolean
   canRetry: boolean
@@ -325,7 +332,7 @@ function AiFixResult({
     <div ref={pinBlock} className="wiki-html-embed__ai-result" data-testid="wiki-html-embed-ai-result">
       {stale && (
         <p ref={pinBlock} className="wiki-html-embed__ai-note" data-testid="wiki-html-embed-ai-stale">
-          요청한 뒤 이 블록 소스가 바뀌었습니다 — 적용하면 그 변경을 덮어씁니다.
+          {`요청한 뒤 이 ${subject} 소스가 바뀌었습니다 — 적용하면 그 변경을 덮어씁니다.`}
         </p>
       )}
       <div ref={pinGrid} className="wiki-html-embed__ai-compare">

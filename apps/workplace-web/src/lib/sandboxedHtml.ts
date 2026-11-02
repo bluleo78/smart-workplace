@@ -36,30 +36,41 @@ export const SANDBOX_HEAD = LINK_TARGET_BASE + THIN_SCROLLBAR_STYLE
 /** HTML 공백(파서가 건너뛰는 문자). */
 const isHtmlSpace = (c: string) => c === ' ' || c === '\n' || c === '\t' || c === '\r' || c === '\f'
 
+/** 문서 머리말 훑은 결과 — end: 머리말 끝, doctypeEnd: DOCTYPE 끝(없으면 -1), unclosed: 닫히지 않은 주석·선언에서 멈췄나. */
+export interface HtmlProlog {
+  end: number
+  doctypeEnd: number
+  unclosed: boolean
+}
+
 /**
- * 문서 맨 앞 프롤로그(BOM·공백·주석·XML 선언) 뒤에 오는 `<!DOCTYPE ...>` 의 끝 위치. 없으면 -1.
+ * 문서 맨 앞 머리말(BOM·공백·주석·XML 선언·DOCTYPE 하나)을 훑는다 — 격리 머리말 주입(withSandboxHead)과
+ * 글자 고치기의 문서/조각 판정(htmlTextEditSource, WP-1309)이 같은 스캔을 쓴다.
  * 주석·XML 선언(파서는 주석으로 취급)은 DOCTYPE 앞에 와도 표준 모드를 깨지 않지만, 그 앞에 `<style>` 을 두면 깨진다.
  * 정규식이 아니라 한 번 훑는 스캔이다 — `(공백|주석)*` 꼴 정규식은 주석·공백이 길게 이어지고 DOCTYPE 이 없는
  * 입력에서 지수 백트래킹해, 신뢰 불가 HTML(메일 등) 하나로 탭을 멈출 수 있었다.
+ * 닫히지 않은 주석·선언을 만나면 거기서 멈춘다(unclosed) — 그 앞에서 찾은 DOCTYPE 끝은 그대로 돌려준다.
  */
-function leadingDoctypeEnd(html: string): number {
+export function scanHtmlProlog(html: string): HtmlProlog {
   let i = html.charCodeAt(0) === 0xfeff ? 1 : 0
+  let doctypeEnd = -1
   for (;;) {
     while (i < html.length && isHtmlSpace(html[i])) i++
+    let close: number
     if (html.startsWith('<!--', i)) {
-      const close = html.indexOf('-->', i + 4)
-      if (close < 0) return -1
-      i = close + 3
+      close = html.indexOf('-->', i + 4)
+      if (close >= 0) close += 3
     } else if (html.startsWith('<?', i)) {
       // HTML 파서는 `<?...` 를 첫 `>` 까지의 주석으로 읽는다.
-      const close = html.indexOf('>', i + 2)
-      if (close < 0) return -1
-      i = close + 1
-    } else break
+      close = html.indexOf('>', i + 2)
+      if (close >= 0) close += 1
+    } else if (doctypeEnd < 0 && html.slice(i, i + 9).toLowerCase() === '<!doctype') {
+      close = html.indexOf('>', i + 9)
+      if (close >= 0) doctypeEnd = close += 1
+    } else return { end: i, doctypeEnd, unclosed: false }
+    if (close < 0) return { end: i, doctypeEnd, unclosed: true }
+    i = close
   }
-  if (html.slice(i, i + 9).toLowerCase() !== '<!doctype') return -1
-  const close = html.indexOf('>', i + 9)
-  return close < 0 ? -1 : close + 1
 }
 
 /**
@@ -68,7 +79,7 @@ function leadingDoctypeEnd(html: string): number {
  * DOCTYPE 이 있으면(앞의 주석·XML 선언 포함) 그 바로 뒤에, 없으면 맨 앞에 넣는다.
  */
 export function withSandboxHead(html: string, head: string = SANDBOX_HEAD): string {
-  const end = leadingDoctypeEnd(html)
+  const end = scanHtmlProlog(html).doctypeEnd
   if (end < 0) return head + html
   return html.slice(0, end) + head + html.slice(end)
 }
@@ -156,8 +167,41 @@ export const SCRIPT_SANDBOX_HEAD = SANDBOX_HEAD + IN_PAGE_LINK_SCRIPT
 /**
  * 격리 iframe 의 srcdoc 을 만든다 — 스크립트 허용 여부에 맞춰 문서 안 이동 링크를 처리하고 머리말을 주입한다(WP-1271).
  */
-export function buildSandboxDoc(html: string, allowScripts: boolean): string {
-  return withSandboxHead(allowScripts ? html : rewriteInPageLinks(html), allowScripts ? SCRIPT_SANDBOX_HEAD : SANDBOX_HEAD)
+export function buildSandboxDoc(html: string, allowScripts: boolean, own?: OwnScripts): string {
+  if (allowScripts && own?.nonce) {
+    // 우리 스크립트만(WP-1290 × WP-1309) — CSP 를 맨 앞에 두고, 우리 스크립트(문서 안 이동·own.script)에만 nonce 를 단다.
+    const head = ownScriptsCsp(own.nonce) + SANDBOX_HEAD + withScriptNonce(IN_PAGE_LINK_SCRIPT, own.nonce)
+    return withSandboxHead(html + withScriptNonce(own.script ?? '', own.nonce), head)
+  }
+  const body = html + (allowScripts ? (own?.script ?? '') : '')
+  return withSandboxHead(allowScripts ? body : rewriteInPageLinks(body), allowScripts ? SCRIPT_SANDBOX_HEAD : SANDBOX_HEAD)
+}
+
+/**
+ * 문서 뒤에 붙이는 우리 스크립트(높이 보고·고르기·글자 고치기 — 신뢰하는 문자열) — buildSandboxDoc 의 세 번째 인자.
+ * nonce 가 있으면 「우리 스크립트만」 문서를 만든다(WP-1290 × WP-1309): 노트 스크립트가 멈춘 동안에도 편집 도구는 돌아야 해서
+ * iframe 은 allow-scripts 로 띄우되, 문서 맨 앞 CSP 가 nonce 없는 스크립트 — 문서의 `<script>`·인라인 이벤트(onclick=)·`javascript:` 주소 —
+ * 를 막고, 하위 프레임·object 도 막는다(srcdoc 하위 문서는 CSP 를 물려받지만 data: 문서는 아니다).
+ * 스크립트가 꺼져 있으면(allowScripts=false) 우리 스크립트도 붙이지 않는다 — 어차피 돌지 않는다.
+ */
+export interface OwnScripts {
+  script?: string
+  nonce?: string
+}
+
+/** 우리 스크립트만 돌리는 CSP(meta) — 문서 맨 앞(머리말 첫 자리)에 와야 그 뒤 문서 스크립트에 걸린다. */
+export function ownScriptsCsp(nonce: string): string {
+  return `<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}'; object-src 'none'; frame-src 'none'; child-src 'none'">`
+}
+
+/** 우리가 만든 스크립트 문자열의 `<script` 여는 태그마다 nonce 를 단다 — 신뢰하는 문자열에만 쓴다(문서 HTML 에 쓰면 문서 스크립트도 풀린다). */
+export function withScriptNonce(script: string, nonce: string): string {
+  return script.replace(/<script(\s[^<>]*)?>/gi, (_, attrs: string | undefined) => `<script${attrs ?? ''} nonce="${nonce}">`)
+}
+
+/** CSP nonce — 문서를 만들 때마다 새로(128비트, 16진). 문서 스크립트가 미리 알 수 없어야 한다. */
+export function newScriptNonce(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /**

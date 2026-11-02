@@ -8,6 +8,7 @@
 // 막대 단추 표시·Esc 상태 판정·소스 바꾸기 범위·5MB 거르기는 WikiHtmlEmbedView.test.tsx 가 지킨다.
 // 「✦ AI로 고치기」(WP-1302) — 실제 키 입력이 입력 칸에 머무는지(Enter 보내기·Esc 닫기가 편집기로 새지 않는지)와 적용 뒤 ⌘Z 한 번에 되돌아가는지(@input).
 // 요청 본문·결과 비교·취소·칩 판정은 WikiHtmlEmbedView.test.tsx 가 지킨다. AI 스트림은 wiki-ai.spec 과 같이 POST …/ai(correlationId) + /events 보류 응답으로 흉내 낸다.
+// 「글자 고치기」(WP-1309) — 블록 화면 위 글자를 눌러 고치고 붙여 넣으면 노드 글자(동기화 서버)에 들어가는지(@input). 배선·충돌은 WikiHtmlEmbedView.test.tsx.
 // 노트 끝 블록·모양 영역 밖으로 나가기(WP-1288)는 실제 클릭·키 입력이 숨은 소스 칸·선택을 어떻게 지나는지가 핵심이라 @input 으로 본다(상태 판정은 wikiBlockExit.test.ts).
 import type { Locator, Page } from '@playwright/test'
 
@@ -517,5 +518,74 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
     await page.keyboard.press('ControlOrMeta+z')
     await expect(main.locator('#t')).toHaveText('3분기 회고')
     await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', source, '```'].join('\n'))
+  })
+  test('「글자 고치기」로 블록 안 글자를 눌러 고치고 붙여 넣으면 소스에 들어가 저장되고, 스크립트가 그린 곳은 고쳐지지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const pageId = 69
+    const source = '<h1 id="t">3분기 회고</h1><p id="p">요약</p><div id="out"></div><script>document.getElementById("out").innerHTML = "<b id=rt>그림</b>"</script>'
+    await mockWikiPageEditor(page, { spaceId: 1, pageId, title: '글자 고치기', body: ['앞 문단', '', '```html-embed', source, '```', '', '뒤 문단'].join('\n'), role: 'EDITOR' })
+    await openWikiEditor(page, { spaceId: 1, pageId })
+    const block = page.getByTestId('wiki-html-embed')
+    const frame = page.frameLocator('[data-testid="wiki-html-embed-frame"]')
+    // 스크립트를 켠 채 고친다(WP-1290) — 스크립트가 그린 곳이 고쳐지지 않는지 본다.
+    await turnOnNoteScripts(page)
+    await expect(frame.locator('#rt')).toHaveText('그림')
+
+    await block.getByTestId('wiki-html-embed-text-edit').click()
+    await expect(block.getByTestId('wiki-html-embed-text-edit')).toHaveAttribute('aria-pressed', 'true')
+    // 스크립트가 그린 곳은 눌러도 고칠 수 없다.
+    await frame.locator('#rt').click()
+    await expect(frame.locator('#rt')).not.toHaveAttribute('contenteditable', 'true')
+    // 제목을 눌러 끝에 이어 쓴다 — 친 글자는 iframe 에 머물고 편집기(다음 줄)로 새지 않는다.
+    await frame.locator('#t').click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' 최종')
+    await expect(frame.locator('#t')).toHaveText('3분기 회고 최종')
+    await expect(page.locator('.ProseMirror > p')).toHaveText(['앞 문단', '뒤 문단'])
+    // 문단에 웹에서 복사한 링크를 붙인다.
+    await frame.locator('#p').click()
+    await page.keyboard.press('End')
+    await frame.locator('#p').evaluate((el) => {
+      const dt = new DataTransfer()
+      dt.setData('text/html', ' <a href="https://example.com/r" style="color:red" onclick="x()">보고서</a>')
+      dt.setData('text/plain', ' 보고서')
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+    })
+    await expect(frame.locator('#p a')).toHaveText('보고서')
+    // 완료 — 고친 소스가 노드 글자(동기화)로 저장되고, 블록은 고친 소스로 다시 그려진다. 내용이 바뀌어 스크립트는 다시 멈추고(WP-1290), 켜면 돈다.
+    await block.getByTestId('wiki-html-embed-text-edit').click()
+    await expect(block.getByTestId('wiki-html-embed-text-edit')).toHaveAttribute('aria-pressed', 'false')
+    const fixed = '<h1 id="t">3분기 회고 최종</h1><p id="p">요약 <a href="https://example.com/r"><span style="color: red">보고서</span></a></p><div id="out"></div><script>document.getElementById("out").innerHTML = "<b id=rt>그림</b>"</script>'
+    await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', fixed, '```'].join('\n'))
+    await expect(frame.locator('#t')).toHaveText('3분기 회고 최종')
+    await turnOnNoteScripts(page)
+    await expect(frame.locator('#rt')).toHaveText('그림')
+  })
+  // WP-1290 × WP-1309 — 노트 스크립트가 멈춘 채 「글자 고치기」: 실제 브라우저에서 CSP nonce 로 우리 스크립트만 돌고 문서 스크립트는 막히는지(@platform).
+  test('스크립트가 멈춘 블록에서도 「글자 고치기」는 우리 스크립트만 돌려 고칠 수 있고, 블록 스크립트는 돌지 않는다', { tag: ['@platform', '@input'] }, async ({ authenticatedPage: page }) => {
+    const pageId = 70
+    const source = '<h1 id="t">3분기 회고</h1><div id="out"></div><script>document.getElementById("out").innerHTML = "<b id=rt>그림</b>"</script>'
+    await mockWikiPageEditor(page, { spaceId: 1, pageId, title: '멈춘 글자 고치기', body: ['앞 문단', '', '```html-embed', source, '```'].join('\n'), role: 'EDITOR' })
+    await openWikiEditor(page, { spaceId: 1, pageId })
+    const block = page.getByTestId('wiki-html-embed')
+    const iframe = block.getByTestId('wiki-html-embed-frame')
+    const frame = page.frameLocator('[data-testid="wiki-html-embed-frame"]')
+    await expect(page.getByTestId('wiki-html-script-bar')).toHaveAttribute('data-on', 'false')
+    await expect(iframe).not.toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)
+
+    await block.getByTestId('wiki-html-embed-text-edit').click()
+    // 편집 도구 때문에 allow-scripts 로 다시 뜨지만 블록 스크립트는 돌지 않는다(그림 없음) — 「스크립트 멈춤」 표지도 그대로.
+    await expect(iframe).toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)
+    await expect(block.getByTestId('wiki-html-block-badge')).toBeVisible()
+    await frame.locator('#t').click()
+    await expect(frame.locator('#t')).toHaveAttribute('contenteditable', 'true')
+    await expect(frame.locator('#rt')).toHaveCount(0)
+    await page.keyboard.press('End')
+    await page.keyboard.type(' 최종')
+    await block.getByTestId('wiki-html-embed-text-edit').click()
+    await expect(block.getByTestId('wiki-html-embed-text-edit')).toHaveAttribute('aria-pressed', 'false')
+    // 저장에는 원본 스크립트가 그대로 남는다(띄운 사본에서만 걷었다).
+    const fixed = source.replace('3분기 회고', '3분기 회고 최종')
+    await expect.poll(() => savedMarkdown(page, pageId)).toContain(['```html-embed', fixed, '```'].join('\n'))
+    await expect(iframe).not.toHaveAttribute('sandbox', /(^|\s)allow-scripts(\s|$)/)
   })
 })
