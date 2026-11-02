@@ -109,7 +109,7 @@ describe('handleEvent', () => {
     await new Promise((r) => setImmediate(r));
   });
 
-  // WP-989: 반복 회차는 runAgent 가 아니라 runRecurring(읽기 전용 실행 + 결과 보고)으로 간다.
+  // WP-989: 반복 회차는 runAgent 가 아니라 runRecurring(소유자 대행 실행 + 결과 보고)으로 간다.
   it('issue.recurring_run → runRecurring(payload, deps), runAgent 미호출', () => {
     vi.mocked(runRecurring).mockClear();
     const payload = {

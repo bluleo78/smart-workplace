@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 반복 AI 작업(WP-989) 회차 결과 보고 — ai-agent 전용 내부 엔드포인트. ai-agent 의 다른 API 호출과 같은 Internal 토큰 +
- * X-On-Behalf-Of(실행 AI id) 인증만 받는다(사람 JWT·PAT·AI 키로는 403). 이슈 회차 실행은 MCP 쓰기 도구 없이 돌기 때문에 결과 글은 이
- * 보고로 서버가 대신 남긴다.
+ * X-On-Behalf-Of(실행 AI id) 인증만 받는다(사람 JWT·PAT·AI 키로는 403). 회차 실행의 도구는 소유자 대행이라 AI 이름으로 글을 쓸 수 없어,
+ * 회차 결과 글(질문 회차면 답변 필요 질문 — WP-1311)은 이 보고로 서버가 그 AI 이름으로 남긴다.
  */
 @RestController
 @RequiredArgsConstructor

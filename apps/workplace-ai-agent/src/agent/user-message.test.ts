@@ -108,13 +108,13 @@ describe('buildUserMessage', () => {
     expect(m).toContain('WP-42');
     expect(m).toContain('이번 주 진행 중 이슈를 정리해 줘');
     expect(m).toContain('FREQ=WEEKLY;BYDAY=MO');
-    expect(m).toContain('쓰기 작업');
+    // WP-1311: 본문이 시킨 쓰기는 카드 없이 바로, 본문에 없는 쓰기는 「제안」으로, 확인을 받으라는 쓰기는 질문 표지로 묻는다.
+    expect(m).toContain('확인 카드 없이 바로');
     expect(m).toContain('「제안」');
+    expect(m).toContain('`[확인 필요]`');
     expect(m).toContain('이슈 챗에 남는');
-    // 도구는 요청자 권한 — 「확인 필요」 우회 문구는 없다.
     expect(m).toContain('@alice');
     expect(m).toContain('권한으로 동작');
-    expect(m).not.toContain('확인 필요');
   });
 
   it('issue.recurring_run — 본문 없음·회차 번호 없음', () => {

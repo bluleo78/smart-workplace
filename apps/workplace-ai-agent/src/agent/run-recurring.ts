@@ -1,9 +1,9 @@
 // WP-989: 반복 개인 작업의 회차 실행 — issue.recurring_run 이벤트를 받아 반복에 등록된 비서(actingAgentId)의 LLM 자격으로,
-// 도구는 등록한 사람(ownerUserId, 홈 AI 채팅과 같은 대행) 권한의 읽기 전용으로 실행을 돌리고,
-// 최종 답변을 API 내부 보고(POST /internal/issue-recurrence/{issueId}/runs)로 돌려준다. 회차 실행은 쓰기 도구가 없어(이슈 챗에
-// 직접 글을 쓸 수 없다) 결과 글은 API 가 그 AI 이름으로 대신 남긴다. 실패도 사유와 함께 보고해야 API 가 연속 실패를 세고 작업 상태를 되돌린다.
+// 도구는 등록한 사람(ownerUserId, 홈 AI 채팅과 같은 대행) 권한으로 실행을 돌리고(WP-1311 부터 쓰기도 확인 카드 없이 바로 한다),
+// 최종 답변을 API 내부 보고(POST /internal/issue-recurrence/{issueId}/runs)로 돌려준다. 결과 글은 API 가 그 AI 이름으로 이슈 챗에
+// 남긴다. 실패도 사유와 함께 보고해야 API 가 연속 실패를 세고 작업 상태를 되돌린다.
 import axios from 'axios';
-import { RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
+import { RECURRING_QUESTION_MARKER, RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
 import { buildRecurringRunMessage } from './user-message.js';
 import { defaultSleep } from './sleep.js';
 import { withSharedMemory } from './shared-memory-block.js';
@@ -60,8 +60,8 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
   // 「결과를 받지 못했습니다」 실패로 세졌다. 끝내 실패해도 던지지 않는다 — 그때는 API 의 결과 대기 시간 초과가 실패로 센다.
   const sleep = deps.sleep ?? defaultSleep;
   const random = deps.random ?? Math.random;
-  const report = async (ok: boolean, message: string) => {
-    const body = { runId: p.runId, ok, message: message.slice(0, REPORT_MAX_CHARS) };
+  const report = async (ok: boolean, message: string, question = false) => {
+    const body = { runId: p.runId, ok, message: message.slice(0, REPORT_MAX_CHARS), ...(question ? { question } : {}) };
     for (let attempt = 0; ; attempt++) {
       try {
         // 결과 보고는 AI(agentId) 대행 — API 가 그 AI 이름으로 이슈 챗에 글을 남긴다.
@@ -113,7 +113,7 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
       userId: ownerId,
       timeoutMs,
       logTag,
-      // 도구는 소유자(ownerId) 대행 — 홈 AI 채팅처럼 그 사람의 메일·일정·노트 등을 읽는다. 읽기 전용 프로필이라 쓰기 도구는 없다.
+      // 도구는 소유자(ownerId) 대행 — 홈 AI 채팅처럼 그 사람의 메일·일정·노트 등을 읽고, 본문이 시킨 쓰기를 확인 카드 없이 한다(WP-1311).
       mcp: {
         client: scoped,
         onBehalfOfId: ownerId,
@@ -136,5 +136,21 @@ export async function runRecurring(p: IssueRecurringRunPayload, deps: RunRecurri
     await report(false, 'AI 가 결과를 만들지 못했습니다');
     return;
   }
+  // WP-1311: 본문이 확인을 받으라고 해 쓰기를 멈춘 회차 — 표지를 떼고 질문으로 보고해 이슈 챗에 답변 대기 글로 남긴다.
+  const question = splitQuestion(text);
+  if (question != null) {
+    await report(true, question || text, true);
+    return;
+  }
   await report(true, text);
+}
+
+// 최종 답변 첫 줄이 질문 표지로 시작하면 표지를 뗀 나머지를 돌려준다(아니면 null). 표지 뒤가 비면 빈 문자열 — 호출부가 원문을 쓴다.
+// 모델이 표지를 굵게·제목·코드로 감싸도(`**[확인 필요]**`, `# [확인 필요]`) 질문으로 본다 — 놓치면 멈춘 쓰기를 아무도 확인하지 않는다.
+export function splitQuestion(text: string): string | null {
+  const [first = '', ...rest] = text.trimStart().split('\n');
+  const head = first.replace(/^[#>*_`\s]+/, '');
+  if (!head.startsWith(RECURRING_QUESTION_MARKER)) return null;
+  const tail = head.slice(RECURRING_QUESTION_MARKER.length).replace(/^[*_`\s]+/, '');
+  return [tail, ...rest].join('\n').trim();
 }

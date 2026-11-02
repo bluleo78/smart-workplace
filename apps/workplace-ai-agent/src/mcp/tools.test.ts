@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -225,6 +225,7 @@ function client(): TestClient {
     withOnBehalfOfTenant: () => c,
     // #842: 확인카드 사전검증 — propose_* 는 카드 등록 전에 반드시 이 호출을 통과해야 한다.
     validateAction: vi.fn().mockResolvedValue(undefined),
+    executeAction: vi.fn().mockResolvedValue(null),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getProviderCredential: vi.fn(),
     getChatMessages: vi.fn().mockResolvedValue([]),
@@ -543,24 +544,61 @@ describe('프로필 구성', () => {
     }
   });
 
-  // WP-989: 반복 회차 실행은 사람이 없어 확인 카드를 띄울 수 없다 — 읽기 도구만 싣고, 쓰기(코멘트·이슈·메일·메시지)는 하나도 없어야 한다.
-  it('recurring 프로필은 소유자 권한의 읽기 도구(메일·일정 포함)만 싣고 쓰기 도구는 없다', () => {
+  // WP-989·WP-1311: 반복 회차 실행은 사람이 없어 확인 카드를 띄울 수 없다 — 읽기 도구와 함께, 카드로만 하던 작업까지 카드 없이 바로 하는 쓰기 도구를 싣는다.
+  it('recurring 프로필은 소유자 권한의 읽기·쓰기 도구를 싣고 확인 카드 도구는 없다', () => {
     const tools = buildTools(client(), AGENT_ID, 'recurring');
-    expect(tools.map((t) => t.name)).toEqual([...RECURRING_RUN_TOOLS]);
-    for (const t of tools) expect(t.annotations?.readOnlyHint, t.name).toBe(true);
     const names = tools.map((t) => t.name);
+    expect(names).toEqual([...RECURRING_RUN_TOOLS, ...RECURRING_RUN_WRITE_TOOLS, ...Object.keys(RECURRING_RUN_DIRECT_ACTIONS)]);
+    expect(new Set(names).size).toBe(names.length);
+    for (const r of RECURRING_RUN_TOOLS) expect(find(tools, r).annotations?.readOnlyHint, r).toBe(true);
     // 소유자 권한으로 메일·일정·연락처·노트·드라이브·이슈를 읽는다(홈 비서의 읽기 도구).
     for (const r of ['list_mail', 'get_mail', 'list_events', 'get_event', 'list_contacts', 'search_wiki', 'search_drive', 'list_issues', 'read_file']) {
       expect(names).toContain(r);
     }
+    // 이슈 본문이 시킨 쓰기 — 코멘트·이슈·일정·메시지·노트·드라이브, 카드 전용이던 일정·프로젝트·채널 초대와 메일 발송·지우기까지.
     for (const w of [
-      'add_comment', 'update_issue', 'create_issue', 'add_chat_message', 'add_channel_message', 'unassign_self',
-      'create_event', 'update_event', 'draft_mail_reply', 'draft_issue_from_mail', 'create_issue_from_mail', 'mark_mail_read',
-      'mark_notification_read', 'create_drive_file', 'upload_file', 'create_wiki_page', 'update_wiki_page',
+      'add_comment', 'update_issue', 'create_issue', 'add_channel_message', 'create_event', 'update_event', 'create_project',
+      'add_project_member', 'add_channel_member', 'create_wiki_page', 'create_drive_file', 'upload_file', 'mark_mail_read',
+      'send_mail', 'delete_event', 'delete_external_contact', 'delete_user_group',
     ]) {
-      expect(names).not.toContain(w);
+      expect(names).toContain(w);
     }
+    // 사람이 승인하는 확인 카드·화면 표시 도구는 없다. 담당 빠지기(이슈 AI 전용)·다운로드 링크(받을 사람이 없다)도 싣지 않는다.
+    expect(names.filter((n) => n.startsWith('propose_') || n.startsWith('show_'))).toEqual([]);
+    for (const n of ['unassign_self', 'create_drive_download_link', 'add_chat_message']) expect(names).not.toContain(n);
+    for (const n of AI_AGENT_EXCLUDED_SHARED_TOOLS) expect(names).not.toContain(n);
     expect(routerToolsFor('recurring')).toBeUndefined();
+  });
+
+  // 공유 도구와 이름이 같은 도구는 공유 스키마 그대로여야 하고(카드 전용 도구도), 서버 레이어가 shape 를 쓰므로 모두 ZodObject 다.
+  it('recurring 의 공유 도구 스키마는 공유본과 같고 모든 inputSchema 는 ZodObject 다', () => {
+    const c = client();
+    const shared = new Map(buildSharedTools(c.sc).map((t) => [t.name, t]));
+    for (const t of buildTools(c, AGENT_ID, 'recurring')) {
+      expect(t.inputSchema, t.name).toBeInstanceOf(z.ZodObject);
+      const s = shared.get(t.name);
+      if (s) expect(z.toJSONSchema(t.inputSchema), t.name).toEqual(z.toJSONSchema(s.inputSchema));
+    }
+  });
+
+  // WP-1311: 카드로만 하던 작업 중 공유 도구가 없는 것은 카드 승인과 같은 실행 경로(/actions/confirm)로 바로 실행한다 — 입력 매핑은 카드 도구와 같다.
+  it('recurring 의 바로 실행 도구는 카드 승인과 같은 actionType·params 로 executeAction 을 부른다', async () => {
+    const c = client();
+    (c.executeAction as Mock).mockResolvedValue({ id: 9 });
+    const tools = buildTools(c, AGENT_ID, 'recurring');
+    const cases: Array<[string, Record<string, unknown>, string, Record<string, unknown>]> = [
+      ['send_mail', { accountId: 3, to: ['a@x.com'], subject: '주간 보고', bodyText: '본문' }, 'mail.send', { accountId: 3, to: ['a@x.com'], subject: '주간 보고', bodyText: '본문' }],
+      ['delete_event', { eventId: 7, scope: 'THIS', occurrenceDate: '2026-11-02T09:00:00+09:00' }, 'calendar.delete_event', { id: 7, scope: 'THIS', occurrenceDate: '2026-11-02T09:00:00+09:00' }],
+      ['delete_external_contact', { externalId: 5 }, 'contacts.delete_contact', { id: 5 }],
+      ['delete_user_group', { groupId: 4 }, 'contacts.delete_user_group', { id: 4 }],
+    ];
+    for (const [name, args, actionType, params] of cases) {
+      const out = JSON.parse((await find(tools, name).handler(args)) as string);
+      expect(out, name).toEqual({ ok: true, result: { id: 9 } });
+      expect(c.executeAction, name).toHaveBeenLastCalledWith(AGENT_ID, actionType, expect.objectContaining(params));
+    }
+    // 카드 승인 경로가 아니라 바로 실행이라 사전검증·카드 등록은 거치지 않는다.
+    expect(c.validateAction).not.toHaveBeenCalled();
   });
 
   it('home 표시 도구는 {displayed:true} 만 반환한다(데이터 조회 X)', async () => {

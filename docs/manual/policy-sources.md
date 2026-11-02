@@ -12,7 +12,7 @@
 | 02·18 | 비밀번호 재설정 화면·API 없음, 관리자도 남의 비밀번호를 못 바꿈 | `web/pages/LoginPage.tsx:84-144`, `api/user/controller/UserController.java:68`(본인 `PUT /me/password` 만) |
 | 02·18 | 비활성 구성원은 그 워크스페이스가 목록에서 빠짐, 남은 곳이 없으면 「접속 가능한 워크스페이스가 없습니다…」 | `api/user/service/UserService.java:778-790`, `web/hooks/AuthContext.tsx:177`, `web/lib/activeTenant.ts:69` |
 | 03 | AI 우선순위 15분 배치, AI 비서가 없으면 건너뜀 | `api/home/service/PriorityClassificationScheduler.java:112,175-181` |
-| 04 | AI 어시스턴트 앱별 바로 실행·확인 카드 | `agent/agent/subagents/*/agent.md` 도구 목록, `agent/mcp/tools.ts:54-60,445-450`(카드 전용 도구) |
+| 04 | AI 어시스턴트 앱별 바로 실행·확인 카드 | `agent/agent/subagents/*/agent.md` 도구 목록, `agent/mcp/tools.ts:54-60,484-491`(카드 전용 도구), `agent/mcp/tools.ts:306-372`(반복 실행 도구 — WP-1311) |
 | 05 | 에이전트 DM·멘션 응답 규칙, 답글만 직접·이슈/일정은 카드 | `api/messaging/service/MessageService.java:170-246`, `agent/agent/run-messaging-agent.ts:20-55`, `agent/mcp/tools.ts:585-697` |
 | 07 | 일정 삭제는 참석자에게서도 사라지고 취소 알림 | `api/calendar/service/CalendarEventService.java:1062-1081` |
 | 07 | 반복 일정 삭제 범위 3가지 | `web/components/calendar/RecurrenceScopeDialog.tsx:26-66`, `CalendarEventService.java:1093-1130` |

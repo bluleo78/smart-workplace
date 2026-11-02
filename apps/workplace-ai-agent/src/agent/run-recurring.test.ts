@@ -1,4 +1,4 @@
-// WP-989: 반복 회차 실행 — 읽기 전용 프로필·전용 지시문으로 돌리고, 결과(성공·실패)를 API 내부 보고로 돌려주는지 검증한다.
+// WP-989: 반복 회차 실행 — recurring 프로필·전용 지시문으로 돌리고, 결과(성공·실패)를 API 내부 보고로 돌려주는지 검증한다.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 인-프로세스 러너·MCP 서버를 모킹 — 호출 인자만 검증(LLM/네트워크 미실행).
@@ -95,7 +95,7 @@ describe('runRecurring', () => {
     expect(input.systemPrompt).toBe(RECURRING_RUN_SYSTEM_PROMPT);
     expect(input.userMessage).toContain('2회차');
     expect(input.userMessage).toContain('오늘 할 일을 정리해 줘');
-    // MCP 서버는 읽기 전용 recurring 프로필로 만든다.
+    // MCP 서버는 recurring 프로필로 만든다.
     // 도구는 소유자(7) 대행 + 이벤트 테넌트(5) 스코프 클라이언트 — 홈 AI 채팅과 같은 대행. LLM 자격은 비서(201).
     expect(c.withOnBehalfOfTenant).toHaveBeenCalledWith(5);
     expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0]).toMatchObject({
@@ -104,6 +104,38 @@ describe('runRecurring', () => {
       client: c.scoped,
     });
     expect(input.userId).toBe(7);
+  });
+
+  // WP-1311: 본문이 확인을 받으라고 해 쓰기를 멈춘 회차는 첫 줄 표지를 떼고 question:true 로 보고한다(API 가 질문 글로 남긴다).
+  it('최종 답변이 질문 표지로 시작하면 표지를 떼고 question:true 로 보고한다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '[확인 필요]\n김대리에게 주간 보고 메일을 보낼까요?')]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-1790000000',
+      ok: true,
+      message: '김대리에게 주간 보고 메일을 보낼까요?',
+      question: true,
+    });
+  });
+
+  it('표지를 굵게·제목으로 감싸도 질문으로 보고, 같은 줄의 나머지는 남긴다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '## **[확인 필요]** 메일 발송 확인\n보낼까요?')]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-1790000000',
+      ok: true,
+      message: '메일 발송 확인\n보낼까요?',
+      question: true,
+    });
+  });
+
+  it('표지가 첫 줄이 아니면 질문이 아니다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '## 정리\n- [확인 필요] 항목 없음')]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: '## 정리\n- [확인 필요] 항목 없음' });
   });
 
   it('실행이 실패로 끝나면 ok:false 로 보고한다', async () => {

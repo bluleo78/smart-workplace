@@ -172,6 +172,9 @@ export interface WorkplaceApiClient {
   // #842: 확인카드 사전검증(dry-run). 승인 시점과 같은 권한·매핑·도메인 검증만 서버에서 수행한다.
   //   실패는 AxiosError 로 던져지고 message 는 인터셉터가 서버 사유(describeApiError)로 채운다.
   validateAction(agentId: number, actionType: string, params: Record<string, unknown>): Promise<void>;
+  // WP-1311: 확인 카드 작업을 카드 없이 바로 실행한다 — 반복 회차(recurring 프로필)만 쓴다. 사람이 카드를 승인할 때와 같은 서버 경로
+  //   (POST /actions/confirm)라 권한·매핑·도메인 검증이 같고, 대행하는 사람(agentId = 소유자) 권한으로 돈다. 결과 객체를 돌려준다.
+  executeAction(agentId: number, actionType: string, params: Record<string, unknown>): Promise<unknown>;
   // L3 위임: AI 제안 카드 생성(on-behalf AGENT). proposedByUserId=위임자, parentMessageId=스레드 미러.
   // projectKey: AI 가 후보 목록에서 추론해 고른 프로젝트 키. 없으면 백엔드 개인 작업 폴백.
   proposeCreateIssue(
@@ -238,10 +241,11 @@ export interface WorkplaceApiClient {
   // 오류(422 개인적 내용·503 검사 불가·400 공간 못 정함·403·409)는 AxiosError 로 던진다 — 도구가 코드를 읽어 안내로 바꾼다.
   requestSharedMemory(onBehalfOfId: number, body: { content: string; space?: string; sessionId?: string }): Promise<SharedMemoryRequestDto>;
   // WP-989: 반복 회차 결과 보고 — 실행한 AI(agentId) 대행. runId 는 이벤트가 준 값 그대로(같은 runId 두 번째 보고는 API 가 무시한다).
+  // question(WP-1311)이 true 면 API 가 결과 글을 질문(답변 대기)으로 남긴다.
   reportRecurringRun(
     agentId: number,
     issueId: number,
-    body: { runId: string; ok: boolean; message: string },
+    body: { runId: string; ok: boolean; message: string; question?: boolean },
   ): Promise<void>;
   // WP-1219: 담당 지정·코멘트로 깨어난 이슈 실행의 시작·끝 보고 — 실행한 AI(agentId) 대행. API 가 그 AI 의 작업 기록(작업 중 → 검토 대기·막힘)을 남긴다.
   reportAgentRun(
@@ -372,6 +376,12 @@ export function createWorkplaceApiClient(opts: {
     // #842: 확인카드 사전검증 — 성공은 204(본문 없음), 실패는 승인 때와 동일한 4xx 로 사유가 내려온다.
     async validateAction(agentId, actionType, params) {
       await http.post('/actions/validate', { actionType, params }, onBehalfOf(agentId));
+    },
+
+    // WP-1311: 반복 회차의 카드 없는 실행 — 확인 카드 승인과 같은 엔드포인트. 생성형은 201 + 결과 객체, 그 밖은 본문 없을 수 있다.
+    async executeAction(agentId, actionType, params) {
+      const res = await http.post('/actions/confirm', { actionType, params }, onBehalfOf(agentId));
+      return res.data ?? null;
     },
 
     // L3 위임: 이슈 생성 제안 카드. actionType='CREATE_ISSUE' + 위임 컨텍스트를 담아 proposals API 호출.

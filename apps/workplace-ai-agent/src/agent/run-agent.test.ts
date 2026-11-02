@@ -23,6 +23,7 @@ function client(token: string | Error): WorkplaceApiClient {
     withOnBehalfOfTenant: () => c,
     // #842: propose 사전검증 — 이 스위트는 이슈 이벤트 경로만 다루므로 통과 스텁으로 충분.
     validateAction: vi.fn().mockResolvedValue(undefined),
+    executeAction: vi.fn().mockResolvedValue(null),
     // #846: 공유 도구용 클라이언트 — 이 스위트는 도구 핸들러를 실행하지 않으므로 빈 스텁으로 충분.
     toolClient: vi.fn(),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
