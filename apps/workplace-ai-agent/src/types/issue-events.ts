@@ -81,6 +81,11 @@ export const issueRecurringRunPayload = z.object({
     .object({
       question: z.string(),
       answer: z.string(),
+      // WP-1313: 테스트 질문(「지금 실행」이 되돌릴 수 없는 쓰기를 멈추고 남긴 질문)의 답이면 그 질문이 멈춘 쓰기 — 이어 처리는 이 도구만
+      // (하나당 한 번) 실제로 실행할 수 있고, 다른 되돌릴 수 없는 쓰기는 또 멈춘다. 정기 회차 질문은 없다.
+      permittedActions: z
+        .array(z.object({ tool: z.string().min(1), args: z.record(z.string(), z.unknown()).nullish() }))
+        .nullish(),
     })
     .nullish(),
 });
@@ -95,6 +100,9 @@ export const issueEventEnvelope = z.discriminatedUnion('type', [
     payload: issueStatusChangedPayload,
   }),
   z.object({ type: z.literal('issue.recurring_run'), payload: issueRecurringRunPayload }),
+  // WP-1313: 「지금 실행」(테스트 실행)과 그 질문의 이어 처리 — 정기 회차와 같은 페이로드지만 되돌릴 수 없는 쓰기를 멈추는 recurring-test
+  // 프로필로 돈다. 따로의 종류로 받아, 이 종류를 모르는 구버전은 거절한다(정기 회차처럼 메일을 바로 보내지 않게 — fail-closed).
+  z.object({ type: z.literal('issue.recurring_test_run'), payload: issueRecurringRunPayload }),
 ]);
 
 export type IssueCreatedPayload = z.infer<typeof issueCreatedPayload>;
@@ -117,4 +125,5 @@ export const KNOWN_ISSUE_TYPES: ReadonlySet<string> = new Set([
   'issue.commented',
   'issue.status_changed',
   'issue.recurring_run',
+  'issue.recurring_test_run',
 ]);

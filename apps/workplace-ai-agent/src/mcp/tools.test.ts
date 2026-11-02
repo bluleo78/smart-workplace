@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, RECURRING_TEST_GATED_TOOLS, RECURRING_TEST_PAUSED_MESSAGE, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -273,7 +273,9 @@ function find(tools: ReturnType<typeof buildTools>, name: string) {
 
 /** 제안을 배열에 모으는 브리지 — 카드 생성 여부·params 를 단언하는 데 쓴다. */
 function collectingBridge(proposals: { actionType: string; summary: string; params: Record<string, unknown> }[]): HostBridge {
-  return { onProposal: (p) => proposals.push(p), onSubmitResponse: () => {}, onUnassignResult: () => {} };
+  return { onProposal: (p) => {
+    proposals.push(p);
+  }, onSubmitResponse: () => {}, onUnassignResult: () => {} };
 }
 
 /** 사이드카(WORKPLACE_PENDING_ACTION_PATH) 경로를 임시로 세팅하고 본문 실행 후 정리한다. */
@@ -601,6 +603,107 @@ describe('프로필 구성', () => {
     }
     // 카드 승인 경로가 아니라 바로 실행이라 사전검증·카드 등록은 거치지 않는다.
     expect(c.validateAction).not.toHaveBeenCalled();
+  });
+
+  // WP-1313: 「지금 실행」(테스트 실행) — recurring 과 같은 도구를 싣되, 되돌릴 수 없는 쓰기는 실행하지 않고 멈춘다(호스트에 알린다).
+  describe('recurring-test 프로필', () => {
+    const bridge = () => ({ onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() }) satisfies HostBridge;
+    const build = (c: TestClient, b?: HostBridge, permits?: string[]) =>
+      buildTools(c, AGENT_ID, 'recurring-test', undefined, undefined, b, undefined, undefined, true, permits);
+
+    it('멈추는 쓰기는 카드 전용 공유 도구와 바로 실행 도구 전부다', () => {
+      expect([...RECURRING_TEST_GATED_TOOLS].sort()).toEqual(
+        [...Object.keys(CARD_ONLY_SHARED_TOOLS), ...Object.keys(RECURRING_RUN_DIRECT_ACTIONS)].sort(),
+      );
+      for (const n of ['send_mail', 'create_event', 'update_event', 'delete_event', 'delete_external_contact', 'delete_user_group']) {
+        expect(RECURRING_TEST_GATED_TOOLS.has(n), n).toBe(true);
+      }
+    });
+
+    it('도구 목록·스키마는 recurring 과 같다', () => {
+      const regular = buildTools(client(), AGENT_ID, 'recurring');
+      const test = build(client(), bridge());
+      expect(test.map((t) => t.name)).toEqual(regular.map((t) => t.name));
+      for (const t of test) {
+        expect(z.toJSONSchema(t.inputSchema), t.name).toEqual(z.toJSONSchema(find(regular, t.name).inputSchema));
+      }
+    });
+
+    it('메일 보내기·일정 만들기는 실행하지 않고 멈춘 쓰기를 호스트에 알린다', async () => {
+      const c = client();
+      const b = bridge();
+      const tools = build(c, b);
+      const mail = { accountId: 3, to: ['boss@x.com'], subject: '주간 보고', bodyText: '본문' };
+      const out = JSON.parse((await find(tools, 'send_mail').handler(mail)) as string);
+      expect(out).toMatchObject({ ok: false, paused: true, tool: 'send_mail', message: RECURRING_TEST_PAUSED_MESSAGE });
+      await find(tools, 'create_event').handler({ title: '보고 회의' });
+      expect(c.executeAction).not.toHaveBeenCalled();
+      expect(b.onProposal.mock.calls.map(([x]) => [x.actionType, x.params])).toEqual([
+        ['send_mail', mail],
+        ['create_event', { title: '보고 회의' }],
+      ]);
+    });
+
+    it('되돌릴 수 있는 쓰기는 정기 회차처럼 바로 한다', async () => {
+      const c = client();
+      const b = bridge();
+      const tools = build(c, b);
+      const regular = find(buildTools(c, AGENT_ID, 'recurring'), 'add_comment');
+      // 같은 핸들러(래핑 없음)라 실행 경로가 정기 회차와 같다.
+      expect(find(tools, 'add_comment').description).toBe(regular.description);
+      expect(find(tools, 'send_mail').description).toContain('테스트 실행');
+      expect(b.onProposal).not.toHaveBeenCalled();
+    });
+
+    it('허락된 쓰기는 하나당 한 번만 실행하고, 그 밖의 되돌릴 수 없는 쓰기는 또 멈춘다', async () => {
+      const c = client();
+      (c.executeAction as Mock).mockResolvedValue({ id: 9 });
+      const b = bridge();
+      const tools = build(c, b, ['send_mail', 'not_a_gated_tool']);
+      const mail = { accountId: 3, to: ['boss@x.com'], subject: '주간 보고', bodyText: '본문' };
+
+      expect(JSON.parse((await find(tools, 'send_mail').handler(mail)) as string)).toEqual({ ok: true, result: { id: 9 } });
+      expect(c.executeAction).toHaveBeenCalledWith(AGENT_ID, 'mail.send', expect.objectContaining({ subject: '주간 보고' }));
+      // 두 번째 보내기·허락받지 않은 일정 지우기는 멈춘다.
+      expect(JSON.parse((await find(tools, 'send_mail').handler(mail)) as string)).toMatchObject({ paused: true });
+      expect(JSON.parse((await find(tools, 'delete_event').handler({ eventId: 7 })) as string)).toMatchObject({ paused: true });
+      expect(c.executeAction).toHaveBeenCalledTimes(1);
+      expect(b.onProposal.mock.calls.map(([x]) => x.actionType)).toEqual(['send_mail', 'delete_event']);
+    });
+
+    it('허락된 쓰기가 실행되지 못하면(오류) 허락을 쓰지 않은 것으로 돌려 다시 부를 수 있다', async () => {
+      const c = client();
+      (c.executeAction as Mock).mockRejectedValueOnce(new Error('일시 오류')).mockResolvedValueOnce({ id: 9 });
+      const b = bridge();
+      const tools = build(c, b, ['send_mail']);
+      const mail = { accountId: 3, to: ['boss@x.com'], subject: '주간 보고', bodyText: '본문' };
+
+      await expect(find(tools, 'send_mail').handler(mail)).rejects.toThrow('일시 오류');
+      expect(JSON.parse((await find(tools, 'send_mail').handler(mail)) as string)).toEqual({ ok: true, result: { id: 9 } });
+      expect(c.executeAction).toHaveBeenCalledTimes(2);
+      expect(b.onProposal).not.toHaveBeenCalled();
+    });
+
+    it('멈춘 쓰기 기록이 호스트에 닿을 때까지(비동기 브리지) 기다린 뒤 멈춤을 돌려준다', async () => {
+      const seen: string[] = [];
+      const b: HostBridge = {
+        onProposal: async (x) => {
+          await new Promise((r) => setTimeout(r, 5));
+          seen.push(x.actionType);
+        },
+        onSubmitResponse: () => {},
+        onUnassignResult: () => {},
+      };
+      await find(build(client(), b), 'delete_event').handler({ eventId: 7 });
+      expect(seen).toEqual(['delete_event']);
+    });
+
+    it('호스트 브리지가 없어도 실행하지 않는다(fail-closed)', async () => {
+      const c = client();
+      const out = JSON.parse((await find(build(c), 'delete_user_group').handler({ groupId: 4 })) as string);
+      expect(out).toMatchObject({ paused: true });
+      expect(c.executeAction).not.toHaveBeenCalled();
+    });
   });
 
   it('home 표시 도구는 {displayed:true} 만 반환한다(데이터 조회 X)', async () => {

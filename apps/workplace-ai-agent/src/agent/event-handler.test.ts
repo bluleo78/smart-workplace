@@ -122,7 +122,24 @@ describe('handleEvent', () => {
       issueBody: null,
     };
     handleEvent({ type: 'issue.recurring_run', payload }, { client });
-    expect(runRecurring).toHaveBeenCalledWith(payload, { client });
+    expect(runRecurring).toHaveBeenCalledWith(payload, { client }, { test: false });
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  // WP-1313: 「지금 실행」(테스트 실행)은 같은 runRecurring 을 test 로 부른다.
+  it('issue.recurring_test_run → runRecurring(payload, deps, {test:true})', () => {
+    vi.mocked(runRecurring).mockClear();
+    vi.mocked(runAgent).mockClear();
+    const payload = {
+      ...common,
+      ownerUserId: 7,
+      runId: '42-t1',
+      runAt: '2026-09-21T23:13:20+09:00',
+      recurrence: { rrule: 'FREQ=DAILY', time: '23:13' },
+      issueBody: null,
+    };
+    handleEvent({ type: 'issue.recurring_test_run', payload }, { client });
+    expect(runRecurring).toHaveBeenCalledWith(payload, { client }, { test: true });
     expect(runAgent).not.toHaveBeenCalled();
   });
 });

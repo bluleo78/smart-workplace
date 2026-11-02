@@ -132,6 +132,26 @@ describe('POST /events', () => {
     expect(runAgent).not.toHaveBeenCalled();
   });
 
+  // WP-1313: 「지금 실행」(테스트 실행)은 따로의 종류로 받는다 — 허락된 쓰기가 실린 이어 처리 페이로드도 받는다.
+  it('issue.recurring_test_run → 202 + runRecurring(payload, deps, {test:true})', async () => {
+    vi.mocked(runRecurring).mockClear();
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({
+        type: 'issue.recurring_test_run',
+        payload: {
+          ...recurringPayload,
+          runId: '42-f9',
+          followUp: { question: 'q', answer: 'a', permittedActions: [{ tool: 'send_mail', args: { subject: 's' } }] },
+        },
+      });
+    expect(res.status).toBe(202);
+    expect(runRecurring).toHaveBeenCalledOnce();
+    expect(vi.mocked(runRecurring).mock.calls[0][0].followUp?.permittedActions).toEqual([{ tool: 'send_mail', args: { subject: 's' } }]);
+    expect(vi.mocked(runRecurring).mock.calls[0][2]).toEqual({ test: true });
+  });
+
   it('issue.recurring_run 의 issueBody 는 null 이어도 받는다', async () => {
     const res = await request(buildApp())
       .post('/events')

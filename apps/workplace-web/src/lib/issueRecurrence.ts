@@ -1,6 +1,7 @@
 // 개인 작업 반복(WP-989) — 편집 폼 모델 ↔ RRULE, 요약·다음 실행·멈춤 문구를 만드는 순수 함수.
 // 빈도 타입(RecurrenceFreq)과 RRULE 토큰화(tokenizeRRule)는 캘린더 반복 유틸(lib/recurrence)을 그대로 쓰고,
 // 이 기능만 쓰는 BYDAY(매주 요일)·BYMONTHDAY(매월 날짜)를 덧붙여 읽고 쓴다. 가장 짧은 주기는 하루 1회(INTERVAL 없음).
+import type { IssueRecurrence } from '../types/issueRecurrence';
 import { kstParts, kstWeekday, parseUtcDate } from './formatters';
 import { type RecurrenceFreq, tokenizeRRule } from './recurrence';
 
@@ -153,4 +154,37 @@ export function aiHandoffLabel(r: { rrule: string; time: string; agentName: stri
 export function agentOptionLabel(o: { name: string | null; username: string; personalAssistant: boolean }): string {
   const name = o.name?.trim() || o.username;
   return o.personalAssistant ? `${name} (내 AI 비서)` : name;
+}
+
+/** 「지금 실행」 버튼 상태(WP-1313) — 누를 수 없으면 그 이유(툴팁). */
+export interface RunNowState {
+  /** 반복이 없으면 버튼을 그리지 않는다. */
+  visible: boolean;
+  disabled: boolean;
+  /** 막힌 이유 — 툴팁·보조 문구로 보인다. 누를 수 있으면 null. */
+  reason: string | null;
+  /** 결과를 기다리는 중 — 버튼 글자를 「실행 중…」으로. */
+  running: boolean;
+}
+
+/**
+ * 「지금 실행」 버튼을 누를 수 있는지(WP-1313). 서버 규칙과 같다 — 남의 개인 비서 일정은 주인만(editable=false), 이슈를 고칠 수 없는 사람은 못 누르고,
+ * 결과를 기다리는 테스트 실행이 있으면 하나씩만. 정기 회차가 도는 중인 것은 화면이 모르므로 서버 409 문구로 알린다.
+ *
+ * @param locked 이슈를 고칠 수 없는 사람(팀 이슈 읽기 전용)
+ * @param pending 지금 요청을 보내는 중
+ */
+export function runNowState(
+  r: Pick<IssueRecurrence, 'editable' | 'testRunning'> | null | undefined,
+  locked: boolean,
+  pending: boolean,
+): RunNowState {
+  if (!r) return { visible: false, disabled: true, reason: null, running: false };
+  const running = r.testRunning === true || pending;
+  if (r.editable === false) {
+    return { visible: true, disabled: true, reason: '다른 사람의 개인 비서 일정이라 그 주인만 실행할 수 있어요', running };
+  }
+  if (locked) return { visible: true, disabled: true, reason: '이 이슈를 고칠 수 있는 사람만 실행할 수 있어요', running };
+  if (running) return { visible: true, disabled: true, reason: '실행 중이에요 — 결과가 채팅에 남은 뒤 다시 실행할 수 있어요', running };
+  return { visible: true, disabled: false, reason: null, running: false };
 }

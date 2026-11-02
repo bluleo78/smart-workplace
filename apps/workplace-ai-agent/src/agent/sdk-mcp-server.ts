@@ -80,6 +80,8 @@ export function buildInProcessWorkplaceMcpServer(i: {
   chatThreadId?: number;
   // WP-234: 메인 AI 채팅 세션 바인딩.
   homeSessionId?: string;
+  // WP-1313: recurring-test 프로필에서 실행을 허락한 되돌릴 수 없는 쓰기(테스트 질문의 이어 처리).
+  recurringPermits?: readonly string[];
 }): McpSdkServerConfigWithInstance {
   const tools = buildTools(
     i.client,
@@ -92,6 +94,7 @@ export function buildInProcessWorkplaceMcpServer(i: {
     i.homeSessionId,
     // WP-250: Claude 는 이미지를 볼 수 있어 페이지 보기를 연다.
     true,
+    i.recurringPermits,
   );
   // 라우터·서브에이전트 호출이 같은 인스턴스를 공유하므로 seq 카운터 1개로 전체 순서 보존.
   let seq = 0;

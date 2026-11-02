@@ -273,3 +273,144 @@ describe('runRecurring — 테넌트 없음', () => {
     expect(c.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: 'ok' });
   });
 });
+
+// WP-1313: 「지금 실행」(테스트 실행, issue.recurring_test_run) — recurring-test 프로필로 돌고, 도구 래퍼가 멈춘 되돌릴 수 없는 쓰기를
+// 질문과 함께 보고한다. 테스트 질문의 이어 처리는 그 멈춘 쓰기만 허락받는다.
+describe('runRecurring — 테스트 실행', () => {
+  beforeEach(() => {
+    vi.mocked(runSdkCollect).mockReset();
+    vi.mocked(buildInProcessWorkplaceMcpServer).mockClear();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const testRun = { ...payload, runId: '3-t1790000000123', round: undefined };
+
+  // 실행 중 도구 래퍼가 멈춘 쓰기를 알린 것처럼 — MCP 서버에 넘긴 호스트 브리지로 onProposal 을 부른 뒤 최종 답변을 낸다.
+  function runWithPaused(final: string, paused: Array<{ tool: string; args: Record<string, unknown> }>) {
+    vi.mocked(runSdkCollect).mockImplementation(async () => {
+      const bridge = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls.at(-1)?.[0].hostBridge;
+      for (const a of paused) bridge?.onProposal({ actionType: a.tool, summary: '', params: a.args });
+      return [resultLine('success', final)];
+    });
+  }
+
+  it('recurring-test 프로필·테스트 지시문으로 돌고, 멈춘 쓰기가 없으면 결과를 그대로 보고한다', async () => {
+    runWithPaused('## 정리\n- 3건', []);
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+
+    const mcp = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0];
+    expect(mcp).toMatchObject({ profile: 'recurring-test', onBehalfOfId: 7, client: c.scoped, recurringPermits: [] });
+    expect(mcp.hostBridge).toBeDefined();
+    const input = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(input.userMessage).toContain('[이벤트: issue.recurring_test_run]');
+    expect(input.userMessage).toContain('「지금 실행」');
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-t1790000000123', ok: true, message: '## 정리\n- 3건' });
+  });
+
+  it('메일 보내기를 멈췄으면 질문으로, 멈춘 쓰기와 함께 보고한다', async () => {
+    const mail = { accountId: 3, to: ['boss@x.com'], subject: '주간 보고' };
+    runWithPaused('[확인 필요] 주간 보고 메일을 팀장님께 보낼까요?', [{ tool: 'send_mail', args: mail }]);
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-t1790000000123',
+      ok: true,
+      message: '주간 보고 메일을 팀장님께 보낼까요?',
+      question: true,
+      pausedActions: [{ tool: 'send_mail', args: mail }],
+    });
+  });
+
+  it('멈췄는데 모델이 표지를 빠뜨리거나 답을 비워도 질문으로 보고한다', async () => {
+    runWithPaused('메일 초안을 준비했습니다', [{ tool: 'send_mail', args: {} }]);
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+    expect(c.scoped.reportRecurringRun).toHaveBeenLastCalledWith(201, 3, expect.objectContaining({ message: '메일 초안을 준비했습니다', question: true }));
+
+    runWithPaused('', [{ tool: 'delete_event', args: { eventId: 7 } }]);
+    const c2 = client();
+    await runRecurring(testRun, { client: c2 }, { test: true });
+    const body = c2.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body).toMatchObject({ ok: true, question: true, pausedActions: [{ tool: 'delete_event', args: { eventId: 7 } }] });
+    expect(body.message).toContain('delete_event');
+  });
+
+  // 멈춘 쓰기가 있는데 실행이 비정상으로 끝나면(최대 턴·시간 초과·오류) 실패로 버리지 않고 질문으로 — 답하면 그 쓰기만 이어 처리한다.
+  it('멈춘 뒤 최대 턴 등으로 비정상 종료하면 실패가 아니라 멈춘 쓰기와 함께 질문으로 보고한다', async () => {
+    const mail = { subject: '주간 보고' };
+    vi.mocked(runSdkCollect).mockImplementation(async () => {
+      const bridge = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls.at(-1)?.[0].hostBridge;
+      bridge?.onProposal({ actionType: 'send_mail', summary: '', params: mail });
+      return [resultLine('error_max_turns', '')];
+    });
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body).toMatchObject({ runId: '3-t1790000000123', ok: true, question: true, pausedActions: [{ tool: 'send_mail', args: mail }] });
+    expect(body.message).toContain('실행이 중간에 끝났습니다(AI 실행이 정상적으로 끝나지 않았습니다)');
+    expect(body.message).toContain('메일 보내기 (`send_mail`)');
+    expect(body.message).toContain('주간 보고');
+  });
+
+  it('멈춘 뒤 러너가 던져도(시간 초과) 사유를 적은 질문으로 보고한다', async () => {
+    vi.mocked(runSdkCollect).mockImplementation(async () => {
+      const bridge = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls.at(-1)?.[0].hostBridge;
+      bridge?.onProposal({ actionType: 'delete_event', summary: '', params: { eventId: 7 } });
+      throw new Error('timeout after 300000ms\nstack...');
+    });
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body).toMatchObject({ ok: true, question: true, pausedActions: [{ tool: 'delete_event', args: { eventId: 7 } }] });
+    expect(body.message).toContain('실행이 중간에 끝났습니다(timeout after 300000ms)');
+    expect(body.message).toContain('일정 지우기 (`delete_event`)');
+  });
+
+  it('멈춘 쓰기 없이 비정상 종료한 테스트 실행은 그대로 실패로 보고한다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('error_max_turns', '')]);
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-t1790000000123',
+      ok: false,
+      message: 'AI 실행이 정상적으로 끝나지 않았습니다',
+    });
+  });
+
+  it('테스트 질문의 이어 처리는 그 질문이 멈춘 쓰기만 허락받고, 허락된 쓰기를 지시문에 보인다', async () => {
+    runWithPaused('보냈습니다', []);
+    const c = client();
+    const followUp = {
+      ...testRun,
+      runId: '3-f77',
+      followUp: {
+        question: '주간 보고 메일을 보낼까요?',
+        answer: '보내 줘',
+        permittedActions: [{ tool: 'send_mail', args: { subject: '주간 보고' } }],
+      },
+    };
+    await runRecurring(followUp, { client: c }, { test: true });
+    expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0]).toMatchObject({
+      profile: 'recurring-test',
+      recurringPermits: ['send_mail'],
+    });
+    const msg = vi.mocked(runSdkCollect).mock.calls[0][0].userMessage;
+    expect(msg).toContain('[이벤트: issue.recurring_test_run · 이어 처리]');
+    expect(msg).toContain('send_mail {"subject":"주간 보고"}');
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f77', ok: true, message: '보냈습니다' });
+  });
+
+  it('정기 회차는 호스트 브리지·허락 없이 recurring 프로필로 돈다', async () => {
+    runWithPaused('ok', []);
+    await runRecurring(payload, { client: client() });
+    const mcp = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0];
+    expect(mcp.profile).toBe('recurring');
+    expect(mcp.hostBridge).toBeUndefined();
+    expect(mcp.recurringPermits).toBeUndefined();
+  });
+});

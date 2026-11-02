@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -312,7 +313,53 @@ class IssueRecurrenceTeamTest extends IntegrationTestBase {
             });
   }
 
+  // ───────────────────────────── 지금 실행(WP-1313) ─────────────────────────────
+
+  @Test
+  void 남의_개인비서_일정은_주인만_지금_실행한다() throws Exception {
+    call(put(path()).content(req(aliceAi)), alice).andExpect(status().isOk());
+
+    call(post(path() + "/test-runs"), bob)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.message").value(IssueRecurrenceService.OTHERS_ASSISTANT));
+    assertThat(testRunId()).isNull();
+
+    call(post(path() + "/test-runs"), alice).andExpect(status().isAccepted());
+    assertThat(testRunId()).isNotNull();
+  }
+
+  @Test
+  void 팀_AI_일정을_다른_구성원이_지금_실행하면_누른_사람이_답한다() throws Exception {
+    // bob 이 저장한 공용 AI 일정을 alice 가 지금 실행한다 — 누른 사람이 actor 이고, 남긴 질문에는 누른 alice 가 답한다.
+    call(put(path()).content(req(teamAi)), bob).andExpect(status().isOk());
+    call(post(path() + "/test-runs"), alice).andExpect(status().isAccepted());
+    var sent = events.stream(IssueRecurringRunEvent.class).toList();
+    assertThat(sent).hasSize(1);
+    assertThat(sent.get(0).test()).isTrue();
+    assertThat(sent.get(0).actor().id()).isEqualTo(alice);
+    assertThat(sent.get(0).ownerUserId()).isEqualTo(teamAi);
+
+    recurrenceService.reportRun(
+        teamAi,
+        issueId,
+        new com.workplace.issue.dto.IssueRecurrenceRunReport(
+            testRunId(), true, "메일을 보낼까요?", true, null));
+
+    assertThat(followUpService.answer(issueId, Long.MAX_VALUE, bob, "보내 줘")).isEmpty();
+    assertThat(followUpService.answer(issueId, Long.MAX_VALUE, alice, "보내 줘")).hasValue(teamAi);
+    var e = followUps().get(0);
+    assertThat(e.test()).isTrue();
+    assertThat(e.actor().id()).isEqualTo(alice);
+  }
+
   // ───────────────────────────── 도우미 ─────────────────────────────
+
+  private String testRunId() {
+    return dsl.select(ISSUE_RECURRENCE.TEST_RUN_ID)
+        .from(ISSUE_RECURRENCE)
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .fetchOne(ISSUE_RECURRENCE.TEST_RUN_ID);
+  }
 
   /** 회차가 이슈 챗에 질문을 남긴 상태로 만든다 — 질문 글 id 는 1(그 뒤의 어떤 글이든 답이 될 수 있게). */
   private void leaveQuestion(String question) {

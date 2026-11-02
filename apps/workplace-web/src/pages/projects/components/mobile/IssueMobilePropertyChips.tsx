@@ -5,6 +5,7 @@
 import { Bot, CalendarDays, Diamond, Flag, Plus, Tag, User } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
+import { RecurrenceRunNowButton } from '@/components/issue/recurrence/RecurrenceRunNowButton';
 import { TaskRecurrenceEditor } from '@/components/issue/recurrence/TaskRecurrenceEditor';
 import { MobileDateSheet } from '@/components/mobile/MobileDateSheet';
 import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerSheet';
@@ -365,6 +366,12 @@ function RecurrencePropChip({ projectKey, number, disabled }: { projectKey: stri
       </button>
       <MobileSheetShell open={open} onClose={() => setOpen(false)} title="AI 에게 맡기기" description="담당 AI 와 실행 일정을 고르세요." testId="issue-recurrence-sheet">
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          {/* WP-1313: 일정이 있으면 시트 맨 위에 「지금 실행」 — 데스크톱 칸의 같은 버튼(결과는 채팅에 「테스트 실행」으로). */}
+          {open && r && (
+            <div className="mb-3 flex justify-end">
+              <RecurrenceRunNowButton projectKey={projectKey} number={number} recurrence={r} locked={disabled} />
+            </div>
+          )}
           {/* 시트가 닫히면 본문이 언마운트되어 다음에 열 때 지금 값으로 폼을 새로 시작한다. */}
           {open && <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />}
         </div>

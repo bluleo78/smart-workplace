@@ -9,6 +9,7 @@ import {
   deleteIssueRecurrence,
   fetchIssueRecurrence,
   fetchIssueRecurrenceAgents,
+  postIssueRecurrenceTestRun,
   putIssueRecurrence,
 } from '../../api/issueRecurrence';
 import { handleApiError } from '../../lib/api-error';
@@ -22,11 +23,15 @@ import { issueKeys } from './useIssues';
 export const issueRecurrenceKey = (projectKey: string, number: number) =>
   [...issueKeys.detail(projectKey, number), 'recurrence'] as const;
 
-/** 반복 조회 — 없으면 data=null. */
+/** 「지금 실행」 결과를 기다리는 동안 반복을 다시 받는 간격 — 결과가 오면 버튼의 「실행 중」이 풀린다(WP-1313). */
+export const TEST_RUN_POLL_MS = 10_000;
+
+/** 반복 조회 — 없으면 data=null. 「지금 실행」 결과를 기다리는 동안(testRunning)만 짧게 다시 받는다. */
 export function useIssueRecurrence(projectKey: string, number: number) {
   return useQuery<IssueRecurrence | null, Error>({
     queryKey: issueRecurrenceKey(projectKey, number),
     queryFn: () => fetchIssueRecurrence(projectKey, number),
+    refetchInterval: (q) => (q.state.data?.testRunning ? TEST_RUN_POLL_MS : false),
   });
 }
 
@@ -65,6 +70,22 @@ export function useSaveIssueRecurrence(projectKey: string, number: number) {
       toast.success('실행 일정을 저장했습니다');
     },
     onError: (e) => handleApiError(e, '실행 일정을 저장하지 못했습니다'),
+  });
+}
+
+/**
+ * 「지금 실행」(WP-1313) — 성공하면 결과가 채팅에 남는다고 알리고 반복을 다시 받아 버튼을 「실행 중」으로 잠근다. 다음 실행 시각·실패 횟수·AI 작업
+ * 상태는 서버가 바꾸지 않으므로 AI 작업 목록은 다시 받지 않는다. 409(이미 실행 중 등)·403(남의 개인 비서)은 서버 문구를 토스트로 보인다.
+ */
+export function useRunIssueRecurrenceNow(projectKey: string, number: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => postIssueRecurrenceTestRun(projectKey, number),
+    onSuccess: () => toast.success('지금 실행을 시작했습니다 — 결과는 채팅에 남습니다'),
+    onError: (e) => handleApiError(e, '지금 실행하지 못했습니다'),
+    // 성공·실패 모두 실행 상태를 다시 받아 버튼을 맞춘다 — 409(이미 실행 중) 뒤에는 화면이 모르던 실행 상태를 받는다.
+    // 상세 키 아래의 후보 목록까지 다시 받지 않게 반복 키만(exact).
+    onSettled: () => qc.invalidateQueries({ queryKey: issueRecurrenceKey(projectKey, number), exact: true }),
   });
 }
 

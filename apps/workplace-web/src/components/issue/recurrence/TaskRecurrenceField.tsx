@@ -1,5 +1,6 @@
 // 이슈 상세(데스크톱 개인 작업·팀 이슈)의 「AI 에게 맡기기」 속성(WP-989, WP-1314) — 요약 버튼(「내 AI 비서 · ↻ 매주 월·수 08:30」/「안 함」)
 // + 상태 줄(다음 실행·멈춤), 누르면 편집기 팝오버. 일정 조회는 이 칸이 있을 때만 한다.
+// WP-1313: 일정이 있으면 상태 줄 옆에 「지금 실행」 — 다음 회차를 기다리지 않고 한 번 실행한다(결과는 채팅에 「테스트 실행」으로).
 import { Bot } from 'lucide-react';
 import { useState } from 'react';
 
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useIssueRecurrence } from '@/hooks/queries/useIssueRecurrence';
 import { aiHandoffLabel } from '@/lib/issueRecurrence';
 
+import { RecurrenceRunNowButton } from './RecurrenceRunNowButton';
 import { TaskRecurrenceEditor, TaskRecurrenceStatus } from './TaskRecurrenceEditor';
 
 export function TaskRecurrenceField({
@@ -57,7 +59,12 @@ export function TaskRecurrenceField({
           <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />
         </PopoverContent>
       </Popover>
-      <TaskRecurrenceStatus recurrence={r} />
+      {r ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <TaskRecurrenceStatus recurrence={r} />
+          <RecurrenceRunNowButton projectKey={projectKey} number={number} recurrence={r} locked={disabled} />
+        </div>
+      ) : null}
     </div>
   );
 }
