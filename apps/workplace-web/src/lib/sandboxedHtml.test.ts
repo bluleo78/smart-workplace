@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import cases from './htmlHasScripts.cases.json'
-import { htmlHasScripts, LINK_TARGET_BASE, SANDBOX_HEAD, THIN_SCROLLBAR_STYLE, withSandboxHead } from './sandboxedHtml'
+import {
+  buildSandboxDoc,
+  htmlHasScripts,
+  IN_PAGE_LINK_SCRIPT,
+  LINK_TARGET_BASE,
+  rewriteInPageLinks,
+  SANDBOX_HEAD,
+  SCRIPT_SANDBOX_HEAD,
+  THIN_SCROLLBAR_STYLE,
+  withSandboxHead,
+} from './sandboxedHtml'
 
 describe('withSandboxHead', () => {
   it('DOCTYPE 이 있으면 그 뒤에 주입해 표준 모드를 유지한다', () => {
@@ -68,6 +78,87 @@ describe('withSandboxHead', () => {
     expect(THIN_SCROLLBAR_STYLE).toContain('*{scrollbar-width:thin}')
     // 상속되는 색은 :root 에만 — 문서가 body 등에 준 scrollbar-color 상속을 끊지 않는다.
     expect(THIN_SCROLLBAR_STYLE).not.toMatch(/\*\{[^}]*scrollbar-color/)
+  })
+})
+
+// WP-1271: 목차 같은 문서 안 이동 링크가 새 탭에 앱을 다시 열지 않고 그 문서 안에서 움직이게 한다.
+describe('rewriteInPageLinks', () => {
+  it('target 없는 # 링크를 about:srcdoc 조각 + _self 로 바꾼다(큰·작은따옴표·따옴표 없음)', () => {
+    expect(rewriteInPageLinks('<a href="#summary">요약</a>')).toBe('<a target="_self" href="about:srcdoc#summary">요약</a>')
+    expect(rewriteInPageLinks("<a class='toc' href='#s-2'>2</a>")).toBe(
+      `<a target="_self" class='toc' href='about:srcdoc#s-2'>2</a>`,
+    )
+    expect(rewriteInPageLinks('<A HREF=#top>위로</A>')).toBe('<A target="_self" HREF="about:srcdoc#top">위로</A>')
+  })
+
+  it('area 와 빈 조각(#)·앞 공백도 바꾼다', () => {
+    expect(rewriteInPageLinks('<area shape="rect" href="#map1" />')).toBe(
+      '<area target="_self" shape="rect" href="about:srcdoc#map1" />',
+    )
+    expect(rewriteInPageLinks('<a href="#">맨 위</a>')).toBe('<a target="_self" href="about:srcdoc#">맨 위</a>')
+    expect(rewriteInPageLinks('<a href=" #x">x</a>')).toBe('<a target="_self" href="about:srcdoc#x">x</a>')
+  })
+
+  it('빈 target 은 없는 것으로 보고 바꾼다 — 브라우저도 그때 <base target> 을 따른다', () => {
+    expect(rewriteInPageLinks('<a href="#x" target="">x</a>')).toBe('<a target="_self" href="about:srcdoc#x" target="">x</a>')
+    expect(rewriteInPageLinks("<a target=' ' href='#x'>x</a>")).toBe(`<a target="_self" target=' ' href='about:srcdoc#x'>x</a>`)
+  })
+
+  it('SVG 링크의 xlink:href 도 바꾼다', () => {
+    expect(rewriteInPageLinks('<a xlink:href="#node3"><rect/></a>')).toBe('<a target="_self" xlink:href="about:srcdoc#node3"><rect/></a>')
+  })
+
+  it('외부·상대 링크와 target 을 직접 단 링크는 그대로 둔다(WP-427 새 탭 유지)', () => {
+    const untouched = [
+      '<a href="https://example.com/#x">밖</a>',
+      '<a href="page.html#x">상대</a>',
+      '<a href="/root">루트</a>',
+      '<a href="#x" target="_blank">명시</a>',
+      '<a target=_top href="#x">명시</a>',
+      '<a name="anchor">이름만</a>',
+      '<abbr title="#x">약어</abbr>',
+      '<a title="href=#x" href="https://e.com">값 속 글자</a>',
+    ]
+    for (const html of untouched) expect(rewriteInPageLinks(html)).toBe(html)
+  })
+
+  it('href 가 두 번이면 첫 것만 본다(HTML 파서와 같다)', () => {
+    expect(rewriteInPageLinks('<a href="https://e.com" href="#x">a</a>')).toBe('<a href="https://e.com" href="#x">a</a>')
+    expect(rewriteInPageLinks('<a href="#x" href="https://e.com">a</a>')).toBe(
+      '<a target="_self" href="about:srcdoc#x" href="https://e.com">a</a>',
+    )
+  })
+
+  it('여러 링크가 섞인 문서에서 # 링크만 바꾼다', () => {
+    const html = '<nav><a href="#a">A</a> <a href="https://e.com">E</a></nav><h2 id="a">A</h2>'
+    expect(rewriteInPageLinks(html)).toBe(
+      '<nav><a target="_self" href="about:srcdoc#a">A</a> <a href="https://e.com">E</a></nav><h2 id="a">A</h2>',
+    )
+  })
+
+  it('닫히지 않은 태그가 길게 이어져도 즉시 끝난다(백트래킹 회귀 가드)', () => {
+    const html = '<a '.repeat(10000) + 'href="#x"'
+    const t0 = performance.now()
+    expect(rewriteInPageLinks(html)).toBe(html)
+    const attrs = '<a ' + ' x="1"'.repeat(10000) + ' href="#y">'
+    expect(rewriteInPageLinks(attrs)).toContain('href="about:srcdoc#y"')
+    expect(performance.now() - t0).toBeLessThan(500)
+  })
+})
+
+describe('buildSandboxDoc', () => {
+  const html = '<!doctype html><a href="#s">목차</a><h2 id="s">절</h2>'
+
+  it('스크립트 꺼짐이면 링크를 바꾸고 스크립트 없는 기본 머리말만 넣는다', () => {
+    const doc = buildSandboxDoc(html, false)
+    expect(doc).toBe('<!doctype html>' + SANDBOX_HEAD + '<a target="_self" href="about:srcdoc#s">목차</a><h2 id="s">절</h2>')
+    expect(doc).not.toMatch(/<script/i)
+  })
+
+  it('스크립트 켜짐이면 href 는 그대로 두고 문서 안 이동 처리기를 넣는다', () => {
+    const doc = buildSandboxDoc(html, true)
+    expect(doc).toBe('<!doctype html>' + SCRIPT_SANDBOX_HEAD + '<a href="#s">목차</a><h2 id="s">절</h2>')
+    expect(SCRIPT_SANDBOX_HEAD.endsWith(IN_PAGE_LINK_SCRIPT)).toBe(true)
   })
 })
 

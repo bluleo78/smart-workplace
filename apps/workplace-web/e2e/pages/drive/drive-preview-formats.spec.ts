@@ -95,6 +95,19 @@ async function stubHtmlFile(page: Page, name: string, body: string) {
   )
 }
 
+// 보안 점검 조회(WP-1262) — 점검 완료(낮음)로 응답한다. 「스크립트 실행」 스위치를 켜는 테스트가 쓴다.
+async function stubSecurityCheckLow(page: Page) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/files/110/security-check',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'DONE', risk: 'LOW', headline: '문제 없어 보여요', evidence: [], checkedAt: '2026-11-01T01:00:00Z', reason: null }),
+      }),
+  )
+}
+
 // 최소 SVG — 브라우저가 크기를 갖도록 width/height 명시.
 const SVG_BODY = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="blue"/></svg>`
 
@@ -264,16 +277,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await stubSpaces(page)
     const DECK = `<!doctype html><html><body><p id="state">차단됨</p><div hidden>${'가'.repeat(250_000)}</div><script>document.getElementById('state').textContent = '스크립트 실행됨:' + window.origin</script></body></html>`
     await stubHtmlFile(page, 'deck.html', DECK)
-    // 보안 점검 조회 — 점검 완료(낮음)로 응답한다.
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/files/110/security-check',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'DONE', risk: 'LOW', headline: '문제 없어 보여요', evidence: [], checkedAt: '2026-11-01T01:00:00Z', reason: null }),
-        }),
-    )
+    await stubSecurityCheckLow(page)
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: 'deck.html' }).click()
@@ -286,6 +290,47 @@ test.describe('드라이브 프리뷰 포맷', () => {
     // 허용하면 스크립트가 돈다. 출처는 불투명(null)이라 앱 쿠키·저장소에 닿지 못한다.
     await expect(state).toHaveText('스크립트 실행됨:null')
     await expect(body.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
+  })
+
+  // WP-1271: srcdoc 문서의 `#…` 링크는 상위 앱 주소 기준으로 풀리고 `<base target="_blank">` 에 걸려 새 탭에 앱을 다시 열었다.
+  // 목차 클릭이 새 탭 없이 같은 미리보기 안에서 그 절로 스크롤되는지 — 스크립트 꺼짐(링크 바꾸기)·켜짐(클릭 처리기) 둘 다 실제 iframe 에서 본다.
+  test('문서 안 목차 링크는 새 탭 없이 미리보기 안에서 그 절로 이동한다(스크립트 꺼짐·켜짐)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+    // 목차 클릭을 처리하는 스크립트가 없는 문서 — 스크립트는 「스크립트 실행」 스위치가 보이게 하는 것뿐이다.
+    const DOC = `<!doctype html><html><body><nav><a id="toc" href="#s2">2절로</a></nav><div style="height:3000px">1절</div><h2 id="s2">2절</h2><div style="height:3000px"></div><script>window.loaded = true</script></body></html>`
+    await stubHtmlFile(page, 'toc.html', DOC)
+    await stubSecurityCheckLow(page)
+    const popups: string[] = []
+    page.on('popup', (p) => popups.push(p.url()))
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'toc.html' }).click()
+    const body = page.getByTestId('preview-body')
+    const frame = page.frameLocator('[data-testid="html-document"]')
+    const scrollY = () => frame.locator('body').evaluate(() => window.scrollY)
+
+    // 스크립트 꺼짐 — 목차를 누르면 iframe 안에서 2절로 스크롤된다.
+    await expect(frame.locator('#s2')).toBeAttached()
+    expect(await scrollY()).toBe(0)
+    await frame.locator('#toc').click()
+    await expect.poll(scrollY).toBeGreaterThan(2000)
+
+    // 스크립트 켜짐 — 새 iframe 으로 다시 그려진 뒤 목차를 누르면 역시 2절로 간다.
+    await body.getByRole('switch', { name: '스크립트 실행' }).click()
+    await expect(body.getByTestId('html-script-notice')).toContainText('스크립트 실행 중')
+    await expect.poll(() => frame.locator('body').evaluate(() => (window as unknown as { loaded?: boolean }).loaded === true)).toBe(true)
+    expect(await scrollY()).toBe(0)
+    await frame.locator('#toc').click()
+    await expect.poll(scrollY).toBeGreaterThan(2000)
+    // 조각 이동이라 해시가 바뀐다(hashchange·:target 에 기대는 문서용). 같은 링크를 다시 누르면 다시 그 절로 간다.
+    expect(await frame.locator('body').evaluate(() => location.hash)).toBe('#s2')
+    await frame.locator('body').evaluate(() => window.scrollTo(0, 0))
+    await expect.poll(scrollY).toBe(0)
+    await frame.locator('#toc').click()
+    await expect.poll(scrollY).toBeGreaterThan(2000)
+
+    // 어느 쪽에서도 새 탭(앱 다시 열기)이 생기지 않는다.
+    expect(popups).toEqual([])
   })
 
   // #776: 작은 이미지는 preview-body 가운데(가로·세로)에 놓여 상단에 방치되지 않아야 한다.
