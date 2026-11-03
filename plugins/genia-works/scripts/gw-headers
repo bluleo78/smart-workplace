@@ -2,14 +2,26 @@
 # MCP headersHelper — 이 세션의 신원(세션 선택 > GENIA_WORKS_AS)을 정해 Authorization 헤더 JSON 한 줄을 낸다.
 # 내 토큰은 헤더 스크립트가 읽을 수 없으므로(플러그인 설정값이 전달되지 않음) {} 를 내서
 # 고정 헤더 Bearer ${GENIA_WORKS_TOKEN:-${user_config.token}} 를 쓰게 한다. 키 값은 어디에도 기록하지 않는다.
+#
+# --authorization: Gen:iA Code(genia) 확장이 MCP 헤더 값 명령(`"Authorization": "!<이 스크립트> --authorization"`)으로 부른다(WP-1294).
+#   genia 는 헤더 하나마다 명령의 출력 전체를 값으로 쓰므로 JSON 대신 「Bearer <키>」 한 줄만 낸다. 워크스페이스 헤더는 확장이 따로 붙인다.
+#   AI 신원이 없으면(내 토큰) 확장이 이 명령을 쓰지 않으므로, 여기서는 무효 토큰을 내 서버가 거부하게 한다(조용히 다른 신원으로 붙지 않게).
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
+
+value_only=""
+[ "${1:-}" = --authorization ] && value_only=1
 
 gw_prune_sessions
 
 name=$(gw_identity)
 
 if [ -z "$name" ]; then
+  if [ -n "$value_only" ]; then
+    echo "genia-works: AI 신원이 없습니다 — /gw-as <AI 이름> 으로 고르세요" >&2
+    printf 'Bearer invalid\n'
+    exit 0
+  fi
   printf '{}\n'
   exit 0
 fi
@@ -23,7 +35,12 @@ if [ -z "$key" ]; then
   # 그런데 스크립트가 실패(exit 1)하면 Claude Code 가 고정 헤더로 폴백하고 stderr 도 보여주지 않는다(실측).
   # 그래서 무효 토큰을 내 서버가 인증을 거부하게 한다(exit 0).
   echo "genia-works: '$name' 키가 없습니다 — /genia-works:login 으로 등록하세요" >&2
-  printf '{"Authorization":"Bearer invalid"}\n'
+  if [ -n "$value_only" ]; then printf 'Bearer invalid\n'; else printf '{"Authorization":"Bearer invalid"}\n'; fi
+  exit 0
+fi
+
+if [ -n "$value_only" ]; then
+  printf 'Bearer %s\n' "$key"
   exit 0
 fi
 

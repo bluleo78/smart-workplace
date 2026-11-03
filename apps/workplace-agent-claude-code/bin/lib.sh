@@ -5,6 +5,10 @@
 # 키·토큰 원문은 명령줄 인자·로그에 남기지 않는다 — 파일·표준 입력으로만 넘긴다.
 # 플러그인을 찾은 뒤(resolve_plugin_scripts)에는 플러그인의 공용 함수(gw-lib.sh)를 읽어 키 저장·키 검사·경로·파일 쓰기를 플러그인과 같은 규칙으로 한다.
 # 그 앞(필수 확인·마켓플레이스)은 이미지에 genia-works 가 없을 수도 있어(빌더에서 Works 에 닿지 않음) gw-lib 없이 돈다.
+# Gen:iA Code 이미지(apps/workplace-agent-genia-code, WP-1296)도 이 파일을 그대로 COPY 해 쓰고, 그 이미지 전용 함수(lib-genia.sh)를 뒤에 읽어 덮어쓴다 —
+# 함수 이름·인자를 바꾸면 그 이미지의 엔트리포인트·테스트도 함께 본다.
+#   다른 이미지가 덮어쓰는 지점: trust_folders(7 의 폴더 신뢰). 함께 쓰는 것: adopt_plugin_scripts·bg_wait 와 필수 확인·CA·키·git·dind·프로젝트·감독·정리.
+#   Claude Code 전용(다른 이미지는 부르지 않는다): update_plugins·resolve_plugin_scripts·write_settings·mark_trust·install_plugins·verify_plugin_lock.
 
 GENIA_RUN_DIR=${GENIA_RUN_DIR:-/run/genia}          # runner 가 파일 하나씩(subPath) 꽂는 곳 — 읽기만 한다
 GENIA_WORK=${GENIA_WORK:-/work}                     # PVC — 다시 받기 비싼 것만(AI 폴더·저장소·캐시)
@@ -109,9 +113,16 @@ update_plugins() {
 #     claude 에게 묻는다. AI 폴더는 실제 경로로 바꿔 둔다(claude 신뢰·tmux 칸 폴더와 같은 모양). 아직 없으면(함수 하나만 부르는 테스트) 그대로 둔다.
 resolve_plugin_scripts() {
   p=$(claude plugin list --json 2>/dev/null | jq -r '[.[] | select(.id == "genia-works@genia-works")][0].installPath // empty' 2>/dev/null)
-  [ -n "$p" ] && [ -x "$p/scripts/agent-project" ] && [ -f "$p/scripts/gw-lib.sh" ] || return 1
-  GW_SCRIPTS="$p/scripts"
-  # shellcheck source=/dev/null # 플러그인 설치 경로는 실행 때 정해진다.
+  [ -n "$p" ] || return 1
+  adopt_plugin_scripts "$p/scripts"
+}
+
+# 플러그인 스크립트 폴더 하나를 쓰기로 한다(Claude 의 resolve_plugin_scripts·다른 이미지의 플러그인 고르기 공용) — 칸을 띄우는 agent-project 와
+# 공용 함수 gw-lib.sh 가 있어야 한다. GW_SCRIPTS 를 정하고 gw-lib 를 읽은 뒤, AI 폴더를 실제 경로로 바꾼다(tmux 칸 폴더와 같은 모양).
+adopt_plugin_scripts() {
+  [ -x "$1/agent-project" ] && [ -f "$1/gw-lib.sh" ] || return 1
+  GW_SCRIPTS=$1
+  # shellcheck source=/dev/null # 플러그인 경로는 실행 때 정해진다.
   . "$GW_SCRIPTS/gw-lib.sh"
   if real=$(gw_real_dir "$AI_HOME" 2>/dev/null); then
     AI_HOME=$real
@@ -148,6 +159,10 @@ mark_trust() {
          | reduce $ARGS.positional[] as $p (.; .projects[$p].hasTrustDialogAccepted = true)' "$f" --args "$@") &&
     gw_write_atomic "$f" "$out"
 }
+
+# 7 의 폴더 신뢰 훅 — start_projects 가 칸을 띄우기 전에 AI 폴더·저장소 폴더를 넘겨 부른다. Claude Code 는 ~/.claude.json 에 적는다(mark_trust).
+# 다른 실행기 이미지(Gen:iA Code — apps/workplace-agent-genia-code 의 lib-genia.sh)는 이 함수를 덮어써 자기 방식으로 한다(또는 아무것도 하지 않는다).
+trust_folders() { mark_trust "$@"; }
 
 # 5a. AI 키 — 플러그인의 키 저장(gw-keys add: 키 형식 검사·600·원자적 쓰기)으로 플러그인이 읽는 자리(GW_KEYS/<이름>)에 놓는다.
 #     키는 표준 입력으로만 넘긴다. 홈은 휘발이라 매번 새로 놓는다(옛 키가 남지 않게).
@@ -300,6 +315,20 @@ abort_boot() {
   BOOT_DIR=""
 }
 
+# 뒤에서 명령 하나를 돌리고 기다린다 — 오래 걸리는 받기를 앞에서 돌리면 끝날 때까지 SIGTERM trap 이 미뤄져 grace(60초) 안에 정리하지 못하고
+# kubelet 이 SIGKILL 한다. wait 중에는 trap 이 바로 돈다. 자기 pid 만 BG_PIDS 에 더했다가 끝나면 자기 것만 뺀다(abort_boot 가 BG_PIDS 의 일을
+# 자손까지 끈다 — 다른 뒤의 일과 섞여도 서로 지우지 않게). 명령 치환($(…)) 안에서 부르면 이 효과가 없다(치환을 기다리는 동안 trap 이 미뤄진다).
+bg_wait() {
+  "$@" &
+  bg_pid=$!
+  BG_PIDS="${BG_PIDS:-} $bg_pid"
+  wait "$bg_pid"
+  bg_rc=$?
+  # shellcheck disable=SC2086 # pid 들은 숫자 단어다 — 한 줄에 하나로 나눈다.
+  BG_PIDS=$(printf '%s\n' ${BG_PIDS:-} | grep -vx "$bg_pid" | tr '\n' ' ')
+  return $bg_rc
+}
+
 # 7. 프로젝트 — start-agent 4~6번을 사람 대신. 대기열 라벨·홈 기억 → 저장소마다 받기 → 신뢰 → Playwright → 칸.
 #    저장소 받기·브라우저 받기는 프로젝트별로 동시에 돈다(WP-1267).
 #    BOOT_KEYS 에 띄운 키를 모은다(감독이 살핀다). 프로젝트 목록을 못 읽으면 1(감독이 다음 회차에 다시 한다).
@@ -320,7 +349,7 @@ start_projects() {
   # 키는 list_projects 가 형식을 걸렀다(공백 없음) — 단어로 나눠도 된다.
   set --
   for key in $(printf '%s\n' "$list" | cut -f1); do set -- "$@" "$AI_DIR/repos/$key"; done
-  mark_trust "$AI_DIR" "$@" || log "경고: ~/.claude.json 에 폴더 신뢰를 적지 못했습니다"
+  trust_folders "$AI_DIR" "$@" || log "경고: 저장소 폴더 신뢰를 적지 못했습니다"
   tab=$(printf '\t')
   # 받기·브라우저는 프로젝트끼리 서로 기다릴 일이 없다 — 프로젝트가 늘수록 순서대로 하면 부팅이 그만큼 길어진다(WP-1267).
   # 1) 저장소를 모두 한꺼번에 받고 기다린다 → 2) 성공한 것들의 Playwright 버전(겹치면 한 번)을 한꺼번에 받고 기다린다 → 3) 칸은 차례로.

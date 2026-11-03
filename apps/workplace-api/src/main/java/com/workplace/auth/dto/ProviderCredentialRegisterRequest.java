@@ -6,7 +6,8 @@ import jakarta.validation.constraints.Size;
 /**
  * provider-credential 등록 요청(관리자) — provider 생략 시 anthropic(하위호환 기본). anthropic: token 필수, opencode:
  * providerConfig+model 필수 — 두 경우 모두 서비스 계층(AiAgentCredentialService)에서 검증한다. providerConfig 는 컨트롤러가
- * JSON 직렬화해 평문 문자열로 서비스에 전달한다.
+ * JSON 직렬화해 평문 문자열로 서비스에 전달한다. genia·chatgpt(WP-1296·1297): loginInfo(그 프로그램의 auth.json 내용) 필수 —
+ * 서비스가 검증·다듬어 저장한다.
  */
 public record ProviderCredentialRegisterRequest(
     String provider,
@@ -14,4 +15,12 @@ public record ProviderCredentialRegisterRequest(
     @Valid ProviderConfig providerConfig,
     // assistant_config.model 에 저장된다 — 폭(64)을 넘으면 409 대신 400(WP-823).
     @Size(max = 64) String model,
-    @Size(max = 80) String label) {}
+    @Size(max = 80) String label,
+    @Size(max = 16384) String loginInfo) {
+
+  /** 로그인 정보 원문이 로그에 새지 않게 toString 에서 뺀다(token·providerConfig 도 함께). */
+  @Override
+  public String toString() {
+    return "ProviderCredentialRegisterRequest[provider=" + provider + ", label=" + label + "]";
+  }
+}

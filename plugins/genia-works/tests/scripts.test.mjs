@@ -989,15 +989,16 @@ test('agent-home get/set queue: 저장한 적 없으면 1, 빈 값(가져오지 
   assert.deepEqual(readdirSync(d).filter((f) => f.includes('.tmp.')), []);
 });
 
-test('agent-home get/set cli: 저장한 적 없으면 claude, 띄울 수 있는 실행기(지금은 claude)만 저장한다(WP-1292)', () => {
+test('agent-home get/set cli: 저장한 적 없으면 claude, 띄울 수 있는 실행기(claude·genia·codex)만 저장한다(WP-1292)', () => {
   const d = aiDir();
   assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'claude\n');
-  assert.equal(run('agent-home', [d, 'set', 'cli', 'claude']).status, 0);
-  // genia·codex 는 확장·구동기가 들어오기 전이라 거절한다(칸이 반복 없이 뜨지 않게).
-  assert.equal(run('agent-home', [d, 'set', 'cli', 'genia']).status, 2);
+  assert.equal(run('agent-home', [d, 'set', 'cli', 'genia']).status, 0);
+  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'genia\n');
   assert.equal(run('agent-home', [d, 'set', 'cli', 'gemini']).status, 2);
+  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'genia\n');
+  // 대기열 라벨과 함께 저장해도 서로 지우지 않는다.
   run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
-  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'claude\n');
+  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'genia\n');
   assert.equal(run('agent-home', [d, 'get', 'queue']).stdout, 'AI 개발팀\n');
 });
 
@@ -1248,6 +1249,32 @@ test('gw-claude-run: 토큰 파일이 있으면 그 setup-token 으로(API 키�
   // tmux 서버가 토큰 있는 셸에서 떠 물려준 값이어도 파일이 없으면 쓰지 않는다. API 키는 사람이 둔 대로 둔다.
   const noFile = run('gw-claude-run', [tokfile, ...show], { env: { CLAUDE_CODE_OAUTH_TOKEN: 'stale', ANTHROPIC_API_KEY: 'sk-ant-api' } });
   assert.equal(noFile.stdout, 'oauth=unset api=sk-ant-api auth=unset\n');
+});
+
+tmuxTest('agent-project start: 실행기가 genia 면 genia 인증서·「깨우기는 실행기가」 표시와 함께 /gw-loop 를 띄운다(WP-1292)', async (t) => {
+  const { wrapper } = tmuxServer(t);
+  const d = aiDir();
+  mkdirSync(join(d, 'repos', 'WP'), { recursive: true });
+  run('agent-home', [d, 'set', 'cli', 'genia']);
+  run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
+  const crt = join(home, 'genia-root.crt');
+  writeFileSync(crt, 'x');
+  // genia 대신 받은 환경·인자를 적는 가짜 — PATH 앞에 둔다. 이 셸의 NODE_EXTRA_CA_CERTS 가 다른 값이어도 genia 인증서로 바뀌어야 한다.
+  writeFileSync(join(bin, 'genia'), '#!/bin/sh\n{ env | grep -E "^(GENIA_WORKS_RUNNER|NODE_EXTRA|CLAUDE_AUTOCOMPACT)" | sort; printf "%s\\n" "$@"; } > "$HOME/genia-args"\nexec sleep 60\n');
+  chmodSync(join(bin, 'genia'), 0o755);
+  const r = run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper, GENIA_CA_CERT: crt, NODE_EXTRA_CA_CERTS: '/elsewhere.pem' } });
+  assert.deepEqual([r.status, r.stdout], [0, 'started kodi\n']);
+  const out = join(home, 'genia-args');
+  await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/gw-loop'));
+  assert.equal(readFileSync(out, 'utf8'), [
+    'GENIA_WORKS_RUNNER_WAKES=1',
+    `NODE_EXTRA_CA_CERTS=${crt}`,
+    '--approve',
+    '-e',
+    join(scripts, '..'),
+    '/gw-loop WP --queue "AI 개발팀"',
+    '',
+  ].join('\n'));
 });
 
 // ---------------------------------------------------------------- gw-plugin-version (WP-1053)

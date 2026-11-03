@@ -216,6 +216,20 @@ describe('buildAgentResources', () => {
     expect(none.metadata?.annotations?.['genia.works/claude-version']).toBeUndefined();
   });
 
+  it('mountsLoginInfoEnvAndAnnotationOnlyWithLoginVersion', () => {
+    // 로그인 정보(WP-1296) — Secret 에 version 이 있을 때만 파일·env·어노테이션 셋이 함께 생긴다
+    const { pod } = buildAgentResources(desiredAgent(), ctx, runnerConfig(), { loginVersion: '88' });
+    const agent = container(pod, 'agent');
+    expect(mountTable(pod, 'agent')['/run/genia/login-info']).toEqual({ source: 'secret:agent-42', subPath: 'login-info', readOnly: true });
+    expect(agent.env?.find((e) => e.name === 'GENIA_LOGIN_VERSION')?.value).toBe('88');
+    expect(pod.metadata?.annotations).toEqual({ 'genia.works/login-version': '88' });
+
+    const none = buildAgentResources(desiredAgent(), ctx, runnerConfig()).pod;
+    expect(mountTable(none, 'agent')['/run/genia/login-info']).toBeUndefined();
+    expect(container(none, 'agent').env?.some((e) => e.name === 'GENIA_LOGIN_VERSION')).toBe(false);
+    expect(none.metadata?.annotations?.['genia.works/login-version']).toBeUndefined();
+  });
+
   it('mountsRepoTokensVolumeFromSecretItemsPerHost', () => {
     const repos = { version: '1730505600000', hosts: 'GITHUB:ghe.example.com,GITHUB:github.com,GITLAB:gitlab.iacloud.kr' };
     const { pod } = buildAgentResources(desiredAgent(), ctx, runnerConfig(), { claudeVersion: '57', repos });

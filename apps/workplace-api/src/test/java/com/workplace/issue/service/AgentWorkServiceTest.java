@@ -417,7 +417,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     long otherAgent = TestFixtures.createAgentNoToken(dsl);
     long submittedId = insert(issueId, agentId, null, "SUBMITTED").orElseThrow().id();
     insert(issueId, otherAgent, null, "SUBMITTED");
-    service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
+    service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL, null));
     // 취소된 작업의 이슈마다 화면 갱신 알림이 한 번 나간다(열린 레일·AI 작업 목록이 "시작 전" 을 계속 보이지 않게).
     assertThat(issueChangeCount()).isEqualTo(1);
     assertThat(
@@ -431,8 +431,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
 
     // 일하던 작업은 그대로 — 외부로의 전환 신호도 아무것도 하지 않는다.
     insert(issueId, agentId, "claude-code", "WORKING");
-    service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
-    service.onAgentRuntimeChanged(new AgentRuntimeChanged(otherAgent, AgentRuntime.EXTERNAL));
+    service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL, null));
+    service.onAgentRuntimeChanged(new AgentRuntimeChanged(otherAgent, AgentRuntime.EXTERNAL, null));
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
     assertThat(repo.findActive(issueId, otherAgent).orElseThrow().state()).isEqualTo("SUBMITTED");
     // 취소할 작업이 없던 전환 신호는 알림도 내지 않는다.

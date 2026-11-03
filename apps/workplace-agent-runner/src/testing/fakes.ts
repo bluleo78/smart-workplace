@@ -4,7 +4,7 @@ import type { KubernetesObject, V1ConfigMap, V1PersistentVolumeClaim, V1Pod, V1S
 import { ClusterError, type ClusterApi, type ManagedKind, type ManagedResources } from '../k8s/cluster.js';
 import type {
   AgentKeyResponse,
-  ClaudeSecretResponse,
+  SecretPayloadResponse,
   RepoSecretsResponse,
   RunnerDesired,
   RunnerObservedAgent,
@@ -97,11 +97,13 @@ export class FakeWorks implements WorksClient {
     expiresAt: '2026-12-01T01:00:00Z',
     rotateAfter: '2026-11-24T01:00:00Z',
   }));
-  getClaudeSecret = vi.fn(async (_agentUserId: number): Promise<ClaudeSecretResponse | null> => ({
+  getClaudeSecret = vi.fn(async (_agentUserId: number): Promise<SecretPayloadResponse | null> => ({
     version: 57,
     provider: 'anthropic',
     payload: 'sk-ant-plain',
   }));
+  /** 기본: 로그인 정보 없음(404) — 켜 보려면 mockImplementation. 값은 가짜. */
+  getLoginSecret = vi.fn(async (_agentUserId: number): Promise<SecretPayloadResponse | null> => null);
   /** 기본: 모든 AI 가 GitHub 토큰 하나 — AI 별로 다르게 하려면 mockImplementation. */
   getRepoSecrets = vi.fn(async (agentUserId: number): Promise<RepoSecretsResponse> => ({
     version: 1730505600000,

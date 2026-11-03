@@ -1,6 +1,8 @@
 package com.workplace.agentruntime;
 
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -45,16 +47,32 @@ class AdminAgentTemplateApiTest extends IntegrationTestBase {
     return id;
   }
 
-  /** 목록에 「기본」과 「Claude Code」가 있고, claude-code 의 첫 설정 칸 첫 선택지가 opus. */
+  /** 목록에 「기본」·「Claude Code」·「Gen:iA Code」(WP-1296)가 있고, claude-code 의 첫 설정 칸 첫 선택지가 opus. */
   @Test
-  void list_asAdmin_returnsDefaultAndClaudeCode() throws Exception {
+  void list_asAdmin_returnsBundledTemplates() throws Exception {
     long admin = human(true);
 
     mvc.perform(get(BASE).with(authentication(auth(admin))))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[*].name", hasItems("default", "claude-code")))
+        .andExpect(jsonPath("$[*].name", hasItems("default", "claude-code", "genia-code")))
         .andExpect(
             jsonPath("$[?(@.name=='claude-code')].config[0].options[0].value").value("opus"));
+  }
+
+  /**
+   * 목록 JSON 에 템플릿의 AI 계정(account)이 실린다 — claude-code 는 anthropic, genia-code 는 genia, 기본은
+   * null(WP-1296·1297).
+   */
+  @Test
+  void list_exposesAccountDerivedFromRequires() throws Exception {
+    long admin = human(true);
+
+    mvc.perform(get(BASE).with(authentication(auth(admin))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.name=='claude-code')].account").value("anthropic"))
+        .andExpect(jsonPath("$[?(@.name=='default')].account").value(contains(nullValue())))
+        .andExpect(jsonPath("$[?(@.name=='genia-code')].account").value("genia"))
+        .andExpect(jsonPath("$[?(@.name=='test-chatgpt')].account").value("chatgpt"));
   }
 
   /** 없는 이름은 404. */

@@ -3,7 +3,9 @@
 
 import type { AgentRunMode } from '../types/agent';
 import type { AgentTemplate } from '../types/agentRuntime';
-import { euroRo } from './utils';
+import type { CredentialProvider } from '../types/providerCredential';
+import { accountFits, accountLabel } from './agentAccount';
+import { euroRo, objectParticle } from './utils';
 
 /** 방식 카드 하나 — 「기본」·작업 공간 방식(템플릿마다 한 장)·「외부」. */
 export interface RunModeCard {
@@ -78,9 +80,16 @@ function workSettingNames(t: AgentTemplate | null): string {
 /**
  * 방식을 바꾸면 무엇이 달라지는지 — 확인 창 ②(WP-1278)의 항목. 「기본」 카드도 바로 저장하지 않고 이 요약을 거친다.
  * from 이 작업 공간이면 그 정의(fromTemplate)로 지워질 칸 이름을 적는다.
+ * account 는 지금 연결된 AI 계정 종류 — 새 방식이 그 계정으로 일하지 못하면 바꿀 때 함께 끊긴다고 알린다(WP-1296: 맞지 않는 계정을 남기지 않는다).
  */
-export function modeChangeSummary(from: RunModeCard, to: RunModeCard, fromTemplate: AgentTemplate | null): string[] {
+export function modeChangeSummary(
+  from: RunModeCard,
+  to: RunModeCard,
+  fromTemplate: AgentTemplate | null,
+  account: CredentialProvider | null = null,
+): string[] {
   const lines: string[] = [];
+  if (account && !accountFits(account, to)) lines.push(`AI 계정(${accountLabel(account)}) 연결이 해제돼요.`);
   const leavingWorks = from.mode === 'WORKSPACE' && to.id !== from.id;
   if (leavingWorks) {
     lines.push(`${fromTemplate?.card.title ?? from.title} 작업 설정(${workSettingNames(fromTemplate)})이 지워져요.`);
@@ -105,9 +114,10 @@ export function modeChangeSummary(from: RunModeCard, to: RunModeCard, fromTempla
 
 /** 실행 전 확인 결과 — 화면은 이 값으로 ✓/✗ 와 실행 시작을 막는 이유를 그린다. */
 export interface StartChecks {
-  /** Claude 연결이 필요한 방식인지 — 필요 없으면 항목을 그리지 않는다. */
-  needsClaude: boolean;
-  claudeOk: boolean;
+  /** 이 방식이 쓰는 AI 계정 종류(템플릿의 account) — 필요 없으면 null 이고 항목을 그리지 않는다. */
+  account: CredentialProvider | null;
+  /** 그 종류의 AI 계정이 연결돼 있는지. */
+  accountOk: boolean;
   /** 저장소 토큰이 필요한 방식인지(템플릿 requires 에 repo, WP-1268) — 필요 없으면 항목을 그리지 않는다. */
   needsRepos: boolean;
   /** 맡는 프로젝트 저장소 호스트 중 토큰이 없는 것. */
@@ -126,7 +136,7 @@ export interface StartChecks {
 /** 실행 시작을 막는 첫 이유 — 막히지 않으면 null. 위에서부터 고칠 순서대로 고른다. */
 export function startBlockReason(c: StartChecks): string | null {
   if (c.inactive) return '사용 중지된 AI 는 실행할 수 없어요';
-  if (c.needsClaude && !c.claudeOk) return 'Claude 를 먼저 연결해 주세요';
+  if (c.account && !c.accountOk) return `${accountLabel(c.account)}${objectParticle(accountLabel(c.account))} 먼저 연결해 주세요`;
   if (c.needsRepos && c.missingRepoHosts.length > 0) return '저장소를 먼저 연결해 주세요';
   if (c.projectCount === 0) return '맡는 프로젝트를 먼저 정해 주세요';
   if (!c.hasLocation) return '실행 환경을 먼저 추가해 주세요';

@@ -3,6 +3,7 @@ package com.workplace.agentruntime.controller;
 import com.workplace.agentruntime.dto.RunnerAgentKeyResponse;
 import com.workplace.agentruntime.dto.RunnerClaudeSecretResponse;
 import com.workplace.agentruntime.dto.RunnerDesiredResponse;
+import com.workplace.agentruntime.dto.RunnerLoginSecretResponse;
 import com.workplace.agentruntime.dto.RunnerObservedRequest;
 import com.workplace.agentruntime.dto.RunnerObservedResponse;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
@@ -67,6 +68,18 @@ public class RunnerAgentRuntimeController {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
         .body(service.claudeSecret(principal, agentUserId));
+  }
+
+  /**
+   * 로그인 정보 원문(WP-1296·1297) — 캐시 금지. 이 위치에서 켜져 있지 않으면 RUNNER_AGENT_NOT_FOUND, 활성 연결이 없거나 템플릿의 로그인
+   * 계정과 다른 종류면 RUNNER_SECRET_NOT_FOUND(둘 다 404).
+   */
+  @GetMapping("/agents/{agentUserId}/secrets/login")
+  public ResponseEntity<RunnerLoginSecretResponse> loginSecret(
+      @AuthenticationPrincipal RunnerPrincipal principal, @PathVariable long agentUserId) {
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .body(service.loginSecret(principal, agentUserId));
   }
 
   /** AI 별 저장소 토큰 원문(WP-1268) — 캐시 금지. 이 위치에서 켜져 있는 AI 만(아니면 404). 토큰이 없으면 빈 목록·version null. */

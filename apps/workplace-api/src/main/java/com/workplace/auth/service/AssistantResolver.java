@@ -2,7 +2,6 @@ package com.workplace.auth.service;
 
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.exception.HomeAssistantNotConfiguredException;
-import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
@@ -23,7 +22,7 @@ public class AssistantResolver {
   private final PersonalAssistantRepository personalRepo;
   private final WorkspaceAssistantRepository workspaceRepo;
   private final AssistantConfigRepository configRepo;
-  private final AiAgentCredentialRepository credentialRepo;
+  private final AiAgentCredentialService credentialService;
   private final SuggestionModelPolicy suggestionModelPolicy;
 
   @Transactional(readOnly = true)
@@ -70,11 +69,11 @@ public class AssistantResolver {
   }
 
   /**
-   * 후보 AGENT 에 active 자격증명이 있을 때만 통과 — 그 활성 행을 돌려줘 buildSpec 이 provider 를 다시 조회하지 않게 한다(행의 userId 가
-   * 곧 AGENT id).
+   * 후보 AGENT 에 서버가 부를 수 있는 active 자격증명이 있을 때만 통과 — 로그인 정보 계정(genia·chatgpt)은 「토큰 없음」으로
+   * 본다(WP-1296·1297). 그 활성 행을 돌려줘 buildSpec 이 provider 를 다시 조회하지 않게 한다(행의 userId 가 곧 AGENT id).
    */
   private Optional<AiAgentCredentialRow> pickWithActiveToken(Optional<Long> candidate) {
-    return candidate.flatMap(credentialRepo::findActive);
+    return candidate.flatMap(credentialService::findServerUsableActive);
   }
 
   /**

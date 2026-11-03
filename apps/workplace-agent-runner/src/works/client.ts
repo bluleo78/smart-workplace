@@ -71,7 +71,11 @@ export interface AgentKeyResponse {
   rotateAfter: string;
 }
 
-export interface ClaudeSecretResponse {
+/**
+ * 모델 연결(claude)·로그인 정보(login, WP-1296)의 원문 응답 — 둘이 같은 모양이다. payload 는 claude 면 토큰·provider 설정 JSON,
+ * login 이면 Gen:iA·ChatGPT 프로그램의 auth.json 내용(JSON 문자열). 원문이라 로그에 남기지 않는다.
+ */
+export interface SecretPayloadResponse {
   version: number;
   provider: string;
   payload: string;
@@ -94,7 +98,9 @@ export interface WorksClient {
   /** 부르면 곧 키 교체(generation+1)다 — 필요할 때만(secretFetches). */
   issueAgentKey(agentUserId: number): Promise<AgentKeyResponse>;
   /** 등록된 연결이 없으면(404 RUNNER_SECRET_NOT_FOUND) null. */
-  getClaudeSecret(agentUserId: number): Promise<ClaudeSecretResponse | null>;
+  getClaudeSecret(agentUserId: number): Promise<SecretPayloadResponse | null>;
+  /** 로그인 정보(WP-1296) — 켜져 있지 않음·활성 연결 없음·템플릿 계정과 다른 종류면 404 라 null(=지운다). */
+  getLoginSecret(agentUserId: number): Promise<SecretPayloadResponse | null>;
   /** 저장소 토큰(WP-1268) — 원문이 들어 있으니 로그에 남기지 않는다. */
   getRepoSecrets(agentUserId: number): Promise<RepoSecretsResponse>;
   /** metricsAvailable — 사용량 API 가 있는지(WP-1280). 모르면(일시 오류) undefined 라 보내지 않는다. */
@@ -171,9 +177,18 @@ export class HttpWorksClient implements WorksClient {
     return this.call('POST', `/agents/${agentUserId}/agent-key`);
   }
 
-  async getClaudeSecret(agentUserId: number): Promise<ClaudeSecretResponse | null> {
+  getClaudeSecret(agentUserId: number): Promise<SecretPayloadResponse | null> {
+    return this.getSecretOrNull(agentUserId, 'claude');
+  }
+
+  getLoginSecret(agentUserId: number): Promise<SecretPayloadResponse | null> {
+    return this.getSecretOrNull(agentUserId, 'login');
+  }
+
+  /** `…/secrets/<name>` 를 받는다 — 등록된 연결이 없으면(404 RUNNER_SECRET_NOT_FOUND) null. 그 밖의 오류는 던진다. */
+  private async getSecretOrNull(agentUserId: number, name: 'claude' | 'login'): Promise<SecretPayloadResponse | null> {
     try {
-      return await this.call<ClaudeSecretResponse>('GET', `/agents/${agentUserId}/secrets/claude`);
+      return await this.call<SecretPayloadResponse>('GET', `/agents/${agentUserId}/secrets/${name}`);
     } catch (e) {
       if (e instanceof WorksHttpError && e.status === 404 && e.code === 'RUNNER_SECRET_NOT_FOUND') return null;
       throw e;

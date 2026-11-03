@@ -19,9 +19,19 @@ final class ProviderCredentialSecrets {
     return AgentProviders.normalize(provider);
   }
 
-  /** anthropic 은 token 그대로, opencode 는 providerConfig 를 JSON 직렬화한 문자열을 평문 secret 으로 사용. */
+  /**
+   * anthropic 은 token 그대로, opencode 는 providerConfig 를 JSON 직렬화한 문자열, genia·chatgpt 는 loginInfo(로그인
+   * 정보 원문 — 비었는지·형식은 서비스가 본다, WP-1296·1297)를 평문 secret 으로 사용.
+   */
   static String resolveSecret(
-      ObjectMapper objectMapper, String provider, String token, ProviderConfig providerConfig) {
+      ObjectMapper objectMapper,
+      String provider,
+      String token,
+      ProviderConfig providerConfig,
+      String loginInfo) {
+    if (AgentProviders.isLogin(provider)) {
+      return loginInfo;
+    }
     if (!"opencode".equals(provider)) {
       return token;
     }

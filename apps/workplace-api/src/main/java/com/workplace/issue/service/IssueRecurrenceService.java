@@ -3,8 +3,8 @@ package com.workplace.issue.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
+import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.dto.UserSummary;
@@ -204,7 +204,7 @@ public class IssueRecurrenceService {
   private final PersonalAssistantRepository personalAssistantRepository;
   // 회차의 도구 신원(WP-1314) — 이어 처리(WP-1312)와 같은 규칙을 쓰도록 별도 빈에 모았다.
   private final IssueRecurrenceRunIdentity runIdentity;
-  private final AiAgentCredentialRepository credentialRepository;
+  private final AiAgentCredentialService credentialService;
   private final AgentWorkService agentWorkService;
   private final IssueChatPoster chatPoster;
   private final UserRepository userRepository;
@@ -1167,9 +1167,12 @@ public class IssueRecurrenceService {
     if (runnable(List.of(agentId)).isEmpty()) throw conflict(NO_AGENT_KEY);
   }
 
-  /** 이 id 들 중 서버가 실행할 수 있는 AI — INTERNAL·워크스페이스 활성·AI 키 있음. 키는 한 번에 읽는다. */
+  /**
+   * 이 id 들 중 서버가 실행할 수 있는 AI — INTERNAL·워크스페이스 활성·서버가 부를 수 있는 AI 계정(Claude·OpenAI 호환) 있음. 로그인 정보
+   * 계정(genia·chatgpt)은 서버가 쓸 수 없어 「연결 없음」으로 본다(WP-1296·1297). 계정은 한 번에 읽는다.
+   */
   private List<AssigneeInfo> runnable(Collection<Long> ids) {
-    Set<Long> keyed = credentialRepository.findActiveIdsByUsers(ids).keySet();
+    Set<Long> keyed = credentialService.findServerUsableAgentIds(ids);
     return userRepository.findAssigneeInfos(ids, TenantContext.get()).stream()
         .filter(i -> internalActive(i) && keyed.contains(i.id()))
         .toList();

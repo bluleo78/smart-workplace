@@ -49,9 +49,8 @@ gw_read_key() {
   printf '%s\n' "$_gw_k"
 }
 
-# 칸으로 띄울 수 있는 실행기 — genia·codex 는 「이 세션」 찾기만 먼저 들어왔고, 칸 띄우기는 genia 확장(WP-1294)·Codex 구동기(WP-1295)가
-# 들어올 때 이 목록에 더한다(그 전에 고르면 칸이 반복·깨우기 없이 뜨거나 바로 죽는다).
-GW_LAUNCH_CLIS="claude"
+# 칸으로 띄울 수 있는 실행기 — claude(Claude Code)·genia(genia 확장, WP-1294)·codex(Codex 구동기, WP-1295).
+GW_LAUNCH_CLIS="claude genia codex"
 
 # 실행기 이름 검사 — AI 폴더 설정(agent-home set cli)과 칸 띄우기가 같은 기준을 쓴다.
 gw_valid_cli() {

@@ -4,8 +4,12 @@
 
 import type { ThinkingLevel } from './assistant';
 
-// 자격증명 프로바이더 — anthropic(구독 OAuth) / opencode(OpenAI 호환 엔드포인트).
-export type CredentialProvider = 'anthropic' | 'opencode';
+// 자격증명 프로바이더 — anthropic(구독 OAuth) / opencode(OpenAI 호환 엔드포인트) /
+// genia·chatgpt(Gen:iA·ChatGPT 로그인 정보 — Gen:iA Code·Codex 템플릿 실행 전용, WP-1296·1297).
+export type CredentialProvider = 'anthropic' | 'opencode' | 'genia' | 'chatgpt';
+
+/** 로그인 정보로 연결하는 프로바이더 — 토큰 한 줄이 없어 그 프로그램이 로그인한 결과(auth.json 내용)를 받는다. */
+export type LoginProvider = Extract<CredentialProvider, 'genia' | 'chatgpt'>;
 
 // opencode provider config — 등록 요청 시 평문으로 전송, 서버가 암호화 저장.
 export interface ProviderConfig {
@@ -22,16 +26,20 @@ export interface ProviderCredentialMeta {
   provider: CredentialProvider;
   baseUrl: string | null;
   label: string | null;
+  /** 로그인 정보로 연결했을 때 그 로그인 계정(이메일) — 이 AI 전용 계정인지 알아보는 용도. 그 밖에는 null. */
+  account?: string | null;
   createdAt: string; // ISO 타임스탬프(Instant 직렬화)
   lastUsedAt: string | null;
 }
 
-// 등록(또는 재발급) 요청 — provider 에 따라 token(anthropic) 또는 providerConfig+model(opencode) 사용.
+// 등록(또는 재발급) 요청 — provider 에 따라 token(anthropic) · providerConfig+model(opencode) · loginInfo(genia·chatgpt) 사용.
 export interface ProviderCredentialRegisterRequest {
   provider: CredentialProvider;
   token?: string;
   providerConfig?: ProviderConfig;
   model?: string;
+  /** genia·chatgpt — 그 프로그램이 로그인한 결과(auth.json 내용) 그대로. 서버가 확인·다듬어 암호화 저장한다. */
+  loginInfo?: string;
   label?: string;
 }
 

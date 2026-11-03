@@ -1,6 +1,6 @@
 # AI Pod ↔ 작업 공간 이미지 계약
 
-runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공간 이미지(`apps/workplace-agent-claude-code`, WP-1252)의 엔트리포인트가 이 문서 하나로 맞물린다. 두 쪽 테스트가 아래 값을 단언한다 — 값을 바꾸면 두 쪽을 함께 바꾼다. runner 가 Works 와 주고받는 API 는 [agent-runner-api.md](agent-runner-api.md) 다.
+runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공간 이미지의 엔트리포인트가 이 문서 하나로 맞물린다. 작업 공간 이미지는 템플릿마다 하나다 — Claude Code(`apps/workplace-agent-claude-code`, 템플릿 `claude-code`, WP-1252)와 Gen:iA Code(`apps/workplace-agent-genia-code`, 템플릿 `genia-code`, WP-1296 — 공용 함수 `lib.sh`·`agent-screen` 은 Claude Code 이미지의 파일을 그대로 쓴다). 두 쪽 테스트가 아래 값을 단언한다 — 값을 바꾸면 두 쪽을 함께 바꾼다. runner 가 Works 와 주고받는 API 는 [agent-runner-api.md](agent-runner-api.md) 다.
 
 ## 리소스
 
@@ -25,9 +25,10 @@ AI 한 명(`agentUserId`)마다 runner 가 설치된 네임스페이스에 아�
 | Secret 어노테이션 | `genia.works/agent-key-id` | 받은 AI 키 id(`keyId`) |
 | Secret 어노테이션 | `genia.works/agent-key-rotate-after` | 받은 키의 `rotateAfter`(ISO-8601) |
 | Secret 어노테이션 | `genia.works/claude-version` | 받은 모델 연결 `version` |
+| Secret 어노테이션 | `genia.works/login-version` | 받은 로그인 정보(Gen:iA·ChatGPT) `version` — AI 계정 id. 같으면 다시 받지 않는다 |
 | Secret 어노테이션 | `genia.works/repos-version` | 받은 저장소 토큰 `version`(epoch 밀리초). 같으면 다시 받지 않는다 |
 | Secret 어노테이션 | `genia.works/repo-hosts` | 받은 토큰의 `kind:host` 목록(`GITHUB:github.com,GITLAB:gitlab.iacloud.kr`, 원문 없음) — Pod 를 만들 때 볼륨 items 를 이것으로 만든다 |
-| Pod 어노테이션 | `genia.works/claude-version`·`genia.works/repos-version` | Pod 를 만들 때 Secret 에 있던 값. Secret 의 것과 다르면 Pod 를 다시 만든다 |
+| Pod 어노테이션 | `genia.works/claude-version`·`genia.works/login-version`·`genia.works/repos-version` | Pod 를 만들 때 Secret 에 있던 값(없으면 어노테이션 없음). Secret 의 것과 다르면 Pod 를 다시 만든다 |
 | Secret 어노테이션 | `genia.works/work-node` | hostPath 방식에서 Pod 가 처음 배치된 노드(`spec.nodeName`). 다시 만드는 Pod 를 이 노드에 고정한다 |
 
 runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/location` 이 자기 위치(desired `locationId`)인** 리소스만 만지고 지운다 — 한 네임스페이스에 runner(위치)가 둘이어도 서로의 리소스를 지우지도 관찰 보고에 넣지도 않는다. 다른 위치의 리소스와 이름이 겹치면(같은 AI) 만들지 않고 `FAILED` 로 알린다. 그래도 **위치당 네임스페이스 하나**를 권장한다. 어노테이션은 runner 가 재시작해도 「이미 받은 키」를 알게 하는 유일한 기록이다 — AI 키를 다시 받으면 곧 교체(generation+1 → Pod 재생성)이기 때문이다.
@@ -38,7 +39,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 |---|---|
 | `agent-key` | AI 키 원문(`ak_…`). Pod 를 만들기 전에 반드시 있다 |
 | `claude-token` | 모델 연결 원문 — provider 가 `anthropic` 일 때만. 연결이 없으면(`version` null) 키를 지운다 |
-
+| `login-info` | 로그인 정보 원문(Gen:iA·ChatGPT 프로그램의 `auth.json` 내용, JSON 문자열) — provider 검사 없음(서버가 템플릿 계정과 맞는 것만 준다). 연결이 없으면(`version` null·참조 없음·404) 키와 어노테이션을 지운다 |
 | `repo-<kind 소문자>-<host>` | 저장소 토큰 원문(예 `repo-github-github.com`, `repo-gitlab-gitlab.iacloud.kr`) — AI 마다·호스트마다 하나. 받을 때 기존 `repo-*` 키를 모두 바꿔 넣고(빠진 host 는 지움), 등록이 없으면(`version` null·참조 없음) `repo-*` 키와 두 어노테이션을 지운다 |
 
 위치 단위 GitHub Secret(옛 Helm `github.existingSecret`)은 없다 — 저장소 토큰은 AI 마다 Works 에 저장하고 runner 가 받아 이 Secret 에 넣는다.
@@ -49,6 +50,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 |---|---|---|
 | `/run/genia/config.json` | ConfigMap 키 `config.json` | 읽기 전용 |
 | `/run/genia/agent-key` | Secret 키 `agent-key` | 읽기 전용 |
+| `/run/genia/login-info` | Secret 키 `login-info`(볼륨 `agent-secret`, subPath) | 읽기 전용. Secret 에 `login-version` 이 있을 때만 — 없으면 마운트 자체가 없다. 아래 「로그인 정보」 |
 | `/run/genia/repo-tokens/<github\|gitlab>/<host>` | Secret `agent-<id>` 의 `repo-<kind>-<host>` 키(볼륨 `repo-tokens`, items 마다 `path: <kind 소문자>/<host>`) | 읽기 전용. 호스트가 하나도 없으면 볼륨·마운트 자체가 없다 |
 | `/run/genia/ca/ca.crt` | 위치 값 `agent.caBundle` 의 ConfigMap 키 `ca.crt`(볼륨 `ca-bundle`, runner env `AGENT_CA_CONFIGMAP`) | 읽기 전용. 값이 없으면 볼륨·마운트 자체가 없다. 아래 「추가 CA」 |
 | `/work` | 노드 폴더 `<agent.workDisk.hostPath>/agent-<id>`(기본 `/var/lib/genia-agents`, DirectoryOrCreate) 또는 PVC `agent-<id>-work` | 아래 「작업 디스크」 |
@@ -81,6 +83,29 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
   - 보는 동안 AI 창은 관리자 터미널 크기를 따른다(`kubectl exec … tmux attach` 와 같다). 마지막 관리자가 나가면 창을 기본 크기 240x60 으로 되돌린다.
   - 종료 코드 3 = AI 의 tmux 세션이 아직 없음.
 
+## 로그인 정보 (WP-1296)
+
+Gen:iA Code·Codex 처럼 ID/비밀번호 로그인(`auth.json`)을 쓰는 템플릿이 쓴다. runner 쪽 규칙:
+
+- desired 에 `login` 참조가 있고 `version` 이 Secret 어노테이션 `login-version` 과 다르면 `GET …/secrets/login` 으로 받아 Secret 키 `login-info`·어노테이션에 같은 apply 로 적는다. 참조가 없거나 `version` 이 `null`·404 면 키와 어노테이션을 지운다. 못 받으면 옛 값을 두고 AI 키는 그대로 적는다.
+- Pod 는 만들 때 Secret 에 `login-version` 이 있으면 `/run/genia/login-info`(subPath `login-info`, 읽기 전용)를 마운트하고 env `GENIA_LOGIN_VERSION`·Pod 어노테이션 `login-version` 을 넣는다. 없으면 셋 다 없다.
+- 로그인 파일은 Pod 시작 때 시딩되므로 모델 연결 교체와 같다 — Secret 의 `login-version` 이 Pod 의 것과 다르면(없음 ↔ 값 포함) `generation`·`applyNow` 와 무관하게 Pod 를 지우고 다음 회차에 다시 만든다. 허용 밖 이미지면 지우지 않고 `FAILED` 로 알린다.
+
+Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Code 는 WP-1296 에서 구현, Codex 는 WP-1297). 프로그램은 로그인을 스스로 갱신(토큰 새로고침)해 파일에 다시 쓰므로, 마운트 파일(읽기 전용 Secret)을 곧바로 쓰지 않고 `$AI_DIR` 아래에 보관본을 둔다.
+
+- 마운트 파일 `/run/genia/login-info` 가 없으면 `$AI_DIR` 아래의 보관본을 지운다(연결이 끊긴 것).
+- `GENIA_LOGIN_VERSION` 이 `$AI_DIR/state` 에 적어 둔 표식과 다르면 마운트 파일을 보관본 위치로 복사하고 표식을 기록한다(새로 등록한 로그인으로 교체).
+- 같으면 보관본을 그대로 둔다 — 프로그램이 스스로 갱신한 로그인을 옛 Secret 값으로 덮지 않는다.
+- Gen:iA Code 는 `GENIA_CODING_AGENT_DIR`, Codex 는 `CODEX_HOME` 을 `$AI_DIR` 아래로 두고(Codex 는 로그인을 파일 저장소로 강제한다) 보관본이 그 안에 놓이게 한다.
+- Gen:iA Code 의 실제 자리: 보관본 `$AI_DIR/genia-agent/auth.json`(600, `GENIA_CODING_AGENT_DIR=$AI_DIR/genia-agent`), 표식 `$AI_DIR/state/login-version`. 마운트가 없거나 비었으면 보관본과 표식을 함께 지운다. 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다 — genia 가 로그인 선택 화면에서 멈춰 work-loop 가 돌지 않는다(11-03 실측). 연결하면 runner 가 Pod 를 다시 만든다. 원문은 로그·명령줄에 남기지 않는다.
+
+## Gen:iA Code 프로그램 (WP-1296)
+
+- genia 는 사내 프로그램이라 공개 이미지(Docker Hub)에 넣지 않는다. 엔트리포인트가 Pod 가 뜰 때 사내 배포 서버 `https://genia-code-server.iacloud.kr/download`(이미지 env `GENIA_DOWNLOAD_URL` 로 바꿀 수 있다)의 `latest.txt`(「키 파일 이름 sha256」 줄 — 키 `cli-linux-x64`·`cli-linux-arm64`)에서 이 아키텍처의 배포본을 받고, sha256 을 확인해 `/work/.genia-app/<파일 이름 줄기>/` 에 풀고 `/work/.genia-app/current` 링크를 바꿔 끼운다. 같은 버전이 이미 있으면 받지 않고, 옛 버전은 지운다. 이미지는 genia-root.crt 를 시스템 CA 에 넣어 두어(`update-ca-certificates`) 받을 때 따로 CA 를 주지 않는다(위치 추가 CA 가 있으면 setup_ca 의 묶음 — 시스템 CA 를 읽어 만들므로 genia-root 도 들어 있다). 손상된 파일(sha 불일치·풀기 실패)은 `/work/.genia-app/.bad` 에 적고 `latest.txt` 의 그 줄이 바뀔 때까지 다시 받지 않는다.
+- **AI Pod 가 그 서버에 닿아야 한다**(사설 IP — PoC 클러스터에서 확인, 운영 위치는 미확인). 닿지 않으면 받아 둔 `current` 로 뜨고, 그것도 없으면 끝내지 않고 칸을 미룬 채 감독 주기마다 다시 받는다.
+- 칸 env: `GENIA_CODING_AGENT_DIR`, `GENIA_SKIP_VERSION_CHECK=1`, `GENIA_CA_CERT`·`NODE_EXTRA_CA_CERTS`=`$HOME/.genia-node-ca.pem`(genia-root + 위치 추가 CA — 플러그인 칸 명령이 `NODE_EXTRA_CA_CERTS` 를 `GENIA_CA_CERT` 로 덮어도 추가 CA 가 빠지지 않게). 설정 `$AI_DIR/genia-agent/settings.json` 은 매번 새로 쓴다(`defaultModel`=config 의 model id, `defaultProjectTrust: always`, `quietStartup: true`).
+- 플러그인은 이미지에 굳힌 `/opt/genia/plugin/genia-works` 가 기본이다. Works 마켓플레이스의 genia-works ref 에 `genia/index.ts` 가 있으면 `/work/.genia-plugin/<ref>` 에 얕게 받아 그것을 쓴다(릴리스 태그 `genia-works--v…` 는 받아 둔 것을 다시 쓰고, 그 밖의 ref 는 매번 다시 받는다). desired 의 `plugins` 는 쓰지 않는다(템플릿에 없다).
+
 ## 작업 디스크 (WP-1270)
 
 - **hostPath(기본)**: `/work` 는 노드 폴더 `<hostPath>/agent-<id>` 다. kubelet 이 root 소유로 만들고 fsGroup 도 적용되지 않으므로,
@@ -102,6 +127,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 | `GENIA_WORKS_API_URL` | desired `apiUrl`(`/api/v1` 까지) |
 | `GENIA_WORKS_MCP_URL` | desired `mcpUrl` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Secret `claude-token`(optional — 없으면 비움). env 라 Pod 시작 때 고정된다(아래 「모델 연결 교체」) |
+| `GENIA_LOGIN_VERSION` | Secret 의 `login-version`(Pod 어노테이션과 같은 값). 로그인 정보가 있을 때만 — 없으면 이 env 도 없다. 엔트리포인트가 시딩 여부를 정하는 표식 |
 | `DOCKER_HOST` | `unix:///dind/docker.sock` |
 
 ### 모델 연결 교체
@@ -149,6 +175,8 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 | `/work/.cache` | `XDG_CACHE_HOME`, `PLAYWRIGHT_BROWSERS_PATH=/work/.cache/ms-playwright` |
 | `/work/.gradle` | `GRADLE_USER_HOME` |
 | `/work/.pnpm-store` | `npm_config_store_dir` |
+| `/work/.genia-app` | Gen:iA Code 이미지만 — 받은 genia(버전 폴더 + `current` 링크) |
+| `/work/.genia-plugin` | Gen:iA Code 이미지만 — 마켓플레이스 ref 별로 받은 genia-works 플러그인 |
 
 ## dind
 

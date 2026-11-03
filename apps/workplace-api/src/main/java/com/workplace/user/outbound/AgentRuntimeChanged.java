@@ -6,5 +6,6 @@ package com.workplace.user.outbound;
  *
  * @param agentUserId 실행 방식이 바뀐 AI 구성원
  * @param runtime 바뀐 뒤 실행 방식({@code AgentRuntime.INTERNAL} 또는 {@code EXTERNAL})
+ * @param callerId 바꾼 사람(감사 기록용 — 리스너가 맞지 않는 AI 계정을 끊을 때 남긴다, WP-1296·1297). 모르면 null
  */
-public record AgentRuntimeChanged(long agentUserId, String runtime) {}
+public record AgentRuntimeChanged(long agentUserId, String runtime, Long callerId) {}

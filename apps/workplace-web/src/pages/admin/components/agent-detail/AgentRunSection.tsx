@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 
 import { useAgentKeys, useRevokeAgentKey } from '../../../../hooks/queries/useAgentKeys';
+import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAgentProviderCredential';
 import { useSaveAgentRuntimeSetting, useUseServerTemplate } from '../../../../hooks/queries/useAgentRuntime';
 import { useSetAgentRuntime } from '../../../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../../../hooks/queries/useAssistant';
@@ -226,7 +227,9 @@ function PendingSwitch({
   const save = useSaveAgentRuntimeSetting(agent.id);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const busy = setRuntime.isPending || useServer.isPending || save.isPending;
-  const summary = modeChangeSummary(from, to, fromTemplate);
+  // 지금 연결된 AI 계정 — 새 방식이 그 계정으로 일하지 못하면 확인 창에 「연결이 해제돼요」를 보인다(끊기는 서버가 방식 변경과 함께 한다, WP-1296).
+  const credential = useAgentProviderCredentialMeta(agent.id);
+  const summary = modeChangeSummary(from, to, fromTemplate, credential.data?.provider ?? null);
 
   const apply = () => {
     const done = { onSuccess: onDone };
@@ -296,9 +299,9 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
   const nextRotation = latestManaged?.expiresAt ? rotateAfter(latestManaged.expiresAt) : null;
   return (
     <>
-      {template.requires.includes('claude') && (
+      {template.account && (
         <DetailGroup title="AI 계정" how="바로 반영" data-testid="agent-ai-account-group">
-          <AgentAiAccountGroup agentUserId={agent.id} canConfigure />
+          <AgentAiAccountGroup agentUserId={agent.id} canConfigure required={template.account} />
         </DetailGroup>
       )}
       {template.requires.includes('repo') && (

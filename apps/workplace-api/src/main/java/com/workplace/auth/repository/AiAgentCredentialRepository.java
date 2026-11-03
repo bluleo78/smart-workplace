@@ -2,9 +2,11 @@ package com.workplace.auth.repository;
 
 import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
 
+import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -62,16 +64,18 @@ public class AiAgentCredentialRepository {
   }
 
   /**
-   * 여러 AGENT 의 active 행 id 를 한 번에(WP-1253 — runner desired 의 claude 버전) — AGENT id → 행 id, 없는 AGENT
-   * 는 빠진다.
+   * 여러 AGENT 의 active 행 id·provider 를 한 쿼리로(WP-1253 — runner desired 의 claude 버전, WP-1296·1297 —
+   * login 버전·서버 실행 가능 판단) — AGENT id → 참조, 없는 AGENT 는 빠진다. provider 는 저장값 그대로(V119 뒤 NOT NULL).
    */
-  public Map<Long, Long> findActiveIdsByUsers(Collection<Long> userIds) {
+  public Map<Long, ActiveCredentialRef> findActiveRefsByUsers(Collection<Long> userIds) {
     if (userIds.isEmpty()) return Map.of();
-    return dsl.select(AI_AGENT_CREDENTIAL.USER_ID, AI_AGENT_CREDENTIAL.ID)
+    Map<Long, ActiveCredentialRef> out = new HashMap<>();
+    dsl.select(AI_AGENT_CREDENTIAL.USER_ID, AI_AGENT_CREDENTIAL.ID, AI_AGENT_CREDENTIAL.PROVIDER)
         .from(AI_AGENT_CREDENTIAL)
         .where(AI_AGENT_CREDENTIAL.USER_ID.in(userIds))
         .and(AI_AGENT_CREDENTIAL.REVOKED_AT.isNull())
-        .fetchMap(AI_AGENT_CREDENTIAL.USER_ID, AI_AGENT_CREDENTIAL.ID);
+        .forEach(r -> out.put(r.value1(), new ActiveCredentialRef(r.value2(), r.value3())));
+    return out;
   }
 
   /**

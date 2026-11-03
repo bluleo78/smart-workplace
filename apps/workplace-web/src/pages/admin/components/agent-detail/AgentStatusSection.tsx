@@ -32,6 +32,7 @@ import {
   useInvalidateRuntime,
   useSaveAgentRuntimeSetting,
 } from '../../../../hooks/queries/useAgentRuntime';
+import { accountFits, accountLabel } from '../../../../lib/agentAccount';
 import { startBlockReason } from '../../../../lib/agentRunMode';
 import { externalKeyStatusText } from '../../../../lib/agentRuntime';
 import {
@@ -222,20 +223,22 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
           ? '사람의 답을 기다리고 있어요'
           : null;
 
-  // 실행 전 확인 — Claude 연결(이 AI 의 AI 계정이 Claude 구독인지)·맡는 프로젝트·실행 환경 여유.
+  // 실행 전 확인 — AI 계정(템플릿이 쓰는 종류로 연결됐는지, WP-1296)·맡는 프로젝트·실행 환경 여유.
   const defaultLocation = locations.data?.find((l) => l.isDefault) ?? null;
   // 초안이 있으면 초안 값 그대로 — 초안의 null 은 「워크스페이스 기본」이라 ?? 로 저장값에 떨어지면 안 된다.
   const locationId = draft ? draft.locationId : (saved?.locationId ?? null);
   const target = locationId == null ? defaultLocation : (locations.data?.find((l) => l.id === locationId) ?? null);
-  const needsClaude = template.requires.includes('claude');
-  const claudeOk = credential.data?.provider === 'anthropic';
+  const account = template.account ?? null;
+  // 템플릿이 요구하는 계정이 있을 때만 확인한다 — 맞는지는 공용 규칙(accountFits) 하나로 본다.
+  const connected = credential.data?.provider;
+  const accountOk = account != null && connected != null && accountFits(connected, { mode: 'WORKSPACE', template });
   const projectCount = projects.data?.length ?? 0;
   // 맡는 프로젝트 저장소 호스트 중 토큰이 없는 것(WP-1268) — 두 목록을 다 받은 뒤에만 판정해 로딩 중에 잠깐 「빠짐」으로 깜박이지 않게.
   const missingRepoHosts = needsRepos && projects.data && repoCredentials.data ? missingHostsOf(projects.data, repoCredentials.data) : [];
   const seatOk = target != null && freeSeats(target) > 0;
   const blocked = startBlockReason({
-    needsClaude,
-    claudeOk,
+    account,
+    accountOk,
     needsRepos,
     missingRepoHosts,
     projectCount,
@@ -338,13 +341,15 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
       {off && (
         <>
           <ul className="max-w-2xl space-y-1.5 text-sm" data-testid="agent-runtime-checks">
-            {needsClaude && (
-              <li className="flex flex-wrap items-center gap-x-2">
-                <CheckMark ok={claudeOk} />
-                <span>Claude 연결</span>
-                {!claudeOk && (
+            {account && (
+              <li className="flex flex-wrap items-center gap-x-2" data-testid="agent-runtime-check-account">
+                <CheckMark ok={accountOk} />
+                <span>{accountLabel(account)} 연결</span>
+                {!accountOk && (
                   <span className="text-xs text-muted-foreground">
-                    {credential.data ? '— Claude 가 아닌 AI 계정이 연결돼 있어요. 아래 실행 › AI 계정에서 바꿔 주세요' : '— 아래 실행 › AI 계정에서 연결해 주세요'}
+                    {credential.data
+                      ? `— ${accountLabel(credential.data.provider)}${subjectParticle(accountLabel(credential.data.provider))} 연결돼 있어요. 아래 실행 › AI 계정에서 바꿔 주세요`
+                      : '— 아래 실행 › AI 계정에서 연결해 주세요'}
                   </span>
                 )}
               </li>

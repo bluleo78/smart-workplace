@@ -16,6 +16,7 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     card: { title: 'Claude Code', description: '작업 공간에서 개발·테스트하고 PR 을 올립니다', skills: ['개발', '테스트', 'PR'] },
     image: 'x',
     requires: ['claude', 'repo'],
+    account: 'anthropic',
     config: [
       { key: 'model', label: '모델', type: 'select', options: [{ value: 'opus', label: 'Opus' }, { value: 'sonnet', label: 'Sonnet' }], default: 'opus', required: true },
       { key: 'queue', label: '대기열 라벨', type: 'text', options: [], default: 'AI 개발팀', required: false },

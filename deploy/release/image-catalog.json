@@ -146,6 +146,20 @@
       "paths": [
         "apps/workplace-agent-claude-code/"
       ]
+    },
+    {
+      "id": "agent-genia-code",
+      "repository": "docker.io/iacloudops/genia-works-agent-genia-code",
+      "context": ".",
+      "dockerfile": "apps/workplace-agent-genia-code/Dockerfile",
+      "helm": false,
+      "paths": [
+        "apps/workplace-agent-genia-code/",
+        "apps/workplace-agent-claude-code/bin/lib.sh",
+        "apps/workplace-agent-claude-code/bin/agent-screen",
+        "plugins/genia-works/",
+        ".dockerignore"
+      ]
     }
   ]
 }

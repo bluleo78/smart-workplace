@@ -530,7 +530,7 @@ public class UserService {
     // 담당 이슈마다 생성).
     // 감사 기록도 바뀐 경우에만 — 같은 값으로의 호출(AI 실행 설정 저장마다 EXTERNAL 로 맞추는 호출 등)이 기록을 쌓지 않게.
     if (!changed) return;
-    publisher.publishEvent(new AgentRuntimeChanged(userId, runtime));
+    publisher.publishEvent(new AgentRuntimeChanged(userId, runtime, callerId));
     auditUserAction(
         callerId,
         resolveUsername(callerId),

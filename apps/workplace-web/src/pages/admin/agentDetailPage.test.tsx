@@ -16,6 +16,7 @@ import type { AgentRepoCredential } from '@/types/agentRuntime'
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
 import {
   agentRuntimeApi,
+  CODEX_TEMPLATE,
   createAgent,
   createLocation,
   createObserved,
@@ -224,10 +225,10 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     await waitFor(() => expect(calls.actions).toEqual(['start']))
   })
 
-  test('Claude 가 연결돼 있지 않으면 프로젝트가 있어도 「Claude 를 먼저 연결해 주세요」로 막힌다(프로젝트 0 보다 먼저)', async () => {
+  test('Claude 가 연결돼 있지 않으면 프로젝트가 있어도 「Claude 구독을 먼저 연결해 주세요」로 막힌다(프로젝트 0 보다 먼저)', async () => {
     await renderDetail(works({ claudeFor: [], projects: [] }))
     const start = await screen.findByTestId('agent-runtime-start')
-    await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('Claude 를 먼저 연결해 주세요'))
+    await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('Claude 구독을 먼저 연결해 주세요'))
     expect(start).toBeDisabled()
   })
 
@@ -531,5 +532,85 @@ describe('찾을 수 없음·로딩', () => {
       { path: '/settings/agents/abc', handlers: [] },
     )
     expect(await screen.findByTestId('agent-detail-notfound')).toBeInTheDocument()
+  })
+})
+
+describe('로그인 정보로 일하는 방식의 AI 계정(WP-1296·1297)', () => {
+  const id = 600
+  const codex = (over: Partial<Opts> = {}): Opts => ({
+    agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
+    settings: { [id]: createSetting(id, { templateName: 'codex' }) },
+    templates: [...TEMPLATES, CODEX_TEMPLATE],
+    repoCredentials: [repoCred(1, 'github.com')],
+    ...over,
+  })
+  // 가짜 ChatGPT 로그인 정보 — 계정·만료는 서명 없는 JWT 가운데 부분에서 읽는다.
+  const jwt = (p: object) => `h.${btoa(JSON.stringify(p)).replace(/=+$/, '')}.s`
+  const loginInfo = JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: { id_token: jwt({ email: 'ai-dev@example.com' }), access_token: jwt({ exp: 1_800_000_000 }), refresh_token: 'rt-fake' },
+  })
+
+  test('connectsWithLoginInfo_whenNotConnected', async () => {
+    // 연결 전 — 이 방식의 계정 이름으로 안내하고, 실행 시작은 「ChatGPT 로그인」이 막는다
+    const { user, calls } = await renderDetail(codex())
+    const group = await screen.findByTestId('agent-ai-account-group')
+    await waitFor(() => expect(group).toHaveTextContent('이 방식은 ChatGPT 로그인으로 일해요'))
+    await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('ChatGPT 로그인을 먼저 연결해 주세요'))
+
+    await user.click(within(group).getByTestId('oauth-token-register'))
+    const dialog = await screen.findByTestId('login-info-dialog')
+    expect(within(dialog).getByTestId('login-info-submit')).toBeDisabled()
+    await user.click(within(dialog).getByTestId('login-info-text'))
+    await user.paste(loginInfo)
+    // 넣은 뒤에는 내용 대신 「넣었어요」만 보이고, 계정을 알려 준다
+    expect(within(dialog).getByTestId('login-info-filled')).toHaveTextContent('로그인 정보를 넣었어요')
+    expect(dialog).not.toHaveTextContent('rt-fake')
+    expect(within(dialog).getByTestId('login-info-check')).toHaveTextContent('ChatGPT 로그인 정보예요 · ai-dev@example.com')
+    await user.click(within(dialog).getByTestId('login-info-submit'))
+
+    await waitFor(() => expect(calls.credentialRegisters).toEqual([{ provider: 'chatgpt', loginInfo }]))
+    await waitFor(() => expect(screen.queryByTestId('login-info-dialog')).not.toBeInTheDocument())
+    expect(await within(group).findByTestId('credential-account')).toHaveTextContent('ai-dev@example.com')
+  })
+
+  test('blocksSubmit_whenOtherProgramLoginInfo', async () => {
+    // Gen:iA 로그인 정보를 넣으면 무엇을 넣었는지 알리고 연결을 막는다
+    const { user, calls } = await renderDetail(codex())
+    const group = await screen.findByTestId('agent-ai-account-group')
+    await user.click(await within(group).findByTestId('oauth-token-register'))
+    const dialog = await screen.findByTestId('login-info-dialog')
+    await user.click(within(dialog).getByTestId('login-info-text'))
+    await user.paste(JSON.stringify({ genia: { type: 'oauth', refresh: 'rt-fake' } }))
+    expect(within(dialog).getByTestId('login-info-check')).toHaveTextContent('Gen:iA 로그인 정보예요 — ChatGPT 로그인 정보를 넣어 주세요.')
+    expect(within(dialog).getByTestId('login-info-submit')).toBeDisabled()
+    expect(calls.credentialRegisters).toEqual([])
+  })
+
+  test('keepsTextareaVisible_whenTyping', async () => {
+    // 직접 타이핑하면 한 글자를 쳐도 칸이 그대로 보여 이어 쓸 수 있고, 「지우기」로 바뀌는 것은 붙여넣기·파일로 넣었을 때뿐이다
+    const { user } = await renderDetail(codex())
+    const group = await screen.findByTestId('agent-ai-account-group')
+    await user.click(await within(group).findByTestId('oauth-token-register'))
+    const dialog = await screen.findByTestId('login-info-dialog')
+    const area = within(dialog).getByTestId('login-info-text')
+    await user.type(area, '{{"a')
+    expect(within(dialog).getByTestId('login-info-text')).toHaveValue('{"a')
+    expect(within(dialog).queryByTestId('login-info-filled')).not.toBeInTheDocument()
+    // 이어서 붙여 넣으면 요약으로 바뀌고, 「지우기」는 내용과 요약을 함께 비운다
+    await user.paste('":1}')
+    expect(within(dialog).getByTestId('login-info-filled')).toBeInTheDocument()
+    // 타이핑한 앞부분과 붙여 넣은 글이 이어져 {"a":1} 로 읽힌다(읽지 못했어요가 아니라 다른 프로그램 파일로)
+    expect(within(dialog).getByTestId('login-info-check')).toHaveTextContent('다른 프로그램의 파일 같아요')
+    await user.click(within(within(dialog).getByTestId('login-info-filled')).getByRole('button', { name: '지우기' }))
+    expect(within(dialog).getByTestId('login-info-text')).toHaveValue('')
+    expect(within(dialog).queryByTestId('login-info-check')).not.toBeInTheDocument()
+  })
+
+  test('warnsMismatch_whenOtherAccountConnected', async () => {
+    // Codex 인데 Claude 구독이 남아 있으면 맞지 않는다고 알리고 다시 연결을 앞세운다
+    await renderDetail(codex({ credentials: { [id]: 'anthropic' } }))
+    expect(await screen.findByTestId('credential-mismatch')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('ChatGPT 로그인을 먼저 연결해 주세요'))
   })
 })

@@ -108,16 +108,48 @@ class AgentTemplateRegistryTest {
     }
   }
 
-  /** 번들된 두 템플릿(default·claude-code)이 모두 검증을 통과한다. */
+  /** 번들된 템플릿(default·claude-code·genia-code)이 모두 검증을 통과한다. */
   @Test
-  void load_whenBundledTemplates_bothPass() throws IOException {
+  void load_whenBundledTemplates_allPass() throws IOException {
     List<AgentTemplate> all =
         AgentTemplateRegistry.load(
-            List.of(resource("default.yaml"), resource("claude-code.yaml")), ALLOWED, "dev");
+            List.of(
+                resource("default.yaml"),
+                resource("claude-code.yaml"),
+                resource("genia-code.yaml")),
+            ALLOWED,
+            "dev");
 
-    assertThat(all).extracting(AgentTemplate::name).containsExactly("claude-code", "default");
+    assertThat(all)
+        .extracting(AgentTemplate::name)
+        .containsExactly("claude-code", "default", "genia-code");
     assertThat(all.stream().filter(t -> t.name().equals("default")).findFirst().get().kind())
         .isEqualTo("SERVER");
+  }
+
+  /**
+   * genia-code.yaml(WP-1296) — Gen:iA 로그인 계정(genia)·저장소 토큰을 요구하는 작업 공간 템플릿. 플러그인은 이미지에 굳힌 것을 쓰므로
+   * 없고, 모델 기본값은 사용자가 정한 qwen3.8-27b-fp8 이다.
+   */
+  @Test
+  void load_whenGeniaCodeTemplate_parsesGeniaAccountAndModels() throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(List.of(resource("genia-code.yaml")), ALLOWED, "0.9.40").get(0);
+
+    assertThat(t.name()).isEqualTo("genia-code");
+    assertThat(t.kind()).isEqualTo("WORKSPACE");
+    assertThat(t.card().title()).isEqualTo("Gen:iA Code");
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-genia-code:0.9.40");
+    assertThat(t.requires()).containsExactly("genia", "repo");
+    assertThat(t.account()).isEqualTo("genia");
+    assertThat(t.plugins()).isEmpty();
+    assertThat(t.sidecars()).extracting(AgentTemplate.Sidecar::name).containsExactly("dind");
+    AgentTemplate.ConfigField model = t.config().get(0);
+    assertThat(model.key()).isEqualTo("model");
+    assertThat(model.options())
+        .extracting(AgentTemplate.Option::value)
+        .containsExactly("minimax-m2.7", "gpt-6-luna", "mimo-v2.6-flash", "qwen3.8-27b-fp8");
+    assertThat(model.defaultValue()).isEqualTo("qwen3.8-27b-fp8");
   }
 
   /** 허용 레지스트리 밖 이미지는 시작 실패. */
@@ -209,5 +241,61 @@ class AgentTemplateRegistryTest {
         AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", " sonnet "));
 
     assertThat(out).containsEntry("model", "sonnet");
+  }
+
+  /** requires 에 모르는 값(오타 등)이 있으면 시작 실패(WP-1296·1297). */
+  @Test
+  void load_whenUnknownRequirement_fails() {
+    assertThatThrownBy(
+            () ->
+                AgentTemplateRegistry.load(
+                    List.of(yaml("a", "SERVER", "requires: [claude, docker]\n")), ALLOWED, "dev"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("docker");
+  }
+
+  /** AI 계정을 둘 요구하면 시작 실패 — 한 AI 의 활성 연결은 하나다. */
+  @Test
+  void load_whenTwoAccounts_fails() {
+    assertThatThrownBy(
+            () ->
+                AgentTemplateRegistry.load(
+                    List.of(yaml("a", "SERVER", "requires: [claude, chatgpt]\n")), ALLOWED, "dev"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("하나만");
+  }
+
+  /** account 는 requires 에서 정해진다 — YAML 에 적으면 시작 실패. */
+  @Test
+  void load_whenAccountKeyWritten_fails() {
+    assertThatThrownBy(
+            () ->
+                AgentTemplateRegistry.load(
+                    List.of(yaml("a", "SERVER", "requires: [genia]\naccount: chatgpt\n")),
+                    ALLOWED,
+                    "dev"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("account");
+  }
+
+  /** account — claude→anthropic, genia→genia, chatgpt→chatgpt, 계정 요구 없음→null. */
+  @Test
+  void account_isDerivedFromRequires() throws IOException {
+    List<AgentTemplate> ts =
+        AgentTemplateRegistry.load(
+            List.of(
+                yaml("g", "SERVER", "requires: [genia, repo]\n"),
+                yaml("c", "SERVER", "requires: [chatgpt]\n"),
+                yaml("n", "SERVER", "requires: [repo]\n")),
+            ALLOWED,
+            "dev");
+
+    assertThat(claudeCode().account()).isEqualTo("anthropic");
+    assertThat(ts)
+        .extracting(AgentTemplate::name, AgentTemplate::account)
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("c", "chatgpt"),
+            org.assertj.core.groups.Tuple.tuple("g", "genia"),
+            org.assertj.core.groups.Tuple.tuple("n", null));
   }
 }

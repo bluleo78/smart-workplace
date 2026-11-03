@@ -56,7 +56,7 @@ public class AdminProviderCredentialController {
     String provider = ProviderCredentialSecrets.resolveProvider(req.provider());
     String secret =
         ProviderCredentialSecrets.resolveSecret(
-            objectMapper, provider, req.token(), req.providerConfig());
+            objectMapper, provider, req.token(), req.providerConfig(), req.loginInfo());
     OAuthTokenMetaResponse meta =
         service.register(callerId, userId, provider, secret, req.label(), req.model());
     return ResponseEntity.status(HttpStatus.CREATED).body(meta);

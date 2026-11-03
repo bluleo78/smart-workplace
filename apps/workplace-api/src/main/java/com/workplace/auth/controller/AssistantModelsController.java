@@ -2,8 +2,8 @@ package com.workplace.auth.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.AgentModelsResponse;
+import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.ModelOption;
-import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.ProbeModelsRequest;
 import com.workplace.auth.dto.ProbeModelsResponse;
 import com.workplace.auth.dto.ProviderConfig;
@@ -12,6 +12,7 @@ import com.workplace.auth.exception.AssistantModelsProbeException;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.repository.PersonalAssistantRepository;
+import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantModels;
 import com.workplace.auth.service.ModelBaseUrlGuard;
@@ -115,15 +116,21 @@ public class AssistantModelsController {
    * 실패 시 정적 목록 폴백), opencode 는 복호화 payload 로 실시간 프로브 후 providerId/ 접두.
    */
   private AgentModelsResponse resolveAgentModels(long agentId) {
-    OAuthTokenMetaResponse meta = credentialService.getActiveMeta(agentId);
-    if (!"opencode".equals(meta.provider())) {
-      return new AgentModelsResponse(meta.provider(), anthropicModels(agentId));
+    // 활성 연결은 복호화 없이 한 번만 읽고(없으면 404) 그 provider 로 가른다 — 복호화는 아래에서 그 행으로, 필요한 경우에만.
+    AiAgentCredentialRow row = credentialService.requireActiveRow(agentId);
+    // 로그인 정보 계정(genia·chatgpt)은 그 프로그램이 모델을 고른다 — 서버가 조회할 목록이 없다(WP-1296·1297).
+    // 아래 anthropic 분기가 로그인 정보를 Claude 토큰으로 잘못 읽지 않게 먼저 돌려준다.
+    if (AgentProviders.isLogin(row.provider())) {
+      return new AgentModelsResponse(row.provider(), List.of());
+    }
+    if (!"opencode".equals(row.provider())) {
+      return new AgentModelsResponse(row.provider(), anthropicModels(row));
     }
 
     // 모델 목록 조회는 실제 LLM 호출이 아니므로 last_used_at 을 갱신하는 redeemSelf 가 아니라 읽기 전용
-    // decryptActivePayload 를 쓴다(단순 드롭다운 오픈이 "사용" 으로 집계되지 않도록 — anthropic 경로도 동일). agentId 가 실제로 이
-    // 자격증명의 소유 AGENT 라는 사실은 위의 getActiveMeta(agentId) 조회 자체(및 그 앞의 관리자 권한/본인 원칙)로 이미 보장된다.
-    ProviderCredentialRedeemResponse redeemed = credentialService.decryptActivePayload(agentId);
+    // decryptPayload 를 쓴다(단순 드롭다운 오픈이 "사용" 으로 집계되지 않도록 — anthropic 경로도 동일). agentId 가 실제로 이
+    // 자격증명의 소유 AGENT 라는 사실은 위의 requireActiveRow(agentId) 조회 자체(및 그 앞의 관리자 권한/본인 원칙)로 이미 보장된다.
+    ProviderCredentialRedeemResponse redeemed = credentialService.decryptPayload(row);
     ProviderConfig config = parsePayload(redeemed.payload());
     String baseUrl = requireOption(config, "baseURL");
     urlGuard.validate(baseUrl);
@@ -141,10 +148,10 @@ public class AssistantModelsController {
    * anthropic 실시간 모델 목록(+저장된 모델). 드롭다운이 비어 설정 자체가 막히지 않도록 토큰 복호화 실패(키 교체·손상 행)와 조회 실패(토큰
    * 만료·네트워크·ai-agent 장애)는 502/500 으로 올리지 않고 정적 목록으로 폴백한다. 폴백 시에도 저장된 모델은 유지한다.
    */
-  private List<ModelOption> anthropicModels(long agentId) {
+  private List<ModelOption> anthropicModels(AiAgentCredentialRow row) {
     ProviderCredentialRedeemResponse redeemed;
     try {
-      redeemed = credentialService.decryptActivePayload(agentId);
+      redeemed = credentialService.decryptPayload(row);
     } catch (CryptoException e) {
       log.warn("Anthropic 토큰 복호화 실패 — 정적 모델 목록으로 폴백");
       return AssistantModels.ANTHROPIC;

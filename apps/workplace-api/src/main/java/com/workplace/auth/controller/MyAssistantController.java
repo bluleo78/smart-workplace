@@ -44,9 +44,10 @@ public class MyAssistantController {
       @AuthenticationPrincipal Long callerId,
       @Valid @RequestBody RegisterAssistantCredentialRequest req) {
     String provider = ProviderCredentialSecrets.resolveProvider(req.provider());
+    // 개인 비서는 기본 실행 방식이라 로그인 정보 계정을 쓸 수 없다 — loginInfo 칸이 없고, genia·chatgpt 로 오면 서비스가 400 으로 막는다.
     String secret =
         ProviderCredentialSecrets.resolveSecret(
-            objectMapper, provider, req.token(), req.providerConfig());
+            objectMapper, provider, req.token(), req.providerConfig(), null);
     service.registerCredential(callerId, provider, secret, req.label(), req.model());
     return ResponseEntity.noContent().build();
   }

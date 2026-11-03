@@ -9,6 +9,7 @@ import com.workplace.agentruntime.dto.RunnerAgentKeyResponse;
 import com.workplace.agentruntime.dto.RunnerClaudeSecretResponse;
 import com.workplace.agentruntime.dto.RunnerDesiredAgent;
 import com.workplace.agentruntime.dto.RunnerDesiredResponse;
+import com.workplace.agentruntime.dto.RunnerLoginSecretResponse;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
 import com.workplace.agentruntime.dto.RunnerObservedRequest;
 import com.workplace.agentruntime.dto.RunnerObservedResponse;
@@ -23,9 +24,11 @@ import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.ObservedUpdate;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.ManagedKeyChain;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.auth.service.AgentApiKeyService.ManagedKey;
+import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
 import com.workplace.global.realtime.ResourceChangedEvent;
@@ -104,7 +107,9 @@ public class RunnerDesiredStateService {
           userRepository.findByIds(ids).stream()
               .collect(Collectors.toMap(UserResponse::id, UserResponse::username));
       Map<Long, ManagedKeyChain> chains = agentKeys.managedChains(ids, principal.tenantId());
-      Map<Long, Long> claudeVersions = credentials.findActiveIds(ids);
+      // 활성 연결 id·provider 를 한 번에(WP-1296·1297) — claude 버전은 provider 와 상관없이 id,
+      // login 버전은 템플릿 계정과 같은 종류일 때만.
+      Map<Long, ActiveCredentialRef> credentialRefs = credentials.findActiveRefs(ids);
       // 저장소 토큰 버전은 템플릿이 repo 를 요구하는 AI 만 묻는다 — 쓰지 않는 AI 까지 조회하지 않게.
       List<Long> repoIds =
           rows.stream()
@@ -131,7 +136,7 @@ public class RunnerDesiredStateService {
                             t,
                             usernames.get(id),
                             chains.getOrDefault(id, ManagedKeyChain.EMPTY),
-                            claudeVersions.get(id),
+                            credentialRefs.get(id),
                             reposVersions.get(id),
                             now)));
       }
@@ -288,6 +293,34 @@ public class RunnerDesiredStateService {
   }
 
   /**
+   * 로그인 정보 원문(WP-1296·1297) — 캐시 금지 응답으로 나간다. 이 위치에서 켜져 있는 AI 만(아니면 RUNNER_AGENT_NOT_FOUND 404 —
+   * runner 가 다시 시도한다). 활성 연결이 없거나 템플릿의 로그인 계정과 다른 종류면(템플릿이 로그인 계정을 요구하지 않을 때 포함)
+   * RUNNER_SECRET_NOT_FOUND 404 — runner 가 Pod 의 로그인 정보를 지운다. last_used_at 은 갱신하지 않는다(claude 와 같다).
+   */
+  @Transactional(readOnly = true)
+  public RunnerLoginSecretResponse loginSecret(RunnerPrincipal principal, long agentUserId) {
+    AgentLocationRepository.Row location = requireLocation(principal);
+    if (!settings.isRunningAt(agentUserId, location.id(), location.isDefault())) {
+      throw new RunnerAgentNotFoundException();
+    }
+    // 템플릿이 사라졌거나, 연결이 없거나, 템플릿의 로그인 계정과 다른 종류면 모두 「로그인 정보 없음」이다.
+    ActiveProviderSecret secret =
+        settings
+            .find(agentUserId)
+            .flatMap(row -> registry.find(row.templateName()))
+            .flatMap(
+                t ->
+                    credentials
+                        .findActiveSecret(agentUserId)
+                        .filter(
+                            sec ->
+                                AgentProviders.isLogin(t.account())
+                                    && AgentAccountFit.fits(t, sec.provider())))
+            .orElseThrow(() -> new RunnerSecretNotFoundException("AI 에 연결할 로그인 정보가 없습니다"));
+    return new RunnerLoginSecretResponse(secret.id(), secret.provider(), secret.plaintext());
+  }
+
+  /**
    * AI 의 저장소 토큰 원문(WP-1268) — 캐시 금지 응답으로 나간다. 이 위치에서 켜져 있는 AI 만(아니면 404). 토큰이 없으면 404 가 아니라 빈
    * 목록·version null 이다(runner 가 남은 키를 지우게). 돌려준 토큰의 last_used_at 을 지금으로 고친다.
    */
@@ -312,7 +345,7 @@ public class RunnerDesiredStateService {
    * Works 가 변경 이벤트를 내 다시 조회하게 한다(WP-1250).
    *
    * @param keys 이 AI 의 이 워크스페이스 활성 managed 키 사슬
-   * @param claudeVersion 활성 모델 연결 id(없으면 null)
+   * @param credential 활성 모델 연결 id·provider(없으면 null)
    * @param reposVersion 저장소 토큰 버전(등록·교체·폐기 시각의 epoch 밀리초, 행이 없으면 null)
    */
   private RunnerDesiredAgent toAgent(
@@ -321,7 +354,7 @@ public class RunnerDesiredStateService {
       AgentTemplate t,
       String username,
       ManagedKeyChain keys,
-      Long claudeVersion,
+      ActiveCredentialRef credential,
       Long reposVersion,
       OffsetDateTime now) {
     TemplateShape shape = shapeOf(t);
@@ -338,7 +371,7 @@ public class RunnerDesiredStateService {
         shape.sidecars(),
         shape.plugins(),
         row.config(),
-        secretsFor(t, keys.live(), claudeVersion, reposVersion));
+        secretsFor(t, keys.live(), credential, reposVersion));
   }
 
   /** 템플릿 한 개의 runner 모양 — 이름@버전마다 한 번만 바꾼다. */
@@ -358,10 +391,12 @@ public class RunnerDesiredStateService {
    * 비밀값 참조 — 원문 없이 이름·출처·버전만. agent-key 는 Works 가 띄우는 AI 모두에(현재 managed 키 id·rotateAfter, 아직 없으면
    * null — 정리 유예에 든 키만 남았으면 그것도 「없음」이라 runner 가 새로 받는다. 끄고 곧 다시 켰을 때 5분 뒤 만료될 키로 Pod 를 띄우지 않게),
    * claude 는 템플릿이 요구할 때(활성 연결 id, 없으면 null), repos 는 템플릿이 {@code repo} 를 요구할 때(AI 별·호스트별 저장소 토큰 묶음의
-   * 버전 — 등록·교체·폐기 시각의 epoch 밀리초, 토큰 행이 없으면 null. WP-1268).
+   * 버전 — 등록·교체·폐기 시각의 epoch 밀리초, 토큰 행이 없으면 null. WP-1268), login 은 템플릿이 genia·chatgpt 를 요구할 때(활성
+   * 연결의 provider 가 템플릿 계정과 같을 때만 그 id, 없거나 다른 종류면 null — runner 가 Pod 의 로그인 정보를 지운다. WP-1296·1297).
    */
   private static List<RunnerSecretRef> secretsFor(
-      AgentTemplate t, ManagedKeyChain keys, Long claudeVersion, Long reposVersion) {
+      AgentTemplate t, ManagedKeyChain keys, ActiveCredentialRef credential, Long reposVersion) {
+    Long claudeVersion = credential == null ? null : credential.id();
     List<RunnerSecretRef> out = new ArrayList<>();
     Optional<ManagedKeyChain.Key> key = keys.current();
     out.add(
@@ -375,6 +410,13 @@ public class RunnerDesiredStateService {
         out.add(new RunnerSecretRef("claude", RunnerSecretRef.SOURCE_WORKS, claudeVersion, null));
       } else if ("repo".equals(need)) {
         out.add(new RunnerSecretRef("repos", RunnerSecretRef.SOURCE_WORKS, reposVersion, null));
+      } else if (AgentProviders.isLogin(AgentProviders.accountForRequirement(need))) {
+        Long loginVersion =
+            // 이 분기는 템플릿이 로그인 계정을 요구할 때만 오므로 fits 가 「바로 그 로그인 계정인가」와 같다.
+            credential != null && AgentAccountFit.fits(t, credential.provider())
+                ? credential.id()
+                : null;
+        out.add(new RunnerSecretRef("login", RunnerSecretRef.SOURCE_WORKS, loginVersion, null));
       }
     }
     return out;

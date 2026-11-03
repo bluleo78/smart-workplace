@@ -199,6 +199,25 @@ tmux attach -t kodi
 - 프로젝트마다 세션이 따로라 저장소마다 다른 `CLAUDE.md` 규칙이 섞이지 않습니다.
 - 운영이 아닌 서버에 붙일 때는 홈 세션을 `GENIA_WORKS_API_URL=<API 주소> claude` 로 띄웁니다(프로젝트 읽기·알림 감시가 같은 서버를 봅니다).
 
+### Gen:iA Code(genia)로 돌리기
+
+칸의 실행기를 Claude Code 대신 genia 로 바꿀 수 있습니다 — `/genia-works:start-agent <AI 이름> --cli genia --restart`. 홈 세션(start-agent 를 부르는 곳)은 지금처럼 Claude Code 이고, 칸만 genia 로 뜹니다.
+
+- **준비**: genia 를 설치하고 로그인해 둡니다(`genia` 를 한 번 띄워 모델을 고르면 됩니다). `genia install` 로 따로 설치할 것은 없습니다 — 칸을 띄울 때 이 플러그인 폴더를 `genia -e` 로 함께 싣습니다(이 폴더의 `package.json` 이 genia 패키지 목록입니다 — 스킬·스크립트는 Claude Code 와 한 벌).
+- **예전 수동 등록 지우기**: `~/.genia/agent/mcp.json` 에 손으로 적은 `genia-works` 서버(토큰을 환경변수로 넘기던 방식)가 있으면 그 항목이 먼저 쓰여 신원 전환·키 보호가 듣지 않습니다. `genia mcp remove genia-works` 로 지웁니다(칸이 뜰 때 경고로도 알립니다).
+- **하는 일**: 확장(`genia/index.ts`)이 genia-works MCP 를 그 칸의 신원으로 연결하고(AI 키는 헤더 스크립트가 연결할 때 읽습니다), `/gw-loop <프로젝트 키>` 로 work-loop 를 반복합니다 — 쉬고 있을 때만 한 번 부르고, 스킬이 마지막 줄에 남긴 `GW-NEXT-CHECK` 시각에 다시 부르며, 알림 감시(`events` 창의 기록)에서 `wake` 줄이 오면 바로 부릅니다(일하는 중이면 끝난 뒤 한 번). 서버 작업 기록의 도구 이름은 `genia` 로 남습니다.
+- **키 보호**: 키 저장소 경로·헤더 스크립트에 닿는 도구 호출(bash·read·write·edit·codemode)을 막고, 키 모양이 든 입력은 버립니다. 내 토큰(`GENIA_WORKS_TOKEN`)은 genia 가 뜰 때 받아 두고 환경에서 지워 bash 도구가 물려받지 않습니다. Claude Code 와 같이 다른 이름으로 복사해 실행하는 우회까지 막지는 못합니다.
+- **명령**: `/gw-as <AI 이름|me>`(신원 전환 — 연결을 다시 맺습니다)·`/gw-logout`·`/gw-login`(등록된 키와 등록 방법 — 키는 터미널에서 `gw-keys add` 로만 넣습니다). 칸을 직접 띄울 때는 `GENIA_WORKS_AS=<AI 이름> genia -e <이 플러그인 폴더> "/gw-loop <프로젝트 키>"`.
+
+### Codex 로 돌리기
+
+`/genia-works:start-agent <AI 이름> --cli codex --restart` 로 칸의 실행기를 Codex 로 바꿉니다. Codex 에는 세션 안 확장이 없어, 칸에서는 구동기 `scripts/gw-codex-loop` 가 돕니다.
+
+- **준비**: Codex 를 설치하고 로그인해 둡니다(`codex login`). 구동기는 사용자 설정(`~/.codex/config.toml`)을 고치지 않고, 필요한 설정을 부를 때마다 `-c` 로 넘깁니다.
+- **하는 일**: 쉬고 있을 때만 `codex exec`(처음)·`codex exec resume <대화>`(그 뒤 — 맥락이 이어집니다)로 work-loop 스킬 파일을 가리켜 한 번 부르고, 마지막 답의 `GW-NEXT-CHECK` 시각에 다시 부릅니다. 알림 감시의 `wake` 줄이 오면 바로 부릅니다(부르는 중이면 끝난 뒤 한 번). 무승인 실행(`--dangerously-bypass-approvals-and-sandbox`)이므로 **이 AI 전용 칸에서만** 씁니다.
+- **키**: 칸 신원(`GENIA_WORKS_AS`)의 AI 키를 구동기가 읽어 codex 프로세스의 환경 변수로만 넘깁니다 — 명령줄에 없고, 셸 도구에는 물려주지 않습니다(`shell_environment_policy.exclude`). 키 저장소·헤더 스크립트에 닿는 도구 호출은 PreToolUse hook(`codex/guard.mjs`)이 막습니다. 서버 작업 기록의 도구 이름은 `codex` 로 남습니다.
+- **사람이 Codex 에서 쓰기**: 이 폴더는 Codex 플러그인이기도 합니다(`.codex-plugin/plugin.json` — 스킬은 같은 `skills/`). `codex plugin marketplace add https://github.com/bluleo78/smart-workplace.git` → `codex plugin add genia-works@smart-workplace` 로 설치하고, Codex 플러그인 화면의 Gen:iA Works MCP 연결에 토큰을 넣습니다(연결 하나에 신원 하나 — 채팅·셸 명령에 적지 마세요). 저장소 루트의 `.codex/` 는 git 에 올리지 않습니다.
+
 ### 반복 업무 맡기기 (본문 지시)
 
 AI 를 담당자로 둔 에픽 본문에 회차의 정의를 적어 두면, work-loop 가 그날 하위를 만들어 처리하고 마감이 지난 하위를 닫으며 이어 갑니다. 정해진 양식은 없고, 아래는 참고용 예시입니다.

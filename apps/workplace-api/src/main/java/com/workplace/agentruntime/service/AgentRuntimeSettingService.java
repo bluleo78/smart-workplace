@@ -20,6 +20,8 @@ import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.service.AgentRuntimeTransitions.State;
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.auth.service.AgentProviders;
+import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -67,6 +69,7 @@ public class AgentRuntimeSettingService {
   private final AgentRuntimeTransitions transitions;
   private final AgentRuntimeProjectRepository projectRepository;
   private final AgentRepoCredentialService repoCredentials;
+  private final AiAgentCredentialService credentials;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -110,6 +113,10 @@ public class AgentRuntimeSettingService {
     locationRepository.lockTenantLocations();
     if (existing.isEmpty()) {
       if (req.locationId() != null) requireLocation(req.locationId());
+      // WP-1296·1297: 지금 AI 계정이 새 템플릿에 맞지 않으면 방식 변경과 함께 끊는다(같은 트랜잭션). 위치 확인 등 거절 검사를 모두 통과한 뒤
+      // 저장 직전에만 끊는다 — 거절된 저장이 연결을 끊지 않게.
+      AgentAccountFit.revokeUnfit(
+          credentials, callerId, agentId, template, credentials.findActiveProvider(agentId));
       Row inserted =
           settings.insert(
               agentId, template.name(), template.version(), req.locationId(), config, callerId);
@@ -127,6 +134,11 @@ public class AgentRuntimeSettingService {
             .withConfig(config);
     Long oldEffective = locationService.effectiveLocationId(row.locationId());
     if (next.equals(row)) return toResponse(row, oldEffective);
+    // WP-1296·1297: 바뀌는 저장에서만 맞지 않는 AI 계정을 끊는다(바뀐 것이 없는 저장이 조용히 연결을 끊지 않게). 켜져 있는 AI 를 로그인 계정
+    // 템플릿으로 바꾸면 새 계정이 아직 없어 그대로 일하지 못하므로 409 — 먼저 끄고 바꾼 뒤 연결한다. 끊기는 아래 위치·자리 검사(404·409)까지
+    // 모두 통과한 뒤 저장 직전에 한다 — 거절된 저장이 아무것도 끊지 않게(롤백에 기대지 않는다).
+    Optional<String> activeProvider = credentials.findActiveProvider(agentId);
+    if (row.desired() == Desired.RUN) requireLoginAccount(template, activeProvider);
 
     Long newEffective = oldEffective;
     if (!Objects.equals(req.locationId(), row.locationId())) {
@@ -140,6 +152,7 @@ public class AgentRuntimeSettingService {
         newEffective = locationService.effectiveLocationId(null);
       }
     }
+    AgentAccountFit.revokeUnfit(credentials, callerId, agentId, template, activeProvider);
     next =
         next.withApplyMode(req.applyMode() == null ? ApplyMode.IDLE : req.applyMode())
             .withGeneration(row.generation() + 1);
@@ -169,6 +182,7 @@ public class AgentRuntimeSettingService {
                 () ->
                     new AgentRuntimeSettingConflictException(
                         "실행 템플릿을 찾을 수 없어 켤 수 없습니다. 실행 설정을 다시 저장하세요"));
+    requireLoginAccount(template, credentials.findActiveProvider(agentId));
     requireRepoTokens(agentId, template);
     locationRepository.lockTenantLocations();
     AgentLocationRepository.Row location = claimSeat(row.locationId(), null);
@@ -262,6 +276,19 @@ public class AgentRuntimeSettingService {
     }
     transitions.applyTransition(
         agentId, State.of(row), deleted ? null : State.departing(next), actorId);
+  }
+
+  /**
+   * 켜기 전 로그인 계정 확인(WP-1296·1297) — 템플릿이 로그인 정보 계정(genia·chatgpt)을 쓰는데 그 종류의 활성 연결이 없으면 409. 그 프로그램은
+   * 로그인 없이 일을 못 한다. Claude 계정 템플릿은 지금처럼 확인하지 않는다(기존 켜기 흐름을 바꾸지 않게 — runner 가 연결 없음을 실패로 알린다).
+   */
+  private static void requireLoginAccount(AgentTemplate template, Optional<String> activeProvider) {
+    String account = template.account();
+    if (!AgentProviders.isLogin(account)) return;
+    if (activeProvider.filter(p -> AgentAccountFit.fits(template, p)).isEmpty()) {
+      throw new AgentRuntimeSettingConflictException(
+          "「" + AgentProviders.label(account) + "」을 먼저 연결해 주세요");
+    }
   }
 
   /**

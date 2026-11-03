@@ -21,13 +21,13 @@ const built = (r) => Object.values(r).filter((x) => x.action === 'build').map((x
 
 test('기준 태그 없음(changedFiles null) → 전부 build, 사유 no-base', () => {
   const r = run(null, null);
-  assert.equal(built(r).length, 11);
+  assert.equal(built(r).length, catalog.images.length);
   for (const x of Object.values(r)) assert.deepEqual(x.reasons, ['no-base']);
 });
 
 test('기준 매니페스트가 없으면 변경 파일이 있어도 전부 build(no-base) — 승계할 digest 가 없다', () => {
   const r = run(['docs/x.md'], null);
-  assert.equal(built(r).length, 11);
+  assert.equal(built(r).length, catalog.images.length);
   for (const x of Object.values(r)) assert.deepEqual(x.reasons, ['no-base']);
 });
 

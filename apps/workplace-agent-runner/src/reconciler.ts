@@ -8,11 +8,13 @@ import {
   ANN_AGENT_KEY_ID,
   ANN_AGENT_KEY_ROTATE_AFTER,
   ANN_CLAUDE_VERSION,
+  ANN_LOGIN_VERSION,
   ANN_REPO_HOSTS,
   ANN_REPOS_VERSION,
   ANN_WORK_NODE,
   SECRET_AGENT_KEY,
   SECRET_CLAUDE_TOKEN,
+  SECRET_LOGIN_INFO,
   SECRET_REPO_PREFIX,
   formatRepoHosts,
   repoSecretKey,
@@ -35,7 +37,7 @@ import {
   type Action,
   type ActualAgent,
 } from './plan.js';
-import { secretFetches } from './secrets.js';
+import { refVersion, secretFetches } from './secrets.js';
 import type { RunnerDesired, RunnerDesiredAgent, RunnerObservedAgent, WorksClient } from './works/client.js';
 import type { Logger } from './works/events.js';
 
@@ -81,12 +83,11 @@ export interface ReconcilerDeps {
 }
 
 /**
- * Secret 준비 결과 — ok 면 agent-key 가 Secret 에 있다(Pod 를 만들어도 된다). claudeVersion 은 지금 Secret 에 적힌 모델 연결 version
- * (없으면 undefined) — Pod 어노테이션과 비교해 다르면 Pod 를 다시 만든다.
+ * Secret 준비 결과 — ok 면 agent-key 가 Secret 에 있다(Pod 를 만들어도 된다). claudeVersion·loginVersion 은 지금 Secret 에 적힌
+ * 모델 연결·로그인 정보 version(없으면 undefined) — Pod 어노테이션과 비교해 다르면 Pod 를 다시 만든다.
  */
-type SecretOutcome =
-  | { ok: true; claudeVersion: string | undefined; repos: RepoMount; workNode: string | undefined }
-  | { ok: false; message?: string };
+type SecretState = { claudeVersion: string | undefined; loginVersion: string | undefined; repos: RepoMount; workNode: string | undefined };
+type SecretOutcome = ({ ok: true } & SecretState) | { ok: false; message?: string };
 
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -290,6 +291,7 @@ export class Reconciler {
       current.pod !== undefined &&
       !current.pod.deleting &&
       (versionChanged(current.pod.claudeVersion, secret.claudeVersion) ||
+        versionChanged(current.pod.loginVersion, secret.loginVersion) ||
         versionChanged(current.pod.reposVersion, secret.repos.version));
     if (swapPod && imageProblem) {
       this.fail(id, imageProblem);
@@ -310,7 +312,7 @@ export class Reconciler {
     agent: RunnerDesiredAgent,
     current: ActualAgent,
     swapPod: boolean,
-    secret: { claudeVersion: string | undefined; repos: RepoMount; workNode: string | undefined },
+    secret: SecretState,
     ctx: AgentContext,
   ): Promise<boolean> {
     const id = agent.agentUserId;
@@ -322,7 +324,8 @@ export class Reconciler {
       // 올리지 않으므로(언제 다시 만들지는 runner 몫) Secret 의 version 이 Pod 의 것과 다르면 generation·applyNow 와 무관하게
       // 바로 다시 만든다 — 재등록은 대개 옛 토큰이 끊겼을 때라 기다리면 AI 가 모델을 못 부른 채 남는다.
       // 저장소 토큰도 같다 — gh 로그인이 Pod 시작 때 고정되고 Works 는 토큰 변경에 generation 을 올리지 않는다.
-      this.log.info('모델 연결·저장소 토큰이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });
+      // 로그인 정보(Gen:iA·ChatGPT)도 같다 — 이미지가 Pod 시작 때 파일을 시딩한다.
+      this.log.info('모델 연결·로그인 정보·저장소 토큰이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });
       await this.cluster.delete('Pod', podName(id));
       return false;
     }
@@ -338,6 +341,7 @@ export class Reconciler {
     // hostPath 방식은 Secret 에 적어 둔 노드에 고정한다(처음이면 아무 노드 — 뜬 뒤 ensureSecret 이 노드를 적는다)
     const { pod, pvc, configMap } = buildAgentResources(agent, ctx, this.cfg, {
       claudeVersion: secret.claudeVersion,
+      loginVersion: secret.loginVersion,
       workNode: secret.workNode,
       repos: secret.repos,
       workDisk: this.diskFor(current),
@@ -440,6 +444,35 @@ export class Reconciler {
       }
     }
 
+    // 로그인 정보(WP-1296) — 서버가 템플릿의 계정과 맞을 때만 version 을 싣고 아니면 404 라 provider 는 보지 않는다.
+    // 원문(payload)은 Secret 에만 두고 로그·오류 메시지에 싣지 않는다.
+    const clearLogin = () => {
+      delete data[SECRET_LOGIN_INFO];
+      delete ann[ANN_LOGIN_VERSION];
+    };
+    if (fetches.login === 'clear') {
+      clearLogin();
+    } else if (fetches.login === 'fetch') {
+      try {
+        const s = await this.works.getLoginSecret(id);
+        if (!s) {
+          clearLogin();
+          // desired 는 버전을 냈는데 받으러 간 사이 끊김·다른 종류로 바뀜 — desired 의 버전만 적어 두어 desired 가 다시 바뀔 때까지
+          // 회차마다 다시 받으러 가지 않게 한다(원문 없이 둔다 — Pod 는 원문이 있을 때만 마운트한다. 저장소 토큰과 같은 규칙)
+          const desired = refVersion(agent.secrets, 'login');
+          if (desired !== undefined) ann[ANN_LOGIN_VERSION] = desired;
+        } else {
+          data[SECRET_LOGIN_INFO] = s.payload;
+          ann[ANN_LOGIN_VERSION] = String(s.version);
+          this.log.info('로그인 정보를 받았습니다', { agentUserId: id, version: s.version });
+        }
+      } catch (e) {
+        // 못 받아도 받은 AI 키는 아래에서 꼭 적는다(옛 값은 그대로)
+        this.log.warn('로그인 정보를 받지 못했습니다', { agentUserId: id, error: errMessage(e) });
+        fetchError = fetchError ?? e;
+      }
+    }
+
     const clearRepos = () => {
       for (const k of Object.keys(data)) if (k.startsWith(SECRET_REPO_PREFIX)) delete data[k];
       delete ann[ANN_REPOS_VERSION];
@@ -461,8 +494,8 @@ export class Reconciler {
         } else {
           // desired 는 버전을 냈는데 받으러 간 사이 모두 폐기됨 — desired 의 버전을 적어 두어 desired 가 다시 바뀔 때까지
           // 회차마다 다시 받으러 가지 않게 한다(토큰 없이 둔다)
-          const desiredVersion = agent.secrets.find((ref) => ref.name === 'repos')?.version;
-          if (desiredVersion != null) ann[ANN_REPOS_VERSION] = String(desiredVersion);
+          const desired = refVersion(agent.secrets, 'repos');
+          if (desired !== undefined) ann[ANN_REPOS_VERSION] = desired;
         }
       } catch (e) {
         this.log.warn('저장소 토큰을 받지 못했습니다', { agentUserId: id, error: errMessage(e) });
@@ -487,6 +520,8 @@ export class Reconciler {
     return {
       ok: true,
       claudeVersion: ann[ANN_CLAUDE_VERSION],
+      // 원문이 없으면(받으러 간 사이 끊김) 버전 기록만 있어도 Pod 에는 「로그인 정보 없음」
+      loginVersion: data[SECRET_LOGIN_INFO] ? ann[ANN_LOGIN_VERSION] : undefined,
       repos: { version: ann[ANN_REPOS_VERSION], hosts: ann[ANN_REPO_HOSTS] },
       workNode: ann[ANN_WORK_NODE],
     };

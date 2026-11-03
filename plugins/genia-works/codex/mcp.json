@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "genia-works": {
+      "type": "streamable-http",
+      "url": "https://genia-works.iacloud.kr/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "api_key",
+            "headerScheme": "bearer"
+          }
+        }
+      }
+    }
+  }
+}

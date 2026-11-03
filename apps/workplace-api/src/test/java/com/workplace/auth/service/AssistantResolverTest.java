@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.auth.exception.HomeAssistantNotConfiguredException;
+import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
+import com.workplace.global.security.EncryptionService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
@@ -22,6 +24,9 @@ class AssistantResolverTest extends IntegrationTestBase {
   @Autowired PersonalAssistantRepository personalRepo;
   @Autowired AssistantConfigRepository configRepo;
   @Autowired AiAgentCredentialService credentialService;
+  @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired EncryptionService encryption;
+  @Autowired WorkspaceAssistantService workspaceService;
   @Autowired DSLContext dsl;
 
   @Test
@@ -145,5 +150,33 @@ class AssistantResolverTest extends IntegrationTestBase {
     personalRepo.setAgentId(human, personalAgent);
 
     assertThat(resolver.resolvePersonalOrEmpty(human)).isPresent();
+  }
+
+  /**
+   * 로그인 정보 계정(genia·chatgpt)만 연결된 비서는 서버가 부를 수 없어 「토큰 없음」으로 본다(WP-1296·1297) — 개인 비서는 공용으로 폴백하고, 공용
+   * 비서 상태도 토큰 없음이다.
+   */
+  @Test
+  void pickWithActiveToken_whenOnlyLoginCredential_treatsAsNoToken() {
+    long human = TestFixtures.createHuman(dsl);
+    long workspaceAgent = TestFixtures.createAgentNoToken(dsl);
+    workspaceRepo.upsert(workspaceAgent, human);
+    credentialRepo.insert(
+        workspaceAgent, "genia", encryption.encrypt("{\"genia\":{}}"), "g", human);
+    long personalAgent = TestFixtures.createAgentNoToken(dsl);
+    personalRepo.setAgentId(human, personalAgent);
+    credentialRepo.insert(
+        personalAgent, "chatgpt", encryption.encrypt("{\"tokens\":{}}"), "c", human);
+
+    assertThat(resolver.resolveOrEmpty(human)).isEmpty();
+    assertThat(resolver.resolvePersonalOrEmpty(human)).isEmpty();
+    assertThat(workspaceService.get().hasActiveToken()).isFalse();
+
+    // 공용 비서에 Claude 계정을 연결하면 그쪽으로 해석된다.
+    credentialRepo.revokeActive(workspaceAgent);
+    credentialRepo.insert(
+        workspaceAgent, "anthropic", encryption.encrypt("T".repeat(64)), "a", human);
+    assertThat(resolver.resolve(human).agentUserId()).isEqualTo(workspaceAgent);
+    assertThat(workspaceService.get().hasActiveToken()).isTrue();
   }
 }

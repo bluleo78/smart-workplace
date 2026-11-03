@@ -23,6 +23,10 @@ Works 가 띄우는 AI Pod 의 작업 공간 이미지다(WP-1252). runner(`apps
 8. 60초마다 감독한다. 칸 상태를 tmux 에서 한 번 읽어(`agent-window --states`) 죽었거나 빠진 칸만 다시 띄우고, 6일이 넘은 칸은 새로 시작하고, 끝에 알림 감시 창을 한 번 챙긴다.
 9. SIGTERM 을 받으면 칸마다 SIGTERM 을 보내고 최대 40초 기다린 뒤 tmux 를 끄고 종료 0. work-loop 가 멈춰도(DRAIN) 엔트리포인트는 끝내지 않는다.
 
+## 다른 이미지와 함께 쓰는 파일
+
+`bin/lib.sh`·`bin/agent-screen` 은 Gen:iA Code 이미지([workplace-agent-genia-code](../workplace-agent-genia-code))도 그대로 COPY 해 쓴다(그 이미지 전용 함수는 `lib-genia.sh` 가 덮어쓴다). 함수 이름·인자를 바꾸면 그 이미지의 테스트도 돌린다.
+
 ## 테스트·빌드
 
 ```sh

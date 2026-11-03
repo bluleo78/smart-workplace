@@ -1,5 +1,6 @@
 // 설정 화면별 가이드 문구 — 한 파일에 모아 문구 리뷰를 한곳에서 한다(WP-399).
 // 원칙: 실제 동작을 확인한 사실만 쓰고, 섹션 description 과 같은 말을 반복하지 않는다(왜·언제·주의). 해요체·짧은 문장.
+import { accountLabel, isLoginProvider, loginProgram } from '@/lib/agentAccount'
 import { workResourceText } from '@/lib/agentRuntimeStatus'
 import { MCP_ENDPOINT } from '@/lib/mcpEndpoint'
 import {
@@ -335,8 +336,16 @@ export function agentDetailGuide(
   } else if (works) {
     const title = template.card.title
     run.push('실행 중에는 실행 방식을 바꿀 수 없어요. 먼저 실행을 멈춰 주세요.')
-    if (template.requires.includes('claude'))
+    if (template.account === 'anthropic')
       run.push(`${title} 는 Anthropic(Claude) 계정만 쓸 수 있어요. 실행 중에 연결을 끊으면 다시 시작할 때부터 일하지 못해요.`)
+    else if (template.account && isLoginProvider(template.account)) {
+      const label = accountLabel(template.account)
+      run.push(
+        `${title} 는 ${label} 정보로 일해요. 내 컴퓨터에서 ${loginProgram(template.account)} 에 이 AI 전용 계정으로 로그인한 뒤, 그 로그인 정보를 「${label} 연결」에 넣어 주세요.`,
+        '로그인 갱신은 AI 가 일하는 곳에서 스스로 해요. 같은 로그인을 내 컴퓨터나 다른 AI 에서도 쓰면 갱신할 때 한쪽이 로그아웃되니 나눠 쓰지 마세요.',
+        `실행 방식을 ${title} 가 아닌 방식으로 바꾸면 ${label} 연결은 해제돼요.`,
+      )
+    }
     if (template.requires.includes('repo'))
       run.push(
         '「저장소 연결」에는 이 AI 가 맡는 프로젝트 저장소의 호스트마다 토큰을 붙여 넣어요. 토큰은 AI 마다, 호스트마다 따로 저장하고 저장한 뒤에는 다시 보이지 않아요. 연결이 빠진 호스트가 있으면 실행을 시작할 수 없어요.',

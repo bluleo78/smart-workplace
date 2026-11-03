@@ -6,7 +6,6 @@ import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.dto.WorkspaceAssistantResponse;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException;
-import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
@@ -35,7 +34,6 @@ public class WorkspaceAssistantService {
 
   private final WorkspaceAssistantRepository workspaceRepo;
   private final AssistantConfigRepository configRepo;
-  private final AiAgentCredentialRepository credentialRepo;
   private final UserRepository userRepository;
   private final AssistantSettingsWriter settingsWriter;
   private final SuggestionModelPolicy suggestionModelPolicy;
@@ -156,8 +154,9 @@ public class WorkspaceAssistantService {
     }
     long agentId = agentIdOpt.get();
     String name = userRepository.findById(agentId).map(UserResponse::name).orElse(null);
-    // WP-139: 활성 자격증명의 제공자로 자동 추천 모델을 정한다(토큰 없음이면 null).
-    var credential = credentialRepo.findActive(agentId);
+    // WP-139: 활성 자격증명의 제공자로 자동 추천 모델을 정한다(토큰 없음이면 null). 서버가 부를 수 없는 로그인 정보 계정은 토큰 없음으로
+    // 본다(WP-1296·1297 — 비서 해석 AssistantResolver 와 같은 판정).
+    var credential = credentialService.findServerUsableActive(agentId);
     boolean hasActiveToken = credential.isPresent();
 
     // ConfigRow 의 각 필드는 개별 nullable — 필드 단위로 디폴트와 머지한다.

@@ -106,6 +106,17 @@ describe('modeChangeSummary — from → to 조합별', () => {
     expect(lines.some((l) => l.includes('폐기'))).toBe(false)
   })
 
+  test('새 방식에 맞지 않는 AI 계정은 연결이 해제된다고 알린다(WP-1296)', () => {
+    const codex: RunModeCard = { ...WORKS, id: 'codex', title: 'Codex', template: { ...CLAUDE_TEMPLATE, name: 'codex', account: 'chatgpt' } }
+    // Claude Code → Codex: Claude 구독은 Codex 에서 못 쓴다
+    expect(modeChangeSummary(WORKS, codex, CLAUDE_TEMPLATE, 'anthropic')[0]).toBe('AI 계정(Claude 구독) 연결이 해제돼요.')
+    // Codex → 기본: ChatGPT 로그인은 서버가 쓰지 못한다
+    expect(modeChangeSummary(codex, SERVER, codex.template, 'chatgpt')[0]).toBe('AI 계정(ChatGPT 로그인) 연결이 해제돼요.')
+    // 맞는 계정·외부로 가는 경우는 알리지 않는다
+    expect(modeChangeSummary(SERVER, WORKS, null, 'anthropic').some((l) => l.startsWith('AI 계정'))).toBe(false)
+    expect(modeChangeSummary(codex, EXTERNAL, codex.template, 'chatgpt').some((l) => l.startsWith('AI 계정'))).toBe(false)
+  })
+
   test('같은 작업 공간 카드로의 이동은 지울 것이 없다(저장만)', () => {
     const lines = modeChangeSummary(WORKS, WORKS, CLAUDE_TEMPLATE)
     expect(lines.some((l) => l.includes('지워져요'))).toBe(false)
@@ -114,8 +125,8 @@ describe('modeChangeSummary — from → to 조합별', () => {
 
 describe('startBlockReason — 위에서부터 고칠 순서', () => {
   const ok: StartChecks = {
-    needsClaude: true,
-    claudeOk: true,
+    account: 'anthropic',
+    accountOk: true,
     needsRepos: true,
     missingRepoHosts: [],
     projectCount: 1,
@@ -136,13 +147,17 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
   test('저장소가 빠졌으면 프로젝트 0 보다 먼저 「저장소를 먼저 연결해 주세요」', () => {
     expect(startBlockReason({ ...ok, missingRepoHosts: ['github.com'], projectCount: 0 })).toBe('저장소를 먼저 연결해 주세요')
   })
-  test('Claude 가 필요 없는 방식이면 claudeOk 가 false 여도 막지 않는다', () => {
-    expect(startBlockReason({ ...ok, needsClaude: false, claudeOk: false })).toBeNull()
+  test('AI 계정이 필요 없는 방식이면 accountOk 가 false 여도 막지 않는다', () => {
+    expect(startBlockReason({ ...ok, account: null, accountOk: false })).toBeNull()
   })
-  test('우선순위 — 사용 중지 > Claude > 저장소 > 프로젝트 > 실행 환경 없음 > 자리 > 필수 칸', () => {
+  test('로그인 정보로 일하는 방식이면 그 계정 이름으로 막는다', () => {
+    expect(startBlockReason({ ...ok, account: 'chatgpt', accountOk: false })).toBe('ChatGPT 로그인을 먼저 연결해 주세요')
+    expect(startBlockReason({ ...ok, account: 'genia', accountOk: false })).toBe('Gen:iA 로그인을 먼저 연결해 주세요')
+  })
+  test('우선순위 — 사용 중지 > AI 계정 > 저장소 > 프로젝트 > 실행 환경 없음 > 자리 > 필수 칸', () => {
     const allBad: StartChecks = {
-      needsClaude: true,
-      claudeOk: false,
+      account: 'anthropic',
+      accountOk: false,
       needsRepos: true,
       missingRepoHosts: ['gitlab.iacloud.kr'],
       projectCount: 0,
@@ -153,7 +168,7 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
     }
     const expected = [
       '사용 중지된 AI 는 실행할 수 없어요',
-      'Claude 를 먼저 연결해 주세요',
+      'Claude 구독을 먼저 연결해 주세요',
       '저장소를 먼저 연결해 주세요',
       '맡는 프로젝트를 먼저 정해 주세요',
       '실행 환경을 먼저 추가해 주세요',
@@ -173,7 +188,7 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
 /** 방금 나온 이유를 고친 상태 — 우선순위 순회용 */
 function fix(c: StartChecks, msg: string): StartChecks {
   if (msg.startsWith('사용 중지')) return { ...c, inactive: false }
-  if (msg.startsWith('Claude')) return { ...c, claudeOk: true }
+  if (msg.startsWith('Claude')) return { ...c, accountOk: true }
   if (msg.startsWith('저장소')) return { ...c, missingRepoHosts: [] }
   if (msg.startsWith('맡는')) return { ...c, projectCount: 1 }
   if (msg.startsWith('실행 환경을')) return { ...c, hasLocation: true }

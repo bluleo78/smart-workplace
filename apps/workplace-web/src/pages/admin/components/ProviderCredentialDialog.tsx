@@ -37,13 +37,18 @@ import { withProviderPrefix } from '@/lib/ai/suggestionModel';
 import { visionConfigFor } from '@/lib/ai/visionConfig';
 import { handleApiError } from '@/lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey } from '@/lib/opencode-presets';
-import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
+import type { CredentialProvider, LoginProvider, ModelOption } from '@/types/providerCredential';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agentUserId: number;
   isReissue: boolean;
+  /**
+   * 받을 연결 방식을 하나로 정한다(템플릿 실행 화면, WP-1296) — 정하면 「연결 방식」 고르기를 숨긴다. Claude Code 템플릿은 Claude 구독만 쓴다.
+   * 로그인 정보(genia·chatgpt)는 이 창이 아니라 LoginInfoDialog 가 받는다.
+   */
+  only?: Exclude<CredentialProvider, LoginProvider>;
 }
 
 type PresetKey = OpencodePresetKey;
@@ -54,8 +59,10 @@ export function ProviderCredentialDialog({
   onOpenChange,
   agentUserId,
   isReissue,
+  only,
 }: Props) {
-  const [connectionType, setConnectionType] = useState<CredentialProvider>('anthropic');
+  const initialType: CredentialProvider = only ?? 'anthropic';
+  const [connectionType, setConnectionType] = useState<CredentialProvider>(initialType);
 
   // anthropic 입력.
   const [token, setToken] = useState('');
@@ -86,7 +93,7 @@ export function ProviderCredentialDialog({
   });
 
   const reset = () => {
-    setConnectionType('anthropic');
+    setConnectionType(initialType);
     setToken('');
     setPresetKey('amazon-bedrock-openai');
     setBaseUrl(OPENCODE_PRESETS[0].baseUrl);
@@ -198,7 +205,9 @@ export function ProviderCredentialDialog({
         {/* min-h — 연결 방식(anthropic↔opencode)·프로브 결과 유무에 따라 내용 길이가 크게 달라져
             다이얼로그가 열릴 때마다 세로 크기가 요동치는 것을 막기 위해 가장 긴 상태(opencode +
             모델 목록 노출) 기준으로 최소 높이를 예약한다. */}
-        <div className="space-y-4 min-h-[420px]">
+        {/* 방식을 하나로 정했으면(only) 길이가 요동치지 않으므로 높이를 예약하지 않는다. */}
+        <div className={only == null ? 'space-y-4 min-h-[420px]' : 'space-y-4'}>
+          {only == null && (
           <div className="space-y-1.5">
             <Label>연결 방식</Label>
             <RadioGroup
@@ -230,6 +239,7 @@ export function ProviderCredentialDialog({
               </Label>
             </RadioGroup>
           </div>
+          )}
 
           {connectionType === 'anthropic' ? (
             <div className="space-y-1.5">

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.ProviderCredentialRedeemResponse;
@@ -24,6 +25,7 @@ import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -43,8 +45,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AiAgentCredentialService {
 
-  /** 현재 지원하는 provider 값 — 등록 시 이 집합 밖이면 400. */
-  private static final Set<String> PROVIDERS = Set.of("anthropic", "opencode");
+  /** 현재 지원하는 provider 값 — 등록 시 이 집합 밖이면 400. genia·chatgpt 는 로그인 정보(WP-1296·1297). */
+  private static final Set<String> PROVIDERS = AgentProviders.ALL;
 
   private final AiAgentCredentialRepository repo;
   private final AssistantConfigRepository configRepo;
@@ -54,6 +56,7 @@ public class AiAgentCredentialService {
   private final ObjectMapper objectMapper;
   private final ModelBaseUrlGuard urlGuard;
   private final ApplicationEventPublisher publisher;
+  private final AgentAccountFitPolicy accountFit;
 
   /**
    * AGENT 에 새 자격증명 등록 — 기존 active 가 있으면 자동 revoke.
@@ -81,6 +84,10 @@ public class AiAgentCredentialService {
     if (!PROVIDERS.contains(provider)) {
       throw new InvalidProviderCredentialException("지원하지 않는 provider 입니다: " + provider);
     }
+    // WP-1296·1297: 실행 방식에 맞지 않는 계정은 받지 않는다 — 기본 = Claude·OpenAI 호환, 작업 공간 = 그 템플릿의 계정,
+    // 내 컴퓨터 = 무엇이든. 관리자·개인 비서 경로가 모두 이 지점을 지난다. 값 형식 검사보다 먼저 — 쓸 수 없는 곳에서
+    // 「값을 넣어 주세요」로 안내하지 않게.
+    accountFit.requireFits(agentUserId, provider);
     // opencode 연결의 providerId — 추천 모델("providerId/model") 유지 판단에 쓴다. anthropic 은 null.
     String providerId = null;
     if ("opencode".equals(provider)) {
@@ -88,6 +95,9 @@ public class AiAgentCredentialService {
       if (model == null || model.isBlank()) {
         throw new InvalidProviderCredentialException("opencode 등록에는 model 이 필수입니다");
       }
+    } else if (AgentProviders.isLogin(provider)) {
+      // WP-1296·1297: 로그인 정보는 그 프로그램이 읽는 키만 남겨 다듬은 JSON 을 저장한다(형식이 틀리면 400).
+      plaintextSecret = LoginInfoNormalizer.normalize(provider, plaintextSecret);
     } else if (plaintextSecret == null || plaintextSecret.isBlank()) {
       throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
     }
@@ -236,11 +246,39 @@ public class AiAgentCredentialService {
   }
 
   /**
-   * 여러 AGENT 의 활성 자격증명 id 를 한 번에(WP-1253 — runner desired 의 claude 버전). 없는 AGENT 는 빠진다. 평문/암호문 미포함.
+   * 여러 AGENT 의 활성 자격증명 id·provider 를 한 번에(WP-1253 — runner desired 의 claude 버전, WP-1296·1297 —
+   * login 버전은 provider 가 템플릿 계정과 같을 때만). 없는 AGENT 는 빠진다. 평문/암호문 미포함.
    */
   @Transactional(readOnly = true)
-  public Map<Long, Long> findActiveIds(Collection<Long> agentUserIds) {
-    return repo.findActiveIdsByUsers(agentUserIds);
+  public Map<Long, ActiveCredentialRef> findActiveRefs(Collection<Long> agentUserIds) {
+    return repo.findActiveRefsByUsers(agentUserIds);
+  }
+
+  /**
+   * 서버(기본 실행 방식)가 부를 수 있는 활성 자격증명만(없으면 empty) — 로그인 정보 계정(genia·chatgpt)은 그 프로그램 안에서만 쓰여 서버가 실행할 수
+   * 없으므로 「연결 없음」으로 본다(WP-1296·1297). 비서 해석·공용 비서 상태·반복 작업 후보가 이 판정 하나를 쓴다. 평문/암호문은 다루지 않는다.
+   */
+  @Transactional(readOnly = true)
+  public Optional<AiAgentCredentialRow> findServerUsableActive(Long agentUserId) {
+    return repo.findActive(agentUserId).filter(r -> AgentProviders.isServerUsable(r.provider()));
+  }
+
+  /** {@link #findServerUsableActive} 의 여러 AGENT 판 — 서버가 부를 수 있는 활성 계정이 있는 AGENT id 만(한 쿼리). */
+  @Transactional(readOnly = true)
+  public Set<Long> findServerUsableAgentIds(Collection<Long> agentUserIds) {
+    Set<Long> out = new HashSet<>();
+    repo.findActiveRefsByUsers(agentUserIds)
+        .forEach(
+            (id, ref) -> {
+              if (AgentProviders.isServerUsable(ref.provider())) out.add(id);
+            });
+    return out;
+  }
+
+  /** 활성 자격증명의 provider — 없으면 empty(실행 방식 변경 때 맞는 계정인지 볼 때). */
+  @Transactional(readOnly = true)
+  public Optional<String> findActiveProvider(Long agentUserId) {
+    return repo.findActive(agentUserId).map(r -> AgentProviders.normalize(r.provider()));
   }
 
   /**
@@ -263,10 +301,26 @@ public class AiAgentCredentialService {
    */
   @Transactional(readOnly = true)
   public ProviderCredentialRedeemResponse decryptActivePayload(Long agentUserId) {
+    return decryptPayload(requireActiveRow(agentUserId));
+  }
+
+  /**
+   * AGENT 활성 자격증명 행 — 복호화하지 않는다(암호문만 담긴다). provider 로 먼저 가른 뒤 필요할 때만 {@link #decryptPayload} 로 푸는
+   * 경로(모델 목록)가 한 번만 읽게 한다. AGENT 가 아니면 400, 없으면 404.
+   */
+  @Transactional(readOnly = true)
+  public AiAgentCredentialRow requireActiveRow(Long agentUserId) {
     assertAgent(agentUserId);
-    AiAgentCredentialRow row =
-        repo.findActive(agentUserId).orElseThrow(OAuthTokenNotFoundException::new);
-    return toRedeemResponse(agentUserId, row);
+    return repo.findActive(agentUserId).orElseThrow(OAuthTokenNotFoundException::new);
+  }
+
+  /**
+   * {@link #requireActiveRow} 로 읽은 행을 평문으로 — {@link #decryptActivePayload} 와 같은 응답, last_used_at 갱신
+   * 없음.
+   */
+  @Transactional(readOnly = true)
+  public ProviderCredentialRedeemResponse decryptPayload(AiAgentCredentialRow row) {
+    return toRedeemResponse(row.userId(), row);
   }
 
   /**
@@ -290,8 +344,13 @@ public class AiAgentCredentialService {
     }
   }
 
+  /**
+   * ai-agent 에 넘길 응답. 로그인 정보(genia·chatgpt)는 그 프로그램 안에서만 쓰는 값이라 Claude 토큰으로 넘기지 않는다 — 「연결
+   * 없음」(404)으로 본다(WP-1296·1297). 그 밖은 opencode 가 아니면 anthropic.
+   */
   private ProviderCredentialRedeemResponse toRedeemResponse(
       Long agentUserId, AiAgentCredentialRow row) {
+    if (AgentProviders.isLogin(row.provider())) throw new OAuthTokenNotFoundException();
     String plaintext = encryptionService.decrypt(row.encryptedToken());
     String model = configRepo.find(agentUserId).map(ConfigRow::model).orElse(null);
     return "opencode".equals(row.provider())
@@ -432,11 +491,24 @@ public class AiAgentCredentialService {
     throw new InvalidProviderCredentialException("vision 은 true/false 또는 모델별 true/false 여야 합니다");
   }
 
-  /** row → 메타 응답. opencode 는 복호화 후 payload 에서 options.baseURL 을 추출(실패 시 null), anthropic 은 null. */
+  /**
+   * row → 메타 응답. opencode 는 복호화 후 payload 에서 options.baseURL 을 추출(실패 시 null), anthropic 은 null. 로그인
+   * 정보는 계정 이메일(account)만 꺼낸다(best-effort, WP-1296·1297) — 토큰은 싣지 않는다.
+   */
   private OAuthTokenMetaResponse toMeta(AiAgentCredentialRow row) {
     String baseUrl = "opencode".equals(row.provider()) ? extractBaseUrl(row) : null;
+    String account = AgentProviders.isLogin(row.provider()) ? extractAccount(row) : null;
     return new OAuthTokenMetaResponse(
-        row.id(), row.provider(), baseUrl, row.label(), row.createdAt(), row.lastUsedAt());
+        row.id(), row.provider(), baseUrl, account, row.label(), row.createdAt(), row.lastUsedAt());
+  }
+
+  private String extractAccount(AiAgentCredentialRow row) {
+    try {
+      return LoginInfoNormalizer.accountEmail(
+          row.provider(), encryptionService.decrypt(row.encryptedToken()));
+    } catch (Exception e) {
+      return null; // 복호화 실패도 메타 표시를 깨뜨리지 않는다.
+    }
   }
 
   private String extractBaseUrl(AiAgentCredentialRow row) {
@@ -466,6 +538,7 @@ public class AiAgentCredentialService {
   }
 
   private String resolveUsername(Long userId) {
+    if (userId == null) return null; // 시스템 정리(호출자 모름) — 조회하지 않는다.
     return userRepository.findById(userId).map(UserResponse::username).orElse(null);
   }
 }

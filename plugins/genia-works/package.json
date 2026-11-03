@@ -1,0 +1,13 @@
+{
+  "name": "genia-works-genia",
+  "private": true,
+  "description": "Gen:iA Works — Gen:iA Code(genia) 패키지. 스킬·스크립트는 같은 폴더의 Claude Code 플러그인과 한 벌이다(WP-1294).",
+  "pi": {
+    "extensions": [
+      "./genia/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}

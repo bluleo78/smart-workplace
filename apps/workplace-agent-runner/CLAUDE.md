@@ -30,7 +30,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 | `src/k8s/manifest.ts` | 계약대로 Pod·PVC·ConfigMap·Secret 을 만드는 순수 함수 |
 | `src/k8s/cluster.ts` | `ClusterApi`·`@kubernetes/client-node` 구현(server-side apply, fieldManager `genia-agent-runner`) |
 | `src/plan.ts` | `ownedByLocation`·`collectActual`·`emptyActual`·`planReconcile`·`checkImages`(순수) |
-| `src/secrets.ts` | `secretFetches` — 언제 원문(agent-key·claude·repos)을 다시 받을지(순수) |
+| `src/secrets.ts` | `secretFetches` — 언제 원문(agent-key·claude·login·repos)을 다시 받을지(순수) |
 | `src/observe.ts` | `toObserved` — Pod → phase, metrics 수량 해석(순수) |
 | `src/reconciler.ts` | 조정 한 회차(AI 별 동시 4명, STOPPED 는 회차 끝에 200명씩 모아 보냄)·관찰 보고·`ReconcileLoop`(트리거 합치기, `retry` — 일시 오류 5초·지우는 중 기다림 15초·거절 30초, 주기 조회) |
 | `src/screen.ts`·`src/works/screenSocket.ts`·`src/k8s/exec.ts` | 작업 화면 보기(WP-1277) — SSE `agent-runtime.screen` 을 받으면 Works 로 화면 소켓(`…/runner/screen/{sessionId}`)을 열고 AI Pod 에 exec 로 `agent-screen` 을 붙여 바이트를 잇는다. 보기 전용이면 입력 바이트를 버리고, 입력 허용으로 바뀌면 `--input` 으로 다시 붙는다. 입력은 `SCREEN_ALLOW_INPUT=true`(차트 `screen.allowInput`, 기본 꺼짐)일 때만 받는다 — 셸 권한과 같다. 한 runner 에 동시 10개 |
@@ -41,6 +41,8 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 - desired 에 있고 Pod 없음 → 만든다(applyNow 무관). generation 이 다르면 `applyNow=true` 일 때만 Pod 를 지우고 다음 회차에 다시 만든다(PVC·Secret 유지).
 - 모델 연결 교체: Pod 어노테이션 `genia.works/claude-version`(만들 때 Secret 의 version)이 Secret 의 것과 다르면(없음 ↔ 값 포함) generation·applyNow 와
   무관하게 Pod 를 다시 만든다 — 토큰이 env 로 고정되고 Works 는 재등록에 generation 을 올리지 않기 때문. 허용 밖 이미지면 지우지 않는다.
+- 로그인 정보(WP-1296, Gen:iA·ChatGPT): desired 의 `login`(WORKS) 참조 version 이 Secret 어노테이션 `genia.works/login-version` 과 다르면 `GET …/secrets/login` 으로 받아 Secret 키 `login-info`·어노테이션에 적고, 참조가 없거나 version null·404 면 둘 다 지운다(claude 와 같은 규칙, provider 검사 없음 — 서버가 템플릿 계정과 맞을 때만 version 을 싣는다). 못 받으면 옛 값을 두고 AI 키는 적는다. 원문은 로그에 남기지 않는다.
+  Pod 는 Secret 에 login version 이 있을 때만 `/run/genia/login-info`(subPath `login-info`)·env `GENIA_LOGIN_VERSION`·Pod 어노테이션 `login-version` 을 넣고, Secret 의 version 이 Pod 의 것과 다르면(없음 ↔ 값 포함) 모델 연결 교체처럼 바로 Pod 를 다시 만든다. `NON_ANTHROPIC_MESSAGE` 실패는 `claude` 참조에만 쓴다.
 - 저장소 토큰(WP-1268): desired 의 `repos`(WORKS) 참조 version 이 Secret 어노테이션 `genia.works/repos-version` 과 다르면 `GET …/secrets/repos` 로 받아 Secret 의 `repo-<kind>-<host>` 키를 모두 바꿔 넣고(어노테이션 `repo-hosts` 에 `kind:host` 목록), 참조가 없거나 version null 이면 `repo-*` 키·두 어노테이션을 지운다.
   Pod 는 만들 때 `repo-hosts` 로 볼륨 `repo-tokens`(Secret `agent-<id>`, items `<kind>/<host>`)를 `/run/genia/repo-tokens` 에 마운트하고(호스트 없으면 없음) 어노테이션 `genia.works/repos-version` 을 적는다.
   gh 로그인이 Pod 시작 때 고정되므로 Secret 의 version 이 Pod 의 것과 다르면 모델 연결 교체처럼 Pod 를 다시 만든다. 위치 GitHub Secret(`GITHUB_SECRET_NAME`)은 없어졌다.

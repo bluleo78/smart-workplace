@@ -1,0 +1,5 @@
+#!/bin/sh
+# gw-codex-loop <프로젝트 키> [--queue "<라벨>"] — Codex 로 work-loop 를 반복하는 구동기(WP-1295). 실행기가 codex 인 칸(agent-project start)이 띄운다.
+# 본체는 ../codex/driver.mjs(node) — 부르기·다음 확인·알림 깨우기·키 보호 hook 은 그 파일 머리 주석.
+here=$(cd "$(dirname "$0")" && pwd)
+exec node "$here/../codex/driver.mjs" "$@"

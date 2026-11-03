@@ -147,7 +147,10 @@ gl_view() {
 case "$cmd" in
   auth-check)
     if [ "$kind" = github ]; then
-      gh auth status --hostname "$host" >/dev/null 2>&1 \
+      # 쓰는 계정(--active)만 본다 — 없으면 gh 가 그 호스트의 모든 계정을 검사해, 쓰지 않는 계정 하나의 토큰만 만료돼도 실패한다(WP-1296 시험).
+      # 옛 gh(--active 가 없던 판)는 unknown flag 로 실패하므로, 그때만 --active 없이 한 번 더 본다(그 판은 계정이 하나뿐이라 같은 뜻).
+      auth_out=$(gh auth status --active --hostname "$host" 2>&1) \
+        || { case "$auth_out" in *"unknown flag"*) gh auth status --hostname "$host" >/dev/null 2>&1 ;; *) false ;; esac; } \
         || { echo "gw-repo: gh 가 $host 에 로그인돼 있지 않습니다 — gh auth login --hostname $host 뒤 gh auth setup-git --hostname $host" >&2; exit 4; }
     else
       # 로그인 기록이 아니라 토큰이 지금 통하는지 본다(폐기된 Pod 토큰도 여기서 잡힌다) — 가장 가벼운 GET /user.

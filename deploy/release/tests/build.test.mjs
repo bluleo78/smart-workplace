@@ -78,8 +78,8 @@ test('carry 앱: create 소스가 <repo>@<기준 digest>, 매니페스트는 기
   assert.equal(manifest.images.mcp.digest, base.images.mcp.digest);
   assert.equal(manifest.images.mcp.builtVersion, '0.8.0');
   assert.equal(manifest.images.mcp.builtCommit, '1'.repeat(40));
-  // 11개 앱 모두 :0.9.0 태그가 만들어진다.
-  assert.equal(createCalls(exec).length, 11);
+  // 카탈로그의 앱 모두 :0.9.0 태그가 만들어진다.
+  assert.equal(createCalls(exec).length, catalog.images.length);
 });
 
 test('기준 매니페스트의 승계 digest 가 깨져 있으면 create·build 호출 0회, 앱 id 를 담아 throw', () => {
@@ -156,7 +156,7 @@ test('nulSplit: NUL 구분 출력을 목록으로 — 끝의 NUL·빈 항목은 
 test('기준 태그가 없으면(NO_BASE) 기준 매니페스트가 주어져도 전부 build(no-base), 기준 버전은 null', () => {
   const exec = makeExec();
   const manifest = runRelease(opts(exec, { base: NO_BASE }));
-  assert.equal(buildCalls(exec).length, 11);
+  assert.equal(buildCalls(exec).length, catalog.images.length);
   assert.equal(manifest.baseVersion, null);
   assert.deepEqual(manifest.images.api.reasons, ['no-base']);
   assert.ok(!exec.calls.some((c) => c.args.includes('diff')), '비교할 기준이 없으니 git diff 도 하지 않는다');
@@ -165,7 +165,7 @@ test('기준 태그가 없으면(NO_BASE) 기준 매니페스트가 주어져도
 test('기준 매니페스트가 null 이면(호출자가 허용한 경우) 기준 태그가 있어도 전부 build(no-base), 기준 버전은 null', () => {
   const exec = makeExec();
   const manifest = runRelease(opts(exec, { baseManifest: null }));
-  assert.equal(buildCalls(exec).length, 11);
+  assert.equal(buildCalls(exec).length, catalog.images.length);
   assert.equal(manifest.baseVersion, null);
   assert.deepEqual(manifest.images.api.reasons, ['no-base']);
 });
@@ -206,7 +206,7 @@ test('모든 imagetools create(빌드 앱·승계 앱 모두)에 --prefer-index=
   const exec = makeExec({ diff: ['apps/workplace-api/a'] });
   runRelease(opts(exec));
   const creates = createCalls(exec);
-  assert.equal(creates.length, 11);
+  assert.equal(creates.length, catalog.images.length);
   for (const c of creates) assert.ok(c.args.includes('--prefer-index=false'), c.args.join(' '));
   assert.deepEqual(imagetoolsCreateArgs('t:1', 'r@sha256:x'), ['buildx', 'imagetools', 'create', '--prefer-index=false', '-t', 't:1', 'r@sha256:x']);
 });

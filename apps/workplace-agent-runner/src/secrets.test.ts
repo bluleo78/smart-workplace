@@ -1,6 +1,6 @@
 // secretFetches — 언제 원문 엔드포인트를 다시 부를지. agent-key 를 부르면 곧 교체(generation+1)라 필요할 때만.
 import { describe, expect, it } from 'vitest';
-import { secretFetches } from './secrets.js';
+import { refVersion, secretFetches } from './secrets.js';
 import type { RunnerSecretRef } from './works/client.js';
 
 const NOW = new Date('2026-11-10T00:00:00Z');
@@ -10,10 +10,12 @@ function refs(
   claudeVersion?: number | null,
   rotateAfter: string | null = '2026-11-24T10:00:00+09:00',
   reposVersion?: number | null,
+  loginVersion?: number | null,
 ): RunnerSecretRef[] {
   const out: RunnerSecretRef[] = [{ name: 'agent-key', source: 'WORKS', version: agentKeyVersion, rotateAfter }];
   if (claudeVersion !== undefined) out.push({ name: 'claude', source: 'WORKS', version: claudeVersion, rotateAfter: null });
   if (reposVersion !== undefined) out.push({ name: 'repos', source: 'WORKS', version: reposVersion, rotateAfter: null });
+  if (loginVersion !== undefined) out.push({ name: 'login', source: 'WORKS', version: loginVersion, rotateAfter: null });
   return out;
 }
 
@@ -22,11 +24,12 @@ const ANNOTATED = {
   'genia.works/agent-key-rotate-after': '2026-11-24T01:00:00.000Z',
   'genia.works/claude-version': '57',
   'genia.works/repos-version': '1730505600000',
+  'genia.works/login-version': '88',
 };
 
 describe('secretFetches', () => {
   it('noFetchWhenAnnotationMatchesVersion', () => {
-    expect(secretFetches(refs(812, 57), ANNOTATED, NOW)).toEqual({ agentKey: false, claude: 'keep', repos: 'clear' });
+    expect(secretFetches(refs(812, 57), ANNOTATED, NOW)).toEqual({ agentKey: false, claude: 'keep', repos: 'clear', login: 'clear' });
   });
 
   it('fetchesWhenVersionNull', () => {
@@ -74,5 +77,27 @@ describe('secretFetches', () => {
     // 등록이 없음(null) · 템플릿이 요구하지 않음(참조 없음) — 남은 키를 지운다
     expect(secretFetches(r(null), ANNOTATED, NOW).repos).toBe('clear');
     expect(secretFetches(r(), ANNOTATED, NOW).repos).toBe('clear');
+  });
+
+  it('loginFetchesOnVersionChangeAndClearsWithoutRefOrVersion', () => {
+    const r = (v?: number | null) => refs(812, 57, null, undefined, v);
+    expect(secretFetches(r(88), ANNOTATED, NOW).login).toBe('keep');
+    expect(secretFetches(r(89), ANNOTATED, NOW).login).toBe('fetch');
+    // 아직 받은 적 없음
+    expect(secretFetches(r(88), { 'genia.works/agent-key-id': '812' }, NOW).login).toBe('fetch');
+    // 서버가 맞는 계정이 없다고 함(null) · 템플릿이 요구하지 않음(참조 없음) — 남은 로그인 정보를 지운다
+    expect(secretFetches(r(null), ANNOTATED, NOW).login).toBe('clear');
+    expect(secretFetches(r(), ANNOTATED, NOW).login).toBe('clear');
+  });
+});
+
+// refVersion — desired 참조의 version 을 어노테이션과 견줄 문자열로. 참조 없음·null 은 「없음」, 0 은 값이다.
+describe('refVersion', () => {
+  it('returnsStringVersionAndUndefinedWhenMissingOrNull', () => {
+    const r = refs(3, null, null, 0);
+    expect(refVersion(r, 'agent-key')).toBe('3');
+    expect(refVersion(r, 'claude')).toBeUndefined();
+    expect(refVersion(r, 'repos')).toBe('0');
+    expect(refVersion(r, 'login')).toBeUndefined();
   });
 });

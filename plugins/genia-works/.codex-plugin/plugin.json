@@ -1,0 +1,20 @@
+{
+  "name": "genia-works",
+  "version": "0.1.35",
+  "description": "Gen:iA Works MCP 연결과 이슈 작업 보고·마무리·자동 처리 스킬 — Claude Code 플러그인과 같은 폴더·같은 스킬",
+  "author": { "name": "Gen:iA Works" },
+  "homepage": "https://genia-works.iacloud.kr",
+  "repository": "https://github.com/bluleo78/smart-workplace",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Gen:iA Works",
+    "shortDescription": "이슈를 조회하고 AI 작업을 보고합니다.",
+    "longDescription": "Gen:iA Works MCP 도구와 이슈 작업 시작·마무리·자동 처리 스킬을 Codex 에서 사용합니다.",
+    "developerName": "Gen:iA Works",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://genia-works.iacloud.kr",
+    "defaultPrompt": ["Gen:iA Works 의 내 이슈를 보여줘"]
+  },
+  "mcpServers": "./codex/mcp.json"
+}

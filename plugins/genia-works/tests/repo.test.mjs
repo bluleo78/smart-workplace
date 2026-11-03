@@ -237,6 +237,8 @@ test('auth-check: CLI 가 없으면 3, 로그인 안 됐으면 4', () => {
   const r = run(['auth-check']);
   assert.equal(r.status, 4);
   assert.match(r.stderr, /gh auth login --hostname github.com/);
+  // 쓰는 계정만 본다 — 쓰지 않는 계정의 만료 토큰 때문에 멈추지 않게(--active).
+  assert.ok(calls().some((c) => c.args.join(' ') === 'auth status --active --hostname github.com'), JSON.stringify(calls().map((c) => c.args)));
   // gh 없는 PATH — jq·git 은 진짜가 있어야 하므로 그 둘만 링크한 폴더를 쓴다.
   const only = join(root, 'only');
   mkdirSync(only);
@@ -247,6 +249,21 @@ test('auth-check: CLI 가 없으면 3, 로그인 안 됐으면 4', () => {
   const r2 = run(['auth-check'], { path: only });
   assert.equal(r2.status, 3);
   assert.match(r2.stderr, /gh 가 없습니다/);
+});
+
+test('auth-check: 옛 gh 가 --active 를 모르면(unknown flag) --active 없이 한 번 더 본다', () => {
+  origin('https://github.com/a/wp.git');
+  reply({ 'gh auth status --active': { code: 1, err: 'unknown flag: --active' } });
+  assert.equal(run(['auth-check']).status, 0);
+  assert.ok(calls().some((c) => c.args.join(' ') === 'auth status --hostname github.com'), JSON.stringify(calls().map((c) => c.args)));
+  // 옛 방식도 로그인이 안 돼 있으면 4.
+  reply({ 'gh auth status --active': { code: 1, err: 'unknown flag: --active' }, 'gh auth status --hostname': { code: 1 } });
+  assert.equal(run(['auth-check']).status, 4);
+  // unknown flag 가 아닌 실패(진짜 로그인 안 됨)는 다시 보지 않는다.
+  writeFileSync(log, '');
+  reply({ 'gh auth status': { code: 1, err: 'You are not logged into any GitHub hosts' } });
+  assert.equal(run(['auth-check']).status, 4);
+  assert.equal(calls().filter((c) => c.args[0] === 'auth').length, 1);
 });
 
 test('리뷰 수정: 경로 대문자 허용, gh 실패는 실패로, 번호가 이상하면 아무것도 부르지 않는다', () => {

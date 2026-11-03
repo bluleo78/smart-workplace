@@ -35,6 +35,11 @@ export const ANN_AGENT_KEY_ROTATE_AFTER = 'genia.works/agent-key-rotate-after';
 /** Secret 에는 받은 모델 연결 version, Pod 에는 만들 때 넣은 version — 둘이 다르면 Pod 를 다시 만든다(토큰이 env 로 고정되므로). */
 export const ANN_CLAUDE_VERSION = 'genia.works/claude-version';
 /**
+ * 로그인 정보(WP-1296, Gen:iA·ChatGPT) — Secret 에는 받은 login version, Pod 에는 만들 때 넣은 version. 둘이 다르면 Pod 를 다시 만든다
+ * (이미지가 Pod 시작 때 파일을 시딩하므로 — 모델 연결과 같은 이유).
+ */
+export const ANN_LOGIN_VERSION = 'genia.works/login-version';
+/**
  * 저장소 토큰(WP-1268) — Secret 에는 받은 repos version, Pod 에는 만들 때 넣은 version. 둘이 다르면 Pod 를 다시 만든다
  * (작업 공간 이미지가 Pod 시작 때 gh 로그인을 해 고정되므로 — Claude 모델 연결과 같은 이유).
  */
@@ -50,6 +55,8 @@ export const ANN_WORK_NODE = 'genia.works/work-node';
 /** Secret 데이터 키. */
 export const SECRET_AGENT_KEY = 'agent-key';
 export const SECRET_CLAUDE_TOKEN = 'claude-token';
+/** 로그인 정보(auth.json 내용) Secret 키 — Pod 에 `/run/genia/login-info` 파일로 꽂는다. */
+export const SECRET_LOGIN_INFO = 'login-info';
 /** 저장소 토큰 Secret 키 접두어 — 키는 `repo-<kind 소문자>-<host>`. */
 export const SECRET_REPO_PREFIX = 'repo-';
 
@@ -203,6 +210,8 @@ function configJson(agent: RunnerDesiredAgent, ctx: AgentContext): string {
 export interface BuildAgentOptions {
   /** 지금 Secret 에 든 모델 연결 version — Pod 어노테이션에 적어 두고, 나중에 Secret 의 것과 다르면 Pod 를 다시 만든다. */
   claudeVersion?: string;
+  /** 지금 Secret 에 든 로그인 정보 version — 있으면 `/run/genia/login-info` 마운트·env·Pod 어노테이션을 넣고, 나중에 Secret 의 것과 다르면 Pod 를 다시 만든다. */
+  loginVersion?: string;
   /** hostPath 방식에서 Secret 에 적어 둔 작업 디스크 노드 — 있으면 그 노드에만 뜨게 고정한다. */
   workNode?: string;
   /** Secret 의 저장소 토큰 기록 — version 은 Pod 어노테이션으로, hosts 는 볼륨 repo-tokens 의 items 로 옮긴다(호스트가 없으면 볼륨·마운트 없음). */
@@ -223,7 +232,7 @@ export function buildAgentResources(
   cfg: RunnerConfig,
   opts: BuildAgentOptions = {},
 ): { pod: V1Pod; pvc?: V1PersistentVolumeClaim; configMap: V1ConfigMap } {
-  const { claudeVersion, workNode, repos = {} } = opts;
+  const { claudeVersion, loginVersion, workNode, repos = {} } = opts;
   const hostPathDisk = (opts.workDisk ?? cfg.workDiskType) === 'hostPath';
   const id = agent.agentUserId;
   const labels = baseLabels(id, ctx.locationId);
@@ -262,6 +271,11 @@ export function buildAgentResources(
       : { name: 'work', persistentVolumeClaim: { claimName: pvcName(id) } },
     { name: 'dind-socket', emptyDir: {} },
   ];
+  // 로그인 정보(WP-1296) — Secret 에 version 이 있을 때만 꽂는다. 이미지가 Pod 시작 때 version 표식을 보고 시딩한다(계약 문서 「로그인 정보」)
+  if (loginVersion) {
+    env.push({ name: 'GENIA_LOGIN_VERSION', value: loginVersion });
+    volumeMounts.push({ name: 'agent-secret', mountPath: '/run/genia/login-info', subPath: SECRET_LOGIN_INFO, readOnly: true });
+  }
   // 저장소 토큰 — 호스트마다 `<kind 소문자>/<host>` 파일. 이미지가 폴더를 훑어 gh 로그인한다(계약 문서 「저장소 토큰」)
   const repoHosts = parseRepoHosts(repos.hosts);
   if (repoHosts.length) {
@@ -293,6 +307,7 @@ export function buildAgentResources(
   // 어노테이션은 값이 있는 것만 — 둘 다 없으면 annotations 자체를 두지 않는다
   const annotations: Record<string, string> = {
     ...(claudeVersion ? { [ANN_CLAUDE_VERSION]: claudeVersion } : {}),
+    ...(loginVersion ? { [ANN_LOGIN_VERSION]: loginVersion } : {}),
     ...(repos.version ? { [ANN_REPOS_VERSION]: repos.version } : {}),
   };
 

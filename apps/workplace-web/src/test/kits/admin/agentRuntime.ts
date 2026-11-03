@@ -12,6 +12,7 @@ import type {
   AgentTemplate,
   PutAgentRuntimeSettingRequest,
 } from '@/types/agentRuntime'
+import type { CredentialProvider } from '@/types/providerCredential'
 
 const API = '/api/v1'
 
@@ -35,6 +36,7 @@ export const CLAUDE_TEMPLATE: AgentTemplate = {
   card: { title: 'Claude Code', description: '작업 공간에서 개발·테스트하고 PR 을 올립니다', skills: ['개발', '테스트', 'PR'] },
   image: 'x',
   requires: ['claude', 'repo'],
+  account: 'anthropic',
   config: [
     {
       key: 'model',
@@ -52,7 +54,22 @@ export const CLAUDE_TEMPLATE: AgentTemplate = {
   resources: { cpuRequest: '4', memoryRequest: '8Gi', cpuLimit: '8', memoryLimit: '16Gi', workDisk: '50Gi' },
 }
 
+/** ChatGPT 로그인으로 일하는 작업 공간 템플릿(WP-1297 모양) — 계정만 다르고 설정 칸은 Claude Code 와 같다. */
+export const CODEX_TEMPLATE: AgentTemplate = {
+  ...CLAUDE_TEMPLATE,
+  name: 'codex',
+  card: { title: 'Codex', description: '작업 공간에서 Codex 로 개발합니다', skills: ['개발'] },
+  requires: ['chatgpt', 'repo'],
+  account: 'chatgpt',
+}
+
 export const TEMPLATES: AgentTemplate[] = [DEFAULT_TEMPLATE, CLAUDE_TEMPLATE]
+
+/** AI 계정 메타 — 로그인 정보면 계정 이메일이 있다. */
+function credentialMeta(provider: CredentialProvider) {
+  const login = provider === 'genia' || provider === 'chatgpt'
+  return { id: 1, provider, baseUrl: null, label: null, account: login ? 'ai-dev@example.com' : null, createdAt: '2026-10-20T00:00:00Z', lastUsedAt: null }
+}
 
 export function createLocation(overrides: Partial<AgentLocation> = {}): AgentLocation {
   return {
@@ -173,6 +190,8 @@ export interface RuntimeCalls {
   repoRegisters: { kind: string; host: string; token: string }[]
   /** DELETE /admin/agents/:id/repo-credentials/:credentialId 의 id 들 */
   repoRevokes: number[]
+  /** POST /admin/agents/:id/provider-credential 본문(로그인 정보 포함 — 테스트 안에서만 본다) */
+  credentialRegisters: { provider?: string; loginInfo?: string; token?: string }[]
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]
 }
@@ -186,6 +205,8 @@ export interface RuntimeApiOptions {
   projects?: AgentRuntimeProject[]
   /** Claude(anthropic) AI 연결이 있는 에이전트 id — 그 밖은 404. */
   claudeFor?: number[]
+  /** 에이전트 id → 연결된 AI 계정 종류(claudeFor 보다 앞선다, WP-1296). 등록하면 여기에 반영돼 재조회에 보인다. */
+  credentials?: Record<number, CredentialProvider>
   /** 저장소 토큰 — 처음 목록(기본 빈 목록). 등록·끊기는 이 목록에 반영돼 재조회에 보인다. */
   repoCredentials?: AgentRepoCredential[]
   /** 저장소 토큰 등록을 이 상태로 실패시킨다. */
@@ -200,8 +221,11 @@ export interface RuntimeApiOptions {
  */
 export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
   const settings = { ...(opts.settings ?? {}) }
-  const claudeFor = opts.claudeFor ?? []
-  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], order: [] }
+  const credentials: Record<number, CredentialProvider> = {
+    ...Object.fromEntries((opts.claudeFor ?? []).map((id) => [id, 'anthropic' as const])),
+    ...(opts.credentials ?? {}),
+  }
+  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], order: [] }
   let repoCredentials = [...(opts.repoCredentials ?? [])]
   const fail = () =>
     opts.failWrites
@@ -244,11 +268,19 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
       calls.order.push('PUT runtime')
       return new HttpResponse(null, { status: 204 })
     }),
-    http.get(`${API}/admin/agents/:id/provider-credential`, ({ params }) =>
-      claudeFor.includes(Number(params.id))
-        ? HttpResponse.json({ id: 1, provider: 'anthropic', baseUrl: null, label: null, createdAt: '2026-10-20T00:00:00Z', lastUsedAt: null })
-        : HttpResponse.json({ message: '없음' }, { status: 404 }),
-    ),
+    http.get(`${API}/admin/agents/:id/provider-credential`, ({ params }) => {
+      const provider = credentials[Number(params.id)]
+      return provider
+        ? HttpResponse.json(credentialMeta(provider))
+        : HttpResponse.json({ message: '없음' }, { status: 404 })
+    }),
+    http.post(`${API}/admin/agents/:id/provider-credential`, async ({ params, request }) => {
+      const body = (await request.json()) as RuntimeCalls['credentialRegisters'][number]
+      calls.credentialRegisters.push(body)
+      const provider = (body.provider ?? 'anthropic') as CredentialProvider
+      credentials[Number(params.id)] = provider
+      return HttpResponse.json(credentialMeta(provider), { status: 201 })
+    }),
     http.get(`${API}/admin/agents/:id/repo-credentials`, () => HttpResponse.json(repoCredentials)),
     http.post(`${API}/admin/agents/:id/repo-credentials`, async ({ request }) => {
       const body = (await request.json()) as { kind: AgentRepoCredential['kind']; host: string; token: string }

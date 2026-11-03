@@ -78,9 +78,10 @@ AI 를 끄면 desired 목록에서 빠지고, runner 는 그 Pod 를 바로 지�
 |---|---|---|
 | `agent-key` | `WORKS` | `POST …/agents/{id}/agent-key`(아래). `version` = 지금 쓸 수 있는 Works 자동 발급 키 id(아직 없으면 `null`). 모든 AI 에 실린다. |
 | `claude` | `WORKS` | `GET …/agents/{id}/secrets/claude`(아래). `version` = 관리자가 AI 에 등록한 활성 모델 연결 id(없으면 `null`). 템플릿이 요구할 때만 실린다. |
+| `login` | `WORKS` | `GET …/agents/{id}/secrets/login`(아래). `version` = 활성 AI 계정(자격증명) id — **활성 계정의 종류가 템플릿이 요구하는 계정(`genia`→Gen:iA 로그인, `chatgpt`→ChatGPT 로그인)과 같을 때만**, 연결이 없거나 다른 종류면 `null`. 템플릿이 `genia`·`chatgpt` 를 요구할 때만 실린다. |
 | `repos` | `WORKS` | `GET …/agents/{id}/secrets/repos`(아래). `version` = 그 AI 의 저장소 토큰 등록·교체·폐기 시각(epoch 밀리초) 중 가장 늦은 것 — 하나도 없으면 `null`. 템플릿이 `repo`(옛 이름 `github`)를 요구할 때만 실린다. 옛 `github`/`LOCATION`(위치 Secret)은 없어졌다. |
 
-**언제 다시 받나**: runner 쪽 Secret 에 받은 버전을 적어 두고, `version` 이 그것과 다르거나(`null` → 값 포함) `rotateAfter` 가 지났을 때만 원문 엔드포인트를 부른다. `agent-key.version` 이 `null` 이면 Pod 를 띄우기 전에 먼저 받는다. `claude.version` 이 `null` 이면 연결이 없는 것이다(Pod 는 띄울 수 있지만 모델을 부를 수 없다). `repos.version` 이 `null` 이면 등록된 저장소 토큰이 없는 것이다(남은 `repo-*` 키를 지운다). `repos` 참조가 아예 없어도 같다.
+**언제 다시 받나**: runner 쪽 Secret 에 받은 버전을 적어 두고, `version` 이 그것과 다르거나(`null` → 값 포함) `rotateAfter` 가 지났을 때만 원문 엔드포인트를 부른다. `agent-key.version` 이 `null` 이면 Pod 를 띄우기 전에 먼저 받는다. `claude.version` 이 `null` 이면 연결이 없는 것이다(Pod 는 띄울 수 있지만 모델을 부를 수 없다). `repos.version` 이 `null` 이면 등록된 저장소 토큰이 없는 것이다(남은 `repo-*` 키를 지운다). `repos` 참조가 아예 없어도 같다. `login.version` 이 `null` 이거나 `login` 참조가 없으면 남은 로그인 정보를 지운다(서버가 종류를 맞춰 보내므로 runner 는 `provider` 를 따로 검사하지 않는다).
 
 ### AI 키 받기 — `POST /api/v1/agent-runtime/runner/agents/{agentUserId}/agent-key`
 
@@ -114,6 +115,19 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 - `provider` 가 `anthropic` 이면 `payload` 는 토큰, `opencode`(OpenAI 호환) 면 provider 설정 JSON 문자열이다.
 - 이 위치에서 켜져 있는 AI 만(아니면 404 `RUNNER_AGENT_NOT_FOUND`), 등록된 연결이 없으면 404(`RUNNER_SECRET_NOT_FOUND`).
 - 관리자가 연결을 다시 등록하면 `version` 이 바뀐다 — 다시 받아 Secret 을 바꾼다. 이것은 `generation` 을 올리지 않는다(Pod 를 언제 다시 만들지는 runner 가 정한다).
+
+### 로그인 정보 받기 — `GET /api/v1/agent-runtime/runner/agents/{agentUserId}/secrets/login`
+
+그 AI 의 활성 AI 계정 중 템플릿이 요구하는 종류(Gen:iA·ChatGPT 로그인)의 원문(`Cache-Control: no-store`). `claude` 엔드포인트와 같은 헤더를 쓴다.
+
+```json
+{ "version": 88, "provider": "genia", "payload": "{\"…\": \"…\"}" }
+```
+
+- `payload` 는 서버가 다듬어 저장한 로그인 정보 — Gen:iA Code·Codex 가 쓰는 `auth.json` 내용(JSON 문자열)이다. runner 는 이 값을 Secret 키 `login-info` 에 그대로 넣고 해석하지 않는다.
+- 404 인 경우: 이 위치에서 켜져 있지 않은 AI(`RUNNER_AGENT_NOT_FOUND`), 활성 연결이 없음, 활성 연결의 종류가 템플릿 계정과 다름(둘 다 `RUNNER_SECRET_NOT_FOUND`). runner 는 `RUNNER_SECRET_NOT_FOUND` 를 「지운다」로 읽는다.
+- `version` 의 뜻은 desired `login.version` 과 같다 — 활성 계정 id 이고, 계정을 다시 등록하면 바뀐다. 이것은 `generation` 을 올리지 않는다. 로그인 파일이 Pod 시작 때 시딩되므로 runner 가 Pod 를 다시 만든다(계약 문서 「로그인 정보」).
+- `claude` 와 같이 받아도 「최근 사용」(`last_used_at`)을 갱신하지 않는다. 받은 원문은 로그에 남기지 않는다.
 
 ### 저장소 토큰 받기 — `GET /api/v1/agent-runtime/runner/agents/{agentUserId}/secrets/repos`
 
@@ -227,4 +241,4 @@ AI 가 자기 키(`Authorization: Bearer ak_…`)로 부른다(WP-1275). Works �
 | 400 | 관찰 보고 형식이 틀림(`phase` 값, 200명 초과, `agents` 없음 등) |
 | 401 | 토큰 없음·모르는 토큰·재발급으로 회수된 토큰·정지된 워크스페이스, 또는 runner 토큰으로 다른 API 호출 |
 | 403 | runner 토큰이 아닌 인증으로 runner API 호출 |
-| 404 | 토큰의 위치가 없음(`errors.code=AGENT_LOCATION_NOT_FOUND`), 비밀값을 받으려는 AI 가 이 위치에서 켜져 있지 않음(`RUNNER_AGENT_NOT_FOUND`), 모델 연결이 없음(`RUNNER_SECRET_NOT_FOUND`) |
+| 404 | 토큰의 위치가 없음(`errors.code=AGENT_LOCATION_NOT_FOUND`), 비밀값을 받으려는 AI 가 이 위치에서 켜져 있지 않음(`RUNNER_AGENT_NOT_FOUND`), 모델 연결·로그인 정보가 없음(`RUNNER_SECRET_NOT_FOUND`) |

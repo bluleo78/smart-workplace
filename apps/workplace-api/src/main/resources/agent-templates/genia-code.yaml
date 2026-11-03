@@ -1,0 +1,40 @@
+# 「Gen:iA Code」 템플릿(WP-1296) — Works 가 작업 공간에서 사내 Gen:iA Code(genia)를 띄워 개발·테스트·PR 까지 맡긴다.
+# 이미지는 apps/workplace-agent-genia-code 를 릴리스가 빌드한 것이고, {appVersion} 은 API 가 자기 릴리스 버전으로 채운다.
+# genia 프로그램은 이미지에 없다 — Pod 가 뜰 때 사내 배포 서버(genia-code-server.iacloud.kr)에서 받는다(그 위치에서 닿아야 한다).
+# AI 계정은 Gen:iA 로그인 정보(requires genia → provider genia). 플러그인은 이미지에 굳힌 genia-works 를 쓰므로 plugins 를 두지 않는다.
+name: genia-code
+version: "1"
+kind: WORKSPACE
+card:
+  title: Gen:iA Code
+  description: 사내 Gen:iA 모델로 작업 공간에서 개발·테스트하고 PR 을 올립니다
+  skills: [개발, 테스트, PR]
+image: docker.io/iacloudops/genia-works-agent-genia-code:{appVersion}
+requires: [genia, repo]
+config:
+  # 모델 id — genia 설정의 defaultModel 로 들어간다(공급자는 배포본이 genia 로 고정). 목록은 Gen:iA 서버 모델 목록(11-03) 기준.
+  - key: model
+    label: 모델
+    type: select
+    options:
+      - { value: minimax-m2.7, label: MiniMax M2.7 }
+      - { value: gpt-6-luna, label: GPT 6 Luna }
+      - { value: mimo-v2.6-flash, label: MiMo V2.6 Flash }
+      - { value: qwen3.8-27b-fp8, label: Qwen3.8 27B }
+    default: qwen3.8-27b-fp8
+    required: true
+  - key: queue
+    label: 대기열 라벨
+    type: text
+    default: AI 개발팀
+    required: false
+resources:
+  cpuRequest: "4"
+  memoryRequest: 8Gi
+  cpuLimit: "8"
+  memoryLimit: 16Gi
+  workDisk: 50Gi
+sidecars:
+  - name: dind
+    image: docker:27-dind
+    privileged: true

@@ -1,6 +1,8 @@
 // AI 실행(WP-1245) — 백엔드 agentruntime DTO 와 1:1 매칭되는 타입.
 // 실행 템플릿(코드 YAML)·AI 실행 설정(원하는 상태 + runner 가 본 상태)·실행 위치(runner 를 설치한 클러스터 네임스페이스).
 
+import type { CredentialProvider } from './providerCredential';
+
 /** 템플릿 종류 — SERVER=서버가 이슈·멘션에 바로 답하는 지금 방식(「기본」), WORKSPACE=Works 가 작업 공간을 띄워 돌린다. */
 export type AgentTemplateKind = 'SERVER' | 'WORKSPACE';
 
@@ -25,8 +27,13 @@ export interface AgentTemplate {
   kind: AgentTemplateKind;
   card: { title: string; description: string; skills: string[] };
   image: string | null;
-  /** 필요한 연결 — claude(이 AI 의 AI 연결)·github(실행 위치에 둔 토큰). */
+  /** 필요한 것 — claude·genia·chatgpt(이 AI 의 AI 계정)·repo(저장소 토큰). */
   requires: string[];
+  /**
+   * 이 템플릿이 쓰는 AI 계정 종류 — 서버가 requires 에서 정한다(claude→anthropic, genia, chatgpt). AI 계정이 필요 없으면 null.
+   * 화면은 템플릿 이름이나 requires 값을 해석하지 않고 이 값만 본다.
+   */
+  account?: CredentialProvider | null;
   config: AgentTemplateConfigField[];
   resources: {
     cpuRequest: string | null;

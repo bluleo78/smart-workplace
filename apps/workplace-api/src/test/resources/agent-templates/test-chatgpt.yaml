@@ -1,0 +1,16 @@
+# 테스트 전용 템플릿(WP-1296·1297) — ChatGPT 로그인 계정을 쓰는 작업 공간 템플릿. 운영 템플릿(codex)은 다음 단계에서 따로 둔다.
+# 통합 테스트가 「맞는 계정」·login 비밀값·켜기 확인을 이 템플릿으로 본다. 이미지는 허용 접두사만 맞춘 가짜 값이다.
+name: test-chatgpt
+version: "1"
+kind: WORKSPACE
+card:
+  title: 테스트 ChatGPT
+  description: 테스트 전용
+image: docker.io/iacloudops/genia-works-agent-test:latest
+requires: [chatgpt]
+resources:
+  cpuRequest: "1"
+  memoryRequest: 1Gi
+  cpuLimit: "1"
+  memoryLimit: 1Gi
+  workDisk: 1Gi

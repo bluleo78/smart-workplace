@@ -5,6 +5,7 @@ import com.workplace.agentruntime.config.AgentRuntimeProperties;
 import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.AgentTemplate.ConfigField;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
+import com.workplace.auth.service.AgentProviders;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -35,6 +38,11 @@ public class AgentTemplateRegistry {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final Set<String> KINDS = Set.of("SERVER", "WORKSPACE");
   private static final Set<String> FIELD_TYPES = Set.of("select", "text");
+
+  /** requires 에 쓸 수 있는 값(정규화 뒤) — 계정(claude·genia·chatgpt)과 저장소 토큰(repo). 오타가 조용히 무시되지 않게 막는다. */
+  private static final Set<String> REQUIREMENTS =
+      Stream.concat(AgentProviders.ACCOUNT_REQUIREMENTS.stream(), Stream.of("repo"))
+          .collect(Collectors.toUnmodifiableSet());
 
   /**
    * 템플릿 YAML 의 이미지 태그 자리표시 — 이 API 의 릴리스 버전으로 바꾼다. 작업 공간 이미지는 API 와 같은 릴리스 태그로 빌드되므로(릴리스 카탈로그는 바뀌지
@@ -114,8 +122,12 @@ public class AgentTemplateRegistry {
     try {
       // SafeConstructor — YAML 로 임의 객체를 만들지 못하게 한다(클래스패스 파일이지만 방어적으로).
       Object raw = new Yaml(new SafeConstructor(new LoaderOptions())).load(src);
-      if (!(raw instanceof Map<?, ?>)) {
+      if (!(raw instanceof Map<?, ?> map)) {
         throw new IllegalStateException("실행 템플릿 YAML 이 객체가 아닙니다");
+      }
+      // account 는 requires 에서 정해진다 — 따로 적으면 어긋날 수 있어 받지 않는다(WP-1296·1297).
+      if (map.containsKey("account")) {
+        throw new IllegalStateException("실행 템플릿에 「account」 는 적을 수 없습니다 — requires 로 정해집니다");
       }
       return normalizeRequires(MAPPER.convertValue(raw, AgentTemplate.class));
     } catch (IllegalArgumentException e) {
@@ -155,6 +167,16 @@ public class AgentTemplateRegistry {
     }
     if (t.card() == null || isBlank(t.card().title())) {
       throw new IllegalStateException(who + " 에 카드 제목이 없습니다");
+    }
+    for (String need : t.requires()) {
+      if (!REQUIREMENTS.contains(need)) {
+        throw new IllegalStateException(who + " 의 requires 값 「" + need + "」 를 알 수 없습니다");
+      }
+    }
+    // 템플릿 하나에 AI 계정 하나 — 한 AI 의 활성 연결은 하나라 두 계정을 동시에 갖출 수 없다.
+    if (t.requires().stream().filter(r -> AgentProviders.accountForRequirement(r) != null).count()
+        > 1) {
+      throw new IllegalStateException(who + " 는 AI 계정을 하나만 요구할 수 있습니다");
     }
     if ("WORKSPACE".equals(t.kind())) {
       if (isBlank(t.image())) {

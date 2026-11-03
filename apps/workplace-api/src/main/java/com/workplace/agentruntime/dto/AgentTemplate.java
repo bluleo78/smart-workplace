@@ -1,6 +1,7 @@
 package com.workplace.agentruntime.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.workplace.auth.service.AgentProviders;
 import java.util.List;
 
 /**
@@ -30,6 +31,16 @@ public record AgentTemplate(
     config = config == null ? List.of() : List.copyOf(config);
     sidecars = sidecars == null ? List.of() : List.copyOf(sidecars);
     plugins = plugins == null ? List.of() : List.copyOf(plugins);
+  }
+
+  /**
+   * 이 템플릿이 쓰는 AI 계정(provider) — requires 에서 정해진다(claude→anthropic, genia→genia, chatgpt→chatgpt,
+   * 없으면 null). 표는 {@link AgentProviders} 한 곳. 응답 JSON 에는 {@code account} 로 나가지만 YAML 로 적을 수는
+   * 없다(레지스트리가 거부한다 — requires 와 어긋난 값이 생기지 않게).
+   */
+  @JsonProperty("account")
+  public String account() {
+    return AgentProviders.accountOf(requires);
   }
 
   /** 화면 카드에 보이는 이름·설명·할 수 있는 일. */

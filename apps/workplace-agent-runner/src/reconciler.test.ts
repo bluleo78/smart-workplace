@@ -26,8 +26,12 @@ function desired(agents: RunnerDesiredAgent[]): RunnerDesired {
 }
 
 /** runner 가 기록을 남긴 채 떠 있는 AI 한 명(재시작 직전 상태)을 클러스터에 넣는다. Pod 는 모델 연결 57·저장소 토큰 version REPOS_V 로 만든 것. */
-function seedRunningAgent(cluster: FakeCluster, agent: RunnerDesiredAgent, locationId = ctx.locationId) {
-  const { pod, pvc, configMap } = buildAgentResources(agent, { ...ctx, locationId }, runnerConfig(), { claudeVersion: '57', repos: REPO_MOUNT });
+function seedRunningAgent(cluster: FakeCluster, agent: RunnerDesiredAgent, locationId = ctx.locationId, loginVersion?: string) {
+  const { pod, pvc, configMap } = buildAgentResources(agent, { ...ctx, locationId }, runnerConfig(), {
+    claudeVersion: '57',
+    repos: REPO_MOUNT,
+    loginVersion,
+  });
   cluster.seed(pod);
   cluster.seed(pvc!);
   cluster.seed(configMap);
@@ -36,13 +40,19 @@ function seedRunningAgent(cluster: FakeCluster, agent: RunnerDesiredAgent, locat
       agent.agentUserId,
       locationId,
       'agents',
-      { 'agent-key': 'ak_old', 'claude-token': 'sk-ant-old', 'repo-github-github.com': 'ghp_old' },
+      {
+        'agent-key': 'ak_old',
+        'claude-token': 'sk-ant-old',
+        'repo-github-github.com': 'ghp_old',
+        ...(loginVersion ? { 'login-info': '{"old":true}' } : {}),
+      },
       {
         'genia.works/agent-key-id': '812',
         'genia.works/agent-key-rotate-after': '2026-11-24T01:00:00.000Z',
         'genia.works/claude-version': '57',
         'genia.works/repos-version': REPOS_V,
         'genia.works/repo-hosts': 'GITHUB:github.com',
+        ...(loginVersion ? { 'genia.works/login-version': loginVersion } : {}),
       },
     ),
   );
@@ -490,6 +500,152 @@ describe('Reconciler', () => {
     await makeReconciler(cluster, works).reconcileOnce();
     expect(cluster.calls).toEqual([]);
     expect(works.getClaudeSecret).not.toHaveBeenCalled();
+  });
+
+  describe('로그인 정보(WP-1296)', () => {
+    const LOGIN_PAYLOAD = '{"tokens":{"access_token":"fake-login-secret-value"}}';
+    /** 기본 AI(claude·repos 는 seed 와 같아 안 흔들림)에 login 참조를 더한 AI. */
+    const loginAgent = (version: number | null | 'none') =>
+      desiredAgent({
+        secrets: [
+          ...desiredAgent().secrets,
+          ...(version === 'none' ? [] : [{ name: 'login', source: 'WORKS' as const, version, rotateAfter: null }]),
+        ],
+      });
+    const withLoginSecret = (works: FakeWorks, version = 88) =>
+      works.getLoginSecret.mockResolvedValue({ version, provider: 'genia', payload: LOGIN_PAYLOAD });
+
+    it('fetchesLoginForNewAgentAndStoresKeyAnnotationAndPodMount', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      const agent = desiredAgent({
+        secrets: [
+          { name: 'agent-key', source: 'WORKS', version: null, rotateAfter: null },
+          { name: 'login', source: 'WORKS', version: 88, rotateAfter: null },
+        ],
+      });
+      const works = new FakeWorks(desired([agent]));
+      withLoginSecret(works);
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+
+      expect(works.getLoginSecret).toHaveBeenCalledWith(42);
+      // claude 참조가 없으니 모델 연결은 건드리지 않는다(provider 검사도 없다)
+      expect(works.getClaudeSecret).not.toHaveBeenCalled();
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe(LOGIN_PAYLOAD);
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/login-version']).toBe('88');
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42')!;
+      expect(pod.metadata?.annotations?.['genia.works/login-version']).toBe('88');
+      const agentContainer = pod.spec?.containers.find((c) => c.name === 'agent');
+      expect(agentContainer?.volumeMounts).toContainEqual({ name: 'agent-secret', mountPath: '/run/genia/login-info', subPath: 'login-info', readOnly: true });
+      expect(agentContainer?.env).toContainEqual({ name: 'GENIA_LOGIN_VERSION', value: '88' });
+      // 원문은 어떤 로그에도 남지 않는다
+      expect(JSON.stringify(logs)).not.toContain('fake-login-secret-value');
+    });
+
+    it('clearsLoginKeyAndAnnotationWhenServerReturnsNotFound', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent(89), ctx.locationId, '88');
+      // 받으러 간 사이 연결이 없어짐(404 → null) — 지우고, 값 → 없음 이라 Pod 도 다시 만든다
+      const works = new FakeWorks(desired([loginAgent(89)]));
+      works.getLoginSecret.mockResolvedValue(null);
+      await makeReconciler(cluster, works).reconcileOnce();
+
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBeUndefined();
+      // desired 의 버전은 적어 둔다 — desired 가 다시 바뀔 때까지 회차마다 다시 받으러 가지 않게
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/login-version']).toBe('89');
+      expect(cluster.calls).toContain('delete Pod/agent-42');
+
+      // 다음 회차(옛 Pod 가 사라진 뒤) — 다시 받지 않고, 새 Pod 에는 로그인 정보를 꽂지 않는다
+      cluster.instantPodDelete = true;
+      await cluster.delete('Pod', 'agent-42');
+      works.getLoginSecret.mockClear();
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(works.getLoginSecret).not.toHaveBeenCalled();
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42');
+      expect(pod?.metadata?.deletionTimestamp).toBeUndefined();
+      expect(pod).toBeDefined();
+      expect(pod?.metadata?.annotations?.['genia.works/login-version']).toBeUndefined();
+      expect(JSON.stringify(pod?.spec)).not.toContain('login-info');
+    });
+
+    it('recreatesRunningPodWhenLoginVersionChanges', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      // 관리자가 로그인 정보를 다시 등록 — generation 은 그대로, applyNow=false 라도 바로 다시 만든다
+      const agent = { ...loginAgent(89), applyNow: false };
+      const works = new FakeWorks(desired([agent]));
+      withLoginSecret(works, 89);
+      const r = makeReconciler(cluster, works, logs);
+
+      const first = await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+      expect(first.retry).toBe('wait');
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe(LOGIN_PAYLOAD);
+
+      cluster.finishPodDeletion('agent-42');
+      cluster.calls.length = 0;
+      await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['apply ConfigMap/agent-42', 'apply Pod/agent-42']);
+      expect(cluster.get<V1Pod>('Pod', 'agent-42')?.metadata?.annotations?.['genia.works/login-version']).toBe('89');
+      expect(works.issueAgentKey).not.toHaveBeenCalled();
+      expect(JSON.stringify(logs)).not.toContain('fake-login-secret-value');
+    });
+
+    it('recreatesPodWhenLoginVersionBecomesNull', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      // 연결이 지워지거나 템플릿 계정과 다른 종류로 바뀜(version null) — 받을 것이 없고 값 → 없음 이라 다시 만든다
+      const works = new FakeWorks(desired([loginAgent(null)]));
+      await makeReconciler(cluster, works).reconcileOnce();
+
+      expect(works.getLoginSecret).not.toHaveBeenCalled();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBeUndefined();
+    });
+
+    it('recreatesPodWhenLoginAppearsOnPodWithoutIt', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent('none'));
+      // 없음 → 값
+      const works = new FakeWorks(desired([loginAgent(88)]));
+      withLoginSecret(works);
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+    });
+
+    it('keepsPodWhenLoginVersionSame', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      const works = new FakeWorks(desired([loginAgent(88)]));
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.calls).toEqual([]);
+      expect(works.getLoginSecret).not.toHaveBeenCalled();
+    });
+
+    it('keepsOldLoginAndStillWritesAgentKeyWhenFetchFails', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      const agent = { ...loginAgent(89), secrets: [{ ...loginAgent(89).secrets[0]!, version: null }, ...loginAgent(89).secrets.slice(1)] };
+      const works = new FakeWorks(desired([agent]));
+      works.getLoginSecret.mockRejectedValue(new Error('boom'));
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+
+      // 새 AI 키는 적고(받으면 곧 교체라 다시 받지 않게), 옛 로그인 정보·Pod 는 그대로
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/agent-key-id']).toBe('942');
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe('{"old":true}');
+      expect(cluster.calls).not.toContain('delete Pod/agent-42');
+    });
+
+    it('doesNotRecreateForLoginChangeWhenImageNowDisallowed', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      const works = new FakeWorks(desired([{ ...loginAgent(89), image: 'ghcr.io/evil/miner:3' }]));
+      withLoginSecret(works, 89);
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.calls).not.toContain('delete Pod/agent-42');
+    });
   });
 
   describe('저장소 토큰(WP-1268)', () => {
