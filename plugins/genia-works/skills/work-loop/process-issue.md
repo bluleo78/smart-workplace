@@ -49,7 +49,7 @@
 
 ### 6. 리뷰
 
-- 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` → `/simplify` 를 돌리고 지적을 반영한다.
+- 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` → `/simplify` 를 돌리고 지적을 반영한다. 이 명령이 없는 실행기(genia·Codex 등)면 같은 범위를 두 관점으로 스스로 검토한다 — 정확성 결함(동작이 틀리는 입력·경계·동시성), 그다음 재사용·단순화·효율.
 - 반영 뒤 `MAIN/.work-loop/project.md` 의 테스트 명령(바뀐 범위별)을 돌린다. 실패하면 고친다. 그 명령이 아래 「오래 걸리는 작업」에 해당하면 기다리지 않고 백그라운드로 띄운다(`끝나면`: 통과 → 7번, 실패 → 고쳐 6번).
 
 ### 7. 커밋 하나로 합치기
@@ -120,7 +120,7 @@
 
 1. **시작**: PR 이 이미 머지·닫혔으면 새 글만 읽는다 — 나에게 묻거나 부탁한 글이면 상태 없이 `report_agent_work({ issueKey, message })` 로 답하고, 아니면(개발자의 검토 대기 보고 등) 「답하지 않고 넘긴 글」(`SKILL.md` 3번)로 적고 끝낸다. 열린 PR 이면 위 1번과 같다(새 글부터 읽고 `WORKING`).
 2. **받기**: `git -C MAIN fetch origin` 뒤 워크트리가 없으면 `git -C MAIN worktree add .claude/worktrees/<이슈 키> -B <브랜치> origin/<브랜치>`, 있으면 그 안에서 `git reset --hard origin/<브랜치>`. 의존성 설치는 `.work-loop/project.md` 를 따른다.
-3. **리뷰**: 이슈 본문·완료 기준, PR 본문, 개발자의 근거를 읽고 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` 을 돌린다. 근거가 모자라거나 의심스러우면 8번처럼 격리 스택으로 직접 확인한다.
+3. **리뷰**: 이슈 본문·완료 기준, PR 본문, 개발자의 근거를 읽고 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` 을 돌린다(이 명령이 없는 실행기면 정확성 결함 관점으로 스스로 검토한다). 근거가 모자라거나 의심스러우면 8번처럼 격리 스택으로 직접 확인한다.
    - 다시 부탁받은 PR 이고 notes 파일에 `리뷰한 base`·`리뷰한 HEAD` 가 있으면 처음부터 다시 리뷰하지 않는다 — `git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD` 로 그 뒤 달라진 것(고친 것·충돌을 푼 곳)만 보고, 그 부분에 리뷰를 돌린다. 옛 커밋을 찾을 수 없으면 전체를 다시 본다.
    - 리뷰를 마치면 notes 파일에 `리뷰한 base`(`git merge-base origin/main HEAD`)·`리뷰한 HEAD` 를 적는다.
    - 개발자가 9번 판단으로 게이트를 돌리지 않고 올렸으면(PR 본문·`message` 의 근거) 그 근거를 확인한다 — 바뀐 파일(앞서 통과했으면 그 커밋 뒤의 `git range-diff`)이 정말 충돌 없는 main 반영과 `.work-loop/project.md` 「커밋 훅으로 충분한 것」뿐이면 게이트를 통과한 것으로 보고, 목록 밖의 파일이 바뀌었으면 4번처럼 「push 게이트를 돌려 주세요」로 반려한다.

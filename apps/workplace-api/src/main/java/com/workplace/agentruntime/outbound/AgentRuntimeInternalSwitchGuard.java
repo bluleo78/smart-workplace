@@ -45,10 +45,7 @@ public class AgentRuntimeInternalSwitchGuard {
               settings.delete(e.agentUserId());
               // 꺼진 채 지워진다 — 키 정리·관리자 알림(지워짐)은 전이 한곳이 한다(WP-1274).
               transitions.applyTransition(
-                  e.agentUserId(),
-                  AgentRuntimeTransitions.State.of(row, row.locationId()),
-                  null,
-                  null);
+                  e.agentUserId(), AgentRuntimeTransitions.State.of(row), null, null);
             });
   }
 }

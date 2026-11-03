@@ -63,6 +63,30 @@ test('gw-session-key: 절대 경로 실행(/…/claude --resume …)도 claude �
   assert.equal(run('gw-session-key').stdout.trim(), '400-Thu_Oct_15_06_00_00_2026');
 });
 
+// WP-1292 — Claude Code 밖의 실행기(genia·codex) 아래에서도 그 세션을 「이 세션」으로 잡는다.
+for (const [name, args] of [
+  ['genia(실행 스크립트가 exec 한 ~/.genia/app/genia)', '/Users/x/.genia/app/genia --approve /gw-loop WP'],
+  ['codex(네이티브)', 'codex --dangerously-bypass-approvals-and-sandbox'],
+  ['codex(npm — node …/bin/codex.js)', 'node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js exec'],
+]) {
+  test(`gw-session-key: ${name} 도 이 세션으로 본다`, () => {
+    setTable([
+      ['500', '450', 'Thu Oct 15 06:40:01 2026', 'sh gw-headers'],
+      ['450', '400', 'Thu Oct 15 06:39:00 2026', '/bin/bash -c x'],
+      ['400', '1', 'Thu Oct 15 06:00:00 2026', args],
+    ]);
+    assert.equal(run('gw-session-key').stdout.trim(), '400-Thu_Oct_15_06_00_00_2026');
+  });
+}
+
+test('gw-session-key: 이름만 비슷한 프로그램(geniax·codexify)은 세션으로 보지 않는다', () => {
+  setTable([
+    ['500', '400', 'Thu Oct 15 06:40:01 2026', 'sh gw-headers'],
+    ['400', '1', 'Thu Oct 15 06:00:00 2026', '/usr/bin/geniax codexify'],
+  ]);
+  assert.equal(run('gw-session-key').status, 1);
+});
+
 test('gw-session-key: claude 조상이 없으면 실패', () => {
   setTable([['500', '1', 'Thu Oct 15 06:40:01 2026', 'sh gw-headers']]);
   assert.equal(run('gw-session-key').status, 1);
@@ -308,6 +332,16 @@ test('loop-lock acquire: 잠금이 없으면 내 claude 의 pid-시작시각으�
   assert.equal(r.status, 0);
   assert.equal(r.stdout.trim(), 'ok');
   assert.equal(read(), MY_KEY);
+  assert.equal(lock('acquire', main).stdout.trim(), 'ok');
+  assert.equal(read(), MY_KEY);
+});
+
+test('loop-lock acquire: genia 세션 아래에서도 그 세션의 pid-시작시각으로 잡는다(WP-1292)', () => {
+  setTable([
+    ['500', '400', 'Thu Oct 15 06:40:01 2026', 'sh loop-lock'],
+    ['400', '1', 'Thu Oct 15 06:00:00 2026', '/Users/x/.genia/app/genia --approve /gw-loop WP'],
+  ]);
+  const { main, read } = lockMain();
   assert.equal(lock('acquire', main).stdout.trim(), 'ok');
   assert.equal(read(), MY_KEY);
 });
@@ -953,6 +987,18 @@ test('agent-home get/set queue: 저장한 적 없으면 1, 빈 값(가져오지 
   assert.equal(run('agent-home', [d, 'get', 'queue']).stdout, 'AI 개발팀\n');
   assert.equal(readFileSync(join(d, 'agent.conf'), 'utf8'), 'queue=AI 개발팀\n');
   assert.deepEqual(readdirSync(d).filter((f) => f.includes('.tmp.')), []);
+});
+
+test('agent-home get/set cli: 저장한 적 없으면 claude, 띄울 수 있는 실행기(지금은 claude)만 저장한다(WP-1292)', () => {
+  const d = aiDir();
+  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'claude\n');
+  assert.equal(run('agent-home', [d, 'set', 'cli', 'claude']).status, 0);
+  // genia·codex 는 확장·구동기가 들어오기 전이라 거절한다(칸이 반복 없이 뜨지 않게).
+  assert.equal(run('agent-home', [d, 'set', 'cli', 'genia']).status, 2);
+  assert.equal(run('agent-home', [d, 'set', 'cli', 'gemini']).status, 2);
+  run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
+  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'claude\n');
+  assert.equal(run('agent-home', [d, 'get', 'queue']).stdout, 'AI 개발팀\n');
 });
 
 test('agent-home: 모르는 이름·줄바꿈·큰따옴표 든 값·없는 폴더·모르는 명령은 2', () => {

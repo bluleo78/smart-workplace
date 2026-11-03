@@ -138,6 +138,6 @@ class AgentAssignedProjectsApiTest extends IntegrationTestBase {
     TenantContext.set(1L);
     mvc.perform(get(URL).with(authentication(WebSessionAuth.of(admin, List.of()))))
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.errors.code").value("AGENT_PROJECTS_AGENT_ONLY"));
+        .andExpect(jsonPath("$.errors.code").value("AGENT_ONLY"));
   }
 }

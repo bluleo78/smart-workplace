@@ -33,6 +33,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Slf4j
 public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
+  /**
+   * AI 키 인증({@code ak_})에만 붙는 권한 — {@link RequireAgent} 판정(PermissionInterceptor)이 같은 값을
+   * 본다(WP-1286).
+   */
+  public static final String ROLE_AGENT = "ROLE_AGENT";
+
   private static final String BEARER_PREFIX = "Bearer ";
   private static final String AK_PREFIX = "ak_";
 
@@ -119,7 +125,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                               permissionService
                                   .getUserPermissions(user.id())
                                   .forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
-                              authorities.add(new SimpleGrantedAuthority("ROLE_AGENT"));
+                              authorities.add(new SimpleGrantedAuthority(ROLE_AGENT));
                               UsernamePasswordAuthenticationToken token =
                                   new UsernamePasswordAuthenticationToken(
                                       user.id(), null, authorities);

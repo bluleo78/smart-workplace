@@ -9,13 +9,11 @@ import com.workplace.agentruntime.dto.UpdateAgentLocationRequest;
 import com.workplace.agentruntime.exception.AgentLocationConflictException;
 import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
-import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentLocationRepository.Row;
 import com.workplace.agentruntime.repository.AgentRunnerTokenRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
-import com.workplace.agentruntime.service.AgentKeyRetirement.Placement;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
@@ -32,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,11 +58,10 @@ public class AgentLocationService {
   private final AgentRunnerTokenRepository tokens;
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
-  private final ApplicationEventPublisher events;
   private final RunnerSseRegistry runnerSse;
   private final AgentRuntimeChangeNotifier changeNotifier;
   private final AgentRuntimeSettingRepository settings;
-  private final AgentKeyRetirement keyRetirement;
+  private final AgentRuntimeTransitions transitions;
 
   /** 모든 위치 — 기본 위치 먼저. 자리 사용 수·연결 상태·쓰는 AI 포함. */
   @Transactional(readOnly = true)
@@ -103,7 +99,7 @@ public class AgentLocationService {
   /** AI 의 실제 위치 — 지정 위치 ?? 기본 위치(둘 다 없으면 null). 실행 설정·상태 보고가 이벤트를 낼 위치를 정할 때 쓴다. */
   @Transactional(readOnly = true)
   public Long effectiveLocationId(Long locationId) {
-    return locationId != null ? locationId : locations.findDefaultId().orElse(null);
+    return locations.effectiveId(locationId);
   }
 
   /** 위치 등록 + 첫 토큰 발급. 이 워크스페이스의 첫 위치면 자동으로 기본이 된다. 이름이 겹치면 409. */
@@ -185,22 +181,8 @@ public class AgentLocationService {
     // 부분 유니크(워크스페이스당 기본 1개) 때문에 옛 기본을 먼저 내린 뒤 새 기본을 올린다.
     locations.clearDefault();
     locations.markDefault(id);
-    // 실행 설정 전이(AgentRuntimeTransitions.applyTransition)가 아니다 — 설정 행·generation 은 그대로이고 실제 위치만 통째로
-    // 옮겨 가므로,
-    // 키 정리는 AI 마다, runner·관리자 알림은 위치 단위로 한 번씩 여기서 낸다(AI 마다 알리면 같은 위치에 이벤트가 AI 수만큼 쌓인다).
-    // 옛 기본이 없었으면 미지정 AI 는 띄워질 곳이 없어 지워질 Pod 도 없다 — 키를 정리하지 않는다.
-    if (oldDefault.isPresent()) {
-      long old = oldDefault.get();
-      for (var setting : settings.findUnassigned()) {
-        keyRetirement.onTransition(
-            setting.agentUserId(),
-            new Placement(setting.desired(), old),
-            new Placement(setting.desired(), id));
-      }
-    }
-    long tenantId = TenantContext.require();
-    oldDefault.ifPresent(old -> events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, old)));
-    events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, id));
+    // 설정 행·generation 은 그대로이고 미지정 AI 의 실제 위치만 옮겨 간다 — 키 정리·runner 알림은 전이 규칙이 한다(WP-1287).
+    transitions.defaultLocationMoved(oldDefault.orElse(null), id, settings::findUnassigned);
     // 기본 위치가 바뀌면 AI 목록의 실행 위치 표시(기본이면 비움)도 바뀐다(WP-1254).
     changeNotifier.locationChanged(ResourceChangedEvent.OP_UPDATED, id, null);
   }

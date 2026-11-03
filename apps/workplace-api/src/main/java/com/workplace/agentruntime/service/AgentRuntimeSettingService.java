@@ -110,12 +110,12 @@ public class AgentRuntimeSettingService {
     locationRepository.lockTenantLocations();
     if (existing.isEmpty()) {
       if (req.locationId() != null) requireLocation(req.locationId());
-      settings.insert(
-          agentId, template.name(), template.version(), req.locationId(), config, callerId);
+      Row inserted =
+          settings.insert(
+              agentId, template.name(), template.version(), req.locationId(), config, callerId);
       audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 저장", meta(template, req));
       // 새 행은 꺼진 채라 runner 에게 알릴 것이 없다 — 관리자 화면에만 「생김」.
-      transitions.applyTransition(
-          agentId, null, new State(Desired.STOP, req.locationId(), 1, false), callerId);
+      transitions.applyTransition(agentId, null, State.of(inserted), callerId);
       return get(agentId);
     }
 
@@ -145,8 +145,7 @@ public class AgentRuntimeSettingService {
             .withGeneration(row.generation() + 1);
     settings.update(next, callerId);
     // 켜진 채 실제 위치가 바뀌면 옛 위치의 runner 가 Pod 를 바로 지운다(끄기와 같다) — 옛·새 위치 모두에 알리고 키를 정리한다.
-    transitions.applyTransition(
-        agentId, State.of(row, oldEffective), State.of(next, newEffective), callerId);
+    transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_SETTING_CHANGED", agentId, "AI 실행 설정 변경", meta(template, req));
     return toResponse(next, newEffective);
   }
@@ -181,9 +180,7 @@ public class AgentRuntimeSettingService {
             .withApplyMode(ApplyMode.NOW)
             .withGeneration(row.generation() + 1);
     settings.update(next, callerId);
-    // 꺼진 행의 실제 위치도 claimSeat 이 고른 위치와 같다(지정 위치 ?? 기본) — 기본 위치를 다시 읽지 않고 그 값을 쓴다.
-    transitions.applyTransition(
-        agentId, State.of(row, location.id()), State.of(next, location.id()), callerId);
+    transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_STARTED", agentId, "AI 켜기", Map.of("locationId", location.id()));
     return toResponse(next, location.id());
   }
@@ -198,8 +195,7 @@ public class AgentRuntimeSettingService {
     if (row.desired() == Desired.STOP) return toResponse(row, effective);
     Row next = bumpDesired(row, Desired.STOP, row.applyMode());
     settings.update(next, callerId);
-    transitions.applyTransition(
-        agentId, State.of(row, effective), State.of(next, effective), callerId);
+    transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_STOPPED", agentId, "AI 끄기", Map.of());
     return toResponse(next, effective);
   }
@@ -218,8 +214,7 @@ public class AgentRuntimeSettingService {
     Long effective = locationService.effectiveLocationId(row.locationId());
     Row next = bumpDesired(row, Desired.RUN, ApplyMode.NOW);
     settings.update(next, callerId);
-    transitions.applyTransition(
-        agentId, State.of(row, effective), State.of(next, effective), callerId);
+    transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_RESTARTED", agentId, "AI 다시 시작", Map.of());
     return toResponse(next, effective);
   }
@@ -232,8 +227,7 @@ public class AgentRuntimeSettingService {
     Row row = lockRow(agentId);
     if (row.desired() == Desired.RUN) throw AgentRuntimeSettingConflictException.running();
     settings.delete(agentId);
-    // 꺼진 채 지워진다 — 위치를 견주지도 runner 에게 알리지도 않으므로 지정 위치를 그대로 넘긴다.
-    transitions.applyTransition(agentId, State.of(row, row.locationId()), null, callerId);
+    transitions.applyTransition(agentId, State.of(row), null, callerId);
     audit(callerId, "AGENT_RUNTIME_SETTING_DELETED", agentId, "AI 실행 설정 삭제", Map.of());
   }
 
@@ -260,19 +254,14 @@ public class AgentRuntimeSettingService {
     Optional<Row> locked = settings.findForUpdate(agentId);
     if (locked.isEmpty()) return;
     Row row = locked.get();
-    // 켜져 있었을 때만 끄고 실제 위치의 runner 에게 알린다 — 꺼져 있었으면 행은 그대로이고 위치를 견주지 않으므로 지정 위치를 그대로 쓴다.
+    // 켜져 있었을 때만 끈다 — 실제 위치의 runner 알림은 전이 규칙이 정한다.
     Row next = row;
-    Long location = row.locationId();
     if (row.desired() == Desired.RUN) {
       next = bumpDesired(row, Desired.STOP, row.applyMode());
       settings.update(next, actorId);
-      location = locationService.effectiveLocationId(row.locationId());
     }
     transitions.applyTransition(
-        agentId,
-        State.of(row, location),
-        deleted ? null : State.departing(next, location),
-        actorId);
+        agentId, State.of(row), deleted ? null : State.departing(next), actorId);
   }
 
   /**

@@ -283,7 +283,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
                 .content("{\"state\":\"IDLE\"}")
                 .with(authentication(WebSessionAuth.of(admin, List.of()))))
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.errors.code").value("AGENT_STATUS_AGENT_ONLY"));
+        .andExpect(jsonPath("$.errors.code").value("AGENT_ONLY"));
   }
 
   /** 상태가 없으면 400. */

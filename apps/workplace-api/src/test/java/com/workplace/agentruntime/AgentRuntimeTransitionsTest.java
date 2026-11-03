@@ -1,14 +1,17 @@
 package com.workplace.agentruntime;
 
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.dto.RunnerPrincipal;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
+import com.workplace.agentruntime.service.RunnerDesiredStateService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -38,6 +41,7 @@ class AgentRuntimeTransitionsTest extends IntegrationTestBase {
   @Autowired AgentLocationService locationService;
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired UserService userService;
+  @Autowired RunnerDesiredStateService runnerService;
   @Autowired ApplicationEvents appEvents;
 
   private long admin;
@@ -146,5 +150,64 @@ class AgentRuntimeTransitionsTest extends IntegrationTestBase {
     long agent = fx.newAgent(l1);
     assertThat(effectsOf(() -> userService.setAgentRuntime(admin, agent, AgentRuntime.INTERNAL)))
         .isEqualTo(new Effects(List.of(), List.of("deleted")));
+  }
+
+  /**
+   * WP-1287 — 기본 위치를 따르는 AI 와 직접 고른 AI 모두, 설정 변경·키 교체·기본 위치 변경 때 runner 알림이 영향받는 실제 위치에 한 번씩 나간다.
+   * 호출자가 실제 위치를 해석하던 때는 기본을 따르는 AI 만 규칙 변경에 소리 없이 빠질 수 있었다.
+   */
+  @Test
+  void defaultFollowingAndAssignedAgents_notifyRunnerOnceForSettingKeyAndDefaultChanges() {
+    long following = fx.runningAgent(null); // 기본 위치(L1)를 따른다
+    long assigned = fx.runningAgent(l2);
+
+    // 설정 변경 — 각자 실제 위치에 한 번.
+    assertThat(effectsOf(() -> settingService.put(admin, following, put(null, "sonnet"))))
+        .isEqualTo(new Effects(List.of(l1), List.of("updated")));
+    assertThat(effectsOf(() -> settingService.put(admin, assigned, put(l2, "sonnet"))))
+        .isEqualTo(new Effects(List.of(l2), List.of("updated")));
+
+    // 키 교체 — 첫 발급은 generation 을 올리지 않고, 쓰인 키를 바꾸면 그 위치에 한 번.
+    assertThat(effectsOf(() -> rotateKey(following, l1)))
+        .isEqualTo(new Effects(List.of(l1), List.of("updated")));
+    assertThat(effectsOf(() -> rotateKey(assigned, l2)))
+        .isEqualTo(new Effects(List.of(l2), List.of("updated")));
+
+    // 기본 위치 변경 — 옛 기본·새 기본에 한 번씩(직접 고른 AI 는 영향이 없어 더 늘지 않는다).
+    assertThat(effectsOf(() -> locationService.setDefault(l2)).runnerLocations())
+        .containsExactly(l1, l2);
+  }
+
+  /**
+   * WP-1287 — 기본 위치를 따르는 꺼진 AI 도 삭제·「내부 · 기본」 전환·AI 삭제·사용 중지가 막힘 없이 지나간다(전이가 이제 기본 위치를 직접 읽는다).
+   * runner 는 알 것이 없고 관리자 알림만 결과대로 나간다.
+   */
+  @Test
+  void stoppedDefaultFollowingAgent_removalPathsNotifyAdminOnly() {
+    long deleted = fx.newAgent(null);
+    long switched = fx.newAgent(null);
+    long removed = fx.newAgent(null);
+    long suspended = fx.newAgent(null);
+
+    assertThat(effectsOf(() -> settingService.delete(admin, deleted)))
+        .isEqualTo(new Effects(List.of(), List.of("deleted")));
+    assertThat(effectsOf(() -> userService.setAgentRuntime(admin, switched, AgentRuntime.INTERNAL)))
+        .isEqualTo(new Effects(List.of(), List.of("deleted")));
+    assertThat(effectsOf(() -> settingService.stopForRemoval(removed, admin, true)))
+        .isEqualTo(new Effects(List.of(), List.of("deleted")));
+    assertThat(effectsOf(() -> settingService.stopForRemoval(suspended, null, false)))
+        .isEqualTo(new Effects(List.of(), List.of()));
+  }
+
+  /** 키를 한 번 받고 그 generation 을 runner 가 관찰했다고 적은 뒤 기록을 비우고 다시 받는다 — 두 번째가 교체다. */
+  private void rotateKey(long agent, long location) {
+    RunnerPrincipal runner = new RunnerPrincipal(1L, location);
+    runnerService.issueAgentKey(runner, agent);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, fx.generationOf(agent))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+    appEvents.clear();
+    runnerService.issueAgentKey(runner, agent);
   }
 }

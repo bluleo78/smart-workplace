@@ -701,3 +701,27 @@ test('SKILL.md 3번: slots 가 없을 때 대기 중은 동시 진행에 세지 
   assert.ok(skill.includes('내 행이 작업 중·답변 필요·인증 필요이고 `stale` 이 아닌 이슈를 세되(대기 중은 세지 않는다'));
   assert.ok(!skill.includes('작업 중·대기 중·답변 필요·인증 필요'));
 });
+
+// WP-1293 깨우기를 실행기가 맡는 세션 — GENIA_WORKS_RUNNER_WAKES=1 이면 감시·다음 확인 잡기를 건너뛰고, 마지막 줄로 다음 확인 시각을 넘긴다.
+test('SKILL.md: 실행기가 깨우기를 맡는 세션(GENIA_WORKS_RUNNER_WAKES=1)은 감시·깨우기 도구를 쓰지 않고 GW-NEXT-CHECK 줄을 남긴다 (WP-1293)', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('**깨우기를 실행기가 맡는 세션(WP-1293)**'));
+  assert.ok(text.includes('"${GENIA_WORKS_RUNNER_WAKES:-}"'));
+  assert.ok(text.includes('`GW-NEXT-CHECK <다음 확인 시각(ISO-8601)>`'));
+  assert.ok(text.includes('`GW-NEXT-CHECK none`'));
+  assert.ok(text.includes('어떻게 끝나든(2번 잠금 `held`·오류 포함) 늘 쓰고'));
+  // 1번·5번의 감시 걸기에도 건너뛰기가 적혀 있다(맨 위 규칙만 두면 그 자리에서 놓친다).
+  assert.ok(text.includes('깨우기를 실행기가 맡는 세션이면 걸지 않는다).'));
+  assert.ok(text.includes('깨우기를 실행기가 맡는 세션(맨 위)이면 걸지 않는다'));
+  assert.ok(text.includes('깨우기 도구 대신 마지막 줄 `GW-NEXT-CHECK …` 로 시각을 넘긴다'));
+  // 한 번 부르기의 경계(30분·할 일 없음)는 실행기와 무관하다.
+  assert.ok(text.includes('실행기와 무관하게 그대로다'));
+  assertBefore(text, '**깨우기를 실행기가 맡는 세션(WP-1293)**', '### 1. 신원 확인');
+});
+
+// WP-1293 — Claude Code 전용 명령(/code-review·/simplify)이 없는 실행기에서도 같은 검토를 하게 대안을 적는다.
+test('process-issue.md: /code-review·/simplify 가 없는 실행기는 같은 관점으로 스스로 검토한다 (WP-1293)', () => {
+  const text = workLoop('process-issue.md');
+  assert.ok(text.includes('이 명령이 없는 실행기(genia·Codex 등)면 같은 범위를 두 관점으로 스스로 검토한다'));
+  assert.ok(text.includes('이 명령이 없는 실행기면 정확성 결함 관점으로 스스로 검토한다'));
+});

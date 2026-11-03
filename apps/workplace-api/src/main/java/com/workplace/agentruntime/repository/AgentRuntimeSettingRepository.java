@@ -400,22 +400,23 @@ public class AgentRuntimeSettingRepository {
             VisibleRuntimeState.instant(previousNextCheckAt)));
   }
 
-  /** 새 설정 — generation 1·desired STOP·apply_mode IDLE(컬럼 기본값). */
-  public void insert(
+  /** 새 설정 — generation 1·desired STOP·apply_mode IDLE(컬럼 기본값). 넣은 행을 돌려준다(전이 모양을 컬럼 기본값에서 읽게). */
+  public Row insert(
       long agentUserId,
       String templateName,
       String templateVersion,
       Long locationId,
       Map<String, String> config,
       long updatedBy) {
-    dsl.insertInto(AGENT_RUNTIME_SETTING)
+    return dsl.insertInto(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.AGENT_USER_ID, agentUserId)
         .set(AGENT_RUNTIME_SETTING.TEMPLATE_NAME, templateName)
         .set(AGENT_RUNTIME_SETTING.TEMPLATE_VERSION, templateVersion)
         .set(AGENT_RUNTIME_SETTING.LOCATION_ID, locationId)
         .set(AGENT_RUNTIME_SETTING.CONFIG, writeConfig(config))
         .set(AGENT_RUNTIME_SETTING.UPDATED_BY, updatedBy)
-        .execute();
+        .returning()
+        .fetchOne(this::map);
   }
 
   /** 원하는 상태 칸을 {@code next} 로 덮어쓴다(호출자가 바뀐 경우에만 부르고 generation 을 올려 넘긴다). 관찰 칸은 건드리지 않는다. */

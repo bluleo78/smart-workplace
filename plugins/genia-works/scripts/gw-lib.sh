@@ -49,29 +49,46 @@ gw_read_key() {
   printf '%s\n' "$_gw_k"
 }
 
-# claude 실행 파일로 보이는 단어인지 — 네이티브(claude, …/claude, …/claude/versions/x)와 npm(node …/bin/claude) 모두.
-gw_is_claude_word() {
+# 칸으로 띄울 수 있는 실행기 — genia·codex 는 「이 세션」 찾기만 먼저 들어왔고, 칸 띄우기는 genia 확장(WP-1294)·Codex 구동기(WP-1295)가
+# 들어올 때 이 목록에 더한다(그 전에 고르면 칸이 반복·깨우기 없이 뜨거나 바로 죽는다).
+GW_LAUNCH_CLIS="claude"
+
+# 실행기 이름 검사 — AI 폴더 설정(agent-home set cli)과 칸 띄우기가 같은 기준을 쓴다.
+gw_valid_cli() {
+  [ -n "${1:-}" ] || return 1
+  case " $GW_LAUNCH_CLIS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# 실행기(AI 를 돌리는 CLI) 실행 파일로 보이는 단어인지 — 「이 세션」 찾기가 쓴다(WP-1292).
+#   claude — 네이티브(claude, …/claude, …/claude/versions/x)와 npm(node …/bin/claude)
+#   genia  — 실행 스크립트(~/.local/bin/genia)가 exec 하는 ~/.genia/app/genia(bun 으로 묶은 실행 파일)
+#   codex  — 네이티브(codex, …/codex)와 npm(node …/bin/codex.js)
+gw_is_cli_word() {
   case "$1" in
     claude | */claude | */claude.exe | */claude/versions/*) return 0 ;;
+    genia | */genia) return 0 ;;
+    codex | */codex | */codex.js) return 0 ;;
   esac
   return 1
 }
 
-# 프로세스의 명령줄이 claude 실행으로 보이는지 — 앞 두 단어만 본다(node …/bin/claude 처럼 둘째 단어일 수 있다).
+# 프로세스의 명령줄이 실행기로 보이는지 — 앞 두 단어만 본다(node …/bin/claude 처럼 둘째 단어일 수 있다).
 # 위치 인자를 바꾸므로 하위 셸에서 돌린다(부르는 쪽의 $1… 를 건드리지 않게).
-gw_is_claude_proc() (
+gw_is_cli_proc() (
   set -f
   # shellcheck disable=SC2046 — args 를 단어로 나눠 앞 두 단어만 본다.
   set -- $(ps -o args= -p "$1" 2>/dev/null)
-  gw_is_claude_word "${1:-}" || gw_is_claude_word "${2:-}"
+  gw_is_cli_word "${1:-}" || gw_is_cli_word "${2:-}"
 )
 
-# 가장 가까운 claude 조상 프로세스 번호 — 환경변수(CLAUDE_PID 등)는 부모 세션에서 상속돼 믿을 수 없어 ps 로 찾는다(3차 실험).
-gw_claude_pid() {
+# 가장 가까운 실행기 조상 프로세스 번호(=「이 세션」) — 환경변수(CLAUDE_PID 등)는 부모 세션에서 상속돼 믿을 수 없어 ps 로 찾는다(3차 실험).
+# 세션 신원 선택·work-loop 잠금(loop-lock)이 이 값으로 세션을 가른다.
+gw_cli_pid() {
   # GW_START_PID 는 테스트 전용 훅(가짜 ps 표에서 시작 프로세스를 고정) — 운영에서는 설정하지 않는다.
   p="${GW_START_PID:-$PPID}"
   while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
-    if gw_is_claude_proc "$p"; then
+    if gw_is_cli_proc "$p"; then
       echo "$p"
       return 0
     fi

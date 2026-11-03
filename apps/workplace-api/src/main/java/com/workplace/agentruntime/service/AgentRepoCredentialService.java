@@ -2,7 +2,6 @@ package com.workplace.agentruntime.service;
 
 import com.workplace.agentruntime.dto.AgentRepoCredentialRequest;
 import com.workplace.agentruntime.dto.AgentRepoCredentialResponse;
-import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.RunnerReposSecretResponse;
 import com.workplace.agentruntime.exception.AgentRepoCredentialNotFoundException;
 import com.workplace.agentruntime.exception.InvalidAgentRepoCredentialException;
@@ -17,7 +16,6 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -48,7 +46,6 @@ public class AgentRepoCredentialService {
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
   private final AgentRuntimeSettingRepository settings;
-  private final AgentLocationService locationService;
   private final AgentRuntimeTransitions transitions;
 
   /** 그 AI 의 활성 토큰 메타(host 오름차순) — 토큰·암호문 없음. */
@@ -136,11 +133,9 @@ public class AgentRepoCredentialService {
    * 토큰은 「바로 반영」으로 보여 주므로 알린다. 실행 설정 행이 없으면 화면 알림만 낸다.
    */
   private void notifyRuntime(long callerId, long agentUserId) {
-    Optional<AgentRuntimeSettingRepository.Row> setting = settings.find(agentUserId);
     transitions.inputsChanged(
         agentUserId,
-        setting.map(AgentRuntimeSettingRepository.Row::desired).orElse(Desired.STOP),
-        setting.map(s -> locationService.effectiveLocationId(s.locationId())).orElse(null),
+        settings.find(agentUserId).map(AgentRuntimeTransitions.State::of).orElse(null),
         callerId);
   }
 

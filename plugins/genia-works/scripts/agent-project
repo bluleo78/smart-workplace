@@ -11,9 +11,9 @@
 #   키마다 잠근다 — 다른 쪽(돌고 있는 칸·start-agent)이 같은 키를 하고 있으면 busy(종료 6).
 #   사람이 없는 칸에서도 부르므로 git 이 자격 증명·호스트 키를 묻지 않게 한다(묻는 대신 실패).
 #
-# agent-project start [--restart] <AI 폴더> <프로젝트 키> — 그 AI 신원으로 work-loop 를 도는 claude 를 칸으로 띄운다(agent-window 결과를 그대로 낸다).
-#   대기열 라벨은 AI 폴더에 저장한 값(agent-home get queue)을 쓴다. 칸에는 신원(GENIA_WORKS_AS), AI 폴더(GENIA_WORKS_AGENT_DIR — 새 프로젝트 확인),
-#   자동 압축 40%(work-loop.sh 와 같은 값 — 오래 도는 세션이 무거워지지 않게)를 넘긴다. 이 셸의 PATH·GENIA_WORKS_API_URL·GENIA_WORKS_TENANT 는
+# agent-project start [--restart] <AI 폴더> <프로젝트 키> — 그 AI 신원으로 work-loop 를 도는 실행기를 칸으로 띄운다(agent-window 결과를 그대로 낸다).
+#   실행기·대기열 라벨은 AI 폴더에 저장한 값(agent-home get cli·queue)을 쓴다 — 실행기별 명령·환경은 아래 cli_command 한곳에서 정한다(WP-1292).
+#   칸에는 신원(GENIA_WORKS_AS), AI 폴더(GENIA_WORKS_AGENT_DIR — 새 프로젝트 확인)를 넘긴다. 이 셸의 PATH·GENIA_WORKS_API_URL·GENIA_WORKS_TENANT 는
 #   agent-window 가 넘긴다(gw-lib 의 GW_TMUX_ENV — tmux 칸은 이 셸의 환경을 물려받지 않는다). 띄웠으면(started·exists·revived·restarted) 그 키의
 #   실패 기록을 지우고, 그 AI 의 알림 감시 창(agent-events ensure — AI 당 하나)도 없거나 죽었으면 띄운다(결과 줄은 내지 않는다).
 #   GW_SKIP_EVENTS_ENSURE=1 이면 감시 창은 챙기지 않는다 — 칸 여럿을 차례로 띄우는 엔트리포인트 감독이 회차 끝에 한 번만 챙긴다(WP-1252).
@@ -171,13 +171,23 @@ launched() {
 
 do_start() {
   [ -d "$folder" ] || { echo "저장소 폴더가 없습니다 — 먼저 agent-project repo: $folder" >&2; return 2; }
+  cli=$("$here/agent-home" "$aidir" get cli 2>/dev/null) || cli=claude
+  gw_valid_cli "$cli" || { echo "모르는 실행기: $cli — agent-home set cli 로 고치세요" >&2; return 2; }
   queue=$("$here/agent-home" "$aidir" get queue 2>/dev/null) || queue=""
-  loop="/loop /genia-works:work-loop $key"
-  [ -n "$queue" ] && loop="$loop --queue \"$queue\""
+  args=$key
+  [ -n "$queue" ] && args="$args --queue \"$queue\""
   # PATH·서버 주소·워크스페이스는 agent-window 가 칸마다 넘긴다(GW_TMUX_ENV).
-  set -- env "GENIA_WORKS_AS=$name" "GENIA_WORKS_AGENT_DIR=$aidir" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40"
+  set -- env "GENIA_WORKS_AS=$name" "GENIA_WORKS_AGENT_DIR=$aidir"
+  # 실행기별 칸 명령·환경은 여기 한곳에서 정한다(WP-1292). work-loop 인자는 $args(프로젝트 키와 --queue).
+  #   claude — /loop 가 반복·다음 확인을, Monitor 가 알림 감시를 맡는다. 자동 압축 40%(work-loop.sh 와 같은 값 — 오래 도는 세션이 무거워지지 않게).
+  #   다른 실행기(genia·codex)는 확장·구동기가 들어올 때 여기에 더한다 — 그 실행기는 GENIA_WORKS_RUNNER_WAKES=1 로 work-loop 에 알린다(WP-1293).
+  case "$cli" in
+    claude)
+      set -- "$@" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40 claude --permission-mode bypassPermissions "/loop /genia-works:work-loop $args"
+      ;;
+  esac
   # shellcheck disable=SC2086 # restart 는 비었거나 --restart 한 단어다.
-  result=$("$here/agent-window" $restart "$name" "$key" "$folder" "$@" claude --permission-mode bypassPermissions "$loop")
+  result=$("$here/agent-window" $restart "$name" "$key" "$folder" "$@")
   rc=$?
   printf '%s\n' "$result"
   launched "$result" && rm -f "$state/launch-failed-$key"

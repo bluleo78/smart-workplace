@@ -204,7 +204,7 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
   - 그 밖은 `RUN`.
 - 보고는 관리자 화면의 AI 상태(`observed.agentState`·`agentIssueKey`·`agentNextCheckAt`)로 보인다. generation·원하는 상태는 바꾸지 않는다.
 - **쉬는 중으로 바뀐** 보고(앞 보고가 `IDLE` 이 아니었음 — 새 Pod 가 보여 AI 상태가 지워진 뒤 첫 보고 포함)인데 아직 반영하지 않은 generation 이 있으면(generation ≠ 마지막 observedGeneration) Works 가 그 AI 의 실제 위치로 `agent-runtime.changed` 를 낸다 — runner 가 다시 조회하면 `applyNow=true` 다. 이미 쉬는 중이던 AI 가 다음 확인마다 `IDLE` 을 거듭 보고해도 이벤트를 다시 내지 않는다(놓친 이벤트는 주기 조회가 맞춘다).
-- 실행 설정이 없는 AI(외부에서 돌리는 AI)나 워크스페이스가 정해지지 않은 호출은 아무것도 저장하지 않고 `RUN` 이다. AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_STATUS_AGENT_ONLY`).
+- 실행 설정이 없는 AI(외부에서 돌리는 AI)나 워크스페이스가 정해지지 않은 호출은 아무것도 저장하지 않고 `RUN` 이다. AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
 
 ## 맡는 프로젝트 — `GET /api/v1/agent-runtime/me/projects` (AI 가 부름)
 
@@ -216,7 +216,7 @@ AI 가 자기 키(`Authorization: Bearer ak_…`)로 부른다(WP-1275). Works �
 
 - 그 AI 가 **실제 멤버**(직접 멤버 또는 멤버로 둔 부서 — 관리자라 보이기만 하는 프로젝트·공개 열람은 치지 않는다)이고 **연결된 저장소**가 있으며 지워지지 않은 프로젝트만, 키 순으로. 키는 폴더·tmux 칸 이름이 되므로 `^[A-Za-z0-9_-]+$` 형식이 아니면 뺀다. 관리자 화면의 「맡는 프로젝트」와 같은 목록이다.
 - `repositoryBranch` 가 null 이면 저장소의 기본 브랜치를 쓴다. `repositoryHost` 는 저장소 주소의 호스트(소문자)를 서버가 계산한 값이다(읽을 수 없으면 null) — 저장소 토큰을 맞출 때 호스트 기준이다. 맡는 프로젝트가 없으면 `[]`.
-- 워크스페이스가 정해지지 않은 호출(여러 워크스페이스에 속한 AI 가 헤더 없이 부름)은 400(`AGENT_WORKSPACE_REQUIRED`) — `[]` 이면 「맡은 프로젝트 없음」과 구분되지 않는다. AI 키(`ak_`)가 아닌 인증으로 부르면 403(`AGENT_PROJECTS_AGENT_ONLY`).
+- 워크스페이스가 정해지지 않은 호출(여러 워크스페이스에 속한 AI 가 헤더 없이 부름)은 400(`AGENT_WORKSPACE_REQUIRED`) — `[]` 이면 「맡은 프로젝트 없음」과 구분되지 않는다. AI 키(`ak_`)가 아닌 인증으로 부르면 403(`AGENT_ONLY`).
 
 ## 오류
 

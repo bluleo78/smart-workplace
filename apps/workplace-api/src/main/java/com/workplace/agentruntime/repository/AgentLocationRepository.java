@@ -108,6 +108,14 @@ public class AgentLocationRepository {
     return baseSelect().where(AGENT_LOCATION.IS_DEFAULT.isTrue()).fetchOptional(this::map);
   }
 
+  /**
+   * 실제 위치 id — 지정 위치가 있으면 그것, 없으면 기본 위치(없으면 null). 실행 설정의 「지정 위치 ?? 기본」 규칙은 이 한곳만 쓴다(WP-1287) — 화면
+   * 응답(AgentLocationService)과 runner 알림·키 정리(AgentRuntimeTransitions)가 같은 답을 내게.
+   */
+  public Long effectiveId(Long assignedId) {
+    return assignedId != null ? assignedId : findDefaultId().orElse(null);
+  }
+
   /** 기본 위치 id(없으면 비어 있음). */
   public Optional<Long> findDefaultId() {
     return dsl.select(AGENT_LOCATION.ID)

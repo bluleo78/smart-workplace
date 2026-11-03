@@ -19,7 +19,6 @@ import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.RunnerAgentNotFoundException;
 import com.workplace.agentruntime.exception.RunnerSecretNotFoundException;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
-import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.ObservedUpdate;
@@ -41,7 +40,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -74,8 +72,8 @@ public class RunnerDesiredStateService {
   private final AgentApiKeyService agentKeys;
   private final AiAgentCredentialService credentials;
   private final AgentRepoCredentialService repoCredentials;
-  private final ApplicationEventPublisher events;
   private final AgentRuntimeChangeNotifier changeNotifier;
+  private final AgentRuntimeTransitions transitions;
 
   /**
    * 템플릿 이름@버전 → runner 모양으로 바꾼 자원·보조 컨테이너·플러그인. 템플릿은 시작 때 한 번 읽혀 바뀌지 않으므로 요청마다 다시 바꾸지 않는다. 응답과 같은
@@ -261,9 +259,7 @@ public class RunnerDesiredStateService {
     long keyGeneration = row.generation();
     if (bump != null) {
       keyGeneration = settings.bumpGenerationForRotation(agentUserId, bump);
-      events.publishEvent(new AgentRuntimeDesiredChanged(tenantId, location.id()));
-      // generation 이 올라 화면 상태가 「적용 대기」로 바뀐다(WP-1254).
-      changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentUserId, null);
+      transitions.keyRotated(agentUserId, location.id());
     }
     Long replaceKeyId = undelivered ? live.current().orElseThrow().id() : null;
     ManagedKey key =

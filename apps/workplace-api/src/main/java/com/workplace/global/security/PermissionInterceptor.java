@@ -42,19 +42,21 @@ public class PermissionInterceptor implements HandlerInterceptor {
         handlerMethod.getBeanType().getAnnotation(RequirePermission.class);
 
     RequirePermission annotation = methodAnnotation != null ? methodAnnotation : classAnnotation;
-    boolean adminOnly =
-        handlerMethod.hasMethodAnnotation(RequireAdmin.class)
-            || handlerMethod.getBeanType().isAnnotationPresent(RequireAdmin.class);
-    boolean webSessionOnly =
-        handlerMethod.hasMethodAnnotation(RequireWebSession.class)
-            || handlerMethod.getBeanType().isAnnotationPresent(RequireWebSession.class);
-    if (annotation == null && !adminOnly && !webSessionOnly) {
+    boolean adminOnly = marked(handlerMethod, RequireAdmin.class);
+    boolean webSessionOnly = marked(handlerMethod, RequireWebSession.class);
+    boolean agentOnly = marked(handlerMethod, RequireAgent.class);
+    if (annotation == null && !adminOnly && !webSessionOnly && !agentOnly) {
       return true;
     }
 
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication == null || !authentication.isAuthenticated()) {
       throw new AccessDeniedException("로그인이 필요합니다");
+    }
+
+    // WP-1286: AI 키 전용 API — AI 키(ak_) 인증에만 ROLE_AGENT 가 붙는다. DB 를 보기 전에 인증 권한으로 가른다.
+    if (agentOnly && !hasAuthority(authentication, ApiKeyAuthenticationFilter.ROLE_AGENT)) {
+      throw new AgentOnlyException();
     }
 
     if (annotation != null) {
@@ -73,6 +75,17 @@ public class PermissionInterceptor implements HandlerInterceptor {
     }
 
     return true;
+  }
+
+  /** 핸들러 메서드나 그 컨트롤러 클래스에 표시가 있는지. */
+  private static boolean marked(
+      HandlerMethod h, Class<? extends java.lang.annotation.Annotation> a) {
+    return h.hasMethodAnnotation(a) || h.getBeanType().isAnnotationPresent(a);
+  }
+
+  private static boolean hasAuthority(Authentication authentication, String authority) {
+    return authentication.getAuthorities().stream()
+        .anyMatch(a -> authority.equals(a.getAuthority()));
   }
 
   /** {@link RequirePermission} 에 적힌 권한을 요청 권한(authority)이 모두 갖는지 확인한다. */
