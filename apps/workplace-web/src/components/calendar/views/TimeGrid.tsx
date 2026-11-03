@@ -6,10 +6,14 @@ import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } fro
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents, timedEventColumnStyle } from '@/lib/calendar'
+import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents, timedEventBox, timedEventColumnStyle } from '@/lib/calendar'
+import { type MovedRange, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
+
+import { MovePreviewChip } from './MovePreviewChip'
+import { isMovingEvent, useEventMoveDrag } from './useEventMoveDrag'
 
 // ─────────────────────────────────────────────────────────────
 // 공용 뷰 props (MonthView · AgendaView · WeekView · DayView 공통)
@@ -23,6 +27,10 @@ export interface ViewProps {
   onSelectIssue: (marker: IssueDueMarker) => void
   // end 는 주·일 보기에서 시간 구간을 끌어 고른 경우만(WP-949) — 없으면 기본 길이로 연다.
   onCreateAt: (start: Date, end?: Date) => void
+  // 일정을 끌어 다른 날짜·시간에 놓았을 때(WP-1328) — 없으면 끌어 옮기기를 켜지 않는다(목록 보기 등).
+  onMoveEvent?: (e: CalendarEvent, range: MovedRange) => void
+  // 끌어 옮길 수 있는 일정인가(내 캘린더 + 읽기 전용 아님) — 아니면 눌러도 끌리지 않고 지금처럼 연다.
+  canMoveEvent?: (e: CalendarEvent) => boolean
 }
 
 // TimeGrid 전용 추가 props
@@ -32,9 +40,6 @@ interface TimeGridProps extends ViewProps {
   /** 루트 컨테이너 data-testid */
   testid: string
 }
-
-// 끌기로 보는 최소 이동(px) — 이보다 덜 움직이고 놓으면 지금처럼 한 칸 클릭(정각 + 1시간)으로 둔다.
-const DRAG_THRESHOLD_PX = 4
 
 /** 끌고 있는 구간 — 어느 날 열에서(dayKey), 누른 y 와 지금 y(열 맨 위 기준 px). */
 interface DragSelection {
@@ -54,9 +59,15 @@ export function TimeGrid({
   onSelectEvent,
   onSelectIssue,
   onCreateAt,
+  onMoveEvent,
+  canMoveEvent,
   days,
   testid,
 }: TimeGridProps) {
+  // 일정 끌어 옮기기(WP-1328) — 종일 줄은 날짜 칸 사이(day), 시간 그리드는 날짜 열 + 30분 칸(grid).
+  const move = useEventMoveDrag({ onMoveEvent, canMoveEvent })
+  // 놓일 자리 미리보기용 사본 — 옮긴 시각으로 바꾼 일정을 같은 배치 함수(eventsOnDay·timedEventBox)로 그린다.
+  const movedEvent = move.preview?.range ? withRange(move.preview.event, move.preview.range) : null
   // 시간 구간 끌어 만들기(WP-949) — 마우스·펜만. 터치는 세로 스크롤과 겹쳐 지금처럼 칸 탭(정각 + 1시간)만 둔다.
   const [drag, setDragState] = useState<DragSelection | null>(null)
   // 날짜별 타임드 일정 배치(겹침 열 나누기, WP-1138) — 끌기 중 포인터가 움직일 때마다 다시 그리므로 일정·날짜가 바뀔 때만 계산한다.
@@ -164,19 +175,27 @@ export function TimeGrid({
             <div
               key={day.toISOString()}
               data-testid="calendar-allday-cell"
-              className="flex-1 min-w-0 border-l min-h-[28px] p-0.5 space-y-0.5"
+              data-move-day={format(day, 'yyyy-MM-dd')}
+              data-move-kind="day"
+              className="flex-1 min-w-0 border-l min-h-[28px] p-0.5 space-y-0.5 select-none"
             >
               {allDayEvts.map((e) => (
                 <button
                   key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
                   data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
-                  onClick={() => onSelectEvent(e)}
-                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate`}
+                  {...move.bind(e, day, 'day')}
+                  onClick={() => {
+                    if (move.consumeClick()) return
+                    onSelectEvent(e)
+                  }}
+                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate ${isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
                 >
                   <ExtraTagDots event={e} />
                   {e.title}
                 </button>
               ))}
+              {/* 끌어 옮기는 종일 일정이 놓일 날 — 반투명 사본(WP-1328) */}
+              {movedEvent?.allDay && eventsOnDay([movedEvent], day).length > 0 && <MovePreviewChip preview={move.preview} />}
               {dayDues.map((m) => (
                 <IssueDueChip key={m.issueId} marker={m} onSelect={onSelectIssue} />
               ))}
@@ -208,6 +227,8 @@ export function TimeGrid({
             <div
               key={day.toISOString()}
               data-testid="calendar-day-column"
+              data-move-day={format(day, 'yyyy-MM-dd')}
+              data-move-kind="grid"
               className="flex-1 relative border-l select-none"
               onPointerDown={(ev) => startDrag(ev, day)}
               onPointerMove={moveDrag}
@@ -224,6 +245,8 @@ export function TimeGrid({
                       suppressClickRef.current = false
                       return
                     }
+                    // 일정을 끌어 옮긴 직후 칸으로 온 click 이면 새 일정을 열지 않는다(WP-1328).
+                    if (move.consumeClick()) return
                     // 해당 날 h시 정각으로 onCreateAt 호출
                     const d = new Date(day)
                     d.setHours(h, 0, 0, 0)
@@ -251,17 +274,31 @@ export function TimeGrid({
                       // 겹친 묶음의 열 몫 안에서만 그린다 — 좁은 칸에서도 옆 날짜로 넘치지 않고, 오른쪽이 빈 일정은 넓힌다(WP-1154).
                       ...columnStyle,
                     }}
+                    {...move.bind(e, day, 'grid')}
                     onClick={(ev) => {
                       ev.stopPropagation()
+                      // 끌어 옮긴 직후의 click 이면 일정을 열지 않는다(WP-1328).
+                      if (move.consumeClick()) return
                       onSelectEvent(e)
                     }}
-                    className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden`}
+                    className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden ${isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
                   >
                     <ExtraTagDots event={e} />
                     {formatClockTimePadded(e.startsAt)} {e.title}
                   </button>
                 )
               })}
+
+              {/* 끌어 옮기는 타임드 일정이 놓일 자리 — 그날에 걸친 구간만(WP-1328). 포인터 이벤트를 막지 않아 놓을 열을 가리지 않는다. */}
+              {movedEvent && !movedEvent.allDay && eventsOnDay([movedEvent], day).length > 0 && (
+                <div
+                  data-testid="calendar-move-preview"
+                  className="pointer-events-none absolute inset-x-0.5 z-10 overflow-hidden rounded border border-primary bg-primary/15 px-1 text-xs font-medium text-primary"
+                  style={timedEventBox(movedEvent, day)}
+                >
+                  {formatClockTimePadded(movedEvent.startsAt)} {movedEvent.title}
+                </div>
+              )}
             </div>
           )
         })}

@@ -66,6 +66,7 @@ import {
   visibleRange,
 } from '@/lib/calendar'
 import { headerMonthLabel } from '@/lib/calendarAgenda'
+import { canMoveEvent, type MovedRange, moveRequestBody } from '@/lib/calendarMove'
 import { RECURRING_TAGS_NOTE } from '@/lib/calendarTag'
 import { parseId } from '@/lib/historyParam'
 import { failedWithoutData } from '@/lib/queryFailure'
@@ -152,6 +153,9 @@ export function CalendarPage() {
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
   // scope 선택 전까지 보류하는 수정 body — 폼에서 태그를 바꿨으면 tagIds 도 여기 함께 실려 있다(WP-801)
   const [pendingBody, setPendingBody] = useState<CalendarEventRequest | null>(null)
+  // 끌어 옮긴 반복 회차(WP-1328) — 범위를 고를 때까지 보류하는 옮길 일정·바디. 일정 창의 범위 선택(scopeMode·pendingBody)과 따로 둔다:
+  // 그쪽 성공 처리는 일정 창을 닫는 히스토리 이동(closeDialog)이라, 창이 없는 끌기에 쓰면 캘린더를 떠날 수 있다.
+  const [pendingMove, setPendingMove] = useState<{ event: CalendarEvent; body: CalendarEventRequest } | null>(null)
   // 단일 일정 삭제 확인 다이얼로그 표시 여부
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
@@ -544,6 +548,24 @@ export function CalendarPage() {
     deleteTag.mutate(deletingTag.id, { onSuccess: () => setDeletingTag(null) })
   }
 
+  // 일정을 끌어 다른 날짜·시간에 놓았다(WP-1328) — 목록 일정의 필드로 수정 바디를 만들어 시각만 바꿔 저장한다.
+  // 화면을 먼저 옮기지 않는다(낙관적 갱신 없음): 실패하면 훅이 오류 토스트를 띄우고 일정은 원래 자리에 남으며, 성공하면 목록을 다시 받는다.
+  // 반복 회차는 일정 창 수정처럼 범위(이 일정만·이후·전체)를 고른 뒤 회차 날짜와 함께 보낸다. 범위 창을 취소하면 옮기지 않는다.
+  const moveEvent = (e: CalendarEvent, range: MovedRange) => {
+    const body = moveRequestBody(e, range)
+    if (e.occurrenceDate != null) {
+      setPendingMove({ event: e, body })
+      return
+    }
+    update.mutate({ id: e.id, body })
+  }
+  const pickMoveScope = (scope: EditScope) => {
+    if (!pendingMove) return
+    const { event: e, body } = pendingMove
+    update.mutate({ id: e.masterEventId ?? e.id, body, scope, occurrenceDate: e.occurrenceDate })
+    setPendingMove(null)
+  }
+
   const viewProps = {
     events: visibleEvents,
     issueDues: layers.issueDues ? issueDues : [],
@@ -551,6 +573,9 @@ export function CalendarPage() {
     onSelectEvent: openEdit,
     onSelectIssue: openIssue,
     onCreateAt: openNew,
+    // 끌어 옮기기는 데스크톱(마우스·펜)만 — 모바일 보기는 스와이프와 겹쳐 켜지 않는다(뷰도 터치 포인터는 끌지 않는다).
+    onMoveEvent: isMobile ? undefined : moveEvent,
+    canMoveEvent: (e: CalendarEvent) => canMoveEvent(e, calendars),
   }
 
   // 오늘/이전/다음 — 데스크톱은 헤더 제목 앞(icon 슬롯), 모바일은 헤더 아래 도구 줄 왼쪽에 둔다.
@@ -777,6 +802,11 @@ export function CalendarPage() {
           // 태그를 바꾼 수정이면 범위와 상관없이 시리즈에 붙는다는 걸 미리 알린다(WP-801 — 태그는 시리즈 단위)
           note={scopeMode === 'edit' && pendingBody?.tagIds !== undefined ? RECURRING_TAGS_NOTE : null}
         />
+      )}
+
+      {/* 끌어 옮긴 반복 회차의 적용 범위 선택(WP-1328) — 취소하면 옮기지 않는다 */}
+      {pendingMove && (
+        <RecurrenceScopeDialog open mode="edit" onPick={pickMoveScope} onCancel={() => setPendingMove(null)} />
       )}
 
       {/* 캘린더 삭제 확인 다이얼로그 — 소속 일정이 어디로 가는지 알린다(WP-1140) */}

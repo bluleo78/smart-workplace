@@ -197,7 +197,10 @@ export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarke
 
 // 시간 그리드 드래그로 고르는 단위(WP-949) — 30분. 한 시간 칸(HOUR_SLOT_PX)의 절반 높이다.
 export const DRAG_SLOT_MINUTES = 30
-const DRAG_SLOT_PX = (HOUR_SLOT_PX * DRAG_SLOT_MINUTES) / 60
+/** 30분 칸 한 칸의 높이(px) — 만들기 끌기와 옮기기 끌기(calendarMove)가 함께 쓴다. */
+export const DRAG_SLOT_PX = (HOUR_SLOT_PX * DRAG_SLOT_MINUTES) / 60
+/** 끌기로 보는 최소 이동(px) — 이보다 덜 움직이고 놓으면 클릭으로 둔다. 만들기 끌기(TimeGrid)와 옮기기 끌기(useEventMoveDrag)가 함께 쓴다. */
+export const DRAG_THRESHOLD_PX = 4
 
 /**
  * 시간 그리드에서 끈 구간(열 맨 위 기준 y px 두 점) → 그날의 시작·종료 시각(WP-949). 위아래 어느 쪽으로 끌어도 되고,

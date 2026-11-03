@@ -7,10 +7,13 @@ import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { eventDisplayColor, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
+import { withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
 import type { CalendarEvent } from '@/types/calendar'
 
+import { MovePreviewChip } from './MovePreviewChip'
 import type { ViewProps } from './TimeGrid'
+import { isMovingEvent, useEventMoveDrag } from './useEventMoveDrag'
 
 // 요일 헤더 (일~토)
 const WEEK_DAYS = ['일', '월', '화', '수', '목', '금', '토']
@@ -22,7 +25,20 @@ const OVERFLOW_H = 18 // +N 표시 줄
 const FALLBACK_FIT = 3 // 측정 전 초기값
 
 // 월간 뷰 컴포넌트
-export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIssue, onCreateAt }: ViewProps) {
+export function MonthView({
+  events,
+  issueDues,
+  anchor,
+  onSelectEvent,
+  onSelectIssue,
+  onCreateAt,
+  onMoveEvent,
+  canMoveEvent,
+}: ViewProps) {
+  // 일정 끌어 옮기기(WP-1328) — 칸 사이로 날짜만 옮긴다(타임드 일정은 시각 유지, 종일 ↔ 타임드 바꾸지 않음).
+  const move = useEventMoveDrag({ onMoveEvent, canMoveEvent })
+  // 놓일 날 판정용 사본 — 옮긴 범위로 바꾼 일정이 걸친 칸마다 반투명 사본을 그린다.
+  const movedEvent = move.preview?.range ? withRange(move.preview.event, move.preview.range) : null
   // anchor 기준 42칸 날짜 배열
   const cells = monthMatrix(anchor)
 
@@ -82,8 +98,14 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
             <div
               key={dateLabel}
               data-testid={`calendar-cell-${dateLabel}`}
-              onClick={() => onCreateAt(day)}
-              className={`border-b border-r p-1 cursor-pointer overflow-hidden ${
+              data-move-day={dateLabel}
+              data-move-kind="day"
+              onClick={() => {
+                // 일정을 끌어 옮긴 직후 칸으로 온 click 이면 새 일정을 열지 않는다(WP-1328).
+                if (move.consumeClick()) return
+                onCreateAt(day)
+              }}
+              className={`relative border-b border-r p-1 cursor-pointer overflow-hidden select-none ${
                 inMonth ? '' : 'bg-muted/30'
               }`}
             >
@@ -101,12 +123,25 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
               </div>
 
               {/* 이벤트 칩 (셀 높이만큼) — DECLINED 는 반투명 처리 (이슈 #489) */}
+              {/* 끌어 옮기는 일정이 놓일 날 — 칸 전체를 덮는 반투명 테두리와 제목(WP-1328). 칸 안 칩을 밀어내지 않게 겹쳐 그린다. */}
+              {movedEvent && eventsOnDay([movedEvent], day).length > 0 && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-end bg-primary/10 p-1 ring-2 ring-inset ring-primary">
+                  <MovePreviewChip preview={move.preview} />
+                </div>
+              )}
+
               {visible.map((e) => (
                 <EventChip
                   key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
                   event={e}
                   testId={`calendar-event-${eventKey(e)}`}
-                  onSelect={onSelectEvent}
+                  dragHandlers={move.bind(e, day, 'day')}
+                  moving={isMovingEvent(move.preview, e)}
+                  onSelect={(picked) => {
+                    // 끌어 옮긴 직후의 click 이면 일정을 열지 않는다.
+                    if (move.consumeClick()) return
+                    onSelectEvent(picked)
+                  }}
                 />
               ))}
 
@@ -134,17 +169,34 @@ function eventKey(e: CalendarEvent) {
   return e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id
 }
 
-/** 월 보기 일정 칩 — 누르면 일정을 연다. 칸 클릭(새 일정)으로 올라가지 않게 막는다. */
-function EventChip({ event: e, testId, onSelect }: { event: CalendarEvent; testId: string; onSelect: (e: CalendarEvent) => void }) {
+/**
+ * 월 보기 일정 칩 — 누르면 일정을 연다. 칸 클릭(새 일정)으로 올라가지 않게 막는다.
+ * dragHandlers 를 주면 끌어 다른 날로 옮길 수 있고(WP-1328), moving 이면 옮기는 중이라 원래 자리를 흐리게 그린다.
+ * +N 팝오버 안의 칩은 끌지 않는다(팝오버가 칸을 덮어 놓을 칸이 보이지 않는다).
+ */
+function EventChip({
+  event: e,
+  testId,
+  onSelect,
+  dragHandlers,
+  moving = false,
+}: {
+  event: CalendarEvent
+  testId: string
+  onSelect: (e: CalendarEvent) => void
+  dragHandlers?: ReturnType<ReturnType<typeof useEventMoveDrag>['bind']>
+  moving?: boolean
+}) {
   return (
     <button
       type="button"
       data-testid={testId}
+      {...dragHandlers}
       onClick={(ev) => {
         ev.stopPropagation()
         onSelect(e)
       }}
-      className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
+      className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' || moving ? 'opacity-40' : ''}`}
     >
       <ExtraTagDots event={e} />
       {e.title}
