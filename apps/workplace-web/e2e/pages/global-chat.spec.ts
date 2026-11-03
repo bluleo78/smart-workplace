@@ -238,6 +238,9 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
     const chipBox = await measureBox(page.getByTestId('chat-launcher'), 'chat-launcher')
     swBox = await measureBox(switcher, 'chat-session-switcher')
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(swBox.x)
+    // WP-1324: 칩 오른쪽 전역 이슈 검색 아이콘도 패널(스위처)을 덮지 않는다.
+    const searchBox = await measureBox(page.getByTestId('global-search-toggle'), 'global-search-toggle')
+    expect(searchBox.x + searchBox.width).toBeLessThanOrEqual(swBox.x)
   }).toPass()
 
   // 핵심 검증 2(히트테스트): 스위처 좌측 지점의 최상단 요소가 칩이 아니어야 클릭이 안 가로채진다.
@@ -249,10 +252,17 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
     { x: swBox.x + 4, y: swBox.y + swBox.height / 2 },
   )
   expect(hitTestid).not.toBe('chat-launcher')
+  expect(hitTestid).not.toBe('global-search-toggle')
 
   // 핵심 검증 3(동작): 스위처 좌측을 클릭해도 칩의 모드 순환(side→fullscreen)이 트리거되지 않는다.
   await page.mouse.click(swBox.x + 4, swBox.y + swBox.height / 2)
   await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'side')
+
+  // WP-1324: 옆 패널이 열린 채 검색을 펼치면 왼쪽으로 펼쳐져 패널 좌단을 넘지 않는다.
+  await page.getByTestId('global-search-toggle').click()
+  const panelBox = await measureBox(panel, 'ai-side-panel')
+  const fieldBox = await measureBox(page.getByTestId('global-search'), 'global-search')
+  expect(fieldBox.x + fieldBox.width).toBeLessThanOrEqual(panelBox.x)
 })
 
 test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·닫기 X 에 가려지지 않는다 (#206)', { tag: '@layout' }, async ({

@@ -7,7 +7,7 @@ import { type RefObject, useLayoutEffect } from 'react'
 const CHIP_GAP = 16
 /** 칩이 아무리 가까워도 남기는 좌측 그룹 최소 폭(px) — 칩이 그룹보다 왼쪽에 있는 극단 배치 대비. */
 const MIN_GROUP_WIDTH = 120
-/** 칩 표식(AIChip 의 data-ai-chip). */
+/** 상단 가운데 틀 표식(AIChip·TopCenterSlot 의 data-ai-chip — 비서가 없으면 전역 검색 틀, WP-1324). */
 const CHIP_SELECTOR = '[data-ai-chip]'
 
 /** 변경된 노드가 칩이거나 칩을 품고 있는지 — body 직계 자식 변화 중 칩과 무관한 portal(토스트·팝오버 등)은 건너뛴다. */
@@ -20,20 +20,16 @@ function touchesChip(records: MutationRecord[]) {
 }
 
 /**
- * enabled 인 동안 group 의 style.maxWidth = 칩 좌측 − 그룹 좌측 − 16px(최소 120px). 칩이 없으면 제한을 푼다.
+ * group 의 style.maxWidth = 칩 좌측 − 그룹 좌측 − 16px(최소 120px). 칩이 없으면 제한을 푼다.
  * 재측정 시점: 헤더 크기 변화(레일 토글·패널 열림/폭 조절·창 크기 — ResizeObserver),
  * 칩의 left 전환 종료(transitionend), body 직계 자식 중 칩이 붙거나 떨어질 때(MutationObserver).
  * 창 resize 는 헤더(콘텐츠 영역) 크기를 바꾸므로 ResizeObserver 가 함께 잡는다.
  * 관찰자 콜백은 한 프레임에 모아(requestAnimationFrame) rect 두 번 읽고 style 한 번 쓴다 — 첫 측정만 페인트 전에 바로 한다.
  */
-export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>, enabled: boolean) {
+export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>) {
   useLayoutEffect(() => {
     const group = groupRef.current
     if (!group) return
-    if (!enabled) {
-      group.style.maxWidth = ''
-      return
-    }
     let chip: HTMLElement | null = null
     let frame = 0
 
@@ -81,5 +77,5 @@ export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>, enabled:
       chip?.removeEventListener('transitionend', onTransitionEnd)
       group.style.maxWidth = ''
     }
-  }, [groupRef, enabled])
+  }, [groupRef])
 }

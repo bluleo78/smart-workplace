@@ -14,3 +14,9 @@ export function isEscapeForInnerOverlay(e: KeyboardEvent, self?: Element | null)
   if (e.defaultPrevented || e.isComposing) return true;
   return Array.from(document.querySelectorAll(OPEN_OVERLAY_SELECTOR)).some((el) => el !== self);
 }
+
+/** 글을 쓰는 곳(입력칸·편집기)인지 — 단축키가 그 글자를 가로채지 않게 하는 공용 판정(useIssueOrigin·전역 이슈 검색). */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+}
