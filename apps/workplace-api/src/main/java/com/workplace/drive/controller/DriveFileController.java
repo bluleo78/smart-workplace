@@ -106,7 +106,13 @@ public class DriveFileController {
     return ResponseEntity.ok().headers(headers).body(c.resource());
   }
 
-  /** 인라인 미리보기 — download 와 동일 콘텐츠를 inline disposition 으로 서빙. */
+  /**
+   * 인라인 미리보기 — download 와 동일 콘텐츠를 inline disposition 으로 서빙.
+   *
+   * <p>WP-1323: AI 가 내용으로 만든 html·svg 도 저장 MIME 그대로 내주므로, 공개 링크 원본({@code
+   * PublicDriveShareController})과 같게 {@code Content-Security-Policy: sandbox} 를 붙인다 — 직접 열어도 고유 출처
+   * 없는 샌드박스라 이 출처의 스크립트로 돌지 않는다. 웹 뷰어는 blob 으로 받아 쓰므로 영향이 없다. nosniff 는 SecurityConfig 가 전역으로 붙인다.
+   */
   @GetMapping("/files/{id}/content")
   public ResponseEntity<Resource> content(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId)
@@ -117,6 +123,7 @@ public class DriveFileController {
     headers.setContentDisposition(
         ContentDisposition.inline().filename(c.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(c.size());
+    headers.set("Content-Security-Policy", "sandbox");
     return ResponseEntity.ok().headers(headers).body(c.resource());
   }
 

@@ -120,12 +120,12 @@ public class DriveFileService {
   /**
    * 텍스트로 파일 만들기(WP-369) — AI·MCP 가 쓴 내용을 UTF-8 로 저장한다. 업로드와 같은 의미(권한·폴더 검증·할당량·동명 새 버전·감사·추출·알림)다.
    *
-   * <p>MIME 은 {@code mimeType} 이 있으면 허용 목록(text/markdown·text/plain·text/csv·application/json) 안에서만
-   * 쓰고, 없으면 확장자(md·txt·csv·json, 그 밖은 text/plain)로 정한다. 크기 상한은 TEXT 상한(10MB).
+   * <p>MIME 은 {@code mimeType} 이 있으면 허용 목록({@link MimeNormalizer#isTextMime}) 안에서만 쓰고, 없으면
+   * 확장자(md·txt·csv·json· html·svg·xml 등 — WP-1323, 표 밖은 text/plain)로 정한다. 크기 상한은 TEXT 상한(10MB).
    *
    * <p>같은 폴더에 같은 이름의 활성 파일이 있어 그 파일의 새 버전이 될 때는 {@link #updateTextFile} 과 같은 규칙을 탄다(최종 리뷰 M2) — 텍스트
    * 계열이 아니면 409, 추출 텍스트가 원문과 다르면({@link #rewriteBlockerOf}) 409, MIME 은 {@link
-   * #updatedTextMimeOf}(지금 MIME 유지). 이 판정은 저장 핵심이 잠근 그 행으로 한다.
+   * #updatedTextMimeOf}(확장자 표 → 지금 MIME 순). 이 판정은 저장 핵심이 잠근 그 행으로 한다.
    *
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
@@ -156,10 +156,10 @@ public class DriveFileService {
   static String textMimeOf(String name, String requested) {
     if (requested != null && !requested.isBlank()) {
       String mime = RawUploadContentTypes.bare(requested);
-      // 명시값은 확장자 표의 넷만 — html 은 text/html 로 서빙되지 않게 뺐다. ";x" 처럼 본체가 빈 값(null)도 400.
-      if (!MimeNormalizer.isTextMime(mime)) {
+      // 명시값은 확장자 표(MimeNormalizer)의 값만. ";x" 처럼 본체가 빈 값(null)도 400.
+      if (!MimeNormalizer.isAllowedTextMime(mime)) {
         throw new IllegalArgumentException(
-            "mimeType 은 text/markdown, text/plain, text/csv, application/json 중 하나여야 합니다.");
+            "mimeType 은 " + MimeNormalizer.textMimesLabel() + " 중 하나여야 합니다.");
       }
       return mime;
     }
@@ -335,11 +335,12 @@ public class DriveFileService {
    * 텍스트 갱신 새 버전의 MIME(WP-369).
    *
    * <ul>
-   *   <li>{@code requested} 가 있으면 R4 허용 목록만({@link #textMimeOf}, 아니면 400).
-   *   <li>없고 지금 MIME 이 텍스트 MIME 이며 html·xml 계열이 아니면 그대로 둔다(매개변수는 뗀다 — 내용을 UTF-8 로 다시 쓰므로 옛 charset
-   *       을 남기지 않는다).
-   *   <li>그 밖(html·xml 계열, 확장자로만 텍스트로 본 octet-stream)은 파일 이름 확장자로 정한다 — html·xml 은 text/plain 이 된다.
-   *       {@code /content} 가 저장 MIME 으로 인라인 서빙하므로 AI 가 쓴 내용이 문서로 렌더링·실행되지 않게 한다.
+   *   <li>{@code requested} 가 있으면 허용 목록만({@link #textMimeOf}, 아니면 400).
+   *   <li>없고 지금 MIME 이 text/plain 이 아닌 텍스트 MIME 이면 그대로 둔다 — 명시로 고른 형식(.txt 를 text/markdown 등)이나 더
+   *       구체적인 형식(rss+xml 등)을 잃지 않게(매개변수는 뗀다 — 내용을 UTF-8 로 다시 쓰므로 옛 charset 을 남기지 않는다).
+   *   <li>그 밖(text/plain, 확장자로만 텍스트로 본 octet-stream)은 파일 이름 확장자 표({@link
+   *       MimeNormalizer#knownTextMimeOf})로, 표 밖이면 text/plain — WP-1323: 예전 규칙으로 text/plain 이 된
+   *       .html 을 바로잡는다(원본 응답은 CSP sandbox).
    * </ul>
    */
   static String updatedTextMimeOf(String name, String currentMime, String requested) {
@@ -347,10 +348,10 @@ public class DriveFileService {
       return textMimeOf(name, requested);
     }
     String current = RawUploadContentTypes.bare(currentMime);
-    if (current != null && isTextMime(current) && !isHtmlLike(current)) {
+    if (current != null && isTextMime(current) && !current.equals("text/plain")) {
       return current;
     }
-    return textMimeOf(name, null);
+    return MimeNormalizer.knownTextMimeOf(name).orElse("text/plain");
   }
 
   /**
@@ -372,20 +373,12 @@ public class DriveFileService {
 
   /**
    * 텍스트 MIME 인지(매개변수를 뗀 소문자 값) — text/* 전부, 텍스트로 읽는 application 형식들, application/*+json·*+xml.
-   * image/svg+xml 은 이미지라 넣지 않는다.
+   * image/svg+xml 은 이미지라 넣지 않는다 — 추출하지 않아 AI 가 원문을 읽지 못하므로 내용으로 덮어쓰면 원본을 잃는다.
    */
   static boolean isTextMime(String bare) {
     return bare.startsWith("text/")
         || TEXT_APPLICATION_MIMES.contains(bare)
         || (bare.startsWith("application/") && (bare.endsWith("+json") || bare.endsWith("+xml")));
-  }
-
-  /** html·xml 계열인지 — 브라우저가 문서로 렌더링해 스크립트를 실행할 수 있는 형식(XHTML 네임스페이스 스크립트 포함). */
-  static boolean isHtmlLike(String bare) {
-    return bare.equals("text/html")
-        || bare.equals("text/xml")
-        || bare.equals("application/xml")
-        || bare.endsWith("+xml");
   }
 
   /**

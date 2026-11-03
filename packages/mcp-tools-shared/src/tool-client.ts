@@ -620,8 +620,8 @@ export interface DriveToolClient {
   createDriveUploadLink(spaceId: number, folderId: number | null, name: string): Promise<DriveUploadLink>;
   /**
    * POST /drive/spaces/{id}/files/text — EDITOR 이상. content(UTF-8, 10MB 이하)로 텍스트 파일을 만든다(WP-369).
-   * MIME 은 서버가 이름으로 정한다(md·txt·csv·json, 그 밖은 text/plain). 같은 이름이 있으면 새 버전 — 그때는 updateDriveTextFile 과 같은 규칙(텍스트가
-   * 아니거나 읽은 텍스트가 원문과 다르면 409, MIME 은 지금 형식 유지)이다. DriveFileResponse 원형 반환.
+   * MIME 은 서버가 이름으로 정한다(md·csv·json·html·svg·xml 등 확장자대로, 그 밖은 text/plain — WP-1323). 같은 이름이 있으면 새 버전 — 그때는 updateDriveTextFile 과 같은 규칙(텍스트가
+   * 아니거나 읽은 텍스트가 원문과 다르면 409, MIME 은 확장자 표 → 지금 형식 순)이다. DriveFileResponse 원형 반환.
    */
   createDriveTextFile(spaceId: number, folderId: number | null, name: string, content: string): Promise<unknown>;
   /**
@@ -642,7 +642,7 @@ export interface DriveToolClient {
  * 그 도메인이 자기 권한으로 정하므로 여기서는 인증만 필요하다. 24시간(expiresAt) 안에 붙이지 않으면 서버 만료 정리가 지운다.
  */
 export interface FileToolClient {
-  /** POST /staged-files/text — 201. UTF-8 텍스트로 저장(MIME 은 서버가 이름으로: md·txt·csv·json, 그 밖은 text/plain). StagedFileResponse 원형. */
+  /** POST /staged-files/text — 201. UTF-8 텍스트로 저장(MIME 은 서버가 이름으로: md·txt·csv·json 등 — html·svg·xml 은 text/plain, WP-1323). StagedFileResponse 원형. */
   createStagedTextFile(name: string, content: string): Promise<StagedFile>;
   /** POST /staged-files/upload-link — 201. 10분짜리 일회용 PUT 링크(평문 토큰은 이 응답에서만). StagedUploadLinkResponse 원형. */
   createStagedUploadLink(name: string): Promise<StagedUploadLink>;

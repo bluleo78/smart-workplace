@@ -58,6 +58,10 @@ public class FileUploadService {
           Map.entry("text/html", "TEXT"),
           Map.entry("application/yaml", "TEXT"),
           Map.entry("application/javascript", "TEXT"),
+          // WP-1323: 드라이브 텍스트 만들기 표(MimeNormalizer)의 형식 — 범주가 OTHER 로 빠지지 않게.
+          Map.entry("text/javascript", "TEXT"),
+          Map.entry("text/css", "TEXT"),
+          Map.entry("text/tab-separated-values", "DATA"),
           Map.entry("application/x-sh", "TEXT"),
           Map.entry(
               "application/vnd.openxmlformats-officedocument.presentationml.presentation",

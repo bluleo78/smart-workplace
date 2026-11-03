@@ -115,6 +115,8 @@ class FileUploadControllerTest extends WebMvcSliceTestBase {
         .perform(get("/api/v1/files/1/content").header("Authorization", "Bearer test-token"))
         .andExpect(status().isOk())
         .andExpect(
-            header().string("Content-Type", org.hamcrest.Matchers.containsString("text/csv")));
+            header().string("Content-Type", org.hamcrest.Matchers.containsString("text/csv")))
+        // WP-1323: 드라이브 원본도 이 경로로 읽을 수 있어 html·svg 가 이 출처로 실행되지 않게 샌드박스.
+        .andExpect(header().string("Content-Security-Policy", "sandbox"));
   }
 }

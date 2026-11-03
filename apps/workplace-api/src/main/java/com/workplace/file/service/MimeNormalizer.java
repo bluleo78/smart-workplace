@@ -6,6 +6,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 
@@ -54,29 +57,77 @@ public final class MimeNormalizer {
           Map.entry("bmp", "image/bmp"));
 
   /**
-   * 텍스트로 만드는 파일(드라이브 텍스트 파일·스테이징 텍스트 업로드)의 확장자 → MIME. 이 넷 밖은 모두 text/plain 이다 — html 등이 저장 MIME 으로
-   * 인라인 서빙돼 문서로 렌더링·실행되지 않게 한다.
+   * 텍스트로 만드는 파일(드라이브 텍스트 파일·스테이징 텍스트 업로드)의 확장자 → MIME. 표 밖의 확장자는 text/plain 이다.
+   *
+   * <p>WP-1323: 예전(WP-369 R4)에는 html 등이 저장 MIME 으로 inline 서빙돼 실행되지 않게 md·txt·csv·json 넷만 두었다. 지금은
+   * 미리보기가 샌드박스 iframe(WP-1260)이고 API 는 Authorization 헤더로만 인증하며, 드라이브 원본 응답에 {@code
+   * Content-Security-Policy: sandbox} 를 붙여 직접 열어도 이 출처로 스크립트가 돌지 않으므로, AI 가 만든 html·svg 등 텍스트 형식을
+   * 확장자대로 저장한다(미리보기에서 웹페이지·그림으로 보이게).
    */
   private static final Map<String, String> TEXT_MIME_BY_EXTENSION =
-      Map.of(
-          "md", "text/markdown",
-          "txt", "text/plain",
-          "csv", "text/csv",
-          "json", "application/json");
+      Map.ofEntries(
+          Map.entry("md", "text/markdown"),
+          Map.entry("txt", "text/plain"),
+          Map.entry("log", "text/plain"),
+          Map.entry("csv", "text/csv"),
+          Map.entry("tsv", "text/tab-separated-values"),
+          Map.entry("json", "application/json"),
+          Map.entry("html", "text/html"),
+          Map.entry("htm", "text/html"),
+          Map.entry("css", "text/css"),
+          Map.entry("js", "text/javascript"),
+          Map.entry("xml", "application/xml"),
+          Map.entry("svg", "image/svg+xml"),
+          Map.entry("yaml", "application/x-yaml"),
+          Map.entry("yml", "application/x-yaml"));
+
+  /** 명시 mimeType 으로 받는 값 — 표의 값 전부(중복 제거, 오류 문구에 쓰려고 순서를 고정). */
+  private static final SortedSet<String> TEXT_MIMES =
+      new TreeSet<>(TEXT_MIME_BY_EXTENSION.values());
 
   /**
-   * 텍스트 내용으로 만드는 파일의 MIME 을 이름 확장자로 정한다(WP-421, drive R4 규칙을 옮겨 공유). md→text/markdown,
-   * txt→text/plain, csv→text/csv, json→application/json, 그 밖(확장자 없음·html·null 포함)은 text/plain.
+   * 텍스트 내용으로 만드는 파일의 MIME 을 이름 확장자로 정한다(WP-421, drive R4 규칙을 옮겨 공유 — WP-1323 에서 표를 넓힘). 표에 없는
+   * 확장자·확장자 없음·null 은 text/plain.
    */
   public static String textMimeOf(String name) {
-    String ext = FilePathBuilder.extensionOf(name == null ? "" : name).toLowerCase(Locale.ROOT);
-    return TEXT_MIME_BY_EXTENSION.getOrDefault(ext, "text/plain");
+    return knownTextMimeOf(name).orElse("text/plain");
   }
 
-  /** 텍스트 내용으로 만드는 파일에 명시할 수 있는 MIME 인지 — {@link #textMimeOf} 의 확장자 표에 있는 넷. null 은 아니다. */
-  public static boolean isTextMime(String mime) {
-    // Map.of 의 containsValue(null) 은 NPE 라 먼저 거른다.
-    return mime != null && TEXT_MIME_BY_EXTENSION.containsValue(mime);
+  /**
+   * 스테이징 텍스트 업로드(upload_file 내용 모드)의 MIME — {@link #textMimeOf} 와 같되 html·svg·xml 은
+   * text/plain(WP-1323). 스테이징 파일은 이슈·챗·노트 첨부가 되고, 그 첨부 원본 경로(공개 노트 공유 포함)에는 드라이브와 달리 CSP sandbox 가
+   * 없어 저장 MIME 그대로 렌더링되면 이 출처로 스크립트가 돌 수 있다.
+   */
+  public static String inertTextMimeOf(String name) {
+    String mime = textMimeOf(name);
+    return isActiveDocumentMime(mime) ? "text/plain" : mime;
+  }
+
+  /**
+   * 브라우저가 문서로 렌더링해 스크립트를 돌릴 수 있는 형식인지 — html·xml 계열(text/xml·application/xml·모든 *+xml, svg·xhtml
+   * 포함). CSP sandbox 없이 inline 서빙되는 곳에는 이 MIME 으로 저장하지 않는다.
+   */
+  public static boolean isActiveDocumentMime(String mime) {
+    return mime.equals("text/html")
+        || mime.equals("text/xml")
+        || mime.equals("application/xml")
+        || mime.endsWith("+xml");
+  }
+
+  /** 이름 확장자가 텍스트 표에 있으면 그 MIME, 없으면 빈 값 — 갱신 때 지금 MIME 을 둘지 확장자로 바로잡을지 가른다(WP-1323). */
+  public static Optional<String> knownTextMimeOf(String name) {
+    String ext = FilePathBuilder.extensionOf(name == null ? "" : name).toLowerCase(Locale.ROOT);
+    return Optional.ofNullable(TEXT_MIME_BY_EXTENSION.get(ext));
+  }
+
+  /** 텍스트 내용으로 만드는 파일에 명시할 수 있는 MIME 인지 — {@link #textMimeOf} 의 확장자 표에 있는 값. null 은 아니다. */
+  public static boolean isAllowedTextMime(String mime) {
+    return mime != null && TEXT_MIMES.contains(mime);
+  }
+
+  /** 명시할 수 있는 MIME 목록(쉼표로 이음) — 400 문구용. */
+  public static String textMimesLabel() {
+    return String.join(", ", TEXT_MIMES);
   }
 
   /**

@@ -416,14 +416,13 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.sizeBytes").value(7))
         .andExpect(jsonPath("$.versionCount").value(1));
 
-    // html MIME 은 허용하지 않는다(R4), VIEWER 403, 다른 공간 폴더 400, content 누락 400
+    // 허용 목록 밖 MIME(pdf)은 400(R4 — WP-1323 에서 html 은 허용), VIEWER 403, 다른 공간 폴더 400, content 누락 400
     mockMvc
         .perform(
             post("/api/v1/drive/spaces/" + spaceId + "/files/text")
                 .header("Authorization", bearer(owner))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"name\":\"p.html\",\"content\":\"<b>x</b>\",\"mimeType\":\"text/html\"}"))
+                .content("{\"name\":\"p.pdf\",\"content\":\"x\",\"mimeType\":\"application/pdf\"}"))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(
