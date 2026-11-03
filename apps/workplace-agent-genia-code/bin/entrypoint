@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Gen:iA Code 작업 공간 엔트리포인트(WP-1296) — runner 가 만든 AI Pod 에서 사람 손 없이 Gen:iA Code·플러그인·저장소·work-loop 칸을 띄우고 지킨다.
+# 공용 함수는 Claude Code 이미지의 lib.sh(같은 파일을 COPY), Gen:iA Code 전용은 lib-genia.sh(뒤에 읽어 덮어쓴다). Pod 계약은 docs/integrations/agent-pod-contract.md.
+# 모양은 Claude Code 엔트리포인트와 같다:
+# - 칸(work-loop)이 DRAIN·RESTART 로 멈춰도 끝내지 않는다 — 끝내면 kubelet 이 같은 generation 으로 다시 띄워 헛돈다(교체는 runner 가 Pod 를 지워서 한다).
+# - SIGTERM 에는 칸들을 정리하고 0 으로 끝낸다.
+# - genia 프로그램을 받지 못하면 끝내지 않고 감독(tick)이 다시 받아 본다 — 그동안, 그리고 로그인 정보가 없는 동안은 칸을 띄우지 않는다.
+set -o pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# 이미지는 lib.sh 를 같은 폴더(/opt/genia/bin)에 COPY 한다. 저장소에서 돌릴 때(테스트)는 Claude Code 이미지 폴더의 것을 읽는다.
+lib="$here/lib.sh"
+[ -f "$lib" ] || lib="$here/../../workplace-agent-claude-code/bin/lib.sh"
+# shellcheck source=../../workplace-agent-claude-code/bin/lib.sh
+. "$lib"
+# shellcheck source=lib-genia.sh
+. "$here/lib-genia.sh"
+
+SLEEP_PID=""
+on_term() {
+  trap - TERM INT
+  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  # start_projects 가 저장소·브라우저를 받는 중이었다면 그 일들을 자손까지 끄고 임시 폴더를 치운다.
+  abort_boot
+  log "종료 신호 — 칸들을 정리합니다"
+  stop_all
+  exit 0
+}
+trap on_term TERM INT
+
+# 1. 필수 파일·env, /work 폴더
+check_required
+prepare_dirs
+# 1b. 추가 CA(사내 GitLab 등) — 이 뒤의 모든 연결이 쓰게 먼저 합친다. 1c. genia 가 쓸 node 인증서 묶음(genia-root + 추가 CA).
+setup_ca
+genia_ca
+# 2. genia 프로그램 — 받아 둔 것이 있으면 새 버전을 확인한다(감싸개도 여기서 만든다). 없으면 아래 첫 감독 회차(tick)가 받는다 —
+#    받지 못해도 끝내지 않고 회차마다 다시 한다.
+if genia_ready; then install_genia; fi
+# 3. 플러그인(굳힌 것 또는 마켓플레이스의 genia 확장이 있는 버전) — 못 찾으면 띄울 수 없다. 이 뒤로는 gw-lib 를 쓴다.
+use_plugin || die "genia-works 플러그인을 찾지 못했습니다 — 이미지를 다시 빌드하세요"
+log "플러그인 $GW_SCRIPTS"
+# 4. genia 환경(설정 폴더 등 — 칸이 물려받는다)·설정 파일·로그인 정보
+genia_env || die "$AI_DIR/genia-agent 를 만들지 못했습니다"
+write_genia_settings || die "$GENIA_CODING_AGENT_DIR/settings.json 을 쓰지 못했습니다"
+seed_login
+# 5. AI 키·git·저장소 자격 증명
+install_key || die "AI 키를 놓지 못했습니다"
+setup_git
+# 6. dind
+wait_dind
+# 7. 칸의 실행기를 genia 로 — 플러그인 agent-project 의 genia 분기가 칸 명령을 정한다.
+"$GW_SCRIPTS/agent-home" "$AI_DIR" set cli genia || die "AI 폴더에 실행기(genia)를 적지 못했습니다"
+# 8·9. 감독 — 부팅 첫 회차부터 tick 하나로(genia 받기 → 칸을 띄울 수 있으면 supervise_once: 처음이면 start_projects, 그 뒤 칸 살피기·알림 감시 창).
+#    genia 가 없거나 로그인 정보가 없으면 칸을 띄우지 않는다 — 로그인 없이 띄우면 genia 가 로그인 선택 화면에서 멈춘다(11-03 실측).
+#    sleep 을 뒤에서 돌리고 wait 로 기다려 SIGTERM 을 바로 받는다. PROJECTS_READY·BOOT_KEYS 는 lib.sh 의 start_projects·supervise_once 가 읽고 쓴다.
+# shellcheck disable=SC2034
+PROJECTS_READY=0
+# shellcheck disable=SC2034
+BOOT_KEYS=""
+while :; do
+  tick
+  sleep "$GENIA_SUPERVISE_INTERVAL" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID"
+  SLEEP_PID=""
+done
