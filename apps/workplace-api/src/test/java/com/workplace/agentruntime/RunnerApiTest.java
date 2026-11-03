@@ -142,7 +142,7 @@ class RunnerApiTest extends IntegrationTestBase {
         .andExpect(
             jsonPath("$.agents[0].image")
                 .value("docker.io/iacloudops/genia-works-agent-claude-code:latest"))
-        .andExpect(jsonPath("$.agents[0].resources.cpuRequest").value("4"))
+        .andExpect(jsonPath("$.agents[0].resources.cpuRequest").value("2"))
         .andExpect(jsonPath("$.agents[0].sidecars[0].name").value("dind"))
         .andExpect(jsonPath("$.agents[0].plugins[0].name").value("genia-works"))
         .andExpect(jsonPath("$.agents[0].config.model").value("opus"))
