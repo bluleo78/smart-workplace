@@ -603,6 +603,50 @@ public class IssueRepository {
     return cond;
   }
 
+  /** 작업 번호만 넣은 검색어 — {@code 525}·{@code #525}(WP-1326). */
+  private static final java.util.regex.Pattern NUMBER_QUERY =
+      java.util.regex.Pattern.compile("^#?(\\d+)$");
+
+  /**
+   * 검색어(q) 조건 — 제목·본문에 포함되거나 작업 번호가 일치하는 이슈(WP-1326). 단일 프로젝트 목록과 프로젝트 횡단 목록(MCP·REST {@code q}
+   * 포함)이 같은 규칙을 쓰도록 한 곳에 둔다.
+   *
+   * <ul>
+   *   <li>제목·본문: 검색어의 %·_·\ 는 글자 그대로 찾는다(WP-471 — 그대로 넣으면 와일드카드가 돼 전체가 나왔다).
+   *   <li>{@code CHAT-525}: 그 프로젝트 키의 525번 이슈 — 키 꼴은 관계 대상 찾기와 같은 {@link IssueKeys#parse} 로 읽는다.
+   *   <li>{@code 525}·{@code #525}: 번호가 525 인 이슈(횡단 목록이면 프로젝트마다 하나씩) — 키를 몰라도 번호로 찾게 한다.
+   * </ul>
+   *
+   * 제목·본문 조건에 OR 로 더하므로 기존 텍스트 검색 결과는 줄지 않는다. 정렬은 바꾸지 않는다(커서 페이지가 정렬 키에 묶여 있다).
+   */
+  static Condition searchTextCondition(String rawQuery) {
+    String q = rawQuery.trim();
+    String pattern = LikePatternUtils.containsPattern(q);
+    Condition cond =
+        ISSUE.TITLE.likeIgnoreCase(pattern, '\\').or(ISSUE.BODY.likeIgnoreCase(pattern, '\\'));
+    Optional<IssueKeys.IssueKey> key = IssueKeys.parse(q);
+    if (key.isPresent()) {
+      // 프로젝트 키는 대문자로 저장된다 — parse 가 대문자로 맞춰 준다. 범위(멤버십·프로젝트)는 호출부 조건이 따로 건다.
+      return cond.or(
+          ISSUE
+              .NUMBER
+              .eq(key.get().number())
+              .and(
+                  ISSUE.PROJECT_ID.in(
+                      DSL.select(PROJECT.ID)
+                          .from(PROJECT)
+                          .where(PROJECT.KEY.eq(key.get().projectKey())))));
+    }
+    java.util.regex.Matcher m = NUMBER_QUERY.matcher(q);
+    if (m.matches()) {
+      Integer number = IssueKeys.parseNumber(m.group(1));
+      if (number != null) {
+        return cond.or(ISSUE.NUMBER.eq(number));
+      }
+    }
+    return cond;
+  }
+
   /**
    * 단일 프로젝트 검색 필터 조건(cursor 제외) — 목록(search)·그룹 총계(countGrouped, WP-472)·체크리스트 정렬(searchChecklist,
    * WP-918)·사용자 지정 정렬({@link IssueSortedRepository}, WP-1238)이 같은 조건을 쓰게 한 곳에 둔다. 따로 만들면 필터 하나만
@@ -613,14 +657,7 @@ public class IssueRepository {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
 
     if (query.q() != null && !query.q().isBlank()) {
-      // 검색어의 %·_·\ 는 글자 그대로 찾는다(WP-471 — 그대로 넣으면 와일드카드가 돼 전체가 나왔다).
-      String pattern = LikePatternUtils.containsPattern(query.q().trim());
-      where =
-          where.and(
-              ISSUE
-                  .TITLE
-                  .likeIgnoreCase(pattern, '\\')
-                  .or(ISSUE.BODY.likeIgnoreCase(pattern, '\\')));
+      where = where.and(searchTextCondition(query.q()));
     }
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));
@@ -1302,14 +1339,7 @@ public class IssueRepository {
     org.jooq.Condition where = memberScopeCondition(memberUserId);
 
     if (query.q() != null && !query.q().isBlank()) {
-      // 검색어의 %·_·\ 는 글자 그대로 찾는다(WP-471 — 그대로 넣으면 와일드카드가 돼 전체가 나왔다).
-      String pattern = LikePatternUtils.containsPattern(query.q().trim());
-      where =
-          where.and(
-              ISSUE
-                  .TITLE
-                  .likeIgnoreCase(pattern, '\\')
-                  .or(ISSUE.BODY.likeIgnoreCase(pattern, '\\')));
+      where = where.and(searchTextCondition(query.q()));
     }
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));

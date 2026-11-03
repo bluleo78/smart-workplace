@@ -138,6 +138,45 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
         .containsExactly("snake_case 이름");
   }
 
+  /**
+   * WP-1326 — 작업 번호만(525·#525)이나 키(CHAT-525, 대소문자 무시)로 찾아도 그 이슈가 나온다. 제목·본문 검색 결과는 그대로이고, 키는 그
+   * 프로젝트의 번호만 찾는다. 프로젝트 횡단 검색(홈·MCP·REST q)도 같은 규칙이다.
+   */
+  @Test
+  void q_matches_issue_number_and_key() {
+    var s = seed("n");
+    ProjectResponse other =
+        projectService.create(s.userId, new CreateProjectRequest(uniqueKey("PO"), "P-o", "x"));
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 525, "번호로 찾을 이슈", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 7, "버전 525 대응", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 8, "관계없는 이슈", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, other.id(), 525, "다른 프로젝트 525번", null, "MID", null, s.userId);
+
+    // 숫자만 — 번호 일치 + 제목에 525 가 든 이슈(기존 텍스트 검색)가 함께 나온다.
+    assertThat(searchTitles(s, "525")).containsExactlyInAnyOrder("번호로 찾을 이슈", "버전 525 대응");
+    assertThat(searchTitles(s, " #525 ")).containsExactly("번호로 찾을 이슈");
+    assertThat(searchTitles(s, "8")).containsExactly("관계없는 이슈");
+    // 키 꼴 — 소문자로 넣어도 그 프로젝트의 번호, 다른 프로젝트 키면 이 프로젝트에서는 없음.
+    assertThat(searchTitles(s, s.projectKey.toLowerCase() + "-525")).containsExactly("번호로 찾을 이슈");
+    assertThat(searchTitles(s, other.key() + "-525")).isEmpty();
+
+    // 프로젝트 횡단 — 숫자만이면 프로젝트마다 그 번호, 키면 그 프로젝트의 것만.
+    assertThat(
+            issueRepository.searchMemberOf(s.userId, titleQuery("525")).stream()
+                .map(r -> r.title())
+                .toList())
+        .containsExactlyInAnyOrder("번호로 찾을 이슈", "버전 525 대응", "다른 프로젝트 525번");
+    assertThat(
+            issueRepository.searchMemberOf(s.userId, titleQuery(other.key() + "-525")).stream()
+                .map(r -> r.title())
+                .toList())
+        .containsExactly("다른 프로젝트 525번");
+  }
+
   private static IssueSearchQuery titleQuery(String q) {
     return new IssueSearchQuery(
         q, List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(), List.of(), null,
