@@ -340,23 +340,24 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
       await expect.poll(() => savedMarkdown(page, 72)).toContain(['앞 문단', '', '```html-embed', next, '```', '', '뒤 문단'].join('\n'))
     })
 
-    test('소스 편집은 넓은 블록에서 코드 왼쪽·미리보기 오른쪽으로 나란히, 좁은 블록에서는 위아래로 놓인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    /** 소스 편집 칸의 코드·미리보기 상자 — 그리기 전에는 null 일 수 있어 그대로 돌려준다(부르는 쪽 poll 이 「아직 아님」으로 본다). */
+    const sourceBoxes = async (block: Locator) => ({
+      c: await block.getByTestId('wiki-html-embed-code').boundingBox(),
+      p: await block.getByTestId('wiki-html-embed-preview').boundingBox(),
+    })
+
+    test('소스 편집은 넓은 블록에서 코드 왼쪽·미리보기 오른쪽으로 나란히 놓인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width: 1400, height: 900 })
       const block = await openWithEmbed(page, 73)
       await block.getByTestId('wiki-html-embed-toggle').click()
-      const code = block.getByTestId('wiki-html-embed-code')
-      const preview = block.getByTestId('wiki-html-embed-preview')
-      await expect(code).toBeVisible()
-      // 상자를 잰다 — 다시 그리는 중(모바일 셸로 바뀌며 소스 칸을 다시 여는 사이)에는 미리보기가 아직 없어 null 일 수 있다.
-      // 부하가 큰 게이트에서 그 순간에 걸려 poll 이 TypeError 로 끝나던 것을(WP-1321 게이트) 「아직 아님」으로 보고 다시 잰다.
-      const wide = async () => ({ c: await code.boundingBox(), p: await preview.boundingBox() })
+      await expect(block.getByTestId('wiki-html-embed-code')).toBeVisible()
       await expect.poll(async () => {
-        const { c, p } = await wide()
+        const { c, p } = await sourceBoxes(block)
         if (!c || !p) return false
         // 나란히 — 코드 오른쪽 끝이 미리보기 왼쪽보다 왼쪽이고 위쪽이 같다.
         return c.x + c.width <= p.x && Math.abs(c.y - p.y) < 2
       }).toBe(true)
-      const { c: wc, p: wp } = await wide()
+      const { c: wc, p: wp } = await sourceBoxes(block)
       if (!wc || !wp) throw new Error('코드·미리보기 상자를 잴 수 없다')
       // 둘이 블록 폭을 반씩 나눈다.
       expect(Math.abs(wc.width - wp.width)).toBeLessThan(4)
@@ -364,17 +365,17 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
       const gutterBox = (await block.locator('.wiki-html-embed__gutter').boundingBox())!
       const preBox = (await block.getByTestId('wiki-html-embed-source').boundingBox())!
       expect(Math.abs(gutterBox.height - preBox.height)).toBeLessThan(2)
+    })
 
-      // 좁은 화면(블록 폭 640px 아래) — 미리보기가 코드 아래로 내려간다.
+    // 좁은 화면(블록 폭 640px 아래)은 처음부터 그 폭으로 연다 — 넓은 화면에서 연 뒤 줄이면 모바일 셸이 편집기를 다시 띄우는 사이에
+    // 소스 칸을 다시 열고 닫는 경합이 생겨, 부하가 큰 push 게이트에서 소스 칸이 닫힌 채 끝나곤 했다(WP-1321·WP-1331 게이트).
+    test('소스 편집은 좁은 블록에서 코드 아래에 미리보기가 놓이고 긴 줄은 접지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width: 560, height: 900 })
-      // 좁은 화면은 모바일 셸로 편집기를 다시 띄워 소스 칸 열림(이 화면 상태)이 풀릴 수 있다 — 닫혀 있으면 다시 연다.
-      const toggle = block.getByTestId('wiki-html-embed-toggle')
-      await expect(async () => {
-        if ((await toggle.textContent()) === '소스 편집') await toggle.click()
-        await expect(code).toBeVisible({ timeout: 1000 })
-      }).toPass()
+      const block = await openWithEmbed(page, 74)
+      await block.getByTestId('wiki-html-embed-toggle').click()
+      await expect(block.getByTestId('wiki-html-embed-code')).toBeVisible()
       await expect.poll(async () => {
-        const { c, p } = await wide()
+        const { c, p } = await sourceBoxes(block)
         if (!c || !p) return false
         return p.y >= c.y + c.height && Math.abs(c.x - p.x) < 2
       }).toBe(true)

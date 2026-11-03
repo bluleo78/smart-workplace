@@ -15,7 +15,8 @@ import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js'
 
 /** source 별 필수 식별자 — 나머지 식별자는 줄 수 없다. 필드 이름은 입력 이름 그대로다(드라이브만 driveFileId, 나머지 첨부는 attachmentId 를 재사용). */
 const SOURCE_FIELDS = {
-  issue: { required: ['issueKey', 'attachmentId'], from: 'get_issue_detail 의 attachments[].attachmentId' },
+  // WP-1331: 본문·댓글에 넣은 이미지는 attachments 에 없다 — 이미지 주소 .../issue-images/{id} 의 id 로 같은 source 를 읽는다.
+  issue: { required: ['issueKey', 'attachmentId'], from: 'get_issue_detail 의 attachments[].attachmentId 또는 본문 이미지 주소 .../issue-images/{id}' },
   issue_chat: { required: ['issueKey', 'messageId', 'attachmentId'], from: 'get_issue_chat 의 messages[].id 와 attachments[].attachmentId' },
   drive: { required: ['driveFileId'], from: 'list_drive_items·search_drive 결과의 driveFileId' },
   wiki: { required: ['pageId', 'attachmentId'], from: '노트 본문 이미지 주소 .../attachments/{attachmentId}/content' },
@@ -160,11 +161,10 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       description:
         'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
-        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; ' +
+        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail or body image …/issue-images/{id}}; ' +
         (issueChatSource ? 'issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; ' : '') +
-        'wiki image {pageId, attachmentId in a body image ' +
-        'URL .../attachments/{id}/content}; message {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages/' +
-        'list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (pass nextOffset as offset); ' +
+        'wiki image {pageId, attachmentId in …/attachments/{id}/content}; message {channelId, messageId, attachmentId = ' +
+        'attachments[].fileId from list_channel_messages/list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (nextOffset → offset); ' +
         'truncated:true = extraction capped. Only READY has text: ' +
         'PENDING = extracting (retry soon), SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess. ' +
         // WP-250: 정의 크기 상한(16,000토큰) 때문에 한 문장씩만 — 이미지를 볼 수 없는 모델에는 pages 문장을 싣지 않는다.

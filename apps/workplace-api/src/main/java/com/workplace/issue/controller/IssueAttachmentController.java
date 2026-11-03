@@ -140,7 +140,7 @@ public class IssueAttachmentController {
     return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
   }
 
-  /** HTML 보안 점검 상태(WP-1262) — /content·/view 와 같은 첨부 열람 가드로 file id 를 확인한다. */
+  /** HTML 보안 점검 상태(WP-1262) — /content 와 같은 첨부 열람 가드로 file id 를 확인한다(본문 이미지는 받지 않는다, WP-1331). */
   @GetMapping("/{fileId}/security-check")
   @RequirePermission("project:read")
   public SecurityCheckView securityCheck(
@@ -149,7 +149,7 @@ public class IssueAttachmentController {
       @PathVariable int number,
       @PathVariable Long fileId) {
     return securityChecks.view(
-        service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId));
+        service.resolveAttachmentFileId((Long) auth.getPrincipal(), key, number, fileId));
   }
 
   /** HTML 보안 점검 요청(WP-1262) — 권한은 조회와 같다(열람할 수 있으면 점검도 요청할 수 있다). */
@@ -161,6 +161,6 @@ public class IssueAttachmentController {
       @PathVariable int number,
       @PathVariable Long fileId) {
     return securityChecks.request(
-        service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId));
+        service.resolveAttachmentFileId((Long) auth.getPrincipal(), key, number, fileId));
   }
 }
