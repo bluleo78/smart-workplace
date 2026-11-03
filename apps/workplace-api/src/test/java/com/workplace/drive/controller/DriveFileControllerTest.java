@@ -100,6 +100,26 @@ class DriveFileControllerTest extends WebMvcSliceTestBase {
         .andExpect(header().string("Content-Type", Matchers.containsString("image/png")));
   }
 
+  /**
+   * WP-1323: 원본 inline 응답은 저장 MIME(text/html 등) 그대로 내주되 CSP sandbox·nosniff 를 붙인다 — 직접 열어도 이 출처로
+   * 스크립트가 돌지 않는다.
+   */
+  @Test
+  void content_html_isServedInlineWithSandboxCsp() throws Exception {
+    byte[] data = "<script>alert(1)</script>".getBytes();
+    when(fileService.download(anyLong(), anyLong()))
+        .thenReturn(
+            new FileContentResult(
+                new ByteArrayResource(data), "text/html", "page.html", data.length));
+    mockMvc
+        .perform(get("/api/v1/drive/files/1/content").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", Matchers.containsString("text/html")))
+        .andExpect(header().string("Content-Disposition", Matchers.startsWith("inline")))
+        .andExpect(header().string("Content-Security-Policy", "sandbox"))
+        .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+  }
+
   /** 인증 없으면 401. */
   @Test
   void thumbnail_withoutAuth_returns401() throws Exception {

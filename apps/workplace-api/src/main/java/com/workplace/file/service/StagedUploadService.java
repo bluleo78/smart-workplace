@@ -133,8 +133,8 @@ public class StagedUploadService {
   }
 
   /**
-   * 텍스트로 스테이징 파일 만들기 — UTF-8 로 저장한다. MIME 은 이름 확장자로 정한다({@link MimeNormalizer#textMimeOf}:
-   * md·txt·csv·json 외 text/plain — html 이 text/html 로 서빙되지 않게).
+   * 텍스트로 스테이징 파일 만들기 — UTF-8 로 저장한다. MIME 은 이름 확장자로 정한다({@link MimeNormalizer#inertTextMimeOf}: 확장자
+   * 표대로 정하되 html·svg·xml 은 text/plain — 첨부 원본 경로에는 CSP sandbox 가 없어 문서로 렌더링되지 않게).
    *
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
    */
@@ -153,7 +153,7 @@ public class StagedUploadService {
     fileStore.storeBytes(relativePath, bytes);
     fileStore.deleteOnRollback(relativePath);
     return insertStagedFile(
-        callerId, safeName, MimeNormalizer.textMimeOf(safeName), bytes.length, relativePath);
+        callerId, safeName, MimeNormalizer.inertTextMimeOf(safeName), bytes.length, relativePath);
   }
 
   /**

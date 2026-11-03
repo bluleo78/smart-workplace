@@ -622,31 +622,66 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isNull();
   }
 
-  /** 텍스트로 만들기 MIME 규칙(R4) — md·txt·csv·json 만 그 MIME, 나머지는 text/plain(html 도). 명시값은 허용 목록만. */
+  /** 텍스트로 만들기 MIME 규칙(R4·WP-1323) — 확장자 표대로(html·svg 포함), 표 밖은 text/plain. 명시값은 허용 목록만. */
   @Test
-  void textMimeOf_allowsOnlyFourTypes() {
+  void textMimeOf_followsExtensionTable() {
     assertThat(DriveFileService.textMimeOf("a.md", null)).isEqualTo("text/markdown");
     assertThat(DriveFileService.textMimeOf("a.TXT", null)).isEqualTo("text/plain");
     assertThat(DriveFileService.textMimeOf("a.csv", null)).isEqualTo("text/csv");
     assertThat(DriveFileService.textMimeOf("a.json", "")).isEqualTo("application/json");
-    assertThat(DriveFileService.textMimeOf("a.html", null)).isEqualTo("text/plain");
+    assertThat(DriveFileService.textMimeOf("a.html", null)).isEqualTo("text/html");
+    assertThat(DriveFileService.textMimeOf("a.svg", null)).isEqualTo("image/svg+xml");
+    assertThat(DriveFileService.textMimeOf("a.py", null)).isEqualTo("text/plain");
     assertThat(DriveFileService.textMimeOf("noext", null)).isEqualTo("text/plain");
     assertThat(DriveFileService.textMimeOf("a.txt", "Text/Markdown; charset=utf-8"))
         .isEqualTo("text/markdown");
-    assertThatThrownBy(() -> DriveFileService.textMimeOf("a.html", "text/html"))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(DriveFileService.textMimeOf("a.txt", "text/html")).isEqualTo("text/html");
+    assertThatThrownBy(() -> DriveFileService.textMimeOf("a.pdf", "application/pdf"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("text/html");
     assertThatThrownBy(() -> DriveFileService.textMimeOf("a.bin", "application/octet-stream"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
-  /** html 이름이어도 text/plain 으로 저장된다 — 주입됐을 수 있는 HTML 이 /content 로 렌더링되지 않게. */
+  /**
+   * WP-1323: AI 가 내용으로 만든 html·svg 는 확장자 형식으로 저장된다 — 미리보기에서 웹페이지·그림으로 보이게. 원본 응답은 CSP sandbox 라 이
+   * 출처로 실행되지 않는다(DriveFileControllerTest).
+   */
   @Test
-  void createTextFile_htmlName_isStoredAsPlainText() throws Exception {
+  void createTextFile_htmlAndSvgNames_areStoredWithTheirMime() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
-    DriveFileResponse f =
-        fileService.createTextFile(u, sp.id(), null, "page.html", "<script>x</script>", null);
-    assertThat(f.mimeType()).isEqualTo("text/plain");
+    DriveFileResponse html =
+        fileService.createTextFile(u, sp.id(), null, "page.html", "<h1>보고</h1>", null);
+    DriveFileResponse svg =
+        fileService.createTextFile(
+            u, sp.id(), null, "그림.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>", null);
+    assertThat(html.mimeType()).isEqualTo("text/html");
+    assertThat(svg.mimeType()).isEqualTo("image/svg+xml");
+  }
+
+  /**
+   * WP-1323 재현: 예전 규칙으로 text/plain 이 된 .html 은 내용으로 다시 저장하면 text/html 로 바로잡힌다(이름 지정·파일 지정 둘 다). 이미
+   * text/html 이 된 뒤에는 마크업 손실 방지(I3)로 내용 덮어쓰기가 409 다.
+   */
+  @Test
+  void updateTextFile_plainTextHtml_isCorrectedToHtml() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse old = uploadAs(u, sp.id(), "보고.html", "text/plain", "<h1>a</h1>");
+    DriveFileResponse old2 = uploadAs(u, sp.id(), "계획.html", "text/plain", "<h1>b</h1>");
+
+    DriveFileResponse v2 = fileService.updateTextFile(u, old.id(), "<h1>a2</h1>", null);
+    assertThat(v2.mimeType()).isEqualTo("text/html");
+    assertThat(v2.versionCount()).isEqualTo(2);
+    DriveFileResponse byName =
+        fileService.createTextFile(u, sp.id(), null, "계획.html", "<h1>b2</h1>", null);
+    assertThat(byName.id()).isEqualTo(old2.id());
+    assertThat(byName.mimeType()).isEqualTo("text/html");
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, old.id(), "<h1>a3</h1>", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessageContaining("HTML");
   }
 
   /** 같은 이름으로 다시 만들면 새 버전으로 흡수된다(업로드와 같은 의미). */
@@ -769,7 +804,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isEqualTo("application/json");
     assertThat(fileService.updateTextFile(u, csv.id(), "a,b\n1,2", "").mimeType())
         .isEqualTo("text/csv");
-    assertThatThrownBy(() -> fileService.updateTextFile(u, json.id(), "x", "text/html"))
+    assertThatThrownBy(() -> fileService.updateTextFile(u, json.id(), "x", "application/pdf"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -831,7 +866,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   /**
    * 텍스트 계열 판정 — text/* 전부·텍스트 application 형식·*+json·*+xml 은 허용, octet-stream 은 알려진 텍스트 확장자일 때만.
-   * pdf·docx· 이미지(svg 포함)·모름은 거부. 매개변수는 뗀다.
+   * pdf·docx·이미지(svg 포함 — 추출하지 않아 원문을 읽을 수 없다)·모름은 거부. 매개변수는 뗀다.
    */
   @Test
   void isTextLike_coversTextFamily_andOctetStreamByExtension() {
@@ -926,10 +961,11 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   /**
    * mimeType 없이 갱신하면 지금 MIME 을 유지한다 — yaml 은 application/x-yaml, md 는 text/markdown(매개변수는 뗀다),
-   * text/javascript 도 그대로. xml 계열은 문서로 렌더링되지 않게 text/plain 이 된다(워커가 xml 을 원문 그대로 읽어 고쳐 쓸 수 있다).
+   * text/javascript 도 그대로. xml 계열도 지금 MIME 그대로다(WP-1323 — 예전에는 text/plain, 원본 응답은 CSP sandbox).
+   * text/plain 이던 .md 만 확장자 표로 바로잡힌다.
    */
   @Test
-  void updateTextFile_keepsCurrentMime_butXmlBecomesPlainText() throws Exception {
+  void updateTextFile_keepsCurrentMime_includingXml() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse yaml = uploadAs(u, sp.id(), "설정.yaml", "application/x-yaml", "a: 1");
@@ -944,9 +980,12 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isEqualTo("text/markdown");
     assertThat(fileService.updateTextFile(u, js.id(), "let b", null).mimeType())
         .isEqualTo("text/javascript");
+    DriveFileResponse plainMd = uploadAs(u, sp.id(), "메모.md", "text/plain", "# a");
+    assertThat(fileService.updateTextFile(u, plainMd.id(), "# b", null).mimeType())
+        .isEqualTo("text/markdown");
     for (DriveFileResponse f : new DriveFileResponse[] {xml, textXml}) {
       DriveFileResponse v2 = fileService.updateTextFile(u, f.id(), "<script>x</script>", null);
-      assertThat(v2.mimeType()).as(f.name()).isEqualTo("text/plain");
+      assertThat(v2.mimeType()).as(f.name()).isEqualTo(f.mimeType());
       assertThat(v2.versionCount()).isEqualTo(2);
     }
   }
@@ -985,13 +1024,13 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
     assertThat(fileService.updateTextFile(u, md.id(), "a,b", "text/csv").mimeType())
         .isEqualTo("text/csv");
-    assertThatThrownBy(() -> fileService.updateTextFile(u, yaml.id(), "a: 2", "application/x-yaml"))
+    assertThatThrownBy(() -> fileService.updateTextFile(u, yaml.id(), "a: 2", "application/pdf"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
   /**
-   * 브라우저가 octet-stream 으로 올린 .js·.py 도 텍스트 파일로 보고 갱신한다 — 새 버전은 이름 확장자로(text/plain). 모르는 확장자의
-   * octet-stream·pdf 는 계속 409.
+   * 브라우저가 octet-stream 으로 올린 .js·.py 도 텍스트 파일로 보고 갱신한다 — 새 버전은 이름 확장자로(js 는 text/javascript, 표 밖 py
+   * 는 text/plain). 모르는 확장자의 octet-stream·pdf 는 계속 409.
    */
   @Test
   void updateTextFile_octetStreamCodeFiles_allowed_binaryStillConflicts() throws Exception {
@@ -1005,7 +1044,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
     DriveFileResponse jsV2 = fileService.updateTextFile(u, js.id(), "let b", null);
     assertThat(jsV2.versionCount()).isEqualTo(2);
-    assertThat(jsV2.mimeType()).isEqualTo("text/plain");
+    assertThat(jsV2.mimeType()).isEqualTo("text/javascript");
     assertThat(fileService.updateTextFile(u, py.id(), "print(2)", null).mimeType())
         .isEqualTo("text/plain");
     assertThatThrownBy(() -> fileService.updateTextFile(u, bin.id(), "x", null))

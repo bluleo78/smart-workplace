@@ -69,14 +69,30 @@ class MimeNormalizerTest {
   }
 
   @Test
-  @DisplayName("텍스트 파일 MIME 은 md·txt·csv·json 만 고유값, 나머지(html 포함)는 text/plain (WP-421)")
-  void textMimeOfMapsOnlyFourExtensions() {
+  @DisplayName("텍스트 파일 MIME 은 확장자 표대로(html·svg 포함), 표 밖은 text/plain (WP-421·WP-1323)")
+  void textMimeOfFollowsExtensionTable() {
     assertThat(MimeNormalizer.textMimeOf("노트.MD")).isEqualTo("text/markdown");
     assertThat(MimeNormalizer.textMimeOf("a.txt")).isEqualTo("text/plain");
     assertThat(MimeNormalizer.textMimeOf("a.csv")).isEqualTo("text/csv");
     assertThat(MimeNormalizer.textMimeOf("a.json")).isEqualTo("application/json");
-    assertThat(MimeNormalizer.textMimeOf("a.html")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.textMimeOf("a.html")).isEqualTo("text/html");
+    assertThat(MimeNormalizer.textMimeOf("a.HTM")).isEqualTo("text/html");
+    assertThat(MimeNormalizer.textMimeOf("a.svg")).isEqualTo("image/svg+xml");
+    assertThat(MimeNormalizer.textMimeOf("a.py")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.isAllowedTextMime("text/html")).isTrue();
+    assertThat(MimeNormalizer.isAllowedTextMime("application/pdf")).isFalse();
+    assertThat(MimeNormalizer.isAllowedTextMime(null)).isFalse();
     assertThat(MimeNormalizer.textMimeOf("README")).isEqualTo("text/plain");
     assertThat(MimeNormalizer.textMimeOf(null)).isEqualTo("text/plain");
+  }
+
+  @Test
+  @DisplayName("스테이징 텍스트는 html·svg·xml 을 text/plain 으로 둔다 — 첨부 원본 경로엔 CSP sandbox 가 없다 (WP-1323)")
+  void inertTextMimeOfKeepsActiveFormatsPlain() {
+    assertThat(MimeNormalizer.inertTextMimeOf("a.html")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.inertTextMimeOf("a.svg")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.inertTextMimeOf("a.xml")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.inertTextMimeOf("a.md")).isEqualTo("text/markdown");
+    assertThat(MimeNormalizer.inertTextMimeOf("a.yaml")).isEqualTo("application/x-yaml");
   }
 }

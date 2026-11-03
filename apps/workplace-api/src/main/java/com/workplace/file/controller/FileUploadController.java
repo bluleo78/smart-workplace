@@ -60,6 +60,8 @@ public class FileUploadController {
             .filename(result.originalName(), StandardCharsets.UTF_8)
             .build());
     headers.setContentLength(result.size());
+    // WP-1323: 드라이브 파일 원본도 이 경로로 읽을 수 있다 — AI 가 만든 text/html·svg 가 이 출처로 실행되지 않게 샌드박스.
+    headers.set("Content-Security-Policy", "sandbox");
 
     return ResponseEntity.ok().headers(headers).body(result.resource());
   }

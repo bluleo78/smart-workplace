@@ -129,8 +129,8 @@ const DOWNLOAD_LINK_DESCRIPTION =
  */
 export const CREATE_DRIVE_FILE_CONTENT_DESCRIPTION =
   'Uploads a drive file: new at spaceId+name (folderId or root; a taken name becomes a new version), or a new version of driveFileId ' +
-  '(same name and folder); needs EDITOR. With content: writes text (md, txt, csv, json; up to a few MB); driveFileId must be a text ' +
-  'file.';
+  '(same name and folder); needs EDITOR. With content: writes text (md, csv, html, svg…; up to a few MB); driveFileId must ' +
+  'be a text file.';
 /** create_drive_file 설명의 업로드 링크 부분 — 셸이 있는 외부 클라이언트용. */
 const CREATE_FILE_LINK_DESCRIPTION =
   'Without: returns a one-time upload link valid 10 minutes, up to maxBytes: curl -T <file> "<uploadUrl>", no -H Content-Type; ' +
