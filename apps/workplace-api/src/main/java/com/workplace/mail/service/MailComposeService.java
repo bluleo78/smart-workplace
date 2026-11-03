@@ -30,6 +30,7 @@ import com.workplace.mail.repository.EmailMessageRepository.SentRow;
 import com.workplace.mail.repository.MailDraftRepository;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.mail.service.MailSentAttachmentRecorder.PreparedAttachment;
+import com.workplace.mail.util.MailAttachmentSizes;
 import com.workplace.mail.util.MailComposeLimits;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.AddressException;
@@ -72,8 +73,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>WP-574: 일반 첨부 — 작성창 임시 업로드(attachmentIds, 스테이징 파일 규칙)와 전달 원본 첨부(forwardAttachmentIds). prepare
  * 는 소유·만료와 메타 크기 합계(인라인 포함 25MB)만 읽기로 본다. send 는 짧은 트랜잭션에서 임시 업로드를 클레임해 만료로 커밋하고(동시 발송 차단), 전송 전에
- * 실패하면 되돌린다. 바이트는 하나씩 받으며 실제 바이트 누적으로 25MB 를 센다(메타 크기는 IMAP 인코딩 크기 추정·NULL 일 수 있다). 단계별 트랜잭션은
- * {@link #send} 참조.
+ * 실패하면 되돌린다. 바이트는 하나씩 받으며 실제 바이트 누적으로 25MB 를 센다(메타 크기는 추정치·NULL 일 수 있다 — WP-1329: IMAP 수신 첨부는 인코딩
+ * 크기를 실제 크기로 보정한 추정). 단계별 트랜잭션은 {@link #send} 참조.
  *
  * <p>WP-577: 내 임시저장(어느 것이든)에 묶인 업로드는 임시저장 lookup 이 보류 클레임에 내줘 같은 보류·소비 흐름으로 보낸다(남의 임시저장 업로드는 묶여 있어
  * 거절). 발송에 성공하면 보낸 업로드를 임시저장 정션에서 빼고 draftId 임시저장을 지우며, 실패하면 남긴다. 받는사람·제목 상한은 임시저장과 같다.
@@ -259,11 +260,18 @@ public class MailComposeService {
     return out;
   }
 
-  /** 첨부 원본 합계가 상한을 넘으면 발송 전에 거절한다. */
+  /**
+   * 첨부 원본 합계가 상한을 넘으면 발송 전에 거절한다. 문구에 지금 합계를 함께 보인다(WP-1329 — 상한만 보여 「25MB 안인데 왜」가 됐다). 발송 중 Budget
+   * 판정이면 그때까지 받은 누적 합계다.
+   */
   private void requireWithinTotal(long totalBytes) {
     if (totalBytes > maxAttachmentTotal) {
       throw new MailValidationException(
-          "첨부 파일이 너무 커요. 메일 한 통에 모두 합쳐 " + (maxAttachmentTotal / (1024 * 1024)) + "MB까지 보낼 수 있어요");
+          "첨부 파일이 너무 커요(지금 "
+              + MailAttachmentSizes.formatMb(totalBytes)
+              + "). 메일 한 통에 모두 합쳐 "
+              + (maxAttachmentTotal / (1024 * 1024))
+              + "MB까지 보낼 수 있어요");
     }
   }
 

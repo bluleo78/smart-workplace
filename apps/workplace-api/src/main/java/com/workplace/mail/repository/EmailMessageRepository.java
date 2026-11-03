@@ -25,6 +25,7 @@ import com.workplace.mail.dto.ReadSyncLocator;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.outbound.MailAiMessages;
+import com.workplace.mail.util.MailAttachmentSizes;
 import com.workplace.mail.util.MailBodyText;
 import java.time.Duration;
 import java.time.Instant;
@@ -900,7 +901,8 @@ public class EmailMessageRepository {
 
   /**
    * 메시지의 첨부 메타 목록. filename/content_type/size_bytes 는 content_attachment(공유 manifest)에서 읽는다(Task5).
-   * V102 이후 email_attachment 에 메타 컬럼이 없으므로 폴백 없음 — manifest 미매핑 레거시 행은 null 메타로 반환된다.
+   * V102 이후 email_attachment 에 메타 컬럼이 없으므로 폴백 없음 — manifest 미매핑 레거시 행은 null 메타로 반환된다. sizeBytes 는
+   * 실제 바이트 추정치(WP-1329, {@link MailAttachmentSizes}).
    */
   private List<EmailAttachmentMeta> listAttachments(long messageId) {
     return dsl.select(
@@ -908,8 +910,11 @@ public class EmailMessageRepository {
             CONTENT_ATTACHMENT.FILENAME,
             CONTENT_ATTACHMENT.CONTENT_TYPE,
             CONTENT_ATTACHMENT.SIZE_BYTES,
-            CONTENT_ATTACHMENT.MIME_CONTENT_ID)
+            CONTENT_ATTACHMENT.MIME_CONTENT_ID,
+            EMAIL_MESSAGE.IMAP_UID)
         .from(EMAIL_ATTACHMENT)
+        .join(EMAIL_MESSAGE)
+        .on(EMAIL_MESSAGE.ID.eq(EMAIL_ATTACHMENT.MESSAGE_ID))
         .leftJoin(CONTENT_ATTACHMENT)
         .on(CONTENT_ATTACHMENT.ID.eq(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID))
         .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
@@ -920,9 +925,13 @@ public class EmailMessageRepository {
                     r.get(EMAIL_ATTACHMENT.ID),
                     r.get(CONTENT_ATTACHMENT.FILENAME),
                     r.get(CONTENT_ATTACHMENT.CONTENT_TYPE),
-                    r.get(CONTENT_ATTACHMENT.SIZE_BYTES) == null
-                        ? 0L
-                        : r.get(CONTENT_ATTACHMENT.SIZE_BYTES),
+                    // WP-1329: IMAP 수신 첨부는 저장 크기(base64 인코딩)를 실제 크기 추정으로 — 작성창 전달 칩·합계·보내기 잠금이 이 값을
+                    // 쓴다
+                    MailAttachmentSizes.estimatedRawBytes(
+                        r.get(CONTENT_ATTACHMENT.SIZE_BYTES) == null
+                            ? 0L
+                            : r.get(CONTENT_ATTACHMENT.SIZE_BYTES),
+                        r.get(EMAIL_MESSAGE.IMAP_UID) != null),
                     // 빈 문자열은 지연 백필의 내부 표시("확인했지만 없음", WP-68) — API 로는 "없음"(null)으로만 노출
                     emptyToNull(r.get(CONTENT_ATTACHMENT.MIME_CONTENT_ID))));
   }

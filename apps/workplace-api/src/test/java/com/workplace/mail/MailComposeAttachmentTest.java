@@ -558,6 +558,120 @@ class MailComposeAttachmentTest extends ExternalClientMockedTestBase {
     verify(graphApiClient, never()).get(any(), any(), eq(GraphAttachment.class));
   }
 
+  // ---- WP-1329: IMAP 수신 첨부의 저장 크기(base64 인코딩) 보정 ----
+
+  static final long MB = 1024L * 1024;
+
+  /**
+   * 원본 rawBytes 를 표준 MIME base64(76자 줄 + CRLF)로 실었을 때 IMAP BODYSTRUCTURE 가 알리는 크기 — 파서가
+   * part.getSize() 로 저장하는 값과 같은 모양. 마지막 짧은 줄도 4자 단위 + CRLF.
+   */
+  static long imapEncodedSize(long rawBytes) {
+    long lines = rawBytes / 57;
+    long rem = rawBytes % 57;
+    return lines * 78 + (rem > 0 ? (rem + 2) / 3 * 4 + 2 : 0);
+  }
+
+  /**
+   * IMAP 서버에서 받은 메일(imap_uid 있음) + 첨부 1건 시드 — 저장 크기는 인코딩 크기(storedBytes). 바이트는 두지 않는다(사전검증·상세는 메타만
+   * 읽는다). @return [email_message.id, email_attachment.id]
+   */
+  long[] seedImapForwardSource(long user, long accountId, long uid, long storedBytes) {
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    ParsedMessage m =
+        new ParsedMessage(
+            uid,
+            "imap-src-" + uid + "@x",
+            "t-imap-" + uid,
+            null,
+            null,
+            "a@x.com",
+            "A",
+            "me@test.local",
+            null,
+            "원본",
+            Instant.now(),
+            Instant.now(),
+            true,
+            true,
+            null,
+            null,
+            null,
+            List.of());
+    long messageId = messageRepo.insertIgnoreConflict(accountId, folderId, m).orElseThrow();
+    long contentId = messageRepo.findBodyTarget(accountId, messageId).orElseThrow().contentId();
+    attachmentRepo.insert(
+        messageId,
+        contentId,
+        0,
+        new ParsedAttachment("큰 파일.bin", "application/octet-stream", storedBytes, null, null));
+    long attachmentId =
+        dsl.select(EMAIL_ATTACHMENT.ID)
+            .from(EMAIL_ATTACHMENT)
+            .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
+            .fetchOne(EMAIL_ATTACHMENT.ID);
+    return new long[] {messageId, attachmentId};
+  }
+
+  /**
+   * WP-1329 재현 — IMAP 으로 받은 실제 24MB·25MB 첨부는 저장 크기가 인코딩 크기(약 1.37배)라 예전엔 「너무 커요」로 거절됐다. 실제 크기 추정으로
+   * 사전검증을 통과하고, 메일 상세(작성창 전달 칩이 쓰는 값)도 실제 크기에 가깝게 보인다.
+   */
+  @Test
+  void imapForward_realSize24And25mb_passesPrecheckAndShowsRealSize() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    for (long raw : new long[] {24 * MB, 25 * MB}) {
+      long[] src = seedImapForwardSource(user, accountId, raw, imapEncodedSize(raw));
+      assertThat(imapEncodedSize(raw)).isGreaterThan(25 * MB); // 예전 판정이면 거절될 크기
+
+      composeService.validateSendable(user, accountId, request(null, List.of(src[1])));
+
+      // 상세 첨부 목록(메일 상세 API 가 쓰는 조회) — 본문을 서버에서 받지 않게 저장소 조회로 본다
+      long shown =
+          messageRepo
+              .findDetailByIdAndUser(user, src[0])
+              .orElseThrow()
+              .attachments()
+              .get(0)
+              .sizeBytes();
+      // 추정은 실제보다 크지 않고(사전검증이 실제 25MB 를 거절하지 않게) 실제와 거의 같다
+      assertThat(shown).isBetween(raw - 64, raw);
+    }
+  }
+
+  /** 실제 26MB 인 IMAP 수신 첨부는 여전히 사전검증에서 거절하고, 문구에 지금 합계를 보인다. */
+  @Test
+  void imapForward_realSize26mb_rejectedWithCurrentTotal() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    long[] src = seedImapForwardSource(user, accountId, 1L, imapEncodedSize(26 * MB));
+
+    assertThatThrownBy(
+            () -> composeService.validateSendable(user, accountId, request(null, List.of(src[1]))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessage("첨부 파일이 너무 커요(지금 26.0MB). 메일 한 통에 모두 합쳐 25MB까지 보낼 수 있어요");
+  }
+
+  /** Graph 첨부는 저장 크기가 이미 실제 크기라 보정하지 않는다 — 실제 25MB 를 1바이트라도 넘으면 거절. */
+  @Test
+  void graphForward_sizeNotAdjusted() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    long fwd = seedForwardSource(user, "G1", "g.bin", "application/octet-stream", PDF);
+    dsl.execute(
+        "UPDATE content_attachment SET size_bytes = "
+            + (25 * MB + 1)
+            + " WHERE id = (SELECT content_attachment_id FROM email_attachment WHERE id = "
+            + fwd
+            + ")");
+
+    assertThatThrownBy(
+            () -> composeService.validateSendable(user, accountId, request(null, List.of(fwd))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("지금 25.1MB");
+  }
+
   /** 전송이 실패하면 트랜잭션이 롤백돼 임시 업로드는 그대로 남는다 — 같은 id 로 다시 보낼 수 있다. */
   @Test
   void send_transmitFails_uploadStaysClaimableForRetry() {
