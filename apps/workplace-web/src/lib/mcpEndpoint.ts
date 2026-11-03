@@ -13,9 +13,10 @@ export function resolveMcpBaseUrl(opts: { explicit: string | undefined; dev: boo
 }
 
 // window 가 없는 환경(node 단위 테스트 등)에서도 import 가 깨지지 않게 origin 을 안전하게 읽는다.
+// import.meta.env 도 Vite 밖(Playwright 러너가 E2E spec 에서 설정 가이드를 불러올 때)에는 없으므로 ?. 로 읽는다.
 const MCP_BASE_URL = resolveMcpBaseUrl({
-  explicit: import.meta.env['VITE_MCP_URL'] as string | undefined,
-  dev: import.meta.env.DEV,
+  explicit: import.meta.env?.['VITE_MCP_URL'] as string | undefined,
+  dev: import.meta.env?.DEV ?? false,
   origin: typeof window !== 'undefined' ? window.location.origin : '',
 });
 

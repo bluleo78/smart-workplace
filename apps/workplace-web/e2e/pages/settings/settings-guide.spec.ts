@@ -39,14 +39,15 @@ async function expectMobileRelatedLink(page: Page, guide: SettingsGuide, what: s
 test.use({ viewport: { width: 1920, height: 1080 } })
 
 test.describe('설정 가이드 — 넓은 화면 열', () => {
-  test('1920: 본문 오른쪽에 280px 가이드 열이 보이고 헤더 버튼은 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  test('1920: 본문 오른쪽에 가이드 열이 최대 폭(360px)으로 보이고 헤더 버튼은 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const aside = page.getByTestId('settings-guide-aside')
     await expect(aside).toBeVisible()
     await expect(page.getByTestId('settings-guide-button')).toHaveCount(0)
     await expect(aside.getByText(profile.lead)).toBeVisible()
     const a = await expectAsideRightOfForm(page)
-    expect(Math.abs(a.width - 280)).toBeLessThanOrEqual(1)
+    // 남는 폭이 넉넉한 1920 에서는 열이 최대 360px 까지 넓어진다(WP-1281 — 280~360 사이로 남는 폭을 따른다).
+    expect(Math.abs(a.width - 360)).toBeLessThanOrEqual(1)
     // 열 머리 「설정 가이드」 가 첫 섹션 제목과 같은 높이(중심 y ±2px)에 선다 — 경계선 없는 열의 소속 단서.
     const [title, first] = await Promise.all([
       boxOf(aside.getByRole('heading', { level: 2, name: '설정 가이드' })),
