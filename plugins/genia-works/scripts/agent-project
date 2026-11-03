@@ -16,6 +16,12 @@
 #   칸에는 신원(GENIA_WORKS_AS), AI 폴더(GENIA_WORKS_AGENT_DIR — 새 프로젝트 확인)를 넘긴다. 이 셸의 PATH·GENIA_WORKS_API_URL·GENIA_WORKS_TENANT 는
 #   agent-window 가 넘긴다(gw-lib 의 GW_TMUX_ENV — tmux 칸은 이 셸의 환경을 물려받지 않는다). 띄웠으면(started·exists·revived·restarted) 그 키의
 #   실패 기록을 지우고, 그 AI 의 알림 감시 창(agent-events ensure — AI 당 하나)도 없거나 죽었으면 띄운다(결과 줄은 내지 않는다).
+#   모델 로그인(WP-1334): 이 셸에 CLAUDE_CODE_OAUTH_TOKEN 이 있으면 그 AI 의 토큰 파일(GW_HOME/agents/<이름>/claude-token, 권한 600)에 적고,
+#   토큰 없는 셸의 --restart 면 지운다(그 밖에는 그대로 둔다) — 칸은 gw-claude-run 이 그 파일을 읽어 claude 를 띄운다(있으면 그 setup-token,
+#   없으면 이 컴퓨터의 claude 로그인).
+#
+# agent-project login <AI 폴더> — 그 AI 의 칸이 다음에 뜰 때 쓸 모델 로그인을 낸다: setup-token(토큰 파일이 있다) | local.
+#   토큰은 칸 명령 인자로 넘기지 않고, tmux 서버 환경으로도 새지 않는다(agent-window·agent-events 가 tmux 를 부르기 전에 지운다).
 #   GW_SKIP_EVENTS_ENSURE=1 이면 감시 창은 챙기지 않는다 — 칸 여럿을 차례로 띄우는 엔트리포인트 감독이 회차 끝에 한 번만 챙긴다(WP-1252).
 #
 # agent-project add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] — work-loop 가 새로 맡은 프로젝트에 쓴다: repo 뒤 start.
@@ -35,8 +41,19 @@
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
 
+# AI 별 setup-token 파일(WP-1334) — 작업 디스크(AI 폴더·TMPDIR, Pod 에서는 노드에 남는다)가 아닌 사용자 데이터 폴더(홈 아래 — Pod 에서는
+# 컨테이너와 함께 사라진다)에 둔다. do_start 가 쓰고, gw-claude-run 이 칸에서 읽고, login 이 있는지만 본다.
+token_file() {
+  printf '%s/agents/%s/claude-token' "$GW_HOME" "$name"
+}
+
+# 그 AI 의 사용자 데이터 폴더(GW_HOME/agents/<이름>)를 남이 못 보게(700) 마련한다 — 기억한 홈·setup-token 이 여기 있다.
+agent_data_dir() {
+  mkdir -p "$GW_HOME/agents/$name" && chmod 700 "$GW_HOME" "$GW_HOME/agents" "$GW_HOME/agents/$name"
+}
+
 usage() {
-  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures <AI 폴더> · locate <AI 이름> <지금 폴더>" >&2
+  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures|login <AI 폴더> · locate <AI 이름> <지금 폴더>" >&2
   exit 2
 }
 
@@ -53,8 +70,7 @@ if [ "$cmd" = locate ]; then
   saved=$(head -n 1 "$record" 2>/dev/null)
   save() {
     [ "$1" = "$saved" ] && return 0
-    mkdir -p "$GW_HOME/agents/$name" && chmod 700 "$GW_HOME" "$GW_HOME/agents" "$GW_HOME/agents/$name" &&
-      gw_write_atomic "$record" "$1" || { echo "agent-project: 홈을 기억하지 못했습니다($record)" >&2; exit 1; }
+    agent_data_dir && gw_write_atomic "$record" "$1" || { echo "agent-project: 홈을 기억하지 못했습니다($record)" >&2; exit 1; }
   }
   if [ "${3:-}" = --set ]; then
     save "$cur"
@@ -106,6 +122,12 @@ fi
 aidir=$(gw_ai_dir "${1:-}") || { echo "AI 폴더가 아닙니다: ${1:-}" >&2; exit 2; }
 name=$(basename "$aidir")
 state="$aidir/state"
+
+if [ "$cmd" = login ]; then
+  # 칸이 다음에 뜰 때 쓸 모델 로그인 — 원문은 내지 않는다.
+  if [ -s "$(token_file)" ]; then echo setup-token; else echo local; fi
+  exit 0
+fi
 
 if [ "$cmd" = failures ]; then
   for f in "$state"/launch-failed-*; do
@@ -183,7 +205,18 @@ do_start() {
   #   다른 실행기(genia·codex)는 확장·구동기가 들어올 때 여기에 더한다 — 그 실행기는 GENIA_WORKS_RUNNER_WAKES=1 로 work-loop 에 알린다(WP-1293).
   case "$cli" in
     claude)
-      set -- "$@" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40 claude --permission-mode bypassPermissions "/loop /genia-works:work-loop $args"
+      # 이 셸에 setup-token 이 있으면 AI 별 파일에 적는다(같은 AI 의 칸이 동시에 읽어도 반쯤 쓴 토큰을 보지 않게 원자적으로).
+      # 지우는 것은 토큰 없는 셸의 --restart 뿐이다 — 알림 감시 창의 add(늘 토큰 없이 돈다)·상태만 보는 start 가 지우면
+      # 그 AI 의 다른 칸이 다음에 다시 뜰 때 말없이 로컬 로그인으로 바뀐다(Pod 에는 로컬 로그인이 없어 인증부터 실패한다).
+      tokfile=$(token_file)
+      if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+        agent_data_dir && gw_write_atomic "$tokfile" "$CLAUDE_CODE_OAUTH_TOKEN" ||
+          { echo "setup-token 을 적지 못했습니다: $tokfile" >&2; return 2; }
+      elif [ -n "$restart" ]; then
+        rm -f "$tokfile"
+      fi
+      set -- "$@" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40 "$here/gw-claude-run" "$tokfile" \
+        claude --permission-mode bypassPermissions "/loop /genia-works:work-loop $args"
       ;;
   esac
   # shellcheck disable=SC2086 # restart 는 비었거나 --restart 한 단어다.
