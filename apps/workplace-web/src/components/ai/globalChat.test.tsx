@@ -360,6 +360,16 @@ describe('앱 셸 — 단축키·레일·aiAvailable 게이트 (renderPage)', ()
     await waitFor(() => expect(screen.queryByTestId('ai-side-panel')).not.toBeInTheDocument())
   })
 
+  // WP-1332 — Windows(맥이 아닌 플랫폼, jsdom 의 navigator.platform 은 빈 값)에서는 Alt+K 로도 열고 닫으며, 한글 입력 상태(key 'ㅏ')도 물리 키로 받는다.
+  test('Windows 에서 Alt+K(한글 입력 상태 포함)로 사이드 패널을 열고 닫는다 (WP-1332)', async () => {
+    await openShell()
+    fireEvent.keyDown(window, { key: 'ㅏ', code: 'KeyK', altKey: true })
+    expect(await screen.findByTestId('ai-side-panel')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/Alt\+K/)).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'k', code: 'KeyK', altKey: true })
+    await waitFor(() => expect(screen.queryByTestId('ai-side-panel')).not.toBeInTheDocument())
+  })
+
   // #454 — 레일로 앱을 바꾸면 전체 화면 AI 는 side 로 강등되고(새 앱이 가려지지 않게), side 는 그대로 둔다.
   test('레일로 앱을 바꾸면 전체 화면 AI 는 사이드 패널로 내려간다 (#454)', async () => {
     const { user, chip, location } = await openShell()

@@ -49,6 +49,7 @@ import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
+import { aiShortcutLabel } from '@/lib/platform';
 import { spaceOfScreenContext } from '@/lib/sharedAiMemory';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -732,7 +733,7 @@ export function AIChatPanel({
               void attach.addFiles(files);
             }}
             // 모바일엔 하드웨어 키보드 단축키(⌘K)가 없으므로 힌트를 뺀다(U2-3).
-            placeholder={isMobile ? 'AI 에게 요청…' : 'AI 에게 요청…  (⌘K)'}
+            placeholder={isMobile ? 'AI 에게 요청…' : `AI 에게 요청…  (${aiShortcutLabel()})`}
             // 모바일: 링 오프셋(2px 배경 띠)이 테두리와 겹쳐 이중 링처럼 보이던 것을 단일 링으로(U2-3), 색은 AI 보라 토큰(ai-accent, U3-R4). 데스크톱 불변.
             className={cn(
               'field-sizing-content max-h-40 min-h-9 resize-none py-1.5',
