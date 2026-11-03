@@ -19,9 +19,11 @@ import type { MilestoneResponse } from '../../../types/milestone';
 import {
   cyclesToBands,
   defaultScheduleRange,
+  effectiveCycleScope,
   filterRenderableDependencies,
   groupTimelineIssues,
   milestonesToMarkers,
+  periodEmptyCopy,
 } from './timelineData';
 import { TimelineFilterBar } from './TimelineFilterBar';
 import { TimelineGantt, type TimelineScrollRequest, type TimelineZoom } from './TimelineGantt';
@@ -80,10 +82,19 @@ export function TimelineGanttBody({
   // 기간 빈 상태는 기간이 원인일 때만(WP-247) — 기간을 빼면 그릴 막대가 있을 때. 필터 0건·새 프로젝트는 「전체」로 바꿔도
   // 달라지지 않으므로 기존 빈 간트를 그대로 둔다. 기간 결과가 비었을 때만 한 번 더 계산한다.
   const { includeCanceled } = view;
-  const periodIsCause = useMemo(
-    () => view.period != null && groups.length === 0 && groupTimelineIssues(issues, { includeCanceled }).groups.length > 0,
-    [issues, includeCanceled, view.period, groups.length],
-  );
+  // 사이클 소속 거름(WP-1330) — cycles 필드 없는 응답이면 null(날짜로 거름). 빈 상태 문구·축 넓히기가 같은 판정을 쓴다.
+  const scope = useMemo(() => effectiveCycleScope(issues, view.cycleScope), [issues, view.cycleScope]);
+  // 사이클 선택지: 소속 이슈가 날짜 없는 것까지 하나도 없을 때만 — 「일정 미정」에 그 사이클 이슈가 있으면 빈 상태를 띄우지 않는다.
+  // 날짜 선택지: 막대가 하나도 없을 때(일정 미정은 기간과 무관하게 남는다). 둘 다 거름을 빼면 보일 것이 있을 때만(필터 0건과 구분).
+  const periodIsCause = useMemo(() => {
+    if (scope) {
+      if (groups.length > 0 || unscheduled.length > 0) return false;
+      const all = groupTimelineIssues(issues, { includeCanceled });
+      return all.groups.length > 0 || all.unscheduled.length > 0;
+    }
+    return view.period != null && groups.length === 0 && groupTimelineIssues(issues, { includeCanceled }).groups.length > 0;
+  }, [issues, includeCanceled, view.period, scope, groups.length, unscheduled.length]);
+  const emptyCopy = periodEmptyCopy(scope);
   const cycleBands = useMemo(() => cyclesToBands(cycles), [cycles]);
   const milestoneMarkers = useMemo(() => milestonesToMarkers(milestones ?? []), [milestones]);
   // 일정 미정/CANCELED 이슈로의 화살표는 SVAR 가 렌더할 노드가 없어 제외한다.
@@ -105,8 +116,8 @@ export function TimelineGanttBody({
           <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
             <CalendarRange className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <div className="space-y-1">
-              <p className="text-sm font-medium">이 기간에 걸친 이슈가 없어요</p>
-              <p className="text-xs text-muted-foreground">기간을 「전체」로 바꿔 보세요</p>
+              <p className="text-sm font-medium">{emptyCopy.title}</p>
+              <p className="text-xs text-muted-foreground">{emptyCopy.description}</p>
             </div>
             <Button size="sm" variant="outline" data-testid="timeline-period-show-all" onClick={onShowAllPeriods}>
               전체 기간 보기
@@ -127,6 +138,7 @@ export function TimelineGanttBody({
             canEditMilestones={canEditMilestones}
             scrollRequest={scrollRequest}
             period={view.period}
+            fitAllBars={scope != null}
             onBarChange={(issueNumber, change) =>
               updateIssue.mutateAsync({
                 number: issueNumber,

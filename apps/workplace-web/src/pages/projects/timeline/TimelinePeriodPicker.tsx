@@ -12,6 +12,7 @@ import type { CycleResponse } from '@/types/cycle';
 
 import { periodOptions, periodOptionToParam, periodOptionValue } from './periodOptions';
 import { PeriodRangeForm } from './PeriodRangeForm';
+import { periodDisplayLabel } from './timelineData';
 import type { PeriodParam, TimelinePeriod } from './timelineTypes';
 
 const GROUP_LABEL = { cycle: '사이클', preset: '기간', all: null } as const;
@@ -39,7 +40,7 @@ export function TimelinePeriodPicker({
           className={cn(TOGGLE_ON_CLASS, 'font-medium')}
         >
           <CalendarRange className="size-3.5" aria-hidden />
-          {period ? period.label : '전체'}
+          {periodDisplayLabel(param, period)}
           <ChevronDown className="size-3.5" aria-hidden />
         </Button>
       </PopoverTrigger>

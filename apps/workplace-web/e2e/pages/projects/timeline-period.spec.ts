@@ -21,15 +21,20 @@ const CYCLES = [
   cycle({ id: 1, name: 'GW-1', status: 'COMPLETED', startDate: '2026-09-17', endDate: '2026-09-30' }),
   cycle({ id: 2, name: 'GW-2', status: 'ACTIVE', startDate: '2026-10-01', endDate: '2026-10-14' }),
 ];
-// 40 = GW-2 안 에픽(하위 41), 50 = GW-1 안 에픽(하위 51), 7 = GW-2 안 단독, 8 = 날짜 없음(일정 미정).
+// 사이클 선택지는 소속으로 거른다(WP-1330) — 날짜와 함께 소속 사이클도 싣는다.
+// 40 = GW-2 안 에픽(하위 41, GW-2 소속), 50 = GW-1 안 에픽(하위 51, GW-1 소속), 7 = GW-2 소속 단독, 8 = GW-2 소속·날짜 없음(일정 미정),
+// 9 = 사이클 없음 — 날짜는 GW-2 기간 안이지만 소속이 없어 사이클 선택지에선 숨고 「사이클 없음」에서만 보인다.
+const inCycle = (c: CycleResponse) => [{ id: c.id, name: c.name, status: c.status }];
 function issues(): IssueResponse[] {
+  const [gw1, gw2] = CYCLES;
   return [
     createIssue({ number: 40, title: '이번 에픽', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-12', childCount: 1 }),
-    createIssue({ number: 41, title: '이번 하위', parent: parent(40, '이번 에픽'), startDate: '2026-10-02', dueDate: '2026-10-06' }),
+    createIssue({ number: 41, title: '이번 하위', parent: parent(40, '이번 에픽'), startDate: '2026-10-02', dueDate: '2026-10-06', cycles: inCycle(gw2) }),
     createIssue({ number: 50, title: '지난 에픽', type: EPIC_TYPE, startDate: '2026-09-17', dueDate: '2026-09-28', childCount: 1 }),
-    createIssue({ number: 51, title: '지난 하위', parent: parent(50, '지난 에픽'), startDate: '2026-09-18', dueDate: '2026-09-25' }),
-    createIssue({ number: 7, title: '이번 단독', startDate: '2026-10-08', dueDate: '2026-10-09' }),
-    createIssue({ number: 8, title: '미정 단독' }),
+    createIssue({ number: 51, title: '지난 하위', parent: parent(50, '지난 에픽'), startDate: '2026-09-18', dueDate: '2026-09-25', cycles: inCycle(gw1) }),
+    createIssue({ number: 7, title: '이번 단독', startDate: '2026-10-08', dueDate: '2026-10-09', cycles: inCycle(gw2) }),
+    createIssue({ number: 8, title: '미정 단독', cycles: inCycle(gw2) }),
+    createIssue({ number: 9, title: '미배정 단독', startDate: '2026-10-03', dueDate: '2026-10-04' }),
   ];
 }
 
@@ -63,11 +68,12 @@ const gridRow = (page: Page, text: string) => page.locator('.timeline-gantt-root
 // 그래서 간트 위의 기간 선택·빈 상태도 E2E 에 남긴다(@layout). 기간 해석·거르기 규칙은 timelineData.test.ts(resolvePeriod 등)가 본다.
 test.describe('타임라인 조회 기간 (WP-247)', () => {
   // 타임라인 화면 배선 — 라우트 → 이슈·사이클 API → 간트 행.
-  test('기본은 활성 사이클 — 그 기간에 걸친 에픽·이슈만 보이고 일정 미정은 남는다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
+  test('기본은 활성 사이클 — 그 사이클 소속 에픽·이슈만 보이고 소속 일정 미정은 남는다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline`);
     await expect(gridRow(page, '이번 에픽')).toBeVisible();
-    await expect(gridRow(page, '에픽 없음')).toBeVisible();
+    // 에픽 없음 = 이번 단독(7) 하나 — 날짜는 기간 안이지만 사이클이 없는 미배정 단독(9)은 빠진다(WP-1330).
+    await expect(gridRow(page, '에픽 없음')).toContainText('에픽 없음 (1)');
     await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
     await expect(page.getByTestId('unscheduled-section')).toContainText('미정 단독');
   });
@@ -128,6 +134,15 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await trigger.click();
     await page.getByTestId('timeline-period-option-active').click();
     await expect(page).not.toHaveURL(/period=/);
+
+    // 「사이클 없음」(WP-1330) — 사이클 묶음 맨 아래. 사이클 없는 이슈만 남고 트리거 라벨도 「사이클 없음」.
+    await trigger.click();
+    await page.getByTestId('timeline-period-option-no-cycle').click();
+    await expect(page).toHaveURL(/period=no-cycle/);
+    await expect(trigger).toContainText('사이클 없음');
+    await expect(gridRow(page, '에픽 없음')).toContainText('에픽 없음 (1)');
+    await expect(gridRow(page, '이번 에픽')).toHaveCount(0);
+    await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
   });
 
   test('직접 지정 — 시작 > 종료면 적용할 수 없고, 적용하면 range 로 저장된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {

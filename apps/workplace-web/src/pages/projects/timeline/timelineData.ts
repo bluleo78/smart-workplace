@@ -15,6 +15,7 @@ import type { MilestoneResponse } from '@/types/milestone';
 import type { VersionResponse } from '@/types/version';
 
 import type {
+  CycleScope,
   DateSpan,
   PeriodParam,
   TimelineBar,
@@ -318,6 +319,24 @@ function toBar(issue: TimelineIssue): TimelineBar {
   };
 }
 
+/** yyyy-MM-dd 오름차순, 없는 쪽(null)은 뒤로. */
+function compareNullableDate(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a < b ? -1 : 1;
+}
+
+/**
+ * 묶음 안 막대 순서(WP-1330) — 시작일(없으면 마감일 하루 막대라 마감일) 오름차순 → 마감일 오름차순 → 이슈 번호.
+ * API 순서(번호·정렬 기준 제각각)로 두면 사이클 안 일의 흐름이 위아래로 뒤섞여 읽혔다. 묶음 순서 자체는 compareEpicGroups 그대로.
+ */
+export function compareBarsBySchedule(a: TimelineBar, b: TimelineBar): number {
+  return (
+    compareNullableDate(a.start ?? a.due, b.start ?? b.due) || compareNullableDate(a.due, b.due) || a.issueNumber - b.issueNumber
+  );
+}
+
 /**
  * 막대 목록의 min-start(없으면 due) ~ max-due 롤업 range 계산 (#662).
  * 에픽 그룹과 no-epic 그룹이 동일한 규칙을 쓴다 — bars 가 비어 있으면 null.
@@ -340,6 +359,52 @@ function spanOf(start: string | null, due: string | null): DateSpan | null {
   return s <= e ? { start: s, due: e } : { start: e, due: s };
 }
 const overlaps = (span: DateSpan, p: { from: string; to: string }) => span.start <= p.to && span.due >= p.from;
+
+/** 이슈가 사이클 소속 거름(WP-1330)에 맞는지 — cycles 면 그 사이클 중 하나에 들었는지, none 이면 사이클이 하나도 없는지. */
+function inCycleScope(issue: Pick<IssueResponse, 'cycles'>, scope: CycleScope): boolean {
+  const cycles = issue.cycles ?? [];
+  return scope.kind === 'none' ? cycles.length === 0 : cycles.some((c) => scope.ids.includes(c.id));
+}
+
+/**
+ * 실제로 쓸 사이클 소속 거름(WP-1330) — 받은 이슈 중 `cycles` 필드를 실은 이슈가 하나도 없으면(구버전 서버 응답) 소속을 알 수 없으니
+ * null 로 돌려 예전처럼 날짜 겹침으로 거른다. 빈 배열은 「사이클 없음」이라는 값이라 필드가 있는 것으로 본다.
+ * 거름·빈 상태 문구·간트 축이 같은 판정을 쓴다.
+ */
+export function effectiveCycleScope(
+  issues: Pick<IssueResponse, 'cycles'>[],
+  scope: CycleScope | null | undefined,
+): CycleScope | null {
+  if (!scope) return null;
+  return issues.some((i) => i.cycles !== undefined) ? scope : null;
+}
+
+/**
+ * 사이클 소속으로 거른다(WP-1330). 에픽이 아닌 이슈는 자기 소속으로 거른다. 날짜는 보지 않는다 — 소속이 맞으면 날짜 없는 이슈도
+ * 「일정 미정」·에픽 아래에 그대로 남는다. 에픽(묶음)은:
+ * - 사이클 선택지(cycles): 에픽 자신이 그 사이클에 들었거나, 소속이 맞는 하위가 하나라도 있으면 보인다.
+ * - 「사이클 없음」(none): 에픽 자신에 사이클이 없고, 하위가 아예 없거나 사이클 없는 하위가 하나라도 있으면 보인다
+ *   (사이클에 든 하위만 있는 에픽은 그 사이클 쪽 일이라 뺀다). 하위는 위 규칙대로 따로 거른다.
+ */
+function filterByCycleScope(issues: TimelineIssue[], scope: CycleScope): TimelineIssue[] {
+  const kept = new Set(issues.filter((i) => i.type?.name !== 'EPIC' && inCycleScope(i, scope)));
+  const { children } = bucketByEpic(issues);
+  const keepEpic = (epic: TimelineIssue): boolean => {
+    const kids = children.get(epicGroupKey(epic.number)) ?? [];
+    const keptKid = kids.some((k) => kept.has(k));
+    return scope.kind === 'cycles'
+      ? inCycleScope(epic, scope) || keptKid
+      : inCycleScope(epic, scope) && (kids.length === 0 || keptKid);
+  };
+  return issues.filter((i) => (i.type?.name === 'EPIC' ? keepEpic(i) : kept.has(i)));
+}
+
+/** 기간 빈 상태 문구(WP-247·WP-1330) — 사이클 선택지·「사이클 없음」은 사이클 문구로. 간트·아젠다 공용. */
+export function periodEmptyCopy(scope: CycleScope | null): { title: string; description: string } {
+  if (!scope) return { title: '이 기간에 걸친 이슈가 없어요', description: '기간을 「전체」로 바꿔 보세요' };
+  if (scope.kind === 'none') return { title: '사이클에 속하지 않은 이슈가 없어요', description: '다른 사이클이나 「전체」를 골라 보세요' };
+  return { title: '이 사이클에 속한 이슈가 없어요', description: '다른 사이클이나 「전체」를 골라 보세요' };
+}
 
 /** 에픽 자체 기간 — 마감일이 있을 때만(시작일이 없거나 마감일보다 늦으면 마감일 하루), 없으면 null(WP-248). 간트·아젠다 공용. */
 function epicOwnRange(epic: Pick<IssueResponse, 'startDate' | 'dueDate'>): DateSpan | null {
@@ -391,10 +456,11 @@ function intersectSpan(a: DateSpan, b: DateSpan): DateSpan | null {
  * 2) 기간(period): 에픽은 간트 막대와 같은 정의로 판단한다 — 자체 기간(epicOwnRange) 또는 마감일 있는 하위 롤업
  *    (rollupRange — 간트 range/얇은 막대와 같은 min(start ?? due) ~ max(due))이 겹치면 하위 전부와 함께 보인다(일정 초과 하위도 보이게).
  *    에픽 없는 이슈는 자기 구간으로. 마감일이 없는 이슈(간트에선 막대 없이 「일정 미정」)와 막대가 없는 에픽은 거르지 않는다.
+ * 3) 사이클 소속(cycleScope, WP-1330): 있으면 2) 대신 소속으로 거른다(filterByCycleScope) — 사이클 선택지·「사이클 없음」.
  */
 export function prepareTimelineIssues(
   issues: IssueResponse[],
-  { includeCanceled = false, period = null }: TimelineViewOptions = {},
+  { includeCanceled = false, period = null, cycleScope = null }: TimelineViewOptions = {},
 ): TimelineIssue[] {
   const canceledEpics = new Map(
     issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => [epicGroupKey(i.number), i.title]),
@@ -417,6 +483,10 @@ export function prepareTimelineIssues(
     if (i.status === 'CANCELED' && !includeCanceled) continue;
     byStatus.push(i);
   }
+  // 사이클 선택지(WP-1330) — 날짜 겹침 대신 소속으로 거른다(기간은 간트 축 맞춤용일 뿐이라 여기서 다시 보지 않는다).
+  // cycles 필드가 없는 응답(구버전 서버)은 소속을 알 수 없어 날짜로 거른다(effectiveCycleScope).
+  const scope = effectiveCycleScope(issues, cycleScope);
+  if (scope) return filterByCycleScope(byStatus, scope);
   if (!period) return byStatus;
 
   // 에픽 묶음 키 → 에픽·하위(응답에 에픽이 없는 합성 묶음·다른 프로젝트 에픽 묶음 포함).
@@ -470,9 +540,12 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
     const num = ref.number;
     const epic = epicByKey.get(ref.key) ?? null;
     const kids = children.get(ref.key) ?? [];
-    const bars = kids.filter((k) => k.dueDate).map(toBar);
-    // 미정 하위는 "일정 미정" 섹션이 아니라 소속 에픽 아래 행으로 노출한다(중복 없음).
-    const undatedChildren = kids.filter((k) => !k.dueDate);
+    const bars = kids.filter((k) => k.dueDate).map(toBar).sort(compareBarsBySchedule);
+    // 미정 하위는 "일정 미정" 섹션이 아니라 소속 에픽 아래 행으로 노출한다(중복 없음). 날짜 있는 막대 뒤에 오며,
+    // 시작일만 있는 하위가 그 시작일 순으로 앞에 선다(WP-1330).
+    const undatedChildren = kids
+      .filter((k) => !k.dueDate)
+      .sort((a, b) => compareNullableDate(a.startDate, b.startDate) || a.number - b.number);
 
     // range(에픽 막대): 에픽 자체 기간(마감일 기준) 우선 → 없으면 날짜 있는 자식 롤업 → 그것도 없으면 null (WP-248).
     // null 이어도 그룹은 만든다 — 에픽 막대는 안 그리지만 그룹 행/펼침·미정 자식 노출은 유지한다.
@@ -502,7 +575,7 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
   }
 
   // no-epic 그룹 — 막대 있는 이슈만, 맨 뒤에.
-  const looseBars = looseIssues.filter((i) => i.dueDate).map(toBar);
+  const looseBars = looseIssues.filter((i) => i.dueDate).map(toBar).sort(compareBarsBySchedule);
   for (const issue of looseIssues) if (!issue.dueDate) unscheduled.push(issue);
   if (looseBars.length > 0) {
     groups.push({
@@ -737,7 +810,7 @@ const iso = (d: Date) => format(d, 'yyyy-MM-dd');
 
 /** URL 값 → PeriodParam. 비었거나 알 수 없거나 형식이 틀리면 active(기본). range 가 뒤집혀 있으면 바로잡는다. */
 export function parsePeriodParam(raw: string | null): PeriodParam {
-  if (raw === 'all' || raw === 'quarter' || raw === 'rolling') return { kind: raw };
+  if (raw === 'all' || raw === 'quarter' || raw === 'rolling' || raw === 'no-cycle') return { kind: raw };
   const cycleMatch = raw?.match(/^cycle-(\d+)$/);
   if (cycleMatch) return { kind: 'cycle', id: Number(cycleMatch[1]) };
   const rangeMatch = raw?.match(/^range:(.+)~(.+)$/);
@@ -778,30 +851,64 @@ function rollingPeriod(today: Date, fallbackNote: string | null): TimelinePeriod
   return { from: iso(subMonths(today, 3)), to: iso(addMonths(today, 6)), label: ROLLING_LABEL, fallbackNote };
 }
 
-/** 활성 사이클 규칙 — 날짜 있는 ACTIVE 합집합 → 가장 가까운 PLANNED → rolling. note 는 대체 시 덧씌울 안내(지정 사이클 대체용). */
-function activePeriod(cycles: CycleResponse[], today: Date, note: string | null): TimelinePeriod {
-  const active = cycles.filter((c) => c.status === 'ACTIVE').filter(isDated);
-  if (active.length > 0) {
-    const from = active.map((c) => c.startDate).reduce((a, b) => (a < b ? a : b));
-    const to = active.map((c) => c.endDate).reduce((a, b) => (a > b ? a : b));
-    const name = active.length === 1 ? active[0].name : `활성 사이클 ${active.length}개`;
-    return { from, to, label: `${name} · ${formatPeriodSpan(from, to, today)}`, fallbackNote: note };
-  }
-  const todayStr = iso(today);
-  const planned = cycles.filter((c) => c.status === 'PLANNED').filter(isDated);
-  if (planned.length > 0) {
-    // 오늘 이후 가장 먼저 시작하는 것, 없으면 시작일이 오늘에 가장 가까운 것.
-    const upcoming = planned.filter((c) => c.startDate >= todayStr).sort((a, b) => a.startDate.localeCompare(b.startDate));
-    const distance = (c: DatedCycle) => Math.abs(differenceInCalendarDays(parseISO(c.startDate), today));
-    const pick = upcoming[0] ?? [...planned].sort((a, b) => distance(a) - distance(b))[0];
+/** 풀린 조회 기간과 사이클 소속 거름(WP-1330) — 한 리졸버(resolveTimelinePeriod)가 함께 정해 대체 규칙이 한곳에만 있다. */
+export interface ResolvedTimelinePeriod {
+  period: TimelinePeriod | null;
+  cycleScope: CycleScope | null;
+}
+
+/**
+ * 활성 사이클 규칙(WP-247·WP-1330).
+ * - 거름(cycleScope): ACTIVE 사이클 전부 — 날짜 없는 ACTIVE 도 소속으로 거른다. ACTIVE 가 없으면 가장 가까운 PLANNED 하나, 그것도 없으면 null(날짜로 거름).
+ * - 축(period): 날짜 있는 ACTIVE 합집합. 날짜 있는 ACTIVE 가 없으면 기존 대체(가장 가까운 PLANNED → rolling) 기간을 쓴다.
+ *   ACTIVE 가 있지만 모두 날짜가 없으면 거름은 ACTIVE 소속 그대로, 라벨은 그 사이클 이름, 축만 대체 기간이다(안내 문구로 알린다).
+ * note 는 대체 시 덧씌울 안내(지정 사이클 대체용).
+ */
+function resolveActive(cycles: CycleResponse[], today: Date, note: string | null): ResolvedTimelinePeriod {
+  const activeAll = cycles.filter((c) => c.status === 'ACTIVE');
+  const dated = activeAll.filter(isDated);
+  const activeName = (cs: CycleResponse[]) => (cs.length === 1 ? cs[0].name : `활성 사이클 ${cs.length}개`);
+  if (dated.length > 0) {
+    const from = dated.map((c) => c.startDate).reduce((x, y) => (x < y ? x : y));
+    const to = dated.map((c) => c.endDate).reduce((x, y) => (x > y ? x : y));
     return {
-      from: pick.startDate,
-      to: pick.endDate,
-      label: `${pick.name} (예정) · ${formatPeriodSpan(pick.startDate, pick.endDate, today)}`,
-      fallbackNote: note ?? '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다',
+      period: { from, to, label: `${activeName(activeAll)} · ${formatPeriodSpan(from, to, today)}`, fallbackNote: note },
+      cycleScope: { kind: 'cycles', ids: activeAll.map((c) => c.id) },
     };
   }
-  return rollingPeriod(today, note ?? '활성·예정 사이클이 없어 최근 3개월 ~ 향후 6개월로 봅니다');
+  // 날짜 있는 ACTIVE 가 없다 — 축은 가장 가까운 PLANNED, 없으면 rolling.
+  const todayStr = iso(today);
+  const planned = cycles.filter((c) => c.status === 'PLANNED').filter(isDated);
+  // 오늘 이후 가장 먼저 시작하는 것, 없으면 시작일이 오늘에 가장 가까운 것.
+  const upcoming = planned.filter((c) => c.startDate >= todayStr).sort((x, y) => x.startDate.localeCompare(y.startDate));
+  const distance = (c: DatedCycle) => Math.abs(differenceInCalendarDays(parseISO(c.startDate), today));
+  const pick: DatedCycle | undefined = upcoming[0] ?? [...planned].sort((x, y) => distance(x) - distance(y))[0];
+  const axis = pick
+    ? { from: pick.startDate, to: pick.endDate }
+    : { from: iso(subMonths(today, 3)), to: iso(addMonths(today, 6)) };
+  if (activeAll.length > 0) {
+    // ACTIVE 는 있지만 날짜가 없다 — 소속으로 거르고 축만 대체(조용히 날짜 겹침으로 바꾸지 않는다).
+    return {
+      period: {
+        ...axis,
+        label: activeName(activeAll),
+        fallbackNote: note ?? `활성 사이클에 날짜가 없어 기간 축은 ${pick ? `${pick.name} (예정)` : ROLLING_LABEL} 기준으로 봅니다`,
+      },
+      cycleScope: { kind: 'cycles', ids: activeAll.map((c) => c.id) },
+    };
+  }
+  if (pick) {
+    return {
+      period: {
+        ...axis,
+        label: `${pick.name} (예정) · ${formatPeriodSpan(pick.startDate, pick.endDate, today)}`,
+        fallbackNote: note ?? '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다',
+      },
+      cycleScope: { kind: 'cycles', ids: [pick.id] },
+    };
+  }
+  // 사이클이 아예 없다 — rolling, 날짜로 거른다.
+  return { period: rollingPeriod(today, note ?? '활성·예정 사이클이 없어 최근 3개월 ~ 향후 6개월로 봅니다'), cycleScope: null };
 }
 
 /** 처음 열 때 오늘을 차트 왼쪽 끝에서 이만큼 띄운다 — 오늘선 앞 맥락(지난주)이 보이게. */
@@ -821,41 +928,69 @@ export function initialScrollDate(period: TimelinePeriod | null, today: Date): s
 }
 
 /**
- * PeriodParam → 실제 조회 기간. all 이면 null(거르지 않음).
- * cyclesFailed: 사이클 조회 실패 — 사이클이 필요한 active·cycle 은 rolling 으로 대체하고 이유를 안내한다.
+ * PeriodParam → 조회 기간 + 사이클 소속 거름(WP-247·WP-1330). 대체 규칙은 여기 한곳에만 있다.
+ * - period: 간트 축·스크롤·날짜 거름용 기간. all·no-cycle 이면 null(기간 제한 없음).
+ * - cycleScope: 사이클 선택지는 날짜 겹침이 아니라 소속으로 거른다 — active·cycle 은 그 사이클들, no-cycle 은 사이클 없는 이슈.
+ *   분기·rolling·직접 지정·전체, 그리고 rolling 으로 대체된 경우는 null(날짜로 거름).
+ * cyclesFailed: 사이클 조회 실패 — 사이클이 필요한 active·cycle 은 rolling 으로 대체하고 이유를 안내한다(날짜로 거름).
  */
-export function resolvePeriod(
+export function resolveTimelinePeriod(
   param: PeriodParam,
   cycles: CycleResponse[],
   today: Date,
   { cyclesFailed = false }: { cyclesFailed?: boolean } = {},
-): TimelinePeriod | null {
+): ResolvedTimelinePeriod {
+  const dateOnly = (period: TimelinePeriod | null): ResolvedTimelinePeriod => ({ period, cycleScope: null });
   if (cyclesFailed && (param.kind === 'active' || param.kind === 'cycle')) {
-    return rollingPeriod(today, '사이클을 불러오지 못해 최근 3개월 ~ 향후 6개월로 봅니다');
+    return dateOnly(rollingPeriod(today, '사이클을 불러오지 못해 최근 3개월 ~ 향후 6개월로 봅니다'));
   }
   switch (param.kind) {
     case 'all':
-      return null;
+      return dateOnly(null);
+    case 'no-cycle': // 「사이클 없음」은 기간 제한이 없다 — 사이클 없는 이슈만.
+      return { period: null, cycleScope: { kind: 'none' } };
     case 'rolling':
-      return rollingPeriod(today, null);
+      return dateOnly(rollingPeriod(today, null));
     case 'quarter': {
       const from = iso(startOfQuarter(today));
       const to = iso(endOfQuarter(today));
-      return { from, to, label: `이번 분기 · ${formatPeriodSpan(from, to, today)}`, fallbackNote: null };
+      return dateOnly({ from, to, label: `이번 분기 · ${formatPeriodSpan(from, to, today)}`, fallbackNote: null });
     }
     case 'range':
-      return { from: param.from, to: param.to, label: formatPeriodSpan(param.from, param.to, today), fallbackNote: null };
+      return dateOnly({ from: param.from, to: param.to, label: formatPeriodSpan(param.from, param.to, today), fallbackNote: null });
     case 'cycle': {
       const c = cycles.find((x) => x.id === param.id);
       if (c && isDated(c)) {
-        return { from: c.startDate, to: c.endDate, label: `${c.name} · ${formatPeriodSpan(c.startDate, c.endDate, today)}`, fallbackNote: null };
+        return {
+          period: { from: c.startDate, to: c.endDate, label: `${c.name} · ${formatPeriodSpan(c.startDate, c.endDate, today)}`, fallbackNote: null },
+          cycleScope: { kind: 'cycles', ids: [c.id] },
+        };
       }
-      return activePeriod(cycles, today, '선택한 사이클을 찾을 수 없거나 날짜가 없어 활성 사이클 기준으로 봅니다');
+      return resolveActive(cycles, today, '선택한 사이클을 찾을 수 없거나 날짜가 없어 활성 사이클 기준으로 봅니다');
     }
     case 'active':
-      return activePeriod(cycles, today, null);
+      return resolveActive(cycles, today, null);
   }
 }
+
+/** 조회 기간만 — resolveTimelinePeriod 의 period(기간 바꿀 때 스크롤 위치 등). 규칙은 resolveTimelinePeriod 한곳. */
+export function resolvePeriod(
+  param: PeriodParam,
+  cycles: CycleResponse[],
+  today: Date,
+  opts: { cyclesFailed?: boolean } = {},
+): TimelinePeriod | null {
+  return resolveTimelinePeriod(param, cycles, today, opts).period;
+}
+
+/** 기간 표시 이름 — 드롭다운 트리거·모바일 칩 공용. 기간이 없으면 「전체」, 「사이클 없음」(WP-1330)은 기간이 없어도 그 이름. */
+export function periodDisplayLabel(param: PeriodParam, period: TimelinePeriod | null): string {
+  if (param.kind === 'no-cycle') return NO_CYCLE_LABEL;
+  return period ? period.label : '전체';
+}
+
+/** 「사이클 없음」 선택지·칩 이름(WP-1330). */
+export const NO_CYCLE_LABEL = '사이클 없음';
 
 /** 간트 축을 조회 기간 앞뒤로 넓혀 둘 여유(개월) — 기간을 걸치는 이슈 막대가 축 끝에서 바로 잘리지 않게. */
 const GANTT_AXIS_MARGIN_MONTHS = 12;
@@ -870,6 +1005,7 @@ const GANTT_AXIS_ALL_MONTHS = 60;
  * markerDates — 마일스톤 마감·버전 출시일(WP-1146). SVAR 자동 범위는 막대만 덮어, 막대보다 이른(늦은) 마커는 축 밖에서 숨은 채
  * 스크롤로도 닿을 수 없었다(지난달 마감 마일스톤). 조회 기간 안(전체면 축 상한 안)의 마커가 막대 범위 밖에 있으면 그 마커까지 덮는
  * 월 경계 범위를 돌려준다. 기간 밖의 마커로는 넓히지 않는다 — 오래된 마일스톤 하나가 축을 몇 년씩 늘리지 않게.
+ * fitData — 사이클 소속 거름(WP-1330)이면 막대 범위로 상한을 넓혀 막대를 자르지 않는다.
  */
 export function ganttAxisBounds(
   dataStart: Date | null,
@@ -877,10 +1013,22 @@ export function ganttAxisBounds(
   period: Pick<TimelinePeriod, 'from' | 'to'> | null | undefined,
   today: Date,
   markerDates: Date[] = [],
+  { fitData = false }: { fitData?: boolean } = {},
 ): { start: Date; end: Date } | null {
   const margin = period ? GANTT_AXIS_MARGIN_MONTHS : GANTT_AXIS_ALL_MONTHS;
-  const lo = subMonths(period ? parseISO(period.from) : today, margin);
-  const hi = addMonths(period ? parseISO(period.to) : today, margin);
+  // fitData(WP-1330): 사이클 소속 거름은 날짜가 아니라 소속으로 고른 이슈라 기간 밖 막대도 그 사이클의 일이다 — 상한을 막대 범위까지 넓혀
+  // (기간 ±12개월 ∪ 막대 min~max) 잘리지 않게 한다. 단 기간 ±5년(「전체」와 같은 상한)까지만 — 1900~2099 같은 막대 하나가
+  // 축을 200년으로 늘려 「오늘」이 엉뚱한 해로 가던 문제(WP-595)가 사이클 보기에서 되살아나지 않게.
+  const anchorFrom = period ? parseISO(period.from) : today;
+  const anchorTo = period ? parseISO(period.to) : today;
+  let lo = subMonths(anchorFrom, margin);
+  let hi = addMonths(anchorTo, margin);
+  if (fitData) {
+    const capLo = subMonths(anchorFrom, GANTT_AXIS_ALL_MONTHS);
+    const capHi = addMonths(anchorTo, GANTT_AXIS_ALL_MONTHS);
+    if (dataStart && dataStart < lo) lo = dataStart < capLo ? capLo : dataStart;
+    if (dataEnd && dataEnd > hi) hi = dataEnd > capHi ? capHi : dataEnd;
+  }
   // 축에 담을 마커 — 조회 기간 안(기간의 끝날 하루 전체 포함), 전체면 축 상한 안.
   const markerLo = period ? parseISO(period.from) : lo;
   const markerHi = period ? addDays(parseISO(period.to), 1) : hi;

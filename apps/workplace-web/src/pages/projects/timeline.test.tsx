@@ -6,7 +6,7 @@
 // 프로젝트 홈 헤더 링크로 타임라인 화면에 들어가는 1건만 라우트 트리가 필요해 renderPage 로 남긴다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
@@ -25,9 +25,11 @@ const MEMBERS = [
   createMember({ userId: 2, name: '김개발', username: 'kim@example.com' }),
   createMember({ userId: 3, name: '이테스트', username: 'lee@example.com', role: 'MEMBER' }),
 ]
+// 기본 기간(활성 사이클 7)은 사이클 소속으로 거르므로(WP-1330) 기본 이슈는 사이클 7 에 든다.
+const IN_CYCLE_7 = [{ id: 7, name: '사이클 7', status: 'ACTIVE' }]
 const ISSUES = [
-  createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
-  createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10' }),
+  createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05', cycles: IN_CYCLE_7 }),
+  createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10', cycles: IN_CYCLE_7 }),
 ]
 /** E2E setupTimelineStubs 와 같은 기본 화면 — 활성 사이클 1개·마일스톤 1개·멤버 2명. */
 function defaultApi(over: Parameters<typeof timelineApi>[0] = {}) {
@@ -93,7 +95,8 @@ describe('타임라인 — 일정 미정 섹션', () => {
         createIssue({ number: 6, title: '미정 이슈B', startDate: '2026-07-20' }),
       ],
     })
-    const { user } = await openTimeline(`/projects/${KEY}/timeline`, api, {
+    // 기간은 「전체」 — 기본(활성 사이클)은 사이클 소속으로 걸러 사이클 없는 미정 이슈가 숨는다(WP-1330). 이 테스트는 배치 동작만 본다.
+    const { user } = await openTimeline(`/projects/${KEY}/timeline?period=all`, api, {
       handlers: [
         http.patch(`${API}/issues/:n`, async ({ request, params }) => {
           patches.push({ n: String(params.n), body: await request.json() })
@@ -118,6 +121,90 @@ describe('타임라인 — 일정 미정 섹션', () => {
 
     await user.click(screen.getByTestId('unscheduled-schedule-6'))
     await waitFor(() => expect(patches[1]).toEqual({ n: '6', body: { dueDate: '2026-07-27' } }))
+  })
+})
+
+describe('타임라인 — 사이클 소속 거름 (WP-1330)', () => {
+  // 사이클 선택지는 날짜 겹침이 아니라 소속으로 거른다 — 날짜는 사이클 7 기간 안이어도 사이클 8·미배정 이슈는 숨는다.
+  // 「사이클 없음」은 사이클이 없는 이슈만, 기간 제한 없이. 날짜 없는 이슈는 「일정 미정」 행(unscheduled-row-N)으로 확인한다.
+  const inCycle = (id: number) => [{ id, name: `사이클 ${id}`, status: 'ACTIVE' }]
+  const CYCLE_ISSUES = [
+    createIssue({ number: 11, title: '사이클7 막대', startDate: '2026-07-02', dueDate: '2026-07-04', cycles: inCycle(7) }),
+    createIssue({ number: 12, title: '사이클8 막대', startDate: '2026-07-02', dueDate: '2026-07-04', cycles: inCycle(8) }),
+    createIssue({ number: 13, title: '미배정 막대', startDate: '2026-07-02', dueDate: '2026-07-04' }),
+    createIssue({ number: 21, title: '사이클7 미정', cycles: inCycle(7) }),
+    createIssue({ number: 22, title: '사이클8 미정', cycles: inCycle(8) }),
+    createIssue({ number: 23, title: '미배정 미정' }),
+  ]
+  const cycleApi = () =>
+    defaultApi({
+      issues: CYCLE_ISSUES,
+      cycles: [cycle({}), cycle({ id: 8, name: '사이클 8', status: 'COMPLETED', startDate: '2026-06-01', endDate: '2026-06-14' })],
+    })
+  const gantt = () => screen.getByTestId('timeline-gantt')
+  // 「에픽 없음」 묶음은 접혀 시작한다 — 하위 막대 제목이 그리드에 보이게 펼친 상태로 연다.
+  beforeEach(() => window.localStorage.setItem(`timeline-expanded:${KEY}`, JSON.stringify(['no-epic'])))
+  const unscheduledRows = () =>
+    [...document.querySelectorAll('[data-testid^="unscheduled-row-"]')].map((el) => el.getAttribute('data-testid'))
+
+  test('사이클을 고르면 다른 사이클·미배정 이슈가 숨고, 「사이클 없음」은 미배정만 남는다', async () => {
+    const { user, location } = await openTimeline(`/projects/${KEY}/timeline?period=all`, cycleApi())
+    await waitFor(() => expect(gantt()).toHaveTextContent('사이클8 막대'))
+    expect(unscheduledRows()).toHaveLength(3)
+
+    await user.click(screen.getByTestId('timeline-period-trigger'))
+    await user.click(await screen.findByTestId('timeline-period-option-cycle-7'))
+    await waitFor(() => expect(location()).toMatch(/period=cycle-7/))
+    await waitFor(() => expect(gantt()).not.toHaveTextContent('사이클8 막대'))
+    expect(gantt()).toHaveTextContent('사이클7 막대')
+    expect(gantt()).not.toHaveTextContent('미배정 막대')
+    expect(unscheduledRows()).toEqual(['unscheduled-row-21'])
+
+    await user.click(screen.getByTestId('timeline-period-trigger'))
+    const noCycle = await screen.findByTestId('timeline-period-option-no-cycle')
+    expect(noCycle).toHaveTextContent('사이클 없음')
+    await user.click(noCycle)
+    await waitFor(() => expect(location()).toMatch(/period=no-cycle/))
+    await waitFor(() => expect(gantt()).toHaveTextContent('미배정 막대'))
+    expect(gantt()).not.toHaveTextContent('사이클7 막대')
+    expect(gantt()).not.toHaveTextContent('사이클8 막대')
+    expect(unscheduledRows()).toEqual(['unscheduled-row-23'])
+    expect(screen.getByTestId('timeline-period-trigger')).toHaveTextContent('사이클 없음')
+  })
+
+  // 빈 상태(WP-1330 리뷰) — 사이클 선택지는 사이클 문구, 날짜 없는 소속 이슈가 「일정 미정」에 있으면 빈 상태를 띄우지 않는다.
+  test('사이클에 속한 이슈가 없으면 사이클 문구의 빈 상태, 「사이클 없음」도 그 문구', async () => {
+    const api = defaultApi({
+      issues: [createIssue({ number: 11, title: '사이클7 막대', startDate: '2026-07-02', dueDate: '2026-07-04', cycles: inCycle(7) })],
+      cycles: [cycle({}), cycle({ id: 9, name: '빈 사이클', status: 'PLANNED', startDate: '2026-08-01', endDate: '2026-08-14' })],
+    })
+    const { user } = await openTimeline(`/projects/${KEY}/timeline?period=cycle-9`, api)
+    const empty = await screen.findByTestId('timeline-period-empty')
+    expect(empty).toHaveTextContent('이 사이클에 속한 이슈가 없어요')
+    expect(empty).toHaveTextContent('다른 사이클이나 「전체」를 골라 보세요')
+    await user.click(screen.getByTestId('timeline-period-trigger'))
+    await user.click(await screen.findByTestId('timeline-period-option-no-cycle'))
+    await waitFor(() => expect(screen.getByTestId('timeline-period-empty')).toHaveTextContent('사이클에 속하지 않은 이슈가 없어요'))
+  })
+
+  test('사이클 이슈가 날짜 없이 「일정 미정」에만 있으면 빈 상태를 띄우지 않는다', async () => {
+    const api = defaultApi({
+      issues: [
+        createIssue({ number: 21, title: '사이클7 미정', cycles: inCycle(7) }),
+        createIssue({ number: 13, title: '미배정 막대', startDate: '2026-07-02', dueDate: '2026-07-04', cycles: [] }),
+      ],
+    })
+    await openTimeline(`/projects/${KEY}/timeline?period=cycle-7`, api)
+    await screen.findByTestId('unscheduled-row-21')
+    expect(screen.queryByTestId('timeline-period-empty')).not.toBeInTheDocument()
+  })
+
+  test('기본(활성 사이클)도 소속으로 거른다', async () => {
+    await openTimeline(`/projects/${KEY}/timeline`, cycleApi())
+    await waitFor(() => expect(gantt()).toHaveTextContent('사이클7 막대'))
+    expect(gantt()).not.toHaveTextContent('사이클8 막대')
+    expect(gantt()).not.toHaveTextContent('미배정 막대')
+    expect(unscheduledRows()).toEqual(['unscheduled-row-21'])
   })
 })
 

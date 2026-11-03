@@ -78,10 +78,11 @@ export interface TimelineEpicGroup {
 /** 간트 보기 단위 — 일(WP-889)·주·월. */
 export type TimelineZoom = 'day' | 'week' | 'month';
 
-/** URL `period` 값(WP-247) — 조회 기간 선택지. active 가 기본(URL 생략). */
+/** URL `period` 값(WP-247) — 조회 기간 선택지. active 가 기본(URL 생략). no-cycle = 「사이클 없음」(WP-1330, 기간 제한 없음). */
 export type PeriodParam =
   | { kind: 'active' }
   | { kind: 'cycle'; id: number }
+  | { kind: 'no-cycle' }
   | { kind: 'quarter' }
   | { kind: 'rolling' }
   | { kind: 'range'; from: string; to: string }
@@ -95,8 +96,18 @@ export interface TimelinePeriod {
   fallbackNote: string | null;
 }
 
-/** 타임라인 화면 거름 옵션(WP-247). includeCanceled = 상태 필터에 「취소」가 있음. period 가 null/없음이면 기간으로 거르지 않는다. */
+/**
+ * 사이클 소속 거름(WP-1330) — 사이클 선택지(활성 사이클·특정 사이클)는 날짜 겹침이 아니라 소속으로 거른다.
+ * cycles = 이 사이클들 중 하나에 든 이슈만, none = 사이클이 하나도 없는 이슈만(「사이클 없음」).
+ */
+export type CycleScope = { kind: 'cycles'; ids: number[] } | { kind: 'none' };
+
+/**
+ * 타임라인 화면 거름 옵션(WP-247). includeCanceled = 상태 필터에 「취소」가 있음. period 가 null/없음이면 기간으로 거르지 않는다.
+ * cycleScope 가 있으면(WP-1330) 기간 겹침 대신 사이클 소속으로 거른다 — period 는 간트 축·스크롤용으로만 쓰인다.
+ */
 export interface TimelineViewOptions {
   includeCanceled?: boolean;
   period?: TimelinePeriod | null;
+  cycleScope?: CycleScope | null;
 }

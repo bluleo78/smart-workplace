@@ -20,7 +20,7 @@ import type { IssueResponse } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE, MOBILE_SECTION_HEADING } from '../components/mobile/chipStyles';
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
-import { type AgendaRow, buildAgendaSections, versionSheetDateLabel, versionSheetSections } from './timelineData';
+import { type AgendaRow, buildAgendaSections, effectiveCycleScope, periodEmptyCopy, versionSheetDateLabel, versionSheetSections } from './timelineData';
 import { TimelineStatusBadge } from './TimelineStatusBadge';
 import type { TimelineVersionMarker, TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
@@ -86,16 +86,21 @@ export function TimelineAgendaList({
   // 일정 미정 이슈는 기간과 무관하게 남으므로, 미정 섹션이 있으면 그 위에 안내를 두고 미정 섹션은 그대로 보인다.
   // 단, 기간이 원인일 때만 — 기간을 빼면 날짜 있는 섹션이 생길 때. 필터 0건·새 프로젝트면 기존(WP-197) 빈 상태 문구를 쓴다.
   const hasDated = sections.some((s) => s.key !== 'undated');
-  const periodIsCause = useMemo(
-    () => view.period != null && !hasDated && buildAgendaSections(issues, new Date(), { ...view, period: null }).some((s) => s.key !== 'undated'),
-    [issues, view, hasDated],
-  );
+  // 사이클 소속 거름(WP-1330) — cycles 필드 없는 응답이면 null(날짜로 거름). 간트(TimelineGanttBody)와 같은 조건·문구.
+  // 사이클 선택지: 소속 이슈가 날짜 없는 것까지 하나도 없을 때만 — 미정 섹션에 그 사이클 이슈가 있으면 빈 상태를 띄우지 않는다.
+  const scope = useMemo(() => effectiveCycleScope(issues, view.cycleScope), [issues, view.cycleScope]);
+  const periodIsCause = useMemo(() => {
+    const unfiltered = () => buildAgendaSections(issues, new Date(), { ...view, period: null, cycleScope: null });
+    if (scope) return sections.length === 0 && unfiltered().length > 0;
+    return view.period != null && !hasDated && unfiltered().some((s) => s.key !== 'undated');
+  }, [issues, view, scope, sections.length, hasDated]);
+  const emptyCopy = periodEmptyCopy(scope);
   const periodEmpty = !loading && periodIsCause;
   const periodEmptyState = (className?: string) => (
     <MobileEmptyState
       icon={CalendarRange}
-      title="이 기간에 걸친 이슈가 없어요"
-      description="기간을 「전체」로 바꿔 보세요"
+      title={emptyCopy.title}
+      description={emptyCopy.description}
       action={
         <Button variant="outline" className="min-h-11" data-testid="timeline-period-show-all" onClick={onShowAllPeriods}>
           전체 기간 보기

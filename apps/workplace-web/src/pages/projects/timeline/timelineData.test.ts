@@ -6,6 +6,7 @@ import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { IssueTypeSummary } from '@/types/issueType';
 import type { MilestoneResponse } from '@/types/milestone';
 
+import { periodOptions } from './periodOptions';
 import {
   type AgendaSection,
   buildAgendaSections,
@@ -13,6 +14,7 @@ import {
   cyclesToBands,
   dayCellLabel,
   defaultScheduleRange,
+  effectiveCycleScope,
   filterRenderableDependencies,
   formatPeriodSpan,
   ganttAxisBounds,
@@ -24,9 +26,12 @@ import {
   milestonesToMarkers,
   parsePeriodParam,
   parseTimelineZoom,
+  periodDisplayLabel,
+  periodEmptyCopy,
   periodParamToString,
   prepareTimelineIssues,
   resolvePeriod,
+  resolveTimelinePeriod,
   rollupOverlay,
   versionSheetDateLabel,
   versionSheetSections,
@@ -678,6 +683,7 @@ describe('parsePeriodParam / periodParamToString (WP-247)', () => {
     ['range:2026-10-01~2026-10-20', { kind: 'range', from: '2026-10-01', to: '2026-10-20' }],
     ['range:2026-10-20~2026-10-01', { kind: 'range', from: '2026-10-01', to: '2026-10-20' }], // 뒤집힘 → 바로잡기
     ['all', { kind: 'all' }],
+    ['no-cycle', { kind: 'no-cycle' }], // 「사이클 없음」(WP-1330)
     ['range:2026-13-01~x', { kind: 'active' }], // 형식 오류
     ['cycle-abc', { kind: 'active' }],
     ['bogus', { kind: 'active' }],
@@ -687,7 +693,7 @@ describe('parsePeriodParam / periodParamToString (WP-247)', () => {
 
   it('active 는 URL 에서 빠지고 나머지는 왕복한다', () => {
     expect(periodParamToString({ kind: 'active' })).toBeNull();
-    for (const s of ['cycle-7', 'quarter', 'rolling', 'range:2026-10-01~2026-10-20', 'all']) {
+    for (const s of ['cycle-7', 'quarter', 'rolling', 'range:2026-10-01~2026-10-20', 'all', 'no-cycle']) {
       expect(periodParamToString(parsePeriodParam(s))).toBe(s);
     }
   });
@@ -712,12 +718,16 @@ describe('resolvePeriod (WP-247)', () => {
     });
   });
 
-  it('날짜 없는 활성 사이클은 없는 것으로 보고 가장 가까운 예정 사이클로 대체', () => {
+  // WP-1330 — 날짜 없는 ACTIVE 도 거름(소속)에는 쓰고, 축만 기존 대체(가장 가까운 예정 사이클)로 둔다. 라벨은 그 활성 사이클 이름.
+  it('날짜 없는 활성 사이클 — 축은 가장 가까운 예정 사이클, 라벨·거름은 그 활성 사이클', () => {
     const undated = cycle({ id: 5, name: '날짜 없음', status: 'ACTIVE' });
     const later = cycle({ id: 6, name: 'GW-4', status: 'PLANNED', startDate: '2026-11-01', endDate: '2026-11-14' });
-    expect(resolvePeriod({ kind: 'active' }, [undated, later, gw3], TODAY_P)).toEqual({
-      from: '2026-10-15', to: '2026-10-28', label: 'GW-3 (예정) · 10/15–10/28',
-      fallbackNote: '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다',
+    expect(resolveTimelinePeriod({ kind: 'active' }, [undated, later, gw3], TODAY_P)).toEqual({
+      period: {
+        from: '2026-10-15', to: '2026-10-28', label: '날짜 없음',
+        fallbackNote: '활성 사이클에 날짜가 없어 기간 축은 GW-3 (예정) 기준으로 봅니다',
+      },
+      cycleScope: { kind: 'cycles', ids: [5] },
     });
   });
 
@@ -1302,5 +1312,192 @@ describe('타임라인 — 다른 프로젝트 에픽 묶음 (WP-1039)', () => {
       ]),
     );
     expect(rows).toHaveLength(4);
+  });
+});
+
+describe('사이클 소속 거름 (WP-1330)', () => {
+  const TODAY_C = new Date(2026, 9, 5); // 2026-10-05 로컬
+  const gw1 = cycle({ id: 1, name: 'GW-1', status: 'COMPLETED', startDate: '2026-09-17', endDate: '2026-09-30' });
+  const gw2 = cycle({ id: 2, name: 'GW-2', status: 'ACTIVE', startDate: '2026-10-01', endDate: '2026-10-14' });
+  const gw3 = cycle({ id: 3, name: 'GW-3', status: 'PLANNED', startDate: '2026-10-15', endDate: '2026-10-28' });
+  const inCycle = (...ids: number[]) => ids.map((id) => ({ id, name: `GW-${id}`, status: 'ACTIVE' }));
+  const nums = (xs: { number: number }[]) => xs.map((x) => x.number).sort((a, b) => a - b);
+  const P = { from: '2026-10-01', to: '2026-10-14', label: 'GW-2', fallbackNote: null };
+
+  describe('resolveTimelinePeriod — cycleScope', () => {
+    const scopeOf = (...args: Parameters<typeof resolveTimelinePeriod>) => resolveTimelinePeriod(...args).cycleScope;
+    it('active = 날짜 있는 ACTIVE 사이클 전부', () => {
+      const gw4 = cycle({ id: 4, status: 'ACTIVE', startDate: '2026-10-03', endDate: '2026-10-20' });
+      expect(scopeOf({ kind: 'active' }, [gw1, gw2, gw3, gw4], TODAY_C)).toEqual({ kind: 'cycles', ids: [2, 4] });
+    });
+    it('active 거름은 날짜 없는 ACTIVE 까지 전부 — 축(기간)은 날짜 있는 ACTIVE 만', () => {
+      const undatedActive = cycle({ id: 9, name: '날짜 없는 활성', status: 'ACTIVE' });
+      const r = resolveTimelinePeriod({ kind: 'active' }, [gw2, undatedActive], TODAY_C);
+      expect(r.cycleScope).toEqual({ kind: 'cycles', ids: [2, 9] });
+      expect(r.period).toMatchObject({ from: '2026-10-01', to: '2026-10-14' });
+      // 날짜 없는 ACTIVE 만 있고 예정도 없으면 — 축은 rolling, 거름은 여전히 소속(날짜 겹침으로 조용히 바꾸지 않는다).
+      const only = resolveTimelinePeriod({ kind: 'active' }, [undatedActive], TODAY_C);
+      expect(only.cycleScope).toEqual({ kind: 'cycles', ids: [9] });
+      expect(only.period).toMatchObject({ label: '날짜 없는 활성', fallbackNote: '활성 사이클에 날짜가 없어 기간 축은 최근 3개월 ~ 향후 6개월 기준으로 봅니다' });
+    });
+    it('active 인데 ACTIVE 가 없으면 기간과 같은 가장 가까운 PLANNED', () => {
+      expect(scopeOf({ kind: 'active' }, [gw1, gw3], TODAY_C)).toEqual({ kind: 'cycles', ids: [3] });
+    });
+    it('active 가 rolling 으로 대체되면(사이클 없음·조회 실패) 날짜로 거른다(null)', () => {
+      expect(scopeOf({ kind: 'active' }, [gw1], TODAY_C)).toBeNull();
+      expect(scopeOf({ kind: 'active' }, [], TODAY_C)).toBeNull();
+      expect(scopeOf({ kind: 'cycle', id: 2 }, [gw2], TODAY_C, { cyclesFailed: true })).toBeNull();
+    });
+    it('cycle-{id} = 그 사이클, 못 찾으면 활성 사이클 규칙', () => {
+      expect(scopeOf({ kind: 'cycle', id: 1 }, [gw1, gw2], TODAY_C)).toEqual({ kind: 'cycles', ids: [1] });
+      expect(scopeOf({ kind: 'cycle', id: 99 }, [gw1, gw2], TODAY_C)).toEqual({ kind: 'cycles', ids: [2] });
+    });
+    it('no-cycle = 사이클 없는 이슈, 날짜 선택지는 null', () => {
+      expect(scopeOf({ kind: 'no-cycle' }, [gw2], TODAY_C)).toEqual({ kind: 'none' });
+      for (const kind of ['quarter', 'rolling', 'all'] as const) expect(scopeOf({ kind }, [gw2], TODAY_C)).toBeNull();
+      expect(scopeOf({ kind: 'range', from: '2026-10-01', to: '2026-10-02' }, [gw2], TODAY_C)).toBeNull();
+    });
+    it('no-cycle 은 기간 제한이 없고(resolvePeriod null) 이름은 「사이클 없음」', () => {
+      expect(resolvePeriod({ kind: 'no-cycle' }, [gw2], TODAY_C)).toBeNull();
+      expect(periodDisplayLabel({ kind: 'no-cycle' }, null)).toBe('사이클 없음');
+      expect(periodDisplayLabel({ kind: 'all' }, null)).toBe('전체');
+      expect(periodDisplayLabel({ kind: 'cycle', id: 2 }, P)).toBe('GW-2');
+    });
+  });
+
+  it('periodOptions — 「사이클 없음」이 사이클 묶음 맨 아래(프리셋 앞)', () => {
+    const opts = periodOptions([gw1, gw2], TODAY_C);
+    const cycleGroup = opts.filter((o) => o.group === 'cycle').map((o) => o.value);
+    expect(cycleGroup).toEqual(['active', 'cycle-2', 'cycle-1', 'no-cycle']);
+    expect(opts.find((o) => o.value === 'no-cycle')?.label).toBe('사이클 없음');
+    expect(opts[opts.findIndex((o) => o.value === 'no-cycle') + 1].value).toBe('quarter');
+  });
+
+  it('사이클 소속만 남긴다 — 날짜가 기간 밖이어도 소속이면, 기간 안이어도 다른 사이클·미배정이면 숨김', () => {
+    const xs = [
+      issue({ number: 1, cycles: inCycle(2), startDate: '2026-12-01', dueDate: '2026-12-05' }), // 소속·기간 밖
+      issue({ number: 2, cycles: inCycle(1), startDate: '2026-10-02', dueDate: '2026-10-03' }), // 다른 사이클·기간 안
+      issue({ number: 3, startDate: '2026-10-02', dueDate: '2026-10-03' }), // 미배정·기간 안
+      issue({ number: 4, cycles: inCycle(1, 2) }), // 여러 사이클 중 하나·날짜 없음
+      issue({ number: 5 }), // 미배정·날짜 없음 — 사이클 선택지에선 숨김
+    ];
+    expect(nums(prepareTimelineIssues(xs, { period: P, cycleScope: { kind: 'cycles', ids: [2] } }))).toEqual([1, 4]);
+    expect(nums(prepareTimelineIssues(xs, { period: null, cycleScope: { kind: 'none' } }))).toEqual([3, 5]);
+  });
+
+  it('날짜 선택지(cycleScope 없음)는 지금처럼 날짜 겹침으로 거른다', () => {
+    const xs = [
+      issue({ number: 1, cycles: inCycle(2), startDate: '2026-12-01', dueDate: '2026-12-05' }),
+      issue({ number: 3, startDate: '2026-10-02', dueDate: '2026-10-03' }),
+      issue({ number: 5 }),
+    ];
+    expect(nums(prepareTimelineIssues(xs, { period: P }))).toEqual([3, 5]);
+  });
+
+  it('에픽은 소속 하위가 있을 때만 — 에픽 자신의 사이클은 보지 않는다', () => {
+    const xs = [
+      issue({ number: 40, type: EPIC_TYPE, cycles: [] }), // 하위 41 이 소속 → 보임
+      issue({ number: 41, parent: parentRef(40, 'A'), cycles: inCycle(2), dueDate: '2026-10-05' }),
+      issue({ number: 42, parent: parentRef(40, 'A'), cycles: inCycle(1), dueDate: '2026-10-06' }), // 다른 사이클 → 숨김
+      issue({ number: 50, type: EPIC_TYPE, cycles: inCycle(2), dueDate: '2026-10-10' }), // 에픽 자신이 소속 → 하위가 없어도 보임
+      issue({ number: 51, parent: parentRef(50, 'B'), cycles: inCycle(1) }), // 다른 사이클 하위는 숨김
+      issue({ number: 60, type: EPIC_TYPE, cycles: [] }), // 에픽·하위 모두 소속 아님 → 숨김
+      issue({ number: 61, parent: parentRef(60, 'C'), cycles: [] }),
+    ];
+    const scope = { kind: 'cycles' as const, ids: [2] };
+    expect(nums(prepareTimelineIssues(xs, { period: P, cycleScope: scope }))).toEqual([40, 41, 50]);
+    const { groups } = groupTimelineIssues(xs, { period: P, cycleScope: scope });
+    expect(groups.map((g) => g.key)).toEqual(['epic-40', 'epic-50']);
+  });
+
+  it('「사이클 없음」 에픽 — 자신에 사이클이 없고, 하위가 없거나 사이클 없는 하위가 있을 때만', () => {
+    const xs = [
+      issue({ number: 40, type: EPIC_TYPE, cycles: [] }), // 하위 없음 → 보임
+      issue({ number: 50, type: EPIC_TYPE, cycles: [] }), // 사이클 없는 하위 51 → 보임(52 는 숨김)
+      issue({ number: 51, parent: parentRef(50, 'B'), cycles: [] }),
+      issue({ number: 52, parent: parentRef(50, 'B'), cycles: inCycle(2) }),
+      issue({ number: 60, type: EPIC_TYPE, cycles: [] }), // 하위가 모두 사이클에 듦 → 숨김
+      issue({ number: 61, parent: parentRef(60, 'C'), cycles: inCycle(2) }),
+      issue({ number: 70, type: EPIC_TYPE, cycles: inCycle(2) }), // 에픽 자신이 사이클에 듦 → 숨김(하위 71 은 따로 보임)
+      issue({ number: 71, parent: parentRef(70, 'D'), cycles: [] }),
+    ];
+    expect(nums(prepareTimelineIssues(xs, { cycleScope: { kind: 'none' } }))).toEqual([40, 50, 51, 71]);
+  });
+
+  it('cycles 필드가 아예 없는 응답(구버전 서버)은 소속을 알 수 없어 날짜로 거른다', () => {
+    const xs = [
+      issue({ number: 1, startDate: '2026-10-02', dueDate: '2026-10-03' }), // 기간 안
+      issue({ number: 2, startDate: '2026-12-01', dueDate: '2026-12-05' }), // 기간 밖
+    ];
+    expect(effectiveCycleScope(xs, { kind: 'cycles', ids: [2] })).toBeNull();
+    expect(nums(prepareTimelineIssues(xs, { period: P, cycleScope: { kind: 'cycles', ids: [2] } }))).toEqual([1]);
+    // 하나라도 필드(빈 배열 포함)가 있으면 소속으로 거른다.
+    expect(effectiveCycleScope([...xs, issue({ number: 3, cycles: [] })], { kind: 'none' })).toEqual({ kind: 'none' });
+  });
+
+  it('빈 상태 문구 — 사이클 선택지·「사이클 없음」은 사이클 문구', () => {
+    expect(periodEmptyCopy(null).title).toBe('이 기간에 걸친 이슈가 없어요');
+    expect(periodEmptyCopy({ kind: 'cycles', ids: [1] })).toEqual({ title: '이 사이클에 속한 이슈가 없어요', description: '다른 사이클이나 「전체」를 골라 보세요' });
+    expect(periodEmptyCopy({ kind: 'none' }).title).toBe('사이클에 속하지 않은 이슈가 없어요');
+  });
+
+  it('ganttAxisBounds fitData — 사이클 거름이면 기간 ±12개월 밖 막대까지 축을 넓힌다', () => {
+    const d = (s: string) => parseISO(s);
+    const period = { from: '2026-10-01', to: '2026-10-14' };
+    // 기존: 기간 ±12개월로 자른다.
+    expect(ganttAxisBounds(d('2022-01-10'), d('2026-10-10'), period, TODAY_C)?.start).toEqual(d('2025-10-01'));
+    // fitData: 막대 시작까지 넓힌다(잘리지 않음 → SVAR 자동 범위).
+    expect(ganttAxisBounds(d('2022-01-10'), d('2026-10-10'), period, TODAY_C, [], { fitData: true })).toBeNull();
+    // 그래도 기간 ±5년(WP-595 상한)까지만 — 1900~2099 막대가 축을 200년으로 늘리지 않는다.
+    expect(ganttAxisBounds(d('1900-01-01'), d('2099-12-31'), period, TODAY_C, [], { fitData: true })).toEqual({
+      start: d('2021-10-01'),
+      end: d('2031-11-01'),
+    });
+    // 마커로 넓힐 때도 막대는 자르지 않는다.
+    expect(ganttAxisBounds(d('2022-01-10'), d('2026-10-10'), period, TODAY_C, [d('2026-10-12')], { fitData: true })).toEqual({
+      start: d('2022-01-01'),
+      end: d('2026-11-01'),
+    });
+  });
+
+  it('소속이지만 날짜 없는 이슈 — 에픽 없으면 「일정 미정」, 에픽 있으면 에픽 아래', () => {
+    const xs = [
+      issue({ number: 1, cycles: inCycle(2) }),
+      issue({ number: 40, type: EPIC_TYPE }),
+      issue({ number: 41, parent: parentRef(40, 'A'), cycles: inCycle(2) }),
+    ];
+    const r = groupTimelineIssues(xs, { period: P, cycleScope: { kind: 'cycles', ids: [2] } });
+    expect(r.unscheduled.map((i) => i.number)).toEqual([1]);
+    expect(r.groups.find((g) => g.key === 'epic-40')?.undatedChildren.map((i) => i.number)).toEqual([41]);
+  });
+
+  it('모바일 아젠다도 같은 거름을 쓴다', () => {
+    const xs = [
+      issue({ number: 1, cycles: inCycle(2), startDate: '2026-12-01', dueDate: '2026-12-05' }),
+      issue({ number: 3, startDate: '2026-10-02', dueDate: '2026-10-03' }),
+    ];
+    const rows = (scope: { kind: 'none' } | { kind: 'cycles'; ids: number[] }) =>
+      buildAgendaSections(xs, TODAY_C, { period: P, cycleScope: scope }).flatMap((s) => s.rows.map((r) => r.issueNumber));
+    expect(rows({ kind: 'cycles', ids: [2] })).toEqual([1]);
+    expect(rows({ kind: 'none' })).toEqual([3]);
+  });
+
+  it('묶음 안 막대는 시작일 → 마감일 → 번호 순, 날짜 없는 하위는 뒤(시작일만 있으면 그 순)', () => {
+    const xs = [
+      issue({ number: 40, type: EPIC_TYPE }),
+      issue({ number: 45, parent: parentRef(40, 'A'), startDate: '2026-10-05', dueDate: '2026-10-09' }),
+      issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-10-05', dueDate: '2026-10-07' }),
+      issue({ number: 44, parent: parentRef(40, 'A'), dueDate: '2026-10-02' }), // 시작일 없음 → 마감일 하루
+      issue({ number: 43, parent: parentRef(40, 'A'), startDate: '2026-10-05', dueDate: '2026-10-07' }),
+      issue({ number: 47, parent: parentRef(40, 'A') }),
+      issue({ number: 46, parent: parentRef(40, 'A'), startDate: '2026-10-08' }),
+      issue({ number: 3, dueDate: '2026-10-09' }),
+      issue({ number: 2, startDate: '2026-10-01', dueDate: '2026-10-20' }),
+    ];
+    const { groups } = groupTimelineIssues(xs);
+    const epic = groups.find((g) => g.key === 'epic-40')!;
+    expect(epic.bars.map((b) => b.issueNumber)).toEqual([44, 41, 43, 45]);
+    expect(epic.undatedChildren.map((i) => i.number)).toEqual([46, 47]);
+    expect(groups.find((g) => g.epicNumber === null)?.bars.map((b) => b.issueNumber)).toEqual([2, 3]);
   });
 });
