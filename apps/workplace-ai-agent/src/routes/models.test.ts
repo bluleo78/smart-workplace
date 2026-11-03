@@ -1,19 +1,25 @@
 // Task10: 모델 목록 프로브 라우트 — OpenAI 호환 baseURL+apiKey 로 GET {baseURL}/models 위임.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import nock from 'nock';
 
-import { createModelsRouter } from './models.js';
+import { anthropicEfforts, createModelsRouter, type ModelsRouterDeps } from './models.js';
 import { internalAuth } from '../middleware/internal-auth.js';
 
 process.env.INTERNAL_SERVICE_TOKEN = 'tk-internal';
+
+// WP-1322: opencode variant 조회는 실제로 서버를 띄우므로 갈아 끼운다 — 기본은 아무것도 알아내지 못함(efforts 없이 응답).
+const lookupOpencodeEfforts = vi.fn<ModelsRouterDeps['lookupOpencodeEfforts']>();
+beforeEach(() => {
+  lookupOpencodeEfforts.mockReset().mockResolvedValue(new Map());
+});
 
 function app() {
   const a = express();
   a.use(express.json());
   a.use(internalAuth);
-  a.use(createModelsRouter());
+  a.use(createModelsRouter({ lookupOpencodeEfforts }));
   return a;
 }
 
@@ -98,8 +104,84 @@ describe('POST /models/list', () => {
   });
 });
 
+describe('POST /models/list 생각의 깊이(WP-1322)', () => {
+  it('withEfforts 면 variant 조회 결과를 모델별 efforts 로 싣고(알아내지 못한 모델은 뺀다), npm 을 조회에 넘긴다', async () => {
+    nock('https://api.test').get('/models').reply(200, { data: [{ id: 'gpt-5' }, { id: 'qwen3' }, { id: 'unknown' }] });
+    lookupOpencodeEfforts.mockResolvedValue(new Map([['gpt-5', ['low', 'medium', 'high']], ['qwen3', []]]));
+    const res = await request(app())
+      .post('/models/list')
+      .set(AUTH)
+      .send({ options: { baseURL: 'https://api.test', apiKey: 'sk-x' }, npm: '@ai-sdk/openai-compatible', withEfforts: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      models: [{ id: 'gpt-5', efforts: ['LOW', 'MEDIUM', 'HIGH'] }, { id: 'qwen3', efforts: [] }, { id: 'unknown' }],
+    });
+    expect(lookupOpencodeEfforts).toHaveBeenCalledWith('@ai-sdk/openai-compatible', ['gpt-5', 'qwen3', 'unknown']);
+  });
+
+  it('withEfforts 가 없으면(등록 전 검증 프로브) 단계를 묻지 않는다', async () => {
+    nock('https://api.test').get('/models').reply(200, { data: [{ id: 'gpt-5' }] });
+    const res = await request(app())
+      .post('/models/list')
+      .set(AUTH)
+      .send({ options: { baseURL: 'https://api.test', apiKey: 'sk-x' }, npm: null, withEfforts: false });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ models: [{ id: 'gpt-5' }] });
+    expect(lookupOpencodeEfforts).not.toHaveBeenCalled();
+  });
+
+  it('조회가 예외여도 목록은 efforts 없이 200, npm null(구·미지정 api)도 받는다', async () => {
+    nock('https://api.test').get('/models').reply(200, { data: [{ id: 'gpt-5' }] });
+    lookupOpencodeEfforts.mockRejectedValue(new Error('boom'));
+    const res = await request(app())
+      .post('/models/list')
+      .set(AUTH)
+      .send({ options: { baseURL: 'https://api.test', apiKey: 'sk-x' }, npm: null, withEfforts: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ models: [{ id: 'gpt-5' }] });
+  });
+});
+
+describe('anthropicEfforts', () => {
+  it('supported 인 단계만 낮은 순으로, capabilities·effort 가 없으면 undefined(모름)', () => {
+    const sup = (v: boolean) => ({ supported: v });
+    expect(
+      anthropicEfforts({ effort: { low: sup(true), medium: sup(true), high: sup(true), xhigh: sup(false), max: sup(true), supported: true } }),
+    ).toEqual(['LOW', 'MEDIUM', 'HIGH', 'MAX']);
+    expect(anthropicEfforts(null)).toBeUndefined();
+    expect(anthropicEfforts({})).toBeUndefined();
+    expect(anthropicEfforts({ effort: { low: sup(false), medium: sup(false), high: sup(false), xhigh: sup(false), max: sup(false) } })).toEqual([]);
+  });
+});
+
 describe('POST /models/anthropic/list', () => {
   const ANTHROPIC = 'https://api.anthropic.com';
+
+  it('capabilities.effort 가 있으면 모델별 efforts 를 싣는다(WP-1322)', async () => {
+    const sup = (v: boolean) => ({ supported: v });
+    nock(ANTHROPIC)
+      .get('/v1/models')
+      .query(true)
+      .reply(200, {
+        data: [
+          {
+            type: 'model',
+            id: 'claude-opus-5-5',
+            display_name: 'Claude Opus 5.5',
+            created_at: '2026-09-21T00:00:00Z',
+            capabilities: { effort: { low: sup(true), medium: sup(true), high: sup(true), xhigh: sup(true), max: sup(true), supported: true } },
+          },
+          { type: 'model', id: 'claude-haiku-4-5', display_name: 'Claude Haiku 4.5', created_at: '2025-10-15T00:00:00Z', capabilities: null },
+        ],
+        has_more: false,
+      });
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-oat01-x' });
+    expect(res.status).toBe(200);
+    expect(res.body.models).toEqual([
+      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', efforts: ['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX'] },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    ]);
+  });
 
   it('구독 OAuth 토큰 → Bearer+oauth 베타 헤더로 조회, 최신순 {id,label} 반환', async () => {
     nock(ANTHROPIC)

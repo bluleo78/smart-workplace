@@ -39,7 +39,7 @@ function baseInput(over: Partial<ChatInput> = {}): ChatInput {
     assistantAgentId: 7,
     userId: 1,
     model: 'claude-sonnet-4-6',
-    thinkingDepth: 'NORMAL',
+    thinkingDepth: 'DEFAULT',
     maxTurns: 8,
     timeoutMs: 60_000,
     // WP-55: 켜짐 + 0개 = 메모리 블록 없음(기존 정확 문자열 단언이 그대로 통과한다).
@@ -238,6 +238,24 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     const passed = streamSpy.mock.calls[0][0];
     expect(passed.includePartialMessages).toBe(true);
+  });
+
+  // WP-1322: 생각의 깊이는 시스템 프롬프트 문장이 아니라 러너 thinkingEffort(Claude 는 SDK effort, opencode 는 variant)로 싣는다.
+  it('생각의 깊이 HIGH → thinkingEffort high, 시스템 프롬프트엔 지시문 없음', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(baseInput({ thinkingDepth: 'HIGH' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const passed = streamSpy.mock.calls[0][0];
+    expect(passed.thinkingEffort).toBe('high');
+    expect(passed.effort).toBeUndefined();
+    expect(passed.systemPrompt).not.toContain('단계적으로 생각하세요');
+  });
+
+  it('생각의 깊이 DEFAULT(설정 안 함) → thinkingEffort 미지정', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(baseInput({ thinkingDepth: 'DEFAULT' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const passed = streamSpy.mock.calls[0][0];
+    expect(passed.thinkingEffort).toBeUndefined();
+    expect(passed.effort).toBeUndefined();
   });
 
   // Fix 1: allowFileRead:false — 홈 컴포즈는 파일 읽기 불필요(보안 최소권한).

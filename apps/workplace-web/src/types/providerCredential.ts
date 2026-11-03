@@ -2,6 +2,8 @@
 // 백엔드 OAuthTokenMetaResponse/ProviderCredentialRegisterRequest/ProviderConfig 와 1:1 매칭.
 // 평문 토큰/apiKey 는 등록 요청에만 실리고, 메타 응답에는 절대 포함되지 않는다.
 
+import type { ThinkingLevel } from './assistant';
+
 // 자격증명 프로바이더 — anthropic(구독 OAuth) / opencode(OpenAI 호환 엔드포인트).
 export type CredentialProvider = 'anthropic' | 'opencode';
 
@@ -37,4 +39,9 @@ export interface ProviderCredentialRegisterRequest {
 export interface ModelOption {
   id: string;
   label: string;
+  /**
+   * WP-1322: 이 모델이 받는 생각의 깊이 단계(낮은 순). null·생략 = 알 수 없음 — Claude 는 LOW·MEDIUM·HIGH, OpenAI 호환은 「설정 안 함」만
+   * 보인다(lib/ai/thinkingDepth). 빈 배열 = 단계를 받지 않는 모델.
+   */
+  efforts?: ThinkingLevel[] | null;
 }

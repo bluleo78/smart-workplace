@@ -17,7 +17,7 @@ import { aiMemoriesApi, aiPreferencesApi, memoryChangesApi } from './memoryTestk
 import { openGuideSheet, withAssistant } from './testkit-b7'
 
 const status = (over: Record<string, unknown> = {}) => ({
-  configured: true, tokenLabel: null, tokenLastUsedAt: null, model: 'claude-sonnet-5-5', thinkingDepth: 'NORMAL',
+  configured: true, tokenLabel: null, tokenLastUsedAt: null, model: 'claude-sonnet-5-5', thinkingDepth: 'HIGH',
   name: null, provider: 'anthropic', baseUrl: null, suggestionModel: null, suggestionModelAuto: 'claude-haiku-5-5', ...over,
 })
 const NO_ASSISTANT = { ...status(), configured: false, provider: null, model: null, suggestionModelAuto: null }
@@ -134,7 +134,7 @@ test('관리자 공통 비서 상세에 추천 질문 모델 칸이 있고 저�
     path: '/settings/agents',
     handlers: [
       http.get('/api/v1/admin/workspace-assistant', () =>
-        HttpResponse.json({ agentUserId: AGENT_ID, agentName: 'AI 봇', hasActiveToken: true, model: 'claude-sonnet-5-5', thinkingDepth: 'NORMAL', suggestionModel: null, suggestionModelAuto: 'claude-haiku-5-5' }),
+        HttpResponse.json({ agentUserId: AGENT_ID, agentName: 'AI 봇', hasActiveToken: true, model: 'claude-sonnet-5-5', thinkingDepth: 'HIGH', suggestionModel: null, suggestionModelAuto: 'claude-haiku-5-5' }),
       ),
       http.get('/api/v1/admin/agents/:id/provider-credential', () =>
         HttpResponse.json({ id: 1, provider: 'anthropic', baseUrl: null, label: 't', createdAt: '2026-05-31T00:00:00Z', lastUsedAt: null }),

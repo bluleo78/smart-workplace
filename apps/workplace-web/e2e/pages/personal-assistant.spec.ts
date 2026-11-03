@@ -42,7 +42,7 @@ function configuredStatus(overrides: Partial<AssistantStatusFixture> = {}): Assi
     tokenLabel: null,
     tokenLastUsedAt: null,
     model: 'claude-sonnet-4-6',
-    thinkingDepth: 'NORMAL',
+    thinkingDepth: 'HIGH',
     name: null,
     provider: 'anthropic',
     baseUrl: null,
@@ -226,7 +226,8 @@ test.describe('프로필 개인 비서', () => {
   // WP-250 코드 리뷰: 등록 후 모델을 바꿔도 이미지 입력을 지정할 수 있다 — 설정 PUT 을 서버처럼 상태에 반영하는 목으로
   // "이미지 입력만 바꾸기 → 지금 모델에", "모델 바꾸기 → vision:null(자동 감지에서 시작)" 를 요청 본문으로 확인한다.
   function mockOpencodeSettingsServer(page: import('@playwright/test').Page, initial: Partial<AssistantStatusFixture>) {
-    let st = configuredStatus({ provider: 'opencode', model: 'openai/gpt-4.1', vision: null, ...initial })
+    // 생각의 깊이는 설정 안 함 — 단계를 모르는 OpenAI 호환 모델로 바꿔도 깊이 보정(WP-1322)이 같은 요청에 섞이지 않게.
+    let st = configuredStatus({ provider: 'opencode', model: 'openai/gpt-4.1', vision: null, thinkingDepth: 'DEFAULT', ...initial })
     const puts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
     void mockStatus(page, () => st)
     void page.route('**/api/v1/users/me/assistant/settings', (route) => {

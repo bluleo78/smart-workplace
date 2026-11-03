@@ -211,7 +211,7 @@ public class AssistantConfig extends TableImpl<AssistantConfigRecord> {
     @Override
     public List<Check<AssistantConfigRecord>> getChecks() {
         return Arrays.asList(
-            Internal.createCheck(this, DSL.name("assistant_config_thinking_depth_check"), "(((thinking_depth IS NULL) OR ((thinking_depth)::text = ANY ((ARRAY['NONE'::character varying, 'NORMAL'::character varying, 'DEEP'::character varying])::text[]))))", true)
+            Internal.createCheck(this, DSL.name("assistant_config_thinking_depth_check"), "(((thinking_depth IS NULL) OR ((thinking_depth)::text = ANY ((ARRAY['DEFAULT'::character varying, 'LOW'::character varying, 'MEDIUM'::character varying, 'HIGH'::character varying, 'XHIGH'::character varying, 'MAX'::character varying, 'NONE'::character varying, 'NORMAL'::character varying, 'DEEP'::character varying])::text[]))))", true)
         );
     }
 

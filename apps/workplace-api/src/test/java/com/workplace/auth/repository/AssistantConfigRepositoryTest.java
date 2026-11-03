@@ -19,14 +19,14 @@ class AssistantConfigRepositoryTest extends IntegrationTestBase {
   @Test
   void upsert_후_조회하면_값이_나오고_재upsert_로_갱신된다() {
     long agentId = TestFixtures.createAgentNoToken(dsl);
-    repo.upsert(agentId, "claude-opus-4-8", "DEEP", null, null);
+    repo.upsert(agentId, "claude-opus-4-8", "MAX", null, null);
 
     var row = repo.find(agentId).orElseThrow();
     assertThat(row.model()).isEqualTo("claude-opus-4-8");
-    assertThat(row.thinkingDepth()).isEqualTo("DEEP");
+    assertThat(row.thinkingDepth()).isEqualTo("MAX");
     assertThat(row.maxTurns()).isNull();
 
-    repo.upsert(agentId, "claude-sonnet-4-6", "NORMAL", 10, 70000);
+    repo.upsert(agentId, "claude-sonnet-4-6", "HIGH", 10, 70000);
     var updated = repo.find(agentId).orElseThrow();
     assertThat(updated.model()).isEqualTo("claude-sonnet-4-6");
     assertThat(updated.maxTurns()).isEqualTo(10);

@@ -1,6 +1,7 @@
 package com.workplace.auth.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.workplace.auth.service.ThinkingDepths;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -16,7 +17,8 @@ public class UpdateAssistantSettingsRequest {
   @Size(max = 64)
   private String model;
 
-  @Pattern(regexp = "NONE|NORMAL|DEEP")
+  /** WP-1322: 허용 값(새 값 + 한 릴리스 동안 받는 옛 값)은 ThinkingDepths 가 정한다 — 옛 값은 저장 전에 새 값으로 바뀐다. */
+  @Pattern(regexp = ThinkingDepths.PATTERN)
   private String thinkingDepth;
 
   /** 추천 질문 전용 모델(WP-139). assistant_config.suggestion_model 폭(64)과 같다. */

@@ -14,6 +14,8 @@ import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type Sp
 import { createIsolatedOpencode } from './opencode-spawn.js';
 import { attachmentRootDir } from './attachment-prep.js';
 import { resolveOpencodeModelSettings, type OpencodeModelSettings } from './opencode-vision.js';
+import { cachedOpencodeEfforts, opencodeVariantFor } from './opencode-efforts.js';
+import { clampEffort } from './thinking.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
 import { RunnerLimitError } from './runner-limit.js';
@@ -56,7 +58,9 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'i
 function poolKeyFor(i: RunnerInput, { vision, limit }: OpencodeModelSettings): string | undefined {
   if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || i.subagentPromptSuffix || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
   const limitKey = limit ? `:${limit.context}/${limit.output}` : '';
-  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}`;
+  // WP-1322: variant 를 고른 실행은 config 에 reasoning:true 가 실리므로 키를 나눈다(고르지 않은 실행과 서버를 섞지 않는다).
+  const variantKey = i.thinkingEffort ? `:r` : '';
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}${variantKey}`;
 }
 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시
@@ -111,12 +115,20 @@ export class OpencodeRunner implements AgentRunner {
         // 한도에 닿기 전에 압축한다. 호출자가 비전을 판단해 넘겼으면 그 값. try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
         // WP-596: 저장된 모델 주소가 내부망(루프백·메타데이터·사설, 운영자 허용 목록 밖)으로 풀리면 opencode 를 띄우지 않는다 — 저장 때 API 가 막아도
         // 이름은 실행 때 다시 풀리므로(재바인딩) 실행 직전에 한 번 더 본다.
+        // 주소 확인과 모델 설정 조회는 서로 기대지 않아 함께 기다린다(설정 조회의 /models 요청은 자기 안에서 같은 주소 확인을 다시 거친다).
         const baseURL = payload.options?.baseURL;
-        if (typeof baseURL === 'string' && baseURL) await assertModelHostResolvesPublic(new URL(baseURL));
-        const settings = await resolveOpencodeModelSettings(payload, i.model, i.opencodeVision);
-        poolKey = poolKeyFor(i, settings);
+        const [, settings] = await Promise.all([
+          typeof baseURL === 'string' && baseURL ? assertModelHostResolvesPublic(new URL(baseURL)) : undefined,
+          resolveOpencodeModelSettings(payload, i.model, i.opencodeVision),
+        ]);
+        // WP-1322: 생각의 깊이 — 캐시가 이 모델의 단계를 이미 알면 지금 맞춘다(받는 단계가 없으면 reasoning 도 선언하지 않는다). 모르면 고른 단계로
+        // reasoning 을 선언해 띄우고, 아래에서 그 서버에 직접 물어 보낼 variant 를 정한다(조회용 서버를 따로 띄우지 않는다).
+        const { providerID, modelID } = splitOpencodeModel(i.model);
+        const known = i.thinkingEffort ? cachedOpencodeEfforts(payload.npm, modelID) : undefined;
+        const runInput: RunnerInput = { ...i, thinkingEffort: i.thinkingEffort && known ? clampEffort(i.thinkingEffort, known) : i.thinkingEffort };
+        poolKey = poolKeyFor(runInput, settings);
         const stdioEntryCmd = resolveStdioEntryCmd();
-        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, settings);
+        const config = buildOpencodeConfig(runInput, runId, stdioEntryCmd, settings);
         // createIsolatedOpencode 는 (1) 포트 충돌 회피(port:0 → OS 할당)와 (2) 데이터 디렉터리
         // 격리(서버마다 고유 XDG_DATA_HOME → 자기 SQLite)를 함께 처리한다. 둘 다 동시 스폰 시 크래시를
         // 막기 위한 것 — 4096 포트 고정 충돌과 공유 opencode.db 'database is locked' 경합(opencode-spawn.ts).
@@ -162,17 +174,26 @@ export class OpencodeRunner implements AgentRunner {
         const { session, es } = sessionResult;
         liveSessionId = session.id;
 
-        const { providerID, modelID } = splitOpencodeModel(i.model);
+        // WP-1322: 보낼 variant — 이 모델이 받는 단계일 때만(받지 않으면 바로 아래, 없거나 알 수 없으면 보내지 않는다). 화면이 보인 값과 실행을 맞춘다.
+        const variant = runInput.thinkingEffort
+          ? await opencodeVariantFor(opencode, { npm: payload.npm, providerId: payload.providerId, modelID, level: runInput.thinkingEffort })
+          : undefined;
+        if (variant !== i.thinkingEffort) {
+          log.info('opencode-runner', 'opencode_variant_adjusted', { requestId: i.requestId, requested: i.thinkingEffort ?? null, variant: variant ?? null });
+        }
 
         // prompt_async — 202/204 즉시 반환, 실제 응답은 event.subscribe 스트림으로 온다(fire-and-forget).
         void opencode.client.session
           .promptAsync({
             path: { id: session.id },
             query: directoryQuery,
+            // WP-1322: 생각의 깊이 — variant 키(low/medium/high/xhigh/max)를 그대로 보낸다. 서버(1.19.x)는 받지만 v1 SDK 타입에 없어
+            // 펼쳐 넣는다. 모델이 그 variant 를 만들지 않았으면 opencode 는 무시하고 기본으로 돈다.
             body: {
               agent: 'primary',
               model: { providerID, modelID },
               parts: [{ type: 'text', text: i.userMessage }],
+              ...(variant ? { variant } : {}),
             },
           })
           .catch((e: unknown) => {

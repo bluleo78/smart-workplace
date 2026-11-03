@@ -26,6 +26,7 @@ import { log } from '../logger.js';
 import { parseMemoryToolResult } from '../mcp/memory-tools.js';
 import { screenContextSchema } from '../agent/screen-context.js';
 import { currentSpaceField, sharedMemoryFields } from '../agent/shared-memory-block.js';
+import { thinkingDepthSchema } from '../agent/thinking.js';
 
 // 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
 const priorityClassifySchema = z.object({
@@ -59,7 +60,8 @@ export const chatSchema = z
     // 되돌려 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
     tenantId: z.number().int().positive().nullish(),
     model: z.string().min(1),
-    thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
+    // WP-1322: DEFAULT·LOW~MAX. 옛 값(NONE/NORMAL/DEEP)은 롤링 배포 호환으로 받아 DEFAULT 로 바꾼다.
+    thinkingDepth: thinkingDepthSchema,
     maxTurns: z.number().int().positive(),
     timeoutMs: z.number().int().positive(),
     // WP-232: 누적 요약(nullable). API 는 요약이 없으면 null 을 보낸다. plain z.object 는 미정의 키를 버리므로 명시.

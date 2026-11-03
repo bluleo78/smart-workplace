@@ -47,13 +47,6 @@ import { cn } from '../../lib/utils';
 import type { ThinkingDepth } from '../../types/assistant';
 import type { CredentialProvider, ModelOption } from '../../types/providerCredential';
 
-// 생각의 깊이 옵션.
-const DEPTHS: { value: ThinkingDepth; label: string }[] = [
-  { value: 'NONE', label: '없음' },
-  { value: 'NORMAL', label: '보통' },
-  { value: 'DEEP', label: '깊게' },
-];
-
 export function PersonalAssistantSection() {
   // 훅은 컴포넌트 최상위에서만 호출 — 핸들러 안에서 호출 금지.
   // 비서 가용성(aiAvailable) 변경 시 AuthContext user 캐시를 즉시 갱신해 페이지 새로고침 없이 반영.
@@ -223,14 +216,21 @@ export function PersonalAssistantSection() {
 
   // WP-250: 등록 후 이미지 입력 지정(OpenAI 호환 연결만)과 모델 변경 — 자동 감지가 안 되는 커스텀 모델을 재등록 없이 지정할 수 있게 한다.
   // 모델 변경·이미지 입력 저장 규칙(모델을 바꾸면 자동 감지로)은 공통 비서 화면과 같은 훅이 정한다.
+  // WP-1322: 생각의 깊이(선택지·보정·모델 변경 시 보정 저장)도 같은 훅이 정한다.
   const {
     isOpencode,
     currentVision,
     changeModel: handleModelChange,
     changeVision: handleVisionChange,
+    depthView,
+    changeDepth: handleDepthChange,
   } = useAssistantVisionSetting({
     provider: status?.provider,
     vision: status?.vision,
+    model: status?.model,
+    thinkingDepth: status?.thinkingDepth,
+    models: modelOptions,
+    modelsLoading,
     save: updateSettings.mutateAsync,
     messages: { success: '비서 설정을 변경했습니다.', error: '비서 설정 변경에 실패했습니다.' },
   });
@@ -244,16 +244,6 @@ export function PersonalAssistantSection() {
     const resolved = withProviderPrefix(raw, currentProviderId);
     await handleModelChange(resolved);
     setModelChangeInput('');
-  };
-
-  // 생각의 깊이 변경 — 실패 시 오류 토스트, 성공 시 확인 토스트.
-  const handleDepthChange = async (thinkingDepth: ThinkingDepth) => {
-    try {
-      await updateSettings.mutateAsync({ thinkingDepth });
-      toast.success('비서 설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '비서 설정 변경에 실패했습니다.');
-    }
   };
 
   // WP-139: 추천 질문 모델 — 이 필드만 보낸다(서버가 보낸 필드만 바꾼다). null = 자동.
@@ -409,15 +399,17 @@ export function PersonalAssistantSection() {
                   생각의 깊이
                 </label>
                 {/* 앱 디자인 시스템 일관성 — shadcn Select 사용 (native <select> 금지) */}
+                {/* WP-1322: 「설정 안 함」 + 고른 모델이 받는 단계만. */}
                 <Select
-                  value={status.thinkingDepth ?? 'NORMAL'}
+                  value={depthView.value}
                   onValueChange={(v) => handleDepthChange(v as ThinkingDepth)}
+                  disabled={modelsLoading}
                 >
-                  <SelectTrigger id="assistant-depth">
+                  <SelectTrigger id="assistant-depth" data-testid="assistant-depth">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {DEPTHS.map((d) => (
+                    {depthView.options.map((d) => (
                       <SelectItem key={d.value} value={d.value}>
                         {d.label}
                       </SelectItem>

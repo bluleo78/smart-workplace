@@ -12,7 +12,8 @@ import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-
 import { runnerFor } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
 import { parseChatEvents, type Usage } from './chat-parser.js';
-import { thinkingDirective } from './thinking.js';
+import { effortFor, type ThinkingDepth } from './thinking.js';
+import { streamWithEffortFallback } from './effort-fallback.js';
 import { defaultSleep } from './sleep.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
@@ -63,7 +64,8 @@ export interface ChatInput {
   // 되돌려 보내, 다중/무 멤버십 요청자에서 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
   tenantId?: number | null;
   model: string;
-  thinkingDepth: 'NONE' | 'NORMAL' | 'DEEP';
+  // WP-1322: DEFAULT(설정 안 함) 또는 추론 노력 단계 — 러너가 Claude effort·opencode variant 로 싣는다.
+  thinkingDepth: ThinkingDepth;
   maxTurns: number;
   timeoutMs: number;
   // 요청 단위 추적 ID — 로그를 한 요청으로 묶는다(home.ts 가 생성·전달).
@@ -243,7 +245,9 @@ export async function runAiChatStream(
   const dateDirective = dateContextDirective(seoulToday());
   // WP-351: Claude 라우터는 쓰기 도구 없이 위임만 하고, opencode primary 는 위임 도구가 꺼져 직접 쓰기·제안하므로 규칙이 다르다.
   const runnerKind = credential.provider === 'anthropic' ? 'claude' : 'opencode';
-  const systemPrompt = assistantSystemPrompt(runnerKind) + dateDirective + thinkingDirective(input.thinkingDepth);
+  const systemPrompt = assistantSystemPrompt(runnerKind) + dateDirective;
+  // WP-1322: 생각의 깊이는 시스템 프롬프트 문장이 아니라 모델 추론 노력으로 — Claude 는 SDK effort, opencode 는 variant. 설정 안 함이면 둘 다 미지정.
+  const effort = effortFor(input.thinkingDepth);
   // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
   //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
   //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.
@@ -318,7 +322,9 @@ export async function runAiChatStream(
 
   // 인-프로세스 MCP 서버(assistant 프로파일 + hostBridge + onTool)·서브에이전트 정의는 러너 내부에서 구성.
   const runner = runnerFor(credential);
-  const handle = runner.stream(
+  // WP-1322: 고른 깊이(effort)를 이 Claude 모델이 받지 않아 거절되면 effort 없이 한 번 더 돈다(보인 것이 생기기 전에만).
+  const handle = streamWithEffortFallback(
+    runner,
     {
       userMessage,
       systemPrompt,
@@ -334,6 +340,8 @@ export async function runAiChatStream(
       allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요) — 러너가 subagent 정의를 구성
       allowFileRead: false, // 홈 컴포즈는 파일 읽기 불필요 — 보안 최소권한
       opencodeVision, // WP-234: 첨부 블록 문구에 쓴 판단을 러너 config 에도 그대로
+      // WP-1322: 사용자가 고른 깊이 — Claude 는 SDK effort, opencode 는 variant 로 싣는다.
+      thinkingEffort: effort,
       // WP-55: 하위 에이전트 프롬프트 끝에 같은 메모리 블록 — 켜짐 + 1개 이상일 때만(하위 에이전트엔 메모리 도구가 없어 꺼짐 줄은 붙이지 않는다,
       // 판정 13). 요청마다 다르므로 opencode 러너는 이 값이 있으면 웜 풀을 쓰지 않는다(opencode-runner poolKeyFor).
       // WP-386: 개인 블록(켜짐 + 1개 이상) 뒤에 공용 블록 — 공용은 개인 메모리가 꺼져도 붙인다.
@@ -371,6 +379,7 @@ export async function runAiChatStream(
         if (label && onProgress) onProgress(label);
       }
     },
+    { logArea: 'ai-chat' },
   );
 
   // 상위 연결 종료 시 SDK query 중단(자원 누수 방지). 이미 abort 된 신호면 즉시 kill.

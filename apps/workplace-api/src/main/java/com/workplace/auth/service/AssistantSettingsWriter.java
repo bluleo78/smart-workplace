@@ -24,7 +24,8 @@ class AssistantSettingsWriter {
     if (req.hasModel() || req.hasThinkingDepth()) {
       ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
       String model = req.hasModel() ? req.model() : cur.model();
-      String depth = req.hasThinkingDepth() ? req.thinkingDepth() : cur.thinkingDepth();
+      String depth =
+          req.hasThinkingDepth() ? storedDepth(agentId, req.thinkingDepth()) : cur.thinkingDepth();
       configRepo.upsert(agentId, model, depth, cur.maxTurns(), cur.timeoutMs());
     }
     if (req.hasSuggestionModel()) {
@@ -39,5 +40,19 @@ class AssistantSettingsWriter {
               : configRepo.find(agentId).map(ConfigRow::model).orElse(null);
       credentialService.updateModelVision(agentId, model, req.vision());
     }
+  }
+
+  /**
+   * WP-1322: 요청의 생각의 깊이를 저장할 값으로 — 옛 웹 화면이 보낸 NONE/NORMAL/DEEP 만 지금 연결 provider 로 새 값으로 옮긴다
+   * (ThinkingDepths). 새 값이면 연결을 읽지 않는다. 옛 값을 DB 에 새로 쓰지 않는다.
+   */
+  private String storedDepth(long agentId, String depth) {
+    if (!ThinkingDepths.isLegacy(depth)) return depth;
+    boolean anthropic =
+        credentialService
+            .findActiveMetaIfPresent(agentId)
+            .map(m -> AgentProviders.isAnthropic(m.provider()))
+            .orElse(false);
+    return ThinkingDepths.toStored(depth, anthropic);
   }
 }

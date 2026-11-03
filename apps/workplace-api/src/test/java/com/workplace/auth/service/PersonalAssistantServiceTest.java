@@ -86,11 +86,11 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
   void 설정변경_후_상태에_반영() {
     long human = TestFixtures.createHuman(dsl);
     service.registerCredential(human, "anthropic", TOKEN, "t", null);
-    service.updateSettings(human, settings("claude-opus-4-8", "DEEP"));
+    service.updateSettings(human, settings("claude-opus-4-8", "MAX"));
 
     var status = service.getStatus(human);
     assertThat(status.model()).isEqualTo("claude-opus-4-8");
-    assertThat(status.thinkingDepth()).isEqualTo("DEEP");
+    assertThat(status.thinkingDepth()).isEqualTo("MAX");
   }
 
   @Test

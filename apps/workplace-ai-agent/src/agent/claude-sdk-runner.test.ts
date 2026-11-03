@@ -51,6 +51,13 @@ describe('ClaudeSdkRunner.collect', () => {
     await new ClaudeSdkRunner().collect(baseInput({ effort: 'low' }));
     expect(vi.mocked(runSdkCollect).mock.calls[0][0].effort).toBe('low');
   });
+  // WP-1322: 사용자가 고른 깊이(thinkingEffort)는 내부 고정 effort 가 없을 때만 SDK effort 로 간다.
+  it('effort 가 없으면 thinkingEffort 를, 둘 다 있으면 effort 를 넘긴다 (WP-1322)', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    await new ClaudeSdkRunner().collect(baseInput({ thinkingEffort: 'max' }));
+    await new ClaudeSdkRunner().collect(baseInput({ effort: 'low', thinkingEffort: 'max' }));
+    expect(vi.mocked(runSdkCollect).mock.calls.map((c) => c[0].effort)).toEqual(['max', 'low']);
+  });
   it('runSdkCollect 라인을 mapSdkMessage 로 변환한 RunnerEvent[] 반환', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '중간' }] } }),

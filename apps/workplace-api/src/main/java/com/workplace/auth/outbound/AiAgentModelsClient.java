@@ -26,9 +26,22 @@ public class AiAgentModelsClient {
     this.internalToken = internalToken;
   }
 
-  /** provider config(baseURL+apiKey) 로 모델 목록을 프로브. 실패 시 AssistantModelsProbeException(502). */
+  /**
+   * provider config(baseURL+apiKey) 로 모델 목록을 프로브 — 등록 전 검증용(생각의 깊이 단계는 묻지 않아 빠르다). 실패 시
+   * AssistantModelsProbeException(502).
+   */
   public List<ModelOption> probeModels(ProviderConfig config) {
-    return postForModels("/models/list", new ModelsListRequest(config.options()));
+    return probeModels(config, false);
+  }
+
+  /**
+   * 모델 목록 조회. withEfforts(WP-1322) 면 ai-agent 가 모델별 생각의 깊이 단계(opencode variant)도 알아내 싣는다 — opencode
+   * 를 잠깐 띄우므로 첫 조회가 수 초 늘 수 있어, 비서 설정 드롭다운(등록 후 모델 목록)만 켠다. npm 은 그 조회에 쓰는 provider 패키지(없으면 OpenAI
+   * 호환 기본).
+   */
+  public List<ModelOption> probeModels(ProviderConfig config, boolean withEfforts) {
+    return postForModels(
+        "/models/list", new ModelsListRequest(config.options(), config.npm(), withEfforts));
   }
 
   /**
@@ -66,18 +79,24 @@ public class AiAgentModelsClient {
     }
   }
 
-  /** ai-agent 요청 계약 — { options: { baseURL, apiKey } }. */
-  private record ModelsListRequest(Map<String, Object> options) {}
+  /**
+   * ai-agent 요청 계약 — { options: { baseURL, apiKey }, npm?, withEfforts }. npm 이 null 이면 null 로 실리고
+   * ai-agent 는 선택(nullish) 필드로 받는다. withEfforts(WP-1322) 가 true 일 때만 ai-agent 가 생각의 깊이 단계를 묻는다.
+   */
+  private record ModelsListRequest(Map<String, Object> options, String npm, boolean withEfforts) {}
 
   /** ai-agent 요청 계약(#873) — { token }. */
   private record AnthropicModelsListRequest(String token) {}
 
-  /** ai-agent 응답 계약 — { models: [{ id, label? }] }. label 은 anthropic 경로만 채우므로 없으면 id 로 대체. */
+  /**
+   * ai-agent 응답 계약 — { models: [{ id, label?, efforts? }] }. label 은 anthropic 경로만 채우므로 없으면 id 로
+   * 대체. efforts(WP-1322) 는 모델이 받는 생각의 깊이 단계 — 모르면 없음(null) 그대로 넘긴다.
+   */
   private record ModelsListResponse(List<ModelItem> models) {}
 
-  private record ModelItem(String id, String label) {
+  private record ModelItem(String id, String label, List<String> efforts) {
     ModelOption toOption() {
-      return new ModelOption(id, label != null && !label.isBlank() ? label : id);
+      return new ModelOption(id, label != null && !label.isBlank() ? label : id, efforts);
     }
   }
 }

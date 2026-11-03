@@ -40,13 +40,13 @@ class AssistantSettingsWriterTest {
   @Test
   void 모델을_보내면_깊이와_튜닝_값을_보존해_쓴다() {
     when(configRepo.find(7L))
-        .thenReturn(Optional.of(new ConfigRow("old", "DEEP", 12, 90_000, "claude-haiku-5-5")));
+        .thenReturn(Optional.of(new ConfigRow("old", "MAX", 12, 90_000, "claude-haiku-5-5")));
     var req = new UpdateAssistantSettingsRequest();
     req.setModel("claude-opus-5-5");
 
     writer.apply(7L, req);
 
-    verify(configRepo).upsert(7L, "claude-opus-5-5", "DEEP", 12, 90_000);
+    verify(configRepo).upsert(7L, "claude-opus-5-5", "MAX", 12, 90_000);
     verify(configRepo, never()).updateSuggestionModel(anyLong(), any());
   }
 }

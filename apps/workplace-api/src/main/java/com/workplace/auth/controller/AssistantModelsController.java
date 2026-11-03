@@ -105,7 +105,7 @@ public class AssistantModelsController {
     String prefix = config.providerId() + "/";
     List<ModelOption> prefixed =
         modelsClient.probeModels(config).stream()
-            .map(m -> new ModelOption(prefix + m.id(), prefix + m.label()))
+            .map(m -> new ModelOption(prefix + m.id(), prefix + m.label(), m.efforts()))
             .toList();
     return new ProbeModelsResponse(prefixed);
   }
@@ -129,9 +129,10 @@ public class AssistantModelsController {
     urlGuard.validate(baseUrl);
 
     String prefix = config.providerId() + "/";
+    // WP-1322: 비서 설정 드롭다운 경로만 생각의 깊이 단계를 묻는다(등록 전 프로브는 빠르게 — withEfforts 없음).
     List<ModelOption> prefixed =
-        modelsClient.probeModels(config).stream()
-            .map(m -> new ModelOption(prefix + m.id(), prefix + m.label()))
+        modelsClient.probeModels(config, true).stream()
+            .map(m -> new ModelOption(prefix + m.id(), prefix + m.label(), m.efforts()))
             .toList();
     return new AgentModelsResponse("opencode", withSavedModel(prefixed, redeemed.model()));
   }

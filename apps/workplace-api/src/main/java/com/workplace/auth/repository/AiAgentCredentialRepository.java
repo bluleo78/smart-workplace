@@ -74,6 +74,19 @@ public class AiAgentCredentialRepository {
         .fetchMap(AI_AGENT_CREDENTIAL.USER_ID, AI_AGENT_CREDENTIAL.ID);
   }
 
+  /**
+   * 가장 최근에 등록된 행(회수된 행 포함, 없으면 empty) — WP-1322: 등록 시 지금 연결(revokedAt 이 null 이면 active)과 「연결을 끊은 뒤
+   * 다른 provider 로 다시 연결」을 한 번의 조회로 함께 판단한다. active 행은 언제나 가장 최근 행이다(등록이 기존 active 를 회수한 뒤 새 행을
+   * 넣는다).
+   */
+  public Optional<AiAgentCredentialRow> findLatest(Long userId) {
+    return dsl.selectFrom(AI_AGENT_CREDENTIAL)
+        .where(AI_AGENT_CREDENTIAL.USER_ID.eq(userId))
+        .orderBy(AI_AGENT_CREDENTIAL.ID.desc())
+        .limit(1)
+        .fetchOptional(this::mapRow);
+  }
+
   /** active 행 revoke (revoked_at = now()). 영향 row 수 반환 (0 또는 1). */
   public int revokeActive(Long userId) {
     return dsl.update(AI_AGENT_CREDENTIAL)

@@ -33,10 +33,10 @@ const credential = (o: Partial<ProviderCredentialMeta> = {}): ProviderCredential
 
 const unassigned = (): WorkspaceAssistant => ({ agentUserId: null, agentName: null, hasActiveToken: false, model: null, thinkingDepth: null })
 const current = (o: Partial<WorkspaceAssistant> = {}): WorkspaceAssistant => ({
-  agentUserId: AGENT_ID, agentName: 'AI 봇', hasActiveToken: true, model: 'claude-sonnet-4-6', thinkingDepth: 'NORMAL', ...o,
+  agentUserId: AGENT_ID, agentName: 'AI 봇', hasActiveToken: true, model: 'claude-sonnet-4-6', thinkingDepth: 'HIGH', ...o,
 })
 
-type Model = { id: string; label: string }
+type Model = { id: string; label: string; efforts?: string[] | null }
 
 /**
  * 에이전트 상세의 「AI 연결 및 모델」 섹션을 띄운다. ws 는 요청마다 불러 PUT·DELETE 뒤 재조회를 서버처럼 반영한다.
@@ -45,13 +45,14 @@ type Model = { id: string; label: string }
 function openSection(opts: {
   ws: WorkspaceAssistant
   credential: ProviderCredentialMeta | null
-  models?: Model[] | 502
+  models?: Model[] | 502 | (() => Model[])
   provider?: string
   settingsStatus?: number
   /** 관리자가 설정할 수 있는 에이전트인지 — 개인 비서면 false(WP-1170). 기본 true. */
   canConfigure?: boolean
 }) {
   let ws = opts.ws
+  let cred = opts.credential
   const calls = { put: [] as unknown[], del: 0, settings: [] as unknown[], modelGets: 0 }
   const handlers = [
     http.get('/api/v1/admin/workspace-assistant', () => HttpResponse.json(ws)),
@@ -76,12 +77,17 @@ function openSection(opts: {
       return new HttpResponse(null, { status: 204 })
     }),
     http.get('/api/v1/admin/agents/:id/provider-credential', () =>
-      opts.credential ? HttpResponse.json(opts.credential) : HttpResponse.json({ message: '없음' }, { status: 404 }),
+      cred ? HttpResponse.json(cred) : HttpResponse.json({ message: '없음' }, { status: 404 }),
     ),
+    http.delete('/api/v1/admin/agents/:id/provider-credential', () => {
+      cred = null
+      return new HttpResponse(null, { status: 204 })
+    }),
     http.get('/api/v1/admin/agents/:id/models', () => {
       calls.modelGets++
       if (opts.models === 502) return HttpResponse.json({ message: '모델 목록 조회에 실패했습니다.' }, { status: 502 })
-      return HttpResponse.json({ provider: opts.provider ?? 'anthropic', models: opts.models ?? [] })
+      const models = typeof opts.models === 'function' ? opts.models() : (opts.models ?? [])
+      return HttpResponse.json({ provider: opts.provider ?? 'anthropic', models })
     }),
   ]
   const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure={opts.canConfigure ?? true} />, { path: `/settings/agents?agent=${AGENT_ID}`, handlers, auth: ADMIN })
@@ -203,7 +209,8 @@ describe('공통 비서 모델·이미지 입력', () => {
   // WP-250 — OpenAI 호환 공통 비서: 이미지 입력만 바꾸면 지금 모델에 저장, 모델을 바꾸면 vision:null 로 자동 감지에서 시작.
   test('opencode 공통 비서 — 이미지 입력만 바꾸면 { vision }, 모델을 바꾸면 { model, vision: null } 이고 자동 감지로 보인다', async () => {
     const { user, calls } = openSection({
-      ws: current({ model: 'openai/gpt-4.1', vision: false }),
+      // 생각의 깊이는 설정 안 함 — 단계를 모르는 OpenAI 호환 모델로 바꿔도 깊이 보정(WP-1322)이 같은 요청에 섞이지 않게.
+      ws: current({ model: 'openai/gpt-4.1', vision: false, thinkingDepth: 'DEFAULT' }),
       credential: credential({ provider: 'opencode', baseUrl: 'https://api.example.com/v1', label: 'oc' }),
       provider: 'opencode',
       models: [{ id: 'openai/gpt-4.1', label: 'GPT-4.1' }, { id: 'openai/my-vl', label: 'My VL' }],
@@ -224,6 +231,74 @@ describe('공통 비서 모델·이미지 입력', () => {
     openSection({ ws: current(), credential: credential(), models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }] })
     expect(await screen.findByTestId('workspace-assistant-model')).toBeInTheDocument()
     expect(screen.queryByTestId('workspace-assistant-vision')).not.toBeInTheDocument()
+  })
+})
+
+describe('공통 비서 생각의 깊이(WP-1322)', () => {
+  const depthCombo = () => screen.getByTestId('workspace-assistant-depth')
+  const optionNames = async (user: UserEvent) => {
+    await waitFor(() => expect(depthCombo()).toBeEnabled())
+    depthCombo().focus()
+    await user.keyboard('{Enter}')
+    return (await screen.findAllByRole('option')).map((o) => o.textContent)
+  }
+
+  test('선택지는 「설정 안 함」 + 고른 모델의 지원 단계, 고르면 그 값을 PUT 한다', async () => {
+    const { user, calls } = openSection({
+      ws: current({ thinkingDepth: 'DEFAULT' }),
+      credential: credential(),
+      models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', efforts: ['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX'] }],
+    })
+    await screen.findByTestId('workspace-assistant-model')
+    expect(await optionNames(user)).toEqual(['설정 안 함', '낮게', '보통', '높게', '매우 높게', '최대'])
+    const max = await screen.findByRole('option', { name: '최대' })
+    max.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(calls.settings).toEqual([{ thinkingDepth: 'MAX' }]))
+  })
+
+  test('OpenAI 호환 모델이 단계를 모르면 「설정 안 함」만, 저장값(HIGH)도 설정 안 함으로 보인다', async () => {
+    const { user } = openSection({
+      ws: current({ model: 'openai/qwen3', thinkingDepth: 'HIGH' }),
+      credential: credential({ provider: 'opencode', baseUrl: 'https://api.example.com/v1' }),
+      provider: 'opencode',
+      models: [{ id: 'openai/qwen3', label: 'qwen3' }],
+    })
+    await screen.findByTestId('workspace-assistant-model')
+    await waitFor(() => expect(depthCombo()).toHaveTextContent('설정 안 함'))
+    expect(await optionNames(user)).toEqual(['설정 안 함'])
+  })
+
+  test('저장된 깊이를 받지 않는 모델로 바꾸면 보정한 깊이를 함께 저장한다(OpenAI 호환은 vision:null 도)', async () => {
+    const { user, calls } = openSection({
+      ws: current({ model: 'openai/gpt-5', thinkingDepth: 'HIGH' }),
+      credential: credential({ provider: 'opencode', baseUrl: 'https://api.example.com/v1' }),
+      provider: 'opencode',
+      models: [
+        { id: 'openai/gpt-5', label: 'GPT-5', efforts: ['LOW', 'MEDIUM', 'HIGH'] },
+        { id: 'openai/qwen3', label: 'qwen3', efforts: [] },
+      ],
+    })
+    await pick(user, await screen.findByTestId('workspace-assistant-model'), 'qwen3')
+    await waitFor(() => expect(calls.settings).toEqual([{ model: 'openai/qwen3', vision: null, thinkingDepth: 'DEFAULT' }]))
+  })
+
+  // WP-1322 회귀: 연결을 끊으면 그 연결의 모델 목록도 다시 불러온다(예전엔 캐시가 남아 다음 연결에도 옛 모델이 보였다).
+  test('AI 계정 연결을 끊으면 이 에이전트의 모델 목록을 다시 불러온다', async () => {
+    let gets = 0
+    const { user } = openSection({
+      ws: current(),
+      credential: credential(),
+      models: () => {
+        gets += 1
+        return [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }]
+      },
+    })
+    await screen.findByTestId('workspace-assistant-model')
+    await waitFor(() => expect(gets).toBe(1))
+    await user.click(screen.getByTestId('oauth-token-revoke'))
+    await user.click(await screen.findByTestId('oauth-revoke-confirm'))
+    await waitFor(() => expect(gets).toBe(2))
   })
 })
 

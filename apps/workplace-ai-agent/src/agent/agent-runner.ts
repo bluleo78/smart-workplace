@@ -6,6 +6,7 @@ import type { HostBridge, McpProfile } from '../mcp/tools.js';
 import type { ToolUseLine } from './sdk-mcp-server.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { OpencodeVision } from './opencode-vision.js';
+import type { EffortLevel } from './thinking.js';
 import { ClaudeSdkRunner } from './claude-sdk-runner.js';
 import { OpencodeRunner } from './opencode-runner.js';
 
@@ -65,8 +66,12 @@ export interface RunnerInput {
   // opencode 전용: 호출자가 이미 판단한 비전 지원 여부 — 있으면 러너가 다시 판단하지 않고 그대로 써서
   // 프롬프트(첨부 표현)와 config(modalities)가 같은 값을 보게 한다. 없으면 러너가 판단. value undefined = 알 수 없음.
   opencodeVision?: { value: OpencodeVision };
-  // WP-139: 추론 노력 — 짧은 단발 생성(추천 질문)의 지연·비용을 줄인다. Claude 러너만 반영하고 opencode 는 무시한다(대응 옵션 없음).
-  effort?: 'low' | 'medium' | 'high';
+  // WP-139: 추론 노력 — 짧은 단발 생성(추천 질문)의 지연·비용을 줄인다. Claude 러너만 반영하고 opencode 는 무시한다.
+  effort?: EffortLevel;
+  // WP-1322: 사용자가 고른 「생각의 깊이」(LOW~MAX → 'low'~'max', 설정 안 함은 미지정). Claude 러너는 effort 가 없을 때 이것을 SDK effort 로,
+  // opencode 러너는 이것만 모델 variant 로 싣는다(모델을 reasoning 으로 선언하고 prompt 에 variant). effort 와 따로 두는 이유: effort 는 추천
+  // 질문 등 단발 생성에도 'low' 로 실리는데, 그 실행까지 opencode 모델을 reasoning 으로 바꾸면 사용자가 고르지 않은 동작이 생긴다.
+  thinkingEffort?: EffortLevel;
   // WP-55: 모든 하위 에이전트 프롬프트 끝에 덧붙일 요청별 블록(사용자 메모리). 요청·사용자마다 다르므로 opencode 러너는 이 값이 있으면 웜 풀을 쓰지 않는다.
   subagentPromptSuffix?: string;
 }

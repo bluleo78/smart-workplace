@@ -10,7 +10,7 @@ function input(partial: Partial<WikiComposeInput>): WikiComposeInput {
   return {
     assistantAgentId: 1,
     model: 'claude-sonnet-4-6',
-    thinkingDepth: 'NONE',
+    thinkingDepth: 'DEFAULT',
     maxTurns: 5,
     timeoutMs: 90_000,
     action: 'polish',

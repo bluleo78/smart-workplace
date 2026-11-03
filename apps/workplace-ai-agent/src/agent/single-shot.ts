@@ -33,6 +33,25 @@ export function looksLikeEffortRejection(e: unknown): boolean {
   return /effort/i.test(message);
 }
 
+/**
+ * effort 없이 한 번 더 돌 만한 실패인가 — 단발(runSingleShot)·스트리밍(effort-fallback) 공용 규칙. Claude 연결이고, 실제로 effort 를 실었고
+ * (내부 고정 effort 또는 사용자가 고른 깊이), effort 거절로 보이고, 남은 시간이 RETRY_MIN_REMAINING_MS 이상일 때만 true. opencode 러너는
+ * SDK effort 를 쓰지 않아 같은 실행을 반복할 뿐이므로 다시 돌지 않는다.
+ */
+export function shouldRetryWithoutEffort(input: RunnerInput, err: unknown, remainingMs: number): boolean {
+  return (
+    input.credential.provider === 'anthropic' &&
+    (input.effort ?? input.thinkingEffort) !== undefined &&
+    looksLikeEffortRejection(err) &&
+    remainingMs >= RETRY_MIN_REMAINING_MS
+  );
+}
+
+/** 다시 돌 입력 — effort 를 모두 빼고 남은 시간만큼만 준다(다시 돌아도 처음 timeoutMs 를 넘지 않게). */
+export function withoutEffort(input: RunnerInput, remainingMs: number): RunnerInput {
+  return { ...input, effort: undefined, thinkingEffort: undefined, timeoutMs: remainingMs };
+}
+
 /** 한 번 실행 — 실패(러너 예외·실패 result)는 throw. 실패 실행의 부분 텍스트는 쓰지 않는다. */
 async function collectOk(input: RunnerInput, failMessage: string): Promise<RunnerEvent[]> {
   const events = await runnerFor(input.credential).collect(input);
@@ -45,13 +64,12 @@ export async function runSingleShot(input: RunnerInput, opts: SingleShotOptions)
   try {
     return await collectOk(input, opts.failMessage);
   } catch (e) {
-    // opencode 러너는 effort 를 쓰지 않아 같은 실행을 반복할 뿐이므로 다시 돌지 않는다.
     const remainingMs = input.timeoutMs - (Date.now() - opts.startedAt);
-    if (input.credential.provider !== 'anthropic' || !looksLikeEffortRejection(e) || remainingMs < RETRY_MIN_REMAINING_MS) throw e;
+    if (!shouldRetryWithoutEffort(input, e, remainingMs)) throw e;
     log.warn(opts.logArea, 'retry_without_effort', {
       requestId: input.requestId, ...opts.logFields, model: input.model, remainingMs,
       error: e instanceof Error ? e.message : String(e),
     });
-    return collectOk({ ...input, effort: undefined, timeoutMs: remainingMs }, opts.failMessage);
+    return collectOk(withoutEffort(input, remainingMs), opts.failMessage);
   }
 }

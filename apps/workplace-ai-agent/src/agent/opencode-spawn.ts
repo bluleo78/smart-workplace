@@ -65,11 +65,33 @@ async function acquireLiveSlot(): Promise<void> {
   await liveServers.acquire();
 }
 
-export async function createIsolatedOpencode(config: Config): Promise<OpencodeHandle> {
+/** 생존 슬롯이 없어 바로 띄우지 못했다(tryOnly 스폰) — 호출자는 기다리지 않고 포기한다. */
+export class NoLiveSlotError extends Error {
+  constructor() {
+    super('opencode 생존 서버 슬롯이 없어 띄우지 않았습니다');
+  }
+}
+
+/**
+ * 스폰 선택 — 기본(생략)은 실행 경로와 같다(슬롯을 기다리고 유휴 풀 서버를 축출해서라도 띄운다).
+ * tryOnly: 남는 슬롯이 있을 때만 띄우고 없으면 NoLiveSlotError(축출·대기 없음). 모델 목록의 생각의 깊이 조회(WP-1322)처럼
+ *   드롭다운을 붙잡는 짧은 부가 조회가 실행 중인 대화의 웜 서버를 밀어내거나 큐에 줄 서지 않게 한다.
+ * startupTimeoutMs: 서버 부팅 대기 상한(SDK createOpencode timeout, 기본 SDK 값).
+ */
+export interface SpawnOptions {
+  tryOnly?: boolean;
+  startupTimeoutMs?: number;
+}
+
+export async function createIsolatedOpencode(config: Config, opts: SpawnOptions = {}): Promise<OpencodeHandle> {
   // 생존 서버 슬롯 확보 — 상한 도달 시 유휴 풀 서버 축출로 슬롯을 만들거나(acquireLiveSlot),
-  // 전부 mid-request 면 반납될 때까지 대기(OOM 대신 큐잉).
+  // 전부 mid-request 면 반납될 때까지 대기(OOM 대신 큐잉). tryOnly 면 남는 슬롯만 쓴다.
   // 실패/종료 경로 어디서든 정확히 1회만 반납되도록 가드한다(이중 반납 = 슬롯 과다 → 상한 붕괴).
-  await acquireLiveSlot();
+  if (opts.tryOnly) {
+    if (!liveServers.tryAcquire()) throw new NoLiveSlotError();
+  } else {
+    await acquireLiveSlot();
+  }
   let permitReleased = false;
   const releasePermit = (): void => {
     if (permitReleased) return;
@@ -96,7 +118,11 @@ export async function createIsolatedOpencode(config: Config): Promise<OpencodeHa
   process.env.XDG_DATA_HOME = dataDir;
   let booting: Promise<OpencodeHandle>;
   try {
-    booting = createOpencode({ config: spawnConfig, port: 0 });
+    booting = createOpencode({
+      config: spawnConfig,
+      port: 0,
+      ...(opts.startupTimeoutMs ? { timeout: opts.startupTimeoutMs } : {}),
+    });
   } finally {
     if (prev === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = prev;

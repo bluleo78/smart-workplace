@@ -75,7 +75,8 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
     mcpServers,
     agents,
     mainAgent,
-    effort: i.effort,
+    // WP-1322: 내부 고정 effort(추천 질문 'low' 등)가 우선, 없으면 사용자가 고른 생각의 깊이.
+    effort: i.effort ?? i.thinkingEffort,
   };
 }
 

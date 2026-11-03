@@ -13,6 +13,7 @@ import type {
   ProviderCredentialMeta,
   ProviderCredentialRegisterRequest,
 } from '../../types/providerCredential';
+import { assistantKeys, providerModelsKeys } from './useAssistant';
 
 export const agentProviderCredentialKeys = {
   forUser: (userId: number | null) => ['agentProviderCredential', userId] as const,
@@ -35,15 +36,23 @@ export function useAgentProviderCredentialMeta(userId: number | null) {
   });
 }
 
+/**
+ * 연결이 바뀐 뒤 함께 낡는 캐시 — 연결 메타, 이 AGENT 의 모델 목록(WP-1322: provider 가 바뀌면 목록이 통째로 달라지는데 남아 있었다),
+ * 공통 비서 상태(등록이 모델을 바꾸고 hasActiveToken 이 바뀐다).
+ */
+function invalidateConnection(qc: ReturnType<typeof useQueryClient>, userId: number | null) {
+  qc.invalidateQueries({ queryKey: agentProviderCredentialKeys.forUser(userId) });
+  qc.invalidateQueries({ queryKey: providerModelsKeys.forAgent(userId) });
+  qc.invalidateQueries({ queryKey: assistantKeys.workspace });
+}
+
 // 자격증명 등록 — 성공/실패 토스트는 호출 측 (Dialog) 에서 처리. 여기는 캐시 무효화만.
 export function useRegisterAgentProviderCredential(userId: number | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (req: ProviderCredentialRegisterRequest) =>
       registerAgentProviderCredential(userId as number, req),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: agentProviderCredentialKeys.forUser(userId) });
-    },
+    onSuccess: () => invalidateConnection(qc, userId),
   });
 }
 
@@ -52,8 +61,6 @@ export function useRevokeAgentProviderCredential(userId: number | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => revokeAgentProviderCredential(userId as number),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: agentProviderCredentialKeys.forUser(userId) });
-    },
+    onSuccess: () => invalidateConnection(qc, userId),
   });
 }

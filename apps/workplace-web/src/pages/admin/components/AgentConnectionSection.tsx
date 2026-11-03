@@ -52,13 +52,6 @@ import { presetLabelFor } from '../../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../../types/assistant';
 import { ProviderCredentialDialog } from './ProviderCredentialDialog';
 
-// 생각 깊이 선택 옵션 목록.
-const DEPTHS: { value: ThinkingDepth; label: string }[] = [
-  { value: 'NONE', label: '없음' },
-  { value: 'NORMAL', label: '보통' },
-  { value: 'DEEP', label: '깊게' },
-];
-
 interface Props {
   agentUserId: number;
   /**
@@ -268,26 +261,24 @@ export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
 
   // WP-250: 등록 후 이미지 입력 지정(OpenAI 호환 연결만)과 모델 변경 — 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
   // 모델 변경·이미지 입력 저장 규칙(모델을 바꾸면 자동 감지로)은 개인 비서 화면과 같은 훅이 정한다.
+  // WP-1322: 생각의 깊이(선택지·보정·모델 변경 시 보정 저장)도 같은 훅이 정한다.
   const {
     isOpencode,
     currentVision,
     changeModel: onModel,
     changeVision: onVision,
+    depthView,
+    changeDepth: onDepth,
   } = useAssistantVisionSetting({
     provider: meta?.provider,
     vision: ws?.vision,
+    model: ws?.model,
+    thinkingDepth: ws?.thinkingDepth,
+    models: modelOptions,
+    modelsLoading,
     save: updateSettings.mutateAsync,
     messages: { success: '설정을 변경했습니다.', error: '설정 변경에 실패했습니다.' },
   });
-
-  const onDepth = async (thinkingDepth: ThinkingDepth) => {
-    try {
-      await updateSettings.mutateAsync({ thinkingDepth });
-      toast.success('설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '설정 변경에 실패했습니다.');
-    }
-  };
 
   // WP-139: 공통 비서 추천 질문 모델 — 이 필드만 보낸다. null = 자동.
   const onSuggestionModel = async (suggestionModel: string | null) => {
@@ -392,15 +383,17 @@ export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
                 <label className="text-sm font-medium" htmlFor="workspace-assistant-depth">
                   생각의 깊이
                 </label>
+                {/* WP-1322: 「설정 안 함」 + 고른 모델이 받는 단계만. */}
                 <Select
-                  value={ws?.thinkingDepth ?? 'NORMAL'}
+                  value={depthView.value}
                   onValueChange={(v) => void onDepth(v as ThinkingDepth)}
+                  disabled={modelsLoading}
                 >
                   <SelectTrigger id="workspace-assistant-depth" data-testid="workspace-assistant-depth">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {DEPTHS.map((d) => (
+                    {depthView.options.map((d) => (
                       <SelectItem key={d.value} value={d.value}>
                         {d.label}
                       </SelectItem>

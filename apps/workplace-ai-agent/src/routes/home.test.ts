@@ -49,7 +49,7 @@ function validBody(over: Record<string, unknown> = {}) {
     // #376: userId — MCP 도구 컨텍스트를 요청자로 설정하기 위해 필수 필드로 추가.
     userId: 1,
     model: 'claude-sonnet-4-6',
-    thinkingDepth: 'NORMAL',
+    thinkingDepth: 'DEFAULT',
     maxTurns: 8,
     timeoutMs: 60_000,
     ...over,
@@ -161,6 +161,12 @@ describe('chatSchema', () => {
 
   it('thinkingDepth 가 enum 밖이면 파싱 실패', () => {
     expect(chatSchema.safeParse(validBody({ thinkingDepth: 'WAT' })).success).toBe(false);
+  });
+
+  // WP-1322: 새 단계는 그대로, 옛 값은 롤링 배포 호환으로 받아 DEFAULT 로 바꾼다.
+  it('thinkingDepth 새 단계는 그대로, 옛 값(NORMAL)은 DEFAULT 로', () => {
+    expect(chatSchema.parse(validBody({ thinkingDepth: 'XHIGH' })).thinkingDepth).toBe('XHIGH');
+    expect(chatSchema.parse(validBody({ thinkingDepth: 'NORMAL' })).thinkingDepth).toBe('DEFAULT');
   });
 
   // #376: userId 필수 필드 검증.

@@ -5,7 +5,13 @@ public final class AssistantDefaults {
   private AssistantDefaults() {}
 
   public static final String MODEL = "claude-sonnet-5-5";
-  public static final String THINKING_DEPTH = "NORMAL"; // NONE | NORMAL | DEEP
+
+  /**
+   * 생각의 깊이 기본값 — DEFAULT 는 「설정 안 함」(모델 기본 추론 노력, ai-agent 가 effort·variant 를 싣지 않음). 값 집합은 DEFAULT
+   * | LOW | MEDIUM | HIGH | XHIGH | MAX(WP-1322, {@link ThinkingDepths#PATTERN}).
+   */
+  public static final String THINKING_DEPTH = "DEFAULT";
+
   public static final int MAX_TURNS = 8;
   public static final int TIMEOUT_MS = 60_000;
 }

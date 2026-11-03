@@ -9,6 +9,7 @@ import { DEFAULT_API_BASE_URL, DEFAULT_PORT } from '../constants.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { OpencodeModelLimit, OpencodeModelSettings, OpencodeVision } from './opencode-vision.js';
 import { loadSubagents, type SubagentDefinition } from './subagent-loader.js';
+import type { EffortLevel } from './thinking.js';
 
 // opencode 모델 표기 'providerId/modelId' 를 첫 '/' 기준으로 분해. 이 프로젝트의 opencode 모델
 // 저장 규약(Task 1-3 DB 설계)은 항상 이 형식이므로, 없으면 설정 오류로 간주해 명확히 throw 한다.
@@ -112,10 +113,13 @@ export const NO_VISION_PROMPT_RULE = `
 // 미지원·알 수 없음은 비워 opencode 자체 판단(custom=텍스트 전용, models.dev 등록 모델=자체 capability)에 맡긴다.
 // WP-250: limit(provider /models 가 알려 준 컨텍스트 한도)이 있으면 함께 선언한다 — opencode 는 limit 이 없는 custom 모델을 한도 0 으로 보고
 // 미리 압축하지 않는다(opencode-vision.limitFrom 참고). 없으면 비워 opencode 판단(models.dev 등록 모델은 자체 한도)에 맡긴다.
-function modelEntry(vision: OpencodeVision, limit: OpencodeModelLimit) {
+// WP-1322: 생각의 깊이(variant)를 고른 실행은 reasoning: true 를 선언한다 — opencode 는 custom provider 모델을 reasoning 으로 선언해야만
+// variant(low/medium/high 등)를 만든다(1.19.5 실측, 모델 id 로 판단). 고르지 않았으면 선언하지 않아 지금과 같다.
+function modelEntry(vision: OpencodeVision, limit: OpencodeModelLimit, variant?: EffortLevel) {
   return {
     ...(vision === true ? { modalities: { input: ['text' as const, 'image' as const], output: ['text' as const] } } : {}),
     ...(limit ? { limit } : {}),
+    ...(variant ? { reasoning: true } : {}),
   };
 }
 
@@ -140,7 +144,7 @@ export function buildOpencodeConfig(
       [payload.providerId]: {
         npm: payload.npm ?? '@ai-sdk/openai-compatible',
         options: payload.options,
-        models: { [modelID]: modelEntry(opts.vision, opts.limit) },
+        models: { [modelID]: modelEntry(opts.vision, opts.limit, i.thinkingEffort) },
       },
     },
     agent: {
