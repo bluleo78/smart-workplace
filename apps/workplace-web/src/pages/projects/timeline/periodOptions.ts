@@ -1,8 +1,8 @@
 // 조회 기간 선택지(WP-247) — 데스크톱 드롭다운과 모바일 시트가 같은 목록을 쓴다.
-// 사이클은 상태(진행 중 → 예정 → 완료됨) 순, 같은 상태 안에서는 시작일이 늦은 것부터(최근 것이 위). 날짜 없는 사이클은 고를 수 없어 뺀다.
+// 사이클 선택지는 날짜가 아니라 소속으로 거른다(WP-1330). 사이클은 상태(진행 중 → 예정 → 완료됨) 순, 같은 상태 안에서는 시작일이 늦은 것부터(최근 것이 위). 날짜 없는 사이클은 고를 수 없어 뺀다.
 import { CYCLE_STATUS_LABEL, type CycleResponse, type CycleStatus } from '@/types/cycle';
 
-import { formatPeriodSpan, parsePeriodParam, periodParamToString } from './timelineData';
+import { formatPeriodSpan, NO_CYCLE_LABEL, parsePeriodParam, periodParamToString } from './timelineData';
 import type { PeriodParam } from './timelineTypes';
 
 export interface PeriodOption {
@@ -26,6 +26,8 @@ export function periodOptions(cycles: CycleResponse[], today: Date): PeriodOptio
       hint: formatPeriodSpan(c.startDate, c.endDate, today),
       group: 'cycle' as const,
     })),
+    // 사이클에 안 든 이슈만(WP-1330) — 사이클 묶음 맨 아래. 기간 제한은 없다.
+    { value: 'no-cycle', label: NO_CYCLE_LABEL, hint: null, group: 'cycle' },
     { value: 'quarter', label: '이번 분기', hint: null, group: 'preset' },
     { value: 'rolling', label: '최근 3개월 ~ 향후 6개월', hint: null, group: 'preset' },
     { value: 'all', label: '전체 (기간 제한 없음)', hint: null, group: 'all' },

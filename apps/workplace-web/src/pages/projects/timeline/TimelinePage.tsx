@@ -206,7 +206,7 @@ export default function TimelinePage() {
           // 기간 로딩(timeline-period-loading)과 같은 자리·모양·문구 — 두 로딩이 이어질 때 문구 자리도 글자도 바뀌지 않게.
           loadingClassName="flex flex-1 items-center justify-center text-sm"
         >
-          <TimelineViewScope projectKey={key} filters={filters} period={periodCtl.period}>
+          <TimelineViewScope projectKey={key} filters={filters} period={periodCtl.period} cycleScope={periodCtl.cycleScope}>
             {(view) => !periodCtl.ready ? (
               <div data-testid="timeline-period-loading" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                 {/* 관문 로딩(목록·보드와 같은 「로딩 중…」)과 같은 문구(WP-938). */}
@@ -279,17 +279,19 @@ function TimelineViewScope({
   projectKey,
   filters,
   period,
+  cycleScope,
   children,
 }: {
   projectKey: string;
   filters: IssueFilters;
   period: TimelineViewOptions['period'];
+  cycleScope: TimelineViewOptions['cycleScope'];
   children: (view: TimelineViewOptions) => ReactNode;
 }) {
   const projectStatuses = useProjectStatusList(projectKey);
   const includeCanceled =
     filters.statuses.includes('CANCELED') ||
     projectStatuses.some((s) => s.category === 'CANCELED' && filters.statusIds.includes(s.id));
-  const view = useMemo<TimelineViewOptions>(() => ({ includeCanceled, period }), [includeCanceled, period]);
+  const view = useMemo<TimelineViewOptions>(() => ({ includeCanceled, period, cycleScope }), [includeCanceled, period, cycleScope]);
   return children(view);
 }

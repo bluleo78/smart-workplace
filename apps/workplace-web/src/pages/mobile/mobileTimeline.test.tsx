@@ -294,25 +294,47 @@ describe('모바일 타임라인 — 칩·시트', () => {
 
 describe('모바일 타임라인 — 기간(WP-247)', () => {
   // 기간 칩은 칩 줄 맨 앞, period 없이 들어오면 활성 사이클로 걸러지고, 시트에서 「전체」로 바꾸면 다시 걸러진다.
+  // 활성 사이클은 날짜가 아니라 소속으로 거른다(WP-1330) — 41·13 만 GW-2 에 넣는다.
   test('기간 칩 — 맨 앞에 활성 사이클 라벨, 시트에서 바꾸면 아젠다가 다시 걸러진다', async () => {
     const cycles = [
       createCycle({ id: 1, name: 'GW-2', startDate: '2026-10-08', endDate: '2026-10-21', status: 'ACTIVE' }),
       createCycle({ id: 2, name: 'GW-3', startDate: '2026-11-01', endDate: '2026-11-14', status: 'PLANNED' }),
     ]
-    const { user, location } = await open({ cycles, period: null })
+    const inGw2 = [{ id: 1, name: 'GW-2', status: 'ACTIVE' }]
+    const issues = ISSUES.map((i) => (i.number === 41 || i.number === 13 ? { ...i, cycles: inGw2 } : i))
+    const { user, location } = await open({ cycles, period: null, issues })
     const chips = document.querySelectorAll('[data-testid^="agenda-chip-"]')
     expect(chips[0]).toHaveAttribute('data-testid', 'agenda-chip-period')
     expect(screen.getByTestId('agenda-chip-period')).toHaveTextContent('GW-2')
     await user.click(screen.getByTestId('agenda-toggle-40'))
     expect(await screen.findByTestId('agenda-row-41')).toBeInTheDocument()
-    expect(screen.queryByTestId('agenda-row-25')).not.toBeInTheDocument() // 10/25 마감 단독 — 기간 밖
-    expect(screen.getByTestId('agenda-row-13')).toBeInTheDocument() // 마감일 없는 단독은 기간과 무관
+    expect(screen.queryByTestId('agenda-row-25')).not.toBeInTheDocument() // 10/25 마감 단독 — 사이클에 없음
+    expect(screen.queryByTestId('agenda-row-10')).not.toBeInTheDocument() // 날짜는 기간 안이지만 사이클에 없음
+    expect(screen.getByTestId('agenda-row-13')).toBeInTheDocument() // 마감일 없어도 사이클 소속이면 보인다
     await user.click(screen.getByTestId('agenda-chip-period'))
     await user.click(within(await screen.findByTestId('agenda-period-sheet')).getByTestId('picker-option-all'))
     await waitFor(() => expect(location()).toMatch(/period=all/))
     expect(await screen.findByTestId('agenda-row-25')).toBeInTheDocument()
     // 필터 개수에는 기간이 들어가지 않는다.
     expect(screen.getByTestId('agenda-chip-filter')).toHaveTextContent(/^필터$/)
+  })
+
+  // 사이클 선택지 빈 상태(WP-1330) — 소속 이슈가 하나도 없으면 사이클 문구, 날짜 없는 소속 이슈만 있으면 빈 상태 없이 미정 섹션.
+  test('사이클 선택지 — 소속 이슈가 없으면 사이클 문구, 날짜 없는 소속 이슈만 있으면 빈 상태 없음', async () => {
+    const cycles = [
+      createCycle({ id: 1, name: 'GW-2', startDate: '2026-10-08', endDate: '2026-10-21', status: 'ACTIVE' }),
+      createCycle({ id: 2, name: 'GW-3', startDate: '2026-11-01', endDate: '2026-11-14', status: 'PLANNED' }),
+    ]
+    const issues = ISSUES.map((i) => (i.number === 11 ? { ...i, cycles: [{ id: 1, name: 'GW-2', status: 'ACTIVE' }] } : { ...i, cycles: [] }))
+    const view = await open({ cycles, period: 'cycle-2', issues })
+    const empty = await screen.findByTestId('timeline-agenda-empty')
+    expect(empty).toHaveTextContent('이 사이클에 속한 이슈가 없어요')
+    expect(empty).toHaveTextContent('다른 사이클이나 「전체」를 골라 보세요')
+    view.unmount()
+    // GW-2 에는 날짜 없는 11 만 — 미정 섹션에 보이고 빈 상태는 없다.
+    await open({ cycles, period: 'cycle-1', issues })
+    expect(await screen.findByTestId('agenda-row-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-agenda-empty')).not.toBeInTheDocument()
   })
 
   // 응답 0건이면 기본(활성) 기간이어도 원인은 필터 — 기간 문구가 아닌 필터 빈 상태.

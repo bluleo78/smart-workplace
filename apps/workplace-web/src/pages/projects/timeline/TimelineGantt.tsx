@@ -88,6 +88,8 @@ export interface TimelineGanttProps {
   scrollRequest?: TimelineScrollRequest
   /** 조회 기간(WP-595) — 간트 축을 이 기간 앞뒤로 자르는 기준. null/없음이면 「전체」라 오늘 기준. */
   period?: { from: string; to: string } | null
+  /** 사이클 소속 거름(WP-1330) — 막대가 기간 밖이어도 축을 잘라내지 않고 막대 범위까지 넓힌다. */
+  fitAllBars?: boolean
   /** 막대 이동/리사이즈 저장. 실패하면 reject 해야 간트가 서버 상태로 되돌린다(아래 saveFailures 참조). */
   onBarChange: (issueNumber: number, change: { startDate: string; dueDate: string }) => Promise<unknown>
   /** 막대·행 클릭 → 이슈 상세로. projectKey 는 다른 프로젝트 에픽 그룹 행(WP-1039)일 때만 — 없으면 이 프로젝트. */
@@ -304,6 +306,7 @@ export function TimelineGantt({
   canEditMilestones,
   scrollRequest,
   period,
+  fitAllBars = false,
   onBarChange,
   onBarClick,
   onMilestoneClick,
@@ -431,6 +434,22 @@ export function TimelineGantt({
         ...(noBar ? { nobar: true } : {}), // 시작일/기간 컬럼 "미정" 표기용 마커
         saveFailures, // 위 saveFailures 참조 — 그룹 행에만 실어도 깊은 비교가 깨진다
       })
+      // 날짜 있는 막대 먼저(묶음 안 시작일 순, WP-1330), 미정 하위는 그 뒤 — 「날짜 없는 이슈는 마지막」.
+      for (const bar of group.bars) {
+        const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)
+        const endDate = addDays(parseISO(bar.due), 1)
+        result.push({
+          id: bar.issueNumber,
+          parent: groupId,
+          text: `${bar.issueKey} ${bar.title}${bar.formerEpicTitle ? ` ← ${bar.formerEpicTitle}` : ''}`,
+          start: startDate,
+          end: endDate,
+          type: 'task',
+          progress: bar.status === 'DONE' ? 100 : 0,
+          dueOnly: bar.start === null,
+          status: bar.status,
+        })
+      }
       // 미정 하위(#에픽펼침) — 에픽 아래 그리드 행으로만 보이고 간트 막대는 CSS 로 숨긴다.
       // unscheduled:true 로 두어 에픽 요약 막대 span 계산에서 제외한다(placeholder 날짜가 span 을 늘리지 않게).
       for (const kid of group.undatedChildren) {
@@ -445,21 +464,6 @@ export function TimelineGantt({
           undated: true,
           undatedStart: kid.startDate, // 시작일 컬럼 표기용(WP-484) — 막대 날짜(start)는 placeholder 라 쓰지 않는다
           issueNumber: kid.number,
-        })
-      }
-      for (const bar of group.bars) {
-        const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)
-        const endDate = addDays(parseISO(bar.due), 1)
-        result.push({
-          id: bar.issueNumber,
-          parent: groupId,
-          text: `${bar.issueKey} ${bar.title}${bar.formerEpicTitle ? ` ← ${bar.formerEpicTitle}` : ''}`,
-          start: startDate,
-          end: endDate,
-          type: 'task',
-          progress: bar.status === 'DONE' ? 100 : 0,
-          dueOnly: bar.start === null,
-          status: bar.status,
         })
       }
     }
@@ -488,8 +492,8 @@ export function TimelineGantt({
     const range = periodFrom && periodTo ? { from: periodFrom, to: periodTo } : null
     // 마일스톤·버전 마커도 축에 담는다 — 막대보다 이른 지난 마감 마일스톤이 축 밖에서 숨지 않게(WP-1146).
     const markerDates = [...milestones.map((m) => parseISO(m.dueDate)), ...versions.map((v) => parseISO(v.date))]
-    return ganttAxisBounds(min, max, range, new Date(), markerDates)
-  }, [tasks, periodFrom, periodTo, milestones, versions])
+    return ganttAxisBounds(min, max, range, new Date(), markerDates, { fitData: fitAllBars })
+  }, [tasks, periodFrom, periodTo, milestones, versions, fitAllBars])
 
   const links = useMemo(
     () =>

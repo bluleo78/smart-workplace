@@ -11,6 +11,7 @@ import type { CycleResponse } from '@/types/cycle';
 import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
 import { periodOptions, periodOptionToParam, periodOptionValue } from './periodOptions';
 import { PeriodRangeForm } from './PeriodRangeForm';
+import { periodDisplayLabel } from './timelineData';
 import type { PeriodParam, TimelinePeriod } from './timelineTypes';
 
 export function TimelinePeriodChip({
@@ -23,14 +24,15 @@ export function TimelinePeriodChip({
     () => periodOptions(cycles, parseISO(todayKey)).map((o) => ({ value: o.value, label: o.label, hint: o.hint ?? undefined })),
     [cycles, todayKey],
   );
-  // 칩은 좁아 이름만 — 「GW-2 · 10/1–10/14」 에서 「 · 」 앞. 전체면 「전체」.
-  const short = period ? period.label.split(' · ')[0] : '전체';
+  // 칩은 좁아 이름만 — 「GW-2 · 10/1–10/14」 에서 「 · 」 앞. 전체면 「전체」, 「사이클 없음」이면 그 이름(WP-1330).
+  const label = periodDisplayLabel(param, period);
+  const short = label.split(' · ')[0];
   return (
     <>
       <button
         type="button"
         data-testid="agenda-chip-period"
-        title={period ? period.label : '전체'}
+        title={label}
         onClick={() => setOpen(true)}
         className={cn(MOBILE_CHIP, MOBILE_CHIP_ACTIVE, 'shrink-0')}
       >

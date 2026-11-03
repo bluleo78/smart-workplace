@@ -17,6 +17,9 @@ import { expectToggle } from '../../fixtures/selection';
 const KEY = 'WP';
 
 // 그룹 기본 상태는 "접힘"이다(사용자 요청 — 펼친 것만 localStorage 저장). 이 스펙의 이슈는
+// 스텁 이슈는 활성 사이클 7 에 든다 — 기본 기간(활성 사이클)은 날짜가 아니라 사이클 소속으로 거른다(WP-1330).
+const IN_CYCLE_7 = [{ id: 7, name: '사이클 7', status: 'ACTIVE' }];
+
 // 전부 에픽이 없어 "에픽 없음" 그룹에 묶이므로, 막대/드래그/의존을 검증하려면 먼저 펼친다.
 // (행 클릭은 상세 이동이라 토글 아이콘만 클릭)
 async function expandNoEpicGroup(page: Page) {
@@ -52,10 +55,10 @@ function setupTimelineStubs(page: Page) {
     page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       const issues = [
-        createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
-        createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10' }),
-        createIssue({ number: 3, title: '미정 이슈' }),
-        createIssue({ number: 4, title: '취소된 이슈', status: 'CANCELED', dueDate: '2026-07-08' }),
+        createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05', cycles: IN_CYCLE_7 }),
+        createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10', cycles: IN_CYCLE_7 }),
+        createIssue({ number: 3, title: '미정 이슈', cycles: IN_CYCLE_7 }),
+        createIssue({ number: 4, title: '취소된 이슈', status: 'CANCELED', dueDate: '2026-07-08', cycles: IN_CYCLE_7 }),
       ];
       return route.fulfill({
         status: 200,
@@ -188,7 +191,7 @@ test('막대 드래그 이동 시 startDate+dueDate PATCH', { tag: '@input' }, a
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(createIssue({ number: 1, title: '기간 이슈' })),
+        body: JSON.stringify(createIssue({ number: 1, title: '기간 이슈', cycles: IN_CYCLE_7 })),
       });
     }
     return route.fallback();
@@ -218,10 +221,10 @@ test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', { tag: '@input'
   await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     const issues = [
-      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
-      createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10' }),
-      createIssue({ number: 3, title: '미정 이슈' }),
-      createIssue({ number: 4, title: '취소된 이슈', status: 'CANCELED', dueDate: '2026-07-08' }),
+      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05', cycles: IN_CYCLE_7 }),
+      createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10', cycles: IN_CYCLE_7 }),
+      createIssue({ number: 3, title: '미정 이슈', cycles: IN_CYCLE_7 }),
+      createIssue({ number: 4, title: '취소된 이슈', status: 'CANCELED', dueDate: '2026-07-08', cycles: IN_CYCLE_7 }),
     ];
     return route.fulfill({
       status: 200,
@@ -414,7 +417,7 @@ test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크�
     if (route.request().method() !== 'GET') return route.fallback();
     const issues = [
       createIssue({ number: 9, title: '연초 이슈', startDate: '2026-01-05', dueDate: '2026-01-20' }),
-      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
+      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05', cycles: IN_CYCLE_7 }),
     ];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
@@ -496,8 +499,8 @@ test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 
   await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     const issues = [
-      createIssue({ number: 7, title: '아주 긴 이슈', startDate: '1900-01-01', dueDate: '2099-12-31' }),
-      createIssue({ number: 1, title: '이번 주 이슈', startDate: '2026-07-06', dueDate: '2026-07-10' }),
+      createIssue({ number: 7, title: '아주 긴 이슈', startDate: '1900-01-01', dueDate: '2099-12-31', cycles: IN_CYCLE_7 }),
+      createIssue({ number: 1, title: '이번 주 이슈', startDate: '2026-07-06', dueDate: '2026-07-10', cycles: IN_CYCLE_7 }),
     ];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
@@ -621,7 +624,7 @@ test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 �
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-04', dueDate: '2026-07-08' })),
+      body: JSON.stringify(createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-04', dueDate: '2026-07-08', cycles: IN_CYCLE_7 })),
     });
   });
   await gotoTimeline(page, `/projects/${KEY}/timeline`);
