@@ -18,6 +18,11 @@ export interface EmailMessageSummary {
   aiNeedsReply: boolean | null;
   /** WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지 */
   categoryPending: boolean;
+  /**
+   * WP-1325: 보낸 사람이 이 워크스페이스 구성원이 아님(외부 메일) → 「외부」 태그. 목록 API 만 채우고 판정할 수 없으면 null.
+   * 다른 응답·테스트 데이터에는 없을 수 있어 선택 필드다(없으면 표시하지 않음).
+   */
+  externalSender?: boolean | null;
 }
 
 /** WP-965 목록 다음 페이지 커서 — 앞 페이지 마지막 행의 receivedAt·id(서버 정렬 키). */

@@ -16,4 +16,26 @@ public record EmailMessageSummary(
     boolean hasAttachment,
     String aiCategory,
     Boolean aiNeedsReply, // 회신필요 = aiNeedsReply && !seen (WP-146 단일 술어)
-    boolean categoryPending) {} // WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지
+    boolean categoryPending, // WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지
+    // WP-1325: 보낸 사람이 이 워크스페이스 구성원이 아님(외부 메일) — 목록 API 만 채운다. 판정할 수 없으면(주소 없음·다른 경로) null.
+    Boolean externalSender) {
+
+  /** 외부 메일 판정을 붙인 복사본(WP-1325) — 목록 조회 뒤 한 번의 일괄 조회로 채운다. */
+  public EmailMessageSummary withExternalSender(Boolean external) {
+    return new EmailMessageSummary(
+        id,
+        accountId,
+        threadId,
+        fromAddress,
+        fromName,
+        subject,
+        snippet,
+        receivedAt,
+        seen,
+        hasAttachment,
+        aiCategory,
+        aiNeedsReply,
+        categoryPending,
+        external);
+  }
+}

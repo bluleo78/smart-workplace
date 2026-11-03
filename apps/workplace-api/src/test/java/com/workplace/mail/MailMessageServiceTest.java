@@ -1,6 +1,8 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -152,6 +154,35 @@ class MailMessageServiceTest extends ExternalClientMockedTestBase {
 
     var all = messageService.list(user, accountId, "INBOX", null, false, null, false, 10);
     assertThat(all).hasSize(2);
+  }
+
+  /**
+   * WP-1325: 목록 행의 externalSender — 보낸 사람이 이 워크스페이스 활성 구성원(로그인 이메일·메일 계정 주소, 대소문자 무시)이면 내부(false),
+   * 아니면 외부(true). 같은 도메인이어도 구성원이 아니면 외부다(도메인으로 추정하지 않음). 멤버십이 없는(다른 워크스페이스) 사람도 외부.
+   */
+  @Test
+  void list_marksExternalSender_byMemberAddress() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    long colleague = TestFixtures.createHumanWithEmail(dsl, "colleague@corp.test");
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, colleague)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .onConflictDoNothing()
+        .execute();
+    TestFixtures.createHumanWithEmail(dsl, "nomember@corp.test"); // 멤버십 없음 → 외부
+    MailTestPorts.sendText("box@test.local", "Colleague@Corp.test", "동료", "본문");
+    MailTestPorts.sendText("box@test.local", "nomember@corp.test", "비구성원", "본문");
+    MailTestPorts.sendText("box@test.local", "partner@other.test", "거래처", "본문");
+    greenMail.waitForIncomingEmail(3);
+    syncService.sync(user, accountId);
+
+    var rows = messageService.list(user, accountId, "INBOX", null, false, null, false, 10);
+
+    assertThat(rows)
+        .extracting(s -> s.subject(), s -> s.externalSender())
+        .containsExactlyInAnyOrder(tuple("동료", false), tuple("비구성원", true), tuple("거래처", true));
   }
 
   /** 동기화 진행 상태 스냅샷(미동기화 계정은 IDLE). 소유 검증 통과. */

@@ -20,9 +20,13 @@ import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.MailPeopleRepository;
 import com.workplace.mail.service.invite.MailInviteService;
+import com.workplace.mail.util.MailAddresses;
 import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -62,6 +66,9 @@ public class MailMessageService {
   /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
   private final MailInlineContentIdBackfiller inlineBackfiller;
 
+  /** WP-1325: 목록 보낸 사람이 구성원인지(내부/외부 메일) 일괄 판정. */
+  private final MailPeopleRepository peopleRepo;
+
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
    * RLS GUC(app.tenant_id) 가 주입된다.
@@ -80,7 +87,8 @@ public class MailMessageService {
       AssistantResolver assistantResolver,
       DSLContext dsl,
       PlatformTransactionManager txManager,
-      MailInviteService inviteService) {
+      MailInviteService inviteService,
+      MailPeopleRepository peopleRepo) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.folderRepo = folderRepo;
@@ -93,6 +101,7 @@ public class MailMessageService {
     this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
     this.inviteService = inviteService;
+    this.peopleRepo = peopleRepo;
   }
 
   /** 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어·#466 unread·P2 category/needsReply 필터). 계정이 본인 소유가 아니면 404. */
@@ -145,20 +154,50 @@ public class MailMessageService {
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+    List<EmailMessageSummary> rows;
     if (folderId != null) {
-      return messageRepo.listByAccount(
-          accountId,
-          folderName(accountId, folderId),
-          query,
-          unread,
-          null,
-          false,
-          cursor,
-          effective);
+      rows =
+          messageRepo.listByAccount(
+              accountId,
+              folderName(accountId, folderId),
+              query,
+              unread,
+              null,
+              false,
+              cursor,
+              effective);
+    } else {
+      String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
+      rows =
+          messageRepo.listByAccount(
+              accountId, folderName, query, unread, category, needsReply, cursor, effective);
     }
-    String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
-    return messageRepo.listByAccount(
-        accountId, folderName, query, unread, category, needsReply, cursor, effective);
+    return markExternalSenders(rows);
+  }
+
+  /**
+   * 목록 행마다 보낸 사람이 외부인지 붙인다(WP-1325). 내부 = 보낸 사람 주소가 이 워크스페이스 구성원(나 포함)의 로그인 이메일이나 메일 계정 주소와 같음 — 메일
+   * 도메인으로 추정하지 않는다(기준 A, 이슈 챗 확정). 한 페이지의 주소를 모아 한 번에 판정하고, 보낸 사람 주소가 없으면 판정하지 않는다(null).
+   */
+  private List<EmailMessageSummary> markExternalSenders(List<EmailMessageSummary> rows) {
+    if (rows.isEmpty()) {
+      return rows;
+    }
+    Set<String> addresses = new HashSet<>();
+    for (EmailMessageSummary r : rows) {
+      String a = MailAddresses.normalize(r.fromAddress());
+      if (a != null && !a.isEmpty()) {
+        addresses.add(a);
+      }
+    }
+    Set<String> members = peopleRepo.findMemberAddresses(peopleRepo.currentTenantId(), addresses);
+    return rows.stream()
+        .map(
+            r -> {
+              String a = MailAddresses.normalize(r.fromAddress());
+              return r.withExternalSender(a == null || a.isEmpty() ? null : !members.contains(a));
+            })
+        .toList();
   }
 
   /** WP-960: 계정의 메일함 이름(서버 키). 계정에 없는 메일함이면 404. 호출자 트랜잭션 안에서 부른다. */
