@@ -6,12 +6,15 @@ import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailValidationException;
+import com.workplace.mail.util.MailAttachmentSizes;
 import jakarta.mail.Address;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Session;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -23,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import org.eclipse.angus.mail.smtp.SMTPAddressFailedException;
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException;
 import org.eclipse.angus.mail.smtp.SMTPSenderFailedException;
+import org.eclipse.angus.mail.smtp.SMTPTransport;
 import org.springframework.stereotype.Component;
 
 /**
@@ -58,12 +62,16 @@ public class SmtpMailTransport implements MailTransport {
       long userId, EmailAccountResponse account, MimeMessage message, OutgoingMail mail) {
     // 자격증명 조회(RLS 읽기 트랜잭션)는 MailAccountCredentials 가 맡고, 여기서는 I/O 만 한다(WP-574).
     String password = credentials.password(userId, account.id());
+    // 잰 메일 크기(바이트) — 서버가 SIZE 를 알리지 않아 재지 않았으면 -1. 552 거절 안내에 쓴다(WP-1329).
+    long measuredSize = -1;
     try {
       Session session = smtpSession(account, !mail.attachments().isEmpty());
       Address[] envelope = envelope(mail);
       Transport transport = session.getTransport("smtp");
       try {
         transport.connect(account.smtpHost(), account.smtpPort(), account.smtpUsername(), password);
+        // WP-1329: 서버가 EHLO 로 알린 크기 한도를 넘으면 DATA 를 다 올린 뒤 552 로 거절당하기 전에 미리 막는다(두 크기를 알려 준다).
+        measuredSize = requireWithinServerSize(transport, message, partBytes(mail));
         transport.sendMessage(message, envelope);
       } finally {
         try {
@@ -75,12 +83,141 @@ public class SmtpMailTransport implements MailTransport {
     } catch (MessagingException e) {
       // WP-574: 크기 초과 거절(552 / 5.3.4)은 서버 장애가 아니라 사용자가 고칠 수 있는 오류 — 400 + 안내 문구.
       if (isSizeRejection(e)) {
-        throw new MailValidationException(SIZE_REJECTED_MESSAGE);
+        // WP-1329: 거절된 메일 크기를 함께 알린다 — 미리 재지 않았으면 여기서 잰다(거절 때만이라 평소 비용 없음).
+        long size = measuredSize >= 0 ? measuredSize : measureQuietly(message);
+        throw new MailValidationException(sizeRejectedMessage(size, !mail.attachments().isEmpty()));
       }
       throw new MailSendException("메일 발송에 실패했습니다", e);
     }
     // SMTP 는 MIME 에 넣은 Message-ID 그대로 나간다
     return mail.messageId();
+  }
+
+  /** 첨부가 전송 중 커지는 배율 안내(WP-1329) — 표준 MIME base64(원본 57바이트 → 78바이트, 줄바꿈 포함) 기준 약 1.37배. */
+  private static final String ENCODING_GROWTH_NOTE = "첨부는 전송 중 약 1.37배 커져요";
+
+  /**
+   * 서버 크기 한도 사전 판정(WP-1329). 연결 뒤 EHLO 응답의 SIZE 확장(RFC 1870)을 읽어, 한도가 있으면 실제로 나갈 메일 바이트를 세어 넘으면 보내기
+   * 전에 거절한다. 받는 쪽 대부분이 25MB 안팎에서 막는데 첨부는 base64 로 약 1.37배 커져, 원본 합계 25MB 검사를 통과한 메일도 서버에서 552 로 거절될
+   * 수 있다 — DATA 를 다 올리고 거절당하는 대신 바로 두 크기를 알려 준다.
+   *
+   * @return 잰 메일 크기(바이트). 서버가 SIZE 를 알리지 않았거나 0(한도 없음)이면 재지 않고 -1
+   * @throws MailValidationException 메일 크기가 서버 한도를 넘음
+   */
+  static long requireWithinServerSize(Transport transport, MimeMessage message)
+      throws MessagingException {
+    return requireWithinServerSize(transport, message, -1);
+  }
+
+  /**
+   * {@link #requireWithinServerSize(Transport, MimeMessage)} 와 같되, 첨부·인라인 원본 합계({@code
+   * knownPartBytes}, 모르면 -1)로 base64 후 크기를 어림해 한도의 90% 아래면 재지 않는다 — 재기는 메일 전체를 한 번 더 인코딩하므로 한도 근처일
+   * 때만 한다(WP-1329 리뷰).
+   */
+  static long requireWithinServerSize(Transport transport, MimeMessage message, long knownPartBytes)
+      throws MessagingException {
+    if (!(transport instanceof SMTPTransport smtp)) {
+      return -1;
+    }
+    long limit = parseSizeLimit(smtp.getExtensionParameter("SIZE"));
+    if (limit <= 0) {
+      return -1;
+    }
+    if (knownPartBytes >= 0 && knownPartBytes / 57.0 * 78.0 < limit * 0.9) {
+      return -1;
+    }
+    long size = measure(message);
+    if (size > limit) {
+      throw new MailValidationException(sizeExceededMessage(limit, size, knownPartBytes != 0));
+    }
+    return size;
+  }
+
+  /** 첨부·인라인 이미지 원본 바이트 합계 — 서버 한도 근처인지 어림하는 데 쓴다(본문·헤더는 빠져 작게 잡힌다 — 90% 여유가 덮는다). */
+  private static long partBytes(OutgoingMail mail) {
+    long sum = 0;
+    for (OutgoingMail.AttachmentPart a : mail.attachments()) {
+      sum += a.content().length;
+    }
+    for (OutgoingMail.InlineImagePart i : mail.inlineImages()) {
+      sum += i.content().length;
+    }
+    return sum;
+  }
+
+  /** EHLO SIZE 파라미터 → 바이트 한도. 없음·빈 값·숫자 아님은 0(한도를 모름 = 판정하지 않음). RFC 1870 의 "SIZE 0" 도 한도 없음이다. */
+  static long parseSizeLimit(String param) {
+    if (param == null || param.isBlank()) {
+      return 0;
+    }
+    try {
+      return Math.max(Long.parseLong(param.trim()), 0);
+    } catch (NumberFormatException e) {
+      return 0;
+    }
+  }
+
+  /**
+   * 나갈 메일의 정확한 바이트 수 — writeTo 결과를 세기만 하는 스트림에 써서 잰다(메일 전체를 메모리에 한 번 더 쌓지 않는다). writeTo 는 저장 전이면
+   * saveChanges 를 먼저 해 실제 전송과 같은 헤더·인코딩으로 잰다.
+   */
+  static long measure(MimeMessage message) throws MessagingException {
+    CountingOutputStream out = new CountingOutputStream();
+    try {
+      // SMTPTransport 가 DATA 를 쓸 때 빼는 헤더(Bcc·Content-Length)는 세지 않는다 — 실제 전송 크기와 같게.
+      message.writeTo(out, new String[] {"Bcc", "Content-Length"});
+    } catch (IOException e) {
+      throw new MessagingException("메일 크기를 재지 못했어요", e);
+    }
+    return out.count;
+  }
+
+  /** 552 안내용 크기 재기 — 실패해도 안내만 빠지게 -1(원래 거절 사유를 가리지 않는다). */
+  private static long measureQuietly(MimeMessage message) {
+    try {
+      return measure(message);
+    } catch (MessagingException | RuntimeException e) {
+      return -1;
+    }
+  }
+
+  /**
+   * 서버 한도 사전 판정 문구 — 「메일 서버가 허용하는 크기(25.0MB)를 넘었어요(이 메일 27.4MB — …)」. EHLO SIZE 는 내 보내는 서버의 한도라
+   * 「받는」 서버로 단정하지 않는다. 한도는 내림, 메일 크기는 올림으로 적어 두 수가 같아 보이지 않게 한다. 첨부가 있을 때만 커지는 배율을 덧붙인다.
+   */
+  static String sizeExceededMessage(long limitBytes, long messageBytes, boolean hasParts) {
+    return "메일 서버가 허용하는 크기("
+        + MailAttachmentSizes.formatMbFloor(limitBytes)
+        + ")를 넘었어요(이 메일 "
+        + MailAttachmentSizes.formatMb(messageBytes)
+        + (hasParts ? " — " + ENCODING_GROWTH_NOTE : "")
+        + "). 첨부를 줄이거나 나눠서 보내 주세요";
+  }
+
+  /** 552 거절 문구 — 잰 크기가 있으면 함께 알린다(WP-1329). 없으면 기존 문구 그대로. */
+  static String sizeRejectedMessage(long messageBytes, boolean hasAttachments) {
+    if (messageBytes < 0) {
+      return SIZE_REJECTED_MESSAGE;
+    }
+    return "받는 메일 서버가 허용하는 크기를 넘었어요(이 메일 "
+        + MailAttachmentSizes.formatMb(messageBytes)
+        + (hasAttachments ? " — " + ENCODING_GROWTH_NOTE : "")
+        + "). 첨부를 줄이거나 나눠서 보내 주세요";
+  }
+
+  /** 쓴 바이트 수만 세는 스트림(WP-1329 메일 크기 재기). */
+  private static final class CountingOutputStream extends OutputStream {
+    private long count;
+
+    @Override
+    public void write(int b) {
+      count++;
+    }
+
+    @Override
+    public void write(byte[] b, int off, int len) {
+      count += len;
+    }
   }
 
   /** 확장 상태 코드 5.2.2(RFC 3463 메일함 가득 참) — 5.2.20 같은 다른 코드와 섞이지 않게 앞뒤를 끊어 본다. */

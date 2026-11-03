@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.mail.dto.ParsedAttachment;
+import com.workplace.mail.util.MailAttachmentSizes;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -245,7 +246,8 @@ public class EmailAttachmentRepository {
             EMAIL_ATTACHMENT.ID,
             CONTENT_ATTACHMENT.FILENAME,
             CONTENT_ATTACHMENT.CONTENT_TYPE,
-            CONTENT_ATTACHMENT.SIZE_BYTES)
+            CONTENT_ATTACHMENT.SIZE_BYTES,
+            EMAIL_MESSAGE.IMAP_UID)
         .from(ownedAttachmentJoin())
         .where(ownedBy(userId))
         .and(EMAIL_ATTACHMENT.ID.in(attachmentIds))
@@ -255,7 +257,10 @@ public class EmailAttachmentRepository {
                 new InlineSourceMeta(
                     r.get(CONTENT_ATTACHMENT.FILENAME),
                     r.get(CONTENT_ATTACHMENT.CONTENT_TYPE),
-                    Objects.requireNonNullElse(r.get(CONTENT_ATTACHMENT.SIZE_BYTES), 0L)));
+                    // WP-1329: IMAP 서버에서 받은 첨부의 저장 크기는 base64 인코딩 크기 — 실제 크기 추정으로 바꿔 돌려준다
+                    MailAttachmentSizes.estimatedRawBytes(
+                        Objects.requireNonNullElse(r.get(CONTENT_ATTACHMENT.SIZE_BYTES), 0L),
+                        r.get(EMAIL_MESSAGE.IMAP_UID) != null)));
   }
 
   /** 첨부 → manifest → 메시지 → 계정 조인(WP-68/69 조회 공용). */
@@ -274,7 +279,10 @@ public class EmailAttachmentRepository {
     return EMAIL_ACCOUNT.USER_ID.eq(userId).and(EMAIL_ACCOUNT.DISABLED_AT.isNull());
   }
 
-  /** 인라인 재첨부 원본 메타. */
+  /**
+   * 인라인 재첨부·전달 원본 메타. sizeBytes 는 실제 바이트 추정치다(WP-1329 — IMAP 수신 첨부는 인코딩 크기를 보정, {@link
+   * MailAttachmentSizes}). 원본 받기 판정은 저장값 그대로인 {@link #findContextForDownload} 를 쓴다.
+   */
   public record InlineSourceMeta(String filename, String contentType, long sizeBytes) {}
 
   /** 이 envelope 에 첨부 행이 하나라도 있는지(WP-68 인라인 전용 레거시 메일 적재 가드). */
