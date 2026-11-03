@@ -337,6 +337,25 @@ public class UserGroupService {
     repo.removeMember(id, targetType, targetId);
   }
 
+  /**
+   * 조직 리더 지정·해제(WP-1327). 쓰기 권한은 구성원 편입과 같다(requireWritable — 관리자 또는 user-group:manage). 리더는 조직도
+   * 부서(SHARED)의 구성원(MEMBER)에게만 둔다 — 개인 그룹은 조직이 아니고, 외부 연락처는 조직의 리더가 아니다. 소속하지 않은 사람은 지정하지 않는다(먼저
+   * 구성원으로 넣어야 한다). 이미 그 상태면 그대로 성공(멱등).
+   *
+   * @throws InvalidUserGroupException 개인 그룹이거나 이 조직의 구성원이 아님
+   */
+  @Transactional
+  public UserGroupDetail setLeader(long callerId, long id, long userId, boolean leader) {
+    FlatGroup g = requireWritable(callerId, id);
+    if (!Departments.SHARED.equals(g.visibility())) {
+      throw new InvalidUserGroupException("리더는 조직도의 조직에만 지정할 수 있습니다");
+    }
+    if (!repo.setLeader(id, userId, leader)) {
+      throw new InvalidUserGroupException("이 조직의 구성원이 아닙니다 — 먼저 구성원으로 추가해 주세요");
+    }
+    return toDetail(callerId, g);
+  }
+
   // --- 내부 헬퍼 ---
 
   /** parentId 부터 위로 올라가는 상위 부서 id(가까운 순) — 한 번의 조회(공통 규칙, WP-1055). 최상위(null)면 빈 목록. */

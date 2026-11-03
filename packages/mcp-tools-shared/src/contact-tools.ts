@@ -97,11 +97,14 @@ export function toUserGroupNodeView(node: UserGroupNodeRow): unknown {
   };
 }
 
-/** 그룹 멤버 LLM 뷰 — 구성원은 username, 외부 연락처는 externalId 로만 가리킨다(공용 targetId 제거, #833). */
+/**
+ * 그룹 멤버 LLM 뷰 — 구성원은 username, 외부 연락처는 externalId 로만 가리킨다(공용 targetId 제거, #833).
+ * 조직 리더는 leader:true 를 붙인다(WP-1327 — 「이 팀 리더가 누구야?」에 답하게). 리더가 아니면 필드를 빼 응답을 늘리지 않는다.
+ */
 export function toUserGroupMemberView(m: UserGroupMemberRow) {
   const base = { type: m.targetType, name: m.name, email: m.email ?? null, title: m.title ?? null };
   return m.targetType === 'MEMBER'
-    ? { ...base, username: m.username ?? null }
+    ? { ...base, username: m.username ?? null, ...(m.leader ? { leader: true } : {}) }
     : { ...base, externalId: m.targetId, organization: m.organization ?? null };
 }
 

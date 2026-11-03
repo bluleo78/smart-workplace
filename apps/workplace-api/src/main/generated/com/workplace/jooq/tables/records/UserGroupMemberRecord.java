@@ -90,6 +90,20 @@ public class UserGroupMemberRecord extends UpdatableRecordImpl<UserGroupMemberRe
         return (Long) get(4);
     }
 
+    /**
+     * Setter for <code>public.user_group_member.is_leader</code>.
+     */
+    public void setIsLeader(Boolean value) {
+        set(5, value);
+    }
+
+    /**
+     * Getter for <code>public.user_group_member.is_leader</code>.
+     */
+    public Boolean getIsLeader() {
+        return (Boolean) get(5);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -113,7 +127,7 @@ public class UserGroupMemberRecord extends UpdatableRecordImpl<UserGroupMemberRe
     /**
      * Create a detached, initialised UserGroupMemberRecord
      */
-    public UserGroupMemberRecord(Long groupId, String targetType, Long targetId, OffsetDateTime createdAt, Long tenantId) {
+    public UserGroupMemberRecord(Long groupId, String targetType, Long targetId, OffsetDateTime createdAt, Long tenantId, Boolean isLeader) {
         super(UserGroupMember.USER_GROUP_MEMBER);
 
         setGroupId(groupId);
@@ -121,6 +135,7 @@ public class UserGroupMemberRecord extends UpdatableRecordImpl<UserGroupMemberRe
         setTargetId(targetId);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
+        setIsLeader(isLeader);
         resetChangedOnNotNull();
     }
 }

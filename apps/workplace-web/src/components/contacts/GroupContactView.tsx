@@ -1,10 +1,12 @@
-import { Search } from 'lucide-react'
+import { Crown, Search } from 'lucide-react'
 
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import type { ContactSelection } from '@/hooks/queries/useContactDetail'
 import { useGroupMemberSearch } from '@/hooks/queries/useGroupMemberSearch'
 import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
+import { useSetGroupLeader } from '@/hooks/queries/useUserGroupMutations'
+import { useAuth } from '@/hooks/useAuth'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { UserGroupMemberHit } from '@/types/userGroup'
@@ -24,11 +26,15 @@ interface Props {
  * 예전엔 고른 그룹의 서브트리를 테두리 카드(OrgChartView)로 다시 그렸다 — 왼쪽 트리와 겹치고 관리 버튼이 hover 전용이라 없앴다(WP-978).
  * 하위 조직은 왼쪽 트리가 보이고, 관리(하위 추가·수정·삭제)는 트리 행의 ⋯ 로 옮겼다.
  * 검색하면 하위 조직 구성원까지 서버에서 찾고, 하위 조직 사람은 행에 소속 경로를 붙인다(WP-1000).
+ * 조직 리더는 이름 옆 「리더」 배지로 구분하고 서버 정렬대로 맨 위에 온다(WP-1327). 조직도 조직의 직속 구성원 행에는 관리자에게만
+ * 리더 지정·해제 버튼을 둔다(트리 ⋯ 관리와 같은 isAdmin 기준).
  */
 export function GroupContactView({ groupId, selected, onSelect, search = '', onSearchAll }: Props) {
   const { data: detail, isLoading, isError } = useUserGroupDetail(groupId)
   const searching = search.trim() !== ''
   const found = useGroupMemberSearch(groupId, search)
+  const { isAdmin } = useAuth()
+  const setLeader = useSetGroupLeader()
 
   if (isLoading || (searching && found.isLoading)) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
   if (isError || !detail) return <div className="p-6 text-sm text-destructive">그룹을 불러오지 못했습니다</div>
@@ -59,15 +65,18 @@ export function GroupContactView({ groupId, selected, onSelect, search = '', onS
             {rows.map((m) => {
               const active = selected?.type === m.targetType && selected?.id === m.targetId
               const sub = m.email || m.organization || m.title || ''
+              // 리더 지정은 조직도 조직의 직속 구성원(MEMBER)에만 — 검색 결과의 하위 조직 사람은 그 조직에서 바꾼다.
+              const canToggleLeader =
+                isAdmin && detail.visibility === 'SHARED' && m.targetType === 'MEMBER' && m.groupId === groupId
               return (
+                <div key={`${m.targetType}-${m.targetId}`} className="flex items-center">
                 <button
-                  key={`${m.targetType}-${m.targetId}`}
                   type="button"
                   data-testid={`group-member-${m.targetType}-${m.targetId}`}
                   aria-pressed={active}
                   onClick={() => onSelect({ type: m.targetType, id: m.targetId })}
                   className={cn(
-                    'flex w-full items-center gap-3 px-4 py-3 text-left',
+                    'flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left',
                     // ContactsPage 연락처 행과 같은 규칙 — 보조 줄이 굵어지지 않게 막대+배경만.
                     active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
                   )}
@@ -83,7 +92,18 @@ export function GroupContactView({ groupId, selected, onSelect, search = '', onS
                     {m.targetType === 'MEMBER' ? '멤버' : '외부'}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{m.name}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-sm font-medium">{m.name}</span>
+                      {m.leader && (
+                        <span
+                          data-testid={`group-member-leader-${m.targetType}-${m.targetId}`}
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                        >
+                          <Crown className="h-3 w-3" aria-hidden />
+                          리더
+                        </span>
+                      )}
+                    </span>
                     {/* 하위 조직 사람은 소속 경로를 앞에 — 「그 그룹에 없는 사람」처럼 보이지 않게(WP-1000). */}
                     <span className="block truncate text-xs text-muted-foreground">
                       {m.groupPath.length > 0 && (
@@ -96,6 +116,23 @@ export function GroupContactView({ groupId, selected, onSelect, search = '', onS
                     </span>
                   </span>
                 </button>
+                {canToggleLeader && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    data-testid={`group-member-leader-toggle-${m.targetId}`}
+                    aria-label={m.leader ? `${m.name} 리더 해제` : `${m.name} 리더로 지정`}
+                    title={m.leader ? '리더 해제' : '리더로 지정'}
+                    aria-pressed={!!m.leader}
+                    disabled={setLeader.isPending}
+                    onClick={() => setLeader.mutate({ id: groupId, userId: m.targetId, leader: !m.leader })}
+                    className={cn('mr-2 shrink-0', m.leader ? 'text-amber-600' : 'text-muted-foreground')}
+                  >
+                    <Crown className="h-4 w-4" />
+                  </Button>
+                )}
+                </div>
               )
             })}
           </div>

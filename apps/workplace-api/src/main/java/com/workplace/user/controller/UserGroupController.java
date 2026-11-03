@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -102,6 +103,24 @@ public class UserGroupController {
       @PathVariable("id") long id,
       @Valid @RequestBody AddMemberRequest req) {
     return ResponseEntity.ok(service.addMember(callerId, id, req));
+  }
+
+  /** 조직 리더 지정(WP-1327) — 그 조직의 구성원(MEMBER)만. 응답은 갱신된 그룹 상세(리더가 먼저). */
+  @PutMapping("/{id}/leaders/{userId}")
+  public ResponseEntity<UserGroupDetail> addLeader(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long id,
+      @PathVariable("userId") long userId) {
+    return ResponseEntity.ok(service.setLeader(callerId, id, userId, true));
+  }
+
+  /** 조직 리더 해제(WP-1327) — 구성원으로는 남는다. 응답은 갱신된 그룹 상세. */
+  @DeleteMapping("/{id}/leaders/{userId}")
+  public ResponseEntity<UserGroupDetail> removeLeader(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long id,
+      @PathVariable("userId") long userId) {
+    return ResponseEntity.ok(service.setLeader(callerId, id, userId, false));
   }
 
   /** 멤버 제외. */

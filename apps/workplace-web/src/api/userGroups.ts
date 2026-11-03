@@ -28,4 +28,9 @@ export const userGroupsApi = {
     client.post<UserGroupDetail>(`/user-groups/${id}/members`, body),
   removeMember: (id: number, targetType: GroupMemberType, targetId: number) =>
     client.delete<void>(`/user-groups/${id}/members/${targetType}/${targetId}`),
+  /** 조직 리더 지정·해제(WP-1327) — 그 조직의 구성원(MEMBER)만. 응답은 갱신된 그룹 상세. */
+  setLeader: (id: number, userId: number, leader: boolean) =>
+    leader
+      ? client.put<UserGroupDetail>(`/user-groups/${id}/leaders/${userId}`)
+      : client.delete<UserGroupDetail>(`/user-groups/${id}/leaders/${userId}`),
 }

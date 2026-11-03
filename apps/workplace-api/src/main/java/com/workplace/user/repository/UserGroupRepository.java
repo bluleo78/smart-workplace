@@ -122,14 +122,21 @@ public class UserGroupRepository {
   /**
    * 여러 그룹의 직속 멤버를 한 번에, 속한 그룹 id 와 함께(WP-1000). 거르는 술어는 {@link #findMembers} 와 같다(MEMBER 는 현재 테넌트
    * ACTIVE 멤버십 + 활성 HUMAN, EXTERNAL 은 호출자가 읽을 수 있는 것만). needle 이 있으면 대소문자 무시 부분 일치하는 사람만 DB 에서
-   * 거른다(와일드카드 문자는 글자 그대로) — MEMBER 는 이름·이메일·직책, EXTERNAL 은 거기에 조직까지(구성원에는 조직 열이 없다). 이름 오름차순.
+   * 거른다(와일드카드 문자는 글자 그대로) — MEMBER 는 이름·이메일·직책, EXTERNAL 은 거기에 조직까지(구성원에는 조직 열이 없다). 리더 먼저, 그다음 이름
+   * 오름차순.
    */
   public List<GroupMemberRow> findMembersIn(
       long tenantId, long callerId, boolean admin, Collection<Long> groupIds, String needle) {
     boolean filter = needle != null && !needle.isBlank();
     List<GroupMemberRow> all = new ArrayList<>();
     dsl.select(
-            USER_GROUP_MEMBER.GROUP_ID, USER.ID, USER.NAME, USER.EMAIL, USER.TITLE, USER.USERNAME)
+            USER_GROUP_MEMBER.GROUP_ID,
+            USER.ID,
+            USER.NAME,
+            USER.EMAIL,
+            USER.TITLE,
+            USER.USERNAME,
+            USER_GROUP_MEMBER.IS_LEADER)
         .from(USER_GROUP_MEMBER)
         .join(USER)
         .on(USER.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
@@ -157,7 +164,8 @@ public class UserGroupRepository {
                             r.get(USER.EMAIL),
                             r.get(USER.TITLE),
                             null,
-                            r.get(USER.USERNAME)))));
+                            r.get(USER.USERNAME),
+                            r.get(USER_GROUP_MEMBER.IS_LEADER)))));
     dsl.select(
             USER_GROUP_MEMBER.GROUP_ID,
             CONTACT_ENTRY.ID,
@@ -193,10 +201,12 @@ public class UserGroupRepository {
                             r.get(CONTACT_ENTRY.EMAIL),
                             r.get(CONTACT_ENTRY.TITLE),
                             r.get(CONTACT_ENTRY.ORGANIZATION),
-                            null))));
+                            null,
+                            false))));
+    // 리더가 먼저(WP-1327 — 조직을 열면 리더가 맨 위에 보이게), 그 안에서는 이름 오름차순.
     all.sort(
-        Comparator.comparing(
-            (GroupMemberRow r) -> r.member().name(), String.CASE_INSENSITIVE_ORDER));
+        Comparator.comparing((GroupMemberRow r) -> !r.member().leader())
+            .thenComparing(r -> r.member().name(), String.CASE_INSENSITIVE_ORDER));
     return all;
   }
 
@@ -277,6 +287,20 @@ public class UserGroupRepository {
             .set(USER_GROUP_MEMBER.TARGET_TYPE, targetType)
             .set(USER_GROUP_MEMBER.TARGET_ID, targetId)
             .onConflictDoNothing()
+            .execute()
+        > 0;
+  }
+
+  /**
+   * 구성원(MEMBER) 행의 리더 여부를 바꾼다(WP-1327). 그 그룹의 구성원이 아니면 바뀐 행이 없어 false — 리더 지정은 소속을 만들지 않는다(구성원 추가는
+   * {@link #addMember} 의 몫).
+   */
+  public boolean setLeader(long groupId, long userId, boolean leader) {
+    return dsl.update(USER_GROUP_MEMBER)
+            .set(USER_GROUP_MEMBER.IS_LEADER, leader)
+            .where(USER_GROUP_MEMBER.GROUP_ID.eq(groupId))
+            .and(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER"))
+            .and(USER_GROUP_MEMBER.TARGET_ID.eq(userId))
             .execute()
         > 0;
   }

@@ -451,6 +451,8 @@ export interface UserGroupMemberRow {
   organization?: string | null;
   /** MEMBER 만(#839). EXTERNAL 은 null. */
   username?: string | null;
+  /** 이 조직의 리더인지(WP-1327) — 조직도 조직의 MEMBER 만 참. */
+  leader?: boolean;
 }
 
 /** 그룹 트리 노드·상세 공통 필드(UserGroupNode/UserGroupDetail). */
