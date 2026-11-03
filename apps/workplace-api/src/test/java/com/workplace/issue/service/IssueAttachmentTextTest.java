@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -23,6 +24,7 @@ import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.AttachmentNotFoundException;
+import com.workplace.issue.repository.IssueBodyImageRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -30,8 +32,12 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +64,8 @@ class IssueAttachmentTextTest extends ExternalClientMockedTestBase {
   @Autowired MockMvc mvc;
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired WorkerClient workerClient;
+  @Autowired IssueBodyImageService bodyImageService;
+  @Autowired IssueBodyImageRepository bodyImageRepository;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
   @Autowired WorkerRenderClient worker;
@@ -280,5 +288,107 @@ class IssueAttachmentTextTest extends ExternalClientMockedTestBase {
                 .header("Authorization", tokenFor(ownerId)))
         .andExpect(status().isNotFound());
     verifyNoInteractions(worker);
+  }
+
+  // ---- WP-1331: 본문·댓글 이미지도 같은 /text·/view 로 읽는다(첨부 목록에는 없다) ----
+
+  /** 매직바이트 판정을 통과하는 실제 1×1 PNG. */
+  private static byte[] tinyPng() throws IOException {
+    var out = new ByteArrayOutputStream();
+    ImageIO.write(new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", out);
+    return out.toByteArray();
+  }
+
+  /** 본문 이미지를 올리고(임시) 연결할 이슈가 있으면 그 이슈에 붙인다 — 이슈 저장(syncIssueImages)이 하는 연결과 같다. */
+  private long uploadBodyImage(Integer linkToNumber) throws IOException {
+    long fileId =
+        bodyImageService
+            .upload(
+                ownerId,
+                projectKey,
+                new MockMultipartFile("file", "shot.png", "image/png", tinyPng()))
+            .fileId();
+    if (linkToNumber != null) {
+      long issueId =
+          issueRepository.findByProjectAndNumber(projectId, linkToNumber).orElseThrow().id();
+      bodyImageRepository.claim(issueId, List.of(fileId));
+    }
+    return fileId;
+  }
+
+  @Test
+  void 이_이슈의_본문_이미지는_구간_읽기가_SKIPPED_IMAGE_로_이미지임을_알린다() throws Exception {
+    long fileId = uploadBodyImage(issueNumber);
+    var slice = service.readText(ownerId, projectKey, issueNumber, fileId, 0, 10);
+    assertThat(slice.fileId()).isEqualTo(fileId);
+    assertThat(slice.status()).isEqualTo("SKIPPED");
+    assertThat(slice.reasonCode()).isEqualTo("IMAGE");
+    assertThat(slice.text()).isNull();
+  }
+
+  @Test
+  void 본문_이미지는_view_로_멤버에게_이미지를_돌려준다() throws Exception {
+    long fileId = uploadBodyImage(issueNumber);
+    when(worker.render(anyString(), anyString(), any(), anyInt()))
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", null));
+    mvc.perform(
+            get(viewUrl(projectKey, issueNumber, fileId))
+                .header("Authorization", tokenFor(ownerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"));
+  }
+
+  @Test
+  void 다른_이슈에서_복사해_온_본문_이미지도_읽는다() throws Exception {
+    // 본문을 복사하면 매핑은 처음 붙은 이슈(2번)에 남는다 — 사본이 보이는 이 이슈 키로도 읽혀야 한다.
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 2, "t2", null, "MID", null, ownerId);
+    long copied = uploadBodyImage(2);
+    assertThat(service.readText(ownerId, projectKey, issueNumber, copied, 0, 10).reasonCode())
+        .isEqualTo("IMAGE");
+  }
+
+  @Test
+  void 연결_전_임시_이미지와_다른_프로젝트_이미지는_404() throws Exception {
+    long pending = uploadBodyImage(null);
+    assertThatThrownBy(() -> service.readText(ownerId, projectKey, issueNumber, pending, 0, 10))
+        .isInstanceOf(AttachmentNotFoundException.class);
+
+    // 다른 프로젝트의 이슈에 붙은 본문 이미지 — 그 프로젝트 키가 아니면 읽지 못한다.
+    ProjectResponse other = newProject(ownerId, "TY");
+    IssueSeeds.insert(issueRepository, baseDsl, other.id(), 1, "o", null, "MID", null, ownerId);
+    long otherProjectImage =
+        bodyImageService
+            .upload(
+                ownerId,
+                other.key(),
+                new MockMultipartFile("file", "o.png", "image/png", tinyPng()))
+            .fileId();
+    long otherIssueId = issueRepository.findByProjectAndNumber(other.id(), 1).orElseThrow().id();
+    bodyImageRepository.claim(otherIssueId, List.of(otherProjectImage));
+    assertThatThrownBy(
+            () -> service.readText(ownerId, projectKey, issueNumber, otherProjectImage, 0, 10))
+        .isInstanceOf(AttachmentNotFoundException.class);
+    // MockMvc 요청은 끝나며 테넌트 컨텍스트를 지우므로 맨 끝에 둔다.
+    mvc.perform(
+            get(viewUrl(projectKey, issueNumber, pending))
+                .header("Authorization", tokenFor(ownerId)))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void 본문_이미지는_보안_점검_대상이_아니다() throws Exception {
+    long fileId = uploadBodyImage(issueNumber);
+    mvc.perform(
+            get(viewUrl(projectKey, issueNumber, fileId).replace("/view", "/security-check"))
+                .header("Authorization", tokenFor(ownerId)))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void 본문_이미지도_비공개_프로젝트_비멤버는_막는다() throws Exception {
+    long fileId = uploadBodyImage(issueNumber);
+    Long outsider = createUser("outsider");
+    assertThatThrownBy(() -> service.readText(outsider, projectKey, issueNumber, fileId, 0, 10))
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

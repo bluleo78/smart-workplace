@@ -4,6 +4,7 @@ import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
@@ -14,6 +15,7 @@ import com.workplace.issue.exception.AttachmentTooLargeException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueAttachmentRepository;
+import com.workplace.issue.repository.IssueBodyImageRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
@@ -37,6 +39,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class IssueAttachmentService {
 
   private final IssueAttachmentRepository repo;
+  // 본문·댓글 이미지 매핑(WP-1331) — 첨부 목록에는 없지만 이 이슈에 연결된 이미지도 /text·/view 로 읽게 한다.
+  private final IssueBodyImageRepository bodyImages;
   private final IssueAttachmentStorage storage;
   private final IssueRepository issueRepository;
   private final ProjectAccessGuard accessGuard;
@@ -291,31 +295,80 @@ public class IssueAttachmentService {
   /**
    * 첨부 추출 텍스트 구간 읽기(WP-242). 권한·소속 판정은 download 와 같다 — 조회 가드(비멤버 403) + 다른 이슈의 fileId·없는 fileId 는
    * 404. 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
+   *
+   * <p>이 이슈에 연결된 본문·댓글 이미지(WP-1331)는 추출 행이 없어 NONE 으로 보이므로, 이미지임을 알리는 SKIPPED·IMAGE 로 돌려준다 — 에이전트
+   * 도구가 이 응답을 보고 /view 로 이미지를 받는다(첨부 이미지와 같은 길). 본문 이미지는 업로드 때 매직바이트로 이미지만 받는다.
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       Long callerId, String projectKey, int number, Long fileId, int offset, int limit) {
-    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
-    return extractedText.read(
-        resolveViewFileId(callerId, projectKey, number, fileId), offset, limit);
+    // 권한 규칙은 resolveFile 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    if (resolveFile(callerId, projectKey, number, fileId) == Kind.BODY_IMAGE) {
+      var image = ExtractionReasons.Code.IMAGE;
+      return new ExtractedTextSlice(
+          fileId,
+          "SKIPPED",
+          offset,
+          null,
+          null,
+          null,
+          null,
+          image.name(),
+          ExtractionReasons.message(image),
+          null);
+    }
+    return extractedText.read(fileId, offset, limit);
   }
 
   /**
-   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(조회 권한 + 이 이슈의 첨부)를 거쳐 core file.id 만
-   * 돌려준다.
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(조회 권한 + 이 이슈의 첨부 또는 이 프로젝트 이슈에 연결된
+   * 본문·댓글 이미지)를 거쳐 core file.id 만 돌려준다.
    */
   @Transactional(readOnly = true)
   public long resolveViewFileId(Long callerId, String projectKey, int number, Long fileId) {
+    resolveFile(callerId, projectKey, number, fileId);
+    return fileId;
+  }
+
+  /** 첨부 목록의 첨부만 확인한다 — 보안 점검(WP-1262)처럼 첨부에만 의미가 있는 경로용. 본문 이미지(WP-1331)는 받지 않는다(404). */
+  @Transactional(readOnly = true)
+  public long resolveAttachmentFileId(Long callerId, String projectKey, int number, Long fileId) {
+    if (resolveFile(callerId, projectKey, number, fileId) != Kind.ATTACHMENT) {
+      throw new AttachmentNotFoundException(fileId);
+    }
+    return fileId;
+  }
+
+  /** 읽기 대상 파일의 종류 — 첨부 목록의 첨부인지, 본문·댓글에 넣은 이미지인지. */
+  private enum Kind {
+    ATTACHMENT,
+    BODY_IMAGE
+  }
+
+  /**
+   * 조회 권한을 확인하고 fileId 가 이 이슈의 첨부인지 본문·댓글 이미지(WP-1331)인지 가린다. 둘 다 아니면(다른 이슈 첨부·임시 업로드·없는 id) 정보 누출을
+   * 막으려 404 로 통일한다.
+   *
+   * <p>본문 이미지는 이 프로젝트의 어느 이슈에든 연결된 것이면 받는다 — 본문을 다른 이슈로 복사하면 이미지 매핑은 원래 이슈에 남으므로(연결은 처음 붙은 이슈 하나),
+   * 이 이슈로만 좁히면 실제로 본문에 보이는 사본을 읽지 못한다. 범위는 본문 이미지 조회(IssueBodyImageService.load)와 같다 — 같은 프로젝트 조회
+   * 권한이면 /issue-images/{id} 로 이미 볼 수 있는 이미지라 새로 열리는 것이 없다. 아직 어느 이슈에도 연결되지 않은 임시 업로드는 받지 않는다.
+   */
+  private Kind resolveFile(Long callerId, String projectKey, int number, Long fileId) {
     var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    var att = repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
-    if (!att.issueId().equals(issue.id())) {
-      throw new AttachmentNotFoundException(fileId);
-    }
-    return fileId;
+    long issueId = issue.id();
+    var att = repo.findById(fileId);
+    if (att.isPresent() && att.get().issueId() == issueId) return Kind.ATTACHMENT;
+    boolean bodyImage =
+        bodyImages
+            .findMeta(fileId)
+            .filter(m -> project.id().equals(m.projectId()) && m.issueId() != null)
+            .isPresent();
+    if (bodyImage) return Kind.BODY_IMAGE;
+    throw new AttachmentNotFoundException(fileId);
   }
 
   /**
