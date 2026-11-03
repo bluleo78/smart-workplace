@@ -27,6 +27,11 @@ export interface UserGroupMemberSummary {
   email: string | null
   title: string | null
   organization: string | null
+  /**
+   * 이 조직의 리더로 지정된 구성원인지(WP-1327) — 조직도 조직의 MEMBER 만 참. 서버가 리더를 먼저 정렬해 준다.
+   * 서버는 늘 보내지만 선택 필드로 둔다 — 리더와 무관한 화면의 테스트 데이터가 이 필드 없이 만들어진다(없으면 리더 아님).
+   */
+  leader?: boolean
 }
 
 /**

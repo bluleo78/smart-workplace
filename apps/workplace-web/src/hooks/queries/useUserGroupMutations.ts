@@ -67,3 +67,17 @@ export function useRemoveGroupMember() {
     onError: (e) => handleApiError(e, '멤버 제외에 실패했습니다'),
   })
 }
+
+/** 조직 리더 지정·해제(WP-1327) — 성공하면 그룹 상세·검색을 다시 읽어 리더가 맨 위로 오게 한다. */
+export function useSetGroupLeader() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, userId, leader }: { id: number; userId: number; leader: boolean }) =>
+      userGroupsApi.setLeader(id, userId, leader).then((r) => r.data),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: userGroupKeys.all })
+      toast.success(v.leader ? '리더로 지정했습니다' : '리더 지정을 해제했습니다')
+    },
+    onError: (e) => handleApiError(e, '리더 지정을 바꾸지 못했습니다'),
+  })
+}

@@ -814,4 +814,66 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .isInstanceOf(InvalidUserGroupException.class)
         .hasMessage("부모 그룹이 없습니다");
   }
+
+  /**
+   * WP-1327 조직 리더 — 관리자가 조직 구성원을 리더로 지정하면 상세에 leader=true 로 오고 맨 위에 온다(여러 명 가능), 해제하면 구성원으로 남는다.
+   */
+  @Test
+  void setLeader_marksMemberAsLeader_sortsFirst_andUnsetKeepsMember() {
+    long admin = user();
+    makeAdmin(admin);
+    UserGroupDetail g = service.create(admin, req("리더 조직", null, "SHARED"));
+    long a = user();
+    long b = user();
+    long c = user();
+    for (long u : List.of(a, b, c)) {
+      service.addMember(admin, g.id(), new AddMemberRequest("MEMBER", u));
+    }
+    // 이름이 맨 뒤인 사람을 리더로 — 이름순이면 마지막이지만 리더라 맨 위로 와야 한다.
+    var byName = service.getDetail(admin, g.id()).members();
+    long last = byName.get(byName.size() - 1).targetId();
+
+    UserGroupDetail led = service.setLeader(admin, g.id(), last, true);
+    assertThat(led.members().get(0).targetId()).isEqualTo(last);
+    assertThat(led.members().get(0).leader()).isTrue();
+    assertThat(led.members().stream().filter(m -> m.leader()).count()).isEqualTo(1);
+
+    // 두 번째 리더도 둘 수 있고, 같은 지정을 다시 해도 그대로다(멱등).
+    long second = byName.get(0).targetId();
+    service.setLeader(admin, g.id(), second, true);
+    UserGroupDetail two = service.setLeader(admin, g.id(), second, true);
+    assertThat(two.members().subList(0, 2))
+        .extracting(m -> m.targetId())
+        .containsExactlyInAnyOrder(last, second);
+
+    UserGroupDetail unset = service.setLeader(admin, g.id(), last, false);
+    assertThat(unset.members()).hasSize(3);
+    assertThat(unset.members().stream().filter(m -> m.leader()).map(m -> m.targetId()))
+        .containsExactly(second);
+  }
+
+  /** WP-1327 — 리더는 그 조직의 구성원에게만, 조직도 조직(SHARED)에만 둔다. 권한 없는 사람은 지정할 수 없다. */
+  @Test
+  void setLeader_rejectsNonMember_personalGroup_andPlainUser() {
+    long admin = user();
+    makeAdmin(admin);
+    UserGroupDetail g = service.create(admin, req("리더 거절 조직", null, "SHARED"));
+    long member = user();
+    service.addMember(admin, g.id(), new AddMemberRequest("MEMBER", member));
+    long outsider = user();
+
+    assertThatThrownBy(() -> service.setLeader(admin, g.id(), outsider, true))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessageContaining("구성원이 아닙니다");
+
+    long plain = user();
+    assertThatThrownBy(() -> service.setLeader(plain, g.id(), member, true))
+        .isInstanceOf(UserGroupForbiddenException.class);
+
+    UserGroupDetail personal = service.create(admin, req("내 분류", null, "PERSONAL"));
+    service.addMember(admin, personal.id(), new AddMemberRequest("MEMBER", member));
+    assertThatThrownBy(() -> service.setLeader(admin, personal.id(), member, true))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessageContaining("조직도");
+  }
 }

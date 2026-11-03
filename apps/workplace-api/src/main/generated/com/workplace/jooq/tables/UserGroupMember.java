@@ -87,6 +87,11 @@ public class UserGroupMember extends TableImpl<UserGroupMemberRecord> {
      */
     public final TableField<UserGroupMemberRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.user_group_member.is_leader</code>.
+     */
+    public final TableField<UserGroupMemberRecord, Boolean> IS_LEADER = createField(DSL.name("is_leader"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private UserGroupMember(Name alias, Table<UserGroupMemberRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

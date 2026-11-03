@@ -140,6 +140,20 @@ describe('buildContactTools (#839)', () => {
     expect(JSON.stringify(view.members[0])).not.toContain('targetId');
   });
 
+  it('get_user_group 조직 리더는 leader:true 를 붙이고, 리더가 아니면 필드를 붙이지 않는다(WP-1327)', async () => {
+    const view = toUserGroupDetailView({
+      id: 10,
+      name: '개발본부',
+      visibility: 'SHARED',
+      members: [
+        { targetType: 'MEMBER', targetId: 3, name: '박리더', username: 'park', leader: true },
+        { targetType: 'MEMBER', targetId: 4, name: '이개발', username: 'lee', leader: false },
+      ],
+    });
+    expect(view.members[0]).toEqual({ type: 'MEMBER', name: '박리더', email: null, title: null, username: 'park', leader: true });
+    expect(view.members[1]).not.toHaveProperty('leader');
+  });
+
   it('create_user_group 은 visibility 기본 PERSONAL, parentGroupId → parentId 로 옮긴다', async () => {
     const c = mockClient();
     await tool(c, 'create_user_group').handler({ name: '새 그룹', parentGroupId: 4 });
