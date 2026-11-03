@@ -17,6 +17,9 @@ spec:
       labels:
         app: api
         app.kubernetes.io/part-of: smart-workplace
+      annotations:
+        # ConfigMap(envFrom)은 파드 시작 때만 읽힌다 — 설정이 바뀌면 다시 띄운다(이미지가 그대로인 릴리스·설정만 바꾼 반영 포함)
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       {{- include "swp.imagePullSecrets" . | nindent 6 }}
       terminationGracePeriodSeconds: {{ .Values.rollout.apiTerminationGracePeriodSeconds }}

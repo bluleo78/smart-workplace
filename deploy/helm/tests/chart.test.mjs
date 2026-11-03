@@ -11,13 +11,16 @@ const PROD_VALUES = fileURLToPath(new URL('../values.prod.yaml', import.meta.url
 const IMAGES = fileURLToPath(new URL('./images.fixture.yaml', import.meta.url));
 
 /** helm template 실행 — 실패도 결과로 돌려준다(렌더 실패를 검증하는 테스트가 있다). */
-function render(...extra) {
-  const r = spawnSync('helm', ['template', 'smart-workplace', CHART, '-n', 'smart-workplace', '-f', PROD_VALUES, ...extra], {
+function helmTemplate(args) {
+  const r = spawnSync('helm', ['template', 'smart-workplace', CHART, '-n', 'smart-workplace', ...args], {
     encoding: 'utf8',
   });
   if (r.error) throw r.error;
   return { ok: r.status === 0, out: r.stdout, err: r.stderr };
 }
+
+/** 운영 값(values.prod.yaml) 위에 extra 를 얹어 렌더한다. */
+const render = (...extra) => helmTemplate(['-f', PROD_VALUES, ...extra]);
 
 /** 렌더 결과를 `kind/name` → 문서 본문으로 나눈다. */
 function docs(out) {
@@ -101,10 +104,41 @@ test('메일 서버 내부망 허용 목록은 api 가 ConfigMap 으로 받고 �
   assert.match(BASE_DOCS.get('ConfigMap/smart-workplace-config'), /MAIL_ALLOWED_INTERNAL_HOSTS: ""/);
 });
 
-test('모델 서버 주소 허용 목록은 api(ConfigMap)·ai-agent 가 같은 키로 받고 기본은 비어 있다(WP-596)', () => {
-  assert.match(BASE_DOCS.get('ConfigMap/smart-workplace-config'), /MODEL_URL_ALLOWED_HOSTS: ""/);
+test('모델 서버 주소 허용 목록은 api(ConfigMap)·ai-agent 가 같은 키로 받는다 — 운영은 사내 모델 서버 하나만(WP-596)', () => {
+  assert.match(BASE_DOCS.get('ConfigMap/smart-workplace-config'), /MODEL_URL_ALLOWED_HOSTS: "genia-code-server\.iacloud\.kr"/);
   assert.match(
     BASE_DOCS.get('Deployment/ai-agent'),
     /name: MODEL_URL_ALLOWED_HOSTS\n\s+valueFrom:\n\s+configMapKeyRef:\n\s+name: smart-workplace-config\n\s+key: MODEL_URL_ALLOWED_HOSTS/,
   );
+});
+
+// 차트 기본값(운영 값 없이) 렌더 — 운영 외 설치에 사내 예외가 새지 않는지 본다.
+const DEFAULT_DOCS = docs(helmTemplate(['-f', IMAGES]).out);
+
+// 사설 CA 모델 서버용 추가 신뢰 CA — 값이 있을 때만 ConfigMap·마운트·NODE_EXTRA_CA_CERTS 가 생기고, 검증을 끄는 설정은 어디에도 없다.
+test('aiAgent.extraCaCerts 를 채우면 ai-agent 가 그 CA 를 NODE_EXTRA_CA_CERTS 로 추가 신뢰한다', () => {
+  const agent = BASE_DOCS.get('Deployment/ai-agent');
+  assert.match(BASE_DOCS.get('ConfigMap/ai-agent-extra-ca'), /ca\.crt: \|\n\s+-----BEGIN CERTIFICATE-----/);
+  assert.match(agent, /name: NODE_EXTRA_CA_CERTS\n\s+value: \/etc\/ssl\/extra-ca\/ca\.crt/);
+  assert.match(agent, /mountPath: \/etc\/ssl\/extra-ca/);
+  assert.doesNotMatch(BASE.out, /NODE_TLS_REJECT_UNAUTHORIZED/);
+});
+
+test('차트 기본값만으로는 모델 서버 허용 목록·추가 CA 가 비어 있다(운영 외 설치에 SSRF 예외가 새지 않게)', () => {
+  assert.match(DEFAULT_DOCS.get('ConfigMap/smart-workplace-config'), /MODEL_URL_ALLOWED_HOSTS: ""/);
+  assert.equal(DEFAULT_DOCS.has('ConfigMap/ai-agent-extra-ca'), false);
+  assert.doesNotMatch(DEFAULT_DOCS.get('Deployment/ai-agent'), /name: NODE_EXTRA_CA_CERTS|name: extra-ca/);
+});
+
+test('ConfigMap 을 읽는 api·ai-agent 는 설정 체크섬을 달아 설정만 바뀐 반영에도 다시 뜬다', () => {
+  for (const name of ['api', 'ai-agent']) {
+    assert.match(BASE_DOCS.get(`Deployment/${name}`), /checksum\/config: [0-9a-f]{64}/, name);
+  }
+  const changed = docs(render('-f', IMAGES, '--set', 'config.modelUrlAllowedHosts=other.example').out);
+  const sum = (m, n) => m.get(`Deployment/${n}`).match(/checksum\/config: (\w+)/)[1];
+  for (const name of ['api', 'ai-agent']) assert.notEqual(sum(changed, name), sum(BASE_DOCS, name), name);
+  // ai-agent 는 자기가 읽는 값만 해시한다 — 무관한 설정 변경으로는 다시 뜨지 않는다
+  const unrelated = docs(render('-f', IMAGES, '--set', 'config.pushSubject=mailto:other@example.com').out);
+  assert.equal(sum(unrelated, 'ai-agent'), sum(BASE_DOCS, 'ai-agent'));
+  assert.notEqual(sum(unrelated, 'api'), sum(BASE_DOCS, 'api'));
 });

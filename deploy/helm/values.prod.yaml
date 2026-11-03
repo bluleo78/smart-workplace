@@ -43,3 +43,21 @@ config:
   ssoM365RedirectUri: "https://genia-works.iacloud.kr/api/v1/auth/sso/callback"
   webBaseUrl: "https://genia-works.iacloud.kr"
   pushSubject: "mailto:dh.yang@iacloud.kr"
+  # 사내 모델 서버(genia-code-server, DNS 가 사설 IP 192.168.190.52 를 돌려준다) — 내부망 차단 예외(WP-596).
+  modelUrlAllowedHosts: "genia-code-server.iacloud.kr"
+
+aiAgent:
+  # genia-code-server 는 Caddy 로컬 CA 인증서를 쓴다 — 그 루트를 ai-agent 가 추가로 신뢰한다(2036-09-05 만료).
+  # Caddy 가 루트를 새로 만들면(데이터 폴더 초기화 등) 여기도 바꿔야 한다.
+  extraCaCerts: |
+    -----BEGIN CERTIFICATE-----
+    MIIBozCCAUqgAwIBAgIRAJmpZddQPxCYhQWK2ZbSHQ8wCgYIKoZIzj0EAwIwMDEu
+    MCwGA1UEAxMlQ2FkZHkgTG9jYWwgQXV0aG9yaXR5IC0gMjAyNiBFQ0MgUm9vdDAe
+    Fw0yNjEwMjgwNDI4MzlaFw0zNjA5MDUwNDI4MzlaMDAxLjAsBgNVBAMTJUNhZGR5
+    IExvY2FsIEF1dGhvcml0eSAtIDIwMjYgRUNDIFJvb3QwWTATBgcqhkjOPQIBBggq
+    hkjOPQMBBwNCAATx8cxPPpcBZtKdxNRn54ZF46NFwBXidrZEDvYMB7ykrqj0ZYkb
+    Gy57WTb5MW2kZa2VrAHSJ2PivSyDFSGs+6+Uo0UwQzAOBgNVHQ8BAf8EBAMCAQYw
+    EgYDVR0TAQH/BAgwBgEB/wIBATAdBgNVHQ4EFgQUojr+A02Z/xgtHYJKdV55hLOS
+    yaYwCgYIKoZIzj0EAwIDRwAwRAIgYirdxE7auoRMNHpS090MMOHZUNgCeXa064Sy
+    WQYbFCoCIE7MKiDUO5f1hfpBoK2xHkilH35mSbgLRWnwjIW9X7yA
+    -----END CERTIFICATE-----

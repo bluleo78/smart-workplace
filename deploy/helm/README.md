@@ -67,3 +67,4 @@ helm --kube-context iacloud-prod-public get manifest smart-workplace -n smart-wo
 
 - db 이미지(`images.db`)가 바뀌는 릴리스는 db 파드가 재시작한다(StatefulSet 은 옛 파드를 먼저 내린다 — 그동안 DB 중단, api 가 몇 번 재시작할 수 있다). pull 이 실패하면 DB 가 계속 내려가 있으므로, db 가 바뀌는 릴리스는 **반영 전에** 새 db digest 를 db 노드에서 임시 파드로 받아 본다(10-17 전환 때 한 방법 — `docs/ops/release.md` 「첫 전환 기록」). db 가 그대로면(승계) 재시작 없음.
 - `--atomic` 을 쓰지 않는다 — 실패 시 자동 롤백이 Flyway 마이그레이션 뒤의 스키마와 어긋날 수 있어, 롤백은 사람이 판단해 `helm rollback` 한다.
+- 사내 모델 서버가 사설 CA 인증서를 쓰면 `aiAgent.extraCaCerts`(PEM)에 그 루트를 넣고 `config.modelUrlAllowedHosts` 에 호스트를 넣는다(운영: genia-code-server 의 Caddy 로컬 루트). Caddy 데이터 폴더를 초기화하는 등으로 루트가 새로 만들어지면 모델 호출이 `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` 로 실패한다 — 새 루트(Caddy `/data/caddy/pki/authorities/local/root.crt`)로 `values.prod.yaml` 을 바꿔 반영한다. 설정·CA 가 바뀌면 api·ai-agent 는 체크섬 주석으로 다시 뜬다.

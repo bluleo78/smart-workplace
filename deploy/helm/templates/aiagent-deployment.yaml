@@ -19,10 +19,20 @@ spec:
       labels:
         app: ai-agent
         app.kubernetes.io/part-of: smart-workplace
+      # 환경 변수(MODEL_URL_ALLOWED_HOSTS·NODE_EXTRA_CA_CERTS)는 프로세스 시작 때만 읽힌다 — 이 둘이 바뀌면 다시 띄운다.
+      # ConfigMap 전체가 아니라 ai-agent 가 읽는 값만 해시한다(무관한 설정 변경으로 진행 중 채팅·에이전트 실행을 끊지 않게).
+      annotations:
+        checksum/config: {{ list (.Values.config.modelUrlAllowedHosts | default "") (.Values.aiAgent.extraCaCerts | default "") | toJson | sha256sum }}
     spec:
       {{- include "swp.imagePullSecrets" . | nindent 6 }}
       # preStop 10s + 앱 종료 대기(SHUTDOWN_DRAIN_MS 기본 330s — 진행 중 채팅·에이전트 실행 완료 대기) + 여유
       terminationGracePeriodSeconds: {{ .Values.rollout.aiAgentTerminationGracePeriodSeconds }}
+      {{- if .Values.aiAgent.extraCaCerts }}
+      volumes:
+        - name: extra-ca
+          configMap:
+            name: ai-agent-extra-ca
+      {{- end }}
       containers:
         - name: ai-agent
           image: {{ include "swp.image" (dict "root" $ "id" "ai-agent") | quote }}
@@ -46,6 +56,15 @@ spec:
                 configMapKeyRef:
                   name: smart-workplace-config
                   key: MODEL_URL_ALLOWED_HOSTS
+            {{- if .Values.aiAgent.extraCaCerts }}
+            # 사설 CA 를 쓰는 사내 모델 서버용 추가 신뢰 CA — 기본 CA 목록에 덧붙인다(검증은 끄지 않는다)
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/ssl/extra-ca/ca.crt
+          volumeMounts:
+            - name: extra-ca
+              mountPath: /etc/ssl/extra-ca
+              readOnly: true
+          {{- end }}
           {{- include "swp.preStop" . | nindent 10 }}
           readinessProbe:
             httpGet:

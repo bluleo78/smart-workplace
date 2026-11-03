@@ -1,0 +1,12 @@
+{{- if .Values.aiAgent.extraCaCerts }}
+# ai-agent 가 추가로 신뢰할 CA(aiAgent.extraCaCerts) — 공개 인증서라 Secret 이 아닌 ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-agent-extra-ca
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+data:
+  ca.crt: |
+    {{- .Values.aiAgent.extraCaCerts | nindent 4 }}
+{{- end }}
