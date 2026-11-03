@@ -4,7 +4,7 @@ import java.util.Set;
 
 /**
  * 생각의 깊이 값 규칙(WP-1322) 한 곳 — 새 값은 DEFAULT(설정 안 함)와 추론 노력 단계 LOW~MAX. 옛 값(NONE/NORMAL/DEEP)은 한 릴리스
- * 동안 옛 웹 화면이 계속 보낼 수 있어 받되, 저장 전에 V263 마이그레이션과 같은 규칙으로 새 값으로 바꾼다 — Claude 연결이면 NONE→LOW,
+ * 동안 옛 웹 화면이 계속 보낼 수 있어 받되, 저장 전에 V264 마이그레이션과 같은 규칙으로 새 값으로 바꾼다 — Claude 연결이면 NONE→LOW,
  * NORMAL→HIGH, DEEP→MAX, 그 외(OpenAI 호환·연결 없음)는 DEFAULT(모델마다 단계가 달라 단정할 수 없다).
  */
 public final class ThinkingDepths {

@@ -34,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
  * WP-1322 — 「생각의 깊이」 값이 모델 추론 노력 단계(DEFAULT·LOW~MAX)로 바뀌었다.
  *
  * <p>검증: 새 값은 저장·조회되고 옛 값(NONE/NORMAL/DEEP)은 연결 provider 로 새 값으로 바꿔 저장(옛 웹 화면 호환), 엉뚱한 값은 400, 연결
- * provider 가 바뀌면 DEFAULT 로 되돌림, 미설정 기본은 DEFAULT, V263 이관 문장이 연결 provider 별로 옛 값을 옮긴다(Claude 는
+ * provider 가 바뀌면 DEFAULT 로 되돌림, 미설정 기본은 DEFAULT, V264 이관 문장이 연결 provider 별로 옛 값을 옮긴다(Claude 는
  * LOW/HIGH/MAX, 그 외는 DEFAULT). 이관은 Flyway 가 이미 돌았으므로 마이그레이션 파일의 마커 사이 문장을 시드 위에 다시
  * 돌린다(AiMemoryCleanupMigrationTest 와 같은 방식).
  */
@@ -121,7 +121,7 @@ class AssistantThinkingDepthTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.thinkingDepth").value(depth));
   }
 
-  @Test // 옛 웹 화면 호환(한 릴리스): 옛 값은 받되 V263 규칙으로 새 값으로 바꿔 저장한다 — Claude 연결
+  @Test // 옛 웹 화면 호환(한 릴리스): 옛 값은 받되 V264 규칙으로 새 값으로 바꿔 저장한다 — Claude 연결
   void 옛_값은_Claude_연결이면_LOW_HIGH_MAX_로_저장된다() throws Exception {
     long human = humanWithAssistant();
     putDepth(human, "NONE").andExpect(status().isNoContent());
@@ -181,10 +181,10 @@ class AssistantThinkingDepthTest extends IntegrationTestBase {
     assertThat(resolver.resolve(human).thinkingDepth()).isEqualTo("DEFAULT");
   }
 
-  /** V263 의 이관 문장 — `-- @wp1322-migrate-begin` 줄 다음부터 `-- @wp1322-migrate-end` 앞까지(끝 세미콜론 제외). */
+  /** V264 의 이관 문장 — `-- @wp1322-migrate-begin` 줄 다음부터 `-- @wp1322-migrate-end` 앞까지(끝 세미콜론 제외). */
   private static String migrateSql() throws IOException {
     String all =
-        new ClassPathResource("db/migration/V263__assistant_thinking_depth_effort_levels.sql")
+        new ClassPathResource("db/migration/V264__assistant_thinking_depth_effort_levels.sql")
             .getContentAsString(StandardCharsets.UTF_8);
     int begin = all.indexOf("-- @wp1322-migrate-begin");
     int end = all.indexOf("-- @wp1322-migrate-end");
@@ -205,7 +205,7 @@ class AssistantThinkingDepthTest extends IntegrationTestBase {
   }
 
   @Test
-  void V263_이관은_Claude_연결만_effort_로_옮기고_나머지는_DEFAULT_로_둔다() throws IOException {
+  void V264_이관은_Claude_연결만_effort_로_옮기고_나머지는_DEFAULT_로_둔다() throws IOException {
     long claudeNone = agentWith("anthropic", "NONE");
     long claudeNormal = agentWith("anthropic", "NORMAL");
     long claudeDeep = agentWith("anthropic", "DEEP");

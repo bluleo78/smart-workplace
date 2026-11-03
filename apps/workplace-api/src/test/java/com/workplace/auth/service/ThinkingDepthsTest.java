@@ -6,7 +6,7 @@ import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/** WP-1322 — 옛 생각의 깊이 값을 저장할 새 값으로 옮기는 규칙(V263 마이그레이션과 같음). */
+/** WP-1322 — 옛 생각의 깊이 값을 저장할 새 값으로 옮기는 규칙(V264 마이그레이션과 같음). */
 class ThinkingDepthsTest {
 
   @Test
