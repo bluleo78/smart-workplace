@@ -216,7 +216,8 @@ function MessageRow({
         // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
         // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
         // 식별에 필수가 아니므로 간결함 우선으로 제외.
-        aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${mailSubjectText(m.subject)}`}
+        // WP-1325: 외부 메일은 이름 뒤에 「외부」를 붙여 화면 읽기 프로그램에도 태그와 같은 정보를 준다.
+        aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'}${m.externalSender ? ' (외부)' : ''} ${mailSubjectText(m.subject)}`}
         aria-current={open ? 'true' : undefined}
         onClick={onSelect}
         onContextMenu={
@@ -252,13 +253,27 @@ function MessageRow({
           />
         )}
         <span className="flex items-center gap-2">
+          {/* WP-1325: 이름과 「외부」 태그를 한 묶음으로 — 태그가 이름 바로 뒤에 붙고, 긴 이름만 줄여 태그는 늘 보인다. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span
             className={cn(
-              'min-w-0 flex-1 truncate text-sm',
+              'min-w-0 truncate text-sm',
               m.seen ? 'text-foreground' : 'font-semibold',
             )}
           >
             {m.fromName || m.fromAddress || '(보낸사람 없음)'}
+          </span>
+          {/* WP-1325: 외부 메일만 「외부」 태그 — Outlook·Gmail 처럼 내부 메일은 표시하지 않아 목록을 덜 시끄럽게 하고 외부를 눈에 띄게 한다.
+              외부 = 보낸 사람이 이 워크스페이스 구성원이 아님(서버 판정, 도메인 추정 없음). */}
+          {m.externalSender && (
+            <span
+              data-testid={`mail-external-${m.id}`}
+              title="조직 밖에서 온 메일입니다"
+              className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs leading-4 font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+            >
+              외부
+            </span>
+          )}
           </span>
           {m.hasAttachment && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
           {moveActions && <MailRowMoveActions id={m.id} actions={moveActions} />}

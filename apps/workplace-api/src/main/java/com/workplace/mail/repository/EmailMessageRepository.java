@@ -1717,7 +1717,8 @@ public class EmailMessageRepository {
                 && !isWithinNeedsReplyWindow(received)
             ? Boolean.FALSE
             : r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
-        Boolean.TRUE.equals(r.get("category_pending", Boolean.class)));
+        Boolean.TRUE.equals(r.get("category_pending", Boolean.class)),
+        null); // WP-1325 외부 메일 판정은 서비스가 일괄로 붙인다
   }
 
   /**

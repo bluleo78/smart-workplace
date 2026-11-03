@@ -9,12 +9,16 @@ import static com.workplace.jooq.Tables.USER_GROUP;
 
 import com.workplace.global.org.Departments;
 import com.workplace.mail.util.MailAddresses;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record2;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -127,6 +131,47 @@ public class MailPeopleRepository {
         .orderBy(USER.ID.asc())
         .limit(1)
         .fetchOptional(r -> new MemberMatch(r.value1(), r.value2(), r.value3()));
+  }
+
+  /**
+   * 주어진 주소(정규화된 소문자) 중 이 테넌트 활성 구성원의 주소인 것(WP-1325 메일 목록 내부/외부 구분). 구성원 규칙은 {@link
+   * #findMemberByAddress} 와 같다(ACTIVE 멤버십 · HUMAN · is_active, user.email 또는 그 사람의 이 테넌트 메일 계정 주소).
+   * 다만 나 자신도 구성원이라 포함한다 — 내가 보낸 메일은 내부다. 목록 한 페이지의 주소를 두 번의 조회로 판정한다(행마다 조회하지 않게). 도메인으로 추정하지 않는다.
+   */
+  public Set<String> findMemberAddresses(long tenantId, Collection<String> addresses) {
+    if (addresses.isEmpty()) {
+      return Set.of();
+    }
+    Condition activeMember =
+        MEMBERSHIP
+            .TENANT_ID
+            .eq(tenantId)
+            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+            .and(USER.KIND.eq("HUMAN"))
+            .and(USER.IS_ACTIVE.isTrue());
+    Field<String> userAddress = DSL.lower(DSL.trim(USER.EMAIL));
+    Set<String> out =
+        new HashSet<>(
+            dsl.selectDistinct(userAddress)
+                .from(USER)
+                .join(MEMBERSHIP)
+                .on(MEMBERSHIP.USER_ID.eq(USER.ID))
+                .where(activeMember)
+                .and(userAddress.in(addresses))
+                .fetch(userAddress));
+    Field<String> accountAddress = DSL.lower(DSL.trim(EMAIL_ACCOUNT.EMAIL_ADDRESS));
+    out.addAll(
+        dsl.selectDistinct(accountAddress)
+            .from(EMAIL_ACCOUNT)
+            .join(USER)
+            .on(USER.ID.eq(EMAIL_ACCOUNT.USER_ID))
+            .join(MEMBERSHIP)
+            .on(MEMBERSHIP.USER_ID.eq(USER.ID))
+            .where(EMAIL_ACCOUNT.TENANT_ID.eq(tenantId))
+            .and(activeMember)
+            .and(accountAddress.in(addresses))
+            .fetch(accountAddress));
+    return out;
   }
 
   /** 두 사람이 함께 MEMBER 로 직접 속한 공유(SHARED) 그룹 이름 — "같은 조직". 개인 그룹·상위 그룹은 보지 않는다. */
