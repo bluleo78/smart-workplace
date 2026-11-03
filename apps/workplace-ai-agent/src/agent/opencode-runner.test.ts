@@ -45,6 +45,13 @@ const { resolveOpencodeModelSettings } = vi.hoisted(() => ({
 }));
 vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelSettings }));
 
+// WP-1322: variant 확인을 갈아 끼운다 — 기본은 캐시에 없음 + 실행 서버가 요청한 단계를 그대로 받는다고 답하는 모델.
+const { opencodeVariantFor, cachedOpencodeEfforts } = vi.hoisted(() => ({
+  opencodeVariantFor: vi.fn(async (_h: unknown, t: { level: string }) => t.level),
+  cachedOpencodeEfforts: vi.fn((): string[] | undefined => undefined),
+}));
+vi.mock('./opencode-efforts.js', () => ({ opencodeVariantFor, cachedOpencodeEfforts }));
+
 // registerBridge/releaseBridge 페어링을 정확히 카운트하기 위해 registry 자체를 모킹.
 const { registerBridge, releaseBridge } = vi.hoisted(() => ({
   registerBridge: vi.fn(),
@@ -694,6 +701,69 @@ describe('OpencodeRunner.stream', () => {
         parts: [{ type: 'text', text: '안녕' }],
       },
     });
+  });
+});
+
+describe('OpencodeRunner 생각의 깊이(WP-1322)', () => {
+  const idle = () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+  };
+  const lastConfigInput = () => vi.mocked(buildOpencodeConfig).mock.calls.at(-1)![0];
+
+  it('캐시에 없으면 고른 단계로 reasoning 을 선언해 띄우고, 그 실행 서버에 물어 받은 variant 를 싣는다(조회용 서버를 따로 띄우지 않는다)', async () => {
+    idle();
+    await new OpencodeRunner().stream(baseInput({ userMessage: '안녕', thinkingEffort: 'medium' }), () => {}).done;
+
+    expect(lastConfigInput().thinkingEffort).toBe('medium');
+    expect(opencodeVariantFor).toHaveBeenCalledWith(expect.objectContaining({ client: expect.anything() }), {
+      npm: undefined,
+      providerId: 'openai',
+      modelID: 'gpt-5',
+      level: 'medium',
+    });
+    expect(createIsolatedOpencode).toHaveBeenCalledTimes(1);
+    expect(sessionPromptAsync).toHaveBeenCalledWith({
+      path: { id: 'sess-1' },
+      body: {
+        agent: 'primary',
+        model: { providerID: 'openai', modelID: 'gpt-5' },
+        parts: [{ type: 'text', text: '안녕' }],
+        variant: 'medium',
+      },
+    });
+  });
+
+  it('실행 서버가 그 단계를 받지 않는다고 답하면 variant 를 싣지 않는다', async () => {
+    idle();
+    opencodeVariantFor.mockResolvedValueOnce(undefined as never);
+    await new OpencodeRunner().stream(baseInput({ thinkingEffort: 'max' }), () => {}).done;
+    expect(sessionPromptAsync.mock.calls[0][0].body).not.toHaveProperty('variant');
+  });
+
+  it('캐시가 단계를 알면 config 전에 바로 아래 받는 단계로 맞춘다', async () => {
+    idle();
+    cachedOpencodeEfforts.mockReturnValueOnce(['low', 'high']);
+    await new OpencodeRunner().stream(baseInput({ thinkingEffort: 'max' }), () => {}).done;
+    expect(lastConfigInput().thinkingEffort).toBe('high');
+    expect(opencodeVariantFor.mock.calls.at(-1)![1]).toMatchObject({ level: 'high' });
+  });
+
+  it('캐시가 받는 단계가 없다고 알면 reasoning 도 선언하지 않고 묻지도 않는다', async () => {
+    idle();
+    cachedOpencodeEfforts.mockReturnValueOnce([]);
+    await new OpencodeRunner().stream(baseInput({ thinkingEffort: 'max' }), () => {}).done;
+    expect(lastConfigInput().thinkingEffort).toBeUndefined();
+    expect(opencodeVariantFor).not.toHaveBeenCalled();
+    expect(sessionPromptAsync.mock.calls[0][0].body).not.toHaveProperty('variant');
+  });
+
+  it('effort 만 있으면(opencode 는 무시) variant 를 싣지 않고 확인도 하지 않는다', async () => {
+    idle();
+    await new OpencodeRunner().stream(baseInput({ effort: 'low' }), () => {}).done;
+    expect(sessionPromptAsync.mock.calls[0][0].body).not.toHaveProperty('variant');
+    expect(opencodeVariantFor).not.toHaveBeenCalled();
   });
 });
 

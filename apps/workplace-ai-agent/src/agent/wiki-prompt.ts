@@ -2,6 +2,7 @@
 // 도구를 쓰지 않는 순수 텍스트 생성이라 컨텍스트(본문/선택/지시문)는 모두 프롬프트에 임베드한다.
 import type { MemoryItem } from './memory-block.js';
 import type { SharedMemoryInput } from './shared-memory-block.js';
+import type { ThinkingDepth } from './thinking.js';
 
 export type WikiAiAction =
   | 'draft'
@@ -17,7 +18,7 @@ export interface WikiComposeInput extends SharedMemoryInput {
   // 비서 설정 — workplace-api 가 요청별로 해석해 전달(env 미사용).
   assistantAgentId: number;
   model: string;
-  thinkingDepth: 'NONE' | 'NORMAL' | 'DEEP';
+  thinkingDepth: ThinkingDepth; // WP-1322: 러너가 effort·variant 로 싣는다(run-wiki-compose)
   maxTurns: number;
   timeoutMs: number;
   // 컴포즈 컨텍스트.

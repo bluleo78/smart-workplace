@@ -86,6 +86,5 @@ describeSkillTools('work-loop', {
   search_members: ['kind'],
   claim_issue: ['issueKey', 'queueLabel'],
   add_issue_chat: ['issueKey', 'body'],
-  // 새 프로젝트 확인 — 소속 프로젝트 중 칸이 없는 것을 스스로 띄운다(WP-1053).
-  list_projects: ['page'],
+  // 새 프로젝트 확인은 MCP 도구가 아니라 스크립트(gw-agent-projects --assigned)가 맡는다(WP-1275) — 그래서 list_projects 는 없다.
 });

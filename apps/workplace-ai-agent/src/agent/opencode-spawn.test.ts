@@ -7,7 +7,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const { createOpencode } = vi.hoisted(() => ({ createOpencode: vi.fn() }));
 vi.mock('@opencode-ai/sdk', () => ({ createOpencode }));
 
-import { createIsolatedOpencode } from './opencode-spawn.js';
+import { createIsolatedOpencode, NoLiveSlotError } from './opencode-spawn.js';
 
 // createOpencodeServer 는 launch(자식 spawn)에서 process.env.XDG_DATA_HOME 을 "동기적으로" 캡처한다.
 // 모킹된 createOpencode 도 그 시점을 흉내내기 위해 본문 첫 줄에서 동기적으로 env 를 읽어 기록한다.
@@ -153,5 +153,22 @@ describe('createIsolatedOpencode', () => {
     resolvers[3]();
     const rest = await Promise.all([p2, p3, p4]);
     rest.forEach((h) => h.server.close());
+  });
+
+  // WP-1322: 모델 목록의 부가 조회(tryOnly)는 슬롯이 없으면 기다리지 않고 바로 포기한다 — 실행 중인 대화를 밀어내지 않는다.
+  it('tryOnly 는 남는 슬롯이 없으면 createOpencode 를 부르지 않고 NoLiveSlotError, 부팅 대기 상한을 넘긴다', async () => {
+    const close = vi.fn();
+    createOpencode.mockResolvedValue({ client: {}, server: { url: 'http://x', close } });
+    const held = await Promise.all([1, 2, 3].map(() => createIsolatedOpencode({} as never)));
+    createOpencode.mockClear();
+
+    await expect(createIsolatedOpencode({} as never, { tryOnly: true })).rejects.toBeInstanceOf(NoLiveSlotError);
+    expect(createOpencode).not.toHaveBeenCalled();
+
+    held[0].server.close();
+    const h = await createIsolatedOpencode({} as never, { tryOnly: true, startupTimeoutMs: 1234 });
+    expect(createOpencode).toHaveBeenCalledWith(expect.objectContaining({ port: 0, timeout: 1234 }));
+    h.server.close();
+    held.slice(1).forEach((x) => x.server.close());
   });
 });

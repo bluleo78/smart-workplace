@@ -10,6 +10,7 @@ import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
 import { runWikiSummarize } from '../agent/run-wiki-summarize.js';
+import { thinkingDepthSchema } from '../agent/thinking.js';
 import { handler } from './mail.js';
 
 // WP-301 노트 상단 요약 요청 스키마(workplace-api WikiAiAgentSummaryClient.Req 와 1:1).
@@ -44,7 +45,8 @@ export const wikiComposeSchema = z.object({
   // 비서 설정(ai/compose 와 동일 계약).
   assistantAgentId: z.number().int().positive(),
   model: z.string().min(1),
-  thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
+  // WP-1322: DEFAULT·LOW~MAX. 옛 값(NONE/NORMAL/DEEP)은 롤링 배포 호환으로 받아 DEFAULT 로 바꾼다.
+  thinkingDepth: thinkingDepthSchema,
   maxTurns: z.number().int().positive(),
   timeoutMs: z.number().int().positive(),
   // WP-381: 공통 + 노트 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.

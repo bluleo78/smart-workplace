@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -302,7 +303,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 .content(objectMapper.writeValueAsString(creReq)))
         .andExpect(status().isNoContent());
 
-    when(modelsClient.probeModels(any()))
+    when(modelsClient.probeModels(any(), eq(true)))
         .thenReturn(List.of(new ModelOption("openai.gpt-oss-120b-1:0", "openai.gpt-oss-120b-1:0")));
 
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
@@ -311,7 +312,73 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         // 저장된 모델("gpt-4.1")은 프로브 목록에 없어 맨 앞에 유지(#873), 프로브 결과는 providerId/ 접두
         .andExpect(jsonPath("$.models[0].id").value("gpt-4.1"))
         .andExpect(jsonPath("$.models[1].id").value("bedrock/openai.gpt-oss-120b-1:0"));
+    verify(modelsClient).probeModels(any(), eq(true));
+  }
+
+  @Test // WP-1322: 모델별 생각의 깊이 단계(efforts)를 그대로 싣는다 — Claude 실시간 조회
+  void 개인비서_anthropic_efforts_전달() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    registerMyAnthropic(human, "X".repeat(64));
+    when(modelsClient.listAnthropicModels(any()))
+        .thenReturn(
+            List.of(
+                new ModelOption(
+                    "claude-sonnet-5-5",
+                    "Claude Sonnet 5.5",
+                    List.of("LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"))));
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models[0].efforts.length()").value(5))
+        .andExpect(jsonPath("$.models[0].efforts[4]").value("MAX"));
+  }
+
+  @Test // WP-1322: 정적 폴백 목록은 단계를 모른다(null) — 웹이 Claude 기본(LOW~HIGH)으로 보인다
+  void 개인비서_anthropic_정적폴백_efforts_null() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    registerMyAnthropic(human, "X".repeat(64));
+    when(modelsClient.listAnthropicModels(any()))
+        .thenThrow(new AssistantModelsProbeException("down"));
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models[0].efforts").doesNotExist());
+  }
+
+  @Test // WP-1322: opencode 도 providerId/ 접두를 붙이면서 efforts(variant)를 버리지 않는다 — 등록 후 목록·등록 전 프로브 모두
+  void opencode_efforts_접두와_함께_전달_등록전_프로브는_단계를_묻지_않는다() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    var config =
+        new ProviderConfig(
+            "bedrock", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
+    mvc.perform(
+            put("/api/v1/users/me/assistant/credential")
+                .with(authentication(authWith(human)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new RegisterAssistantCredentialRequest(
+                            "opencode", null, config, "bedrock/gpt-5", "opencode"))))
+        .andExpect(status().isNoContent());
+    when(modelsClient.probeModels(any(), eq(true)))
+        .thenReturn(List.of(new ModelOption("gpt-5", "gpt-5", List.of("LOW", "MEDIUM", "HIGH"))));
+    when(modelsClient.probeModels(any())).thenReturn(List.of(new ModelOption("gpt-5", "gpt-5")));
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models[0].id").value("bedrock/gpt-5"))
+        .andExpect(jsonPath("$.models[0].efforts[2]").value("HIGH"));
+
+    // 등록 전 프로브는 단계를 묻지 않는다(빠르게 — withEfforts 없는 1인자 경로).
+    mvc.perform(
+            post("/api/v1/users/me/assistant/models/probe")
+                .with(authentication(authWith(human)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new ProbeModelsRequest(config))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models[0].efforts").doesNotExist());
     verify(modelsClient).probeModels(any());
+    verify(modelsClient).probeModels(any(), eq(true));
   }
 
   @Test
@@ -336,7 +403,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 .content(objectMapper.writeValueAsString(creReq)))
         .andExpect(status().isNoContent());
 
-    when(modelsClient.probeModels(any()))
+    when(modelsClient.probeModels(any(), eq(true)))
         .thenReturn(List.of(new ModelOption("openai.gpt-oss-120b-1:0", "openai.gpt-oss-120b-1:0")));
 
     Long agentId = personalAssistantRepository.findAgentId(human).orElseThrow();

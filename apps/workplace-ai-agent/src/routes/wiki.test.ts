@@ -22,7 +22,7 @@ function validBody(over: Record<string, unknown> = {}) {
     pageBody: '## 개요\n절차.',
     assistantAgentId: 7,
     model: 'claude-sonnet-4-6',
-    thinkingDepth: 'NORMAL',
+    thinkingDepth: 'DEFAULT',
     maxTurns: 8,
     timeoutMs: 60_000,
     ...over,
@@ -39,6 +39,13 @@ function buildApp() {
 beforeEach(() => vi.clearAllMocks());
 
 describe('wikiComposeSchema', () => {
+  // WP-1322: 새 단계는 그대로, 옛 값(DEEP)은 롤링 배포 호환으로 받아 DEFAULT 로 바꾼다.
+  it('thinkingDepth 새 단계는 그대로, 옛 값은 DEFAULT, 그 밖은 거절', () => {
+    expect(wikiComposeSchema.parse(validBody({ thinkingDepth: 'LOW' })).thinkingDepth).toBe('LOW');
+    expect(wikiComposeSchema.parse(validBody({ thinkingDepth: 'DEEP' })).thinkingDepth).toBe('DEFAULT');
+    expect(wikiComposeSchema.safeParse(validBody({ thinkingDepth: 'low' })).success).toBe(false);
+  });
+
   it('유효 페이로드는 파싱 성공', () => {
     expect(wikiComposeSchema.safeParse(validBody()).success).toBe(true);
   });

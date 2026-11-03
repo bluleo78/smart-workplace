@@ -27,10 +27,10 @@ const unconfigured = (): Status => ({
   configured: false, tokenLabel: null, tokenLastUsedAt: null, model: null, thinkingDepth: null, name: null, provider: null, baseUrl: null,
 })
 const configured = (o: Partial<Status> = {}): Status => ({
-  configured: true, tokenLabel: null, tokenLastUsedAt: null, model: 'claude-sonnet-4-6', thinkingDepth: 'NORMAL', name: null, provider: 'anthropic', baseUrl: null, ...o,
+  configured: true, tokenLabel: null, tokenLastUsedAt: null, model: 'claude-sonnet-4-6', thinkingDepth: 'HIGH', name: null, provider: 'anthropic', baseUrl: null, ...o,
 })
 
-type Model = { id: string; label: string }
+type Model = { id: string; label: string; efforts?: string[] | null }
 const SONNET: Model = { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }
 const OPUS: Model = { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' }
 const BEDROCK_MODELS: Model[] = [
@@ -250,9 +250,87 @@ describe('개인 비서 — 등록 뒤 설정', () => {
   // #198 — 생각의 깊이 변경은 성공 토스트와 thinkingDepth payload.
   test('생각의 깊이를 바꾸면 thinkingDepth 를 PUT 하고 성공 토스트를 보인다', async () => {
     const { user, bodies } = open({ status: () => configured(), models: [SONNET] })
-    await pick(user, await screen.findByRole('combobox', { name: '생각의 깊이' }), '깊게')
+    // 모델 목록을 받기 전에는 지원 단계를 몰라 선택기가 잠겨 있다(WP-1322).
+    await screen.findByRole('combobox', { name: '모델' })
+    await pick(user, screen.getByRole('combobox', { name: '생각의 깊이' }), '낮게')
     expect(await screen.findByText('비서 설정을 변경했습니다.')).toBeInTheDocument()
-    expect(bodies.settings).toEqual([{ thinkingDepth: 'DEEP' }])
+    expect(bodies.settings).toEqual([{ thinkingDepth: 'LOW' }])
+  })
+
+  // WP-1322: 선택지는 「설정 안 함」 + 고른 모델이 받는 단계. Claude 는 단계를 모르면 낮게·보통·높게.
+  test('생각의 깊이 선택지는 고른 모델의 지원 단계를 따른다(Claude 단계 모름 → 낮게·보통·높게)', async () => {
+    const { user } = open({ status: () => configured(), models: [SONNET] })
+    const depth = await screen.findByRole('combobox', { name: '생각의 깊이' })
+    await waitFor(() => expect(depth).toHaveTextContent('높게'))
+    depth.focus()
+    await user.keyboard('{Enter}')
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(names).toEqual(['설정 안 함', '낮게', '보통', '높게'])
+  })
+
+  test('모델이 받는 단계가 있으면 그대로(매우 높게·최대 포함), 저장값을 받지 않으면 바로 아래 단계로 보인다', async () => {
+    const { user } = open({
+      status: () => configured({ thinkingDepth: 'MAX' }),
+      models: [{ ...SONNET, efforts: ['LOW', 'HIGH', 'XHIGH'] }],
+    })
+    const depth = await screen.findByRole('combobox', { name: '생각의 깊이' })
+    await waitFor(() => expect(depth).toHaveTextContent('매우 높게'))
+    depth.focus()
+    await user.keyboard('{Enter}')
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['설정 안 함', '낮게', '높게', '매우 높게'])
+  })
+
+  test('OpenAI 호환 모델이 단계를 모르면 「설정 안 함」만', async () => {
+    const { user } = open({
+      status: () => configured({ provider: 'opencode', model: 'p/qwen3', thinkingDepth: 'HIGH' }),
+      provider: 'opencode',
+      models: [{ id: 'p/qwen3', label: 'p/qwen3', efforts: null }],
+    })
+    const depth = await screen.findByRole('combobox', { name: '생각의 깊이' })
+    await waitFor(() => expect(depth).toHaveTextContent('설정 안 함'))
+    depth.focus()
+    await user.keyboard('{Enter}')
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['설정 안 함'])
+  })
+
+  test('저장된 깊이를 받지 않는 모델로 바꾸면 보정한 깊이를 같은 요청으로 저장한다', async () => {
+    const { user, bodies } = open({
+      status: () => configured({ thinkingDepth: 'MAX' }),
+      models: [
+        { ...SONNET, efforts: ['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX'] },
+        { ...OPUS, efforts: ['LOW', 'MEDIUM'] },
+      ],
+    })
+    await screen.findByRole('combobox', { name: '모델' })
+    await pick(user, modelCombo(), 'Claude Opus 4.8')
+    expect(await screen.findByText('비서 설정을 변경했습니다.')).toBeInTheDocument()
+    expect(bodies.settings).toEqual([{ model: 'claude-opus-4-8', thinkingDepth: 'MEDIUM' }])
+  })
+
+  // WP-1322 회귀: OpenAI 호환 연결을 해제하고 Claude 를 등록하면 모델 드롭다운이 예전 OpenAI 호환 모델을 그대로 보였다(모델 목록 캐시가 남음).
+  test('연결 해제 뒤 Claude 를 등록하면 모델 목록을 새 연결 기준으로 다시 불러온다', async () => {
+    let state: 'opencode' | 'none' | 'claude' = 'opencode'
+    const { user } = open({
+      status: () =>
+        state === 'opencode'
+          ? configured({ provider: 'opencode', model: BEDROCK_MODELS[0].id })
+          : state === 'claude'
+            ? configured()
+            : unconfigured(),
+      models: async () => (state === 'opencode' ? BEDROCK_MODELS : [SONNET, OPUS]),
+    })
+    await waitFor(() => expect(modelCombo()).toHaveTextContent('GPT-OSS 120B'))
+    state = 'none'
+    await user.click(screen.getByRole('button', { name: '연결 해제' }))
+    await user.click(await screen.findByTestId('assistant-token-input'))
+    await user.paste('sk-ant-oat01-' + 'x'.repeat(40))
+    state = 'claude'
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    await waitFor(() => expect(modelCombo()).toHaveTextContent('Claude Sonnet 4.6'))
+    modelCombo().focus()
+    await user.keyboard('{Enter}')
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(names).toEqual(['Claude Sonnet 4.6', 'Claude Opus 4.8'])
   })
 
   // 이름은 명시적 저장 — 서버값이 초깃값, 저장하면 PUT /name payload 와 성공 토스트.

@@ -127,6 +127,19 @@ describe('buildOpencodeConfig', () => {
     expect(models({ vision: undefined, limit: undefined })).toEqual({});
   });
 
+  // WP-1322: 생각의 깊이(variant)를 고른 실행만 모델을 reasoning 으로 선언한다 — 그래야 opencode 가 custom 모델의 variant 를 만든다.
+  it('thinkingEffort 가 있으면 reasoning:true 를 선언하고, 없으면 두지 않는다(WP-1322)', () => {
+    const models = (i: Partial<RunnerInput>) =>
+      (buildOpencodeConfig(baseInput(i), 'run-1', ['cmd'], { vision: undefined, limit: undefined }).provider as Record<
+        string,
+        { models: Record<string, unknown> }
+      >).openai.models['gpt-5'];
+    expect(models({ thinkingEffort: 'high' })).toEqual({ reasoning: true });
+    expect(models({})).toEqual({});
+    // effort 만(추천 질문 등 단발 생성)으로는 선언하지 않는다 — 사용자가 고른 깊이만 opencode 에 건다.
+    expect(models({ effort: 'low' })).toEqual({});
+  });
+
   it('비전 미지원: modalities 미선언 + 프롬프트 규칙 + MCP_VISION=0 + 서브에이전트 프롬프트에도 규칙(WP-241)', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(

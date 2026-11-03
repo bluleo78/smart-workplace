@@ -152,14 +152,14 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
   @Test
   void 개인_모델만_바꿔도_생각의_깊이와_추천_모델은_그대로다() throws Exception {
     long human = humanWithAssistant();
-    putSettings(human, "{\"thinkingDepth\":\"DEEP\",\"suggestionModel\":\"claude-haiku-5-5\"}")
+    putSettings(human, "{\"thinkingDepth\":\"MAX\",\"suggestionModel\":\"claude-haiku-5-5\"}")
         .andExpect(status().isNoContent());
-    // 기존 버그 회귀: 웹은 {model} 만 보낸다 — 예전에는 thinkingDepth 가 NULL(기본 NORMAL)로 지워졌다.
+    // 기존 버그 회귀: 웹은 {model} 만 보낸다 — 예전에는 thinkingDepth 가 NULL(기본값)로 지워졌다.
     putSettings(human, "{\"model\":\"claude-opus-5-5\"}").andExpect(status().isNoContent());
 
     statusOf(human)
         .andExpect(jsonPath("$.model").value("claude-opus-5-5"))
-        .andExpect(jsonPath("$.thinkingDepth").value("DEEP"))
+        .andExpect(jsonPath("$.thinkingDepth").value("MAX"))
         .andExpect(jsonPath("$.suggestionModel").value("claude-haiku-5-5"));
   }
 
@@ -167,10 +167,10 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
   void 개인_생각의_깊이만_바꿔도_모델은_그대로다() throws Exception {
     long human = humanWithAssistant();
     putSettings(human, "{\"model\":\"claude-opus-5-5\"}").andExpect(status().isNoContent());
-    putSettings(human, "{\"thinkingDepth\":\"DEEP\"}").andExpect(status().isNoContent());
+    putSettings(human, "{\"thinkingDepth\":\"MAX\"}").andExpect(status().isNoContent());
     statusOf(human)
         .andExpect(jsonPath("$.model").value("claude-opus-5-5"))
-        .andExpect(jsonPath("$.thinkingDepth").value("DEEP"));
+        .andExpect(jsonPath("$.thinkingDepth").value("MAX"));
   }
 
   @Test
@@ -220,18 +220,18 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
     workspaceService.setAgent(admin, agent);
 
     workspaceService.updateSettings(
-        admin, req("{\"thinkingDepth\":\"DEEP\",\"suggestionModel\":\"claude-haiku-5-5\"}"));
+        admin, req("{\"thinkingDepth\":\"MAX\",\"suggestionModel\":\"claude-haiku-5-5\"}"));
     // 기존 버그 회귀(관리자 화면도 {model} 만 보낸다).
     workspaceService.updateSettings(admin, req("{\"model\":\"claude-opus-5-5\"}"));
 
     WorkspaceAssistantResponse ws = workspaceService.get();
     assertThat(ws.model()).isEqualTo("claude-opus-5-5");
-    assertThat(ws.thinkingDepth()).isEqualTo("DEEP");
+    assertThat(ws.thinkingDepth()).isEqualTo("MAX");
     assertThat(ws.suggestionModel()).isEqualTo("claude-haiku-5-5");
     // 토큰이 없는 비서 — 자동으로 쓸 모델을 정할 연결이 없다.
     assertThat(ws.suggestionModelAuto()).isNull();
 
-    workspaceService.updateSettings(admin, req("{\"thinkingDepth\":\"NONE\"}"));
+    workspaceService.updateSettings(admin, req("{\"thinkingDepth\":\"LOW\"}"));
     assertThat(workspaceService.get().model()).isEqualTo("claude-opus-5-5");
   }
 

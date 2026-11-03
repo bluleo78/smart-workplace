@@ -2,8 +2,10 @@
 
 import type { CredentialProvider } from './providerCredential';
 
-// 추론 깊이 — NONE(끄기) / NORMAL(기본) / DEEP(심층).
-export type ThinkingDepth = 'NONE' | 'NORMAL' | 'DEEP';
+// 생각의 깊이(WP-1322) — DEFAULT(설정 안 함: 모델 기본값) 또는 모델이 받는 추론 노력 단계(낮은 순).
+// Claude 는 effort, OpenAI 호환(opencode)은 모델 variant 로 그대로 전달된다. 옛 값(NONE/NORMAL/DEEP)은 API 가 받지 않는다.
+export type ThinkingLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'XHIGH' | 'MAX';
+export type ThinkingDepth = 'DEFAULT' | ThinkingLevel;
 
 // 개인 비서(본인) 상태. configured 가 false 면 자격증명 미등록 상태.
 export interface AssistantStatus {

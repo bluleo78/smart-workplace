@@ -53,12 +53,12 @@ class AssistantResolverTest extends IntegrationTestBase {
 
     long personalAgent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
     personalRepo.setAgentId(human, personalAgent);
-    configRepo.upsert(personalAgent, "claude-opus-4-8", "DEEP", null, null);
+    configRepo.upsert(personalAgent, "claude-opus-4-8", "MAX", null, null);
 
     AssistantSpec spec = resolver.resolve(human);
     assertThat(spec.agentUserId()).isEqualTo(personalAgent);
     assertThat(spec.model()).isEqualTo("claude-opus-4-8");
-    assertThat(spec.thinkingDepth()).isEqualTo("DEEP");
+    assertThat(spec.thinkingDepth()).isEqualTo("MAX");
     assertThat(spec.maxTurns()).isEqualTo(AssistantDefaults.MAX_TURNS); // null override → default
   }
 

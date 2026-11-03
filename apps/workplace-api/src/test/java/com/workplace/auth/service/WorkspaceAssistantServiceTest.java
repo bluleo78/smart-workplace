@@ -37,7 +37,7 @@ class WorkspaceAssistantServiceTest extends IntegrationTestBase {
     assertThat(res.agentUserId()).isEqualTo(agent);
     assertThat(res.hasActiveToken()).isFalse(); // 토큰 없음 경고용
 
-    service.updateSettings(admin, settings("claude-opus-4-8", "DEEP"));
+    service.updateSettings(admin, settings("claude-opus-4-8", "MAX"));
     assertThat(service.get().model()).isEqualTo("claude-opus-4-8");
   }
 

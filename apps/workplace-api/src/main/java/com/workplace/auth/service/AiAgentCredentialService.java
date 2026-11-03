@@ -92,9 +92,23 @@ public class AiAgentCredentialService {
       throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
     }
 
-    // 회수 전에 이전 active 의 provider 를 읽어 둔다(아래 추천 모델 초기화 판단용).
+    // 회수 전에 가장 최근 행을 한 번 읽어 두 판단에 함께 쓴다(provider NULL 은 AgentProviders.normalize 로 anthropic).
+    // - previousProvider: 지금 active 연결의 provider(아래 추천 모델 초기화 판단용) — 최근 행이 회수됐으면 active 가 없다.
+    // - providerSwitched(WP-1322): 생각의 깊이 초기화 판단 — 회수된 연결까지 본다(「연결 해제 → 다른 provider 로 등록」도 provider
+    // 가
+    //   바뀐 것이다). provider 마다 받는 단계가 달라(Claude effort ↔ opencode variant) 예전 provider 에서 고른 단계를 새
+    // 연결로 그대로
+    //   보내지 않는다.
+    Optional<AiAgentCredentialRow> latest = repo.findLatest(agentUserId);
     Optional<String> previousProvider =
-        repo.findActive(agentUserId).map(r -> AgentProviders.normalize(r.provider()));
+        latest.filter(r -> r.revokedAt() == null).map(r -> AgentProviders.normalize(r.provider()));
+    boolean providerSwitched =
+        latest
+            .map(
+                r ->
+                    !AgentProviders.normalize(r.provider())
+                        .equals(AgentProviders.normalize(provider)))
+            .orElse(false);
     repo.revokeActive(agentUserId); // 기존 active 가 있으면 회수 (없으면 noop)
 
     String encrypted = encryptionService.encrypt(plaintextSecret);
@@ -109,10 +123,14 @@ public class AiAgentCredentialService {
         (model != null && !model.isBlank())
             ? model
             : (AgentProviders.isAnthropic(provider) ? AssistantDefaults.MODEL : null);
-    if (effectiveModel != null) {
+    if (effectiveModel != null || providerSwitched) {
       ConfigRow cur = configRepo.find(agentUserId).orElse(new ConfigRow(null, null, null, null));
       configRepo.upsert(
-          agentUserId, effectiveModel, cur.thinkingDepth(), cur.maxTurns(), cur.timeoutMs());
+          agentUserId,
+          effectiveModel != null ? effectiveModel : cur.model(),
+          providerSwitched ? ThinkingDepths.DEFAULT : cur.thinkingDepth(),
+          cur.maxTurns(),
+          cur.timeoutMs());
     }
     // WP-139: 추천 질문 모델은 새 연결에서 쓸 수 있을 때만 남기고 아니면 자동(null)으로 되돌린다 — 남겨 두면 새 러너가 모르는 모델로
     // 실행돼 추천·후속 질문이 오류 표시 없이 전부 빠진다.

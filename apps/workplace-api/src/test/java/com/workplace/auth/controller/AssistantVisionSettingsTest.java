@@ -155,7 +155,7 @@ class AssistantVisionSettingsTest extends IntegrationTestBase {
     long human = humanWithOpencode();
     long agent = agentOf(human);
 
-    putSettings(human, "{\"thinkingDepth\":\"DEEP\"}").andExpect(status().isNoContent());
+    putSettings(human, "{\"thinkingDepth\":\"MAX\"}").andExpect(status().isNoContent());
     assertThat(payloadOf(agent).get("vision")).isEqualTo(om.readTree("{\"openai/gpt-4.1\":false}"));
 
     // 보낸 필드만 바꾼다 — vision 키가 없으면 저장된 지정은 건드리지 않고, 새 모델에는 지정이 없어 상태는 자동(null)이다.

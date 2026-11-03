@@ -66,13 +66,12 @@ class AdminAuditCoverageTest extends IntegrationTestBase {
     assertThat(set.getDescription()).isEqualTo("공용 비서 지정: " + agentName);
 
     var req =
-        objectMapper.readValue(
-            "{\"thinkingDepth\":\"DEEP\"}", UpdateAssistantSettingsRequest.class);
+        objectMapper.readValue("{\"thinkingDepth\":\"MAX\"}", UpdateAssistantSettingsRequest.class);
     assistantService.updateSettings(admin, req);
     var settings = latest("WORKSPACE_ASSISTANT_SETTINGS_CHANGED");
     assertThat(settings).isNotNull();
     assertThat(settings.getDescription()).isEqualTo("공용 비서 설정 변경: " + agentName);
-    assertThat(settings.getMetadata().data()).contains("\"thinkingDepth\": \"DEEP\"");
+    assertThat(settings.getMetadata().data()).contains("\"thinkingDepth\": \"MAX\"");
     assertThat(settings.getMetadata().data()).doesNotContain("model");
 
     assistantService.clear(admin);

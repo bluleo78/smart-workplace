@@ -17,7 +17,7 @@ function baseInput(action: WikiComposeInput['action'], over: Partial<WikiCompose
   return {
     assistantAgentId: 7,
     model: 'claude-sonnet-4-6',
-    thinkingDepth: 'NORMAL',
+    thinkingDepth: 'DEFAULT',
     maxTurns: 8,
     timeoutMs: 60_000,
     action,
@@ -61,6 +61,35 @@ describe('runWikiCompose', () => {
     await runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {});
     const passed = vi.mocked(streamSpy).mock.calls[0][0] as { model: string };
     expect(passed.model).toBe('claude-sonnet-4-6'); // input.model 그대로(body 우선)
+  });
+
+  // WP-1322: 생각의 깊이 → 러너 thinkingEffort(Claude 는 SDK effort, opencode 는 variant). 설정 안 함이면 미지정.
+  it('생각의 깊이 MAX 는 thinkingEffort max, DEFAULT 는 미지정', async () => {
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runWikiCompose(baseInput('continue', { thinkingDepth: 'MAX' }), { client: fakeClient }, () => {});
+    await runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {});
+    const [maxRun, defRun] = vi.mocked(streamSpy).mock.calls.map((c) => c[0] as { effort?: string; thinkingEffort?: string });
+    expect(maxRun).toMatchObject({ thinkingEffort: 'max' });
+    expect(maxRun.effort).toBeUndefined();
+    expect(defRun.thinkingEffort).toBeUndefined();
+  });
+
+  // WP-1322: 고른 깊이를 이 Claude 모델이 받지 않으면 SDK 가 거절한다 — 노트 작성이 실패하지 않고 effort 없이 한 번 더 돈다.
+  it('effort 거절이면 effort 없이 한 번 더 돌아 그 답을 흘린다', async () => {
+    streamSpy
+      .mockImplementationOnce(() => ({
+        done: Promise.reject(new Error("Claude Code returned an error result: API Error: Effort 'max' isn't available with thinking turned off on this model")),
+        kill: () => {},
+      }))
+      .mockImplementationOnce((_i, onEvent: (e: RunnerEvent) => void) => {
+        onEvent(textDelta('답'));
+        return { done: Promise.resolve(), kill: () => {} };
+      });
+    const got: string[] = [];
+    await runWikiCompose(baseInput('continue', { thinkingDepth: 'MAX' }), { client: fakeClient }, (t) => got.push(t));
+    expect(got.join('')).toBe('답');
+    const runs = vi.mocked(streamSpy).mock.calls.map((c) => c[0] as { thinkingEffort?: string });
+    expect(runs.map((r) => r.thinkingEffort)).toEqual(['max', undefined]);
   });
 
   it('includePartialMessages:true 로 러너 stream 호출', async () => {

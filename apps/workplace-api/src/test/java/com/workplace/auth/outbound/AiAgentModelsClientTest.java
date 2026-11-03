@@ -49,6 +49,8 @@ class AiAgentModelsClientTest {
         .andExpect(header(HttpHeaders.AUTHORIZATION, "Internal tok-123"))
         .andExpect(jsonPath("$.options.baseURL").value("https://provider.test/v1"))
         .andExpect(jsonPath("$.options.apiKey").value("sk-abc"))
+        // WP-1322: 등록 전 프로브는 생각의 깊이 단계를 묻지 않는다.
+        .andExpect(jsonPath("$.withEfforts").value(false))
         .andRespond(
             withSuccess(
                 "{\"models\":[{\"id\":\"openai.gpt-oss-120b-1:0\"}]}", MediaType.APPLICATION_JSON));
@@ -104,6 +106,33 @@ class AiAgentModelsClientTest {
     assertThatThrownBy(() -> client.listAnthropicModels("sk-ant-oat01-secret"))
         .isInstanceOf(AssistantModelsProbeException.class)
         .satisfies(e -> assertThat(e.getMessage()).doesNotContain("sk-ant-oat01-secret"));
+    server.verify();
+  }
+
+  @Test // WP-1322: 모델별 생각의 깊이 단계(efforts)를 그대로 옮기고, 없으면 null(알 수 없음). provider npm 을 함께 보낸다.
+  void 프로브_efforts_전달_및_npm_요청() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/list"))
+        .andExpect(jsonPath("$.npm").value("@ai-sdk/openai-compatible"))
+        .andExpect(jsonPath("$.withEfforts").value(true))
+        .andRespond(
+            withSuccess(
+                "{\"models\":[{\"id\":\"gpt-5\",\"efforts\":[\"LOW\",\"MEDIUM\",\"HIGH\"]},"
+                    + "{\"id\":\"qwen3\",\"efforts\":[]},{\"id\":\"x\"}]}",
+                MediaType.APPLICATION_JSON));
+
+    List<ModelOption> result =
+        client.probeModels(
+            new ProviderConfig(
+                "bedrock",
+                "@ai-sdk/openai-compatible",
+                Map.of("baseURL", "https://provider.test/v1", "apiKey", "sk-abc")),
+            true);
+    assertThat(result)
+        .containsExactly(
+            new ModelOption("gpt-5", "gpt-5", List.of("LOW", "MEDIUM", "HIGH")),
+            new ModelOption("qwen3", "qwen3", List.of()),
+            new ModelOption("x", "x", null));
     server.verify();
   }
 }
