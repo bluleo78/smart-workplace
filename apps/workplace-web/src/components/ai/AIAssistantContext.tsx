@@ -24,6 +24,7 @@ import { chatStreams } from '@/lib/ai/chatStreams';
 import { type PromptSeed } from '@/lib/ai/promptSeed';
 import { clampWidth } from '@/lib/clampWidth';
 import { hasLiveStateMark } from '@/lib/historyParam';
+import { isAiToggleKey } from '@/lib/platform';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
@@ -191,12 +192,13 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
     setWidth(clamped);
   }, []);
 
-  // AI 전역 단축키 — ⌘K/Ctrl+K 토글, Esc 닫기. 셸(데스크톱·모바일)과 무관하게 Provider 가 한 번만 등록한다
+  // AI 전역 단축키 — ⌘K/Ctrl+K(macOS 아니면 Alt+K 도) 토글, Esc 닫기. 셸(데스크톱·모바일)과 무관하게 Provider 가 한 번만 등록한다
   // (예전엔 데스크톱 전용 AI 칩 안에 있어 lg 미만에서 사라졌다). AI 미사용 워크스페이스면 리스너를 달지 않는다.
   useEffect(() => {
     if (!hotkeysEnabled) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      // WP-1332: Windows 등은 Alt+K 도 받는다(안내 표기도 Alt+K — lib/platform).
+      if (isAiToggleKey(e)) {
         // 화면이 먼저 ⌘K 를 쓴 경우(노트 본문의 링크 넣기, WP-312)는 AI 를 토글하지 않는다.
         if (e.defaultPrevented) return;
         e.preventDefault();

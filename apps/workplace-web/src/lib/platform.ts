@@ -47,3 +47,46 @@ export interface ShortcutKeys {
 export function shortcutKeys(mac: boolean = isMacLike()): ShortcutKeys {
   return mac ? { mod: '⌘', shift: '⇧', alt: '⌥' } : { mod: 'Ctrl+', shift: 'Shift+', alt: 'Alt+' }
 }
+
+/**
+ * AI 패널 토글 단축키 표기(WP-1332) — macOS 계열은 ⌘K, 그 밖(Windows 등)은 Alt+K.
+ * Windows 에서 Ctrl+K 는 브라우저 주소창 검색·노트 링크 넣기(WP-312)와 겹쳐 Alt+K 를 안내한다(Ctrl+K 도 계속 동작한다).
+ */
+export function aiShortcutLabel(mac: boolean = isMacLike()): string {
+  // 표기 글자는 shortcutKeys 한 곳에서 — mac 은 ⌘(mod), 그 밖은 Alt+.
+  const keys = shortcutKeys(mac)
+  return `${mac ? keys.mod : keys.alt}K`
+}
+
+/** AI 토글 판정에 필요한 키 이벤트 값 — KeyboardEvent 의 부분집합이라 테스트에서 객체로 넣어 본다. */
+export interface ShortcutKeyEvent {
+  key?: string
+  code?: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey?: boolean
+}
+
+/**
+ * 이 키 이벤트가 K 키인가(WP-1332) — 단축키 판정의 공통 기준(전역 AI 토글·노트 링크 넣기가 같이 쓴다).
+ * key 가 라틴 글자가 아닐 때(한글 입력 상태의 'ㅏ' 등)만 물리 키(code)로 본다 — 드보락처럼 K 자리에 다른 라틴 글자가 오는 배열을 가로채지 않게.
+ * 자동 완성이 보내는 key 없는 keydown 도 오류 없이 false.
+ */
+export function isKKey(e: { key?: string; code?: string }): boolean {
+  const key = typeof e.key === 'string' ? e.key : ''
+  if (key.toLowerCase() === 'k') return true
+  return !/^[a-z]$/i.test(key) && e.code === 'KeyK'
+}
+
+/**
+ * AI 패널 토글 키인가(WP-1332). ⌘K·Ctrl+K 는 예전 그대로(Shift·Alt 함께 눌러도) 받고, macOS 가 아니면 Alt+K 도 받는다.
+ * Alt+K 는 Alt 만일 때다 — Windows 의 AltGr 은 Ctrl+Alt 로 와서 문자 입력이라 제외. macOS 의 ⌥K 는 특수문자(˚) 입력이라 가로채지 않는다.
+ */
+export function isAiToggleKey(e: ShortcutKeyEvent, mac: boolean = isMacLike()): boolean {
+  if (!isKKey(e)) return false
+  // AltGr(Ctrl+Alt) 로 K 자리의 다른 글자를 치는 경우는 문자 입력이다 — 물리 키로 넘겨짚지 않는다(key 가 정말 k 일 때만).
+  if (e.ctrlKey && e.altKey && !e.metaKey && (e.key ?? '').toLowerCase() !== 'k') return false
+  if (e.metaKey || e.ctrlKey) return true
+  return !mac && e.altKey && !e.shiftKey
+}

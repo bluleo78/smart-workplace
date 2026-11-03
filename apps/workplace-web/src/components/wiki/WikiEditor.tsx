@@ -18,6 +18,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { appUrl, wikiPagePath } from '@/lib/appUrl'
+import { isKKey } from '@/lib/platform'
 import type { ShareTarget } from '@/lib/shareTarget'
 import { normalizeSingleLineInput } from '@/lib/singleLine'
 import { cn } from '@/lib/utils'
@@ -692,7 +693,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         handleDrop,
         handleKeyDown: (view, e) => {
           if (e.altKey && e.key === 'F10') return focusLinkBubble()
-          if (!view.editable || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'k') return false
+          if (!view.editable || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !isKKey(e)) return false
           return openLinkInputRef.current()
         },
       },
