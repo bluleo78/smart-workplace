@@ -47,6 +47,10 @@ export function buildSdkOptions(i: SdkRunInput): Options {
   // WP-351: 위임하는 실행은 백그라운드 작업을 끈다. SDK 0.3.x 는 Agent 위임을 기본으로 백그라운드(비동기)로 띄워, 라우터가 서브에이전트
   // 결과를 받기 전에 턴을 끝내고 "완료되면 알려드리겠습니다" 같은 말을 먼저 흘린다(실측). 우리 러너는 위임 결과를 같은 실행 안에서 받아 답을 정하므로 동기로 돌린다.
   if (i.allowSubagents) env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1';
+  // WP-1320: SDK 0.3.302 부터 fork 서브에이전트(subagent_type "fork" — 자기 복제본에게 위임)가 기본으로 켜진다.
+  // 위임은 우리가 정의한 서브에이전트에게만 가야 하므로(도구·프롬프트가 정해진 도우미) 0.3.284 까지처럼 끈다.
+  // 거부 규칙 Agent(fork) 는 도구 정책(computeToolPolicy)이 함께 단다.
+  env.CLAUDE_CODE_FORK_SUBAGENT = '0';
 
   const options: Options = {
     model: i.model,

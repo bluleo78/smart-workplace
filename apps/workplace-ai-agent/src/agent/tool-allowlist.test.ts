@@ -25,6 +25,11 @@ describe('computeToolPolicy', () => {
     expect(disallowed).toEqual(expect.arrayContaining(['TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate']));
   });
 
+  it('위임을 열어도 fork 위임은 막고, 열지 않으면 Agent 자체를 막으니 fork 규칙은 두지 않는다(WP-1320)', () => {
+    expect(computeToolPolicy({ allowSubagents: true }).disallowed).toContain('Agent(fork)');
+    expect(computeToolPolicy({}).disallowed).not.toContain('Agent(fork)');
+  });
+
   it('위임을 열지 않으면 Task 는 계속 막는다', () => {
     expect(computeToolPolicy({}).disallowed).toContain('Task');
   });

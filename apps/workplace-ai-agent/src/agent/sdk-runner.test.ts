@@ -80,6 +80,15 @@ describe('buildSdkOptions', () => {
     }
   });
 
+  it('env: fork 서브에이전트를 끈다 — 위임은 우리가 정의한 서브에이전트에게만(WP-1320, SDK 0.3.302 기본 켜짐)', () => {
+    expect(buildSdkOptions(baseInput({ allowSubagents: true })).env!.CLAUDE_CODE_FORK_SUBAGENT).toBe('0');
+    expect(buildSdkOptions(baseInput()).env!.CLAUDE_CODE_FORK_SUBAGENT).toBe('0');
+    // 이중 차단: 위임을 여는 실행은 Agent(fork) 거부 규칙도 단다(메인 에이전트 자기 위임 거부와 함께)
+    expect(buildSdkOptions(baseInput({ allowSubagents: true })).disallowedTools).toContain('Agent(fork)');
+    const withMain = buildSdkOptions(baseInput({ allowSubagents: true, mainAgent: 'router' })).disallowedTools;
+    expect(withMain).toEqual(expect.arrayContaining(['Agent(fork)', 'Agent(router)']));
+  });
+
   it('userId 지정 시 ACTING_USER_ID 주입, 미지정 시 미설정', () => {
     expect(buildSdkOptions(baseInput({ userId: 12 })).env!.ACTING_USER_ID).toBe('12');
     expect(buildSdkOptions(baseInput()).env!.ACTING_USER_ID).toBeUndefined();
@@ -116,7 +125,8 @@ describe('buildSdkOptions', () => {
   it('mainAgent 미지정 시 Options.agent 는 undefined', () => {
     const o = buildSdkOptions(baseInput({ allowSubagents: true }));
     expect(o.agent).toBeUndefined();
-    expect(o.disallowedTools!.some((t) => t.startsWith('Agent('))).toBe(false);
+    // 자기 위임 거부는 없고 fork 거부만 있다(WP-1320)
+    expect(o.disallowedTools!.filter((t) => t.startsWith('Agent('))).toEqual(['Agent(fork)']);
   });
 
   it('agents 미지정 시 Options.agents 는 undefined', () => {

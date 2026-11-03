@@ -31,5 +31,8 @@ export function computeToolPolicy(opts: {
   const disallowed = BASE_DISALLOWED.filter(
     (t) => !(t === 'Read' && opts.allowFileRead) && !((t === 'Agent' || t === 'Task') && opts.allowSubagents),
   );
+  // WP-1320: 위임을 열어도 fork(자기 복제본에게 위임, SDK 0.3.302 부터 기본 켜짐)는 막는다 — 위임은 우리가 정의한 서브에이전트에게만.
+  // env 스위치(CLAUDE_CODE_FORK_SUBAGENT=0, sdk-runner)와 함께 이중 차단.
+  if (opts.allowSubagents) disallowed.push('Agent(fork)');
   return { allowed, disallowed };
 }

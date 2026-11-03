@@ -28,15 +28,15 @@ RUN pnpm --filter @smart-workplace/mcp-tools-shared build
 RUN pnpm --filter @smart-workplace/workplace-ai-agent build
 
 # --prod deploy: /prod/node_modules 에 claude-agent-sdk 네이티브 `claude` 바이너리(glibc optionalDependency)
-# 를 동봉한다. SDK(0.3.284)는 이 번들 바이너리를 인-프로세스로 쓰므로 별도 `npm install -g claude-code` 불필요(#462).
+# 를 동봉한다. SDK(package.json 의 @anthropic-ai/claude-agent-sdk)는 이 번들 바이너리를 인-프로세스로 쓰므로 별도 `npm install -g claude-code` 불필요(#462).
 RUN pnpm --filter @smart-workplace/workplace-ai-agent deploy --legacy --prod /prod
 
 # opencode 바이너리 벤더링 — 런타임에 `opencode serve`로 spawn되므로 PATH에 있어야 한다.
 # 인스톨러가 uname -m/ldd로 arch·libc를 자동감지 → glibc TARGETPLATFORM 네이티브 바이너리 획득.
 # distroless 런타임엔 curl/셸이 없으므로 반드시 빌드 스테이지에서 받아둔다.
 # ⚠️ 버전 고정 필수: 미지정 시 인스톨러가 GitHub '최신'을 받아 빌드 재현성이 깨진다.
-#    OPENCODE_VERSION 은 @opencode-ai/sdk(package.json ^1.17.13)와 호환되는 값으로 유지(서버↔클라이언트 스큐 방지).
-ARG OPENCODE_VERSION=1.17.18
+#    OPENCODE_VERSION 은 @opencode-ai/sdk(package.json ^1.19.5)와 호환되는 값으로 유지(서버↔클라이언트 스큐 방지).
+ARG OPENCODE_VERSION=1.19.5
 RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" \
     && cp /root/.opencode/bin/opencode /opencode
 
