@@ -60,20 +60,23 @@ dind:
   # dind 의 /var/lib/docker emptyDir 상한
   storageLimit: 20Gi
   # dind 사이드카 자원(AI Pod 마다) — 아래 quota 가 requests.cpu/memory 를 걸기 때문에 requests 가 꼭 있어야 한다
-  # (없으면 모든 AI Pod 가 쿼터 승인에서 거절된다). 기본은 PoC 실측값. 수량은 따옴표로 감싼다.
+  # (없으면 모든 AI Pod 가 쿼터 승인에서 거절된다). 수량은 따옴표로 감싼다.
+  # 기본은 PoC 실측(11-03 test:full, 저장소 하나에 최대 약 1.3GiB·평소 거의 0) 기준. limits 는 두 저장소 테스트가 겹쳐도 들어가게 4Gi
+  # — 넘으면 dind 안의 DB 컨테이너가 한꺼번에 죽는다.
   resources:
     requests:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "250m"
+      memory: "512Mi"
     limits:
-      cpu: "4"
-      memory: "6Gi"
+      cpu: "2"
+      memory: "4Gi"
 
 terminationGraceSeconds: 60
 
 # 네임스페이스 자원 상한 — AI 가 늘어나 노드를 다 먹지 않게.
 # runner 는 AI Pod 의 모든 컨테이너에 requests 를 둔다: agent 는 템플릿 값(없으면 cpu 1·memory 2Gi), dind 는 dind.resources,
-# 그 밖의 사이드카는 cpu 100m·memory 128Mi. AI 한 명 기본 템플릿(agent 4/8Gi + dind 500m/1Gi)이면 아래 값으로 3명까지 뜬다.
+# 그 밖의 사이드카는 cpu 100m·memory 128Mi. AI 한 명 기본 템플릿(agent 2/4Gi + dind 250m/512Mi)이면 아래 cpu 16 으로 7명까지 뜬다
+# (runner 자신의 requests 도 같은 쿼터에 든다). requests 는 limits 보다 훨씬 작아 여러 AI 가 동시에 test:full 을 돌리면 노드 메모리가 모자랄 수 있다.
 quota:
   enabled: true
   hard:

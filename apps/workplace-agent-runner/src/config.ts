@@ -51,10 +51,10 @@ export interface RunnerConfig {
 
 type Env = Record<string, string | undefined>;
 
-/** dind 기본 자원(PoC 실측값) — Helm values 의 dind.resources 기본과 같다. */
+/** dind 기본 자원 — Helm values 의 dind.resources 기본과 같다(근거는 values.yaml 주석). */
 export const DEFAULT_DIND_RESOURCES: V1ResourceRequirements = {
-  requests: { cpu: '500m', memory: '1Gi' },
-  limits: { cpu: '4', memory: '6Gi' },
+  requests: { cpu: '250m', memory: '512Mi' },
+  limits: { cpu: '2', memory: '4Gi' },
 };
 
 // ── env 한 칸씩의 스키마. 모양·기본값·오류 문구(한국어)를 한곳에 둔다. ──

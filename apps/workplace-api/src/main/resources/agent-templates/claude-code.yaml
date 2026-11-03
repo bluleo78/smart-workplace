@@ -23,9 +23,11 @@ config:
     type: text
     default: AI 개발팀
     required: false
+# requests 는 평소 사용량 기준(쉴 때 1GiB 안팎) — 노드 자리 계산은 이 값으로 한다. limits 는 test:full 실측 최대치(agent anon 약 7GiB,
+# 캐시·/dev/shm 포함 약 13GiB, PoC 11-03 측정)를 두고 16Gi 를 유지한다 — 넘으면 OOMKill 이라 넉넉히 둔다.
 resources:
-  cpuRequest: "4"
-  memoryRequest: 8Gi
+  cpuRequest: "2"
+  memoryRequest: 4Gi
   cpuLimit: "8"
   memoryLimit: 16Gi
   workDisk: 50Gi

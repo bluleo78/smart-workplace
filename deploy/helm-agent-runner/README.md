@@ -159,7 +159,7 @@ AI 마다 등록한 저장소 토큰만 넣습니다. **업그레이드 전에**
 - runner 는 `/healthz`(8080)를 **readinessProbe 로만** 씁니다. Works 가 10분 넘게 죽으면 503 이 되는데, 생존 검사로 쓰면 Works 장애 동안 runner 가 계속 재시작되기 때문입니다.
 - Role 은 이 네임스페이스에만 걸립니다(ClusterRole 없음). 네임스페이스 `ResourceQuota`(`quota.*`)로 AI 가 늘어도 노드를 다 먹지 않게 합니다.
 - 쿼터가 `requests.cpu`·`requests.memory` 를 걸기 때문에 runner 는 AI Pod 의 모든 컨테이너에 requests 를 둡니다. dind 는 `dind.resources`
-  (기본 requests 500m/1Gi·limits 4/6Gi)로 바꿉니다. 쿼터에 걸려 Pod 가 거절되면 관리자 화면에 그 AI 가 `FAILED`(사유: 쿼터 초과 등)로 보입니다.
+  (기본 requests 250m/512Mi·limits 2/4Gi)로 바꿉니다. 쿼터에 걸려 Pod 가 거절되면 관리자 화면에 그 AI 가 `FAILED`(사유: 쿼터 초과 등)로 보입니다.
 
 ## 테스트
 

@@ -141,7 +141,7 @@ Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Co
 | 컨테이너 | requests | limits |
 |---|---|---|
 | agent | 템플릿 `cpuRequest`·`memoryRequest` → 없으면 템플릿 limit → 없으면 **cpu `1`·memory `2Gi`** | 템플릿 `cpuLimit`·`memoryLimit`(있을 때만) |
-| dind | Helm `dind.resources`(env `DIND_RESOURCES`, 기본 **cpu `500m`·memory `1Gi`**) | 같은 값(기본 **cpu `4`·memory `6Gi`**) |
+| dind | Helm `dind.resources`(env `DIND_RESOURCES`, 기본 **cpu `250m`·memory `512Mi`**) | 같은 값(기본 **cpu `2`·memory `4Gi`**) |
 | 그 밖의 sidecar | **cpu `100m`·memory `128Mi`** | 없음 |
 
 클러스터가 Pod 등을 거절하면(쿼터·PodSecurity·검증) runner 는 그 AI 를 `FAILED` 로 보고하고(message: 종류·이름·HTTP 상태·서버 사유 한 줄 — Secret 은 사유만) 30초 뒤 다시 본다.

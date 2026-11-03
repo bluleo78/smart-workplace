@@ -66,7 +66,7 @@ class AgentTemplateRegistryTest {
     assertThat(queue.defaultValue()).isEqualTo("AI 개발팀");
     assertThat(queue.required()).isFalse();
     assertThat(t.resources())
-        .isEqualTo(new AgentTemplate.Resources("4", "8Gi", "8", "16Gi", "50Gi"));
+        .isEqualTo(new AgentTemplate.Resources("2", "4Gi", "8", "16Gi", "50Gi"));
     assertThat(t.sidecars()).hasSize(1);
     assertThat(t.sidecars().get(0).name()).isEqualTo("dind");
     assertThat(t.sidecars().get(0).privileged()).isTrue();

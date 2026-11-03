@@ -28,9 +28,10 @@ config:
     type: text
     default: AI 개발팀
     required: false
+# requests·limits 근거는 claude-code.yaml 주석과 같다 — 바꿀 때 두 템플릿을 함께 바꾼다.
 resources:
-  cpuRequest: "4"
-  memoryRequest: 8Gi
+  cpuRequest: "2"
+  memoryRequest: 4Gi
   cpuLimit: "8"
   memoryLimit: 16Gi
   workDisk: 50Gi

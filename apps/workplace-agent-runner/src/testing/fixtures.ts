@@ -1,5 +1,5 @@
 // 테스트 공용 픽스처 — 계약 문서(agent-runner-api.md)의 desired 예시와 같은 모양의 AI 한 명과 runner 설정.
-import type { RunnerConfig } from '../config.js';
+import { DEFAULT_DIND_RESOURCES, type RunnerConfig } from '../config.js';
 import type { RunnerDesiredAgent } from '../works/client.js';
 
 /** 계약 문서 예시 그대로의 AI(42, dev-ai, generation 7) — 필요한 칸만 덮어쓴다. */
@@ -51,7 +51,7 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     caConfigMap: undefined,
     screenAllowInput: false,
     dindStorageLimit: '20Gi',
-    dindResources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '4', memory: '6Gi' } },
+    dindResources: structuredClone(DEFAULT_DIND_RESOURCES),
     healthPort: 8080,
     terminationGraceSeconds: 60,
     imagePullSecrets: [],

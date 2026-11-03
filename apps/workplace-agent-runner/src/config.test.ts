@@ -29,7 +29,7 @@ describe('loadConfig', () => {
       caConfigMap: undefined,
       screenAllowInput: false,
       dindStorageLimit: '20Gi',
-      dindResources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '4', memory: '6Gi' } },
+      dindResources: { requests: { cpu: '250m', memory: '512Mi' }, limits: { cpu: '2', memory: '4Gi' } },
       healthPort: 8080,
       terminationGraceSeconds: 60,
       imagePullSecrets: [],

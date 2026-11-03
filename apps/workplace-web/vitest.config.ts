@@ -35,6 +35,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // 워커 수 상한 — 기본값은 컨테이너(AI Pod)에서 CPU limit 이 아닌 노드 전체 코어를 보고 워커를 지나치게 띄워 CPU 스로틀·메모리 증가를 낳는다.
+    // 로컬·AI Pod 어디서든 같은 부하로 돌게 4로 고정한다.
+    maxWorkers: 4,
     // 캘린더 종일 일정 로직은 로컬 타임존에 의존하므로 KST 로 고정해 결정적으로 검증한다
     // (UTC 호스트에서는 종일 ±9h 시프트 버그가 재현되지 않아 테스트가 헛돈다 — #493 교훈).
     env: { TZ: 'Asia/Seoul' },

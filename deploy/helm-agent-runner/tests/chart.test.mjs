@@ -205,8 +205,8 @@ test('quotaRenderedByDefault', () => {
 test('dindResourcesDefaultAndOverridable', () => {
   // 쿼터(requests.cpu/memory)가 기본으로 켜져 있어 dind 도 requests 가 있어야 AI Pod 가 승인된다 — 기본은 PoC 값
   assert.deepEqual(JSON.parse(JSON.parse(envValue(BASE.out, 'DIND_RESOURCES'))), {
-    requests: { cpu: '500m', memory: '1Gi' },
-    limits: { cpu: '4', memory: '6Gi' },
+    requests: { cpu: '250m', memory: '512Mi' },
+    limits: { cpu: '2', memory: '4Gi' },
   });
   // helm 은 맵을 깊게 합치므로 바꿀 칸을 모두 적는다
   const custom = { requests: { cpu: '1', memory: '2Gi' }, limits: { cpu: '2', memory: '8Gi' } };
