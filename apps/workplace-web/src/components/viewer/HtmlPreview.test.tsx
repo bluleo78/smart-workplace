@@ -236,3 +236,29 @@ describe('HtmlPreview 보안 점검 줄', () => {
     })
   }, 30_000)
 })
+
+// WP-1321: 뷰어는 AI 사이드 패널을 열면 본문을 다시 붙인다 — 허용 상태를 호출부가 들면 다시 붙어도 켜진 채다.
+describe('HtmlPreview 허용 상태를 호출부가 들 때', () => {
+  it('keepsScriptsAllowed_whenRemountedWithControlledState', async () => {
+    let allowed: string | null = null
+    const onChange = vi.fn((v: string | null) => { allowed = v })
+    const user = userEvent.setup()
+    const first = renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" allowedHtml={allowed} onAllowedHtmlChange={onChange} />)
+    await user.click(sw())
+    expect(onChange).toHaveBeenLastCalledWith(SCRIPT_HTML)
+    // 다시 붙인다(뷰어의 modal 전환과 같다) — 호출부가 든 값으로 켜진 채 그린다.
+    first.unmount()
+    renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" allowedHtml={allowed} onAllowedHtmlChange={onChange} />)
+    expect(sw()).toHaveAttribute('aria-checked', 'true')
+    expect(sandbox()).toContain('allow-scripts')
+    await user.click(sw())
+    expect(onChange).toHaveBeenLastCalledWith(null)
+  })
+
+  it('blocksScripts_whenControlledHtmlDiffersFromDocument', () => {
+    // 허용한 문서와 지금 문서가 다르면(다시 받아 내용이 바뀜) 다시 차단한다.
+    renderWithProviders(<HtmlPreview html={SCRIPT_HTML} title="t" allowedHtml="<script>old</script>" onAllowedHtmlChange={() => {}} />)
+    expect(sw()).toHaveAttribute('aria-checked', 'false')
+    expect(sandbox()).not.toContain('allow-scripts')
+  })
+})

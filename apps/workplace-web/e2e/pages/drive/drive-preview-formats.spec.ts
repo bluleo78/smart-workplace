@@ -294,6 +294,36 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(body).toBeVisible()
   })
 
+  // WP-1321: AI 패널(side)을 열면 뷰어 대화상자가 non-modal 로 바뀌며 본문이 다시 붙는다 — 켠 스크립트 실행이 꺼짐으로 돌아가
+  // 문서가 차단된 모습으로 다시 그려졌다. 실제 iframe 에서 스크립트가 계속 실행된 상태인지(다시 그려지면 「차단됨」)를 본다.
+  test('스크립트 실행을 켠 채 AI 패널을 열고 닫아도 켜진 채로 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+    const DECK = `<!doctype html><html><body><p id="state">차단됨</p><script>document.getElementById('state').textContent = '스크립트 실행됨'</script></body></html>`
+    await stubHtmlFile(page, 'deck.html', DECK)
+    await stubSecurityCheckLow(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'deck.html' }).click()
+
+    const sw = page.getByRole('switch', { name: '스크립트 실행' })
+    const state = page.frameLocator('[data-testid="html-document"]').locator('#state')
+    await expect(state).toHaveText('차단됨')
+    await sw.click()
+    await expect(state).toHaveText('스크립트 실행됨')
+
+    // AI 패널을 연다 — 대화상자가 non-modal 로 다시 붙어도 스위치는 켜진 채, 문서도 스크립트가 돈 모습 그대로다.
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await expect(sw).toBeChecked()
+    await expect(state).toHaveText('스크립트 실행됨')
+
+    // 닫아도(다시 modal) 그대로다.
+    await page.getByTestId('ai-side-panel').getByRole('button', { name: '닫기', exact: true }).click()
+    await expect(page.getByTestId('ai-side-panel')).toBeHidden()
+    await expect(sw).toBeChecked()
+    await expect(state).toHaveText('스크립트 실행됨')
+  })
+
   // WP-1271: srcdoc 문서의 `#…` 링크는 상위 앱 주소 기준으로 풀리고 `<base target="_blank">` 에 걸려 새 탭에 앱을 다시 열었다.
   // 목차 클릭이 새 탭 없이 같은 미리보기 안에서 그 절로 스크롤되는지 — 스크립트 꺼짐(링크 바꾸기)·켜짐(클릭 처리기) 둘 다 실제 iframe 에서 본다.
   test('문서 안 목차 링크는 새 탭 없이 미리보기 안에서 그 절로 이동한다(스크립트 꺼짐·켜짐)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
