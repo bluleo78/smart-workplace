@@ -4,6 +4,7 @@
 import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -57,7 +58,7 @@ export function IssueTypeManagement({
   }
 
   return (
-    <SettingsSection title="이슈 유형" description="이슈를 만들 때 고르는 종류예요.">
+    <SettingsSection id={SETTINGS_SECTION_IDS.projectIssueTypes} title="이슈 유형" description="이슈를 만들 때 고르는 종류예요.">
 
       {isOwner && (
         <form

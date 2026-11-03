@@ -3,11 +3,12 @@
 import { screen, within } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import type { ReactElement } from 'react'
-import { vi } from 'vitest'
+import { expect, vi } from 'vitest'
 
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import type { SettingsGuide } from '@/components/settings-guide/types'
 import type { AiScreenContext } from '@/types/aiScreenContext'
 
 /** AI 모드·대기 문구를 글자로 드러낸다 — 「AI에게 묻기」가 패널을 열고 문구를 채웠는지 본다. */
@@ -76,5 +77,18 @@ export function withoutClipboardApi(execOk: boolean) {
       if (prev) Object.defineProperty(navigator, 'clipboard', prev)
       else delete (navigator as { clipboard?: unknown }).clipboard
     },
+  }
+}
+
+/**
+ * 섹션별 가이드(WP-1298) — 가이드 섹션마다 같은 id 의 화면 섹션이 있고, 그 섹션 제목(h2)이 가이드 섹션 제목과 같은지 본다.
+ * 가이드는 이 id 로 본문의 지금 섹션을 찾아 따라가므로, 화면이 id 를 잃거나 바꾸면 따라가기가 조용히 멈춘다.
+ */
+export function expectGuideSectionsOnScreen(guide: SettingsGuide) {
+  expect(guide.sections?.length ?? 0).toBeGreaterThan(0)
+  for (const s of guide.sections ?? []) {
+    const el = document.getElementById(s.id)
+    expect(el, s.id).not.toBeNull()
+    expect(el!.querySelector('h2')?.textContent, s.id).toBe(s.title)
   }
 }

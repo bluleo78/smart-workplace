@@ -56,7 +56,7 @@ test.describe('설정 가이드 AI에게 묻기 — 넓은 화면 열', () => {
     const facts = body.screenContext!.scope!.facts!
     expect(facts[0]).toEqual({ label: '이름', value: '테스트 사용자' })
     expect(facts).toContainEqual({ label: '소개', value: settingsGuides.profile.lead })
-    expect(facts).toContainEqual({ label: '알아두기 1', value: settingsGuides.profile.tips[0] })
+    expect(facts).toContainEqual({ label: '프로필 정보 · 알아두기 1', value: settingsGuides.profile.sections[0].tips[0] })
   })
 
   // 개인 프로젝트·사용자 상세의 맥락 값은 settingsGuideScreens.test.tsx 가 본다 — 여기는 실제 라우트(사이드바 화면 안)에서 설정 맥락이 이기고 전송까지 이어지는지 1건.

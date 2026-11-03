@@ -8,10 +8,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueRelationType, IssueRelationTypeAdmin, SaveIssueRelationTypeRequest } from '@/types/issue'
 
 import { defaultRelationTypes } from '../../../../e2e/factories/issueRelation.factory'
+import { expectGuideSectionsOnScreen } from '../testkit-b7'
 import WorkAppSettingsPage from './WorkAppSettingsPage'
 
 const ADMIN = '/api/v1/admin/issue-relation-types'
@@ -89,6 +91,8 @@ const fill = async (user: ReturnType<typeof renderScreen>['user'], el: HTMLEleme
 
 test('기본 유형은 편집·삭제가 없고 차단은 「고정」이라 숨길 수 없다', async () => {
   await openWorkApp()
+  // WP-1298 — 가이드 섹션(이슈 관계 유형)이 화면 섹션과 같은 id·제목으로 이어진다.
+  expectGuideSectionsOnScreen(settingsGuides.workApp)
   expect(byTestId('relation-type-row-1')).toHaveTextContent('차단')
   expect(byTestId('relation-type-row-1')).toHaveTextContent('고정')
   expect(screen.queryByTestId('relation-type-toggle-hidden-1')).not.toBeInTheDocument()

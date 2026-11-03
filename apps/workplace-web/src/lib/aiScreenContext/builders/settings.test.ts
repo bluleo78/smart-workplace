@@ -15,13 +15,20 @@ describe('buildSettingsScreenContext', () => {
     expect(chipLabel(ctx)).toBe('설정 · SSO');
   });
 
-  it('가이드 요약을 소개 → 주의 → 알아두기 순으로 scope.facts 에 싣는다', () => {
+  it('가이드 요약을 소개 → 주의 → 알아두기 순으로 scope.facts 에 싣는다 — 섹션 도움말은 「섹션 제목 · …」 로 펼친다(WP-1298)', () => {
     const g = settingsGuides.userDetail;
     const facts = buildSettingsScreenContext(g).scope!.facts!;
     expect(facts[0]).toEqual({ label: '소개', value: g.lead });
-    expect(facts.map((f) => f.label)).toEqual(['소개', ...g.tips.map((_, i) => `알아두기 ${i + 1}`)]);
+    expect(facts.map((f) => f.label)).toEqual([
+      '소개',
+      '알아두기 1',
+      '활성 상태 · 알아두기 1',
+      '활성 상태 · 알아두기 2',
+      '활성 상태 · 알아두기 3',
+      '역할 할당 · 알아두기 1',
+    ]);
     const withCaution = buildSettingsScreenContext(settingsGuides.assistant).scope!.facts!;
-    expect(withCaution[1]).toEqual({ label: '주의', value: settingsGuides.assistant.caution });
+    expect(withCaution[1]).toEqual({ label: '개인 비서 · 주의', value: settingsGuides.assistant.sections[0].caution });
   });
 
   it('8개 가이드 모두 서버 한도 안에 든다', () => {

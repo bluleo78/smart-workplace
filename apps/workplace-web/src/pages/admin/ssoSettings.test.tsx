@@ -10,7 +10,7 @@ import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { renderScreen } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
-import { openGuideSheet, withAssistant, withoutClipboardApi } from '../settings/testkit-b7'
+import { expectGuideSectionsOnScreen, openGuideSheet, withAssistant, withoutClipboardApi } from '../settings/testkit-b7'
 import SsoSettingsPage from './SsoSettingsPage'
 
 const CONSENT = 'https://login.microsoftonline.com/organizations/v2.0/adminconsent?client_id=abc'
@@ -105,4 +105,6 @@ test('가이드에 SSO 가이드가 보이고, AI 를 못 쓰면 「AI에게 묻
   const sheet = await openGuideSheet(user)
   expect(sheet.getByText(settingsGuides.sso.lead)).toBeInTheDocument()
   expect(sheet.queryByTestId('settings-guide-ask-ai')).not.toBeInTheDocument()
+  // WP-1298 — 가이드 섹션이 화면 섹션과 같은 id·제목으로 이어진다(본문 스크롤을 따라가는 기준).
+  expectGuideSectionsOnScreen(settingsGuides.sso)
 })

@@ -12,6 +12,7 @@ import { useSearchParams } from 'react-router-dom';
 import { BusySwitch } from '@/components/BusySwitch';
 import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,6 +99,7 @@ export function AiMemoryCard() {
 
   return (
     <SettingsSection
+      id={SETTINGS_SECTION_IDS.assistantMemory}
       data-testid="ai-memory-card"
       title="메모리"
       description={

@@ -39,11 +39,14 @@ export function UserActiveSection({
   user,
   onChanged,
   lockedReason,
+  id,
 }: {
   user: AccessUser;
   onChanged: (active: boolean) => void;
   /** 끌 수 없는 이유 — 있으면 활성인 스위치를 막고 이유를 보인다(예: 공통 비서는 지정 해제가 먼저, WP-1075). 서버도 409 로 막는다. */
   lockedReason?: string;
+  /** 섹션 앵커 id — 설정 가이드가 이 섹션을 따라가게(사용자 상세, WP-1298). */
+  id?: string;
 }) {
   const { user: currentUser } = useAuth();
   const [isToggling, setIsToggling] = useState(false);
@@ -102,6 +105,7 @@ export function UserActiveSection({
       </AlertDialog>
 
       <SettingsSection
+        id={id}
         title="활성 상태"
         description={
           isAgent

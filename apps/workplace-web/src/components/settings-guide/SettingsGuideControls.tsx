@@ -28,7 +28,7 @@ export function SettingsGuideAside({
   guide: SettingsGuide
   /** 본문에서 지금 보고 있는 섹션 id(WP-1281) — 섹션별 가이드면 그 섹션으로 따라간다. */
   activeSection?: string | null
-  /** 열 폭(px) — 남는 폭에 따라 280~360(WP-1281). 없으면 280. */
+  /** 열 폭(px) — 남는 폭을 채운다, 최소 280(WP-1298). 없으면 280. */
   width?: number
   /** WP-414: 본문 스크롤 영역의 보이는 높이 — 열이 이보다 길면 열 안에서 스크롤해 끝(「AI에게 묻기」)까지 닿게 한다. */
   maxHeight?: number

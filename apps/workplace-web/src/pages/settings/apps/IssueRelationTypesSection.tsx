@@ -7,6 +7,7 @@ import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
 import { SettingsSection } from '@/components/layout/SettingsSection';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -62,6 +63,7 @@ export function IssueRelationTypesSection() {
 
   return (
     <SettingsSection
+      id={SETTINGS_SECTION_IDS.relationTypes}
       title="이슈 관계 유형"
       description="이슈 사이 관계의 종류예요. 모든 프로젝트에 같이 쓰이고, 이슈 화면 「관계」 묶음의 제목이 돼요."
       data-testid="issue-relation-types-section"

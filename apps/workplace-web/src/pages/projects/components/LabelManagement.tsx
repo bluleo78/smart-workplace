@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -60,7 +61,7 @@ export function LabelManagement({
   }
 
   return (
-    <SettingsSection title="라벨" description="이슈를 분류하는 색 꼬리표예요.">
+    <SettingsSection id={SETTINGS_SECTION_IDS.projectLabels} title="라벨" description="이슈를 분류하는 색 꼬리표예요.">
 
       {canCreate && (
         <form

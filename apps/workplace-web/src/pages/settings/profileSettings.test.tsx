@@ -8,10 +8,13 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test, vi } from 'vitest'
 
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
+import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
 import ProfileSettingsPage from './ProfileSettingsPage'
+import { expectGuideSectionsOnScreen } from './testkit-b7'
 
 /** 프로필 화면이 부르는 쓰기 API — 받은 요청을 calls 에 모은다(나가면 안 되는 요청도 이것으로 센다). */
 function writeHandlers() {
@@ -103,6 +106,8 @@ test('비밀번호 칸 셋은 각자 보기/숨기기 토글로 type 이 바뀌�
 test('비밀번호 없는 계정은 새 비밀번호만으로 설정한다 (WP-48)', async () => {
   const { user, calls } = await openProfile(false)
   expect(document.getElementById('current-password')).toBeNull()
+  // WP-1298 — 「비밀번호 설정」 섹션도 「비밀번호 변경」과 같은 id 라 가이드가 같은 도움말로 따라간다.
+  expect(document.getElementById(SETTINGS_SECTION_IDS.profilePassword)?.querySelector('h2')).toHaveTextContent('비밀번호 설정')
   await user.click(document.getElementById('set-new-password')!)
   await user.paste('Password123')
   await user.click(document.getElementById('set-confirm-password')!)
@@ -115,6 +120,8 @@ test('비밀번호가 있는 계정은 기존 변경 카드를 보인다 (WP-48)
   await openProfile(true)
   expect(document.getElementById('current-password')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: '비밀번호 설정' })).not.toBeInTheDocument()
+  // WP-1298 — 가이드 섹션(프로필 정보·비밀번호 변경)이 화면 섹션과 같은 id·제목으로 이어진다.
+  expectGuideSectionsOnScreen(settingsGuides.profile)
 })
 
 // ── 아바타(WP-1222) ────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { usersApi } from '@/api/users'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection'
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
 import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form-field'
@@ -124,7 +125,7 @@ export default function ProfileSettingsPage() {
       )}
 
       {/* 주석 섹션: 넓은 화면에선 왼쪽 제목·설명 / 오른쪽 입력(448px 상한), 좁으면 세로로 쌓인다(WP-397). */}
-      <SettingsSection title="프로필 정보" description="다른 구성원에게 보이는 이름과 연락 이메일이에요.">
+      <SettingsSection id={SETTINGS_SECTION_IDS.profileInfo} title="프로필 정보" description="다른 구성원에게 보이는 이름과 연락 이메일이에요.">
         {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}
         <form noValidate onSubmit={profileForm.handleSubmit(onProfileSubmit)} className={cn('space-y-4', settingsFieldClass)}>
           {/* 로그인 계정(username)은 변경 불가 — 읽기 전용 표시 */}
@@ -161,7 +162,7 @@ export default function ProfileSettingsPage() {
       {user?.hasPassword === false ? (
         <SetPasswordCard onDone={refreshUser} />
       ) : (
-        <SettingsSection title="비밀번호 변경" description="현재 비밀번호를 확인한 뒤 새 비밀번호로 바꿔요.">
+        <SettingsSection id={SETTINGS_SECTION_IDS.profilePassword} title="비밀번호 변경" description="현재 비밀번호를 확인한 뒤 새 비밀번호로 바꿔요.">
           <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className={cn('space-y-4', settingsFieldClass)}>
             <FormField
               label="현재 비밀번호"

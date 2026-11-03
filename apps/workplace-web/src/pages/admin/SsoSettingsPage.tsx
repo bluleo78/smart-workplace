@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
 import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -55,6 +56,7 @@ export default function SsoSettingsPage() {
       aiContext={data ? { facts: [['SSO 로그인', data.enabled ? '켜짐' : '꺼짐']] } : null}
     >
       <SettingsSection
+        id={SETTINGS_SECTION_IDS.ssoLogin}
         title="SSO 로그인"
         description='켜면 구성원이 Microsoft 계정으로 로그인할 수 있고, 비밀번호 없는 "SSO 전용" 구성원을 등록할 수 있어요.'
       >

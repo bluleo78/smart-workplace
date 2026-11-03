@@ -154,6 +154,22 @@ describe('본문에서 보고 있는 섹션 따라가기', () => {
 })
 
 describe('본문 「가이드 열기」 — open(sectionId)', () => {
+  // WP-1298: 도움말 없는 화면 섹션(기본 정보·상태·위험 구역 등)을 읽는 동안 위쪽 섹션의 도움말·주의를 강조하지 않는다.
+  test('지금 보는 화면 섹션에 도움말이 없으면 아무 섹션도 강조하지 않고, 도움말 있는 섹션에 닿으면 다시 강조한다', async () => {
+    const guide: SettingsGuide = { ...GUIDE, sections: GUIDE.sections!.filter((sec) => sec.id !== 'sec-b') }
+    const { user } = renderScreen(<Screen guide={guide} />, { path: '/x' })
+    const sheet = await openSheet(user)
+    await waitFor(() => expect(guideSection(sheet, 'sec-a')).toHaveAttribute('data-active', 'true'))
+    // B(도움말 없음) 머리가 기준선 위 — A 는 이미 지나갔다.
+    tops = { 'sec-a': -650, 'sec-b': 250, 'sec-c': 1150 }
+    await scrollBody()
+    await waitFor(() => expect(guideSection(sheet, 'sec-a')).not.toHaveAttribute('data-active'))
+    expect(guideSection(sheet, 'sec-c')).not.toHaveAttribute('data-active')
+    tops = { 'sec-a': -1550, 'sec-b': -650, 'sec-c': 250 }
+    await scrollBody()
+    await waitFor(() => expect(guideSection(sheet, 'sec-c')).toHaveAttribute('data-active', 'true'))
+  })
+
   test('섹션 id 를 주면 스크롤 위치와 상관없이 그 섹션 도움말로 시트가 열린다', async () => {
     // 지금 스크롤은 섹션 A 에 있다 — 그래도 C 단추를 누르면 C 가 강조된다.
     const { user } = renderScreen(<Screen />, { path: '/x' })

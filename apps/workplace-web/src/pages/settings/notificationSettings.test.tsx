@@ -8,13 +8,14 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
+import { notificationsGuide, settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { renderScreen } from '@/test/renderScreen'
 import type { NotificationSettings, UpdateNotificationSettingsRequest } from '@/types/notificationSettings'
 
 import { defaultNotificationSettings } from '../../../e2e/factories/notificationSettings.factory'
 import NotificationSettingsPage from './NotificationSettingsPage'
-import { openGuideSheet, withAssistant } from './testkit-b7'
+import { expectGuideSectionsOnScreen, openGuideSheet, withAssistant } from './testkit-b7'
 
 /** PUT 본문을 상태에 반영 — 서버처럼 칸 값은 앱 스위치와 따로 보존한다(e2e/fixtures/notification-settings-mock 과 같은 규칙). */
 function apply(state: NotificationSettings, req: UpdateNotificationSettingsRequest): NotificationSettings {
@@ -116,4 +117,9 @@ test('가이드에 알림 가이드가 보인다 (WP-399)', async () => {
   const { user } = await openNotifications()
   const sheet = await openGuideSheet(user)
   expect(sheet.getByText(settingsGuides.notifications.lead)).toBeInTheDocument()
+  // WP-1298 — 가이드 섹션이 화면 섹션과 같은 id·제목으로 이어진다. 이 서버는 푸시를 꺼 둬 「이 기기」 섹션이 화면에 없고,
+  // 가이드도 그 도움말(이 기기 스위치·로그아웃 뒤 푸시)을 싣지 않는다.
+  expectGuideSectionsOnScreen(notificationsGuide(true))
+  for (const tip of settingsGuides.notifications.sections[0].tips) expect(sheet.queryByText(tip)).not.toBeInTheDocument()
+  expect(document.getElementById(SETTINGS_SECTION_IDS.notificationDevice)).toBeNull()
 })
