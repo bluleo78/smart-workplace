@@ -209,6 +209,9 @@ export function AttachmentViewer({
   }, [])
   // 확대·PDF 현재 페이지·원본 blob — 항목 key 와 함께 들어(useItemState) 다른 항목으로 넘어가면 자동으로 초기화(무시)된다.
   const [zoom, setZoom] = useItemState(itemKey, 1)
+  // HTML 스크립트 허용(WP-1321) — 본문(ViewerBody)은 AI 사이드 패널을 열면 대화상자가 non-modal 로 바뀌며 다시 붙으므로
+  // 허용 상태를 여기(대화상자 밖)서 항목별로 든다. 다른 항목으로 넘기면 지워져(useItemState 처럼 무시가 아니라) 돌아와도 다시 차단된다.
+  const [scriptsAllowedHtml, setScriptsAllowedHtml] = useResetOnChange<string | null>(itemKey, null)
   // 확대 단계 — 키보드(+/-/0)와 하단 확대 툴바가 같은 규칙을 쓴다(소수 오차는 둘째 자리에서 자른다).
   const zoomIn = () => setZoom(Math.min(ZOOM_MAX, roundZoom(zoom + ZOOM_STEP)))
   const zoomOut = () => setZoom(Math.max(ZOOM_MIN, roundZoom(zoom - ZOOM_STEP)))
@@ -658,6 +661,8 @@ export function AttachmentViewer({
                 media={mediaSession}
                 onOpenPanel={openPanel}
                 toolbarSlot={mobile ? null : toolbarSlot}
+                scriptsAllowedHtml={scriptsAllowedHtml}
+                onScriptsAllowedHtmlChange={setScriptsAllowedHtml}
                 sideInset={mobile && items.length > 1}
               />
             </div>

@@ -347,17 +347,17 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
       const code = block.getByTestId('wiki-html-embed-code')
       const preview = block.getByTestId('wiki-html-embed-preview')
       await expect(code).toBeVisible()
-      const wide = async () => {
-        const c = (await code.boundingBox())!
-        const p = (await preview.boundingBox())!
-        return { c, p }
-      }
+      // 상자를 잰다 — 다시 그리는 중(모바일 셸로 바뀌며 소스 칸을 다시 여는 사이)에는 미리보기가 아직 없어 null 일 수 있다.
+      // 부하가 큰 게이트에서 그 순간에 걸려 poll 이 TypeError 로 끝나던 것을(WP-1321 게이트) 「아직 아님」으로 보고 다시 잰다.
+      const wide = async () => ({ c: await code.boundingBox(), p: await preview.boundingBox() })
       await expect.poll(async () => {
         const { c, p } = await wide()
+        if (!c || !p) return false
         // 나란히 — 코드 오른쪽 끝이 미리보기 왼쪽보다 왼쪽이고 위쪽이 같다.
         return c.x + c.width <= p.x && Math.abs(c.y - p.y) < 2
       }).toBe(true)
       const { c: wc, p: wp } = await wide()
+      if (!wc || !wp) throw new Error('코드·미리보기 상자를 잴 수 없다')
       // 둘이 블록 폭을 반씩 나눈다.
       expect(Math.abs(wc.width - wp.width)).toBeLessThan(4)
       // 줄 번호 칸과 소스가 같은 줄 높이 — 높이가 같아야 줄 번호가 줄과 맞는다(pre 의 본문 줄 높이가 code 줄을 벌리던 것).
@@ -375,6 +375,7 @@ test.describe('노트 HTML 블록 (WP-1242)', () => {
       }).toPass()
       await expect.poll(async () => {
         const { c, p } = await wide()
+        if (!c || !p) return false
         return p.y >= c.y + c.height && Math.abs(c.x - p.x) < 2
       }).toBe(true)
       // 긴 줄은 접지 않고 코드 칸 안에서 가로로 스크롤한다 — 줄 번호와 줄이 어긋나지 않게.

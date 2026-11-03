@@ -19,6 +19,9 @@ import { HighRiskScriptConfirm, ScriptControls, SecurityChipView } from './Scrip
  *   새 문서는 다시 차단된다. 뷰어가 항목마다 key 로 새로 붙여 다른 파일로 넘기거나 다시 열어도 차단으로 돌아간다.
  * - securityCheckPath 가 있으면 그 묶음에 AI 보안 점검 칩을 둔다(WP-1262). 점검이 안 끝났거나 실패해도 스위치는 늘 쓸 수 있다.
  *   AI 가 「높음」으로 본 문서는 켤 때 확인 창을 한 번 거친다.
+ * - 허용 상태는 호출부가 들 수 있다(allowedHtml·onAllowedHtmlChange, WP-1321) — 뷰어는 AI 사이드 패널이 열리면 대화상자를
+ *   non-modal 로 바꾸며 본문을 다시 붙이므로, 이 컴포넌트 안의 상태만으로는 켠 스위치가 꺼짐으로 돌아갔다.
+ *   넘기지 않으면 지금처럼 안에서 든다.
  */
 export function HtmlPreview({
   html,
@@ -26,6 +29,8 @@ export function HtmlPreview({
   securityCheckPath,
   onOpenPanel,
   toolbarSlot,
+  allowedHtml: controlledAllowedHtml,
+  onAllowedHtmlChange,
 }: {
   html: string
   title: string
@@ -35,10 +40,17 @@ export function HtmlPreview({
   onOpenPanel?: () => void
   /** 뷰어 머리줄의 컨트롤 자리(데스크톱) — 있으면 스크립트 컨트롤을 그리로 포털하고, 없으면 문서 위에 띄운다(WP-1282). */
   toolbarSlot?: HTMLElement | null
+  /** 스크립트를 허용한 문서 문자열(호출부가 들 때) — 다시 마운트돼도 허용이 유지된다(WP-1321). onAllowedHtmlChange 가 없으면 안에서 든다. */
+  allowedHtml?: string | null
+  /** 허용한 문서가 바뀔 때(켜면 지금 문서, 끄면 null) — 넘기면 allowedHtml 로 제어한다. */
+  onAllowedHtmlChange?: (html: string | null) => void
 }) {
   // 수 MB 문서를 렌더마다 훑지 않게 문서가 바뀔 때만 판정한다.
   const hasScripts = useMemo(() => htmlHasScripts(html), [html])
-  const [allowedHtml, setAllowedHtml] = useState<string | null>(null)
+  const [localAllowedHtml, setLocalAllowedHtml] = useState<string | null>(null)
+  // 호출부가 setter 를 넘기면 그쪽 값을, 아니면 안의 상태를 쓴다 — 값만 넘기고 setter 가 없으면 스위치가 먹통이 되므로 setter 로 가른다.
+  const allowedHtml = onAllowedHtmlChange ? (controlledAllowedHtml ?? null) : localAllowedHtml
+  const setAllowedHtml = onAllowedHtmlChange ?? setLocalAllowedHtml
   const [confirmOpen, setConfirmOpen] = useState(false)
   const scriptsAllowed = allowedHtml === html
   const aiAvailable = useAiAvailable()

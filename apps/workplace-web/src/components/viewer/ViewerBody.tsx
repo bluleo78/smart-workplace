@@ -125,6 +125,8 @@ export const ViewerBody = memo(function ViewerBody({
   sideInset,
   onOpenPanel,
   toolbarSlot,
+  scriptsAllowedHtml,
+  onScriptsAllowedHtmlChange,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
@@ -152,6 +154,12 @@ export const ViewerBody = memo(function ViewerBody({
   onOpenPanel?: () => void
   /** 뷰어 머리줄의 컨트롤 자리(데스크톱만) — HTML 스크립트 컨트롤이 그리로 옮겨 간다(WP-1282). */
   toolbarSlot?: HTMLElement | null
+  /**
+   * HTML 스크립트 허용 상태(WP-1321) — 뷰어가 항목별로 들고 내려 준다. 이 본문은 AI 사이드 패널을 열 때(대화상자 modal 전환)
+   * 다시 붙으므로 여기서 들면 켠 스위치가 꺼짐으로 돌아간다. 호출부가 고정 setter 를 넘긴다(memo).
+   */
+  scriptsAllowedHtml?: string | null
+  onScriptsAllowedHtmlChange?: (html: string | null) => void
 }) {
   const kind = itemPreviewKind(item)
   // 서버 변환 PDF(WP-431) — 원본 대신 변환 결과를 받아 PDF 경로로 그린다. 원본은 받지 않으므로 10MB 확인도 건너뛴다.
@@ -378,6 +386,8 @@ export const ViewerBody = memo(function ViewerBody({
           securityCheckPath={item.securityCheckPath}
           onOpenPanel={onOpenPanel}
           toolbarSlot={toolbarSlot}
+          allowedHtml={scriptsAllowedHtml}
+          onAllowedHtmlChange={onScriptsAllowedHtmlChange}
         />
       )}
       {!error && kind === 'TEXT' && text != null && (
