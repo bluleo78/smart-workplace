@@ -22,7 +22,7 @@ import { createRole, createUserDetail } from '../../../e2e/factories/auth.factor
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
 import { gate } from './memoryTestkit-b7'
-import { openGuideSheet, screenContext, withAssistant } from './testkit-b7'
+import { expectGuideSectionsOnScreen, openGuideSheet, screenContext, withAssistant } from './testkit-b7'
 
 const ADMIN = { isAdmin: true, hasRole: (r: string) => r === 'ADMIN' }
 
@@ -77,6 +77,8 @@ describe('화면별 가이드 내용', () => {
     })
     await screen.findByRole('textbox', { name: '역할 이름' })
     expect((await openGuideSheet(user)).getByText(settingsGuides.roleDetail.lead)).toBeInTheDocument()
+    // WP-1298 — 가이드 섹션이 화면 섹션과 같은 id·제목으로 이어진다(본문 스크롤을 따라가는 기준).
+    expectGuideSectionsOnScreen(settingsGuides.roleDetail)
   })
 
   test('사용자 상세는 사용자 상세 가이드를 붙인다', async () => {
@@ -87,6 +89,7 @@ describe('화면별 가이드 내용', () => {
     })
     await screen.findByRole('heading', { name: '역할 할당' })
     expect((await openGuideSheet(user)).getByText(settingsGuides.userDetail.lead)).toBeInTheDocument()
+    expectGuideSectionsOnScreen(settingsGuides.userDetail)
     // AI 화면 맥락 — 대상(이름·역할·활성)과 username ref (WP-414).
     await waitFor(() => expect(screenContext()?.focus).toMatchObject({ type: '사용자', label: '테스트 사용자', refs: { username: 'user1' } }))
     const ctx = screenContext()!
@@ -107,6 +110,9 @@ describe('화면별 가이드 내용', () => {
     const sheet = await openGuideSheet(user)
     expect(sheet.getByText(guide.lead)).toBeInTheDocument()
     expect(sheet.queryByText(absent.lead)).not.toBeInTheDocument()
+    // 멤버 목록은 늦게 와 그 뒤에 그려지는 섹션이 있다 — 마지막 섹션(필드)까지 그려진 뒤 본다.
+    await screen.findByRole('heading', { level: 2, name: '프로젝트 필드' })
+    expectGuideSectionsOnScreen(guide)
     await waitFor(() => expect(screenContext()?.focus).toMatchObject({ type: '프로젝트', label: 'Workplace', refs: { projectKey: 'WP' } }))
     const ctx = screenContext()!
     expect(ctx.view).toBe(view)
@@ -140,9 +146,10 @@ describe('로딩 중에도 가이드', () => {
     })
     const sheet = await openGuideSheet(user)
     expect(sheet.getByText(settingsGuides.userDetail.lead)).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: '역할 할당' })).not.toBeInTheDocument()
+    // 가이드 시트에도 「역할 할당」 섹션 제목(h3)이 있어 화면 섹션 제목(h2)만 본다(WP-1298).
+    expect(screen.queryByRole('heading', { level: 2, name: '역할 할당' })).not.toBeInTheDocument()
     held.release()
-    expect(await screen.findByRole('heading', { name: '역할 할당' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: '역할 할당' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(settingsGuides.userDetail.lead)).toBeInTheDocument())
   })
 })

@@ -7,6 +7,7 @@ import { SettingsSection } from '@/components/layout/SettingsSection';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/overlay/select';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -239,6 +240,7 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
     <>
     {/* agentOnly 모드(개인 프로젝트)면 "AI 어시스턴트" 섹션, 팀 프로젝트면 "멤버" — 주석 섹션(WP-397) */}
     <SettingsSection
+      id={SETTINGS_SECTION_IDS.projectMembers}
       title={agentOnly ? 'AI 어시스턴트' : '멤버'}
       description={
         agentOnly

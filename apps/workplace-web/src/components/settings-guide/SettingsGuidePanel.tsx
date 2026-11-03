@@ -222,14 +222,15 @@ export function SettingsGuidePanel({
     <div ref={rootRef} className="space-y-5 break-keep">
       {/* 소개·알아두기는 보조 본문 토큰(body-secondary: text-sm leading-6) — 좁은 열에서 여러 줄로 감겨도 빽빽하지 않게. */}
       <p className="text-sm leading-6 text-muted-foreground">{guide.lead}</p>
-      {guide.tips.length > 0 && (
+      {guide.tips && guide.tips.length > 0 && (
         <Block title="알아두기">
           <TipList tips={guide.tips} />
         </Block>
       )}
-      {/* 섹션별 가이드(WP-1281) — 화면 섹션 순서대로. 지금 섹션(activeSection, 아직 모르면 첫 섹션)을 강조한다. */}
+      {/* 섹션별 가이드(WP-1281) — 화면 섹션 순서대로. 지금 섹션(activeSection, 아직 모르면 첫 섹션)을 강조한다.
+          지금 화면 섹션에 도움말이 없으면(가이드에 없는 id·빈 id, WP-1298) 아무 섹션도 강조하지 않는다 — null(아직 모름)과 구분한다. */}
       {guide.sections?.map((sec, i) => (
-        <GuideSection key={sec.id} section={sec} active={activeSection ? activeSection === sec.id : i === 0} />
+        <GuideSection key={sec.id} section={sec} active={activeSection != null ? activeSection === sec.id : i === 0} />
       ))}
       {guide.caution && (
         <Block title="주의">

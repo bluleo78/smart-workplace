@@ -6,7 +6,8 @@ import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
 import { NotificationSettingsMatrix } from '@/components/settings/NotificationSettingsMatrix'
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
+import { notificationsGuide } from '@/components/settings-guide/settingsGuides'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useNotificationSettings, useUpdateNotificationSettings } from '@/hooks/queries/useNotificationSettings'
 import { useDevicePush, useDisablePush, useEnablePush, usePushConfig } from '@/hooks/queries/usePush'
@@ -53,7 +54,7 @@ export default function NotificationSettingsPage() {
     <SettingsPage
       title="알림"
       width="form"
-      guide={settingsGuides.notifications}
+      guide={notificationsGuide(config.isSuccess && !enabled)}
       // WP-414: AI 화면 맥락 — 서버 푸시 사용 여부·이 기기 푸시 켜짐(로드된 값만). 구독 키 등은 싣지 않는다.
       aiContext={{
         facts: [
@@ -74,7 +75,7 @@ export default function NotificationSettingsPage() {
       )}
 
       {enabled && (
-        <SettingsSection title="이 기기" description="앱을 닫아도 이 기기로 알림을 받아요.">
+        <SettingsSection id={SETTINGS_SECTION_IDS.notificationDevice} title="이 기기" description="앱을 닫아도 이 기기로 알림을 받아요.">
           <SettingsToggleRow
             label="이 기기에서 푸시 받기"
             control={
@@ -108,6 +109,7 @@ export default function NotificationSettingsPage() {
       )}
 
       <SettingsSection
+        id={SETTINGS_SECTION_IDS.notificationTypes}
         title="알림 종류"
         description="끄면 알림 목록·실시간 표시·푸시 모두 오지 않아요. 모든 기기에 똑같이 적용돼요."
       >

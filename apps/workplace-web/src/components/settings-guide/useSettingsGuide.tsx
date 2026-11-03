@@ -14,9 +14,11 @@ import type { SettingsGuide } from './types'
  * 폼의 max-w-5xl 은 border-box 라 좌우 여백 px-4 가 1024 안에 이미 들어 있고, 열 280 도 오른쪽 여백 pr-4 를 포함한다.
  */
 export const SETTINGS_GUIDE_MIN_BODY_WIDTH = 1336
-/** 열 폭 — 남는 폭(본문 폭 − 폼 1024 − 간격 32)에 따라 최소 280 ~ 최대 360px(WP-1281). 넓은 화면에서 가이드 문장이 너무 잘게 꺾이지 않게. */
+/**
+ * 열 폭 최소값 — 열은 남는 폭(본문 폭 − 폼 1024 − 간격 32)을 모두 채우고, 이보다 좁아지면 열 대신 헤더 버튼이 된다.
+ * WP-1281 은 최대 360px 로 묶었는데, 넓은 화면에서 폼 오른쪽에 빈칸이 남고 도움말이 좁게 꺾여 사람이 채우라고 했다(WP-1298).
+ */
 const ASIDE_MIN_WIDTH = 280
-const ASIDE_MAX_WIDTH = 360
 /** 접힘 상태는 화면별이 아니라 기기 전역 1개로 기억한다(usePersistentToggle — '1' 접힘 / '0' 펼침). */
 const COLLAPSED_KEY = 'settings-guide:collapsed'
 
@@ -39,7 +41,7 @@ function useBodyBox(
   trackHeight: boolean,
 ): { wide: boolean; height: number | undefined; asideWidth: number } {
   const [wide, setWide] = useState(false)
-  // 열 폭은 잘라 둔 값으로 둔다 — 본문 폭 그대로 두면 창을 끄는 동안 값이 매번 달라져 SettingsPage 가 프레임마다 다시 그려진다.
+  // 열 폭은 본문 폭을 따라 정한 값으로 둔다 — 창 폭을 바꾸는 동안에는 열도 따라 넓어지고 좁아진다.
   const [asideWidth, setAsideWidth] = useState(ASIDE_MIN_WIDTH)
   const [height, setHeight] = useState<number | undefined>(undefined)
   // useLayoutEffect: 그리기 전에 재야 넓은 화면 진입 때 버튼이 한 프레임 보였다가 열로 바뀌지 않는다.
@@ -59,28 +61,29 @@ function useBodyBox(
   return { wide, height, asideWidth }
 }
 
-/** 남는 폭(본문 폭 − 폼·간격)에 맞춘 열 폭 — ASIDE_MIN_WIDTH ~ ASIDE_MAX_WIDTH. */
+/** 남는 폭(본문 폭 − 폼·간격)을 모두 채우는 열 폭 — ASIDE_MIN_WIDTH 이상(WP-1298, 상한 없음). */
 function clampAsideWidth(bodyWidth: number): number {
-  return Math.max(ASIDE_MIN_WIDTH, Math.min(ASIDE_MAX_WIDTH, bodyWidth - (SETTINGS_GUIDE_MIN_BODY_WIDTH - ASIDE_MIN_WIDTH)))
+  return Math.max(ASIDE_MIN_WIDTH, bodyWidth - (SETTINGS_GUIDE_MIN_BODY_WIDTH - ASIDE_MIN_WIDTH))
 }
 
 /**
- * 본문에서 지금 보고 있는 섹션(WP-1281) — 가이드 섹션 id 와 같은 id 를 가진 본문 요소의 위치를 스크롤마다(rAF 로 한 번) 재고
- * pickActiveSection 으로 고른다. ids 가 비면 재지 않는다. ids 는 문자열 하나로 받아 렌더마다 새 배열이어도 다시 달지 않는다.
+ * 본문에서 지금 보고 있는 섹션(WP-1281) — 본문의 설정 섹션(SettingsSection) 위치를 스크롤마다(rAF 로 한 번) 재고 pickActiveSection 으로 고른
+ * 화면 섹션 id(id 없는 섹션은 빈 문자열), 잴 섹션이 없으면 null. 도움말 없는 섹션(기본 정보·상태·위험 구역 등)도 함께 잰다(WP-1298) —
+ * 가이드 섹션 id 와 맞는 것이 없으니 아무 섹션도 강조되지 않는다. 도움말 있는 섹션만 재면 그런 섹션을 읽는 동안 위쪽 섹션의 도움말·주의가
+ * 계속 강조됐다. idsKey(가이드 섹션 id)가 비면 재지 않는다 — 문자열 하나로 받아 렌더마다 새 배열이어도 다시 달지 않는다.
  */
 function useActiveSection(scrollEl: HTMLElement | null, idsKey: string): string | null {
   const [active, setActive] = useState<string | null>(null)
   useEffect(() => {
     if (!scrollEl || idsKey === '') return
-    const ids = idsKey.split('|')
     let frame = 0
     const measure = () => {
       frame = 0
       const top = scrollEl.getBoundingClientRect().top
-      const positions = ids.flatMap((id) => {
-        const el = document.getElementById(id)
-        return el && scrollEl.contains(el) ? [{ id, top: el.getBoundingClientRect().top - top }] : []
-      })
+      const positions = [...scrollEl.querySelectorAll<HTMLElement>('[data-slot="settings-section"]')].map((el) => ({
+        id: el.id,
+        top: el.getBoundingClientRect().top - top,
+      }))
       const atBottom = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2
       setActive(pickActiveSection(positions, scrollEl.clientHeight, atBottom))
     }

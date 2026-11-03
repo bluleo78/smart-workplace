@@ -3,6 +3,8 @@ import { useEffect,useState } from 'react';
 import { Navigate, useNavigate,useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
+
 import { rolesApi } from '../../api/roles';
 import { usersApi } from '../../api/users';
 import { SettingsPage } from '../../components/layout/SettingsPage';
@@ -116,8 +118,8 @@ export default function UserDetailPage() {
       </SettingsSection>
 
       {/* 활성 상태·역할 할당 — 에이전트 상세와 같은 섹션(WP-1075). key 로 다른 사용자 전환 시 역할 선택을 다시 시드한다. */}
-      <UserActiveSection key={user.id} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
-      <UserRolesSection key={user.id} user={user} allRoles={allRoles} onSaved={setUser} />
+      <UserActiveSection key={user.id} id={SETTINGS_SECTION_IDS.userActive} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
+      <UserRolesSection key={user.id} id={SETTINGS_SECTION_IDS.userRoles} user={user} allRoles={allRoles} onSaved={setUser} />
     </SettingsPage>
   );
 }

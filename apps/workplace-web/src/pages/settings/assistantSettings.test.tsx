@@ -14,7 +14,7 @@ import { renderScreen } from '@/test/renderScreen'
 
 import AssistantSettingsPage from './AssistantSettingsPage'
 import { aiMemoriesApi, aiPreferencesApi, memoryChangesApi } from './memoryTestkit-b7'
-import { openGuideSheet, withAssistant } from './testkit-b7'
+import { expectGuideSectionsOnScreen, openGuideSheet, withAssistant } from './testkit-b7'
 
 const status = (over: Record<string, unknown> = {}) => ({
   configured: true, tokenLabel: null, tokenLastUsedAt: null, model: 'claude-sonnet-5-5', thinkingDepth: 'NORMAL',
@@ -56,6 +56,8 @@ describe('AI 비서 화면', () => {
     expect(screen.getByTestId('page-header')).toHaveTextContent('AI 비서')
     const sheet = await openGuideSheet(user)
     expect(sheet.getByText(settingsGuides.assistant.lead)).toBeInTheDocument()
+    // WP-1298 — 가이드 섹션(개인 비서·추천 질문·메모리)이 화면 섹션과 같은 id·제목으로 이어진다.
+    expectGuideSectionsOnScreen(settingsGuides.assistant)
   })
 
   // WP-414 — 가이드의 「이 설정에 대해 AI에게 묻기」는 입력창 문구를 채운 채 AI 를 연다(문구·맥락 전송·포커스는 E2E·AIChatPanel 이 본다).

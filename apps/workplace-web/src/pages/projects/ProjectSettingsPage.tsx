@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { SharedMemoryLink } from '@/components/ai/SharedMemoryLink';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { DEFAULT_PROJECT_UNDELETABLE, projectSettingsGuide } from '@/components/settings-guide/settingsGuides';
 import {
   AlertDialog,
@@ -227,6 +228,7 @@ export default function ProjectSettingsPage() {
           {/* 삭제는 소유자만(WP-479) — 권한이 없으면 위험 구역 자체를 그리지 않는다. */}
           {canManage && (
             <SettingsSection
+              id={SETTINGS_SECTION_IDS.projectDanger}
               tone="danger"
               title="위험 구역"
               description={isDefaultProject

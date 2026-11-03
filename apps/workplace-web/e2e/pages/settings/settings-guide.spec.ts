@@ -39,15 +39,19 @@ async function expectMobileRelatedLink(page: Page, guide: SettingsGuide, what: s
 test.use({ viewport: { width: 1920, height: 1080 } })
 
 test.describe('설정 가이드 — 넓은 화면 열', () => {
-  test('1920: 본문 오른쪽에 가이드 열이 최대 폭(360px)으로 보이고 헤더 버튼은 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  test('1920: 본문 오른쪽에 가이드 열이 남는 폭을 채워 보이고 헤더 버튼은 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const aside = page.getByTestId('settings-guide-aside')
     await expect(aside).toBeVisible()
     await expect(page.getByTestId('settings-guide-button')).toHaveCount(0)
     await expect(aside.getByText(profile.lead)).toBeVisible()
     const a = await expectAsideRightOfForm(page)
-    // 남는 폭이 넉넉한 1920 에서는 열이 최대 360px 까지 넓어진다(WP-1281 — 280~360 사이로 남는 폭을 따른다).
-    expect(Math.abs(a.width - 360)).toBeLessThanOrEqual(1)
+    // 열은 폼 오른쪽에 남는 폭을 모두 채운다(WP-1298 — 상한 360 을 없앴다). 1920 에서는 360 보다 넓고, 열 오른쪽 끝이 본문 스크롤 영역
+    // 오른쪽 끝(스크롤바 폭 이내)에 닿아 빈칸이 남지 않는다.
+    const body = await boxOf(page.getByTestId('page-body'))
+    expect(a.width).toBeGreaterThan(360)
+    expect(body.x + body.width - (a.x + a.width)).toBeGreaterThanOrEqual(0)
+    expect(body.x + body.width - (a.x + a.width)).toBeLessThanOrEqual(20)
     // 열 머리 「설정 가이드」 가 첫 섹션 제목과 같은 높이(중심 y ±2px)에 선다 — 경계선 없는 열의 소속 단서.
     const [title, first] = await Promise.all([
       boxOf(aside.getByRole('heading', { level: 2, name: '설정 가이드' })),
@@ -74,9 +78,29 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
     expect(a.y + a.height).toBeLessThanOrEqual(500)
   })
 
-  test('짧은 데스크톱(1920×500): 폼을 내리지 않고 열 안에서 스크롤해 「AI에게 묻기」에 닿는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-    // WP-414: 1440 폭은 열이 아니라 헤더 버튼(시트)이라, 열이 보이는 1920 폭에서 높이를 줄여 「열 > 본문 높이」를 만든다.
+  // WP-1298: 섹션별 가이드 — 본문 스크롤 위치로 고른 지금 섹션을 열이 강조하고 그 섹션까지 열을 옮긴다(대표 화면: 프로필).
+  // 섹션 판정은 activeSection.test.ts, 화면 id 대조는 화면 테스트(expectGuideSectionsOnScreen)가 보고, 여기서는 실제 스크롤 기하만 본다.
+  test('1920×500: 본문을 내리면 가이드 열이 지금 섹션(비밀번호 변경)으로 옮겨 가 강조된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1920, height: 500 })
+    await page.goto('/settings/profile')
+    const aside = page.getByTestId('settings-guide-aside')
+    await expect(aside).toBeVisible()
+    const [info, password] = profile.sections.map((s) => aside.locator(`[data-guide-section="${s.id}"]`))
+    // 맨 위(아바타·프로필 정보)에서는 비밀번호 섹션이 강조되지 않는다.
+    await expect(password).not.toHaveAttribute('data-active')
+
+    const scroller = page.getByTestId('page-body')
+    expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await expect(password).toHaveAttribute('data-active', 'true')
+    await expect(info).not.toHaveAttribute('data-active')
+    // 열이 길어 스스로 스크롤되는 높이에서도 강조된 섹션 제목이 열 안에 보이도록 옮겨 간다.
+    await expect(password.getByRole('heading', { name: profile.sections[1].title })).toBeInViewport()
+  })
+
+  test('짧은 데스크톱(1920×400): 폼을 내리지 않고 열 안에서 스크롤해 「AI에게 묻기」에 닿는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    // WP-414: 1440 폭은 열이 아니라 헤더 버튼(시트)이라, 열이 보이는 1920 폭에서 높이를 줄여 「열 > 본문 높이」를 만든다.
+    await page.setViewportSize({ width: 1920, height: 400 })
     await page.goto('/settings/profile')
     const aside = page.getByTestId('settings-guide-aside')
     await expect(aside).toBeVisible()

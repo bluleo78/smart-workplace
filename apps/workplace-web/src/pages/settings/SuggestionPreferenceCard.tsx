@@ -2,6 +2,7 @@
 // 스위치는 채팅 패널이 보는 것과 같은 설정 쿼리 캐시를 갱신하므로 새로고침 없이 추천 UI 가 숨고 나타난다.
 import { BusySwitch } from '@/components/BusySwitch';
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { useAiPreferences, useUpdateAiPreferences } from '@/hooks/queries/useAiPreferences';
 
 export function SuggestionPreferenceCard() {
@@ -9,6 +10,7 @@ export function SuggestionPreferenceCard() {
   const update = useUpdateAiPreferences();
   return (
     <SettingsSection
+      id={SETTINGS_SECTION_IDS.assistantSuggestions}
       data-testid="ai-suggestions-card"
       title="추천 질문"
       description="AI 대화에서 시작할 질문과 답 뒤 이어 물을 질문을 제안해요."

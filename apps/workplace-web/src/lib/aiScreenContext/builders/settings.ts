@@ -36,7 +36,7 @@ function guidePairs(guide: SettingsGuide): Array<[string, FactValue]> {
     ['소개', guide.lead],
     ['주의', guide.caution],
     ...sections.flatMap((s): Array<[string, FactValue]> => (s.caution ? [[`${s.title} · 주의`, s.caution]] : [])),
-    ...guide.tips.map((tip, i): [string, FactValue] => [`알아두기 ${i + 1}`, tip]),
+    ...(guide.tips ?? []).map((tip, i): [string, FactValue] => [`알아두기 ${i + 1}`, tip]),
     ...sections.flatMap((s) => (s.tips ?? []).map((tip, i): [string, FactValue] => [`${s.title} · 알아두기 ${i + 1}`, tip])),
   ];
 }

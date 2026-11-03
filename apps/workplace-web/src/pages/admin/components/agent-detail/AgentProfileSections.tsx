@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
-import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/settingsGuides';
+import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,

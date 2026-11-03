@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 import { SettingsSection } from '@/components/layout/SettingsSection';
 import { useOpenSettingsGuide } from '@/components/settings-guide/openSettingsGuide';
-import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/settingsGuides';
+import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,

@@ -7,6 +7,7 @@ import { z } from 'zod'
 
 import { usersApi } from '@/api/users'
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection'
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form-field'
 import { PasswordInput } from '@/components/ui/password-input'
@@ -41,6 +42,8 @@ export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
   return (
     // 프로필 화면의 다른 섹션과 같은 주석 섹션 틀 — 입력 묶음은 448px 상한(WP-397).
     <SettingsSection
+      // 「비밀번호 변경」 섹션과 같은 id — 둘 중 하나만 그려지고 가이드 도움말도 같다(WP-1298).
+      id={SETTINGS_SECTION_IDS.profilePassword}
       title="비밀번호 설정"
       description="이 계정은 SSO 로만 로그인해요. 비밀번호를 설정하면 아이디/비밀번호로도 로그인할 수 있어요."
     >

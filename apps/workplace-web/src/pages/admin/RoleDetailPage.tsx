@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate,useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 
 import { permissionsApi } from '../../api/permissions';
@@ -234,7 +235,7 @@ export default function RoleDetailPage() {
       </SettingsSection>
 
       {/* 권한 할당 — 카테고리별 체크박스(h3)는 섹션 제목(h2) 아래 계층 */}
-      <SettingsSection title="권한 할당" description="이 역할을 가진 구성원이 할 수 있는 일이에요.">
+      <SettingsSection id={SETTINGS_SECTION_IDS.rolePermissions} title="권한 할당" description="이 역할을 가진 구성원이 할 수 있는 일이에요.">
         {Object.entries(permissionsByCategory).map(([category, perms]) => (
           <div key={category} className="space-y-3">
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">{category}</h3>
