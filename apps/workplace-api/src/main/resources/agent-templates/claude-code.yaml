@@ -40,9 +40,9 @@ sidecars:
 plugins:
   - { marketplace: genia-works, name: genia-works, version: latest }
   - { marketplace: anthropic-plugin-directory, name: superpowers, version: 6.4.2-8ca22dba9a94 }
-  - { marketplace: anthropic-plugin-directory, name: code-review-anthropics, version: 1.0.1-a7ba5b93db0c }
+  - { marketplace: anthropic-plugin-directory, name: code-review-anthropics, version: 1.0.1-a2e251d9b97b }
   - { marketplace: anthropic-plugin-directory, name: code-simplifier, version: 1.0.0-ea0a38e1d671 }
-  - { marketplace: anthropic-plugin-directory, name: feature-dev, version: 1.0.1-a7ba5b93db0c }
-  - { marketplace: anthropic-plugin-directory, name: frontend-design, version: 1.1.1-a7ba5b93db0c }
+  - { marketplace: anthropic-plugin-directory, name: feature-dev, version: 1.0.1-a2e251d9b97b }
+  - { marketplace: anthropic-plugin-directory, name: frontend-design, version: 1.1.1-a2e251d9b97b }
   - { marketplace: claude-plugins-official, name: jdtls-lsp, version: 1.0.0 }
   - { marketplace: claude-plugins-official, name: typescript-lsp, version: 1.0.0 }
