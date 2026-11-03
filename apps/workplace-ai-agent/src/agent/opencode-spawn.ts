@@ -5,15 +5,23 @@
 // (mail/messaging/home 의 매-요청 신규 스폰)이 동시에 뜨면 이 경합이 발생한다.
 //
 // 해법: 서버마다 고유 XDG_DATA_HOME 을 줘 각자 자기 opencode.db 를 쓰게 해 공유 자원 자체를 없앤다.
-// 프로바이더 자격증명은 OPENCODE_CONFIG_CONTENT(config)로 주입되고 데이터 디렉터리(auth.json 없음)에
-// 의존하지 않으므로, 디렉터리를 격리해도 인증은 깨지지 않는다.
+// 프로바이더 자격증명은 config 로 주입되고 데이터 디렉터리(auth.json 없음)에 의존하지 않으므로,
+// 디렉터리를 격리해도 인증은 깨지지 않는다.
+//
+// 단 에이전트 프롬프트는 config 에서 빼 그 격리 디렉터리의 파일로 두고 `{file:경로}` 로 가리킨다(WP-1319).
+// SDK(createOpencodeServer)는 config 전체를 OPENCODE_CONFIG_CONTENT 한 칸에 JSON 으로 넣는데, 시스템 프롬프트 +
+// 서브에이전트 9개 프롬프트가 Linux 의 환경 변수 문자열 한도(MAX_ARG_STRLEN 128KB)를 넘어 spawn 이 E2BIG 로 실패했다.
+// config 전체를 파일(OPENCODE_CONFIG)로 넘기지 않는 이유: 그 파일은 프로젝트·.opencode 설정보다 먼저 읽혀 우선순위가 낮아지고
+// (도구 차단·권한 거부를 덮어쓸 수 있다), 자격증명이 디스크에 남는다. 프롬프트만 빼면 나머지(자격증명·도구·권한)는
+// 지금처럼 가장 나중에 읽히는 OPENCODE_CONFIG_CONTENT 로 가고, 디스크에는 프롬프트만 남는다(1.19.5 실측: `{file:}` 은
+// 원문을 그대로 읽고 그 안의 `{env:…}` 같은 글자는 치환하지 않는다).
 //
 // 추가로 "동시 생존 opencode 서버 수"를 세마포어로 제한한다. 실측상 opencode(bun) 서버 하나가
 // 부팅 후에도 ~수백MB(RSS ≈ 380MB, host 기준)를 상주하므로, 웜 풀 누적 + 풀 비대상 매-요청 스폰이
 // 겹치면 컨테이너/호스트가 OOM(SIGKILL, exit code null)에 빠진다. 부팅 순간이 아니라 "살아있는
 // 서버 총량"이 메모리를 지배하므로(부팅 RSS ≈ idle RSS), 슬롯을 부팅 직전에 얻어 서버 종료(close)
 // 시점에 반납한다 → 점유 기간 = 서버 수명 = 실제 메모리 점유 기간. 한도는 env 로 조정한다.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -69,8 +77,16 @@ export async function createIsolatedOpencode(config: Config): Promise<OpencodeHa
     liveServers.release();
   };
 
-  // 이 서버 전용 데이터 디렉터리(빈 상태로 시작 → opencode 가 자기 DB 를 새로 만든다).
-  const dataDir = mkdtempSync(join(tmpdir(), 'opencode-data-'));
+  // 이 서버 전용 데이터 디렉터리(빈 상태로 시작 → opencode 가 자기 DB 를 새로 만든다). 프롬프트 파일도 여기 둔다(파일 머리 주석).
+  let prepared: { dataDir: string; spawnConfig: Config };
+  try {
+    prepared = prepareDataDir(config);
+  } catch (e) {
+    // 디스크 쓰기 실패(ENOSPC 등)에도 슬롯이 새면 상한만큼 실패한 뒤 모든 스폰이 영영 대기한다 — 반납하고 재전파.
+    releasePermit();
+    throw e;
+  }
+  const { dataDir, spawnConfig } = prepared;
 
   // createOpencodeServer 는 per-call env 옵션이 없고 스폰 시 {...process.env} 를 그대로 자식에 넘긴다.
   // 따라서 XDG_DATA_HOME 을 스폰 직전에 process.env 에 심는다. launch(자식 spawn + env 캡처)는
@@ -80,7 +96,7 @@ export async function createIsolatedOpencode(config: Config): Promise<OpencodeHa
   process.env.XDG_DATA_HOME = dataDir;
   let booting: Promise<OpencodeHandle>;
   try {
-    booting = createOpencode({ config, port: 0 });
+    booting = createOpencode({ config: spawnConfig, port: 0 });
   } finally {
     if (prev === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = prev;
@@ -117,4 +133,32 @@ export async function createIsolatedOpencode(config: Config): Promise<OpencodeHa
       },
     },
   };
+}
+
+/** 서버 전용 데이터 디렉터리를 만들고 프롬프트를 그 안 파일로 뺀 config 를 돌려준다. 실패하면 만든 디렉터리를 지우고 재전파. */
+function prepareDataDir(config: Config): { dataDir: string; spawnConfig: Config } {
+  const dataDir = mkdtempSync(join(tmpdir(), 'opencode-data-'));
+  try {
+    return { dataDir, spawnConfig: externalizeAgentPrompts(config, dataDir) };
+  } catch (e) {
+    rmSync(dataDir, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+/**
+ * 에이전트 프롬프트를 dir 의 파일로 쓰고 config 에는 `{file:<절대 경로>}` 만 남긴 사본을 돌려준다(WP-1319 — 파일 머리 주석).
+ * 파일 이름은 순번으로 짓는다(에이전트 이름을 경로에 넣지 않는다). 원본 config 는 바꾸지 않는다.
+ */
+function externalizeAgentPrompts(config: Config, dir: string): Config {
+  if (!config.agent) return config;
+  const agent = Object.fromEntries(
+    Object.entries(config.agent).map(([name, def], idx) => {
+      if (!def?.prompt) return [name, def];
+      const file = join(dir, `agent-prompt-${idx}.md`);
+      writeFileSync(file, def.prompt, { mode: 0o600 });
+      return [name, { ...def, prompt: `{file:${file}}` }];
+    }),
+  );
+  return { ...config, agent };
 }

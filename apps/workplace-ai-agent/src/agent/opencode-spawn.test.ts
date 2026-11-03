@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -23,17 +23,39 @@ beforeEach(() => {
 });
 
 describe('createIsolatedOpencode', () => {
-  it('createOpencode 를 config + port:0 으로 호출한다', async () => {
+  it('에이전트 프롬프트는 격리 디렉터리의 0600 파일로 빼고 config 에는 {file:} 만 남긴다 — 나머지는 그대로(WP-1319)', async () => {
     let dir: string | undefined;
     mockHandle((d) => (dir = d));
-    const cfg = { foo: 'bar' } as never;
+    const big = '한글 "따옴표" \\ {env:HOME}\n' + 'x'.repeat(200_000);
+    const cfg = {
+      provider: { p: { options: { apiKey: 'secret' } } },
+      agent: { primary: { mode: 'primary', prompt: big, tools: { '*': false } }, noPrompt: { mode: 'subagent' } },
+    } as never;
 
     const handle = await createIsolatedOpencode(cfg);
 
-    expect(createOpencode).toHaveBeenCalledWith({ config: cfg, port: 0 });
-    // 정리(누수 방지)
+    const passed = createOpencode.mock.calls[0][0] as { config: { agent: Record<string, { prompt?: string; tools?: unknown }>; provider: unknown }; port: number };
+    expect(passed.port).toBe(0);
+    expect(passed.config.provider).toEqual({ p: { options: { apiKey: 'secret' } } }); // 자격증명은 파일로 가지 않는다
+    expect(passed.config.agent.primary.tools).toEqual({ '*': false }); // 도구·권한도 그대로 환경 변수로(우선순위 유지)
+    expect(passed.config.agent.noPrompt).toEqual({ mode: 'subagent' });
+    const ref = passed.config.agent.primary.prompt!.match(/^\{file:(.+)\}$/)![1];
+    expect(ref.startsWith(dir!)).toBe(true); // 서버 전용 디렉터리 안 — 종료 때 함께 지워진다
+    expect(readFileSync(ref, 'utf8')).toBe(big);
+    expect(statSync(ref).mode & 0o777).toBe(0o600);
+    expect(Buffer.byteLength(JSON.stringify(passed.config))).toBeLessThan(128 * 1024); // 환경 변수 한 칸 한도 아래
+    expect((cfg as { agent: { primary: { prompt: string } } }).agent.primary.prompt).toBe(big); // 원본 config 는 그대로
+
     handle.server.close();
-    void dir;
+    expect(existsSync(ref)).toBe(false);
+  });
+
+  it('에이전트가 없는 config 는 그대로 넘긴다', async () => {
+    mockHandle(() => {});
+    const cfg = { foo: 'bar' } as never;
+    const handle = await createIsolatedOpencode(cfg);
+    expect(createOpencode).toHaveBeenCalledWith({ config: cfg, port: 0 });
+    handle.server.close();
   });
 
   it('스폰 중 XDG_DATA_HOME 을 고유 temp 디렉터리로 설정하고, 호출 후 원래 값으로 복원한다', async () => {

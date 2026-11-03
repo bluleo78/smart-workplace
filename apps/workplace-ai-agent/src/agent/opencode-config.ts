@@ -1,6 +1,7 @@
 // Task9: RunnerInput → opencode Config 빌더. opencode 는 별도 프로세스(opencode CLI)로 스폰되며
-// createOpencode({config}) 가 OPENCODE_CONFIG_CONTENT 환경변수(JSON)로 config 전체를 그 프로세스에
-// 주입한다(비밀 포함 — 우리 자신의 process.env 에는 아무 것도 심지 않는다).
+// createOpencode({config}) 가 OPENCODE_CONFIG_CONTENT 환경변수(JSON)로 config 를 그 프로세스에 주입한다
+// (비밀 포함). 단 에이전트 프롬프트는 환경 변수 길이 한도 때문에 스폰 직전 파일로 빼고 `{file:}` 로 가리킨다
+// (opencode-spawn.externalizeAgentPrompts, WP-1319).
 // 실제 타입은 node_modules/@opencode-ai/sdk 의 gen/types.gen.d.ts 기준(Config/AgentConfig/McpLocalConfig).
 import type { Config as OpencodeConfig, AgentConfig as OpencodeAgentConfig } from '@opencode-ai/sdk';
 
