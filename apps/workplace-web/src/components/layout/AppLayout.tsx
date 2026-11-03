@@ -12,10 +12,12 @@ import { DashboardEditDraftProvider } from '@/components/home/dashboard/Dashboar
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
+import { TopCenterSlot } from '@/components/layout/TopCenterSlot'
 import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
+import { GlobalIssueSearch } from '@/components/search/GlobalIssueSearch'
 import { SendToChatHost } from '@/components/share/SendToChatHost'
 import { useShareHotkeys } from '@/components/share/useShareHotkeys'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
@@ -122,8 +124,13 @@ export function AppLayout() {
               </MessagingConnectionContext.Provider>
               </DashboardEditDraftProvider>
             </InboxProvider>
-            {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만. */}
-            {aiAvailable && !isMobile && <AIChip />}
+            {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만.
+                WP-1324: 칩 오른쪽에 전역 이슈 검색. 비서가 없으면 검색만 같은 자리에 둔다. */}
+            {!isMobile && (
+              <TopCenterSlot trailing={aiAvailable ? <GlobalIssueSearch /> : undefined}>
+                {aiAvailable ? <AIChip /> : <GlobalIssueSearch />}
+              </TopCenterSlot>
+            )}
             {/* 메일 작성 도크 — fixed, 앱 전역. 처음 작성을 열 때 불러온다(WP-970). draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
             <LazyMailComposeDock />
             {/* WP-1235 「채팅·이슈로 보내기」 — 🔗 토스트·⋯·⬆︎ 시트가 openSendToChat 으로 연다. 셸 분기(isMobile) 밖에 둬 어느 화면에서나 뜬다. */}

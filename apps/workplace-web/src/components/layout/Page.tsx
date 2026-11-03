@@ -12,7 +12,6 @@ import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
 import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
-import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { isTabRoot } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
@@ -195,10 +194,10 @@ function DesktopPageHeader({
   className,
   'data-testid': testId = 'page-header',
 }: Omit<PageHeaderProps, 'mobile'>) {
-  // AI 칩 노출 여부 — 칩이 있을 때만 좌측 그룹을 칩 경계 앞에서 자른다(칩 위치 실측).
-  const aiAvailable = useAiAvailable()
+  // 상단 가운데 틀(AI 칩, 비서가 없으면 전역 검색 — WP-1324)이 있으면 좌측 그룹을 그 경계 앞에서 자른다(위치 실측).
+  // 틀이 없으면(모바일) 훅이 제한을 푼다.
   const leftGroupRef = useRef<HTMLDivElement>(null)
-  useAiChipClamp(leftGroupRef, aiAvailable)
+  useAiChipClamp(leftGroupRef)
   return (
     <header
       data-testid={testId}

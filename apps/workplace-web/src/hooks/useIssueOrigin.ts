@@ -2,7 +2,7 @@
 import { useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
+import { isEditableTarget, OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
 import { currentHistoryIdx } from '@/lib/historyParam';
 import { backDeltaToOrigin, type HistoryEntries, isIssueDetailPath } from '@/lib/issueOrigin';
 
@@ -32,12 +32,6 @@ export function useReturnToIssueOrigin(projectKey: string): () => void {
     if (delta !== null) navigate(delta);
     else navigate(`/projects/${projectKey}`, { replace: true });
   }, [navigate, projectKey]);
-}
-
-// 글자를 입력받는 요소 — 제목·본문·코멘트 편집의 ESC(편집 취소)를 가로채지 않기 위한 판정.
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
 
 // 쓰다 만 글(코멘트 작성창·본문 편집)이 남아 있는지 — 포커스가 밖에 있어도 ESC 한 번에 날리지 않기 위한 판정.
