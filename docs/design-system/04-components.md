@@ -55,6 +55,7 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | StatusBadge | `status-badge.tsx` | 의미(semantic) 기반 상태 배지 — Badge variant 래핑 |
 | SearchInput | `search-input.tsx` | 돋보기 아이콘 + clear 버튼 내장 검색 입력 — 상단 검색 쪽에만 |
 | FilterInput | `filter-input.tsx` | 깔때기 아이콘 + clear 버튼 내장 목록 필터 입력 — 목록 바로 위 |
+| FilterLine | `components/filter/FilterLine.tsx` | 목록 위 필터 줄 슬롯 컨테이너(키워드·칩·끝 묶음) — 반응형 한 줄/두 층 |
 | SearchableSelect | `searchable-select.tsx` | 검색 가능 단일 선택 콤보박스 (Popover + Command) |
 | PasswordInput | `password-input.tsx` | 표시/숨김 토글 비밀번호 입력 |
 | FormField | `form-field.tsx` | Label + 입력 + 에러 메시지 래퍼 |
@@ -206,7 +207,7 @@ const [query, setQuery] = useState("");
 
 ### 4. FilterInput (`filter-input.tsx`)
 
-**목적**: 깔때기(`Funnel`) 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼(「필터 지우기」)이 내장된 목록 필터 입력. **지금 보는 목록을 좁히는** 칸으로, 목록 바로 위에 둔다. 놓는 자리·범위 칩·draft+디바운스·URL `?q`·모바일은 [05 §B-1 검색과 필터](./05-page-patterns.md#검색과-필터)(WP-1352).
+**목적**: 깔때기(`Funnel`) 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼(「입력 지우기」)이 내장된 목록 필터 입력. **지금 보는 목록을 좁히는** 칸으로, 목록 바로 위에 둔다. 놓는 자리·범위 칩·draft+디바운스·URL `?q`·모바일은 [05 §B-1 검색과 필터](./05-page-patterns.md#검색과-필터)(WP-1352).
 
 **Props API**: SearchInput(§B-3)과 같은 controlled API.
 
@@ -231,6 +232,27 @@ const [filter, setFilter] = useState("");
   value={filter}
   onChange={setFilter}
 />
+```
+
+---
+
+### 4-1. FilterLine (`components/filter/FilterLine.tsx`)
+
+**목적**: 목록 위 필터 줄 — 키워드 필터·칩·오른쪽 끝 묶음을 정해진 순서로 놓는 슬롯 컨테이너(WP-1355). 규칙은 [05 §B-1 필터 줄](./05-page-patterns.md#필터-줄-wp-1355).
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `keyword` | `ReactNode` | 필수 | 키워드 칸(보통 `FilterInput`). 항상 맨 앞 |
+| `chips` | `ReactNode` | 선택 | 빠른 필터·범위 칩. 데스크톱에서 넘치면 이 묶음만 가로 스크롤 |
+| `end` | `ReactNode` | 선택 | 오른쪽 끝(`ml-auto`) 정렬·보기·동기화 등 |
+| `clear` | `ReactNode` | 선택 | 스크롤에 가려지면 안 되는 「필터 지우기」 — chips 스크롤 영역 밖(한 줄: end 뒤 줄 끝, 좁은 줄: 둘째 줄 끝 — DOM·Tab 순서와 같다)·줄지 않음 |
+| `className` | `string` | 선택 | 루트에 병합 |
+| `data-testid` | `string` | 선택 | 루트 testid |
+
+**구현 특징**: 키워드 칸이 chips 보다 먼저 줄고(256→160px), 그래도 모자라면 end(+clear)만 둘째 줄 오른쪽으로 내려가 chips 는 늘 다 보인다. chips 가 줄 폭보다 넓을 때만 스크롤 영역 오른쪽에 페이드가 뜬다(끝에 닿으면 사라짐). 루트 `role="toolbar"`·`aria-label="필터"`. 분기는 뷰포트가 아니라 **줄 자신의 폭**(컨테이너 쿼리 `@2xl`, 672px) — 그 이상은 한 줄(키워드 `w-64`), 미만(모바일·데스크톱의 좁은 칸)은 키워드 전폭 줄 + 칩·끝 묶음 한 줄 가로 스크롤. `chips`·`end` 가 모두 없으면 둘째 줄을 그리지 않는다.
+
+```tsx
+<FilterLine keyword={<FilterInput placeholder="제목·키" value={q} onChange={setQ} />} chips={<QuickFilterBar ... />} end={<ViewToggle />} />
 ```
 
 ---

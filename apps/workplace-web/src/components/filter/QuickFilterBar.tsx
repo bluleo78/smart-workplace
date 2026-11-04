@@ -260,7 +260,7 @@ export function QuickFilterBar({
         />
       ))}
       {/* 「더 보기」·trailing 은 한 덩어리 — 고를 facet 도 고정 메뉴도 없으면(내 작업처럼 칩이 전부) 「더 보기」를 두지 않는다. */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1.5">
         {(q.more.length > 0 || q.customizable) && <MoreButton q={q} value={value} />}
         {trailing}
       </div>

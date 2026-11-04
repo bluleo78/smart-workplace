@@ -60,6 +60,26 @@ test('검색어를 넣으면 query 파라미터로 다시 받아 걸러진 목�
   expect(list.last().url.searchParams.get('query')).toBe('점심')
 })
 
+test('메일 검색은 헤더가 아니라 목록 칸 맨 위 키워드 필터(필터 줄)에 있다(WP-1355)', async () => {
+  renderMail('/mail/1', { messages: twoRows() })
+  const search = await screen.findByTestId('mail-search')
+  expect(search).toHaveAttribute('placeholder', '제목·보낸사람')
+  const list = screen.getByTestId('mail-list')
+  expect(list).toContainElement(search)
+  // 필터 줄이 목록 칸의 첫 자식이고, 받은편지함의 동기화·모두 읽음도 같은 줄에 합쳐졌다
+  expect(list.firstElementChild).toBe(screen.getByTestId('mail-filter-line')) // 필터 줄 바깥 루트(@container)가 첫 자식
+  // 접근성 이름은 목적까지, 자리표시는 대상 필드만
+  expect(search).toHaveAccessibleName('메일 필터: 제목·보낸사람')
+  // 동기화 버튼은 키워드 뒤 왼쪽(chips), 모두 읽음은 오른쪽 끝 — DOM 순서 키워드 → 동기화 → 모두 읽음
+  const syncBtn = screen.getByTestId('mail-sync')
+  expect(search.compareDocumentPosition(syncBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(syncBtn.compareDocumentPosition(screen.getByTestId('mail-mark-all-read')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(within(screen.getByTestId('mail-filter-line')).getByTestId('mail-mark-all-read')).toBeInTheDocument()
+  // 데스크톱 폭에서는 「모두 읽음」 글자가 보이는 라벨이다(sr-only 아님)
+  expect(within(screen.getByTestId('mail-filter-line')).getByText('모두 읽음')).not.toHaveClass('sr-only')
+  expect(screen.queryByLabelText('메일 검색')).not.toBeInTheDocument()
+})
+
 test('검색은 키 입력마다 다시 부르지 않고 300ms 디바운스 뒤 1회만 부른다(#814)', async () => {
   const list = record('get', LIST, () => HttpResponse.json([]))
   const { location } = renderMail('/mail/1', { handlers: [list.handler] })

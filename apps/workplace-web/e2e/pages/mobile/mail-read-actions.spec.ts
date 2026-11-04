@@ -112,7 +112,7 @@ test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않�
     await page.goto('/mail/1')
     const markAll = page.getByTestId('mail-mark-all-read')
     // 진행률 전 툴바 높이 — 진행률이 떠도 같아야 한다(두 줄 꺾임 없음).
-    const toolbar = markAll.locator('xpath=ancestor::div[contains(@class,"border-b")][1]')
+    const toolbar = page.getByTestId('mail-filter-line')
     const heightBefore = (await toolbar.boundingBox())!.height
     await page.getByTestId('mail-sync').click()
     await expect(page.getByTestId('mail-sync-progress')).toHaveText('본문 1234/4567')
@@ -130,10 +130,14 @@ test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않�
     })
     expect(hit.w).toBeGreaterThanOrEqual(44)
     expect(hit.h).toBeGreaterThanOrEqual(44)
-    // 툴바 안쪽 상자가 넘치지 않는다(바깥 overflow 에 가려진 넘침까지).
-    const inner = markAll.locator('xpath=ancestor::div[contains(@class,"pl-3")][1]')
-    expect(await inner.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    // 필터 줄 자체(키워드 줄 + 컨트롤 줄)가 가로로 넘치지 않는다. 컨트롤 줄은 가로 스크롤이 가능하므로 줄 루트 기준으로 본다.
+    expect(await toolbar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
     // 눌러 다이얼로그를 열고 닫아도 셸이 가로로 스크롤되지 않는다(H2).
+    // 동기화 완료 토스트(상단)가 두 층 필터 줄의 컨트롤 줄과 겹치므로, 토스트가 사라진 뒤 실제로 누른다.
+    // 동기화 버튼을 누른 포인터가 토스트 위에 남으면 sonner 가 시간을 멈추므로 포인터를 목록 아래로 옮긴다.
+    await expect(page.getByText('새 메일이 없습니다')).toBeVisible()
+    await page.mouse.move(180, 700)
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 10_000 })
     await markAll.click()
     await expect(page.getByTestId('mail-mark-all-dialog')).toBeVisible()
     await page.getByTestId('mail-mark-all-cancel').click()

@@ -35,7 +35,7 @@ test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더�
 
   await expect(page.getByTestId('personal-project-detail')).toBeVisible();
   // 팀 공유 툴바 — 검색 입력 + 뷰토글(체크리스트/보드, aria-pressed).
-  await expect(page.getByRole('textbox', { name: '태스크 검색' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '태스크 필터: 제목·키' })).toBeVisible();
   await expect(page.getByRole('button', { name: '체크리스트' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: '보드' })).toHaveAttribute('aria-pressed', 'false');
   // 기본은 체크리스트 — 보드 컬럼은 없음.

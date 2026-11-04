@@ -1,14 +1,14 @@
 // 모바일 이슈 목록 한 줄 툴바(WP-194) — 데스크톱 ViewChipBar+IssueFilterBar(4줄로 꺾여 화면 40%)를 대체.
-// 왼쪽: 가로 스크롤 칩 [뷰 ▾][◆ 에픽][그룹: X][⇅ 정렬] (오른쪽 페이드), 오른쪽 고정: 🔍 · 목록/보드 토글.
+// 맨 위: 늘 보이는 키워드 칸(제목·키, WP-1355). 그 아래 가로 스크롤 칩 [뷰 ▾][◆ 에픽][그룹: X][⇅ 정렬] (오른쪽 페이드), 오른쪽 고정: 목록/보드 토글.
 // 그 아래 두 번째 줄 = 빠른 필터 칩 줄(WP-1020, MobileQuickFilterRow) — 예전 툴바의 「필터 N」 칩·필터 시트를 대신한다.
-// 🔍 를 누르면 줄 전체가 검색창+「취소」로 바뀐다 — 취소는 줄만 닫고 검색어(URL q)는 유지, 🔍 에 점으로 표시.
+// 검색 모드(🔍·취소·점)는 없앴다 — 키워드는 늘 보이고 입력은 300ms 뒤 URL q 에 반영된다.
 // 개인 프로젝트(WP-221)는 options(데스크톱 IssueFilterBar 와 같은 IssueFilterBarOptions)·showViewChip=false 로 재사용한다.
-import { ChevronDown, LayoutGrid, List, Search } from 'lucide-react';
+import { ChevronDown, LayoutGrid, List } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
+import { FilterLine } from '@/components/filter/FilterLine';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
-import { Input } from '@/components/ui/input';
-import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
+import { FilterInput } from '@/components/ui/filter-input';
 import { cn, euroRo } from '@/lib/utils';
 
 import { ISSUE_GROUP_BY_LABEL } from '../../../../lib/issueGrouping';
@@ -33,8 +33,8 @@ export function MobileIssueToolbar({ showViewChip = true, ...props }: ToolbarPro
   return showViewChip ? <TeamToolbar {...props} /> : <ToolbarBody {...props} />;
 }
 
-// 저장 뷰 상태(useSavedViewState)는 툴바 전체(검색 모드 포함)보다 오래 살아야 한다 — 검색 모드로 바뀌며 칩 줄이 언마운트돼도
-// 선택한 뷰(selectedViewId)·업데이트 대상이 초기화되지 않게(#777) 여기서 호출한다. 개인(showViewChip=false)은 이 래퍼를 거치지 않아 조회도 없다(WP-221).
+// 저장 뷰 상태(useSavedViewState)는 팀 툴바만 쓰므로 이 래퍼에서 호출해 본문(ToolbarBody)에 sv 로 넘긴다 — 뷰 칩·뷰 시트가 같은 상태를 본다.
+// 개인(showViewChip=false)은 이 래퍼를 거치지 않아 저장 뷰 조회도 없다(WP-221).
 function TeamToolbar(props: Omit<ToolbarProps, 'showViewChip'>) {
   const sv = useSavedViewState(props.projectKey);
   return <ToolbarBody {...props} sv={sv} />;
@@ -47,102 +47,68 @@ function ToolbarBody({
   sv,
 }: Omit<ToolbarProps, 'showViewChip'> & { sv?: SavedViewState }) {
   const c = useIssueFilterControls(projectKey, options);
-  const [searching, setSearching] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   // 목록 쪽 토글 — 팀 = 「목록」(List), 개인 = 「체크리스트」(ListChecks). 데스크톱 listLabel 기본 '리스트' 와 달리 options.listLabel 이 없으면 모바일 문구는 기존 「목록」.
   const listLabel = options?.listLabel ?? '목록';
   const ListIcon = options?.listIcon ?? List;
   const groupLabel = c.groupBy ? ISSUE_GROUP_BY_LABEL[c.groupBy] : '없음';
 
-  // 검색 모드 — 첫 줄을 통째로 검색창으로 교체한다(좁은 폭에서 칩과 입력칸을 같이 두지 않는다).
-  // 빠른 필터 칩 줄은 검색 중에도 그대로 둔다 — 검색어와 필터를 함께 좁혀 가며 볼 수 있게.
-  const toolbar = searching ? (
-      <div className="flex h-12 items-center gap-2" data-testid="mobile-issue-toolbar">
-        <Input
-          autoFocus
-          value={c.qDraft}
-          onChange={(e) => c.setQDraft(e.target.value)}
-        // 검색어 길이 상한 — 서버 요청 줄 한도를 넘겨 목록이 실패하지 않게(WP-732)
-        maxLength={SEARCH_QUERY_MAX_LENGTH}
-          placeholder="태스크 검색"
-          aria-label="태스크 검색"
-          data-testid="mobile-search-input"
-          className="h-9 flex-1"
-        />
-        <button
-          type="button"
-          onClick={() => setSearching(false)}
-          data-testid="mobile-search-cancel"
-          className="min-h-11 shrink-0 px-2 text-sm text-primary"
-        >
-          취소
-        </button>
-      </div>
-  ) : (
-    <div className="flex h-12 items-center gap-1" data-testid="mobile-issue-toolbar">
-      {/* 칩 줄 — 넘치면 가로 스크롤, 오른쪽 끝 페이드로 더 있음을 알린다. */}
-      <div className="relative min-w-0 flex-1">
-        <div className={cn('flex items-center gap-1.5 overflow-x-auto py-2 pr-6', HIDE_SCROLLBAR)}>
-          {/* 저장 뷰 칩 — sv 를 받은 팀 툴바만. */}
-          {sv && <MobileViewChip projectKey={projectKey} controls={c} sv={sv} />}
-          {epicSlot}
-          <button type="button" className={MOBILE_CHIP} onClick={() => setGroupOpen(true)} data-testid="mobile-chip-group">
-            그룹: {groupLabel}
-          </button>
-          {/* 정렬(WP-1238) — 데스크톱 정렬 칩과 같은 URL 값. 개인 화면(checklist 순서)은 options.showSort=false 로 숨긴다. */}
-          {c.showSort && <MobileSortChip sort={c.sort} onChange={c.setSort} />}
-        </div>
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background" aria-hidden="true" />
-      </div>
-      <button
-        type="button"
-        onClick={() => setSearching(true)}
-        aria-label="검색"
-        data-testid="mobile-search-open"
-        className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground"
-      >
-        <Search className="size-5" />
-        {/* 검색 줄을 닫아도 검색어가 적용 중임을 점으로 알린다. */}
-        {c.filters.q !== '' && (
-          <span
-            className="absolute right-2.5 top-2.5 size-2 rounded-full bg-primary"
-            data-testid="mobile-search-dot"
-            aria-label="검색어 적용 중"
-          />
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={() => c.setView(c.view === 'list' ? 'board' : 'list')}
-        aria-label={c.view === 'list' ? '보드로 전환' : `${listLabel}${euroRo(listLabel)} 전환`}
-        data-testid="mobile-view-toggle"
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground"
-      >
-        {/* 현재 뷰 아이콘 1개 — 누르면 다른 뷰로 */}
-        {c.view === 'list' ? <ListIcon className="size-5" /> : <LayoutGrid className="size-5" />}
-      </button>
-
-      <MobilePickerSheet
-        open={groupOpen}
-        onClose={() => setGroupOpen(false)}
-        title="그룹 기준"
-        testId="mobile-group-sheet"
-        options={c.visibleGroupOptions.map((o) => ({ value: o.value ?? 'none', label: o.label }))}
-        value={c.groupBy ?? 'none'}
-        onSelect={(v) => c.setGroupBy(v === 'none' ? null : (v as IssueGroupBy))}
-      />
-    </div>
-  );
-
   return (
     <div>
-      {toolbar}
+      {/* 키워드 칸 — 늘 보인다(WP-1355). 입력 testid 는 예전 검색 입력 것을 이어 쓴다. */}
+      <FilterLine
+        keyword={
+          <FilterInput
+            value={c.qDraft}
+            onChange={c.setQDraft}
+            placeholder="제목·키"
+            aria-label="태스크 필터: 제목·키"
+            inputTestId="mobile-search-input"
+          />
+        }
+      />
+      <div className="flex h-12 items-center gap-1" data-testid="mobile-issue-toolbar">
+        {/* 칩 줄 — 넘치면 가로 스크롤, 오른쪽 끝 페이드로 더 있음을 알린다. */}
+        <div className="relative min-w-0 flex-1">
+          <div className={cn('flex items-center gap-1.5 overflow-x-auto py-2 pr-6', HIDE_SCROLLBAR)}>
+            {/* 저장 뷰 칩 — sv 를 받은 팀 툴바만. */}
+            {sv && <MobileViewChip projectKey={projectKey} controls={c} sv={sv} />}
+            {epicSlot}
+            <button type="button" className={MOBILE_CHIP} onClick={() => setGroupOpen(true)} data-testid="mobile-chip-group">
+              그룹: {groupLabel}
+            </button>
+            {/* 정렬(WP-1238) — 데스크톱 정렬 칩과 같은 URL 값. 개인 화면(checklist 순서)은 options.showSort=false 로 숨긴다. */}
+            {c.showSort && <MobileSortChip sort={c.sort} onChange={c.setSort} />}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background" aria-hidden="true" />
+        </div>
+        <button
+          type="button"
+          onClick={() => c.setView(c.view === 'list' ? 'board' : 'list')}
+          aria-label={c.view === 'list' ? '보드로 전환' : `${listLabel}${euroRo(listLabel)} 전환`}
+          data-testid="mobile-view-toggle"
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+        >
+          {/* 현재 뷰 아이콘 1개 — 누르면 다른 뷰로 */}
+          {c.view === 'list' ? <ListIcon className="size-5" /> : <LayoutGrid className="size-5" />}
+        </button>
+
+        <MobilePickerSheet
+          open={groupOpen}
+          onClose={() => setGroupOpen(false)}
+          title="그룹 기준"
+          testId="mobile-group-sheet"
+          options={c.visibleGroupOptions.map((o) => ({ value: o.value ?? 'none', label: o.label }))}
+          value={c.groupBy ?? 'none'}
+          onSelect={(v) => c.setGroupBy(v === 'none' ? null : (v as IssueGroupBy))}
+        />
+      </div>
       <MobileQuickFilterRow controls={c} />
     </div>
   );
 }
 
-// 뷰 칩 + 뷰 시트 — 저장 뷰 상태 sv 는 TeamToolbar 가 들고 있다(검색 모드에서 이 칩이 언마운트돼도 선택 유지).
+// 뷰 칩 + 뷰 시트 — 저장 뷰 상태 sv 는 TeamToolbar 가 들고 있다.
 // 시트는 Radix 포털이라 칩 줄(가로 스크롤 영역) 안에 둬도 화면에 그대로 뜬다.
 function MobileViewChip({ projectKey, controls, sv }: { projectKey: string; controls: IssueFilterControls; sv: SavedViewState }) {
   const [open, setOpen] = useState(false);

@@ -89,3 +89,30 @@ test('통합 목록에서는 검색어를 바꾸면 열린 상세를 닫는다(W
   await waitFor(() => expect(location()).toBe('/contacts?q=%EC%9D%B4%EC%88%98'))
   expect(screen.queryByTestId('contact-detail-member')).not.toBeInTheDocument()
 })
+
+test('공백만 친 검색어는 URL q 로 쓰지 않고, 있던 q 는 지운다(WP-1355)', async () => {
+  const { location } = renderPage('/contacts?contact=member:2', { handlers })
+  expect(await screen.findByTestId('contact-detail-member', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  const input = screen.getByTestId('contact-search')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  // q 가 없는 상태에서 공백만 — debounce 가 지나도 URL 은 그대로, 열린 상세도 닫히지 않는다.
+  fireEvent.change(input, { target: { value: '   ' } })
+  act(() => {
+    vi.advanceTimersByTime(300)
+  })
+  // 훅이 쓰기 자체를 건너뛰므로 URL 은 처음 그대로다(다시 직렬화되지 않는다).
+  expect(location()).toBe('/contacts?contact=member:2')
+  expect(screen.getByTestId('contact-detail-member')).toBeInTheDocument()
+
+  // 글자를 쳐 q 가 생긴 뒤 공백만 남기면 q 가 빠진다.
+  fireEvent.change(input, { target: { value: '이수' } })
+  act(() => {
+    vi.advanceTimersByTime(300)
+  })
+  expect(location()).toBe('/contacts?q=%EC%9D%B4%EC%88%98')
+  fireEvent.change(input, { target: { value: '  ' } })
+  act(() => {
+    vi.advanceTimersByTime(300)
+  })
+  expect(location()).toBe('/contacts')
+})

@@ -88,6 +88,15 @@ describe('빠른 필터 칩 — 기본 칩과 값 고르기', () => {
     expect(screen.getByTestId('quick-filter-priority')).toHaveAttribute('data-active', 'true')
   })
 
+  test('「필터 지우기」는 칩 묶음 밖(clear 슬롯)에 있고, 키워드 칸 × 와 이름이 겹치지 않는다', async () => {
+    renderBar('/projects/WP?priority=HIGH&q=abc')
+    const clear = await screen.findByTestId('quick-filter-clear-all')
+    expect(screen.getByTestId('filter-line-clear')).toContainElement(clear)
+    expect(screen.getByTestId('quick-filter-bar')).not.toContainElement(clear)
+    expect(screen.getAllByRole('button', { name: '필터 지우기' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '입력 지우기' })).toBeInTheDocument()
+  })
+
   test('「필터 지우기」는 걸린 필터와 검색어를 다 지우고 보기(group) 는 남긴다', async () => {
     const { user, location } = renderBar('/projects/WP?assignee=2&priority=HIGH&q=abc&group=none')
     await user.click(await screen.findByTestId('quick-filter-clear-all'))

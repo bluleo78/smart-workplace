@@ -90,12 +90,11 @@ test('예전 범주 링크(boardTab=DONE)는 그 범주 첫 상태 탭으로 열
 })
 
 test('상태 필터로 제외된 탭은 숨기고, 검색어로 필터를 바꿔도 선택 탭은 유지된다', async () => {
-  const { user, location } = openBoard(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=3`, handlers())
+  const { location } = openBoard(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=3`, handlers())
   expect(await screen.findByTestId('issue-card-31')).toBeInTheDocument()
   expect(screen.queryByTestId('board-tab-2')).not.toBeInTheDocument()
   expect(tab(3)).toHaveAttribute('aria-selected', 'true')
   // 검색어 입력 = writeFilters 경로.
-  await user.click(screen.getByTestId('mobile-search-open'))
   fireEvent.change(await screen.findByTestId('mobile-search-input'), { target: { value: '영수증' } })
   await waitFor(() => expect(location()).toMatch(/q=/))
   expect(location()).toMatch(/boardTab=3/)

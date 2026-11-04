@@ -8,13 +8,15 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
  * - 바깥(뒤로 가기·앱 레일·초기화 등)에서 q 가 바뀌면 draft 를 맞춘다.
  * - 단, 이 훅이 쓴 q 가 되돌아온 것(내 쓰기의 메아리)은 한 번 건너뛴다(WP-999) — URL 을 쓴 순간부터 다시 렌더되기까지
  *   더 친 글자가 있으면, 되돌아온 옛 q 로 draft 를 덮어 그 글자가 지워졌다.
+ * - 공백만 친 입력은 빈 검색어로 쓴다(URL 에 q 로 남기지 않는다). 글자가 있는 값은 앞뒤 공백까지 그대로 쓴다 —
+ *   여기서 깎으면 「abc 」를 치는 중 메아리가 draft 의 공백을 지운다.
  * - URL 을 어떻게 쓸지(함께 지울 키·replace 여부)는 화면마다 달라 write 로 받는다. debounce 가 끝난 순간의 최신 write 를 부른다 —
  *   예약할 때의 write 는 그 사이 바뀐 다른 URL 키(열린 상세·필터)를 옛 값으로 되돌릴 수 있다.
  *
  * @param value 지금 URL 의 검색어(없으면 '')
  * @param write 검색어를 URL 에 쓴다 — 화면이 정한 방식으로(보통 history replace)
  * @param delay debounce 간격(ms)
- * @returns draft(입력값)·setDraft(타이핑 — debounce 뒤 write)·commit(바로 write — 「취소」로 비울 때 등)
+ * @returns draft(입력값)·setDraft(타이핑 — debounce 뒤 write)
  */
 export function useSearchDraft(value: string, write: (next: string) => void, delay = 300) {
   const [draft, setDraft] = useState(value)
@@ -35,20 +37,15 @@ export function useSearchDraft(value: string, write: (next: string) => void, del
     write(next)
   }
 
-  // debounce 가 끝난 순간의 최신 렌더 값으로 판정·쓰기 — 이미 URL 과 같으면 쓰지 않는다(화면의 write 가 다른 키를 건드리지 않게).
+  // debounce 가 끝난 순간의 최신 렌더 값으로 판정·쓰기 — 공백뿐이면 ''로 보고, 이미 URL 과 같으면 쓰지 않는다(화면의 write 가 다른 키를 건드리지 않게).
   const flush = useEffectEvent((next: string) => {
-    if (next !== value) send(next)
+    const q = next.trim() ? next : ''
+    if (q !== value) send(q)
   })
   useEffect(() => {
     const t = setTimeout(() => flush(draft), delay)
     return () => clearTimeout(t)
   }, [draft, delay])
 
-  // 바로 쓰기 — debounce 를 기다리지 않고 draft 와 URL 을 함께 바꾼다. write 는 q 가 같아도 부른다(화면이 함께 지우는 키가 있을 수 있다).
-  const commit = (next: string) => {
-    setDraft(next)
-    send(next)
-  }
-
-  return { draft, setDraft, commit }
+  return { draft, setDraft }
 }
