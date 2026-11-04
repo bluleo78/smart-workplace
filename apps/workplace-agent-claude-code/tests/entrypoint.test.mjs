@@ -245,10 +245,12 @@ test('writesSettingsFromConfig', (t) => {
   assert.equal(s.stale, undefined); // 매번 덮어쓴다 — 옛 값이 남지 않는다
   assert.equal(Object.keys(s.enabledPlugins).length, 8);
   assert.ok(Object.values(s.enabledPlugins).every((v) => v === true));
-  assert.equal(s.enabledPlugins['superpowers@anthropic-plugin-directory'], true);
+  assert.equal(s.enabledPlugins['superpowers@superpowers-marketplace'], true);
   assert.deepEqual(s.extraKnownMarketplaces['genia-works'].source, { source: 'url', url: 'http://127.0.0.1:9/claude/marketplace.json' });
   // 덮어써도 claude-plugins-official(빌드 때 더한 마켓플레이스)이 남아야 LSP 플러그인이 사라지지 않는다
   assert.deepEqual(s.extraKnownMarketplaces['claude-plugins-official'].source, { source: 'github', repo: 'anthropics/claude-plugins-official' });
+  // superpowers 는 만든 사람의 마켓플레이스에서 받는다(WP-1336) — 덮어써도 남아야 superpowers 가 사라지지 않는다
+  assert.deepEqual(s.extraKnownMarketplaces['superpowers-marketplace'].source, { source: 'github', repo: 'obra/superpowers-marketplace' });
   assert.equal(s.skipDangerousModePermissionPrompt, true);
   assert.equal(s.pluginConfigs['genia-works@genia-works'].options.server_url, 'http://127.0.0.1:9/mcp');
 });
@@ -439,10 +441,13 @@ test('readsPlaywrightVersionFromLockfile', (t) => {
 test('pluginLockMismatchFailsBuild', (t) => {
   const ok = fixture(t);
   assert.equal(callLib(ok.env, `verify_plugin_lock "${lockFile}"`).status, 0);
-  const bad = fixture(t, { pluginVersions: { 'superpowers@anthropic-plugin-directory': '9.9.9-zzz' } });
+  const bad = fixture(t, { pluginVersions: { 'feature-dev@anthropic-plugin-directory': '9.9.9-zzz' } });
   const r = callLib(bad.env, `verify_plugin_lock "${lockFile}"`);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /superpowers@anthropic-plugin-directory/);
+  assert.match(r.stderr, /feature-dev@anthropic-plugin-directory/);
+  // superpowers 는 latest — 새 판이 나와도 빌드를 멈추지 않는다(WP-1336)
+  const newer = fixture(t, { pluginVersions: { 'superpowers@superpowers-marketplace': '9.9.9' } });
+  assert.equal(callLib(newer.env, `verify_plugin_lock "${lockFile}"`).status, 0);
 });
 
 test('pluginLockMatchesTemplate', () => {

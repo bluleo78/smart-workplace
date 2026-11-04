@@ -144,7 +144,8 @@ write_settings() {
                            + { "genia-works@genia-works": true }) }
       + { extraKnownMarketplaces: {
             "genia-works": { source: { source: "url", url: $mk } },
-            "claude-plugins-official": { source: { source: "github", repo: "anthropics/claude-plugins-official" } } } }
+            "claude-plugins-official": { source: { source: "github", repo: "anthropics/claude-plugins-official" } },
+            "superpowers-marketplace": { source: { source: "github", repo: "obra/superpowers-marketplace" } } } }
       + { skipDangerousModePermissionPrompt: true }
       + (if $mcp != "" then { pluginConfigs: { "genia-works@genia-works": { options: { server_url: $mcp } } } } else {} end)
     ') && gw_write_atomic "$HOME/.claude/settings.json" "$out"
@@ -466,15 +467,18 @@ stop_all() {
 }
 
 # 빌드 때 — plugins.lock 의 플러그인을 받는다. 마켓플레이스가 버전 지정을 받지 않아 받은 뒤 버전을 lock 과 맞춰 본다.
-# anthropic-plugin-directory 는 내장이라 그대로, claude-plugins-official 과 genia-works 는 먼저 더한다(실측).
+# anthropic-plugin-directory 는 내장이라 그대로, claude-plugins-official·superpowers-marketplace·genia-works 는 먼저 더한다(실측).
+# 셋째 인자는 받지 않을 플러그인 id — Gen:iA Code 이미지는 genia-works 를 genia 확장으로 따로 싣으므로 빼고, 그때는 Works 마켓플레이스도 더하지 않는다.
 # genia-works 마켓플레이스는 Works 서버라 빌더에서 닿지 않을 수 있다(DH-VM 은 내부 주소를 줘야 닿았다) — 그때는 굳히지 않고 넘어간다.
 # Pod 가 뜰 때 update_plugins 가 자기 Works 에서 받는다(어차피 서버 버전으로 맞춘다). 나머지 플러그인은 받지 못하면 빌드 실패다.
 install_plugins() {
   lock=$1
   origin=${2:-$GENIA_DEFAULT_ORIGIN}
-  skip=""
+  skip=${3:-}
   claude plugin marketplace add anthropics/claude-plugins-official >&2 </dev/null || return 1
-  if ! claude plugin marketplace add "$origin/claude/marketplace.json" >&2 </dev/null; then
+  claude plugin marketplace add obra/superpowers-marketplace >&2 </dev/null || return 1
+  if [ "$skip" != genia-works@genia-works ] &&
+    ! claude plugin marketplace add "$origin/claude/marketplace.json" >&2 </dev/null; then
     echo "경고: genia-works 마켓플레이스($origin)에 닿지 못해 이미지에 굳히지 않습니다 — Pod 가 뜰 때 받습니다" >&2
     skip=genia-works@genia-works
   fi

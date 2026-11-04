@@ -12,6 +12,9 @@ ARG GLAB_VERSION=1.123.0
 ARG GLAB_SHA256_AMD64=0effb3e550b80fd826b5a50655acc7fe7142728d0afe9a1d5d857aa2fc651f5a
 ARG GLAB_SHA256_ARM64=f7c1930977fdd75bea6735eed0b628d4411536b3208c124101db42d6cfb9378e
 
+# Claude Code — 실행하지 않고 빌드 때 플러그인을 받는 데만 쓴다(아래). Claude 이미지와 같은 버전으로 둔다.
+ARG CLAUDE_CODE_VERSION=2.1.316
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ---- Claude 이미지 Dockerfile 과 같은 도구 블록 — 바꾸면 함께(apps/workplace-agent-claude-code/Dockerfile) ----
@@ -44,8 +47,13 @@ RUN set -eux; \
     rm /tmp/glab.deb; \
     glab --version
 
-# pnpm(corepack — 저장소의 packageManager 버전을 쓴다). Claude Code·jdtls·TS 언어 서버·Claude 플러그인은 이 이미지에 넣지 않는다.
-RUN corepack enable
+# pnpm(corepack — 저장소의 packageManager 버전을 쓴다). jdtls·TS 언어 서버는 이 이미지에 넣지 않는다.
+# Claude Code 는 플러그인을 받는 데만 쓴다 — genia 가 Claude Code 에 설치된 플러그인의 스킬·명령을 그대로 읽으므로(genia 2611.3.0)
+# Claude 이미지와 같은 plugins.lock 을 받아 superpowers 등 개발 절차를 한 벌로 맞춘다(WP-1336).
+RUN set -eux; \
+    npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
+    npm cache clean --force; \
+    corepack enable
 
 # agent 사용자 UID/GID 1001 — 베이스의 pwuser 가 1001 이라 이름과 홈만 바꾼다(없으면 새로 만든다).
 # /work 은 PVC·노드 폴더가 덮지만 그 없이 띄워도(확인용 docker run) 쓸 수 있게 1001 소유로 둔다. /run/genia 는 runner 가 파일만 꽂는 곳.
@@ -65,6 +73,32 @@ RUN set -eux; \
 COPY --chmod=644 apps/workplace-agent-genia-code/genia-root.crt /usr/local/share/ca-certificates/genia-root.crt
 RUN update-ca-certificates
 
+# Claude 이미지와 같은 플러그인 목록(WP-1336)을 Claude Code 로 홈(~/.claude/plugins — genia 가 여기서 읽는다)에 굳힌다. 버전이 lock 과 다르면 빌드 실패다.
+# genia-works 는 아래 genia 확장으로 따로 싣으므로 받지 않는다(두 번 실리지 않게). 네트워크로 오래 걸려 자주 바뀌는 COPY 보다 앞에 둔다(캐시).
+# 공용 함수(lib.sh)·작업 화면(agent-screen, WP-1277 — runner 가 exec 한다)은 Claude Code 이미지의 것을 그대로 쓴다.
+COPY --chmod=755 apps/workplace-agent-claude-code/bin/lib.sh apps/workplace-agent-claude-code/bin/agent-screen /opt/genia/bin/
+COPY apps/workplace-agent-claude-code/plugins.lock /opt/genia/plugins.lock
+
+USER 1001
+# glab 의 사용 통계·업데이트 확인은 끈다 — 둘 다 gitlab.com 으로 나가고, 통계는 토큰 헤더까지 붙여 보낸다(1.123.0 에서 확인).
+# genia 감싸개(~/.local/bin/genia)는 엔트리포인트가 매번 만든다 — PATH 앞에 둔다. 새 버전 확인은 끈다(버전은 Pod 가 뜰 때 배포 서버로 맞춘다).
+ENV HOME=/home/agent \
+    PATH=/home/agent/.local/bin:$PATH \
+    GENIA_SKIP_VERSION_CHECK=1 \
+    DISABLE_AUTOUPDATER=1 \
+    GLAB_SEND_TELEMETRY=false \
+    GLAB_CHECK_UPDATE=false
+WORKDIR /home/agent
+# superpowers 의 genia 확장(세션 시작·압축 뒤 using-superpowers 안내)은 버전이 든 설치 폴더를 고정 이름(~/.genia-superpowers)으로 가리켜
+# 엔트리포인트가 genia 설정 extensions 에 싣는다(write_genia_settings) — genia 는 Claude 플러그인의 hook 을 돌리지 않는다.
+RUN set -eu; \
+    bash -c '. /opt/genia/bin/lib.sh && install_plugins /opt/genia/plugins.lock "" genia-works@genia-works'; \
+    sp=$(claude plugin list --json | jq -r '[.[] | select(.id | startswith("superpowers@"))][0].installPath // empty'); \
+    test -f "$sp/.pi/extensions/superpowers.ts"; \
+    ln -sfn "$sp" /home/agent/.genia-superpowers
+# Claude 플러그인 중 에이전트 형식(code-simplifier)은 genia 가 읽지 못한다 — 같은 내용을 스킬로 옮겨 genia 가 읽는 ~/.agents/skills 에 둔다(WP-1336).
+COPY --chown=1001:1001 apps/workplace-agent-genia-code/skills/ /home/agent/.agents/skills/
+
 # genia-works 플러그인을 빌드 때 굳힌다 — 운영 마켓플레이스가 가리키는 옛 ref 에는 genia/(Gen:iA Code 확장)가 없다.
 # Pod 는 뜰 때 마켓플레이스의 ref 에 genia/ 가 있으면 그것을 받아 쓰고, 없으면 이것을 쓴다(use_plugin).
 # genia 가 쓰는 것만 고른다(-e 로 싣는 package.json·genia 확장·그것이 읽는 hooks·스크립트·스킬·버전 파일) — tests·codex·Claude 전용 명령은 넣지 않는다.
@@ -75,18 +109,7 @@ COPY plugins/genia-works/genia/ /opt/genia/plugin/genia-works/genia/
 COPY plugins/genia-works/hooks/ /opt/genia/plugin/genia-works/hooks/
 COPY plugins/genia-works/scripts/ /opt/genia/plugin/genia-works/scripts/
 COPY plugins/genia-works/skills/ /opt/genia/plugin/genia-works/skills/
-# 공용 함수(lib.sh)·작업 화면(agent-screen, WP-1277 — runner 가 exec 한다)은 Claude Code 이미지의 것을 그대로 쓴다.
-COPY --chmod=755 apps/workplace-agent-claude-code/bin/lib.sh apps/workplace-agent-claude-code/bin/agent-screen /opt/genia/bin/
 COPY --chmod=755 apps/workplace-agent-genia-code/bin/ /opt/genia/bin/
-
-USER 1001
-# glab 의 사용 통계·업데이트 확인은 끈다 — 둘 다 gitlab.com 으로 나가고, 통계는 토큰 헤더까지 붙여 보낸다(1.123.0 에서 확인).
-# genia 감싸개(~/.local/bin/genia)는 엔트리포인트가 매번 만든다 — PATH 앞에 둔다. 새 버전 확인은 끈다(버전은 Pod 가 뜰 때 배포 서버로 맞춘다).
-ENV HOME=/home/agent \
-    PATH=/home/agent/.local/bin:$PATH \
-    GENIA_SKIP_VERSION_CHECK=1 \
-    GLAB_SEND_TELEMETRY=false \
-    GLAB_CHECK_UPDATE=false
 
 # 디스크 배치(계약) — 다시 받기 비싼 것은 /work 로. 빌드 RUN 이 끝난 뒤에 둔다(/work/tmp 가 없으면 빌드 중 dpkg·npm 이 실패한다).
 # 브라우저 폴더를 /work 로 옮기므로 베이스의 /ms-playwright 는 엔트리포인트가 링크해 둔다(같은 버전이면 받지 않는다).

@@ -1,7 +1,8 @@
 # 「Gen:iA Code」 템플릿(WP-1296) — Works 가 작업 공간에서 사내 Gen:iA Code(genia)를 띄워 개발·테스트·PR 까지 맡긴다.
 # 이미지는 apps/workplace-agent-genia-code 를 릴리스가 빌드한 것이고, {appVersion} 은 API 가 자기 릴리스 버전으로 채운다.
 # genia 프로그램은 이미지에 없다 — Pod 가 뜰 때 사내 배포 서버(genia-code-server.iacloud.kr)에서 받는다(그 위치에서 닿아야 한다).
-# AI 계정은 Gen:iA 로그인 정보(requires genia → provider genia). 플러그인은 이미지에 굳힌 genia-works 를 쓰므로 plugins 를 두지 않는다.
+# AI 계정은 Gen:iA 로그인 정보(requires genia → provider genia). plugins 는 두지 않는다 — genia-works 는 이미지에 굳힌 genia 확장을, 개발 절차 플러그인(superpowers 등)은
+# 빌드 때 Claude 이미지와 같은 plugins.lock 으로 굳힌 것을 genia 가 그대로 읽는다(WP-1336). Pod 가 뜰 때 받는 것은 없다.
 name: genia-code
 version: "1"
 kind: WORKSPACE

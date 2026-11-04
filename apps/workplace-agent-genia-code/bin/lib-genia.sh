@@ -262,13 +262,22 @@ genia_env() {
 #    defaultModel 은 모델 id(공급자는 배포본이 genia 로 고정 — lockedProvider. defaultProvider 도 같은 값으로 적어 둔다),
 #    defaultProjectTrust always(사람 없는 칸이 신뢰 물음에 막히지 않게 — 에이전트 폴더 설정에만 둘 수 있다), quietStartup(시작 머리말·목록 숨김).
 #    mcp.json 에는 genia-works 를 쓰지 않는다 — 손으로 적은 항목이 확장의 등록(신원 전환·키 보호)을 가린다.
+#    superpowers 의 genia 확장(이미지가 빌드 때 받은 superpowers 의 .pi/extensions)이 있으면 extensions 에 싣는다(WP-1336) — genia 는
+#    Claude 플러그인의 스킬만 읽고 Claude 의 세션 시작 hook(using-superpowers 안내)은 돌리지 않아, 이 확장이 없으면 모델이 절차를 건너뛴다.
+GENIA_SUPERPOWERS_EXT=${GENIA_SUPERPOWERS_EXT:-$HOME/.genia-superpowers/.pi/extensions/superpowers.ts}
 write_genia_settings() {
-  local out
-  out=$(jq -n --slurpfile c "$CONFIG" '
+  local out ext=""
+  if [ -f "$GENIA_SUPERPOWERS_EXT" ]; then
+    ext=$GENIA_SUPERPOWERS_EXT
+  else
+    log "경고: superpowers 의 Gen:iA Code 확장($GENIA_SUPERPOWERS_EXT)이 없습니다 — 세션 시작 안내 없이 띄워 계획·SDD 단계를 건너뛸 수 있습니다"
+  fi
+  out=$(jq -n --slurpfile c "$CONFIG" --arg ext "$ext" '
       $c[0] as $c
       | { defaultProvider: "genia" }
       + (if (($c.config.model // "") | tostring) != "" then { defaultModel: $c.config.model } else {} end)
       + { defaultProjectTrust: "always", quietStartup: true }
+      + (if $ext != "" then { extensions: [$ext] } else {} end)
     ') && gw_write_atomic "$GENIA_CODING_AGENT_DIR/settings.json" "$out"
 }
 

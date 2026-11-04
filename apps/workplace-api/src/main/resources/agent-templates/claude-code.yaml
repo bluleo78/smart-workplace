@@ -35,11 +35,11 @@ sidecars:
   - name: dind
     image: docker:27-dind
     privileged: true
-# 플러그인 버전은 이미지에 굳힌 값(apps/workplace-agent-claude-code/plugins.lock — DH-VM 11-01 기준)과 같다.
-# genia-works 는 Pod 가 뜰 때 Works 서버의 버전으로 갱신하므로 latest 로 둔다.
+# 플러그인 버전은 이미지에 굳힌 값(apps/workplace-agent-claude-code/plugins.lock — 11-04 빌드 실측)과 같다.
+# genia-works 는 Pod 가 뜰 때 Works 서버의 버전으로 갱신하고, superpowers 는 만든 사람의 마켓플레이스에서 빌드 때 최신을 받으므로 latest 로 둔다(WP-1336).
 plugins:
   - { marketplace: genia-works, name: genia-works, version: latest }
-  - { marketplace: anthropic-plugin-directory, name: superpowers, version: 6.4.2-8ca22dba9a94 }
+  - { marketplace: superpowers-marketplace, name: superpowers, version: latest }
   - { marketplace: anthropic-plugin-directory, name: code-review-anthropics, version: 1.0.1-a2e251d9b97b }
   - { marketplace: anthropic-plugin-directory, name: code-simplifier, version: 1.0.0-ea0a38e1d671 }
   - { marketplace: anthropic-plugin-directory, name: feature-dev, version: 1.0.1-a2e251d9b97b }

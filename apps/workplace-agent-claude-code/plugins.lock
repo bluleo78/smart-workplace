@@ -1,9 +1,12 @@
-# 이미지에 굳히는 Claude Code 플러그인 — 「<이름>@<마켓플레이스> <버전>」 한 줄씩(DH-VM 11-01 값).
+# 이미지에 굳히는 Claude Code 플러그인 — 「<이름>@<마켓플레이스> <버전>」 한 줄씩(11-04 빌드 실측 값).
 # 마켓플레이스는 버전을 골라 설치하지 못한다 — 빌드는 받은 버전을 `claude plugin list` 로 이 값과 맞춰 보고, 다르면 실패한다
 # (그때는 새 버전을 확인해 이 파일과 agent-templates/claude-code.yaml 을 함께 고친다).
-# genia-works 는 빌드 때 최신을 받고 Pod 가 뜰 때 Works 서버의 버전으로 갱신하므로 latest(맞춰 보지 않음)다.
+# superpowers 는 만든 사람의 마켓플레이스(obra/superpowers-marketplace)에서 최신을 받는다(latest — 맞춰 보지 않음, WP-1336). 공식 디렉터리는 최신을 늦게 싣고(11-04: 6.4.2·7.0.0),
+# 만든 사람의 마켓플레이스는 판을 고정하지 못해 새 판이 나올 때마다(11-04 하루에 7.0.1·7.0.2) 고정값이 이미지 빌드를 멈춘다.
+# Gen:iA Code 이미지도 이 파일로 같은 플러그인을 굳힌다(genia 가 Claude Code 플러그인의 스킬·명령을 읽는다) — 두 실행기의 개발 절차가 한 벌이 된다.
+# genia-works 도 빌드 때 최신을 받고 Pod 가 뜰 때 Works 서버의 버전으로 갱신하므로 latest(맞춰 보지 않음)다.
 frontend-design@anthropic-plugin-directory 1.1.1-a2e251d9b97b
-superpowers@anthropic-plugin-directory 6.4.2-8ca22dba9a94
+superpowers@superpowers-marketplace latest
 code-review-anthropics@anthropic-plugin-directory 1.0.1-a2e251d9b97b
 code-simplifier@anthropic-plugin-directory 1.0.0-ea0a38e1d671
 feature-dev@anthropic-plugin-directory 1.0.1-a2e251d9b97b

@@ -157,6 +157,7 @@
         "apps/workplace-agent-genia-code/",
         "apps/workplace-agent-claude-code/bin/lib.sh",
         "apps/workplace-agent-claude-code/bin/agent-screen",
+        "apps/workplace-agent-claude-code/plugins.lock",
         "plugins/genia-works/",
         ".dockerignore"
       ]

@@ -720,8 +720,20 @@ test('SKILL.md: 실행기가 깨우기를 맡는 세션(GENIA_WORKS_RUNNER_WAKES
 });
 
 // WP-1293 — Claude Code 전용 명령(/code-review·/simplify)이 없는 실행기에서도 같은 검토를 하게 대안을 적는다.
-test('process-issue.md: /code-review·/simplify 가 없는 실행기는 같은 관점으로 스스로 검토한다 (WP-1293)', () => {
+// WP-1336 — 실측에서 Gen:iA Code 가 작은 이슈라고 writing-plans·SDD 를 건너뛰었다 — 건너뛰지 않게 적고 PR 에 흔적을 남긴다.
+test('process-issue.md: 작은 이슈도 계획 파일·SDD 하위 에이전트를 건너뛰지 않고 PR 에 절차를 남긴다 (WP-1336)', () => {
   const text = workLoop('process-issue.md');
-  assert.ok(text.includes('이 명령이 없는 실행기(genia·Codex 등)면 같은 범위를 두 관점으로 스스로 검토한다'));
-  assert.ok(text.includes('이 명령이 없는 실행기면 정확성 결함 관점으로 스스로 검토한다'));
+  assert.ok(text.includes('**이슈가 작아도 단계를 건너뛰지 않는다**'));
+  assert.ok(text.includes('구현은 SDD 대로 하위 에이전트(구현자·과제 검토자)에게 맡긴다. 직접 구현하지 않는다.'));
+  assert.ok(text.includes('PR 본문 「절차」 줄에 남긴다'));
+});
+
+// WP-1336 — 작업 공간 이미지에 superpowers·code-simplifier 가 늘 있어 Gen:iA Code 도 같은 리뷰 → 정리 두 단계를 한다.
+test('process-issue.md: /code-review·/simplify 가 없는 실행기는 superpowers 리뷰·code-simplifier 로 같은 두 단계를 한다 (WP-1293, WP-1336)', () => {
+  const text = workLoop('process-issue.md');
+  assert.ok(text.includes("superpowers 의 `requesting-code-review`(base 는 `git merge-base origin/main HEAD`) → `code-simplifier` 스킬"));
+  assert.ok(text.includes('둘 다 없으면 같은 범위를 두 관점으로 스스로 검토한다'));
+  assert.ok(text.includes('이 명령이 없는 실행기면 superpowers 의 `requesting-code-review`, 그것도 없으면 정확성 결함 관점으로 스스로 검토한다'));
+  // superpowers 감지는 실행기마다 다른 스킬 이름(Claude 는 접두어 있음, genia 는 없음)을 모두 본다
+  assert.ok(text.includes('Claude Code 는 `superpowers:using-superpowers`, Gen:iA Code 는 `using-superpowers`'));
 });
