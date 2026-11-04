@@ -486,6 +486,48 @@ test('분류(개인) 0건 → 중립 빈 상태만 보인다', async () => {
   expect(screen.queryByTestId('mail-needsreply-empty')).not.toBeInTheDocument()
 })
 
+// ── 분류 보기의 분류 배지(WP-1348) — 지금 보는 분류와 같은 배지는 줄마다 되풀이하지 않는다 ──
+
+/** 서버처럼 category 파라미터가 있으면 그 분류 메일만 돌려주는 목록 — 분류 보기 안 검색도 서버가 그 분류로 좁힌다. */
+function categoryScopedList(rows: EmailMessageSummary[]) {
+  return record('get', LIST, ({ url }) => {
+    const category = url.searchParams.get('category')
+    return HttpResponse.json(category ? rows.filter((r) => r.aiCategory === category) : rows)
+  })
+}
+
+const mixedRows = () => [summary({ id: 10, aiCategory: '업무' }), summary({ id: 11, aiCategory: '개인' })]
+
+test('hides category badge when it equals the current category view', async () => {
+  // 업무 보기 안 검색 — 서버가 업무로 좁혀 돌려주고, 결과가 모두 업무라 업무 배지를 숨긴다.
+  const list = categoryScopedList(mixedRows())
+  renderMail(`/mail/1?q=${encodeURIComponent('회의')}`, { accounts: aiAccount, handlers: [list.handler] })
+  await screen.findByTestId('mail-row-10')
+  expect(list.last().url.searchParams.get('category')).toBe('업무')
+  expect(screen.queryByTestId('mail-badge-category-10')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('mail-row-11')).not.toBeInTheDocument()
+})
+
+test('shows category badge in all-inbox and search views', async () => {
+  // 받은편지함 전체에서 검색 — 분류가 섞이므로 업무·개인 배지를 모두 보인다.
+  const list = categoryScopedList(mixedRows())
+  renderMail(`/mail/1?category=all&q=${encodeURIComponent('회의')}`, { accounts: aiAccount, handlers: [list.handler] })
+  expect(await screen.findByTestId('mail-badge-category-10')).toHaveTextContent('업무')
+  expect(screen.getByTestId('mail-badge-category-11')).toHaveTextContent('개인')
+})
+
+test('keeps needs-reply and pending badges in category view', async () => {
+  renderMail('/mail/1', {
+    accounts: aiAccount,
+    messages: [summary({ id: 10, aiCategory: '업무', aiNeedsReply: true, seen: false }), summary({ id: 11, categoryPending: true })],
+  })
+  // 업무 보기에서 업무 배지는 숨지만 답장필요 배지는 남는다.
+  expect(await screen.findByTestId('mail-badge-needsreply-10')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-badge-category-10')).not.toBeInTheDocument()
+  // 「분류 전」 배지는 보기와 상관없이 그대로 보인다.
+  expect(screen.getByTestId('mail-badge-pending-11')).toHaveTextContent('분류 전')
+})
+
 // ── AI 요약 카드(mail.spec) ─────────────────────────────────────────────
 
 async function openFirstMail(aiEnabled: boolean, summaryHandler: NonNullable<Parameters<typeof renderMail>[1]>['handlers']) {
