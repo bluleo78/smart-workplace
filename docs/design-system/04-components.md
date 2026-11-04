@@ -26,7 +26,7 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | Card | `card.tsx` | — | `p-6` 영역 | Header / Title / Description / Action / Content / Footer 서브 컴포넌트 포함 |
 | Checkbox | `checkbox.tsx` | — | — | 폼 입력 |
 | Collapsible | `collapsible.tsx` | — | — | 사이드바/섹션 접기·펼치기 |
-| Command | `command.tsx` | — | — | 커맨드 팔레트 (cmdk 기반). `SearchableSelect`(§B-7)의 기반 |
+| Command | `command.tsx` | — | — | 커맨드 팔레트 (cmdk 기반). `SearchableSelect`(§B-5)의 기반 |
 | Dialog | `dialog.tsx` | — | `sm:max-w-lg` | 모달 다이얼로그 (이슈 생성, 그룹 편집 등) |
 | DropdownMenu | `dropdown-menu.tsx` | — | — | 컨텍스트 메뉴, 사용자 메뉴 |
 | Input | `input.tsx` | — | `h-9` | 텍스트 입력, `aria-invalid` 지원 |
@@ -53,7 +53,8 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | Component | File | 역할 |
 |-----------|------|------|
 | StatusBadge | `status-badge.tsx` | 의미(semantic) 기반 상태 배지 — Badge variant 래핑 |
-| SearchInput | `search-input.tsx` | 돋보기 아이콘 + clear 버튼 내장 검색 입력 |
+| SearchInput | `search-input.tsx` | 돋보기 아이콘 + clear 버튼 내장 검색 입력 — 상단 검색 쪽에만 |
+| FilterInput | `filter-input.tsx` | 깔때기 아이콘 + clear 버튼 내장 목록 필터 입력 — 목록 바로 위 |
 | SearchableSelect | `searchable-select.tsx` | 검색 가능 단일 선택 콤보박스 (Popover + Command) |
 | PasswordInput | `password-input.tsx` | 표시/숨김 토글 비밀번호 입력 |
 | FormField | `form-field.tsx` | Label + 입력 + 에러 메시지 래퍼 |
@@ -173,7 +174,7 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 
 ### 3. SearchInput (`search-input.tsx`)
 
-**목적**: 돋보기 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼이 내장된 검색 입력. 목록 페이지 상단 검색 바에 공통 사용. 놓는 자리(페이지 헤더 오른쪽 — 2차 사이드바 금지)·범위 칩·draft+디바운스·모바일 🔍 는 [05 §B-1 검색창](./05-page-patterns.md#검색창).
+**목적**: 돋보기 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼(「검색어 지우기」)이 내장된 검색 입력. **상단 검색**(어디 있는지 모르는 것을 찾는 입력)에만 쓴다. 지금 보는 목록을 좁히는 칸은 [FilterInput](#4-filterinput-filter-inputtsx)(§B-4)을 쓴다 — 구분 규칙은 [05 §B-1 검색과 필터](./05-page-patterns.md#검색과-필터).
 
 **Props API** (controlled — 일반 input 속성을 상속하지 않는다):
 
@@ -185,24 +186,56 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | `aria-label` | `string` | 선택 | 스크린리더용 이름 (미지정 시 placeholder 사용) |
 | `className` | `string` | 선택 | 래퍼에 병합 |
 
-**구현 특징**: 아이콘 위치를 위해 `pl-9`, clear 버튼이 보일 때 `pr-9` 적용. clear 버튼은 `onChange('')` 로 초기화 — 검색 0건 빈 상태(§B-8, [06](./06-feedback-states.md))의 "검색 초기화" 와 동일한 동작.
+**구현 특징**: 아이콘 위치를 위해 `pl-9`, clear 버튼이 보일 때 `pr-9` 적용. clear 버튼은 `onChange('')` 로 초기화 — 검색 0건 빈 상태(§B-9, [06](./06-feedback-states.md))의 "검색 초기화" 와 동일한 동작.
 
 **사용 예시**:
 
 ```tsx
-const [search, setSearch] = useState("");
+const [query, setQuery] = useState("");
 
 <SearchInput
-  placeholder="이슈 검색..."
-  value={search}
-  onChange={setSearch}
-  className="w-64"
+  placeholder="검색"
+  value={query}
+  onChange={setQuery}
+/>
+```
+
+> SearchInput 과 FilterInput 은 같은 내부 구현(`query-input.tsx` 의 `QueryInputBase`)을 쓰고 아이콘·지우기 라벨·기본 자리표시만 다르다. 화면 코드는 `QueryInputBase` 를 직접 쓰지 않는다.
+
+---
+
+### 4. FilterInput (`filter-input.tsx`)
+
+**목적**: 깔때기(`Funnel`) 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼(「필터 지우기」)이 내장된 목록 필터 입력. **지금 보는 목록을 좁히는** 칸으로, 목록 바로 위에 둔다. 놓는 자리·범위 칩·draft+디바운스·URL `?q`·모바일은 [05 §B-1 검색과 필터](./05-page-patterns.md#검색과-필터)(WP-1352).
+
+**Props API**: SearchInput(§B-3)과 같은 controlled API.
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `value` | `string` | 필수 | 현재 필터 값 |
+| `onChange` | `(value: string) => void` | 필수 | 값 변경 콜백 (이벤트가 아닌 **문자열**을 그대로 전달 — 공백·조합 중 글자도 다듬지 않는다) |
+| `placeholder` | `string` | 선택 | 기본값 `"필터"`. 기준만 쓴다(예: 「이름·이메일」) — 좁힌다는 뜻은 깔때기가 맡는다 |
+| `aria-label` | `string` | 선택 | 스크린리더용 이름 (미지정 시 placeholder 사용) |
+| `className` | `string` | 선택 | 래퍼에 병합. 기본 `flex-1 max-w-sm` — 목록 폭에 맞춰 호출부가 정한다 |
+| `inputTestId` | `string` | 선택 | 입력칸 `data-testid` |
+
+**구현 특징**: SearchInput 과 같다 — `pl-9`/`pr-9`, clear 는 `onChange('')`, 길이 상한 `SEARCH_QUERY_MAX_LENGTH`(WP-732, 필터 값도 서버로 간다).
+
+**사용 예시**:
+
+```tsx
+const [filter, setFilter] = useState("");
+
+<FilterInput
+  placeholder="이름·이메일"
+  value={filter}
+  onChange={setFilter}
 />
 ```
 
 ---
 
-### 4. SearchableSelect (`searchable-select.tsx`)
+### 5. SearchableSelect (`searchable-select.tsx`)
 
 **목적**: 검색 가능한 단일 선택 콤보박스. 옵션이 많아 native `<select>` 의 키보드 jump 만으로 탐색이 어려운 경우 사용 (옵션 5개 미만이면 기본 `Select` 권장).
 
@@ -235,7 +268,7 @@ const [search, setSearch] = useState("");
 
 ---
 
-### 5. PasswordInput (`password-input.tsx`)
+### 6. PasswordInput (`password-input.tsx`)
 
 **목적**: 표시/숨김 토글(Eye/EyeOff) 버튼이 우측에 겹쳐진 비밀번호 입력. 로그인/회원가입/비밀번호 변경에 사용.
 
@@ -253,7 +286,7 @@ const [search, setSearch] = useState("");
 
 ---
 
-### 6. DeleteConfirmDialog (`delete-confirm-dialog.tsx`)
+### 7. DeleteConfirmDialog (`delete-confirm-dialog.tsx`)
 
 **목적**: 삭제 작업 전 사용자 확인을 받는 AlertDialog 래퍼. 파괴적 작업의 안전장치. 한국어 조사(을/를)는 `eulReul()`(`lib/utils.ts`) 로 자동 처리된다.
 
@@ -285,7 +318,7 @@ const [search, setSearch] = useState("");
 
 ---
 
-### 7. SimplePagination (`simple-pagination.tsx`)
+### 8. SimplePagination (`simple-pagination.tsx`)
 
 **목적**: 처음/이전/페이지번호/다음/마지막 버튼 + 선택적 총건수·페이지 사이즈 selector. 목록 페이지 하단에 공통 사용.
 
@@ -318,7 +351,7 @@ const [search, setSearch] = useState("");
 
 ---
 
-### 8. TableEmptyRow (`table-empty.tsx`)
+### 9. TableEmptyRow (`table-empty.tsx`)
 
 **목적**: 테이블에 데이터가 없을 때 표시하는 빈 상태 행. **검색어 유무에 따라 두 가지 UI** 로 분기한다. 자세한 빈 상태 원칙은 [06. Feedback States](./06-feedback-states.md) 참조.
 
@@ -354,7 +387,7 @@ const [search, setSearch] = useState("");
 
 ---
 
-### 9. TableSkeletonRows (`table-skeleton.tsx`)
+### 10. TableSkeletonRows (`table-skeleton.tsx`)
 
 **목적**: 데이터 로딩 중 테이블 형태의 Skeleton 행을 표시.
 
@@ -467,7 +500,7 @@ export function cn(...inputs: ClassValue[]) {
 
 ```tsx
 <div className="flex items-center gap-3 flex-wrap">
-  <SearchInput placeholder="이슈 검색..." value={search} onChange={setSearch} className="w-64" />
+  <FilterInput placeholder="제목" value={search} onChange={setSearch} className="w-64" />
 
   <Select value={statusFilter} onValueChange={setStatusFilter}>
     <SelectTrigger className="w-36"><SelectValue placeholder="상태" /></SelectTrigger>

@@ -285,7 +285,7 @@ shadcn `Select` 를 RHF 와 쓸 때도 동일하게 `value`/`onValueChange` 를 
 </FormField>
 ```
 
-옵션이 많아 검색이 필요하면 `SearchableSelect`([04 §B-4](./04-components.md))를 쓴다:
+옵션이 많아 검색이 필요하면 `SearchableSelect`([04 §B-5](./04-components.md))를 쓴다:
 
 ```tsx
 <FormField label="담당자" htmlFor="assignee">
@@ -330,7 +330,7 @@ shadcn `Select` 를 RHF 와 쓸 때도 동일하게 `value`/`onValueChange` 를 
 
 ## J. 비밀번호 입력
 
-인증 폼의 비밀번호는 `PasswordInput`([04 §B-5](./04-components.md))를 쓴다 — 표시/숨김 토글 내장, 표준 input 속성 forwarding.
+인증 폼의 비밀번호는 `PasswordInput`([04 §B-6](./04-components.md))를 쓴다 — 표시/숨김 토글 내장, 표준 input 속성 forwarding.
 
 ```tsx
 <FormField label="비밀번호" htmlFor="password" error={errors.password?.message} required>

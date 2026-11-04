@@ -31,7 +31,8 @@ shadcn/ui Button/Badge 는 `[&_svg:not([class*='size-'])]:size-4` 패턴으로 �
 
 | 컨텍스트 | Size | Tailwind | strokeWidth | 예시 |
 |---------|------|----------|-------------|------|
-| Badge/tag 내부 | 12px | `h-3 w-3` | 2 | StatusBadge 내 아이콘, SearchInput clear |
+| Badge/tag 내부 | 12px | `h-3 w-3` | 2 | StatusBadge 내 아이콘 |
+| 입력칸 지우기 | 14px | `h-3.5 w-3.5` | 2 | SearchInput·FilterInput clear(X) |
 | 기본 인라인 | 16px | `h-4 w-4` | 2 | 버튼 아이콘, 테이블 액션, 폼 아이콘, 토스트 아이콘 |
 | 사이드바/헤더 | 20px | `h-5 w-5` | 2 | 사이드바 네비게이션, 헤더 |
 | 빈 상태/강조 | 24px+ | `h-6 w-6` / `h-8 w-8` / `h-12 w-12` | 2 | EmptyState, PageErrorBoundary(`AlertTriangle h-12`) |
@@ -200,7 +201,8 @@ Button(`button.tsx`)은 `[&_svg:not([class*='size-'])]:size-4` 로 내부 `<svg>
 | 추가/생성 | 플러스 | `Plus` |
 | 삭제 | 휴지통 | `Trash2` |
 | 편집 | 연필 | `Pencil` |
-| 검색 | 돋보기 | `Search` |
+| 검색(상단 검색에만) | 돋보기 | `Search` |
+| 필터(목록 좁히기) | 깔때기 | `Funnel` |
 | 검색 결과 없음 | 돋보기-X | `SearchX` |
 | 설정 | 톱니바퀴 | `Settings` |
 | 내보내기 | 다운로드 | `Download` |
@@ -218,7 +220,9 @@ Button(`button.tsx`)은 `[&_svg:not([class*='size-'])]:size-4` 로 내부 `<svg>
 | 외부 링크 | 화살표+박스 | `ExternalLink` |
 | 복사 | 클립보드 | `Copy` |
 
-> 실측 근거: `sonner.tsx`(`CircleCheck`/`Info`/`TriangleAlert`/`OctagonX`/`Loader2`), `table-empty.tsx`(`SearchX`), `simple-pagination.tsx`(`Chevron*`), `search-input.tsx`(`Search`/`X`), `password-input.tsx`(`Eye`/`EyeOff`), `searchable-select.tsx`(`Check`/`ChevronsUpDown`), `PageErrorBoundary.tsx`(`AlertTriangle`/`RefreshCw`).
+> 돋보기는 어디 있는지 모르는 것을 찾는 상단 검색에만 쓰고, 지금 보는 목록을 좁히는 칸은 깔때기(`FilterInput`)를 쓴다 — 구분 규칙은 [05 §B-1 검색과 필터](./05-page-patterns.md#검색과-필터)(WP-1352).
+
+> 실측 근거: `sonner.tsx`(`CircleCheck`/`Info`/`TriangleAlert`/`OctagonX`/`Loader2`), `table-empty.tsx`(`SearchX`), `simple-pagination.tsx`(`Chevron*`), `search-input.tsx`(`Search`), `filter-input.tsx`(`Funnel`), `query-input.tsx`(지우기 `X`), `password-input.tsx`(`Eye`/`EyeOff`), `searchable-select.tsx`(`Check`/`ChevronsUpDown`), `PageErrorBoundary.tsx`(`AlertTriangle`/`RefreshCw`).
 
 ### 7.2 AI 마커 어휘
 
@@ -343,7 +347,7 @@ import { FaTrash } from 'react-icons/fa';  // X
 ## 8. 접근성
 
 - **장식용 아이콘**: 옆에 텍스트가 있으면 `aria-hidden="true"` 를 추가해 스크린 리더 중복 읽기를 막는다.
-- **단독 아이콘 버튼**: 텍스트 없이 아이콘만 있는 버튼은 반드시 `aria-label` 을 제공한다. (실측: `SearchInput` clear 버튼 `aria-label="검색어 지우기"`, `SimplePagination` 의 페이지 버튼들, `PasswordInput` 의 토글 버튼이 모두 `aria-label` 보유.)
+- **단독 아이콘 버튼**: 텍스트 없이 아이콘만 있는 버튼은 반드시 `aria-label` 을 제공한다. (실측: `SearchInput` clear 버튼 `aria-label="검색어 지우기"`, `FilterInput` clear 버튼 `aria-label="필터 지우기"`, `SimplePagination` 의 페이지 버튼들, `PasswordInput` 의 토글 버튼이 모두 `aria-label` 보유.)
 
 ```tsx
 // 장식용 — aria-hidden
