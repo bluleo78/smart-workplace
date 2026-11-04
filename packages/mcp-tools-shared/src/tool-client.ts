@@ -628,7 +628,7 @@ export interface DriveToolClient {
   createDriveTextFile(spaceId: number, folderId: number | null, name: string, content: string): Promise<unknown>;
   /**
    * POST /drive/files/{id}/text — EDITOR 이상. 기존 드라이브 파일에 content 로 새 버전을 올린다(WP-369 Task 3). 200, DriveFileResponse 원형
-   * (id·이름·폴더 그대로, versionCount+1). 현재 버전이 텍스트가 아니면(pdf·docx 등), 또는 읽은 텍스트가 원문과 다르면(html 계열·UTF-8 아님·추출 잘림)
+   * (id·이름·폴더 그대로, versionCount+1). 현재 버전이 텍스트가 아니면(pdf·docx 등), 또는 원본을 글자로 읽을 수 없으면(원본 없음·10MB 초과·UTF-8 아님 — WP-1339)
    * 서버가 409(업로드 링크로 올리라는 안내). mimeType 은 보내지 않는다 — 서버가 지금 형식을 유지한다(xml 계열과 octet-stream 만 이름의 확장자로 다시 정한다).
    */
   updateDriveTextFile(driveFileId: number, content: string): Promise<unknown>;

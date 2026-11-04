@@ -153,7 +153,7 @@ public class ExtractedTextService {
   }
 
   /**
-   * 구간 검사와 limit 클램프 — 추출 텍스트 읽기와 원본 읽기(드라이브 html, WP-1338)가 같은 규칙을 쓴다.
+   * 구간 검사와 limit 클램프 — 추출 텍스트 읽기와 원본 읽기(드라이브 텍스트 파일, WP-1338·WP-1339)가 같은 규칙을 쓴다.
    *
    * @return {@link #MAX_LIMIT} 로 줄인 limit
    * @throws InvalidTextRangeException offset &lt; 0 또는 limit &lt; 1
@@ -165,8 +165,8 @@ public class ExtractedTextService {
   }
 
   /**
-   * 메모리에 있는 전문을 코드포인트 기준으로 잘라 READY 구간을 만든다(WP-1338 — 드라이브 html 원본 읽기). SQL 자르기({@link #read})와 같은
-   * 단위· nextOffset 규칙이다. 원본이라 잘림은 false, 쪽수는 없다.
+   * 메모리에 있는 전문을 코드포인트 기준으로 잘라 READY 구간을 만든다(WP-1338·WP-1339 — 드라이브 텍스트 파일 원본 읽기). SQL 자르기({@link
+   * #read})와 같은 단위· nextOffset 규칙이다. 원본이라 잘림은 false, 쪽수는 없다.
    */
   public static ExtractedTextSlice sliceOf(long fileId, String fullText, int offset, int limit) {
     int lim = checkRange(offset, limit);

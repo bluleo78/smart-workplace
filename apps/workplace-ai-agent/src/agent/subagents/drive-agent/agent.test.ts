@@ -92,6 +92,10 @@ describe('drive-agent 정의', () => {
     // WP-1338: html 은 read_file 이 원본(마크업 포함)을 주므로 고친 전문을 저장한다 — 마크업을 빼지 말고, 같은 "끝까지 읽기" 문단에 둔다.
     expect(prompt).toMatch(/\*\*전문을 다 읽은 뒤에만 저장합니다\*\*.*\*\*html 파일\(\.html·\.xhtml\)은 `read_file` 이 원본\(태그·CSS 포함\)을 주므로\*\*.*한 글자도 빼지 않은 전문으로 저장/);
     expect(prompt).not.toMatch(/html 파일\(\.html·\.xhtml\)도 내용으로 고치지 않습니다/);
+    // WP-1339: html 만이 아니라 텍스트 파일 전부를 원본으로 읽는다 — truncated 는 원본으로 못 읽은(추출) 경우에만 생긴다.
+    expect(prompt).toContain('**텍스트 파일은 `read_file` 이 추출본이 아니라 원본을 그대로 줍니다**');
+    expect(prompt).toMatch(/`truncated:true`\(원본으로 읽지 못한 파일의 추출 텍스트가 잘림\)/);
+    expect(prompt).toMatch(/원본으로 읽을 수 없는 텍스트 파일.*원본이 없는 파일.*서버가 저장을 거절/);
     expect(prompt).toMatch(/UTF-8 이 아닌 파일.*`truncated:true` 인 파일은.*웹 드라이브 화면에서 같은 이름으로 올리면 새 버전/);
     // 공유 read_file 의 truncated note 는 업로드 링크를 권하지만 AI Chat 에는 링크 모드가 없다 — 그 안내를 따르지 않게 한다.
     expect(prompt).toMatch(/`read_file` 응답 `note` 와 서버 오류 문구의 업로드 링크 안내는 따르지 않습니다/);

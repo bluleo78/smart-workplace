@@ -1018,26 +1018,13 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(xhtmlV2.mimeType()).isEqualTo("application/xhtml+xml");
   }
 
-  /** WP-1338: UTF-8 이 아닌 html 은 원본으로 읽을 수 없어 여전히 409 다 — 버전은 늘지 않는다. */
-  @Test
-  void updateTextFile_nonUtf8Html_conflicts() throws Exception {
-    long u = seedUser();
-    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
-    byte[] cp949 = {'<', 'p', '>', (byte) 0xB0, (byte) 0xA1, '<', '/', 'p', '>'};
-    DriveFileResponse html = uploadBytes(u, sp.id(), "옛.html", "text/html", cp949);
-
-    assertThatThrownBy(() -> fileService.updateTextFile(u, html.id(), "<p>가</p>", null))
-        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessageContaining("UTF-8");
-    assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
-  }
-
   /**
-   * WP-1338: 원본 blob 을 잃은 html 은 읽기가 마크업 뺀 추출 텍스트로 떨어지므로 내용으로 고쳐 쓰지 못한다(409) — 그대로 덮으면 마크업 없는 판이
-   * 굳는다. 같은 처지의 md 는 추출 텍스트가 원문이라 되살릴 수 있다.
+   * WP-1339: 원본 blob 을 잃은 텍스트 파일은 형식과 무관하게(html·md 모두) 내용으로 고쳐 쓰지 못한다(409 「원본」) — 읽기가 추출 텍스트(마크업이
+   * 빠졌거나 잘렸을 수 있음)로 떨어져 「AI 가 읽은 것 = 덮어쓸 원본」이 깨지기 때문이다. 읽기는 추출 텍스트를 준다. 버전은 늘지 않는다.
    */
   @Test
-  void updateTextFile_htmlWithMissingBlob_conflicts_butMarkdownRecovers() throws Exception {
+  void updateTextFile_missingBlob_conflictsForAllFormats_readFallsBackToExtraction()
+      throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse html = uploadAs(u, sp.id(), "잃음.html", "text/html", "<p>a</p>");
@@ -1046,12 +1033,18 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .set(FILE.STORAGE_PATH, "missing/blob-" + UUID.randomUUID())
         .where(FILE.ID.in(html.fileId(), md.fileId()))
         .execute();
+    markExtracted(html, "추출본");
+    markExtracted(md, "추출본");
 
-    assertThatThrownBy(() -> fileService.updateTextFile(u, html.id(), "a", null))
-        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessageContaining("HTML 원본");
-    assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
-    assertThat(fileService.updateTextFile(u, md.id(), "# b", null).versionCount()).isEqualTo(2);
+    for (DriveFileResponse f : new DriveFileResponse[] {html, md}) {
+      assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "a", null))
+          .as(f.name())
+          .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+          .hasMessageContaining("원본")
+          .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
+      assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
+      assertThat(fileService.readText(u, f.id(), 0, 100).text()).as(f.name()).isEqualTo("추출본");
+    }
   }
 
   /**
@@ -1088,22 +1081,27 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(fileService.readText(u, html.id(), total + 5, 10).text()).isEmpty();
   }
 
-  /** WP-1338: html 이 아닌 파일과 UTF-8 이 아닌 html 은 지금처럼 추출 텍스트를 읽는다. */
+  /**
+   * WP-1339: 텍스트 파일이 아닌 파일(pdf)은 지금처럼 추출 텍스트를 읽는다. 원본으로 읽을 수 없는 텍스트 파일(UTF-8 아님·10MB 초과·원본 없음)의 추출
+   * 텍스트 읽기는 각 409 테스트가 함께 본다 — 읽기와 고쳐 쓰기가 같은 판정이라서다.
+   */
   @Test
-  void readText_nonHtmlOrNonUtf8Html_readsExtractedText() throws Exception {
+  void readText_nonTextFile_readsExtractedText() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
-    DriveFileResponse md = uploadAs(u, sp.id(), "노트.md", "text/markdown", "# 원문");
-    byte[] cp949 = {'<', 'p', '>', (byte) 0xB0, (byte) 0xA1, '<', '/', 'p', '>'};
-    DriveFileResponse html = uploadBytes(u, sp.id(), "옛.html", "text/html", cp949);
-    for (DriveFileResponse f : new DriveFileResponse[] {md, html}) {
-      dsl.update(FILE_EXTRACTION)
-          .set(FILE_EXTRACTION.STATUS, "DONE")
-          .set(FILE_EXTRACTION.EXTRACTED_TEXT, "추출본")
-          .where(FILE_EXTRACTION.FILE_ID.eq(f.fileId()))
-          .execute();
-      assertThat(fileService.readText(u, f.id(), 0, 100).text()).as(f.name()).isEqualTo("추출본");
-    }
+    DriveFileResponse pdf = uploadAs(u, sp.id(), "문서.pdf", "application/pdf", "%PDF-1.4 원문");
+    markExtracted(pdf, "추출본");
+
+    assertThat(fileService.readText(u, pdf.id(), 0, 100).text()).isEqualTo("추출본");
+  }
+
+  /** 추출을 끝난 것(DONE)으로 표시하고 추출 텍스트를 넣는다 — 원본으로 읽지 못한 파일이 무엇을 읽는지 보려고. */
+  private void markExtracted(DriveFileResponse f, String text) {
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.STATUS, "DONE")
+        .set(FILE_EXTRACTION.EXTRACTED_TEXT, text)
+        .where(FILE_EXTRACTION.FILE_ID.eq(f.fileId()))
+        .execute();
   }
 
   /**
@@ -1223,7 +1221,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   /**
    * UTF-8 이 아닌 원문(CP949 "가나")은 409 — 워커가 대체 문자로 읽어 한글이 깨진 채 굳는다. 끝이 잘린 UTF-8 바이트열("가"의 앞 두 바이트)도
-   * 같다. 버전은 늘지 않는다.
+   * 같고, html 도 다르지 않다(WP-1339). 버전은 늘지 않고, 읽기는 원본 대신 추출 텍스트를 준다.
    */
   @Test
   void updateTextFile_nonUtf8Original_conflicts() throws Exception {
@@ -1233,14 +1231,18 @@ class DriveFileServiceTest extends IntegrationTestBase {
     byte[] cutUtf8 = {'a', ',', 'b', '\n', (byte) 0xEA, (byte) 0xB0};
     DriveFileResponse csv = uploadBytes(u, sp.id(), "표.csv", "text/csv", cp949);
     DriveFileResponse txt = uploadBytes(u, sp.id(), "끝.txt", "text/plain", cutUtf8);
+    byte[] cp949Html = {'<', 'p', '>', (byte) 0xB0, (byte) 0xA1, '<', '/', 'p', '>'};
+    DriveFileResponse html = uploadBytes(u, sp.id(), "옛.html", "text/html", cp949Html);
 
-    for (DriveFileResponse f : new DriveFileResponse[] {csv, txt}) {
+    for (DriveFileResponse f : new DriveFileResponse[] {csv, txt, html}) {
       assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "a,b", null))
           .as(f.name())
           .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
           .hasMessageContaining("UTF-8")
           .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
       assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
+      markExtracted(f, "추출본");
+      assertThat(fileService.readText(u, f.id(), 0, 100).text()).as(f.name()).isEqualTo("추출본");
     }
     // 올바른 UTF-8(한글·이모지·BOM 없음)은 그대로 고쳐 쓸 수 있다.
     DriveFileResponse ok =
@@ -1254,14 +1256,14 @@ class DriveFileServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 추출이 잘린 파일(워커 MAX_CHARS 초과, file_extraction.truncated)은 409 — AI 가 앞부분만 읽고 덮으면 뒷부분이 사라진다. 추출이 아직
-   * PENDING 이면 잘림을 알 수 없어 UTF-8 검사만으로 판단한다(갱신된다).
+   * WP-1339: 추출이 잘린 텍스트 파일(워커 MAX_CHARS 초과, file_extraction.truncated)도 읽기가 원본 전문을 주므로(잘림 false)
+   * 내용으로 고쳐 쓸 수 있다 — AI 가 읽은 것이 덮어쓸 원본과 같다. 추출이 아직 PENDING 이어도 같다.
    */
   @Test
-  void updateTextFile_truncatedExtraction_conflicts_pendingAllowed() throws Exception {
+  void readAndUpdate_truncatedExtraction_readsRawSource_andIsRewritable() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
-    DriveFileResponse big = fileService.createTextFile(u, sp.id(), null, "큰.md", "앞부분", null);
+    DriveFileResponse big = fileService.createTextFile(u, sp.id(), null, "큰.md", "앞부분\n뒷부분", null);
     DriveFileResponse pending = fileService.createTextFile(u, sp.id(), null, "대기.md", "x", null);
     dsl.update(FILE_EXTRACTION)
         .set(FILE_EXTRACTION.STATUS, "DONE")
@@ -1270,18 +1272,44 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .where(FILE_EXTRACTION.FILE_ID.eq(big.fileId()))
         .execute();
 
-    assertThatThrownBy(() -> fileService.updateTextFile(u, big.id(), "앞부분만 고침", null))
-        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessageContaining("앞부분만")
-        .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
-    assertThat(versionsRepo.listForDriveFile(big.id())).hasSize(1);
+    var read = fileService.readText(u, big.id(), 0, 32000);
+    assertThat(read.status()).isEqualTo("READY");
+    assertThat(read.text()).isEqualTo("앞부분\n뒷부분");
+    assertThat(read.truncated()).isFalse();
+    assertThat(read.nextOffset()).isNull();
+    assertThat(fileService.updateTextFile(u, big.id(), "앞부분\n뒷부분 고침", null).versionCount())
+        .isEqualTo(2);
     assertThat(
             dsl.select(FILE_EXTRACTION.STATUS)
                 .from(FILE_EXTRACTION)
                 .where(FILE_EXTRACTION.FILE_ID.eq(pending.fileId()))
                 .fetchOne(FILE_EXTRACTION.STATUS))
         .isEqualTo("PENDING");
+    assertThat(fileService.readText(u, pending.id(), 0, 100).text()).isEqualTo("x");
     assertThat(fileService.updateTextFile(u, pending.id(), "y", null).versionCount()).isEqualTo(2);
+  }
+
+  /**
+   * WP-1339: 브라우저가 octet-stream 으로 올린 .py(추출하지 않는 형식)도 이름 확장자로 텍스트 파일로 보아 원본을 READY 로 준다 — 추출 상태와
+   * 무관하다. 빈 파일은 빈 글자(전체 0자, 다음 구간 없음)다.
+   */
+  @Test
+  void readText_octetStreamCodeFile_andEmptyFile_readRawSource() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse py =
+        uploadAs(u, sp.id(), "run.py", "application/octet-stream", "print('가')\n");
+    DriveFileResponse empty = uploadBytes(u, sp.id(), "빈.txt", "text/plain", new byte[0]);
+
+    var read = fileService.readText(u, py.id(), 0, 32000);
+    assertThat(read.status()).isEqualTo("READY");
+    assertThat(read.text()).isEqualTo("print('가')\n");
+    assertThat(read.truncated()).isFalse();
+    var none = fileService.readText(u, empty.id(), 0, 100);
+    assertThat(none.status()).isEqualTo("READY");
+    assertThat(none.text()).isEmpty();
+    assertThat(none.totalChars()).isZero();
+    assertThat(none.nextOffset()).isNull();
   }
 
   /**
@@ -1301,6 +1329,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .hasMessageContaining("10MB")
         .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
     assertThat(versionsRepo.listForDriveFile(csv.id())).hasSize(1);
+    // 읽기도 같은 판정이라 원본을 통째로 올리지 않고 추출 텍스트를 준다(WP-1339).
+    markExtracted(csv, "추출본");
+    assertThat(fileService.readText(u, csv.id(), 0, 100).text()).isEqualTo("추출본");
   }
 
   /**
