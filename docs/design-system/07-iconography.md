@@ -347,7 +347,7 @@ import { FaTrash } from 'react-icons/fa';  // X
 ## 8. 접근성
 
 - **장식용 아이콘**: 옆에 텍스트가 있으면 `aria-hidden="true"` 를 추가해 스크린 리더 중복 읽기를 막는다.
-- **단독 아이콘 버튼**: 텍스트 없이 아이콘만 있는 버튼은 반드시 `aria-label` 을 제공한다. (실측: `SearchInput` clear 버튼 `aria-label="검색어 지우기"`, `FilterInput` clear 버튼 `aria-label="필터 지우기"`, `SimplePagination` 의 페이지 버튼들, `PasswordInput` 의 토글 버튼이 모두 `aria-label` 보유.)
+- **단독 아이콘 버튼**: 텍스트 없이 아이콘만 있는 버튼은 반드시 `aria-label` 을 제공한다. (실측: `SearchInput` clear 버튼 `aria-label="검색어 지우기"`, `FilterInput` clear 버튼 `aria-label="입력 지우기"`, `SimplePagination` 의 페이지 버튼들, `PasswordInput` 의 토글 버튼이 모두 `aria-label` 보유.)
 
 ```tsx
 // 장식용 — aria-hidden

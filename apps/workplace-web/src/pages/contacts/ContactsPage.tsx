@@ -1,19 +1,19 @@
-import { Plus, Search, Star, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus, Star, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { FilterLine } from '@/components/filter/FilterLine'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
-import { mobileRootHeaderClass } from '@/components/mobile/headerClass'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
 import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { Button } from '@/components/ui/button'
+import { FilterInput } from '@/components/ui/filter-input'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
-import { SearchInput } from '@/components/ui/search-input'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
@@ -147,7 +147,7 @@ function useContactsScreenContext(input: {
   })
   useRegisterAiScreenContext(ctx)
   // 열린 연락처 이름(목록 행 → 상세 응답 순) — 페이지가 모바일 상세 헤더 제목으로 재사용한다.
-  // 그룹 이름은 검색창 범위 칩 문구로 재사용한다(트리 탐색을 한 번만).
+  // 그룹 이름은 목록 필터 줄의 범위 칩 문구로 재사용한다(트리 탐색을 한 번만).
   return { name, groupName }
 }
 
@@ -181,8 +181,8 @@ function useGroupLocation(groupId: number | null, params: URLSearchParams) {
 }
 
 /**
- * 검색 범위 칩 — 그룹 보기에서 검색창 앞에 「재경팀 ×」로 지금 어디 안에서 거르는지 보인다(WP-976, §B-1 「범위」).
- * 누르면(× 포함) 그룹 범위를 풀고 같은 검색어로 전체 연락처를 찾는다. 긴 그룹 이름은 말줄임해 입력칸 폭을 지킨다.
+ * 검색 범위 칩 — 그룹 보기에서 키워드 필터 칸 뒤에 「재경팀 ×」로 지금 어디 안에서 거르는지 보인다(WP-976, §B-1 「범위」).
+ * 누르면(× 포함) 그룹 범위를 풀고 같은 검색어로 전체 연락처를 찾는다. 긴 그룹 이름은 말줄임해 필터 칸 폭을 지킨다.
  */
 function SearchScopeChip({ name, onClear, className }: { name: string; onClear: () => void; className?: string }) {
   return (
@@ -203,33 +203,7 @@ function SearchScopeChip({ name, onClear, className }: { name: string; onClear: 
   )
 }
 
-/**
- * 모바일 헤더의 검색 버튼(WP-1000) — 검색 줄을 「닫기」로 접어도 검색어는 남으므로, 그때는 🔍 대신 검색어 칩(🔍 김)으로 걸러진 상태임을 보인다.
- * 누르면 검색 줄을 다시 편다. 검색어가 없으면 예전처럼 🔍 아이콘 하나.
- */
-function MobileSearchButton({ query, onOpen }: { query: string; onOpen: () => void }) {
-  if (query === '') {
-    return (
-      <HeaderIconAction label="검색" tone="default" data-testid="contact-search-open" onClick={onOpen}>
-        <Search />
-      </HeaderIconAction>
-    )
-  }
-  return (
-    <button
-      type="button"
-      data-testid="contact-search-open"
-      aria-label={`검색어 「${query}」 — 검색 열기`}
-      onClick={onOpen}
-      className="inline-flex h-8 min-w-0 max-w-[7rem] shrink items-center gap-1 rounded-full border bg-muted px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-    >
-      <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span data-testid="contact-search-chip" className="truncate">{query}</span>
-    </button>
-  )
-}
-
-/** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 이 페이지 헤더가 쓴다(WP-976). */
+/** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 목록 위 키워드 필터 줄이 쓴다(WP-976, WP-1355). */
 export function ContactsPage() {
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
@@ -255,12 +229,13 @@ export function ContactsPage() {
   // q 갱신 — 통합 목록은 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
   // 그룹 보기는 검색어가 바뀌어도 상세를 그대로 둔다(WP-999) — 그 검색은 서버가 그 그룹과 하위 조직에서 다시 찾는데(WP-1000),
   // 보던 사람이 새 결과에서 빠져도 그 사람을 두고 같은 조직의 다른 사람을 찾을 수 있게. 그룹 여부는 렌더 시점 값이 아닌 prev 로 본다(같은 틱의 범위 해제와 경합하지 않게).
-  const writeQuery = (value: string) =>
+  // 공백만 친 입력을 빈 검색어로 보는 것·q 가 그대로면 쓰지 않는 것은 useSearchDraft 가 맡는다.
+  const writeQuery = (q: string) =>
     setParams(
       (prev) => {
         const sp = new URLSearchParams(prev)
         if (parseGroupId(sp.get('group')) == null) sp.delete('contact')
-        if (value) sp.set('q', value)
+        if (q) sp.set('q', q)
         else sp.delete('q')
         return sp
       },
@@ -268,32 +243,9 @@ export function ContactsPage() {
     )
   // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
   // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
-  // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
+  // 검색 칸이 사이드바에서 헤더를 거쳐 목록 위 필터 줄로 옮겨 오며(WP-976·WP-1355) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
   // 내가 쓴 q 가 되돌아올 때 draft 를 덮지 않는 것(WP-999)은 공용 훅이 맡는다(WP-1003).
-  const { draft: qDraft, setDraft: setQDraft, commit: commitQuery } = useSearchDraft(search, writeQuery)
-
-  // 모바일 검색 펼침 — 헤더 🔍 로 연다. 링크·뒤로 가기로 ?q 를 들고 들어오면 펼친 채 시작한다.
-  // 「닫기」로 접으면 검색어를 둔 채 접힌다(WP-1000) — 헤더의 검색어 칩이 걸러진 상태를 보이고, ☰ 로 보기를 바꿔도 같은 검색어로 거른다.
-  // 입력칸 X 로 지워도 줄은 펼친 채 둔다(키보드가 닫히지 않게).
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(() => search !== '')
-  const mobileSearchRef = useRef<HTMLDivElement>(null)
-  // 🔍 로 연 때만 초점을 준다 — ?q 진입으로 펼칠 때 키보드가 저절로 올라오지 않게.
-  const focusMobileSearch = useRef(false)
-  const openMobileSearch = () => {
-    focusMobileSearch.current = true
-    setMobileSearchOpen(true)
-  }
-  useEffect(() => {
-    if (!mobileSearchOpen || !focusMobileSearch.current) return
-    focusMobileSearch.current = false
-    mobileSearchRef.current?.querySelector('input')?.focus()
-  }, [mobileSearchOpen])
-  // 「닫기」 — 검색 줄만 접고 검색어는 둔다(WP-1000). 아직 debounce 중인 입력은 바로 URL 에 써서 접힌 헤더의 칩과 목록이 같은 검색어를 보게 한다.
-  const closeMobileSearch = () => {
-    // 공백만 친 검색어는 검색이 아니다 — 빈 칩이 남지 않게 다듬어 쓴다.
-    commitQuery(qDraft.trim())
-    setMobileSearchOpen(false)
-  }
+  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(search, writeQuery)
 
   // 그룹 보기 떠나기 — 범위 칩 ×·「전체에서 찾기」(그룹만 풀고 검색어는 남겨 전체에서 같은 말로 찾는다)와
   // 보던 그룹(또는 조상)이 삭제됐을 때 통합 목록 복귀가 같은 동작이다. 열린 상세도 함께 닫는다.
@@ -337,36 +289,13 @@ export function ContactsPage() {
 
   // 범위 칩·검색 안내에 쓰는 그룹 이름 — 트리를 받기 전에는 「그룹」.
   const scopeName = groupName ?? '그룹'
-  // 검색 칸 — [그룹 범위 칩] [입력]. 데스크톱 헤더 actions 와 모바일 펼친 줄이 폭만 달리해 같이 쓴다.
-  const searchField = ({ chipClass, inputClass }: { chipClass: string; inputClass: string }) => (
-    <>
-      {groupId != null && <SearchScopeChip name={scopeName} onClear={leaveGroup} className={chipClass} />}
-      <SearchInput
-        value={qDraft}
-        onChange={setQDraft}
-        // 그룹 보기 검색은 하위 조직까지 찾는다(WP-1000) — 범위가 드러나게 「경영지원본부와 하위 조직에서 검색」.
-        placeholder={groupId != null ? `${scopeName}${andParticle(scopeName)} 하위 조직에서 검색` : '이름·이메일 검색'}
-        aria-label="연락처 검색"
-        inputTestId="contact-search"
-        className={inputClass}
-      />
-    </>
-  )
 
   return (
     <>
       <Page>
         {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통). 모바일 상세가 열리면 숨김 — 상세 헤더 한 줄만(U1-1) */}
-        {showListChrome && isMobile && mobileSearchOpen ? (
-          // 모바일 검색 펼침 — 헤더 자리를 [범위 칩][입력][닫기] 한 줄로 바꾼다(§B-1 「모바일」: ⋯·☰ 안에 넣지 않는다).
-          <div ref={mobileSearchRef} data-testid="contact-mobile-search" className={cn('relative z-[45] bg-background', mobileRootHeaderClass, 'gap-2 pr-2')}>
-            {searchField({ chipClass: 'max-w-[10rem]', inputClass: 'min-w-0 max-w-none' })}
-            <Button type="button" variant="ghost" size="sm" data-testid="contact-search-close" onClick={closeMobileSearch} className="shrink-0 px-2">
-              닫기
-            </Button>
-          </div>
-        ) : showListChrome && isMobile && groupId != null ? (
-          // 모바일 그룹 보기 — 「‹ 그룹 이름」 한 줄(경로 전체는 넣지 않는다, §B-1). 우측은 목록 헤더와 같은 🔍·＋·☰.
+        {showListChrome && isMobile && groupId != null ? (
+          // 모바일 그룹 보기 — 「‹ 그룹 이름」 한 줄(경로 전체는 넣지 않는다, §B-1). 우측은 목록 헤더와 같은 ＋·☰.
           <MobileDetailBar
             data-testid="contact-group-header"
             title={groupName ?? '그룹'}
@@ -375,7 +304,6 @@ export function ContactsPage() {
             showAi={false}
             trailing={
               <>
-                <MobileSearchButton query={search} onOpen={openMobileSearch} />
                 <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
                 <MobileSidebarSheetTrigger />
               </>
@@ -390,20 +318,15 @@ export function ContactsPage() {
             leading={groupLocation.items && <Breadcrumb items={groupLocation.items} aria-label="조직 경로" data-testid="contact-breadcrumb" />}
             actions={
               <>
-                {/* 검색 — 지금 보는 목록을 거르므로 헤더 오른쪽(§B-1 「검색창」). 그룹 보기면 범위 칩을 앞에 둔다. */}
-                <div className="flex min-w-0 items-center gap-2">
-                  {searchField({ chipClass: 'max-w-48', inputClass: 'w-64 flex-none' })}
-                </div>
                 {/* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */}
                 <Button data-testid="contact-create" onClick={() => setCreateOpen(true)}>
                   새 외부 연락처
                 </Button>
               </>
             }
-            // 모바일: 🔍(검색 펼침)과 ＋ 를 인라인 아이콘으로(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
+            // 모바일: ＋ 를 인라인 아이콘으로(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
             mobilePrimaryAction={
               <>
-                <MobileSearchButton query={search} onOpen={openMobileSearch} />
                 <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
               </>
             }
@@ -421,6 +344,25 @@ export function ContactsPage() {
             )}
             data-testid="contact-list"
           >
+            {/* 목록 위 필터 줄(WP-1355) — 키워드(→ q) 다음에 그룹 범위 칩. 데스크톱·모바일 같은 줄이 폭에 맞춰 한 줄/두 줄로 바뀐다(돋보기 없음).
+                자리표시는 통합 목록이 찾는 기준(이름·이메일)만 쓴다 — 소속(organization)은 통합 검색 대상이 아니다. */}
+            {showListChrome && (
+              <FilterLine
+                data-testid="contact-filter-line"
+                className="border-b px-4 py-2"
+                keyword={
+                  <FilterInput
+                    placeholder="이름·이메일"
+                    value={qDraft}
+                    onChange={setQDraft}
+                    // 그룹 보기 검색은 하위 조직까지 찾는다(WP-1000) — 범위 안내는 placeholder 가 아니라 접근성 이름으로 둔다.
+                    aria-label={groupId != null ? `${scopeName}${andParticle(scopeName)} 하위 조직에서 검색` : '연락처 검색'}
+                    inputTestId="contact-search"
+                  />
+                }
+                chips={groupId != null ? <SearchScopeChip name={scopeName} onClear={leaveGroup} className="max-w-48" /> : undefined}
+              />
+            )}
             {groupId != null ? (
               <GroupContactView
                 groupId={groupId}

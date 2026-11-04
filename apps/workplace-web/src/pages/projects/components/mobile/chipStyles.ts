@@ -10,8 +10,8 @@ export const MOBILE_CHIP = `${HIT_EXPAND} inline-flex h-8 shrink-0 items-center 
 // 활성 칩(에픽 선택·필터 적용) — 테두리 대신 primary 틴트로 「걸려 있음」을 표시.
 export const MOBILE_CHIP_ACTIVE = 'border-primary/40 bg-primary/10 text-primary font-medium';
 
-// 가로 스크롤 칩 줄의 스크롤바 숨김 — 칩 줄(툴바·타임라인 아젠다)이 같은 규칙을 쓴다.
-export const HIDE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+// 가로 스크롤 칩 줄의 스크롤바 숨김 — 공용 상수를 그대로 다시 내보낸다(기존 import 유지).
+export { HIDE_SCROLLBAR } from '@/lib/scrollStyles';
 
 // 목록 안 구역 제목(sticky) — 타임라인 아젠다의 월 제목과 버전 시트의 「예정·출시됨」이 같은 모양을 쓴다.
 export const MOBILE_SECTION_HEADING = 'sticky top-0 z-10 border-b bg-muted px-4 py-2 text-xs font-semibold text-muted-foreground';

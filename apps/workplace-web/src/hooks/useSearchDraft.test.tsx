@@ -76,13 +76,18 @@ describe('useSearchDraft', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
-  it('commit 은 기다리지 않고 draft 와 URL 을 함께 바꾼다 — q 가 같아도 write 를 부른다', () => {
-    const { result, write } = setup('')
-    act(() => result.current.setDraft('abc'))
-    act(() => result.current.commit(''))
-    expect(result.current.draft).toBe('')
-    expect(write).toHaveBeenCalledWith('')
+  it('공백만 친 입력은 빈 검색어로 쓰고, 글자가 있는 값은 공백까지 그대로 쓴다', () => {
+    const { result, rerender, write } = setup('abc')
+    act(() => result.current.setDraft('   '))
+    act(() => vi.advanceTimersByTime(300))
+    expect(write).toHaveBeenLastCalledWith('')
+    rerender({ value: '', write })
+    // 이미 빈 검색어면 공백을 더 쳐도 쓰지 않는다.
+    act(() => result.current.setDraft('    '))
     act(() => vi.advanceTimersByTime(300))
     expect(write).toHaveBeenCalledTimes(1)
+    act(() => result.current.setDraft('abc '))
+    act(() => vi.advanceTimersByTime(300))
+    expect(write).toHaveBeenLastCalledWith('abc ')
   })
 })

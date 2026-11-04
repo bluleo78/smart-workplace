@@ -1,6 +1,6 @@
 // 모바일 헤더 ⋯ 메뉴(U1-2) — 페이지 actions(임의 ReactNode)를 세로 목록으로 담는 패널.
 // Radix DropdownMenu 대신 직접 구현한 이유:
-//  1) actions 안의 검색 입력(메일·드라이브)에 DropdownMenu typeahead 가 키 입력을 가로챈다.
+//  1) actions 안의 검색 입력(드라이브)에 DropdownMenu typeahead 가 키 입력을 가로챈다.
 //  2) 패널을 닫아도 내용을 언마운트하지 않아야 한다 — 드라이브 업로드처럼 actions 안의 숨은 <input type=file> 이
 //     파일 선택 중에 사라지면 onChange 가 오지 않고, 액션이 소유한 다이얼로그 상태도 함께 사라진다.
 // 그래서 패널은 항상 마운트해 두고 열림 여부만 CSS 로 전환한다(닫힌 동안은 display:none → 보이지도 눌리지도 않음).
@@ -48,12 +48,9 @@ const inlineClass = cn(
 
 export function MobileHeaderMore({
   children,
-  icon,
   label = '더보기',
 }: {
   children: ReactNode
-  /** 트리거 아이콘(기본 ⋯). 메일처럼 메뉴가 검색 하나뿐이면 🔍 로 바꿔 의미를 드러낸다. */
-  icon?: ReactNode
   label?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -73,7 +70,7 @@ export function MobileHeaderMore({
     if (!panel) return
     const measure = () => {
       const all = panel.querySelectorAll<HTMLElement>(ANY_ITEM_SELECTOR)
-      // 입력·선택 상자가 있으면(메일 🔍 검색, 드라이브 숨은 파일 입력) 메뉴로 둔다 — 그 자체가 메뉴의 내용이다.
+      // 입력·선택 상자가 있으면(드라이브 검색·숨은 파일 입력) 메뉴로 둔다 — 그 자체가 메뉴의 내용이다.
       const single = all.length === 1 && panel.querySelector('input, select, textarea') === null
       setInline(single)
       // 메뉴 모드일 때만 메뉴 의미를 준다. 눌림 상태(aria-pressed)가 있는 토글은 체크 항목으로 알린다.
@@ -157,7 +154,7 @@ export function MobileHeaderMore({
           }}
           className="flex h-11 w-11 items-center justify-center text-muted-foreground"
         >
-          {icon ?? <MoreHorizontal className="h-5 w-5" />}
+          <MoreHorizontal className="h-5 w-5" />
         </button>
       )}
       <div

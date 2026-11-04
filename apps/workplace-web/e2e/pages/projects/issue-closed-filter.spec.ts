@@ -86,30 +86,75 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
     await expectApplyFullyVisible(page);
   });
 
-  // 무엇을: 완료일 칩처럼 긴 칩을 걸어도 「필터 지우기」 가 「더 보기」 바로 옆에 붙어 있는지 — 1280·1024, 칩 1개·2개.
+  // 무엇을: 완료일 칩처럼 긴 칩을 걸어도 「필터 지우기」 가 줄 안에 보이는지 — 1440·1280·1024, 칩 1개·2개, 키워드 입력 포함.
   // 왜: 「초기화」 가 막대 맨 끝(뷰 전환 뒤)에 있어, 1280 폭에서 완료일 칩만 걸어도 줄이 넘쳐 그것만 아랫줄 왼쪽으로 떨어졌다(WP-931).
-  //     빠른 필터 칩(WP-1020)은 기본 칩이 다섯 개라 좁은 폭에선 칩 줄이 꺾일 수 있다 — 그래도 「필터 지우기」 는 「더 보기」 와 한 덩어리다.
-  test('필터 줄 — 긴 칩을 걸어도 「필터 지우기」 는 「더 보기」 바로 옆에 있다(1280·1024)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  //     빠른 필터 칩(WP-1020)은 기본 칩이 다섯 개라 좁은 폭에선 넘친다 — 꺾지 않고 칩 묶음만 가로 스크롤하며(WP-1355),
+  //     「필터 지우기」 는 칩 스크롤 밖(clear 슬롯)에 고정돼 늘 보이고, 넘친 칩은 오른쪽 페이드가 알린다.
+  test('필터 줄 — 긴 칩·키워드를 걸어도 「필터 지우기」 는 줄 안에 보이고 칩 묶음은 한 줄이다(1440·1280·1024)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setup(page);
     const main = page.getByTestId('issue-filter-main');
-    const centerY = (b: { y: number; height: number }) => b.y + b.height / 2;
     for (const [width, query] of [
+      [1440, 'closedIn=last-week&q=abc'],
       [1280, 'closedIn=last-week'],
-      [1280, 'priority=HIGH&closedIn=2026-10-01~2026-10-23'],
+      [1280, 'priority=HIGH&closedIn=2026-10-01~2026-10-23&q=abc'],
       [1024, 'closedIn=last-week'],
-      [1024, 'priority=HIGH&closedIn=2026-10-01~2026-10-23'],
+      [1024, 'priority=HIGH&closedIn=2026-10-01~2026-10-23&q=abc'],
     ] as const) {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`/projects/${KEY}?${query}`);
       await expect(page.getByTestId('issue-row-7')).toBeVisible();
-      const [r, add] = await Promise.all([
-        main.getByRole('button', { name: '필터 지우기' }).boundingBox(),
-        main.getByTestId('quick-filter-more').boundingBox(),
-      ]);
-      // 같은 줄(세로 가운데가 같다)이고, 「더 보기」 바로 오른쪽이다.
-      expect(Math.abs(centerY(r!) - centerY(add!))).toBeLessThanOrEqual(2);
-      expect(r!.x).toBeGreaterThan(add!.x + add!.width);
-      expect(r!.x - (add!.x + add!.width)).toBeLessThanOrEqual(16);
+      const r = await main.getByRole('button', { name: '필터 지우기' }).boundingBox();
+      const line = await main.boundingBox();
+      // 「필터 지우기」 는 줄 폭 안에 완전히 들어온다(스크롤에 잘리지 않는다)
+      expect(r!.x).toBeGreaterThanOrEqual(line!.x);
+      expect(r!.x + r!.width).toBeLessThanOrEqual(line!.x + line!.width + 1);
+      // 칩 묶음은 줄바꿈하지 않는다 — 넘치면 칩 묶음만 가로 스크롤(필터 줄 규칙 5, WP-1355). 칩 높이(h-8) 한 줄 높이다.
+      const bar = await main.getByTestId('quick-filter-bar').boundingBox();
+      expect(bar!.height).toBeLessThanOrEqual(36);
+      // 칩이 넘치면 가려진 쪽을 알리는 페이드가 떠 있다(안 넘치면 페이드 없음)
+      const overflow = await main.getByTestId('quick-filter-bar').evaluate((el) => {
+        const sc = el.parentElement!;
+        return sc.scrollWidth > sc.clientWidth + 1;
+      });
+      await expect(main.getByTestId('filter-line-chips-fade')).toHaveCount(overflow ? 1 : 0);
+    }
+  });
+  // 무엇을: 줄이 모자라도 칩은 늘 다 보이고, 끝 묶음만 둘째 줄 오른쪽으로 내려가는지 — 1440·1024 는 내려가고 1920 은 한 줄(WP-1355 결정).
+  // 왜: 끝 묶음(완료 모두 보기·그룹·정렬·열·보기)이 넓어 칩 스크롤 영역이 짓눌려 「우선순위」·「더 보기」가 흐림 뒤로 숨었다.
+  test('필터 줄 — 칩은 늘 다 보이고 줄이 모자라면 끝 묶음만 둘째 줄 오른쪽으로 내려간다(1440·1024·1920)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await setup(page);
+    const main = page.getByTestId('issue-filter-main');
+    for (const width of [1440, 1024, 1920] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto(`/projects/${KEY}?q=abc`);
+      await expect(page.getByTestId('issue-row-7')).toBeVisible();
+      // 칩 묶음의 모든 칩(「더 보기」 포함)이 칩 스크롤 영역의 보이는 사각형 안에 있다
+      const bar = main.getByTestId('quick-filter-bar');
+      await expect(main.getByTestId('quick-filter-more')).toBeVisible();
+      const hidden = await bar.evaluate((el) => {
+        const sc = el.parentElement!.getBoundingClientRect();
+        return Array.from(el.querySelectorAll('button')).filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.width > 0 && (r.left < sc.left - 1 || r.right > sc.right + 1);
+        }).length;
+      });
+      expect(hidden).toBe(0);
+      await expect(main.getByTestId('filter-line-chips-fade')).toHaveCount(0);
+      // 「더 보기」 가 실제로 그 자리의 맨 위 요소다(흐림·다른 요소에 덮이지 않는다)
+      const covered = await main.getByTestId('quick-filter-more').evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !(t && el.contains(t));
+      });
+      expect(covered).toBe(false);
+      // 끝 묶음(= 필터 지우기 앞의 마지막 칸)은 같은 줄이거나 아래이며, 아래로 내려가면 오른쪽 끝에 붙는다
+      const clear = await main.getByTestId('filter-line-clear').boundingBox();
+      const more = await main.getByTestId('quick-filter-more').boundingBox();
+      const line = await main.boundingBox();
+      const wrapped = clear!.y > more!.y + more!.height / 2;
+      if (width === 1920) expect(wrapped).toBe(false);
+      else expect(clear!.x + clear!.width).toBeGreaterThan(line!.x + line!.width - 40);
+      if (wrapped) expect(clear!.x + clear!.width).toBeGreaterThan(line!.x + line!.width - 40);
     }
   });
 });

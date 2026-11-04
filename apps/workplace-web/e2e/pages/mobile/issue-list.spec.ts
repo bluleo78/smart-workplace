@@ -128,24 +128,21 @@ test.describe('모바일 툴바', () => {
     expect((await toolbar.boundingBox())!.height).toBeLessThanOrEqual(52);
     await expect(page.getByTestId('view-chip-bar')).toHaveCount(0);
     await expect(page.getByTestId('epic-panel-toggle')).toHaveCount(0);
-    expect((await page.getByTestId('issue-row-21').boundingBox())!.y).toBeLessThanOrEqual(150);
+    // 키워드 칸이 늘 보이는 한 줄(WP-1355)이 툴바 위에 더해져 첫 행 기준을 150 → 200 으로 늘렸다(첫 행은 여전히 첫 화면 위쪽).
+    expect((await page.getByTestId('issue-row-21').boundingBox())!.y).toBeLessThanOrEqual(200);
     await expectNoHorizontalOverflow(page);
   });
 
-  test('검색 — 줄 전체가 검색창으로, 취소해도 검색어 유지 + 점 표시', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  test('검색 — 키워드 칸이 늘 보이고, 입력하면 URL q 에 반영된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}`);
-    await page.getByTestId('mobile-search-open').click();
+    await expect(page.getByTestId('mobile-search-open')).toHaveCount(0);
     const input = page.getByTestId('mobile-search-input');
-    await expect(input).toBeFocused();
+    await expect(input).toBeVisible();
     await input.fill('환불');
     await expect(page).toHaveURL(/q=%ED%99%98%EB%B6%88/);
-    await page.getByTestId('mobile-search-cancel').click();
     await expect(page.getByTestId('mobile-chip-view')).toBeVisible();
-    await expect(page.getByTestId('mobile-search-dot')).toBeVisible();
-    await expect(page).toHaveURL(/q=%ED%99%98%EB%B6%88/);
-    await page.getByTestId('mobile-search-open').click();
-    await expect(page.getByTestId('mobile-search-input')).toHaveValue('환불');
+    await expect(input).toHaveValue('환불');
   });
 
   // WP-1020 — 툴바 아래 빠른 필터 칩 줄은 넘치면 가로로 스크롤되고(세로로 꺾이지 않음), 걸린 칩은 맨 앞이라 늘 화면 안에 보인다.

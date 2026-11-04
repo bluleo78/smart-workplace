@@ -1,6 +1,6 @@
 // 연락처 그룹 보기 브레드크럼 — 폭 부족 접기(WP-977, 05-page-patterns §B-1 「브레드크럼」·「접기」).
 // 항목 수(시작점 포함 4단계)로는 접히지 않는 경로가 1024px 에서 헤더 폭이 모자라 「…」로 접히는지(아주 좁으면 시작점까지 — WP-979),
-// 접힌 경로가 오른쪽 검색 범위 칩·검색창과 겹치지 않는지는 실제 레이아웃 폭이 있어야 판정된다(@layout).
+// 접힌 경로가 오른쪽 「새 외부 연락처」 버튼과 겹치지 않는지는 실제 레이아웃 폭이 있어야 판정된다(@layout).
 // 경로 렌더·링크 이동·시작점 문구는 페이지 테스트(src/pages/contacts/contactsBreadcrumb.test.tsx)가 지킨다.
 import type { Page } from '@playwright/test'
 
@@ -44,7 +44,7 @@ async function stubGroups(page: Page) {
   )
 }
 
-test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 검색 범위 칩·검색창과 겹치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 「새 외부 연락처」 버튼과 겹치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1024, height: 800 })
   await stubGroups(page)
   await page.goto('/contacts?group=12')
@@ -57,22 +57,20 @@ test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 검색 범
   await expect(page.getByTestId(`contact-breadcrumb-12`)).toBeVisible()
   await expect(crumb.getByRole('link')).toHaveCount(0)
 
-  const scope = page.getByTestId('contact-search-scope')
-  const search = page.getByTestId('contact-search')
-  await expect(scope).toBeVisible()
+  // 검색은 목록 위 필터 줄로 옮겨 갔다(WP-1355) — 헤더 오른쪽에는 버튼만 남는다.
+  const create = page.getByTestId('contact-create')
+  await expect(create).toBeVisible()
   await expect(async () => {
-    const [nav, current, chip, input] = await Promise.all([
+    const [nav, current, button] = await Promise.all([
       measureBox(crumb),
       measureBox(page.getByTestId('contact-breadcrumb-12')),
-      measureBox(scope),
-      measureBox(search),
+      measureBox(create),
     ])
     // 현재 항목(말줄임될 수 있음)은 몇 글자라도 보이고(56px 이상) nav 안에 머문다.
     expect(current.width, '현재 항목 폭').toBeGreaterThanOrEqual(56)
     expect(current.x + current.width, '현재 항목 우측 ≤ nav 우측').toBeLessThanOrEqual(nav.x + nav.width + 0.5)
-    // 경로는 범위 칩·검색창 앞에서 끝난다.
-    expect(nav.x + nav.width, 'nav 우측 ≤ 범위 칩 좌측').toBeLessThanOrEqual(chip.x)
-    expect(nav.x + nav.width, 'nav 우측 ≤ 검색창 좌측').toBeLessThanOrEqual(input.x)
+    // 경로는 버튼 앞에서 끝난다.
+    expect(nav.x + nav.width, 'nav 우측 ≤ 버튼 좌측').toBeLessThanOrEqual(button.x)
   }).toPass()
 
   // 「…」 메뉴는 접힌 단계(시작점 포함)를 위에서 아래 순서로 보인다.

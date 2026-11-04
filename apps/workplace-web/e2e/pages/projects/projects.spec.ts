@@ -46,7 +46,7 @@ test(
 
     await page.getByRole('main').getByRole('link', { name: /Workplace/ }).first().click();
     await page.getByRole('button', { name: '+ 새 태스크' }).click();
-    await page.getByLabel('제목').fill('첫 이슈');
+    await page.getByRole('textbox', { name: '제목 *' }).fill('첫 이슈');
     await page.getByRole('button', { name: '생성' }).click();
 
     const issueCreated = await createIssueCapture.waitForRequest();

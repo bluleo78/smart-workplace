@@ -107,7 +107,9 @@ test('개인 툴바 — 뷰·에픽 칩 없이 필터·그룹·검색·체크리
   expect(within(bar).getByTestId('mobile-chip-group')).toHaveTextContent('그룹: 없음')
   // 정렬 칩은 없다(WP-1238) — 체크리스트는 서버 checklist 순서라 사용자 정렬과 배타다.
   expect(within(bar).queryByTestId('mobile-chip-sort')).not.toBeInTheDocument()
-  expect(within(bar).getByTestId('mobile-search-open')).toBeInTheDocument()
+  // 🔍 버튼은 없고 키워드 칸(제목·키)이 늘 보인다(WP-1355).
+  expect(screen.queryByTestId('mobile-search-open')).not.toBeInTheDocument()
+  expect(screen.getByTestId('mobile-search-input')).toBeInTheDocument()
   const toggle = within(bar).getByTestId('mobile-view-toggle')
   expect(toggle).toHaveAttribute('aria-label', '보드로 전환')
   await user.click(toggle)

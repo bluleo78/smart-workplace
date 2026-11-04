@@ -632,7 +632,7 @@ describe('툴바 — 검색·필터·그룹 → URL·요청 파라미터', () =>
   test('툴바 검색 입력 → ?q= URL 반영 + 이슈 API q 파라미터', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}`, api, 'personal-checklist')
-    await user.click(screen.getByRole('textbox', { name: '태스크 검색' }))
+    await user.click(screen.getByRole('textbox', { name: '태스크 필터: 제목·키' }))
     await user.paste('블로그')
     await waitFor(() => expect(paramsOf(location()).get('q')).toBe('블로그'))
     await waitFor(() => expect(api.searches.some((s) => s.get('q') === '블로그')).toBe(true))

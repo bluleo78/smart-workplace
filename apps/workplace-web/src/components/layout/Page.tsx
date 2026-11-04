@@ -93,9 +93,6 @@ interface PageHeaderProps {
    * (주 액션이 actions 와 같은 버튼일 때 — 같은 testid 가 두 번 렌더되지 않게 페이지가 나눠서 넘긴다).
    */
   mobileActions?: ReactNode
-  /** 모바일 전용: ⋯ 트리거 아이콘·라벨 교체(메뉴가 검색 하나뿐인 메일 → 🔍). */
-  mobileMenuIcon?: ReactNode
-  mobileMenuLabel?: string
   /** 모바일 전용: ☰(사이드바 시트) 트리거 숨김 — 시트에 볼 것이 없는 화면(메일 계정 없음, U3-R12). */
   mobileHideSheetTrigger?: boolean
   /** 모바일 병합 상세 헤더의 ‹ 동작 재정의(이슈 상세의 출발 화면 복귀 등). */
@@ -135,8 +132,6 @@ function MobilePageHeader({
   mobilePrimaryAction,
   mobileShare,
   mobileActions,
-  mobileMenuIcon,
-  mobileMenuLabel,
   mobileHideSheetTrigger = false,
   mobileOnBack,
   'data-testid': testId = 'page-header',
@@ -150,7 +145,7 @@ function MobilePageHeader({
       {mobileShare}
       {mobilePrimaryAction}
       {menu != null && menu !== false && (
-        <MobileHeaderMore icon={mobileMenuIcon} label={mobileMenuLabel}>{menu}</MobileHeaderMore>
+        <MobileHeaderMore>{menu}</MobileHeaderMore>
       )}
       {!mobileHideSheetTrigger && <MobileSidebarSheetTrigger />}
     </>

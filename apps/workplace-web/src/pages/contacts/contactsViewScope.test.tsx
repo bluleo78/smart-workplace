@@ -89,21 +89,26 @@ test('그룹을 고르면 이전 보기의 타입·조직·직책 필터가 함�
   await waitFor(() => expect(location()).toBe('/contacts?q=%EC%9D%B4%EC%88%98&group=10'))
 })
 
-test('사이드바에는 검색창이 없고, 헤더 검색창 앞에 그룹 범위 칩이 보인다', async () => {
+test('사이드바에는 검색창이 없고, 목록 위 키워드 칸 뒤에 그룹 범위 칩이 보인다', async () => {
   renderPage('/contacts?group=10', { handlers: contactsHandlers() })
   await screen.findByTestId('group-contact-view', {}, { timeout: PAGE_LOAD_TIMEOUT })
   expect(within(screen.getByTestId('contact-sidebar')).queryByTestId('contact-search')).not.toBeInTheDocument()
-  const header = screen.getByTestId('page-header')
-  // 하위 조직까지 찾는다는 것이 드러나게(WP-1000) — 「…재경팀과 하위 조직에서 검색」(받침에 맞춘 조사).
-  expect(within(header).getByTestId('contact-search')).toHaveAttribute('placeholder', `${GROUP_NAME}과 하위 조직에서 검색`)
-  expect(within(header).getByTestId('contact-search-scope')).toHaveTextContent(GROUP_NAME)
+  const line = screen.getByTestId('contact-filter-line')
+  const input = within(line).getByTestId('contact-search')
+  // 하위 조직까지 찾는다는 것이 접근성 이름에 드러난다(WP-1000) — 「…재경팀과 하위 조직에서 검색」(받침에 맞춘 조사). 자리표시는 기준만(WP-1355).
+  expect(input).toHaveAttribute('aria-label', `${GROUP_NAME}과 하위 조직에서 검색`)
+  expect(input).toHaveAttribute('placeholder', '이름·이메일')
+  const chip = within(line).getByTestId('contact-search-scope')
+  expect(chip).toHaveTextContent(GROUP_NAME)
+  // 키워드 칸이 먼저, 범위 칩은 그 뒤(WP-1355)
+  expect(input.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 test('그룹 보기 범위 칩은 그룹 보기에서만 보인다', async () => {
   renderPage('/contacts', { handlers: contactsHandlers() })
   await screen.findByTestId('contact-row-MEMBER-2', {}, { timeout: PAGE_LOAD_TIMEOUT })
   expect(screen.queryByTestId('contact-search-scope')).not.toBeInTheDocument()
-  expect(screen.getByTestId('contact-search')).toHaveAttribute('placeholder', '이름·이메일 검색')
+  expect(screen.getByTestId('contact-search')).toHaveAttribute('placeholder', '이름·이메일')
 })
 
 test('열린 상세가 있을 때 같은 그룹을 다시 눌러도 상세가 닫히지 않는다', async () => {

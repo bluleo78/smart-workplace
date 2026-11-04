@@ -160,22 +160,22 @@ describe('모바일 이슈 목록 — 행 메타', () => {
 })
 
 describe('모바일 이슈 목록 — 툴바', () => {
-  test('검색 모드를 오갔다 와도 선택한 저장 뷰 이름이 칩에 유지된다(WP-221)', async () => {
+  test('키워드를 입력해도 선택한 저장 뷰 이름이 칩에 유지된다(WP-221)', async () => {
     const { user, location } = await open('', { views: [MY_BUG_VIEW] })
     await user.click(screen.getByTestId('mobile-chip-view'))
     await user.click(await screen.findByTestId('mobile-view-option-5'))
     await waitFor(() => expect(screen.queryByTestId('mobile-view-sheet')).not.toBeInTheDocument())
     expect(screen.getByTestId('mobile-chip-view')).toHaveTextContent('내 버그')
-    await user.click(screen.getByTestId('mobile-search-open'))
     await user.click(screen.getByTestId('mobile-search-input'))
     await user.paste('환불')
     await waitFor(() => expect(params(location).get('q')).toBe('환불'))
-    await user.click(screen.getByTestId('mobile-search-cancel'))
     // 검색어가 붙어 조건이 달라져도 선택한 뷰 이름(업데이트 대상)을 유지한다 — 저장본과 달라졌으니 「수정됨」이 붙는다(WP-1022).
     expect(await screen.findByTestId('mobile-chip-view')).toHaveTextContent('내 버그')
     expect(screen.getByTestId('mobile-chip-view-modified')).toHaveTextContent('· 수정됨')
-    // 검색어는 남고 툴바에 점으로 알린다.
-    expect(screen.getByTestId('mobile-search-dot')).toBeInTheDocument()
+    // 🔍 버튼·점은 없다 — 키워드 칸이 늘 보이고 값이 그대로 남는다(WP-1355).
+    expect(screen.queryByTestId('mobile-search-open')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('mobile-search-dot')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mobile-search-input')).toHaveValue('환불')
     expect(params(location).get('q')).toBe('환불')
   })
 

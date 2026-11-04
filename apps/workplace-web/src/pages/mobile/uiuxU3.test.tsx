@@ -24,7 +24,7 @@ mockViewport()
 const renderMail = (path: string, options: Parameters<typeof renderMobileModule>[2] = {}) =>
   renderMobileModule(<MailModuleLayout />, [['/mail', <MailInboxPage />], ['/mail/:accountId', <MailInboxPage />]], { ...options, path })
 
-test('여러 항목 메뉴(이슈 상세)와 검색 입력 메뉴(메일)는 ⋯/🔍 트리거로 남는다', async () => {
+test('여러 항목 메뉴(이슈 상세)는 ⋯ 트리거로 남고, 메일 검색은 헤더 메뉴가 아닌 목록 위 필터다', async () => {
   const issueView = renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, {
     path: '/projects/WP/issues/2',
     handlers: [
@@ -39,8 +39,8 @@ test('여러 항목 메뉴(이슈 상세)와 검색 입력 메뉴(메일)는 ⋯
   expect(await screen.findByTestId('mobile-header-more')).toBeInTheDocument()
   issueView.unmount()
 
-  // 메일: 메뉴 내용이 검색 입력 하나 — 입력은 인라인 대상이 아니므로 🔍 트리거가 남는다.
-  const { user } = renderMail('/mail', {
+  // 메일: 검색 입력을 헤더가 더 갖지 않는다.
+  renderMail('/mail', {
     handlers: [
       http.get('/api/v1/mail/accounts', () => HttpResponse.json([mailAccount()])),
       http.get('/api/v1/mail/accounts/1/messages', () => HttpResponse.json([summary()])),
@@ -49,11 +49,10 @@ test('여러 항목 메뉴(이슈 상세)와 검색 입력 메뉴(메일)는 ⋯
       ),
     ],
   })
-  const search = await screen.findByTestId('mobile-header-more')
-  expect(search).toHaveAccessibleName('메일 검색')
-  await user.click(search)
-  const menu = await screen.findByTestId('mobile-header-more-menu')
-  expect(menu.querySelector('input')).not.toBeNull()
+  // WP-1355: 메일 검색은 헤더 메뉴가 아니라 목록 위 키워드 필터로 옮겨, 헤더엔 ⋯/🔍 메뉴도 검색 입력도 없다.
+  expect(await screen.findByTestId('mail-search')).toBeInTheDocument()
+  expect(screen.queryByTestId('mobile-header-more')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('메일 검색')).not.toBeInTheDocument()
 })
 
 test('탭 편집 — ✦ 없음, [저장]은 바뀐 것이 있을 때만 활성(되돌리면 다시 비활성)', async () => {

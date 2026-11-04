@@ -56,16 +56,16 @@ describe('FilterInput', () => {
     expect(onChange).toHaveBeenLastCalledWith('   ')
   })
 
-  it('값이 있을 때만 「필터 지우기」가 보이고 누르면 빈 문자열로 비운다', () => {
+  it('값이 있을 때만 「입력 지우기」가 보이고 누르면 빈 문자열로 비운다', () => {
     const onChange = vi.fn()
     render(<StatefulFilter onChange={onChange} />)
-    expect(screen.queryByRole('button', { name: '필터 지우기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '입력 지우기' })).toBeNull()
 
     fireEvent.change(screen.getByTestId('filter'), { target: { value: '김' } })
-    fireEvent.click(screen.getByRole('button', { name: '필터 지우기' }))
+    fireEvent.click(screen.getByRole('button', { name: '입력 지우기' }))
     expect(onChange).toHaveBeenLastCalledWith('')
     expect(screen.getByTestId('filter')).toHaveValue('')
-    expect(screen.queryByRole('button', { name: '필터 지우기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '입력 지우기' })).toBeNull()
   })
 
   it('검색어와 같은 길이 상한을 둔다', () => {
@@ -94,6 +94,6 @@ describe('SearchInput(같은 내부 구현) — 기존 동작 유지', () => {
     rerender(<SearchInput value="abc" onChange={onChange} />)
     fireEvent.click(screen.getByRole('button', { name: '검색어 지우기' }))
     expect(onChange).toHaveBeenCalledWith('')
-    expect(screen.queryByRole('button', { name: '필터 지우기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '입력 지우기' })).toBeNull()
   })
 })

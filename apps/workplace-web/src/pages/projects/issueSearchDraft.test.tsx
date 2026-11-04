@@ -33,7 +33,7 @@ const handlers = [
 
 test('debounce 로 q 를 쓰는 사이에 더 친 글자가 남는다', async () => {
   const { location } = renderPage(`/projects/${KEY}?view=list`, { handlers })
-  const input = await screen.findByLabelText('태스크 검색', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const input = await screen.findByLabelText('태스크 필터: 제목·키', {}, { timeout: PAGE_LOAD_TIMEOUT })
   // 페이지가 뜬 뒤에만 setTimeout 을 가짜로 바꿔 debounce 가 끝나는 순간을 정확히 잡는다.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   fireEvent.change(input, { target: { value: '로그' } })

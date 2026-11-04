@@ -25,7 +25,7 @@ function open(path: string, respond: Parameters<typeof issueSearch>[0] = () => [
 }
 
 /** 첫 화면(필터 바)이 뜰 때까지. */
-const searchBox = () => screen.findByLabelText('태스크 검색', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+const searchBox = () => screen.findByLabelText('태스크 필터: 제목·키', {}, { timeout: SCREEN_LOAD_TIMEOUT })
 const firstCard = (n: number) => screen.findByTestId(`issue-card-${n}`, {}, { timeout: SCREEN_LOAD_TIMEOUT })
 
 /** 상태 facet 에서 값을 고른다(「＋ 필터」 → 상태 범주 → 값). */
