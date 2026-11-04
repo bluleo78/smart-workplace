@@ -11,6 +11,7 @@
 #   - push 하는 커밋의 트리가 이미 전체 회귀를 통과한 트리(verified-trees.sh) → 생략
 #     범위를 줄여 통과한 트리(gate-scope.sh, WP-1208)는 그 커밋에 지금 필요한 범위(<원격>/main 기준)를 덮을 때만 인정한다.
 #   ref 하나라도 위에 해당하지 않으면 전체 회귀. stdin 이 비었거나 터미널이면(직접 실행) 전체 회귀.
+# 범위에 deploy/release/abandoned-releases.json 이 있으면 생략 판정 전에 형식을 검사해 틀리면 막는다(WP-1349).
 # 새 커밋이 있는 ref 는 생략 판정 전에 마이그레이션 번호를 확인해, 문제가 있으면 push 를 막는다(WP-1081, 아래 본문).
 # 인자: $1 = 원격 이름(git 이 넘긴다), stdin = `<local ref> <local sha> <remote ref> <remote sha>` 줄들.
 # 환경변수:
@@ -83,6 +84,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     node "$HOOK_DIR/../check-migration-versions.mjs" "$REMOTE_MAIN" "$commit" >/dev/null || rc=$?
     [ "$rc" -ne 1 ] || exit 1
     [ "$rc" -eq 0 ] || echo "[pre-push] $name: 마이그레이션 번호를 확인하지 못함(종료 코드 $rc) — 넘어간다"
+  fi
+
+  # 버린 릴리스 기록(WP-1349) — 범위에 이 파일이 있으면 회귀 생략 여부와 무관하게 형식을 검사한다(git show 한 번이라 싸다). 틀리면 막는다.
+  if printf '%s\n' "$LOG" | grep -qx 'deploy/release/abandoned-releases.json'; then
+    if ! msg=$(node "$HOOK_DIR/check-abandoned-releases.mjs" "$commit" 2>&1); then
+      echo "[pre-push] 버린 릴리스 기록 형식 오류 — $msg"
+      exit 1
+    fi
   fi
 
   if [ -z "$(code_files "$(printf '%s\n' "$LOG" | grep -v '^@')")" ]; then

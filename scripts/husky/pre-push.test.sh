@@ -71,6 +71,51 @@ commit_file apps/agent/agent.md "prompt"
 expect "apps 아래 .md → 전체 회귀" "$(line refs/heads/md-in-app refs/heads/md-in-app)" "전체 회귀 실행"
 git checkout -q main && git branch -q -D md-in-app
 
+# 5d~5i) 버린 릴리스 기록 (WP-1349) — 임시 브랜치에서 만들어 main 의 이력·뒤 케이스에 영향이 없게 한다.
+GOOD='{"versions":{"0.9.44":"빌드 실패"}}'
+# 5d) 올바른 기록 + 노트 이름 바꾸기(rename 은 양쪽 경로 모두 releases/) → 비코드
+git checkout -q -b abandoned-ok
+commit_file deploy/release/abandoned-releases.json "$GOOD"
+git mv releases/0.2.0.md releases/0.2.1.md && git commit -qm "rename note"
+expect "버린 릴리스 기록+노트 이름 바꾸기 → 생략" "$(line refs/heads/abandoned-ok refs/heads/abandoned-ok)" "비코드 변경만" "전체 회귀 실행"
+git checkout -q main && git branch -q -D abandoned-ok
+
+# 5e) 올바른 기록 + 릴리스 도구 코드 → 전체 회귀
+git checkout -q -b abandoned-code
+commit_file deploy/release/abandoned-releases.json "$GOOD"
+commit_file deploy/release/lib/build.mjs 'export {}'
+expect "버린 릴리스 기록+릴리스 도구 코드 → 전체 회귀" "$(line refs/heads/abandoned-code refs/heads/abandoned-code)" "전체 회귀 실행" "비코드 변경만"
+git checkout -q main && git branch -q -D abandoned-code
+
+# 5f) 비슷한 이름·다른 위치는 코드로 본다(정확한 경로만 비코드)
+git checkout -q -b abandoned-bak
+commit_file deploy/release/abandoned-releases.json.bak 'x'
+expect "abandoned-releases.json.bak → 전체 회귀" "$(line refs/heads/abandoned-bak refs/heads/abandoned-bak)" "전체 회귀 실행" "비코드 변경만"
+git checkout -q main && git branch -q -D abandoned-bak
+git checkout -q -b abandoned-nested
+commit_file x/deploy/release/abandoned-releases.json "$GOOD"
+expect "x/deploy/release/abandoned-releases.json → 전체 회귀" "$(line refs/heads/abandoned-nested refs/heads/abandoned-nested)" "전체 회귀 실행" "비코드 변경만"
+git checkout -q main && git branch -q -D abandoned-nested
+
+# 5g) 형식이 틀린 기록(버전 키가 v 로 시작) → push 막음
+git checkout -q -b abandoned-bad
+commit_file deploy/release/abandoned-releases.json '{"versions":{"v0.9.46":"x"}}'
+expect "버린 릴리스 기록 형식 오류 → 막음" "$(line refs/heads/abandoned-bad refs/heads/abandoned-bad)" "[pre-push] 버린 릴리스 기록 형식 오류 —" "회귀 생략"
+git checkout -q main && git branch -q -D abandoned-bad
+
+# 5h) 깨진 JSON → 막음
+git checkout -q -b abandoned-broken
+commit_file deploy/release/abandoned-releases.json '{ "versions": '
+expect "버린 릴리스 기록 깨진 JSON → 막음" "$(line refs/heads/abandoned-broken refs/heads/abandoned-broken)" "버린 릴리스 기록 형식 오류" "회귀 생략"
+git checkout -q main && git branch -q -D abandoned-broken
+
+# 5i) 형식이 틀린 기록이 코드 변경과 섞여도 → 회귀 전에 막음
+git checkout -q -b abandoned-bad-code
+commit_file deploy/release/abandoned-releases.json '{"versions":{"v0.9.46":"x"}}'
+commit_file apps/web/z.ts 'z'
+expect "형식 오류+코드 변경 → 막음" "$(line refs/heads/abandoned-bad-code refs/heads/abandoned-bad-code)" "버린 릴리스 기록 형식 오류" "전체 회귀 실행"
+git checkout -q main && git branch -q -D abandoned-bad-code
+
 # 6) 코드 변경이 섞이면 → 전체 회귀
 commit_file apps/web/b.ts 'b'
 expect "코드 변경 → 전체 회귀" "$(line refs/heads/main refs/heads/main "$BASE")" "전체 회귀 실행" "회귀 생략"
