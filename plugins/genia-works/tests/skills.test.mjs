@@ -302,6 +302,21 @@ test('process-issue.md: 오래 걸리는 테스트·push 는 포그라운드로 
   assert.ok(p.includes('기다리며 돌리는 유일한 예외다'));
 });
 
+test('process-issue.md: 하위 에이전트는 10분씩 기다리며 사이마다 지금 이슈의 새 글에 답하고, SKILL.md 의 wake 줄 규칙이 그 절을 가리킨다 (WP-1366)', () => {
+  // 하위 에이전트를 제한 없이 기다리면 그동안 이슈 챗 멘션·wake 줄을 몇 시간씩 못 읽는다.
+  const p = workLoop('process-issue.md');
+  const section = p.split('\n### 하위 에이전트 기다리기\n')[1]?.split('\n### ')[0];
+  assert.ok(section, '「### 하위 에이전트 기다리기」 절이 없다');
+  // Claude Code 의 Agent 는 기본이 포그라운드라 차례를 막는다 — 백그라운드로 띄워야 깨어날 수 있다.
+  assert.ok(section.includes('`run_in_background: true`'), '절에 run_in_background 가 없다');
+  // 답할 것 없는 글에 답하면 AI 끼리 사이 확인마다 주고받는다.
+  assert.ok(section.includes('「답하지 않고 넘긴 글」') && section.includes('seen/'), '절에 답하지 않고 넘긴 글(seen/)이 없다');
+  // /loop 세션의 깨우기는 work-loop 를 1번부터 새로 부른다 — 하위 에이전트 대기에 쓰지 않는다.
+  assert.ok(!section.includes('ScheduleWakeup'), '절에 ScheduleWakeup 이 있다');
+  assert.ok(lineWith(p, '구현은 SDD 대로 하위 에이전트').includes('「하위 에이전트 기다리기」'), '5번 SDD 줄이 그 절을 가리키지 않는다');
+  assert.ok(lineWith(workLoop('SKILL.md'), '**`wake …` 줄이 왔을 때**').includes('「하위 에이전트 기다리기」'), 'SKILL.md 의 wake 줄 규칙이 그 절을 가리키지 않는다');
+});
+
 test('SKILL.md 3번: 목록과 가져가기 사이에 대기열을 떠난 이슈(ISSUE_CLOSED 포함)는 다음 후보로 넘어간다', () => {
   // 그 사이 닫힌 이슈 하나 때문에 나머지 대기열을 두고 멈추면 할 일 없는 AI 가 한 번을 헛돈다.
   const moveOn = lineWith(s3, '다음 이슈로 간다');
