@@ -51,11 +51,11 @@ type Raw = Record<string, unknown>;
 
 /**
  * 메일 목록 행(EmailMessageSummary) → LLM 뷰(WP-353). 호출자가 이미 아는 accountId 와 쓸 곳 없는 threadId 를 빼고, 값이 없는 키(aiCategory·
- * aiNeedsReply 가 null 인 미분류 메일)를 지운다. categoryPending 은 "분류 전" 일 때(true)만 싣는다 — 대부분의 행에서 false 라 반복 노이즈다.
+ * aiNeedsReply 가 null 인 미분류 메일)를 지운다. categoryPending(분류가 아직 없음 — 분류 전이거나 분류하지 못함)은 true 일 때만 싣는다 — 대부분의 행에서 false 라 반복 노이즈다. categoryFailed(REST 전용 배지 title 용)는 LLM 에 낼 이유가 없어 늘 뺀다(WP-1347).
  * 회신 필요 = aiNeedsReply 가 true 이고 seen 이 false(서버 단일 술어).
  */
 export function toMailListItem(row: Raw): Raw {
-  const { categoryPending, ...rest } = omitKeys(row, 'accountId', 'threadId');
+  const { categoryPending, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed');
   return dropEmpty({ ...rest, ...(categoryPending === true && { categoryPending: true }) });
 }
 
@@ -116,8 +116,8 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Lists mail in an account folder (accountId from list_mail_accounts), newest first, up to limit, no further pages. Item id = messageId; ' +
-        'categoryPending:true while unclassified. query matches sender (substring) and subject/body words; for unread mail use unreadOnly, ' +
+        'Lists mail in an account folder (accountId from list_mail_accounts), newest first, up to limit, no paging. Item id = messageId; ' +
+        'categoryPending:true = not classified or failed. query matches sender (substring) and subject/body words; for unread mail use unreadOnly, ' +
         'not "is:unread".',
       inputSchema: listMailInput,
       async handler(args) {

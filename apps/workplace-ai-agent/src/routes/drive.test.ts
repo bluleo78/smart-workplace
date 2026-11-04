@@ -50,6 +50,15 @@ describe('POST /drive/summarize', () => {
     const res = await request(app()).post('/drive/summarize').send(valid);
     expect(res.status).toBe(502);
   });
+
+  it('제공자 한도 오류면 503 + PROVIDER_LIMIT (WP-1347)', async () => {
+    vi.mocked(runDriveSummarize).mockRejectedValue(
+      new Error("Claude Code returned an error result: You've hit your org's monthly spend limit"),
+    );
+    const res = await request(app()).post('/drive/summarize').send(valid);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'drive-summarize_unavailable', reason: 'PROVIDER_LIMIT' });
+  });
 });
 
 describe('POST /drive/overview', () => {

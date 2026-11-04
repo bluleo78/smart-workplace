@@ -78,6 +78,7 @@ vi.mock('./attachment-prep.js', () => ({ attachmentRootDir: vi.fn((agentId: numb
 
 import { OpencodeRunner } from './opencode-runner.js';
 import { buildOpencodeConfig } from './opencode-config.js';
+import { classifyProviderError } from './provider-error.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -525,6 +526,20 @@ describe('OpencodeRunner.stream', () => {
     const handle = runner.stream(baseInput(), (e) => events.push(e));
     await expect(handle.done).rejects.toThrow();
     expect(events).toEqual([{ type: 'result', ok: false, text: null, usage: null }]);
+  });
+
+  it('session.error 의 원본 오류를 cause 로 남겨 PROVIDER_RATE 로 분류된다(WP-1347)', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    const error = { name: 'APIError', data: { statusCode: 429, message: 'rate limited' } };
+    es.push({ type: 'session.error', properties: { sessionID: 'sess-1', error } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(baseInput(), () => {});
+    const err = await handle.done.catch((e: unknown) => e);
+    expect((err as Error).cause).toBe(error);
+    expect((err as Error).message).toContain('rate limited');
+    expect(classifyProviderError(err)).toBe('PROVIDER_RATE');
   });
 
   // WP-250: 컨텍스트 압축(compaction) — opencode 1.17.18 라이브 실측(이미지 쪽 보기 24장 실행)의 이벤트 순서를 그대로 옮겼다.
