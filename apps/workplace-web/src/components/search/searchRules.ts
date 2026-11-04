@@ -1,16 +1,25 @@
-// 상단 전체 이슈 검색(WP-1324)의 순수 판정 — 일치 강조 조각 나누기·단축키 판정·결과 이동 인덱스.
+// 통합 검색 팔레트(WP-1353, 앞서 WP-1324 상단 이슈 검색)의 순수 판정 — 일치 강조 조각 나누기·단축키 판정·결과 이동 인덱스.
 // 컴포넌트와 분리해(react-refresh) 브라우저 없이 지킨다.
 import { isEditableTarget, OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay'
 
-/** 결과 최대 건수 — 펼친 검색창 아래 목록이 화면을 넘지 않을 만큼. 더 찾으려면 검색어를 좁힌다. */
-export const GLOBAL_SEARCH_LIMIT = 20
-
 /** 입력이 멈춘 뒤 검색을 보내기까지(ms) — 글자마다 요청하지 않게. */
-export const GLOBAL_SEARCH_DEBOUNCE_MS = 250
+export const SEARCH_DEBOUNCE_MS = 250
+
+/** 앱 한 곳에서 한 번에 받는 건수 — 한 앱 탭에서 「더 보기」로 이어 받는 단위. */
+export const SEARCH_PAGE_SIZE = 20
+
+/** 「전체」 탭에서 앱마다 먼저 보여 주는 건수 — 더 있으면 「더 보기」로 그 앱 탭으로 간다. */
+export const GROUP_SIZE = 3
+
+/** 새 탭으로 열기 단축키 안내 — mac 은 ⌘↵, 그 밖은 Ctrl+↵(결과 열기 ↵ 에 수정 키를 더한다). */
+export function newTabHint(): string {
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+  return mac ? '⌘↵' : 'Ctrl+↵'
+}
 
 /**
  * 보낼 만한 검색어인가 — 두 글자부터. 한 글자는 작업 번호(`7`·`#7`)일 때만 보낸다.
- * 서버 검색이 제목·본문 부분 일치라 한 글자는 거의 모든 이슈를 훑고 쓸모 있는 결과도 적다.
+ * 작업(issues) provider 가 쓰는 규칙이고 그 밖의 앱은 두 글자부터다(SearchProvider.isSearchable). 서버 검색이 제목·본문 부분 일치라 한 글자는 거의 모든 이슈를 훑고 쓸모 있는 결과도 적다.
  */
 export function isSearchableTerm(term: string): boolean {
   return term.length >= 2 || /^#?\d+$/.test(term)
@@ -66,4 +75,18 @@ export function moveActive(current: number, delta: 1 | -1, count: number): numbe
   if (count <= 0) return -1
   if (current < 0) return delta === 1 ? 0 : count - 1
   return (current + delta + count) % count
+}
+
+/**
+ * HTML 태그를 벗겨 글자만 남긴다 — 노트 snippet 의 `<b>일치</b>` 같은 표시를 화면에 그대로 그리지 않고,
+ * 태그를 해석하지도 않기 위해(XSS 방지: 결과는 늘 텍스트 노드로만 그린다). 흔한 엔티티는 글자로 되돌린다.
+ */
+export function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
 }

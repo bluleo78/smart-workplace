@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-// 상단 전체 이슈 검색(WP-1324)의 순수 판정 — 일치 강조 조각·「/」 단축키·위아래 이동.
+// 통합 검색(WP-1353, 앞서 WP-1324)의 순수 판정 — 일치 강조 조각·「/」 단축키·위아래 이동.
 import { describe, expect, it } from 'vitest'
 
-import { highlightParts, isSearchableTerm, isSearchShortcut, moveActive } from './globalIssueSearchRules'
+import { highlightParts, isSearchableTerm, isSearchShortcut, moveActive } from './searchRules'
 
 describe('highlightParts', () => {
   it('대소문자를 무시하고 맞은 곳을 모두 나눈다(원문 글자 그대로)', () => {
@@ -32,7 +32,16 @@ describe('highlightParts', () => {
 
 describe('isSearchShortcut', () => {
   const key = (over: Partial<KeyboardEvent> & { target?: EventTarget | null }) =>
-    ({ key: '/', metaKey: false, ctrlKey: false, altKey: false, isComposing: false, defaultPrevented: false, target: document.body, ...over }) as KeyboardEvent
+    ({
+      key: '/',
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      isComposing: false,
+      defaultPrevented: false,
+      target: document.body,
+      ...over,
+    }) as KeyboardEvent
 
   it('글 입력 중이 아닐 때 수정 키 없는 「/」만 검색을 연다', () => {
     expect(isSearchShortcut(key({}))).toBe(true)

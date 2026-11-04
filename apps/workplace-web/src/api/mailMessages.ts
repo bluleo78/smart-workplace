@@ -121,6 +121,8 @@ export async function listMessages(
   limit?: number,
   folderId?: number | null,
   before?: MailListCursor | null,
+  // 버려진 요청 취소(WP-1353 통합 검색) — 입력을 이어 쓰면 앞선 검색을 끊는다.
+  signal?: AbortSignal,
 ): Promise<EmailMessageSummary[]> {
   const scope = folderId != null
     ? { folderId }
@@ -142,6 +144,7 @@ export async function listMessages(
         ...(limit ? { limit } : {}),
         ...(before ? { beforeId: before.id, ...(before.receivedAt ? { beforeAt: before.receivedAt } : {}) } : {}),
       },
+      signal,
     },
   );
   return data;

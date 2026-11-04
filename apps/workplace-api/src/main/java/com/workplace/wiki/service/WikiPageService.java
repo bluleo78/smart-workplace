@@ -721,8 +721,10 @@ public class WikiPageService {
    * 위키 검색(읽기 그라운딩). 빈 질의는 즉시 빈 목록. spaceId 지정 시 VIEWER 권한 확인 후 해당 스페이스 한정, null 이면 호출자 멤버 스페이스 전체.
    * LIKE 와일드카드(%, _, \)는 이스케이프해 리터럴로 매칭.
    */
+  /** size 만큼 offset 부터(WP-1353). 정렬은 고정이라 페이지 경계가 안정적이다. */
   @Transactional(readOnly = true)
-  public List<WikiSearchResult> search(long callerId, String q, Long spaceId) {
+  public List<WikiSearchResult> search(
+      long callerId, String q, Long spaceId, int size, int offset) {
     if (q == null || q.isBlank()) {
       return List.of();
     }
@@ -730,7 +732,7 @@ public class WikiPageService {
       perms.requireRole(spaceId, callerId, "VIEWER");
     }
     String pattern = "%" + escapeLike(q.trim()) + "%";
-    return pages.search(callerId, spaceId, pattern, 50);
+    return pages.search(callerId, spaceId, pattern, size, offset);
   }
 
   /** LIKE 특수문자(\, %, _)를 이스케이프해 사용자 입력을 리터럴로 취급한다. */

@@ -238,7 +238,7 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
     const chipBox = await measureBox(page.getByTestId('chat-launcher'), 'chat-launcher')
     swBox = await measureBox(switcher, 'chat-session-switcher')
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(swBox.x)
-    // WP-1324: 칩 오른쪽 전역 이슈 검색 아이콘도 패널(스위처)을 덮지 않는다.
+    // WP-1324: 칩 오른쪽 검색 트리거 아이콘도 패널(스위처)을 덮지 않는다.
     const searchBox = await measureBox(page.getByTestId('global-search-toggle'), 'global-search-toggle')
     expect(searchBox.x + searchBox.width).toBeLessThanOrEqual(swBox.x)
   }).toPass()
@@ -258,11 +258,14 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
   await page.mouse.click(swBox.x + 4, swBox.y + swBox.height / 2)
   await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'side')
 
-  // WP-1324: 옆 패널이 열린 채 검색을 펼치면 왼쪽으로 펼쳐져 패널 좌단을 넘지 않는다.
+  // WP-1353: 검색은 옆으로 펼치지 않고 가운데 모달 팔레트로 열린다 — 옆 패널이 열려 있어도 열리고 Esc 로 닫힌다.
+  // (트리거 위치 단언은 위에서 유지. 팔레트 기하는 global-search.spec.ts.)
   await page.getByTestId('global-search-toggle').click()
-  const panelBox = await measureBox(panel, 'ai-side-panel')
-  const fieldBox = await measureBox(page.getByTestId('global-search'), 'global-search')
-  expect(fieldBox.x + fieldBox.width).toBeLessThanOrEqual(panelBox.x)
+  await expect(page.getByTestId('global-search')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('global-search')).toHaveCount(0)
+  // Esc 는 검색만 닫는다 — AI 옆 패널은 그대로.
+  await expect(panel).toBeVisible()
 })
 
 test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·닫기 X 에 가려지지 않는다 (#206)', { tag: '@layout' }, async ({

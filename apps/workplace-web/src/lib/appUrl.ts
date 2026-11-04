@@ -15,9 +15,27 @@ export function issuePath(projectKey: string, issueNumber: number): string {
   return `/projects/${projectKey}/issues/${issueNumber}`
 }
 
+/** 프로젝트 경로 — /projects/:key(이슈 목록·보드). */
+export function projectPath(key: string): string {
+  return `/projects/${key}`
+}
+
+/** 채널·DM 대화 경로 — dm 이면 /chat/dms/:id, 아니면 /chat/channels/:id. */
+export function chatConversationPath(id: number, dm: boolean): string {
+  return `/chat/${dm ? 'dms' : 'channels'}/${id}`
+}
+
 /** 노트 페이지 경로 — 스페이스를 몰라도 열리는 /wiki/open/:pageId(WikiOpenPage 가 스페이스를 찾아 연다). */
 export function wikiPagePath(pageId: number): string {
   return `/wiki/open/${pageId}`
+}
+
+/**
+ * 스페이스를 아는 노트 페이지 경로 — /wiki/spaces/:spaceId/pages/:pageId. wikiPagePath 의 /wiki/open 우회는
+ * 리다이렉트 히스토리 항목을 하나 더 남기므로, 스페이스를 알 때(검색 결과 등)는 이 경로로 바로 연다.
+ */
+export function wikiSpacePagePath(spaceId: number, pageId: number): string {
+  return `/wiki/spaces/${spaceId}/pages/${pageId}`
 }
 
 /** 드라이브 폴더 경로 — 공간 루트(folderId 없음)면 쿼리를 붙이지 않는다. */

@@ -5,8 +5,10 @@ import static com.workplace.jooq.Tables.DRIVE_FOLDER;
 import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.drive.dto.DriveFolderResponse;
+import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -302,6 +304,35 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.NAME),
                     r.get(DRIVE_FOLDER.CREATED_AT),
                     r.get(DRIVE_FOLDER.UPDATED_AT)));
+  }
+
+  /**
+   * 주어진 폴더들과 그 모든 조상 폴더 — 통합 검색(WP-1353)이 결과 행의 폴더 경로를 만들 id→parent/name 맵용. 공간 전체를 읽지 않고 결과가 닿는
+   * 사슬만 재귀로 읽는다(재귀항은 UNION 이라 순환 데이터가 있어도 끝난다). 빈 입력이면 조회 없이 빈 목록. RLS 는 호출 트랜잭션이 적용한다.
+   */
+  public List<DriveFolderResponse> listWithAncestors(Collection<Long> folderIds) {
+    if (folderIds.isEmpty()) {
+      return List.of();
+    }
+    return dsl.resultQuery(
+            """
+            WITH RECURSIVE chain(id, parent_id, name, created_at, updated_at) AS (
+              SELECT id, parent_id, name, created_at, updated_at FROM drive_folder WHERE id = ANY(?)
+              UNION
+              SELECT f.id, f.parent_id, f.name, f.created_at, f.updated_at
+              FROM drive_folder f JOIN chain c ON f.id = c.parent_id
+            )
+            SELECT id, parent_id, name, created_at, updated_at FROM chain
+            """,
+            DSL.val(folderIds.toArray(new Long[0])))
+        .fetch(
+            r ->
+                new DriveFolderResponse(
+                    r.get("id", Long.class),
+                    r.get("parent_id", Long.class),
+                    r.get("name", String.class),
+                    r.get("created_at", OffsetDateTime.class),
+                    r.get("updated_at", OffsetDateTime.class)));
   }
 
   /** 공간 휴지통의 폴더 trash_root 항목. */
