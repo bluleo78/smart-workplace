@@ -40,6 +40,7 @@ function emptyApis() {
     http.get(`${API}/messaging/channels/discover`, () => HttpResponse.json([])),
     http.get(`${API}/messaging/channels`, () => HttpResponse.json([])),
     http.get(`${API}/messaging/dms`, () => HttpResponse.json([])),
+    http.get(`${API}/calendar/events/search`, () => HttpResponse.json({ items: [], nextCursor: null, truncated: false })),
     http.get(`${API}/auth/me`, () => HttpResponse.json({ id: 1, name: '나' })),
   ]
 }
@@ -470,4 +471,76 @@ test('한 글자 번호(7)는 이슈만 조회하고 다른 앱은 보내지 않
   await waitFor(() => expect(issues).toBeGreaterThan(0))
   await new Promise((r) => setTimeout(r, 200))
   expect(wiki).toBe(0)
+})
+
+/** 캘린더 검색 응답 한 줄 — 필요한 필드만 덮어쓴다. */
+const calendarRow = (id: number, extra: object = {}) => ({
+  id,
+  title: `주간 회의 ${id}`,
+  startsAt: '2026-11-06T01:00:00Z',
+  endsAt: '2026-11-06T02:00:00Z',
+  allDay: false,
+  location: null,
+  calendarName: '내 캘린더',
+  calendarColor: 'blue',
+  recurrenceRule: null,
+  occurrenceStart: '2026-11-06T01:00:00Z',
+  past: false,
+  matchedField: 'TITLE',
+  matchedText: null,
+  ...extra,
+})
+
+const calendarHandler = () =>
+  http.get(`${API}/calendar/events/search`, () =>
+    HttpResponse.json({
+      items: [
+        calendarRow(1),
+        calendarRow(2, { recurrenceRule: 'FREQ=WEEKLY', calendarName: '팀 캘린더' }),
+        calendarRow(3, { matchedField: 'LOCATION', matchedText: '판교 주간회의실' }),
+        calendarRow(4, { past: true, startsAt: '2026-10-30T01:00:00Z', occurrenceStart: '2026-10-30T01:00:00Z' }),
+      ],
+      nextCursor: null,
+      truncated: false,
+    }),
+  )
+
+test('캘린더 탭 — 다가오는/지난 소제목, 반복 아이콘, 캘린더 이름, 장소 둘째 줄 강조, 지난 일정은 흐리게', async () => {
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/calendar',
+    handlers: [calendarHandler(), ...emptyApis()],
+  })
+  const input = await openPalette(user)
+  expect(screen.getByTestId('global-search-tab-calendar')).toHaveAttribute('aria-selected', 'true')
+  fireEvent.change(input, { target: { value: '주간' } })
+
+  const first = await screen.findByTestId('global-search-hit-calendar:1')
+  expect(first).toHaveTextContent('내 캘린더')
+  expect(screen.getByTestId('global-search-hit-calendar:2')).toHaveTextContent('매주')
+  expect(screen.getByTestId('global-search-hit-calendar:2')).toHaveTextContent('팀 캘린더')
+  // 장소 줄 — 라벨 + 맞은 곳 강조
+  const loc = screen.getByTestId('global-search-hit-calendar:3')
+  expect(loc).toHaveTextContent('장소: 판교 주간회의실')
+  expect(within(loc).getAllByText('주간').some((el) => el.tagName === 'MARK')).toBe(true)
+  // 소제목은 그룹이 바뀌는 두 자리(다가오는 → 지난)에만
+  const subs = screen.getAllByTestId('global-search-subgroup')
+  expect(subs.map((s) => s.textContent)).toEqual(['다가오는 일정', '지난 일정'])
+  expect(screen.getByTestId('global-search-hit-calendar:4').className).toContain('text-muted-foreground')
+  expect(first.className).not.toContain('text-muted-foreground')
+})
+
+test('전체 탭 묶음 — 캘린더 3건은 소제목·캘린더 이름 없이 짧은 날짜만', async () => {
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: [calendarHandler(), ...emptyApis()],
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '주간' } })
+  await screen.findByTestId('global-search-hit-calendar:1')
+  const group = screen.getByTestId('global-search-group-calendar')
+  expect(within(group).getAllByRole('option')).toHaveLength(3)
+  expect(within(group).queryByTestId('global-search-subgroup')).toBeNull()
+  expect(group).not.toHaveTextContent('내 캘린더')
+  expect(group).not.toHaveTextContent('(금)')
+  expect(screen.getByTestId('global-search-more-calendar')).toBeInTheDocument()
 })

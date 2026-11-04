@@ -7,20 +7,31 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
+import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.calendar.GraphEventTypes;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.OutlookTagScope;
+import com.workplace.global.util.LikePatternUtils;
+import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.EmailAccount;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.CaseConditionStep;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.OrderField;
 import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Record2;
+import org.jooq.Select;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -42,7 +53,7 @@ public class CalendarEventRepository {
    * {@link #accessibleBy(long)} 의 사용자 열 버전 — 바깥 쿼리의 열(예: 태그 주인 calendar_tag.user_id)과 상관 비교한다. 태그
    * 일정 수가 주인이 지금 볼 수 있는 일정만 세게 할 때 쓴다(WP-1173).
    */
-  public static Condition accessibleBy(org.jooq.Field<Long> userId) {
+  public static Condition accessibleBy(Field<Long> userId) {
     return CALENDAR_EVENT
         .OWNER_ID
         .eq(userId)
@@ -114,7 +125,7 @@ public class CalendarEventRepository {
    * #ownWritableCopy} 이고 내 활성 메일 계정이 이어져 있어야 한다. CALENDAR 와 {@link #TAG_ACCOUNT}(leftJoin, {@link
    * #tagAccountJoin}) 가 조인돼 있어야 한다.
    */
-  private static org.jooq.Field<Boolean> tagsEditable(long callerId) {
+  private static Field<Boolean> tagsEditable(long callerId) {
     return DSL.field(
             CALENDAR_EVENT
                 .EXTERNAL_ID
@@ -394,16 +405,23 @@ public class CalendarEventRepository {
   }
 
   /**
+   * 이 일정 행이 로컬 「이 회차만」 고친 회차 행인가(예외의 OVERRIDE_EVENT_ID 가 가리키는 행) — 태그 키 규칙({@link #taggedWith})과 검색
+   * 후보 제외가 같은 판정을 쓰는 한 곳. 바깥 CALENDAR_EVENT 행과 상관 비교한다.
+   */
+  private static Condition isOverrideRow() {
+    return DSL.exists(
+        DSL.selectOne()
+            .from(CALENDAR_EVENT_EXCEPTION)
+            .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(CALENDAR_EVENT.ID)));
+  }
+
+  /**
    * 이 일정 행에 tagId 태그가 붙었는가 — 태그 구독 주소(WP-715)가 「태그 키」 규칙을 SQL 로 거는 한 곳. 목록 응답의 태그 채우기({@code
    * CalendarTagService.tagKey})와 같은 규칙이다: 고친 회차(「이 일정만」 오버라이드 행)는 자기 연결이 아니라 마스터의 태그를 따르고, 그 밖의
    * 행(단일 일정·M365 회차 행·반복 마스터)은 자기 연결을 본다. 가상 회차는 마스터를 펼쳐 만들므로 마스터가 이 조건을 통과하면 따라 나온다.
    */
   private static Condition taggedWith(long tagId) {
-    Condition isOverride =
-        DSL.exists(
-            DSL.selectOne()
-                .from(CALENDAR_EVENT_EXCEPTION)
-                .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(CALENDAR_EVENT.ID)));
+    Condition isOverride = isOverrideRow();
     Condition ownLinked =
         DSL.exists(
             DSL.selectOne()
@@ -419,6 +437,205 @@ public class CalendarEventRepository {
                 .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(CALENDAR_EVENT.ID))
                 .and(CALENDAR_EVENT_TAG.TAG_ID.eq(tagId)));
     return isOverride.not().and(ownLinked).or(masterLinked);
+  }
+
+  /**
+   * 키워드 검색 후보 한 건(WP-1357) — 일정 응답과 어느 필드가 맞았는지.
+   *
+   * @param matchedField TITLE | LOCATION | ATTENDEE (제목 > 장소 > 참석자 순으로 먼저 맞은 것)
+   * @param matchedText 장소 값 또는 맞은 참석자 이름/메일. TITLE 이면 null
+   */
+  public record CalendarEventSearchRow(
+      CalendarEventResponse event, String matchedField, String matchedText) {}
+
+  /**
+   * 검색이 보는 참석자 열 — 내부 사용자 이름·메일, 외부 표시 이름·메일(우선순위 순). 맞음 판정·맞은 값 고르기가 모두 이 목록에서 만들어진다. 내부 참석자도 메일
+   * 일부로 찾을 수 있게 USER.EMAIL 을 넣는다.
+   */
+  private static final List<Field<String>> ATTENDEE_TEXT_COLUMNS =
+      List.of(USER.NAME, USER.EMAIL, EVENT_ATTENDEE.EXTERNAL_NAME, EVENT_ATTENDEE.EXTERNAL_EMAIL);
+
+  /**
+   * 검색 후보에서 고친 회차 행을 거르는 조건 — 로컬 「이 회차만」 고친 회차 행은 <b>그 마스터가 검색어에 맞지 않을 때만</b> 남는다. 마스터가 맞으면 마스터 한
+   * 줄이 시리즈를 대표하고, 마스터는 안 맞는데 고친 회차만 맞으면(예: 한 회차만 「고객 데모」로 고침) 그 행이 단일 일정처럼 후보가 된다. 고친 회차가 아닌 행은 늘
+   * 통과한다. 바깥 CALENDAR_EVENT 행과 상관 비교하며, 본 쿼리와 series_ranked 가 같은 판정을 쓰는 한 곳이다.
+   *
+   * @param matchedIds 검색어가 맞는 일정 id 서브쿼리
+   */
+  private static Condition notOverrideOfMatchedMaster(Select<Record1<Long>> matchedIds) {
+    return isOverrideRow()
+        .not()
+        .or(
+            DSL.notExists(
+                DSL.selectOne()
+                    .from(CALENDAR_EVENT_EXCEPTION)
+                    .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(CALENDAR_EVENT.ID))
+                    .and(CALENDAR_EVENT_EXCEPTION.EVENT_ID.in(matchedIds))));
+  }
+
+  /**
+   * 「다가오는 것 먼저 → 시작 오름차순 → 지난 것 시작 내림차순」 정렬 키 세 쌍 — 시리즈 대표 회차 고르기(representativeOrder)가 쓴다. 호출자가
+   * 마지막에 동률 깨기 키(id)를 덧붙인다.
+   */
+  private static List<OrderField<?>> upcomingFirstOrder(Condition upcoming) {
+    List<OrderField<?>> keys = new ArrayList<>();
+    keys.add(DSL.when(upcoming, DSL.inline(0)).otherwise(DSL.inline(1)).asc());
+    keys.add(DSL.when(upcoming, CALENDAR_EVENT.STARTS_AT).asc());
+    keys.add(CALENDAR_EVENT.STARTS_AT.desc());
+    return keys;
+  }
+
+  /** 맞은 참석자 열 값 — ATTENDEE_TEXT_COLUMNS 를 우선순위 순으로 보아 먼저 맞은 열, 앞이 다 안 맞으면 마지막 열. */
+  private static Field<String> matchedAttendeeColumn(String pattern) {
+    List<Field<String>> cols = ATTENDEE_TEXT_COLUMNS;
+    CaseConditionStep<String> pick = null;
+    for (Field<String> c : cols.subList(0, cols.size() - 1)) {
+      Condition hit = c.likeIgnoreCase(pattern, '\\');
+      pick = pick == null ? DSL.when(hit, c) : pick.when(hit, c);
+    }
+    return pick.otherwise(cols.getLast());
+  }
+
+  /**
+   * 일정 키워드 검색 후보(WP-1357) — 호출자가 볼 수 있는(주인·참석자, 끊기지 않은 외부 계정) 일정 중 제목·장소·참석자(내부 사용자 이름·메일, 외부
+   * 이름·메일)에 term 이 대소문자 무시 부분일치하는 것을 최대 limit 건. 반복 마스터도 포함한다(RECURRENCE_RULE 조건 없음 — 시리즈 한 줄로
+   * 찾는다). 같은 iCalUID 사본 정리·페이지 나누기는 서비스가 한다. term 은 비어 있지 않아야 한다.
+   *
+   * <p>「반복 = 시리즈 한 줄」을 상한 전에 SQL 로 맞춘다: 로컬 「이 회차만」 고친 회차 행(예외의 OVERRIDE_EVENT_ID 가 가리키는 행)은 마스터가
+   * 검색어에 맞으면 빼고 마스터가 대표하며, 마스터가 안 맞고 고친 회차만 맞을 때만 그 행이 단일 일정처럼 남는다. 검색하는 사람 자신의 참석자 행은 참석자 맞음에서
+   * 제외한다(내 이름으로 찾을 때 내가 참석자인 일정이 전부 나오지 않게; 외부 참석자는 user_id 가 null 이라 남는다). M365 동기화 시리즈처럼 회차마다 행이
+   * 있고 SERIES_MASTER_ID 를 공유하는 행들은 (달력, 시리즈) 묶음당 한 줄 — 지금 이후(ends_at &gt; now) 가장 이른 회차, 없으면 가장 최근
+   * 회차를 남긴다.
+   *
+   * <p>상한 정렬 세 묶음: ① 끝나지 않은(ends_at &gt; now) 단일 일정을 시작 오름차순, ② 반복 마스터를 시작 내림차순(최근 시리즈 먼저), ③ 지난
+   * 단일을 시작 내림차순, 마지막 id 내림차순. 오래전 시작한 반복 시리즈가 다가오는 단일 일정을 상한 밖으로 밀어내지 않게 한다.
+   *
+   * @param now 「지금」 기준 시각 — 서비스의 다음 회차 판정과 같은 값을 넘긴다
+   * @param limit 최대 행 수(서비스는 잘림 여부를 알려고 상한+1 을 넘긴다)
+   */
+  public List<CalendarEventSearchRow> searchCandidates(
+      long callerId, String term, OffsetDateTime now, int limit) {
+    String pattern = LikePatternUtils.containsPattern(term);
+    Condition titleMatch = CALENDAR_EVENT.TITLE.likeIgnoreCase(pattern, '\\');
+    Condition locationMatch = CALENDAR_EVENT.LOCATION.likeIgnoreCase(pattern, '\\');
+    // 참석자 행 하나가 맞는 조건 — 내부는 사용자 이름·메일, 외부는 표시 이름·메일(ATTENDEE_TEXT_COLUMNS 중 하나라도). 검색하는 사람 자신의
+    // 행(USER_ID = callerId)은 뺀다 — 외부 참석자는 user_id 가 null 이므로 isDistinctFrom 으로 남긴다.
+    Condition attendeeRowMatch =
+        DSL.or(ATTENDEE_TEXT_COLUMNS.stream().map(c -> c.likeIgnoreCase(pattern, '\\')).toList())
+            .and(EVENT_ATTENDEE.USER_ID.isDistinctFrom(callerId));
+    // 검색어가 맞는 일정 id — 제목·장소(한 번의 표 읽기)와 참석자 두 갈래로 고른 뒤 합친다. 키워드 열 인덱스(pg_trgm)는 두지 않는다: 일정 표는 행
+    // 보안(RLS)이 켜져 있고 ILIKE(texticlike)가 leakproof 가 아니라 테넌트 조건보다 먼저 인덱스 조건으로 쓰일 수 없어서다(EXPLAIN 으로
+    // 확인, WP-1357 이슈 챗 결정 — 테넌트 안 전체 읽기로 충분, 느려지면 후속으로 검색 전용 함수). 바깥은 IN 이라 갈래 사이 중복은 어차피
+    // 걸러지므로 UNION ALL(정렬·중복 제거 비용 없음). 별칭을 둬 바깥 CALENDAR_EVENT 와 섞이지 않게 한다.
+    CalendarEvent m = CALENDAR_EVENT.as("m_event");
+    Select<Record1<Long>> matchedIds =
+        DSL.select(m.ID)
+            .from(m)
+            .where(
+                m.TITLE.likeIgnoreCase(pattern, '\\').or(m.LOCATION.likeIgnoreCase(pattern, '\\')))
+            .unionAll(
+                DSL.select(EVENT_ATTENDEE.EVENT_ID)
+                    .from(EVENT_ATTENDEE)
+                    .leftJoin(USER)
+                    .on(USER.ID.eq(EVENT_ATTENDEE.USER_ID))
+                    .where(attendeeRowMatch));
+    // 고친 회차 행은 마스터가 검색어에 맞을 때만 뺀다 — 마스터가 맞으면 마스터 한 줄이 대표하고, 고친 회차만 맞으면 그 행이 후보로 남는다.
+    Condition notOverride = notOverrideOfMatchedMaster(matchedIds);
+    // M365 시리즈 대표 회차 — (달력, SERIES_MASTER_ID) 묶음에서 검색어가 맞고 「호출자가 볼 수 있는」 회차 중 지금 이후 가장 이른 것, 없으면 가장
+    // 최근 것 하나. 접기는 접근(주인·참석자)·가시성(끊기지 않은 외부 계정)·고친 회차 제외 조건을 건 뒤에 한다 — 회차마다 내가 참석자인지가 다를
+    // 때 내게 안 보이는 회차가 대표로 뽑혀 시리즈 전체가 사라지지 않게 한다. 조건
+    // 헬퍼(accessibleBy·visibleExternalCondition·notOverride)를
+    // 그대로 쓰려고 서브쿼리 안에서도 별칭 없는 CALENDAR_EVENT·CALENDAR 를 쓴다(SQL 은 안쪽 FROM 을 먼저 찾으므로 바깥 행과 섞이지 않는다).
+    List<OrderField<?>> representativeOrder = upcomingFirstOrder(CALENDAR_EVENT.ENDS_AT.gt(now));
+    representativeOrder.add(CALENDAR_EVENT.ID.asc());
+    Field<Integer> rn =
+        DSL.rowNumber()
+            .over(
+                DSL.partitionBy(CALENDAR_EVENT.CALENDAR_ID, CALENDAR_EVENT.SERIES_MASTER_ID)
+                    .orderBy(representativeOrder))
+            .as("rn");
+    Table<Record2<Long, Integer>> ranked =
+        DSL.select(CALENDAR_EVENT.ID, rn)
+            .from(CALENDAR_EVENT)
+            .leftJoin(CALENDAR)
+            .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+            .where(CALENDAR_EVENT.SERIES_MASTER_ID.isNotNull())
+            .and(CALENDAR_EVENT.ID.in(matchedIds))
+            .and(accessibleBy(callerId))
+            .and(visibleExternalCondition())
+            .and(notOverride)
+            .asTable("series_ranked");
+    Condition seriesRepresentative =
+        CALENDAR_EVENT
+            .SERIES_MASTER_ID
+            .isNull()
+            .or(
+                CALENDAR_EVENT.ID.in(
+                    DSL.select(ranked.field(CALENDAR_EVENT.ID))
+                        .from(ranked)
+                        .where(ranked.field(rn).eq(1))));
+    // 맞은 필드 — 제목 > 장소 > 참석자 순으로 먼저 맞은 것
+    Field<String> matchedFieldExpr =
+        DSL.when(titleMatch, DSL.inline("TITLE"))
+            .when(locationMatch, DSL.inline("LOCATION"))
+            .otherwise(DSL.inline("ATTENDEE"));
+    // 제목·장소가 모두 안 맞아 참석자로 맞은 행에서만 서브쿼리를 평가한다(matchedFieldExpr 가 ATTENDEE 일 때 — 장소가 NULL 이어도 같은 판정).
+    Field<String> attendeeText =
+        DSL.when(
+            matchedFieldExpr.eq(DSL.inline("ATTENDEE")),
+            DSL.field(
+                DSL.select(DSL.min(matchedAttendeeColumn(pattern)))
+                    .from(EVENT_ATTENDEE)
+                    .leftJoin(USER)
+                    .on(USER.ID.eq(EVENT_ATTENDEE.USER_ID))
+                    .where(EVENT_ATTENDEE.EVENT_ID.eq(CALENDAR_EVENT.ID))
+                    .and(attendeeRowMatch)));
+    Field<String> matchedField = matchedFieldExpr.as("matched_field");
+    // 상한 정렬 키 — ① 안 끝난 단일(시작 오름차순) ② 반복 마스터(시작 내림차순, 최근 시리즈 먼저) ③ 지난 단일(시작 내림차순) ④ id 내림차순
+    Condition upcomingSingle =
+        CALENDAR_EVENT.RECURRENCE_RULE.isNull().and(CALENDAR_EVENT.ENDS_AT.gt(now));
+    List<OrderField<?>> capOrder = new ArrayList<>();
+    capOrder.add(
+        DSL.when(upcomingSingle, DSL.inline(0))
+            .when(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull(), DSL.inline(1))
+            .otherwise(DSL.inline(2))
+            .asc());
+    capOrder.add(DSL.when(upcomingSingle, CALENDAR_EVENT.STARTS_AT).asc());
+    capOrder.add(CALENDAR_EVENT.STARTS_AT.desc());
+    capOrder.add(CALENDAR_EVENT.ID.desc());
+    return dsl.select(
+            CALENDAR_EVENT.asterisk(),
+            EVENT_REMINDER.LEAD_MINUTES,
+            CALENDAR.NAME.as("cal_name"),
+            CALENDAR.COLOR.as("cal_color"),
+            tagsEditable(callerId),
+            matchedField,
+            attendeeText.as("attendee_text"))
+        .from(CALENDAR_EVENT)
+        .leftJoin(EVENT_REMINDER)
+        .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
+        .leftJoin(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .leftJoin(TAG_ACCOUNT)
+        .on(tagAccountJoin(callerId))
+        .where(accessibleBy(callerId))
+        .and(visibleExternalCondition())
+        .and(CALENDAR_EVENT.ID.in(matchedIds))
+        .and(notOverride)
+        .and(seriesRepresentative)
+        .orderBy(capOrder)
+        .limit(limit)
+        .fetch(
+            r -> {
+              String field = r.get("matched_field", String.class);
+              String text =
+                  switch (field) {
+                    case "LOCATION" -> r.get(CALENDAR_EVENT.LOCATION);
+                    case "ATTENDEE" -> r.get("attendee_text", String.class);
+                    default -> null;
+                  };
+              return new CalendarEventSearchRow(toResponse(r), field, text);
+            });
   }
 
   /** 전체 교체 + updated_at 갱신. */

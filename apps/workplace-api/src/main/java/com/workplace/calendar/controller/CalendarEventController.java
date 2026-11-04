@@ -2,6 +2,7 @@ package com.workplace.calendar.controller;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.CalendarEventSearchResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.dto.InviteAttendeesRequest;
 import com.workplace.calendar.dto.RsvpRequest;
@@ -32,6 +33,16 @@ public class CalendarEventController {
       @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
       @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to) {
     return ResponseEntity.ok(service.list(callerId, from, to));
+  }
+
+  /** 일정 키워드 검색(WP-1357) — 제목·장소·참석자. 빈 q 는 400 이 아니라 빈 목록. 리터럴 경로라 {@code /{id}} 보다 먼저 매칭된다. */
+  @GetMapping("/search")
+  public ResponseEntity<CalendarEventSearchResponse> search(
+      @AuthenticationPrincipal Long callerId,
+      @RequestParam(required = false, defaultValue = "") String q,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ResponseEntity.ok(service.search(callerId, q, cursor, limit));
   }
 
   /** 단건 조회. */

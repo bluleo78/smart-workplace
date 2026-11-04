@@ -1,4 +1,4 @@
-import type { CalendarEvent, CalendarEventRequest, EditScope, RsvpStatus } from '../types/calendar'
+import type { CalendarEvent, CalendarEventRequest, CalendarEventSearchResponse, EditScope, RsvpStatus } from '../types/calendar'
 import { client } from './client'
 
 // 반복 일정 편집/삭제 시 적용 범위·회차 식별용 쿼리 파라미터 (이슈 #111)
@@ -12,6 +12,12 @@ export const calendarApi = {
   // [from,to) 와 겹치는 내 일정.
   list: (from: string, to: string) =>
     client.get<CalendarEvent[]>('/calendar/events', { params: { from, to } }),
+  // 일정 키워드 검색(WP-1357) — 제목·장소·참석자. cursor 는 서버가 준 nextCursor 를 그대로 되돌린다.
+  search: (q: string, cursor: string | null, limit: number, signal?: AbortSignal) =>
+    client.get<CalendarEventSearchResponse>('/calendar/events/search', {
+      params: { q, ...(cursor ? { cursor } : {}), limit },
+      signal,
+    }),
   get: (id: number) => client.get<CalendarEvent>(`/calendar/events/${id}`),
   create: (body: CalendarEventRequest) => client.post<CalendarEvent>('/calendar/events', body),
   // PATCH — scope/occurrenceDate 는 제공된 경우에만 쿼리 파라미터로 전달.

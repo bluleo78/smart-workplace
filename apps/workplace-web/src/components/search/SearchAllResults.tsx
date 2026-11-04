@@ -12,7 +12,8 @@ interface Props {
   order: SearchAppId[]
   groups: UseQueryResult<SearchPage, Error>[]
   term: string
-  rowFor: (hit: SearchHit) => ReactNode
+  /** compact: 좁은 묶음 자리(짧은 meta·꼬리표 없음). */
+  rowFor: (hit: SearchHit, compact?: boolean) => ReactNode
   onOpenTab: (app: SearchAppId) => void
 }
 
@@ -53,7 +54,7 @@ export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Pro
               </button>
               {q.isPending && <RowSkeletons count={GROUP_SIZE} />}
               {q.isError && <RetryNotice testId={`global-search-retry-${app}`} onRetry={() => void q.refetch()} />}
-              {hits.map((h) => rowFor(h))}
+              {hits.map((h) => rowFor(h, true))}
               {q.isSuccess && (q.data.next !== null || q.data.hits.length > GROUP_SIZE) && (
                 <button
                   type="button"

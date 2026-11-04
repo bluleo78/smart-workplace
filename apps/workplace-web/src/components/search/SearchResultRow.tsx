@@ -2,6 +2,7 @@
 // 링크(<a>)라 가운데 클릭·⌘/Ctrl+클릭의 새 탭 열기가 자연스럽고, 일반 클릭은 앱 안 이동(navigate)으로 가로챈다.
 import type { MouseEvent } from 'react'
 
+import { resolvePalette } from '@/lib/calendarPalette'
 import { cn } from '@/lib/utils'
 
 import { SEARCH_TABS } from './searchApps'
@@ -33,10 +34,14 @@ interface Props {
   /** newTab 이면 새 탭으로 열고 팔레트는 유지한다. */
   onPick: (hit: SearchHit, newTab: boolean) => void
   onHover: () => void
+  /** 「전체」 탭 묶음처럼 좁은 자리 — 짧은 meta(metaShort)를 쓰고 꼬리표(캘린더 이름)는 숨긴다. */
+  compact?: boolean
 }
 
-export function SearchResultRow({ hit, q, active, id, onPick, onHover }: Props) {
-  const Icon = SEARCH_TABS.find((t) => t.id === hit.app)?.icon
+export function SearchResultRow({ hit, q, active, id, onPick, onHover, compact }: Props) {
+  const Icon = hit.icon ?? SEARCH_TABS.find((t) => t.id === hit.app)?.icon
+  const meta = compact ? (hit.metaShort ?? hit.meta) : hit.meta
+  const tag = compact ? undefined : hit.tag
 
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault()
@@ -62,7 +67,7 @@ export function SearchResultRow({ hit, q, active, id, onPick, onHover }: Props) 
       onMouseEnter={onHover}
       className={cn(
         'flex cursor-pointer flex-col gap-0.5 rounded-md px-2 py-1.5 text-sm no-underline',
-        active ? 'bg-accent text-accent-foreground' : 'text-foreground',
+        active ? 'bg-accent text-accent-foreground' : hit.dimmed ? 'text-muted-foreground' : 'text-foreground',
       )}
     >
       <span className="flex items-center gap-2">
@@ -70,9 +75,30 @@ export function SearchResultRow({ hit, q, active, id, onPick, onHover }: Props) 
         <span className="min-w-0 flex-1 truncate">
           <Highlighted text={hit.title} q={q} />
         </span>
-        {hit.meta && <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">{hit.meta}</span>}
+        {meta && (
+          <span className="flex max-w-[55%] shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            <span className="truncate">{meta}</span>
+            {tag && (
+              <>
+                <span aria-hidden>·</span>
+                <span className={cn('size-2 shrink-0 rounded-full', resolvePalette(tag.color).dotClass)} aria-hidden />
+                <span className="max-w-24 truncate">{tag.name}</span>
+              </>
+            )}
+          </span>
+        )}
       </span>
-      {hit.snippet && <span className="truncate pl-6 text-xs text-muted-foreground">{hit.snippet}</span>}
+      {hit.snippet && (
+        <span className="truncate pl-6 text-xs text-muted-foreground">
+          {hit.snippetLabel ? (
+            <>
+              {hit.snippetLabel}: <Highlighted text={hit.snippet} q={q} />
+            </>
+          ) : (
+            hit.snippet
+          )}
+        </span>
+      )}
     </a>
   )
 }

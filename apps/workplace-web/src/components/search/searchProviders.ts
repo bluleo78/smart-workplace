@@ -2,7 +2,9 @@
 // 훅이 아닌 평범한 async 함수라 팔레트(useQuery·useInfiniteQuery)와 테스트(MSW)가 같이 쓴다. 의존(queryClient·내 id)은 createSearchProviders 로 주입한다.
 // cursor 는 앱마다 다른 모양(숫자 offset·문자열·계정별 묶음)이라 unknown 으로 두고 각 provider 가 해석한다. next === null 이면 끝.
 import type { QueryClient } from '@tanstack/react-query'
+import type { LucideIcon } from 'lucide-react'
 
+import { calendarApi } from '@/api/calendar'
 import { contactsApi } from '@/api/contacts'
 import { listMailAccounts } from '@/api/mailAccounts'
 import { listMessages } from '@/api/mailMessages'
@@ -20,6 +22,7 @@ import { dmDisplayName } from '@/lib/dm'
 import { formatIssueKey } from '@/lib/issueKey'
 import type { MailListCursor } from '@/types/mailMessage'
 
+import { toCalendarHit } from './calendarHit'
 import type { SearchAppId } from './searchApps'
 import { isSearchableTerm, stripHtmlTags } from './searchRules'
 
@@ -32,6 +35,18 @@ export interface SearchHit {
   meta?: string
   /** 둘째 줄 보조 글 — 반드시 HTML 이 없는 평문(provider 가 출처에서 태그를 벗긴다). 화면은 그대로 텍스트 노드로 그린다. */
   snippet?: string
+  /** 있으면 snippet 앞에 「라벨: 」을 붙이고 snippet 의 맞은 곳도 강조한다(캘린더의 「장소: …」·「참석자: …」). */
+  snippetLabel?: string
+  /** 「전체」 탭 묶음처럼 좁은 자리에서 쓰는 짧은 meta — 없으면 meta. */
+  metaShort?: string
+  /** meta 뒤에 점(팔레트 색)과 이름으로 붙는 꼬리표(캘린더 이름). 「전체」 탭 묶음에서는 숨긴다. */
+  tag?: { name: string; color: string | null }
+  /** 종류 탭에서 이 값이 바뀌는 자리에 소제목을 그린다(캘린더의 다가오는/지난 일정). */
+  group?: string
+  /** 흐리게 보인다(지난 일정). */
+  dimmed?: boolean
+  /** 앱 아이콘 대신 쓰는 아이콘(반복 일정). */
+  icon?: LucideIcon
 }
 
 /** 한 쪽 결과 — next 가 null 이면 더 없다. */
@@ -73,7 +88,7 @@ const EMPTY: SearchPage = { hits: [], next: null }
 /** 기본 검색 가능 판정 — 공백 뺀 두 글자부터. */
 const defaultSearchable = (term: string) => term.trim().length >= 2
 
-/** 아직 검색을 지원하지 않는 앱(AI 대화·캘린더) — 늘 빈 결과. */
+/** 아직 검색을 지원하지 않는 앱(AI 대화) — 늘 빈 결과. */
 const EMPTY_PROVIDER: SearchProvider = {
   isSearchable: defaultSearchable,
   fetchPage: async () => EMPTY,
@@ -347,13 +362,25 @@ const contactsProvider: SearchProvider = {
   },
 }
 
-/** 앱 → provider 를 deps 로 만든다. ai·calendar 는 아직 검색이 없어 빈 결과를 낸다. */
+// ── 캘린더 ───────────────────────────────────────────────────
+
+/** 일정 검색 — 서버가 정렬(다가오는 순 → 지난 순)·시리즈 접기·쪽 나누기를 하고, cursor 는 서버의 nextCursor 문자열 그대로다. */
+const calendarProvider: SearchProvider = {
+  isSearchable: defaultSearchable,
+  async fetchPage(q, cursor, size, signal) {
+    const { data } = await calendarApi.search(q, typeof cursor === 'string' ? cursor : null, size, signal)
+    const now = new Date()
+    return { hits: data.items.map((i) => toCalendarHit(i, now)), next: data.nextCursor }
+  },
+}
+
+/** 앱 → provider 를 deps 로 만든다. ai 는 아직 검색이 없어 빈 결과를 낸다. */
 export function createSearchProviders(deps: SearchProviderDeps): Record<SearchAppId, SearchProvider> {
   return {
     ai: EMPTY_PROVIDER,
     chat: createChatProvider(deps),
     mail: createMailProvider(deps),
-    calendar: EMPTY_PROVIDER,
+    calendar: calendarProvider,
     issues: createIssuesProvider(deps),
     drive: driveProvider,
     wiki: wikiProvider,
