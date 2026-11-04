@@ -58,8 +58,8 @@ const KEYS_FIXTURE: AgentKeyFixture[] = [
 async function setupStatic(page: import('@playwright/test').Page) {
   await mockAgentRuntimeNone(page);
   await mockAgentDetail(page, () => AGENTS_FIXTURE as never);
-  // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
-  // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
+  // 목록 조회는 개인 비서 표시를 켜면 includePersonal=true 쿼리를 동반하므로
+  // 경로만 매칭(쿼리 유무 무관)한다.
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) =>
     route.request().method() === 'GET'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(AGENTS_FIXTURE) })
@@ -120,7 +120,7 @@ test.describe('/admin/agents', () => {
       await mockAgentDetail(page, () => agents as never);
 
       // /admin/agents 컬렉션 — GET 목록 + POST 생성.
-      // includePersonal 기본값이 true 로 바뀌어 GET 이 쿼리스트링을 동반하므로 경로만 매칭.
+      // GET 은 개인 비서 표시를 켜면 includePersonal=true 쿼리를 동반하므로 경로만 매칭.
       await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
         const method = route.request().method();
         if (method === 'GET') {

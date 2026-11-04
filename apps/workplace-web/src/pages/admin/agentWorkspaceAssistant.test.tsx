@@ -333,23 +333,39 @@ describe('에이전트 목록 — 안내 배너·개인 비서 표시', () => {
     expect(screen.queryByTestId('workspace-assistant-empty')).not.toBeInTheDocument()
   })
 
-  // 개인 비서는 기본 표시 — 아이디는 @ 없이, 유형은 일반/개인+소유자. 토글을 끄면 includePersonal 없이(개인 비서 제외) 다시 불러 숨긴다.
-  test('개인 비서 표시 토글 — 기본 표시(유형·소유자, @ 없는 아이디), 끄면 includePersonal 없이 재조회해 숨긴다', async () => {
+  // 개인 비서는 기본 숨김 — 처음엔 includePersonal 없이 조회하고, 켜면 includePersonal=true 로 다시 불러 유형·소유자·@ 없는 아이디를 보인다.
+  test('개인 비서 표시 토글 — 기본 숨김(includePersonal 없이 조회), 켜면 includePersonal=true 로 다시 불러 유형·소유자·@ 없는 아이디를 보인다', async () => {
     const wsAgent = agent({ username: 'ws_bot', name: 'WS 봇' })
     const personal = agent({ id: 9, username: '__assistant_u1', name: '개인 비서', type: 'PERSONAL', ownerName: '양동희' })
     const { user, includes } = openList((include) => (include ? [personal, wsAgent] : [wsAgent]))
-    const row5 = await screen.findByTestId('agent-row-5')
-    expect(screen.getByTestId('agent-row-9')).toBeInTheDocument()
+    await screen.findByTestId('agent-row-5')
+    expect(screen.queryByTestId('agent-row-9')).not.toBeInTheDocument()
+    expect(screen.getByTestId('include-personal-toggle')).not.toBeChecked()
+    expect(includes).toEqual([null])
+    await user.click(screen.getByTestId('include-personal-toggle'))
+    expect(await screen.findByTestId('agent-row-9')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-type-9')).toHaveTextContent('개인')
+    expect(screen.getByTestId('agent-type-9')).toHaveTextContent('양동희')
+    const row5 = screen.getByTestId('agent-row-5')
     expect(row5).toHaveTextContent('ws_bot')
     expect(row5).not.toHaveTextContent('@ws_bot')
     expect(screen.getByTestId('agent-type-5')).toHaveTextContent('일반')
-    expect(screen.getByTestId('agent-type-9')).toHaveTextContent('개인')
-    expect(screen.getByTestId('agent-type-9')).toHaveTextContent('양동희')
-    expect(includes).toEqual(['true'])
+    expect(includes).toEqual([null, 'true'])
+    expect(screen.getByTestId('include-personal-toggle')).toBeChecked()
+    // 다시 끄면 개인 비서가 사라진다(includePersonal 없는 조회 결과).
     await user.click(screen.getByTestId('include-personal-toggle'))
     await waitFor(() => expect(screen.queryByTestId('agent-row-9')).not.toBeInTheDocument())
     expect(screen.getByTestId('agent-row-5')).toBeInTheDocument()
-    expect(includes).toEqual(['true', null])
+  })
+
+  // 개인 비서만 있는 워크스페이스 — 기본 숨김이라 빈 목록이지만, 켜는 곳을 알려 준다. 켜면 안내가 사라지고 개인 비서가 보인다.
+  test('개인 비서만 있으면 빈 목록에 「개인 비서 표시」 안내를 보이고, 켜면 개인 비서가 보인다', async () => {
+    const personal = agent({ id: 9, username: '__assistant_u1', name: '개인 비서', type: 'PERSONAL', ownerName: '양동희' })
+    const { user } = openList((include) => (include ? [personal] : []))
+    expect(await screen.findByTestId('agent-list-empty')).toHaveTextContent('개인 비서는 「개인 비서 표시」를 켜면 보여요.')
+    await user.click(screen.getByTestId('include-personal-toggle'))
+    expect(await screen.findByTestId('agent-row-9')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-list-empty')).not.toBeInTheDocument()
   })
 })
 
