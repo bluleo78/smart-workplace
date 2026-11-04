@@ -98,6 +98,12 @@ releases/0.9.0.md" \
   "비코드 변경만 감지" \
   "vitest"
 
+# 13b) 버린 릴리스 기록만 → 회귀 skip (WP-1349)
+run_case "버린 릴리스 기록만 → skip" \
+  "deploy/release/abandoned-releases.json" \
+  "비코드 변경만 감지" \
+  "vitest"
+
 # 14) 공유영역의 단위 테스트 파일만 변경 → vitest 만, E2E skip (WP-968 — 전엔 ALL 폴백으로 전체 E2E 35분)
 run_case "lib 단위 테스트 파일만 → E2E skip" \
   "apps/workplace-web/src/lib/pluginGuide.test.ts" \
