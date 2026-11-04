@@ -38,8 +38,9 @@ function renderAi(rows: EmailMessageSummary[] = [summary({ id: 7, fromAddress: '
 // ── 목록 배지 ─────────────────────────────────────────────
 
 test('목록 배지 — 카테고리 칩과 답장필요 점', async () => {
-  renderAi([summary({ id: 7, aiCategory: '업무', aiNeedsReply: true })])
-  expect(await screen.findByTestId('mail-badge-category-7')).toHaveTextContent('업무')
+  // 업무 보기(/mail/1)는 업무 배지를 숨기므로(WP-1348) 다른 분류(개인)로 칩을 확인한다.
+  renderAi([summary({ id: 7, aiCategory: '개인', aiNeedsReply: true })])
+  expect(await screen.findByTestId('mail-badge-category-7')).toHaveTextContent('개인')
   expect(screen.getByTestId('mail-badge-needsreply-7')).toBeInTheDocument()
 })
 

@@ -174,6 +174,7 @@ function MessageRow({
   onSelect,
   pendingVisible,
   aiSignalsVisible,
+  viewCategory,
   showToggle,
   onToggleRead,
   moveActions,
@@ -189,6 +190,8 @@ function MessageRow({
   pendingVisible: boolean
   /** AI 분류·답장필요 배지 노출 — 서버 메일함 보기(WP-961)는 받은편지함 AI 분석 대상이 아니라 끈다. */
   aiSignalsVisible: boolean
+  /** 지금 보는 분류 보기의 분류(WP-1348) — 받은편지함 전체·회신필요·그 밖의 보기는 null. 같은 분류 배지를 숨기는 데 쓴다. */
+  viewCategory: MailCategory | null
   /** WP-187 hover 읽음 전환 버튼 노출 — 터치 셸에는 hover 가 없어 렌더하지 않는다(길게 누르기 시트가 담당). */
   showToggle: boolean
   /** WP-187 읽음↔안읽음 전환(행 열기와 별개). */
@@ -203,6 +206,8 @@ function MessageRow({
   // WP-146: 회신필요 판정은 행마다 한 번만 계산. 서버 메일함 보기에서는 AI 배지를 모두 끈다(WP-961).
   const needsReply = aiSignalsVisible && isNeedsReply(m)
   const aiCategory = aiSignalsVisible ? m.aiCategory : null
+  // WP-1348: 보기와 같은 분류 배지는 되풀이하지 않는다 — 배지 줄 조건도 이 값을 써 빈 줄이 남지 않게 한다.
+  const categoryBadge = aiCategory && aiCategory !== viewCategory ? aiCategory : null
   return (
     // div role="button" — 내부 AiSignalBadge 가 실제 <button>이므로 바깥을 <button>으로
     // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
@@ -317,19 +322,19 @@ function MessageRow({
           </span>
         )}
         {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-        {(aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
+        {(categoryBadge || needsReply || (pendingVisible && m.categoryPending)) && (
           <span className="mt-0.5 flex items-center gap-1">
             {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
-            {aiCategory && (
+            {categoryBadge && (
               <AiSignalBadge
                 variant="info"
                 data-testid={`mail-badge-category-${m.id}`}
                 onClick={(e) => {
                   e.stopPropagation()
-                  navigate(mailViewHref(m.accountId, aiCategory as MailCategory, false))
+                  navigate(mailViewHref(m.accountId, categoryBadge as MailCategory, false))
                 }}
               >
-                {aiCategory}
+                {categoryBadge}
               </AiSignalBadge>
             )}
             {pendingVisible && m.categoryPending && (
@@ -1710,6 +1715,8 @@ function MailInbox() {
                   onSelect={() => mailParam.open(String(m.id))}
                   pendingVisible={view.kind !== 'sent' && !folderView && classificationActive}
                   aiSignalsVisible={!folderView}
+                  // 분류 보기 안 검색도 서버가 그 분류로 좁히므로 검색 중에도 넘긴다(WP-1348).
+                  viewCategory={view.activeCategory}
                   showToggle={!touchShell}
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
