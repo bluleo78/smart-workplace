@@ -3,6 +3,7 @@ package com.workplace.calendar.service;
 import com.workplace.calendar.dto.AttendeeResponse;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.CalendarEventSearchResponse;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.dto.OnlineMeeting;
@@ -22,6 +23,7 @@ import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChange
 import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
 import com.workplace.calendar.repository.CalendarEventRepository;
+import com.workplace.calendar.repository.CalendarEventRepository.CalendarEventSearchRow;
 import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
@@ -53,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -553,6 +556,211 @@ public class CalendarEventService {
     return collect(callerId, from, to, tagId);
   }
 
+  /** 검색 후보 상한 — 저장소가 「다가오는 것 먼저」 순으로 이만큼만 읽는다. 넘으면 응답에 truncated=true. */
+  private static final int SEARCH_CANDIDATE_CAP = 500;
+
+  private static final int SEARCH_DEFAULT_LIMIT = 20;
+  private static final int SEARCH_MAX_LIMIT = 50;
+
+  /** 다음 회차를 먼저 찾아보는 가까운 창(일) — 대부분의 반복(매일·매주·매월)은 이 안에 다음 회차가 있어 2년 전개를 피한다. */
+  private static final int SEARCH_NEAR_WINDOW_DAYS = 35;
+
+  /** 다음 회차·끝난 시리즈의 마지막 회차를 찾는 최대 범위(년). */
+  private static final int SEARCH_HORIZON_YEARS = 2;
+
+  /**
+   * 일정 키워드 검색(WP-1357) — 제목·장소·참석자에 q 가 든 일정을 한 시리즈당 한 줄로, 「다가오는 순 → 지난 순」으로 offset 페이지로 돌려준다.
+   *
+   * <p>후보 상한(500)은 중복 제거 전에 저장소에서 적용한다 — 반복 마스터·아직 안 끝난 일정을 먼저(시작 오름차순), 지난 단일 일정은 최근 것부터 읽으므로 잘려도
+   * 사용자가 찾는 가까운 일정은 남는다. 잘렸으면 응답의 truncated 가 true 라 마지막 페이지(nextCursor=null)에서도 결과가 일부임을 알 수 있다.
+   *
+   * <p>반복 일정은 마스터 한 줄(로컬 「이 회차만」 고친 회차 행과 M365 회차 행 접기는 저장소가 한다). 다음 회차는 취소·옮긴 회차(예외 행의 원래 시작)를 건너뛴
+   * 지금 이후 첫 회차다. 옮긴 회차는 건너뛰기만 한다 — 고친 행은 후보에서 빠지고 마스터가 그다음 회차를 보인다(옮긴 시각은 이 목록에 표시하지 않는다). 다음 회차가
+   * 없으면 끝난 시리즈로 보고 past=true, 정렬 키는 지금 이전 마지막 회차(없으면 마스터 시작).
+   *
+   * <p>검색 결과는 요청 시점 기준이라 페이지 사이 경계가 바뀌면 한 건이 겹치거나 빠질 수 있다 — 통합 검색 무한 스크롤 용도로 허용.
+   *
+   * @param cursor 정수 offset 문자열. 없거나 숫자가 아니거나 음수면 0.
+   * @param limit 기본 20, 1~50 으로 자른다.
+   */
+  @Transactional(readOnly = true)
+  public CalendarEventSearchResponse search(long callerId, String q, String cursor, Integer limit) {
+    String term = q == null ? "" : q.strip();
+    if (term.isEmpty()) {
+      return new CalendarEventSearchResponse(List.of(), null, false);
+    }
+    int pageSize =
+        limit == null ? SEARCH_DEFAULT_LIMIT : Math.max(1, Math.min(SEARCH_MAX_LIMIT, limit));
+    int offset = parseOffset(cursor);
+
+    OffsetDateTime now = OffsetDateTime.now();
+    // 상한+1 건을 읽어 상한에 걸렸는지 안다 — 넘친 한 건은 버린다.
+    List<CalendarEventSearchRow> candidates =
+        new ArrayList<>(repo.searchCandidates(callerId, term, now, SEARCH_CANDIDATE_CAP + 1));
+    boolean truncated = candidates.size() > SEARCH_CANDIDATE_CAP;
+    if (truncated) {
+      candidates = candidates.subList(0, SEARCH_CANDIDATE_CAP);
+    }
+    // 같은 iCalUID 동료 사본 정리는 기존 규칙(dedupeCrossSource)을 그대로 재사용 — 제자리 수정되는 복사 목록에서 살아남은 id 만 남긴다.
+    List<CalendarEventResponse> events =
+        new ArrayList<>(candidates.stream().map(CalendarEventSearchRow::event).toList());
+    dedupeCrossSource(callerId, events);
+    // 후보 id → 행 — 크로스소스 정리에서 살아남은 사본(events)만 후보 순서대로 항목으로 만든다. 같은 id 가 두 번 와도(조인 중복) 앞 행을 쓴다.
+    Map<Long, CalendarEventSearchRow> rowById =
+        candidates.stream()
+            .collect(Collectors.toMap(r -> r.event().id(), Function.identity(), (a, b) -> a));
+
+    // 반복 마스터의 예외 회차(취소·고친 회차의 원래 시작) — 목록 전개(collect)와 같은 방식으로 한 번에 읽는다.
+    Map<Long, Set<Instant>> exceptions =
+        exceptionRepo.occurrencesByEvent(
+            events.stream()
+                .filter(CalendarEventService::isRecurring)
+                .map(CalendarEventResponse::id)
+                .toList());
+
+    // 다가오는 것(occurrenceStart 오름차순) 먼저, 지난 것(내림차순) 뒤 — 비교자 하나로 정렬한다. 같으면 id 오름차순.
+    List<CalendarEventSearchResponse.Item> items = new ArrayList<>(events.size());
+    for (CalendarEventResponse e : events) {
+      Set<Instant> skip = exceptions.getOrDefault(e.id(), Collections.emptySet());
+      items.add(toSearchItem(rowById.get(e.id()), now, skip));
+    }
+    items.sort(
+        Comparator.comparing(CalendarEventSearchResponse.Item::past)
+            .thenComparing(
+                (a, b) ->
+                    a.past()
+                        ? b.occurrenceStart().compareTo(a.occurrenceStart())
+                        : a.occurrenceStart().compareTo(b.occurrenceStart()))
+            .thenComparingLong(CalendarEventSearchResponse.Item::id));
+
+    int from = Math.min(offset, items.size());
+    int to = Math.min(from + pageSize, items.size());
+    String next = to < items.size() ? String.valueOf(to) : null;
+    return new CalendarEventSearchResponse(List.copyOf(items.subList(from, to)), next, truncated);
+  }
+
+  /** RRULE 이 있는 반복 마스터인가. */
+  private static boolean isRecurring(CalendarEventResponse e) {
+    return e.recurrenceRule() != null && !e.recurrenceRule().isBlank();
+  }
+
+  /** cursor 문자열 → offset. 없거나 숫자가 아니거나 음수면 0(잘못된 커서가 400 이 아니라 첫 페이지로). */
+  private static int parseOffset(String cursor) {
+    if (cursor == null) {
+      return 0;
+    }
+    try {
+      // int 범위를 넘는 큰 수는 Integer.MAX_VALUE 로 눌러 빈 페이지가 되게 한다(첫 페이지로 되돌아가지 않도록).
+      return (int) Math.max(0L, Math.min(Integer.MAX_VALUE, Long.parseLong(cursor.strip())));
+    } catch (NumberFormatException e) {
+      return 0;
+    }
+  }
+
+  /** 반복 항목의 정렬 기준 회차 시작과 지난 시리즈 여부. */
+  private record SearchOccurrence(OffsetDateTime start, boolean past) {}
+
+  /**
+   * 후보 한 줄 → 응답 항목. 반복이면 skip(예외 회차)을 건너뛴 다음 회차를 구하고(없으면 past, 정렬 키는 마지막 회차), 단일이면 endsAt 으로 지난 일정을
+   * 판정한다.
+   */
+  private CalendarEventSearchResponse.Item toSearchItem(
+      CalendarEventSearchRow row, OffsetDateTime now, Set<Instant> skip) {
+    CalendarEventResponse e = row.event();
+    OffsetDateTime occurrenceStart = e.startsAt();
+    boolean past;
+    if (isRecurring(e)) {
+      SearchOccurrence occurrence = recurringSearchOccurrence(e, now, skip);
+      past = occurrence.past();
+      // 전개기는 UTC 로 돌려주므로 마스터 시작의 오프셋으로 맞춘다(같은 시각, 표시 오프셋만 통일).
+      occurrenceStart = occurrence.start().withOffsetSameInstant(e.startsAt().getOffset());
+    } else {
+      past = !e.endsAt().isAfter(now);
+    }
+    return new CalendarEventSearchResponse.Item(
+        e.id(),
+        e.title(),
+        e.startsAt(),
+        e.endsAt(),
+        e.allDay(),
+        e.location(),
+        e.calendarName(),
+        e.effectiveColor(),
+        e.recurrenceRule(),
+        occurrenceStart,
+        past,
+        row.matchedField(),
+        row.matchedText());
+  }
+
+  /**
+   * 반복 마스터의 (정렬 기준 회차, 지난 시리즈 여부) — 다음 회차가 있으면 그것(past=false), 없으면 지금 이전 마지막 회차(없으면 마스터 시작)에
+   * past=true. 손상된 RRULE 한 건이 검색 전체를 죽이지 않도록 격리(list 와 같은 방어)하고 마스터 시작·지난 일정으로 본다.
+   */
+  private SearchOccurrence recurringSearchOccurrence(
+      CalendarEventResponse e, OffsetDateTime now, Set<Instant> skip) {
+    try {
+      OffsetDateTime next = nextSearchOccurrence(e, now, skip);
+      if (next != null) {
+        return new SearchOccurrence(next, false);
+      }
+      OffsetDateTime last = lastSearchOccurrence(e, now, skip);
+      return new SearchOccurrence(last != null ? last : e.startsAt(), true);
+    } catch (RuntimeException ex) {
+      log.warn(
+          "검색 반복 마스터 회차 전개 실패 — 지난 일정 취급. eventId={}, rule={}", e.id(), e.recurrenceRule(), ex);
+      return new SearchOccurrence(e.startsAt(), true);
+    }
+  }
+
+  /**
+   * 반복 마스터의 다음 회차(예외 회차 제외) — 없으면 null. 지금 진행 중인 회차도 「다가오는」 것으로 센다(단일 일정이 endsAt &gt; now 면 다가오는 것인
+   * 것과 같은 기준)라 일정 길이만큼 앞선 시각부터 전개한다. 비용을 줄이려 먼저 가까운 창(35일)에서 찾고, 없을 때만 2년까지 넓힌다.
+   */
+  private OffsetDateTime nextSearchOccurrence(
+      CalendarEventResponse e, OffsetDateTime now, Set<Instant> skip) {
+    Duration duration = Duration.between(e.startsAt(), e.endsAt());
+    OffsetDateTime nearEnd = now.plusDays(SEARCH_NEAR_WINDOW_DAYS);
+    List<OffsetDateTime> near =
+        expandSkipping(e.recurrenceRule(), e.startsAt(), now.minus(duration), nearEnd, skip);
+    if (!near.isEmpty()) {
+      return near.getFirst();
+    }
+    List<OffsetDateTime> far =
+        expandSkipping(
+            e.recurrenceRule(), e.startsAt(), nearEnd, now.plusYears(SEARCH_HORIZON_YEARS), skip);
+    return far.isEmpty() ? null : far.getFirst();
+  }
+
+  /** 끝난 시리즈의 지금 이전 마지막 회차(예외 회차 제외) — 창은 [max(마스터 시작, now−2년), now). 없으면 null. */
+  private OffsetDateTime lastSearchOccurrence(
+      CalendarEventResponse e, OffsetDateTime now, Set<Instant> skip) {
+    OffsetDateTime horizonStart = now.minusYears(SEARCH_HORIZON_YEARS);
+    OffsetDateTime from = e.startsAt().isAfter(horizonStart) ? e.startsAt() : horizonStart;
+    if (!from.isBefore(now)) {
+      return null;
+    }
+    List<OffsetDateTime> occurrences =
+        expandSkipping(e.recurrenceRule(), e.startsAt(), from, now, skip);
+    return occurrences.isEmpty() ? null : occurrences.getLast();
+  }
+
+  /** RRULE 을 [from, to) 로 전개하되 취소·옮긴 회차(skip, 원래 시작 Instant)를 뺀다 — 목록 전개(collect)와 검색이 함께 쓴다. */
+  private List<OffsetDateTime> expandSkipping(
+      String rrule,
+      OffsetDateTime masterStart,
+      OffsetDateTime from,
+      OffsetDateTime to,
+      Set<Instant> skip) {
+    List<OffsetDateTime> result = new ArrayList<>();
+    for (OffsetDateTime s : expander.expand(rrule, masterStart, from, to)) {
+      if (!skip.contains(s.toInstant())) {
+        result.add(s);
+      }
+    }
+    return result;
+  }
+
   /** 목록 수집 본체 — tagId 가 null 이면 전체, 아니면 그 태그가 붙은 구체 행·반복 마스터만. 시작 시각순 정렬 + 크로스소스 중복 제거까지. */
   private List<CalendarEventResponse> collect(
       long callerId, OffsetDateTime from, OffsetDateTime to, Long tagId) {
@@ -570,10 +778,8 @@ public class CalendarEventService {
         try {
           Set<Instant> skip = exceptions.getOrDefault(m.id(), Collections.emptySet());
           Duration duration = Duration.between(m.startsAt(), m.endsAt());
-          for (OffsetDateTime s : expander.expand(m.recurrenceRule(), m.startsAt(), from, to)) {
-            if (skip.contains(s.toInstant())) {
-              continue;
-            }
+          for (OffsetDateTime s :
+              expandSkipping(m.recurrenceRule(), m.startsAt(), from, to, skip)) {
             result.add(toOccurrence(m, s, duration));
           }
         } catch (RuntimeException e) {

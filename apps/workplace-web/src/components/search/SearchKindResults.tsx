@@ -1,7 +1,7 @@
 // 앱 하나를 고른 탭의 결과 목록(WP-1353) — 20건씩 무한 스크롤(스크롤이 끝에 닿으면 다음 쪽, ↓ 가 마지막에 닿아도 다음 쪽은 팔레트가 부른다).
 // 지금 앱 탭이면 목록 끝에 「다른 앱에서도 찾기 → 전체」, 0건이면 빈 문구 + 「모든 앱에서 찾기 → 전체」.
 import type { UseInfiniteQueryResult } from '@tanstack/react-query'
-import { type UIEvent, useEffect, useRef } from 'react'
+import { Fragment, type UIEvent, useEffect, useRef } from 'react'
 
 import { SEARCH_TABS, type SearchAppId } from './searchApps'
 import type { SearchHit, SearchPage } from './searchProviders'
@@ -81,7 +81,17 @@ export function SearchKindResults({ app, term, current, query, hits, rowFor, onG
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-1" onScroll={onScroll} data-testid="global-search-scroll">
       <div role="listbox" aria-label={`${label} 검색 결과`}>
-        {hits.map((h) => rowFor(h))}
+        {hits.map((h, i) => (
+          <Fragment key={h.key}>
+            {/* 그룹이 바뀌는 자리(첫 줄 포함)에 소제목 — 캘린더의 「다가오는 일정」/「지난 일정」 */}
+            {h.group && h.group !== hits[i - 1]?.group && (
+              <div role="presentation" data-testid="global-search-subgroup" className="px-2 pb-0.5 pt-2 text-xs font-medium text-muted-foreground">
+                {h.group}
+              </div>
+            )}
+            {rowFor(h)}
+          </Fragment>
+        ))}
       </div>
       <div ref={sentinelRef} aria-hidden className="h-px" />
       {query.isFetchingNextPage && <RowSkeletons count={2} />}

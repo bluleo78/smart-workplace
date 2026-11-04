@@ -316,16 +316,56 @@ describe('issues', () => {
   })
 })
 
-describe('ai·calendar', () => {
+describe('ai', () => {
   it('늘 빈 쪽', async () => {
     expect(await providers().ai.fetchPage('x1', null, 20)).toEqual({
       hits: [],
       next: null,
     })
-    expect(await providers().calendar.fetchPage('x1', null, 20)).toEqual({
-      hits: [],
-      next: null,
-    })
+  })
+})
+
+describe('calendar', () => {
+  const row = (id: number, extra: object = {}) => ({
+    id,
+    title: `주간 회의 ${id}`,
+    startsAt: '2026-11-06T01:00:00Z',
+    endsAt: '2026-11-06T02:00:00Z',
+    allDay: false,
+    location: null,
+    calendarName: '내 캘린더',
+    calendarColor: 'blue',
+    recurrenceRule: null,
+    occurrenceStart: '2026-11-06T01:00:00Z',
+    past: false,
+    matchedField: 'TITLE',
+    matchedText: null,
+    ...extra,
+  })
+
+  it('q·cursor·limit 쿼리를 보내고 일정 경로 hit 으로 바꾸며 nextCursor 를 next 로 돌려준다', async () => {
+    const seen: URLSearchParams[] = []
+    server.use(
+      http.get(`${API}/calendar/events/search`, ({ request }) => {
+        const sp = new URL(request.url).searchParams
+        seen.push(sp)
+        return HttpResponse.json(
+          sp.get('cursor')
+            ? { items: [row(3, { past: true })], nextCursor: null, truncated: false }
+            : { items: [row(1), row(2, { matchedField: 'LOCATION', matchedText: '판교' })], nextCursor: '20', truncated: false },
+        )
+      }),
+    )
+    const p1 = await providers().calendar.fetchPage('주간', null, 20)
+    expect(Object.fromEntries(seen[0])).toEqual({ q: '주간', limit: '20' })
+    expect(p1.hits.map((h) => h.key)).toEqual(['calendar:1', 'calendar:2'])
+    expect(p1.hits[0]).toMatchObject({ title: '주간 회의 1', href: '/calendar?eventId=1', app: 'calendar' })
+    expect(p1.hits[1]).toMatchObject({ snippet: '판교', snippetLabel: '장소' })
+    expect(p1.next).toBe('20')
+    const p2 = await providers().calendar.fetchPage('주간', p1.next, 20)
+    expect(seen[1].get('cursor')).toBe('20')
+    expect(p2.hits[0]).toMatchObject({ key: 'calendar:3', dimmed: true })
+    expect(p2.next).toBeNull()
   })
 })
 

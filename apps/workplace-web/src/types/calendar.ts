@@ -156,3 +156,30 @@ export interface CalendarRequest {
   color: string
   position?: number
 }
+
+/** 일정 검색 결과 한 줄(WP-1357) — 서버 CalendarEventSearchResponse.Item 1:1. 반복 일정은 시리즈당 한 줄. */
+export interface CalendarEventSearchItem {
+  id: number
+  title: string
+  startsAt: string
+  endsAt: string
+  allDay: boolean
+  location: string | null
+  calendarName: string
+  /** 캘린더 팔레트 키(blue·green…) — resolvePalette 로 점 색을 얻는다. */
+  calendarColor: string | null
+  recurrenceRule: string | null
+  /** 단일은 startsAt, 반복은 지금 이후 첫 회차(끝난 시리즈는 마지막 회차). */
+  occurrenceStart: string
+  past: boolean
+  matchedField: 'TITLE' | 'LOCATION' | 'ATTENDEE'
+  /** 장소 값 또는 맞은 참석자 이름/메일. TITLE 이면 null. */
+  matchedText: string | null
+}
+
+/** 일정 검색 응답 — nextCursor 는 불투명 문자열(null 이면 끝), truncated 는 후보 상한에 걸려 일부만 담겼는지. */
+export interface CalendarEventSearchResponse {
+  items: CalendarEventSearchItem[]
+  nextCursor: string | null
+  truncated: boolean
+}

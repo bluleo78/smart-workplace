@@ -139,7 +139,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   }
 
   /** 결과 줄 하나 — 보이는 줄 전체에서의 인덱스로 활성·id 를 정한다. */
-  const rowFor = (hit: SearchHit) => {
+  const rowFor = (hit: SearchHit, compact?: boolean) => {
     const i = indexByKey.get(hit.key) ?? -1
     return (
       <SearchResultRow
@@ -150,6 +150,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         active={i === active}
         onPick={pick}
         onHover={() => setActive(i)}
+        compact={compact}
       />
     )
   }
