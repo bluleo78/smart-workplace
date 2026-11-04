@@ -250,3 +250,17 @@ test('제목 편집 — 하단이 [취소·저장] 바로 바뀌고, Esc 는 편
   // Esc 취소 때는 PATCH 가 나가지 않았다 — 저장 1건만.
   expect(seen.patches).toHaveLength(1)
 })
+
+// 프로젝트 설정 진입(WP-1362) — 모바일 헤더 메뉴 항목은 「설정」 하나라 ⋯ 없이 헤더에 바로 놓이고(한 항목 인라인, U3-R7),
+// 누르면 설정 화면 주소로 간다. 빠른 추가 ＋ 는 그대로 남는다.
+test('헤더에 「설정」 링크가 ⋯ 없이 바로 있고, 누르면 /projects/<키>/settings 로 간다', async () => {
+  const p = stubPersonal()
+  const { user, location } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  const inline = await screen.findByTestId('mobile-header-inline-action')
+  expect(screen.queryByTestId('mobile-header-more')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '빠른 추가' })).toBeInTheDocument()
+  const settings = within(inline).getByRole('link', { name: '설정' })
+  expect(settings).toHaveAttribute('href', `/projects/${KEY}/settings`)
+  await user.click(settings)
+  await waitFor(() => expect(location()).toBe(`/projects/${KEY}/settings`))
+})

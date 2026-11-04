@@ -3,7 +3,7 @@
 // + 그룹핑 연동 체크리스트. URL = single source of truth: /projects/:key?view=&group=&task=
 import { ListChecks, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { Page, pageGutterClass } from '@/components/layout/Page';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
@@ -66,6 +66,10 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined);
   // 본문 스크롤 컨테이너 — 체크리스트 무한 로드 sentinel 의 root(WP-918). state ref 라 마운트 뒤 observer 가 다시 붙는다.
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
+  // 설정 화면 주소(WP-1362) — 데스크톱 버튼과 모바일 헤더 링크가 같은 곳으로 간다.
+  const settingsTo = `/projects/${key}/settings`;
+  // 빠른 추가 — 처음 상태 없이(기본 상태로) 만들기 창을 연다. 데스크톱 버튼·모바일 ＋·체크리스트 빈 상태가 함께 쓴다.
+  const openQuickAdd = () => { setCreateStatusId(undefined); setCreateOpen(true); };
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.
   // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
@@ -82,10 +86,18 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
     <Page data-testid="personal-project-detail">
       <Page.Header
         title={project.name}
-        actions={<Button onClick={() => { setCreateStatusId(undefined); setCreateOpen(true); }}>+ 빠른 추가</Button>}
-        // 모바일: 단일 주 액션은 ＋ 아이콘으로 인라인(⋯ 없음).
-        mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={() => { setCreateStatusId(undefined); setCreateOpen(true); }}><Plus /></HeaderIconAction>}
-        mobileActions={null}
+        // 설정 진입(WP-1362) — 팀 화면과 같은 순서로 보조 링크 → 주 액션.
+        actions={
+          <>
+            <Link to={settingsTo}>
+              <Button variant="outline">설정</Button>
+            </Link>
+            <Button onClick={openQuickAdd}>+ 빠른 추가</Button>
+          </>
+        }
+        // 모바일: 빠른 추가는 ＋, 설정은 항목 하나라 ⋯ 없이 인라인(U3-R7) — Link 하나, Button 중첩 없음(U3-C3).
+        mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={openQuickAdd}><Plus /></HeaderIconAction>}
+        mobileActions={<Link to={settingsTo}>설정</Link>}
       />
       <Page.Body padded={false} className="overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -127,7 +139,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                   filters={filters}
                   groupBy={groupBy}
                   scrollRoot={scrollRoot}
-                  onCreate={() => { setCreateStatusId(undefined); setCreateOpen(true); }}
+                  onCreate={openQuickAdd}
                 />
               )}
             </div>

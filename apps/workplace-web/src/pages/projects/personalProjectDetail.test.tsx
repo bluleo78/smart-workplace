@@ -597,6 +597,8 @@ describe('편집·완료 토글', () => {
   test('빠른 추가 다이얼로그는 유형 select 를 숨기고 POST typeId 가 TASK 로 고정된다', async () => {
     const api = personalApi([], { types: systemTypes() })
     const { user } = await open(`/projects/${KEY}`, api, 'personal-empty')
+    // 머리의 「설정」 링크는 설정 화면으로 간다(WP-1362).
+    expect(within(screen.getByTestId('page-header')).getByRole('link', { name: '설정' })).toHaveAttribute('href', `/projects/${KEY}/settings`)
     await user.click(within(screen.getByTestId('page-header')).getByRole('button', { name: /빠른 추가/ }))
     const dialog = await screen.findByRole('dialog')
     expect(screen.queryByTestId('create-type-select')).not.toBeInTheDocument()
