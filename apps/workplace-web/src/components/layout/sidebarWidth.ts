@@ -12,6 +12,9 @@ export const SIDEBAR_MIN_WIDTH = 180
 /** 최대 폭 — 본문을 지나치게 밀어내지 않는 상한. */
 export const SIDEBAR_MAX_WIDTH = 480
 
+/** 프로젝트 화면 에픽 패널(WP-1343)의 폭 키 — 고정 패널 틀과 드래그 중 떠 있는 패널이 같은 값을 쓴다. 모든 프로젝트 공통. */
+export const EPIC_PANEL_WIDTH_KEY = 'epic-panel'
+
 /** 앱마다 따로 기억한다(노트는 넓게, 설정은 좁게) — 키 예: sidebar-width:wiki */
 const sidebarWidthKey = (widthKey: string) => `sidebar-width:${widthKey}`
 

@@ -219,6 +219,18 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () =>
     });
   }
 
+  // WP-1343: 떠 있는 패널은 끌어 조절할 순 없지만 저장된 에픽 패널 폭을 따른다.
+  test('패널 닫힘(떠 있는 패널): 저장된 에픽 패널 폭(320)으로 뜬다', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => localStorage.setItem('sidebar-width:epic-panel', '320'));
+    await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })] });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    await startDrag(page, 'issue-card-1');
+    await expect(page.getByTestId('epic-drop-hint')).toBeVisible();
+    await expect(async () => {
+      expect(Math.round((await measureBox(page.getByTestId('epic-side-panel'))).width)).toBe(320);
+    }).toPass();
+  });
+
   // 배너는 기본 뷰포트에서 보드 컬럼보다 위에 떠 아래에 깔린 대상이 없다 — 그래서 누수 검증은 패널 하단 빈 여백 중
   // 가려진 컬럼 몸통과 겹치는 지점에서 한다(에픽 항목이 아닌 패널 영역).
   test('패널 닫힘(떠 있는 패널): 가려진 컬럼 위 패널 빈 여백에 놓으면 상태·에픽 PATCH 모두 없음', async ({ authenticatedPage: page }) => {

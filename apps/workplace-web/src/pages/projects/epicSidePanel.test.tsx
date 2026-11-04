@@ -6,7 +6,7 @@
 // 띄운다(App·앱 셸 없이). ↗ 로 가는 에픽 상세는 그리지 않고 이동 주소만 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
@@ -50,6 +50,27 @@ async function openPanel({
   const lastBody = () => [...api.searches].reverse().find((u) => !isEpicSearch(u))
   return { ...view, api, lastBody }
 }
+
+describe('에픽 패널 폭 조절(WP-1343)', () => {
+  beforeEach(() => localStorage.clear())
+
+  // 저장된 폭(앱 목록과 같은 sidebar-width:<키> 저장소, 키 epic-panel)으로 틀이 열리고 경계선 손잡이가 있다.
+  test('저장된 에픽 패널 폭(localStorage sidebar-width:epic-panel=320)으로 열린다', async () => {
+    localStorage.setItem('sidebar-width:epic-panel', '320')
+    await openPanel()
+    expect(screen.getByTestId('epic-panel-frame').style.width).toBe('320px')
+    expect(screen.getByRole('separator', { name: '에픽 패널 폭 조절' })).toBeInTheDocument()
+  })
+
+  // jsdom 은 getBoundingClientRect 가 0 이라 키보드 시작 폭이 의미 없다 — 두 번 누르기로 기본 폭 복귀·저장값 삭제를 본다.
+  test('손잡이를 두 번 누르면 기본 폭(224)으로 돌아가고 저장값을 지운다', async () => {
+    localStorage.setItem('sidebar-width:epic-panel', '320')
+    const { user } = await openPanel()
+    await user.dblClick(screen.getByRole('separator', { name: '에픽 패널 폭 조절' }))
+    expect(screen.getByTestId('epic-panel-frame').style.width).toBe('224px')
+    expect(localStorage.getItem('sidebar-width:epic-panel')).toBeNull()
+  })
+})
 
 const twoEpics = () => [epic(10, '결제 리뉴얼', 6, 10), epic(11, '알림 개편', 8, 10)]
 

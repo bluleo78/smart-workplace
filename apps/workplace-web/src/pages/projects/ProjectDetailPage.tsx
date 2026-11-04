@@ -4,7 +4,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { Page, pageGutterClass } from '@/components/layout/Page';
+import { ResizableSidebar } from '@/components/layout/ResizableSidebar';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
+import { EPIC_PANEL_WIDTH_KEY } from '@/components/layout/sidebarWidth';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
@@ -259,7 +261,12 @@ function ProjectIssuesSection({
   return (
     <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
       {/* 모바일엔 패널 토글이 없으므로 저장된 열림 상태(데스크톱용)를 무시한다 — 닫을 수 없는 패널이 목록을 좁히지 않게. */}
-      {epicPanelOpen && !isMobile && <EpicSidePanel projectKey={projectKey} canCreateIssue={canCreateEpic} />}
+      {/* 폭은 경계선 끌기로 조절·기억(WP-1343) — 앱 목록과 같은 ResizableSidebar, 키만 따로(epic-panel). */}
+      {epicPanelOpen && !isMobile && (
+        <ResizableSidebar widthKey={EPIC_PANEL_WIDTH_KEY} testIdPrefix="epic-panel" label="에픽 패널 폭 조절">
+          <EpicSidePanel projectKey={projectKey} canCreateIssue={canCreateEpic} />
+        </ResizableSidebar>
+      )}
       {/* 우측 영역: 뷰 칩바·필터바는 고정, 아래 콘텐츠 슬롯에서 목록/보드가 스스로 스크롤한다
           (목록=테이블 영역, 보드=컬럼 행 — 각자 가로·세로 스크롤 + 헤더 sticky). 에픽 패널은 따로 고정. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -324,6 +331,7 @@ function ProjectIssuesSection({
         </div>
       </div>
       {/* 닫힌 패널은 드래그 동안만 떠 있는 드롭 대상으로 잠시 띄운다 — 저장된 열림 설정은 그대로. */}
+      {/* 떠 있는 패널은 끌어 조절할 수 없지만, 저장된 에픽 패널 폭(WP-1343)은 따라간다 — 열었을 때와 폭이 달라 튀지 않게. */}
       {!epicPanelOpen && dragging && !isMobile && <EpicSidePanel projectKey={projectKey} floating />}
     </section>
   );
