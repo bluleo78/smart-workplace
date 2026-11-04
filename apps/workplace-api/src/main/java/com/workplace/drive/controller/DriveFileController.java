@@ -177,7 +177,8 @@ public class DriveFileController {
 
   /**
    * 파일 추출 텍스트 구간 읽기(WP-346) — 이슈 첨부 /text 와 같은 요청·응답 형식. 에이전트가 PDF·오피스 파일을 글자로 나눠 읽는다. limit 상한
-   * 32,000자(초과분은 클램프). download 와 동일 게이트. html 계열은 원본(마크업 포함)을 준다(WP-1338).
+   * 32,000자(초과분은 클램프). download 와 동일 게이트. 텍스트 파일(md·txt·csv·json·html·코드 등)은 추출본이 아니라 원본을 주고, 원본을
+   * 읽을 수 없을 때만 추출 텍스트로 떨어진다(WP-1338·WP-1339).
    */
   @GetMapping("/files/{id}/text")
   public ResponseEntity<ExtractedTextSlice> readText(

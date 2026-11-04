@@ -29,7 +29,6 @@ import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.dto.ExtractedTextSlice;
-import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.filepreview.inbound.FilePreviewRequestedEvent;
@@ -124,8 +123,8 @@ public class DriveFileService {
    * 확장자(md·txt·csv·json· html·svg·xml 등 — WP-1323, 표 밖은 text/plain)로 정한다. 크기 상한은 TEXT 상한(10MB).
    *
    * <p>같은 폴더에 같은 이름의 활성 파일이 있어 그 파일의 새 버전이 될 때는 {@link #updateTextFile} 과 같은 규칙을 탄다(최종 리뷰 M2) — 텍스트
-   * 계열이 아니면 409, 추출 텍스트가 원문과 다르면({@link #rewriteBlockerOf}) 409, MIME 은 {@link
-   * #updatedTextMimeOf}(확장자 표 → 지금 MIME 순). 이 판정은 저장 핵심이 잠근 그 행으로 한다.
+   * 계열이 아니면 409, 원본을 글자로 읽을 수 없으면({@link #rawSourceOf}) 409, MIME 은 {@link #updatedTextMimeOf}(확장자
+   * 표 → 지금 MIME 순). 이 판정은 저장 핵심이 잠근 그 행으로 한다.
    *
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
@@ -170,15 +169,15 @@ public class DriveFileService {
    * 기존 파일을 텍스트 내용으로 갱신(WP-369) — 그 파일에 새 버전을 더한다. 이름·폴더는 바꾸지 않는다. 의미는 {@link #addVersion} 과 같다.
    *
    * <p>검사 순서가 존재 은닉을 지킨다: 없는·휴지통 파일 404 → 공간 비멤버 404 · EDITOR 미만 403 → 텍스트 계열이 아니면 409 → MIME(400)
-   * → 크기(400) → (저장 핵심이 행을 잠근 뒤) 추출 텍스트가 원문과 다르면 409({@link #rewriteBlockerOf}). 역할 검사를 409 보다 먼저
-   * 해야 비멤버가 파일 형식을 알아내지 못한다. 원문 판정은 blob 을 읽으므로 싼 검사를 모두 마친 뒤, 새 버전을 붙일 그 행을 잠근 상태에서 한다.
+   * → 크기(400) → (저장 핵심이 행을 잠근 뒤) 원본을 글자로 읽을 수 없으면 409({@link #rawSourceOf}). 역할 검사를 409 보다 먼저 해야
+   * 비멤버가 파일 형식을 알아내지 못한다. 원문 판정은 blob 을 읽으므로 싼 검사를 모두 마친 뒤, 새 버전을 붙일 그 행을 잠근 상태에서 한다.
    *
    * <p>MIME 은 {@link #updatedTextMimeOf} 로 정한다 — 명시값은 R4 허용 목록만, 없으면 지금 MIME 을 유지한다(yaml·md·js 가
    * 버전마다 text/plain 으로 바뀌지 않게). 단 xml 계열과 확장자로만 텍스트로 본 octet-stream 은 파일 이름 확장자로 정해 xml 은
    * text/plain 이 된다(html 은 지금 MIME text/html 을 유지한다).
    *
    * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
-   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열({@link #isTextLike})이 아니거나 추출 텍스트가 원문과 다름(409)
+   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열({@link #isTextLike})이 아니거나 원본을 글자로 읽을 수 없음(409)
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
    */
@@ -215,15 +214,6 @@ public class DriveFileService {
    */
   private record TextRewrite(String requestedMime) {}
 
-  /** html 계열 — 워커 추출이 마크업을 걷어내 추출 텍스트가 원문이 아니다(최종 리뷰 I3). xml 은 원문 그대로 추출돼 해당하지 않는다. */
-  private static final Set<String> HTML_FAMILY_MIMES = Set.of("text/html", "application/xhtml+xml");
-
-  /** html 계열인지 — 드라이브 텍스트 읽기가 원본을 주는 형식(WP-1338). */
-  private static boolean isHtmlFamily(String mime) {
-    String bare = RawUploadContentTypes.bare(mime);
-    return bare != null && HTML_FAMILY_MIMES.contains(bare);
-  }
-
   private static final String UPLOAD_LINK_HINT = ". 업로드 링크로 파일을 올리세요";
 
   /**
@@ -232,9 +222,8 @@ public class DriveFileService {
    */
   private enum RewriteBlocker {
     NOT_TEXT("텍스트 아님", "텍스트 파일만 내용으로 갱신할 수 있습니다"),
-    HTML_SOURCE_MISSING(
-        "HTML 원본 없음", "HTML 원본을 읽을 수 없어(마크업이 빠진 글자만 남음) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
-    TRUNCATED("추출 잘림", "파일이 커서 읽은 텍스트가 앞부분만이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
+    // WP-1339: 원본 blob 유실 — 형식과 무관하게 막는다. 읽기가 추출 텍스트(잘렸거나 마크업이 빠졌을 수 있음)로 떨어져 읽은 것이 원본이 아니다.
+    SOURCE_MISSING("원본 없음", "원본 파일을 읽을 수 없어 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
     TOO_LARGE("10MB 초과", "파일이 커서(10MB 초과) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
     NOT_UTF8(
         "UTF-8 아님", "UTF-8 이 아닌 파일(예: CP949)이라 읽은 텍스트가 원문과 달라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
@@ -260,8 +249,8 @@ public class DriveFileService {
   }
 
   /**
-   * 잠근 기존 파일에 내용 모드 새 버전을 붙일 때의 MIME(WP-369) — 텍스트 계열이 아니거나 추출 텍스트가 원문과 다르면 409({@link
-   * RewriteBlocker}), 그 밖은 {@link #updatedTextMimeOf}.
+   * 잠근 기존 파일에 내용 모드 새 버전을 붙일 때의 MIME(WP-369) — 텍스트 계열이 아니거나 원본을 글자로 읽을 수 없으면 409({@link
+   * RewriteBlocker}, WP-1339), 그 밖은 {@link #updatedTextMimeOf}.
    *
    * @param sameName 이름 경로(같은 이름 텍스트 만들기)인지 — 409 문구를 고른다
    */
@@ -269,10 +258,8 @@ public class DriveFileService {
       DriveFileRepository.DriveFileRow locked, String requestedMime, boolean sameName)
       throws IOException {
     String currentMime = files.findCurrentMime(locked.fileId());
-    RewriteBlocker blocker =
-        isTextLike(currentMime, locked.name())
-            ? rewriteBlockerOf(locked.fileId(), currentMime)
-            : RewriteBlocker.NOT_TEXT;
+    // 읽기(readText)와 같은 판정 — 「AI 가 읽은 것 = 덮어쓸 원본」인 파일만 고쳐 쓴다(WP-1339).
+    RewriteBlocker blocker = rawSourceOf(locked.fileId(), currentMime, locked.name()).blocker();
     if (blocker != null) {
       throw blocker.toException(sameName);
     }
@@ -280,47 +267,46 @@ public class DriveFileService {
   }
 
   /**
-   * 내용으로 고쳐 써도 원문을 잃지 않는지(최종 리뷰 I3·I4) — AI 는 추출 텍스트를 읽고 고친 전문을 저장하므로, 추출 텍스트가 원문과 같은 파일만 허용한다. 막을
-   * 사유가 있으면 그 사유, 없으면 null.
+   * 텍스트 파일 원본을 글자로 읽은 결과(WP-1339) — 원본 글자({@code text}) 또는 읽을 수 없는 사유({@code blocker}), 둘 중 하나만 있다.
+   *
+   * @param text 원본 전문(UTF-8 로 읽음), 읽을 수 없으면 null
+   * @param blocker 읽을 수 없는 사유 — 고쳐 쓰기도 같은 사유로 막는다. 읽었으면 null
+   */
+  private record RawSource(String text, RewriteBlocker blocker) {}
+
+  /**
+   * 현재 버전 원본을 글자로 읽는다(WP-1339) — 드라이브 읽기({@link #readText})와 고쳐 쓰기 판정({@link #rewriteMimeOf})이 이 한
+   * 곳을 써서 「AI 가 읽은 것 = 덮어쓸 원본」이 코드로 보장된다. 사유가 있으면 읽기는 추출 텍스트로 떨어지고 고쳐 쓰기는 그 사유로 막힌다. 추출이
+   * 잘렸는지(file_extraction.truncated)는 보지 않는다 — 읽기가 추출이 아니라 원본을 주기 때문이다.
    *
    * <ol>
-   *   <li>추출이 잘림(file_extraction.truncated) — 워커 MAX_CHARS 초과로 앞부분만 있다. 추출 행이 없거나 아직 PENDING 이면 알 수
-   *       없어 다음 검사만으로 판단한다. html 계열은 읽기가 추출이 아니라 원본이라({@link #readRawMarkup}, WP-1338) 이 검사를 건너뛴다 —
-   *       원본을 읽을 수 없는 파일(10MB 초과·UTF-8 아님)은 아래 검사가 막는다.
-   *   <li>현재 버전이 텍스트 상한({@link #TEXT_FILE_MAX_BYTES}, 10MB)을 넘음 — 고쳐 쓴 전문도 10MB 를 넘을 수 없고, 잘리지 않은
-   *       추출(기본 100만 자)은 UTF-8 로 4MB 이하라 읽을 수 있는 파일을 막지 않는다. 추출 상한(PDF·문서 100MB, 그 밖 25MB) 초과로
-   *       SKIPPED 된 csv·추출하지 않는 octet-stream 로그처럼 잘림 표시가 없는 큰 파일을, 테넌트 advisory lock 을 쥔 채 끝까지 읽지
-   *       않게 하는 상한이기도 하다.
-   *   <li>현재 버전 blob 이 올바른 UTF-8 이 아님(예: CP949 CSV) — 워커가 대체 문자(U+FFFD)로 읽어 한글이 깨진다. 위 상한 덕에 많아야
-   *       10MB 를 스트림으로 읽는다.
+   *   <li>텍스트 계열({@link #isTextLike})이 아님 → {@link RewriteBlocker#NOT_TEXT}. blob 을 읽기 전에 거른다.
+   *   <li>blob 유실(행은 있고 바이트가 없음) → {@link RewriteBlocker#SOURCE_MISSING}.
+   *   <li>현재 버전이 텍스트 상한({@link #TEXT_FILE_MAX_BYTES}, 10MB)을 넘음 → {@link RewriteBlocker#TOO_LARGE}
+   *       — 고쳐 쓴 전문도 10MB 를 넘을 수 없고, 큰 blob 을 (고쳐 쓰기라면 테넌트 advisory lock 을 쥔 채) 통째로 메모리에 올리지 않게
+   *       바이트를 읽기 전에 거른다(크기는 저장소 메타).
+   *   <li>올바른 UTF-8 이 아님(예: CP949 CSV, 끝이 잘린 바이트열) → {@link RewriteBlocker#NOT_UTF8} — 글자로 옮기면 원문과
+   *       달라진다.
    * </ol>
    *
-   * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 크기·UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다. 단
-   * html 은 막는다 — 추출 텍스트가 마크업을 뺀 것이라 html 로 되살릴 수 없다(WP-1338).
+   * <p>저장소가 blob 을 못 준 그 밖의 IOException 은 그대로 올린다(500) — 추출 텍스트로 떨어지면 AI 가 다른 글을 원본으로 알고 고쳐 쓸 수 있다.
    */
-  private RewriteBlocker rewriteBlockerOf(long fileId, String currentMime) throws IOException {
-    boolean html = isHtmlFamily(currentMime);
-    if (!html && isExtractionTruncated(fileId)) {
-      return RewriteBlocker.TRUNCATED;
+  private RawSource rawSourceOf(long fileId, String currentMime, String name) throws IOException {
+    if (!isTextLike(currentMime, name)) {
+      return new RawSource(null, RewriteBlocker.NOT_TEXT);
     }
     FileContentResult content;
     try {
       content = fileUpload.getFileContentTrusted(fileId);
     } catch (FileBlobMissingException e) {
-      // html 은 원본이 없으면 읽기가 마크업 뺀 추출 텍스트로 떨어져, 그걸로 덮으면 마크업이 사라진 판이 굳는다(WP-1338).
-      return html ? RewriteBlocker.HTML_SOURCE_MISSING : null;
+      return new RawSource(null, RewriteBlocker.SOURCE_MISSING);
     }
     // 크기는 저장소 메타(fileStore.size)라 바이트를 읽지 않는다.
     if (content.size() > TEXT_FILE_MAX_BYTES) {
-      return RewriteBlocker.TOO_LARGE;
+      return new RawSource(null, RewriteBlocker.TOO_LARGE);
     }
-    return decodeUtf8(content) != null ? null : RewriteBlocker.NOT_UTF8;
-  }
-
-  /** 추출이 잘렸는지(file_extraction.truncated) — 추출 행이 없거나 아직 모르면 false. */
-  private boolean isExtractionTruncated(long fileId) {
-    ExtractionInfo info = extractedText.info(List.of(fileId)).get(fileId);
-    return info != null && Boolean.TRUE.equals(info.truncated());
+    String text = decodeUtf8(content);
+    return text != null ? new RawSource(text, null) : new RawSource(null, RewriteBlocker.NOT_UTF8);
   }
 
   /**
@@ -333,7 +319,8 @@ public class DriveFileService {
             .newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT);
-    StringBuilder out = new StringBuilder();
+    // UTF-8 은 바이트 수보다 글자(char) 수가 많아지지 않는다 — 크기로 미리 잡아 큰 파일에서 배열을 거듭 늘리지 않는다.
+    StringBuilder out = new StringBuilder((int) Math.min(content.size(), TEXT_FILE_MAX_BYTES));
     try (Reader reader = new InputStreamReader(content.resource().getInputStream(), decoder)) {
       char[] buffer = new char[8192];
       int n;
@@ -630,44 +617,23 @@ public class DriveFileService {
    * 스페이스 비멤버는 존재 은닉. 현재 버전의 file.id 로 읽으며 상태(PENDING·EXTRACTING·FAILED·SKIPPED 등)·사유·자르기는 {@link
    * ExtractedTextService#read} 가 이슈 첨부 /text 와 같은 형식으로 돌려준다.
    *
-   * <p>WP-1338: html 계열은 추출 텍스트 대신 원본(마크업 포함)을 같은 형식으로 준다({@link #readRawMarkup}) — 추출은 태그·CSS 를
-   * 걷어내 AI 가 읽고 고쳐 새 버전으로 저장하면 디자인이 사라지기 때문이다. 검색·요약은 그대로 추출 텍스트를 쓴다.
+   * <p>WP-1339(WP-1338 을 넓힘): 고쳐 쓸 수 있는 텍스트 파일({@link #isTextLike} — md·txt·csv·json·html·코드 등)은 추출
+   * 텍스트 대신 원본을 같은 형식으로 준다({@link #rawSourceOf}, 자르기는 {@link ExtractedTextService#sliceOf} — 코드포인트
+   * 기준, 잘림 false). 추출은 html 의 마크업을 걷어내고, 큰 파일은 앞부분만 남기며(100만 자), octet-stream 코드 파일은 아예 만들지 않아 AI 가
+   * 읽고 고쳐 새 버전으로 저장하면 원문을 잃기 때문이다. 원본을 읽을 수 없는 텍스트 파일(원본 없음·10MB 초과·UTF-8 아님)과 pdf·docx 등은 추출 텍스트를
+   * 준다 — 그런 텍스트 파일은 고쳐 쓰기도 같은 판정으로 막힌다. 검색·요약은 그대로 추출 텍스트를 쓴다.
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(long callerId, long driveFileId, int offset, int limit)
       throws IOException {
-    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
-    long fileId = resolveViewFileId(callerId, driveFileId);
-    ExtractedTextSlice raw = readRawMarkup(fileId, offset, limit);
-    return raw != null ? raw : extractedText.read(fileId, offset, limit);
-  }
-
-  /**
-   * html 계열 원본 구간 읽기(WP-1338) — 현재 버전이 html 계열이고 원본을 내용으로 고쳐 쓸 수 있는 파일({@link #TEXT_FILE_MAX_BYTES}
-   * 이하·올바른 UTF-8)이면 원본 글자를 {@link ExtractedTextSlice} 로 자른다. 그 밖(다른 형식·10MB 초과·UTF-8 아님·blob 유실)은
-   * null 이라 호출자가 추출 텍스트로 읽는다 — 이런 파일은 고쳐 쓰기도 막히므로({@link #rewriteBlockerOf}) 마크업을 못 봐도 잃을 것이 없다.
-   *
-   * <p>자르기는 추출 텍스트와 같은 규칙이다({@link ExtractedTextService#sliceOf} — 코드포인트 기준, 잘림 false).
-   *
-   * <p>저장소가 blob 을 못 준 그 밖의 IOException 은 그대로 올린다(500) — 추출 텍스트로 떨어지면 AI 가 마크업 없는 글을 원본으로 알고 고쳐 쓸 수
-   * 있다.
-   */
-  private ExtractedTextSlice readRawMarkup(long fileId, int offset, int limit) throws IOException {
-    if (!isHtmlFamily(files.findCurrentMime(fileId))) {
-      return null;
-    }
-    FileContentResult content;
-    try {
-      content = fileUpload.getFileContentTrusted(fileId);
-    } catch (FileBlobMissingException e) {
-      return null;
-    }
-    // 크기는 저장소 메타라 바이트를 읽기 전에 거른다 — 10MB 넘는 파일은 통째로 메모리에 올리지 않는다.
-    if (content.size() > TEXT_FILE_MAX_BYTES) {
-      return null;
-    }
-    String text = decodeUtf8(content);
-    return text == null ? null : ExtractedTextService.sliceOf(fileId, text, offset, limit);
+    // 권한 규칙은 viewableRow 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(원본을 읽기 전에 가드를 거쳐 존재 은닉을 지킨다).
+    DriveFileRepository.DriveFileRow row = viewableRow(callerId, driveFileId);
+    long fileId = row.fileId();
+    // 고쳐 쓰기와 같은 판정(현재 MIME + 드라이브 파일 이름)으로 원본을 읽는다 — 읽기와 고쳐 쓰기가 어긋나지 않게.
+    RawSource raw = rawSourceOf(fileId, files.findCurrentMime(fileId), row.name());
+    return raw.text() != null
+        ? ExtractedTextService.sliceOf(fileId, raw.text(), offset, limit)
+        : extractedText.read(fileId, offset, limit);
   }
 
   /**
