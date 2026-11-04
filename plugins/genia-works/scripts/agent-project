@@ -50,12 +50,28 @@ agent_data_dir() {
 }
 
 usage() {
-  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures|login <AI 폴더> · locate <AI 이름> <지금 폴더>" >&2
+  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures|login <AI 폴더> · locate|cli <AI 이름> <지금 폴더>" >&2
   exit 2
 }
 
 cmd=${1:-}
 [ -n "$cmd" ] && shift
+
+if [ "$cmd" = cli ]; then
+  # 그 AI 칸이 쓸 실행기를 읽기만 한다(start-agent 패널이 로그인을 물을지 정할 때, WP-1337) — locate 와 달리 홈을 기억하지 않는다.
+  # 홈은 기억한 값, 없으면 지금 폴더에 그 AI 폴더가 있을 때의 지금 폴더. 모르거나 저장값이 목록 밖이면 claude(묻는 쪽이 안전하다).
+  name=${1:-}
+  cur=${2:-}
+  gw_valid_name "$name" || usage
+  saved=$(head -n 1 "$GW_HOME/agents/$name/home" 2>/dev/null)
+  if [ -n "$saved" ] && [ -d "$saved/$name" ]; then aidir=$saved/$name
+  elif [ -n "$cur" ] && [ -d "$cur/$name" ]; then aidir=$cur/$name
+  else echo claude; exit 0
+  fi
+  v=$("$here/agent-home" "$aidir" get cli 2>/dev/null)
+  if gw_valid_cli "$v"; then echo "$v"; else echo claude; fi
+  exit 0
+fi
 
 if [ "$cmd" = locate ]; then
   name=${1:-}
