@@ -3,9 +3,9 @@
 import {
   BookOpen,
   Bot,
-  Calendar,
-  CircleDot,
-  FolderOpen,
+  CalendarDays,
+  HardDrive,
+  LayoutList,
   type LucideIcon,
   Mail,
   MessageSquare,
@@ -19,15 +19,15 @@ export type SearchAppId = 'ai' | 'chat' | 'mail' | 'calendar' | 'issues' | 'driv
 /** 팔레트 탭 — 전체 또는 앱 하나. */
 export type SearchTabId = 'all' | SearchAppId
 
-/** 탭 순서는 고정(전체·AI 대화·대화·메일·캘린더·작업·드라이브·노트·연락처). */
+/** 탭 순서는 고정(전체·AI 대화·대화·메일·캘린더·작업·드라이브·노트·연락처). 아이콘은 AppRail 과 같게 — 같은 앱을 같은 그림으로 알아보게. */
 export const SEARCH_TABS: { id: SearchTabId; label: string; icon: LucideIcon }[] = [
   { id: 'all', label: '전체', icon: Search },
   { id: 'ai', label: 'AI 대화', icon: Bot },
   { id: 'chat', label: '대화', icon: MessageSquare },
   { id: 'mail', label: '메일', icon: Mail },
-  { id: 'calendar', label: '캘린더', icon: Calendar },
-  { id: 'issues', label: '작업', icon: CircleDot },
-  { id: 'drive', label: '드라이브', icon: FolderOpen },
+  { id: 'calendar', label: '캘린더', icon: CalendarDays },
+  { id: 'issues', label: '작업', icon: LayoutList },
+  { id: 'drive', label: '드라이브', icon: HardDrive },
   { id: 'wiki', label: '노트', icon: BookOpen },
   { id: 'contacts', label: '연락처', icon: Users },
 ]

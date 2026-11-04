@@ -15,6 +15,11 @@ export function SearchTrigger() {
         data-testid="global-search-toggle"
         aria-label="검색 (/)"
         title="검색 (/)"
+        // 열린 채 다시 눌러도 팔레트의 「바깥 누름」으로 닫혔다가 click 으로 다시 열리지 않게(깜빡임·검색어 초기화) 누름 단계에서 막는다.
+        // 팔레트의 바깥 누름 감지는 document 의 pointerdown 이라 전파를 끊어야 닿지 않는다.
+        onPointerDown={(e) => {
+          if (open) e.stopPropagation()
+        }}
         onClick={() => setOpen(true)}
         className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-full border bg-card/90 text-muted-foreground shadow-md backdrop-blur hover:text-foreground"
       >

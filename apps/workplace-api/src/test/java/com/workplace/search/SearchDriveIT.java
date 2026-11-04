@@ -117,7 +117,7 @@ class SearchDriveIT extends IntegrationTestBase {
     assertThat(second.get("spaceName").asText()).startsWith("내공간-");
     assertThat(second.get("folderId").asLong()).isEqualTo(b.id());
     assertThat(second.get("mimeType").asText()).isEqualTo("text/plain");
-    assertThat(second.get("folderPath").asText()).isEqualTo("프로젝트 / 문서");
+    assertThat(second.get("folderPath").asText()).isEqualTo("프로젝트/문서");
   }
 
   @Test
@@ -126,6 +126,18 @@ class SearchDriveIT extends IntegrationTestBase {
     JsonNode item = search(me, word, null, null).get("items").get(0);
     assertThat(item.get("folderId").isNull()).isTrue();
     assertThat(item.get("folderPath").asText()).isEmpty();
+  }
+
+  @Test
+  void searchDrive_wildcardIsEscaped() throws Exception {
+    file(me, mySpace, null, "a_" + word + ".txt");
+    file(me, mySpace, null, "ab" + word + ".txt");
+
+    JsonNode items = search(me, "a_", null, null).get("items");
+
+    // 「_」 는 글자 그대로 — 「ab…」 와 맞지 않는다.
+    assertThat(items).hasSize(1);
+    assertThat(items.get(0).get("name").asText()).isEqualTo("a_" + word + ".txt");
   }
 
   @Test

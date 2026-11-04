@@ -23,7 +23,7 @@ export const mailAccountKeys = {
 export function useMailAccounts(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: mailAccountKeys.all,
-    queryFn: () => listMailAccounts(),
+    queryFn: listMailAccounts,
     enabled: options?.enabled ?? true,
   });
 }

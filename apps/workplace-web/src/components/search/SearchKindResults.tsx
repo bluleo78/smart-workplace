@@ -26,12 +26,13 @@ export function SearchKindResults({ app, term, current, query, hits, rowFor, onG
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, isFetchNextPageError } = query
   // 목록 끝 sentinel 이 보이면 다음 쪽 — 첫 쪽이 상자를 못 채워 스크롤이 안 생겨도 이어 받는다.
   // 쪽이 늘 때마다 관찰을 새로 시작해(초기 콜백) 새 쪽도 아직 상자를 못 채웠으면 한 번 더 받는다. IntersectionObserver 가 없으면 onScroll 만.
   useEffect(() => {
     const el = sentinelRef.current
-    if (!el || !hasNextPage || isFetchingNextPage || typeof IntersectionObserver === 'undefined') return
+    // 다음 쪽 조회가 실패한 상태면 자동으로 다시 부르지 않는다 — 센티널이 계속 보여 무한 재시도하므로 「다시 시도」 버튼이 대신한다.
+    if (!el || !hasNextPage || isFetchingNextPage || isFetchNextPageError || typeof IntersectionObserver === 'undefined') return
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) void fetchNextPage()
@@ -40,24 +41,38 @@ export function SearchKindResults({ app, term, current, query, hits, rowFor, onG
     )
     io.observe(el)
     return () => io.disconnect()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, hits.length])
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, hits.length])
 
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX && query.hasNextPage && !query.isFetchingNextPage) {
+    if (
+      el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX &&
+      query.hasNextPage &&
+      !query.isFetchingNextPage &&
+      !query.isFetchNextPageError
+    ) {
       void query.fetchNextPage()
     }
   }
 
-  if (query.isPending && !query.isError) return <RowSkeletons count={6} />
+  // 검색어가 짧아 조회하지 않는 앱(idle)은 로딩이 아니라 빈 결과로 보인다.
+  if (query.isPending && !query.isError && query.fetchStatus !== 'idle') return <RowSkeletons count={6} />
   if (query.isError && hits.length === 0) return <RetryNotice testId="global-search-error" onRetry={() => void query.refetch()} />
   if (hits.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 px-2 py-8 text-center text-sm text-muted-foreground" data-testid="global-search-empty">
+      <div
+        className="flex flex-col items-center gap-2 px-2 py-8 text-center text-sm text-muted-foreground"
+        data-testid="global-search-empty"
+      >
         <p>
           {label}에 「{term}」와 맞는 것이 없어요
         </p>
-        <button type="button" data-testid="global-search-go-all" onClick={onGoAll} className="text-xs text-primary underline hover:no-underline">
+        <button
+          type="button"
+          data-testid="global-search-go-all"
+          onClick={onGoAll}
+          className="text-xs text-primary underline hover:no-underline"
+        >
           모든 앱에서 찾기 → 전체
         </button>
       </div>
@@ -70,7 +85,12 @@ export function SearchKindResults({ app, term, current, query, hits, rowFor, onG
       </div>
       <div ref={sentinelRef} aria-hidden className="h-px" />
       {query.isFetchingNextPage && <RowSkeletons count={2} />}
-      {query.isError && <RetryNotice testId="global-search-error" onRetry={() => void query.fetchNextPage()} />}
+      {query.isError && (
+        <RetryNotice
+          testId="global-search-error"
+          onRetry={() => void (query.isFetchNextPageError ? query.fetchNextPage() : query.refetch())}
+        />
+      )}
       {current === app && !query.hasNextPage && (
         <button
           type="button"

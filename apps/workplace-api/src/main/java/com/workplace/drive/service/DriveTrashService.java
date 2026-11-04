@@ -10,9 +10,7 @@ import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +54,7 @@ public class DriveTrashService {
               "FOLDER",
               r.id(),
               r.name(),
-              pathOf(r.parentId(), byId),
+              DriveFolderPaths.pathOf(r.parentId(), byId),
               r.trashedAt(),
               r.trashedAt().plusDays(retentionDays),
               null));
@@ -67,7 +65,7 @@ public class DriveTrashService {
               "FILE",
               r.id(),
               r.name(),
-              pathOf(r.folderId(), byId),
+              DriveFolderPaths.pathOf(r.folderId(), byId),
               r.trashedAt(),
               r.trashedAt().plusDays(retentionDays),
               r.sizeBytes()));
@@ -226,18 +224,5 @@ public class DriveTrashService {
       candidate = base + " (" + n++ + ")";
     }
     return candidate;
-  }
-
-  /** 조상 폴더명을 '/' 로 결합(DriveSearchService.pathOf 와 동일 규약). 루트 직속은 빈 문자열. */
-  private String pathOf(Long folderId, Map<Long, DriveFolderResponse> byId) {
-    Deque<String> parts = new ArrayDeque<>();
-    Long cur = folderId;
-    int guard = 0;
-    while (cur != null && byId.containsKey(cur) && guard++ < 1000) {
-      DriveFolderResponse f = byId.get(cur);
-      parts.addFirst(f.name());
-      cur = f.parentId();
-    }
-    return String.join("/", parts);
   }
 }

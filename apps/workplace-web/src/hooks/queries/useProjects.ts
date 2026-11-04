@@ -53,7 +53,7 @@ export function useAllProjects() {
 }
 
 /** 「내 프로젝트 전부」 조회 설정 — useAllProjects·useVisibleProjectKeys 가 같은 캐시(키·조회 함수)를 쓰도록 한곳에 둔다. */
-function allProjectsQuery() {
+export function allProjectsQuery() {
   return queryOptions({
     queryKey: projectKeys.listAll(),
     queryFn: () => fetchAllProjects((page, size) => projectsApi.list({ page, size }).then((r) => r.data)),

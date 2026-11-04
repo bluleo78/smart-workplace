@@ -4,7 +4,7 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
 import { SEARCH_TABS, type SearchAppId } from './searchApps'
-import type { SearchHit, SearchPage } from './searchProviders'
+import { dedupeHits, type SearchHit, type SearchPage } from './searchProviders'
 import { GROUP_SIZE } from './searchRules'
 import { RetryNotice, RowSkeletons } from './SearchStates'
 
@@ -18,7 +18,9 @@ interface Props {
 
 export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Props) {
   // 모든 묶음이 끝났는데 한 건도 없고 실패도 없으면 빈 화면 문구.
-  const allDone = groups.every((g) => !g.isPending)
+  // 검색어가 짧아 아직 조회하지 않는 앱(한 글자 번호는 이슈만)은 대기 중이 아니라 건너뛴 것으로 본다.
+  const skipped = (g: UseQueryResult<SearchPage, Error>) => g.isPending && g.fetchStatus === 'idle'
+  const allDone = groups.every((g) => !g.isPending || skipped(g))
   const total = groups.reduce((n, g) => n + (g.data?.hits.length ?? 0), 0)
   if (allDone && total === 0 && groups.every((g) => !g.isError)) {
     return (
@@ -33,7 +35,8 @@ export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Pro
         {order.map((app, i) => {
           const q = groups[i]
           const label = SEARCH_TABS.find((t) => t.id === app)?.label ?? ''
-          const hits = q.data?.hits.slice(0, GROUP_SIZE) ?? []
+          if (skipped(q)) return null
+          const hits = dedupeHits(q.data?.hits ?? []).slice(0, GROUP_SIZE)
           // 0건 묶음은 숨긴다(성공한 빈 응답만 — 로딩·실패는 자리를 보인다).
           if (q.isSuccess && hits.length === 0) return null
           return (

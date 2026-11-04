@@ -1,24 +1,27 @@
 // 통합 검색(WP-1353)의 앱별 provider — 앱마다 기존 API 로 한 쪽씩 찾아 공통 모양(SearchHit)으로 돌려준다.
-// 훅이 아닌 평범한 async 함수라 팔레트(useQuery·useInfiniteQuery)와 테스트(MSW)가 같이 쓴다.
+// 훅이 아닌 평범한 async 함수라 팔레트(useQuery·useInfiniteQuery)와 테스트(MSW)가 같이 쓴다. 의존(queryClient·내 id)은 createSearchProviders 로 주입한다.
 // cursor 는 앱마다 다른 모양(숫자 offset·문자열·계정별 묶음)이라 unknown 으로 두고 각 provider 가 해석한다. next === null 이면 끝.
-import { authApi } from '@/api/auth'
+import type { QueryClient } from '@tanstack/react-query'
+
 import { contactsApi } from '@/api/contacts'
 import { listMailAccounts } from '@/api/mailAccounts'
 import { listMessages } from '@/api/mailMessages'
 import { fetchMeIssues } from '@/api/meIssues'
 import { messagingApi } from '@/api/messaging'
-import { projectsApi } from '@/api/projects'
 import { searchDriveByName } from '@/api/searchDrive'
 import { wikiApi } from '@/api/wiki'
 import { driveFilePath } from '@/components/viewer/driveOpen'
-import { fetchAllProjects } from '@/hooks/queries/useProjects'
-import { driveFolderPath, issuePath, mailMessagePath } from '@/lib/appUrl'
+import { messagingKeys } from '@/hooks/queries/messagingKeys'
+import { mailAccountKeys } from '@/hooks/queries/useMailAccounts'
+import { allProjectsQuery } from '@/hooks/queries/useProjects'
+import { chatConversationPath, driveFolderPath, issuePath, mailMessagePath, projectPath, wikiSpacePagePath } from '@/lib/appUrl'
 import { encodeContactParam } from '@/lib/contactParam'
 import { dmDisplayName } from '@/lib/dm'
 import { formatIssueKey } from '@/lib/issueKey'
 import type { MailListCursor } from '@/types/mailMessage'
 
 import type { SearchAppId } from './searchApps'
+import { isSearchableTerm, stripHtmlTags } from './searchRules'
 
 /** 결과 한 줄 — key 는 탭 사이에서 유일(앱 접두사 포함). */
 export interface SearchHit {
@@ -27,6 +30,7 @@ export interface SearchHit {
   title: string
   href: string
   meta?: string
+  /** 둘째 줄 보조 글 — 반드시 HTML 이 없는 평문(provider 가 출처에서 태그를 벗긴다). 화면은 그대로 텍스트 노드로 그린다. */
   snippet?: string
 }
 
@@ -36,16 +40,43 @@ export interface SearchPage {
   next: unknown | null
 }
 
+/** provider 가 의존하는 것 — 훅 밖에서 읽을 수 없는 값을 팔레트가 만들어 넣는다(테스트는 테스트용 QueryClient·id 를 넣는다). */
+export interface SearchProviderDeps {
+  /** 프로젝트·채널·DM·메일 계정처럼 검색어와 무관한 목록을 TanStack 캐시로 재사용한다. */
+  queryClient: QueryClient
+  /** 현재 사용자 id — DM 표시명 파생용. 로그인 전이면 null. */
+  meId: number | null
+}
+
 export interface SearchProvider {
-  app: SearchAppId
+  /** 이 앱에 보낼 만한 검색어인가 — 기본은 공백 뺀 두 글자부터(한 글자는 거의 전부 맞아 느리고 쓸모없다). */
+  isSearchable(term: string): boolean
   fetchPage(q: string, cursor: unknown | null, size: number, signal?: AbortSignal): Promise<SearchPage>
+}
+
+/** 같은 key 의 hit 은 처음 것만 남긴다 — offset 쪽 나누기는 목록이 바뀌는 사이 같은 항목이 두 쪽에 걸쳐 올 수 있다(WP-1353). */
+export function dedupeHits(hits: SearchHit[]): SearchHit[] {
+  const seen = new Set<string>()
+  return hits.filter((h) => !seen.has(h.key) && seen.add(h.key))
+}
+
+/** 검색어와 무관한 목록 캐시 유지 시간 — 검색어를 바꿔 칠 때마다 다시 받지 않게. */
+const LIST_STALE_MS = 10_000
+
+/** 캐시를 거쳐(fetchQuery) 조회한다 — 검색어를 바꿔 칠 때마다 같은 목록을 다시 받지 않게. */
+function cached<T>(qc: QueryClient, queryKey: readonly unknown[], queryFn: () => Promise<T>): Promise<T> {
+  return qc.fetchQuery({ queryKey, queryFn, staleTime: LIST_STALE_MS })
 }
 
 const EMPTY: SearchPage = { hits: [], next: null }
 
+/** 기본 검색 가능 판정 — 공백 뺀 두 글자부터. */
+const defaultSearchable = (term: string) => term.trim().length >= 2
+
 /** 아직 검색을 지원하지 않는 앱(AI 대화·캘린더) — 늘 빈 결과. */
-function emptyProvider(app: SearchAppId): SearchProvider {
-  return { app, fetchPage: async () => EMPTY }
+const EMPTY_PROVIDER: SearchProvider = {
+  isSearchable: defaultSearchable,
+  fetchPage: async () => EMPTY,
 }
 
 /** cursor 가 숫자 offset 이면 그것, 아니면 0(첫 쪽). */
@@ -62,57 +93,66 @@ interface ChatCursor {
   rest: SearchHit[]
 }
 
+/** cursor 가 ChatCursor 인가(첫 쪽은 null). */
+function isChatCursor(cursor: unknown): cursor is ChatCursor {
+  return typeof cursor === 'object' && cursor !== null && 'rest' in cursor
+}
+
+/** 전체 목록에서 size 건만 한 쪽으로 자르고 나머지는 cursor 에 싣는다. */
+function pageOf(all: SearchHit[], size: number): SearchPage {
+  return {
+    hits: all.slice(0, size),
+    next: all.length > size ? ({ rest: all.slice(size) } satisfies ChatCursor) : null,
+  }
+}
+
+/** 채널 한 건의 hit — meta 는 「참여 중」/「공개」. */
+function channelHit(c: { id: number; name: string }, meta: string): SearchHit {
+  return {
+    key: `chat:channel:${c.id}`,
+    app: 'chat',
+    title: `# ${c.name}`,
+    href: chatConversationPath(c.id, false),
+    meta,
+  }
+}
+
 /**
  * 내 채널·DM 이름(화면에서 거름 — 서버에 이름 검색이 없다)을 먼저, 그다음 가입 안 한 공개 채널(discover)을 보인다.
  * 서버가 쪽 나누기를 안 하므로 첫 쪽에서 한 번만 받아 전체 순서를 만들고, 나머지를 cursor 에 실어 다음 쪽은 요청 없이 자른다.
- * (현재 사용자 id 는 DM 이름 파생에 필요 — 훅 밖에서 읽을 곳이 없어 첫 쪽에서만 auth/me 를 부른다.)
+ * DM 이름 파생에 필요한 현재 사용자 id 는 deps.meId 로 받는다.
  */
-const chatProvider: SearchProvider = {
-  app: 'chat',
-  async fetchPage(q, cursor, size, signal) {
-    if (cursor && typeof cursor === 'object' && 'rest' in cursor) {
-      const rest = (cursor as ChatCursor).rest
-      return { hits: rest.slice(0, size), next: rest.length > size ? ({ rest: rest.slice(size) } satisfies ChatCursor) : null }
-    }
-    const [channels, dms, me, discovered] = await Promise.all([
-      messagingApi.listChannels(signal).then((r) => r.data),
-      messagingApi.listDms(signal).then((r) => r.data),
-      authApi.me(signal).then((r) => r.data),
-      messagingApi.discoverChannels(q, signal).then((r) => r.data),
-    ])
-    const mine = channels.filter((c) => c.member && !c.archived && includesIgnoreCase(c.name, q))
-    const myIds = new Set(channels.filter((c) => c.member).map((c) => c.id))
-    const all: SearchHit[] = [
-      ...mine.map<SearchHit>((c) => ({
-        key: `chat:channel:${c.id}`,
-        app: 'chat',
-        title: `# ${c.name}`,
-        href: `/chat/channels/${c.id}`,
-        meta: '참여 중',
-      })),
-      ...dms
-        .map((d) => ({ d, name: dmDisplayName(d, me.id) }))
-        .filter(({ name }) => includesIgnoreCase(name, q))
-        .map<SearchHit>(({ d, name }) => ({
-          key: `chat:dm:${d.id}`,
-          app: 'chat',
-          title: name,
-          href: `/chat/dms/${d.id}`,
-          meta: '참여 중',
-        })),
-      // 내 채널 id 는 제외 — discover 가 같은 채널을 또 줘도 한 번만.
-      ...discovered
-        .filter((c) => !myIds.has(c.id))
-        .map<SearchHit>((c) => ({
-          key: `chat:channel:${c.id}`,
-          app: 'chat',
-          title: `# ${c.name}`,
-          href: `/chat/channels/${c.id}`,
-          meta: '공개',
-        })),
-    ]
-    return { hits: all.slice(0, size), next: all.length > size ? ({ rest: all.slice(size) } satisfies ChatCursor) : null }
-  },
+function createChatProvider({ queryClient: qc, meId }: SearchProviderDeps): SearchProvider {
+  return {
+    isSearchable: defaultSearchable,
+    async fetchPage(q, cursor, size, signal) {
+      if (isChatCursor(cursor)) return pageOf(cursor.rest, size)
+      const [channels, dms, discovered] = await Promise.all([
+        cached(qc, messagingKeys.channels(), () => messagingApi.listChannels().then((r) => r.data)),
+        cached(qc, messagingKeys.dms(), () => messagingApi.listDms().then((r) => r.data)),
+        messagingApi.discoverChannels(q, signal).then((r) => r.data),
+      ])
+      const mine = channels.filter((c) => c.member && !c.archived && includesIgnoreCase(c.name, q))
+      const myIds = new Set(channels.filter((c) => c.member).map((c) => c.id))
+      const all: SearchHit[] = [
+        ...mine.map((c) => channelHit(c, '참여 중')),
+        ...dms
+          // 로그인 전(meId 없음)에는 어떤 참여자와도 안 겹치는 -1 — 팔레트는 로그인 뒤에만 뜨므로 실제로는 오지 않는다.
+          .map((d) => ({ d, name: dmDisplayName(d, meId ?? -1) }))
+          .filter(({ name }) => includesIgnoreCase(name, q))
+          .map<SearchHit>(({ d, name }) => ({
+            key: `chat:dm:${d.id}`,
+            app: 'chat',
+            title: name,
+            href: chatConversationPath(d.id, true),
+            meta: '참여 중',
+          })),
+        // 내 채널 id 는 제외 — discover 가 같은 채널을 또 줘도 한 번만.
+        ...discovered.filter((c) => !myIds.has(c.id)).map((c) => channelHit(c, '공개')),
+      ]
+      return pageOf(all, size)
+    },
+  }
 }
 
 // ── 메일 ─────────────────────────────────────────────────────
@@ -139,92 +179,109 @@ function newerFirst(a: { receivedAt: string | null; id: number }, b: { receivedA
  * 가져왔지만 안 보여 준 것은 다음 쪽에 다시 나와야 빠지지 않는다. 하나도 못 낸 계정은 이전 커서를 유지하고,
  * 받은 건수가 size 미만이며 전부 보여 준 계정만 끝('done')으로 본다.
  */
-const mailProvider: SearchProvider = {
-  app: 'mail',
-  async fetchPage(q, cursor, size, signal) {
-    const accounts = await listMailAccounts(signal)
-    if (accounts.length === 0) return EMPTY
-    const prev: MailCursor = cursor && typeof cursor === 'object' ? (cursor as MailCursor) : {}
-    const active = accounts.filter((a) => prev[a.id] !== 'done')
-    const fetched = await Promise.all(
-      active.map(async (a) => {
-        const before = prev[a.id] as MailListCursor | null | undefined
-        const rows = await listMessages(a.id, 'INBOX', q, undefined, undefined, undefined, size, null, before ?? null, signal)
-        return { accountId: a.id, rows }
-      }),
-    )
-    const merged = fetched
-      .flatMap(({ rows }) => rows)
-      .sort(newerFirst)
-      .slice(0, size)
-
-    const next: MailCursor = { ...prev }
-    for (const { accountId, rows } of fetched) {
-      const shown = merged.filter((m) => m.accountId === accountId)
-      if (shown.length === 0 && rows.length > 0) continue // 하나도 못 냈다 — 이전 커서 유지
-      if (rows.length < size && shown.length === rows.length) {
-        next[accountId] = 'done'
-      } else {
-        const last = shown[shown.length - 1]
-        next[accountId] = { receivedAt: last.receivedAt, id: last.id }
+function createMailProvider({ queryClient: qc }: SearchProviderDeps): SearchProvider {
+  return {
+    isSearchable: defaultSearchable,
+    async fetchPage(q, cursor, size, signal) {
+      // 계정 목록은 검색어와 무관 — 메일 화면과 같은 캐시 키로 재사용한다.
+      const accounts = await cached(qc, mailAccountKeys.all, () => listMailAccounts())
+      if (accounts.length === 0) return EMPTY
+      const prev: MailCursor = cursor && typeof cursor === 'object' ? (cursor as MailCursor) : {}
+      const active = accounts.filter((a) => prev[a.id] !== 'done')
+      // 계정 하나가 실패해도 나머지 결과는 보인다 — 모두 실패했을 때만 오류로 올린다.
+      const settled = await Promise.allSettled(
+        active.map(async (a) => {
+          const before = prev[a.id] as MailListCursor | null | undefined
+          const rows = await listMessages(a.id, 'INBOX', q, undefined, undefined, undefined, size, null, before ?? null, signal)
+          return { accountId: a.id, rows }
+        }),
+      )
+      const fetched = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+      if (active.length > 0 && fetched.length === 0) {
+        throw (settled[0] as PromiseRejectedResult).reason
       }
-    }
-    const finished = accounts.every((a) => next[a.id] === 'done')
-    const hits = merged.map<SearchHit>((m) => ({
-      key: `mail:${m.id}`,
-      app: 'mail',
-      title: m.subject?.trim() || '(제목 없음)',
-      href: mailMessagePath(m.accountId, m.id),
-      meta: m.fromName || m.fromAddress || undefined,
-      snippet: m.snippet ?? undefined,
-    }))
-    return { hits, next: finished ? null : next }
-  },
+      const merged = fetched
+        .flatMap(({ rows }) => rows)
+        .sort(newerFirst)
+        .slice(0, size)
+
+      const next: MailCursor = { ...prev }
+      for (const { accountId, rows } of fetched) {
+        const shown = merged.filter((m) => m.accountId === accountId)
+        if (shown.length === 0 && rows.length > 0) continue // 하나도 못 냈다 — 이전 커서 유지
+        if (rows.length < size && shown.length === rows.length) {
+          next[accountId] = 'done'
+        } else {
+          const last = shown[shown.length - 1]
+          next[accountId] = { receivedAt: last.receivedAt, id: last.id }
+        }
+      }
+      const finished = accounts.every((a) => next[a.id] === 'done')
+      const hits = merged.map<SearchHit>((m) => ({
+        key: `mail:${m.id}`,
+        app: 'mail',
+        title: m.subject?.trim() || '(제목 없음)',
+        href: mailMessagePath(m.accountId, m.id),
+        meta: m.fromName || m.fromAddress || undefined,
+        snippet: m.snippet ?? undefined,
+      }))
+      return { hits, next: finished ? null : next }
+    },
+  }
 }
 
 // ── 작업(프로젝트·이슈) ─────────────────────────────────────────
 
-/** 첫 쪽에 앞세우는 프로젝트 최대 건수. */
+/** 첫 쪽에 앞세우는 프로젝트 최대 건수 — 쪽 크기의 절반을 넘지 않게 해 이슈가 밀려나지 않게 한다(전체 탭 묶음은 4건뿐). */
 const MAX_PROJECT_HITS = 5
 
-const issuesProvider: SearchProvider = {
-  app: 'issues',
-  async fetchPage(q, cursor, size, signal) {
-    const first = cursor == null
-    const [projects, issues] = await Promise.all([
-      // 프로젝트는 첫 쪽에만 — useAllProjects 와 같은 조회(전부 받기)를 하고 이름·키 부분 일치로 화면에서 거른다.
-      first
-        ? fetchAllProjects((page, s) => projectsApi.list({ page, size: s }).then((r) => r.data)).then((p) =>
-            p.content.filter((c) => includesIgnoreCase(c.name, q) || includesIgnoreCase(c.key, q)).slice(0, MAX_PROJECT_HITS),
-          )
-        : Promise.resolve([]),
-      fetchMeIssues({ q }, typeof cursor === 'string' ? cursor : null, size, signal),
-    ])
-    const hits: SearchHit[] = [
-      ...projects.map<SearchHit>((p) => ({
-        key: `issues:project:${p.key}`,
-        app: 'issues',
-        title: p.name,
-        href: `/projects/${p.key}`,
-        meta: '프로젝트',
-        snippet: p.key,
-      })),
-      ...issues.items.map<SearchHit>((i) => ({
-        key: `issues:issue:${i.id}`,
-        app: 'issues',
-        title: `${formatIssueKey(i.projectKey, i.number)} ${i.title}`,
-        href: issuePath(i.projectKey, i.number),
-        meta: i.statusName,
-      })),
-    ]
-    return { hits, next: issues.hasMore ? issues.nextCursor : null }
-  },
+/** 내 프로젝트 전부 — 캐시가 있으면 useAllProjects 와 같은 쿼리를 재사용한다. */
+function loadProjects(qc: QueryClient) {
+  return qc.fetchQuery({ ...allProjectsQuery(), staleTime: LIST_STALE_MS })
+}
+
+/** 작업 검색 — 한 글자 작업 번호(`7`·`#7`)도 보내므로 판정이 다르다(isSearchableTerm). */
+function createIssuesProvider({ queryClient: qc }: SearchProviderDeps): SearchProvider {
+  return {
+    isSearchable: (term) => isSearchableTerm(term.trim()),
+    async fetchPage(q, cursor, size, signal) {
+      const first = cursor == null
+      const maxProjects = Math.min(MAX_PROJECT_HITS, Math.floor(size / 2))
+      const [projects, issues] = await Promise.all([
+        // 프로젝트는 첫 쪽에만 — useAllProjects 와 같은 쿼리(캐시 공유)로 전부 받아 이름·키 부분 일치로 화면에서 거른다.
+        first
+          ? loadProjects(qc).then((p) =>
+              p.content.filter((c) => includesIgnoreCase(c.name, q) || includesIgnoreCase(c.key, q)).slice(0, maxProjects),
+            )
+          : Promise.resolve([]),
+        fetchMeIssues({ q }, typeof cursor === 'string' ? cursor : null, size, signal),
+      ])
+      const hits: SearchHit[] = [
+        ...projects.map<SearchHit>((p) => ({
+          key: `issues:project:${p.key}`,
+          app: 'issues',
+          title: p.name,
+          href: projectPath(p.key),
+          meta: '프로젝트',
+          snippet: p.key,
+        })),
+        ...issues.items.map<SearchHit>((i) => ({
+          key: `issues:issue:${i.id}`,
+          app: 'issues',
+          title: `${formatIssueKey(i.projectKey, i.number)} ${i.title}`,
+          href: issuePath(i.projectKey, i.number),
+          meta: i.statusName,
+        })),
+      ]
+      return { hits, next: issues.hasMore ? issues.nextCursor : null }
+    },
+  }
 }
 
 // ── 드라이브 ─────────────────────────────────────────────────
 
 const driveProvider: SearchProvider = {
-  app: 'drive',
+  isSearchable: defaultSearchable,
   async fetchPage(q, cursor, size, signal) {
     const offset = asOffset(cursor)
     const res = await searchDriveByName(q, offset, size, signal)
@@ -243,18 +300,22 @@ const driveProvider: SearchProvider = {
 // ── 노트 ─────────────────────────────────────────────────────
 
 const wikiProvider: SearchProvider = {
-  app: 'wiki',
+  isSearchable: defaultSearchable,
   async fetchPage(q, cursor, size, signal) {
     const offset = asOffset(cursor)
-    const { data } = await wikiApi.search(q, undefined, { size, offset, signal })
+    const { data } = await wikiApi.search(q, undefined, {
+      size,
+      offset,
+      signal,
+    })
     const hits = data.map<SearchHit>((r) => ({
       key: `wiki:${r.id}`,
       app: 'wiki',
       title: r.title,
-      // /wiki/open 우회는 히스토리를 하나 더 남기므로 노트 경로를 바로 만든다.
-      href: `/wiki/spaces/${r.spaceId}/pages/${r.id}`,
+      href: wikiSpacePagePath(r.spaceId, r.id),
       meta: r.spaceName,
-      snippet: r.snippet,
+      // 서버 snippet 은 `<b>일치</b>` 같은 HTML 이 섞여 온다 — 출처에서 벗겨 SearchHit.snippet 을 평문으로 지킨다.
+      snippet: stripHtmlTags(r.snippet),
     }))
     // 서버가 더 있는지 알려 주지 않는다 — 꽉 찬 쪽이면 다음이 있을 수 있다고 본다.
     return { hits, next: data.length === size ? offset + size : null }
@@ -264,9 +325,16 @@ const wikiProvider: SearchProvider = {
 // ── 연락처 ───────────────────────────────────────────────────
 
 const contactsProvider: SearchProvider = {
-  app: 'contacts',
+  isSearchable: defaultSearchable,
   async fetchPage(q, cursor, size, signal) {
-    const { data } = await contactsApi.list({ search: q, ...(typeof cursor === 'string' ? { cursor } : {}), limit: size }, signal)
+    const { data } = await contactsApi.list(
+      {
+        search: q,
+        ...(typeof cursor === 'string' ? { cursor } : {}),
+        limit: size,
+      },
+      signal,
+    )
     const hits = data.items.map<SearchHit>((c) => ({
       key: `contacts:${c.type}:${c.id}`,
       app: 'contacts',
@@ -279,14 +347,16 @@ const contactsProvider: SearchProvider = {
   },
 }
 
-/** 앱 → provider. ai·calendar 는 아직 검색이 없어 빈 결과를 낸다. */
-export const SEARCH_PROVIDERS: Record<SearchAppId, SearchProvider> = {
-  ai: emptyProvider('ai'),
-  chat: chatProvider,
-  mail: mailProvider,
-  calendar: emptyProvider('calendar'),
-  issues: issuesProvider,
-  drive: driveProvider,
-  wiki: wikiProvider,
-  contacts: contactsProvider,
+/** 앱 → provider 를 deps 로 만든다. ai·calendar 는 아직 검색이 없어 빈 결과를 낸다. */
+export function createSearchProviders(deps: SearchProviderDeps): Record<SearchAppId, SearchProvider> {
+  return {
+    ai: EMPTY_PROVIDER,
+    chat: createChatProvider(deps),
+    mail: createMailProvider(deps),
+    calendar: EMPTY_PROVIDER,
+    issues: createIssuesProvider(deps),
+    drive: driveProvider,
+    wiki: wikiProvider,
+    contacts: contactsProvider,
+  }
 }

@@ -4,23 +4,23 @@ import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveNameSearchRepository;
 import com.workplace.drive.repository.DriveNameSearchRepository.NameRow;
+import com.workplace.drive.service.DriveFolderPaths;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.search.dto.DriveNameHit;
 import com.workplace.search.dto.DriveNamePage;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 통합 검색 팔레트(WP-1353)의 드라이브 이름 검색 — 호출자가 멤버인 모든 공간을 한 번에 본다. 공간 이름 검색({@code DriveSearchService})과
- * 같은 규칙으로 검색어를 정리하고 결과마다 조상 폴더 경로를 붙이되, 경로는 결과 묶음이 걸친 공간의 폴더를 한 번에 읽어 만든다(건마다 조회하지 않는다).
+ * 같은 규칙으로 검색어를 정리하고 결과마다 조상 폴더 경로를 붙이되, 경로는 결과 행의 조상 폴더만 재귀로 한 번에 읽어 만든다(건마다·공간 전체를 읽지 않는다).
  */
 @Service
 @RequiredArgsConstructor
@@ -44,13 +44,12 @@ public class SearchDriveService {
     boolean hasMore = rows.size() > size;
     List<NameRow> page = hasMore ? rows.subList(0, size) : rows;
 
-    // 결과가 걸친 공간의 폴더만 한 번에 읽어 id→폴더 맵을 만든다.
-    Set<Long> spaceIds = new HashSet<>();
-    page.forEach(r -> spaceIds.add(r.spaceId()));
-    Map<Long, DriveFolderResponse> byId = new HashMap<>();
-    for (DriveFolderResponse f : folders.listAllFolders(spaceIds)) {
-      byId.put(f.id(), f);
-    }
+    // 결과 행이 담긴 폴더와 그 조상만 재귀로 읽어 id→폴더 맵을 만든다(공간 전체를 읽지 않는다).
+    Set<Long> folderIds =
+        page.stream().map(NameRow::folderId).filter(Objects::nonNull).collect(Collectors.toSet());
+    Map<Long, DriveFolderResponse> byId =
+        folders.listWithAncestors(folderIds).stream()
+            .collect(Collectors.toMap(DriveFolderResponse::id, Function.identity()));
 
     List<DriveNameHit> items =
         page.stream()
@@ -64,21 +63,8 @@ public class SearchDriveService {
                         r.folderId(),
                         r.name(),
                         r.mimeType(),
-                        pathOf(r.folderId(), byId)))
+                        DriveFolderPaths.pathOf(r.folderId(), byId)))
             .toList();
     return new DriveNamePage(items, hasMore);
-  }
-
-  /** 조상 폴더명을 " / " 로 이은 경로. 루트 직속(folderId null)은 빈 문자열. */
-  private static String pathOf(Long folderId, Map<Long, DriveFolderResponse> byId) {
-    Deque<String> parts = new ArrayDeque<>();
-    Long cur = folderId;
-    int guard = 0;
-    while (cur != null && byId.containsKey(cur) && guard++ < 1000) {
-      DriveFolderResponse f = byId.get(cur);
-      parts.addFirst(f.name());
-      cur = f.parentId();
-    }
-    return String.join(" / ", parts);
   }
 }

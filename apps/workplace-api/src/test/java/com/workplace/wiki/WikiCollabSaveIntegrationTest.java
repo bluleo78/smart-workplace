@@ -1069,15 +1069,17 @@ class WikiCollabSaveIntegrationTest extends ExternalClientMockedTestBase {
     assertThat(after.value2()).isEqualTo(before.value2());
     // 백필 뒤 검색은 평문으로 — 태그 이름·HTML 블록 소스로는 찾지 않고 글자로 찾는다.
     tenant1();
-    assertThat(pageService.search(userId, "div", null))
+    assertThat(pageService.search(userId, "div", null, 50, 0))
         .extracting(r -> r.id())
         .doesNotContain(pageId);
     tenant1();
-    assertThat(pageService.search(userId, "소스글자", null))
+    assertThat(pageService.search(userId, "소스글자", null, 50, 0))
         .extracting(r -> r.id())
         .doesNotContain(pageId);
     tenant1();
-    assertThat(pageService.search(userId, "매출", null)).extracting(r -> r.id()).contains(pageId);
+    assertThat(pageService.search(userId, "매출", null, 50, 0))
+        .extracting(r -> r.id())
+        .contains(pageId);
   }
 
   /** 호출자 개인 공간에 페이지를 만든다. 본문은 저장 경로(=동기화 서버 위임)를 거치지 않고 직접 넣는다. */

@@ -11,15 +11,15 @@ export const SEARCH_PAGE_SIZE = 20
 /** 「전체」 탭에서 앱마다 먼저 보여 주는 건수 — 더 있으면 「더 보기」로 그 앱 탭으로 간다. */
 export const GROUP_SIZE = 3
 
-/** 결과 열기 단축키 안내 — mac 은 ⌘↵, 그 밖은 Ctrl+↵(새 탭은 수정 키를 더한 열기). */
-export function shortcutHint(): { open: string; newTab: string } {
+/** 새 탭으로 열기 단축키 안내 — mac 은 ⌘↵, 그 밖은 Ctrl+↵(결과 열기 ↵ 에 수정 키를 더한다). */
+export function newTabHint(): string {
   const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
-  return mac ? { open: '↵', newTab: '⌘↵' } : { open: '↵', newTab: 'Ctrl+↵' }
+  return mac ? '⌘↵' : 'Ctrl+↵'
 }
 
 /**
  * 보낼 만한 검색어인가 — 두 글자부터. 한 글자는 작업 번호(`7`·`#7`)일 때만 보낸다.
- * 서버 검색이 제목·본문 부분 일치라 한 글자는 거의 모든 이슈를 훑고 쓸모 있는 결과도 적다.
+ * 작업(issues) provider 가 쓰는 규칙이고 그 밖의 앱은 두 글자부터다(SearchProvider.isSearchable). 서버 검색이 제목·본문 부분 일치라 한 글자는 거의 모든 이슈를 훑고 쓸모 있는 결과도 적다.
  */
 export function isSearchableTerm(term: string): boolean {
   return term.length >= 2 || /^#?\d+$/.test(term)

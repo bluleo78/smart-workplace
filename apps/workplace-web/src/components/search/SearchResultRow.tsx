@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 
 import { SEARCH_TABS } from './searchApps'
 import type { SearchHit } from './searchProviders'
-import { highlightParts, stripHtmlTags } from './searchRules'
+import { highlightParts } from './searchRules'
 
 /** 제목에서 검색어와 맞은 곳을 <mark> 로 강조한다. */
 function Highlighted({ text, q }: { text: string; q: string }) {
@@ -37,8 +37,6 @@ interface Props {
 
 export function SearchResultRow({ hit, q, active, id, onPick, onHover }: Props) {
   const Icon = SEARCH_TABS.find((t) => t.id === hit.app)?.icon
-  // snippet 은 위키처럼 HTML(<b>)이 섞여 올 수 있다 — 태그를 벗겨 글자로만 그린다(dangerouslySetInnerHTML 금지).
-  const snippet = hit.snippet ? stripHtmlTags(hit.snippet) : ''
 
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault()
@@ -74,7 +72,7 @@ export function SearchResultRow({ hit, q, active, id, onPick, onHover }: Props) 
         </span>
         {hit.meta && <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">{hit.meta}</span>}
       </span>
-      {snippet && <span className="truncate pl-6 text-xs text-muted-foreground">{snippet}</span>}
+      {hit.snippet && <span className="truncate pl-6 text-xs text-muted-foreground">{hit.snippet}</span>}
     </a>
   )
 }

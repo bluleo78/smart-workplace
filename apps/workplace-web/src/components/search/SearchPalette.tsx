@@ -9,6 +9,7 @@ import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
+import { isImeComposing } from '@/lib/imeKey'
 import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits'
 import { cn } from '@/lib/utils'
 
@@ -19,7 +20,7 @@ import { currentAppFromPath, groupOrder, SEARCH_TABS, type SearchTabId } from '.
 import { SearchKindResults } from './SearchKindResults'
 import type { SearchHit } from './searchProviders'
 import { SearchResultRow } from './SearchResultRow'
-import { isSearchableTerm, moveActive, SEARCH_DEBOUNCE_MS, shortcutHint } from './searchRules'
+import { moveActive, newTabHint, SEARCH_DEBOUNCE_MS } from './searchRules'
 import { useSearchQueries } from './useSearchQueries'
 
 interface Props {
@@ -37,10 +38,6 @@ export function SearchPalette({ open, onOpenChange }: Props) {
         // 화면 가운데·폭 min(680px, 100vw-32px)·높이 약 60vh(내부 스크롤).
         className="flex h-[60vh] w-[min(680px,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         // Esc — AI 패널의 전역 Esc 처리까지 닿지 않게 기본 동작을 막고(defaultPrevented) 검색만 닫는다. 조합 중 Esc 는 조합 취소 몫.
-        // 트리거 버튼을 눌러도 바깥 누름으로 닫혔다가 다시 열리지 않게(깜빡임·상태 초기화) 제외한다.
-        onInteractOutside={(e) => {
-          if (e.target instanceof Element && e.target.closest('[data-testid="global-search-toggle"]')) e.preventDefault()
-        }}
         onEscapeKeyDown={(e) => {
           e.preventDefault()
           if (!e.isComposing) onOpenChange(false)
@@ -52,11 +49,6 @@ export function SearchPalette({ open, onOpenChange }: Props) {
       </DialogContent>
     </Dialog>
   )
-}
-
-/** 한글 조합 중인 키인가 — Safari 는 조합이 끝난 직후 keydown 에도 isComposing=false, keyCode=229 를 준다. */
-function isComposingKey(e: KeyboardEvent<HTMLInputElement>): boolean {
-  return e.nativeEvent.isComposing || e.keyCode === 229
 }
 
 function PaletteBody({ onClose }: { onClose: () => void }) {
@@ -78,8 +70,8 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
 
   const trimmed = q.trim()
   const term = useDebounceValue(trimmed, SEARCH_DEBOUNCE_MS)
-  const searchable = isSearchableTerm(term)
-  const { kind, groups, visible, fetching } = useSearchQueries(tab, term, searchable, order)
+  // 검색 가능 여부와 앱별 최소 길이 판정은 각 provider 의 isSearchable 에 있고, 어느 앱이든 보낼 만하면 결과 영역을 연다.
+  const { kind, groups, visible, indexByKey, searchable, fetching } = useSearchQueries(tab, term, order)
   // 입력이 디바운스·응답보다 앞서 있으면 보이는 줄은 이전 검색어의 결과다 — 그동안 Enter 로 엉뚱한 곳을 열지 않게 막는다.
   const settled = term === trimmed && !fetching
   const showResults = searchable && trimmed.length > 0
@@ -116,7 +108,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (isComposingKey(e)) return
+    if (isImeComposing(e.nativeEvent)) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       const down = e.key === 'ArrowDown'
@@ -148,7 +140,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
 
   /** 결과 줄 하나 — 보이는 줄 전체에서의 인덱스로 활성·id 를 정한다. */
   const rowFor = (hit: SearchHit) => {
-    const i = visible.findIndex((v) => v.key === hit.key)
+    const i = indexByKey.get(hit.key) ?? -1
     return (
       <SearchResultRow
         key={hit.key}
@@ -162,7 +154,6 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     )
   }
 
-  const hint = shortcutHint()
   return (
     <>
       <div className="flex items-center gap-2 border-b px-3 py-2.5">
@@ -188,7 +179,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           onKeyDown={onKeyDown}
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
-        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={`새 탭으로 열기: ${hint.newTab}`}>
+        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={`새 탭으로 열기: ${newTabHint()}`}>
           ↑↓ · ↵ · Tab · esc
         </span>
       </div>

@@ -2,7 +2,7 @@
 // 앱별 API 는 MSW 로 모킹한다(앱을 가리지 않고 같은 기본 핸들러에서 시작해 필요한 것만 덮어쓴다).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { renderScreen } from '@/test/renderScreen'
@@ -11,8 +11,12 @@ import { loadRecent, pushRecent } from './recentSearches'
 import { SearchTrigger } from './SearchTrigger'
 
 // AI 표면은 공급자 없이 훅 결과만 바꿔 끼운다(실제 Provider 는 앱 셸 전체에 의존).
-const ai = vi.hoisted(() => ({ value: null as null | Record<string, unknown> }))
-vi.mock('@/components/ai/AIAssistantContext', () => ({ useOptionalAssistant: () => ai.value }))
+const ai = vi.hoisted(() => ({
+  value: null as null | Record<string, unknown>,
+}))
+vi.mock('@/components/ai/AIAssistantContext', () => ({
+  useOptionalAssistant: () => ai.value,
+}))
 
 const API = '/api/v1'
 
@@ -22,7 +26,15 @@ function emptyApis() {
     http.get(`${API}/wiki/search`, () => HttpResponse.json([])),
     http.get(`${API}/search/drive`, () => HttpResponse.json({ items: [], hasMore: false })),
     http.get(`${API}/me/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
-    http.get(`${API}/projects`, () => HttpResponse.json({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 1 })),
+    http.get(`${API}/projects`, () =>
+      HttpResponse.json({
+        content: [],
+        page: 0,
+        size: 100,
+        totalElements: 0,
+        totalPages: 1,
+      }),
+    ),
     http.get(`${API}/contacts`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
     http.get(`${API}/mail/accounts`, () => HttpResponse.json([])),
     http.get(`${API}/messaging/channels/discover`, () => HttpResponse.json([])),
@@ -46,11 +58,23 @@ const wikiHandler = (rows: ReturnType<typeof wikiRow>[]) => http.get(`${API}/wik
 const issueHandler = () =>
   http.get(`${API}/me/issues`, () =>
     HttpResponse.json({
-      items: [{ id: 1, projectKey: 'WP', number: 1, title: '배포 이슈', status: 'OPEN', statusName: '열림', statusColor: '#000' }],
+      items: [
+        {
+          id: 1,
+          projectKey: 'WP',
+          number: 1,
+          title: '배포 이슈',
+          status: 'OPEN',
+          statusName: '열림',
+          statusColor: '#000',
+        },
+      ],
       nextCursor: null,
       hasMore: false,
     }),
   )
+
+afterEach(() => vi.unstubAllGlobals())
 
 beforeEach(() => {
   ai.value = null
@@ -63,7 +87,10 @@ async function openPalette(user: ReturnType<typeof renderScreen>['user']) {
 }
 
 test('트리거를 누르면 가운데 팔레트가 열리고 노트 경로에서는 노트 탭이 골라진다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki/spaces/3', handlers: emptyApis() })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki/spaces/3',
+    handlers: emptyApis(),
+  })
   const toggle = screen.getByTestId('global-search-toggle')
   expect(toggle).toHaveAttribute('aria-label', '검색 (/)')
   const input = await openPalette(user)
@@ -138,7 +165,10 @@ test('↓↓ 뒤 Enter 는 두 번째 결과로 이동하고 팔레트가 닫힌
 
 test('⌘+Enter 는 새 탭으로 열고 팔레트는 유지한다', async () => {
   const open = vi.spyOn(window, 'open').mockReturnValue(null)
-  const { user, location } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user, location } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   await screen.findByTestId('global-search-hit-wiki:7')
@@ -150,7 +180,10 @@ test('⌘+Enter 는 새 탭으로 열고 팔레트는 유지한다', async () =>
 })
 
 test('Tab 은 다음 탭으로, Shift+Tab 은 이전 탭으로 옮기고 입력 포커스를 유지한다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: emptyApis() })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: emptyApis(),
+  })
   const input = await openPalette(user)
   fireEvent.keyDown(input, { key: 'Tab' })
   expect(screen.getByTestId('global-search-tab-ai')).toHaveAttribute('aria-selected', 'true')
@@ -189,7 +222,10 @@ test('「/」 로 열리지만 다른 입력칸 안의 「/」 는 열지 않는
 
 test('최근 검색을 누르면 입력에 들어가고 바로 조회된다', async () => {
   pushRecent('배포')
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   expect(screen.getByText('최근 검색')).toBeInTheDocument()
   await user.click(screen.getByTestId('global-search-recent-0'))
@@ -220,7 +256,10 @@ test('「AI에게 검색 요청하기」는 팔레트를 닫고 새 대화로 �
 })
 
 test('AI 공급자가 없으면 「AI에게 검색 요청하기」 줄을 숨긴다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   await screen.findByTestId('global-search-hit-wiki:7')
@@ -228,7 +267,10 @@ test('AI 공급자가 없으면 「AI에게 검색 요청하기」 줄을 숨긴
 })
 
 test('결과가 없으면 빈 문구와 「모든 앱에서 찾기 → 전체」가 보이고 누르면 전체 탭으로 간다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: emptyApis() })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: emptyApis(),
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '없는말' } })
   expect(await screen.findByTestId('global-search-empty')).toHaveTextContent('노트에 「없는말」와 맞는 것이 없어요')
@@ -237,7 +279,10 @@ test('결과가 없으면 빈 문구와 「모든 앱에서 찾기 → 전체」
 })
 
 test('현재 앱 탭 목록 끝에는 「다른 앱에서도 찾기 → 전체」가 있다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   await screen.findByTestId('global-search-hit-wiki:7')
@@ -246,8 +291,14 @@ test('현재 앱 탭 목록 끝에는 「다른 앱에서도 찾기 → 전체�
 })
 
 test('snippet 의 HTML 은 태그를 벗겨 글자로만 그린다', async () => {
-  const row = { ...wikiRow(7), snippet: '<b>배포</b> 가이드 <img src=x onerror=alert(1)>' }
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([row]), ...emptyApis()] })
+  const row = {
+    ...wikiRow(7),
+    snippet: '<b>배포</b> 가이드 <img src=x onerror=alert(1)>',
+  }
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([row]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   const hit = await screen.findByTestId('global-search-hit-wiki:7')
@@ -256,7 +307,10 @@ test('snippet 의 HTML 은 태그를 벗겨 글자로만 그린다', async () =>
 })
 
 test('Esc 는 팔레트를 닫고 기본 동작을 막아 AI 패널의 Esc 처리까지 가지 않게 한다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: emptyApis() })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: emptyApis(),
+  })
   const input = await openPalette(user)
   // fireEvent 는 preventDefault 가 불렸으면 false.
   expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false)
@@ -284,7 +338,10 @@ test('Shift+Enter 는 AI 에게 검색을 요청한다', async () => {
 test('AI 가 전체 화면이면 이동 전에 옆 패널로 내린다', async () => {
   const dismiss = vi.fn()
   ai.value = { mode: 'fullscreen', open: vi.fn(), dismiss }
-  const { user, location } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user, location } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   await screen.findByTestId('global-search-hit-wiki:7')
@@ -299,7 +356,10 @@ test('한 글자 검색어는 어느 앱에도 요청을 보내지 않는다', a
     calls += 1
     return HttpResponse.json([])
   }
-  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: [http.get(`${API}/wiki/search`, count), ...emptyApis()] })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: [http.get(`${API}/wiki/search`, count), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '가' } })
   expect(await screen.findByText('두 글자 이상 입력하면 찾아요')).toBeInTheDocument()
@@ -309,7 +369,10 @@ test('한 글자 검색어는 어느 앱에도 요청을 보내지 않는다', a
 })
 
 test('결과를 열면 검색어가 최근 검색에 저장된다', async () => {
-  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   await screen.findByTestId('global-search-hit-wiki:7')
@@ -318,7 +381,10 @@ test('결과를 열면 검색어가 최근 검색에 저장된다', async () => 
 })
 
 test('keyCode 229(조합 직후 Safari) Enter 는 무시한다', async () => {
-  const { user, location } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const { user, location } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()],
+  })
   const input = await openPalette(user)
   fireEvent.change(input, { target: { value: '배포' } })
   await screen.findByTestId('global-search-hit-wiki:7')
@@ -338,4 +404,70 @@ test('열린 채 트리거를 다시 눌러도 팔레트가 닫혔다 다시 열
   fireEvent.change(input, { target: { value: '배포' } })
   await user.click(screen.getByTestId('global-search-toggle'))
   expect(screen.getByTestId('global-search-input')).toHaveValue('배포')
+})
+
+test('다음 쪽이 500 이면 자동으로 다시 부르지 않고 「다시 시도」만 보인다(WP-1353)', async () => {
+  // 센티널이 늘 보이는 것으로 가장한 IntersectionObserver — 실패 뒤에도 자동 재조회가 멈추는지 본다.
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      cb: (entries: { isIntersecting: boolean }[]) => void
+      constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
+        this.cb = cb
+      }
+      observe() {
+        this.cb([{ isIntersecting: true }])
+      }
+      disconnect() {}
+      unobserve() {}
+    },
+  )
+  let page2 = 0
+  const first = Array.from({ length: 20 }, (_, i) => wikiRow(i + 1))
+  const handler = http.get(`${API}/wiki/search`, ({ request }) => {
+    if (new URL(request.url).searchParams.get('offset') === '20') {
+      page2 += 1
+      return new HttpResponse(null, { status: 500 })
+    }
+    return HttpResponse.json(first)
+  })
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/wiki',
+    handlers: [handler, ...emptyApis()],
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  expect(await screen.findByTestId('global-search-error')).toBeInTheDocument()
+  // 자동 재시도가 있다면 이 사이에 요청이 더 쌓인다 — 부재 확인이라 고정 대기가 불가피하다.
+  await new Promise((r) => setTimeout(r, 300))
+  expect(page2).toBe(1)
+  expect(screen.getByTestId('global-search-hit-wiki:1')).toBeInTheDocument()
+})
+
+test('한 글자 번호(7)는 이슈만 조회하고 다른 앱은 보내지 않는다', async () => {
+  let wiki = 0
+  let issues = 0
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: [
+      http.get(`${API}/wiki/search`, () => {
+        wiki += 1
+        return HttpResponse.json([])
+      }),
+      http.get(`${API}/me/issues`, () => {
+        issues += 1
+        return HttpResponse.json({
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+        })
+      }),
+      ...emptyApis(),
+    ],
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '7' } })
+  await waitFor(() => expect(issues).toBeGreaterThan(0))
+  await new Promise((r) => setTimeout(r, 200))
+  expect(wiki).toBe(0)
 })
