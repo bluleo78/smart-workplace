@@ -87,16 +87,13 @@ export function SearchResultRow({ hit, q, active, id, onPick, onHover, compact }
             )}
           </span>
         )}
+        {hit.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{hit.time}</span>}
       </span>
       {hit.snippet && (
         <span className="truncate pl-6 text-xs text-muted-foreground">
-          {hit.snippetLabel ? (
-            <>
-              {hit.snippetLabel}: <Highlighted text={hit.snippet} q={q} />
-            </>
-          ) : (
-            hit.snippet
-          )}
+          {/* 둘째 줄도 맞은 곳을 강조한다 — 본문·메시지에서 맞은 결과는 제목에 검색어가 없어 어디가 맞았는지 보여야 한다. */}
+          {hit.snippetLabel && `${hit.snippetLabel}: `}
+          <Highlighted text={hit.snippet} q={q} />
         </span>
       )}
     </a>

@@ -317,11 +317,49 @@ describe('issues', () => {
 })
 
 describe('ai', () => {
-  it('늘 빈 쪽', async () => {
-    expect(await providers().ai.fetchPage('x1', null, 20)).toEqual({
-      hits: [],
-      next: null,
+  const ID = '11111111-1111-4111-8111-111111111111'
+
+  it('/search/ai-conversations 를 부르고 질문·답 접두·빈 제목 대체·time·href 를 만든다', async () => {
+    const seen: URLSearchParams[] = []
+    server.use(
+      http.get(`${API}/search/ai-conversations`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams)
+        return HttpResponse.json({
+          items: [
+            { sessionId: ID, title: '배포 질문', lastMessageAt: '2020-01-02T03:00:00Z', role: 'USER', excerpt: '배포 어떻게 해요' },
+            { sessionId: '22222222-2222-4222-8222-222222222222', title: '  ', lastMessageAt: '2020-01-02T03:00:00Z', role: 'ASSISTANT', excerpt: '배포는 이렇게' },
+          ],
+          hasMore: true,
+        })
+      }),
+    )
+    const page = await providers().ai.fetchPage('배포', null, 20)
+    expect(seen[0].get('q')).toBe('배포')
+    expect(seen[0].get('offset')).toBe('0')
+    expect(seen[0].get('size')).toBe('20')
+    expect(page.hits[0]).toMatchObject({
+      key: `ai:${ID}`,
+      app: 'ai',
+      title: '배포 질문',
+      href: `/?aiChat=${ID}`,
+      snippet: '질문 · 배포 어떻게 해요',
+      time: '2020. 1. 2.',
     })
+    expect(page.hits[1]).toMatchObject({ title: '지난 대화', snippet: '답 · 배포는 이렇게' })
+    expect(page.next).toBe(20)
+  })
+
+  it('다음 쪽은 offset 을 이어 받고 hasMore 가 false 면 next 가 null', async () => {
+    const offsets: string[] = []
+    server.use(
+      http.get(`${API}/search/ai-conversations`, ({ request }) => {
+        offsets.push(new URL(request.url).searchParams.get('offset') ?? '')
+        return HttpResponse.json({ items: [], hasMore: false })
+      }),
+    )
+    const page = await providers().ai.fetchPage('배포', 20, 20)
+    expect(offsets).toEqual(['20'])
+    expect(page).toEqual({ hits: [], next: null })
   })
 })
 

@@ -9,6 +9,7 @@ import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
+import { chatLinkSessionId, withChatParam } from '@/lib/aiChatLink'
 import { isImeComposing } from '@/lib/imeKey'
 import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits'
 import { cn } from '@/lib/utils'
@@ -96,6 +97,12 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     onClose()
     // 전체 화면 AI 가 콘텐츠를 덮고 있으면 이동한 화면이 보이지 않는다 — 히스토리를 건드리지 않고 옆 패널로 내린다.
     if (ai?.mode === 'fullscreen') ai.dismiss('side')
+    // AI 대화 결과 — 화면은 그대로 두고 aiChat 파라미터만 붙여 AI 패널이 그 대화를 복원하게 한다(AiChatDeepLink).
+    const chatId = chatLinkSessionId(hit.href)
+    if (chatId) {
+      navigate({ search: withChatParam(location.search, chatId) })
+      return
+    }
     navigate(hit.href)
   }
 

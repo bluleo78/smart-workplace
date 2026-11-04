@@ -37,7 +37,7 @@ public class HomeConversationSearchRepository {
 
   /**
    * 대화 하나의 대표 턴 — 대표 메시지가 ASSISTANT 면 직전 USER 가 질문, USER 면 같은 턴(다음 USER 전)의 첫 ASSISTANT 가 답. 없는 쪽은
-   * null.
+   * null. role 은 대표(=맞은) 메시지의 역할 — ASSISTANT 면 answer 가, USER 면 question 이 맞은 메시지다.
    */
   public record Hit(
       UUID sessionId,
@@ -45,12 +45,16 @@ public class HomeConversationSearchRepository {
       String title,
       Instant lastMessageAt,
       String question,
-      String answer) {}
+      String answer,
+      String role) {}
 
   /**
    * @param terms {@code SearchTerms.of(query)} — 비면 전문검색만
    * @param queryVec 질의 임베딩(없으면 null — 키워드만)
    * @param excludeSessionId 지금 대화(없으면 null)
+   * @param offset 건너뛸 대화 수(무한 스크롤 페이지용, 0 이상)
+   * @param newestFirst true 면 맞은 대화를 최근 대화 순으로(통합 검색 목록 — 다른 앱 탭처럼 시간순이 예측하기 쉽다), false 면 점수 순(AI
+   *     도구)
    */
   public List<Hit> search(
       long userId,
@@ -58,7 +62,9 @@ public class HomeConversationSearchRepository {
       List<String> terms,
       float[] queryVec,
       UUID excludeSessionId,
-      int limit) {
+      int limit,
+      int offset,
+      boolean newestFirst) {
     List<Object> p = new ArrayList<>();
     StringBuilder sql = new StringBuilder();
     sql.append(
@@ -123,11 +129,14 @@ public class HomeConversationSearchRepository {
             + "   AND a.id < COALESCE((SELECT min(n.id) FROM home_message n"
             + "     WHERE n.session_id = b.session_id AND n.role = 'USER' AND n.id > b.id),"
             + "     9223372036854775807)"
-            + "   ORDER BY a.id ASC LIMIT 1) END AS answer"
+            + "   ORDER BY a.id ASC LIMIT 1) END AS answer, b.role AS role"
             + " FROM best b JOIN home_session s ON s.id = b.session_id"
             + " JOIN home_message m ON m.id = b.id"
-            + " ORDER BY b.score DESC, s.last_message_at DESC LIMIT ?");
+            + (newestFirst
+                ? " ORDER BY s.last_message_at DESC, b.session_id LIMIT ? OFFSET ?"
+                : " ORDER BY b.score DESC, s.last_message_at DESC, b.session_id LIMIT ? OFFSET ?"));
     p.add(limit);
+    p.add(offset);
     return dsl.fetch(sql.toString(), p.toArray()).map(HomeConversationSearchRepository::toHit);
   }
 
@@ -139,6 +148,7 @@ public class HomeConversationSearchRepository {
         r.get("title", String.class),
         last == null ? null : last.toInstant(),
         r.get("question", String.class),
-        r.get("answer", String.class));
+        r.get("answer", String.class),
+        r.get("role", String.class));
   }
 }

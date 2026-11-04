@@ -10,15 +10,18 @@ import { listMailAccounts } from '@/api/mailAccounts'
 import { listMessages } from '@/api/mailMessages'
 import { fetchMeIssues } from '@/api/meIssues'
 import { messagingApi } from '@/api/messaging'
+import { searchAiConversations } from '@/api/searchAiConversations'
 import { searchDriveByName } from '@/api/searchDrive'
 import { wikiApi } from '@/api/wiki'
 import { driveFilePath } from '@/components/viewer/driveOpen'
 import { messagingKeys } from '@/hooks/queries/messagingKeys'
 import { mailAccountKeys } from '@/hooks/queries/useMailAccounts'
 import { allProjectsQuery } from '@/hooks/queries/useProjects'
+import { CHAT_PARAM, LINKED_SESSION_FALLBACK_TITLE } from '@/lib/aiChatLink'
 import { chatConversationPath, driveFolderPath, issuePath, mailMessagePath, projectPath, wikiSpacePagePath } from '@/lib/appUrl'
 import { encodeContactParam } from '@/lib/contactParam'
 import { dmDisplayName } from '@/lib/dm'
+import { formatListTime } from '@/lib/formatters'
 import { formatIssueKey } from '@/lib/issueKey'
 import type { MailListCursor } from '@/types/mailMessage'
 
@@ -47,6 +50,8 @@ export interface SearchHit {
   dimmed?: boolean
   /** 앱 아이콘 대신 쓰는 아이콘(반복 일정). */
   icon?: LucideIcon
+  /** 첫 줄 오른쪽 끝에 붙는 날짜 같은 짧은 평문(예: AI 대화의 마지막 대화 시각). */
+  time?: string
 }
 
 /** 한 쪽 결과 — next 가 null 이면 더 없다. */
@@ -87,12 +92,6 @@ const EMPTY: SearchPage = { hits: [], next: null }
 
 /** 기본 검색 가능 판정 — 공백 뺀 두 글자부터. */
 const defaultSearchable = (term: string) => term.trim().length >= 2
-
-/** 아직 검색을 지원하지 않는 앱(AI 대화) — 늘 빈 결과. */
-const EMPTY_PROVIDER: SearchProvider = {
-  isSearchable: defaultSearchable,
-  fetchPage: async () => EMPTY,
-}
 
 /** cursor 가 숫자 offset 이면 그것, 아니면 0(첫 쪽). */
 function asOffset(cursor: unknown | null): number {
@@ -312,6 +311,27 @@ const driveProvider: SearchProvider = {
   },
 }
 
+// ── AI 대화 ──────────────────────────────────────────────────
+
+/** 내 지난 AI 대화(키워드 검색, offset 쪽 나누기). 고르면 지금 화면에서 AI 패널로 연다(`/?aiChat=<id>` 딥링크). */
+const aiProvider: SearchProvider = {
+  isSearchable: defaultSearchable,
+  async fetchPage(q, cursor, size, signal) {
+    const offset = asOffset(cursor)
+    const res = await searchAiConversations(q, offset, size, signal)
+    const hits = res.items.map<SearchHit>((i) => ({
+      key: `ai:${i.sessionId}`,
+      app: 'ai',
+      title: i.title?.trim() || LINKED_SESSION_FALLBACK_TITLE,
+      href: `/?${CHAT_PARAM}=${i.sessionId}`,
+      // 맞은 메시지가 질문인지 답인지를 앞에 붙여 보인다.
+      snippet: `${i.role === 'USER' ? '질문' : '답'} · ${i.excerpt}`,
+      time: formatListTime(i.lastMessageAt),
+    }))
+    return { hits, next: res.hasMore ? offset + size : null }
+  },
+}
+
 // ── 노트 ─────────────────────────────────────────────────────
 
 const wikiProvider: SearchProvider = {
@@ -374,10 +394,10 @@ const calendarProvider: SearchProvider = {
   },
 }
 
-/** 앱 → provider 를 deps 로 만든다. ai 는 아직 검색이 없어 빈 결과를 낸다. */
+/** 앱 → provider 를 deps 로 만든다. */
 export function createSearchProviders(deps: SearchProviderDeps): Record<SearchAppId, SearchProvider> {
   return {
-    ai: EMPTY_PROVIDER,
+    ai: aiProvider,
     chat: createChatProvider(deps),
     mail: createMailProvider(deps),
     calendar: calendarProvider,
