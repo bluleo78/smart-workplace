@@ -512,6 +512,8 @@ function blankAgentPane(over) {
 let agentPane = blankAgentPane()
 // 패널이 고른 뒤 다시 돌리는 start-agent 의 인자 — 이 한 번만 패널 없이 스킬로 보낸다(다른 플러그인·사람이 친 것은 늘 패널을 연다).
 let relaunch = null
+// AI 고르기 세대 — 실행기·로그인 상태를 읽는 사이 패널이 닫히면(취소·Esc) 늦게 끝난 고르기가 띄우지 않게 한다.
+let pickSeq = 0
 
 function agentFocusKey(p) {
   if (p.view === 'token') return 'gw-tok-' + tokRev
@@ -539,35 +541,54 @@ async function openAgentPane($, args) {
   agentPane = blankAgentPane({ list, rest, cli })
   tokRev++
   const known = name && list.some((k) => k.name === name)
-  // 이름과 claude 가 아닌 실행기를 함께 받았으면 물을 것이 없다 — 패널을 열지 않고 바로 스킬로 잇는다.
-  if (known && skipsLogin(agentPane)) {
-    agentPane.name = name
-    await launchAgent($, false)
-    return ''
-  }
-  if (known) await enterLogin($, name, false)
-  else if (name) agentPane.message = `${name} 키가 이 컴퓨터에 없습니다 — 아래에서 고르거나 ${COMMANDS.login} 으로 넣으세요`
+  // 저장된 실행기가 claude 가 아니면 enterLogin 이 바로 잇는다(true) — 그때는 패널을 열지 않는다.
+  if (known && (await enterLogin($, name, false))) return ''
+  if (!known && name) agentPane.message = `${name} 키가 이 컴퓨터에 없습니다 — 아래에서 고르거나 ${COMMANDS.login} 으로 넣으세요`
   await $.ui.open({ id: AGENT_PANE, title: AGENT_PANE_TITLE, focus: true, closeOnEscape: true })
   await agentRefocus($)
   return ''
 }
 
-// AI 를 골랐다 — 그 AI 칸이 지금 쓸 로그인을 읽어 로그인 화면으로. --cli 로 claude 가 아닌 실행기(genia·codex)를 주면 setup-token 은
-// 쓰이지 않으므로 묻지 않고 바로 잇는다(로그인을 바꿔 돌던 칸을 괜히 다시 띄우지 않게).
-function skipsLogin(p) {
-  return Boolean(p.cli) && p.cli !== 'claude'
-}
-async function enterLogin($, name, redraw = true) {
-  if (skipsLogin(agentPane)) {
-    agentPane.name = name
-    return launchAgent($, false)
+// 그 AI 칸의 실행기 — 이번 --cli, 없으면 그 AI 에 저장된 값(agent-project cli — 읽기만 하고 홈을 기억하지 않는다).
+// 읽지 못하면 claude 로 본다(묻는 쪽이 안전하다 — 「그대로」면 영향이 없다).
+async function launcherOf($, name) {
+  if (agentPane.cli) return agentPane.cli
+  try {
+    const r = await script($, 'agent-project', ['cli', name, await $.session.root()])
+    return r.exitCode === 0 ? r.stdout.trim() || 'claude' : 'claude'
+  } catch {
+    return 'claude'
   }
-  // 읽지 못하면 unknown — 「이 컴퓨터 로그인」을 고르면 있을지 모르는 토큰을 지우고 다시 띄운다(local 로 믿고 건너뛰지 않게).
-  const r = await script($, 'gw-claude-token', ['status', name]).catch(() => ({ exitCode: 1, stdout: '' }))
+}
+
+// AI 를 골랐다 — 그 AI 칸이 지금 쓸 로그인을 읽어 로그인 화면으로(false). 실행기가 claude 가 아니면(launcherOf) setup-token 은
+// 쓰이지 않으므로 묻지 않고 바로 잇는다(true — 로그인을 바꿔 돌던 칸을 괜히 다시 띄우지 않게). 띄우지 않고 끝나도 true(이어 할 것 없음).
+async function enterLogin($, name, redraw = true) {
+  if (agentPane.busy) return true // 앞서 누른 AI 를 읽는 중 — 두 번 눌러 두 번 띄우지 않게
+  agentPane.busy = true
+  const seq = ++pickSeq
+  let cli, r
+  try {
+    // 실행기와 로그인 상태는 서로 기대지 않으니 함께 읽는다. 상태를 읽지 못하면 unknown —
+    // 「이 컴퓨터 로그인」을 고르면 있을지 모르는 토큰을 지우고 다시 띄운다(local 로 믿고 건너뛰지 않게).
+    ;[cli, r] = await Promise.all([
+      launcherOf($, name),
+      script($, 'gw-claude-token', ['status', name]).catch(() => ({ exitCode: 1, stdout: '' })),
+    ])
+  } finally {
+    agentPane.busy = false
+  }
+  if (seq !== pickSeq) return true // 읽는 사이 패널을 닫았다 — 띄우지 않는다
+  if (cli !== 'claude') {
+    agentPane.name = name
+    await launchAgent($, false)
+    return true
+  }
   const out = r.exitCode === 0 ? r.stdout.trim() : ''
   const patch = { name, login: out === 'setup-token' || out === 'local' ? out : 'unknown' }
   if (redraw) await agentShow($, 'login', patch)
   else Object.assign(agentPane, { view: 'login', message: '' }, patch)
+  return false
 }
 
 // 패널을 닫고 스킬을 고른 AI 로 돌린다 — 명령 처리 안에서 곧바로 $.command.run 을 부르면 턴을 막아 거부되므로 타이머로 미룬다(reconnectSoon 과 같다).
@@ -589,6 +610,7 @@ async function launchAgent($, changed) {
 }
 
 async function closeAgentPane($) {
+  pickSeq++ // 읽는 중인 AI 고르기를 무효로 한다
   agentPane.tokBuf = ''
   await $.ui.close({ id: AGENT_PANE })
 }
@@ -732,7 +754,10 @@ export function register(on, options) {
     if (e.id === PANE) {
       dropSecret() // 진행 중인 서버 확인이 있어도 늦게 와서 저장하지 않게(closePane 과 같다)
     }
-    if (e.id === AGENT_PANE) agentPane.tokBuf = ''
+    if (e.id === AGENT_PANE) {
+      agentPane.tokBuf = ''
+      pickSeq++ // 읽는 중인 AI 고르기를 무효로 한다(Esc 로 닫음)
+    }
     return next(e)
   })
 

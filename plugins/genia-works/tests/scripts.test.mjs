@@ -1269,6 +1269,19 @@ test('gw-claude-token: set 은 setup-token 모양만 권한 600 으로 적고, s
   assert.equal(run('gw-claude-token', ['set', '../x'], { input: 'sk-ant-oat01-a\n' }).status, 2);
 });
 
+test('agent-project cli: 저장한 실행기를 읽기만 하고 홈을 기억하지 않으며, 모르거나 목록 밖이면 claude (WP-1337)', () => {
+  const d = aiDir();
+  const homeDir = join(d, '..');
+  assert.equal(run('agent-project', ['cli', 'kodi', homeDir]).stdout, 'claude\n');
+  run('agent-home', [d, 'set', 'cli', 'genia']);
+  assert.equal(run('agent-project', ['cli', 'kodi', homeDir]).stdout, 'genia\n');
+  assert.equal(run('agent-project', ['cli', 'kodi', '/nonexistent']).stdout, 'claude\n');
+  writeFileSync(join(d, 'agent.conf'), 'cli=claud\n');
+  assert.equal(run('agent-project', ['cli', 'kodi', homeDir]).stdout, 'claude\n');
+  assert.ok(!existsSync(join(home, '.genia-works', 'agents', 'kodi', 'home'))); // locate 와 달리 홈을 기억하지 않는다
+  assert.equal(run('agent-project', ['cli', 'nobody', homeDir]).stdout, 'claude\n');
+});
+
 test('gw-claude-run: 토큰 파일이 있으면 그 setup-token 으로(API 키는 비움), 없으면 물려받은 토큰도 지워 로컬 로그인으로 띄운다 (WP-1334)', () => {
   const tokfile = join(home, 'claude-token-test');
   const show = ['sh', '-c', 'echo "oauth=${CLAUDE_CODE_OAUTH_TOKEN-unset} api=${ANTHROPIC_API_KEY-unset} auth=${ANTHROPIC_AUTH_TOKEN-unset}"'];

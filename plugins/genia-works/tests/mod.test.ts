@@ -1060,7 +1060,6 @@ test('start-agent: 옵션 뒤의 AI 이름도 알아보고, claude 가 아닌 �
   await w.clock.advance(400)
   expect(runs).toEqual(['kodi --cli codex'])
   expect(w.opens).toEqual([])
-  expect(w.scripts().some((c) => c.startsWith('status'))).toBe(false)
 })
 
 test('start-agent: 로그인 상태를 못 읽으면 「이 컴퓨터 로그인」은 지우고 --restart, 저장이 던지면 안내한다', async ($, on) => {
@@ -1089,5 +1088,45 @@ test('start-agent: 패널이 이은 뒤 사람이 같은 명령을 다시 치면
   await $.command.run({ command: START_AGENT, args: 'kodi' })
   expect(w.opens.length).toBe(before + 1)
   expect(runs).toEqual(['kodi'])
+  await ui.unmount()
+})
+
+test('start-agent: 이번에 --cli 가 없어도 그 AI 에 저장된 실행기가 claude 가 아니면 로그인을 묻지 않는다', async ($, on) => {
+  const w = loginWorld(on, {
+    'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\nhana\t11-02\n' },
+    'agent-project cli': { exitCode: 0, stdout: 'genia\n' },
+  })
+  on('session.root', () => ({ value: '/work/agents' }))
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: 'hana' })
+  await w.clock.advance(400)
+  expect(runs).toEqual(['hana'])
+  expect(w.opens).toEqual([])
+  expect(w.scripts()).toContain('cli hana /work/agents') // 홈을 기억하는 locate 가 아니라 읽기만 하는 cli
+  expect(w.scripts().some((c) => c.startsWith('locate'))).toBe(false)
+  // 이번에 준 --cli claude 가 저장된 genia 보다 먼저다 — 로그인을 묻는다
+  await $.command.run({ command: START_AGENT, args: 'hana --cli claude' })
+  expect(w.opens.length).toBe(1)
+})
+
+test('start-agent: AI 를 고르고 실행기를 읽는 사이 패널을 닫으면 띄우지 않는다', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((r) => { release = r })
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\nhana\t11-02\n' } })
+  on('process.run', { argv: /agent-project/ } as any, async (_$: any, e: any, next: any) => {
+    if (e.argv[1] !== 'cli') return next(e)
+    await gate
+    return { value: { exitCode: 0, stdout: 'genia\n', stderr: '' } }
+  })
+  on('session.root', () => ({ value: '/work/agents' }))
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: '' })
+  const ui = await mountAgentPane($)
+  const pressing = ui.press({ key: 'gw-agent-hana' })
+  await ui.press({ key: 'gw-agent-cancel' })
+  release()
+  await pressing
+  await w.clock.advance(400)
+  expect(runs).toEqual([])
   await ui.unmount()
 })
