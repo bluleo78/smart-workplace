@@ -445,6 +445,12 @@ test('pluginLockMismatchFailsBuild', (t) => {
   const r = callLib(bad.env, `verify_plugin_lock "${lockFile}"`);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /feature-dev@anthropic-plugin-directory/);
+  // 플러그인 판은 같고 끝의 마켓플레이스 커밋만 다르면 통과 — 공식 디렉터리 저장소 커밋이 수시로 바뀌어 빌드가 멈췄다(v0.9.40·v0.9.42)
+  const sameSemver = fixture(t, { pluginVersions: { 'feature-dev@anthropic-plugin-directory': '1.0.1-fa4eb54397ee' } });
+  assert.equal(callLib(sameSemver.env, `verify_plugin_lock "${lockFile}"`).status, 0);
+  // 플러그인 판이 바뀌면 커밋 꼬리가 있어도 실패
+  const bumped = fixture(t, { pluginVersions: { 'feature-dev@anthropic-plugin-directory': '1.0.2-fa4eb54397ee' } });
+  assert.notEqual(callLib(bumped.env, `verify_plugin_lock "${lockFile}"`).status, 0);
   // superpowers 는 latest — 새 판이 나와도 빌드를 멈추지 않는다(WP-1336)
   const newer = fixture(t, { pluginVersions: { 'superpowers@superpowers-marketplace': '9.9.9' } });
   assert.equal(callLib(newer.env, `verify_plugin_lock "${lockFile}"`).status, 0);

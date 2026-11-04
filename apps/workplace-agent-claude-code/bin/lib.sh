@@ -491,6 +491,10 @@ install_plugins() {
 }
 
 # verify_plugin_lock <lock> [<건너뛸 id>] — 받은 플러그인 버전이 lock 과 같은지. latest 는 맞춰 보지 않는다(설치만 확인). 다르면 무엇이 다른지 한 줄씩 내고 1.
+# 버전 끝의 「-<12자리 16진수>」는 맞춰 보지 않는다 — 공식 디렉터리는 그 자리에 마켓플레이스 저장소의 최신 커밋을 붙이는데, 그 저장소는
+# 다른 플러그인 판 올림 커밋이 분 단위로 들어와 플러그인 판이 그대로여도 값이 바뀐다(11-04 하루에 a7ba5b93db0c → a2e251d9b97b → fa4eb54397ee,
+# v0.9.40·v0.9.42 이미지 빌드 실패). 플러그인 판(1.0.1 등)이 바뀌면 그대로 실패시킨다.
+plugin_semver() { printf '%s' "$1" | sed -E 's/-[0-9a-f]{12}$//'; }
 verify_plugin_lock() {
   list=$(claude plugin list --json) || return 1
   bad=0
@@ -501,7 +505,7 @@ verify_plugin_lock() {
     if [ -z "$got" ]; then
       echo "plugins.lock: $id 가 설치되지 않았습니다" >&2
       bad=1
-    elif [ "$ver" != latest ] && [ "$got" != "$ver" ]; then
+    elif [ "$ver" != latest ] && [ "$(plugin_semver "$got")" != "$(plugin_semver "$ver")" ]; then
       echo "plugins.lock: $id 버전이 다릅니다 — lock $ver, 받은 것 $got (lock 과 agent-templates/claude-code.yaml 을 함께 고치세요)" >&2
       bad=1
     fi
