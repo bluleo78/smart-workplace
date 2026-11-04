@@ -258,9 +258,14 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
   await page.mouse.click(swBox.x + 4, swBox.y + swBox.height / 2)
   await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'side')
 
-  // WP-1353: 검색은 옆으로 펼치지 않고 가운데 모달 팔레트로 열린다 — 옆 패널이 열려 있어도 열린다(위치 검증은 Task 5 에서 보강).
+  // WP-1353: 검색은 옆으로 펼치지 않고 가운데 모달 팔레트로 열린다 — 옆 패널이 열려 있어도 열리고 Esc 로 닫힌다.
+  // (트리거 위치 단언은 위에서 유지. 팔레트 기하는 global-search.spec.ts.)
   await page.getByTestId('global-search-toggle').click()
   await expect(page.getByTestId('global-search')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('global-search')).toHaveCount(0)
+  // Esc 는 검색만 닫는다 — AI 옆 패널은 그대로.
+  await expect(panel).toBeVisible()
 })
 
 test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·닫기 X 에 가려지지 않는다 (#206)', { tag: '@layout' }, async ({

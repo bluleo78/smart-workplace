@@ -7,7 +7,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { renderScreen } from '@/test/renderScreen'
 
-import { pushRecent } from './recentSearches'
+import { loadRecent, pushRecent } from './recentSearches'
 import { SearchTrigger } from './SearchTrigger'
 
 // AI 표면은 공급자 없이 훅 결과만 바꿔 끼운다(실제 Provider 는 앱 셸 전체에 의존).
@@ -253,4 +253,89 @@ test('snippet 의 HTML 은 태그를 벗겨 글자로만 그린다', async () =>
   const hit = await screen.findByTestId('global-search-hit-wiki:7')
   expect(hit).toHaveTextContent('배포 가이드')
   expect(hit.querySelector('b, img')).toBeNull()
+})
+
+test('Esc 는 팔레트를 닫고 기본 동작을 막아 AI 패널의 Esc 처리까지 가지 않게 한다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: emptyApis() })
+  const input = await openPalette(user)
+  // fireEvent 는 preventDefault 가 불렸으면 false.
+  expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false)
+  await waitFor(() => expect(screen.queryByTestId('global-search')).toBeNull())
+})
+
+test('Shift+Enter 는 AI 에게 검색을 요청한다', async () => {
+  ai.value = { mode: 'side', open: vi.fn(), dismiss: vi.fn() }
+  const newSession = vi.fn()
+  const submitQuery = vi.fn().mockResolvedValue(true)
+  const { user } = renderScreen(
+    <ChatSessionContext.Provider value={{ newSession, submitQuery } as never}>
+      <SearchTrigger />
+    </ChatSessionContext.Provider>,
+    { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] },
+  )
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+  expect(submitQuery).toHaveBeenCalledWith('「배포」 검색해 줘')
+  // 이미 열려 있는 AI 는 모드를 바꾸지 않는다.
+  expect((ai.value as { open: ReturnType<typeof vi.fn> }).open).not.toHaveBeenCalled()
+})
+
+test('AI 가 전체 화면이면 이동 전에 옆 패널로 내린다', async () => {
+  const dismiss = vi.fn()
+  ai.value = { mode: 'fullscreen', open: vi.fn(), dismiss }
+  const { user, location } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/3/pages/7'))
+  expect(dismiss).toHaveBeenCalledWith('side')
+})
+
+test('한 글자 검색어는 어느 앱에도 요청을 보내지 않는다', async () => {
+  let calls = 0
+  const count = () => {
+    calls += 1
+    return HttpResponse.json([])
+  }
+  const { user } = renderScreen(<SearchTrigger />, { path: '/', handlers: [http.get(`${API}/wiki/search`, count), ...emptyApis()] })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '가' } })
+  expect(await screen.findByText('두 글자 이상 입력하면 찾아요')).toBeInTheDocument()
+  // 디바운스(250ms)보다 길게 기다려도 요청이 없어야 한다 — 부재 확인이라 고정 대기가 불가피하다.
+  await new Promise((r) => setTimeout(r, 400))
+  expect(calls).toBe(0)
+})
+
+test('결과를 열면 검색어가 최근 검색에 저장된다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => expect(loadRecent()).toEqual(['배포']))
+})
+
+test('keyCode 229(조합 직후 Safari) Enter 는 무시한다', async () => {
+  const { user, location } = renderScreen(<SearchTrigger />, { path: '/wiki', handlers: [wikiHandler([wikiRow(7)]), ...emptyApis()] })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await screen.findByTestId('global-search-hit-wiki:7')
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+  expect(location()).toBe('/wiki')
+})
+
+test('열린 채 트리거를 다시 눌러도 팔레트가 닫혔다 다시 열리지 않는다(검색어 유지)', async () => {
+  // 실제 앱에서는 TopCenterSlot(pointer-events-auto)이 트리거를 모달의 body 차단 밖에 둔다 — 같은 조건을 만든다.
+  const { user } = renderScreen(
+    <div style={{ pointerEvents: 'auto' }}>
+      <SearchTrigger />
+    </div>,
+    { path: '/', handlers: emptyApis() },
+  )
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '배포' } })
+  await user.click(screen.getByTestId('global-search-toggle'))
+  expect(screen.getByTestId('global-search-input')).toHaveValue('배포')
 })

@@ -25,12 +25,13 @@ export function useSearchQueries(tab: SearchTabId, term: string, enabled: boolea
   const groups = useQueries({
     queries: order.map((app) => ({
       queryKey: ['global-search', app, term, 'top'],
-      queryFn: ({ signal }: { signal: AbortSignal }) => SEARCH_PROVIDERS[app].fetchPage(term, null, GROUP_SIZE, signal),
+      queryFn: ({ signal }: { signal: AbortSignal }) => SEARCH_PROVIDERS[app].fetchPage(term, null, GROUP_SIZE + 1, signal),
       enabled: enabled && tab === 'all',
       staleTime: STALE_MS,
     })),
   })
 
+  // 묶음은 GROUP_SIZE+1 건을 받아 3건만 보이고, 4번째가 있으면(또는 next) 「더 보기」를 낸다 — 딱 3건이면 더 볼 것이 없다.
   /** 키보드로 오갈 수 있는 보이는 줄 전체(묶음 넘어, 화면 순서). */
   const visible: SearchHit[] =
     tab === 'all'

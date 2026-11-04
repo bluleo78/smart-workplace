@@ -2,7 +2,7 @@
 // 상단 이슈 전용 펼침 검색(WP-1324)을 대체한다. 열릴 때마다 본문이 새로 마운트돼 탭=지금 앱·검색어=빈 값으로 시작한다.
 // 열림 상태는 히스토리에 넣지 않는다(useSearchPalette). 한글 조합 중(isComposing)에는 모든 키를 무시한다.
 import { Search } from 'lucide-react'
-import { type KeyboardEvent, useContext, useEffect, useId, useState } from 'react'
+import { type KeyboardEvent, useContext, useEffect, useId, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
@@ -37,6 +37,10 @@ export function SearchPalette({ open, onOpenChange }: Props) {
         // 화면 가운데·폭 min(680px, 100vw-32px)·높이 약 60vh(내부 스크롤).
         className="flex h-[60vh] w-[min(680px,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
         // Esc — AI 패널의 전역 Esc 처리까지 닿지 않게 기본 동작을 막고(defaultPrevented) 검색만 닫는다. 조합 중 Esc 는 조합 취소 몫.
+        // 트리거 버튼을 눌러도 바깥 누름으로 닫혔다가 다시 열리지 않게(깜빡임·상태 초기화) 제외한다.
+        onInteractOutside={(e) => {
+          if (e.target instanceof Element && e.target.closest('[data-testid="global-search-toggle"]')) e.preventDefault()
+        }}
         onEscapeKeyDown={(e) => {
           e.preventDefault()
           if (!e.isComposing) onOpenChange(false)
@@ -50,10 +54,16 @@ export function SearchPalette({ open, onOpenChange }: Props) {
   )
 }
 
+/** 한글 조합 중인 키인가 — Safari 는 조합이 끝난 직후 keydown 에도 isComposing=false, keyCode=229 를 준다. */
+function isComposingKey(e: KeyboardEvent<HTMLInputElement>): boolean {
+  return e.nativeEvent.isComposing || e.keyCode === 229
+}
+
 function PaletteBody({ onClose }: { onClose: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const listId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
   // 열 때의 현재 앱 — 탭 초기값과 「전체」 묶음 순서의 기준(열려 있는 동안 고정).
   const [current] = useState(() => currentAppFromPath(location.pathname))
   const [tab, setTab] = useState<SearchTabId>(current ?? 'all')
@@ -106,7 +116,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.nativeEvent.isComposing) return
+    if (isComposingKey(e)) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       const down = e.key === 'ArrowDown'
@@ -158,6 +168,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       <div className="flex items-center gap-2 border-b px-3 py-2.5">
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         <input
+          ref={inputRef}
           autoFocus
           data-testid="global-search-input"
           role="combobox"
@@ -209,7 +220,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             onPick={(r) => {
               setQ(r)
               setActive(-1)
-              document.querySelector<HTMLInputElement>('[data-testid="global-search-input"]')?.focus()
+              inputRef.current?.focus()
             }}
           />
         ) : tab === 'all' ? (

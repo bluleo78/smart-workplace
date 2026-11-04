@@ -51,7 +51,7 @@ export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Pro
               {q.isPending && <RowSkeletons count={GROUP_SIZE} />}
               {q.isError && <RetryNotice testId={`global-search-retry-${app}`} onRetry={() => void q.refetch()} />}
               {hits.map((h) => rowFor(h))}
-              {q.isSuccess && (q.data.next !== null || hits.length >= GROUP_SIZE) && (
+              {q.isSuccess && (q.data.next !== null || q.data.hits.length > GROUP_SIZE) && (
                 <button
                   type="button"
                   tabIndex={-1}
