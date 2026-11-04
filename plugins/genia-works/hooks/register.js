@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey, validClaudeToken, splitAgentArgs, agentRunArgs } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -26,7 +26,7 @@ async function sessionSelection($) {
 
 // 키 모양이 든 명령 인자·프롬프트를 막을 때 사람에게 보이는 고정 문구 — 키 값은 포함하지 않는다(명령 결과는 대화 기록에 남는다).
 const ARGS_KEY_REFUSE = '키는 명령에 넣을 수 없습니다 — ' + COMMANDS.login + ' 의 「새 AI 추가」에 붙여 넣으세요'
-const PROMPT_KEY_DROP = 'genia-works 키나 토큰은 대화에 넣을 수 없습니다 — 입력을 지우고(Ctrl+U) AI 키는 /genia-works:login 에, 내 토큰은 /plugin configure genia-works@genia-works 에 넣으세요'
+const PROMPT_KEY_DROP = 'genia-works 키나 토큰은 대화에 넣을 수 없습니다 — 입력을 지우고(Ctrl+U) AI 키는 /genia-works:login 에, 내 토큰은 /plugin configure genia-works@genia-works 에, AI 칸의 setup-token 은 /genia-works:start-agent 패널에 넣으세요'
 
 // 토스트 표시 시간 — 길게 읽어야 하는 안내(12초)와 보통 안내(10초).
 const TOAST_LONG = { timeoutMs: 12000 }
@@ -141,10 +141,11 @@ function focusKeyOf(p) {
 // 서버 확인·삭제처럼 늦게 끝나는 전환은 reclaim 없이 $.ui.focus 만 해 본다 — 그사이 사람이 일부러 입력창으로 옮겼다면
 // 키보드를 도로 뺏지 않는다(패널은 새 화면을 그대로 보인다).
 // 포커스 실패는 저장·전환·닫기를 막지 않는다. ui.render 처리기 안에서는 부르지 않는다(자기 그림을 기다릴 수 없다).
-async function refocus($, target, reclaim) {
+// id: 포커스를 옮길 패널(기본은 로그인 패널 — AI 띄우기 패널도 같은 순서를 쓴다). reclaim 은 로그인 패널에서만 쓴다.
+async function refocus($, target, reclaim, id = PANE) {
   let moving
   try {
-    moving = $.ui.focus({ requestId: PANE, key: target }) // 기다리지 않고 먼저 건다 — 다시 그리기 전에 불러야 한다
+    moving = $.ui.focus({ requestId: id, key: target }) // 기다리지 않고 먼저 건다 — 다시 그리기 전에 불러야 한다
   } catch {}
   $.ui.invalidate('ui.render')
   try {
@@ -493,6 +494,184 @@ async function warnProjectMcp($, root) {
   }
 }
 
+// ── start-agent 패널(WP-1337) ─────────────────────────────────────────────────────────────────────────────
+// /genia-works:start-agent 를 치면 스킬보다 먼저 이 패널이 떠 AI 를 고르고 그 AI 칸의 모델 로그인(기억한 setup-token·새 setup-token·
+// 이 컴퓨터의 claude 로그인)을 정한다. setup-token 은 로그인 패널의 키 칸처럼 가린 칸에 받아 gw-claude-token set(stdin)으로 바로 적는다 —
+// 대화·명령 인자에는 실리지 않는다. 고르면 패널을 닫고 같은 명령을 고른 AI 이름으로 다시 돌려(origin plugin — 아래 command.run 이 통과시킨다)
+// 스킬이 저장소 준비·칸 띄우기를 이어 한다(다시 돌린 그 한 번은 relaunch 로 알아본다). 로그인이 바뀌었으면 --restart 를 붙여 돌던 칸도 새 로그인으로 뜨게 한다.
+// Pod(비대화형)는 이 패널을 거치지 않는다 — 그쪽 토큰은 Secret 의 CLAUDE_CODE_OAUTH_TOKEN 을 agent-project start 가 적는다.
+const AGENT_PANE = 'genia-works-start-agent'
+const AGENT_PANE_TITLE = 'AI 띄우기'
+const START_AGENT = 'genia-works:start-agent'
+// 패널 상태 — tokBuf(실제 토큰)는 저장 성공·실패, 화면 이동, 닫기에서 비운다. 화면에는 maskOf(tokBuf)만 그린다.
+// tokRev: 토큰 칸의 세대 번호 — 로그인 패널의 formRev 와 같은 까닭(Enter 로 비워진 칸을 새 칸으로 세운다).
+let tokRev = 0
+function blankAgentPane(over) {
+  return { view: 'pick', list: [], name: '', cli: '', login: 'local', rest: '', tokBuf: '', message: '', busy: false, ...over }
+}
+let agentPane = blankAgentPane()
+// 패널이 고른 뒤 다시 돌리는 start-agent 의 인자 — 이 한 번만 패널 없이 스킬로 보낸다(다른 플러그인·사람이 친 것은 늘 패널을 연다).
+let relaunch = null
+
+function agentFocusKey(p) {
+  if (p.view === 'token') return 'gw-tok-' + tokRev
+  if (p.view === 'login') return p.login === 'setup-token' ? 'gw-login-keep' : 'gw-login-token'
+  return p.list.length ? 'gw-agent-' + p.list[0].name : 'gw-agent-cancel'
+}
+
+// 다시 그리고 포커스를 옮긴다 — 로그인 패널과 같은 refocus(포커스가 패널 밖으로 나가면 붙여 넣은 토큰이 Claude 입력창에 들어갈 수 있다).
+function agentRefocus($) {
+  return refocus($, agentFocusKey(agentPane), false, AGENT_PANE)
+}
+
+async function agentShow($, view, patch) {
+  agentPane.tokBuf = ''
+  if (view === 'token') tokRev++
+  Object.assign(agentPane, { view, message: '' }, patch)
+  await agentRefocus($)
+}
+
+// 명령 인자로 패널을 연다 — 이름을 받았고 등록된 AI 면 고르기를 건너뛴다. 등록된 AI 가 없으면 패널 없이 로그인 안내를 돌려준다.
+async function openAgentPane($, args) {
+  const list = await listKeys($)
+  if (!list.length) return `등록된 AI 가 없습니다 — ${COMMANDS.login} 의 「새 AI 추가」로 그 AI 의 키를 넣은 뒤 다시 부르세요`
+  const { name, cli, rest } = splitAgentArgs(args)
+  agentPane = blankAgentPane({ list, rest, cli })
+  tokRev++
+  const known = name && list.some((k) => k.name === name)
+  // 이름과 claude 가 아닌 실행기를 함께 받았으면 물을 것이 없다 — 패널을 열지 않고 바로 스킬로 잇는다.
+  if (known && skipsLogin(agentPane)) {
+    agentPane.name = name
+    await launchAgent($, false)
+    return ''
+  }
+  if (known) await enterLogin($, name, false)
+  else if (name) agentPane.message = `${name} 키가 이 컴퓨터에 없습니다 — 아래에서 고르거나 ${COMMANDS.login} 으로 넣으세요`
+  await $.ui.open({ id: AGENT_PANE, title: AGENT_PANE_TITLE, focus: true, closeOnEscape: true })
+  await agentRefocus($)
+  return ''
+}
+
+// AI 를 골랐다 — 그 AI 칸이 지금 쓸 로그인을 읽어 로그인 화면으로. --cli 로 claude 가 아닌 실행기(genia·codex)를 주면 setup-token 은
+// 쓰이지 않으므로 묻지 않고 바로 잇는다(로그인을 바꿔 돌던 칸을 괜히 다시 띄우지 않게).
+function skipsLogin(p) {
+  return Boolean(p.cli) && p.cli !== 'claude'
+}
+async function enterLogin($, name, redraw = true) {
+  if (skipsLogin(agentPane)) {
+    agentPane.name = name
+    return launchAgent($, false)
+  }
+  // 읽지 못하면 unknown — 「이 컴퓨터 로그인」을 고르면 있을지 모르는 토큰을 지우고 다시 띄운다(local 로 믿고 건너뛰지 않게).
+  const r = await script($, 'gw-claude-token', ['status', name]).catch(() => ({ exitCode: 1, stdout: '' }))
+  const out = r.exitCode === 0 ? r.stdout.trim() : ''
+  const patch = { name, login: out === 'setup-token' || out === 'local' ? out : 'unknown' }
+  if (redraw) await agentShow($, 'login', patch)
+  else Object.assign(agentPane, { view: 'login', message: '' }, patch)
+}
+
+// 패널을 닫고 스킬을 고른 AI 로 돌린다 — 명령 처리 안에서 곧바로 $.command.run 을 부르면 턴을 막아 거부되므로 타이머로 미룬다(reconnectSoon 과 같다).
+async function launchAgent($, changed) {
+  const args = agentRunArgs({ name: agentPane.name, rest: agentPane.rest, changed })
+  await closeAgentPane($)
+  $.clock.after(300, async () => {
+    relaunch = args
+    try {
+      await $.command.run({ command: START_AGENT, args })
+    } catch (err) {
+      $.ui.toast('AI 띄우기를 이어 하지 못했습니다: ' + String(err), TOAST_MID)
+    } finally {
+      // 엔진은 이 플러그인이 부른 명령에서 이 플러그인의 가로채기를 건너뛸 수 있어(그러면 표시가 쓰이지 않는다), 명령이 끝나면 늘 지운다 —
+      // 남아 있으면 다음에 사람이 친 같은 명령이 패널을 건너뛴다. ($.command.run 은 그 명령을 다 돌린 뒤에 끝난다.)
+      relaunch = null
+    }
+  })
+}
+
+async function closeAgentPane($) {
+  agentPane.tokBuf = ''
+  await $.ui.close({ id: AGENT_PANE })
+}
+
+// 로그인을 「이 컴퓨터의 claude 로그인」으로 — 기억한 토큰이 있으면 지운다(바뀌었으니 칸을 다시 띄운다).
+async function useLocalLogin($) {
+  if (agentPane.login === 'local') return launchAgent($, false)
+  const r = await script($, 'gw-claude-token', ['clear', agentPane.name]).catch(() => ({ exitCode: 1 }))
+  if (r.exitCode !== 0) {
+    agentPane.message = '기억한 토큰을 지우지 못했습니다'
+    return void $.ui.invalidate('ui.render')
+  }
+  await launchAgent($, true)
+}
+
+// 가린 칸의 setup-token 저장 — 형식 검사 → gw-claude-token set(stdin). 성공·실패 모두 토큰을 비운다. 원문은 어디에도 싣지 않는다.
+async function saveClaudeToken($) {
+  if (agentPane.busy) return
+  agentPane.busy = true
+  try {
+    const token = agentPane.tokBuf.trim()
+    agentPane.tokBuf = ''
+    tokRev++ // Enter 로 비워진 칸 대신 새 칸을 세운다
+    if (!validClaudeToken(token)) {
+      agentPane.message = 'setup-token 은 sk-ant-oat01- 로 시작합니다 — 터미널에서 claude setup-token 으로 받은 값을 붙여 넣으세요'
+      return void (await agentRefocus($))
+    }
+    const r = await script($, 'gw-claude-token', ['set', agentPane.name], token + '\n').catch(() => ({ exitCode: 1 }))
+    if (r.exitCode !== 0) {
+      agentPane.message = '토큰을 저장하지 못했습니다'
+      return void (await agentRefocus($))
+    }
+    await launchAgent($, true)
+  } finally {
+    agentPane.busy = false
+  }
+}
+
+function renderAgentPane($, e) {
+  const { Box, Text, Button, Input } = $.ui.resolve(e)
+  const redraw = () => $.ui.invalidate('ui.render')
+  const target = agentFocusKey(agentPane)
+  const af = (key) => (key === target ? { autoFocus: true } : {})
+  const msg = agentPane.message ? h(Text, null, agentPane.message) : null
+  const cancel = h(Button, { key: 'gw-agent-cancel', ...af('gw-agent-cancel'), label: '취소', onPress: async () => { await closeAgentPane($) } })
+  let body
+  if (agentPane.view === 'pick') {
+    body = [
+      h(Text, null, '어느 AI 를 띄울까요?'),
+      ...agentPane.list.map((k) => h(Button, { key: 'gw-agent-' + k.name, ...af('gw-agent-' + k.name), label: k.name, onPress: async () => { await enterLogin($, k.name) } })),
+      msg,
+      cancel,
+    ]
+  } else if (agentPane.view === 'login') {
+    const now = { 'setup-token': '기억한 setup-token', local: '이 컴퓨터의 claude 로그인', unknown: '읽지 못함' }[agentPane.login]
+    body = [
+      h(Text, null, `${agentPane.name} 칸의 claude 는 어떤 로그인으로 돌까요? (지금: ${now})`),
+      agentPane.login === 'setup-token' ? h(Button, { key: 'gw-login-keep', ...af('gw-login-keep'), label: '기억한 setup-token 그대로', onPress: async () => { await launchAgent($, false) } }) : null,
+      h(Button, { key: 'gw-login-token', ...af('gw-login-token'), label: agentPane.login === 'setup-token' ? '새 setup-token 넣기…' : 'setup-token 넣기…', onPress: () => agentShow($, 'token') }),
+      h(Button, { key: 'gw-login-local', label: '이 컴퓨터의 claude 로그인' + (agentPane.login === 'local' ? '  (지금)' : ''), onPress: async () => { await useLocalLogin($) } }),
+      msg,
+      agentPane.list.length > 1 ? h(Button, { key: 'gw-login-back', label: '← AI 다시 고르기', onPress: () => agentShow($, 'pick') }) : null,
+      cancel,
+    ]
+  } else {
+    const rev = tokRev
+    const live = () => rev === tokRev
+    body = [
+      e.props?.isFocused === false ? h(Text, { color: 'yellow' }, '⚠ 이 패널에 키보드가 없습니다 — 토큰이 Claude 입력창에 들어갔다면 Enter 를 누르지 말고 Ctrl+U 로 지우세요. 붙여 넣으려면 ctrl+x tab 으로 패널에 온 뒤 붙여 넣으세요') : null,
+      h(Text, null, `${agentPane.name} 칸이 쓸 setup-token — 터미널에서 claude setup-token 으로 받은 값`),
+      h(Input, {
+        key: 'gw-tok-' + rev, label: 'setup-token', placeholder: 'sk-ant-oat01-…', value: maskOf(agentPane.tokBuf), submitLabel: '저장하고 띄우기', ...af('gw-tok-' + rev),
+        onInput: (v) => { if (!live()) return; agentPane.tokBuf = applyMaskedInput(agentPane.tokBuf, v); redraw() },
+        onSubmit: () => (live() ? saveClaudeToken($) : undefined),
+      }),
+      msg,
+      h(Button, { key: 'gw-tok-back', label: '← 돌아가기', onPress: () => agentShow($, 'login') }),
+      cancel,
+    ]
+  }
+  return h(Box, { flexDirection: 'column' }, ...body.filter(Boolean))
+}
+
 export function register(on, options) {
   opts = options ?? {}
 
@@ -534,13 +713,26 @@ export function register(on, options) {
     return {}
   }).catch(() => ({ text: '로그인 패널을 열지 못했습니다. 잠시 뒤 다시 시도하세요' }))
 
-  on('ui.render', { component: 'Pane' }, ($, e, next) => (e.requestId !== PANE ? next(e) : renderPane($, e)))
+  // AI 띄우기 패널 — start-agent 를 가로채 패널을 연다. 패널이 고른 뒤 다시 돌리는 한 번(relaunch)과 비대화형(-p·SDK)은 그대로 스킬로 보낸다.
+  on('command.run', { command: START_AGENT }, async ($, e, next) => {
+    // 패널이 다시 돌린 그 한 번 — 패널 없이 스킬로 보낸다.
+    if (relaunch !== null && e.args.trim() === relaunch) {
+      relaunch = null
+      return next(e)
+    }
+    if (isHeadless({ interactive, origin: e.origin })) return next(e)
+    const text = await openAgentPane($, e.args)
+    return text ? { text } : {}
+  }).catch(($, e, next) => (next.called ? next(e) : { text: 'AI 띄우기 패널을 열지 못했습니다. 잠시 뒤 다시 시도하세요' }))
+
+  on('ui.render', { component: 'Pane' }, ($, e, next) => (e.requestId === PANE ? renderPane($, e) : e.requestId === AGENT_PANE ? renderAgentPane($, e) : next(e)))
 
   // 패널이 닫히면 입력해 둔 키를 즉시 비운다.
   on('ui.close', async ($, e, next) => {
     if (e.id === PANE) {
       dropSecret() // 진행 중인 서버 확인이 있어도 늦게 와서 저장하지 않게(closePane 과 같다)
     }
+    if (e.id === AGENT_PANE) agentPane.tokBuf = ''
     return next(e)
   })
 

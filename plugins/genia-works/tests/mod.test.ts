@@ -955,3 +955,139 @@ test('prompt.submit: 보통 프롬프트와 짧은 가짜 키는 통과한다', 
   expect(((await $.prompt.submit({ text: 'hi' })) as any).text).toBe('hi')
   expect(((await $.prompt.submit({ text: 'ak_FAKE_ABC123 형식' })) as any).text).toBe('ak_FAKE_ABC123 형식')
 })
+
+// ---- AI 띄우기 패널(WP-1337) ----
+const START_AGENT = 'genia-works:start-agent'
+const AGENT_PANE_ID = 'genia-works-start-agent'
+const FAKE_OAT = 'sk-ant-oat01-' + 'Q'.repeat(40)
+const mountAgentPane = ($: any) => $.ui.mount({ plugin: 'genia-works', surface: 'terminal', component: 'Pane', requestId: AGENT_PANE_ID, props: { ...PANE_PROPS, title: 'AI 띄우기' } })
+const tokKey = async (ui: any) => ((await ui.findAll({})).map((el: any) => el.key).find((k: unknown) => typeof k === 'string' && /^gw-tok-\d+$/.test(k)) as string) ?? 'gw-tok-(없음)'
+
+// 패널이 고른 뒤 다시 돌린 start-agent(스킬) 인자를 모은다 — 가로채기가 통과시킨 것만 여기 닿는다.
+function skillRuns(on: any) {
+  const runs: string[] = []
+  on('command.run', { command: START_AGENT }, (_$: any, e: any) => { runs.push(e.args); return {} })
+  return runs
+}
+
+test('start-agent: 패널에서 AI 를 고르고 setup-token 을 가려 받아 stdin 으로만 저장한 뒤 --restart 로 스킬을 잇는다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\nhana\t11-02\n' }, 'gw-claude-token status': { exitCode: 0, stdout: 'local\n' } })
+  const runs = skillRuns(on)
+  const r = await $.command.run({ command: START_AGENT, args: '--queue "AI 개발팀"' })
+  expect(r.text ?? '').toBe('')
+  expect(runs).toEqual([]) // 패널이 먼저 — 스킬은 아직 돌지 않는다
+  const ui = await mountAgentPane($)
+  await ui.press({ key: 'gw-agent-kodi' })
+  expect(JSON.stringify(await ui.findAll({}))).toContain('이 컴퓨터의 claude 로그인')
+  await ui.press({ key: 'gw-login-token' })
+  await ui.input({ key: await tokKey(ui), text: FAKE_OAT, kind: 'change' })
+  expect((await ui.find({ key: await tokKey(ui) }))?.text).toBe('●'.repeat(FAKE_OAT.length))
+  await ui.input({ key: await tokKey(ui), text: FAKE_OAT, kind: 'submit' })
+  const set = w.runs.find((x) => x.argv[0].endsWith('/gw-claude-token') && x.argv[1] === 'set')
+  expect(set?.argv.slice(1)).toEqual(['set', 'kodi'])
+  expect(set?.stdin).toBe(FAKE_OAT + '\n')
+  await w.clock.advance(400)
+  expect(runs).toEqual(['kodi --restart --queue "AI 개발팀"'])
+  // 토큰은 stdin 외 어디에도 없다 — argv·토스트·로그·상태 줄·스킬 인자
+  expect(w.runs.filter((x) => x !== set).map((x) => JSON.stringify(x)).join('|')).not.toContain(FAKE_OAT)
+  expect(w.shown.join('|') + runs.join('|')).not.toContain(FAKE_OAT)
+  await ui.unmount()
+})
+
+test('start-agent: 기억한 토큰 그대로면 --restart 없이, 이 컴퓨터 로그인으로 바꾸면 지우고 --restart', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\n' }, 'gw-claude-token status': { exitCode: 0, stdout: 'setup-token\n' } })
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: 'kodi' }) // 이름을 받으면 고르기를 건너뛴다
+  let ui = await mountAgentPane($)
+  await ui.press({ key: 'gw-login-keep' })
+  await w.clock.advance(400)
+  expect(runs).toEqual(['kodi'])
+  await ui.unmount()
+  await $.command.run({ command: START_AGENT, args: 'kodi' })
+  ui = await mountAgentPane($)
+  await ui.press({ key: 'gw-login-local' })
+  expect(w.scripts()).toContain('clear kodi')
+  await w.clock.advance(400)
+  expect(runs).toEqual(['kodi', 'kodi --restart'])
+  await ui.unmount()
+})
+
+test('start-agent: setup-token 모양이 아니면 저장하지 않고 안내하며 칸도 비운다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\n' }, 'gw-claude-token status': { exitCode: 0, stdout: 'local\n' } })
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: 'kodi' })
+  const ui = await mountAgentPane($)
+  await ui.press({ key: 'gw-login-token' })
+  await ui.input({ key: await tokKey(ui), text: 'sk-ant-api03-nope', kind: 'change' })
+  await ui.input({ key: await tokKey(ui), text: 'sk-ant-api03-nope', kind: 'submit' })
+  expect(w.runs.some((x) => x.argv[1] === 'set')).toBe(false)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('sk-ant-oat01- 로 시작합니다')
+  expect((await ui.find({ key: await tokKey(ui) }))?.text ?? '').toBe('')
+  await w.clock.advance(400)
+  expect(runs).toEqual([])
+  await ui.unmount()
+})
+
+test('start-agent: 등록된 AI 가 없으면 패널 없이 login 을 안내한다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: '' } })
+  const runs = skillRuns(on)
+  const r = await $.command.run({ command: START_AGENT, args: '' })
+  expect(r.text).toContain('/genia-works:login')
+  expect(w.opens).toEqual([])
+  expect(runs).toEqual([])
+})
+
+test('start-agent: 비대화형(-p)은 패널 없이 스킬로 그대로 보낸다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\n' } })
+  const runs = skillRuns(on)
+  on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: false })
+  await $.command.run({ command: START_AGENT, args: 'kodi' })
+  expect(runs).toEqual(['kodi'])
+  expect(w.opens).toEqual([])
+})
+
+test('setup-token 이 든 프롬프트는 대화로 보내지 않는다', async ($, on) => {
+  on('prompt.submit', () => ({ text: 'sent' }))
+  const r = await $.prompt.submit({ text: 'token ' + FAKE_OAT })
+  expect(r.drop).toBeTruthy()
+})
+
+test('start-agent: 옵션 뒤의 AI 이름도 알아보고, claude 가 아닌 실행기면 로그인을 묻지 않고 바로 잇는다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\nhana\t11-02\n' } })
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: '--cli codex kodi' })
+  await w.clock.advance(400)
+  expect(runs).toEqual(['kodi --cli codex'])
+  expect(w.opens).toEqual([])
+  expect(w.scripts().some((c) => c.startsWith('status'))).toBe(false)
+})
+
+test('start-agent: 로그인 상태를 못 읽으면 「이 컴퓨터 로그인」은 지우고 --restart, 저장이 던지면 안내한다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\n' }, 'gw-claude-token status': { exitCode: 1 } })
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: 'kodi' })
+  const ui = await mountAgentPane($)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('읽지 못함')
+  await ui.press({ key: 'gw-login-local' })
+  expect(w.scripts()).toContain('clear kodi')
+  await w.clock.advance(400)
+  expect(runs).toEqual(['kodi --restart'])
+  await ui.unmount()
+})
+
+test('start-agent: 패널이 이은 뒤 사람이 같은 명령을 다시 치면 패널이 다시 뜬다', async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'kodi\t11-01\n' }, 'gw-claude-token status': { exitCode: 0, stdout: 'setup-token\n' } })
+  const runs = skillRuns(on)
+  await $.command.run({ command: START_AGENT, args: 'kodi' })
+  const ui = await mountAgentPane($)
+  await ui.press({ key: 'gw-login-keep' })
+  await w.clock.advance(400)
+  expect(runs).toEqual(['kodi'])
+  // 같은 명령을 사람이 다시 치면 패널이 다시 뜬다(이어 실행 표시는 한 번 쓰고 지워졌다)
+  const before = w.opens.length
+  await $.command.run({ command: START_AGENT, args: 'kodi' })
+  expect(w.opens.length).toBe(before + 1)
+  expect(runs).toEqual(['kodi'])
+  await ui.unmount()
+})

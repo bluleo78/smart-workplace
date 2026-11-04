@@ -194,6 +194,24 @@ gw_session_lock() {
 # shellcheck disable=SC2016,SC2034 # 일부러 펼치지 않는다(부르는 쪽의 eval 이 그때의 값으로 펼친다) — source 하는 스크립트가 쓴다.
 GW_TMUX_ENV='"PATH=$PATH" ${GENIA_WORKS_API_URL:+"GENIA_WORKS_API_URL=$GENIA_WORKS_API_URL"} ${GENIA_WORKS_TENANT:+"GENIA_WORKS_TENANT=$GENIA_WORKS_TENANT"}'
 
+# AI 별 setup-token 파일(WP-1334) — 작업 디스크(AI 폴더·TMPDIR, Pod 에서는 노드에 남는다)가 아닌 사용자 데이터 폴더(홈 아래 — Pod 에서는
+# 컨테이너와 함께 사라진다)에 둔다. 넣고 지우는 것은 gw-claude-token(start-agent 패널)과 agent-project start(셸의 CLAUDE_CODE_OAUTH_TOKEN —
+# Pod 는 Secret 에서 받는다), 칸에서 읽는 것은 gw-claude-run 이다.
+gw_claude_token_file() {
+  printf '%s/agents/%s/claude-token' "$GW_HOME" "$1"
+}
+
+# 그 AI 의 사용자 데이터 폴더(GW_HOME/agents/<이름>)를 남이 못 보게(700) 마련한다 — 기억한 홈·setup-token 이 여기 있다.
+gw_agent_data_dir() {
+  mkdir -p "$GW_HOME/agents/$1" && chmod 700 "$GW_HOME" "$GW_HOME/agents" "$GW_HOME/agents/$1"
+}
+
+# setup-token 이 들 수 있는 환경 변수를 지운다(WP-1334) — tmux 를 부르기 전에 써서, 처음 뜨는 tmux 서버가 이 셸의 토큰을 물려받아
+# 사람의 다른 tmux 창과 토큰 없이 다시 띄운 칸에 남기지 않게 한다. claude 칸은 agent-project 가 적은 파일을 gw-claude-run 이 읽어 넣는다.
+gw_scrub_claude_token() {
+  unset CLAUDE_CODE_OAUTH_TOKEN
+}
+
 # 프로젝트 키 목록 정규화 — 「wp, hr」 같은 인자를 공백 없는 대문자 「WP,HR」 로(서버 페이로드의 키와 맞춘다). gw-events·agent-events tail 공용.
 gw_project_list() {
   printf '%s' "$1" | tr -d ' ' | tr '[:lower:]' '[:upper:]'

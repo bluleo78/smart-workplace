@@ -90,8 +90,7 @@ tmux 는 AI 하나에 세션 하나, 그 안에 창(`work`) 하나를 두고 프
 ## 6. 띄우기 — 프로젝트마다
 
 5번에서 준비한 프로젝트마다 `agent-project start "<홈>/<AI 이름>" "<키>"` 를 하나씩 차례로 부른다(같은 tmux 창을 나누므로 한꺼번에 부르지 않는다). 그 AI 신원으로 `/loop /genia-works:work-loop <키>`(저장한 대기열 라벨이 있으면 `--queue "<라벨>"`)를 도는 실행기를 칸으로 띄운다(genia 는 `/gw-loop <키>`, codex 는 구동기 — 같은 work-loop 스킬을 부른다) — 칸에 넘기는 환경(신원·AI 폴더·실행기별 값·이 세션의 `GENIA_WORKS_API_URL`·claude 의 모델 로그인)은 스크립트가 정한다.
-- 모델 로그인(claude): 이 세션에 `CLAUDE_CODE_OAUTH_TOKEN` 이 있으면(홈 claude 를 `claude setup-token` 토큰으로 띄움) 스크립트가 그 토큰을 그 AI 의 것으로 기억해 칸의 claude 가 그 토큰으로 돈다(바꾸려면 새 토큰으로 띄운 홈에서 `--restart`). 토큰 없는 세션이면 기억한 토큰을 그대로 쓰고, 기억한 것도 없으면 이 컴퓨터의 claude 로그인을 쓴다 — 기억한 토큰을 버리고 로컬 로그인으로 돌리는 것은 토큰 없는 세션의 `--restart` 뿐이다. 토큰 원문은 읽거나 말하지 않는다. 띄운 뒤 `agent-project login "<홈>/<AI 이름>"` 으로 칸이 쓸 로그인(`setup-token`·`local`)을 확인한다. 토큰은 사용자 데이터 폴더의 권한 600 파일로만 칸에 건넨다(칸 명령·tmux 서버 환경에는 남지 않는다).
-- 사람이 홈 claude 를 토큰으로 띄웠다고 했는데 이 세션에서 비어 보이면 Claude Code 가 하위 프로세스 환경에서 자격 증명을 지우는 설정(`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`)일 수 있다고 알리고, 로컬 로그인으로 띄울지 묻는다.
+- 모델 로그인(claude): 사람이 `/genia-works:start-agent` 를 치면 플러그인 패널이 먼저 떠 AI 와 그 AI 칸의 로그인(기억한 setup-token·새 setup-token·이 컴퓨터의 claude 로그인)을 고르게 하고, setup-token 은 패널의 가린 칸으로 받아 그 AI 의 토큰 파일(사용자 데이터 폴더, 권한 600)에 바로 적는다 — 이 세션은 토큰을 보지도 받지도 않는다. 패널이 고른 AI 이름으로 이 스킬을 다시 부르고, 로그인이 바뀌었으면 `--restart` 를 붙인다. 토큰은 대화로 받지 않는다 — 사람이 대화에 붙이려 하면 막고 패널(`/genia-works:start-agent`)로 넣으라고 알린다. 칸은 토큰 파일이 있으면 그 setup-token, 없으면 이 컴퓨터의 claude 로그인으로 뜬다(칸 명령·tmux 서버 환경에는 토큰이 남지 않는다). 띄운 뒤 `agent-project login "<홈>/<AI 이름>"` 으로 칸이 쓸 로그인(`setup-token`·`local`)을 확인한다. 패널이 없는 비대화형(-p) 세션에서 로컬 로그인으로 돌리려면 사람이 `"<이 스킬 폴더>/../../scripts/gw-claude-token" clear <AI 이름>` 을 친 뒤 `--restart` 한다(토큰 없는 `--restart` 만으로는 지우지 않는다).
 - `--restart` 를 받았으면 `agent-project start --restart …` 로 부른다 — 그 칸이 있으면 안의 claude 를 끝내고 그 자리에서 다시 띄운다(하던 일은 새 세션의 work-loop 가 이어 받는다).
 - `started <세션>` — 새 칸을 띄웠다. `exists <세션>` — 그 칸이 돌고 있어 건드리지 않았다. `revived <세션>` — 멈춰 있던 칸(반복이 끝났거나 claude 가 죽음)을 다시 띄웠다. `restarted <세션>` — 돌던 칸을 다시 띄웠다. `<세션>` 은 tmux 가 실제로 쓰는 세션 이름이다(AI 이름의 `.`·`:` 는 `_`).
 - `legacy <세션>` — 예전 구성(프로젝트마다 창)이라 건드리지 않았다(7번에서 안내).
@@ -101,7 +100,7 @@ tmux 는 AI 하나에 세션 하나, 그 안에 창(`work`) 하나를 두고 프
 
 프로젝트마다 한 줄(키 · 저장소 · 브랜치 · clone/fetch · started/exists/revived/restarted/legacy/실패 이유)로 표를 만들고, 끝에 아래를 적는다.
 - 「들여다보기: 이 세션을 나오거나(`/exit`) 터미널을 하나 더 열어 `tmux attach -t <세션>` — 프로젝트마다 칸이 하나씩 보이고(칸 위에 프로젝트 키), 칸을 클릭해 고르면 거기 친 글이 그 AI 세션에 들어간다. `Ctrl+b z` 로 고른 칸만 크게 보고 같은 키로 돌아오며, 빠질 때는 `Ctrl+b d`. tmux 는 이 세션과 따로 돌아 이 세션을 닫거나 접속을 끊어도 AI 는 계속 돈다.」(`<세션>` 은 6번에서 `agent-window` 가 알려 준 이름)
-- 「모델 로그인: <setup-token 또는 이 컴퓨터의 claude 로그인>(6번 `agent-project login` 결과) — 토큰을 바꾸려면 새 토큰으로 홈 claude 를 띄운 뒤, 로컬 로그인으로 돌리려면 토큰 없이 띄운 뒤 `--restart` 로 부르세요.」
+- 「모델 로그인: <setup-token 또는 이 컴퓨터의 claude 로그인>(6번 `agent-project login` 결과) — 바꾸려면 `/genia-works:start-agent` 를 다시 쳐 패널에서 고르세요(돌던 칸은 새 로그인으로 다시 뜹니다).」
 - 「대기열 라벨: <라벨 또는 가져오지 않기> — 바꾸려면 `--queue "<라벨>"`(가져오지 않기는 `--queue ""`)을 붙여 다시 부르세요.」
 - 「실행기: <실행기> — 바꾸려면 `--cli <실행기> --restart` 로 다시 부르세요(돌던 칸은 다시 띄워야 바뀝니다).」
 - `legacy` 면 「예전 구성(프로젝트마다 창)으로 돌고 있어 그대로 두었습니다 — `/genia-works:start-agent <AI 이름> --restart` 로 부르면 한 창의 칸으로 옮겨 다시 띄웁니다(하던 일은 이어 받습니다).」

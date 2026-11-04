@@ -1191,7 +1191,7 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
   // claude 대신 받은 환경·인자를 적는 가짜 — PATH 앞에 둔다.
   writeFileSync(join(bin, 'claude'), '#!/bin/sh\n{ pwd; env | grep -E "^(GENIA_WORKS_|CLAUDE_)" | sort; printf "%s\\n" "$@"; } > "$HOME/claude-args"\nexec sleep 60\n');
   chmodSync(join(bin, 'claude'), 0o755);
-  // 홈 claude 를 setup-token 으로 띄웠으면 칸에도 그 토큰이 간다(WP-1334). tmux 서버는 이 호출이 처음 띄운다 — 서버 환경으로 새면
+  // 셸에 CLAUDE_CODE_OAUTH_TOKEN 이 있으면(Pod — Secret 에서 받는다) 칸에도 그 토큰이 간다(WP-1334). tmux 서버는 이 호출이 처음 띄운다 — 서버 환경으로 새면
   // 사람의 다른 tmux 창과 토큰 없이 다시 띄운 칸에도 토큰이 남으므로, 아래에서 서버 환경·칸 명령에 원문이 없는지도 본다.
   const r = run('agent-project', ['start', d, 'WP'], {
     env: { GW_TMUX: wrapper, GENIA_WORKS_API_URL: 'http://127.0.0.1:6160/api/v1', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test' },
@@ -1229,14 +1229,44 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
   await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/loop'));
   assert.ok(readFileSync(out, 'utf8').includes('CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test\n'));
   assert.equal(readFileSync(tokfile, 'utf8'), 'sk-ant-oat01-test\n');
-  // 토큰 없이 띄운 셸에서 --restart 하면 기억한 토큰을 버리고 넘기지 않는다 — 칸의 claude 는 로컬 로그인을 쓴다.
+  // 토큰 없는 셸의 --restart 도 기억한 토큰을 지우지 않는다 — 사람의 홈 claude 안에서는 늘 토큰 없이 불리므로(claude 가 넘기지 않는다)
+  // 지우면 패널로 넣은 토큰이 사라진다. 지우는 것은 gw-claude-token clear(패널의 「이 컴퓨터 로그인」)뿐이다.
+  rmSync(out);
+  assert.equal(run('agent-project', ['start', '--restart', d, 'WP'], { env: { GW_TMUX: wrapper } }).stdout, 'restarted kodi\n');
+  await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/loop'));
+  assert.ok(readFileSync(out, 'utf8').includes('CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test\n'));
+  assert.equal(run('gw-claude-token', ['clear', 'kodi']).status, 0);
+  assert.equal(run('agent-project', ['login', d]).stdout, 'local\n');
   rmSync(out);
   assert.equal(run('agent-project', ['start', '--restart', d, 'WP'], { env: { GW_TMUX: wrapper } }).stdout, 'restarted kodi\n');
   await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/loop'));
   assert.ok(!readFileSync(out, 'utf8').includes('CLAUDE_CODE_OAUTH_TOKEN'));
-  assert.ok(!existsSync(tokfile));
-  assert.equal(run('agent-project', ['login', d]).stdout, 'local\n');
+  // 패널(gw-claude-token set)로 넣은 토큰을 토큰 없는 셸의 --restart 가 칸에 넣는다.
+  assert.equal(run('gw-claude-token', ['set', 'kodi'], { input: 'sk-ant-oat01-panelPPPPPPPPPPPPPPPPPP\n' }).status, 0);
+  rmSync(out);
+  assert.equal(run('agent-project', ['start', '--restart', d, 'WP'], { env: { GW_TMUX: wrapper } }).stdout, 'restarted kodi\n');
+  await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/loop'));
+  assert.ok(readFileSync(out, 'utf8').includes('CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-panelPPPPPPPPPPPPPPPPPP\n'));
   assert.equal(run('agent-project', ['start', d, 'QA'], { env: { GW_TMUX: wrapper } }).status, 2); // 저장소 폴더가 없다
+});
+
+test('gw-claude-token: set 은 setup-token 모양만 권한 600 으로 적고, status·clear 는 원문을 내지 않는다 (WP-1337)', () => {
+  const tokfile = join(home, '.genia-works', 'agents', 'kodi', 'claude-token');
+  assert.equal(run('gw-claude-token', ['status', 'kodi']).stdout, 'local\n');
+  for (const bad of ['ak_' + 'x'.repeat(40), 'sk-ant-api03-abc', 'sk-ant-oat01-a b', 'sk-ant-oat01-short', '']) {
+    const r = run('gw-claude-token', ['set', 'kodi'], { input: bad + '\n' });
+    assert.equal(r.status, 3, bad);
+    if (bad) assert.ok(!r.stderr.includes(bad), bad);
+  }
+  assert.ok(!existsSync(tokfile));
+  const ok = run('gw-claude-token', ['set', 'kodi'], { input: 'sk-ant-oat01-Ab_9-zAAAAAAAAAAAAAAAA\n' });
+  assert.deepEqual([ok.status, ok.stdout, ok.stderr], [0, '', '']);
+  assert.equal(readFileSync(tokfile, 'utf8'), 'sk-ant-oat01-Ab_9-zAAAAAAAAAAAAAAAA\n');
+  assert.equal(statSync(tokfile).mode & 0o777, 0o600);
+  assert.equal(run('gw-claude-token', ['status', 'kodi']).stdout, 'setup-token\n');
+  assert.equal(run('gw-claude-token', ['clear', 'kodi']).status, 0);
+  assert.ok(!existsSync(tokfile));
+  assert.equal(run('gw-claude-token', ['set', '../x'], { input: 'sk-ant-oat01-a\n' }).status, 2);
 });
 
 test('gw-claude-run: 토큰 파일이 있으면 그 setup-token 으로(API 키는 비움), 없으면 물려받은 토큰도 지워 로컬 로그인으로 띄운다 (WP-1334)', () => {
@@ -1247,7 +1277,9 @@ test('gw-claude-run: 토큰 파일이 있으면 그 setup-token 으로(API 키�
   assert.equal(withFile.stdout, 'oauth=sk-ant-oat01-file api=unset auth=unset\n');
   rmSync(tokfile);
   // tmux 서버가 토큰 있는 셸에서 떠 물려준 값이어도 파일이 없으면 쓰지 않는다. API 키는 사람이 둔 대로 둔다.
-  const noFile = run('gw-claude-run', [tokfile, ...show], { env: { CLAUDE_CODE_OAUTH_TOKEN: 'stale', ANTHROPIC_API_KEY: 'sk-ant-api' } });
+  const noFile = run('gw-claude-run', [tokfile, ...show], {
+    env: { CLAUDE_CODE_OAUTH_TOKEN: 'stale', ANTHROPIC_API_KEY: 'sk-ant-api' },
+  });
   assert.equal(noFile.stdout, 'oauth=unset api=sk-ant-api auth=unset\n');
 });
 

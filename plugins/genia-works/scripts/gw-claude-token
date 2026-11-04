@@ -1,0 +1,32 @@
+#!/bin/sh
+# gw-claude-token — AI 별 setup-token 파일(gw-lib 의 gw_claude_token_file) 관리(WP-1337). start-agent 패널(mod)이 부른다.
+#   status <AI 이름>  — setup-token(파일이 있다) | local. 원문은 내지 않는다.
+#   set <AI 이름>     — stdin 첫 줄의 setup-token(sk-ant-oat01-…)을 권한 600 파일에 원자적으로 적는다. 형식이 아니면 종료 3.
+#   clear <AI 이름>   — 지운다(칸은 이 컴퓨터의 claude 로그인을 쓴다).
+# 토큰 값은 어떤 하위 명령도 stdout·stderr 에 내지 않는다. 바뀐 로그인은 칸을 다시 띄워야(start-agent --restart) 쓰인다.
+. "$(dirname "$0")/gw-lib.sh"
+umask 077
+cmd="${1:-}"
+name="${2:-}"
+gw_valid_name "$name" || { echo "이름은 영문·숫자·._@- 만 쓸 수 있습니다" >&2; exit 2; }
+file=$(gw_claude_token_file "$name")
+
+case "$cmd" in
+  status)
+    if [ -s "$file" ]; then echo setup-token; else echo local; fi
+    ;;
+  set)
+    IFS= read -r token || true
+    # `claude setup-token` 이 주는 모양만 받는다(sk-ant-oat01- 뒤 영문·숫자·_- 20자 이상 — mod 의 validClaudeToken·KEY_LIKE 와 같은 규칙).
+    # 잘못 붙여 넣은 값(AI 키·API 키·잘린 토큰)을 칸의 로그인으로 쓰지 않게.
+    printf '%s\n' "$token" | grep -Eqx 'sk-ant-oat01-[A-Za-z0-9_-]{20,}' || { echo "setup-token 형식이 아닙니다(sk-ant-oat01-…)" >&2; exit 3; }
+    gw_agent_data_dir "$name" && gw_write_atomic "$file" "$token" || exit 1
+    ;;
+  clear)
+    rm -f "$file"
+    ;;
+  *)
+    echo "사용: gw-claude-token status|set|clear <AI 이름>" >&2
+    exit 2
+    ;;
+esac

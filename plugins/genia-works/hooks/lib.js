@@ -182,9 +182,51 @@ export function isAiKeyRegistration(config) {
 // 앞 글자는 보지 않는다 — URL 인코딩(%20swp_…)·JSON 이스케이프(\nak_…)처럼 영문·숫자 바로 뒤에 붙은 키도 잡기 위해서다.
 // 대가로 받아들인 오탐: 이름이 ak·swp 로 끝나는 식별자 뒤에 영문·숫자 32자 이상이 오면(예: break_<32자+>, leak_<32자+>) 걸린다.
 // 문서·테스트의 짧은 가짜(ak_FAKE_ABC123 등)는 32자 미만이라 걸리지 않는다.
-export const KEY_LIKE = /(?:swp|ak)_[A-Za-z0-9]{32,}/
+// sk-ant-oat01-… 은 claude setup-token(WP-1337) — start-agent 패널에만 넣고 대화에는 넣지 않는다.
+// setup-token 모양 — validClaudeToken·KEY_LIKE·gw-claude-token set 이 같은 규칙(sk-ant-oat01- 뒤 20자 이상)을 쓴다.
+const CLAUDE_TOKEN_BODY = 'sk-ant-oat01-[A-Za-z0-9_-]{20,}'
+export const KEY_LIKE = new RegExp('(?:swp|ak)_[A-Za-z0-9]{32,}|' + CLAUDE_TOKEN_BODY)
 
 // 텍스트에 키·토큰 모양이 있으면 true — 키 값은 돌려주지 않는다(메시지·로그에 되울리지 않게).
 export function containsSecretKey(text) {
-  return typeof text === 'string' && (text.includes('ak_') || text.includes('swp_')) && KEY_LIKE.test(text) // 싼 선검사 — 정규식은 접두가 보일 때만
+  return typeof text === 'string' && (text.includes('ak_') || text.includes('swp_') || text.includes('sk-ant-')) && KEY_LIKE.test(text) // 싼 선검사 — 정규식은 접두가 보일 때만
+}
+
+// claude setup-token 모양인지(WP-1337) — KEY_LIKE 와 같은 규칙. 값은 돌려주지 않는다.
+const CLAUDE_TOKEN_RE = new RegExp('^' + CLAUDE_TOKEN_BODY + '$')
+export function validClaudeToken(token) {
+  return CLAUDE_TOKEN_RE.test(token)
+}
+
+// start-agent 인자를 단어로 — 큰따옴표로 감싼 값(--queue "AI 개발팀")은 한 단어로 본다(스킬 인자 규칙: 라벨에 " 는 없다).
+function argWords(text) {
+  return [...text.matchAll(/"[^"]*"|\S+/g)].map((m) => m[0])
+}
+
+// start-agent 인자에서 AI 이름(값을 받는 옵션 --queue·--cli 의 값이 아닌, -- 로 시작하지 않는 첫 단어)·실행기(--cli)와
+// 나머지(옵션들 — 스킬에 그대로 넘긴다)를 나눈다. 이름은 어느 자리에 와도 찾는다(--cli genia kodi).
+export function splitAgentArgs(args) {
+  const words = argWords((args ?? '').trim())
+  let name = ''
+  let cli = ''
+  const rest = []
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]
+    if (w === '--queue' || w === '--cli') {
+      if (w === '--cli') cli = words[i + 1] ?? ''
+      rest.push(w)
+      if (i + 1 < words.length) rest.push(words[++i])
+    } else if (!name && !w.startsWith('-')) {
+      name = w
+    } else {
+      rest.push(w)
+    }
+  }
+  return { name, cli, rest: rest.join(' ') }
+}
+
+// 패널에서 고른 뒤 스킬로 넘길 인자 — 로그인이 바뀌었으면 돌던 칸도 새 로그인으로 뜨게 --restart 를 붙인다(이미 있으면 그대로).
+export function agentRunArgs({ name, rest, changed }) {
+  const hasRestart = /(^|\s)--restart(\s|$)/.test(rest)
+  return [name, changed && !hasRestart ? '--restart' : '', rest].filter(Boolean).join(' ')
 }
