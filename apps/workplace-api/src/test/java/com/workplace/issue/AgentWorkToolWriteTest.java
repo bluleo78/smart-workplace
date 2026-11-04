@@ -16,28 +16,52 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 
 /**
- * MCP(수행 도구 헤더) 경유 이슈 쓰기 → AI 작업 자동 시작·상태 복귀(WP-377, 스펙 §4.2). PAT·ak_·JWT 로 실제 HTTP 요청을 보내 인증 필터가
- * 헤더를 채택하는 경로까지 검증한다. "안 만듦" 단언은 요청 자체가 성공(2xx)했는지 먼저 확인해 거절로 인한 거짓 통과를 막는다.
+ * MCP(수행 도구 헤더) 경유 이슈 쓰기 → 이미 있는 AI 작업의 터치·상태 복귀(WP-377, 스펙 §4.2). 쓰기는 작업을 시작하지 않는다(WP-1365) — 작업
+ * 행이 없으면 만들지 않고, 행을 만드는 것은 명시 보고(report_agent_work)다. PAT·ak_·JWT 로 실제 HTTP 요청을 보내 인증 필터가 헤더를 채택하는
+ * 경로까지 검증한다. "안 만듦" 단언은 요청 자체가 성공(2xx)했는지 먼저 확인해 거절로 인한 거짓 통과를 막는다.
  */
-class AgentWorkAutoStartTest extends AgentWorkTestSupport {
+class AgentWorkToolWriteTest extends AgentWorkTestSupport {
 
   @Autowired private AgentWorkService agentWorkService;
 
+  /** WP-1365: 담당자의 도구 헤더 쓰기라도 작업이 없으면 새로 만들지 않는다 — 사람 담당자(PAT). */
   @Test
-  void PAT_헤더있는_쓰기_담당자면_WORKING_생성() {
+  void PAT_헤더있는_쓰기도_작업이_없으면_만들지_않음() {
     assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
-    assertThat(activeWork(issueId, humanId))
-        .hasValueSatisfying(
-            w -> {
-              assertThat(w.state()).isEqualTo("WORKING");
-              assertThat(w.tool()).isEqualTo(TOOL);
-            });
+    assertThat(activeWork(issueId, humanId)).isEmpty();
+    assertThat(allStates(issueId, humanId)).isEmpty();
   }
 
+  /** WP-1365: 코멘트도 작업을 시작하지 않는다. */
   @Test
-  void 코멘트_작성도_자동시작() {
+  void 코멘트_작성도_작업을_시작하지_않음() {
     assertOk(postComment(patToken, "진행 메모", TOOL));
-    assertThat(activeWork(issueId, humanId)).isPresent();
+    assertOk(postComment(akToken, "착수합니다", TOOL));
+    assertThat(activeCount(issueId)).isZero();
+  }
+
+  /** 명시 보고로 만든 작업은 이후의 MCP 쓰기가 같은 행의 도구·updated_at 을 터치한다(새 행 없음). */
+  @Test
+  void 보고로_시작한_작업은_MCP_쓰기가_같은_행을_터치() {
+    assertOk(putReport(patToken, TOOL, Map.of("state", "WORKING", "note", "착수")));
+    var reported = activeWork(issueId, humanId).orElseThrow();
+    assertOk(patch(patToken, Map.of("body", "진행 메모"), "cursor"));
+    var w = activeWork(issueId, humanId).orElseThrow();
+    assertThat(w.id()).isEqualTo(reported.id());
+    assertThat(w.state()).isEqualTo("WORKING");
+    assertThat(w.tool()).isEqualTo("cursor");
+    assertThat(w.note()).isEqualTo("착수");
+    assertThat(allStates(issueId, humanId)).containsExactly("WORKING");
+  }
+
+  /** 명시 보고로 답변 필요가 된 작업은 MCP 쓰기(코멘트)로 다시 움직이면 작업 중으로 돌아오고 질문 note 를 지운다. */
+  @Test
+  void 보고로_답변필요가_된_작업은_코멘트로_작업중_복귀() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED", "note", "어느 쪽?")));
+    assertOk(postComment(akToken, "확인했습니다, 이어서 합니다", TOOL));
+    var w = activeWork(issueId, agentId).orElseThrow();
+    assertThat(w.state()).isEqualTo("WORKING");
+    assertThat(w.note()).isNull();
   }
 
   @Test
@@ -65,13 +89,21 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
     assertThat(activeWork(issueId, humanId)).isEmpty();
   }
 
+  /** WP-1365: AI 담당자(ak_)도 사람과 같은 규칙 — 쓰기만으로 작업이 생기지 않는다. */
   @Test
-  void ak_쓰기도_자동시작() {
+  void ak_쓰기도_작업을_만들지_않음() {
     assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
-    assertThat(activeWork(issueId, agentId))
-        .hasValueSatisfying(w -> assertThat(w.state()).isEqualTo("WORKING"));
-    // 쓴 사람(AI 구성원)만 — 같은 이슈의 다른 담당자 작업은 만들지 않는다.
-    assertThat(activeWork(issueId, humanId)).isEmpty();
+    assertThat(activeCount(issueId)).isZero();
+  }
+
+  /** 터치는 쓴 사람의 작업만 — 같은 이슈의 다른 담당자 작업은 건드리지 않는다. */
+  @Test
+  void ak_쓰기는_다른_담당자_작업을_터치하지_않음() {
+    seedActive(issueId, humanId, "PAUSED");
+    seedActive(issueId, agentId, "PAUSED");
+    assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
+    assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("PAUSED");
   }
 
   @Test
@@ -82,9 +114,8 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
   }
 
   @Test
-  void 상태복귀_답변인증필요_막힘_일시중지_시작전은_WORKING_REVIEW_는_유지() {
-    for (String s :
-        List.of("INPUT_REQUIRED", "AUTH_REQUIRED", "BLOCKED", "PAUSED", "SUBMITTED", "REVIEW")) {
+  void 상태복귀_답변인증필요_막힘_일시중지는_WORKING_REVIEW_는_유지() {
+    for (String s : List.of("INPUT_REQUIRED", "AUTH_REQUIRED", "BLOCKED", "PAUSED", "REVIEW")) {
       seedActive(issueId, humanId, s);
       assertOk(patch(patToken, Map.of("title", "진행"), "cursor"));
       var w = activeWork(issueId, humanId).orElseThrow();
@@ -93,6 +124,19 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
       assertThat(w.tool()).as(s).isEqualTo("cursor");
     }
     assertThat(activeCount(issueId)).isEqualTo(1);
+  }
+
+  /** WP-1365: 시작 전(SUBMITTED) 작업은 MCP 쓰기로 잇지 않는다 — 상태도 도구(null)도 그대로. */
+  @Test
+  void 시작전_작업은_MCP_쓰기로_잇지_않음() {
+    seedSubmitted(issueId, agentId);
+    assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
+    assertOk(postComment(akToken, "메모", TOOL));
+    var w = activeWork(issueId, agentId).orElseThrow();
+    assertThat(w.state()).isEqualTo("SUBMITTED");
+    assertThat(w.tool()).isNull();
+    assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED");
+    assertThat(issueStatus()).isEqualTo("TODO");
   }
 
   /** WP-450: 다음 회차 대기(SCHEDULED)는 이슈 쓰기로 작업 중으로 되돌리지 않는다 — 상태와 다음 실행 시각 모두 그대로, tool 만 갱신. */

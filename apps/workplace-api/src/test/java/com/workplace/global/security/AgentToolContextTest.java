@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/** AgentToolContext 단위 테스트(WP-377) — 헤더 정규화와 자동 터치 억제 범위를 검증한다. */
+/** AgentToolContext 단위 테스트(WP-377) — 헤더 정규화와 작업 터치 억제 범위를 검증한다. */
 class AgentToolContextTest {
   @AfterEach
   void clear() {

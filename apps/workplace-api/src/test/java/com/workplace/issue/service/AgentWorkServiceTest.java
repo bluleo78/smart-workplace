@@ -72,9 +72,10 @@ class AgentWorkServiceTest extends IntegrationTestBase {
             .id();
   }
 
-  /** 진행 중 작업을 만들고 행만 돌려준다(충돌이면 기존 행). */
+  /** 상태(와 도구)만 정해 진행 중 작업을 만들고 행만 돌려준다(충돌이면 기존 행) — note·진행률·단계·다음 실행 시각은 비운다. */
   private Optional<AgentWorkRow> insert(long issue, long worker, String tool, String state) {
-    return repo.insertOutcome(issue, worker, tool, state).map(InsertOutcome::row);
+    return repo.insertOutcome(issue, worker, tool, state, null, null, null, null, null)
+        .map(InsertOutcome::row);
   }
 
   @Test
@@ -225,8 +226,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
-    service.onAgentToolWrite(
-        new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false, false));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
@@ -241,8 +241,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "BLOCKED", "권한 없음", false, null, null, null));
-    service.onAgentToolWrite(
-        new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false, false));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isEqualTo("권한 없음");
@@ -305,23 +304,47 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "AUTH_REQUIRED", "토큰 필요", false, null, null, null));
-    service.onAgentToolWrite(
-        new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false, false));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
   }
 
-  /** 시작 전(SUBMITTED) 작업은 MCP 쓰기 터치로 같은 행이 WORKING 으로 착수된다(새 행 아님). */
+  /**
+   * WP-1365: 시작 전(SUBMITTED) 작업은 MCP 쓰기 터치로 잇지 않는다 — 상태·도구·updated_at 모두 그대로, 이벤트도 알림도 없다(발행 쪽이 알림을
+   * 내지 않은 코멘트 경로 issueNotified=false 로 본다).
+   */
   @Test
-  void 터치_SUBMITTED_는_같은_행을_WORKING_으로() {
+  void 터치_SUBMITTED_는_건드리지_않고_알림도_없음() {
     assigneeRepository.add(issueId, agentId, humanId);
     var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
-    service.onAgentToolWrite(
-        new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false, false));
+    long before = issueChangeCount();
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
-    assertThat(row.id()).isEqualTo(submitted.id());
-    assertThat(row.state()).isEqualTo("WORKING");
+    assertThat(row).isEqualTo(submitted);
+    assertThat(eventCount(submitted.id())).isEqualTo(1);
+    assertThat(issueChangeCount()).isEqualTo(before);
+  }
+
+  /** WP-1365: 진행 중 작업이 없으면 MCP 쓰기 터치는 행을 만들지 않고 알림도 내지 않는다. */
+  @Test
+  void 터치는_작업이_없으면_행을_만들지_않고_알림도_없음() {
+    assigneeRepository.add(issueId, agentId, humanId);
+    long before = issueChangeCount();
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", false));
+    assertThat(dsl.fetchCount(AGENT_WORK, AGENT_WORK.ISSUE_ID.eq(issueId))).isZero();
+    assertThat(issueChangeCount()).isEqualTo(before);
+  }
+
+  /** 일하던 작업을 터치하면 발행 쪽이 알림을 내지 않은 경로(issueNotified=false)에서는 리스너가 이슈 변경 알림을 한 번 낸다. */
+  @Test
+  void 터치는_일하던_작업이면_알림을_낸다() {
+    assigneeRepository.add(issueId, agentId, humanId);
+    insert(issueId, agentId, "claude-code", "WORKING");
+    long before = issueChangeCount();
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "cursor", false));
+    assertThat(repo.findActive(issueId, agentId).orElseThrow().tool()).isEqualTo("cursor");
+    assertThat(issueChangeCount()).isEqualTo(before + 1);
   }
 
   /** 인증 필요 → 답변 필요처럼 중단 상태끼리 바뀔 때도 앞 상태의 note 는 낡으므로 새 note 가 없으면 지운다. */
@@ -384,31 +407,6 @@ class AgentWorkServiceTest extends IntegrationTestBase {
             .fetchMap(AGENT_WORK.WORKER_ID, AGENT_WORK.STATE);
     assertThat(states.get(agentId)).isEqualTo("CANCELED");
     assertThat(states.get(humanId)).isEqualTo("COMPLETED");
-  }
-
-  /**
-   * 터치가 SUBMITTED 생성과의 삽입 경합에서 졌을 때(처음 조회는 비었는데 그 사이 다른 트랜잭션이 행을 만든 상황 — 첫 findActive 만 비게 스텁해 재현)
-   * 충돌로 돌려받은 행에 같은 터치 규칙을 적용한다: 같은 행이 WORKING 으로 착수되고 tool 이 채워지며 새 행은 없다.
-   */
-  @Test
-  void 터치가_삽입_경합에서_져도_기존_행을_착수시키고_tool을_채움() {
-    assigneeRepository.add(issueId, agentId, humanId);
-    var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
-    doReturn(Optional.empty()).doCallRealMethod().when(repo).findActive(issueId, agentId);
-    service.onAgentToolWrite(
-        new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false, false));
-    var row = repo.findActive(issueId, agentId).orElseThrow();
-    assertThat(row.id()).isEqualTo(submitted.id());
-    assertThat(row.state()).isEqualTo("WORKING");
-    assertThat(row.tool()).isEqualTo("claude-code");
-    assertThat(dsl.fetchCount(AGENT_WORK, AGENT_WORK.ISSUE_ID.eq(issueId))).isEqualTo(1);
-    assertThat(
-            dsl.select(AGENT_WORK_EVENT.STATE)
-                .from(AGENT_WORK_EVENT)
-                .where(AGENT_WORK_EVENT.WORK_ID.eq(row.id()))
-                .orderBy(AGENT_WORK_EVENT.ID.asc())
-                .fetch(AGENT_WORK_EVENT.STATE))
-        .containsExactly("SUBMITTED", "WORKING");
   }
 
   /** 외부→내부 전환 신호는 그 구성원의 SUBMITTED 만 CANCELED 로 닫고(이벤트 포함), 일하던 작업·다른 구성원 작업은 건드리지 않는다. */

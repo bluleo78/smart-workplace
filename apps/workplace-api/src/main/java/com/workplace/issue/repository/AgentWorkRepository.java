@@ -133,12 +133,6 @@ public class AgentWorkRepository {
    */
   public record InsertOutcome(AgentWorkRow row, boolean inserted) {}
 
-  /** 상태만 정해 진행 중 작업을 만든다 — note·진행률·단계 없이 시작하는 경우(터치 자동 시작·시드 등). */
-  public Optional<InsertOutcome> insertOutcome(
-      long issueId, long workerId, String tool, String state) {
-    return insertOutcome(issueId, workerId, tool, state, null, null, null, null, null);
-  }
-
   /**
    * 진행 중 작업이 없으면 만든다. 부분 유니크(agent_work_active_uq)와 충돌하면 아무것도 넣지 않고 기존 진행 중 행을 돌려준다 — 동시 첫 보고가 멱등이
    * 되도록(예외 대신 재조회). 첫 보고의 상태·note·진행률·단계를 처음부터 함께 넣어 이력이 보고당 한 번만 남게 한다. 새로 들어간 경우에만 이벤트를 남기고, 충돌이면

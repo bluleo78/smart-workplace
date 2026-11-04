@@ -63,7 +63,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   /** 진행 중 작업을 만들고 행만 돌려준다(충돌이면 기존 행). 대부분의 테스트는 삽입 여부를 보지 않는다. */
   private Optional<AgentWorkRow> insert(long issue, long worker, String tool, String state) {
-    return repo.insertOutcome(issue, worker, tool, state).map(InsertOutcome::row);
+    return insert(issue, worker, tool, state, null, null, null, null);
   }
 
   private Optional<AgentWorkRow> insert(
@@ -291,8 +291,12 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   /** insertOutcome 은 실제로 넣었는지 알려 준다. */
   @Test
   void insertOutcome_reportsWhetherInserted() {
-    var first = repo.insertOutcome(issueId, humanId, "claude-code", "WORKING").orElseThrow();
-    var second = repo.insertOutcome(issueId, humanId, "cursor", "REVIEW").orElseThrow();
+    var first =
+        repo.insertOutcome(issueId, humanId, "claude-code", "WORKING", null, null, null, null, null)
+            .orElseThrow();
+    var second =
+        repo.insertOutcome(issueId, humanId, "cursor", "REVIEW", null, null, null, null, null)
+            .orElseThrow();
     assertThat(first.inserted()).isTrue();
     assertThat(second.inserted()).isFalse();
     assertThat(second.row().id()).isEqualTo(first.row().id());

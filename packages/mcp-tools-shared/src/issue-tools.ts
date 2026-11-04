@@ -336,7 +336,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         // 모르는 상태 이름은 어떤 쓰기보다 먼저 실패해야 한다 — 담당자·라벨 등만 바뀐 반쯤 고친 이슈를 남기지 않게.
         // 이름은 서버가 내용 PATCH 에서 해석·거절하므로 보통은 내용 PATCH 를 맨 앞에 두는 것으로 충분하다(아래 contentFirst).
-        // 다만 첨부·드라이브 링크는 상태보다 먼저 저장해야 해(아래 주석) 내용 PATCH 를 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+        // 다만 첨부·드라이브 링크는 상태보다 먼저 저장해(아래 주석) 내용 PATCH 를 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
         const statusName = statusPatch && 'statusName' in statusPatch ? statusPatch.statusName : undefined;
         const writesBeforeContent = !!fileIds?.length || driveFileId !== undefined;
         if (statusName !== undefined && writesBeforeContent) {
@@ -352,8 +352,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           }
         };
 
-        // 작업 쓰기(첨부 클레임·드라이브 링크)는 내용(상태 포함) PATCH 보다 먼저 한다 — 이들도 서버에서 이슈 수정 알림(상태 미기재)을 내
-        // 담당 AI 작업의 자동 상태 전환을 일으킬 수 있다. 같은 호출에서 명시한 status 가 마지막에 저장되어 그 전환에 덮이지 않게 한다.
+        // 첨부·드라이브 링크는 내용(상태 포함) PATCH 보다 먼저 한다 — 모르는 상태 이름은 위에서 어떤 쓰기보다 먼저 거르고, 명시 status 가 마지막 쓰기로 남게.
         // WP-422: 스테이징 파일 첨부 — 빈 배열이면 서버를 부르지 않는다. 실패(만료 등)는 attachments 결과로만 알린다.
         if (fileIds?.length) await run('attachments', () => client.claimIssueAttachments(issueKey, fileIds));
         if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));

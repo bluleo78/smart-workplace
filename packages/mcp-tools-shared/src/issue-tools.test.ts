@@ -673,7 +673,6 @@ describe('buildSharedIssueTools', () => {
   });
 
   it('WP-422: update_issue: fileIds 와 status 를 함께 주면 첨부 클레임을 먼저, 내용(상태) 저장을 나중에 한다', async () => {
-    // 첨부 클레임이 서버에서 일으키는 이슈 수정 알림(상태 미기재)이 같은 호출의 명시 status 를 덮지 않게 — 상태가 마지막에 저장돼야 한다.
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
     await t.handler({ issueKey: 'WP-12', status: 'TODO', fileIds: [5] });
@@ -684,7 +683,7 @@ describe('buildSharedIssueTools', () => {
   });
 
   it('update_issue: driveFileId 와 status 를 함께 주면 드라이브 링크를 먼저, 내용(상태) 저장을 나중에 한다', async () => {
-    // 드라이브 링크도 작업 쓰기라 같은 이유로 명시 status 보다 먼저 저장한다 — 첨부·링크·상태를 함께 줘도 상태가 마지막이다.
+    // 드라이브 링크도 첨부와 같이 명시 status 보다 먼저 저장한다 — 첨부·링크·상태를 함께 줘도 상태가 마지막이다.
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
     await t.handler({ issueKey: 'WP-12', status: 'TODO', driveFileId: 77, fileIds: [5] });
@@ -974,7 +973,7 @@ describe('buildSharedIssueTools', () => {
     expect(c.getProjectStatuses).not.toHaveBeenCalled();
   });
 
-  // 첨부·드라이브 링크는 상태 저장보다 먼저 해야 해(위 WP-422 순서) 내용 저장을 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+  // 첨부·드라이브 링크는 상태 저장보다 먼저 해(위 WP-422 순서) 내용 저장을 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
   it('update_issue: 첨부와 모르는 상태 이름을 함께 주면 아무것도 쓰지 않고 content 실패로 알린다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

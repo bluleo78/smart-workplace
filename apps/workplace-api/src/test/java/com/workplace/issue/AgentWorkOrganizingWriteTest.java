@@ -27,9 +27,10 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 
 /**
- * 정리성 MCP 이슈 쓰기는 AI 작업을 시작하지 않는다(WP-425). 유형·부모·의존성·라벨·담당자·사이클·커스텀 필드, 그리고 제목·본문·상태 없이 우선순위 등만 바꾸는
+ * 정리성 MCP 이슈 쓰기는 AI 작업을 터치하지 않는다(WP-425). 유형·부모·의존성·라벨·담당자·사이클·커스텀 필드, 그리고 제목·본문·상태 없이 우선순위 등만 바꾸는
  * 수정은 이슈를 "정리"할 뿐 그 이슈의 일을 한 것이 아니므로, 수행 도구 헤더가 있어도 작업 행을 만들지도, 시작 전(SUBMITTED) 작업을 잇지도, 일하던 작업을
- * 되돌리지도 않는다. 화면 갱신용 이슈 변경 알림은 그대로 나가야 한다. 제목·본문·상태·코멘트 같은 작업 쓰기는 여전히 시작한다.
+ * 되돌리지도 않는다. 화면 갱신용 이슈 변경 알림은 그대로 나가야 한다. 제목·본문·상태·코멘트·첨부 같은 작업 쓰기는 이미 있는 작업을 터치(중단 상태면 작업 중으로
+ * 복귀)하지만, 어느 쓰기도 작업을 새로 시작하지는 않는다(WP-1365).
  */
 class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
 
@@ -160,29 +161,33 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
         .satisfies(e -> assertThat(e.op()).isEqualTo(ResourceChangedEvent.OP_UPDATED));
   }
 
+  /** 코멘트는 작업 쓰기라 일시 중지 작업을 작업 중으로 되돌리지만, 작업이 없으면 시작하지 않는다(WP-1365). */
   @Test
-  void 코멘트는_여전히_작업을_시작() {
+  void 코멘트는_일하던_작업을_되돌리고_없으면_시작하지_않음() {
     assertOk(postComment(patToken, "메모", TOOL));
+    assertThat(activeWork(issueId, humanId)).isEmpty();
+    assertThat(issueStatus()).isEqualTo("TODO");
+
+    seedActive(issueId, humanId, "PAUSED");
+    assertOk(postComment(patToken, "메모 2", TOOL));
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
-    assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
   }
 
   @Test
-  void 본문_수정은_여전히_작업을_시작() {
+  void 본문_수정은_작업_쓰기라_일하던_작업을_되돌림() {
+    seedActive(issueId, humanId, "PAUSED");
     assertOk(patch(patToken, Map.of("body", "수정"), TOOL));
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
   }
 
   @Test
   void 본문과_우선순위를_함께_바꾸면_작업_쓰기() {
+    seedActive(issueId, humanId, "PAUSED");
     assertOk(patch(patToken, Map.of("body", "x", "priority", "HIGH"), TOOL));
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
   }
 
-  /**
-   * 생성 중 첨부(WP-422)는 생성 트랜잭션 안에서 묶는다 — 만든 뒤 따로 클레임하면 그 클레임이 작업 쓰기라 자기 담당 이슈의 작업을 시작해 버린다. 생성은 담당자라도
-   * 새 작업을 열지 않는다(promoteOnly).
-   */
+  /** 생성 중 첨부(WP-422)는 생성 트랜잭션 안에서 묶는다. 생성·첨부 모두 MCP 쓰기라 담당자라도 새 작업을 열지 않는다(WP-1365). */
   @Test
   void PAT_로_자기를_담당자로_첨부와_함께_이슈를_만들어도_작업을_시작하지_않음() {
     long fileId = stageText(jwtToken, "created.txt");
@@ -205,8 +210,10 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
     assertThat(json(res).get("status").asText()).isEqualTo("TODO");
   }
 
+  /** 첨부 클레임은 작업 쓰기라 일하던 작업을 되돌린다(작업이 없을 때 시작하지 않는 것은 AgentWorkIssueStatusTest). */
   @Test
-  void 첨부_클레임은_작업_쓰기라_담당_이슈의_작업을_시작() {
+  void 첨부_클레임은_작업_쓰기라_일하던_작업을_되돌림() {
+    seedActive(issueId, humanId, "PAUSED");
     long fileId = stageText(jwtToken, "claimed.txt");
 
     assertOk(

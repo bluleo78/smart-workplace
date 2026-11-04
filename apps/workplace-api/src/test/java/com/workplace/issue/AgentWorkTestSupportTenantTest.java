@@ -16,15 +16,15 @@ import org.springframework.beans.factory.annotation.Autowired;
  *
  * <p>시드가 트랜잭션 밖(autocommit)에서 담당자·프로젝트 멤버·사용자 역할을 넣으면, 그 행의 tenant_id 는 풀에서 받은 커넥션의 세션
  * GUC(app.tenant_id)를 따른다. 다른 테스트·스케줄러가 남긴 값이 있는 커넥션을 받으면 담당자가 다른 테넌트로 들어가 테넌트#1 에서 보이지 않고, MCP 쓰기의
- * 자동 터치가 「담당자 아님」으로 조용히 건너뛰어 AgentWorkAutoStartTest 가 전체 실행에서만 가끔 실패했다. 여기서는 풀의 모든 커넥션 세션 GUC 를 비운
- * 뒤 시드를 다시 돌려 그 상황을 매번 만든다.
+ * 작업 터치가 「담당자 아님」으로 조용히 건너뛰어 일하던 작업을 되돌리지 못한다. 시드한 담당자가 테넌트#1 에서 보이고 터치가 그 담당자의 작업을 작업 중으로 되돌리는지로
+ * 이를 막는다. 여기서는 풀의 모든 커넥션 세션 GUC 를 비운 뒤 시드를 다시 돌려 그 상황을 매번 만든다.
  */
 class AgentWorkTestSupportTenantTest extends AgentWorkTestSupport {
 
   @Autowired private DataSource dataSource;
 
   @Test
-  void 풀_커넥션_세션_GUC_가_비어도_시드한_담당자가_테넌트1_에서_보이고_MCP_쓰기가_작업을_시작한다() throws Exception {
+  void 풀_커넥션_세션_GUC_가_비어도_시드한_담당자가_테넌트1_에서_보이고_MCP_쓰기가_작업을_터치한다() throws Exception {
     setSessionTenantOnAllPooledConnections("");
     try {
       seedAgentWorkFixture();
@@ -35,6 +35,8 @@ class AgentWorkTestSupportTenantTest extends AgentWorkTestSupport {
 
     assertThat(inTenant(() -> issueAssigneeRepository.findUserIdsByIssue(issueId)))
         .containsExactlyInAnyOrder(humanId, agentId);
+    // MCP 쓰기는 작업을 시작하지 않으므로(WP-1365) 일시 중지 작업을 먼저 두고, 터치가 담당자를 알아봐 작업 중으로 되돌리는지 본다.
+    seedActive(issueId, humanId, "PAUSED");
     assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(activeWork(issueId, humanId))
         .hasValueSatisfying(w -> assertThat(w.state()).isEqualTo("WORKING"));

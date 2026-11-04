@@ -58,7 +58,7 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
 /**
- * AI 작업 기록(WP-377) 실제 HTTP 통합 테스트 공용 기반. 자동 시작·종료·보고 테스트(Task 4·5·6)가 함께 쓴다.
+ * AI 작업 기록(WP-377) 실제 HTTP 통합 테스트 공용 기반. 쓰기 터치·자동 종료·보고 테스트가 함께 쓴다.
  *
  * <p>수행 도구 헤더(X-Agent-Tool)는 PAT(swp_)·AI 키(ak_) 인증 필터에서만 읽히므로, MockMvc 가 아닌 실제 HTTP 요청(RANDOM_PORT
  * + RestTemplate)으로 필터를 통과시킨다. 실제 요청은 별도 트랜잭션이라 테스트는 비트랜잭션으로 커밋된 시드를 쓰고 {@code @AfterEach} 에서
@@ -119,8 +119,8 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
   /**
    * 사용자·프로젝트·이슈·토큰을 시드한다. 시드 전체를 테넌트#1 트랜잭션 하나로 묶는다 — 트랜잭션 밖(autocommit) 쓰기는 풀에서 받은 커넥션의 세션 GUC 로
    * tenant_id 가 정해져, 다른 테스트가 남긴 값을 가진 커넥션을 받으면 담당자·프로젝트 멤버·사용자 역할이 다른 테넌트로 들어가 테넌트#1 에서 보이지
-   * 않았다(WP-827 — 자동 터치가 「담당자 아님」으로 건너뛰어 전체 실행에서만 간헐 실패). 트랜잭션은 시작할 때 GUC 를 트랜잭션-로컬로 넣으므로 커넥션의 세션 값과
-   * 무관하다.
+   * 않았다(WP-827 — MCP 쓰기의 작업 터치가 「담당자 아님」으로 건너뛰어 전체 실행에서만 간헐 실패). 트랜잭션은 시작할 때 GUC 를 트랜잭션-로컬로 넣으므로
+   * 커넥션의 세션 값과 무관하다.
    */
   @BeforeEach
   void seedAgentWorkFixture() {
@@ -454,7 +454,7 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
 
   /** 도구를 모르는 SUBMITTED 작업을 저장소로 직접 만든다(담당자 추가 경로를 거치지 않고 상태만 시드할 때). */
   protected void seedSubmitted(long issueId, long workerId) {
-    inTenant(() -> agentWorkRepository.insertOutcome(issueId, workerId, null, "SUBMITTED"));
+    inTenantRun(() -> agentWorkRepository.insertSubmitted(issueId, List.of(workerId)));
   }
 
   /** 워크스페이스 구성원인 AI 를 하나 더 시드한다(정리 대상에 넣는다) — 프로젝트 구성원은 아니다. */

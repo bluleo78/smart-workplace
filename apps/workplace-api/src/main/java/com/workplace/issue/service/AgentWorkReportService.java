@@ -14,12 +14,10 @@ import com.workplace.issue.exception.AgentToolRequiredException;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.exception.AgentWorkNotAssigneeException;
 import com.workplace.issue.exception.IssueNotFoundException;
-import com.workplace.issue.outbound.AgentWorkAutoStarted;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
-import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserKind;
 import java.util.ArrayList;
@@ -27,7 +25,6 @@ import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,13 +43,12 @@ public class AgentWorkReportService {
   private final IssueService issueService;
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository assigneeRepository;
-  private final ProjectRepository projectRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueChatPoster chatPoster;
   private final ApplicationEventPublisher publisher;
   private final UserMentionHydrator mentionHydrator;
 
-  /** 명시 보고. 부수 쓰기(상태 변경·챗 글)가 자동 터치로 보고 상태를 되돌리지 않도록 전체를 억제 구간으로 감싼다. */
+  /** 명시 보고. 부수 쓰기(상태 변경·챗 글)가 작업 터치로 보고 상태를 되돌리지 않도록 전체를 억제 구간으로 감싼다. */
   @Transactional
   public AgentWorkReportResponse report(
       long callerId, String projectKey, int number, ReportAgentWorkRequest req) {
@@ -108,7 +104,7 @@ public class AgentWorkReportService {
       return new AgentWorkReportResponse(null, true, null);
     }
 
-    // 작업을 시작했으면 TODO 이슈는 진행 중으로 — 상태 변경이 자동 터치로 보고를 덮지 않게 이미 억제 구간 안이다.
+    // 작업을 시작했으면 TODO 이슈는 진행 중으로 — 상태 변경이 작업 터치로 보고를 덮지 않게 이미 억제 구간 안이다.
     // 단, 다음 회차 대기(SCHEDULED) 보고는 아직 착수 전(「월요일 9시에 시작」)이라 이슈 상태를 바꾸지 않는다(WP-450).
     // AI 가 사람을 멘션한 대기 중 보고는 답변 필요로 저장한다(WP-1217) — 아래 상태 변경·질문 저장·알림이 모두 바뀐 상태를 따른다.
     String state = storedState(req, agentWorker, hasMessage);
@@ -171,27 +167,6 @@ public class AgentWorkReportService {
         mentionHydrator.asMentionResponses(MentionParser.parse(req.message())).stream()
             .anyMatch(m -> UserKind.HUMAN.equals(m.kind()));
     return mentionsHuman ? AgentWorkState.INPUT_REQUIRED : req.state();
-  }
-
-  /**
-   * MCP 쓰기로 할 일 이슈의 AI 작업이 자동 시작됐으면(WP-393) 명시 보고와 같은 규칙으로 진행 중으로 올린다(이력·상태 변경 알림 포함). 쓰기와 같은 트랜잭션의
-   * 동기 리스너다. 명시 보고와 달리 멤버가 아니면 건너뛴다 — 상태는 멤버만 바꿀 수 있어 403 이 나면 AI 가 한 원래 쓰기까지 함께 롤백되기 때문. 상태 변경 알림이
-   * 다시 자동 터치를 일으켜 작업 이벤트를 한 번 더 남기지 않게 터치 억제 구간에서 바꾼다. 그 사이 프로젝트가 사라졌으면 건너뛴다.
-   */
-  @EventListener
-  public void onAgentWorkAutoStarted(AgentWorkAutoStarted e) {
-    projectRepository
-        .findById(e.projectId())
-        .filter(project -> accessGuard.isMemberOrAdmin(project, e.actorId()))
-        .ifPresent(
-            project ->
-                AgentToolContext.suppressTouch(
-                    () ->
-                        issueService.updateStatus(
-                            e.actorId(),
-                            project.key(),
-                            e.issueNumber(),
-                            IssueStatuses.IN_PROGRESS)));
   }
 
   /**
