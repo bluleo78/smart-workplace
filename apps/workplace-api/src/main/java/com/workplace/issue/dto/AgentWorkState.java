@@ -51,10 +51,11 @@ public final class AgentWorkState {
    * 이슈 쓰기(MCP 수행 도구 헤더)로 다시 움직이기 시작했을 때 작업 중으로 되돌아가는 진행 상태. 검토 필요(REVIEW)는 검토 대기 중 PR 링크 코멘트 등이 흔해
    * 유지하고, 작업 중(WORKING)은 이미 그 상태라 제외한다. 다음 회차 대기(SCHEDULED)도 넣지 않는다 — 에픽 회차에서 하위를 만들다 에픽이 작업 중으로
    * 뒤집히면 매 회차 다시 집히므로, 재개는 AI 의 명시 보고로만 한다(WP-450). 대기 중(WAITING)도 넣지 않는다 — 상대를 기다리는 사이 이슈 챗 답·PR
-   * 링크 같은 쓰기가 흔해, 쓰기마다 작업 중으로 뒤집히면 무엇을 기다리는지가 사라진다(WP-1024).
+   * 링크 같은 쓰기가 흔해, 쓰기마다 작업 중으로 뒤집히면 무엇을 기다리는지가 사라진다(WP-1024). 시작 전(SUBMITTED)도 넣지 않는다 — MCP 쓰기는 작업을
+   * 시작하지 않으므로 시작 전 작업은 쓰기로 손대지 않는다(WP-1365).
    */
   public static final Set<String> RESUMES_TO_WORKING =
-      Set.of(INPUT_REQUIRED, AUTH_REQUIRED, BLOCKED, PAUSED, SUBMITTED);
+      Set.of(INPUT_REQUIRED, AUTH_REQUIRED, BLOCKED, PAUSED);
 
   /** 사람의 입력·권한을 기다리며 멈춘 상태(A2A interrupted) — 이 상태의 note 는 질문·요청이라 벗어나면 낡는다. */
   public static final Set<String> INTERRUPT = Set.of(INPUT_REQUIRED, AUTH_REQUIRED);

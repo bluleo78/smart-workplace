@@ -11,7 +11,6 @@ import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
-import com.workplace.global.security.AgentToolContext;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.SingleLineTitles;
@@ -726,14 +725,10 @@ public class IssueService {
 
     // 6) 응답에 유형·담당자·부모·라벨을 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
     //    새 이슈라 첨부·커스텀 필드는 없다.
-    // 수행 도구 헤더가 있는 생성이면 알림의 AI 작업 자동 시작이 이슈를 진행 중으로 올렸을 수 있다(WP-393) — 응답의 상태·버전이 저장된 값과
-    // 어긋나지 않게 그때만 다시 읽는다(브라우저 생성은 자동 시작이 없다). WP-870 에서 INSERT 뒤 재조회는 없앴지만 이 재조회는 이름을 채우려는
-    // 것이 아니라 생성 뒤 바뀐 상태를 반영하려는 것이라 그대로 둔다.
-    var saved =
-        AgentToolContext.current() == null ? row : issueRepository.findById(row.id()).orElse(row);
+    // MCP 쓰기는 AI 작업을 시작하지 않아(WP-1365) 생성 뒤 상태가 바뀌지 않으므로 INSERT 결과 행을 그대로 쓴다.
     return newIssueSummary(
         project,
-        saved,
+        row,
         assigneeSummaries,
         0,
         List.of(),
@@ -960,7 +955,7 @@ public class IssueService {
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest rawReq) {
     var project = accessGuard.resolve(projectKey);
-    // WP-870 상태 이름은 맨 앞에서 상태 id(범주 코드면 범주)로 바꾼다 — 아래의 잠금 순서·권한·정리성 판정·자동 시작 플래그가 모두
+    // WP-870 상태 이름은 맨 앞에서 상태 id(범주 코드면 범주)로 바꾼다 — 아래의 잠금 순서·권한·정리성 판정이 모두
     // status/statusId 만 보므로, 바꾸지 않으면 이름으로 지정한 상태가 명시적 상태 변경으로 취급되지 않는다.
     // 상태 id 지정이면 그 상태 행을 한 번만 읽어(이름으로 찾았으면 그 행 그대로) 잠금 순서 판정과 아래 상태 해석에 함께 쓴다(WP-807).
     RequestedStatus named = resolveStatusName(callerId, projectKey, project, rawReq);
@@ -1142,15 +1137,13 @@ public class IssueService {
       }
     }
 
-    // 이력을 알림보다 먼저 남긴다 — 알림이 AI 작업 자동 시작으로 상태를 진행 중으로 올리면(WP-393) 그 이력이 이 변경 뒤에 와야 순서가 맞다.
     historyRecorder.recordChanges(callerId, before, after);
-    // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로). 상태를 직접 지정한 요청이면 자동 시작이 덮지 않는다.
-    // 제목·본문·상태 없이 우선순위·날짜·마일스톤만 바꾼 요청은 정리성 쓰기라 AI 작업을 시작·터치하지 않는다(WP-425).
+    // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로). MCP 쓰기는 이미 있는 AI 작업만 터치하고 이슈 상태는
+    // 바꾸지 않는다(WP-1365). 제목·본문·상태 없이 우선순위·날짜·마일스톤만 바꾼 요청은 정리성 쓰기라 AI 작업을 터치하지 않는다(WP-425).
     if (isOrganizingOnly(req)) {
       changeNotifier.updatedWithoutTouch(project, number, before.id(), callerId);
     } else {
-      changeNotifier.updated(
-          project, number, before.id(), callerId, req.status() != null || req.statusId() != null);
+      changeNotifier.updated(project, number, before.id(), callerId);
     }
     // WP-689 완료(DONE) 에픽의 하위가 다시 열리면 에픽도 진행 중으로 되돌린다 — 완료 에픽 아래 미완료 하위가 남지 않게.
     // 같은 수정 본체로 바꿔 상태 이력·이벤트·실시간 무효화를 그대로 남긴다(에픽은 부모가 없어 더 올라가지 않는다).

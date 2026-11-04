@@ -9,13 +9,11 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
-import com.workplace.issue.outbound.AgentWorkAutoStarted;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
-import com.workplace.issue.repository.AgentWorkRepository.InsertOutcome;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRecurrenceRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -61,7 +59,7 @@ public class AgentWorkService {
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
   private final IssueChangeNotifier notifier;
-  // 자동 시작을 알려 이슈 상태(TODO → 진행 중)를 맞추게 한다 — IssueService 를 직접 쓰면 순환 의존이라 이벤트로 넘긴다(WP-393).
+  // 진행 상태 알림(AgentWorkNoticeEvent)·챗 답 재개 깨우기(AgentsResumedByChatReply)를 낸다.
   private final ApplicationEventPublisher publisher;
 
   /** 이슈들의 진행 중 작업을 급한 순으로 정렬해 이슈별로 돌려준다. 작업 없는 이슈는 키가 없다. */
@@ -290,48 +288,35 @@ public class AgentWorkService {
   }
 
   /**
-   * MCP(수행 도구 헤더) 경유 이슈 쓰기 → 담당자 본인이면 AI 작업 자동 시작, 이미 있으면 상태 복귀 규칙(스펙 §4.2). 동기 리스너라 쓰기와 같은 트랜잭션에서
-   * 돈다. 삭제·종료된 이슈와 담당자가 아닌 쓰기는 무시한다 — 완료 처리·담당 해제 직후 작업이 되살아나지 않게.
+   * MCP(수행 도구 헤더) 경유 이슈 쓰기 → 담당자 본인의 이미 있는 AI 작업만 터치한다(스펙 §4.2). 동기 리스너라 쓰기와 같은 트랜잭션에서 돈다.
+   *
+   * <p>규칙 「MCP 쓰기는 작업을 시작하지 않는다」(WP-1365): 진행 중 작업 행이 없거나 시작 전(SUBMITTED)이면 아무것도 하지 않는다 — 새 행을 만들지
+   * 않고, 시작 전 작업을 작업 중으로 잇지 않고, 이슈 상태도 진행 중으로 올리지 않는다. 할 일 이슈의 본문을 고치거나 파일을 붙이거나 상태를 할 일로 되돌리는 쓰기만으로
+   * 작업이 시작돼 이슈가 진행 중으로 올라가던 문제를 막는다. 작업 시작은 명시 보고(report_agent_work)로만 한다 — claim_issue 는 담당자만 더해
+   * 시작 전 작업을 남기고, 그 뒤 첫 보고가 시작한다. 사람·AI 담당자 모두 같은 규칙이다.
+   *
+   * <p>이미 일하던 작업(SUBMITTED 밖의 진행 중 행)이면 도구를 갱신하고 updated_at 을 터치하며(무소식 해소), 답변 필요·인증 필요·막힘·일시 중지에서
+   * 다시 쓰기 시작했으면 작업 중으로 되돌린다. 삭제·종료된 이슈와 담당자가 아닌 쓰기는 무시한다 — 완료 처리·담당 해제 직후 작업이 되살아나지 않게.
    */
   @EventListener
   public void onAgentToolWrite(AgentToolWriteEvent e) {
+    // 작업이 없거나 아직 시작 전이면 이 쓰기로 시작하지 않는다(WP-1365) — 바뀐 것이 없으니 알림도 내지 않는다.
+    // 대부분의 MCP 쓰기가 여기서 끝나므로 이슈·담당자 조회보다 먼저 거른다.
+    var existing = repository.findActive(e.issueId(), e.actorId()).orElse(null);
+    if (existing == null || AgentWorkState.SUBMITTED.equals(existing.state())) return;
     // findById 는 삭제(deleted_at) 이슈를 돌려주지 않는다 — 비어 있으면 삭제된 이슈.
     var issue = issueRepository.findById(e.issueId()).orElse(null);
     if (issue == null || IssueStatuses.CLOSED.contains(issue.status())) return;
+    // 담당에서 빠진 뒤 남은 작업 행은 터치하지 않는다.
     if (!assigneeRepository.findUserIdsByIssue(e.issueId()).contains(e.actorId())) return;
-    var existing = repository.findActive(e.issueId(), e.actorId());
-    boolean valuesWritten = false;
-    if (existing.isEmpty() && !e.promoteOnly()) {
-      // 동시에 다른 트랜잭션(담당자 추가의 SUBMITTED 생성 등)이 먼저 행을 만들었으면 insert 는 충돌로 아무것도 넣지 않고 그 진행 중 행을 돌려준다.
-      // 그 사이 종료돼 행이 없으면(빈 결과) 아무것도 하지 않는다. 새로 넣었으면 도구·상태가 이미 담겨 있어 아래 갱신이 필요 없다.
-      var outcome =
-          repository.insertOutcome(e.issueId(), e.actorId(), e.tool(), AgentWorkState.WORKING);
-      existing = outcome.map(InsertOutcome::row);
-      valuesWritten = outcome.map(InsertOutcome::inserted).orElse(false);
-    }
-    // 이번 쓰기로 작업이 막 시작됐는지 — 새 행을 넣었거나 시작 전(SUBMITTED)을 이었을 때만. 이미 일하던 작업의 터치·중단 상태 복귀는 시작이 아니다.
-    boolean started =
-        valuesWritten
-            || existing.map(r -> AgentWorkState.SUBMITTED.equals(r.state())).orElse(false);
-    if (existing.isPresent() && !valuesWritten) {
-      String state = existing.get().state();
-      // 답변 필요·인증 필요·막힘·일시 중지·시작 전(SUBMITTED)에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요·작업 중은 그대로
-      // —
-      // tool 갱신과 updated_at 터치(무소식 해소)만 한다.
-      String next =
-          AgentWorkState.RESUMES_TO_WORKING.contains(state) ? AgentWorkState.WORKING : null;
-      // 답변 필요·인증 필요에서 복귀하면 질문·요청 note 는 낡았으므로 지운다(막힘·일시 중지의 사유 note 는 유지).
-      boolean clearNote = AgentWorkState.isInterrupt(state);
-      repository.update(
-          existing.get().id(),
-          new AgentWorkPatch(e.tool(), next, null, clearNote, null, null, null));
-    }
-    // 시작했으면 이슈가 할 일(TODO)일 때 진행 중으로 올린다 — 명시 보고와 같은 규칙(이력·알림 포함, WP-393). 이 쓰기가 상태를 직접 지정했으면
-    // 요청한 상태가 우선이라 올리지 않는다. 위에서 읽은 이슈 행으로 TODO 를 먼저 거른다.
-    if (started && !e.statusWritten() && "TODO".equals(issue.status())) {
-      publisher.publishEvent(
-          new AgentWorkAutoStarted(issue.projectId(), issue.number(), e.actorId()));
-    }
+    String state = existing.state();
+    // 답변 필요·인증 필요·막힘·일시 중지에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요·작업 중·대기·예약은 그대로 —
+    // tool 갱신과 updated_at 터치(무소식 해소)만 한다. SUBMITTED 는 위에서 걸렀다.
+    String next = AgentWorkState.RESUMES_TO_WORKING.contains(state) ? AgentWorkState.WORKING : null;
+    // 답변 필요·인증 필요에서 복귀하면 질문·요청 note 는 낡았으므로 지운다(막힘·일시 중지의 사유 note 는 유지).
+    boolean clearNote = AgentWorkState.isInterrupt(state);
+    repository.update(
+        existing.id(), new AgentWorkPatch(e.tool(), next, null, clearNote, null, null, null));
     // 발행 쪽이 이슈 변경 알림을 이미 냈으면(이슈 updated 경유) 같은 알림을 다시 내지 않는다.
     if (!e.issueNotified()) notifyChanged(issue, e.actorId());
   }

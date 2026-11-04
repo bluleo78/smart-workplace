@@ -18,9 +18,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 
 /**
- * 외부 실행 AI 구성원을 담당자로 두면 "시작 전"(SUBMITTED) 작업이 만들어지고, 첫 보고·MCP 쓰기가 같은 행을 작업 중(WORKING)으로 이어
- * 쓴다(WP-377, A2A submitted). 담당자가 들어가는 두 곳(이슈 생성·담당자 교체)과 내부 AI·사람·종료 이슈 제외, 겹침(생성+터치) 시 행이 하나뿐임을
- * 실제 HTTP 요청으로 검증한다. 시드 AI 구성원(agentId)은 기본 내부 실행이라 각 테스트가 필요할 때만 외부로 바꾼다.
+ * 외부 실행 AI 구성원을 담당자로 두면 "시작 전"(SUBMITTED) 작업이 만들어지고, 첫 보고가 같은 행을 작업 중(WORKING)으로 이어 쓴다(WP-377, A2A
+ * submitted). MCP 쓰기는 시작 전 작업을 잇지 않는다(WP-1365). 담당자가 들어가는 두 곳(이슈 생성·담당자 교체)과 내부 AI·사람·종료 이슈 제외,
+ * 겹침(생성+터치) 시 행이 하나뿐임을 실제 HTTP 요청으로 검증한다. 시드 AI 구성원(agentId)은 기본 내부 실행이라 각 테스트가 필요할 때만 외부로 바꾼다.
  */
 class AgentWorkSubmittedTest extends AgentWorkTestSupport {
 
@@ -74,17 +74,14 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     assertThat(eventStates(created, agentId)).containsExactly("SUBMITTED");
   }
 
-  /** (a) 외부 AI 가 도구 헤더로 자기를 담당자로 이슈를 만들어도 행은 정확히 하나 — 작업 중이고 도구가 채워진다. */
+  /** (a) 외부 AI 가 도구 헤더로 자기를 담당자로 이슈를 만들면 행은 정확히 하나 — 시작 전 그대로, 도구도 비어 있다(생성은 시작이 아니다, WP-1365). */
   @Test
-  void a_외부_AI가_도구_헤더로_자기를_담당자로_만들면_행은_하나_WORKING_도구_채움() {
+  void a_외부_AI가_도구_헤더로_자기를_담당자로_만들면_행은_하나_SUBMITTED_유지() {
     makeExternal(agentId);
     long created = createIssue(akToken, TOOL, List.of(agentId));
-    assertThat(allStates(created, agentId)).hasSize(1);
-    var w = activeWork(created, agentId).orElseThrow();
-    assertThat(w.state()).isEqualTo("WORKING");
-    assertThat(w.tool()).isEqualTo(TOOL);
-    // 만들어진 시작 전 행이 이력을 남기고 터치가 같은 행을 작업 중으로 이어 쓴 것 — 이력은 둘뿐.
-    assertThat(eventStates(created, agentId)).containsExactly("SUBMITTED", "WORKING");
+    assertThat(allStates(created, agentId)).containsExactly("SUBMITTED");
+    assertThat(activeWork(created, agentId).orElseThrow().tool()).isNull();
+    assertThat(eventStates(created, agentId)).containsExactly("SUBMITTED");
   }
 
   /** (c) 내부 AI·사람은 담당자로 들어와도 작업을 만들지 않는다. */
@@ -136,15 +133,15 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "WORKING");
   }
 
-  /** MCP 쓰기(수행 도구 헤더)도 같은 행을 WORKING 으로 되돌리고 도구를 채운다. */
+  /** WP-1365: 담당자 추가 직후의 시작 전 작업은 MCP 쓰기(수행 도구 헤더)로 잇지 않는다 — 상태·도구·이력 모두 그대로. */
   @Test
-  void MCP_쓰기는_SUBMITTED_를_WORKING_으로_이어_쓰고_도구를_채움() {
+  void MCP_쓰기는_SUBMITTED_를_잇지_않음() {
     makeExternal(agentId);
     addAgentAsAssignee();
     assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
-    assertThat(allStates(issueId, agentId)).containsExactly("WORKING");
-    assertThat(activeWork(issueId, agentId).orElseThrow().tool()).isEqualTo(TOOL);
-    assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "WORKING");
+    assertThat(allStates(issueId, agentId)).containsExactly("SUBMITTED");
+    assertThat(activeWork(issueId, agentId).orElseThrow().tool()).isNull();
+    assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED");
   }
 
   /** 착수 전(SUBMITTED)에서 곧바로 종료 보고해도 행의 tool 이 요청 도구로 채워지고, 종료 이벤트는 한 건뿐이다. */
@@ -167,8 +164,8 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
   }
 
   /**
-   * 사람이 도구 헤더로 자기를 담당자로 이슈를 만들어도 작업 행은 새로 열리지 않는다 — 생성 알림의 터치는 승격 전용이라, 시작도 안 한 TODO 이슈에 작업 중 행이 생겨
-   * 2시간 뒤 무소식으로 보이는 일이 없다.
+   * 사람이 도구 헤더로 자기를 담당자로 이슈를 만들어도 작업 행은 새로 열리지 않는다 — 생성은 작업을 시작하지 않아(WP-1365), 시작도 안 한 TODO 이슈에 작업 중
+   * 행이 생겨 2시간 뒤 무소식으로 보이는 일이 없다.
    */
   @Test
   void 사람이_도구_헤더로_자기를_담당자로_이슈를_만들면_행_없음() {
@@ -185,6 +182,8 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     makeExternal(agentId);
     addAgentAsAssignee();
     long working = createIssue(akToken, TOOL, List.of(agentId));
+    // 일하던 작업 — 생성은 작업을 시작하지 않으므로(WP-1365) 작업 중으로 시드한다.
+    seedActive(working, agentId, "WORKING");
     assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("SUBMITTED");
 
     inTenant(

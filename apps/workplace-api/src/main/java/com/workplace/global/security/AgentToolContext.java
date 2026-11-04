@@ -6,7 +6,8 @@ import java.util.regex.Pattern;
 
 /**
  * 요청 범위 "수행 도구"(WP-377). genia-works MCP 가 보내는 X-Agent-Tool 값을 PAT·AI 키 인증 필터만 여기에 둔다 —
- * 브라우저(JWT)·Internal 요청은 값이 없어 AI 작업 자동 시작이 일어나지 않는다. TenantContext 처럼 필터 finally 에서 정리.
+ * 브라우저(JWT)·Internal 요청은 값이 없어 이슈 쓰기의 AI 작업 터치가 일어나지 않는다(쓰기는 작업을 시작하지 않는다, WP-1365). TenantContext
+ * 처럼 필터 finally 에서 정리.
  */
 public final class AgentToolContext {
   public static final String HEADER = "X-Agent-Tool";
@@ -40,7 +41,7 @@ public final class AgentToolContext {
     SUPPRESS.remove();
   }
 
-  /** 명시 보고 처리 중에는 부수 쓰기(상태 변경·챗 글)가 자동 터치를 일으키지 않게 한다 — 보고한 상태가 되돌려지지 않도록. */
+  /** 명시 보고 처리 중에는 부수 쓰기(상태 변경·챗 글)가 작업 터치를 일으키지 않게 한다 — 보고한 상태가 되돌려지지 않도록. */
   public static <T> T suppressTouch(Supplier<T> body) {
     Boolean prev = SUPPRESS.get();
     SUPPRESS.set(Boolean.TRUE);
@@ -52,7 +53,7 @@ public final class AgentToolContext {
     }
   }
 
-  /** 자동 터치가 억제 중인지. */
+  /** 작업 터치가 억제 중인지. */
   public static boolean touchSuppressed() {
     return Boolean.TRUE.equals(SUPPRESS.get());
   }
