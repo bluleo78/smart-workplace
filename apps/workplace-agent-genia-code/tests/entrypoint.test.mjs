@@ -530,6 +530,18 @@ test('writeGeniaSettings_overwritesWithModelTrustAndQuietStartup', (t) => {
   assert.equal(existsSync(join(dir, 'mcp.json')), false);
 });
 
+test('writeGeniaSettings_loadsSuperpowersExtensionWhenBaked', (t) => {
+  // genia 는 Claude 플러그인의 세션 시작 hook 을 돌리지 않는다 — superpowers 의 genia 확장(using-superpowers 안내)을 설정에 싣는다(WP-1336).
+  const f = fixture(t);
+  const ext = f.d('home', '.genia-superpowers', '.pi', 'extensions', 'superpowers.ts');
+  mkdirSync(dirname(ext), { recursive: true });
+  writeFileSync(ext, 'export default () => {}\n');
+  const r = callLib({ ...f.env, GENIA_SUPERPOWERS_EXT: ext }, 'check_required && prepare_dirs && use_plugin && genia_env && write_genia_settings');
+  assert.equal(r.status, 0, r.stderr);
+  const s = JSON.parse(readFileSync(join(f.d('work', 'agents', 'kodi', 'genia-agent'), 'settings.json'), 'utf8'));
+  assert.deepEqual(s.extensions, [ext]);
+});
+
 // ---------------------------------------------------------------- 이미지·카탈로그
 
 test('dockerfileDoesNotBakeGeniaProgram', () => {
@@ -540,7 +552,33 @@ test('dockerfileDoesNotBakeGeniaProgram', () => {
   assert.match(dockerfile, /COPY plugins\/genia-works\/genia\/ \/opt\/genia\/plugin\/genia-works\/genia\//);
   assert.doesNotMatch(dockerfile, /plugins\/genia-works\/tests|^RUN .*chmod/m);
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/bin\/tini", "--", "\/opt\/genia\/bin\/entrypoint"\]/);
-  assert.doesNotMatch(dockerfile, /@anthropic-ai\/claude-code|jdt-language-server|install_plugins/);
+  assert.doesNotMatch(dockerfile, /jdt-language-server/);
+});
+
+test('dockerfileBakesSameClaudePluginsExceptGeniaWorks', () => {
+  // genia 는 Claude Code 에 설치된 플러그인의 스킬·명령을 읽는다 — Claude 이미지와 같은 plugins.lock 으로 superpowers 등을 굳혀
+  // 두 실행기의 개발 절차를 한 벌로 맞춘다(WP-1336). genia-works 는 genia 확장으로 따로 싣으므로 받을 때 뺀다(두 번 실리지 않게).
+  const dockerfile = readFileSync(join(appDir, 'Dockerfile'), 'utf8');
+  const claudeDockerfile = readFileSync(join(appDir, '..', 'workplace-agent-claude-code', 'Dockerfile'), 'utf8');
+  const version = (d) => d.match(/^ARG CLAUDE_CODE_VERSION=(\S+)$/m)?.[1];
+  assert.ok(version(dockerfile));
+  assert.equal(version(dockerfile), version(claudeDockerfile)); // 같은 Claude Code 로 받아야 같은 플러그인 형식이 된다
+  assert.match(dockerfile, /COPY apps\/workplace-agent-claude-code\/plugins\.lock \/opt\/genia\/plugins\.lock/);
+  assert.match(dockerfile, /install_plugins \/opt\/genia\/plugins\.lock "" genia-works@genia-works/);
+  // superpowers 의 genia 확장을 고정 이름으로 가리킨다(엔트리포인트가 설정에 싣는다)
+  assert.match(dockerfile, /ln -sfn "\$sp" \/home\/agent\/\.genia-superpowers/);
+  // 에이전트 형식이라 genia 가 못 읽는 code-simplifier 는 스킬로 옮겨 ~/.agents/skills 에 둔다
+  assert.match(dockerfile, /COPY --chown=1001:1001 apps\/workplace-agent-genia-code\/skills\/ \/home\/agent\/\.agents\/skills\//);
+  const skill = readFileSync(join(appDir, 'skills', 'code-simplifier', 'SKILL.md'), 'utf8');
+  assert.match(skill, /^---\nname: code-simplifier\n/);
+  // 옮긴 원본 판이 lock 의 code-simplifier 판과 같아야 한다 — lock 만 올리면 두 실행기의 정리 기준이 갈린다(올리면 스킬도 다시 옮긴다)
+  const lock = readFileSync(join(appDir, '..', 'workplace-agent-claude-code', 'plugins.lock'), 'utf8');
+  const locked = lock.match(/^(code-simplifier@\S+ \S+)$/m)?.[1];
+  assert.ok(locked && skill.includes(`source: ${locked}`), `스킬 원본 판(${locked})을 SKILL.md 에 적고 다시 옮기세요`);
+  // 카탈로그: lock 이 바뀌면 이 이미지도 다시 빌드한다
+  const catalog = JSON.parse(readFileSync(join(appDir, '..', '..', 'deploy', 'release', 'image-catalog.json'), 'utf8'));
+  const entry = catalog.images.find((i) => i.id === 'agent-genia-code');
+  assert.ok(entry.paths.includes('apps/workplace-agent-claude-code/plugins.lock'));
 });
 
 // ---------------------------------------------------------------- 엔트리포인트 전체(진짜 tmux·플러그인 스크립트)

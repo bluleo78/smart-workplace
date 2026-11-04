@@ -8,7 +8,7 @@ Works 가 띄우는 AI Pod 의 작업 공간 이미지다(WP-1252). runner(`apps
 - tmux, git, gh, glab(GitLab — 사용 통계·업데이트 확인 끔), jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack)
 - Claude Code `2.1.316`(npm 전역 설치, `DISABLE_AUTOUPDATER=1`)
 - 언어 서버 jdtls, typescript-language-server
-- 플러그인 8개: 빌드할 때 `/home/agent` 에 받아 이미지에 넣는다. 버전은 [plugins.lock](plugins.lock)에 고정한다. 받은 버전이 lock 과 다르면 빌드가 실패한다.
+- 플러그인 8개: 빌드할 때 `/home/agent` 에 받아 이미지에 넣는다. 버전은 [plugins.lock](plugins.lock)에 고정한다. 받은 버전이 lock 과 다르면 빌드가 실패한다. superpowers 는 만든 사람의 마켓플레이스(`obra/superpowers-marketplace`)에서 받는다(최신을 바로 싣는다). Gen:iA Code 이미지도 이 lock 을 받는다(`genia-works` 만 빼고).
 - 사용자 `agent`(UID/GID 1001)
 
 ## 엔트리포인트 (`bin/entrypoint`, 함수는 `bin/lib.sh`)
