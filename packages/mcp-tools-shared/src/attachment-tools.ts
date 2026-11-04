@@ -161,7 +161,7 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       description:
         'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
-        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail or body image …/issue-images/{id}}; ' +
+        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail or body …/issue-images/{id}}; ' +
         (issueChatSource ? 'issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; ' : '') +
         'wiki image {pageId, attachmentId in …/attachments/{id}/content}; message {channelId, messageId, attachmentId = ' +
         'attachments[].fileId from list_channel_messages/list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (nextOffset → offset); ' +
