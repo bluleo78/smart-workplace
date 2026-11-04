@@ -82,6 +82,8 @@ export interface EmailMessageDetail {
   aiCategory?: string | null;
   /** WP-1341 aiCategory 가 내가 직접 바꾼 분류인가 — 메뉴의 「AI 분류로 되돌리기」 노출, 되돌리기 값 판정. */
   categoryByMe?: boolean;
+  /** WP-1364 Gen:iA Works 에서 보낸 메일(발신 헤더 표지)이면 true — 보낸 사람 옆 작은 표시. 없으면 false 취급. */
+  sentByGeniaWorks?: boolean;
 }
 
 /** WP-986 초대 메일의 내 응답 — 백엔드 CalendarInvite.myResponse 와 1:1(캘린더 RsvpStatus 와 같은 값). */

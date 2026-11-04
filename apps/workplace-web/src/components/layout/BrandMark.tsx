@@ -5,7 +5,8 @@ import { Boxes } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
-export function BrandMark({ className }: { className?: string }) {
+/** iconClassName: 작은 마크(공유 페이지 등)에서 글리프 크기를 바꿀 때 쓴다(WP-1364). */
+export function BrandMark({ className, iconClassName }: { className?: string; iconClassName?: string }) {
   return (
     <span
       className={cn(
@@ -14,7 +15,7 @@ export function BrandMark({ className }: { className?: string }) {
       )}
     >
       {/* 장식 글리프 — 접근성 이름은 감싼 버튼/워드마크가 제공 */}
-      <Boxes className="h-5 w-5" aria-hidden />
+      <Boxes className={cn('h-5 w-5', iconClassName)} aria-hidden />
     </span>
   )
 }

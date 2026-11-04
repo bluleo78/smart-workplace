@@ -776,6 +776,14 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                         .fetchOneInto(String.class);
                 assertThat(bodyViaJoin).as("JOIN 으로 읽은 본문이 원본과 일치해야 한다").isEqualTo("보낸메일 본문 텍스트");
 
+                // 단언 3(WP-1364): 이 앱이 보낸 메일이므로 Gen:iA Works 발신 표시가 선다
+                Boolean sentByUs =
+                    dsl.select(EMAIL_CONTENT.SENT_BY_GENIA_WORKS)
+                        .from(EMAIL_CONTENT)
+                        .where(EMAIL_CONTENT.ID.eq(contentId))
+                        .fetchOneInto(Boolean.class);
+                assertThat(sentByUs).isTrue();
+
                 status.setRollbackOnly();
                 return null;
               });

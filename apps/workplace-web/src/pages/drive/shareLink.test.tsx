@@ -432,4 +432,11 @@ describe('공유 링크 화면', () => {
     renderLanding({ info: () => new HttpResponse(null, { status: 404 }) })
     expect(screen.getByRole('link', { name: 'Gen:iA Works' })).toHaveAttribute('href', '/')
   })
+
+  // WP-1364: 브랜드 링크 안에 로고 마크가 문구 앞에 붙는다.
+  test('브랜드 링크에 로고 마크가 문구와 함께 있다(WP-1364)', () => {
+    renderLanding({ info: () => new HttpResponse(null, { status: 404 }) })
+    const link = screen.getByRole('link', { name: 'Gen:iA Works' })
+    expect(within(link).getByTestId('share-brand-mark')).toBeInTheDocument()
+  })
 })

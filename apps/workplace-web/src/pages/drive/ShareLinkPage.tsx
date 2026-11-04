@@ -23,6 +23,7 @@ import {
   unlockShare,
 } from '@/api/drivePublicShare'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { BrandMark } from '@/components/layout/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { PasswordInput } from '@/components/ui/password-input'
@@ -245,7 +246,11 @@ export default function ShareLinkPage() {
     // 전체 화면 중앙 정렬 — AppLayout 없이 최소 UI. 좁은 폰(360px)에서도 카드가 좌우 16px 여백 안에 들어간다.
     <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8">
       {/* 브랜드/홈 링크 — AppLayout 밖 독립 페이지라 대체 내비게이션 수단이 없어 둔다(#677). */}
-      <Link to="/" className="mb-6 text-sm font-medium text-muted-foreground hover:text-foreground">
+      <Link to="/" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        {/* WP-1364: 로고 마크 — BrandMark 의 안쪽 아이콘이 고정 크기(h-5)라 작은 칸에서는 [&>svg] 로 줄인다. */}
+        <span data-testid="share-brand-mark" className="inline-flex">
+          <BrandMark className="h-5 w-5" iconClassName="h-3 w-3" />
+        </span>
         Gen:iA Works
       </Link>
       {body}

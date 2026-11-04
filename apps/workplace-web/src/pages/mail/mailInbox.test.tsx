@@ -134,6 +134,30 @@ test('계정이 없을 때 계정 주소로 들어오면 /mail 의 계정 없음
 
 // ── 상세 선택 ─────────────────────────────────────────────
 
+// WP-1364: Gen:iA Works 에서 보낸 메일이면 상세의 보낸 사람 옆에만 작은 표시가 붙는다(목록 행에는 없다).
+test('Gen:iA Works 에서 보낸 메일은 상세 보낸 사람 옆에 표시가 있고 호버하면 툴팁이 뜬다(WP-1364)', async () => {
+  renderMail('/mail/1?messageId=100', {
+    messages: [summary({ id: 100, subject: '월간 보고서', seen: true })],
+    handlers: [detailHandler(100, { subject: '월간 보고서', sentByGeniaWorks: true })],
+  })
+  const detailEl = await screen.findByTestId('mail-detail')
+  const mark = await within(detailEl).findByTestId('mail-genia-mark')
+  expect(within(mark).getByRole('img', { name: 'Gen:iA Works에서 보낸 메일' })).toBeInTheDocument()
+  // 목록 행에는 표시가 없다.
+  expect(within(screen.getByTestId('mail-row-100')).queryByTestId('mail-genia-mark')).not.toBeInTheDocument()
+  fireEvent.focus(mark)
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Gen:iA Works에서 보낸 메일')
+})
+
+test.each([[false], [undefined]])('sentByGeniaWorks=%s 이면 표시가 없다(WP-1364)', async (flag) => {
+  renderMail('/mail/1?messageId=100', {
+    messages: [summary({ id: 100, subject: '월간 보고서', seen: true })],
+    handlers: [detailHandler(100, { subject: '월간 보고서', sentByGeniaWorks: flag })],
+  })
+  await screen.findByTestId('mail-detail')
+  expect(screen.queryByTestId('mail-genia-mark')).not.toBeInTheDocument()
+})
+
 test('?messageId 로 직접 들어오면 그 메일이 선택돼 상세가 열린다(#474)', async () => {
   renderMail('/mail/1?messageId=100', {
     messages: [summary({ id: 100, subject: '월간 보고서', snippet: '이번 달 실적을 공유합니다', seen: false })],

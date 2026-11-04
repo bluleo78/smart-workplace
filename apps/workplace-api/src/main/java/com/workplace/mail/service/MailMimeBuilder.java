@@ -4,6 +4,7 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
 import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
+import com.workplace.mail.util.MailerHeaders;
 import jakarta.activation.DataHandler;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
@@ -22,6 +23,7 @@ import java.io.UnsupportedEncodingException;
 import java.util.Date;
 import java.util.List;
 import java.util.Properties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -34,6 +36,23 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class MailMimeBuilder {
+
+  /**
+   * 앱 버전(info.app.version). 수신자가 원문 헤더를 볼 수 있으므로 X-Mailer 에는 제품명+버전만 담고 사용자·테넌트 정보는 넣지 않는다. 단위 테스트의
+   * {@code new MailMimeBuilder()} 가 그대로 동작하도록 기본값 dev.
+   */
+  private String appVersion = "dev";
+
+  /** Spring 이 info.app.version 을 주입한다(테스트에서도 직접 호출). */
+  @Value("${info.app.version:dev}")
+  public void setAppVersion(String appVersion) {
+    this.appVersion = appVersion;
+  }
+
+  /** WP-1364: 우리 앱이 보낸 메일임을 알리는 X-Mailer 값. */
+  private String mailerHeader() {
+    return MailerHeaders.PRODUCT + " " + appVersion;
+  }
 
   /** OutgoingMail → MimeMessage. updateMessageID 오버라이드로 직접 지정한 Message-ID 를 보존. */
   public MimeMessage build(EmailAccountResponse account, OutgoingMail mail)
@@ -93,6 +112,7 @@ public class MailMimeBuilder {
       body = mixed;
     }
     msg.setContent(body);
+    msg.setHeader("X-Mailer", mailerHeader()); // WP-1364
     msg.saveChanges();
     return msg;
   }
@@ -138,6 +158,7 @@ public class MailMimeBuilder {
     alt.addBodyPart(textPart);
     alt.addBodyPart(calPart);
     msg.setContent(alt);
+    msg.setHeader("X-Mailer", mailerHeader()); // WP-1364
     msg.saveChanges();
     return msg;
   }

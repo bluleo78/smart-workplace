@@ -268,6 +268,16 @@ public class EmailContentRepository {
         > 0;
   }
 
+  /** WP-1364: 우리 앱(Gen:iA Works)이 보낸 메일로 표시한다(false→true 만, 되돌리지 않음). */
+  public boolean markSentByGeniaWorks(long contentId) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.SENT_BY_GENIA_WORKS, true)
+            .where(EMAIL_CONTENT.ID.eq(contentId))
+            .and(EMAIL_CONTENT.SENT_BY_GENIA_WORKS.isFalse())
+            .execute()
+        > 0;
+  }
+
   /**
    * WP-149: 분석 결과 저장 직렬화용 행 잠금(SELECT … FOR UPDATE). ④ 저장이 ③ 분류 저장과 엇갈리면 서로의 결과를 못 보고 ⑤ 재계산을 놓칠 수
    * 있어, ④ 는 content 행을 잠근 뒤 raw 를 쓰고 그 시점의 분류로 ⑤ 를 계산한다(③ 의 UPDATE 도 같은 행 잠금을 잡는다). 트랜잭션 안에서 호출한다.

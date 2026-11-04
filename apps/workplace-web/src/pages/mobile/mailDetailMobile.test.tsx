@@ -32,7 +32,7 @@ const SUMMARY = [
   '• 참고: 지난주 회의록과 첨부한 일정표를 함께 보면 좋아요.',
 ].join('\n')
 
-type Opts = { aiEnabled?: boolean; detail10?: () => Response | Promise<Response>; summary11?: () => Record<string, unknown> | null }
+type Opts = { sentByGeniaWorks?: boolean; aiEnabled?: boolean; detail10?: () => Response | Promise<Response>; summary11?: () => Record<string, unknown> | null }
 
 /** 메일 화면 API — 10 = HTML 본문·요약 있음, 11 = 텍스트 본문·요약 생략(SKIPPED). 쓰기 요청은 posts 에 경로를 쌓는다. */
 function mailApi(opts: Opts = {}) {
@@ -56,7 +56,7 @@ function mailApi(opts: Opts = {}) {
         ? opts.detail10()
         : HttpResponse.json(detail({
           id: 10, seen: true, subject: SUBJECT, fromName: '김민수', fromAddress: 'minsu.kim@example.com',
-          toAddresses: TO, ccAddresses: CC, bodyText: '본문입니다.', bodyHtml: null, attachments: [],
+          toAddresses: TO, ccAddresses: CC, bodyText: '본문입니다.', bodyHtml: null, attachments: [], sentByGeniaWorks: opts.sentByGeniaWorks,
         })),
     ),
     http.get('/api/v1/mail/messages/11', () =>
@@ -103,6 +103,21 @@ async function reopen(user: ReturnType<typeof renderMobileMail>['user'], id: num
 }
 
 const summaryCard = () => screen.getByTestId('mail-ai-summary') as HTMLDetailsElement
+
+describe('Gen:iA Works 발신 표시(WP-1364)', () => {
+  test('sentByGeniaWorks=true 면 보낸 사람 옆에 표시가, 목록 행에는 없다', async () => {
+    await openMail(10, { sentByGeniaWorks: true })
+    const mark = await screen.findByTestId('mail-genia-mark')
+    expect(within(mark).getByRole('img', { name: 'Gen:iA Works에서 보낸 메일' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('mail-row-10')).queryByTestId('mail-genia-mark')).not.toBeInTheDocument()
+  })
+
+  test('false·필드 없음이면 표시가 없다', async () => {
+    await openMail(10)
+    await screen.findByTestId('mail-detail')
+    expect(screen.queryByTestId('mail-genia-mark')).not.toBeInTheDocument()
+  })
+})
 
 describe('AI 요약', () => {
   test('첫 줄 미리보기로 접혀 있고, 탭하면 펼치고 다시 탭하면 접는다', async () => {

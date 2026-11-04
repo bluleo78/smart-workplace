@@ -229,6 +229,31 @@ class MailMimeBuilderTest {
     assertThat(parsed.isMimeType("multipart/alternative")).isTrue();
   }
 
+  /** WP-1364: 보내는 모든 메일에 X-Mailer(제품명+버전)가 붙는다. 기본 버전은 dev, 설정하면 그 값. */
+  @Test
+  void build_setsXMailerWithProductAndVersion() throws Exception {
+    assertThat(builder.build(account(), reply()).getHeader("X-Mailer")[0])
+        .isEqualTo("Gen:iA Works dev");
+
+    MailMimeBuilder versioned = new MailMimeBuilder();
+    versioned.setAppVersion("0.9.46");
+    assertThat(versioned.build(account(), reply()).getHeader("X-Mailer")[0])
+        .isEqualTo("Gen:iA Works 0.9.46");
+  }
+
+  /** WP-1364: 초대 응답 메일에도 X-Mailer 가 붙는다. */
+  @Test
+  void buildCalendarReply_setsXMailer() throws Exception {
+    String ics = "BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nEND:VCALENDAR\r\n";
+    assertThat(builder.buildCalendarReply(account(), reply(), ics).getHeader("X-Mailer")[0])
+        .isEqualTo("Gen:iA Works dev");
+
+    MailMimeBuilder versioned = new MailMimeBuilder();
+    versioned.setAppVersion("0.9.46");
+    assertThat(versioned.buildCalendarReply(account(), reply(), ics).getHeader("X-Mailer")[0])
+        .isEqualTo("Gen:iA Works 0.9.46");
+  }
+
   /**
    * WP-986: 초대 응답 — alternative[text/plain, text/calendar; method=REPLY] + 스레딩 헤더, iCalendar 원문 보존.
    */
