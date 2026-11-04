@@ -175,7 +175,7 @@ public class DriveFileService {
    *
    * <p>MIME 은 {@link #updatedTextMimeOf} 로 정한다 — 명시값은 R4 허용 목록만, 없으면 지금 MIME 을 유지한다(yaml·md·js 가
    * 버전마다 text/plain 으로 바뀌지 않게). 단 xml 계열과 확장자로만 텍스트로 본 octet-stream 은 파일 이름 확장자로 정해 xml 은
-   * text/plain 이 된다(html 은 원문 판정에서 이미 409).
+   * text/plain 이 된다(html 은 지금 MIME text/html 을 유지한다).
    *
    * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
    * @throws DriveNotTextFileException 현재 버전이 텍스트 계열({@link #isTextLike})이 아니거나 추출 텍스트가 원문과 다름(409)
@@ -215,9 +215,14 @@ public class DriveFileService {
    */
   private record TextRewrite(String requestedMime) {}
 
-  /** html 계열 — 워커 추출이 마크업을 걷어내 추출 텍스트가 원문이 아니다(최종 리뷰 I3). xml 은 워커가 원문 그대로 읽어 넣지 않는다. */
-  private static final Set<String> MARKUP_STRIPPED_MIMES =
-      Set.of("text/html", "application/xhtml+xml");
+  /** html 계열 — 워커 추출이 마크업을 걷어내 추출 텍스트가 원문이 아니다(최종 리뷰 I3). xml 은 원문 그대로 추출돼 해당하지 않는다. */
+  private static final Set<String> HTML_FAMILY_MIMES = Set.of("text/html", "application/xhtml+xml");
+
+  /** html 계열인지 — 드라이브 텍스트 읽기가 원본을 주는 형식(WP-1338). */
+  private static boolean isHtmlFamily(String mime) {
+    String bare = RawUploadContentTypes.bare(mime);
+    return bare != null && HTML_FAMILY_MIMES.contains(bare);
+  }
 
   private static final String UPLOAD_LINK_HINT = ". 업로드 링크로 파일을 올리세요";
 
@@ -227,7 +232,8 @@ public class DriveFileService {
    */
   private enum RewriteBlocker {
     NOT_TEXT("텍스트 아님", "텍스트 파일만 내용으로 갱신할 수 있습니다"),
-    HTML("HTML", "HTML 파일은 읽은 텍스트가 마크업을 뺀 것이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
+    HTML_SOURCE_MISSING(
+        "HTML 원본 없음", "HTML 원본을 읽을 수 없어(마크업이 빠진 글자만 남음) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
     TRUNCATED("추출 잘림", "파일이 커서 읽은 텍스트가 앞부분만이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
     TOO_LARGE("10MB 초과", "파일이 커서(10MB 초과) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
     NOT_UTF8(
@@ -278,9 +284,9 @@ public class DriveFileService {
    * 사유가 있으면 그 사유, 없으면 null.
    *
    * <ol>
-   *   <li>html 계열(text/html·application/xhtml+xml) — 워커가 마크업을 걷어낸다(xhtml 은 추출하지 않는다).
    *   <li>추출이 잘림(file_extraction.truncated) — 워커 MAX_CHARS 초과로 앞부분만 있다. 추출 행이 없거나 아직 PENDING 이면 알 수
-   *       없어 다음 검사만으로 판단한다.
+   *       없어 다음 검사만으로 판단한다. html 계열은 읽기가 추출이 아니라 원본이라({@link #readRawMarkup}, WP-1338) 이 검사를 건너뛴다 —
+   *       원본을 읽을 수 없는 파일(10MB 초과·UTF-8 아님)은 아래 검사가 막는다.
    *   <li>현재 버전이 텍스트 상한({@link #TEXT_FILE_MAX_BYTES}, 10MB)을 넘음 — 고쳐 쓴 전문도 10MB 를 넘을 수 없고, 잘리지 않은
    *       추출(기본 100만 자)은 UTF-8 로 4MB 이하라 읽을 수 있는 파일을 막지 않는다. 추출 상한(PDF·문서 100MB, 그 밖 25MB) 초과로
    *       SKIPPED 된 csv·추출하지 않는 octet-stream 로그처럼 잘림 표시가 없는 큰 파일을, 테넌트 advisory lock 을 쥔 채 끝까지 읽지
@@ -289,45 +295,54 @@ public class DriveFileService {
    *       10MB 를 스트림으로 읽는다.
    * </ol>
    *
-   * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 크기·UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다.
+   * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 크기·UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다. 단
+   * html 은 막는다 — 추출 텍스트가 마크업을 뺀 것이라 html 로 되살릴 수 없다(WP-1338).
    */
   private RewriteBlocker rewriteBlockerOf(long fileId, String currentMime) throws IOException {
-    String bare = RawUploadContentTypes.bare(currentMime);
-    if (bare != null && MARKUP_STRIPPED_MIMES.contains(bare)) {
-      return RewriteBlocker.HTML;
-    }
-    ExtractionInfo info = extractedText.info(List.of(fileId)).get(fileId);
-    if (info != null && Boolean.TRUE.equals(info.truncated())) {
+    boolean html = isHtmlFamily(currentMime);
+    if (!html && isExtractionTruncated(fileId)) {
       return RewriteBlocker.TRUNCATED;
     }
     FileContentResult content;
     try {
       content = fileUpload.getFileContentTrusted(fileId);
     } catch (FileBlobMissingException e) {
-      return null;
+      // html 은 원본이 없으면 읽기가 마크업 뺀 추출 텍스트로 떨어져, 그걸로 덮으면 마크업이 사라진 판이 굳는다(WP-1338).
+      return html ? RewriteBlocker.HTML_SOURCE_MISSING : null;
     }
     // 크기는 저장소 메타(fileStore.size)라 바이트를 읽지 않는다.
     if (content.size() > TEXT_FILE_MAX_BYTES) {
       return RewriteBlocker.TOO_LARGE;
     }
-    return isUtf8(content) ? null : RewriteBlocker.NOT_UTF8;
+    return decodeUtf8(content) != null ? null : RewriteBlocker.NOT_UTF8;
   }
 
-  /** blob 이 처음부터 끝까지 올바른 UTF-8 인지 — 엄격한 디코더(REPORT)로 스트림을 끝까지 읽는다. 끝의 잘린 바이트열도 거절된다. */
-  private static boolean isUtf8(FileContentResult content) throws IOException {
+  /** 추출이 잘렸는지(file_extraction.truncated) — 추출 행이 없거나 아직 모르면 false. */
+  private boolean isExtractionTruncated(long fileId) {
+    ExtractionInfo info = extractedText.info(List.of(fileId)).get(fileId);
+    return info != null && Boolean.TRUE.equals(info.truncated());
+  }
+
+  /**
+   * blob 을 엄격한 디코더(REPORT)로 끝까지 읽은 글자 — 올바른 UTF-8 이 아니면 null(끝의 잘린 바이트열도). 호출자가 10MB 상한을 먼저 확인하므로
+   * 많아야 10MB 를 메모리에 올린다.
+   */
+  private static String decodeUtf8(FileContentResult content) throws IOException {
     CharsetDecoder decoder =
         StandardCharsets.UTF_8
             .newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT);
+    StringBuilder out = new StringBuilder();
     try (Reader reader = new InputStreamReader(content.resource().getInputStream(), decoder)) {
       char[] buffer = new char[8192];
-      while (reader.read(buffer) != -1) {
-        // 디코딩만 확인한다 — 글자는 버린다.
+      int n;
+      while ((n = reader.read(buffer)) != -1) {
+        out.append(buffer, 0, n);
       }
-      return true;
+      return out.toString();
     } catch (CharacterCodingException e) {
-      return false;
+      return null;
     }
   }
 
@@ -611,14 +626,48 @@ public class DriveFileService {
   }
 
   /**
-   * 파일 추출 텍스트 구간 읽기(WP-346). 게이트는 download·summary 와 같다 — drive 권한(VIEWER+)으로 인가하고, 없는·휴지통 파일은 404,
+   * 파일 텍스트 구간 읽기(WP-346). 게이트는 download·summary 와 같다 — drive 권한(VIEWER+)으로 인가하고, 없는·휴지통 파일은 404,
    * 스페이스 비멤버는 존재 은닉. 현재 버전의 file.id 로 읽으며 상태(PENDING·EXTRACTING·FAILED·SKIPPED 등)·사유·자르기는 {@link
    * ExtractedTextService#read} 가 이슈 첨부 /text 와 같은 형식으로 돌려준다.
+   *
+   * <p>WP-1338: html 계열은 추출 텍스트 대신 원본(마크업 포함)을 같은 형식으로 준다({@link #readRawMarkup}) — 추출은 태그·CSS 를
+   * 걷어내 AI 가 읽고 고쳐 새 버전으로 저장하면 디자인이 사라지기 때문이다. 검색·요약은 그대로 추출 텍스트를 쓴다.
    */
   @Transactional(readOnly = true)
-  public ExtractedTextSlice readText(long callerId, long driveFileId, int offset, int limit) {
+  public ExtractedTextSlice readText(long callerId, long driveFileId, int offset, int limit)
+      throws IOException {
     // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
-    return extractedText.read(resolveViewFileId(callerId, driveFileId), offset, limit);
+    long fileId = resolveViewFileId(callerId, driveFileId);
+    ExtractedTextSlice raw = readRawMarkup(fileId, offset, limit);
+    return raw != null ? raw : extractedText.read(fileId, offset, limit);
+  }
+
+  /**
+   * html 계열 원본 구간 읽기(WP-1338) — 현재 버전이 html 계열이고 원본을 내용으로 고쳐 쓸 수 있는 파일({@link #TEXT_FILE_MAX_BYTES}
+   * 이하·올바른 UTF-8)이면 원본 글자를 {@link ExtractedTextSlice} 로 자른다. 그 밖(다른 형식·10MB 초과·UTF-8 아님·blob 유실)은
+   * null 이라 호출자가 추출 텍스트로 읽는다 — 이런 파일은 고쳐 쓰기도 막히므로({@link #rewriteBlockerOf}) 마크업을 못 봐도 잃을 것이 없다.
+   *
+   * <p>자르기는 추출 텍스트와 같은 규칙이다({@link ExtractedTextService#sliceOf} — 코드포인트 기준, 잘림 false).
+   *
+   * <p>저장소가 blob 을 못 준 그 밖의 IOException 은 그대로 올린다(500) — 추출 텍스트로 떨어지면 AI 가 마크업 없는 글을 원본으로 알고 고쳐 쓸 수
+   * 있다.
+   */
+  private ExtractedTextSlice readRawMarkup(long fileId, int offset, int limit) throws IOException {
+    if (!isHtmlFamily(files.findCurrentMime(fileId))) {
+      return null;
+    }
+    FileContentResult content;
+    try {
+      content = fileUpload.getFileContentTrusted(fileId);
+    } catch (FileBlobMissingException e) {
+      return null;
+    }
+    // 크기는 저장소 메타라 바이트를 읽기 전에 거른다 — 10MB 넘는 파일은 통째로 메모리에 올리지 않는다.
+    if (content.size() > TEXT_FILE_MAX_BYTES) {
+      return null;
+    }
+    String text = decodeUtf8(content);
+    return text == null ? null : ExtractedTextService.sliceOf(fileId, text, offset, limit);
   }
 
   /**

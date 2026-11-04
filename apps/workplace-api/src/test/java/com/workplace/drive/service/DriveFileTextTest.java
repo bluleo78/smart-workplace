@@ -68,8 +68,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
   private Long driveFileId;
   private boolean hasExtraction;
 
+  /** 비멤버는 존재 은닉으로 거부된다. */
   @Test
-  void 비멤버는_존재_은닉으로_거부된다() {
+  void readText_nonMember_isHiddenAsNotFound() {
     seedFixture("DONE", null, "비밀 본문");
 
     TenantContext.set(tid2);
@@ -77,8 +78,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
         .isInstanceOf(DriveSpaceNotFoundException.class);
   }
 
+  /** 없는 드라이브 파일은 404. */
   @Test
-  void 없는_드라이브_파일은_404() {
+  void readText_unknownDriveFile_returns404() {
     seedFixture("DONE", null, "본문");
 
     TenantContext.set(tid2);
@@ -86,8 +88,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
         .isInstanceOf(DriveFileNotFoundException.class);
   }
 
+  /** 추출 대기 중이면 상태만 있고 본문은 없다. */
   @Test
-  void 추출_대기_중이면_상태만_있고_본문은_없다() {
+  void readText_whenPending_hasStatusOnly() throws Exception {
     seedFixture("PENDING", null, null);
 
     TenantContext.set(tid2);
@@ -102,8 +105,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(res.reasonCode()).isNull();
   }
 
+  /** 추출 중도 외부 상태는 PENDING 으로 묶인다. */
   @Test
-  void 추출_중도_외부_상태는_PENDING_으로_묶인다() {
+  void readText_whenExtracting_isReportedAsPending() throws Exception {
     seedFixture("EXTRACTING", null, null);
 
     TenantContext.set(tid2);
@@ -114,8 +118,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(res.text()).isNull();
   }
 
+  /** 건너뜀이면 SKIPPED 와 사용자 사유. */
   @Test
-  void 건너뜀이면_SKIPPED_와_사용자_사유() {
+  void readText_whenSkipped_givesUserReason() throws Exception {
     seedFixture("SKIPPED", "unsupported-mime:application/zip", null);
 
     TenantContext.set(tid2);
@@ -127,8 +132,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(res.reason()).isEqualTo("이 형식은 텍스트 추출을 지원하지 않습니다.");
   }
 
+  /** 실패면 FAILED 와 사유 — raw error 는 노출하지 않는다. */
   @Test
-  void 실패면_FAILED_와_사유_raw_error_는_노출하지_않는다() {
+  void readText_whenFailed_hidesRawError() throws Exception {
     seedFixture("FAILED", "boom: 내부 스택", null);
 
     TenantContext.set(tid2);
@@ -139,8 +145,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(res.reason()).isNotBlank().doesNotContain("boom");
   }
 
+  /** 추출 행이 없으면 본문 없이 NONE 상태. */
   @Test
-  void 추출_행이_없으면_본문_없이_NONE_상태() {
+  void readText_withoutExtractionRow_isNone() throws Exception {
     seedFixture(null, null, null);
 
     TenantContext.set(tid2);
@@ -150,8 +157,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(res.status()).isEqualTo("NONE");
   }
 
+  /** 완료면 구간으로 나눠 읽고 nextOffset 으로 이어 읽는다. */
   @Test
-  void 완료면_구간으로_나눠_읽고_nextOffset_으로_이어_읽는다() {
+  void readText_whenReady_readsInSlicesWithNextOffset() throws Exception {
     // 이모지(서로게이트 쌍)를 섞어 코드포인트 기준 offset 을 확인한다.
     seedFixture("DONE", null, "가나다라마😀바사아자차");
 
@@ -170,8 +178,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(second.nextOffset()).isNull();
   }
 
+  /** limit 이 상한을 넘으면 32000자로 클램프한다. */
   @Test
-  void limit_이_상한을_넘으면_32000자로_클램프한다() {
+  void readText_limitOverMax_isClampedTo32000() throws Exception {
     seedFixture("DONE", null, "가".repeat(40_000));
 
     TenantContext.set(tid2);
@@ -182,8 +191,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(res.nextOffset()).isEqualTo(ExtractedTextService.MAX_LIMIT);
   }
 
+  /** 범위가 잘못되면 InvalidTextRangeException. */
   @Test
-  void 범위가_잘못되면_InvalidTextRangeException() {
+  void readText_invalidRange_throwsInvalidTextRange() {
     seedFixture("DONE", null, "본문");
 
     TenantContext.set(tid2);
@@ -247,8 +257,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
             });
   }
 
+  /** view 는 스페이스 멤버에게 이미지와 쪽수를 주고 page_count 를 채운다. */
   @Test
-  void view_는_스페이스_멤버에게_이미지와_쪽수를_주고_page_count_를_채운다() throws Exception {
+  void view_forSpaceMember_returnsImageAndFillsPageCount() throws Exception {
     seedFixture("DONE", null, "본문");
     assertThat(pageCountOfCore()).isNull();
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
@@ -270,8 +281,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     assertThat(pageCountOfCore()).isEqualTo(8);
   }
 
+  /** view 는 비멤버를 404 로 막고 워커를 부르지 않는다. */
   @Test
-  void view_는_비멤버를_404_로_막고_워커를_부르지_않는다() throws Exception {
+  void view_forNonMember_returns404WithoutCallingWorker() throws Exception {
     seedFixture("DONE", null, "본문");
     try {
       mvc.perform(
@@ -285,8 +297,9 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
     verifyNoInteractions(worker);
   }
 
+  /** view 는 없는 드라이브 파일을 404 로 막는다. */
   @Test
-  void view_는_없는_드라이브_파일을_404_로_막는다() throws Exception {
+  void view_unknownDriveFile_returns404() throws Exception {
     seedFixture("DONE", null, "본문");
     try {
       mvc.perform(

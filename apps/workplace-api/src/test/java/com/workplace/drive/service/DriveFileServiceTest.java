@@ -661,8 +661,8 @@ class DriveFileServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * WP-1323 재현: 예전 규칙으로 text/plain 이 된 .html 은 내용으로 다시 저장하면 text/html 로 바로잡힌다(이름 지정·파일 지정 둘 다). 이미
-   * text/html 이 된 뒤에는 마크업 손실 방지(I3)로 내용 덮어쓰기가 409 다.
+   * WP-1323 재현: 예전 규칙으로 text/plain 이 된 .html 은 내용으로 다시 저장하면 text/html 로 바로잡힌다(이름 지정·파일 지정 둘 다).
+   * text/html 이 된 뒤에도 내용으로 다시 고쳐 쓸 수 있다(WP-1338 — 읽기가 원본을 준다).
    */
   @Test
   void updateTextFile_plainTextHtml_isCorrectedToHtml() throws Exception {
@@ -679,9 +679,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(byName.id()).isEqualTo(old2.id());
     assertThat(byName.mimeType()).isEqualTo("text/html");
 
-    assertThatThrownBy(() -> fileService.updateTextFile(u, old.id(), "<h1>a3</h1>", null))
-        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessageContaining("HTML");
+    DriveFileResponse v3 = fileService.updateTextFile(u, old.id(), "<h1>a3</h1>", null);
+    assertThat(v3.mimeType()).isEqualTo("text/html");
+    assertThat(v3.versionCount()).isEqualTo(3);
   }
 
   /** 같은 이름으로 다시 만들면 새 버전으로 흡수된다(업로드와 같은 의미). */
@@ -991,24 +991,118 @@ class DriveFileServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * html 계열(text/html·application/xhtml+xml)은 내용으로 고쳐 쓰지 못한다(409, 최종 리뷰 I3) — 워커 추출이 마크업을 걷어내므로 AI
-   * 가 읽은 "전문"으로 덮으면 태그가 모두 사라진다. 사유와 업로드 링크 안내를 알리고 버전은 늘지 않는다.
+   * WP-1338: html 계열(text/html·application/xhtml+xml)도 내용으로 고쳐 쓸 수 있다 — 드라이브 읽기가 원본(마크업 포함)을 주므로 AI
+   * 가 읽은 전문으로 덮어도 마크업이 남는다. 지금 MIME 을 유지한다. 추출이 잘렸다고 표시돼도(추출은 원본이 아니다) 막지 않는다.
    */
   @Test
-  void updateTextFile_htmlFamily_conflicts_withUploadLinkHint() throws Exception {
+  void updateTextFile_htmlFamily_isRewritable_evenIfExtractionTruncated() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse html =
         uploadAs(u, sp.id(), "page.html", "text/html; charset=utf-8", "<p>a</p>");
     DriveFileResponse xhtml = uploadAs(u, sp.id(), "doc.xhtml", "application/xhtml+xml", "<a/>");
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.STATUS, "DONE")
+        .set(FILE_EXTRACTION.EXTRACTED_TEXT, "a")
+        .set(FILE_EXTRACTION.TRUNCATED, true)
+        .where(FILE_EXTRACTION.FILE_ID.eq(html.fileId()))
+        .execute();
 
-    for (DriveFileResponse f : new DriveFileResponse[] {html, xhtml}) {
-      assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "a", null))
-          .as(f.name())
-          .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-          .hasMessageContaining("HTML")
-          .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
-      assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
+    DriveFileResponse htmlV2 =
+        fileService.updateTextFile(u, html.id(), "<p style=\"color:red\">b</p>", null);
+    DriveFileResponse xhtmlV2 = fileService.updateTextFile(u, xhtml.id(), "<b/>", null);
+
+    assertThat(htmlV2.versionCount()).isEqualTo(2);
+    assertThat(htmlV2.mimeType()).isEqualTo("text/html");
+    assertThat(xhtmlV2.versionCount()).isEqualTo(2);
+    assertThat(xhtmlV2.mimeType()).isEqualTo("application/xhtml+xml");
+  }
+
+  /** WP-1338: UTF-8 이 아닌 html 은 원본으로 읽을 수 없어 여전히 409 다 — 버전은 늘지 않는다. */
+  @Test
+  void updateTextFile_nonUtf8Html_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    byte[] cp949 = {'<', 'p', '>', (byte) 0xB0, (byte) 0xA1, '<', '/', 'p', '>'};
+    DriveFileResponse html = uploadBytes(u, sp.id(), "옛.html", "text/html", cp949);
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, html.id(), "<p>가</p>", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessageContaining("UTF-8");
+    assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
+  }
+
+  /**
+   * WP-1338: 원본 blob 을 잃은 html 은 읽기가 마크업 뺀 추출 텍스트로 떨어지므로 내용으로 고쳐 쓰지 못한다(409) — 그대로 덮으면 마크업 없는 판이
+   * 굳는다. 같은 처지의 md 는 추출 텍스트가 원문이라 되살릴 수 있다.
+   */
+  @Test
+  void updateTextFile_htmlWithMissingBlob_conflicts_butMarkdownRecovers() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse html = uploadAs(u, sp.id(), "잃음.html", "text/html", "<p>a</p>");
+    DriveFileResponse md = uploadAs(u, sp.id(), "잃음.md", "text/markdown", "# a");
+    dsl.update(FILE)
+        .set(FILE.STORAGE_PATH, "missing/blob-" + UUID.randomUUID())
+        .where(FILE.ID.in(html.fileId(), md.fileId()))
+        .execute();
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, html.id(), "a", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessageContaining("HTML 원본");
+    assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
+    assertThat(fileService.updateTextFile(u, md.id(), "# b", null).versionCount()).isEqualTo(2);
+  }
+
+  /**
+   * WP-1338: 드라이브 텍스트 읽기는 html 원본을 마크업째 준다(추출 텍스트가 아니라). 구간은 코드포인트 기준이라 이모지에서 어긋나지 않고, 끝까지 읽으면
+   * nextOffset 이 없다. 잘림은 늘 false 다.
+   */
+  @Test
+  void readText_html_returnsRawMarkupInCodePointSlices() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    String source = "<style>h1{color:#111}</style><h1>😀보고</h1>";
+    DriveFileResponse html = uploadAs(u, sp.id(), "보고.html", "text/html", source);
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.STATUS, "DONE")
+        .set(FILE_EXTRACTION.EXTRACTED_TEXT, "😀보고")
+        .where(FILE_EXTRACTION.FILE_ID.eq(html.fileId()))
+        .execute();
+    int total = source.codePointCount(0, source.length());
+
+    var whole = fileService.readText(u, html.id(), 0, 32000);
+    assertThat(whole.status()).isEqualTo("READY");
+    assertThat(whole.text()).isEqualTo(source);
+    assertThat(whole.totalChars()).isEqualTo(total);
+    assertThat(whole.truncated()).isFalse();
+    assertThat(whole.nextOffset()).isNull();
+
+    // "<style>h1{color:#111}</style><h1>" 는 33자 — 그다음 한 글자는 이모지 하나다.
+    var emoji = fileService.readText(u, html.id(), 33, 1);
+    assertThat(emoji.text()).isEqualTo("😀");
+    assertThat(emoji.nextOffset()).isEqualTo(34);
+    var rest = fileService.readText(u, html.id(), 34, 32000);
+    assertThat(rest.text()).isEqualTo("보고</h1>");
+    assertThat(rest.nextOffset()).isNull();
+    assertThat(fileService.readText(u, html.id(), total + 5, 10).text()).isEmpty();
+  }
+
+  /** WP-1338: html 이 아닌 파일과 UTF-8 이 아닌 html 은 지금처럼 추출 텍스트를 읽는다. */
+  @Test
+  void readText_nonHtmlOrNonUtf8Html_readsExtractedText() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse md = uploadAs(u, sp.id(), "노트.md", "text/markdown", "# 원문");
+    byte[] cp949 = {'<', 'p', '>', (byte) 0xB0, (byte) 0xA1, '<', '/', 'p', '>'};
+    DriveFileResponse html = uploadBytes(u, sp.id(), "옛.html", "text/html", cp949);
+    for (DriveFileResponse f : new DriveFileResponse[] {md, html}) {
+      dsl.update(FILE_EXTRACTION)
+          .set(FILE_EXTRACTION.STATUS, "DONE")
+          .set(FILE_EXTRACTION.EXTRACTED_TEXT, "추출본")
+          .where(FILE_EXTRACTION.FILE_ID.eq(f.fileId()))
+          .execute();
+      assertThat(fileService.readText(u, f.id(), 0, 100).text()).as(f.name()).isEqualTo("추출본");
     }
   }
 
@@ -1211,7 +1305,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   /**
    * 이름으로 만든 텍스트가 같은 이름의 기존 파일에 흡수될 때도 갱신과 같은 규칙(최종 리뷰 M2) — docx 는 409 이고 버전·FILE 행이 늘지 않는다(blob 저장
-   * 전에 거절), html 은 409, yaml 은 지금 MIME(application/x-yaml)을 유지한다.
+   * 전에 거절), html 은 새 버전이 된다(WP-1338), yaml 은 지금 MIME(application/x-yaml)을 유지한다.
    */
   @Test
   void createTextFile_sameNameExisting_followsUpdateRules() throws Exception {
@@ -1232,15 +1326,16 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "보고서.docx", "본문", null))
         .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
         .hasMessage("같은 이름의 파일(텍스트 아님)이 있어 내용으로 새 버전을 만들 수 없습니다. 다른 이름을 쓰거나 업로드 링크로 올리세요");
-    assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "page.html", "a", null))
-        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessage("같은 이름의 파일(HTML)이 있어 내용으로 새 버전을 만들 수 없습니다. 다른 이름을 쓰거나 업로드 링크로 올리세요");
     // 파일 지정 갱신은 그 파일을 고칠 수 없다는 문구 그대로다.
-    assertThatThrownBy(() -> fileService.updateTextFile(u, html.id(), "a", null))
-        .hasMessageStartingWith("HTML 파일은 읽은 텍스트가 마크업을 뺀 것이라");
+    assertThatThrownBy(() -> fileService.updateTextFile(u, doc.id(), "a", null))
+        .hasMessageStartingWith("텍스트 파일만");
     assertThat(versionsRepo.listForDriveFile(doc.id())).hasSize(1);
-    assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
     assertThat(dsl.fetchCount(FILE, FILE.UPLOADED_BY.eq(u))).isEqualTo(filesBefore);
+
+    DriveFileResponse htmlV2 =
+        fileService.createTextFile(u, sp.id(), null, "page.html", "<p>b</p>", null);
+    assertThat(htmlV2.id()).isEqualTo(html.id());
+    assertThat(htmlV2.versionCount()).isEqualTo(2);
 
     DriveFileResponse yamlV2 =
         fileService.createTextFile(u, sp.id(), null, "설정.yaml", "a: 2", null);
