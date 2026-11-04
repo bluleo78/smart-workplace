@@ -43,8 +43,12 @@ const AGENTS: AgentResponse[] = [
 async function stubAgents(page: Page) {
   await mockAgentRuntimeNone(page)
   await mockAgentDetail(page, () => AGENTS)
-  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ json: AGENTS }) : r.fallback())
+  // 서버처럼 includePersonal=true 일 때만 개인 비서를 준다 — 「개인 비서 표시」는 기본 꺼짐(WP-1361).
+  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    const include = new URL(r.request().url()).searchParams.get('includePersonal') === 'true'
+    return r.fulfill({ json: include ? AGENTS : AGENTS.filter((a) => a.type !== 'PERSONAL') })
+  })
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (r) =>
@@ -78,6 +82,9 @@ test('에이전트 표는 휴대폰 폭 안에 들어오고, 아이디·유형·
   await expect(meta).toContainText('release_coordinator_bot@iacloud.kr')
   await expect(meta).toContainText('공통')
   await expect(meta).toContainText('외부')
+  // 개인 비서는 「개인 비서 표시」를 켜야 보인다(기본 꺼짐, WP-1361).
+  await expect(page.getByTestId('agent-row-101')).toHaveCount(0)
+  await page.getByTestId('include-personal-toggle').tap()
   await expect(page.getByTestId('agent-meta-101')).toContainText('개인')
   await expect(page.getByTestId('agent-meta-101')).toContainText('김민수')
 

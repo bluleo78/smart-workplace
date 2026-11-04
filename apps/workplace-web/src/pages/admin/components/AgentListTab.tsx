@@ -28,8 +28,9 @@ interface Props {
 
 export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
   const navigate = useNavigate();
-  // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
-  const [includePersonal, setIncludePersonal] = useState(true);
+  // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 숨김 — 켜면 개인 비서까지 보인다.
+  // 개인 비서는 주인이 관리하므로 관리자 목록에서는 숨기는 것이 기본이다(WP-1361 — WP-1281 의 기본 표시를 되돌림).
+  const [includePersonal, setIncludePersonal] = useState(false);
   const agents = useAgents(includePersonal);
   // Works 가 실행하는 AI 의 실행 요약(WP-1255) — 목록 「실행」 열의 상태 알약·처리 중 이슈.
   const summaries = useAgentRuntimeSummaries();
@@ -101,8 +102,12 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
               </TableRow>
             ) : isEmpty ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground" data-testid="agent-list-empty">
                   에이전트가 없습니다
+                  {/* 기본으로 숨긴 개인 비서가 있을 수 있으니 켜는 곳을 알려 준다(WP-1361). */}
+                  {!includePersonal && (
+                    <span className="mt-1 block text-xs">개인 비서는 「개인 비서 표시」를 켜면 보여요.</span>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
