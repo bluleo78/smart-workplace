@@ -57,19 +57,28 @@ const includesIgnoreCase = (text: string, q: string) => text.toLowerCase().inclu
 
 // ── 대화(채널·DM) ──────────────────────────────────────────────
 
+/** 대화 cursor — 첫 쪽에서 받아 만든 전체 목록 중 아직 안 보여 준 나머지. 다음 쪽은 이것만 자르고 요청하지 않는다. */
+interface ChatCursor {
+  rest: SearchHit[]
+}
+
 /**
  * 내 채널·DM 이름(화면에서 거름 — 서버에 이름 검색이 없다)을 먼저, 그다음 가입 안 한 공개 채널(discover)을 보인다.
- * 서버가 쪽 나누기를 안 하므로 합친 목록을 cursor(숫자 offset)로 화면에서 size 건씩 자른다.
+ * 서버가 쪽 나누기를 안 하므로 첫 쪽에서 한 번만 받아 전체 순서를 만들고, 나머지를 cursor 에 실어 다음 쪽은 요청 없이 자른다.
+ * (현재 사용자 id 는 DM 이름 파생에 필요 — 훅 밖에서 읽을 곳이 없어 첫 쪽에서만 auth/me 를 부른다.)
  */
 const chatProvider: SearchProvider = {
   app: 'chat',
-  async fetchPage(q, cursor, size) {
-    const offset = asOffset(cursor)
+  async fetchPage(q, cursor, size, signal) {
+    if (cursor && typeof cursor === 'object' && 'rest' in cursor) {
+      const rest = (cursor as ChatCursor).rest
+      return { hits: rest.slice(0, size), next: rest.length > size ? ({ rest: rest.slice(size) } satisfies ChatCursor) : null }
+    }
     const [channels, dms, me, discovered] = await Promise.all([
-      messagingApi.listChannels().then((r) => r.data),
-      messagingApi.listDms().then((r) => r.data),
-      authApi.me().then((r) => r.data),
-      messagingApi.discoverChannels(q).then((r) => r.data),
+      messagingApi.listChannels(signal).then((r) => r.data),
+      messagingApi.listDms(signal).then((r) => r.data),
+      authApi.me(signal).then((r) => r.data),
+      messagingApi.discoverChannels(q, signal).then((r) => r.data),
     ])
     const mine = channels.filter((c) => c.member && !c.archived && includesIgnoreCase(c.name, q))
     const myIds = new Set(channels.filter((c) => c.member).map((c) => c.id))
@@ -102,8 +111,7 @@ const chatProvider: SearchProvider = {
           meta: '공개',
         })),
     ]
-    const hits = all.slice(offset, offset + size)
-    return { hits, next: offset + size < all.length ? offset + size : null }
+    return { hits: all.slice(0, size), next: all.length > size ? ({ rest: all.slice(size) } satisfies ChatCursor) : null }
   },
 }
 
@@ -133,15 +141,15 @@ function newerFirst(a: { receivedAt: string | null; id: number }, b: { receivedA
  */
 const mailProvider: SearchProvider = {
   app: 'mail',
-  async fetchPage(q, cursor, size) {
-    const accounts = await listMailAccounts()
+  async fetchPage(q, cursor, size, signal) {
+    const accounts = await listMailAccounts(signal)
     if (accounts.length === 0) return EMPTY
     const prev: MailCursor = cursor && typeof cursor === 'object' ? (cursor as MailCursor) : {}
     const active = accounts.filter((a) => prev[a.id] !== 'done')
     const fetched = await Promise.all(
       active.map(async (a) => {
         const before = prev[a.id] as MailListCursor | null | undefined
-        const rows = await listMessages(a.id, 'INBOX', q, undefined, undefined, undefined, size, null, before ?? null)
+        const rows = await listMessages(a.id, 'INBOX', q, undefined, undefined, undefined, size, null, before ?? null, signal)
         return { accountId: a.id, rows }
       }),
     )
@@ -257,8 +265,8 @@ const wikiProvider: SearchProvider = {
 
 const contactsProvider: SearchProvider = {
   app: 'contacts',
-  async fetchPage(q, cursor, size) {
-    const { data } = await contactsApi.list({ search: q, ...(typeof cursor === 'string' ? { cursor } : {}), limit: size })
+  async fetchPage(q, cursor, size, signal) {
+    const { data } = await contactsApi.list({ search: q, ...(typeof cursor === 'string' ? { cursor } : {}), limit: size }, signal)
     const hits = data.items.map<SearchHit>((c) => ({
       key: `contacts:${c.type}:${c.id}`,
       app: 'contacts',

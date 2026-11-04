@@ -18,7 +18,7 @@ import type {
 import { client } from './client';
 
 export const messagingApi = {
-  listChannels: () => client.get<ChannelResponse[]>('/messaging/channels'),
+  listChannels: (signal?: AbortSignal) => client.get<ChannelResponse[]>('/messaging/channels', { signal }),
 
   createChannel: (payload: CreateChannelRequest) =>
     client.post<ChannelResponse>('/messaging/channels', payload),
@@ -39,12 +39,13 @@ export const messagingApi = {
     client.post<MessageResponse>(`/messaging/channels/${channelId}/messages`, payload),
 
   // 공개 채널 탐색. q 비면 전체 공개 채널.
-  discoverChannels: (q?: string) => {
+  discoverChannels: (q?: string, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     const qs = params.toString();
     return client.get<ChannelResponse[]>(
       `/messaging/channels/discover${qs ? `?${qs}` : ''}`,
+      { signal },
     );
   },
 
@@ -94,7 +95,7 @@ export const messagingApi = {
     client.delete<void>(`/messaging/channels/${channelId}/member-groups/${groupId}`),
 
   // DM 목록(참여자·최근시각 포함).
-  listDms: () => client.get<DmResponse[]>('/messaging/dms'),
+  listDms: (signal?: AbortSignal) => client.get<DmResponse[]>('/messaging/dms', { signal }),
 
   // DM find-or-create. 기존 멤버셋이면 서버가 같은 DM 반환.
   createDm: (userIds: number[]) =>

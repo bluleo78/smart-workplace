@@ -25,5 +25,5 @@ export const authApi = {
   ssoStatus: () => client.get<{ m365: boolean }>('/auth/sso/status').then((r) => r.data),
   refresh: () => client.post<TokenResponse>('/auth/refresh'),
   logout: () => client.post<void>('/auth/logout'),
-  me: () => client.get<UserResponse>('/auth/me'),
+  me: (signal?: AbortSignal) => client.get<UserResponse>('/auth/me', { signal }),
 };

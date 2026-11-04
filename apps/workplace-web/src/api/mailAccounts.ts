@@ -7,8 +7,8 @@ import type {
 import { client } from './client';
 
 // baseURL 은 '/api/v1' 이므로 여기선 '/mail/accounts' 만 쓴다.
-export async function listMailAccounts(): Promise<MailAccountResponse[]> {
-  const { data } = await client.get<MailAccountResponse[]>('/mail/accounts');
+export async function listMailAccounts(signal?: AbortSignal): Promise<MailAccountResponse[]> {
+  const { data } = await client.get<MailAccountResponse[]>('/mail/accounts', { signal });
   return data;
 }
 

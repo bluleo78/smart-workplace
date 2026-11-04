@@ -1,6 +1,6 @@
 // 통합 검색(WP-1353)의 앱별 provider — 기존 API 를 MSW 로 가로채 쿼리·합치기·이어 받기를 지킨다.
 // dom 프로젝트(MSW 셋업)에서 돌도록 .tsx 다 — 화면은 없다.
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type JsonBodyType } from 'msw'
 import { describe, expect, it } from 'vitest'
 
 import { server } from '@/test/msw/server'
@@ -142,6 +142,44 @@ describe('chat', () => {
     ])
     expect(page.hits[1]).toMatchObject({ title: '개발자 김', href: '/chat/dms/9' })
     expect(page.next).toBeNull()
+  })
+})
+
+describe('chat 다음 쪽', () => {
+  it('첫 쪽에서 전체를 받아 두고 다음 쪽은 요청 없이 나머지를 자른다', async () => {
+    let calls = 0
+    const count = (body: JsonBodyType) => () => {
+      calls++
+      return HttpResponse.json(body)
+    }
+    server.use(
+      http.get(`${API}/messaging/channels/discover`, count([])),
+      http.get(`${API}/messaging/channels`, count([1, 2, 3].map((id) => ({ id, name: `팀-${id}`, member: true, archived: false })))),
+      http.get(`${API}/messaging/dms`, count([])),
+      http.get(`${API}/auth/me`, count({ id: 5, name: '나' })),
+    )
+    const p1 = await SEARCH_PROVIDERS.chat.fetchPage('팀', null, 2)
+    expect(p1.hits.map((h) => h.key)).toEqual(['chat:channel:1', 'chat:channel:2'])
+    expect(p1.next).not.toBeNull()
+    const callsAfterFirst = calls
+    const p2 = await SEARCH_PROVIDERS.chat.fetchPage('팀', p1.next, 2)
+    expect(calls).toBe(callsAfterFirst)
+    expect(p2.hits.map((h) => h.key)).toEqual(['chat:channel:3'])
+    expect(p2.next).toBeNull()
+  })
+})
+
+describe('취소·오류', () => {
+  it('취소된 signal 이면 메일 요청이 중단돼 거부된다(signal 이 axios 까지 전달)', async () => {
+    server.use(http.get(`${API}/mail/accounts`, () => HttpResponse.json([{ id: 1 }])))
+    const ctrl = new AbortController()
+    ctrl.abort()
+    await expect(SEARCH_PROVIDERS.mail.fetchPage('회의', null, 20, ctrl.signal)).rejects.toThrow()
+  })
+
+  it('API 가 500 이면 provider 가 거부된다', async () => {
+    server.use(http.get(`${API}/search/drive`, () => new HttpResponse(null, { status: 500 })))
+    await expect(SEARCH_PROVIDERS.drive.fetchPage('계획', null, 20)).rejects.toThrow()
   })
 })
 
