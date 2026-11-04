@@ -3,6 +3,7 @@
 // collect 경로가 AgentRunner(Task 5)로 이관되며 provider-neutral `finalText`(runner-events.ts)
 // 로 대체됐다(의미 동일: result.text 우선, 없으면 assistant_text join). 이 함수는 제거.
 
+import { ModelOutputError } from './provider-error.js';
 import { normalizePriority } from './issue-priority.js';
 
 const CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'];
@@ -21,7 +22,7 @@ export function parseDraftCoachingJson(text: string): {
   improvedBodyHtml: string;
 } {
   const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error(`코칭 JSON 없음: ${text.slice(0, 120)}`);
+  if (!m) throw new ModelOutputError(`코칭 JSON 없음: ${text.slice(0, 120)}`);
   // JSON.parse 실패 시 그대로 throw (폴백 금지).
   const obj = JSON.parse(m[0]) as { notes?: unknown; improvedBodyHtml?: unknown };
   const rawNotes = Array.isArray(obj.notes) ? obj.notes : [];
@@ -69,7 +70,7 @@ export function extractJsonObject(text: string): Record<string, unknown> {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error(`분석 JSON 없음: ${text.slice(0, 120)}`);
+  if (start < 0 || end <= start) throw new ModelOutputError(`분석 JSON 없음: ${text.slice(0, 120)}`);
   const raw = cleaned.slice(start, end + 1);
   let parsed: unknown;
   try {
@@ -78,7 +79,7 @@ export function extractJsonObject(text: string): Record<string, unknown> {
     parsed = JSON.parse(escapeControlCharsInStrings(raw));
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`분석 JSON 이 객체가 아님: ${text.slice(0, 120)}`);
+    throw new ModelOutputError(`분석 JSON 이 객체가 아님: ${text.slice(0, 120)}`);
   }
   return parsed as Record<string, unknown>;
 }
@@ -181,7 +182,7 @@ export function parsePersonalAnalysisJson(
   const obj = extractJsonObject(text);
   let needsReply: boolean | null = null;
   if (flags.includeNeedsReply) {
-    if (typeof obj.needsReply !== 'boolean') throw new Error(`needsReply 누락: ${text.slice(0, 120)}`);
+    if (typeof obj.needsReply !== 'boolean') throw new ModelOutputError(`needsReply 누락: ${text.slice(0, 120)}`);
     needsReply = obj.needsReply;
   }
   let personalSummary: string | null = null;
@@ -259,7 +260,7 @@ export function parseComposeDraft(
     }
   }
   body = body.trim();
-  if (!body) throw new Error(`compose-draft: 본문을 얻지 못함: ${text.slice(0, 120)}`);
+  if (!body) throw new ModelOutputError(`compose-draft: 본문을 얻지 못함: ${text.slice(0, 120)}`);
   subject = wantSubject ? subject.trim() : '';
   return { subject: subject || null, body };
 }

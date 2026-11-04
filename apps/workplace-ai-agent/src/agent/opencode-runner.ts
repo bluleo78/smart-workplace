@@ -110,6 +110,8 @@ export class OpencodeRunner implements AgentRunner {
       let server: OpencodeHandle['server'] | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
+      // session.error 의 원본 오류 객체 — 던질 때 cause 로 보존한다(WP-1347).
+      let sessionError: unknown;
       try {
         // WP-241·WP-250: 비전 판단과 모델 컨텍스트 한도를 provider /models 조회 한 번(credential 캐시)으로 함께 얻는다 — 한도를 알면 opencode 가
         // 한도에 닿기 전에 압축한다. 호출자가 비전을 판단해 넘겼으면 그 값. try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
@@ -351,6 +353,7 @@ export class OpencodeRunner implements AgentRunner {
                 continue;
               }
               errored = true;
+              sessionError = ev.properties.error;
               // session.error 의 실제 원인(ProviderAuthError/ApiError 등)을 남긴다 — 기존엔 이벤트
               // 발생 사실만 기록해 원인 파악이 불가능했다(실측: 원인 불명 session.error 디버깅 난항).
               log.error('opencode-runner', 'opencode_session_error_detail', {
@@ -385,7 +388,13 @@ export class OpencodeRunner implements AgentRunner {
       }
       if (errored) {
         log.error('opencode-runner', 'opencode_session_error', { requestId: i.requestId });
-        throw new Error(`${i.logTag} opencode session.error`);
+        // 원인 이름·메시지를 문구에 싣고 원본 객체를 cause 로 남긴다 — classifyProviderError 가 장애를 가려낸다(WP-1347).
+        const se = sessionError as { name?: string; data?: { message?: string } } | undefined;
+        // 이름·메시지 중 있는 것만 잇는다 — 둘 다 없으면 콜론 없이 끝난다.
+        const detail = [se?.name, se?.data?.message].filter(Boolean).join(' ');
+        throw new Error(`${i.logTag} opencode session.error${detail ? `: ${detail}` : ''}`, {
+          cause: sessionError,
+        });
       }
       log.info('opencode-runner', 'opencode_done', { requestId: i.requestId });
     })();

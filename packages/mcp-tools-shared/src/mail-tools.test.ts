@@ -145,13 +145,16 @@ describe('buildMailTools', () => {
 
   it('WP-353: list_mail 행은 accountId·threadId 와 값 없는 키를 빼고, categoryPending 은 true 일 때만 남긴다', async () => {
     const c = mockClient();
-    const row = { id: 1, accountId: 2, threadId: 't', fromAddress: 'a@x.com', fromName: '앨리스', subject: '견적', snippet: '안녕', receivedAt: '2026-10-01T00:00:00Z', seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false };
-    vi.mocked(c.listMail).mockResolvedValue([row, { ...row, id: 2, aiCategory: '업무', aiNeedsReply: true }, { ...row, id: 3, categoryPending: true }]);
+    const row = { id: 1, accountId: 2, threadId: 't', fromAddress: 'a@x.com', fromName: '앨리스', subject: '견적', snippet: '안녕', receivedAt: '2026-10-01T00:00:00Z', seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false, categoryFailed: false };
+    vi.mocked(c.listMail).mockResolvedValue([row, { ...row, id: 2, aiCategory: '업무', aiNeedsReply: true }, { ...row, id: 3, categoryPending: true }, { ...row, id: 4, categoryPending: true, categoryFailed: true }]);
     const out = JSON.parse(resultText(await tool(c, 'list_mail').handler({ accountId: 2 })));
     expect(out[0]).toEqual({ id: 1, fromAddress: 'a@x.com', fromName: '앨리스', subject: '견적', snippet: '안녕', receivedAt: '2026-10-01T00:00:00Z', seen: false, hasAttachment: false });
     expect(out[1]).toMatchObject({ aiCategory: '업무', aiNeedsReply: true });
     expect(out[1]).not.toHaveProperty('categoryPending');
     expect(out[2].categoryPending).toBe(true);
+    expect(out[2]).not.toHaveProperty('categoryFailed');
+    expect(out[3].categoryPending).toBe(true);
+    expect(out[3]).not.toHaveProperty('categoryFailed'); // WP-1347: REST 전용 — 입력이 true 여도 노출 안 함
     expect(JSON.stringify(out[0]).length).toBeLessThan(JSON.stringify(row).length * 0.8);
   });
 

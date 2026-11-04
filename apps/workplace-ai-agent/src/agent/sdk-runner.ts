@@ -178,12 +178,21 @@ export async function runSdkCollect(i: SdkRunInput): Promise<string[]> {
     void q.interrupt().catch(() => {});
   }, i.timeoutMs);
   let resultIsError = false;
+  // 실패 결과의 원인 텍스트(WP-1347) — 제공자 장애(한도·인증 등)를 호출자가 가려내도록 오류 메시지에 싣는다.
+  let resultDetail = '';
   try {
     for await (const msg of q) {
       lines.push(JSON.stringify(msg));
-      const m = msg as { type?: string; subtype?: string };
-      // subtype 이 'success' 가 아니면 실패 — is_error 는 falsy 여도 오류일 수 있어 신뢰 안 함
-      if (m.type === 'result') resultIsError = m.subtype !== 'success';
+      const m = msg as { type?: string; subtype?: string; is_error?: boolean; result?: unknown; errors?: unknown };
+      if (m.type === 'result') {
+        // subtype 이 'success' 가 아니면 실패 — is_error 는 falsy 여도 오류일 수 있어 신뢰 안 함.
+        // 반대로 subtype 이 success 여도 is_error 가 true 면(예: 'API Error: 529' 가 result 텍스트로 옴) 오류로 본다.
+        resultIsError = m.subtype !== 'success' || m.is_error === true;
+        const parts: string[] = [];
+        if (typeof m.result === 'string' && m.result) parts.push(m.result);
+        if (Array.isArray(m.errors) && m.errors.length) parts.push(m.errors.map(String).join('; '));
+        resultDetail = parts.join(' | ').slice(0, 500);
+      }
     }
   } catch (e) {
     // 자기-개시 interrupt(timeout) 후의 throw 는 흡수, 그 외 spawn/실행 오류만 전파.
@@ -204,7 +213,7 @@ export async function runSdkCollect(i: SdkRunInput): Promise<string[]> {
   }
   if (resultIsError) {
     log.error('cli-runner', 'cli_exit', { requestId: i.requestId, durationMs });
-    throw new Error(`${i.logTag} result is_error`);
+    throw new Error(`${i.logTag} result is_error${resultDetail ? `: ${resultDetail}` : ''}`);
   }
   log.info('cli-runner', 'cli_done', { requestId: i.requestId, durationMs, lines: lines.length });
   return lines;

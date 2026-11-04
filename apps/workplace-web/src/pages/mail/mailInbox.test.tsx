@@ -325,6 +325,17 @@ test('헤더는 받은편지함 › 업무, 분류 전 배지는 분류 대기 �
   await waitFor(() => expect(list.last().url.searchParams.get('unread')).toBe('true'))
 })
 
+test('WP-1347: 분류 최종 실패 행의 「분류 전」 배지는 title 이 「분류하지 못했어요」, 실패 표시 없는 행은 title 이 없다', async () => {
+  renderMail('/mail/1', {
+    handlers: [countsHandler],
+    messages: [summary({ id: 10, categoryPending: true, categoryFailed: true }), summary({ id: 11, categoryPending: true })],
+  })
+  const failed = await screen.findByTestId('mail-badge-pending-10')
+  expect(failed).toHaveTextContent('분류 전')
+  expect(failed).toHaveAttribute('title', '분류하지 못했어요')
+  expect(screen.getByTestId('mail-badge-pending-11')).not.toHaveAttribute('title')
+})
+
 test('안 읽은 메일만 + 메일 열기 → 재조회에서 빠져도 남고, 보기를 바꾸면 빠진다', async () => {
   let opened = false
   const list = record('get', LIST, () => HttpResponse.json(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]))

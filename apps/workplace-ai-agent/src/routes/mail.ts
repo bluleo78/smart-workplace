@@ -1,8 +1,10 @@
 // 7d: 메일 AI 라우트 — workplace-api 가 동기 호출. 도구 없이 텍스트 in/out.
 // assistant 설정(assistantAgentId/model/maxTurns/timeoutMs)은 본문으로 온다. 미설정 503 분기는 api 소유.
+// 제공자 장애(한도·인증·속도·과부하) 503 은 공용 handler 에서 낸다(WP-1347).
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { classifyProviderError } from '../agent/provider-error.js';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
@@ -156,7 +158,8 @@ export const analyzePersonalSchema = z
     message: '받을 항목(include*)이 하나 이상 필요합니다',
   });
 
-// 공통 핸들러 팩토리 — zod 검증 → 러너 호출 → 400/200/502 응답. drive 등 타 라우터에서도 재사용.
+// 공통 핸들러 팩토리 — zod 검증 → 러너 호출 → 400/200/503/502 응답.
+// 제공자 장애로 판정되면 일반 실패(502)와 구분해 503 + reason 을 내려, 호출 측이 재시도·안내를 달리할 수 있게 한다(WP-1347). drive 등 타 라우터에서도 재사용.
 export function handler<T>(
   schema: z.ZodType<T>,
   run: (input: T, deps: RunAgentDeps) => Promise<unknown>,
@@ -172,7 +175,14 @@ export function handler<T>(
     try {
       res.status(200).json(await run(parsed.data, deps));
     } catch (e) {
-      console.error(`[${tag}] 실패:`, e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      const reason = classifyProviderError(e);
+      if (reason) {
+        console.warn(`[${tag}] 제공자 장애(${reason}):`, message);
+        res.status(503).json({ error: `${tag}_unavailable`, reason });
+        return;
+      }
+      console.error(`[${tag}] 실패:`, message);
       res.status(502).json({ error: `${tag}_failed` });
     }
   };

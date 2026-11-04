@@ -102,24 +102,34 @@ class EmailMessageViewFilterTest extends IntegrationTestBase {
     assertThat(ids(rows)).containsExactly(personal).doesNotContain(none);
   }
 
+  /** WP-1347: 분류가 없으면 시도 기록과 무관하게 늘 pending, 시도 기록(최종 실패)이 있으면 failed 도 true. */
   @Test
-  void categoryPending_trueOnlyWhenNeverAttempted() {
+  void categoryPending_trueWheneverNoCategory() {
     long[] box = TestFixtures.seedMailbox(dsl, "view3-" + System.nanoTime() + "@test.local");
     long fresh = fetched(box[1], box[2], null);
     long attempted = fetched(box[1], box[2], null);
+    long summarizedOnly = fetched(box[1], box[2], null);
     long classified = fetched(box[1], box[2], "업무");
     dsl.update(EMAIL_CONTENT)
         .set(EMAIL_CONTENT.AI_CATEGORIZED_AT, OffsetDateTime.now())
         .where(EMAIL_CONTENT.ID.eq(contentIdOf(attempted)))
         .execute();
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+        .where(EMAIL_CONTENT.ID.eq(contentIdOf(summarizedOnly)))
+        .execute();
 
     var byId =
         messageRepo.listByAccount(box[1], "INBOX", null, false, null, false, 50).stream()
-            .collect(
-                Collectors.toMap(EmailMessageSummary::id, EmailMessageSummary::categoryPending));
+            .collect(Collectors.toMap(EmailMessageSummary::id, m -> m));
 
-    assertThat(byId.get(fresh)).isTrue();
-    assertThat(byId.get(attempted)).isFalse();
-    assertThat(byId.get(classified)).isFalse();
+    assertThat(byId.get(fresh).categoryPending()).isTrue();
+    assertThat(byId.get(fresh).categoryFailed()).isFalse();
+    assertThat(byId.get(attempted).categoryPending()).isTrue();
+    assertThat(byId.get(attempted).categoryFailed()).isTrue();
+    assertThat(byId.get(summarizedOnly).categoryPending()).isTrue();
+    assertThat(byId.get(summarizedOnly).categoryFailed()).isFalse();
+    assertThat(byId.get(classified).categoryPending()).isFalse();
+    assertThat(byId.get(classified).categoryFailed()).isFalse();
   }
 }

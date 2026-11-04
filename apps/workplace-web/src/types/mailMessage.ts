@@ -16,8 +16,10 @@ export interface EmailMessageSummary {
   hasAttachment: boolean;
   aiCategory: string | null;
   aiNeedsReply: boolean | null;
-  /** WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지 */
+  /** WP-186·WP-1347: 분류가 없음(시도 여부 무관) → "분류 전" 배지 */
   categoryPending: boolean;
+  /** WP-1347: 분류 재시도를 모두 소진한 최종 실패 → 「분류 전」 배지 title 만 「분류하지 못했어요」로 바뀐다. 옛 응답엔 없을 수 있다. */
+  categoryFailed?: boolean;
   /**
    * WP-1325: 보낸 사람이 이 워크스페이스 구성원이 아님(외부 메일) → 「외부」 태그. 목록 API 만 채우고 판정할 수 없으면 null.
    * 다른 응답·테스트 데이터에는 없을 수 있어 선택 필드다(없으면 표시하지 않음).

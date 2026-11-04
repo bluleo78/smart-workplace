@@ -338,9 +338,11 @@ function MessageRow({
               </AiSignalBadge>
             )}
             {pendingVisible && m.categoryPending && (
-              // WP-186: 아직 분류를 시도하지 않은 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
+              // WP-186: 분류가 없는 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
+              // WP-1347: 재시도를 모두 소진한 최종 실패면 title 로만 알린다(배지 문구는 그대로).
               <span
                 data-testid={`mail-badge-pending-${m.id}`}
+                title={m.categoryFailed ? '분류하지 못했어요' : undefined}
                 className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-xs leading-4 text-muted-foreground dark:border-muted-foreground/70"
               >
                 분류 전

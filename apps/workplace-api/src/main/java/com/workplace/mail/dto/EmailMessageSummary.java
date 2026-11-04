@@ -16,7 +16,8 @@ public record EmailMessageSummary(
     boolean hasAttachment,
     String aiCategory,
     Boolean aiNeedsReply, // 회신필요 = aiNeedsReply && !seen (WP-146 단일 술어)
-    boolean categoryPending, // WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지
+    boolean categoryPending, // WP-186·WP-1347: 분류가 없음(시도 여부 무관) → "분류 전" 배지
+    boolean categoryFailed, // WP-1347: 분류 재시도를 모두 소진한 최종 실패 → 배지 title 만 달라진다
     // WP-1325: 보낸 사람이 이 워크스페이스 구성원이 아님(외부 메일) — 목록 API 만 채운다. 판정할 수 없으면(주소 없음·다른 경로) null.
     Boolean externalSender) {
 
@@ -36,6 +37,7 @@ public record EmailMessageSummary(
         aiCategory,
         aiNeedsReply,
         categoryPending,
+        categoryFailed,
         external);
   }
 }

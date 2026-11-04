@@ -37,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -121,21 +122,28 @@ public class EmailMessageRepository {
   }
 
   /**
-   * "분류 전" 배지 여부(WP-186) — 본문 검증 전이거나, 분류가 없고 어떤 경로(③ 원본 분석·분류 일괄)로도 분류를 시도하지 않은 메일. 시도했는데 비어 있는
-   * 메일은 false(영구 미분류 — 배지 없이 업무 보기에만 남음).
+   * "분류 전" 배지 여부(WP-186·WP-1347) — 본문 검증 전이거나 분류가 없는 메일. 시도 기록·요약 유무와 무관하게 분류가 없으면 늘 true 다 — 제공자
+   * 장애·재시도 중·최종 실패 모두 사용자에겐 "아직 분류 안 됨"이고, 최종 실패 구분은 {@link #categoryFailedField()} 가 맡는다.
    */
   static Field<Boolean> categoryPendingField() {
+    return DSL.field(EMAIL_MESSAGE.FETCHED_AT.isNull().or(EMAIL_CONTENT.AI_CATEGORY.isNull()))
+        .as("category_pending");
+  }
+
+  /**
+   * 분류 최종 실패 여부(WP-1347) — 본문 검증 후 분류가 없는데 분류 시도 기록(ai_categorized_at)이 남은 메일. 분류 일괄이 재시도를 모두
+   * 소진한(4번째 실패) 때만 시도 기록이 남으므로, 배지 title 을 "분류하지 못했어요"로 바꾸는 데 쓴다.
+   *
+   * <p>V265 이전 옛 코드가 표시한 행은 시도 횟수가 없어도, 14일 넘게 지났으면 최종 실패로 함께 친다(의도된 동작).
+   */
+  static Field<Boolean> categoryFailedField() {
     return DSL.field(
             EMAIL_MESSAGE
                 .FETCHED_AT
-                .isNull()
-                .or(
-                    EMAIL_CONTENT
-                        .AI_CATEGORY
-                        .isNull()
-                        .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
-                        .and(EMAIL_CONTENT.AI_SUMMARIZED_AT.isNull())))
-        .as("category_pending");
+                .isNotNull()
+                .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
+                .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNotNull()))
+        .as("category_failed");
   }
 
   /** UIDVALIDITY 변경 시 폴더의 기존 메시지를 모두 삭제(서버가 UID 를 재사용하므로 stale 충돌 방지). */
@@ -631,7 +639,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
-            categoryPendingField()) // WP-186: 분류 전 배지
+            categoryPendingField(), // WP-186: 분류 전 배지
+            categoryFailedField()) // WP-1347: 분류 최종 실패(배지 title)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -701,7 +710,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
-            categoryPendingField()) // WP-186: 분류 전 배지
+            categoryPendingField(), // WP-186: 분류 전 배지
+            categoryFailedField()) // WP-1347: 분류 최종 실패(배지 title)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -1304,6 +1314,10 @@ public class EmailMessageRepository {
   /**
    * WP-185 분류 일괄 대상 — INBOX · 본문 적재·검증 사본 · content 연결 · 분류 없음 · 분류 일괄 미시도. 읽음·수신 시각은 보지 않는다(전체
    * 메일). 같은 content 를 공유하는 사본은 content 당 대표 1통(가장 최근 사본)만 고른다 — 한 번 분류하면 모두 빠진다.
+   *
+   * <p>WP-1347: 실패·빈 결과로 재시도가 예약된 content 는 다음 시도 시각({@code ai_category_next_attempt_at})이 지나야 다시
+   * 고른다. {@code ai_categorized_at} 을 NULL 로 되돌리는 경로는 시도 횟수({@code ai_category_attempts})도 0 으로 둔다 —
+   * 그렇지 않으면 되돌린 메일이 남은 횟수만큼만 재시도되고 곧 다시 굳는다.
    */
   public List<Long> listUncategorizedIds(long accountId, int limit) {
     var ranked =
@@ -1327,6 +1341,12 @@ public class EmailMessageRepository {
             .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
             .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
             .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
+            // WP-1347: 재시도 예약된 content 는 그 시각이 지난 뒤에만
+            .and(
+                EMAIL_CONTENT
+                    .AI_CATEGORY_NEXT_ATTEMPT_AT
+                    .isNull()
+                    .or(EMAIL_CONTENT.AI_CATEGORY_NEXT_ATTEMPT_AT.le(DSL.currentOffsetDateTime())))
             .asTable("r");
     return dsl.select(ranked.field(EMAIL_MESSAGE.ID))
         .from(ranked)
@@ -1370,10 +1390,55 @@ public class EmailMessageRepository {
                     Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AUTO_GENERATED))));
   }
 
-  /** WP-185 분류 시도 기록 — 응답을 받은 사본의 content 에 시각을 남긴다(분류가 비었어도). 적재·검증 사본만. */
+  /**
+   * WP-185 분류 완료 기록 — 유효한 분류를 받은 사본의 content 에 시각을 남겨 다시 고르지 않는다. 적재·검증 사본만. 실패·빈 결과는 {@link
+   * #recordCategoryFailure} 로 기록한다(WP-1347).
+   */
   public int markCategorized(long messageId) {
     return dsl.update(EMAIL_CONTENT)
         .set(EMAIL_CONTENT.AI_CATEGORIZED_AT, OffsetDateTime.now())
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
+        .execute();
+  }
+
+  /**
+   * WP-1347 분류 실패(단건 호출 실패·빈 결과) 기록 — 그 사본의 content 시도 횟수를 1 늘린다. 새 횟수가 {@code retryDelays.size()}
+   * 이하면 {@code now() + retryDelays[새 횟수 - 1]} 뒤 다시 고르도록 미루고, 넘으면 {@code ai_categorized_at} 을 남겨 더
+   * 고르지 않는다(최종 실패). 예전처럼 첫 실패에 영구 제외하면 제공자 일시 장애 동안의 메일이 장애가 끝나도 미분류로 굳기 때문이다.
+   *
+   * <p>적재·검증 사본, 아직 분류 일괄이 끝나지 않은({@code ai_categorized_at IS NULL}) content 만 바꾼다. 동시 실행에서도 횟수가
+   * 어긋나지 않도록 읽고 쓰기를 SQL 한 문장(CASE)으로 한다 — Postgres 는 SET 의 모든 식을 갱신 전 값으로 계산하므로 두 CASE 가 같은 새 횟수를
+   * 본다.
+   *
+   * <p>시도 횟수는 계정별이 아니라 공유 email_content 행에 쌓이므로, 같은 본문을 공유하는 여러 계정의 실패가 합산된다(의도된 동작).
+   *
+   * @return 바뀐 content 행 수(0 이면 이미 최종 처리됐거나 대상이 아님)
+   */
+  public int recordCategoryFailure(long messageId, List<Duration> retryDelays) {
+    Field<Integer> attempt = EMAIL_CONTENT.AI_CATEGORY_ATTEMPTS.cast(Integer.class).plus(1);
+    Field<OffsetDateTime> now = DSL.currentOffsetDateTime();
+    Field<OffsetDateTime> noTime = DSL.val((OffsetDateTime) null, EMAIL_CONTENT.AI_CATEGORIZED_AT);
+    // 새 횟수 n 에 맞는 다음 시도 시각 — 간격(초) 배열의 n 번째. 배열을 넘으면 Postgres 가 NULL 을 돌려줘 최종 실패(더 고르지 않음)가 된다
+    String delaySeconds =
+        retryDelays.stream()
+            .map(d -> Long.toString(d.toSeconds()))
+            .collect(Collectors.joining(","));
+    Field<OffsetDateTime> nextAt =
+        DSL.field(
+            "{0} + ((ARRAY[" + delaySeconds + "]::bigint[])[{1}] * interval '1 second')",
+            OffsetDateTime.class,
+            now,
+            attempt);
+    Field<OffsetDateTime> categorizedAt =
+        DSL.when(attempt.gt(DSL.inline(retryDelays.size())), now).otherwise(noTime);
+    return dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY_ATTEMPTS, attempt.cast(Short.class))
+        .set(EMAIL_CONTENT.AI_CATEGORY_NEXT_ATTEMPT_AT, nextAt)
+        .set(EMAIL_CONTENT.AI_CATEGORIZED_AT, categorizedAt)
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
@@ -1727,6 +1792,7 @@ public class EmailMessageRepository {
             ? Boolean.FALSE
             : r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
         Boolean.TRUE.equals(r.get("category_pending", Boolean.class)),
+        Boolean.TRUE.equals(r.get("category_failed", Boolean.class)),
         null); // WP-1325 외부 메일 판정은 서비스가 일괄로 붙인다
   }
 

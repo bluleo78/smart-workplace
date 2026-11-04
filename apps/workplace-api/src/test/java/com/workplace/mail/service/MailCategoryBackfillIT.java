@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -19,9 +20,12 @@ import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchEntry;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchResult;
 import com.workplace.mail.repository.EmailContentRepository;
+import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.ExternalClientMockedTestBase;
+import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -47,6 +51,7 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
   @Autowired MailCategoryBackfillService service;
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
+  @Autowired EmailMessageRepository messageRepo;
   @Autowired ApplicationEvents events;
 
   @Autowired AiAgentMailClient mailClient;
@@ -75,6 +80,34 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
         .from(EMAIL_CONTENT)
         .where(EMAIL_CONTENT.ID.eq(contentId))
         .fetchOne();
+  }
+
+  /** WP-1347 재시도 상태 — 시도 횟수와 다음 시도 시각. */
+  private Record2<Short, OffsetDateTime> retryState(long contentId) {
+    return dsl.select(EMAIL_CONTENT.AI_CATEGORY_ATTEMPTS, EMAIL_CONTENT.AI_CATEGORY_NEXT_ATTEMPT_AT)
+        .from(EMAIL_CONTENT)
+        .where(EMAIL_CONTENT.ID.eq(contentId))
+        .fetchOne();
+  }
+
+  /** 다음 시도 시각을 과거로 당겨 다시 고를 수 있게 한다. */
+  private void pullNextAttemptIntoPast(long contentId) {
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY_NEXT_ATTEMPT_AT, dbNow().minusMinutes(1))
+        .where(EMAIL_CONTENT.ID.eq(contentId))
+        .execute();
+  }
+
+  /** 다음 시도 시각이 DB now + delay(±1분) 인지 단언한다. */
+  private void assertNextAttemptIn(long contentId, Duration delay) {
+    assertThat(retryState(contentId).value2())
+        .isCloseTo(dbNow().plus(delay), within(1, ChronoUnit.MINUTES));
+  }
+
+  /** 아직 한 번도 실패를 기록하지 않은 상태(시도 0·다음 시각 없음). */
+  private void assertNoRetryRecorded(long contentId) {
+    assertThat(retryState(contentId).value1()).isEqualTo((short) 0);
+    assertThat(retryState(contentId).value2()).isNull();
   }
 
   @Test
@@ -134,8 +167,9 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
     assertThat(contentState(c).value1()).isEqualTo("개인");
   }
 
+  /** WP-1347: 빈 분류는 영구 제외하지 않고 1h 뒤 재시도로 미룬다 — 그 전에는 다시 고르지 않는다. */
   @Test
-  void nullCategory_marksAttempted_andIsNotRetried() {
+  void nullCategory_schedulesRetry_andIsNotRetriedBeforeNext() {
     Box a = MailAnalysisFixtures.mailbox(dsl, false);
     long c =
         MailAnalysisFixtures.content(
@@ -150,7 +184,9 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
     verify(mailClient, times(1)).classifyBatch(any());
     assertThat(contentState(c).value1()).isNull();
-    assertThat(contentState(c).value2()).isNotNull();
+    assertThat(contentState(c).value2()).isNull();
+    assertThat(retryState(c).value1()).isEqualTo((short) 1);
+    assertNextAttemptIn(c, Duration.ofHours(1));
   }
 
   @Test
@@ -167,6 +203,7 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
     assertThat(contentState(c).value1()).isNull();
     assertThat(contentState(c).value2()).isNull();
+    assertNoRetryRecorded(c);
   }
 
   @Test
@@ -348,9 +385,12 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
     assertThat(byId.get(envBig)).hasSize(500);
   }
 
-  /** 가장 최신 메일 1통이 독이어서 포함된 요청이 항상 502 면 — 단건 폴백으로 독만 시도 처리하고 나머지는 분류한다. */
+  /**
+   * 가장 최신 메일 1통이 독이어서 포함된 요청이 항상 502 면 — 단건 폴백으로 독을 격리하고 나머지는 분류한다. WP-1347: 독은 영구 제외(시도 시각)하지 않고
+   * 1h 뒤 재시도로 미룬다.
+   */
   @Test
-  void poisonMail_isIsolatedBySingleItemFallback_andOthersClassified() {
+  void poisonMail_schedulesRetry_insteadOfMarking() {
     Box a = MailAnalysisFixtures.mailbox(dsl, false);
     long[] contents = new long[3];
     long[] envs = new long[3];
@@ -383,9 +423,13 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
     // 묶음(3통) 실패 1 + 독 단건 실패 1 + 나머지 단건 2 = 4 호출
     assertThat(used).isEqualTo(4);
     assertThat(contentState(contents[0]).value1()).isNull();
-    assertThat(contentState(contents[0]).value2()).isNotNull();
+    assertThat(contentState(contents[0]).value2()).isNull();
+    assertThat(retryState(contents[0]).value1()).isEqualTo((short) 1);
+    assertNextAttemptIn(contents[0], Duration.ofHours(1));
     assertThat(contentState(contents[1]).value1()).isEqualTo("업무");
+    assertThat(contentState(contents[1]).value2()).isNotNull();
     assertThat(contentState(contents[2]).value1()).isEqualTo("업무");
+    assertNoRetryRecorded(contents[1]);
   }
 
   /** 단건 호출이라도 ai-agent 불가(503)면 독이라는 증거가 아니므로 아무것도 기록하지 않는다. */
@@ -403,5 +447,136 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
     verify(mailClient, times(1)).classifyBatch(any());
     assertThat(contentState(c).value2()).isNull();
+    assertNoRetryRecorded(c);
+  }
+
+  /**
+   * WP-1347: 다음 시도 시각이 미래면 고르지 않고, 지나면 다시 고른다. 실패가 1h·6h·24h 간격으로 미뤄지고 4번째 실패에서 시도 시각을 남겨 더 고르지
+   * 않는다.
+   */
+  @Test
+  void poisonMail_isPickedAgainAfterNextAttempt_andFinalAfterFourth() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long c =
+        MailAnalysisFixtures.content(
+            dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+    long env = MailAnalysisFixtures.envelope(dsl, a, c, "b@corp.com", a.address(), null);
+    when(mailClient.classifyBatch(any()))
+        .thenThrow(new MailAiException("502", new RuntimeException("bad gateway")));
+
+    // 1번째 실패 → 1h 뒤. 다음 시각이 미래라 후보에 없다
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+    assertThat(retryState(c).value1()).isEqualTo((short) 1);
+    assertNextAttemptIn(c, Duration.ofHours(1));
+    assertThat(messageRepo.listUncategorizedIds(a.accountId(), 10)).doesNotContain(env);
+
+    // 시각을 과거로 당기면 다시 후보
+    pullNextAttemptIntoPast(c);
+    assertThat(messageRepo.listUncategorizedIds(a.accountId(), 10)).contains(env);
+
+    // 2번째 실패 → 6h 뒤
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+    assertThat(retryState(c).value1()).isEqualTo((short) 2);
+    assertNextAttemptIn(c, Duration.ofHours(6));
+
+    // 3번째 실패 → 24h 뒤
+    pullNextAttemptIntoPast(c);
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+    assertThat(retryState(c).value1()).isEqualTo((short) 3);
+    assertNextAttemptIn(c, Duration.ofHours(24));
+    assertThat(contentState(c).value2()).isNull();
+
+    // 4번째 실패 → 최종: 시도 시각을 남기고 더 고르지 않는다
+    pullNextAttemptIntoPast(c);
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+    assertThat(retryState(c).value1()).isEqualTo((short) 4);
+    assertThat(contentState(c).value2()).isNotNull();
+    assertThat(messageRepo.listUncategorizedIds(a.accountId(), 10)).doesNotContain(env);
+
+    verify(mailClient, times(4)).classifyBatch(any());
+  }
+
+  /**
+   * WP-1347: 묶음 응답이 성공이어도 한 메일이 빠졌거나 분류가 null·5종 밖이면 그 메일만 시도 1회로 세고 재시도로 미룬다. 나머지는 저장·시도 시각 기록.
+   */
+  @Test
+  void emptyResult_countsAsAttempt() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long[] contents = new long[4];
+    long[] envs = new long[4];
+    for (int i = 0; i < 4; i++) {
+      contents[i] =
+          MailAnalysisFixtures.content(
+              dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+      envs[i] = MailAnalysisFixtures.envelope(dsl, a, contents[i], "b@corp.com", a.address(), null);
+      MailAnalysisFixtures.receivedDaysAgo(dsl, envs[i], i);
+    }
+    // envs[0] 정상, envs[1] null, envs[2] 5종 밖, envs[3] 응답에서 빠짐
+    when(mailClient.classifyBatch(any()))
+        .thenReturn(
+            new ClassifyBatchResult(
+                List.of(
+                    new ClassifyBatchEntry(envs[0], "업무"),
+                    new ClassifyBatchEntry(envs[1], null),
+                    new ClassifyBatchEntry(envs[2], "기타없음"))));
+
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+
+    verify(mailClient, times(1)).classifyBatch(any());
+    assertThat(contentState(contents[0]).value1()).isEqualTo("업무");
+    assertThat(contentState(contents[0]).value2()).isNotNull();
+    assertNoRetryRecorded(contents[0]);
+    for (int i = 1; i < 4; i++) {
+      assertThat(contentState(contents[i]).value1()).isNull();
+      assertThat(contentState(contents[i]).value2()).isNull();
+      assertThat(retryState(contents[i]).value1()).isEqualTo((short) 1);
+      assertNextAttemptIn(contents[i], Duration.ofHours(1));
+    }
+  }
+
+  /**
+   * WP-1347: 묶음 실패 → 1통씩 단계에서 첫 메일은 502(독 기록), 둘째 메일에서 ai-agent 불가면 회차를 멈춘다 — 앞서 남긴 독 기록은 유지하고 둘째는
+   * 아무것도 기록하지 않는다.
+   */
+  @Test
+  void unavailableMidSingleItems_keepsEarlierPoisonRecord() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long[] contents = new long[2];
+    long[] envs = new long[2];
+    for (int i = 0; i < 2; i++) {
+      contents[i] =
+          MailAnalysisFixtures.content(
+              dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+      envs[i] = MailAnalysisFixtures.envelope(dsl, a, contents[i], "b@corp.com", a.address(), null);
+      MailAnalysisFixtures.receivedDaysAgo(dsl, envs[i], i); // i=0 이 최신 → 단건 단계에서 먼저 부른다
+    }
+    long first = envs[0];
+    when(mailClient.classifyBatch(any()))
+        .thenAnswer(
+            inv -> {
+              ClassifyBatchRequest req = inv.getArgument(0);
+              if (req.items().size() > 1 || req.items().get(0).id() == first) {
+                throw new MailAiException("502", new RuntimeException("bad gateway"));
+              }
+              throw new MailAiUnavailableException("down");
+            });
+    AgentOutageGuard guard = new AgentOutageGuard();
+
+    int used =
+        service.classifyAccountNow(
+            a.userId(), a.accountId(), guard, MailCategoryBackfillService.MAX_BATCHES);
+
+    // 묶음 1 + 첫 단건 1 + 둘째 단건 1 = 3 호출, 그 뒤 멈춤(멈추지 않으면 둘째를 다시 불러 예산 4 를 다 쓴다)
+    assertThat(used).isEqualTo(3);
+    assertThat(retryState(contents[0]).value1()).isEqualTo((short) 1);
+    assertNextAttemptIn(contents[0], Duration.ofHours(1));
+    assertThat(contentState(contents[0]).value2()).isNull();
+    assertNoRetryRecorded(contents[1]);
+    assertThat(contentState(contents[1]).value2()).isNull();
   }
 }

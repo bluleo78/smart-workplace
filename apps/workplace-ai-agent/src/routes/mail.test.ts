@@ -13,6 +13,7 @@ vi.mock('../agent/run-mail-ai.js', () => ({
   runMailClassifyBatch: vi.fn(),
 }));
 
+import { ModelOutputError } from '../agent/provider-error.js';
 import { coachDraftSchema, createMailRouter, issueDraftSchema, replyDraftSchema } from './mail.js';
 import {
   runMailAnalyzeContent,
@@ -118,6 +119,20 @@ describe('POST /mail/analyze-content', () => {
     vi.mocked(runMailAnalyzeContent).mockRejectedValue(new Error('boom'));
     const res = await request(app()).post('/mail/analyze-content').send(valid);
     expect(res.status).toBe(502);
+  });
+  it('모델 출력 파싱 오류는 본문에 한도·429 문구가 있어도 502 (WP-1347)', async () => {
+    vi.mocked(runMailAnalyzeContent).mockRejectedValue(
+      new ModelOutputError("분석 JSON 없음: You've hit your org's monthly spend limit. API Error: 429"),
+    );
+    const res = await request(app()).post('/mail/analyze-content').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'mail-analyze-content_failed' });
+  });
+  it('제공자 과부하 오류면 503 + PROVIDER_OVERLOADED (WP-1347)', async () => {
+    vi.mocked(runMailAnalyzeContent).mockRejectedValue(new Error('API Error: 529 {"type":"overloaded_error","message":"Overloaded"}'));
+    const res = await request(app()).post('/mail/analyze-content').send(valid);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'mail-analyze-content_unavailable', reason: 'PROVIDER_OVERLOADED' });
   });
 });
 
@@ -239,6 +254,15 @@ describe('POST /mail/classify-batch', () => {
     const res = await request(app()).post('/mail/classify-batch').send(valid);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'mail-classify-batch_failed' });
+  });
+  // WP-1347: 제공자 장애(한도·과부하)는 502 대신 503 + reason 으로 알린다.
+  it('제공자 한도 오류면 503 + PROVIDER_LIMIT', async () => {
+    vi.mocked(runMailClassifyBatch).mockRejectedValue(
+      new Error("Claude Code returned an error result: You've hit your org's monthly spend limit"),
+    );
+    const res = await request(app()).post('/mail/classify-batch').send(valid);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'mail-classify-batch_unavailable', reason: 'PROVIDER_LIMIT' });
   });
 });
 

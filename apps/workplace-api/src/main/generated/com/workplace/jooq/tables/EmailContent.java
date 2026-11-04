@@ -174,6 +174,20 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
      */
     public final TableField<EmailContentRecord, OffsetDateTime> AI_CATEGORIZED_AT = createField(DSL.name("ai_categorized_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.email_content.ai_category_attempts</code>. 분류 일괄이
+     * 이 content 분류에 실패(단건 호출 실패·빈 결과)한 횟수. ai_categorized_at 을 NULL 로 되돌리면 0 으로
+     * 함께 되돌린다(WP-1347)
+     */
+    public final TableField<EmailContentRecord, Short> AI_CATEGORY_ATTEMPTS = createField(DSL.name("ai_category_attempts"), SQLDataType.SMALLINT.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.SMALLINT)), this, "분류 일괄이 이 content 분류에 실패(단건 호출 실패·빈 결과)한 횟수. ai_categorized_at 을 NULL 로 되돌리면 0 으로 함께 되돌린다(WP-1347)");
+
+    /**
+     * The column <code>public.email_content.ai_category_next_attempt_at</code>.
+     * 분류 일괄이 이 content 를 다시 고를 수 있는 가장 이른 시각(실패 뒤 1h·6h·24h). NULL 이면 바로 고를 수
+     * 있다(WP-1347)
+     */
+    public final TableField<EmailContentRecord, OffsetDateTime> AI_CATEGORY_NEXT_ATTEMPT_AT = createField(DSL.name("ai_category_next_attempt_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "분류 일괄이 이 content 를 다시 고를 수 있는 가장 이른 시각(실패 뒤 1h·6h·24h). NULL 이면 바로 고를 수 있다(WP-1347)");
+
     private EmailContent(Name alias, Table<EmailContentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

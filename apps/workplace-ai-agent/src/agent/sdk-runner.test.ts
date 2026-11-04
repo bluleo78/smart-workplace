@@ -5,6 +5,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it } from 'vitest';
 import { buildSdkOptions, runSdkCollect, runSdkStream, type SdkRunInput } from './sdk-runner.js';
 import { RunnerLimitError } from './runner-limit.js';
+import { classifyProviderError } from './provider-error.js';
 
 function baseInput(over: Partial<SdkRunInput> = {}): SdkRunInput {
   return {
@@ -270,6 +271,32 @@ describe('runSdkCollect', () => {
   it('error subtype + is_error=false 여도 reject (subtype 판별, is_error 신뢰 안 함)', async () => {
     vi.mocked(query).mockReturnValue(makeQuery([{ type: 'result', subtype: 'error_max_turns', is_error: false }]) as never);
     await expect(runSdkCollect(input())).rejects.toThrow();
+  });
+
+  // WP-1347: 결과 오류의 원인 텍스트를 메시지에 남겨 제공자 장애를 가려낼 수 있어야 한다.
+  it('errors 배열의 한도 문구를 메시지에 싣고 PROVIDER_LIMIT 로 분류된다', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([
+      { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ["You've hit your org's monthly spend limit"] },
+    ]) as never);
+    const err = await runSdkCollect(input()).catch((e) => e);
+    expect((err as Error).message).toContain('spend limit');
+    expect(classifyProviderError(err)).toBe('PROVIDER_LIMIT');
+  });
+
+  it('subtype success + is_error true(result 텍스트) 도 reject, PROVIDER_OVERLOADED', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([
+      { type: 'result', subtype: 'success', is_error: true, result: 'API Error: 529 Overloaded' },
+    ]) as never);
+    const err = await runSdkCollect(input()).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(classifyProviderError(err)).toBe('PROVIDER_OVERLOADED');
+  });
+
+  it('정상 결과(success, is_error false)는 reject 하지 않는다(회귀)', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([
+      { type: 'result', subtype: 'success', is_error: false, result: '{"results":[]}' },
+    ]) as never);
+    await expect(runSdkCollect(input())).resolves.toHaveLength(1);
   });
 
   it('timeout → interrupt 호출 + reject(timeout)', async () => {
