@@ -53,6 +53,12 @@ const popperImportPattern = {
   regex: '((^|/)ui/(popover|select|dropdown-menu)|^@radix-ui/react-(popover|select|dropdown-menu))$',
   message: popperImportMessage,
 }
+// WP-1352: 검색·필터 입력칸의 공용 바탕(query-input)은 SearchInput·FilterInput 만 쓴다 — 화면이 바로 쓰면
+// 아이콘·지우기 문구를 마음대로 골라 검색과 필터 구분이 무너진다. (ui/ 는 globalIgnores 라 두 래퍼는 걸리지 않는다.)
+const queryInputImportPattern = {
+  regex: '(^|/)ui/query-input$',
+  message: '목록을 좁히면 FilterInput, 상단 검색이면 SearchInput 을 쓰세요 — query-input 은 두 컴포넌트의 공용 바탕입니다(WP-1352).',
+}
 // 통합 패키지 radix-ui — Slot·Dialog 등은 그대로 쓰고 팝퍼 셋만 막는다.
 const radixPopperPackageRule = {
   name: 'radix-ui',
@@ -90,7 +96,7 @@ export default defineConfig([
       // 팝오버·선택 창·메뉴는 앱 공용 래퍼(src/components/overlay)로만 — 휴대폰 하단 탭바를 피하는 충돌 여백이
       // 거기서 한 번에 들어간다(WP-806). ui/* 나 Radix 원본을 직접 쓰면 그 화면만 탭바 밑으로 펼쳐진다.
       // (src/components/ui 는 globalIgnores 라 shadcn 원본의 radix-ui 가져오기는 걸리지 않는다.)
-      'no-restricted-imports': ['error', { paths: [radixPopperPackageRule], patterns: [popperImportPattern] }],
+      'no-restricted-imports': ['error', { paths: [radixPopperPackageRule], patterns: [popperImportPattern, queryInputImportPattern] }],
     },
   },
   {

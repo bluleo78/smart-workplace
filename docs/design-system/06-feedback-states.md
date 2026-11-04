@@ -34,7 +34,7 @@ function PageSkeleton() {
 
 ### 2. Table Skeleton (테이블 스켈레톤)
 
-테이블 데이터 로드 중 행 구조를 유지한다. 직접 작성하지 말고 공통 컴포넌트 `TableSkeletonRows`([04 §B-9](./04-components.md))를 사용한다.
+테이블 데이터 로드 중 행 구조를 유지한다. 직접 작성하지 말고 공통 컴포넌트 `TableSkeletonRows`([04 §B-10](./04-components.md))를 사용한다.
 
 ```tsx
 <TableBody>
@@ -109,7 +109,7 @@ function FullPageLoading() {
 
 ### 테이블 빈 상태 — `TableEmptyRow`
 
-직접 작성하지 말고 공통 컴포넌트 `TableEmptyRow`([04 §B-8](./04-components.md))를 사용한다. **검색어 유무로 두 가지 UI 가 분기**된다.
+직접 작성하지 말고 공통 컴포넌트 `TableEmptyRow`([04 §B-9](./04-components.md))를 사용한다. **검색어 유무로 두 가지 UI 가 분기**된다.
 
 - `searchKeyword` 있음 → "`'<keyword>'`에 대한 결과가 없습니다." + `SearchX` 아이콘 + (옵션) "검색 초기화" 버튼
 - 검색어 없음(진짜 0건) → `message` + (옵션) `emptyAction` CTA
@@ -130,7 +130,9 @@ function FullPageLoading() {
 </TableBody>
 ```
 
-> `onResetSearch` 의 "검색 초기화" 는 `SearchInput`([04 §B-3](./04-components.md))의 clear(X) 버튼과 동일하게 `setSearch("")` 로 연결한다 — 사용자가 어디서든 동일하게 검색을 비울 수 있다.
+> `onResetSearch` 의 "검색 초기화" 는 입력칸의 clear(X) 버튼과 동일하게 `setSearch("")` 로 연결한다 — 사용자가 어디서든 동일하게 비울 수 있다.
+>
+> **To-Be(WP-1351)**: 목록 필터 칸은 `FilterInput`([04 §B-4](./04-components.md))이라 지우기 버튼이 「필터 지우기」다. 필터 결과 0건의 빈 상태 문구·버튼도 「검색」이 아니라 「필터」 말로 맞춘다(예: 「필터 지우기」). `TableEmptyRow` 의 문구는 목록 화면을 `FilterInput` 으로 옮기는 하위 스토리(WP-1355·1356)에서 바꾼다 — 그 전까지 「검색 초기화」가 남아 있다.
 
 ### 일반 빈 상태 (테이블 외)
 
