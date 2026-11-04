@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { assertModelHostResolvesPublic } from '../clients/model-url-guard.js';
 import { log } from '../logger.js';
 import type { AgentRunner, OpencodeProviderConfig, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
+import { OPENCODE_SESSION_CREATE_FAILED } from './provider-error.js';
 import { registerBridge, releaseBridge } from './bridge-registry.js';
 import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from './opencode-config.js';
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
@@ -70,7 +71,7 @@ function poolKeyFor(i: RunnerInput, { vision, limit }: OpencodeModelSettings): s
 async function openSession(opencode: OpencodeHandle, query: { directory: string } | undefined) {
   const created = await opencode.client.session.create({ query });
   if (!created.data) {
-    throw new Error(`opencode session 생성 실패: ${JSON.stringify(created.error)}`);
+    throw new Error(`${OPENCODE_SESSION_CREATE_FAILED}: ${JSON.stringify(created.error)}`);
   }
   const session = created.data;
   const es = await opencode.client.event.subscribe({ query });

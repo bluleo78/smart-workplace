@@ -1,5 +1,5 @@
 /**
- * 러너 오류에서 LLM 제공자 장애(한도·인증·속도·과부하)를 가려낸다 (WP-1347).
+ * 러너 오류에서 LLM 제공자 장애(한도·인증·속도·과부하, 5xx·opencode 세션 생성 실패)를 가려낸다 (WP-1347, WP-1363).
  *
  * 왜: 제공자 장애를 일반 실패(502)로 돌려주면 API 가 메일을 '분류 실패'로 표시한다.
  * 장애로 판정되면 라우트가 503 을 내려 API 가 메일을 건드리지 않게 한다.
@@ -10,13 +10,22 @@ export type ProviderErrorReason =
   | 'PROVIDER_LIMIT'
   | 'PROVIDER_AUTH'
   | 'PROVIDER_RATE'
-  | 'PROVIDER_OVERLOADED';
+  | 'PROVIDER_OVERLOADED'
+  // WP-1363: 제공자 게이트웨이·일시 불가(502·503·504)
+  | 'PROVIDER_ERROR'
+  // WP-1363: opencode 세션 생성 실패(러너 자체를 쓸 수 없음)
+  | 'RUNNER_UNAVAILABLE';
+
+/** opencode-runner openSession 이 던지는 세션 생성 실패 메시지 앞머리. 표식·판정이 같은 문구를 쓰게 상수로 둔다(WP-1363). */
+export const OPENCODE_SESSION_CREATE_FAILED = 'opencode session 생성 실패';
+/** 위 문구의 소문자 — 판정은 소문자로 비교한다. */
+const SESSION_CREATE_FAILED_LC = OPENCODE_SESSION_CREATE_FAILED.toLowerCase();
 
 /**
  * 한도 소진 문구(소문자 비교). 상태 코드(429 등)보다 우선한다.
  * 'quota' 단독은 메일 본문·사서함 용량 등 건별 실패까지 장애로 오판해 좁혔다(WP-1347).
  */
-const LIMIT_PHRASES = ['spend limit', 'usage limit', 'credit balance', 'monthly limit', 'exceeded your quota', 'quota exceeded'];
+const LIMIT_PHRASES = ['spend limit', 'usage limit', 'credit balance', 'monthly limit', 'exceeded your quota', 'exceeded your current quota', 'quota exceeded'];
 const AUTH_PHRASES = ['invalid api key', 'authentication_error', 'oauth token'];
 const RATE_PHRASES = ['rate limit', 'rate_limit_error'];
 const OVERLOADED_PHRASES = ['overloaded'];
@@ -24,11 +33,16 @@ const OVERLOADED_PHRASES = ['overloaded'];
 /** SDK 오류 문구의 HTTP 상태 코드(`API Error: 429` / `API Error: Request rejected (429)`). */
 const API_ERROR_CODE = /API Error: (?:Request rejected \()?(\d{3})\b/;
 
-/** 상태 코드 → 사유. 401/403 인증, 429 속도, 529 과부하만 장애로 본다. */
+/**
+ * 상태 코드 → 사유. 401/403 인증, 429 속도, 529 과부하, 502·503·504 는 제공자 오류(WP-1363)로 본다.
+ * 500 은 건별 원인(컨텍스트 초과·필터 등)과 장애가 섞여 가를 수 없어 건별 실패(null)로 둔다 — 장애로 보면 늘 500 이 나는 메일이
+ * 분류 일괄을 회차마다 멈춰 세운다. 건별 실패는 1h·6h·24h 재시도로 약 31시간까지 흡수된다(WP-1363, AI 팀장 결정).
+ */
 function reasonFromStatus(code: number): ProviderErrorReason | null {
   if (code === 401 || code === 403) return 'PROVIDER_AUTH';
   if (code === 429) return 'PROVIDER_RATE';
   if (code === 529) return 'PROVIDER_OVERLOADED';
+  if (code === 502 || code === 503 || code === 504) return 'PROVIDER_ERROR';
   return null;
 }
 
@@ -57,13 +71,14 @@ function reasonFromOpencode(v: unknown): ProviderErrorReason | null {
 
 /**
  * 러너가 제공자 응답을 담아 던지는 오류임을 보여 주는 문구(소문자). Claude SDK·CLI 의 결과 오류, sdk-runner 의 결과 오류,
- * opencode 의 session.error, 제공자 HTTP 오류 줄. 이 중 하나도 없으면 제공자 장애로 보지 않는다(WP-1347).
+ * opencode 의 session.error, 제공자 HTTP 오류 줄, opencode 세션 생성 실패(WP-1363). 이 중 하나도 없으면 제공자 장애로 보지 않는다(WP-1347).
  */
 const RUNNER_MARKERS = [
   'claude code returned an error result',
   'result is_error',
   'opencode session.error',
   'api error:',
+  SESSION_CREATE_FAILED_LC,
 ];
 
 /**
@@ -93,6 +108,9 @@ export function classifyProviderError(e: unknown): ProviderErrorReason | null {
   //     임의의 오류(도구·클라이언트·파서)가 우연히 "overloaded"·"rate limit" 을 담아도 장애로 보지 않게 하려는 것이다(WP-1347).
   const fromObj = reasonFromOpencode(cause) ?? reasonFromOpencode(e);
   if (!fromObj && !has(RUNNER_MARKERS)) return null;
+
+  // (0.5) opencode 세션 생성 실패 — 러너를 쓸 수 없는 장애. 메시지에 붙은 오류 JSON 의 문구·코드로 사유가 바뀌지 않게 먼저 본다(WP-1363).
+  if (text.includes(SESSION_CREATE_FAILED_LC)) return 'RUNNER_UNAVAILABLE';
 
   // (1) 한도 문구 우선 — 한도 소진은 429 로 오기도 한다.
   if (has(LIMIT_PHRASES)) return 'PROVIDER_LIMIT';
