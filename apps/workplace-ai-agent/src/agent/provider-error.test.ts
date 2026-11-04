@@ -63,6 +63,30 @@ describe('classifyProviderError', () => {
       withCause({ name: 'APIError', data: { statusCode: 429, message: 'x' } }),
       'PROVIDER_RATE',
     ],
+    // WP-1363: 제공자 5xx 와 opencode 세션 생성 실패
+    [
+      '502 Bad Gateway',
+      new Error('Claude Code returned an error result: API Error: 502 Bad Gateway'),
+      'PROVIDER_ERROR',
+    ],
+    ['503', new Error('API Error: 503 Service Unavailable'), 'PROVIDER_ERROR'],
+    ['504 Gateway Timeout', new Error('result is_error: API Error: 504 Gateway Timeout'), 'PROVIDER_ERROR'],
+    ['opencode APIError 503', withCause({ name: 'APIError', data: { statusCode: 503 } }), 'PROVIDER_ERROR'],
+    [
+      'opencode 세션 생성 실패',
+      new Error('opencode session 생성 실패: {"name":"UnknownError"}'),
+      'RUNNER_UNAVAILABLE',
+    ],
+    [
+      '세션 생성 실패는 붙은 오류 JSON 의 한도·401 문구보다 우선',
+      new Error('opencode session 생성 실패: {"data":{"message":"usage limit API Error: 401"}}'),
+      'RUNNER_UNAVAILABLE',
+    ],
+    [
+      '429 exceeded your current quota 는 한도',
+      new Error('API Error: 429 You exceeded your current quota, please check your plan'),
+      'PROVIDER_LIMIT',
+    ],
   ])('%s', (_label, err, expected) => {
     expect(classifyProviderError(err)).toBe(expected);
   });
@@ -76,7 +100,22 @@ describe('classifyProviderError', () => {
     ['string', 'string error'],
     ['undefined', undefined],
     ['400', new Error('API Error: 400 invalid_request_error')],
-    ['500', new Error('API Error: 500 internal')],
+    // WP-1363: 4xx(속도·인증 외)와 러너 문구 없는 5xx 는 장애가 아니다
+    // WP-1363(AI 팀장 결정): 500 은 건별 원인과 장애를 가를 수 없어 건별 실패(502)로 둔다
+    [
+      '500 result is_error',
+      new Error('result is_error: API Error: 500 {"type":"error","error":{"type":"api_error"}}'),
+    ],
+    ['API Error: 500 internal', new Error('API Error: 500 internal')],
+    ['opencode APIError 500', withCause({ name: 'APIError', data: { statusCode: 500 } })],
+    ['러너 문구 없는 500', new Error('workplace-api: request failed with status 500')],
+    ['러너 문구 없는 502', new Error('tool result: upstream returned 502')],
+    ['404', new Error('API Error: 404 not_found_error')],
+    ['413', new Error('API Error: 413 request_too_large')],
+    [
+      'ModelOutputError 는 5xx·세션 생성 실패 문구가 있어도 null',
+      new ModelOutputError('분석 JSON 없음: API Error: 500 opencode session 생성 실패'),
+    ],
     // 러너 문구가 없는 임의의 오류는 문구가 겹쳐도 장애가 아니다
     ['러너 문구 없는 overloaded', new Error('tool result: queue overloaded, retry later')],
     ['러너 문구 없는 rate limit', new Error('workplace-api: rate limit on search endpoint')],

@@ -1414,6 +1414,8 @@ public class EmailMessageRepository {
    * 어긋나지 않도록 읽고 쓰기를 SQL 한 문장(CASE)으로 한다 — Postgres 는 SET 의 모든 식을 갱신 전 값으로 계산하므로 두 CASE 가 같은 새 횟수를
    * 본다.
    *
+   * <p>WP-1363: 동시에 분류가 성공해 {@code ai_category} 가 찬 행은 건드리지 않는다.
+   *
    * <p>시도 횟수는 계정별이 아니라 공유 email_content 행에 쌓이므로, 같은 본문을 공유하는 여러 계정의 실패가 합산된다(의도된 동작).
    *
    * @return 바뀐 content 행 수(0 이면 이미 최종 처리됐거나 대상이 아님)
@@ -1444,6 +1446,7 @@ public class EmailMessageRepository {
         .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
+        .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
         .execute();
   }
 

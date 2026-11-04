@@ -539,6 +539,28 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
     }
   }
 
+  /** WP-1363: 동시에 분류가 성공해 ai_category 가 찬 content 는 실패 기록이 건드리지 않는다. */
+  @Test
+  void recordCategoryFailure_skipsAlreadyCategorized() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long c =
+        MailAnalysisFixtures.content(
+            dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+    long env = MailAnalysisFixtures.envelope(dsl, a, c, "b@corp.com", a.address(), null);
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY, "업무")
+        .where(EMAIL_CONTENT.ID.eq(c))
+        .execute();
+
+    int changed =
+        messageRepo.recordCategoryFailure(
+            env, List.of(Duration.ofHours(1), Duration.ofHours(6), Duration.ofHours(24)));
+
+    assertThat(changed).isZero();
+    assertNoRetryRecorded(c);
+    assertThat(contentState(c).value2()).isNull();
+  }
+
   /**
    * WP-1347: 묶음 실패 → 1통씩 단계에서 첫 메일은 502(독 기록), 둘째 메일에서 ai-agent 불가면 회차를 멈춘다 — 앞서 남긴 독 기록은 유지하고 둘째는
    * 아무것도 기록하지 않는다.
