@@ -723,6 +723,13 @@ public class WikiPageService {
    */
   @Transactional(readOnly = true)
   public List<WikiSearchResult> search(long callerId, String q, Long spaceId) {
+    return search(callerId, q, spaceId, 50, 0);
+  }
+
+  /** 페이지 인자를 받는 검색(WP-1353) — size 만큼 offset 부터. 정렬은 고정이라 페이지 경계가 안정적이다. */
+  @Transactional(readOnly = true)
+  public List<WikiSearchResult> search(
+      long callerId, String q, Long spaceId, int size, int offset) {
     if (q == null || q.isBlank()) {
       return List.of();
     }
@@ -730,7 +737,7 @@ public class WikiPageService {
       perms.requireRole(spaceId, callerId, "VIEWER");
     }
     String pattern = "%" + escapeLike(q.trim()) + "%";
-    return pages.search(callerId, spaceId, pattern, 50);
+    return pages.search(callerId, spaceId, pattern, size, offset);
   }
 
   /** LIKE 특수문자(\, %, _)를 이스케이프해 사용자 입력을 리터럴로 취급한다. */

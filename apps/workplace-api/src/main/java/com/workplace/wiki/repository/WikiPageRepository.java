@@ -701,7 +701,8 @@ public class WikiPageRepository {
    * 스페이스 대상, 지정되면 해당 스페이스 한정. 멤버십 조건(직접 또는 조직도 부서, WP-1052)으로 접근 불가 스페이스는 결과에서 자연 배제(RLS+멤버십 이중
    * 스코핑).
    */
-  public List<WikiSearchResult> search(long callerId, Long spaceId, String pattern, int limit) {
+  public List<WikiSearchResult> search(
+      long callerId, Long spaceId, String pattern, int limit, int offset) {
     // 실효 멤버(직접 또는 조직도 부서, WP-1052)인 스페이스만 — 조인이 아니라 EXISTS 라 양쪽에 걸려도 페이지가 한 번만 나온다.
     Condition cond =
         WikiSpaceMembership.isMember(WIKI_PAGE.SPACE_ID, DSL.val(callerId))
@@ -730,8 +731,10 @@ public class WikiPageRepository {
         .join(WIKI_SPACE)
         .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
         .where(cond)
-        .orderBy(WIKI_PAGE.UPDATED_AT.desc())
+        // 동률일 때 id 로 한 번 더 정렬 — offset 페이지 경계에서 행이 겹치거나 빠지지 않게(WP-1353).
+        .orderBy(WIKI_PAGE.UPDATED_AT.desc(), WIKI_PAGE.ID.desc())
         .limit(limit)
+        .offset(offset)
         .fetch(
             r -> {
               // 스니펫도 평문에서 — 백필 전 행은 원문을 그 자리에서 평문으로 바꿔 태그·CSS 가 보이지 않게 한다.
