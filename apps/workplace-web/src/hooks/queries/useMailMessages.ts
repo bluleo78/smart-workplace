@@ -20,7 +20,7 @@ export { mailMessageKeys };
  * 읽음 상태가 바뀌어 "안 읽은 수"가 달라졌을 때의 공통 무효화 — 사이드바 안 읽은 수(계정 무관 prefix)·탭 배지 합계·홈 메일 요약.
  * 홈 요약은 exact: true — 메시지별 AI 요약 ['mail-summary', id] 의 불필요한 재생성을 막는다(useSyncMailbox 와 동일).
  */
-function invalidateMailCounts(qc: QueryClient) {
+export function invalidateMailCounts(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() });
   qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() });
   qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });

@@ -134,7 +134,7 @@ export const CREATE_DRIVE_FILE_CONTENT_DESCRIPTION =
 /** create_drive_file 설명의 업로드 링크 부분 — 셸이 있는 외부 클라이언트용. */
 const CREATE_FILE_LINK_DESCRIPTION =
   'Without: returns a one-time upload link valid 10 minutes, up to maxBytes: curl -T <file> "<uploadUrl>", no -H Content-Type; ' +
-  'for driveFileId, the same file type; a failure needs a new link. Chat-attached files can\'t use it: ask the user to upload in the web ' +
+  'for driveFileId, the same file type; a failure needs a new link. For chat-attached files, ask the user to upload in the web ' +
   'drive.';
 const CREATE_FILE_DESCRIPTION = `${CREATE_DRIVE_FILE_CONTENT_DESCRIPTION} ${CREATE_FILE_LINK_DESCRIPTION}`;
 

@@ -131,6 +131,24 @@ public class AiMemorySelector {
   }
 
   /**
+   * 순위 없는 목록(WP-1346) — filter 범위의 유효 행을 고정 먼저 + 최신순으로, 예산 안에서. 질의 임베딩을 기다리지 않는다. 읽기 트랜잭션은 늘 새로
+   * 연다({@link #select} 의 isolated 와 같은 이유). 꺼져 있으면 DISABLED.
+   */
+  public Selection listIsolated(long userId, ScopeFilter filter, int tokenBudget) {
+    Candidates c =
+        newTx.execute(
+            s -> {
+              if (!preferences.memoryEnabled(userId)) return null;
+              LocalDate today = clock.today();
+              List<Row> rows = repo.listCandidates(userId, filter, today);
+              return new Candidates(rows, rows.size(), repo.countActive(userId, today), today);
+            });
+    if (c == null) return Selection.DISABLED;
+    List<Row> fitted = fitToBudget(pinnedFirst(c.rows()), tokenBudget);
+    return new Selection(true, fitted, c.activeTotal() - fitted.size(), c.today());
+  }
+
+  /**
    * 검색(search_memory) — 같은 RRF 로 순위를 매기고 키워드·의미 갈래에 든 행만 limit 개. 바깥 트랜잭션에 참여한다. 질의는 호출자가 비지 않음을
    * 확인했다.
    */

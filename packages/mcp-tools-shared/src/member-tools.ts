@@ -166,9 +166,9 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       kind: 'read',
       description:
         'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
-        '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members with ' +
-        'role; search matches name or username, includeInactive is ignored. Without channelId, AI rows add description (its role — read it ' +
-        'to choose whom to hand work to) and agentRuntime (INTERNAL|EXTERNAL). Returns {items, total, hasMore?, nextPage?}; if hasMore, ' +
+        '(default), AGENT (AI) or ALL; active only unless includeInactive. channelId (a channel I belong to) lists its members with ' +
+        'role; search by name or username; includeInactive ignored. Otherwise AI rows add description (its role, for choosing ' +
+        'whom to hand work to) and agentRuntime (INTERNAL|EXTERNAL). Returns {items, total, hasMore?, nextPage?}; if hasMore, ' +
         'pass nextPage as page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
@@ -220,8 +220,8 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       app: 'contacts',
       kind: 'read',
       description:
-        'Lists contacts (연락처): MEMBER items (workspace members, by username) and EXTERNAL items (customers, partners; externalId for ' +
-        'external-contact tools only); for members search_members is more complete. search: name or email; organization and title: exact values ' +
+        'Lists contacts (연락처): MEMBER items (workspace members, by username) and EXTERNAL items (customers, partners; externalId only for ' +
+        'external-contact tools); search_members covers members better. search: name or email; organization and title: exact values ' +
         'from get_contact_facets. Returns {items, hasMore?, nextCursor?}; if hasMore, pass nextCursor as cursor, or say the list is partial.',
       inputSchema: listContactsInput,
       async handler(args) {

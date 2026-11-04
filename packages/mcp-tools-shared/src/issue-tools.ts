@@ -193,7 +193,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
         'relations and externalLinks (non-blocking links, with ids for remove_issue_relation), ' +
         `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
-        `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
+        `${ISSUE_DETAIL_HISTORY_LIMIT} history entries; commentsOmitted/historyOmitted count older ones (absent = complete); ` +
         `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: DONE or CANCELED time. People ` +
         '{username, name, kind}, watchers lack kind; username null if unknown.',
       inputSchema: getIssueDetailInput,
@@ -224,8 +224,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles, components and assignees (usernames, "me" = caller) are names ' +
-        'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown label names are ' +
-        'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working ' +
+        'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown labels are ' +
+        'created (gray; createdLabels). fileIds attach staged files. New assignees are notified; an assigned AI agent starts working ' +
         '(not agentRuntime INTERNAL ones, which ignore other AIs\' actions).',
       inputSchema: createIssueInput,
       async handler(args) {
@@ -290,9 +290,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles and components replace the set ([] clears). ' +
-        'reporter (username) changes the reporter: project OWNER/ADMIN or the current reporter only, humans only (open projects: non-members too). ' +
-        'Names (type, milestone, cycles, components, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
-        '(gray) and listed in createdLabels. fileIds attach staged files. Each part then saves on its own: {ok, results, createdLabels?}; an unknown status fails results.content and writes nothing else. Status/priority changes notify ' +
+        'reporter (username, humans only; open projects: non-members too): project OWNER/ADMIN or the current reporter only. ' +
+        'Names (type, milestone, cycles, components, fields) come from get_project; unknown ones fail before any write. Unknown labels are created ' +
+        '(gray; createdLabels). fileIds attach staged files. Parts save separately: {ok, results, createdLabels?}; an unknown status fails results.content and writes nothing else. Status/priority changes notify ' +
         'assignees and watchers, new assignees too. agentRuntime INTERNAL AIs ignore other AIs\' actions (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {

@@ -114,6 +114,7 @@ function sharedMock(): MockedShared {
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
     markMailUnread: vi.fn().mockResolvedValue(undefined),
+    setMailCategory: vi.fn().mockResolvedValue({ aiCategory: '업무', categoryByMe: true, learnable: false }), // WP-1341
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     // 구성원·연락처
@@ -386,6 +387,14 @@ describe('프로필 구성', () => {
       expect(ASSISTANT_ROUTER_TOOLS, n).not.toContain(n);
       expect(CARD_ONLY_SHARED_TOOLS, n).not.toHaveProperty(n);
     }
+  });
+
+  // WP-1341: 메일 분류 바꾸기는 되돌릴 수 있는 쓰기라 mail-agent 가 직접 실행한다 — 라우터 목록·카드 전용 목록에는 없고, 반복 회차는 쓰기로 싣는다.
+  it('WP-1341: update_mail_category 는 assistant·recurring 에 있고 라우터 목록·카드 전용 목록에는 없다', () => {
+    expect(buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name)).toContain('update_mail_category');
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('update_mail_category');
+    expect(CARD_ONLY_SHARED_TOOLS).not.toHaveProperty('update_mail_category');
+    expect(RECURRING_RUN_WRITE_TOOLS).toContain('update_mail_category');
   });
 
   it('assistant 프로필: 전 앱 도구 union 을 노출한다', () => {

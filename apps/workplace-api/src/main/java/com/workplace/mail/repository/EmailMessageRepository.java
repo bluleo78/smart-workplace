@@ -97,51 +97,80 @@ public class EmailMessageRepository {
   public static final String WORK_CATEGORY = "업무";
 
   /**
-   * 업무 보기 술어(WP-186) — 업무로 분류됐거나, 아직 분류가 없거나, 본문 검증 전(공유 content 의 분류를 믿지 않음 — WP-130)인 메일. "분류가
-   * 늦어지거나 AI 가 연결되지 않아도 새 메일이 기본 보기에서 사라지지 않게" 하는 단일 정의 — 목록·안 읽은 수·모두 읽음이 모두 이 메서드를 쓴다.
+   * 유효 분류(WP-1341) — 직접 바꾼 분류(사본) &gt; 개인 비서 분류(사본) &gt; 검증된 공용 분류(원본). 목록·상세·업무 보기·분류별 보기·안 읽은
+   * 수·「분류 전」·⑤ 회신필요 차단 판정이 모두 이 한 정의를 쓴다. 공용 분류는 {@link #verified} 와 같은 규칙으로 자기 사본을 검증한 뒤에만
+   * 쓴다(WP-130) — 사본 두 층은 이 사용자 것이라 검증 전이어도 쓴다. EMAIL_CONTENT LEFT JOIN 을 전제한다.
+   */
+  public static Field<String> effectiveCategory() {
+    return DSL.coalesce(
+        EMAIL_MESSAGE.USER_CATEGORY,
+        EMAIL_MESSAGE.AI_PERSONAL_CATEGORY,
+        DSL.when(EMAIL_MESSAGE.FETCHED_AT.isNotNull(), EMAIL_CONTENT.AI_CATEGORY));
+  }
+
+  /** 목록·상세 select 의 유효 분류 열 이름. */
+  private static final String EFFECTIVE_CATEGORY = "effective_category";
+
+  /** 목록·상세 select 의 「내가 정한 분류」 열 이름. */
+  private static final String CATEGORY_BY_ME = "category_by_me";
+
+  /** 분석 컨텍스트 select 의 사내 발신 판정 열 이름(WP-1346). */
+  private static final String SENDER_IS_MEMBER = "sender_is_member";
+
+  /** 유효 분류 select 열(별칭 {@link #EFFECTIVE_CATEGORY}). */
+  private static Field<String> effectiveCategoryField() {
+    return effectiveCategory().as(EFFECTIVE_CATEGORY);
+  }
+
+  /** 사용자가 직접 바꾼 분류인지(WP-1341 — 목록 배지의 사람 아이콘·「AI 분류로 되돌리기」 근거). */
+  private static Field<Boolean> categoryByMeField() {
+    return DSL.field(EMAIL_MESSAGE.USER_CATEGORY.isNotNull()).as(CATEGORY_BY_ME);
+  }
+
+  /**
+   * 업무 보기 술어(WP-186) — 유효 분류(WP-1341)가 업무이거나 비어 있는 메일. 본문 검증 전(공유 content 의 분류를 믿지 않음 — WP-130)이면
+   * 공용 분류가 가려져 비므로 내 분류가 없는 한 업무에 남는다. "분류가 늦어지거나 AI 가 연결되지 않아도 새 메일이 기본 보기에서 사라지지 않게" 하는 단일 정의 —
+   * 목록·안 읽은 수·모두 읽음이 모두 이 메서드를 쓴다.
    */
   public static Condition workViewCondition() {
-    return EMAIL_MESSAGE
-        .FETCHED_AT
-        .isNull()
-        .or(EMAIL_CONTENT.AI_CATEGORY.isNull())
-        .or(EMAIL_CONTENT.AI_CATEGORY.eq(WORK_CATEGORY));
+    Field<String> c = effectiveCategory();
+    return c.isNull().or(c.eq(WORK_CATEGORY));
   }
 
   /** 분류 카테고리 전체(표시 순서). 웹 types/mailMessage.ts MAIL_CATEGORIES 와 값·순서 일치 유지. */
   public static final List<String> CATEGORIES = List.of(WORK_CATEGORY, "개인", "알림", "프로모션", "뉴스레터");
 
   /**
-   * 분류 보기 단일 술어(WP-186) — 업무는 {@link #workViewCondition()}, 그 외는 검증된 사본(fetched_at 필수 — WP-130: 검증
-   * 전 envelope 로 공유 content 의 분류를 추론하지 못하게)의 해당 분류. 목록·안 읽은 수가 모두 이 메서드를 써서 숫자와 목록이 어긋나지 않게 한다.
+   * 분류 보기 단일 술어(WP-186) — 업무는 {@link #workViewCondition()}, 그 외는 유효 분류(WP-1341)가 그 분류인 메일. 공용 분류는
+   * 검증된 사본에서만 보이므로(WP-130) 검증 전 envelope 로 공유 content 의 분류를 추론할 수 없다. 목록·안 읽은 수가 모두 이 메서드를 써서 숫자와
+   * 목록이 어긋나지 않게 한다.
    */
   public static Condition categoryViewCondition(String category) {
-    return WORK_CATEGORY.equals(category)
-        ? workViewCondition()
-        : EMAIL_CONTENT.AI_CATEGORY.eq(category).and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
+    return WORK_CATEGORY.equals(category) ? workViewCondition() : effectiveCategory().eq(category);
   }
 
   /**
-   * "분류 전" 배지 여부(WP-186·WP-1347) — 본문 검증 전이거나 분류가 없는 메일. 시도 기록·요약 유무와 무관하게 분류가 없으면 늘 true 다 — 제공자
-   * 장애·재시도 중·최종 실패 모두 사용자에겐 "아직 분류 안 됨"이고, 최종 실패 구분은 {@link #categoryFailedField()} 가 맡는다.
+   * "분류 전" 배지 여부(WP-186·WP-1347·WP-1346) — 유효 분류({@link #effectiveCategory()})가 없는 메일. 시도 기록·요약 유무와
+   * 무관하게 분류가 없으면 늘 true 다 — 제공자 장애·재시도 중·최종 실패 모두 사용자에겐 "아직 분류 안 됨"이고, 최종 실패 구분은 {@link
+   * #categoryFailedField()} 가 맡는다. 내가 고른 분류·개인 비서 분류(사본)가 있으면 공용 분류가 비어 있거나 본문 검증 전이어도 분류된 메일이라
+   * false 다 — 내가 분류한 메일에 「분류 전」이 붙지 않게(WP-1346).
    */
   static Field<Boolean> categoryPendingField() {
-    return DSL.field(EMAIL_MESSAGE.FETCHED_AT.isNull().or(EMAIL_CONTENT.AI_CATEGORY.isNull()))
-        .as("category_pending");
+    return DSL.field(effectiveCategory().isNull()).as("category_pending");
   }
 
   /**
-   * 분류 최종 실패 여부(WP-1347) — 본문 검증 후 분류가 없는데 분류 시도 기록(ai_categorized_at)이 남은 메일. 분류 일괄이 재시도를 모두
-   * 소진한(4번째 실패) 때만 시도 기록이 남으므로, 배지 title 을 "분류하지 못했어요"로 바꾸는 데 쓴다.
+   * 분류 최종 실패 여부(WP-1347) — 유효 분류가 없고(내 분류·개인 비서 분류도 없음, WP-1346) 본문 검증 후 공용 분류 시도
+   * 기록(ai_categorized_at)이 남은 메일. 분류 일괄이 재시도를 모두 소진한(4번째 실패) 때만 시도 기록이 남으므로, 배지 title 을 "분류하지
+   * 못했어요"로 바꾸는 데 쓴다.
    *
    * <p>V265 이전 옛 코드가 표시한 행은 시도 횟수가 없어도, 14일 넘게 지났으면 최종 실패로 함께 친다(의도된 동작).
    */
   static Field<Boolean> categoryFailedField() {
     return DSL.field(
-            EMAIL_MESSAGE
-                .FETCHED_AT
-                .isNotNull()
-                .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
+            effectiveCategory()
+                .isNull()
+                .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
                 .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNotNull()))
         .as("category_failed");
   }
@@ -637,10 +666,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
+            effectiveCategoryField(), // WP-1341: 유효 분류(직접 > 개인 비서 > 검증된 공용)
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             categoryPendingField(), // WP-186: 분류 전 배지
-            categoryFailedField()) // WP-1347: 분류 최종 실패(배지 title)
+            categoryFailedField(), // WP-1347: 분류 최종 실패(배지 title)
+            categoryByMeField()) // WP-1341: 내가 정한 분류
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -708,10 +738,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
+            effectiveCategoryField(), // WP-1341: 유효 분류(직접 > 개인 비서 > 검증된 공용)
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             categoryPendingField(), // WP-186: 분류 전 배지
-            categoryFailedField()) // WP-1347: 분류 최종 실패(배지 title)
+            categoryFailedField(), // WP-1347: 분류 최종 실패(배지 title)
+            categoryByMeField()) // WP-1341: 내가 정한 분류
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -891,7 +922,9 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.RECEIVED_AT,
                 EMAIL_MESSAGE.SEEN,
                 verified(EMAIL_CONTENT.BODY_TEXT),
-                verified(EMAIL_CONTENT.BODY_HTML))
+                verified(EMAIL_CONTENT.BODY_HTML),
+                effectiveCategoryField(), // WP-1341: 상세 분류 메뉴의 현재 분류
+                categoryByMeField())
             .from(EMAIL_MESSAGE)
             .join(EMAIL_ACCOUNT)
             .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -906,7 +939,7 @@ public class EmailMessageRepository {
     }
     List<EmailAttachmentMeta> attachments = listAttachments(messageId);
     EmailMessageDetail d = base.get();
-    return Optional.of(toDetail(d, attachments));
+    return Optional.of(d.withAttachments(attachments));
   }
 
   /**
@@ -1785,7 +1818,7 @@ public class EmailMessageRepository {
         received == null ? null : received.toInstant(),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
-        r.get(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
+        r.get(EFFECTIVE_CATEGORY, String.class), // WP-1341: 유효 분류
         // 회신필요 기간 밖의 true 는 false 로 내보낸다 — 웹·홈 우선순위가 aiNeedsReply 만 보고도 집계(needsReplyCondition)와 같게
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY))
                 && !isWithinNeedsReplyWindow(received)
@@ -1793,7 +1826,8 @@ public class EmailMessageRepository {
             : r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
         Boolean.TRUE.equals(r.get("category_pending", Boolean.class)),
         Boolean.TRUE.equals(r.get("category_failed", Boolean.class)),
-        null); // WP-1325 외부 메일 판정은 서비스가 일괄로 붙인다
+        null, // WP-1325 외부 메일 판정은 서비스가 일괄로 붙인다
+        Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class))); // WP-1341
   }
 
   /**
@@ -1818,27 +1852,10 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
         r.get(EMAIL_CONTENT.BODY_TEXT),
         r.get(EMAIL_CONTENT.BODY_HTML),
-        attachments);
-  }
-
-  /** 이미 조회한 상세에 첨부 목록만 채워 새 레코드로 반환. */
-  private EmailMessageDetail toDetail(EmailMessageDetail d, List<EmailAttachmentMeta> attachments) {
-    return new EmailMessageDetail(
-        d.id(),
-        d.threadId(),
-        d.messageId(),
-        d.fromAddress(),
-        d.fromName(),
-        d.toAddresses(),
-        d.ccAddresses(),
-        d.bccAddresses(),
-        d.subject(),
-        d.sentAt(),
-        d.receivedAt(),
-        d.seen(),
-        d.bodyText(),
-        d.bodyHtml(),
-        attachments);
+        attachments,
+        null,
+        r.get(EFFECTIVE_CATEGORY, String.class),
+        Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class)));
   }
 
   /**
@@ -1900,7 +1917,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARY,
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT,
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED,
-            EMAIL_MESSAGE.RECEIVED_AT)
+            EMAIL_MESSAGE.RECEIVED_AT,
+            effectiveCategoryField(), // WP-1341: ⑤ 규칙·개인 요약 생략이 읽는 유효 분류
+            // WP-1346: 사내 발신 판정을 같은 조회에서 — 분석마다 판정용 트랜잭션을 따로 열지 않는다
+            MailPeopleRepository.senderIsMemberField(EMAIL_MESSAGE.FROM_ADDRESS, requireTenantId())
+                .as(SENDER_IS_MEMBER))
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -1938,7 +1959,9 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY),
                     r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null,
                     Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)),
-                    r.get(EMAIL_MESSAGE.RECEIVED_AT)));
+                    r.get(EMAIL_MESSAGE.RECEIVED_AT),
+                    r.get(EFFECTIVE_CATEGORY, String.class),
+                    Boolean.TRUE.equals(r.get(SENDER_IS_MEMBER, Boolean.class))));
   }
 
   /**
@@ -2005,7 +2028,7 @@ public class EmailMessageRepository {
   /** content 사본의 소유자·계정 — 메일 변경 알림 수신 단위. */
   public record ContentOwner(long userId, long accountId) {}
 
-  /** WP-149 ⑤ 규칙 입력 행(소유자·보낸 사람·수신자·자동 발송·분류·raw). 형제 사본은 소유자가 달라 userId 를 함께 읽는다. */
+  /** WP-149 ⑤ 규칙 입력 행(소유자·보낸 사람·수신자·자동 발송·유효 분류(WP-1341)·raw). 형제 사본은 소유자가 달라 userId 를 함께 읽는다. */
   public Optional<RuleRow> findRuleRow(long messageId) {
     return dsl.select(
             EMAIL_MESSAGE.ID,
@@ -2014,7 +2037,7 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.TO_ADDRESSES,
             EMAIL_MESSAGE.CC_ADDRESSES,
             EMAIL_CONTENT.AUTO_GENERATED,
-            EMAIL_CONTENT.AI_CATEGORY,
+            effectiveCategoryField(), // WP-1341: ⑤ 는 유효 분류로 차단을 판정한다
             EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
@@ -2031,7 +2054,7 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.TO_ADDRESSES),
                     r.get(EMAIL_MESSAGE.CC_ADDRESSES),
                     Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AUTO_GENERATED)),
-                    r.get(EMAIL_CONTENT.AI_CATEGORY),
+                    r.get(EFFECTIVE_CATEGORY, String.class),
                     r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)));
   }
 
@@ -2054,6 +2077,9 @@ public class EmailMessageRepository {
    * @param contentAttempted ③ 시도 여부(content.ai_summarized_at — 생략해도 기록됨)
    * @param personalAnalyzed ④ 시도 여부(ai_analyzed_at)
    * @param personalAttempted 개인 요약 시도 여부(ai_personal_summarized_at)
+   * @param contentCategory 검증된 공용 분류(원본) — ③·④ 보충이 "원본 분류가 비었는지" 볼 때
+   * @param category 유효 분류(WP-1341 — 직접 &gt; 개인 비서 &gt; 공용) — ⑤ 규칙·개인 요약 생략 판정 입력
+   * @param senderIsMember 보낸 사람이 이 테넌트 사내 구성원인지(WP-1342 분류 신호·보정 — 같은 조회에서 EXISTS 로 판정, WP-1346)
    */
   public record AnalysisContext(
       long messageId,
@@ -2080,7 +2106,9 @@ public class EmailMessageRepository {
       String personalSummary,
       boolean personalAttempted,
       boolean personalSummarySkipped,
-      OffsetDateTime receivedAt) {}
+      OffsetDateTime receivedAt,
+      String category,
+      boolean senderIsMember) {}
 
   /** WP-149 ⑤ 규칙 입력 행. raw 가 null 이면 ④ 미분석(또는 배포 전 분류) — 재계산하지 않는다. */
   public record RuleRow(
@@ -2125,6 +2153,68 @@ public class EmailMessageRepository {
             .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
             .execute()
         > 0;
+  }
+
+  /**
+   * WP-1341 개인 비서 분류 저장 — 이 사본의 ai_personal_category 만 쓴다. 사용자가 직접 바꾼 분류(user_category)는 건드리지
+   * 않는다(유효 분류에서 직접 분류가 늘 먼저다). 값이 같으면 쓰지 않는다.
+   *
+   * @return 값이 바뀌었으면 true
+   */
+  public boolean savePersonalCategory(long messageId, String category) {
+    return dsl.update(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.AI_PERSONAL_CATEGORY, category)
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_MESSAGE.AI_PERSONAL_CATEGORY.isDistinctFrom(category))
+            .execute()
+        > 0;
+  }
+
+  /**
+   * WP-1341 분류 바꾸기 대상 상태 — 소유 검증 포함(타인·비활성 계정 메일이면 empty). 유효 분류는 목록·상세와 같은 식이다.
+   *
+   * @param aiEnabled 계정 AI 사용(학습 가능 조건)
+   * @param category 지금 유효 분류(없으면 null)
+   * @param categoryByMe 직접 바꾼 분류인지
+   */
+  public record CategoryState(
+      long messageId, long accountId, boolean aiEnabled, String category, boolean categoryByMe) {}
+
+  /** {@link CategoryState} 조회. */
+  public Optional<CategoryState> findCategoryState(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_ACCOUNT.AI_ENABLED,
+            effectiveCategoryField(),
+            categoryByMeField())
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new CategoryState(
+                    r.get(EMAIL_MESSAGE.ID),
+                    r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+                    Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)),
+                    r.get(EFFECTIVE_CATEGORY, String.class),
+                    Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class))));
+  }
+
+  /**
+   * WP-1341 직접 바꾼 분류 저장 — 이 사본의 user_category 만 쓴다(공유 원본 분류는 건드리지 않는다 — 동료에게 새면 안 된다). null 이면 지워
+   * AI 분류로 되돌린다. 소유 검증은 호출자가 먼저 한다.
+   */
+  public void saveUserCategory(long messageId, String category) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.USER_CATEGORY, category)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
   }
 
   /** WP-149 개인 요약만 저장(열람 시 요약만 모드·"AI 요약" 강제 생성) — 생략 표시를 지운다. 공백은 NULL(#484). */

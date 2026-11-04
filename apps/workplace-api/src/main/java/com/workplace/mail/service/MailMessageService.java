@@ -22,9 +22,7 @@ import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.MailPeopleRepository;
 import com.workplace.mail.service.invite.MailInviteService;
-import com.workplace.mail.util.MailAddresses;
 import java.time.OffsetDateTime;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -183,20 +181,15 @@ public class MailMessageService {
     if (rows.isEmpty()) {
       return rows;
     }
-    Set<String> addresses = new HashSet<>();
-    for (EmailMessageSummary r : rows) {
-      String a = MailAddresses.normalize(r.fromAddress());
-      if (a != null && !a.isEmpty()) {
-        addresses.add(a);
-      }
-    }
-    Set<String> members = peopleRepo.findMemberAddresses(peopleRepo.currentTenantId(), addresses);
+    Set<String> members =
+        peopleRepo.memberAddressesOf(rows.stream().map(EmailMessageSummary::fromAddress).toList());
     return rows.stream()
         .map(
-            r -> {
-              String a = MailAddresses.normalize(r.fromAddress());
-              return r.withExternalSender(a == null || a.isEmpty() ? null : !members.contains(a));
-            })
+            r ->
+                r.withExternalSender(
+                    MailPeopleRepository.senderKey(r.fromAddress()) == null
+                        ? null
+                        : !MailPeopleRepository.isMember(members, r.fromAddress())))
         .toList();
   }
 
@@ -328,23 +321,7 @@ public class MailMessageService {
       if (accountId != null) {
         publishSeenChanged(userId, accountId, List.of(messageId));
       }
-      detail =
-          new EmailMessageDetail(
-              detail.id(),
-              detail.threadId(),
-              detail.messageId(),
-              detail.fromAddress(),
-              detail.fromName(),
-              detail.toAddresses(),
-              detail.ccAddresses(),
-              detail.bccAddresses(),
-              detail.subject(),
-              detail.sentAt(),
-              detail.receivedAt(),
-              true, // seen=true
-              detail.bodyText(),
-              detail.bodyHtml(),
-              detail.attachments());
+      detail = detail.withSeen(true); // 분류(WP-1341)·첨부는 그대로
     }
     // WP-986: 일정 초대·취소 카드 — 본문 적재 때 기록한 초대에 내 캘린더 상태를 합친다(초대 메일이 아니면 null)
     return detail.withCalendarInvite(inviteService.view(userId, messageId));

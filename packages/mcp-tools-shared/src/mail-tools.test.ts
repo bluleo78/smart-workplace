@@ -19,6 +19,7 @@ function mockClient(): Client {
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
     markMailUnread: vi.fn().mockResolvedValue(undefined),
+    setMailCategory: vi.fn().mockResolvedValue({ aiCategory: '프로모션', categoryByMe: true, learnable: true }),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
@@ -293,6 +294,37 @@ describe('메일 AI·처리 (#855)', () => {
     expect(tool(mockClient(), 'sync_mail')).toMatchObject({
       kind: 'write',
       hints: { destructive: true, idempotent: false, openWorld: true },
+    });
+  });
+
+  // WP-1341: 내 메일 분류 바꾸기 — 서버 PUT 을 그대로 부르고, 화면 전용 learnable 은 빼고 {aiCategory, categoryByMe} 만 돌려준다.
+  it('update_mail_category → client.setMailCategory(messageId, category) 결과에서 aiCategory·categoryByMe 만 돌려준다 (WP-1341)', async () => {
+    const c = mockClient();
+    const out = JSON.parse(resultText(await tool(c, 'update_mail_category').handler({ messageId: 7, category: '프로모션' })));
+    expect(out).toEqual({ aiCategory: '프로모션', categoryByMe: true });
+    expect(c.setMailCategory).toHaveBeenCalledWith(7, '프로모션');
+  });
+
+  it('update_mail_category 의 category:null 은 그대로 null 로 보내 AI 분류로 되돌린다 (WP-1341)', async () => {
+    const c = mockClient();
+    vi.mocked(c.setMailCategory).mockResolvedValue({ aiCategory: '업무', categoryByMe: false, learnable: false });
+    const out = JSON.parse(resultText(await tool(c, 'update_mail_category').handler({ messageId: 7, category: null })));
+    expect(out).toEqual({ aiCategory: '업무', categoryByMe: false });
+    expect(c.setMailCategory).toHaveBeenCalledWith(7, null);
+  });
+
+  it('update_mail_category 는 다섯 분류 밖의 값과 빠진 category 를 거부하고 서버를 부르지 않는다 (WP-1341)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'update_mail_category').handler({ messageId: 7, category: '기타' })).rejects.toThrow();
+    await expect(tool(c, 'update_mail_category').handler({ messageId: 7 })).rejects.toThrow();
+    expect(c.setMailCategory).not.toHaveBeenCalled();
+  });
+
+  it('update_mail_category 는 되돌릴 수 있는 멱등 쓰기이고 워크스페이스 밖에 닿지 않는다 (WP-1341)', () => {
+    expect(tool(mockClient(), 'update_mail_category')).toMatchObject({
+      app: 'mail',
+      kind: 'write',
+      hints: { destructive: false, idempotent: true, openWorld: false },
     });
   });
 

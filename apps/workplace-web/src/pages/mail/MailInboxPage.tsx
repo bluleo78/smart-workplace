@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, Check, CheckCheck, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun, Trash2 } from 'lucide-react'
+import { Archive, Check, CheckCheck, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun, Tag, Trash2, User } from 'lucide-react'
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils'
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
 import { FileTypeIcon } from '../../components/drive/FileTypeIcon'
 import { MailCalendarInviteCard } from '../../components/mail/MailCalendarInviteCard'
+import { MailCategoryMenu, MailCategorySheet, type MailCategoryState } from '../../components/mail/MailCategoryMenu'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { MailMoveMenu, MailMoveTargetSheet } from '../../components/mail/MailMoveMenu'
@@ -62,6 +63,7 @@ import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
 import { mailAttachmentMime, mailAttachmentName } from '../../components/viewer/viewerItems'
 import { splitName } from '../../components/viewer/viewerNav'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
+import { useChangeMailCategory } from '../../hooks/queries/useChangeMailCategory'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
   useFetchOlderMail,
@@ -83,7 +85,15 @@ import {
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
 import type { MailMoveTarget, MailServerFolder } from '../../types/mailFolder'
-import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import {
+  type EmailAttachmentMeta,
+  type EmailMessageDetail,
+  type EmailMessageSummary,
+  type MailCategory,
+  type MailFolder,
+  type MailIssueDraft,
+  toCategoryState,
+} from '../../types/mailMessage'
 import { MailDraftsPage } from './MailDraftsPage'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
 import { MailMobileDetail, MailMobileDetailBar, MailMobileSummaryButton } from './MailMobileDetail'
@@ -325,18 +335,35 @@ function MessageRow({
         {(categoryBadge || needsReply || (pendingVisible && m.categoryPending)) && (
           <span className="mt-0.5 flex items-center gap-1">
             {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
-            {categoryBadge && (
-              <AiSignalBadge
-                variant="info"
-                data-testid={`mail-badge-category-${m.id}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  navigate(mailViewHref(m.accountId, categoryBadge as MailCategory, false))
-                }}
-              >
-                {categoryBadge}
-              </AiSignalBadge>
-            )}
+            {categoryBadge &&
+              (m.categoryByMe ? (
+                // WP-1341 내가 직접 바꾼 분류 — AI 판단이 아니라 AI 배지(✨·AI 색)가 아닌 일반 칩(같은 크기·모양)에 사람 아이콘 +
+                // 「내가 정한 분류」. 클릭하면 AI 배지처럼 그 분류 보기로 간다. 개인 비서 분류는 따로 표시하지 않는다(소음).
+                <button
+                  type="button"
+                  data-testid={`mail-badge-category-${m.id}`}
+                  title="내가 정한 분류"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(mailViewHref(m.accountId, categoryBadge as MailCategory, false))
+                  }}
+                  className="inline-flex flex-none items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground hover:opacity-90"
+                >
+                  <User className="h-3 w-3" aria-hidden data-testid={`mail-badge-by-me-${m.id}`} />
+                  {categoryBadge}
+                </button>
+              ) : (
+                <AiSignalBadge
+                  variant="info"
+                  data-testid={`mail-badge-category-${m.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigate(mailViewHref(m.accountId, categoryBadge as MailCategory, false))
+                  }}
+                >
+                  {categoryBadge}
+                </AiSignalBadge>
+              ))}
             {pendingVisible && m.categoryPending && (
               // WP-186: 분류가 없는 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
               // WP-1347: 재시도를 모두 소진한 최종 실패면 title 로만 알린다(배지 문구는 그대로).
@@ -526,6 +553,8 @@ function MessageDetailPanel({
   onBack,
   moveActions,
   onOpenMoveSheet,
+  onChangeCategory,
+  onOpenCategorySheet,
 }: {
   messageId: number | null
   /** 열린 메일의 계정(WP-1234) — 메일 링크(/mail/:accountId?messageId=)를 만든다. 상세 응답에는 계정이 없다. */
@@ -546,6 +575,13 @@ function MessageDetailPanel({
   moveActions: MailMoveActions | null
   /** WP-962 모바일 ⋯ 「옮기기」 — 바텀 시트로 메일함을 고른다(시트는 메일함 화면이 그린다). */
   onOpenMoveSheet: () => void
+  /**
+   * WP-1341 분류 바꾸기(나에게만 적용) — 보낸편지함·서버 메일함 보기(AI 배지를 끄는 보기)에서는 null 이라 메뉴가 없다.
+   * category null 은 AI 분류로 되돌리기. before 는 바꾸기 전 상세의 분류 상태.
+   */
+  onChangeCategory: ((messageId: number, category: string | null, before: MailCategoryState) => void) | null
+  /** WP-1341 모바일 ⋯ 「분류 바꾸기」 — 분류 시트를 연다(시트는 메일함 화면이 그린다). */
+  onOpenCategorySheet: (messageId: number, current: MailCategoryState) => void
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
@@ -663,6 +699,8 @@ function MessageDetailPanel({
       <AttachmentList attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
     ) : null
   const aiActions = aiAvailable && aiEnabled
+  // WP-1341 열린 메일의 분류 상태 — 메뉴의 현재 값(✓)·되돌리기 항목·[되돌리기] 값.
+  const categoryState = toCategoryState(detail)
   // WP-986 일정 초대 카드 — 초대·취소 메일일 때만. 데스크톱(본문 위)·모바일(본문 슬롯 위) 공용.
   const inviteCard = detail.calendarInvite ? (
     <MailCalendarInviteCard messageId={detail.id} invite={detail.calendarInvite} />
@@ -727,6 +765,13 @@ function MessageDetailPanel({
               <button type="button" data-testid="mail-move" onClick={onOpenMoveSheet}>
                 <FolderInput aria-hidden className="h-4 w-4" />
                 옮기기
+              </button>
+            )}
+            {/* WP-1341 분류 바꾸기 — 같은 목록의 바텀 시트를 연다(나에게만 적용). */}
+            {onChangeCategory && (
+              <button type="button" data-testid="mail-category" onClick={() => onOpenCategorySheet(detail.id, categoryState)}>
+                <Tag aria-hidden className="h-4 w-4" />
+                분류 바꾸기
               </button>
             )}
             {/* AI 이슈 생성 — 하단 바에 자리가 없어 메뉴로. AI 기능은 아이콘 색으로 구분(디자인 시스템 §7.2). */}
@@ -884,6 +929,10 @@ function MessageDetailPanel({
                 </Button>
               }
             />
+          )}
+          {/* WP-1341 분류 바꾸기 — 「옮기기」 뒤. 나에게만 적용된다. */}
+          {onChangeCategory && (
+            <MailCategoryMenu current={categoryState} onPick={(c) => onChangeCategory(detail.id, c, categoryState)} />
           )}
           {moveActions?.avail.trash && (
             <Button
@@ -1316,6 +1365,11 @@ function MailInbox() {
     setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map([...k.rows].filter(([id]) => !ids.includes(id))) }))
     scheduleMailMove({ qc, accountId: accountIdNum, messageIds: ids, target, message: mailMoveToastMessage(target, folders, ids.length) })
   }
+  // WP-1341 분류 바꾸기 — 보낸편지함·서버 메일함 보기(AI 배지를 끄는 보기)와 AI 분류가 꺼진 계정에는 없다.
+  const changeCategory = useChangeMailCategory(accountIdNum)
+  const categoryEditable = view.kind !== 'sent' && !folderView && classificationActive
+  // 모바일 분류 시트의 대상 메일과 그 메일의 바꾸기 전 분류(상세 ⋯ 메뉴·길게 누르기 시트에서 연다).
+  const [categorySheet, setCategorySheet] = useState<{ id: number; current: MailCategoryState } | null>(null)
   const moveActionsFor = (id: number): MailMoveActions | null =>
     canMove
       ? {
@@ -1382,6 +1436,15 @@ function MailInbox() {
     // WP-962 보관·옮기기·삭제 — 옮기기는 메일함 고르기 시트를 연다. 삭제는 파괴적 항목이라 맨 아래.
     ...(moveAvail.archive ? [{ key: 'archive', label: '보관', icon: <Archive />, onSelect: () => startMove([m.id], { kind: 'ARCHIVE' }) }] : []),
     ...(moveAvail.move ? [{ key: 'move', label: '옮기기', icon: <FolderInput />, onSelect: () => setMoveSheetIds([m.id]) }] : []),
+    // WP-1341 분류 바꾸기 — 분류 시트를 연다(목록 행의 분류 상태가 바꾸기 전 값).
+    ...(categoryEditable
+      ? [{
+          key: 'category',
+          label: '분류 바꾸기',
+          icon: <Tag />,
+          onSelect: () => setCategorySheet({ id: m.id, current: toCategoryState(m) }),
+        }]
+      : []),
     ...(moveAvail.trash
       ? [{ key: 'trash', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => startMove([m.id], { kind: 'TRASH' }) }]
       : []),
@@ -1768,6 +1831,8 @@ function MailInbox() {
             onBack={mailParam.close}
             moveActions={selectedId != null ? moveActionsFor(selectedId) : null}
             onOpenMoveSheet={() => selectedId != null && setMoveSheetIds([selectedId])}
+            onChangeCategory={categoryEditable ? (id, c, before) => void changeCategory(id, c, before) : null}
+            onOpenCategorySheet={(id, current) => setCategorySheet({ id, current })}
           />
         </div>
         {/* WP-962 모바일 「옮기기」 메일함 고르기 — 길게 누르기 시트·상세 ⋯ 메뉴에서 연다. */}
@@ -1776,6 +1841,14 @@ function MailInbox() {
           onClose={() => setMoveSheetIds(null)}
           targets={moveTargets}
           onPick={(t) => moveSheetIds && startMove(moveSheetIds, t)}
+        />
+        {/* WP-1341 모바일 「분류 바꾸기」 시트 — 길게 누르기 시트·상세 ⋯ 메뉴에서 연다. 닫을 때 대상을 지우므로 고른 순간의 대상을 잡아 둔다. */}
+        <MailCategorySheet
+          current={categorySheet?.current ?? null}
+          onClose={() => setCategorySheet(null)}
+          onPick={(c) => {
+            if (categorySheet) void changeCategory(categorySheet.id, c, categorySheet.current)
+          }}
         />
       </Page.Body>
       {/* WP-187 모두 읽음 확인 — 실행 취소 대신 확인을 거친다. */}

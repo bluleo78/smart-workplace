@@ -17,8 +17,17 @@ export const ISSUE_PRIORITIES = ['HIGHEST', 'HIGH', 'MID', 'LOW', 'LOWEST'] as c
 /** 우선순위 입력 스키마 — 영어 대문자 열거값만(#403: 한국어 「높음」 입력 차단). */
 export const issuePriorityInput = z.enum(ISSUE_PRIORITIES);
 
+/**
+ * 메일 분류 값 — 서버 EmailMessageRepository.CATEGORIES·웹 MAIL_CATEGORIES 와 같은 값·순서(WP-357 목록 필터, WP-1341 분류 바꾸기).
+ * 서버 목록 필터는 값을 검증하지 않아 오타가 조용히 빈 목록이 되므로 enum 으로 막는다.
+ */
+export const MAIL_CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'] as const;
+export const mailCategoryInput = z.enum(MAIL_CATEGORIES);
+/** 메일 분류 한 값(WP-1346 — ai-agent 분석 파서·학습 라우트가 이 정의 하나를 쓴다). */
+export type MailCategory = (typeof MAIL_CATEGORIES)[number];
+
 /** upload_file 로 스테이징한 파일 id 목록(WP-422) — 이슈·메시지 쓰기 도구가 첨부 입력(fileIds)으로 같이 쓴다. 한 요청 10개는 서버 상한과 같다. */
-export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('Staged files from upload_file to attach');
+export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('Staged upload_file ids to attach');
 
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
@@ -94,7 +103,7 @@ export const updateIssueInput = z.object({
     .describe('Custom field values by name (string[] for MULTI_SELECT, null clears)')
     .optional(),
   // WP-356: 드라이브 파일 연결(POST .../drive-links). 이미 연결돼 있으면 서버가 무시한다.
-  driveFileId: z.number().int().positive().describe('Drive (드라이브) file to link').optional(),
+  driveFileId: z.number().int().positive().describe('Drive file to link').optional(),
   fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
 });
 
@@ -145,7 +154,8 @@ export const linkIssuesInput = z.object({
   issueKey: z.string().min(1),
   otherIssueKey: z.string().min(1),
   direction: z.enum(['blocks', 'blockedBy']),
-  linked: z.boolean().describe('true adds the link, false removes it'),
+  // 뜻은 도구 설명 첫머리 「Adds (linked: true) or removes (false)」가 이미 밝혀 인자 설명을 두지 않는다(정의 크기, WP-1341).
+  linked: z.boolean(),
 });
 
 /**

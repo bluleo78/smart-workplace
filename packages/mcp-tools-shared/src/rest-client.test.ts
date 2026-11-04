@@ -210,6 +210,15 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/messages/9/unread');
   });
 
+  it('WP-1341: setMailCategory 는 /mail/messages/{id}/category 로 PUT 하고 null 도 그대로 싣는다', async () => {
+    const { http, client } = mockHttp();
+    http.put.mockResolvedValueOnce({ data: { aiCategory: '프로모션', categoryByMe: true, learnable: true } });
+    expect(await client.setMailCategory(9, '프로모션')).toEqual({ aiCategory: '프로모션', categoryByMe: true, learnable: true });
+    expect(http.put).toHaveBeenLastCalledWith('/mail/messages/9/category', { category: '프로모션' });
+    await client.setMailCategory(9, null);
+    expect(http.put).toHaveBeenLastCalledWith('/mail/messages/9/category', { category: null });
+  });
+
   it('WP-357: 홈 개요 경로 — 활동·우선순위·메일 요약·메시징 요약·스레드 인박스', async () => {
     const { http, client } = mockHttp();
     await client.getHomeActivity({ size: 10 });

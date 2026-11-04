@@ -220,7 +220,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00; from ≤ to, at most 366 days — split longer spans). Recurring events appear per occurrence, with ' +
-        'masterEventId and occurrenceDate. id = eventId of other calendar tools. description is cut to 300 chars (with …); get_event returns it in full.',
+        'masterEventId and occurrenceDate. id = eventId of other calendar tools. description is cut to 300 chars; get_event has it in full.',
       inputSchema: listEventsInput,
       async handler(args) {
         const { from, to } = listEventsInput.parse(args);
@@ -301,7 +301,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 참석자 추가는 오류가 나므로 멱등이 아니다. M365 에서 동기화된 내 일정은 수정·참석자 변경이 그 캘린더로 전송된다(openWorld).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Updates an event I organize and/or its attendees; only given fields change; null clears a nullable field (recurrenceRule:null ends ' +
+        'Updates an event I organize and/or its attendees; only given fields change; null clears (recurrenceRule:null ends ' +
         'recurrence). Recurring: scope ALL (default), THIS or THIS_AND_FOLLOWING; both need occurrenceDate (from list_events), and field ' +
         'changes also that occurrence\'s startsAt and endsAt. addAttendees/removeAttendees: member usernames (not the organizer, no emails), ' +
         'whole series; notify:false skips in-app invitations (external calendars may still email). M365-synced events change there too. Steps ' +

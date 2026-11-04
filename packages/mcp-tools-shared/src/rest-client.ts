@@ -464,6 +464,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markMailUnread(messageId) {
       await http.post(`/mail/messages/${messageId}/unread`);
     },
+    // WP-1341: null 도 본문에 그대로 싣는다 — 서버는 category:null 을 「직접 정한 분류 지우기」로 읽는다.
+    async setMailCategory(messageId, category) {
+      return (await http.put(`/mail/messages/${messageId}/category`, { category })).data;
+    },
     async syncMail(accountId) {
       // 소유권은 서버가 검증한다(남의 계정이면 404). 본문은 빈 객체 — 서버가 요청 본문을 읽지 않는다.
       return (await http.post(`/mail/accounts/${accountId}/sync`, {})).data;

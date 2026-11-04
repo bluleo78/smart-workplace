@@ -88,6 +88,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "update_event": "write",
   "update_external_contact": "write",
   "update_issue": "write",
+  "update_mail_category": "write",
   "update_project": "write",
   "update_project_meta": "write",
   "update_user_group": "write",
@@ -163,7 +164,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "fileIds": {
           "anyOf": [
             {
-              "description": "Staged files from upload_file to attach",
+              "description": "Staged upload_file ids to attach",
               "items": {
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991,
@@ -736,7 +737,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "fileIds": {
-          "description": "Staged files from upload_file to attach",
+          "description": "Staged upload_file ids to attach",
           "items": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
@@ -1501,7 +1502,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "linked": {
-          "description": "true adds the link, false removes it",
           "type": "boolean",
         },
         "otherIssueKey": {
@@ -2235,7 +2235,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "commentId": {
-          "description": "Issue comment: its id as read from the issue detail comments",
+          "description": "Issue comment id from the issue detail",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -2252,13 +2252,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "messageId": {
-          "description": "Chat message: its id as read from channel or thread messages",
+          "description": "Chat message id from channel or thread reads",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
         },
         "reacted": {
-          "description": "true adds my reaction, false removes it",
           "type": "boolean",
         },
       },
@@ -2541,7 +2540,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "fileIds": {
-          "description": "Staged files from upload_file to attach",
+          "description": "Staged upload_file ids to attach",
           "items": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
@@ -3156,7 +3155,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "driveFileId": {
-          "description": "Drive (드라이브) file to link",
+          "description": "Drive file to link",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -3174,7 +3173,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "object",
         },
         "fileIds": {
-          "description": "Staged files from upload_file to attach",
+          "description": "Staged upload_file ids to attach",
           "items": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
@@ -3256,6 +3255,42 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_mail_category",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "enum": [
+                "업무",
+                "개인",
+                "알림",
+                "프로모션",
+                "뉴스레터",
+              ],
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+        "category",
       ],
       "type": "object",
     },

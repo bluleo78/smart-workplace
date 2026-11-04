@@ -14,10 +14,11 @@ import type { IssueToolClient, MessagingToolClient } from './tool-client.js';
 export const reactInput = z
   .object({
     emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍; to remove, the exact string shown in reactions'),
-    reacted: z.boolean().describe('true adds my reaction, false removes it'),
-    messageId: z.number().int().positive().optional().describe('Chat message: its id as read from channel or thread messages'),
+    // 뜻(true 추가·false 제거)은 도구 설명 첫머리 「Adds (reacted: true) or removes (false)」가 이미 밝혀 인자 설명을 두지 않는다(정의 크기, WP-1341).
+    reacted: z.boolean(),
+    messageId: z.number().int().positive().optional().describe('Chat message id from channel or thread reads'),
     issueKey: z.string().min(1).optional().describe('Issue comment: issue key, together with commentId'),
-    commentId: z.number().int().positive().optional().describe('Issue comment: its id as read from the issue detail comments'),
+    commentId: z.number().int().positive().optional().describe('Issue comment id from the issue detail'),
   })
   // 모델이 고칠 수 있게 어긋난 경우마다 다른 문장을 준다(한 문장이면 같은 실수를 되풀이한다).
   .superRefine((v, ctx) => {

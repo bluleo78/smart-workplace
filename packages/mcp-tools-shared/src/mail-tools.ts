@@ -12,7 +12,7 @@ import {
   type AssigneeResolverClient,
   type ProjectMetaClient,
 } from './resolve.js';
-import { ISSUE_BODY_MAX_LENGTH, issuePriorityInput } from './schemas.js';
+import { ISSUE_BODY_MAX_LENGTH, issuePriorityInput, mailCategoryInput } from './schemas.js';
 import type { MailToolClient } from './tool-client.js';
 
 export const listMailInput = z.object({
@@ -22,7 +22,7 @@ export const listMailInput = z.object({
   // #466: 안 읽은 메일만. 검색어("is:unread")로 흉내 내면 서버가 본문 검색으로 처리해 결과가 틀린다.
   unreadOnly: z.boolean().optional(),
   // WP-357: 서버 category 는 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다(값은 서버 EmailMessageRepository.CATEGORIES).
-  category: z.enum(['업무', '개인', '알림', '프로모션', '뉴스레터']).optional().describe('업무 includes unclassified'),
+  category: mailCategoryInput.optional().describe('업무 includes unclassified'),
   needsReply: z.boolean().optional().describe('AI-flagged, still unread'),
   limit: z.number().int().min(1).max(100).default(20),
 });
@@ -46,6 +46,12 @@ export const markMailReadInput = z.object({
   read: z.boolean().default(true),
 });
 export const syncMailInput = z.object({ accountId: z.number().int().positive() });
+// WP-1341: 내 메일 분류 바꾸기 입력. null 은 「비우기」(AI 분류로 되돌리기) 뜻이라 nullAsOmitted 를 쓰지 않고 정의에 null 갈래를 그대로 보인다.
+// 생략은 허용하지 않는다 — 모델이 인자를 빠뜨려 의도치 않게 되돌리는 일을 막는다.
+export const updateMailCategoryInput = z.object({
+  messageId: z.number().int().positive(),
+  category: mailCategoryInput.nullable(),
+});
 
 type Raw = Record<string, unknown>;
 
@@ -94,7 +100,7 @@ export function toSyncResultView(raw: unknown): { fetched: number; saved: number
 
 /**
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
- * create_issue_from_mail/mark_mail_read/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
+ * create_issue_from_mail/mark_mail_read/update_mail_category/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
  */
 export function buildMailTools(
   client: MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'>,
@@ -188,9 +194,9 @@ export function buildMailTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
-        'project names (unknown label names are created, gray, and listed in createdLabels). reporter: me (default) or sender (the mail ' +
-        'sender, must be a workspace member who can see the project). If the mail already has an issue, that ' +
-        'issueKey returns: {issueKey, created}.',
+        'project names (unknown labels are created, gray; createdLabels). reporter: me (default) or sender (the mail ' +
+        'sender, must be a workspace member who can see the project). Returns {issueKey, created}; created:false = the ' +
+        'issue the mail already had.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, type, labels, reporter, ...rest } = createIssueFromMailInput.parse(args);
@@ -239,6 +245,22 @@ export function buildMailTools(
       },
     },
     {
+      name: 'update_mail_category',
+      app: 'mail',
+      kind: 'write',
+      // WP-1341: 내 사본(email_message.user_category)만 바꾼다 — 같은 메일을 받은 동료의 분류는 그대로다. null 로 AI 분류에 되돌릴 수 있어
+      // destructive 가 아니고, 같은 값을 다시 보내도 결과가 같아 멱등이다. 원본 메일 서버에는 닿지 않는다.
+      hints: { destructive: false, idempotent: true, openWorld: false },
+      description: 'Sets my category for one mail (only for me); null returns it to the AI category.',
+      inputSchema: updateMailCategoryInput,
+      async handler(args) {
+        const { messageId, category } = updateMailCategoryInput.parse(args);
+        // 응답의 learnable(웹이 교정 학습을 부를지 정하는 값)은 도구 쓰임새가 없어 뺀다 — 대화에서는 라우터가 기억을 직접 남긴다.
+        const { aiCategory, categoryByMe } = await client.setMailCategory(messageId, category);
+        return JSON.stringify({ aiCategory, categoryByMe });
+      },
+    },
+    {
       name: 'sync_mail',
       app: 'mail',
       kind: 'write',
@@ -247,10 +269,10 @@ export function buildMailTools(
       // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Syncs an account inbox with its server (M365 or IMAP): fetches new mail, overwrites stored read states with server values (IMAP: ' +
+        'Syncs an account inbox with its server (M365 or IMAP): fetches new mail, overwrites read states with server values (IMAP: ' +
         'last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If a ' +
-        'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail. ' +
-        'That check is best effort: all 0 can also mean a sync just started.',
+        'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail (best effort: all 0 may ' +
+        'also mean a sync just started).',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);

@@ -6,6 +6,7 @@ import {
   parseContentAnalysisJson,
   parseDraftCoachingJson,
   parseIssueDraftJson,
+  parseLearnCategoryJson,
   parsePersonalAnalysisJson,
 } from './mail-parser.js';
 
@@ -100,6 +101,7 @@ describe('parsePersonalAnalysisJson', () => {
       personalSummary: '• 나에게: 확인',
       personalSummaryValid: true,
       category: '업무',
+      personalCategory: null,
     });
   });
   it('needsReply 누락이면 throw', () => {
@@ -131,7 +133,16 @@ describe('parsePersonalAnalysisJson', () => {
         includePersonalSummary: true,
         includeCategory: false,
       }),
-    ).toEqual({ needsReply: null, personalSummary: '• 핵심', personalSummaryValid: true, category: null });
+    ).toEqual({ needsReply: null, personalSummary: '• 핵심', personalSummaryValid: true, category: null, personalCategory: null });
+  });
+  // WP-1341: 개인 분류 — 요청했을 때만 읽고, 근접어도 분류로 맞춘다.
+  it('personalCategory 를 요청하면 근접어를 분류로 맞춰 돌려준다', () => {
+    const flags = { includeNeedsReply: true, includePersonalSummary: false, includeCategory: false, includePersonalCategory: true };
+    expect(parsePersonalAnalysisJson('{"needsReply":false,"personalCategory":"광고"}', flags).personalCategory).toBe('프로모션');
+    expect(parsePersonalAnalysisJson('{"needsReply":false,"personalCategory":"기타"}', flags).personalCategory).toBeNull();
+  });
+  it('personalCategory 를 요청하지 않으면 응답에 있어도 null', () => {
+    expect(parsePersonalAnalysisJson('{"needsReply":false,"personalCategory":"업무"}', all).personalCategory).toBeNull();
   });
 });
 
@@ -164,6 +175,41 @@ describe('parseClassifyBatchJson', () => {
   });
   it('results 배열이 없으면 예외', () => {
     expect(() => parseClassifyBatchJson('{"foo":1}', [1])).toThrow();
+  });
+});
+
+// WP-1340: 모델이 5종 밖 이름(근접어)을 내도 버리지 않고 가까운 분류로 맞춘다 — 소문자·trim 후 정확히 일치할 때만.
+describe('분류 근접어 (WP-1340)', () => {
+  it.each([
+    ['광고', '프로모션'],
+    [' 홍보 ', '프로모션'],
+    ['마케팅', '프로모션'],
+    ['할인', '프로모션'],
+    ['이벤트', '프로모션'],
+    ['구독', '뉴스레터'],
+    ['소식지', '뉴스레터'],
+    ['뉴스', '뉴스레터'],
+    ['Newsletter', '뉴스레터'],
+    ['시스템', '알림'],
+    ['거래', '알림'],
+    ['영수증', '알림'],
+    ['일', '업무'],
+    ['협업', '업무'],
+    ['지인', '개인'],
+    ['업무', '업무'],
+  ])('%s → %s (classify-batch·③ 공통)', (raw, expected) => {
+    expect(parseClassifyBatchJson(`{"results":[{"id":1,"category":${JSON.stringify(raw)}}]}`, [1])).toEqual([
+      { id: 1, category: expected },
+    ]);
+    expect(
+      parseContentAnalysisJson(`{"category":${JSON.stringify(raw)}}`, { includeCategory: true, includeSummary: false }).category,
+    ).toBe(expected);
+  });
+
+  it.each(['기타', '광고 메일', '업무용'])('맞출 수 없는 값(%s)은 null — 부분 일치는 하지 않는다', (raw) => {
+    expect(parseClassifyBatchJson(`{"results":[{"id":1,"category":${JSON.stringify(raw)}}]}`, [1])).toEqual([
+      { id: 1, category: null },
+    ]);
   });
 });
 
@@ -205,5 +251,41 @@ describe('parseComposeDraft', () => {
   });
   it('잘려서 본문을 못 꺼내면 던진다', () => {
     expect(() => parseComposeDraft('{"subject":"제목","body":"끝이 잘린', true)).toThrow();
+  });
+});
+
+// WP-1341: 분류 교정 학습 응답 — 화이트리스트·id·길이를 어기면 throw(→ 502, API 는 NONE 으로 응답).
+describe('parseLearnCategoryJson', () => {
+  it('CREATE — memoryId 는 null', () => {
+    expect(
+      parseLearnCategoryJson('{"action":"CREATE","content":"원티드(wantedlab.com) 채용 소식 메일은 업무가 아니라 프로모션으로 분류"}', []),
+    ).toEqual({ action: 'CREATE', memoryId: null, content: '원티드(wantedlab.com) 채용 소식 메일은 업무가 아니라 프로모션으로 분류' });
+  });
+  it('UPDATE — 요청한 기억 id 면 그 id', () => {
+    expect(parseLearnCategoryJson('{"action":"UPDATE","memoryId":7,"content":"원티드 메일은 프로모션으로 분류"}', [7])).toEqual({
+      action: 'UPDATE',
+      memoryId: 7,
+      content: '원티드 메일은 프로모션으로 분류',
+    });
+  });
+  it('UPDATE — 숫자 문자열 id 도 받는다', () => {
+    expect(parseLearnCategoryJson('{"action":"UPDATE","memoryId":"7","content":"x 는 업무로 분류"}', [7]).memoryId).toBe(7);
+  });
+  it('UPDATE 의 id 가 요청 목록에 없으면 throw', () => {
+    expect(() => parseLearnCategoryJson('{"action":"UPDATE","memoryId":7,"content":"x 는 업무로 분류"}', [3])).toThrow();
+  });
+  it('NONE — content 는 null', () => {
+    expect(parseLearnCategoryJson('{"action":"NONE"}', [7])).toEqual({ action: 'NONE', memoryId: null, content: null });
+  });
+  it('content 가 120자를 넘으면 throw, 120자는 통과', () => {
+    expect(() => parseLearnCategoryJson(JSON.stringify({ action: 'CREATE', content: '가'.repeat(121) }), [])).toThrow();
+    expect(parseLearnCategoryJson(JSON.stringify({ action: 'CREATE', content: '가'.repeat(120) }), []).content).toHaveLength(120);
+  });
+  it('content 가 비었거나 공백이면 throw', () => {
+    expect(() => parseLearnCategoryJson('{"action":"CREATE","content":"  "}', [])).toThrow();
+    expect(() => parseLearnCategoryJson('{"action":"CREATE"}', [])).toThrow();
+  });
+  it('action 이 화이트리스트 밖이면 throw', () => {
+    expect(() => parseLearnCategoryJson('{"action":"DELETE","memoryId":7}', [7])).toThrow();
   });
 });

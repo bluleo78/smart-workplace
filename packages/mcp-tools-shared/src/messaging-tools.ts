@@ -422,8 +422,8 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Lists top-level messages of a channel or DM I belong to, newest first, as {items, hasMore?, nextCursor?}. Replies are left out; ' +
-        'messages with replies carry replyCount (see list_thread_replies). Markdown body, mentions as "@name(username)", reactions {emoji: ' +
+        'Lists top-level messages of a channel or DM I belong to, newest first, as {items, hasMore?, nextCursor?}. Replies are omitted; ' +
+        'those with replies carry replyCount (see list_thread_replies). Markdown body, mentions as "@name(username)", reactions {emoji: ' +
         'count}; deleted ones read "(삭제됨)". If hasMore, pass nextCursor as cursor for older messages, or say the list is partial.',
       inputSchema: listChannelMessagesInput,
       async handler(args) {
@@ -438,7 +438,7 @@ export function buildMessagingTools(
       kind: 'read',
       description:
         'Returns all replies in the thread of a channel message, oldest first, as {items, truncated?}. messageId: id of a list_channel_messages ' +
-        'item with replyCount. Mentions read "@name(username)". truncated:true means only the first 500 replies are included: say the rest is ' +
+        'item with replyCount. Mentions read "@name(username)". truncated:true = only the first 500 replies: say the rest is ' +
         'missing.',
       inputSchema: getThreadRepliesInput,
       async handler(args) {

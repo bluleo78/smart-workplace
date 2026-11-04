@@ -339,6 +339,30 @@ describe('러너별 라우터 규칙 (WP-351)', () => {
   });
 });
 
+// WP-1341: 사용자가 메일 분류가 틀렸다고 하면 분류를 바꾸고, 같은 종류 메일에도 통하는 교정이면 라우터가 메일 기억으로 남긴다
+// (메모리 도구는 라우터에만 있어 하위 에이전트가 저장할 수 없다).
+describe('메일 분류 교정 (WP-1341)', () => {
+  const oc = assistantSystemPrompt('opencode');
+  it('두 러너 모두 메일 분류 교정을 MAIL 범위 PREFERENCE 기억 한 줄로 남기고, 비슷한 기억은 고치며, 메모리 꺼짐이면 저장하지 않는다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, oc]) {
+      expect(p).toContain('메일 분류 교정');
+      expect(p).toContain('`remember_memory`(scope MAIL, kind PREFERENCE)');
+      expect(p).toContain('메일은 {분류}로 분류');
+      expect(p).toMatch(/메일 분류 교정[^\n]*`update_memory`/);
+      expect(p).toMatch(/메일 분류 교정[^\n]*메모리 꺼짐/);
+      expect(p).toMatch(/메일 분류 교정[^\n]*그 메일 한 통에만 해당하면 분류만 바꾼다/);
+    }
+  });
+  it('Claude 라우터는 분류 바꾸기를 mail-agent 에 맡기고, opencode 는 update_mail_category 로 직접 바꾼다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/메일 분류 교정[^\n]*mail-agent 에 맡기고/);
+    expect(oc).toMatch(/메일 분류 교정[^\n]*`update_mail_category`/);
+  });
+  it('위임 표의 mail-agent 행에 분류 바꾸기가 있다', () => {
+    const row = ASSISTANT_SYSTEM_PROMPT.split('\n').find((l) => l.includes('**mail-agent**'));
+    expect(row).toContain('분류 바꾸기');
+  });
+});
+
 // WP-352: 읽기 목록이 페이지에서 잘려 와도 라우터가 직접 읽는 경로에서 전부로 오해하지 않도록 이어 조회하거나 잘렸다고 알리게 한다.
 describe('목록 잘림 안내 (WP-352)', () => {
   it('두 러너 모두 hasMore·nextCursor 가 있으면 이어 조회하거나 일부만 확인했다고 알리라고 안내한다', () => {

@@ -80,6 +80,46 @@ class AiMemoryEntryReaderTest extends IntegrationTestBase {
     assertThat(lines.get(1).expiresOn()).isNull();
   }
 
+  /** WP-1346 앱 범위만 — 공통·다른 앱은 빼고 그 앱 기억만, 고정 먼저 + 최신순(질의 없이). */
+  @Test
+  void 앱_범위만_고정_먼저_최신순으로_돌려준다() {
+    long uid = user();
+    memoryService.create(
+        uid, new CreateAiMemoryRequest("PREFERENCE", "답은 존댓말로", null, null, null, null), false);
+    memoryService.create(
+        uid, new CreateAiMemoryRequest("PREFERENCE", "이슈는 짧게", null, null, "ISSUE", null), false);
+    var pinned =
+        memoryService.create(
+            uid,
+            new CreateAiMemoryRequest("PREFERENCE", "원티드는 뉴스레터", null, null, "MAIL", null),
+            false);
+    memoryService.setPinned(uid, pinned.id(), true, false);
+    memoryService.create(
+        uid,
+        new CreateAiMemoryRequest("PREFERENCE", "사내 주간 소식은 업무", null, null, "MAIL", null),
+        false);
+
+    List<AiMemoryLine> lines = reader.readAppScope(uid, AiMemoryReader.MAIL);
+
+    assertThat(lines)
+        .extracting(AiMemoryLine::content)
+        .containsExactly("원티드는 뉴스레터", "사내 주간 소식은 업무");
+    assertThat(lines).allSatisfy(l -> assertThat(l.scope()).isEqualTo("MAIL"));
+  }
+
+  /** WP-1346 앱 범위 읽기도 꺼져 있으면 빈 목록이다. */
+  @Test
+  void 앱_범위_읽기도_꺼져_있으면_빈_목록() {
+    long uid = user();
+    memoryService.create(
+        uid, new CreateAiMemoryRequest("PREFERENCE", "원티드는 뉴스레터", null, null, "MAIL", null), false);
+    assertThat(reader.readAppScope(uid, AiMemoryReader.MAIL)).hasSize(1);
+
+    doReturn(false).when(preferences).memoryEnabled(anyLong());
+
+    assertThat(reader.readAppScope(uid, AiMemoryReader.MAIL)).isEmpty();
+  }
+
   /** 메모리가 있어도 꺼져 있으면 싣지 않는다 — 먼저 1건을 읽어 보여, 빈 결과가 빈 테이블이 아니라 꺼짐 스위치 때문임을 증명한다. */
   @Test
   void 꺼져_있으면_빈_목록() {

@@ -209,8 +209,8 @@ describe('⋯ 메뉴', () => {
     expect(within(bar).queryByTestId('mobile-header-inline-action')).not.toBeInTheDocument()
     await user.click(within(bar).getByTestId('mobile-header-more'))
     const menu = within(bar).getByTestId('mobile-header-more-menu')
-    // 라이트 테마라 원본 배경 토글은 없다 — 안 읽음, AI로 이슈 만들기, 삭제(WP-962, 맨 아래). 보관 메일함이 없어 보관·옮기기는 없다.
-    expect(within(menu).getAllByRole('menuitem').map((el) => el.textContent?.trim())).toEqual(['안 읽음', 'AI로 이슈 만들기', '삭제'])
+    // 라이트 테마라 원본 배경 토글은 없다 — 안 읽음, 분류 바꾸기(WP-1341), AI로 이슈 만들기, 삭제(WP-962, 맨 아래). 보관 메일함이 없어 보관·옮기기는 없다.
+    expect(within(menu).getAllByRole('menuitem').map((el) => el.textContent?.trim())).toEqual(['안 읽음', '분류 바꾸기', 'AI로 이슈 만들기', '삭제'])
     await user.click(within(menu).getByTestId('mobile-mark-unread'))
     await waitFor(() => expect(api.posts).toContain('/api/v1/mail/messages/10/unread'))
     await waitFor(() => expect(screen.queryByTestId('mail-detail')).not.toBeInTheDocument())
@@ -282,7 +282,8 @@ describe('하단 고정 바', () => {
     const bar = screen.getByTestId('mail-back')
     expect(within(bar).queryByTestId('mobile-header-inline-action')).not.toBeInTheDocument()
     await user.click(within(bar).getByTestId('mobile-header-more'))
-    expect(within(within(bar).getByTestId('mobile-header-more-menu')).getAllByRole('menuitem').map((el) => el.textContent?.trim())).toEqual(['안 읽음', '삭제'])
+    // 분류 바꾸기(WP-1341)는 계정 AI 가 아니라 분류 활성(안 읽은 수 classificationActive — 이 파일의 목은 true)으로 정한다.
+    expect(within(within(bar).getByTestId('mobile-header-more-menu')).getAllByRole('menuitem').map((el) => el.textContent?.trim())).toEqual(['안 읽음', '분류 바꾸기', '삭제'])
   })
 })
 

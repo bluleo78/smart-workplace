@@ -62,7 +62,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` `create_project_meta` `update_project_meta` + 겹침: `search_members` |
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` + 겹침: `read_file` `upload_file` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_item` `move_drive_item` `copy_drive_item` `import_attachment_to_drive` `create_drive_download_link` `create_drive_file` + 겹침: `read_file` (15개 — 앱당 상한에 닿았다) |
-| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` + 겹침: `read_file` |
+| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `update_mail_category` `sync_mail` + 겹침: `read_file` |
 | `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_file` `upload_file` `react` (15개 — 앱당 상한에 닿았다) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
@@ -166,6 +166,7 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 | 메일 필터 | `list_mail` 의 `category`(업무·개인·알림·프로모션·뉴스레터)·`needsReply` | 서버는 분류 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다. `업무` 는 미분류·미적재 메일을 포함한다(서버 `workViewCondition`) |
 | 안 읽음 표시 | `mark_mail_read` 의 `read:false`(`POST /mail/messages/{id}/unread`) | 짝 도구 대신 파라미터. 읽음과 같이 원본 메일 서버로 역동기화되므로 `hints` 는 그대로(destructive·멱등·openWorld). AI 가 회신 필요로 본 메일을 안 읽음으로 되돌리면 회신 필요 목록에 다시 든다 |
 | 메일에 연결된 이슈 | `get_mail` 의 `issueKey` | 기존 `getMailLinkedIssue` 를 병렬로 부른다. 부가 정보라 조회 실패가 메일 읽기를 막지 않는다(키 생략) |
+| 내 메일 분류 바꾸기(WP-1341) | `update_mail_category(messageId, category)` — `PUT /mail/messages/{id}/category`. `category: null` 은 직접 정한 분류를 지워 AI 분류로 되돌린다(정의에 null 갈래를 그대로 둔다 — `nullAsOmitted` 아님, 생략 불가). 결과는 `{aiCategory, categoryByMe}`(서버 `learnable` 은 웹 전용이라 뺀다). `kind: write`, destructive 아님·멱등·openWorld 아님 | 내 사본만 바뀌어 같은 메일을 받은 동료 분류는 그대로다. 명명 규칙상 `set_` 이 금지라 계획의 `set_mail_category` 대신 `update_` 를 쓴다. 넣으면서 늘어난 정의 크기(+141)는 기존 설명·인자 설명 압축으로 맞췄다(17,301 → 17,298, 상한 17,300 그대로) |
 | 캘린더 목록 | **두지 않는다** | `GET /calendars` 의 id 를 받는 도구가 없다 — `create_event` 는 기본 캘린더에만 만들고(`calendarId` 없음), `update_event` 는 소속을 유지하며, `list_events` 에 캘린더 필터가 없다. 일정 뷰는 `calendarName` 으로 소속을 이미 알려 준다. id 없는 목록은 "어떤 캘린더가 있나" 에만 답해 정의 크기(~100토큰)만큼의 가치가 없다고 보았다. 캘린더를 고르는 입력이 생기면 그때 `list_calendars` 를 둔다 |
 | 홈 개요 | `get_home_overview(sections?, cursor?)` — **notify 앱**(새 앱 이름을 만들지 않고, 15/15 인 messaging 에 싣지 않는다) | 아래 표 |
 
