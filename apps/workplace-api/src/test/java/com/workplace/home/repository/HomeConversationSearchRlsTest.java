@@ -32,10 +32,12 @@ class HomeConversationSearchRlsTest extends IntegrationTestBase {
               setGuc(tid2);
               UUID sid = sessionRepo.insert(uid);
               messageRepo.insert(sid, "USER", "고양이 사진 정리", null, null, null, "COMPLETE");
-              assertThat(repo.search(uid, "고양이", SearchTerms.of("고양이"), null, null, 5)).hasSize(1);
+              assertThat(repo.search(uid, "고양이", SearchTerms.of("고양이"), null, null, 5, 0, false))
+                  .hasSize(1);
 
               setGuc(1L);
-              assertThat(repo.search(uid, "고양이", SearchTerms.of("고양이"), null, null, 5)).isEmpty();
+              assertThat(repo.search(uid, "고양이", SearchTerms.of("고양이"), null, null, 5, 0, false))
+                  .isEmpty();
 
               status.setRollbackOnly();
             });

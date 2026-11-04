@@ -25,6 +25,7 @@ function emptyApis() {
   return [
     http.get(`${API}/wiki/search`, () => HttpResponse.json([])),
     http.get(`${API}/search/drive`, () => HttpResponse.json({ items: [], hasMore: false })),
+    http.get(`${API}/search/ai-conversations`, () => HttpResponse.json({ items: [], hasMore: false })),
     http.get(`${API}/me/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
     http.get(`${API}/projects`, () =>
       HttpResponse.json({
@@ -161,6 +162,30 @@ test('↓↓ 뒤 Enter 는 두 번째 결과로 이동하고 팔레트가 닫힌
   expect(screen.getByTestId('global-search-hit-wiki:8')).toHaveAttribute('aria-selected', 'true')
   fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(location()).toBe('/wiki/spaces/3/pages/8'))
+  expect(screen.queryByTestId('global-search')).toBeNull()
+})
+
+test('AI 대화 결과를 고르면 지금 경로를 유지한 채 aiChat 파라미터만 붙는다', async () => {
+  const id = '11111111-1111-4111-8111-111111111111'
+  const { user, location } = renderScreen(<SearchTrigger />, {
+    path: '/wiki/spaces/3?x=1',
+    handlers: [
+      http.get(`${API}/search/ai-conversations`, () =>
+        HttpResponse.json({
+          items: [{ sessionId: id, title: '배포 대화', lastMessageAt: '2026-01-01T00:00:00Z', role: 'ASSISTANT', excerpt: '배포는 이렇게' }],
+          hasMore: false,
+        }),
+      ),
+      ...emptyApis(),
+    ],
+  })
+  const input = await openPalette(user)
+  await user.click(screen.getByTestId('global-search-tab-ai'))
+  fireEvent.change(input, { target: { value: '배포' } })
+  const hit = await screen.findByTestId(`global-search-hit-ai:${id}`)
+  expect(hit).toHaveTextContent('답 · 배포는 이렇게')
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => expect(location()).toBe(`/wiki/spaces/3?x=1&aiChat=${id}`))
   expect(screen.queryByTestId('global-search')).toBeNull()
 })
 

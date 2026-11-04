@@ -61,7 +61,7 @@ public class HomeConversationSearchService {
     List<ConversationSearchResponse.Item> items =
         tx.execute(
             s ->
-                repo.search(userId, query, terms, vec, excludeSessionId, n).stream()
+                repo.search(userId, query, terms, vec, excludeSessionId, n, 0, false).stream()
                     .map(h -> toItem(h, terms))
                     .toList());
     return new ConversationSearchResponse(true, items == null ? List.of() : items);
@@ -80,7 +80,7 @@ public class HomeConversationSearchService {
   /**
    * 답 발췌 — 낱말이 처음 맞은 곳이 앞 1/3 쯤 오게 max 자(코드포인트)를 자르고, 잘린 쪽에 "…". 맞은 곳이 없으면 앞 max 자. 줄바꿈·연속 공백은 한 칸.
    */
-  static String excerpt(String text, List<String> terms, int max) {
+  public static String excerpt(String text, List<String> terms, int max) {
     if (text == null) return null;
     String s = flat(text);
     int total = s.codePointCount(0, s.length());
