@@ -11,6 +11,7 @@ vi.mock('../agent/run-mail-ai.js', () => ({
   runMailAnalyzeContent: vi.fn(),
   runMailAnalyzePersonal: vi.fn(),
   runMailClassifyBatch: vi.fn(),
+  runMailLearnCategory: vi.fn(),
 }));
 
 import { ModelOutputError } from '../agent/provider-error.js';
@@ -22,6 +23,7 @@ import {
   runMailComposeDraft,
   runMailReplyDraft,
   runMailDraftCoaching,
+  runMailLearnCategory,
 } from '../agent/run-mail-ai.js';
 
 function app() {
@@ -111,6 +113,12 @@ describe('POST /mail/analyze-content', () => {
     const res = await request(app()).post('/mail/analyze-content').send({ subject: 's' });
     expect(res.status).toBe(400);
   });
+  it('WP-1342: senderIsMember 를 러너에 넘긴다(구 요청은 위 정상 200)', async () => {
+    vi.mocked(runMailAnalyzeContent).mockResolvedValue({ category: '업무', summary: null });
+    const res = await request(app()).post('/mail/analyze-content').send({ ...valid, senderIsMember: true });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runMailAnalyzeContent).mock.calls[0][0]).toMatchObject({ senderIsMember: true });
+  });
   it('받을 항목이 하나도 없으면 400', async () => {
     const res = await request(app()).post('/mail/analyze-content').send({ ...valid, includeCategory: false, includeSummary: false });
     expect(res.status).toBe(400);
@@ -144,18 +152,18 @@ describe('POST /mail/analyze-personal', () => {
     assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 60000,
   };
   it('정상 200 + 결과', async () => {
-    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: true, personalSummary: null, personalSummaryValid: false, category: null });
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: true, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: null });
     const res = await request(app()).post('/mail/analyze-personal').send(valid);
     expect(res.status).toBe(200);
     expect(res.body.needsReply).toBe(true);
   });
   it('모르는 키는 무시하고 200', async () => {
-    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: null });
     const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, futureField: 1 });
     expect(res.status).toBe(200);
   });
   it('WP-150 보강 블록을 받아 러너에 넘긴다', async () => {
-    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: true, personalSummary: null, personalSummaryValid: false, category: null });
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: true, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: null });
     const res = await request(app())
       .post('/mail/analyze-personal')
       .send({
@@ -177,7 +185,7 @@ describe('POST /mail/analyze-personal', () => {
     expect(input.attachments).toEqual(['a.pdf']);
   });
   it('보강 블록이 null 이어도 200(api 가 조회 실패 블록을 비워 보냄)', async () => {
-    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: null });
     const res = await request(app())
       .post('/mail/analyze-personal')
       .send({
@@ -191,7 +199,7 @@ describe('POST /mail/analyze-personal', () => {
     expect(res.status).toBe(200);
   });
   it('이전 메일 6건·첨부 21개는 버리지 않고 5건·20개로 자른다', async () => {
-    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: null });
     const thread = Array.from({ length: 6 }, (_, i) => ({ fromMe: false, from: 'a', date: 'd', body: `b${i}` }));
     const attachments = Array.from({ length: 21 }, (_, i) => `f${i}.pdf`);
     const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, thread, attachments });
@@ -202,7 +210,7 @@ describe('POST /mail/analyze-personal', () => {
     expect(input.attachments).toHaveLength(20);
   });
   it('형식이 틀린 보강 블록은 그 블록만 버리고 200', async () => {
-    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: null });
     const res = await request(app())
       .post('/mail/analyze-personal')
       .send({ ...valid, sender: { relation: 'BOSS' }, thread: [{ from: 'x' }], attachments: ['a.pdf'] });
@@ -211,6 +219,22 @@ describe('POST /mail/analyze-personal', () => {
     expect(input.sender).toBeUndefined();
     expect(input.thread).toBeUndefined();
     expect(input.attachments).toEqual(['a.pdf']);
+  });
+  it('WP-1341: includePersonalCategory 만 요청해도 200, memories 는 모양 틀린 항목만 버리고 러너에 넘긴다', async () => {
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: null, personalSummary: null, personalSummaryValid: false, category: null, personalCategory: '업무' });
+    const res = await request(app())
+      .post('/mail/analyze-personal')
+      .send({
+        ...valid,
+        includeNeedsReply: false,
+        includePersonalCategory: true,
+        memories: [{ id: 3, kind: 'PREFERENCE', content: '원티드 메일은 프로모션으로 분류', scope: 'MAIL' }, { id: 'x' }],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.personalCategory).toBe('업무');
+    const input = vi.mocked(runMailAnalyzePersonal).mock.calls[0][0];
+    expect(input.includePersonalCategory).toBe(true);
+    expect(input.memories).toEqual([{ id: 3, kind: 'PREFERENCE', content: '원티드 메일은 프로모션으로 분류', scope: 'MAIL' }]);
   });
   it('myRole 이 정의 밖이면 400', async () => {
     const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, recipient: { myRole: 'BCC', toCount: 0, ccCount: 0 } });
@@ -239,6 +263,16 @@ describe('POST /mail/classify-batch', () => {
     const res = await request(app()).post('/mail/classify-batch').send(valid);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ results: [{ id: 1, category: '업무' }] });
+  });
+  it('WP-1340·1342: autoGenerated·senderIsMember 를 러너에 넘기고, 없는 구 요청도 200', async () => {
+    vi.mocked(runMailClassifyBatch).mockResolvedValue({ results: [{ id: 1, category: '업무' }] });
+    const res = await request(app())
+      .post('/mail/classify-batch')
+      .send({ ...valid, items: [{ id: 1, from: 'a@b', subject: 's', bodyHead: 'x', autoGenerated: true, senderIsMember: true }] });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runMailClassifyBatch).mock.calls[0][0].items[0]).toMatchObject({ autoGenerated: true, senderIsMember: true });
+    const old = await request(app()).post('/mail/classify-batch').send(valid);
+    expect(old.status).toBe(200);
   });
   it('items 가 비면 400', async () => {
     const res = await request(app()).post('/mail/classify-batch').send({ ...valid, items: [] });
@@ -334,5 +368,43 @@ describe('POST /mail/compose-draft', () => {
     vi.mocked(runMailComposeDraft).mockRejectedValue(new Error('boom'));
     const res = await request(app()).post('/mail/compose-draft').send(valid);
     expect(res.status).toBe(502);
+  });
+});
+
+// WP-1341 분류 교정 학습 라우트.
+describe('POST /mail/learn-category', () => {
+  const valid = {
+    subject: '(광고) 소식', from: 'news@wantedlab.com', bodyHead: '본문', fromCategory: '업무', toCategory: '프로모션',
+    senderIsMember: false, memories: [{ id: 7, content: '원티드 메일은 뉴스레터로 분류' }],
+    assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 60000,
+  };
+  it('정상 200 + 결과, 러너에 검증된 입력을 넘긴다', async () => {
+    vi.mocked(runMailLearnCategory).mockResolvedValue({ action: 'CREATE', memoryId: null, content: '원티드 메일은 프로모션으로 분류' });
+    const res = await request(app()).post('/mail/learn-category').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ action: 'CREATE', memoryId: null, content: '원티드 메일은 프로모션으로 분류' });
+    expect(vi.mocked(runMailLearnCategory).mock.calls[0][0]).toMatchObject({ toCategory: '프로모션', memories: [{ id: 7 }] });
+  });
+  it('fromCategory null·memories 생략도 200(빈 목록)', async () => {
+    vi.mocked(runMailLearnCategory).mockResolvedValue({ action: 'NONE', memoryId: null, content: null });
+    const { memories: _m, ...rest } = valid;
+    const res = await request(app()).post('/mail/learn-category').send({ ...rest, fromCategory: null });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runMailLearnCategory).mock.calls[0][0].memories).toEqual([]);
+  });
+  it('toCategory 가 5종 밖이면 400', async () => {
+    const res = await request(app()).post('/mail/learn-category').send({ ...valid, toCategory: '기타' });
+    expect(res.status).toBe(400);
+  });
+  it('기억이 50개를 넘으면 400', async () => {
+    const memories = Array.from({ length: 51 }, (_, i) => ({ id: i + 1, content: 'x' }));
+    const res = await request(app()).post('/mail/learn-category').send({ ...valid, memories });
+    expect(res.status).toBe(400);
+  });
+  it('러너 실패 502', async () => {
+    vi.mocked(runMailLearnCategory).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/mail/learn-category').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'mail-learn-category_failed' });
   });
 });

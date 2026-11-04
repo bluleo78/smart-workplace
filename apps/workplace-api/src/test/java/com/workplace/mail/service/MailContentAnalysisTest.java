@@ -321,4 +321,39 @@ class MailContentAnalysisTest extends ExternalClientMockedTestBase {
     verify(mailClient, times(1)).analyzeContent(any());
     assertThat(contentRow(content).value2()).isEqualTo("• 강제 요약");
   }
+
+  /** ③ 도 광고 보정을 적용한다(WP-1340) — 「[광고]」 제목인데 모델이 업무라고 하면 공용 분류는 프로모션. */
+  @Test
+  void contentAnalysis_appliesAdRule() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.SUBJECT, "[광고] 가을 특가")
+        .where(EMAIL_CONTENT.ID.eq(content))
+        .execute();
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, "shop@ext.com", a.address(), null);
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
+
+    analysis.analyzeContent(a.userId(), env);
+
+    assertThat(contentRow(content).value1()).isEqualTo("프로모션");
+  }
+
+  /** ③ 요청에 사내 구성원 신호를 싣고(WP-1342), 구성원이 보낸 뉴스레터 판정은 업무로 저장한다. */
+  @Test
+  void contentAnalysis_sendsMemberFlag_andSavesWorkForMemberNewsletter() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    com.workplace.support.TestFixtures.activeMemberOfCurrentTenant(dsl, a.userId());
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, a.address(), a.address(), null);
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("뉴스레터", null));
+
+    analysis.analyzeContent(a.userId(), env);
+
+    ArgumentCaptor<AnalyzeContentRequest> req =
+        ArgumentCaptor.forClass(AnalyzeContentRequest.class);
+    verify(mailClient).analyzeContent(req.capture());
+    assertThat(req.getValue().senderIsMember()).isTrue();
+    assertThat(contentRow(content).value1()).isEqualTo("업무");
+  }
 }

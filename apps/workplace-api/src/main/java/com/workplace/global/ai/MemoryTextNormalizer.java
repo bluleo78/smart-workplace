@@ -1,5 +1,6 @@
 package com.workplace.global.ai;
 
+import com.workplace.global.util.Texts;
 import java.text.Normalizer;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -39,7 +40,6 @@ public final class MemoryTextNormalizer {
 
   /** 앞 max 코드포인트(서로게이트 쌍을 가르지 않는다) — 길이가 같거나 짧으면 그대로. 사유·발화 자르기도 이 하나를 쓴다. */
   public static String headCodePoints(String s, int max) {
-    if (s.codePointCount(0, s.length()) <= max) return s;
-    return s.substring(0, s.offsetByCodePoints(0, max));
+    return Texts.headCodePoints(s, max); // 규칙은 공용 유틸 하나(메일 본문 앞부분과 같다)
   }
 }

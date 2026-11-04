@@ -14,7 +14,16 @@ export {
   type ToolDefinitionSize,
 } from './tool-definitions.js';
 export { toMcpContent, summarizeToolResult, resultText, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
-export { ISSUE_BODY_MAX_LENGTH, ISSUE_PRIORITIES, issueListFilterShape, issuePriorityInput } from './schemas.js';
+export {
+  ISSUE_BODY_MAX_LENGTH,
+  ISSUE_PRIORITIES,
+  issueListFilterShape,
+  issuePriorityInput,
+  // WP-1346: 메일 분류 5종 — ai-agent 가 복사본 없이 이 정의를 쓴다
+  MAIL_CATEGORIES,
+  mailCategoryInput,
+  type MailCategory,
+} from './schemas.js';
 export {
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,

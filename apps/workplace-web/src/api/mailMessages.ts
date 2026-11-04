@@ -11,7 +11,9 @@ import type {
   EmailMessageDetail,
   EmailMessageSummary,
   InviteResponseRequest,
+  LearnMailCategoryResult,
   MailAiSummary,
+  MailCategoryChange,
   MailDraftCoaching,
   MailFolder,
   MailIssueDraft,
@@ -208,6 +210,26 @@ export async function markAllRead(accountId: number, body: MailViewScope & { asO
     body.folderId != null ? { params: { folderId: body.folderId } } : undefined,
   );
   return data.updated;
+}
+
+/**
+ * WP-1341 내 메일 분류 바꾸기(나에게만 적용). category null 이면 직접 분류를 지워 AI 분류로 되돌린다.
+ * 응답은 바뀐 뒤의 유효 분류·직접 바꿈 여부·학습 호출 여부(learnable).
+ */
+export async function setMailCategory(messageId: number, category: string | null): Promise<MailCategoryChange> {
+  const { data } = await client.put<MailCategoryChange>(`/mail/messages/${messageId}/category`, { category });
+  return data;
+}
+
+/**
+ * WP-1341 분류 교정 학습 — AI 비서가 「왜 틀렸는지」를 메일 기억 한 줄로 남긴다. 학습 대상이 아니면 서버가 204(본문 없음)라 null 을 돌려준다.
+ */
+export async function learnMailCategory(
+  messageId: number,
+  body: { fromCategory: string | null; toCategory: string },
+): Promise<LearnMailCategoryResult | null> {
+  const res = await client.post<LearnMailCategoryResult | ''>(`/mail/messages/${messageId}/category/learn`, body);
+  return res.status === 204 || !res.data ? null : res.data;
 }
 
 /** 메시지 단건 상세(본문 + 첨부 메타). */

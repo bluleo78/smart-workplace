@@ -561,6 +561,17 @@ public class AiMemoryService {
     return toChatMemories(s);
   }
 
+  /**
+   * app 범위만(공통 제외) 순위 없이 — 고정 먼저 + 최신순, 블록 예산 안(WP-1346, AiMemoryReader#readAppScope). 읽기 트랜잭션을 늘
+   * 새로 연다. 실린 메모리는 사용으로 기록한다(loadForEntry 와 같다).
+   */
+  public ChatMemories loadAppScope(long userId, String app) {
+    AiMemorySelector.Selection s =
+        selector.listIsolated(userId, ScopeFilter.app(app), MEMORY_BLOCK_TOKEN_BUDGET);
+    recordUsage(userId, s.rows());
+    return toChatMemories(s);
+  }
+
   /** 검색(search_memory) 질의 임베딩 대기 — 도구 호출이라 채팅 첫 토큰보다 덜 급하다. */
   static final Duration SEARCH_EMBED_WAIT = Duration.ofSeconds(5);
 

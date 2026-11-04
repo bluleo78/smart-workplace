@@ -88,6 +88,7 @@ exports[`도구 앱 태그 (WP-350) > 도구별 앱 스냅샷 1`] = `
   "update_event": "calendar",
   "update_external_contact": "contacts",
   "update_issue": "issue",
+  "update_mail_category": "mail",
   "update_project": "project",
   "update_project_meta": "project",
   "update_user_group": "contacts",

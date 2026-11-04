@@ -16,6 +16,15 @@ public final class Texts {
   }
 
   /**
+   * 앞 max 코드포인트만 남긴다(말줄임표 없음, 서로게이트 쌍을 가르지 않는다) — 길이가 같거나 짧으면 그대로. 메모리 정규화 키·사유 자르기와 메일 LLM 입력 본문
+   * 앞부분이 같은 규칙을 쓰도록 한 곳에 둔다(WP-1346). s 는 null 이 아니어야 한다.
+   */
+  public static String headCodePoints(String s, int max) {
+    if (s.codePointCount(0, s.length()) <= max) return s;
+    return s.substring(0, s.offsetByCodePoints(0, max));
+  }
+
+  /**
    * 앞 max 글자(UTF-16 단위)만 남긴다 — 말줄임표 없음, null 은 그대로. 경계가 서로게이트 쌍(이모지 등) 한가운데면 한 글자 덜 잘라, 짝 잃은 high
    * surrogate 가 JSON 직렬화·전송에서 깨진 문자가 되지 않게 한다. AI 요청 본문 크기를 묶는 곳(위키 요약 입력·후속 질문 질문/답)이 같은 규칙을 쓰도록 한
    * 곳에 둔다. max 가 0 이하면 빈 문자열.

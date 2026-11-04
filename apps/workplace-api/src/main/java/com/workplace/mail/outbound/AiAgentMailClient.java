@@ -14,6 +14,8 @@ import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.IssueDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.IssueDraftResult;
+import com.workplace.mail.outbound.MailAiMessages.LearnCategoryRequest;
+import com.workplace.mail.outbound.MailAiMessages.LearnCategoryResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
 import lombok.extern.slf4j.Slf4j;
@@ -102,5 +104,13 @@ public class AiAgentMailClient {
   /** WP-149 ④ 개인 분석 → 회신필요 원판정·개인 요약·보조 분류(요청한 항목만). */
   public AnalyzePersonalResult analyzePersonal(AnalyzePersonalRequest req) {
     return post("/mail/analyze-personal", req, AnalyzePersonalResult.class);
+  }
+
+  /**
+   * WP-1341 분류 교정 학습 → 메일 기억 한 줄(CREATE·UPDATE) 또는 NONE. 구 ai-agent 는 404, 모델 출력 오류는 502 로
+   * 실패한다(호출자가 NONE 으로 처리).
+   */
+  public LearnCategoryResult learnCategory(LearnCategoryRequest req) {
+    return post("/mail/learn-category", req, LearnCategoryResult.class);
   }
 }

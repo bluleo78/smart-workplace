@@ -44,7 +44,9 @@ class MailSummaryDeciderTest {
         personalSummary,
         personalAttempted,
         personalSkipped,
-        OffsetDateTime.now());
+        OffsetDateTime.now(),
+        null, // 유효 분류 — 공용 분류(null)와 같다
+        false); // 사내 발신 아님
   }
 
   private static AnalysisContext common(

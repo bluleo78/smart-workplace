@@ -9,6 +9,9 @@ import com.workplace.mail.dto.CalendarInvite;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.InviteResponseRequest;
+import com.workplace.mail.dto.LearnMailCategoryRequest;
+import com.workplace.mail.dto.LearnMailCategoryResponse;
+import com.workplace.mail.dto.MailCategoryChange;
 import com.workplace.mail.dto.MailFolderResponse;
 import com.workplace.mail.dto.MailFolderSyncResult;
 import com.workplace.mail.dto.MailListCursor;
@@ -19,12 +22,14 @@ import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.dto.MarkAllReadRequest;
+import com.workplace.mail.dto.SetMailCategoryRequest;
 import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentPreviewService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.mail.service.MailAttachmentTextService;
 import com.workplace.mail.service.MailAttachmentViewService;
+import com.workplace.mail.service.MailCategoryService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
@@ -43,6 +48,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -67,6 +73,7 @@ public class MailInboxController {
   private final MailFolderService folderService;
   private final MailMoveService moveService;
   private final MailInviteService inviteService;
+  private final MailCategoryService categoryService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -206,6 +213,33 @@ public class MailInboxController {
   @PostMapping("/messages/{messageId}/unread")
   public void markUnread(@AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
     messageService.markUnread(callerId, messageId);
+  }
+
+  /**
+   * WP-1341: 내 메일 분류 바꾸기(나에게만 적용). category null 이면 AI 분류로 되돌린다. 5종 밖이면 400, 본인 메일이 아니면 404. 응답의
+   * learnable 이 true 면 웹이 이어서 학습을 부른다.
+   */
+  @PutMapping("/messages/{messageId}/category")
+  public MailCategoryChange setCategory(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long messageId,
+      @RequestBody SetMailCategoryRequest req) {
+    return categoryService.setCategory(callerId, messageId, req.category());
+  }
+
+  /**
+   * WP-1341: 분류 교정 이유를 메일 기억 한 줄로 남긴다. 학습 조건(개인 비서 · 계정 AI · AI 기억 켬)이 아니면 204. ai-agent 실패는 200
+   * {action:NONE}.
+   */
+  @PostMapping("/messages/{messageId}/category/learn")
+  public ResponseEntity<LearnMailCategoryResponse> learnCategory(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long messageId,
+      @RequestBody LearnMailCategoryRequest req) {
+    return categoryService
+        .learn(callerId, messageId, req.fromCategory(), req.toCategory())
+        .map(ResponseEntity::ok)
+        .orElseGet(() -> ResponseEntity.noContent().build());
   }
 
   /** WP-187: 모두 읽음 확인용 — 지금 보기의 안 읽은 메일 수와 기준 시각(asOf). */

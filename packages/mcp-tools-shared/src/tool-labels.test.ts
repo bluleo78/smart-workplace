@@ -12,6 +12,11 @@ describe('TOOL_LABELS', () => {
     expect(missing).toEqual([]);
   });
 
+  // WP-1341: AI 채팅 진행 줄에 「메일 분류 바꾸기」로 보인다(웹 메뉴 문구와 같은 말).
+  it('update_mail_category 라벨은 「메일 분류 바꾸기」다', () => {
+    expect(TOOL_LABELS.update_mail_category?.label).toBe('메일 분류 바꾸기');
+  });
+
   // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 공유 도구·라벨 어디에도 없어야 한다.
   it('폐지된 update_status·list_project_members 는 공유 도구 목록과 라벨에 없다', () => {
     const names = buildSharedTools({} as unknown as SharedToolClient).map((t) => t.name);

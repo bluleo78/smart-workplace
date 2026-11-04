@@ -25,6 +25,11 @@ export interface EmailMessageSummary {
    * 다른 응답·테스트 데이터에는 없을 수 있어 선택 필드다(없으면 표시하지 않음).
    */
   externalSender?: boolean | null;
+  /**
+   * WP-1341: aiCategory 가 내가 직접 바꾼 분류인가 — 목록 배지 앞 사람 아이콘(「내가 정한 분류」).
+   * 개인 비서 분류·공용 분류면 false. 옛 응답·테스트 데이터에는 없을 수 있어 선택 필드다(없으면 false).
+   */
+  categoryByMe?: boolean;
 }
 
 /** WP-965 목록 다음 페이지 커서 — 앞 페이지 마지막 행의 receivedAt·id(서버 정렬 키). */
@@ -73,6 +78,10 @@ export interface EmailMessageDetail {
   attachments: EmailAttachmentMeta[];
   /** WP-986 일정 초대(iCalendar METHOD:REQUEST·CANCEL) 메일이면 초대 정보, 아니면 null — 본문 위 초대 카드로 보인다. */
   calendarInvite: CalendarInvite | null;
+  /** WP-1341 유효 분류(직접 > 개인 비서 > 공용) — 상세 「분류」 메뉴의 현재 값. 옛 응답에는 없을 수 있다(없으면 분류 없음). */
+  aiCategory?: string | null;
+  /** WP-1341 aiCategory 가 내가 직접 바꾼 분류인가 — 메뉴의 「AI 분류로 되돌리기」 노출, 되돌리기 값 판정. */
+  categoryByMe?: boolean;
 }
 
 /** WP-986 초대 메일의 내 응답 — 백엔드 CalendarInvite.myResponse 와 1:1(캘린더 RsvpStatus 와 같은 값). */
@@ -260,4 +269,38 @@ export type MailAiSummaryStatus = 'READY' | 'SKIPPED' | 'EMPTY'
 export interface MailAiSummary {
   summary: string | null
   status?: MailAiSummaryStatus
+}
+
+/**
+ * WP-1341 분류 직접 바꾸기 결과 — 백엔드 MailCategoryChange 와 1:1.
+ * learnable 이면 웹이 이어서 학습(learnMailCategory)을 부른다(개인 비서·AI 기억이 켜져 있고 분류가 실제로 바뀐 경우).
+ */
+export interface MailCategoryChange {
+  aiCategory: string | null;
+  categoryByMe: boolean;
+  learnable: boolean;
+}
+
+/** WP-1341 바꾸기 전 메일의 분류 상태 — 메뉴의 ✓·되돌리기 항목, 바꾼 뒤 [되돌리기] 값과 학습의 「바꾸기 전」에 쓴다. */
+export interface MailCategoryState {
+  /** 지금 보이는 유효 분류(직접 > 개인 비서 > 공용). 없으면 null. */
+  aiCategory: string | null;
+  /** 그 분류가 내가 직접 바꾼 것인가. */
+  categoryByMe: boolean;
+}
+
+/** 메일 요약·상세에서 분류 상태를 만든다 — 목록 행·열린 상세가 같은 규칙(없으면 null·false)을 쓰게 한 곳에 둔다(WP-1346). */
+export function toCategoryState(m: { aiCategory?: string | null; categoryByMe?: boolean }): MailCategoryState {
+  return { aiCategory: m.aiCategory ?? null, categoryByMe: m.categoryByMe ?? false };
+}
+
+/**
+ * WP-1341 분류 교정 학습 결과 — 백엔드 LearnMailCategoryResponse 와 1:1.
+ * CREATE(새 기억)·UPDATE(기존 기억 고침)일 때만 「AI 비서가 기억했어요」 알림을 띄운다. previousContent 는 UPDATE 의 고치기 전 문장.
+ */
+export interface LearnMailCategoryResult {
+  action: 'CREATE' | 'UPDATE' | 'NONE';
+  memoryId: number | null;
+  content: string | null;
+  previousContent: string | null;
 }

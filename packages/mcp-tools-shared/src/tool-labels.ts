@@ -79,6 +79,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   sync_mail: { label: '메일 동기화', icon: '🔄' },
   draft_mail_reply: { label: '메일 답장 초안', icon: '📝' },
   mark_mail_read: { label: '메일 읽음 처리', icon: '✅' },
+  update_mail_category: { label: '메일 분류 바꾸기', icon: '🏷️' },
   draft_issue_from_mail: { label: '메일로 이슈 초안', icon: '📝' },
   create_issue_from_mail: { label: '메일로 이슈 생성', icon: '📝' },
   // 구성원·연락처·그룹

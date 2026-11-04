@@ -228,6 +228,16 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
      */
     public final TableField<EmailMessageRecord, OffsetDateTime> SEEN_PUSH_NEXT_AT = createField(DSL.name("seen_push_next_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "읽음 역동기화 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-188)");
 
+    /**
+     * The column <code>public.email_message.user_category</code>.
+     */
+    public final TableField<EmailMessageRecord, String> USER_CATEGORY = createField(DSL.name("user_category"), SQLDataType.VARCHAR(20), this, "");
+
+    /**
+     * The column <code>public.email_message.ai_personal_category</code>.
+     */
+    public final TableField<EmailMessageRecord, String> AI_PERSONAL_CATEGORY = createField(DSL.name("ai_personal_category"), SQLDataType.VARCHAR(20), this, "");
+
     private EmailMessage(Name alias, Table<EmailMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

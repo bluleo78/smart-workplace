@@ -260,7 +260,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an external contact (외부 연락처), SHARED or PERSONAL. If the same name and email exist it fails with a duplicate ' +
+        'Creates an external contact (외부 연락처), SHARED or PERSONAL. A name+email clash fails with a duplicate ' +
         'warning: tell the user; retry with force:true only after they confirm.',
       inputSchema: createExternalContactInput,
       async handler(args) {
@@ -276,7 +276,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       hints: { destructive: true, idempotent: true },
       description:
         'Updates an external contact by externalId (from list_contacts EXTERNAL items); omitted fields stay, "" clears one (not name). Owner or ' +
-        'ADMIN only. A name+email clash with another contact fails with a duplicate warning: retry with force:true only after the user confirms.',
+        'ADMIN only. A name+email clash fails with a duplicate warning: retry with force:true only after the user confirms.',
       inputSchema: updateExternalContactInput,
       async handler(args) {
         const { externalId, force, ...patch } = updateExternalContactInput.parse(args);

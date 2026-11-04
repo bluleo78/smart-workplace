@@ -3,6 +3,7 @@ package com.workplace.home.service;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
 import java.util.List;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -23,8 +24,20 @@ public class AiMemoryEntryReader implements AiMemoryReader {
   /** 공통 + app 메모리를 새 읽기 트랜잭션으로 고른다(queryText 로 관련도). 꺼짐·조회 실패면 빈 목록(기능은 메모리 없이 진행). */
   @Override
   public List<AiMemoryLine> readForEntry(long userId, String app, String queryText) {
+    return orEmpty(userId, app, () -> memoryService.loadForEntry(userId, app, queryText));
+  }
+
+  /** app 범위만 순위 없이 새 읽기 트랜잭션으로 읽는다(WP-1346). 꺼짐·조회 실패면 빈 목록. */
+  @Override
+  public List<AiMemoryLine> readAppScope(long userId, String app) {
+    return orEmpty(userId, app, () -> memoryService.loadAppScope(userId, app));
+  }
+
+  /** 조회를 실행해 켜짐이면 줄 목록, 꺼짐·실패면 빈 목록 — 두 읽기가 같은 실패 처리를 쓴다. */
+  private static List<AiMemoryLine> orEmpty(
+      long userId, String app, Supplier<AiMemoryService.ChatMemories> load) {
     try {
-      AiMemoryService.ChatMemories m = memoryService.loadForEntry(userId, app, queryText);
+      AiMemoryService.ChatMemories m = load.get();
       return m.enabled() ? m.items() : List.of();
     } catch (RuntimeException e) {
       // 인터럽트로 실패했으면 플래그만 되살려 이 스레드의 주인이 인터럽트 상태를 잃지 않게 하고, 다시 던지지는 않는다 — 메모리는 부가

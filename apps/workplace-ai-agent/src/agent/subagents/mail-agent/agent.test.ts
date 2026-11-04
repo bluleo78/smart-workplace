@@ -23,6 +23,8 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__sync_mail',
       // #855 · WP-146: 읽음 처리 + 메일→이슈 초안·생성
       'mcp__workplace__mark_mail_read',
+      // WP-1341: 내 메일 분류 바꾸기(나에게만, null = AI 분류로 되돌리기)
+      'mcp__workplace__update_mail_category',
       'mcp__workplace__draft_issue_from_mail',
       'mcp__workplace__create_issue_from_mail',
       // WP-351: 담당자가 프로젝트 멤버인지 미리 확인(get_project.members)
@@ -70,5 +72,15 @@ describe('mail-agent 정의', () => {
     expect(prompt).toContain('`attachments[].attachmentId`');
     expect(prompt).toContain('첫 호출은 `PENDING`');
     expect(prompt).toContain('내용을 추측하지 말고');
+  });
+
+  // WP-1341: 분류가 틀렸다는 말에 「바꿀 수 없다」고 답하지 않고 도구로 바꾼다. 기억 저장은 라우터 몫이다(하위 에이전트에는 메모리 도구가 없다).
+  it('update_mail_category(messageId, category) 로 분류를 바꾸고 null 로 되돌리며, 기억은 직접 저장하지 않는다고 안내한다 (WP-1341)', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('update_mail_category(messageId, category)');
+    expect(prompt).toContain('`category=null`');
+    expect(prompt).toContain('분류는 바꿀 수 없다');
+    expect(prompt).toMatch(/분류는 바꿀 수 없다[^\n]*답하지 않/);
+    expect(prompt).not.toContain('remember_memory');
   });
 });

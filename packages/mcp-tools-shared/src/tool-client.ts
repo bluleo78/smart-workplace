@@ -5,6 +5,7 @@
 // LLM 에 보여줄 형태로 가공(식별자 이름 바꾸기·필드 고르기)은 공유 도구 핸들러가 한 곳에서 한다 —
 // 가공이 앱마다 클라이언트에 흩어져 있던 것이 드리프트의 원인이었다(연락처 id→userId 를 한쪽만 하던 식).
 import type { CurrentUserClient, ProjectMetaClient } from './resolve.js';
+import type { MAIL_CATEGORIES } from './schemas.js';
 
 /** 구성원 디렉터리 행(GET /members). 핸들러가 username·userId·name 을 읽으므로 그 필드만 타입으로 고정한다. */
 export interface MemberRow {
@@ -398,6 +399,14 @@ export interface MailToolClient {
   markMailRead(messageId: number): Promise<void>;
   /** POST /mail/messages/{id}/unread — 안 읽음으로 되돌린다(WP-187 서버 API, WP-357). 읽음 처리와 같이 원본 메일 서버로 역동기화된다. */
   markMailUnread(messageId: number): Promise<void>;
+  /**
+   * PUT /mail/messages/{id}/category — 내 메일 분류를 바꾼다(WP-1341, 내 사본만). null 이면 직접 정한 분류를 지워 AI 분류로 되돌린다.
+   * 응답 aiCategory 는 바꾼 뒤의 유효 분류, categoryByMe 는 직접 정한 분류인지, learnable 은 웹이 교정 학습을 부를지 여부다. 5종 밖이면 400, 남의 메일이면 404.
+   */
+  setMailCategory(
+    messageId: number,
+    category: (typeof MAIL_CATEGORIES)[number] | null,
+  ): Promise<{ aiCategory: string | null; categoryByMe: boolean; learnable: boolean }>;
   /** POST /mail/accounts/{id}/sync — INBOX 증분 동기화(원본 메일 서버에 접속). 소유 계정만(아니면 404), 이미 진행 중이면 서버가 빈 결과. */
   syncMail(accountId: number): Promise<unknown>;
   /** GET /mail/accounts/{id}/sync-status — 진행 중 여부(phase LIST/BODIES/IDLE). 서버는 이미 진행 중이면 sync 를 빈 결과로 돌려주므로 구분용(WP-353). */

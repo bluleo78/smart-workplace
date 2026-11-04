@@ -88,6 +88,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "update_event:write",
   "update_external_contact:write",
   "update_issue:write",
+  "update_mail_category:write",
   "update_project:write",
   "update_project_meta:write",
   "update_user_group:write",

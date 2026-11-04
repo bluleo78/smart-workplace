@@ -3,10 +3,14 @@
 // collect 경로가 AgentRunner(Task 5)로 이관되며 provider-neutral `finalText`(runner-events.ts)
 // 로 대체됐다(의미 동일: result.text 우선, 없으면 assistant_text join). 이 함수는 제거.
 
-import { ModelOutputError } from './provider-error.js';
-import { normalizePriority } from './issue-priority.js';
+import { MAIL_CATEGORIES } from '@smart-workplace/mcp-tools-shared';
 
-const CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'];
+import { normalizePriority } from './issue-priority.js';
+import { oneLine } from './memory-block.js';
+import { ModelOutputError } from './provider-error.js';
+
+/** 메일 분류 5종 — 공용 정의(mcp-tools-shared, API EmailMessageRepository.CATEGORIES 와 같은 순서) 하나를 쓴다(WP-1346). */
+const CATEGORIES: readonly string[] = MAIL_CATEGORIES;
 
 /** 코칭 평가 차원 화이트리스트. */
 const COACHING_DIMENSIONS = ['TONE', 'CLARITY', 'COMPLETENESS'];
@@ -117,9 +121,47 @@ function escapeControlCharsInStrings(s: string): string {
   return out;
 }
 
-/** 허용 카테고리만(미지 값은 null — 예전 '업무' 폴백은 원본 분류를 오염시켰다). */
+/**
+ * 5종 밖 이름(근접어) → 분류(WP-1340, 설계 3.3). 모델이 "광고"처럼 허용 밖 이름을 내면 예전엔 null 로 버려져 그 메일이 업무 보기에 영구히 남았다.
+ * 키는 소문자다 — pickCategory 가 소문자·trim 후 정확히 일치할 때만 찾는다(부분 일치는 "업무용"→업무 같은 오판을 만들어 쓰지 않는다).
+ * 영문 이름은 모델이 영어로 답하는 경우를 위한 것이다.
+ */
+const CATEGORY_SYNONYMS: Record<string, string> = {
+  광고: '프로모션',
+  홍보: '프로모션',
+  마케팅: '프로모션',
+  할인: '프로모션',
+  이벤트: '프로모션',
+  promotion: '프로모션',
+  promotions: '프로모션',
+  ad: '프로모션',
+  ads: '프로모션',
+  advertisement: '프로모션',
+  marketing: '프로모션',
+  구독: '뉴스레터',
+  소식지: '뉴스레터',
+  뉴스: '뉴스레터',
+  newsletter: '뉴스레터',
+  newsletters: '뉴스레터',
+  시스템: '알림',
+  거래: '알림',
+  영수증: '알림',
+  notification: '알림',
+  notifications: '알림',
+  receipt: '알림',
+  일: '업무',
+  협업: '업무',
+  work: '업무',
+  지인: '개인',
+  personal: '개인',
+};
+
+/** 허용 카테고리(+근접어)만. 맞출 수 없는 값은 null — 예전 '업무' 폴백은 원본 분류를 오염시켰다. */
 function pickCategory(v: unknown): string | null {
-  return typeof v === 'string' && CATEGORIES.includes(v.trim()) ? v.trim() : null;
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (CATEGORIES.includes(t)) return t;
+  return CATEGORY_SYNONYMS[t.toLowerCase()] ?? null;
 }
 
 /** 공백 아닌 문자열만(공백·비문자열 → null). */
@@ -171,14 +213,20 @@ export function parseClassifyBatchJson(
 }
 
 /**
- * ④ 응답 파싱. needsReply 를 요청했는데 boolean 이 아니면 throw(→ 502 → api 는 시도 기록 안 함, 다음 백필 재시도).
+ * ④ 응답 파싱(WP-1341: 요청했으면 personalCategory 도). needsReply 를 요청했는데 boolean 이 아니면 throw(→ 502 → api 는 시도 기록 안 함, 다음 백필 재시도).
  * personalSummary 는 문자열(공백이면 null)·null 이면 유효, 그 외(누락·숫자 등)는 personalSummaryValid=false 로 알려
  * api 가 needsReply 만 저장하게 한다.
  */
 export function parsePersonalAnalysisJson(
   text: string,
-  flags: { includeNeedsReply: boolean; includePersonalSummary: boolean; includeCategory: boolean },
-): { needsReply: boolean | null; personalSummary: string | null; personalSummaryValid: boolean; category: string | null } {
+  flags: { includeNeedsReply: boolean; includePersonalSummary: boolean; includeCategory: boolean; includePersonalCategory?: boolean },
+): {
+  needsReply: boolean | null;
+  personalSummary: string | null;
+  personalSummaryValid: boolean;
+  category: string | null;
+  personalCategory: string | null;
+} {
   const obj = extractJsonObject(text);
   let needsReply: boolean | null = null;
   if (flags.includeNeedsReply) {
@@ -201,7 +249,51 @@ export function parsePersonalAnalysisJson(
     personalSummary,
     personalSummaryValid,
     category: flags.includeCategory ? pickCategory(obj.category) : null,
+    // WP-1341: 개인 분류도 같은 허용 목록·근접어 규칙. 맞출 수 없으면 null(API 는 공용 분류를 그대로 쓴다).
+    personalCategory: flags.includePersonalCategory ? pickCategory(obj.personalCategory) : null,
   };
+}
+
+// ───────────────────────────── WP-1341 분류 교정 학습 ─────────────────────────────
+
+/** 학습 판단 — 새 기억(CREATE)·기존 기억 고치기(UPDATE)·할 것 없음(NONE). */
+export type LearnCategoryAction = 'CREATE' | 'UPDATE' | 'NONE';
+export interface LearnCategoryResult {
+  action: LearnCategoryAction;
+  memoryId: number | null;
+  content: string | null;
+}
+const LEARN_ACTIONS: readonly string[] = ['CREATE', 'UPDATE', 'NONE'];
+/** 기억 한 줄 상한(코드포인트) — 프롬프트의 「120자 이내」와 같다. */
+export const LEARN_CONTENT_MAX = 120;
+
+/**
+ * 학습 응답 파싱 — {"action":…,"memoryId"?:n,"content"?:"…"}.
+ * 형식을 어기면 throw 한다(→ 라우트 502 → API 는 학습만 NONE 으로 돌려준다). 잘못된 기억을 저장하거나 남의 기억 id 를 고치는 것보다 아무것도 하지 않는 편이 안전하다.
+ * - action 이 CREATE·UPDATE·NONE 밖이면 throw
+ * - UPDATE 의 memoryId 가 요청 기억 목록(memoryIds)에 없으면 throw — 모델이 지어낸 id 로 다른 기억을 덮지 않게
+ * - CREATE·UPDATE 의 content 가 (줄바꿈을 접고 trim 한 뒤) 1~120자 밖이면 throw
+ */
+export function parseLearnCategoryJson(text: string, memoryIds: number[]): LearnCategoryResult {
+  const obj = extractJsonObject(text);
+  const action = obj.action;
+  if (typeof action !== 'string' || !LEARN_ACTIONS.includes(action)) {
+    throw new Error(`learn-category: 알 수 없는 action: ${text.slice(0, 120)}`);
+  }
+  if (action === 'NONE') return { action: 'NONE', memoryId: null, content: null };
+  // 기억은 한 줄로 저장·표시되므로 줄바꿈·연속 공백을 한 칸으로 접는다.
+  const content = typeof obj.content === 'string' ? oneLine(obj.content) : '';
+  const length = [...content].length;
+  if (length < 1 || length > LEARN_CONTENT_MAX) {
+    throw new Error(`learn-category: content 길이 ${length}자(1~${LEARN_CONTENT_MAX}자)`);
+  }
+  if (action === 'CREATE') return { action: 'CREATE', memoryId: null, content };
+  const raw = obj.memoryId;
+  const memoryId = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+  if (typeof memoryId !== 'number' || !memoryIds.includes(memoryId)) {
+    throw new Error(`learn-category: 요청에 없는 기억 id: ${String(raw)}`);
+  }
+  return { action: 'UPDATE', memoryId, content };
 }
 
 /** JSON 문자열 값의 이스케이프(\n·\r·\t·\"·\\·\/)를 풀어 원문으로 되돌린다 — 느슨한 추출 전용. */

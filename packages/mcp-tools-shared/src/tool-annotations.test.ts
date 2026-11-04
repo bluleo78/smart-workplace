@@ -108,6 +108,8 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   update_comment: ['write', true, true, false],
   update_external_contact: ['write', true, true, false],
   update_issue: ['write', true, true, false],
+  // WP-1341: 내 사본의 분류만 바꾼다 — null 로 AI 분류에 되돌릴 수 있고, 같은 값을 다시 보내도 결과가 같다(멱등).
+  update_mail_category: ['write', false, true, false],
   update_project: ['write', true, true, false],
   update_project_meta: ['write', true, true, false],
   update_user_group: ['write', true, true, false],

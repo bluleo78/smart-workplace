@@ -36,4 +36,10 @@ public interface AiMemoryReader {
    * @param queryText 관련도를 매길 텍스트(노트 = 지시문, 메일 = 제목 + 요약 앞부분, 메일→이슈 = 제목) — null 이면 고정 + 최신
    */
   List<AiMemoryLine> readForEntry(long userId, String app, String queryText);
+
+  /**
+   * app 범위 메모리만(공통 제외) — 질의·임베딩 순위 없이 고정 먼저 + 최신순, 블록 토큰 예산 안(WP-1346). 메일 분류처럼 「그 앱 기억이 있을 때만」 동작을
+   * 바꾸는 진입점이 쓴다(개인 분류 요청 여부·분류 교정 학습 입력). 트랜잭션 규칙·꺼짐·실패 처리는 {@link #readForEntry} 와 같다.
+   */
+  List<AiMemoryLine> readAppScope(long userId, String app);
 }

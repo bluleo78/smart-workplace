@@ -142,13 +142,6 @@ public class MailPeopleRepository {
     if (addresses.isEmpty()) {
       return Set.of();
     }
-    Condition activeMember =
-        MEMBERSHIP
-            .TENANT_ID
-            .eq(tenantId)
-            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
-            .and(USER.KIND.eq("HUMAN"))
-            .and(USER.IS_ACTIVE.isTrue());
     Field<String> userAddress = DSL.lower(DSL.trim(USER.EMAIL));
     Set<String> out =
         new HashSet<>(
@@ -156,7 +149,7 @@ public class MailPeopleRepository {
                 .from(USER)
                 .join(MEMBERSHIP)
                 .on(MEMBERSHIP.USER_ID.eq(USER.ID))
-                .where(activeMember)
+                .where(activeMember(USER, MEMBERSHIP, tenantId))
                 .and(userAddress.in(addresses))
                 .fetch(userAddress));
     Field<String> accountAddress = DSL.lower(DSL.trim(EMAIL_ACCOUNT.EMAIL_ADDRESS));
@@ -168,10 +161,79 @@ public class MailPeopleRepository {
             .join(MEMBERSHIP)
             .on(MEMBERSHIP.USER_ID.eq(USER.ID))
             .where(EMAIL_ACCOUNT.TENANT_ID.eq(tenantId))
-            .and(activeMember)
+            .and(activeMember(USER, MEMBERSHIP, tenantId))
             .and(accountAddress.in(addresses))
             .fetch(accountAddress));
     return out;
+  }
+
+  /**
+   * 보낸 사람(원시 헤더 주소) 중 이 테넌트 사내 구성원인 주소 집합(정규화) — 「사내 발신」 판정(WP-1325 외부 태그·WP-1342 분류 보정)의 한 진입점.
+   * 정규화({@link #senderKey})·빈 주소 제외·테넌트 결정을 여기서 한 번만 한다. 호출자 트랜잭션 안에서 부른다(RLS).
+   */
+  public Set<String> memberAddressesOf(Collection<String> rawFromAddresses) {
+    Set<String> addresses = new HashSet<>();
+    for (String raw : rawFromAddresses) {
+      String a = senderKey(raw);
+      if (a != null) {
+        addresses.add(a);
+      }
+    }
+    return findMemberAddresses(currentTenantId(), addresses);
+  }
+
+  /** 보낸 사람(원시 주소)이 {@link #memberAddressesOf} 결과에 있는지. 주소가 비면 false. */
+  public static boolean isMember(Set<String> members, String rawFromAddress) {
+    String a = senderKey(rawFromAddress);
+    return a != null && members.contains(a);
+  }
+
+  /** 보낸 사람 주소 판정 키 — trim + 소문자({@link MailAddresses#normalize}), 비면 null(판정하지 않는다). */
+  public static String senderKey(String rawFromAddress) {
+    String a = MailAddresses.normalize(rawFromAddress);
+    return a == null || a.isEmpty() ? null : a;
+  }
+
+  /**
+   * 한 행 판정용 「보낸 사람이 사내 구성원인가」 필드 — {@link #findMemberAddresses} 와 같은 규칙(활성 구성원의 user.email 또는 그 사람의
+   * 이 테넌트 메일 계정 주소, 나 포함)을 EXISTS 로 옮긴 것이다. 분석 컨텍스트 조회(EmailMessageRepository)가 select 에 붙여, 분석마다
+   * 판정용 트랜잭션·조회를 따로 열지 않게 한다(WP-1346). 바깥 쿼리가 email_account 를 조인하므로 별칭을 쓴다. 주소가 null·빈 값이면 false.
+   */
+  static Field<Boolean> senderIsMemberField(Field<String> rawFromAddress, long tenantId) {
+    var u = USER.as("member_user");
+    var m = MEMBERSHIP.as("member_ship");
+    var acc = EMAIL_ACCOUNT.as("member_account");
+    Field<String> address = DSL.lower(DSL.trim(rawFromAddress));
+    Condition byUserEmail =
+        DSL.exists(
+            DSL.selectOne()
+                .from(u)
+                .join(m)
+                .on(m.USER_ID.eq(u.ID))
+                .where(activeMember(u, m, tenantId))
+                .and(DSL.lower(DSL.trim(u.EMAIL)).eq(address)));
+    Condition byAccount =
+        DSL.exists(
+            DSL.selectOne()
+                .from(acc)
+                .join(u)
+                .on(u.ID.eq(acc.USER_ID))
+                .join(m)
+                .on(m.USER_ID.eq(u.ID))
+                .where(acc.TENANT_ID.eq(tenantId))
+                .and(activeMember(u, m, tenantId))
+                .and(DSL.lower(DSL.trim(acc.EMAIL_ADDRESS)).eq(address)));
+    return DSL.field(address.ne("").and(byUserEmail.or(byAccount)));
+  }
+
+  /** 활성 구성원 조건 — 이 테넌트 ACTIVE 멤버십 · HUMAN · is_active. 목록 판정과 한 행 판정이 같은 규칙을 쓰도록 한 곳에 둔다. */
+  private static Condition activeMember(
+      com.workplace.jooq.tables.User u, com.workplace.jooq.tables.Membership m, long tenantId) {
+    return m.TENANT_ID
+        .eq(tenantId)
+        .and(m.STATUS.eq("ACTIVE"))
+        .and(u.KIND.eq("HUMAN"))
+        .and(u.IS_ACTIVE.isTrue());
   }
 
   /** 두 사람이 함께 MEMBER 로 직접 속한 공유(SHARED) 그룹 이름 — "같은 조직". 개인 그룹·상위 그룹은 보지 않는다. */

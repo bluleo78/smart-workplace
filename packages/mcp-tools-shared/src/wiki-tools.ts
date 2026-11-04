@@ -390,7 +390,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       // 본문 전체 대체(3-way 병합). AI 적용은 매번 이전 판 스냅샷을 남기고, 기준본이 만료되면 409 라 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
       description:
-        'Saves a wiki page title and/or body; omitted fields stay. body replaces the whole Markdown document (omitted text is deleted): ' +
+        'Saves a wiki page title and/or body; omitted fields stay. body replaces the whole Markdown document: ' +
         'for a partial edit send it all, copying untouched blocks and HTML byte-for-byte from get_wiki_page (no rewording; ' +
         'see its bodyFormat). version: from ' +
         "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1 " +

@@ -12,6 +12,9 @@ import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.ClassifyInput;
+import com.workplace.mail.repository.MailPeopleRepository;
+import com.workplace.mail.util.MailBodyText;
+import com.workplace.mail.util.MailCategoryRules;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -29,11 +32,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>③ 원본 분석은 회신필요 기준(최근 2일·안 읽음)에 묶여 있어 과거·읽은 메일은 열어 보기 전까지 미분류로 남는다. 이 서비스는 기간·읽음과 무관하게 미분류 메일을
  * 최신순으로 25통씩 묶어 분류 전용 호출(/mail/classify-batch)로 채운다 — 메일함 기본 보기(업무 + 미분류)의 미분류를 줄이기 위해서다.
  *
- * <p>저장 규칙: 기존 분류는 덮어쓰지 않고(fillContentCategoryIfEmpty), 유효한 분류를 받은 항목만 시도 시각을 남긴다. 분류가 비었거나(null·5종
- * 밖) 응답에서 빠진 항목은 실패로 세어 {@link #CATEGORY_RETRY_DELAYS} 간격(1h·6h·24h) 뒤 다시 고르고, 4번째 실패에서만 시도 시각을 남겨
- * 제외한다(WP-1347 — 첫 실패에 영구 제외하면 제공자 일시 장애 동안의 메일이 장애가 끝나도 미분류로 굳는다). 호출이 ai-agent 불가로 실패하면 아무것도 남기지
- * 않아 다음 회차에 다시 고른다. 단건 호출이 그 밖의 사유로 실패하면 그 메일이 입력 문제(독)일 수 있으므로 그 한 통만 실패로 세어 미뤄 회차를 막지 않게 한다(묶음 실패
- * 시 단건 폴백, 아래 classifyAccountNow). LLM 은 트랜잭션 밖에서 부른다(#232).
+ * <p>저장 규칙: 기존 분류는 덮어쓰지 않고(fillContentCategoryIfEmpty), 분류는 광고·사내 발신 보정(MailCategoryRules,
+ * WP-1340·1342)을 거쳐 저장하며, 유효한 분류를 얻은 항목만 시도 시각을 남긴다. 보정 뒤에도 분류가 비었거나(null·5종 밖) 응답에서 빠진 항목은 실패로 세어
+ * {@link #CATEGORY_RETRY_DELAYS} 간격(1h·6h·24h) 뒤 다시 고르고, 4번째 실패에서만 시도 시각을 남겨 제외한다(WP-1347 — 첫 실패에
+ * 영구 제외하면 제공자 일시 장애 동안의 메일이 장애가 끝나도 미분류로 굳는다). 호출이 ai-agent 불가로 실패하면 아무것도 남기지 않아 다음 회차에 다시 고른다. 단건
+ * 호출이 그 밖의 사유로 실패하면 그 메일이 입력 문제(독)일 수 있으므로 그 한 통만 실패로 세어 미뤄 회차를 막지 않게 한다(묶음 실패 시 단건 폴백, 아래
+ * classifyAccountNow). LLM 은 트랜잭션 밖에서 부른다(#232).
  *
  * <p>진입점은 전용 스케줄러({@link MailCategoryBackfillScheduler}) 하나뿐이다 — 동기화 직후 {@code @Async} 로 부르지 않는다. 그
  * 실행기(aiAgentEventExecutor)는 채팅 AI 디스패치와 공유돼 동기화마다 무거운 LLM 일을 얹으면 고갈되고, 큐가 차면 TaskRejectedException
@@ -68,6 +72,7 @@ public class MailCategoryBackfillService {
   private final AiAgentMailClient mailClient;
   private final AssistantResolver assistantResolver;
   private final NeedsReplyFinalizer finalizer;
+  private final MailPeopleRepository peopleRepo;
   private final TransactionTemplate txTemplate;
 
   public MailCategoryBackfillService(
@@ -76,7 +81,9 @@ public class MailCategoryBackfillService {
       AiAgentMailClient mailClient,
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
+      MailPeopleRepository peopleRepo,
       PlatformTransactionManager txManager) {
+    this.peopleRepo = peopleRepo;
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
     this.mailClient = mailClient;
@@ -127,15 +134,25 @@ public class MailCategoryBackfillService {
     int offset = 0; // 후보 목록에서 다음에 처리할 위치 — 묶음 실패 땐 그대로 두고 같은 메일을 단건으로 다시 부른다
     while (calls[0] < limit && !guard.tripped() && offset < candidates.size()) {
       List<Long> ids = candidates.subList(offset, Math.min(candidates.size(), offset + batchSize));
-      List<ClassifyInput> inputs =
-          txTemplate.execute(s -> messageRepo.findClassifyInputs(accountId, ids));
-      if (inputs == null || inputs.isEmpty()) {
+      // 입력과 사내 구성원 판정(WP-1342)을 한 트랜잭션에서 묶음 단위 1회 조회한다 — LLM 호출 밖
+      Batch batch =
+          txTemplate.execute(
+              s -> {
+                List<ClassifyInput> in = messageRepo.findClassifyInputs(accountId, ids);
+                return new Batch(
+                    in,
+                    peopleRepo.memberAddressesOf(
+                        in.stream().map(ClassifyInput::fromAddress).toList()));
+              });
+      if (batch == null || batch.inputs().isEmpty()) {
         return;
       }
+      List<ClassifyInput> inputs = batch.inputs();
+      Set<String> members = batch.members();
       calls[0]++;
       ClassifyBatchResult result;
       try {
-        result = mailClient.classifyBatch(request(inputs, spec));
+        result = mailClient.classifyBatch(request(inputs, members, spec));
       } catch (RuntimeException e) {
         int next = onClassifyFailure(accountId, guard, inputs, e);
         if (next == STOP) {
@@ -151,10 +168,13 @@ public class MailCategoryBackfillService {
         return; // 형식이 비정상인 응답 — 기록하지 않고 다음 회차에 다시 고른다
       }
       guard.recordResponse();
-      save(inputs, result);
+      save(inputs, members, result);
       offset += ids.size();
     }
   }
+
+  /** 한 묶음의 분류 입력과 그중 사내 구성원인 보낸 사람 주소(소문자). */
+  private record Batch(List<ClassifyInput> inputs, Set<String> members) {}
 
   /** 묶음 호출 실패 처리 결과 — 회차를 멈추라는 신호. */
   private static final int STOP = -1;
@@ -201,7 +221,8 @@ public class MailCategoryBackfillService {
     return probe.classifier(aiEnabled).orElse(null);
   }
 
-  private static ClassifyBatchRequest request(List<ClassifyInput> inputs, AssistantSpec spec) {
+  private static ClassifyBatchRequest request(
+      List<ClassifyInput> inputs, Set<String> members, AssistantSpec spec) {
     List<ClassifyBatchItem> items =
         inputs.stream()
             .map(
@@ -210,30 +231,32 @@ public class MailCategoryBackfillService {
                         in.messageId(),
                         MailAnalysisService.sender(in.fromName(), in.fromAddress()),
                         MailAnalysisService.nz(in.subject()),
-                        bodyHead(in)))
+                        bodyHead(in),
+                        in.autoGenerated(),
+                        MailPeopleRepository.isMember(members, in.fromAddress())))
             .toList();
     return new ClassifyBatchRequest(
         items, spec.agentUserId(), spec.model(), MAX_TURNS, spec.timeoutMs());
   }
 
-  /** ③ 과 같은 규칙으로 고른 본문(자동 발송이면 미리보기, 아니면 새로 쓴 본문)을 앞 BODY_HEAD_CHARS 자로 자른다. 비면 빈 문자열. */
+  /** ③ 과 같은 규칙으로 고른 본문(자동 발송이면 미리보기, 아니면 새로 쓴 본문)을 앞 BODY_HEAD_CHARS 글자로 자른다. 비면 빈 문자열. */
   static String bodyHead(ClassifyInput in) {
     String body =
         MailAnalysisService.bodyFor(in.autoGenerated(), in.snippet(), in.bodyText(), in.bodyHtml());
-    String b = MailAnalysisService.nz(body).trim();
-    return b.length() > BODY_HEAD_CHARS ? b.substring(0, BODY_HEAD_CHARS) : b;
+    return MailBodyText.head(body, BODY_HEAD_CHARS); // 코드 포인트 단위로 자른다(서로게이트 쌍 보존)
   }
 
   /**
-   * 결과 저장(한 트랜잭션) — 요청한 사본마다 결과를 본다(응답에 섞인 다른 id 는 무시). 유효한 분류를 받은 메일은 채우고(빈 경우만) 시도 시각을 남긴다. 분류가
-   * 비었거나(null·5종 밖) 응답에서 빠진 메일은 실패로 세어 다음 시도로 미룬다(WP-1347). 분류를 새로 채운 content 는 회신필요 최종 판정을 다시
-   * 계산한다(③ 의 늦은 분류와 같은 규칙). 하나라도 채웠으면 그 원본을 가진 모든 소유자 화면을 무효화한다.
+   * 결과 저장(한 트랜잭션) — 요청한 사본마다 결과를 본다(응답에 섞인 다른 id 는 무시). 분류는 검증 뒤 결정적 보정(광고·사내 발신, WP-1340·1342)을
+   * 거친다 — 그래서 모델이 비운 광고 메일도 프로모션으로 채워진다. 보정한 분류가 있으면 채우고(빈 경우만) 시도 시각을 남긴다. 보정 뒤에도 비었거나 응답에서 빠진 메일은
+   * 실패로 세어 다음 시도로 미룬다(WP-1347 의 1h·6h·24h 규칙 하나만 쓴다). 분류를 새로 채운 content 는 회신필요 최종 판정을 다시 계산한다(③ 의
+   * 늦은 분류와 같은 규칙). 하나라도 채웠으면 그 원본을 가진 모든 소유자 화면을 무효화한다.
    */
-  private void save(List<ClassifyInput> inputs, ClassifyBatchResult result) {
-    // 요청 id → 유효 분류. 같은 id 가 여러 번 오면 처음 유효한 값을 쓴다(요청하지 않은 id 는 아래 루프가 보지 않아 무시된다)
+  private void save(List<ClassifyInput> inputs, Set<String> members, ClassifyBatchResult result) {
+    // 요청 id → 검증된 원시 분류. 같은 id 가 여러 번 오면 처음 유효한 값을 쓴다(요청하지 않은 id 는 아래 루프가 보지 않아 무시된다)
     Map<Long, String> validById = new HashMap<>();
     for (ClassifyBatchEntry e : result.results()) {
-      String category = MailAnalysisService.validCategory(e.category());
+      String category = MailCategoryRules.valid(e.category());
       if (category != null) {
         validById.putIfAbsent(e.id(), category);
       }
@@ -242,9 +265,14 @@ public class MailCategoryBackfillService {
     txTemplate.executeWithoutResult(
         s -> {
           for (ClassifyInput in : inputs) {
-            String category = validById.get(in.messageId());
+            // 광고·사내 발신 보정(WP-1340·1342) — 모델이 비운 광고 메일도 여기서 프로모션으로 채워진다
+            String category =
+                MailCategoryRules.sharedCategory(
+                    validById.get(in.messageId()),
+                    in.subject(),
+                    MailPeopleRepository.isMember(members, in.fromAddress()));
             if (category == null) {
-              // 빈 결과·응답 누락 — 영구 제외하지 않고 1h·6h·24h 뒤 다시 본다
+              // 빈 결과·응답 누락 — 영구 제외하지 않고 1h·6h·24h 뒤 다시 본다(WP-1347)
               messageRepo.recordCategoryFailure(in.messageId(), CATEGORY_RETRY_DELAYS);
               continue;
             }

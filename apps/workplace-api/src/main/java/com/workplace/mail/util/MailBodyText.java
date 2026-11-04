@@ -1,5 +1,7 @@
 package com.workplace.mail.util;
 
+import com.workplace.global.util.Texts;
+
 /**
  * 메일 본문을 LLM 입력용 평문으로 정규화하는 공용 유틸.
  *
@@ -36,5 +38,15 @@ public final class MailBodyText {
         .replaceAll("<[^>]+>", " ")
         .replaceAll("\\s+", " ")
         .trim();
+  }
+
+  /**
+   * LLM 입력용 본문 앞부분 — 앞뒤 공백을 지우고 앞 maxCodePoints 글자(코드 포인트)만 남긴다. null 이면 빈 문자열.
+   *
+   * <p>UTF-16 길이(substring)로 자르면 이모지 같은 서로게이트 쌍이 반으로 갈려 깨진 문자가 JSON 으로 나간다 — 코드 포인트 단위로 잘라 막는다. 분류
+   * 일괄(MailCategoryBackfillService)과 분류 교정 학습(MailCategoryService)이 같이 쓴다.
+   */
+  public static String head(String body, int maxCodePoints) {
+    return Texts.headCodePoints(body == null ? "" : body.trim(), maxCodePoints);
   }
 }
