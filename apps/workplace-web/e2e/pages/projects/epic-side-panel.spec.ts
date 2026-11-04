@@ -1,5 +1,5 @@
 // 왼쪽 에픽 패널 E2E — 브라우저가 있어야 판정되는 것만 남긴다: 새로고침 뒤 열림 유지(@platform),
-// 패널 높이·sticky 스크롤·선택 배경색·토글 폭·터치 태블릿 ↗ 겹침(@layout), 호버·키보드 포커스로 보이는 ↗(@input).
+// 패널 높이·sticky 스크롤·선택 배경색·토글 폭·터치 태블릿 ↗ 겹침·저장 폭 상한(@layout), 호버·키보드 포커스로 보이는 ↗·경계선 끌기(@input).
 // 목록·진행률·선택 검색 파라미터·빈 상태·에픽 만들기·종료된 에픽 구역은
 // src/pages/projects/epicSidePanel.test.tsx 페이지 테스트가 지킨다(WP-971).
 import type { Page, Route } from '@playwright/test';
@@ -325,5 +325,72 @@ test.describe('선택·켜짐 표시 (WP-368)', () => {
       await expectToggle(toggle, true);
       if (ghost) expect((await measureBox(toggle)).width).toBeCloseTo(before.width, 1);
     }
+  });
+});
+
+// 에픽 패널 폭 조절(WP-1343) — 앱 목록과 같은 ResizableSidebar(키 epic-panel). 끌기·저장·상한 해석 자체는 sidebar-resize.spec 이 지킨다.
+test.describe('에픽 패널 폭 조절 (WP-1343)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  async function setupPanel(page: Page) {
+    await stubProjectMeta(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+    await routeIssueSearch(page, (route, url) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          createIssueSearchResponse(url.searchParams.get('type') === String(makeEpicType().id) ? [epic(10, '결제 리뉴얼', 6, 10)] : []),
+        ),
+      }),
+    );
+  }
+
+  test('경계선을 끌면 에픽 패널이 넓어지고 새로고침해도 그 폭이며, 앱 목록 폭은 그대로다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await setupPanel(page);
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await openEpicPanel(page);
+
+    const frame = page.getByTestId('epic-panel-frame');
+    const appFrame = page.getByTestId('sidebar-frame');
+    const appW = (await appFrame.boundingBox())!.width;
+    expect(Math.round((await frame.boundingBox())!.width)).toBe(224);
+
+    const handle = page.getByTestId('epic-panel-resize-handle');
+    const box = (await handle.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 60, y);
+    await page.mouse.move(x + 120, y);
+    await page.mouse.up();
+
+    expect(Math.round((await frame.boundingBox())!.width)).toBe(344);
+    // 안쪽 aside 도 틀을 꽉 채운다(w-56 이 덮였는지).
+    expect(Math.round((await frame.locator('> aside').boundingBox())!.width)).toBe(344);
+    expect((await appFrame.boundingBox())!.width).toBe(appW);
+
+    await page.reload();
+    await expect(page.getByTestId('epic-side-panel')).toBeVisible();
+    expect(Math.round((await page.getByTestId('epic-panel-frame').boundingBox())!.width)).toBe(344);
+  });
+
+  test('저장 폭이 영역 40% 를 넘으면 표시만 줄어든다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.addInitScript(() => localStorage.setItem('sidebar-width:epic-panel', '480'));
+    await setupPanel(page);
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await openEpicPanel(page);
+
+    const frameW = (await page.getByTestId('epic-panel-frame').boundingBox())!.width;
+    const sectionW = (await page.getByRole('region', { name: '태스크' }).boundingBox())!.width;
+    expect(frameW).toBeLessThanOrEqual(sectionW * 0.4 + 1);
+    // 손잡이는 저장값(480)이 아니라 화면에 보이는 상한·폭을 알린다(WP-897).
+    const handle = page.getByTestId('epic-panel-resize-handle');
+    expect(Number(await handle.getAttribute('aria-valuemax'))).toBeLessThanOrEqual(Math.floor(sectionW * 0.4) + 1);
+    expect(Number(await handle.getAttribute('aria-valuenow'))).toBe(Math.round(frameW));
+    // 저장값은 그대로(표시만 줄임).
+    expect(await page.evaluate(() => localStorage.getItem('sidebar-width:epic-panel'))).toBe('480');
   });
 });

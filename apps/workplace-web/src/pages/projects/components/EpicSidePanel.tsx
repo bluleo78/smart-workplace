@@ -6,12 +6,15 @@
 // 진행 중 사이클에 할당된 에픽은 닫혀도 목록 아래쪽에 종료 배지와 함께 남는다(WP-389, 보드의 #876 규칙과 같음).
 // 이슈 드래그 중에는 「에픽 미할당」·각 에픽이 드롭 대상이 된다(IssueDndProvider 안일 때). floating 이면 닫힌 패널을
 // 드래그 동안만 뷰포트 오른쪽에 띄우는 임시 모드.
+// 데스크톱 고정 패널의 가로 폭은 바깥 ResizableSidebar 틀이 정한다(WP-1343) — 여기 w-56 은 틀의 [&>aside]:w-full 이 덮는다.
 import { useDroppable } from '@dnd-kit/core';
 import { ArrowUpRight, Layers, Plus } from 'lucide-react';
 import { type RefObject, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { EPIC_PANEL_WIDTH_KEY, readSidebarWidth, SIDEBAR_MIN_WIDTH, sidebarMaxFor } from '@/components/layout/sidebarWidth';
 import { Skeleton } from '@/components/ui/skeleton';
+import { clampWidth } from '@/lib/clampWidth';
 import { CLOSED_EPIC_DIM, closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
@@ -42,6 +45,11 @@ const ITEM_BASE = 'w-full rounded px-2 py-1.5 text-left text-sm transition-color
 export function EpicSidePanel({
   projectKey, canCreateIssue = false, floating = false,
 }: { projectKey: string; canCreateIssue?: boolean; floating?: boolean }) {
+  // 떠 있는 패널 폭 — 고정 패널에서 저장한 폭(WP-1343)을 따르되, 뷰포트 기준 상한(sidebarMaxFor)으로 줄인다.
+  // 떠 있는 패널은 드래그마다 새로 마운트되므로 마운트 때 한 번만 읽는다(렌더마다 저장소를 읽지 않게).
+  const [floatingWidth] = useState(() =>
+    floating ? clampWidth(readSidebarWidth(EPIC_PANEL_WIDTH_KEY), SIDEBAR_MIN_WIDTH, sidebarMaxFor(window.innerWidth)) : undefined,
+  );
   // 종료된 에픽(WP-245) — 아래 구역 목록이자, 에픽 필터가 「완료 모두 보기」를 켜고 끌 기준(WP-390). 한 번만 조회해 함께 쓴다.
   const closed = useClosedEpics(projectKey);
   const closedEpics = closed.epics;
@@ -74,6 +82,8 @@ export function EpicSidePanel({
       // 드래그 자동 스크롤 제한(IssueDndProvider)이 포인터가 패널 위인지 판정할 때 찾는 표식.
       data-epic-panel=""
       data-floating={floating || undefined}
+      // 떠 있을 때만 저장 폭을 인라인으로 준다(고정 패널은 바깥 틀이 폭을 정한다).
+      style={floatingWidth ? { width: floatingWidth } : undefined}
       className={
         floating
           // 뷰포트 기준 — 긴 목록 스크롤과 무관하게 헤더(h-14) 아래 오른쪽에 뜬다.
