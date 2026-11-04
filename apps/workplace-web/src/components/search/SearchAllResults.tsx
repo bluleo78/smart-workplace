@@ -1,10 +1,10 @@
-// 「전체」 탭의 묶음 목록(WP-1353) — 앱마다 상위 3건. 묶음 제목(sticky, 누르면 그 앱 탭)과 「○○에서 더 보기」.
+// 「전체」 탭의 묶음 목록(WP-1353) — 앱마다 상위 3건(대화는 이름 2 + 메시지 1, WP-1358). 묶음 제목(sticky, 누르면 그 앱 탭)과 「○○에서 더 보기」.
 // 로딩 중엔 스켈레톤, 0건 묶음은 숨기고, 실패한 묶음만 「불러오지 못했어요 · 다시 시도」로 보여 다른 앱 결과를 막지 않는다.
 import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
 import { SEARCH_TABS, type SearchAppId } from './searchApps'
-import { dedupeHits, type SearchHit, type SearchPage } from './searchProviders'
+import { dedupeHits, pickGroupHits, type SearchHit, type SearchPage } from './searchProviders'
 import { GROUP_SIZE } from './searchRules'
 import { RetryNotice, RowSkeletons } from './SearchStates'
 
@@ -37,7 +37,8 @@ export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Pro
           const q = groups[i]
           const label = SEARCH_TABS.find((t) => t.id === app)?.label ?? ''
           if (skipped(q)) return null
-          const hits = dedupeHits(q.data?.hits ?? []).slice(0, GROUP_SIZE)
+          // 대화 묶음은 이름 2 + 메시지 1 로 나눈다(WP-1358). 묶음 안에서는 소제목 없이 줄만 — 줄 모양(보낸 사람·# 채널)으로 구분된다.
+          const hits = pickGroupHits(app, dedupeHits(q.data?.hits ?? []))
           // 0건 묶음은 숨긴다(성공한 빈 응답만 — 로딩·실패는 자리를 보인다).
           if (q.isSuccess && hits.length === 0) return null
           return (
@@ -55,7 +56,8 @@ export function SearchAllResults({ order, groups, term, rowFor, onOpenTab }: Pro
               {q.isPending && <RowSkeletons count={GROUP_SIZE} />}
               {q.isError && <RetryNotice testId={`global-search-retry-${app}`} onRetry={() => void q.refetch()} />}
               {hits.map((h) => rowFor(h, true))}
-              {q.isSuccess && (q.data.next !== null || q.data.hits.length > GROUP_SIZE) && (
+              {/* 보인 줄보다 받은 것이 많거나 다음 쪽이 있으면 — 대화 묶음은 3건 이하여도 메시지를 1건만 보여 숨은 줄이 있을 수 있다. */}
+              {q.isSuccess && (q.data.next !== null || dedupeHits(q.data.hits).length > hits.length) && (
                 <button
                   type="button"
                   tabIndex={-1}

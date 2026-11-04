@@ -6,7 +6,7 @@ import { useMemo } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 
 import type { SearchAppId, SearchTabId } from './searchApps'
-import { createSearchProviders, dedupeHits, type SearchHit, type SearchPage } from './searchProviders'
+import { createSearchProviders, dedupeHits, pickGroupHits, type SearchHit, type SearchPage } from './searchProviders'
 import { GROUP_SIZE, SEARCH_PAGE_SIZE } from './searchRules'
 
 const STALE_MS = 30_000
@@ -53,9 +53,9 @@ export function useSearchQueries(tab: SearchTabId, term: string, order: SearchAp
   const visible = useMemo<SearchHit[]>(
     () =>
       tab === 'all'
-        ? groups.flatMap((g) => dedupeHits(g.data?.hits ?? []).slice(0, GROUP_SIZE))
+        ? groups.flatMap((g, i) => pickGroupHits(order[i], dedupeHits(g.data?.hits ?? [])))
         : dedupeHits(kindData?.pages.flatMap((p) => p.hits) ?? []),
-    [tab, groups, kindData],
+    [tab, groups, kindData, order],
   )
   // key → 보이는 줄 인덱스 — 줄마다 findIndex 를 돌리지 않게 visible 이 바뀔 때만 만든다.
   const indexByKey = useMemo(() => new Map(visible.map((v, i) => [v.key, i])), [visible])
