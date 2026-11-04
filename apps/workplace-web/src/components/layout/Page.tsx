@@ -194,7 +194,7 @@ function DesktopPageHeader({
   className,
   'data-testid': testId = 'page-header',
 }: Omit<PageHeaderProps, 'mobile'>) {
-  // 상단 가운데 틀(AI 칩, 비서가 없으면 전역 검색 — WP-1324)이 있으면 좌측 그룹을 그 경계 앞에서 자른다(위치 실측).
+  // 상단 가운데 틀(AI 칩, 비서가 없으면 검색 트리거 — WP-1324·WP-1353)이 있으면 좌측 그룹을 그 경계 앞에서 자른다(위치 실측).
   // 틀이 없으면(모바일) 훅이 제한을 푼다.
   const leftGroupRef = useRef<HTMLDivElement>(null)
   useAiChipClamp(leftGroupRef)

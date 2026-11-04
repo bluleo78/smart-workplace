@@ -7,7 +7,7 @@ import { type RefObject, useLayoutEffect } from 'react'
 const CHIP_GAP = 16
 /** 칩이 아무리 가까워도 남기는 좌측 그룹 최소 폭(px) — 칩이 그룹보다 왼쪽에 있는 극단 배치 대비. */
 const MIN_GROUP_WIDTH = 120
-/** 상단 가운데 틀 표식(AIChip·TopCenterSlot 의 data-ai-chip — 비서가 없으면 전역 검색 틀, WP-1324). */
+/** 상단 가운데 틀 표식(AIChip·TopCenterSlot 의 data-ai-chip — 비서가 없으면 검색 트리거 틀, WP-1324·WP-1353). */
 const CHIP_SELECTOR = '[data-ai-chip]'
 
 /** 변경된 노드가 칩이거나 칩을 품고 있는지 — body 직계 자식 변화 중 칩과 무관한 portal(토스트·팝오버 등)은 건너뛴다. */

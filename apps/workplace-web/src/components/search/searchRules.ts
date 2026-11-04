@@ -76,3 +76,17 @@ export function moveActive(current: number, delta: 1 | -1, count: number): numbe
   if (current < 0) return delta === 1 ? 0 : count - 1
   return (current + delta + count) % count
 }
+
+/**
+ * HTML 태그를 벗겨 글자만 남긴다 — 노트 snippet 의 `<b>일치</b>` 같은 표시를 화면에 그대로 그리지 않고,
+ * 태그를 해석하지도 않기 위해(XSS 방지: 결과는 늘 텍스트 노드로만 그린다). 흔한 엔티티는 글자로 되돌린다.
+ */
+export function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
