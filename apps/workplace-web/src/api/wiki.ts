@@ -121,9 +121,16 @@ export const wikiApi = {
     client.get<WikiBacklinksResponse>(`/wiki/pages/${pageId}/backlinks`),
 
   // 제목·본문으로 위키 페이지 검색(S2). spaceId 지정 시 해당 스페이스 우선.
-  search: (q: string, spaceId?: number) =>
+  // WP-1353: size(1..50)·offset 은 통합 검색 팔레트의 「더 보기」용 선택 인자 — 생략하면 서버 기본(최대 50건, 처음부터).
+  search: (q: string, spaceId?: number, page?: { size?: number; offset?: number; signal?: AbortSignal }) =>
     client.get<WikiSearchResult[]>('/wiki/search', {
-      params: { q, ...(spaceId != null ? { spaceId } : {}) },
+      params: {
+        q,
+        ...(spaceId != null ? { spaceId } : {}),
+        ...(page?.size != null ? { size: page.size } : {}),
+        ...(page?.offset != null ? { offset: page.offset } : {}),
+      },
+      ...(page?.signal ? { signal: page.signal } : {}),
     }),
 
   // AI 생성 시작 — correlationId 반환, 실제 토큰은 /events(wiki.ai.*)로 전달(#593 편입).
