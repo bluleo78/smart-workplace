@@ -233,9 +233,12 @@ public class AgentTemplateRegistry {
    *   <li>템플릿에 없는 키 → 400
    *   <li>select 값이 선택지 밖 → 400
    *   <li>비었는데 required 이고 기본값도 없음 → 400
+   *   <li>키가 없는 칸 → 기본값(WP-1344: 「정해 둔 적 없음」)
+   *   <li>키는 있고 값이 빈(공백만 포함) 선택(비필수) text 칸 → 기본값으로 채우지 않고 ""(사용자가 일부러 비움)
+   *   <li>키는 있고 값이 빈 필수 칸·select 칸 → 기본값(없으면 필수는 400, 선택 select 는 키를 뺀다)
    * </ul>
    *
-   * @return 정의된 칸 순서대로 값이 채워진 맵(기본값도 없고 필수도 아닌 빈 칸은 뺀다)
+   * @return 정의된 칸 순서대로 값이 채워진 맵(기본값도 없고 키도 없는 선택 칸은 뺀다)
    */
   public static Map<String, String> validateConfig(AgentTemplate t, Map<String, String> input) {
     Map<String, String> in = input == null ? Map.of() : input;
@@ -251,7 +254,14 @@ public class AgentTemplateRegistry {
       // 앞뒤 공백을 먼저 지운다 — select 선택지 비교와 저장 값이 text 칸과 같은 기준(다듬은 값)이 되게.
       String given = in.get(f.key()) == null ? null : in.get(f.key()).trim();
       String fallback = f.defaultValue() == null ? null : f.defaultValue().trim();
-      final String v = given == null || given.isEmpty() ? fallback : given;
+      // 선택(비필수) text 칸을 비워 보낸 것은 "비움"이라 기본값으로 되돌리지 않는다. select 는 값이 늘 선택지 중 하나여야 하므로 예전대로 기본값.
+      boolean keepBlank = !f.required() && !"select".equals(f.type());
+      final String v = given == null || (given.isEmpty() && !keepBlank) ? fallback : given;
+      // 필수 칸은 기본값이 "" 여도 빈 값으로 저장하지 않고 아래 필수 검사(400)로 보낸다.
+      if (keepBlank && v != null && v.isEmpty()) {
+        out.put(f.key(), "");
+        continue;
+      }
       if (v == null || v.isBlank()) {
         if (f.required()) {
           throw new InvalidAgentConfigException("「" + f.label() + "」 값이 필요합니다");
