@@ -304,6 +304,32 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.UPDATED_AT)));
   }
 
+  /**
+   * 여러 공간의 모든 폴더 — 통합 검색(WP-1353)이 결과 묶음의 폴더 경로를 한 번에 만들 id→parent/name 맵용. 폴더 id 는 전역 유일이라 공간이 섞여도
+   * 맵 키가 겹치지 않는다. 빈 spaceIds 면 조회 없이 빈 목록.
+   */
+  public List<DriveFolderResponse> listAllFolders(java.util.Collection<Long> spaceIds) {
+    if (spaceIds.isEmpty()) {
+      return List.of();
+    }
+    return dsl.select(
+            DRIVE_FOLDER.ID,
+            DRIVE_FOLDER.PARENT_ID,
+            DRIVE_FOLDER.NAME,
+            DRIVE_FOLDER.CREATED_AT,
+            DRIVE_FOLDER.UPDATED_AT)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.SPACE_ID.in(spaceIds))
+        .fetch(
+            r ->
+                new DriveFolderResponse(
+                    r.get(DRIVE_FOLDER.ID),
+                    r.get(DRIVE_FOLDER.PARENT_ID),
+                    r.get(DRIVE_FOLDER.NAME),
+                    r.get(DRIVE_FOLDER.CREATED_AT),
+                    r.get(DRIVE_FOLDER.UPDATED_AT)));
+  }
+
   /** 공간 휴지통의 폴더 trash_root 항목. */
   public List<TrashRow> listTrashedFolders(long spaceId) {
     return dsl.select(
