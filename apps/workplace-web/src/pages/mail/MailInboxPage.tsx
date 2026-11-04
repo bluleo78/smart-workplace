@@ -11,6 +11,7 @@ import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/M
 import { Breadcrumb } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
+import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { CopyLinkButton } from '@/components/share/CopyLinkButton'
@@ -862,8 +863,11 @@ function MessageDetailPanel({
         )}
         <h2 className="text-lg font-semibold">{mailSubjectText(detail.subject)}</h2>
         {linkedBadge}
-        <div className="mt-1 text-sm text-muted-foreground">
-          {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
+        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+          <span className="min-w-0 break-words">
+            {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
+          </span>
+          <GeniaWorksSenderMark sentByGeniaWorks={detail.sentByGeniaWorks} />
         </div>
         {detail.toAddresses && (
           <div className="mt-0.5 text-xs text-muted-foreground">받는사람: {detail.toAddresses}</div>

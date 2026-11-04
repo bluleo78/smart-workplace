@@ -8,6 +8,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { AI_CONTENT_CONTAINER_CLASS } from '@/components/ai/aiMarker'
+import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
 import {
@@ -274,8 +275,11 @@ export function MailMobileDetail({
               {subject}
             </h2>
             {linkedIssue}
-            <div className="mt-1 truncate text-sm text-muted-foreground">
-              {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+              <span className="min-w-0 truncate">
+                {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
+              </span>
+              <GeniaWorksSenderMark sentByGeniaWorks={detail.sentByGeniaWorks} />
             </div>
             <MailMobileRecipients detail={detail} />
             {attachments}

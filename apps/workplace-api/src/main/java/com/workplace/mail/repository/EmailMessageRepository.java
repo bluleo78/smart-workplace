@@ -809,6 +809,8 @@ public class EmailMessageRepository {
     // WP-130: 수신 사본과 공유하지 않는 전용 content — 아래 updateBody 는 첫 적재자 선점 없이 무조건 기록하므로 전용이어야 안전하다
     long contentId = contentRepo.createDedicated(tenantId, sentAsMsg);
     contentRepo.updateBody(contentId, m.bodyText(), m.bodyHtml(), m.snippet());
+    // WP-1364: 이 앱이 보낸 메일이라 X-Mailer 를 붙였다 — 서버에서 동기화된 보낸 사본과 같게 표시를 세운다
+    contentRepo.markSentByGeniaWorks(contentId);
 
     long messageId =
         dsl.insertInto(EMAIL_MESSAGE)
@@ -924,7 +926,9 @@ public class EmailMessageRepository {
                 verified(EMAIL_CONTENT.BODY_TEXT),
                 verified(EMAIL_CONTENT.BODY_HTML),
                 effectiveCategoryField(), // WP-1341: 상세 분류 메뉴의 현재 분류
-                categoryByMeField())
+                categoryByMeField(),
+                // WP-1364: 공유 content 의 속성이라 본문처럼 검증된 사본에만 보인다(WP-130)
+                verified(EMAIL_CONTENT.SENT_BY_GENIA_WORKS))
             .from(EMAIL_MESSAGE)
             .join(EMAIL_ACCOUNT)
             .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -1858,7 +1862,8 @@ public class EmailMessageRepository {
         attachments,
         null,
         r.get(EFFECTIVE_CATEGORY, String.class),
-        Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class)));
+        Boolean.TRUE.equals(r.get(CATEGORY_BY_ME, Boolean.class)),
+        Boolean.TRUE.equals(r.get(EMAIL_CONTENT.SENT_BY_GENIA_WORKS))); // WP-1364
   }
 
   /**

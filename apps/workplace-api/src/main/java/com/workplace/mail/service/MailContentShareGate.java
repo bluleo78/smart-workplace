@@ -40,6 +40,15 @@ public class MailContentShareGate {
   }
 
   /**
+   * WP-1364: 우리 앱이 보낸 메일(X-Mailer)이면 공유 content 에 표시한다(false→true 만). 화면 표시용이라 다른 사본의 재계산은 필요 없다.
+   */
+  public void recordSentByGeniaWorks(long contentId, boolean sentByGeniaWorks) {
+    if (sentByGeniaWorks) {
+      contentRepo.markSentByGeniaWorks(contentId);
+    }
+  }
+
+  /**
    * 내려받은 본문을 envelope 의 content 에 기록하거나 검증한다.
    *
    * @param envelopeId email_message.id

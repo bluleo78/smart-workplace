@@ -188,6 +188,12 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
      */
     public final TableField<EmailContentRecord, OffsetDateTime> AI_CATEGORY_NEXT_ATTEMPT_AT = createField(DSL.name("ai_category_next_attempt_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "분류 일괄이 이 content 를 다시 고를 수 있는 가장 이른 시각(실패 뒤 1h·6h·24h). NULL 이면 바로 고를 수 있다(WP-1347)");
 
+    /**
+     * The column <code>public.email_content.sent_by_genia_works</code>.
+     * WP-1364: X-Mailer 가 Gen:iA Works 로 시작하는 메일(우리 앱 발송) 여부
+     */
+    public final TableField<EmailContentRecord, Boolean> SENT_BY_GENIA_WORKS = createField(DSL.name("sent_by_genia_works"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "WP-1364: X-Mailer 가 Gen:iA Works 로 시작하는 메일(우리 앱 발송) 여부");
+
     private EmailContent(Name alias, Table<EmailContentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
