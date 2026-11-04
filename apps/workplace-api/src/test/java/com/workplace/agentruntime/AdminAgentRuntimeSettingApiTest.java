@@ -532,7 +532,32 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.updateAvailable").value(false))
         .andExpect(jsonPath("$.generation").value(2))
         .andExpect(jsonPath("$.config.model").value("sonnet"))
+        // 저장된 키가 없던 칸(queue)은 켤 때 기본값으로 채워진다(WP-1344).
+        .andExpect(jsonPath("$.config.queue").value("AI 개발팀"))
         .andExpect(jsonPath("$.config.retired").doesNotExist());
+  }
+
+  /** 선택 칸(queue)을 비워 저장하면 기본값이 아닌 ""로 남고, 켠 뒤(repinConfig)에도 유지된다(WP-1344). */
+  @Test
+  void put_whenOptionalQueueBlank_staysEmptyAcrossStart() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+
+    putSetting(
+            agent,
+            "{\"templateName\":\"claude-code\",\"config\":{\"model\":\"opus\",\"queue\":\"\"}}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config.queue").value(""));
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config.queue").value(""));
+
+    action(agent, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config.queue").value(""));
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config.queue").value(""));
   }
 
   private void setStoredVersion(long agent, String version) {

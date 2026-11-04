@@ -354,7 +354,7 @@ public class AgentRuntimeSettingService {
     return locationRepository.findById(locationId).orElseThrow(AgentLocationNotFoundException::new);
   }
 
-  /** 저장된 설정을 새 템플릿으로 다시 검증한다 — 새 템플릿에 없는 칸은 버리고, 빈 칸은 새 기본값으로 채운다. */
+  /** 저장된 설정을 새 템플릿으로 다시 검증한다 — 새 템플릿에 없는 칸은 버리고, 저장된 키가 없는 칸만 새 기본값으로 채운다(비워 둔 선택 칸은 빈 값 유지). */
   private static Map<String, String> repinConfig(
       AgentTemplate template, Map<String, String> stored) {
     Map<String, String> kept = new LinkedHashMap<>();

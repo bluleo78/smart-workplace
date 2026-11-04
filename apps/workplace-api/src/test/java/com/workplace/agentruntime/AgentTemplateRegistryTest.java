@@ -190,12 +190,87 @@ class AgentTemplateRegistryTest {
         .isInstanceOf(IllegalStateException.class);
   }
 
-  /** 빈 입력은 기본값으로 채워진다. */
+  /** 키가 없으면 기본값으로 채워진다. */
   @Test
   void validateConfig_fillsDefaults() throws IOException {
     Map<String, String> out = AgentTemplateRegistry.validateConfig(claudeCode(), Map.of());
 
     assertThat(out).containsEntry("model", "opus").containsEntry("queue", "AI 개발팀").hasSize(2);
+  }
+
+  /** 선택 칸을 비워 보내면 기본값으로 되돌리지 않고 빈 값("")으로 남긴다(WP-1344). */
+  @Test
+  void validateConfig_whenOptionalBlank_staysEmpty() throws IOException {
+    Map<String, String> out =
+        AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", "opus", "queue", ""));
+
+    assertThat(out).containsEntry("model", "opus").containsEntry("queue", "");
+  }
+
+  /** 공백만 넣은 선택 칸도 다듬어 빈 값("")으로 남긴다. */
+  @Test
+  void validateConfig_whenOptionalWhitespace_staysEmpty() throws IOException {
+    Map<String, String> out =
+        AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("queue", "  "));
+
+    assertThat(out).containsEntry("queue", "");
+  }
+
+  /** 키 자체가 없는 선택 칸(정해 둔 적 없음)은 기본값으로 채운다. */
+  @Test
+  void validateConfig_whenOptionalMissing_usesDefault() throws IOException {
+    Map<String, String> out =
+        AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", "opus"));
+
+    assertThat(out).containsEntry("queue", "AI 개발팀");
+  }
+
+  /** 필수 칸(model)을 비우면 기존대로 기본값(opus)이 들어간다. */
+  @Test
+  void validateConfig_whenRequiredBlank_usesDefault() throws IOException {
+    Map<String, String> out =
+        AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", ""));
+
+    assertThat(out).containsEntry("model", "opus");
+  }
+
+  /** 선택(비필수) select 칸을 비워 보내면 예전대로 기본값(없으면 키를 뺀다) — 저장값은 늘 선택지 중 하나. */
+  @Test
+  void validateConfig_whenOptionalSelectBlank_usesDefault() {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(
+                List.of(
+                    yaml(
+                        "x",
+                        "SERVER",
+                        "config:\n"
+                            + "  - { key: a, label: A, type: select, default: p, options: [{ value: p, label: P }, { value: q, label: Q }] }\n"
+                            + "  - { key: b, label: B, type: select, options: [{ value: p, label: P }] }\n")),
+                ALLOWED,
+                "dev")
+            .get(0);
+
+    Map<String, String> out = AgentTemplateRegistry.validateConfig(t, Map.of("a", "", "b", " "));
+
+    assertThat(out).containsEntry("a", "p").doesNotContainKey("b");
+  }
+
+  /** 기본값이 빈 문자열인 필수 칸을 비워 보내면 빈 값으로 저장되지 않고 거부된다. */
+  @Test
+  void validateConfig_whenRequiredBlankAndDefaultBlank_throws() {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(
+                List.of(
+                    yaml(
+                        "x",
+                        "SERVER",
+                        "config:\n  - { key: q, label: 라벨, type: text, required: true, default: \"\" }\n")),
+                ALLOWED,
+                "dev")
+            .get(0);
+
+    assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("q", "")))
+        .isInstanceOf(InvalidAgentConfigException.class);
   }
 
   /** 템플릿에 없는 키는 거부. */
