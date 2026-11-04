@@ -2,7 +2,7 @@ package com.workplace.drive.exception;
 
 /**
  * 내용(텍스트)으로 고쳐 쓸 수 없는 파일을 내용으로 갱신하려 할 때(WP-369). → 409. pdf·docx 같은 문서를 텍스트로 덮어 서식을 잃지 않게, 그리고 추출
- * 텍스트가 원문과 다른 파일(html·UTF-8 아님·추출 잘림)을 AI 가 읽은 텍스트로 덮어 원문을 잃지 않게 막는다.
+ * 텍스트가 원문과 다른 파일(UTF-8 아님·추출 잘림)을 AI 가 읽은 텍스트로 덮어 원문을 잃지 않게 막는다.
  */
 public class DriveNotTextFileException extends RuntimeException {
   public DriveNotTextFileException() {

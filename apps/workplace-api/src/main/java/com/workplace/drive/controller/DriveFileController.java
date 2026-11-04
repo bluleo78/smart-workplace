@@ -177,14 +177,15 @@ public class DriveFileController {
 
   /**
    * 파일 추출 텍스트 구간 읽기(WP-346) — 이슈 첨부 /text 와 같은 요청·응답 형식. 에이전트가 PDF·오피스 파일을 글자로 나눠 읽는다. limit 상한
-   * 32,000자(초과분은 클램프). download 와 동일 게이트.
+   * 32,000자(초과분은 클램프). download 와 동일 게이트. html 계열은 원본(마크업 포함)을 준다(WP-1338).
    */
   @GetMapping("/files/{id}/text")
   public ResponseEntity<ExtractedTextSlice> readText(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long driveFileId,
       @RequestParam(defaultValue = "0") int offset,
-      @RequestParam(defaultValue = "32000") int limit) {
+      @RequestParam(defaultValue = "32000") int limit)
+      throws IOException {
     return ResponseEntity.ok(fileService.readText(callerId, driveFileId, offset, limit));
   }
 

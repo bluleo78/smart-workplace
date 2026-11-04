@@ -110,9 +110,7 @@ public class ExtractedTextService {
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice read(long fileId, int offset, int limit) {
-    if (offset < 0) throw new InvalidTextRangeException("offset 은 0 이상이어야 합니다.");
-    if (limit < 1) throw new InvalidTextRangeException("limit 은 1 이상이어야 합니다.");
-    int lim = Math.min(limit, MAX_LIMIT);
+    int lim = checkRange(offset, limit);
 
     Field<Integer> total = DSL.charLength(FILE_EXTRACTION.EXTRACTED_TEXT).as("total_chars");
     // SQL substr 은 1부터 센다.
@@ -151,19 +149,41 @@ public class ExtractedTextService {
           info.pageCount());
     }
     String text = Objects.requireNonNullElse(r.get(slice), "");
+    return readySlice(fileId, offset, totalChars, text, info.truncated(), info.pageCount());
+  }
+
+  /**
+   * 구간 검사와 limit 클램프 — 추출 텍스트 읽기와 원본 읽기(드라이브 html, WP-1338)가 같은 규칙을 쓴다.
+   *
+   * @return {@link #MAX_LIMIT} 로 줄인 limit
+   * @throws InvalidTextRangeException offset &lt; 0 또는 limit &lt; 1
+   */
+  private static int checkRange(int offset, int limit) {
+    if (offset < 0) throw new InvalidTextRangeException("offset 은 0 이상이어야 합니다.");
+    if (limit < 1) throw new InvalidTextRangeException("limit 은 1 이상이어야 합니다.");
+    return Math.min(limit, MAX_LIMIT);
+  }
+
+  /**
+   * 메모리에 있는 전문을 코드포인트 기준으로 잘라 READY 구간을 만든다(WP-1338 — 드라이브 html 원본 읽기). SQL 자르기({@link #read})와 같은
+   * 단위· nextOffset 규칙이다. 원본이라 잘림은 false, 쪽수는 없다.
+   */
+  public static ExtractedTextSlice sliceOf(long fileId, String fullText, int offset, int limit) {
+    int lim = checkRange(offset, limit);
+    int total = fullText.codePointCount(0, fullText.length());
+    int from = Math.min(offset, total);
+    int start = fullText.offsetByCodePoints(0, from);
+    int end = fullText.offsetByCodePoints(start, Math.min(lim, total - from));
+    return readySlice(fileId, offset, total, fullText.substring(start, end), false, null);
+  }
+
+  /** READY 구간 응답 — 돌려준 글자 수로 nextOffset 을 정한다(끝까지 읽었으면 null). */
+  private static ExtractedTextSlice readySlice(
+      long fileId, int offset, int totalChars, String text, Boolean truncated, Integer pageCount) {
     int returned = text.codePointCount(0, text.length());
     int end = offset + returned;
     Integer next = returned > 0 && end < totalChars ? end : null;
     return new ExtractedTextSlice(
-        fileId,
-        "READY",
-        offset,
-        totalChars,
-        info.truncated(),
-        next,
-        text,
-        null,
-        null,
-        info.pageCount());
+        fileId, "READY", offset, totalChars, truncated, next, text, null, null, pageCount);
   }
 }
