@@ -48,8 +48,16 @@ export function calendarEventPath(eventId: number): string {
   return `/calendar?eventId=${eventId}`
 }
 
-/** 메일 상세 경로 — 계정 화면에서 ?messageId 로 메일을 연다. */
-export function mailMessagePath(accountId: number, messageId: number): string {
+/** 메일을 열 메일함(WP-1359) — 없거나 inbox 면 받은편지함. box 는 보관함·사용자 메일함(메일함 id). */
+export type MailMessageBox = { kind: 'inbox' } | { kind: 'sent' } | { kind: 'box'; folderId: number }
+
+/**
+ * 메일 상세 경로 — 계정 화면에서 ?messageId 로 메일을 연다. box 를 주면 그 메일함을 연 채로 연다
+ * (보낸편지함 ?folder=sent, 보관·사용자 메일함 ?box=<id> — 메일 화면 resolveMailView 의 보기 파라미터).
+ */
+export function mailMessagePath(accountId: number, messageId: number, box?: MailMessageBox): string {
+  if (box?.kind === 'sent') return `/mail/${accountId}?folder=sent&messageId=${messageId}`
+  if (box?.kind === 'box') return `/mail/${accountId}?box=${box.folderId}&messageId=${messageId}`
   return `/mail/${accountId}?messageId=${messageId}`
 }
 

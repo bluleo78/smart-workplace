@@ -37,7 +37,7 @@ function emptyApis() {
       }),
     ),
     http.get(`${API}/contacts`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
-    http.get(`${API}/mail/accounts`, () => HttpResponse.json([])),
+    http.get(`${API}/search/mail`, () => HttpResponse.json({ items: [], hasMore: false })),
     http.get(`${API}/messaging/channels/discover`, () => HttpResponse.json([])),
     http.get(`${API}/messaging/channels`, () => HttpResponse.json([])),
     http.get(`${API}/messaging/dms`, () => HttpResponse.json([])),

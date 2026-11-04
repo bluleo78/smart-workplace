@@ -1,21 +1,19 @@
 // 통합 검색(WP-1353)의 앱별 provider — 앱마다 기존 API 로 한 쪽씩 찾아 공통 모양(SearchHit)으로 돌려준다.
 // 훅이 아닌 평범한 async 함수라 팔레트(useQuery·useInfiniteQuery)와 테스트(MSW)가 같이 쓴다. 의존(queryClient·내 id)은 createSearchProviders 로 주입한다.
-// cursor 는 앱마다 다른 모양(숫자 offset·문자열·계정별 묶음)이라 unknown 으로 두고 각 provider 가 해석한다. next === null 이면 끝.
+// cursor 는 앱마다 다른 모양(숫자 offset·문자열·메일의 (receivedAt, id))이라 unknown 으로 두고 각 provider 가 해석한다. next === null 이면 끝.
 import type { QueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 
 import { calendarApi } from '@/api/calendar'
 import { contactsApi } from '@/api/contacts'
-import { listMailAccounts } from '@/api/mailAccounts'
-import { listMessages } from '@/api/mailMessages'
 import { fetchMeIssues } from '@/api/meIssues'
 import { messagingApi } from '@/api/messaging'
 import { searchAiConversations } from '@/api/searchAiConversations'
 import { searchDriveByName } from '@/api/searchDrive'
+import { type MailSearchCursor, type MailSearchItem, searchMail } from '@/api/searchMail'
 import { wikiApi } from '@/api/wiki'
 import { driveFilePath } from '@/components/viewer/driveOpen'
 import { messagingKeys } from '@/hooks/queries/messagingKeys'
-import { mailAccountKeys } from '@/hooks/queries/useMailAccounts'
 import { allProjectsQuery } from '@/hooks/queries/useProjects'
 import { CHAT_PARAM, LINKED_SESSION_FALLBACK_TITLE } from '@/lib/aiChatLink'
 import { chatConversationPath, driveFolderPath, issuePath, mailMessagePath, projectPath, wikiSpacePagePath } from '@/lib/appUrl'
@@ -23,7 +21,6 @@ import { encodeContactParam } from '@/lib/contactParam'
 import { dmDisplayName } from '@/lib/dm'
 import { formatListTime } from '@/lib/formatters'
 import { formatIssueKey } from '@/lib/issueKey'
-import type { MailListCursor } from '@/types/mailMessage'
 
 import { toCalendarHit } from './calendarHit'
 import type { SearchAppId } from './searchApps'
@@ -87,8 +84,6 @@ const LIST_STALE_MS = 10_000
 function cached<T>(qc: QueryClient, queryKey: readonly unknown[], queryFn: () => Promise<T>): Promise<T> {
   return qc.fetchQuery({ queryKey, queryFn, staleTime: LIST_STALE_MS })
 }
-
-const EMPTY: SearchPage = { hits: [], next: null }
 
 /** 기본 검색 가능 판정 — 공백 뺀 두 글자부터. */
 const defaultSearchable = (term: string) => term.trim().length >= 2
@@ -171,77 +166,49 @@ function createChatProvider({ queryClient: qc, meId }: SearchProviderDeps): Sear
 
 // ── 메일 ─────────────────────────────────────────────────────
 
-/** 계정별 이어 받기 상태 — 'done' 은 그 계정을 다 읽음, 커서 없음(null)은 처음부터. */
-type MailAccountCursor = MailListCursor | 'done' | null
-type MailCursor = Record<number, MailAccountCursor>
-
-/** 최신순 비교 — receivedAt 이 같으면 id 큰 쪽이 먼저(서버 정렬 키와 같다). 시각이 없는 행은 맨 뒤. */
-function newerFirst(a: { receivedAt: string | null; id: number }, b: { receivedAt: string | null; id: number }): number {
-  if (a.receivedAt !== b.receivedAt) {
-    if (a.receivedAt == null) return 1
-    if (b.receivedAt == null) return -1
-    const diff = Date.parse(b.receivedAt) - Date.parse(a.receivedAt)
-    if (diff !== 0 && !Number.isNaN(diff)) return diff
-    // 같은 밀리초 안(마이크로초 차이)은 문자열로 가른다.
-    return a.receivedAt < b.receivedAt ? 1 : -1
+/** 오른쪽 meta 의 사람 — 보낸편지함은 「받는 사람 ○○( 외 N명)」, 그 밖은 보낸 사람. */
+function mailPerson(m: MailSearchItem): string | undefined {
+  if (m.folderKind === 'SENT') {
+    if (!m.firstRecipient) return undefined
+    const more = m.recipientCount - 1
+    return more > 0 ? `받는 사람 ${m.firstRecipient} 외 ${more}명` : `받는 사람 ${m.firstRecipient}`
   }
-  return b.id - a.id
+  return m.fromName || m.fromAddress || undefined
+}
+
+/** 고르면 그 메일이 든 메일함을 연 채로 연다. */
+function mailHref(m: MailSearchItem): string {
+  if (m.folderKind === 'SENT') return mailMessagePath(m.accountId, m.id, { kind: 'sent' })
+  if (m.folderKind === 'OTHER' && m.folderId != null) return mailMessagePath(m.accountId, m.id, { kind: 'box', folderId: m.folderId })
+  return mailMessagePath(m.accountId, m.id)
+}
+
+/** cursor 가 메일 커서인가(첫 쪽은 null). */
+function isMailCursor(cursor: unknown): cursor is MailSearchCursor {
+  return typeof cursor === 'object' && cursor !== null && 'beforeId' in cursor
 }
 
 /**
- * 계정마다 받은편지함을 검색해 최신순으로 합친다. 계정별 다음 커서는 그 계정에서 이번 쪽에 「실제로 보여 준」 마지막 항목 —
- * 가져왔지만 안 보여 준 것은 다음 쪽에 다시 나와야 빠지지 않는다. 하나도 못 낸 계정은 이전 커서를 유지하고,
- * 받은 건수가 size 미만이며 전부 보여 준 계정만 끝('done')으로 본다.
+ * 내 모든 메일 계정의 휴지통·스팸·임시보관함을 뺀 모든 메일함을 한 API 로 찾는다(WP-1359) — 계정·메일함을 서버가 최신순으로 합친다.
+ * 다음 쪽 커서는 이번 쪽 마지막 항목의 (receivedAt, id) — receivedAt 은 서버 문자열 그대로 넘긴다.
  */
-function createMailProvider({ queryClient: qc }: SearchProviderDeps): SearchProvider {
-  return {
-    isSearchable: defaultSearchable,
-    async fetchPage(q, cursor, size, signal) {
-      // 계정 목록은 검색어와 무관 — 메일 화면과 같은 캐시 키로 재사용한다.
-      const accounts = await cached(qc, mailAccountKeys.all, () => listMailAccounts())
-      if (accounts.length === 0) return EMPTY
-      const prev: MailCursor = cursor && typeof cursor === 'object' ? (cursor as MailCursor) : {}
-      const active = accounts.filter((a) => prev[a.id] !== 'done')
-      // 계정 하나가 실패해도 나머지 결과는 보인다 — 모두 실패했을 때만 오류로 올린다.
-      const settled = await Promise.allSettled(
-        active.map(async (a) => {
-          const before = prev[a.id] as MailListCursor | null | undefined
-          const rows = await listMessages(a.id, 'INBOX', q, undefined, undefined, undefined, size, null, before ?? null, signal)
-          return { accountId: a.id, rows }
-        }),
-      )
-      const fetched = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
-      if (active.length > 0 && fetched.length === 0) {
-        throw (settled[0] as PromiseRejectedResult).reason
-      }
-      const merged = fetched
-        .flatMap(({ rows }) => rows)
-        .sort(newerFirst)
-        .slice(0, size)
-
-      const next: MailCursor = { ...prev }
-      for (const { accountId, rows } of fetched) {
-        const shown = merged.filter((m) => m.accountId === accountId)
-        if (shown.length === 0 && rows.length > 0) continue // 하나도 못 냈다 — 이전 커서 유지
-        if (rows.length < size && shown.length === rows.length) {
-          next[accountId] = 'done'
-        } else {
-          const last = shown[shown.length - 1]
-          next[accountId] = { receivedAt: last.receivedAt, id: last.id }
-        }
-      }
-      const finished = accounts.every((a) => next[a.id] === 'done')
-      const hits = merged.map<SearchHit>((m) => ({
-        key: `mail:${m.id}`,
-        app: 'mail',
-        title: m.subject?.trim() || '(제목 없음)',
-        href: mailMessagePath(m.accountId, m.id),
-        meta: m.fromName || m.fromAddress || undefined,
-        snippet: m.snippet ?? undefined,
-      }))
-      return { hits, next: finished ? null : next }
-    },
-  }
+const mailProvider: SearchProvider = {
+  isSearchable: defaultSearchable,
+  async fetchPage(q, cursor, size, signal) {
+    const res = await searchMail(q, isMailCursor(cursor) ? cursor : null, size, signal)
+    const hits = res.items.map<SearchHit>((m) => ({
+      key: `mail:${m.id}`,
+      app: 'mail',
+      title: m.subject?.trim() || '(제목 없음)',
+      href: mailHref(m),
+      meta: [m.folderName, mailPerson(m)].filter(Boolean).join(' · '),
+      snippet: m.snippet ?? undefined,
+      time: m.receivedAt ? formatListTime(m.receivedAt) : undefined,
+    }))
+    const last = res.items[res.items.length - 1]
+    const next: MailSearchCursor | null = res.hasMore && last ? { beforeAt: last.receivedAt, beforeId: last.id } : null
+    return { hits, next }
+  },
 }
 
 // ── 작업(프로젝트·이슈) ─────────────────────────────────────────
@@ -399,7 +366,7 @@ export function createSearchProviders(deps: SearchProviderDeps): Record<SearchAp
   return {
     ai: aiProvider,
     chat: createChatProvider(deps),
-    mail: createMailProvider(deps),
+    mail: mailProvider,
     calendar: calendarProvider,
     issues: createIssuesProvider(deps),
     drive: driveProvider,
