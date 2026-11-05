@@ -5,11 +5,13 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { ChatSessionContext } from '@/hooks/chat-session-context'
+import { hasLiveStateMark } from '@/lib/historyParam'
+import { settleHistory } from '@/test/history'
 import { renderScreen } from '@/test/renderScreen'
 
 import { loadRecent, pushRecent } from './recentSearches'
 import { SearchPaletteHost } from './SearchPaletteHost'
-import { closeSearchPalette, openSearchPalette, searchPaletteSession } from './searchPaletteStore'
+import { closeSearchPalette, openSearchPalette, SEARCH_PALETTE_HISTORY_KEY, searchPaletteSession } from './searchPaletteStore'
 import { SearchTrigger } from './SearchTrigger'
 
 // AI 표면은 공급자 없이 훅 결과만 바꿔 끼운다(실제 Provider 는 앱 셸 전체에 의존).
@@ -389,6 +391,21 @@ test('Esc 는 팔레트를 닫고 기본 동작을 막아 AI 패널의 Esc 처�
   // fireEvent 는 preventDefault 가 불렸으면 false.
   expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false)
   await waitFor(() => expect(screen.queryByTestId('global-search')).toBeNull())
+})
+
+// WP-1354: 뒤로 가기로 닫는 히스토리 항목은 휴대폰 전체 화면(SearchPaletteHost)만 넣는다 — 데스크톱 트리거는 히스토리를 건드리지 않는다.
+test('데스크톱 팔레트는 열고 닫아도 히스토리 항목을 넣거나 되돌리지 않는다', async () => {
+  const { user, location } = renderScreen(<SearchTrigger />, { path: '/chat', handlers: emptyApis() })
+  const idx = () => (window.history.state as { idx?: number } | null)?.idx
+  const before = idx()
+  const input = await openPalette(user)
+  expect(idx()).toBe(before)
+  expect(hasLiveStateMark(SEARCH_PALETTE_HISTORY_KEY)).toBe(false)
+  fireEvent.keyDown(input, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByTestId('global-search')).toBeNull())
+  await settleHistory()
+  expect(idx()).toBe(before)
+  expect(location()).toBe('/chat')
 })
 
 test('Shift+Enter 는 AI 에게 검색을 요청한다', async () => {

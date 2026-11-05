@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { AccountSheet } from '@/components/mobile/AccountSheet'
 import { useTabSlots } from '@/components/mobile/MobileChromeContext'
 import { MobileListHeader } from '@/components/mobile/MobileListHeader'
+import { MobileSearchButton } from '@/components/mobile/MobileSearchButton'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/overlay/popover'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -189,8 +190,8 @@ export default function AppsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      {/* 목업 순서(벨 → 아바타)대로 — MobileListHeader 기본 벨은 actions 뒤에 붙으므로 숨기고 직접 배치한다. */}
-      <MobileListHeader title="앱" hideBell actions={<><NotificationBell />{avatar}</>} />
+      {/* 목업 순서(🔍 → 벨 → 아바타)대로 — MobileListHeader 기본 🔍·벨은 actions 뒤에 붙으므로 숨기고 직접 배치한다. */}
+      <MobileListHeader title="앱" hideBell actions={<><MobileSearchButton /><NotificationBell />{avatar}</>} />
       {coach && (
         <div data-testid="apps-coach" role="note" className="mx-4 mb-1 flex min-h-11 items-center gap-2 rounded-lg bg-primary/10 pl-3 text-sm text-primary">
           <Hand className="h-4 w-4 shrink-0" aria-hidden />

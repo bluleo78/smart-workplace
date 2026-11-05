@@ -1,6 +1,6 @@
 // 통합 검색 팔레트(WP-1353)의 열림 상태와 「/」 단축키 — 트리거 버튼과 팔레트가 같은 상태를 보게 한다.
 // 열림 상태는 모듈 스토어(searchPaletteStore)에 있어 다른 화면이 openSearchPalette({ q, app }) 으로 검색어·탭을 정해 열 수 있다(WP-1356).
-// 열림은 히스토리에 넣지 않는다(뒤로 가기가 팔레트를 닫는 데 쓰이지 않게).
+// 데스크톱 트리거의 열림은 히스토리에 넣지 않는다. 휴대폰 전체 화면의 뒤로 가기 닫기는 SearchPaletteHost 몫이다(WP-1354).
 import { useEffect, useSyncExternalStore } from 'react'
 
 import { closeSearchPalette, openSearchPalette, searchPaletteSession, subscribeSearchPalette } from './searchPaletteStore'

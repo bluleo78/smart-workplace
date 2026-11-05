@@ -167,7 +167,7 @@ test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 
   await expect(page.getByTestId('page-header')).toContainText('연락처')
 })
 
-test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56, 제목 22px bold, ☰ 는 🔔 앞)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56, 제목 22px bold, ☰·🔍·🔔 순)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const measure = async (headerTestId: string) => {
     const header = page.getByTestId(headerTestId)
@@ -194,12 +194,15 @@ test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56,
   }
   expect(home.font).toBe('22px/700')
   expect(chat.titleX).toBe(16)
-  // 캘린더: ☰ 는 오른쪽 클러스터(🔔 바로 앞).
+  // 캘린더: 오른쪽 클러스터는 ☰ · 🔍 · 🔔 순서로 붙어 있다(🔍 는 벨 바로 앞 — WP-1354).
   const trigger = (await page.getByTestId('mobile-sidebar-trigger').boundingBox())!
+  const search = (await page.getByTestId('mobile-search-button').boundingBox())!
   const bell = (await page.getByTestId('mobile-bell').boundingBox())!
-  expect(trigger.x).toBeLessThan(bell.x)
-  expect(bell.x - trigger.x).toBeLessThanOrEqual(48)
-  expect(trigger.x).toBeGreaterThan(280)
+  expect(trigger.x).toBeLessThan(search.x)
+  expect(search.x).toBeLessThan(bell.x)
+  expect(search.x - trigger.x).toBeLessThanOrEqual(48)
+  expect(bell.x - search.x).toBeLessThanOrEqual(48)
+  expect(trigger.x).toBeGreaterThan(230)
   await expectNoHorizontalOverflow(page)
 })
 

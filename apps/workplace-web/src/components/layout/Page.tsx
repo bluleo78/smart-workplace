@@ -10,6 +10,7 @@ import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
+import { MobileSearchButton } from '@/components/mobile/MobileSearchButton'
 import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -104,11 +105,16 @@ interface PageHeaderProps {
   mobile?: 'bar' | 'hidden'
 }
 
-/** 모바일 헤더 전용 — 탭 루트에서만 🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
-function MobileTabRootBell() {
+/** 모바일 헤더 전용 — 탭 루트에서만 🔍(전체 검색, WP-1354)·🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
+function MobileTabRootActions() {
   const { pathname } = useLocation()
   const chrome = useMobileChrome()
-  return isTabRoot(pathname, chrome?.slots) ? <NotificationBell /> : null
+  return isTabRoot(pathname, chrome?.slots) ? (
+    <>
+      <MobileSearchButton />
+      <NotificationBell />
+    </>
+  ) : null
 }
 
 /**
@@ -122,7 +128,7 @@ function PageHeaderImpl({ mobile = 'bar', ...props }: PageHeaderProps) {
 }
 
 /**
- * 모바일 헤더 — 탭 루트 헤더(큰 제목 + 🔔) 또는 모바일 상세 안의 병합 상세 헤더(‹ + 제목 + ✦).
+ * 모바일 헤더 — 탭 루트 헤더(큰 제목 + 🔍·🔔) 또는 모바일 상세 안의 병합 상세 헤더(‹ + 제목 + ✦).
  * 우측 클러스터 [⬆︎ 공유] [주 액션] [⋯ 메뉴(나머지 actions)] [☰ 사이드바 시트]. icon·leading·meta 는 모바일에서 렌더하지 않음.
  */
 function MobilePageHeader({
@@ -162,14 +168,14 @@ function MobilePageHeader({
       />
     )
   }
-  // 탭 루트 헤더: MobileListHeader 와 같은 규격(h-14·좌16·22px bold) + 우측 [클러스터] [🔔] (U1-3).
+  // 탭 루트 헤더: MobileListHeader 와 같은 규격(h-14·좌16·22px bold) + 우측 [클러스터] [🔍] [🔔] (U1-3·WP-1354).
   // 하단 구분선 없음 — MobileListHeader(채팅·작업)와 같게, 큰 제목 헤더는 본문과 한 면으로 보인다(U3-R3).
   return (
     <header data-testid={testId} className={cn('relative z-[45] bg-background', mobileRootHeaderClass, className)}>
       {/* icon 은 모바일에서 생략 — 장식 아이콘은 제목 폭을 위해, 인터랙티브 컨트롤(캘린더 이동)은 페이지가 헤더 아래 도구 줄로 옮긴다. */}
       {title != null ? <h1 className={mobileRootTitleClass}>{title}</h1> : <div className="flex-1" />}
       {cluster}
-      <MobileTabRootBell />
+      <MobileTabRootActions />
     </header>
   )
 }
