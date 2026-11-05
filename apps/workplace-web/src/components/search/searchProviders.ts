@@ -11,12 +11,13 @@ import { messagingApi } from '@/api/messaging'
 import { searchAiConversations } from '@/api/searchAiConversations'
 import { searchDriveByName } from '@/api/searchDrive'
 import { type MailSearchCursor, type MailSearchItem, searchMail } from '@/api/searchMail'
+import { type MessageSearchCursor, type MessageSearchItem, searchMessages } from '@/api/searchMessages'
 import { wikiApi } from '@/api/wiki'
 import { driveFilePath } from '@/components/viewer/driveOpen'
 import { messagingKeys } from '@/hooks/queries/messagingKeys'
 import { allProjectsQuery } from '@/hooks/queries/useProjects'
 import { CHAT_PARAM, LINKED_SESSION_FALLBACK_TITLE } from '@/lib/aiChatLink'
-import { chatConversationPath, driveFolderPath, issuePath, mailMessagePath, projectPath, wikiSpacePagePath } from '@/lib/appUrl'
+import { chatConversationPath, chatMessagePath, driveFolderPath, issuePath, mailMessagePath, projectPath, wikiSpacePagePath } from '@/lib/appUrl'
 import { encodeContactParam } from '@/lib/contactParam'
 import { dmDisplayName } from '@/lib/dm'
 import { formatListTime } from '@/lib/formatters'
@@ -24,7 +25,7 @@ import { formatIssueKey } from '@/lib/issueKey'
 
 import { toCalendarHit } from './calendarHit'
 import type { SearchAppId } from './searchApps'
-import { isSearchableTerm, stripHtmlTags } from './searchRules'
+import { GROUP_SIZE, isSearchableTerm, stripHtmlTags } from './searchRules'
 
 /** 결과 한 줄 — key 는 탭 사이에서 유일(앱 접두사 포함). */
 export interface SearchHit {
@@ -49,6 +50,8 @@ export interface SearchHit {
   icon?: LucideIcon
   /** 첫 줄 오른쪽 끝에 붙는 날짜 같은 짧은 평문(예: AI 대화의 마지막 대화 시각). */
   time?: string
+  /** 메시지 hit 의 보낸 사람 — 있으면 제목(본문) 앞에 작은 굵은 글씨로 붙인다(대화 탭의 메시지 결과, WP-1358). */
+  sender?: string
 }
 
 /** 한 쪽 결과 — next 가 null 이면 더 없다. */
@@ -77,6 +80,23 @@ export function dedupeHits(hits: SearchHit[]): SearchHit[] {
   return hits.filter((h) => !seen.has(h.key) && seen.add(h.key))
 }
 
+/** 대화 탭의 소제목(SearchHit.group) — 채널·DM 이름 결과와 메시지 본문 결과(WP-1358). */
+export const CHAT_GROUP_NAMES = '채널·DM'
+export const CHAT_GROUP_MESSAGES = '메시지'
+
+/**
+ * 「전체」 탭 묶음에 보일 hit — 대화 묶음은 이름 최대 2 + 메시지 최대 1 로 나눠 이름이 많아도 메시지가 보이게 한다(WP-1358, 승인된 시안).
+ * 메시지가 없으면 이름 3건. 메시지는 이름이 적어도 1건까지만(나머지는 「대화에서 더 보기」). 다른 묶음은 앞 GROUP_SIZE 건.
+ * 화면(SearchAllResults)과 키보드 이동 목록(useSearchQueries.visible)이 같은 함수를 써서 보이는 줄과 ↑↓ 순서가 어긋나지 않는다.
+ */
+export function pickGroupHits(app: SearchAppId, hits: SearchHit[]): SearchHit[] {
+  if (app !== 'chat') return hits.slice(0, GROUP_SIZE)
+  const messages = hits.filter((h) => h.group === CHAT_GROUP_MESSAGES)
+  if (messages.length === 0) return hits.slice(0, GROUP_SIZE)
+  const names = hits.filter((h) => h.group !== CHAT_GROUP_MESSAGES)
+  return [...names.slice(0, GROUP_SIZE - 1), messages[0]]
+}
+
 /** 검색어와 무관한 목록 캐시 유지 시간 — 검색어를 바꿔 칠 때마다 다시 받지 않게. */
 const LIST_STALE_MS = 10_000
 
@@ -97,22 +117,14 @@ const includesIgnoreCase = (text: string, q: string) => text.toLowerCase().inclu
 
 // ── 대화(채널·DM) ──────────────────────────────────────────────
 
-/** 대화 cursor — 첫 쪽에서 받아 만든 전체 목록 중 아직 안 보여 준 나머지. 다음 쪽은 이것만 자르고 요청하지 않는다. */
+/** 대화 cursor — 이름 결과는 첫 쪽에서 다 냈으므로 다음 쪽은 메시지만 서버 커서(마지막 행의 createdAt·id)로 이어 받는다. */
 interface ChatCursor {
-  rest: SearchHit[]
+  msg: MessageSearchCursor
 }
 
 /** cursor 가 ChatCursor 인가(첫 쪽은 null). */
 function isChatCursor(cursor: unknown): cursor is ChatCursor {
-  return typeof cursor === 'object' && cursor !== null && 'rest' in cursor
-}
-
-/** 전체 목록에서 size 건만 한 쪽으로 자르고 나머지는 cursor 에 싣는다. */
-function pageOf(all: SearchHit[], size: number): SearchPage {
-  return {
-    hits: all.slice(0, size),
-    next: all.length > size ? ({ rest: all.slice(size) } satisfies ChatCursor) : null,
-  }
+  return typeof cursor === 'object' && cursor !== null && 'msg' in cursor
 }
 
 /** 채널 한 건의 hit — meta 는 「참여 중」/「공개」. */
@@ -123,27 +135,56 @@ function channelHit(c: { id: number; name: string }, meta: string): SearchHit {
     title: `# ${c.name}`,
     href: chatConversationPath(c.id, false),
     meta,
+    group: CHAT_GROUP_NAMES,
+  }
+}
+
+/** 메시지 한 건의 hit — 제목은 맞은 곳 주변 발췌, meta 는 채널이면 「# 이름」·DM 이면 상대 이름, 고르면 그 메시지로(답글이면 스레드 칸까지) 연다. */
+function messageHit(m: MessageSearchItem): SearchHit {
+  const dm = m.channelKind === 'DM'
+  return {
+    key: `chat:message:${m.id}`,
+    app: 'chat',
+    title: m.excerpt,
+    href: chatMessagePath({ channelId: m.channelId, dm, messageId: m.id, threadRootId: m.parentMessageId }),
+    meta: dm ? (m.channelName ?? '') : `# ${m.channelName ?? ''}`,
+    time: formatListTime(m.createdAt),
+    sender: m.authorName,
+    group: CHAT_GROUP_MESSAGES,
+  }
+}
+
+/** 메시지 한 쪽 → hit 들과 다음 쪽 cursor(더 없으면 null). 커서의 시각은 서버 문자열 그대로 싣는다(Date 로 바꾸면 마이크로초가 잘린다). */
+async function messagePage(q: string, before: MessageSearchCursor | null, size: number, signal?: AbortSignal): Promise<SearchPage> {
+  const res = await searchMessages(q, before, size, signal)
+  const last = res.items[res.items.length - 1]
+  return {
+    hits: res.items.map(messageHit),
+    next: res.hasMore && last ? ({ msg: { beforeAt: last.createdAt, beforeId: last.id } } satisfies ChatCursor) : null,
   }
 }
 
 /**
- * 내 채널·DM 이름(화면에서 거름 — 서버에 이름 검색이 없다)을 먼저, 그다음 가입 안 한 공개 채널(discover)을 보인다.
- * 서버가 쪽 나누기를 안 하므로 첫 쪽에서 한 번만 받아 전체 순서를 만들고, 나머지를 cursor 에 실어 다음 쪽은 요청 없이 자른다.
+ * 「채널·DM」 이름 결과 다음에 「메시지」 본문 결과를 잇는다(WP-1358).
+ * 이름: 내 채널·DM 이름(화면에서 거름 — 서버에 이름 검색이 없다)을 먼저, 그다음 가입 안 한 공개 채널(discover). 보통 몇 건뿐이라 첫 쪽에서 전부 낸다
+ * — 「전체」 탭 묶음(4건 요청)에서도 이름이 많아 메시지가 잘리지 않게 하려는 것이다.
+ * 메시지: 서버 검색 API 를 최신순 size 건씩 — 첫 쪽은 이름과 함께 받고, 다음 쪽부터는 메시지만 커서로 이어 받는다.
  * DM 이름 파생에 필요한 현재 사용자 id 는 deps.meId 로 받는다.
  */
 function createChatProvider({ queryClient: qc, meId }: SearchProviderDeps): SearchProvider {
   return {
     isSearchable: defaultSearchable,
     async fetchPage(q, cursor, size, signal) {
-      if (isChatCursor(cursor)) return pageOf(cursor.rest, size)
-      const [channels, dms, discovered] = await Promise.all([
+      if (isChatCursor(cursor)) return messagePage(q, cursor.msg, size, signal)
+      const [channels, dms, discovered, messages] = await Promise.all([
         cached(qc, messagingKeys.channels(), () => messagingApi.listChannels().then((r) => r.data)),
         cached(qc, messagingKeys.dms(), () => messagingApi.listDms().then((r) => r.data)),
         messagingApi.discoverChannels(q, signal).then((r) => r.data),
+        messagePage(q, null, size, signal),
       ])
       const mine = channels.filter((c) => c.member && !c.archived && includesIgnoreCase(c.name, q))
       const myIds = new Set(channels.filter((c) => c.member).map((c) => c.id))
-      const all: SearchHit[] = [
+      const names: SearchHit[] = [
         ...mine.map((c) => channelHit(c, '참여 중')),
         ...dms
           // 로그인 전(meId 없음)에는 어떤 참여자와도 안 겹치는 -1 — 팔레트는 로그인 뒤에만 뜨므로 실제로는 오지 않는다.
@@ -155,11 +196,12 @@ function createChatProvider({ queryClient: qc, meId }: SearchProviderDeps): Sear
             title: name,
             href: chatConversationPath(d.id, true),
             meta: '참여 중',
+            group: CHAT_GROUP_NAMES,
           })),
         // 내 채널 id 는 제외 — discover 가 같은 채널을 또 줘도 한 번만.
         ...discovered.filter((c) => !myIds.has(c.id)).map((c) => channelHit(c, '공개')),
       ]
-      return pageOf(all, size)
+      return { hits: [...names, ...messages.hits], next: messages.next }
     },
   }
 }

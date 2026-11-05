@@ -26,6 +26,7 @@ function emptyApis() {
     http.get(`${API}/wiki/search`, () => HttpResponse.json([])),
     http.get(`${API}/search/drive`, () => HttpResponse.json({ items: [], hasMore: false })),
     http.get(`${API}/search/ai-conversations`, () => HttpResponse.json({ items: [], hasMore: false })),
+    http.get(`${API}/search/messages`, () => HttpResponse.json({ items: [], hasMore: false })),
     http.get(`${API}/me/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
     http.get(`${API}/projects`, () =>
       HttpResponse.json({
@@ -568,4 +569,91 @@ test('전체 탭 묶음 — 캘린더 3건은 소제목·캘린더 이름 없이
   expect(group).not.toHaveTextContent('내 캘린더')
   expect(group).not.toHaveTextContent('(금)')
   expect(screen.getByTestId('global-search-more-calendar')).toBeInTheDocument()
+})
+
+/** 대화 탭(WP-1358) — 채널 이름 3건과 메시지 2건(채널 1·DM 답글 1)을 주는 핸들러. */
+const chatHandlers = () => [
+  http.get(`${API}/messaging/channels`, () =>
+    HttpResponse.json([1, 2, 3].map((id) => ({ id, name: `보고-${id}`, member: true, archived: false }))),
+  ),
+  http.get(`${API}/search/messages`, () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: 11,
+          channelId: 9,
+          channelKind: 'DM',
+          channelName: '김보고',
+          parentMessageId: null,
+          authorName: '김보고',
+          authorKind: 'HUMAN',
+          excerpt: '오늘 보고 자료 공유드릴게요',
+          createdAt: '2026-11-05T00:00:00.123456Z',
+        },
+        {
+          id: 8,
+          channelId: 1,
+          channelKind: 'CHANNEL',
+          channelName: '보고-1',
+          parentMessageId: 7,
+          authorName: '이답글',
+          authorKind: 'HUMAN',
+          excerpt: '보고 완료했습니다',
+          createdAt: '2026-11-04T00:00:00Z',
+        },
+      ],
+      hasMore: false,
+    }),
+  ),
+]
+
+test('대화 탭 — 「채널·DM」 다음 「메시지」 소제목, 메시지 줄은 보낸 사람·강조된 본문·# 채널/상대 이름', async () => {
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/chat',
+    handlers: [...chatHandlers(), ...emptyApis()],
+  })
+  const input = await openPalette(user)
+  expect(screen.getByTestId('global-search-tab-chat')).toHaveAttribute('aria-selected', 'true')
+  fireEvent.change(input, { target: { value: '보고' } })
+
+  const dmMsg = await screen.findByTestId('global-search-hit-chat:message:11')
+  expect(screen.getAllByTestId('global-search-subgroup').map((el) => el.textContent)).toEqual(['채널·DM', '메시지'])
+  expect(within(dmMsg).getByTestId('global-search-hit-sender')).toHaveTextContent('김보고')
+  expect(within(dmMsg).getAllByText('보고').some((el) => el.tagName === 'MARK')).toBe(true)
+  const reply = screen.getByTestId('global-search-hit-chat:message:8')
+  expect(reply).toHaveTextContent('# 보고-1')
+  expect(reply).toHaveAttribute('href', '/chat/channels/1?thread=7&message=8')
+  // 이름 줄은 보낸 사람이 없다.
+  expect(within(screen.getByTestId('global-search-hit-chat:channel:1')).queryByTestId('global-search-hit-sender')).toBeNull()
+})
+
+test('전체 탭 대화 묶음 — 이름 2건 + 메시지 1건, 소제목 없이', async () => {
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: [...chatHandlers(), ...emptyApis()],
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '보고' } })
+  await screen.findByTestId('global-search-hit-chat:message:11')
+  const group = screen.getByTestId('global-search-group-chat')
+  expect(within(group).getAllByRole('option').map((el) => el.getAttribute('data-testid'))).toEqual([
+    'global-search-hit-chat:channel:1',
+    'global-search-hit-chat:channel:2',
+    'global-search-hit-chat:message:11',
+  ])
+  expect(within(group).queryByTestId('global-search-subgroup')).toBeNull()
+  expect(screen.getByTestId('global-search-more-chat')).toBeInTheDocument()
+})
+
+test('전체 탭 대화 묶음 — 메시지만 2건이면 1건만 보이고 「대화에서 더 보기」가 뜬다', async () => {
+  const { user } = renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: [chatHandlers()[1], ...emptyApis()],
+  })
+  const input = await openPalette(user)
+  fireEvent.change(input, { target: { value: '보고' } })
+  await screen.findByTestId('global-search-hit-chat:message:11')
+  const group = screen.getByTestId('global-search-group-chat')
+  expect(within(group).getAllByRole('option')).toHaveLength(1)
+  expect(screen.getByTestId('global-search-more-chat')).toBeInTheDocument()
 })

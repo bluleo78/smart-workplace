@@ -1,4 +1,4 @@
-// 통합 검색 결과 한 줄(WP-1353) — 앱 아이콘 · 제목(일치 강조) · 오른쪽 meta · 둘째 줄 snippet.
+// 통합 검색 결과 한 줄(WP-1353) — 앱 아이콘 · [보낸 사람] · 제목(일치 강조) · 오른쪽 meta · 시각 · 둘째 줄 snippet.
 // 링크(<a>)라 가운데 클릭·⌘/Ctrl+클릭의 새 탭 열기가 자연스럽고, 일반 클릭은 앱 안 이동(navigate)으로 가로챈다.
 import type { MouseEvent } from 'react'
 
@@ -72,6 +72,12 @@ export function SearchResultRow({ hit, q, active, id, onPick, onHover, compact }
     >
       <span className="flex items-center gap-2">
         {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
+        {/* 메시지 결과(WP-1358)는 본문 앞에 보낸 사람을 작게·굵게 — 좁게 잘라 본문 자리를 남긴다. */}
+        {hit.sender && (
+          <span className="max-w-28 shrink-0 truncate text-xs font-medium" data-testid="global-search-hit-sender">
+            {hit.sender}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate">
           <Highlighted text={hit.title} q={q} />
         </span>
@@ -85,6 +91,12 @@ export function SearchResultRow({ hit, q, active, id, onPick, onHover, compact }
                 <span className="max-w-24 truncate">{tag.name}</span>
               </>
             )}
+          </span>
+        )}
+        {/* 메시지 결과는 「# 채널 · 시각」 처럼 meta 와 시각 사이에 점을 둔다 — 다른 행(AI 대화·캘린더)은 그대로. */}
+        {hit.sender && meta && hit.time && (
+          <span className="shrink-0 text-xs text-muted-foreground" aria-hidden>
+            ·
           </span>
         )}
         {hit.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{hit.time}</span>}

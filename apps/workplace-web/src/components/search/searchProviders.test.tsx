@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { formatListTime } from '@/lib/formatters'
 import { server } from '@/test/msw/server'
 
-import { createSearchProviders, dedupeHits } from './searchProviders'
+import { createSearchProviders, dedupeHits, pickGroupHits } from './searchProviders'
 
 const API = '/api/v1'
 
@@ -217,23 +217,49 @@ describe('mail', () => {
   })
 })
 
+/** 메시지 검색 결과 한 건 — 서버 응답 모양. */
+function msg(id: number, extra: object = {}) {
+  return {
+    id,
+    channelId: 1,
+    channelKind: 'CHANNEL',
+    channelName: '개발-공지',
+    parentMessageId: null,
+    authorName: '김보고',
+    authorKind: 'HUMAN',
+    excerpt: `개발 메시지 ${id}`,
+    createdAt: '2026-03-01T00:00:00.123456Z',
+    ...extra,
+  }
+}
+
+/** 메시지 검색 API 가짜 — 요청 쿼리(beforeAt·beforeId·size)를 남기고 정해 둔 쪽을 순서대로 돌려준다. */
+function messagesServer(pages: { items: object[]; hasMore: boolean }[], seen: URLSearchParams[] = []) {
+  let n = 0
+  return http.get(`${API}/search/messages`, ({ request }) => {
+    seen.push(new URL(request.url).searchParams)
+    return HttpResponse.json(pages[Math.min(n++, pages.length - 1)])
+  })
+}
+
+/** 이름 결과용 메시징 목록 가짜 — 기본은 빈 목록. */
+function namesServer(channels: object[] = [], dms: object[] = [], discovered: object[] = []) {
+  return [
+    http.get(`${API}/messaging/channels/discover`, () => HttpResponse.json(discovered)),
+    http.get(`${API}/messaging/channels`, () => HttpResponse.json(channels)),
+    http.get(`${API}/messaging/dms`, () => HttpResponse.json(dms)),
+  ]
+}
+
 describe('chat', () => {
   it('내 채널·DM 을 discover 보다 먼저, 내 채널은 discover 에서 중복 제거', async () => {
     server.use(
-      http.get(`${API}/messaging/channels/discover`, () =>
-        HttpResponse.json([
-          { id: 1, name: '개발-공지', member: false },
-          { id: 2, name: '개발-공개', member: false },
-        ]),
-      ),
-      http.get(`${API}/messaging/channels`, () =>
-        HttpResponse.json([
+      ...namesServer(
+        [
           { id: 1, name: '개발-공지', member: true, archived: false },
           { id: 3, name: '디자인', member: true, archived: false },
-        ]),
-      ),
-      http.get(`${API}/messaging/dms`, () =>
-        HttpResponse.json([
+        ],
+        [
           {
             id: 9,
             participants: [
@@ -241,14 +267,19 @@ describe('chat', () => {
               { userId: 6, name: '개발자 김' },
             ],
           },
-        ]),
+        ],
+        [
+          { id: 1, name: '개발-공지', member: false },
+          { id: 2, name: '개발-공개', member: false },
+        ],
       ),
+      messagesServer([{ items: [], hasMore: false }]),
     )
     const page = await providers().chat.fetchPage('개발', null, 20)
-    expect(page.hits.map((h) => [h.key, h.meta])).toEqual([
-      ['chat:channel:1', '참여 중'],
-      ['chat:dm:9', '참여 중'],
-      ['chat:channel:2', '공개'],
+    expect(page.hits.map((h) => [h.key, h.meta, h.group])).toEqual([
+      ['chat:channel:1', '참여 중', '채널·DM'],
+      ['chat:dm:9', '참여 중', '채널·DM'],
+      ['chat:channel:2', '공개', '채널·DM'],
     ])
     expect(page.hits[1]).toMatchObject({
       title: '개발자 김',
@@ -256,38 +287,94 @@ describe('chat', () => {
     })
     expect(page.next).toBeNull()
   })
+
+  it('이름 결과 뒤에 메시지 결과를 잇는다 — 보낸 사람·발췌·# 채널/DM 상대 이름·시각·딥링크', async () => {
+    server.use(
+      ...namesServer([{ id: 1, name: '개발-공지', member: true, archived: false }]),
+      messagesServer([
+        {
+          items: [
+            msg(11, { channelId: 2, channelKind: 'DM', channelName: '김보고', excerpt: '…개발 자료 공유…' }),
+            msg(8, { parentMessageId: 7, authorName: '에이전트', authorKind: 'AGENT' }),
+          ],
+          hasMore: false,
+        },
+      ]),
+    )
+    const page = await providers().chat.fetchPage('개발', null, 20)
+    expect(page.hits.map((h) => [h.key, h.group])).toEqual([
+      ['chat:channel:1', '채널·DM'],
+      ['chat:message:11', '메시지'],
+      ['chat:message:8', '메시지'],
+    ])
+    expect(page.hits[1]).toMatchObject({
+      title: '…개발 자료 공유…',
+      sender: '김보고',
+      meta: '김보고',
+      href: '/chat/dms/2?message=11',
+      time: formatListTime('2026-03-01T00:00:00.123456Z'),
+    })
+    // 스레드 답글은 루트로 스레드 칸까지 연다. 채널은 「# 이름」.
+    expect(page.hits[2]).toMatchObject({
+      sender: '에이전트',
+      meta: '# 개발-공지',
+      href: '/chat/channels/1?thread=7&message=8',
+    })
+    expect(page.next).toBeNull()
+  })
 })
 
 describe('chat 다음 쪽', () => {
-  it('첫 쪽에서 전체를 받아 두고 다음 쪽은 요청 없이 나머지를 자른다', async () => {
-    let calls = 0
+  it('다음 쪽은 이름 목록을 다시 받지 않고 메시지만 마지막 행의 createdAt(받은 문자열 그대로)·id 로 이어 받는다', async () => {
+    let nameCalls = 0
     const count = (body: JsonBodyType) => () => {
-      calls++
+      nameCalls++
       return HttpResponse.json(body)
     }
+    const seen: URLSearchParams[] = []
     server.use(
       http.get(`${API}/messaging/channels/discover`, count([])),
-      http.get(
-        `${API}/messaging/channels`,
-        count(
-          [1, 2, 3].map((id) => ({
-            id,
-            name: `팀-${id}`,
-            member: true,
-            archived: false,
-          })),
-        ),
-      ),
+      http.get(`${API}/messaging/channels`, count([{ id: 1, name: '팀-1', member: true, archived: false }])),
       http.get(`${API}/messaging/dms`, count([])),
+      messagesServer(
+        [
+          { items: [msg(30, { excerpt: '팀 30' }), msg(20, { excerpt: '팀 20', createdAt: '2026-03-01T00:00:00.654321Z' })], hasMore: true },
+          { items: [msg(10, { excerpt: '팀 10' })], hasMore: false },
+        ],
+        seen,
+      ),
     )
     const p1 = await providers().chat.fetchPage('팀', null, 2)
-    expect(p1.hits.map((h) => h.key)).toEqual(['chat:channel:1', 'chat:channel:2'])
+    expect(p1.hits.map((h) => h.key)).toEqual(['chat:channel:1', 'chat:message:30', 'chat:message:20'])
     expect(p1.next).not.toBeNull()
-    const callsAfterFirst = calls
+    const callsAfterFirst = nameCalls
     const p2 = await providers().chat.fetchPage('팀', p1.next, 2)
-    expect(calls).toBe(callsAfterFirst)
-    expect(p2.hits.map((h) => h.key)).toEqual(['chat:channel:3'])
+    expect(nameCalls).toBe(callsAfterFirst)
+    expect(p2.hits.map((h) => h.key)).toEqual(['chat:message:10'])
     expect(p2.next).toBeNull()
+    expect(seen[0].get('beforeAt')).toBeNull()
+    expect(seen[1].get('beforeAt')).toBe('2026-03-01T00:00:00.654321Z')
+    expect(seen[1].get('beforeId')).toBe('20')
+    expect(seen[1].get('size')).toBe('2')
+  })
+})
+
+describe('pickGroupHits', () => {
+  const h = (key: string, group?: string) => ({ key, app: 'chat' as const, title: key, href: '/', group })
+  const names = ['a', 'b', 'c'].map((k) => h(k, '채널·DM'))
+  const messages = ['m1', 'm2', 'm3'].map((k) => h(k, '메시지'))
+
+  it('대화 묶음은 이름 2 + 메시지 1', () => {
+    expect(pickGroupHits('chat', [...names, ...messages]).map((x) => x.key)).toEqual(['a', 'b', 'm1'])
+  })
+  it('메시지가 없으면 이름 3건, 메시지는 이름이 적어도 1건까지만', () => {
+    expect(pickGroupHits('chat', names).map((x) => x.key)).toEqual(['a', 'b', 'c'])
+    expect(pickGroupHits('chat', messages).map((x) => x.key)).toEqual(['m1'])
+    expect(pickGroupHits('chat', [names[0], ...messages]).map((x) => x.key)).toEqual(['a', 'm1'])
+  })
+  it('다른 묶음은 group 이 있어도 앞 3건(캘린더 소제목)', () => {
+    const cal = [h('x', '다가오는 일정'), h('y', '지난 일정'), h('z', '지난 일정'), h('w', '지난 일정')]
+    expect(pickGroupHits('calendar', cal).map((x) => x.key)).toEqual(['x', 'y', 'z'])
   })
 })
 
