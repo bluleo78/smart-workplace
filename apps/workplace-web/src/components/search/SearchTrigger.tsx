@@ -7,7 +7,7 @@ import { SearchPalette } from './SearchPalette'
 import { useSearchPalette } from './useSearchPalette'
 
 export function SearchTrigger() {
-  const { open, setOpen } = useSearchPalette()
+  const { open, setOpen, session } = useSearchPalette()
   return (
     <>
       <button
@@ -25,7 +25,8 @@ export function SearchTrigger() {
       >
         <Search className="h-4 w-4" aria-hidden />
       </button>
-      <SearchPalette open={open} onOpenChange={setOpen} />
+      {/* 다른 화면이 openSearchPalette({ q, app }) 로 연 검색어·탭도 이 팔레트가 받는다(WP-1356). */}
+      <SearchPalette open={open} onOpenChange={setOpen} session={session} />
     </>
   )
 }

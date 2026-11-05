@@ -158,13 +158,12 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['messaging-summary'] },
     { queryKey: driveKeys.spaces() },
   ],
-  // 콘텐츠(의미) 검색·파일 요약·썸네일은 재계산 비용이 커서 제외 — 목록·휴지통·이름 검색·용량·첨부 뷰만. spaceId 로만 무효화(ids 비의존).
+  // 콘텐츠(의미) 검색·파일 요약·썸네일은 재계산 비용이 커서 제외 — 목록·휴지통·용량·첨부 뷰만. spaceId 로만 무효화(ids 비의존).
   drive: (p) => [
     ...(p.spaceId != null
       ? [
           { queryKey: driveKeys.itemsAll(p.spaceId) },
           { queryKey: driveKeys.trash(p.spaceId) },
-          { queryKey: driveKeys.searchAll(p.spaceId) },
         ]
       : []),
     { queryKey: driveKeys.quota },

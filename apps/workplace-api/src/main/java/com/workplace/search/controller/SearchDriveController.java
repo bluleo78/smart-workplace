@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 통합 검색 팔레트(WP-1353)의 모든 공간 드라이브 이름 검색 API. 서비스만 부른다(RLS 트랜잭션은 서비스가 연다). */
+/** 통합 검색 팔레트(WP-1353)의 모든 공간 드라이브 이름·본문 검색 API(본문은 WP-1356). 서비스만 부른다(RLS 트랜잭션은 서비스가 연다). */
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -22,7 +22,10 @@ public class SearchDriveController {
 
   private final SearchDriveService service;
 
-  /** 호출자가 멤버인 모든 공간의 폴더·파일을 이름으로 찾는다. q 가 2자 미만이면 빈 결과. */
+  /**
+   * 호출자가 멤버인 모든 공간의 폴더·파일을 이름으로, 이어서 본문(추출 텍스트)이 맞은 파일을 찾는다. 이름 결과가 먼저이고 본문만 맞은 파일은 발췌(snippet)를 함께
+   * 준다. q 가 2자 미만이면 빈 결과.
+   */
   @GetMapping("/drive")
   public ResponseEntity<DriveNamePage> drive(
       @AuthenticationPrincipal Long callerId,

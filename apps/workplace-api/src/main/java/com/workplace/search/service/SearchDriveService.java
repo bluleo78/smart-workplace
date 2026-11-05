@@ -19,8 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 통합 검색 팔레트(WP-1353)의 드라이브 이름 검색 — 호출자가 멤버인 모든 공간을 한 번에 본다. 공간 이름 검색({@code DriveSearchService})과
- * 같은 규칙으로 검색어를 정리하고 결과마다 조상 폴더 경로를 붙이되, 경로는 결과 행의 조상 폴더만 재귀로 한 번에 읽어 만든다(건마다·공간 전체를 읽지 않는다).
+ * 통합 검색 팔레트(WP-1353)의 드라이브 검색 — 호출자가 멤버인 모든 공간을 한 번에 본다. 이름이 맞은 폴더·파일 다음에 본문(추출 텍스트)만 맞은 파일이 발췌와 함께
+ * 이어진다(WP-1356). 공간 이름 검색({@code DriveSearchService})과 같은 규칙으로 검색어를 정리하고 결과마다 조상 폴더 경로를 붙이되, 경로는 결과
+ * 행의 조상 폴더만 재귀로 한 번에 읽어 만든다(건마다·공간 전체를 읽지 않는다).
  */
 @Service
 @RequiredArgsConstructor
@@ -32,7 +33,7 @@ public class SearchDriveService {
   private final DriveNameSearchRepository nameSearch;
   private final DriveFolderRepository folders;
 
-  /** 이름 검색 한 페이지. RLS 가 드라이브 테이블을 막으므로 읽기 트랜잭션 안에서 돈다. size+1 건을 읽어 다음 페이지 유무를 판정한다. */
+  /** 이름·본문 검색 한 페이지. RLS 가 드라이브 테이블을 막으므로 읽기 트랜잭션 안에서 돈다. size+1 건을 읽어 다음 페이지 유무를 판정한다. */
   @Transactional(readOnly = true)
   public DriveNamePage search(long callerId, String q, int offset, int size) {
     // 저장 이름이 NFC 라 검색어도 NFC 로 맞춘다(맥에서 복사한 NFD 검색어 대응) — DriveSearchService 와 같다.
@@ -63,8 +64,20 @@ public class SearchDriveService {
                         r.folderId(),
                         r.name(),
                         r.mimeType(),
-                        DriveFolderPaths.pathOf(r.folderId(), byId)))
+                        DriveFolderPaths.pathOf(r.folderId(), byId),
+                        snippetOf(r)))
             .toList();
     return new DriveNamePage(items, hasMore);
+  }
+
+  /**
+   * 본문 발췌 한 줄 — 리포지토리가 맞은 곳 앞뒤로 잘라 온 창의 줄바꿈·연속 공백을 한 칸으로 펴고, 창 앞·뒤로 본문이 더 있으면 「…」를 붙인다. 이름이 맞은 결과(창
+   * 없음)는 null.
+   */
+  static String snippetOf(NameRow r) {
+    if (r.snippet() == null) return null;
+    String body = r.snippet().replaceAll("\\s+", " ").strip();
+    if (body.isEmpty()) return null;
+    return (r.snippetCutHead() ? "…" : "") + body + (r.snippetCutTail() ? "…" : "");
   }
 }

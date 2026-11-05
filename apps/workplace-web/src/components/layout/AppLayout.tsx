@@ -17,6 +17,7 @@ import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
+import { SearchPaletteHost } from '@/components/search/SearchPaletteHost'
 import { SearchTrigger } from '@/components/search/SearchTrigger'
 import { SendToChatHost } from '@/components/share/SendToChatHost'
 import { useShareHotkeys } from '@/components/share/useShareHotkeys'
@@ -131,6 +132,8 @@ export function AppLayout() {
                 {aiAvailable ? <AIChip /> : <SearchTrigger />}
               </TopCenterSlot>
             )}
+            {/* WP-1356: 모바일은 상단 🔍 트리거가 없어, 다른 화면이 openSearchPalette 로 연 팔레트를 그릴 호스트만 둔다. */}
+            {isMobile && <SearchPaletteHost />}
             {/* 메일 작성 도크 — fixed, 앱 전역. 처음 작성을 열 때 불러온다(WP-970). draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
             <LazyMailComposeDock />
             {/* WP-1235 「채팅·이슈로 보내기」 — 🔗 토스트·⋯·⬆︎ 시트가 openSendToChat 으로 연다. 셸 분기(isMobile) 밖에 둬 어느 화면에서나 뜬다. */}

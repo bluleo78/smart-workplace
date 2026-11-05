@@ -1,8 +1,8 @@
 // 드라이브 공간 화면(DrivePage) — 화면 컴포넌트 테스트(WP-971, WP-984).
-// 목록 열·폴더 만들기/이름 변경·업로드(여러 개·실패 사유·취소·사용량 갱신)·휴지통·검색(파일명·내용·AI Overview 시작/취소)·헤더 경로·
+// 목록 열·폴더 만들기/이름 변경·업로드(여러 개·실패 사유·취소·사용량 갱신)·휴지통·이 폴더 거르기(WP-1356)·헤더 경로·
 // 찾을 수 없는 공간·폴더 이동 창·썸네일 404 캐시·전환 중 목록 유지는 브라우저 없이 판정되므로
-// e2e/pages/drive/drive.spec.ts·drive-list-columns.spec.ts·drive-upload-failure-reason.spec.ts·drive-content-search.spec.ts·
-// drive-overview.spec.ts·drive-realtime.spec.ts 에서 옮겼다.
+// e2e/pages/drive/drive.spec.ts·drive-list-columns.spec.ts·drive-upload-failure-reason.spec.ts·drive-realtime.spec.ts 에서 옮겼다
+// (헤더 검색·AI Overview 는 WP-1356 에서 상단 통합 검색으로 옮겨 지웠다).
 // 화면 배선(라우트 → 페이지 → API)·호버/포커스 노출·토스트 겹침 같은 기하는 drive.spec.ts 의 E2E 가 지킨다.
 // DrivePage 만 renderScreen 으로 띄운다(testkit-b6 renderDrivePage — 풀페이지 라우트) — 사용량 갱신처럼 사이드바가 필요한 판정만 DriveSidebar 를 함께 띄운다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -10,6 +10,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
+import { closeSearchPalette, searchPaletteSession } from '@/components/search/searchPaletteStore'
 import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import type { renderScreen } from '@/test/renderScreen'
@@ -72,181 +73,91 @@ describe('목록 열', () => {
   })
 })
 
-describe('검색', () => {
-  const searchHit = {
-    folders: [{ id: 50, parentId: 9, name: 'report-archive', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-02-10T00:00:00Z', folderPath: '프로젝트' }],
-    files: [{ id: 60, folderId: 9, fileId: 100, name: 'report-final.txt', mimeType: 'text/plain', sizeBytes: 2048, category: 'TEXT', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-04-15T00:00:00Z', folderPath: '프로젝트/문서' }],
+describe('이 폴더 거르기 (WP-1356)', () => {
+  const items = {
+    folders: [createFolder({ id: 10, name: '문서함' }), createFolder({ id: 11, name: 'Report 보관' })],
+    files: [createFile({ id: 20, name: 'report-final.PDF' }), createFile({ id: 21, name: '예산안.xlsx' })],
   }
 
-  // 검색어 → q 파라미터, 결과(경로 포함)·3열 값, 폴더 결과를 누르면 그 폴더(folderId)로 간다.
-  test('검색어 입력 시 q 로 조회해 경로·크기·수정일과 함께 보이고, 폴더 결과를 누르면 그 폴더로 간다', async () => {
-    const qs: string[] = []
-    const { user, location } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, ({ request }) => {
-          qs.push(new URL(request.url).searchParams.get('q') ?? '')
-          return HttpResponse.json(searchHit)
-        }),
-        http.get(`${API}/search`, () => HttpResponse.json({ hits: [], semantic: false })),
-        http.get(`${API}/folders/50/path`, () => HttpResponse.json([{ id: 50, name: 'report-archive' }])),
-      ],
-    })
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('report')
-    const results = await screen.findByTestId('search-results')
-    await waitFor(() => expect(qs.at(-1)).toBe('report'))
-    expect(await within(results).findByText('report-final.txt')).toBeInTheDocument()
-    expect(within(results).getByText('프로젝트/문서')).toBeInTheDocument()
-    expect(within(screen.getByTestId('drive-column-header')).queryAllByRole('button')).toHaveLength(0)
-    const folderRow = await rowOf('report-archive')
-    expect(within(folderRow).getByText('—')).toBeInTheDocument()
-    expect(within(folderRow).getByText('2026-02-10')).toBeInTheDocument()
-    const fileRow = await rowOf('report-final.txt')
-    expect(within(fileRow).getByText('2.0 KB')).toBeInTheDocument()
-    expect(within(fileRow).getByText('2026-04-15')).toBeInTheDocument()
+  afterEach(() => closeSearchPalette())
 
-    await user.click(screen.getByRole('button', { name: /report-archive/ }))
-    await waitFor(() => expect(location()).toMatch(/folderId=50/))
-  })
-})
+  // 헤더의 「이 공간에서 검색」은 없어지고, 목록 위 깔때기 칸이 지금 폴더 항목을 이름으로(대소문자 무시) 좁히며 「N개 중 M개」를 알린다.
+  test('헤더 검색칸이 없고, 거르기를 치면 이름이 맞는 폴더·파일만 남고 남은 수가 보인다', async () => {
+    const { user } = await openDrive(items)
+    await screen.findByText('예산안.xlsx')
+    expect(screen.queryByLabelText('파일명 및 콘텐츠 검색')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('이 공간에서 검색...')).not.toBeInTheDocument()
+    const input = screen.getByTestId('drive-filter-input')
+    expect(input).toHaveAttribute('placeholder', '이름')
+    expect(input).toHaveAccessibleName('이 폴더 거르기')
+    // 거르기 글자가 없으면 남은 수도 없다.
+    expect(screen.queryByTestId('drive-filter-count')).not.toBeInTheDocument()
 
-describe('통합 검색(파일명 + 내용)', () => {
-  const contentHit = {
-    hits: [{ driveFileId: 1, fileId: 10, spaceId: SPACE_ID, spaceName: '내 드라이브', name: '예산안', mimeType: 'application/pdf', snippet: '내년도 <b>예산</b> 편성', score: 0.5 }],
-    semantic: true,
-  }
+    await user.click(input)
+    await user.paste('REPORT')
+    expect(screen.getByTestId('drive-filter-count')).toHaveTextContent('4개 중 2개')
+    expect(screen.getByTestId('drive-filter-count')).toHaveAttribute('role', 'status')
+    expect(screen.getByText('Report 보관')).toBeInTheDocument()
+    expect(screen.getByText('report-final.PDF')).toBeInTheDocument()
+    expect(screen.queryByText('문서함')).not.toBeInTheDocument()
+    expect(screen.queryByText('예산안.xlsx')).not.toBeInTheDocument()
 
-  /** 검색 입력에 값을 넣는다 — 디바운스 뒤 파일명·내용 검색이 함께 나간다. */
-  async function search(user: ReturnType<typeof renderScreen>['user'], q: string) {
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste(q)
-  }
+    // 전체 선택은 보이는 항목만 고른다 — 숨은 항목이 일괄 이동·삭제에 섞이지 않게.
+    await user.click(screen.getByRole('checkbox', { name: '전체 선택' }))
+    expect(within(screen.getByTestId('bulk-toolbar')).getByText('선택 2개')).toBeInTheDocument()
 
-  // 내용 일치 그룹에 스니펫(b 태그 제거)·공간 배지, 내용 검색은 현재 공간(spaceId)으로, 풀페이지라 AI Overview 버튼이 있다.
-  test('내용 일치 결과에 스니펫·공간 배지와 AI Overview 버튼을 보이고 spaceId 로 조회한다', async () => {
-    const contentUrls: URL[] = []
-    const { user } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [] })),
-        http.get(`${API}/search`, ({ request }) => {
-          contentUrls.push(new URL(request.url))
-          return HttpResponse.json(contentHit)
-        }),
-      ],
-    })
-    await search(user, '예산')
-    const results = await screen.findByTestId('drive-content-results')
-    expect(within(results).getByText('예산안')).toBeInTheDocument()
-    expect(within(results).getByText('내년도 예산 편성')).toBeInTheDocument()
-    expect(within(screen.getByTestId('drive-content-hit')).getByText('내 드라이브', { exact: true })).toBeInTheDocument()
-    expect(contentUrls.at(-1)?.searchParams.get('spaceId')).toBe(String(SPACE_ID))
-    expect(screen.getByTestId('drive-overview-btn')).toBeInTheDocument()
+    await user.clear(input)
+    expect(await screen.findByText('예산안.xlsx')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-filter-count')).not.toBeInTheDocument()
   })
 
-  // 2자 미만은 검색하지 않는다(디바운스가 지나도 요청·결과 화면 없음).
-  test('검색어 2자 미만은 검색을 실행하지 않는다', async () => {
-    let calls = 0
-    const { user } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        http.get(`${API}/search`, () => {
-          calls++
-          return HttpResponse.json({ hits: [], semantic: false })
-        }),
-      ],
-    })
-    await search(user, 'a')
-    // 디바운스(300ms)를 실제로 흘려보내야 「요청 없음」을 볼 수 있다.
-    await act(() => new Promise((r) => setTimeout(r, 450)))
-    expect(calls).toBe(0)
-    expect(screen.queryByTestId('search-results')).not.toBeInTheDocument()
+  // 0건이면 「조건에 맞는 항목이 없습니다」 + 필터 지우기 + 「드라이브 전체에서 찾기」 — 누르면 상단 검색을 그 검색어로 드라이브 탭에서 연다.
+  test('맞는 항목이 없으면 드라이브 전체에서 찾기가 상단 검색을 그 검색어·드라이브 탭으로 연다', async () => {
+    const { user } = await openDrive(items)
+    await screen.findByText('예산안.xlsx')
+    await user.click(screen.getByTestId('drive-filter-input'))
+    await user.paste('회의록')
+    const empty = await screen.findByTestId('drive-filter-empty')
+    expect(within(empty).getByText('조건에 맞는 항목이 없습니다')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-filter-count')).toHaveTextContent('4개 중 0개')
+    // 빈 폴더 안내(업로드 권유)와 섞이지 않는다 — 폴더는 비어 있지 않다.
+    expect(screen.queryByTestId('drive-empty-folder')).not.toBeInTheDocument()
+
+    expect(searchPaletteSession()).toBeNull()
+    await user.click(within(empty).getByRole('button', { name: '드라이브 전체에서 찾기' }))
+    expect(searchPaletteSession()).toMatchObject({ q: '회의록', app: 'drive' })
+
+    // 필터 지우기 — 목록이 돌아온다.
+    await user.click(within(empty).getByRole('button', { name: '필터 지우기' }))
+    expect(screen.getByTestId('drive-filter-input')).toHaveValue('')
+    expect(await screen.findByText('예산안.xlsx')).toBeInTheDocument()
   })
 
-  // 내용 검색이 500 이어도 로딩이 풀려 「결과 없음」 안내가 보인다(영구 숨김 방지). #789: 빈 상태 4요소 + 검색 초기화로 기본 목록 복귀.
-  test('내용 검색 실패에도 결과 없음 안내가 보이고, 검색 초기화로 기본 목록으로 돌아온다', async () => {
-    const { user } = await openDrive({ folders: [], files: [createFile({ id: 1, name: '기본목록.txt' })] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [] })),
-        http.get(`${API}/search`, () => HttpResponse.json({ status: 500, error: 'Internal Server Error', message: '검색 실패' }, { status: 500 })),
-      ],
-    })
-    await screen.findByText('기본목록.txt')
-    await search(user, '존재하지않는검색어')
-    const empty = await screen.findByTestId('drive-search-empty')
-    await waitFor(() => expect(empty).toHaveTextContent("'존재하지않는검색어'에 대한 결과가 없습니다."))
-    expect(empty).toHaveTextContent('다른 키워드로 검색해 보세요.')
-    await user.click(within(empty).getByTestId('drive-search-empty-reset'))
-    expect(screen.getByLabelText('파일명 및 콘텐츠 검색')).toHaveValue('')
-    expect(screen.queryByTestId('drive-search-empty')).not.toBeInTheDocument()
-    expect(await screen.findByText('기본목록.txt')).toBeInTheDocument()
+  // 한 글자는 상단 검색이 찾지 않는 길이라 「드라이브 전체에서 찾기」를 두지 않는다(필터 지우기만).
+  test('거르기가 한 글자면 드라이브 전체에서 찾기가 없다', async () => {
+    const { user } = await openDrive(items)
+    await screen.findByText('예산안.xlsx')
+    await user.click(screen.getByTestId('drive-filter-input'))
+    await user.paste('Z')
+    const empty = await screen.findByTestId('drive-filter-empty')
+    expect(within(empty).queryByRole('button', { name: '드라이브 전체에서 찾기' })).not.toBeInTheDocument()
+    expect(within(empty).getByRole('button', { name: '필터 지우기' })).toBeInTheDocument()
   })
 
-  // AI Overview — 버튼을 누르면 q 로 생성을 시작하고(생성 중 스피너), 결과 화면을 벗어나 카드가 사라지면 그 correlationId 를 취소(DELETE)한다.
-  // /events 로 델타가 쌓이는 것은 실제 SSE 라 E2E(@platform) 몫.
-  test('AI Overview 는 q 로 시작해 생성 중을 보이고, 카드가 사라지면 생성을 취소한다', async () => {
-    const starts: URL[] = []
-    const cancels: string[] = []
-    const { user } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [] })),
-        http.get(`${API}/search`, () => HttpResponse.json(contentHit)),
-        http.get(`${API}/search-overview`, ({ request }) => {
-          starts.push(new URL(request.url))
-          return HttpResponse.json({ correlationId: 'corr-pending' })
-        }),
-        http.delete(`${API}/search-overview/:id`, ({ params }) => {
-          cancels.push(String(params.id))
-          return HttpResponse.json({})
-        }),
-      ],
+  // 거르기는 지금 폴더에 대한 것 — 하위 폴더로 들어가면 비워져 그 폴더의 모든 항목이 보인다.
+  test('폴더를 옮기면 거르기가 비워진다', async () => {
+    const byFolder = (url: URL) =>
+      url.searchParams.get('parentId') === '10' ? { folders: [], files: [createFile({ id: 31, name: 'inner.txt', folderId: 10 })] } : items
+    const { user } = await openDrive(byFolder, {
+      handlers: [http.get(`${API}/folders/10/path`, () => HttpResponse.json([{ id: 10, name: '문서함' }]))],
     })
-    await search(user, '기획서')
-    await user.click(await screen.findByTestId('drive-overview-btn'))
-    const card = await screen.findByTestId('drive-overview-card')
-    await waitFor(() => expect(starts.at(-1)?.searchParams.get('q')).toBe('기획서'))
-    expect(card).toHaveTextContent('생성 중…')
-    expect(card.querySelector('svg.animate-spin')).not.toBeNull()
-
-    await user.clear(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await waitFor(() => expect(screen.queryByTestId('drive-overview-card')).not.toBeInTheDocument())
-    await waitFor(() => expect(cancels.at(-1)).toBe('corr-pending'))
-  })
-})
-
-describe('AI Overview 시간 초과', () => {
-  afterEach(() => vi.useRealTimers())
-
-  // #681: SSE 유실로 done/error 가 오지 않으면 클라이언트 타임아웃(125초) 뒤 카드가 오류 상태로 바뀐다.
-  // 125초 경계 자체는 src/api/overviewStream.test.ts 가 보고, 여기선 타임아웃 → 카드 오류 배선만 본다(시계는 가짜로 흘린다).
-  test('done/error 가 오지 않으면 시간 초과 오류를 보인다', async () => {
-    const cancels: string[] = []
-    const { user, unmount } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [] })),
-        http.get(`${API}/search`, () =>
-          HttpResponse.json({ hits: [{ driveFileId: 20, fileId: 500, spaceId: SPACE_ID, spaceName: '팀 공간', name: '기획서.txt', mimeType: 'text/plain', snippet: '핵심', score: 1 }], semantic: false }),
-        ),
-        http.get(`${API}/search-overview`, () => HttpResponse.json({ correlationId: 'corr-lost-sse' })),
-        http.delete(`${API}/search-overview/:id`, ({ params }) => {
-          cancels.push(String(params.id))
-          return HttpResponse.json({})
-        }),
-      ],
-    })
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('기획서')
-    const btn = await screen.findByTestId('drive-overview-btn')
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    await user.click(btn)
-    const card = await screen.findByTestId('drive-overview-card')
-    await waitFor(() => expect(card).toHaveTextContent('생성 중…'))
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(130_000)
-    })
-    await waitFor(() => expect(screen.getByTestId('drive-overview-card')).toHaveTextContent('생성 시간이 초과되었습니다.'))
-    // 화면이 내려가며 보내는 생성 취소(DELETE)를 이 테스트 안에서 받아 낸다 — 공통 정리(핸들러 초기화) 뒤에 도착하면
-    // 처리되지 않은 요청으로 다음 테스트를 실패시켰다(전체 실행에서만 가끔).
-    unmount()
-    await waitFor(() => expect(cancels).toContain('corr-lost-sse'))
+    await screen.findByText('예산안.xlsx')
+    await user.click(screen.getByTestId('drive-filter-input'))
+    await user.paste('문서')
+    await user.click(screen.getByRole('button', { name: '문서함' }))
+    expect(await screen.findByText('inner.txt')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-filter-input')).toHaveValue('')
+    expect(screen.queryByTestId('drive-filter-count')).not.toBeInTheDocument()
   })
 })
 
@@ -542,7 +453,7 @@ describe('휴지통', () => {
     fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
     expect(screen.getByTestId('drive-dropzone').style.outline).toBe('')
     // 커서만 금지로 바뀌고 끝나지 않게 왜 놓을 수 없는지 알린다(WP-1167).
-    expect(await screen.findByText('검색·휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.')).toBeInTheDocument()
+    expect(await screen.findByText('휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.')).toBeInTheDocument()
     dropFile()
     await user.click(screen.getByTestId('trash-toggle'))
     await screen.findByTestId('drive-new-folder')
@@ -768,90 +679,5 @@ describe('미리보기', () => {
     await user.click(await screen.findByRole('button', { name: 'photo.png' }))
     const body = await screen.findByTestId('preview-body')
     await waitFor(() => expect(body.querySelector('img')).not.toBeNull())
-  })
-})
-
-describe('검색 결과 화면의 만들기·놓기 (WP-1101)', () => {
-  const searchHandlers = [
-    http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [createFile({ id: 41, name: '예산안.pdf' })] })),
-    http.get(`${API}/search`, () => HttpResponse.json({ hits: [], semantic: false })),
-  ]
-
-  // 결과 화면에서 만들면 보이지 않는 지금 폴더에 알림 없이 생겼다 — 휴지통처럼 새 폴더·업로드를 감추고, 검색을 지우면 다시 보인다.
-  test('검색 결과 화면에서는 새 폴더·업로드 단추가 없고, 검색을 지우면 다시 보인다', async () => {
-    const { user } = await openDrive({ folders: [], files: [] }, { handlers: searchHandlers })
-    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('예산')
-    expect(await within(await screen.findByTestId('search-results')).findByText('예산안.pdf')).toBeInTheDocument()
-    expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
-    await user.clear(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    expect(await screen.findByTestId('drive-new-folder')).toBeInTheDocument()
-    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
-  })
-
-  // 검색어를 친 직후(결과가 오기 전)에도 업로드를 막는다 — 곧 결과 화면이 덮어 보이지 않는 폴더에 생긴다.
-  test('검색어를 친 직후 결과가 오기 전에도 새 폴더·업로드가 없다', async () => {
-    const { user } = await openDrive({ folders: [], files: [] }, {
-      // 결과를 늦게 준다 — 디바운스·조회 중인 틈을 본다.
-      handlers: [http.get(`${API}/spaces/${SPACE_ID}/search`, () => new Promise<Response>(() => {})), http.get(`${API}/search`, () => new Promise<Response>(() => {}))],
-    })
-    // 빈 폴더 화면의 「업로드」도 머리 단추처럼 막힌다 — 남아 있으면 눌러 보이지 않는 폴더에 올렸다(WP-1167).
-    expect(await screen.findByTestId('drive-empty-upload')).toBeInTheDocument()
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('예산')
-    expect(screen.queryByTestId('search-results')).not.toBeInTheDocument()
-    expect(screen.getByTestId('drive-empty-folder')).toBeInTheDocument()
-    expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('drive-empty-upload')).not.toBeInTheDocument()
-  })
-
-  // 파일명 검색이 실패하면 결과 화면이 오지 않고 폴더 보기 그대로다 — 만들기·업로드를 숨길 까닭이 없다(WP-1167).
-  test('파일명 검색이 실패하면 폴더 보기의 새 폴더·업로드가 다시 보인다', async () => {
-    const { user } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ message: '검색 실패' }, { status: 500 })),
-        http.get(`${API}/search`, () => HttpResponse.json({ hits: [], semantic: false })),
-      ],
-    })
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('예산')
-    expect(await screen.findByTestId('drive-new-folder')).toBeInTheDocument()
-    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
-    expect(screen.getByTestId('drive-empty-upload')).toBeInTheDocument()
-    expect(screen.queryByTestId('search-results')).not.toBeInTheDocument()
-  })
-
-  // 결과 화면에 파일을 놓아도 올리지 않고 놓기 테두리도 없다. 드라이브 뷰에서는 테두리가 생기고 올린다(대조).
-  test('검색 결과 화면에 놓으면 올리지 않고, 폴더 보기에서는 테두리가 생기고 올린다', async () => {
-    let posts = 0
-    const { user } = await openDrive({ folders: [], files: [] }, {
-      handlers: [
-        ...searchHandlers,
-        http.post(`${API}/spaces/${SPACE_ID}/files`, () => {
-          posts += 1
-          return HttpResponse.json(createFile({ id: 30 }), { status: 201 })
-        }),
-      ],
-    })
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('예산')
-    await within(await screen.findByTestId('search-results')).findByText('예산안.pdf')
-    fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
-    expect(screen.getByTestId('drive-dropzone').style.outline).toBe('')
-    // 커서만 금지로 바뀌고 끝나지 않게 왜 놓을 수 없는지 알린다(WP-1167).
-    expect(await screen.findByText('검색·휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.')).toBeInTheDocument()
-    dropFile()
-
-    await user.clear(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await screen.findByTestId('drive-new-folder')
-    fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
-    expect(screen.getByTestId('drive-dropzone').style.outline).not.toBe('')
-    dropFile()
-    await waitFor(() => expect(posts).toBe(1))
-    expect(await screen.findByText(/업로드 완료/)).toBeInTheDocument()
-    expect(posts).toBe(1)
   })
 })

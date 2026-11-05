@@ -307,11 +307,10 @@ describe('규칙 키 값 고정', () => {
     ]);
   });
 
-  it('drive → 공간 prefix(items·trash·search) + quota·첨부·백링크', () => {
+  it('drive → 공간 prefix(items·trash) + quota·첨부·백링크', () => {
     expect(keys({ resource: 'drive', op: 'updated', spaceId: 2 })).toEqual([
       { queryKey: ['drive', 'items', 2] },
       { queryKey: ['drive', 'trash', 2] },
-      { queryKey: ['drive', 'search', 2] },
       { queryKey: ['drive', 'quota'] },
       { queryKey: ['drive-attachments'] },
       { queryKey: ['drive-file-backlinks'] },

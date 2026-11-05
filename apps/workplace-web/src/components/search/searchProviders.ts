@@ -315,6 +315,8 @@ const driveProvider: SearchProvider = {
       // 파일은 담긴 폴더에서 미리보기로, 폴더는 그 폴더 자체를 연다.
       href: i.kind === 'FILE' ? driveFilePath(i.spaceId, i.folderId, i.id) : driveFolderPath(i.spaceId, i.id),
       meta: i.folderPath ? `${i.spaceName} › ${i.folderPath}` : i.spaceName,
+      // 본문만 맞은 파일(WP-1356) — 제목에 검색어가 없어 둘째 줄에 맞은 곳을 「본문: …」로 보인다. 서버가 평문으로 준다.
+      ...(i.snippet ? { snippet: i.snippet, snippetLabel: '본문' } : {}),
     }))
     return { hits, next: res.hasMore ? offset + size : null }
   },

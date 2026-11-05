@@ -1,6 +1,6 @@
 // 통합 검색 팔레트(WP-1353) 화면 테스트 — 트리거·탭·「전체」 묶음·키보드·최근 검색·AI 요청·빈/실패 상태.
 // 앱별 API 는 MSW 로 모킹한다(앱을 가리지 않고 같은 기본 핸들러에서 시작해 필요한 것만 덮어쓴다).
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -8,6 +8,8 @@ import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { renderScreen } from '@/test/renderScreen'
 
 import { loadRecent, pushRecent } from './recentSearches'
+import { SearchPaletteHost } from './SearchPaletteHost'
+import { closeSearchPalette, openSearchPalette, searchPaletteSession } from './searchPaletteStore'
 import { SearchTrigger } from './SearchTrigger'
 
 // AI 표면은 공급자 없이 훅 결과만 바꿔 끼운다(실제 Provider 는 앱 셸 전체에 의존).
@@ -102,6 +104,51 @@ test('트리거를 누르면 가운데 팔레트가 열리고 노트 경로에�
   expect(input).toHaveFocus()
   expect(screen.getByTestId('global-search-tab-wiki')).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByTestId('global-search-tab-all')).toHaveAttribute('aria-selected', 'false')
+})
+
+// WP-1356: 다른 화면(드라이브 「드라이브 전체에서 찾기」)이 검색어·탭을 정해 연다 — 입력에 그 검색어가 들어가 바로 찾고, 그 앱 탭이 골라진다.
+test('openSearchPalette 로 열면 그 검색어가 입력되고 고른 앱 탭에서 바로 찾는다', async () => {
+  const seen: string[] = []
+  renderScreen(<SearchTrigger />, {
+    path: '/',
+    handlers: [
+      http.get(`${API}/search/drive`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('q') ?? '')
+        return HttpResponse.json({
+          items: [{ kind: 'FILE', id: 7, spaceId: 2, spaceName: '팀', folderId: null, name: '보고서.docx', mimeType: null, folderPath: '', snippet: '…올해 배포 계획…' }],
+          hasMore: false,
+        })
+      }),
+      ...emptyApis(),
+    ],
+  })
+  expect(screen.queryByTestId('global-search')).toBeNull()
+  act(() => openSearchPalette({ q: '배포', app: 'drive' }))
+  const input = await screen.findByTestId('global-search-input')
+  expect(input).toHaveValue('배포')
+  // 홈(지금 앱 없음)이라 평소엔 「전체」지만, 바깥이 정한 드라이브 탭에서 시작한다.
+  expect(screen.getByTestId('global-search-tab-drive')).toHaveAttribute('aria-selected', 'true')
+  const row = await screen.findByRole('option', { name: /보고서\.docx/ })
+  // 본문만 맞은 파일은 둘째 줄에 「본문: 발췌」.
+  expect(row).toHaveTextContent('본문: …올해 배포 계획…')
+  expect(seen).toContain('배포')
+
+  // Esc 로 닫으면 스토어도 닫힌다 — 다음에 열 때 옛 검색어가 남지 않는다.
+  fireEvent.keyDown(input, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByTestId('global-search')).toBeNull())
+  expect(searchPaletteSession()).toBeNull()
+})
+
+// WP-1356: 모바일 셸에는 🔍 트리거가 없어 호스트가 팔레트만 그린다 — 바깥에서 열면 뜨고, 「/」 단축키는 걸지 않는다.
+test('트리거 없는 호스트는 openSearchPalette 로만 열리고 「/」 로는 열리지 않는다', async () => {
+  renderScreen(<SearchPaletteHost />, { path: '/drive/spaces/1', handlers: [http.get(`${API}/search/drive`, () => HttpResponse.json({ items: [], hasMore: false })), ...emptyApis()] })
+  fireEvent.keyDown(document.body, { key: '/' })
+  expect(screen.queryByTestId('global-search')).toBeNull()
+  act(() => openSearchPalette({ q: '회의록', app: 'drive' }))
+  expect(await screen.findByTestId('global-search-input')).toHaveValue('회의록')
+  expect(screen.getByTestId('global-search-tab-drive')).toHaveAttribute('aria-selected', 'true')
+  act(() => closeSearchPalette())
+  await waitFor(() => expect(screen.queryByTestId('global-search')).toBeNull())
 })
 
 test('홈에서는 전체 탭 — 묶음이 정해진 순서로, 묶음당 3건이고 「노트에서 더 보기」가 노트 탭으로 간다', async () => {
