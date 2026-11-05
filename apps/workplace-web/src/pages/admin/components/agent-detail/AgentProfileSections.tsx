@@ -168,7 +168,7 @@ export function AgentRolesSection({ agent }: { agent: AgentResponse }) {
 
 /**
  * 맡은 일과 지시 — 맡은 일(설명, WP-455)은 다른 AI 가 일을 맡길 상대를 고를 때 읽고, 지시(WP-1077)는 이 AI 가 이슈를 맡을 때마다 따른다.
- * 기본 방식은 지시를 읽지 않아 칸을 막고 이유를 보인다(적힌 지시는 지우지 않는다 — 다른 방식으로 바꾸면 다시 따른다).
+ * 지시는 실행 방식(기본·외부·작업 공간)과 상관없이 따르므로 칸을 늘 열어 둔다(WP-1368 — 예전엔 기본 방식에서 막았다). 개인 비서만 주인이 정해 막는다.
  */
 export function AgentDutySection({ agent }: { agent: AgentResponse }) {
   const rename = useRenameAgent();
@@ -177,9 +177,9 @@ export function AgentDutySection({ agent }: { agent: AgentResponse }) {
   const [description, setDescription] = useState(savedDescription);
   const [instructions, setInstructions] = useState(savedInstructions);
   const personal = agent.type === 'PERSONAL';
-  // 기본 방식(서버가 바로 답함)은 지시를 읽지 않는다 — 저장할 때도 지시는 보내지 않아 그대로 둔다.
-  const instructionsOff = agent.runMode === 'SERVER';
-  const dirty = description.trim() !== savedDescription || (!instructionsOff && instructions.trim() !== savedInstructions);
+  // 맡은 일이나 지시 중 하나라도 저장된 값과 다르면 저장할 수 있다(지시는 실행 방식과 상관없이 따른다, WP-1368).
+  const instructionsChanged = instructions.trim() !== savedInstructions;
+  const dirty = description.trim() !== savedDescription || instructionsChanged;
 
   return (
     <SettingsSection
@@ -215,16 +215,12 @@ export function AgentDutySection({ agent }: { agent: AgentResponse }) {
           value={instructions}
           maxLength={AGENT_INSTRUCTIONS_MAX}
           rows={6}
-          disabled={personal || instructionsOff}
-          aria-describedby={instructionsOff ? 'agent-instructions-help' : undefined}
-          placeholder={personal || instructionsOff ? undefined : '예:\n- 기획 이슈는 반드시 다른 서비스 사례를 조사해 근거와 링크를 붙인다.\n- 화면이 바뀌면 바뀌기 전·후 시안을 함께 올린다.'}
+          disabled={personal}
+          placeholder={personal ? undefined : '예:\n- 기획 이슈는 반드시 다른 서비스 사례를 조사해 근거와 링크를 붙인다.\n- 화면이 바뀌면 바뀌기 전·후 시안을 함께 올린다.'}
           onChange={(e) => setInstructions(e.target.value)}
         />
-        <div className="flex items-start justify-between gap-3">
-          {/* 막힌 이유만 남긴다 — 지시가 무엇인지는 설정 가이드에 있다. */}
-          <p id="agent-instructions-help" className="text-xs text-muted-foreground">
-            {instructionsOff ? '기본 방식은 지시를 읽지 않아요. 외부·Claude Code 로 바꾸면 따라요.' : null}
-          </p>
+        {/* 지시가 무엇인지는 설정 가이드에 있다 — 맡은 일 칸처럼 글자 수만 남긴다. */}
+        <div className="flex justify-end">
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {instructions.length} / {AGENT_INSTRUCTIONS_MAX}
           </span>
@@ -241,7 +237,9 @@ export function AgentDutySection({ agent }: { agent: AgentResponse }) {
               name: agent.name,
               // 빈 문자열이면 서버가 지운다(빼면 그대로 둔다).
               description: description.trim(),
-              ...(instructionsOff ? {} : { instructions: instructions.trim() }),
+              // 지시는 저장된 값과 달라졌을 때만 보낸다 — 빈 문자열이면 서버가 지우고, 빼면 서버가 저장된 값을 그대로 둔다.
+              // WP-1368: 맡은 일만 고쳤는데 화면을 연 뒤 다른 곳(다른 관리자·주인)에서 바뀐 지시를 옛 값으로 덮어쓰지 않게 한다.
+              ...(instructionsChanged ? { instructions: instructions.trim() } : {}),
             })
           }
         >

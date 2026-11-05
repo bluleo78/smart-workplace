@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // opencode 스폰(opencode-spawn.js)을 모킹해 실제 프로세스 스폰/데이터 디렉터리 격리 없이 이벤트
@@ -66,6 +68,10 @@ vi.mock('./bridge-registry.js', () => ({
 // 실제 풀을 쓰면 테스트 간 캐시된 서버 handle 이 새어나갈 수 있으므로 모킹한다. 기본 구현은
 // spawn() 을 그대로 호출하는 패스스루(캐시 미스처럼 동작) — 풀 자체의 캐싱/TTL/축출 로직은
 // opencode-server-pool.test.ts 에서 별도로 검증한다.
+// WP-1368: 풀 키 끝에 붙는 시스템 프롬프트 해시 — baseInput 의 systemPrompt('sys') 기준 sha256 앞 12자리.
+const promptKey = (prompt: string): string => createHash('sha256').update(prompt).digest('hex').slice(0, 12);
+const SYS_KEY = promptKey('sys');
+
 const { acquireServer, releaseServer, evictServer } = vi.hoisted(() => ({
   acquireServer: vi.fn((_key: string, spawn: () => Promise<unknown>) => spawn()),
   releaseServer: vi.fn(),
@@ -938,10 +944,31 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     await handle.done;
 
-    const expectedKey = '7:issue:42:-:openai/gpt-5:true';
+    const expectedKey = `7:issue:42:-:openai/gpt-5:true:${SYS_KEY}`;
     expect(acquireServer).toHaveBeenCalledWith(expectedKey, expect.any(Function));
     expect(releaseServer).toHaveBeenCalledWith(expectedKey);
     expect(serverClose).not.toHaveBeenCalled(); // 풀 대상이므로 서버 자체는 닫지 않음
+  });
+
+  // WP-1368: 시스템 프롬프트(AI 별 지시 포함)는 스폰 때 config 에 고정된다 — 지시를 고치면 옛 서버를 재사용하지 않아야 한다.
+  it('시스템 프롬프트가 다르면 풀 키가 달라지고, 같으면 같은 키로 재사용한다(WP-1368)', async () => {
+    const mcp = { client: {} as unknown as WorkplaceApiClient, profile: 'issue' as const, onBehalfOfId: 42 };
+    const runWith = async (systemPrompt: string) => {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+      await new OpencodeRunner().stream(baseInput({ agentId: 7, model: 'openai/gpt-5', mcp, systemPrompt }), () => {}).done;
+    };
+
+    await runWith('sys\n\n## 이 AI 의 지시\n옛 지시');
+    await runWith('sys\n\n## 이 AI 의 지시\n옛 지시');
+    await runWith('sys\n\n## 이 AI 의 지시\n새 지시');
+
+    const keys = acquireServer.mock.calls.map((c) => c[0]);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toBe(keys[1]); // 같은 프롬프트 → 같은 키(웜 서버 재사용)
+    expect(keys[2]).not.toBe(keys[0]); // 지시가 바뀌면 → 다른 키(새 서버)
+    expect(keys[2]).toBe(`7:issue:42:-:openai/gpt-5:true:${promptKey('sys\n\n## 이 AI 의 지시\n새 지시')}`);
   });
 
   // WP-259: 테넌트는 stdio MCP env 로 고정되므로 같은 사용자라도 테넌트가 다르면 다른 서버를 써야 한다.
@@ -953,7 +980,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const mcp = { client: {} as unknown as WorkplaceApiClient, profile: 'issue' as const, onBehalfOfId: 42, onBehalfOfTenantId: 5 };
     await new OpencodeRunner().stream(baseInput({ agentId: 7, model: 'openai/gpt-5', mcp }), () => {}).done;
 
-    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:5:openai/gpt-5:true', expect.any(Function));
+    expect(acquireServer).toHaveBeenCalledWith(`7:issue:42:5:openai/gpt-5:true:${SYS_KEY}`, expect.any(Function));
   });
 
   it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
@@ -971,7 +998,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
       undefined,
     );
     expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false, limit: undefined });
-    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:false', expect.any(Function));
+    expect(acquireServer).toHaveBeenCalledWith(`7:issue:42:-:openai/gpt-5:false:${SYS_KEY}`, expect.any(Function));
   });
 
   // WP-250: provider /models 의 컨텍스트 한도가 있으면 config 의 모델 limit 으로 넘기고, 같은 한도의 서버만 재사용하도록 풀 키에 넣는다.
@@ -990,7 +1017,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
       vision: true,
       limit: { context: 262128, output: 131072 },
     });
-    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:true:262128/131072', expect.any(Function));
+    expect(acquireServer).toHaveBeenCalledWith(`7:issue:42:-:openai/gpt-5:true:262128/131072:${SYS_KEY}`, expect.any(Function));
   });
 
   it('호출자가 판단한 opencodeVision 을 넘기면 그 값을 판단에 넘겨 config 에 쓴다', async () => {
@@ -1118,7 +1145,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     await handle.done;
 
-    const expectedKey = '1:assistant:9:-:openai/gpt-5:true';
+    const expectedKey = `1:assistant:9:-:openai/gpt-5:true:${SYS_KEY}`;
     expect(evictServer).toHaveBeenCalledWith(expectedKey);
     expect(acquireServer).toHaveBeenCalledTimes(2);
     expect(acquireServer).toHaveBeenNthCalledWith(1, expectedKey, expect.any(Function));
@@ -1140,7 +1167,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
   });
 
   it('재시도로 새로 스폰한 서버까지 session.create 가 실패하면 evictServer 가 2회 호출된다(깨진 서버를 캐시에 남기지 않음)', async () => {
-    const expectedKey = '1:assistant:9:-:openai/gpt-5:true';
+    const expectedKey = `1:assistant:9:-:openai/gpt-5:true:${SYS_KEY}`;
     sessionCreate
       .mockResolvedValueOnce({ data: undefined, error: { message: 'stale connection' } })
       .mockResolvedValueOnce({ data: undefined, error: { message: 'still stale after retry' } });

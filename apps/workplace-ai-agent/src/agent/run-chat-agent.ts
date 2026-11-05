@@ -4,6 +4,7 @@ import { rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
+import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { withSharedMemory } from './shared-memory-block.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
@@ -149,6 +150,8 @@ export async function runChatAgent(
     return;
   }
 
+  const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
+
   // per-run 임시폴더 — 첨부 다운로드 + Read cwd(opencode 허용 범위는 opencode-config 참고).
   const workDir = createAttachmentWorkDir(agentId, p.threadId);
 
@@ -174,10 +177,13 @@ export async function runChatAgent(
       // 첨부 표현이 모델의 비전 지원에 달려 있어 첨부 준비보다 먼저 정한다.
       const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
       // 이슈 첨부 목록은 메시지 조회와 병렬로 1회만 받는다(대기 루프에서는 메시지만 다시 받음). 비전 판단도 함께.
-      const [firstRecent, issue, opencodeVision] = await Promise.all([
+      // WP-1368: 이 AI 의 지시도 같은 묶음에서 실행마다 한 번 읽는다 — 'started' 앞에 왕복을 하나 더 두지 않으려고 병렬로 받는다.
+      // fetchAgentInstructions 는 실패해도 throw 하지 않고 null(지시 없이 진행)이라 Promise.all 을 깨지 않는다.
+      const [firstRecent, issue, opencodeVision, instructions] = await Promise.all([
         deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH),
         fetchIssueAttachments(deps.client, agentId, p.threadId),
         opencodeVisionFor(credential, model),
+        fetchAgentInstructions(deps.client, agentId, logTag),
       ]);
       const reader = attachmentReader(credential, opencodeVision);
       // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. 로컬로 볼 수 있는 원본만 workDir 에 받는다
@@ -202,7 +208,6 @@ export async function runChatAgent(
       const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
       const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
-      const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
       // WP-244: 모델(특히 opencode)이 답을 다 써 놓고 add_chat_message 없이 평문으로 끝내면 사용자는 아무것도 못 받는다.
       // 도구 호출 여부와 마지막 result 를 기억해 두었다가, 정상 종료인데 답변 등록이 없으면 그 평문을 대신 올린다.
       let replied = false;
@@ -216,7 +221,7 @@ export async function runChatAgent(
       const handle = runnerFor(credential).stream(
         {
           userMessage,
-          systemPrompt: CHAT_SYSTEM_PROMPT,
+          systemPrompt: withAgentInstructions(CHAT_SYSTEM_PROMPT, instructions),
           model,
           maxTurns,
           credential,

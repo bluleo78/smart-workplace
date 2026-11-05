@@ -1,6 +1,7 @@
 // envelope → AGENT id 결정 → token fetch → 인-프로세스 SDK 실행(#462 슬라이스5).
 // 이 앱의 마지막 CLI 의존 기능 경로를 sdk-runner + 인-프로세스 MCP 로 전환. 모든 호출에 agentId 명시.
 import { SYSTEM_PROMPT } from './system-prompt.js';
+import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { buildUserMessage } from './user-message.js';
 import { withSharedMemory } from './shared-memory-block.js';
 import { runnerFor } from './agent-runner.js';
@@ -60,6 +61,11 @@ export async function runAgent(
     }
   };
 
+  const logTag = `agent:${envelope.type}:${issueKey}:${agentId}`;
+  // WP-1368: 이 AI 의 지시 — 실행마다 한 번 읽어 시스템 프롬프트 맨 뒤에 붙인다. 자격증명 요청과 함께 내보내 실행 시작을 늦추지 않는다.
+  // 실패해도 reject 하지 않고 null(지시 없이 진행)이라, 자격증명이 실패해 실행을 생략할 때는 기다리지 않고 버려도 된다.
+  const instructionsPromise = fetchAgentInstructions(deps.client, agentId, logTag);
+
   let credential: ProviderCredential;
   try {
     credential = await deps.client.getProviderCredential(agentId);
@@ -82,7 +88,6 @@ export async function runAgent(
 
   // WP-386: 공용 메모리(조직 + 그 프로젝트) 블록을 요청문 맨 앞에 — 개인 메모리는 싣지 않는다(WP-381 원칙).
   const userMessage = withSharedMemory(envelope.payload, buildUserMessage(envelope));
-  const logTag = `agent:${envelope.type}:${issueKey}:${agentId}`;
 
   // fire-and-forget — 델타 미소비. collect 가 완료까지 순회하고 timeout/result.is_error 시 throw →
   // 끝 보고(막힘)를 보낸 뒤 다시 던져 event-handler 의 .catch 가 로깅(현행 CLI 와 동일한 실패 처리).
@@ -97,9 +102,11 @@ export async function runAgent(
   const started = report({ phase: 'STARTED', ok: true });
   let finish: RunReport = { phase: 'FINISHED', ok: false, note: RUN_ERROR_NOTE };
   try {
+    // WP-1368: 앞서 내보낸 지시 조회를 여기서 받는다 — 시작 보고는 이미 나갔고, try 안이라 끝 보고도 늘 나간다.
+    const instructions = await instructionsPromise;
     const events = await runnerFor(credential).collect({
       userMessage,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: withAgentInstructions(SYSTEM_PROMPT, instructions),
       model,
       maxTurns,
       credential,

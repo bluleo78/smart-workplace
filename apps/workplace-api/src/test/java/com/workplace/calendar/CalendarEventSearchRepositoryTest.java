@@ -16,6 +16,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -36,7 +37,8 @@ class CalendarEventSearchRepositoryTest extends IntegrationTestBase {
   private static final OffsetDateTime BASE = OffsetDateTime.parse("2026-06-10T09:00:00Z");
 
   /** 「지금」 기준 시각 — 시리즈 대표 회차·상한 정렬 판정에 넘긴다. */
-  private final OffsetDateTime now = OffsetDateTime.now();
+  // DB(timestamptz)는 마이크로초까지만 저장한다 — 나노초가 남은 시각은 돌아온 값과 반올림만큼 어긋나 비교가 우연히 실패한다.
+  private final OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
   @BeforeEach
   void setUp() {

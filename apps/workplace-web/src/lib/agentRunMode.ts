@@ -95,9 +95,9 @@ export function modeChangeSummary(
     lines.push(`${fromTemplate?.card.title ?? from.title} 작업 설정(${workSettingNames(fromTemplate)})이 지워져요.`);
     if (to.mode !== 'WORKSPACE') lines.push('Works 가 관리하던 접속 키는 폐기돼요.');
   }
-  if (to.mode === 'SERVER') {
-    if (from.mode !== 'SERVER') lines.push('Works 가 이 AI 의 이슈·멘션에 바로 답해요. AI 계정을 연결해야 일할 수 있어요.');
-    lines.push('지시는 읽지 않아요. 적어 둔 지시는 지워지지 않아요.');
+  // 지시는 실행 방식과 상관없이 따르므로(WP-1368) 방식을 바꿔도 지시에 관한 안내는 없다.
+  if (to.mode === 'SERVER' && from.mode !== 'SERVER') {
+    lines.push('Works 가 이 AI 의 이슈·멘션에 바로 답해요. AI 계정을 연결해야 일할 수 있어요.');
   }
   if (to.mode === 'EXTERNAL') {
     if (from.mode === 'SERVER') lines.push('Works 는 이 AI 의 이슈·멘션에 더는 바로 답하지 않아요.');

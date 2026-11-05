@@ -3,7 +3,7 @@
 // 도구는 stdio MCP(mcp/stdio-entry.ts)로만 도달하고, 진행 상황은 event.subscribe() SSE 스트림을
 // 직접 순회해 RunnerEvent 로 매핑한다. 타입은 node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts
 // 실물 기준(Session/Event/Part/AssistantMessage) — 브리핑의 예시 스니펫과 필드명이 다를 수 있음.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { assertModelHostResolvesPublic } from '../clients/model-url-guard.js';
 import { log } from '../logger.js';
@@ -61,7 +61,10 @@ function poolKeyFor(i: RunnerInput, { vision, limit }: OpencodeModelSettings): s
   const limitKey = limit ? `:${limit.context}/${limit.output}` : '';
   // WP-1322: variant 를 고른 실행은 config 에 reasoning:true 가 실리므로 키를 나눈다(고르지 않은 실행과 서버를 섞지 않는다).
   const variantKey = i.thinkingEffort ? `:r` : '';
-  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}${variantKey}`;
+  // WP-1368: 시스템 프롬프트(이제 AI 별 「지시」가 맨 뒤에 실린다)도 스폰 때 config 에 고정되므로 키에 넣는다 — 관리자가 지시를 고치면
+  // 옛 지시가 박힌 웜 서버를 재사용하지 않고 새 서버를 띄운다. 프롬프트 전문은 길어 sha256 앞 12자리만 쓴다(구분용이라 충분).
+  const promptKey = createHash('sha256').update(i.systemPrompt).digest('hex').slice(0, 12);
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}${variantKey}:${promptKey}`;
 }
 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시
