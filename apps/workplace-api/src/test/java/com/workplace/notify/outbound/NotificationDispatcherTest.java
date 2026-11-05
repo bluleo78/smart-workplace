@@ -240,6 +240,7 @@ class NotificationDispatcherTest {
         origin == ChatMessageOrigin.REPORT_QUESTION,
         origin,
         Instant.now(),
+        null,
         null);
   }
 

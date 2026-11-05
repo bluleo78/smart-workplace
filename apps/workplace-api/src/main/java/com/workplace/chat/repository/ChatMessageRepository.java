@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.global.dto.MentionResponse;
+import com.workplace.user.dto.UserKind;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -318,30 +319,97 @@ public class ChatMessageRepository {
   }
 
   /**
+   * 요약·반복 회차용 경량 조회의 공통 몸통 — 작성자 조인, 조건, (created_at, id) 정렬, 상한(MAX_LIMIT 이하)을 한 곳에 둔다. 멘션 하이드레이션
+   * 없이 작성자명·kind·본문·시각·글쓴이 id 만 읽는다.
+   *
+   * @param newestFirst true 면 최신순(「가장 최근 N 건」을 고를 때), false 면 오름차순
+   */
+  private List<SummaryLine> fetchLines(Condition cond, boolean newestFirst, int limit) {
+    return dsl.select(
+            USER.NAME,
+            USER.KIND,
+            CHAT_MESSAGE.BODY,
+            CHAT_MESSAGE.CREATED_AT,
+            CHAT_MESSAGE.AUTHOR_ID)
+        .from(CHAT_MESSAGE)
+        .join(USER)
+        .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
+        .where(cond)
+        .orderBy(
+            newestFirst ? CHAT_MESSAGE.CREATED_AT.desc() : CHAT_MESSAGE.CREATED_AT.asc(),
+            newestFirst ? CHAT_MESSAGE.ID.desc() : CHAT_MESSAGE.ID.asc())
+        .limit(Math.min(limit, MAX_LIMIT))
+        .fetch(ChatMessageRepository::toSummaryLine);
+  }
+
+  /**
    * AI 요약 입력용 경량 조회 — 멘션 하이드레이션 없이 작성자명·kind·본문·시각만, 삭제 제외, 오름차순.
    *
    * @param threadId 조회 대상 chat_thread.id
    * @param limit 최대 조회 건수 (MAX_LIMIT 이 상한)
    */
   public List<SummaryLine> findForSummary(long threadId, int limit) {
-    return dsl.select(USER.NAME, USER.KIND, CHAT_MESSAGE.BODY, CHAT_MESSAGE.CREATED_AT)
-        .from(CHAT_MESSAGE)
-        .join(USER)
-        .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
-        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId).and(CHAT_MESSAGE.DELETED_AT.isNull()))
-        .orderBy(CHAT_MESSAGE.CREATED_AT.asc(), CHAT_MESSAGE.ID.asc())
-        .limit(Math.min(limit, MAX_LIMIT))
-        .fetch(
-            r ->
-                new SummaryLine(
-                    r.get(USER.NAME),
-                    r.get(USER.KIND),
-                    r.get(CHAT_MESSAGE.BODY),
-                    toInstant(r.get(CHAT_MESSAGE.CREATED_AT))));
+    return fetchLines(
+        CHAT_MESSAGE.THREAD_ID.eq(threadId).and(CHAT_MESSAGE.DELETED_AT.isNull()), false, limit);
   }
 
-  /** findForSummary 결과 1줄(chat 모듈 내부 표현). */
-  public record SummaryLine(String authorName, String authorKind, String body, Instant createdAt) {}
+  /**
+   * 반복 회차 지시문용 사람 글(WP-1375) — 삭제 제외·본문 있는·작성자 kind HUMAN 인 글을 최신순으로 최대 limit 건(글쓴이 id 포함). 지난 회차
+   * 시각으로 자르지 않는다 — 새 글 표시는 호출자가 정한다. 「가장 최근 N 건」을 고르려고 내림차순으로 자른다 — 오래된 순 정렬은 호출자가 뒤집는다. AI(담당
+   * AI·이슈챗 AI) 글은 사람 글로 섞지 않는다.
+   */
+  public List<SummaryLine> findRecentHuman(long threadId, int limit) {
+    return fetchLines(
+        CHAT_MESSAGE
+            .THREAD_ID
+            .eq(threadId)
+            .and(CHAT_MESSAGE.DELETED_AT.isNull())
+            .and(USER.KIND.eq(UserKind.HUMAN))
+            .and(hasText()),
+        true,
+        limit);
+  }
+
+  /** 그 작성자가 이 스레드에 남긴 가장 최근 글(삭제 제외, WP-1375) — 반복 회차의 직전 결과 요약에 쓴다. */
+  public Optional<SummaryLine> findLastByAuthor(long threadId, long authorId) {
+    return fetchLines(
+            CHAT_MESSAGE
+                .THREAD_ID
+                .eq(threadId)
+                .and(CHAT_MESSAGE.AUTHOR_ID.eq(authorId))
+                .and(CHAT_MESSAGE.DELETED_AT.isNull())
+                .and(hasText()),
+            true,
+            1)
+        .stream()
+        .findFirst();
+  }
+
+  /**
+   * 본문에 공백 아닌 글자가 하나라도 있는 글(WP-1375). 첨부만 있는 글은 본문이 NULL(V82) 이거나 화면이 보낸 '' 라, 회차 지시문에 빈 줄로 실리고 최근
+   * 20건 자리를 차지하지 않게 뺀다. trim() 은 공백(스페이스)만 지워 줄바꿈뿐인 글을 남기므로 정규식(~)으로 본다 — NULL 은 비교가 NULL 이라 함께
+   * 빠진다.
+   */
+  private static Condition hasText() {
+    return CHAT_MESSAGE.BODY.likeRegex("[^[:space:]]");
+  }
+
+  private static SummaryLine toSummaryLine(Record r) {
+    return new SummaryLine(
+        r.get(USER.NAME),
+        r.get(USER.KIND),
+        r.get(CHAT_MESSAGE.BODY),
+        toInstant(r.get(CHAT_MESSAGE.CREATED_AT)),
+        r.get(CHAT_MESSAGE.AUTHOR_ID));
+  }
+
+  /**
+   * 요약·반복 회차 조회 결과 1줄(chat 모듈 내부 표현).
+   *
+   * @param authorId 글쓴이 id — 반복 회차(WP-1375)가 「맡긴 사람」 글을 가리는 데 쓴다
+   */
+  public record SummaryLine(
+      String authorName, String authorKind, String body, Instant createdAt, long authorId) {}
 
   /** OffsetDateTime → Instant 변환 헬퍼. null-safe. */
   private static Instant toInstant(OffsetDateTime odt) {

@@ -57,6 +57,7 @@ class ChatSseDispatcherTest {
             true,
             ChatMessageOrigin.REPORT_QUESTION,
             Instant.now(),
+            null,
             null));
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);

@@ -162,6 +162,8 @@ public final class IssueDomainEvents {
    *     실행 경로(같은 AI·소유자 권한·recurring 프로필)를 타고, runId 만 이어 처리 id("<issueId>-f<답 글 id>")다
    * @param test 「지금 실행」으로 보낸 테스트 실행이거나 그 질문의 답으로 보낸 이어 처리인지(WP-1313) — ai-agent 가 되돌릴 수 없는 쓰기를 멈추는
    *     도구 프로필(recurring-test)로 돌린다. 테스트 실행의 runId 는 "<issueId>-t<보낸 시각 ms>"다
+   * @param recentChat 사람이 이슈 챗에 남긴 최근 글과 담당 AI 의 마지막 글(WP-1375) — 회차 지시문이 이슈 본문만으로는 모르는 사람의 결정·답을
+   *     읽게 한다. 둘 다 없으면 null(페이로드에 키를 싣지 않는다)
    */
   public record IssueRecurringRunEvent(
       long issueId,
@@ -180,7 +182,30 @@ public final class IssueDomainEvents {
       String issueBody,
       Instant occurredAt,
       FollowUp followUp,
-      boolean test) {
+      boolean test,
+      RecentChat recentChat) {
+
+    /**
+     * 회차 지시문에 싣는 이슈 챗 맥락(WP-1375). 상한(건수·글자 수)은 만드는 쪽({@code IssueRecurrenceRecentChat})이 이미 적용했다.
+     *
+     * @param humanMessages 사람(HUMAN)이 이 이슈 챗에 남긴 최근 글 — 오래된 순. 지난 회차 이후 글인지는 각 줄의 isNew. 없으면 빈 목록
+     * @param lastResult 담당 AI 가 이 이슈 챗에 남긴 가장 최근 글. 회차 결과 글만 가릴 표시가 저장되지 않아(챗 답글·안내 글과 같은 행) 「직전 회차
+     *     결과」가 아니라 「담당 AI 의 마지막 글」이다. 없으면 null
+     */
+    public record RecentChat(List<ChatLine> humanMessages, ChatLine lastResult) {}
+
+    /**
+     * 이슈 챗 글 한 줄(WP-1375).
+     *
+     * @param authorName 글쓴이 이름 — 담당 AI 의 마지막 글은 페이로드에 싣지 않는다
+     * @param body 상한을 적용한 본문(넘치면 잘라 「…」를 붙였다)
+     * @param createdAt 글을 남긴 시각
+     * @param owner 반복을 맡긴 사람(저장한 사람, created_by)의 글인지 — 회차는 이 글의 결정·답만 따른다(다른 멤버 글이 맡긴 사람 권한의 쓰기를
+     *     움직이지 않게). 담당 AI 의 마지막 글은 false
+     * @param isNew 지난 회차(이번 실행 전 lastRunAt) 이후 글인지 — 지난 회차가 없으면 모두 true. 담당 AI 의 마지막 글은 false
+     */
+    public record ChatLine(
+        String authorName, String body, Instant createdAt, boolean owner, boolean isNew) {}
 
     /**
      * 이어 처리의 맥락(WP-1312) — ai-agent 가 「질문 X 에 소유자가 Y 라고 답했다, 이어서 하라」는 지시문을 만든다.

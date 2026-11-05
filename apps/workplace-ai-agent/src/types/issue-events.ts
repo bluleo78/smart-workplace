@@ -72,6 +72,23 @@ export const issueRecurringRunPayload = z.object({
   round: z.number().int().positive().optional(),
   recurrence: z.object({ rrule: z.string(), time: z.string() }),
   issueBody: z.string().nullish(),
+  // WP-1375: 이슈챗에서 사람이 남긴 최근 글(오래된 순)과 담당 AI 가 남긴 마지막 글. API 가 둘 다 비면 키를 빼고, 구 API 도 안 보낸다(optional).
+  // 시각은 UTC ISO(Z) — 지시문에서 KST 로 바꾼다. 상한은 API 와 같은 값을 agent 도 지킨다(user-message.ts, 방어).
+  // owner: 반복을 맡긴 사람 글인지(회차는 이 글의 결정만 따른다), isNew: 지난 회차 이후 글인지. 구 API 는 안 보내 optional — 없으면 참고·새 글 아님.
+  recentChat: z
+    .object({
+      humanMessages: z.array(
+        z.object({
+          authorName: z.string(),
+          body: z.string(),
+          createdAt: z.string(),
+          owner: z.boolean().optional(),
+          isNew: z.boolean().optional(),
+        }),
+      ),
+      lastResult: z.object({ body: z.string(), createdAt: z.string() }).optional(),
+    })
+    .optional(),
   // WP-1312: 회차가 남긴 질문에 반복을 저장한 사람이 이슈 챗에서 답해 API 가 보낸 이어 처리면 그 질문·답(정기 회차·구 API 는 없음). 답한
   // 사람은 actor(저장한 사람)다 — 그 사람만 답할 수 있다. 이어 처리도 같은 실행(같은 AI 자격·정기 회차와 같은 도구 신원 ownerUserId·recurring
   // 프로필)이고, 지시문만

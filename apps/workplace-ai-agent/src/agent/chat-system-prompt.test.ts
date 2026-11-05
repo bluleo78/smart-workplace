@@ -17,4 +17,20 @@ describe('CHAT_SYSTEM_PROMPT', () => {
     expect(CHAT_SYSTEM_PROMPT).not.toContain('(이미지·PDF)');
     expect(CHAT_SYSTEM_PROMPT).toContain('pages');
   });
+
+  // WP-1375: 반복 업무 이슈의 이슈챗 답변 규칙.
+  it('반복 업무 규칙 — 다음 회차 전달 사실만 말하고 회차를 약속·대신 실행하지 않는다', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain('## 반복 업무');
+    expect(CHAT_SYSTEM_PROMPT).toContain('다음 회차에 이 글이 전달된다');
+    expect(CHAT_SYSTEM_PROMPT).toContain('회차 실행 결과를 약속하거나 지금 회차를 대신 실행하지 않는다');
+    expect(CHAT_SYSTEM_PROMPT).toContain('약속하거나');
+    expect(CHAT_SYSTEM_PROMPT).not.toContain('WP-1375');
+    expect(CHAT_SYSTEM_PROMPT).toContain('반복 업무가 아니면 회차 이야기를 하지 않는다');
+  });
+
+  // WP-1375: 회차는 맡긴 사람의 결정만 따른다 — 다른 사람의 지시는 맡긴 사람 확인이 필요하다고 답한다.
+  it('반복 업무 규칙 — 맡긴 사람이 아닌 사람의 지시는 맡긴 사람 확인이 필요하다고 답한다', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain('회차는 그중 맡긴 사람의 결정만 따릅니다');
+    expect(CHAT_SYSTEM_PROMPT).toContain('맡긴 사람이 아닌 사람이 회차에 할 일을 지시하면 「맡긴 사람이 확인해야 회차에 반영된다」고 답한다.');
+  });
 });

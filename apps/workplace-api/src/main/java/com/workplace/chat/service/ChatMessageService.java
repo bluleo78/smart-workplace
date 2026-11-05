@@ -9,6 +9,7 @@ import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
+import com.workplace.chat.outbound.ChatAgentWake;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
@@ -23,12 +24,15 @@ import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
 import com.workplace.global.util.PersonNames;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
+import com.workplace.issue.outbound.IssueRecurrenceSummaries;
 import com.workplace.issue.outbound.RecurringQuestionAnswers;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
+import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +63,12 @@ public class ChatMessageService {
   private final ChatThreadAccess threadAccess;
   // WP-1312: 사람 글이 반복 회차 질문의 답이면 issue 모듈이 같은 AI 의 이어 처리를 보낸다.
   private final RecurringQuestionAnswers recurringAnswers;
+
+  /** WP-1375: 반복 업무 이슈면 챗 이벤트에 반복 요약을 싣는다(issue 모듈 포트). */
+  private final IssueRecurrenceSummaries recurrenceSummaries;
+
+  /** WP-1375: 반복 요약을 읽을지 — dispatcher 와 같은 실행 AI(INTERNAL·활성) 선택에 쓴다. */
+  private final ServerAgentResolver agentResolver;
 
   /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
@@ -346,6 +356,10 @@ public class ChatMessageService {
       ChatMessageOrigin origin,
       Long followUpAgentId) {
     List<UserSummary> mentions = hydrator.summariesOf(mentionUserIds);
+    // WP-1375: 반복 요약은 ai-agent 로 나갈 글(dispatcher 와 같은 판정)일 때만 읽는다 — 나머지 글은 이 값을 쓰지 않아 매 글마다 읽지
+    // 않는다. 쓰기 트랜잭션 안에서 읽어 테넌트(RLS)가 맞다(after-commit 비동기 dispatcher 는 트랜잭션이 없다).
+    boolean mayWakeAgent = mayWakeAgent(actor, mentions, followUpAgentId);
+    var recurrence = mayWakeAgent ? recurrenceSummaries.find(context.issueId()).orElse(null) : null;
     return new ChatMessageCreatedEvent(
         threadId,
         messageId,
@@ -364,6 +378,20 @@ public class ChatMessageService {
         saved.question(),
         origin,
         Instant.now(),
-        followUpAgentId);
+        followUpAgentId,
+        recurrence);
+  }
+
+  /**
+   * 이 글이 ai-agent 로 나갈지(WP-1375) — {@code ChatEventDispatcher} 와 같은 후보 규칙({@link ChatAgentWake})·실행
+   * AI 선택이다: 사람이 썼고, 서버가 실행하는(INTERNAL·활성) AI 를 멘션했고, 그 AI 가 이 글로 이어 처리를 이미 받은 AI 가 아님. 후보가 없으면 조회
+   * 없이 거짓 — 대부분의 글은 AI 를 멘션하지 않아 실행 방식 조회도 하지 않는다. 전역 on/off(AI 이벤트 끔)는 보지 않는다 — 배포 설정이라 운영에서는 늘 켜져
+   * 있고, 꺼진 환경에서 이벤트 모양이 달라지지 않게 한다.
+   */
+  private boolean mayWakeAgent(
+      UserSummary actor, List<UserSummary> mentions, Long followUpAgentId) {
+    List<UserSummary> candidates = ChatAgentWake.candidates(actor, mentions, followUpAgentId);
+    if (candidates.isEmpty()) return false;
+    return agentResolver.pickActingAgent(candidates, TenantContext.get()) != null;
   }
 }

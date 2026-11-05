@@ -112,7 +112,7 @@ class IssueAiSummaryInputBudgetTest {
 
   private static ChatExcerpt chat(long id, String body) {
     return new ChatExcerpt(
-        "작성자", "USER", body, Instant.parse("2026-01-01T00:00:00Z").plusSeconds(id));
+        "작성자", "USER", body, Instant.parse("2026-01-01T00:00:00Z").plusSeconds(id), id);
   }
 
   private static IssueCommentResponse comment(long id, String body) {
