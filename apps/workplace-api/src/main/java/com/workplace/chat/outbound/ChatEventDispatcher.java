@@ -28,9 +28,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *   <li>actor.kind() != "AGENT" (self-loop 차단)
  *   <li>mentions 에 서버가 실행하는(kind == "AGENT" 이면서 runtime == INTERNAL) 에이전트가 1명 이상 (WP-371)
  *   <li>그 에이전트가 이 글로 반복 회차 이어 처리를 이미 받은 AI(followUpAgentId)가 아님 (WP-1312)
+ *   <li>또는 멘션으로 고른 AI 가 없을 때, 실행 일정이 걸린 작업의 담당 AI(implicitAgentId — 저장 트랜잭션이 멘션 없는 글에만 싣는다)가 서버
+ *       실행·활성이고 followUpAgentId 와 다름 (WP-1377)
  * </ul>
  *
- * 다른 모든 조건은 skip — 일반 사람간 메시지나 mention 안 한 메시지는 ai-agent 로 가지 않는다.
+ * 다른 모든 조건은 skip — 일반 사람간 메시지나 mention 안 한 메시지(실행 일정 담당 AI 경우 제외)는 ai-agent 로 가지 않는다.
  */
 @Slf4j
 @Component
@@ -59,10 +61,16 @@ public class ChatEventDispatcher {
     // WP-638: 남의 개인 비서 멘션은 실행 후보에서 뺀다 — 주인 전용(주인 키로 도는 AGENT).
     // WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 도 뺀다 — 같은 답에 두 번 응답하지 않게. 후보 규칙은 ChatMessageService
     // 의 반복 요약 읽기 판정과 공유한다(WP-1375).
+    // WP-1377: 멘션으로 고른 AI 가 없으면 저장 쪽이 실은 실행 일정 담당 AI 가 같은 경로(INTERNAL·정지·테넌트 검사)로 답한다. 후보·대행 선택
+    // 규칙은 ChatMessageService 의 반복 요약 읽기 판정과 ChatAgentWake 한 곳에서 공유한다(WP-1375).
     Long acting =
-        agentResolver.pickActingAgent(
-            ChatAgentWake.candidates(e.actor(), e.mentions(), e.followUpAgentId()),
-            TenantContext.get());
+        ChatAgentWake.actingAgent(
+            agentResolver,
+            TenantContext.get(),
+            e.actor(),
+            e.mentions(),
+            e.followUpAgentId(),
+            e.implicitAgentId());
     if (acting == null) return;
     client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
   }

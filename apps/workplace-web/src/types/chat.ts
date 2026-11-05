@@ -56,6 +56,18 @@ export interface ChatThreadResponse {
   canPost?: boolean;
   // WP-373: 외부 실행 AI(담당 AI 중 첫 번째)가 있으면 그 구성원, 없으면 null — 작성창 안내에 이름을 쓴다. 구 API 응답엔 없을 수 있다.
   externalAgent?: UserSummary | null;
+  // WP-1377: 멘션 없이도 답하는 실행 일정 담당 AI — 없으면 null. 구 API 응답엔 없을 수 있다.
+  implicitAgent?: ChatImplicitAgent | null;
+}
+
+/**
+ * 멘션 없이도 답하는 담당 AI(WP-1377).
+ * mode ALWAYS = 늘 답한다, AFTER_AI_REPLY = 직전(삭제 안 된 마지막) 글이 그 AI 의 글일 때만 답한다.
+ */
+export interface ChatImplicitAgent {
+  id: number;
+  name: string;
+  mode: 'ALWAYS' | 'AFTER_AI_REPLY';
 }
 
 export interface ChatMessagePage {

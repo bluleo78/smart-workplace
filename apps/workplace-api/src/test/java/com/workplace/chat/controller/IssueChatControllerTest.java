@@ -53,7 +53,8 @@ class IssueChatControllerTest extends WebMvcSliceTestBase {
     when(permissionService.getUserPermissions(1L)).thenReturn(Set.of("project:read"));
     when(threadService.getOrCreate(eq(1L), eq("WP"), eq(1)))
         .thenReturn(
-            new ChatThreadResponse(11L, 100L, null, List.of(), List.of(), null, false, true, null));
+            new ChatThreadResponse(
+                11L, 100L, null, List.of(), List.of(), null, false, true, null, null));
 
     mockMvc
         .perform(

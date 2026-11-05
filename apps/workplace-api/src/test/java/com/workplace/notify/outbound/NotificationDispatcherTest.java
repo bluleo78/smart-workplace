@@ -241,6 +241,7 @@ class NotificationDispatcherTest {
         origin,
         Instant.now(),
         null,
+        null,
         null);
   }
 

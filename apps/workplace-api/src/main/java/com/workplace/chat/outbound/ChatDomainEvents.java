@@ -19,6 +19,10 @@ public final class ChatDomainEvents {
    *
    * <p>followUpAgentId(WP-1312): 이 글이 반복 회차가 남긴 질문에 대한 소유자의 답이라 issue 모듈이 그 AI 의 이어 처리를 이미 보냈으면 그
    * AI id, 아니면 null. 답 글이 그 AI 를 멘션해도 일반 챗 응답(chat.message.posted)을 또 깨우지 않게 dispatcher 가 거른다.
+   *
+   * <p>implicitAgentId(WP-1377): 멘션 없는 사람 글이라도 실행 일정이 걸린 작업의 담당 AI 가 답해야 하면 그 AI id, 아니면 null.
+   * 판정(일정·서버 실행·글쓴이·개인/팀·스레드 멤버·직전 글)은 글을 저장한 트랜잭션에서 끝내고, dispatcher 는 멘션으로 고른 AI 가 없을 때 이 AI 를
+   * 대행으로 쓴다.
    */
   public record ChatMessageCreatedEvent(
       long threadId,
@@ -47,8 +51,10 @@ public final class ChatDomainEvents {
       Instant occurredAt,
       Long followUpAgentId,
       // WP-1375: 이 이슈가 AI 에게 맡긴 반복 업무면 그 요약 — 이슈 챗 AI 가 반복 맥락을 알게 ai-agent 페이로드에 싣는다. 반복이 없거나 AI 를
-      // 깨울 일이 없는 글(AI 가 쓴 글·AI 멘션 없음)이면 null.
-      IssueRecurrenceSummary recurrence) {}
+      // 깨울 일이 없는 글(AI 가 쓴 글·깨울 AI 없음 — 멘션도 실행 일정 담당 AI 도 없음)이면 null.
+      IssueRecurrenceSummary recurrence,
+      // WP-1377: 멘션 없이 답할 실행 일정 담당 AI(클래스 주석 참고). 없으면 null.
+      Long implicitAgentId) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
   public record ChatMessageUpdatedEvent(

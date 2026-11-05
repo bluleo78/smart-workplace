@@ -63,6 +63,8 @@ public class ChatMessageService {
   private final ChatThreadAccess threadAccess;
   // WP-1312: 사람 글이 반복 회차 질문의 답이면 issue 모듈이 같은 AI 의 이어 처리를 보낸다.
   private final RecurringQuestionAnswers recurringAnswers;
+  // WP-1377: 실행 일정이 걸린 작업의 담당 AI 가 멘션 없는 글에도 답할지 판정.
+  private final ChatImplicitAgentResolver implicitAgentResolver;
 
   /** WP-1375: 반복 업무 이슈면 챗 이벤트에 반복 요약을 싣는다(issue 모듈 포트). */
   private final IssueRecurrenceSummaries recurrenceSummaries;
@@ -150,6 +152,26 @@ public class ChatMessageService {
       var woken = recurringAnswers.answer(context.issueId(), messageId, callerId, req.body());
       if (woken.isPresent()) followUpAgentId = woken.getAsLong();
     }
+    // WP-1377: 멘션이 하나도 없는 사람 글이고 이어 처리로 깨운 AI 가 없으면, 실행 일정의 담당 AI 가 멘션 없이도 답할지 본다. 멘션이 있으면 지금 멘션
+    // 규칙만 쓴다(사람끼리 멘션 대화에 AI 가 끼지 않게). 이어 처리가 있으면 그 처리로만 답한다(같은 글에 이중 실행 금지).
+    Long implicitAgentId = null;
+    if (humanReply && mentionUserIds.isEmpty() && followUpAgentId == null) {
+      // 판정이 실패해도 글은 저장한다 — 세이브포인트로 감싸 실패는 「답할 AI 없음」으로 본다(이어 처리 답 판정과 같은 격리).
+      implicitAgentId =
+          implicitAgentResolver.isolated(
+              context.issueId(),
+              () -> {
+                Long agentId =
+                    implicitAgentResolver.resolveForPost(
+                        context.issueId(), threadId, messageId, callerId);
+                // 답할 AI 는 스레드 멤버로 넣는다(add-only) — 멘션된 AI 처럼 답을 쓰려면 멤버여야 한다. 이미 멤버면(대개 AI 가 이미 답한
+                // 스레드) 쓰기를 건너뛴다.
+                if (agentId != null && !memberRepo.isMember(threadId, agentId)) {
+                  memberRepo.insertIgnoreConflict(threadId, List.of(agentId));
+                }
+                return agentId;
+              });
+    }
     publisher.publishEvent(
         buildEvent(
             context,
@@ -160,11 +182,15 @@ public class ChatMessageService {
             mentionUserIds,
             saved,
             origin,
-            followUpAgentId));
+            followUpAgentId,
+            implicitAgentId));
     // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
+    // WP-1377: 멘션 없이 답할 담당 AI 도 멘션된 AI 처럼 뺀다 — 이 글로 이미 chat.message.posted 로 깨우므로, 답변 필요로 멈춰 있던 그
+    // AI 를
+    // 재개 알림(AgentsResumedByChatReply)으로 또 깨우지 않게. implicitAgentId 는 멘션이 없을 때만 실리므로 둘 중 하나만 있다.
     if (humanReply) {
-      publisher.publishEvent(
-          IssueHumanReplyPosted.chat(context.issueId(), callerId, mentionUserIds));
+      List<Long> alreadyWoken = implicitAgentId == null ? mentionUserIds : List.of(implicitAgentId);
+      publisher.publishEvent(IssueHumanReplyPosted.chat(context.issueId(), callerId, alreadyWoken));
     }
     return saved;
   }
@@ -354,11 +380,12 @@ public class ChatMessageService {
       List<Long> mentionUserIds,
       ChatMessageResponse saved,
       ChatMessageOrigin origin,
-      Long followUpAgentId) {
+      Long followUpAgentId,
+      Long implicitAgentId) {
     List<UserSummary> mentions = hydrator.summariesOf(mentionUserIds);
     // WP-1375: 반복 요약은 ai-agent 로 나갈 글(dispatcher 와 같은 판정)일 때만 읽는다 — 나머지 글은 이 값을 쓰지 않아 매 글마다 읽지
     // 않는다. 쓰기 트랜잭션 안에서 읽어 테넌트(RLS)가 맞다(after-commit 비동기 dispatcher 는 트랜잭션이 없다).
-    boolean mayWakeAgent = mayWakeAgent(actor, mentions, followUpAgentId);
+    boolean mayWakeAgent = mayWakeAgent(actor, mentions, followUpAgentId, implicitAgentId);
     var recurrence = mayWakeAgent ? recurrenceSummaries.find(context.issueId()).orElse(null) : null;
     return new ChatMessageCreatedEvent(
         threadId,
@@ -379,19 +406,21 @@ public class ChatMessageService {
         origin,
         Instant.now(),
         followUpAgentId,
-        recurrence);
+        recurrence,
+        implicitAgentId);
   }
 
   /**
-   * 이 글이 ai-agent 로 나갈지(WP-1375) — {@code ChatEventDispatcher} 와 같은 후보 규칙({@link ChatAgentWake})·실행
-   * AI 선택이다: 사람이 썼고, 서버가 실행하는(INTERNAL·활성) AI 를 멘션했고, 그 AI 가 이 글로 이어 처리를 이미 받은 AI 가 아님. 후보가 없으면 조회
-   * 없이 거짓 — 대부분의 글은 AI 를 멘션하지 않아 실행 방식 조회도 하지 않는다. 전역 on/off(AI 이벤트 끔)는 보지 않는다 — 배포 설정이라 운영에서는 늘 켜져
-   * 있고, 꺼진 환경에서 이벤트 모양이 달라지지 않게 한다.
+   * 이 글이 ai-agent 로 나갈지(WP-1375) — {@code ChatEventDispatcher} 와 같은 판정({@link
+   * ChatAgentWake#actingAgent})이다: 사람이 썼고, 서버가 실행하는(INTERNAL·활성) AI 를 멘션했고 그 AI 가 이 글로 이어 처리를 이미 받은
+   * AI 가 아니거나, 멘션으로 고른 AI 가 없을 때 실행 일정 담당 AI(WP-1377)가 있음. 후보가 없으면 조회 없이 거짓 — 대부분의 글은 AI 를 멘션하지 않고
+   * 일정 담당 AI 도 없어 실행 방식 조회도 하지 않는다. 전역 on/off(AI 이벤트 끔)는 보지 않는다 — 배포 설정이라 운영에서는 늘 켜져 있고, 꺼진 환경에서
+   * 이벤트 모양이 달라지지 않게 한다.
    */
   private boolean mayWakeAgent(
-      UserSummary actor, List<UserSummary> mentions, Long followUpAgentId) {
-    List<UserSummary> candidates = ChatAgentWake.candidates(actor, mentions, followUpAgentId);
-    if (candidates.isEmpty()) return false;
-    return agentResolver.pickActingAgent(candidates, TenantContext.get()) != null;
+      UserSummary actor, List<UserSummary> mentions, Long followUpAgentId, Long implicitAgentId) {
+    return ChatAgentWake.actingAgent(
+            agentResolver, TenantContext.get(), actor, mentions, followUpAgentId, implicitAgentId)
+        != null;
   }
 }

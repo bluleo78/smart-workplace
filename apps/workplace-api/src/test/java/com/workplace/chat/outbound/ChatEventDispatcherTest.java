@@ -97,6 +97,21 @@ class ChatEventDispatcherTest {
       List<UserSummary> mentions,
       Long followUpAgentId,
       IssueRecurrenceSummary recurrence) {
+    return event(actor, mentions, followUpAgentId, recurrence, null);
+  }
+
+  /** implicitAgentId(WP-1377) — 멘션 없이도 답할 실행 일정 담당 AI. 없으면 null. */
+  private ChatMessageCreatedEvent implicitEvent(
+      UserSummary actor, Long followUpAgentId, Long implicitAgentId) {
+    return event(actor, List.of(), followUpAgentId, null, implicitAgentId);
+  }
+
+  private ChatMessageCreatedEvent event(
+      UserSummary actor,
+      List<UserSummary> mentions,
+      Long followUpAgentId,
+      IssueRecurrenceSummary recurrence,
+      Long implicitAgentId) {
     return new ChatMessageCreatedEvent(
         1L,
         10L,
@@ -116,7 +131,8 @@ class ChatEventDispatcherTest {
         ChatMessageOrigin.USER,
         Instant.now(),
         followUpAgentId,
-        recurrence);
+        recurrence,
+        implicitAgentId);
   }
 
   /**
@@ -162,6 +178,73 @@ class ChatEventDispatcherTest {
         .containsEntry("nextRunAt", null)
         .containsEntry("ownerName", null);
     assertThat(all.get(2).payload()).doesNotContainKey("recurrence");
+  }
+
+  // ---- WP-1377: 실행 일정 담당 AI 는 멘션 없는 글에도 답한다 ----
+
+  /** pickActingAgentId 를 "주어진 id 만 서버 실행·활성" 으로 스텁한다. */
+  private void internalAgentIds(Long... ids) {
+    var internal = Set.of(ids);
+    doAnswer(
+            inv ->
+                inv.<List<Long>>getArgument(0).stream()
+                    .filter(internal::contains)
+                    .findFirst()
+                    .orElse(null))
+        .when(resolver)
+        .pickActingAgentId(any(), any());
+  }
+
+  @Test
+  void 멘션_없는_글이라도_실행_일정_담당_AI가_있으면_그_AI로_보낸다() {
+    internalAgentIds(AGENT.id());
+    dispatcher.onChatMessageCreated(implicitEvent(HUMAN, null, AGENT.id()));
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+    assertThat(captor.getValue().type()).isEqualTo("chat.message.posted");
+    assertThat(captor.getValue().payload()).containsEntry("actingAgentId", AGENT.id());
+    assertThat((List<?>) captor.getValue().payload().get("mentions")).isEmpty();
+  }
+
+  @Test
+  void 실행_일정_담당_AI가_지금_서버_실행이_아니면_보내지_않는다() {
+    internalAgentIds();
+    dispatcher.onChatMessageCreated(implicitEvent(HUMAN, null, AGENT.id()));
+    verify(client, never()).publish(any());
+  }
+
+  @Test
+  void 이어_처리로_깨운_AI는_일정_담당이어도_다시_보내지_않는다() {
+    internalAgentIds(AGENT.id());
+    dispatcher.onChatMessageCreated(implicitEvent(HUMAN, AGENT.id(), AGENT.id()));
+    verify(client, never()).publish(any());
+  }
+
+  @Test
+  void AI_글은_일정_담당이_실려도_보내지_않는다() {
+    internalAgentIds(AGENT.id());
+    dispatcher.onChatMessageCreated(implicitEvent(AGENT, null, AGENT.id()));
+    verify(client, never()).publish(any());
+  }
+
+  /** WP-1375 × WP-1377: 멘션 없이 일정 담당 AI 로 깨운 글도 멘션 경로처럼 반복 요약을 싣는다 — 반복 업무 이슈가 이 경로의 주 대상이다. */
+  @Test
+  void 실행_일정_담당_AI로_깨운_글도_recurrence_요약을_싣는다() {
+    internalAgentIds(AGENT.id());
+    dispatcher.onChatMessageCreated(
+        event(
+            HUMAN,
+            List.of(),
+            null,
+            new IssueRecurrenceSummary(
+                "FREQ=DAILY", "08:00", true, "비서", Instant.parse("2026-11-05T23:00:00Z"), "홍길동"),
+            AGENT.id()));
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+    assertThat(captor.getValue().payload()).containsEntry("actingAgentId", AGENT.id());
+    @SuppressWarnings("unchecked")
+    var rec = (java.util.Map<String, Object>) captor.getValue().payload().get("recurrence");
+    assertThat(rec).containsEntry("rrule", "FREQ=DAILY").containsEntry("agentName", "비서");
   }
 
   /** WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 는, 답 글이 그 AI 를 멘션해도 챗 응답으로 또 깨우지 않는다. */

@@ -9,6 +9,7 @@ import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.ChatThreadRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.chat.repository.IssueStakeholderLookup.IssueRow;
+import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import java.util.List;
@@ -31,6 +32,8 @@ public class ChatThreadService {
   private final UserMentionHydrator userMentionHydrator;
   private final ChatThreadAccess threadAccess;
   private final ChatMessageHydrator messageHydrator;
+  // WP-1377: 작성창 안내용 — 멘션 없이도 답할 실행 일정 담당 AI 판정(글 저장과 같은 판정).
+  private final ChatImplicitAgentResolver implicitAgentResolver;
 
   /** 이슈에 연결된 thread 를 반환. 없으면 생성 + initial 멤버(reporter/assignees/watchers) 채움. */
   @Transactional
@@ -59,6 +62,7 @@ public class ChatThreadService {
     // 댓글과 같은 쓰기 권한(보내면 자동 참여). 스레드 멤버십만으로는 쓸 수 없다 — 프로젝트에서 빠진 사람도 남아 있을 수 있다(WP-475).
     // 이 경로는 canRead 를 통과한 호출자만 오므로 멘션 AGENT 예외는 따로 보지 않는다(AGENT 는 화면을 쓰지 않는다).
     boolean canPost = threadAccess.canWriteContent(issue.projectId(), issue.reporterId(), callerId);
+    UserSummary externalAgent = lookup.findFirstExternalAgent(issue.id()).orElse(null);
     return new ChatThreadResponse(
         threadId,
         issue.id(),
@@ -68,7 +72,28 @@ public class ChatThreadService {
         recent.nextCursor(),
         recent.hasMore(),
         canPost,
-        lookup.findFirstExternalAgent(issue.id()).orElse(null));
+        externalAgent,
+        // WP-1377: 외부 실행 AI 가 담당이면 멘션 없는 답은 그 AI 가 이어받아 implicit 판정이 늘 비므로(ImplicitChatAgents 와 같은
+        // 기준)
+        // 조회를 건너뛴다.
+        externalAgent == null ? implicitAgentOf(issue.id(), threadId, callerId, canPost) : null);
+  }
+
+  /**
+   * 조회자가 멘션 없이 쓴 글에 답할 실행 일정 담당 AI(WP-1377). 글을 쓸 수 없는 조회자에겐 싣지 않는다 — 작성창이 없다. 직전 글
+   * 판정(AFTER_AI_REPLY)은 화면이 마지막 글로 한다(새 글이 오면 그 자리에서 바뀌므로).
+   */
+  private ChatThreadResponse.ImplicitAgent implicitAgentOf(
+      long issueId, long threadId, long callerId, boolean canPost) {
+    if (!canPost) return null;
+    // WP-1377: 판정이 실패해도 스레드 조회는 성공시킨다 — 세이브포인트로 감싸(이 조회 트랜잭션은 스레드를 만들기도 한다) 실패는 안내 없음으로 본다.
+    return implicitAgentResolver.isolated(
+        issueId,
+        () ->
+            implicitAgentResolver
+                .resolve(issueId, threadId, callerId)
+                .map(ChatThreadResponse.ImplicitAgent::from)
+                .orElse(null));
   }
 
   /** thread row + 초기 멤버 INSERT. ON CONFLICT DO NOTHING 으로 race-safe. */
