@@ -1,4 +1,6 @@
 // AI 작업 진행(WP-377) 순수 로직 — 라벨·정렬·대표 작업·진행률 계산. 컴포넌트는 이 모듈만 호출한다(vitest 로 검증 가능).
+import { ISSUE_CHAT_QUERY } from '@/lib/issueChatParam'
+
 import type { AgentWorkState, AgentWorkView, IssueResponse } from '../types/issue'
 import { kstParts, kstWeekday, parseUtcDate, sameDay } from './formatters'
 import { ownLookup } from './ownLookup'
@@ -99,7 +101,7 @@ export function agentToolLabel(tool: string): string {
 
 /** 이슈 상세 + 챗 드로워가 열린 채 진입하는 딥링크(`?chat=1`, useIssueChatDrawerParam 과 같은 규칙) — notifTarget 의 이슈 챗 알림과 같은 경로 조합. */
 export function issueChatPath(projectKey: string, issueNumber: number): string {
-  return `/projects/${projectKey}/issues/${issueNumber}?chat=1`
+  return `/projects/${projectKey}/issues/${issueNumber}?${ISSUE_CHAT_QUERY}`
 }
 
 /** 이슈의 대표 작업 — 서버가 급한 순(상태 순위 → 최근 보고)으로 내려주므로 첫 건. 없으면 null. */

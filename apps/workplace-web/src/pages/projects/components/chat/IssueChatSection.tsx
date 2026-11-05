@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble';
+import { finePointerStore } from '@/lib/mobile/mediaQueryStore';
 
 import { chatApi } from '../../../../api/chat';
 import { Button } from '../../../../components/ui/button';
@@ -41,6 +42,12 @@ interface IssueChatSectionProps {
   footerContainer?: HTMLElement | null;
   /** true 면 카드·헤더 크롬 없이 「채팅」 소제목 + 목록만(모바일 개인 작업 상세 — 메모와 같은 급, WP-221 디자인 리뷰 R2). */
   plain?: boolean;
+  /**
+   * 입력칸 포커스 요청 번호(WP-1372) — 0 보다 크면 입력칸에 포커스하고 onFocusRequestDone 을 부른다(부모가 0 으로 돌려 한 번만 쓴다).
+   * 입력칸이 아직 없으면(스레드 로딩·모바일 포털 대상 마운트 전) 입력칸이 붙을 때 포커스한다. 개인 작업 상세의 「채팅으로 이동」이 쓴다(팀 드로워는 autoFocus).
+   */
+  focusRequest?: number;
+  onFocusRequestDone?: () => void;
 }
 
 /**
@@ -58,6 +65,8 @@ function IssueChatSectionBody({
   embedded = false,
   footerContainer,
   plain = false,
+  focusRequest = 0,
+  onFocusRequestDone,
 }: IssueChatSectionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const auth = useAuth();
@@ -114,8 +123,10 @@ function IssueChatSectionBody({
   );
   const updateMutation = useUpdateChatMessage(threadId);
   const deleteMutation = useDeleteChatMessage(threadId);
-  // 읽음 표시 — 1초 디바운스·중복 억제·언마운트 시 남은 읽음 flush 는 훅이 맡는다.
-  const markRead = useMarkChatRead(threadId);
+  // 읽음 표시 — 1초 디바운스·중복 억제·언마운트 시 남은 읽음 flush 는 훅이 맡는다. 성공하면 훅이 이 스레드 캐시의 내 읽음 워터마크를 올려
+  // 채팅 버튼(IssueChatButton)의 읽지 않은 수가 읽은 메시지를 다시 세지 않게 한다(WP-1372).
+  const markRead = useMarkChatRead(threadId, { projectKey, issueNumber, userId: me?.id ?? 0 });
+
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
@@ -289,7 +300,9 @@ function IssueChatSectionBody({
           onTyping={handleTyping}
           // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가
           // 드로워 절반을 덮으므로 정밀 포인터(마우스·트랙패드)일 때만 한다.
-          autoFocus={embedded && window.matchMedia('(pointer: fine)').matches}
+          autoFocus={embedded && finePointerStore.get()}
+          focusRequest={focusRequest}
+          onFocusRequestDone={onFocusRequestDone}
           // 외부 실행 AI 가 담당한 이슈면 멘션 없이 답해도 그 AI 가 이어받는다는 안내(WP-373).
           placeholder={agentReplyHint(thread.externalAgent?.name)}
         />

@@ -7,6 +7,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { spyScrollTo } from '@/test/kits/layout'
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
@@ -81,10 +82,10 @@ function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
   return { seen, handlers }
 }
 
-/** 작업 상세(?task=1)를 띄운다. */
-async function openTask(opts: { failRecurrence?: boolean } = {}) {
+/** 작업 상세(?task=1, query 로 더 붙일 수 있다)를 띄운다. */
+async function openTask(opts: { failRecurrence?: boolean; query?: string } = {}) {
   const p = stubPersonal(opts)
-  const view = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?task=1`, handlers: p.handlers })
+  const view = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?task=1${opts.query ?? ''}`, handlers: p.handlers })
   await screen.findByTestId('personal-task-mobile')
   // 칩은 상세 조회가 끝난 뒤 그려진다.
   await screen.findByTestId('mobile-prop-status')
@@ -265,4 +266,32 @@ test('헤더에 「설정」 링크가 ⋯ 없이 바로 있고, 누르면 /proj
   expect(settings).toHaveAttribute('href', `/projects/${KEY}/settings`)
   await user.click(settings)
   await waitFor(() => expect(location()).toBe(`/projects/${KEY}/settings`))
+})
+
+// 채팅으로 이동(WP-1372) — 모바일도 데스크톱과 같은 입구. jsdom 은 레이아웃이 없어 「어느 칸을 스크롤했나」만 본다(spyScrollTo).
+
+// 딥링크(?chat=1)는 채팅 칸으로 스크롤만 하고 지운다 — 터치 기기는 가상 키보드가 화면을 덮으므로 입력칸에 자동 포커스하지 않는다(팀 채팅 드로워와 같은 기준).
+test('?task=1&chat=1 → 상세 스크롤 칸을 채팅으로 움직이고 주소에서 chat 이 빠진다(터치라 입력칸 자동 포커스 없음)', async () => {
+  const scrolled = spyScrollTo()
+  const { location } = await openTask({ query: '&chat=1' })
+  const layer = screen.getByTestId('personal-task-mobile')
+  await waitFor(() => expect(scrolled).toContain(within(layer).getByTestId('personal-task-scroll')))
+  await waitFor(() => expect(location()).toBe(`/projects/${KEY}?task=1`))
+  const input = within(within(layer).getByTestId('personal-task-bottom-bar')).getByTestId('chat-composer-input')
+  expect(input).not.toHaveFocus()
+})
+
+// 상단 바의 채팅 아이콘(팀 이슈 모바일 헤더와 같은 버튼)을 누르면 채팅 칸으로 스크롤하고 하단 줄의 입력칸에 포커스한다.
+test('상단 바 채팅 버튼 → 상세 스크롤 칸을 움직이고, 하단 줄 입력칸에 포커스(주소는 그대로)', async () => {
+  const scrolled = spyScrollTo()
+  const { user, location } = await openTask()
+  const layer = screen.getByTestId('personal-task-mobile')
+  const bottom = within(layer).getByTestId('personal-task-bottom-bar')
+  await within(bottom).findByTestId('chat-composer-input')
+  const button = within(layer.querySelector('header')!).getByTestId('issue-chat-open')
+  expect(button).toHaveAttribute('aria-label', '채팅 열기')
+  await user.click(button)
+  await waitFor(() => expect(within(bottom).getByTestId('chat-composer-input')).toHaveFocus())
+  expect(scrolled).toContain(within(layer).getByTestId('personal-task-scroll'))
+  expect(location()).toBe(`/projects/${KEY}?task=1`)
 })

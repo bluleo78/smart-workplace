@@ -3,26 +3,37 @@
 // 브라우저 없이 판정되므로 e2e/pages/projects/personal-project-detail.spec.ts 에서 옮겼다.
 // 셸 배선(@wiring)·새로고침 유지(@platform)·포커스·Esc 겹침·날짜 칸 키 입력(@input)·헤더 아래 패널 위치와
 // 스크롤·무한 로드·글자 변환(@layout)은 E2E 에 남는다.
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import { notifTarget } from '@/components/home/notifTarget'
+import { chatKeys } from '@/hooks/queries/chatKeys'
+import { handleChatEvent } from '@/hooks/useChatStream'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import { PersonalProjectDetail } from '@/pages/projects/personal/PersonalProjectDetail'
+import { controlIntersection, spyScrollTo } from '@/test/kits/layout'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
+import { mockViewport } from '@/test/viewport'
+import type { ChatThreadResponse } from '@/types/chat'
 import type { IssueResponse } from '@/types/issue'
 import type { IssueRecurrence } from '@/types/issueRecurrence'
+import type { NotificationResponse } from '@/types/notification'
 import type { UserSummary } from '@/types/user'
 
-import { createAgentWork } from '../../../e2e/factories/agentWork.factory'
+import { agentWorker, createAgentWork } from '../../../e2e/factories/agentWork.factory'
+import { createChatMember, createChatMessage, createChatThread } from '../../../e2e/factories/chat.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createLabel, toLabelSummary } from '../../../e2e/factories/label.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
+
+// 데스크톱 폭·정밀 포인터(마우스) — 채팅 딥링크가 입력칸에 자동 포커스하는 조건(finePointerStore). 한 파일 = 뷰포트 하나.
+mockViewport({ width: 1440, height: 900, pointer: 'fine' })
 
 const KEY = 'PME'
 const BASE = `/api/v1/projects/${KEY}`
@@ -391,6 +402,197 @@ describe('작업 패널·모달(?task=)', () => {
     await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
     const trigger = await screen.findByTestId('assignee-picker-trigger')
     expect(trigger.querySelector('img') ?? within(trigger).queryByText('테')).not.toBeNull()
+  })
+})
+
+describe('채팅으로 이동(WP-1372)', () => {
+  /** 상세의 스크롤 칸·채팅 칸·입력칸. jsdom 은 레이아웃이 없어 스크롤은 「어느 칸을 움직였나」만 본다(spyScrollTo). */
+  const detailScroll = () => screen.getByTestId('personal-task-scroll')
+  const chatSection = () => screen.getByTestId('personal-panel-chat')
+  const composerInput = () => within(chatSection()).getByTestId('chat-composer-input')
+
+  /** 다른 사람의 메시지(id 5) 1건이 있는 스레드(기본은 읽지 않음) + 읽음 요청 기록. */
+  function withUnreadThread(api: ReturnType<typeof personalApi>, opts: { read?: boolean } = {}) {
+    const reads: unknown[] = []
+    const thread = createChatThread({
+      // read=true 면 id 5 까지 이미 읽은 상태(읽지 않은 메시지 없음).
+      members: [createChatMember({ userId: 1, lastReadMessageId: opts.read ? 5 : null })],
+      recentMessages: [createChatMessage({ id: 5, threadId: 100, authorId: 99, authorName: '아키', authorKind: 'AGENT', body: '확인 부탁드려요' })],
+    })
+    api.handlers.unshift(
+      http.get(`${BASE}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
+      http.get('/api/v1/chat/threads/100/messages', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+      http.post('/api/v1/chat/threads/100/read', async ({ request }) => {
+        reads.push(await request.json())
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    return reads
+  }
+
+  // 알림·「내 AI 작업」의 채팅 링크(/issues/N?chat=1)는 리다이렉트가 chat 을 이어 주고, 상세가 채팅 칸으로 이동한 뒤 chat 을 지운다.
+  test('/issues/1?chat=1 진입 → ?task=1 패널, 상세 스크롤 칸만 움직이고 입력칸 포커스 뒤 주소에서 chat 이 빠진다', async () => {
+    const scrolled = spyScrollTo()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { location } = await open(`/projects/${KEY}/issues/1?chat=1`, api, 'personal-task-panel')
+    await waitFor(() => expect(composerInput()).toHaveFocus())
+    expect(scrolled).toContain(detailScroll())
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}?task=1`))
+  })
+
+  // chat 이 없으면 지금처럼 패널만 연다(회귀) — 스크롤·포커스 없음.
+  test('chat 없이 /issues/1 진입 → ?task=1 패널, 채팅으로 스크롤하지 않는다', async () => {
+    const scrolled = spyScrollTo()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-panel')
+    expect(await screen.findByTestId('chat-composer-input')).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(scrolled).not.toContain(detailScroll())
+    expect(composerInput()).not.toHaveFocus()
+  })
+
+  // 이슈챗 알림(AI 질문)의 이동 주소 → 리다이렉트 → 채팅으로 이동. chat 은 replace 로 지워져 패널 닫기(Esc)가 task 만 지운다.
+  test('이슈챗 알림 주소로 진입 → 채팅으로 이동, 이어서 Esc 로 닫으면 task·chat 이 모두 없다', async () => {
+    const scrolled = spyScrollTo()
+    const target = notifTarget({ type: 'AI_QUESTION', projectKey: KEY, issueNumber: 1 } as NotificationResponse)
+    expect(target).toBe(`/projects/${KEY}/issues/1?chat=1`)
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const before = window.history.length
+    const { user, location } = await open(target, api, 'personal-task-panel')
+    await waitFor(() => expect(composerInput()).toHaveFocus())
+    await waitFor(() => expect(paramsOf(location()).get('chat')).toBeNull())
+    // 리다이렉트·chat 지우기 모두 replace — 히스토리 항목이 늘지 않는다(닫기 뒤로 가기가 chat 상태로 돌아가지 않게).
+    expect(window.history.length).toBe(before)
+    expect(scrolled).toContain(detailScroll())
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument())
+    expect(paramsOf(location()).get('task')).toBeNull()
+    expect(paramsOf(location()).get('chat')).toBeNull()
+  })
+
+  // 보드 모달도 같은 딥링크를 쓴다 — 스크롤 칸·입력칸이 모달 안에 있다.
+  test('보드 ?task=1&chat=1 → 모달 안 스크롤 칸·입력칸 포커스, 보드·task 는 남는다', async () => {
+    const scrolled = spyScrollTo()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })])
+    const { location } = await open(`/projects/${KEY}?view=board&task=1&chat=1`, api, 'personal-task-modal')
+    const modal = screen.getByTestId('personal-task-modal')
+    await waitFor(() => expect(within(modal).getByTestId('chat-composer-input')).toHaveFocus())
+    expect(scrolled).toContain(within(modal).getByTestId('personal-task-scroll'))
+    await waitFor(() => expect(paramsOf(location()).get('chat')).toBeNull())
+    expect([paramsOf(location()).get('view'), paramsOf(location()).get('task')]).toEqual(['board', '1'])
+  })
+
+  // 없는 작업(404)이면 chat 을 쓰지 못하므로 지운다 — 남겨 두면 다음에 여는 작업(task 만 바꾼다)에 묻어 엉뚱하게 채팅으로 이동한다.
+  test('없는 작업 ?task=999&chat=1 → 오류 안내와 함께 chat 이 빠지고, 다른 작업을 열어도 채팅으로 이동하지 않는다', async () => {
+    const scrolled = spyScrollTo()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user, location } = await open(`/projects/${KEY}?task=999&chat=1`, api, 'personal-task-panel-notfound')
+    await waitFor(() => expect(paramsOf(location()).get('chat')).toBeNull())
+    expect(paramsOf(location()).get('task')).toBe('999')
+    await user.click(await screen.findByTestId('personal-task-row-1'))
+    await waitFor(() => expect(paramsOf(location()).get('task')).toBe('1'))
+    expect(await screen.findByTestId('chat-composer-input')).toBeInTheDocument()
+    expect(paramsOf(location()).get('chat')).toBeNull()
+    expect(scrolled).toEqual([])
+    expect(composerInput()).not.toHaveFocus()
+  })
+
+  // 제목 줄의 채팅 버튼 — 팀 이슈와 같은 버튼·읽지 않은 수, 누르면 드로워 대신 채팅 칸으로 이동한다(주소는 그대로).
+  test('패널 제목 줄 채팅 버튼 — 읽지 않은 수를 보이고, 누르면 상세 스크롤 칸을 움직이고 입력칸 포커스', async () => {
+    const scrolled = spyScrollTo()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    withUnreadThread(api)
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const title = screen.getByTestId('personal-task-panel-title').parentElement!
+    const button = await within(title).findByTestId('issue-chat-open')
+    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
+    expect(scrolled).not.toContain(detailScroll())
+    await user.click(button)
+    await waitFor(() => expect(composerInput()).toHaveFocus())
+    expect(scrolled).toContain(detailScroll())
+    expect(location()).toBe(`/projects/${KEY}?task=1`)
+  })
+
+  // 읽음 표시가 성공하면 스레드 캐시의 워터마크가 올라가 배지가 지워지고, 채팅이 화면 밖으로 나가도 되살아나지 않는다.
+  test('마지막 메시지가 보여 읽음 표시가 나가면 배지가 지워지고, 화면 밖으로 나가도 되살아나지 않는다', async () => {
+    const io = controlIntersection()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const reads = withUnreadThread(api)
+    await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const button = await screen.findByTestId('issue-chat-open')
+    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
+    expect(await screen.findByText('확인 부탁드려요')).toBeInTheDocument()
+    io.set(() => true)
+    await waitFor(() => expect(reads).toEqual([{ uptoMessageId: 5 }]), { timeout: 3000 })
+    await waitFor(() => expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument())
+    io.set(() => false)
+    expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument()
+  })
+
+  // 실시간으로 온 다른 사람의 메시지는 읽기 전까지 배지에 남고, 읽음 표시가 성공해야 지워진다.
+  test('실시간 새 메시지는 읽을 때까지 배지에 남고, 읽음 표시 뒤 지워진다', async () => {
+    const io = controlIntersection()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const reads = withUnreadThread(api, { read: true })
+    const { queryClient } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const button = await screen.findByTestId('issue-chat-open')
+    await screen.findByText('확인 부탁드려요')
+    expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument()
+    act(() =>
+      handleChatEvent(queryClient, 'chat.message.created', createChatMessage({ id: 7, threadId: 100, authorId: 99, authorName: '아키', authorKind: 'AGENT', body: '새 질문' })),
+    )
+    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
+    expect(await screen.findByText('새 질문')).toBeInTheDocument()
+    // 읽기 전(마지막 메시지가 아직 안 보임)에는 그대로 남는다.
+    expect(reads).toEqual([])
+    expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1')
+    io.set(() => true)
+    await waitFor(() => expect(reads).toEqual([{ uptoMessageId: 7 }]), { timeout: 3000 })
+    await waitFor(() => expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument())
+  })
+
+  // 포커스 요청은 한 번만 — 입력칸이 나중에 다시 만들어져도(쓰기 권한이 꺼졌다 켜짐) 포커스를 다시 가져가지 않는다.
+  test('채팅 버튼 포커스는 한 번만 — 입력칸이 다시 만들어져도 포커스를 다시 가져가지 않는다', async () => {
+    spyScrollTo()
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    withUnreadThread(api)
+    const { user, queryClient } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const button = await screen.findByTestId('issue-chat-open')
+    await user.click(button)
+    await waitFor(() => expect(composerInput()).toHaveFocus())
+    button.focus()
+    const setCanPost = (canPost: boolean) =>
+      act(() => {
+        queryClient.setQueryData<ChatThreadResponse>(chatKeys.thread(KEY, 1), (t) => (t ? { ...t, canPost } : t))
+      })
+    setCanPost(false)
+    expect(await screen.findByTestId('chat-composer-readonly')).toBeInTheDocument()
+    setCanPost(true)
+    expect(await within(chatSection()).findByTestId('chat-composer-input')).toBeInTheDocument()
+    // 에디터가 만들어질 시간을 준 뒤에도 포커스는 버튼에 남는다.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(composerInput()).not.toHaveFocus()
+    expect(button).toHaveFocus()
+  })
+
+  // AI 진행 카드 — agentWork 가 있으면 「AI 에게 맡기기」 아래에 보이고, 「답변 필요」 배지가 채팅 칸으로 이동한다. 없으면 카드가 없다.
+  test('AI 진행 카드 — 진행 중 작업이 있으면 보이고 「답변 필요」 배지는 채팅으로 이동, 없으면 카드 없음', async () => {
+    const scrolled = spyScrollTo()
+    const api = personalApi([
+      createIssue({ projectKey: KEY, number: 1, title: '질문 받은 작업', agentWork: [createAgentWork({ worker: agentWorker, state: 'INPUT_REQUIRED' })] }),
+      createIssue({ projectKey: KEY, number: 2, title: '평범한 작업' }),
+    ])
+    const { user, location, unmount } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const card = await screen.findByTestId('agent-work-card')
+    expect(card).toHaveTextContent(agentWorker.name)
+    await user.click(within(card).getByTestId(`agent-work-${agentWorker.id}-state`))
+    await waitFor(() => expect(composerInput()).toHaveFocus())
+    expect(scrolled).toContain(detailScroll())
+    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    unmount()
+    await open(`/projects/${KEY}?task=2`, api, 'personal-task-panel')
+    expect(await screen.findByTestId('chat-composer-input')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-work-card')).not.toBeInTheDocument()
   })
 })
 

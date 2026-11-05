@@ -4,9 +4,10 @@
 import { useCallback } from 'react'
 
 import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { ISSUE_CHAT_OPEN, ISSUE_CHAT_PARAM } from '@/lib/issueChatParam'
 
 export function useIssueChatDrawerParam(): { open: boolean; openChat: () => void; closeChat: () => void } {
-  const { value, open, close } = useHistoryParam('chat')
-  const openChat = useCallback(() => open('1'), [open])
-  return { open: value === '1', openChat, closeChat: close }
+  const { value, open, close } = useHistoryParam(ISSUE_CHAT_PARAM)
+  const openChat = useCallback(() => open(ISSUE_CHAT_OPEN), [open])
+  return { open: value === ISSUE_CHAT_OPEN, openChat, closeChat: close }
 }
