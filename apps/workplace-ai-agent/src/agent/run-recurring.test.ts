@@ -14,6 +14,7 @@ import { REPORT_RETRY_DELAYS_MS, runRecurring } from './run-recurring.js';
 import { runSdkCollect } from './sdk-runner.js';
 import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
+import { AGENT_INSTRUCTIONS_HEADER } from './agent-instructions.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { IssueRecurringRunPayload } from '../types/issue-events.js';
 
@@ -36,16 +37,21 @@ const payload: IssueRecurringRunPayload = {
 };
 
 // 테넌트 스코프 클라이언트(withOnBehalfOfTenant)는 별도 객체로 — 도구 대행·결과 보고가 스코프 쪽으로 가는지 본다.
-function client(credential: unknown | Error = { provider: 'anthropic', token: 'tk', model: null }) {
+// WP-1368: 지시 조회(toolClient().getMember)는 기본 「지시 없음」 — instructions 를 주면 그 지시를 돌려준다.
+function client(
+  credential: unknown | Error = { provider: 'anthropic', token: 'tk', model: null },
+  instructions: string | null = null,
+) {
+  const member = () => ({ getMember: vi.fn().mockResolvedValue({ userId: 201, instructions }) });
   const scoped = {
     reportRecurringRun: vi.fn().mockResolvedValue(undefined),
-    toolClient: vi.fn(),
+    toolClient: vi.fn(member),
   };
   const c = {
     getProviderCredential:
       credential instanceof Error ? vi.fn().mockRejectedValue(credential) : vi.fn().mockResolvedValue(credential),
     reportRecurringRun: vi.fn().mockResolvedValue(undefined),
-    toolClient: vi.fn(),
+    toolClient: vi.fn(member),
     withOnBehalfOfTenant: vi.fn(() => scoped),
     scoped,
   };
@@ -197,6 +203,31 @@ describe('runRecurring', () => {
     const c = client();
     await runRecurring(payload, { client: c });
     expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, expect.objectContaining({ ok: false }));
+  });
+
+  // WP-1368: 이 AI 의 지시는 실행 AI(201) 자신을 테넌트 스코프 클라이언트로 조회해 시스템 프롬프트 맨 뒤에 붙인다.
+  it('지시가 있으면 systemPrompt 끝에 지시 블록, 없으면 기존 상수 그대로', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', 'ok')]);
+    const c = client(undefined, '결과는 세 줄로 요약한다');
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.toolClient).toHaveBeenCalledWith(201);
+    const withInstr = vi.mocked(runSdkCollect).mock.calls[0][0].systemPrompt as string;
+    expect(withInstr.startsWith(RECURRING_RUN_SYSTEM_PROMPT)).toBe(true);
+    expect(withInstr).toContain(AGENT_INSTRUCTIONS_HEADER);
+    expect(withInstr.endsWith('\n\n결과는 세 줄로 요약한다')).toBe(true);
+
+    await runRecurring(payload, { client: client() });
+    expect(vi.mocked(runSdkCollect).mock.calls[1][0].systemPrompt).toBe(RECURRING_RUN_SYSTEM_PROMPT);
+  });
+
+  it('지시 조회가 실패해도 지시 없이 실행하고 결과를 보고한다', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', 'ok')]);
+    const c = client();
+    c.scoped.toolClient.mockReturnValue({ getMember: vi.fn().mockRejectedValue(new Error('500')) });
+    await runRecurring(payload, { client: c });
+    expect(vi.mocked(runSdkCollect).mock.calls[0][0].systemPrompt).toBe(RECURRING_RUN_SYSTEM_PROMPT);
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: 'ok' });
   });
 
   it('자격 증명을 못 가져오면 실행하지 않고 ok:false', async () => {

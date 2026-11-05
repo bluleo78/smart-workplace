@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'node:path';
 import type { RunnerEvent } from './runner-events.js';
+import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
+import { AGENT_INSTRUCTIONS_HEADER } from './agent-instructions.js';
 
 // agent-runner mock — runnerFor().stream: onEvent 으로 가짜 RunnerEvent 3개 즉시 주입 후 done resolve.
 // (진행 신호: tool_use → 'tool', tool_done → tool_result, result → 종료)
@@ -60,6 +62,8 @@ function deps() {
       getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
       getChatMessages: vi.fn(async () => []),
       postChatProgress: vi.fn().mockResolvedValue(undefined),
+      // WP-1368: 지시 조회(실행 AI 자신) — 기본은 지시 없음.
+      toolClient: vi.fn(() => ({ getMember: vi.fn(async () => ({ userId: 99, instructions: null })) })),
     } as unknown as WorkplaceApiClient,
   };
 }
@@ -139,6 +143,33 @@ describe('runChatAgent', () => {
     await runChatAgent(env, d);
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { model?: string };
     expect(runCall.model).toBe('claude-sonnet-5-5');
+  });
+});
+
+// WP-1368: 이 AI 의 지시는 멘션된 AI 자신을 조회해 시스템 프롬프트 맨 뒤에 붙인다.
+describe('runChatAgent 지시', () => {
+  it('지시가 있으면 systemPrompt 끝에 지시 블록, 없으면 기존 상수 그대로', async () => {
+    const d = deps();
+    const getMember = vi.fn(async () => ({ userId: 99, instructions: '답은 표로 정리한다' }));
+    vi.mocked(d.client.toolClient).mockReturnValue({ getMember } as never);
+    await runChatAgent(env, d);
+    expect(d.client.toolClient).toHaveBeenCalledWith(99);
+    expect(getMember).toHaveBeenCalledWith(99);
+    const withInstr = (vi.mocked(streamSpy).mock.calls[0][0] as { systemPrompt: string }).systemPrompt;
+    expect(withInstr.startsWith(CHAT_SYSTEM_PROMPT)).toBe(true);
+    expect(withInstr).toContain(AGENT_INSTRUCTIONS_HEADER);
+    expect(withInstr.endsWith('\n\n답은 표로 정리한다')).toBe(true);
+
+    await runChatAgent(env, deps());
+    expect((vi.mocked(streamSpy).mock.calls[1][0] as { systemPrompt: string }).systemPrompt).toBe(CHAT_SYSTEM_PROMPT);
+  });
+
+  it('지시 조회가 실패해도 지시 없이 실행한다', async () => {
+    const d = deps();
+    vi.mocked(d.client.toolClient).mockReturnValue({ getMember: vi.fn().mockRejectedValue(new Error('500')) } as never);
+    await runChatAgent(env, d);
+    expect(streamSpy).toHaveBeenCalledOnce();
+    expect((vi.mocked(streamSpy).mock.calls[0][0] as { systemPrompt: string }).systemPrompt).toBe(CHAT_SYSTEM_PROMPT);
   });
 });
 

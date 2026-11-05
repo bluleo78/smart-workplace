@@ -12,6 +12,7 @@ import { RECURRING_QUESTION_MARKER, RECURRING_RUN_SYSTEM_PROMPT } from './system
 import { buildRecurringRunMessage, TEST_GATED_LABELS } from './user-message.js';
 import { defaultSleep } from './sleep.js';
 import { withSharedMemory } from './shared-memory-block.js';
+import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { runnerFor, type ProviderCredential } from './agent-runner.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import { finalText, resultOk } from './runner-events.js';
@@ -112,6 +113,11 @@ export async function runRecurring(
     }
   };
 
+  // WP-1368: 이 AI(actingAgentId)의 지시 — 실행마다 한 번 읽어 시스템 프롬프트 맨 뒤에 붙인다. 자격증명 요청과 함께 내보내 실행 시작을 늦추지 않는다.
+  // 구성원 조회는 테넌트 범위라 도구 호출·결과 보고와 같은 스코프 클라이언트로 부른다(조회 대상은 늘 실행 AI 자신).
+  // 실패해도 reject 하지 않고 null(지시 없이 진행)이라, 자격증명이 실패해 실행을 생략할 때는 기다리지 않고 버려도 된다.
+  const instructionsPromise = fetchAgentInstructions(scoped, agentId, logTag);
+
   let credential: ProviderCredential;
   try {
     credential = await deps.client.getProviderCredential(agentId);
@@ -120,6 +126,7 @@ export async function runRecurring(
     await report(false, 'AI 비서의 연결 정보를 가져오지 못했습니다');
     return;
   }
+  const instructions = await instructionsPromise;
 
   const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
   const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
@@ -153,7 +160,7 @@ export async function runRecurring(
   try {
     const events = await runnerFor(credential).collect({
       userMessage,
-      systemPrompt: RECURRING_RUN_SYSTEM_PROMPT,
+      systemPrompt: withAgentInstructions(RECURRING_RUN_SYSTEM_PROMPT, instructions),
       model,
       maxTurns,
       credential,

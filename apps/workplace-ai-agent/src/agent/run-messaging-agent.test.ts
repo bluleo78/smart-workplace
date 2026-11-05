@@ -9,6 +9,8 @@ vi.mock('./agent-runner.js', () => ({
 }));
 
 import { runMessagingAgent } from './run-messaging-agent.js';
+import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
+import { AGENT_INSTRUCTIONS_HEADER } from './agent-instructions.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
@@ -38,8 +40,11 @@ function deps() {
   return {
     client: {
       getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
-      // #846: 최근 메시지 프리페치는 공유 도구용 클라이언트(toolClient) 경유.
-      toolClient: () => ({ listChannelMessages: vi.fn(async () => ({ items: [] })) }),
+      // #846: 최근 메시지 프리페치는 공유 도구용 클라이언트(toolClient) 경유. WP-1368: 지시 조회(getMember)도 — 기본은 지시 없음.
+      toolClient: () => ({
+        listChannelMessages: vi.fn(async () => ({ items: [] })),
+        getMember: vi.fn(async () => ({ userId: 99, instructions: null })),
+      }),
       postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as WorkplaceApiClient,
   };
@@ -50,6 +55,7 @@ describe('runMessagingAgent', () => {
     vi.clearAllMocks();
     streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   it('respondAsAgentId 로 토큰 fetch + SDK spawn(messaging, allowFileRead=false, partial=false, mcp)', async () => {
@@ -82,6 +88,35 @@ describe('runMessagingAgent', () => {
     expect(listChannelMessages).toHaveBeenCalledWith(42, { limit: 20 });
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { prompt?: string; userMessage?: string };
     expect(JSON.stringify(runCall)).toContain('이전 대화 본문');
+  });
+
+  // WP-1368: 이 AI 의 지시는 답하는 AI 자신을 조회해 시스템 프롬프트 맨 뒤에 붙인다 — 없으면 기존 프롬프트 그대로.
+  it('지시가 있으면 systemPrompt 끝에 지시 블록, 없으면 기존 상수 그대로', async () => {
+    const d = deps();
+    const getMember = vi.fn(async () => ({ userId: 99, instructions: '존댓말로 답한다' }));
+    const toolClient = vi.fn(() => ({ listChannelMessages: vi.fn(async () => ({ items: [] })), getMember }));
+    (d.client as unknown as { toolClient: unknown }).toolClient = toolClient;
+    await runMessagingAgent(env, d);
+    expect(toolClient).toHaveBeenCalledWith(99);
+    expect(getMember).toHaveBeenCalledWith(99);
+    const withInstr = (vi.mocked(streamSpy).mock.calls[0][0] as { systemPrompt: string }).systemPrompt;
+    expect(withInstr.startsWith(MESSAGING_SYSTEM_PROMPT)).toBe(true);
+    expect(withInstr).toContain(AGENT_INSTRUCTIONS_HEADER);
+    expect(withInstr.endsWith('\n\n존댓말로 답한다')).toBe(true);
+
+    await runMessagingAgent(env, deps());
+    expect((vi.mocked(streamSpy).mock.calls[1][0] as { systemPrompt: string }).systemPrompt).toBe(MESSAGING_SYSTEM_PROMPT);
+  });
+
+  it('지시 조회가 실패해도 지시 없이 실행한다', async () => {
+    const d = deps();
+    (d.client as unknown as { toolClient: unknown }).toolClient = () => ({
+      listChannelMessages: vi.fn(async () => ({ items: [] })),
+      getMember: vi.fn().mockRejectedValue(new Error('500')),
+    });
+    await runMessagingAgent(env, d);
+    expect(streamSpy).toHaveBeenCalledOnce();
+    expect((vi.mocked(streamSpy).mock.calls[0][0] as { systemPrompt: string }).systemPrompt).toBe(MESSAGING_SYSTEM_PROMPT);
   });
 
   it('토큰 fetch 실패 시 spawn 생략', async () => {

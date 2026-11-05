@@ -280,18 +280,23 @@ test('기본 정보 — 이름·아이디를 바꿔 저장하면 PUT 하고 변�
   expect(calls.puts).toEqual([{ username: 'ai-dev-v2', name: '내부봇 v2', description: '' }])
 })
 
-test('맡은 일과 지시 — 맡은 일 앞뒤 공백을 걷어 PUT 하고, 기본(서버 실행) AI 는 지시 칸이 막혀 지시를 보내지 않는다 (WP-455, WP-1077)', async () => {
+test('맡은 일과 지시 — 기본(서버 실행) AI 도 지시 칸이 열려 있고, 맡은 일·지시 앞뒤 공백을 걷어 PUT 한다 (WP-455, WP-1077, WP-1368)', async () => {
   const { user, calls } = await renderDetail(100)
   const duty = await screen.findByLabelText('맡은 일')
   await user.click(duty)
   await user.paste('  코드 리뷰를 맡습니다.  ')
-  // 기본 방식은 지시를 읽지 않아 칸이 막히고 이유만 남는다.
-  expect(screen.getByTestId('agent-instructions-input')).toBeDisabled()
-  expect(screen.getByText('기본 방식은 지시를 읽지 않아요. 외부·Claude Code 로 바꾸면 따라요.')).toBeInTheDocument()
+  // 지시는 실행 방식과 상관없이 따르므로 기본 방식도 칸이 열려 있고 막힌 이유 문구가 없다(WP-1368).
+  const instructions = screen.getByTestId('agent-instructions-input')
+  expect(instructions).not.toBeDisabled()
+  expect(screen.queryByText(/지시를 읽지 않아요/)).not.toBeInTheDocument()
+  await user.click(instructions)
+  await user.paste('  - 리뷰 결과는 이슈 댓글로 남긴다.\n')
   await user.click(screen.getByTestId('agent-duty-save'))
 
   expect(await screen.findByText('에이전트를 변경했습니다')).toBeInTheDocument()
-  expect(calls.puts).toEqual([{ username: 'ai-dev', name: '내부봇', description: '코드 리뷰를 맡습니다.' }])
+  expect(calls.puts).toEqual([
+    { username: 'ai-dev', name: '내부봇', description: '코드 리뷰를 맡습니다.', instructions: '- 리뷰 결과는 이슈 댓글로 남긴다.' },
+  ])
 })
 
 test('외부 AI 는 지시 칸이 열려 있고 앞뒤 공백을 걷어 PUT 한다 (WP-1077)', async () => {
@@ -313,19 +318,21 @@ test('외부 AI 는 지시 칸이 열려 있고 앞뒤 공백을 걷어 PUT 한�
   ])
 })
 
-// 예전엔 「내부 AI 라도 적힌 지시가 있으면 칸을 열어 비워 저장」할 수 있었다(WP-1077). WP-1281 에서 기본 방식은 칸 자체를 막고(안 읽는 값은 못 고침),
-// 적힌 지시는 지우지 않고 다른 방식으로 바꾸면 다시 따르게 했다 — 그래서 지우기 대신 「보이되 막히고 저장해도 보내지 않음」을 지킨다.
-test('기본 AI 에 옛 지시가 남아 있으면 칸에 보이되 막혀 있고, 다른 칸을 저장해도 지시는 보내지 않는다 (WP-1077·WP-1281)', async () => {
+// WP-1281 에서 기본 방식은 지시 칸을 막고 저장해도 지시를 보내지 않았다. WP-1368 부터 지시는 실행 방식과 상관없이 따르므로
+// 기본 AI 의 적힌 지시도 열린 칸에 보인다. 다만 지시를 고치지 않았으면 보내지 않는다 — 빼면 서버가 저장된 값을 그대로 두므로,
+// 화면을 연 뒤 다른 곳에서 바뀐 지시를 옛 값으로 덮어쓰지 않는다.
+test('기본 AI 에 적힌 지시는 열린 칸에 보이고, 맡은 일만 고쳐 저장하면 지시는 보내지 않는다 (WP-1077·WP-1368)', async () => {
   const { user, calls } = await renderDetail(104)
   const instructions = await screen.findByLabelText('지시')
   expect(instructions).toHaveValue('옛 지시')
-  expect(instructions).toBeDisabled()
+  expect(instructions).toBeEnabled()
   await user.click(screen.getByLabelText('맡은 일'))
   await user.paste('새 설명')
   await user.click(screen.getByTestId('agent-duty-save'))
 
   expect(await screen.findByText('에이전트를 변경했습니다')).toBeInTheDocument()
   expect(calls.puts).toEqual([{ username: 'was_ext', name: '전외부봇', description: '새 설명' }])
+  expect(calls.puts[0]).not.toHaveProperty('instructions')
 })
 
 test('기본 → 외부 — 카드를 누르면 펼쳐지고 바꾸기 확인창의 요약을 거쳐 PUT 한 뒤, 접속 키 묶음과 가이드의 연결 방법이 나온다', async () => {

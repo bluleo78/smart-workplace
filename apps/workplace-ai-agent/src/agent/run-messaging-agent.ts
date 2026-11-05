@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
+import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { buildMessagingUserMessage } from './messaging-user-message.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
@@ -36,6 +37,11 @@ export async function runMessagingAgent(
     return;
   }
 
+  const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
+  // WP-1368: 이 AI 의 지시 — 실행마다 한 번 읽어 시스템 프롬프트 맨 뒤에 붙인다. 아래 채널 메시지·위임 후보 조회와 서로 기대지 않으므로
+  // 여기서 요청만 띄워 두고 그 조회들과 함께 기다린다('started' 앞에 왕복을 하나 더 두지 않는다). 실패해도 throw 하지 않고 null(지시 없이 진행).
+  const instructionsPromise = fetchAgentInstructions(deps.client, agentId, logTag);
+
   // 인-프로세스 MCP 서버(messaging 프로필)는 러너 내부에서 구성. 첨부 없음 → workDir/cwd 불필요(SDK 기본 tmpdir).
   // 위임(L3): 트리거 actor=위임자, channelId 항상; 스레드 안(parent 비-null)이면 thread 바인딩.
   const threadBinding =
@@ -68,6 +74,8 @@ export async function runMessagingAgent(
     });
   }
   const userMessage = buildMessagingUserMessage(p, recent, candidates);
+  // 채널 메시지·위임 후보 조회 동안 함께 진행된 지시 조회를 받는다(대개 이미 끝나 있다).
+  const instructions = await instructionsPromise;
 
   // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
   const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
@@ -87,11 +95,10 @@ export async function runMessagingAgent(
       );
   };
   void emit('started');
-  const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
   const handle = runnerFor(credential).stream(
     {
       userMessage,
-      systemPrompt: MESSAGING_SYSTEM_PROMPT,
+      systemPrompt: withAgentInstructions(MESSAGING_SYSTEM_PROMPT, instructions),
       model,
       maxTurns,
       credential,

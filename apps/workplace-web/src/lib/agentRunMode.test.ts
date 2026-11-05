@@ -70,12 +70,15 @@ describe('modeChangeSummary — from → to 조합별', () => {
     expect(lines[1]).toContain('키를 발급해 주세요')
   })
 
-  test('WORKSPACE → SERVER: 작업 설정(칸 이름) 삭제 · 접속 키 폐기 · 바로 답함 · 지시는 안 읽음(지워지지 않음)', () => {
+  test('WORKSPACE → SERVER: 작업 설정(칸 이름) 삭제 · 접속 키 폐기 · 바로 답함 · 지시 안내는 없음(WP-1368)', () => {
     const lines = modeChangeSummary(WORKS, SERVER, CLAUDE_TEMPLATE)
     expect(lines[0]).toBe('Claude Code 작업 설정(모델·대기열 라벨·실행 환경)이 지워져요.')
     expect(lines).toContain('Works 가 관리하던 접속 키는 폐기돼요.')
     expect(lines.some((l) => l.includes('바로 답해요'))).toBe(true)
-    expect(lines.at(-1)).toContain('지시는 읽지 않아요')
+    expect(lines).toHaveLength(3)
+    expect(lines.at(-1)).toContain('바로 답해요')
+    // 지시는 실행 방식과 상관없이 따르므로 지시에 관한 줄이 없다(WP-1368).
+    expect(lines.some((l) => l.includes('지시'))).toBe(false)
   })
 
   test('WORKSPACE → EXTERNAL: 설정 삭제 · 키 폐기 · 코드는 그 컴퓨터의 GitHub 로그인(바로 답하지 않음 문구는 없음)', () => {
@@ -86,10 +89,11 @@ describe('modeChangeSummary — from → to 조합별', () => {
     expect(lines.some((l) => l.includes('더는 바로 답하지'))).toBe(false)
   })
 
-  test('EXTERNAL → SERVER: 지울 설정 없이 바로 답함 · 지시 안 읽음 (키 폐기 문구 없음)', () => {
+  test('EXTERNAL → SERVER: 지울 설정 없이 바로 답함 (키 폐기·지시 문구 없음, WP-1368)', () => {
     const lines = modeChangeSummary(EXTERNAL, SERVER, null)
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(1)
     expect(lines[0]).toContain('AI 계정을 연결해야')
+    expect(lines.some((l) => l.includes('지시'))).toBe(false)
     expect(lines.some((l) => l.includes('폐기'))).toBe(false)
   })
 
