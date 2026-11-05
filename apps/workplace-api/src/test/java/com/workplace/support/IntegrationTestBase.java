@@ -18,6 +18,7 @@ import com.workplace.home.repository.HomeMessageRepository;
 import com.workplace.home.repository.SharedAiMemoryRepository;
 import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.SharedAiMemoryChangeLog;
+import com.workplace.issue.outbound.ImplicitChatAgents;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.repository.LabelRepository;
@@ -93,6 +94,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       EmailMessageRepository.class,
       FileStore.class,
       HomeMessageRepository.class,
+      // WP-1377: 멘션 없이 답할 AI 판정 실패 주입(글 저장·스레드 조회 격리 확인).
+      ImplicitChatAgents.class,
       ImapConnector.class,
       ImapFolderLister.class,
       IssueRepository.class,

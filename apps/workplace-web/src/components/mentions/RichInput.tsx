@@ -26,7 +26,7 @@ import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
 import { INVALID_IMAGE_MSG, isValidImageFile } from '@/lib/imageUpload';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { keepFocusProps } from '@/lib/keepFocus';
-import { isSubmitEnter } from '@/lib/submitEnter';
+import { isSubmitEnter, SHIFT_ENTER_HINT } from '@/lib/submitEnter';
 
 import { chatFormattingExtensions } from './chatFormatting';
 import { ChatFormatToggle, ChatFormatToolbar } from './ChatFormatToolbar';
@@ -107,7 +107,7 @@ export function RichInput({
   ariaLabel,
   initialBody = '',
   initialMentions = [],
-  placeholder = '메시지 입력 (Shift+Enter 로 줄바꿈)',
+  placeholder = `메시지 입력${SHIFT_ENTER_HINT}`,
   onSubmit,
   onCancel,
   onChange,

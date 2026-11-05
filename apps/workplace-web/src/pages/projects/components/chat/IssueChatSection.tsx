@@ -22,12 +22,13 @@ import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMes
 import { useAiWorkingBubbles } from '../../../../hooks/useAiWorkingBubbles';
 import { useAuth } from '../../../../hooks/useAuth';
 import { onChatTyping, onThreadProgress } from '../../../../hooks/useChatStream';
+import { useIsTouchShell } from '../../../../hooks/useIsTouchShell';
 import { agentQuestionWorks } from '../../../../lib/agentWork';
 import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
-import { agentReplyHint } from './composerHint';
+import { agentReplyHint, implicitAgentHint } from './composerHint';
 import type { QuestionWorks } from './questionState';
 
 interface IssueChatSectionProps {
@@ -161,6 +162,16 @@ function IssueChatSectionBody({
   const messagesLoaded = messagesQ.data !== undefined;
   const working = useAiWorkingBubbles(threadQ.data?.threadId, onThreadProgress, messages, messagesLoaded);
 
+  // WP-1377: 멘션 없이도 답하는 담당 AI 안내 — 외부 실행 AI 안내(WP-373)가 있으면 그쪽을 쓰고 이 안내는 내지 않는다(다른 경로).
+  // AFTER_AI_REPLY 는 마지막 글 작성자로 판정하므로 렌더마다 messages(SSE·낙관적 추가 포함)로 다시 계산한다(한 번 훑기라 메모하지 않는다).
+  // RichInput 이 placeholder 변경을 장식에 다시 반영하므로 컴포저를 다시 마운트할 필요는 없다.
+  // 터치 셸은 Shift+Enter 안내를 빼야 해 ChatComposer 와 같은 기준(useIsTouchShell)을 넘긴다.
+  const touchShell = useIsTouchShell();
+  const externalHint = agentReplyHint(threadQ.data?.externalAgent?.name);
+  const implicitHint = externalHint
+    ? undefined
+    : implicitAgentHint(threadQ.data?.implicitAgent, messages, touchShell);
+
   // 입력 중 3초 throttle 로 typing 송신.
   const lastTypingRef = useRef(0);
   const handleTyping = () => {
@@ -291,21 +302,30 @@ function IssueChatSectionBody({
           이 대화는 프로젝트 멤버와 이슈를 등록한 사람만 쓸 수 있습니다.
         </p>
       ) : (
-        <ChatComposer
-          threadId={threadId}
-          members={thread.members}
-          onSubmit={(body, fileIds, driveFileIds) =>
-            createMutation.mutateAsync({ body, fileIds, driveFileIds })
-          }
-          onTyping={handleTyping}
-          // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가
-          // 드로워 절반을 덮으므로 정밀 포인터(마우스·트랙패드)일 때만 한다.
-          autoFocus={embedded && finePointerStore.get()}
-          focusRequest={focusRequest}
-          onFocusRequestDone={onFocusRequestDone}
-          // 외부 실행 AI 가 담당한 이슈면 멘션 없이 답해도 그 AI 가 이어받는다는 안내(WP-373).
-          placeholder={agentReplyHint(thread.externalAgent?.name)}
-        />
+        <>
+          <ChatComposer
+            threadId={threadId}
+            members={thread.members}
+            onSubmit={(body, fileIds, driveFileIds) =>
+              createMutation.mutateAsync({ body, fileIds, driveFileIds })
+            }
+            onTyping={handleTyping}
+            // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가
+            // 드로워 절반을 덮으므로 정밀 포인터(마우스·트랙패드)일 때만 한다.
+            autoFocus={embedded && finePointerStore.get()}
+            focusRequest={focusRequest}
+            onFocusRequestDone={onFocusRequestDone}
+            // 외부 실행 AI 가 담당한 이슈면 멘션 없이 답해도 그 AI 가 이어받는다는 안내(WP-373). 외부 AI 가 없고
+            // 멘션 없이도 답하는 담당 AI 가 지금 답할 차례면 그 AI 에게 보내는 안내(WP-1377).
+            placeholder={externalHint ?? implicitHint?.placeholder}
+          />
+          {/* WP-1377: 입력칸 아래 한 줄 — 멘션 없이 보내도 담당 AI 가 답한다는 것을 알린다. 컴포저와 같은 분기라 쓸 수 없는 사용자에겐 없다. */}
+          {implicitHint && (
+            <p className="-mt-2 px-3 pb-2 text-xs text-muted-foreground" data-testid="chat-implicit-agent-hint">
+              {implicitHint.note}
+            </p>
+          )}
+        </>
       )}
     </>
   );

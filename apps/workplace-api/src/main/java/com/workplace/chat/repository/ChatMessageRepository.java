@@ -107,6 +107,21 @@ public class ChatMessageRepository {
         .fetchOptional(r -> r.get(CHAT_MESSAGE.AUTHOR_ID));
   }
 
+  /**
+   * 스레드에서 이 글 바로 앞(id 가 더 작은 것 중 가장 최근) 글의 작성자(WP-1377). 삭제된 글은 건너뛴다 — 지운 글은 대화에서 빠진 글이다. 앞 글이 없으면
+   * 빈 값. 팀 이슈챗의 「AI 답 다음에만 멘션 없이 답한다」 판정에 쓴다.
+   */
+  public Optional<Long> findPreviousAuthorId(long threadId, long messageId) {
+    return dsl.select(CHAT_MESSAGE.AUTHOR_ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId))
+        .and(CHAT_MESSAGE.ID.lt(messageId))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .orderBy(CHAT_MESSAGE.ID.desc())
+        .limit(1)
+        .fetchOptional(CHAT_MESSAGE.AUTHOR_ID);
+  }
+
   /** 메시지의 소속 thread_id 조회 (삭제 이벤트 fan-out 대상 산정용). */
   public java.util.Optional<Long> findThreadId(long messageId) {
     return dsl.select(CHAT_MESSAGE.THREAD_ID)

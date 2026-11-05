@@ -47,11 +47,18 @@ public class ServerAgentResolver {
     if (agentCandidateIds.isEmpty()) return null;
     Set<Long> internal =
         userRepository.findAssigneeInfos(agentCandidateIds, tenantId).stream()
-            .filter(AssigneeInfo::isInternalAgent)
-            // WP-417: 이 워크스페이스에서 비활성(전역 비활성·멤버십 정지)인 에이전트는 서버 실행 대상에서 뺀다.
-            .filter(AssigneeInfo::isActive)
+            .filter(ServerAgentResolver::runsOnServer)
             .map(AssigneeInfo::id)
             .collect(Collectors.toSet());
     return agentCandidateIds.stream().filter(internal::contains).findFirst().orElse(null);
+  }
+
+  /**
+   * 서버가 실행할 수 있는 에이전트인지 — 내부 실행(INTERNAL) AI 이고 이 워크스페이스에서 활성. {@link #pickActingAgentId} 와 이미
+   * {@link AssigneeInfo} 를 읽어 둔 호출자(WP-1377 실행 일정 담당 AI 판정)가 같은 기준을 쓰게 한다 — 같은 사용자를 다시 조회하지 않고.
+   */
+  public static boolean runsOnServer(AssigneeInfo info) {
+    // WP-417: 이 워크스페이스에서 비활성(전역 비활성·멤버십 정지)인 에이전트는 서버 실행 대상에서 뺀다.
+    return info.isInternalAgent() && info.isActive();
   }
 }

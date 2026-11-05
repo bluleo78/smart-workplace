@@ -17,3 +17,9 @@ export function isSubmitEnter(event: KeyboardEvent): boolean {
  * 팀 채팅 컴포저(MessageComposer)는 항상, 이슈 채팅 컴포저(ChatComposer)는 터치 셸에서만 쓴다(isSubmitEnter 와 같은 판정).
  */
 export const MESSAGE_PLACEHOLDER = '메시지를 입력하세요';
+
+/**
+ * Enter 가 전송일 때(데스크톱) 메시지 입력 안내 끝에 붙이는 줄바꿈 키 안내. 터치 셸에선 붙이지 않는다(isSubmitEnter 와 같은 판정).
+ * RichInput 기본 안내와 담당 AI 안내(WP-1377)가 같은 문구를 쓰게 한 곳에 둔다.
+ */
+export const SHIFT_ENTER_HINT = ' (Shift+Enter 로 줄바꿈)';
