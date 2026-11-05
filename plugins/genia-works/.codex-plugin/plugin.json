@@ -1,6 +1,6 @@
 {
   "name": "genia-works",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "description": "Gen:iA Works MCP 연결과 이슈 작업 보고·마무리·자동 처리 스킬 — Claude Code 플러그인과 같은 폴더·같은 스킬",
   "author": { "name": "Gen:iA Works" },
   "homepage": "https://genia-works.iacloud.kr",
