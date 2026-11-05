@@ -30,7 +30,7 @@ import { handleApiError } from '@/lib/api-error';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { formatDateOnly } from '@/lib/formatters';
 import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
-import { isPasswordWithinBytes, PASSWORD_BYTES_MESSAGE } from '@/lib/validations/user';
+import { sharePasswordError } from '@/lib/validations/shareLink';
 import type { DriveFile } from '@/types/drive';
 
 interface ShareLinkModalProps {
@@ -72,7 +72,7 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
 
   // 만료일 폼 에러(#673) — 과거 날짜 입력 시 생성 자체를 막기 위한 인라인 메시지
   const [expiresAtError, setExpiresAtError] = useState<string | null>(null);
-  // 비밀번호 한도(bcrypt 72바이트) 인라인 에러(WP-497) — 서버 영어 원문 토스트 대신 입력 아래에 안내한다.
+  // 비밀번호 인라인 에러 — 한도(bcrypt 72바이트, WP-497)·공백만(WP-1385). 토스트 대신 입력 아래에 안내한다.
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   // 모달 열릴 때 기존 링크 목록 로드
@@ -84,30 +84,28 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
 
   /** 공유 링크 생성 */
   async function onCreate() {
-    // 범위 밖 날짜(5자리 연도 등) — 날짜 칸이 그대로 내보내는 값으로 아래 toISOString 이 RangeError 를 던져
-    // 「링크 생성」이 아무 반응도 없었다(WP-901). 변환 전에 서버와 같은 범위 안내로 막는다.
+    // 모든 입력을 한 번에 검사해 각 칸의 오류를 세우거나 지운 뒤 막는다 — 한 칸만 보고 돌아가면 이미 고친
+    // 다른 칸의 오류가 화면에 남는다(WP-1385).
+    // 비밀번호: 72바이트 초과(WP-497)·공백만(WP-1385 — 예전엔 서버가 「비밀번호 없음」으로 바꿔 누구나 여는 링크가
+    // 조용히 만들어졌다). 빈 칸은 오류가 아니고 아래에서 undefined(비밀번호 없음)로 보낸다.
+    const nextPasswordError = sharePasswordError(password);
+
+    // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지("2026-06-30" → "2026-06-30T23:59:59" 로컬 → ISO).
+    let expiresAtIso: string | undefined;
+    let nextExpiresAtError: string | null = null;
     if (expiresAt && !isSupportedDateKey(expiresAt)) {
-      setExpiresAtError(SUPPORTED_DATE_RANGE_MESSAGE);
-      return;
-    }
-    // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지.
-    // "2026-06-30" 입력 → "2026-06-30T23:59:59" 로컬 → ISO 변환.
-    const expiresAtIso = expiresAt
-      ? new Date(`${expiresAt}T23:59:59`).toISOString()
-      : undefined;
-
-    if (!isPasswordWithinBytes(password)) {
-      setPasswordError(PASSWORD_BYTES_MESSAGE);
-      return;
+      // 범위 밖 날짜(5자리 연도 등) — 그대로 toISOString 하면 RangeError 로 「링크 생성」이 무반응이었다(WP-901).
+      // 변환 전에 서버와 같은 범위 안내로 막는다.
+      nextExpiresAtError = SUPPORTED_DATE_RANGE_MESSAGE;
+    } else if (expiresAt) {
+      expiresAtIso = new Date(`${expiresAt}T23:59:59`).toISOString();
+      // 과거 날짜 가드(#673) — <input type=date min> 은 키보드 직접 입력으로 우회 가능해 API 호출 전에 재검증한다.
+      if (new Date(expiresAtIso) < new Date()) nextExpiresAtError = '만료일은 오늘 이후 날짜여야 합니다.';
     }
 
-    // 과거 날짜 가드(#673) — <input type=date min> 은 키보드 직접 입력으로 우회 가능해
-    // API 호출 전에 명시적으로 재검증한다. 통과하면 이전 에러 메시지를 지운다.
-    if (expiresAtIso && new Date(expiresAtIso) < new Date()) {
-      setExpiresAtError('만료일은 오늘 이후 날짜여야 합니다.');
-      return;
-    }
-    setExpiresAtError(null);
+    setPasswordError(nextPasswordError);
+    setExpiresAtError(nextExpiresAtError);
+    if (nextPasswordError || nextExpiresAtError) return;
 
     setCreating(true);
     try {
@@ -202,8 +200,9 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);
-                // 한도 안으로 고치면 바로 에러를 지운다(넘는 동안은 처음 안내를 유지)
-                if (isPasswordWithinBytes(e.target.value)) setPasswordError(null);
+                // 오류가 보이는 동안엔 지금 값으로 다시 판정한다 — 고치면 지우고, 다른 문제로 바뀌면 그 안내로 바꾼다
+                // (지난 문구가 남지 않게). 오류가 없을 땐 입력 중에 미리 띄우지 않는다.
+                if (passwordError != null) setPasswordError(sharePasswordError(e.target.value));
               }}
               autoComplete="new-password"
               aria-invalid={passwordError != null}

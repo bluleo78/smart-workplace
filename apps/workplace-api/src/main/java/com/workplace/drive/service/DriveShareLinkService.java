@@ -14,6 +14,7 @@ import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.CapabilityTokens;
+import com.workplace.global.util.PersonNames;
 import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -75,10 +76,7 @@ public class DriveShareLinkService {
     }
     String token = CapabilityTokens.generate("sl_");
     String tokenHash = CapabilityTokens.sha256Hex(token);
-    String pwHash =
-        (req.password() == null || req.password().isBlank())
-            ? null
-            : passwordEncoder.encode(req.password());
+    String pwHash = encodePasswordOrNull(req.password());
     OffsetDateTime expiresAt =
         req.expiresAt() == null ? null : req.expiresAt().atOffset(ZoneOffset.UTC);
     // 과거 만료일 차단(#673) — 프런트 가드가 우회되더라도(직접 API 호출 등) 생성 시점부터
@@ -103,6 +101,23 @@ public class DriveShareLinkService {
         null,
         Map.of("spaceId", row.spaceId(), "audience", audience));
     return new CreatedShareLinkResponse(id, token, audience, pwHash != null, expiresAt);
+  }
+
+  /**
+   * 링크 비밀번호를 해시로 바꾼다(WP-1385). 칸을 비운 경우(null·빈 문자열)만 비밀번호 없는 링크(null)다.
+   *
+   * <p>보이는 글자가 하나도 없는 값(공백·제로폭 문자·한글 채움 등 — 기준은 {@link PersonNames#hasVisibleChar}, 웹
+   * lib/visibleText.ts 와 같다)은 예전엔 「비밀번호 없음」으로 조용히 바뀌어, 사용자는 비밀번호를 걸었다고 믿는데 누구나 여는 링크가 만들어졌다. 그래서
+   * 400 으로 거절해 다시 입력하게 한다. 그 밖의 값은 입력한 그대로(다듬지 않고) 해시한다 — 바뀌지 않은 동작이다.
+   */
+  private String encodePasswordOrNull(String password) {
+    if (password == null || password.isEmpty()) {
+      return null;
+    }
+    if (!PersonNames.hasVisibleChar(password)) {
+      throw new DriveInvalidTargetException("비밀번호에 공백만 넣을 수 없어요. 비밀번호를 입력하거나 칸을 비워 주세요.");
+    }
+    return passwordEncoder.encode(password);
   }
 
   /** 파일의 링크 목록. EDITOR 검증(보관 공간도 허용 — 폐기할 링크를 찾아야 하므로). 토큰 미포함. */

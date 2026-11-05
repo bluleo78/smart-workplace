@@ -21,6 +21,8 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,6 +63,54 @@ class DriveShareLinkServiceTest extends IntegrationTestBase {
     var created =
         service.create(owner, fileId, new CreateShareLinkRequest("INTERNAL", "secret", null));
     assertThat(created.hasPassword()).isTrue();
+  }
+
+  // WP-1385: 공백·NBSP·폭 없는 공백·한글 채움·점자 빈칸처럼 보이는 글자가 없는 비밀번호는 조용히 「비밀번호 없는 공개 링크」로
+  // 바뀌지 않도록 400 으로 거절하고, 링크도 남기지 않는다.
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "   ",
+        " \t\n",
+        "\u00A0\u00A0",
+        "\u200B",
+        "\u3164",
+        "\uFEFF\u2060",
+        "\u115F\u1160\uFFA0",
+        "\u2800"
+      })
+  void create_withInvisibleOnlyPassword_isRejected(String password) {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+
+    assertThatThrownBy(
+            () ->
+                service.create(
+                    owner, fileId, new CreateShareLinkRequest("EXTERNAL", password, null)))
+        .isInstanceOf(DriveInvalidTargetException.class)
+        .hasMessage("비밀번호에 공백만 넣을 수 없어요. 비밀번호를 입력하거나 칸을 비워 주세요.");
+    assertThat(service.list(owner, fileId)).isEmpty();
+  }
+
+  // WP-1385 회귀: 사이·앞뒤에 공백이 있어도 보이는 글자가 있으면 비밀번호 링크다.
+  @ParameterizedTest
+  @ValueSource(strings = {"a b", " pw 1 "})
+  void create_withPasswordContainingSpaces_hasPassword(String password) {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created =
+        service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", password, null));
+    assertThat(created.hasPassword()).isTrue();
+  }
+
+  // WP-1385 회귀: 칸을 비운 경우(빈 문자열)는 지금처럼 비밀번호 없는 링크다.
+  @Test
+  void create_withEmptyPassword_createsLinkWithoutPassword() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "", null));
+    assertThat(created.hasPassword()).isFalse();
+    assertThat(service.list(owner, fileId)).hasSize(1);
   }
 
   @Test
