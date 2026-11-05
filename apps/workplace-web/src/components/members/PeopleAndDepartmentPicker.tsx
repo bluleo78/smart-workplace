@@ -21,8 +21,10 @@
 //   펼치고 접은 결과는 상태 영역(role=status)으로 알린다.
 // - 이미 지정한 사람·부서는 비활성 + 「(이미 추가됨)」, 상위 부서가 이미 대상인 부서는 비활성 + 「상위 부서에 포함됨」.
 //   고르면 검색어만 비우고 팝오버는 열어 둔다(연속 추가). 내 그룹은 고르면 하위 그룹 구성원까지 한 명씩 펼쳐 더한다.
-// - 모달 팝오버(WP-1048): 공유 창(Dialog)이 바깥 스크롤을 막는데(RemoveScroll) 팝오버는 포털이라 그 밖으로 보여, 목록이 휠로 움직이지 않았다.
-//   modal 이면 팝오버가 스스로 스크롤 잠금 범위가 되어 안쪽 목록은 휠로 내려간다.
+// - 비모달 팝오버 + 휠 전파 차단(WP-1048 → WP-1380): 공유 창(Dialog)이 바깥 스크롤을 막는데(RemoveScroll) 팝오버는 포털이라 그 밖으로 보여,
+//   목록이 휠로 움직이지 않았다(WP-1048). 처음엔 modal 로 팝오버를 스스로 스크롤 잠금 범위로 만들었으나, modal 은 바깥 포인터 이벤트를 막아
+//   열린 채로 대화상자의 「저장」을 누르면 첫 클릭이 창 닫기로만 쓰였다(WP-1380). 그래서 modal 을 빼고, 팝오버 안의 wheel/touchmove 를
+//   React 가 포털 컨테이너에서 멈춰(stopPropagation) document 의 RemoveScroll 리스너까지 가지 않게 해 안쪽 목록이 스크롤되게 한다.
 
 import { useQueries } from '@tanstack/react-query'
 import { Building2, ChevronRight, Users } from 'lucide-react'
@@ -563,7 +565,7 @@ export function PeopleAndDepartmentPicker({
   ]
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange} modal>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       {/* 가장자리 16px — 390 화면에서 팝오버가 오른쪽 끝에 붙지 않게(MemberSearchPopover 와 같은 폭·여백).
           높이는 Radix 가 준 남은 높이까지만 — 아래 확인 줄(footer)이 붙어도 창이 화면 밖으로 늘지 않고 후보 목록이 줄어 스크롤한다(WP-1113).
@@ -574,6 +576,9 @@ export function PeopleAndDepartmentPicker({
         align="start"
         collisionPadding={16}
         data-testid={tid('search')}
+        // 바깥(Dialog RemoveScroll)의 스크롤 잠금 리스너가 이 목록의 휠·터치 이동을 막지 않게 여기서 전파를 끊는다(WP-1380)
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
       >
         <Command className="min-h-0 flex-1" shouldFilter={false} value={current} onValueChange={setActive} onKeyDown={onKeyDown}>
           <CommandInput
