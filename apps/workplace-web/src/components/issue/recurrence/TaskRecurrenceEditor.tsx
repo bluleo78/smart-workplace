@@ -1,5 +1,5 @@
 // 「AI 에게 맡기기」 편집기(WP-989, WP-1314) — 데스크톱 팝오버와 모바일 바텀시트, 개인 작업과 팀 이슈가 같은 본문을 쓴다.
-// 담당 AI(서버 실행 AI 후보 중) + 실행 일정: 안 함 / 한 번만 / 매일 / 평일 / 매주(요일 여러 개, 하나 이상) / 매월(1~31일) + 실행 시각(한국 시간 HH:mm).
+// 담당 AI(서버 실행 AI 후보 중) + 실행 일정: 안 함 / 한 번만 / 매일 / 평일 / 매주(요일 여러 개, 하나 이상) / 매월(1~31일) / 몇 시간마다(간격·시간대·요일, WP-1373) + 실행 시각(한국 시간 HH:mm).
 // 일정 칸은 만들기 창과 같은 TaskRecurrenceScheduleFields 를 쓴다(WP-1315).
 // 저장 = PUT(안 함으로 저장하면 기존 일정을 끈다), 「일정 끄기」 = DELETE. 저장하면 서버가 담당 AI 를 담당자에 넣는다.
 // 담당 AI 가 남의 개인 비서인 일정(editable=false)은 주인만 바꾸므로 읽기 전용으로 보인다.
@@ -22,7 +22,6 @@ import {
 import {
   agentOptionLabel,
   buildTaskRRule,
-  EDITOR_FREQS,
   nextRunText,
   parseTaskRRule,
   recurrencePausedText,
@@ -142,7 +141,7 @@ export function TaskRecurrenceEditor({
         )}
       </div>
 
-      <TaskRecurrenceScheduleFields form={form} onChange={patch} freqs={EDITOR_FREQS} locked={locked} />
+      <TaskRecurrenceScheduleFields form={form} onChange={patch} variant="editor" locked={locked} />
 
       {touched && error && (
         <p role="alert" className="text-xs text-destructive" data-testid="task-recurrence-error">

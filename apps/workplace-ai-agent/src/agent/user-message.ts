@@ -85,12 +85,86 @@ function onceDate(rrule: string): string | null {
   return m ? (m[1] ?? '') : null;
 }
 
+// WP-1373: 「몇 시간마다」 일정(FREQ=HOURLY;INTERVAL=n;BYDAY=..;UNTILTIME=HH:mm)을 한 번 읽은 값.
+// 항목마다 읽을 수 없으면 null — 반복 줄·회차 규칙 줄이 같은 결과를 나눠 쓰도록 규칙은 한 번만 읽는다.
+interface HourlyRule {
+  /** 간격(시간). 간격이 빠졌으면 1(서버 정규화와 같다), 있는데 읽을 수 없거나 0 이하면 null — 숫자를 지어내지 않는다. */
+  interval: number | null;
+  /** 요일 묶음 문구(「평일」·「월·수」 등). */
+  days: string | null;
+  /** 끝 시각 HH:mm. */
+  until: string | null;
+}
+
+// 요일 코드 → 한 글자 이름. 키 순서(월→일)가 요일 문구의 순서다.
+const RRULE_DAY_LABELS: Readonly<Record<string, string>> = { MO: '월', TU: '화', WE: '수', TH: '목', FR: '금', SA: '토', SU: '일' };
+
+// 규칙을 「키 → 값」으로 나눈다(대소문자 무시, 항목 순서 무관). 같은 키가 겹치면 뒤의 값이다.
+function rruleParts(rrule: string): Map<string, string> {
+  const parts = new Map<string, string>();
+  for (const kv of rrule.trim().toUpperCase().split(';')) {
+    const i = kv.indexOf('=');
+    if (i > 0) parts.set(kv.slice(0, i), kv.slice(i + 1));
+  }
+  return parts;
+}
+
+// 고른 요일(BYDAY)을 「매일」·「평일」·「주말」·「월·수」 문구로. 비었거나 모르는 요일이 있으면 null.
+function hourlyDaysLabel(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const days = raw.split(',');
+  if (days.some((d) => !(d in RRULE_DAY_LABELS))) return null;
+  const set = new Set(days);
+  if (set.size === 7) return '매일';
+  if (set.size === 5 && ['MO', 'TU', 'WE', 'TH', 'FR'].every((d) => set.has(d))) return '평일';
+  if (set.size === 2 && set.has('SA') && set.has('SU')) return '주말';
+  return Object.keys(RRULE_DAY_LABELS)
+    .filter((d) => set.has(d))
+    .map((d) => RRULE_DAY_LABELS[d])
+    .join('·');
+}
+
+// 몇 시간마다 일정이면 읽은 값, 아니면 null.
+function parseHourly(rrule: string): HourlyRule | null {
+  const parts = rruleParts(rrule);
+  if (parts.get('FREQ') !== 'HOURLY') return null;
+  const rawInterval = parts.get('INTERVAL');
+  const n = Number(rawInterval);
+  const interval = rawInterval === undefined ? 1 : rawInterval !== '' && Number.isInteger(n) && n > 0 ? n : null;
+  const rawUntil = parts.get('UNTILTIME');
+  const until = rawUntil && /^\d{2}:\d{2}$/.test(rawUntil) ? rawUntil : null;
+  return { interval, days: hourlyDaysLabel(parts.get('BYDAY')), until };
+}
+
+// WP-1373: 몇 시간마다 회차 규칙 — 하루에도 여러 번 도는 일이라, 지난 회차와 바뀐 것이 없으면 같은 결과를 매번 길게 남기지 않고 한 줄로만 남긴다.
+// 다만 지난 회차 결과를 짐작해 「바뀐 것이 없다」고 쓰면 안 되므로, 지난 결과를 실제로 읽어 비교할 수 있을 때만 줄이고 확인할 수 없으면 평소대로 쓴다.
+// 지난 회차가 언제인지는 시간대·요일에 따라 다르므로(그날 첫 회차의 지난 회차는 전 실행일의 마지막 회차) 시각을 적지 않는다.
+function hourlyRoundRule(interval: number | null): string {
+  const cadence = interval === null ? '여러 시간 간격으로' : `${interval}시간마다`;
+  return (
+    `- 이 작업은 정한 시간대 안에서 ${cadence} 도는 일정입니다. ` +
+    `지난 회차 결과를 실제로 읽어 비교할 수 있을 때(위 「담당 AI 가 이슈챗에 남긴 마지막 글」이 있으면 그것과)만 비교하고, 지난 회차와 바뀐 것이 없다고 확인했으면 「지난 회차 이후 바뀐 것이 없습니다」처럼 한 줄로만 남기세요. ` +
+    `지난 결과를 볼 수 없어 바뀐 것이 없는지 확인할 수 없으면 짐작하지 말고 평소처럼 결과를 쓰세요.\n`
+  );
+}
+
+// 반복 일정 줄. 몇 시간마다(WP-1373)는 원문 규칙과 시작 시각 하나만 적으면 그 시각에만 도는 것으로 읽히므로
+// 「반복: 평일 09:00~18:00 2시간마다 (KST)」처럼 요일·시간대·간격을 사람 말로 적는다. 한 부분이라도 읽을 수 없으면 지어내지 않고
+// 다른 빈도처럼 원문 규칙 · 시각으로 적는다.
+function recurringScheduleLine(p: IssueRecurringRunPayload, hourly: HourlyRule | null): string {
+  const { rrule, time } = p.recurrence;
+  if (hourly && hourly.interval !== null && hourly.days && hourly.until) {
+    return `반복: ${hourly.days} ${time}~${hourly.until} ${hourly.interval}시간마다 (KST)\n`;
+  }
+  return `반복: ${rrule} · ${time} KST\n`;
+}
+
 // 이슈키·제목·실행 일정 세 줄. 한 번만은 반복이 아니라 정한 날 한 번 실행하는 예약이라고 알린다(다음 회차가 없다 — PR #1147 리뷰).
-function recurringIssueLines(p: IssueRecurringRunPayload): string {
+function recurringIssueLines(p: IssueRecurringRunPayload, hourly: HourlyRule | null): string {
   const date = onceDate(p.recurrence.rrule);
   const schedule =
     date === null
-      ? `반복: ${p.recurrence.rrule} · ${p.recurrence.time} KST\n`
+      ? recurringScheduleLine(p, hourly)
       : `실행 일정: 한 번만${date ? ` ${date}` : ''} ${p.recurrence.time} KST — 반복이 아니라 한 번 실행하는 예약입니다(다음 회차 없음)\n`;
   return `이슈키: ${p.issueKey}\n` + `제목: ${p.issueTitle}\n` + schedule;
 }
@@ -209,7 +283,7 @@ function buildRecurringFollowUpMessage(
   return (
     `[이벤트: ${recurringEventType(test)} · 이어 처리]\n` +
     `반복 작업의 회차가 남긴 질문에 ${who} 님이 이슈 챗에서 답했습니다. 그 회차를 이어서 처리하세요. 답한 시각: ${formatKst(p.runAt)}\n` +
-    recurringIssueLines(p) +
+    recurringIssueLines(p, parseHourly(p.recurrence.rrule)) +
     `\n## 이슈 본문 (반복 작업이 할 일)\n${recurringBody(p)}\n\n` +
     recentChatSections(p) +
     `## 남겼던 질문\n${f.question.trim() || '(질문 본문 없음)'}\n\n` +
@@ -233,6 +307,8 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload, opts: { te
   const test = opts.test === true;
   if (p.followUp) return buildRecurringFollowUpMessage(p, p.followUp, test);
   const round = p.round ? `${p.round}회차` : '이번 회차';
+  // 몇 시간마다(WP-1373)인지 한 번 읽어 반복 줄과 회차 규칙 줄이 나눠 쓴다.
+  const hourly = parseHourly(p.recurrence.rrule);
   return (
     `[이벤트: ${recurringEventType(test)}]\n` +
     (test
@@ -240,7 +316,7 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload, opts: { te
       : onceDate(p.recurrence.rrule) !== null
         ? `한 번만 실행하도록 예약된 작업의 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n`
         : `반복 작업의 ${round} 실행입니다. 실행 시각: ${formatKst(p.runAt)}\n`) +
-    recurringIssueLines(p) +
+    recurringIssueLines(p, hourly) +
     (p.actor ? `요청자: @${p.actor.username}\n` : '') +
     `\n## 이슈 본문 (이번 회차에 할 일)\n${recurringBody(p)}\n\n` +
     recentChatSections(p) +
@@ -250,6 +326,8 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload, opts: { te
     `- 사용자가 정해야 실행할 수 있는 항목은 추측해 실행하지 말고 결과 맨 끝 ${DECISION_H} 절에 번호 목록으로 적으세요(정할 항목이 없으면 이 절을 쓰지 않습니다). 참고용 「제안」 절은 질문이 아닙니다. 그 밖에는 질문하지 않습니다.\n` +
     (test ? testRunRule() : '') +
     CHAT_CONTEXT_RULES +
+    // 한 줄 규칙은 정기 회차에만 — 「지금 실행」(테스트 실행)은 사람이 결과를 보려고 한 번 돌리는 것이라 줄이지 않는다.
+    (hourly && !test ? hourlyRoundRule(hourly.interval) : '') +
     ownerToolsRule(p) +
     chatResultRule('이번 회차 결과', '결과만')
   );

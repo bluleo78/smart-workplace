@@ -415,3 +415,44 @@ test('섹션 제목은 대문자 변환 없이 그린다', { tag: '@layout' }, a
   await expect(h3).toBeVisible();
   expect(await h3.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none');
 });
+
+// WP-1373 — 「몇 시간마다」를 고르면 간격·시간대·요일이 펼쳐져 「AI 에게 맡기기」 팝오버가 남은 높이보다 커진다.
+// 트리거가 화면 가운데쯤(작업 패널)에 있으면 팝오버 위가 화면 밖으로 잘려 담당 AI·칩 줄이 안 보였다 —
+// 팝오버는 Radix 가 주는 남은 높이 안에 머물고, 넘치는 내용은 팝오버 안에서 스크롤해야 한다.
+test('「몇 시간마다」를 골라 팝오버가 커져도 화면 안에 머물고 넘치면 팝오버 안에서 스크롤한다(WP-1373)', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  // 반복 없음(빈 본문) + 담당 AI 후보 하나(내 AI 비서).
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, null);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence/agents`, [
+    { id: 900, username: 'my-assistant', name: '내 비서', personalAssistant: true },
+  ]);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const trigger = page.getByTestId('task-recurrence-trigger');
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  const popover = page.getByTestId('task-recurrence-popover');
+  await popover.getByRole('button', { name: '몇 시간마다' }).click();
+  await expect(popover.getByTestId('task-recurrence-hourly')).toBeVisible();
+
+  // 팝오버 상자가 화면(0~900) 안에 온전히 있다 — 위가 잘리지 않는다.
+  // 넓은 모달(WP-1374) 안에서는 트리거 위치가 소수 픽셀이라 아래 끝이 900.5 처럼 반 픽셀 걸칠 수 있다 — 1px 오차는 잘림이 아니다.
+  const box = await boxOf(popover);
+  expect(box.y, `팝오버 위 y: ${box.y}`).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height, `팝오버 아래 y: ${box.y + box.height}`).toBeLessThanOrEqual(901);
+  // 첫 줄(담당 AI)이 화면 안에 보인다.
+  const agent = await boxOf(popover.getByTestId('task-recurrence-agent'));
+  expect(agent.y).toBeGreaterThanOrEqual(0);
+  // 내용이 남은 높이보다 크면 팝오버 안에서 스크롤한다 — 아니면 그냥 다 들어간다.
+  const { scrollHeight, clientHeight, overflowY } = await popover.evaluate((el) => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    overflowY: getComputedStyle(el).overflowY,
+  }));
+  if (scrollHeight > clientHeight) expect(overflowY).toBe('auto');
+  else expect(box.height).toBeGreaterThanOrEqual(scrollHeight - 1);
+});

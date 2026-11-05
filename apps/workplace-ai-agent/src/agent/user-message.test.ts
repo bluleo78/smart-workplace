@@ -132,6 +132,51 @@ describe('buildUserMessage', () => {
     expect(m).not.toContain('반복 작업의');
   });
 
+  // WP-1373: 몇 시간마다 정기 회차에는 「지난 회차와 바뀐 것이 없으면 한 줄로만」 규칙을 붙인다 — 다른 빈도·테스트 실행·이어 처리에는 없다.
+  it('issue.recurring_run — 몇 시간마다 회차만 한 줄 규칙', () => {
+    const hourly = { rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=18:00', time: '09:00' };
+    const base = { ...common, ownerUserId: 7, runId: 'r', runAt: '2026-11-03T11:00:00+09:00', round: 2, issueBody: '새 메일 확인' };
+    const m = buildRecurringRunMessage({ ...base, recurrence: hourly });
+    expect(m).toContain('2시간마다 도는 일정입니다');
+    expect(m).toContain('지난 회차와 바뀐 것이 없다고 확인했으면 「지난 회차 이후 바뀐 것이 없습니다」처럼 한 줄로만 남기세요');
+    // 지난 결과를 볼 수 없으면 짐작하지 않고 평소대로 쓴다 — 확인 못 한 채 「바뀐 것 없음」을 남기지 않게.
+    expect(m).toContain('실제로 읽어 비교할 수 있을 때');
+    expect(m).toContain('짐작하지 말고 평소처럼 결과를 쓰세요');
+    // 반복 줄은 원문 규칙·시작 시각 하나가 아니라 요일·시간대·간격으로 읽힌다.
+    expect(m).toContain('반복: 평일 09:00~18:00 2시간마다 (KST)\n');
+    expect(m).not.toContain('반복: FREQ=HOURLY');
+    // 규칙 줄은 회차 규칙 절 안(결과 글 규칙 앞)에 있다.
+    expect(m.indexOf('한 줄로만')).toBeGreaterThan(m.indexOf('## 이번 회차 규칙'));
+    expect(m.indexOf('한 줄로만')).toBeLessThan(m.indexOf('최종 답변이 그대로 이슈 챗에'));
+    // 간격이 빠진 규칙은 1시간마다로 읽는다.
+    const noInterval = buildRecurringRunMessage({ ...base, recurrence: { rrule: 'FREQ=HOURLY;BYDAY=MO,WE;UNTILTIME=18:00', time: '09:00' } });
+    expect(noInterval).toContain('1시간마다 도는 일정');
+    expect(noInterval).toContain('반복: 월·수 09:00~18:00 1시간마다 (KST)\n');
+    // 항목 순서·대소문자와 무관하게 읽는다(FREQ 가 앞에 오지 않아도 된다).
+    const reordered = buildRecurringRunMessage({ ...base, recurrence: { rrule: 'byday=sa,su;untiltime=20:00;freq=hourly;interval=3', time: '10:00' } });
+    expect(reordered).toContain('3시간마다 도는 일정');
+    expect(reordered).toContain('반복: 주말 10:00~20:00 3시간마다 (KST)\n');
+    // 간격이 있는데 읽을 수 없거나 0 이하면 1시간으로 지어내지 않는다 — 숫자 없는 문구로 쓰고, 반복 줄은 원문 규칙 그대로다.
+    for (const bad of ['INTERVAL=abc', 'INTERVAL=0', 'INTERVAL=-2', 'INTERVAL=']) {
+      const rrule = `FREQ=HOURLY;${bad};BYDAY=MO;UNTILTIME=18:00`;
+      const mm = buildRecurringRunMessage({ ...base, recurrence: { rrule, time: '09:00' } });
+      expect(mm).toContain('여러 시간 간격으로 도는 일정');
+      expect(mm).not.toMatch(/\d+시간마다 도는 일정/);
+      expect(mm).toContain(`반복: ${rrule} · 09:00 KST\n`);
+    }
+    // 요일·끝 시각을 읽을 수 없어도 반복 줄은 원문 규칙이다(간격은 읽혔으므로 지시 줄은 숫자 그대로).
+    const badDays = buildRecurringRunMessage({ ...base, recurrence: { rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=XX;UNTILTIME=18:00', time: '09:00' } });
+    expect(badDays).toContain('반복: FREQ=HOURLY;INTERVAL=2;BYDAY=XX;UNTILTIME=18:00 · 09:00 KST\n');
+    expect(badDays).toContain('2시간마다 도는 일정');
+
+    for (const rrule of ['FREQ=DAILY', 'FREQ=WEEKLY;BYDAY=MO', 'FREQ=MONTHLY;BYMONTHDAY=1', 'FREQ=ONCE;DATE=2026-11-03']) {
+      expect(buildRecurringRunMessage({ ...base, recurrence: { rrule, time: '09:00' } })).not.toContain('한 줄로만');
+    }
+    // 「지금 실행」(테스트 실행)·이어 처리에는 붙이지 않는다.
+    expect(buildRecurringRunMessage({ ...base, recurrence: hourly }, { test: true })).not.toContain('한 줄로만');
+    expect(buildRecurringRunMessage({ ...base, recurrence: hourly, followUp: { question: '보낼까요?', answer: '네' } })).not.toContain('한 줄로만');
+  });
+
   // WP-1314: 신원이 AI 자신이면(개인 비서가 아닌 AI) 요청자 대행이라고 하지 않는다.
   it('issue.recurring_run — AI 자기 신원', () => {
     const m = buildUserMessage({

@@ -265,9 +265,9 @@ public class IssueRecurrenceService {
     LocalTime time = rules.parseTime(req == null ? null : req.time());
     // 날짜 채우기와 다음 회차 계산은 같은 기준 시각을 쓴다 — 두 번 읽으면 그 사이 정한 시각이 지나 「한 번만」이 다음 회차 없음(400)이 될 수 있다.
     Instant now = Instant.now();
-    // 「한 번만」(WP-1315)은 날짜를 여기서 정한다 — 날짜가 없으면 그 시각의 다음 때, 지난 날짜·시각이면 400.
-    String rrule =
-        rules.resolveOnce(rules.normalizeRrule(req == null ? null : req.rrule()), time, now);
+    // 규칙 검증·정규화와 시각이 필요한 검사를 한 번에 — 「한 번만」(WP-1315)은 날짜를 여기서 정하고(없으면 그 시각의 다음 때, 지난 날짜·시각이면 400),
+    // 「몇 시간마다」(WP-1373)는 끝 시각이 시작 시각(time)보다 뒤여야 한다(자정을 넘는 시간대는 400).
+    String rrule = rules.normalizeForSave(req == null ? null : req.rrule(), time, now);
     if (IssueStatuses.CLOSED.contains(issue.status())) throw conflict(ISSUE_CLOSED);
 
     IssueRecurrenceRow old = repository.findForUpdate(issue.id()).orElse(null);

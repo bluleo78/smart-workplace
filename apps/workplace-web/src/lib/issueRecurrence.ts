@@ -1,7 +1,9 @@
 // 개인 작업 반복(WP-989) — 편집 폼 모델 ↔ RRULE, 요약·다음 실행·멈춤 문구를 만드는 순수 함수.
 // 빈도 타입(RecurrenceFreq)과 RRULE 토큰화(tokenizeRRule)는 캘린더 반복 유틸(lib/recurrence)을 그대로 쓰고,
-// 이 기능만 쓰는 BYDAY(매주 요일)·BYMONTHDAY(매월 날짜)를 덧붙여 읽고 쓴다. 가장 짧은 주기는 하루 1회(INTERVAL 없음).
+// 이 기능만 쓰는 BYDAY(매주 요일)·BYMONTHDAY(매월 날짜)를 덧붙여 읽고 쓴다. 매일·매주·매월은 하루 1회(INTERVAL 없음).
 // WP-1315: 「한 번만」(FREQ=ONCE;DATE=yyyy-MM-dd — 정한 날짜·시각에 한 번 실행하고 일정이 꺼진다)과 「평일」(매주 월~금의 줄임) 칩을 더했다.
+// WP-1373: 「몇 시간마다」(FREQ=HOURLY;INTERVAL=n;BYDAY=..;UNTILTIME=HH:mm — 고른 요일마다 시작 시각(time)부터 n 시간 간격으로, 끝 시각 이하인
+// 회차만 실행) 칩을 더했다. 서버(IssueRecurrenceRules)와 같은 규칙이다.
 import type { IssueRecurrence } from '../types/issueRecurrence';
 import { kstParts, kstWeekday, parseUtcDate } from './formatters';
 import { type RecurrenceFreq, tokenizeRRule } from './recurrence';
@@ -18,20 +20,31 @@ export const WEEKDAYS_ONLY: readonly WeekdayCode[] = ['MO', 'TU', 'WE', 'TH', 'F
 
 /**
  * 실행 일정 칩 값 — 캘린더 반복의 안 함·매일·매주·매월에 「한 번만」(ONCE)과 「평일」(WEEKDAYS, 매주 월~금의 줄임)을 더한다(WP-1315).
+ * WP-1373: 「몇 시간마다」(HOURLY).
  */
-export type TaskRecurrenceFreq = RecurrenceFreq | 'ONCE' | 'WEEKDAYS';
+export type TaskRecurrenceFreq = RecurrenceFreq | 'ONCE' | 'WEEKDAYS' | 'HOURLY';
 
-/** 이슈 상세 편집기의 일정 칩 — 「안 함」으로 저장하면 일정을 끈다. */
-export const EDITOR_FREQS: TaskRecurrenceFreq[] = ['NONE', 'ONCE', 'DAILY', 'WEEKDAYS', 'WEEKLY', 'MONTHLY'];
+/** 이슈 상세 편집기의 일정 칩 — 「안 함」으로 저장하면 일정을 끈다. 「몇 시간마다」(WP-1373)는 기존 칩 뒤에 둔다. */
+export const EDITOR_FREQS: TaskRecurrenceFreq[] = ['NONE', 'ONCE', 'DAILY', 'WEEKDAYS', 'WEEKLY', 'MONTHLY', 'HOURLY'];
 
 /** 만들기 창의 일정 칩(WP-1315) — 끄기는 「맡기지 않기」가 따로 한다. */
-export const CREATE_FREQS: TaskRecurrenceFreq[] = ['ONCE', 'DAILY', 'WEEKDAYS', 'WEEKLY', 'MONTHLY'];
+export const CREATE_FREQS: TaskRecurrenceFreq[] = ['ONCE', 'DAILY', 'WEEKDAYS', 'WEEKLY', 'MONTHLY', 'HOURLY'];
+
+/** 「몇 시간마다」에 고를 수 있는 간격(시간, WP-1373) — 서버 IssueRecurrenceRules.HOURLY_INTERVALS 와 같다. 최소 1시간. */
+export const HOURLY_INTERVALS = [1, 2, 3, 4, 6, 12] as const;
+
+/** 고를 수 있는 「몇 시간마다」 간격인가(WP-1373) — 규칙 읽기·검사가 같이 쓴다. */
+function isHourlyInterval(n: number): boolean {
+  return (HOURLY_INTERVALS as readonly number[]).includes(n);
+}
 
 /**
  * 반복 편집 폼 — freq 'NONE' 은 「반복 안 함」. byDay 는 매주, monthDay·otherMonthDays 는 매월에서만 쓴다. time 은 한국 시간 'HH:mm'.
  * 편집기는 날짜 하나(monthDay)만 고치게 한다. API·AI 로 저장된 여러 날짜(1,15)의 나머지는 otherMonthDays 에 그대로 두어
  * 열고 저장해도 빠지지 않게 한다(WP-1117). onceDate 는 저장된 「한 번만」 예약의 날짜(yyyy-MM-dd) — 다른 칸만 고쳐 저장해도 날짜가 바뀌지 않게
  * 들고 있는다(WP-1315). 새 「한 번만」은 null 이고 그 시각의 다음 때(오늘, 지났으면 내일)로 정해진다.
+ * 「몇 시간마다」(WP-1373)는 time 을 시작 시각으로 쓰고, interval(시간)·untilTime(끝 시각 'HH:mm', 이 시각 이하 회차까지)·hourlyDays(요일)를
+ * 따로 든다 — 매주의 byDay 와 나눠 두어, 칩을 오가도 서로의 요일이 바뀌지 않게 한다.
  */
 export interface TaskRecurrenceForm {
   freq: TaskRecurrenceFreq;
@@ -40,19 +53,41 @@ export interface TaskRecurrenceForm {
   otherMonthDays: number[];
   time: string;
   onceDate?: string | null;
+  interval: number;
+  untilTime: string;
+  hourlyDays: WeekdayCode[];
 }
 
-/** 새 반복 기본값 — 반복 안 함, 고르면 매주 월요일·매월 1일·09:00 부터 시작한다. */
-export const DEFAULT_TASK_RECURRENCE_FORM: TaskRecurrenceForm = { freq: 'NONE', byDay: ['MO'], monthDay: 1, otherMonthDays: [], time: '09:00', onceDate: null };
+/**
+ * 새 반복 기본값 — 반복 안 함, 고르면 매주 월요일·매월 1일·09:00 부터 시작한다.
+ * 「몇 시간마다」는 평일 09:00~18:00 2시간마다(WP-1373 시안).
+ */
+export const DEFAULT_TASK_RECURRENCE_FORM: TaskRecurrenceForm = {
+  freq: 'NONE',
+  byDay: ['MO'],
+  monthDay: 1,
+  otherMonthDays: [],
+  time: '09:00',
+  onceDate: null,
+  interval: 2,
+  untilTime: '18:00',
+  hourlyDays: ['MO', 'TU', 'WE', 'TH', 'FR'],
+};
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 'HH:mm' → 자정부터 분. 시각 읽기는 이 함수 하나로 한다(한국 시간 순간·몇 시간마다 회차 목록이 같이 쓴다). */
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
 
 /** 한국 시간 날짜(yyyy-MM-dd)·시각(HH:mm)의 순간(ms). 형식이 틀리면 NaN. */
 function kstInstant(date: string, time: string): number {
   if (!DATE_RE.test(date) || !TIME_RE.test(time)) return NaN;
   const [y, m, d] = date.split('-').map(Number);
-  const [hh, mm] = time.split(':').map(Number);
-  return Date.UTC(y, m - 1, d, hh - 9, mm);
+  // 한국 시간은 UTC+9 — 분은 Date.UTC 가 시·분으로 넘겨 받는다.
+  return Date.UTC(y, m - 1, d, -9, toMinutes(time));
 }
 
 /** 한국 시간 연·월·일 → 'yyyy-MM-dd'. */
@@ -98,6 +133,30 @@ function sortDays(days: readonly string[]): WeekdayCode[] {
   return WEEKDAY_CODES.filter((c) => days.includes(c));
 }
 
+/** 「몇 시간마다」 규칙에 올 수 있는 항목(WP-1373) — 서버 IssueRecurrenceRules.normalizeHourly 가 만드는 모양. */
+const HOURLY_KEYS = new Set(['FREQ', 'INTERVAL', 'BYDAY', 'UNTILTIME']);
+
+/**
+ * 「몇 시간마다」 규칙의 간격·요일·끝 시각을 읽는다(WP-1373). 하나라도 읽을 수 없으면(요일이 비었거나 모르는 요일·겹친 요일, 고를 수 없는 간격,
+ * 끝 시각 형식 틀림, 모르는 항목·깨진 토큰) null — 기본값(월~금 등)으로 채워 다른 일정처럼 보이거나 저장 때 고쳐 쓰지 않게, 부르는 쪽은 다른
+ * 모르는 규칙과 똑같이 다룬다(요약은 원문, 편집 폼은 「안 함」). 간격이 빠졌으면 1시간(서버 정규화와 같다).
+ */
+function readHourlyRule({
+  map,
+  clean,
+}: ReturnType<typeof tokenizeRRule>): { interval: number; untilTime: string; days: WeekdayCode[] } | null {
+  if (!clean || map.get('FREQ') !== 'HOURLY' || [...map.keys()].some((k) => !HOURLY_KEYS.has(k))) return null;
+  const interval = Number(map.get('INTERVAL') ?? '1');
+  if (!isHourlyInterval(interval)) return null;
+  const untilTime = map.get('UNTILTIME') ?? '';
+  if (!TIME_RE.test(untilTime)) return null;
+  const raw = (map.get('BYDAY') ?? '').split(',');
+  const days = sortDays(raw);
+  // 빈 요일·모르는 요일(XX)·겹친 요일(MO,MO)은 걸러 낸 개수가 원래 개수와 달라진다.
+  if (days.length === 0 || days.length !== raw.length) return null;
+  return { interval, untilTime, days };
+}
+
 /**
  * 폼 → PUT 본문용 RRULE. 반복 안 함이면 null.
  * 예: 매일 → FREQ=DAILY, 매주 월·수 → FREQ=WEEKLY;BYDAY=MO,WE, 매월 15일 → FREQ=MONTHLY;BYMONTHDAY=15
@@ -108,7 +167,7 @@ function pendingOnceDate(form: TaskRecurrenceForm, now: Date): string | null {
 }
 
 export function buildTaskRRule(form: TaskRecurrenceForm, now: Date = new Date()): string | null {
-  // 가장 짧은 주기는 하루 1회 — INTERVAL·종료 조건은 두지 않는다.
+  // 매일·매주·매월은 하루 1회 — INTERVAL·종료 조건은 두지 않는다(몇 시간마다만 간격·끝 시각을 쓴다, WP-1373).
   if (form.freq === 'NONE') return null;
   // 한 번만 — 저장된 날짜가 아직 오지 않았으면 그대로 두고, 없거나 지났으면 날짜를 빼 서버가 그 시각의 다음 때로 정하게 한다.
   if (form.freq === 'ONCE') {
@@ -116,6 +175,10 @@ export function buildTaskRRule(form: TaskRecurrenceForm, now: Date = new Date())
     return keep ? `FREQ=ONCE;DATE=${keep}` : 'FREQ=ONCE';
   }
   if (form.freq === 'WEEKDAYS') return `FREQ=WEEKLY;BYDAY=${WEEKDAYS_ONLY.join(',')}`;
+  // 몇 시간마다(WP-1373) — 서버가 정규화하는 모양과 같은 순서로 쓴다(시작 시각은 time 으로 따로 보낸다).
+  if (form.freq === 'HOURLY') {
+    return `FREQ=HOURLY;INTERVAL=${form.interval};BYDAY=${sortDays(form.hourlyDays).join(',')};UNTILTIME=${form.untilTime}`;
+  }
   const base = `FREQ=${form.freq}`;
   if (form.freq === 'WEEKLY') return `${base};BYDAY=${sortDays(form.byDay).join(',')}`;
   if (form.freq === 'MONTHLY') {
@@ -132,17 +195,37 @@ export function buildTaskRRule(form: TaskRecurrenceForm, now: Date = new Date())
  * 매주인데 BYDAY 가 없으면 월요일, 매월인데 날짜가 없거나 범위 밖이면 1일로 채운다(서버가 거절하는 모양이라 드묾).
  */
 export function parseTaskRRule(rrule: string | null | undefined, time?: string | null): TaskRecurrenceForm {
-  const form: TaskRecurrenceForm = { ...DEFAULT_TASK_RECURRENCE_FORM, byDay: [...DEFAULT_TASK_RECURRENCE_FORM.byDay], otherMonthDays: [] };
+  const form: TaskRecurrenceForm = {
+    ...DEFAULT_TASK_RECURRENCE_FORM,
+    byDay: [...DEFAULT_TASK_RECURRENCE_FORM.byDay],
+    otherMonthDays: [],
+    hourlyDays: [...DEFAULT_TASK_RECURRENCE_FORM.hourlyDays],
+  };
   if (time && TIME_RE.test(time)) form.time = time;
   if (!rrule) return form;
   // 토큰화는 캘린더 반복 유틸과 같은 방식으로 한 번만 — 지원하지 않는 FREQ(또는 누락)는 반복 안 함.
-  const { map } = tokenizeRRule(rrule);
+  const tokens = tokenizeRRule(rrule);
+  const { map } = tokens;
   const freq = map.get('FREQ');
-  form.freq = freq === 'DAILY' || freq === 'WEEKLY' || freq === 'MONTHLY' || freq === 'ONCE' ? freq : 'NONE';
+  form.freq = freq === 'DAILY' || freq === 'WEEKLY' || freq === 'MONTHLY' || freq === 'ONCE' || freq === 'HOURLY' ? freq : 'NONE';
   if (freq === 'ONCE') {
     const date = map.get('DATE');
     form.onceDate = date && DATE_RE.test(date) ? date : null;
   }
+  // 몇 시간마다(WP-1373) — 요일은 hourlyDays 로, 간격·끝 시각을 읽는다. 한 부분이라도 읽을 수 없으면 기본값(월~금 등)으로 채우지 않고
+  // 모르는 FREQ 처럼 「안 함」으로 둔다 — 다른 일정으로 바꿔 보이거나 저장 때 그 기본값으로 고쳐 쓰지 않게.
+  if (freq === 'HOURLY') {
+    const hourly = readHourlyRule(tokens);
+    if (!hourly) {
+      form.freq = 'NONE';
+      return form;
+    }
+    form.interval = hourly.interval;
+    form.untilTime = hourly.untilTime;
+    form.hourlyDays = hourly.days;
+    return form;
+  }
+  // 매주의 요일 — 몇 시간마다는 위에서 따로 읽었으므로 여기서만 나눈다.
   const days = sortDays((map.get('BYDAY') ?? '').split(','));
   if (days.length > 0) form.byDay = days;
   // 매주 월~금이면 「평일」 칩으로 보인다.
@@ -169,7 +252,58 @@ export function validateTaskRecurrence(form: TaskRecurrenceForm): string | null 
     return '날짜는 1일부터 31일 사이로 고르세요';
   }
   if (!TIME_RE.test(form.time)) return '시각을 HH:mm 으로 입력하세요';
+  if (form.freq === 'HOURLY') {
+    if (!isHourlyInterval(form.interval)) return '간격을 고르세요';
+    if (form.hourlyDays.length === 0) return '요일을 하나 이상 고르세요';
+    if (!TIME_RE.test(form.untilTime)) return '끝 시각을 HH:mm 으로 입력하세요';
+    // 자정을 넘는 시간대는 받지 않는다(서버도 400) — HH:mm 은 글자 비교가 곧 시각 비교다.
+    if (form.untilTime <= form.time) return '끝 시각은 시작 시각보다 뒤로 고르세요 (자정을 넘길 수 없어요)';
+  }
   return null;
+}
+
+/** 자정부터 분 → 'HH:mm'. */
+function fromMinutes(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 「몇 시간마다」 하루의 실행 시각 목록(WP-1373) — 시작 시각부터 간격마다, 끝 시각 이하인 것만(끝 시각 정각 포함). 서버의 다음 회차 계산과 같은 규칙.
+ * 몇 시간마다가 아니거나 저장 전 검사({@link validateTaskRecurrence} — 시각·간격·요일, 끝 ≤ 시작 포함)에 걸리면 빈 목록.
+ * 검사를 따로 되풀이하지 않고 같은 검사를 쓴다(검사는 이 함수를 부르지 않으므로 서로 돌지 않는다).
+ */
+export function hourlyRunTimes(form: TaskRecurrenceForm): string[] {
+  if (form.freq !== 'HOURLY' || validateTaskRecurrence(form)) return [];
+  const out: string[] = [];
+  for (let m = toMinutes(form.time); m <= toMinutes(form.untilTime); m += form.interval * 60) out.push(fromMinutes(m));
+  return out;
+}
+
+/** 미리보기에 시각을 다 적는 최대 개수 — 넘으면 앞 3개 · … · 마지막으로 줄인다(한 줄을 넘지 않게). */
+const PREVIEW_MAX_TIMES = 6;
+
+/**
+ * 「몇 시간마다」 실행 시각 미리보기(WP-1373) — 「09:00 · 11:00 · 13:00 · 15:00 · 17:00 에 실행 (하루 5회)」.
+ * 시각이 많으면 「09:00 · 10:00 · 11:00 · … · 18:00 에 실행 (하루 10회)」. 회차를 정할 수 없으면 null.
+ */
+export function hourlyPreviewText(form: TaskRecurrenceForm): string | null {
+  const times = hourlyRunTimes(form);
+  if (times.length === 0) return null;
+  const shown = times.length > PREVIEW_MAX_TIMES ? [...times.slice(0, 3), '…', times[times.length - 1]] : times;
+  return `${shown.join(' · ')} 에 실행 (하루 ${times.length}회)`;
+}
+
+/** 요일 묶음 이름 — 모든 요일이면 「매일」, 월~금이면 「평일」, 그 밖에는 「월·수」. 몇 시간마다 요약(WP-1373)에 쓴다. */
+function daysLabel(days: readonly WeekdayCode[]): string {
+  if (days.length === WEEKDAY_CODES.length) return '매일';
+  if (isWeekdaysOnly(days)) return '평일';
+  return days.map((d) => WEEKDAY_SHORT[d]).join('·');
+}
+
+/** 시간대 문구 — 둘 다 정각이면 「09~18시」, 아니면 「09:30~18:00」. */
+function windowLabel(start: string, until: string): string {
+  if (start.endsWith(':00') && until.endsWith(':00')) return `${start.slice(0, 2)}~${until.slice(0, 2)}시`;
+  return `${start}~${until}`;
 }
 
 /** 한국 시간 날짜(yyyy-MM-dd) → 「11/3(화)」. 형식이 틀리면 null. */
@@ -184,7 +318,8 @@ function shortDate(date: string): string | null {
  * 이 화면이 다루지 못하는 규칙(다른 FREQ·빠진 요일 등)은 원문 RRULE 을 그대로 보인다(뜻을 지어내지 않는다).
  */
 export function recurrenceLabel(rrule: string, time: string): string {
-  const { map } = tokenizeRRule(rrule);
+  const tokens = tokenizeRRule(rrule);
+  const { map } = tokens;
   const freq = map.get('FREQ');
   if (freq === 'ONCE') {
     // 날짜가 없으면(서버가 정하기 전) 시각만.
@@ -192,6 +327,11 @@ export function recurrenceLabel(rrule: string, time: string): string {
     return date ? `한 번만 ${date} ${time}` : `한 번만 ${time}`;
   }
   if (freq === 'DAILY') return `매일 ${time}`;
+  // 몇 시간마다(WP-1373) — 「평일 09~18시 2시간마다」. 요일·간격·끝 시각 중 하나라도 읽을 수 없으면 아래에서 원문을 보인다.
+  if (freq === 'HOURLY') {
+    const hourly = readHourlyRule(tokens);
+    if (hourly && TIME_RE.test(time)) return `${daysLabel(hourly.days)} ${windowLabel(time, hourly.untilTime)} ${hourly.interval}시간마다`;
+  }
   if (freq === 'WEEKLY') {
     const days = sortDays((map.get('BYDAY') ?? '').split(','));
     if (isWeekdaysOnly(days)) return `평일 ${time}`;
@@ -220,21 +360,26 @@ export function previewNextRun(form: TaskRecurrenceForm, now: Date = new Date())
     const date = pendingOnceDate(form, now) ?? onceDateFor(form.time, now);
     return date ? new Date(kstInstant(date, form.time)) : null;
   }
-  const days = form.freq === 'WEEKDAYS' ? WEEKDAYS_ONLY : form.byDay;
+  const days = form.freq === 'WEEKDAYS' ? WEEKDAYS_ONLY : form.freq === 'HOURLY' ? form.hourlyDays : form.byDay;
+  // 몇 시간마다(WP-1373)는 하루에 여러 회차 — 그날의 실행 시각 목록을 차례로 본다. 다른 빈도는 하루 한 번(time).
+  const dayTimes = form.freq === 'HOURLY' ? hourlyRunTimes(form) : [form.time];
   const monthDayList = [form.monthDay, ...form.otherMonthDays];
   const t = kstParts(now);
   // 오늘부터 하루씩 — 매월 31일도 두 달 안에 오므로 400일이면 넉넉하다.
   for (let i = 0; i < 400; i++) {
     const day = new Date(Date.UTC(t.y, t.m - 1, t.d + i));
     const date = ymd(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate());
-    const at = kstInstant(date, form.time);
-    if (at <= now.getTime()) continue;
     const code = WEEKDAY_CODES[(day.getUTCDay() + 6) % 7];
     const hit =
       form.freq === 'DAILY' ||
-      ((form.freq === 'WEEKLY' || form.freq === 'WEEKDAYS') && days.includes(code)) ||
+      ((form.freq === 'WEEKLY' || form.freq === 'WEEKDAYS' || form.freq === 'HOURLY') && days.includes(code)) ||
       (form.freq === 'MONTHLY' && monthDayList.includes(day.getUTCDate()));
-    if (hit) return new Date(at);
+    if (!hit) continue;
+    // 그날 회차 중 now 뒤의 첫 것 — 찾으면 바로 끝낸다.
+    for (const hhmm of dayTimes) {
+      const at = kstInstant(date, hhmm);
+      if (at > now.getTime()) return new Date(at);
+    }
   }
   return null;
 }

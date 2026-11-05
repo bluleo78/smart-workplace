@@ -7,6 +7,8 @@ import {
   buildTaskRRule,
   createHandoffSummary,
   DEFAULT_TASK_RECURRENCE_FORM,
+  hourlyPreviewText,
+  hourlyRunTimes,
   isOnceRule,
   kstShortDateTime,
   monthDayMaySkip,
@@ -43,7 +45,7 @@ describe('parseTaskRRule', () => {
   })
   test('매주·매월 규칙을 폼으로 되읽는다(왕복)', () => {
     const w = parseTaskRRule('FREQ=WEEKLY;BYDAY=WE,MO', '08:30')
-    expect(w).toEqual({ freq: 'WEEKLY', byDay: ['MO', 'WE'], monthDay: 1, otherMonthDays: [], time: '08:30', onceDate: null })
+    expect(w).toEqual({ ...DEFAULT_TASK_RECURRENCE_FORM, freq: 'WEEKLY', byDay: ['MO', 'WE'], time: '08:30' })
     expect(buildTaskRRule(w)).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
     const m = parseTaskRRule('FREQ=MONTHLY;BYMONTHDAY=31', '23:59')
     expect(m.freq).toBe('MONTHLY')
@@ -245,5 +247,97 @@ describe('createHandoffSummary (WP-1315)', () => {
     expect(createHandoffSummary(mine, form({ freq: 'ONCE', time: '08:30' }), NOW)).toBe('내 AI 비서 · 한 번만 11/3(화) 08:30')
     expect(createHandoffSummary({ name: null, username: 'team-ai', personalAssistant: false }, form({ freq: 'DAILY' }), NOW)).toBe('team-ai · ↻ 매일 09:00')
     expect(createHandoffSummary(null, form({ freq: 'DAILY' }), NOW)).toBe('안 함')
+  })
+})
+
+// WP-1373: 「몇 시간마다」(FREQ=HOURLY;INTERVAL=n;BYDAY=..;UNTILTIME=HH:mm) — 시작 시각(time)부터 간격마다, 끝 시각 이하인 회차만.
+describe('몇 시간마다 (WP-1373)', () => {
+  const hourly = (o: Partial<typeof DEFAULT_TASK_RECURRENCE_FORM> = {}) => form({ freq: 'HOURLY', time: '09:00', ...o })
+
+  test('저장 모양은 서버가 정규화하는 순서와 같고, 되읽으면 같은 폼이다(왕복)', () => {
+    const rrule = buildTaskRRule(hourly({ interval: 3, hourlyDays: ['WE', 'MO'], untilTime: '18:00' }))
+    expect(rrule).toBe('FREQ=HOURLY;INTERVAL=3;BYDAY=MO,WE;UNTILTIME=18:00')
+    const back = parseTaskRRule(rrule, '09:30')
+    expect(back).toMatchObject({ freq: 'HOURLY', interval: 3, hourlyDays: ['MO', 'WE'], untilTime: '18:00', time: '09:30' })
+    // 몇 시간마다의 요일은 매주 요일(byDay)과 따로 — 매주 기본값은 그대로다.
+    expect(back.byDay).toEqual(DEFAULT_TASK_RECURRENCE_FORM.byDay)
+    expect(buildTaskRRule(back)).toBe(rrule)
+    // 기본값은 평일 09:00~18:00 2시간마다(시안).
+    expect(buildTaskRRule(hourly())).toBe('FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=18:00')
+  })
+
+  test('요일이 비었거나 읽을 수 없는 부분이 있는 규칙은 월~금 등 기본값으로 채우지 않고 모르는 규칙처럼 다룬다', () => {
+    const unknown = parseTaskRRule('FREQ=YEARLY', '09:00')
+    for (const rrule of [
+      'FREQ=HOURLY;INTERVAL=2;UNTILTIME=18:00', // 요일 없음
+      'FREQ=HOURLY;INTERVAL=2;BYDAY=;UNTILTIME=18:00', // 빈 요일
+      'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,XX;UNTILTIME=18:00', // 모르는 요일
+      'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,MO;UNTILTIME=18:00', // 겹친 요일
+      'FREQ=HOURLY;INTERVAL=5;BYDAY=MO;UNTILTIME=18:00', // 고를 수 없는 간격
+      'FREQ=HOURLY;INTERVAL=2;BYDAY=MO', // 끝 시각 없음
+      'FREQ=HOURLY;INTERVAL=2;BYDAY=MO;UNTILTIME=1800', // 끝 시각 형식
+      'FREQ=HOURLY;INTERVAL=2;BYDAY=MO;UNTILTIME=18:00;BYMONTHDAY=1', // 모르는 항목
+    ]) {
+      const f = parseTaskRRule(rrule, '09:00')
+      expect(f, rrule).toEqual(unknown)
+      expect(f.freq, rrule).toBe('NONE')
+      // 요약은 원문 그대로 — 뜻을 지어내지 않는다.
+      expect(recurrenceLabel(rrule, '09:00'), rrule).toBe(`${rrule} 09:00`)
+    }
+    // 간격이 빠진 것만은 1시간마다로 읽는다(서버 정규화와 같다).
+    expect(parseTaskRRule('FREQ=HOURLY;BYDAY=SA;UNTILTIME=12:00', '09:00')).toMatchObject({ freq: 'HOURLY', interval: 1, hourlyDays: ['SA'] })
+  })
+
+  test('하루 실행 시각은 시작부터 간격마다, 끝 시각 정각 포함', () => {
+    expect(hourlyRunTimes(hourly())).toEqual(['09:00', '11:00', '13:00', '15:00', '17:00'])
+    expect(hourlyRunTimes(hourly({ untilTime: '17:00' }))).toEqual(['09:00', '11:00', '13:00', '15:00', '17:00'])
+    expect(hourlyRunTimes(hourly({ interval: 3, untilTime: '17:30' }))).toEqual(['09:00', '12:00', '15:00'])
+    expect(hourlyRunTimes(hourly({ time: '09:30', interval: 4, untilTime: '18:00' }))).toEqual(['09:30', '13:30', '17:30'])
+    // 끝이 시작 이하(자정 넘김)·몇 시간마다가 아니면 빈 목록.
+    expect(hourlyRunTimes(hourly({ time: '22:00', untilTime: '02:00' }))).toEqual([])
+    expect(hourlyRunTimes(hourly({ untilTime: '09:00' }))).toEqual([])
+    expect(hourlyRunTimes(form({ freq: 'DAILY' }))).toEqual([])
+  })
+
+  test('미리보기 문구 — 시각 목록과 하루 횟수, 많으면 줄인다', () => {
+    expect(hourlyPreviewText(hourly())).toBe('09:00 · 11:00 · 13:00 · 15:00 · 17:00 에 실행 (하루 5회)')
+    expect(hourlyPreviewText(hourly({ interval: 1 }))).toBe('09:00 · 10:00 · 11:00 · … · 18:00 에 실행 (하루 10회)')
+    expect(hourlyPreviewText(hourly({ untilTime: '08:00' }))).toBeNull()
+  })
+
+  test('검사 — 요일 하나 이상, 끝 시각은 시작보다 뒤', () => {
+    expect(validateTaskRecurrence(hourly())).toBeNull()
+    expect(validateTaskRecurrence(hourly({ hourlyDays: [] }))).toBe('요일을 하나 이상 고르세요')
+    expect(validateTaskRecurrence(hourly({ untilTime: '09:00' }))).toMatch(/끝 시각은 시작 시각보다 뒤/)
+    expect(validateTaskRecurrence(hourly({ time: '22:00', untilTime: '02:00' }))).toMatch(/자정/)
+    expect(validateTaskRecurrence(hourly({ untilTime: '' }))).toMatch(/끝 시각/)
+    expect(validateTaskRecurrence(hourly({ interval: 5 }))).toBe('간격을 고르세요')
+  })
+
+  test('요약 문구 — 「평일 09~18시 2시간마다」', () => {
+    expect(recurrenceLabel('FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=18:00', '09:00')).toBe('평일 09~18시 2시간마다')
+    expect(recurrenceLabel('FREQ=HOURLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR,SA,SU;UNTILTIME=17:30', '09:30')).toBe('매일 09:30~17:30 1시간마다')
+    expect(recurrenceLabel('FREQ=HOURLY;INTERVAL=3;BYDAY=MO,WE;UNTILTIME=18:00', '09:00')).toBe('월·수 09~18시 3시간마다')
+    // 읽을 수 없으면 원문.
+    expect(recurrenceLabel('FREQ=HOURLY;INTERVAL=2;BYDAY=MO', '09:00')).toBe('FREQ=HOURLY;INTERVAL=2;BYDAY=MO 09:00')
+    expect(aiHandoffLabel({ rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=18:00', time: '09:00', agentName: '내 비서' })).toBe(
+      '내 비서 · ↻ 평일 09~18시 2시간마다',
+    )
+    const mine = { name: '도우미', username: 'my-ai', personalAssistant: true }
+    expect(createHandoffSummary(mine, hourly())).toBe('내 AI 비서 · ↻ 평일 09~18시 2시간마다')
+  })
+
+  test('다음 실행 미리보기 — 시간대 안 다음 회차, 마지막 뒤는 다음 실행 요일의 시작', () => {
+    const at = (f: Parameters<typeof previewNextRun>[0], now: string) => {
+      const d = previewNextRun(f, new Date(now))
+      return d ? kstShortDateTime(d) : null
+    }
+    // 2026-11-03(화) 08:00 KST → 09:00, 10:30 KST → 11:00, 17:00 KST(마지막 회차 정각) → 수 09:00.
+    expect(at(hourly(), '2026-11-02T23:00:00Z')).toBe('11/3(화) 09:00')
+    expect(at(hourly(), '2026-11-03T01:30:00Z')).toBe('11/3(화) 11:00')
+    expect(at(hourly(), '2026-11-03T08:00:00Z')).toBe('11/4(수) 09:00')
+    // 금 17:00 KST 뒤는 월 09:00(주말 건너뜀).
+    expect(at(hourly(), '2026-11-06T08:00:00Z')).toBe('11/9(월) 09:00')
+    expect(previewNextRun(hourly({ hourlyDays: [] }), new Date('2026-11-03T00:00:00Z'))).toBeNull()
   })
 })
