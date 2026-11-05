@@ -1,6 +1,7 @@
 package com.workplace.global.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import com.workplace.support.IntegrationTestBase;
 import java.time.Duration;
@@ -108,6 +109,18 @@ class SchedulerLockIntegrationTest extends IntegrationTestBase {
             Instant.now(), "test.sequential", Duration.ofMinutes(1), Duration.ZERO);
 
     assertThat(executor.executeWithLock(() -> 1, config).wasExecuted()).isTrue();
+    // 잠금을 풀면 lock_until 은 그때의 DB 시각이 되는데, 열이 TIMESTAMP(3)(밀리초)이라 반올림으로 최대 0.5ms 앞(미래)에 저장될 수
+    // 있다. 곧바로 다시 잡으면 "lock_until <= 지금" 이 거짓이라 건너뛰어진다(WP-1382 — 500회 중 57회 실패). 실제 다음 회차는 몇 초
+    // 뒤라 해당 없으니, DB 시각이 lock_until 을 지날 때까지만 기다린 뒤 다음 회차를 부른다.
+    JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .pollInterval(Duration.ofMillis(1))
+        .until(
+            () ->
+                jdbc.queryForObject(
+                    "SELECT lock_until <= timezone('utc', CURRENT_TIMESTAMP) FROM shedlock WHERE name = 'test.sequential'",
+                    Boolean.class));
     assertThat(
             executor
                 .executeWithLock(
