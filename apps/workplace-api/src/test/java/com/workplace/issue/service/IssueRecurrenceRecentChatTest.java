@@ -58,8 +58,12 @@ class IssueRecurrenceRecentChatTest extends IntegrationTestBase {
 
   private static final String INTERNAL_TOKEN = "test-token";
 
-  /** 글 시각의 기준 — 지금보다 한참 전이라 회차 시각(지금)보다 늘 앞선다. */
-  private static final Instant BASE = Instant.now().minus(2, ChronoUnit.DAYS);
+  /**
+   * 글 시각의 기준 — 지금보다 한참 전이라 회차 시각(지금)보다 늘 앞선다. DB(timestamptz)는 마이크로초까지만 저장하므로, 나노초 시계(리눅스)에서 잘리지 않은
+   * 값과 왕복 후 값을 isEqualTo 로 비교하면 깨진다 — 마이크로초로 잘라 둔다(WP-1381).
+   */
+  private static final Instant BASE =
+      Instant.now().truncatedTo(ChronoUnit.MICROS).minus(2, ChronoUnit.DAYS);
 
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper om;
