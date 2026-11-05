@@ -1,6 +1,6 @@
 // 이슈 상세 「AI 진행」 칸(WP-1079) — 제목 아래(AI 현황 요약 위)에 진행 중 AI 작업을 작업자별로 보인다. 데스크톱·모바일이 같은 칸을 쓴다.
 // 속성 레일(고르는 값 목록)에 문장으로 된 실시간 소식이 끼어 결이 달랐고, 질문 카드와 정보가 두 곳에 나뉘었다(WP-377 레일 섹션·질문 카드·모바일 칩/시트를 대체).
-// AI 구성원의 「답변 필요」 배지를 누르면 이슈 채팅 드로워가 열린다 — 「내 AI 작업」 목록(채팅 링크)과 같은 규칙. 도구 이름은 이 화면에선 보이지 않는다(목록에 남음).
+// AI 구성원의 「답변 필요」 배지를 누르면 이슈 채팅으로 간다(팀 이슈는 드로워, 개인 작업은 상세 안 채팅) — 「내 AI 작업」 목록(채팅 링크)과 같은 규칙. 도구 이름은 이 화면에선 보이지 않는다(목록에 남음).
 import { AgentLastReport, AgentNextRun, AgentStateBadge } from '@/components/ai/agentWork/AgentWorkBits';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { AI_CONTENT_CONTAINER_CLASS } from '@/components/ai/aiMarker';
@@ -21,7 +21,11 @@ export function AgentWorkCard({
   stacked = false,
 }: {
   list?: AgentWorkView[];
-  /** 「답변 필요」 배지가 이슈 채팅 드로워를 연다 — 페이지의 openChat(?chat=1 을 기존 쿼리·히스토리 표식과 함께 더한다). */
+  /**
+   * 「답변 필요」 배지를 누르면 부르는 「채팅 열기」 — 화면이 정한다.
+   * 팀 이슈 상세: 채팅 드로워를 연다(openChat — ?chat=1 을 기존 쿼리·히스토리 표식과 함께 더한다).
+   * 개인 작업 상세: 상세 안의 채팅 칸으로 스크롤하고 입력칸에 포커스한다(WP-1372).
+   */
   onOpenChat: () => void;
   stacked?: boolean;
 }) {

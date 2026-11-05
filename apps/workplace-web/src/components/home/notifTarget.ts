@@ -1,5 +1,6 @@
 // 알림 라우팅/표시 공용 유틸 — InboxPanel·알림 위젯·합성 레이어가 공유한다.
 // (NotificationsBody 의 로컬 함수를 추출해 규칙이 드리프트되지 않게 단일화.)
+import { issueChatPath } from '@/lib/agentWork'
 import type { NotificationResponse } from '@/types/notification'
 
 /**
@@ -73,8 +74,9 @@ export function notifTarget(n: NotificationResponse): string {
   }
   if (isCalendarType(n)) return n.eventId != null ? `/calendar?eventId=${n.eventId}` : '/calendar'
   if (n.projectKey && n.issueNumber != null) {
-    const base = `/projects/${n.projectKey}/issues/${n.issueNumber}`
-    return isIssueChatType(n) ? `${base}?chat=1` : base
+    // 이슈 챗 알림은 「내 AI 작업」 채팅 링크와 같은 경로 조합(issueChatPath)을 쓴다.
+    if (isIssueChatType(n)) return issueChatPath(n.projectKey, n.issueNumber)
+    return `/projects/${n.projectKey}/issues/${n.issueNumber}`
   }
   return '/me/tasks/assigned'
 }

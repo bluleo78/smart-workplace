@@ -34,6 +34,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { appUrl, issuePath } from '@/lib/appUrl';
+import { hasIssueChatParam, ISSUE_CHAT_OPEN, ISSUE_CHAT_PARAM } from '@/lib/issueChatParam';
 import { commentIdFromHash } from '@/lib/issueCommentLink';
 import type { ShareTarget } from '@/lib/shareTarget';
 import { cn } from '@/lib/utils';
@@ -526,8 +527,12 @@ export default function IssueDetailPage() {
     );
   // 개인 프로젝트의 이슈 풀페이지 진입(알림/북마크)은 프로젝트 화면의 우측 패널로 리다이렉트한다.
   // 팀 프로젝트는 기존 풀페이지 유지.
+  // 채팅 딥링크(`?chat=1` — 이슈챗 알림·「내 AI 작업」 채팅 링크)는 이어 붙여 개인 작업 상세가 채팅 칸으로 이동하게 한다(WP-1372).
+  // 다른 쿼리는 지금처럼 버린다.
   if (project.data?.type === 'PERSONAL') {
-    return <Navigate to={`/projects/${key}?task=${issueNumber}`} replace />;
+    const params = new URLSearchParams({ task: String(issueNumber) });
+    if (hasIssueChatParam(location.search)) params.set(ISSUE_CHAT_PARAM, ISSUE_CHAT_OPEN);
+    return <Navigate to={`/projects/${key}?${params}`} replace />;
   }
 
   if (isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;

@@ -8,14 +8,17 @@ import { ChevronLeft } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useState } from 'react';
 
+import { AgentWorkCard } from '@/components/issue/agentWork/AgentWorkCard';
 import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from '@/components/mobile/headerClass';
 import { useProject } from '@/hooks/queries/useProjects';
 
+import { IssueChatButton } from '../components/chat/IssueChatButton';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssueMobilePropertyChips, type MobilePropField } from '../components/mobile/IssueMobilePropertyChips';
 import { type EditBarControls, MobileEditBar } from '../components/mobile/MobileEditBar';
 import { usePersonalTask } from './usePersonalTask';
+import { usePersonalTaskChatJump } from './usePersonalTaskChatJump';
 
 // 개인 작업 칩 — 마감이 담당자보다 앞(개인은 담당이 대개 본인), 에픽 대신 라벨, 「＋ 속성」 없음(스펙 §4.2).
 // 반복(WP-989)은 담당자 뒤 — 데스크톱 패널과 같은 순서(담당에 AI 비서를 넣고 반복을 켠다).
@@ -43,13 +46,17 @@ export function PersonalTaskMobile({
 }
 
 function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey: string; number: number; onClose: () => void }) {
-  const { q, update, data } = usePersonalTask(projectKey, number);
+  const task = usePersonalTask(projectKey, number);
+  const { q, update, data } = task;
   const project = useProject(projectKey);
   // 제목 편집 중이면 하단 줄이 [취소·저장] 바로 바뀐다(모바일 제목은 blur 저장이 없다 — WP-196 R5).
   const [titleControls, setTitleControls] = useState<EditBarControls | null>(null);
   // 채팅 입력줄 포털 대상(R11) — ref 콜백으로 받아 상태로 둔다(마운트 뒤 IssueChatSection 이 이 요소로 포털).
   const [chatFooterEl, setChatFooterEl] = useState<HTMLDivElement | null>(null);
   const title = data?.summary.title ?? '작업';
+  // 채팅으로 이동(WP-1372) — 채팅 버튼·AI 진행 카드·`?chat=1` 딥링크가 채팅 칸으로 스크롤하고 입력칸에 포커스한다.
+  // 입력줄은 하단 줄로 포털되지만(R11) 포커스 요청은 IssueChatSection 이 입력칸이 붙을 때 처리한다.
+  const chat = usePersonalTaskChatJump({ projectKey, number, task });
 
   return (
     <DialogPrimitive.Content
@@ -76,9 +83,13 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
           <ChevronLeft className="h-6 w-6" aria-hidden />
         </button>
         <span className={mobileDetailTitleClass}>{project.data?.name ?? ''}</span>
+        {/* 채팅 버튼(WP-1372) — 팀 이슈 모바일 헤더와 같은 44px 아이콘(읽지 않으면 빨간 점). 아래 채팅 칸으로 이동한다. */}
+        {data && (
+          <IssueChatButton {...chat.buttonProps} variant="icon" />
+        )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div {...chat.scrollProps} className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-4 p-4">
           {/* 제목 — 모바일은 blur 저장 없이 하단 바·Enter 로 저장(commitOnBlur=false). aria-label 로 편집 버튼 이름이 제목에 섞이지 않게(#791). */}
           <h1 className="text-2xl leading-8 font-semibold tracking-tight" aria-label={title} data-testid="personal-task-panel-title">
@@ -112,13 +123,15 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
                 onPatch={(c) => update.mutate(c)}
                 fields={PERSONAL_FIELDS}
               />
+              {/* AI 진행(WP-1372) — 팀 이슈와 같은 카드(모바일 세로 배치). 「답변 필요」 배지는 채팅 칸으로 이동한다. */}
+              <AgentWorkCard list={data.summary.agentWork} onOpenChat={chat.onOpenChat} stacked />
               <section aria-label="메모" className="space-y-1">
                 <h2 className="text-xs font-medium text-muted-foreground">메모</h2>
                 <p className="whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">{data.body || '본문 없음'}</p>
               </section>
               {/* AI 위임 대화 = 기존 이슈 chat 재사용. 입력줄은 아래 하단 줄로 포털된다. */}
-              <div data-testid="personal-panel-chat">
-                <IssueChatSection projectKey={projectKey} issueNumber={number} footerContainer={chatFooterEl} plain />
+              <div {...chat.sectionProps}>
+                <IssueChatSection {...chat.chatProps} footerContainer={chatFooterEl} plain />
               </div>
             </>
           )}

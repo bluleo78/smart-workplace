@@ -64,6 +64,12 @@ interface RichInputProps {
   // 미전달이면 카운터(빨간 N / max)만 보인다.
   overLimitMessage?: (count: number) => string;
   autoFocus?: boolean;
+  /** 포커스 요청 번호(WP-1372) — 0 보다 크면 본문 끝에 포커스하고 onFocusRequestDone 을 부른다. 에디터가 아직 만들어지기 전이면 만들어진 뒤 한다.
+   *  한 번만 쓰는 요청이다 — 호출처는 onFocusRequestDone 에서 0 으로 돌려, 입력창이 나중에 다시 만들어져도(포털 대상 교체·쓰기 권한 바뀜) 포커스를
+   *  다시 가져가지 않게 한다. autoFocus 와 달리 마운트 뒤에도 새 번호로 다시 요청할 수 있다(개인 작업 상세의 채팅 버튼).
+   *  스크롤은 호출처가 맞추므로 포커스가 스크롤하지 않는다. */
+  focusRequest?: number;
+  onFocusRequestDone?: () => void;
   // 버튼 행 좌측에 추가로 렌더할 노드(파일 첨부 버튼 등). 미전달 시 우측 버튼만 노출. inlineSubmit 이면 에디터 왼쪽.
   leftActions?: React.ReactNode;
   /** 파일 첨부를 받는 입력창(WP-235). 전달하면 두 가지가 바뀐다:
@@ -113,6 +119,8 @@ export function RichInput({
   maxLength,
   overLimitMessage,
   autoFocus = false,
+  focusRequest = 0,
+  onFocusRequestDone,
   leftActions,
   inputTestId,
   submitTestId,
@@ -409,6 +417,14 @@ export function RichInput({
     if (!editor || editor.isDestroyed) return;
     editor.view.dispatch(editor.state.tr);
   }, [editor, placeholder]);
+
+  // 포커스 요청(WP-1372) — 대기 중인 요청이 있고 에디터가 준비되면 본문 끝에 포커스하고 끝났다고 알린다(호출처가 요청을 0 으로 돌린다).
+  // 스크롤은 호출처가 맞췄으므로 scrollIntoView 를 끈다.
+  useEffect(() => {
+    if (focusRequest <= 0 || !editor || editor.isDestroyed) return;
+    editor.commands.focus('end', { scrollIntoView: false });
+    onFocusRequestDone?.();
+  }, [editor, focusRequest, onFocusRequestDone]);
 
   function submit() {
     if (!editor) return;

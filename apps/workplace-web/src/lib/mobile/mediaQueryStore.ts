@@ -41,6 +41,9 @@ export function createMediaQueryStore(query: string): MediaQueryStore {
 export const mobileWidthStore = createMediaQueryStore(MOBILE_MEDIA_QUERY)
 /** 주 포인터가 손가락(coarse)인가 — 터치 셸 판정의 다른 반쪽. */
 export const coarsePointerStore = createMediaQueryStore('(pointer: coarse)')
+/** 주 포인터가 정밀(마우스·트랙패드)한가 — 입력칸 자동 포커스 기준(WP-1372). 터치는 가상 키보드가 화면을 덮어 자동 포커스하지 않는다
+ *  (이슈 채팅 드로워 autoFocus·개인 작업 채팅 딥링크가 같이 쓴다). */
+export const finePointerStore = createMediaQueryStore('(pointer: fine)')
 /** 가로 방향인가 — 모바일 뷰어는 가로에서 바를 기본 숨긴다(WP-278, 사진·영상 면적 우선). */
 export const landscapeStore = createMediaQueryStore('(orientation: landscape)')
 /** 하단 탭바를 7칸으로 넓힐 만한 폭인가(WP-877) — 탭바 구성 중 보이는 칸 수를 정한다. */

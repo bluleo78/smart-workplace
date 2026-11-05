@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { AgentWorkCard } from '@/components/issue/agentWork/AgentWorkCard';
 import { TaskRecurrenceField } from '@/components/issue/recurrence/TaskRecurrenceField';
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
@@ -19,12 +20,14 @@ import { cn } from '@/lib/utils';
 
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { AssigneePickerPopover } from '../components/AssigneePickerPopover';
+import { IssueChatButton } from '../components/chat/IssueChatButton';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
 import { IssueStatusSelect } from '../components/IssueStatusSelect';
 import { PersonalTaskMobile } from './PersonalTaskMobile';
 import { usePersonalTask } from './usePersonalTask';
+import { usePersonalTaskChatJump } from './usePersonalTaskChatJump';
 
 /**
  * ?task=N 쿼리 파라미터를 감지해 상세를 연다.
@@ -160,15 +163,25 @@ export function PersonalTaskDetail({
   asModal?: boolean;
 }) {
   // 조회·수정·404 판정·AI 화면 컨텍스트 등록은 모바일 전체 화면과 공유(WP-221).
-  const { q, update, data } = usePersonalTask(projectKey, number);
+  const task = usePersonalTask(projectKey, number);
+  const { q, update, data } = task;
   // 상태 선택지 — 개인 프로젝트도 시드 상태 목록(이름)을 갖는다(WP-808).
   const statuses = useProjectStatusList(projectKey);
+  // 채팅으로 이동(WP-1372) — 채팅 버튼·AI 진행 카드·`?chat=1` 딥링크가 상세 안의 채팅 칸으로 스크롤하고 입력칸에 포커스한다.
+  const chat = usePersonalTaskChatJump({ projectKey, number, task });
 
   return (
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div {...chat.scrollProps} className="flex flex-1 flex-col overflow-y-auto">
       {/* 제목 줄 — 모달은 기존 헤더 줄(border-b p-3), 패널은 소제목 줄 바로 아래 본문 첫머리. */}
-      <div className={asModal ? 'flex items-center justify-between border-b p-3' : cn(pageGutterClass, 'pt-4')}>
+      {/* 모달은 DialogContent 의 ✕(우상단 absolute)와 채팅 버튼이 겹치지 않게 오른쪽을 비운다. */}
+      <div
+        className={
+          asModal
+            ? 'flex items-center justify-between gap-2 border-b p-3 pr-12'
+            : cn(pageGutterClass, 'flex items-center gap-2 pt-4')
+        }
+      >
         {/* 제목 인라인 편집 — 패널·모달 공통(#718). 개인 이슈는 상세 페이지가 리다이렉트로 막혀
             드로어가 유일한 편집 경로이므로 여기에서 직접 편집한다. 모달은 Radix a11y 상 DialogTitle
             이 필수라 접근성용 텍스트만 sr-only 로 유지하고 편집 UI 를 시각적으로 노출한다. */}
@@ -185,6 +198,11 @@ export function PersonalTaskDetail({
             onSave={(t) => update.mutate({ title: t })}
           />
         </div>
+        {/* 채팅 버튼(WP-1372) — 팀 이슈 헤더와 같은 버튼·읽지 않은 수. 드로워 대신 아래 채팅 칸으로 이동한다.
+            읽지 않은 수는 아래 채팅에서 메시지를 읽으면(읽음 워터마크) 지워진다. */}
+        {data && (
+          <IssueChatButton {...chat.buttonProps} />
+        )}
       </div>
 
       {/* 로딩 중 */}
@@ -238,6 +256,9 @@ export function PersonalTaskDetail({
           <Field label="AI 에게 맡기기">
             <TaskRecurrenceField projectKey={projectKey} number={number} />
           </Field>
+          {/* AI 진행(WP-1372) — 팀 이슈와 같은 카드. 진행 중 AI 작업이 없으면 그리지 않는다.
+              「답변 필요」 배지는 드로워 대신 아래 채팅 칸으로 이동한다. */}
+          <AgentWorkCard list={data.summary.agentWork} onOpenChat={chat.onOpenChat} />
           <Field label="라벨">
             <div className="flex flex-wrap items-center gap-1">
               {data.summary.labels.map((l) => (
@@ -257,8 +278,8 @@ export function PersonalTaskDetail({
           </Field>
 
           {/* AI 위임 대화 = 기존 이슈 chat 스레드 재사용. 사이클·의존성·커스텀필드·watch 미포함. */}
-          <div data-testid="personal-panel-chat">
-            <IssueChatSection projectKey={projectKey} issueNumber={number} />
+          <div {...chat.sectionProps}>
+            <IssueChatSection {...chat.chatProps} />
           </div>
         </div>
       )}
