@@ -132,7 +132,7 @@ export function AppLayout() {
                 {aiAvailable ? <AIChip /> : <SearchTrigger />}
               </TopCenterSlot>
             )}
-            {/* WP-1356: 모바일은 상단 🔍 트리거가 없어, 다른 화면이 openSearchPalette 로 연 팔레트를 그릴 호스트만 둔다. */}
+            {/* WP-1356·WP-1354: 모바일은 상단 🔍 트리거 대신 탭 첫 화면 헤더 🔍·다른 화면이 openSearchPalette 로 열고, 전체 화면 검색은 이 호스트 하나가 그린다(뒤로 가기로 닫힘). */}
             {isMobile && <SearchPaletteHost />}
             {/* 메일 작성 도크 — fixed, 앱 전역. 처음 작성을 열 때 불러온다(WP-970). draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
             <LazyMailComposeDock />

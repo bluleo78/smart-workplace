@@ -1,8 +1,12 @@
 // 통합 검색 팔레트(WP-1353)의 열림 상태 — 상단 🔍 트리거·「/」 단축키뿐 아니라 다른 화면(예: 드라이브 「드라이브 전체에서 찾기」, WP-1356)도
 // 검색어와 탭을 정해 팔레트를 열 수 있게 작은 모듈 스토어로 둔다(lib/sendToChat 의 openSendToChat 과 같은 방식).
 // 다른 앱 코드는 검색 내부에 기대지 않고 이 파일의 openSearchPalette 하나만 부른다(디자인 시스템 05 「검색 도메인」).
-// 열림은 히스토리에 넣지 않는다 — 뒤로 가기가 팔레트를 닫는 데 쓰이지 않게.
+// 스토어 자체는 히스토리를 모른다 — 데스크톱 팔레트는 히스토리에 넣지 않고, 휴대폰 전체 화면은 그리는 쪽(SearchPaletteHost)이
+// 열림을 히스토리 항목 하나에 묶어 뒤로 가기로 닫히게 한다(WP-1354).
 import type { SearchAppId } from './searchApps'
+
+/** 휴대폰 전체 화면 검색이 넣는 히스토리 항목의 표식 키(useSheetHistory state 모드) — 호스트와 팔레트(결과로 이동할 때 대체)가 함께 본다. */
+export const SEARCH_PALETTE_HISTORY_KEY = 'searchPalette'
 
 /** 한 번 연 팔레트 — id 가 바뀌면 본문을 새로 마운트해 검색어·탭을 처음 값으로 시작한다. q·app 은 처음 값(없으면 빈 검색어·지금 앱 탭). */
 export interface SearchPaletteSession {
