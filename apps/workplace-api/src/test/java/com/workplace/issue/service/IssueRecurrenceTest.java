@@ -1000,6 +1000,44 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(followUps.get(1).followUp().answer()).isEqualTo("팀장님께");
   }
 
+  // WP-1376: 회차 결과 맨 끝 「정해 주세요」 절 — ai-agent 가 절에 항목이 있으면 결과 전체를 question 으로 보고하고, 서버는 그 표시만 따라
+  // `[확인 필요]` 질문과 같은 경로(답을 기다리는 질문·소유자 첫 글 → 이어 처리)로 처리한다. 서버는 본문을 다시 판별하지 않는다(판별 규칙은
+  // ai-agent decision-section.ts 의 hasDecisionSection 한 곳). 이어 처리가 다시 물으면 다시 등록되고, 「하지 마」로 절 없이 끝나면
+  // 질문이 닫힌다.
+  @Test
+  void 정해_주세요_절로_끝난_결과도_질문으로_남고_답하면_이어_처리하며_절_없이_끝나면_닫힌다() throws Exception {
+    String result = "## 오늘 정리\n- 견적 메일 2건\n\n## 정해 주세요\n1. A사 견적 메일에 회신할까요? (회신 / 보류)";
+    report(agent, dispatchOnce(), true, result, true).andExpect(status().isNoContent());
+    assertThat(agentQuestionFlags()).containsExactly(true);
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_TEXT)).isEqualTo(result);
+
+    // 소유자의 첫 글이 답 — 이어 처리에 결과 전체(정할 항목 포함)를 질문으로, 글을 답으로 넘긴다. 이어 처리를 받은 AI 는 챗 이벤트에 실려
+    // 같은 글로 일반 챗 응답을 또 하지 않는다(WP-1377 의 일반 대화 답도 followUpAgentId 가 있으면 하지 않는다 — 이어 처리가 먼저).
+    long answerId = chat(owner, "애매하네");
+    var followUps = followUpEvents();
+    assertThat(followUps).hasSize(1);
+    assertThat(followUps.get(0).followUp().question()).isEqualTo(result);
+    assertThat(followUps.get(0).followUp().answer()).isEqualTo("애매하네");
+    assertThat(answerEvent(answerId).followUpAgentId()).isEqualTo(agent);
+
+    // 답이 애매해 이어 처리가 다시 「정해 주세요」로 물었다 — 새 질문으로 다시 등록된다.
+    String again = "고른 항목을 알 수 없어 처리하지 않았습니다.\n\n## 정해 주세요\n1. 회신할까요, 보류할까요?";
+    report(agent, recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID), true, again, true)
+        .andExpect(status().isNoContent());
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_TEXT)).isEqualTo(again);
+
+    // 「넘어가」 — 이어 처리가 절 없이 끝나면(질문 아님) 질문이 닫혀, 소유자의 다음 글은 더 이어 처리하지 않는다.
+    chat(owner, "넘어가");
+    assertThat(followUpEvents()).hasSize(2);
+    report(agent, recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID), true, "하지 않았습니다.")
+        .andExpect(status().isNoContent());
+    assertThat(agentQuestionFlags()).containsExactly(true, true, false);
+    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNull();
+    chat(owner, "고마워");
+    assertThat(followUpEvents()).hasSize(2);
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
+  }
+
   @Test
   void 이어_처리_실패는_연속_실패로_세지_않는다() throws Exception {
     askQuestion("메일을 보낼까요?");

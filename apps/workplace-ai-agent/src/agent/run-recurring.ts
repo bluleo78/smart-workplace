@@ -9,6 +9,7 @@
 // 처리는 답을 받은 테스트 질문이 멈춘 쓰기(followUp.permittedActions)만 실행을 허락받는다.
 import axios from 'axios';
 import { RECURRING_QUESTION_MARKER, RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
+import { hasDecisionSection } from './decision-section.js';
 import { buildRecurringRunMessage, TEST_GATED_LABELS } from './user-message.js';
 import { defaultSleep } from './sleep.js';
 import { withSharedMemory } from './shared-memory-block.js';
@@ -207,7 +208,9 @@ export async function runRecurring(
     await report(true, question || text, true);
     return;
   }
-  await report(true, text);
+  // WP-1376: 사용자가 정해야 할 항목을 결과 맨 끝 「정해 주세요」 절에 적은 회차 — 결과 전체를 그대로 질문으로 보고한다(같은 질문 경로로 답을 받아
+  // 이어 처리가 답이 고른 항목만 처리한다). 이어 처리 결과도 같은 규칙이라, 다시 물으면 질문으로 다시 남고 절이 없으면 질문이 닫힌 채로 끝난다.
+  await report(true, text, hasDecisionSection(text));
 }
 
 // 최종 답변 첫 줄이 질문 표지로 시작하면 표지를 뗀 나머지를 돌려준다(아니면 null). 표지 뒤가 비면 빈 문자열 — 호출부가 원문을 쓴다.

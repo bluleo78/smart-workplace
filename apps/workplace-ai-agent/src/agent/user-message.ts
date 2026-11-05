@@ -1,7 +1,8 @@
 // 4 type envelope → Claude CLI 에 넘길 user message 문자열 변환.
 // spec §"Type 별 user message" 와 일치.
 import type { IssueEventEnvelope, IssueRecurringRunPayload } from '../types/issue-events.js';
-import { RECURRING_QUESTION_MARKER } from './system-prompt.js';
+import { RECURRING_DECISION_HEADING, RECURRING_QUESTION_MARKER } from './system-prompt.js';
+import { hasDecisionSection } from './decision-section.js';
 import { RECURRING_TEST_GATED_TOOLS } from '../mcp/tools.js';
 import { clip, formatKstShort, kstParts, oneLine } from './text-format.js';
 
@@ -165,6 +166,36 @@ function recurringEventType(test: boolean): string {
   return test ? 'issue.recurring_test_run' : 'issue.recurring_run';
 }
 
+// WP-1376: 「정해 주세요」 질문(결과 맨 끝 절의 번호 목록)에 답한 이어 처리 규칙 — 답이 고른 항목만 쓰기 하고, 답이 아니거나 애매하면 쓰기 없이 같은
+// 절로 다시 묻고(→ API 가 질문으로 다시 등록), 「하지 마」·「넘어가」면 절 없이 끝내 질문을 닫는다(하지 말라는 답에 쓰기를 하지 않는 것은 위 공통 줄이 말하므로 여기서는 다시 묻지 않는다는 것만 더한다).
+// 「다음부터 이렇게」 같은 지속 규칙은 이번에만 따르고 본문 「결정 사항」에 넣을지를 다시 묻는다 — 반복의 할 일(이슈 본문)을 사람의 허락 없이 바꾸지 않게.
+// 허락을 받으면 지금 본문을 다시 읽어(get_issue_detail) 그 한 줄만 덧붙인다 — 회차가 받은 본문은 그 뒤 바뀌었을 수 있어 그대로 쓰면 남의 수정을 덮는다.
+const DECISION_H = `\`## ${RECURRING_DECISION_HEADING}\``;
+
+// WP-1312·WP-1376: 이슈 본문이 다음 쓰기 전에 또 확인을 받으라고 할 때 `[확인 필요]` 표지로 다시 묻는 문장 — 두 이어 처리 규칙(정해 주세요·확인 필요)이 함께 쓴다.
+const CONFIRM_REASK =
+  `이슈 본문이 다음 쓰기 전에 또 확인을 받으라고 하면, 그 쓰기를 하지 말고 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 다시 물으세요.\n`;
+
+const DECISION_FOLLOW_UP_RULE =
+  `- 질문이 ${DECISION_H} 절의 항목을 물었으니 답이 고른 항목만 처리하고, 쓰기도 그 항목 안에서만 합니다. 답이 고르지 않은 항목은 하지 않습니다.\n` +
+  `- 답이 질문에 대한 답이 아니거나 무엇을 골랐는지 애매하면, 쓰기를 하지 말고 결과 맨 끝 ${DECISION_H} 절에 번호 목록으로 다시 물으세요. ` +
+  `「하지 마」·「넘어가」 같은 답은 애매한 답이 아니니 다시 묻지 말고 하지 않았다는 것만 짧게 적으세요(${DECISION_H} 절을 쓰지 않으면 질문이 닫힙니다).\n` +
+  `- 답에 「다음부터 이렇게」처럼 앞으로도 따를 규칙이 있으면 이번 처리에만 적용하고, 결과 맨 끝 ${DECISION_H} 절에 「이슈 본문 『결정 사항』에 추가할까요?」와 추가할 문구를 물으세요.\n` +
+  `- 질문이 이슈 본문 「결정 사항」에 추가할지를 물었고 답이 허락하면, 먼저 get_issue_detail 로 지금의 이슈 본문을 다시 읽습니다(위에 실린 본문은 그 뒤 바뀌었을 수 있습니다). ` +
+  `그 본문의 「결정 사항」 절 끝에 그 문구 한 줄만 덧붙이고(절이 없으면 본문 끝에 「결정 사항」 절을 새로 만들어), 나머지 본문은 한 글자도 바꾸지 않은 채 update_issue 로 저장합니다. ` +
+  `지금 본문을 읽지 못했으면 본문을 쓰지 말고 읽지 못해 추가하지 않았다고 적으세요.\n` +
+  `- ${CONFIRM_REASK}`;
+
+// WP-1312·WP-1313: `[확인 필요]` 질문(본문이 확인을 받으라고 한 쓰기, 테스트 실행이 멈춘 쓰기)의 이어 처리에서 답이 애매할 때 — 같은 표지로 다시 묻는다.
+// 「정해 주세요」로 다시 물으면 run-recurring 이 멈춘 쓰기 목록 없이 질문을 보고해, 테스트 질문의 멈춘 쓰기가 사라진다(WP-1376 리뷰).
+const CONFIRM_FOLLOW_UP_RULE = `- 답만으로 정할 수 없거나 ${CONFIRM_REASK}`;
+
+// 남겼던 질문이 「정해 주세요」 질문인지 — 질문 글이 그 절로 끝나고, 테스트 실행이 멈춘 쓰기(확인받을 쓰기)가 없을 때. 멈춘 쓰기가 실린 질문은
+// `[확인 필요]` 질문이라 같은 표지로 다시 물어야 멈춘 쓰기 목록이 이어진다.
+function isDecisionQuestion(f: NonNullable<IssueRecurringRunPayload['followUp']>): boolean {
+  return (f.permittedActions ?? []).length === 0 && hasDecisionSection(f.question);
+}
+
 // WP-1312: 회차가 남긴 질문에 반복을 저장한 사람이 답해 이어 하는 실행의 지시문. 회차와 같은 신원·권한·도구로 돌고 결과가 이슈 챗에 남는 것도 같다 —
 // 이번에는 질문과 답을 주고, 이슈 본문에 따라 멈췄던 일을 답대로 이어 하게 한다. 또 확인이 필요하면 같은 질문 표지로 다시 묻는다(대화가 이어진다).
 // 답한 사람은 actor(반복을 저장한 사람)다 — 그 사람만 답할 수 있다. 도구 신원 줄은 정기 회차와 같은 ownerToolsRule 이다(WP-1314).
@@ -185,7 +216,7 @@ function buildRecurringFollowUpMessage(
     `## ${who} 님의 답\n${f.answer.trim()}\n\n` +
     `## 이어 처리 규칙\n` +
     `- 질문에서 멈췄던 일을 이 답에 따라 이슈 본문대로 이어서 하세요. 답이 진행을 허락하면 그 쓰기를 확인 카드 없이 바로 하고, 하지 말라고 하면 하지 않습니다. 질문·이슈 본문과 상관없는 일은 하지 않습니다.\n` +
-    `- 답만으로 정할 수 없거나 이슈 본문이 다음 쓰기 전에 또 확인을 받으라고 하면, 그 쓰기를 하지 말고 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 다시 물으세요.\n` +
+    (isDecisionQuestion(f) ? DECISION_FOLLOW_UP_RULE : CONFIRM_FOLLOW_UP_RULE) +
     (test ? testFollowUpRule(f) : '') +
     CHAT_CONTEXT_RULES +
     ownerToolsRule(p) +
@@ -215,7 +246,8 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload, opts: { te
     recentChatSections(p) +
     `## 이번 회차 규칙\n` +
     `- 이슈 본문이 요청한 일을 이번 회차(${formatKst(p.runAt)}) 기준으로 수행하세요. 본문이 시킨 쓰기(메일 보내기, 이슈·일정 만들기·고치기 등)는 확인 카드 없이 바로 합니다. 본문에 없는 쓰기는 하지 말고 결과 끝의 「제안」 절에 적습니다.\n` +
-    `- 본문이 쓰기 전에 확인을 받으라고 하면 그 쓰기를 하지 말고, 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 하려는 일과 확인받을 내용을 적으세요. 그 밖에는 질문하지 않습니다.\n` +
+    `- 본문이 쓰기 전에 확인을 받으라고 하면 그 쓰기를 하지 말고, 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 하려는 일과 확인받을 내용을 적으세요.\n` +
+    `- 사용자가 정해야 실행할 수 있는 항목은 추측해 실행하지 말고 결과 맨 끝 ${DECISION_H} 절에 번호 목록으로 적으세요(정할 항목이 없으면 이 절을 쓰지 않습니다). 참고용 「제안」 절은 질문이 아닙니다. 그 밖에는 질문하지 않습니다.\n` +
     (test ? testRunRule() : '') +
     CHAT_CONTEXT_RULES +
     ownerToolsRule(p) +

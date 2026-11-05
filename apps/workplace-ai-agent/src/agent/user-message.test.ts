@@ -116,6 +116,8 @@ describe('buildUserMessage', () => {
     expect(m).toContain('이슈 챗에 남는');
     expect(m).toContain('@alice');
     expect(m).toContain('권한으로 동작');
+    // WP-1376: 사용자가 정해야 하는 항목은 결과 맨 끝 「정해 주세요」 절로 묻는다.
+    expect(m).toContain('결과 맨 끝 `## 정해 주세요` 절에 번호 목록');
   });
 
   // WP-1315: 한 번만 일정은 「반복」이 아니라 한 번 실행하는 예약으로 알린다(PR #1147 리뷰).
@@ -177,6 +179,64 @@ describe('buildUserMessage', () => {
     expect(m).toContain('이슈 챗에 남는');
     // 정기 회차 지시문(「N회차 실행입니다」)이 아니다.
     expect(m).not.toContain('3회차 실행');
+    // WP-1376 리뷰: `[확인 필요]` 질문의 이어 처리는 답이 애매하면 예전처럼 같은 표지로 다시 묻는다 — 「정해 주세요」 규칙은 싣지 않는다.
+    expect(m).toContain('답만으로 정할 수 없거나 이슈 본문이 다음 쓰기 전에 또 확인을 받으라고 하면, 그 쓰기를 하지 말고 최종 답변 첫 줄을 `[확인 필요]` 로 시작해 다시 물으세요');
+    expect(m).not.toContain('## 정해 주세요');
+  });
+
+  // WP-1376: 「정해 주세요」 질문(결과 맨 끝 절)의 이어 처리 — 고른 항목만, 애매하면 같은 절로 다시 묻고, 「하지 마」면 닫고, 지속 규칙은 결정 사항 추가를
+  // 묻고, 허락받은 결정 사항 추가는 지금 본문을 다시 읽어 그 한 줄만 덧붙인다.
+  const decisionQuestion = '## 오늘 정리\n- 견적 메일 2건\n\n## 정해 주세요\n1. A사 견적 메일에 회신할까요? (회신 / 보류)';
+  const followUpOf = (followUp: { question: string; answer: string; permittedActions?: { tool: string; args?: Record<string, unknown> }[] }) =>
+    buildRecurringRunMessage({
+      ...common,
+      ownerUserId: 7,
+      runId: '42-f991',
+      runAt: '2026-09-22T10:00:00+09:00',
+      recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+      issueBody: '견적 메일을 정리해 줘',
+      followUp,
+    });
+
+  it('이어 처리 — 「정해 주세요」 질문이면 고른 항목만 처리하고 애매하면 같은 절로 다시 묻는다', () => {
+    const m = followUpOf({ question: decisionQuestion, answer: '회신해' });
+    expect(m).toContain('답이 고른 항목만 처리하고, 쓰기도 그 항목 안에서만');
+    expect(m).toContain('쓰기를 하지 말고 결과 맨 끝 `## 정해 주세요` 절에 번호 목록으로 다시 물으세요');
+    expect(m).toContain('「하지 마」·「넘어가」 같은 답은 애매한 답이 아니니 다시 묻지 말고');
+    expect(m).toContain('「이슈 본문 『결정 사항』에 추가할까요?」');
+    // 결정 사항 추가 — 지금 본문을 get_issue_detail 로 다시 읽고 그 한 줄만 덧붙이며, 못 읽으면 쓰지 않는다.
+    expect(m).toContain('먼저 get_issue_detail 로 지금의 이슈 본문을 다시 읽습니다');
+    expect(m).toContain('그 문구 한 줄만 덧붙이고');
+    expect(m).toContain('나머지 본문은 한 글자도 바꾸지 않은 채 update_issue 로 저장합니다');
+    expect(m).toContain('지금 본문을 읽지 못했으면 본문을 쓰지 말고');
+    // 애매한 답에 `[확인 필요]` 로 다시 묻는 줄은 싣지 않는다(본문이 또 확인을 받으라고 한 쓰기만 표지로 묻는다).
+    expect(m).not.toContain('답만으로 정할 수 없거나');
+    expect(m).toContain('이슈 본문이 다음 쓰기 전에 또 확인을 받으라고 하면');
+    // 「하지 말라고 하면 하지 않습니다」 는 공통 줄 한 번만.
+    expect(m.split('하지 말라고 하면').length - 1).toBe(1);
+  });
+
+  it('이어 처리 — 테스트 실행이 멈춘 쓰기가 실린 질문은 「정해 주세요」 절이 있어도 `[확인 필요]` 로 다시 묻는다(멈춘 쓰기 목록 유지)', () => {
+    const m = buildRecurringRunMessage(
+      {
+        ...common,
+        ownerUserId: 7,
+        runId: '42-f991',
+        runAt: '2026-09-22T10:00:00+09:00',
+        recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+        issueBody: '견적 메일을 정리해 줘',
+        followUp: { question: decisionQuestion, answer: '음', permittedActions: [{ tool: 'send_mail', args: { to: 'a@b.c' } }] },
+      },
+      { test: true },
+    );
+    expect(m).toContain('답만으로 정할 수 없거나');
+    expect(m).not.toContain('답이 고른 항목만');
+  });
+
+  it('이어 처리 — 「정해 주세요」가 결과 중간에만 있으면(맨 끝 절이 아니면) `[확인 필요]` 질문으로 본다', () => {
+    const m = followUpOf({ question: '## 정해 주세요\n1. 회신?\n\n## 정리\n- 끝', answer: '음' });
+    expect(m).toContain('답만으로 정할 수 없거나');
+    expect(m).not.toContain('답이 고른 항목만');
   });
 
   it('이어 처리 지시문 — 답한 사람(actor) 이름이 없으면 @아이디로 쓴다', () => {

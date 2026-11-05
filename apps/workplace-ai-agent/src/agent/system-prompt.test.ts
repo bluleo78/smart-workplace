@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SYSTEM_PROMPT } from './system-prompt.js';
+import { RECURRING_RUN_SYSTEM_PROMPT, SYSTEM_PROMPT } from './system-prompt.js';
 
 describe('SYSTEM_PROMPT', () => {
   it('필수 키워드 포함 (도구 이름 6개 + 톤·언어)', () => {
@@ -48,5 +48,22 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('한 번의 실행 안에서 맡은 일을 끝내고 결과를 코멘트로 남깁니다');
     expect(SYSTEM_PROMPT).toContain('착수만 알리는 코멘트');
     expect(SYSTEM_PROMPT).not.toContain('7개');
+  });
+});
+
+// WP-1376: 반복 회차 — 사용자가 정해야 실행할 수 있는 항목은 결과 맨 끝 「정해 주세요」 절(번호 목록)로 묻고, 「제안」 절과 섞지 않는다.
+describe('RECURRING_RUN_SYSTEM_PROMPT', () => {
+  it('정할 항목은 결과 맨 끝 「정해 주세요」 절에 번호 목록으로 묻게 한다', () => {
+    expect(RECURRING_RUN_SYSTEM_PROMPT).toContain('결과 맨 끝에 `## 정해 주세요` 절을 두어 번호 목록으로');
+    expect(RECURRING_RUN_SYSTEM_PROMPT).toContain('정할 항목이 없으면 이 절을 쓰지 않습니다');
+    expect(RECURRING_RUN_SYSTEM_PROMPT).toContain('「제안」 절은 질문이 아니니');
+    // 본문이 확인을 받으라고 한 쓰기는 여전히 첫 줄 표지로 묻는다.
+    expect(RECURRING_RUN_SYSTEM_PROMPT).toContain('최종 답변 첫 줄을 `[확인 필요]` 로 시작해');
+  });
+
+  // WP-1376 리뷰: 「쓰기는 본문이 시킨 만큼만」 규칙이 허락받은 「결정 사항」 한 줄 추가를 막지 않게 예외를 밝힌다.
+  it('본문 쓰기 제한에 허락받은 「결정 사항」 한 줄 추가만 예외로 둔다', () => {
+    expect(RECURRING_RUN_SYSTEM_PROMPT).toContain('예외는 하나 — 이어 처리에서 반복을 저장한 사람이 이슈 본문 「결정 사항」에 한 줄 추가를 허락했으면');
+    expect(RECURRING_RUN_SYSTEM_PROMPT).toContain('그 한 줄만 본문에 덧붙입니다');
   });
 });
