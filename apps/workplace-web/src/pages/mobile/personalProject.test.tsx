@@ -27,7 +27,8 @@ const TITLE = '연말정산 증빙서류 정리 및 회사 제출'
  * E2E personal-project.spec 의 stubPersonal 과 같은 구성.
  */
 function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
-  const labels = [createLabel({ id: 1, name: '세금' }), createLabel({ id: 2, name: '긴급' })]
+  // id 3 — 이관 전에 만든 쉼표 라벨(WP-1386). 대소문자만 다르게 쳐도 이미 있는 라벨로 본다.
+  const labels = [createLabel({ id: 1, name: '세금' }), createLabel({ id: 2, name: '긴급' }), createLabel({ id: 3, name: 'Tax,Fee' })]
   const issue = createIssue({ projectKey: KEY, number: 1, title: TITLE, status: 'TODO', labels: [toLabelSummary(labels[0])] })
   const thread = createChatThread()
   const seen = { patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], putRecurrence: [] as unknown[], savedViews: 0 }
@@ -215,6 +216,27 @@ test('라벨 시트에서 없는 이름 → 만들기 → POST(GRAY) → 체크�
   expect(await within(sheet).findByTestId('multi-option-99')).toHaveAttribute('aria-selected', 'true')
   await user.click(within(sheet).getByTestId('issue-label-sheet-done'))
   await waitFor(() => expect(seen.putLabels).toEqual([{ labelIds: [1, 99] }]))
+})
+
+test('라벨 시트에서 쉼표가 든 새 이름은 만들기 대신 오류, 요청 없음(WP-1386)', async () => {
+  const { user, seen } = await openTask()
+  await user.click(screen.getByTestId('mobile-prop-label'))
+  const sheet = await screen.findByTestId('issue-label-sheet')
+  const search = within(sheet).getByTestId('issue-label-sheet-search')
+  await user.click(search)
+  await user.paste('a,b')
+  expect(within(sheet).getByTestId('issue-label-sheet-create-error')).toHaveTextContent('라벨 이름에는 쉼표(,)를 쓸 수 없습니다')
+  expect(within(sheet).queryByTestId('issue-label-sheet-create')).not.toBeInTheDocument()
+  expect(within(sheet).queryByText('결과가 없습니다')).not.toBeInTheDocument()
+  // 이미 있는 쉼표 라벨을 대소문자만 다르게 치면 쉼표 오류·만들기 없이 그 라벨이 보인다.
+  await user.clear(search)
+  await user.paste('tax,fee')
+  expect(within(sheet).queryByTestId('issue-label-sheet-create-error')).not.toBeInTheDocument()
+  expect(within(sheet).queryByTestId('issue-label-sheet-create')).not.toBeInTheDocument()
+  expect(within(sheet).getByTestId('multi-option-3')).toBeInTheDocument()
+  await user.click(within(sheet).getByTestId('issue-label-sheet-done'))
+  await waitFor(() => expect(screen.queryByTestId('issue-label-sheet')).not.toBeInTheDocument())
+  expect(seen.labelPosts).toEqual([])
 })
 
 test('담당자 칩 — 그대로 완료하면 요청 없음, 바꾸고 완료하면 PUT 1회', async () => {

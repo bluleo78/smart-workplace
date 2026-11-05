@@ -11,8 +11,10 @@ describe('labelNameToCreate', () => {
     expect(labelNameToCreate('  bug  ', labels)).toBeNull();
   });
 
-  it('대소문자가 다르거나 일부만 겹치면 만들 수 있다(서버 유일 제약이 대소문자 구분)', () => {
-    expect(labelNameToCreate('Bug', labels)).toBe('Bug');
+  // WP-1386: 서버 유일 제약이 대소문자를 무시하므로(WP-911) 대소문자만 다른 이름은 이미 있는 라벨이다 — 만들기 행·쉼표 오류가 뜨지 않는다.
+  it('대소문자만 다르면 이미 있는 것으로 보고, 일부만 겹치면 만들 수 있다', () => {
+    expect(labelNameToCreate('Bug', labels)).toBeNull();
+    expect(labelNameToCreate('A,B', [{ name: 'a,b' }])).toBeNull();
     expect(labelNameToCreate('severity', labels)).toBe('severity');
   });
 

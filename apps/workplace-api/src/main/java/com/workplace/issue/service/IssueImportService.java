@@ -30,7 +30,6 @@ import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.issue.service.IssueService.CreateIssuePlan;
 import com.workplace.label.dto.LabelRow;
 import com.workplace.label.dto.LabelSummary;
-import com.workplace.label.repository.LabelRepository;
 import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
@@ -44,6 +43,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -91,7 +91,6 @@ public class IssueImportService {
   private final IssueImportGuard importGuard;
   private final IssueRelationTypeService relationTypeService;
   private final IssueExternalLinkService externalLinkService;
-  private final LabelRepository labelRepository;
   private final ComponentRepository componentRepository;
   private final VersionRepository versionRepository;
   private final IssueVersionRepository issueVersionRepository;
@@ -101,6 +100,7 @@ public class IssueImportService {
   private final IssueHistoryRecorder historyRecorder;
   private final IssueChangeNotifier changeNotifier;
   private final AuditLogService auditLogService;
+  private final LabelService labelService;
 
   /**
    * 이슈 한 건을 가져온다. 어느 검증이든 실패하면 아무것도 남지 않는다(한 트랜잭션).
@@ -138,7 +138,11 @@ public class IssueImportService {
     List<Long> assigneeIds = idsOf(users, req.assignees());
 
     // 5) 일반 생성과 같은 검증 — 완료 사이클·완료 에픽 아래 미완료 하위만 풀어 준다(IMPORT).
-    CreateIssueRequest createReq = toCreateRequest(req, assigneeIds, componentIds);
+    //    라벨 이름은 가져오기 규칙(쉼표 → 전각 쉼표, WP-1386)으로 먼저 바꿔 둔다 — 공유 생성 경로(planCreate)는 가져오기를 모른 채 일반 규칙만
+    // 본다.
+    CreateIssueRequest createReq =
+        toCreateRequest(
+            req, assigneeIds, componentIds, importLabelNames(project, req.labelNames()));
     CreateIssuePlan plan =
         issueService.lockComponentsForShare(
             issueService.planCreate(
@@ -350,9 +354,15 @@ public class IssueImportService {
             .flatMap(AddedRemovedNames::all)
             .distinct()
             .toList();
-    Map<String, LabelRow> labels =
-        labelRepository.findByProjectAndNames(project.id(), names).stream()
-            .collect(Collectors.toMap(LabelRow::name, l -> l));
+    // 이력 이름(요청 표기) → 라벨. 이슈 labelNames 와 같은 해석(WP-1386, 대소문자 무시·쉼표는 전각 쉼표 이름으로도)이라 같은 요청이 만든 라벨을
+    // 찾는다.
+    Map<String, LabelRow> labels = new HashMap<>();
+    labelService
+        .resolveImportNames(project.id(), names)
+        .forEach(
+            (n, r) -> {
+              if (r.label() != null) labels.put(n, r.label());
+            });
     List<String> missing = names.stream().filter(n -> !labels.containsKey(n)).toList();
     if (!missing.isEmpty()) throw IssueImportException.unknownLabels(missing);
     // 구성요소 이력 — 이름은 라벨처럼 정리해 항목 순서대로 두고, 프로젝트에 없는 이름은 전부 모아 400 (이력에서도 구성요소를 만들지 않는다).
@@ -705,11 +715,24 @@ public class IssueImportService {
   }
 
   /**
+   * 가져오기 이슈의 라벨 이름 — 다듬은 뒤 {@link LabelService#resolveImportNames} 로 바꾼 이름(이미 있으면 저장된 표기, 쉼표 든 새
+   * 이름은 전각 쉼표). null 이면 그대로 null(지정 안 함).
+   */
+  private List<String> importLabelNames(ProjectRow project, List<String> raw) {
+    if (raw == null) return null;
+    var resolved = labelService.resolveImportNames(project.id(), LabelService.normalizeNames(raw));
+    return resolved.values().stream().map(LabelService.ImportLabel::name).distinct().toList();
+  }
+
+  /**
    * 가져오기 요청을 일반 생성 요청 모양으로 — 검증(planCreate)을 공유하려는 것. 첨부는 가져오기가 원 첨부자·시각으로 따로 넣으므로 비운다. 부모
    * 키(WP-1038)도 그대로 넘겨 다른 프로젝트 에픽 부모를 일반 생성과 같은 규칙으로 검증한다.
    */
   private static CreateIssueRequest toCreateRequest(
-      ImportIssueRequest req, List<Long> assigneeIds, List<Long> componentIds) {
+      ImportIssueRequest req,
+      List<Long> assigneeIds,
+      List<Long> componentIds,
+      List<String> labelNames) {
     return new CreateIssueRequest(
         req.title(),
         req.body(),
@@ -722,7 +745,7 @@ public class IssueImportService {
         req.labelIds(),
         req.milestoneId(),
         req.cycleIds(),
-        req.labelNames(),
+        labelNames,
         null,
         req.status(),
         req.statusId(),

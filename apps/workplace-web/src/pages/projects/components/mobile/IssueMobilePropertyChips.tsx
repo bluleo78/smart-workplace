@@ -17,6 +17,7 @@ import { parentTitleLabel } from '@/lib/parentRef';
 import { cn } from '@/lib/utils';
 
 import { IssueStatusIcon } from '../../../../components/issues/IssueStatusIcon';
+import { labelNameToCreate } from '../../../../components/labels/labelSearch';
 import { useCreateLabel, useLabels } from '../../../../hooks/queries/useLabels';
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
@@ -30,6 +31,7 @@ import { isOverdue } from '../../../../lib/issueOverdue';
 import { labelWithValue } from '../../../../lib/labelWithValue';
 import { findStatus, needsDoneConfirm } from '../../../../lib/projectStatuses';
 import { peopleSummary } from '../../../../lib/userStatus';
+import { labelNameError } from '../../../../lib/validations/label';
 import type { IssuePriority, IssueResponse, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import type { ProjectStatus } from '../../../../types/projectStatus';
@@ -313,6 +315,9 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
             ? async (name) => String((await createLabel.mutateAsync({ name, colorToken: DEFAULT_LABEL_COLOR })).id)
             : undefined
         }
+        // 만들 이름은 데스크톱 선택기와 같은 판정(다듬기·대소문자 무시로 이미 있는지), 쉼표가 든 새 이름은 만들지 않고 이유를 보인다(WP-1386).
+        createName={(q) => labelNameToCreate(q, labels.data ?? [])}
+        createError={labelNameError}
         onClose={(picked) => {
           setOpen(false);
           const next = picked.map(Number);

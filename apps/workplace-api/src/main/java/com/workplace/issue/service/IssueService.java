@@ -424,7 +424,12 @@ public class IssueService {
    */
   @Transactional(readOnly = true)
   public void validateCreatable(Long callerId, String projectKey, CreateIssueRequest req) {
-    planCreate(callerId, projectKey, req);
+    CreateIssuePlan plan = planCreate(callerId, projectKey, req);
+    // WP-1386 새로 만들어질 이름 라벨 검증(권한 403 → 쉼표 400) — 실제 생성에서는 linkLabelsAndCycles 의 ensureByNames 가 같은
+    // 해석·검증을
+    // 하므로 planCreate 에 두지 않고 사전검증에서만 부른다(같은 이름을 한 요청에서 두 번 조회하지 않게). 두 경로 모두 planCreate 의 다른 검증 뒤에
+    // 본다.
+    labelService.assertNewNamesAllowed(callerId, plan.project().id(), plan.labelNames());
   }
 
   /**

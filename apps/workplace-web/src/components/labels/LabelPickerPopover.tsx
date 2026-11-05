@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { useCreateLabel, useLabels } from '../../hooks/queries/useLabels';
 import { useUpdateIssueLabels } from '../../hooks/queries/useUpdateIssueLabels';
 import { useSingleLineEnter } from '../../hooks/useSingleLineEnter';
+import { labelNameError } from '../../lib/validations/label';
 import { DEFAULT_LABEL_COLOR, type LabelSummary } from '../../types/label';
 import { LabelChip } from './LabelChip';
 import { filterLabelsByName, labelNameToCreate } from './labelSearch';
@@ -39,15 +40,17 @@ export function LabelPickerPopover({
 
   const filtered = useMemo(() => filterLabelsByName(labels.data ?? [], search), [labels.data, search]);
 
-  // 만들 이름 — 정확 일치(대소문자 구분)만 「이미 있음」(labelNameToCreate). 목록을 받기 전엔 판정하지 않는다.
+  // 만들 이름 — 대소문자 무시 일치면 「이미 있음」(labelNameToCreate, 서버 유일 제약과 같은 기준). 목록을 받기 전엔 판정하지 않는다.
   const toCreate = labels.isSuccess ? labelNameToCreate(search, labels.data) : null;
+  // 만들 이름에 쉼표가 있으면(WP-1386) 「만들기」 행 대신 이유를 보이고 Enter 로도 만들지 않는다. 이미 있는 쉼표 라벨은 toCreate 가 null 이라 그대로 고른다.
+  const createError = toCreate !== null ? labelNameError(toCreate) : null;
 
   // 새 라벨을 만들고 선택 집합에 넣는다 — 이슈 부착은 기존 흐름대로 팝오버가 닫힐 때 한 번에 PUT.
   // WP-458: 빠른 두 번 클릭은 다시 그리기 전이라 create.isPending 이 아직 false 다 — 같은 틱에서 바로 막히는 ref 로 거른다.
   // 그대로 두면 두 번째 요청이 409 로 실패하고, TanStack Query 는 마지막 mutate 의 콜백만 부르므로 첫 요청의 선택 반영까지 버려진다.
   const creatingRef = useRef(false);
   function createAndSelect() {
-    if (toCreate === null || creatingRef.current) return;
+    if (toCreate === null || createError || creatingRef.current) return;
     creatingRef.current = true;
     create.mutate(
       { name: toCreate, colorToken: DEFAULT_LABEL_COLOR },
@@ -132,7 +135,12 @@ export function LabelPickerPopover({
             <p className="text-xs text-muted-foreground py-2 text-center">결과 없음</p>
           )}
         </div>
-        {toCreate !== null && (
+        {createError && (
+          <p role="alert" className="mt-1 border-t p-1 pt-2 text-sm text-destructive" data-testid="label-create-error">
+            {createError}
+          </p>
+        )}
+        {toCreate !== null && !createError && (
           <button
             type="button"
             onClick={createAndSelect}

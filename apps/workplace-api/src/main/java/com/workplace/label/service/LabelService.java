@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -67,6 +68,7 @@ public class LabelService {
     var project = accessGuard.assertMember(projectKey, callerId);
     String color = ColorToken.validate(req.colorToken());
     String name = req.name().trim();
+    assertNoComma(name);
     try {
       var row = labelRepository.insert(project.id(), name, color, callerId);
       notifyCreated(project, row.id(), callerId);
@@ -81,6 +83,12 @@ public class LabelService {
 
   /** 라벨 이름 상한(label.name VARCHAR(40), CreateLabelRequest @Size 와 같다). */
   private static final int NAME_MAX = 40;
+
+  /**
+   * 라벨 이름에 쉼표를 막는 안내 문구(WP-1386). 이슈 목록 필터 {@code label=} 이 값을 쉼표로 나눈 이름 목록으로 읽어(SearchParams.csv),
+   * 이름에 쉼표가 든 라벨은 이름으로 다시 찾을 수 없었다. 구분자는 ASCII 「,」 뿐이라 전각 쉼표(，)는 막지 않는다.
+   */
+  public static final String COMMA_MESSAGE = "라벨 이름에는 쉼표(,)를 쓸 수 없습니다";
 
   /** 한 요청에서 이름으로 붙일 수 있는 라벨 수 상한 — 없는 이름은 새로 만들어지므로 한 요청이 라벨을 수백 개 만들지 않게 한다(WP-750). */
   private static final int NAMES_MAX = 20;
@@ -117,29 +125,124 @@ public class LabelService {
   public List<Long> ensureByNames(ProjectRow project, Long callerId, List<String> names) {
     List<String> normalized = normalizeNames(names);
     if (normalized.isEmpty()) return List.of();
-    // 키는 소문자 이름 — 대소문자만 다른 요청 이름이 같은 라벨로 모이고, 없는 이름도 한 번만 만든다.
-    var idByName = new HashMap<String, Long>();
+    NameResolution resolved = resolveNames(project.id(), normalized);
+    // 키는 소문자 이름 — 대소문자만 다른 요청 이름이 같은 라벨로 모이고, 없는 이름도 한 번만 만든다. 이 호출에서 새로 만든 맵이라 그대로 채운다.
+    var idByName = resolved.idByKey();
+    assertCreatable(callerId, resolved.missing());
+    for (String name : resolved.missing()) {
+      idByName.put(caseKey(name), insertOrFind(project, callerId, name));
+    }
+    return normalized.stream().map(n -> idByName.get(caseKey(n))).distinct().toList();
+  }
+
+  /**
+   * 이름 라벨 해석 결과 — 이미 있는 라벨(소문자 이름 → id)과 프로젝트에 없어 새로 만들어질 이름(대소문자 무시로 한 번씩, 요청 순서). 실제 생성({@link
+   * #ensureByNames})과 사전검증({@link #assertNewNamesAllowed})이 같은 판정을 쓰게 한 곳에서 만든다(WP-1386).
+   */
+  private record NameResolution(Map<String, Long> idByKey, List<String> missing) {}
+
+  /**
+   * {@link NameResolution} 을 만든다 — 이름이 비어 있지 않으면 조회 한 번. names 는 {@link #normalizeNames} 로 다듬은 값.
+   */
+  private NameResolution resolveNames(Long projectId, List<String> names) {
+    var idByKey = new HashMap<String, Long>();
     labelRepository
-        .findByProjectAndNames(project.id(), normalized)
-        .forEach(r -> idByName.put(caseKey(r.name()), r.id()));
+        .findByProjectAndNames(projectId, names)
+        .forEach(r -> idByKey.put(caseKey(r.name()), r.id()));
     var missing =
-        normalized.stream()
-            .filter(n -> !idByName.containsKey(caseKey(n)))
+        names.stream()
+            .filter(n -> !idByKey.containsKey(caseKey(n)))
             .collect(
                 Collectors.toMap(LabelService::caseKey, n -> n, (a, b) -> a, LinkedHashMap::new))
             .values()
             .stream()
             .toList();
-    if (!missing.isEmpty()) {
-      // 새로 만드는 건 라벨 관리 권한이 있을 때만 — 이슈 쓰기(issue:write)만 있는 역할이 이 경로로 label:manage 를 우회하지 않게.
-      if (!permissionChecker.hasPermission(callerId, "label:manage")) {
-        throw new ProjectAccessDeniedException("라벨을 만들 권한이 없습니다: " + String.join(", ", missing));
-      }
-      for (String name : missing) {
-        idByName.put(caseKey(name), insertOrFind(project, callerId, name));
-      }
+    return new NameResolution(idByKey, missing);
+  }
+
+  /**
+   * 새로 만들 이름 라벨 검증 — 권한 먼저, 그다음 이름 규칙. 라벨 관리 권한(label:manage)이 없으면 403 — 이슈 쓰기(issue:write)만 있는 역할이
+   * 이 경로로 label:manage 를 우회하지 않게. 권한이 있으면 새 이름의 쉼표를 400 으로 막는다(WP-1386) — 이미 있는 쉼표 라벨은 missing 에 들지
+   * 않아 이름으로 그대로 붙는다. 권한 없는 호출자가 이름 규칙 오류보다 권한 오류를 먼저 받게 순서를 고정한다.
+   */
+  private void assertCreatable(Long callerId, List<String> missing) {
+    if (missing.isEmpty()) return;
+    if (!permissionChecker.hasPermission(callerId, "label:manage")) {
+      throw new ProjectAccessDeniedException("라벨을 만들 권한이 없습니다: " + String.join(", ", missing));
     }
-    return normalized.stream().map(n -> idByName.get(caseKey(n))).distinct().toList();
+    missing.forEach(LabelService::assertNoComma);
+  }
+
+  /**
+   * 새로 만들(또는 새로 바꿀) 라벨 이름에 쉼표가 있으면 400(WP-1386). 이미 있는 쉼표 라벨은 이관하지 않으므로, 기존 이름을 그대로 쓰는 경로(색만 바꾸는
+   * 수정, 이름으로 기존 라벨 붙이기)에서는 부르지 않는다.
+   */
+  private static void assertNoComma(String name) {
+    if (hasComma(name)) throw new InvalidLabelNameException(COMMA_MESSAGE);
+  }
+
+  /** 이름에 필터 구분자인 ASCII 쉼표가 있는가(WP-1386) — 쉼표 금지와 가져오기 이름 변환이 같은 판정을 쓴다. 전각 쉼표(，)는 해당하지 않는다. */
+  private static boolean hasComma(String name) {
+    return name.indexOf(',') >= 0;
+  }
+
+  /**
+   * 이름 라벨 사전검증(WP-1386) — 실제 생성({@link #ensureByNames})과 같은 해석·검증({@link #resolveNames} → {@link
+   * #assertCreatable})을 쓰기 없이 돌린다. 그래서 이슈 생성 사전검증(dry-run)도 새로 만들 라벨이 있으면 권한(403) → 쉼표(400) 순서로 같은
+   * 결과를 낸다.
+   *
+   * @param names {@link #normalizeNames} 로 다듬은 이름
+   */
+  @Transactional(readOnly = true)
+  public void assertNewNamesAllowed(Long callerId, Long projectId, List<String> names) {
+    if (names.isEmpty()) return;
+    assertCreatable(callerId, resolveNames(projectId, names).missing());
+  }
+
+  /**
+   * 가져오기 라벨 이름 해석 결과(WP-1386). name 은 이슈에 붙일·이력에 남길 이름(이미 있는 라벨이면 저장된 표기), label 은 이미 있는 라벨(없으면
+   * null — 이슈 라벨이면 새로 만들 이름, 이력이면 찾지 못한 이름).
+   */
+  public record ImportLabel(String name, LabelRow label) {}
+
+  /**
+   * 가져오기 라벨 이름 → 쓸 이름·라벨(WP-1386). 이슈의 labelNames 와 변경 이력의 라벨 이름이 이 한 곳으로 같은 답을 얻는다. 원본 트래커의 라벨 이름에
+   * 쉼표가 있어도 가져오기 전체가 실패하지 않게 한다:
+   *
+   * <ol>
+   *   <li>원래 이름이 이미 있으면(대소문자 무시) 그 라벨 — 이관 전부터 있던 쉼표 라벨도 그대로.
+   *   <li>쉼표가 있으면 ASCII 쉼표를 전각 쉼표(，)로 바꾼 이름 — 그 이름이 이미 있으면(대소문자 무시) 그 라벨, 없으면 바꾼 이름으로 새로 만든다.
+   *   <li>그 밖에는 원래 이름(새로 만들 이름).
+   * </ol>
+   *
+   * 일반 생성·메일 승격은 사람·AI 가 고칠 수 있으므로 바꾸지 않고 400 으로 알린다. 조회는 한 번.
+   *
+   * @param names {@link #normalizeNames} 로 다듬은 이름
+   * @return 요청 이름 → 해석 결과(요청 순서)
+   */
+  @Transactional(readOnly = true)
+  public Map<String, ImportLabel> resolveImportNames(Long projectId, List<String> names) {
+    var candidates = new LinkedHashSet<String>(names);
+    names.stream()
+        .filter(LabelService::hasComma)
+        .map(LabelService::toFullwidthComma)
+        .forEach(candidates::add);
+    var byKey = new HashMap<String, LabelRow>();
+    labelRepository
+        .findByProjectAndNames(projectId, List.copyOf(candidates))
+        .forEach(r -> byKey.put(caseKey(r.name()), r));
+    var out = new LinkedHashMap<String, ImportLabel>();
+    for (String n : names) {
+      String name = byKey.containsKey(caseKey(n)) || !hasComma(n) ? n : toFullwidthComma(n);
+      LabelRow row = byKey.get(caseKey(name));
+      out.put(n, new ImportLabel(row == null ? name : row.name(), row));
+    }
+    return out;
+  }
+
+  /** ASCII 쉼표(필터 구분자)를 전각 쉼표(U+FF0C)로(WP-1386) — 가져오기 이름 해석 전용. */
+  private static String toFullwidthComma(String name) {
+    return name.replace(',', '\uFF0C');
   }
 
   /** 대소문자 무시 비교용 키(WP-911) — DB lower() 와 같은 기준으로 소문자화한다. */
@@ -182,9 +285,13 @@ public class LabelService {
   public LabelResponse update(
       Long callerId, String projectKey, Long labelId, CreateLabelRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
-    assertCanManage(project, callerId, findInProject(project, labelId));
+    LabelRow current = findInProject(project, labelId);
+    assertCanManage(project, callerId, current);
     String color = ColorToken.validate(req.colorToken());
     String name = req.name().trim();
+    // 이름을 바꿀 때만 쉼표를 막는다(WP-1386) — 웹 편집 창은 색만 바꿔도 이름을 함께 보내므로, 쉼표가 든 기존 라벨의 색 변경까지 막지 않게
+    // 지금 이름과 똑같으면 통과시킨다. 쉼표 없는 이름으로 바꾸는 것은 언제나 된다.
+    if (!name.equals(current.name())) assertNoComma(name);
     try {
       labelRepository.update(labelId, name, color);
     } catch (DuplicateKeyException e) {
