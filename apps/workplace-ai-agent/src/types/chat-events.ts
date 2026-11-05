@@ -28,6 +28,19 @@ export const chatMessagePostedPayload = z.object({
   occurredAt: z.string(),
   // WP-371: API 가 멘션된 서버 실행(INTERNAL) AI 중 골라 보내는 대행 AI id. 필수 — 없으면 400 거절(fail-closed).
   actingAgentId: z.number().int().positive(),
+  // WP-1375: 이 이슈가 AI 반복 업무면 API 가 싣는 반복 요약(아니면 키 없음 — 구 API 도 호환). rrule·agentName·nextRunAt 은 null 일 수 있고,
+  // nextRunAt 은 꺼져 있어도 저장값이 오므로 「다음 실행 없음(꺼짐)」은 enabled 로 정한다. 시각은 UTC ISO(Z).
+  recurrence: z
+    .object({
+      rrule: z.string().nullable(),
+      time: z.string(),
+      enabled: z.boolean(),
+      agentName: z.string().nullable(),
+      nextRunAt: z.string().nullable(),
+      // 반복을 맡긴 사람 이름 — 회차는 이 사람의 결정만 따른다. 사용자를 못 찾으면 null, 구 API 는 키가 없다.
+      ownerName: z.string().nullish(),
+    })
+    .optional(),
   // WP-386: 조직 + 그 프로젝트 공용 메모리 — 이슈 이벤트와 같은 규칙(모양 검사 없음, 배열 확인·항목 거르기는 withSharedMemory).
   sharedMemories: sharedMemoriesRawField,
   sharedMemoryMoreCount: sharedMoreCountRawField,

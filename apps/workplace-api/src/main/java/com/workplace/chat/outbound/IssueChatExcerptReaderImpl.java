@@ -4,6 +4,7 @@ import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadRepository;
 import com.workplace.issue.outbound.IssueChatExcerptReader;
 import com.workplace.issue.outbound.dto.ChatExcerpt;
+import com.workplace.issue.outbound.dto.RecurrenceChatExcerpts;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -32,11 +33,31 @@ public class IssueChatExcerptReaderImpl implements IssueChatExcerptReader {
         .map(
             threadId ->
                 messageRepo.findForSummary(threadId, limit).stream()
-                    .map(
-                        m ->
-                            new ChatExcerpt(
-                                m.authorName(), m.authorKind(), m.body(), m.createdAt()))
+                    .map(IssueChatExcerptReaderImpl::toExcerpt)
                     .toList())
         .orElseGet(List::of);
+  }
+
+  /** 반복 회차 맥락(WP-1375) — 스레드 id 를 한 번만 찾아, 최근 사람 글(최신순으로 읽어 오래된 순으로 뒤집음)과 담당 AI 의 마지막 글을 함께 읽는다. */
+  @Override
+  public RecurrenceChatExcerpts recurrenceChat(long issueId, int humanLimit, long authorId) {
+    return threadRepo
+        .findIdByIssueId(issueId)
+        .map(
+            threadId ->
+                new RecurrenceChatExcerpts(
+                    messageRepo.findRecentHuman(threadId, humanLimit).stream()
+                        .map(IssueChatExcerptReaderImpl::toExcerpt)
+                        .toList()
+                        .reversed(),
+                    messageRepo
+                        .findLastByAuthor(threadId, authorId)
+                        .map(IssueChatExcerptReaderImpl::toExcerpt)
+                        .orElse(null)))
+        .orElseGet(RecurrenceChatExcerpts::empty);
+  }
+
+  private static ChatExcerpt toExcerpt(ChatMessageRepository.SummaryLine m) {
+    return new ChatExcerpt(m.authorName(), m.authorKind(), m.body(), m.createdAt(), m.authorId());
   }
 }

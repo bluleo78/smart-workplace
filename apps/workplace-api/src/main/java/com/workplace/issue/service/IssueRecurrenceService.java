@@ -207,6 +207,10 @@ public class IssueRecurrenceService {
   private final AiAgentCredentialService credentialService;
   private final AgentWorkService agentWorkService;
   private final IssueChatPoster chatPoster;
+
+  /** WP-1375: 회차 이벤트에 싣는 이슈 챗 맥락(최근 사람 글·담당 AI 의 마지막 글). */
+  private final IssueRecurrenceRecentChat recentChat;
+
   private final UserRepository userRepository;
   private final ApplicationEventPublisher publisher;
   // 스케줄러 회차를 행마다 세이브포인트로 감싸는 데 쓴다(한 행의 실패가 테넌트 전체를 되돌리지 않게).
@@ -381,7 +385,9 @@ public class IssueRecurrenceService {
             now,
             null,
             callerId,
-            true));
+            true,
+            // 테스트 실행은 lastRunAt 을 바꾸지 않는다 — 기준은 마지막 정기 회차를 보낸 시각.
+            recentChat.read(row)));
   }
 
   /**
@@ -581,6 +587,10 @@ public class IssueRecurrenceService {
 
     Instant runAt = row.nextRunAt();
     String runId = row.issueId() + "-" + runAt.getEpochSecond();
+    // WP-1375: 이슈 챗 맥락은 markDispatched 가 lastRunAt 을 「지금」으로 바꾸기 전에 읽는다.
+    // row 는 잠글 때 읽은 갱신 전 값이라 기준이 지난 회차를 보낸 시각이다.
+    // 갱신 뒤 값을 쓰면 「지금 이후」 글만 찾아 늘 빈다.
+    var chat = recentChat.read(row);
     repository.markDispatched(row.issueId(), runId, now, next);
     agentWorkService.startOrUpdateTracked(issue.id(), row.agentUserId(), TOOL, runningPatch());
     publisher.publishEvent(
@@ -597,7 +607,8 @@ public class IssueRecurrenceService {
             now,
             null,
             row.createdBy(),
-            false));
+            false,
+            chat));
     return true;
   }
 
@@ -615,6 +626,8 @@ public class IssueRecurrenceService {
    * @param actorId 이벤트 actor — 정기 회차·정기 질문의 이어 처리는 반복을 저장한 사람, 테스트 실행은 누른 사람, 테스트 질문의 이어 처리는 답한
    *     사람(WP-1313). 지시문의 「요청자」·「답한 사람」이 된다
    * @param test 테스트 실행이거나 테스트 질문의 이어 처리인지(WP-1313) — issue.recurring_test_run 으로 나간다
+   * @param recentChat 최근 사람 글·담당 AI 의 마지막 글(WP-1375, {@link IssueRecurrenceRecentChat#read}). 없으면
+   *     null
    */
   static IssueRecurringRunEvent runEvent(
       UserRepository users,
@@ -629,7 +642,8 @@ public class IssueRecurrenceService {
       Instant now,
       IssueRecurringRunEvent.FollowUp followUp,
       long actorId,
-      boolean test) {
+      boolean test,
+      IssueRecurringRunEvent.RecentChat recentChat) {
     UserSummary owner = users.findById(actorId).map(UserResponse::toSummary).orElse(null);
     return new IssueRecurringRunEvent(
         issue.id(),
@@ -648,7 +662,8 @@ public class IssueRecurrenceService {
         issue.body() == null || issue.body().isBlank() ? null : issue.body(),
         now,
         followUp,
-        test);
+        test,
+        recentChat);
   }
 
   // ───────────────────────────── 결과 보고(ai-agent) ─────────────────────────────

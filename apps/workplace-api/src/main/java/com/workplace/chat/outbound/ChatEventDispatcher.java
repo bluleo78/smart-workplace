@@ -8,12 +8,11 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.user.dto.AgentUsernames;
+import com.workplace.issue.outbound.dto.IssueRecurrenceSummary;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -58,14 +57,11 @@ public class ChatEventDispatcher {
     // 스레드의 테넌트를
     // 전파하므로 그 값을 명시해 넘긴다(트랜잭션 GUC 에 의존하지 않는다).
     // WP-638: 남의 개인 비서 멘션은 실행 후보에서 뺀다 — 주인 전용(주인 키로 도는 AGENT).
-    long actorId = e.actor().id();
+    // WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 도 뺀다 — 같은 답에 두 번 응답하지 않게. 후보 규칙은 ChatMessageService
+    // 의 반복 요약 읽기 판정과 공유한다(WP-1375).
     Long acting =
         agentResolver.pickActingAgent(
-            e.mentions().stream()
-                .filter(u -> !AgentUsernames.isOthersPersonalAssistant(u.username(), actorId))
-                // WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 는 빼 — 같은 답에 두 번 응답하지 않게.
-                .filter(u -> !Objects.equals(u.id(), e.followUpAgentId()))
-                .toList(),
+            ChatAgentWake.candidates(e.actor(), e.mentions(), e.followUpAgentId()),
             TenantContext.get());
     if (acting == null) return;
     client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
@@ -94,7 +90,25 @@ public class ChatEventDispatcher {
         SharedMemories.orEmpty(sharedReader.readForProjectAgent(e.projectKey(), actingAgentId));
     p.put("sharedMemories", shared.items());
     p.put("sharedMemoryMoreCount", shared.moreCount());
+    // WP-1375: AI 에게 맡긴 반복 업무 이슈면 그 요약 — 이슈 챗 AI 가 「다음 회차에 이 글이 전달된다」만 말하고 회차 결과를 약속하지 않게 한다.
+    // 반복이 없으면 키를 뺀다(구 ai-agent 는 모르는 키를 무시한다).
+    if (e.recurrence() != null) p.put("recurrence", recurrence(e.recurrence()));
     return p;
+  }
+
+  /**
+   * 반복 요약(WP-1375) → 페이로드 모양 {rrule, time, enabled, agentName, nextRunAt, ownerName}.
+   * rrule·agentName·nextRunAt·ownerName 은 null 일 수 있다(키는 늘 싣는다). 시각은 UTC ISO-8601(Z).
+   */
+  private static Map<String, Object> recurrence(IssueRecurrenceSummary r) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("rrule", r.rrule());
+    m.put("time", r.time());
+    m.put("enabled", r.enabled());
+    m.put("agentName", r.agentName());
+    m.put("nextRunAt", r.nextRunAt() == null ? null : r.nextRunAt().toString());
+    m.put("ownerName", r.ownerName());
+    return m;
   }
 
   private Map<String, Object> toMap(UserSummary u) {

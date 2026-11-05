@@ -100,4 +100,59 @@ describe('buildChatUserMessage', () => {
     expect(msg).toContain(exact);
     expect(msg).not.toContain('생략됨');
   });
+
+  // WP-1375: 반복 업무 이슈면 이슈 컨텍스트 아래에 반복 업무 블록.
+  describe('recurrence 블록', () => {
+    const rec = { rrule: 'FREQ=DAILY', time: '08:00', enabled: true, agentName: '비서', nextRunAt: '2026-11-05T23:00:00Z', ownerName: '홍길동' };
+    it('있으면 이슈 컨텍스트 아래에 반복 업무 블록(다음 실행 KST)', () => {
+      const msg = buildChatUserMessage({ ...payload, recurrence: rec }, recent, NONE_PRESENTED);
+      expect(msg).toContain('## 반복 업무');
+      expect(msg).toContain('- 이 이슈는 AI 에게 맡긴 반복 업무입니다(FREQ=DAILY 08:00, 맡긴 사람 홍길동, 담당 AI 비서, 다음 실행 2026-11-06 08:00 KST).');
+      expect(msg).toContain(
+        '- 이슈챗에 사람이 남긴 최근 글(최대 20건, 길면 오래된 것부터 생략)이 다음 회차에 함께 전달됩니다. 회차는 맡긴 사람의 결정만 따릅니다.',
+      );
+      expect(msg).not.toContain('(최근 20건)');
+      expect(msg.indexOf('## 반복 업무')).toBeGreaterThan(msg.indexOf('## 현재 이슈 컨텍스트'));
+      expect(msg.indexOf('## 반복 업무')).toBeLessThan(msg.indexOf('## 최근 thread 흐름'));
+    });
+    it('enabled=false 면 다음 실행은 「없음(꺼짐)」', () => {
+      const msg = buildChatUserMessage({ ...payload, recurrence: { ...rec, enabled: false } }, recent, NONE_PRESENTED);
+      expect(msg).toContain('다음 실행 없음(꺼짐)');
+      expect(msg).not.toContain('2026-11-06 08:00');
+      expect(msg).toContain('- 지금은 반복이 꺼져 있어 다음 회차가 없습니다.');
+      expect(msg).not.toContain('다음 회차에 함께 전달됩니다');
+    });
+    it('rrule·agentName·nextRunAt 이 null 이어도 깨지지 않는다', () => {
+      const msg = buildChatUserMessage(
+        { ...payload, recurrence: { rrule: null, time: '08:00', enabled: true, agentName: null, nextRunAt: null, ownerName: null } },
+        recent,
+        NONE_PRESENTED,
+      );
+      expect(msg).toContain('## 반복 업무');
+      expect(msg).toContain('(08:00, 맡긴 사람 알 수 없음, 담당 AI 미지정, 다음 실행 없음).');
+      // ownerName 키가 없는 구 API 도 깨지지 않는다.
+      const old = buildChatUserMessage(
+        { ...payload, recurrence: { rrule: 'FREQ=DAILY', time: '08:00', enabled: true, agentName: '비서', nextRunAt: null } },
+        recent,
+        NONE_PRESENTED,
+      );
+      expect(old).toContain('(FREQ=DAILY 08:00, 맡긴 사람 알 수 없음, 담당 AI 비서, 다음 실행 없음).');
+    });
+    it('맡긴 사람·담당 AI 이름의 U+2028/2029/0085 줄바꿈도 공백 하나로 바뀐다', () => {
+      const msg = buildChatUserMessage(
+        { ...payload, recurrence: { ...rec, ownerName: '홍\u2028길\u2029동\u0085님', agentName: '비\n서' } },
+        recent,
+        NONE_PRESENTED,
+      );
+      expect(msg).toContain('맡긴 사람 홍 길 동 님, 담당 AI 비 서,');
+    });
+    it('없으면 블록이 없다', () => {
+      expect(buildChatUserMessage(payload, recent, NONE_PRESENTED)).not.toContain('## 반복 업무');
+    });
+    it('스키마 — recurrence 없이도, 있어도 파싱된다', () => {
+      const raw = { ...payload };
+      expect(chatMessagePostedPayload.safeParse(raw).success).toBe(true);
+      expect(chatMessagePostedPayload.safeParse({ ...raw, recurrence: rec }).success).toBe(true);
+    });
+  });
 });

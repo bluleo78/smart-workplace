@@ -413,7 +413,8 @@ class IssueEventDispatcherTest {
             base.issueBody(),
             base.occurredAt(),
             new IssueRecurringRunEvent.FollowUp("초안을 채널에 올릴까요?", "올려 줘"),
-            false);
+            false,
+            null);
     dispatcher.onIssueRecurringRun(base);
     dispatcher.onIssueRecurringRun(followUp);
 
@@ -465,7 +466,8 @@ class IssueEventDispatcherTest {
             b.issueBody(),
             b.occurredAt(),
             null,
-            true);
+            true,
+            null);
     var testFollowUp =
         new IssueRecurringRunEvent(
             b.issueId(),
@@ -489,7 +491,8 @@ class IssueEventDispatcherTest {
                 List.of(
                     new com.workplace.issue.dto.RecurringPausedAction(
                         "send_mail", java.util.Map.of("subject", "주간 보고")))),
-            true);
+            true,
+            null);
     dispatcher.onIssueRecurringRun(b);
     dispatcher.onIssueRecurringRun(testRun);
     dispatcher.onIssueRecurringRun(testFollowUp);
@@ -536,6 +539,97 @@ class IssueEventDispatcherTest {
         "오늘 할 일 정리",
         Instant.now(),
         null,
-        false);
+        false,
+        null);
+  }
+
+  /** recurringRun() 에 이슈 챗 맥락만 바꿔 끼운 이벤트(WP-1375). */
+  private static IssueRecurringRunEvent withRecentChat(
+      IssueRecurringRunEvent b, IssueRecurringRunEvent.RecentChat chat) {
+    return new IssueRecurringRunEvent(
+        b.issueId(),
+        b.projectKey(),
+        b.issueKey(),
+        b.title(),
+        b.actor(),
+        b.assignees(),
+        b.actingAgentId(),
+        b.ownerUserId(),
+        b.runId(),
+        b.runAt(),
+        b.round(),
+        b.rrule(),
+        b.time(),
+        b.issueBody(),
+        b.occurredAt(),
+        b.followUp(),
+        b.test(),
+        chat);
+  }
+
+  /**
+   * WP-1375: 회차 이벤트의 recentChat — 사람 글은 authorName·body·createdAt(ISO, UTC Z)·owner(맡긴 사람
+   * 글인지)·isNew(지난 회차 이후 글인지)로, 담당 AI 의 마지막 글은 body·createdAt 으로 싣는다. 그 글이 없으면 lastResult 키를
+   * 빼고(ai-agent 스키마는 null 을 받지 않는다), 맥락이 없으면 recentChat 키 자체를 뺀다.
+   */
+  @Test
+  void 회차_이벤트에_recentChat_을_싣고_없으면_키를_뺀다() {
+    dispatcher = build(true);
+    var t1 = Instant.parse("2026-11-04T01:00:00Z");
+    var t2 = Instant.parse("2026-11-04T02:30:00Z");
+    var both =
+        withRecentChat(
+            recurringRun(),
+            new IssueRecurringRunEvent.RecentChat(
+                List.of(
+                    new IssueRecurringRunEvent.ChatLine("홍길동", "메일은 보내지 마", t1, true, false),
+                    new IssueRecurringRunEvent.ChatLine("김철수", "보내도 돼", t2, false, true)),
+                new IssueRecurringRunEvent.ChatLine("비서", "어제 정리했습니다", t2, false, false)));
+    var humanOnly =
+        withRecentChat(
+            recurringRun(),
+            new IssueRecurringRunEvent.RecentChat(
+                List.of(new IssueRecurringRunEvent.ChatLine("홍길동", "메일은 보내지 마", t1, true, true)),
+                null));
+    var lastOnly =
+        withRecentChat(
+            recurringRun(),
+            new IssueRecurringRunEvent.RecentChat(
+                List.of(),
+                new IssueRecurringRunEvent.ChatLine("비서", "어제 정리했습니다", t2, false, false)));
+    dispatcher.onIssueRecurringRun(both);
+    dispatcher.onIssueRecurringRun(humanOnly);
+    dispatcher.onIssueRecurringRun(lastOnly);
+    dispatcher.onIssueRecurringRun(recurringRun());
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(4)).publish(captor.capture());
+    var all = captor.getAllValues();
+    assertThat(all.get(0).payload().get("recentChat"))
+        .isEqualTo(
+            java.util.Map.of(
+                "humanMessages",
+                List.of(
+                    java.util.Map.of(
+                        "authorName", "홍길동",
+                        "body", "메일은 보내지 마",
+                        "createdAt", "2026-11-04T01:00:00Z",
+                        "owner", true,
+                        "isNew", false),
+                    java.util.Map.of(
+                        "authorName", "김철수",
+                        "body", "보내도 돼",
+                        "createdAt", "2026-11-04T02:30:00Z",
+                        "owner", false,
+                        "isNew", true)),
+                "lastResult",
+                java.util.Map.of("body", "어제 정리했습니다", "createdAt", "2026-11-04T02:30:00Z")));
+    @SuppressWarnings("unchecked")
+    var human = (java.util.Map<String, Object>) all.get(1).payload().get("recentChat");
+    assertThat(human).containsOnlyKeys("humanMessages");
+    @SuppressWarnings("unchecked")
+    var last = (java.util.Map<String, Object>) all.get(2).payload().get("recentChat");
+    assertThat(last).containsEntry("humanMessages", List.of()).containsKey("lastResult");
+    assertThat(all.get(3).payload()).doesNotContainKey("recentChat");
   }
 }

@@ -4,6 +4,7 @@ import com.workplace.chat.dto.ChatMessageAttachmentResponse;
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.issue.outbound.dto.IssueRecurrenceSummary;
 import java.time.Instant;
 import java.util.List;
 
@@ -44,7 +45,10 @@ public final class ChatDomainEvents {
       // 질문(질문 알림)을 구분한다.
       ChatMessageOrigin origin,
       Instant occurredAt,
-      Long followUpAgentId) {}
+      Long followUpAgentId,
+      // WP-1375: 이 이슈가 AI 에게 맡긴 반복 업무면 그 요약 — 이슈 챗 AI 가 반복 맥락을 알게 ai-agent 페이로드에 싣는다. 반복이 없거나 AI 를
+      // 깨울 일이 없는 글(AI 가 쓴 글·AI 멘션 없음)이면 null.
+      IssueRecurrenceSummary recurrence) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
   public record ChatMessageUpdatedEvent(

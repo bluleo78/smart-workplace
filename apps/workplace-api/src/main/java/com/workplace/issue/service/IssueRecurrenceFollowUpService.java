@@ -78,6 +78,10 @@ public class IssueRecurrenceFollowUpService implements RecurringQuestionAnswers 
   // 도구 신원 — 정기 회차와 같은 규칙(WP-1314).
   private final IssueRecurrenceRunIdentity runIdentity;
   private final ApplicationEventPublisher publisher;
+
+  /** WP-1375: 이어 처리 이벤트에도 정기 회차와 같은 이슈 챗 맥락을 싣는다. */
+  private final IssueRecurrenceRecentChat recentChat;
+
   // 답 판정·이어 처리 발행을 세이브포인트로 감싸는 데 쓴다(실패해도 사람의 글 저장은 되돌리지 않게).
   private final PlatformTransactionManager txManager;
   // 테스트 질문이 멈춘 쓰기 목록(JSON, WP-1313)을 읽는다.
@@ -189,7 +193,11 @@ public class IssueRecurrenceFollowUpService implements RecurringQuestionAnswers 
             new IssueRecurringRunEvent.FollowUp(row.pendingQuestionText(), answer, permitted),
             // 답한 사람이 actor — 정기 질문은 저장한 사람(=답한 사람), 테스트 질문은 누른 사람(=답한 사람).
             actorId,
-            test));
+            test,
+            // WP-1375: 이어 처리는 lastRunAt 을 바꾸지 않는다 — 기준은 마지막 정기 회차를 보낸 시각이다.
+            // 방금 저장한 답 글도 사람 글로 함께 실린다. 같은 답이 followUp.answer 에도 있지만 내용이 같아 지시문이
+            // 모순되지 않는다.
+            recentChat.read(row)));
     log.info("[recurrence] 질문의 답으로 이어 처리를 보낸다 issueId={} runId={}", issueId, runId);
     return agentId;
   }

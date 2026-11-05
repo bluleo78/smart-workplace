@@ -18,6 +18,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
+import com.workplace.issue.outbound.dto.IssueRecurrenceSummary;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.List;
@@ -87,6 +88,15 @@ class ChatEventDispatcherTest {
   /** followUpAgentId(WP-1312) — 이 글로 반복 회차 이어 처리를 이미 받은 AI. 없으면 null. */
   private ChatMessageCreatedEvent event(
       UserSummary actor, List<UserSummary> mentions, Long followUpAgentId) {
+    return event(actor, mentions, followUpAgentId, null);
+  }
+
+  /** recurrence(WP-1375) — 반복 업무 이슈면 그 요약. 없으면 null. */
+  private ChatMessageCreatedEvent event(
+      UserSummary actor,
+      List<UserSummary> mentions,
+      Long followUpAgentId,
+      IssueRecurrenceSummary recurrence) {
     return new ChatMessageCreatedEvent(
         1L,
         10L,
@@ -105,7 +115,53 @@ class ChatEventDispatcherTest {
         false,
         ChatMessageOrigin.USER,
         Instant.now(),
-        followUpAgentId);
+        followUpAgentId,
+        recurrence);
+  }
+
+  /**
+   * WP-1375: 반복 업무 이슈의 이슈 챗 이벤트는 recurrence 요약을 {rrule, time, enabled, agentName, nextRunAt(UTC
+   * ISO), ownerName(맡긴 사람)} 으로 싣는다. null 값(꺼진 반복의 다음 실행 없음 등)도 키는 남긴다. 반복이 없는 이슈는 키가 없다.
+   */
+  @Test
+  void 반복_업무_이슈의_이슈챗_이벤트에_recurrence_요약이_실린다() {
+    dispatcher.onChatMessageCreated(
+        event(
+            HUMAN,
+            List.of(AGENT),
+            null,
+            new IssueRecurrenceSummary(
+                "FREQ=DAILY", "08:00", true, "비서", Instant.parse("2026-11-05T23:00:00Z"), "홍길동")));
+    dispatcher.onChatMessageCreated(
+        event(
+            HUMAN,
+            List.of(AGENT),
+            null,
+            new IssueRecurrenceSummary(null, "09:30", false, null, null, null)));
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(3)).publish(captor.capture());
+    var all = captor.getAllValues();
+    assertThat(all.get(0).payload().get("recurrence"))
+        .isEqualTo(
+            java.util.Map.of(
+                "rrule", "FREQ=DAILY",
+                "time", "08:00",
+                "enabled", true,
+                "agentName", "비서",
+                "nextRunAt", "2026-11-05T23:00:00Z",
+                "ownerName", "홍길동"));
+    @SuppressWarnings("unchecked")
+    var off = (java.util.Map<String, Object>) all.get(1).payload().get("recurrence");
+    assertThat(off)
+        .containsEntry("rrule", null)
+        .containsEntry("time", "09:30")
+        .containsEntry("enabled", false)
+        .containsEntry("agentName", null)
+        .containsEntry("nextRunAt", null)
+        .containsEntry("ownerName", null);
+    assertThat(all.get(2).payload()).doesNotContainKey("recurrence");
   }
 
   /** WP-1312: 반복 회차 질문의 답이라 이어 처리로 이미 깨운 AI 는, 답 글이 그 AI 를 멘션해도 챗 응답으로 또 깨우지 않는다. */

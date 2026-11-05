@@ -16,6 +16,7 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -169,10 +170,42 @@ public class IssueEventDispatcher {
       }
       p.put("followUp", followUp);
     }
+    // WP-1375: 사람이 이슈 챗에 남긴 최근 글·담당 AI 의 마지막 글 — 없으면 키를 뺀다(구 ai-agent 는 모르는 키를 무시한다).
+    if (e.recentChat() != null) p.put("recentChat", recentChat(e.recentChat()));
     // WP-1313: 「지금 실행」(테스트 실행)과 그 질문의 이어 처리는 따로의 이벤트 종류로 보낸다 — ai-agent 가 되돌릴 수 없는 쓰기를 멈추는
     // 프로필로 돌린다. 페이로드 키(test)로 실으면 그 키를 모르는 구 ai-agent 가 정기 회차처럼 메일을 바로 보낼 수 있어, 모르는 종류로 거절하게
     // 한다(fail-closed — 거절된 테스트 실행은 결과 대기 시간 초과로 정리된다).
     dispatch(e.test() ? "issue.recurring_test_run" : "issue.recurring_run", p, e.issueKey());
+  }
+
+  /**
+   * 회차 이벤트의 이슈 챗 맥락(WP-1375) → 페이로드 모양. 사람 글은 오래된 순 {authorName, body, createdAt, owner, isNew}, 담당
+   * AI 의 마지막 글은 {body, createdAt}. 시각은 UTC ISO-8601(Z). 직전 결과가 없으면 lastResult 키를 뺀다 — ai-agent 의
+   * optional 스키마는 null 을 받지 않는다.
+   */
+  private static Map<String, Object> recentChat(IssueRecurringRunEvent.RecentChat chat) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put(
+        "humanMessages",
+        chat.humanMessages().stream()
+            .map(
+                l -> {
+                  Map<String, Object> line = new LinkedHashMap<>();
+                  line.put("authorName", l.authorName());
+                  line.put("body", l.body());
+                  line.put("createdAt", l.createdAt().toString());
+                  line.put("owner", l.owner());
+                  line.put("isNew", l.isNew());
+                  return line;
+                })
+            .toList());
+    if (chat.lastResult() != null) {
+      Map<String, Object> last = new LinkedHashMap<>();
+      last.put("body", chat.lastResult().body());
+      last.put("createdAt", chat.lastResult().createdAt().toString());
+      m.put("lastResult", last);
+    }
+    return m;
   }
 
   /**
