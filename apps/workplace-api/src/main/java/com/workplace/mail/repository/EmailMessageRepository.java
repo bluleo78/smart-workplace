@@ -25,6 +25,7 @@ import com.workplace.mail.dto.ReadSyncLocator;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.outbound.MailAiMessages;
+import com.workplace.mail.service.folder.ImapFolderClassifier;
 import com.workplace.mail.util.MailAttachmentSizes;
 import com.workplace.mail.util.MailBodyText;
 import java.time.Duration;
@@ -583,29 +584,38 @@ public class EmailMessageRepository {
       where = where.and(needsReplyCondition());
     }
     if (query != null && !query.isBlank()) {
-      // Task8: email_content.search_tv(tsvector) 를 FTS 로 검색.
-      // 'simple' 토크나이저는 공백 분리 + 소문자화만 수행(한국어 형태소 미지원, 영문·고유명사 단어 일치).
-      // plainto_tsquery 는 & 연산자로 단어 연결 — 인젝션 방지를 위해 파라미터 바인딩({0}) 사용.
-      // 발신자(from_address/from_name) 검색은 LIKE 로 보존(FTS 토크나이저가 이메일 주소를 토큰 분리하지 않아
-      // "user@domain.com" 같은 패턴은 FTS 로 매칭이 불가함).
-      String q = query.trim();
-      // 발신자·제목 LIKE 는 %·_·\ 를 글자 그대로 찾는다(WP-471).
-      String like = LikePatternUtils.containsPattern(q);
-      // WP-130: 본문 FTS 는 자기 사본을 적재·검증한 envelope 에만 — 검증 전 매칭 여부로 공유 본문 단어를 추론하지 못하게 한다
-      Condition ftsCond =
-          DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q)
-              .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
-      Condition envelopeCond =
-          EMAIL_MESSAGE
-              .FROM_ADDRESS
-              .likeIgnoreCase(like, '\\')
-              .or(EMAIL_MESSAGE.FROM_NAME.likeIgnoreCase(like, '\\'));
-      // 검증 전 envelope 는 본문 FTS 대신 제목(동기화 지문의 공개 헤더)만 부분 일치로 찾는다 — 적재 전 새 메일도 제목 검색 가능
-      Condition unverifiedSubjectCond =
-          EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like, '\\'));
-      where = where.and(ftsCond.or(unverifiedSubjectCond).or(envelopeCond));
+      where = where.and(searchTermCondition(query));
     }
     return where;
+  }
+
+  /**
+   * 검색어 조건(viewCondition 에서 추출, WP-1359) — 메일함 목록 검색과 통합 검색의 전 메일함 검색이 같은 규칙을 쓰게 한다. 본문은 검증된 사본의
+   * FTS, 검증 전은 제목 부분 일치, 보낸 사람은 주소·이름 부분 일치. EMAIL_CONTENT LEFT JOIN(별칭 없음)을 전제한다. query 는 비어 있지
+   * 않아야 한다.
+   */
+  public static Condition searchTermCondition(String query) {
+    // Task8: email_content.search_tv(tsvector) 를 FTS 로 검색.
+    // 'simple' 토크나이저는 공백 분리 + 소문자화만 수행(한국어 형태소 미지원, 영문·고유명사 단어 일치).
+    // plainto_tsquery 는 & 연산자로 단어 연결 — 인젝션 방지를 위해 파라미터 바인딩({0}) 사용.
+    // 발신자(from_address/from_name) 검색은 LIKE 로 보존(FTS 토크나이저가 이메일 주소를 토큰 분리하지 않아
+    // "user@domain.com" 같은 패턴은 FTS 로 매칭이 불가함).
+    String q = query.trim();
+    // 발신자·제목 LIKE 는 %·_·\ 를 글자 그대로 찾는다(WP-471).
+    String like = LikePatternUtils.containsPattern(q);
+    // WP-130: 본문 FTS 는 자기 사본을 적재·검증한 envelope 에만 — 검증 전 매칭 여부로 공유 본문 단어를 추론하지 못하게 한다
+    Condition ftsCond =
+        DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q)
+            .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
+    Condition envelopeCond =
+        EMAIL_MESSAGE
+            .FROM_ADDRESS
+            .likeIgnoreCase(like, '\\')
+            .or(EMAIL_MESSAGE.FROM_NAME.likeIgnoreCase(like, '\\'));
+    // 검증 전 envelope 는 본문 FTS 대신 제목(동기화 지문의 공개 헤더)만 부분 일치로 찾는다 — 적재 전 새 메일도 제목 검색 가능
+    Condition unverifiedSubjectCond =
+        EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like, '\\'));
+    return ftsCond.or(unverifiedSubjectCond).or(envelopeCond);
   }
 
   /** 커서 없이 첫 페이지(기존 호출 호환). */
@@ -680,6 +690,107 @@ public class EmailMessageRepository {
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(this::toSummary);
+  }
+
+  /**
+   * 통합 검색(WP-1359)의 전 메일함 검색 한 행 — 메일과 그 메일이 든 메일함(이름·역할·서버 보낸편지함 여부)·받는 사람 헤더.
+   *
+   * @param folderRole 서버 메일함 역할("ARCHIVE"|"USER"), 받은편지함·보낸편지함이면 null
+   * @param serverSent 서버 보낸편지함을 동기화한 메일함인지
+   * @param toAddresses 저장된 받는 사람 헤더(IMAP 은 표시 이름 포함, Graph 는 주소만 ", " 로 이음)
+   */
+  public record AllFolderSearchRow(
+      long id,
+      long accountId,
+      String subject,
+      String snippet,
+      String fromAddress,
+      String fromName,
+      Instant receivedAt,
+      long folderId,
+      String folderName,
+      String folderDisplayName,
+      String folderRole,
+      boolean serverSent,
+      String toAddresses) {}
+
+  /**
+   * 통합 검색(WP-1359) — 사용자 본인의 활성 계정 전부에서 휴지통·스팸·임시보관함을 뺀 모든 메일함(받은편지함·보낸편지함·보관함·사용자 메일함)의 메일을 검색어로
+   * 찾아 최신순(received_at DESC NULLS LAST, id DESC)으로 limit 건 돌려준다. cursor 가 있으면 그 행 다음부터.
+   *
+   * <p>메일함은 허용 목록으로 고른다(받은편지함 · 보낸편지함 범위 · 역할이 있는 서버 메일함) — 저장되지 않아야 할 메일함이 어떤 경로로 생겨도 새지 않게 한다.
+   * 보낸편지함은 메일함 화면과 같은 folderScope("SENT")라 앱 발송본의 서버 사본은 빠진다(WP-950). 휴지통·스팸은 원래 저장되지 않지만, 깊은 경로에
+   * 사용자 메일함으로 저장된 「고객사/Trash」 같은 이름은 여기서 한 번 더 거른다. 임시보관함은 별도 표(mail_draft)라 대상이 아니다.
+   */
+  public List<AllFolderSearchRow> searchAllFolders(
+      long userId, String query, MailListCursor cursor, int limit) {
+    Condition inbox =
+        EMAIL_FOLDER
+            .NAME
+            .eq("INBOX")
+            .and(EMAIL_FOLDER.ROLE.isNull())
+            .and(EMAIL_FOLDER.SERVER_SENT.isFalse());
+    // 표시 이름(IMAP 은 마지막 경로 조각, Graph 는 displayName)이 휴지통·스팸 이름이면 뺀다.
+    Field<String> label =
+        DSL.lower(DSL.trim(DSL.coalesce(EMAIL_FOLDER.DISPLAY_NAME, EMAIL_FOLDER.NAME)));
+    Condition serverBox =
+        EMAIL_FOLDER
+            .ROLE
+            .in("ARCHIVE", "USER")
+            .and(EMAIL_FOLDER.SERVER_SENT.isFalse())
+            .and(label.notIn(ImapFolderClassifier.TRASH_OR_JUNK_NAMES));
+    Condition where =
+        EMAIL_ACCOUNT
+            .USER_ID
+            .eq(userId)
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .and(inbox.or(folderScope(EmailFolderRepository.LOCAL_SENT)).or(serverBox))
+            .and(searchTermCondition(query));
+    if (cursor != null) {
+      where = where.and(afterCursor(cursor));
+    }
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_CONTENT.SUBJECT,
+            verified(EMAIL_CONTENT.SNIPPET), // 검증 전 공유 본문 유래 값은 숨긴다(WP-130)
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.FROM_NAME,
+            EMAIL_MESSAGE.RECEIVED_AT,
+            EMAIL_FOLDER.ID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_FOLDER.DISPLAY_NAME,
+            EMAIL_FOLDER.ROLE,
+            EMAIL_FOLDER.SERVER_SENT,
+            EMAIL_MESSAGE.TO_ADDRESSES)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(where)
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(
+            r -> {
+              OffsetDateTime received = r.get(EMAIL_MESSAGE.RECEIVED_AT);
+              return new AllFolderSearchRow(
+                  r.get(EMAIL_MESSAGE.ID),
+                  r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+                  r.get(EMAIL_CONTENT.SUBJECT),
+                  r.get(EMAIL_CONTENT.SNIPPET),
+                  r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                  r.get(EMAIL_MESSAGE.FROM_NAME),
+                  received == null ? null : received.toInstant(),
+                  r.get(EMAIL_FOLDER.ID),
+                  r.get(EMAIL_FOLDER.NAME),
+                  r.get(EMAIL_FOLDER.DISPLAY_NAME),
+                  r.get(EMAIL_FOLDER.ROLE),
+                  Boolean.TRUE.equals(r.get(EMAIL_FOLDER.SERVER_SENT)),
+                  r.get(EMAIL_MESSAGE.TO_ADDRESSES));
+            });
   }
 
   /**

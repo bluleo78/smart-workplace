@@ -50,17 +50,12 @@ public final class ImapFolderClassifier {
   /** 속성이 없을 때 보관함으로 보는 이름(소문자). */
   private static final Set<String> ARCHIVE_NAMES = Set.of("archive", "archives", "보관", "보관함");
 
-  /** 속성이 없을 때 시스템 폴더로 보는 이름(소문자). */
-  private static final Set<String> SYSTEM_NAMES =
+  /**
+   * 휴지통·스팸으로 보이는 폴더 이름(소문자) — 시스템 폴더 이름 판별의 일부이고, 통합 검색(WP-1359)이 깊은 경로에 저장된 사용자 메일함(「고객사/Trash」)을
+   * 한 번 더 거르는 데도 쓴다. 보낸편지함·임시보관함 이름은 넣지 않는다 — 사용자가 만든 「고객사/Sent」 같은 메일함은 검색 대상이어야 해서다.
+   */
+  public static final Set<String> TRASH_OR_JUNK_NAMES =
       Set.of(
-          "sent",
-          "sent items",
-          "sent messages",
-          "sent mail",
-          "보낸편지함",
-          "보낸 메일함",
-          "drafts",
-          "임시보관함",
           "trash",
           "deleted",
           "deleted items",
@@ -71,14 +66,35 @@ public final class ImapFolderClassifier {
           "junk email",
           "spam",
           "스팸",
-          "스팸메일함",
-          "outbox",
-          "보낼편지함");
+          "스팸메일함");
+
+  /** 속성이 없을 때 시스템 폴더로 보는 이름(소문자) — 보낸·임시·보낼 편지함 이름에 휴지통·스팸 이름을 더한다. */
+  private static final Set<String> SYSTEM_NAMES =
+      union(
+          Set.of(
+              "sent",
+              "sent items",
+              "sent messages",
+              "sent mail",
+              "보낸편지함",
+              "보낸 메일함",
+              "drafts",
+              "임시보관함",
+              "outbox",
+              "보낼편지함"),
+          TRASH_OR_JUNK_NAMES);
 
   /** Gmail 시스템 묶음 폴더 이름(소문자) — 그 하위 전체가 시스템 라벨이다. */
   private static final Set<String> GMAIL_ROOTS = Set.of("[gmail]", "[google mail]");
 
   private ImapFolderClassifier() {}
+
+  /** 두 이름 집합을 합친 읽기 전용 집합. */
+  private static Set<String> union(Set<String> a, Set<String> b) {
+    Set<String> out = new HashSet<>(a);
+    out.addAll(b);
+    return Set.copyOf(out);
+  }
 
   /** 한 항목의 역할을 판별한다. 계층(부모)과 무관한 자기 자신만의 판별이다. */
   public static Kind kindOf(Entry e) {

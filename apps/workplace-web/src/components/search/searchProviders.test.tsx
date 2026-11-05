@@ -4,6 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { http, HttpResponse, type JsonBodyType } from 'msw'
 import { describe, expect, it } from 'vitest'
 
+import { formatListTime } from '@/lib/formatters'
 import { server } from '@/test/msw/server'
 
 import { createSearchProviders, dedupeHits } from './searchProviders'
@@ -15,16 +16,21 @@ function providers(qc = new QueryClient(), meId: number | null = 5) {
   return createSearchProviders({ queryClient: qc, meId })
 }
 
-/** 메일 한 통 — 목록 API 가 주는 모양 중 provider 가 읽는 것만. */
-function mail(id: number, accountId: number, receivedAt: string, extra: object = {}) {
+/** 메일 검색 결과 한 건 — 통합 검색 메일 API(/search/mail)가 주는 모양. 기본은 받은편지함. */
+function mail(id: number, accountId: number, receivedAt: string | null, extra: object = {}) {
   return {
     id,
     accountId,
     subject: `메일 ${id}`,
+    snippet: `미리 ${id}`,
     fromName: null,
     fromAddress: `a${accountId}@x.com`,
-    snippet: `미리 ${id}`,
     receivedAt,
+    folderKind: 'INBOX',
+    folderId: null,
+    folderName: '받은편지함',
+    firstRecipient: null,
+    recipientCount: 0,
     ...extra,
   }
 }
@@ -119,59 +125,95 @@ describe('drive', () => {
 })
 
 describe('mail', () => {
-  /** 계정별 받은편지함 — beforeId·beforeAt 이전 행만, 최신순, limit 건. */
-  function mailServer(rows: Record<number, ReturnType<typeof mail>[]>) {
+  const stamp = (n: number) => `2026-03-01T00:${String(n).padStart(2, '0')}:00.123456Z`
+
+  it('q·size 를 보내고 메일함 · 사람을 meta 로, 날짜를 time 으로 둔다', async () => {
+    const seen: URLSearchParams[] = []
     server.use(
-      http.get(`${API}/mail/accounts`, () => HttpResponse.json(Object.keys(rows).map((id) => ({ id: Number(id) })))),
-      http.get(`${API}/mail/accounts/:id/messages`, ({ request, params }) => {
-        const u = new URL(request.url).searchParams
-        const limit = Number(u.get('limit'))
-        const beforeId = u.get('beforeId')
-        let list = [...rows[Number(params.id)]].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
-        if (beforeId) {
-          const at = list.findIndex((m) => m.id === Number(beforeId))
-          list = list.slice(at + 1)
-        }
-        return HttpResponse.json(list.slice(0, limit))
+      http.get(`${API}/search/mail`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams)
+        return HttpResponse.json({
+          items: [
+            mail(1, 1, stamp(30), { fromName: '김하나' }),
+            mail(2, 1, stamp(20), {
+              folderKind: 'SENT',
+              folderName: '보낸편지함',
+              firstRecipient: '박둘',
+              recipientCount: 3,
+            }),
+            mail(3, 2, stamp(10), { folderKind: 'SENT', folderName: '보낸편지함', firstRecipient: 'c@x.com', recipientCount: 1 }),
+            mail(4, 2, null, { folderKind: 'OTHER', folderId: 9, folderName: '거래처', subject: '  ' }),
+          ],
+          hasMore: false,
+        })
       }),
     )
-  }
-  const stamp = (n: number) => `2026-03-01T00:${String(n).padStart(2, '0')}:00.000000Z`
-
-  it('두 계정 결과를 최신순으로 합치고 보낸 사람을 meta 로 둔다', async () => {
-    mailServer({
-      1: [mail(1, 1, stamp(10), { fromName: '김하나' }), mail(2, 1, stamp(30))],
-      2: [mail(3, 2, stamp(20))],
-    })
     const page = await providers().mail.fetchPage('회의', null, 20)
-    expect(page.hits.map((h) => h.key)).toEqual(['mail:2', 'mail:3', 'mail:1'])
-    expect(page.hits[2].meta).toBe('김하나')
-    expect(page.hits[0].meta).toBe('a1@x.com')
-    expect(page.hits[0].href).toBe('/mail/1?messageId=2')
+    expect(seen[0].get('q')).toBe('회의')
+    expect(seen[0].get('size')).toBe('20')
+    expect(seen[0].has('beforeId')).toBe(false)
+    expect(page.hits.map((h) => h.key)).toEqual(['mail:1', 'mail:2', 'mail:3', 'mail:4'])
+    expect(page.hits.map((h) => h.meta)).toEqual([
+      '받은편지함 · 김하나',
+      '보낸편지함 · 받는 사람 박둘 외 2명',
+      '보낸편지함 · 받는 사람 c@x.com',
+      '거래처 · a2@x.com',
+    ])
+    expect(page.hits.map((h) => h.href)).toEqual([
+      '/mail/1?messageId=1',
+      '/mail/1?folder=sent&messageId=2',
+      '/mail/2?folder=sent&messageId=3',
+      '/mail/2?box=9&messageId=4',
+    ])
+    expect(page.hits[0].time).toBe(formatListTime(stamp(30)))
+    expect(page.hits[0].snippet).toBe('미리 1')
+    expect(page.hits[3].time).toBeUndefined()
+    expect(page.hits[3].title).toBe('(제목 없음)')
     expect(page.next).toBeNull()
   })
 
-  it('계정이 없으면 빈 쪽', async () => {
-    server.use(http.get(`${API}/mail/accounts`, () => HttpResponse.json([])))
-    expect(await providers().mail.fetchPage('x1', null, 20)).toEqual({
-      hits: [],
-      next: null,
-    })
+  it('hasMore 면 마지막 항목의 (receivedAt 문자열 그대로, id) 로 다음 쪽을 이어 받는다', async () => {
+    const seen: URLSearchParams[] = []
+    server.use(
+      http.get(`${API}/search/mail`, ({ request }) => {
+        const u = new URL(request.url).searchParams
+        seen.push(u)
+        return u.get('beforeId')
+          ? HttpResponse.json({ items: [mail(3, 1, stamp(10))], hasMore: false })
+          : HttpResponse.json({ items: [mail(5, 1, stamp(30)), mail(4, 2, stamp(20))], hasMore: true })
+      }),
+    )
+    const p1 = await providers().mail.fetchPage('회의', null, 2)
+    expect(p1.next).toEqual({ beforeAt: stamp(20), beforeId: 4 })
+    const p2 = await providers().mail.fetchPage('회의', p1.next, 2)
+    expect(seen[1].get('beforeAt')).toBe(stamp(20))
+    expect(seen[1].get('beforeId')).toBe('4')
+    expect(p2.hits.map((h) => h.key)).toEqual(['mail:3'])
+    expect(p2.next).toBeNull()
   })
 
-  it('A 25건이 B 5건보다 모두 최신이면 1쪽 A 20건, 2쪽 A 남은 5 + B 5, 빠짐·중복 없이 끝난다', async () => {
-    const a = Array.from({ length: 25 }, (_, i) => mail(100 + i, 1, stamp(59 - i)))
-    const b = Array.from({ length: 5 }, (_, i) => mail(200 + i, 2, stamp(20 - i)))
-    mailServer({ 1: a, 2: b })
-    const p1 = await providers().mail.fetchPage('회의', null, 20)
-    expect(p1.hits).toHaveLength(20)
-    expect(p1.hits.every((h) => h.key.startsWith('mail:1'))).toBe(true)
-    expect(p1.next).not.toBeNull()
-    const p2 = await providers().mail.fetchPage('회의', p1.next, 20)
-    expect(p2.hits.map((h) => h.key)).toEqual([...a.slice(20), ...b].map((m) => `mail:${m.id}`))
-    expect(p2.next).toBeNull()
-    const keys = [...p1.hits, ...p2.hits].map((h) => h.key)
-    expect(new Set(keys).size).toBe(30)
+  it('수신 시각이 없는 마지막 항목이면 beforeAt 없이 beforeId 만 보낸다', async () => {
+    const seen: URLSearchParams[] = []
+    server.use(
+      http.get(`${API}/search/mail`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams)
+        return HttpResponse.json({ items: [mail(7, 1, null)], hasMore: true })
+      }),
+    )
+    const p1 = await providers().mail.fetchPage('회의', null, 1)
+    await providers().mail.fetchPage('회의', p1.next, 1)
+    expect(seen[1].has('beforeAt')).toBe(false)
+    expect(seen[1].get('beforeId')).toBe('7')
+  })
+
+  it('결과가 없으면 빈 쪽', async () => {
+    server.use(http.get(`${API}/search/mail`, () => HttpResponse.json({ items: [], hasMore: false })))
+    expect(await providers().mail.fetchPage('x1', null, 20)).toEqual({ hits: [], next: null })
+  })
+
+  it('API 가 500 이면 거부된다', async () => {
+    server.use(http.get(`${API}/search/mail`, () => new HttpResponse(null, { status: 500 })))
+    await expect(providers().mail.fetchPage('회의', null, 20)).rejects.toThrow()
   })
 })
 
@@ -251,7 +293,7 @@ describe('chat 다음 쪽', () => {
 
 describe('취소·오류', () => {
   it('취소된 signal 이면 메일 요청이 중단돼 거부된다(signal 이 axios 까지 전달)', async () => {
-    server.use(http.get(`${API}/mail/accounts`, () => HttpResponse.json([{ id: 1 }])))
+    server.use(http.get(`${API}/search/mail`, () => HttpResponse.json({ items: [], hasMore: false })))
     const ctrl = new AbortController()
     ctrl.abort()
     await expect(providers().mail.fetchPage('회의', null, 20, ctrl.signal)).rejects.toThrow()
@@ -466,31 +508,6 @@ describe('issues 프로젝트 상한', () => {
     await p.issues.fetchPage('가나', null, 20)
     await p.issues.fetchPage('가나다', null, 20)
     expect(calls).toBe(1)
-  })
-})
-
-describe('mail 계정 일부 실패', () => {
-  it('한 계정이 500 이어도 다른 계정 결과는 나오고, 실패 계정은 끝으로 표시되지 않는다', async () => {
-    server.use(
-      http.get(`${API}/mail/accounts`, () => HttpResponse.json([{ id: 1 }, { id: 2 }])),
-      http.get(`${API}/mail/accounts/:id/messages`, ({ params }) =>
-        params.id === '1' ? new HttpResponse(null, { status: 500 }) : HttpResponse.json([mail(5, 2, '2026-03-01T00:10:00.000000Z')]),
-      ),
-    )
-    const page = await providers().mail.fetchPage('회의', null, 20)
-    expect(page.hits.map((h) => h.key)).toEqual(['mail:5'])
-    // 계정 1 은 아직 못 읽었으므로 다음 쪽이 남아 있다.
-    expect(page.next).not.toBeNull()
-    expect((page.next as Record<number, unknown>)[1]).toBeUndefined()
-    expect((page.next as Record<number, unknown>)[2]).toBe('done')
-  })
-
-  it('모든 계정이 실패하면 거부된다', async () => {
-    server.use(
-      http.get(`${API}/mail/accounts`, () => HttpResponse.json([{ id: 1 }, { id: 2 }])),
-      http.get(`${API}/mail/accounts/:id/messages`, () => new HttpResponse(null, { status: 500 })),
-    )
-    await expect(providers().mail.fetchPage('회의', null, 20)).rejects.toThrow()
   })
 })
 
