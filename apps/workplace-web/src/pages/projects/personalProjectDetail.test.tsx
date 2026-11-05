@@ -1,7 +1,7 @@
 // 개인 프로젝트 전용 상세 화면 — 화면 테스트(WP-971, WP-1002 에서 PersonalProjectDetail 만 띄우게 바꿈).
-// 뷰 토글·패널/모달 분기·URL(task·필터·그룹) 상태·리다이렉트·빈/오류 상태·행 표시·요청 payload/쿼리 파라미터는
+// 뷰 토글·상세 모달(WP-1374)·메모 편집·채팅 서랍·URL(task·chat·필터·그룹) 상태·리다이렉트·빈/오류 상태·행 표시·요청 payload/쿼리 파라미터는
 // 브라우저 없이 판정되므로 e2e/pages/projects/personal-project-detail.spec.ts 에서 옮겼다.
-// 셸 배선(@wiring)·새로고침 유지(@platform)·포커스·Esc 겹침·날짜 칸 키 입력(@input)·헤더 아래 패널 위치와
+// 셸 배선(@wiring)·새로고침 유지(@platform)·Esc 겹침·날짜 칸 키 입력(@input)·모달/서랍 기하와
 // 스크롤·무한 로드·글자 변환(@layout)은 E2E 에 남는다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
@@ -10,16 +10,12 @@ import { describe, expect, test } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { notifTarget } from '@/components/home/notifTarget'
-import { chatKeys } from '@/hooks/queries/chatKeys'
-import { handleChatEvent } from '@/hooks/useChatStream'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import { PersonalProjectDetail } from '@/pages/projects/personal/PersonalProjectDetail'
-import { controlIntersection, spyScrollTo } from '@/test/kits/layout'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
-import type { ChatThreadResponse } from '@/types/chat'
 import type { IssueResponse } from '@/types/issue'
 import type { IssueRecurrence } from '@/types/issueRecurrence'
 import type { NotificationResponse } from '@/types/notification'
@@ -57,6 +53,10 @@ type ApiOptions = {
   recurrencePutError?: { status: number; message: string }
   /** 반복 GET 이 500 을 돌려줄지 — 테스트가 도중에 꺼서 다시 시도를 본다. */
   failRecurrenceGet?: { on: boolean }
+  /** 상세의 내용 수정 권한(viewerCanEditContent) — 기본 true. 메모 편집 가능 여부를 가른다(WP-1374). */
+  canEditContent?: boolean
+  /** 다음 PATCH 들이 차례로 돌려줄 오류 상태(예: [500]) — 비면 정상 처리. 테스트가 저장 실패를 만든다. */
+  patchFailures?: number[]
 }
 
 /** 반복 응답 — 매주 월·수 08:30, 다음 실행 10/29(목) 08:30. */
@@ -73,6 +73,10 @@ function recurrenceOf(o: Partial<IssueRecurrence> = {}): IssueRecurrence {
  */
 function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })], opts: ApiOptions = {}) {
   const db = new Map(issues.map((i) => [i.number, structuredClone(i)]))
+  // 작업별 메모(본문) — PATCH { body } 가 바꾸고 재조회에 반영된다(WP-1374). 기본은 「서론은 짧게」.
+  const bodies = new Map<number, string>()
+  const detailOf = (it: IssueResponse) =>
+    createIssueDetail({ summary: it, body: bodies.get(it.number) ?? '서론은 짧게', viewerCanEditContent: opts.canEditContent ?? true })
   const searches: URLSearchParams[] = []
   const patches: Patch[] = []
   const posts: Record<string, unknown>[] = []
@@ -81,7 +85,7 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
   let recurrenceDeletes = 0
   let recurrence = opts.recurrence ?? null
   const handlers = [
-    // 반복(WP-989) — 패널을 열면 조회한다. 저장·끄기는 기록하고 메모리 값을 바꾼다.
+    // 반복(WP-989) — 상세를 열면 조회한다. 저장·끄기는 기록하고 메모리 값을 바꾼다.
     http.get(`${BASE}/issues/:num/recurrence`, () => {
       if (opts.failRecurrenceGet?.on) return HttpResponse.json({ message: 'boom' }, { status: 500 })
       return recurrence ? HttpResponse.json(recurrence) : new HttpResponse(null, { status: 204 })
@@ -126,7 +130,7 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
       detailGets.push(num)
       const it = db.get(num)
       if (!it) return HttpResponse.json({ message: 'not found' }, { status: 404 })
-      return HttpResponse.json(createIssueDetail({ summary: it, body: '서론은 짧게' }))
+      return HttpResponse.json(detailOf(it))
     }),
     // 풀페이지 이슈 화면이 리다이렉트 전에 구독자를 부른다.
     http.get(`${BASE}/issues/:num/watchers`, () => HttpResponse.json([])),
@@ -134,12 +138,16 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
       const num = Number(params.num)
       const body = (await request.json()) as Record<string, unknown>
       patches.push({ number: num, body })
+      const failure = opts.patchFailures?.shift()
+      if (failure) return HttpResponse.json({ status: failure, message: '저장 실패' }, { status: failure })
       const it = db.get(num)!
       if (body.version !== undefined && body.version !== it.version) {
         return HttpResponse.json({ status: 409, message: '다른 사용자가 먼저 이 이슈를 수정했습니다' }, { status: 409 })
       }
-      Object.assign(it, body, { version: (it.version ?? 0) + 1 })
-      return HttpResponse.json(createIssueDetail({ summary: it, body: '서론은 짧게' }))
+      const { body: memo, ...fields } = body
+      if (typeof memo === 'string') bodies.set(num, memo)
+      Object.assign(it, fields, { version: (it.version ?? 0) + 1 })
+      return HttpResponse.json(detailOf(it))
     }),
   ]
   return { handlers, db, searches, patches, posts, detailGets, recurrencePuts, deletes: () => recurrenceDeletes }
@@ -173,13 +181,13 @@ async function open(path: string, api: ReturnType<typeof personalApi>, waitForTe
 const paramsOf = (location: string) => new URL(location, 'http://x').searchParams
 
 describe('뷰 토글·목록/보드 표시', () => {
-  // 공유 툴바 setView 는 URL 을 필터+view+group 으로 다시 짠다 — 열린 작업(task=)은 남지 않고, list 는 기본값이라 view= 를 생략한다.
-  test('뷰 토글 → view=board 로 바뀌며 task 가 빠지고, 체크리스트로 돌아오면 view= 가 없다', async () => {
+  // 공유 툴바 setView 는 URL 을 필터+view+group 으로 다시 짠다 — list 는 기본값이라 view= 를 생략한다.
+  // (작업 상세는 WP-1374 부터 모달이라 열린 채로는 툴바를 누를 수 없다 — 닫힌 상태에서 본다.)
+  test('뷰 토글 → view=board 로 바뀌고, 체크리스트로 돌아오면 view= 가 없다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user, location } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
     await user.click(screen.getByRole('button', { name: '보드' }))
     await waitFor(() => expect(paramsOf(location()).get('view')).toBe('board'))
-    expect(paramsOf(location()).get('task')).toBeNull()
     await user.click(screen.getByRole('button', { name: '체크리스트' }))
     await waitFor(() => expect(paramsOf(location()).has('view')).toBe(false))
   })
@@ -305,55 +313,78 @@ describe('뷰 토글·목록/보드 표시', () => {
   })
 })
 
-describe('작업 패널·모달(?task=)', () => {
-  // 행 클릭 한 번으로 패널이 열리고 URL 에 task 가 반영되며 행은 눌림으로 그려진다.
-  // 같은 행 재클릭 닫힘·다른 행 전환은 브라우저 history 항목 key 로 낡은 스냅숏을 가르는 가드(useHistoryParam)가 있어 E2E 에 남는다.
-  test('행 클릭 → 패널 + ?task=1, 행은 aria-pressed', async () => {
+describe('작업 상세 모달(?task=, WP-1374)', () => {
+  /** 모달 안의 메모 칸·속성 레일. */
+  const modal = () => screen.getByTestId('personal-task-modal')
+
+  // 행 클릭 한 번으로 넓은 모달이 열리고 URL 에 task 가 반영되며 행은 눌림으로 그려진다. 옛 옆 칸(panel)은 없다.
+  test('행 클릭 → 넓은 모달 + ?task=1 — 왼쪽 메모, 오른쪽 속성 레일(상태·우선순위·마감·담당자·AI 에게 맡기기·라벨)', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
     await user.click(screen.getByTestId('personal-task-row-1'))
-    expect(await screen.findByTestId('personal-task-panel')).toBeInTheDocument()
+    expect(await screen.findByTestId('personal-task-modal')).toBeInTheDocument()
+    expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument()
     expect(paramsOf(location()).get('task')).toBe('1')
     await waitFor(() => expect(screen.getByTestId('personal-task-row-1')).toHaveAttribute('aria-pressed', 'true'))
-    await waitFor(() => expect(screen.getByTestId('personal-task-panel-title')).toHaveTextContent('블로그 초안'))
+    await waitFor(() => expect(within(modal()).getByTestId('personal-task-panel-title')).toHaveTextContent('블로그 초안'))
+    const memo = await within(modal()).findByTestId('personal-task-memo')
+    expect(within(memo).getByRole('heading', { name: '메모' })).toBeInTheDocument()
+    expect(memo).toHaveTextContent('서론은 짧게')
+    const rail = within(modal()).getByTestId('personal-task-rail')
+    for (const label of ['상태', '우선순위', '마감', '담당자', 'AI 에게 맡기기', '라벨']) {
+      expect(within(rail).getByText(label, { exact: true })).toBeInTheDocument()
+    }
   })
 
-  // Esc 로 패널을 닫으면 URL 에서 task 가 빠진다.
-  test('Esc 로 패널이 닫히고 URL 에서 task 가 빠진다', async () => {
+  // Esc 로 모달을 닫으면 URL 에서 task 가 빠진다.
+  test('Esc 로 모달이 닫히고 URL 에서 task 가 빠진다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await screen.findByTestId('personal-task-memo')
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
+    expect(paramsOf(location()).get('task')).toBeNull()
+  })
+
+  // 머리의 ✕ 도 같은 닫기다.
+  test('머리 ✕ 를 누르면 모달이 닫히고 task 가 빠진다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(within(modal()).getByTestId('personal-task-close'))
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
     expect(paramsOf(location()).get('task')).toBeNull()
   })
 
   // 열린 행은 선택 배경으로 표시한다.
   test('열린 행은 bg-selected 로 표시한다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     expect(await screen.findByTestId('personal-task-row-1')).toHaveClass('bg-selected')
   })
 
-  // 개인 패널은 라벨·AI 대화를 보이고, 팀 전용(사이클·관계·구독)은 감춘다.
-  test('패널은 라벨·AI 대화 노출 / 사이클·관계·구독 미노출', async () => {
+  // 개인 모달은 라벨을 보이고, 팀 전용(사이클·관계·구독)은 감춘다. 채팅은 본문에 두지 않는다 — 머리 버튼이 서랍을 연다.
+  test('모달은 라벨 노출 / 사이클·관계·구독·본문 채팅 미노출', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', labels: [LABEL] })])
-    await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const panel = screen.getByTestId('personal-task-panel')
-    await waitFor(() => expect(panel).toHaveTextContent('긴급'))
-    expect(within(panel).getByTestId('personal-panel-chat')).toBeInTheDocument()
-    expect(within(panel).queryByText('사이클')).not.toBeInTheDocument()
-    expect(within(panel).queryByTestId('property-group-relations')).not.toBeInTheDocument()
-    expect(within(panel).queryByText('관계', { exact: true })).not.toBeInTheDocument()
-    expect(within(panel).queryByText('구독')).not.toBeInTheDocument()
+    await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const m = modal()
+    await waitFor(() => expect(within(m).getByTestId('personal-task-rail')).toHaveTextContent('긴급'))
+    expect(await within(m).findByTestId('issue-chat-open')).toBeInTheDocument()
+    expect(within(m).queryByTestId('chat-composer-input')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument()
+    expect(within(m).queryByText('사이클')).not.toBeInTheDocument()
+    expect(within(m).queryByTestId('property-group-relations')).not.toBeInTheDocument()
+    expect(within(m).queryByText('관계', { exact: true })).not.toBeInTheDocument()
+    expect(within(m).queryByText('구독')).not.toBeInTheDocument()
   })
 
-  // 체크리스트는 인플로우 패널, 보드는 중앙 모달로 상세를 연다(#231).
-  test('체크리스트 ?task= 는 패널(모달 없음), 보드 ?task= 는 모달(패널 없음)', async () => {
+  // 체크리스트·보드 모두 같은 넓은 모달로 연다(옛: 체크리스트=옆 칸, 보드=좁은 모달).
+  test('체크리스트 ?task= 와 보드 ?task= 모두 같은 넓은 모달(옆 칸 없음)', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })])
-    const first = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument()
+    const first = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    expect(await screen.findByTestId('personal-task-rail')).toBeInTheDocument()
     first.unmount()
     await open(`/projects/${KEY}?view=board&task=1`, personalApi([createIssue({ projectKey: KEY, number: 1, status: 'TODO' })]), 'personal-task-modal')
+    expect(await screen.findByTestId('personal-task-rail')).toBeInTheDocument()
     expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument()
   })
 
@@ -363,7 +394,6 @@ describe('작업 패널·모달(?task=)', () => {
     const { user, location } = await open(`/projects/${KEY}?view=board&priority=HIGH`, api, 'issue-card-1')
     await user.click(within(screen.getByTestId('issue-card-1')).getByRole('link'))
     expect(await screen.findByTestId('personal-task-modal')).toBeInTheDocument()
-    expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument()
     const p = paramsOf(location())
     expect(location().startsWith(`/projects/${KEY}?`)).toBe(true)
     expect([p.get('view'), p.get('task'), p.get('priority')]).toEqual(['board', '1', 'HIGH'])
@@ -378,7 +408,7 @@ describe('작업 패널·모달(?task=)', () => {
     expect(paramsOf(location()).get('priority')).toBe('HIGH')
   })
 
-  // 없는 작업(404)은 패널 안 안내 + 닫기로 끝난다.
+  // 없는 작업(404)은 모달 안 안내 + 닫기로 끝난다.
   test('존재하지 않는 task 진입 → 오류 안내, 닫기 누르면 task 가 빠진다', async () => {
     const api = personalApi()
     const { user, location } = await open(`/projects/${KEY}?task=999`, api, 'personal-task-panel-notfound')
@@ -386,221 +416,305 @@ describe('작업 패널·모달(?task=)', () => {
     await waitFor(() => expect(paramsOf(location()).get('task')).toBeNull())
   })
 
-  // 알림·북마크의 풀페이지 이슈 주소는 개인 프로젝트에선 패널 주소로 바뀐다(#207).
-  test('개인 프로젝트의 풀페이지 이슈 URL 은 ?task= 패널로 리다이렉트된다', async () => {
+  // 알림·북마크의 풀페이지 이슈 주소는 개인 프로젝트에선 ?task= 주소로 바뀐다(#207).
+  test('개인 프로젝트의 풀페이지 이슈 URL 은 ?task= 모달로 리다이렉트된다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-panel')
+    const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-modal')
     expect(location()).toBe(`/projects/${KEY}?task=1`)
   })
 
   // 담당자가 있으면 픽커 트리거가 아이콘 대신 아바타(이니셜·사진)를 그린다(#362).
-  test('패널 담당자 픽커 — 담당자가 있으면 아바타를 그린다 (#362)', async () => {
+  test('모달 담당자 픽커 — 담당자가 있으면 아바타를 그린다 (#362)', async () => {
     const me: UserSummary = { id: 1, username: 'testuser', name: '테스트 사용자', kind: 'HUMAN' }
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '담당자있는작업', assignees: [me] })], {
       members: [createMember({ userId: me.id, username: me.username, name: me.name })],
     })
-    await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const trigger = await screen.findByTestId('assignee-picker-trigger')
     expect(trigger.querySelector('img') ?? within(trigger).queryByText('테')).not.toBeNull()
   })
 })
 
-describe('채팅으로 이동(WP-1372)', () => {
-  /** 상세의 스크롤 칸·채팅 칸·입력칸. jsdom 은 레이아웃이 없어 스크롤은 「어느 칸을 움직였나」만 본다(spyScrollTo). */
-  const detailScroll = () => screen.getByTestId('personal-task-scroll')
-  const chatSection = () => screen.getByTestId('personal-panel-chat')
-  const composerInput = () => within(chatSection()).getByTestId('chat-composer-input')
+describe('메모 편집(WP-1374)', () => {
+  const memo = () => screen.getByTestId('personal-task-memo')
 
-  /** 다른 사람의 메시지(id 5) 1건이 있는 스레드(기본은 읽지 않음) + 읽음 요청 기록. */
-  function withUnreadThread(api: ReturnType<typeof personalApi>, opts: { read?: boolean } = {}) {
-    const reads: unknown[] = []
+  // 메모를 누르면 원문 편집칸 → 저장하면 PATCH { body, version(편집 시작 때) } → 보기로 돌아와 새 메모(마크다운)가 보인다.
+  test('메모 누르기 → 원문 편집 → 저장 → PATCH { body, version }, 새 메모가 마크다운으로 보인다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', version: 3 })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    const textarea = within(memo()).getByTestId('issue-body-textarea')
+    expect(textarea).toHaveValue('서론은 짧게')
+    await user.clear(textarea)
+    await user.paste('**결론** 먼저\n\n- 하나')
+    await user.click(within(memo()).getByTestId('issue-body-save'))
+    await waitFor(() => expect(api.patches.map((p) => p.body)).toEqual([{ body: '**결론** 먼저\n\n- 하나', version: 3 }]))
+    const view = await within(memo()).findByRole('button', { name: '메모 편집' })
+    await waitFor(() => expect(view.querySelector('strong')).toHaveTextContent('결론'))
+    expect(within(view).getByRole('listitem')).toHaveTextContent('하나')
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+  })
+
+  // 메모를 쓰다 상태를 바꿔도(내 저장으로 version 이 오름) 스스로와 충돌하지 않는다 — 편집 기준 version 이 함께 오른다(#611).
+  test('메모 편집 중 상태를 바꾼 뒤 저장해도 409 없이 새 version 으로 저장된다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', version: 3 })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    // 상태를 「진행 중」으로 — 속성 레일의 상태 선택.
+    await user.click(within(screen.getByTestId('personal-task-rail')).getByTestId('issue-status-select'))
+    await user.click(await screen.findByRole('option', { name: /진행 중/ }))
+    await waitFor(() => expect(api.patches).toHaveLength(1))
+    expect(api.patches[0].body).toMatchObject({ version: 3 })
+    const textarea = within(memo()).getByTestId('issue-body-textarea')
+    await user.type(textarea, ' 추가')
+    await user.click(within(memo()).getByTestId('issue-body-save'))
+    await waitFor(() => expect(api.patches).toHaveLength(2))
+    expect(api.patches[1].body).toEqual({ body: '서론은 짧게 추가', version: 4 })
+    expect(screen.queryByText('다른 사용자가 먼저 이 이슈를 수정했습니다')).not.toBeInTheDocument()
+  })
+
+  // 편집칸의 Esc 는 편집 취소 몫 — 모달은 그대로 남고 요청도 없다. 다음 Esc 가 모달을 닫는다.
+  test('메모 편집칸에서 Esc → 편집만 취소되고 모달은 남는다, 다음 Esc 에 모달이 닫힌다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 고침')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(within(memo()).queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+    expect(paramsOf(location()).get('task')).toBe('1')
+    expect(api.patches).toEqual([])
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
+  })
+
+  // 409 가 아닌 실패(500)는 편집 기준 version 을 지킨다(팀 이슈 상세와 같다). 편집하는 사이 다른 사람이 메모를 바꿔 화면이 version 4 를
+  // 불러왔어도, 다시 저장은 편집 시작 때의 3 으로 보내 409 로 알게 한다 — 기준을 풀어 버리면 화면의 4 로 보내 그 변경을 덮어쓴다.
+  test('메모 저장이 500 으로 실패해도 편집 기준 version 을 지켜, 그 사이 바뀐 메모를 덮어쓰지 않는다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', version: 3 })], { patchFailures: [500] })
+    const { user, queryClient } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 추가')
+    // 그 사이 다른 사람(AI)이 메모를 바꿔 version 4 — 화면이 다시 불러온다.
+    const fetched = api.detailGets.length
+    api.db.get(1)!.version = 4
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(api.detailGets.length).toBeGreaterThan(fetched))
+    await user.click(within(memo()).getByTestId('issue-body-save'))
+    await waitFor(() => expect(api.patches).toHaveLength(1))
+    expect(await within(memo()).findByTestId('issue-body-textarea')).toHaveValue('서론은 짧게 추가')
+    await user.click(within(memo()).getByTestId('issue-body-save'))
+    await waitFor(() => expect(api.patches).toHaveLength(2))
+    expect(api.patches.map((p) => p.body)).toEqual([
+      { body: '서론은 짧게 추가', version: 3 },
+      { body: '서론은 짧게 추가', version: 3 },
+    ])
+  })
+
+  // 고친 메모를 저장하지 않고 닫으려 하면(✕·Esc) 먼저 묻는다 — 「계속 쓰기」는 모달·입력을 그대로 두고, 「버리고 닫기」는 요청 없이 닫는다.
+  test('고친 메모를 두고 ✕·Esc 로 닫으려 하면 확인을 묻고, 계속 쓰기는 입력을 지키며 버리고 닫기는 요청 없이 닫는다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 고침')
+    // ✕ — 확인 창, 모달·task 는 그대로.
+    await user.click(screen.getByTestId('personal-task-close'))
+    const confirm = await screen.findByTestId('personal-task-discard-dialog')
+    expect(confirm).toHaveTextContent('저장하지 않은 메모를 버릴까요?')
+    expect(paramsOf(location()).get('task')).toBe('1')
+    await user.click(within(confirm).getByTestId('personal-task-discard-keep'))
+    await waitFor(() => expect(screen.queryByTestId('personal-task-discard-dialog')).not.toBeInTheDocument())
+    expect(within(memo()).getByTestId('issue-body-textarea')).toHaveValue('서론은 짧게 고침')
+    // 편집칸 밖(닫기 단추)에서 누른 Esc 도 같은 확인을 띄운다.
+    act(() => screen.getByTestId('personal-task-close').focus())
+    await user.keyboard('{Escape}')
+    await user.click(within(await screen.findByTestId('personal-task-discard-dialog')).getByTestId('personal-task-discard-confirm'))
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
+    expect(paramsOf(location()).get('task')).toBeNull()
+    expect(api.patches).toEqual([])
+  })
+
+  // 바깥(dim) 클릭도 같은 확인 — 메모를 고치지 않았으면 묻지 않고 바로 닫는다.
+  test('고친 메모를 두고 바깥을 누르면 확인을 묻고, 고치지 않았으면 바로 닫힌다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    await user.type(within(memo()).getByTestId('issue-body-textarea'), ' 고침')
+    fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!)
+    expect(await screen.findByTestId('personal-task-discard-dialog')).toBeInTheDocument()
+    await user.click(screen.getByTestId('personal-task-discard-keep'))
+    // 편집을 취소(Esc)해 고친 것이 없어지면 바깥 클릭은 묻지 않고 닫는다.
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(within(memo()).queryByTestId('issue-body-textarea')).not.toBeInTheDocument())
+    fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!)
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('personal-task-discard-dialog')).not.toBeInTheDocument()
+    expect(paramsOf(location()).get('task')).toBeNull()
+  })
+
+  // 내용 수정 권한이 없으면(viewerCanEditContent=false) 메모를 눌러도 편집칸이 열리지 않는다 — 팀 이슈 본문과 같은 권한.
+  test('내용 수정 권한이 없으면 메모 편집이 비활성이다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })], { canEditContent: false })
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const view = await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' })
+    expect(view).toHaveAttribute('aria-disabled', 'true')
+    await user.click(view)
+    expect(within(memo()).queryByTestId('issue-body-textarea')).not.toBeInTheDocument()
+  })
+})
+
+describe('채팅 서랍(WP-1374 — WP-1372 링크·알림 진입 보존)', () => {
+  const drawer = () => screen.getByTestId('issue-chat-drawer')
+  const drawerInput = () => within(drawer()).getByTestId('chat-composer-input')
+
+  /** 다른 사람의 메시지(id 5) 1건이 있는 읽지 않은 스레드. */
+  function withUnreadThread(api: ReturnType<typeof personalApi>) {
     const thread = createChatThread({
-      // read=true 면 id 5 까지 이미 읽은 상태(읽지 않은 메시지 없음).
-      members: [createChatMember({ userId: 1, lastReadMessageId: opts.read ? 5 : null })],
+      members: [createChatMember({ userId: 1, lastReadMessageId: null })],
       recentMessages: [createChatMessage({ id: 5, threadId: 100, authorId: 99, authorName: '아키', authorKind: 'AGENT', body: '확인 부탁드려요' })],
     })
     api.handlers.unshift(
       http.get(`${BASE}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
       http.get('/api/v1/chat/threads/100/messages', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
-      http.post('/api/v1/chat/threads/100/read', async ({ request }) => {
-        reads.push(await request.json())
-        return new HttpResponse(null, { status: 204 })
-      }),
+      http.post('/api/v1/chat/threads/100/read', () => new HttpResponse(null, { status: 204 })),
     )
-    return reads
   }
 
-  // 알림·「내 AI 작업」의 채팅 링크(/issues/N?chat=1)는 리다이렉트가 chat 을 이어 주고, 상세가 채팅 칸으로 이동한 뒤 chat 을 지운다.
-  test('/issues/1?chat=1 진입 → ?task=1 패널, 상세 스크롤 칸만 움직이고 입력칸 포커스 뒤 주소에서 chat 이 빠진다', async () => {
-    const scrolled = spyScrollTo()
+  // 머리의 채팅 버튼 — 팀 이슈와 같은 버튼·읽지 않은 수. 누르면 모달 위 오른쪽 서랍이 열리고 주소에 chat=1, 배지는 사라진다.
+  test('머리 채팅 버튼 — 읽지 않은 수를 보이고, 누르면 서랍이 열리며 ?chat=1, 모달은 남는다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { location } = await open(`/projects/${KEY}/issues/1?chat=1`, api, 'personal-task-panel')
-    await waitFor(() => expect(composerInput()).toHaveFocus())
-    expect(scrolled).toContain(detailScroll())
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}?task=1`))
+    withUnreadThread(api)
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const header = screen.getByTestId('personal-task-panel-title').parentElement!
+    const button = await within(header).findByTestId('issue-chat-open')
+    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
+    expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument()
+    await user.click(button)
+    expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
+    expect(await within(drawer()).findByText('확인 부탁드려요')).toBeInTheDocument()
+    expect([paramsOf(location()).get('task'), paramsOf(location()).get('chat')]).toEqual(['1', '1'])
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+    await waitFor(() => expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument())
   })
 
-  // chat 이 없으면 지금처럼 패널만 연다(회귀) — 스크롤·포커스 없음.
-  test('chat 없이 /issues/1 진입 → ?task=1 패널, 채팅으로 스크롤하지 않는다', async () => {
-    const scrolled = spyScrollTo()
+  // ESC 는 위에 있는 것부터 — 첫 Esc 는 서랍만 닫아 chat 만 빠지고 모달로 돌아온다. 다음 Esc 가 모달을 닫는다.
+  // (닫힌 뒤 포커스가 채팅 버튼으로 돌아오는지는 jsdom 의 중첩 포커스 가둠으로 판정되지 않아 E2E @input 이 본다.)
+  test('서랍이 열린 채 Esc → 서랍만 닫혀 chat 만 빠지고 모달은 남는다, 다음 Esc 에 모달이 닫힌다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-panel')
-    expect(await screen.findByTestId('chat-composer-input')).toBeInTheDocument()
+    withUnreadThread(api)
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await screen.findByTestId('issue-chat-open'))
+    await waitFor(() => expect(drawerInput()).toHaveFocus())
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument())
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+    expect([paramsOf(location()).get('task'), paramsOf(location()).get('chat')]).toEqual(['1', null])
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
+    expect(paramsOf(location()).get('task')).toBeNull()
+  })
+
+  // 알림·「내 AI 작업」의 채팅 링크(/issues/N?chat=1) → 리다이렉트가 chat 을 이어 줘 모달 + 서랍이 함께 열린다(WP-1372 동작 보존).
+  // 처음부터 열린 서랍을 닫으면(✕) chat 만 지운다 — 출발 화면으로 되돌아가 모달까지 닫히지 않는다.
+  test('/issues/1?chat=1 진입 → ?task=1&chat=1 모달 + 서랍(입력칸 포커스), 서랍 ✕ 는 chat 만 지우고 모달은 남는다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    withUnreadThread(api)
+    const { user, location } = await open(`/projects/${KEY}/issues/1?chat=1`, api, 'personal-task-modal')
+    expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}?task=1&chat=1`)
+    await waitFor(() => expect(drawerInput()).toHaveFocus())
+    await user.click(within(drawer()).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument())
     expect(location()).toBe(`/projects/${KEY}?task=1`)
-    expect(scrolled).not.toContain(detailScroll())
-    expect(composerInput()).not.toHaveFocus()
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
   })
 
-  // 이슈챗 알림(AI 질문)의 이동 주소 → 리다이렉트 → 채팅으로 이동. chat 은 replace 로 지워져 패널 닫기(Esc)가 task 만 지운다.
-  test('이슈챗 알림 주소로 진입 → 채팅으로 이동, 이어서 Esc 로 닫으면 task·chat 이 모두 없다', async () => {
-    const scrolled = spyScrollTo()
+  // 앱 안 링크(알림 목록 등 이전 화면이 있는 상태)로 들어온 서랍도 닫으면 chat 만 지운다 — 팀 이슈 서랍처럼 출발 화면으로 되돌아가면
+  // 모달까지 함께 닫혀 버린다. 이전 화면(/projects/PME)에서 채팅 링크로 이동(push)한 상황을 브라우저 히스토리로 만든다.
+  test('이전 화면에서 채팅 링크로 들어와 서랍을 닫으면 출발 화면으로 되돌아가지 않고 chat 만 지운다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    withUnreadThread(api)
+    const { user, location } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
+    act(() => {
+      window.history.pushState({ usr: null, key: 'link', idx: 1 }, '', `/projects/${KEY}/issues/1?chat=1`)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    })
+    expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}?task=1&chat=1`)
+    await user.click(within(drawer()).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument())
+    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+  })
+
+  // chat 이 없으면 서랍 없이 모달만 연다(회귀).
+  test('chat 없이 /issues/1 진입 → ?task=1 모달만, 서랍은 열리지 않는다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-modal')
+    expect(await screen.findByTestId('personal-task-memo')).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument()
+  })
+
+  // 이슈챗 알림(AI 질문)의 이동 주소도 같은 길 — 모달 + 서랍.
+  test('이슈챗 알림 주소로 진입 → 모달 + 서랍', async () => {
     const target = notifTarget({ type: 'AI_QUESTION', projectKey: KEY, issueNumber: 1 } as NotificationResponse)
     expect(target).toBe(`/projects/${KEY}/issues/1?chat=1`)
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const before = window.history.length
-    const { user, location } = await open(target, api, 'personal-task-panel')
-    await waitFor(() => expect(composerInput()).toHaveFocus())
-    await waitFor(() => expect(paramsOf(location()).get('chat')).toBeNull())
-    // 리다이렉트·chat 지우기 모두 replace — 히스토리 항목이 늘지 않는다(닫기 뒤로 가기가 chat 상태로 돌아가지 않게).
-    expect(window.history.length).toBe(before)
-    expect(scrolled).toContain(detailScroll())
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument())
-    expect(paramsOf(location()).get('task')).toBeNull()
-    expect(paramsOf(location()).get('chat')).toBeNull()
+    withUnreadThread(api)
+    await open(target, api, 'personal-task-modal')
+    expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
+    expect(await within(drawer()).findByText('확인 부탁드려요')).toBeInTheDocument()
   })
 
-  // 보드 모달도 같은 딥링크를 쓴다 — 스크롤 칸·입력칸이 모달 안에 있다.
-  test('보드 ?task=1&chat=1 → 모달 안 스크롤 칸·입력칸 포커스, 보드·task 는 남는다', async () => {
-    const scrolled = spyScrollTo()
+  // 보드도 같은 딥링크 — 모달 + 서랍, 보드·task 는 남는다.
+  test('보드 ?task=1&chat=1 → 모달 + 서랍, view·task 유지', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })])
+    withUnreadThread(api)
     const { location } = await open(`/projects/${KEY}?view=board&task=1&chat=1`, api, 'personal-task-modal')
-    const modal = screen.getByTestId('personal-task-modal')
-    await waitFor(() => expect(within(modal).getByTestId('chat-composer-input')).toHaveFocus())
-    expect(scrolled).toContain(within(modal).getByTestId('personal-task-scroll'))
-    await waitFor(() => expect(paramsOf(location()).get('chat')).toBeNull())
-    expect([paramsOf(location()).get('view'), paramsOf(location()).get('task')]).toEqual(['board', '1'])
+    expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
+    expect([paramsOf(location()).get('view'), paramsOf(location()).get('task'), paramsOf(location()).get('chat')]).toEqual(['board', '1', '1'])
   })
 
-  // 없는 작업(404)이면 chat 을 쓰지 못하므로 지운다 — 남겨 두면 다음에 여는 작업(task 만 바꾼다)에 묻어 엉뚱하게 채팅으로 이동한다.
-  test('없는 작업 ?task=999&chat=1 → 오류 안내와 함께 chat 이 빠지고, 다른 작업을 열어도 채팅으로 이동하지 않는다', async () => {
-    const scrolled = spyScrollTo()
+  // 없는 작업(404)이면 서랍을 열 수 없으므로 chat 을 지운다 — 남겨 두면 다음에 여는 작업(task 만 바꾼다)에 묻어 엉뚱하게 서랍이 열린다.
+  test('없는 작업 ?task=999&chat=1 → 오류 안내와 함께 chat 이 빠지고, 다른 작업을 열어도 서랍은 열리지 않는다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}?task=999&chat=1`, api, 'personal-task-panel-notfound')
     await waitFor(() => expect(paramsOf(location()).get('chat')).toBeNull())
     expect(paramsOf(location()).get('task')).toBe('999')
+    expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument()
+    await user.click(within(screen.getByTestId('personal-task-panel-notfound')).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
     await user.click(await screen.findByTestId('personal-task-row-1'))
-    await waitFor(() => expect(paramsOf(location()).get('task')).toBe('1'))
-    expect(await screen.findByTestId('chat-composer-input')).toBeInTheDocument()
+    expect(await screen.findByTestId('personal-task-memo')).toBeInTheDocument()
     expect(paramsOf(location()).get('chat')).toBeNull()
-    expect(scrolled).toEqual([])
-    expect(composerInput()).not.toHaveFocus()
+    expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument()
   })
 
-  // 제목 줄의 채팅 버튼 — 팀 이슈와 같은 버튼·읽지 않은 수, 누르면 드로워 대신 채팅 칸으로 이동한다(주소는 그대로).
-  test('패널 제목 줄 채팅 버튼 — 읽지 않은 수를 보이고, 누르면 상세 스크롤 칸을 움직이고 입력칸 포커스', async () => {
-    const scrolled = spyScrollTo()
-    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    withUnreadThread(api)
-    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const title = screen.getByTestId('personal-task-panel-title').parentElement!
-    const button = await within(title).findByTestId('issue-chat-open')
-    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
-    expect(scrolled).not.toContain(detailScroll())
-    await user.click(button)
-    await waitFor(() => expect(composerInput()).toHaveFocus())
-    expect(scrolled).toContain(detailScroll())
-    expect(location()).toBe(`/projects/${KEY}?task=1`)
-  })
-
-  // 읽음 표시가 성공하면 스레드 캐시의 워터마크가 올라가 배지가 지워지고, 채팅이 화면 밖으로 나가도 되살아나지 않는다.
-  test('마지막 메시지가 보여 읽음 표시가 나가면 배지가 지워지고, 화면 밖으로 나가도 되살아나지 않는다', async () => {
-    const io = controlIntersection()
-    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const reads = withUnreadThread(api)
-    await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const button = await screen.findByTestId('issue-chat-open')
-    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
-    expect(await screen.findByText('확인 부탁드려요')).toBeInTheDocument()
-    io.set(() => true)
-    await waitFor(() => expect(reads).toEqual([{ uptoMessageId: 5 }]), { timeout: 3000 })
-    await waitFor(() => expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument())
-    io.set(() => false)
-    expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument()
-  })
-
-  // 실시간으로 온 다른 사람의 메시지는 읽기 전까지 배지에 남고, 읽음 표시가 성공해야 지워진다.
-  test('실시간 새 메시지는 읽을 때까지 배지에 남고, 읽음 표시 뒤 지워진다', async () => {
-    const io = controlIntersection()
-    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const reads = withUnreadThread(api, { read: true })
-    const { queryClient } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const button = await screen.findByTestId('issue-chat-open')
-    await screen.findByText('확인 부탁드려요')
-    expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument()
-    act(() =>
-      handleChatEvent(queryClient, 'chat.message.created', createChatMessage({ id: 7, threadId: 100, authorId: 99, authorName: '아키', authorKind: 'AGENT', body: '새 질문' })),
-    )
-    await waitFor(() => expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1'))
-    expect(await screen.findByText('새 질문')).toBeInTheDocument()
-    // 읽기 전(마지막 메시지가 아직 안 보임)에는 그대로 남는다.
-    expect(reads).toEqual([])
-    expect(within(button).getByTestId('issue-chat-unread-badge')).toHaveTextContent('1')
-    io.set(() => true)
-    await waitFor(() => expect(reads).toEqual([{ uptoMessageId: 7 }]), { timeout: 3000 })
-    await waitFor(() => expect(within(button).queryByTestId('issue-chat-unread-badge')).not.toBeInTheDocument())
-  })
-
-  // 포커스 요청은 한 번만 — 입력칸이 나중에 다시 만들어져도(쓰기 권한이 꺼졌다 켜짐) 포커스를 다시 가져가지 않는다.
-  test('채팅 버튼 포커스는 한 번만 — 입력칸이 다시 만들어져도 포커스를 다시 가져가지 않는다', async () => {
-    spyScrollTo()
-    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    withUnreadThread(api)
-    const { user, queryClient } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const button = await screen.findByTestId('issue-chat-open')
-    await user.click(button)
-    await waitFor(() => expect(composerInput()).toHaveFocus())
-    button.focus()
-    const setCanPost = (canPost: boolean) =>
-      act(() => {
-        queryClient.setQueryData<ChatThreadResponse>(chatKeys.thread(KEY, 1), (t) => (t ? { ...t, canPost } : t))
-      })
-    setCanPost(false)
-    expect(await screen.findByTestId('chat-composer-readonly')).toBeInTheDocument()
-    setCanPost(true)
-    expect(await within(chatSection()).findByTestId('chat-composer-input')).toBeInTheDocument()
-    // 에디터가 만들어질 시간을 준 뒤에도 포커스는 버튼에 남는다.
-    await new Promise((r) => setTimeout(r, 50))
-    expect(composerInput()).not.toHaveFocus()
-    expect(button).toHaveFocus()
-  })
-
-  // AI 진행 카드 — agentWork 가 있으면 「AI 에게 맡기기」 아래에 보이고, 「답변 필요」 배지가 채팅 칸으로 이동한다. 없으면 카드가 없다.
-  test('AI 진행 카드 — 진행 중 작업이 있으면 보이고 「답변 필요」 배지는 채팅으로 이동, 없으면 카드 없음', async () => {
-    const scrolled = spyScrollTo()
+  // AI 진행 카드 — agentWork 가 있으면 메모 위에 보이고, 「답변 필요」 배지가 채팅 서랍을 연다. 없으면 카드가 없다.
+  test('AI 진행 카드 — 진행 중 작업이 있으면 메모 위에 보이고 「답변 필요」 배지는 서랍을 연다, 없으면 카드 없음', async () => {
     const api = personalApi([
       createIssue({ projectKey: KEY, number: 1, title: '질문 받은 작업', agentWork: [createAgentWork({ worker: agentWorker, state: 'INPUT_REQUIRED' })] }),
       createIssue({ projectKey: KEY, number: 2, title: '평범한 작업' }),
     ])
-    const { user, location, unmount } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const card = await screen.findByTestId('agent-work-card')
+    const { user, location, unmount } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const card = await within(await screen.findByTestId('personal-task-memo')).findByTestId('agent-work-card')
     expect(card).toHaveTextContent(agentWorker.name)
     await user.click(within(card).getByTestId(`agent-work-${agentWorker.id}-state`))
-    await waitFor(() => expect(composerInput()).toHaveFocus())
-    expect(scrolled).toContain(detailScroll())
-    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
+    expect(paramsOf(location()).get('chat')).toBe('1')
     unmount()
-    await open(`/projects/${KEY}?task=2`, api, 'personal-task-panel')
-    expect(await screen.findByTestId('chat-composer-input')).toBeInTheDocument()
+    await open(`/projects/${KEY}?task=2`, api, 'personal-task-modal')
+    expect(await screen.findByTestId('personal-task-memo')).toBeInTheDocument()
     expect(screen.queryByTestId('agent-work-card')).not.toBeInTheDocument()
   })
 })
 
 describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
-  test('패널에 「AI 에게 맡기기」 칸 — 없으면 「안 함」, 담당 AI 는 내 AI 비서, 매주 월·수 08:30 을 고르면 PUT 하고 요약·다음 실행이 보인다', async () => {
+  test('모달에 「AI 에게 맡기기」 칸 — 없으면 「안 함」, 담당 AI 는 내 AI 비서, 매주 월·수 08:30 을 고르면 PUT 하고 요약·다음 실행이 보인다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '주간 보고' })])
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const panel = screen.getByTestId('personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const panel = screen.getByTestId('personal-task-modal')
     expect(await within(panel).findByText('AI 에게 맡기기', { exact: true })).toBeInTheDocument()
     const trigger = await within(panel).findByTestId('task-recurrence-trigger')
     await waitFor(() => expect(trigger).toBeEnabled())
@@ -637,7 +751,7 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
       failRecurrenceGet: fail,
       recurrence: recurrenceOf({ rrule: 'FREQ=DAILY' }),
     })
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const err = await screen.findByTestId('task-recurrence-error-state')
     expect(err).toHaveTextContent('실행 일정을 불러오지 못했어요')
     expect(screen.queryByTestId('task-recurrence-trigger')).not.toBeInTheDocument()
@@ -649,7 +763,7 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
 
   test('매월 29~31일을 고르면 「그 날짜가 없는 달은 건너뜁니다」, 28일 이하는 안내 없음', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1 })])
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const trigger = await screen.findByTestId('task-recurrence-trigger')
     await waitFor(() => expect(trigger).toBeEnabled())
     await user.click(trigger)
@@ -666,7 +780,7 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
 
   test('요일을 모두 끄고 저장하면 요청 없이 「요일을 하나 이상 고르세요」', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1 })])
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const trigger = await screen.findByTestId('task-recurrence-trigger')
     await waitFor(() => expect(trigger).toBeEnabled())
     await user.click(trigger)
@@ -682,7 +796,7 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1 })], {
       recurrencePutError: { status: 409, message: '쓸 수 있는 AI 비서가 없습니다 — 개인 비서를 연결하거나 관리자에게 공통 비서 지정을 요청하세요' },
     })
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const trigger = await screen.findByTestId('task-recurrence-trigger')
     await waitFor(() => expect(trigger).toBeEnabled())
     await user.click(trigger)
@@ -699,7 +813,7 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1 })], {
       recurrence: recurrenceOf({ rrule: 'FREQ=MONTHLY;BYMONTHDAY=15', enabled: false, consecutiveFailures: 3 }),
     })
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const trigger = await screen.findByTestId('task-recurrence-trigger')
     await waitFor(() => expect(trigger).toHaveTextContent('매월 15일 08:30'))
     expect(screen.getByTestId('task-recurrence-status')).toHaveTextContent('멈춤 — 3회 연속 실패')
@@ -716,14 +830,14 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
 })
 
 describe('편집·완료 토글', () => {
-  // 체크 = 완료 토글. 행 클릭과 분리돼 패널을 열지 않고, 무효화 재조회로 행이 완료 섹션으로 옮겨 취소선으로 그려진다(WP-918).
-  test('체크 토글 → PATCH { status: DONE }, 패널은 열리지 않고 행이 완료 섹션으로 옮겨진다', async () => {
+  // 체크 = 완료 토글. 행 클릭과 분리돼 모달을 열지 않고, 무효화 재조회로 행이 완료 섹션으로 옮겨 취소선으로 그려진다(WP-918).
+  test('체크 토글 → PATCH { status: DONE }, 모달은 열리지 않고 행이 완료 섹션으로 옮겨진다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '운동 계획', status: 'TODO', dueDate: null })])
     const { user } = await open(`/projects/${KEY}`, api, 'personal-task-check-1')
     expect(screen.getByTestId('personal-section-noDue')).toBeInTheDocument()
     await user.click(screen.getByTestId('personal-task-check-1'))
     await waitFor(() => expect(api.patches.map((p) => p.body)).toEqual([{ status: 'DONE' }]))
-    expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('personal-section-noDue')).not.toBeInTheDocument())
     await user.click(within(screen.getByTestId('personal-section-done')).getByRole('button'))
     const row = await within(screen.getByTestId('personal-section-done')).findByTestId('personal-task-row-1')
@@ -733,10 +847,10 @@ describe('편집·완료 토글', () => {
   // #611 — 상세를 보고 있지 않아도 409 뒤 상세를 다시 불러 옛 version 을 버리고, 다음 토글은 새 version 으로 성공한다.
   test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 불러와 다음 토글은 성공한다 (#611)', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', version: 1 })])
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    // 패널을 한 번 열어 상세 캐시(version 1)를 채운 뒤 닫는다.
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    // 모달을 한 번 열어 상세 캐시(version 1)를 채운 뒤 닫는다.
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
     // 다른 곳에서 먼저 수정됨.
     api.db.get(1)!.version = 2
     const getsBefore = api.detailGets.length
@@ -750,11 +864,11 @@ describe('편집·완료 토글', () => {
     expect(api.patches[1].body.version).toBe(2)
   })
 
-  // 개인 작업은 풀페이지가 막혀 있어 패널(#718)이 유일한 편집 경로 — 제목 연필 → Enter → PATCH { title }, 패널과 뒤 목록이 함께 갱신된다.
-  test('패널 제목 연필 → 인라인 편집 → PATCH { title }, 패널 제목과 체크리스트 행이 갱신된다', async () => {
+  // 개인 작업은 풀페이지가 막혀 있어 모달(#718)이 유일한 편집 경로 — 제목 연필 → Enter → PATCH { title }, 모달과 뒤 목록이 함께 갱신된다.
+  test('모달 제목 연필 → 인라인 편집 → PATCH { title }, 모달 제목과 체크리스트 행이 갱신된다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const panel = screen.getByTestId('personal-task-panel')
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const panel = screen.getByTestId('personal-task-modal')
     expect(within(panel).queryByTestId('personal-task-panel-title-link')).not.toBeInTheDocument()
     await user.click(await within(panel).findByTestId('issue-title-edit'))
     const input = within(panel).getByTestId('issue-title-input')
@@ -767,10 +881,24 @@ describe('편집·완료 토글', () => {
   })
 
   // 빈/공백 제목은 zod min(1) 로 막혀 PATCH 없이 원래 제목이 남는다.
-  test('패널 제목 편집 — 공백 제목은 PATCH 없이 원복된다', async () => {
+  // 제목을 고치던 중 바깥(dim)을 눌러 닫아도 고친 제목은 저장된다 — 닫기 전에 입력칸을 blur 해 제목의 blur 저장을 태운다.
+  // (pointerdown 으로 바로 닫혀, 입력칸이 blur 를 받기 전에 사라지면 제목이 소리 없이 없어졌다.)
+  test('모달 제목을 고치던 중 바깥을 눌러 닫아도 PATCH { title } 로 저장된다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
-    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
-    const panel = screen.getByTestId('personal-task-panel')
+    const { user, location } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(screen.getByTestId('personal-task-panel-title')).findByTestId('issue-title-edit'))
+    const input = within(screen.getByTestId('personal-task-panel-title')).getByRole('textbox')
+    await user.clear(input)
+    await user.paste('바깥 닫기 제목')
+    fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!)
+    await waitFor(() => expect(paramsOf(location()).get('task')).toBeNull())
+    await waitFor(() => expect(api.patches.map((p) => p.body)).toEqual([expect.objectContaining({ title: '바깥 닫기 제목' })]))
+  })
+
+  test('모달 제목 편집 — 공백 제목은 PATCH 없이 원복된다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    const panel = screen.getByTestId('personal-task-modal')
     await user.click(await within(panel).findByTestId('issue-title-edit'))
     const input = within(panel).getByTestId('issue-title-input')
     await user.clear(input)

@@ -1,13 +1,12 @@
-// 개인 작업 상세의 「채팅으로 이동」(WP-1372) — 리스트 패널·보드 모달·모바일 전체 화면이 함께 쓴다.
-// 왜: 개인 작업은 채팅이 상세 안에 이미 있어, 팀 이슈처럼 채팅 드로워를 또 띄우면 보드 모달 위에 드로워가 겹친다.
+// 모바일 개인 작업 전체 화면의 「채팅으로 이동」(WP-1372). 데스크톱 넓은 모달은 WP-1374 부터 팀 이슈처럼 채팅 서랍을 연다(useIssueChatDrawerParam 의 unmarkedClose).
+// 왜: 모바일 상세는 채팅이 화면 안에 이미 있어, 채팅 드로워를 또 띄우면 전체 화면 위에 화면이 하나 더 겹친다.
 // 그래서 채팅 버튼·AI 진행 카드·딥링크(`?chat=1` — 알림·「내 AI 작업」 링크가 리다이렉트로 넘겨준다)는 모두
-// 상세 안의 채팅 칸으로 스크롤하고 입력칸에 포커스를 준다. 화면에는 묶음 props 를 넘겨 패널·모바일이 배선을 되풀이하지 않게 한다.
+// 상세 안의 채팅 칸으로 스크롤하고 입력칸에 포커스를 준다. 화면에는 묶음 props 를 넘겨 배선을 한 곳에 둔다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useChatThreadSettled } from '@/hooks/queries/useChatThread';
-import { toSearch } from '@/lib/historyParam';
-import { hasIssueChatParam, ISSUE_CHAT_PARAM } from '@/lib/issueChatParam';
+import { hasIssueChatParam, removeIssueChatParam } from '@/lib/issueChatParam';
 import { finePointerStore } from '@/lib/mobile/mediaQueryStore';
 
 import type { usePersonalTask } from './usePersonalTask';
@@ -86,14 +85,8 @@ export function usePersonalTaskChatJump({
     consumedKeyRef.current = location.key;
     // 입력칸 포커스는 정밀 포인터에서만 — 터치 기기는 가상 키보드가 화면 절반을 덮는다(팀 채팅 드로워 자동 포커스와 같은 기준).
     // 터치에서는 스크롤만 하고, 입력은 사용자가 입력줄을 눌러 시작한다(채팅 버튼은 누른 동작이라 포커스한다).
-     
     if (canJump) jump(finePointerStore.get());
-    const params = new URLSearchParams(location.search);
-    params.delete(ISSUE_CHAT_PARAM);
-    navigate(
-      { pathname: location.pathname, search: toSearch(params), hash: location.hash },
-      { replace: true, state: location.state },
-    );
+    removeIssueChatParam(navigate, location);
   }, [wantsChat, ready, failed, chatSettled, jump, navigate, location]);
 
   return {

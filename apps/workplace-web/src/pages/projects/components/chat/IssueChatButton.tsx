@@ -22,7 +22,7 @@ export function IssueChatButton({
 }: {
   projectKey: string;
   issueNumber: number;
-  /** 드로워가 열려 있는가(팀 이슈) — 열려 있으면 읽는 중으로 보고 0. 채팅이 늘 화면에 있는 개인 작업 상세는 생략(읽음 워터마크로만 지운다). */
+  /** 드로워가 열려 있는가(팀 이슈·데스크톱 개인 작업) — 열려 있으면 읽는 중으로 보고 0. 채팅이 늘 화면에 있는 모바일 개인 작업 상세는 생략(읽음 워터마크로만 지운다). */
   open?: boolean;
   onOpen: () => void;
   /**

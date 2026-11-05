@@ -71,7 +71,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   // 빠른 추가 — 처음 상태 없이(기본 상태로) 만들기 창을 연다. 데스크톱 버튼·모바일 ＋·체크리스트 빈 상태가 함께 쓴다.
   const openQuickAdd = () => { setCreateStatusId(undefined); setCreateOpen(true); };
 
-  // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.
+  // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N 상세 모달 오픈(view=board 보존). 풀페이지 이동 없음.
   // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
   const cardTo = (issue: IssueResponse) => {
     const next = new URLSearchParams(params);
@@ -81,8 +81,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   };
 
   return (
-    // 페이지 틀 — 헤더는 전체 폭, 그 아래 본문이 [목록 칸 | 작업 패널] 로 나뉜다.
-    // 작업 패널은 헤더 옆(화면 맨 위)이 아니라 헤더 아래 본문 안 보조 칸 — 앱 사이드 패널처럼 보이지 않게.
+    // 페이지 틀 — 헤더는 전체 폭, 그 아래 본문(툴바 + 체크리스트/보드). 작업 상세는 본문 위에 뜨는 모달이다(WP-1374).
     <Page data-testid="personal-project-detail">
       <Page.Header
         title={project.name}
@@ -145,8 +144,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
             </div>
           </div>
         </div>
-        {/* 우측 상세 — 리스트/체크리스트=본문 안 보조 칸(헤더 아래), 보드=중앙 모달(#231). */}
-        <PersonalTaskPanel projectKey={key} mode={view === 'board' ? 'modal' : 'panel'} />
+        {/* 작업 상세 — 체크리스트·보드 모두 넓은 모달(WP-1374), 모바일은 전체 화면. */}
+        <PersonalTaskPanel projectKey={key} />
       </Page.Body>
       {/* 개인 프로젝트 — TASK 단일 유형(#226): 유형 select 숨김 */}
       <IssueCreateDialog projectKey={key} personal open={createOpen} onOpenChange={setCreateOpen} initialStatusId={createStatusId} />

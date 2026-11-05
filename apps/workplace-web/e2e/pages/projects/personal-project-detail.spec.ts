@@ -1,7 +1,7 @@
 // 개인 프로젝트 전용 상세 화면 E2E — 브라우저가 있어야 판정되는 것만 남긴다(WP-971).
 // 셸 배선(@wiring), 새로고침 유지·history 기반 행 전환(@platform), 포커스·Esc 겹침·날짜 칸 키 입력(@input),
-// 헤더 아래 패널 위치·스크롤·무한 로드·글자 변환(@layout).
-// 뷰 토글·패널/모달 분기·URL 상태·리다이렉트·빈/오류 상태·행 표시·완료 토글/제목 편집/빠른 추가 payload·409 회복·
+// 상세 모달·채팅 서랍 기하·스크롤·무한 로드·글자 변환(@layout).
+// 뷰 토글·상세 모달·메모 편집·채팅 서랍 URL·URL 상태·리다이렉트·빈/오류 상태·행 표시·완료 토글/제목 편집/빠른 추가 payload·409 회복·
 // 검색/필터/그룹 쿼리 파라미터는 페이지 테스트 src/pages/projects/personalProjectDetail.test.tsx 가 지킨다.
 import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -9,7 +9,7 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { boxOf, expectBelowHeader, expectHeaderBottomAt56 } from '../../fixtures/layout';
+import { boxOf } from '../../fixtures/layout';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import type { IssueStatus } from '../../../src/types/issue';
@@ -53,7 +53,7 @@ test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더�
   await expect(page.getByTestId('quick-filter-more-facet-closedIn')).toHaveCount(0);
 });
 
-// 패널 진입 공통 — 단건 + chat 모킹. number 기본값=1.
+// 상세 진입 공통 — 단건 + chat 모킹. number 기본값=1.
 async function mockTaskDetail(page: import('@playwright/test').Page, number = 1) {
   const label = createLabel({ id: 5, name: '긴급' });
   const detail = createIssueDetail({
@@ -66,58 +66,88 @@ async function mockTaskDetail(page: import('@playwright/test').Page, number = 1)
   await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
 }
 
-test('행 클릭 → 우측 패널 오픈 + URL ?task 반영 + 새로고침 유지', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+test('행 클릭 → 상세 모달 오픈 + URL ?task 반영 + 새로고침 유지', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
   await mockTaskDetail(page);
   await page.goto(`/projects/${KEY}`);
 
-  // 행 클릭 한 번으로 패널 오픈.
+  // 행 클릭 한 번으로 넓은 모달 오픈(WP-1374).
   await page.getByTestId('personal-task-row-1').click();
 
-  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
   await expect(page).toHaveURL(/[?&]task=1/);
   await page.reload();
-  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
-  await expectPanelBelowHeader(page);
-});
-
-// WP-698 — 패널 안 선택 목록을 Esc 로 닫으면 목록만 닫히고 패널은 남는다. 다음 Esc 에서 패널이 닫힌다.
-test('패널 안 상태 목록을 Esc 로 닫으면 패널은 남고, 다음 Esc 에 패널이 닫힌다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
-  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
-  await mockTaskDetail(page);
-  await page.goto(`/projects/${KEY}?task=1`);
-
-  const panel = page.getByTestId('personal-task-panel');
-  await panel.getByTestId('issue-status-select').click();
-  await expect(page.getByRole('listbox')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('listbox')).toHaveCount(0);
-  await expect(panel).toBeVisible();
-
-  await page.keyboard.press('Escape');
-  await expect(panel).toHaveCount(0);
-});
-
-// 작업 패널은 페이지 헤더 옆(화면 맨 위)이 아니라 헤더 아래 본문 안 보조 칸이다 — 앱 사이드 패널처럼 보이지 않게.
-async function expectPanelBelowHeader(page: import('@playwright/test').Page) {
-  await expectHeaderBottomAt56(page.getByTestId('page-header'));
-  await expectBelowHeader(page.getByTestId('personal-task-panel'));
-  // 패널 상단 소제목 줄 — 보조 칸 규격(34px).
-  expect((await boxOf(page.getByTestId('personal-task-panel-header'))).height).toBe(34);
-}
-
-test('?task= 딥링크 직접 진입 — 작업 패널이 페이지 헤더 아래 보조 칸으로 열린다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
-  await mockTaskDetail(page);
-  await page.goto(`/projects/${KEY}?task=1`);
-
-  await expectPanelBelowHeader(page);
-  // 편집 가능한 제목은 소제목 줄 아래 본문에 그대로 있다.
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
   await expect(page.getByTestId('personal-task-panel-title')).toContainText('블로그 초안');
 });
 
-// #817 — panel 모드는 Radix Dialog 를 쓰지 않아 열림/닫힘 시 포커스 이동이 전혀 없던 문제 회귀 방지.
-test('패널 열림 시 패널로 포커스 이동, 닫힘(같은 행 재클릭) 시 트리거로 복귀한다 (#817)', { tag: '@input' }, async ({
+// WP-698 — 모달 안 선택 목록을 Esc 로 닫으면 목록만 닫히고 모달은 남는다. 다음 Esc 에서 모달이 닫힌다.
+test('모달 안 상태 목록을 Esc 로 닫으면 모달은 남고, 다음 Esc 에 모달이 닫힌다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const modal = page.getByTestId('personal-task-modal');
+  await modal.getByTestId('issue-status-select').click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(modal).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+});
+
+// WP-1374 — 넓은 모달은 1440×900 화면 안에 들어오고, 메모 칸과 속성 레일은 겹치지 않는다.
+// 채팅 서랍은 모달 위(겹침 순서)에서 화면 오른쪽 끝에 붙고 화면 안에 들어온다.
+test('넓은 모달은 화면 안, 메모·속성 레일은 나란히 겹치지 않고, 채팅 서랍은 모달 위 오른쪽 끝에 붙는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const modal = page.getByTestId('personal-task-modal');
+  // 열림 애니메이션(zoom-in)이 끝난 크기로 잰다.
+  await expect.poll(async () => Math.round((await boxOf(modal)).width)).toBe(1120);
+  const m = await boxOf(modal);
+  expect(m.x).toBeGreaterThanOrEqual(0);
+  expect(m.x + m.width).toBeLessThanOrEqual(1440);
+  expect(m.y).toBeGreaterThanOrEqual(0);
+  expect(m.y + m.height).toBeLessThanOrEqual(900);
+  // 높이 85vh(765px).
+  expect(Math.round(m.height)).toBe(765);
+
+  const memo = await boxOf(page.getByTestId('personal-task-memo'));
+  const rail = await boxOf(page.getByTestId('personal-task-rail'));
+  // 메모는 왼쪽, 레일은 오른쪽 — 가로로 겹치지 않고 같은 줄에서 시작한다. 둘 다 모달 안.
+  expect(memo.x + memo.width).toBeLessThanOrEqual(rail.x + 0.5);
+  expect(Math.abs(memo.y - rail.y)).toBeLessThanOrEqual(1);
+  expect(memo.width).toBeGreaterThan(rail.width);
+  expect(rail.x + rail.width).toBeLessThanOrEqual(m.x + m.width + 0.5);
+
+  // 머리의 채팅 버튼 → 서랍.
+  await modal.getByTestId('issue-chat-open').click();
+  const drawer = page.getByTestId('issue-chat-drawer');
+  await expect(page).toHaveURL(/[?&]chat=1/);
+  // 밀려 들어오는 애니메이션(slide-in)이 끝나 오른쪽 끝에 닿을 때까지.
+  await expect.poll(async () => { const d = await boxOf(drawer); return Math.round(d.x + d.width); }).toBe(1440);
+  const d = await boxOf(drawer);
+  expect(d.x).toBeGreaterThanOrEqual(0);
+  expect(d.y).toBeGreaterThanOrEqual(0);
+  expect(Math.round(d.y + d.height)).toBeLessThanOrEqual(900);
+  // 서랍이 모달 위 — 서랍과 모달이 겹치는 자리의 맨 위 요소가 서랍 안이다.
+  const overlapX = Math.max(d.x, m.x) + 10;
+  const onTop = await page.evaluate(
+    ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-testid="issue-chat-drawer"]'),
+    [overlapX, m.y + m.height / 2],
+  );
+  expect(overlapX).toBeLessThan(m.x + m.width);
+  expect(onTop).toBe(true);
+});
+
+// 포커스·ESC 순서 — 모달 위 서랍은 Esc 한 번에 서랍만 닫히고 포커스가 모달의 채팅 버튼으로 돌아온다.
+// 다음 Esc 가 모달을 닫고 포커스는 연 행으로 돌아온다(#817 — 열림/닫힘 포커스 이동).
+test('서랍 Esc → 서랍만 닫혀 채팅 버튼으로 포커스, 다음 Esc → 모달이 닫혀 연 행으로 포커스', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
@@ -126,17 +156,32 @@ test('패널 열림 시 패널로 포커스 이동, 닫힘(같은 행 재클릭)
 
   const row = page.getByTestId('personal-task-row-1');
   await row.click();
-  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
-  await expect(page.getByTestId('personal-task-panel')).toBeFocused();
+  const modal = page.getByTestId('personal-task-modal');
+  await expect(modal).toBeVisible();
+  // 열리면 포커스가 모달 안으로 옮겨진다.
+  await expect.poll(() => modal.evaluate((el) => el.contains(document.activeElement))).toBe(true);
 
-  await row.click();
-  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+  const chatButton = modal.getByTestId('issue-chat-open');
+  await chatButton.click();
+  const drawer = page.getByTestId('issue-chat-drawer');
+  await expect(drawer).toBeVisible();
+  await expect.poll(() => drawer.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+  await expect(modal).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&]chat=/);
+  await expect(chatButton).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&]task=/);
   await expect(row).toBeFocused();
 });
 
 // 브라우저 history 항목(state.key)으로 낡은 스냅숏을 가르는 useHistoryParam 가드를 지나야 한다 — 페이지 테스트의
-// MemoryRouter 는 window.history 를 움직이지 않아 두 번째 이동부터 재현되지 않는다(같은 이유로 #817 의 재클릭 닫힘도 E2E).
-test('다른 행 클릭 시 drawer가 해당 이슈로 전환된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+// MemoryRouter 는 window.history 를 움직이지 않아 두 번째 이동부터 재현되지 않는다.
+test('모달을 닫고 다른 행을 누르면 그 작업으로 다시 열린다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '작업1', status: 'TODO' }),
     createIssue({ projectKey: KEY, number: 2, title: '작업2', status: 'TODO' }),
@@ -148,13 +193,15 @@ test('다른 행 클릭 시 drawer가 해당 이슈로 전환된다', { tag: '@p
   // 행1 클릭 → task=1.
   await page.getByTestId('personal-task-row-1').click();
   await expect(page).toHaveURL(/task=1/);
-  // URL 은 history push 즉시 바뀌지만 행들은 React 가 다시 그린 뒤에야 새 위치(location.key)를 쥔다. 그 전에 행2 를 누르면
-  // useHistoryParam 이 낡은 스냅숏이라 무동작한다 — 행1 이 눌림으로 그려질 때(커밋 뒤)까지 기다린다.
-  await expect(page.getByTestId('personal-task-row-1')).toHaveAttribute('aria-pressed', 'true');
-  // 행2 클릭 → task=2 로 전환(drawer 유지, 이슈만 교체).
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
+  // 닫기(뒤로) → 행들이 새 위치(location.key)를 쥘 때까지(눌림 해제) 기다린다 — 그 전에 누르면 낡은 스냅숏이라 무동작한다.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('personal-task-modal')).toHaveCount(0);
+  await expect(page.getByTestId('personal-task-row-1')).toHaveAttribute('aria-pressed', 'false');
+  // 행2 클릭 → task=2 모달.
   await page.getByTestId('personal-task-row-2').click();
   await expect(page).toHaveURL(/task=2/);
-  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
 });
 
 // 마감 편집 검증용 — 하나의 가변 issue 를 목록 GET·단건 GET·PATCH 가 공유한다(PATCH 뒤 재조회에도 새 값이 보이게).

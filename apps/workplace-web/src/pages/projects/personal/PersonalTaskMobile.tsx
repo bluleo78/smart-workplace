@@ -3,20 +3,20 @@
 // 맨 아래 in-flow 줄(채팅 입력 / 제목 편집 중엔 [취소·저장]). 높이 --vvh·위치 --vv-top 이라 키보드가 뜨면 입력줄이 바로 위에 붙는다.
 // DialogContent 대신 원시 Content — index.css 의 [data-slot=dialog-content] 키보드 규칙(가운데 정렬·max-height)을 피한다(생성 시트와 동일).
 // z-[46] — Sonner 토스트(z-47)·되돌리기 토스트가 레이어 아래로 숨지 않게 AI 풀스크린과 같은 층(PageHeader 45 위, 토스트 47 아래). 안에서 여는 시트·팝오버(z-50 포털)는 여전히 위.
-// 메모는 데스크톱과 같이 읽기 전용(편집 경로가 없다 — R4), 상단 바엔 데스크톱 패널 헤더에 있던 닫기(‹)만 둔다.
+// 메모는 읽기 전용(모바일 편집 경로는 없다 — R4. 데스크톱 넓은 모달은 WP-1374 부터 편집한다), 상단 바엔 닫기(‹)만 둔다.
 import { ChevronLeft } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useState } from 'react';
 
 import { AgentWorkCard } from '@/components/issue/agentWork/AgentWorkCard';
 import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from '@/components/mobile/headerClass';
+import { type EditBarControls, MobileEditBar } from '@/components/mobile/MobileEditBar';
 import { useProject } from '@/hooks/queries/useProjects';
 
 import { IssueChatButton } from '../components/chat/IssueChatButton';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssueMobilePropertyChips, type MobilePropField } from '../components/mobile/IssueMobilePropertyChips';
-import { type EditBarControls, MobileEditBar } from '../components/mobile/MobileEditBar';
 import { usePersonalTask } from './usePersonalTask';
 import { usePersonalTaskChatJump } from './usePersonalTaskChatJump';
 

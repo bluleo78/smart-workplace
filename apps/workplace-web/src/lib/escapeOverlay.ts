@@ -20,3 +20,16 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
+
+/** 글자를 쳐 넣는 input 종류 — 이 칸들의 Esc 는 「입력 취소」 몫이다. 체크박스·라디오·날짜·색·파일 등은 들지 않는다. */
+const TEXT_ENTRY_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
+/**
+ * 글을 고치는 중인 칸(글자 입력 input·textarea·contentEditable)인지 — 그 칸에서 누른 Esc 는 편집 취소 몫이라 바깥 모달을 닫지 않게 할 때 쓴다
+ * (개인 작업 상세 모달, WP-1374). isEditableTarget 과 달리 select·체크박스·라디오·날짜 칸은 글 편집이 아니어서(Esc 로 취소할 글이 없다) 들지 않는다.
+ */
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
+  return target instanceof HTMLInputElement && TEXT_ENTRY_INPUT_TYPES.has(target.type);
+}

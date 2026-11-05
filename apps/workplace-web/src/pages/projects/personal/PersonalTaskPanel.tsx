@@ -1,216 +1,237 @@
-// 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
-// ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
+// 개인 작업 상세(데스크톱) — 목록·보드 모두 넓은 모달로 연다(WP-1374). 옛 400px 옆 칸(리스트)·좁은 모달(보드)을 대체했다.
+// 왜: 메모가 길어도 넓게 읽고 고치며, 속성은 오른쪽 레일에 모아 두기 위해. 채팅은 팀 이슈 상세와 같은 UX — 머리의 채팅 버튼이
+// 오른쪽 채팅 서랍(IssueChatDrawer)을 모달 위에 연다. ?task=N 이 열림, ?chat=1 이 서랍 열림의 단일 원천이다.
+// 모바일(<1024px)은 전체 화면 상세(PersonalTaskMobile) 그대로다.
 import { X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog';
 import { AgentWorkCard } from '@/components/issue/agentWork/AgentWorkCard';
+import { InlineEditableBody, type InlineEditableBodyHandle } from '@/components/issue/InlineEditableBody';
 import { TaskRecurrenceField } from '@/components/issue/recurrence/TaskRecurrenceField';
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
-import { pageGutterClass, subPaneHeaderClass } from '@/components/layout/Page';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { isEscapeForInnerOverlay } from '@/lib/escapeOverlay';
+import { isTextEntryTarget } from '@/lib/escapeOverlay';
 import { parseId } from '@/lib/historyParam';
 import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
 import { cn } from '@/lib/utils';
+import type { UpdateIssueRequest } from '@/types/issue';
 
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { AssigneePickerPopover } from '../components/AssigneePickerPopover';
 import { IssueChatButton } from '../components/chat/IssueChatButton';
-import { IssueChatSection } from '../components/chat/IssueChatSection';
+import { IssueChatDrawer } from '../components/chat/IssueChatDrawer';
+import { useIssueChatDrawerParam } from '../components/chat/useIssueChatDrawerParam';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
 import { IssueStatusSelect } from '../components/IssueStatusSelect';
+import { useVersionedPatch } from '../hooks/useVersionedPatch';
 import { PersonalTaskMobile } from './PersonalTaskMobile';
 import { usePersonalTask } from './usePersonalTask';
-import { usePersonalTaskChatJump } from './usePersonalTaskChatJump';
 
 /**
- * ?task=N 쿼리 파라미터를 감지해 상세를 연다.
- * - panel 모드(리스트/체크리스트): 콘텐츠를 밀어 공존하는 인플로우 사이드 패널(툴바 비가림).
- * - modal 모드(보드): 칸반 가로폭 보존을 위해 중앙 모달(Radix Dialog).
+ * ?task=N 쿼리 파라미터를 감지해 상세를 연다 — 데스크톱은 넓은 모달, 모바일은 전체 화면.
  */
-export function PersonalTaskPanel({
-  projectKey,
-  mode,
-}: {
-  projectKey: string;
-  mode: 'panel' | 'modal';
-}) {
-  // ?task=N — 열림의 단일 원천. 닫기(✕·ESC·바깥 클릭·같은 행 재클릭)는 공용 히스토리 닫기:
+export function PersonalTaskPanel({ projectKey }: { projectKey: string }) {
+  // ?task=N — 열림의 단일 원천. 닫기(✕·ESC·바깥 클릭)는 공용 히스토리 닫기:
   // 리스트 행이 push 로 연 항목은 되돌리고, 보드 카드 Link·리다이렉트로 들어온 항목은 출발 화면으로,
   // 콜드 딥링크는 task 만 지운다(WP-208).
   const taskParam = useHistoryParam('task');
   const number = parseId(taskParam.value);
   const isMobile = useIsMobile();
 
-  // 모바일(<1024px) — 모드(보드 모달/리스트 패널)와 무관하게 전체 화면 상세(WP-221). 768~1023px 에서 400px 패널이
-  // 콘텐츠를 짓누르던 문제도 이 분기로 해소된다. 데스크톱은 기존 모달/패널 그대로.
+  // 모바일(<1024px) — 전체 화면 상세(WP-221). 데스크톱 — 넓은 모달(WP-1374).
   return isMobile ? (
     <PersonalTaskMobile projectKey={projectKey} number={number} onClose={taskParam.close} />
   ) : (
-    <PersonalTaskPanelDesktop projectKey={projectKey} mode={mode} number={number} close={taskParam.close} />
-  );
-}
-
-/** 데스크톱 상세 — 보드=중앙 모달, 리스트·체크리스트=인플로우 사이드 패널. 열림 판단은 상위의 number. */
-function PersonalTaskPanelDesktop({
-  projectKey,
-  mode,
-  number,
-  close,
-}: {
-  projectKey: string;
-  mode: 'panel' | 'modal';
-  number: number | null;
-  close: () => void;
-}) {
-  const open = number != null;
-
-  // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리 — 이중 닫기 방지). 패널 안 선택 목록·확인 창이
-  // 열려 있으면 그 Esc 는 그것을 닫는 데만 쓴다(WP-698 — 한 번에 패널까지 닫히던 문제).
-  useEffect(() => {
-    if (!open || mode === 'modal') return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !isEscapeForInnerOverlay(e)) close(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, mode, close]);
-
-  // 포커스 관리 — panel 모드는 Radix Dialog 를 쓰지 않아 열림/닫힘 시 포커스 이동이
-  // 전혀 없었다(#817). 열릴 때 패널 컨테이너로 포커스를 옮기고, 닫힐 때(트리거 재클릭/ESC/✕
-  // 무엇이든) 열기 직전 포커스였던 요소로 복귀한다.
-  const asideRef = useRef<HTMLElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!open || mode === 'modal') return;
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    asideRef.current?.focus();
-    return () => {
-      const prev = previousFocusRef.current;
-      if (prev && prev.isConnected) prev.focus();
-    };
-  }, [open, mode]);
-
-  // 보드 뷰 → 중앙 모달(dim·ESC·외부클릭 닫기는 Radix). 칸반 가로폭 보존.
-  if (mode === 'modal') {
-    return (
-      <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
-        <DialogContent
-          data-testid="personal-task-modal"
-          className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]"
-        >
-          {/* Radix a11y — DialogContent 에 설명 필수(없으면 콘솔 경고). 화면엔 숨김. */}
-          <DialogDescription className="sr-only">작업 상세 보기</DialogDescription>
-          {number != null && <PersonalTaskDetail key={number} projectKey={projectKey} number={number} onClose={close} asModal />}
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  // 리스트·체크리스트 뷰 → 페이지 헤더 아래 본문 안 보조 칸. md+ 는 목록 칸을 밀어 공존(툴바 비가림),
-  // < md 는 좁은 화면 보호용 fixed 오버레이. dim 없음(목록 계속 클릭 가능). 닫힘 시 미렌더.
-  if (number == null) return null;
-  return (
-    <aside
-      ref={asideRef}
-      role="complementary"
-      aria-label="작업 상세"
-      tabIndex={-1}
-      data-testid="personal-task-panel"
-      className={cn(
-        'flex min-h-0 flex-col border-l bg-card',
-        'max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-50 max-md:w-full max-md:max-w-[400px] max-md:shadow-xl',
-        'md:relative md:w-[400px] md:shrink-0',
-      )}
-    >
-      {/* 보조 칸 소제목 줄(34px) — 페이지 헤더가 아니라 본문 안 칸임을 드러낸다. 편집 가능한 제목(input h-8)은
-          낮은 text-xs 줄에 맞지 않아 이 줄 바로 아래 본문 첫머리에 둔다. */}
-      <div data-testid="personal-task-panel-header" className={subPaneHeaderClass}>
-        <span>작업 상세</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="닫기"
-          data-testid="personal-task-panel-close"
-          className="size-7"
-          onClick={close}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-      <PersonalTaskDetail key={number} projectKey={projectKey} number={number} onClose={close} />
-    </aside>
+    <PersonalTaskModal projectKey={projectKey} number={number} close={taskParam.close} />
   );
 }
 
 /**
- * 실제 이슈 단건 로드 및 필드 렌더. asModal=true 면 제목 줄(border-b)을 DialogTitle 과 함께 두고 닫기는 DialogContent 자체 사용.
- * 패널은 닫기가 상위 소제목 줄에 있으므로 제목을 본문 첫머리에 둔다.
+ * 닫기 전에 모달 안에서 포커스를 가진 칸을 blur 한다 — 제목 입력은 blur 로 저장하므로(commitOnBlur), 고치던 제목이 닫기와 함께 저장된다.
+ * 왜: 바깥(dim) 클릭은 pointerdown 에서 바로 닫혀, 입력칸이 blur 를 받기 전에 사라지면 고친 제목이 소리 없이 없어진다.
  */
-export function PersonalTaskDetail({
+function flushFocusedField(container: HTMLElement | null) {
+  const active = document.activeElement;
+  if (container && active instanceof HTMLElement && container.contains(active)) active.blur();
+}
+
+/** 데스크톱 넓은 모달 — 폭 70rem(1120px)·높이 85vh, 화면이 작으면 화면 안(좌우·위아래 1rem 여백)에 맞춘다. */
+function PersonalTaskModal({
+  projectKey,
+  number,
+  close,
+}: {
+  projectKey: string;
+  number: number | null;
+  close: () => void;
+}) {
+  const open = number != null;
+  // AI 옆 패널과 공존(WP-54 공용 훅) — 옛 리스트 옆 칸은 모달이 아니어서 작업을 연 채 AI 에 「이 작업…」을 물을 수 있었다.
+  // 모달로 바뀐 뒤에도 AI 패널이 side 모드면 non-modal 로 열려 그 흐름을 지킨다(패널 쪽은 비우고 페이지 영역 가운데).
+  const aiAware = useAiPanelAwareDialog({
+    open,
+    size: 'wide',
+    handlers: {
+      // 글을 고치는 칸(메모 편집칸·제목 입력)의 Esc 는 편집 취소 몫이라 모달을 닫지 않는다 — Radix 는 문서 캡처 단계에서 Esc 를 먼저 받아
+      // 모달을 닫아 버려, 칸의 「Esc = 편집 취소」가 모달째 닫기가 되었다. 체크박스·날짜 칸 등은 취소할 글이 없어 모달을 닫는다.
+      onEscapeKeyDown: (e) => {
+        if (isTextEntryTarget(e.target)) e.preventDefault();
+      },
+    },
+  });
+  // 메모를 고친 채 저장하지 않았는가(InlineEditableBody 가 알린다) — 그 상태로 닫으면(dim·✕·Esc) 고친 메모가 사라지므로 먼저 묻는다.
+  const [memoDirty, setMemoDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  // 버리고 닫을 때 메모 초안(localStorage, #824)을 지울 손잡이 — 버린다고 했는데 다음 편집에 「작성 중이던 내용」으로 되살아나지 않게.
+  const memoRef = useRef<InlineEditableBodyHandle | null>(null);
+
+  /** 닫기 요청 공통 경로(dim·✕·Esc·「닫기」) — 고친 메모가 있으면 확인을 띄우고, 없으면 포커스 칸(제목)을 저장한 뒤 닫는다. */
+  const requestClose = () => {
+    if (memoDirty) {
+      setConfirmClose(true);
+      return;
+    }
+    flushFocusedField(contentRef.current);
+    close();
+  };
+  /** 확인 창 「버리고 닫기」 — 메모 초안을 지우고 닫는다. */
+  const discardAndClose = () => {
+    setConfirmClose(false);
+    memoRef.current?.discardDraft();
+    close();
+  };
+
+  return (
+    // dim·ESC·바깥 클릭 닫기·포커스 가둠/복원은 Radix. 서랍(채팅)이 위에 열려 있으면 ESC·바깥 클릭은 서랍부터 닫는다(Radix 레이어 순서).
+    <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }} modal={aiAware.modal}>
+      {aiAware.overlay}
+      <DialogContent
+        ref={contentRef}
+        data-testid="personal-task-modal"
+        showCloseButton={false}
+        className={cn(
+          'flex h-[min(85vh,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(70rem,calc(100%-2rem))]',
+          aiAware.contentClassName,
+          // side 모드 — 페이지 영역(화면 - AI 패널 폭) 안에서도 70rem 을 넘지 않게.
+          !aiAware.modal && 'lg:max-w-[min(70rem,calc(100%-var(--ai-side-width,0px)-2rem))]',
+        )}
+        {...aiAware.contentProps}
+      >
+        {/* Radix a11y — DialogContent 에 설명 필수(없으면 콘솔 경고). 화면엔 숨김. */}
+        <DialogDescription className="sr-only">작업 상세 보기</DialogDescription>
+        {number != null && (
+          <PersonalTaskDetail
+            key={number}
+            projectKey={projectKey}
+            number={number}
+            onClose={requestClose}
+            onMemoDirtyChange={setMemoDirty}
+            memoRef={memoRef}
+          />
+        )}
+        {/* 고친 메모를 두고 닫을 때의 확인 — 모달 안(React 트리)에 두어 확인 창 클릭이 모달의 바깥 클릭으로 취급되지 않는다. */}
+        <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+          <AlertDialogContent data-testid="personal-task-discard-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>저장하지 않은 메모를 버릴까요?</AlertDialogTitle>
+              <AlertDialogDescription>닫으면 고친 메모가 사라집니다.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="personal-task-discard-keep">계속 쓰기</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" data-testid="personal-task-discard-confirm" onClick={discardAndClose}>
+                버리고 닫기
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * 작업 단건 로드 및 모달 내용 — 머리(제목 인라인 편집 · 채팅 · 닫기), 본문 왼쪽 메모, 오른쪽 속성 레일, 그리고 채팅 서랍.
+ */
+function PersonalTaskDetail({
   projectKey,
   number,
   onClose,
-  asModal,
+  onMemoDirtyChange,
+  memoRef,
 }: {
   projectKey: string;
   number: number;
   onClose: () => void;
-  asModal?: boolean;
+  /** 메모를 고친 채 저장하지 않았는지 — 모달이 닫기 전에 확인을 묻는다. */
+  onMemoDirtyChange: (dirty: boolean) => void;
+  /** 메모 편집기 손잡이 — 모달 「버리고 닫기」가 초안을 지운다. */
+  memoRef: React.Ref<InlineEditableBodyHandle>;
 }) {
   // 조회·수정·404 판정·AI 화면 컨텍스트 등록은 모바일 전체 화면과 공유(WP-221).
   const task = usePersonalTask(projectKey, number);
   const { q, update, data } = task;
   // 상태 선택지 — 개인 프로젝트도 시드 상태 목록(이름)을 갖는다(WP-808).
   const statuses = useProjectStatusList(projectKey);
-  // 채팅으로 이동(WP-1372) — 채팅 버튼·AI 진행 카드·`?chat=1` 딥링크가 상세 안의 채팅 칸으로 스크롤하고 입력칸에 포커스한다.
-  const chat = usePersonalTaskChatJump({ projectKey, number, task });
+  // 채팅 서랍(WP-1374) — 팀 이슈와 같은 ?chat=1. 서랍이 모달 위에 겹치므로 링크로 들어와 열린 서랍도 닫으면 모달로 돌아온다(unmarkedClose).
+  // 작업을 못 찾으면(404) 서랍을 열 수 없어 chat 을 지운다 — 같은 화면에서 다음에 여는 작업에 chat=1 이 묻어가지 않게.
+  const chat = useIssueChatDrawerParam({ unmarkedClose: 'replace', clearWhen: !!q.error });
+
+  // #611 메모는 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 쓰는 사이 AI 가 메모를 바꿨다면 덮어쓰지 않고 409 로 알린다(팀 이슈 본문과 같은 공용 훅).
+  const { patch, beginEdit, baseVersion } = useVersionedPatch<'body'>(update, data?.summary.version);
+  /** 결과를 기다리지 않는 필드 저장(상태·우선순위·마감·제목). */
+  const save = (changes: UpdateIssueRequest) => { void patch(changes); };
 
   return (
-    // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
-    <div {...chat.scrollProps} className="flex flex-1 flex-col overflow-y-auto">
-      {/* 제목 줄 — 모달은 기존 헤더 줄(border-b p-3), 패널은 소제목 줄 바로 아래 본문 첫머리. */}
-      {/* 모달은 DialogContent 의 ✕(우상단 absolute)와 채팅 버튼이 겹치지 않게 오른쪽을 비운다. */}
-      <div
-        className={
-          asModal
-            ? 'flex items-center justify-between gap-2 border-b p-3 pr-12'
-            : cn(pageGutterClass, 'flex items-center gap-2 pt-4')
-        }
-      >
-        {/* 제목 인라인 편집 — 패널·모달 공통(#718). 개인 이슈는 상세 페이지가 리다이렉트로 막혀
-            드로어가 유일한 편집 경로이므로 여기에서 직접 편집한다. 모달은 Radix a11y 상 DialogTitle
-            이 필수라 접근성용 텍스트만 sr-only 로 유지하고 편집 UI 를 시각적으로 노출한다. */}
-        <div
-          className="min-w-0 flex-1 text-sm font-medium"
-          data-testid="personal-task-panel-title"
-        >
-          {asModal && (
-            <DialogTitle className="sr-only">{data?.summary.title ?? '작업'}</DialogTitle>
-          )}
+    <>
+      {/* 머리 — 제목 인라인 편집(개인 작업은 풀페이지가 리다이렉트로 막혀 여기가 유일한 편집 경로, #718) · 채팅 · 닫기. */}
+      <div className="flex shrink-0 items-center gap-2 border-b px-5 py-3">
+        <div className="min-w-0 flex-1 text-base font-semibold" data-testid="personal-task-panel-title">
+          {/* Radix a11y 상 DialogTitle 필수 — 접근성용 텍스트만 sr-only, 편집 UI 를 시각적으로 노출한다. */}
+          <DialogTitle className="sr-only">{data?.summary.title ?? '작업'}</DialogTitle>
           <InlineEditableTitle
             title={data?.summary.title ?? '작업'}
             disabled={!data || update.isPending}
-            onSave={(t) => update.mutate({ title: t })}
+            onSave={(t) => save({ title: t })}
           />
         </div>
-        {/* 채팅 버튼(WP-1372) — 팀 이슈 헤더와 같은 버튼·읽지 않은 수. 드로워 대신 아래 채팅 칸으로 이동한다.
-            읽지 않은 수는 아래 채팅에서 메시지를 읽으면(읽음 워터마크) 지워진다. */}
-        {data && (
-          <IssueChatButton {...chat.buttonProps} />
-        )}
+        {/* 채팅 버튼 — 팀 이슈 헤더와 같은 버튼·읽지 않은 수. 오른쪽 채팅 서랍을 연다(열려 있으면 읽는 중으로 보고 0). */}
+        {data && <IssueChatButton projectKey={projectKey} issueNumber={number} open={chat.open} onOpen={chat.openChat} />}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="닫기"
+          data-testid="personal-task-close"
+          className="size-8"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </div>
 
       {/* 로딩 중 */}
-      {q.isLoading && <p className="p-4 text-sm text-muted-foreground">로딩 중…</p>}
+      {q.isLoading && <p className="p-5 text-sm text-muted-foreground">로딩 중…</p>}
 
       {/* 에러 / 찾을 수 없음 */}
       {q.error && (
-        <div data-testid="personal-task-panel-notfound" className="p-4 text-sm text-destructive">
+        <div data-testid="personal-task-panel-notfound" className="p-5 text-sm text-destructive">
           작업을 찾을 수 없습니다.
           <button type="button" onClick={onClose} className="ml-2 underline">
             닫기
@@ -218,76 +239,88 @@ export function PersonalTaskDetail({
         </div>
       )}
 
-      {/* 필드 영역 — 필드 다이어트: 상태·우선순위·마감·담당자·반복·라벨·메모·AI대화만 */}
       {data && (
-        <div className="space-y-4 p-4">
-          <Field label="상태">
-            <IssueStatusSelect
-              value={data.summary.statusId}
-              statuses={statuses}
-              currentName={data.summary.statusName}
-              disabled={update.isPending}
-              onChange={(s) => update.mutate({ statusId: s.id })}
-              blockedBy={data.summary.blockedBy}
-              projectKey={projectKey}
-            />
-          </Field>
-          <Field label="우선순위">
-            <IssuePrioritySelect
-              value={data.summary.priority}
-              disabled={update.isPending}
-              onChange={(v) => update.mutate({ priority: v })}
-            />
-          </Field>
-          <Field label="마감">
-            <DueDateInput
-              value={data.summary.dueDate ?? null}
-              onSave={(next) => update.mutate(next ? { dueDate: next } : { clearDueDate: true })}
-            />
-          </Field>
-          <Field label="담당자">
-            <AssigneePickerPopover
-              projectKey={projectKey}
-              issueNumber={number}
-              current={data.summary.assignees}
-            />
-          </Field>
-          {/* AI 에게 맡기기(WP-989, WP-1314) — 정한 시각마다 담당 AI 가 이 작업을 실행한다(옛 「반복」 칸). */}
-          <Field label="AI 에게 맡기기">
-            <TaskRecurrenceField projectKey={projectKey} number={number} />
-          </Field>
-          {/* AI 진행(WP-1372) — 팀 이슈와 같은 카드. 진행 중 AI 작업이 없으면 그리지 않는다.
-              「답변 필요」 배지는 드로워 대신 아래 채팅 칸으로 이동한다. */}
-          <AgentWorkCard list={data.summary.agentWork} onOpenChat={chat.onOpenChat} />
-          <Field label="라벨">
-            <div className="flex flex-wrap items-center gap-1">
-              {data.summary.labels.map((l) => (
-                <LabelChip key={l.id} label={l} size="sm" />
-              ))}
-              <LabelPickerPopover
+        <div className="flex min-h-0 flex-1">
+          {/* 왼쪽 — AI 진행 + 메모. 이 칸만 세로 스크롤한다. */}
+          <div data-testid="personal-task-memo" className="min-w-0 flex-1 space-y-4 overflow-y-auto p-5">
+            {/* AI 진행(WP-1372) — 팀 이슈처럼 본문 위. 진행 중 AI 작업이 없으면 그리지 않는다. 「답변 필요」 배지는 채팅 서랍을 연다. */}
+            <AgentWorkCard list={data.summary.agentWork} onOpenChat={chat.openChat} />
+            {/* 메모 — 팀 이슈 본문과 같은 렌더·편집(InlineEditableBody). 편집 권한은 이슈 내용 수정 권한과 같다. */}
+            <section aria-label="메모" className="space-y-2">
+              <h2 className="text-base leading-6 font-medium">메모</h2>
+              <InlineEditableBody
+                body={data.body}
+                ref={memoRef}
+                onSave={(b) => patch({ body: b, version: baseVersion('body') })}
+                onEditStart={() => beginEdit('body')}
+                disabled={!(data.viewerCanEditContent ?? false) || update.isPending}
                 projectKey={projectKey}
                 issueNumber={number}
-                current={data.summary.labels}
+                editLabel="메모 편집"
+                onDirtyChange={onMemoDirtyChange}
               />
-            </div>
-          </Field>
-          <Field label="메모">
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {data.body || '본문 없음'}
-            </p>
-          </Field>
-
-          {/* AI 위임 대화 = 기존 이슈 chat 스레드 재사용. 사이클·의존성·커스텀필드·watch 미포함. */}
-          <div {...chat.sectionProps}>
-            <IssueChatSection {...chat.chatProps} />
+            </section>
           </div>
+          {/* 오른쪽 — 속성 레일(상태·우선순위·마감·담당자·AI 에게 맡기기·라벨). 사이클·의존성·커스텀필드·구독은 개인 작업에 없다. */}
+          <aside aria-label="속성" data-testid="personal-task-rail" className="w-[300px] shrink-0 space-y-4 overflow-y-auto border-l p-4">
+            <Field label="상태">
+              <IssueStatusSelect
+                value={data.summary.statusId}
+                statuses={statuses}
+                currentName={data.summary.statusName}
+                disabled={update.isPending}
+                onChange={(s) => save({ statusId: s.id })}
+                blockedBy={data.summary.blockedBy}
+                projectKey={projectKey}
+              />
+            </Field>
+            <Field label="우선순위">
+              <IssuePrioritySelect
+                value={data.summary.priority}
+                disabled={update.isPending}
+                onChange={(v) => save({ priority: v })}
+              />
+            </Field>
+            <Field label="마감">
+              <DueDateInput
+                value={data.summary.dueDate ?? null}
+                onSave={(next) => save(next ? { dueDate: next } : { clearDueDate: true })}
+              />
+            </Field>
+            <Field label="담당자">
+              <AssigneePickerPopover
+                projectKey={projectKey}
+                issueNumber={number}
+                current={data.summary.assignees}
+              />
+            </Field>
+            {/* AI 에게 맡기기(WP-989, WP-1314) — 정한 시각마다 담당 AI 가 이 작업을 실행한다(옛 「반복」 칸). */}
+            <Field label="AI 에게 맡기기">
+              <TaskRecurrenceField projectKey={projectKey} number={number} />
+            </Field>
+            <Field label="라벨">
+              <div className="flex flex-wrap items-center gap-1">
+                {data.summary.labels.map((l) => (
+                  <LabelChip key={l.id} label={l} size="sm" />
+                ))}
+                <LabelPickerPopover
+                  projectKey={projectKey}
+                  issueNumber={number}
+                  current={data.summary.labels}
+                />
+              </div>
+            </Field>
+          </aside>
         </div>
       )}
-    </div>
+
+      {/* 채팅 서랍 — 팀 이슈 상세와 같은 오른쪽 서랍. 모달 안(React 트리)에 두어 Radix 가 중첩 레이어로 다룬다:
+          서랍이 위에 겹치고, ESC·바깥 클릭은 서랍부터 닫으며, 닫히면 포커스가 모달(채팅 버튼)로 돌아온다. */}
+      {data && <IssueChatDrawer projectKey={projectKey} issueNumber={number} open={chat.open} onClose={chat.closeChat} />}
+    </>
   );
 }
 
-/** 라벨 + 값 한 줄 레이아웃. */
 /**
  * 마감 입력(WP-903) — native 날짜 칸은 연도를 치는 도중에도 「0002-10-23」 같은 완성된 값을 내보낸다.
  * 바로 저장하면 서버가 거절하고, 저장 중 칸을 잠그면 나머지 숫자가 사라져 마감일을 입력할 수 없었다.
@@ -332,6 +365,7 @@ function DueDateInput({ value, onSave }: { value: string | null; onSave: (next: 
   );
 }
 
+/** 속성 한 칸 — 라벨 위, 값(컨트롤) 아래. 팀 이슈 속성 레일과 같은 배치. */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">

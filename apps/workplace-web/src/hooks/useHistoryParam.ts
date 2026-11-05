@@ -24,14 +24,14 @@ export interface HistoryParam {
   value: string | null
   /** 열기·전환 — 닫힌 상태면 push, 열린 상태면 replace. */
   open: (value: string) => void
-  /** 닫기 — 마크 → 연 시점 직전, 마크 없고 idx>0 → -1, 콜드 → 키만 지우고 replace. */
+  /** 닫기 — 마크 → 연 시점 직전, 마크 없고 idx>0 → -1(unmarkedClose='replace' 면 키만 지움), 콜드 → 키만 지우고 replace. */
   close: () => void
 }
 
 export function useHistoryParam(key: string, opts: HistoryParamOptions = {}): HistoryParam {
   const location = useLocation()
   const navigate = useNavigate()
-  const { mode } = opts
+  const { mode, unmarkedClose } = opts
   // clear 는 호출부 배열 리터럴이라 렌더마다 새 배열 — 문자열 서명이 같으면 같은 배열을 쓴다.
   const clearSig = (opts.clear ?? []).join('\u0000')
   // eslint-disable-next-line react-hooks/exhaustive-deps -- clearSig 가 opts.clear 의 내용 서명
@@ -81,8 +81,8 @@ export function useHistoryParam(key: string, opts: HistoryParamOptions = {}): Hi
   const close = useCallback(() => {
     const snap = snapshot()
     if (!snap || !guardRef.current.claim(location.key)) return
-    run(planClose(snap, key, { clear, mode }))
-  }, [snapshot, run, location.key, key, clear, mode])
+    run(planClose(snap, key, { clear, mode, unmarkedClose }))
+  }, [snapshot, run, location.key, key, clear, mode, unmarkedClose])
 
   return { value, open, close }
 }

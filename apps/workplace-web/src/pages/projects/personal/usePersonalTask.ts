@@ -1,4 +1,4 @@
-// 개인 작업 단건 상태(WP-221) — 데스크톱 패널/모달(PersonalTaskDetail)과 모바일 전체 화면(PersonalTaskMobile)이 공유한다.
+// 개인 작업 단건 상태(WP-221) — 데스크톱 넓은 모달(PersonalTaskDetail)과 모바일 전체 화면(PersonalTaskMobile)이 공유한다.
 // 조회·수정 mutation·원격 삭제(404) 판정·AI 화면 컨텍스트 등록을 한 곳에 둬 두 화면이 어긋나지 않게 한다.
 import { useMemo } from 'react';
 

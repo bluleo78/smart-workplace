@@ -36,13 +36,21 @@ const SIDE_CONTENT_CLASS = {
   wide: `${AI_SIDE_CENTER_CLASS} lg:max-w-[calc(100%-var(--ai-side-width,0px)-2rem)]`,
   // lightbox: 화면 전체를 덮는 뷰어(WP-277) — side 모드면 패널 폭만큼 오른쪽을 비운다.
   lightbox: 'lg:right-[var(--ai-side-width,0px)]',
+  // drawer: 오른쪽에 붙는 서랍(이슈 채팅, WP-1374) — side 모드면 패널 왼쪽에 붙어 패널을 덮지 않는다.
+  drawer: 'lg:right-[var(--ai-side-width,0px)]',
 } as const;
 
 interface Options {
   /** 다이얼로그 열림 여부 — side 모드에서 열린 동안만 페이지 영역을 inert 로 만든다. */
   open: boolean;
-  /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 한 단계 넓은 폼(form) / 넓은 미리보기(wide) / 전체 화면 뷰어(lightbox). */
+  /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 한 단계 넓은 폼(form) / 넓은 미리보기(wide) / 전체 화면 뷰어(lightbox) / 오른쪽 서랍(drawer). */
   size?: keyof typeof SIDE_CONTENT_CLASS;
+  /**
+   * 호출부 자신의 콘텐츠 핸들러 — 공용 처리 뒤에 이어 붙여 contentProps 에 합친다(호출부는 펼치기만 한다).
+   * 공용 처리가 기본 동작을 막았으면(AI 표면 상호작용·모드 전환 재마운트) 열기·Esc·바깥 상호작용 핸들러는 건너뛴다.
+   * 닫힘 자동 포커스는 막혔어도 늘 부른다 — 호출부의 포커스 복원 훅이 이번 열림의 상태를 비워야 하므로(스스로 defaultPrevented 를 본다).
+   */
+  handlers?: Partial<ContentHandlers>;
 }
 
 /** DialogContent 에 펼칠 이벤트 핸들러 묶음. */
@@ -68,7 +76,7 @@ interface Result {
 const noopClose = () => {};
 
 /** AI 사이드 패널과 공존하는 다이얼로그 props 를 만든다. */
-export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Result {
+export function useAiPanelAwareDialog({ open, size = 'default', handlers }: Options): Result {
   // 앱 셸 밖 공개 화면(공유 링크 미리보기, WP-1227)엔 AI Provider 가 없다 — AI 패널이 닫힌 것으로 보고 기존 modal 동작을 쓴다.
   const assistant = useOptionalAssistant();
   const mode = assistant?.mode ?? 'closed';
@@ -150,9 +158,46 @@ export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Resu
     [modal],
   );
 
+  // 호출부 핸들러를 공용 처리 뒤에 잇는다(Options.handlers 규칙) — 호출부가 공용 핸들러를 하나씩 감싸 부르지 않게.
+  const extra = handlers ?? {};
+  const { onInteractOutside: extraInteract, onEscapeKeyDown: extraEscape, onOpenAutoFocus: extraOpen, onCloseAutoFocus: extraClose } = extra;
+  const composedInteractOutside = useCallback(
+    (e: Event) => {
+      onInteractOutside(e);
+      if (!e.defaultPrevented) extraInteract?.(e);
+    },
+    [onInteractOutside, extraInteract],
+  );
+  const composedEscapeKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      onEscapeKeyDown(e);
+      if (!e.defaultPrevented) extraEscape?.(e);
+    },
+    [onEscapeKeyDown, extraEscape],
+  );
+  const composedOpenAutoFocus = useCallback(
+    (e: Event) => {
+      onOpenAutoFocus(e);
+      if (!e.defaultPrevented) extraOpen?.(e);
+    },
+    [onOpenAutoFocus, extraOpen],
+  );
+  const composedCloseAutoFocus = useCallback(
+    (e: Event) => {
+      onCloseAutoFocus(e);
+      extraClose?.(e);
+    },
+    [onCloseAutoFocus, extraClose],
+  );
+
   return {
     modal,
-    contentProps: { onInteractOutside, onEscapeKeyDown, onOpenAutoFocus, onCloseAutoFocus },
+    contentProps: {
+      onInteractOutside: composedInteractOutside,
+      onEscapeKeyDown: composedEscapeKeyDown,
+      onOpenAutoFocus: composedOpenAutoFocus,
+      onCloseAutoFocus: composedCloseAutoFocus,
+    },
     contentClassName: modal ? '' : SIDE_CONTENT_CLASS[size],
     // 페이지 영역 dim — 기존 DialogOverlay 와 같은 톤(bg-black/50·z-50). 데스크톱에선 패널 폭만큼 우측을 비워
     // 패널은 덮지 않는다(모바일은 AI 시트 레이어가 z-[60] 이라 inset-0 이어도 시트 아래에 깔린다).
