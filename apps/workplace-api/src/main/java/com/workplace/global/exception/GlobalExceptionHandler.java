@@ -1302,17 +1302,43 @@ public class GlobalExceptionHandler {
 
   /**
    * 요청 본문이 malformed JSON이거나 역직렬화에 실패한 경우 500 대신 400 반환. 같은 카테고리(클라이언트 입력 오류 → 4xx)이며 본문을 읽지 못한
-   * 케이스이므로 400 Bad Request로 매핑한다.
+   * 케이스이므로 400 Bad Request로 매핑한다. 원인 체인에 따라 문구가 갈린다 — 지원 범위 밖 날짜(WP-725)는 그 이유를, Jackson 길이 한도
+   * 초과(WP-1387)는 「입력한 내용이 너무 깁니다」(+칸 경로)를, 그 밖은 공통 「요청 본문을 해석할 수 없습니다.」를 쓴다.
    */
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ErrorResponse> handleMessageNotReadable(
       HttpMessageNotReadableException ex, HttpServletRequest request) {
-    // 지원 범위 밖 날짜(WP-725)는 본문 해석 중에 걸린다 — 일반 문구 대신 그 이유를 그대로 알린다.
+    // 원인 체인을 한 번 훑어 특별히 알릴 원인을 모은다.
+    // - 지원 범위 밖 날짜(WP-725): 본문 해석 중에 걸린다 — 일반 문구 대신 그 이유를 그대로 알린다.
+    // - Jackson 길이 한도(문자열·숫자·이름, WP-1387): 서비스의 크기 검사까지 가지 못하고 일반 문구로 나가 무엇을 줄일지 알 수 없었다.
+    //   한도 자체는 바꾸지 않는다(메모리 보호). 중첩 깊이 초과는 「길다」가 아니라서 일반 문구로 둔다.
+    //   칸 경로는 체인 안 JsonMappingException(Jackson 이 칸 경로를 붙여 감싼다)이 짚을 때만 errors 에 싣는다.
+    boolean overLimit = false;
+    String limitField = "";
     for (Throwable t = ex; t != null; t = t.getCause()) {
       if (t instanceof UnsupportedDateException) {
         return ResponseEntity.badRequest()
             .body(buildError(HttpStatus.BAD_REQUEST, t.getMessage(), null, request));
       }
+      if (t instanceof com.fasterxml.jackson.core.exc.StreamConstraintsException sce
+          && sce.getOriginalMessage() != null
+          && sce.getOriginalMessage().contains("length")) {
+        overLimit = true;
+      }
+      if (limitField.isEmpty()
+          && t instanceof com.fasterxml.jackson.databind.JsonMappingException jme) {
+        limitField = jsonPath(jme.getPath());
+      }
+    }
+    if (overLimit) {
+      Map<String, String> limitErrors = limitField.isEmpty() ? null : Map.of(limitField, "너무 깁니다");
+      return ResponseEntity.badRequest()
+          .body(
+              buildError(
+                  HttpStatus.BAD_REQUEST,
+                  "입력한 내용이 너무 깁니다. 내용을 줄여 다시 보내 주세요.",
+                  limitErrors,
+                  request));
     }
     // 값의 형식이 틀린 칸(예: 2026-02-30 날짜)이 짚이면 그 칸을 errors 에 싣는다(WP-744 — 어느 칸이 왜 틀렸는지 알 수 없었다).
     Map<String, String> fieldErrors = null;
