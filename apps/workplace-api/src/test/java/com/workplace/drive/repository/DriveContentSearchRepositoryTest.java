@@ -10,6 +10,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.time.OffsetDateTime;
+import java.util.Arrays;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -160,5 +162,41 @@ class DriveContentSearchRepositoryTest extends IntegrationTestBase {
     var ids = hits.stream().map(DriveContentSearchRepository.ContentRow::driveFileId).toList();
 
     assertThat(ids).contains(inA).doesNotContain(inB);
+  }
+
+  /**
+   * 휴지통 파일 제외(WP-1378) — 본문이 똑같이 맞는 두 파일 중 하나를 휴지통에 넣으면(trashed_at 설정) 키워드 전용·하이브리드(벡터 있음) 두 경로
+   * 모두에서 그 파일이 빠지고 남은 파일만 나와야 한다. 이름 검색·목록과 같은 기준이다.
+   */
+  @Test
+  void hybridSearch_excludesTrashedFiles_onKeywordAndVectorPaths() {
+    long kept = seedDriveFileWithExtraction(spaceA, "남은 보고서", "휴지통검사 매출 요약");
+    long trashed = seedDriveFileWithExtraction(spaceA, "버린 보고서", "휴지통검사 매출 요약");
+    // 휴지통 이동을 흉내 낸다 — 검색 조건이 보는 trashed_at(과 trash_root)만 채운다. 실제 휴지통 API 경로(trash_op_id 포함)는
+    // DriveContentSearchTrashTest 가 본다.
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, OffsetDateTime.now())
+        .set(DRIVE_FILE.TRASH_ROOT, true)
+        .where(DRIVE_FILE.ID.eq(trashed))
+        .execute();
+    // 벡터 경로에서도 휴지통 파일이 벡터 랭커로 끌려오지 않는지 보려고 두 파일 모두에 같은 임베딩(1024차원)을 넣는다.
+    float[] emb = new float[1024];
+    Arrays.fill(emb, 0.1f);
+    dsl.execute(
+        "UPDATE file_extraction SET embedding = cast(? as vector)"
+            + " WHERE file_id IN (SELECT file_id FROM drive_file WHERE id IN (?, ?))",
+        DriveContentSearchRepository.toVectorLiteral(emb),
+        kept,
+        trashed);
+
+    for (float[] vec : new float[][] {null, emb}) {
+      for (Long scope : new Long[] {null, spaceA}) {
+        var ids =
+            repo.hybridSearch(userA, "휴지통검사", vec, 10, scope).stream()
+                .map(DriveContentSearchRepository.ContentRow::driveFileId)
+                .toList();
+        assertThat(ids).contains(kept).doesNotContain(trashed);
+      }
+    }
   }
 }
