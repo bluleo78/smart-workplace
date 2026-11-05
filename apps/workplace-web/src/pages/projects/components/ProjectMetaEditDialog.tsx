@@ -115,8 +115,11 @@ export function ProjectMetaEditDialog({
   onSave,
   onClose,
   nameMaxLength = 40,
+  validateName,
 }: {
   title: string;
+  /** 이름 화면 검증 — 오류 문구를 돌려주면 창 안에 보이고 저장하지 않는다(라벨 쉼표 금지, WP-1386). 없으면 검증하지 않는다. */
+  validateName?: (name: string) => string | null;
   /** 이름 최대 길이 — 라벨·유형은 40, 상태는 30(서버 ProjectStatusService.NAME_MAX, WP-809). */
   nameMaxLength?: number;
   target: ({ id: number } & ProjectMetaEditValue) | null;
@@ -126,7 +129,7 @@ export function ProjectMetaEditDialog({
   return (
     <Dialog open={target != null} onOpenChange={(open) => { if (!open) onClose(); }}>
       {/* 대상이 바뀔 때마다 입력을 새로 채우려고 key 로 다시 그린다. */}
-      {target && <EditForm key={target.id} title={title} initial={target} onSave={onSave} onClose={onClose} nameMaxLength={nameMaxLength} />}
+      {target && <EditForm key={target.id} title={title} initial={target} onSave={onSave} onClose={onClose} nameMaxLength={nameMaxLength} validateName={validateName} />}
     </Dialog>
   );
 }
@@ -137,9 +140,11 @@ function EditForm({
   onSave,
   onClose,
   nameMaxLength,
+  validateName,
 }: {
   title: string;
   nameMaxLength: number;
+  validateName?: (name: string) => string | null;
   initial: ProjectMetaEditValue;
   onSave: (value: ProjectMetaEditValue) => Promise<unknown>;
   onClose: () => void;
@@ -152,9 +157,14 @@ function EditForm({
   // Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331).
   const enterKey = useSingleLineEnter();
 
+  // 화면 검증 오류(WP-1386) — 입력하는 동안 보이고, 있으면 저장 요청을 보내지 않는다. 서버 오류(error)는 이름을 고치면 지워지므로(onChange)
+  // 둘이 함께 남지 않는다 — 화면 오류가 사라질 때 지난 서버 오류가 되살아나지 않는다.
+  const nameError = validateName?.(name) ?? null;
+  const shownError = nameError ?? error;
+
   async function save() {
     const trimmed = name.trim();
-    if (!trimmed || saving) return;
+    if (!trimmed || saving || nameError) return;
     setError(null);
     setSaving(true);
     try {
@@ -185,7 +195,8 @@ function EditForm({
             onCompositionEnd={enterKey.onCompositionEnd}
             onKeyDown={(e) => enterKey.handleEnter(e, () => void save())}
             maxLength={nameMaxLength}
-            aria-invalid={!!error}
+            aria-invalid={!!shownError}
+            aria-describedby={shownError ? 'meta-edit-name-error' : undefined}
           />
         </div>
         <div className="space-y-1">
@@ -198,9 +209,9 @@ function EditForm({
             <IssueTypeIconPicker value={icon} onChange={setIcon} testIdPrefix="meta-edit-icon-" />
           </div>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
+        {shownError && (
+          <p id="meta-edit-name-error" role="alert" className="text-sm text-destructive">
+            {shownError}
           </p>
         )}
       </div>
@@ -208,7 +219,7 @@ function EditForm({
         <Button type="button" variant="outline" onClick={onClose}>
           취소
         </Button>
-        <Button type="button" onClick={() => void save()} disabled={!name.trim() || saving}>
+        <Button type="button" onClick={() => void save()} disabled={!name.trim() || saving || !!nameError}>
           저장
         </Button>
       </DialogFooter>

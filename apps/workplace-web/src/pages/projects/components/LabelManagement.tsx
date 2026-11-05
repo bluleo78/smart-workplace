@@ -21,6 +21,7 @@ import {
   useUpdateLabel,
 } from '../../../hooks/queries/useLabels';
 import { deletionImpactNote } from '../../../lib/deletionImpact';
+import { labelNameError, labelRenameError } from '../../../lib/validations/label';
 import { type ColorToken, DEFAULT_LABEL_COLOR } from '../../../types/label';
 import { ColorTokenPicker, ProjectMetaEditDialog } from './ProjectMetaEditDialog';
 
@@ -47,10 +48,13 @@ export function LabelManagement({
     colorToken: ColorToken;
   } | null>(null);
 
-  // 생성 — trim 후 빈 문자열은 무시. submit 이벤트는 form 의 onSubmit 에서 처리.
+  // 새 이름의 쉼표 오류(WP-1386) — 입력하는 동안 칸 아래에 보이고, 있으면 추가 요청을 보내지 않는다.
+  const nameError = labelNameError(name);
+
+  // 생성 — trim 후 빈 문자열·쉼표 든 이름은 보내지 않는다. submit 이벤트는 form 의 onSubmit 에서 처리.
   async function onCreate() {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || nameError) return;
     try {
       await create.mutateAsync({ name: trimmed, colorToken: color });
       setName('');
@@ -82,13 +86,20 @@ export function LabelManagement({
               onChange={(e) => setName(e.target.value)}
               maxLength={40}
               placeholder="예: 버그"
+              aria-invalid={!!nameError}
+              aria-describedby={nameError ? 'new-label-name-error' : undefined}
             />
+            {nameError && (
+              <p id="new-label-name-error" role="alert" className="text-sm text-destructive">
+                {nameError}
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <span className="text-sm font-medium">색상</span>
             <ColorTokenPicker value={color} onChange={setColor} ariaLabel="라벨 색상" testIdPrefix="label-color-" />
           </div>
-          <Button type="submit" disabled={create.isPending}>
+          <Button type="submit" disabled={create.isPending || !!nameError}>
             추가
           </Button>
         </form>
@@ -145,6 +156,8 @@ export function LabelManagement({
       <ProjectMetaEditDialog
         title="라벨 편집"
         target={editTarget}
+        // 이름을 바꿀 때만 쉼표를 막는다(WP-1386) — 쉼표가 든 기존 라벨도 색만 바꿔 저장할 수 있게 지금 이름 그대로면 통과.
+        validateName={(v) => labelRenameError(v, editTarget?.name ?? '')}
         onSave={(v) => update.mutateAsync({ id: editTarget!.id, body: { name: v.name, colorToken: v.colorToken } })}
         onClose={() => setEditTarget(null)}
       />

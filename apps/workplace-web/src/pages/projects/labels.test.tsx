@@ -152,6 +152,70 @@ describe('라벨 — 설정 화면', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
+  // WP-1386 — 쉼표가 든 이름은 목록 필터(label=)에서 찾을 수 없어 막는다. 칸 아래 문구를 보이고 추가 요청을 보내지 않는다.
+  test('추가 — 쉼표가 든 이름은 칸 아래 오류, 요청 없음', async () => {
+    const api = settingsApi([], 'OWNER')
+    const { user } = renderLabels(api)
+    const form = await screen.findByTestId('label-create-form')
+    const input = within(form).getByLabelText('이름')
+    await user.click(input)
+    await user.paste('a,b')
+    expect(within(form).getByRole('alert')).toHaveTextContent('라벨 이름에는 쉼표(,)를 쓸 수 없습니다')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(within(form).getByRole('button', { name: '추가' })).toBeDisabled()
+    // Enter 로 제출해도 보내지 않는다.
+    await user.keyboard('{Enter}')
+    expect(api.calls).toEqual([])
+
+    // 쉼표를 지우면 오류가 사라지고 그 이름으로 만든다.
+    await user.clear(input)
+    await user.paste('a-b')
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument()
+    await user.click(within(form).getByRole('button', { name: '추가' }))
+    await waitFor(() => expect(api.calls.map((c) => c.body)).toEqual([{ name: 'a-b', colorToken: 'GRAY' }]))
+  })
+
+  // WP-1386 — 편집 창도 쉼표 든 새 이름은 창 안 오류로 막고, 이미 있는 쉼표 라벨은 이름 그대로 색만 바꿔 저장할 수 있다.
+  test('편집 — 쉼표 든 새 이름은 막고, 기존 쉼표 라벨의 색만 바꾸기는 된다', async () => {
+    const label = createLabel({ name: 'a,b', colorToken: 'GRAY' })
+    const updates: unknown[] = []
+    const api = settingsApi([label], 'OWNER', [
+      http.patch(`${API}/labels/${label.id}`, async ({ request }) => {
+        const body = (await request.json()) as { name: string; colorToken: ColorToken }
+        updates.push(body)
+        Object.assign(label, body)
+        return HttpResponse.json(label)
+      }),
+    ])
+    const { user } = renderLabels(api)
+    const row = await screen.findByTestId(`label-row-${label.id}`)
+    await user.click(within(row).getByRole('button', { name: 'a,b 편집' }))
+    const dialog = await screen.findByRole('dialog')
+    const input = within(dialog).getByLabelText('이름')
+    // 지금 이름 그대로 열리면 오류가 없다.
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
+
+    await user.clear(input)
+    await user.paste('a,c')
+    const alert = within(dialog).getByRole('alert')
+    expect(alert).toHaveTextContent('라벨 이름에는 쉼표(,)를 쓸 수 없습니다')
+    // 오류 문구는 이름 칸에 이어져 보조기기가 칸과 함께 읽는다.
+    expect(input).toHaveAttribute('aria-describedby', alert.id)
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(within(dialog).getByRole('button', { name: '저장' })).toBeDisabled()
+    await user.keyboard('{Enter}')
+    expect(updates).toEqual([])
+
+    // 이름을 되돌리고 색만 바꾸면 저장된다(이름도 함께 보낸다).
+    await user.clear(input)
+    await user.paste('a,b')
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByTestId('meta-edit-color-BLUE'))
+    await user.click(within(dialog).getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(updates).toEqual([{ name: 'a,b', colorToken: 'BLUE' }]))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
   // #148, WP-488 — 삭제는 붙은 이슈 수를 알리는 확인창을 거쳐 DELETE, 행이 사라진다.
   test('삭제 — 영향 안내 확인창 뒤 DELETE', async () => {
     const label = createLabel({ name: '삭제대상', colorToken: 'RED' })

@@ -2,6 +2,7 @@ package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.jooq.Tables.LABEL;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -234,6 +235,55 @@ class IssueImportHistoryTest extends IssueImportTestSupport {
       m.put("history", List.of(e));
       assertRejected(m);
     }
+  }
+
+  /**
+   * WP-1386 — 라벨 이름의 쉼표는 막지만, 가져오기는 원본 라벨 이름의 쉼표 때문에 이슈 전체가 실패하면 안 된다. 새로 만들 이름의 ASCII 쉼표는 전각
+   * 쉼표(，)로 바뀌어 만들어지고, 같은 요청 이력의 원래 이름(쉼표)도 그 라벨로 찾힌다.
+   */
+  @Test
+  void labelNamesWithComma_createdWithFullwidthComma() throws Exception {
+    Map<String, Object> e = entry("LABELS_CHANGED", userB, "2026-06-11T10:00:00+09:00");
+    e.put("added", List.of("foo,bar"));
+    Map<String, Object> m = body("쉼표 라벨");
+    m.put("labelNames", List.of("foo,bar"));
+    m.put("history", List.of(e));
+    int number = numberOf(importAs(admin, m).andExpect(status().isCreated()));
+
+    assertThat(issueService.get(admin, key, number).summary().labels())
+        .extracting(l -> l.name())
+        .containsExactly("foo，bar");
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId).and(LABEL.NAME.eq("foo,bar"))))
+        .isZero();
+    assertThat(history(number).get(0).toValue()).contains("foo，bar");
+  }
+
+  /** WP-1386 — 바꾼 이름(대소문자 무시)이 이미 있으면 새로 만들지 않고 그 라벨을 붙인다. */
+  @Test
+  void labelNamesWithComma_attachesExistingFullwidthLabel() throws Exception {
+    long existing = labelRepository.insert(projectId, "Foo，Bar", "RED", admin).id();
+    Map<String, Object> m = body("쉼표 라벨 기존");
+    m.put("labelNames", List.of("foo,bar"));
+    int number = numberOf(importAs(admin, m).andExpect(status().isCreated()));
+
+    assertThat(issueService.get(admin, key, number).summary().labels())
+        .extracting(l -> l.id())
+        .containsExactly(existing);
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(1);
+  }
+
+  /** WP-1386 — 이력 이름도 이슈 labelNames 와 같은 해석(대소문자 무시)이라, 이관 전부터 있던 쉼표 라벨 「A,B」 를 이력의 「a,b」 로 찾는다. */
+  @Test
+  void labelHistory_existingCommaLabelIgnoringCase() throws Exception {
+    labelRepository.insert(projectId, "A,B", "RED", admin);
+    Map<String, Object> e = entry("LABELS_CHANGED", userB, "2026-06-11T10:00:00+09:00");
+    e.put("added", List.of("a,b"));
+    Map<String, Object> m = body("기존 쉼표 라벨 이력");
+    m.put("history", List.of(e));
+    int number = numberOf(importAs(admin, m).andExpect(status().isCreated()));
+    assertThat(history(number).get(0).toValue()).contains("A,B");
+    // 새로 만들지 않는다(전각 이름 라벨도 생기지 않는다).
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(1);
   }
 
   @Test

@@ -1,6 +1,6 @@
 // 모바일 다중 선택 바텀시트(WP-196) — 담당자처럼 여러 개를 고르는 값. 행을 탭해 토글하고, 시트가 닫힐 때(완료·바깥 탭·아래로 끌기)
 // 한 번만 onClose(최종 선택)으로 알린다 — 데스크톱 AssigneePickerPopover 의 "닫을 때 집합 교체" 의미와 같다.
-// WP-394: onCreate 를 주면 검색어와 이름이 정확히 같은 항목이 없을 때 「만들기」 행을 보이고, 만든 항목을 바로 선택한다.
+// WP-394: onCreate·createName 을 주면 createName 이 만들 이름을 돌려줄 때 「만들기」 행을 보이고, 만든 항목을 바로 선택한다.
 import { Check, Plus } from 'lucide-react';
 import { useState } from 'react';
 
@@ -10,7 +10,7 @@ import type { PickerOption } from './MobilePickerSheet';
 import { MOBILE_SHEET_ROW, MobileSheetShell } from './MobileSheetShell';
 
 export function MobileMultiPickerSheet({
-  open, onClose, title, options, value, searchable = false, testId = 'mobile-multi-picker-sheet', onCreate, countUnit = '개',
+  open, onClose, title, options, value, searchable = false, testId = 'mobile-multi-picker-sheet', onCreate, createName, createError, countUnit = '개',
 }: {
   open: boolean;
   onClose: (selected: string[]) => void;
@@ -21,6 +21,13 @@ export function MobileMultiPickerSheet({
   testId?: string;
   /** 검색어로 새 항목을 만들고 그 value 를 돌려준다(실패하면 reject — 오류 표시는 호출부 몫). searchable 일 때만 쓰인다. */
   onCreate?: (name: string) => Promise<string>;
+  /**
+   * 검색어 → 만들 이름(이미 있거나 비면 null). 「이미 있음」 판정은 항목 종류마다 규칙이 달라 호출부가 준다 — 라벨은 데스크톱 선택기와 같은
+   * labelNameToCreate(WP-1386). 없으면 만들기 행을 보이지 않는다.
+   */
+  createName?: (query: string) => string | null;
+  /** 만들 이름의 화면 검증 — 오류 문구를 돌려주면 「만들기」 행 대신 그 문구를 보이고 만들지 않는다(라벨 쉼표 금지, WP-1386). */
+  createError?: (name: string) => string | null;
   /** 안내 문구의 세는 단위 — 사람(담당자)은 「명」, 그 밖(라벨 등)은 「개」(WP-499). */
   countUnit?: '명' | '개';
 }) {
@@ -45,11 +52,13 @@ export function MobileMultiPickerSheet({
   const close = () => {
     if (!creating) onClose(picked);
   };
-  // 만들 이름 — 정확 일치(대소문자 구분)하는 항목이 없을 때만 만들기를 연다(라벨 유일 제약과 같은 기준).
-  const newName = q.trim();
-  const canCreate = searchable && !!onCreate && newName.length > 0 && !options.some((o) => o.label === newName);
+  // 만들 이름 — 판정은 호출부의 createName(라벨은 데스크톱과 같은 labelNameToCreate, WP-1386). 이름이 있어도 createError 가 문구를 주면
+  // 만들기 행 대신 그 문구를 보인다(라벨 쉼표 금지).
+  const newName = searchable && onCreate && createName ? createName(q) : null;
+  const createMessage = newName !== null ? (createError?.(newName) ?? null) : null;
+  const canCreate = newName !== null && !createMessage;
   const create = async () => {
-    if (!onCreate || !canCreate || creating) return;
+    if (!onCreate || newName === null || !canCreate || creating) return;
     setCreating(true);
     try {
       const v = await onCreate(newName);
@@ -110,7 +119,12 @@ export function MobileMultiPickerSheet({
             </button>
           );
         })}
-        {shown.length === 0 && !canCreate && <p className="px-4 py-6 text-center text-sm text-muted-foreground">결과가 없습니다</p>}
+        {shown.length === 0 && !canCreate && !createMessage && <p className="px-4 py-6 text-center text-sm text-muted-foreground">결과가 없습니다</p>}
+        {createMessage && (
+          <p role="alert" data-testid={`${testId}-create-error`} className="border-t px-4 py-3 text-sm text-destructive">
+            {createMessage}
+          </p>
+        )}
         {canCreate && (
           <button
             type="button"

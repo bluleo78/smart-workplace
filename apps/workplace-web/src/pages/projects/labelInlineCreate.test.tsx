@@ -20,9 +20,9 @@ const ISSUE_LABELS = `/api/v1/projects/${KEY}/issues/1/labels`
  * 이슈 #1 의 라벨 선택기(LabelPickerPopover)만 띄운다 — 이슈 상세 「분류」 그룹이 그리는 것과 같은 props(현재 라벨 bug, 편집 가능).
  * createStatus 가 있으면 POST /labels 를 그 상태로 실패시킨다. 만든 라벨은 목록에 쌓여 재조회에도 보인다.
  */
-async function openPicker({ createStatus }: { createStatus?: number } = {}) {
+async function openPicker({ createStatus, extra = [] }: { createStatus?: number; extra?: LabelResponse[] } = {}) {
   const bug = createLabel({ id: 1, name: 'bug', colorToken: 'RED' })
-  const labels: LabelResponse[] = [bug, createLabel({ id: 2, name: 'severity:minor', colorToken: 'YELLOW' })]
+  const labels: LabelResponse[] = [bug, createLabel({ id: 2, name: 'severity:minor', colorToken: 'YELLOW' }), ...extra]
   const posts: unknown[] = []
   const puts: unknown[] = []
   const view = renderScreen(<LabelPickerPopover projectKey={KEY} issueNumber={1} current={[toLabelSummary(bug)]} />, {
@@ -109,6 +109,37 @@ describe('이슈 라벨 즉석 만들기', () => {
     expect(within(picker).getByTestId('label-create-option')).toHaveTextContent(/^「sev」 라벨 만들기$/)
     expect(search).toHaveValue('sev')
     expect(posts).toHaveLength(1)
+  })
+
+  // WP-1386 — 쉼표가 든 새 이름은 목록 필터(label=)에서 찾을 수 없어 막는다. 만들기 행 대신 이유를 보이고 Enter 로도 만들지 않는다.
+  test('쉼표가 든 새 이름은 만들기 대신 오류를 보이고 요청하지 않는다', async () => {
+    const { picker, search, posts, user } = await openPicker()
+    fireEvent.change(search, { target: { value: 'a,b' } })
+    expect(within(picker).getByTestId('label-create-error')).toHaveTextContent('라벨 이름에는 쉼표(,)를 쓸 수 없습니다')
+    expect(within(picker).queryByTestId('label-create-option')).not.toBeInTheDocument()
+    await user.click(search)
+    await user.keyboard('{Enter}')
+    expect(posts).toEqual([])
+
+    // 쉼표를 빼면 다시 만들 수 있다.
+    fireEvent.change(search, { target: { value: 'a-b' } })
+    expect(within(picker).queryByTestId('label-create-error')).not.toBeInTheDocument()
+    await user.click(within(picker).getByTestId('label-create-option'))
+    await waitFor(() => expect(posts).toEqual([{ name: 'a-b', colorToken: 'GRAY' }]))
+  })
+
+  // WP-1386 — 서버 유일 제약처럼 대소문자를 무시해 이미 있는 라벨이면(쉼표 라벨 포함) 만들기 행도 쉼표 오류도 없이 그 라벨을 고른다.
+  test('대소문자만 다른 이름은 이미 있는 라벨 — 기존 쉼표 라벨도 오류 없이 고른다', async () => {
+    const { picker, search, posts, user } = await openPicker({ extra: [createLabel({ id: 3, name: 'A,B', colorToken: 'BLUE' })] })
+    fireEvent.change(search, { target: { value: 'BUG' } })
+    expect(within(picker).queryByTestId('label-create-option')).not.toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'a,b' } })
+    expect(within(picker).queryByTestId('label-create-error')).not.toBeInTheDocument()
+    expect(within(picker).queryByTestId('label-create-option')).not.toBeInTheDocument()
+    await user.click(within(picker).getByLabelText('A,B'))
+    expect(within(picker).getByLabelText('A,B')).toBeChecked()
+    expect(posts).toEqual([])
   })
 
   test('만들기가 실패하면 오류를 알리고 검색어를 남기며, 닫아도 라벨을 바꾸지 않는다', async () => {
