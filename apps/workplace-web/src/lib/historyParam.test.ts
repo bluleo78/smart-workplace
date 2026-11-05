@@ -138,6 +138,38 @@ describe('planClose', () => {
     const h = fakeHistory([{ search: '?task=1', state: { [markKey('task')]: 5 } }])
     expect(planClose(h.snap(), 'task').kind).toBe('replace')
   })
+
+  // WP-1374: 겹친 화면(모달 위 서랍)은 마크 없이 열렸을 때 뒤로(-1) 가면 아래 모달까지 닫힌다 — replace 로 키만 지운다.
+  describe("unmarkedClose='replace'", () => {
+    const opts = { unmarkedClose: 'replace' as const }
+
+    it('마크가 있으면 기본과 같이 연 시점 직전으로 되돌린다', () => {
+      const h = fakeHistory([{ search: '?task=1', state: { [markKey('task')]: 1 } }])
+      h.apply(planOpen(h.snap(), 'chat', '1'))
+      expect(planClose(h.snap(), 'chat', opts)).toEqual({ kind: 'go', delta: -1 })
+    })
+
+    it('마크 없고 idx>0(링크로 진입)이어도 -1 이 아니라 chat 만 지우고 replace — 다른 쿼리·마크 보존', () => {
+      const h = fakeHistory([{ search: '' }, { search: '?task=1&chat=1', state: { [markKey('task')]: 1, keep: 1 } }])
+      expect(planClose(h.snap(), 'chat', opts)).toEqual({
+        kind: 'replace',
+        search: '?task=1',
+        state: { [markKey('task')]: 1, keep: 1 },
+      })
+    })
+
+    it('낡은 마크(현재 idx 보다 뒤 — 다른 항목에서 이어받음)는 무시하고 replace, 그 마크도 지운다', () => {
+      const h = fakeHistory([{ search: '' }, { search: '?task=1&chat=1', state: { [markKey('chat')]: 7 } }])
+      expect(planClose(h.snap(), 'chat', opts)).toEqual({ kind: 'replace', search: '?task=1', state: null })
+    })
+
+    it('마크 값이 숫자가 아니거나 0 이면(어긋난 마크) replace', () => {
+      for (const bad of ['1', 0]) {
+        const h = fakeHistory([{ search: '' }, { search: '?task=1&chat=1', state: { [markKey('chat')]: bad } }])
+        expect(planClose(h.snap(), 'chat', opts)).toEqual({ kind: 'replace', search: '?task=1', state: null })
+      }
+    })
+  })
 })
 
 describe('state 모드', () => {

@@ -6,6 +6,8 @@
 import { Pencil } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import type { EditBarControls } from '@/components/mobile/MobileEditBar';
+import { useEditBarControls } from '@/components/mobile/useEditBarControls';
 import { Input } from '@/components/ui/input';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
@@ -15,8 +17,6 @@ import { toSingleLine } from '@/lib/singleLine';
 import { cn } from '@/lib/utils';
 
 import { HIT_EXPAND } from './mobile/chipStyles';
-import type { EditBarControls } from './mobile/MobileEditBar';
-import { useEditBarControls } from './mobile/useEditBarControls';
 
 // 서버 제목 길이 상한(updateIssueSchema max 200)과 같다 — 입력 단계에서 막아 400 토스트로 알게 되지 않게(WP-459).
 const TITLE_MAX_LENGTH = 200;

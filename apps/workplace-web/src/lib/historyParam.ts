@@ -10,6 +10,12 @@ export interface HistoryParamOptions {
   clear?: readonly string[]
   /** query = `?key=value`(기본), state = 같은 URL 에 router state 로만 표시(전역 오버레이). */
   mode?: HistoryParamMode
+  /**
+   * 열림 마크가 없을 때(링크·알림·주소로 처음부터 열린 화면)의 닫기 — back(기본) = idx>0 이면 -1(출발 화면으로),
+   * replace = 항목 수를 그대로 두고 키(+clear)만 지운다. 다른 오버레이 위에 겹친 화면(개인 작업 모달 위 채팅 서랍, WP-1374)은
+   * 뒤로 가면 아래 오버레이까지 닫혀 버리므로 replace 를 쓴다.
+   */
+  unmarkedClose?: 'back' | 'replace'
 }
 
 /** 현재 위치 스냅숏 — location.search·location.state 와 BrowserRouter 가 history.state 에 심는 idx. */
@@ -87,6 +93,7 @@ export function planOpen(snap: HistorySnapshot, key: string, value: string, opts
  * 1. 마크(openIdx ≤ 현재 idx)가 있으면 연 시점 직전까지 한 번에 되돌린다(하위 push 가 쌓여도 한 번에).
  * 2. 마크 없고 idx>0 이면 -1 — 다른 화면 링크로 들어온 경우 출발 화면으로(시스템 back 과 같다).
  * 3. 콜드 진입(푸시 알림·주소 붙여넣기)이면 키(+clear 하위 키)만 지우고 replace — 다른 쿼리를 보존해 앱 밖으로 나가지 않는다.
+ * opts.unmarkedClose='replace' 면 2 를 건너뛰고 마크가 없거나 맞지 않으면(낡은 마크) 언제나 3 이다.
  */
 export function planClose(snap: HistorySnapshot, key: string, opts: HistoryParamOptions = {}): HistoryPlan {
   const mode = opts.mode ?? 'query'
@@ -96,7 +103,7 @@ export function planClose(snap: HistorySnapshot, key: string, opts: HistoryParam
   if (typeof openIdx === 'number' && snap.idx != null && openIdx >= 1 && openIdx <= snap.idx) {
     return { kind: 'go', delta: openIdx - 1 - snap.idx }
   }
-  if (snap.idx != null && snap.idx > 0) return { kind: 'go', delta: -1 }
+  if (opts.unmarkedClose !== 'replace' && snap.idx != null && snap.idx > 0) return { kind: 'go', delta: -1 }
   let search = snap.search
   if (mode === 'query') {
     const params = new URLSearchParams(snap.search)

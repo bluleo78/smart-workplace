@@ -330,12 +330,52 @@ describe('내 작업 · AI 위임', () => {
   })
 })
 
-// 개인 프로젝트에서 연 태스크 패널 — 열린 태스크가 대상(focus), 범위는 「개인 프로젝트」.
+// 개인 프로젝트에서 연 태스크 상세(모달) — 열린 태스크가 대상(focus), 범위는 「개인 프로젝트」.
+// 작업을 먼저 열고(?task=1) 그 위에서 AI 를 연다. 작업 상세는 WP-1374 부터 모달이라, 일정 다이얼로그(아래 「캘린더」)와 같이
+// AI 패널이 닫힌 채 열린 모달은 modal 이어서 앱의 AI 런처(칩) 클릭을 가로막는다 — 엔티티 다이얼로그 공통 한계(useAiPanelAwareDialog 는 side 모드 전용).
+// 그래서 ⌘K 로 패널을 연다. 패널이 side 로 열리면 모달이 non-modal 로 바뀌어 모달을 연 채 패널에 물을 수 있다.
 test('개인 프로젝트 — 열린 개인 태스크가 대상으로, 범위는 개인 프로젝트로 실린다', async () => {
   const KEY = 'PME'
   const thread = createChatThread()
+  const chat = chatCapture()
+  const view = renderPage(`/projects/${KEY}?task=1`, {
+    handlers: [
+      ...chat.handlers,
+      http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }))),
+      http.get(`/api/v1/projects/${KEY}/issues`, () =>
+        HttpResponse.json(createIssueSearchResponse([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])),
+      ),
+      ...issueDetailSubHandlers({ key: KEY, detail: createIssueDetail({ summary: createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' }) }) }),
+      http.get(`/api/v1/projects/${KEY}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
+      http.get(`/api/v1/chat/threads/${thread.threadId}/messages`, () => HttpResponse.json(createChatMessagePage([]))),
+      // 개인 작업 상세의 반복 칸(WP-989) — 반복 없음.
+      http.get(`/api/v1/projects/${KEY}/issues/1/recurrence`, () => new HttpResponse(null, { status: 204 })),
+    ],
+  })
+  await screen.findByTestId('personal-task-modal', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  // 패널이 닫힌 채 열린 모달은 modal — Radix 가 문서의 포인터를 막아 런처를 누를 수 없다(위 주석의 공통 한계를 그대로 적어 둔다).
+  await waitFor(() => expect(document.body.style.pointerEvents).toBe('none'))
+  await expect(view.user.click(screen.getByTestId('chat-launcher'))).rejects.toThrow(/pointer-events/)
+  await view.user.keyboard('{Control>}k{/Control}')
+  await screen.findByTestId('ai-side-panel')
+  await chipHas('이슈 PME-1 블로그 초안')
+  // side 모드 — 모달이 non-modal 로 바뀌어 패널을 막지 않는다(모달은 그대로 열려 있다).
+  await waitFor(() => expect(document.body.style.pointerEvents).not.toBe('none'))
+  expect((await send({ ...view, chat }, '이거 정리해줘')).screenContext).toMatchObject({
+    view: '이슈 상세',
+    focus: { refs: { issueKey: 'PME-1' } },
+    scope: { label: '개인 프로젝트', refs: { projectKey: KEY } },
+  })
+  expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+})
+
+// WP-1374: AI 패널(side)을 연 채 작업 모달 위에 채팅 서랍을 열어도 패널을 그대로 쓴다 — 서랍도 모달처럼 AI 패널을 아는 non-modal 이라
+// 패널을 aria-hidden·포인터 차단으로 막지 않고, 패널을 눌러도 서랍·모달이 닫히지 않는다. 서랍은 패널 왼쪽에 붙는다.
+test('개인 프로젝트 — AI 패널을 연 채 작업 모달 위 채팅 서랍을 열어도 패널에 물을 수 있고 서랍·모달이 남는다', async () => {
+  const KEY = 'PME'
+  const thread = createChatThread()
   const view = await openPanelAt(
-    `/projects/${KEY}?task=1`,
+    `/projects/${KEY}`,
     [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }))),
       http.get(`/api/v1/projects/${KEY}/issues`, () =>
@@ -344,17 +384,25 @@ test('개인 프로젝트 — 열린 개인 태스크가 대상으로, 범위는
       ...issueDetailSubHandlers({ key: KEY, detail: createIssueDetail({ summary: createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' }) }) }),
       http.get(`/api/v1/projects/${KEY}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
       http.get(`/api/v1/chat/threads/${thread.threadId}/messages`, () => HttpResponse.json(createChatMessagePage([]))),
-      // 개인 작업 패널의 반복 칸(WP-989) — 반복 없음.
+      http.post(`/api/v1/chat/threads/${thread.threadId}/read`, () => new HttpResponse(null, { status: 204 })),
       http.get(`/api/v1/projects/${KEY}/issues/1/recurrence`, () => new HttpResponse(null, { status: 204 })),
     ],
-    { waitFor: 'personal-task-panel' },
+    { waitFor: 'personal-task-row-1' },
   )
+  await view.user.click(screen.getByTestId('personal-task-row-1'))
+  const modal = await screen.findByTestId('personal-task-modal')
+  await view.user.click(await within(modal).findByTestId('issue-chat-open'))
+  const drawer = await screen.findByTestId('issue-chat-drawer')
+  // 서랍은 non-modal — 문서 포인터를 막지 않고 패널을 보조기기에서 숨기지 않으며, 패널 왼쪽에 붙는다(lg:right = 패널 폭).
+  expect(document.body.style.pointerEvents).not.toBe('none')
+  expect(screen.getByTestId('ai-side-panel').closest('[aria-hidden="true"]')).toBeNull()
+  expect(drawer.className).toContain('lg:right-[var(--ai-side-width,0px)]')
   await chipHas('이슈 PME-1 블로그 초안')
-  expect((await send(view, '이거 정리해줘')).screenContext).toMatchObject({
-    view: '이슈 상세',
-    focus: { refs: { issueKey: 'PME-1' } },
-    scope: { label: '개인 프로젝트', refs: { projectKey: KEY } },
-  })
+  // 패널 입력창을 눌러 보내도(바깥 상호작용) 서랍·모달은 닫히지 않는다.
+  expect((await send(view, '이 작업 정리해줘')).screenContext).toMatchObject({ focus: { refs: { issueKey: 'PME-1' } } })
+  expect(screen.getByTestId('issue-chat-drawer')).toBeInTheDocument()
+  expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+  expect(new URLSearchParams(view.location().split('?')[1]).get('chat')).toBe('1')
 })
 
 describe('메일', () => {
