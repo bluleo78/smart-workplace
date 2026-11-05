@@ -574,22 +574,16 @@ describe('채널 파일 드로워 (#76)', () => {
     expect(new URLSearchParams(location().split('?')[1] ?? '').get('folderId')).toBeNull()
   })
 
-  // 드로워(embedded)에서도 콘텐츠 검색이 되지만 AI Overview 버튼은 좁아서 숨긴다.
-  test('드로워에서 검색하면 콘텐츠 일치가 보이고 AI Overview 는 없다', async () => {
-    const { user, drawer } = await openDrawer([
-      http.get(`${API}/drive/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [] })),
-      http.get(`${API}/drive/search`, () =>
-        HttpResponse.json({
-          hits: [{ driveFileId: 1, fileId: 10, spaceId: SPACE_ID, spaceName: '파일채널', name: '회의록.txt', mimeType: 'text/plain', snippet: '오늘 <b>회의</b> 내용', score: 0.5 }],
-          semantic: true,
-        }),
-      ),
-    ])
-    await user.click(within(drawer).getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('회의')
-    expect(await within(drawer).findByTestId('drive-content-hit')).toBeInTheDocument()
-    expect(within(drawer).getByText('회의록.txt')).toBeInTheDocument()
-    expect(within(drawer).queryByTestId('drive-overview-btn')).not.toBeInTheDocument()
+  // WP-1356: 드로워(embedded)에도 경로 줄 아래 「이 폴더 거르기」가 있고 헤더 검색칸은 없다 — 지금 폴더 항목을 이름으로 좁힌다.
+  test('드로워에서도 이 폴더 거르기로 목록을 좁히고 헤더 검색칸은 없다', async () => {
+    const { user, drawer } = await openDrawer()
+    await within(drawer).findByRole('button', { name: '테스트폴더' })
+    expect(within(drawer).queryByLabelText('파일명 및 콘텐츠 검색')).not.toBeInTheDocument()
+    await user.click(within(drawer).getByTestId('drive-filter-input'))
+    await user.paste('없는이름')
+    expect(await within(drawer).findByTestId('drive-filter-empty')).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: '테스트폴더' })).not.toBeInTheDocument()
+    expect(within(drawer).getByTestId('drive-filter-count')).toHaveTextContent('1개 중 0개')
   })
 
   // 보관 채널의 드라이브 공간은 읽기 전용 — 배너와 함께 새 폴더·업로드가 실제로 비활성이다.

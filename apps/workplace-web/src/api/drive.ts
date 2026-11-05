@@ -314,13 +314,4 @@ export const driveApi = {
     })
     return data
   },
-
-
-  // AI Overview 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착.
-  startOverview: (q: string, spaceId?: number) =>
-    client.get<{ correlationId: string }>('/drive/search-overview', { params: { q, spaceId } }),
-
-  // 진행 중인 Overview 생성 취소.
-  cancelOverview: (correlationId: string) =>
-    client.delete<void>(`/drive/search-overview/${correlationId}`),
 }

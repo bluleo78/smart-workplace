@@ -403,35 +403,6 @@ describe('여러 개 선택', () => {
     await user.click(within(picker).getByTestId('folder-picker-confirm'))
     await waitFor(() => expect(bodies.move).toMatchObject([{ fileIds: [20], folderIds: [] }]))
   })
-
-  // #588: 검색 결과에도 체크박스·전체 선택·벌크 툴바가 있고, 벌크 삭제 뒤 결과를 다시 불러 선택이 풀린다.
-  test('검색 결과에서도 전체 선택·벌크 삭제가 되고 삭제 뒤 선택이 풀린다', async () => {
-    const deletes: unknown[] = []
-    const { user } = await openDrive({ folders: [FOLDER], files: [FILE] }, {
-      handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/search`, () =>
-          HttpResponse.json({ folders: [{ ...FOLDER, folderPath: null }], files: [{ ...FILE, folderPath: null }] }),
-        ),
-        http.get(`${API}/search`, () => HttpResponse.json({ hits: [], semantic: false })),
-        http.delete(`${API}/spaces/${SPACE_ID}/items`, async ({ request }) => {
-          deletes.push(await request.json())
-          return new HttpResponse(null, { status: 204 })
-        }),
-      ],
-    })
-    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
-    await user.paste('memo')
-    const results = await screen.findByTestId('search-results')
-    expect(await within(results).findByTestId('select-folder-10')).toBeInTheDocument()
-    expect(within(results).getByTestId('select-file-20')).toBeInTheDocument()
-    await user.click(screen.getByTestId('select-all'))
-    expect(screen.getByTestId('bulk-toolbar')).toHaveTextContent('선택 2개')
-    await user.click(screen.getByTestId('bulk-delete'))
-    await screen.findByTestId('drive-confirm-dialog')
-    await user.click(screen.getByTestId('drive-confirm-confirm'))
-    await waitFor(() => expect(deletes).toEqual([{ fileIds: [20], folderIds: [10] }]))
-    await waitFor(() => expect(screen.queryByTestId('bulk-toolbar')).not.toBeInTheDocument())
-  })
 })
 
 describe('줄 링크 (WP-1236)', () => {

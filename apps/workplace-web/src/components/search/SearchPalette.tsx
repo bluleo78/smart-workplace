@@ -1,5 +1,6 @@
 // 통합 검색 팔레트(WP-1353) — 화면 가운데 모달. 입력 + 앱 종류 탭 + 결과(종류 탭은 한 앱 20건씩, 「전체」는 앱별 3건 묶음).
 // 상단 이슈 전용 펼침 검색(WP-1324)을 대체한다. 열릴 때마다 본문이 새로 마운트돼 탭=지금 앱·검색어=빈 값으로 시작한다.
+// 다른 화면이 openSearchPalette({ q, app }) 로 열면 그 검색어·탭으로 시작한다(WP-1356, 드라이브 「드라이브 전체에서 찾기」).
 // 열림 상태는 히스토리에 넣지 않는다(useSearchPalette). 한글 조합 중(isComposing)에는 모든 키를 무시한다.
 import { Search } from 'lucide-react'
 import { type KeyboardEvent, useContext, useEffect, useId, useRef, useState } from 'react'
@@ -19,6 +20,7 @@ import { RecentSearchList } from './RecentSearchList'
 import { SearchAllResults } from './SearchAllResults'
 import { currentAppFromPath, groupOrder, SEARCH_TABS, type SearchTabId } from './searchApps'
 import { SearchKindResults } from './SearchKindResults'
+import type { SearchPaletteSession } from './searchPaletteStore'
 import type { SearchHit } from './searchProviders'
 import { SearchResultRow } from './SearchResultRow'
 import { moveActive, newTabHint, SEARCH_DEBOUNCE_MS } from './searchRules'
@@ -27,10 +29,12 @@ import { useSearchQueries } from './useSearchQueries'
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** 연 세션 — 처음 검색어·탭을 정하고, 세션이 바뀌면 본문을 새로 마운트한다. 없으면 빈 검색어·지금 앱 탭. */
+  session?: SearchPaletteSession | null
 }
 
 /** 팔레트 껍데기 — 대화상자(배경·포커스 가두기·Esc)만 맡고 상태는 열릴 때마다 새로 만드는 본문에 둔다. */
-export function SearchPalette({ open, onOpenChange }: Props) {
+export function SearchPalette({ open, onOpenChange, session }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -46,21 +50,37 @@ export function SearchPalette({ open, onOpenChange }: Props) {
       >
         <DialogTitle className="sr-only">통합 검색</DialogTitle>
         <DialogDescription className="sr-only">대화·메일·작업·드라이브·노트·연락처를 앱 종류별로 찾습니다.</DialogDescription>
-        <PaletteBody onClose={() => onOpenChange(false)} />
+        <PaletteBody
+          key={session?.id}
+          initialQ={session?.q ?? ''}
+          initialTab={session?.app ?? null}
+          onClose={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   )
 }
 
-function PaletteBody({ onClose }: { onClose: () => void }) {
+function PaletteBody({
+  initialQ,
+  initialTab,
+  onClose,
+}: {
+  /** 처음 검색어 — 바깥에서 검색어를 정해 연 경우(WP-1356). 보통은 빈 값. */
+  initialQ: string
+  /** 처음 탭 — 바깥에서 앱을 정해 연 경우. null 이면 지금 앱(없으면 전체). */
+  initialTab: SearchTabId | null
+  onClose: () => void
+}) {
   const location = useLocation()
   const navigate = useNavigate()
   const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   // 열 때의 현재 앱 — 탭 초기값과 「전체」 묶음 순서의 기준(열려 있는 동안 고정).
   const [current] = useState(() => currentAppFromPath(location.pathname))
-  const [tab, setTab] = useState<SearchTabId>(current ?? 'all')
-  const [q, setQ] = useState('')
+  const [tab, setTab] = useState<SearchTabId>(initialTab ?? current ?? 'all')
+  // 바깥에서 준 검색어도 입력 길이 상한을 지킨다 — 입력란 maxLength 는 타이핑에만 걸린다.
+  const [q, setQ] = useState(() => initialQ.slice(0, SEARCH_QUERY_MAX_LENGTH))
   const [active, setActive] = useState(-1)
   const [order] = useState(() => groupOrder(current))
 

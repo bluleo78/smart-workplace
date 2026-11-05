@@ -71,18 +71,18 @@ import { MULTI_SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
 
-import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
 import { DriveCrumbCurrent, DriveCrumbDropButton, DriveDndProvider } from '../../components/drive/DriveDnd'
-import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
 import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
+import { FilterLine } from '../../components/filter/FilterLine'
 import { Breadcrumb, type BreadcrumbItem, type BreadcrumbRenderItem } from '../../components/layout/Breadcrumb'
-import { SearchInput } from '../../components/ui/search-input'
+import { openSearchPalette } from '../../components/search/searchPaletteStore'
+import { FilterInput } from '../../components/ui/filter-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
 import { driveFilePath } from '../../components/viewer/driveOpen'
 import { useViewerBundle } from '../../components/viewer/useViewerBundle'
@@ -90,10 +90,9 @@ import { driveFileItem, driveViewerKey, parseViewerKey } from '../../components/
 import { ViewerNotFound } from '../../components/viewer/ViewerNotFound'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
-import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
 import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
-import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
+import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
 import { useFolderNavigation } from './useFolderNavigation'
 
@@ -126,8 +125,8 @@ const ROW_INLINE_ACTIONS: Record<RowTarget['kind'], { key: string; label: string
 
 // WP-364: 끌어 옮기기 완료 토스트 id — 이동마다 같은 자리를 갈아 끼워 되돌리기는 늘 마지막 이동만 가리킨다.
 const DRAG_MOVE_TOAST_ID = 'drive-drag-move'
-// 검색을 시작하는 검색어 길이(앞뒤 공백 제외) — 디바운스 검색과 만들기·놓기 막기가 같은 기준을 쓴다.
-const MIN_SEARCH_LEN = 2
+// 「드라이브 전체에서 찾기」를 보일 거르기 글자 수(앞뒤 공백 제외) — 상단 검색 드라이브 탭이 이보다 짧으면 찾지 않는다(WP-1356).
+const MIN_SEARCH_ALL_LEN = 2
 
 // WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
@@ -137,6 +136,16 @@ function metaLine(folderPath: string | null | undefined, sizeBytes: number | nul
   return [folderPath, sizeBytes == null ? null : formatFileSize(sizeBytes), formatDateOnly(updatedAt)]
     .filter(Boolean)
     .join(' · ')
+}
+
+// WP-1356: 이 폴더 거르기 — 이름에 거르기 글자가 들어간 폴더·파일만 남긴다(대소문자 무시 부분 일치). 빈 글자면 그대로 돌려준다.
+function filterByName(list: DriveItemList, term: string): DriveItemList {
+  if (!term) return list
+  const t = term.toLowerCase()
+  return {
+    folders: list.folders.filter((f) => f.name.toLowerCase().includes(t)),
+    files: list.files.filter((f) => f.name.toLowerCase().includes(t)),
+  }
 }
 
 // breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
@@ -182,7 +191,7 @@ function useDriveScreenContext(input: {
   useRegisterAiScreenContext(ctx)
 }
 
-/** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드.
+/** 폴더 브라우저 — 브레드크럼 + 이 폴더 거르기(WP-1356) + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드.
  *  spaceId prop 이 오면 임베드(드로워) 모드 — 폴더 탐색은 드로워 안 `?filesFolder` 키(풀페이지 folderId 와 별도, push)로 보관한다(WP-207).
  *  미지정 시 URL(useParams/useSearchParams) 로 구동하는 풀페이지 모드. */
 export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
@@ -229,7 +238,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
   >(null)
   // 미리보기 = URL ?preview=<드라이브 파일 id>(시스템 뒤로가기로 닫힘, WP-208). 단건 조회 API 가 없어
-  // 현재 목록(검색 결과 포함)에서 찾고, 재조회·placeholder 로 잠깐 빠져도 깜빡이지 않게 마지막으로 연 파일을 기억한다.
+  // 현재 폴더 목록에서 찾고, 재조회·placeholder 로 잠깐 빠져도 깜빡이지 않게 마지막으로 연 파일을 기억한다.
   const previewParam = useHistoryParam('preview')
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
@@ -238,30 +247,10 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
   const [versionFile, setVersionFile] = useState<DriveFile | null>(null)
 
-  // 검색 상태 — query 길이 ≥2 면 results/contentResults 로 목록을 대체(파일명+콘텐츠 통합 검색).
-  const [query, setQuery] = useState('')
-  // WP-63: 디바운스(300ms)·최소 길이(2자) 판정을 통과한 파일명 검색어. 빈 문자열이면 검색 모드 아님.
-  // 파일명 검색은 이 값을 키로 useQuery 가 조회하고, 콘텐츠 검색은 비용이 커 기존 useState 로 둔다.
-  const [searchQ, setSearchQ] = useState('')
-  const searchQuery = useDriveSearch(validSid, searchQ)
-  // 화면에 표시할 검색 결과 — 기존 동작 보존: 검색어가 바뀌는 동안(새 응답 전)은 이전 결과를 유지하고,
-  // 검색 모드를 벗어나면(searchQ='') 즉시 비운다. 렌더 중 state 조정 패턴으로 응답 도착·재조회를 반영한다.
-  const searchData = searchQ ? searchQuery.data : undefined
-  const [results, setResults] = useState<DriveSearchResult | null>(null)
-  if (!searchQ) {
-    if (results !== null) setResults(null)
-  } else if (searchData && searchData !== results) {
-    setResults(searchData)
-  }
-  const [contentResults, setContentResults] = useState<DriveContentHit[] | null>(null)
-  // 콘텐츠 검색 진행 중 여부 — 파일명 검색이 먼저 빈 결과로 응답해도 콘텐츠 검색 완료 전엔
-  // "검색 결과가 없습니다"를 보여주지 않기 위한 가드(깜빡임 방지).
-  const [contentLoading, setContentLoading] = useState(false)
-  // AI Overview 카드 노출 여부 — 풀페이지에서만 사용(embedded 는 버튼 자체를 렌더하지 않음).
-  const [showOverview, setShowOverview] = useState(false)
-  // AI Overview 버튼 클릭 시점의 검색어(committed) — 카드는 이 값을 쓰므로 열려 있는 동안
-  // 입력창에 타이핑해도 AI Overview 스트림이 매 keystroke 마다 재시작되지 않는다.
-  const [overviewQuery, setOverviewQuery] = useState('')
+  // 이 폴더 거르기(WP-1356) — 지금 폴더 바로 아래 항목(폴더·파일)을 이름으로 화면에서 좁힌다(받은 목록을 거름, 하위 폴더 안은 보지 않음).
+  // 서버로 보내지 않고 URL 에도 두지 않는다 — 폴더를 옮기면 비우는 일회성 입력이다(아래 위치 변경 블록).
+  const [nameFilter, setNameFilter] = useState('')
+  const filterTerm = nameFilter.trim()
 
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
   // WP-63: 열림 여부만 state 로 두고 목록은 useQuery 로 조회. 기존처럼 첫 응답이 올 때까지는
@@ -271,17 +260,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const trashOpen = trashParam.value === 'trash'
   const trashQuery = useDriveTrash(validSid, trashOpen)
   const trash: DriveTrashItem[] | null = trashOpen && trashQuery.data ? trashQuery.data.items : null
-  // 검색 결과 화면 — 폴더 목록 대신 결과 목록을 그린다.
-  const searching = results != null
-  // 폴더를 보고 있는지 — 휴지통·검색 결과 화면이 아니다. 경로 줄·만들기·놓기가 이 값 하나를 본다.
-  const browsing = trash == null && !searching
-  // 검색어를 친 뒤 결과가 오기 전(디바운스·첫 조회 중) — 곧 결과 화면이 덮는다.
-  // 파일명 검색이 실패했으면 결과 화면이 오지 않고 폴더 보기 그대로라 막지 않는다(WP-1167).
-  const searchTerm = query.trim()
-  const searchFailed = searchQ !== '' && searchQ === searchTerm && searchQuery.isError
-  const searchStarting = searchTerm.length >= MIN_SEARCH_LEN && !searchFailed
-  // 새 폴더·업로드·파일 놓기는 폴더 보기에서만 — 휴지통·검색 화면에선 만든 항목이 보이지 않는 지금 폴더에 알림 없이 생겼다(WP-1082, WP-1101).
-  const canAddHere = browsing && !searchStarting
+  // 폴더를 보고 있는지 — 휴지통 화면이 아니다. 경로 줄·거르기·만들기·놓기가 이 값 하나를 본다.
+  const browsing = trash == null
+  // 새 폴더·업로드·파일 놓기는 폴더 보기에서만 — 휴지통 화면에선 만든 항목이 보이지 않는 지금 폴더에 알림 없이 생겼다(WP-1082, WP-1101).
+  // 거르기 중에도 막지 않는다 — 같은 폴더라 올린 항목은 이름이 맞으면 보이고, 거르기를 지우면 보인다.
+  const canAddHere = browsing
   const canCreateHere = !readOnlyRole && canAddHere
   const canDropHere = !readOnly && canAddHere
 
@@ -321,24 +304,28 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setPrevSelLocation(selLocation)
     setSelFiles(new Set())
     setSelFolders(new Set())
+    // 거르기도 지금 폴더에 대한 것이라 폴더·공간을 옮기면 비운다(WP-1356).
+    setNameFilter('')
   }
 
   // 스페이스 전환은 사이드바 링크가 search 를 새로 써 ?view 가 함께 빠진다 — 휴지통이 다른 공간으로 따라가지 않는다(WP-208).
 
+  // 화면에 그리는 목록 — 거르기가 있으면 이름이 맞는 항목만(WP-1356). 폴더 전환 중 placeholder(이전 폴더)도 같은 기준으로 거른다.
+  const shownItems = useMemo(() => filterByName(items, filterTerm), [items, filterTerm])
   // WP-63: 선택은 재조회(원격 무효화 등)로 지워지지 않으므로, 현재 보이는 목록에서 사라진 항목은
-  // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
-  // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
-  const viewItems = results ?? actualItems
+  // 선택 집합과 현재 뷰(거르기가 있으면 거른 목록) id 의 교집합으로 걸러 쓴다.
+  // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다 — 거르기로 숨은 항목이 일괄 이동·삭제에 섞이지 않게.
+  const viewItems = useMemo(() => filterByName(actualItems, filterTerm), [actualItems, filterTerm])
   const previewId = parseId(previewParam.value)
-  // 묶음 = 지금 보이는 목록(검색 중이면 검색 결과)의 파일 — 열린 동안 재조회로 빠져도 스냅숏으로 유지(useViewerBundle).
+  // 묶음 = 지금 폴더의 파일(거르기 전) — 거르기로 숨은 파일의 ?preview 딥링크가 「찾을 수 없음」이 되지 않게. 열린 동안 재조회로 빠져도 스냅숏으로 유지(useViewerBundle).
   // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·뷰어 "드라이브에서 열기")이 만드는 딥링크와 호환.
   // 묶음 키는 `drive:{id}` 이므로 읽을 때·쓸 때 변환한다. 목록이 실제로 로드됐는데도 없으면 not-found(missing).
   const viewer = useViewerBundle({
-    list: viewItems.files,
+    list: actualItems.files,
     toItem: driveFileItem,
     currentKey: previewId != null ? driveViewerKey(previewId) : null,
     // 조회가 끝나면(실패 포함) 판정한다 — 실패 시 영영 판정하지 않으면 뷰어도 안내도 없이 낡은 ?preview 만 남는다.
-    ready: results == null && !itemsQuery.isPlaceholderData && (itemsQuery.isSuccess || itemsQuery.isError),
+    ready: !itemsQuery.isPlaceholderData && (itemsQuery.isSuccess || itemsQuery.isError),
     // 묶음 키는 언제나 driveFileItem 이 만든 `drive:{id}` — URL 에는 숫자 id 만 쓴다.
     openKey: (key) => {
       const parsed = parseViewerKey(key)
@@ -443,16 +430,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // breadcrumb 경로(루트→현재 폴더). folderId 가 있을 때 서버에서 폴더명 경로를 로드.
   const [crumbs, setCrumbs] = useState<DriveFolderPathSegment[]>([])
 
-  // WP-63: 사용자 액션 후 목록 갱신 — 이 공간의 폴더 목록과 파일명 검색 캐시를 무효화한다.
+  // WP-63: 사용자 액션 후 목록 갱신 — 이 공간의 폴더 목록 캐시를 무효화한다.
   // 활성 쿼리의 재조회가 끝나야 resolve 하므로 호출측의 await 이후엔 기존처럼 최신 목록이 반영돼 있다.
-  // #588: 검색 결과 화면에서 벌크 작업 후에도 결과가 갱신되도록 검색 캐시도 함께 무효화 —
-  // 검색 중이 아니어도 무효화해 두어야 나중에 같은 검색어로 돌아왔을 때 삭제된 항목이 남지 않는다.
   // 선택 해제는 여기서 하지 않는다(원격 무효화 재조회에서는 선택을 유지) — 액션 핸들러가 clearSel() 을 호출.
   async function reload() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(sid) }),
-      queryClient.invalidateQueries({ queryKey: driveKeys.searchAll(sid) }),
-    ])
+    await queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(sid) })
   }
 
   // 사용자 액션 성공 후 공통 마무리 — 목록 재조회 완료를 기다린 뒤 선택을 비운다.
@@ -488,7 +470,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     spaceName: space?.name,
     folderId: folderId ?? null,
     crumbs,
-    q: searchQ,
+    // 거르기 중이면 화면 목록이 폴더 전체와 달라 거르기 글자를 싣는다(builder 가 이때 개수 fact 를 뺀다).
+    q: filterTerm,
     counts:
       itemsQuery.data && !itemsQuery.isPlaceholderData
         ? { folders: itemsQuery.data.folders.length, files: itemsQuery.data.files.length }
@@ -529,31 +512,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }, [preview, setShareFile])
   const openPreviewShare = canSharePreview ? sharePreview : undefined
 
-  // 검색 디바운스(300ms). MIN_SEARCH_LEN(2자) 미만이면 결과 해제(브라우즈 복귀).
-  // 파일명 검색(driveApi.search)과 콘텐츠 검색(searchDriveContent)을 동시 호출 — 두 검색창을 하나로 통합.
-  useEffect(() => {
-    const q = query.trim()
-    if (q.length < MIN_SEARCH_LEN) {
-      setSearchQ('')
-      setContentResults(null)
-      setContentLoading(false)
-      setShowOverview(false)
-      return
-    }
-    setContentLoading(true)
-    const t = setTimeout(() => {
-      // 파일명 검색은 검색어 확정만 하면 useDriveSearch 가 조회한다.
-      setSearchQ(q)
-      void searchDriveContent(q, sid)
-        .then((data) => setContentResults(data.hits))
-        // 콘텐츠 검색 실패 시에도 로딩 가드를 반드시 풀어야 "검색 결과가 없습니다"가
-        // 영구히 숨겨지지 않는다(파일명 검색은 정상 응답했다는 전제).
-        .catch(() => setContentResults([]))
-        .finally(() => setContentLoading(false))
-    }, 300)
-    return () => clearTimeout(t)
-  }, [query, sid])
-
   // #739: 원본 blob 유실 여부 — undefined(구버전 스텁/폴백)는 유실 아님으로 취급(하위호환).
   function isMissingBlob(f: DriveFile): boolean {
     return f.available === false
@@ -564,11 +522,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   function openFolder(id: number) {
-    setQuery('')
-    setSearchQ('')
-    setContentResults(null)
-    setContentLoading(false)
-    setShowOverview(false)
     folderNav.openFolder(id)
   }
   function goRoot() {
@@ -665,11 +618,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   // 만들기·업로드·놓기의 마지막 관문 — 단추를 숨기는 것과 별개로 핸들러에서 한 번 더 본다. 새 진입점이 생겨도
-  // 휴지통·검색 화면에서 보이지 않는 지금 폴더에 알림 없이 만들지 않고, 왜 안 되는지 알린다(WP-1167).
+  // 휴지통 화면에서 보이지 않는 지금 폴더에 알림 없이 만들지 않고, 왜 안 되는지 알린다(WP-1167).
   function guardAddHere(): boolean {
     if (canAddHere) return true
     // 끌고 있는 동안 dragover 가 계속 와도 토스트는 하나만 남게 id 를 고정한다.
-    toast.message('검색·휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.', { id: 'drive-add-blocked' })
+    toast.message('휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.', { id: 'drive-add-blocked' })
     return false
   }
 
@@ -1101,11 +1054,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   async function openTrash() {
-    setQuery('')
-    setSearchQ('')
-    setContentResults(null)
-    setContentLoading(false)
-    setShowOverview(false)
     // WP-63: 열 때마다 새로 조회(기존 동작) — staleTime 안의 캐시가 있으면 enabled 전환만으론
     // 재조회되지 않아 목록 화면에서 삭제한 항목이 빠진 옛 휴지통이 보이므로 먼저 리셋한다.
     // 조회에 성공했을 때만 휴지통 뷰로 전환한다 — 실패 후 trashOpen 이 남으면 이후 재조회(포커스·원격 무효화) 성공 시
@@ -1175,26 +1123,16 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   // 헤더 경로(§B-1, WP-979) — 데스크톱 풀페이지에서만 제목 자리에 둔다. 시작점은 공간(앱 이름 「드라이브」는 넣지 않는다).
-  // 검색·휴지통에서도 숨기지 않고 「공간 › 검색 결과」·「공간 › 휴지통」으로 보인다 — 검색은 공간 전체가 범위라 폴더 단계는 뺀다.
+  // 휴지통에서도 숨기지 않고 「공간 › 휴지통」으로 보인다.
   const headerPath = !isMobile && !embedded
-  const leaveSearchToRoot = () => {
-    setQuery('')
-    setSearchQ('')
-    setContentResults(null)
-    setContentLoading(false)
-    setShowOverview(false)
-    goRoot()
-  }
   const spaceLabel = space?.name ?? '드라이브'
   const pathItems: BreadcrumbItem[] =
     trash != null
       ? [{ key: 'root', label: spaceLabel, title: spaceLabel, onSelect: closeTrash, testId: 'drive-root' }, { key: 'mode', label: '휴지통', testId: 'drive-breadcrumb-mode' }]
-      : searching
-        ? [{ key: 'root', label: spaceLabel, title: spaceLabel, onSelect: leaveSearchToRoot, testId: 'drive-root' }, { key: 'mode', label: '검색 결과', testId: 'drive-breadcrumb-mode' }]
-        : [
-            { key: 'root', label: spaceLabel, title: spaceLabel, onSelect: goRoot, testId: 'drive-root' },
-            ...crumbs.map((c) => ({ key: `f-${c.id}`, label: c.name, title: c.name, onSelect: () => openFolder(c.id), testId: `drive-crumb-${c.id}` })),
-          ]
+      : [
+          { key: 'root', label: spaceLabel, title: spaceLabel, onSelect: goRoot, testId: 'drive-root' },
+          ...crumbs.map((c) => ({ key: `f-${c.id}`, label: c.name, title: c.name, onSelect: () => openFolder(c.id), testId: `drive-crumb-${c.id}` })),
+        ]
   // 폴더 단계(공간·상위 폴더)는 끌어 놓을 곳이라 드롭 버튼으로, 현재 폴더는 드래그 중 흐려지는 글자로 그린다(WP-364). 모드 단계는 기본 모양.
   const renderPathItem: BreadcrumbRenderItem = (item, { current, className }) => {
     if (item.key === 'mode') return null
@@ -1207,7 +1145,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         </DriveCrumbCurrent>
       )
     }
-    // 검색·휴지통의 공간 단계는 모드를 나가는 동작이라 놓을 곳이 아니다 — 기본 버튼으로 둔다.
+    // 휴지통의 공간 단계는 모드를 나가는 동작이라 놓을 곳이 아니다 — 기본 버튼으로 둔다.
     if (!browsing) return null
     return (
       <DriveCrumbDropButton
@@ -1224,7 +1162,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
-  // #588: 벌크 툴바 — 검색/비검색 두 목록 분기가 공유하는 렌더 헬퍼(중복 제거).
+  // #588: 벌크 툴바 렌더 헬퍼.
   // 1개 이상 선택 시 표시. 모바일은 목록 위 인라인 대신 화면 하단 고정 바(renderMobileBulkBar)를 쓴다(WP-216).
   function renderBulkToolbar() {
     if (selCount === 0 || isMobile) return null
@@ -1276,8 +1214,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
-  // #588: 전체선택 체크박스 — 검색/비검색 두 목록 분기가 공유하는 렌더 헬퍼.
-  // 대상 폴더/파일 id 목록을 인자로 받아 현재 뷰(검색 결과 또는 폴더 목록) 기준으로 동작.
+  // #588: 전체선택 체크박스 렌더 헬퍼.
+  // 대상 폴더/파일 id 목록을 인자로 받아 현재 뷰(거르기가 있으면 거른 폴더 목록) 기준으로 동작.
   function renderSelectAll(folderIds: number[], fileIds: number[]) {
     const total = folderIds.length + fileIds.length
     // 모바일은 체크박스를 선택 모드에서만 보이므로 전체선택도 그때만(WP-216).
@@ -1307,7 +1245,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
-  // #799: 이름/크기/수정일 컬럼 헤더 — 탐색 목적 목록(공간 파일 목록·검색 결과)에만 적용.
+  // #799: 이름/크기/수정일 컬럼 헤더 — 탐색 목적 목록(공간 파일 목록)에만 적용.
   // 정렬 기능이 없으므로(스코프 밖) 순수 레이블 <span>만 사용 — 버튼/클릭 어포던스 금지.
   function renderColumnHeader() {
     return (
@@ -1366,12 +1304,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         actions={
           <>
             {!isMobile && folderShareTarget && <CopyLinkButton target={folderShareTarget} />}
-            <SearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="이 공간에서 검색..."
-              aria-label="파일명 및 콘텐츠 검색"
-            />
             {canCreateHere && (
               <button
                 type="button"
@@ -1383,7 +1315,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 새 폴더
               </button>
             )}
-            {/* 업로드 중엔 휴지통·검색 화면이어도 진행 표시를 남긴다 — 옆의 「취소」가 무엇을 취소하는지 보이게(WP-1101). 올리는 중이라 눌리지 않는다. */}
+            {/* 업로드 중엔 휴지통 화면이어도 진행 표시를 남긴다 — 옆의 「취소」가 무엇을 취소하는지 보이게(WP-1101). 올리는 중이라 눌리지 않는다. */}
             {(canCreateHere || uploading) && (
               <button
                 type="button"
@@ -1419,7 +1351,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           </>
         }
       />
-      {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기.
+      {/* breadcrumb 행 — 브라우즈 모드(휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기.
           한 줄 고정(whitespace-nowrap+overflow-hidden) — 긴 폴더명이 줄바꿈되면 h-9 를 넘쳐 위 헤더 밑으로
           잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
       {/* 본문 — 브레드크럼 줄 + 드롭존 스크롤. 행 여백은 페이지 여백(pageGutterClass) 축. */}
@@ -1472,15 +1404,39 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           )}
         </nav>
       )}
+      {/* WP-1356: 이 폴더 거르기 — 경로 줄 아래·목록 바로 위(데스크톱 풀페이지는 경로가 헤더에 있어 본문 첫 줄). 모바일도 같은 자리에 늘 보인다.
+          남은 수는 거르기 글자가 있을 때만 오른쪽 끝에 「N개 중 M개」로, 바뀌면 role=status 로 읽힌다(디자인 시스템 05 「필터 줄」). */}
+      {browsing && (
+        <FilterLine
+          data-testid="drive-filter-line"
+          className={cn('shrink-0 border-b py-2', pageGutterClass)}
+          keyword={
+            <FilterInput
+              placeholder="이름"
+              aria-label="이 폴더 거르기"
+              value={nameFilter}
+              onChange={setNameFilter}
+              inputTestId="drive-filter-input"
+            />
+          }
+          end={
+            filterTerm ? (
+              <span role="status" className="text-sm text-muted-foreground" data-testid="drive-filter-count">
+                {items.folders.length + items.files.length}개 중 {shownItems.folders.length + shownItems.files.length}개
+              </span>
+            ) : undefined
+          }
+        />
+      )}
       <div
         className={cn('min-h-0 flex-1 overflow-y-auto py-4', pageGutterClass)}
         data-testid="drive-dropzone"
         onDragOver={(e) => {
           e.preventDefault()
-          // 놓아도 올리지 않는 곳(읽기 전용·휴지통·검색 화면)이면 놓기 표시(테두리·커서)도 하지 않는다.
+          // 놓아도 올리지 않는 곳(읽기 전용·휴지통 화면)이면 놓기 표시(테두리·커서)도 하지 않는다.
           if (!canDropHere) {
             e.dataTransfer.dropEffect = 'none'
-            // 쓸 수 있는 공간인데 휴지통·검색 화면이라 막히면 커서만 바뀌지 않게 이유를 알린다(WP-1167).
+            // 쓸 수 있는 공간인데 휴지통 화면이라 막히면 커서만 바뀌지 않게 이유를 알린다(WP-1167).
             if (!readOnly) guardAddHere()
             return
           }
@@ -1603,194 +1559,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               )}
             </ul>
           </div>
-        ) : searching ? (
-          <div data-testid="search-results">
-            {/* 파일명 일치 그룹 — 기존 space-scoped 파일명 검색 결과. #588: 비검색 모드와 동일한 벌크 선택 UI 적용. */}
-            {(results.folders.length > 0 || results.files.length > 0) && (
-              <div className="mb-4">
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">
-                  파일명 일치 ({results.folders.length + results.files.length})
-                </p>
-                {renderBulkToolbar()}
-                {renderSelectAll(
-                  results.folders.map((f) => f.id),
-                  results.files.map((f) => f.id),
-                )}
-                {/* #799: 3열(이름/크기/수정일) 헤더 — 탐색 문맥(검색 결과)에도 적용. */}
-                {renderColumnHeader()}
-                <ul className="divide-y divide-border">
-                  {results.folders.map((f) => (
-                    <DrivePressRow
-                      key={`s-folder-${f.id}`}
-                      {...rowPress('folder', f.id)}
-                      className={cn(
-                        'flex items-center gap-2 py-2 max-lg:min-h-14',
-                        rowSelectedClass('folder', f.id),
-                      )}
-                    >
-                      {/* #588: 폴더 행 체크박스 — 멀티셀렉트용. */}
-                      {renderRowCheck('folder', f.id, f.name)}
-                      {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
-                      <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
-                      <button
-                        type="button"
-                        onClick={() => openFolder(f.id)}
-                        className="min-w-0 flex-1 text-left text-sm hover:underline"
-                      >
-                        <span className="block truncate">
-                          {f.name}
-                          {/* 모바일은 경로를 둘째 줄로 내린다(WP-216). */}
-                          {f.folderPath && !isMobile && (
-                            <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                          )}
-                        </span>
-                        {renderMetaLine(metaLine(f.folderPath, null, f.updatedAt))}
-                      </button>
-                      {/* #799: 폴더 행 — 크기 없음, 수정일만 표시. */}
-                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">—</span>
-                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
-                        {formatDateOnly(f.updatedAt)}
-                      </span>
-                    </DrivePressRow>
-                  ))}
-                  {results.files.map((f) => (
-                    <DrivePressRow
-                      key={`s-file-${f.id}`}
-                      {...rowPress('file', f.id)}
-                      className={cn(
-                        'flex items-center gap-2 py-2 max-lg:min-h-14',
-                        rowSelectedClass('file', f.id),
-                      )}
-                    >
-                      {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
-                      {renderRowCheck('file', f.id, f.name)}
-                      <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} available={!isMissingBlob(f)} />
-                      <button
-                        type="button"
-                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}
-                        className={cn(
-                          'min-w-0 flex-1 text-left text-sm',
-                          isMissingBlob(f) ? 'text-muted-foreground' : 'hover:underline',
-                        )}
-                      >
-                        <span className="block truncate">
-                          {f.name}
-                          {/* 모바일은 경로를 둘째 줄로 내린다(WP-216). */}
-                          {f.folderPath && !isMobile && (
-                            <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                          )}
-                        </span>
-                        {renderMetaLine(metaLine(f.folderPath, f.sizeBytes, f.updatedAt))}
-                      </button>
-                      {/* #739: 원본 유실 배지 — 중립 경고 스타일(StatusBadge warning), AI 마커 계열 아님. */}
-                      {isMissingBlob(f) && (
-                        <StatusBadge type="warning" data-testid="missing-blob-badge" className="shrink-0">
-                          원본 유실
-                        </StatusBadge>
-                      )}
-                      {/* #799: 3열 — 크기/수정일. */}
-                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
-                        {formatFileSize(f.sizeBytes)}
-                      </span>
-                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
-                        {formatDateOnly(f.updatedAt)}
-                      </span>
-                    </DrivePressRow>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {/* 내용 일치 그룹 — 콘텐츠 하이브리드 검색(#527 인프라 재사용, 이번엔 현재 공간으로 스코프).
-                벌크 선택 대상은 폴더/파일 아이템뿐이라 콘텐츠 일치 그룹에는 체크박스를 적용하지 않는다. */}
-            {contentResults != null && contentResults.length > 0 && (
-              <div className="mb-4" data-testid="drive-content-results">
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">
-                  내용 일치 ({contentResults.length})
-                </p>
-                <ul className="space-y-2">
-                  {contentResults.map((h) => (
-                    <li key={h.driveFileId} className="rounded border p-2" data-testid="drive-content-hit">
-                      <div className="flex items-center gap-2">
-                        <a
-                          className="font-medium hover:underline"
-                          href={`/drive/spaces/${h.spaceId}?file=${h.driveFileId}`}
-                        >
-                          {h.name}
-                        </a>
-                        {/* 스페이스 뱃지 — 어느 스페이스의 파일인지 표시. */}
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                          {h.spaceName}
-                        </span>
-                      </div>
-                      {/* snippet 은 ts_headline 이 <b> 만 넣는 신뢰 출력이지만 안전을 위해 태그 제거 후 텍스트 렌더. */}
-                      <p className="text-sm text-muted-foreground">{h.snippet.replace(/<\/?b>/g, '')}</p>
-                    </li>
-                  ))}
-                </ul>
-                {/* AI Overview — 풀페이지에서만(embedded 는 공간이 좁아 숨김). */}
-                {!embedded && (
-                  <div className="mt-2">
-                    {!showOverview ? (
-                      <button
-                        type="button"
-                        className="rounded bg-ai-accent-subtle px-2 py-1 text-sm text-ai-accent hover:opacity-90"
-                        onClick={() => {
-                          // 클릭 시점 검색어를 고정(committed) — 카드가 열려 있는 동안 계속
-                          // 타이핑해도 스트림이 매 keystroke 마다 재시작되지 않도록.
-                          setOverviewQuery(query.trim())
-                          setShowOverview(true)
-                        }}
-                        data-testid="drive-overview-btn"
-                      >
-                        ✦ AI Overview
-                      </button>
-                    ) : (
-                      <DriveOverviewCard query={overviewQuery} spaceId={sid} />
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            {results.folders.length === 0 &&
-              results.files.length === 0 &&
-              !contentLoading &&
-              (contentResults == null || contentResults.length === 0) && (
-                /* #789: DS §2.5 빈 상태 4요소 — 아이콘 + 검색어 포함 메시지 + 설명 + 검색 초기화 버튼.
-                   IssueListView 의 필터 없음 empty state 패턴과 동일하게 구성. */
-                <div
-                  className="flex flex-col items-center justify-center gap-3 py-16 text-center"
-                  data-testid="drive-search-empty"
-                >
-                  <SearchX className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">
-                      <span className="font-medium text-foreground">'{query}'</span>에 대한 결과가 없습니다.
-                    </p>
-                    <p className="text-xs text-muted-foreground">다른 키워드로 검색해 보세요.</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setQuery('')}
-                    data-testid="drive-search-empty-reset"
-                  >
-                    검색 초기화
-                  </Button>
-                </div>
-              )}
-          </div>
         ) : (
           <>
-            {/* #82/#588: 벌크 툴바 + 전체선택 — 검색 결과 분기와 공유하는 렌더 헬퍼. */}
+            {/* #82/#588: 벌크 툴바 + 전체선택 — 전체선택은 거르기로 보이는 항목만 고른다(WP-1356, 숨은 항목이 일괄 작업에 섞이지 않게). */}
             {renderBulkToolbar()}
             {renderSelectAll(
-              actualItems.folders.map((f) => f.id),
-              actualItems.files.map((f) => f.id),
+              viewItems.folders.map((f) => f.id),
+              viewItems.files.map((f) => f.id),
             )}
             {/* #799: 3열(이름/크기/수정일) 헤더 — 비인터랙티브 레이블(정렬 없음). */}
             {renderColumnHeader()}
           <ul className="divide-y divide-border">
-            {items.folders.map((f) => (
+            {shownItems.folders.map((f) => (
               <DrivePressRow
                 key={`folder-${f.id}`}
                 {...rowPress('folder', f.id)}
@@ -1829,7 +1609,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 )}
               </DrivePressRow>
             ))}
-            {items.files.map((f) => (
+            {shownItems.files.map((f) => (
               <DrivePressRow
                 key={`file-${f.id}`}
                 {...rowPress('file', f.id)}
@@ -1888,6 +1668,29 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             ))}
             {/* WP-63: 첫 조회 중(isLoading)엔 빈 폴더 문구를 숨긴다 — 폴더 이동 직후 거짓 "빈 폴더" 깜빡임 방지.
                 실패 시엔 isLoading=false 라 기존처럼 빈 상태로 폴백(별도 오류 UI 는 기존에도 없음). */}
+            {/* WP-1356: 거르기에 맞는 항목이 없음 — 폴더는 비어 있지 않다. 거르기를 풀거나, 하위 폴더·다른 공간까지 상단 검색(드라이브 탭)으로 찾는다.
+                「드라이브 전체에서 찾기」는 상단 검색이 찾을 수 있는 길이(MIN_SEARCH_ALL_LEN)일 때만 — 짧으면 팔레트가 아무것도 찾지 않는다. */}
+            {filterTerm !== '' && !itemsQuery.isPlaceholderData && items.folders.length + items.files.length > 0 && shownItems.folders.length + shownItems.files.length === 0 && (
+              <li className="flex flex-col items-center gap-2 px-4 py-12 text-center" data-testid="drive-filter-empty">
+                <SearchX className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+                <p className="text-sm font-semibold">조건에 맞는 항목이 없습니다</p>
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
+                  <Button variant="outline" size="sm" onClick={() => setNameFilter('')} data-testid="drive-filter-clear">
+                    필터 지우기
+                  </Button>
+                  {filterTerm.length >= MIN_SEARCH_ALL_LEN && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => openSearchPalette({ q: filterTerm, app: 'drive' })}
+                      data-testid="drive-search-all"
+                    >
+                      드라이브 전체에서 찾기
+                    </Button>
+                  )}
+                </div>
+              </li>
+            )}
             {!itemsQuery.isLoading && !itemsQuery.isPlaceholderData && items.folders.length === 0 && items.files.length === 0 && (
               // 빈 폴더 empty state — DS §2.5: 아이콘+제목+설명+CTA 4요소.
               <li
@@ -1897,8 +1700,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <FolderOpen className="h-12 w-12 text-muted-foreground" />
                 <p className="text-sm font-semibold">이 폴더는 비어 있어요</p>
                 {readOnlyRole && <p className="text-xs text-muted-foreground">이 공간은 보기 권한만 있어요</p>}
-                {/* WP-582: 읽기 전용 공간(보관·보기 전용)엔 올릴 수 없으니 업로드 권유(설명·CTA)를 뺀다.
-                    검색어를 친 직후(곧 결과 화면이 덮는다)에도 머리 단추처럼 뺀다(WP-1167). */}
+                {/* WP-582: 읽기 전용 공간(보관·보기 전용)엔 올릴 수 없으니 업로드 권유(설명·CTA)를 뺀다. */}
                 {canDropHere && (
                   <>
                     <p className="text-xs text-muted-foreground">파일을 업로드하거나 새 폴더를 만들어보세요</p>

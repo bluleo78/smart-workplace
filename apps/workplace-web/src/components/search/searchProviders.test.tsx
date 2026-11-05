@@ -92,6 +92,7 @@ describe('drive', () => {
               name: '계획.pdf',
               mimeType: 'application/pdf',
               folderPath: '문서/2026',
+              snippet: null,
             },
             {
               kind: 'FOLDER',
@@ -102,6 +103,7 @@ describe('drive', () => {
               name: '계획',
               mimeType: null,
               folderPath: '',
+              snippet: null,
             },
           ],
           hasMore: true,
@@ -120,7 +122,42 @@ describe('drive', () => {
       meta: '팀',
       href: '/drive/spaces/2?folderId=12',
     })
+    // 이름이 맞은 결과는 둘째 줄이 없다.
+    expect(page.hits[0].snippet).toBeUndefined()
+    expect(page.hits[0].snippetLabel).toBeUndefined()
     expect(page.next).toBe(20)
+  })
+
+  it('본문만 맞은 파일(WP-1356)은 둘째 줄에 「본문」 발췌를 단다', async () => {
+    server.use(
+      http.get(`${API}/search/drive`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              kind: 'FILE',
+              id: 21,
+              spaceId: 2,
+              spaceName: '팀',
+              folderId: null,
+              name: '보고서.docx',
+              mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              folderPath: '',
+              snippet: '…올해 계획 은 다음과 같다…',
+            },
+          ],
+          hasMore: false,
+        }),
+      ),
+    )
+    const page = await providers().drive.fetchPage('계획', null, 20)
+    expect(page.hits[0]).toMatchObject({
+      key: 'drive:FILE:21',
+      title: '보고서.docx',
+      href: '/drive/spaces/2?preview=21',
+      snippet: '…올해 계획 은 다음과 같다…',
+      snippetLabel: '본문',
+    })
+    expect(page.next).toBeNull()
   })
 })
 
