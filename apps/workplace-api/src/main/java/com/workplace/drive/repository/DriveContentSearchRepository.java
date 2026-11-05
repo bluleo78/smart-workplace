@@ -26,6 +26,23 @@ public class DriveContentSearchRepository {
   /** 미스 페널티 rank(후보 풀 밖 = 51). */
   private static final int MISS_RANK = CANDIDATES + 1;
 
+  /**
+   * 두 검색(키워드 전용·하이브리드)의 accessible CTE 가 같이 쓰는 FROM·조건 — 볼 수 있는 파일 규칙을 한 곳에 둔다(WP-1378: 휴지통 조건이 한
+   * 쪽에만 들어가 두 경로가 갈리지 않게). 추출 완료(DONE) · 접근 가능한 공간(첫 바인딩 ANY(?)) · 휴지통이 아닌 파일. 휴지통은 이름
+   * 검색(DriveNameSearchRepository)·목록과 같은 기준이고, 폴더째 휴지통에 넣어도 하위 파일이 같은 op 로 trashed_at 을 받으므로 파일 자신의
+   * trashed_at 만 본다. 바인딩 없는 상수 조건이라 파라미터 순서는 그대로다.
+   */
+  private static final String ACCESSIBLE_FROM =
+      """
+          FROM file_extraction fe
+          JOIN drive_file df ON df.file_id = fe.file_id
+          JOIN drive_space ds ON ds.id = df.space_id
+          JOIN file f ON f.id = fe.file_id
+          WHERE fe.status = 'DONE'
+            AND df.space_id = ANY(?)
+            AND df.trashed_at IS NULL
+      """;
+
   private final DSLContext dsl;
 
   public DriveContentSearchRepository(DSLContext dsl) {
@@ -68,6 +85,7 @@ public class DriveContentSearchRepository {
   /**
    * 키워드 전용 검색(벡터 없음). vec CTE 를 제거해 null 바인딩 타입 추론 오류를 회피. RRF 점수 = 1/(K+rank_kw) + 1/(K+MISS_RANK)
    * — 벡터 랭커 부재 시 상수 페널티. spaceIds(접근 가능한 공간)로 접근을 거르고, spaceId 가 있으면 accessible CTE 에 공간 필터를 추가한다.
+   * 볼 수 있는 파일 조건(휴지통 제외 포함)은 {@link #ACCESSIBLE_FROM}.
    */
   private List<ContentRow> keywordOnlySearch(
       Param<Long[]> spaceIds, String query, int limit, Long spaceId) {
@@ -77,12 +95,6 @@ public class DriveContentSearchRepository {
         WITH accessible AS (
           SELECT df.id AS drive_file_id, df.file_id, df.space_id, ds.name AS space_name,
                  df.name AS file_name, f.mime_type, fe.search_tv, fe.extracted_text
-          FROM file_extraction fe
-          JOIN drive_file df ON df.file_id = fe.file_id
-          JOIN drive_space ds ON ds.id = df.space_id
-          JOIN file f ON f.id = fe.file_id
-          WHERE fe.status = 'DONE'
-            AND df.space_id = ANY(?)
           %s
         ),
         kw AS (
@@ -106,7 +118,7 @@ public class DriveContentSearchRepository {
         ORDER BY m.score DESC
         LIMIT ?
         """
-            .formatted(spaceFilter);
+            .formatted(ACCESSIBLE_FROM + spaceFilter);
     List<Object> params = new ArrayList<>();
     params.add(spaceIds);
     if (spaceId != null) params.add(spaceId);
@@ -124,7 +136,8 @@ public class DriveContentSearchRepository {
 
   /**
    * 키워드 + 벡터 하이브리드 검색. 두 랭커를 RRF 로 병합. 미접근 파일은 spaceIds(접근 가능한 공간) 필터로 배제. spaceId 가 있으면 accessible
-   * CTE 에 공간 필터를 추가한다.
+   * CTE 에 공간 필터를 추가한다. 볼 수 있는 파일 조건(휴지통 제외 포함)은 {@link #ACCESSIBLE_FROM} — accessible CTE 에서 빼므로
+   * 키워드·벡터 두 랭커 모두에서 빠진다.
    */
   private List<ContentRow> hybridSearchWithVector(
       Param<Long[]> spaceIds, String query, String vecLiteral, int limit, Long spaceId) {
@@ -134,12 +147,6 @@ public class DriveContentSearchRepository {
         WITH accessible AS (
           SELECT df.id AS drive_file_id, df.file_id, df.space_id, ds.name AS space_name,
                  df.name AS file_name, f.mime_type, fe.search_tv, fe.embedding, fe.extracted_text
-          FROM file_extraction fe
-          JOIN drive_file df ON df.file_id = fe.file_id
-          JOIN drive_space ds ON ds.id = df.space_id
-          JOIN file f ON f.id = fe.file_id
-          WHERE fe.status = 'DONE'
-            AND df.space_id = ANY(?)
           %s
         ),
         kw AS (
@@ -173,7 +180,7 @@ public class DriveContentSearchRepository {
         ORDER BY m.score DESC
         LIMIT ?
         """
-            .formatted(spaceFilter);
+            .formatted(ACCESSIBLE_FROM + spaceFilter);
     List<Object> params = new ArrayList<>();
     params.add(spaceIds);
     if (spaceId != null) params.add(spaceId);
