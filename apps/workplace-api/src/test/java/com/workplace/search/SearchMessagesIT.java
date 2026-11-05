@@ -232,6 +232,18 @@ class SearchMessagesIT extends IntegrationTestBase {
         .doesNotContain("\n");
   }
 
+  /** 한 줄 행에 맞은 곳이 보이도록 — 120자 미만이어도 맞은 곳이 뒤쪽이면 앞을 잘라 맞은 곳을 앞으로 당긴다. */
+  @Test
+  void searchMessages_matchNearEndIsPulledForward() throws Exception {
+    String body = "다".repeat(80) + " " + word + " 끝";
+    post(me, myChannel, body);
+
+    String excerpt = search(me, word, null).get("items").get(0).get("excerpt").asText();
+
+    assertThat(excerpt).startsWith("…").contains(word);
+    assertThat(excerpt.indexOf(word)).isLessThan(30);
+  }
+
   @Test
   void searchMessages_shortQueryEmpty() throws Exception {
     post(me, myChannel, "a " + word);

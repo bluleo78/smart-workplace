@@ -4,7 +4,6 @@ import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.ChatMarkdownText;
 import com.workplace.global.util.MentionParser;
-import com.workplace.home.service.HomeConversationSearchService;
 import com.workplace.messaging.dto.DmParticipant;
 import com.workplace.messaging.repository.MessagingSummaryRepository;
 import com.workplace.messaging.service.MessagingSummaryService;
@@ -33,6 +32,12 @@ public class SearchMessageService {
 
   /** 발췌 길이(코드포인트) — AI 대화 검색과 같다. */
   private static final int EXCERPT_CHARS = 120;
+
+  /**
+   * 맞은 곳 앞에 남길 글자 수(코드포인트). 팔레트의 메시지 행은 보낸 사람 옆 한 줄이라 앞 40자 남짓만 보인다 — 맞은 곳이 뒤쪽이면 화면 밖으로 밀려 강조가 안
+   * 보이므로, 맞은 곳 앞을 이만큼만 남기고 자른다.
+   */
+  private static final int LEAD_CHARS = 12;
 
   private final MessageSearchRepository repo;
   private final MessagingSummaryRepository summaryRepo;
@@ -89,9 +94,20 @@ public class SearchMessageService {
     return new MessageSearchPage(items, hasMore);
   }
 
-  /** 본문 → 평문(마크다운 기호 제거·멘션은 @이름) → 맞은 곳 주변 한 줄(줄바꿈은 한 칸, 앞뒤를 자르면 「…」). */
-  private static String excerpt(String body, List<MentionResponse> mentions, List<String> terms) {
+  /**
+   * 본문 → 평문(마크다운 기호 제거·멘션은 @이름) → 맞은 곳 앞 {@link #LEAD_CHARS}자부터 한 줄(줄바꿈은 한 칸, 앞뒤를 자르면 「…」). AI 대화
+   * 발췌와 달리 끝에 맞춰 창을 당기지 않는다 — 한 줄 행에서 맞은 곳이 늘 앞쪽에 보이게.
+   */
+  static String excerpt(String body, List<MentionResponse> mentions, List<String> terms) {
     String plain = MentionParser.replaceWithNames(ChatMarkdownText.toPlain(body), mentions);
-    return HomeConversationSearchService.excerpt(plain, terms, EXCERPT_CHARS);
+    String s = plain.replaceAll("\\s+", " ").strip();
+    String lower = s.toLowerCase(Locale.ROOT);
+    int hitChar = terms.stream().mapToInt(lower::indexOf).filter(i -> i >= 0).min().orElse(-1);
+    int hitCp = hitChar < 0 ? 0 : s.codePointCount(0, hitChar);
+    int start = Math.max(0, hitCp - LEAD_CHARS);
+    String rest = s.substring(s.offsetByCodePoints(0, start));
+    String head = start > 0 ? "…" : "";
+    if (rest.codePointCount(0, rest.length()) <= EXCERPT_CHARS) return head + rest;
+    return head + rest.substring(0, rest.offsetByCodePoints(0, EXCERPT_CHARS)) + "…";
   }
 }
