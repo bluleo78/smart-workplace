@@ -1,5 +1,5 @@
 // 만들기 창의 「AI 에게 맡기기」(WP-1315) — 데스크톱 대화상자(마감일 아래)와 모바일 시트(설명 아래)가 같이 쓴다.
-// 늘 보이는 한 줄 「🤖 AI 에게 맡기기 — 안 함 ▸」. 누르면 펼쳐 담당 AI·실행 일정(한 번만·매일·평일·매주·매월 + 시각)·다음 실행 미리보기·안내를
+// 늘 보이는 한 줄 「🤖 AI 에게 맡기기 — 안 함 ▸」. 누르면 펼쳐 담당 AI·실행 일정(한 번만·매일·평일·매주·매월·몇 시간마다 + 시각)·다음 실행 미리보기·안내를
 // 보이고, 정하면 줄이 「내 AI 비서 · ↻ 평일 08:30」 요약이 된다. 일정 칸은 이슈 상세의 편집기와 같은 TaskRecurrenceScheduleFields 다.
 // 사람의 반복 할 일처럼 보이지 않게 「반복」 대신 「실행 일정」이라 부른다(설계 §4).
 import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/overlay/select';
-import { agentOptionLabel, CREATE_FREQS, createHandoffSummary, nextRunText, previewNextRun } from '@/lib/issueRecurrence';
+import { agentOptionLabel, createHandoffSummary, nextRunText, previewNextRun } from '@/lib/issueRecurrence';
 import { cn } from '@/lib/utils';
 
 import type { CreateAiHandoff } from '../hooks/useCreateAiHandoff';
@@ -76,7 +76,7 @@ export function CreateAiHandoffSection({ ai, disabled = false }: { ai: CreateAiH
           <TaskRecurrenceScheduleFields
             form={ai.form}
             onChange={ai.patch}
-            freqs={CREATE_FREQS}
+            variant="create"
             locked={disabled}
             timeHint={
               preview ? (

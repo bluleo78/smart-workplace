@@ -54,7 +54,13 @@ export function TaskRecurrenceField({
             {text}
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80" data-testid="task-recurrence-popover">
+        {/* 「몇 시간마다」(WP-1373)를 고르면 간격·시간대·요일이 펼쳐져 키가 커진다 — 화면 높이를 넘으면 위가 잘려
+            담당 AI·칩 줄이 안 보였다. Radix 가 주는 남은 높이 안에서 스크롤한다. */}
+        <PopoverContent
+          align="start"
+          className="max-h-(--radix-popover-content-available-height) w-80 overflow-y-auto"
+          data-testid="task-recurrence-popover"
+        >
           {/* 열 때마다 지금 값으로 폼을 새로 시작한다(PopoverContent 는 닫히면 언마운트). */}
           <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />
         </PopoverContent>

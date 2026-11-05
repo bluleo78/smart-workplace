@@ -162,15 +162,16 @@ test.describe('생성 시트', () => {
   });
 
   // WP-1315 라이브 확인에서 휴대폰 폭의 다섯 칸 실행 일정 칩 중 「한 번만」이 두 줄로 꺾였다 — 글자 줄 수는 jsdom 이 잴 수 없다.
-  test('AI 에게 맡기기를 펼치면 실행 일정 칩 다섯 개가 한 줄에 각자 한 줄 글자로 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // WP-1373: 「몇 시간마다」가 더해져 여섯 칩을 세 칸씩 두 줄로 놓는다(만들기 창 variant 'create' 의 grid-cols-3).
+  test('AI 에게 맡기기를 펼치면 실행 일정 칩 여섯 개가 세 칸씩 두 줄에 각자 한 줄 글자로 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/recurrence-agents`, (r) =>
       r.fulfill(json([{ id: 9, username: '__assistant_u1', name: '개인 비서', personalAssistant: true }])));
     await openSheet(page);
     await page.getByTestId('create-ai-handoff-toggle').click();
     const chips = page.getByRole('group', { name: '실행 일정' }).getByRole('button');
-    await expect(chips).toHaveText(['한 번만', '매일', '평일', '매주', '매월']);
-    // 칩마다 글자가 한 줄(글자 상자 줄 수 1)이고 칩 밖으로 넘치지 않으며, 다섯 칩의 윗변이 같다.
+    await expect(chips).toHaveText(['한 번만', '매일', '평일', '매주', '매월', '몇 시간마다']);
+    // 칩마다 글자가 한 줄(글자 상자 줄 수 1)이고 칩 밖으로 넘치지 않으며, 세 칩씩 윗변이 같은 두 줄이다.
     const lines = await chips.evaluateAll((els) =>
       els.map((el) => {
         const range = document.createRange();
@@ -178,9 +179,11 @@ test.describe('생성 시트', () => {
         return { rows: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size, fits: el.scrollWidth <= el.clientWidth, top: Math.round(el.getBoundingClientRect().top) };
       }),
     );
-    expect(lines.map((l) => l.rows)).toEqual([1, 1, 1, 1, 1]);
+    expect(lines.map((l) => l.rows)).toEqual([1, 1, 1, 1, 1, 1]);
     expect(lines.every((l) => l.fits)).toBe(true);
-    expect(new Set(lines.map((l) => l.top)).size).toBe(1);
+    expect(new Set(lines.slice(0, 3).map((l) => l.top)).size).toBe(1);
+    expect(new Set(lines.slice(3).map((l) => l.top)).size).toBe(1);
+    expect(lines[3].top).toBeGreaterThan(lines[0].top);
     await expectNoHorizontalOverflow(page);
   });
 });
