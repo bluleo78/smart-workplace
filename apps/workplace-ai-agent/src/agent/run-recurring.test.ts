@@ -184,6 +184,36 @@ describe('runRecurring', () => {
     expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: '## 정리\n- [확인 필요] 항목 없음' });
   });
 
+  // WP-1376: 결과 맨 끝 「정해 주세요」 절에 항목이 있으면 결과 전체를 그대로 질문으로 보고한다(`[확인 필요]` 와 같은 질문 경로).
+  it('결과 맨 끝 「정해 주세요」 절에 항목이 있으면 결과 전체를 question:true 로 보고한다', async () => {
+    const body = '## 오늘 정리\n- 메일 3건 분류\n\n## 정해 주세요\n1. 거래처 견적 메일에 회신할까요? (회신 / 보류)';
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', body)]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: body, question: true });
+  });
+
+  it('이어 처리 결과가 다시 「정해 주세요」로 물으면 question:true, 절 없이 끝나면 질문이 아니다', async () => {
+    const again = '답에서 고른 항목을 알 수 없어 처리하지 않았습니다.\n\n### 정해 주세요\n1. 회신할까요, 보류할까요?';
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', again)]);
+    const c = client();
+    await runRecurring({ ...payload, runId: '3-f991', followUp: { question: 'q', answer: '음' } }, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f991', ok: true, message: again, question: true });
+
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '하지 않았습니다.')]);
+    const c2 = client();
+    await runRecurring({ ...payload, runId: '3-f992', followUp: { question: 'q', answer: '넘어가' } }, { client: c2 });
+    expect(c2.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f992', ok: true, message: '하지 않았습니다.' });
+  });
+
+  it('「제안」 절만 있는 결과는 질문이 아니다', async () => {
+    const body = '## 오늘 정리\n- 메일 3건 분류\n\n## 제안\n1. 거래처 메일을 따로 폴더로 모으면 좋겠습니다';
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', body)]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: body });
+  });
+
   it('실행이 실패로 끝나면 ok:false 로 보고한다', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([resultLine('error_max_turns', '')]);
     const c = client();
