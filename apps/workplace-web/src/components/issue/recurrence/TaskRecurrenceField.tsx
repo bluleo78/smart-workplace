@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/po
 import { Button } from '@/components/ui/button';
 import { useIssueRecurrence } from '@/hooks/queries/useIssueRecurrence';
 import { aiHandoffLabel } from '@/lib/issueRecurrence';
+import { cn } from '@/lib/utils';
 
 import { RecurrenceRunNowButton } from './RecurrenceRunNowButton';
 import { TaskRecurrenceEditor, TaskRecurrenceStatus } from './TaskRecurrenceEditor';
@@ -48,10 +49,16 @@ export function TaskRecurrenceField({
             data-testid="task-recurrence-trigger"
             // 조회 전에는 폼 초기값을 모르니 잠근다(실패하면 다시 열어 새로 만들 수 있게 풀어 둔다).
             disabled={q.isLoading || disabled}
-            className={r ? undefined : 'text-muted-foreground'}
+            // WP-1388: 공용 Button 은 한 줄 고정(whitespace-nowrap·h-8)이라 긴 일정 문구가 속성 칸 밖으로 잘렸다 — 칸 폭 안에서 줄바꿈한다(말줄임 안 함).
+            // 한 줄일 때는 min-h-8 + 위아래 5px 로 예전 h-8(32px) 높이를 지키고, 짧은 문구는 예전처럼 글자 폭만큼만 차지한다.
+            className={cn(
+              'h-auto min-h-8 max-w-full items-start py-[5px] text-left whitespace-normal',
+              !r && 'text-muted-foreground',
+            )}
           >
-            <Bot className="h-4 w-4" aria-hidden />
-            {text}
+            {/* 여러 줄일 때 아이콘은 첫 줄 가운데에 맞춘다(글줄 20px − 아이콘 16px = 위 2px). */}
+            <Bot className="mt-0.5 h-4 w-4" aria-hidden />
+            <span className="min-w-0 break-words">{text}</span>
           </Button>
         </PopoverTrigger>
         {/* 「몇 시간마다」(WP-1373)를 고르면 간격·시간대·요일이 펼쳐져 키가 커진다 — 화면 높이를 넘으면 위가 잘려

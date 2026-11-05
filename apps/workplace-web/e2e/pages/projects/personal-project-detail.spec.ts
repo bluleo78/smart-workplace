@@ -456,3 +456,69 @@ test('「몇 시간마다」를 골라 팝오버가 커져도 화면 안에 머�
   if (scrollHeight > clientHeight) expect(overflowY).toBe('auto');
   else expect(box.height).toBeGreaterThanOrEqual(scrollHeight - 1);
 });
+
+// WP-1388 — 「AI 에게 맡기기」 요약 버튼이 공용 Button 의 한 줄 고정(whitespace-nowrap·h-8)이라, 긴 담당 AI 이름 + 「몇 시간마다」 문구가
+// 속성 레일(300px) 밖으로 넘쳐 잘렸다. 긴 문구는 레일 폭 안에서 줄바꿈해 모두 보이고, 짧은 문구는 예전처럼 한 줄 높이를 지킨다.
+// jsdom 은 줄바꿈·넘침을 잴 수 없어 브라우저에서 기하로 확인한다.
+for (const c of [
+  {
+    name: '긴 문구는 레일 안에서 줄바꿈해 모두 보인다',
+    rrule: 'FREQ=HOURLY;INTERVAL=1;BYDAY=MO,WE,FR;UNTILTIME=18:00',
+    time: '09:00',
+    agentName: 'AI 이슈 관리자 운영팀',
+    label: 'AI 이슈 관리자 운영팀 · ↻ 월·수·금 09~18시 1시간마다',
+    wrapped: true,
+  },
+  {
+    name: '짧은 문구는 한 줄 높이 그대로다',
+    rrule: 'FREQ=WEEKLY;BYDAY=MO',
+    time: '08:30',
+    agentName: '내 AI 비서',
+    label: '내 AI 비서 · ↻ 매주 월 08:30',
+    wrapped: false,
+  },
+]) {
+  test(`「AI 에게 맡기기」 요약 버튼: ${c.name}(WP-1388)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+    await mockTaskDetail(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/recurrence`, {
+      rrule: c.rrule,
+      time: c.time,
+      enabled: true,
+      nextRunAt: null,
+      consecutiveFailures: 0,
+      lastRunAt: null,
+      agentUserId: 900,
+      agentName: c.agentName,
+      editable: true,
+      testRunning: false,
+    });
+    await page.goto(`/projects/${KEY}?task=1`);
+
+    const trigger = page.getByTestId('task-recurrence-trigger');
+    // 문구 전체가 말줄임 없이 들어 있다.
+    await expect(trigger).toHaveText(c.label);
+
+    // 트리거 오른쪽 끝이 레일 안쪽(오른쪽 padding 을 뺀 끝)을 넘지 않는다 — 소수 픽셀 1px 오차는 허용.
+    const rail = page.getByTestId('personal-task-rail');
+    const [t, r, railPadRight, { scrollWidth, clientWidth }] = await Promise.all([
+      boxOf(trigger),
+      boxOf(rail),
+      rail.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight)),
+      trigger.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })),
+    ]);
+    const railInnerRight = r.x + r.width - railPadRight;
+    expect(t.x + t.width, `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(railInnerRight + 1);
+    // 글자가 버튼 밖으로 넘치지 않는다(가로 스크롤 폭 = 보이는 폭).
+    expect(scrollWidth, `scrollWidth ${scrollWidth} vs clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth + 1);
+
+    // 긴 문구는 두 줄 이상(한 줄 32px 보다 확실히 크다), 짧은 문구는 예전 h-8(32px) 근처 한 줄.
+    if (c.wrapped) expect(t.height, `긴 문구 높이 ${t.height}`).toBeGreaterThan(40);
+    else {
+      expect(t.height, `짧은 문구 높이 ${t.height}`).toBeLessThanOrEqual(36);
+      // 짧은 문구는 레일 폭으로 늘어나지 않고 글자 폭만큼만 차지한다(옆 피커들과 같은 모양).
+      expect(t.width, `짧은 문구 폭 ${t.width} vs 레일 안쪽 폭 ${railInnerRight - r.x}`).toBeLessThan(railInnerRight - r.x - 40);
+    }
+  });
+}
