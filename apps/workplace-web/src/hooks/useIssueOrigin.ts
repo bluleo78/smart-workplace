@@ -1,5 +1,5 @@
 // 이슈 상세의 "이전 화면으로 돌아가기" — 히스토리 위치 기록(AppLayout)과 복귀 동작(이슈 상세) 훅(#885).
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { isEditableTarget, OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
@@ -9,10 +9,22 @@ import { backDeltaToOrigin, type HistoryEntries, isIssueDetailPath } from '@/lib
 // 탭(문서) 수명 동안의 위치 기록 — 새로고침하면 비워지고, 그 뒤 복귀는 기본 목적지로 간다.
 const entries: HistoryEntries = {};
 
-/** 앱 셸에서 1회 호출 — 화면이 바뀔 때마다 현재 히스토리 위치가 이슈 상세인지 기록한다. */
+/** 테스트 전용 — 모듈 수명의 위치 기록을 비운다(테스트마다 jsdom 히스토리가 idx 0 부터 다시 시작하므로 앞 테스트의 기록이 남지 않게). */
+export function resetIssueOriginForTest(): void {
+  for (const idx of Object.keys(entries)) delete entries[Number(idx)];
+}
+
+/**
+ * 앱 셸에서 1회 호출 — 화면이 바뀔 때마다 현재 히스토리 위치가 이슈 상세인지 기록한다.
+ * 레이아웃 이펙트로 기록한다(WP-1416) — 앱 셸은 화면의 부모라 일반 이펙트는 화면(자식)의 이펙트보다 늦게 돈다.
+ * 화면이 자기 이펙트에서 곧바로 히스토리를 옮기면(채팅 서랍 펴기: replace → push, WP-1414) 그 뒤에 읽은 idx 는 이미 다음 항목이라
+ * 방금 그린 위치가 기록되지 않았다 → 서랍이 열린 채 복귀하면(헤더 ←) 기록 없는 칸을 만나 출발 화면 대신 프로젝트 화면으로 갔다
+ * (이슈·프로젝트가 캐시에 있어 첫 렌더부터 서랍을 펼 때). 레이아웃 이펙트는 같은 커밋의 모든 일반 이펙트보다 먼저 돌아,
+ * 그린 위치를 옮겨지기 전에 기록한다.
+ */
 export function useIssueOriginTracker(): void {
   const location = useLocation();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const idx = currentHistoryIdx();
     if (idx !== null) entries[idx] = isIssueDetailPath(location.pathname);
   }, [location]);
