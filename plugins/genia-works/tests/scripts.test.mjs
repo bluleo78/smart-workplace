@@ -1923,6 +1923,29 @@ tmuxTest('agentEvents_poke_allKeysForReconnect', async (t) => {
   assert.equal(run('agent-events', ['poke', d, 'bad key']).status, 2);
 });
 
+// 서버가 불안정하면 「wake - reconnect」가 1~2분마다 온다 — 그때마다 모든 칸에 /loop 를 넣지 않고 다시 붙음 깨우기는 간격(기본 600초)에 한 번만.
+// 키 알림(poke WP)은 이 간격에 막히지 않는다(키마다 60초 디바운스만).
+tmuxTest('agentEvents_poke_reconnectWakesOncePerInterval', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  const hr = await fakeClaudePane(wrapper, tmux, 'HR', IDLE);
+  assert.equal((await poke('-')).status, 0);
+  await until(() => wp.typed().includes('\n') && hr.typed().includes('\n'));
+  // 키마다 60초 표시를 지워 「1분 넘게 지난 뒤 또 다시 붙음」을 흉내 낸다 — 다시 붙음 간격에만 걸려야 한다.
+  rmSync(join(d, 'state', 'poke-WP'), { force: true });
+  rmSync(join(d, 'state', 'poke-HR'), { force: true });
+  assert.equal((await poke('-')).status, 0);
+  assert.equal((await poke('-')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.equal(hr.typed(), '/loop /genia-works:work-loop HR --queue "AI 개발팀"\n');
+  assert.match(log(), /^poke - debounced$/m);
+  // 키 알림은 그대로 깨운다.
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n${LOOP}\n`);
+  assert.equal(hr.typed(), '/loop /genia-works:work-loop HR --queue "AI 개발팀"\n');
+});
+
 tmuxTest('agentEvents_poke_ignoresNonClaudeRunner', async (t) => {
   const { wrapper, tmux, log, poke } = pokeSetup(t, { cli: 'genia' });
   const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);

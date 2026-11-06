@@ -336,6 +336,24 @@ do_poke() {
     exit 0
   fi
   if [ "$key" = - ]; then
+    # 서버가 불안정하면 다시 붙음이 1~2분마다 온다 — 그때마다 모든 칸에 /loop 를 넣으면 장애 동안 할 일 없는 회차만 쌓인다(WP-1403 리뷰).
+    # 다시 붙음 깨우기는 GW_POKE_RECONNECT_SEC(기본 600초)에 한 번만 한다. 마지막으로 깨운 시각(초)을 poke-reconnect 에 적어 비교한다
+    # (find -mmin 은 분 단위라 초 간격을 못 맞추고, stat 은 BSD·GNU 가 달라 시각을 파일 내용으로 둔다). 키 알림은 이 간격과 상관없다.
+    mkdir -p "$state" || exit 1
+    gw_dir_lock "$state/poke-reconnect.lock" || exit 0
+    gap=${GW_POKE_RECONNECT_SEC:-600}
+    now=$(date +%s)
+    last=$(cat "$state/poke-reconnect" 2>/dev/null)
+    case $last in
+      '' | *[!0-9]*) ;;
+      *)
+        if [ $((now - last)) -lt "$gap" ]; then
+          note poke - debounced
+          exit 0
+        fi
+        ;;
+    esac
+    printf '%s\n' "$now" > "$state/poke-reconnect"
     # 다시 붙음 — 그 AI 의 칸마다 따로 부른다(키마다 잠그고 디바운스한다). 키가 달린 칸만(--pane-keys — 예전 구성의 창·home·감시 창은 아니다).
     # 칸마다 뒤에서 — 일하는 칸을 기다리는 동안 다른 칸 깨우기가 밀리지 않게. 파이프 끝은 하위 셸이라 그 안에서 기다린다.
     "$here/agent-window" --pane-keys "$name" 2>/dev/null | {
