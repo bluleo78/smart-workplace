@@ -18,6 +18,7 @@ import {
   issueBodyImageItem,
   issueChatBundle,
   issueDriveLinkItem,
+  isVirtualAttachmentImportable,
   itemPreviewKind,
   mailAttachmentItem,
   mailViewerKey,
@@ -28,6 +29,7 @@ import {
   securityPathFrom,
   teamChatBundle,
   virtualAttachmentItem,
+  virtualAttachmentViewerKey,
 } from './viewerItems'
 
 const file = { id: 70, fileId: 200, name: '기획안.pdf', mimeType: 'application/pdf', sizeBytes: 300 } as DriveFile
@@ -55,6 +57,56 @@ describe('virtualAttachmentItem', () => {
       contentPath: '/api/v1/x/9/content', downloadPath: '/api/v1/x/9/content',
       importFileId: 9, sourceLink: '/projects/WP/issues/3',
     })
+  })
+
+  // WP-1392: 가져오기는 fileId 가 있을 때만 — 응답에 남는 다른 필드(예전·새 서버의 여분 필드)는 판단에 쓰지 않는다.
+  it('fileId 가 없으면 가져오기(importFileId)가 없고, 여분 필드는 무시한다', () => {
+    const a = { fileId: 9, name: 'a.png', mimeType: 'image/png', sizeBytes: 10, downloadUrl: '/api/v1/x/9/content', deepLink: '/x' } as VirtualAttachment
+    expect(isVirtualAttachmentImportable(a)).toBe(true)
+    expect(isVirtualAttachmentImportable({ ...a, importable: false } as VirtualAttachment)).toBe(true)
+    const noFile = { ...a, fileId: null } as VirtualAttachment
+    expect(virtualAttachmentItem(noFile).importFileId).toBeUndefined()
+    expect(isVirtualAttachmentImportable(noFile)).toBe(false)
+  })
+
+  // WP-1392: 메일 첨부는 메일 화면과 같은 항목 — 키 mail:{id}(file:{id} 와 네임스페이스가 달라 같은 숫자 fileId 와 섞이지 않음), 메일 콘텐츠 경로, 가져오기 없음.
+  it('메일 첨부는 mail:{id} 키·메일 경로이고 가져오기가 없다', () => {
+    const a = {
+      fileId: null, name: '견적서.pdf', mimeType: 'application/pdf', sizeBytes: 10, sourceType: 'MAIL', mailAttachmentId: 9,
+      downloadUrl: '/api/v1/mail/attachments/9/content', deepLink: '/mail/1?messageId=3',
+    } as VirtualAttachment
+    const it = virtualAttachmentItem(a)
+    expect(it).toMatchObject({ key: 'mail:9', contentPath: '/mail/attachments/9/content', aiRefs: { source: 'mail', attachmentId: 9 }, sourceLink: '/mail/1?messageId=3' })
+    expect(it.importFileId).toBeUndefined()
+    expect(it.key).not.toBe(virtualAttachmentItem({ ...a, sourceType: 'ISSUE', fileId: 9, mailAttachmentId: null }).key)
+  })
+
+  // WP-1392 리뷰: id 가 빠진 비정상 행(메일 id 없는 MAIL·fileId 없는 행)이 `file:null` 한 키에 몰리면 다른 행을 눌러도 첫 행이 열린다.
+  // 행마다 다른 대체 키를 쓰고, 그 키는 드라이브·이슈·메일 호스트 파서에 잡히지 않으며, 가져오기도 없다.
+  it('id 가 빠진 행은 file:null 이 아니라 행마다 다른 대체 키이고 가져오기가 없다', () => {
+    const base = { fileId: null, name: 'x.txt', mimeType: 'text/plain', sizeBytes: 1, deepLink: '/mail/1' }
+    const mailA = { ...base, sourceType: 'MAIL', mailAttachmentId: null, downloadUrl: '/api/v1/mail/attachments/1/content' } as VirtualAttachment
+    const mailB = { ...mailA, mailAttachmentId: undefined, downloadUrl: '/api/v1/mail/attachments/2/content' } as VirtualAttachment
+    const issue = { ...base, sourceType: 'ISSUE', downloadUrl: '/api/v1/projects/WP/issues/1/attachments/3/content' } as VirtualAttachment
+    const keys = [mailA, mailB, issue].map((a) => virtualAttachmentItem(a).key)
+    expect(new Set(keys).size).toBe(3)
+    for (const key of keys) {
+      expect(key).not.toMatch(/null|undefined/)
+      expect(parseViewerKey(key)).toBeNull()
+      expect(isMailViewerKey(key)).toBe(false)
+    }
+    expect(virtualAttachmentItem(issue).importFileId).toBeUndefined()
+    expect(isVirtualAttachmentImportable(issue)).toBe(false)
+  })
+
+  // 목록 탐색용 키 함수는 항목을 만들지 않고 같은 키를 낸다(파일·메일·id 없는 행).
+  it('virtualAttachmentViewerKey 는 virtualAttachmentItem 의 키와 같다', () => {
+    const rows = [
+      { fileId: 9, name: 'a.png', mimeType: 'image/png', sizeBytes: 1, sourceType: 'ISSUE', downloadUrl: '/a', deepLink: '/x' },
+      { fileId: null, name: 'b.pdf', mimeType: 'application/pdf', sizeBytes: 1, sourceType: 'MAIL', mailAttachmentId: 9, downloadUrl: '/b', deepLink: '/x' },
+      { fileId: null, name: 'c.txt', mimeType: 'text/plain', sizeBytes: 1, sourceType: 'MAIL', downloadUrl: '/c', deepLink: '/x' },
+    ] as VirtualAttachment[]
+    for (const a of rows) expect(virtualAttachmentViewerKey(a)).toBe(virtualAttachmentItem(a).key)
   })
 })
 

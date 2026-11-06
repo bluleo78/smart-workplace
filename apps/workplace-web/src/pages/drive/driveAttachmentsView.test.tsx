@@ -22,7 +22,7 @@ import { createFile, personalSpace } from '../../../e2e/factories/drive.factory'
 const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 
 /** 가상 첨부 하나. */
-function att(fileId: number, name: string, sourceType: VirtualAttachmentSource, label: string, link: string, url: string, extra: Partial<VirtualAttachment> = {}): VirtualAttachment {
+function att(fileId: number | null, name: string, sourceType: VirtualAttachmentSource, label: string, link: string, url: string, extra: Partial<VirtualAttachment> = {}): VirtualAttachment {
   return { fileId, name, mimeType: 'image/png', sizeBytes: 100, hasThumbnail: false, sourceType, sourceLabel: label, deepLink: link, downloadUrl: url, attachedAt: '2026-07-01T10:00:00Z', ...extra }
 }
 
@@ -146,9 +146,9 @@ describe('목록', () => {
     expect(issueBadge).toHaveTextContent('이슈')
     expect(chatBadge.className).not.toBe(issueBadge.className)
 
-    // 칩 순서: 전체 → 이슈 → 이슈챗 → 메시지.
+    // 칩 순서: 전체 → 이슈 → 이슈챗 → 메시지 → 노트 → 메일(WP-1392 에서 노트·메일 추가).
     const chips = [...document.querySelectorAll('[data-testid^="drive-attachment-filter-"]')].map((el) => el.textContent)
-    expect(chips).toEqual(['전체', '이슈', '이슈챗', '메시지'])
+    expect(chips).toEqual(['전체', '이슈', '이슈챗', '메시지', '노트', '메일'])
 
     await user.click(screen.getByTestId('drive-attachment-filter-chat_message'))
     await waitFor(() => expect(screen.queryByTestId('drive-attachment-row-401')).not.toBeInTheDocument())
@@ -156,11 +156,84 @@ describe('목록', () => {
     expect(screen.getByTestId('drive-attachment-filter-chat_message')).toHaveAttribute('aria-pressed', 'true')
   })
 
-  // WP-1391: 머리 아래 한 줄로 세는 기준을 알린다 — 사이드바 저장 공간과 숫자가 다른 이유.
+  // WP-1392: 노트·메일 칩은 각각 source=WIKI·MAIL 로 다시 조회한다. 노트·메일 묶음 배지는 다른 출처와 겹치지 않는 색이다.
+  test('노트·메일 칩은 source=WIKI·MAIL 로 다시 조회하고, 노트·메일 묶음은 각자의 배지다', async () => {
+    const urls: URL[] = []
+    const issueFile = att(501, 'design.png', 'ISSUE', 'WP-42', '/projects/WP/issues/42', '/api/v1/files/501/download')
+    const wikiFile = att(502, 'rollout.png', 'WIKI', '운영 / 배포 체크리스트', '/wiki/spaces/3/pages/7', '/api/v1/wiki/pages/7/attachments/502/content')
+    const mailFile = att(null, '견적서.pdf', 'MAIL', '[견적] 11월 — 김담당', '/mail/1?messageId=9', '/api/v1/mail/attachments/601/content', {
+      mimeType: 'application/pdf', mailAttachmentId: 601,
+    })
+    const bySource: Record<string, VirtualAttachment[]> = { WIKI: [wikiFile], MAIL: [mailFile] }
+    const { user } = renderView({
+      urls,
+      list: (url) => ({ items: bySource[url.searchParams.get('source') ?? ''] ?? [issueFile, wikiFile, mailFile], nextCursor: null }),
+    })
+    const badgeOf = (rowTestId: string) =>
+      within(screen.getByTestId(rowTestId).closest('[data-testid="drive-attachment-group"]') as HTMLElement).getByTestId('drive-attachment-group-badge')
+    await screen.findByTestId('drive-attachment-row-502', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const [issueBadge, wikiBadge, mailBadge] = [badgeOf('drive-attachment-row-501'), badgeOf('drive-attachment-row-502'), badgeOf('drive-attachment-row-mail-601')]
+    expect(wikiBadge).toHaveTextContent('노트')
+    expect(mailBadge).toHaveTextContent('메일')
+    expect(new Set([issueBadge.className, wikiBadge.className, mailBadge.className]).size).toBe(3)
+
+    await user.click(screen.getByTestId('drive-attachment-filter-wiki'))
+    await waitFor(() => expect(screen.queryByTestId('drive-attachment-row-501')).not.toBeInTheDocument())
+    expect(urls.at(-1)?.searchParams.get('source')).toBe('WIKI')
+    expect(screen.getByTestId('drive-attachment-filter-wiki')).toHaveAttribute('aria-pressed', 'true')
+    // 노트 첨부는 다른 파일 첨부처럼 드라이브에 저장할 수 있다.
+    expect(screen.getByTestId('drive-attachment-save-502')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('drive-attachment-filter-mail'))
+    await waitFor(() => expect(screen.queryByTestId('drive-attachment-row-502')).not.toBeInTheDocument())
+    expect(urls.at(-1)?.searchParams.get('source')).toBe('MAIL')
+    expect(screen.getByTestId('drive-attachment-row-mail-601')).toBeInTheDocument()
+  })
+
+  // WP-1392: 이슈 본문 이미지(kind=BODY_IMAGE)는 이슈 묶음 안에서 「· 본문」으로 업로드 첨부와 구분된다.
+  test('이슈 본문 이미지 행에는 「· 본문」이 붙고 업로드 첨부에는 없다', async () => {
+    const upload = att(701, 'quota.png', 'ISSUE', 'WP-1391', '/projects/WP/issues/1391', '/api/v1/projects/WP/issues/1391/attachments/701/content', { kind: null })
+    const bodyImage = att(702, 'image-1.png', 'ISSUE', 'WP-1391', '/projects/WP/issues/1391', '/api/v1/projects/WP/issue-images/702', { kind: 'BODY_IMAGE' })
+    renderView({ list: () => ({ items: [upload, bodyImage], nextCursor: null }) })
+    const bodyRow = await screen.findByTestId('drive-attachment-row-702', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    expect(within(bodyRow).getByTestId('drive-attachment-body-image')).toHaveTextContent('· 본문')
+    expect(within(screen.getByTestId('drive-attachment-row-701')).queryByTestId('drive-attachment-body-image')).not.toBeInTheDocument()
+    // 둘 다 같은 이슈 묶음 하나에 든다.
+    expect(screen.getAllByTestId('drive-attachment-group')).toHaveLength(1)
+  })
+
+  // WP-1392: 메일 첨부 행 — 썸네일 대신 형식 아이콘, 「내 드라이브에 저장」 없음, 다운로드는 downloadUrl(메일 첨부 경로).
+  test('메일 첨부 행은 저장 버튼이 없고 형식 아이콘이며, 다운로드는 downloadUrl 을 요청한다', async () => {
+    let downloads = 0
+    const mailFile = att(null, '견적서.pdf', 'MAIL', '[견적] 11월 — 김담당', '/mail/1?messageId=9', '/api/v1/mail/attachments/601/content', {
+      mimeType: 'application/pdf', mailAttachmentId: 601,
+    })
+    const { user } = renderView({
+      list: () => ({ items: [mailFile], nextCursor: null }),
+      handlers: [
+        http.get('/api/v1/mail/attachments/601/content', () => {
+          downloads++
+          return new HttpResponse('%PDF', { headers: { 'Content-Type': 'application/pdf' } })
+        }),
+      ],
+    })
+    const row = await screen.findByTestId('drive-attachment-row-mail-601', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    expect(within(row).queryByRole('button', { name: '내 드라이브에 저장' })).not.toBeInTheDocument()
+    // 줄 맞춤용 빈 자리는 보이지 않고 보조 기술·Tab 에서 빠진다(크기 열이 다른 행과 같은 자리에 오게).
+    const spacer = within(row).getByTestId('drive-attachment-save-spacer-mail-601')
+    expect(spacer).toHaveAttribute('aria-hidden', 'true')
+    expect(spacer).toHaveAttribute('tabindex', '-1')
+    expect(spacer).toHaveClass('invisible')
+    expect(within(row).getByTestId('drive-attachment-type-icon')).toBeInTheDocument()
+    await user.click(within(row).getByTestId('drive-attachment-download-mail-601'))
+    await waitFor(() => expect(downloads).toBeGreaterThan(0))
+  })
+
+  // WP-1391·1392: 머리 아래 한 줄로 세는 기준을 알린다 — 사이드바 저장 공간과 숫자가 다른 이유. 노트·메일 출처도 밝힌다.
   test('머리 아래에 세는 기준 설명이 있다', async () => {
     renderView()
     expect(await screen.findByTestId('drive-attachments-description', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(
-      '내가 참여한 프로젝트·채널·이슈챗의 첨부입니다 — 내가 올린 파일만이 아니며, 저장 공간 사용량과 세는 기준이 다릅니다.',
+      '내가 볼 수 있는 이슈·이슈챗·채팅·노트의 첨부와 내 메일의 첨부입니다 — 저장 공간 사용량과 세는 기준이 다릅니다.',
     )
   })
 
@@ -168,7 +241,7 @@ describe('목록', () => {
   test('빈 응답이면 「첨부가 없어요」 안내', async () => {
     renderView({ list: () => ({ items: [], nextCursor: null }) })
     await waitFor(() => expect(screen.getByTestId('drive-attachments-view')).toHaveTextContent('첨부가 없어요'), { timeout: PAGE_LOAD_TIMEOUT })
-    expect(screen.getByTestId('drive-attachments-view')).toHaveTextContent('접근 가능한 이슈·이슈챗·메시지의 첨부가 여기에 모입니다')
+    expect(screen.getByTestId('drive-attachments-view')).toHaveTextContent('볼 수 있는 이슈·이슈챗·채팅·노트의 첨부와 내 메일의 첨부가 여기에 모입니다')
   })
 
   // 「내 드라이브에 저장」 → 폴더 창(개인 공간) → 확정하면 import-attachment 에 그 첨부 fileId 를 보낸다.
@@ -242,6 +315,63 @@ describe('미리보기', () => {
     await screen.findByTestId('attachment-viewer')
     expect(screen.queryByRole('button', { name: '이전 파일' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '다음 파일' })).not.toBeInTheDocument()
+  })
+
+  // WP-1392: 메일 첨부 미리보기는 메일 화면과 같은 항목 — 키 mail:{id}, 메일 첨부 콘텐츠 경로. 메일 첨부 id 가 다른 첨부의 fileId 와
+  // 같은 숫자여도 행·미리보기·저장이 섞이지 않는다(파일 첨부 5 는 저장 가능, 메일 첨부 5 는 메일 경로로 열린다).
+  test('메일 첨부는 mail:{id} 키·메일 경로로 열리고, 같은 숫자의 파일 첨부와 섞이지 않는다', async () => {
+    const paths: string[] = []
+    const issueFile = att(5, 'issue.txt', 'ISSUE', 'WP-1', '/projects/WP/issues/1', '/api/v1/projects/WP/issues/1/attachments/5/content', { mimeType: 'text/plain' })
+    const mailFile = att(null, 'mail.txt', 'MAIL', '안내 — 김담당', '/mail/1?messageId=9', '/api/v1/mail/attachments/5/content', {
+      mimeType: 'text/plain', mailAttachmentId: 5,
+    })
+    const { user, location } = renderView({
+      list: () => ({ items: [issueFile, mailFile], nextCursor: null }),
+      handlers: [
+        http.get('/api/v1/mail/attachments/5/content', ({ request }) => {
+          paths.push(new URL(request.url).pathname)
+          return new HttpResponse('MAIL-BODY', { headers: { 'Content-Type': 'text/plain' } })
+        }),
+        http.get('/api/v1/projects/WP/issues/1/attachments/5/content', ({ request }) => {
+          paths.push(new URL(request.url).pathname)
+          return new HttpResponse('ISSUE-BODY', { headers: { 'Content-Type': 'text/plain' } })
+        }),
+      ],
+    })
+    // 두 행이 각자 그려지고, 저장은 파일 첨부에만 있다.
+    const fileRow = await screen.findByTestId('drive-attachment-row-5', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const mailRow = screen.getByTestId('drive-attachment-row-mail-5')
+    expect(within(fileRow).getByTestId('drive-attachment-save-5')).toBeInTheDocument()
+    expect(within(mailRow).queryByRole('button', { name: '내 드라이브에 저장' })).not.toBeInTheDocument()
+
+    await user.click(within(mailRow).getByRole('button', { name: 'mail.txt' }))
+    await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent('MAIL-BODY'))
+    expect(location()).toMatch(/preview=mail(%3A|:)5/)
+    expect(paths).toContain('/api/v1/mail/attachments/5/content')
+    expect(paths).not.toContain('/api/v1/projects/WP/issues/1/attachments/5/content')
+  })
+
+  // WP-1392 리뷰: 메일 id 가 빠진 비정상 메일 행 둘이 한 키(file:null)를 나눠 가지면 두 번째 행을 눌러도 첫 행이 열린다 —
+  // 행마다 다른 대체 키라 누른 그 행의 downloadUrl 로 열린다.
+  test('메일 id 가 빠진 메일 행 둘은 각자 자기 첨부로 열린다', async () => {
+    const paths: string[] = []
+    const mk = (n: number) =>
+      att(null, `broken-${n}.txt`, 'MAIL', '안내 — 김담당', '/mail/1?messageId=9', `/api/v1/mail/attachments/${n}/content`, {
+        mimeType: 'text/plain', mailAttachmentId: null,
+      })
+    const { user, location } = renderView({
+      list: () => ({ items: [mk(71), mk(72)], nextCursor: null }),
+      handlers: [
+        http.get('/api/v1/mail/attachments/:id/content', ({ request, params }) => {
+          paths.push(new URL(request.url).pathname)
+          return new HttpResponse(`BODY-${params.id}`, { headers: { 'Content-Type': 'text/plain' } })
+        }),
+      ],
+    })
+    await user.click(await screen.findByRole('button', { name: 'broken-72.txt' }, { timeout: PAGE_LOAD_TIMEOUT }))
+    await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent('BODY-72'))
+    expect(location()).not.toMatch(/preview=file(%3A|:)null/)
+    expect(paths).not.toContain('/api/v1/mail/attachments/71/content')
   })
 
   // WP-277: 목록 끝까지 없는 첨부 딥링크는 찾을 수 없음 안내, 닫으면 ?preview 를 지운다.

@@ -11,7 +11,7 @@ interface DriveAttachmentsParams {
   limit?: number
 }
 
-/** 이슈/이슈챗/메시지 업로드 파일의 가상 첨부 목록 — cursor 기반 무한 스크롤. */
+/** 이슈/이슈챗/메시지/노트 업로드 파일과 내 메일 첨부의 가상 첨부 목록 — cursor 기반 무한 스크롤(source 에 WIKI·MAIL 도, WP-1392). */
 export function useDriveAttachments(params: DriveAttachmentsParams = {}) {
   return useInfiniteQuery<VirtualAttachmentPage>({
     queryKey: ['drive-attachments', params],

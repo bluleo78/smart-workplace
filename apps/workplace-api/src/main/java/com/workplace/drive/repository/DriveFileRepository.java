@@ -11,9 +11,11 @@ import com.workplace.file.storage.FileStore;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -47,8 +49,25 @@ public class DriveFileRepository {
    * 라, 있으면 file 행을 지울 수 없다.
    */
   public boolean anyReferencesFile(long fileId) {
-    return dsl.fetchExists(DRIVE_FILE, DRIVE_FILE.FILE_ID.eq(fileId))
-        || dsl.fetchExists(DRIVE_FILE_VERSION, DRIVE_FILE_VERSION.FILE_ID.eq(fileId));
+    // 판정 규칙(drive_file + drive_file_version)은 referencedAmong 한 곳에만 둔다(WP-1392).
+    return !referencedAmong(List.of(fileId)).isEmpty();
+  }
+
+  /**
+   * fileIds 중 drive_file(휴지통 포함) 또는 drive_file_version 이 가리키는 것(WP-1392). 드라이브 참조 판정의 유일한 규칙 —
+   * {@link #anyReferencesFile} 도 이것을 부른다(다른 도메인의 강등·회수, 만료 스윕 보존 판정이 여러 건을 한 번에 묻는다).
+   */
+  public Set<Long> referencedAmong(Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return Set.of();
+    return new HashSet<>(
+        dsl.select(DRIVE_FILE.FILE_ID)
+            .from(DRIVE_FILE)
+            .where(DRIVE_FILE.FILE_ID.in(fileIds))
+            .union(
+                dsl.select(DRIVE_FILE_VERSION.FILE_ID)
+                    .from(DRIVE_FILE_VERSION)
+                    .where(DRIVE_FILE_VERSION.FILE_ID.in(fileIds)))
+            .fetch(0, Long.class));
   }
 
   /**
@@ -103,6 +122,12 @@ public class DriveFileRepository {
   /** 업로드 직후 FILE 영구화(expires_at = null). */
   public void promoteFile(long fileId) {
     dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.eq(fileId)).execute();
+  }
+
+  /** 여러 file 의 만료 해제(영구화) — 만료 스윕이 드라이브가 아직 쓰는 file 을 보존할 때(WP-1392). */
+  public void promoteFiles(Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return;
+    dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.in(fileIds)).execute();
   }
 
   /**

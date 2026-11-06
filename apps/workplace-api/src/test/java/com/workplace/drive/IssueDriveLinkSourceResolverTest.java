@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.drive.api.AttachmentSourceProvider;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueAttachmentSourceProvider;
@@ -201,7 +202,9 @@ class IssueDriveLinkSourceResolverTest extends IntegrationTestBase {
     bindAttachment(f3, issue.id(), owner, t3);
 
     // t2 기준 커서 → f1 만 (t2 이전)
-    var page = issueProvider.list(owner, null, t2.toInstant(), 10);
+    var page =
+        issueProvider.list(
+            owner, null, new AttachmentSourceProvider.Cursor(t2.toInstant(), null, 0L), 10);
     assertThat(page).anyMatch(e -> e.fileId() == f1);
     assertThat(page).noneMatch(e -> e.fileId() == f2);
     assertThat(page).noneMatch(e -> e.fileId() == f3);

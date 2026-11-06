@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.drive.api.AttachmentSourceProvider;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
@@ -205,7 +206,9 @@ class MessageDriveLinkSourceResolverTest extends IntegrationTestBase {
     bindAttachment(f3, msg.id(), user, t3);
 
     // t2 이전 → f1 만
-    var page = msgProvider.list(user, null, t2.toInstant(), 10);
+    var page =
+        msgProvider.list(
+            user, null, new AttachmentSourceProvider.Cursor(t2.toInstant(), null, 0L), 10);
     assertThat(page).anyMatch(e -> e.fileId() == f1);
     assertThat(page).noneMatch(e -> e.fileId() == f2);
     assertThat(page).noneMatch(e -> e.fileId() == f3);

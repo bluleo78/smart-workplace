@@ -1,5 +1,6 @@
 package com.workplace.wiki.service;
 
+import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
 import com.workplace.file.api.StagedFile;
@@ -75,6 +76,12 @@ public class WikiAttachmentService {
   private final ExtractedTextService extractedText;
   // WP-424: 스테이징 파일 클레임(소유·만료·중복 바인딩 검사와 파일 잠금).
   private final StagedFileClaimer stagedFileClaimer;
+
+  /**
+   * 드라이브로 가져간 노트 첨부(WP-1392)는 drive_file 이 같은 file 행을 쓴다 — 강등·삭제·회수에서 그 file 은 건드리지 않으려고 묻는다(이슈 첨부
+   * WP-722 와 같은 포트).
+   */
+  private final DriveFileUsage driveFileUsage;
 
   @Value("${workplace.storage.wiki.max-image-size-bytes:10485760}")
   private long maxImageSizeBytes;
@@ -342,6 +349,9 @@ public class WikiAttachmentService {
     requireBound(pageId, fileId);
     attachments.deleteMapping(fileId);
     notifier.attachmentChanged(ResourceChangedEvent.OP_DELETED, spaceId, pageId, callerId);
+    // 드라이브로 가져간 첨부는 drive_file 이 같은 file 행을 쓰므로 페이지 연결만 끊는다(WP-1392, 이슈 첨부 WP-722 와 같음)
+    // — file 행·원본은 드라이브 수명주기가 정리한다(지우면 NO ACTION FK 위반 또는 드라이브 파일 유실).
+    if (driveFileUsage.referencesFile(fileId)) return;
     storage
         .deleteFileRow(fileId)
         .ifPresent(
@@ -377,7 +387,14 @@ public class WikiAttachmentService {
   }
 
   /** file 행은 이 트랜잭션에서 지우고 바이너리(원본·썸네일·보기 캐시)는 커밋 후에만 지운다 — reclaimPageTree·reclaimSpace 공통. */
-  private void reclaim(List<WikiAttachmentRepository.AttachedFile> attached, String scope) {
+  private void reclaim(List<WikiAttachmentRepository.AttachedFile> all, String scope) {
+    // 드라이브로 가져간 첨부(WP-1392)는 file 행·원본을 남긴다 — drive_file 이 같은 행을 쓴다(WP-722 와 같은 규칙). 페이지 매핑은
+    // page_id CASCADE 로 사라지고, 그 file 의 수명은 드라이브가 맡는다.
+    Set<Long> inDrive =
+        driveFileUsage.referencedAmong(
+            all.stream().map(WikiAttachmentRepository.AttachedFile::fileId).toList());
+    List<WikiAttachmentRepository.AttachedFile> attached =
+        all.stream().filter(a -> !inDrive.contains(a.fileId())).toList();
     if (attached.isEmpty()) return;
     List<Long> fileIds =
         attached.stream().map(WikiAttachmentRepository.AttachedFile::fileId).toList();
@@ -421,9 +438,16 @@ public class WikiAttachmentService {
     // 이 페이지에 실제로 바인딩된 파일만 승격 — 본문에 남의 fileId 를 적어 만료를 푸는 것을 막는다.
     attachments.promoteToPermanent(bound.stream().filter(referenced::contains).toList());
     // 참조가 빠진 것 = 강등 후보. 아직 승격된 적 없는 임시 파일은 repository 가 걸러낸다(만료가 늘어나면 안 된다).
+    List<Long> dropped = bound.stream().filter(id -> !referenced.contains(id)).toList();
+    if (dropped.isEmpty()) return;
+    // 드라이브로 가져간 첨부(WP-1392)는 강등 표시(demoted_at)만 하고 만료는 걸지 않는다 — 표시는 「이 페이지에서 더 이상 보이지
+    // 않음」이라 모아보기에서 빼고 드라이브 영구 삭제 보호도 풀어야 하지만, 가져오기는 같은 file 행을 공유하고 만료를 해제했으므로
+    // 만료를 다시 걸면 만료 스윕이 드라이브 파일의 원본까지 지운다. 그 file 의 회수는 드라이브가 맡는다(이슈 첨부 WP-722 와 같은 규칙).
+    Set<Long> inDrive = driveFileUsage.referencedAmong(dropped);
     attachments.demote(
-        bound.stream().filter(id -> !referenced.contains(id)).toList(),
+        dropped.stream().filter(id -> !inDrive.contains(id)).toList(),
         OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
+    attachments.markDemoted(inDrive);
   }
 
   /**

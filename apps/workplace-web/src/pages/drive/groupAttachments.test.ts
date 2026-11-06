@@ -5,7 +5,7 @@ import type { VirtualAttachment } from '@/types/drive'
 import { groupAttachments } from './groupAttachments'
 
 // 테스트용 첨부 팩토리 — attachedAt DESC 정렬 입력을 가정.
-function att(p: Partial<VirtualAttachment> & { fileId: number }): VirtualAttachment {
+function att(p: Partial<VirtualAttachment> & { fileId: number | null }): VirtualAttachment {
   return {
     fileId: p.fileId,
     name: p.name ?? `f${p.fileId}.png`,
@@ -17,6 +17,8 @@ function att(p: Partial<VirtualAttachment> & { fileId: number }): VirtualAttachm
     deepLink: p.deepLink ?? '/projects/PROJ/issues/1',
     downloadUrl: p.downloadUrl ?? `/api/v1/projects/PROJ/issues/1/attachments/${p.fileId}/content`,
     attachedAt: p.attachedAt ?? '2026-07-01T00:00:00Z',
+    kind: p.kind,
+    mailAttachmentId: p.mailAttachmentId,
   }
 }
 
@@ -62,5 +64,20 @@ describe('groupAttachments', () => {
     expect(g.sourceType).toBe('MESSAGE')
     expect(g.sourceLabel).toBe('#general')
     expect(g.deepLink).toBe('/chat/channels/5')
+  })
+
+  // WP-1392: 노트(WIKI)·메일(MAIL) 출처도 같은 규칙 — 메일은 fileId 가 없어도 메일(deepLink)별로 묶이고, 이슈 본문 이미지는 이슈 묶음에 든다.
+  it('노트·메일·본문 이미지가 섞여도 출처 위치별로 묶인다', () => {
+    const items = [
+      att({ fileId: 1, sourceType: 'ISSUE', deepLink: '/projects/WP/issues/1' }),
+      att({ fileId: null, sourceType: 'MAIL', sourceLabel: '견적 — 김담당', deepLink: '/mail/1?messageId=9', mailAttachmentId: 1 }),
+      att({ fileId: 2, sourceType: 'ISSUE', deepLink: '/projects/WP/issues/1', kind: 'BODY_IMAGE' }),
+      att({ fileId: 3, sourceType: 'WIKI', sourceLabel: '운영 / 배포', deepLink: '/wiki/spaces/3/pages/7' }),
+      att({ fileId: null, sourceType: 'MAIL', sourceLabel: '견적 — 김담당', deepLink: '/mail/1?messageId=9', mailAttachmentId: 2 }),
+    ]
+    const groups = groupAttachments(items)
+    expect(groups.map((g) => g.key)).toEqual(['ISSUE|/projects/WP/issues/1', 'MAIL|/mail/1?messageId=9', 'WIKI|/wiki/spaces/3/pages/7'])
+    expect(groups[0].items.map((i) => [i.fileId, i.kind])).toEqual([[1, undefined], [2, 'BODY_IMAGE']])
+    expect(groups[1].items.map((i) => i.mailAttachmentId)).toEqual([1, 2])
   })
 })

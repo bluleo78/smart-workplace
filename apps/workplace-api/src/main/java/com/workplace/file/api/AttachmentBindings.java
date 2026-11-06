@@ -23,9 +23,10 @@ public class AttachmentBindings {
   }
 
   /**
-   * {@code fileId} 열의 파일이 어느 「보이는 첨부」 정션에도 묶여 있지 않다는 조건(정션별 NOT EXISTS 의 AND). 보이는 정션이 없으면 항상 참.
+   * {@code fileId} 열의 파일이 어느 「보이는 첨부」 정션에도 보이는 상태로 묶여 있지 않다는 조건(정션별 NOT EXISTS 의 AND). 노트 첨부·이슈 본문
+   * 이미지는 강등 안 된(연결된) 행만 묶임으로 본다(WP-1392). 보이는 정션이 없으면 항상 참.
    */
   public Condition notVisiblyBound(Field<Long> fileId) {
-    return DSL.and(visible.stream().map(l -> l.notBound(fileId)).toList());
+    return DSL.and(visible.stream().map(l -> l.notVisiblyBound(fileId)).toList());
   }
 }

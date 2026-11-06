@@ -163,12 +163,13 @@ export interface Backlink {
   deepLink: string
 }
 
-/** 가상 첨부의 출처 종류 — 백엔드 AttachmentSourceProvider.sourceType() 과 같은 값. */
-export type VirtualAttachmentSource = 'ISSUE' | 'CHAT_MESSAGE' | 'MESSAGE'
+/** 가상 첨부의 출처 종류 — 백엔드 AttachmentSourceProvider.sourceType() 과 같은 값. 노트(WIKI)·내 메일(MAIL)은 WP-1392 에서 추가. */
+export type VirtualAttachmentSource = 'ISSUE' | 'CHAT_MESSAGE' | 'MESSAGE' | 'WIKI' | 'MAIL'
 
-/** 이슈/이슈챗/메시지에서 업로드된 파일을 드라이브 가상 첨부로 표현한 DTO. */
+/** 이슈/이슈챗/메시지/노트에서 업로드된 파일과 내 메일 첨부를 드라이브 가상 첨부로 표현한 DTO. */
 export interface VirtualAttachment {
-  fileId: number
+  /** core 파일 id — 메일 첨부(MAIL)는 file 행이 없어 null 이고 mailAttachmentId 로 가리킨다(WP-1392). */
+  fileId: number | null
   name: string
   mimeType: string
   sizeBytes: number
@@ -179,6 +180,10 @@ export interface VirtualAttachment {
   deepLink: string
   downloadUrl: string
   attachedAt: string
+  /** 같은 출처 안의 세부 종류 — 이슈 본문 이미지면 "BODY_IMAGE", 그 밖엔 null. 예전 서버 응답에는 없다(WP-1392). */
+  kind?: string | null
+  /** 메일 첨부 id(email_attachment) — MAIL 일 때만 값이 있고, 미리보기·내려받기 경로를 만든다(WP-1392). */
+  mailAttachmentId?: number | null
 }
 
 /** 가상 첨부 cursor 페이지. */

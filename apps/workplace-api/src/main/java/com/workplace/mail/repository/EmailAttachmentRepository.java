@@ -274,8 +274,11 @@ public class EmailAttachmentRepository {
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID));
   }
 
-  /** 소유 검증 — {@link #findContextForDownload} 와 같은 규칙(계정 소유자 + 비활성 계정 제외). */
-  private static Condition ownedBy(long userId) {
+  /**
+   * 소유 검증 — {@link #findContextForDownload} 와 같은 규칙(계정 소유자 + 비활성 계정 제외). EMAIL_ACCOUNT 조인이 필요하다.
+   * 드라이브 「첨부 모아보기」의 메일 첨부(WP-1392)도 이 규칙을 쓴다.
+   */
+  public static Condition ownedBy(long userId) {
     return EMAIL_ACCOUNT.USER_ID.eq(userId).and(EMAIL_ACCOUNT.DISABLED_AT.isNull());
   }
 

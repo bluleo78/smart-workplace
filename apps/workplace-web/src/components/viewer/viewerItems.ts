@@ -123,16 +123,45 @@ export function driveFileItem(f: DriveFile): ViewerItem {
   })
 }
 
-/** 첨부 모아보기의 가상 첨부 — 서버가 준 downloadUrl 로 받고, 원본(이슈·메시지)으로 이동할 수 있다. */
+/**
+ * 가상 첨부를 드라이브로 가져올 수 있는가 — core fileId(file 행)가 있어야 가져온다. 메일 첨부는 file 행이 없어 fileId 가 null 이라
+ * 못 가져온다(WP-1392). 예전 서버 응답(롤링 배포 중)도 fileId 로만 판단한다.
+ */
+export function isVirtualAttachmentImportable(a: VirtualAttachment): a is VirtualAttachment & { fileId: number } {
+  return a.fileId != null
+}
+
+/**
+ * 가상 첨부의 묶음 키 — ViewerItem 을 만들지 않고 키만 구한다(목록에서 열린 키를 찾을 때 렌더마다 항목 전체를 만들지 않게).
+ * 메일 첨부는 `mail:{id}`, core 파일은 `file:{fileId}`. 둘 다 없는 비정상 응답(메일 id 가 빠진 MAIL·fileId 가 없는 행)은
+ * `file:null` 처럼 여러 행이 한 키를 나눠 갖지 않게 출처·내려받기 경로로 만든 대체 키를 쓴다 — `file:`·`drive:`·`mail:` 로
+ * 시작하지 않아 parseViewerKey·isMailViewerKey 가 다른 화면의 키로 잘못 읽지 않는다(WP-1392).
+ */
+export function virtualAttachmentViewerKey(a: VirtualAttachment): string {
+  if (a.sourceType === 'MAIL' && a.mailAttachmentId != null) return mailViewerKey(a.mailAttachmentId)
+  if (a.fileId != null) return fileViewerKey(a.fileId)
+  return `virtual:${a.sourceType}:${a.downloadUrl}`
+}
+
+/**
+ * 첨부 모아보기의 가상 첨부 — 서버가 준 downloadUrl 로 받고, 원본(이슈·메시지·노트·메일)으로 이동할 수 있다.
+ * 메일 첨부(MAIL)는 file 행이 없어 메일 화면과 같은 항목(mailAttachmentItem, 키 `mail:{id}`)을 쓴다 — 키가 `file:{id}` 와
+ * 네임스페이스가 달라 메일 첨부 id 가 다른 출처의 fileId 와 같아도 섞이지 않는다(WP-1392). 가져오기(☁)는 fileId 가 있을 때만.
+ */
 export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
+  if (a.sourceType === 'MAIL' && a.mailAttachmentId != null) {
+    const mail = mailAttachmentItem({ id: a.mailAttachmentId, filename: a.name, contentType: a.mimeType, sizeBytes: a.sizeBytes, contentId: null })
+    return { ...mail, sourceLink: a.deepLink }
+  }
   return withSecurityCheck({
-    key: fileViewerKey(a.fileId),
+    // 키는 목록 탐색(virtualAttachmentViewerKey)과 같은 규칙 — id 가 빠진 비정상 행도 `file:null` 로 한 키에 몰리지 않는다.
+    key: virtualAttachmentViewerKey(a),
     name: a.name,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
     contentPath: a.downloadUrl,
     downloadPath: a.downloadUrl,
-    importFileId: a.fileId,
+    ...(isVirtualAttachmentImportable(a) ? { importFileId: a.fileId } : {}),
     sourceLink: a.deepLink,
   })
 }

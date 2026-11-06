@@ -715,15 +715,11 @@ public class EmailMessageRepository {
       String toAddresses) {}
 
   /**
-   * 통합 검색(WP-1359) — 사용자 본인의 활성 계정 전부에서 휴지통·스팸·임시보관함을 뺀 모든 메일함(받은편지함·보낸편지함·보관함·사용자 메일함)의 메일을 검색어로
-   * 찾아 최신순(received_at DESC NULLS LAST, id DESC)으로 limit 건 돌려준다. cursor 가 있으면 그 행 다음부터.
-   *
-   * <p>메일함은 허용 목록으로 고른다(받은편지함 · 보낸편지함 범위 · 역할이 있는 서버 메일함) — 저장되지 않아야 할 메일함이 어떤 경로로 생겨도 새지 않게 한다.
-   * 보낸편지함은 메일함 화면과 같은 folderScope("SENT")라 앱 발송본의 서버 사본은 빠진다(WP-950). 휴지통·스팸은 원래 저장되지 않지만, 깊은 경로에
-   * 사용자 메일함으로 저장된 「고객사/Trash」 같은 이름은 여기서 한 번 더 거른다. 임시보관함은 별도 표(mail_draft)라 대상이 아니다.
+   * 「모든 메일함」 범위(EMAIL_FOLDER 조인 필요) — 받은편지함 · 보낸편지함 범위(folderScope("SENT"), 앱 발송본의 서버 사본 제외 WP-950)
+   * · 역할이 보관함·사용자인 서버 메일함 중 표시 이름이 휴지통·스팸이 아닌 것. 통합 검색(WP-1359)과 드라이브 「첨부 모아보기」의 메일 첨부(WP-1392)가 같은
+   * 범위를 쓰도록 한 곳에 둔다. 허용 목록이라 저장되지 않아야 할 메일함이 어떤 경로로 생겨도 새지 않는다.
    */
-  public List<AllFolderSearchRow> searchAllFolders(
-      long userId, String query, MailListCursor cursor, int limit) {
+  public static Condition allMailboxesScope() {
     Condition inbox =
         EMAIL_FOLDER
             .NAME
@@ -739,12 +735,25 @@ public class EmailMessageRepository {
             .in("ARCHIVE", "USER")
             .and(EMAIL_FOLDER.SERVER_SENT.isFalse())
             .and(label.notIn(ImapFolderClassifier.TRASH_OR_JUNK_NAMES));
+    return inbox.or(folderScope(EmailFolderRepository.LOCAL_SENT)).or(serverBox);
+  }
+
+  /**
+   * 통합 검색(WP-1359) — 사용자 본인의 활성 계정 전부에서 휴지통·스팸·임시보관함을 뺀 모든 메일함(받은편지함·보낸편지함·보관함·사용자 메일함)의 메일을 검색어로
+   * 찾아 최신순(received_at DESC NULLS LAST, id DESC)으로 limit 건 돌려준다. cursor 가 있으면 그 행 다음부터.
+   *
+   * <p>메일함은 허용 목록으로 고른다(받은편지함 · 보낸편지함 범위 · 역할이 있는 서버 메일함) — 저장되지 않아야 할 메일함이 어떤 경로로 생겨도 새지 않게 한다.
+   * 보낸편지함은 메일함 화면과 같은 folderScope("SENT")라 앱 발송본의 서버 사본은 빠진다(WP-950). 휴지통·스팸은 원래 저장되지 않지만, 깊은 경로에
+   * 사용자 메일함으로 저장된 「고객사/Trash」 같은 이름은 여기서 한 번 더 거른다. 임시보관함은 별도 표(mail_draft)라 대상이 아니다.
+   */
+  public List<AllFolderSearchRow> searchAllFolders(
+      long userId, String query, MailListCursor cursor, int limit) {
     Condition where =
         EMAIL_ACCOUNT
             .USER_ID
             .eq(userId)
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
-            .and(inbox.or(folderScope(EmailFolderRepository.LOCAL_SENT)).or(serverBox))
+            .and(allMailboxesScope())
             .and(searchTermCondition(query));
     if (cursor != null) {
       where = where.and(afterCursor(cursor));
@@ -1057,13 +1066,23 @@ public class EmailMessageRepository {
     return Optional.of(d.withAttachments(attachments));
   }
 
-  /**
-   * 메시지의 첨부 메타 목록. filename/content_type/size_bytes 는 content_attachment(공유 manifest)에서 읽는다(Task5).
-   * V102 이후 email_attachment 에 메타 컬럼이 없으므로 폴백 없음 — manifest 미매핑 레거시 행은 null 메타로 반환된다. sizeBytes 는
-   * 실제 바이트 추정치(WP-1329, {@link MailAttachmentSizes}).
-   */
+  /** 메시지의 첨부 메타 목록 — {@link #listAttachments(Collection)} 의 한 건 판(메일 상세 응답). */
   private List<EmailAttachmentMeta> listAttachments(long messageId) {
-    return dsl.select(
+    return listAttachments(List.of(messageId)).getOrDefault(messageId, List.of());
+  }
+
+  /**
+   * 여러 메시지의 첨부 메타 목록(message id → 첨부, 메일마다 ordinal 오름차순·없으면 뒤·다음 id).
+   * filename/content_type/size_bytes 는 content_attachment(공유 manifest)에서 읽는다(Task5). V102 이후
+   * email_attachment 에 메타 컬럼이 없으므로 폴백 없음 — manifest 미매핑 레거시 행은 null 메타로 반환된다. sizeBytes 는 실제 바이트
+   * 추정치(WP-1329, {@link MailAttachmentSizes}). 메일 상세 응답과 드라이브 「첨부 모아보기」의 인라인 이미지 판정(WP-1392)이 같은
+   * 값·순서를 쓴다 — 소유 검증은 호출자 몫이다. 첨부가 없는 메시지는 맵에 없다.
+   */
+  public Map<Long, List<EmailAttachmentMeta>> listAttachments(Collection<Long> messageIds) {
+    Map<Long, List<EmailAttachmentMeta>> out = new LinkedHashMap<>();
+    if (messageIds.isEmpty()) return out;
+    dsl.select(
+            EMAIL_ATTACHMENT.MESSAGE_ID,
             EMAIL_ATTACHMENT.ID,
             CONTENT_ATTACHMENT.FILENAME,
             CONTENT_ATTACHMENT.CONTENT_TYPE,
@@ -1075,23 +1094,30 @@ public class EmailMessageRepository {
         .on(EMAIL_MESSAGE.ID.eq(EMAIL_ATTACHMENT.MESSAGE_ID))
         .leftJoin(CONTENT_ATTACHMENT)
         .on(CONTENT_ATTACHMENT.ID.eq(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID))
-        .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
-        .orderBy(EMAIL_ATTACHMENT.ORDINAL.asc().nullsLast(), EMAIL_ATTACHMENT.ID.asc())
-        .fetch(
+        .where(EMAIL_ATTACHMENT.MESSAGE_ID.in(messageIds))
+        .orderBy(
+            EMAIL_ATTACHMENT.MESSAGE_ID,
+            EMAIL_ATTACHMENT.ORDINAL.asc().nullsLast(),
+            EMAIL_ATTACHMENT.ID.asc())
+        .forEach(
             r ->
-                new EmailAttachmentMeta(
-                    r.get(EMAIL_ATTACHMENT.ID),
-                    r.get(CONTENT_ATTACHMENT.FILENAME),
-                    r.get(CONTENT_ATTACHMENT.CONTENT_TYPE),
-                    // WP-1329: IMAP 수신 첨부는 저장 크기(base64 인코딩)를 실제 크기 추정으로 — 작성창 전달 칩·합계·보내기 잠금이 이 값을
-                    // 쓴다
-                    MailAttachmentSizes.estimatedRawBytes(
-                        r.get(CONTENT_ATTACHMENT.SIZE_BYTES) == null
-                            ? 0L
-                            : r.get(CONTENT_ATTACHMENT.SIZE_BYTES),
-                        r.get(EMAIL_MESSAGE.IMAP_UID) != null),
-                    // 빈 문자열은 지연 백필의 내부 표시("확인했지만 없음", WP-68) — API 로는 "없음"(null)으로만 노출
-                    emptyToNull(r.get(CONTENT_ATTACHMENT.MIME_CONTENT_ID))));
+                out.computeIfAbsent(r.get(EMAIL_ATTACHMENT.MESSAGE_ID), k -> new ArrayList<>())
+                    .add(
+                        new EmailAttachmentMeta(
+                            r.get(EMAIL_ATTACHMENT.ID),
+                            r.get(CONTENT_ATTACHMENT.FILENAME),
+                            r.get(CONTENT_ATTACHMENT.CONTENT_TYPE),
+                            // WP-1329: IMAP 수신 첨부는 저장 크기(base64 인코딩)를 실제 크기 추정으로 — 작성창 전달 칩·합계·보내기
+                            // 잠금이
+                            // 이 값을 쓴다
+                            MailAttachmentSizes.estimatedRawBytes(
+                                r.get(CONTENT_ATTACHMENT.SIZE_BYTES) == null
+                                    ? 0L
+                                    : r.get(CONTENT_ATTACHMENT.SIZE_BYTES),
+                                r.get(EMAIL_MESSAGE.IMAP_UID) != null),
+                            // 빈 문자열은 지연 백필의 내부 표시("확인했지만 없음", WP-68) — API 로는 "없음"(null)으로만 노출
+                            emptyToNull(r.get(CONTENT_ATTACHMENT.MIME_CONTENT_ID)))));
+    return out;
   }
 
   private static String emptyToNull(String v) {

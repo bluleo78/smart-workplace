@@ -15,6 +15,7 @@ import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.mail.service.MailMessageService;
+import com.workplace.mail.util.MailDeepLinks;
 import com.workplace.messaging.service.MessagingSummaryService;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.user.dto.UserResponse;
@@ -356,7 +357,7 @@ public class PriorityClassificationScheduler {
                 String.valueOf(m.id()),
                 m.subject() != null ? m.subject() : "(제목 없음)",
                 "회신 필요",
-                "/mail/" + m.accountId() + "?messageId=" + m.id()));
+                MailDeepLinks.message(m.accountId(), m.id())));
       }
     }
 

@@ -2,6 +2,8 @@ package com.workplace.drive.service;
 
 import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.drive.repository.DriveFileRepository;
+import java.util.Collection;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -14,5 +16,10 @@ public class DriveFileUsageService implements DriveFileUsage {
   @Override
   public boolean referencesFile(long fileId) {
     return files.anyReferencesFile(fileId);
+  }
+
+  @Override
+  public Set<Long> referencedAmong(Collection<Long> fileIds) {
+    return files.referencedAmong(fileIds);
   }
 }

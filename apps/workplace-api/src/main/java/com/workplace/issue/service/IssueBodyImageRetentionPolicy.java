@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.file.api.ExpiredFileRetentionPolicy;
 import com.workplace.issue.repository.IssueBodyImageRepository;
 import java.util.Collection;
@@ -13,6 +14,10 @@ import org.springframework.stereotype.Component;
  * <p>왜: 이미지 URL 에는 원본 이슈 매핑만 있어, 본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본에서 빠지는 순간 강등된다. 스윕에서 한 번 더 확인하면 유예 기간
  * 전체가 안전 창이 된다. 살아 있으면 만료를 유예만큼 미룰 뿐 해제하지 않는다 — 해제하면 다시 만료를 걸 계기가 없어 영구 고아가 된다(위키
  * WikiAttachmentRetentionPolicy 와 같은 이유).
+ *
+ * <p>드라이브가 쓰는 file(드라이브로 가져간 본문 이미지, WP-1392)은 판정하지 않는다 — 그 file 은 드라이브 보존
+ * 정책(DriveReferencedFileRetentionPolicy)이 남기고 만료를 해제한다. 여기서도 같은 id 에 만료를 다시 걸면 스윕이 정책을 도는 순서에 따라 최종
+ * 상태(해제/재무장)가 갈리므로, 드라이브 몫은 드라이브 정책에만 맡겨 순서와 무관하게 한다.
  */
 @Component
 @RequiredArgsConstructor
@@ -23,10 +28,14 @@ public class IssueBodyImageRetentionPolicy implements ExpiredFileRetentionPolicy
   /** 보존 판정 시 만료를 얼마나 미룰지 — 강등 유예와 같은 값을 쓰도록 서비스의 계산을 그대로 빌린다. */
   private final IssueBodyImageService bodyImageService;
 
-  /** 만료 대상 중 비삭제 이슈 본문에 아직 참조가 남은 파일 id 를 돌려주고, 그 파일의 만료를 유예만큼 미룬다. */
+  /** 드라이브가 쓰는 file 판정 — 그 file 은 드라이브 정책 몫이라 여기서는 건너뛴다(WP-1392). */
+  private final DriveFileUsage driveFileUsage;
+
+  /** 만료 대상 중(드라이브가 쓰는 것 제외) 비삭제 이슈 본문에 아직 참조가 남은 파일 id 를 돌려주고, 그 파일의 만료를 유예만큼 미룬다. */
   @Override
   public Set<Long> retain(Collection<Long> expiringFileIds) {
-    Set<Long> alive = repo.stillReferencedAnywhere(expiringFileIds);
+    Set<Long> alive =
+        repo.stillReferencedAnywhere(driveFileUsage.withoutReferenced(expiringFileIds));
     repo.rearm(alive, bodyImageService.graceExpiry());
     return alive;
   }
