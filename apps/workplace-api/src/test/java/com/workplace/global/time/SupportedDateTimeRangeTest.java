@@ -113,7 +113,8 @@ class SupportedDateTimeRangeTest extends IntegrationTestBase {
                     "{\"title\":\"t\",\"startsAt\":\"2026-02-30T00:00:00Z\",\"endsAt\":\"2026-03-01T00:00:00Z\"}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("요청 본문을 해석할 수 없습니다."))
-        .andExpect(jsonPath("$.errors.startsAt").value("형식이 올바르지 않습니다"));
+        .andExpect(
+            jsonPath("$.errors.startsAt").value("날짜·시간 형식(예: 2026-01-31T00:00:00Z)이어야 합니다."));
   }
 
   /** JSON 을 DTO 로 읽어 검증하고, 범위 문구로 걸린 칸 이름만 돌려준다. */

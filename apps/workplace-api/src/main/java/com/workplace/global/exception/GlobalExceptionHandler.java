@@ -90,19 +90,34 @@ import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import java.math.BigInteger;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.postgresql.util.PSQLException;
+import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.convert.TypeDescriptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -136,12 +151,24 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleValidationExceptions(
       MethodArgumentNotValidException ex, HttpServletRequest request) {
     Map<String, String> fieldErrors = new HashMap<>();
-    ex.getBindingResult()
+    BindingResult result = ex.getBindingResult();
+    result
         .getFieldErrors()
-        .forEach(error -> fieldErrors.put(error.getField(), error.getDefaultMessage()));
+        .forEach(error -> fieldErrors.put(error.getField(), fieldMessage(error, result)));
     ErrorResponse response =
         buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
     return ResponseEntity.badRequest().body(response);
+  }
+
+  /**
+   * 필드 오류 한 건의 안내 문구(WP-1394). 바인딩 실패(값을 필드 타입으로 못 바꿈)는 Spring 기본 문구가 「Failed to convert property
+   * value of type 'java.lang.String' to required type 'long'…」이라 자바 타입 이름이 그대로 나가므로, 경로·쿼리 형식 오류와
+   * 같은 사람이 읽는 안내로 바꾼다. 제약 위반(@NotBlank 등)은 기존 문구를 그대로 쓴다.
+   */
+  private static String fieldMessage(FieldError error, BindingResult result) {
+    return error.isBindingFailure()
+        ? typeMismatchMessage(result.getFieldType(error.getField()))
+        : error.getDefaultMessage();
   }
 
   /**
@@ -1265,16 +1292,89 @@ public class GlobalExceptionHandler {
    * 경로/쿼리 파라미터 타입 불일치 시 500 대신 400 반환. 예: {@code Long id} 파라미터에 "abc" 같은 비-숫자 문자열이 전달되거나, {@code
    * Boolean} 쿼리 파라미터에 "notbool" 같은 값이 전달되는 경우. 클라이언트 입력 오류이므로 400으로 분류하여 모니터링 SLO 오염과 5xx 알람 노이즈를
    * 방지한다.
+   *
+   * <p>{@code errors.<파라미터>} 문구는 「무엇이어야 하는지」만 사람이 읽는 말로 알린다(WP-1394). 예전엔 {@code long}·{@code
+   * LocalDateTime} 같은 자바 타입 이름이 그대로 화면·AI 도구 결과에 보였다. 입력 값은 되돌려 주지 않는다 — 파라미터 이름이 이미 어느 값인지 알려 주고,
+   * 긴 값을 그대로 되돌리는 일도 없앤다.
    */
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)
   public ResponseEntity<ErrorResponse> handleTypeMismatch(
       MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
-    String typeName = ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "올바른";
     Map<String, String> fieldErrors =
-        Map.of(ex.getName(), String.format("'%s'는 %s 타입이어야 합니다.", ex.getValue(), typeName));
+        Map.of(ex.getName(), typeMismatchMessage(mismatchTargetType(ex)));
     ErrorResponse response =
         buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
     return ResponseEntity.badRequest().body(response);
+  }
+
+  /**
+   * 안내 문구를 고를 타입을 정한다(WP-1394). {@code @RequestParam List<Long> ids} 같은 컬렉션·배열 파라미터는 requiredType 이
+   * List·배열이라 그대로 넘기면 「올바른 형식이 아닙니다」로만 나가므로, 원소 타입(Long)을 꺼내 「정수여야 합니다」처럼 안내한다. 원소 타입을 알 수 없거나 메서드
+   * 파라미터 정보가 없으면 requiredType 을 그대로 쓴다.
+   */
+  static Class<?> mismatchTargetType(MethodArgumentTypeMismatchException ex) {
+    Class<?> required = ex.getRequiredType();
+    MethodParameter parameter = ex.getParameter();
+    if (parameter == null) {
+      return required;
+    }
+    // 배열·컬렉션이면 원소 타입, 그 밖(또는 원소 타입을 모르는 raw 컬렉션)은 null.
+    TypeDescriptor element = new TypeDescriptor(parameter).getElementTypeDescriptor();
+    return element != null ? element.getType() : required;
+  }
+
+  /** 「정수여야 합니다」로 안내할 타입(박싱형 기준 — 기본형은 {@link ClassUtils#resolvePrimitiveIfNecessary} 로 맞춘 뒤 본다). */
+  private static final Set<Class<?>> INTEGER_TYPES =
+      Set.of(Byte.class, Short.class, Integer.class, Long.class, BigInteger.class);
+
+  /**
+   * 파라미터가 받아야 하는 타입을 사람이 읽는 안내 문구로 바꾼다(WP-1394). 기본형({@code long.class})과 박싱형({@code Long.class})을
+   * 함께 다루고, 타입을 모르거나(null) 목록에 없는 타입은 「올바른 형식이 아닙니다.」로 돌린다. enum 은 API 가 받는 상수 이름을 나열해 고칠 값을 바로 알 수
+   * 있게 한다. 핸들러 단위 테스트가 매핑만 따로 확인할 수 있게 package-private 으로 둔다.
+   */
+  static String typeMismatchMessage(Class<?> type) {
+    if (type == null) {
+      return "올바른 형식이 아닙니다.";
+    }
+    // 기본형(long.class 등)을 박싱형으로 맞춰 아래 비교를 한 번씩만 한다.
+    type = ClassUtils.resolvePrimitiveIfNecessary(type);
+    // 정수 — 소수를 넣어도 틀리므로 「숫자」가 아니라 「정수」로 안내한다.
+    if (INTEGER_TYPES.contains(type)) {
+      return "정수여야 합니다.";
+    }
+    // 소수까지 받는 수(Float·Double·BigDecimal 등 나머지 Number 하위). Character 는 Number 가 아니라 여기 오지 않는다.
+    if (Number.class.isAssignableFrom(type)) {
+      return "숫자여야 합니다.";
+    }
+    // 날짜·시간 — 시간대가 필요한 타입은 예시에 Z(UTC)를 붙여, 안내대로 넣었는데 다시 틀리는 일이 없게 한다.
+    // +09:00 같은 오프셋 예시는 쿼리 문자열에서 '+' 가 공백으로 풀려 그대로 따라 하면 또 틀리므로 쓰지 않는다.
+    if (type == LocalDateTime.class) {
+      return "날짜·시간 형식(예: 2026-01-31T09:00:00)이어야 합니다.";
+    }
+    if (type == OffsetDateTime.class || type == ZonedDateTime.class || type == Instant.class) {
+      return "날짜·시간 형식(예: 2026-01-31T00:00:00Z)이어야 합니다.";
+    }
+    if (type == LocalDate.class) {
+      return "날짜 형식(YYYY-MM-DD)이어야 합니다.";
+    }
+    if (type == LocalTime.class) {
+      return "시간 형식(예: 09:00)이어야 합니다.";
+    }
+    if (type == Boolean.class) {
+      return "true 또는 false 여야 합니다.";
+    }
+    if (type == UUID.class) {
+      return "UUID 형식이어야 합니다.";
+    }
+    if (type.isEnum()) {
+      // 상수 이름은 API 가 받는 값 그 자체라 내부 용어가 아니다 — 목록이 길어도 그대로 보여 준다.
+      String values =
+          Arrays.stream(type.getEnumConstants())
+              .map(c -> ((Enum<?>) c).name())
+              .collect(Collectors.joining(", "));
+      return "다음 중 하나여야 합니다: " + values;
+    }
+    return "올바른 형식이 아닙니다.";
   }
 
   /**
@@ -1345,7 +1445,13 @@ public class GlobalExceptionHandler {
     if (ex.getCause() instanceof com.fasterxml.jackson.databind.exc.MismatchedInputException mie) {
       String field = jsonPath(mie.getPath());
       if (!field.isEmpty()) {
-        fieldErrors = Map.of(field, "형식이 올바르지 않습니다");
+        // 받아야 할 타입을 알면 경로·쿼리 형식 오류와 같은 안내(「정수여야 합니다」 등)를 쓴다(WP-1394).
+        fieldErrors =
+            Map.of(
+                field,
+                mie.getTargetType() != null
+                    ? typeMismatchMessage(mie.getTargetType())
+                    : "형식이 올바르지 않습니다");
       }
     }
     ErrorResponse response =
