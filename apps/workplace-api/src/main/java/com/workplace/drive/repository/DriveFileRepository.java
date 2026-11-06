@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.file.api.AttachmentBindings;
 import com.workplace.file.storage.FileStore;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -33,6 +34,13 @@ public class DriveFileRepository {
    * 모두 복원해 존재 확인한다.
    */
   private final FileStore fileStore;
+
+  /**
+   * 「보이는 첨부」에 묶인 파일을 만료에서 빼는 조건을 내준다({@link
+   * com.workplace.file.api.AttachmentBindingLookup#visibleAttachment()}, WP-1399). 정책은 file 코어가 갖고
+   * 이 리포지토리는 조건만 받아 쿼리에 끼운다 — 영구 삭제 경로 전부가 {@link #expireFiles} 를 거쳐 여기서 한 번에 걸린다.
+   */
+  private final AttachmentBindings attachmentBindings;
 
   /**
    * fileId 를 가리키는 drive_file(휴지통 포함) 또는 drive_file_version 이 있는지(WP-722). 둘 다 file 에 NO ACTION FK
@@ -97,7 +105,10 @@ public class DriveFileRepository {
     dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.eq(fileId)).execute();
   }
 
-  /** 삭제 시 FILE 만료 표시 → FileCleanupService 가 바이트 정리. */
+  /**
+   * 삭제 시 FILE 만료 표시 → FileCleanupService 가 바이트 정리. 드라이브로 가져간 첨부처럼 「보이는 첨부」에 아직 묶인 file 은 건드리지 않는다 —
+   * {@link com.workplace.file.api.AttachmentBindingLookup#visibleAttachment()}(WP-1399).
+   */
   public void expireFiles(Collection<Long> fileIds) {
     if (fileIds.isEmpty()) {
       return;
@@ -105,6 +116,7 @@ public class DriveFileRepository {
     dsl.update(FILE)
         .set(FILE.EXPIRES_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(FILE.ID.in(fileIds))
+        .and(attachmentBindings.notVisiblyBound(FILE.ID))
         .execute();
   }
 
