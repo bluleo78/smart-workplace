@@ -26,6 +26,7 @@
 | 08 | 프로젝트 역할 소유자·멤버, 관리자 우회(팀 프로젝트만), 삭제 확인 문구 | `web/.../MemberManagement.tsx:263-264`, `api/.../ProjectAccessGuard.java:14-15,186-188`, `api/.../ProjectService.java:220,270`, `web/components/settings-guide/settingsGuides.ts:108-119`, `web/pages/projects/ProjectSettingsPage.tsx:228-255` |
 | 09 | 공유 링크는 편집자 이상, 드라이브 외부 공유 차단 설정 없음 | `api/drive/service/DriveShareLinkService.java:58`, 설정은 노트(`web/pages/admin/WikiSharingPage.tsx:65-69`)에만 있음 |
 | 09 | 공간 역할(쓰기 = 편집자, 읽기 = 보기 전용, 공간 관리 = 소유자) | `api/drive/service/DrivePermissions.java:16`, `DriveFileService`·`DriveFolderService`(EDITOR/VIEWER), `DriveSpaceService.java:107-181`(OWNER) |
+| 09 | 저장 공간 = 테넌트 파일 전체(휴지통·첨부·보낸 메일 사본 포함, 내부 파일 제외), 메일 첨부 임시 보관은 한도 밖, 종류별 내역은 줄을 눌러 펼침 (WP-1391) | `api/drive/repository/DriveQuotaRepository.java`, `api/drive/service/DriveQuotaService.java`, `web/components/drive/DriveSidebar.tsx`(`DriveUsageBlock`) |
 | 09 | 팀 공간 삭제는 휴지통 없이 영구 삭제 | `api/drive/service/DriveSpaceService.java:173-197`, `web/components/drive/DriveSidebar.tsx:388-391` |
 | 10 | 페이지 삭제 시 하위 페이지 함께, 되살릴 수 없음 | `web/components/wiki/WikiDeletePageDialog.tsx:35-38`, `apps/workplace-api/src/main/resources/db/migration/V67__init_wiki.sql:36`, `web/components/wiki/WikiDeleteSpaceDialog.tsx:14` |
 | 10 | 스페이스 역할, 부서는 편집자·보기 전용만 | `web/lib/spaceRoles.ts:20,37`, `api/wiki/service/WikiSpaceService.java:118-221`, `api/wiki/service/WikiShareService.java:549` |
@@ -48,6 +49,7 @@
 | --- | --- | --- |
 | 01 | 슈퍼어드민 추가 방법 없음(첫 가입자만) | `admin/pages/OperatorsPage.tsx:4`, `api/auth/service/AuthService.java:128-130` |
 | 02 | 드라이브 한도 기본값 10GB, 테넌트마다 변경 | `apps/workplace-api/src/main/resources/application.yml:85`, `admin/pages/TenantDetailPage.tsx:479-492` |
+| 02 | 한도에 드는 파일(휴지통·첨부 포함, 메일 첨부 임시 보관 제외), 복원은 막지 않음, 이슈·이슈챗·채팅·홈 첨부·메일 작성 첨부·스테이징 업로드도 한도 검사 (WP-1391) | `api/drive/service/DriveQuotaService.java`, `api/drive/service/DriveTrashService.java`, `IssueAttachmentService`·`ChatMessageAttachmentService`·`MessageAttachmentService`·`HomeAttachmentService` 의 `upload`, `api/file/service/StagedUploadService.java`(`createText`·`createFromMultipart`·`completeUpload`) |
 | 03 | 첫 로그인 비밀번호 변경 강제 없음 | `api/platform/service/PlatformTenantService.java:323`, `admin/components/NewTenantMemberForm.tsx:96` |
 | 04 | 정지에 사유 칸·소유자 알림 없음 | `api/platform/service/PlatformTenantService.java:212-214`, `admin/pages/TenantDetailPage.tsx:91` |
 | 04 | 삭제한 테넌트 자동 영구 삭제 없음 | `api/platform/purge/TenantPurgeJob.java:33-41` |

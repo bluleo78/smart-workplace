@@ -10,6 +10,7 @@ import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveQuotaExceededException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveFolderService;
+import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.drive.service.DriveTrashService;
 import com.workplace.global.tenant.TenantContext;
@@ -23,7 +24,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 업로드·복사·휴지통 복원 시 쿼터 강제 — 한도 초과면 거부. */
+/**
+ * 업로드·복사 시 쿼터 강제 — 한도 초과면 거부. 휴지통도 사용량에 들어가므로 복원은 한도와 무관하게 허용한다(WP-1391).
+ *
+ * <p>사용량은 테넌트 file 전체라 공유 테스트 DB 에 다른 테스트가 남긴 행이 있을 수 있다 — 한도는 테스트 시작 시점 사용량(base)에 더해 정한다.
+ */
 @Transactional
 class DriveFileQuotaEnforceTest extends IntegrationTestBase {
 
@@ -32,11 +37,16 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
   @Autowired DriveSpaceService spaceService;
   @Autowired DriveFolderService folderService;
   @Autowired DriveTrashService trashService;
+  @Autowired DriveQuotaService quotaService;
+
+  /** 테스트 시작 시점 사용량 — 한도를 이 위에 얹어 다른 테스트의 잔여 행과 무관하게 만든다. */
+  private long base;
 
   /** 테넌트 #1 RLS 컨텍스트 설정. */
   @BeforeEach
   void setTenant() {
     TenantContext.set(1L);
+    base = quotaService.usedBytes();
   }
 
   /** ThreadLocal 누수 방지. */
@@ -45,9 +55,9 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  /** 현재 테넌트(#1)의 quota_bytes 를 변경. */
+  /** 현재 테넌트(#1)의 quota_bytes 를 「시작 시점 사용량 + quotaBytes」로 변경 — 이 테스트가 더하는 바이트만 한도를 다툰다. */
   private void setTenantQuota(long quotaBytes) {
-    dsl.update(TENANT).set(TENANT.QUOTA_BYTES, quotaBytes).where(TENANT.ID.eq(1L)).execute();
+    dsl.update(TENANT).set(TENANT.QUOTA_BYTES, base + quotaBytes).where(TENANT.ID.eq(1L)).execute();
   }
 
   /** 테스트용 공간 생성. */
@@ -170,7 +180,7 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
     assertThat(folderService.copy(owner, src, dest).name()).isEqualTo("원본");
   }
 
-  // --- 휴지통 복원(WP-696) — 휴지통 파일은 사용량에서 빠지므로, 되살릴 때 다시 한도를 검사한다 ---
+  // --- 휴지통(WP-1391) — 휴지통 파일도 사용량에 들어가므로 빈 자리가 생기지 않고, 복원은 사용량을 늘리지 않아 막지 않는다 ---
 
   /** 휴지통에 있는지 — trashed_at 이 채워져 있으면 휴지통. */
   private boolean inTrash(long driveFileId) {
@@ -182,37 +192,38 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
   }
 
   @Test
-  void 휴지통에_넣고_그_자리를_채운_뒤_복원하면_한도_초과로_거부() throws Exception {
-    // given: 한도 10 — A(6) 를 휴지통에 넣어 사용량 0, 그 사이 B(6) 업로드
+  void 휴지통에_넣어도_사용량이_줄지_않아_그_자리에_업로드할_수_없다() throws Exception {
+    // given: 한도 10 — A(6) 를 휴지통에 넣어도 A 는 여전히 사용량에 들어간다
     DriveSpaceResponse space = createSpace();
     long owner = ownerOfSpace(space.id());
     setTenantQuota(10L);
     DriveFileResponse a = uploadFile(space.id(), "aaaaaa".getBytes());
     driveFileService.delete(owner, a.id());
-    uploadFile(space.id(), "bbbbbb".getBytes());
-    // then: A 를 되살리면 6+6=12 > 10 — 업로드와 같은 문구로 거부하고 A 는 휴지통에 남는다
-    assertThatThrownBy(() -> trashService.restoreFile(owner, a.id()))
+    // then: B(6) 는 6+6=12 > 10 이라 거부 — 예전(WP-696 이전)의 「휴지통 → 업로드 → 복원」 우회가 업로드 단계에서 막힌다
+    assertThatThrownBy(() -> uploadFile(space.id(), "bbbbbb".getBytes()))
         .isInstanceOf(DriveQuotaExceededException.class)
         .hasMessageStartingWith("저장 용량을 초과했습니다");
-    assertThat(inTrash(a.id())).isTrue();
   }
 
   @Test
-  void 한도_안이면_파일_복원_허용() throws Exception {
+  void 파일_복원은_한도를_넘긴_상태여도_허용() throws Exception {
+    // given: A(6) 를 휴지통에 넣은 뒤 한도를 사용량 아래(1)로 낮춘다
     DriveSpaceResponse space = createSpace();
     long owner = ownerOfSpace(space.id());
-    setTenantQuota(12L);
     DriveFileResponse a = uploadFile(space.id(), "aaaaaa".getBytes());
     driveFileService.delete(owner, a.id());
-    uploadFile(space.id(), "bbbbbb".getBytes());
-    // 한도 정확히 12 = 6 + 6
+    setTenantQuota(1L);
+    // when: 복원 — 휴지통이 이미 사용량에 들어가 있어 복원해도 사용량이 늘지 않는다
+    long usedBefore = quotaService.usedBytes();
     trashService.restoreFile(owner, a.id());
+    // then: 거절 없이 되살아나고 사용량은 그대로
     assertThat(inTrash(a.id())).isFalse();
+    assertThat(quotaService.usedBytes()).isEqualTo(usedBefore);
   }
 
   @Test
-  void 폴더_복원은_함께_되살아나는_파일_합계로_판정() throws Exception {
-    // given: 폴더/ 에 4, 폴더/하위/ 에 3 — 폴더째 휴지통, 그 사이 6 업로드
+  void 폴더_복원은_한도를_넘긴_상태여도_허용() throws Exception {
+    // given: 폴더/ 에 4, 폴더/하위/ 에 3 — 폴더째 휴지통에 넣고 한도를 사용량 아래로 낮춘다
     DriveSpaceResponse space = createSpace();
     long owner = ownerOfSpace(space.id());
     long folder = folderService.create(owner, space.id(), null, "폴더").id();
@@ -220,20 +231,14 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
     DriveFileResponse x = uploadFile(space.id(), folder, "aaaa".getBytes());
     uploadFile(space.id(), child, "bbb".getBytes());
     folderService.delete(owner, folder);
-    uploadFile(space.id(), "cccccc".getBytes());
-    // when: 한도 12 — 파일 하나(4·3)씩은 들어가지만 합계 7 이면 6+7=13 > 12
-    setTenantQuota(12L);
-    assertThatThrownBy(() -> trashService.restoreFolder(owner, folder))
-        .isInstanceOf(DriveQuotaExceededException.class);
-    assertThat(inTrash(x.id())).isTrue();
-    // 한도 13 이면 정확히 들어간다
-    setTenantQuota(13L);
+    setTenantQuota(1L);
+    // when/then: 함께 되살아나는 파일이 있어도 거절하지 않는다
     trashService.restoreFolder(owner, folder);
     assertThat(inTrash(x.id())).isFalse();
   }
 
   @Test
-  void 폴더_복원은_먼저_따로_지운_파일을_세지_않는다() throws Exception {
+  void 폴더_복원은_먼저_따로_지운_파일을_되살리지_않는다() throws Exception {
     // given: 폴더/ 안의 y(5) 를 먼저 따로 휴지통에 넣고, 이어서 폴더(z 3 포함)를 휴지통에 넣는다
     DriveSpaceResponse space = createSpace();
     long owner = ownerOfSpace(space.id());
@@ -242,15 +247,13 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
     uploadFile(space.id(), folder, "zzz".getBytes());
     driveFileService.delete(owner, y.id());
     folderService.delete(owner, folder);
-    // when: 한도 3 — 폴더 복원으로 살아나는 것은 z(3) 뿐이다(y 는 따로 지운 것이라 휴지통에 남는다)
-    setTenantQuota(3L);
+    // when: 폴더 복원으로 살아나는 것은 z(3) 뿐이다(y 는 다른 op 라 휴지통에 남는다)
     trashService.restoreFolder(owner, folder);
     assertThat(inTrash(y.id())).isTrue();
   }
 
   @Test
   void 빈_폴더_복원은_한도를_넘긴_상태여도_허용() throws Exception {
-    // 되살아나는 바이트가 없으면 사용량이 늘지 않으므로 막지 않는다
     DriveSpaceResponse space = createSpace();
     long owner = ownerOfSpace(space.id());
     long folder = folderService.create(owner, space.id(), null, "빈 폴더").id();

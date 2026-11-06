@@ -33,9 +33,9 @@ public class DriveLinkController {
   }
 
   /**
-   * caller 가 접근 가능한 이슈/메시지의 첨부를 attachedAt DESC 병합, 커서 페이지네이션.
+   * caller 가 접근 가능한 이슈·이슈챗·메시지의 첨부를 attachedAt DESC 병합, 커서 페이지네이션.
    *
-   * @param source ALL|ISSUE|MESSAGE (기본 ALL)
+   * @param source ALL|ISSUE|CHAT_MESSAGE|MESSAGE (기본 ALL, CHAT_MESSAGE = 이슈챗)
    * @param cursor ISO-8601 Instant (null=최신부터)
    * @param limit 최대 항목 수 (최대 100, 기본 50)
    */

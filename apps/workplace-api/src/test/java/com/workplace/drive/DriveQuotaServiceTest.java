@@ -61,4 +61,14 @@ class DriveQuotaServiceTest extends IntegrationTestBase {
     assertThat(v.usedBytes()).isGreaterThanOrEqualTo(0L);
     assertThat(v.quotaBytes()).isEqualTo(10737418240L);
   }
+
+  /** 화면의 합계는 내역 합이고, 한도 검사가 쓰는 usedBytes() 와도 같다(WP-1391) — 보이는 숫자와 막히는 기준이 어긋나지 않는다. */
+  @Test
+  void view_합계는_내역_합이자_한도_검사_사용량과_같다() {
+    DriveQuotaService.QuotaView v = quotaService.view();
+    assertThat(v.breakdown()).isNotNull();
+    assertThat(v.usedBytes()).isEqualTo(v.breakdown().total());
+    assertThat(v.usedBytes()).isEqualTo(quotaService.usedBytes());
+    assertThat(v.mailCacheBytes()).isGreaterThanOrEqualTo(0L);
+  }
 }

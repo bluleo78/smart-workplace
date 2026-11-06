@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { HardDrive, MoreHorizontal, Paperclip, Plus, User, Users } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus, User, Users } from 'lucide-react'
+import { useId, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -44,7 +44,7 @@ import { driveApi } from '../../api/drive'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
-import type { DriveSpace } from '../../types/drive'
+import type { DriveQuota, DriveQuotaBreakdown, DriveSpace } from '../../types/drive'
 import { DriveSpaceMemberDialog } from './DriveSpaceMemberDialog'
 
 /** 사용량 바 경고 단계 — 임계치 기반 색상 분기(#822). */
@@ -66,6 +66,132 @@ const USAGE_BAR_CLASS: Record<DriveUsageLevel, string> = {
   normal: 'bg-primary',
   warning: 'bg-warning',
   critical: 'bg-destructive',
+}
+
+/** 종류별 내역 한 줄 — 이름·값과, 이름만으로 헷갈릴 때 붙이는 작은 설명. */
+interface UsageRow {
+  key: keyof DriveQuotaBreakdown
+  label: string
+  note?: string
+}
+
+/**
+ * 종류별 내역 줄 순서(WP-1391 시안) — 보통 큰 것부터: 드라이브 → 이슈 → 이슈챗 → 노트 → 그 밖의 첨부 → 휴지통.
+ * 「올리는 중·임시」(unlinked)는 0 이 대부분이라 값이 있을 때만 맨 끝에 덧붙인다(아래 렌더에서 처리).
+ */
+const USAGE_ROWS: UsageRow[] = [
+  { key: 'drive', label: '드라이브', note: '옛 버전 포함' },
+  { key: 'issue', label: '이슈 첨부·본문 이미지' },
+  { key: 'issueChat', label: '이슈챗 첨부' },
+  { key: 'wiki', label: '노트 첨부' },
+  { key: 'otherAttachments', label: '채팅·홈·메일 초안', note: '보낸 메일 사본 포함' },
+  { key: 'trash', label: '휴지통' },
+]
+
+/**
+ * 사이드바 맨 아래 「저장 공간」 블록(#81 → WP-1391).
+ * - 합계(사용/한도)와 막대를 늘 보이고, 내역(breakdown)이 오면 머리 줄 전체가 펼침 버튼이 된다 — 누르면 종류별 내역이
+ *   사이드바 안에서 아래로 펼쳐지고 다시 누르면 접힌다. 기본은 접힘이고 상태는 기억하지 않는다(가끔 확인하는 정보라서).
+ * - 롤링 배포 중 옛 API 는 breakdown 을 주지 않으므로, 그때는 버튼 없이 합계만 보인다.
+ * - 메일 첨부 임시 보관은 한도에 들어가지 않아 구분선 아래 흐린 색으로 따로 보인다(필드가 있을 때만).
+ */
+function DriveUsageBlock({ quota }: { quota: DriveQuota }) {
+  const [expanded, setExpanded] = useState(false)
+  // 펼친 목록 id — 사이드바가 두 번 그려지는 화면(모바일·데스크톱 동시)이 있어도 겹치지 않게 useId 로 만든다.
+  const breakdownId = useId()
+  // 사용률·경고 단계(#822) — quotaBytes 0 은 나눗셈 방지로 1 처리.
+  const usageRatio = quota.usedBytes / Math.max(1, quota.quotaBytes)
+  const usageLevel = driveUsageLevel(usageRatio)
+  const { breakdown } = quota
+  const total = (
+    <span data-testid="drive-usage-text">
+      {formatFileSize(quota.usedBytes)} / {formatFileSize(quota.quotaBytes)}
+    </span>
+  )
+  const Chevron = expanded ? ChevronDown : ChevronRight
+
+  return (
+    <div className="mt-3 border-t pt-3" data-testid="drive-usage-bar">
+      {breakdown ? (
+        // 머리 줄 전체가 버튼 — 좁은 사이드바에서 작은 셰브론만 누르게 하지 않으려고 줄 전체를 눌림 영역으로 둔다.
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={expanded ? breakdownId : undefined}
+          data-testid="drive-usage-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          className="-mx-1 mb-1 flex w-[calc(100%+0.5rem)] items-center justify-between rounded-md px-1 py-0.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        >
+          <span className="flex items-center gap-1">
+            저장 공간
+            <Chevron className="h-3 w-3" aria-hidden />
+          </span>
+          {total}
+        </button>
+      ) : (
+        <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+          <span>저장 공간</span>
+          {total}
+        </div>
+      )}
+      {/* 임계치 경고색(#822) — 80%↑ warning, 100%↑ destructive. 텍스트는 항상 유지. */}
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          data-testid="drive-usage-fill"
+          data-usage-level={usageLevel}
+          className={cn('h-full', USAGE_BAR_CLASS[usageLevel])}
+          style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
+        />
+      </div>
+      {breakdown && expanded && (
+        <ul id={breakdownId} data-testid="drive-usage-breakdown" className="mt-2 space-y-1 text-xs">
+          {USAGE_ROWS.map((row) => (
+            <UsageLine key={row.key} label={row.label} note={row.note} bytes={breakdown[row.key]} testId={`drive-usage-row-${row.key}`} />
+          ))}
+          {breakdown.unlinked > 0 && (
+            <UsageLine label="올리는 중·임시" bytes={breakdown.unlinked} testId="drive-usage-row-unlinked" />
+          )}
+          {quota.mailCacheBytes != null && (
+            <UsageLine
+              label="메일 첨부 임시 보관"
+              note="한도 미포함 · 7일 뒤 자동 삭제"
+              bytes={quota.mailCacheBytes}
+              testId="drive-usage-row-mailCache"
+              muted
+              className="mt-1.5 border-t border-dashed pt-1.5"
+            />
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** 내역 한 줄 — 이름과 크기를 양 끝에, 설명은 이름 아래 작은 글씨로. muted 면 한도 밖 항목처럼 흐리게. */
+function UsageLine({
+  label,
+  note,
+  bytes,
+  testId,
+  muted = false,
+  className,
+}: {
+  label: string
+  note?: string
+  bytes: number
+  testId: string
+  muted?: boolean
+  className?: string
+}) {
+  return (
+    <li data-testid={testId} className={className}>
+      <div className={cn('flex items-center justify-between gap-2', muted ? 'text-muted-foreground' : 'text-foreground/80')}>
+        <span className="min-w-0">{label}</span>
+        <span className="shrink-0 tabular-nums">{formatFileSize(bytes)}</span>
+      </div>
+      {note && <div className="text-[11px] text-muted-foreground">{note}</div>}
+    </li>
+  )
 }
 
 // WP-63: 공간 목록 미로드 시 빈 배열 — 매 렌더 새 배열을 만들지 않도록 모듈 상수로 둔다.
@@ -94,13 +220,10 @@ export function DriveSidebar() {
   const [creating, setCreating] = useState(false)
   // 이름 중복(409) 인라인 에러 — 컨테이너류 이름 하드 차단 정책(#688/#696/#803).
   const [spaceNameError, setSpaceNameError] = useState<string | null>(null)
-  // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81). TanStack Query 전환(#820) —
+  // 드라이브 쿼터 — 사이드바 하단 저장 공간 블록 (#81, WP-1391). TanStack Query 전환(#820) —
   // 업로드/삭제/롤백 mutation 성공 시 invalidateQueries(driveQuotaKeys.all) 로
   // 재조회되므로 이 컴포넌트가 리마운트되지 않아도 최신 값이 반영된다.
   const { data: quota } = useDriveQuota()
-  // 사용률·경고 단계(#822) — quota 미로드 시 0(normal). quotaBytes 0 은 나눗셈 방지로 1 처리.
-  const usageRatio = quota ? quota.usedBytes / Math.max(1, quota.quotaBytes) : 0
-  const usageLevel = driveUsageLevel(usageRatio)
   // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
   const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
@@ -267,7 +390,7 @@ export function DriveSidebar() {
         </nav>
       </div>
 
-      {/* 하단 그룹 — 첨부 모아보기 + 사용량을 한 영역에(사이 구분선 없음). 상단만 스크롤 영역과 구분선.
+      {/* 하단 그룹 — 첨부 모아보기 + 저장 공간을 한 영역에(사이 구분선 없음). 상단만 스크롤 영역과 구분선.
           첨부는 평소 잘 안 보는 보조 뷰라 공간 목록 아래·사용량 바로 위에 배치(#80 IA). */}
       <div className="border-t p-3">
         {/* 첨부 링크 — 사용량 텍스트와 동일한 text-xs 로 통일 */}
@@ -284,26 +407,8 @@ export function DriveSidebar() {
           <Paperclip className="h-4 w-4 shrink-0" />
           첨부 모아보기
         </NavLink>
-        {/* 사용량 바 (#81) — 첨부와 같은 영역, 사이 구분선으로 분리 */}
-        {quota && (
-          <div className="mt-3 border-t pt-3" data-testid="drive-usage-bar">
-            <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-              <span>사용량</span>
-              <span data-testid="drive-usage-text">
-                {formatFileSize(quota.usedBytes)} / {formatFileSize(quota.quotaBytes)}
-              </span>
-            </div>
-            {/* 임계치 경고색(#822) — 80%↑ warning, 100%↑ destructive. 텍스트는 항상 유지. */}
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                data-testid="drive-usage-fill"
-                data-usage-level={usageLevel}
-                className={cn('h-full', USAGE_BAR_CLASS[usageLevel])}
-                style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
+        {/* 저장 공간 (#81, WP-1391) — 첨부와 같은 영역, 사이 구분선으로 분리. 종류별 내역은 머리 줄을 눌러 펼친다. */}
+        {quota && <DriveUsageBlock quota={quota} />}
       </div>
 
       {/* 팀 공간 이름 입력 다이얼로그 — window.prompt 대체 (#148) */}

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.STAGED_UPLOAD_LINK;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,6 +18,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.drive.exception.DriveQuotaExceededException;
+import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.service.FileCleanupService;
@@ -41,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -60,6 +64,7 @@ class StagedUploadIntegrationTest extends IntegrationTestBase {
   @Autowired StagedFileClaimer claimer;
   @Autowired StagedUploadService stagedUploadService;
   @Autowired FileStore fileStore;
+  @Autowired DriveQuotaService quotaService;
 
   private static final String BASE = "http://localhost:6173";
 
@@ -237,6 +242,108 @@ class StagedUploadIntegrationTest extends IntegrationTestBase {
                 .content(
                     objectMapper.writeValueAsString(Map.of("name", "big.txt", "content", big))))
         .andExpect(status().isBadRequest());
+  }
+
+  // ── 저장 공간 한도(WP-1391) ────────────────────────────────────────
+
+  /**
+   * 테넌트#1 한도를 「지금 사용량 + room」으로 잠시 바꿔 {@code body} 를 돌리고 되돌린다 — 이 테스트는 커밋하므로 한도도 직접 복원한다. 사용량 집계는
+   * RLS 테이블이라 테넌트 트랜잭션 안에서 읽는다.
+   */
+  private void withQuotaRoom(long room, ThrowingRunnable body) throws Exception {
+    long previous =
+        callInTenant(
+            1L,
+            () -> {
+              long prev =
+                  dsl.select(TENANT.QUOTA_BYTES)
+                      .from(TENANT)
+                      .where(TENANT.ID.eq(1L))
+                      .fetchOne(TENANT.QUOTA_BYTES);
+              dsl.update(TENANT)
+                  .set(TENANT.QUOTA_BYTES, quotaService.usedBytes() + room)
+                  .where(TENANT.ID.eq(1L))
+                  .execute();
+              return prev;
+            });
+    try {
+      body.run();
+    } finally {
+      cleanupInTenant(
+          1L,
+          () ->
+              dsl.update(TENANT)
+                  .set(TENANT.QUOTA_BYTES, previous)
+                  .where(TENANT.ID.eq(1L))
+                  .execute());
+    }
+  }
+
+  @FunctionalInterface
+  private interface ThrowingRunnable {
+    void run() throws Exception;
+  }
+
+  /** 이 사용자가 올린 file 행 수 — 거절된 업로드가 행을 남기지 않았는지 본다. */
+  private int filesUploadedBy(long userId) {
+    return callInTenant(1L, () -> dsl.fetchCount(FILE, FILE.UPLOADED_BY.eq(userId)));
+  }
+
+  /** 스테이징 file 행도 사용량에 들어가므로, 한도를 넘는 텍스트 스테이징은 저장 전에 409 로 막히고 file 행이 남지 않는다. 안이면 그대로 만든다. */
+  @Test
+  void text_한도를_넘으면_409_파일_행이_남지_않는다() throws Exception {
+    withQuotaRoom(
+        2,
+        () -> {
+          mockMvc
+              .perform(
+                  post("/api/v1/staged-files/text")
+                      .header("Authorization", bearer(owner))
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content("{\"name\":\"q.txt\",\"content\":\"abc\"}"))
+              .andExpect(status().isConflict())
+              .andExpect(jsonPath("$.message").value(containsString("저장 용량을 초과했습니다")));
+          assertThat(filesUploadedBy(owner)).isZero();
+
+          // 한도 안(2 바이트)이면 만들어진다 — 「검사가 늘 던진다」 변이를 막는다.
+          createText(owner, "ok.txt", "ab");
+          assertThat(filesUploadedBy(owner)).isEqualTo(1);
+        });
+  }
+
+  /** 공개 PUT 링크 업로드도 받은 본문 크기로 한도를 본다 — 넘치면 409 이고 file 행이 남지 않는다(링크는 이미 소비됐다). */
+  @Test
+  void link_PUT_이_한도를_넘으면_409_파일_행이_남지_않는다() throws Exception {
+    String path = issuePath(owner, "q.txt");
+    withQuotaRoom(
+        2,
+        () -> {
+          mockMvc
+              .perform(put(path).content("abc".getBytes(StandardCharsets.UTF_8)))
+              .andExpect(status().isConflict())
+              .andExpect(jsonPath("$.message").value(containsString("저장 용량을 초과했습니다")));
+          assertThat(filesUploadedBy(owner)).isZero();
+        });
+  }
+
+  /** 메일 작성창 멀티파트 스테이징(createFromMultipart)도 같은 검사를 거친다. */
+  @Test
+  void multipart_한도를_넘으면_거절되고_파일_행이_남지_않는다() throws Exception {
+    withQuotaRoom(
+        2,
+        () -> {
+          assertThatThrownBy(
+                  () ->
+                      callInTenant(
+                          1L,
+                          () ->
+                              stagedUploadService.createFromMultipart(
+                                  owner,
+                                  new MockMultipartFile(
+                                      "file", "m.txt", "text/plain", new byte[3]))))
+              .isInstanceOf(DriveQuotaExceededException.class);
+          assertThat(filesUploadedBy(owner)).isZero();
+        });
   }
 
   // ── 링크 ──────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 // 드라이브 사이드바(DriveSidebar) — 화면 컴포넌트 테스트(WP-971, WP-995, WP-984).
 // 팀 공간 만들기 대화상자(#582·#696): 빈 이름 비활성·연속 클릭 1회 요청·취소 뒤 입력 초기화·409 인라인 에러·만든 공간이 목록에 보임
 // — e2e/pages/drive/drive-space-create.spec.ts·drive.spec.ts 에서 옮겼다.
-// 사이드바 머리말·사용량 바(경고색·클램프)·채널 공간 숨김, 팀 공간 ⋯ 이름 변경·삭제·멤버 창(추가·역할·제거·잠금)도 브라우저 없이 판정되므로
+// 사이드바 머리말·저장 공간 막대(경고색·클램프)·종류별 내역 펼침(WP-1391)·채널 공간 숨김, 팀 공간 ⋯ 이름 변경·삭제·멤버 창(추가·역할·제거·잠금)도 브라우저 없이 판정되므로
 // drive.spec.ts·drive-space-rename-delete.spec.ts·drive-space-members.spec.ts 에서 옮겼다.
 // 포커스 복원·타이머 지연 입력·터치 태블릿 ⋯ 크기는 E2E(@input·@layout)가, 드라이브 화면 배선은 drive.spec.ts 의 E2E 가 지킨다.
 // 대화상자를 가진 사이드바만 renderScreen 으로 띄운다 — App 전체(renderPage)일 때 11.7초, 지금 6.3초.
@@ -13,7 +13,7 @@ import { describe, expect, test } from 'vitest'
 
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
 import { renderScreen } from '@/test/renderScreen'
-import type { DriveMember, DriveSpace } from '@/types/drive'
+import type { DriveMember, DriveQuota, DriveSpace } from '@/types/drive'
 
 import { createMember } from '../../../e2e/factories/auth.factory'
 
@@ -120,7 +120,7 @@ test('만든 팀 공간이 사이드바 목록에 나타난다(#148)', async () 
 
 describe('머리말·사용량·공간 목록', () => {
   /** 사이드바만 띄운다 — 공간 목록·쿼터를 준다. */
-  function renderSidebar(spaces: DriveSpace[], quota = { usedBytes: 0, quotaBytes: 10_737_418_240 }) {
+  function renderSidebar(spaces: DriveSpace[], quota: DriveQuota = { usedBytes: 0, quotaBytes: 10_737_418_240 }) {
     return renderScreen(<DriveSidebar />, {
       path: '/drive/spaces/1',
       handlers: [
@@ -162,6 +162,76 @@ describe('머리말·사용량·공간 목록', () => {
       expect(screen.getByTestId('drive-usage-text')).toHaveTextContent('10.0 GB')
     })
   }
+
+  // WP-1391: 라벨은 「저장 공간」, 합계만 보이다가 머리 줄(버튼)을 누르면 종류별 내역이 펼쳐지고 다시 누르면 접힌다.
+  // 「올리는 중·임시」는 0 이면 숨기고, 메일 첨부 임시 보관은 「한도 미포함」 설명과 함께 따로 보인다.
+  const MB = 1024 * 1024
+  const withBreakdown: DriveQuota = {
+    usedBytes: 1_500 * MB,
+    quotaBytes: QUOTA,
+    breakdown: { drive: 791 * MB, trash: 2 * MB, wiki: 64 * MB, issue: 302 * MB, issueChat: 207 * MB, otherAttachments: 8 * MB, unlinked: 0 },
+    mailCacheBytes: 18 * MB,
+  }
+
+  test('저장 공간 — 머리 줄을 누르면 종류별 내역이 펼쳐지고 다시 누르면 접힌다', async () => {
+    const { user } = renderSidebar([personalSpace], withBreakdown)
+    const toggle = await screen.findByTestId('drive-usage-toggle')
+    expect(toggle).toHaveTextContent('저장 공간')
+    expect(screen.getByTestId('drive-usage-text')).toHaveTextContent('1.5 GB / 10.0 GB')
+    // 기본은 접힘 — 내역이 없다.
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('drive-usage-breakdown')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    const list = screen.getByTestId('drive-usage-breakdown')
+    expect(toggle).toHaveAttribute('aria-controls', list.id)
+    // 시안 순서: 드라이브 → 이슈 → 이슈챗 → 노트 → 채팅·홈·메일 초안 → 휴지통 → (구분선) 메일 첨부 임시 보관.
+    expect(within(list).getAllByRole('listitem').map((li) => li.dataset.testid)).toEqual([
+      'drive-usage-row-drive',
+      'drive-usage-row-issue',
+      'drive-usage-row-issueChat',
+      'drive-usage-row-wiki',
+      'drive-usage-row-otherAttachments',
+      'drive-usage-row-trash',
+      'drive-usage-row-mailCache',
+    ])
+    expect(screen.getByTestId('drive-usage-row-drive')).toHaveTextContent('드라이브791.0 MB옛 버전 포함')
+    expect(screen.getByTestId('drive-usage-row-issue')).toHaveTextContent('이슈 첨부·본문 이미지302.0 MB')
+    expect(screen.getByTestId('drive-usage-row-issueChat')).toHaveTextContent('이슈챗 첨부207.0 MB')
+    expect(screen.getByTestId('drive-usage-row-wiki')).toHaveTextContent('노트 첨부64.0 MB')
+    expect(screen.getByTestId('drive-usage-row-otherAttachments')).toHaveTextContent('채팅·홈·메일 초안8.0 MB보낸 메일 사본 포함')
+    expect(screen.getByTestId('drive-usage-row-trash')).toHaveTextContent('휴지통2.0 MB')
+    expect(screen.getByTestId('drive-usage-row-mailCache')).toHaveTextContent('메일 첨부 임시 보관18.0 MB한도 미포함 · 7일 뒤 자동 삭제')
+    // 올리는 중·임시가 0 이면 줄이 없다.
+    expect(screen.queryByTestId('drive-usage-row-unlinked')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('drive-usage-breakdown')).not.toBeInTheDocument()
+  })
+
+  // 올리는 중·임시 파일이 있으면 휴지통 뒤에 보이고, 옛 API 처럼 mailCacheBytes 가 없으면 메일 임시 보관 줄은 없다.
+  test('저장 공간 — 올리는 중·임시는 값이 있을 때만, 메일 임시 보관은 필드가 있을 때만 보인다', async () => {
+    const { user } = renderSidebar([personalSpace], {
+      usedBytes: withBreakdown.usedBytes,
+      quotaBytes: QUOTA,
+      breakdown: { ...withBreakdown.breakdown!, unlinked: 3 * MB },
+    })
+    await user.click(await screen.findByTestId('drive-usage-toggle'))
+    expect(screen.getByTestId('drive-usage-row-unlinked')).toHaveTextContent('올리는 중·임시3.0 MB')
+    expect(screen.queryByTestId('drive-usage-row-mailCache')).not.toBeInTheDocument()
+  })
+
+  // 롤링 배포 중 옛 API(내역 없음)면 펼침 버튼 없이 「저장 공간」 합계만 보인다.
+  test('저장 공간 — 내역이 없으면 펼침 버튼 없이 합계만 보인다', async () => {
+    renderSidebar([personalSpace], { usedBytes: 2_147_483_648, quotaBytes: QUOTA })
+    const text = await screen.findByTestId('drive-usage-text')
+    expect(text).toHaveTextContent('2.0 GB / 10.0 GB')
+    expect(screen.getByTestId('drive-usage-bar')).toHaveTextContent('저장 공간')
+    expect(screen.queryByTestId('drive-usage-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /저장 공간/ })).not.toBeInTheDocument()
+  })
 })
 
 describe('팀 공간 ⋯ 메뉴', () => {

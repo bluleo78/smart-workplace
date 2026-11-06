@@ -2,7 +2,7 @@
 // 이슈↔드라이브 링크, 백링크, 가상 첨부, 임포트 엔드포인트를 래핑한다.
 
 import { downloadBlob } from '../lib/download'
-import type { Backlink, DriveFile, DriveLink, VirtualAttachmentPage } from '../types/drive'
+import type { Backlink, DriveFile, DriveLink, VirtualAttachmentPage, VirtualAttachmentSource } from '../types/drive'
 import { client } from './client'
 
 // ─── 이슈 드라이브 링크 ────────────────────────────────────────────────────────
@@ -57,9 +57,9 @@ export async function listFileBacklinks(driveFileId: number): Promise<Backlink[]
 
 // ─── 가상 첨부 ────────────────────────────────────────────────────────────────
 
-/** 이슈/메시지 업로드 파일의 가상 첨부 뷰 — cursor 페이징. */
+/** 이슈/이슈챗/메시지 업로드 파일의 가상 첨부 뷰 — cursor 페이징. */
 export async function listDriveAttachments(params: {
-  source?: 'ALL' | 'ISSUE' | 'MESSAGE'
+  source?: 'ALL' | VirtualAttachmentSource
   q?: string
   cursor?: string
   limit?: number

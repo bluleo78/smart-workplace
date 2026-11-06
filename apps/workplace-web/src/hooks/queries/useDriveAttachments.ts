@@ -3,15 +3,15 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 
 import { listDriveAttachments } from '../../api/driveLinks'
-import type { VirtualAttachmentPage } from '../../types/drive'
+import type { VirtualAttachmentPage, VirtualAttachmentSource } from '../../types/drive'
 
 interface DriveAttachmentsParams {
-  source?: 'ALL' | 'ISSUE' | 'MESSAGE'
+  source?: 'ALL' | VirtualAttachmentSource
   q?: string
   limit?: number
 }
 
-/** 이슈/메시지 업로드 파일의 가상 첨부 목록 — cursor 기반 무한 스크롤. */
+/** 이슈/이슈챗/메시지 업로드 파일의 가상 첨부 목록 — cursor 기반 무한 스크롤. */
 export function useDriveAttachments(params: DriveAttachmentsParams = {}) {
   return useInfiniteQuery<VirtualAttachmentPage>({
     queryKey: ['drive-attachments', params],

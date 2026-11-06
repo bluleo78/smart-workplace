@@ -3,6 +3,7 @@ package com.workplace.wiki;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
@@ -13,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
@@ -61,6 +63,7 @@ class WikiImageClaimTest extends IntegrationTestBase {
   @Autowired FileStore fileStore;
   @Autowired StagedFileClaimer claimer;
   @Autowired WikiAttachmentRetentionPolicy retentionPolicy;
+  @Autowired DriveQuotaService quotaService;
 
   private long ownerId;
   private long viewerId;
@@ -189,6 +192,36 @@ class WikiImageClaimTest extends IntegrationTestBase {
         .andExpect(jsonPath("$[0].mimeType").value("image/png"));
 
     assertThat(mimeOf(fileId)).isEqualTo("image/png");
+  }
+
+  @Test
+  void 사용량이_한도에_딱_맞아도_스테이징_파일은_클레임된다() throws Exception {
+    // WP-1391: 스테이징 파일은 이미 file 행이라 사용량에 들어 있다 — 클레임이 그 바이트를 다시 더하면 이중 계산돼
+    // 「사용량(스테이징 포함) == 한도」인 테넌트가 이미 올린 파일을 노트에 넣지 못한다. 테스트 트랜잭션이 한도 변경도 되돌린다.
+    long fileId = seedStaged(ownerId, "a.png", PNG, "image/png", PNG.length);
+    setQuota(quotaService.usedBytes());
+
+    claim(ownerId, List.of(fileId)).andExpect(status().isOk());
+
+    assertThat(boundCount(fileId)).isEqualTo(1);
+  }
+
+  @Test
+  void 이미_한도를_넘었으면_클레임도_409() throws Exception {
+    // 새 바이트가 0 이어도 검사는 한다 — 이미 넘은 테넌트는 노트에 첨부를 더 묶지 못한다(양방향 고정).
+    long fileId = seedStaged(ownerId, "a.png", PNG, "image/png", PNG.length);
+    setQuota(quotaService.usedBytes() - 1);
+
+    claim(ownerId, List.of(fileId))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.startsWith("저장 용량을 초과했습니다")));
+
+    assertThat(boundCount(fileId)).isZero();
+  }
+
+  /** 테넌트#1 한도를 바꾼다(테스트 트랜잭션과 함께 롤백). */
+  private void setQuota(long bytes) {
+    dsl.update(TENANT).set(TENANT.QUOTA_BYTES, bytes).where(TENANT.ID.eq(1L)).execute();
   }
 
   // ---------------------------------------------------------------------------------------------
