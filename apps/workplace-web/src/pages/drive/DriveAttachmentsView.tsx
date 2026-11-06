@@ -287,6 +287,21 @@ export function DriveAttachmentsView() {
                                 내 드라이브에 저장
                               </Button>
                             )}
+                            {/* 저장할 수 없는 행(메일)도 같은 폭의 빈 자리를 둬 크기·다운로드 열이 다른 행과 줄 맞게 한다 —
+                                보이지 않고(invisible) 보조 기술·Tab 에서도 빠진다(WP-1392 라이브 확인에서 크기 열이 오른쪽으로 밀림). */}
+                            {!isVirtualAttachmentImportable(a) && (
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                aria-hidden
+                                tabIndex={-1}
+                                disabled
+                                data-testid={`drive-attachment-save-spacer-${id}`}
+                                className="invisible shrink-0"
+                              >
+                                내 드라이브에 저장
+                              </Button>
+                            )}
                           </li>
                         )
                       })}

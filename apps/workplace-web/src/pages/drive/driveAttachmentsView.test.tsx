@@ -219,6 +219,11 @@ describe('목록', () => {
     })
     const row = await screen.findByTestId('drive-attachment-row-mail-601', {}, { timeout: PAGE_LOAD_TIMEOUT })
     expect(within(row).queryByRole('button', { name: '내 드라이브에 저장' })).not.toBeInTheDocument()
+    // 줄 맞춤용 빈 자리는 보이지 않고 보조 기술·Tab 에서 빠진다(크기 열이 다른 행과 같은 자리에 오게).
+    const spacer = within(row).getByTestId('drive-attachment-save-spacer-mail-601')
+    expect(spacer).toHaveAttribute('aria-hidden', 'true')
+    expect(spacer).toHaveAttribute('tabindex', '-1')
+    expect(spacer).toHaveClass('invisible')
     expect(within(row).getByTestId('drive-attachment-type-icon')).toBeInTheDocument()
     await user.click(within(row).getByTestId('drive-attachment-download-mail-601'))
     await waitFor(() => expect(downloads).toBeGreaterThan(0))
