@@ -1,5 +1,5 @@
 // 메일 첨부 → 통합 첨부 뷰어(WP-280, 데스크톱). 모바일 배치·뒤로가기는 e2e/pages/mobile/mail-attachment-viewer-mobile.spec.ts.
-// 묶음 = 한 메일의 목록 첨부(본문 인라인 이미지 제외), 다운로드는 뷰어 ⬇, ✨·☁·⋯ 없음.
+// 묶음 = 한 메일의 목록 첨부(본문 인라인 이미지 제외), 다운로드는 뷰어 ⬇, ✨ 없음. ☁ 는 메일 첨부 저장(WP-1400) — 공간은 누를 때 조회해 열 때는 늘 누를 수 있다. 공유 불가라 ⋯ 는 없다.
 // 남은 것: PDF 렌더·다운로드(@platform), 닫은 뒤 포커스 복원(@input), 오류 토스트가 뷰어 위에 쌓이는지(@layout).
 // 딥링크·찾을 수 없음 안내·열 때만 받기·다른 메일 주소·조회 실패 ?preview 는 src/pages/mail/mailDetailExtras.test.tsx(vitest, WP-984)가 지킨다.
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -27,10 +27,11 @@ test.describe('메일 첨부 뷰어', () => {
     await expect(page.getByTestId('pdf-page-1')).toBeVisible()
     await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
 
-    // 메일 첨부엔 요약·드라이브 가져오기가 없고, 공유 불가라 ⋯ 메뉴 자체가 없다.
+    // 메일 첨부엔 요약이 없다. ☁ 는 메일 첨부 저장(WP-1400) — 공간 조회는 누를 때 해서 열 때는 늘 누를 수 있다.
+    // 공유는 없지만 ⋯ 에도 「드라이브로 가져오기」가 생겨 ⋯ 가 보인다. 저장 흐름(폴더 창 → save-to-drive)·조회 실패 토스트는 vitest(mailDetailExtras.test.tsx)가 지킨다.
     await expect(viewer.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-    await expect(viewer.getByRole('button', { name: '드라이브로 가져오기' })).toHaveCount(0)
-    await expect(viewer.getByRole('button', { name: '더 보기' })).toHaveCount(0)
+    await expect(viewer.getByRole('button', { name: '드라이브로 가져오기' })).toBeEnabled()
+    await expect(viewer.getByRole('button', { name: '더 보기' })).toHaveCount(1)
 
     // 다음 = 텍스트 첨부(형식 파라미터·대소문자가 섞여도 텍스트로 미리 본다), 마지막이라 › 는 숨는다.
     await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)

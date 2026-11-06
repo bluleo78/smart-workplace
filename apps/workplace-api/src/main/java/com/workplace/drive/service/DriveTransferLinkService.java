@@ -47,7 +47,6 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.unit.DataSize;
 
 /**
  * 드라이브 전송 링크(WP-369) — 외부 MCP 클라이언트(curl·브라우저)가 로그인 없이 쓰는 10분짜리 일회용 서명 링크의 발급·소비.
@@ -104,8 +103,8 @@ public class DriveTransferLinkService {
    */
   private final Path tempDir;
 
-  /** 멀티파트 파일 상한(spring.servlet.multipart.max-file-size, 100MB) — 업로드 링크도 같은 상한을 넘지 않는다. */
-  private final long multipartMaxBytes;
+  /** 드라이브 업로드 크기 상한 규칙(범주 상한·멀티파트 상한 중 작은 값) — 업로드 링크도 같은 상한을 넘지 않는다. */
+  private final DriveUploadLimits uploadLimits;
 
   /** 외부에서 닿는 웹 기준 주소(끝 슬래시 제거). 운영은 WEB_BASE_URL, 비면 기동 실패({@code PublicBaseUrlCheck}). */
   private final String publicBaseUrl;
@@ -119,8 +118,8 @@ public class DriveTransferLinkService {
       TenantStatusChecker tenantStatusChecker,
       DriveFileService fileService,
       AuditLogService auditLogService,
+      DriveUploadLimits uploadLimits,
       @Value("${workplace.public-base-url}") String publicBaseUrl,
-      @Value("${spring.servlet.multipart.max-file-size:100MB}") String multipartMaxFileSize,
       @Value("${workplace.drive.transfer-temp-dir:${java.io.tmpdir}}") String tempDir) {
     this.links = links;
     this.files = files;
@@ -132,7 +131,7 @@ public class DriveTransferLinkService {
     this.auditLogService = auditLogService;
     this.tempDir = BoundedBody.prepareTempDir(tempDir, "workplace.drive.transfer-temp-dir");
     this.publicBaseUrl = CapabilityTokens.normalizeBaseUrl(publicBaseUrl);
-    this.multipartMaxBytes = DataSize.parse(multipartMaxFileSize).toBytes();
+    this.uploadLimits = uploadLimits;
   }
 
   /**
@@ -235,7 +234,7 @@ public class DriveTransferLinkService {
         null,
         meta);
     return new DriveUploadLinkResponse(
-        publicUrl(token), "PUT", expiresAt, uploadCapFor(name, null), name, true);
+        publicUrl(token), "PUT", expiresAt, uploadLimits.capFor(name, null), name, true);
   }
 
   /**
@@ -288,7 +287,12 @@ public class DriveTransferLinkService {
             "expiresAt",
             expiresAt.toString()));
     return new DriveUploadLinkResponse(
-        publicUrl(token), "PUT", expiresAt, uploadCapFor(row.name(), null), row.name(), true);
+        publicUrl(token),
+        "PUT",
+        expiresAt,
+        uploadLimits.capFor(row.name(), null),
+        row.name(),
+        true);
   }
 
   /**
@@ -380,7 +384,7 @@ public class DriveTransferLinkService {
                   HttpStatus.UNSUPPORTED_MEDIA_TYPE, r.message());
             });
     String mime = RawUploadContentTypes.bare(contentType);
-    long cap = uploadCapFor(pending.fileName(), mime);
+    long cap = uploadLimits.capFor(pending.fileName(), mime);
     if (contentLength > cap) {
       throw new DriveTransferUploadRejectedException(
           HttpStatus.BAD_REQUEST, "파일이 너무 큽니다 (최대 " + BoundedBody.toMb(cap) + "MB)");
@@ -457,7 +461,7 @@ public class DriveTransferLinkService {
   public BoundedBody.Received receiveBody(
       TransferLinkRow link, InputStream body, String contentType) {
     String mime = RawUploadContentTypes.bare(contentType);
-    long cap = uploadCapFor(link.fileName(), mime);
+    long cap = uploadLimits.capFor(link.fileName(), mime);
     Path temp;
     try {
       temp = Files.createTempFile(tempDir, "drive-transfer-", ".part");
@@ -532,17 +536,6 @@ public class DriveTransferLinkService {
     }
     auditUse(link, saved.id(), saved.name(), saved.sizeBytes(), clientIp, userAgent);
     return saved;
-  }
-
-  /**
-   * 업로드 링크로 받을 최대 바이트 — 이름·MIME 으로 정한 범주 상한(file core 와 같은 규칙)과 멀티파트 상한 중 작은 값.
-   *
-   * @param bareMime 매개변수를 뗀 Content-Type(없으면 null — 확장자로 정한다)
-   */
-  long uploadCapFor(String fileName, String bareMime) {
-    String mime = MimeNormalizer.normalize(fileName, bareMime);
-    return Math.min(
-        FileUploadService.sizeLimitOf(FileUploadService.categoryOf(mime)), multipartMaxBytes);
   }
 
   /**

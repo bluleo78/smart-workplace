@@ -16,8 +16,8 @@ import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { useImportToDrive } from '@/components/viewer/useImportToDrive'
 import { useViewerBundle } from '@/components/viewer/useViewerBundle'
 import {
-  isVirtualAttachmentImportable,
   normalizeAttachmentPreviewKey,
+  virtualAttachmentImportTarget,
   virtualAttachmentItem,
   virtualAttachmentViewerKey,
 } from '@/components/viewer/viewerItems'
@@ -77,7 +77,7 @@ export function DriveAttachmentsView() {
   const query = useDriveAttachments({ source, q })
   // 본문 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다.
+  // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다 — 공간 조회는 저장을 누를 때 한다(WP-1400).
   const importer = useImportToDrive()
 
   // 미리보기 = URL ?preview=file:<fileId>(메일 첨부는 mail:<id>)(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 뷰어가
@@ -224,6 +224,8 @@ export function DriveAttachmentsView() {
                         const id = rowId(a)
                         // 썸네일은 core 파일(fileId 있음)에만 — 메일 첨부는 형식 아이콘으로 대신한다.
                         const { fileId } = a
+                        // 저장 대상 — 업로드 첨부는 core fileId, 메일 첨부는 메일 첨부 id(WP-1400). 둘 다 없는 비정상 행만 null.
+                        const importTarget = virtualAttachmentImportTarget(a)
                         return (
                           <li
                             key={rowKey(a)}
@@ -272,24 +274,23 @@ export function DriveAttachmentsView() {
                               다운로드
                             </Button>
 
-                            {/* 내 드라이브에 저장(import) — 가져올 수 있는 첨부에만. 메일 첨부(fileId 없음)는 file 행이 없어 가져오지 못해 숨긴다(WP-1392).
+                            {/* 내 드라이브에 저장 — 업로드 첨부는 가져오기, 메일 첨부는 메일 첨부 저장(WP-1400)으로 같은 폴더 선택 흐름을 탄다.
                                 다운로드(로컬)와 구분되는 라벨. */}
-                            {isVirtualAttachmentImportable(a) && (
+                            {importTarget != null && (
                               <Button
                                 variant="outline"
                                 size="xs"
                                 data-testid={`drive-attachment-save-${id}`}
-                                disabled={!importer.ready}
-                                title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
-                                onClick={() => importer.begin(a.fileId)}
+                                disabled={importer.busy}
+                                onClick={() => importer.begin(importTarget)}
                                 className="shrink-0"
                               >
                                 내 드라이브에 저장
                               </Button>
                             )}
-                            {/* 저장할 수 없는 행(메일)도 같은 폭의 빈 자리를 둬 크기·다운로드 열이 다른 행과 줄 맞게 한다 —
+                            {/* 저장 대상이 없는 행(id 가 빠진 메일 행 등)도 같은 폭의 빈 자리를 둬 크기·다운로드 열이 다른 행과 줄 맞게 한다 —
                                 보이지 않고(invisible) 보조 기술·Tab 에서도 빠진다(WP-1392 라이브 확인에서 크기 열이 오른쪽으로 밀림). */}
-                            {!isVirtualAttachmentImportable(a) && (
+                            {importTarget == null && (
                               <Button
                                 variant="outline"
                                 size="xs"

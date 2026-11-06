@@ -60,7 +60,8 @@ public class MailAttachmentSourceProvider implements AttachmentSourceProvider {
   private static final Field<String> DISPLAY_NAME =
       DSL.coalesce(
           DSL.nullif(CONTENT_ATTACHMENT.FILENAME, ""),
-          DSL.inline("attachment-").concat(EMAIL_ATTACHMENT.ID.cast(SQLDataType.VARCHAR)));
+          DSL.inline(MailAttachmentResolver.UNNAMED_PREFIX)
+              .concat(EMAIL_ATTACHMENT.ID.cast(SQLDataType.VARCHAR)));
 
   /** 첫 회에 읽는 후보 행 수의 하한 — 인라인 이미지를 걸러 내고도 한 페이지를 채우려고 조금 넉넉히 읽는다. */
   private static final int MIN_BATCH = 20;

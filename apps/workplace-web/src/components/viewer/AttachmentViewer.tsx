@@ -272,11 +272,13 @@ export function AttachmentViewer({
   const sheetOpen = mobile && panelAvailable && sheetPref
   const [sheetEl, setSheetEl] = useState<HTMLElement | null>(null)
   const sheetFocus = useRef<'open' | 'close' | null>(null)
-  // ☁ 가져오기 — 업로드 첨부(importFileId)에서만 공간 조회를 켠다.
-  const importer = useImportToDrive(item.importFileId != null)
-  const canImport = item.importFileId != null && importer.ready
+  // ☁ 가져오기 — 가져올 대상(업로드 첨부·메일 첨부, importTarget)이 있는 항목에서만 보인다. 공간 조회는 누를 때 한다(WP-1400) —
+  // 미리보기를 열기만 해서는 드라이브 요청·실패 토스트가 생기지 않는다. 누른 뒤 조회 중(busy)에만 잠시 막는다.
+  const importTarget = item.importTarget
+  const importer = useImportToDrive()
+  const canImport = importTarget != null && !importer.busy
   const startImport = () => {
-    if (item.importFileId != null) importer.begin(item.importFileId)
+    if (importTarget != null) importer.begin(importTarget)
   }
   // 현재 항목 blob — ViewerBody 가 보고하고, 다른 항목으로 넘기면 자동으로 무시된다(zoom 과 같은 useItemState).
   const [cur, setSource] = useItemState<{ blob: Blob | null; fetches: boolean; unplayable?: boolean } | null>(itemKey, null)
@@ -312,7 +314,7 @@ export function AttachmentViewer({
     actionSlots({
       unavailable: !!item.unavailable,
       share: shareState,
-      importable: item.importFileId == null ? 'none' : canImport ? 'ready' : 'disabled',
+      importable: importTarget == null ? 'none' : canImport ? 'ready' : 'disabled',
       summary: panelAvailable,
     })
   /**
@@ -601,13 +603,12 @@ export function AttachmentViewer({
                   </Tooltip>
                 </TooltipProvider>
               )}
-              {item.importFileId != null && (
+              {importTarget != null && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="pointer-coarse:size-11"
                   aria-label="드라이브로 가져오기"
-                  title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
                   disabled={!canImport}
                   onClick={startImport}
                 >

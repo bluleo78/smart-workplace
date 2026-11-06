@@ -518,6 +518,11 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/import-attachment', { fileId: 900 });
     await client.importAttachmentToDrive(2, 4, 900);
     expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/folders/4/import-attachment', { fileId: 900 });
+    // WP-1400: 메일 첨부 저장은 메일 경로 + 본문 { spaceId, folderId }(루트는 null 그대로).
+    await client.saveMailAttachmentToDrive(31, 2, null);
+    expect(http.post).toHaveBeenLastCalledWith('/mail/attachments/31/save-to-drive', { spaceId: 2, folderId: null });
+    await client.saveMailAttachmentToDrive(31, 2, 4);
+    expect(http.post).toHaveBeenLastCalledWith('/mail/attachments/31/save-to-drive', { spaceId: 2, folderId: 4 });
   });
 
   // WP-369: 전송 링크·텍스트로 만들기 — 모두 JSON 본문이고 폴더 null 은 루트로 그대로 보낸다(서버 계약 task-1b 보고서 §1~3).

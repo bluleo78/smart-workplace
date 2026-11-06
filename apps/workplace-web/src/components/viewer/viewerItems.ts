@@ -9,7 +9,7 @@ import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import type { HomeUploadedFile } from '../../types/home'
 import type { EmailAttachmentMeta } from '../../types/mailMessage'
 import type { MessageAttachment } from '../../types/messaging'
-import type { ViewerItem } from './types'
+import type { DriveImportTarget, ViewerItem } from './types'
 
 /** 묶음 키 — 드라이브 파일·링크는 `drive:{driveFileId}`, 그 외 첨부는 `file:{fileId}`(URL ?preview 값). */
 export const driveViewerKey = (driveFileId: number) => `drive:${driveFileId}`
@@ -74,7 +74,8 @@ export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `att
 
 /**
  * 메일 첨부 — 소유자 전용 콘텐츠 경로로 받고 내려받기도 같은 경로다(변환 대상이어도 원본을 내려받는다).
- * ✨(요약)·☁(메일 첨부 가져오기 API 없음)·원본 이동(이미 메일 안)은 두지 않는다.
+ * ☁ 드라이브로 가져오기는 메일 첨부 저장 API 로 한다(WP-1400 — file 행이 없어 메일 서버에서 받아 새 드라이브 파일로 만든다).
+ * ✨(요약)·원본 이동(이미 메일 안)은 두지 않는다.
  * 이름이 없으면 예전 다운로드 버튼과 같은 `attachment-{id}` 로 저장되게 한다.
  * 한글·오피스(변환 대상) 형식이면 서버 변환 PDF 경로(previewPath)를 단다(WP-432).
  * 드라이브와 달리 변환 대상일 때만 두는 이유: 그 밖의 첨부 객체를 지금과 똑같이 유지하려고.
@@ -90,6 +91,7 @@ export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
     contentPath: path,
     downloadPath: path,
     ...(CONVERTIBLE_MIMES.has(mimeType) ? { previewPath: `/mail/attachments/${a.id}/preview` } : {}),
+    importTarget: { kind: 'mail', mailAttachmentId: a.id },
     aiRefs: { source: 'mail', attachmentId: a.id },
   })
 }
@@ -124,11 +126,15 @@ export function driveFileItem(f: DriveFile): ViewerItem {
 }
 
 /**
- * 가상 첨부를 드라이브로 가져올 수 있는가 — core fileId(file 행)가 있어야 가져온다. 메일 첨부는 file 행이 없어 fileId 가 null 이라
- * 못 가져온다(WP-1392). 예전 서버 응답(롤링 배포 중)도 fileId 로만 판단한다.
+ * 가상 첨부를 드라이브로 가져올 대상(WP-1400) — 없으면 null(가져올 수 없음).
+ * 메일 첨부(MAIL)는 file 행이 없어 fileId 가 null 이므로 메일 첨부 id 로 메일 첨부 저장 API 를 쓴다.
+ * 그 밖은 core fileId(file 행)가 있어야 가져온다 — 예전 서버 응답(롤링 배포 중)도 fileId 로만 판단한다.
+ * 키 규칙(virtualAttachmentViewerKey)과 같은 순서로 판정해 뷰어 항목과 목록 행이 같은 대상을 쓴다.
  */
-export function isVirtualAttachmentImportable(a: VirtualAttachment): a is VirtualAttachment & { fileId: number } {
-  return a.fileId != null
+export function virtualAttachmentImportTarget(a: VirtualAttachment): DriveImportTarget | null {
+  if (a.sourceType === 'MAIL' && a.mailAttachmentId != null) return { kind: 'mail', mailAttachmentId: a.mailAttachmentId }
+  if (a.fileId != null) return { kind: 'file', fileId: a.fileId }
+  return null
 }
 
 /**
@@ -146,13 +152,16 @@ export function virtualAttachmentViewerKey(a: VirtualAttachment): string {
 /**
  * 첨부 모아보기의 가상 첨부 — 서버가 준 downloadUrl 로 받고, 원본(이슈·메시지·노트·메일)으로 이동할 수 있다.
  * 메일 첨부(MAIL)는 file 행이 없어 메일 화면과 같은 항목(mailAttachmentItem, 키 `mail:{id}`)을 쓴다 — 키가 `file:{id}` 와
- * 네임스페이스가 달라 메일 첨부 id 가 다른 출처의 fileId 와 같아도 섞이지 않는다(WP-1392). 가져오기(☁)는 fileId 가 있을 때만.
+ * 네임스페이스가 달라 메일 첨부 id 가 다른 출처의 fileId 와 같아도 섞이지 않는다(WP-1392). 가져오기(☁)는 메일 첨부면 메일 첨부 저장,
+ * 그 밖은 fileId 가 있을 때만(virtualAttachmentImportTarget).
  */
 export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
   if (a.sourceType === 'MAIL' && a.mailAttachmentId != null) {
     const mail = mailAttachmentItem({ id: a.mailAttachmentId, filename: a.name, contentType: a.mimeType, sizeBytes: a.sizeBytes, contentId: null })
     return { ...mail, sourceLink: a.deepLink }
   }
+  // 메일이 아닌 행은 fileId 가 있을 때만 가져오기(file 대상) — 판정은 목록 행의 저장 버튼과 같은 함수다.
+  const importTarget = virtualAttachmentImportTarget(a)
   return withSecurityCheck({
     // 키는 목록 탐색(virtualAttachmentViewerKey)과 같은 규칙 — id 가 빠진 비정상 행도 `file:null` 로 한 키에 몰리지 않는다.
     key: virtualAttachmentViewerKey(a),
@@ -161,7 +170,7 @@ export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
     sizeBytes: a.sizeBytes,
     contentPath: a.downloadUrl,
     downloadPath: a.downloadUrl,
-    ...(isVirtualAttachmentImportable(a) ? { importFileId: a.fileId } : {}),
+    ...(importTarget ? { importTarget } : {}),
     sourceLink: a.deepLink,
   })
 }
@@ -176,7 +185,7 @@ export function issueAttachmentItem(projectKey: string, number: number, a: Issue
     sizeBytes: a.sizeBytes,
     contentPath: path,
     downloadPath: path,
-    importFileId: a.fileId,
+    importTarget: { kind: 'file', fileId: a.fileId },
     // read_file 의 이슈 첨부 attachmentId 는 core fileId 다(get_issue_detail attachments[].attachmentId 와 같은 값).
     aiRefs: { source: 'issue', issueKey: formatIssueKey(projectKey, number), attachmentId: a.fileId },
   })
@@ -237,7 +246,7 @@ function chatUploadItem(
     sizeBytes: a.sizeBytes,
     contentPath: path,
     downloadPath: path,
-    ...(importable ? { importFileId: a.fileId } : {}),
+    ...(importable ? { importTarget: { kind: 'file', fileId: a.fileId } } : {}),
     aiRefs,
   })
 }

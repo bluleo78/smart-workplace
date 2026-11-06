@@ -1,6 +1,7 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
 import type { AxiosProgressEvent } from 'axios';
 
+import type { DriveFile } from '../types/drive';
 import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder } from '../types/mailFolder';
 import type {
   CalendarInvite,
@@ -372,4 +373,18 @@ export async function fetchMailAttachmentDataUri(
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(new Blob([blob], { type: contentType }));
   });
+}
+
+/**
+ * 메일 첨부를 드라이브에 저장(WP-1400) — 메일 서버에서 받아 지정한 공간(folderId 가 null 이면 루트)에 새 드라이브 파일로 만든다.
+ * 메일 첨부는 file 행이 없어 import-attachment(core fileId) 를 쓸 수 없어 메일 쪽 엔드포인트가 따로 있다.
+ * 같은 이름 파일이 그 폴더에 있으면 덮지 않고 409 — 가져오기(importAttachment)와 같다.
+ */
+export async function saveMailAttachmentToDrive(
+  attachmentId: number,
+  spaceId: number,
+  folderId: number | null,
+): Promise<DriveFile> {
+  const { data } = await client.post<DriveFile>(`/mail/attachments/${attachmentId}/save-to-drive`, { spaceId, folderId });
+  return data;
 }
