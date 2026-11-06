@@ -11,6 +11,7 @@ import {
   parseId,
   planClose,
   planOpen,
+  planUnmarkedEntry,
   readHistoryParam,
   type RouterState,
   stripHistoryKey,
@@ -238,5 +239,48 @@ describe('hasOpenMark', () => {
   it('콜드 딥링크(state 없음)·다른 키 마크는 false', () => {
     expect(hasOpenMark(null, 'messageId')).toBe(false)
     expect(hasOpenMark({ [markKey('contact')]: 1 }, 'messageId')).toBe(false)
+  })
+})
+
+describe('planUnmarkedEntry', () => {
+  it('마크 없는 ?chat=1 은 chat 을 뺀 replace(다른 쿼리·state 보존) + 마크를 단 push 로 편다(WP-1414)', () => {
+    const h = fakeHistory([{ search: '?tab=inbox' }, { search: '?view=list&chat=1', state: { from: 'inbox' } }])
+    const plan = planUnmarkedEntry(h.snap(), 'chat')
+    expect(plan).toEqual([
+      { kind: 'replace', search: '?view=list', state: { from: 'inbox' } },
+      { kind: 'push', search: '?view=list&chat=1', state: { from: 'inbox', [markKey('chat')]: 2 } },
+    ])
+    for (const step of plan!) h.apply(step)
+    // 출발 화면 → 이슈 → 이슈+채팅(마크): 닫기는 이슈로(-1), 한 번 더 뒤로 가면 출발 화면.
+    expect(h.length()).toBe(3)
+    expect(planClose(h.snap(), 'chat')).toEqual({ kind: 'go', delta: -1 })
+    h.apply(planClose(h.snap(), 'chat'))
+    expect(h.snap().search).toBe('?view=list')
+    // 펴고 난 항목은 마크가 있어 다시 계획하지 않는다(StrictMode·다시 그리기에도 한 번만).
+    h.forward()
+    expect(planUnmarkedEntry(h.snap(), 'chat')).toBeNull()
+  })
+
+  it('새 탭(idx 0)도 같은 모양 — 마크는 1', () => {
+    const plan = planUnmarkedEntry({ search: '?chat=1', state: null, idx: 0 }, 'chat')
+    expect(plan).toEqual([
+      { kind: 'replace', search: '', state: null },
+      { kind: 'push', search: '?chat=1', state: { [markKey('chat')]: 1 } },
+    ])
+  })
+
+  it('이미 마크가 있으면(앱 안에서 연 항목·새로고침) null', () => {
+    expect(planUnmarkedEntry({ search: '?chat=1', state: { [markKey('chat')]: 3 }, idx: 3 }, 'chat')).toBeNull()
+  })
+
+  it('chat 이 없으면 null', () => {
+    expect(planUnmarkedEntry({ search: '?view=list', state: null, idx: 2 }, 'chat')).toBeNull()
+  })
+
+  it('지금 값을 그대로 다시 연다 — push 는 같은 값·마크', () => {
+    expect(planUnmarkedEntry({ search: '?chat=0', state: null, idx: 2 }, 'chat')).toEqual([
+      { kind: 'replace', search: '', state: null },
+      { kind: 'push', search: '?chat=0', state: { [markKey('chat')]: 3 } },
+    ])
   })
 })

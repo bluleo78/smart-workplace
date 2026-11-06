@@ -14,7 +14,9 @@ import {
   createChatMessagePage,
   createChatThread,
 } from '../../factories/chat.factory';
-import { createIssue, createIssueDetail } from '../../factories/issue.factory';
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
+import { agentWorker, createAgentWork, createAiTaskCounts } from '../../factories/agentWork.factory';
+import { mockApi } from '../../fixtures/api-mock';
 import { createProject } from '../../factories/project.factory';
 import { hydrateMentions } from '../../../src/lib/chat-mentions';
 import { formatChatTimestamp } from '../../../src/pages/projects/components/chat/formatChatTimestamp';
@@ -1172,6 +1174,48 @@ test.describe('이슈 chat panel', () => {
       .toEqual([expect.stringContaining('\n')]);
   });
 });
+
+// WP-1414: 「내 AI 작업」·알림·홈 위젯의 채팅 링크(`?chat=1`)로 들어와 서랍을 닫으면 이슈 상세가 남고,
+// 브라우저 뒤로 가기를 한 번 더 해야 출발 화면으로 간다(예전엔 닫는 순간 출발 화면으로 돌아갔다).
+// 실제 브라우저의 세션 히스토리(replace → push 두 항목)와 뒤로 가기를 함께 본다.
+test(
+  '채팅 링크로 들어와 서랍을 닫으면 이슈 상세 → 뒤로 가면 출발 화면 (WP-1414)',
+  { tag: '@flow' },
+  async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '딥링크 채팅' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    await setupChatStubs(page, freshStubs());
+    // 출발 화면 — 「내 AI 작업」의 답변 필요 칩이 `/projects/WP/issues/1?chat=1` 링크다.
+    const row = createIssue({
+      id: 1,
+      number: ISSUE_NUMBER,
+      title: '딥링크 채팅',
+      status: 'IN_PROGRESS',
+      assignees: [agentWorker],
+      agentWork: [createAgentWork({ worker: agentWorker, state: 'INPUT_REQUIRED', note: '어느 쪽으로 할까요?' })],
+    });
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse([row]));
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 1, inputRequired: 1 }));
+
+    await page.goto('/me/ai-tasks');
+    await page.getByTestId(`ai-row-${ISSUE_NUMBER}-state`).click();
+    await expect(page.getByTestId('issue-chat-drawer')).toBeVisible();
+    await expect(page).toHaveURL(/\/projects\/WP\/issues\/1\?chat=1$/);
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/projects\/WP\/issues\/1$/);
+    await expect(page.getByTestId('issue-title-heading')).toContainText('딥링크 채팅');
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/me\/ai-tasks$/);
+    await expect(page.getByTestId(`ai-row-${ISSUE_NUMBER}`)).toBeVisible();
+  },
+);
 
 // WP-833: 한국 밖 시간대 브라우저에서 날짜 구분선(KST)과 메시지 시각(브라우저 로컬)이 서로 다른 날을 가리켰다 — 시각도 KST 로 맞춘다.
 test.describe('이슈 chat panel — 한국 밖 시간대 브라우저', { tag: '@platform' }, () => {

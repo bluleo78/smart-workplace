@@ -6,30 +6,34 @@
 //   출발 화면으로 되돌아가(-1) 모달까지 닫지 않고 주소에서 chat 만 지운다(task·필터·router state 보존). 채팅 버튼으로 연 서랍은 그대로 연 시점 직전으로.
 // - clearWhen — 작업 조회 실패(404 등)처럼 서랍을 열 대상이 없을 때 chat 을 지운다. 남겨 두면 같은 화면에서 다음에 여는 작업
 //   (task 만 바꾸고 다른 쿼리는 둔다)에 chat=1 이 묻어가 엉뚱하게 서랍이 열린다.
-// 닫기 중복 방지(‹ 연타·ESC+onOpenChange)와 낡은 콜백 무시는 공용 훅이 맡는다.
+// 팀 이슈 상세(WP-1414)는 unmarkedEntry='expand' 를 공용 훅에 그대로 넘긴다 — 링크·알림·주소로 서랍이 열린 채 들어오면(마크 없음)
+//   「이슈(chat 없음) → 이슈+채팅(마크)」 두 항목으로 펴서, 서랍을 닫으면 알림 전 화면이 아니라 이슈 상세로 돌아가게 한다.
+// 닫기 중복 방지(‹ 연타·ESC+onOpenChange)·낡은 콜백 무시·마크 없는 진입 펴기는 공용 훅이 맡는다.
 import { useCallback, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { useHistoryParam } from '@/hooks/useHistoryParam'
-import type { HistoryParamOptions } from '@/lib/historyParam'
+import { useHistoryParam, type UseHistoryParamOptions } from '@/hooks/useHistoryParam'
 import { ISSUE_CHAT_OPEN, ISSUE_CHAT_PARAM, removeIssueChatParam } from '@/lib/issueChatParam'
 
-interface Options {
-  /** 마크 없는 닫기 규칙 — 'replace' 면 -1 대신 chat 만 지운다(개인 작업 모달 위 서랍). 기본은 공용 훅 규칙. */
-  unmarkedClose?: HistoryParamOptions['unmarkedClose']
+/**
+ * 공용 훅 옵션 중 이 래퍼가 그대로 넘기는 것 — unmarkedClose('replace' 면 -1 대신 chat 만 지움, 개인 작업 모달 위 서랍)·
+ * unmarkedEntry(마크 없는 진입 펴기, 팀 이슈 상세만, WP-1414)·unmarkedEntryReady(개인 프로젝트 리다이렉트·로딩 중엔 거짓).
+ */
+interface Options extends Pick<UseHistoryParamOptions, 'unmarkedClose' | 'unmarkedEntry' | 'unmarkedEntryReady'> {
   /** 참이면 열린 chat 을 주소에서 지운다(서랍을 열 대상이 없음). */
   clearWhen?: boolean
 }
 
-export function useIssueChatDrawerParam({ unmarkedClose, clearWhen = false }: Options = {}): {
+export function useIssueChatDrawerParam({ clearWhen = false, ...historyOpts }: Options = {}): {
   open: boolean
   openChat: () => void
   closeChat: () => void
 } {
-  // unmarkedClose 는 원시값이라 렌더마다 새 옵션 객체여도 공용 훅의 콜백이 다시 만들어지지 않는다.
-  const { value, open: openParam, close } = useHistoryParam(ISSUE_CHAT_PARAM, { unmarkedClose })
+  // 넘기는 옵션이 모두 원시값이라 렌더마다 새 옵션 객체여도 공용 훅의 콜백이 다시 만들어지지 않는다.
+  const { value, open: openParam, close } = useHistoryParam(ISSUE_CHAT_PARAM, historyOpts)
   const location = useLocation()
   const navigate = useNavigate()
+  // 펴기를 기다리는 동안 공용 훅은 value 를 null 로 준다 — 그동안 서랍은 닫힌 것으로 그린다.
   const open = value === ISSUE_CHAT_OPEN
   const openChat = useCallback(() => openParam(ISSUE_CHAT_OPEN), [openParam])
 
