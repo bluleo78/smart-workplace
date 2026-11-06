@@ -10,7 +10,9 @@ export interface RunnerUsage {
 
 export type RunnerEvent =
   | { type: 'text_delta'; text: string; parentToolUseId: string | null } // 스트리밍 텍스트(라우터 vs 서브에이전트 구분용 parent)
-  | { type: 'assistant_text'; text: string } // assistant 메시지의 완성 text 블록(collect 폴백)
+  // assistant 메시지의 완성 text 블록(collect 폴백). WP-1408: 서브에이전트 블록이면 parentToolUseId 를 싣는다(라우터 블록은 지금처럼 없음 —
+  // 이 이벤트를 toEqual 로 비교하는 기존 호출자·테스트를 그대로 두려고 선택 필드로 한다).
+  | { type: 'assistant_text'; text: string; parentToolUseId?: string }
   | { type: 'tool_use'; name: string; input: unknown; parentToolUseId: string | null } // 도구 호출 등장(위젯·위임 감지)
   | { type: 'tool_done' } // 도구 완료 근사(진행표시)
   // WP-1407: 모델 호출 한 단계가 끝남(회차 실행 기록용). opencode 는 assistant 메시지의 생성·완료 시각과 토큰을 싣고,
@@ -93,7 +95,7 @@ export function mapSdkMessage(o: unknown, seenModelMessageIds: Set<string>): Run
       if (raw.type === 'tool_use' && typeof raw.name === 'string') {
         events.push({ type: 'tool_use', name: raw.name, input: raw.input, parentToolUseId });
       } else if (raw.type === 'text' && typeof raw.text === 'string' && raw.text.trim()) {
-        events.push({ type: 'assistant_text', text: raw.text.trim() });
+        events.push({ type: 'assistant_text', text: raw.text.trim(), ...(parentToolUseId != null ? { parentToolUseId } : {}) });
       }
     }
     return events;
@@ -127,6 +129,41 @@ export function finalText(events: RunnerEvent[]): string {
     .filter((e): e is Extract<RunnerEvent, { type: 'assistant_text' }> => e.type === 'assistant_text')
     .map((e) => e.text);
   return textParts.join('\n').trim();
+}
+
+// WP-1408: 반복 결과 글로 쓸 답 — 도구 사이 중간 말(「먼저 필요한 정보를 조회합니다」)과 빈 줄이 섞이지 않게 마지막 도구 호출 뒤의 텍스트(마지막
+// 조각)만 돌려준다. opencode 는 result.text 가 실행 전체 텍스트를 이어 붙인 것(fullText — 조각 사이 구분 없이 붙어 문장이 달라붙는다)이고 Claude 는
+// 마지막 assistant 메시지라 둘이 달라서, result.text 가 아니라 이벤트 열에서 직접 자른다.
+// - 조각 경계: tool_use·tool_done. opencode 는 도구를 부른 단계의 text 가 도구 시작 뒤에 채워지기도 해서 도구 완료까지를 그 단계로 본다
+//   (opencode-runner 의 진행 서술 걸러내기가 recurring 프로필에서도 같은 경우를 막는다 — 이 함수는 그보다 먼저 나온 서술까지 덜어 낸다).
+// - 조각 안: 부분 메시지(text_delta)가 있으면 그것만 이어 붙이고(같은 답이 완성 블록으로 또 오면 겹친다), 없으면 완성 블록(assistant_text)을
+//   줄바꿈으로 잇는다(블록끼리 붙지 않게). 서브에이전트(parentToolUseId 값) 텍스트는 답이 아니다.
+// - 마지막 조각이 비면(모델이 도구 호출로 끝남) 그 앞의 비지 않은 조각을 쓴다 — 여러 조각을 붙이지 않는다. 조각이 모두 비면 finalText(result.text)
+//   로 돌아가 빈 결과를 내지 않는다(그것마저 비면 호출부가 「결과를 만들지 못했다」로 보고한다).
+export function lastAnswerText(events: RunnerEvent[]): string {
+  const segments: RunnerEvent[][] = [[]];
+  for (const e of events) {
+    if (e.type === 'tool_use' || e.type === 'tool_done') segments.push([]);
+    else segments[segments.length - 1].push(e);
+  }
+  for (let k = segments.length - 1; k >= 0; k--) {
+    const text = segmentText(segments[k]);
+    if (text) return text;
+  }
+  return finalText(events);
+}
+
+// 한 조각(도구 사이)의 라우터 텍스트 — text_delta 우선, 없으면 assistant_text 를 줄바꿈으로. 서브에이전트 텍스트는 뺀다.
+function segmentText(seg: RunnerEvent[]): string {
+  const deltas = seg.filter(
+    (e): e is Extract<RunnerEvent, { type: 'text_delta' }> => e.type === 'text_delta' && e.parentToolUseId == null,
+  );
+  if (deltas.length) return deltas.map((e) => e.text).join('').trim();
+  return seg
+    .filter((e): e is Extract<RunnerEvent, { type: 'assistant_text' }> => e.type === 'assistant_text' && e.parentToolUseId == null)
+    .map((e) => e.text)
+    .join('\n')
+    .trim();
 }
 
 // result 이벤트의 usage 를 반환(없으면 null).

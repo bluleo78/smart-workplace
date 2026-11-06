@@ -295,6 +295,23 @@ describe('OpencodeRunner.stream', () => {
       },
     );
 
+    // WP-1408: 반복 회차·테스트 실행 결과 글에도 도구 단계의 진행 서술이 섞였다 — 같은 걸러내기를 켠다.
+    it.each(['recurring', 'recurring-test'] as const)('%s 프로필도 도구 단계의 이후 text 를 걸러낸다', async (profile) => {
+      const events = await run(
+        baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile, onBehalfOfId: 1 } }),
+        [
+          asstMsg('m1'),
+          text('p1', 'm1', ''),
+          tool('t1', 'm1', 'workplace_update_issue'),
+          text('p1', 'm1', '사이클에 넣겠습니다.'),
+          asstMsg('m2'),
+          text('p2', 'm2', '사이클에 넣었습니다.'),
+        ],
+      );
+      expect(textOf(events)).toBe('사이클에 넣었습니다.');
+      expect(events.at(-1)).toMatchObject({ type: 'result', text: '사이클에 넣었습니다.' });
+    });
+
     it('assistant 가 아닌 프로필은 걸러내지 않는다', async () => {
       const events = await run(
         baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 1 } }),

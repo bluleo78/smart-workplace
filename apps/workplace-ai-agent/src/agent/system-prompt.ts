@@ -56,6 +56,10 @@ export const RECURRING_QUESTION_MARKER = '[확인 필요]';
 // 참고용 「제안」 절은 질문이 아니다 — 답을 기다리지 않는다.
 export const RECURRING_DECISION_HEADING = '정해 주세요';
 
+// WP-1408: 응답에 중국어·러시아어 낱말이 섞였다 — 반복 회차·테스트 실행·이어 처리 지시문(user-message)과 이슈 챗 시스템 프롬프트(chat-system-prompt)가
+// 같은 문구를 쓰도록 한 곳에 둔다(목록 줄 앞의 「- 」는 쓰는 쪽이 붙인다).
+export const KOREAN_ONLY_RULE = '한국어로만 씁니다(한자·다른 언어 낱말 금지 — 코드·식별자·고유명사는 제외).';
+
 export const RECURRING_RUN_SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 입니다. 사용자가 이슈에 걸어 둔 반복 작업(실행 일정)을 정해진 시각마다 실행합니다. 한국어로 응답합니다.
 
 ## 역할

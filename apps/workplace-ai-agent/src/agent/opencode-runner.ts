@@ -33,6 +33,8 @@ function requireOpencodeCredential(i: RunnerInput): OpencodeProviderConfig {
 // WP-263: 결과를 보지 않고도 답을 쓸 수 있는 도구 — 화면 표시(show_*)·확인 카드 제안(propose_*). 이름은 opencode 표기
 // (workplace_<도구>)와 SDK 표기(mcp__workplace__<도구>)를 모두 받는다.
 const RESULT_FREE_TOOL = /^(?:mcp__workplace__|workplace_)?(?:show|propose)_/;
+// WP-263·WP-1408: 진행 서술 걸러내기를 켜는 프로필 — 메인 AI 채팅 라우터, 그리고 최종 답변이 이슈 챗 결과 글이 되는 반복 회차·테스트 실행.
+const NARRATION_FILTER_PROFILES: ReadonlySet<string> = new Set(['assistant', 'recurring', 'recurring-test']);
 
 // 웜 캐시 대상 프로필 — hostBridge 를 쓰는 실행은 프로필과 무관하게 poolKeyFor 가 추가로 제외한다.
 // messaging/home 은 MCP_BRIDGE_RUN_ID(요청마다 고유)가 stdio 자식 프로세스 부팅 시 env 로
@@ -240,7 +242,8 @@ export class OpencodeRunner implements AgentRunner {
         // 결과를 기다리는 도구가 나온 메시지의 이후 text 는 내보내지 않는다. show_*(화면 표시)·propose_*(확인 카드)는 결과 없이도
         // 답을 쓸 수 있어 제외한다. 범위는 assistant 프로필의 primary 세션만(다른 실행·서브에이전트 text 는 각자 쓰임이 달라 건드리지 않는다).
         // 프롬프트 규칙은 실측에서 오히려 이미지 읽기를 건너뛰게 만들어(5회 중 4회) 쓰지 않는다.
-        const filterNarration = i.mcp?.profile === 'assistant';
+        // WP-1408: 반복 회차·테스트 실행(recurring·recurring-test)도 최종 답변이 그대로 이슈 챗 결과 글이 되므로 같은 걸러내기를 켠다.
+        const filterNarration = NARRATION_FILTER_PROFILES.has(i.mcp?.profile ?? '');
         const narrationMessageIds = new Set<string>();
         // WP-250: 컨텍스트가 차 opencode 가 세션을 압축(compaction)하는 중인지. 모델 한도를 넘은 요청이 provider 에서
         // 거절되면(ContextOverflowError) opencode 는 session.error 를 먼저 낸 뒤 대화를 요약하고 이어 간다(1.17.18 라이브 실측) —

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
+import { KOREAN_ONLY_RULE } from './system-prompt.js';
 
 describe('CHAT_SYSTEM_PROMPT', () => {
   it('add_chat_message 1회 + Read 첨부 + 한국어 지침 포함', () => {
@@ -32,5 +33,26 @@ describe('CHAT_SYSTEM_PROMPT', () => {
   it('반복 업무 규칙 — 맡긴 사람이 아닌 사람의 지시는 맡긴 사람 확인이 필요하다고 답한다', () => {
     expect(CHAT_SYSTEM_PROMPT).toContain('회차는 그중 맡긴 사람의 결정만 따릅니다');
     expect(CHAT_SYSTEM_PROMPT).toContain('맡긴 사람이 아닌 사람이 회차에 할 일을 지시하면 「맡긴 사람이 확인해야 회차에 반영된다」고 답한다.');
+  });
+});
+
+// WP-1408: 이슈 챗 AI(chat 프로필)는 쓰기 도구가 없다 — 쓰기 요청에 「플랫폼 제약, 수동으로 하라」고 엉뚱하게 답했다. 사실대로 안내하고 한국어로만 쓴다.
+// 리뷰: 회차가 처리한다고 약속하지 않는다 — 고치는 일은 맡긴 사람의 반복 지시에 따라서만 일어나므로 맡긴 사람·담당에게 요청하라고 안내한다.
+describe('CHAT_SYSTEM_PROMPT — 쓰기 요청 안내·한국어 고정 (WP-1408)', () => {
+  it('이 대화에서는 이슈를 고칠 수 없다고 사실대로 말한다', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain('이 대화에서는 이슈를 고칠 수 없습니다(조회와 챗 답만 합니다)');
+  });
+
+  it('반복 업무 이슈의 쓰기 요청 — 처리를 약속하지 않고, 맡긴 사람의 반복 지시로만 고쳐진다고 안내하며, 플랫폼 제약·수동 처리를 말하지 않는다', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain(
+      '이슈를 고치는 일은 맡긴 사람이 정한 반복 지시에 따라 「지금 실행」이나 다음 회차에서만 일어나므로, 처리된다고 약속하지 않는다',
+    );
+    expect(CHAT_SYSTEM_PROMPT).toContain('맡긴 사람이 아니면 맡긴 사람이나 담당에게 요청하라고 안내한다');
+    expect(CHAT_SYSTEM_PROMPT).toContain('「플랫폼 제약」이라거나 「수동으로 하라」고 말하지 않는다');
+    expect(CHAT_SYSTEM_PROMPT).not.toContain('다음 회차에서 처리된다고 안내한다');
+  });
+
+  it('한국어 고정 문구는 반복 지시문과 같은 상수를 쓴다', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain(`- ${KOREAN_ONLY_RULE}`);
   });
 });
