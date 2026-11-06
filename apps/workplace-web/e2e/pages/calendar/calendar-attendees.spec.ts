@@ -326,3 +326,31 @@ for (const viewport of [
     expect(section.height).toBeLessThan(300)
   })
 }
+
+// 참석자 고르기 창을 연 채(고르고 나서도 열려 있다) 「저장」을 누르면 첫 클릭이 창 닫기로만 쓰여 한 번 더 눌러야 했다(WP-1380) —
+// 모달 팝오버가 바깥 포인터 이벤트를 막았기 때문. 겹친 레이어의 포인터 통과는 jsdom 이 재현하지 못해 실제 브라우저로 본다.
+test('참석자 고르기 창이 열린 채 「저장」을 한 번만 눌러도 저장 요청이 나가고 창이 닫힌다(WP-1380)', { tag: '@wiring' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const store: CalendarEvent[] = []
+  await stubCalendar(page, store, makeDetailEvent())
+  const people: MemberSummary[] = [
+    { userId: 2, username: 'user2', name: '홍길동', email: 'user2@t.local', title: null, kind: 'HUMAN', active: true, membershipRole: null, membershipStatus: null },
+  ]
+  await mockApi(page, 'GET', '/api/v1/members', { content: people, page: 0, size: 20, totalElements: 1, totalPages: 1 })
+  await mockApi(page, 'GET', '/api/v1/user-groups', tree({ shared: [], personal: [] }))
+
+  await page.goto('/calendar?new=true')
+  await page.getByTestId('calendar-form-title').fill('저장 한 번 테스트')
+  await page.getByTestId('attendee-add-btn').click()
+  await page.getByTestId('attendee-picker-person-2').click()
+  // 고른 뒤에도 고르기 창은 열려 있다(연속 추가)
+  await expect(page.getByTestId('attendee-picker-search')).toBeVisible()
+  await expect(page.getByTestId('attendee-selected-2')).toBeVisible()
+
+  const post = page.waitForRequest((req) => req.method() === 'POST' && new URL(req.url()).pathname === '/api/v1/calendar/events')
+  await page.getByTestId('calendar-form-submit').click()
+  expect((await post).postDataJSON()).toMatchObject({ title: '저장 한 번 테스트', attendeeUserIds: [2] })
+  await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+})
