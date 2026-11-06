@@ -295,21 +295,14 @@ describe('OpencodeRunner.stream', () => {
       },
     );
 
-    // WP-1408: 반복 회차·테스트 실행 결과 글에도 도구 단계의 진행 서술이 섞였다 — 같은 걸러내기를 켠다.
-    it.each(['recurring', 'recurring-test'] as const)('%s 프로필도 도구 단계의 이후 text 를 걸러낸다', async (profile) => {
+    // WP-1408(리뷰): 반복 회차·테스트 실행은 걸러내지 않는다 — 도구를 부른 같은 단계에서 도구 뒤에 쓴 최종 답이 버려지면 결과 글을 잃는다.
+    // 중간 말 덜어 내기는 run-recurring 이 도구 경계로 나눈 조각(answerChunks·lastAnswerText)으로 한다.
+    it.each(['recurring', 'recurring-test'] as const)('%s 프로필은 걸러내지 않는다(도구 뒤 같은 단계의 답을 잃지 않게)', async (profile) => {
       const events = await run(
         baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile, onBehalfOfId: 1 } }),
-        [
-          asstMsg('m1'),
-          text('p1', 'm1', ''),
-          tool('t1', 'm1', 'workplace_update_issue'),
-          text('p1', 'm1', '사이클에 넣겠습니다.'),
-          asstMsg('m2'),
-          text('p2', 'm2', '사이클에 넣었습니다.'),
-        ],
+        [asstMsg('m1'), tool('t1', 'm1', 'workplace_update_issue'), text('p1', 'm1', '사이클에 넣었습니다.')],
       );
       expect(textOf(events)).toBe('사이클에 넣었습니다.');
-      expect(events.at(-1)).toMatchObject({ type: 'result', text: '사이클에 넣었습니다.' });
     });
 
     it('assistant 가 아닌 프로필은 걸러내지 않는다', async () => {

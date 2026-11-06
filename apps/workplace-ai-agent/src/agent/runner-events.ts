@@ -141,16 +141,18 @@ export function finalText(events: RunnerEvent[]): string {
 // - 마지막 조각이 비면(모델이 도구 호출로 끝남) 그 앞의 비지 않은 조각을 쓴다 — 여러 조각을 붙이지 않는다. 조각이 모두 비면 finalText(result.text)
 //   로 돌아가 빈 결과를 내지 않는다(그것마저 비면 호출부가 「결과를 만들지 못했다」로 보고한다).
 export function lastAnswerText(events: RunnerEvent[]): string {
+  return answerChunks(events).at(-1) ?? finalText(events);
+}
+
+// WP-1408(리뷰): 도구 경계(tool_use·tool_done)로 나눈 라우터 텍스트 조각 — 비지 않은 것만 순서대로. lastAnswerText(결과 글)와 run-recurring 의 질문
+// 판정(표지·「정해 주세요」 절이 든 조각 찾기)이 같은 조각 나누기를 쓰게 한 곳에 둔다.
+export function answerChunks(events: RunnerEvent[]): string[] {
   const segments: RunnerEvent[][] = [[]];
   for (const e of events) {
     if (e.type === 'tool_use' || e.type === 'tool_done') segments.push([]);
     else segments[segments.length - 1].push(e);
   }
-  for (let k = segments.length - 1; k >= 0; k--) {
-    const text = segmentText(segments[k]);
-    if (text) return text;
-  }
-  return finalText(events);
+  return segments.map(segmentText).filter(Boolean);
 }
 
 // 한 조각(도구 사이)의 라우터 텍스트 — text_delta 우선, 없으면 assistant_text 를 줄바꿈으로. 서브에이전트 텍스트는 뺀다.

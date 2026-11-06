@@ -744,6 +744,11 @@ describe('looksLikeUnmarkedQuestion', () => {
     expect(looksLikeUnmarkedQuestion('## 오늘 정리\n- 3건\n\n**제안**\n- 거래처 메일을 폴더로 모을까요?')).toBe(false);
   });
 
+  // 리뷰: 「제안」이 든 굵은 물음 줄은 절 제목이 아니다 — 물음표로 끝나는 굵은 줄은 제목으로 보지 않는다.
+  it('「제안」이 든 굵은 물음 줄은 제목이 아니라 질문이다', () => {
+    expect(looksLikeUnmarkedQuestion('## 오늘 정리\n- 3건\n\n**이 제안대로 WP-12 를 사이클에 넣을까요?**')).toBe(true);
+  });
+
   it('수사적 물음·권유(어떨까요·왜 …까요·…일까요·…했을까요)는 질문이 아니다', () => {
     expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n다음 주에는 미리 정리해 두는 게 어떨까요?')).toBe(false);
     expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n왜 이번 주에만 늘었을까요?')).toBe(false);
@@ -919,6 +924,54 @@ describe('runRecurring — 표지 없는 질문·결과 글 정리 (WP-1408)', (
       const c = client();
       await runRecurring(followUpRun, { client: c }, { test: true });
       expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f78', ok: true, message: '하지 않았습니다.' });
+    });
+
+    // 리뷰: 다음 이어 처리는 허락이 없을 때만 「정해 주세요」 질문으로 본다(isDecisionQuestion) — 허락을 넘기면 「고른 항목만 처리」(WP-1376)를 잃는다.
+    it('「정해 주세요」 질문에는 허락을 넘기지 않는다', async () => {
+      const body = '처리하지 않았습니다.\n\n## 정해 주세요\n1. 메일과 일정 중 무엇을 할까요?';
+      vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', body)]);
+      const c = client();
+      await runRecurring(followUpRun, { client: c }, { test: true });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f78', ok: true, message: body, question: true });
+    });
+  });
+
+  // 리뷰: 질문(표지·「정해 주세요」 절)을 쓴 뒤 도구를 또 부르고 짧은 맺음으로 끝나면, 마지막 조각만 보면 질문을 잃는다.
+  describe('질문 조각 → 도구 → 짧은 맺음', () => {
+    const assistant = (content: unknown[]) => JSON.stringify({ type: 'assistant', message: { content } });
+    const toolResult = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } });
+    const lines = (question: string) => [
+      assistant([{ type: 'text', text: question }, { type: 'tool_use', name: 'mcp__workplace__add_comment', input: {} }]),
+      toolResult,
+      assistant([{ type: 'text', text: '이상입니다.' }]),
+      resultLine('success', '이상입니다.'),
+    ];
+
+    it('표지 조각이 있으면 그 조각을 질문으로 보고한다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(lines('[확인 필요]\nWP-12 를 사이클에 넣을까요?'));
+      const c = client();
+      await runRecurring(payload, { client: c });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+        runId: '3-1790000000',
+        ok: true,
+        message: 'WP-12 를 사이클에 넣을까요?',
+        question: true,
+      });
+    });
+
+    it('「정해 주세요」 절 조각이 있으면 그 조각을 질문으로 보고한다', async () => {
+      const q = '## 오늘 정리\n- 3건\n\n## 정해 주세요\n1. 회신할까요, 보류할까요?';
+      vi.mocked(runSdkCollect).mockResolvedValue(lines(q));
+      const c = client();
+      await runRecurring(payload, { client: c });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: q, question: true });
+    });
+
+    it('표지 없는 물음은 마지막 조각만 본다 — 앞 조각의 물음 뒤에 일을 해 끝냈으면 질문이 아니다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(lines('사이클에 넣을까요?'));
+      const c = client();
+      await runRecurring(payload, { client: c });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: '이상입니다.' });
     });
   });
 });

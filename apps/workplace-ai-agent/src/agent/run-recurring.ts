@@ -19,7 +19,7 @@ import { withSharedMemory } from './shared-memory-block.js';
 import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { runnerFor, type ProviderCredential } from './agent-runner.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
-import { finalText, lastAnswerText, resultOk, type RunnerEvent } from './runner-events.js';
+import { answerChunks, finalText, lastAnswerText, resultOk, type RunnerEvent } from './runner-events.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { RunTraceRecorder, formatDuration, formatLimit, summaryLine, type TraceSnapshot } from './run-trace.js';
 import { log } from '../logger.js';
@@ -228,6 +228,8 @@ export async function runRecurring(
   };
 
   let text: string;
+  // WP-1408(리뷰): 질문 판정에 쓸 글 — 표지·「정해 주세요」 절이 든 마지막 조각(없으면 결과 글).
+  let asking: string;
   let snap: TraceSnapshot;
   // WP-1408: 테스트 질문의 이어 처리가 다시 물을 때 넘길 허락(앞 질문이 허락받은 쓰기 중 이번에 쓰지 않은 것). 정기 회차·첫 실행은 없다.
   let carried: PausedAction[] = [];
@@ -268,6 +270,8 @@ export async function runRecurring(
     }
     // WP-1408: 결과 글은 마지막 도구 호출 뒤의 답만 — 도구 사이 중간 말(「먼저 조회합니다」)·빈 줄은 이슈 챗에 남기지 않고 실행 기록(로그)에만 남긴다.
     text = lastAnswerText(events);
+    // 모델이 질문(표지·「정해 주세요」 절)을 쓴 뒤 도구를 또 부르고 「이상입니다.」 같은 맺음으로 끝내면 마지막 조각에는 질문이 없다 — 그 질문 조각을 찾는다.
+    asking = questionChunk(answerChunks(events)) ?? text;
     // 모델 출력(사용자 데이터)은 로그에 남기지 않는다 — 덜어 낸 분량(글자 수)만 남긴다.
     const whole = finalText(events);
     if (whole !== text) {
@@ -300,7 +304,7 @@ export async function runRecurring(
   // 않은 채 「끝났다」로 보이지 않게. 멈춘 쓰기 목록을 함께 보내 답을 받으면 그 쓰기만 허락한다.
   if (paused.length > 0) {
     logTrace('question', snap);
-    const asked = text ? (splitQuestion(text) ?? text) : '';
+    const asked = asking ? (splitQuestion(asking) ?? asking) : '';
     await report(true, asked || pausedFallback(paused), true, [...paused, ...carried]);
     return;
   }
@@ -310,14 +314,16 @@ export async function runRecurring(
     return;
   }
   // WP-1311: 본문이 확인을 받으라고 해 쓰기를 멈춘 회차 — 표지를 떼고 질문으로 보고해 이슈 챗에 답변 대기 글로 남긴다.
-  const question = splitQuestion(text);
+  // WP-1408(리뷰): 표지·「정해 주세요」 절은 그 질문 조각에서 본다(뒤에 짧은 맺음이 와도 질문을 잃지 않게). 질문이면 그 조각을 결과 글로 보고한다.
+  const question = splitQuestion(asking);
   // WP-1408: 표지 없이 진행 여부를 묻는 결과(아래 처리)도 질문 — 실행 기록의 결말도 question 으로 남긴다.
-  const decision = hasDecisionSection(text);
+  // 표지 없는 물음은 마지막 조각(text)만 본다 — 앞 조각의 물음은 모델이 스스로 묻고 이어서 일을 한 서술일 수 있다.
+  const decision = hasDecisionSection(asking);
   const unmarked = question == null && !decision && looksLikeUnmarkedQuestion(text);
   logTrace(question != null || decision || unmarked ? 'question' : 'ok', snap);
   // WP-1408: 테스트 이어 처리가 다시 물으면 앞 질문의 허락(이번에 쓰지 않은 것)을 함께 넘겨 다음 「진행」에도 허락이 남게 한다.
   if (question != null) {
-    await report(true, question || text, true, carried);
+    await report(true, question || asking, true, carried);
     return;
   }
   // WP-1408: 모델이 표지 없이 진행 여부를 물은 회차 — 질문으로 보고하지 않으면 사람의 답(「진행」)이 이어 처리(쓰기 도구 있음)가 아니라
@@ -330,7 +336,17 @@ export async function runRecurring(
   }
   // WP-1376: 사용자가 정해야 할 항목을 결과 맨 끝 「정해 주세요」 절에 적은 회차 — 결과 전체를 그대로 질문으로 보고한다(같은 질문 경로로 답을 받아
   // 이어 처리가 답이 고른 항목만 처리한다). 이어 처리 결과도 같은 규칙이라, 다시 물으면 질문으로 다시 남고 절이 없으면 질문이 닫힌 채로 끝난다.
-  await report(true, text, decision, decision ? carried : []);
+  // WP-1408(리뷰): 「정해 주세요」 질문에는 허락을 넘기지 않는다 — 다음 이어 처리는 허락이 없을 때만 「정해 주세요」 질문으로 보므로
+  // (user-message isDecisionQuestion), 넘기면 「고른 항목만 처리」(WP-1376) 규칙 대신 확인 규칙으로 간다.
+  await report(true, decision ? asking : text, decision);
+}
+
+// WP-1408(리뷰): 표지(`[확인 필요]`)나 「정해 주세요」 절이 든 마지막 조각 — 없으면 undefined(호출부가 결과 글을 쓴다).
+function questionChunk(chunks: string[]): string | undefined {
+  for (let k = chunks.length - 1; k >= 0; k--) {
+    if (splitQuestion(chunks[k]) != null || hasDecisionSection(chunks[k])) return chunks[k];
+  }
+  return undefined;
 }
 
 // WP-1408: 이어 처리가 넘겨받은 허락 가운데 이번 실행에서 쓰지 않은 것. 허락 도구를 부른 횟수만큼 앞에서부터 쓴 것으로 본다 — 부른 호출이 오류였어도
@@ -434,7 +450,11 @@ const TRAILING_NOISE = /[\s)）」』"'”’.。!！*_`\p{Extended_Pictographic
 
 // 결과의 마지막 절 제목이 「제안」인가 — 제안 절은 참고용이라 질문이 아니다(시스템 프롬프트). 절 제목은 마크다운 제목(#)이나 한 줄 굵은 글씨.
 function endsInSuggestionSection(text: string): boolean {
-  const headings = text.split('\n').filter((l) => /^\s*(?:#{1,6}\s+\S|\*\*[^*]+\*\*\s*:?\s*$)/.test(l));
+  // 굵은 줄이 물음표로 끝나면(「**이 제안대로 … 넣을까요?**」) 제목이 아니라 물음이다.
+  const headings = text
+    .split('\n')
+    .filter((l) => /^\s*(?:#{1,6}\s+\S|\*\*[^*]+\*\*\s*:?\s*$)/.test(l))
+    .filter((l) => /^\s*#/.test(l) || !/[?？]\s*\**\s*:?\s*$/.test(l));
   return /제안/.test(headings.at(-1) ?? '');
 }
 

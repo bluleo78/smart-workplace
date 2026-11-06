@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapSdkMessage, finalText, finalUsage, lastAnswerText, type RunnerEvent } from './runner-events.js';
+import { answerChunks, mapSdkMessage, finalText, finalUsage, lastAnswerText, type RunnerEvent } from './runner-events.js';
 
 describe('mapSdkMessage', () => {
   it('stream_event text_delta → text_delta(parent 보존, null)', () => {
@@ -360,5 +360,29 @@ describe('lastAnswerText', () => {
 
   it('텍스트 이벤트 없이 result 만 있으면 result.text', () => {
     expect(lastAnswerText([{ type: 'result', ok: true, text: ' 결과 ', usage: null }])).toBe('결과');
+  });
+});
+
+// WP-1408(리뷰): 질문 판정은 표지·「정해 주세요」 절이 든 조각을 찾아야 한다 — 결과 글과 같은 조각 나누기를 쓴다.
+describe('answerChunks', () => {
+  it('도구 경계로 나눈 라우터 텍스트 조각을 순서대로 — 빈 조각·서브에이전트 텍스트는 뺀다', () => {
+    const events: RunnerEvent[] = [
+      { type: 'text_delta', text: '먼저 봅니다.', parentToolUseId: null },
+      { type: 'tool_use', name: 'a', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '하위', parentToolUseId: 'c' },
+      { type: 'tool_use', name: 'b', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'assistant_text', text: '[확인 필요]' },
+      { type: 'assistant_text', text: '넣을까요?' },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: ' 이상입니다. ', parentToolUseId: null },
+      { type: 'result', ok: true, text: 'x', usage: null },
+    ];
+    expect(answerChunks(events)).toEqual(['먼저 봅니다.', '[확인 필요]\n넣을까요?', '이상입니다.']);
+  });
+
+  it('텍스트가 없으면 빈 배열', () => {
+    expect(answerChunks([{ type: 'result', ok: true, text: '결과', usage: null }])).toEqual([]);
   });
 });
