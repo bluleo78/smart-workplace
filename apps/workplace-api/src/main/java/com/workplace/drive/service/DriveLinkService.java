@@ -22,8 +22,6 @@ import com.workplace.drive.repository.DriveFileRepository.LinkMeta;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.util.SafeFileNames;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -241,17 +239,21 @@ public class DriveLinkService {
   }
 
   /**
-   * 가상 첨부 뷰: caller 가 접근 가능한 이슈·이슈챗·메시지의 첨부를 attachedAt DESC 로 병합해 커서 페이지네이션 반환.
+   * 가상 첨부 뷰: caller 가 접근 가능한 이슈(본문 이미지 포함)·이슈챗·메시지·노트의 첨부와 caller 의 메일 첨부를 (attachedAt desc,
+   * sourceType desc, sortId desc) 로 병합해 커서 페이지네이션 반환. 같은 시각의 첨부도 순서가 고정돼 페이지 경계에서 빠지거나 겹치지
+   * 않는다(WP-1392).
    *
-   * @param source "ALL"|"ISSUE"|"CHAT_MESSAGE"|"MESSAGE" (CHAT_MESSAGE = 이슈챗)
-   * @param cursor ISO-8601 Instant 문자열(null=최신부터)
+   * @param source "ALL"|"ISSUE"|"CHAT_MESSAGE"|"MESSAGE"|"WIKI"|"MAIL" (CHAT_MESSAGE = 이슈챗, WIKI =
+   *     노트)
+   * @param cursor 앞 페이지의 nextCursor(형식은 {@link AttachmentSourceProvider.Cursor}, 예전 ISO-8601
+   *     Instant 도 받음). null=최신부터
    */
   @Transactional(readOnly = true)
   public VirtualAttachmentPage virtualAttachments(
       long callerId, String source, String q, String cursor, int limit) {
     // limit 방어: 0 이하는 1 로, 100 초과는 100 으로 클램프
     int safeLimit = Math.max(1, Math.min(limit, 100));
-    Instant beforeAt = parseCursor(cursor);
+    AttachmentSourceProvider.Cursor after = AttachmentSourceProvider.Cursor.parse(cursor);
 
     // 선택된 provider 목록
     List<AttachmentSourceProvider> selected;
@@ -262,44 +264,67 @@ public class DriveLinkService {
       selected = p != null ? List.of(p) : List.of();
     }
 
-    // 각 provider 에서 limit 개(내부에서 +1 이미 처리됨) 수집 후 VirtualAttachmentResponse 로 변환
-    List<VirtualAttachmentResponse> merged = new ArrayList<>();
+    // 각 provider 에서 limit+1 개까지 수집 — 다음 커서를 만들려고 출처·sortId 를 행과 함께 들고 있는다
+    List<Sourced> merged = new ArrayList<>();
     for (var provider : selected) {
-      String sourceType = provider.sourceType();
-      for (var entry : provider.list(callerId, q, beforeAt, safeLimit)) {
-        merged.add(
-            new VirtualAttachmentResponse(
-                entry.fileId(),
-                entry.name(),
-                entry.mimeType(),
-                entry.sizeBytes(),
-                entry.hasThumbnail(),
-                sourceType,
-                entry.sourceLabel(),
-                entry.deepLink(),
-                entry.downloadUrl(),
-                entry.attachedAt()));
+      for (var entry : provider.list(callerId, q, after, safeLimit)) {
+        merged.add(new Sourced(provider.sourceType(), entry));
       }
     }
 
-    // attachedAt DESC 정렬
-    merged.sort(Comparator.comparing(VirtualAttachmentResponse::attachedAt).reversed());
+    merged.sort(MERGE_ORDER);
 
-    // 다음 페이지 커서 계산: merged > limit 이면 더 있음
+    // 다음 페이지 커서 계산: merged > limit 이면 더 있음 — 이 페이지 마지막 행의 위치
     String nextCursor = null;
     if (merged.size() > safeLimit) {
-      nextCursor = merged.get(safeLimit - 1).attachedAt().toString();
+      Sourced last = merged.get(safeLimit - 1);
+      nextCursor =
+          new AttachmentSourceProvider.Cursor(
+                  last.entry().attachedAt(), last.sourceType(), last.entry().sortId())
+              .encode();
     }
     List<VirtualAttachmentResponse> items =
-        merged.stream().limit(safeLimit).collect(Collectors.toList());
+        merged.stream().limit(safeLimit).map(DriveLinkService::toResponse).toList();
     return new VirtualAttachmentPage(items, nextCursor);
+  }
+
+  /** 병합 중인 한 행 — 어느 출처의 것인지 함께 든다(정렬 보조 키·응답의 sourceType). */
+  private record Sourced(String sourceType, AttachmentSourceProvider.Entry entry) {}
+
+  /**
+   * 「첨부 모아보기」 전체 순서 — (attachedAt, sourceType, sortId) desc. 커서 조건({@link
+   * AttachmentSourceProvider.Cursor#after(AttachmentSourceProvider.Cursor, String, org.jooq.Field,
+   * org.jooq.Field)})이 이 순서를 전제하고, 각 출처의 SQL 정렬(Cursor.order)은 이 순서의 출처 안 부분이다. 셋 중 하나만 바꾸면 페이지
+   * 경계에서 행이 빠지거나 겹친다.
+   */
+  private static final Comparator<Sourced> MERGE_ORDER =
+      Comparator.comparing((Sourced x) -> x.entry().attachedAt())
+          .thenComparing(Sourced::sourceType)
+          .thenComparingLong(x -> x.entry().sortId())
+          .reversed();
+
+  private static VirtualAttachmentResponse toResponse(Sourced s) {
+    var entry = s.entry();
+    return new VirtualAttachmentResponse(
+        entry.fileId(),
+        entry.name(),
+        entry.mimeType(),
+        entry.sizeBytes(),
+        entry.hasThumbnail(),
+        s.sourceType(),
+        entry.sourceLabel(),
+        entry.deepLink(),
+        entry.downloadUrl(),
+        entry.attachedAt(),
+        entry.kind(),
+        entry.mailAttachmentId());
   }
 
   /** 첨부 import: 스페이스 EDITOR + 원본 첨부 접근 권한 확인 후, 동일 file.id 를 가리키는 drive_file 생성 + 영구화. */
   public DriveFileResponse importAttachment(
       long callerId, long spaceId, Long folderId, long fileId) {
     perms.requireRole(spaceId, callerId, "EDITOR");
-    // provider 중 하나라도 fileId 에 접근 가능해야 함
+    // provider 중 하나라도 fileId 에 접근 가능해야 함 — file 행이 없는 MAIL 출처는 항상 false 라 메일 첨부 id 로는 인가되지 않는다
     boolean accessible =
         providers.values().stream().anyMatch(p -> p.canAccessFile(callerId, fileId));
     if (!accessible) {
@@ -336,18 +361,5 @@ public class DriveLinkService {
     return fileRepo
         .findResponse(driveFileId)
         .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-  }
-
-  /**
-   * 가상 첨부 커서(ISO-8601 Instant) 해석. 형식이 틀리면 400(IllegalArgumentException) — 예전엔
-   * DateTimeParseException 이 그대로 새어 500 과 ERROR 스택 로그가 남았다(WP-668). 문구는 채널 메시지 목록의 잘못된 커서 응답과 같다.
-   */
-  private static Instant parseCursor(String cursor) {
-    if (cursor == null) return null;
-    try {
-      return Instant.parse(cursor);
-    } catch (DateTimeParseException e) {
-      throw new IllegalArgumentException("목록 위치(cursor)가 올바르지 않습니다", e);
-    }
   }
 }

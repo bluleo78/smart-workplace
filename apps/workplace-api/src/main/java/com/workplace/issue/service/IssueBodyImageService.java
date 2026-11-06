@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
 import com.workplace.global.util.SafeFileNames;
@@ -39,6 +40,8 @@ public class IssueBodyImageService {
   private final IssueBodyImageRepository repo;
   // 테넌트 쿼터 — 위키 본문 이미지(#759)와 같이 드라이브 쿼터·잠금을 공유한다.
   private final DriveQuotaService quota;
+  // 드라이브로 가져간 본문 이미지(WP-1392)는 drive_file 이 같은 file 행을 쓴다 — 강등에서 빼려고 묻는다(WP-722 와 같은 포트).
+  private final DriveFileUsage driveFileUsage;
 
   @Value("${workplace.storage.issue-image.max-file-size-bytes:10485760}")
   private long maxFileSizeBytes;
@@ -81,7 +84,7 @@ public class IssueBodyImageService {
     }
     List<Long> dropped =
         repo.fileIdsOfIssue(issueId).stream().filter(id -> !referenced.contains(id)).toList();
-    repo.demote(dropped, graceExpiry());
+    demoteUnlessInDrive(dropped);
   }
 
   /**
@@ -121,7 +124,16 @@ public class IssueBodyImageService {
   public void demoteAllOfIssues(Collection<Long> issueIds) {
     if (issueIds.isEmpty()) return;
     List<Long> fileIds = repo.fileIdsOfIssues(issueIds);
-    repo.demote(fileIds, graceExpiry());
+    demoteUnlessInDrive(fileIds);
+  }
+
+  /**
+   * 강등하되 드라이브로 가져간 이미지는 뺀다(WP-1392). 가져오기는 file 행을 복사하지 않고 drive_file 이 같은 행을 가리키게 하므로(만료도 해제), 여기서
+   * 만료를 다시 걸면 만료 스윕이 드라이브 파일의 원본까지 지운다. 이슈 첨부 삭제가 드라이브 사용 중인 file 은 연결만 끊는 것(WP-722)과 같은 규칙 — 그
+   * file 의 수명은 드라이브가 맡는다. 본문 매핑은 그대로 남아 이슈에 다시 넣어도 그대로 보인다.
+   */
+  private void demoteUnlessInDrive(List<Long> fileIds) {
+    repo.demote(driveFileUsage.withoutReferenced(fileIds), graceExpiry());
   }
 
   /** 업로드 — 이슈 생성 가능자. 매직바이트로 이미지인지 판정하고 임시 파일 + 미연결 매핑으로 저장한다. */

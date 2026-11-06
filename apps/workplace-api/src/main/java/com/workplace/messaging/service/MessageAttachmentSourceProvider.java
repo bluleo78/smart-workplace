@@ -11,9 +11,6 @@ import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.AttachmentSourceProvider;
 import com.workplace.global.util.LikePatternUtils;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -22,8 +19,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * MESSAGE 첨부파일 가상 뷰 제공자. 호출자가 멤버인 채널의 메시지 첨부만 노출. q=파일명 부분일치, beforeAt=커서(최신→오래된 순), limit+1 개
- * 반환(다음 페이지 판단용).
+ * MESSAGE 첨부파일 가상 뷰 제공자. 호출자가 멤버인 채널의 메시지 첨부만 노출. q=파일명 부분일치, cursor=커서(최신→오래된 순, 같은 시각은 file id
+ * 내림차순), limit+1 개 반환(다음 페이지 판단용).
  */
 @Component
 @RequiredArgsConstructor
@@ -38,7 +35,7 @@ public class MessageAttachmentSourceProvider implements AttachmentSourceProvider
 
   @Override
   @Transactional(readOnly = true)
-  public List<Entry> list(long callerId, String q, Instant beforeAt, int limit) {
+  public List<Entry> list(long callerId, String q, Cursor cursor, int limit) {
     var query =
         dsl.select(
                 FILE.ID,
@@ -75,14 +72,14 @@ public class MessageAttachmentSourceProvider implements AttachmentSourceProvider
           query.and(FILE.ORIGINAL_NAME.likeIgnoreCase(LikePatternUtils.containsPattern(q), '\\'));
     }
 
-    // 커서 기반 페이지네이션 (attached_at < beforeAt)
-    if (beforeAt != null) {
-      OffsetDateTime cursor = beforeAt.atOffset(ZoneOffset.UTC);
-      query = query.and(MESSAGE_ATTACHMENT.ATTACHED_AT.lt(cursor));
-    }
+    // 커서 기반 페이지네이션 — (attached_at, file_id) 가 커서 다음인 행(같은 시각도 빠지지 않게, WP-1392). 첫 페이지면 조건 없음
+    query =
+        query.and(
+            Cursor.after(
+                cursor, sourceType(), MESSAGE_ATTACHMENT.ATTACHED_AT, MESSAGE_ATTACHMENT.FILE_ID));
 
     return query
-        .orderBy(MESSAGE_ATTACHMENT.ATTACHED_AT.desc())
+        .orderBy(Cursor.order(MESSAGE_ATTACHMENT.ATTACHED_AT, MESSAGE_ATTACHMENT.FILE_ID))
         .limit(limit + 1) // 다음 페이지 판단을 위해 limit+1 개 조회
         .fetch(
             r -> {

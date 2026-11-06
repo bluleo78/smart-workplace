@@ -57,7 +57,7 @@ export async function listFileBacklinks(driveFileId: number): Promise<Backlink[]
 
 // ─── 가상 첨부 ────────────────────────────────────────────────────────────────
 
-/** 이슈/이슈챗/메시지 업로드 파일의 가상 첨부 뷰 — cursor 페이징. */
+/** 이슈/이슈챗/메시지/노트 업로드 파일과 내 메일 첨부의 가상 첨부 뷰 — cursor 페이징(source: ALL·ISSUE·CHAT_MESSAGE·MESSAGE·WIKI·MAIL). */
 export async function listDriveAttachments(params: {
   source?: 'ALL' | VirtualAttachmentSource
   q?: string

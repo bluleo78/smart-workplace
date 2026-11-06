@@ -20,6 +20,10 @@ public interface ExpiredFileRetentionPolicy {
    *
    * <p>구현 주의: 보존하기로 했다고 만료를 <b>해제</b>(NULL)하면 안 된다. 재무장 트리거가 도메인 저장 경로뿐이라면, 이후 참조가 모두 사라져도 다시 만료가
    * 붙지 않아 영구 고아가 된다. 만료를 다음 유예 뒤로 <b>미루는</b> 것이 맞다 — 그러면 참조가 사라진 뒤 다음 사이클에 정상 회수된다.
+   *
+   * <p>예외: 그 file 의 수명을 <b>다른 소유자가 넘겨받은</b> 경우(예: 드라이브로 가져가 drive_file 이 같은 행을 가리킴 —
+   * DriveReferencedFileRetentionPolicy, WP-1392)에는 만료를 해제해도 된다. 그 소유자의 수명주기(드라이브 영구 삭제 시 만료 표시)가 다시
+   * 만료를 붙이므로 영구 고아가 되지 않고, 미루기만 하면 같은 행이 매 사이클 스윕 앞자리를 차지한다.
    */
   Set<Long> retain(Collection<Long> expiringFileIds);
 }
