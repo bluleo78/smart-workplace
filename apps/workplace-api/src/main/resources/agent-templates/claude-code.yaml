@@ -10,12 +10,16 @@ card:
 image: docker.io/iacloudops/genia-works-agent-claude-code:{appVersion}
 requires: [claude, repo]
 config:
+  # 모델 — settings.json 의 model 로 들어간다. 화면은 선택지를 그 AI 에 연결된 Claude 계정의 모델 목록에서 채운다(optionsFrom, WP-1405).
+  # options 는 별칭 두 개 — 늘 그 계열의 최신을 가리키고, 목록 맨 앞에 보이며, 목록을 받지 못할 때(계정 미연결·조회 실패) 기본 선택지가 된다.
+  # 저장 검증은 선택지 대신 모델 id 꼴만 본다(목록에서 고른 전체 id 도 저장된다).
   - key: model
     label: 모델
     type: select
+    optionsFrom: account-models
     options:
-      - { value: opus, label: Opus }
-      - { value: sonnet, label: Sonnet }
+      - { value: opus, label: Opus(최신) }
+      - { value: sonnet, label: Sonnet(최신) }
     default: opus
     required: true
   - key: queue

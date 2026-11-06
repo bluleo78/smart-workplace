@@ -282,13 +282,119 @@ class AgentTemplateRegistryTest {
         .isInstanceOf(InvalidAgentConfigException.class);
   }
 
-  /** select 값이 선택지 밖이면 거부. */
+  /**
+   * optionsFrom 이 없는 select(Gen:iA Code 모양)는 지금처럼 선택지 밖 값을 거부한다(WP-1405 회귀) — 계정 모델 목록을 쓰는 칸만
+   * 너그러워진다.
+   */
   @Test
-  void validateConfig_whenSelectValueNotInOptions_throws() throws IOException {
-    AgentTemplate t = claudeCode();
+  void validateConfig_whenPlainSelect_stillRejectsOffList() throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(List.of(resource("genia-code.yaml")), ALLOWED, "dev").get(0);
 
     assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("model", "gpt")))
         .isInstanceOf(InvalidAgentConfigException.class);
+  }
+
+  /** optionsFrom 에 모르는 값을 적으면 시작 실패(WP-1405) — 오타가 조용히 정적 선택지로 떨어지지 않게. */
+  @Test
+  void load_whenOptionsFromUnknown_throws() {
+    String y =
+        yaml(
+            "x",
+            "SERVER",
+            "config:\n  - { key: m, label: M, type: select, optionsFrom: nope, options: [{ value: a, label: A }] }\n");
+
+    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED, "dev"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("optionsFrom");
+  }
+
+  /** optionsFrom 은 select 칸에만 적을 수 있다 — text 칸에 적으면 시작 실패(WP-1405). */
+  @Test
+  void load_whenOptionsFromOnText_throws() {
+    String y =
+        yaml(
+            "x",
+            "SERVER",
+            "config:\n  - { key: m, label: M, type: text, optionsFrom: account-models }\n");
+
+    assertThatThrownBy(() -> AgentTemplateRegistry.load(List.of(y), ALLOWED, "dev"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("optionsFrom");
+  }
+
+  /**
+   * claude-code 의 모델 칸은 계정 모델 목록(account-models)에서 선택지를 채운다. 정적 선택지는 별칭(최신) 두 개 — 목록을 못 받을 때의 기본.
+   */
+  @Test
+  void load_whenClaudeCode_modelUsesAccountModels() throws IOException {
+    AgentTemplate.ConfigField model = claudeCode().config().get(0);
+
+    assertThat(model.optionsFrom()).isEqualTo("account-models");
+    assertThat(model.options())
+        .extracting(AgentTemplate.Option::label)
+        .containsExactly("Opus(최신)", "Sonnet(최신)");
+  }
+
+  /** 계정 모델 칸은 선택지 밖 전체 id(목록에서 고른 실제 모델)도 받는다(WP-1405). */
+  @Test
+  void validateConfig_whenOptionsFrom_acceptsOffListId() throws IOException {
+    for (String id : new String[] {"claude-opus-5-5", "claude-opus-5-5[1m]", "provider/model"}) {
+      Map<String, String> out =
+          AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", id));
+      assertThat(out).containsEntry("model", id);
+    }
+  }
+
+  /** 계정 모델 칸의 기존 별칭 저장값(opus·sonnet)은 그대로 통과한다. */
+  @Test
+  void validateConfig_whenOptionsFrom_acceptsAlias() throws IOException {
+    for (String alias : new String[] {"opus", "sonnet"}) {
+      assertThat(AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", alias)))
+          .containsEntry("model", alias);
+    }
+  }
+
+  /** 계정 모델 칸을 비우거나 공백만 보내면 기본값(opus)으로 채운다. */
+  @Test
+  void validateConfig_whenOptionsFromBlank_usesDefault() throws IOException {
+    for (String blank : new String[] {"", "   "}) {
+      assertThat(AgentTemplateRegistry.validateConfig(claudeCode(), Map.of("model", blank)))
+          .containsEntry("model", "opus");
+    }
+  }
+
+  /** 기본값 없는 필수 계정 모델 칸이 비면 거부. */
+  @Test
+  void validateConfig_whenOptionsFromBlankAndNoDefault_throws() {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(
+                List.of(
+                    yaml(
+                        "x",
+                        "SERVER",
+                        "config:\n  - { key: m, label: 모델, type: select, optionsFrom: account-models, required: true, options: [{ value: a, label: A }] }\n")),
+                ALLOWED,
+                "dev")
+            .get(0);
+
+    assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("m", " ")))
+        .isInstanceOf(InvalidAgentConfigException.class);
+  }
+
+  /** 모델 id 꼴이 아닌 값(가운데 공백·129자·개행·허용 밖 문자)은 거부 — settings.json·defaultModel 에 이상한 값이 들어가지 않게. */
+  @Test
+  void validateConfig_whenOptionsFromMalformed_throws() throws IOException {
+    AgentTemplate t = claudeCode();
+    for (String bad :
+        new String[] {"claude opus", "a".repeat(129), "opus\nsonnet", "opus;rm", "모델"}) {
+      assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("model", bad)))
+          .isInstanceOf(InvalidAgentConfigException.class)
+          .hasMessageContaining("올바르지 않습니다");
+    }
+    // 128자는 경계 안이라 통과한다.
+    assertThat(AgentTemplateRegistry.validateConfig(t, Map.of("model", "a".repeat(128))))
+        .containsEntry("model", "a".repeat(128));
   }
 
   /** 기본값 없는 필수 text 칸이 비면 거부. */

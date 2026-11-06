@@ -138,11 +138,37 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     putSetting(newAgent(), "{\"templateName\":\"default\"}").andExpect(status().isBadRequest());
   }
 
-  /** 선택지 밖 설정 값은 400. */
+  /** 선택지 밖 설정 값은 400 — 계정 모델 목록을 쓰지 않는 select(Gen:iA Code 모델)는 지금 규칙 그대로. */
   @Test
   void put_whenConfigInvalid_returns400() throws Exception {
-    putSetting(newAgent(), "{\"templateName\":\"claude-code\",\"config\":{\"model\":\"gpt\"}}")
+    putSetting(newAgent(), "{\"templateName\":\"genia-code\",\"config\":{\"model\":\"gpt\"}}")
         .andExpect(status().isBadRequest());
+  }
+
+  /** 계정 모델 칸(claude-code model)은 정적 선택지 밖의 전체 모델 id 도 저장된다(WP-1405). */
+  @Test
+  void put_whenModelOffList_saves() throws Exception {
+    putSetting(
+            newAgent(),
+            "{\"templateName\":\"claude-code\",\"config\":{\"model\":\"claude-opus-5-5[1m]\"}}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config.model").value("claude-opus-5-5[1m]"));
+  }
+
+  /** 목록 밖 id 로 저장한 AI 를 켜도(템플릿 버전 repin 으로 다시 검증) 400 없이 켜지고 값이 유지된다(WP-1405). */
+  @Test
+  void start_whenSavedModelOffList_starts() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putSetting(
+            agent, "{\"templateName\":\"claude-code\",\"config\":{\"model\":\"claude-haiku-4-5\"}}")
+        .andExpect(status().isOk());
+    setStoredVersion(agent, "0");
+
+    action(agent, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.templateVersion").value("1"))
+        .andExpect(jsonPath("$.config.model").value("claude-haiku-4-5"));
   }
 
   /** 공통 비서는 EXTERNAL 이 될 수 없어 실행 설정도 둘 수 없다 — 409, 행 없음. */

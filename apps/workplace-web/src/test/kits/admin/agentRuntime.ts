@@ -42,9 +42,10 @@ export const CLAUDE_TEMPLATE: AgentTemplate = {
       key: 'model',
       label: '모델',
       type: 'select',
+      optionsFrom: 'account-models',
       options: [
-        { value: 'opus', label: 'Opus' },
-        { value: 'sonnet', label: 'Sonnet' },
+        { value: 'opus', label: 'Opus(최신)' },
+        { value: 'sonnet', label: 'Sonnet(최신)' },
       ],
       default: 'opus',
       required: true,

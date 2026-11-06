@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +39,18 @@ public class AgentTemplateRegistry {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final Set<String> KINDS = Set.of("SERVER", "WORKSPACE");
   private static final Set<String> FIELD_TYPES = Set.of("select", "text");
+
+  /** select 칸의 optionsFrom 에 쓸 수 있는 값(WP-1405) — 지금은 「연결된 AI 계정의 모델 목록」 하나. */
+  private static final String ACCOUNT_MODELS = "account-models";
+
+  private static final Set<String> OPTIONS_FROM = Set.of(ACCOUNT_MODELS);
+
+  /**
+   * 계정 모델 칸에 저장할 수 있는 모델 id 꼴(WP-1405) — 1~128자, 공백·제어 문자 없이 영문·숫자와 {@code . _ : / @ [ ] -} 만.
+   * 별칭(opus), 전체 id(claude-opus-5-5[1m]), 공급자 접두(provider/model)를 모두 받고, settings.json·defaultModel
+   * 에 개행·공백 같은 이상한 값이 들어가지 않게 막는다.
+   */
+  private static final Pattern MODEL_ID = Pattern.compile("[A-Za-z0-9._:/@\\[\\]-]{1,128}");
 
   /** requires 에 쓸 수 있는 값(정규화 뒤) — 계정(claude·genia·chatgpt)과 저장소 토큰(repo). 오타가 조용히 무시되지 않게 막는다. */
   private static final Set<String> REQUIREMENTS =
@@ -204,7 +217,19 @@ public class AgentTemplateRegistry {
         throw new IllegalStateException(
             who + " 의 설정 칸 「" + f.key() + "」 형식은 select 또는 text 여야 합니다");
       }
+      // optionsFrom 은 select 칸에만, 아는 값만 — 오타가 조용히 정적 선택지로 떨어지지 않게 시작을 막는다.
+      if (f.optionsFrom() != null) {
+        if (!"select".equals(f.type())) {
+          throw new IllegalStateException(
+              who + " 의 설정 칸 「" + f.key() + "」 은 select 가 아니라 optionsFrom 을 쓸 수 없습니다");
+        }
+        if (!OPTIONS_FROM.contains(f.optionsFrom())) {
+          throw new IllegalStateException(
+              who + " 의 설정 칸 「" + f.key() + "」 optionsFrom 값 「" + f.optionsFrom() + "」 를 알 수 없습니다");
+        }
+      }
       if ("select".equals(f.type())) {
+        // 정적 options 는 optionsFrom 이 있어도 필수다 — 계정 목록을 받지 못할 때(옛 웹 포함) 보이는 기본 선택지라서.
         if (f.options().isEmpty()) {
           throw new IllegalStateException(who + " 의 선택 칸 「" + f.key() + "」 에 선택지가 없습니다");
         }
@@ -231,7 +256,7 @@ public class AgentTemplateRegistry {
    *
    * <ul>
    *   <li>템플릿에 없는 키 → 400
-   *   <li>select 값이 선택지 밖 → 400
+   *   <li>select 값이 선택지 밖 → 400(optionsFrom 칸은 선택지 대신 모델 id 꼴만 본다 — 꼴이 아니면 400, WP-1405)
    *   <li>비었는데 required 이고 기본값도 없음 → 400
    *   <li>키가 없는 칸 → 기본값(WP-1344: 「정해 둔 적 없음」)
    *   <li>키는 있고 값이 빈(공백만 포함) 선택(비필수) text 칸 → 기본값으로 채우지 않고 ""(사용자가 일부러 비움)
@@ -268,7 +293,14 @@ public class AgentTemplateRegistry {
         }
         continue;
       }
-      if ("select".equals(f.type()) && f.options().stream().noneMatch(o -> o.value().equals(v))) {
+      if (ACCOUNT_MODELS.equals(f.optionsFrom())) {
+        // 계정 모델 칸 — 선택지는 계정마다 다르고 별칭·목록 밖 id 도 정당하게 쓸 수 있어 정적 선택지와 대조하지 않는다. 저장 때마다 실시간
+        // 목록을 부르면 저장이 외부 장애에 묶이므로 꼴만 본다. 켤 때(repin)도 같은 규칙이라 목록 밖 id 로 저장한 AI 가 400 을 맞지 않는다.
+        if (!MODEL_ID.matcher(v).matches()) {
+          throw new InvalidAgentConfigException("「" + f.label() + "」 값이 올바르지 않습니다");
+        }
+      } else if ("select".equals(f.type())
+          && f.options().stream().noneMatch(o -> o.value().equals(v))) {
         throw new InvalidAgentConfigException("「" + f.label() + "」 에 고를 수 없는 값입니다");
       }
       out.put(f.key(), v);

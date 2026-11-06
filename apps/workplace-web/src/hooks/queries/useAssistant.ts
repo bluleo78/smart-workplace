@@ -126,10 +126,13 @@ export function useClearWorkspaceAssistant() {
 }
 
 // 관리자 — AGENT 의 저장된 자격증명 기준 모델 목록. userId 미지정(null) 이면 비활성화.
+// WP-1405: 5분 동안 새로 받지 않는다 — 상세 화면을 열 때마다 ai-agent → Anthropic 조회를 반복하지 않게. 연결·다시 연결·끊기는
+// invalidateConnection(useAgentProviderCredential) 이 이 키를 무효화하므로 연결이 바뀐 목록이 남지 않는다.
 export function useAgentModels(userId: number | null) {
   return useQuery({
     queryKey: providerModelsKeys.forAgent(userId),
     enabled: userId != null,
+    staleTime: 5 * 60_000,
     queryFn: () => getAgentModels(userId as number),
   });
 }
