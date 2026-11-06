@@ -119,7 +119,7 @@ public class CycleRepository {
     }
   }
 
-  /** 사이클 이름 유일 인덱스(V269, 대소문자 무시) — 이 위반만 이름 중복(409)으로 옮긴다(WP-1393). */
+  /** 사이클 이름 유일 인덱스(V270, 대소문자 무시) — 이 위반만 이름 중복(409)으로 옮긴다(WP-1393). */
   private static final String NAME_UNIQUE_INDEX = "uq_cycle_project_lower_name";
 
   /** 사이클 hard-delete (issue_cycle cascade). */
