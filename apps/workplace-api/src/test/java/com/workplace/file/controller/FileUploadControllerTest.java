@@ -119,4 +119,52 @@ class FileUploadControllerTest extends WebMvcSliceTestBase {
         // WP-1323: 드라이브 원본도 이 경로로 읽을 수 있어 html·svg 가 이 출처로 실행되지 않게 샌드박스.
         .andExpect(header().string("Content-Security-Policy", "sandbox"));
   }
+
+  /** GET /files/{id}/content — WP-1406: html 은 inline 이 아니라 attachment 로 내려 API 출처에서 렌더되지 않게 한다. */
+  @Test
+  void getFileContent_html_returnsAttachment() throws Exception {
+    byte[] data = "<html></html>".getBytes();
+    FileContentResult result =
+        new FileContentResult(new ByteArrayResource(data), "text/html", "page.html", data.length);
+    when(fileUploadService.getFileContent(anyLong(), anyLong())).thenReturn(result);
+
+    mockMvc
+        .perform(get("/api/v1/files/1/content").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(
+            header()
+                .string("Content-Disposition", org.hamcrest.Matchers.containsString("attachment")));
+  }
+
+  /** GET /files/{id}/content — WP-1406: svg 도 이미지 4종 밖이라 attachment 로 내려 준다. */
+  @Test
+  void getFileContent_svg_returnsAttachment() throws Exception {
+    byte[] data = "<svg/>".getBytes();
+    FileContentResult result =
+        new FileContentResult(
+            new ByteArrayResource(data), "image/svg+xml", "icon.svg", data.length);
+    when(fileUploadService.getFileContent(anyLong(), anyLong())).thenReturn(result);
+
+    mockMvc
+        .perform(get("/api/v1/files/1/content").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(
+            header()
+                .string("Content-Disposition", org.hamcrest.Matchers.containsString("attachment")));
+  }
+
+  /** GET /files/{id}/content — WP-1406: 이미지 4종(png) 은 기존처럼 inline 으로 내려 준다. */
+  @Test
+  void getFileContent_image_returnsInline() throws Exception {
+    byte[] data = "png-bytes".getBytes();
+    FileContentResult result =
+        new FileContentResult(new ByteArrayResource(data), "image/png", "shot.png", data.length);
+    when(fileUploadService.getFileContent(anyLong(), anyLong())).thenReturn(result);
+
+    mockMvc
+        .perform(get("/api/v1/files/1/content").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(
+            header().string("Content-Disposition", org.hamcrest.Matchers.containsString("inline")));
+  }
 }
