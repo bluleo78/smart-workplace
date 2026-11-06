@@ -3,6 +3,7 @@ package com.workplace.auth.service;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
+import com.workplace.global.util.Texts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -29,8 +30,7 @@ class AssistantSettingsWriter {
       configRepo.upsert(agentId, model, depth, cur.maxTurns(), cur.timeoutMs());
     }
     if (req.hasSuggestionModel()) {
-      String s = req.suggestionModel();
-      configRepo.updateSuggestionModel(agentId, s == null || s.isBlank() ? null : s.strip());
+      configRepo.updateSuggestionModel(agentId, Texts.stripToNull(req.suggestionModel()));
     }
     // WP-250: 이미지 입력 지정 — 같은 요청에 모델이 있으면 그 새 모델, 없으면 지금 모델에 건다(등록 후 모델만 바꿔도 다시 지정할 수 있게).
     if (req.hasVision()) {

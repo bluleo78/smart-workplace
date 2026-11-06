@@ -207,7 +207,8 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
             .id();
 
     assertThatThrownBy(() -> spaceService.addMember(owner, personal, other, "OWNER"))
-        .isInstanceOf(WikiSpaceTypeNotEditableException.class);
+        .isInstanceOf(WikiSpaceTypeNotEditableException.class)
+        .hasMessage("팀 공간만 멤버를 바꾸거나 삭제할 수 있습니다");
     assertThatThrownBy(() -> spaceService.changeRole(owner, personal, owner, "VIEWER"))
         .isInstanceOf(WikiSpaceTypeNotEditableException.class);
     assertThatThrownBy(() -> spaceService.removeMember(owner, personal, owner))
@@ -216,6 +217,22 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
     assertThat(spaceService.listMembers(owner, personal))
         .singleElement()
         .satisfies(m -> assertThat(m.userId()).isEqualTo(owner));
+  }
+
+  /** WP-1397 — 개인 공간 삭제 거절 문구가 멤버 변경만 말해 엉뚱했다 — 삭제도 막힌다고 안내한다. */
+  @Test
+  void personalSpace_delete_isRejectedWithDeleteGuidance() {
+    long owner = seedUser();
+    long personal =
+        spaceService.listMySpaces(owner).stream()
+            .filter(sp -> "PERSONAL".equals(sp.type()))
+            .findFirst()
+            .orElseThrow()
+            .id();
+
+    assertThatThrownBy(() -> spaceService.deleteTeamSpace(owner, personal))
+        .isInstanceOf(WikiSpaceTypeNotEditableException.class)
+        .hasMessage("팀 공간만 멤버를 바꾸거나 삭제할 수 있습니다");
   }
 
   /** WP-557 — 「멤버 추가」로 이미 멤버인 마지막 OWNER 의 역할을 낮추는 것도 막는다(업서트로 WP-496 가드를 우회했다). */

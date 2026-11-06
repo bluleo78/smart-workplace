@@ -270,8 +270,8 @@ public class WikiSpaceService {
   }
 
   /**
-   * TEAM 공간이 아니면 멤버 변경을 거부한다(WP-495) — 개인 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 공간 목록이 영구히 열리지 않는다. 드라이브 공간의
-   * 같은 가드(DriveSpaceService.requireTeamSpace)와 같은 규칙.
+   * TEAM 공간이 아니면 멤버 변경·공간 삭제를 거부한다(WP-495, 삭제 포함 WP-1397) — 개인 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 공간 목록이
+   * 영구히 열리지 않는다. 드라이브 공간의 같은 가드(DriveSpaceService.requireTeamSpace)와 같은 규칙.
    */
   private void requireTeamSpace(long spaceId) {
     String type =

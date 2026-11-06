@@ -42,6 +42,14 @@ public final class Texts {
   }
 
   /**
+   * 앞뒤 공백을 떼고, 남는 것이 없으면 null — 모델명처럼 사람이 붙여 넣는 식별자를 저장할 때 쓴다(WP-1395 — 공백만 든 값이 그대로 저장돼 기본값으로 대체되지
+   * 않았고, 앞뒤 공백이 붙은 이름은 실행기가 찾지 못했다).
+   */
+  public static String stripToNull(String s) {
+    return s == null || s.isBlank() ? null : s.strip();
+  }
+
+  /**
    * 앞뒤 공백을 떼고 대소문자를 무시해 같은 이름인가 — Outlook 범주 이름·메일 주소처럼 표기가 조금 달라도 같은 것으로 보는 비교. 어느 쪽이든 null 이면 같지
    * 않다.
    */

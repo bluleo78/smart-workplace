@@ -2,6 +2,7 @@ package com.workplace.auth.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.auth.service.ThinkingDepths;
+import com.workplace.global.util.Texts;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -36,8 +37,12 @@ public class UpdateAssistantSettingsRequest {
   private boolean suggestionModelPresent;
   private boolean visionPresent;
 
+  /**
+   * 저장·감사 기록에 쓸 모델명. 공백만 든 값은 null(= 기본 모델), 앞뒤 공백은 뗀다 — " " 가 그대로 저장되면 읽는 쪽이 null 만 기본 모델로 바꿔 모델명이
+   * 공백으로 나갔다(WP-1395). 추천 모델·등록 경로와 같은 규칙(Texts.stripToNull).
+   */
   public String model() {
-    return model;
+    return Texts.stripToNull(model);
   }
 
   public String thinkingDepth() {
