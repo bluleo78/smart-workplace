@@ -86,3 +86,34 @@ describe('TaskRecurrenceField 「지금 실행」(WP-1313)', () => {
     expect(await screen.findByText('이미 실행 중입니다 — 결과가 채팅에 남은 뒤 다시 실행하세요')).toBeInTheDocument()
   })
 })
+
+// WP-1413: 요약은 두 줄 — 1줄 봇 아이콘 + AI 이름, 2줄 반복 아이콘 + 일정(흐린 작은 글자). 한 번만은 되풀이가 아니라 반복 아이콘이 없다.
+// 접근성 이름은 예전처럼 한 줄 문구(「AI 에게 맡기기: …」)다.
+describe('TaskRecurrenceField 요약 두 줄(WP-1413)', () => {
+  it('AI 이름 줄과 일정 줄로 나눠 보이고, 시간대 있는 몇 시간마다는 「평일 07~21시 · 2시간마다」', async () => {
+    setup(recurrence({ rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=21:00', time: '07:00', agentName: 'AI 이슈 관리자' }))
+    const trigger = await screen.findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(screen.getByTestId('task-recurrence-trigger-agent')).toHaveTextContent('AI 이슈 관리자'))
+    expect(screen.getByTestId('task-recurrence-trigger-schedule')).toHaveTextContent(/^평일 07~21시 · 2시간마다$/)
+    expect(screen.getByTestId('task-recurrence-trigger-repeat')).toBeInTheDocument()
+    expect(trigger).toHaveAccessibleName('AI 에게 맡기기: AI 이슈 관리자 · ↻ 평일 07~21시 · 2시간마다')
+  })
+
+  it('시간대 없는 몇 시간마다(00:00~23:59)는 「평일 · 2시간마다」', async () => {
+    setup(recurrence({ rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59', time: '00:00' }))
+    expect(await screen.findByTestId('task-recurrence-trigger-schedule')).toHaveTextContent(/^평일 · 2시간마다$/)
+  })
+
+  it('한 번만은 반복 아이콘 없이 일정 줄을 보인다', async () => {
+    setup(recurrence({ rrule: 'FREQ=ONCE;DATE=2026-11-03', time: '08:30' }))
+    expect(await screen.findByTestId('task-recurrence-trigger-schedule')).toHaveTextContent('한 번만 11/3(화) 08:30')
+    expect(screen.queryByTestId('task-recurrence-trigger-repeat')).toBeNull()
+  })
+
+  it('일정이 없으면 한 줄 「안 함」', async () => {
+    setup(null)
+    await waitFor(() => expect(screen.getByTestId('task-recurrence-trigger')).toBeEnabled())
+    expect(screen.getByTestId('task-recurrence-trigger')).toHaveTextContent(/^안 함$/)
+    expect(screen.queryByTestId('task-recurrence-trigger-schedule')).toBeNull()
+  })
+})

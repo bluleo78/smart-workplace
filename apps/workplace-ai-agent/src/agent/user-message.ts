@@ -142,19 +142,22 @@ function parseHourly(rrule: string): HourlyRule | null {
 function hourlyRoundRule(interval: number | null): string {
   const cadence = interval === null ? '여러 시간 간격으로' : `${interval}시간마다`;
   return (
-    `- 이 작업은 정한 시간대 안에서 ${cadence} 도는 일정입니다. ` +
+    // WP-1413: 시간대를 정하지 않은(하루 종일) 일정도 있어 「정한 시간대 안에서」라고 쓰지 않는다 — 시간대는 위 반복 줄에 있다.
+    `- 이 작업은 ${cadence} 도는 일정입니다. ` +
     `지난 회차 결과를 실제로 읽어 비교할 수 있을 때(위 「담당 AI 가 이슈챗에 남긴 마지막 글」이 있으면 그것과)만 비교하고, 지난 회차와 바뀐 것이 없다고 확인했으면 「지난 회차 이후 바뀐 것이 없습니다」처럼 한 줄로만 남기세요. ` +
     `지난 결과를 볼 수 없어 바뀐 것이 없는지 확인할 수 없으면 짐작하지 말고 평소처럼 결과를 쓰세요.\n`
   );
 }
 
 // 반복 일정 줄. 몇 시간마다(WP-1373)는 원문 규칙과 시작 시각 하나만 적으면 그 시각에만 도는 것으로 읽히므로
-// 「반복: 평일 09:00~18:00 2시간마다 (KST)」처럼 요일·시간대·간격을 사람 말로 적는다. 한 부분이라도 읽을 수 없으면 지어내지 않고
+// 「반복: 평일 09:00~18:00 2시간마다 (KST)」(시간대 없으면 「평일 하루 종일 2시간마다」, WP-1413)처럼 요일·시간대·간격을 사람 말로 적는다. 한 부분이라도 읽을 수 없으면 지어내지 않고
 // 다른 빈도처럼 원문 규칙 · 시각으로 적는다.
 function recurringScheduleLine(p: IssueRecurringRunPayload, hourly: HourlyRule | null): string {
   const { rrule, time } = p.recurrence;
   if (hourly && hourly.interval !== null && hourly.days && hourly.until) {
-    return `반복: ${hourly.days} ${time}~${hourly.until} ${hourly.interval}시간마다 (KST)\n`;
+    // WP-1413: 시간대를 정하지 않은 일정은 웹이 시작 00:00 + 끝 23:59 로 저장한다 — 「00:00~23:59」 대신 「하루 종일」로 적는다.
+    const window = time === '00:00' && hourly.until === '23:59' ? '하루 종일' : `${time}~${hourly.until}`;
+    return `반복: ${hourly.days} ${window} ${hourly.interval}시간마다 (KST)\n`;
   }
   return `반복: ${rrule} · ${time} KST\n`;
 }

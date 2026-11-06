@@ -1,6 +1,6 @@
 // 개인 작업 반복 편집기의 매월 여러 날짜(WP-1117) — API·AI 로 저장된 「1,15」를 열면 나머지 날짜를 알리고, 그대로 저장해도 빠지지 않는다.
 // 서버 저장 배선(PUT 요청)은 e2e personal-project 반복 시트 테스트가 본다 — 여기서는 저장 훅을 끊고 보내는 값만 본다.
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -201,12 +201,16 @@ describe('TaskRecurrenceEditor 몇 시간마다(WP-1373)', () => {
       expect(screen.getByRole('button', { name: `${d}요일` })).toHaveAttribute('aria-pressed', 'true')
     }
     expect(screen.getByRole('button', { name: '토요일' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByTestId('task-recurrence-hourly-preview')).toHaveTextContent('09:00 · 11:00 · 13:00 · 15:00 · 17:00 에 실행 (하루 5회)')
+    // WP-1413: 시간대는 기본 꺼짐(하루 종일) — 시각 칸 없이 00:00 부터의 회차를 미리 보인다.
+    expect(screen.getByRole('switch', { name: '시간대 정하기' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.queryByTestId('task-recurrence-start')).toBeNull()
+    expect(screen.getByTestId('task-recurrence-hourly-preview')).toHaveTextContent('하루 종일 — 00:00 · 02:00 · 04:00 · … · 22:00 에 실행 (하루 12회)')
   })
 
   it('간격·요일을 바꿔 저장하면 HOURLY 규칙과 시작 시각을 보낸다', async () => {
     renderWithProviders(<TaskRecurrenceEditor projectKey="TM" number={3} recurrence={null} onDone={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: '몇 시간마다' }))
+    await userEvent.click(screen.getByRole('switch', { name: '시간대 정하기' }))
     await userEvent.click(screen.getByRole('button', { name: '3시간마다' }))
     await userEvent.click(screen.getByRole('button', { name: '금요일' }))
     await userEvent.click(screen.getByRole('button', { name: '토요일' }))
@@ -216,10 +220,57 @@ describe('TaskRecurrenceEditor 몇 시간마다(WP-1373)', () => {
     expect(saved.bodies).toEqual([{ rrule: 'FREQ=HOURLY;INTERVAL=3;BYDAY=MO,TU,WE,TH,SA;UNTILTIME=18:00', time: '09:00', agentUserId: 5 }])
   })
 
+  // WP-1413: 시간대를 정하지 않으면 하루 종일 — 서버는 그대로이므로 00:00 부터 23:59 까지로 보낸다.
+  it('시간대 꺼짐(기본)으로 저장하면 시작 00:00·UNTILTIME=23:59 를 보낸다', async () => {
+    renderWithProviders(<TaskRecurrenceEditor projectKey="TM" number={3} recurrence={null} onDone={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: '몇 시간마다' }))
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(saved.bodies).toEqual([{ rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59', time: '00:00', agentUserId: 5 }])
+  })
+
+  it('하루 종일로 저장된 일정은 스위치 꺼짐으로 열리고, 그대로 저장하면 같은 규칙을 보낸다', async () => {
+    renderWithProviders(
+      <TaskRecurrenceEditor
+        projectKey="ME"
+        number={3}
+        recurrence={{ ...recurrence('FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59'), time: '00:00' }}
+        onDone={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('switch', { name: '시간대 정하기' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.queryByTestId('task-recurrence-start')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(saved.bodies).toEqual([{ rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59', time: '00:00', agentUserId: 9 }])
+  })
+
+  it('스위치를 끄고 다시 켜면 입력했던 시각이 되살아나고, 끈 채 저장하면 하루 종일로 보낸다', async () => {
+    renderWithProviders(<TaskRecurrenceEditor projectKey="TM" number={3} recurrence={null} onDone={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: '몇 시간마다' }))
+    const sw = screen.getByRole('switch', { name: '시간대 정하기' })
+    await userEvent.click(sw)
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+    fireEvent.change(screen.getByTestId('task-recurrence-start'), { target: { value: '07:00' } })
+    fireEvent.change(screen.getByTestId('task-recurrence-until'), { target: { value: '21:00' } })
+    expect(screen.getByTestId('task-recurrence-hourly-preview')).toHaveTextContent('07:00 · 09:00 · 11:00 · … · 21:00 에 실행 (하루 8회)')
+
+    await userEvent.click(sw)
+    expect(screen.queryByTestId('task-recurrence-start')).toBeNull()
+    expect(screen.getByTestId('task-recurrence-hourly-preview')).toHaveTextContent(/^하루 종일 — /)
+    await userEvent.click(sw)
+    expect(screen.getByTestId('task-recurrence-start')).toHaveValue('07:00')
+    expect(screen.getByTestId('task-recurrence-until')).toHaveValue('21:00')
+
+    await userEvent.click(sw)
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(saved.bodies).toEqual([{ rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59', time: '00:00', agentUserId: 5 }])
+  })
+
   it('저장된 몇 시간마다 일정을 열면 그 값으로 보이고, 그대로 저장하면 같은 규칙을 보낸다', async () => {
     open('FREQ=HOURLY;INTERVAL=4;BYDAY=SA,SU;UNTILTIME=21:00')
     expect(screen.getByRole('button', { name: '몇 시간마다' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '4시간마다' })).toHaveAttribute('aria-pressed', 'true')
+    // 시간대가 있는 일정은 스위치 켬(WP-1413).
+    expect(screen.getByRole('switch', { name: '시간대 정하기' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByTestId('task-recurrence-start')).toHaveValue('09:00')
     expect(screen.getByTestId('task-recurrence-until')).toHaveValue('21:00')
     await userEvent.click(screen.getByRole('button', { name: '저장' }))

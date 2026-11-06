@@ -455,7 +455,7 @@ describe('AI 에게 맡기기(WP-1314)', () => {
     await user.click(within(pop).getByRole('button', { name: '저장' }))
 
     await waitFor(() => expect(puts).toEqual([{ rrule: 'FREQ=DAILY', time: '09:00', agentUserId: 7 }]))
-    await waitFor(() => expect(within(group).getByTestId('task-recurrence-trigger')).toHaveTextContent('팀 AI · ↻ 매일 09:00'))
+    await waitFor(() => expect(within(group).getByTestId('task-recurrence-trigger')).toHaveAccessibleName('AI 에게 맡기기: 팀 AI · ↻ 매일 09:00'))
   })
 
   test('남의 개인 비서 일정은 요약만 보이고, 열면 주인만 바꿀 수 있다는 안내와 함께 저장·끄기가 없다', async () => {
@@ -470,7 +470,7 @@ describe('AI 에게 맡기기(WP-1314)', () => {
       ],
     })
     const trigger = await within(screen.getByTestId('property-group-ai-handoff')).findByTestId('task-recurrence-trigger')
-    await waitFor(() => expect(trigger).toHaveTextContent('앨리스 비서 · ↻ 매주 월 08:30'))
+    await waitFor(() => expect(trigger).toHaveAccessibleName('AI 에게 맡기기: 앨리스 비서 · ↻ 매주 월 08:30'))
     // WP-1313: 「지금 실행」도 주인만 — 잠그고 이유를 보인다.
     expect(screen.getByTestId('task-recurrence-run-now')).toBeDisabled()
     expect(screen.getByTestId('task-recurrence-run-now-reason')).toHaveAccessibleName(/주인만 실행할 수 있어요/)

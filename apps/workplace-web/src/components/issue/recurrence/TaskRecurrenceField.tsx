@@ -1,13 +1,14 @@
 // 이슈 상세(데스크톱 개인 작업·팀 이슈)의 「AI 에게 맡기기」 속성(WP-989, WP-1314) — 요약 버튼(「내 AI 비서 · ↻ 매주 월·수 08:30」/「안 함」)
 // + 상태 줄(다음 실행·멈춤), 누르면 편집기 팝오버. 일정 조회는 이 칸이 있을 때만 한다.
 // WP-1313: 일정이 있으면 상태 줄 옆에 「지금 실행」 — 다음 회차를 기다리지 않고 한 번 실행한다(결과는 채팅에 「테스트 실행」으로).
-import { Bot } from 'lucide-react';
+// WP-1413: 요약을 두 줄로 — 1줄 봇 아이콘 + AI 이름, 2줄 반복 아이콘 + 일정(흐린 작은 글자). AI 이름이 먼저 읽히고 긴 일정이 이름과 섞여 꺾이지 않게.
+import { Bot, Repeat } from 'lucide-react';
 import { useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { useIssueRecurrence } from '@/hooks/queries/useIssueRecurrence';
-import { aiHandoffLabel } from '@/lib/issueRecurrence';
+import { aiHandoffLabel, aiHandoffParts } from '@/lib/issueRecurrence';
 import { cn } from '@/lib/utils';
 
 import { RecurrenceRunNowButton } from './RecurrenceRunNowButton';
@@ -26,7 +27,9 @@ export function TaskRecurrenceField({
   const [open, setOpen] = useState(false);
   const q = useIssueRecurrence(projectKey, number);
   const r = q.data ?? null;
+  // 접근성 이름은 한 줄 문구 그대로, 화면은 부분(AI 이름·일정)으로 두 줄을 그린다(WP-1413).
   const text = aiHandoffLabel(r);
+  const parts = aiHandoffParts(r);
   // 조회 실패 — 「반복 안 함」으로 보이면 없는 줄 알고 새로 만들어 덮어쓸 수 있다. 실패를 알리고 다시 시도만 둔다(편집 막음).
   if (q.isError) {
     return (
@@ -58,7 +61,24 @@ export function TaskRecurrenceField({
           >
             {/* 여러 줄일 때 아이콘은 첫 줄 가운데에 맞춘다(글줄 20px − 아이콘 16px = 위 2px). */}
             <Bot className="mt-0.5 h-4 w-4" aria-hidden />
-            <span className="min-w-0 break-words">{text}</span>
+            {parts ? (
+              <span className="flex min-w-0 flex-col">
+                <span className="break-words" data-testid="task-recurrence-trigger-agent">
+                  {parts.agent}
+                </span>
+                {/* 일정 줄 — 반복 아이콘과 흐린 작은 글자. 한 번만은 되풀이가 아니라 아이콘을 두지 않는다(한 줄 문구의 ↻ 와 같은 규칙). */}
+                <span className="flex items-start gap-1 text-xs font-normal text-muted-foreground">
+                  {parts.repeating && (
+                    <Repeat className="mt-0.5 size-3 shrink-0" aria-hidden data-testid="task-recurrence-trigger-repeat" />
+                  )}
+                  <span className="min-w-0 break-words" data-testid="task-recurrence-trigger-schedule">
+                    {parts.schedule}
+                  </span>
+                </span>
+              </span>
+            ) : (
+              <span className="min-w-0 break-words">{text}</span>
+            )}
           </Button>
         </PopoverTrigger>
         {/* 「몇 시간마다」(WP-1373)를 고르면 간격·시간대·요일이 펼쳐져 키가 커진다 — 화면 높이를 넘으면 위가 잘려

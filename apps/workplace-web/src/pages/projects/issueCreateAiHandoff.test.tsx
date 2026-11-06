@@ -226,20 +226,42 @@ describe('새 이슈 대화상자 — AI 에게 맡기기 (WP-1315)', () => {
     await waitFor(() => expect(within(dialog).getByRole('button', { name: '만들기만' })).toBeInTheDocument())
 
     await user.click(within(panel).getByRole('button', { name: '몇 시간마다' }))
-    // 기본 평일 09:00~18:00 2시간마다 — 지금(화 08:00) 다음 회차는 오늘 09:00.
-    expect(within(dialog).getByTestId('create-ai-handoff-summary')).toHaveTextContent('내 AI 비서 · ↻ 평일 09~18시 2시간마다')
+    // WP-1413: 기본은 시간대 꺼짐(하루 종일) 평일 2시간마다 — 지금(화 08:00) 다음 회차는 오늘 10:00.
+    expect(within(dialog).getByTestId('create-ai-handoff-summary')).toHaveTextContent('내 AI 비서 · ↻ 평일 · 2시간마다')
+    expect(within(panel).getByTestId('task-recurrence-hourly-preview')).toHaveTextContent('하루 종일 — 00:00 · 02:00 · 04:00 · … · 22:00 에 실행 (하루 12회)')
+    expect(within(panel).getByTestId('create-ai-handoff-next')).toHaveTextContent('다음 실행 11/3(화) 10:00')
+    // 시간대를 켜면 기본 09:00~18:00 — 다음 회차는 오늘 09:00.
+    await user.click(within(panel).getByRole('switch', { name: '시간대 정하기' }))
+    expect(within(dialog).getByTestId('create-ai-handoff-summary')).toHaveTextContent('내 AI 비서 · ↻ 평일 09~18시 · 2시간마다')
     expect(within(panel).getByTestId('task-recurrence-hourly-preview')).toHaveTextContent('09:00 · 11:00 · 13:00 · 15:00 · 17:00 에 실행 (하루 5회)')
     expect(within(panel).getByTestId('create-ai-handoff-next')).toHaveTextContent('다음 실행 11/3(화) 09:00')
     fireEvent.change(within(panel).getByLabelText('시작 시각 (한국 시간)'), { target: { value: '07:00' } })
     // 07:00 부터 2시간마다 — 07:00 은 지났으니 09:00.
     expect(within(panel).getByTestId('create-ai-handoff-next')).toHaveTextContent('다음 실행 11/3(화) 09:00')
-    expect(within(dialog).getByTestId('create-ai-handoff-summary')).toHaveTextContent('평일 07~18시 2시간마다')
+    expect(within(dialog).getByTestId('create-ai-handoff-summary')).toHaveTextContent('평일 07~18시 · 2시간마다')
 
     await user.click(within(dialog).getByRole('button', { name: '만들기만' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 이슈' })).toBeNull())
     expect(sent.find((s) => s.call === 'PUT recurrence')?.body).toEqual({
       rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=18:00',
       time: '07:00',
+      agentUserId: 5,
+    })
+  })
+
+  // WP-1413: 만들기 창도 같은 칸 — 시간대를 정하지 않고 만들면 하루 종일(시작 00:00·UNTILTIME=23:59)로 저장한다.
+  test('몇 시간마다를 시간대 없이 만들면 시작 00:00·UNTILTIME=23:59 로 저장한다', async () => {
+    const { user, sent, dialog } = await openCreate()
+    await user.click(within(dialog).getByTestId('create-ai-handoff-toggle'))
+    const panel = await within(dialog).findByTestId('create-ai-handoff-panel')
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '만들기만' })).toBeInTheDocument())
+    await user.click(within(panel).getByRole('button', { name: '몇 시간마다' }))
+
+    await user.click(within(dialog).getByRole('button', { name: '만들기만' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 이슈' })).toBeNull())
+    expect(sent.find((s) => s.call === 'PUT recurrence')?.body).toEqual({
+      rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59',
+      time: '00:00',
       agentUserId: 5,
     })
   })

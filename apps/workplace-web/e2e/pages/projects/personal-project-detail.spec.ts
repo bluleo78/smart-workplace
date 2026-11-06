@@ -438,6 +438,18 @@ test('「몇 시간마다」를 골라 팝오버가 커져도 화면 안에 머�
   const popover = page.getByTestId('task-recurrence-popover');
   await popover.getByRole('button', { name: '몇 시간마다' }).click();
   await expect(popover.getByTestId('task-recurrence-hourly')).toBeVisible();
+  // WP-1413: 시간대를 켜면 「[시작] ~ [끝]」 칸이 더 펼쳐진다 — 가장 키가 큰 모양에서 본다. 두 시각 칸은 시안대로 한 줄에 놓이고,
+  // 간격 칩 뒤의 「시간마다」도 칩과 같은 줄이다(320px 팝오버에서 꺾이지 않는다).
+  await popover.getByRole('switch', { name: '시간대 정하기' }).click();
+  const [start, until, chip12, unit] = await Promise.all([
+    boxOf(popover.getByTestId('task-recurrence-start')),
+    boxOf(popover.getByTestId('task-recurrence-until')),
+    boxOf(popover.getByRole('button', { name: '12시간마다' })),
+    boxOf(popover.getByTestId('task-recurrence-hourly').getByText('시간마다', { exact: true })),
+  ]);
+  expect(Math.abs(start.y - until.y), `시작 y ${start.y} vs 끝 y ${until.y}`).toBeLessThanOrEqual(1);
+  expect(unit.x, `「시간마다」 x ${unit.x} vs 12 칩 끝 ${chip12.x + chip12.width}`).toBeGreaterThanOrEqual(chip12.x + chip12.width);
+  expect(Math.abs(unit.y + unit.height / 2 - (chip12.y + chip12.height / 2))).toBeLessThanOrEqual(2);
 
   // 팝오버 상자가 화면(0~900) 안에 온전히 있다 — 위가 잘리지 않는다.
   // 넓은 모달(WP-1374) 안에서는 트리거 위치가 소수 픽셀이라 아래 끝이 900.5 처럼 반 픽셀 걸칠 수 있다 — 1px 오차는 잘림이 아니다.
@@ -459,26 +471,35 @@ test('「몇 시간마다」를 골라 팝오버가 커져도 화면 안에 머�
 
 // WP-1388 — 「AI 에게 맡기기」 요약 버튼이 공용 Button 의 한 줄 고정(whitespace-nowrap·h-8)이라, 긴 담당 AI 이름 + 「몇 시간마다」 문구가
 // 속성 레일(300px) 밖으로 넘쳐 잘렸다. 긴 문구는 레일 폭 안에서 줄바꿈해 모두 보이고, 짧은 문구는 예전처럼 한 줄 높이를 지킨다.
-// jsdom 은 줄바꿈·넘침을 잴 수 없어 브라우저에서 기하로 확인한다.
+// WP-1413 — 요약을 두 줄(1줄 AI 이름, 2줄 반복 아이콘 + 일정)로 나눴다. 레일 폭에서 각 줄이 한 줄로 머물고(일정이 이름과 섞여 꺾이지 않고)
+// 버튼이 레일 밖으로 넘치지 않는지 본다. jsdom 은 줄바꿈·넘침을 잴 수 없어 브라우저에서 기하로 확인한다.
 for (const c of [
   {
-    name: '긴 문구는 레일 안에서 줄바꿈해 모두 보인다',
+    name: '긴 AI 이름 + 시간대 있는 몇 시간마다',
     rrule: 'FREQ=HOURLY;INTERVAL=1;BYDAY=MO,WE,FR;UNTILTIME=18:00',
     time: '09:00',
     agentName: 'AI 이슈 관리자 운영팀',
-    label: 'AI 이슈 관리자 운영팀 · ↻ 월·수·금 09~18시 1시간마다',
-    wrapped: true,
+    schedule: '월·수·금 09~18시 · 1시간마다',
+    short: false,
   },
   {
-    name: '짧은 문구는 한 줄 높이 그대로다',
+    name: '시안의 「평일 07~21시 · 2시간마다」',
+    rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=21:00',
+    time: '07:00',
+    agentName: 'AI 이슈 관리자',
+    schedule: '평일 07~21시 · 2시간마다',
+    short: false,
+  },
+  {
+    name: '짧은 문구는 글자 폭만큼만 차지한다',
     rrule: 'FREQ=WEEKLY;BYDAY=MO',
     time: '08:30',
     agentName: '내 AI 비서',
-    label: '내 AI 비서 · ↻ 매주 월 08:30',
-    wrapped: false,
+    schedule: '매주 월 08:30',
+    short: true,
   },
 ]) {
-  test(`「AI 에게 맡기기」 요약 버튼: ${c.name}(WP-1388)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  test(`「AI 에게 맡기기」 요약 버튼 두 줄: ${c.name}(WP-1388·WP-1413)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
     await mockTaskDetail(page);
@@ -497,28 +518,33 @@ for (const c of [
     await page.goto(`/projects/${KEY}?task=1`);
 
     const trigger = page.getByTestId('task-recurrence-trigger');
-    // 문구 전체가 말줄임 없이 들어 있다.
-    await expect(trigger).toHaveText(c.label);
+    const agentLine = trigger.getByTestId('task-recurrence-trigger-agent');
+    const scheduleLine = trigger.getByTestId('task-recurrence-trigger-schedule');
+    // 문구 전체가 말줄임 없이 두 줄로 들어 있다.
+    await expect(agentLine).toHaveText(c.agentName);
+    await expect(scheduleLine).toHaveText(c.schedule);
 
     // 트리거 오른쪽 끝이 레일 안쪽(오른쪽 padding 을 뺀 끝)을 넘지 않는다 — 소수 픽셀 1px 오차는 허용.
     const rail = page.getByTestId('personal-task-rail');
-    const [t, r, railPadRight, { scrollWidth, clientWidth }] = await Promise.all([
+    const [t, r, a, sc, railPadRight, { scrollWidth, clientWidth }, lineHeights] = await Promise.all([
       boxOf(trigger),
       boxOf(rail),
+      boxOf(agentLine),
+      boxOf(scheduleLine),
       rail.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight)),
       trigger.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })),
+      Promise.all([agentLine, scheduleLine].map((l) => l.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight)))),
     ]);
     const railInnerRight = r.x + r.width - railPadRight;
     expect(t.x + t.width, `트리거 끝 ${t.x + t.width} vs 레일 안쪽 끝 ${railInnerRight}`).toBeLessThanOrEqual(railInnerRight + 1);
     // 글자가 버튼 밖으로 넘치지 않는다(가로 스크롤 폭 = 보이는 폭).
     expect(scrollWidth, `scrollWidth ${scrollWidth} vs clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth + 1);
-
-    // 긴 문구는 두 줄 이상(한 줄 32px 보다 확실히 크다), 짧은 문구는 예전 h-8(32px) 근처 한 줄.
-    if (c.wrapped) expect(t.height, `긴 문구 높이 ${t.height}`).toBeGreaterThan(40);
-    else {
-      expect(t.height, `짧은 문구 높이 ${t.height}`).toBeLessThanOrEqual(36);
-      // 짧은 문구는 레일 폭으로 늘어나지 않고 글자 폭만큼만 차지한다(옆 피커들과 같은 모양).
-      expect(t.width, `짧은 문구 폭 ${t.width} vs 레일 안쪽 폭 ${railInnerRight - r.x}`).toBeLessThan(railInnerRight - r.x - 40);
-    }
+    // 각 줄은 한 줄 높이 그대로다 — 이름·일정이 레일 폭에서 꺾이지 않는다.
+    expect(a.height, `이름 줄 높이 ${a.height} vs 줄 높이 ${lineHeights[0]}`).toBeLessThanOrEqual(lineHeights[0] + 1);
+    expect(sc.height, `일정 줄 높이 ${sc.height} vs 줄 높이 ${lineHeights[1]}`).toBeLessThanOrEqual(lineHeights[1] + 1);
+    // 일정 줄은 이름 줄 아래에 있다.
+    expect(sc.y).toBeGreaterThanOrEqual(a.y + a.height - 1);
+    // 짧은 문구는 레일 폭으로 늘어나지 않고 글자 폭만큼만 차지한다(옆 피커들과 같은 모양).
+    if (c.short) expect(t.width, `짧은 문구 폭 ${t.width} vs 레일 안쪽 폭 ${railInnerRight - r.x}`).toBeLessThan(railInnerRight - r.x - 40);
   });
 }
