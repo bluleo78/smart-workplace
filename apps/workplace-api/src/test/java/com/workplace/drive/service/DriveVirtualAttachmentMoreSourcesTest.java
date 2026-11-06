@@ -550,11 +550,12 @@ class DriveVirtualAttachmentMoreSourcesTest extends IntegrationTestBase {
   // ─── 드라이브로 가져간 본문 이미지·노트 첨부의 수명 ──────────────────────────
 
   /**
-   * 드라이브로 가져간 본문 이미지는 본문에서 빠지거나 이슈가 지워져도 강등(만료 재무장)되지 않는다 — 가져오기는 같은 file 행을 공유하므로, 만료가 다시 걸리면 만료
-   * 스윕이 드라이브 파일의 원본까지 지운다. 가져가지 않은 이미지는 그대로 강등된다.
+   * 드라이브로 가져간 본문 이미지도 본문에서 빠지면 강등 표시(demoted_at)는 되어 첨부 모아보기에서 사라지지만, 만료는 걸리지 않는다(WP-1392) — 가져오기는
+   * 같은 file 행을 공유하므로, 만료가 다시 걸리면 만료 스윕이 드라이브 파일의 원본까지 지운다. 가져가지 않은 이미지는 그대로 강등(만료 재무장)된다. 다시 본문에
+   * 넣으면 강등 표시가 풀려 다시 보인다.
    */
   @Test
-  void importedBodyImage_notDemoted_whenRemovedFromIssue() {
+  void importedBodyImage_demotedButNotExpired_whenRemovedFromIssue() {
     long caller = seedUser("dm");
     long driveSpace = seedDriveSpace(caller);
     ProjectResponse proj = newProject(caller, "DM");
@@ -572,18 +573,33 @@ class DriveVirtualAttachmentMoreSourcesTest extends IntegrationTestBase {
             + IssueBodyImageResponse.urlOf(proj.key(), plain);
     bodyImageService.syncIssueImages(row, issue.id(), caller, before, "이미지 없음");
 
-    assertThat(expiresAt(imported)).as("가져간 이미지").isNull();
-    assertThat(demotedAtBody(imported)).isNull();
+    assertThat(expiresAt(imported)).as("가져간 이미지 — file 은 드라이브 몫").isNull();
+    assertThat(demotedAtBody(imported)).as("가져간 이미지도 강등 표시").isNotNull();
     assertThat(expiresAt(plain)).as("가져가지 않은 이미지").isNotNull();
+    assertThat(demotedAtBody(plain)).isNotNull();
+    assertThat(service.virtualAttachments(caller, "ISSUE", null, null, 50).items())
+        .as("본문에서 뺀 이미지는 모아보기에서 빠진다")
+        .extracting(VirtualAttachmentResponse::fileId)
+        .doesNotContain(imported, plain);
+    assertThat(dsl.fetchExists(FILE, FILE.ID.eq(imported))).isTrue();
 
-    // 이슈 삭제의 일괄 강등도 같은 규칙
+    // 다시 본문에 넣으면 강등 표시가 풀려 다시 보인다
+    bodyImageService.syncIssueImages(
+        row, issue.id(), caller, "이미지 없음", IssueBodyImageResponse.urlOf(proj.key(), imported));
+    assertThat(demotedAtBody(imported)).isNull();
+    assertThat(service.virtualAttachments(caller, "ISSUE", null, null, 50).items())
+        .extracting(VirtualAttachmentResponse::fileId)
+        .containsExactly(imported);
+
+    // 이슈 삭제의 일괄 강등도 같은 규칙 — 표시는 하고 만료는 걸지 않는다
     bodyImageService.demoteAllOfIssues(List.of(issue.id()));
+    assertThat(demotedAtBody(imported)).isNotNull();
     assertThat(expiresAt(imported)).isNull();
   }
 
   /**
-   * 드라이브로 가져간 노트 첨부는 본문에서 빠져도 강등되지 않고, 첨부 삭제·페이지 회수에서도 file 행이 남는다(드라이브가 쓰는 행 — 지우면 드라이브 파일 원본이
-   * 사라지거나 FK 위반). 가져가지 않은 첨부는 그대로 강등·삭제된다.
+   * 드라이브로 가져간 노트 첨부는 본문에서 빠지면 강등 표시만 되고(모아보기에서 빠짐) 만료는 걸리지 않으며, 첨부 삭제·페이지 회수에서도 file 행이 남는다(드라이브가
+   * 쓰는 행 — 지우면 드라이브 파일 원본이 사라지거나 FK 위반). 가져가지 않은 첨부는 그대로 강등·삭제된다.
    */
   @Test
   void importedWikiAttachment_survivesDemoteDeleteAndReclaim() {
@@ -599,8 +615,13 @@ class DriveVirtualAttachmentMoreSourcesTest extends IntegrationTestBase {
     service.importAttachment(caller, driveSpace, null, imported);
 
     wikiAttachmentService.syncReferences(page, "");
-    assertThat(expiresAt(imported)).as("가져간 첨부").isNull();
+    assertThat(expiresAt(imported)).as("가져간 첨부 — file 은 드라이브 몫").isNull();
+    assertThat(demotedAtWiki(imported)).as("가져간 첨부도 강등 표시").isNotNull();
     assertThat(expiresAt(plain)).as("가져가지 않은 첨부").isNotNull();
+    assertThat(service.virtualAttachments(caller, "WIKI", null, null, 50).items())
+        .as("본문에서 뺀 첨부는 모아보기에서 빠진다")
+        .extracting(VirtualAttachmentResponse::fileId)
+        .doesNotContain(imported, plain);
 
     // 첨부 삭제 — 연결만 끊고 file 행은 드라이브 몫으로 남긴다
     wikiAttachmentService.delete(caller, page, imported);
@@ -644,6 +665,13 @@ class DriveVirtualAttachmentMoreSourcesTest extends IntegrationTestBase {
         .from(FILE)
         .where(FILE.ID.eq(fileId))
         .fetchOne(FILE.EXPIRES_AT);
+  }
+
+  private OffsetDateTime demotedAtWiki(long fileId) {
+    return dsl.select(WIKI_PAGE_ATTACHMENT.DEMOTED_AT)
+        .from(WIKI_PAGE_ATTACHMENT)
+        .where(WIKI_PAGE_ATTACHMENT.FILE_ID.eq(fileId))
+        .fetchOne(WIKI_PAGE_ATTACHMENT.DEMOTED_AT);
   }
 
   private OffsetDateTime demotedAtBody(long fileId) {

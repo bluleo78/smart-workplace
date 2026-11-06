@@ -20,8 +20,8 @@ public interface DriveFileUsage {
   Set<Long> referencedAmong(Collection<Long> fileIds);
 
   /**
-   * fileIds 중 드라이브가 쓰지 <b>않는</b> 것만 입력 순서대로 돌려준다(WP-1392) — 이슈 본문 이미지·노트 첨부의 강등·회수가 드라이브로 가져간 file
-   * 을 건드리지 않게 거르는 공용 판. 그 file 의 수명은 드라이브가 맡는다(WP-722 와 같은 규칙).
+   * fileIds 중 드라이브가 쓰지 <b>않는</b> 것만 입력 순서대로 돌려준다(WP-1392) — 이슈 본문 이미지·노트 첨부의 만료 스윕 보존 정책이 드라이브로 가져간
+   * file 을 판정·재무장하지 않게 거르는 공용 판. 그 file 의 수명은 드라이브가 맡는다(WP-722 와 같은 규칙).
    */
   default List<Long> withoutReferenced(Collection<Long> fileIds) {
     Set<Long> referenced = referencedAmong(fileIds);

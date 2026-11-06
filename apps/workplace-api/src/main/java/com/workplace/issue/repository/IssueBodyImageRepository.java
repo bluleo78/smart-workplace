@@ -219,6 +219,27 @@ public class IssueBodyImageRepository {
   }
 
   /**
+   * 본문에서 빠졌지만 드라이브가 같은 file 을 쓰는 이미지를 강등 표시만 한다(WP-1392) — demoted_at 만 찍고 만료는 걸지 않는다.
+   *
+   * <p>왜: 강등 표시는 「이 이슈에서는 더 이상 보이지 않음」(첨부 모아보기·드라이브 영구 삭제 보호에서 빠짐)이고, 만료는 「file 을 회수함」이다. 드라이브로 가져간
+   * file 은 드라이브가 수명을 맡으므로 회수만 빼고 표시는 똑같이 남긴다. {@link #demote} 와 같이 영구(expires_at NULL)이고 아직 강등 안 된
+   * 행만 — 강등 시각이 저장마다 밀리지 않게 한다. 다시 본문에 넣으면 {@link #claim} 이 표시를 지운다.
+   */
+  public void markDemoted(Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return;
+    dsl.update(ISSUE_BODY_IMAGE)
+        .set(ISSUE_BODY_IMAGE.DEMOTED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE_BODY_IMAGE.FILE_ID.in(fileIds))
+        .and(ISSUE_BODY_IMAGE.DEMOTED_AT.isNull())
+        .andExists(
+            dsl.selectOne()
+                .from(FILE)
+                .where(FILE.ID.eq(ISSUE_BODY_IMAGE.FILE_ID))
+                .and(FILE.EXPIRES_AT.isNull()))
+        .execute();
+  }
+
+  /**
    * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문·코멘트 어디서든 아직 참조되는 것.
    *
    * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕이 FILE 행 잠금을 쥔 채 호출하므로

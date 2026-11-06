@@ -49,13 +49,13 @@ public class DriveFileRepository {
    * 라, 있으면 file 행을 지울 수 없다.
    */
   public boolean anyReferencesFile(long fileId) {
-    return dsl.fetchExists(DRIVE_FILE, DRIVE_FILE.FILE_ID.eq(fileId))
-        || dsl.fetchExists(DRIVE_FILE_VERSION, DRIVE_FILE_VERSION.FILE_ID.eq(fileId));
+    // 판정 규칙(drive_file + drive_file_version)은 referencedAmong 한 곳에만 둔다(WP-1392).
+    return !referencedAmong(List.of(fileId)).isEmpty();
   }
 
   /**
-   * fileIds 중 drive_file(휴지통 포함) 또는 drive_file_version 이 가리키는 것(WP-1392). {@link
-   * #anyReferencesFile} 의 여러 건 판(다른 도메인의 강등·회수, 만료 스윕 보존 판정이 한 번에 묻는다).
+   * fileIds 중 drive_file(휴지통 포함) 또는 drive_file_version 이 가리키는 것(WP-1392). 드라이브 참조 판정의 유일한 규칙 —
+   * {@link #anyReferencesFile} 도 이것을 부른다(다른 도메인의 강등·회수, 만료 스윕 보존 판정이 여러 건을 한 번에 묻는다).
    */
   public Set<Long> referencedAmong(Collection<Long> fileIds) {
     if (fileIds.isEmpty()) return Set.of();

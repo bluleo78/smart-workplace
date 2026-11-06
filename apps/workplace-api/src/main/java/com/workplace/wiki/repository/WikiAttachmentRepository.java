@@ -101,6 +101,28 @@ public class WikiAttachmentRepository {
   }
 
   /**
+   * 본문에서 빠졌지만 드라이브가 같은 file 을 쓰는 첨부를 강등 표시만 한다(WP-1392) — demoted_at 만 찍고 만료는 걸지 않는다.
+   *
+   * <p>왜: 강등 표시는 「이 페이지에서는 더 이상 보이지 않음」(첨부 모아보기·드라이브 영구 삭제 보호에서 빠짐)이고, 만료는 「file 을 회수함」이다. 드라이브로
+   * 가져간 file 은 드라이브가 수명을 맡으므로 회수만 빼고 표시는 똑같이 남긴다. {@link #demote} 와 같이 승격된(expires_at NULL) 것만 —
+   * 업로드 직후 임시 파일에 찍으면 상한 계산의 "임시" 집합에서 빠진다. 이미 강등된 행은 시각을 밀지 않는다. 참조가 돌아오면 {@link
+   * #promoteToPermanent} 가 표시를 지운다.
+   */
+  public void markDemoted(Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return;
+    dsl.update(WIKI_PAGE_ATTACHMENT)
+        .set(WIKI_PAGE_ATTACHMENT.DEMOTED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(WIKI_PAGE_ATTACHMENT.FILE_ID.in(fileIds))
+        .and(WIKI_PAGE_ATTACHMENT.DEMOTED_AT.isNull())
+        .andExists(
+            dsl.selectOne()
+                .from(FILE)
+                .where(FILE.ID.eq(WIKI_PAGE_ATTACHMENT.FILE_ID))
+                .and(FILE.EXPIRES_AT.isNull()))
+        .execute();
+  }
+
+  /**
    * #759 (A) 페이지당 매핑 총개수 — 참조 여부·승격 여부와 무관한 하드 실링용.
    *
    * <p>해소 가능한 상한(참조∪임시)과 별개다. 그쪽은 사용자가 본문을 정리하면 풀리지만, 그렇기 때문에 "지우고 다시 올리기" 를 반복하면 유예가 끝나기 전까지 매핑이

@@ -40,10 +40,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import org.jooq.Condition;
 import org.jooq.DSLContext;
-import org.jooq.Field;
-import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -307,12 +304,6 @@ class StagedFileClaimerTest extends IntegrationTestBase {
       @Override
       public Set<Long> reclaimableBy(long callerId, Collection<Long> fileIds) {
         return reclaimable.stream().filter(fileIds::contains).collect(Collectors.toSet());
-      }
-
-      /** 이 테스트는 클레임만 본다 — 묶인 집합 밖이라는 조건으로 SPI 를 채운다(WP-1399). */
-      @Override
-      public Condition notBound(Field<Long> fileId) {
-        return bound.isEmpty() ? DSL.noCondition() : fileId.notIn(bound);
       }
     };
   }

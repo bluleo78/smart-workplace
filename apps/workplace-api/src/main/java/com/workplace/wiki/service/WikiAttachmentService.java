@@ -390,12 +390,11 @@ public class WikiAttachmentService {
   private void reclaim(List<WikiAttachmentRepository.AttachedFile> all, String scope) {
     // 드라이브로 가져간 첨부(WP-1392)는 file 행·원본을 남긴다 — drive_file 이 같은 행을 쓴다(WP-722 와 같은 규칙). 페이지 매핑은
     // page_id CASCADE 로 사라지고, 그 file 의 수명은 드라이브가 맡는다.
-    Set<Long> notInDrive =
-        new HashSet<>(
-            driveFileUsage.withoutReferenced(
-                all.stream().map(WikiAttachmentRepository.AttachedFile::fileId).toList()));
+    Set<Long> inDrive =
+        driveFileUsage.referencedAmong(
+            all.stream().map(WikiAttachmentRepository.AttachedFile::fileId).toList());
     List<WikiAttachmentRepository.AttachedFile> attached =
-        all.stream().filter(a -> notInDrive.contains(a.fileId())).toList();
+        all.stream().filter(a -> !inDrive.contains(a.fileId())).toList();
     if (attached.isEmpty()) return;
     List<Long> fileIds =
         attached.stream().map(WikiAttachmentRepository.AttachedFile::fileId).toList();
@@ -440,11 +439,15 @@ public class WikiAttachmentService {
     attachments.promoteToPermanent(bound.stream().filter(referenced::contains).toList());
     // 참조가 빠진 것 = 강등 후보. 아직 승격된 적 없는 임시 파일은 repository 가 걸러낸다(만료가 늘어나면 안 된다).
     List<Long> dropped = bound.stream().filter(id -> !referenced.contains(id)).toList();
-    // 드라이브로 가져간 첨부(WP-1392)는 강등하지 않는다 — 가져오기는 같은 file 행을 공유하고 만료를 해제했으므로, 여기서 만료를 다시
-    // 걸면 만료 스윕이 드라이브 파일의 원본까지 지운다. 그 file 의 수명은 드라이브가 맡는다(이슈 첨부 WP-722 와 같은 규칙).
+    if (dropped.isEmpty()) return;
+    // 드라이브로 가져간 첨부(WP-1392)는 강등 표시(demoted_at)만 하고 만료는 걸지 않는다 — 표시는 「이 페이지에서 더 이상 보이지
+    // 않음」이라 모아보기에서 빼고 드라이브 영구 삭제 보호도 풀어야 하지만, 가져오기는 같은 file 행을 공유하고 만료를 해제했으므로
+    // 만료를 다시 걸면 만료 스윕이 드라이브 파일의 원본까지 지운다. 그 file 의 회수는 드라이브가 맡는다(이슈 첨부 WP-722 와 같은 규칙).
+    Set<Long> inDrive = driveFileUsage.referencedAmong(dropped);
     attachments.demote(
-        driveFileUsage.withoutReferenced(dropped),
+        dropped.stream().filter(id -> !inDrive.contains(id)).toList(),
         OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
+    attachments.markDemoted(inDrive);
   }
 
   /**

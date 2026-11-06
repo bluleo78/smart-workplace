@@ -3,6 +3,7 @@ package com.workplace.file.api;
 import static com.workplace.jooq.Tables.CHAT_MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.Tables.HOME_MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.Tables.ISSUE_ATTACHMENT;
+import static com.workplace.jooq.Tables.ISSUE_BODY_IMAGE;
 import static com.workplace.jooq.Tables.MAIL_DRAFT;
 import static com.workplace.jooq.Tables.MAIL_DRAFT_ATTACHMENT;
 import static com.workplace.jooq.Tables.MESSAGE_ATTACHMENT;
@@ -10,9 +11,7 @@ import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
 
 import java.util.Collection;
 import java.util.Set;
-import org.jooq.Condition;
 import org.jooq.DSLContext;
-import org.jooq.Field;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -23,10 +22,11 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>이슈·메시지·이슈 채팅·홈은 묶을 때 영구로 만들어 대개 "임시" 조건이 먼저 거르지만, 묶인 채 만료가 다시 서는 경로(홈 세션 삭제 등)가 있어 정션을 직접 본다.
  * 노트는 묶고도 임시로 두고 강등(demoted_at) 행도 그 페이지의 파일이라, 행 존재만 보는 {@link JunctionBindingLookup} 이 강등과 무관하게
- * 묶인 것으로 본다.
+ * 묶인 것으로 본다(클레임 판정).
  *
- * <p>이슈·이슈 채팅·메시지·홈은 {@link JunctionBindingLookup#visible} 로 등록한다 — {@link
- * AttachmentBindingLookup#visibleAttachment()}(WP-1399).
+ * <p>「보이는 첨부」(WP-1399, {@link AttachmentBindingLookup#visibleAttachment()}) — 드라이브 영구 삭제가 같은 file 에
+ * 만료를 걸지 못하게 막는 정션들. 이슈·이슈 채팅·메시지·홈은 행이 있으면 곧 보이는 첨부다. 노트 첨부·이슈 본문 이미지(WP-1392, 드라이브로 가져갈 수 있다)는 강등
+ * 안 된 행만 보이는 첨부다 — 강등된 행의 file 은 원래 도메인이 이미 회수(만료)로 넘겼으므로 막지 않는다.
  */
 @Configuration
 public class AttachmentBindingConfig {
@@ -51,9 +51,23 @@ public class AttachmentBindingConfig {
     return JunctionBindingLookup.visible(dsl, HOME_MESSAGE_ATTACHMENT.FILE_ID);
   }
 
+  /** 노트 첨부 — 강등(demoted_at) 안 된 행만 보이는 첨부(WP-1392). 클레임 판정은 강등과 무관하게 행 존재로 본다. */
   @Bean
   AttachmentBindingLookup wikiAttachmentBindingLookup(DSLContext dsl) {
-    return new JunctionBindingLookup(dsl, WIKI_PAGE_ATTACHMENT.FILE_ID);
+    return JunctionBindingLookup.visible(
+        dsl, WIKI_PAGE_ATTACHMENT.FILE_ID, WIKI_PAGE_ATTACHMENT.DEMOTED_AT.isNull());
+  }
+
+  /**
+   * 이슈 본문 이미지(WP-1392) — 이슈에 연결됐고(issue_id) 강등 안 된 행만 보이는 첨부. 저장 전 임시 업로드(issue_id NULL)는 아직 어디에도
+   * 보이지 않는다. 범주가 IMAGE 라 ATTACHMENT 만 받는 클레임 판정에는 영향이 없다.
+   */
+  @Bean
+  AttachmentBindingLookup issueBodyImageBindingLookup(DSLContext dsl) {
+    return JunctionBindingLookup.visible(
+        dsl,
+        ISSUE_BODY_IMAGE.FILE_ID,
+        ISSUE_BODY_IMAGE.ISSUE_ID.isNotNull().and(ISSUE_BODY_IMAGE.DEMOTED_AT.isNull()));
   }
 
   /**
@@ -72,11 +86,6 @@ public class AttachmentBindingConfig {
       @Override
       public Set<Long> boundAmong(Collection<Long> fileIds) {
         return junction.boundAmong(fileIds);
-      }
-
-      @Override
-      public Condition notBound(Field<Long> fileId) {
-        return junction.notBound(fileId);
       }
 
       @Override

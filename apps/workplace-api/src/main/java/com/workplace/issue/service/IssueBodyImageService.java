@@ -84,7 +84,7 @@ public class IssueBodyImageService {
     }
     List<Long> dropped =
         repo.fileIdsOfIssue(issueId).stream().filter(id -> !referenced.contains(id)).toList();
-    demoteUnlessInDrive(dropped);
+    demote(dropped);
   }
 
   /**
@@ -124,16 +124,22 @@ public class IssueBodyImageService {
   public void demoteAllOfIssues(Collection<Long> issueIds) {
     if (issueIds.isEmpty()) return;
     List<Long> fileIds = repo.fileIdsOfIssues(issueIds);
-    demoteUnlessInDrive(fileIds);
+    demote(fileIds);
   }
 
   /**
-   * 강등하되 드라이브로 가져간 이미지는 뺀다(WP-1392). 가져오기는 file 행을 복사하지 않고 drive_file 이 같은 행을 가리키게 하므로(만료도 해제), 여기서
-   * 만료를 다시 걸면 만료 스윕이 드라이브 파일의 원본까지 지운다. 이슈 첨부 삭제가 드라이브 사용 중인 file 은 연결만 끊는 것(WP-722)과 같은 규칙 — 그
-   * file 의 수명은 드라이브가 맡는다. 본문 매핑은 그대로 남아 이슈에 다시 넣어도 그대로 보인다.
+   * 강등 — 모두 강등 표시(demoted_at)하되, 만료 재무장은 드라이브가 쓰지 않는 이미지에만 한다(WP-1392).
+   *
+   * <p>왜 나누나: 강등 표시는 「이 이슈에서 더 이상 보이지 않음」이라 드라이브 사용과 무관하게 찍어야 첨부 모아보기에서 빠지고 드라이브 영구 삭제 보호(보이는
+   * 첨부)에서도 풀린다. 반면 가져오기는 file 행을 복사하지 않고 drive_file 이 같은 행을 가리키게 하므로(만료도 해제), 그 file 에 만료를 다시 걸면 만료
+   * 스윕이 드라이브 파일의 원본까지 지운다 — 이슈 첨부 삭제가 드라이브 사용 중인 file 은 연결만 끊는 것(WP-722)과 같은 규칙으로, 그 file 의 회수는
+   * 드라이브가 맡는다. 본문 매핑은 그대로 남아 이슈에 다시 넣으면 claim 이 표시를 지운다.
    */
-  private void demoteUnlessInDrive(List<Long> fileIds) {
-    repo.demote(driveFileUsage.withoutReferenced(fileIds), graceExpiry());
+  private void demote(List<Long> fileIds) {
+    if (fileIds.isEmpty()) return;
+    Set<Long> inDrive = driveFileUsage.referencedAmong(fileIds);
+    repo.demote(fileIds.stream().filter(id -> !inDrive.contains(id)).toList(), graceExpiry());
+    repo.markDemoted(inDrive);
   }
 
   /** 업로드 — 이슈 생성 가능자. 매직바이트로 이미지인지 판정하고 임시 파일 + 미연결 매핑으로 저장한다. */

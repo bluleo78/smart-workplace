@@ -66,11 +66,12 @@ public class MailAttachmentSourceProvider implements AttachmentSourceProvider {
   private static final int MIN_BATCH = 20;
 
   /**
-   * 후보 다시 읽기 횟수 상한. 매 회 읽는 수를 두 배로 늘리므로 16회면 첫 회의 약 6만 5천 배(최소 20 → 누적 약 130만 행)를 훑는다 — 한 사람의 메일
-   * 첨부가 거의 다 인라인 이미지여도 닿지 않는 규모다. 커서가 매 회 앞으로 가므로 원래도 끝나지만, 판정 버그로 같은 자리를 맴도는 일을 막는 안전장치다. 상한에 닿으면
-   * 모은 만큼만 돌려준다(그 페이지가 마지막처럼 보일 수 있다).
+   * 후보 다시 읽기 횟수 상한. 매 회 읽는 수를 두 배로 늘리므로 4회면 첫 회의 15배(최소 20 → 누적 300 행)를 훑는다 — 한 페이지 요청이 인라인 이미지가 몰린
+   * 메일함에서도 몇 번의 짧은 쿼리로 끝나게 하는 값이다(한 요청이 수만 행을 훑지 않게). 서명 로고 등 인라인 이미지가 300 개 넘게 연달아 있는 드문 경우 상한에
+   * 닿으면 모은 만큼만 돌려준다 — limit+1 을 못 채워 그 페이지가 마지막처럼 보일 수 있다(웹이 「더 보기」를 숨김). 검색어로 좁히면 이어서 볼 수 있다. 커서가
+   * 매 회 앞으로 가므로 원래도 끝나지만, 판정 버그로 같은 자리를 맴도는 일도 막는다.
    */
-  private static final int MAX_PASSES = 16;
+  private static final int MAX_PASSES = 4;
 
   private final DSLContext dsl;
   private final EmailMessageRepository messages;
