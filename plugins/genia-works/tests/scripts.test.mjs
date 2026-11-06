@@ -1206,6 +1206,7 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
     `GENIA_WORKS_AGENT_DIR=${realpathSync(d)}`,
     'GENIA_WORKS_API_URL=http://127.0.0.1:6160/api/v1',
     'GENIA_WORKS_AS=kodi',
+    'GENIA_WORKS_UNATTENDED=1',
     '--permission-mode',
     'bypassPermissions',
     '/loop /genia-works:work-loop WP --queue "AI 개발팀"',

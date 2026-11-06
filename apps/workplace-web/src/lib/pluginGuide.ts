@@ -34,9 +34,12 @@ export function buildLaunchAsCommand(username: string): string {
   return `GENIA_WORKS_AS=${username} claude`;
 }
 
-/** work-loop 용 시작 명령 — 그 AI 로 띄우는 명령에 권한을 묻지 않는 모드를 더한다(이 AI 전용 터미널에서만 쓴다). */
+/**
+ * work-loop 용 시작 명령 — 그 AI 로, 권한을 묻지 않는 모드로 띄운다(이 AI 전용 터미널에서만 쓴다).
+ * GENIA_WORKS_UNATTENDED=1 은 사람이 지켜보지 않는 세션이라는 표시 — 플러그인이 확인 창을 창 대신 거절로 바꿔 칸이 멈추지 않게 한다(WP-1398).
+ */
 export function buildWorkLoopLaunchCommand(username: string): string {
-  return `${buildLaunchAsCommand(username)} --permission-mode bypassPermissions`;
+  return `GENIA_WORKS_AS=${username} GENIA_WORKS_UNATTENDED=1 claude --permission-mode bypassPermissions`;
 }
 
 /** Claude Code 안에서 할당된 이슈를 하나씩 처리하게 하는 반복 명령 — 프로젝트 키는 사용자가 채운다. */

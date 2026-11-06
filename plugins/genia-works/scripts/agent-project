@@ -229,7 +229,8 @@ do_start() {
         agent_data_dir && gw_write_atomic "$tokfile" "$CLAUDE_CODE_OAUTH_TOKEN" ||
           { echo "setup-token 을 적지 못했습니다: $tokfile" >&2; return 2; }
       fi
-      set -- "$@" CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40 "$here/gw-claude-run" "$tokfile" \
+      # GENIA_WORKS_UNATTENDED=1 — 사람이 지켜보지 않는 칸이라는 표시. 플러그인이 확인 창(ask)을 창 대신 거절로 바꾼다(WP-1398).
+      set -- "$@" GENIA_WORKS_UNATTENDED=1 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40 "$here/gw-claude-run" "$tokfile" \
         claude --permission-mode bypassPermissions "/loop /genia-works:work-loop $args"
       ;;
     genia)

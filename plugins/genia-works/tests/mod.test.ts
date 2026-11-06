@@ -67,6 +67,59 @@ test('키 저장소를 읽는 도구 호출은 거부', async ($, on) => {
   expect(ok.result).toBe('ran')
 })
 
+// WP-1398 — 아래 판정이 엔진 자리에 선다: 위험한 명령은 셸 안전 확인 ask(reason 만), git push 는 사용자 ask 규칙(rule),
+// 보호 경로 Write 는 Write 도구의 ask, 나머지는 allow.
+const RISKY = `w(){ printf '%s\\n' "$1" "\${3:-{\\}}"; }; rm -f "$(cat utok)x"`
+const SAFETY_REASON = 'This command could not be checked for dangerous rm operations'
+const UNATTENDED_ENV = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_UNATTENDED: '1' }
+function stubPermission(on: any) {
+  on('tool.check', (_$: any, e: any) => {
+    if (e.input?.command === RISKY) return { decision: 'ask', reason: SAFETY_REASON }
+    if (e.input?.command === 'git push') return { decision: 'ask', reason: 'needs approval', rule: 'Bash(git push:*)' }
+    if (e.tool === 'Write') return { decision: 'ask', reason: 'protected path' }
+    return { decision: 'allow' }
+  })
+  on('tool.call', () => ({ result: 'ran' }))
+}
+
+test('WP-1398: 무인 AI 세션의 셸 안전 확인은 창 대신 「나누거나 스크립트로」 사유로 거절된다(하위 에이전트 포함)', async ($, on) => {
+  mock.env(on, UNATTENDED_ENV)
+  stubPermission(on)
+  for (const agentId of [undefined, 'a1']) {
+    const r: any = await $.tool.call({ tool: 'Bash', command: RISKY, ...(agentId ? { agentId } : {}) } as any)
+    expect(r.result).not.toBe('ran') // 명령은 돌지 않았다 — 모델은 거절 사유를 받는다
+    expect(JSON.stringify(r)).toContain('셸 안전 확인을 거절')
+    expect(JSON.stringify(r)).toContain('스크립트 파일')
+  }
+  // 평범한 명령은 그대로 돈다
+  expect(((await $.tool.call({ tool: 'Bash', command: 'ls' })) as any).result).toBe('ran')
+})
+
+test('WP-1398: 무인 AI 세션의 그 밖의 ask(사용자 규칙·Bash 가 아닌 도구)는 「사람 확인 필요 — 보고」 사유로 거절된다', async ($, on) => {
+  mock.env(on, UNATTENDED_ENV)
+  stubPermission(on)
+  for (const call of [{ tool: 'Bash', command: 'git push' }, { tool: 'Write', file_path: '/repo/.git/config', content: 'x' }]) {
+    const r: any = await $.tool.call(call as any)
+    expect(r.result).not.toBe('ran')
+    expect(JSON.stringify(r)).toContain('사람의 확인이 필요해')
+    expect(JSON.stringify(r)).not.toContain('스크립트 파일')
+  }
+})
+
+test('WP-1398: 사람 세션(GENIA_WORKS_AS 없음)은 판정하지 않는다 — ask 가 그대로 남는다', async ($, on) => {
+  mock.env(on, { GENIA_WORKS_UNATTENDED: '1' })
+  stubPermission(on)
+  const r: any = await $.tool.call({ tool: 'Bash', command: RISKY } as any)
+  expect(JSON.stringify(r)).not.toContain('WP-1398')
+})
+
+test('WP-1398: 무인 표시 없이 띄운 AI 세션은 판정하지 않는다 — 전처럼 창이 뜬다', async ($, on) => {
+  mock.env(on, { GENIA_WORKS_AS: 'ai-dev' })
+  stubPermission(on)
+  const r: any = await $.tool.call({ tool: 'Bash', command: RISKY } as any)
+  expect(JSON.stringify(r)).not.toContain('WP-1398')
+})
+
 test('세션 시작: 고른 이름의 키가 없으면 상태 줄이 직접 알린다', async ($, on) => {
   stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: 'ghost\n' }, 'gw-keys has': { exitCode: 1 } })
   const clock = mock.clock(on)

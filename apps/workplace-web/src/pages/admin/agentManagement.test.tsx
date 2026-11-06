@@ -370,7 +370,7 @@ test('기본 → 외부 — 카드를 누르면 펼쳐지고 바꾸기 확인창
   expect(within(sheet).getByTestId('agent-switch-command')).toHaveTextContent('/genia-works:as ai-dev')
   expect(within(sheet).getByTestId('agent-launch-as-command')).toHaveTextContent('GENIA_WORKS_AS=ai-dev claude')
   expect(within(sheet).getByTestId('agent-work-loop-launch-command')).toHaveTextContent(
-    'GENIA_WORKS_AS=ai-dev claude --permission-mode bypassPermissions',
+    'GENIA_WORKS_AS=ai-dev GENIA_WORKS_UNATTENDED=1 claude --permission-mode bypassPermissions',
   )
   expect(within(sheet).getByTestId('agent-work-loop-start-command')).toHaveTextContent('/loop /genia-works:work-loop <프로젝트 키>')
   // 동작 안내는 PR 흐름이다 — 옛 「main 머지까지·push 는 하지 않아요」가 남지 않고 GitHub 준비를 알린다(WP-1151).

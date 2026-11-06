@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey, validClaudeToken, splitAgentArgs, agentRunArgs } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey, validClaudeToken, splitAgentArgs, agentRunArgs, isRealAsk, isUnattendedLaunch, unattendedAskDeny } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -779,6 +779,14 @@ export function register(on, options) {
     if (isHeaderScriptCall(e)) return { deny: HEADER_SCRIPT_DENY }
     return next(e)
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'genia-works 키 저장소 검사에 실패해 이 도구 호출을 막았습니다' }))
+
+  // 무인 AI 세션의 확인 창(ask)을 창 대신 거절로 바꾼다 — 배경·조건·사유는 lib.js 「무인 AI 세션의 확인 창(WP-1398)」.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (!isRealAsk({ toolUseId: e.tool_use_id, verdict })) return verdict
+    const [as, unattended] = await Promise.all([$.env.get('GENIA_WORKS_AS'), $.env.get('GENIA_WORKS_UNATTENDED')])
+    return isUnattendedLaunch({ as, unattended }) ? unattendedAskDeny({ tool: e.tool, verdict }) : verdict
+  }).catch(($, e, next) => next(e)) // 실패하면 판정 그대로 연다(창이 뜬다 — 전과 같다)
 
   // 마지막 안전망 — 키·토큰 모양이 든 프롬프트는 모델·기록에 닿기 전에 막는다(drop 사유는 사람에게 보인다).
   // 슬래시 명령(e.command)도 같은 검사를 한다(e.text 가 명령 줄 전체): drop 은 스킬·프롬프트 명령과 모델을 부르는 내장 명령을 막는다.

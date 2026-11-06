@@ -98,4 +98,6 @@ echo
 cd "$repo"
 export GENIA_WORKS_AS="$agent"
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE="$pct"
+# 사람이 지켜보지 않는 세션이라는 표시 — genia-works 플러그인이 확인 창(ask)을 창 대신 거절로 바꾼다(WP-1398).
+export GENIA_WORKS_UNATTENDED=1
 exec claude --permission-mode bypassPermissions "$cmd"

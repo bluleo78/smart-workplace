@@ -132,7 +132,7 @@ AI 에게 이슈를 할당해 두면, 그 AI 가 자기 이슈를 하나씩 가�
 저장소 폴더에 터미널을 하나 따로 열고 AI 신원으로 띄운 뒤 반복을 걸어 둡니다.
 
 ```
-GENIA_WORKS_AS=<AI 이름> claude --permission-mode bypassPermissions
+GENIA_WORKS_AS=<AI 이름> GENIA_WORKS_UNATTENDED=1 claude --permission-mode bypassPermissions
 /loop /genia-works:work-loop <프로젝트 키>
 ```
 
@@ -241,6 +241,8 @@ AI 를 담당자로 둔 에픽 본문에 회차의 정의를 적어 두면, work
 - **AI 신원 세션에서만 돕니다.** 내 토큰으로 접속한 세션에서 부르면 아무 이슈도 건드리지 않고 `/genia-works:as <AI 이름>` 으로 바꾸라고 안내한 뒤 멈춥니다.
 - **`/loop` 제약**: Claude Code 가 열려 있고 쉬는 동안만 돕니다. 반복은 7일 뒤 만료되니 다시 걸어 주세요.
 - **권한 모드**: 확인 창에 멈추지 않으려면 `--permission-mode bypassPermissions` 로 띄웁니다. 이 모드는 확인 없이 무엇이든 실행하므로 **이 AI 전용 세션에서만** 쓰세요. 키 파일 보호(키 저장소 경로를 가리키는 도구 호출 막기)는 이 모드에서도 플러그인이 계속 막습니다.
+- **무인 표시와 확인 창**: Claude Code 는 이 모드에서도 위험한 `rm` 을 배제하지 못한 Bash 명령(한 줄 셸 함수 정의, `"${3:-{\}}"` 같은 중괄호 기본값, `;` 로 길게 이은 줄 등)에 「Do you want to proceed?」 창을 띄우고, 답할 사람이 없는 칸은 멈춥니다. 그래서 `GENIA_WORKS_AS` 와 무인 표시 `GENIA_WORKS_UNATTENDED=1` 을 함께 넣어 띄운 세션(start-agent·`agent-project`·`work-loop.sh` 는 넣어 줍니다)에서는 플러그인이 어떤 확인 창이든 창 대신 거절하고 사유를 모델에게 돌려줍니다(WP-1398, 백그라운드 하위 에이전트의 창 포함). 셸 안전 확인이면 「명령을 나누거나 스크립트 파일로 실행하라」, 그 밖의 확인(사용자 ask 규칙·보호 경로·다른 플러그인 등)이면 「사람의 확인이 필요하니 우회하지 말고 이슈에 보고하라」입니다. 허용으로 바꾸지는 않습니다. 표시 없이 띄운 세션은 전처럼 창을 띄웁니다.
+  - **버전 의존**: 셸 안전 확인과 그 밖의 확인을 가르는 기준(판정에 `rule`·`hook`·`plugin`·`setting` 이 없으면 셸 안전 확인)은 Claude Code 2.1.318 에서 실측한 동작입니다. 업데이트 뒤 셸 명령 거절 사유가 「사람의 확인이 필요해」로 나오면 이 기준이 깨진 것입니다(`hooks/lib.js` 의 WP-1398 주석).
 - **superpowers 권장**: [superpowers](https://github.com/obra/superpowers) 플러그인(`/plugin install superpowers@claude-plugins-official`)이 있으면 설계·계획·구현을 그 스킬로 더 꼼꼼하게 합니다. 없어도 기본 절차로 돌고, 첫 실행에 한 번 설치를 안내합니다.
 - **`.work-loop/project.md` 필요**: 저장소마다 다른 것(바뀐 범위별 테스트 명령, 격리 로컬 스택을 띄우고 내리는 방법, 건드리면 안 되는 포트)을 이 파일에 적어 커밋해 둡니다. 없으면 라이브 검증 단계에서 「막힘」으로 멈춥니다.
 - **`.work-loop/state/` 는 git 무시**: 잠금(`loop.lock`)·작업 메모·검증 스크린샷 같은 실행 상태를 둡니다. `.gitignore` 에 `.work-loop/state/` 를 넣으세요.
@@ -255,7 +257,7 @@ PR·MR 명령은 플러그인 스크립트 `gw-repo` 가 저장소 호스트에 
 
 1. [`gh`](https://cli.github.com/)(GitHub) 또는 [`glab`](https://gitlab.com/gitlab-org/cli)(GitLab)을 설치합니다. glab 은 `glab config set telemetry false` 로 사용 통계를 끕니다 — 켜 두면 gitlab.com 으로 토큰 헤더를 붙여 보냅니다.
 2. 토큰을 만듭니다 — GitHub 은 이 저장소의 Contents·Pull requests 쓰기, GitLab 은 `api`·`write_repository`. AI 들이 계정 하나를 같이 써도 됩니다 — 누가 개발했는지는 PR 본문의 `개발: <username>` 줄로 가립니다. 다만 같은 계정이면 GitHub 의 「승인(Approve)」을 남길 수 없어 팀장은 승인 대신 댓글을 남기고 머지하므로, main 브랜치 보호에서 승인을 필수로 걸면 머지가 막힙니다(그때는 계정을 나눕니다).
-3. 토큰을 넣어 세션을 띄웁니다: GitHub 은 `GH_TOKEN=<토큰> GENIA_WORKS_AS=<AI 이름> claude --permission-mode bypassPermissions`(`gh auth status` 가 통과하면 됩니다), GitLab 은 `glab auth login --hostname <호스트>` 와 `git config --global credential.https://<호스트>.helper '!glab auth git-credential'`. 저장소 폴더에서 `gw-repo auth-check` 가 통과하면 됩니다. GitLab 은 「변경 요청」을 API 로 남길 수 없어, AI 팀장의 반려는 MR 댓글과 이슈 챗(@멘션)으로 갑니다.
+3. 토큰을 넣어 세션을 띄웁니다: GitHub 은 `GH_TOKEN=<토큰> GENIA_WORKS_AS=<AI 이름> GENIA_WORKS_UNATTENDED=1 claude --permission-mode bypassPermissions`(`gh auth status` 가 통과하면 됩니다), GitLab 은 `glab auth login --hostname <호스트>` 와 `git config --global credential.https://<호스트>.helper '!glab auth git-credential'`. 저장소 폴더에서 `gw-repo auth-check` 가 통과하면 됩니다. GitLab 은 「변경 요청」을 API 로 남길 수 없어, AI 팀장의 반려는 MR 댓글과 이슈 챗(@멘션)으로 갑니다.
    Works 가 띄우는 AI(관리자 › 에이전트 › 실행)는 이 준비가 필요 없습니다 — AI 상세의 저장소 연결 토큰을 Pod 에 넣어 줍니다.
 4. 팀장 AI 의 username 을 `.work-loop/project.md` 「검토자」 절에 적습니다.
 

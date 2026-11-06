@@ -40,7 +40,7 @@ describe('pluginGuide', () => {
         source: 'git-subdir',
         url: 'https://github.com/bluleo78/smart-workplace.git',
         path: 'plugins/genia-works',
-        ref: 'genia-works--v0.1.37',
+        ref: 'genia-works--v0.1.38',
       },
     });
   });
@@ -48,7 +48,7 @@ describe('pluginGuide', () => {
 
 describe('work-loop 명령', () => {
   it('시작 명령은 권한을 묻지 않는 모드로 그 AI 로 띄운다', () => {
-    expect(buildWorkLoopLaunchCommand('ai-dev')).toBe('GENIA_WORKS_AS=ai-dev claude --permission-mode bypassPermissions');
+    expect(buildWorkLoopLaunchCommand('ai-dev')).toBe('GENIA_WORKS_AS=ai-dev GENIA_WORKS_UNATTENDED=1 claude --permission-mode bypassPermissions');
   });
   it('반복 명령은 프로젝트 키 자리를 기본으로 둔다', () => {
     expect(buildWorkLoopStartCommand()).toBe('/loop /genia-works:work-loop <프로젝트 키>');

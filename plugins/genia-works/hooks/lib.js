@@ -50,6 +50,59 @@ export function isHeadless({ interactive, origin }) {
 export const HEADLESS_SWITCH = '이 세션에서는 바꿀 수 없습니다 — 띄울 때 GENIA_WORKS_AS 로 지정하세요'
 export const HEADLESS_LOGIN = '로그인 화면은 대화형 세션에서만 열 수 있습니다 — 띄울 때 GENIA_WORKS_AS 로 지정하세요'
 
+// ── 무인 AI 세션의 확인 창(WP-1398) ──
+// Claude Code 는 bypassPermissions 에서도 파서가 위험한 rm 을 배제하지 못하는 Bash 명령(한 줄 함수 정의, "${3:-{\}}" 같은
+// 중괄호 기본값, $(...)·; 로 길게 이은 줄 등)에 「Dangerous rm operation not ruled out … Do you want to proceed?」 창을 띄운다.
+// work-loop 처럼 사람이 지켜보지 않는 AI 세션에서는 답할 사람이 없어 칸 전체가 멈춘다(백그라운드 하위 에이전트의 창도 본 세션에 뜬다).
+// 실측(2.1.318): 이 창은 tool.check 의 ask 로 오고(하위 에이전트면 agentId 포함), mod 가 deny 로 바꾸면 창 없이 모델에게 사유가 돌아간다.
+// classic.PermissionRequest 는 내장 플러그인이 mod 를 건너뛰어 쓸 수 없었고, mod 는 지금 권한 모드도 읽을 수 없다 —
+// 그래서 무인 여부는 띄우는 쪽(agent-project·work-loop.sh)이 넣는 표시 GENIA_WORKS_UNATTENDED=1 로 안다.
+// 무인 세션에서는 답 없는 ask 가 칸을 멈추게 하므로 도구와 상관없이 모든 ask 를 거절하되, 사유는 할 일에 맞게 둘로 나눈다.
+// 절대 allow 로 바꾸지 않는다 — 안전 확인은 남긴다. 판정만 여기 두고 연결은 register.js.
+
+// 셸 안전 확인: 명령 모양 때문에 걸린 것이라 나누거나 스크립트로 돌리면 창이 안 뜬다 — 고쳐 다시 하라고 알린다.
+export const UNATTENDED_SHELL_DENY =
+  '무인 AI 세션이라 이 확인 창에 답할 사람이 없어 Claude Code 의 셸 안전 확인을 거절했습니다(WP-1398). ' +
+  '명령을 셸 함수 정의(f(){ …; })·복잡한 매개변수 확장(${…:-{…}} 등)·;·&& 로 길게 이은 한 줄 없이 단순한 명령 여러 개로 나누거나, ' +
+  '스크립트 파일에 적어 그 파일을 실행하세요.'
+// 그 밖의 ask(어느 도구든 — 사용자 ask 규칙·보호 경로·다른 플러그인 등): 사람이 확인하도록 걸린 것이라 우회하면 안 된다 — 멈추고 알리라고 한다.
+export const UNATTENDED_PERSON_DENY =
+  '이 작업은 사람의 확인이 필요해 무인 AI 세션에서는 실행할 수 없어 거절했습니다(WP-1398). ' +
+  '다른 방법으로 우회하지 말고, 이 확인이 필요하다는 것을 이슈에 보고(막힘·질문)하세요.'
+
+// 거절을 따질 판정인지 — 실제 호출(toolUseId 있음 — 다른 플러그인의 질의는 건드리지 않는다)의 ask 일 때만.
+// 대부분의 판정은 allow 라, 환경변수를 읽기 전에 이것부터 본다(자주 도는 길을 싸게).
+export function isRealAsk({ toolUseId, verdict }) {
+  return Boolean(toolUseId) && verdict?.decision === 'ask'
+}
+
+// AI 신원으로 띄운 세션인지 — 띄울 때 정한 GENIA_WORKS_AS 만 본다(세션 안에서 /genia-works:as 로 고른 이름은 보지 않는다).
+// me 처리는 aiPick 과 같고, 앞뒤 공백을 뗀 뒤 이름 규칙(validName — gw-lib.sh 와 같다)에 맞는 값만 AI 로 본다.
+export function isAiLaunch(as) {
+  return validName(aiPick({ as: typeof as === 'string' ? as.trim() : '' }))
+}
+
+// 사람이 지켜보지 않는 AI 세션인지 — AI 신원으로 띄웠고 띄운 쪽이 무인 표시(GENIA_WORKS_UNATTENDED=1)를 넣었을 때.
+// 표시 없이 띄운 세션(사람이 직접 띄운 AI 세션 포함)은 전처럼 창을 띄운다.
+export function isUnattendedLaunch({ as, unattended }) {
+  return unattended === '1' && isAiLaunch(as)
+}
+
+// ask 가 Claude Code Bash 도구 자신의 셸 안전 확인인지 — 판정의 출처 필드로 가른다(문구는 버전마다 바뀔 수 있어 보지 않는다).
+// 실측(2.1.318): 셸 안전 확인 ask 는 reason 만 있고 rule·hook·plugin·setting 이 모두 없다. 사용자 ask 규칙은 rule,
+// 다른 플러그인의 ask 는 plugin(엔진이 채움), classic 훅은 hook, 작업 폴더 밖 읽기 같은 설정 검사는 setting 이 붙는다.
+export function isShellSafetyAsk({ tool, verdict }) {
+  return tool === 'Bash' && verdict?.decision === 'ask' && !verdict.rule && !verdict.hook && !verdict.plugin && !verdict.setting
+}
+
+// 무인 세션의 ask 를 바꿀 거절 — 셸 안전 확인이면 「나누거나 스크립트로」, 그 밖이면 「사람 확인 필요 — 보고」.
+// 원래 사유(verdict.reason)는 뒤에 붙여 무엇이 걸렸는지 알게 한다.
+export function unattendedAskDeny({ tool, verdict }) {
+  const base = isShellSafetyAsk({ tool, verdict }) ? UNATTENDED_SHELL_DENY : UNATTENDED_PERSON_DENY
+  const why = typeof verdict?.reason === 'string' && verdict.reason ? ` (원래 사유: ${verdict.reason})` : ''
+  return { decision: 'deny', reason: base + why }
+}
+
 // 키 저장소(~/.genia-works) 경로가 든 도구 입력인지 — 대화로 키가 새지 않게 막는다(우회는 막지 못함, README 에 명시).
 // 경로 뒤에 올 수 있는 구분자: 경로 구분·끝·따옴표·공백·셸 연산자(;&|)<>).
 export function isKeyPath(text) {

@@ -45,6 +45,7 @@
 - superpowers 가 있으면(사용 가능한 스킬에 superpowers 에만 있는 using-superpowers 가 있으면 — Claude Code 는 `superpowers:using-superpowers`, Gen:iA Code 는 `using-superpowers`) brainstorming → writing-plans → subagent-driven-development 로 한다. 작업 공간 이미지(Claude Code·Gen:iA Code)에는 늘 들어 있어 실행기와 무관하게 같은 절차다(WP-1336).
   - brainstorming 의 질문은 4번 기준에 해당할 때만 4번처럼 사람에게 묻고, 나머지는 스스로 답한다. 설계 승인처럼 사람의 답을 기다리는 단계는 스스로 승인하고 「내가 정한 것」에 적는다. 브라우저 시안 도우미처럼 사람의 응답이 필요한 제안은 건너뛴다.
   - **이슈가 작아도 단계를 건너뛰지 않는다**(WP-1336) — writing-plans 의 계획 파일(Review Focus — 완료 기준이 말하지 않은 입력·실패 경우 포함)을 쓰고, 구현은 SDD 대로 하위 에이전트(구현자·과제 검토자)에게 맡긴다. 직접 구현하지 않는다. 하위 에이전트 기다림은 아래 「하위 에이전트 기다리기」를 따른다. 하위 에이전트 도구가 없는 실행기일 때만 executing-plans 로 하고 그 까닭을 「내가 정한 것」에 적는다.
+  - **하위 에이전트 브리프에 `SKILL.md` 「셸 명령은 단순하게 쓴다」 규칙을 넣는다**(WP-1398) — 백그라운드 하위 에이전트의 확인 창도 본 세션에 떠서 칸 전체가 멈추기 때문이다.
   - 계획 파일 위치·하위 에이전트 이름(또는 executing-plans 까닭)을 PR 본문 「절차」 줄에 남긴다 — 검토자가 단계를 밟았는지 본다.
   - 마무리 스킬(finishing-a-development-branch)은 쓰지 않는다 — 6~11번이 대신한다.
 - 없으면(사람 컴퓨터에서 superpowers 없이 띄운 세션) 이 스킬 폴더의 `without-superpowers.md` 대로 한다(첫 실행에 한 번 설치 안내 포함).
