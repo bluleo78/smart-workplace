@@ -23,6 +23,7 @@ trap on_term TERM INT
 # 1. 필수 파일·env, /work 폴더(TMPDIR 이 있어야 플러그인 명령이 돈다)
 check_required
 prepare_dirs
+start_display
 # 1b. 추가 CA(사내 GitLab 등 자체서명) — 이 뒤의 모든 연결(플러그인·저장소·칸)이 쓰게 먼저 합친다.
 setup_ca
 # 2. 플러그인 — genia-works 마켓플레이스를 이 Works 로 맞추고 서버 버전을 받는다(실패해도 굳힌 버전으로 계속).

@@ -8,7 +8,7 @@ genia 는 사내 프로그램이고 이 이미지는 Docker Hub 에 공개(`dock
 
 ## 들어 있는 것
 
-- 베이스 `mcr.microsoft.com/playwright:v1.60.0-noble`. 도구 블록은 Claude Code 이미지와 같다(tmux, git, gh, glab, jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack), Noto CJK 글꼴). 한쪽을 바꾸면 다른 쪽도 함께 바꾼다.
+- 베이스 `mcr.microsoft.com/playwright:v1.60.0-noble`. 도구 블록은 Claude Code 이미지와 같다(tmux, git, gh, glab, jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack), Noto CJK 글꼴, lsof·iproute2 등 포트·프로세스 확인 도구, playwright-cli 와 그 chromium·headless 기본 설정). 한쪽을 바꾸면 다른 쪽도 함께 바꾼다.
 - genia-works 플러그인: 빌드할 때 저장소의 `plugins/genia-works` 중 genia 가 쓰는 것(`package.json`·`.claude-plugin`·`genia`·`hooks`·`scripts`·`skills`)만 `/opt/genia/plugin/genia-works` 에 넣는다. 운영 마켓플레이스가 가리키는 옛 ref 에는 `genia/`(Gen:iA Code 확장)가 없기 때문이다.
 - `/opt/genia/bin/`: `entrypoint`·`lib-genia.sh`(이 앱), `lib.sh`·`agent-screen`(Claude Code 이미지). `genia-root.crt` 는 시스템 CA(`/usr/local/share/ca-certificates`, `update-ca-certificates`)에 넣어 curl·git 이 그대로 믿는다.
 - 개발 절차 플러그인(WP-1336): genia 는 Claude Code 에 설치된 플러그인의 스킬·명령을 그대로 읽는다. 그래서 Claude Code CLI(Claude 이미지와 같은 버전 — 실행하지 않고 받는 데만 쓴다)로 Claude 이미지의 [plugins.lock](../workplace-agent-claude-code/plugins.lock)을 `genia-works` 만 빼고 `/home/agent/.claude` 에 받는다(superpowers 등 — 두 실행기의 개발 절차가 한 벌이 된다). 에이전트 형식이라 genia 가 읽지 못하는 `code-simplifier` 는 같은 내용을 스킬로 옮겨(`skills/code-simplifier`, Apache-2.0) `~/.agents/skills` 에 둔다.

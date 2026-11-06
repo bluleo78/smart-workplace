@@ -170,6 +170,8 @@ exec ${realCurl} "$@"
     DOCKER_HOST: `unix://${d('no-docker.sock')}`,
     PLAYWRIGHT_BROWSERS_PATH: d('work', '.cache', 'ms-playwright'),
     GENIA_BASE_BROWSERS: d('no-base-browsers'),
+    GENIA_PLAYWRIGHT_CLI_CORE: d('no-playwright-cli'),
+    GENIA_XVFB: d('no-xvfb'), // 시험 기계에 Xvfb 가 있어도 진짜 화면을 띄우지 않는다
     GENIA_DIND_WAIT: '0',
     GENIA_SUPERVISE_INTERVAL: '1',
     GW_TMUX: wrapper,
@@ -472,6 +474,73 @@ test('dockerfileInstallsKoreanFont', () => {
   const dockerfile = readFileSync(join(appDir, 'Dockerfile'), 'utf8');
   assert.match(dockerfile, /apt-get install[^;]*\bfonts-noto-cjk\b/);
   assert.match(dockerfile, /apt-get purge -y fonts-wqy-zenhei/);
+});
+
+test('dockerfilesBakePlaywrightCliWithHeadlessChromium', () => {
+  // 화면 탐색 스킬은 브라우저를 playwright-cli 로만 다룬다 — 두 작업 공간 이미지 모두 손으로 깔지 않고 바로 쓰게 굳힌다(WP-1404).
+  const files = [join(appDir, 'Dockerfile'), join(appDir, '..', 'workplace-agent-genia-code', 'Dockerfile')];
+  const versions = files.map((p) => {
+    const d = readFileSync(p, 'utf8');
+    // 고정 버전으로 npm 전역 설치
+    assert.match(d, /npm install -g [^;]*"@playwright\/cli@\$\{PLAYWRIGHT_CLI_VERSION\}"/, p);
+    // cli 가 품은 Playwright 의 chromium 을 베이스 브라우저 폴더에 받는다 — GC 가 베이스 chromium 을 지우지 않게
+    assert.match(d, /PLAYWRIGHT_SKIP_BROWSER_GC=1 node "\$core\/cli\.js" install --no-shell chromium/, p);
+    // Pod 에는 화면·Google Chrome 이 없다 — 전역 설정으로 chromium headless 를 기본으로 두고, 빌드 때 실제로 열어 본다
+    const cfg = d.match(/'(\{"browser":.*\})' > \/home\/agent\/\.playwright\/cli\.config\.json/)?.[1];
+    assert.ok(cfg, p);
+    assert.deepEqual(JSON.parse(cfg), { browser: { browserName: 'chromium', launchOptions: { channel: 'chromium', headless: true } } });
+    assert.match(d, /playwright-cli open about:blank; \\\n\s+playwright-cli close/, p);
+    // 품은 playwright-core 를 고정 이름으로 가리킨다 — 엔트리포인트가 PVC 의 설치 기록에 올린다(seed_browsers)
+    assert.match(d, /ln -sfn "\$core" \/opt\/genia\/playwright-cli-core/, p);
+    // 실행 때는 GC 를 끄지 않는다 — 끄면 저장소 Playwright 버전이 바뀔 때마다 옛 브라우저가 PVC 에 쌓인다
+    assert.doesNotMatch(d, /^\s+PLAYWRIGHT_SKIP_BROWSER_GC=1 \\$/m, p);
+    return d.match(/^ARG PLAYWRIGHT_CLI_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
+  });
+  assert.ok(versions[0]);
+  assert.equal(versions[0], versions[1]); // 두 실행기가 같은 cli 로 탐색한다
+});
+
+test('seedBrowsersRegistersPlaywrightCliInstall', (t) => {
+  // 저장소 Playwright 를 받을 때 GC 는 설치 기록(.links)에 있는 설치의 브라우저만 남긴다 — cli 의 chromium 이 지워지지 않게 올린다(WP-1404).
+  const core = mkdtempSync(join(tmpdir(), 'gw-pwcore-'));
+  t.after(() => rmSync(core, { recursive: true, force: true }));
+  const f = fixture(t, { env: { GENIA_PLAYWRIGHT_CLI_CORE: core } });
+  assert.equal(callLib(f.env, 'seed_browsers').status, 0);
+  assert.ok(!existsSync(f.d('work', '.cache', 'ms-playwright', '.links', 'genia-playwright-cli'))); // browsers.json 없는 폴더는 설치가 아니다
+  writeFileSync(join(core, 'browsers.json'), '{"browsers":[]}');
+  assert.equal(callLib(f.env, 'seed_browsers').status, 0);
+  assert.equal(f.read('work', '.cache', 'ms-playwright', '.links', 'genia-playwright-cli'), core);
+});
+
+test('startDisplayLaunchesXvfbOnlyWithoutDisplay', (t) => {
+  // 탐색 스킬은 --headed 로 띄운다 — 화면 없는 Pod 에서는 가상 화면을 띄우고 DISPLAY 를 칸에 물려준다(WP-1404).
+  const f = fixture(t);
+  const xvfb = f.d('bin', 'fake-xvfb');
+  writeFileSync(xvfb, `#!/bin/sh\nprintf '%s\\n' "$*" > "$FAKE_OUT/xvfb.args"\n`);
+  chmodSync(xvfb, 0o755);
+  const run = (env) => callLib({ ...f.env, GENIA_XVFB: xvfb, ...env }, 'start_display; wait; printf "%s" "${DISPLAY:-}"');
+  const r = run({});
+  assert.equal(r.stdout, ':99');
+  assert.equal(f.read('out', 'xvfb.args'), ':99 -screen 0 1920x1080x24 -nolisten tcp\n');
+  rmSync(f.d('out', 'xvfb.args'));
+  // 이미 화면이 있으면 그대로 둔다
+  assert.equal(run({ DISPLAY: ':5' }).stdout, ':5');
+  assert.ok(!existsSync(f.d('out', 'xvfb.args')));
+  // Xvfb 가 없으면 건너뛴다(DISPLAY 를 내보내지 않는다)
+  assert.equal(callLib(f.env, 'start_display; printf "%s" "${DISPLAY:-}"').stdout, '');
+});
+
+test('dockerfilesInstallPortAndMacDefaultTools', () => {
+  // Mac 에 기본으로 있어 스크립트가 당연히 쓰는 명령 — 없으면 live-stack·explore-stack 의 포트 찾기가 기동 타임아웃까지 헛돈다(WP-1404).
+  // AI 는 Pod 에서 root 가 아니라 깔 수 없으니 이미지에 넣고, 빌드 때 lsof·ss·ip·nc 가 실제로 도는지 본다.
+  const want = ['lsof', 'iproute2', 'netcat-openbsd', 'net-tools', 'psmisc', 'file', 'xxd', 'bsdextrautils', 'bc', 'zip', 'dnsutils', 'iputils-ping', 'rsync', 'uuid-runtime'];
+  for (const p of [join(appDir, 'Dockerfile'), join(appDir, '..', 'workplace-agent-genia-code', 'Dockerfile')]) {
+    const d = readFileSync(p, 'utf8');
+    const apt = d.match(/apt-get install -y --no-install-recommends \\\n([^;]*);/)?.[1] ?? '';
+    const pkgs = apt.split(/[\s\\]+/).filter(Boolean);
+    for (const w of want) assert.ok(pkgs.includes(w), `${p}: ${w}`);
+    assert.match(d, /lsof -v 2>&1 \| grep -q revision; ss -V; ip -V; nc -h 2>&1 \| grep -q OpenBSD/, p);
+  }
 });
 
 test('buildSkipsGeniaWorksWhenMarketplaceUnreachable', (t) => {

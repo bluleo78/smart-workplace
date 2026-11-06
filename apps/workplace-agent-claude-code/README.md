@@ -6,6 +6,8 @@ Works 가 띄우는 AI Pod 의 작업 공간 이미지다(WP-1252). runner(`apps
 
 - 베이스 `mcr.microsoft.com/playwright:v1.60.0-noble`. 개발용 작업 공간이라 DHI 규칙의 예외다(사유는 Dockerfile 머리에 있다).
 - tmux, git, gh, glab(GitLab — 사용 통계·업데이트 확인 끔), jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack)
+- 포트·프로세스 확인 도구(WP-1404): lsof, ss·ip(iproute2), nc(BSD 판), netstat, fuser·killall, file, xxd, column, bc, zip, dig, ping, rsync, uuidgen — Mac 에 기본으로 있어 스크립트가 쓰는 명령
+- playwright-cli(고정 버전, WP-1404) — 그 cli 가 품은 Playwright 의 chromium 을 `/ms-playwright` 에 굳히고, `~/.playwright/cli.config.json` 이 chromium headless 를 기본으로 둔다(`--config` 없이 `playwright-cli open <url>`). 엔트리포인트가 cli 설치를 PVC 브라우저 폴더의 `.links` 에 올려 저장소 Playwright 를 받을 때 GC 가 그 chromium 을 지우지 않게 하고, Xvfb 가상 화면(`DISPLAY=:99`)을 띄워 `--headed` 도 그리게 한다
 - Claude Code `2.1.316`(npm 전역 설치, `DISABLE_AUTOUPDATER=1`)
 - 언어 서버 jdtls, typescript-language-server
 - 플러그인 8개: 빌드할 때 `/home/agent` 에 받아 이미지에 넣는다. 버전은 [plugins.lock](plugins.lock)에 고정한다. 받은 버전이 lock 과 다르면 빌드가 실패한다. superpowers 는 만든 사람의 마켓플레이스(`obra/superpowers-marketplace`)에서 받는다(최신을 바로 싣는다). Gen:iA Code 이미지도 이 lock 을 받는다(`genia-works` 만 빼고).

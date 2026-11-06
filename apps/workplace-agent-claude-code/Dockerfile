@@ -12,6 +12,8 @@ ARG JDTLS_BUILD=202610131109
 ARG JDTLS_SHA256=f587dafd8410633c2c2bf005e853a2bbb03cddee88933d49bfe6d9cb1cf09342
 ARG TYPESCRIPT_LANGUAGE_SERVER_VERSION=6.0.2
 ARG TYPESCRIPT_VERSION=5.9.3
+# playwright-cli(WP-1404) — 화면 탐색 스킬이 쓰는 브라우저 명령. 두 작업 공간 이미지가 같은 버전을 쓴다.
+ARG PLAYWRIGHT_CLI_VERSION=0.1.15
 # GitLab CLI(WP-1276) — 플러그인 gw-repo 가 GitLab MR 을 다룰 때 쓴다. apt 에 없어 공식 릴리스 .deb 를 아키텍처별 해시로 확인해 받는다.
 ARG GLAB_VERSION=1.123.0
 ARG GLAB_SHA256_AMD64=0effb3e550b80fd826b5a50655acc7fe7142728d0afe9a1d5d857aa2fc651f5a
@@ -25,6 +27,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # tini 는 PID 1 로 SIGTERM 을 엔트리포인트에 넘기고 고아 프로세스(tmux 서버 등)를 거둔다.
 # fonts-noto-cjk — 베이스의 한글 글꼴은 WenQuanYi·Unifont 뿐이라 한글 폭이 달라져 배치를 재는 E2E 가 작업 공간에서만 깨진다(WP-1285).
 # 베이스의 fonts-wqy-zenhei 는 fontconfig 우선순위가 Noto 보다 높아 남겨 두면 계속 한글을 가져가므로 지운다(중국어도 Noto CJK 가 덮는다).
+# 포트·프로세스 확인 도구(WP-1404) — Mac 에는 기본으로 있어 저장소·탐색 스크립트가 당연히 쓰는데 베이스에는 없다(일반 사용자라 Pod 에서 깔 수 없다).
+# lsof·ss(iproute2)는 live-stack·explore-stack 의 듣는 포트 찾기와 빈 포트 판정, ip(iproute2)는 e2e-netns. 나머지는 Mac 기본 명령을 맞춘 것:
+# nc(BSD 판 — Mac 과 같은 옵션)·netstat(net-tools)·fuser·killall(psmisc)·file·xxd·column(bsdextrautils)·bc·zip·dig·ping·rsync·uuidgen.
+# 끝 줄은 빌드 때 존재 확인 — 빠지면 이미지가 빌드되지 않는다.
 RUN set -eux; \
     mkdir -p /usr/share/man/man1 /etc/apt/keyrings; \
     apt-get update; \
@@ -37,9 +43,11 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       tmux git jq tini procps less openssh-client unzip \
       openjdk-21-jdk-headless gh docker-ce-cli docker-compose-plugin docker-buildx-plugin \
-      fonts-noto-cjk; \
+      fonts-noto-cjk \
+      lsof iproute2 netcat-openbsd net-tools psmisc file xxd bsdextrautils bc zip dnsutils iputils-ping rsync uuid-runtime; \
     apt-get purge -y fonts-wqy-zenhei; \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*; \
+    lsof -v 2>&1 | grep -q revision; ss -V; ip -V; nc -h 2>&1 | grep -q OpenBSD
 
 # jdtls(jdtls-lsp 플러그인이 PATH 에서 찾는다) — apt 에 없어 Eclipse 공식 milestone 을 해시로 확인해 받는다.
 RUN set -eux; \
@@ -70,6 +78,21 @@ RUN set -eux; \
     npm cache clean --force; \
     corepack enable
 
+# playwright-cli(WP-1404) — 화면 탐색 스킬(ai-driven-explorer)이 브라우저를 이것으로만 다룬다. 고정 버전으로 넣고,
+# 이 cli 가 품은 Playwright 의 chromium 을 베이스 브라우저 폴더(/ms-playwright)에 받아 둔다 — 엔트리포인트가 PVC 브라우저 폴더에 링크한다(seed_browsers).
+# cli 의 install-browser 는 0.1.15 에서 --no-shell 을 「--shell」 옵션으로 잘못 읽어, 품은 playwright-core 의 install 을 직접 부른다.
+# 기본 설정(아래 ~/.playwright)이 channel chromium(정식 chromium 의 headless)이라 headless shell 은 받지 않는다.
+# 브라우저 지우기(GC)는 끈다 — 베이스가 받은 chromium 은 설치 기록(.links)이 없어 GC 가 「안 쓰는 것」으로 보고 지운다.
+# 품은 playwright-core 폴더는 /opt/genia/playwright-cli-core 로 가리켜 둔다 — 엔트리포인트가 PVC 브라우저 폴더의 설치 기록(.links)에 올려, 저장소 Playwright 를 받을 때 GC 가 이 chromium 을 지우지 않게 한다.
+RUN set -eux; \
+    npm install -g --no-fund --no-audit "@playwright/cli@${PLAYWRIGHT_CLI_VERSION}"; \
+    npm cache clean --force; \
+    core=$(node -e 'console.log(require("path").dirname(require.resolve("playwright-core", { paths: [process.argv[1]] })))' "$(npm root -g)/@playwright/cli"); \
+    PLAYWRIGHT_SKIP_BROWSER_GC=1 node "$core/cli.js" install --no-shell chromium; \
+    mkdir -p /opt/genia; \
+    ln -sfn "$core" /opt/genia/playwright-cli-core; \
+    playwright-cli --version
+
 # agent 사용자 UID/GID 1001 — 베이스의 pwuser 가 1001 이라 이름과 홈만 바꾼다(없으면 새로 만든다).
 # /work 은 PVC 가 덮지만 PVC 없이 띄워도(확인용 docker run) 쓸 수 있게 1001 소유로 둔다. /run/genia 는 runner 가 파일만 꽂는 곳.
 RUN set -eux; \
@@ -96,6 +119,20 @@ ENV HOME=/home/agent \
 WORKDIR /home/agent
 RUN bash -c '. /opt/genia/bin/lib.sh && install_plugins /opt/genia/plugins.lock "$0"' "$GENIA_WORKS_ORIGIN" && \
     claude --version
+
+# playwright-cli 기본 설정(WP-1404) — Pod 에는 화면도 Google Chrome 도 없는데 cli 는 설정이 없으면 channel chrome 을 찾는다.
+# 위에서 받은 chromium 을 headless 로 쓰게 전역 설정(~/.playwright/cli.config.json)을 둔다 — 가장 약한 설정이라 저장소의 .playwright/·--config 가 덮는다.
+# 스킬이 --headed 로 띄우면 엔트리포인트가 띄운 가상 화면(Xvfb, start_display)에 그린다.
+# 빌드 때 about:blank 를 실제로 열어 본다 — 브라우저·설정이 어긋나면 이미지가 빌드되지 않는다. 열어 본 흔적(세션·데몬 파일)은 지운다.
+RUN set -eux; \
+    mkdir -p /home/agent/.playwright; \
+    printf '%s\n' '{"browser":{"browserName":"chromium","launchOptions":{"channel":"chromium","headless":true}}}' > /home/agent/.playwright/cli.config.json; \
+    t=$(mktemp -d); \
+    cd "$t"; \
+    playwright-cli open about:blank; \
+    playwright-cli close; \
+    cd /; \
+    rm -rf "$t" /home/agent/.cache/ms-playwright
 
 # 디스크 배치(계약) — 다시 받기 비싼 것은 /work(PVC)로. 빌드 RUN 이 끝난 뒤에 둔다(/work/tmp 가 없으면 빌드 중 dpkg·npm 이 실패한다).
 # 브라우저 폴더를 PVC 로 옮기므로 베이스의 /ms-playwright 는 엔트리포인트가 링크해 둔다(같은 버전이면 받지 않는다).
