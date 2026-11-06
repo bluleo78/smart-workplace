@@ -1,5 +1,6 @@
 package com.workplace.mail.controller;
 
+import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.dto.SecurityCheckView;
@@ -22,7 +23,9 @@ import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.dto.MarkAllReadRequest;
+import com.workplace.mail.dto.SaveAttachmentToDriveRequest;
 import com.workplace.mail.dto.SetMailCategoryRequest;
+import com.workplace.mail.service.MailAttachmentDriveSaveService;
 import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentPreviewService;
 import com.workplace.mail.service.MailAttachmentService;
@@ -42,6 +45,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -70,6 +74,7 @@ public class MailInboxController {
   private final MailAttachmentTextService attachmentTextService;
   private final MailAttachmentViewService attachmentViewService;
   private final MailAttachmentPreviewService attachmentPreviewService;
+  private final MailAttachmentDriveSaveService attachmentDriveSaveService;
   private final MailFolderService folderService;
   private final MailMoveService moveService;
   private final MailInviteService inviteService;
@@ -308,6 +313,21 @@ public class MailInboxController {
     headers.setContentLength(result.content().length);
 
     return ResponseEntity.ok().headers(headers).body(result.content());
+  }
+
+  /**
+   * 첨부를 드라이브에 새 파일로 저장(WP-1400) — 201 + 드라이브 import-attachment 와 같은 {@link DriveFileResponse}. 소유는
+   * /content 와 같다(본인 소유 아니면 404). 대상 공간 EDITOR 미만 403(비멤버 404), 다른 공간 폴더 400, 같은 폴더에 같은 이름이면 새 버전으로
+   * 덮지 않고 409, 저장 한도 초과 409. 메일 서버에서 받지 못하면 /content 와 같은 오류다.
+   */
+  @PostMapping("/attachments/{attachmentId}/save-to-drive")
+  public ResponseEntity<DriveFileResponse> saveAttachmentToDrive(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long attachmentId,
+      @Valid @RequestBody SaveAttachmentToDriveRequest req) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(
+            attachmentDriveSaveService.save(callerId, attachmentId, req.spaceId(), req.folderId()));
   }
 
   /**

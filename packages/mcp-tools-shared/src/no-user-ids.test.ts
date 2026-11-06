@@ -356,6 +356,7 @@ describe('드라이브', () => {
       copyDriveFile: vi.fn().mockResolvedValue(fileRow),
       copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, parentId: 3, name: '자료', createdAt: 't', updatedAt: 't' }),
       importAttachmentToDrive: vi.fn().mockResolvedValue(fileRow),
+      saveMailAttachmentToDrive: vi.fn().mockResolvedValue(fileRow),
     };
     const tools = buildDriveTools(client as never) as never;
     const outs = [
@@ -363,9 +364,11 @@ describe('드라이브', () => {
       out(await find(tools, 'copy_drive_item').handler({ driveFileId: 5, targetFolderId: 3 })),
       out(await find(tools, 'copy_drive_item').handler({ folderId: 8 })),
       out(await find(tools, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 812 })),
+      // WP-1400: 메일 첨부 저장도 같은 파일 행 뷰다.
+      out(await find(tools, 'import_attachment_to_drive').handler({ spaceId: 2, mailAttachmentId: 31 })),
     ];
     for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
-    for (const body of [outs[0], outs[1], outs[3]]) {
+    for (const body of [outs[0], outs[1], outs[3], outs[4]]) {
       expect(body).toMatchObject({ driveFileId: 5 });
       expect(body).not.toHaveProperty('fileId');
     }

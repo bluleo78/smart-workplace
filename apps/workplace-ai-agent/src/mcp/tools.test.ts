@@ -172,6 +172,7 @@ function sharedMock(): MockedShared {
     copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, name: '자료' }),
     listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
     importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, name: 'a.png' }),
+    saveMailAttachmentToDrive: vi.fn().mockResolvedValue({ id: 8, fileId: 901, name: '견적서.pdf' }),
     // WP-369: 전송 링크·텍스트로 만들기
     createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/dl', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true }),
     createDriveUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
@@ -2023,6 +2024,9 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(c.sc.copyDriveFolder).toHaveBeenCalledWith(8, 3);
     await find(buildTools(c, 7, 'assistant'), 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900 });
     expect(c.sc.importAttachmentToDrive).toHaveBeenCalledWith(2, null, 900);
+    // WP-1400: 메일 첨부(mailAttachmentId)도 같은 공유 클라이언트로 메일 첨부 저장을 부른다.
+    await find(buildTools(c, 7, 'assistant'), 'import_attachment_to_drive').handler({ spaceId: 2, mailAttachmentId: 31 });
+    expect(c.sc.saveMailAttachmentToDrive).toHaveBeenCalledWith(31, 2, null);
   });
 
   // WP-369 R6: AI Chat 의 create_drive_file 은 content 모드만 — 업로드 링크는 API 를 부르지 않고 오류로 안내한다. 스키마는 공유본 그대로(패리티).

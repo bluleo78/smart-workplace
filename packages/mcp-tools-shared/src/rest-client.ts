@@ -647,6 +647,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const base = `/drive/spaces/${spaceId}`;
       return (await http.post(folderId == null ? `${base}/import-attachment` : `${base}/folders/${folderId}/import-attachment`, { fileId })).data;
     },
+    // WP-1400: 메일 첨부는 메일 쪽 경로 — 공간·폴더는 본문으로 넘긴다(폴더 없음 = 루트, null 그대로).
+    async saveMailAttachmentToDrive(mailAttachmentId, spaceId, folderId) {
+      return (await http.post(`/mail/attachments/${mailAttachmentId}/save-to-drive`, { spaceId, folderId })).data;
+    },
     // ── 전송 링크·텍스트로 만들기(WP-369) ── 모두 JSON 이다. 바이트 전송은 MCP 가 아니라 링크를 받은 쪽(curl·브라우저)이 공개 경로로 한다.
     async createDriveDownloadLink(driveFileId) {
       return (await http.post(`/drive/files/${driveFileId}/download-link`)).data;

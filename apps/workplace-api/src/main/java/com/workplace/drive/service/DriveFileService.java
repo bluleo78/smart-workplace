@@ -51,6 +51,7 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -145,7 +146,8 @@ public class DriveFileService {
         spaceId,
         folderId,
         UploadSource.ofBytes(name, mime, bytes),
-        new TextRewrite(mimeType));
+        new TextRewrite(mimeType),
+        false);
   }
 
   /**
@@ -203,7 +205,8 @@ public class DriveFileService {
         row.folderId(),
         UploadSource.ofBytes(row.name(), mime, bytes),
         row.id(),
-        new TextRewrite(mimeType));
+        new TextRewrite(mimeType),
+        false);
   }
 
   /**
@@ -398,7 +401,7 @@ public class DriveFileService {
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
     // 저장 이름은 store 가 행 잠금 아래에서 읽은 지금 이름으로 바꾼다.
-    return store(callerId, row.spaceId(), row.folderId(), source, row.id(), null);
+    return store(callerId, row.spaceId(), row.folderId(), source, row.id(), null, false);
   }
 
   /**
@@ -444,17 +447,73 @@ public class DriveFileService {
   @Transactional
   public DriveFileResponse upload(long callerId, long spaceId, Long folderId, UploadSource source)
       throws IOException {
-    return uploadInto(callerId, spaceId, folderId, source, null);
+    return uploadInto(callerId, spaceId, folderId, source, null, false);
   }
 
-  /** 이름으로 넣는 업로드 — 권한(EDITOR)·폴더 소속 검증 뒤 공유 핵심. {@code text} 는 내용 모드일 때만(동명 흡수 판정용). */
+  /**
+   * 새 파일로만 만드는 업로드(WP-1400 메일 첨부를 드라이브에 저장) — {@link #upload} 와 같은 순서(권한·폴더 검증·할당량·file core
+   * 저장·감사·추출·미리보기·알림)를 타지만, 같은 폴더에 같은 이름의 활성 파일이 있으면 그 파일의 새 버전으로 흡수하지 않고 409 로 거절한다. 「저장」은 기존 파일을
+   * 덮지 않는다는 첨부 가져오기(import-attachment)의 약속을 지키기 위해서다.
+   *
+   * <p>이름 확인은 할당량 advisory lock 아래에서 다시 한다 — 사전 검사({@link #validateNewFileTarget})와 이 호출 사이에 같은 이름이
+   * 생겼으면 여기서 409. 잠금을 타지 않는 경로(이름 변경·이동 등)와의 아주 좁은 경합은 유일 인덱스가 막고 같은 409 로 바꾼다.
+   *
+   * @throws DriveDuplicateNameException 같은 폴더에 같은 이름의 활성 파일(409)
+   * @throws com.workplace.drive.exception.DriveQuotaExceededException 저장 한도 초과(409, 바이트를 쓰기 전에 거절)
+   */
+  @Transactional
+  public DriveFileResponse uploadNew(
+      long callerId, long spaceId, Long folderId, UploadSource source) throws IOException {
+    return uploadInto(callerId, spaceId, folderId, source, null, true);
+  }
+
+  /**
+   * 새 파일 업로드 사전 검사(쓰기 없음, WP-1400) — {@link #validateUploadTarget} 에 더해 그 폴더에 같은 이름(file core 와 같은
+   * 정리를 거친 이름)의 활성 파일이 없는지, 크기를 미리 알면 저장 한도에 들어가는지 본다. 메일 서버에서 원본을 받기 <b>전에</b> 불러 헛걸음을 막는다 — 트랜잭션은
+   * 이 검사 동안만 잡는다. 한도는 잠그지 않고 보는 빠른 거절이고, 실제 저장({@link #uploadNew})이 잠근 채 다시 본다.
+   *
+   * @param expectedBytes 저장할 바이트의 하한 추정(모르면 null — 한도는 저장 때만 본다)
+   * @throws DriveDuplicateNameException 같은 폴더에 같은 이름의 활성 파일(409)
+   * @throws com.workplace.drive.exception.DriveQuotaExceededException 저장 한도 초과(409)
+   */
+  @Transactional(readOnly = true)
+  public void validateNewFileTarget(
+      long callerId, long spaceId, Long folderId, String name, Long expectedBytes) {
+    validateUploadTarget(callerId, spaceId, folderId);
+    requireNameFree(spaceId, folderId, SafeFileNames.sanitize(name, "file"));
+    if (expectedBytes != null) {
+      quota.assertWithinQuota(expectedBytes);
+    }
+  }
+
+  /** 드라이브 활성 이름 유일 인덱스 이름 — 같은 폴더 같은 이름 경합 판정용(V81). */
+  private static final String ACTIVE_NAME_INDEX = "uq_drive_file_active_name";
+
+  /**
+   * 유일 위반이 같은 폴더 같은 이름(활성 이름 인덱스) 때문인지 — 가장 안쪽 원인(PSQLException) 메시지에 인덱스 이름이 있는지 본다. 다른 제약(다른 유일
+   * 인덱스 등)의 위반을 409 「같은 이름」으로 잘못 바꾸지 않으려는 것이다.
+   */
+  private static boolean isActiveNameViolation(DuplicateKeyException e) {
+    String msg = e.getMostSpecificCause().getMessage();
+    return msg != null && msg.contains(ACTIVE_NAME_INDEX);
+  }
+
+  /**
+   * 이름으로 넣는 업로드 — 권한(EDITOR)·폴더 소속 검증 뒤 공유 핵심. {@code text} 는 내용 모드일 때만(동명 흡수 판정용), {@code
+   * createOnly} 는 새 파일로만 만들 때(동명이면 409, {@link #uploadNew}).
+   */
   private DriveFileResponse uploadInto(
-      long callerId, long spaceId, Long folderId, UploadSource source, TextRewrite text)
+      long callerId,
+      long spaceId,
+      Long folderId,
+      UploadSource source,
+      TextRewrite text,
+      boolean createOnly)
       throws IOException {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더가 이 공간 소속인지(WP-369 이전에는 검사하지 않아 다른 공간 폴더 id 로 올릴 수 있었다).
     validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE, true);
-    return store(callerId, spaceId, folderId, source, null, text);
+    return store(callerId, spaceId, folderId, source, null, text, createOnly);
   }
 
   /**
@@ -464,6 +523,8 @@ public class DriveFileService {
    * @param targetDriveFileId 새 버전을 더할 파일(WP-369, ID 지정 갱신). null 이면 같은 폴더의 동명 활성 파일을 찾아 있으면 새 버전,
    *     없으면 새 파일 + v1(#79). 어느 쪽이든 붙일 행을 잠가 살아 있는지 다시 보고, 저장 이름은 잠금 아래에서 읽은 지금 이름이다
    * @param text 내용 모드(텍스트로 만들기·갱신)면 그 표시, 바이트 업로드면 null — 기존 파일에 붙을 때 잠근 행으로 고쳐 쓰기 판정·MIME 을 정한다
+   * @param createOnly true 면 이름 경로에서 동명 활성 파일을 새 버전으로 흡수하지 않고 409({@link
+   *     DriveDuplicateNameException}) — 새 파일 + v1 만 만든다(WP-1400). targetDriveFileId 와 함께 쓰지 않는다
    */
   private DriveFileResponse store(
       long callerId,
@@ -471,7 +532,8 @@ public class DriveFileService {
       Long folderId,
       UploadSource source,
       Long targetDriveFileId,
-      TextRewrite text)
+      TextRewrite text,
+      boolean createOnly)
       throws IOException {
     // 쿼터 강제: 테넌트 단위 직렬화 잠금 후 사용량 검사(동시 업로드 레이스 방지, #81).
     Long tenantId = TenantContext.get();
@@ -487,6 +549,11 @@ public class DriveFileService {
           files
               .lockActiveRow(targetDriveFileId)
               .orElseThrow(() -> new DriveFileNotFoundException(targetDriveFileId));
+    } else if (createOnly) {
+      // 새 파일로만(WP-1400): advisory lock 아래에서 동명 활성 파일을 다시 보고 있으면 버전 흡수 대신 409.
+      // blob 저장 전에 거절하므로 보통은 저장소에 아무것도 쓰지 않는다(잠금을 타지 않는 경로와의 좁은 경합은 아래 인덱스 위반 처리 참고).
+      requireNameFree(spaceId, folderId, SafeFileNames.sanitize(source.originalName(), "file"));
+      locked = null;
     } else {
       // 이름 경로(최종 리뷰 I1): file core 와 같은 정리로 이름을 먼저 정해 동명 행을 찾고 잠근다.
       locked =
@@ -519,9 +586,20 @@ public class DriveFileService {
       actionType = "FILE_VERSION_CREATED";
     } else {
       // insertWithInitialVersion 이 drive_file + v1 버전 행을 원자적으로 생성(#79 불변식 강제)
-      driveFileId =
-          files.insertWithInitialVersion(
-              spaceId, folderId, uploaded.id(), name, uploaded.fileSize(), callerId);
+      try {
+        driveFileId =
+            files.insertWithInitialVersion(
+                spaceId, folderId, uploaded.id(), name, uploaded.fileSize(), callerId);
+      } catch (DuplicateKeyException e) {
+        // advisory lock 을 타지 않는 경로(이름 변경·이동 등)가 막 같은 이름을 만든 좁은 경합이다.
+        // 새 파일 전용 저장(WP-1400)에서 활성 이름 유일 인덱스(uq_drive_file_active_name) 위반만 같은 409 문구로 바꾸고,
+        // 다른 제약 위반은 그대로 전파한다. 기존 업로드 경로는 호출부 처리(전송 링크 등)를 그대로 둔다.
+        // 이때 file core 가 이미 쓴 blob 은 트랜잭션 롤백으로 지워지지 않아 고아로 남을 수 있다 — 기존 업로드 경로의 같은 경합과 같다.
+        if (createOnly && isActiveNameViolation(e)) {
+          throw new DriveDuplicateNameException(name);
+        }
+        throw e;
+      }
       versionNo = 1;
       actionType = "FILE_UPLOAD";
     }

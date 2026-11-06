@@ -24,6 +24,7 @@ function mockClient(): DriveToolClient {
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
     listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
     importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, folderId: null, name: 'a.png' }),
+    saveMailAttachmentToDrive: vi.fn().mockResolvedValue({ id: 8, fileId: 901, folderId: 4, name: '견적서.pdf' }),
     createDriveDownloadLink: vi.fn().mockResolvedValue({
       url: 'https://w.example/api/v1/public/drive/transfer/dl_abc', expiresAt: '2026-10-13T05:52:00Z', name: '회의 메모.md',
       sizeBytes: 21, mimeType: 'text/markdown', singleUse: true,
@@ -401,6 +402,26 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900, folderId: 4 });
     expect(c.importAttachmentToDrive).toHaveBeenLastCalledWith(2, 4, 900);
     await expect(tool(c, 'import_attachment_to_drive').handler({ spaceId: 2 })).rejects.toThrow();
+    // 메일 첨부 번호를 null 로 채워 보내도 기존 가져오기 경로다.
+    await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900, mailAttachmentId: null });
+    expect(c.importAttachmentToDrive).toHaveBeenCalledTimes(3);
+    expect(c.saveMailAttachmentToDrive).not.toHaveBeenCalled();
+  });
+
+  it('import_attachment_to_drive mailAttachmentId → 메일 첨부 저장(saveMailAttachmentToDrive)으로 보내고 같은 driveFileId 뷰를 반환 (WP-1400)', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, mailAttachmentId: 31, folderId: 4 });
+    expect(c.saveMailAttachmentToDrive).toHaveBeenCalledWith(31, 2, 4);
+    expect(c.importAttachmentToDrive).not.toHaveBeenCalled();
+    expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 8, folderId: 4, name: '견적서.pdf' });
+    // 폴더 생략은 루트(null).
+    await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, mailAttachmentId: 31, attachmentId: null });
+    expect(c.saveMailAttachmentToDrive).toHaveBeenLastCalledWith(31, 2, null);
+    // 둘 다·둘 다 없음은 모호하므로 거절하고 서버를 부르지 않는다(출처를 추측해 엉뚱한 파일을 가져오지 않는다).
+    await expect(tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900, mailAttachmentId: 31 })).rejects.toThrow(/정확히 하나/);
+    await expect(tool(c, 'import_attachment_to_drive').handler({ spaceId: 2 })).rejects.toThrow(/정확히 하나/);
+    await expect(tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: null, mailAttachmentId: null })).rejects.toThrow(/정확히 하나/);
+    expect(c.saveMailAttachmentToDrive).toHaveBeenCalledTimes(2);
   });
 });
 

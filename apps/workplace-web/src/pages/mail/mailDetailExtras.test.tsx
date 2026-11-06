@@ -9,6 +9,7 @@ import { expect, test } from 'vitest'
 
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 
+import { createFile, personalSpace } from '../../../e2e/factories/drive.factory'
 import { calendarInvite, detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
 
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
@@ -253,6 +254,51 @@ test('메일 조회가 실패해 남은 ?preview 도 오류 안내와 함께 찾
   })
   expect(await screen.findByText('메일을 불러오지 못했습니다')).toBeInTheDocument()
   expect(await screen.findByTestId('preview-not-found')).toBeInTheDocument()
+})
+
+// WP-1400: 메일 화면 뷰어 ☁ — 메일 첨부를 같은 폴더 창으로 드라이브에 저장한다(메일 첨부 저장 save-to-drive, 개인 공간 1·루트).
+test('뷰어 ☁ 로 메일 첨부를 드라이브에 저장하면 save-to-drive 에 spaceId·folderId 를 보낸다', async () => {
+  const saves = record('post', '/api/v1/mail/attachments/:id/save-to-drive', () =>
+    HttpResponse.json(createFile({ id: 900, fileId: 901, name: 'memo.txt' }), { status: 201 }),
+  )
+  const { user } = renderMail('/mail/1?messageId=10&preview=mail:7', {
+    handlers: [
+      saves.handler,
+      ...viewerHandlers().handlers,
+      http.get('/api/v1/drive/spaces/1', () => HttpResponse.json(personalSpace({ id: 1 }))),
+      http.get('/api/v1/drive/spaces/1/items', () => HttpResponse.json({ folders: [], files: [] })),
+    ],
+  })
+  const viewer = await screen.findByTestId('attachment-viewer')
+  const cloud = within(viewer).getByRole('button', { name: '드라이브로 가져오기' })
+  await waitFor(() => expect(cloud).toBeEnabled())
+  await user.click(cloud)
+  await user.click(within(await screen.findByTestId('folder-picker')).getByTestId('folder-picker-confirm'))
+  await waitFor(() => expect(saves.calls).toHaveLength(1))
+  expect(saves.calls[0].url.pathname).toBe('/api/v1/mail/attachments/7/save-to-drive')
+  expect(saves.calls[0].body).toEqual({ spaceId: 1, folderId: null })
+  expect(await screen.findByText('파일을 드라이브로 가져왔습니다')).toBeInTheDocument()
+})
+
+// WP-1400: 드라이브 공간 조회는 ☁ 를 누를 때만 한다 — 미리보기를 열기만 해서는 공간을 묻지 않고, 드라이브가 내려가 있어도
+// 누르지 않은 기능의 실패 토스트가 뜨지 않는다. 누르면 그때 조회하고 실패를 토스트로 알린다(폴더 창은 열지 않는다).
+test('미리보기를 열기만 하면 공간 조회·실패 토스트가 없고, ☁ 를 누르면 조회 실패를 토스트로 알린다', async () => {
+  const spaces = record('get', '/api/v1/drive/spaces', () => HttpResponse.json({ message: '드라이브 점검 중' }, { status: 503 }))
+  const { user } = renderMail('/mail/1?messageId=10&preview=mail:7', { handlers: [spaces.handler, ...viewerHandlers().handlers] })
+  const viewer = await screen.findByTestId('attachment-viewer')
+  await waitFor(() => expect(screen.getByTestId('preview-body')).toBeInTheDocument())
+  await wait(50)
+  expect(spaces.calls).toHaveLength(0)
+  expect(screen.queryByText('드라이브 스페이스를 불러오지 못했습니다.')).not.toBeInTheDocument()
+
+  const cloud = within(viewer).getByRole('button', { name: '드라이브로 가져오기' })
+  expect(cloud).toBeEnabled()
+  await user.click(cloud)
+  expect(await screen.findByText('드라이브 스페이스를 불러오지 못했습니다.')).toBeInTheDocument()
+  expect(spaces.calls).toHaveLength(1)
+  expect(screen.queryByTestId('folder-picker')).not.toBeInTheDocument()
+  // 실패 뒤에도 버튼은 다시 누를 수 있다(다시 누르면 다시 조회).
+  await waitFor(() => expect(cloud).toBeEnabled())
 })
 
 // ── 변환 미리보기 404(mail-converted-preview, WP-432) ─────────────────────────────────────────────

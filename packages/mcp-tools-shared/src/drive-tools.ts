@@ -88,11 +88,20 @@ export const copyDriveItemInput = z
     targetFolderId: nullAsOmitted(z.number().int().positive()),
   })
   .refine(exactlyOneItem, exactlyOneItemMessage);
-export const importAttachmentToDriveInput = z.object({
-  spaceId: z.number().int().positive(),
-  attachmentId: z.number().int().positive(),
-  folderId: nullAsOmitted(z.number().int().positive()),
-});
+// WP-1400: 첨부 출처는 서로 다른 인자로 받는다 — attachmentId(이슈·채팅 첨부 core file id) 또는 mailAttachmentId(get_mail 의
+// attachments[].attachmentId). 출처 플래그(source)를 기본값과 함께 두면 메일 첨부 번호를 플래그 없이 넘겼을 때 같은 번호의 엉뚱한
+// 이슈·채팅 파일을 조용히 가져오므로, 인자 이름 자체로 출처를 드러내고 정확히 하나만 받는다(null 은 생략과 같다).
+// 메일 첨부는 file 행이 없어 서버 경로가 다르다(메일 서버에서 받아 새 드라이브 파일로 만든다).
+export const importAttachmentToDriveInput = z
+  .object({
+    spaceId: z.number().int().positive(),
+    attachmentId: nullAsOmitted(z.number().int().positive()),
+    mailAttachmentId: nullAsOmitted(z.number().int().positive()),
+    folderId: nullAsOmitted(z.number().int().positive()),
+  })
+  .refine((v) => (v.attachmentId == null) !== (v.mailAttachmentId == null), {
+    message: 'attachmentId(이슈·채팅 첨부) 와 mailAttachmentId(메일 첨부) 중 정확히 하나만 주세요.',
+  });
 
 // WP-369: 전송 링크·텍스트로 만들기. 바이트는 MCP 를 거치지 않는다 — 다운로드·업로드 링크를 받은 쪽(curl·브라우저)이 공개 경로로 주고받는다.
 export const createDriveDownloadLinkInput = z.object({ driveFileId: z.number().int().positive() });
@@ -378,14 +387,22 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 새 drive 파일을 만든다(destructive 아님). 같은 첨부를 같은 위치에 다시 가져오면 이름이 겹쳐 409 — 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Saves an issue or chat attachment into a drive space (folderId or root); needs EDITOR. attachmentId: attachments[].attachmentId from ' +
-        'get_issue_detail or attachments[].fileId from list_channel_messages. Keeps its name; fails if taken there.',
+        'Saves an attachment to a drive space (folderId or root); needs EDITOR. Exactly one of attachmentId (get_issue_detail, ' +
+        'list_channel_messages fileId) or mailAttachmentId (get_mail). Keeps name; fails if taken.',
       inputSchema: importAttachmentToDriveInput,
       async handler(args) {
-        const { spaceId, attachmentId, folderId } = importAttachmentToDriveInput.parse(args);
-        return JSON.stringify(
-          toDriveFileView((await client.importAttachmentToDrive(spaceId, folderId ?? null, attachmentId)) as { id: number; fileId: number }),
-        );
+        const { spaceId, attachmentId, mailAttachmentId, folderId } = importAttachmentToDriveInput.parse(args);
+        // 메일 첨부 번호면 메일 첨부 저장 경로로, 이슈·채팅 첨부 번호면 기존 가져오기 경로로 — 응답은 둘 다 같은 드라이브 파일 행이다.
+        // refine 이 둘 중 정확히 하나를 보장하지만 타입은 좁혀지지 않으므로, 단언(!) 대신 가드로 갈라 마지막 분기는 방어용으로 둔다.
+        let row: unknown;
+        if (mailAttachmentId != null) {
+          row = await client.saveMailAttachmentToDrive(mailAttachmentId, spaceId, folderId ?? null);
+        } else if (attachmentId != null) {
+          row = await client.importAttachmentToDrive(spaceId, folderId ?? null, attachmentId);
+        } else {
+          throw new Error('attachmentId 또는 mailAttachmentId 중 하나가 필요합니다.');
+        }
+        return JSON.stringify(toDriveFileView(row as { id: number; fileId: number }));
       },
     },
   ];

@@ -620,6 +620,11 @@ export interface DriveToolClient {
   /** POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment — 이슈·채팅 첨부(core file id)를 드라이브 파일로 가져온다. 생성된 파일 행 반환. */
   importAttachmentToDrive(spaceId: number, folderId: number | null, fileId: number): Promise<unknown>;
   /**
+   * POST /mail/attachments/{id}/save-to-drive — 내 메일 첨부를 드라이브 파일로 저장한다(WP-1400). folderId 가 null 이면 공간 루트.
+   * 메일 첨부는 core file 행이 없어 import-attachment 를 쓸 수 없다. 같은 이름이 있으면 409. 생성된 파일 행 반환.
+   */
+  saveMailAttachmentToDrive(mailAttachmentId: number, spaceId: number, folderId: number | null): Promise<unknown>;
+  /**
    * POST /drive/files/{id}/download-link — VIEWER 이상. 로그인 없이 한 번만 받을 수 있는 10분짜리 서명 링크를 만든다(WP-369).
    * 공개 GET 은 전송 전에 링크를 소비하고 Range 를 무시한다 — 끊기면 새 링크가 필요하다.
    */

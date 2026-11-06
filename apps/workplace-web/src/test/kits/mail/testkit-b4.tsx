@@ -14,6 +14,7 @@ import { renderScreen } from '@/test/renderScreen'
 import type { MailAccountResponse } from '@/types/mailAccount'
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
+import { personalSpace } from '../../../../e2e/factories/drive.factory'
 import { mailAccount } from '../../../../e2e/factories/mail.factory'
 
 const API = '/api/v1'
@@ -64,6 +65,8 @@ export function mailBaseHandlers({
     http.get(`${API}/contacts`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
     // 받는사람의 조직·내 그룹 후보(WP-1060) — 기본은 조직도·내 그룹 없음.
     http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
+    // 첨부 뷰어 ☁(드라이브로 가져오기)를 누르면 개인 공간을 찾는다(WP-1400) — 기본은 개인 공간 1.
+    http.get(`${API}/drive/spaces`, () => HttpResponse.json([personalSpace({ id: 1 })])),
   ]
 }
 

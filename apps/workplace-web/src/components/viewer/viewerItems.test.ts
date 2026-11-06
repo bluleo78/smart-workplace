@@ -18,7 +18,6 @@ import {
   issueBodyImageItem,
   issueChatBundle,
   issueDriveLinkItem,
-  isVirtualAttachmentImportable,
   itemPreviewKind,
   mailAttachmentItem,
   mailViewerKey,
@@ -28,6 +27,7 @@ import {
   resolveBundle,
   securityPathFrom,
   teamChatBundle,
+  virtualAttachmentImportTarget,
   virtualAttachmentItem,
   virtualAttachmentViewerKey,
 } from './viewerItems'
@@ -45,7 +45,7 @@ describe('driveFileItem', () => {
       backlinksDriveFileId: 70,
       aiRefs: { source: 'drive', driveFileId: 70 },
     })
-    expect(it.importFileId).toBeUndefined()
+    expect(it.importTarget).toBeUndefined()
   })
 })
 
@@ -55,29 +55,31 @@ describe('virtualAttachmentItem', () => {
     expect(virtualAttachmentItem(a)).toEqual({
       key: 'file:9', name: 'a.png', mimeType: 'image/png', sizeBytes: 10,
       contentPath: '/api/v1/x/9/content', downloadPath: '/api/v1/x/9/content',
-      importFileId: 9, sourceLink: '/projects/WP/issues/3',
+      importTarget: { kind: 'file', fileId: 9 }, sourceLink: '/projects/WP/issues/3',
     })
   })
 
   // WP-1392: 가져오기는 fileId 가 있을 때만 — 응답에 남는 다른 필드(예전·새 서버의 여분 필드)는 판단에 쓰지 않는다.
-  it('fileId 가 없으면 가져오기(importFileId)가 없고, 여분 필드는 무시한다', () => {
+  it('fileId 가 없으면 가져오기(importTarget)가 없고, 여분 필드는 무시한다', () => {
     const a = { fileId: 9, name: 'a.png', mimeType: 'image/png', sizeBytes: 10, downloadUrl: '/api/v1/x/9/content', deepLink: '/x' } as VirtualAttachment
-    expect(isVirtualAttachmentImportable(a)).toBe(true)
-    expect(isVirtualAttachmentImportable({ ...a, importable: false } as VirtualAttachment)).toBe(true)
+    expect(virtualAttachmentImportTarget(a)).toEqual({ kind: 'file', fileId: 9 })
+    expect(virtualAttachmentImportTarget({ ...a, importable: false } as VirtualAttachment)).toEqual({ kind: 'file', fileId: 9 })
     const noFile = { ...a, fileId: null } as VirtualAttachment
-    expect(virtualAttachmentItem(noFile).importFileId).toBeUndefined()
-    expect(isVirtualAttachmentImportable(noFile)).toBe(false)
+    expect(virtualAttachmentItem(noFile).importTarget).toBeUndefined()
+    expect(virtualAttachmentImportTarget(noFile)).toBeNull()
   })
 
-  // WP-1392: 메일 첨부는 메일 화면과 같은 항목 — 키 mail:{id}(file:{id} 와 네임스페이스가 달라 같은 숫자 fileId 와 섞이지 않음), 메일 콘텐츠 경로, 가져오기 없음.
-  it('메일 첨부는 mail:{id} 키·메일 경로이고 가져오기가 없다', () => {
+  // WP-1392: 메일 첨부는 메일 화면과 같은 항목 — 키 mail:{id}(file:{id} 와 네임스페이스가 달라 같은 숫자 fileId 와 섞이지 않음), 메일 콘텐츠 경로.
+  // WP-1400: 가져오기는 메일 첨부 대상(mailAttachmentId)으로 — fileId 가 없어도 저장할 수 있다.
+  it('메일 첨부는 mail:{id} 키·메일 경로이고 메일 첨부 대상으로 가져온다', () => {
     const a = {
       fileId: null, name: '견적서.pdf', mimeType: 'application/pdf', sizeBytes: 10, sourceType: 'MAIL', mailAttachmentId: 9,
       downloadUrl: '/api/v1/mail/attachments/9/content', deepLink: '/mail/1?messageId=3',
     } as VirtualAttachment
     const it = virtualAttachmentItem(a)
     expect(it).toMatchObject({ key: 'mail:9', contentPath: '/mail/attachments/9/content', aiRefs: { source: 'mail', attachmentId: 9 }, sourceLink: '/mail/1?messageId=3' })
-    expect(it.importFileId).toBeUndefined()
+    expect(it.importTarget).toEqual({ kind: 'mail', mailAttachmentId: 9 })
+    expect(virtualAttachmentImportTarget(a)).toEqual({ kind: 'mail', mailAttachmentId: 9 })
     expect(it.key).not.toBe(virtualAttachmentItem({ ...a, sourceType: 'ISSUE', fileId: 9, mailAttachmentId: null }).key)
   })
 
@@ -95,8 +97,11 @@ describe('virtualAttachmentItem', () => {
       expect(parseViewerKey(key)).toBeNull()
       expect(isMailViewerKey(key)).toBe(false)
     }
-    expect(virtualAttachmentItem(issue).importFileId).toBeUndefined()
-    expect(isVirtualAttachmentImportable(issue)).toBe(false)
+    expect(virtualAttachmentItem(issue).importTarget).toBeUndefined()
+    expect(virtualAttachmentImportTarget(issue)).toBeNull()
+    // 메일 id 가 빠진 메일 행도 저장 대상이 없다(어느 API 로도 저장할 수 없음).
+    expect(virtualAttachmentImportTarget(mailA)).toBeNull()
+    expect(virtualAttachmentItem(mailA).importTarget).toBeUndefined()
   })
 
   // 목록 탐색용 키 함수는 항목을 만들지 않고 같은 키를 낸다(파일·메일·id 없는 행).
@@ -114,7 +119,7 @@ describe('issueAttachmentItem / issueDriveLinkItem', () => {
   it('이슈 업로드 첨부는 가져오기 가능, 요약 없음', () => {
     const a = { fileId: 5, originalName: '로그.txt', mimeType: 'text/plain', sizeBytes: 3 } as IssueAttachment
     expect(issueAttachmentItem('WP', 12, a)).toMatchObject({
-      key: 'file:5', name: '로그.txt', contentPath: '/projects/WP/issues/12/attachments/5/content', importFileId: 5,
+      key: 'file:5', name: '로그.txt', contentPath: '/projects/WP/issues/12/attachments/5/content', importTarget: { kind: 'file', fileId: 5 },
       // WP-1261: read_file 이슈 첨부 식별자 — attachmentId 는 core fileId.
       aiRefs: { source: 'issue', issueKey: 'WP-12', attachmentId: 5 },
     })
@@ -189,10 +194,12 @@ describe('mailAttachmentItem', () => {
     id: 7, filename: '안건.pdf', contentType: 'application/pdf', sizeBytes: 1234, contentId: null, ...o,
   })
 
-  it('메일 첨부는 mail: 키·첨부 콘텐츠 경로로 받고 ✨·☁·참조·원본 이동은 없다', () => {
+  it('메일 첨부는 mail: 키·첨부 콘텐츠 경로로 받고 ☁ 는 메일 첨부 저장, ✨·참조·원본 이동은 없다', () => {
     expect(mailAttachmentItem(att())).toEqual({
       key: 'mail:7', name: '안건.pdf', mimeType: 'application/pdf', sizeBytes: 1234,
       contentPath: '/mail/attachments/7/content', downloadPath: '/mail/attachments/7/content',
+      // WP-1400: ☁ 드라이브로 가져오기는 메일 첨부 id 로 메일 첨부 저장 API 를 쓴다.
+      importTarget: { kind: 'mail', mailAttachmentId: 7 },
       // WP-1261: 미리 보는 동안 AI 가 read_file 로 읽는 식별자 — 메일 messageId 없이 attachmentId 만.
       aiRefs: { source: 'mail', attachmentId: 7 },
     })
@@ -296,7 +303,7 @@ describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
       key: 'msg:42:file:5', name: '사진.png', mimeType: 'image/png', sizeBytes: 10,
       contentPath: '/messaging/channels/3/messages/42/attachments/5/content',
       downloadPath: '/messaging/channels/3/messages/42/attachments/5/content',
-      importFileId: 5,
+      importTarget: { kind: 'file', fileId: 5 },
       aiRefs: { source: 'message', channelId: 3, messageId: 42, attachmentId: 5 },
     })
   })
@@ -315,7 +322,7 @@ describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
       aiRefs: { source: 'drive', driveFileId: 70 },
       unavailable: false,
     })
-    expect(it.importFileId).toBeUndefined()
+    expect(it.importTarget).toBeUndefined()
     expect(it.sourceLink).toBeUndefined()
   })
   it('원본이 휴지통·삭제된 링크는 unavailable, ✨·드라이브에서 열기 없음', () => {
@@ -334,7 +341,7 @@ describe('issueChatAttachmentItem / issueChatDriveLinkItem', () => {
       key: 'cmsg:42:file:5', name: 'a.txt', mimeType: 'text/plain', sizeBytes: 10,
       contentPath: '/chat/threads/8/messages/42/attachments/5/content',
       downloadPath: '/chat/threads/8/messages/42/attachments/5/content',
-      importFileId: 5,
+      importTarget: { kind: 'file', fileId: 5 },
       // issueKey 는 묶음이 모른다 — 화면 컨텍스트가 이슈 상세의 issueKey 로 채운다(overlayScreenContext).
       aiRefs: { source: 'issue_chat', messageId: 42, attachmentId: 5 },
     })

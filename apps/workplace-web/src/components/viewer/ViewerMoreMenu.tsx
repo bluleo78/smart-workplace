@@ -29,7 +29,7 @@ export function ViewerMoreMenu({
   shareTarget,
 }: {
   item: ViewerItem
-  /** 있으면 "드라이브로 가져오기" 항목을 보인다(item.importFileId 가 있고 가져오기가 가능할 때). */
+  /** 있으면 "드라이브로 가져오기" 항목을 보인다(item.importTarget 이 있고 가져오기가 가능할 때). */
   onImport?: () => void
   /** 링크로 다시 열 수 있는 뷰어의 대상(WP-1234) — 있으면 링크 항목(채팅·이슈로 보내기·브라우저에서 열기)을 둔다. 없으면(shareable=false) 링크 항목이 없다. */
   shareTarget?: ShareTarget | null

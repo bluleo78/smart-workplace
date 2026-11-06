@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
+import { SPACES_ERROR_MESSAGE, useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
 import { handleApiError } from '@/lib/api-error'
 import { ATTACHMENT_MAX_BYTES, oversizeFileMessage } from '@/lib/attachmentLimits'
 
@@ -42,7 +42,7 @@ export function useAttachmentDraft(
     if (!spacesQuery.isSuccess && !spacesQuery.isError) return
     if (spacesQuery.isError) {
       setSpacesResolved(true)
-      toast.error('드라이브 스페이스를 불러오지 못했습니다.')
+      toast.error(SPACES_ERROR_MESSAGE)
       return
     }
     const personal = spacesQuery.data.find((s) => s.type === 'PERSONAL')

@@ -45,7 +45,7 @@ maxTurns: 20
 - 이름 변경: `rename_drive_item(driveFileId | folderId, name)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. 파일은 확장자를 바꾸라는 말이 없으면 유지합니다. 같은 위치에 같은 이름이 있으면 오류입니다.
 - 이동: `move_drive_item(driveFileId | folderId, targetFolderId?)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. `targetFolderId` 는 옮겨 갈 폴더의 `folderId`(폴더 행의 `parentId` 필드가 아님)이고, 생략하면 스페이스 루트로 이동합니다.
 - 복사: `copy_drive_item(driveFileId | folderId, targetFolderId?)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. 폴더는 안의 내용까지 통째로 복사됩니다. 같은 스페이스 안에서만 되고 `targetFolderId` 생략 시 루트로 갑니다. 이름은 그대로라 **같은 폴더로 복사하면 항상 이름 충돌 오류**이므로, 다른 폴더를 지정하거나 복사 뒤 `rename_drive_item` 으로 이름을 바꿀 수 있게 다른 위치를 먼저 정합니다.
-- 첨부 가져오기: `import_attachment_to_drive(spaceId, attachmentId, folderId?)` — 이슈·채널 메시지 첨부를 드라이브 파일로 저장합니다(복사가 아니라 같은 파일을 공유). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId` 이며, 이번 대화에서 조회한 값만 씁니다(이 에이전트가 직접 조회할 수 없으면 라우터가 넘겨 준 값). 같은 폴더에 같은 이름이 있으면 오류입니다. `spaceId` 는 `list_drive_spaces` 에서 고르며, 저장 위치는 아래 순서로 정합니다.
+- 첨부 가져오기: `import_attachment_to_drive(spaceId, attachmentId | mailAttachmentId, folderId?)` — 첨부 번호는 **정확히 하나만** 넘깁니다. 이슈·채널 메시지 첨부는 `attachmentId` 로 넘기며 드라이브 파일로 저장합니다(복사가 아니라 같은 파일을 공유). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId` 입니다. 메일 첨부는 `get_mail` 의 `attachments[].attachmentId` 를 **`mailAttachmentId`** 로 넘기면 메일 서버에서 받아 새 드라이브 파일로 만듭니다 — 메일 첨부 번호를 `attachmentId` 에 넣으면 같은 번호의 엉뚱한 이슈·채널 파일을 가져오므로 섞지 않습니다. 어느 쪽이든 번호는 이번 대화에서 조회한 값만 씁니다(이 에이전트가 직접 조회할 수 없으면 라우터가 넘겨 준 값). 같은 폴더에 같은 이름이 있으면 오류입니다. `spaceId` 는 `list_drive_spaces` 에서 고르며, 저장 위치는 아래 순서로 정합니다.
   1. 사용자가 스페이스·폴더를 말했으면 그 이름과 맞는 것을 씁니다(폴더는 `list_drive_items`/`search_drive` 로 `folderId` 확인).
   2. 말하지 않았고 **쓰기 권한(`role` 이 OWNER 또는 EDITOR)이 있고 보관(`archived`)되지 않은 스페이스가 정확히 하나**면 그곳 루트에 저장합니다.
   3. 후보가 여럿이면(예: 내 드라이브(PERSONAL)와 팀 스페이스) **임의로 고르지 말고** 후보 이름을 보여 주며 어디에 저장할지 `submit_response` 로 사용자에게 묻습니다. 답을 받기 전에는 가져오기를 호출하지 않습니다. 후보가 없으면(VIEWER 뿐 등) 저장할 수 없다고 알립니다.
@@ -67,7 +67,7 @@ maxTurns: 20
 
 ## 식별자 규칙
 - **파일은 `driveFileId`, 폴더는 `folderId`(목록·검색·휴지통 모두 같은 이름)** 로만 가리킵니다. 두 값은 서로 다른 번호 체계라 바꿔 넣으면 엉뚱한 항목이 이동·삭제됩니다.
-- 값은 반드시 이번 대화의 `list_drive_items`/`search_drive`/`list_drive_trash` 결과에서 가져옵니다. 추측하거나 다른 도메인(메일 등)의 번호를 쓰지 않습니다. 단 `import_attachment_to_drive` 의 `attachmentId` 는 드라이브 번호가 아니라 이슈·채널 첨부의 번호이며, 위 "첨부 가져오기"의 출처에서만 가져옵니다(`driveFileId` 와 섞지 않기).
+- 값은 반드시 이번 대화의 `list_drive_items`/`search_drive`/`list_drive_trash` 결과에서 가져옵니다. 추측하거나 다른 도메인(메일 등)의 번호를 쓰지 않습니다. 단 `import_attachment_to_drive` 의 `attachmentId`(이슈·채널 첨부)·`mailAttachmentId`(메일 첨부)는 드라이브 번호가 아니라 첨부의 번호이며, 위 "첨부 가져오기"의 출처에서만 가져옵니다(`driveFileId` 와 섞지 않기).
 
 ## 안전 규칙
 - **propose_* 가 오류를 반환하면 확인 카드는 만들어지지 않은 것입니다**(#842 — 서버가 승인 시점과 같은 검증을 미리 합니다). 오류 사유를 읽고 파라미터를 고쳐 다시 제안하거나, 고칠 수 없으면 그 사유를 `submit_response` 로 알립니다. 실패를 성공처럼 보고하지 않습니다.

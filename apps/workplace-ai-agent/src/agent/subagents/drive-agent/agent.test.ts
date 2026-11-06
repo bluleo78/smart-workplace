@@ -65,7 +65,10 @@ describe('drive-agent 정의', () => {
     expect(prompt).toContain('rename_drive_item(driveFileId | folderId, name)');
     expect(prompt).toContain('move_drive_item(driveFileId | folderId, targetFolderId?)');
     expect(prompt).toContain('copy_drive_item(driveFileId | folderId, targetFolderId?)');
-    expect(prompt).toContain('import_attachment_to_drive(spaceId, attachmentId, folderId?)');
+    expect(prompt).toContain('import_attachment_to_drive(spaceId, attachmentId | mailAttachmentId, folderId?)');
+    // WP-1400: 메일 첨부는 별도 인자 mailAttachmentId 로만 넘긴다(출처 플래그 source 는 없다).
+    expect(prompt).toContain('`mailAttachmentId`');
+    expect(prompt).not.toMatch(/source: "mail"` 과 함께/);
     expect(prompt).toContain('includeVersions');
     expect(prompt).toContain('includeBacklinks');
     expect(prompt).toContain('버전 롤백');

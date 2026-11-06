@@ -25,8 +25,8 @@ export interface ViewerItem {
   summaryDriveFileId?: number
   /** 있으면 "참조된 곳"(드라이브 화면에서 연 파일만). */
   backlinksDriveFileId?: number
-  /** 있으면 ☁ 드라이브로 가져오기(업로드 첨부 core fileId). */
-  importFileId?: number
+  /** 있으면 ☁ 드라이브로 가져오기 — 업로드 첨부(core fileId)는 가져오기, 메일 첨부(메일 첨부 id)는 메일 첨부 저장 API(WP-1400). */
+  importTarget?: DriveImportTarget
   /** 있으면 ⋯ "드라이브에서 열기" — 누를 때 파일이 있는 폴더를 찾아 연다(driveOpen.ts). */
   driveOpen?: DriveOpenTarget
   /** 있으면 ⋯ "원본으로 이동". */
@@ -46,6 +46,13 @@ export interface ViewerItem {
    */
   aiRefs?: Record<string, string | number>
 }
+
+/**
+ * 드라이브로 가져올 대상(WP-1400) — 어느 API 로 저장할지가 출처마다 달라 태그로 나눈다.
+ * - file: core file 행이 있는 업로드 첨부(이슈·채팅·노트) → import-attachment
+ * - mail: file 행이 없는 메일 첨부 → 메일 첨부 저장(save-to-drive). 메일 서버에서 받아 새 드라이브 파일로 만든다.
+ */
+export type DriveImportTarget = { kind: 'file'; fileId: number } | { kind: 'mail'; mailAttachmentId: number }
 
 /**
  * 항목별 받기 출처(WP-1227). 앱 로그인 세션이 아닌 다른 인증(공유 열람 토큰)으로 받아야 하는 항목이 쓴다.
