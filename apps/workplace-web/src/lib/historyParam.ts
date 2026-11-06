@@ -71,10 +71,23 @@ export function readHistoryParam(
  *   push 직전에 결정적으로 안다(별도 replace 로 마크를 심지 않는다 — 그 사이 back 이 오면 마크 없는 항목이 남는다).
  */
 export function planOpen(snap: HistorySnapshot, key: string, value: string, opts: HistoryParamOptions = {}): HistoryPlan {
-  const mode = opts.mode ?? 'query'
-  const current = readHistoryParam(snap, key, mode)
+  const current = readHistoryParam(snap, key, opts.mode)
   if (current === value) return { kind: 'none' }
-  const prev = asState(snap.state)
+  if (current != null) return { kind: 'replace', ...openedLocation(snap, key, value, opts) }
+  return planPushOpen(snap, key, value, opts)
+}
+
+/** 계획 중 navigate 로 옮기는 한 단계(push·replace) — 단계 종류를 타입으로 고정할 때 쓴다. */
+type NavPlan<K extends 'push' | 'replace'> = { kind: K; search: string; state: RouterState }
+
+/** 연 화면의 주소·state — query 모드는 clear 를 지우고 ?key=value, state 모드는 state[key]=value. 마크는 붙이지 않는다. */
+function openedLocation(
+  snap: Pick<HistorySnapshot, 'search' | 'state'>,
+  key: string,
+  value: string,
+  opts: HistoryParamOptions,
+): { search: string; state: RouterState } {
+  const mode = opts.mode ?? 'query'
   let search = snap.search
   if (mode === 'query') {
     const params = new URLSearchParams(snap.search)
@@ -83,9 +96,13 @@ export function planOpen(snap: HistorySnapshot, key: string, value: string, opts
     search = toSearch(params)
   }
   const valueState = mode === 'state' ? { [key]: value } : {}
-  if (current != null) return { kind: 'replace', search, state: { ...prev, ...valueState } }
-  const openIdx = (snap.idx ?? 0) + 1
-  return { kind: 'push', search, state: { ...prev, ...valueState, [markKey(key)]: openIdx } }
+  return { search, state: { ...asState(snap.state), ...valueState } }
+}
+
+/** 닫힌 화면에서 여는 push — 마크 = 현재 idx + 1(planOpen 의 닫힘 분기·planUnmarkedEntry 의 두 번째 단계가 함께 쓴다). */
+function planPushOpen(snap: HistorySnapshot, key: string, value: string, opts: HistoryParamOptions): NavPlan<'push'> {
+  const { search, state } = openedLocation(snap, key, value, opts)
+  return { kind: 'push', search, state: { ...state, [markKey(key)]: (snap.idx ?? 0) + 1 } }
 }
 
 /**
@@ -104,6 +121,12 @@ export function planClose(snap: HistorySnapshot, key: string, opts: HistoryParam
     return { kind: 'go', delta: openIdx - 1 - snap.idx }
   }
   if (opts.unmarkedClose !== 'replace' && snap.idx != null && snap.idx > 0) return { kind: 'go', delta: -1 }
+  return planColdClose(snap, key, opts)
+}
+
+/** 콜드 닫기(planClose 3번) — 키(+clear 하위 키)와 key 의 마크만 지우고 replace. 다른 쿼리·router state 는 보존한다. */
+function planColdClose(snap: Pick<HistorySnapshot, 'search' | 'state'>, key: string, opts: HistoryParamOptions): NavPlan<'replace'> {
+  const mode = opts.mode ?? 'query'
   let search = snap.search
   if (mode === 'query') {
     const params = new URLSearchParams(snap.search)
@@ -111,7 +134,26 @@ export function planClose(snap: HistorySnapshot, key: string, opts: HistoryParam
     for (const k of opts.clear ?? []) params.delete(k)
     search = toSearch(params)
   }
-  return { kind: 'replace', search, state: stripHistoryKey(prev, key, mode) }
+  return { kind: 'replace', search, state: stripHistoryKey(snap.state, key, mode) }
+}
+
+/** 마크 없는 진입을 「화면 → 열기」 두 항목으로 펴는 계획 — 먼저 replace, 이어서 push. */
+export type UnmarkedEntryPlan = readonly [NavPlan<'replace'>, NavPlan<'push'>]
+
+/**
+ * 링크·알림·주소로 처음부터 열린 채(`?key=value`, 열림 마크 없음) 들어온 항목을 「아래 화면에 먼저 들어간 뒤 열었다」로 바꾸는 계획(WP-1414).
+ * 왜: 마크 없는 닫기는 출발 화면으로 -1 이라(planClose 2번), 알림으로 이슈 채팅에 들어와 서랍을 닫으면 이슈가 아니라 알림 전 화면으로 돌아갔다.
+ * 1. replace — 콜드 닫기(planClose 3번)와 같다: 현재 항목에서 key(+clear 하위 키)와 key 의 마크만 뺀다(경로·다른 쿼리·다른 router state 보존).
+ * 2. push — 그 위에서 앱 안 「열기」와 똑같이 지금 값으로 연다(planOpen 의 닫힘 분기 — 마크 = 현재 idx + 1).
+ * 결과: 출발 화면 → 아래 화면 → 열린 화면(마크). 닫기는 아래 화면으로, 한 번 더 뒤로 가면 출발 화면으로 간다. 새 탭(idx 0)도 같은 모양이 된다.
+ * 닫혀 있거나 이미 마크가 있으면(앱 안에서 연 항목·새로고침·이 계획을 실행한 뒤) null — 그래서 두 번 실행돼도 항목이 더 쌓이지 않는다.
+ * 두 단계를 타입이 정해진 헬퍼로 바로 만들어, 단계 종류가 어긋나는 경우가 생기지 않는다.
+ */
+export function planUnmarkedEntry(snap: HistorySnapshot, key: string, opts: HistoryParamOptions = {}): UnmarkedEntryPlan | null {
+  const value = readHistoryParam(snap, key, opts.mode)
+  if (value == null || hasOpenMark(snap.state, key)) return null
+  const base = planColdClose(snap, key, opts)
+  return [base, planPushOpen({ search: base.search, state: base.state, idx: snap.idx }, key, value, opts)]
 }
 
 /**

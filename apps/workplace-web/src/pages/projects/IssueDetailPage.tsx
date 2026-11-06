@@ -150,7 +150,16 @@ export default function IssueDetailPage() {
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
   const [deletePending, setDeletePending] = useState(false);
   // 채팅 드로워 open 상태 — URL ?chat=1 (시스템 뒤로가기가 드로워부터 닫도록, H2). 헤더 채팅 버튼으로 연다.
-  const { open: chatOpen, openChat, closeChat } = useIssueChatDrawerParam();
+  // 팀 이슈 상세를 그릴 준비가 됐는지 — 이슈를 받았고, 없는 이슈가 아니며, 팀 프로젝트로 확정됐다(개인이면 패널로 리다이렉트).
+  // 채팅 서랍 펴기(WP-1414)와 ESC 복귀(#885)가 같은 조건을 쓴다.
+  const teamIssueReady = !!data && !isNotFoundError(error) && project.data != null && project.data.type !== 'PERSONAL';
+  // 알림·링크로 서랍이 열린 채 들어오면 「이슈 → 채팅」 두 항목으로 펴서 닫기가 이슈 상세로 돌아오게 한다(WP-1414).
+  // 준비된 뒤에만 편다 — 개인 프로젝트는 아래 리다이렉트(WP-1372)가 chat 을 넘겨받아야 하고,
+  // 로딩·없는 이슈 화면엔 서랍이 없어 항목만 늘어난다.
+  const { open: chatOpen, openChat, closeChat } = useIssueChatDrawerParam({
+    unmarkedEntry: 'expand',
+    unmarkedEntryReady: teamIssueReady,
+  });
   // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
   const members = useProjectMembers(key);
   const isOwner = isProjectOwner(members.data, user?.id);
@@ -179,8 +188,7 @@ export default function IssueDetailPage() {
   // AI 패널이 열려 있으면 ESC 는 패널을 닫는 데 쓰이므로(AIChip) 그동안은 양보한다.
   const returnToOrigin = useReturnToIssueOrigin(key);
   const { mode: aiMode } = useAssistant();
-  const canReturn =
-    !!data && project.data?.type !== 'PERSONAL' && !isNotFoundError(error) && aiMode === 'closed';
+  const canReturn = teamIssueReady && aiMode === 'closed';
   useReturnOnEscape(returnToOrigin, canReturn);
 
   // 프로젝트 타입이 확정되기 전에는 렌더 보류 — 팀 화면 반짝임 방지.
