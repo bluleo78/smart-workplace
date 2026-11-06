@@ -217,6 +217,12 @@ gw_project_list() {
   printf '%s' "$1" | tr -d ' ' | tr '[:lower:]' '[:upper:]'
 }
 
+# work-loop 인자 — 「<프로젝트 키>」, 대기열 라벨이 있으면 「<키> --queue "<라벨>"」. agent-project start(칸을 띄울 때)와
+# agent-events poke(쉬는 칸에 /loop 를 넣을 때, WP-1403)가 같은 문자열을 쓰도록 한곳에 둔다. 라벨에는 큰따옴표가 없다(agent-home set 이 거절).
+gw_loop_args() {
+  if [ -n "$2" ]; then printf '%s --queue "%s"\n' "$1" "$2"; else printf '%s\n' "$1"; fi
+}
+
 # 이슈 키가 프로젝트 목록(gw_project_list 의 「WP,HR」)의 것인지 — 프로젝트는 이슈 키의 앞부분(WP-12 → WP). 줄마다 부르므로 프로세스를 띄우지 않는다.
 gw_issue_in_projects() {
   case ",$2," in *",${1%-*},"*) return 0 ;; esac

@@ -19,6 +19,21 @@
 #   같은 프로젝트 알림이 연달아 와도 키마다 잠가(<AI 폴더>/state/open-<키>.lock) 하나만 하고, agent-project 의 잠금(busy)·실패 대기(backoff)를 그대로 쓴다.
 #   맡는 프로젝트에 없으면(저장소 미연결·멤버 아님) 10분 동안 그 키로 다시 묻지 않는다. 결과는 events.log 에 「open <키> <결과>」 한 줄로 남긴다
 #   (tail 은 wake 줄만 내므로 칸을 깨우지 않는다).
+# agent-events poke <AI 폴더> <프로젝트 키|-> — 쉬는 Claude Code 칸에 「/loop /genia-works:work-loop <인자>」를 넣어 깨운다(WP-1403). run 이 wake 줄마다
+#   뒤에서 부른다(「wake <키>-…」는 그 키, 「wake - …」(다시 붙음)는 - — 그 AI 의 모든 칸). 칸의 모델이 Monitor 걸기를 건너뛰거나 30분 뒤 다시 걸지 않으면
+#   알림이 칸에 닿지 않았다 — genia·Codex 칸처럼 깨우기를 감시 창이 맡는다. 실행기가 claude 일 때만 한다(genia·codex 는 실행기가 이미 깨운다).
+#   넣는 것은 칸이 쉬고 있다고 화면으로 확인될 때뿐이다(사람이 친 글자·하던 일을 지키는 것이 먼저 — 놓친 알림은 정기 확인이 메운다):
+#     칸이 살아 있고, 사람이 그 칸을 보고 있지 않고(붙은 화면의 활성 칸), 입력 상자(위아래 ─ 줄 사이, ❯ 로 시작)를 찾았고,
+#     상자 바로 위에 일하는 중 표시(「✻ 동사… (8s · …)」·「Running…」·「Waiting…」·예전 판의 「esc to interrupt」)가 없고,
+#     상자 안이 비었거나 흐린 글자(안내문·다음 지시 제안, SGR 2)뿐일 때.
+#   막 뜬 칸(띄운 지 60초 안 — agent-window 가 다는 @gw_started, GW_POKE_FRESH_SEC)이나 open 이 그 키를 여는 중(open-<키>.lock)이면 starting —
+#   칸 명령의 첫 /loop 가 아직 제출되지 않았을 수 있어 겹쳐 넣지 않는다.
+#   쉬지 않으면(busy·typing·unknown·attached·starting) 알림을 버리지 않고 키 잠금을 쥔 채 15초마다 다시 보며 5분까지 기다리다 쉬게 되면 넣는다 —
+#   일하는 중에 온 알림을 다음 정기 확인(20~30분 뒤)까지 미루지 않게. 간격·한도(초)는 GW_POKE_RETRY_SEC·GW_POKE_RETRY_MAX 로 바꿀 수 있다(테스트용).
+#   같은 키는 60초에 한 번만 넣고(<AI 폴더>/state/poke-<키> — 넣었을 때만 표시), 동시 poke 는 키마다 잠가(poke-<키>.lock) 하나만 한다 —
+#   기다리는 poke 가 있으면 뒤의 poke 는 아무것도 남기지 않고 끝난다(기다리는 쪽이 맡는다).
+#   결과는 끝에 한 번 events.log 에 「poke <키> <sent|sent-after-wait|busy|typing|unknown|attached|starting|dead|debounced|no-pane|not-claude|failed>」
+#   한 줄로 남긴다(기다렸다 넣었으면 sent-after-wait, 한도까지 못 넣었으면 마지막 이유 — open 과 같은 방식).
 # 키는 gw-events 가 키 파일에서 읽어 표준 입력으로만 쓴다 — 이 스크립트는 키를 읽지도, 인자·로그에 남기지도 않는다.
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
@@ -27,7 +42,7 @@ tmux=${GW_TMUX:-tmux}
 win=events
 
 usage() {
-  echo "사용: agent-events ensure|run <AI 폴더> · tail <AI 폴더> <프로젝트 키[,키…]> · open <AI 폴더> <프로젝트 키>" >&2
+  echo "사용: agent-events ensure|run <AI 폴더> · tail <AI 폴더> <프로젝트 키[,키…]> · open <AI 폴더> <프로젝트 키> · poke <AI 폴더> <프로젝트 키|->" >&2
   exit 2
 }
 
@@ -111,12 +126,17 @@ do_run() {
         printf '%s\n' "$line" >> "$log"
         case $line in
           gw-events:*) fatal=1 ;;
-          'wake - '*) ;; # 다시 붙음 — 프로젝트가 없다
+          'wake - '*)
+            # 다시 붙음 — 프로젝트가 없다. 끊긴 사이 놓친 알림을 확인하도록 쉬는 칸을 모두 깨운다(WP-1403).
+            "$here/agent-events" poke "$aidir" - </dev/null >/dev/null 2>&1 &
+            ;;
           'wake '*-*)
             # 칸이 없는 프로젝트일 수 있다 — 뒤에서 확인해 연다(받기·칸 띄우기가 길어도 알림 읽기를 막지 않게). 이슈 키 끝의 「-번호」를 떼면 프로젝트 키.
+            # 칸이 있으면 쉬는 칸을 깨운다(WP-1403 — 둘 중 하나만 할 일이 있다).
             ik=${line#wake }
             ik=${ik%% *}
             "$here/agent-events" open "$aidir" "${ik%-*}" </dev/null >/dev/null 2>&1 &
+            "$here/agent-events" poke "$aidir" "${ik%-*}" </dev/null >/dev/null 2>&1 &
             ;;
         esac
         if [ "$(wc -c < "$log" 2>/dev/null || echo 0)" -gt 1048576 ]; then
@@ -136,7 +156,10 @@ do_run() {
       backoff=$((backoff * 2 > 30 ? 30 : backoff * 2))
       # 붙어 있던 gw-events 가 죽었다(잠금이 잡혀 곧바로 끝난 것이 아니다 — 그건 1초 안에 끝난다). 새로 띄운 gw-events 의 첫 연결은
       # 「다시 붙음」을 내지 않으므로 여기서 대신 낸다 — 끊긴 사이 온 알림을 칸들이 한 번 확인해 메우게.
-      [ "$ran" -ge 5 ] && printf 'wake - reconnect\n' >> "$log"
+      if [ "$ran" -ge 5 ]; then
+        printf 'wake - reconnect\n' >> "$log"
+        "$here/agent-events" poke "$aidir" - </dev/null >/dev/null 2>&1 &
+      fi
     else
       # 키가 아직 없거나 거절됐다 — 다시 붙어도 소용없으니 5분 쉬고(그사이 키를 등록하면 다음 회차에 붙는다) 다시 해 본다.
       nap 300
@@ -168,9 +191,10 @@ do_tail() {
   wait $!
 }
 
-# 결과 한 줄을 기록에 남긴다 — 사람이 감시 창 기록에서 왜 칸이 열리지 않았는지 볼 수 있게.
-note_open() {
-  mkdir -p "$state" && printf 'open %s %s\n' "$1" "$2" >> "$log"
+# note <종류> <키> <결과> — 결과 한 줄(「open WP started」·「poke WP busy」)을 기록에 남긴다. 사람이 감시 창 기록에서 왜 칸이 열리지 않았는지·
+# 왜 깨우지 않았는지 볼 수 있게. tail 은 wake 줄만 내므로 이 줄은 칸을 깨우지 않는다.
+note() {
+  mkdir -p "$state" && printf '%s %s %s\n' "$1" "$2" "$3" >> "$log"
 }
 
 # 그 프로젝트 칸이 없으면 0. tmux 를 못 읽으면 지금은 모른다 — 없다고 보지 않는다(다음 알림·정기 확인에 맡긴다).
@@ -192,7 +216,7 @@ do_open() {
   # 잠금을 기다리는 사이 앞선 쪽이 칸을 띄웠을 수 있다 — 다시 본다(같은 받기·칸 띄우기를 두 번 하지 않게).
   pane_missing "$key" || exit 0
   list=$("$here/gw-agent-projects" --assigned "$name" </dev/null 2>/dev/null) || {
-    note_open "$key" "projects-failed"
+    note open "$key" "projects-failed"
     exit 0
   }
   tab=$(printf '\t')
@@ -200,7 +224,7 @@ do_open() {
   if [ -z "$line" ]; then
     # 맡는 프로젝트가 아니다(저장소 미연결·멤버 아님) — 그 프로젝트의 알림이 이어져도 10분은 다시 묻지 않는다.
     : > "$skip"
-    note_open "$key" "not-assigned"
+    note open "$key" "not-assigned"
     exit 0
   fi
   url=$(printf '%s' "$line" | cut -f2)
@@ -208,16 +232,208 @@ do_open() {
   out=$("$here/agent-project" add "$aidir" "$key" "$url" ${branch:+"$branch"} </dev/null 2>&1)
   rc=$?
   case $rc in
-    0) note_open "$key" "started" ;;
+    0) note open "$key" "started" ;;
     6 | 7) ;; # busy(다른 쪽이 하는 중)·backoff(1시간 안에 실패) — agent-project 가 이미 다룬다
-    *) note_open "$key" "failed $(printf '%s\n' "$out" | tail -n 1)" ;;
+    *) note open "$key" "failed $(printf '%s\n' "$out" | tail -n 1)" ;;
   esac
+  exit 0
+}
+
+# 칸 화면(capture-pane -e — 색 코드 포함)을 읽어 idle·busy·typing·unknown 중 하나를 낸다(WP-1403). Claude Code v2.1 의 모양 기준:
+#   입력 상자는 화면 맨 아래쪽의 ─ 줄 둘 사이이고 첫 줄이 「❯」 뒤 공백(실제로는 줄바꿈 없는 공백 U+00A0, 예전 판은 「> 」)으로 시작한다 —
+#   위쪽 기록에도 ❯ 로 시작하는 지난 지시 줄이 있어 ─ 줄로 상자를 찾는다. 상자를 못 찾으면(확인 창·메뉴 등) unknown.
+#   마지막 출력 블록(⏺ 로 시작하는 줄)부터 상자 위까지에 일하는 중 표시가 있으면 busy(할 일 목록이 길면 스피너가 상자에서 멀어 몇 줄만 보면 놓친다) —
+#   스피너 줄(줄 첫 글자가 스피너 글자 ✻✳✶✢✽·* 이고 「…」로 끝나는 낱말 하나가 뒤따름: 「✻ Effecting… (8s · …)」·「✳ Wrangling…」),
+#   도구 줄(「⎿  Running…」·「⎿  Waiting…」 그대로), 예전 판의 「esc to interrupt」. 모델이 쓴 글이 「…」로 끝나는 것은 일하는 중이 아니다.
+#   턴은 끝났어도 뒤에서 돌리는 셸·에이전트가 남아 있으면 상자 아래 상태 줄에 「· 1 shell」이 보인다 — busy(그 일이 끝나면 칸이 알림을 받아
+#   이어 가므로 새 /loop 를 겹쳐 넣지 않는다). 이 표시는 상자 아래에서만 본다(기록 글에 같은 낱말이 있어도 잘못 읽지 않게). 끝난 줄 「✻ Baked for 26s · done …」에는 둘 다 없다.
+#   상자 안에 흐리지 않은 글자가 있으면 typing — 안내문(「Try "…"」)·다음 지시 제안은 흐린 글자(SGR 2)로 그려진다. 반전 칸(SGR 7, 가짜 커서)은 typed() 참고. 판정이 서지 않는 모양은 넣지 않는 쪽으로 둔다.
+# awk 는 바이트 단위로 돌린다(LC_ALL=C — awk 마다 다른 UTF-8 처리를 피한다) — ❯·─·…·U+00A0 는 바이트열 그대로 맞춘다.
+classify_screen() {
+  LC_ALL=C awk '
+    function strip(s) { gsub(/\033\][^\033]*\033\\/, "", s); gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s); return s }
+    function trim(t) { gsub(/\302\240/, " ", t); sub(/[ \t]+$/, "", t); return t }
+    function isrule(t) { t = trim(t); if (t == "") return 0; gsub(/─/, "", t); return t == "" }
+    # SGR 인자를 읽어 흐림(DIM)·반전(INV) 상태를 바꾼다 — 38/48/58 의 색 값(5;N·2;R;G;B)은 건너뛴다(그 안의 2·7 을 잘못 읽지 않게).
+    function sgr(seq,   p, n, k, v) {
+      n = split(seq, p, ";")
+      if (n == 0) { DIM = INV = 0; return }
+      for (k = 1; k <= n; k++) {
+        v = p[k] + 0
+        if (v == 0) DIM = INV = 0
+        else if (v == 2) DIM = 1
+        else if (v == 22) DIM = 0
+        else if (v == 7) INV = 1
+        else if (v == 27) INV = 0
+        else if (v == 38 || v == 48 || v == 58) { if (p[k + 1] == "5") k += 2; else if (p[k + 1] == "2") k += 4 }
+      }
+    }
+    # 사람이 친 글자가 있으면 1. 색 코드(CSI)·링크(OSC)는 글자가 아니다. 흐린 글자는 안내문·제안이다.
+    # 반전 칸은 ink 가 그리는 가짜 커서다 — 빈 칸이면 무시하고, 글자 위에 있으면 바로 뒤가 흐린 글자(안내문 첫 글자 위의 커서)일 때만 무시한다
+    # (친 한 글자 위에 커서가 있는 것과 가르려고 — 뒤에 흐린 글자가 없으면 친 글자로 본다).
+    function typed(s,   n, i, j, c, seq, rest, pend) {
+      DIM = INV = pend = 0
+      gsub(/\302\240/, " ", s)
+      n = length(s)
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "\033") {
+          if (substr(s, i + 1, 1) == "[") {
+            seq = ""
+            for (j = i + 2; j <= n && substr(s, j, 1) ~ /[0-9;?]/; j++) seq = seq substr(s, j, 1)
+            if (substr(s, j, 1) == "m") sgr(seq)
+            i = j
+          } else if (substr(s, i + 1, 1) == "]") {
+            rest = substr(s, i + 2)
+            j = index(rest, "\033\\")
+            if (!j) return 1
+            i = i + j + 2
+          } else i++
+          continue
+        }
+        if (c == " " || c == "\t") continue
+        if (INV) { if (!DIM) pend = 1; continue }
+        if (DIM) { pend = 0; continue }
+        return 1
+      }
+      return pend
+    }
+    { raw[NR] = $0; plain[NR] = strip($0) }
+    END {
+      r1 = r2 = 0
+      for (i = NR; i >= 1; i--) if (isrule(plain[i])) { if (!r2) r2 = i; else { r1 = i; break } }
+      if (!r1 || r2 - r1 < 2 || plain[r1 + 1] !~ /^(❯|>)( |\302\240|$)/) { print "unknown"; exit }
+      for (i = r1 - 1; i >= 1; i--) {
+        t = trim(plain[i])
+        sub(/^ +/, "", t)
+        # 스피너 줄 — 스피너 글자 하나, 공백, 「…」로 끝나는 낱말, 그 뒤 끝 또는 「 (」. 도구 줄 — 「⎿」 뒤가 Running… / Waiting… 뿐.
+        if (t ~ /^(✻|✳|✶|✢|✽|·|\*) [^ ]+…( \(|$)/ || t ~ /^⎿ +(Running|Waiting)…$/ || index(t, "esc to interrupt")) { print "busy"; exit }
+        if (t ~ /^⏺/) break
+      }
+      # 뒤에서 도는 셸·에이전트는 상자 아래 상태 줄에만 본다(「· 1 shell」·「2 shells」·「still running」).
+      for (i = r2 + 1; i <= NR; i++) {
+        t = trim(plain[i])
+        if (t ~ /(^|[^0-9])[0-9]+ (shells?|agents?|background tasks?)( |$|·)/ || index(t, "still running")) { print "busy"; exit }
+      }
+      for (i = r1 + 1; i < r2; i++) {
+        s = raw[i]
+        # 첫 줄의 프롬프트 글자(❯ 또는 >)는 입력이 아니다 — 처음 하나만 뗀다.
+        if (i == r1 + 1) { if (index(s, "❯")) sub(/❯/, "", s); else sub(/>/, "", s) }
+        if (typed(s)) { print "typing"; exit }
+      }
+      print "idle"
+    }'
+}
+
+do_poke() {
+  key=${1:-}
+  [ "$key" = - ] || gw_valid_project_key "$key" || usage
+  # genia·codex 칸은 실행기가 이미 깨운다 — 실행기 확인이 가장 싸서 먼저 본다. poke - 가 칸마다 부를 때는 읽은 값을 넘겨받는다(GW_POKE_CLI).
+  cli=${GW_POKE_CLI:-}
+  [ -n "$cli" ] || cli=$("$here/agent-home" "$aidir" get cli 2>/dev/null) || cli=claude
+  if [ "$cli" != claude ]; then
+    note poke "$key" not-claude
+    exit 0
+  fi
+  if [ "$key" = - ]; then
+    # 서버가 불안정하면 다시 붙음이 1~2분마다 온다 — 그때마다 모든 칸에 /loop 를 넣으면 장애 동안 할 일 없는 회차만 쌓인다(WP-1403 리뷰).
+    # 다시 붙음 깨우기는 GW_POKE_RECONNECT_SEC(기본 600초)에 한 번만 한다. 마지막으로 깨운 시각(초)을 poke-reconnect 에 적어 비교한다
+    # (find -mmin 은 분 단위라 초 간격을 못 맞추고, stat 은 BSD·GNU 가 달라 시각을 파일 내용으로 둔다). 키 알림은 이 간격과 상관없다.
+    mkdir -p "$state" || exit 1
+    gw_dir_lock "$state/poke-reconnect.lock" || exit 0
+    gap=${GW_POKE_RECONNECT_SEC:-600}
+    now=$(date +%s)
+    last=$(cat "$state/poke-reconnect" 2>/dev/null)
+    case $last in
+      '' | *[!0-9]*) ;;
+      *)
+        if [ $((now - last)) -lt "$gap" ]; then
+          note poke - debounced
+          exit 0
+        fi
+        ;;
+    esac
+    printf '%s\n' "$now" > "$state/poke-reconnect"
+    # 다시 붙음 — 그 AI 의 칸마다 따로 부른다(키마다 잠그고 디바운스한다). 키가 달린 칸만(--pane-keys — 예전 구성의 창·home·감시 창은 아니다).
+    # 칸마다 뒤에서 — 일하는 칸을 기다리는 동안 다른 칸 깨우기가 밀리지 않게. 파이프 끝은 하위 셸이라 그 안에서 기다린다.
+    "$here/agent-window" --pane-keys "$name" 2>/dev/null | {
+      while IFS= read -r k; do
+        gw_valid_project_key "$k" && GW_POKE_CLI=$cli "$here/agent-events" poke "$aidir" "$k" </dev/null >/dev/null 2>&1 &
+      done
+      wait
+    }
+    exit 0
+  fi
+  stamp="$state/poke-$key"
+  mkdir -p "$state" || exit 1
+  # 같은 키 알림 여럿이 함께 오면 하나만 — 잡지 못하면 다른 쪽이 넣는 중이다.
+  # 잡지 못하면 다른 poke 가 넣는 중이거나 쉬기를 기다리는 중이다 — 그쪽이 맡으므로 남기지 않고 끝낸다.
+  gw_dir_lock "$state/poke-$key.lock" || exit 0
+  # 60초 안에 넣었으면 그 /loop 회차가 아직 돌고 있다 — 몰아친 알림마다 넣지 않는다.
+  if [ -n "$(find "$stamp" -mmin -1 2>/dev/null)" ]; then
+    note poke "$key" debounced
+    exit 0
+  fi
+  every=${GW_POKE_RETRY_SEC:-15}
+  limit=${GW_POKE_RETRY_MAX:-300}
+  fresh=${GW_POKE_FRESH_SEC:-60}
+  waited=0
+  # 쉬는 칸이 될 때까지 every 초마다 다시 본다(limit 초까지). 칸이 없거나 죽었으면 기다려도 소용없어 바로 끝낸다.
+  while :; do
+    # 칸 표시 방식은 agent-window 만 안다 — 칸 id·죽음 여부·사람이 보고 있는지를 받는다. 기다리는 사이 칸이 바뀔 수 있어 매번 다시 읽는다.
+    # 그 키 칸이 없으면(1) 기록만 남긴다(칸 열기는 open 이 맡는다). tmux·세션이 없으면(3) 아무 칸도 없으니 조용히 끝낸다.
+    info=$("$here/agent-window" --pane "$name" "$key" 2>/dev/null)
+    case $? in
+      0) ;;
+      1) note poke "$key" no-pane; exit 0 ;;
+      *) exit 0 ;;
+    esac
+    # shellcheck disable=SC2086 # 「<칸 id> <죽음> <보고 있음> <띄운 지 몇 초>」 네 낱말로 나눈다.
+    set -- $info
+    pane=$1
+    if [ "$2" = 1 ]; then
+      note poke "$key" dead
+      exit 0
+    fi
+    if [ -d "$state/open-$key.lock" ] || { [ "${4:--1}" -ge 0 ] && [ "${4:--1}" -lt "$fresh" ]; }; then
+      # 막 뜬 칸(open·start 가 띄우거나 다시 띄운 지 fresh 초 안) 또는 open 이 그 키를 여는 중 — 칸 명령의 첫 /loop 가 아직 제출되지 않았을 수 있어
+      # 겹쳐 넣지 않는다. 띄운 시각을 모르는 칸(-1, 이 판 전에 띄움)은 오래된 칸으로 본다.
+      st=starting
+    elif [ "$3" = 1 ]; then
+      # 사람이 그 칸을 보고 있다 — 치는 중일 수 있으니 넣지 않는다(떠나면 다음 회에 넣는다).
+      st=attached
+    else
+      st=$("$tmux" capture-pane -e -p -t "$pane" 2>/dev/null | classify_screen)
+      st=${st:-unknown}
+    fi
+    [ "$st" = idle ] && break
+    if [ "$waited" -ge "$limit" ]; then
+      note poke "$key" "$st"
+      exit 0
+    fi
+    sleep "$every"
+    waited=$((waited + every))
+  done
+  queue=$("$here/agent-home" "$aidir" get queue 2>/dev/null) || queue=""
+  # 글자와 Enter 를 따로 보낸다 — 한 번에 몰아 보내면 붙여넣기로 읽혀 Enter 가 줄바꿈이 될 수 있다.
+  if ! "$tmux" send-keys -t "$pane" -l "/loop /genia-works:work-loop $(gw_loop_args "$key" "$queue")"; then
+    note poke "$key" failed
+    exit 0
+  fi
+  sleep 0.3
+  if ! "$tmux" send-keys -t "$pane" Enter; then
+    note poke "$key" failed
+    exit 0
+  fi
+  : > "$stamp"
+  if [ "$waited" -gt 0 ]; then note poke "$key" sent-after-wait; else note poke "$key" sent; fi
   exit 0
 }
 
 case "$cmd" in
   ensure) do_ensure ;;
   open) do_open "${3:-}" ;;
+  poke) do_poke "${3:-}" ;;
   run) do_run ;;
   tail) do_tail "${3:-}" ;;
   *) usage ;;
