@@ -21,6 +21,7 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -136,6 +137,61 @@ class IssueTypeServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> service.delete(owner, p.key(), custom.id()))
         .isInstanceOf(TypeInUseException.class);
+  }
+
+  /** 이슈를 직접 INSERT — deletedAt 이 null 이 아니면 휴지통(소프트 삭제) 이슈(WP-1396). */
+  private Long insertIssue(
+      ProjectResponse p, Long owner, int number, Long typeId, OffsetDateTime deletedAt) {
+    return dsl.insertInto(ISSUE)
+        .set(ISSUE.PROJECT_ID, p.id())
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(p.id(), "TODO"))
+        .set(ISSUE.NUMBER, number)
+        .set(ISSUE.TITLE, "t" + number)
+        .set(ISSUE.PRIORITY, "MID")
+        .set(ISSUE.REPORTER_ID, owner)
+        .set(ISSUE.TYPE_ID, typeId)
+        .set(ISSUE.DELETED_AT, deletedAt)
+        .returning(ISSUE.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  private Long issueTypeId(Long issueId) {
+    return dsl.select(ISSUE.TYPE_ID)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(issueId))
+        .fetchOne(ISSUE.TYPE_ID);
+  }
+
+  /** 휴지통 이슈만 쓰는 유형은 삭제되고, 그 이슈는 같은 프로젝트 TASK 로 옮겨진다(WP-1396). */
+  @Test
+  void delete_custom_only_trashed_issues_moves_them_to_task_and_deletes() {
+    Long owner = createUser("tr");
+    ProjectResponse p = newProject(owner, "TST");
+    var custom =
+        service.create(owner, p.key(), new CreateIssueTypeRequest("디자인", "PURPLE", "Star"));
+    Long trashed = insertIssue(p, owner, 1, custom.id(), OffsetDateTime.now());
+
+    service.delete(owner, p.key(), custom.id());
+
+    assertThat(typeRepository.findById(custom.id())).isEmpty();
+    Long taskId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
+    assertThat(issueTypeId(trashed)).isEqualTo(taskId);
+  }
+
+  /** 활성 이슈가 하나라도 있으면 휴지통 이슈가 섞여도 409 이고 아무것도 옮기지 않는다(WP-1396). */
+  @Test
+  void delete_custom_with_live_and_trashed_issue_still_409() {
+    Long owner = createUser("mx");
+    ProjectResponse p = newProject(owner, "TSM");
+    var custom =
+        service.create(owner, p.key(), new CreateIssueTypeRequest("디자인", "PURPLE", "Star"));
+    insertIssue(p, owner, 1, custom.id(), null);
+    Long trashed = insertIssue(p, owner, 2, custom.id(), OffsetDateTime.now());
+
+    assertThatThrownBy(() -> service.delete(owner, p.key(), custom.id()))
+        .isInstanceOf(TypeInUseException.class);
+    assertThat(issueTypeId(trashed)).isEqualTo(custom.id());
   }
 
   @Test
