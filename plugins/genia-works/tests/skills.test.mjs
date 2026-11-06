@@ -734,6 +734,21 @@ test('SKILL.md: 실행기가 깨우기를 맡는 세션(GENIA_WORKS_RUNNER_WAKES
   assertBefore(text, '**깨우기를 실행기가 맡는 세션(WP-1293)**', '### 1. 신원 확인');
 });
 
+// WP-1403 — start-agent 가 띄운 Claude Code 칸(GENIA_WORKS_PANE_WAKES=1)은 감시 창이 쉬는 칸에 /loop 를 넣어 깨운다 — Monitor 를 걸지 않는다.
+test('SKILL.md: 감시 창이 깨우는 칸(GENIA_WORKS_PANE_WAKES=1)은 알림 감시를 걸지 않고 다음 확인은 그대로 잡는다 (WP-1403)', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('**감시 창이 깨우는 칸(WP-1403)**'));
+  assert.ok(text.includes('"${GENIA_WORKS_PANE_WAKES:-}"'));
+  // 1번·5번의 감시 걸기에도 건너뛰기가 적혀 있다.
+  assert.ok(text.includes('감시 창이 깨우는 칸·깨우기를 실행기가 맡는 세션이면 걸지 않는다).'));
+  assert.ok(text.includes('감시 창이 깨우는 칸(맨 위)이면 걸지도 다시 걸지도 않는다'));
+  // 다음 확인(ScheduleWakeup)은 그대로 잡는다 — 실행기가 깨우는 세션의 GW-NEXT-CHECK 와 다르다.
+  assert.ok(text.includes('다음 확인은 지금처럼 `ScheduleWakeup` 으로 잡는다'));
+  // 이 표시가 판단 기준이다 — AGENT_DIR 가 있어도 표시가 없으면(이 버전 전에 띄운 칸) 지금처럼 감시를 건다.
+  assert.ok(text.includes('`GENIA_WORKS_AGENT_DIR` 가 있어도 이 값이 `1` 이 아니면(이 판 전에 띄운 칸) 지금처럼 감시를 건다'));
+  assertBefore(text, '**감시 창이 깨우는 칸(WP-1403)**', '### 1. 신원 확인');
+});
+
 // WP-1293 — Claude Code 전용 명령(/code-review·/simplify)이 없는 실행기에서도 같은 검토를 하게 대안을 적는다.
 // WP-1336 — 실측에서 Gen:iA Code 가 작은 이슈라고 writing-plans·SDD 를 건너뛰었다 — 건너뛰지 않게 적고 PR 에 흔적을 남긴다.
 test('process-issue.md: 작은 이슈도 계획 파일·SDD 하위 에이전트를 건너뛰지 않고 PR 에 절차를 남긴다 (WP-1336)', () => {
