@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey, isRealAsk, isUnattendedLaunch, unattendedAskDeny, isShellSafetyAsk, isAiLaunch, UNATTENDED_SHELL_DENY, UNATTENDED_PERSON_DENY } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -273,4 +273,64 @@ test('aiPick: 세션 선택 > GENIA_WORKS_AS, me·선택 없음은 빈 문자열
   assert.equal(aiPick({ as: 'ai-dev' }), 'ai-dev');
   assert.equal(aiPick({ selected: 'me', as: 'ai-dev' }), '');
   assert.equal(aiPick({}), '');
+});
+
+// WP-1398 — 무인 AI 세션의 확인 창(ask)을 거절로 바꾸는 판정.
+// 실측(2.1.318)한 판정 모양: 셸 안전 확인은 reason 만, 사용자 ask 규칙은 rule 이 붙는다.
+const SAFETY_ASK = { decision: 'ask', reason: 'This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval.' };
+const RULE_ASK = { decision: 'ask', reason: "Claude requested permissions to use Bash, but you haven't granted it yet.", rule: 'Bash(git push:*)' };
+
+test('isRealAsk: 실제 호출(toolUseId 있음)의 ask 만 — allow·deny·질의는 건드리지 않는다', () => {
+  assert.equal(isRealAsk({ toolUseId: 'tu1', verdict: SAFETY_ASK }), true);
+  assert.equal(isRealAsk({ toolUseId: 'tu1', verdict: { decision: 'allow' } }), false);
+  assert.equal(isRealAsk({ toolUseId: 'tu1', verdict: { decision: 'deny', reason: 'x' } }), false);
+  assert.equal(isRealAsk({ toolUseId: 'tu1', verdict: undefined }), false);
+  assert.equal(isRealAsk({ toolUseId: undefined, verdict: SAFETY_ASK }), false);
+});
+
+test('isUnattendedLaunch: AI 신원 + 무인 표시(GENIA_WORKS_UNATTENDED=1)일 때만', () => {
+  assert.equal(isUnattendedLaunch({ as: 'ai-dev', unattended: '1' }), true);
+  // 사람 세션(GENIA_WORKS_AS 없음·me)과 표시 없이 띄운 AI 세션은 전처럼 창을 띄운다
+  assert.equal(isUnattendedLaunch({ as: undefined, unattended: '1' }), false);
+  assert.equal(isUnattendedLaunch({ as: 'me', unattended: '1' }), false);
+  assert.equal(isUnattendedLaunch({ as: 'ai-dev', unattended: undefined }), false);
+  assert.equal(isUnattendedLaunch({ as: 'ai-dev', unattended: '0' }), false);
+  assert.equal(isUnattendedLaunch({ as: 'ai-dev', unattended: 'true' }), false);
+});
+
+test('isAiLaunch: aiPick 과 같은 me 처리 + 이름 규칙 — 공백은 떼고, 규칙 밖 값은 AI 가 아니다', () => {
+  assert.equal(isAiLaunch('ai-dev'), true);
+  assert.equal(isAiLaunch(' ai-dev\n'), true);
+  for (const v of ['me', ' me ', '', '   ', 'ai dev', '..', 'a/b', undefined, 3]) assert.equal(isAiLaunch(v), false, String(v));
+});
+
+test('unattendedAskDeny: Bash 셸 안전 확인은 「나누거나 스크립트로」 사유로 거절', () => {
+  const r = unattendedAskDeny({ tool: 'Bash', verdict: SAFETY_ASK });
+  assert.equal(r.decision, 'deny');
+  assert.ok(r.reason.startsWith(UNATTENDED_SHELL_DENY));
+  assert.ok(r.reason.includes('스크립트 파일'));
+  assert.ok(r.reason.includes('원래 사유: This command could not be checked'));
+  // 원래 사유가 없어도 거절 문구만으로 돌려준다
+  assert.equal(unattendedAskDeny({ tool: 'Bash', verdict: { decision: 'ask' } }).reason, UNATTENDED_SHELL_DENY);
+});
+
+test('unattendedAskDeny: 그 밖의 ask(사용자 규칙·다른 플러그인·훅·설정 검사·Bash 가 아닌 도구)는 「사람 확인 필요 — 보고」 사유로 거절', () => {
+  for (const extra of [{ rule: 'Bash(git push:*)' }, { plugin: 'other' }, { hook: 'PreToolUse' }, { setting: 'permissions.blockReadsOutsideWorkingDirectories' }]) {
+    const r = unattendedAskDeny({ tool: 'Bash', verdict: { ...SAFETY_ASK, ...extra } });
+    assert.equal(r.decision, 'deny');
+    assert.ok(r.reason.startsWith(UNATTENDED_PERSON_DENY), JSON.stringify(extra));
+    assert.ok(!r.reason.includes('스크립트 파일'));
+  }
+  const write = unattendedAskDeny({ tool: 'Write', verdict: { decision: 'ask', reason: 'protected path' } });
+  assert.equal(write.decision, 'deny');
+  assert.ok(write.reason.startsWith(UNATTENDED_PERSON_DENY));
+  assert.ok(unattendedAskDeny({ tool: 'Bash', verdict: RULE_ASK }).reason.includes('원래 사유: Claude requested permissions'));
+});
+
+test('isShellSafetyAsk: Bash 의 출처 필드(rule·hook·plugin·setting) 없는 ask 만', () => {
+  assert.equal(isShellSafetyAsk({ tool: 'Bash', verdict: SAFETY_ASK }), true);
+  assert.equal(isShellSafetyAsk({ tool: 'Bash', verdict: RULE_ASK }), false);
+  assert.equal(isShellSafetyAsk({ tool: 'Write', verdict: SAFETY_ASK }), false);
+  assert.equal(isShellSafetyAsk({ tool: 'Bash', verdict: { decision: 'allow' } }), false);
+  assert.equal(isShellSafetyAsk({ tool: 'Bash', verdict: undefined }), false);
 });
