@@ -3,6 +3,7 @@ package com.workplace.cycle.repository;
 import static com.workplace.jooq.Tables.CYCLE;
 
 import com.workplace.cycle.dto.CycleRow;
+import com.workplace.global.exception.UniqueViolations;
 import com.workplace.global.share.ProjectMembership;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -10,11 +11,14 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.exception.IntegrityConstraintViolationException;
 import org.jooq.impl.DSL;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
-/** cycle 테이블 jOOQ 리포지토리. UNIQUE(project_id, name) 위반은 DuplicateKeyException 으로 변환. */
+/**
+ * cycle 테이블 jOOQ 리포지토리. 이름 유니크(project_id, lower(name) — 대소문자 무시, WP-1393) 위반은
+ * DuplicateKeyException 으로 변환.
+ */
 @Repository
 @RequiredArgsConstructor
 public class CycleRepository {
@@ -67,7 +71,7 @@ public class CycleRepository {
     return dsl.selectFrom(CYCLE).where(CYCLE.ID.in(ids)).fetch(this::mapToRow);
   }
 
-  /** 신규 사이클 삽입. UNIQUE(project_id, name) 위반은 DuplicateKeyException 으로 전파. */
+  /** 신규 사이클 삽입. 이름 유니크(대소문자 무시) 위반은 DuplicateKeyException 으로 전파. */
   public CycleRow insert(
       Long projectId,
       String name,
@@ -87,8 +91,8 @@ public class CycleRepository {
           .fetchOptional()
           .map(this::mapToRow)
           .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
-    } catch (org.jooq.exception.IntegrityConstraintViolationException e) {
-      throw new DuplicateKeyException("cycle name duplicated", e);
+    } catch (IntegrityConstraintViolationException e) {
+      throw UniqueViolations.asDuplicateOr(e, NAME_UNIQUE_INDEX, "cycle name duplicated");
     }
   }
 
@@ -110,10 +114,13 @@ public class CycleRepository {
           .set(CYCLE.UPDATED_AT, OffsetDateTime.now())
           .where(CYCLE.ID.eq(id))
           .execute();
-    } catch (org.jooq.exception.IntegrityConstraintViolationException e) {
-      throw new DuplicateKeyException("cycle name duplicated", e);
+    } catch (IntegrityConstraintViolationException e) {
+      throw UniqueViolations.asDuplicateOr(e, NAME_UNIQUE_INDEX, "cycle name duplicated");
     }
   }
+
+  /** 사이클 이름 유일 인덱스(V269, 대소문자 무시) — 이 위반만 이름 중복(409)으로 옮긴다(WP-1393). */
+  private static final String NAME_UNIQUE_INDEX = "uq_cycle_project_lower_name";
 
   /** 사이클 hard-delete (issue_cycle cascade). */
   public void delete(Long id) {
