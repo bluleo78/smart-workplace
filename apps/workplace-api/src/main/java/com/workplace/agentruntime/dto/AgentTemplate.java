@@ -54,6 +54,9 @@ public record AgentTemplate(
    * 실행 설정 칸 한 개.
    *
    * @param type select(options 중 하나) 또는 text(자유 입력)
+   * @param options select 칸의 정적 선택지 — optionsFrom 이 있으면 목록을 받지 못할 때 보이는 기본 선택지
+   * @param optionsFrom select 칸의 선택지를 어디서 채울지(WP-1405). {@code account-models} 면 화면이 그 AI 에 연결된 계정의
+   *     모델 목록으로 선택지를 채우고, 저장 검증은 선택지 일치 대신 모델 id 꼴만 본다. 없으면(null) 정적 options 만 쓴다
    * @param defaultValue 비어 있을 때 채울 값(YAML 키 {@code default})
    * @param required true 면 빈 값을 허용하지 않는다
    */
@@ -62,6 +65,7 @@ public record AgentTemplate(
       String label,
       String type,
       List<Option> options,
+      String optionsFrom,
       @JsonProperty("default") String defaultValue,
       boolean required) {
     public ConfigField {

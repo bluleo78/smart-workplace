@@ -246,7 +246,7 @@ function PendingSwitch({
   return (
     <DetailGroup title={`${to.title}${to.mode === 'WORKSPACE' ? ' 작업 설정' : ''}`} how="바꾸기를 눌러야 반영" data-testid="agent-run-mode-pending">
       {draft ? (
-        <WorkSettingsFields draft={draft} idPrefix="pending" />
+        <WorkSettingsFields draft={draft} agentId={agent.id} idPrefix="pending" />
       ) : (
         <p className="text-sm text-muted-foreground">
           {to.mode === 'SERVER' ? '따로 채울 칸이 없어요. 바꾼 뒤 AI 계정을 연결해 주세요.' : '따로 채울 칸이 없어요. 바꾼 뒤 연결 방법을 따라 키를 발급해 주세요.'}
@@ -311,7 +311,7 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
       )}
       {draft && (
         <DetailGroup title="작업 설정" how={running ? '저장해야 반영 · 실행 중이면 쉴 때 적용' : '저장해야 반영'} data-testid="agent-work-settings-group">
-          <WorkSettingsFields draft={draft} />
+          <WorkSettingsFields draft={draft} agentId={agent.id} />
           <div className="flex items-center gap-2">
             <Button disabled={!draft.dirty || draft.missingRequired || save.isPending} onClick={() => save.mutate(draft.body())} data-testid="agent-runtime-save">
               저장

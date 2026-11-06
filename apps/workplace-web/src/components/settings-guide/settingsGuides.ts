@@ -353,6 +353,15 @@ export function agentDetailGuide(
         'GitLab 토큰은 GitLab › Preferences › Access tokens 에서 만드는 Personal access token 이에요. api 와 write_repository 범위를 체크하세요.',
         '실행 중에 연결을 바꾸거나 끊으면 다음에 다시 시작할 때부터 적용돼요.',
       )
+    // 모델 칸이 계정 모델 목록에서 선택지를 채우면(WP-1405) 무엇이 보이는지 알린다. 기본 선택지 이름은 템플릿 칸의 정적 options 에서 만든다 —
+    // 템플릿마다 별칭이 달라도(Gen:iA 등) 화면에 보이는 이름 그대로 안내하게.
+    for (const f of template.config.filter((c) => c.optionsFrom === 'account-models')) {
+      const names = f.options.map((o) => o.label).join('·')
+      // options 는 서버가 select 칸에 늘 요구하므로(비면 시작 실패) 빈 경우를 따로 두지 않는다.
+      run.push(
+        `「${f.label}」 선택지에는 연결한 AI 계정이 쓸 수 있는 모델이 보여요. 목록 맨 앞의 ${names} 도 고를 수 있고, 계정의 목록을 받지 못하면 이것만 보여요.`,
+      )
+    }
     if (template.config.some((f) => f.key === 'queue'))
       run.push('대기열 라벨을 적으면 맡긴 이슈 말고도 그 라벨이 붙은 담당자 없는 이슈를 가져가 처리해요.')
     run.push('실행 환경을 바꾸면 쉴 때를 기다리지 않고 바로 옮겨 가요.')

@@ -28,6 +28,31 @@ describe('agentDetailGuide — 저장소 연결', () => {
   })
 })
 
+describe('agentDetailGuide — 계정 모델 목록(WP-1405)', () => {
+  it('모델 칸이 계정 모델 목록을 쓰면 무엇이 보이는지와 기본 선택지 이름(정적 options 의 이름)을 안내한다', () => {
+    expect(runTips(CLAUDE_TEMPLATE)).toContain(
+      '「모델」 선택지에는 연결한 AI 계정이 쓸 수 있는 모델이 보여요. 목록 맨 앞의 Opus(최신)·Sonnet(최신) 도 고를 수 있고, 계정의 목록을 받지 못하면 이것만 보여요.',
+    )
+  })
+
+  it('기본 선택지 이름은 하드코딩이 아니라 그 칸의 options 에서 만든다(Gen:iA 모양)', () => {
+    const genia = {
+      ...CLAUDE_TEMPLATE,
+      config: CLAUDE_TEMPLATE.config.map((f) =>
+        f.key === 'model' ? { ...f, options: [{ value: 'qwen3.8-27b-fp8', label: 'Qwen3.8 27B' }, { value: 'gpt-6-luna', label: 'GPT 6 Luna' }] } : f,
+      ),
+    }
+    const tips = runTips(genia)
+    expect(tips).toContain('목록 맨 앞의 Qwen3.8 27B·GPT 6 Luna 도 고를 수 있고')
+    expect(tips).not.toContain('Opus(최신)')
+  })
+
+  it('정적 선택지만 쓰는 방식이면 안내가 없다', () => {
+    const plain = { ...CLAUDE_TEMPLATE, config: CLAUDE_TEMPLATE.config.map((f) => ({ ...f, optionsFrom: null })) }
+    expect(runTips(plain)).not.toContain('연결한 AI 계정이 쓸 수 있는 모델이 보여요')
+  })
+})
+
 // WP-1298 — 설정 화면 가이드를 화면 섹션별로 나눴다. 섹션 id 는 화면 SettingsSection 과 함께 쓰는 상수에서만 오고(화면 쪽 대조는
 // 각 화면 테스트의 expectGuideSectionsOnScreen), 섹션마다 도움말이 있으며, AI 화면 맥락은 섹션 도움말을 빠짐없이 싣는다.
 describe('섹션별 설정 가이드', () => {

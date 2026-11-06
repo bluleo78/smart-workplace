@@ -16,11 +16,13 @@ import type { AgentRepoCredential } from '@/types/agentRuntime'
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
 import {
   agentRuntimeApi,
+  CLAUDE_TEMPLATE,
   CODEX_TEMPLATE,
   createAgent,
   createLocation,
   createObserved,
   createSetting,
+  DEFAULT_TEMPLATE,
   PROJECTS,
   type RuntimeApiOptions,
   TEMPLATES,
@@ -53,11 +55,15 @@ interface Opts extends RuntimeApiOptions {
   agentResponse?: () => Response
   /** 그린 뒤 기다릴 testid(기본 agent-detail-page). */
   readyTestId?: string
+  /** 모델 목록(/admin/agents/:id/models) 응답 — 없으면 빈 목록(계정 없음 모양). */
+  models?: () => Response
 }
 
 /** 상세 페이지 — 에이전트 한 명·계정·역할·키·공통 비서와 AI 실행 API 를 준다. */
-async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'agent-detail-page', ...runtimeOpts }: Opts) {
+async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'agent-detail-page', models, ...runtimeOpts }: Opts) {
   const runtime = agentRuntimeApi(runtimeOpts)
+  /** 모델 목록 조회 횟수 — 계정 모델 칸이 없는 방식은 부르지 않는지 본다. */
+  const modelCalls = { count: 0 }
   const handlers = [
     http.get('/api/v1/admin/agents/:id', ({ params }) =>
       agentResponse
@@ -80,7 +86,10 @@ async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'ag
     ),
     http.get('/api/v1/roles', () => HttpResponse.json([ROLE])),
     http.get('/api/v1/admin/agents/:id/keys', () => HttpResponse.json(keys)),
-    http.get('/api/v1/admin/agents/:id/models', () => HttpResponse.json({ models: [] })),
+    http.get('/api/v1/admin/agents/:id/models', () => {
+      modelCalls.count += 1
+      return models ? models() : HttpResponse.json({ models: [] })
+    }),
     ...runtime.handlers,
   ]
   const view = renderScreen(
@@ -92,7 +101,7 @@ async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'ag
     { path: `/settings/agents/${agent.id}`, handlers },
   )
   await screen.findByTestId(readyTestId)
-  return { ...view, ...runtime }
+  return { ...view, ...runtime, modelCalls }
 }
 
 describe('실행 방식별 섹션 구성', () => {
@@ -484,6 +493,85 @@ describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
     await waitFor(() => expect(within(item).getByLabelText('통과')).toBeInTheDocument())
     expect(item).not.toHaveTextContent('연결돼 있지 않아요')
     await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
+  })
+})
+
+describe('작업 설정 「모델」 — 연결된 계정의 모델 목록(WP-1405)', () => {
+  const id = 700
+  const works = (over: Partial<Opts> = {}): Opts => ({
+    agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
+    settings: { [id]: createSetting(id) },
+    claudeFor: [id],
+    ...over,
+  })
+  const live = () =>
+    HttpResponse.json({
+      provider: 'anthropic',
+      models: [
+        { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+        { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+      ],
+    })
+  const hint = () => screen.queryByTestId('agent-runtime-config-model-hint')
+
+  test('계정 목록을 받으면 별칭(최신) 뒤에 계정 모델이 보이고, 골라 저장하면 그 id 를 보낸다', async () => {
+    const { user, calls } = await renderDetail(works({ models: live }))
+    await user.click(await screen.findByTestId('agent-runtime-config-model'))
+    const listbox = await screen.findByRole('listbox')
+    await waitFor(() =>
+      expect(within(listbox).getAllByRole('option').map((o) => o.textContent)).toEqual([
+        'Opus(최신)',
+        'Sonnet(최신)',
+        'Claude Opus 5.5',
+        'Claude Sonnet 5',
+      ]),
+    )
+    expect(hint()).not.toBeInTheDocument()
+    await user.click(within(listbox).getByRole('option', { name: 'Claude Sonnet 5' }))
+    await user.click(screen.getByTestId('agent-runtime-save'))
+
+    await waitFor(() => expect(calls.saves).toHaveLength(1))
+    expect(calls.saves[0].config.model).toBe('claude-sonnet-5')
+  })
+
+  test('AI 계정이 연결돼 있지 않으면 「AI 계정을 연결하면」 안내를 보이고 모델 목록을 부르지 않는다', async () => {
+    const { modelCalls } = await renderDetail(works({ claudeFor: [], models: live }))
+    await waitFor(() => expect(hint()).toHaveTextContent('AI 계정을 연결하면 그 계정이 쓸 수 있는 모델이 보여요.'))
+    expect(modelCalls.count).toBe(0)
+  })
+
+  test('연결된 계정 종류가 이 방식과 다르면(OpenAI 호환) 모델 목록을 부르지 않는다', async () => {
+    const { modelCalls } = await renderDetail(works({ claudeFor: [], credentials: { [id]: 'opencode' }, models: live }))
+    // 안내 문구는 순수 함수 테스트가 본다 — 여기서는 연결 종류로 조회를 막는 배선만 본다.
+    await waitFor(() => expect(hint()).toHaveTextContent('맞지 않아'))
+    expect(modelCalls.count).toBe(0)
+  })
+
+  test('계정 모델 칸이 없는 방식(정적 선택지만)은 모델 목록을 부르지 않는다', async () => {
+    const staticTemplate = {
+      ...CLAUDE_TEMPLATE,
+      config: CLAUDE_TEMPLATE.config.map((f) => ({ ...f, optionsFrom: null })),
+    }
+    const { modelCalls } = await renderDetail(works({ templates: [DEFAULT_TEMPLATE, staticTemplate], models: live }))
+    expect(await screen.findByTestId('agent-runtime-config-model')).toHaveTextContent('Opus(최신)')
+    expect(hint()).not.toBeInTheDocument()
+    expect(modelCalls.count).toBe(0)
+  })
+
+  test('정적 선택지 칸의 저장값이 템플릿에서 빠졌어도 트리거가 빈칸이 아니라 그 값으로 보인다', async () => {
+    const staticTemplate = {
+      ...CLAUDE_TEMPLATE,
+      config: CLAUDE_TEMPLATE.config.map((f) => ({ ...f, optionsFrom: null })),
+    }
+    await renderDetail(
+      works({
+        templates: [DEFAULT_TEMPLATE, staticTemplate],
+        settings: { [id]: createSetting(id, { config: { model: 'retired-model', queue: 'AI 개발팀' } }) },
+      }),
+    )
+    expect(await screen.findByTestId('agent-runtime-config-model')).toHaveTextContent('retired-model')
+    // 선택지만 늘었고 초안 값은 그대로라 저장하지 않은 변경이 생기지 않는다
+    expect(screen.getByTestId('agent-runtime-save')).toBeDisabled()
   })
 })
 

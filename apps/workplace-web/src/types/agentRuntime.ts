@@ -17,6 +17,11 @@ export interface AgentTemplateConfigField {
   label: string;
   type: 'select' | 'text';
   options: AgentTemplateOption[];
+  /**
+   * select 칸의 선택지를 어디서 채울지(WP-1405) — account-models 면 그 AI 에 연결된 계정의 모델 목록으로 채운다.
+   * options 는 그때 맨 앞에 두는 별칭이자 목록을 받지 못할 때의 기본 선택지다. 없으면 options 만 쓴다.
+   */
+  optionsFrom?: 'account-models' | null;
   default: string | null;
   required: boolean;
 }
