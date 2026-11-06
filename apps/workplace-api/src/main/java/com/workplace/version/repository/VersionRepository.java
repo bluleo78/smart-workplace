@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE_VERSION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_VERSION;
 
+import com.workplace.global.exception.UniqueViolations;
 import com.workplace.global.share.ProjectMembership;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.version.dto.VersionIssueCount;
@@ -32,7 +33,6 @@ import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.exception.IntegrityConstraintViolationException;
 import org.jooq.impl.DSL;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -260,21 +260,9 @@ public class VersionRepository {
     dsl.deleteFrom(PROJECT_VERSION).where(PROJECT_VERSION.ID.eq(id)).execute();
   }
 
-  /** 이름 유일 인덱스(uq_project_version_name) 위반의 PG SQLState. */
-  private static final String UNIQUE_VIOLATION = "23505";
-
-  /**
-   * 무결성 위반을 옮긴다 — 이름 유일 인덱스 위반만 DuplicateKeyException(이름 중복)으로 바꾸고, 그 밖의 위반(CHECK·FK 등)은 이름 중복으로 잘못
-   * 알리지 않도록 그대로 다시 던진다.
-   */
+  /** 이름 유일 인덱스 — 이 위반만 이름 중복으로 옮기고 CHECK·FK 등은 그대로 던진다(공용 규칙 UniqueViolations, WP-1393). */
   private static RuntimeException translate(IntegrityConstraintViolationException e) {
-    String msg = e.getMessage();
-    if (UNIQUE_VIOLATION.equals(e.sqlState())
-        && msg != null
-        && msg.contains("uq_project_version_name")) {
-      return new DuplicateKeyException("version name duplicated", e);
-    }
-    return e;
+    return UniqueViolations.asDuplicateOr(e, "uq_project_version_name", "version name duplicated");
   }
 
   /** 신규 버전 삽입. 이름 중복은 DuplicateKeyException. */

@@ -59,6 +59,11 @@ class CycleServiceTest extends IntegrationTestBase {
         ownerId, new CreateProjectRequest(uniqueKey(prefix), "P-" + prefix, "x"));
   }
 
+  /** 이름만 바꾸는 갱신 요청(날짜·상태는 그대로). */
+  private static CreateCycleRequest renameReq(String name) {
+    return new CreateCycleRequest(name, null, null, null, null);
+  }
+
   private CreateCycleRequest req(String name) {
     return new CreateCycleRequest(
         name, null, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 14), null);
@@ -93,6 +98,42 @@ class CycleServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> cycleService.create(owner, p.key(), req("스프린트")))
         .isInstanceOf(CycleNameDuplicatedException.class);
+  }
+
+  /** WP-1393: 대소문자만 다른 이름도 같은 이름이다 — 라벨·마일스톤(WP-911)과 같이 409. */
+  @Test
+  void case_only_different_name_in_same_project_throws_409() {
+    Long owner = createUser("o3c");
+    ProjectResponse p = newProject(owner, "CK");
+    cycleService.create(owner, p.key(), req("R65-Cy"));
+
+    assertThatThrownBy(() -> cycleService.create(owner, p.key(), req("r65-cy")))
+        .isInstanceOf(CycleNameDuplicatedException.class);
+  }
+
+  /** WP-1393: 이름 변경으로 다른 사이클과 대소문자만 같게 만들어도 409. */
+  @Test
+  void rename_to_case_only_different_existing_name_throws_409() {
+    Long owner = createUser("o3d");
+    ProjectResponse p = newProject(owner, "CL");
+    cycleService.create(owner, p.key(), req("Sprint A"));
+    var b = cycleService.create(owner, p.key(), req("Sprint B"));
+
+    assertThatThrownBy(() -> cycleService.update(owner, p.key(), b.id(), renameReq("sprint a")))
+        .isInstanceOf(CycleNameDuplicatedException.class);
+  }
+
+  /**
+   * WP-1393: 자기 이름의 대소문자만 바꾸는 변경은 허용(자기 행과는 충돌하지 않는다). 제약 위반 뒤에는 테스트 트랜잭션이 중단되므로 위 409 테스트와 나눈다.
+   */
+  @Test
+  void rename_own_name_case_only_is_allowed() {
+    Long owner = createUser("o3e");
+    ProjectResponse p = newProject(owner, "CM");
+    var b = cycleService.create(owner, p.key(), req("Sprint B"));
+
+    var renamed = cycleService.update(owner, p.key(), b.id(), renameReq("SPRINT B"));
+    assertThat(renamed.name()).isEqualTo("SPRINT B");
   }
 
   @Test

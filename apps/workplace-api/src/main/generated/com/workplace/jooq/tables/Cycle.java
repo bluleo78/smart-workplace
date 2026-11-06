@@ -199,11 +199,6 @@ public class Cycle extends TableImpl<CycleRecord> {
     }
 
     @Override
-    public List<UniqueKey<CycleRecord>> getUniqueKeys() {
-        return Arrays.asList(Keys.CYCLE_PROJECT_ID_NAME_KEY);
-    }
-
-    @Override
     public List<ForeignKey<CycleRecord, ?>> getReferences() {
         return Arrays.asList(Keys.CYCLE__CYCLE_PROJECT_ID_FKEY, Keys.CYCLE__FK_CYCLE_TENANT);
     }
