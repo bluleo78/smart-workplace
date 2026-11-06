@@ -14,6 +14,7 @@ import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantContext;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -191,8 +192,10 @@ public class DriveSpaceService {
   public void purgeSpace(long spaceId, long actorId) {
     // 하드삭제 cascade 로 멤버 행(직접·부서)이 사라지므로 삭제 전에 실효 멤버 명단(부서 구성원 포함, WP-1056)을 확보한다.
     List<Long> before = members.audienceUserIds(spaceId);
-    files.expireFiles(files.allFileIdsInSpace(spaceId));
-    files.expireFiles(versions.fileIdsForSpace(spaceId));
+    // 현재 file 과 전 버전 blob 을 한 집합으로 모아 한 번에 만료(같은 id 가 양쪽에 있으므로 중복 제거).
+    var fileIds = new HashSet<Long>(files.allFileIdsInSpace(spaceId));
+    fileIds.addAll(versions.fileIdsForSpace(spaceId));
+    files.expireFiles(fileIds);
     spaces.deleteSpace(spaceId);
     notifier.spaceChanged(OP_DELETED, spaceId, actorId, before);
   }

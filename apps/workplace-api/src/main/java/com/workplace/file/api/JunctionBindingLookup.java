@@ -2,8 +2,11 @@ package com.workplace.file.api;
 
 import java.util.Collection;
 import java.util.Set;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.TableField;
+import org.jooq.impl.DSL;
 
 /**
  * 정션 표 하나의 file_id 열로 묶임을 확인하는 {@link AttachmentBindingLookup} 공용 구현(WP-421).
@@ -19,15 +22,42 @@ public final class JunctionBindingLookup implements AttachmentBindingLookup {
   /** 정션 표의 file_id 열 — 표는 열에서 얻는다. */
   private final TableField<?, Long> fileIdField;
 
+  /** {@link AttachmentBindingLookup#visibleAttachment()}(WP-1399). */
+  private final boolean visibleAttachment;
+
+  /** 보이는 첨부가 아닌 정션(노트 등). */
   public JunctionBindingLookup(DSLContext dsl, TableField<?, Long> fileIdField) {
+    this(dsl, fileIdField, false);
+  }
+
+  private JunctionBindingLookup(
+      DSLContext dsl, TableField<?, Long> fileIdField, boolean visibleAttachment) {
     this.dsl = dsl;
     this.fileIdField = fileIdField;
+    this.visibleAttachment = visibleAttachment;
+  }
+
+  /** 「보이는 첨부」 정션 — {@link AttachmentBindingLookup#visibleAttachment()}(WP-1399). */
+  public static JunctionBindingLookup visible(DSLContext dsl, TableField<?, Long> fileIdField) {
+    return new JunctionBindingLookup(dsl, fileIdField, true);
   }
 
   /** 바인딩 키 = 정션 표 이름. */
   @Override
   public String bindingKey() {
     return fileIdField.getTable().getName();
+  }
+
+  @Override
+  public boolean visibleAttachment() {
+    return visibleAttachment;
+  }
+
+  /** {@code NOT EXISTS (SELECT 1 FROM <정션> WHERE <정션>.file_id = fileId)}. */
+  @Override
+  public Condition notBound(Field<Long> fileId) {
+    return DSL.notExists(
+        DSL.selectOne().from(fileIdField.getTable()).where(fileIdField.eq(fileId)));
   }
 
   /** 주어진 파일 중 정션에 행이 있는 id. 빈 입력은 쿼리 없이 빈 집합. */

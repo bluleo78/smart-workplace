@@ -10,7 +10,9 @@ import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
 
 import java.util.Collection;
 import java.util.Set;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,28 +24,31 @@ import org.springframework.context.annotation.Configuration;
  * <p>이슈·메시지·이슈 채팅·홈은 묶을 때 영구로 만들어 대개 "임시" 조건이 먼저 거르지만, 묶인 채 만료가 다시 서는 경로(홈 세션 삭제 등)가 있어 정션을 직접 본다.
  * 노트는 묶고도 임시로 두고 강등(demoted_at) 행도 그 페이지의 파일이라, 행 존재만 보는 {@link JunctionBindingLookup} 이 강등과 무관하게
  * 묶인 것으로 본다.
+ *
+ * <p>이슈·이슈 채팅·메시지·홈은 {@link JunctionBindingLookup#visible} 로 등록한다 — {@link
+ * AttachmentBindingLookup#visibleAttachment()}(WP-1399).
  */
 @Configuration
 public class AttachmentBindingConfig {
 
   @Bean
   AttachmentBindingLookup issueAttachmentBindingLookup(DSLContext dsl) {
-    return new JunctionBindingLookup(dsl, ISSUE_ATTACHMENT.FILE_ID);
+    return JunctionBindingLookup.visible(dsl, ISSUE_ATTACHMENT.FILE_ID);
   }
 
   @Bean
   AttachmentBindingLookup chatAttachmentBindingLookup(DSLContext dsl) {
-    return new JunctionBindingLookup(dsl, CHAT_MESSAGE_ATTACHMENT.FILE_ID);
+    return JunctionBindingLookup.visible(dsl, CHAT_MESSAGE_ATTACHMENT.FILE_ID);
   }
 
   @Bean
   AttachmentBindingLookup messageAttachmentBindingLookup(DSLContext dsl) {
-    return new JunctionBindingLookup(dsl, MESSAGE_ATTACHMENT.FILE_ID);
+    return JunctionBindingLookup.visible(dsl, MESSAGE_ATTACHMENT.FILE_ID);
   }
 
   @Bean
   AttachmentBindingLookup homeAttachmentBindingLookup(DSLContext dsl) {
-    return new JunctionBindingLookup(dsl, HOME_MESSAGE_ATTACHMENT.FILE_ID);
+    return JunctionBindingLookup.visible(dsl, HOME_MESSAGE_ATTACHMENT.FILE_ID);
   }
 
   @Bean
@@ -67,6 +72,11 @@ public class AttachmentBindingConfig {
       @Override
       public Set<Long> boundAmong(Collection<Long> fileIds) {
         return junction.boundAmong(fileIds);
+      }
+
+      @Override
+      public Condition notBound(Field<Long> fileId) {
+        return junction.notBound(fileId);
       }
 
       @Override
