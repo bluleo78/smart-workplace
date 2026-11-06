@@ -200,6 +200,12 @@ public class IssueRecurrence extends TableImpl<IssueRecurrenceRecord> {
      */
     public final TableField<IssueRecurrenceRecord, Long> FOLLOW_UP_TEST_BY = createField(DSL.name("follow_up_test_by"), SQLDataType.BIGINT, this, "");
 
+    /**
+     * The column <code>public.issue_recurrence.queued_at</code>. 같은 AI 의 앞 회차가
+     * 끝나기를 기다리기 시작한 시각(WP-1407). 보내거나 끄면 비운다
+     */
+    public final TableField<IssueRecurrenceRecord, OffsetDateTime> QUEUED_AT = createField(DSL.name("queued_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "같은 AI 의 앞 회차가 끝나기를 기다리기 시작한 시각(WP-1407). 보내거나 끄면 비운다");
+
     private IssueRecurrence(Name alias, Table<IssueRecurrenceRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

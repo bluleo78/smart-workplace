@@ -111,6 +111,10 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
     // 마지막 result 의 subtype — 'success' 가 아니면 실패(is_error 는 falsy 여도 오류일 수 있어 신뢰 안 함),
     // 'error_max_turns' 면 턴 한도 도달.
     let resultSubtype: string | undefined;
+    // WP-1407: collect 와 같은 실패 판정(WP-1347) — subtype 이 success 여도 is_error 가 true 면(예: 'API Error: 529' 가 result 텍스트로 옴)
+    // 오류다. 그 원인 텍스트(제공자 장애)를 오류 메시지에 실어 호출자가 가려내고 사람에게 보일 수 있게 한다.
+    let resultIsError = false;
+    let resultDetail = '';
     // 턴 한도 도달을 로그하고 한도 오류로 만든다(throw 경로·result 경로 공용).
     const maxTurnsError = (message: string) => {
       log.warn('cli-runner', 'cli_max_turns', { requestId: i.requestId, maxTurns: i.maxTurns });
@@ -119,8 +123,12 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
     try {
       for await (const msg of q) {
         onLine(JSON.stringify(msg));
-        const m = msg as { type?: string; subtype?: string };
-        if (m.type === 'result') resultSubtype = m.subtype;
+        const m = msg as { type?: string; subtype?: string; is_error?: boolean; result?: unknown; errors?: unknown };
+        if (m.type === 'result') {
+          resultSubtype = m.subtype;
+          resultIsError = m.subtype !== 'success' || m.is_error === true;
+          resultDetail = resultErrorDetail(m);
+        }
       }
     } catch (e) {
       // 자기-개시 interrupt(kill/timeout) 후의 throw 는 흡수, 그 외 spawn/실행 오류만 전파.
@@ -131,6 +139,8 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
         const message = e instanceof Error ? e.message : String(e);
         if (resultSubtype === 'error_max_turns' || /maximum number of turns/i.test(message)) throw maxTurnsError(message);
         log.error('cli-runner', 'cli_spawn_error', { requestId: i.requestId, error: message });
+        // WP-1407: 오류 result 를 흘린 뒤 SDK 가 던졌으면 result 의 원인 텍스트를 실어 다시 던진다(collect 와 같은 문구).
+        if (resultIsError && resultDetail) throw new Error(`${i.logTag} result is_error: ${resultDetail}`, { cause: e });
         throw e;
       }
     } finally {
@@ -147,9 +157,9 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
     }
     // throw 없이 error_max_turns result 로만 끝나는 경우도 같은 한도 오류로 다룬다.
     if (resultSubtype === 'error_max_turns') throw maxTurnsError(`${i.logTag} reached maxTurns ${i.maxTurns}`);
-    if (resultSubtype !== undefined && resultSubtype !== 'success') {
+    if (resultIsError) {
       log.error('cli-runner', 'cli_exit', { requestId: i.requestId, durationMs });
-      throw new Error(`${i.logTag} result is_error`);
+      throw new Error(`${i.logTag} result is_error${resultDetail ? `: ${resultDetail}` : ''}`);
     }
     log.info('cli-runner', 'cli_done', { requestId: i.requestId, durationMs });
   })();
@@ -162,6 +172,14 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
   };
 
   return { done, kill };
+}
+
+// 실패 result 의 원인 텍스트(WP-1347) — result 문구와 errors 목록을 이어 500자로 자른다. stream·collect 가 같은 문구를 쓴다(WP-1407).
+function resultErrorDetail(m: { result?: unknown; errors?: unknown }): string {
+  const parts: string[] = [];
+  if (typeof m.result === 'string' && m.result) parts.push(m.result);
+  if (Array.isArray(m.errors) && m.errors.length) parts.push(m.errors.map(String).join('; '));
+  return parts.join(' | ').slice(0, 500);
 }
 
 // runClaudeCliCollect 미러(동기·비스트리밍) — query() generator 를 순회해 각 SDKMessage 를
@@ -188,10 +206,7 @@ export async function runSdkCollect(i: SdkRunInput): Promise<string[]> {
         // subtype 이 'success' 가 아니면 실패 — is_error 는 falsy 여도 오류일 수 있어 신뢰 안 함.
         // 반대로 subtype 이 success 여도 is_error 가 true 면(예: 'API Error: 529' 가 result 텍스트로 옴) 오류로 본다.
         resultIsError = m.subtype !== 'success' || m.is_error === true;
-        const parts: string[] = [];
-        if (typeof m.result === 'string' && m.result) parts.push(m.result);
-        if (Array.isArray(m.errors) && m.errors.length) parts.push(m.errors.map(String).join('; '));
-        resultDetail = parts.join(' | ').slice(0, 500);
+        resultDetail = resultErrorDetail(m);
       }
     }
   } catch (e) {

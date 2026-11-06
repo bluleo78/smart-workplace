@@ -72,6 +72,9 @@ spec:
               value: /data/storage-data
             - name: CORS_ALLOWED_ORIGINS
               value: {{ .Values.api.corsAllowedOrigins | quote }}
+            # 반복 AI 작업 회차 결과 대기(WP-1407) — ai-agent 반복 상한 + 보고 재시도보다 길게
+            - name: WORKPLACE_RECURRENCE_PENDING_TIMEOUT
+              value: {{ .Values.api.recurrencePendingTimeout | quote }}
           envFrom:
             # POSTGRES_DB/USER/HOST/PORT
             - configMapRef:

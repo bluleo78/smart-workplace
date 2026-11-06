@@ -30,6 +30,7 @@ import java.time.LocalTime;
  *     없으면 정기 회차의 질문이라 반복을 저장한 사람(createdBy)이 답한다
  * @param pendingQuestionActions 테스트 실행이 멈춘 되돌릴 수 없는 쓰기 목록(JSON 배열) — 답을 받은 이어 처리가 이 쓰기만 실행한다
  * @param followUpTestBy 지금 도는 이어 처리가 테스트 질문의 답으로 보낸 것이면 답한 사람, 아니면 null
+ * @param queuedAt 회차 시각이 됐는데 같은 AI 의 앞 회차가 끝나기를 기다리기 시작한 시각(WP-1407). 줄에 서지 않았으면 null
  */
 public record IssueRecurrenceRow(
     long issueId,
@@ -55,7 +56,8 @@ public record IssueRecurrenceRow(
     Long testRunRequestedBy,
     Long pendingQuestionAnswerer,
     String pendingQuestionActions,
-    Long followUpTestBy) {
+    Long followUpTestBy,
+    Instant queuedAt) {
 
   /** 답을 기다리는 질문이 테스트 실행(또는 그 이어 처리)이 남긴 것인지(WP-1313). */
   public boolean testQuestion() {

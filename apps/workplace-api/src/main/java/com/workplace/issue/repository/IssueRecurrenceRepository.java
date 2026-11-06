@@ -3,6 +3,7 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.ISSUE_RECURRENCE;
 
 import com.workplace.issue.dto.IssueRecurrenceRow;
+import com.workplace.jooq.tables.IssueRecurrence;
 import com.workplace.jooq.tables.records.IssueRecurrenceRecord;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -18,6 +19,8 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -98,7 +101,8 @@ public class IssueRecurrenceRepository {
 
   /**
    * 반복을 저장한다 — 없으면 만들고 있으면 규칙·시각·실행 AI 를 바꾼다. 저장하면 켜지고(enabled=true) 연속 실패 수는 0 으로 돌아간다(꺼진 반복을 다시
-   * 켜는 길). 지금까지의 회차 수·결과 대기 중인 회차 id 는 그대로 둔다 — 실행 중인 회차의 결과 보고를 잃지 않게.
+   * 켜는 길). 지금까지의 회차 수·결과 대기 중인 회차 id 는 그대로 둔다 — 실행 중인 회차의 결과 보고를 잃지 않게. 줄 대기(queued_at, WP-1407)는
+   * 비운다.
    *
    * @param assistantEnrolled 이 반복이 실행 AI 를 담당에 직접 넣었는지 — 서비스가 계산해 넘긴다(WP-1119)
    */
@@ -133,6 +137,8 @@ public class IssueRecurrenceRepository {
         // 묘비(실행 중에 지운 반복)를 다시 저장하면 새 반복으로 되살린다.
         .set(ISSUE_RECURRENCE.DELETED, false)
         .set(ISSUE_RECURRENCE.ASSISTANT_ENROLLED, assistantEnrolled)
+        // WP-1407: 다시 저장하면 줄 대기를 비운다 — 다음 회차가 미래로 가면 줄에서 빠지고, 아직 시각이 지났으면 다음 폴이 다시 줄 세운다.
+        .setNull(ISSUE_RECURRENCE.QUEUED_AT)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .execute();
   }
@@ -153,13 +159,15 @@ public class IssueRecurrenceRepository {
   /**
    * 회차 실행 중에 지운 반복을 묘비로 남긴다 — 끄고(enabled=false) 지움 표시를 해 조회·목록·스케줄러에서 빠지지만, 결과 대기 회차 id 는 남겨 진행 중
    * 회차의 결과 보고를 받아 글로 남길 수 있게 한다. 답을 기다리는 질문(WP-1312)은 비운다 — 지운 반복의 질문은 답으로 이어 가지 않고, 같은 이슈에 반복을 다시
-   * 저장해 묘비가 되살아나도 예전 질문이 답으로 이어지지 않게.
+   * 저장해 묘비가 되살아나도 예전 질문이 답으로 이어지지 않게. 줄 대기(WP-1407)도 비운다.
    */
   public void tombstone(long issueId) {
     dsl.update(ISSUE_RECURRENCE)
         .set(ISSUE_RECURRENCE.DELETED, true)
         .set(ISSUE_RECURRENCE.ENABLED, false)
         .set(cleared(QUESTION_FIELDS))
+        // WP-1407: 지운 반복은 줄에 남지 않는다.
+        .setNull(ISSUE_RECURRENCE.QUEUED_AT)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
@@ -272,13 +280,42 @@ public class IssueRecurrenceRepository {
   /**
    * 지금 실행할 회차 — 켜져 있고 다음 회차 시각이 지난 행을 잠그고 읽는다. 다른 인스턴스가 같은 행을 잡고 있으면 건너뛴다(SKIP LOCKED — ShedLock 이
    * 한 인스턴스만 돌리지만 결과 보고와도 겹칠 수 있다).
+   *
+   * <p>WP-1407 줄: 다른 행 때문에 바쁜 AI({@link #busyElsewhere})의 행은 빼고, 남은 행은 AI 마다 첫 행(회차 시각, 같으면 이슈 id 순
+   * — {@code row_number() over (partition by agent_user_id)})만 고른다. 그래서 한 AI 의 대기 행이 많아도 묶음({@link
+   * #BATCH_LIMIT})을 채워 다른 AI 를 굶기지 않고, 같은 AI 의 회차는 한 폴에 하나만 나간다. 먼저 된 회차가 먼저라 기다린 회차가 새로 된 회차보다 늘
+   * 앞이다(굶지 않는다).
+   *
+   * <p>자기 실행이 결과를 기다리는 행도 읽는다 — 서비스가 이슈 종료·담당 해제 안전망을 본 뒤 기존 규칙대로 미룬다(그 행 때문에 같은 AI 의 다른 행은 빠진다).
+   * 같은 AI 의 둘째 행 이후의 안전망은 그 행의 차례가 올 때 돈다.
    */
   public List<IssueRecurrenceRow> lockDue(Instant now) {
+    // 창 함수는 FOR UPDATE 와 한 문장에 쓸 수 없어, AI 별 첫 행의 id 를 하위 질의로 고른 뒤 바깥에서 잠근다.
+    Field<Integer> rank =
+        DSL.rowNumber()
+            .over(
+                DSL.partitionBy(ISSUE_RECURRENCE.AGENT_USER_ID)
+                    .orderBy(ISSUE_RECURRENCE.NEXT_RUN_AT, ISSUE_RECURRENCE.ISSUE_ID))
+            .as("rn");
+    var ranked =
+        DSL.select(ISSUE_RECURRENCE.ISSUE_ID, rank)
+            .from(ISSUE_RECURRENCE)
+            .where(ISSUE_RECURRENCE.ENABLED.isTrue())
+            .and(ISSUE_RECURRENCE.DELETED.isFalse())
+            .and(ISSUE_RECURRENCE.NEXT_RUN_AT.le(utc(now)))
+            .andNotExists(busyElsewhere())
+            .asTable("ranked");
+    var firstPerAgent =
+        DSL.select(ranked.field(ISSUE_RECURRENCE.ISSUE_ID))
+            .from(ranked)
+            .where(ranked.field(rank).eq(1));
     return dsl.selectFrom(ISSUE_RECURRENCE)
-        .where(ISSUE_RECURRENCE.ENABLED.isTrue())
+        .where(ISSUE_RECURRENCE.ISSUE_ID.in(firstPerAgent))
+        // 잠그는 사이 바뀐 행을 다시 거른다 — 하위 질의는 잠그기 전 값을 봤다.
+        .and(ISSUE_RECURRENCE.ENABLED.isTrue())
         .and(ISSUE_RECURRENCE.DELETED.isFalse())
         .and(ISSUE_RECURRENCE.NEXT_RUN_AT.le(utc(now)))
-        .orderBy(ISSUE_RECURRENCE.NEXT_RUN_AT)
+        .orderBy(ISSUE_RECURRENCE.NEXT_RUN_AT, ISSUE_RECURRENCE.ISSUE_ID)
         .limit(BATCH_LIMIT)
         .forUpdate()
         .skipLocked()
@@ -287,7 +324,84 @@ public class IssueRecurrenceRepository {
   }
 
   /**
-   * 회차를 보냈다고 기록한다 — 회차 수 +1, 결과 대기 회차 id, 마지막 실행 시각, 다음 회차 시각(지금 이후의 첫 회차 — 밀린 회차를 몰아서 돌리지 않는다).
+   * 줄에 새로 설 회차(WP-1407) — 회차 시각이 됐지만 같은 AI 가 바쁜({@link #busyAgents}) 켜진 반복 중 아직 줄 표시(queued_at)가 없는
+   * 행을 잠그고 읽는다(다른 트랜잭션이 잡고 있으면 건너뛴다). 호출자가 행마다 작업 상태를 「대기 중」으로 바꾼 뒤 {@link #markQueued} 로 표시한다 —
+   * 표시가 상태 변경과 같은 세이브포인트에 있어, 상태 변경이 실패하면 표시도 되돌아가 다음 폴이 다시 시도한다. 표시가 있는 행은 다시 고르지 않으므로 상태는 한 번만
+   * 바뀐다(매분 다시 바꾸면 이력·알림이 쌓인다).
+   *
+   * <p>빼는 행:
+   *
+   * <ul>
+   *   <li>자기 실행(정기 회차·이어 처리·테스트 실행)의 결과를 기다리는 행 — 그 행의 작업은 「작업 중」이고, 자기 결과를 기다리는 것은 기존 규칙({@code
+   *       IssueRecurrenceService#runOne} 의 미룸)이다. 「대기 중」으로 덮으면 도는 실행이 멈춘 것처럼 보인다.
+   *   <li>사람의 답을 기다리는 질문이 있는 행 — 그 작업 메모(질문)를 「앞 회차를 기다립니다」로 덮지 않는다. 회차는 차례가 오면 그대로 나간다.
+   * </ul>
+   */
+  public List<QueuedRun> lockQueueCandidates(Instant now) {
+    return dsl.select(ISSUE_RECURRENCE.ISSUE_ID, ISSUE_RECURRENCE.AGENT_USER_ID)
+        .from(ISSUE_RECURRENCE)
+        .where(ISSUE_RECURRENCE.ENABLED.isTrue())
+        .and(ISSUE_RECURRENCE.DELETED.isFalse())
+        .and(ISSUE_RECURRENCE.NEXT_RUN_AT.le(utc(now)))
+        .and(ISSUE_RECURRENCE.QUEUED_AT.isNull())
+        .and(DSL.not(inFlight(ISSUE_RECURRENCE)))
+        .and(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID.isNull())
+        .and(ISSUE_RECURRENCE.AGENT_USER_ID.in(busyAgents()))
+        .orderBy(ISSUE_RECURRENCE.NEXT_RUN_AT, ISSUE_RECURRENCE.ISSUE_ID)
+        .forUpdate()
+        .skipLocked()
+        .fetch()
+        .map(r -> new QueuedRun(r.value1(), r.value2()));
+  }
+
+  /** 줄 표시를 남긴다(WP-1407) — 작업 상태를 「대기 중」으로 바꾼 같은 세이브포인트에서 부른다({@link #lockQueueCandidates}). */
+  public void markQueued(long issueId, Instant now) {
+    dsl.update(ISSUE_RECURRENCE)
+        .set(ISSUE_RECURRENCE.QUEUED_AT, utc(now))
+        .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
+        .execute();
+  }
+
+  /**
+   * 바쁜 AI(WP-1407) — 이 테넌트에 결과를 기다리는 실행({@link #inFlight})이 있는 행의 실행 AI. 묘비 행도 넣는다 — 지운 반복의 회차도 아직
+   * 돌고 있다. 테이블이 RLS 라 줄은 (테넌트, AI) 단위다.
+   */
+  private Select<Record1<Long>> busyAgents() {
+    var busy = ISSUE_RECURRENCE.as("busy");
+    return DSL.select(busy.AGENT_USER_ID).from(busy).where(inFlight(busy));
+  }
+
+  /**
+   * 이 행의 AI 가 다른 행에서 결과를 기다리는 실행({@link #inFlight}, 묘비 포함)이 있는지(WP-1407, 상관 하위 질의) — {@link
+   * #lockDue} 가 줄 대기 행을 거르는 데 쓴다.
+   */
+  private Select<Record1<Integer>> busyElsewhere() {
+    var busy = ISSUE_RECURRENCE.as("busy");
+    return DSL.selectOne()
+        .from(busy)
+        .where(busy.AGENT_USER_ID.eq(ISSUE_RECURRENCE.AGENT_USER_ID))
+        .and(busy.ISSUE_ID.ne(ISSUE_RECURRENCE.ISSUE_ID))
+        .and(inFlight(busy));
+  }
+
+  /**
+   * 결과를 기다리는 실행이 있는 행(WP-1407) — 정기 회차(pending_run_id)·이어 처리(follow_up_run_id)·테스트 실행(test_run_id)
+   * 중 하나라도 보낸 채 결과가 안 왔다. 바쁜 AI 판정과 줄 후보 제외가 같은 기준을 쓰도록 한곳에 둔다({@link
+   * IssueRecurrenceRow#anyRunInFlight} 의 SQL 판).
+   */
+  private static Condition inFlight(IssueRecurrence t) {
+    return t.PENDING_RUN_ID
+        .isNotNull()
+        .or(t.FOLLOW_UP_RUN_ID.isNotNull())
+        .or(t.TEST_RUN_ID.isNotNull());
+  }
+
+  /** 줄에 설 회차(WP-1407) — 작업 상태를 「대기 중」으로 바꿀 이슈와 AI. */
+  public record QueuedRun(long issueId, long agentUserId) {}
+
+  /**
+   * 회차를 보냈다고 기록한다 — 회차 수 +1, 결과 대기 회차 id, 마지막 실행 시각, 다음 회차 시각(지금 이후의 첫 회차 — 밀린 회차를 몰아서 돌리지 않는다). 줄
+   * 대기(WP-1407)는 비운다.
    */
   public void markDispatched(long issueId, String runId, Instant ranAt, Instant nextRunAt) {
     dsl.update(ISSUE_RECURRENCE)
@@ -295,15 +409,17 @@ public class IssueRecurrenceRepository {
         .set(ISSUE_RECURRENCE.PENDING_RUN_ID, runId)
         .set(ISSUE_RECURRENCE.LAST_RUN_AT, utc(ranAt))
         .set(ISSUE_RECURRENCE.NEXT_RUN_AT, utc(nextRunAt))
+        .setNull(ISSUE_RECURRENCE.QUEUED_AT)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
   }
 
-  /** 회차 결과를 반영한다 — 결과 대기 회차 id 를 비우고 연속 실패 수·켜짐 여부를 바꾼다. */
+  /** 회차 결과를 반영한다 — 결과 대기 회차 id·줄 대기(WP-1407)를 비우고 연속 실패 수·켜짐 여부를 바꾼다. */
   public void recordResult(long issueId, int consecutiveFailures, boolean enabled) {
     dsl.update(ISSUE_RECURRENCE)
         .setNull(ISSUE_RECURRENCE.PENDING_RUN_ID)
+        .setNull(ISSUE_RECURRENCE.QUEUED_AT)
         .set(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES, consecutiveFailures)
         .set(ISSUE_RECURRENCE.ENABLED, enabled)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
@@ -462,10 +578,11 @@ public class IssueRecurrenceRepository {
         .map(IssueRecurrenceRepository::toRow);
   }
 
-  /** 반복을 끈다 — 다음 회차를 정할 수 없을 때. 연속 실패 수·결과 대기는 그대로 둔다. */
+  /** 반복을 끈다 — 다음 회차를 정할 수 없을 때. 연속 실패 수·결과 대기는 그대로 두고, 줄 대기(WP-1407)는 비운다. */
   public void disable(long issueId) {
     dsl.update(ISSUE_RECURRENCE)
         .set(ISSUE_RECURRENCE.ENABLED, false)
+        .setNull(ISSUE_RECURRENCE.QUEUED_AT)
         .set(ISSUE_RECURRENCE.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
@@ -525,6 +642,7 @@ public class IssueRecurrenceRepository {
         r.getTestRunRequestedBy(),
         r.getPendingQuestionAnswerer(),
         r.getPendingQuestionActions(),
-        r.getFollowUpTestBy());
+        r.getFollowUpTestBy(),
+        instant(r.getQueuedAt()));
   }
 }

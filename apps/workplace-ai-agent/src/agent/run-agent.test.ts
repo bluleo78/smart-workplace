@@ -143,6 +143,8 @@ describe('runAgent (인-프로세스 SDK)', () => {
     expect(arg.model).toBeTruthy();
     expect(arg.maxTurns).toBeGreaterThan(0);
     expect(arg.timeoutMs).toBeGreaterThan(0);
+    // WP-1407: 대화형(이슈 이벤트) 실행은 반복 상한(30분)과 따로 — env 가 없으면 5분 그대로다.
+    expect(arg.timeoutMs).toBe(300_000);
     // MCP 서버 인스턴스가 그대로 전달되는지(동일성).
     expect(arg.mcpServers?.workplace).toBe(MCP_SENTINEL);
     // 이슈 경로는 요청자 user 가 없음 — userId 미전달.

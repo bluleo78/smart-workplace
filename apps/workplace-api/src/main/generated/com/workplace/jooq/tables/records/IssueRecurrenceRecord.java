@@ -405,6 +405,22 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         return (Long) get(26);
     }
 
+    /**
+     * Setter for <code>public.issue_recurrence.queued_at</code>. 같은 AI 의 앞 회차가
+     * 끝나기를 기다리기 시작한 시각(WP-1407). 보내거나 끄면 비운다
+     */
+    public void setQueuedAt(OffsetDateTime value) {
+        set(27, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_recurrence.queued_at</code>. 같은 AI 의 앞 회차가
+     * 끝나기를 기다리기 시작한 시각(WP-1407). 보내거나 끄면 비운다
+     */
+    public OffsetDateTime getQueuedAt() {
+        return (OffsetDateTime) get(27);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -428,7 +444,7 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
     /**
      * Create a detached, initialised IssueRecurrenceRecord
      */
-    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled, Long pendingQuestionMessageId, String pendingQuestionText, OffsetDateTime pendingQuestionAskedAt, String followUpRunId, OffsetDateTime followUpDispatchedAt, String testRunId, OffsetDateTime testRunDispatchedAt, Long testRunRequestedBy, Long pendingQuestionAnswerer, String pendingQuestionActions, Long followUpTestBy) {
+    public IssueRecurrenceRecord(Long issueId, Long tenantId, String rrule, LocalTime runTime, Long agentUserId, Long createdBy, Boolean enabled, OffsetDateTime nextRunAt, Integer consecutiveFailures, Integer runCount, String pendingRunId, Boolean deleted, OffsetDateTime lastRunAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Boolean assistantEnrolled, Long pendingQuestionMessageId, String pendingQuestionText, OffsetDateTime pendingQuestionAskedAt, String followUpRunId, OffsetDateTime followUpDispatchedAt, String testRunId, OffsetDateTime testRunDispatchedAt, Long testRunRequestedBy, Long pendingQuestionAnswerer, String pendingQuestionActions, Long followUpTestBy, OffsetDateTime queuedAt) {
         super(IssueRecurrence.ISSUE_RECURRENCE);
 
         setIssueId(issueId);
@@ -458,6 +474,7 @@ public class IssueRecurrenceRecord extends UpdatableRecordImpl<IssueRecurrenceRe
         setPendingQuestionAnswerer(pendingQuestionAnswerer);
         setPendingQuestionActions(pendingQuestionActions);
         setFollowUpTestBy(followUpTestBy);
+        setQueuedAt(queuedAt);
         resetChangedOnNotNull();
     }
 }

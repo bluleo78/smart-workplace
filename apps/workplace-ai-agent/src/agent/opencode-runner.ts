@@ -246,6 +246,11 @@ export class OpencodeRunner implements AgentRunner {
         // 거절되면(ContextOverflowError) opencode 는 session.error 를 먼저 낸 뒤 대화를 요약하고 이어 간다(1.17.18 라이브 실측) —
         // 그 오류로 실행을 끝내지 않고 session.compacted 를 기다린다. 압축마저 실패하면 compacted 없이 idle 이 와 오류로 끝낸다.
         let compactionPending = false;
+        // WP-1407: 모델 단계(assistant 메시지)마다 끝났을 때 model_step 을 한 번만 낸다 — message.updated 는 같은 메시지로 여러 번 온다.
+        const completedModelSteps = new Set<string>();
+        // WP-1407: assistant 메시지(단계) id → 그 단계에서 처음 시작한 도구의 시작 시각. opencode 단계는 모델 생성 뒤 그 단계의 도구 실행까지 품어
+        // 메시지 생성~완료 시각에 도구 시간이 들어간다 — 모델 시간은 첫 도구가 시작할 때 끝난 것으로 본다(모델이 도구 호출을 다 쓴 뒤 도구가 돈다).
+        const firstToolStart = new Map<string, number>();
 
         for await (const ev of es.stream) {
           if (killed) break;
@@ -288,6 +293,11 @@ export class OpencodeRunner implements AgentRunner {
               // WP-262: 시작은 running 에서 낸다 — pending 은 모델이 인자를 스트리밍하는 중(state.raw)이라 input 이
               // 항상 {} 다(실측: pending {} → running {fileId}). running 없이 바로 끝나면 종료 때 시작을 먼저 낸다.
               const finished = status === 'completed' || status === 'error';
+              if (status === 'running' || finished) {
+                const started = (part.state as { time?: { start?: number } }).time?.start;
+                const prev = firstToolStart.get(part.messageID);
+                if (typeof started === 'number' && (prev === undefined || started < prev)) firstToolStart.set(part.messageID, started);
+              }
               if ((status === 'running' || finished) && !startedTools.has(part.id)) {
                 startedTools.add(part.id);
                 seq += 1;
@@ -321,6 +331,24 @@ export class OpencodeRunner implements AgentRunner {
               assistantMessageIds.add(info.id);
               if (info.sessionID === session.id) {
                 lastUsage = { inputTokens: info.tokens.input, outputTokens: info.tokens.output };
+              }
+              // WP-1407: 완료 시각이 처음 채워질 때 모델 호출 한 단계를 기록한다(회차 실행 기록). 중단된 마지막 단계는 completed 가 없을 수 있어
+              // 내지 않는다 — 기록기가 「시작됐는데 안 끝난 단계」를 마지막 단계(모델 응답 대기)로 본다.
+              const completed = info.time?.completed;
+              if (typeof completed === 'number' && !completedModelSteps.has(info.id)) {
+                completedModelSteps.add(info.id);
+                const created = typeof info.time.created === 'number' ? info.time.created : null;
+                // 모델 시간 = 생성 ~ (그 단계의 첫 도구 시작, 없으면 완료). 도구 실행 시간은 빼고 잰다.
+                const toolStart = firstToolStart.get(info.id);
+                const modelEnd = toolStart !== undefined && (created == null || toolStart >= created) ? Math.min(toolStart, completed) : completed;
+                onEvent({
+                  type: 'model_step',
+                  startedAt: created,
+                  endedAt: modelEnd,
+                  inputTokens: info.tokens?.input ?? null,
+                  outputTokens: info.tokens?.output ?? null,
+                  parentToolUseId: info.sessionID !== session.id ? info.sessionID : null,
+                });
               }
             }
             continue;

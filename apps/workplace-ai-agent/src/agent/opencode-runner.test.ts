@@ -188,6 +188,52 @@ describe('OpencodeRunner.stream', () => {
     ]);
   });
 
+  // WP-1407: 회차 실행 기록 — assistant 메시지(모델 한 단계)가 완료될 때 model_step 을 한 번 낸다.
+  describe('model_step(WP-1407)', () => {
+    const asst = (id: string, time: { created: number; completed?: number }, extra: Record<string, unknown> = {}, sessionID = 'sess-1') => ({
+      type: 'message.updated',
+      properties: { info: { id, sessionID, role: 'assistant', time, tokens: { input: 50, output: 7 }, ...extra } },
+    });
+    const run = async (pushes: unknown[]) => {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      for (const p of pushes) es.push(p as never);
+      es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+      const events: RunnerEvent[] = [];
+      await new OpencodeRunner().stream(baseInput(), (e) => events.push(e)).done;
+      return events.filter((e) => e.type === 'model_step');
+    };
+
+    it('created → completed 시퀀스에서 완료 때 한 번만 낸다(시각·토큰 포함)', async () => {
+      const steps = await run([asst('m1', { created: 1000 }), asst('m1', { created: 1000, completed: 4000 }), asst('m1', { created: 1000, completed: 4000 })]);
+      expect(steps).toEqual([{ type: 'model_step', startedAt: 1000, endedAt: 4000, inputTokens: 50, outputTokens: 7, parentToolUseId: null }]);
+    });
+
+    it('같은 단계에서 도구가 돌았으면 모델 시간은 첫 도구 시작에서 끝난다(도구 실행 시간 제외)', async () => {
+      const toolPart = (id: string, start: number, status = 'completed') => ({
+        type: 'message.part.updated',
+        properties: {
+          part: { id, sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: id, tool: 'workplace_list_issues', state: { status, input: {}, output: '', time: { start, end: start + 5000 } } },
+        },
+      });
+      const steps = await run([asst('m1', { created: 1000 }), toolPart('t2', 3000), toolPart('t1', 2500), asst('m1', { created: 1000, completed: 9000 })]);
+      expect(steps).toEqual([{ type: 'model_step', startedAt: 1000, endedAt: 2500, inputTokens: 50, outputTokens: 7, parentToolUseId: null }]);
+    });
+
+    it('압축 요약 메시지는 내지 않는다', async () => {
+      const steps = await run([asst('m1', { created: 1000, completed: 2000 }, { summary: true }), asst('m2', { created: 1000, completed: 2000 }, { mode: 'compaction' })]);
+      expect(steps).toEqual([]);
+    });
+
+    it('자식 세션 메시지는 parentToolUseId 에 자식 세션 id 를 싣는다', async () => {
+      const steps = await run([
+        { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
+        asst('c1', { created: 10, completed: 30 }, {}, 'child-1'),
+      ]);
+      expect(steps).toEqual([{ type: 'model_step', startedAt: 10, endedAt: 30, inputTokens: 50, outputTokens: 7, parentToolUseId: 'child-1' }]);
+    });
+  });
+
   // WP-263: 메인 AI 채팅 라우터가 도구를 부른 단계에서 덧붙이는 진행 서술("먼저 확인하겠습니다")은 내보내지 않는다.
   describe('assistant 라우터 진행 서술 걸러내기(WP-263)', () => {
     const asstMsg = (id: string, sessionID = 'sess-1') => ({

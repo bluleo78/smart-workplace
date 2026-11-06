@@ -101,6 +101,10 @@ api:
   initImage: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
   # 접속이 HTTPS(http→https 308 리다이렉트)라 브라우저 Origin은 https. 호스트 바뀌면 같이 수정.
   corsAllowedOrigins: "https://collaboria-demo.iacloud.kr,https://collaboria-admin-demo.iacloud.kr"
+  # 반복 AI 작업 회차의 결과를 기다리는 시간(WP-1407, ISO-8601) — 넘으면 「이전 회차 결과를 받지 못했습니다」로 실패를 센다.
+  # aiAgent.recurringTimeoutMs + 결과 보고 재시도(약 4분)보다 길어야 한다. 두 값은 따로의 설정이라 반드시 함께 옮긴다
+  # (aiAgent.recurringTimeoutMs 를 바꾸면 이 값도 바꾼다).
+  recurrencePendingTimeout: PT40M
   resources:
     requests:
       cpu: 250m
@@ -116,6 +120,10 @@ aiAgent:
       memory: 256Mi
     limits:
       memory: 2Gi
+  # 반복 AI 작업 회차 상한(WP-1407) — 대화형 실행(5분)과 따로. api.recurrencePendingTimeout 과 따로의 설정이라 반드시 함께 옮긴다 —
+  # 바꾸면 api 의 recurrencePendingTimeout 도 (이 값 + 약 5분) 이상으로 맞춘다.
+  recurringTimeoutMs: 1800000
+  recurringMaxTurns: 60
   # 모델 서버가 사설 CA 인증서를 쓸 때 ai-agent 가 추가로 신뢰할 CA(PEM, 여러 개 이어 붙여도 된다).
   # 채우면 ConfigMap ai-agent-extra-ca 로 마운트하고 NODE_EXTRA_CA_CERTS 로 지정한다 — opencode 하위 프로세스에도 상속된다.
   # 기본 CA 목록에 덧붙이기만 하고 검증은 끄지 않는다(검증을 끄는 옵션은 두지 않는다). 단 이 CA 는 호스트 구분 없이 신뢰되므로

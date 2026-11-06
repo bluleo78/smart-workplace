@@ -73,6 +73,7 @@ class IssueRecurrenceRunNowTest extends IntegrationTestBase {
   @Autowired PersonalAssistantRepository personalAssistantRepository;
   @Autowired AiAgentCredentialService credentialService;
   @Autowired IssueRecurrenceService recurrenceService;
+  @Autowired com.workplace.issue.repository.IssueRecurrenceRepository recurrenceRepository;
   @Autowired com.workplace.chat.repository.ChatThreadRepository chatThreadRepository;
   @Autowired ApplicationEvents events;
 
@@ -458,16 +459,19 @@ class IssueRecurrenceRunNowTest extends IntegrationTestBase {
 
   @Test
   void 이어_처리가_도는_중에_새_질문에_답해도_앞선_이어_처리를_덮어쓰지_않는다() throws Exception {
-    // 테스트 질문 → 답(이어 처리 도는 중) → 그 사이 정기 회차가 새로 물었다.
+    // 테스트 질문 → 답(이어 처리 도는 중) → 그 사이 새 질문이 생겼다.
     runNow(owner).andExpect(status().isAccepted());
     report(row().get(ISSUE_RECURRENCE.TEST_RUN_ID), true, "메일을 보낼까요?", true, null)
         .andExpect(status().isNoContent());
+    long testQuestionId = row().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID);
     chat(owner, "보내 줘");
     String follow = row().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
+    // WP-1407: 이어 처리가 도는 동안은 그 AI 가 바빠 정기 회차가 나가지 않는다.
     setNextRunAt(Instant.now().minusSeconds(60));
-    assertThat(recurrenceService.runDue(Instant.now())).isEqualTo(1);
-    report(row().get(ISSUE_RECURRENCE.PENDING_RUN_ID), true, "초안을 올릴까요?", true, null)
-        .andExpect(status().isNoContent());
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
+    // 사람이 바로 원한 실행끼리의 드문 겹침(설계 WP-1407 §2.1)으로 정기 회차 질문이 남은 경우를 흉내 낸다 — 덮어쓰기 방지는 그대로 지켜야 한다.
+    recurrenceRepository.setPendingQuestion(
+        issueId, testQuestionId, "초안을 올릴까요?", Instant.now(), null, null);
     assertThat(row().get(ISSUE_RECURRENCE.PENDING_QUESTION_MESSAGE_ID)).isNotNull();
 
     chatExpect(owner, "올려 줘").andExpect(status().isConflict());
@@ -486,14 +490,14 @@ class IssueRecurrenceRunNowTest extends IntegrationTestBase {
   // ───────────────────────────── 대기 시간 초과·삭제 ─────────────────────────────
 
   @Test
-  void 결과를_30분_넘게_못_받으면_비우고_알린다() throws Exception {
+  void 결과를_40분_넘게_못_받으면_비우고_알린다() throws Exception {
     Record before = row();
     runNow(owner).andExpect(status().isAccepted());
     String testRun = row().get(ISSUE_RECURRENCE.TEST_RUN_ID);
     dsl.update(ISSUE_RECURRENCE)
         .set(
             ISSUE_RECURRENCE.TEST_RUN_DISPATCHED_AT,
-            Instant.now().minus(31, ChronoUnit.MINUTES).atOffset(ZoneOffset.UTC))
+            Instant.now().minus(41, ChronoUnit.MINUTES).atOffset(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
 

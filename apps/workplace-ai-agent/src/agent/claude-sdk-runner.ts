@@ -83,6 +83,8 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
 export class ClaudeSdkRunner implements AgentRunner {
   // 스트리밍: 기존 runSdkStream 의 onLine(문자열) 을 JSON.parse → mapSdkMessage 로 변환해 onEvent 에 흘린다.
   stream(i: RunnerInput, onEvent: (e: RunnerEvent) => void): RunnerStreamHandle {
+    // WP-1407: 같은 API 메시지의 model_step 을 한 번만 내도록 실행마다 본 메시지 id 를 모은다.
+    const seen = new Set<string>();
     const handle = runSdkStream(toSdkRunInput(i), (line) => {
       let parsed: unknown;
       try {
@@ -90,7 +92,7 @@ export class ClaudeSdkRunner implements AgentRunner {
       } catch {
         return; // 비JSON 라인 무시(기존 파서들과 동일 관용)
       }
-      for (const ev of mapSdkMessage(parsed)) onEvent(ev);
+      for (const ev of mapSdkMessage(parsed, seen)) onEvent(ev);
     });
     return { done: handle.done, kill: handle.kill };
   }
@@ -99,6 +101,7 @@ export class ClaudeSdkRunner implements AgentRunner {
   async collect(i: RunnerInput): Promise<RunnerEvent[]> {
     const lines = await runSdkCollect(toSdkRunInput(i));
     const events: RunnerEvent[] = [];
+    const seen = new Set<string>(); // WP-1407: API 메시지당 model_step 한 번
     for (const line of lines) {
       let parsed: unknown;
       try {
@@ -106,7 +109,7 @@ export class ClaudeSdkRunner implements AgentRunner {
       } catch {
         continue;
       }
-      events.push(...mapSdkMessage(parsed));
+      events.push(...mapSdkMessage(parsed, seen));
     }
     return events;
   }

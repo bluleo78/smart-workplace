@@ -83,7 +83,8 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 |---|---|---|
 | `INTERNAL_SERVICE_TOKEN` | 인바운드 /events + 아웃바운드 호출 (Authorization: Internal) 공용 | 예 |
 | `WORKPLACE_API_BASE_URL` | workplace-api URL | 예 |
-| `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |
+| `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override(대화형 실행 — 기본 30턴·5분) | 아님 |
+| `WORKPLACE_AI_RECURRING_TIMEOUT_MS` / `WORKPLACE_AI_RECURRING_MAX_TURNS` | 반복 AI 작업 회차 상한(기본 1800000·60, WP-1407) — 대화형과 따로. 시간 상한을 바꾸면 api `WORKPLACE_RECURRENCE_PENDING_TIMEOUT`(기본 PT40M)을 (이 값 + 약 5분) 이상으로 맞춘다. 회차마다 `recurring_run_trace` 로그(모델·도구 호출 수, 마지막 단계)를 남긴다 | 아님 |
 | `SHUTDOWN_DRAIN_MS` | 종료 시 진행 중 HTTP·에이전트 실행 대기 상한(기본 330000). 운영 차트 `terminationGracePeriodSeconds` 는 preStop + 이 값보다 커야 함(WP-167) | 아님 |
 
 **대행 AGENT 식별**: 대행할 AGENT 는 workplace-api 가 정한다(WP-371). API 는 서버 실행(INTERNAL) 에이전트가 있을 때만

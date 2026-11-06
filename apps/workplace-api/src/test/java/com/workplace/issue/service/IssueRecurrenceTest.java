@@ -333,7 +333,8 @@ class IssueRecurrenceTest extends IntegrationTestBase {
 
   @Test
   void 한_행이_실패해도_다른_행은_돈다() throws Exception {
-    // 두 번째 반복 이슈 — 같은 소유자·비서.
+    // 두 번째 반복 이슈 — 같은 소유자, 다른 AI. 같은 AI 면 한 폴에 첫 회차만 읽어(WP-1407 줄) 같은 폴에 둘째를 보내지 않는다.
+    long agent2 = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, owner));
     long other =
         issueService
             .create(
@@ -341,7 +342,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
                 key,
                 new CreateIssueRequest("주간 정리", "이번 주 정리", null, null, null, null, null, null))
             .id();
-    assigneeRepository.add(other, agent, owner);
+    assigneeRepository.add(other, agent2, owner);
     int otherNumber =
         dsl.select(com.workplace.jooq.Tables.ISSUE.NUMBER)
             .from(com.workplace.jooq.Tables.ISSUE)
@@ -349,7 +350,9 @@ class IssueRecurrenceTest extends IntegrationTestBase {
             .fetchOne(com.workplace.jooq.Tables.ISSUE.NUMBER);
     call(
             put("/api/v1/projects/" + key + "/issues/" + otherNumber + "/recurrence")
-                .content(req("FREQ=DAILY", "08:00")),
+                .content(
+                    om.writeValueAsString(
+                        Map.of("rrule", "FREQ=DAILY", "time", "08:00", "agentUserId", agent2))),
             owner)
         .andExpect(status().isOk());
     saveAndMakeDue();
@@ -532,7 +535,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
     assertThat(recurrenceRow().get(ISSUE_RECURRENCE.DELETED)).isTrue();
 
     recurrenceService.runDue(
-        Instant.now().plus(IssueRecurrenceService.PENDING_TIMEOUT).plusSeconds(60));
+        Instant.now().plus(IssueRecurrenceProperties.DEFAULT_PENDING_TIMEOUT).plusSeconds(60));
     assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
     assertThat(agentMessages()).isEmpty();
   }
@@ -652,16 +655,16 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   void 결과를_못_받은_회차는_대기가_지나면_실패로_세고_3회면_멈춘다() throws Exception {
     dispatchOnce();
     // 결과 없이 대기 시간이 지난 뒤의 회차 — 정리가 지난 회차를 실패로 세고 이번 회차를 보낸다.
-    setLastRunAt(Instant.now().minus(31, ChronoUnit.MINUTES));
+    setLastRunAt(Instant.now().minus(41, ChronoUnit.MINUTES));
     dispatchOnce();
     assertThat(recurrenceRow().get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isEqualTo(1);
-    setLastRunAt(Instant.now().minus(31, ChronoUnit.MINUTES));
+    setLastRunAt(Instant.now().minus(41, ChronoUnit.MINUTES));
     dispatchOnce();
     assertThat(recurrenceRow().get(ISSUE_RECURRENCE.CONSECUTIVE_FAILURES)).isEqualTo(2);
     assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
 
     // 세 번째 결과도 없이 다음 회차 — 3회 연속 실패로 멈추고 이번 회차는 보내지 않는다.
-    setLastRunAt(Instant.now().minus(31, ChronoUnit.MINUTES));
+    setLastRunAt(Instant.now().minus(41, ChronoUnit.MINUTES));
     setNextRunAt(Instant.now().minusSeconds(30));
     assertThat(recurrenceService.runDue(Instant.now())).isZero();
     assertThat(events.stream(IssueRecurringRunEvent.class)).hasSize(3);
@@ -700,9 +703,9 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   }
 
   @Test
-  void 결과를_30분_넘게_못_받으면_실패로_세고_다음회차대기로_되돌린다() throws Exception {
+  void 결과를_40분_넘게_못_받으면_실패로_세고_다음회차대기로_되돌린다() throws Exception {
     String runId = dispatchOnce();
-    setLastRunAt(Instant.now().minus(31, ChronoUnit.MINUTES));
+    setLastRunAt(Instant.now().minus(41, ChronoUnit.MINUTES));
     // 다음 회차는 미래라 보내지는 않고 대기만 정리한다.
     assertThat(recurrenceService.runDue(Instant.now())).isZero();
     var row = recurrenceRow();
@@ -822,7 +825,7 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   void 지운_반복의_결과가_끝내_오지_않으면_정리가_행을_지운다() throws Exception {
     dispatchOnce();
     call(delete(path()), owner).andExpect(status().isNoContent());
-    setLastRunAt(Instant.now().minus(31, ChronoUnit.MINUTES));
+    setLastRunAt(Instant.now().minus(41, ChronoUnit.MINUTES));
     recurrenceService.runDue(Instant.now());
     assertThat(dsl.fetchCount(ISSUE_RECURRENCE, ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))).isZero();
     assertThat(agentMessages()).isEmpty();
@@ -1088,31 +1091,34 @@ class IssueRecurrenceTest extends IntegrationTestBase {
   }
 
   @Test
-  void 이어_처리와_정기_회차가_함께_돌아도_결과를_따로_받는다() throws Exception {
+  void 이어_처리가_도는_동안_정기_회차는_기다렸다가_결과를_따로_받는다() throws Exception {
     askQuestion("메일을 보낼까요?");
     chat(owner, "보내 줘");
     String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
-    String runId = dispatchOnce();
-
-    // 정기 회차 결과가 먼저 와도 이어 처리가 도는 중이라 「작업 중」을 유지한다.
-    report(agent, runId, true, "정기 결과").andExpect(status().isNoContent());
+    // WP-1407: 이어 처리가 결과를 기다리면 그 AI 가 바쁘다 — 회차 시각이 돼도 정기 회차는 나가지 않고, 「작업 중」(이어 처리)을 덮지 않는다.
+    setNextRunAt(Instant.now().minusSeconds(60));
+    assertThat(recurrenceService.runDue(Instant.now())).isZero();
     assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
-    assertThat(recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isEqualTo(followRunId);
+    assertThat(activeWork().get(AGENT_WORK.NOTE)).isEqualTo(IssueRecurrenceService.NOTE_FOLLOW_UP);
 
     report(agent, followRunId, true, "보냈습니다").andExpect(status().isNoContent());
-    assertThat(agentMessages()).containsExactly("메일을 보낼까요?", "정기 결과", "보냈습니다");
+    // 이어 처리 결과가 온 뒤의 폴에서 미뤘던 정기 회차가 나가고, 결과는 따로 받는다.
+    String runId = dispatchOnce();
+    assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("WORKING");
+    report(agent, runId, true, "정기 결과").andExpect(status().isNoContent());
+    assertThat(agentMessages()).containsExactly("메일을 보낼까요?", "보냈습니다", "정기 결과");
     assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");
   }
 
   @Test
-  void 이어_처리_결과를_30분_넘게_못_받으면_비우고_알린다() throws Exception {
+  void 이어_처리_결과를_40분_넘게_못_받으면_비우고_알린다() throws Exception {
     askQuestion("메일을 보낼까요?");
     chat(owner, "보내 줘");
     String followRunId = recurrenceRow().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID);
     dsl.update(ISSUE_RECURRENCE)
         .set(
             ISSUE_RECURRENCE.FOLLOW_UP_DISPATCHED_AT,
-            Instant.now().minus(31, ChronoUnit.MINUTES).atOffset(ZoneOffset.UTC))
+            Instant.now().minus(41, ChronoUnit.MINUTES).atOffset(ZoneOffset.UTC))
         .where(ISSUE_RECURRENCE.ISSUE_ID.eq(issueId))
         .execute();
 

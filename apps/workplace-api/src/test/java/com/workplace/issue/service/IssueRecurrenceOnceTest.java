@@ -251,7 +251,7 @@ class IssueRecurrenceOnceTest extends IntegrationTestBase {
     dispatch();
 
     recurrenceService.runDue(
-        Instant.now().plus(IssueRecurrenceService.PENDING_TIMEOUT).plusSeconds(60));
+        Instant.now().plus(IssueRecurrenceProperties.DEFAULT_PENDING_TIMEOUT).plusSeconds(60));
 
     Record done = row();
     assertThat(done.get(ISSUE_RECURRENCE.ENABLED)).isFalse();
@@ -387,7 +387,7 @@ class IssueRecurrenceOnceTest extends IntegrationTestBase {
     chat(owner, "보내 줘");
 
     recurrenceService.runDue(
-        Instant.now().plus(IssueRecurrenceService.PENDING_TIMEOUT).plusSeconds(60));
+        Instant.now().plus(IssueRecurrenceProperties.DEFAULT_PENDING_TIMEOUT).plusSeconds(60));
 
     assertThat(row().get(ISSUE_RECURRENCE.FOLLOW_UP_RUN_ID)).isNull();
     assertThat(latestWork().get(AGENT_WORK.STATE)).isEqualTo("FAILED");

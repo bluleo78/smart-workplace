@@ -66,6 +66,8 @@ describe('ClaudeSdkRunner.collect', () => {
     const runner = new ClaudeSdkRunner();
     const events = await runner.collect(baseInput());
     expect(events).toEqual([
+      // WP-1407: assistant 메시지마다 모델 호출 단계(model_step)가 앞선다.
+      { type: 'model_step', startedAt: null, endedAt: null, inputTokens: null, outputTokens: null, parentToolUseId: null },
       { type: 'assistant_text', text: '중간' },
       { type: 'result', ok: true, text: '최종', usage: null },
     ]);

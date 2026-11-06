@@ -142,3 +142,24 @@ test('ConfigMap 을 읽는 api·ai-agent 는 설정 체크섬을 달아 설정�
   assert.equal(sum(unrelated, 'ai-agent'), sum(BASE_DOCS, 'ai-agent'));
   assert.notEqual(sum(unrelated, 'api'), sum(BASE_DOCS, 'api'));
 });
+
+// WP-1407: 반복 AI 작업 회차 상한(ai-agent)과 결과 대기(api)가 기본값으로 렌더되고, 값을 바꾸면 그대로 따라간다.
+test('ai-agent 는 반복 상한 env 두 개(30분·60턴), api 는 결과 대기 env(PT40M)를 기본값으로 받는다', () => {
+  const agent = BASE_DOCS.get('Deployment/ai-agent');
+  assert.match(agent, /- name: WORKPLACE_AI_RECURRING_TIMEOUT_MS\n\s+value: "1800000"\n/);
+  assert.match(agent, /- name: WORKPLACE_AI_RECURRING_MAX_TURNS\n\s+value: "60"\n/);
+  assert.match(BASE_DOCS.get('Deployment/api'), /- name: WORKPLACE_RECURRENCE_PENDING_TIMEOUT\n\s+value: "PT40M"\n/);
+  // 차트 기본값만으로도 같다.
+  assert.match(DEFAULT_DOCS.get('Deployment/ai-agent'), /- name: WORKPLACE_AI_RECURRING_TIMEOUT_MS\n\s+value: "1800000"\n/);
+  assert.match(DEFAULT_DOCS.get('Deployment/api'), /- name: WORKPLACE_RECURRENCE_PENDING_TIMEOUT\n\s+value: "PT40M"\n/);
+});
+
+test('반복 상한·결과 대기 값을 바꾸면 env 가 따라간다', () => {
+  const changed = docs(
+    render('-f', IMAGES, '--set', 'aiAgent.recurringTimeoutMs=600000', '--set', 'aiAgent.recurringMaxTurns=40',
+      '--set', 'api.recurrencePendingTimeout=PT15M').out,
+  );
+  assert.match(changed.get('Deployment/ai-agent'), /- name: WORKPLACE_AI_RECURRING_TIMEOUT_MS\n\s+value: "600000"\n/);
+  assert.match(changed.get('Deployment/ai-agent'), /- name: WORKPLACE_AI_RECURRING_MAX_TURNS\n\s+value: "40"\n/);
+  assert.match(changed.get('Deployment/api'), /- name: WORKPLACE_RECURRENCE_PENDING_TIMEOUT\n\s+value: "PT15M"\n/);
+});
