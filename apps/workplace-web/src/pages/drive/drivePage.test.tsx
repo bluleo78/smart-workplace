@@ -6,7 +6,7 @@
 // 화면 배선(라우트 → 페이지 → API)·호버/포커스 노출·토스트 겹침 같은 기하는 drive.spec.ts 의 E2E 가 지킨다.
 // DrivePage 만 renderScreen 으로 띄운다(testkit-b6 renderDrivePage — 풀페이지 라우트) — 사용량 갱신처럼 사이드바가 필요한 판정만 DriveSidebar 를 함께 띄운다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
@@ -240,8 +240,8 @@ describe('폴더 만들기·이름 변경', () => {
     expect(posts).toEqual([{ parentId: null, name: '문서' }])
   })
 
-  // #116: 서버 400(공백 이름 @NotBlank) 사유를 토스트로 알린다 — 공백만 있어도 클라이언트는 그대로 보낸다.
-  test('폴더 생성 400 — 서버 사유를 토스트로 보인다', async () => {
+  // #116·WP-1389: 서버 400(공백 이름 @NotBlank) 사유를 대화상자 안 인라인으로 보인다 — 공백만 있어도 클라이언트는 그대로 보내고, 닫지 않는다.
+  test('폴더 생성 400 — 대화상자를 유지하고 서버 사유를 인라인으로 보인다', async () => {
     let posts = 0
     const { user } = await openDrive({ folders: [], files: [] }, {
       handlers: [
@@ -255,8 +255,104 @@ describe('폴더 만들기·이름 변경', () => {
     await user.click(await screen.findByTestId('folder-name-input'))
     await user.paste('   ')
     await user.click(screen.getByTestId('folder-name-confirm'))
-    expect(await screen.findByText('폴더 이름은 비어 있을 수 없습니다')).toBeInTheDocument()
+    expect(await screen.findByTestId('folder-name-error')).toHaveTextContent('폴더 이름은 비어 있을 수 없습니다')
+    expect(screen.getByTestId('folder-name-input')).toHaveValue('   ')
     expect(posts).toBeGreaterThan(0)
+  })
+
+  // WP-1389: 409 중복 — 인라인 오류·입력 유지, 고치면 오류가 사라지고 다시 만들면 닫힌다.
+  test('폴더 생성 409 중복 — 인라인 오류, 입력 유지, 고치면 오류가 사라지고 다시 만들면 닫힌다', async () => {
+    const posts: { name: string }[] = []
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/folders`, async ({ request }) => {
+          posts.push((await request.json()) as { name: string })
+          if (posts.length === 1) {
+            return HttpResponse.json({ status: 409, message: "같은 폴더에 이미 '망고폴더' 이름이 있습니다." }, { status: 409 })
+          }
+          return HttpResponse.json(createFolder({ id: 77, name: posts[1].name }))
+        }),
+      ],
+    })
+    await user.click(screen.getByRole('button', { name: '새 폴더' }))
+    await user.click(await screen.findByTestId('folder-name-input'))
+    await user.paste('망고폴더')
+    await user.click(screen.getByTestId('folder-name-confirm'))
+    expect(await screen.findByTestId('folder-name-error')).toHaveTextContent("같은 폴더에 이미 '망고폴더' 이름이 있습니다.")
+    expect(screen.getByTestId('folder-name-input')).toHaveValue('망고폴더')
+    await user.type(screen.getByTestId('folder-name-input'), '2')
+    expect(screen.queryByTestId('folder-name-error')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('folder-name-confirm'))
+    await waitFor(() => expect(screen.queryByTestId('folder-name-input')).not.toBeInTheDocument())
+    expect(posts[1].name).toBe('망고폴더2')
+  })
+
+  // WP-1389: 이름 변경 모드도 서버 409 를 인라인으로.
+  test('폴더 이름 변경 409 — 인라인 오류로 대화상자 유지', async () => {
+    const folder = createFolder({ id: 10, name: '문서' })
+    const { user } = await openDrive({ folders: [folder], files: [] }, {
+      handlers: [
+        http.patch(`${API}/folders/10`, () =>
+          HttpResponse.json({ status: 409, message: "같은 폴더에 이미 '보관함' 이름이 있습니다." }, { status: 409 })),
+      ],
+    })
+    await pickRowMenu(user, '문서', '이름 변경')
+    const input = await screen.findByTestId('folder-name-input')
+    await user.clear(input)
+    await user.type(input, '보관함')
+    await user.click(screen.getByTestId('folder-name-confirm'))
+    expect(await screen.findByTestId('folder-name-error')).toHaveTextContent("이미 '보관함'")
+    expect(screen.getByTestId('folder-name-input')).toHaveValue('보관함')
+  })
+
+  // WP-1389: 요청 중 연타해도 요청은 하나.
+  test('폴더 생성 요청 중 확인을 두 번 눌러도 요청은 하나', async () => {
+    let posts = 0
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/folders`, async () => {
+          posts++
+          await delay(150)
+          return HttpResponse.json(createFolder({ id: 78, name: '문서' }))
+        }),
+      ],
+    })
+    await user.click(screen.getByRole('button', { name: '새 폴더' }))
+    await user.click(await screen.findByTestId('folder-name-input'))
+    await user.paste('문서')
+    const confirm = screen.getByTestId('folder-name-confirm')
+    await user.click(confirm)
+    await user.click(confirm)
+    await waitFor(() => expect(screen.queryByTestId('folder-name-input')).not.toBeInTheDocument())
+    expect(posts).toBe(1)
+  })
+
+  // WP-1389: 요청 중 취소하고 다시 열면 — 새 대화상자는 잠기지 않고, 앞 요청의 거절이 새 대화상자에 뜨거나 입력을 지우지 않는다.
+  test('폴더 생성 요청 중 취소 뒤 다시 열면 확인 가능하고 앞 요청 결과가 새 대화상자를 건드리지 않는다', async () => {
+    let posts = 0
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/folders`, async () => {
+          posts++
+          await delay(200)
+          return HttpResponse.json({ status: 409, message: "같은 폴더에 이미 '문서' 이름이 있습니다." }, { status: 409 })
+        }),
+      ],
+    })
+    await user.click(screen.getByRole('button', { name: '새 폴더' }))
+    await user.click(await screen.findByTestId('folder-name-input'))
+    await user.paste('문서')
+    await user.click(screen.getByTestId('folder-name-confirm'))
+    await user.click(screen.getByTestId('folder-name-cancel'))
+    await user.click(screen.getByRole('button', { name: '새 폴더' }))
+    await user.click(await screen.findByTestId('folder-name-input'))
+    await user.paste('새 이름')
+    expect(screen.getByTestId('folder-name-confirm')).toBeEnabled()
+    // 앞 요청이 끝날 때까지 기다린 뒤에도 새 대화상자는 그대로다.
+    await waitFor(() => expect(posts).toBe(1))
+    await delay(300)
+    expect(screen.queryByTestId('folder-name-error')).not.toBeInTheDocument()
+    expect(screen.getByTestId('folder-name-input')).toHaveValue('새 이름')
   })
 
   // #135·#360·#635: ⋯ → 이름 변경 — 현재 이름이 미리 채워지고, 지우면 인라인 오류(요청 없음), 바꾸면 「이름 변경」으로 PATCH 뒤 목록 반영.

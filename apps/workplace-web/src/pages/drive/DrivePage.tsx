@@ -276,6 +276,25 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [nameInput, setNameInput] = useState('')
   // 빈값 확인 클릭 시 에러 메시지 — 무음 실패 대신 인라인 안내 (#360).
   const [nameError, setNameError] = useState('')
+  // WP-1389: 폴더 이름 요청 진행 중 여부 — 확인 버튼을 잠근다.
+  const [nameSubmitting, setNameSubmitting] = useState(false)
+  // WP-1389: 대화상자를 열고 닫을 때마다 바뀌는 회차 — 요청이 끝났을 때 회차가 다르면(그 사이 닫았거나 다른 대화상자를 열었으면)
+  // 결과로 지금 대화상자를 닫거나 오류를 띄우지 않는다. 같은 회차의 재제출(버튼·Enter 연타)은 ref 로 막는다 — state 는 다음 렌더 전까지 낡았다.
+  const nameRoundRef = useRef(0)
+  const nameInFlightRef = useRef(false)
+  // 대화상자를 열고 닫을 때마다(nameDialog 가 새 값이 될 때마다) 회차를 바꾸고 재진입 잠금을 푼다 — 진행 중 요청의 결과는 회차 비교로 버려진다.
+  // ref 는 렌더 경로(행 메뉴가 만드는 핸들러)에서 만지지 않도록 효과에서만 바꾼다(React 컴파일러 규칙).
+  useEffect(() => {
+    nameRoundRef.current++
+    nameInFlightRef.current = false
+  }, [nameDialog])
+  // 대화상자 열기·닫기 — 입력·오류·잠금 표시를 비운다.
+  function resetNameDialog(next: { mode: 'create' | 'rename'; folderId?: number } | null, input = '') {
+    setNameSubmitting(false)
+    setNameInput(input)
+    setNameError('')
+    setNameDialog(next)
+  }
   // 폴더 이름 Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331, WP-335 에서 함께 적용).
   const folderNameEnter = useSingleLineEnter()
 
@@ -529,30 +548,39 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   // 폴더 이름 다이얼로그 확인 — 생성/이름변경 API 호출 후 목록 갱신.
-  // trim 없이 raw 값을 전송 — 공백만 입력 시 서버 @NotBlank 400 → 토스트 안내(#116 동작 보존).
-  // 완전 빈값(empty string)은 인라인 에러로 안내 — 무음 실패 방지 (#360).
+  // trim 없이 raw 값을 전송 — 공백만 입력 시 서버 @NotBlank 400 사유를 대화상자 인라인 오류로 보인다(#116).
+  // 완전 빈값(empty string)은 요청 없이 인라인 에러로 안내 — 무음 실패 방지 (#360).
+  // WP-1389: 요청이 실패하면(이름 거절 400·409, 그 밖의 오류도) 대화상자를 닫지 않고 입력을 유지한 채 인라인 오류로 알린다
+  // (새 프로젝트·채널 만들기·파일 이름 변경 RenameDialog 와 같은 동작). 성공했을 때만 닫고 목록을 다시 불러온다.
+  // 진행 중에는 nameInFlightRef 로 재진입을 막아 버튼·Enter 연타로 요청이 겹치지 않게 한다.
   async function submitNameDialog() {
-    if (!nameDialog) return
+    if (!nameDialog || nameInFlightRef.current) return
     if (!nameInput) {
       setNameError('폴더 이름을 입력해주세요.')
       return
     }
     const dialog = nameDialog
-    setNameDialog(null)
-    setNameInput('')
-    setNameError('')
+    const round = nameRoundRef.current
+    nameInFlightRef.current = true
+    setNameSubmitting(true)
     try {
       if (dialog.mode === 'create') {
         await driveApi.createFolder(sid, folderId, nameInput)
-        await reloadAndClear()
       } else if (dialog.folderId != null) {
         await driveApi.renameFolder(dialog.folderId, nameInput)
-        await reloadAndClear()
       }
     } catch (e) {
-      handleApiError(e, dialog.mode === 'create' ? '폴더를 만들지 못했습니다.' : '폴더 이름을 변경하지 못했습니다.')
+      if (round !== nameRoundRef.current) return
+      nameInFlightRef.current = false
+      setNameSubmitting(false)
+      setNameError(extractApiError(e, dialog.mode === 'create' ? '폴더를 만들지 못했습니다.' : '폴더 이름을 변경하지 못했습니다.'))
+      return
     }
+    // 만들기·이름 변경은 이미 끝났으니 목록은 늘 다시 불러온다. 대화상자는 같은 회차일 때만 닫는다.
+    if (round === nameRoundRef.current) resetNameDialog(null)
+    void reloadAndClear()
   }
+
 
   // #82: 드롭된 폴더 트리를 구조 재생(resolveFolder=merge) 후 파일을 순차 업로드.
   // 부분 실패는 성공분 유지 + 실패 요약 토스트(롤백 없음).
@@ -636,9 +664,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   function onNewFolder() {
     if (!guardAddHere()) return
-    setNameInput('')
-    setNameError('')
-    setNameDialog({ mode: 'create' })
+    resetNameDialog({ mode: 'create' })
   }
   // 업로드 파일 고르기 — 머리·빈 폴더 단추가 함께 쓴다.
   function openUploadPicker() {
@@ -899,9 +925,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     uploadAbortRef.current?.abort()
   }
   function onRenameFolder(id: number, current: string) {
-    setNameInput(current)
-    setNameError('')
-    setNameDialog({ mode: 'rename', folderId: id })
+    resetNameDialog({ mode: 'rename', folderId: id }, current)
   }
   function onDeleteFolder(id: number) {
     setConfirmDialog({
@@ -1804,11 +1828,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       <Dialog
         open={nameDialog != null}
         onOpenChange={(open) => {
-          if (!open) {
-            setNameDialog(null)
-            setNameInput('')
-            setNameError('')
-          }
+          if (!open) resetNameDialog(null)
         }}
       >
         <DialogContent>
@@ -1842,16 +1862,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => {
-                setNameDialog(null)
-                setNameInput('')
-                setNameError('')
-              }}
+              onClick={() => resetNameDialog(null)}
               data-testid="folder-name-cancel"
             >
               취소
             </Button>
-            <Button onClick={() => void submitNameDialog()} data-testid="folder-name-confirm">
+            <Button onClick={() => void submitNameDialog()} disabled={nameSubmitting} data-testid="folder-name-confirm">
               {/* 동사+명사 버튼 라벨 컨벤션 — 모드별로 실제 동작을 명시 (#635) */}
               {nameDialog?.mode === 'create' ? '만들기' : '이름 변경'}
             </Button>
