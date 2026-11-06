@@ -19,6 +19,7 @@ import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.Texts;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -129,9 +130,11 @@ public class AiAgentCredentialService {
     // 등록 폼에 model 입력이 없어 model 인자가 항상 null 이므로, 그 경우 정적 기본값(AssistantDefaults.MODEL)
     // 으로 덮어써 stale 값이 새 provider 에 그대로 흘러가는 걸 막는다(실측 버그: anthropic 재등록 후
     // assistant_config.model 이 이전 opencode 모델 문자열로 남아 실행 시점 오류로 이어짐).
+    // WP-1395: 앞뒤 공백은 떼고 저장한다 — 설정 변경 경로(UpdateAssistantSettingsRequest)와 같은 규칙.
+    String strippedModel = Texts.stripToNull(model);
     String effectiveModel =
-        (model != null && !model.isBlank())
-            ? model
+        strippedModel != null
+            ? strippedModel
             : (AgentProviders.isAnthropic(provider) ? AssistantDefaults.MODEL : null);
     if (effectiveModel != null || providerSwitched) {
       ConfigRow cur = configRepo.find(agentUserId).orElse(new ConfigRow(null, null, null, null));
