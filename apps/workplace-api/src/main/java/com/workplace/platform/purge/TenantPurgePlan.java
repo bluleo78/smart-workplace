@@ -195,6 +195,8 @@ public final class TenantPurgePlan {
           AGENT_SCREEN_SESSION,
           // AI 별 저장소 토큰(WP-1268) — user 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 비운다.
           AGENT_REPO_CREDENTIAL,
+          // AI 가 보고한 로그인 계정 모델 목록(WP-1297) — 연결 행·user 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 비운다.
+          AGENT_REPORTED_MODEL,
           AGENT_RUNNER_TOKEN,
           AGENT_LOCATION,
           // 연락처·그룹

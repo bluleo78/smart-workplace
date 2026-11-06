@@ -1,0 +1,54 @@
+# 「Codex」 템플릿(WP-1297) — Works 가 작업 공간에서 OpenAI Codex CLI 를 ChatGPT 구독 로그인으로 띄워 개발·테스트·PR 까지 맡긴다.
+# 이미지는 apps/workplace-agent-codex 를 릴리스가 빌드한 것이고, {appVersion} 은 API 가 자기 릴리스 버전으로 채운다.
+# AI 계정은 ChatGPT 로그인 정보(requires chatgpt → provider chatgpt — Codex 의 auth.json). plugins 는 두지 않는다 — genia-works(codex 구동기)와
+# 개발 절차 플러그인(superpowers 등 — Claude 이미지와 같은 plugins.lock 의 스킬을 Codex 가 읽는 자리에 잇는다, WP-1336)은 빌드 때 굳힌다.
+name: codex
+version: "1"
+kind: WORKSPACE
+card:
+  title: Codex
+  description: ChatGPT 구독으로 Codex 가 작업 공간에서 개발·테스트하고 PR 을 올립니다
+  skills: [개발, 테스트, PR]
+image: docker.io/iacloudops/genia-works-agent-codex:{appVersion}
+requires: [chatgpt, repo]
+config:
+  # 모델 slug — Codex config.toml 의 model 로 들어간다. 화면은 선택지를 Pod 안 codex 가 보고한 그 계정의 모델 목록에서 채운다(optionsFrom,
+  # 엔트리포인트 report_models → gw-models). 서버는 ChatGPT 로그인으로 직접 조회하지 않는다 — 갱신 토큰이 1회용이라 Pod 의 로그인이 풀린다.
+  # options 는 보고가 오기 전(처음 띄우기 전·조회 실패)의 기본 선택지다(11-06 codex debug models 의 목록 기준).
+  - key: model
+    label: 모델
+    type: select
+    optionsFrom: account-models
+    options:
+      - { value: gpt-6-luna, label: GPT-6 Luna }
+      - { value: gpt-6-sol, label: GPT-6 Sol }
+    default: gpt-6-luna
+    required: true
+  # 추론 강도 — config.toml 의 model_reasoning_effort. 모델마다 받는 값이 다르다(11-06: ultra 는 일부 모델만, max 는 대부분) — 여기는 공통 값만 둔다.
+  - key: effort
+    label: 추론 강도
+    type: select
+    options:
+      - { value: low, label: low }
+      - { value: medium, label: medium }
+      - { value: high, label: high }
+      - { value: xhigh, label: xhigh }
+      - { value: max, label: max }
+    default: high
+    required: true
+  - key: queue
+    label: 대기열 라벨
+    type: text
+    default: AI 개발팀
+    required: false
+# requests·limits 근거는 claude-code.yaml 주석과 같다 — 바꿀 때 세 템플릿을 함께 바꾼다.
+resources:
+  cpuRequest: "2"
+  memoryRequest: 4Gi
+  cpuLimit: "8"
+  memoryLimit: 16Gi
+  workDisk: 50Gi
+sidecars:
+  - name: dind
+    image: docker:27-dind
+    privileged: true

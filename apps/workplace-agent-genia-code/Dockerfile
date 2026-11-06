@@ -75,8 +75,8 @@ RUN update-ca-certificates
 
 # Claude 이미지와 같은 플러그인 목록(WP-1336)을 Claude Code 로 홈(~/.claude/plugins — genia 가 여기서 읽는다)에 굳힌다. 버전이 lock 과 다르면 빌드 실패다.
 # genia-works 는 아래 genia 확장으로 따로 싣으므로 받지 않는다(두 번 실리지 않게). 네트워크로 오래 걸려 자주 바뀌는 COPY 보다 앞에 둔다(캐시).
-# 공용 함수(lib.sh)·작업 화면(agent-screen, WP-1277 — runner 가 exec 한다)은 Claude Code 이미지의 것을 그대로 쓴다.
-COPY --chmod=755 apps/workplace-agent-claude-code/bin/lib.sh apps/workplace-agent-claude-code/bin/agent-screen /opt/genia/bin/
+# 이 단계에 필요한 공용 함수(lib.sh — Claude Code 이미지의 것)만 먼저 COPY 한다. 작업 화면(agent-screen)은 뒤의 bin/ 과 함께(캐시).
+COPY --chmod=755 apps/workplace-agent-claude-code/bin/lib.sh /opt/genia/bin/lib.sh
 COPY apps/workplace-agent-claude-code/plugins.lock /opt/genia/plugins.lock
 
 USER 1001
@@ -109,7 +109,8 @@ COPY plugins/genia-works/genia/ /opt/genia/plugin/genia-works/genia/
 COPY plugins/genia-works/hooks/ /opt/genia/plugin/genia-works/hooks/
 COPY plugins/genia-works/scripts/ /opt/genia/plugin/genia-works/scripts/
 COPY plugins/genia-works/skills/ /opt/genia/plugin/genia-works/skills/
-COPY --chmod=755 apps/workplace-agent-genia-code/bin/ /opt/genia/bin/
+# 작업 화면(agent-screen, WP-1277 — runner 가 exec 한다)은 Claude Code 이미지의 것을 그대로 쓴다.
+COPY --chmod=755 apps/workplace-agent-claude-code/bin/agent-screen apps/workplace-agent-genia-code/bin/ /opt/genia/bin/
 
 # 디스크 배치(계약) — 다시 받기 비싼 것은 /work 로. 빌드 RUN 이 끝난 뒤에 둔다(/work/tmp 가 없으면 빌드 중 dpkg·npm 이 실패한다).
 # 브라우저 폴더를 /work 로 옮기므로 베이스의 /ms-playwright 는 엔트리포인트가 링크해 둔다(같은 버전이면 받지 않는다).

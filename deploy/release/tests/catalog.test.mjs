@@ -27,7 +27,7 @@ const OK = {
 test('카탈로그 id 는 Helm images 키와 같다(helm: false 인 실행 위치용 이미지는 뺀다)', () => {
   const helmIds = [...readFileSync(HELM_IMAGES, 'utf8').matchAll(/^  ([\w-]+):/gm)].map((m) => m[1]);
   assert.deepEqual(catalog.images.filter(deploysWithHelm).map((i) => i.id).sort(), helmIds.sort());
-  assert.deepEqual(catalog.images.filter((i) => !deploysWithHelm(i)).map((i) => i.id).sort(), ['agent-claude-code', 'agent-genia-code', 'agent-runner']);
+  assert.deepEqual(catalog.images.filter((i) => !deploysWithHelm(i)).map((i) => i.id).sort(), ['agent-claude-code', 'agent-codex', 'agent-genia-code', 'agent-runner']);
 });
 
 test('검증: helm 은 생략하거나 true/false 여야 한다', () => {

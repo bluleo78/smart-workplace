@@ -13,6 +13,7 @@ import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.auth.service.AgentReportedModelService;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantModels;
 import com.workplace.auth.service.ModelBaseUrlGuard;
@@ -49,6 +50,7 @@ public class AssistantModelsController {
   private final ObjectMapper objectMapper;
   private final ModelBaseUrlGuard urlGuard;
   private final WorkspaceMemberGuard memberGuard;
+  private final AgentReportedModelService reportedModels;
 
   /**
    * 관리자 — 임의 baseURL+apiKey 로 등록 전 모델 프로브. 이 핸들러 자체는 리포지토리를 호출하지 않지만, 같은 컨트롤러가 {@link
@@ -118,10 +120,12 @@ public class AssistantModelsController {
   private AgentModelsResponse resolveAgentModels(long agentId) {
     // 활성 연결은 복호화 없이 한 번만 읽고(없으면 404) 그 provider 로 가른다 — 복호화는 아래에서 그 행으로, 필요한 경우에만.
     AiAgentCredentialRow row = credentialService.requireActiveRow(agentId);
-    // 로그인 정보 계정(genia·chatgpt)은 그 프로그램이 모델을 고른다 — 서버가 조회할 목록이 없다(WP-1296·1297).
-    // 아래 anthropic 분기가 로그인 정보를 Claude 토큰으로 잘못 읽지 않게 먼저 돌려준다.
+    // 로그인 정보 계정(genia·chatgpt)은 서버가 모델 목록을 조회할 수 없다(WP-1296·1297) — ChatGPT 의 refresh token 이
+    // 1회용이라 서버가 갱신하면 Pod 의 로그인이 풀린다. 그래서 Pod 가 보고해 둔 목록(보고 당시 연결 행이 지금 활성 행과
+    // 같을 때만)을 돌려주고, 없으면 빈 목록이다. 아래 anthropic 분기가 로그인 정보를 Claude 토큰으로 잘못 읽지 않게
+    // 먼저 돌려준다.
     if (AgentProviders.isLogin(row.provider())) {
-      return new AgentModelsResponse(row.provider(), List.of());
+      return new AgentModelsResponse(row.provider(), reportedModels.findFor(agentId, row.id()));
     }
     if (!"opencode".equals(row.provider())) {
       return new AgentModelsResponse(row.provider(), anthropicModels(row));

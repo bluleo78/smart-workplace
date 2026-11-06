@@ -7,6 +7,7 @@ package com.workplace.jooq;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
+import com.workplace.jooq.tables.AgentReportedModel;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentScreenInput;
@@ -191,6 +192,7 @@ public class Indexes {
     public static final Index IDX_AGENT_API_KEY_MANAGED = Internal.createIndex(DSL.name("idx_agent_api_key_managed"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID, AgentApiKey.AGENT_API_KEY.TENANT_ID, AgentApiKey.AGENT_API_KEY.ID }, false);
     public static final Index IDX_AGENT_API_KEY_USER = Internal.createIndex(DSL.name("idx_agent_api_key_user"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, false);
     public static final Index IDX_AGENT_REPO_CREDENTIAL_AGENT = Internal.createIndex(DSL.name("idx_agent_repo_credential_agent"), AgentRepoCredential.AGENT_REPO_CREDENTIAL, new OrderField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID }, false);
+    public static final Index IDX_AGENT_REPORTED_MODEL_CREDENTIAL = Internal.createIndex(DSL.name("idx_agent_reported_model_credential"), AgentReportedModel.AGENT_REPORTED_MODEL, new OrderField[] { AgentReportedModel.AGENT_REPORTED_MODEL.CREDENTIAL_ID }, false);
     public static final Index IDX_AGENT_RUNNER_TOKEN_HASH = Internal.createIndex(DSL.name("idx_agent_runner_token_hash"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.TOKEN_HASH }, false);
     public static final Index IDX_AGENT_RUNNER_TOKEN_TENANT = Internal.createIndex(DSL.name("idx_agent_runner_token_tenant"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.TENANT_ID }, false);
     public static final Index IDX_AGENT_RUNTIME_SETTING_AGENT = Internal.createIndex(DSL.name("idx_agent_runtime_setting_agent"), AgentRuntimeSetting.AGENT_RUNTIME_SETTING, new OrderField[] { AgentRuntimeSetting.AGENT_RUNTIME_SETTING.AGENT_USER_ID }, false);

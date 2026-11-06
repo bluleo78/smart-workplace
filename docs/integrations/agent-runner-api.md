@@ -220,6 +220,22 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 - **쉬는 중으로 바뀐** 보고(앞 보고가 `IDLE` 이 아니었음 — 새 Pod 가 보여 AI 상태가 지워진 뒤 첫 보고 포함)인데 아직 반영하지 않은 generation 이 있으면(generation ≠ 마지막 observedGeneration) Works 가 그 AI 의 실제 위치로 `agent-runtime.changed` 를 낸다 — runner 가 다시 조회하면 `applyNow=true` 다. 이미 쉬는 중이던 AI 가 다음 확인마다 `IDLE` 을 거듭 보고해도 이벤트를 다시 내지 않는다(놓친 이벤트는 주기 조회가 맞춘다).
 - 실행 설정이 없는 AI(외부에서 돌리는 AI)나 워크스페이스가 정해지지 않은 호출은 아무것도 저장하지 않고 `RUN` 이다. AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
 
+## 로그인 계정 모델 목록 보고 — `PUT /api/v1/agent-runtime/me/models` (Pod 안의 AI 가 부름)
+
+로그인 정보(`genia`·`chatgpt`)로 연결된 AI 가 **자기 프로그램이 쓸 수 있는 모델 목록**을 알린다(WP-1297). 서버가 저장된 ChatGPT 로그인으로 모델을 조회하면 1회용 refresh token 을 써서 Pod 안 프로그램의 로그인이 풀리므로, 목록은 Pod 안에서 뽑아(Codex 는 `codex debug models`) 자기 AI 키(`Authorization: Bearer ak_…`)로 보고한다. 플러그인 스크립트 `gw-models < models.json` 이 이 호출을 하고(표준 입력은 `{"models":[…]}` 그대로 — 스크립트가 `jq` 로 `loginVersion` 을 덧붙인다), `GENIA_AGENT_GENERATION` 이 없으면(Works 가 띄운 AI 가 아니면)·`GENIA_LOGIN_VERSION` 이 없으면(로그인 없음) 부르지 않는다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다(플러그인이 env 가 있으면 붙인다).
+
+```json
+{ "loginVersion": 42, "models": [{ "id": "gpt-6-luna", "label": "GPT-6-Luna", "efforts": ["low", "medium", "high"] }] }
+```
+
+- `loginVersion`: 필수(숫자, 없으면 400). Pod 가 받은 로그인 정보의 `version`(= AI 계정 연결 행 id, env `GENIA_LOGIN_VERSION`) — desired 의 `login.version`·`RunnerLoginSecretResponse.version` 과 같은 값이다. **지금 활성 연결 행 id 와 같을 때만 저장한다.** 관리자가 로그인을 바꾼 직후 옛 로그인으로 떠 있던 Pod 가 보고해도 옛 계정의 목록이 새 연결의 목록으로 저장되지 않는다.
+- `models`: 필수, 최대 100개, 화면에 보일 순서대로. `id` 는 필수이고 템플릿 「모델」 칸에 저장할 수 있는 꼴과 같다(영문·숫자와 `. _ : / @ [ ] -`, 1~128자 — 어기면 400). `label` 은 200자 이하(없으면 id 로 보인다). `efforts` 는 이 모델이 받는 생각의 깊이 단계로 소문자 영문(`[a-z]{1,16}`) 최대 10개, 낮은 순(없으면 알 수 없음). 같은 `id` 가 거듭 오면 앞의 것만 남긴다.
+- 응답은 늘 `204`(본문 없음) — 보고는 최선 노력이라 Pod 가 연결 교체 중의 어긋남으로 실패 신호를 받지 않게 한다.
+  - **저장하는 때**: 이 AI 의 활성 연결이 로그인 계정(`genia`·`chatgpt`)이고 `loginVersion` 이 그 연결 행 id 와 같을 때만. AI(워크스페이스)당 보고 하나를 덮어쓰며, 그때의 활성 연결 행 id 를 함께 적는다(`agent_reported_model`).
+  - **저장 없이 204 로 무시하는 때**: 활성 연결이 없거나 로그인 계정이 아닐 때(Claude 구독·OpenAI 호환), `loginVersion` 이 활성 연결 행 id 와 다를 때(옛 로그인의 Pod), 워크스페이스가 정해지지 않은 호출. 관리자가 연결을 바꾸는 사이에 옛 Pod 가 보고해도 오류가 되지 않는다.
+- 조회: 관리자 화면의 「모델」 칸이 쓰는 `GET /api/v1/admin/agents/{userId}/models` 가 로그인 계정이면 저장된 보고를 `{provider, models:[{id,label,efforts}]}` 로 돌려준다(`efforts` 는 다른 계정과 같게 대문자 `LOW`…). **보고 당시의 연결 행이 지금의 활성 행과 같을 때만** 쓰고, 보고가 없거나 연결을 다른 계정으로 바꿨으면(새 행) 빈 목록이다 — Pod 가 다시 부팅·보고하면 채워진다. 화면은 빈 목록을 「AI 를 한 번 켜면 그 계정의 모델 목록이 보여요」로 안내한다.
+- 본문 검증 실패는 400, AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
+
 ## 맡는 프로젝트 — `GET /api/v1/agent-runtime/me/projects` (AI 가 부름)
 
 AI 가 자기 키(`Authorization: Bearer ak_…`)로 부른다(WP-1275). Works 가 띄운 AI 만이 아니라 사람이 띄운 AI(start-agent)도 쓴다 — 플러그인 `gw-agent-projects --assigned` 가 이 호출을 하고 「키<탭>저장소 주소<탭>브랜치」 줄로 바꾼다. 작업 공간 엔트리포인트(부팅 때 칸 열기)·알림 감시(칸 없는 프로젝트 알림 — WP-1272)·work-loop 의 「새 프로젝트 확인」이 모두 이것을 부른다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant` 를 함께 보낸다.

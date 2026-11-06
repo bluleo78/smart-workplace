@@ -15,4 +15,9 @@ public record ModelOption(String id, String label, List<String> efforts) {
   public ModelOption(String id, String label) {
     this(id, label, null);
   }
+
+  /** 표시명이 없거나 비었으면 id 로 채운다 — 표시명을 주지 않는 출처(ai-agent 응답·Pod 보고)가 같은 규칙을 쓴다. */
+  public static ModelOption withLabelFallback(String id, String label, List<String> efforts) {
+    return new ModelOption(id, label != null && !label.isBlank() ? label : id, efforts);
+  }
 }

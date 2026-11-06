@@ -7,7 +7,9 @@
 # 그 앞(필수 확인·마켓플레이스)은 이미지에 genia-works 가 없을 수도 있어(빌더에서 Works 에 닿지 않음) gw-lib 없이 돈다.
 # Gen:iA Code 이미지(apps/workplace-agent-genia-code, WP-1296)도 이 파일을 그대로 COPY 해 쓰고, 그 이미지 전용 함수(lib-genia.sh)를 뒤에 읽어 덮어쓴다 —
 # 함수 이름·인자를 바꾸면 그 이미지의 엔트리포인트·테스트도 함께 본다.
-#   다른 이미지가 덮어쓰는 지점: trust_folders(7 의 폴더 신뢰). 함께 쓰는 것: adopt_plugin_scripts·bg_wait 와 필수 확인·CA·키·git·dind·프로젝트·감독·정리.
+#   다른 이미지가 덮어쓰는 지점: trust_folders(7 의 폴더 신뢰)·before_supervise·can_launch(감독 회차 tick). 함께 쓰는 것: adopt_plugin_scripts·bg_wait·
+#   bg_wait_timeout·seed_login_file·login_file_ready·tick 과 필수 확인·CA·키·git·dind·프로젝트·감독·정리. Claude Code 엔트리포인트는 tick 을 쓰지 않는다
+#   (부팅 때 start_projects 를 한 번 부르고 회차마다 supervise_once 를 부른다).
 #   Claude Code 전용(다른 이미지는 부르지 않는다): update_plugins·resolve_plugin_scripts·write_settings·mark_trust·install_plugins·verify_plugin_lock.
 
 GENIA_RUN_DIR=${GENIA_RUN_DIR:-/run/genia}          # runner 가 파일 하나씩(subPath) 꽂는 곳 — 읽기만 한다
@@ -330,6 +332,48 @@ bg_wait() {
   return $bg_rc
 }
 
+# 뒤에서 명령 하나를 돌리되 <초> 안에 끝나지 않으면 자손까지 끈다 — bg_wait_timeout <초> <명령…>. 명령의 종료 코드를 돌려준다(제한을 넘겨 끈 것은
+# 128 이상). 감독 회차가 밖으로 못 나가는 명령에 멈추지 않게 한다. 맥(테스트)에는 timeout 이 없어 지킴이(sleep 뒤 kill_tree)로 끊는다.
+# bg_wait 처럼 wait 로 기다려 SIGTERM 을 바로 받고, 명령과 지킴이 pid 를 둘 다 BG_PIDS 에 넣어 종료 신호 때 abort_boot 가 함께 끈다(지킴이가
+# 남으면 나중에 다른 프로세스가 물려받은 pid 를 끌 수 있다). 끝나면 지킴이를 거두고 둘 다 BG_PIDS 에서 뺀다.
+# 리다이렉트는 부르는 쪽이 이 함수에 건다(명령이 물려받는다). 명령 치환($(…)) 안에서 부르면 SIGTERM 즉시 처리 효과가 없다(bg_wait 와 같다).
+bg_wait_timeout() {
+  local secs=$1 pid dog rc
+  shift
+  "$@" &
+  pid=$!
+  BG_PIDS="${BG_PIDS:-} $pid"
+  (sleep "$secs" && kill_tree "$pid") >/dev/null 2>&1 </dev/null &
+  dog=$!
+  BG_PIDS="$BG_PIDS $dog"
+  wait "$pid"
+  rc=$?
+  kill_tree "$dog"
+  # shellcheck disable=SC2086 # pid 들은 숫자 단어다 — 한 줄에 하나로 나눠 자기 것만 뺀다.
+  BG_PIDS=$(printf '%s\n' ${BG_PIDS:-} | grep -vx -e "$pid" -e "$dog" | tr '\n' ' ')
+  return $rc
+}
+
+# 로그인 정보 시딩(계약 「로그인 정보」 — Gen:iA Code·Codex 이미지가 쓴다) — seed_login_file <보관본 경로> <이름(로그용)>.
+#   마운트 파일($GENIA_RUN_DIR/login-info)이 없거나 비었으면 보관본·표식($AI_DIR/state/login-version)을 지운다(연결 끊기가 실제로 끊기게).
+#   표식이 GENIA_LOGIN_VERSION 과 다르면(없음 포함) 600 으로 원자적으로 복사하고 표식을 적는다. 같으면 그대로 — 프로그램이 스스로 갱신해(토큰
+#   새로고침) 다시 쓴 로그인을 옛 Secret 값으로 덮지 않는다. 쓰기는 gw-lib 의 gw_write_atomic(임시 파일 → 600 → mv) — 내용은 셸 내장 printf
+#   로만 쓰여 외부 명령 인자·로그에 실리지 않는다. 결과로 로그인이 없으면 경고 한 줄(칸은 띄우지 않는다 — 각 이미지의 can_launch). 늘 0.
+seed_login_file() {
+  local src="$GENIA_RUN_DIR/login-info" dst=$1 label=$2 mark="$AI_DIR/state/login-version"
+  if [ ! -s "$src" ]; then
+    rm -f "$dst" "$mark"
+  elif [ "$(cat "$mark" 2>/dev/null)" != "${GENIA_LOGIN_VERSION:-}" ] || [ ! -s "$dst" ] || [ ! -f "$mark" ]; then
+    gw_write_atomic "$dst" "$(cat "$src")" && gw_write_atomic "$mark" "${GENIA_LOGIN_VERSION:-}" ||
+      log "경고: $label 로그인 정보를 $(dirname "$dst") 에 두지 못했습니다"
+  fi
+  login_file_ready "$dst" || log "경고: $label 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
+  return 0
+}
+
+# 로그인 보관본이 심겼는지 — login_file_ready <보관본 경로>.
+login_file_ready() { [ -s "$1" ]; }
+
 # 7. 프로젝트 — start-agent 4~6번을 사람 대신. 대기열 라벨·홈 기억 → 저장소마다 받기 → 신뢰 → Playwright → 칸.
 #    저장소 받기·브라우저 받기는 프로젝트별로 동시에 돈다(WP-1267).
 #    BOOT_KEYS 에 띄운 키를 모은다(감독이 살핀다). 프로젝트 목록을 못 읽으면 1(감독이 다음 회차에 다시 한다).
@@ -447,6 +491,21 @@ supervise_once() {
     note_launch "$k" "$(GW_SKIP_EVENTS_ENSURE=1 "$GW_SCRIPTS/agent-project" start $restart "$AI_DIR" "$k" </dev/null)"
   done
   ensure_events
+}
+
+# 감독 한 회차(Gen:iA Code·Codex 엔트리포인트 — 부팅 첫 회차 포함) — 이미지 훅 before_supervise(Gen:iA: 프로그램 받기, Codex: 모델 목록 보고)를
+# 돈 뒤, 칸을 띄울 수 있으면(이미지의 can_launch — 로그인 등) supervise_once(처음이면 start_projects, 그 뒤 칸 살피기·알림 감시 창). 못 띄우면
+# 아무것도 하지 않는다. 회차 번호를 $AI_DIR/state/supervise-ticks 에 적는다 — 감독이 도는지 밖에서(테스트·kubectl exec) 볼 수 있게.
+# 두 훅의 기본은 「할 일 없음」·「띄울 수 있음」이고 이미지가 trust_folders 처럼 덮어쓴다. 늘 0.
+before_supervise() { return 0; }
+can_launch() { return 0; }
+SUPERVISE_TICKS=0
+tick() {
+  SUPERVISE_TICKS=$((SUPERVISE_TICKS + 1))
+  before_supervise
+  if can_launch; then supervise_once; fi
+  printf '%s\n' "$SUPERVISE_TICKS" > "$AI_DIR/state/supervise-ticks" 2>/dev/null
+  return 0
 }
 
 # 9. 정리 — 칸마다 SIGTERM(claude 가 스스로 끝내게) → 최대 GENIA_STOP_WAIT 초 기다림 → tmux 서버 끄기.

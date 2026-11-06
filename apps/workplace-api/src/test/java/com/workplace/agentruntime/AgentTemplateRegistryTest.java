@@ -108,7 +108,7 @@ class AgentTemplateRegistryTest {
     }
   }
 
-  /** 번들된 템플릿(default·claude-code·genia-code)이 모두 검증을 통과한다. */
+  /** 번들된 템플릿(default·claude-code·genia-code·codex)이 모두 검증을 통과한다. */
   @Test
   void load_whenBundledTemplates_allPass() throws IOException {
     List<AgentTemplate> all =
@@ -116,13 +116,14 @@ class AgentTemplateRegistryTest {
             List.of(
                 resource("default.yaml"),
                 resource("claude-code.yaml"),
-                resource("genia-code.yaml")),
+                resource("genia-code.yaml"),
+                resource("codex.yaml")),
             ALLOWED,
             "dev");
 
     assertThat(all)
         .extracting(AgentTemplate::name)
-        .containsExactly("claude-code", "default", "genia-code");
+        .containsExactly("claude-code", "codex", "default", "genia-code");
     assertThat(all.stream().filter(t -> t.name().equals("default")).findFirst().get().kind())
         .isEqualTo("SERVER");
   }
@@ -150,6 +151,47 @@ class AgentTemplateRegistryTest {
         .extracting(AgentTemplate.Option::value)
         .containsExactly("minimax-m2.7", "gpt-6-luna", "mimo-v2.6-flash", "qwen3.8-27b-fp8");
     assertThat(model.defaultValue()).isEqualTo("qwen3.8-27b-fp8");
+  }
+
+  /**
+   * codex.yaml(WP-1297) — ChatGPT 로그인 계정(chatgpt)·저장소 토큰을 요구하는 작업 공간 템플릿. 모델은 Pod 가 보고한 계정 목록에서 고르고
+   * (optionsFrom), 보고 전 기본 선택지는 gpt-6-luna·gpt-6-sol 이다. 추론 강도는 정적 선택지다.
+   */
+  @Test
+  void load_whenCodexTemplate_parsesChatgptAccountModelsAndEffort() throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(List.of(resource("codex.yaml")), ALLOWED, "0.9.48").get(0);
+
+    assertThat(t.name()).isEqualTo("codex");
+    assertThat(t.kind()).isEqualTo("WORKSPACE");
+    assertThat(t.card().title()).isEqualTo("Codex");
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-codex:0.9.48");
+    assertThat(t.requires()).containsExactly("chatgpt", "repo");
+    assertThat(t.account()).isEqualTo("chatgpt");
+    assertThat(t.plugins()).isEmpty();
+    assertThat(t.sidecars()).extracting(AgentTemplate.Sidecar::name).containsExactly("dind");
+    assertThat(t.config())
+        .extracting(AgentTemplate.ConfigField::key)
+        .containsExactly("model", "effort", "queue");
+    AgentTemplate.ConfigField model = t.config().get(0);
+    assertThat(model.optionsFrom()).isEqualTo("account-models");
+    assertThat(model.options())
+        .extracting(AgentTemplate.Option::value)
+        .containsExactly("gpt-6-luna", "gpt-6-sol");
+    assertThat(model.defaultValue()).isEqualTo("gpt-6-luna");
+    AgentTemplate.ConfigField effort = t.config().get(1);
+    assertThat(effort.options())
+        .extracting(AgentTemplate.Option::value)
+        .containsExactly("low", "medium", "high", "xhigh", "max");
+    assertThat(effort.defaultValue()).isEqualTo("high");
+
+    // 계정 모델 칸은 보고된 목록 밖 slug 도 꼴만 맞으면 받고, 추론 강도는 선택지 밖 값을 막는다.
+    assertThat(AgentTemplateRegistry.validateConfig(t, Map.of("model", "gpt-6.1-sol")))
+        .containsEntry("model", "gpt-6.1-sol")
+        .containsEntry("effort", "high")
+        .containsEntry("queue", "AI 개발팀");
+    assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("effort", "ultra")))
+        .isInstanceOf(InvalidAgentConfigException.class);
   }
 
   /** 허용 레지스트리 밖 이미지는 시작 실패. */

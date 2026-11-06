@@ -3,14 +3,15 @@
 
 import type { AgentTemplateConfigField, AgentTemplateOption } from '../types/agentRuntime'
 import type { CredentialProvider, ModelOption } from '../types/providerCredential'
-import { accountFits, accountLabel } from './agentAccount'
+import { accountFits, accountLabel, isLoginProvider } from './agentAccount'
 import { apiErrorStatus } from './api-error'
 
 /**
  * 모델 목록 상태 — loading=조회 중, live=계정 목록을 받음, noAccount=AI 계정이 연결돼 있지 않음,
- * otherAccount=연결된 계정 종류가 이 방식의 계정과 다름(그 계정의 목록은 조회하지 않는다), failed=그 밖의 실패·빈 목록.
+ * otherAccount=연결된 계정 종류가 이 방식의 계정과 다름(그 계정의 목록은 조회하지 않는다),
+ * awaitingReport=로그인 계정(genia·chatgpt)인데 아직 AI 가 보고한 목록이 없음(WP-1297), failed=그 밖의 실패·빈 목록.
  */
-export type ModelOptionsStatus = 'loading' | 'live' | 'noAccount' | 'otherAccount' | 'failed'
+export type ModelOptionsStatus = 'loading' | 'live' | 'noAccount' | 'otherAccount' | 'awaitingReport' | 'failed'
 
 /** 칸 아래 도움말 한 줄 — live 는 없다. 서버 오류 메시지를 그대로 붙이지 않는다(토큰·내부 정보가 섞일 수 있어서). */
 function hintOf(status: ModelOptionsStatus, account: CredentialProvider | null | undefined): string | null {
@@ -26,6 +27,9 @@ function hintOf(status: ModelOptionsStatus, account: CredentialProvider | null |
       return account
         ? `연결된 AI 계정이 이 실행 방식에 맞지 않아 기본 선택지를 보여요. ${accountLabel(account)} 계정을 연결하면 그 계정의 모델이 보여요.`
         : '연결된 AI 계정이 이 실행 방식에 맞지 않아 기본 선택지를 보여요.'
+    case 'awaitingReport':
+      // 로그인 계정은 서버가 목록을 조회할 수 없다 — Pod 안 프로그램이 보고해야 채워지므로 실패가 아니라 「켜면 보인다」로 안내한다.
+      return 'AI 를 한 번 켜면 그 계정의 모델 목록이 보여요.'
     case 'failed':
       return '계정의 모델 목록을 불러오지 못해 기본 선택지를 보여요.'
   }
@@ -57,7 +61,7 @@ export interface AgentModelsQuery {
  * 「모델」 칸의 선택지·상태·도움말을 정한다.
  *
  * 1. 연결된 계정 종류가 템플릿 계정과 같고(그때만 조회한다) 목록이 비어 있지 않을 때만 실시간 목록을 쓴다 — 방식을 바꾸는 중이라 다른 계정이
- *    연결돼 있으면 조회하지 않고 otherAccount 로 알린다. 로그인 계정이 주는 빈 목록도 쓰지 않는다.
+ *    연결돼 있으면 조회하지 않고 otherAccount 로 알린다. 로그인 계정이 주는 빈 목록도 쓰지 않고 「AI 를 켜면 보여요」(awaitingReport)로 알린다.
  * 2. 정적 선택지(별칭 「Opus(최신)」 등)를 맨 앞에, 이어 실시간 목록을 두고 value 가 겹치면 앞의 것만 남긴다(WP-1405 Q1 → A).
  * 3. 저장값이 선택지에 없으면 맨 앞에 그대로 덧붙인다 — 트리거가 빈칸이 되지 않게(서버 withSavedModel 과 같은 규칙).
  *
@@ -91,7 +95,8 @@ export function modelFieldOptions({
 
 /**
  * 상태를 정한다 — 먼저 연결된 계정(없음 → noAccount, 다른 종류 → otherAccount, 아직 모름 → loading, 조회 실패 → failed),
- * 맞는 계정이면 모델 목록 조회 결과(404 → noAccount, 응답 계정이 다르면 otherAccount, 빈 목록·그 밖의 오류 → failed).
+ * 맞는 계정이면 모델 목록 조회 결과(404 → noAccount, 응답 계정이 다르면 otherAccount, 로그인 계정의 빈 목록 → awaitingReport,
+ * 그 밖의 빈 목록·오류 → failed).
  */
 function statusOf(
   account: CredentialProvider | null | undefined,
@@ -106,7 +111,9 @@ function statusOf(
   if (query.data) {
     // 조회와 연결 변경이 엇갈려 다른 계정의 목록이 왔으면 섞지 않는다.
     if (!fits(query.data.provider)) return 'otherAccount'
-    return query.data.models.length > 0 ? 'live' : 'failed'
+    if (query.data.models.length > 0) return 'live'
+    // 로그인 계정(WP-1297)의 빈 목록은 실패가 아니라 AI 가 아직 목록을 보고하지 않은 것 — 서버가 조회할 수 없는 계정이다.
+    return isLoginProvider(query.data.provider) ? 'awaitingReport' : 'failed'
   }
   if (query.error) return apiErrorStatus(query.error) === 404 ? 'noAccount' : 'failed'
   return query.isPending ? 'loading' : 'failed'

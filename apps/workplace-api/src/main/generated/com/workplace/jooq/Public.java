@@ -7,6 +7,7 @@ package com.workplace.jooq;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
+import com.workplace.jooq.tables.AgentReportedModel;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentScreenInput;
@@ -194,6 +195,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_repo_credential</code>.
      */
     public final AgentRepoCredential AGENT_REPO_CREDENTIAL = AgentRepoCredential.AGENT_REPO_CREDENTIAL;
+
+    /**
+     * The table <code>public.agent_reported_model</code>.
+     */
+    public final AgentReportedModel AGENT_REPORTED_MODEL = AgentReportedModel.AGENT_REPORTED_MODEL;
 
     /**
      * The table <code>public.agent_runner_token</code>.
@@ -973,6 +979,7 @@ public class Public extends SchemaImpl {
             AgentApiKey.AGENT_API_KEY,
             AgentLocation.AGENT_LOCATION,
             AgentRepoCredential.AGENT_REPO_CREDENTIAL,
+            AgentReportedModel.AGENT_REPORTED_MODEL,
             AgentRunnerToken.AGENT_RUNNER_TOKEN,
             AgentRuntimeSetting.AGENT_RUNTIME_SETTING,
             AgentScreenInput.AGENT_SCREEN_INPUT,
