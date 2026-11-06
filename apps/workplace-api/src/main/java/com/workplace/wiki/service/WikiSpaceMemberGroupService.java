@@ -172,7 +172,7 @@ public class WikiSpaceMemberGroupService {
     }
   }
 
-  /** TEAM 공간이 아니면 멤버 변경을 거부한다 — 사람 멤버 변경의 가드(WikiSpaceService, WP-495)와 같은 규칙. */
+  /** TEAM 공간이 아니면 부서 멤버 변경을 거부한다 — 사람 멤버 변경·공간 삭제의 가드(WikiSpaceService, WP-495·1397)와 같은 규칙·문구. */
   private void requireTeamSpace(long spaceId) {
     String type =
         spaces.findType(spaceId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));

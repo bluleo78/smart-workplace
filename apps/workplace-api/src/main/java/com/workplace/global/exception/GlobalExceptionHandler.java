@@ -781,7 +781,10 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
   }
 
-  /** 개인 노트 공간 멤버 변경 시도 — 409(WP-495, 드라이브의 DriveSpaceTypeNotEditableException 과 같은 응답). */
+  /**
+   * 개인 노트 공간 멤버(사람·부서) 변경·공간 삭제 시도 — 409(WP-495·1397, 드라이브의 DriveSpaceTypeNotEditableException 과 같은
+   * 응답).
+   */
   @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceTypeNotEditableException.class)
   public ResponseEntity<ErrorResponse> handleWikiSpaceTypeNotEditable(
       com.workplace.wiki.exception.WikiSpaceTypeNotEditableException ex,
