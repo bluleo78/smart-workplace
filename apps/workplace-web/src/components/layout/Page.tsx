@@ -5,6 +5,7 @@ import { useLocation } from 'react-router-dom'
 
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import { useAiChipClamp } from '@/components/layout/useAiChipClamp'
+import { useFoldAuxiliaryActions } from '@/components/layout/useFoldAuxiliaryActions'
 import { mobileRootHeaderClass, mobileRootTitleClass } from '@/components/mobile/headerClass'
 import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
@@ -75,6 +76,11 @@ interface PageHeaderProps {
   meta?: ReactNode
   /** 선택: 우측 액션 슬롯(버튼·검색 등). */
   actions?: ReactNode
+  /**
+   * 선택: 접을 수 있는 보조 단추(사이클·버전·타임라인·설정 등). 제목 자리가 160px보다 좁으면 ⋯ 로 접힌다(WP-1415).
+   * actions (주 단추)와 달리 접을 수 있다. 생략하면 접을 것이 없다(기존 actions 만 쓰는 화면은 그대로).
+   */
+  auxiliaryActions?: ReactNode
   className?: string
   /** 선택: 제목 앞/대신 오는 위치 표시(이슈 ←+브레드크럼, 위키 경로). 데스크톱 전용 — 모바일은 title 사용. */
   leading?: ReactNode
@@ -192,13 +198,16 @@ function DesktopPageHeader({
   leadingGrow = false,
   meta,
   actions,
+  auxiliaryActions,
   className,
   'data-testid': testId = 'page-header',
-}: Omit<PageHeaderProps, 'mobile'>) {
+}: Omit<PageHeaderProps, 'mobile'> & { auxiliaryActions?: ReactNode }) {
   // 상단 가운데 틀(AI 칩, 비서가 없으면 검색 트리거 — WP-1324·WP-1353)이 있으면 좌측 그룹을 그 경계 앞에서 자른다(위치 실측).
   // 틀이 없으면(모바일) 훅이 제한을 푼다.
   const leftGroupRef = useRef<HTMLDivElement>(null)
   useAiChipClamp(leftGroupRef)
+  // 제목 자리가 160px보다 좁으면 보조 단추를 ⋯ 로 접는다(WP-1415).
+  const folded = useFoldAuxiliaryActions(leftGroupRef, auxiliaryActions != null)
   return (
     <header
       data-testid={testId}
@@ -212,14 +221,19 @@ function DesktopPageHeader({
         {/* AI 칩은 fixed(레일·옆 패널 폭에 따라 이동) — 좌측 그룹이 칩 좌측 경계를 넘지 않게 useAiChipClamp 가 max-width 를 실측해 둔다.
             줄어드는 것은 제목·위치 표시(truncate/min-w-0)이고, icon 슬롯(캘린더 이동 버튼 등)은 shrink-0 로 온전히 남긴다. */}
         {/* leadingGrow 면 좌측 그룹이 남는 폭을 모두 받는다(flex-1) — 공용 Breadcrumb 가 그 폭을 재 접을지 정한다(WP-977). 오른쪽 actions 는 shrink-0 이라 위치가 같다. */}
-        <div ref={leftGroupRef} className={cn('flex min-w-0 items-center gap-2', leadingGrow && 'flex-1')}>
+        <div ref={leftGroupRef} data-ai-left-group className={cn('flex min-w-0 items-center gap-2', leadingGrow && 'flex-1')}>
           {icon != null && <div className="flex shrink-0 items-center">{icon}</div>}
           {leading}
           {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}
           {title == null && srTitle && <h1 className="sr-only">{srTitle}</h1>}
           {meta}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {(actions || auxiliaryActions) && (
+          <div data-ai-actions className="flex shrink-0 items-center gap-2">
+            {auxiliaryActions != null && (folded ? <MobileHeaderMore>{auxiliaryActions}</MobileHeaderMore> : auxiliaryActions)}
+            {actions}
+          </div>
+        )}
       </div>
     </header>
   )

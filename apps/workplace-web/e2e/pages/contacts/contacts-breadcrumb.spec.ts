@@ -51,8 +51,8 @@ test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 「새 외
 
   const crumb = page.getByTestId('contact-breadcrumb')
   const more = page.getByTestId('breadcrumb-more')
-  // 폭 부족으로 접힌다 — 1024px 의 헤더 왼쪽(120px 안팎)에선 시작점까지 접어 「… › 현재」만 남는다(§B-1 「접기」, WP-979).
-  // 시작점을 남기면 현재 팀 이름이 0 폭이 되던 것을 막는다.
+  // 폭 부족으로 접힌다 — 1024px 의 헤더 왼쪽에서는 가운데 단계가 「…」로 접힌다(§B-1 「접기」, WP-979).
+  // AI 칩이 동그라미로 줄어(WP-1415) 경로가 시작점(조직도)까지 보여, 접힌 단계는 L1·L2 만 남는다.
   await expect(more).toBeVisible()
   await expect(page.getByTestId(`contact-breadcrumb-12`)).toBeVisible()
   await expect(crumb.getByRole('link')).toHaveCount(0)
@@ -73,7 +73,7 @@ test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 「새 외
     expect(nav.x + nav.width, 'nav 우측 ≤ 버튼 좌측').toBeLessThanOrEqual(button.x)
   }).toPass()
 
-  // 「…」 메뉴는 접힌 단계(시작점 포함)를 위에서 아래 순서로 보인다.
+  // 「…」 메뉴는 접힌 단계(L1·L2)를 위에서 아래 순서로 보인다 — 시작점(조직도)은 남아 있다.
   await more.click()
-  await expect(page.getByRole('menuitem')).toHaveText(['조직도', L1, L2])
+  await expect(page.getByRole('menuitem')).toHaveText([L1, L2])
 })

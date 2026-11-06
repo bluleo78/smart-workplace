@@ -15,11 +15,11 @@ for (const width of [1024, 1280]) {
     const header = page.getByTestId('canvas-header')
     await expect(header).toBeVisible()
 
-    // 트리거 30px 원형 — TopCenterSlot 의 108px 계산과 맞물리는 크기.
+    // 트리거 32px 원형 — TopCenterSlot 의 110px 계산과 맞물리는 크기(WP-1415).
     const toggle = page.getByTestId('global-search-toggle')
     const t = await measureBox(toggle, 'global-search-toggle')
-    expect(Math.round(t.width)).toBe(30)
-    expect(Math.round(t.height)).toBe(30)
+    expect(Math.round(t.width)).toBe(32)
+    expect(Math.round(t.height)).toBe(32)
 
     // 헤더 안 모든 보이는 버튼과 가로로 겹치지 않는다(세로가 겹치는 줄만 비교).
     await expect(async () => {

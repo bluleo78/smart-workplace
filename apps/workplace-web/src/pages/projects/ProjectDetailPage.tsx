@@ -95,6 +95,12 @@ export default function ProjectDetailPage() {
         title={project.data?.name ?? ''}
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
+          canCreateIssue && (
+            <Button onClick={() => openCreate()}>+ 새 태스크</Button>
+          )
+        }
+        // 접을 수 있는 보조 단추(WP-1415) — 제목 자리가 160px보다 좁으면 ⋯ 로 접힌다. 모바일 메뉴와 같은 묶음.
+        auxiliaryActions={
           <>
             <Link to={`/projects/${key}/cycles`}>
               <Button variant="outline">사이클</Button>
@@ -108,9 +114,6 @@ export default function ProjectDetailPage() {
             <Link to={`/projects/${key}/settings`}>
               <Button variant="outline">설정</Button>
             </Link>
-            {canCreateIssue && (
-              <Button onClick={() => openCreate()}>+ 새 태스크</Button>
-            )}
           </>
         }
         // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·버전·타임라인·설정은 ⋯ 메뉴로(U1-2).
