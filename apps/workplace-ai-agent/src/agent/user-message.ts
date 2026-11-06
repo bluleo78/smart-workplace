@@ -1,7 +1,7 @@
 // 4 type envelope → Claude CLI 에 넘길 user message 문자열 변환.
 // spec §"Type 별 user message" 와 일치.
 import type { IssueEventEnvelope, IssueRecurringRunPayload } from '../types/issue-events.js';
-import { RECURRING_DECISION_HEADING, RECURRING_QUESTION_MARKER } from './system-prompt.js';
+import { KOREAN_ONLY_RULE, RECURRING_DECISION_HEADING, RECURRING_QUESTION_MARKER } from './system-prompt.js';
 import { hasDecisionSection } from './decision-section.js';
 import { RECURRING_TEST_GATED_TOOLS } from '../mcp/tools.js';
 import { clip, formatKstShort, kstParts, oneLine } from './text-format.js';
@@ -210,11 +210,37 @@ export const TEST_GATED_DESC = [
 // 멈춘 쓰기 인자를 지시문에 보일 때의 길이 상한 — 긴 메일 본문 등은 줄인다(같은 쓰기를 다시 하기 위한 참고일 뿐이다).
 const PERMITTED_ARGS_MAX_CHARS = 1500;
 
+// WP-1408: 되돌릴 수 있는 쓰기(사이클 넣기 등)까지 「진행해도 될까요?」로 묻고, 그 질문에 표지가 없어 사람의 답이 이어 처리가 아니라 이슈 챗 AI 로
+// 갔다. 바로 해도 되는 쓰기 예를 적고 묻는 기준을 못 박는다 — 테스트 실행·테스트 이어 처리가 함께 쓴다. 회차 공통 규칙(본문에 없는 쓰기는 「제안」,
+// 본문이 확인을 받으라면 표지로 묻기, 정할 항목은 「정해 주세요」)과 어긋나지 않게 「본문이 시킨」 쓰기만 바로 한다고 적는다.
+// withDecision: 「정해 주세요」 안내는 회차 지시문에만 — 테스트 이어 처리는 같은 표지로만 다시 물어야 멈춘 쓰기 목록이 이어진다(WP-1376 리뷰).
+function testWritesRule(withDecision: boolean): string {
+  return (
+    `- 본문이 시킨 쓰기 중 멈추는 목록에 없는 것은 묻지 말고 바로 합니다 — 예: 이슈 만들기·고치기(상태·담당·라벨·사이클·부모·본문), 코멘트·이슈 챗 남기기, 노트 쓰기. ` +
+    `본문이 시키지 않은 쓰기는 여기서도 하지 않고 「제안」 절에 적습니다. 본문이 쓰기 전에 확인을 받으라고 했으면 \`${RECURRING_QUESTION_MARKER}\` 로 묻습니다. ` +
+    (withDecision ? `사용자가 정해야 할 항목은 지금처럼 \`## ${RECURRING_DECISION_HEADING}\` 절에 적습니다. ` : '') +
+    `쓰기를 묻는 때는 도구가 「멈춤」 결과를 돌려줬거나 본문이 확인을 받으라고 했을 때뿐입니다.\n`
+  );
+}
+
+// WP-1408: 사람에게 묻는 글의 표지 규칙 — 표지가 없으면 질문으로 남지 않아 사람의 답이 이어 처리(쓰기 도구 있음)로 가지 않는다. 모든 반복 지시문이 쓴다.
+// 회차 지시문(withDecision)은 「정해 주세요」 절로 묻는 규칙과 함께 있으므로 그 절로 묻는 결과는 표지가 필요 없다고 덧붙인다. 이어 처리에는 붙이지 않는다 —
+// `[확인 필요]` 질문의 이어 처리가 「정해 주세요」로 다시 물으면 멈춘 쓰기 목록이 사라진다(WP-1376 리뷰, CONFIRM_FOLLOW_UP_RULE).
+function askMarkerRule(withDecision: boolean): string {
+  return (
+    `- 사람에게 묻는 글은 반드시 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작합니다 — 표지가 없으면 질문으로 남지 않아 답을 받아 이어서 처리할 수 없습니다.` +
+    (withDecision ? ` 결과 맨 끝 \`## ${RECURRING_DECISION_HEADING}\` 절로 묻는 결과는 그 절로 충분합니다.` : '') +
+    `\n`
+  );
+}
+
+
 function testRunRule(): string {
   return (
     `- 이번은 사람이 「지금 실행」으로 시험해 보는 테스트 실행입니다(정기 회차 일정과 관계없다). 되돌릴 수 있는 쓰기는 정기 회차처럼 바로 하되, ` +
     `되돌릴 수 없는 쓰기(${TEST_GATED_DESC})는 이슈 본문이 바로 하라고 해도 먼저 확인을 받습니다 — 그런 도구는 실행되지 않고 「멈춤」 결과를 돌려줍니다. ` +
-    `멈춘 쓰기를 다시 시도하거나 다른 도구로 돌아가 하지 말고, 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 하려던 쓰기(받는 사람·제목·일시 등 핵심 내용)와 그때까지 한 일을 적고 진행해도 될지 물으세요.\n`
+    `멈춘 쓰기를 다시 시도하거나 다른 도구로 돌아가 하지 말고, 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 하려던 쓰기(받는 사람·제목·일시 등 핵심 내용)와 그때까지 한 일을 적고 진행해도 될지 물으세요.\n` +
+    testWritesRule(true)
   );
 }
 
@@ -231,7 +257,8 @@ function testFollowUpRule(f: NonNullable<IssueRecurringRunPayload['followUp']>):
     (lines.length
       ? `확인을 받으려고 멈췄던 쓰기는 아래와 같습니다 — 답이 허락하면 이 쓰기만 실행할 수 있습니다(답이 바꾸라고 한 부분은 바꿔서, 하지 말라고 하면 하지 않습니다).\n${lines.join('\n')}\n`
       : `확인받은 되돌릴 수 없는 쓰기는 없습니다.\n`) +
-    `- 그 밖의 되돌릴 수 없는 쓰기(${TEST_GATED_DESC})는 도구가 또 멈춥니다 — 필요하면 하지 말고 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 다시 물으세요.\n`
+    `- 그 밖의 되돌릴 수 없는 쓰기(${TEST_GATED_DESC})는 도구가 또 멈춥니다 — 필요하면 하지 말고 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 다시 물으세요.\n` +
+    testWritesRule(false)
   );
 }
 
@@ -292,6 +319,8 @@ function buildRecurringFollowUpMessage(
     `- 질문에서 멈췄던 일을 이 답에 따라 이슈 본문대로 이어서 하세요. 답이 진행을 허락하면 그 쓰기를 확인 카드 없이 바로 하고, 하지 말라고 하면 하지 않습니다. 질문·이슈 본문과 상관없는 일은 하지 않습니다.\n` +
     (isDecisionQuestion(f) ? DECISION_FOLLOW_UP_RULE : CONFIRM_FOLLOW_UP_RULE) +
     (test ? testFollowUpRule(f) : '') +
+    askMarkerRule(isDecisionQuestion(f)) +
+    `- ${KOREAN_ONLY_RULE}\n` +
     CHAT_CONTEXT_RULES +
     ownerToolsRule(p) +
     chatResultRule('이어 처리 결과', '한 일과 결과만')
@@ -325,6 +354,8 @@ export function buildRecurringRunMessage(p: IssueRecurringRunPayload, opts: { te
     `- 본문이 쓰기 전에 확인을 받으라고 하면 그 쓰기를 하지 말고, 최종 답변 첫 줄을 \`${RECURRING_QUESTION_MARKER}\` 로 시작해 하려는 일과 확인받을 내용을 적으세요.\n` +
     `- 사용자가 정해야 실행할 수 있는 항목은 추측해 실행하지 말고 결과 맨 끝 ${DECISION_H} 절에 번호 목록으로 적으세요(정할 항목이 없으면 이 절을 쓰지 않습니다). 참고용 「제안」 절은 질문이 아닙니다. 그 밖에는 질문하지 않습니다.\n` +
     (test ? testRunRule() : '') +
+    askMarkerRule(true) +
+    `- ${KOREAN_ONLY_RULE}\n` +
     CHAT_CONTEXT_RULES +
     // 한 줄 규칙은 정기 회차에만 — 「지금 실행」(테스트 실행)은 사람이 결과를 보려고 한 번 돌리는 것이라 줄이지 않는다.
     (hourly && !test ? hourlyRoundRule(hourly.interval) : '') +

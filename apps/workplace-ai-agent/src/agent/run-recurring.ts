@@ -19,7 +19,7 @@ import { withSharedMemory } from './shared-memory-block.js';
 import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { runnerFor, type ProviderCredential } from './agent-runner.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
-import { finalText, resultOk, type RunnerEvent } from './runner-events.js';
+import { answerChunks, finalText, lastAnswerText, resultOk, type RunnerEvent } from './runner-events.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { RunTraceRecorder, formatDuration, formatLimit, summaryLine, type TraceSnapshot } from './run-trace.js';
 import { log } from '../logger.js';
@@ -217,16 +217,22 @@ export async function runRecurring(
   // 실행이 비정상으로 끝났을 때(최대 턴·시간 초과·오류)의 보고. WP-1313: 테스트 실행이 그 전에 되돌릴 수 없는 쓰기를 멈췄으면 실패가 아니라
   // 질문으로 — 멈춘 쓰기 목록을 함께 보내 누른 사람이 답으로 허락할 수 있게 한다(실패로 보고하면 멈춘 쓰기가 사라져 다시 실행해야 한다).
   // WP-1407: 사유에 원인·걸린 시간·실행 기록 요약이 함께 들어간다 — 질문 글에도 같은 사유가 보인다.
-  const reportFailure = async (outcome: TraceOutcome, cause: string) => {
+  // WP-1408: carried 는 이어 처리가 넘겨받은 허락 가운데 이번에 쓰지 않은 것 — 실행 이벤트로 셀 수 있을 때만 넘긴다(러너가 던지면 무엇을
+  // 실행했는지 몰라 넘기지 않는다 — 같은 되돌릴 수 없는 쓰기가 두 번 실행될 수 있어서).
+  const reportFailure = async (outcome: TraceOutcome, cause: string, carried: PausedAction[] = []) => {
     const snap = trace.snapshot(Date.now());
     logTrace(outcome, snap);
     const why = failureText(cause, snap);
-    if (paused.length > 0) await report(true, endedEarlyQuestion(why, paused), true, paused);
+    if (paused.length > 0) await report(true, endedEarlyQuestion(why, paused), true, [...paused, ...carried]);
     else await report(false, why);
   };
 
   let text: string;
+  // WP-1408(리뷰): 질문 판정에 쓸 글 — 표지·「정해 주세요」 절이 든 마지막 조각(없으면 결과 글).
+  let asking: string;
   let snap: TraceSnapshot;
+  // WP-1408: 테스트 질문의 이어 처리가 다시 물을 때 넘길 허락(앞 질문이 허락받은 쓰기 중 이번에 쓰지 않은 것). 정기 회차·첫 실행은 없다.
+  let carried: PausedAction[] = [];
   try {
     trace.start(Date.now());
     // collect 대신 stream — 시간 초과로 reject 돼도 그때까지의 이벤트가 기록에 남는다(Claude collect 는 끝나야 라인을 준다).
@@ -257,11 +263,25 @@ export async function runRecurring(
       trace.on(ev, Date.now());
     });
     await handle.done;
+    if (test && p.followUp) carried = unusedPermits(p.followUp.permittedActions ?? [], events);
     if (!resultOk(events)) {
-      await reportFailure('not_ok', 'AI 실행이 정상적으로 끝나지 않았습니다');
+      await reportFailure('not_ok', 'AI 실행이 정상적으로 끝나지 않았습니다', carried);
       return;
     }
-    text = finalText(events);
+    // WP-1408: 결과 글은 마지막 도구 호출 뒤의 답만 — 도구 사이 중간 말(「먼저 조회합니다」)·빈 줄은 이슈 챗에 남기지 않고 실행 기록(로그)에만 남긴다.
+    text = lastAnswerText(events);
+    // 모델이 질문(표지·「정해 주세요」 절)을 쓴 뒤 도구를 또 부르고 「이상입니다.」 같은 맺음으로 끝내면 마지막 조각에는 질문이 없다 — 그 질문 조각을 찾는다.
+    asking = questionChunk(answerChunks(events)) ?? text;
+    // 모델 출력(사용자 데이터)은 로그에 남기지 않는다 — 덜어 낸 분량(글자 수)만 남긴다.
+    const whole = finalText(events);
+    if (whole !== text) {
+      log.info('run-recurring', 'recurring_run_answer_trimmed', {
+        issueKey: p.issueKey,
+        runId: p.runId,
+        wholeChars: whole.length,
+        answerChars: text.length,
+      });
+    }
     snap = trace.snapshot(Date.now());
   } catch (e) {
     console.error('[run-recurring] 실행 실패', { issueKey: p.issueKey, runId: p.runId, error: reason(e, '') });
@@ -284,8 +304,8 @@ export async function runRecurring(
   // 않은 채 「끝났다」로 보이지 않게. 멈춘 쓰기 목록을 함께 보내 답을 받으면 그 쓰기만 허락한다.
   if (paused.length > 0) {
     logTrace('question', snap);
-    const asked = text ? (splitQuestion(text) ?? text) : '';
-    await report(true, asked || pausedFallback(paused), true, paused);
+    const asked = asking ? (splitQuestion(asking) ?? asking) : '';
+    await report(true, asked || pausedFallback(paused), true, [...paused, ...carried]);
     return;
   }
   if (!text) {
@@ -294,15 +314,62 @@ export async function runRecurring(
     return;
   }
   // WP-1311: 본문이 확인을 받으라고 해 쓰기를 멈춘 회차 — 표지를 떼고 질문으로 보고해 이슈 챗에 답변 대기 글로 남긴다.
-  const question = splitQuestion(text);
-  logTrace(question != null || hasDecisionSection(text) ? 'question' : 'ok', snap);
+  // WP-1408(리뷰): 표지·「정해 주세요」 절은 그 질문 조각에서 본다(뒤에 짧은 맺음이 와도 질문을 잃지 않게). 질문이면 그 조각을 결과 글로 보고한다.
+  const question = splitQuestion(asking);
+  // WP-1408: 표지 없이 진행 여부를 묻는 결과(아래 처리)도 질문 — 실행 기록의 결말도 question 으로 남긴다.
+  // 표지 없는 물음은 마지막 조각(text)만 본다 — 앞 조각의 물음은 모델이 스스로 묻고 이어서 일을 한 서술일 수 있다.
+  const decision = hasDecisionSection(asking);
+  const unmarked = question == null && !decision && looksLikeUnmarkedQuestion(text);
+  logTrace(question != null || decision || unmarked ? 'question' : 'ok', snap);
+  // WP-1408: 테스트 이어 처리가 다시 물으면 앞 질문의 허락(이번에 쓰지 않은 것)을 함께 넘겨 다음 「진행」에도 허락이 남게 한다.
   if (question != null) {
-    await report(true, question || text, true);
+    await report(true, question || asking, true, carried);
+    return;
+  }
+  // WP-1408: 모델이 표지 없이 진행 여부를 물은 회차 — 질문으로 보고하지 않으면 사람의 답(「진행」)이 이어 처리(쓰기 도구 있음)가 아니라
+  // 이슈 챗 AI(쓰기 도구 없음)로 간다. 첫 줄에 표지를 붙인 것과 같게 질문으로 보고한다(표지는 어차피 떼고 보고하므로 원문 그대로 question 으로).
+  // 「정해 주세요」 절이 있는 결과는 아래 그 경로로 같은 질문이 된다.
+  if (unmarked) {
+    console.warn('[run-recurring] 표지 없이 진행 여부를 묻는 결과 — 질문으로 보고합니다', { issueKey: p.issueKey, runId: p.runId });
+    await report(true, text, true, carried);
     return;
   }
   // WP-1376: 사용자가 정해야 할 항목을 결과 맨 끝 「정해 주세요」 절에 적은 회차 — 결과 전체를 그대로 질문으로 보고한다(같은 질문 경로로 답을 받아
   // 이어 처리가 답이 고른 항목만 처리한다). 이어 처리 결과도 같은 규칙이라, 다시 물으면 질문으로 다시 남고 절이 없으면 질문이 닫힌 채로 끝난다.
-  await report(true, text, hasDecisionSection(text));
+  // WP-1408(리뷰): 「정해 주세요」 질문에는 허락을 넘기지 않는다 — 다음 이어 처리는 허락이 없을 때만 「정해 주세요」 질문으로 보므로
+  // (user-message isDecisionQuestion), 넘기면 「고른 항목만 처리」(WP-1376) 규칙 대신 확인 규칙으로 간다.
+  await report(true, decision ? asking : text, decision);
+}
+
+// WP-1408(리뷰): 표지(`[확인 필요]`)나 「정해 주세요」 절이 든 마지막 조각 — 없으면 undefined(호출부가 결과 글을 쓴다).
+function questionChunk(chunks: string[]): string | undefined {
+  for (let k = chunks.length - 1; k >= 0; k--) {
+    if (splitQuestion(chunks[k]) != null || hasDecisionSection(chunks[k])) return chunks[k];
+  }
+  return undefined;
+}
+
+// WP-1408: 이어 처리가 넘겨받은 허락 가운데 이번 실행에서 쓰지 않은 것. 허락 도구를 부른 횟수만큼 앞에서부터 쓴 것으로 본다 — 부른 호출이 오류였어도
+// 쓴 것으로 쳐서(이벤트로는 성공 여부를 알 수 없다) 같은 되돌릴 수 없는 쓰기가 두 번 실행되지 않는 쪽을 고른다. 도구 이름 앞의 MCP 서버 접두사는
+// 러너마다 다르다(Claude mcp__workplace__, opencode workplace_).
+function unusedPermits(
+  permitted: ReadonlyArray<{ tool: string; args?: Record<string, unknown> | null }>,
+  events: RunnerEvent[],
+): PausedAction[] {
+  const used = new Map<string, number>();
+  for (const e of events) {
+    if (e.type !== 'tool_use') continue;
+    const name = e.name.replace(/^(?:mcp__workplace__|workplace_)/, '');
+    used.set(name, (used.get(name) ?? 0) + 1);
+  }
+  return permitted
+    .filter((a) => {
+      const n = used.get(a.tool) ?? 0;
+      if (n === 0) return true;
+      used.set(a.tool, n - 1);
+      return false;
+    })
+    .map((a) => ({ tool: a.tool, ...(a.args ? { args: a.args } : {}) }));
 }
 
 // WP-1407: 실행 기록 로그의 결말 — 성공(ok)·질문(question)·시간 초과·최대 턴·비정상 종료(not_ok)·오류·답 없음(no_text).
@@ -350,6 +417,59 @@ export function splitQuestion(text: string): string | null {
   if (!head.startsWith(RECURRING_QUESTION_MARKER)) return null;
   const tail = head.slice(RECURRING_QUESTION_MARKER.length).replace(/^[*_`\s]+/, '');
   return [tail, ...rest].join('\n').trim();
+}
+
+// WP-1408: 받침 글자의 종성 번호(가=0 … ㄹ=8, ㅄ=18, ㅆ=20). 한글 음절이 아니면 -1.
+function jong(ch: string | undefined): number {
+  const code = (ch ?? '').charCodeAt(0) - 0xac00;
+  return code >= 0 && code < 11172 ? code % 28 : -1;
+}
+
+// WP-1408: 진행 확인 어미 — 「-ㄹ까요」(진행해도 될까요·진행할까요·넣을까요·올릴까요·괜찮을까요 등 받침 ㄹ 글자 + 까요)와 「원하시나요」.
+// 「될까요·할까요」만 보면 「사이클에 넣을까요?」 같은 꼴의 물음을 놓친다.
+function hasConfirmEnding(s: string): boolean {
+  if (s.includes('원하시나요')) return true;
+  for (let i = s.indexOf('까요'); i > 0; i = s.indexOf('까요', i + 1)) {
+    if (jong(s[i - 1]) === 8) return true;
+  }
+  return false;
+}
+
+// WP-1408(리뷰): 진행 확인이 아닌 「-ㄹ까요」 — 권유(어떨까요)·이유 물음(왜 …까요)·추측(…일까요, 있을까요·없을까요, 했을까요처럼 과거 받침 ㅆ + 을까요).
+function isRhetorical(sentence: string): boolean {
+  if (/왜|어떨까요|어떠할까요|어떠실까요|일까요/.test(sentence)) return true;
+  for (let i = sentence.indexOf('을까요'); i > 0; i = sentence.indexOf('을까요', i + 1)) {
+    const j = jong(sentence[i - 1]);
+    if (j === 20 || j === 18) return true;
+  }
+  return false;
+}
+
+// 끝에 붙은 닫는 괄호·따옴표·마침표·느낌표·마크다운 강조·이모지·공백 — 물음표를 보기 전에 걷어 낸다.
+const TRAILING_NOISE = /[\s)）」』"'”’.。!！*_`\p{Extended_Pictographic}️‍]+$/u;
+
+// 결과의 마지막 절 제목이 「제안」인가 — 제안 절은 참고용이라 질문이 아니다(시스템 프롬프트). 절 제목은 마크다운 제목(#)이나 한 줄 굵은 글씨.
+function endsInSuggestionSection(text: string): boolean {
+  // 굵은 줄이 물음표로 끝나면(「**이 제안대로 … 넣을까요?**」) 제목이 아니라 물음이다.
+  const headings = text
+    .split('\n')
+    .filter((l) => /^\s*(?:#{1,6}\s+\S|\*\*[^*]+\*\*\s*:?\s*$)/.test(l))
+    .filter((l) => /^\s*#/.test(l) || !/[?？]\s*\**\s*:?\s*$/.test(l));
+  return /제안/.test(headings.at(-1) ?? '');
+}
+
+// WP-1408: 표지(`[확인 필요]`) 없이 사람에게 진행 여부를 묻는 결과인가. 오탐을 줄이려 마지막 문단이 물음표로 끝나고, 그 마지막 문장이 진행 확인
+// 어미이며 권유·이유·추측 물음이 아닐 때만 질문으로 본다. 마지막 절이 「제안」이면 질문이 아니다. 본문 속(인용 등) 물음표는 보지 않는다.
+export function looksLikeUnmarkedQuestion(text: string): boolean {
+  if (endsInSuggestionSection(text)) return false;
+  const paragraphs = text.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+  const last = (paragraphs.at(-1) ?? '').replace(TRAILING_NOISE, '');
+  if (!/[?？]$/.test(last)) return false;
+  // 마지막 문장 — 끝 물음표 앞에서 가장 가까운 문장 끝(. ! ? 줄바꿈) 뒤.
+  const body = last.slice(0, -1);
+  const cut = Math.max(...['.', '!', '?', '。', '？', '！', '\n'].map((c) => body.lastIndexOf(c)));
+  const sentence = last.slice(cut + 1);
+  return hasConfirmEnding(sentence) && !isRhetorical(sentence);
 }
 
 // WP-1313: 멈춘 쓰기는 있는데 모델 답이 비었을 때 대신 남기는 질문 — 무엇을 멈췄는지만 알린다.

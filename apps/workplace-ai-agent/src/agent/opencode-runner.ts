@@ -240,6 +240,8 @@ export class OpencodeRunner implements AgentRunner {
         // 결과를 기다리는 도구가 나온 메시지의 이후 text 는 내보내지 않는다. show_*(화면 표시)·propose_*(확인 카드)는 결과 없이도
         // 답을 쓸 수 있어 제외한다. 범위는 assistant 프로필의 primary 세션만(다른 실행·서브에이전트 text 는 각자 쓰임이 달라 건드리지 않는다).
         // 프롬프트 규칙은 실측에서 오히려 이미지 읽기를 건너뛰게 만들어(5회 중 4회) 쓰지 않는다.
+        // WP-1408: 반복 회차·테스트 실행(recurring·recurring-test)에는 켜지 않는다 — 도구를 부른 같은 단계에서 도구 뒤에 쓴 최종 답까지 버려 결과 글을
+        // 잃을 수 있다. 그쪽 중간 말은 run-recurring 이 도구 경계로 나눈 조각(runner-events answerChunks)으로 덜어 낸다.
         const filterNarration = i.mcp?.profile === 'assistant';
         const narrationMessageIds = new Set<string>();
         // WP-250: 컨텍스트가 차 opencode 가 세션을 압축(compaction)하는 중인지. 모델 한도를 넘은 요청이 provider 에서

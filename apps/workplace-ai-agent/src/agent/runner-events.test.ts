@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapSdkMessage, finalText, finalUsage, type RunnerEvent } from './runner-events.js';
+import { answerChunks, mapSdkMessage, finalText, finalUsage, lastAnswerText, type RunnerEvent } from './runner-events.js';
 
 describe('mapSdkMessage', () => {
   it('stream_event text_delta → text_delta(parent 보존, null)', () => {
@@ -55,6 +55,20 @@ describe('mapSdkMessage', () => {
         parentToolUseId: null,
       },
       { type: 'assistant_text', text: '이슈 목록을 보여드려요.' },
+    ]);
+  });
+
+  // WP-1408: 서브에이전트의 완성 text 블록을 결과 글에서 거르려면 parent 를 실어야 한다(라우터 블록은 지금처럼 parent 없음).
+  it('assistant text → 서브에이전트면 parentToolUseId 를 싣는다', () => {
+    const ev = mapSdkMessage({
+      type: 'assistant',
+      parent_tool_use_id: 'tu_9',
+      message: { role: 'assistant', content: [{ type: 'text', text: '하위 답' }] },
+    }, new Set());
+    // WP-1407: 내용 이벤트 앞의 model_step 에도 같은 parent 가 실린다.
+    expect(ev).toEqual<RunnerEvent[]>([
+      { type: 'model_step', startedAt: null, endedAt: null, inputTokens: null, outputTokens: null, parentToolUseId: 'tu_9' },
+      { type: 'assistant_text', text: '하위 답', parentToolUseId: 'tu_9' },
     ]);
   });
 
@@ -245,5 +259,130 @@ describe('finalUsage', () => {
 
   it('result 있어도 usage 없으면 null', () => {
     expect(finalUsage([{ type: 'result', ok: true, text: '완료', usage: null }])).toBeNull();
+  });
+});
+
+// WP-1408: 반복 결과 글은 마지막 도구 호출 뒤의 답(마지막 조각)만 — 도구 사이 중간 말(「먼저 조회합니다」)·빈 줄이 결과에 섞이지 않게.
+describe('lastAnswerText', () => {
+  it('opencode — 중간 말 → 도구 → 최종 답이면 최종 답만(result.text 가 전체 이어 붙임이어도)', () => {
+    const events: RunnerEvent[] = [
+      { type: 'text_delta', text: '먼저 필요한 정보를 조회합니다.\n\n', parentToolUseId: null },
+      { type: 'tool_use', name: 'get_issue_detail', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '\n\n## 결과\n', parentToolUseId: null },
+      { type: 'text_delta', text: '- 사이클에 넣었습니다\n', parentToolUseId: null },
+      {
+        type: 'result',
+        ok: true,
+        text: '먼저 필요한 정보를 조회합니다.\n\n\n\n## 결과\n- 사이클에 넣었습니다\n',
+        usage: null,
+      },
+    ];
+    expect(lastAnswerText(events)).toBe('## 결과\n- 사이클에 넣었습니다');
+  });
+
+  it('opencode — 단계의 중간 말이 도구 시작 뒤에 채워져도(도구 완료 전) 최종 답만', () => {
+    const events: RunnerEvent[] = [
+      { type: 'text_delta', text: '이슈를', parentToolUseId: null },
+      { type: 'tool_use', name: 'update_issue', input: {}, parentToolUseId: null },
+      { type: 'text_delta', text: ' 고치겠습니다.', parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '사이클에 넣었습니다.', parentToolUseId: null },
+      { type: 'result', ok: true, text: '이슈를 고치겠습니다.사이클에 넣었습니다.', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('사이클에 넣었습니다.');
+  });
+
+  it('Claude — 마지막 도구 결과 뒤 assistant_text 만', () => {
+    const events: RunnerEvent[] = [
+      { type: 'assistant_text', text: '먼저 조회합니다.' },
+      { type: 'tool_use', name: 'get_issue_detail', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'assistant_text', text: '## 결과' },
+      { type: 'assistant_text', text: '- 3건' },
+      { type: 'result', ok: true, text: '## 결과\n- 3건', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('## 결과\n- 3건');
+  });
+
+  it('부분 메시지(text_delta)와 완성 블록(assistant_text)이 함께 오면 text_delta 만 써 겹치지 않는다', () => {
+    const events: RunnerEvent[] = [
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '답', parentToolUseId: null },
+      { type: 'text_delta', text: '입니다', parentToolUseId: null },
+      { type: 'assistant_text', text: '답입니다' },
+      { type: 'result', ok: true, text: '답입니다', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('답입니다');
+  });
+
+  it('서브에이전트(parentToolUseId 값) 텍스트는 답이 아니다', () => {
+    const events: RunnerEvent[] = [
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '하위 말', parentToolUseId: 'child' },
+      { type: 'text_delta', text: '최종', parentToolUseId: null },
+      { type: 'result', ok: true, text: '하위 말최종', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('최종');
+  });
+
+  it('도구 호출이 없는 단일 답은 그대로', () => {
+    const events: RunnerEvent[] = [
+      { type: 'text_delta', text: '## 오늘 정리\n\n- 3건', parentToolUseId: null },
+      { type: 'result', ok: true, text: '## 오늘 정리\n\n- 3건', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('## 오늘 정리\n\n- 3건');
+  });
+
+  it('도구 호출로 끝나 마지막 조각이 비면 그 앞의 비지 않은 조각 — 여러 조각을 붙이지 않고 빈 결과도 내지 않는다', () => {
+    const events: RunnerEvent[] = [
+      { type: 'text_delta', text: '먼저 조회합니다.', parentToolUseId: null },
+      { type: 'tool_use', name: 'get_issue_detail', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '정리했습니다.', parentToolUseId: null },
+      { type: 'tool_use', name: 'add_comment', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '  \n', parentToolUseId: null },
+      { type: 'result', ok: true, text: '먼저 조회합니다.정리했습니다.  \n', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('정리했습니다.');
+  });
+
+  it('Claude 서브에이전트의 완성 블록(assistant_text 에 parentToolUseId)은 답이 아니다', () => {
+    const events: RunnerEvent[] = [
+      { type: 'tool_done' },
+      { type: 'assistant_text', text: '하위 결과', parentToolUseId: 'tu_1' },
+      { type: 'assistant_text', text: '최종 답' },
+      { type: 'result', ok: true, text: '최종 답', usage: null },
+    ];
+    expect(lastAnswerText(events)).toBe('최종 답');
+  });
+
+  it('텍스트 이벤트 없이 result 만 있으면 result.text', () => {
+    expect(lastAnswerText([{ type: 'result', ok: true, text: ' 결과 ', usage: null }])).toBe('결과');
+  });
+});
+
+// WP-1408(리뷰): 질문 판정은 표지·「정해 주세요」 절이 든 조각을 찾아야 한다 — 결과 글과 같은 조각 나누기를 쓴다.
+describe('answerChunks', () => {
+  it('도구 경계로 나눈 라우터 텍스트 조각을 순서대로 — 빈 조각·서브에이전트 텍스트는 뺀다', () => {
+    const events: RunnerEvent[] = [
+      { type: 'text_delta', text: '먼저 봅니다.', parentToolUseId: null },
+      { type: 'tool_use', name: 'a', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: '하위', parentToolUseId: 'c' },
+      { type: 'tool_use', name: 'b', input: {}, parentToolUseId: null },
+      { type: 'tool_done' },
+      { type: 'assistant_text', text: '[확인 필요]' },
+      { type: 'assistant_text', text: '넣을까요?' },
+      { type: 'tool_done' },
+      { type: 'text_delta', text: ' 이상입니다. ', parentToolUseId: null },
+      { type: 'result', ok: true, text: 'x', usage: null },
+    ];
+    expect(answerChunks(events)).toEqual(['먼저 봅니다.', '[확인 필요]\n넣을까요?', '이상입니다.']);
+  });
+
+  it('텍스트가 없으면 빈 배열', () => {
+    expect(answerChunks([{ type: 'result', ok: true, text: '결과', usage: null }])).toEqual([]);
   });
 });

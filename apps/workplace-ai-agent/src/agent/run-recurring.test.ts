@@ -20,7 +20,7 @@ vi.mock('./sdk-mcp-server.js', () => ({
 }));
 
 import { AxiosError, AxiosHeaders } from 'axios';
-import { REPORT_RETRY_DELAYS_MS, runRecurring } from './run-recurring.js';
+import { looksLikeUnmarkedQuestion, REPORT_RETRY_DELAYS_MS, runRecurring } from './run-recurring.js';
 import { runSdkCollect, runSdkStream } from './sdk-runner.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { log } from '../logger.js';
@@ -719,5 +719,259 @@ describe('runRecurring — 반복 상한·실행 기록', () => {
     expect(body.message).toContain('마지막 단계: 도구 실행 중(send_mail)');
     // 테스트 실행은 회차 시각이 없어 줄 대기를 적지 않는다.
     expect(body.message).not.toContain('줄 대기');
+  });
+});
+
+// WP-1408: 모델이 `[확인 필요]` 표지 없이 진행 여부를 물으면(「진행해도 될까요?」) 질문으로 보지 않아, 사람의 「진행」이 이어 처리(쓰기 도구 있음)가 아니라
+// 이슈 챗 AI(쓰기 도구 없음)로 갔다. 마지막 문단이 물음표 + 진행 확인 어미면 질문으로 보고한다.
+describe('looksLikeUnmarkedQuestion', () => {
+  it('마지막 문단이 진행 확인 어미 + 물음표면 질문', () => {
+    expect(looksLikeUnmarkedQuestion('## 확인\n- WP-12 를 사이클 3에 넣으려 합니다.\n\n진행해도 될까요?')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('사이클에 넣을까요?')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('초안을 만들었습니다.\n\n채널에 올릴까요?')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n이대로 괜찮을까요？')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n**계속 진행할까요?**')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('메일 초안을 만들었습니다.\n\n바로 보내기를 원하시나요?')).toBe(true);
+  });
+
+  it('본문 속 물음표만 있고 마지막 문단이 서술이면 질문이 아니다', () => {
+    expect(looksLikeUnmarkedQuestion('## 정리\n- 「배포는 언제 할까요?」 라는 코멘트가 있었습니다\n\n이상 3건입니다.')).toBe(false);
+  });
+
+  // 리뷰: 「제안」 절은 질문이 아니다(시스템 프롬프트) — 그 절 안의 물음은 표지 없는 질문으로 보지 않는다.
+  it('마지막 문단이 「제안」 절 안이면 질문이 아니다', () => {
+    expect(looksLikeUnmarkedQuestion('## 오늘 정리\n- 3건\n\n## 제안\n\n거래처 메일을 폴더로 모을까요?')).toBe(false);
+    expect(looksLikeUnmarkedQuestion('## 오늘 정리\n- 3건\n\n**제안**\n- 거래처 메일을 폴더로 모을까요?')).toBe(false);
+  });
+
+  // 리뷰: 「제안」이 든 굵은 물음 줄은 절 제목이 아니다 — 물음표로 끝나는 굵은 줄은 제목으로 보지 않는다.
+  it('「제안」이 든 굵은 물음 줄은 제목이 아니라 질문이다', () => {
+    expect(looksLikeUnmarkedQuestion('## 오늘 정리\n- 3건\n\n**이 제안대로 WP-12 를 사이클에 넣을까요?**')).toBe(true);
+  });
+
+  it('수사적 물음·권유(어떨까요·왜 …까요·…일까요·…했을까요)는 질문이 아니다', () => {
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n다음 주에는 미리 정리해 두는 게 어떨까요?')).toBe(false);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n왜 이번 주에만 늘었을까요?')).toBe(false);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n원인은 배포 지연일까요?')).toBe(false);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n담당자가 미리 알았을까요?')).toBe(false);
+  });
+
+  it('끝의 닫는 괄호·따옴표·마침표·이모지·공백을 걷어 내고 물음표를 본다', () => {
+    expect(looksLikeUnmarkedQuestion('사이클 「11월 1주」에 넣을까요?」')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n(진행해도 될까요?)')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n진행할까요? 🙂 ')).toBe(true);
+    expect(looksLikeUnmarkedQuestion('정리했습니다.\n\n"진행해도 될까요?".')).toBe(true);
+  });
+
+  it('물음표가 없거나 진행 확인 어미가 없으면 질문이 아니다', () => {
+    expect(looksLikeUnmarkedQuestion('사이클에 넣었습니다. 다음 회차에 다시 확인할까요 하는 내용은 없습니다.')).toBe(false);
+    expect(looksLikeUnmarkedQuestion('## 오늘 정리\n- 3건\n\n왜 늦어졌는지는 본문에 없습니까?')).toBe(false);
+    expect(looksLikeUnmarkedQuestion('')).toBe(false);
+  });
+});
+
+describe('runRecurring — 표지 없는 질문·결과 글 정리 (WP-1408)', () => {
+  beforeEach(() => {
+    vi.mocked(runSdkCollect).mockReset();
+    // 앞 describe(WP-1407)가 runSdkStream 을 mockImplementation 으로 바꾼 채 남긴다 — 처음 구현(collect 라인을 흘림)으로 되돌린다.
+    vi.mocked(runSdkStream).mockReset();
+    vi.mocked(log.info).mockClear();
+    vi.mocked(log.warn).mockClear();
+    vi.mocked(buildInProcessWorkplaceMcpServer).mockClear();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const testRun = { ...payload, runId: '3-t1790000000123', round: undefined };
+
+  it('「지금 실행」 결과가 표지 없이 진행 여부를 물으면 경고를 남기고 question:true 로 보고한다', async () => {
+    const body = '## 할 일\n- WP-12 를 사이클 「11월 1주」에 넣으려 합니다.\n\n진행해도 될까요?';
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', body)]);
+    const c = client();
+    await runRecurring(testRun, { client: c }, { test: true });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: testRun.runId, ok: true, message: body, question: true });
+    expect(console.warn).toHaveBeenCalled();
+    // 실행 기록(WP-1407)의 결말도 질문 — 성공(ok)으로 남지 않는다.
+    expect(log.info).toHaveBeenCalledWith('run-recurring', 'recurring_run_trace', expect.objectContaining({ outcome: 'question' }));
+  });
+
+  it('정기 회차·이어 처리도 같은 규칙', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '초안을 만들었습니다.\n\n채널에 올릴까요?')]);
+    const c = client();
+    await runRecurring({ ...payload, runId: '3-f9', followUp: { question: 'q', answer: 'a' } }, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-f9',
+      ok: true,
+      message: '초안을 만들었습니다.\n\n채널에 올릴까요?',
+      question: true,
+    });
+  });
+
+  it('이미 `[확인 필요]` 로 시작하면 표지를 한 번만 떼고 그대로 질문으로(중복 표지 없음)', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '[확인 필요]\n사이클에 넣을까요?')]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+      runId: '3-1790000000',
+      ok: true,
+      message: '사이클에 넣을까요?',
+      question: true,
+    });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('본문 속 물음표만 있는 정상 결과는 질문이 아니다', async () => {
+    const body = '## 정리\n- 「배포는 언제 할까요?」 코멘트에 답했습니다\n\n이상입니다.';
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', body)]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: body });
+  });
+
+  it('결과 글은 마지막 도구 뒤의 답만 — 중간 말이 섞이지 않는다', async () => {
+    const assistant = (content: unknown[]) => JSON.stringify({ type: 'assistant', message: { content } });
+    vi.mocked(runSdkCollect).mockResolvedValue([
+      assistant([
+        { type: 'text', text: '먼저 필요한 정보를 조회합니다.' },
+        { type: 'tool_use', name: 'get_issue_detail', input: {} },
+      ]),
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } }),
+      assistant([{ type: 'text', text: '## 오늘 정리\n- 3건' }]),
+      // 러너가 전체를 이어 붙여 result 에 실어도(opencode) 마지막 답만 쓴다.
+      resultLine('success', '먼저 필요한 정보를 조회합니다.\n\n## 오늘 정리\n- 3건'),
+    ]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: '## 오늘 정리\n- 3건' });
+    // 리뷰: 모델 출력(사용자 데이터)은 로그에 남기지 않는다 — 길이만.
+    const logged = JSON.stringify([
+      ...vi.mocked(console.log).mock.calls,
+      ...vi.mocked(console.warn).mock.calls,
+      ...vi.mocked(log.info).mock.calls,
+      ...vi.mocked(log.warn).mock.calls,
+    ]);
+    expect(logged).not.toContain('먼저 필요한 정보를 조회합니다');
+    expect(logged).not.toContain('오늘 정리');
+  });
+
+  // 리뷰: 테스트 질문의 이어 처리가 다시 물으면(표지가 있든 없든) 앞 질문이 허락받은 쓰기를 넘겨 다음 「진행」에도 허락이 남게 한다.
+  // 이번 실행에서 그 도구를 부른 만큼은 쓴 것으로 보고 빼 — 같은 되돌릴 수 없는 쓰기가 두 번 실행되지 않게.
+  describe('테스트 이어 처리의 다시 묻기 — 허락받은 쓰기를 넘긴다', () => {
+    const permitted = [
+      { tool: 'send_mail', args: { subject: '주간 보고' } },
+      { tool: 'create_event', args: { title: '회의' } },
+    ];
+    const followUpRun = {
+      ...testRun,
+      runId: '3-f78',
+      followUp: { question: '메일을 보내고 일정을 만들까요?', answer: '음', permittedActions: permitted },
+    };
+
+    it('표지를 붙여 다시 물으면 허락받은 쓰기 목록을 함께 보고한다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '[확인 필요]\n어느 쪽을 진행할까요?')]);
+      const c = client();
+      await runRecurring(followUpRun, { client: c }, { test: true });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+        runId: '3-f78',
+        ok: true,
+        message: '어느 쪽을 진행할까요?',
+        question: true,
+        pausedActions: permitted,
+      });
+    });
+
+    it('표지 없이 다시 물어도 같다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '답을 이해하지 못했습니다.\n\n진행해도 될까요?')]);
+      const c = client();
+      await runRecurring(followUpRun, { client: c }, { test: true });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(
+        201,
+        3,
+        expect.objectContaining({ question: true, pausedActions: permitted }),
+      );
+    });
+
+    it('이번에 부른 허락 도구는 빼고, 새로 멈춘 쓰기와 함께 보고한다', async () => {
+      vi.mocked(runSdkCollect).mockImplementation(async () => {
+        const bridge = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls.at(-1)?.[0].hostBridge;
+        bridge?.onProposal({ actionType: 'add_channel_member', summary: '', params: { channelId: 1 } });
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { content: [{ type: 'tool_use', name: 'mcp__workplace__send_mail', input: {} }] },
+          }),
+          JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } }),
+          resultLine('success', '[확인 필요]\n메일은 보냈습니다. 채널 초대도 할까요?'),
+        ];
+      });
+      const c = client();
+      await runRecurring(followUpRun, { client: c }, { test: true });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+        runId: '3-f78',
+        ok: true,
+        message: '메일은 보냈습니다. 채널 초대도 할까요?',
+        question: true,
+        pausedActions: [{ tool: 'add_channel_member', args: { channelId: 1 } }, { tool: 'create_event', args: { title: '회의' } }],
+      });
+    });
+
+    it('질문이 아니면(처리 끝) 넘기지 않는다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', '하지 않았습니다.')]);
+      const c = client();
+      await runRecurring(followUpRun, { client: c }, { test: true });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f78', ok: true, message: '하지 않았습니다.' });
+    });
+
+    // 리뷰: 다음 이어 처리는 허락이 없을 때만 「정해 주세요」 질문으로 본다(isDecisionQuestion) — 허락을 넘기면 「고른 항목만 처리」(WP-1376)를 잃는다.
+    it('「정해 주세요」 질문에는 허락을 넘기지 않는다', async () => {
+      const body = '처리하지 않았습니다.\n\n## 정해 주세요\n1. 메일과 일정 중 무엇을 할까요?';
+      vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', body)]);
+      const c = client();
+      await runRecurring(followUpRun, { client: c }, { test: true });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-f78', ok: true, message: body, question: true });
+    });
+  });
+
+  // 리뷰: 질문(표지·「정해 주세요」 절)을 쓴 뒤 도구를 또 부르고 짧은 맺음으로 끝나면, 마지막 조각만 보면 질문을 잃는다.
+  describe('질문 조각 → 도구 → 짧은 맺음', () => {
+    const assistant = (content: unknown[]) => JSON.stringify({ type: 'assistant', message: { content } });
+    const toolResult = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } });
+    const lines = (question: string) => [
+      assistant([{ type: 'text', text: question }, { type: 'tool_use', name: 'mcp__workplace__add_comment', input: {} }]),
+      toolResult,
+      assistant([{ type: 'text', text: '이상입니다.' }]),
+      resultLine('success', '이상입니다.'),
+    ];
+
+    it('표지 조각이 있으면 그 조각을 질문으로 보고한다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(lines('[확인 필요]\nWP-12 를 사이클에 넣을까요?'));
+      const c = client();
+      await runRecurring(payload, { client: c });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
+        runId: '3-1790000000',
+        ok: true,
+        message: 'WP-12 를 사이클에 넣을까요?',
+        question: true,
+      });
+    });
+
+    it('「정해 주세요」 절 조각이 있으면 그 조각을 질문으로 보고한다', async () => {
+      const q = '## 오늘 정리\n- 3건\n\n## 정해 주세요\n1. 회신할까요, 보류할까요?';
+      vi.mocked(runSdkCollect).mockResolvedValue(lines(q));
+      const c = client();
+      await runRecurring(payload, { client: c });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: q, question: true });
+    });
+
+    it('표지 없는 물음은 마지막 조각만 본다 — 앞 조각의 물음 뒤에 일을 해 끝냈으면 질문이 아니다', async () => {
+      vi.mocked(runSdkCollect).mockResolvedValue(lines('사이클에 넣을까요?'));
+      const c = client();
+      await runRecurring(payload, { client: c });
+      expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: true, message: '이상입니다.' });
+    });
   });
 });

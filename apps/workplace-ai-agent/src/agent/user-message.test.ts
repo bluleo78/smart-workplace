@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildRecurringRunMessage, buildUserMessage, formatKst, TEST_GATED_DESC, TEST_GATED_LABELS } from './user-message.js';
 import { RECURRING_TEST_GATED_TOOLS } from '../mcp/tools.js';
+import { KOREAN_ONLY_RULE } from './system-prompt.js';
 import { issueEventEnvelope, type IssueEventEnvelope } from '../types/issue-events.js';
 
 const common = {
@@ -574,5 +575,64 @@ describe('TEST_GATED_DESC', () => {
         parse({ recentChat: { humanMessages: [{ authorName: 'a', body: 'b', createdAt: '2026-11-04T01:00:00Z', owner: true, isNew: false }] } }).success,
       ).toBe(true);
     });
+  });
+});
+
+// WP-1408: 「지금 실행」이 되돌릴 수 있는 쓰기(사이클 넣기)까지 표지 없이 물었다 — 바로 해도 되는 쓰기 예·묻는 기준·첫 줄 표지 규칙·한국어 고정.
+// 리뷰: 바로 하는 쓰기는 「본문이 시킨」 것만 — 본문에 없는 쓰기는 「제안」, 본문이 확인을 받으라면 `[확인 필요]`, 정할 항목은 「정해 주세요」(이어 처리 제외).
+describe('반복 지시문 — 바로 해도 되는 쓰기·표지·한국어 (WP-1408)', () => {
+  const base = {
+    ...common,
+    ownerUserId: 7,
+    runId: '42-t1',
+    runAt: '2026-09-22T10:00:00+09:00',
+    recurrence: { rrule: 'FREQ=DAILY', time: '09:00' },
+    issueBody: '이번 주 이슈를 사이클에 넣어 줘',
+  };
+  const KOREAN_ONLY = `- ${KOREAN_ONLY_RULE}`;
+  const followUp = {
+    question: '사이클에 넣을까요?',
+    answer: '진행',
+    permittedActions: [{ tool: 'send_mail', args: { subject: 's' } }] as Array<{ tool: string; args?: Record<string, unknown> }>,
+  };
+  const WRITE_RULES = [
+    '본문이 시킨 쓰기 중 멈추는 목록에 없는 것은 묻지 말고 바로 합니다 — 예: 이슈 만들기·고치기(상태·담당·라벨·사이클·부모·본문), 코멘트·이슈 챗 남기기, 노트 쓰기',
+    '본문이 시키지 않은 쓰기는 여기서도 하지 않고 「제안」 절에 적습니다',
+    '본문이 쓰기 전에 확인을 받으라고 했으면 `[확인 필요]` 로 묻습니다',
+    '쓰기를 묻는 때는 도구가 「멈춤」 결과를 돌려줬거나 본문이 확인을 받으라고 했을 때뿐입니다',
+  ];
+  const DECIDE = '사용자가 정해야 할 항목은 지금처럼 `## 정해 주세요` 절에 적습니다';
+
+  it('테스트 실행 — 본문이 시킨 쓰기는 바로, 묻는 기준, 정할 항목, 첫 줄 표지', () => {
+    const m = buildRecurringRunMessage(base, { test: true });
+    for (const r of WRITE_RULES) expect(m).toContain(r);
+    expect(m).toContain(DECIDE);
+    expect(m).toContain(`사람에게 묻는 글은 반드시 첫 줄을 \`[확인 필요]\` 로 시작합니다`);
+    expect(m).toContain(KOREAN_ONLY);
+    expect(m).not.toContain('멈추는 목록에 없는 쓰기는 묻지 말고 바로 합니다');
+  });
+
+  it('테스트 이어 처리 — 같은 규칙이되 「정해 주세요」로는 다시 묻지 않는다(멈춘 쓰기 목록 유지)', () => {
+    const m = buildRecurringRunMessage({ ...base, followUp }, { test: true });
+    for (const r of WRITE_RULES) expect(m).toContain(r);
+    expect(m).not.toContain(DECIDE);
+    expect(m).toContain(`사람에게 묻는 글은 반드시 첫 줄을 \`[확인 필요]\` 로 시작합니다`);
+    expect(m).toContain(KOREAN_ONLY);
+  });
+
+  it('정기 회차·정기 이어 처리도 한국어 고정과 첫 줄 표지 규칙', () => {
+    for (const m of [buildRecurringRunMessage(base), buildRecurringRunMessage({ ...base, followUp })]) {
+      expect(m).toContain(KOREAN_ONLY);
+      expect(m).toContain(`사람에게 묻는 글은 반드시 첫 줄을 \`[확인 필요]\` 로 시작합니다`);
+    }
+    // 회차 지시문은 「정해 주세요」 절로 묻는 규칙과 어긋나지 않게 — 그 절로 묻는 결과는 표지가 필요 없다.
+    const SECTION_OK = '결과 맨 끝 `## 정해 주세요` 절로 묻는 결과는 그 절로 충분합니다';
+    expect(buildRecurringRunMessage(base)).toContain(SECTION_OK);
+    expect(buildRecurringRunMessage(base, { test: true })).toContain(SECTION_OK);
+    // `[확인 필요]` 질문의 이어 처리는 같은 표지로만 다시 묻는다(멈춘 쓰기 목록 유지) — 절 예외를 붙이지 않는다.
+    expect(buildRecurringRunMessage({ ...base, followUp })).not.toContain(SECTION_OK);
+    expect(
+      buildRecurringRunMessage({ ...base, followUp: { question: '## 정해 주세요\n1. 넣을까요?', answer: '응' } }),
+    ).toContain(SECTION_OK);
   });
 });
