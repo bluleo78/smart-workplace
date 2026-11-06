@@ -10,6 +10,7 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
 import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
+import com.workplace.jooq.tables.AgentReportedModel.AgentReportedModelPath;
 import com.workplace.jooq.tables.AgentRunnerToken.AgentRunnerTokenPath;
 import com.workplace.jooq.tables.AgentRuntimeSetting.AgentRuntimeSettingPath;
 import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
@@ -415,6 +416,19 @@ public class User extends TableImpl<UserRecord> {
             _agentRepoCredentialCreatedByFkey = new AgentRepoCredentialPath(this, null, Keys.AGENT_REPO_CREDENTIAL__AGENT_REPO_CREDENTIAL_CREATED_BY_FKEY.getInverseKey());
 
         return _agentRepoCredentialCreatedByFkey;
+    }
+
+    private transient AgentReportedModelPath _agentReportedModel;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_reported_model</code> table
+     */
+    public AgentReportedModelPath agentReportedModel() {
+        if (_agentReportedModel == null)
+            _agentReportedModel = new AgentReportedModelPath(this, null, Keys.AGENT_REPORTED_MODEL__AGENT_REPORTED_MODEL_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _agentReportedModel;
     }
 
     private transient AgentRunnerTokenPath _agentRunnerToken;
@@ -1807,6 +1821,14 @@ public class User extends TableImpl<UserRecord> {
             _workspaceAssistantUpdatedByFkey = new WorkspaceAssistantPath(this, null, Keys.WORKSPACE_ASSISTANT__WORKSPACE_ASSISTANT_UPDATED_BY_FKEY.getInverseKey());
 
         return _workspaceAssistantUpdatedByFkey;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table, via the <code>fk_agent_reported_model_tenant</code> key
+     */
+    public TenantPath fkAgentReportedModelTenant() {
+        return agentReportedModel().tenant();
     }
 
     /**

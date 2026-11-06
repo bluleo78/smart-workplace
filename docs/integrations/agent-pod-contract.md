@@ -1,6 +1,6 @@
 # AI Pod ↔ 작업 공간 이미지 계약
 
-runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공간 이미지의 엔트리포인트가 이 문서 하나로 맞물린다. 작업 공간 이미지는 템플릿마다 하나다 — Claude Code(`apps/workplace-agent-claude-code`, 템플릿 `claude-code`, WP-1252)와 Gen:iA Code(`apps/workplace-agent-genia-code`, 템플릿 `genia-code`, WP-1296 — 공용 함수 `lib.sh`·`agent-screen` 은 Claude Code 이미지의 파일을 그대로 쓴다). 두 쪽 테스트가 아래 값을 단언한다 — 값을 바꾸면 두 쪽을 함께 바꾼다. runner 가 Works 와 주고받는 API 는 [agent-runner-api.md](agent-runner-api.md) 다.
+runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공간 이미지의 엔트리포인트가 이 문서 하나로 맞물린다. 작업 공간 이미지는 템플릿마다 하나다 — Claude Code(`apps/workplace-agent-claude-code`, 템플릿 `claude-code`, WP-1252), Gen:iA Code(`apps/workplace-agent-genia-code`, 템플릿 `genia-code`, WP-1296), Codex(`apps/workplace-agent-codex`, 템플릿 `codex`, WP-1297)다 — Gen:iA Code·Codex 는 공용 함수 `lib.sh`·`agent-screen` 을 Claude Code 이미지의 파일 그대로 쓴다. 세 쪽 테스트가 아래 값을 단언한다 — 값을 바꾸면 세 쪽을 함께 바꾼다. runner 가 Works 와 주고받는 API 는 [agent-runner-api.md](agent-runner-api.md) 다.
 
 ## 리소스
 
@@ -98,6 +98,7 @@ Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Co
 - 같으면 보관본을 그대로 둔다 — 프로그램이 스스로 갱신한 로그인을 옛 Secret 값으로 덮지 않는다.
 - Gen:iA Code 는 `GENIA_CODING_AGENT_DIR`, Codex 는 `CODEX_HOME` 을 `$AI_DIR` 아래로 두고(Codex 는 로그인을 파일 저장소로 강제한다) 보관본이 그 안에 놓이게 한다.
 - Gen:iA Code 의 실제 자리: 보관본 `$AI_DIR/genia-agent/auth.json`(600, `GENIA_CODING_AGENT_DIR=$AI_DIR/genia-agent`), 표식 `$AI_DIR/state/login-version`. 마운트가 없거나 비었으면 보관본과 표식을 함께 지운다. 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다 — genia 가 로그인 선택 화면에서 멈춰 work-loop 가 돌지 않는다(11-03 실측). 연결하면 runner 가 Pod 를 다시 만든다. 원문은 로그·명령줄에 남기지 않는다.
+- Codex 의 실제 자리(WP-1297): `CODEX_HOME=$AI_DIR/codex`(700), 보관본 `$AI_DIR/codex/auth.json`(600), 표식 `$AI_DIR/state/login-version`. 엔트리포인트가 매번 새로 쓰는 `$AI_DIR/codex/config.toml` 에 `cli_auth_credentials_store = "file"` 을 넣어 codex 가 키링이 아니라 이 파일을 읽고 갱신해 다시 쓰게 한다. 마운트가 없거나 비었으면 보관본과 표식을 함께 지우고, 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다(모델 목록도 묻지 않는다). 원문은 로그·명령줄에 남기지 않는다.
 
 ## Gen:iA Code 프로그램 (WP-1296)
 
@@ -105,6 +106,15 @@ Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Co
 - **AI Pod 가 그 서버에 닿아야 한다**(사설 IP — PoC 클러스터에서 확인, 운영 위치는 미확인). 닿지 않으면 받아 둔 `current` 로 뜨고, 그것도 없으면 끝내지 않고 칸을 미룬 채 감독 주기마다 다시 받는다.
 - 칸 env: `GENIA_CODING_AGENT_DIR`, `GENIA_SKIP_VERSION_CHECK=1`, `GENIA_CA_CERT`·`NODE_EXTRA_CA_CERTS`=`$HOME/.genia-node-ca.pem`(genia-root + 위치 추가 CA — 플러그인 칸 명령이 `NODE_EXTRA_CA_CERTS` 를 `GENIA_CA_CERT` 로 덮어도 추가 CA 가 빠지지 않게). 설정 `$AI_DIR/genia-agent/settings.json` 은 매번 새로 쓴다(`defaultModel`=config 의 model id, `defaultProjectTrust: always`, `quietStartup: true`).
 - 플러그인은 이미지에 굳힌 `/opt/genia/plugin/genia-works` 가 기본이다. Works 마켓플레이스의 genia-works ref 에 `genia/index.ts` 가 있으면 `/work/.genia-plugin/<ref>` 에 얕게 받아 그것을 쓴다(릴리스 태그 `genia-works--v…` 는 받아 둔 것을 다시 쓰고, 그 밖의 ref 는 매번 다시 받는다). desired 의 `plugins` 는 쓰지 않는다(템플릿에 없다).
+
+## 모델 목록 보고 (WP-1297)
+
+로그인 정보 계정(Codex 의 ChatGPT 등)은 Works 서버가 모델 목록을 조회할 수 없다 — ChatGPT 의 access token 수명은 10일이고 refresh token 은 1회용(회전)이라, 서버가 저장된 로그인으로 갱신하면 Pod 안 프로그램의 로그인이 풀린다. 그래서 **Pod 가 보고한다**(관리자 화면 「모델」 칸이 이 보고로 채워진다).
+
+- 이미지 엔트리포인트(Codex 이미지)는 칸을 띄울 수 있을 때(로그인 있음) 부팅 첫 회차와 이후 주기적으로(하루 1회 또는 6시간) 프로그램에서 모델 목록을 뽑는다. Codex: `codex debug models` 의 `visibility == "list"` 만 `priority` 오름차순으로, `{id: slug, label: display_name, efforts: supported_reasoning_levels[].effort}` 로 바꾼다.
+- 그 JSON `{"models":[…]}` 을 플러그인 스크립트에 표준 입력으로 넘긴다: `"$GW_SCRIPTS/gw-models" < models.json` (`GW_SCRIPTS` = 이미지의 플러그인 `scripts/` 폴더). 스크립트가 AI 키·서버 주소·워크스페이스를 `gw-status` 와 같은 방식으로 읽고, env `GENIA_LOGIN_VERSION`(이 Pod 가 받은 로그인 정보의 `version` = 연결 행 id)을 `jq` 로 본문에 `loginVersion` 으로 덧붙여 `PUT /api/v1/agent-runtime/me/models` 를 부른다(계약은 `agent-runner-api.md` 「로그인 계정 모델 목록 보고」). `GENIA_AGENT_GENERATION` 이나 `GENIA_LOGIN_VERSION` 이 없으면(Works 가 띄운 AI 가 아니거나 로그인이 없음) 아무것도 하지 않는다. 이미지에는 `jq` 가 있어야 한다.
+- 보고는 최선 노력이다 — 스크립트는 실패해도(키 없음·서버 오류·닿지 못함) 표준 오류에 한 줄만 남기고 늘 종료 0 이다. 엔트리포인트는 실패 때문에 칸을 멈추지 않는다. 목록을 뽑은 출력·로그에 로그인 토큰이 섞이지 않게 한다(모델 목록만 넘긴다).
+- 서버는 보고한 `loginVersion` 이 지금 활성 연결 행 id 와 같을 때만 저장한다(다르면 저장 없이 204) — 로그인을 바꾼 직후 옛 Pod 가 늦게 보고해도 새 연결에 옛 계정의 목록이 들어가지 않는다. 조회도 저장된 보고의 연결 행이 지금 활성 행과 같을 때만 쓴다. 관리자가 연결을 다른 로그인으로 바꾸면 Pod 가 다시 만들어지므로(위 「로그인 정보」) 새 Pod 의 첫 보고가 목록을 채운다.
 
 ## 작업 디스크 (WP-1270)
 

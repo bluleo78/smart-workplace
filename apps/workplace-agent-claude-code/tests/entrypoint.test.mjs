@@ -5,11 +5,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as h from './harness.mjs';
+import { exe, sleep, tmuxTest, until } from './harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appDir = join(here, '..');
@@ -18,10 +20,6 @@ const entrypoint = join(appDir, 'bin', 'entrypoint');
 const pluginScripts = join(appDir, '..', '..', 'plugins', 'genia-works', 'scripts');
 const lockFile = join(appDir, 'plugins.lock');
 
-const hasTmux = spawnSync('tmux', ['-V']).status === 0;
-const tmuxTest = (name, fn) => test(name, { skip: !hasTmux && 'tmux 없음' }, fn);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let seq = 0;
 
 /** plugins.lock 의 「이름@마켓 버전」 — 가짜 `claude plugin list --json` 이 같은 버전을 내게 한다. */
 const lockEntries = readFileSync(lockFile, 'utf8')
@@ -41,21 +39,8 @@ const CONFIG = {
 };
 
 /** 원격 저장소(bare) 하나 — 루트에 Playwright 1.60.0 을 적은 pnpm-lock.yaml 이 있다. */
-function bareRepo(root, pw = '1.60.0') {
-  const src = join(root, 'src');
-  const bare = join(root, 'remote.git');
-  mkdirSync(src, { recursive: true });
-  writeFileSync(join(src, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\npackages:\n\n  '@playwright/test@" + pw + "':\n    resolution: {}\n");
-  const git = (cwd, ...a) => {
-    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...a], { cwd, encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stderr);
-  };
-  git(src, 'init', '-q');
-  git(src, 'add', '.');
-  git(src, 'commit', '-q', '-m', 'init');
-  git(root, 'clone', '-q', '--bare', src, bare);
-  return bare;
-}
+const bareRepo = (root, pw = '1.60.0') =>
+  h.bareRepo(root, { 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n\npackages:\n\n  '@playwright/test@" + pw + "':\n    resolution: {}\n" });
 
 /**
  * 테스트 하나의 격리 환경 — 홈·/run/genia·/work·가짜 명령·가짜 플러그인 폴더·격리 tmux.
@@ -72,10 +57,6 @@ function fixture(t, { projects, pluginVersions = {}, knownUrl = 'http://127.0.0.
   writeFileSync(d('run', 'repo-tokens', 'github', 'github.com'), 'ghp_secrettoken\n');
   writeFileSync(d('home/.claude/plugins/known_marketplaces.json'), JSON.stringify({ 'genia-works': { source: { source: 'url', url: knownUrl } } }));
 
-  const exe = (path, body) => {
-    writeFileSync(path, body);
-    chmodSync(path, 0o755);
-  };
   // 가짜 claude — plugin 하위 명령은 기록하고 목록을 내며, 그 밖(칸의 work-loop)은 받은 환경·인자를 남기고 기다린다.
   // OAuth 토큰은 값 대신 있는지만 남긴다(테스트 출력에도 원문을 두지 않는다).
   exe(d('bin', 'claude'), `#!/bin/sh
@@ -146,9 +127,7 @@ exec ${realCurl} "$@"
   }));
   writeFileSync(d('out', 'plugins.json'), JSON.stringify(list));
 
-  const wrapper = d('bin', 'tmux-test');
-  exe(wrapper, `#!/bin/sh\nexec tmux -L gwentry-${process.pid}-${++seq} -f /dev/null "$@"\n`);
-  const tmux = (...a) => spawnSync(wrapper, a, { encoding: 'utf8' });
+  const { wrapper, tmux } = h.isolatedTmux(d('bin'), 'gwentry');
   t.after(() => {
     tmux('kill-server');
     rmSync(root, { recursive: true, force: true });
@@ -180,44 +159,11 @@ exec ${realCurl} "$@"
   return { root, d, env, tmux, read: (...p) => readFileSync(d(...p), 'utf8') };
 }
 
-/** lib.sh 를 읽고 함수(셸 한 줄)를 부른다. */
-function callLib(env, script) {
-  return spawnSync('bash', ['-c', `. "${lib}" && ${script}`], { env, encoding: 'utf8' });
-}
-
-/** lib.sh 를 비동기로 — 같은 프로세스의 가짜 HTTP 서버가 응답할 수 있게(spawnSync 는 이벤트 루프를 막는다). */
-function callLibAsync(env, script) {
-  return new Promise((resolve) => {
-    const c = spawn('bash', ['-c', `. "${lib}" && ${script}`], { env });
-    let stdout = '';
-    let stderr = '';
-    c.stdout.on('data', (b) => (stdout += b));
-    c.stderr.on('data', (b) => (stderr += b));
-    c.on('exit', (status) => resolve({ status, stdout, stderr }));
-  });
-}
-
+/** lib.sh 를 읽고 함수(셸 한 줄)를 부른다 — 동기·비동기(같은 프로세스의 가짜 HTTP 서버가 응답할 수 있게). */
+const callLib = (env, script) => h.callLib([lib], env, script);
+const callLibAsync = (env, script) => h.callLibAsync([lib], env, script);
 /** 엔트리포인트를 뒤에서 띄운다 — 끝나기를 기다리는 exited 와 지금까지의 로그. */
-function startEntrypoint(t, env) {
-  const child = spawn(entrypoint, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  child.stdout.on('data', (b) => (log += b));
-  child.stderr.on('data', (b) => (log += b));
-  const exited = new Promise((r) => child.on('exit', (code, signal) => r({ code, signal })));
-  t.after(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-  });
-  return { child, exited, log: () => log };
-}
-
-async function until(cond, what, ms = 30000, log = () => '') {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (cond()) return;
-    await sleep(100);
-  }
-  assert.fail(`기다리다 시간이 지났습니다: ${what}\n${log()}`);
-}
+const startEntrypoint = (t, env) => h.startEntrypoint(t, entrypoint, env);
 
 /** 맡은 프로젝트 WP 하나(멤버·저장소 있음)를 내는 목록. */
 const oneProject = (url) => [{ projectKey: 'WP', name: 'WP', repositoryUrl: url, repositoryBranch: null }];
@@ -650,4 +596,26 @@ tmuxTest('sigtermDuringParallelBootExitsZeroWithoutWaiting', async (t) => {
   assert.equal(pids.length, 4); // 버전 둘 × (npx, sleep)
   for (const pid of pids) assert.throws(() => process.kill(pid, 0), `pid ${pid} 가 아직 살아 있습니다`);
   assert.deepEqual(readdirSync(f.d('work', 'tmp')).filter((n) => n.startsWith('boot.')), []);
+});
+
+test('bgWaitTimeout_killsCommandAndWatchdogOnAbortBoot', async (t) => {
+  // 종료 신호(abort_boot)에 명령뿐 아니라 지킴이(sleep 뒤 kill_tree)도 끈다 — 지킴이가 남으면 나중에 같은 pid 를 물려받은 다른 프로세스를 끌 수 있다.
+  const f = fixture(t);
+  const secs = 250 + (process.pid % 40); // 이 테스트만의 sleep 길이 — 다른 sleep 과 섞이지 않게
+  const alive = (n) => spawnSync('pgrep', ['-f', `^sleep ${n}$`]).status === 0;
+  const sh = spawn('bash', ['-c', `. "${lib}" && trap 'abort_boot; exit 0' TERM && bg_wait_timeout ${secs} sleep ${secs + 1}`], { env: f.env, stdio: 'ignore' });
+  t.after(() => sh.kill('SIGKILL'));
+  await until(() => alive(secs) && alive(secs + 1), '명령과 지킴이');
+  sh.kill('SIGTERM');
+  await new Promise((r) => sh.once('exit', r));
+  await until(() => !alive(secs) && !alive(secs + 1), '명령과 지킴이가 함께 끝남', 5000);
+});
+
+test('bgWaitTimeout_returnsCommandStatusAndCleansBgPids', (t) => {
+  // 제한 안에 끝나면 명령의 종료 코드를 돌려주고, 명령·지킴이 pid 를 BG_PIDS 에서 뺀다(다른 뒤의 일은 남긴다). 제한을 넘기면 끊어 128 이상.
+  const f = fixture(t);
+  const r = callLib(f.env, 'BG_PIDS=" 111"; bg_wait_timeout 5 sh -c "exit 3"; rc=$?; printf "rc=%s pids=%s\\n" "$rc" "$BG_PIDS"; bg_wait_timeout 1 sleep 30; echo "late=$?"');
+  assert.match(r.stdout, /^rc=3 pids=111 $/m);
+  const late = Number(r.stdout.match(/^late=(\d+)$/m)?.[1]);
+  assert.ok(late >= 128, r.stdout);
 });

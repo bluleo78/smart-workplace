@@ -96,7 +96,7 @@ public class AiAgentModelsClient {
 
   private record ModelItem(String id, String label, List<String> efforts) {
     ModelOption toOption() {
-      return new ModelOption(id, label != null && !label.isBlank() ? label : id, efforts);
+      return ModelOption.withLabelFallback(id, label, efforts);
     }
   }
 }

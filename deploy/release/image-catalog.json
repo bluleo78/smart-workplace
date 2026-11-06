@@ -161,6 +161,22 @@
         "plugins/genia-works/",
         ".dockerignore"
       ]
+    },
+    {
+      "id": "agent-codex",
+      "repository": "docker.io/iacloudops/genia-works-agent-codex",
+      "context": ".",
+      "dockerfile": "apps/workplace-agent-codex/Dockerfile",
+      "helm": false,
+      "paths": [
+        "apps/workplace-agent-codex/",
+        "apps/workplace-agent-claude-code/bin/lib.sh",
+        "apps/workplace-agent-claude-code/bin/agent-screen",
+        "apps/workplace-agent-claude-code/plugins.lock",
+        "apps/workplace-agent-genia-code/skills/",
+        "plugins/genia-works/",
+        ".dockerignore"
+      ]
     }
   ]
 }

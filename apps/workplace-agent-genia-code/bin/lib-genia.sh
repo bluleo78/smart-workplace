@@ -2,7 +2,7 @@
 # 공용(필수 확인·폴더·추가 CA·키·git·dind·프로젝트·감독·정리·adopt_plugin_scripts·bg_wait)은 lib.sh 그대로, 여기에는 Gen:iA Code 만의 일을 둔다:
 #   - genia 프로그램 받기(install_genia) — 사내 프로그램이라 공개 이미지(Docker Hub)에 넣지 않고 Pod 가 뜰 때 사내 서버에서 받아 /work 에 둔다.
 #   - 플러그인 고르기(use_plugin) — 이미지에 굳힌 genia-works 를 기본으로, Works 마켓플레이스의 버전에 genia/ 가 있으면 그것을 받아 쓴다.
-#   - genia 설정·로그인 시딩(write_genia_settings·seed_login), node 인증서 묶음(genia_ca), 감독 한 회차(tick).
+#   - genia 설정·로그인 시딩(write_genia_settings·seed_login), node 인증서 묶음(genia_ca), 감독 회차 훅(before_supervise·can_launch — tick 은 lib.sh).
 # 함수 안 변수는 local 로 둔다 — lib.sh 는 전역 변수를 쓰므로 이름이 겹쳐 서로 덮지 않게. 일부러 내보내는 값(GW_SCRIPTS·AI_DIR·GENIA_* env)만 전역이다.
 # 사내 배포 서버의 인증서(genia-root)는 이미지가 시스템 CA 에 넣어 두었다(Dockerfile — update-ca-certificates) — curl·git 은 따로 CA 를 주지 않는다.
 # Pod 계약은 docs/integrations/agent-pod-contract.md. 맥(bash 3.2)에서도 돌게 쓴다. 로그인 정보·키 원문은 로그·명령줄에 남기지 않는다.
@@ -281,39 +281,16 @@ write_genia_settings() {
     ') && gw_write_atomic "$GENIA_CODING_AGENT_DIR/settings.json" "$out"
 }
 
-# 6. 로그인 정보 시딩(계약 「로그인 정보」) — 보관본 $GENIA_CODING_AGENT_DIR/auth.json, 표식 $AI_DIR/state/login-version.
-#    마운트 파일이 없거나 비었으면 보관본·표식을 지운다(연결 끊기가 실제로 끊기게). 표식이 GENIA_LOGIN_VERSION 과 다르면(없음 포함) 600 으로
-#    원자적으로 복사하고 표식을 적는다. 같으면 그대로 — genia 가 스스로 갱신한 로그인을 옛 Secret 값으로 덮지 않는다.
-#    쓰기는 gw-lib 의 gw_write_atomic(임시 파일 → 600 → mv) — 내용은 셸 내장 printf 로만 쓰여 외부 명령 인자·로그에 실리지 않는다.
-seed_login() {
-  local src="$GENIA_RUN_DIR/login-info" dst="$GENIA_CODING_AGENT_DIR/auth.json" mark="$AI_DIR/state/login-version"
-  if [ ! -s "$src" ]; then
-    rm -f "$dst" "$mark"
-  elif [ "$(cat "$mark" 2>/dev/null)" != "${GENIA_LOGIN_VERSION:-}" ] || [ ! -s "$dst" ] || [ ! -f "$mark" ]; then
-    gw_write_atomic "$dst" "$(cat "$src")" && gw_write_atomic "$mark" "${GENIA_LOGIN_VERSION:-}" ||
-      log "경고: Gen:iA 로그인 정보를 $GENIA_CODING_AGENT_DIR 에 두지 못했습니다"
-  fi
-  genia_login_ready || log "경고: Gen:iA 로그인 정보가 연결되지 않았습니다 — 관리 화면에서 연결하세요(연결 전에는 칸을 띄우지 않습니다)"
-  return 0
-}
+# 6. 로그인 정보 시딩(계약 「로그인 정보」) — 보관본 $GENIA_CODING_AGENT_DIR/auth.json(규칙은 lib.sh 의 seed_login_file).
+#    로그인 정보가 없으면 genia 가 칸에서 로그인 선택 화면(브라우저·코드 입력)을 띄우고 멈춘다(11-03 실측 — /gw-loop 가 돌지 않아 work-loop 가
+#    실패를 알릴 수도 없다) — 그래서 can_launch 가 막는다. 연결을 새로 하면 runner 가 Pod 를 다시 만든다.
+seed_login() { seed_login_file "$GENIA_CODING_AGENT_DIR/auth.json" Gen:iA; }
 
-# 로그인 정보가 심겼는지 — 없으면 genia 가 칸에서 로그인 선택 화면(브라우저·코드 입력)을 띄우고 멈춘다(11-03 실측 — /gw-loop 가 돌지 않아
-# work-loop 가 실패를 알릴 수도 없다). 연결을 새로 하면 runner 가 Pod 를 다시 만든다.
-genia_login_ready() {
-  [ -s "$GENIA_CODING_AGENT_DIR/auth.json" ]
-}
+# 칸을 띄울 수 있는지(lib.sh tick 의 훅) — genia 를 받았고 로그인 정보가 있을 때만. 아니면 칸도 알림 감시 창도 띄우지 않는다.
+can_launch() { genia_ready && login_file_ready "$GENIA_CODING_AGENT_DIR/auth.json"; }
 
-# 칸을 띄울 수 있는지 — genia 를 받았고 로그인 정보가 있을 때만. 아니면 칸도 알림 감시 창도 띄우지 않는다.
-can_launch() { genia_ready && genia_login_ready; }
-
-# 감독 한 회차(부팅 첫 회차 포함) — genia 가 없으면 다시 받아 보고, 칸을 띄울 수 있으면 lib.sh 의 supervise_once(처음이면 start_projects,
-# 그 뒤 죽은 칸 되살리기·6일 넘은 칸 다시 띄우기·알림 감시 창)를 돈다. 못 띄우면 아무것도 하지 않는다.
-# 회차 번호를 $AI_DIR/state/supervise-ticks 에 적는다 — 감독이 도는지 밖에서(테스트·kubectl exec) 볼 수 있게.
-GENIA_TICKS=0
-tick() {
-  GENIA_TICKS=$((GENIA_TICKS + 1))
+# 감독 회차마다 칸 살피기 전(lib.sh tick 의 훅) — genia 가 없으면 다시 받아 본다(받지 못해도 끝내지 않는다 — 다음 회차에 또 한다).
+before_supervise() {
   genia_ready || install_genia || :
-  if can_launch; then supervise_once; fi
-  printf '%s\n' "$GENIA_TICKS" > "$AI_DIR/state/supervise-ticks" 2>/dev/null
   return 0
 }

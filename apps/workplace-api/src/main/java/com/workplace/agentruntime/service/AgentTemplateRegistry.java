@@ -6,6 +6,7 @@ import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.dto.AgentTemplate.ConfigField;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
 import com.workplace.auth.service.AgentProviders;
+import com.workplace.global.validation.ModelIds;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,13 +44,6 @@ public class AgentTemplateRegistry {
   private static final String ACCOUNT_MODELS = "account-models";
 
   private static final Set<String> OPTIONS_FROM = Set.of(ACCOUNT_MODELS);
-
-  /**
-   * 계정 모델 칸에 저장할 수 있는 모델 id 꼴(WP-1405) — 1~128자, 공백·제어 문자 없이 영문·숫자와 {@code . _ : / @ [ ] -} 만.
-   * 별칭(opus), 전체 id(claude-opus-5-5[1m]), 공급자 접두(provider/model)를 모두 받고, settings.json·defaultModel
-   * 에 개행·공백 같은 이상한 값이 들어가지 않게 막는다.
-   */
-  private static final Pattern MODEL_ID = Pattern.compile("[A-Za-z0-9._:/@\\[\\]-]{1,128}");
 
   /** requires 에 쓸 수 있는 값(정규화 뒤) — 계정(claude·genia·chatgpt)과 저장소 토큰(repo). 오타가 조용히 무시되지 않게 막는다. */
   private static final Set<String> REQUIREMENTS =
@@ -296,7 +289,7 @@ public class AgentTemplateRegistry {
       if (ACCOUNT_MODELS.equals(f.optionsFrom())) {
         // 계정 모델 칸 — 선택지는 계정마다 다르고 별칭·목록 밖 id 도 정당하게 쓸 수 있어 정적 선택지와 대조하지 않는다. 저장 때마다 실시간
         // 목록을 부르면 저장이 외부 장애에 묶이므로 꼴만 본다. 켤 때(repin)도 같은 규칙이라 목록 밖 id 로 저장한 AI 가 400 을 맞지 않는다.
-        if (!MODEL_ID.matcher(v).matches()) {
+        if (!ModelIds.isValid(v)) {
           throw new InvalidAgentConfigException("「" + f.label() + "」 값이 올바르지 않습니다");
         }
       } else if ("select".equals(f.type())

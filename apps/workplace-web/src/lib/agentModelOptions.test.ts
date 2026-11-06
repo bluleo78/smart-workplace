@@ -112,6 +112,44 @@ describe('modelFieldOptions', () => {
     expect(r.hint).toContain('불러오지 못해')
   })
 
+  test('로그인 계정(chatgpt)의 빈 목록은 failed 가 아니라 awaitingReport — 정적 선택지로, 켜면 보인다는 안내', () => {
+    const r = modelFieldOptions({
+      field: FIELD,
+      account: 'chatgpt',
+      credential: { provider: 'chatgpt', isPending: false },
+      query: loaded({ provider: 'chatgpt', models: [] }),
+      saved: 'opus',
+    })
+
+    expect(r.status).toBe('awaitingReport')
+    expect(values(r)).toEqual(['opus', 'sonnet'])
+    expect(r.hint).toBe('AI 를 한 번 켜면 그 계정의 모델 목록이 보여요.')
+    expect(r.hint).not.toContain('불러오지 못해')
+  })
+
+  test('로그인 계정(genia)도 같다 — 목록을 보고받으면 live 로 정적 선택지 뒤에 붙는다', () => {
+    const base = { field: FIELD, account: 'genia' as const, credential: { provider: 'genia' as const, isPending: false }, saved: 'opus' }
+
+    expect(modelFieldOptions({ ...base, query: loaded({ provider: 'genia', models: [] }) }).status).toBe('awaitingReport')
+    const live = modelFieldOptions({ ...base, query: loaded({ provider: 'genia', models: [{ id: 'gpt-6-luna', label: 'GPT-6-Luna' }] }) })
+    expect(live.status).toBe('live')
+    expect(live.hint).toBeNull()
+    expect(values(live)).toEqual(['opus', 'sonnet', 'gpt-6-luna'])
+  })
+
+  test('로그인 계정이어도 조회가 실패(500)하면 failed — 안내를 바꾸지 않는다', () => {
+    const r = modelFieldOptions({
+      field: FIELD,
+      account: 'chatgpt',
+      credential: { provider: 'chatgpt', isPending: false },
+      query: failed(500),
+      saved: 'opus',
+    })
+
+    expect(r.status).toBe('failed')
+    expect(r.hint).toContain('불러오지 못해')
+  })
+
   test('404(연결 없음)면 noAccount', () => {
     const r = run({ query: failed(404) })
 

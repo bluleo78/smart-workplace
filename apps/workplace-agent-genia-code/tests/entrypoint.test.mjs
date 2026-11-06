@@ -4,13 +4,15 @@
 // 칸 명령(agent-project 의 genia 분기)과 칸이 물려받는 env 를 진짜로 확인하려는 것이다. 키·로그인 정보는 모두 가짜 값이다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as h from '../../workplace-agent-claude-code/tests/harness.mjs';
+import { bareRepo, exe, tmuxTest, until } from '../../workplace-agent-claude-code/tests/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appDir = join(here, '..');
@@ -21,10 +23,6 @@ const entrypoint = join(appDir, 'bin', 'entrypoint');
 const pluginRoot = join(repoRoot, 'plugins', 'genia-works');
 const pluginScripts = join(pluginRoot, 'scripts');
 
-const hasTmux = spawnSync('tmux', ['-V']).status === 0;
-const tmuxTest = (name, fn) => test(name, { skip: !hasTmux && 'tmux 없음' }, fn);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let seq = 0;
 
 const CONFIG = {
   agent: { userId: 42, username: 'kodi', tenantId: 3, generation: 7 },
@@ -36,28 +34,6 @@ const CONFIG = {
 
 /** 가짜 로그인 정보(auth.json 모양) — 원문이 로그에 나오지 않는지도 이 값으로 본다. */
 const LOGIN = '{"genia":{"type":"oauth","access":"fake-access-value","refresh":"fake-refresh-value"}}';
-
-const exe = (path, body) => {
-  writeFileSync(path, body);
-  chmodSync(path, 0o755);
-};
-
-/** 원격 저장소(bare) 하나 — 칸을 띄울 프로젝트 저장소. */
-function bareRepo(root) {
-  const src = join(root, 'src');
-  const bare = join(root, 'remote.git');
-  mkdirSync(src, { recursive: true });
-  writeFileSync(join(src, 'README.md'), 'repo\n');
-  const git = (cwd, ...a) => {
-    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...a], { cwd, encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stderr);
-  };
-  git(src, 'init', '-q');
-  git(src, 'add', '.');
-  git(src, 'commit', '-q', '-m', 'init');
-  git(root, 'clone', '-q', '--bare', src, bare);
-  return bare;
-}
 
 /**
  * 테스트 하나의 격리 환경 — 홈·/run/genia·/work·가짜 명령·굳힌 플러그인 폴더·가짜 배포 서버(srv)·격리 tmux.
@@ -102,9 +78,7 @@ exec ${realCurl} "$@"
   writeFileSync(d('plugin', 'genia', 'index.ts'), '// 굳힌 플러그인 자리\n');
   writeFileSync(d('out', 'projects.json'), '[]');
 
-  const wrapper = d('bin', 'tmux-test');
-  exe(wrapper, `#!/bin/sh\nexec tmux -L gwgenia-${process.pid}-${++seq} -f /dev/null "$@"\n`);
-  const tmux = (...a) => spawnSync(wrapper, a, { encoding: 'utf8' });
+  const { wrapper, tmux } = h.isolatedTmux(d('bin'), 'gwgenia');
   t.after(() => {
     tmux('kill-server');
     rmSync(root, { recursive: true, force: true });
@@ -171,54 +145,15 @@ exec sleep 300
   return { stem, file };
 }
 
-/** lib.sh + lib-genia.sh 를 읽고 함수(셸 한 줄)를 부른다. */
-function callLib(env, script) {
-  return spawnSync('bash', ['-c', `. "${lib}" && . "${libGenia}" && ${script}`], { env, encoding: 'utf8' });
-}
-
-/** 같은 것을 비동기로 — 같은 프로세스의 가짜 HTTP 서버(마켓플레이스)가 응답할 수 있게. */
-function callLibAsync(env, script) {
-  return new Promise((resolve) => {
-    const c = spawn('bash', ['-c', `. "${lib}" && . "${libGenia}" && ${script}`], { env });
-    let stdout = '';
-    let stderr = '';
-    c.stdout.on('data', (b) => (stdout += b));
-    c.stderr.on('data', (b) => (stderr += b));
-    c.on('exit', (status) => resolve({ status, stdout, stderr }));
-  });
-}
-
+/** lib.sh + lib-genia.sh 를 읽고 함수(셸 한 줄)를 부른다 — 동기·비동기(같은 프로세스의 가짜 HTTP 서버(마켓플레이스)가 응답할 수 있게). */
+const callLib = (env, script) => h.callLib([lib, libGenia], env, script);
+const callLibAsync = (env, script) => h.callLibAsync([lib, libGenia], env, script);
 /** 엔트리포인트를 뒤에서 띄운다 — 끝나기를 기다리는 exited 와 지금까지의 로그. */
-function startEntrypoint(t, env) {
-  const child = spawn(entrypoint, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  child.stdout.on('data', (b) => (log += b));
-  child.stderr.on('data', (b) => (log += b));
-  const exited = new Promise((r) => child.on('exit', (code, signal) => r({ code, signal })));
-  t.after(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-  });
-  return { child, exited, log: () => log };
-}
-
-async function until(cond, what, ms = 30000, log = () => '') {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (cond()) return;
-    await sleep(100);
-  }
-  assert.fail(`기다리다 시간이 지났습니다: ${what}\n${log()}`);
-}
+const startEntrypoint = (t, env) => h.startEntrypoint(t, entrypoint, env);
 
 const appDirOf = (f) => f.d('work', '.genia-app');
-/** 지금까지 돈 감독 회차 수(tick 이 state/supervise-ticks 에 적는다) — 시간 대신 회차를 기다린다. */
-const ticks = (f) => {
-  try {
-    return Number(readFileSync(f.d('work', 'agents', 'kodi', 'state', 'supervise-ticks'), 'utf8').trim()) || 0;
-  } catch {
-    return 0;
-  }
-};
+/** 지금까지 돈 감독 회차 수 — 시간 대신 회차를 기다린다. */
+const ticks = (f) => h.ticks(f.d('work', 'agents', 'kodi'));
 const BOOT = 'check_required && prepare_dirs && genia_ca';
 
 // ---------------------------------------------------------------- genia 받기(install_genia)
@@ -548,7 +483,8 @@ test('dockerfileDoesNotBakeGeniaProgram', () => {
   // 사내 프로그램은 공개 이미지에 넣지 않는다 — 배포 서버 주소·배포본 파일을 Dockerfile 이 받지 않는다. 공용 함수는 Claude 이미지의 것을 COPY.
   const dockerfile = readFileSync(join(appDir, 'Dockerfile'), 'utf8');
   assert.doesNotMatch(dockerfile, /genia-code-server|linux-x64\.tar\.gz/);
-  assert.match(dockerfile, /COPY --chmod=755 apps\/workplace-agent-claude-code\/bin\/lib\.sh apps\/workplace-agent-claude-code\/bin\/agent-screen \/opt\/genia\/bin\//);
+  assert.match(dockerfile, /^COPY --chmod=755 apps\/workplace-agent-claude-code\/bin\/lib\.sh \/opt\/genia\/bin\/lib\.sh$/m);
+  assert.match(dockerfile, /^COPY --chmod=755 apps\/workplace-agent-claude-code\/bin\/agent-screen apps\/workplace-agent-genia-code\/bin\/ \/opt\/genia\/bin\/$/m);
   assert.match(dockerfile, /COPY plugins\/genia-works\/genia\/ \/opt\/genia\/plugin\/genia-works\/genia\//);
   assert.doesNotMatch(dockerfile, /plugins\/genia-works\/tests|^RUN .*chmod/m);
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/bin\/tini", "--", "\/opt\/genia\/bin\/entrypoint"\]/);

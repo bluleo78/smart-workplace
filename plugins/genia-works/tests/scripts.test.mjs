@@ -1454,6 +1454,132 @@ test('gw-status: 보고가 실패해도(서버 오류·닿지 못함·이상한 
   assert.deepEqual([noKey.status, noKey.stdout], [0, 'RUN\n']);
 });
 
+// ---------------------------------------------------------------- gw-models — 로그인 계정 모델 목록 보고 (WP-1297)
+
+/** 표준 입력(input)을 넣고 비동기로 돌린다 — runAsync 는 표준 입력이 없어 모델 목록을 읽는 gw-models 용으로 따로 둔다. */
+function runAsyncWithInput(cmd, args, input, env = {}) {
+  const p = spawn(join(scripts, cmd), args, { env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, ...env } });
+  let stdout = '';
+  let stderr = '';
+  p.stdout.on('data', (d) => (stdout += d));
+  p.stderr.on('data', (d) => (stderr += d));
+  p.stdin.end(input);
+  return new Promise((r) => p.on('close', (status) => r({ status, stdout, stderr })));
+}
+
+const MODELS_BODY = '{"models":[{"id":"gpt-6-luna","label":"GPT-6-Luna","efforts":["low","medium","high"]}]}';
+
+test('gw-models: GENIA_AGENT_GENERATION 이 없으면(Works 가 띄운 AI 아님) 서버에 보내지 않고 조용히 끝난다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ status: 204, body: '' });
+  try {
+    const r = await runAsyncWithInput('gw-models', [], MODELS_BODY, { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url });
+    assert.deepEqual([r.status, r.stdout, r.stderr], [0, '', '']);
+    assert.equal(srv.reqs.length, 0);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-models: generation 이 있으면 AI 키·워크스페이스 헤더로 표준 입력 본문에 loginVersion 을 덧붙여 PUT 한다 — 키는 내지 않는다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ status: 204, body: '' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7', GENIA_LOGIN_VERSION: '42', GENIA_WORKS_TENANT: '3' };
+  try {
+    const r = await runAsyncWithInput('gw-models', [], MODELS_BODY + '\n', env);
+    assert.deepEqual([r.status, r.stdout, r.stderr], [0, '', '']);
+    const [q] = srv.reqs;
+    assert.equal(q.method, 'PUT');
+    assert.equal(q.url, '/api/v1/agent-runtime/me/models');
+    assert.equal(q.headers.authorization, 'Bearer ak_FAKE_DEV');
+    assert.equal(q.headers['x-on-behalf-of-tenant'], '3');
+    assert.equal(q.headers['content-type'], 'application/json');
+    // 표준 입력의 {models} 에 Pod 의 로그인 version(연결 id)을 숫자로 덧붙인다 — 입력이 이미 loginVersion 을 가져도 Pod 의 값으로 덮는다.
+    assert.deepEqual(JSON.parse(q.body), { ...JSON.parse(MODELS_BODY), loginVersion: 42 });
+    const over = await runAsyncWithInput('gw-models', [], '{"loginVersion":1,"models":[]}', env);
+    assert.equal(over.status, 0);
+    assert.deepEqual(JSON.parse(srv.reqs[1].body), { loginVersion: 42, models: [] });
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-models: GENIA_LOGIN_VERSION 이 없으면(로그인 없음) 서버에 보내지 않고 조용히 끝난다 — 숫자가 아니면 경고하고 보내지 않는다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ status: 204, body: '' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' };
+  try {
+    const none = await runAsyncWithInput('gw-models', [], MODELS_BODY, env);
+    assert.deepEqual([none.status, none.stdout, none.stderr], [0, '', '']);
+    const empty = await runAsyncWithInput('gw-models', [], MODELS_BODY, { ...env, GENIA_LOGIN_VERSION: '' });
+    assert.deepEqual([empty.status, empty.stdout, empty.stderr], [0, '', '']);
+    const bad = await runAsyncWithInput('gw-models', [], MODELS_BODY, { ...env, GENIA_LOGIN_VERSION: '4x"' });
+    assert.equal(bad.status, 0);
+    assert.match(bad.stderr, /^gw-models: GENIA_LOGIN_VERSION/);
+    assert.equal(srv.reqs.length, 0);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-models: 보고가 실패해도(서버 오류·400·닿지 못함·JSON 아님·키 없음) 경고 한 줄만 내고 종료 0 — 키는 내지 않는다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_AGENT_GENERATION: '7', GENIA_LOGIN_VERSION: '42' };
+  for (const status of [500, 400, 401]) {
+    const srv = await fakeStatusServer({ status, body: '{}' });
+    try {
+      const r = await runAsyncWithInput('gw-models', [], MODELS_BODY, { ...env, GENIA_WORKS_API_URL: srv.url });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.match(r.stderr, /^gw-models: .*HTTP \d+/);
+      assert.equal(r.stderr.trim().split('\n').length, 1);
+      assert.doesNotMatch(r.stderr, /ak_FAKE_DEV/);
+    } finally {
+      srv.close();
+    }
+  }
+  const down = 'http://127.0.0.1:9/api/v1';
+  const unreachable = await runAsyncWithInput('gw-models', [], MODELS_BODY, { ...env, GENIA_WORKS_API_URL: down });
+  assert.deepEqual([unreachable.status, unreachable.stdout], [0, '']);
+  assert.match(unreachable.stderr, /^gw-models: /);
+  // curl -d 는 '@' 로 시작하면 파일을 읽는다 — JSON 객체가 아닌 입력은 보내지 않는다.
+  for (const bad of ['', 'not json', '@/etc/passwd', '["x"]', '{"models":[' + '"가나다",'.repeat(20000) + ']}']) {
+    const srv = await fakeStatusServer({ status: 204, body: '' });
+    try {
+      const r = await runAsyncWithInput('gw-models', [], bad, { ...env, GENIA_WORKS_API_URL: srv.url });
+      assert.equal(r.status, 0);
+      assert.match(r.stderr, /^gw-models: /);
+      assert.equal(srv.reqs.length, 0);
+    } finally {
+      srv.close();
+    }
+  }
+  const noKey = await runAsyncWithInput('gw-models', [], MODELS_BODY, { GENIA_AGENT_GENERATION: '7', GENIA_LOGIN_VERSION: '42', GENIA_WORKS_API_URL: down });
+  assert.deepEqual([noKey.status, noKey.stdout], [0, '']);
+  assert.match(noKey.stderr, /^gw-models: AI 키 신원이 아니어서/);
+});
+
+test('gw-models: generation 은 있는지만 본다(서버에 보내지 않는다) — 숫자가 아니어도 보고하고, JSON 문서가 둘 이상인 입력은 보내지 않는다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ status: 204, body: '' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: 'x', GENIA_LOGIN_VERSION: '42' };
+  try {
+    const ok = await runAsyncWithInput('gw-models', [], MODELS_BODY, env);
+    assert.deepEqual([ok.status, ok.stdout, ok.stderr], [0, '', '']);
+    assert.equal(srv.reqs.length, 1);
+    assert.equal(JSON.parse(srv.reqs[0].body).loginVersion, 42);
+    // 이어 붙인 JSON 문서(여러 줄 본문이 되는 입력)·빈 객체 둘은 거절한다.
+    for (const multi of [MODELS_BODY + MODELS_BODY, MODELS_BODY + '\n' + MODELS_BODY + '\n', '{}{}']) {
+      const r = await runAsyncWithInput('gw-models', [], multi, env);
+      assert.equal(r.status, 0);
+      assert.match(r.stderr, /^gw-models: /);
+    }
+    assert.equal(srv.reqs.length, 1);
+  } finally {
+    srv.close();
+  }
+});
+
 // ---------------------------------------------------------------- 상시 알림 감시 — agent-events·gw-events --all/--lock (WP-1252)
 // 「연결됨」은 AI 의 알림 SSE 가 지금 열려 있는지로 정해진다 — AI 마다 tmux 창(events) 하나가 SSE 를 들고 wake 줄을
 // <AI 폴더>/state/events.log 에 쓰고, work-loop 칸의 Monitor 는 agent-events tail 로 그 파일만 따라간다.
