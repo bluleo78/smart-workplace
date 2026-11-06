@@ -448,7 +448,7 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
 
   @Test
   void 위키_첨부가_테넌트_사용량에_집계된다() throws Exception {
-    // 쿼터 "검사" 가 아니라 "집계" 자체를 고정한다 — sumWikiAttachmentBytes 항을 빼면 여기서 걸린다.
+    // 쿼터 "검사" 가 아니라 "집계" 자체를 고정한다 — 노트 첨부가 사용량(file 전체 기준, WP-1391)에서 빠지면 여기서 걸린다.
     long before = quotaService.usedBytes();
 
     var res = upload(editorId, pageId, pngFile("counted.png", 50));

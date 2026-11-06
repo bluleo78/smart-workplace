@@ -1,10 +1,10 @@
-// 가상 첨부를 출처 위치(이슈·채널)별로 묶는 순수 함수.
-import type { VirtualAttachment } from '@/types/drive'
+// 가상 첨부를 출처 위치(이슈·이슈챗·채널)별로 묶는 순수 함수.
+import type { VirtualAttachment, VirtualAttachmentSource } from '@/types/drive'
 
 /** 출처 위치별 첨부 그룹. key = `${sourceType}|${deepLink}`. */
 export interface AttachmentGroup {
   key: string
-  sourceType: 'ISSUE' | 'MESSAGE'
+  sourceType: VirtualAttachmentSource
   sourceLabel: string
   deepLink: string
   items: VirtualAttachment[]

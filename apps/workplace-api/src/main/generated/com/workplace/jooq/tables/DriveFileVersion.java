@@ -177,7 +177,7 @@ public class DriveFileVersion extends TableImpl<DriveFileVersionRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_DRIVE_FILE_VERSION_FILE, Indexes.IDX_DRIVE_FILE_VERSION_TENANT);
+        return Arrays.asList(Indexes.IDX_DRIVE_FILE_VERSION_FILE, Indexes.IDX_DRIVE_FILE_VERSION_FILE_ID, Indexes.IDX_DRIVE_FILE_VERSION_TENANT);
     }
 
     @Override

@@ -15,10 +15,9 @@ public class DriveQuotaController {
 
   private final DriveQuotaService quota;
 
-  /** 현재 테넌트 드라이브 사용량/한도를 반환한다. */
+  /** 현재 테넌트 저장 공간 사용량/한도와 종류별 내역·메일 첨부 캐시를 반환한다(WP-1391). */
   @GetMapping("/quota")
   public DriveQuotaResponse getQuota() {
-    DriveQuotaService.QuotaView v = quota.view();
-    return new DriveQuotaResponse(v.usedBytes(), v.quotaBytes());
+    return DriveQuotaResponse.from(quota.view());
   }
 }

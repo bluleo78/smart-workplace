@@ -110,7 +110,7 @@ class DriveQuotaViewRlsRegressionTest extends IntegrationTestBase {
 
   /**
    * 커밋된 시드 전량 회수(FK 안전 순서). 비-@Transactional 테스트라 시드가 실제 커밋되므로, 남기면 {@code
-   * DriveQuotaRepositoryTest.빈_공간은_사용량_0}(sum==0) 등 형제 테스트를 깨뜨린다(#512).
+   * DriveFileQuotaEnforceTest} 처럼 사용량을 기준으로 한도를 잡는 형제 테스트의 기준선을 흔든다(#512).
    */
   @AfterEach
   void cleanup() {

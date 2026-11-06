@@ -147,13 +147,15 @@ public class WikiAttachmentService {
   }
 
   /**
-   * 새 첨부 {@code count}개(합계 {@code totalBytes})를 이 페이지에 더해도 되는지 상한을 본다 — 업로드(1개)와 스테이징 클레임(WP-424,
-   * 여러 개)이 같은 판정을 쓴다. 묶음으로 보므로 현재 + count 가 상한을 넘으면 거절한다(count=1 이면 "현재 >= 상한" 과 같다). 쿼터는 드라이브+노트
-   * 매핑 바이트만 세므로 아직 안 묶인 새 바이트를 이 시점에 더해 본다.
+   * 새 첨부 {@code count}개를 이 페이지에 더해도 되는지 상한을 본다 — 업로드(1개)와 스테이징 클레임(WP-424, 여러 개)이 같은 판정을 쓴다. 묶음으로
+   * 보므로 현재 + count 가 상한을 넘으면 거절한다(count=1 이면 "현재 >= 상한" 과 같다).
+   *
+   * <p>{@code newBytes} 는 <b>아직 file 행이 아닌</b> 새 바이트다. 사용량은 내부 카테고리를 뺀 file 행 전체라(WP-1391), 이미 file
+   * 행인 스테이징 파일은 사용량에 들어 있다 — 클레임은 0 을 넘겨야 이중 계산되지 않는다(0 이어도 이미 한도를 넘었으면 막힌다).
    */
-  private void guardNewAttachments(long pageId, String body, int count, long totalBytes) {
+  private void guardNewAttachments(long pageId, String body, int count, long newBytes) {
     guardNewAttachments(
-        pageId, body, new HashSet<>(attachments.fileIdsOfPage(pageId)), count, totalBytes);
+        pageId, body, new HashSet<>(attachments.fileIdsOfPage(pageId)), count, newBytes);
   }
 
   /**
@@ -161,7 +163,7 @@ public class WikiAttachmentService {
    * 호출자용.
    */
   private void guardNewAttachments(
-      long pageId, String body, Set<Long> bound, int count, long totalBytes) {
+      long pageId, String body, Set<Long> bound, int count, long newBytes) {
     // #759 (A) 매핑 총개수 하드 실링 — 아래의 해소 가능한 상한과 직교한다. 참조를 지우면 아래 상한은 풀리지만
     // 매핑과 blob 은 강등 유예(demote-grace-hours)가 끝날 때까지 남으므로, 그 창 안에서의 폭주를 막을
     // 상한이 따로 필요하다. 정상 사용자는 닿지 않는 값이다.
@@ -184,10 +186,9 @@ public class WikiAttachmentService {
       throw WikiAttachmentLimitException.resolvable(pageId, maxPerPage);
     }
 
-    // #759 (B) 테넌트 쿼터 — 위키 첨부도 이제 집계에 포함된다. 드라이브 업로드와 같은 advisory lock 을
-    // 공유해야 한다(다른 클래스를 쓰면 위키·드라이브 업로드가 같은 한도를 나란히 통과한다) — 락+검사가
-    // 한 메서드로 묶여 있어 순서를 조립할 여지가 없다.
-    quota.assertWithinQuotaLocked(totalBytes);
+    // #759 (B) 테넌트 쿼터 — 드라이브 업로드와 같은 advisory lock 을 공유해야 한다(다른 클래스를 쓰면
+    // 위키·드라이브 업로드가 같은 한도를 나란히 통과한다) — 락+검사가 한 메서드로 묶여 있어 순서를 조립할 여지가 없다.
+    quota.assertWithinQuotaLocked(newBytes);
   }
 
   /**
@@ -240,7 +241,6 @@ public class WikiAttachmentService {
     if (!toClaim.isEmpty()) {
       List<StagedFile> staged =
           stagedFileClaimer.claim(callerId, toClaim, StagedFileClaimer.Retention.KEEP_TEMPORARY);
-      long totalBytes = 0;
       Map<Long, String> sniffed = new HashMap<>();
       for (StagedFile f : staged) {
         if (f.sizeBytes() > maxImageSizeBytes) {
@@ -255,10 +255,10 @@ public class WikiAttachmentService {
                     () ->
                         new WikiAttachmentRejectedException(
                             "이미지 파일(PNG·JPEG·GIF·WebP)만 노트에 넣을 수 있습니다: " + f.originalName())));
-        totalBytes += f.sizeBytes();
       }
       // 이 페이지에 묶인 파일은 위에서 읽은 그대로다(새 파일은 아래에서야 묶는다) — 다시 조회하지 않는다.
-      guardNewAttachments(pageId, detail.body(), onPage, staged.size(), totalBytes);
+      // 스테이징 파일은 이미 file 행이라 사용량에 들어 있으므로 새 바이트는 0 이다(WP-1391 — 더하면 이중 계산).
+      guardNewAttachments(pageId, detail.body(), onPage, staged.size(), 0L);
 
       OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plusHours(tempExpiryHours);
       for (StagedFile f : staged) {

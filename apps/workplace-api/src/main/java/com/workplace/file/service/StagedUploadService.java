@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.api.StorageQuotaGuard;
 import com.workplace.file.dto.StagedFileResponse;
 import com.workplace.file.dto.StagedUploadLinkResponse;
 import com.workplace.file.exception.FileSizeLimitExceededException;
@@ -91,6 +92,9 @@ public class StagedUploadService {
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
 
+  /** 저장 공간 한도(WP-1391) — 스테이징 file 행도 사용량에 들어가므로 바이트를 쓰기 전에 본다. 구현은 drive 의 쿼터 서비스. */
+  private final StorageQuotaGuard quotaGuard;
+
   /** 외부에서 닿는 웹 기준 주소(끝 슬래시 제거). 운영은 WEB_BASE_URL. */
   private final String publicBaseUrl;
 
@@ -112,6 +116,7 @@ public class StagedUploadService {
       TenantStatusChecker tenantStatusChecker,
       AuditLogService auditLogService,
       UserRepository userRepository,
+      StorageQuotaGuard quotaGuard,
       @Value("${workplace.public-base-url}") String publicBaseUrl,
       @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}") long linkMaxBytes,
       @Value("${workplace.storage.attachment.temp-expiry-hours:24}") int tempExpiryHours,
@@ -126,6 +131,7 @@ public class StagedUploadService {
     this.tenantStatusChecker = tenantStatusChecker;
     this.auditLogService = auditLogService;
     this.userRepository = userRepository;
+    this.quotaGuard = quotaGuard;
     this.publicBaseUrl = CapabilityTokens.normalizeBaseUrl(publicBaseUrl);
     this.linkMaxBytes = linkMaxBytes;
     this.tempExpiryHours = tempExpiryHours;
@@ -149,6 +155,8 @@ public class StagedUploadService {
     if (bytes.length > TEXT_MAX_BYTES) {
       throw new FileSizeLimitExceededException("TEXT", TEXT_MAX_BYTES, safeName);
     }
+    // 한도 검사는 바이트를 쓰기 전, 같은 트랜잭션 안에서 — 잠금이 file INSERT 커밋까지 유지된다.
+    quotaGuard.assertWithinQuotaLocked(bytes.length);
     String relativePath = pathBuilder.build(StorageDomain.STAGED, safeName);
     fileStore.storeBytes(relativePath, bytes);
     fileStore.deleteOnRollback(relativePath);
@@ -167,6 +175,7 @@ public class StagedUploadService {
     String mime =
         MimeNormalizer.concreteOrOctetStream(
             MimeNormalizer.normalize(safeName, file.getContentType()));
+    quotaGuard.assertWithinQuotaLocked(file.getSize());
     String relativePath = pathBuilder.build(StorageDomain.STAGED, safeName);
     fileStore.store(relativePath, file);
     fileStore.deleteOnRollback(relativePath);
@@ -277,6 +286,8 @@ public class StagedUploadService {
   @Transactional
   public StagedFileResponse completeUpload(
       StagedLinkRow link, BoundedBody.Received body, String clientIp, String userAgent) {
+    // 받은 본문 크기로 한도를 본다 — 넘치면 409 이고 링크는 이미 소비됐다(크기 초과 400 과 같이 새 링크가 필요하다).
+    quotaGuard.assertWithinQuotaLocked(body.size());
     String relativePath = pathBuilder.build(StorageDomain.STAGED, link.fileName());
     try {
       fileStore.storeFrom(relativePath, body.path());

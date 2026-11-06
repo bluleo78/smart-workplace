@@ -15,14 +15,14 @@ import { DriveAttachmentsView } from '@/pages/drive/DriveAttachmentsView'
 import { IssueAttachmentStrip } from '@/pages/projects/components/IssueAttachmentStrip'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import { renderScreen } from '@/test/renderScreen'
-import type { VirtualAttachment } from '@/types/drive'
+import type { VirtualAttachment, VirtualAttachmentSource } from '@/types/drive'
 
 import { createFile, personalSpace } from '../../../e2e/factories/drive.factory'
 
 const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 
 /** 가상 첨부 하나. */
-function att(fileId: number, name: string, sourceType: 'ISSUE' | 'MESSAGE', label: string, link: string, url: string, extra: Partial<VirtualAttachment> = {}): VirtualAttachment {
+function att(fileId: number, name: string, sourceType: VirtualAttachmentSource, label: string, link: string, url: string, extra: Partial<VirtualAttachment> = {}): VirtualAttachment {
   return { fileId, name, mimeType: 'image/png', sizeBytes: 100, hasThumbnail: false, sourceType, sourceLabel: label, deepLink: link, downloadUrl: url, attachedAt: '2026-07-01T10:00:00Z', ...extra }
 }
 
@@ -127,10 +127,48 @@ describe('목록', () => {
     expect(screen.getByTestId('drive-attachment-filter-all')).toHaveAttribute('aria-pressed', 'false')
   })
 
+  // WP-1391: 「이슈챗」 칩은 이슈와 메시지 사이에 있고, 누르면 source=CHAT_MESSAGE 로 다시 조회한다.
+  // 이슈챗 묶음은 「메시지」가 아니라 「이슈챗」 배지(이슈·메시지와 다른 색)로 보인다.
+  test('이슈챗 칩은 source=CHAT_MESSAGE 로 다시 조회하고, 이슈챗 묶음은 「이슈챗」 배지다', async () => {
+    const urls: URL[] = []
+    const issueFile = att(401, 'design.png', 'ISSUE', 'WP-42', '/projects/WP/issues/42', '/api/v1/files/401/download')
+    const chatFile = att(402, 'trace.log', 'CHAT_MESSAGE', 'WP-42 이슈챗', '/projects/WP/issues/42?tab=chat', '/api/v1/files/402/download', { mimeType: 'text/plain' })
+    const { user } = renderView({
+      urls,
+      list: (url) => ({ items: url.searchParams.get('source') === 'CHAT_MESSAGE' ? [chatFile] : [issueFile, chatFile], nextCursor: null }),
+    })
+    const chatRow = await screen.findByTestId('drive-attachment-row-402', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const chatGroup = chatRow.closest('[data-testid="drive-attachment-group"]') as HTMLElement
+    const chatBadge = within(chatGroup).getByTestId('drive-attachment-group-badge')
+    expect(chatBadge).toHaveTextContent('이슈챗')
+    const issueGroup = screen.getByTestId('drive-attachment-row-401').closest('[data-testid="drive-attachment-group"]') as HTMLElement
+    const issueBadge = within(issueGroup).getByTestId('drive-attachment-group-badge')
+    expect(issueBadge).toHaveTextContent('이슈')
+    expect(chatBadge.className).not.toBe(issueBadge.className)
+
+    // 칩 순서: 전체 → 이슈 → 이슈챗 → 메시지.
+    const chips = [...document.querySelectorAll('[data-testid^="drive-attachment-filter-"]')].map((el) => el.textContent)
+    expect(chips).toEqual(['전체', '이슈', '이슈챗', '메시지'])
+
+    await user.click(screen.getByTestId('drive-attachment-filter-chat_message'))
+    await waitFor(() => expect(screen.queryByTestId('drive-attachment-row-401')).not.toBeInTheDocument())
+    expect(urls.at(-1)?.searchParams.get('source')).toBe('CHAT_MESSAGE')
+    expect(screen.getByTestId('drive-attachment-filter-chat_message')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  // WP-1391: 머리 아래 한 줄로 세는 기준을 알린다 — 사이드바 저장 공간과 숫자가 다른 이유.
+  test('머리 아래에 세는 기준 설명이 있다', async () => {
+    renderView()
+    expect(await screen.findByTestId('drive-attachments-description', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(
+      '내가 참여한 프로젝트·채널·이슈챗의 첨부입니다 — 내가 올린 파일만이 아니며, 저장 공간 사용량과 세는 기준이 다릅니다.',
+    )
+  })
+
   // 첨부가 없으면 빈 화면 안내.
   test('빈 응답이면 「첨부가 없어요」 안내', async () => {
     renderView({ list: () => ({ items: [], nextCursor: null }) })
     await waitFor(() => expect(screen.getByTestId('drive-attachments-view')).toHaveTextContent('첨부가 없어요'), { timeout: PAGE_LOAD_TIMEOUT })
+    expect(screen.getByTestId('drive-attachments-view')).toHaveTextContent('접근 가능한 이슈·이슈챗·메시지의 첨부가 여기에 모입니다')
   })
 
   // 「내 드라이브에 저장」 → 폴더 창(개인 공간) → 확정하면 import-attachment 에 그 첨부 fileId 를 보낸다.

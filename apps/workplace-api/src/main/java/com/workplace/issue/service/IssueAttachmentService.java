@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.api.StorageQuotaGuard;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.dto.ExtractedTextSlice;
@@ -51,6 +52,9 @@ public class IssueAttachmentService {
   private final StagedFileClaimer stagedFileClaimer;
   private final DriveFileUsage driveFileUsage;
 
+  /** 테넌트 저장 공간 한도 검사(WP-1391) — 이슈 첨부도 사용량에 들어간다. */
+  private final StorageQuotaGuard quota;
+
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
@@ -91,6 +95,9 @@ public class IssueAttachmentService {
     if (current + files.size() > maxPerIssue) {
       throw new AttachmentLimitExceededException(current, files.size(), maxPerIssue);
     }
+
+    // 저장 공간 한도(WP-1391) — 저장 전에 이번 업로드 합계로, 드라이브와 같은 잠금 아래 검사한다(락은 커밋 때 풀린다).
+    quota.assertWithinQuotaLocked(files.stream().mapToLong(MultipartFile::getSize).sum());
 
     // 3) 디스크 저장 + 매핑 INSERT — 트랜잭션 안에서 일괄 수행.
     List<IssueAttachmentResponse> added = new ArrayList<>();

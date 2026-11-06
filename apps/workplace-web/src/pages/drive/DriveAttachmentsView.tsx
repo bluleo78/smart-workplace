@@ -1,5 +1,5 @@
-// #80: 드라이브 가상 첨부 뷰 — 이슈/메시지에서 업로드된 파일을 시간순 플랫 리스트로 표시.
-// 출처 필터(전체/이슈/메시지) + 이름 검색 + 행별 "저장"(내 드라이브 임포트) 지원.
+// #80: 드라이브 가상 첨부 뷰 — 이슈/이슈챗/메시지에서 업로드된 파일을 시간순 플랫 리스트로 표시.
+// 출처 필터(전체/이슈/이슈챗/메시지, WP-1391 에서 이슈챗 추가) + 이름 검색 + 행별 "저장"(내 드라이브 임포트) 지원.
 
 import { ChevronDown, Paperclip } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -24,11 +24,14 @@ import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
-import type { VirtualAttachment } from '@/types/drive'
+import type { VirtualAttachment, VirtualAttachmentSource } from '@/types/drive'
 
 import { groupAttachments } from './groupAttachments'
 
-type SourceFilter = 'ALL' | 'ISSUE' | 'MESSAGE'
+type SourceFilter = 'ALL' | VirtualAttachmentSource
+
+/** 필터칩 순서 — 이슈챗은 이슈에 딸린 대화라 이슈와 메시지 사이에 둔다(WP-1391 시안). */
+const SOURCE_FILTERS = ['ALL', 'ISSUE', 'CHAT_MESSAGE', 'MESSAGE'] as const satisfies readonly SourceFilter[]
 
 /** 열린 첨부가 속한 그룹이 없을 때의 빈 목록 — 매 렌더 같은 배열이라 묶음 변환 memo 가 깨지지 않는다. */
 const NO_ATTACHMENTS: VirtualAttachment[] = []
@@ -36,10 +39,18 @@ const NO_ATTACHMENTS: VirtualAttachment[] = []
 const SOURCE_LABELS: Record<SourceFilter, string> = {
   ALL: '전체',
   ISSUE: '이슈',
+  CHAT_MESSAGE: '이슈챗',
   MESSAGE: '메시지',
 }
 
-/** 이슈/메시지 가상 첨부 뷰 — 출처 필터칩 + 이름 검색 + 행별 드라이브 저장. */
+/** 그룹 머리 배지 색 — 출처마다 다른 색이라 섞여 있어도 한눈에 구분된다(이슈챗은 이슈·메시지와 겹치지 않는 INDIGO). */
+const SOURCE_BADGE_CLASS: Record<VirtualAttachmentSource, string> = {
+  ISSUE: `${LABEL_COLORS.PURPLE.bg} ${LABEL_COLORS.PURPLE.text}`,
+  CHAT_MESSAGE: `${LABEL_COLORS.INDIGO.bg} ${LABEL_COLORS.INDIGO.text}`,
+  MESSAGE: `${LABEL_COLORS.CYAN.bg} ${LABEL_COLORS.CYAN.text}`,
+}
+
+/** 이슈/이슈챗/메시지 가상 첨부 뷰 — 출처 필터칩 + 이름 검색 + 행별 드라이브 저장. */
 export function DriveAttachmentsView() {
   const [source, setSource] = useState<SourceFilter>('ALL')
   const [q, setQ] = useState('')
@@ -98,10 +109,18 @@ export function DriveAttachmentsView() {
   return (
     <Page data-testid="drive-attachments-view">
       <Page.Header title="첨부 모아보기" mobile="hidden" />
+      {/* 세는 기준 안내(WP-1391) — 여기 목록은 「내가 볼 수 있는 곳의 첨부」라 사이드바 저장 공간(테넌트 전체 사용량)과
+          숫자가 맞지 않는다. 둘을 비교해 헷갈리지 않도록 머리 바로 아래 한 줄로 알린다. */}
+      <p
+        data-testid="drive-attachments-description"
+        className={cn('shrink-0 pt-2 text-xs text-muted-foreground', pageGutterClass)}
+      >
+        내가 참여한 프로젝트·채널·이슈챗의 첨부입니다 — 내가 올린 파일만이 아니며, 저장 공간 사용량과 세는 기준이 다릅니다.
+      </p>
       {/* 출처 필터칩 + 검색 — 헤더 아래 본문 첫 줄. 목록을 스크롤해도 남도록 스크롤 영역 밖에 둔다. */}
       <div className={cn('flex shrink-0 items-center gap-2 border-b py-2', pageGutterClass)}>
         {isMobile && search}
-        {(['ALL', 'ISSUE', 'MESSAGE'] as const).map((s) => (
+        {SOURCE_FILTERS.map((s) => (
           <button
             key={s}
             type="button"
@@ -130,13 +149,12 @@ export function DriveAttachmentsView() {
           <ChatEmptyState
             icon={<Paperclip className="h-10 w-10" />}
             title="첨부가 없어요"
-            description="접근 가능한 이슈·메시지의 첨부가 여기에 모입니다"
+            description="접근 가능한 이슈·이슈챗·메시지의 첨부가 여기에 모입니다"
           />
         ) : (
           <div>
             {groups.map((g) => {
               const isCollapsed = collapsed.has(g.key)
-              const isIssue = g.sourceType === 'ISSUE'
               return (
                 <div key={g.key} data-testid="drive-attachment-group" data-group-key={g.key}>
                   {/* 그룹 헤더 — 셰브론(토글) + 유형 배지 + 출처 라벨(딥링크) */}
@@ -155,13 +173,10 @@ export function DriveAttachmentsView() {
                       />
                     </button>
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        isIssue
-                          ? `${LABEL_COLORS.PURPLE.bg} ${LABEL_COLORS.PURPLE.text}`
-                          : `${LABEL_COLORS.CYAN.bg} ${LABEL_COLORS.CYAN.text}`
-                      }`}
+                      data-testid="drive-attachment-group-badge"
+                      className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold', SOURCE_BADGE_CLASS[g.sourceType])}
                     >
-                      {isIssue ? '이슈' : '메시지'}
+                      {SOURCE_LABELS[g.sourceType]}
                     </span>
                     <a
                       href={g.deepLink}

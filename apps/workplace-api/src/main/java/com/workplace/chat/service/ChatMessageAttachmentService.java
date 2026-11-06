@@ -6,6 +6,7 @@ import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.api.StorageQuotaGuard;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
@@ -54,6 +55,9 @@ public class ChatMessageAttachmentService {
   /** 전송 시 스테이징 파일 클레임(WP-423) — 소유·임시·미바인딩 검증과 영구 승격을 한곳에서 한다. */
   private final StagedFileClaimer claimer;
 
+  /** 테넌트 저장 공간 한도 검사(WP-1391) — 이슈챗 첨부도 사용량에 들어간다. */
+  private final StorageQuotaGuard quota;
+
   /** 파일 1개당 최대 크기(바이트). 기본 25MB. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -71,7 +75,8 @@ public class ChatMessageAttachmentService {
       ApplicationEventPublisher eventPublisher,
       ExtractedTextService extractedText,
       ChatIssueAttachmentService issueAttachments,
-      StagedFileClaimer claimer) {
+      StagedFileClaimer claimer,
+      StorageQuotaGuard quota) {
     this.storage = storage;
     this.repo = repo;
     this.messageRepo = messageRepo;
@@ -81,6 +86,7 @@ public class ChatMessageAttachmentService {
     this.extractedText = extractedText;
     this.issueAttachments = issueAttachments;
     this.claimer = claimer;
+    this.quota = quota;
   }
 
   /**
@@ -105,6 +111,8 @@ public class ChatMessageAttachmentService {
                 maxFileSize, mf.getOriginalFilename()));
       }
     }
+    // 저장 공간 한도(WP-1391) — 저장 전에 이번 업로드 합계로, 드라이브와 같은 잠금 아래 검사한다(락은 커밋 때 풀린다).
+    quota.assertWithinQuotaLocked(files.stream().mapToLong(MultipartFile::getSize).sum());
     List<UploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
       // 저장소가 돌려준 표시 이름·정규화 mime 을 그대로 응답에 쓴다 — 저장값과 응답값이 갈라지지 않는다(WP-242).

@@ -163,14 +163,18 @@ export interface Backlink {
   deepLink: string
 }
 
-/** 이슈/메시지에서 업로드된 파일을 드라이브 가상 첨부로 표현한 DTO. */
+/** 가상 첨부의 출처 종류 — 백엔드 AttachmentSourceProvider.sourceType() 과 같은 값. */
+export type VirtualAttachmentSource = 'ISSUE' | 'CHAT_MESSAGE' | 'MESSAGE'
+
+/** 이슈/이슈챗/메시지에서 업로드된 파일을 드라이브 가상 첨부로 표현한 DTO. */
 export interface VirtualAttachment {
   fileId: number
   name: string
   mimeType: string
   sizeBytes: number
   hasThumbnail: boolean
-  sourceType: 'ISSUE' | 'MESSAGE'
+  /** 출처 — 이슈 첨부·이슈챗(CHAT_MESSAGE) 첨부·채팅 메시지 첨부(WP-1391 에서 이슈챗 추가). */
+  sourceType: VirtualAttachmentSource
   sourceLabel: string
   deepLink: string
   downloadUrl: string
@@ -183,10 +187,30 @@ export interface VirtualAttachmentPage {
   nextCursor: string | null
 }
 
+/**
+ * 저장 공간 종류별 내역(WP-1391) — 단위 바이트. 한 파일은 한 종류로만 세므로 합이 usedBytes 와 같다.
+ * - drive: 휴지통이 아닌 드라이브 파일(옛 버전 포함) · trash: 휴지통
+ * - wiki: 노트 첨부 · issue: 이슈 첨부·본문 이미지 · issueChat: 이슈챗 첨부
+ * - otherAttachments: 채팅·홈·메일 초안 첨부(보낸 메일 사본 포함) · unlinked: 올리는 중·임시(어디에도 안 묶인 파일)
+ */
+export interface DriveQuotaBreakdown {
+  drive: number
+  trash: number
+  wiki: number
+  issue: number
+  issueChat: number
+  otherAttachments: number
+  unlinked: number
+}
+
 /** 드라이브 쿼터 — 백엔드 DriveQuotaResponse 와 1:1. */
 export interface DriveQuota {
   usedBytes: number
   quotaBytes: number
+  /** 종류별 내역 — 롤링 배포 중 옛 API 는 주지 않으므로 옵셔널(없으면 합계만 보인다). */
+  breakdown?: DriveQuotaBreakdown
+  /** 메일 첨부 임시 보관 바이트 — 한도에 넣지 않고 보여 주기만 한다. 옛 API 면 없다. */
+  mailCacheBytes?: number
 }
 
 // #82: 벌크 선택 — fileIds + folderIds 를 함께 다루는 공통 DTO.

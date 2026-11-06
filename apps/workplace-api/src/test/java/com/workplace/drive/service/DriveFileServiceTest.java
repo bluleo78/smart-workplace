@@ -347,9 +347,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
   /**
    * C1 회귀 테스트(#79): 복사된 파일이 quota 집계 대상에 포함되고 v1 버전 행이 생성된다.
    *
-   * <p>이전에는 copy() 가 drive_file 만 삽입하고 drive_file_version 을 생성하지 않아 sumDriveUsageBytes
-   * (drive_file_version JOIN 기반)에서 복사본이 누락됐다(quota bypass). 이 테스트는 원본 업로드 후 복사했을 때 usedBytes 가 원본
-   * 크기만큼 증가하고 복사본에 정확히 1개의 버전 행이 존재함을 검증한다.
+   * <p>이전에는 copy() 가 drive_file 만 삽입하고 drive_file_version 을 생성하지 않아 당시 드라이브 사용량 집계
+   * (drive_file_version JOIN 기반)에서 복사본이 누락됐다(quota bypass). 지금 집계(WP-1391)는 file 전체 기준이다. 이 테스트는 원본
+   * 업로드 후 복사했을 때 usedBytes 가 원본 크기만큼 증가하고 복사본에 정확히 1개의 버전 행이 존재함을 검증한다.
    */
   @Test
   void copy_countsTowardQuota_andHasOneVersionRow() throws Exception {

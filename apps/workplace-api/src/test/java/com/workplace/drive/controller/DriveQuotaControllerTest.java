@@ -48,7 +48,10 @@ class DriveQuotaControllerTest extends WebMvcSliceTestBase {
     when(jwtTokenProvider.getUserIdFromToken("test-token")).thenReturn(1L);
     when(permissionService.getUserPermissions(1L)).thenReturn(Set.of());
     // 기본 10 GB 한도, 사용 0 으로 스텁
-    when(quotaService.view()).thenReturn(new DriveQuotaService.QuotaView(0L, 10737418240L));
+    when(quotaService.view())
+        .thenReturn(
+            new DriveQuotaService.QuotaView(
+                0L, 10737418240L, new DriveQuotaService.Breakdown(0, 0, 0, 0, 0, 0, 0), 0L));
   }
 
   /** 인증 사용자가 조회하면 사용량/한도 JSON 반환. */
@@ -59,6 +62,31 @@ class DriveQuotaControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.usedBytes").value(0))
         .andExpect(jsonPath("$.quotaBytes").value(10737418240L));
+  }
+
+  /** 종류별 내역과 메일 첨부 캐시도 함께 내려준다(WP-1391) — 기존 usedBytes·quotaBytes 는 그대로. */
+  @Test
+  void 쿼터_조회는_종류별_내역과_메일_캐시를_함께_준다() throws Exception {
+    when(quotaService.view())
+        .thenReturn(
+            new DriveQuotaService.QuotaView(
+                28L, 100L, new DriveQuotaService.Breakdown(1, 2, 3, 4, 5, 6, 7), 9L));
+    mockMvc
+        .perform(get("/api/v1/drive/quota").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.usedBytes").value(28))
+        .andExpect(jsonPath("$.quotaBytes").value(100))
+        .andExpect(jsonPath("$.breakdown.drive").value(1))
+        .andExpect(jsonPath("$.breakdown.trash").value(2))
+        .andExpect(jsonPath("$.breakdown.wiki").value(3))
+        .andExpect(jsonPath("$.breakdown.issue").value(4))
+        .andExpect(jsonPath("$.breakdown.issueChat").value(5))
+        .andExpect(jsonPath("$.breakdown.otherAttachments").value(6))
+        .andExpect(jsonPath("$.breakdown.unlinked").value(7))
+        // 내역은 서비스 레코드를 그대로 쓰므로 계산 메서드(total())가 키로 새지 않는지 고정한다 — 일곱 키뿐.
+        .andExpect(jsonPath("$.breakdown.length()").value(7))
+        .andExpect(jsonPath("$.breakdown.total").doesNotExist())
+        .andExpect(jsonPath("$.mailCacheBytes").value(9));
   }
 
   /** 미인증 요청은 401. */

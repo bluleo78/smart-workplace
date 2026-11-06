@@ -2,6 +2,7 @@ package com.workplace.messaging.service;
 
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.api.StorageQuotaGuard;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.ExtractionProfile;
@@ -55,6 +56,9 @@ public class MessageAttachmentService {
   /** WP-358: 추출 텍스트 구간 읽기(공용 fileai). */
   private final ExtractedTextService extractedText;
 
+  /** 테넌트 저장 공간 한도 검사(WP-1391) — 채팅 첨부도 사용량에 들어간다. */
+  private final StorageQuotaGuard quota;
+
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
@@ -71,7 +75,8 @@ public class MessageAttachmentService {
       ExtractedTextService extractedText,
       StagedFileClaimer claimer,
       ChannelRepository channelRepo,
-      ChannelPermissions perms) {
+      ChannelPermissions perms,
+      StorageQuotaGuard quota) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
@@ -82,6 +87,7 @@ public class MessageAttachmentService {
     this.claimer = claimer;
     this.channelRepo = channelRepo;
     this.perms = perms;
+    this.quota = quota;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
@@ -100,6 +106,8 @@ public class MessageAttachmentService {
         throw new MessageAttachmentTooLargeException(mf.getOriginalFilename(), maxFileSize);
       }
     }
+    // 저장 공간 한도(WP-1391) — 저장 전에 이번 업로드 합계로, 드라이브와 같은 잠금 아래 검사한다(락은 커밋 때 풀린다).
+    quota.assertWithinQuotaLocked(files.stream().mapToLong(MultipartFile::getSize).sum());
     List<UploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
       Long id = storage.storeTemporary(mf, callerId);

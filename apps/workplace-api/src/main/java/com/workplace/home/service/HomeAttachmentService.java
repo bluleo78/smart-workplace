@@ -3,6 +3,7 @@ package com.workplace.home.service;
 import com.workplace.chat.service.ChatMessageAttachmentStorage;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.api.StorageQuotaGuard;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
@@ -85,6 +86,9 @@ public class HomeAttachmentService {
    */
   private final StagedFileClaimer claimer;
 
+  /** 테넌트 저장 공간 한도 검사(WP-1391) — 홈 첨부도 사용량에 들어간다. */
+  private final StorageQuotaGuard quota;
+
   /** 파일 1개당 최대 크기(바이트) — 이슈 챗과 같은 설정. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -104,6 +108,8 @@ public class HomeAttachmentService {
     for (MultipartFile mf : files) {
       if (mf.getSize() > maxFileSize) throw new HomeAttachmentInvalidException(MSG_TOO_LARGE);
     }
+    // 저장 공간 한도(WP-1391) — 저장 전에 이번 업로드 합계로, 드라이브와 같은 잠금 아래 검사한다(락은 커밋 때 풀린다).
+    quota.assertWithinQuotaLocked(files.stream().mapToLong(MultipartFile::getSize).sum());
     List<HomeUploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
       ChatMessageAttachmentStorage.Stored stored;

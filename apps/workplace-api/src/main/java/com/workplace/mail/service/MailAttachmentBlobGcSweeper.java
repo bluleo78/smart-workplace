@@ -1,10 +1,10 @@
 package com.workplace.mail.service;
 
 import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
-import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.api.MailBlobConditions;
 import com.workplace.mail.repository.MailAttachmentPreviewRepository;
 import com.workplace.tenant.repository.TenantRepository;
 import java.io.IOException;
@@ -19,7 +19,6 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.jooq.DSLContext;
-import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -130,7 +129,8 @@ public class MailAttachmentBlobGcSweeper {
     Long tenantId = TenantContext.get();
     OffsetDateTime cutoff = OffsetDateTime.now().minusDays(ttlDays);
 
-    // 1) 삭제 대상 blob(id, file_ref) 수집 — TTL 초과 OR refcount-0.
+    // 1) 삭제 대상 blob(id, file_ref) 수집 — TTL 초과(로컬 보낸 메일 사본 제외, WP-574) OR refcount-0.
+    //    로컬 보낸 메일 판별은 사용량 집계(drive 쿼터)와 같은 MailBlobConditions.localSent() 를 쓴다.
     List<BlobRow> doomed =
         txTemplate.execute(
             status ->
@@ -140,7 +140,7 @@ public class MailAttachmentBlobGcSweeper {
                         MAIL_ATTACHMENT_BLOB
                             .LAST_ACCESSED_AT
                             .lt(cutoff)
-                            .and(DSL.notExists(localSentReference()))
+                            .and(MailBlobConditions.localSent().not())
                             .or(
                                 DSL.notExists(
                                     dsl.selectOne()
@@ -176,20 +176,6 @@ public class MailAttachmentBlobGcSweeper {
 
     // 5) 미리보기 refcount-0 정리.
     sweepUnreferencedPreviews(tenantId);
-  }
-
-  /**
-   * 이 blob 해시를 참조하는 로컬 보낸 메일 첨부(WP-574) — 보낸 메일 행은 imap_uid·provider_message_id 가 모두 NULL 이다(V141 과
-   * 같은 판별). 그런 첨부는 다시 받을 원본이 없으므로 TTL 로 퇴거하지 않는다.
-   */
-  private Select<?> localSentReference() {
-    return dsl.selectOne()
-        .from(CONTENT_ATTACHMENT)
-        .join(EMAIL_MESSAGE)
-        .on(EMAIL_MESSAGE.CONTENT_ID.eq(CONTENT_ATTACHMENT.CONTENT_ID))
-        .where(CONTENT_ATTACHMENT.CONTENT_HASH.eq(MAIL_ATTACHMENT_BLOB.CONTENT_HASH))
-        .and(EMAIL_MESSAGE.IMAP_UID.isNull())
-        .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNull());
   }
 
   /**
