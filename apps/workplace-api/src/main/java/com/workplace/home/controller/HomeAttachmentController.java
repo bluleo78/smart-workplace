@@ -1,5 +1,6 @@
 package com.workplace.home.controller;
 
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.FileSecurityCheckService;
@@ -10,7 +11,6 @@ import com.workplace.home.dto.HomeUploadedFile;
 import com.workplace.home.service.HomeAttachmentService;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
@@ -52,13 +52,6 @@ public class HomeAttachmentController {
     return service.upload(callerId, files);
   }
 
-  /**
-   * inline 으로 내려줄 mime — 웹 썸네일·ai-agent 이미지 블록이 쓰는 4종. 그 외(특히 사용자가 올린 HTML·SVG)는 attachment 로 내려
-   * API 출처에서 렌더되지 않게 한다(CONTRACT NOTE 1).
-   */
-  private static final Set<String> INLINE_MIMES =
-      Set.of("image/jpeg", "image/png", "image/gif", "image/webp");
-
   /** 세션 첨부 목록 — 요약 경계 이전 메시지의 첨부까지 메시지·파일 순. */
   @GetMapping("/sessions/{sid}/attachments")
   public List<HomeAttachment> list(@AuthenticationPrincipal Long callerId, @PathVariable UUID sid) {
@@ -99,7 +92,7 @@ public class HomeAttachmentController {
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(mediaTypeOf(f.mimeType()));
     ContentDisposition.Builder disposition =
-        INLINE_MIMES.contains(f.mimeType())
+        MimeNormalizer.INLINE_CONTENT_MIMES.contains(f.mimeType())
             ? ContentDisposition.inline()
             : ContentDisposition.attachment();
     headers.setContentDisposition(

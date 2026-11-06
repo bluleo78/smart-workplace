@@ -3,6 +3,7 @@ package com.workplace.file.controller;
 import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.global.security.RequirePermission;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -55,10 +56,13 @@ public class FileUploadController {
 
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.parseMediaType(result.mimeType()));
+    // WP-1406: 이미지 4종만 inline, 그 외(html·svg 등)는 attachment 로 내려 API 출처에서 렌더되지 않게 한다.
+    ContentDisposition.Builder disposition =
+        MimeNormalizer.INLINE_CONTENT_MIMES.contains(result.mimeType())
+            ? ContentDisposition.inline()
+            : ContentDisposition.attachment();
     headers.setContentDisposition(
-        ContentDisposition.inline()
-            .filename(result.originalName(), StandardCharsets.UTF_8)
-            .build());
+        disposition.filename(result.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(result.size());
     // WP-1323: 드라이브 파일 원본도 이 경로로 읽을 수 있다 — AI 가 만든 text/html·svg 가 이 출처로 실행되지 않게 샌드박스.
     headers.set("Content-Security-Policy", "sandbox");

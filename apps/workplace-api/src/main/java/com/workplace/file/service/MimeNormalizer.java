@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import org.springframework.http.InvalidMediaTypeException;
@@ -21,6 +22,13 @@ import org.springframework.http.MediaType;
  * 표를 미러하므로 한쪽만 고치면 드리프트가 발생한다.
  */
 public final class MimeNormalizer {
+
+  /**
+   * Content-Disposition: inline 으로 내려줄 mime — 웹 썸네일·ai-agent 이미지 블록이 쓰는 이미지 4종. 그 외(특히 사용자가 올린
+   * HTML·SVG)는 attachment 로 내려 API 출처에서 렌더되지 않게 한다 (WP-1406, 홈 첨부 CONTRACT NOTE 1 과 같은 정책).
+   */
+  public static final Set<String> INLINE_CONTENT_MIMES =
+      Set.of("image/jpeg", "image/png", "image/gif", "image/webp");
 
   private MimeNormalizer() {}
 
