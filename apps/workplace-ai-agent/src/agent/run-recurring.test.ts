@@ -2,16 +2,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 인-프로세스 러너·MCP 서버를 모킹 — 호출 인자만 검증(LLM/네트워크 미실행).
-vi.mock('./sdk-runner.js', () => ({
-  runSdkCollect: vi.fn().mockResolvedValue([]),
-}));
+// WP-1407: runRecurring 은 collect 대신 stream 을 쓴다 — 기존 테스트가 runSdkCollect 로 정한 라인을 runSdkStream 이 그대로 흘리게 잇는다.
+// 이벤트를 흘린 뒤 실패(시간 초과)하는 경우는 테스트가 runSdkStream 을 직접 바꾼다.
+vi.mock('./sdk-runner.js', () => {
+  const runSdkCollect = vi.fn().mockResolvedValue([]);
+  const runSdkStream = vi.fn((input: unknown, onLine: (line: string) => void) => ({
+    done: Promise.resolve(runSdkCollect(input)).then((lines: string[] | undefined) => {
+      for (const l of lines ?? []) onLine(l);
+    }),
+    kill: () => {},
+  }));
+  return { runSdkCollect, runSdkStream };
+});
+vi.mock('../logger.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('./sdk-mcp-server.js', () => ({
   buildInProcessWorkplaceMcpServer: vi.fn(() => ({ __sentinel: 'workplace-mcp' })),
 }));
 
 import { AxiosError, AxiosHeaders } from 'axios';
 import { REPORT_RETRY_DELAYS_MS, runRecurring } from './run-recurring.js';
-import { runSdkCollect } from './sdk-runner.js';
+import { runSdkCollect, runSdkStream } from './sdk-runner.js';
+import { RunnerLimitError } from './runner-limit.js';
+import { log } from '../logger.js';
 import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { RECURRING_RUN_SYSTEM_PROMPT } from './system-prompt.js';
 import { AGENT_INSTRUCTIONS_HEADER } from './agent-instructions.js';
@@ -225,7 +237,10 @@ describe('runRecurring', () => {
     vi.mocked(runSdkCollect).mockRejectedValue(new Error('timeout after 300000ms\nstack...'));
     const c = client();
     await runRecurring(payload, { client: c });
-    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, { runId: '3-1790000000', ok: false, message: 'timeout after 300000ms' });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body).toMatchObject({ runId: '3-1790000000', ok: false });
+    // 일반 오류는 첫 줄을 사유로, 실행 기록 요약을 함께 싣는다.
+    expect(body.message).toMatch(/^timeout after 300000ms — 걸린 시간 \d+초 \/ 한도 30분 · 줄 대기 0초\n모델 호출 0회 · 도구 호출 0회 · 마지막 단계: 모델 응답 대기 \d+초$/);
   });
 
   it('결과가 비면 ok:false', async () => {
@@ -413,7 +428,7 @@ describe('runRecurring — 테스트 실행', () => {
     await runRecurring(testRun, { client: c }, { test: true });
     const body = c.scoped.reportRecurringRun.mock.calls[0][2];
     expect(body).toMatchObject({ runId: '3-t1790000000123', ok: true, question: true, pausedActions: [{ tool: 'send_mail', args: mail }] });
-    expect(body.message).toContain('실행이 중간에 끝났습니다(AI 실행이 정상적으로 끝나지 않았습니다)');
+    expect(body.message).toContain('실행이 중간에 끝났습니다(AI 실행이 정상적으로 끝나지 않았습니다 — 걸린 시간');
     expect(body.message).toContain('메일 보내기 (`send_mail`)');
     expect(body.message).toContain('주간 보고');
   });
@@ -428,7 +443,7 @@ describe('runRecurring — 테스트 실행', () => {
     await runRecurring(testRun, { client: c }, { test: true });
     const body = c.scoped.reportRecurringRun.mock.calls[0][2];
     expect(body).toMatchObject({ ok: true, question: true, pausedActions: [{ tool: 'delete_event', args: { eventId: 7 } }] });
-    expect(body.message).toContain('실행이 중간에 끝났습니다(timeout after 300000ms)');
+    expect(body.message).toContain('실행이 중간에 끝났습니다(timeout after 300000ms — 걸린 시간');
     expect(body.message).toContain('일정 지우기 (`delete_event`)');
   });
 
@@ -436,11 +451,10 @@ describe('runRecurring — 테스트 실행', () => {
     vi.mocked(runSdkCollect).mockResolvedValue([resultLine('error_max_turns', '')]);
     const c = client();
     await runRecurring(testRun, { client: c }, { test: true });
-    expect(c.scoped.reportRecurringRun).toHaveBeenCalledWith(201, 3, {
-      runId: '3-t1790000000123',
-      ok: false,
-      message: 'AI 실행이 정상적으로 끝나지 않았습니다',
-    });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body).toMatchObject({ runId: '3-t1790000000123', ok: false });
+    // 테스트 실행은 회차 시각이 없어 줄 대기를 적지 않는다.
+    expect(body.message).toMatch(/^AI 실행이 정상적으로 끝나지 않았습니다 — 걸린 시간 \d+초 \/ 한도 30분\n/);
   });
 
   it('테스트 질문의 이어 처리는 그 질문이 멈춘 쓰기만 허락받고, 허락된 쓰기를 지시문에 보인다', async () => {
@@ -473,5 +487,237 @@ describe('runRecurring — 테스트 실행', () => {
     expect(mcp.profile).toBe('recurring');
     expect(mcp.hostBridge).toBeUndefined();
     expect(mcp.recurringPermits).toBeUndefined();
+  });
+});
+
+// WP-1407: 반복 상한(대화형과 따로)·실행 기록(로그·실패 글 요약)·같은 AI 동시 실행 수.
+describe('runRecurring — 반복 상한·실행 기록', () => {
+  const ENV_KEYS = [
+    'WORKPLACE_AI_RECURRING_TIMEOUT_MS',
+    'WORKPLACE_AI_RECURRING_MAX_TURNS',
+    'WORKPLACE_AI_TIMEOUT_MS',
+    'WORKPLACE_AI_MAX_TURNS',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of ENV_KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    vi.mocked(runSdkCollect).mockReset();
+    vi.mocked(runSdkStream).mockClear();
+    vi.mocked(log.info).mockClear();
+    vi.mocked(log.warn).mockClear();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    vi.restoreAllMocks();
+  });
+
+  // 러너에 넘긴 상한 — Claude 러너는 runSdkStream 입력(SdkRunInput)에 그대로 싣는다.
+  async function limitsPassed(): Promise<{ timeoutMs: number; maxTurns: number }> {
+    vi.mocked(runSdkCollect).mockResolvedValue([resultLine('success', 'ok')]);
+    await runRecurring(payload, { client: client() });
+    const input = vi.mocked(runSdkStream).mock.calls.at(-1)![0];
+    return { timeoutMs: input.timeoutMs, maxTurns: input.maxTurns };
+  }
+
+  // Claude SDK 라인 — assistant 메시지(도구 호출 하나)와 그 도구 결과.
+  const assistantTool = (name: string, input: unknown = { secret: 'arg-value' }) =>
+    JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name, input }], usage: { input_tokens: 100, output_tokens: 20 } },
+    });
+  const toolResult = () => JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: '본문' }] } });
+
+  // 라인을 흘린 뒤 err 로 실패하는 스트림 — 시간 초과처럼 끝나기 전에 받은 이벤트가 기록에 남는지 본다.
+  function streamThenFail(lines: string[], err: Error) {
+    vi.mocked(runSdkStream).mockImplementationOnce((_i, onLine) => ({
+      done: (async () => {
+        for (const l of lines) onLine(l);
+        throw err;
+      })(),
+      kill: () => {},
+    }));
+  }
+
+  it('env 가 없으면 반복 상한 30분·60턴이다', async () => {
+    expect(await limitsPassed()).toEqual({ timeoutMs: 1_800_000, maxTurns: 60 });
+  });
+
+  it('WORKPLACE_AI_RECURRING_* 로 덮어쓰고, 대화형 env 는 반복에 영향이 없다', async () => {
+    process.env.WORKPLACE_AI_RECURRING_TIMEOUT_MS = '1234';
+    process.env.WORKPLACE_AI_RECURRING_MAX_TURNS = '7';
+    process.env.WORKPLACE_AI_TIMEOUT_MS = '1';
+    process.env.WORKPLACE_AI_MAX_TURNS = '2';
+    expect(await limitsPassed()).toEqual({ timeoutMs: 1234, maxTurns: 7 });
+  });
+
+  it.each(['', 'abc', '0', '-5'])('잘못된 값(%j)이면 기본값', async (bad) => {
+    process.env.WORKPLACE_AI_RECURRING_TIMEOUT_MS = bad;
+    process.env.WORKPLACE_AI_RECURRING_MAX_TURNS = bad;
+    expect(await limitsPassed()).toEqual({ timeoutMs: 1_800_000, maxTurns: 60 });
+  });
+
+  it('시간 초과 — 사람 말 사유·걸린 시간·한도·줄 대기·호출 요약을 보고하고 내부 문구는 싣지 않는다', async () => {
+    streamThenFail(
+      [assistantTool('mcp__workplace__list_issues'), toolResult(), assistantTool('mcp__workplace__update_issue'), toolResult()],
+      new RunnerLimitError('timeout', 'agent:issue.recurring_run:P1-3:201 timeout after 1800000ms'),
+    );
+    const c = client();
+    // 회차 시각보다 12분 3초 늦게 보냈다 — 줄 대기.
+    await runRecurring({ ...payload, occurredAt: '2026-09-21T14:25:23Z' }, { client: c });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body.ok).toBe(false);
+    expect(body.message).toContain('실행 시간 한도를 넘겼습니다');
+    expect(body.message).toContain('걸린 시간');
+    expect(body.message).toContain('한도 30분');
+    expect(body.message).toContain('줄 대기 12분 3초');
+    // 같은 AI 동시 실행 수는 사용자 글에 싣지 않는다 — API 줄이 겹침을 막아 잡음이다(로그에만 남긴다).
+    expect(body.message).not.toContain('함께 돈');
+    expect(body.message).toContain('모델 호출 2회');
+    expect(body.message).toContain('도구 호출 2회(list_issues 1, update_issue 1)');
+    expect(body.message).toContain('마지막 단계: 모델 응답 대기');
+    expect(body.message).not.toContain('timeout after');
+    expect(body.message).not.toContain('agent:issue');
+
+    // 실패 기록 로그 — warn, 숫자·이름만.
+    const [, event, fields] = vi.mocked(log.warn).mock.calls.find((c) => c[1] === 'recurring_run_trace')!;
+    expect(event).toBe('recurring_run_trace');
+    expect(fields).toMatchObject({ outcome: 'timeout', modelCalls: 2, toolCalls: 2, waitMs: 723_000, lastStep: 'model_wait' });
+    expect(JSON.stringify(fields)).not.toContain('arg-value');
+  });
+
+  // 리뷰: stream 경로에서도 제공자 오류(success + is_error, WP-1347)를 성공 결과로 남기지 않고, 원인 문구를 사유에 싣는다.
+  // 러너(runSdkStream)는 그때 「<logTag> result is_error: <원인>」으로 던진다(sdk-runner.test.ts) — 여기서는 그 오류를 받은 회차의 보고를 본다.
+  it('제공자 오류 result 면 ok:false, 사유에 원인 문구(로그 태그 없이)', async () => {
+    streamThenFail(
+      [JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: '401 invalid x-api-key' })],
+      new Error('agent:issue.recurring_run:P1-3:201 result is_error: 401 invalid x-api-key'),
+    );
+    const c = client();
+    await runRecurring(payload, { client: c });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body.ok).toBe(false);
+    expect(body.message).toMatch(/^result is_error: 401 invalid x-api-key — 걸린 시간/);
+    expect(c.scoped.reportRecurringRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('러너가 던지지 않아도 result 가 is_error 면 성공으로 보고하지 않는다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([
+      JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: 529 Overloaded' }),
+    ]);
+    const c = client();
+    await runRecurring(payload, { client: c });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body.ok).toBe(false);
+    expect(body.message).toMatch(/^AI 실행이 정상적으로 끝나지 않았습니다/);
+  });
+
+  it('최대 턴 — 「최대 턴(60)에 닿았습니다」', async () => {
+    streamThenFail([], new RunnerLimitError('max_turns', 'Reached maximum number of turns'));
+    const c = client();
+    await runRecurring(payload, { client: c });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body.message).toMatch(/^최대 턴\(60\)에 닿았습니다 — /);
+  });
+
+  it('성공 회차도 실행 기록 로그를 남기고, 도구 인자·결과·본문은 싣지 않는다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([
+      assistantTool('mcp__workplace__list_issues', { query: '비밀-인자' }),
+      toolResult(),
+      resultLine('success', '## 결과 본문'),
+    ]);
+    await runRecurring(payload, { client: client() });
+    const call = vi.mocked(log.info).mock.calls.find((c) => c[1] === 'recurring_run_trace')!;
+    expect(call[2]).toMatchObject({ outcome: 'ok', issueKey: 'P1-3', runId: '3-1790000000', modelCalls: 1, toolCalls: 1, tools: { list_issues: 1 } });
+    const json = JSON.stringify(call[2]);
+    expect(json).not.toContain('비밀-인자');
+    expect(json).not.toContain('결과 본문');
+    expect(json).not.toContain('본문');
+  });
+
+  it('API 가 보낸 대로 바로 실행한다 — 같은 AI 두 회차가 겹치면 각자 로그에 concurrentSameAgent 1, 다른 AI 면 0', async () => {
+    // 실행 기록 로그(warn)에서 runId 로 그 실행의 같은 AI 동시 실행 수를 찾는다 — 사용자 글에는 싣지 않는다.
+    const concurrentOf = (runId: string) =>
+      vi
+        .mocked(log.warn)
+        .mock.calls.filter((c) => c[1] === 'recurring_run_trace' && (c[2] as { runId?: string }).runId === runId)
+        .map((c) => (c[2] as { concurrentSameAgent?: number }).concurrentSameAgent);
+    // 두 실행이 모두 러너를 시작할 때까지 끝내지 않는다 — 서로 기다리지 않고 둘 다 시작하는지도 본다.
+    let started = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.mocked(runSdkStream).mockImplementation(() => {
+      started += 1;
+      if (started === 2) release();
+      return {
+        done: gate.then(() => {
+          throw new RunnerLimitError('timeout', 'x timeout after 1ms');
+        }),
+        kill: () => {},
+      };
+    });
+    const a = client();
+    const b = client();
+    await Promise.all([
+      runRecurring(payload, { client: a }),
+      runRecurring({ ...payload, issueId: 4, runId: '4-1790000000' }, { client: b }),
+    ]);
+    expect(started).toBe(2);
+    expect(concurrentOf('3-1790000000')).toEqual([1]);
+    expect(concurrentOf('4-1790000000')).toEqual([1]);
+    expect(a.scoped.reportRecurringRun.mock.calls[0][2].message).not.toContain('함께 돈');
+
+    vi.mocked(log.warn).mockClear();
+
+    started = 0;
+    const c1 = client();
+    const c2 = client();
+    let release2!: () => void;
+    const gate2 = new Promise<void>((r) => (release2 = r));
+    vi.mocked(runSdkStream).mockImplementation(() => {
+      started += 1;
+      if (started === 2) release2();
+      return {
+        done: gate2.then(() => {
+          throw new RunnerLimitError('timeout', 'x timeout after 1ms');
+        }),
+        kill: () => {},
+      };
+    });
+    await Promise.all([
+      runRecurring(payload, { client: c1 }),
+      runRecurring({ ...payload, actingAgentId: 202, runId: '3-1790000001' }, { client: c2 }),
+    ]);
+    expect(concurrentOf('3-1790000000')).toEqual([0]);
+    expect(concurrentOf('3-1790000001')).toEqual([0]);
+  });
+
+  it('테스트 실행이 멈춘 쓰기가 있는데 시간 초과면 질문 글에 같은 사유(원인·걸린 시간·요약)가 들어간다', async () => {
+    vi.mocked(runSdkStream).mockImplementationOnce((_i, onLine) => ({
+      done: (async () => {
+        const bridge = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls.at(-1)?.[0].hostBridge;
+        bridge?.onProposal({ actionType: 'send_mail', summary: '', params: { subject: '보고' } });
+        onLine(assistantTool('mcp__workplace__send_mail'));
+        throw new RunnerLimitError('timeout', 'x timeout after 1ms');
+      })(),
+      kill: () => {},
+    }));
+    const c = client();
+    await runRecurring({ ...payload, runId: '3-t1', round: undefined }, { client: c }, { test: true });
+    const body = c.scoped.reportRecurringRun.mock.calls[0][2];
+    expect(body).toMatchObject({ ok: true, question: true });
+    expect(body.message).toContain('실행이 중간에 끝났습니다(실행 시간 한도를 넘겼습니다 — 걸린 시간');
+    expect(body.message).toContain('도구 호출 1회(send_mail 1)');
+    expect(body.message).toContain('마지막 단계: 도구 실행 중(send_mail)');
+    // 테스트 실행은 회차 시각이 없어 줄 대기를 적지 않는다.
+    expect(body.message).not.toContain('줄 대기');
   });
 });

@@ -82,6 +82,16 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 기록을 바꾸지 않고, 결과 글에는 테스트 표시를 붙인다. 되돌릴 수 없는 쓰기는 ai-agent 가 멈추고 질문으로 남기며(issue.recurring_test_run),
  * 누른 사람이 답하면 이어 처리가 그 멈춘 쓰기만 실행한다. 한 반복에 결과를 기다리는 실행(정기 회차·이어 처리·테스트 실행)이나 정기 회차가 남긴 답을 기다리는 질문이
  * 있으면 누를 수 없고(409), 테스트 실행이 도는 동안 정기 회차가 되면 결과를 기다리는 회차처럼 미룬다(WP-989 규칙 재사용).
+ *
+ * <p>같은 AI 의 정기 회차는 줄을 서서 하나씩 나간다(WP-1407). 같은 AI 의 정각 회차 여럿이 같은 분에 함께 나가 한 모델 서버를 나눠 쓰다 시간 상한을 넘기고
+ * 연속 실패로 멈췄기 때문이다. 이 테넌트에 그 AI 의 결과를 기다리는 실행(정기 회차·이어 처리·테스트 실행, 묘비 포함)이 있으면 그 AI 의 다른 정기 회차는 보내지
+ * 않고 「대기 중」(WAITING, {@link #NOTE_QUEUED})으로 두고, 결과가 온 뒤의 폴(최대 1분 뒤)에서 회차 시각·이슈 id 순으로 하나씩 보낸다. 판단
+ * 근거가 DB 행이라 api·ai-agent 파드 수·롤링 배포와 무관하고, 보내지 않았으니 ai-agent 시간 상한과 결과 대기 시계가 줄 대기 동안 돌지 않는다. 이어
+ * 처리(사람이 답함)·「지금 실행」(사람이 누름)은 사람이 기다리니 줄을 서지 않고 바로 나가되, 「바쁨」에는 들어가 뒤의 정기 회차를 기다리게 한다. 줄은 테넌트
+ * 안에서만이다(RLS) — 같은 AI 가 다른 테넌트에 둔 반복과는 겹칠 수 있다.
+ *
+ * <p>넘친 회차는 「끝난 뒤 한 번만」 돈다(WP-1407 문서화 — 원래 동작). 결과를 기다리거나 줄에 선 동안 회차 시각은 그대로 두고, 보낼 때 다음 회차를 「지금
+ * 이후의 첫 회차」로 옮기므로 그사이 지난 시각은 한 번으로 합쳐진다(몰아서 돌리지 않는다). 회차 번호는 보낸 수 기준이라 합쳐진 회차는 번호를 쓰지 않는다.
  */
 @Slf4j
 @Service
@@ -95,6 +105,9 @@ public class IssueRecurrenceService {
   static final String NOTE_SCHEDULED = "반복 · 다음 회차 대기";
   static final String NOTE_RUNNING = "반복 회차 실행 중";
   static final String NOTE_STOPPED = "3회 연속 실패로 반복을 멈췄습니다";
+
+  /** 같은 AI 의 앞 실행이 끝나기를 기다리며 줄에 선 회차의 작업 메모(WP-1407) — 상태는 「대기 중」(WAITING). */
+  static final String NOTE_QUEUED = "같은 AI 의 앞 회차가 끝나기를 기다립니다";
 
   /** 이 횟수만큼 연속 실패하면 반복을 끈다. */
   static final int MAX_CONSECUTIVE_FAILURES = 3;
@@ -135,18 +148,13 @@ public class IssueRecurrenceService {
   /** 「한 번만」 예약(WP-1315)이 남긴 질문의 답을 기한(7일) 안에 받지 못해 작업 기록을 끝낼 때 남기는 메모. */
   static final String NOTE_ONCE_UNANSWERED = "질문의 답을 받지 못한 채 한 번만 실행을 마쳤습니다";
 
-  /**
-   * 보낸 회차의 결과를 이만큼 기다린다 — 넘으면 결과를 못 받은 회차로 보고 실패로 센 뒤 「다음 회차 대기」로 되돌린다(월 반복이 한 달 내내 작업 중으로 남지 않게).
-   */
-  static final Duration PENDING_TIMEOUT = Duration.ofMinutes(30);
-
   /** 이어 처리(WP-1312)가 도는 동안의 작업 메모. */
   static final String NOTE_FOLLOW_UP = "답을 받아 이어 처리 중";
 
   /** 실패한 이어 처리 글의 머리 — 정기 회차 실패와 달리 연속 실패로 세지 않는다. */
   static final String FOLLOW_UP_FAILED_PREFIX = "이어서 처리하지 못했습니다: ";
 
-  /** 결과를 {@link #PENDING_TIMEOUT} 안에 받지 못한 이어 처리를 비울 때 남기는 글. */
+  /** 결과를 결과 대기 시간({@link IssueRecurrenceProperties#pendingTimeout}) 안에 받지 못한 이어 처리를 비울 때 남기는 글. */
   static final String FOLLOW_UP_LOST = "이어 처리 결과를 받지 못했습니다";
 
   /** 이어 처리 결과 글이 비었을 때 대신 남기는 글. */
@@ -163,7 +171,7 @@ public class IssueRecurrenceService {
   /** 실패한 테스트 실행 글의 머리 — 연속 실패로 세지 않는다. */
   static final String TEST_FAILED_PREFIX = "테스트 실행을 하지 못했습니다: ";
 
-  /** 결과를 {@link #PENDING_TIMEOUT} 안에 받지 못한 테스트 실행을 비울 때 남기는 글. */
+  /** 결과를 결과 대기 시간({@link IssueRecurrenceProperties#pendingTimeout}) 안에 받지 못한 테스트 실행을 비울 때 남기는 글. */
   static final String TEST_LOST = "테스트 실행 결과를 받지 못했습니다";
 
   /** 테스트 실행 결과 글이 비었을 때 대신 남기는 글. */
@@ -217,6 +225,12 @@ public class IssueRecurrenceService {
   private final PlatformTransactionManager txManager;
   // 테스트 실행이 멈춘 쓰기 목록(WP-1313)을 반복 행에 JSON 으로 보관·복원한다.
   private final ObjectMapper objectMapper;
+
+  /**
+   * 보낸 회차의 결과를 기다리는 시간 등 반복 설정(WP-1407). 결과 대기가 넘으면 결과를 못 받은 회차로 보고 실패로 센 뒤 「다음 회차 대기」로 되돌린다(월 반복이
+   * 한 달 내내 작업 중으로 남지 않게). 이어 처리·테스트 실행의 대기 정리도 같은 값이다.
+   */
+  private final IssueRecurrenceProperties properties;
 
   // ───────────────────────────── REST(사람) ─────────────────────────────
 
@@ -406,11 +420,14 @@ public class IssueRecurrenceService {
    * 현재 테넌트(호출자가 연 테넌트 트랜잭션)에서 스케줄러 한 번의 일을 한다.
    *
    * <ol>
-   *   <li>대기 시간 초과 정리 — 보낸 지 {@link #PENDING_TIMEOUT} 이 지나도록 결과가 오지 않은 회차를 실패로 세고(「이전 회차 결과를 받지
-   *       못했습니다」) 작업을 「다음 회차 대기」로 되돌린다. 묘비는 지운다.
+   *   <li>대기 시간 초과 정리 — 보낸 지 결과 대기 시간({@link IssueRecurrenceProperties#pendingTimeout}, 기본 40분)이
+   *       지나도록 결과가 오지 않은 회차를 실패로 세고(「이전 회차 결과를 받지 못했습니다」) 작업을 「다음 회차 대기」로 되돌린다. 묘비는 지운다.
    *   <li>회차 실행 — 회차 시각이 된 반복마다 이슈 상태·담당을 확인한 뒤 회차 이벤트를 발행하고(커밋 뒤 ai-agent 로 나간다), 다음 회차를 「지금 이후의 첫
    *       회차」로 옮기고, AI 작업을 「작업 중」으로 바꾼다. 이슈가 끝났거나(삭제 포함) 담당에서 AI 가 빠졌으면 회차를 건너뛰고 반복을 거둔다({@link
-   *       #cancel} — 도는 회차가 있으면 묘비).
+   *       #cancel} — 도는 회차가 있으면 묘비). 다른 반복 때문에 바쁜 AI 의 회차는 읽지 않고(자기 실행을 기다리는 회차는 미룬다), AI 마다 가장 먼저
+   *       된 회차 하나만 읽는다(WP-1407 줄 — 한 AI 가 묶음을 차지하지 않게).
+   *   <li>줄 표시 — 회차 시각이 됐지만 같은 AI 가 바빠 못 보낸 회차 중 새로 줄에 선 것만 작업을 「대기 중」으로 바꾼다(WP-1407). 사람의 답을 기다리는
+   *       질문이 있는 회차는 그 질문 메모를 덮지 않게 표시하지 않는다. 이번 폴에서 보낸 회차로 바빠진 AI 의 나머지 회차도 같은 폴에서 잡히도록 보낸 뒤에 한다.
    * </ol>
    *
    * 보낸 회차 수를 돌려준다.
@@ -420,7 +437,8 @@ public class IssueRecurrenceService {
     // runOne 의 마지막 문장이라, 실패한 행은 이벤트를 내지 않는다.
     TransactionTemplate perRow = new TransactionTemplate(txManager);
     perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
-    for (IssueRecurrenceRow row : repository.lockStalePending(now.minus(PENDING_TIMEOUT))) {
+    Duration pendingTimeout = properties.pendingTimeout();
+    for (IssueRecurrenceRow row : repository.lockStalePending(now.minus(pendingTimeout))) {
       try {
         perRow.executeWithoutResult(status -> sweepOne(row));
       } catch (RuntimeException e) {
@@ -428,7 +446,7 @@ public class IssueRecurrenceService {
       }
     }
     // WP-1312: 결과를 오래 못 받은 이어 처리 — 실패로 세지 않고 비운 뒤 짧게 알린다.
-    for (IssueRecurrenceRow row : repository.lockStaleFollowUps(now.minus(PENDING_TIMEOUT))) {
+    for (IssueRecurrenceRow row : repository.lockStaleFollowUps(now.minus(pendingTimeout))) {
       try {
         perRow.executeWithoutResult(status -> sweepFollowUp(row));
       } catch (RuntimeException e) {
@@ -436,7 +454,7 @@ public class IssueRecurrenceService {
       }
     }
     // WP-1313: 결과를 오래 못 받은 테스트 실행 — 실패로 세지 않고 비운 뒤 짧게 알린다.
-    for (IssueRecurrenceRow row : repository.lockStaleTestRuns(now.minus(PENDING_TIMEOUT))) {
+    for (IssueRecurrenceRow row : repository.lockStaleTestRuns(now.minus(pendingTimeout))) {
       try {
         perRow.executeWithoutResult(status -> sweepTestRun(row));
       } catch (RuntimeException e) {
@@ -454,8 +472,10 @@ public class IssueRecurrenceService {
         log.warn("[recurrence] 한 번만 질문 기한 정리 실패 — 이 행만 건너뛴다. issueId={}", row.issueId(), e);
       }
     }
-    // 정리가 끝난 뒤에 읽는다 — 방금 실패로 센 회차를 결과 대기로 다시 보지 않게.
+    // 정리가 끝난 뒤에 읽는다 — 방금 실패로 센 회차를 결과 대기로 다시 보지 않게(앞 회차가 결과 대기 초과로 정리되면 같은 AI 의 다음 회차가
+    // 이 폴에서 나간다). lockDue 는 다른 반복 때문에 바쁜 AI 의 행을 이미 뺐다(WP-1407).
     int sent = 0;
+    // lockDue 는 AI 마다 첫 회차만 돌려주므로 같은 AI 의 회차는 한 폴에 하나만 나간다(WP-1407).
     for (IssueRecurrenceRow row : repository.lockDue(now)) {
       try {
         if (Boolean.TRUE.equals(perRow.execute(status -> runOne(row, now)))) sent++;
@@ -463,7 +483,32 @@ public class IssueRecurrenceService {
         log.warn("[recurrence] 반복 회차 처리 실패 — 이 행만 건너뛴다. issueId={}", row.issueId(), e);
       }
     }
+    // WP-1407: 보낸 뒤에 줄 표시를 한다 — 방금 보낸 회차로 바빠진 AI 의 나머지 회차도 이 폴에서 「대기 중」이 된다.
+    // 상태 변경과 줄 표시를 한 세이브포인트에 — 상태 변경이 실패하면 표시도 되돌아가 다음 폴이 다시 시도한다.
+    for (var queued : repository.lockQueueCandidates(now)) {
+      try {
+        perRow.executeWithoutResult(
+            status -> {
+              markWaiting(queued.issueId(), queued.agentUserId());
+              repository.markQueued(queued.issueId(), now);
+            });
+      } catch (RuntimeException e) {
+        log.warn("[recurrence] 줄 대기 표시 실패 — 이 행만 건너뛴다. issueId={}", queued.issueId(), e);
+      }
+    }
     return sent;
+  }
+
+  /**
+   * 줄에 새로 선 회차의 작업을 「대기 중」으로 바꾼다(WP-1407) — 이슈가 열려 있고 AI 가 담당일 때만(끝났거나 빠졌으면 회차를 보낼 차례에 {@link
+   * #runOne} 이 반복을 거둔다). 새로 줄에 선 순간 한 번만 불린다({@link
+   * IssueRecurrenceRepository#lockQueueCandidates}).
+   */
+  private void markWaiting(long issueId, long agentId) {
+    IssueRow issue = issueRepository.findById(issueId).orElse(null);
+    if (issue == null || !live(issue, agentId)) return;
+    log.info("[recurrence] 같은 AI 의 앞 실행 대기 — 회차를 줄 세운다. issueId={} agentId={}", issueId, agentId);
+    agentWorkService.startOrUpdateTracked(issueId, agentId, TOOL, queuedPatch());
   }
 
   /** 답 기한이 지난 끝난 「한 번만」 예약의 질문 하나(WP-1315) — 질문을 비우고 답을 기다리던 작업 기록을 끝낸다. 글은 남기지 않는다. */
@@ -547,17 +592,15 @@ public class IssueRecurrenceService {
       return false;
     }
 
-    // 다음 회차가 됐는데 지난 회차 결과를 아직 기다리는 중이다 — 보낸 지 PENDING_TIMEOUT 이 안 된 살아 있는 회차라(지난 것은 위
+    // 다음 회차가 됐는데 지난 회차 결과를 아직 기다리는 중이다 — 보낸 지 결과 대기 시간이 안 된 살아 있는 회차라(지난 것은 위
     // 정리가 이미 실패로 셌다) 실패로 세지 않고 이번 회차를 미룬다. 회차 시각은 그대로 두어, 결과가 오거나 대기가 끝난 뒤의 확인에서 보낸다.
     // 예: 09:00 회차를 보낸 뒤 09:03 에 시각을 09:05 로 당겨 저장한 경우(리뷰 PR #971).
-    if (row.pendingRunId() != null) {
-      log.info("[recurrence] 지난 회차 결과 대기 중 — 이번 회차를 미룬다. issueId={}", row.issueId());
-      return false;
-    }
-    // WP-1313: 「지금 실행」(테스트 실행)이 도는 중에 회차 시각이 됐다 — 같은 규칙으로 미룬다(같은 AI 가 같은 일을 겹쳐 돌리지 않게). 회차 시각은
-    // 그대로라 테스트 결과가 오거나 대기 시간이 지난 뒤의 확인(1분 간격)에서 보낸다 — 다음 회차 시각·회차 수는 바뀌지 않는다.
-    if (row.testRunId() != null) {
-      log.info("[recurrence] 테스트 실행 결과 대기 중 — 이번 회차를 미룬다. issueId={}", row.issueId());
+    // WP-1313: 「지금 실행」(테스트 실행)이 도는 중이어도 같은 규칙으로 미룬다(같은 AI 가 같은 일을 겹쳐 돌리지 않게). WP-1407: 이어 처리가
+    // 도는 중이어도 그 AI 가 바쁘니 이 반복의 정기 회차도 그 결과를 기다린다(줄). 어느 경우든 회차 시각·회차 수는 그대로라 결과가 오거나 대기 시간이
+    // 지난 뒤의 확인(1분 간격)에서 보낸다.
+    if (row.anyRunInFlight()) {
+      log.info(
+          "[recurrence] {} 결과 대기 중 — 이번 회차를 미룬다. issueId={}", inFlightRunLabel(row), row.issueId());
       return false;
     }
 
@@ -591,6 +634,15 @@ public class IssueRecurrenceService {
     // row 는 잠글 때 읽은 갱신 전 값이라 기준이 지난 회차를 보낸 시각이다.
     // 갱신 뒤 값을 쓰면 「지금 이후」 글만 찾아 늘 빈다.
     var chat = recentChat.read(row);
+    // WP-1407: 줄 대기 시간을 남긴다 — 줄에 섰으면 줄에 선 때부터, 아니면 회차 시각부터(폴 지연).
+    Instant waitFrom = row.queuedAt() != null ? row.queuedAt() : runAt;
+    log.info(
+        "[recurrence] 회차 보냄 issueId={} agentId={} runId={} waitedMs={} queued={}",
+        row.issueId(),
+        row.agentUserId(),
+        runId,
+        Math.max(0, Duration.between(waitFrom, now).toMillis()),
+        row.queuedAt() != null);
     repository.markDispatched(row.issueId(), runId, now, next);
     agentWorkService.startOrUpdateTracked(issue.id(), row.agentUserId(), TOOL, runningPatch());
     publisher.publishEvent(
@@ -903,6 +955,13 @@ public class IssueRecurrenceService {
     return new AgentWorkPatch(TOOL, null, note, false, null, null, null);
   }
 
+  /** 결과를 기다리는 실행의 이름 — 미룸 로그에 어느 실행 때문인지 남긴다(정기 회차가 먼저, 다음 테스트 실행, 이어 처리 순). */
+  private static String inFlightRunLabel(IssueRecurrenceRow row) {
+    if (row.pendingRunId() != null) return "지난 회차";
+    if (row.testRunId() != null) return "테스트 실행";
+    return "이어 처리";
+  }
+
   /**
    * 묘비(실행 중에 지운 반복)의 정기 회차나 이어 처리(WP-1312) 결과 하나가 끝났다(받았거나 오래 못 받음) — 다른 쪽 결과도 기다리지 않으면 행을 지우고,
    * 기다리면 끝난 쪽 대기만 비운다. body 가 있으면(받은 결과) 사용자가 시킨 일이라 그 AI 이름으로 글을 남긴다 — 질문 표시 없이 일반 글로(지운 반복은 답으로
@@ -1077,6 +1136,11 @@ public class IssueRecurrenceService {
   /** 「작업 중」 작업 패치 — 회차를 보낸 뒤 결과를 기다리는 동안. */
   private static AgentWorkPatch runningPatch() {
     return new AgentWorkPatch(TOOL, AgentWorkState.WORKING, NOTE_RUNNING, false, null, null, null);
+  }
+
+  /** 「대기 중」 작업 패치 — 같은 AI 의 앞 실행이 끝나기를 기다리며 줄에 선 동안(WP-1407). 보낼 때 {@link #runningPatch} 가 바꾼다. */
+  private static AgentWorkPatch queuedPatch() {
+    return new AgentWorkPatch(TOOL, AgentWorkState.WAITING, NOTE_QUEUED, false, null, null, null);
   }
 
   /** 「작업 중」 작업 패치 — 질문의 답을 받아 이어 처리하는 동안(WP-1312). */

@@ -13,6 +13,16 @@ export type RunnerEvent =
   | { type: 'assistant_text'; text: string } // assistant 메시지의 완성 text 블록(collect 폴백)
   | { type: 'tool_use'; name: string; input: unknown; parentToolUseId: string | null } // 도구 호출 등장(위젯·위임 감지)
   | { type: 'tool_done' } // 도구 완료 근사(진행표시)
+  // WP-1407: 모델 호출 한 단계가 끝남(회차 실행 기록용). opencode 는 assistant 메시지의 생성·완료 시각과 토큰을 싣고,
+  // Claude 는 assistant 메시지 하나를 모델 호출 하나로 보고 시각 없이(null — 기록기가 이벤트 경계로 계산) 낸다. 자식 세션·서브에이전트면 parent 가 있다.
+  | {
+      type: 'model_step';
+      startedAt: number | null;
+      endedAt: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      parentToolUseId: string | null;
+    }
   | { type: 'result'; ok: boolean; text: string | null; usage: RunnerUsage | null }; // 종료
 
 // result 이벤트의 usage 객체에서 토큰 수를 추출. snake_case(input_tokens)/camelCase(inputTokens) 양쪽 허용.
@@ -34,14 +44,17 @@ interface ContentBlock {
 }
 
 // Claude SDKMessage(JSON.parse 된 객체) → RunnerEvent[] (해당 없으면 빈 배열).
-export function mapSdkMessage(o: unknown): RunnerEvent[] {
+// seenModelMessageIds(WP-1407): 한 실행 동안 model_step 을 낸 API 메시지 id — SDK 는 API 메시지 하나를 내용 블록마다 같은 id·usage 의
+// assistant 메시지로 나눠 보내므로, 실행마다 집합 하나를 넘겨 model_step 을 API 메시지당 한 번만 낸다(호출·토큰을 여러 번 세지 않게).
+export function mapSdkMessage(o: unknown, seenModelMessageIds: Set<string>): RunnerEvent[] {
   if (!o || typeof o !== 'object') return [];
   const obj = o as {
     type?: string;
     parent_tool_use_id?: unknown;
     event?: { type?: string; delta?: { type?: string; text?: unknown } };
-    message?: { content?: unknown };
+    message?: { content?: unknown; id?: unknown; usage?: unknown };
     subtype?: string;
+    is_error?: unknown;
     result?: unknown;
     usage?: unknown;
   };
@@ -58,9 +71,23 @@ export function mapSdkMessage(o: unknown): RunnerEvent[] {
   }
 
   // assistant: content[] 를 순회하며 tool_use → tool_use 이벤트, text → assistant_text 이벤트.
+  // WP-1407: assistant 메시지 하나 = 모델 호출 하나 — 내용 이벤트보다 먼저 model_step 을 낸다(기록기가 「모델 응답을 받았다」를 먼저 보게).
   if (obj.type === 'assistant' && obj.message && Array.isArray(obj.message.content)) {
-    const events: RunnerEvent[] = [];
     const parentToolUseId = obj.parent_tool_use_id == null ? null : String(obj.parent_tool_use_id);
+    const events: RunnerEvent[] = [];
+    const messageId = typeof obj.message.id === 'string' ? obj.message.id : null;
+    if (!messageId || !seenModelMessageIds.has(messageId)) {
+      if (messageId) seenModelMessageIds.add(messageId);
+      const usage = extractUsage(obj.message.usage);
+      events.push({
+        type: 'model_step',
+        startedAt: null,
+        endedAt: null,
+        inputTokens: usage?.inputTokens ?? null,
+        outputTokens: usage?.outputTokens ?? null,
+        parentToolUseId,
+      });
+    }
     for (const raw of obj.message.content as ContentBlock[]) {
       if (!raw || typeof raw !== 'object') continue;
       if (raw.type === 'tool_use' && typeof raw.name === 'string') {
@@ -72,15 +99,18 @@ export function mapSdkMessage(o: unknown): RunnerEvent[] {
     return events;
   }
 
-  // user: tool_result 블록 존재 여부만 본다(내용은 무시, 진행표시용 근사).
+  // user: tool_result 블록마다 tool_done 하나(내용은 무시). WP-1407: 병렬 도구 결과가 한 메시지에 여럿 오면 그 수만큼 낸다 — opencode 러너(도구마다
+  // 하나)와 같게, 진행 표시는 도는 단계를 결과 수만큼 끝내고 실행 기록은 도는 도구 수를 0 으로 되돌린다.
   if (obj.type === 'user' && obj.message && Array.isArray(obj.message.content)) {
-    const hasResult = (obj.message.content as ContentBlock[]).some((b) => b?.type === 'tool_result');
-    return hasResult ? [{ type: 'tool_done' }] : [];
+    return (obj.message.content as ContentBlock[])
+      .filter((b) => b?.type === 'tool_result')
+      .map((): RunnerEvent => ({ type: 'tool_done' }));
   }
 
   // result: 종료 이벤트. subtype==='success' 를 ok 판정으로, result 필드를 text 로 사용.
+  // WP-1407: success 여도 is_error 가 true 면(제공자 오류 문구가 result 로 옴 — WP-1347) 실패로 본다 — 오류 문구를 성공 결과로 쓰지 않게.
   if (obj.type === 'result') {
-    const ok = obj.subtype === 'success';
+    const ok = obj.subtype === 'success' && obj.is_error !== true;
     const text = typeof obj.result === 'string' ? obj.result : null;
     const usage = extractUsage(obj.usage);
     return [{ type: 'result', ok, text, usage }];

@@ -245,6 +245,33 @@ describe('runSdkStream', () => {
     expect(err).not.toBeInstanceOf(RunnerLimitError);
     expect((err as Error).message).toBe('boom');
   });
+
+  // WP-1407: collect 와 같은 실패 판정(WP-1347) — 반복 회차가 stream 으로 바뀌어도 제공자 오류 문구를 성공 결과로 남기지 않는다.
+  it('subtype success + is_error true 면 reject 하고 result 텍스트를 사유에 싣는다', async () => {
+    vi.mocked(query).mockReturnValue(
+      makeQuery([{ type: 'result', subtype: 'success', is_error: true, result: '401 invalid x-api-key' }]) as never,
+    );
+    const h = runSdkStream(input(), () => {});
+    await expect(h.done).rejects.toThrow('test result is_error: 401 invalid x-api-key');
+  });
+
+  it('실패 result 의 errors 목록도 사유에 싣는다', async () => {
+    vi.mocked(query).mockReturnValue(
+      makeQuery([{ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['spend limit'] }]) as never,
+    );
+    const h = runSdkStream(input(), () => {});
+    await expect(h.done).rejects.toThrow('test result is_error: spend limit');
+  });
+
+  it('실패 result 뒤 SDK 가 던져도 result 의 원인 텍스트로 다시 던진다', async () => {
+    const gen = (async function* () {
+      yield { type: 'result', subtype: 'success', is_error: true, result: 'API Error: 529 Overloaded' };
+      throw new Error('Claude Code returned an error result');
+    })();
+    vi.mocked(query).mockReturnValue(Object.assign(gen, { interrupt: vi.fn(async () => {}) }) as never);
+    const h = runSdkStream(input(), () => {});
+    await expect(h.done).rejects.toThrow('test result is_error: API Error: 529 Overloaded');
+  });
 });
 
 describe('runSdkCollect', () => {

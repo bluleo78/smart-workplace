@@ -7,7 +7,7 @@ describe('mapSdkMessage', () => {
       type: 'stream_event',
       parent_tool_use_id: null,
       event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '안' } },
-    });
+    }, new Set());
     expect(ev).toEqual([{ type: 'text_delta', text: '안', parentToolUseId: null }]);
   });
 
@@ -16,7 +16,7 @@ describe('mapSdkMessage', () => {
       type: 'stream_event',
       parent_tool_use_id: 'tu_sub',
       event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '녕' } },
-    });
+    }, new Set());
     expect(ev).toEqual([{ type: 'text_delta', text: '녕', parentToolUseId: 'tu_sub' }]);
   });
 
@@ -25,7 +25,7 @@ describe('mapSdkMessage', () => {
       type: 'stream_event',
       parent_tool_use_id: null,
       event: { type: 'content_block_delta', delta: { type: 'thinking_delta', text: '생각' } },
-    });
+    }, new Set());
     expect(ev).toEqual([]);
   });
 
@@ -44,8 +44,10 @@ describe('mapSdkMessage', () => {
           { type: 'text', text: '이슈 목록을 보여드려요.' },
         ],
       },
-    });
+    }, new Set());
+    // WP-1407: assistant 메시지 하나 = 모델 호출 하나 — 내용 이벤트 앞에 model_step.
     expect(ev).toEqual<RunnerEvent[]>([
+      { type: 'model_step', startedAt: null, endedAt: null, inputTokens: null, outputTokens: null, parentToolUseId: null },
       {
         type: 'tool_use',
         name: 'mcp__workplace__show_issue_list',
@@ -71,8 +73,9 @@ describe('mapSdkMessage', () => {
           },
         ],
       },
-    });
+    }, new Set());
     expect(ev).toEqual<RunnerEvent[]>([
+      { type: 'model_step', startedAt: null, endedAt: null, inputTokens: null, outputTokens: null, parentToolUseId: 'tu_parent' },
       {
         type: 'tool_use',
         name: 'mcp__workplace__list_issues',
@@ -82,19 +85,69 @@ describe('mapSdkMessage', () => {
     ]);
   });
 
-  it('assistant 빈 text 블록은 건너뛴다', () => {
+  it('assistant 빈 text 블록은 건너뛴다(모델 호출 한 단계만 남는다)', () => {
     const ev = mapSdkMessage({
       type: 'assistant',
       message: { content: [{ type: 'text', text: '   ' }] },
+    }, new Set());
+    expect(ev).toEqual([
+      { type: 'model_step', startedAt: null, endedAt: null, inputTokens: null, outputTokens: null, parentToolUseId: null },
+    ]);
+  });
+
+  // WP-1407: 회차 실행 기록용 모델 호출 단계 — usage 가 있으면 토큰을 싣는다(시각은 없다 — 기록기가 경계로 계산).
+  it('assistant 메시지 → model_step(usage 포함)', () => {
+    const ev = mapSdkMessage({
+      type: 'assistant',
+      parent_tool_use_id: null,
+      message: { content: [{ type: 'text', text: '답' }], usage: { input_tokens: 120, output_tokens: 30 } },
+    }, new Set());
+    expect(ev[0]).toEqual({ type: 'model_step', startedAt: null, endedAt: null, inputTokens: 120, outputTokens: 30, parentToolUseId: null });
+    expect(ev[1]).toEqual({ type: 'assistant_text', text: '답' });
+  });
+
+  // WP-1407: SDK 는 API 메시지 하나를 내용 블록마다 같은 id·usage 의 assistant 메시지로 나눠 보낸다 — 실행의 집합을 넘기면 model_step 은 한 번.
+  it('같은 message.id 의 assistant 메시지는 model_step 을 한 번만 낸다', () => {
+    const seen = new Set<string>();
+    const msg = (block: unknown) => ({
+      type: 'assistant',
+      message: { id: 'msg_1', content: [block], usage: { input_tokens: 100, output_tokens: 9 } },
     });
-    expect(ev).toEqual([]);
+    const all = [
+      ...mapSdkMessage(msg({ type: 'text', text: '보겠습니다' }), seen),
+      ...mapSdkMessage(msg({ type: 'tool_use', name: 'a', input: {} }), seen),
+      ...mapSdkMessage(msg({ type: 'tool_use', name: 'b', input: {} }), seen),
+      ...mapSdkMessage({ type: 'assistant', message: { id: 'msg_2', content: [{ type: 'text', text: '끝' }] } }, seen),
+    ];
+    expect(all.filter((e) => e.type === 'model_step')).toHaveLength(2);
+    expect(all.filter((e) => e.type === 'tool_use')).toHaveLength(2);
+  });
+
+  it('tool_result 블록이 여럿이면(병렬 도구) 블록마다 tool_done', () => {
+    const ev = mapSdkMessage({
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 'a', content: 'x' },
+          { type: 'tool_result', tool_use_id: 'b', content: 'y' },
+          { type: 'text', text: '무시' },
+        ],
+      },
+    }, new Set());
+    expect(ev).toEqual([{ type: 'tool_done' }, { type: 'tool_done' }]);
+  });
+
+  it('result subtype success 여도 is_error true 면 ok:false(WP-1347 제공자 오류 문구)', () => {
+    expect(mapSdkMessage({ type: 'result', subtype: 'success', is_error: true, result: '401 invalid x-api-key' }, new Set())).toEqual([
+      { type: 'result', ok: false, text: '401 invalid x-api-key', usage: null },
+    ]);
   });
 
   it('user tool_result → tool_done', () => {
     const ev = mapSdkMessage({
       type: 'user',
       message: { content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: [{ type: 'text', text: 'ok' }] }] },
-    });
+    }, new Set());
     expect(ev).toEqual([{ type: 'tool_done' }]);
   });
 
@@ -102,7 +155,7 @@ describe('mapSdkMessage', () => {
     const ev = mapSdkMessage({
       type: 'user',
       message: { content: [{ type: 'text', text: '무시' }] },
-    });
+    }, new Set());
     expect(ev).toEqual([]);
   });
 
@@ -113,7 +166,7 @@ describe('mapSdkMessage', () => {
       is_error: false,
       result: '완료',
       usage: { input_tokens: 1234, output_tokens: 56 },
-    });
+    }, new Set());
     expect(ev).toEqual([
       { type: 'result', ok: true, text: '완료', usage: { inputTokens: 1234, outputTokens: 56 } },
     ]);
@@ -125,26 +178,26 @@ describe('mapSdkMessage', () => {
       subtype: 'success',
       result: '완료',
       usage: { inputTokens: 10, outputTokens: 20 },
-    });
+    }, new Set());
     expect(ev).toEqual([{ type: 'result', ok: true, text: '완료', usage: { inputTokens: 10, outputTokens: 20 } }]);
   });
 
   it('result: usage 누락/형식 불명이면 null', () => {
-    const ev1 = mapSdkMessage({ type: 'result', subtype: 'success', result: '완료' });
+    const ev1 = mapSdkMessage({ type: 'result', subtype: 'success', result: '완료' }, new Set());
     expect((ev1[0] as { usage: unknown }).usage).toBeNull();
-    const ev2 = mapSdkMessage({ type: 'result', subtype: 'success', result: '완료', usage: { foo: 'bar' } });
+    const ev2 = mapSdkMessage({ type: 'result', subtype: 'success', result: '완료', usage: { foo: 'bar' } }, new Set());
     expect((ev2[0] as { usage: unknown }).usage).toBeNull();
   });
 
   it('result: subtype 이 success 아니면 ok:false', () => {
-    const ev = mapSdkMessage({ type: 'result', subtype: 'error_max_turns', result: null });
+    const ev = mapSdkMessage({ type: 'result', subtype: 'error_max_turns', result: null }, new Set());
     expect(ev).toEqual([{ type: 'result', ok: false, text: null, usage: null }]);
   });
 
   it('알 수 없는 타입/비객체는 빈 배열', () => {
-    expect(mapSdkMessage(null)).toEqual([]);
-    expect(mapSdkMessage('str')).toEqual([]);
-    expect(mapSdkMessage({ type: 'system', subtype: 'init' })).toEqual([]);
+    expect(mapSdkMessage(null, new Set())).toEqual([]);
+    expect(mapSdkMessage('str', new Set())).toEqual([]);
+    expect(mapSdkMessage({ type: 'system', subtype: 'init' }, new Set())).toEqual([]);
   });
 });
 

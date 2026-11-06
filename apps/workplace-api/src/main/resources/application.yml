@@ -107,6 +107,11 @@ workplace:
   # 목록의 호스트는 사설 주소·http 여도 허용(사내 LLM 전용 설치용). ai-agent 의 같은 이름 환경 변수와 함께 맞춘다.
   assistant:
     model-url-allowed-hosts: ${MODEL_URL_ALLOWED_HOSTS:}
+  # WP-1407: 반복 AI 작업 — 보낸 회차의 결과를 기다리는 시간. ai-agent 의 WORKPLACE_AI_RECURRING_TIMEOUT_MS(기본 30분) + 결과 보고
+  # 재시도(약 4분)보다 길어야 한다(짧으면 상한 안에 끝난 회차도 「이전 회차 결과를 받지 못했습니다」로 실패를 센다). 상한을 바꾸면 함께 바꾼다.
+  # 두 값은 따로의 설정이라 반드시 함께 옮긴다 — 운영은 Helm values 의 api.recurrencePendingTimeout 과 aiAgent.recurringTimeoutMs.
+  issue-recurrence:
+    pending-timeout: ${WORKPLACE_RECURRENCE_PENDING_TIMEOUT:PT40M}
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)
