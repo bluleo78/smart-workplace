@@ -4,6 +4,8 @@
 // WP-1315: 「한 번만」(FREQ=ONCE;DATE=yyyy-MM-dd — 정한 날짜·시각에 한 번 실행하고 일정이 꺼진다)과 「평일」(매주 월~금의 줄임) 칩을 더했다.
 // WP-1373: 「몇 시간마다」(FREQ=HOURLY;INTERVAL=n;BYDAY=..;UNTILTIME=HH:mm — 고른 요일마다 시작 시각(time)부터 n 시간 간격으로, 끝 시각 이하인
 // 회차만 실행) 칩을 더했다. 서버(IssueRecurrenceRules)와 같은 규칙이다.
+// WP-1413: 「몇 시간마다」에 「시간대 정하기」 스위치(기본 꺼짐 = 하루 종일)를 더했다. 서버는 그대로 — 꺼짐은 시작 00:00 + UNTILTIME=23:59 로 저장하고,
+// 읽을 때 이 조합이면 꺼짐으로 그린다(사용자가 직접 00:00~23:59 를 고른 것과 실행이 같으므로 같게 보여도 된다).
 import type { IssueRecurrence } from '../types/issueRecurrence';
 import { kstParts, kstWeekday, parseUtcDate } from './formatters';
 import { type RecurrenceFreq, tokenizeRRule } from './recurrence';
@@ -45,6 +47,8 @@ function isHourlyInterval(n: number): boolean {
  * 들고 있는다(WP-1315). 새 「한 번만」은 null 이고 그 시각의 다음 때(오늘, 지났으면 내일)로 정해진다.
  * 「몇 시간마다」(WP-1373)는 time 을 시작 시각으로 쓰고, interval(시간)·untilTime(끝 시각 'HH:mm', 이 시각 이하 회차까지)·hourlyDays(요일)를
  * 따로 든다 — 매주의 byDay 와 나눠 두어, 칩을 오가도 서로의 요일이 바뀌지 않게 한다.
+ * hourlyWindow(WP-1413)는 「시간대 정하기」 스위치 — 꺼지면 하루 종일(00:00~23:59)로 저장하되 time·untilTime 은 그대로 들고 있어,
+ * 창이 열려 있는 동안 다시 켜면 입력했던 시각이 되살아난다.
  */
 export interface TaskRecurrenceForm {
   freq: TaskRecurrenceFreq;
@@ -56,11 +60,12 @@ export interface TaskRecurrenceForm {
   interval: number;
   untilTime: string;
   hourlyDays: WeekdayCode[];
+  hourlyWindow: boolean;
 }
 
 /**
  * 새 반복 기본값 — 반복 안 함, 고르면 매주 월요일·매월 1일·09:00 부터 시작한다.
- * 「몇 시간마다」는 평일 09:00~18:00 2시간마다(WP-1373 시안).
+ * 「몇 시간마다」는 평일 2시간마다, 시간대 꺼짐(하루 종일, WP-1413) — 스위치를 켜면 09:00~18:00 부터 고친다(WP-1373 시안).
  */
 export const DEFAULT_TASK_RECURRENCE_FORM: TaskRecurrenceForm = {
   freq: 'NONE',
@@ -72,7 +77,35 @@ export const DEFAULT_TASK_RECURRENCE_FORM: TaskRecurrenceForm = {
   interval: 2,
   untilTime: '18:00',
   hourlyDays: ['MO', 'TU', 'WE', 'TH', 'FR'],
+  hourlyWindow: false,
 };
+
+/** 「하루 종일」(시간대 꺼짐, WP-1413)의 저장 모양 — 시작 00:00, 끝 23:59. 서버를 바꾸지 않고 이 조합을 꺼짐으로 읽는다. */
+const ALL_DAY_START = '00:00';
+const ALL_DAY_UNTIL = '23:59';
+
+/** 이 시작·끝 시각이 「하루 종일」(시간대 꺼짐) 저장 모양인가(WP-1413) — 규칙 읽기와 요약이 같이 쓴다. */
+function isAllDayWindow(start: string, until: string): boolean {
+  return start === ALL_DAY_START && until === ALL_DAY_UNTIL;
+}
+
+/** 시간대를 정하지 않은 「몇 시간마다」인가(WP-1413) — 그러면 입력해 둔 시각 대신 하루 종일로 저장·계산한다. */
+function isAllDayHourly(form: TaskRecurrenceForm): boolean {
+  return form.freq === 'HOURLY' && !form.hourlyWindow;
+}
+
+/**
+ * 서버에 보낼 실행(시작) 시각(WP-1413) — 시간대를 정하지 않은 몇 시간마다는 00:00, 그 밖에는 입력한 시각.
+ * 편집기 저장·만들기 창 저장·만들기 창 요약이 같이 쓴다(폼의 time 은 다시 켤 때 되살리려고 그대로 둔다).
+ */
+export function taskRunTime(form: TaskRecurrenceForm): string {
+  return isAllDayHourly(form) ? ALL_DAY_START : form.time;
+}
+
+/** 실제로 쓸 몇 시간마다 끝 시각(WP-1413) — 시간대를 정하지 않았으면 23:59. */
+function hourlyUntil(form: TaskRecurrenceForm): string {
+  return isAllDayHourly(form) ? ALL_DAY_UNTIL : form.untilTime;
+}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -177,7 +210,8 @@ export function buildTaskRRule(form: TaskRecurrenceForm, now: Date = new Date())
   if (form.freq === 'WEEKDAYS') return `FREQ=WEEKLY;BYDAY=${WEEKDAYS_ONLY.join(',')}`;
   // 몇 시간마다(WP-1373) — 서버가 정규화하는 모양과 같은 순서로 쓴다(시작 시각은 time 으로 따로 보낸다).
   if (form.freq === 'HOURLY') {
-    return `FREQ=HOURLY;INTERVAL=${form.interval};BYDAY=${sortDays(form.hourlyDays).join(',')};UNTILTIME=${form.untilTime}`;
+    // 시간대를 정하지 않았으면(WP-1413) 끝 시각은 23:59 — 시작 시각은 taskRunTime 이 00:00 으로 보낸다.
+    return `FREQ=HOURLY;INTERVAL=${form.interval};BYDAY=${sortDays(form.hourlyDays).join(',')};UNTILTIME=${hourlyUntil(form)}`;
   }
   const base = `FREQ=${form.freq}`;
   if (form.freq === 'WEEKLY') return `${base};BYDAY=${sortDays(form.byDay).join(',')}`;
@@ -221,8 +255,17 @@ export function parseTaskRRule(rrule: string | null | undefined, time?: string |
       return form;
     }
     form.interval = hourly.interval;
-    form.untilTime = hourly.untilTime;
     form.hourlyDays = hourly.days;
+    // 00:00 + 23:59 는 시간대 꺼짐(하루 종일, WP-1413) — 시각 칸에는 기본 09:00~18:00 을 둔다. 00:00~23:59 를 두면 스위치를 켠 채
+    // 그대로 저장해도 다시 「꺼짐」으로 읽혀, 켠 것이 보이지 않게 된다.
+    if (isAllDayWindow(form.time, hourly.untilTime)) {
+      form.hourlyWindow = false;
+      form.time = DEFAULT_TASK_RECURRENCE_FORM.time;
+      form.untilTime = DEFAULT_TASK_RECURRENCE_FORM.untilTime;
+    } else {
+      form.hourlyWindow = true;
+      form.untilTime = hourly.untilTime;
+    }
     return form;
   }
   // 매주의 요일 — 몇 시간마다는 위에서 따로 읽었으므로 여기서만 나눈다.
@@ -251,10 +294,14 @@ export function validateTaskRecurrence(form: TaskRecurrenceForm): string | null 
   if (form.freq === 'MONTHLY' && !(Number.isInteger(form.monthDay) && form.monthDay >= 1 && form.monthDay <= 31)) {
     return '날짜는 1일부터 31일 사이로 고르세요';
   }
-  if (!TIME_RE.test(form.time)) return '시각을 HH:mm 으로 입력하세요';
   if (form.freq === 'HOURLY') {
     if (!isHourlyInterval(form.interval)) return '간격을 고르세요';
     if (form.hourlyDays.length === 0) return '요일을 하나 이상 고르세요';
+    // 시간대를 정하지 않았으면(WP-1413) 시각 칸이 숨어 있다 — 숨은 칸 값이 저장을 막지 않게 시각은 보지 않는다.
+    if (!form.hourlyWindow) return null;
+  }
+  if (!TIME_RE.test(form.time)) return '시각을 HH:mm 으로 입력하세요';
+  if (form.freq === 'HOURLY') {
     if (!TIME_RE.test(form.untilTime)) return '끝 시각을 HH:mm 으로 입력하세요';
     // 자정을 넘는 시간대는 받지 않는다(서버도 400) — HH:mm 은 글자 비교가 곧 시각 비교다.
     if (form.untilTime <= form.time) return '끝 시각은 시작 시각보다 뒤로 고르세요 (자정을 넘길 수 없어요)';
@@ -275,7 +322,8 @@ function fromMinutes(min: number): string {
 export function hourlyRunTimes(form: TaskRecurrenceForm): string[] {
   if (form.freq !== 'HOURLY' || validateTaskRecurrence(form)) return [];
   const out: string[] = [];
-  for (let m = toMinutes(form.time); m <= toMinutes(form.untilTime); m += form.interval * 60) out.push(fromMinutes(m));
+  // 시간대를 정하지 않았으면(WP-1413) 00:00~23:59 — 저장하는 규칙과 같은 회차다.
+  for (let m = toMinutes(taskRunTime(form)); m <= toMinutes(hourlyUntil(form)); m += form.interval * 60) out.push(fromMinutes(m));
   return out;
 }
 
@@ -285,12 +333,13 @@ const PREVIEW_MAX_TIMES = 6;
 /**
  * 「몇 시간마다」 실행 시각 미리보기(WP-1373) — 「09:00 · 11:00 · 13:00 · 15:00 · 17:00 에 실행 (하루 5회)」.
  * 시각이 많으면 「09:00 · 10:00 · 11:00 · … · 18:00 에 실행 (하루 10회)」. 회차를 정할 수 없으면 null.
+ * 시간대를 정하지 않았으면(WP-1413) 같은 목록 앞에 「하루 종일 — 」만 붙인다 — 「하루 종일 — 00:00 · 02:00 · 04:00 · … · 22:00 에 실행 (하루 12회)」.
  */
 export function hourlyPreviewText(form: TaskRecurrenceForm): string | null {
   const times = hourlyRunTimes(form);
   if (times.length === 0) return null;
   const shown = times.length > PREVIEW_MAX_TIMES ? [...times.slice(0, 3), '…', times[times.length - 1]] : times;
-  return `${shown.join(' · ')} 에 실행 (하루 ${times.length}회)`;
+  return `${isAllDayHourly(form) ? '하루 종일 — ' : ''}${shown.join(' · ')} 에 실행 (하루 ${times.length}회)`;
 }
 
 /** 요일 묶음 이름 — 모든 요일이면 「매일」, 월~금이면 「평일」, 그 밖에는 「월·수」. 몇 시간마다 요약(WP-1373)에 쓴다. */
@@ -327,10 +376,14 @@ export function recurrenceLabel(rrule: string, time: string): string {
     return date ? `한 번만 ${date} ${time}` : `한 번만 ${time}`;
   }
   if (freq === 'DAILY') return `매일 ${time}`;
-  // 몇 시간마다(WP-1373) — 「평일 09~18시 2시간마다」. 요일·간격·끝 시각 중 하나라도 읽을 수 없으면 아래에서 원문을 보인다.
+  // 몇 시간마다(WP-1373) — 「평일 09~18시 · 2시간마다」, 시간대를 정하지 않았으면(00:00~23:59, WP-1413) 「평일 · 2시간마다」.
+  // 요일·간격·끝 시각 중 하나라도 읽을 수 없으면 아래에서 원문을 보인다.
   if (freq === 'HOURLY') {
     const hourly = readHourlyRule(tokens);
-    if (hourly && TIME_RE.test(time)) return `${daysLabel(hourly.days)} ${windowLabel(time, hourly.untilTime)} ${hourly.interval}시간마다`;
+    if (hourly && TIME_RE.test(time)) {
+      const windowText = isAllDayWindow(time, hourly.untilTime) ? '' : ` ${windowLabel(time, hourly.untilTime)}`;
+      return `${daysLabel(hourly.days)}${windowText} · ${hourly.interval}시간마다`;
+    }
   }
   if (freq === 'WEEKLY') {
     const days = sortDays((map.get('BYDAY') ?? '').split(','));
@@ -417,8 +470,25 @@ export function recurrencePausedText(r: { enabled: boolean; consecutiveFailures?
  * (「내 AI 비서 · 한 번만 11/3(화) 08:30」). 일정이 없으면 「안 함」.
  */
 export function aiHandoffLabel(r: { rrule: string; time: string; agentName: string } | null | undefined): string {
-  if (!r) return '안 함';
-  return `${r.agentName} · ${isOnceRule(r.rrule) ? '' : '↻ '}${recurrenceLabel(r.rrule, r.time)}`;
+  const parts = aiHandoffParts(r);
+  if (!parts) return '안 함';
+  return `${parts.agent} · ${parts.repeating ? '↻ ' : ''}${parts.schedule}`;
+}
+
+/** 「AI 에게 맡기기」 요약의 부분(WP-1413) — AI 이름, 일정 문구, 되풀이하는가(한 번만이 아니면 true — 반복 아이콘을 붙인다). */
+export interface AiHandoffParts {
+  agent: string;
+  schedule: string;
+  repeating: boolean;
+}
+
+/**
+ * 「AI 에게 맡기기」 요약을 AI 이름·일정으로 나눈다(WP-1413) — 데스크톱 이슈 속성 칸이 두 줄(1줄 AI 이름, 2줄 반복 아이콘 + 일정)로 그린다.
+ * 한 줄 문구(aiHandoffLabel)도 이 부분으로 만든다. 일정이 없으면 null.
+ */
+export function aiHandoffParts(r: { rrule: string; time: string; agentName: string } | null | undefined): AiHandoffParts | null {
+  if (!r) return null;
+  return { agent: r.agentName, schedule: recurrenceLabel(r.rrule, r.time), repeating: !isOnceRule(r.rrule) };
 }
 
 /** 담당 AI 후보 이름(WP-1314) — 내 개인 비서는 「(내 AI 비서)」를 붙인다. 이름이 비면 username. */
@@ -478,5 +548,6 @@ export function createHandoffSummary(
     if (date) rrule = `FREQ=ONCE;DATE=${date}`;
   }
   const agentName = agent.personalAssistant ? '내 AI 비서' : agent.name?.trim() || agent.username;
-  return aiHandoffLabel({ rrule, time: form.time, agentName });
+  // 시간대를 정하지 않은 몇 시간마다는 00:00 으로 보내므로(WP-1413) 요약도 같은 시각으로 — 「평일 · 2시간마다」.
+  return aiHandoffLabel({ rrule, time: taskRunTime(form), agentName });
 }

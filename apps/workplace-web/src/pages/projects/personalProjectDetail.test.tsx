@@ -741,7 +741,7 @@ describe('AI 에게 맡기기(WP-989, WP-1314)', () => {
     await waitFor(() => expect(api.detailGets.length).toBeGreaterThan(before.detail))
     await waitFor(() => expect(api.searches.length).toBeGreaterThan(before.list))
     await waitFor(() => expect(screen.queryByTestId('task-recurrence-popover')).not.toBeInTheDocument())
-    expect(within(panel).getByTestId('task-recurrence-trigger')).toHaveTextContent('AI 비서 · ↻ 매주 월·수 08:30')
+    expect(within(panel).getByTestId('task-recurrence-trigger')).toHaveAccessibleName('AI 에게 맡기기: AI 비서 · ↻ 매주 월·수 08:30')
     expect(within(panel).getByTestId('task-recurrence-status')).toHaveTextContent('다음 실행 10/29(목) 08:30')
   })
 

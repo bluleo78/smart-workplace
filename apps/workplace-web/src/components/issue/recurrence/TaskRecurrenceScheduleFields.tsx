@@ -2,7 +2,11 @@
 // 이슈 상세의 「AI 에게 맡기기」 편집기(TaskRecurrenceEditor)와 만들기 창의 「AI 에게 맡기기」(CreateAiHandoffSection)가 같은 칸을 쓴다.
 // 폼 상태는 부르는 쪽이 들고 있고, 이 컴포넌트는 그리고 고칠 값만 알린다.
 // WP-1373: 「몇 시간마다」 칩 — 고르면 간격(1·2·3·4·6·12시간)·시간대(부터~까지)·요일(기본 월~금)과 실행 시각 미리보기가 펼쳐진다(시안 안 A).
+// WP-1413: 순서를 간격(칩 뒤 「시간마다」 한 줄) → 요일 → 「시간대 정하기」 스위치(기본 꺼짐 = 하루 종일) → (켰을 때만) 「[시작] ~ [끝]」 → 미리보기로 바꿨다.
+import { useId } from 'react';
+
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import {
   CREATE_FREQS,
   EDITOR_FREQS,
@@ -134,6 +138,8 @@ export function TaskRecurrenceScheduleFields({
   const hourly = form.freq === 'HOURLY';
   const hourlyPreview = hourly ? hourlyPreviewText(form) : null;
   const layout = CHIP_LAYOUTS[variant];
+  // 「시간대 정하기」 스위치와 이름표를 잇는 id(WP-1413).
+  const windowSwitchId = useId();
 
   return (
     <div className="space-y-3">
@@ -202,44 +208,24 @@ export function TaskRecurrenceScheduleFields({
         <div className="space-y-3" data-testid="task-recurrence-hourly">
           <div className="space-y-1">
             <span className="block text-xs font-medium text-muted-foreground">간격</span>
-            <div role="group" aria-label="간격" className="grid grid-cols-6 gap-1">
-              {HOURLY_INTERVALS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  aria-label={`${n}시간마다`}
-                  aria-pressed={form.interval === n}
-                  disabled={locked}
-                  onClick={() => onChange({ interval: n })}
-                  className={cn(toggleClass(form.interval === n), 'px-0')}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-            <span className="block text-xs text-muted-foreground">시간마다</span>
-          </div>
-
-          {/* 시간대 — 시작 시각(form.time)에 첫 회차, 간격마다 끝 시각 이하인 회차만 돈다. 자정을 넘는 시간대는 검사 문구로 막는다. */}
-          <div className="space-y-1">
-            <span className="block text-xs font-medium text-muted-foreground">시간대</span>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-              <TimeInput
-                label="시작 시각 (한국 시간)"
-                value={form.time}
-                onChange={(time) => onChange({ time })}
-                locked={locked}
-                testId="task-recurrence-start"
-              />
-              <span className="shrink-0">부터</span>
-              <TimeInput
-                label="끝 시각 (한국 시간)"
-                value={form.untilTime}
-                onChange={(untilTime) => onChange({ untilTime })}
-                locked={locked}
-                testId="task-recurrence-until"
-              />
-              <span className="shrink-0">까지</span>
+            {/* 간격 칩 뒤에 「시간마다」를 붙여 한 문장으로 읽히게 한다(WP-1413 시안). */}
+            <div className="flex items-center gap-2">
+              <div role="group" aria-label="간격" className="grid min-w-0 flex-1 grid-cols-6 gap-1">
+                {HOURLY_INTERVALS.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-label={`${n}시간마다`}
+                    aria-pressed={form.interval === n}
+                    disabled={locked}
+                    onClick={() => onChange({ interval: n })}
+                    className={cn(toggleClass(form.interval === n), 'px-0')}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <span className="shrink-0 text-sm">시간마다</span>
             </div>
           </div>
 
@@ -248,6 +234,44 @@ export function TaskRecurrenceScheduleFields({
             {/* 몇 시간마다의 요일 — 매주의 요일(byDay)과 따로 든다(WP-1373). */}
             <WeekdayToggleGroup value={form.hourlyDays} onChange={(hourlyDays) => onChange({ hourlyDays })} locked={locked} />
           </div>
+
+          {/* 시간대(WP-1413) — 기본은 꺼짐(하루 종일, 자정부터 간격마다). 켰을 때만 시작·끝 칸이 나온다. 끄더라도 입력했던 시각은 폼에 남아
+              창이 열려 있는 동안 다시 켜면 되살아난다(저장은 꺼짐이면 00:00~23:59). */}
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor={windowSwitchId} className="text-sm font-medium">
+              시간대 정하기
+            </label>
+            <Switch
+              id={windowSwitchId}
+              checked={form.hourlyWindow}
+              onCheckedChange={(hourlyWindow) => onChange({ hourlyWindow })}
+              disabled={locked}
+              data-testid="task-recurrence-window-switch"
+            />
+          </div>
+
+          {/* 시간대 — 시작 시각(form.time)에 첫 회차, 간격마다 끝 시각 이하인 회차만 돈다. 자정을 넘는 시간대는 검사 문구로 막는다. */}
+          {form.hourlyWindow && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <TimeInput
+                label="시작 시각 (한국 시간)"
+                value={form.time}
+                onChange={(time) => onChange({ time })}
+                locked={locked}
+                testId="task-recurrence-start"
+              />
+              <span className="shrink-0" aria-hidden>
+                ~
+              </span>
+              <TimeInput
+                label="끝 시각 (한국 시간)"
+                value={form.untilTime}
+                onChange={(untilTime) => onChange({ untilTime })}
+                locked={locked}
+                testId="task-recurrence-until"
+              />
+            </div>
+          )}
 
           {/* 실행 시각 미리보기 — 시간대가 틀려 회차를 정할 수 없으면 그리지 않는다(검사 문구가 따로 알린다). */}
           {hourlyPreview && (

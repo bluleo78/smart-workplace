@@ -10,6 +10,7 @@ import {
   buildTaskRRule,
   DEFAULT_TASK_RECURRENCE_FORM,
   type TaskRecurrenceForm,
+  taskRunTime,
   validateTaskRecurrence,
 } from '../../../lib/issueRecurrence';
 
@@ -92,7 +93,8 @@ export function useCreateAiHandoff(projectKey: string, open: boolean) {
     const rrule = buildTaskRRule(form);
     if (!rrule) return false;
     try {
-      await putIssueRecurrence(projectKey, issueNumber, { rrule, time: form.time, agentUserId: agentId });
+      // 시간대를 정하지 않은 몇 시간마다는 00:00 으로 보낸다(WP-1413 — 끝 23:59 와 함께 하루 종일).
+      await putIssueRecurrence(projectKey, issueNumber, { rrule, time: taskRunTime(form), agentUserId: agentId });
     } catch (e) {
       toast.error(`작업은 만들었지만 실행 일정을 저장하지 못했습니다 — ${extractApiError(e, '알 수 없는 오류')}`);
       return true;

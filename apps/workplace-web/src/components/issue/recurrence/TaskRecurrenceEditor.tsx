@@ -26,6 +26,7 @@ import {
   parseTaskRRule,
   recurrencePausedText,
   type TaskRecurrenceForm,
+  taskRunTime,
   validateTaskRecurrence,
 } from '@/lib/issueRecurrence';
 import { cn } from '@/lib/utils';
@@ -97,7 +98,8 @@ export function TaskRecurrenceEditor({
       else onDone();
       return;
     }
-    save.mutate({ rrule, time: form.time, agentUserId: agentId ?? undefined }, { onSuccess: onDone });
+    // 시간대를 정하지 않은 몇 시간마다는 00:00 으로 보낸다(WP-1413 — 끝 23:59 와 함께 하루 종일).
+    save.mutate({ rrule, time: taskRunTime(form), agentUserId: agentId ?? undefined }, { onSuccess: onDone });
   };
 
   return (

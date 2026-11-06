@@ -157,6 +157,13 @@ describe('buildUserMessage', () => {
     const reordered = buildRecurringRunMessage({ ...base, recurrence: { rrule: 'byday=sa,su;untiltime=20:00;freq=hourly;interval=3', time: '10:00' } });
     expect(reordered).toContain('3시간마다 도는 일정');
     expect(reordered).toContain('반복: 주말 10:00~20:00 3시간마다 (KST)\n');
+    // WP-1413: 시간대를 정하지 않은 일정(시작 00:00 + UNTILTIME=23:59)은 「하루 종일」로 적는다 — 00:00~23:59 를 시간대로 읽지 않게.
+    const allDay = buildRecurringRunMessage({ ...base, recurrence: { rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;UNTILTIME=23:59', time: '00:00' } });
+    expect(allDay).toContain('반복: 평일 하루 종일 2시간마다 (KST)\n');
+    expect(allDay).not.toContain('00:00~23:59');
+    // 시작이 00:00 이 아니면 23:59 까지여도 시간대다.
+    const lateWindow = buildRecurringRunMessage({ ...base, recurrence: { rrule: 'FREQ=HOURLY;INTERVAL=2;BYDAY=MO;UNTILTIME=23:59', time: '06:00' } });
+    expect(lateWindow).toContain('반복: 월 06:00~23:59 2시간마다 (KST)\n');
     // 간격이 있는데 읽을 수 없거나 0 이하면 1시간으로 지어내지 않는다 — 숫자 없는 문구로 쓰고, 반복 줄은 원문 규칙 그대로다.
     for (const bad of ['INTERVAL=abc', 'INTERVAL=0', 'INTERVAL=-2', 'INTERVAL=']) {
       const rrule = `FREQ=HOURLY;${bad};BYDAY=MO;UNTILTIME=18:00`;
