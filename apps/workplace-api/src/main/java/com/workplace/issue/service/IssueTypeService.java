@@ -130,7 +130,10 @@ public class IssueTypeService {
     return toResponse(repo.findById(typeId).orElseThrow(() -> new TypeNotFoundException(typeId)));
   }
 
-  /** CUSTOM 유형 삭제 — OWNER 권한. 시스템 유형 또는 사용 중 유형은 차단. */
+  /**
+   * CUSTOM 유형 삭제 — OWNER 권한. 시스템 유형 또는 활성 이슈가 쓰는 유형은 차단. 휴지통(소프트 삭제) 이슈만 쓰는 유형은 그 이슈를 같은 프로젝트의 TASK
+   * 유형으로 옮긴 뒤 지운다 — FK(RESTRICT)가 휴지통 행 때문에 막아 409 가 나던 문제(WP-1396).
+   */
   public void delete(Long callerId, String projectKey, Long typeId) {
     var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     var row = repo.findById(typeId).orElseThrow(() -> new TypeNotFoundException(typeId));
@@ -144,6 +147,10 @@ public class IssueTypeService {
     if (inUse > 0) {
       throw new TypeInUseException(inUse);
     }
+    // 휴지통 이슈는 복원 API 가 없어 사용자에게 보이지 않는다 — 시스템 TASK 로 옮겨 FK 를 비운다(WP-1396).
+    // TASK 는 프로젝트를 만들 때 늘 시드된다(seedSystemTypes) — IssueService 의 기본 유형과 같다.
+    repo.findByProjectAndName(project.id(), "TASK")
+        .ifPresent(task -> repo.reassignDeletedIssues(project.id(), typeId, task.id()));
     repo.delete(typeId);
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_ISSUE_TYPE, OP_DELETED, project, typeId, callerId);

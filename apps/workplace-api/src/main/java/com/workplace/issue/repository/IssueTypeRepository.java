@@ -140,7 +140,29 @@ public class IssueTypeRepository {
     }
   }
 
-  /** 유형 삭제. issue.type_id 가 RESTRICT 이므로 사용 중이면 RDB 가 막는다 (서비스에서 사전 가드). */
+  /**
+   * 소프트 삭제된(휴지통) 이슈의 유형을 옮긴다 — 활성 이슈가 없는 유형을 지우기 전에 부른다(WP-1396). issue.type_id 는 NOT NULL +
+   * RESTRICT 라 휴지통 행이 남아 있으면 유형 삭제가 FK 로 막힌다. 다른 프로젝트 행은 where 의 project_id 로 제외하고,
+   * updated_at·version 은 건드리지 않는다(시스템 정리라 이슈 수정으로 보이지 않게).
+   *
+   * @return 옮긴 행 수
+   */
+  public int reassignDeletedIssues(long projectId, long fromTypeId, long toTypeId) {
+    return dsl.update(ISSUE)
+        .set(ISSUE.TYPE_ID, toTypeId)
+        .where(
+            ISSUE
+                .PROJECT_ID
+                .eq(projectId)
+                .and(ISSUE.TYPE_ID.eq(fromTypeId))
+                .and(ISSUE.DELETED_AT.isNotNull()))
+        .execute();
+  }
+
+  /**
+   * 유형 삭제. issue.type_id 가 RESTRICT 이므로 사용 중이면 RDB 가 막는다 (서비스에서 사전 가드). 휴지통 이슈는 호출 전에 TASK 로 옮겨 둔다
+   * — {@link #reassignDeletedIssues}(WP-1396).
+   */
   public void delete(Long id) {
     dsl.deleteFrom(ISSUE_TYPE_DEF).where(ISSUE_TYPE_DEF.ID.eq(id)).execute();
   }
