@@ -127,4 +127,10 @@ test('토큰 화면에서 발급 없이도 연결 안내를 늘 볼 수 있다 (
   // 설치 명령 복사 — 클립보드에 모달과 같은 설치 명령 두 줄이 들어간다.
   await user.click(guide.getByTestId('connect-guide-plugin-install-command-copy'))
   await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(INSTALL))
+
+  // 두 복사 버튼은 무엇을 복사하는지 접근 이름으로 구분된다 — 둘 다 「명령 복사」라 주소 버튼도 명령이라 읽혔다(WP-1434).
+  expect(guide.getByRole('button', { name: '설치 명령 복사' })).toBe(guide.getByTestId('connect-guide-plugin-install-command-copy'))
+  await user.click(guide.getByRole('button', { name: '연결 주소 복사' }))
+  await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(MCP_ENDPOINT))
+  expect(guide.queryByRole('button', { name: '명령 복사' })).not.toBeInTheDocument()
 })
