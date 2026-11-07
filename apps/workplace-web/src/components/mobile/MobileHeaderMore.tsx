@@ -110,6 +110,8 @@ export function MobileHeaderMore({
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      // document 에서 먼저 Esc 를 소비해 window 의 AI 전역 단축키가 패널까지 닫지 않게 한다.
+      e.preventDefault()
       setOpen(false)
       // 키보드 사용자가 제자리(⋯ 버튼)로 돌아오게 한다.
       triggerRef.current?.focus()

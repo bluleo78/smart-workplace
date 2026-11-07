@@ -15,6 +15,16 @@ async function gotoProject(page: Page) {
   await page.goto('/projects/WP')
 }
 
+/** 패널을 연 접힌 상태에서 메뉴의 실제 목적지와 키보드 동작을 검사한다. */
+async function openFoldedProject(page: Page) {
+  await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '460'))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await gotoProject(page)
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expectStage(page, 'folded')
+}
+
 /** 헤더 세로 가운데(28px) 기준 — 칩·검색의 세로 가운데가 이 값과 ±0.5px 이내인지. */
 const HEADER_CENTER = 28
 
@@ -35,23 +45,57 @@ async function expectNoOverlap(page: Page) {
   await expect(async () => expect(await actionGap(page), '틀과 액션 사이 간격').toBeGreaterThanOrEqual(16)).toPass()
 }
 
-/** 레일 전환 중 한 프레임만 생기는 겹침도 재시도 없이 잡는다. 200ms 이동·250ms 단계 보정 창을 포함한다. */
+/** 클릭 가능 대기 길이와 무관하게 dispatch 뒤 500ms 동안 매 프레임의 레일 겹침을 잡는다. */
 async function expectNoOverlapDuring(page: Page, action: () => Promise<void>) {
   const sampling = page.evaluate(() => new Promise<number[]>((resolve) => {
     const gaps: number[] = []
-    const start = performance.now()
-    const sample = () => {
-      const search = document.querySelector('[data-testid="global-search-toggle"]')!
-      const actions = document.querySelector('[data-testid="page-header"] [data-ai-actions]')!
-      gaps.push(actions.getBoundingClientRect().left - search.getBoundingClientRect().right)
-      if (performance.now() - start < 500) requestAnimationFrame(sample)
-      else resolve(gaps)
+    const onActionClick = () => {
+      document.removeEventListener('click', onActionClick, true)
+      const start = performance.now()
+      const sample = () => {
+        const search = document.querySelector('[data-testid="global-search-toggle"]')!
+        const actions = document.querySelector('[data-testid="page-header"] [data-ai-actions]')!
+        gaps.push(actions.getBoundingClientRect().left - search.getBoundingClientRect().right)
+        if (performance.now() - start < 500) requestAnimationFrame(sample)
+        else resolve(gaps)
+      }
+      requestAnimationFrame(sample)
     }
-    requestAnimationFrame(sample)
+    document.addEventListener('click', onActionClick, true)
   }))
   await action()
   expect(Math.min(...await sampling), '전환 중 모든 프레임의 최소 간격').toBeGreaterThanOrEqual(16)
 }
+
+test('레이아웃 샘플은 클릭 가능 대기 뒤의 전환 프레임도 잡는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setContent(`
+    <button data-testid="probe">전환</button>
+    <div data-testid="global-search-toggle" style="position:fixed;left:0;top:32px;width:100px;height:10px"></div>
+    <header data-testid="page-header"><div data-ai-actions style="position:fixed;left:116px;top:32px;width:100px;height:10px"></div></header>
+  `)
+  await page.evaluate(() => {
+    const target = document.querySelector<HTMLButtonElement>('[data-testid="probe"]')!
+    const actions = document.querySelector<HTMLElement>('[data-ai-actions]')!
+    const box = target.getBoundingClientRect()
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `position:fixed;z-index:9999;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`
+    document.body.append(overlay)
+    window.setTimeout(() => overlay.remove(), 650)
+    target.addEventListener('click', () => {
+      actions.style.left = '80px'
+      window.setTimeout(() => { actions.style.left = '116px' }, 150)
+    }, { once: true })
+  })
+
+  let failure: unknown
+  try {
+    await expectNoOverlapDuring(page, () => page.getByTestId('probe').click())
+  } catch (error) {
+    failure = error
+  }
+  expect(failure, '지연된 click 뒤의 간격 위반을 샘플러가 검출한다').toBeInstanceOf(Error)
+  expect((failure as Error).message).toContain('전환 중 모든 프레임의 최소 간격')
+})
 
 type Stage = 'expanded' | 'folded' | 'circle'
 
@@ -78,6 +122,52 @@ async function expectStage(page: Page, stage: Stage) {
   await expect(async () => expect(await renderedStage(page)).toBe(stage)).toPass()
   await expectNoOverlap(page)
 }
+
+test('접힌 보조 메뉴는 네 목적지마다 메뉴 항목 하나만 렌더한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openFoldedProject(page)
+  await page.getByTestId('mobile-header-more').click()
+
+  const menu = page.getByTestId('mobile-header-more-menu')
+  const items = menu.getByRole('menuitem')
+  await expect(items).toHaveCount(4)
+  const destinations = await items.evaluateAll((elements) =>
+    elements.map((element) => element instanceof HTMLAnchorElement ? element.getAttribute('href') : null),
+  )
+  expect(destinations).toEqual([
+    '/projects/WP/cycles',
+    '/projects/WP/versions',
+    '/projects/WP/timeline',
+    '/projects/WP/settings',
+  ])
+})
+
+test('접힌 보조 메뉴는 목적지마다 한 번씩 이동하고 Esc 로 닫혀 AI 패널을 유지한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await openFoldedProject(page)
+  const trigger = page.getByTestId('mobile-header-more')
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+
+  const menu = page.getByTestId('mobile-header-more-menu')
+  const items = menu.getByRole('menuitem')
+  const destinations = [
+    '/projects/WP/cycles',
+    '/projects/WP/versions',
+    '/projects/WP/timeline',
+    '/projects/WP/settings',
+  ]
+  await expect(items).toHaveCount(destinations.length)
+  await expect(items.nth(0)).toBeFocused()
+  for (let index = 1; index < destinations.length; index += 1) {
+    await page.keyboard.press('ArrowDown')
+    await expect(items.nth(index)).toBeFocused()
+    await expect(items.nth(index)).toHaveAttribute('href', destinations[index])
+  }
+
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expect(trigger).toBeFocused()
+})
 
 /** 실제 손잡이를 끄는 중에도 각 프레임의 검색·액션 사이 16px 간격을 확인한다. */
 async function dragPanelTo(page: Page, width: number) {
