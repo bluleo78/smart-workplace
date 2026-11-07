@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { AgentWorkCard } from '@/components/issue/agentWork/AgentWorkCard';
 import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from '@/components/mobile/headerClass';
 import { type EditBarControls, MobileEditBar } from '@/components/mobile/MobileEditBar';
+import { RawSheetContent } from '@/components/mobile/RawSheetContent';
 import { useProject } from '@/hooks/queries/useProjects';
 
 import { IssueChatButton } from '../components/chat/IssueChatButton';
@@ -59,7 +60,7 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
   const chat = usePersonalTaskChatJump({ projectKey, number, task });
 
   return (
-    <DialogPrimitive.Content
+    <RawSheetContent
       data-testid="personal-task-mobile"
       aria-describedby={undefined}
       onOpenAutoFocus={(e) => e.preventDefault()}
@@ -148,6 +149,6 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
         {/* 편집 바가 뜬 동안에도 채팅 입력줄은 언마운트하지 않고 숨긴다 — 쓰던 메시지 초안 보존(팀 상세와 동일). ChatComposer 가 border-t 를 가진다. */}
         <div ref={setChatFooterEl} hidden={titleControls != null} />
       </div>
-    </DialogPrimitive.Content>
+    </RawSheetContent>
   );
 }

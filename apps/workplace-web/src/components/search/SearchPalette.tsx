@@ -11,6 +11,7 @@ import { type KeyboardEvent, useContext, useEffect, useId, useRef, useState } fr
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
+import { RawSheetContent } from '@/components/mobile/RawSheetContent'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
@@ -73,13 +74,13 @@ export function SearchPalette({ open, onOpenChange, session, afterClose }: Props
           {/* 원시 Content — ui/DialogContent 의 data-slot 이 붙으면 index.css 의 휴대폰 대화상자 규칙(탭바 위 가운데·키보드 열림 시 가운데·
               max-height·바깥 스크롤)이 전체 화면을 줄이고 옮긴다. 「채팅·이슈로 보내기」 전체 화면(SendToChatMobileFrame)과 같은 방식으로
               보이는 뷰포트(--vv-top·--vvh)에 붙여 키보드가 올라와도 입력·결과가 가려지지 않게 한다. 입력 autoFocus 를 막지 않는다(키보드). */}
-          <DialogPrimitive.Content
+          <RawSheetContent
             data-testid="global-search"
             onEscapeKeyDown={onEscapeKeyDown}
             className="fixed inset-x-0 top-[var(--vv-top,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none [:root[data-keyboard-open]_&]:pb-0"
           >
             {body}
-          </DialogPrimitive.Content>
+          </RawSheetContent>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
     )

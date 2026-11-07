@@ -151,6 +151,50 @@ test.describe('생성 시트', () => {
     await expect(page).not.toHaveURL(new RegExp(`/projects/${KEY}`));
   });
 
+  // WP-1432 — 헤더 「새 태스크」는 상태로 시트를 열어(DialogTrigger 없음) Radix 가 닫을 때 돌려줄 곳을 몰라 포커스가 body 로 빠졌다.
+  test('375px 에서 키보드로 연 빈 시트를 Esc·뒤로 가기로 닫으면 포커스가 「새 태스크」로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await mockCreate(page);
+    await page.goto(`/projects/${KEY}`);
+    const button = page.getByTestId('mobile-new-issue');
+    const sheet = page.getByTestId('issue-create-sheet');
+
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-create-title')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await expect(button).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-create-title')).toBeFocused();
+    await page.goBack();
+    await expect(sheet).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
+  // 내용이 있으면 Esc 는 버림 확인을 거친다 — 확인창(퇴장 애니메이션 200ms)의 「버리기」가 포커스를 쥔 채 시트가 닫혀도 「새 태스크」로 돌아와야 한다.
+  test('375px 에서 제목을 쓰고 Esc → 「버리기」로 닫아도 포커스가 「새 태스크」로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await mockCreate(page);
+    await page.goto(`/projects/${KEY}`);
+    const button = page.getByTestId('mobile-new-issue');
+    const sheet = page.getByTestId('issue-create-sheet');
+
+    await button.focus();
+    await page.keyboard.press('Enter');
+    const title = page.getByTestId('issue-create-title');
+    await expect(title).toBeFocused();
+    await title.fill('작성 중');
+    await page.keyboard.press('Escape');
+    const dlg = page.getByTestId('issue-create-discard-dialog');
+    await expect(dlg).toBeVisible();
+    await page.getByTestId('issue-create-discard-confirm').press('Enter');
+    await expect(sheet).toHaveCount(0);
+    await expect(dlg).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
   test('키보드가 열리면 헤더는 맨 위, 칩 줄은 키보드 바로 위', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await installFakeViewport(page);

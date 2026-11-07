@@ -33,7 +33,8 @@ public class RunnerTokenAuthenticationFilter extends OncePerRequestFilter {
   /** runner 인증에 붙는 권한 — SecurityConfig 가 {@code hasRole("RUNNER")} 로 확인한다. */
   public static final String ROLE = "ROLE_RUNNER";
 
-  private static final String BEARER_RT = "Bearer rt_";
+  /** runner 토큰 접두사 — Bearer scheme 뒤 토큰이 이것으로 시작할 때만 이 필터가 맡는다. */
+  private static final String RT_PREFIX = "rt_";
 
   private final RunnerTokenAuthenticator authenticator;
   // 정지·삭제된 워크스페이스의 토큰은 인증하지 않는다 — 다른 인증 필터와 같은 기준(WP-341).
@@ -45,12 +46,19 @@ public class RunnerTokenAuthenticationFilter extends OncePerRequestFilter {
     this.tenantStatusChecker = tenantStatusChecker;
   }
 
-  /** runner 경로가 아니거나 헤더가 {@code Bearer rt_} 가 아니면 건너뛴다. */
+  /**
+   * runner 경로가 아니거나 헤더가 {@code Bearer rt_} 가 아니면 건너뛴다. scheme 은 대소문자 무관(RFC 7235, WP-1431)이라 {@code
+   * bearer rt_…} 도 맡는다.
+   */
   @Override
   protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+    // 경로를 먼저 본다 — runner 경로가 아니면 헤더를 읽지도 않는다(다른 요청마다 헤더 파싱을 하지 않게).
     String path = request.getRequestURI().substring(request.getContextPath().length());
-    String auth = request.getHeader("Authorization");
-    return !path.startsWith(PATH_PREFIX) || auth == null || !auth.startsWith(BEARER_RT);
+    if (!path.startsWith(PATH_PREFIX)) {
+      return true;
+    }
+    String token = BearerTokens.extract(request.getHeader("Authorization"));
+    return token == null || !token.startsWith(RT_PREFIX);
   }
 
   @Override
@@ -60,7 +68,8 @@ public class RunnerTokenAuthenticationFilter extends OncePerRequestFilter {
       @NonNull FilterChain chain)
       throws ServletException, IOException {
     try {
-      String plaintext = request.getHeader("Authorization").substring("Bearer ".length());
+      // shouldNotFilter 와 같은 도우미로 꺼낸다 — 여기 왔으면 rt_ 로 시작하는 토큰이 있다.
+      String plaintext = BearerTokens.extract(request.getHeader("Authorization"));
       authenticator
           .authenticate(plaintext)
           .filter(a -> tenantStatusChecker.isActive(a.tenantId()))

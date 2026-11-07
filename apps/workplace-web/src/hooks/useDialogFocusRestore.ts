@@ -54,10 +54,12 @@ function focusNearest(el: HTMLElement) {
  *
  * 열 때는 포커스를 먼저 캡처한 뒤 사용처의 onOpenAutoFocus 를 실행한다(사용처가 포커스를 옮겨도 복원 대상은 유지).
  * 닫을 때는 사용처의 onCloseAutoFocus 를 먼저 실행하고, 사용처가 preventDefault() 로 포커스를 직접 처리했으면 복원을 건너뛴다.
+ * shouldRestore 를 주면 복원 직전에 대상을 넘겨 물어보고, 거짓이면 돌려주지 않는다(원시 시트 래퍼 RawSheetContent 가 쓴다).
  */
 export function useDialogFocusRestore(
   onOpenAutoFocus?: (event: Event) => void,
   onCloseAutoFocus?: (event: Event) => void,
+  shouldRestore?: (target: HTMLElement) => boolean,
 ) {
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   // 이번 열림의 복원 대상을 이미 잡았는지 — 닫힐 때 비운다.
@@ -90,12 +92,12 @@ export function useDialogFocusRestore(
       capturedRef.current = false;
       if (event.defaultPrevented) return;
       // 복원 대상이 이미 DOM 에서 제거됐을 수 있으므로 isConnected 확인 후 focus.
-      if (target && target.isConnected) {
+      if (target && target.isConnected && (shouldRestore?.(target) ?? true)) {
         event.preventDefault();
         focusNearest(target);
       }
     },
-    [onCloseAutoFocus],
+    [onCloseAutoFocus, shouldRestore],
   );
 
   return { onOpenAutoFocus: handleOpenAutoFocus, onCloseAutoFocus: handleCloseAutoFocus, captureOpener: capture };

@@ -59,10 +59,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     // /api/v1/notifications/stream 엔드포인트에 한해 `?token=` 쿼리 파라미터 fallback을
     // 허용했으나, 토큰이 액세스 로그/프록시 로그/Referer/브라우저 히스토리에 노출되는
     // 위험이 있어 제거했다. 프론트엔드는 fetch + ReadableStream으로 SSE를 수신한다.
-    String token = null;
-    if (authHeader != null && authHeader.startsWith("Bearer ")) {
-      token = authHeader.substring(7);
-    }
+    // scheme 은 대소문자 무관(RFC 7235) — bearer/BEARER 도 받는다(WP-1431). Bearer 가 아니면 null.
+    String token = BearerTokens.extract(authHeader);
 
     // 인증 호출(authenticateWithJwt 내부에서 TenantContext.set 후 DB 조회)이 예외를 던져도
     // finally 가 실행되도록 인증 전체를 try 안에 둔다. 그래야 풀 스레드에 stale tenant 가

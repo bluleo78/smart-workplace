@@ -5,6 +5,7 @@
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useRef, useState } from 'react';
 
+import { RawSheetContent } from '@/components/mobile/RawSheetContent';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -63,7 +64,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Content
+        <RawSheetContent
           data-testid="issue-create-sheet"
           aria-describedby={undefined}
           onEscapeKeyDown={(e) => { e.preventDefault(); requestClose(); }}
@@ -199,7 +200,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               )}
             </div>
           </form>
-        </DialogPrimitive.Content>
+        </RawSheetContent>
       </DialogPrimitive.Portal>
 
       <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>

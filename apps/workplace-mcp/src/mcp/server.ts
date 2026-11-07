@@ -14,9 +14,24 @@ import { buildUserTools } from '../tools/index.js';
 import { buildInstructions } from './instructions.js';
 import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpScope } from './scope.js';
 
-/** 접속 토큰 형식 — 사람 PAT(swp_) 또는 AI 키(ak_). 인증 헤더 검사는 이 정규식 한 번으로 한다. */
-const BEARER_TOKEN = /^Bearer (swp_|ak_)/;
+/**
+ * 인증 scheme — RFC 7235 §2.1 에 따라 대소문자를 구분하지 않는다(`bearer`·`BEARER` 도 받는다, WP-1431). 넓히는 것은 대소문자뿐이라
+ * scheme 뒤 공백은 정확히 하나다(api 의 BearerTokens 와 같은 규칙).
+ */
+const BEARER_SCHEME = /^bearer /i;
+/** 접속 토큰 형식 — 사람 PAT(swp_) 또는 AI 키(ak_). 토큰 접두사는 대소문자를 구분한다(api 필터와 같게). */
+const TOKEN_PREFIX = /^(swp_|ak_)/;
 const AGENT_KEY_PREFIX = 'ak_';
+
+/**
+ * Authorization 헤더에서 접속 토큰을 꺼낸다 — scheme(대소문자 무관)+공백 하나 뒤의 나머지. Bearer 가 아니거나 swp_/ak_ 토큰이 아니면
+ * undefined. 꺼낸 토큰은 workplace-api 로 `Bearer <토큰>` 표준 표기로 다시 실어 보낸다.
+ */
+function bearerToken(auth: string | undefined): string | undefined {
+  if (!auth || !BEARER_SCHEME.test(auth)) return undefined;
+  const token = auth.slice('Bearer '.length);
+  return TOKEN_PREFIX.test(token) ? token : undefined;
+}
 
 /** AI(에이전트) 키인지 — 테넌트 선택 헤더 전달 등 AI 키 전용 동작의 판별 기준. */
 function isAgentKey(token: string): boolean {
@@ -133,8 +148,8 @@ export async function handleMcpPost(
   res: Response,
   route: McpRoute = { readOnly: false },
 ): Promise<void> {
-  const auth = req.headers.authorization;
-  if (!auth || !BEARER_TOKEN.test(auth)) {
+  const token = bearerToken(req.headers.authorization);
+  if (!token) {
     res.status(401).json({
       jsonrpc: '2.0',
       error: { code: -32001, message: 'PAT(Bearer swp_...) 또는 AI 키(Bearer ak_...) 가 필요합니다' },
@@ -142,7 +157,6 @@ export async function handleMcpPost(
     });
     return;
   }
-  const token = auth.slice('Bearer '.length);
   const tenantId = readTenantHeader(req, token);
   // WP-377: AI 작업 보고의 출처 — 클라이언트 User-Agent 의 제품 토큰을 X-Agent-Tool 로 api 에 넘긴다.
   const agentTool = agentToolFromUserAgent(req.headers['user-agent']);

@@ -200,6 +200,22 @@ class RunnerApiTest extends IntegrationTestBase {
     desired(fresh).andExpect(status().isOk());
   }
 
+  /**
+   * WP-1431: Bearer scheme 은 대소문자 무관(RFC 7235) — {@code bearer rt_…}·{@code BEARER rt_…} 도 인증된다. 다른
+   * scheme({@code Basic rt_…})은 여전히 401.
+   */
+  @Test
+  void desired_withCaseInsensitiveBearerScheme_authenticates() throws Exception {
+    for (String scheme : List.of("bearer ", "BEARER ")) {
+      useTenant(1L);
+      mvc.perform(get(BASE + "/desired").header("Authorization", scheme + t1))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.locationId").value(l1));
+    }
+    mvc.perform(get(BASE + "/desired").header("Authorization", "Basic " + t1))
+        .andExpect(status().isUnauthorized());
+  }
+
   /** 모르는 토큰·토큰 없음은 401. */
   @Test
   void desired_withUnknownOrMissingToken_returns401() throws Exception {

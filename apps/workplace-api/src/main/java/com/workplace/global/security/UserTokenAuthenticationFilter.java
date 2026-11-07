@@ -33,7 +33,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Slf4j
 public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
 
-  private static final String BEARER_PREFIX = "Bearer ";
   private static final String SWP_PREFIX = "swp_";
 
   private final UserApiTokenRepository userApiTokenRepository;
@@ -65,12 +64,9 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
     // active-tenant ThreadLocal 이 풀링 스레드로 새지 않도록, 인증 + 다운스트림 처리 전체를 try 로 감싸고
     // finally 에서 항상 정리한다(토큰 미일치 시에도 안전 — clear 는 멱등). ApiKeyAuthenticationFilter 패턴 미러.
     try {
-      String auth = request.getHeader("Authorization");
-      if (auth != null
-          && auth.startsWith(BEARER_PREFIX)
-          && auth.length() > BEARER_PREFIX.length()
-          && auth.substring(BEARER_PREFIX.length()).startsWith(SWP_PREFIX)) {
-        String plaintext = auth.substring(BEARER_PREFIX.length());
+      // Bearer scheme 은 대소문자 무관으로 판정한다(RFC 7235, WP-1431). swp_ 로 시작하는 토큰만 이 필터가 맡는다.
+      String plaintext = BearerTokens.extract(request.getHeader("Authorization"));
+      if (plaintext != null && plaintext.startsWith(SWP_PREFIX)) {
         String hash = CapabilityTokens.sha256Hex(plaintext);
         userApiTokenRepository
             .findActiveByHash(hash)
