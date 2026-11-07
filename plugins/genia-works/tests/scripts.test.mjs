@@ -1208,6 +1208,7 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
     'GENIA_WORKS_AS=kodi',
     'GENIA_WORKS_PANE_WAKES=1',
     'GENIA_WORKS_UNATTENDED=1',
+    'GENIA_WORKS_WAKE_MODE=pane',
     '--permission-mode',
     'bypassPermissions',
     '/loop /genia-works:work-loop WP --queue "AI 개발팀"',
@@ -1307,7 +1308,7 @@ tmuxTest('agent-project start: 실행기가 genia 면 genia 인증서·「깨우
   const crt = join(home, 'genia-root.crt');
   writeFileSync(crt, 'x');
   // genia 대신 받은 환경·인자를 적는 가짜 — PATH 앞에 둔다. 이 셸의 NODE_EXTRA_CA_CERTS 가 다른 값이어도 genia 인증서로 바뀌어야 한다.
-  writeFileSync(join(bin, 'genia'), '#!/bin/sh\n{ env | grep -E "^(GENIA_WORKS_RUNNER|NODE_EXTRA|CLAUDE_AUTOCOMPACT)" | sort; printf "%s\\n" "$@"; } > "$HOME/genia-args"\nexec sleep 60\n');
+  writeFileSync(join(bin, 'genia'), '#!/bin/sh\n{ env | grep -E "^(GENIA_WORKS_RUNNER|GENIA_WORKS_WAKE|NODE_EXTRA|CLAUDE_AUTOCOMPACT)" | sort; printf "%s\\n" "$@"; } > "$HOME/genia-args"\nexec sleep 60\n');
   chmodSync(join(bin, 'genia'), 0o755);
   const r = run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper, GENIA_CA_CERT: crt, NODE_EXTRA_CA_CERTS: '/elsewhere.pem' } });
   assert.deepEqual([r.status, r.stdout], [0, 'started kodi\n']);
@@ -1315,6 +1316,7 @@ tmuxTest('agent-project start: 실행기가 genia 면 genia 인증서·「깨우
   await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/gw-loop'));
   assert.equal(readFileSync(out, 'utf8'), [
     'GENIA_WORKS_RUNNER_WAKES=1',
+    'GENIA_WORKS_WAKE_MODE=runner',
     `NODE_EXTRA_CA_CERTS=${crt}`,
     '--approve',
     '-e',
@@ -2080,6 +2082,175 @@ tmuxTest('agentEvents_poke_ignoresNonClaudeRunner', async (t) => {
   await settle();
   assert.equal(wp.typed(), '');
   assert.ok(!log().includes('sent'), log());
+});
+
+// ---------------------------------------------------------------- agent-events sweep — 오래 쉬는 칸 안전장치 (WP-1427)
+// 알림이 없어도 칸이 1시간 넘게 쉬면 poke 경로로 /loop 를 넣는다. 일하는 칸·입력 중인 칸은 건드리지 않고, 같은 칸에 1시간에 한 번만 넣는다.
+const sweepEnv = (wrapper) => ({ GW_TMUX: wrapper, GW_POKE_FRESH_SEC: '0', GW_POKE_RETRY_MAX: '0', GW_IDLE_POKE_SECS: '3600' });
+const idleMark = (d, key) => {
+  mkdirSync(join(d, 'state'), { recursive: true });
+  return join(d, 'state', `idle-${key}`);
+};
+const ago = (secs) => `${Math.floor(Date.now() / 1000) - secs}\n`;
+/** 기록(「시각 지문」)의 지문은 그대로 두고 시각만 secs 초 앞으로 당긴 줄 — 같은 화면을 그만큼 오래 본 것처럼. */
+const backdate = (d, key, secs) => `${Math.floor(Date.now() / 1000) - secs} ${readFileSync(idleMark(d, key), 'utf8').trim().split(' ')[1]}\n`;
+
+tmuxTest('agentEvents_sweep_pokesPaneIdleOverAnHourOnlyOnce', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  const sweep = () => runAsync('agent-events', ['sweep', d], sweepEnv(wrapper));
+  // 기록이 없으면(감시 창이 막 살아났다) 지금부터 센다 — 넣지 않는다.
+  assert.equal((await sweep()).status, 0);
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.ok(existsSync(idleMark(d, 'WP')));
+  // 1시간 안이면 아직 넣지 않는다.
+  writeFileSync(idleMark(d, 'WP'), backdate(d, 'WP', 3000));
+  await sweep();
+  await settle();
+  assert.equal(wp.typed(), '');
+  // 1시간이 넘으면 넣는다.
+  writeFileSync(idleMark(d, 'WP'), backdate(d, 'WP', 3700));
+  await sweep();
+  await until(() => wp.typed() === `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+  // 시각이 지금으로 고쳐져 곧바로 다시 부르면 넣지 않는다 — 1시간에 한 번.
+  await sweep();
+  await settle();
+  assert.equal(wp.typed(), `${LOOP}\n`);
+});
+
+// 5분 표본만 보면 잠깐 일하고 다시 쉰 칸도 늘 idle 로 찍힌다 — 화면 지문이 바뀌었으면(그 사이 출력함) 시간을 다시 센다.
+tmuxTest('agentEvents_sweep_restartsCountWhenScreenChanged', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const later = screen(['⏺ 확인했습니다', '✻ Baked for 3s · done 2:49 PM'], [`${P}${DIM('Try "fix lint errors"')}`]);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE, later);
+  const sweep = () => runAsync('agent-events', ['sweep', d], sweepEnv(wrapper));
+  await sweep();
+  const first = readFileSync(idleMark(d, 'WP'), 'utf8').trim().split(' ');
+  assert.equal(first.length, 2, '기록은 「시각 지문」');
+  // 같은 화면을 오래전부터 본 것처럼 만들고, 그 사이 칸이 일하고 다시 쉬어 화면이 바뀌었다.
+  writeFileSync(idleMark(d, 'WP'), `${Math.floor(Date.now() / 1000) - 7200} ${first[1]}\n`);
+  wp.finish();
+  const id = panes(tmux, 'kodi').find((p) => p.key === 'WP').id;
+  await until(() => tmux('capture-pane', '-p', '-t', id).includes('확인했습니다'));
+  await sweep();
+  await settle();
+  // 넣지 않고 지금부터 다시 센다(지문도 새 화면 것으로).
+  assert.equal(wp.typed(), '');
+  assert.ok(!log().includes('sent'), log());
+  const [since, print] = readFileSync(idleMark(d, 'WP'), 'utf8').trim().split(' ');
+  assert.ok(Math.floor(Date.now() / 1000) - Number(since) < 60, since);
+  assert.notEqual(print, first[1]);
+});
+
+// 지문은 대화 영역(입력 상자 위)만 본다 — 아래 상태 줄(남은 시간·ctx%·모델 이름)만 바뀌면 다시 세지 않고 1시간이 넘으면 넣는다.
+tmuxTest('agentEvents_sweep_ignoresFooterChanges', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const box = [`${P}${DIM('Try "fix lint errors"')}`];
+  const before = screen(['✻ Baked for 26s · done 2:19 PM'], box, '  ⏵⏵ bypass permissions on · ctx 41% · Opus');
+  const after = screen(['✻ Baked for 26s · done 2:19 PM'], box, '  ⏵⏵ bypass permissions on · ctx 42% · resets in 3h · Opus');
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', before, after);
+  const sweep = () => runAsync('agent-events', ['sweep', d], sweepEnv(wrapper));
+  await sweep();
+  const first = readFileSync(idleMark(d, 'WP'), 'utf8').trim().split(' ');
+  writeFileSync(idleMark(d, 'WP'), backdate(d, 'WP', 3700));
+  wp.finish();
+  const id = panes(tmux, 'kodi').find((p) => p.key === 'WP').id;
+  await until(() => tmux('capture-pane', '-p', '-t', id).includes('resets in'));
+  await sweep();
+  await until(() => wp.typed() === `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+  assert.ok(first[1], '지문이 비어 있지 않다');
+});
+
+// 감시 창이 (오래) 죽었다 살아나면 지난 idle 기록을 모두 지운다. 끝날 때는 sweep-loop 와 그 쉬는 sleep 까지 남기지 않는다.
+test('agentEvents_run_clearsIdleMarksAndLeavesNoSweepOrphans', async () => {
+  const d = aiDir();
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(join(d, 'state', 'idle-WP'), ago(99999));
+  writeFileSync(join(d, 'state', 'idle-HR'), ago(99999));
+  const loops = () => spawnSync('pgrep', ['-f', `agent-events sweep-loop ${d}`], { encoding: 'utf8' }).stdout.trim();
+  const naps = () => spawnSync('pgrep', ['-fx', 'sleep 4243'], { encoding: 'utf8' }).stdout.trim();
+  // AI 키가 없어 gw-events 는 곧 끝나고 run 은 5분 쉰다 — 그사이 sweep-loop 가 떠 있어야 한다.
+  const { orphans } = await runAgentEvents(['run', d], { GW_IDLE_SWEEP_SEC: '4243', GW_TMUX: '/nonexistent-tmux' }, {
+    done: () => !existsSync(join(d, 'state', 'idle-WP')) && !existsSync(join(d, 'state', 'idle-HR')) && loops() !== '' && naps() !== '',
+    deadlineMs: 10000,
+  });
+  assert.ok(!existsSync(join(d, 'state', 'idle-WP')));
+  assert.ok(!existsSync(join(d, 'state', 'idle-HR')));
+  assert.equal(orphans, '');
+  await until(() => loops() === '' && naps() === '');
+});
+
+// 이제 없는 칸의 기록은 sweep 이 지운다.
+tmuxTest('agentEvents_sweep_removesMarksOfGonePanes', async (t) => {
+  const { wrapper, tmux, d } = pokeSetup(t);
+  await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  writeFileSync(idleMark(d, 'OLD'), ago(7200));
+  await runAsync('agent-events', ['sweep', d], sweepEnv(wrapper));
+  assert.ok(!existsSync(idleMark(d, 'OLD')));
+  assert.ok(existsSync(join(d, 'state', 'idle-WP')));
+});
+
+tmuxTest('agentEvents_sweep_leavesBusyAndTypingPanesAlone', async (t) => {
+  const { wrapper, tmux, d, log } = pokeSetup(t);
+  const cases = {
+    WP: screen(['✻ Effecting… (8s · ↓ 81 tokens)'], [P]),
+    HR: screen(['✻ Baked for 26s · done 2:19 PM'], [`${P}지금 치는 중`]),
+    QA: 'not a claude screen',
+  };
+  const fakes = {};
+  for (const [k, text] of Object.entries(cases)) {
+    fakes[k] = await fakeClaudePane(wrapper, tmux, k, text.includes('─') ? text : `${text}\nbypass permissions`);
+    writeFileSync(idleMark(d, k), ago(7200));
+  }
+  assert.equal((await runAsync('agent-events', ['sweep', d], sweepEnv(wrapper))).status, 0);
+  await settle();
+  for (const k of Object.keys(cases)) {
+    assert.equal(fakes[k].typed(), '', k);
+    // 쉬는 칸이 아니면 센 시간을 버린다 — 다시 쉬게 되면 그때부터 1시간을 센다.
+    assert.ok(!existsSync(idleMark(d, k)), k);
+  }
+  assert.ok(!log().includes('sent'), log());
+});
+
+tmuxTest('agentEvents_sweep_ignoresNonClaudeRunner', async (t) => {
+  const { wrapper, tmux, d } = pokeSetup(t, { cli: 'genia' });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  writeFileSync(idleMark(d, 'WP'), ago(7200));
+  assert.equal((await runAsync('agent-events', ['sweep', d], sweepEnv(wrapper))).status, 0);
+  await settle();
+  assert.equal(wp.typed(), '');
+});
+
+// ---------------------------------------------------------------- gw-wake-mode (WP-1427)
+test('gwWakeMode_priorityAndFallbackToSelf', () => {
+  const mode = (env) => {
+    // 이 셸에 이미 있는 값이 섞이지 않게 세 변수를 모두 덮어쓴다(빈 값 = 없음).
+    const r = run('gw-wake-mode', [], { env: { GENIA_WORKS_WAKE_MODE: '', GENIA_WORKS_RUNNER_WAKES: '', GENIA_WORKS_PANE_WAKES: '', ...env } });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  assert.equal(mode({}), 'self\n');
+  assert.equal(mode({ GENIA_WORKS_PANE_WAKES: '1' }), 'pane\n');
+  assert.equal(mode({ GENIA_WORKS_RUNNER_WAKES: '1' }), 'runner\n');
+  // 둘 다 1 이면 실행기가 먼저.
+  assert.equal(mode({ GENIA_WORKS_RUNNER_WAKES: '1', GENIA_WORKS_PANE_WAKES: '1' }), 'runner\n');
+  // 실행기 표시가 가장 먼저 — Claude 칸이 물려준 WAKE_MODE=pane 을 상속한 채 옛 실행기가 RUNNER_WAKES=1 만 켜도 runner.
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'pane', GENIA_WORKS_RUNNER_WAKES: '1' }), 'runner\n');
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'self', GENIA_WORKS_RUNNER_WAKES: '1' }), 'runner\n');
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'runner', GENIA_WORKS_PANE_WAKES: '1' }), 'runner\n');
+  // 그다음 새 변수(pane·self)가 옛 PANE_WAKES 보다 먼저.
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'pane' }), 'pane\n');
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'self', GENIA_WORKS_PANE_WAKES: '1' }), 'self\n');
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'runner' }), 'runner\n');
+  // 이상한 값은 무시한다 — 옛 변수가 있으면 그쪽, 없으면 self.
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'foo' }), 'self\n');
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'PANE' }), 'self\n');
+  assert.equal(mode({ GENIA_WORKS_WAKE_MODE: 'foo', GENIA_WORKS_PANE_WAKES: '1' }), 'pane\n');
+  // 옛 변수는 정확히 1 일 때만 켜진다.
+  assert.equal(mode({ GENIA_WORKS_RUNNER_WAKES: '0', GENIA_WORKS_PANE_WAKES: 'yes' }), 'self\n');
 });
 
 tmuxTest('agentEvents_run_pokesIdlePaneOnWake', async (t) => {

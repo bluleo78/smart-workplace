@@ -717,36 +717,46 @@ test('SKILL.md 3번: slots 가 없을 때 대기 중은 동시 진행에 세지 
   assert.ok(!skill.includes('작업 중·대기 중·답변 필요·인증 필요'));
 });
 
-// WP-1293 깨우기를 실행기가 맡는 세션 — GENIA_WORKS_RUNNER_WAKES=1 이면 감시·다음 확인 잡기를 건너뛰고, 마지막 줄로 다음 확인 시각을 넘긴다.
-test('SKILL.md: 실행기가 깨우기를 맡는 세션(GENIA_WORKS_RUNNER_WAKES=1)은 감시·깨우기 도구를 쓰지 않고 GW-NEXT-CHECK 줄을 남긴다 (WP-1293)', () => {
+// WP-1293·1403·1427 깨우는 방식 — 환경변수를 직접 읽지 않고 gw-wake-mode 한 단어(runner·pane·self)만 보고, 방식마다 감시·다음 확인을 정한다.
+test('SKILL.md: 깨우는 방식은 gw-wake-mode 결과 한 곳에서만 판단하고 방식별 감시·다음 확인을 표로 정한다 (WP-1427)', () => {
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('**깨우기를 실행기가 맡는 세션(WP-1293)**'));
-  assert.ok(text.includes('"${GENIA_WORKS_RUNNER_WAKES:-}"'));
+  assert.ok(text.includes('**깨우는 방식(WP-1293·1403·1427)**'));
+  assert.ok(text.includes('`"<이 스킬 폴더>/../../scripts/gw-wake-mode"`'));
+  assert.ok(text.includes('결과는 `runner`·`pane`·`self` 셋 중 하나'));
+  // 변수를 직접 읽게 하는 문구는 없다 — 판단이 두 곳으로 갈리던 것이 칸이 멈춘 원인이었다.
+  assert.ok(!text.includes('"${GENIA_WORKS_RUNNER_WAKES:-}"'));
+  assert.ok(!text.includes('"${GENIA_WORKS_PANE_WAKES:-}"'));
+  assert.ok(!text.includes('printf \'%s\\n\' "${GENIA_WORKS'));
+  // 방식 표 — 세 방식이 모두 있다.
+  assert.ok(text.includes('| 방식 | 누가 깨우나 | 알림 감시(`Monitor`) | 다음 확인 |'));
+  for (const m of ['runner', 'pane', 'self']) assert.ok(text.includes(`| \`${m}\` |`), m);
+  // runner 는 마지막 줄 GW-NEXT-CHECK 로 다음 확인을 넘긴다.
   assert.ok(text.includes('`GW-NEXT-CHECK <다음 확인 시각(ISO-8601)>`'));
   assert.ok(text.includes('`GW-NEXT-CHECK none`'));
   assert.ok(text.includes('어떻게 끝나든(2번 잠금 `held`·오류 포함) 늘 쓰고'));
-  // 1번·5번의 감시 걸기에도 건너뛰기가 적혀 있다(맨 위 규칙만 두면 그 자리에서 놓친다).
-  assert.ok(text.includes('깨우기를 실행기가 맡는 세션이면 걸지 않는다).'));
-  assert.ok(text.includes('깨우기를 실행기가 맡는 세션(맨 위)이면 걸지 않는다'));
-  assert.ok(text.includes('깨우기 도구 대신 마지막 줄 `GW-NEXT-CHECK …` 로 시각을 넘긴다'));
-  // 한 번 부르기의 경계(30분·할 일 없음)는 실행기와 무관하다.
-  assert.ok(text.includes('실행기와 무관하게 그대로다'));
-  assertBefore(text, '**깨우기를 실행기가 맡는 세션(WP-1293)**', '### 1. 신원 확인');
+  // pane 은 ScheduleWakeup 으로 잡는다(GW-NEXT-CHECK 는 쓰지 않는다).
+  assert.ok(text.includes('지금처럼 `ScheduleWakeup` 으로 잡는다(5번) — `GW-NEXT-CHECK` 줄은 쓰지 않는다'));
+  // 다음 확인을 잡은 뒤 스스로 확인한다.
+  assert.ok(text.includes('다음 확인을 잡은 뒤에는 **스스로 확인한다**'));
+  assert.ok(text.includes('`ScheduleWakeup` 호출 결과(잡힌 시각)를 받았는지'));
+  // 알 수 없으면 self.
+  assert.ok(text.includes('결과가 위 셋이 아니면 `self` 로 본다'));
+  // 1번·5번의 감시 걸기에도 방식별 건너뛰기가 적혀 있다.
+  assert.ok(text.includes('깨우는 방식(맨 위)이 `pane`·`runner` 면 걸지 않는다).'));
+  assert.ok(text.includes('방식(맨 위)이 `runner` 면 걸지 않는다'));
+  assert.ok(text.includes('`pane` 이면 걸지도 다시 걸지도 않는다'));
+  assert.ok(text.includes('깨우는 방식(맨 위)이 `runner` 면 늘 실행기가 부른 것으로 보고, 깨우기 도구 대신 마지막 줄 `GW-NEXT-CHECK …` 로 시각을 넘긴다'));
+  // 한 번 부르기의 경계(30분·할 일 없음)는 방식과 무관하다.
+  assert.ok(text.includes('방식과 무관하게 그대로다'));
+  assertBefore(text, '**깨우는 방식(WP-1293·1403·1427)**', '### 1. 신원 확인');
+  assert.ok(!text.includes('**깨우기를 실행기가 맡는 세션(WP-1293)**'));
+  assert.ok(!text.includes('**감시 창이 깨우는 칸(WP-1403)**'));
 });
 
-// WP-1403 — start-agent 가 띄운 Claude Code 칸(GENIA_WORKS_PANE_WAKES=1)은 감시 창이 쉬는 칸에 /loop 를 넣어 깨운다 — Monitor 를 걸지 않는다.
-test('SKILL.md: 감시 창이 깨우는 칸(GENIA_WORKS_PANE_WAKES=1)은 알림 감시를 걸지 않고 다음 확인은 그대로 잡는다 (WP-1403)', () => {
-  const text = workLoop('SKILL.md');
-  assert.ok(text.includes('**감시 창이 깨우는 칸(WP-1403)**'));
-  assert.ok(text.includes('"${GENIA_WORKS_PANE_WAKES:-}"'));
-  // 1번·5번의 감시 걸기에도 건너뛰기가 적혀 있다.
-  assert.ok(text.includes('감시 창이 깨우는 칸·깨우기를 실행기가 맡는 세션이면 걸지 않는다).'));
-  assert.ok(text.includes('감시 창이 깨우는 칸(맨 위)이면 걸지도 다시 걸지도 않는다'));
-  // 다음 확인(ScheduleWakeup)은 그대로 잡는다 — 실행기가 깨우는 세션의 GW-NEXT-CHECK 와 다르다.
-  assert.ok(text.includes('다음 확인은 지금처럼 `ScheduleWakeup` 으로 잡는다'));
-  // 이 표시가 판단 기준이다 — AGENT_DIR 가 있어도 표시가 없으면(이 버전 전에 띄운 칸) 지금처럼 감시를 건다.
-  assert.ok(text.includes('`GENIA_WORKS_AGENT_DIR` 가 있어도 이 값이 `1` 이 아니면(이 판 전에 띄운 칸) 지금처럼 감시를 건다'));
-  assertBefore(text, '**감시 창이 깨우는 칸(WP-1403)**', '### 1. 신원 확인');
+test('process-issue.md: 실행기 깨우기 세션은 환경변수가 아니라 방식 runner 로 적는다 (WP-1427)', () => {
+  const text = body(workLoop('process-issue.md'));
+  assert.ok(text.includes('깨우는 방식이 `runner`'));
+  assert.ok(!text.includes('GENIA_WORKS_RUNNER_WAKES'));
 });
 
 // WP-1293 — Claude Code 전용 명령(/code-review·/simplify)이 없는 실행기에서도 같은 검토를 하게 대안을 적는다.
