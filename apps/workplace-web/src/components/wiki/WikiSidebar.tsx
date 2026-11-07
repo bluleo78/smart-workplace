@@ -477,7 +477,8 @@ export function WikiSidebar() {
               navigate(`/wiki/spaces/${v}`)
             }}
           >
-            <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm">
+            {/* 보이는 라벨이 없어 스크린리더가 「콤보박스」로만 읽던 것에 이름을 준다(WP-1436) — 선택 값은 그대로 값으로 읽힌다. */}
+            <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm" aria-label="노트 스페이스">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

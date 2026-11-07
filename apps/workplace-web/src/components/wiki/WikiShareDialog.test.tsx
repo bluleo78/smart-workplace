@@ -121,6 +121,13 @@ describe('열 수 있는 사람 선택지', () => {
     expect(item).not.toHaveTextContent('관리자가 막아 둠')
   })
 
+  it('선택 상자 셋은 옆 라벨과 같은 이름으로 읽힌다(WP-1436)', () => {
+    renderDialog(baseState())
+    expect(screen.getByRole('combobox', { name: '열 수 있는 사람' })).toBe(screen.getByTestId('wiki-share-audience'))
+    expect(screen.getByRole('combobox', { name: '권한' })).toBe(screen.getByTestId('wiki-share-permission'))
+    expect(screen.getByRole('combobox', { name: '만료' })).toBe(screen.getByTestId('wiki-share-expiry'))
+  })
+
   it('외부 링크면 권한 선택이 잠기고, 내부 링크면 열려 있다', () => {
     const { unmount } = renderDialog(baseState({ share: baseShare({ audience: 'PUBLIC' }) }))
     expect(screen.getByTestId('wiki-share-permission')).toBeDisabled()

@@ -147,7 +147,8 @@ test('이미 있는 이름이면 409 메시지를 인라인으로 보이고 대�
 test('스페이스 선택기는 shadcn Select(combobox)이고 다른 스페이스를 고르면 그 주소로 간다(#244)', async () => {
   const second = wikiSpace({ id: 2, type: 'PERSONAL', name: '두 번째 스페이스', role: 'OWNER' })
   const { user, location, container } = open({ spaces: () => [PERSONAL, second] })
-  const trigger = await screen.findByRole('combobox')
+  // 선택기는 「노트 스페이스」라는 이름으로 읽히고 값(지금 스페이스)은 그대로 보인다(WP-1436).
+  const trigger = await screen.findByRole('combobox', { name: '노트 스페이스' })
   await waitFor(() => expect(trigger).toHaveTextContent('내 노트'))
   expect(container.querySelector('select')).toBeNull()
   await user.click(trigger)
