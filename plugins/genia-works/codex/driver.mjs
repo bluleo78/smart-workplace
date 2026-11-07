@@ -70,7 +70,7 @@ function invoke(loopArgs) {
     prompt: workLoopPrompt({ skillsDir: join(root, 'skills'), args: loopArgs }),
     version: pluginVersion,
   })
-  const env = { ...process.env, [TOKEN_ENV]: key, GENIA_WORKS_RUNNER_WAKES: '1' }
+  const env = { ...process.env, [TOKEN_ENV]: key, GENIA_WORKS_WAKE_MODE: 'runner', GENIA_WORKS_RUNNER_WAKES: '1' }
   delete env.GENIA_WORKS_TOKEN
   log(thread ? `work-loop 부름(대화 ${thread} 이어서)` : 'work-loop 부름(새 대화)')
   // --json 출력은 줄 단위로 읽어 thread.started 의 대화 id 만 찾는다 — 한 번의 실행이 길어도 출력을 메모리에 쌓지 않는다.

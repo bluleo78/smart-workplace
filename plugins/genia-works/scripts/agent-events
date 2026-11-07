@@ -34,6 +34,17 @@
 #   기다리는 poke 가 있으면 뒤의 poke 는 아무것도 남기지 않고 끝난다(기다리는 쪽이 맡는다).
 #   결과는 끝에 한 번 events.log 에 「poke <키> <sent|sent-after-wait|busy|typing|unknown|attached|starting|dead|debounced|no-pane|not-claude|failed>」
 #   한 줄로 남긴다(기다렸다 넣었으면 sent-after-wait, 한도까지 못 넣었으면 마지막 이유 — open 과 같은 방식).
+# agent-events sweep <AI 폴더> — 안전장치(WP-1427): 알림이 없어도 오래 쉬는 칸을 깨운다. 칸이 다음 확인을 못 잡아 멈추면(깨우기 판단 오류 등) 알림이
+#   와야만 깨어나는데 알림이 없으면 몇 시간이고 서 있었다. run 이 띄운 sweep-loop 가 GW_IDLE_SWEEP_SEC(기본 300초)마다 부른다. 칸마다(--pane-keys)
+#   화면이 idle 로 읽히는 동안 <AI 폴더>/state/idle-<키> 에 「<처음 idle 로 본 시각> <화면 지문>」을 적는다. 지문은 입력 상자 위쪽(대화 영역 —
+#   입력 줄 바로 위의 가로 구분선 앞까지)의 색 코드 없는 글자의 cksum 이다 — 아래쪽 상태 줄(남은 시간·ctx%·모델 이름)이 바뀌어도 다시 세지 않게.
+#   다음 표본에서 지문이 달라졌으면 그 사이 칸이 출력한 것(잠깐이라도 일했다 — 5분 표본은 2~3분 일하고 다시 쉰 칸도 idle 로 찍는다)이라 지금부터 다시 센다.
+#   지문을 얻지 못하면(화면을 못 읽음·입력 줄을 못 찾음) 빈 지문이고, 빈 지문은 기록과 같아도 맞은 것으로 치지 않는다(넣지 않는 쪽).
+#   지문이 같은 채로 GW_IDLE_POKE_SECS(기본 3600초 = 1시간)가 넘으면 기존 poke 경로로 「/loop …」를 넣은 뒤 지금 시각·지금 지문으로 고친다 —
+#   같은 칸에 1시간에 한 번만. 일하는 중(busy)·입력 중(typing)·unknown·막 뜬 칸·사람이 보는 칸은 idle 이 아니므로 기록을 지우고 넣지 않는다.
+#   이제 없는 칸의 기록도 지운다. run 은 시작할 때 idle-* 기록을 모두 지운다 — 감시 창이 오래 죽었다 살아나도 지금부터 1시간을 센다(한꺼번에 깨우지 않는다).
+#   실행기가 claude 가 아니면 하지 않는다(poke 와 같다). poke 의 결과는 events.log 에 poke 줄로 남는다.
+# agent-events sweep-loop <AI 폴더> — run 이 뒤에서 띄우는 주기 점검(따로 된 프로세스). run 이 끝나며 신호를 보내면 자기가 띄운 sweep(과 그 poke)까지 끝낸다.
 # 키는 gw-events 가 키 파일에서 읽어 표준 입력으로만 쓴다 — 이 스크립트는 키를 읽지도, 인자·로그에 남기지도 않는다.
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
@@ -42,7 +53,7 @@ tmux=${GW_TMUX:-tmux}
 win=events
 
 usage() {
-  echo "사용: agent-events ensure|run <AI 폴더> · tail <AI 폴더> <프로젝트 키[,키…]> · open <AI 폴더> <프로젝트 키> · poke <AI 폴더> <프로젝트 키|->" >&2
+  echo "사용: agent-events ensure|run <AI 폴더> · tail <AI 폴더> <프로젝트 키[,키…]> · open <AI 폴더> <프로젝트 키> · poke <AI 폴더> <프로젝트 키|-> · sweep|sweep-loop <AI 폴더>" >&2
   exit 2
 }
 
@@ -115,6 +126,12 @@ do_run() {
   gw_scrub_claude_token
   # gw-events·curl 이 남아 SSE 연결과 잠금을 붙잡지 않게.
   kill_children_on_exit
+  # 안전장치(WP-1427) — 알림이 없어도 오래 쉬는 칸을 깨운다. 감시 창이 (오래) 죽었다 살아났으면 지난 idle 기록은 믿을 수 없다 —
+  # 모두 지워 지금부터 1시간을 센다(살아나자마자 한꺼번에 깨우지 않게).
+  rm -f "$state"/idle-*
+  # 따로 된 프로세스로 띄운다 — 자기 $$ 로 자식(sweep·poke)을 끝낼 수 있게(하위 셸의 $$ 는 run 의 것이라 그 자식을 못 찾는다).
+  # 이 프로세스는 run 의 자식이라 감시 창이 끝나면 kill_children_on_exit 이 신호를 보내고, 그러면 sweep-loop 가 자기 자식을 끝낸다.
+  "$here/agent-events" sweep-loop "$aidir" </dev/null >/dev/null 2>&1 &
   backoff=1
   while :; do
     started=$(date +%s)
@@ -325,6 +342,124 @@ classify_screen() {
     }'
 }
 
+# pane_state <키> — 그 키 칸의 지금 상태를 st 에 둔다(poke·sweep 이 같은 기준으로 판정하게 한곳에 둔다). 칸 id 는 pane, 읽은 화면(색 코드 포함)은 shot.
+#   st: dead(죽음) · starting(막 뜬 칸 — 띄운 지 GW_POKE_FRESH_SEC(기본 60초) 안 — 또는 open 이 그 키를 여는 중) · attached(사람이 보고 있음) ·
+#       idle·busy·typing·unknown(화면 판정 — classify_screen. 화면을 못 읽으면 unknown).
+#   종료: 0 판정함 · 1 그 키 칸이 없음 · 그 밖 tmux·세션 없음(agent-window --pane 의 코드 그대로).
+pane_state() {
+  ps_key=$1
+  # 칸 표시 방식은 agent-window 만 안다 — 칸 id·죽음 여부·사람이 보고 있는지·띄운 지 몇 초를 받는다.
+  info=$("$here/agent-window" --pane "$name" "$ps_key" 2>/dev/null)
+  ps_rc=$?
+  [ "$ps_rc" -eq 0 ] || return "$ps_rc"
+  # shellcheck disable=SC2086 # 「<칸 id> <죽음> <보고 있음> <띄운 지 몇 초>」 네 낱말로 나눈다.
+  set -- $info
+  pane=$1
+  shot=
+  fresh=${GW_POKE_FRESH_SEC:-60}
+  if [ "$2" = 1 ]; then
+    st=dead
+  elif [ -d "$state/open-$ps_key.lock" ] || { [ "${4:--1}" -ge 0 ] && [ "${4:--1}" -lt "$fresh" ]; }; then
+    # 막 뜬 칸(open·start 가 띄우거나 다시 띄운 지 fresh 초 안) 또는 open 이 그 키를 여는 중 — 칸 명령의 첫 /loop 가 아직 제출되지 않았을 수 있어
+    # 겹쳐 넣지 않는다. 띄운 시각을 모르는 칸(-1, 이 판 전에 띄움)은 오래된 칸으로 본다.
+    st=starting
+  elif [ "$3" = 1 ]; then
+    # 사람이 그 칸을 보고 있다 — 치는 중일 수 있으니 넣지 않는다(떠나면 다음 회에 넣는다).
+    st=attached
+  else
+    shot=$("$tmux" capture-pane -e -p -t "$pane" 2>/dev/null)
+    st=$(printf '%s\n' "$shot" | classify_screen)
+    st=${st:-unknown}
+  fi
+  return 0
+}
+
+# 칸 화면(표준 입력, 색 코드 포함)에서 대화 영역 — 입력 상자 위의 가로 구분선 앞까지 — 를 색 코드 없이 낸다(줄 끝 공백은 뗀다).
+# 입력 상자는 classify_screen 과 같은 규칙(아래에서 찾은 ─ 줄 둘 사이, 첫 줄이 ❯ 또는 >)으로 찾는다. 못 찾으면 아무것도 내지 않는다.
+conversation_area() {
+  LC_ALL=C awk '
+    function strip(s) { gsub(/\033\][^\033]*\033\\/, "", s); gsub(/\033\[[0-9;?]*[A-Za-z]/, "", s); return s }
+    function trim(t) { gsub(/\302\240/, " ", t); sub(/[ \t]+$/, "", t); return t }
+    function isrule(t) { t = trim(t); if (t == "") return 0; gsub(/─/, "", t); return t == "" }
+    { plain[NR] = strip($0) }
+    END {
+      r1 = r2 = 0
+      for (i = NR; i >= 1; i--) if (isrule(plain[i])) { if (!r2) r2 = i; else { r1 = i; break } }
+      if (!r1 || r2 - r1 < 2 || plain[r1 + 1] !~ /^(❯|>)( |\302\240|$)/) exit
+      for (i = 1; i < r1; i++) print trim(plain[i])
+    }'
+}
+
+# 쉬는 칸 하나가 지금 idle 로 읽히면 0 이고 대화 영역의 지문을 print 에 둔다(pane_state 와 같은 판정 — 다만 기다리지 않고 한 번만 본다).
+# 지문은 대화 영역의 cksum — 화면을 못 읽었거나 대화 영역을 못 찾으면 빈 값이다(빈 입력의 cksum 은 늘 같은 값이라 돌리지 않는다).
+pane_idle() {
+  print=
+  pane_state "$1" || return 1
+  [ "$st" = idle ] || return 1
+  area=$(printf '%s\n' "$shot" | conversation_area)
+  [ -n "$area" ] && print=$(printf '%s\n' "$area" | cksum | tr -s ' \t' '-')
+  return 0
+}
+
+do_sweep() {
+  secs=${GW_IDLE_POKE_SECS:-3600}
+  cli=$("$here/agent-home" "$aidir" get cli 2>/dev/null) || cli=claude
+  [ "$cli" = claude ] || exit 0
+  mkdir -p "$state" || exit 1
+  # 끝날 때(sweep-loop 가 끝내라고 신호를 보냄) 뒤에서 띄운 poke 도 함께 끝낸다.
+  kill_children_on_exit
+  now=$(date +%s)
+  keys=$("$here/agent-window" --pane-keys "$name" 2>/dev/null) || exit 0
+  # 이제 없는 칸의 기록은 지운다 — 같은 키 칸이 나중에 다시 떠도 옛 시각으로 세지 않게.
+  for f in "$state"/idle-*; do
+    [ -f "$f" ] || continue
+    case " $(echo $keys) " in
+      *" ${f##*/idle-} "*) ;;
+      *) rm -f "$f" ;;
+    esac
+  done
+  for k in $keys; do
+    gw_valid_project_key "$k" || continue
+    mark="$state/idle-$k"
+    if ! pane_idle "$k"; then
+      # 쉬는 칸이 아니다 — 일을 하고 있거나 사람이 쓰는 중이다. 센 시간을 버린다(다시 쉬게 되면 그때부터 센다).
+      rm -f "$mark"
+      continue
+    fi
+    # 기록은 「<처음 idle 로 본 시각> <화면 지문>」 한 줄이다.
+    since= seen=
+    read -r since seen 2>/dev/null < "$mark"
+    case $since in
+      '' | *[!0-9]*) since= ;;
+    esac
+    if [ -z "$since" ] || [ -z "$print" ] || [ "$seen" != "$print" ]; then
+      # 처음 idle 로 봤거나(기록 없음), 지문을 못 얻었거나(빈 지문은 맞은 것으로 치지 않는다), 표본 사이에 화면이 바뀌었다 — 칸이 그 사이
+      # 잠깐 일하고 다시 쉰 것이다(5분 표본만으로는 20~30분마다 2~3분 일하는 정상 칸도 늘 idle 로 찍힌다). 지금부터 다시 센다.
+      printf '%s %s\n' "$now" "$print" > "$mark"
+      continue
+    fi
+    [ $((now - since)) -ge "$secs" ] || continue
+    # 1시간 넘게 쉬었다 — 기존 poke 경로로 넣는다(막 뜬 칸·입력 중 판정·60초 디바운스·잠금을 poke 가 다시 지킨다). 시각은 넣든 못 넣든 지금으로 고쳐
+    # 같은 칸을 1시간에 한 번만 건드린다. 칸마다 뒤에서(일하는 칸을 기다리는 사이 다른 칸이 밀리지 않게).
+    printf '%s %s\n' "$now" "$print" > "$mark"
+    GW_POKE_CLI=$cli "$here/agent-events" poke "$aidir" "$k" </dev/null >/dev/null 2>&1 &
+  done
+  # 뒤에서 기다려야 신호(TERM)를 바로 받아 poke 를 끝낼 수 있다.
+  wait
+}
+
+# sweep-loop — run 이 띄우는 주기 점검. GW_IDLE_SWEEP_SEC(기본 300초)마다 sweep 을 부른다. 한 번이 끝난 뒤에 쉬므로 겹치지 않는다.
+# run 이 끝나며 신호를 보내면 자기 자식(쉬는 sleep·도는 sweep)을 끝낸다 — sweep 도 같은 방식으로 자기 poke 를 끝낸다(고아가 남지 않게).
+do_sweep_loop() {
+  kill_children_on_exit
+  while :; do
+    nap "${GW_IDLE_SWEEP_SEC:-300}"
+    # 뒤에서 돌리고 기다린다 — 앞에서 돌리면 끝날 때까지 신호를 받지 못한다.
+    "$here/agent-events" sweep "$aidir" </dev/null >/dev/null 2>&1 &
+    wait $!
+  done
+}
+
 do_poke() {
   key=${1:-}
   [ "$key" = - ] || gw_valid_project_key "$key" || usage
@@ -376,35 +511,20 @@ do_poke() {
   fi
   every=${GW_POKE_RETRY_SEC:-15}
   limit=${GW_POKE_RETRY_MAX:-300}
-  fresh=${GW_POKE_FRESH_SEC:-60}
   waited=0
   # 쉬는 칸이 될 때까지 every 초마다 다시 본다(limit 초까지). 칸이 없거나 죽었으면 기다려도 소용없어 바로 끝낸다.
   while :; do
     # 칸 표시 방식은 agent-window 만 안다 — 칸 id·죽음 여부·사람이 보고 있는지를 받는다. 기다리는 사이 칸이 바뀔 수 있어 매번 다시 읽는다.
     # 그 키 칸이 없으면(1) 기록만 남긴다(칸 열기는 open 이 맡는다). tmux·세션이 없으면(3) 아무 칸도 없으니 조용히 끝낸다.
-    info=$("$here/agent-window" --pane "$name" "$key" 2>/dev/null)
+    pane_state "$key"
     case $? in
       0) ;;
       1) note poke "$key" no-pane; exit 0 ;;
       *) exit 0 ;;
     esac
-    # shellcheck disable=SC2086 # 「<칸 id> <죽음> <보고 있음> <띄운 지 몇 초>」 네 낱말로 나눈다.
-    set -- $info
-    pane=$1
-    if [ "$2" = 1 ]; then
+    if [ "$st" = dead ]; then
       note poke "$key" dead
       exit 0
-    fi
-    if [ -d "$state/open-$key.lock" ] || { [ "${4:--1}" -ge 0 ] && [ "${4:--1}" -lt "$fresh" ]; }; then
-      # 막 뜬 칸(open·start 가 띄우거나 다시 띄운 지 fresh 초 안) 또는 open 이 그 키를 여는 중 — 칸 명령의 첫 /loop 가 아직 제출되지 않았을 수 있어
-      # 겹쳐 넣지 않는다. 띄운 시각을 모르는 칸(-1, 이 판 전에 띄움)은 오래된 칸으로 본다.
-      st=starting
-    elif [ "$3" = 1 ]; then
-      # 사람이 그 칸을 보고 있다 — 치는 중일 수 있으니 넣지 않는다(떠나면 다음 회에 넣는다).
-      st=attached
-    else
-      st=$("$tmux" capture-pane -e -p -t "$pane" 2>/dev/null | classify_screen)
-      st=${st:-unknown}
     fi
     [ "$st" = idle ] && break
     if [ "$waited" -ge "$limit" ]; then
@@ -434,6 +554,8 @@ case "$cmd" in
   ensure) do_ensure ;;
   open) do_open "${3:-}" ;;
   poke) do_poke "${3:-}" ;;
+  sweep) do_sweep ;;
+  sweep-loop) do_sweep_loop ;;
   run) do_run ;;
   tail) do_tail "${3:-}" ;;
   *) usage ;;

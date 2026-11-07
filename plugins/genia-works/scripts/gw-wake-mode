@@ -1,0 +1,29 @@
+#!/bin/sh
+# gw-wake-mode — 이 work-loop 세션을 누가 깨우는지(깨우는 방식)를 한 단어로 낸다(WP-1427). work-loop 스킬은 환경변수를 직접 읽어 판단하지 않고
+# 이 스크립트의 결과만 본다 — 변수 두 개(RUNNER_WAKES·PANE_WAKES)를 따로 읽어 판단하다 오판하면 다음 확인이 잡히지 않아 칸이 멈췄다.
+#
+#   gw-wake-mode      # 표준출력에 runner · pane · self 중 한 단어(늘 종료 0 — 판단이 안 서면 self)
+#
+#   runner — 실행기(genia 확장·Codex 구동기)가 반복·알림 깨우기·다음 확인을 맡는다. 알림 감시를 걸지 않고, 마지막 줄 GW-NEXT-CHECK 로 시각을 넘긴다.
+#   pane   — start-agent·Pod 가 띄운 Claude Code 칸. 알림 감시 창(agent-events poke)이 깨운다. 감시(Monitor)는 걸지 않고, 다음 확인은 ScheduleWakeup.
+#   self   — 그 밖(사람이 직접 띄운 Claude Code /loop). 스스로 감시(Monitor)를 걸고 다음 확인(ScheduleWakeup)을 잡는다.
+#
+# 우선순위: ① GENIA_WORKS_RUNNER_WAKES=1 이거나 GENIA_WORKS_WAKE_MODE=runner 면 runner — 실행기가 있으면 그쪽이 깨운다. Claude 칸이 물려준
+#   WAKE_MODE=pane 을 상속한 채 옛 실행기가 RUNNER_WAKES=1 만 켜도 runner 로 본다. ② GENIA_WORKS_WAKE_MODE 가 pane·self 면 그 값
+#   (그 밖의 값은 무시). ③ GENIA_WORKS_PANE_WAKES=1 이면 pane. ④ 그 밖은 self. RUNNER_WAKES·PANE_WAKES 는 이 스크립트가 생기기 전에 띄운 칸을 위한
+#   하위 호환이다. 변수가 모두 비었거나 이상한 값이면 self.
+if [ "${GENIA_WORKS_RUNNER_WAKES:-}" = 1 ] || [ "${GENIA_WORKS_WAKE_MODE:-}" = runner ]; then
+  echo runner
+  exit 0
+fi
+case "${GENIA_WORKS_WAKE_MODE:-}" in
+  pane | self)
+    printf '%s\n' "$GENIA_WORKS_WAKE_MODE"
+    exit 0
+    ;;
+esac
+if [ "${GENIA_WORKS_PANE_WAKES:-}" = 1 ]; then
+  echo pane
+else
+  echo self
+fi

@@ -74,7 +74,7 @@ const fs = require('node:fs')
 const argv = process.argv.slice(2)
 const o = argv[argv.indexOf('-o') + 1]
 const prev = fs.existsSync(${JSON.stringify(record)}) ? JSON.parse(fs.readFileSync(${JSON.stringify(record)}, 'utf8')) : []
-prev.push({ argv, token: process.env.${TOKEN_ENV}, wakes: process.env.GENIA_WORKS_RUNNER_WAKES, mine: process.env.GENIA_WORKS_TOKEN ?? null })
+prev.push({ argv, token: process.env.${TOKEN_ENV}, wakes: process.env.GENIA_WORKS_RUNNER_WAKES, mode: process.env.GENIA_WORKS_WAKE_MODE, mine: process.env.GENIA_WORKS_TOKEN ?? null })
 fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(prev))
 fs.writeFileSync(o, '끝\\nGW-NEXT-CHECK none\\n')
 console.log(JSON.stringify({ type: 'thread.started', thread_id: 'T1' }))
@@ -105,6 +105,8 @@ test('gw-codex-loop: 칸 신원의 키를 codex 의 환경 변수로만 넘기�
   assert.equal(calls.length, 1) // 20분 타이머 — 테스트 동안 다시 부르지 않는다
   assert.equal(calls[0].token, 'ak_FAKE_CODEX_1')
   assert.equal(calls[0].wakes, '1')
+  // 깨우는 방식(WP-1427) — work-loop 의 gw-wake-mode 가 runner 로 읽는다.
+  assert.equal(calls[0].mode, 'runner')
   assert.equal(calls[0].mine, null) // 내 토큰은 넘기지 않는다
   assert.ok(!calls[0].argv.some((a) => a.includes('ak_FAKE_CODEX_1')))
   assert.ok(calls[0].argv.at(-1).includes('인자: WP --queue "AI 개발팀"'))
