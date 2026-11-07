@@ -39,7 +39,7 @@ export function ComposerAttachmentChips({
         <li
           key={d.driveFileId}
           data-testid={`${testIdPrefix}-drive-chip-${d.driveFileId}`}
-          className="flex items-center gap-1 rounded-md border bg-info-subtle px-2 py-1 text-xs text-info"
+          className="flex items-center gap-1 rounded-md border bg-info-subtle px-2 py-1 text-xs text-info-text"
         >
           <Cloud className="h-3 w-3" />
           <span className="max-w-[10rem] truncate">{d.name}</span>

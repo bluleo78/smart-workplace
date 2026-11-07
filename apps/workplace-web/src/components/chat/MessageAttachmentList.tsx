@@ -122,7 +122,7 @@ export function MessageAttachmentList<A extends AttachmentLike>({
           >
             <FileTypeIcon mimeType={attachmentMime(dl.mimeType, dl.name)} />
             <CardName name={dl.name} muted={gone} />
-            <span className="shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-xs bg-info-subtle text-info">☁ 링크</span>
+            <span className="shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-xs bg-info-subtle text-info-text">☁ 링크</span>
             {gone ? (
               <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground" data-testid={`message-drive-link-gone-${dl.driveFileId}`}>
                 원본 삭제됨

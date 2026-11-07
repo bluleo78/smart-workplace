@@ -943,7 +943,7 @@ export function TimelineGantt({
           // 칩 줄 아래에 출시일 점 줄을 두려고 마일스톤 레인(h-8)보다 조금 높다(WP-1047).
           className="bg-info-subtle relative h-9 shrink-0 overflow-hidden border-b"
         >
-          <span className="text-info absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
+          <span className="text-info-text absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
             버전
           </span>
           <div
@@ -976,7 +976,7 @@ export function TimelineGantt({
               // 출시됨은 채우지 않은 테두리 칩으로 미출시와 구분한다 — 묶음은 칩 이름인 가장 최신 버전의 상태를 따른다(WP-1047).
               className={cn(
                 'border-info absolute top-0.5 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium',
-                group.items[group.items.length - 1].status === 'RELEASED' ? 'text-info bg-background' : 'bg-info text-info-foreground',
+                group.items[group.items.length - 1].status === 'RELEASED' ? 'text-info-text bg-background' : 'bg-info text-info-foreground',
               )}
               icon={<Triangle className="h-3 w-3" aria-hidden="true" />}
               dateOf={versionDate}
