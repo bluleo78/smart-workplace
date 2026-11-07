@@ -28,7 +28,8 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <PlatformAuthProvider>
             <App />
-            <Toaster />
+            {/* 토스트 영역 이름을 sonner 영어 기본값 「Notifications」 대신 한국어로(WP-1428 — web 의 AppToaster 와 같은 이름) */}
+            <Toaster containerAriaLabel="알림 토스트" />
           </PlatformAuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
