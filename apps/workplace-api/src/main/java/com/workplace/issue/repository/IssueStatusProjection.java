@@ -25,8 +25,9 @@ final class IssueStatusProjection {
 
   /**
    * {@code from} 에 이슈 {@code issue} 의 프로젝트 상태를 LEFT JOIN 한다 — status_id 가 비어도 행이 남게 외부 조인이다. 잠그는
-   * 조회는 nullable 쪽 잠금을 PostgreSQL 이 거절하므로 {@code .of(ISSUE)} 로 이슈 행만 잠가야 한다({@link
-   * IssueRepository#ISSUE_WITH_STATUS} 참고).
+   * 조회는 이 조인을 통해 잠그지 않는다(WP-1420): issue 만 잠근 뒤 이 조인을 잠금 없이 다시 읽는다 — 한 문장으로 잠그면 잠금을 기다린 뒤 상태 이름·색이
+   * null 로 빠진다. (배경: nullable 쪽 잠금은 PostgreSQL 이 거절하고, inner JOIN 으로 상태 행까지 잠그면 상태 삭제와 교착될 수 있다.)
+   * {@link IssueRepository#ISSUE_WITH_STATUS} 참고.
    */
   static Table<?> leftJoin(Table<?> from, Issue issue) {
     return from.leftJoin(PROJECT_STATUS).on(PROJECT_STATUS.ID.eq(issue.STATUS_ID));
