@@ -206,6 +206,7 @@ describe('공간 첫 화면', () => {
     })
     const notices = await screen.findAllByTestId('wiki-space-unavailable')
     expect(notices[0]).toHaveTextContent('노트 공간을 찾을 수 없습니다')
+    expect(screen.getAllByRole('heading', { level: 1, name: '노트 공간을 찾을 수 없습니다' }).length).toBeGreaterThan(0)
     // 눌러도 404 인 생성 진입점은 없다 — 빈 상태 버튼도, 사이드바 ＋ 도.
     expect(screen.queryByRole('button', { name: '새 페이지 만들기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '새 페이지' })).not.toBeInTheDocument()

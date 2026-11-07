@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 
+import { useRegisterMobileResourceErrorHeading } from '@/components/mobile/MobileResourceErrorHeadingContext';
 import { Button } from '@/components/ui/button';
 
 interface ResourceErrorStateProps {
@@ -30,6 +31,7 @@ export function ResourceErrorState({
   actionDisabled = false,
   titleAs: Title = 'p',
 }: ResourceErrorStateProps) {
+  useRegisterMobileResourceErrorHeading(Title === 'h1');
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center min-h-[60vh]">
       <Icon className="h-12 w-12 text-muted-foreground" />

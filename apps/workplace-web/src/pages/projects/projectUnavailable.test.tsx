@@ -32,7 +32,7 @@ test.each(['settings', 'cycles', 'timeline'])('비멤버가 /projects/SEC/%s 를
       ],
     },
   )
-  expect(await screen.findByText('프로젝트를 불러올 수 없습니다')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 1, name: '프로젝트를 불러올 수 없습니다' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '프로젝트 목록으로' })).toBeInTheDocument()
   expect(screen.queryByTestId('project-delete')).not.toBeInTheDocument()
   expect(screen.queryByTestId('member-add-trigger')).not.toBeInTheDocument()

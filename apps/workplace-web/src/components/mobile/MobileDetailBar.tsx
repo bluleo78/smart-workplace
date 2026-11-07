@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 
 import { DetailAiButton } from './DetailAiButton'
 import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from './headerClass'
+import { useHasMobileResourceErrorHeading } from './MobileResourceErrorHeadingContext'
 import { useMobileBack } from './useMobileBack'
 
 export function MobileDetailBar({
@@ -39,6 +40,8 @@ export function MobileDetailBar({
   className?: string
   'data-testid'?: string
 }) {
+  const hasErrorHeading = useHasMobileResourceErrorHeading()
+  const Title = hasErrorHeading ? 'span' : 'h1'
   const defaultBack = useMobileBack()
   const onBack = onBackOverride ?? defaultBack
   const titleHidden = titleVisible === false
@@ -60,11 +63,11 @@ export function MobileDetailBar({
         <ChevronLeft className="h-6 w-6" />
       </button>
       {titleAccessory == null ? (
-        <h1 data-testid="mobile-back-title" aria-hidden={titleHidden || undefined} className={cn(mobileDetailTitleClass, titleFadeClass, titleClassName)}>{title}</h1>
+        <Title data-testid="mobile-back-title" aria-hidden={titleHidden || undefined} className={cn(mobileDetailTitleClass, titleFadeClass, titleClassName)}>{title}</Title>
       ) : (
         // 표식이 있으면 제목과 표식을 한 묶음으로 — 제목이 먼저 말줄임되고 표식은 제목 바로 뒤에 남는다.
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <h1 data-testid="mobile-back-title" aria-hidden={titleHidden || undefined} className={cn(mobileDetailTitleClass, 'flex-initial', titleFadeClass, titleClassName)}>{title}</h1>
+          <Title data-testid="mobile-back-title" aria-hidden={titleHidden || undefined} className={cn(mobileDetailTitleClass, 'flex-initial', titleFadeClass, titleClassName)}>{title}</Title>
           {titleAccessory}
         </div>
       )}

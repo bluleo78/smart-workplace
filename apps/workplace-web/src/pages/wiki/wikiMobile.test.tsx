@@ -43,6 +43,7 @@ describe('휴대폰 — 없는 공간·잘못된 주소', () => {
     const { user, location } = openModule('/wiki/spaces/8')
     const notice = await screen.findByTestId('wiki-space-unavailable')
     expect(notice).toHaveTextContent('노트 공간을 찾을 수 없습니다')
+    expect(screen.getAllByRole('heading', { level: 1, name: '노트 공간을 찾을 수 없습니다' }).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: '새 페이지 만들기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '새 페이지' })).not.toBeInTheDocument()
     await user.click(within(notice).getByRole('button', { name: '노트 목록으로' }))

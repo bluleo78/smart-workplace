@@ -311,7 +311,7 @@ describe('리소스 로드 실패 화면 (#787)', () => {
   // 404 프로젝트 — 아이콘(FolderX)·제목·설명·액션 버튼, 누르면 /projects 로 간다.
   test('없는 프로젝트는 아이콘·제목·설명·「프로젝트 목록으로」를 보이고 누르면 목록으로 간다', async () => {
     const { user, location, container } = renderProjects('/projects/NOPROJECT999', { handlers: [notFound('NOPROJECT999')] })
-    expect(await screen.findByText('프로젝트를 불러올 수 없습니다')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: '프로젝트를 불러올 수 없습니다' })).toBeInTheDocument()
     expect(screen.getByText('요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다.')).toBeInTheDocument()
     expect(container.querySelector('svg.lucide-folder-x')).not.toBeNull()
     await user.click(screen.getByRole('button', { name: '프로젝트 목록으로' }))
@@ -323,7 +323,7 @@ describe('리소스 로드 실패 화면 (#787)', () => {
     const { user, location, container } = renderProjects('/projects/NOPROJECT999/issues/1', {
       handlers: [notFound('NOPROJECT999'), ...issueDetailSubHandlers({ key: 'NOPROJECT999', number: 1 })],
     })
-    expect(await screen.findByText('프로젝트를 불러올 수 없습니다')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: '프로젝트를 불러올 수 없습니다' })).toBeInTheDocument()
     expect(screen.getByText('요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다.')).toBeInTheDocument()
     expect(container.querySelector('svg.lucide-file-question-mark')).not.toBeNull()
     await user.click(screen.getByRole('button', { name: '프로젝트 목록으로' }))
@@ -335,7 +335,8 @@ describe('리소스 로드 실패 화면 (#787)', () => {
     renderProjects('/projects/SECRET', {
       handlers: [http.get(`${API}/projects/SECRET`, () => HttpResponse.json({ status: 403, message: '프로젝트 멤버가 아닙니다' }, { status: 403 }))],
     })
-    expect(await screen.findByText('프로젝트를 불러올 수 없습니다')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: '프로젝트를 불러올 수 없습니다' })).toBeInTheDocument()
+    expect(screen.getByText('요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다.')).toBeInTheDocument()
   })
 
   // WP-925: 이슈 번호가 숫자가 아니면 조회 없이 「이슈를 찾을 수 없습니다」 — 소용없는 「다시 시도」는 없다.
