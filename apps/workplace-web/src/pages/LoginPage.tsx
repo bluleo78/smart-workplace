@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 
+import { AuthCardTitle } from '../components/auth/AuthCardTitle';
 import { MicrosoftLoginButton } from '../components/auth/MicrosoftLoginButton';
 import { SsoBanner } from '../components/auth/SsoBanner';
 import { WorkspaceSelectCard } from '../components/auth/WorkspaceSelectCard';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { PasswordInput } from '../components/ui/password-input';
@@ -72,10 +73,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    // WP-1429: 비로그인 화면도 본문 영역(main)·대표 제목(h1)이 있어야 스크린리더의 랜드마크·제목 탐색이 비지 않는다.
+    // 제목은 CardTitle(div) 과 모양이 같은 h1(AuthCardTitle).
+    <main className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Gen:iA Works</CardTitle>
+          <AuthCardTitle className="text-2xl">Gen:iA Works</AuthCardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-4 empty:hidden">
@@ -144,6 +147,6 @@ export default function LoginPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

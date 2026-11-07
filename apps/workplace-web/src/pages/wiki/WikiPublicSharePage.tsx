@@ -26,6 +26,9 @@ import { WikiShareLoadError, WikiShareTreeNav } from '../../components/wiki/Wiki
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import type { WikiPublicShare } from '../../types/wiki'
 
+/** 노트 제목을 아직 모르는 상태(불러오는 중)의 화면 대표 제목 — 주소 기본 탭 제목(/wiki → 「노트」)과 같게 둔다(WP-1429). */
+const PUBLIC_SHARE_SCREEN_NAME = '노트'
+
 /** 검색엔진 색인 막기 — 이 화면이 떠 있는 동안 robots meta 를 둔다(서버도 X-Robots-Tag 를 보낸다). */
 function useNoIndex() {
   useEffect(() => {
@@ -140,17 +143,25 @@ export function WikiPublicSharePage() {
             <ResourceErrorState
               icon={Link2}
               title="링크가 열리지 않습니다"
+              // WP-1429: 이 상태엔 노트 제목(h1)이 없어 오류 제목을 화면 대표 제목으로.
+              titleAs="h1"
               description="공유가 해제됐거나 만료됐을 수 있습니다. 공유한 사람에게 새 링크를 요청하세요."
               actionLabel="Gen:iA Works 로"
               onAction={() => navigate('/login')}
             />
           ) : revalidating ? (
-            <WikiPageSkeleton testId="wiki-public-share-skeleton" />
+            // WP-1429: 불러오는 동안에도 h1 하나 — 노트 제목을 아직 몰라 화면 이름을 보이지 않게(sr-only) 둔다.
+            <>
+              <h1 className="sr-only">{PUBLIC_SHARE_SCREEN_NAME}</h1>
+              <WikiPageSkeleton testId="wiki-public-share-skeleton" />
+            </>
           ) : pageGone ? (
             // 링크는 열리는데 이 페이지만 더는 공유되지 않음(하위 밖으로 옮겨짐·삭제) — 트리는 그대로 쓰게 본문 자리에만 안내한다.
             <ResourceErrorState
               icon={Link2}
               title="이 페이지는 더 이상 공유되지 않습니다"
+              // WP-1429: 본문 자리에 노트 제목(h1)이 없는 상태라 안내 제목을 h1 로.
+              titleAs="h1"
               description="공유 범위가 바뀌었을 수 있습니다. 목록에서 다른 페이지를 열어 보세요."
               actionLabel="처음 페이지로"
               onAction={() => navigate(`/wiki/share/${token}`)}
@@ -158,10 +169,15 @@ export function WikiPublicSharePage() {
           ) : (childMissing && rootQ.isError) || (q.isError && !is404 && !q.data) ? (
             <WikiShareLoadError
               testId="wiki-public-share-load-error"
+              // WP-1429: 이 상태엔 노트 제목(h1)이 없어 오류 제목을 화면 대표 제목으로.
+              titleAs="h1"
               onRetry={() => void (childMissing ? rootQ.refetch() : q.refetch())}
             />
           ) : !data ? (
-            <WikiPageSkeleton testId="wiki-public-share-skeleton" />
+            <>
+              <h1 className="sr-only">{PUBLIC_SHARE_SCREEN_NAME}</h1>
+              <WikiPageSkeleton testId="wiki-public-share-skeleton" />
+            </>
           ) : isHtmlPage(data.page) ? (
             // 「HTML 문서」(WP-1307) — 원본을 격리 iframe 으로 화면 폭 가득 그린다(allow-same-origin 없음 — 스크립트가 이 화면에 닿지 못한다).
             // 스크립트는 노트 블록과 같이 기본 멈춤 — 제목 아래 줄의 스위치로 켠다(WP-1290).

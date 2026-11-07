@@ -4,8 +4,9 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { NO_WORKSPACE_MESSAGE } from '@/lib/activeTenant'
 
+import { AuthCardTitle } from '../components/auth/AuthCardTitle'
 import { WorkspaceSelectCard } from '../components/auth/WorkspaceSelectCard'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent, CardHeader } from '../components/ui/card'
 import { useAuth } from '../hooks/useAuth'
 import { safeReturnTo } from '../lib/sso'
 
@@ -33,18 +34,24 @@ export default function SsoCompletePage() {
   if (state === 'select' && tenantOptions) return <WorkspaceSelectCard options={tenantOptions} />
   if (state === 'none') {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
+      // WP-1429: 비로그인 화면의 랜드마크·제목 — 바깥은 main, 제목은 CardTitle(div) 과 모양이 같은 h1(AuthCardTitle).
+      <main className="flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-xl">로그인할 수 없습니다</CardTitle>
+            <AuthCardTitle className="text-xl">로그인할 수 없습니다</AuthCardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-center text-sm">
             <p>{NO_WORKSPACE_MESSAGE}</p>
             <Link to="/login" className="text-primary underline-offset-4 hover:underline">로그인 화면으로</Link>
           </CardContent>
         </Card>
-      </div>
+      </main>
     )
   }
-  return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">로그인 중…</div>
+  // 세션 확인 중 — 보이는 문구가 곧 이 상태의 제목이라 그대로 h1 로(태그만 바꿔 모양은 같다, WP-1429).
+  return (
+    <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+      <h1>로그인 중…</h1>
+    </main>
+  )
 }

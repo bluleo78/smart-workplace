@@ -41,11 +41,13 @@ describe('routeTitleParts', () => {
     ['/settings/apps/wiki', ['노트', '설정']],
     ['/settings/apps', ['설정']],
     ['/login', ['로그인']],
+    // 드라이브 공유 링크(WP-1429) — 비로그인 화면도 화면 이름을 붙인다.
+    ['/s/abc', ['공유 링크']],
   ])('%s → %j', (path, parts) => {
     expect(routeTitleParts(path)).toEqual(parts)
   })
 
   it('모르는 주소는 빈 조각(앱 이름만)', () => {
-    expect(routeTitleParts('/s/abc')).toEqual([])
+    expect(routeTitleParts('/no-such-page')).toEqual([])
   })
 })

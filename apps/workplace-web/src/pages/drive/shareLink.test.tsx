@@ -219,6 +219,10 @@ describe('공유 링크 화면', () => {
     renderLanding({ info: () => HttpResponse.json(fileInfo()) })
     const card = await screen.findByTestId('share-file-card')
     expect(within(card).getByTestId('share-file-name')).toHaveTextContent('report.txt')
+    // WP-1429: 랜드마크(main)·대표 제목(h1, 파일 이름)이 하나씩, 탭 제목은 「파일 · 화면 · 앱」.
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'report.txt' })).toBeInTheDocument()
+    expect(document.title).toBe('report.txt · 공유 링크 · Gen:iA Works')
     expect(screen.getByTestId('share-file-meta')).toHaveTextContent('TXT 파일 · 2.0 KB')
     expect(screen.getByTestId('share-file-shared-by')).toHaveTextContent('공유한 사람 홍길동')
     expect(screen.getByTestId('share-preview-btn')).toHaveTextContent('미리보기')
@@ -243,6 +247,8 @@ describe('공유 링크 화면', () => {
         HttpResponse.json(req.headers.get('x-share-view-token') === 'vt_1' ? fileInfo() : { passwordRequired: true, loginRequired: false }),
     })
     expect(await screen.findByText('비밀번호로 보호된 파일')).toBeInTheDocument()
+    // WP-1429: 잠금 상태의 h1 은 잠금 제목 하나.
+    expect(screen.getByRole('heading', { level: 1, name: '비밀번호로 보호된 파일' })).toBeInTheDocument()
     expect(screen.getByText('공유한 사람에게 받은 비밀번호를 넣으세요.')).toBeInTheDocument()
     await user.click(screen.getByLabelText('공유 링크 비밀번호'))
     await user.paste('한글비번 +1%')
@@ -307,6 +313,13 @@ describe('공유 링크 화면', () => {
     renderLanding({ info: () => new HttpResponse(null, { status: 404 }) })
     expect(await screen.findByTestId('share-error-msg')).toHaveTextContent('존재하지 않는 링크입니다')
     expect(screen.getByTestId('share-error-action')).toHaveTextContent('새 링크를 요청하세요')
+    // WP-1429: 오류 상태도 main·h1 하나씩 — 제목은 화면 이름(보이지 않게), 원인 문구는 알림(role=alert).
+    // 탭 제목은 덮지 않아 주소 기본값(「공유 링크」, documentTitle.test)에 맡긴다.
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 1, name: '공유 링크' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('존재하지 않는 링크입니다.')
+    expect(document.title).not.toContain('report.txt')
   })
 
   // 공간 권한이 있으면 「드라이브에서 열기 →」 가 폴더·미리보기 경로로 간다(같은 창).
@@ -412,6 +425,14 @@ describe('공유 링크 화면', () => {
     expect(of('info')).toHaveLength(2)
   })
 
+  // WP-1429: 예상 밖 응답 모양(이름·잠금 표시 없음)이면 빈 화면 대신 일시 실패 카드(h1 포함)와 다시 시도를 보인다.
+  test('정보 응답 모양이 예상 밖이면 일시 실패 안내와 다시 시도를 보인다', async () => {
+    renderLanding({ info: () => HttpResponse.json({ passwordRequired: false, loginRequired: false }) })
+    expect(await screen.findByTestId('share-error-msg')).toHaveTextContent('링크를 열지 못했습니다')
+    expect(screen.getByRole('heading', { level: 1, name: '공유 링크' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '다시 시도' })).toBeInTheDocument()
+  })
+
   // 토큰 없는 주소 — 정보 조회가 꺼져 로딩에 머물지 않고 없는 링크 안내를 보인다.
   test('토큰이 없으면 존재하지 않는 링크 안내를 보인다', async () => {
     renderScreen(<ShareLinkPage />, { path: '/s/' })
@@ -423,6 +444,8 @@ describe('공유 링크 화면', () => {
   test('세션 복원 중에는 정보를 묻지 않는다', async () => {
     const { of } = renderLanding({ info: () => HttpResponse.json(fileInfo()), auth: { isLoading: true } })
     expect(screen.getByTestId('share-loading')).toBeInTheDocument()
+    // WP-1429: 로딩 상태도 h1 하나(화면 이름, 보이지 않게).
+    expect(screen.getByRole('heading', { level: 1, name: '공유 링크' })).toBeInTheDocument()
     await new Promise((r) => setTimeout(r, 50))
     expect(of('info')).toHaveLength(0)
   })

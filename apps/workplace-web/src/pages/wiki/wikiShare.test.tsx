@@ -91,6 +91,9 @@ describe('노트 외부 보기(로그인 없음)', () => {
   test('공유 루트를 pageId 없이 묻고, 워크스페이스·제목·가린 본문을 읽기 전용으로 그리며 바깥 링크는 새 탭(opener 차단)이다', async () => {
     const { asked } = openPublic(`/wiki/share/${TOKEN}`)
     expect(await screen.findByRole('heading', { name: '제품 로드맵' })).toBeInTheDocument()
+    // WP-1429: 열린 상태의 h1 은 노트 제목 하나(불러오는 중의 화면 이름 h1 이 남지 않는다), 본문 영역(main)도 하나.
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['제품 로드맵'])
+    expect(screen.getByRole('main')).toBeInTheDocument()
     expect(publicView()).toHaveTextContent('아이에이클라우드')
     expect(asked[0]).toBeNull()
     // 검색엔진 색인 막기 — 화면도 noindex 를 둔다.
@@ -239,9 +242,20 @@ describe('노트 외부 보기(로그인 없음)', () => {
     expect(asked.at(-1)).toBe(String(CHILD))
   })
 
+  // WP-1429: 응답을 기다리는 동안(skeleton)에도 h1 하나 — 노트 제목을 아직 몰라 화면 이름 「노트」(보이지 않게).
+  test('불러오는 중에도 main 과 h1(「노트」) 이 하나씩이다', async () => {
+    openPublic(`/wiki/share/${TOKEN}`, () => new Promise<Response>(() => {}))
+    expect(await screen.findByTestId('wiki-public-share-skeleton')).toBeInTheDocument()
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['노트'])
+  })
+
   test('만료·해제(404)면 링크가 열리지 않는다고 안내하고 트리·본문은 없다(noindex 는 그대로)', async () => {
     openPublic(`/wiki/share/${TOKEN}`, () => HttpResponse.json({ message: 'x' }, { status: 404 }))
     await waitFor(() => expect(publicView()).toHaveTextContent('링크가 열리지 않습니다'))
+    // WP-1429: 본문 영역(main) 하나와 화면 대표 제목(h1) 하나 — 스크린리더의 랜드마크·제목 탐색.
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: '링크가 열리지 않습니다' })).toBeInTheDocument()
     expect(publicView()).toHaveTextContent('공유가 해제됐거나 만료됐을 수 있습니다')
     expect(document.querySelector('meta[name="robots"]')).toHaveAttribute('content', expect.stringMatching(/noindex/))
     expect(screen.queryByTestId('wiki-public-share-tree')).not.toBeInTheDocument()
@@ -253,6 +267,7 @@ describe('노트 외부 보기(로그인 없음)', () => {
     )
     await user.click(within(await screen.findByTestId('wiki-public-share-tree')).getByRole('button', { name: '하반기 계획' }))
     await waitFor(() => expect(publicView()).toHaveTextContent('이 페이지는 더 이상 공유되지 않습니다'))
+    expect(screen.getByRole('heading', { level: 1, name: '이 페이지는 더 이상 공유되지 않습니다' })).toBeInTheDocument()
     expect(publicView()).not.toHaveTextContent('링크가 열리지 않습니다')
     expect(publicView()).toHaveTextContent('아이에이클라우드')
     await user.click(within(tree()).getByRole('button', { name: '제품 로드맵' }))
@@ -302,6 +317,8 @@ describe('노트 외부 보기(로그인 없음)', () => {
       fail ? HttpResponse.json({ message: 'x' }, { status: 500 }) : HttpResponse.json(share(ROOT)),
     )
     await waitFor(() => expect(publicView()).toHaveTextContent('문서를 불러오지 못했습니다'))
+    // WP-1429: 일시 오류 상태도 오류 제목이 h1 하나.
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['문서를 불러오지 못했습니다'])
     expect(publicView()).not.toHaveTextContent('만료됐을 수 있습니다')
     fail = false
     await user.click(within(publicView()).getByRole('button', { name: '다시 시도' }))

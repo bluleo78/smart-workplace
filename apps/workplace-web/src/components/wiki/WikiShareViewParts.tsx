@@ -58,7 +58,16 @@ export function WikiShareTreeNav({
  * 일시적으로 못 불러옴(5xx·네트워크) — 링크는 살아 있을 수 있어 「더 이상 열리지 않습니다」 대신 다시 시도를 둔다.
  * 공유 화면과 외부 보기가 같은 문구를 쓴다.
  */
-export function WikiShareLoadError({ onRetry, testId }: { onRetry: () => void; testId?: string }) {
+export function WikiShareLoadError({
+  onRetry,
+  testId,
+  titleAs,
+}: {
+  onRetry: () => void
+  testId?: string
+  /** 제목 태그 — 앱 셸 밖 외부 보기는 화면 대표 제목이 따로 없어 'h1'(WP-1429). 앱 셸 안은 기본(p). */
+  titleAs?: 'p' | 'h1'
+}) {
   return (
     <div data-testid={testId} className="flex flex-1 flex-col">
       <ResourceErrorState
@@ -67,6 +76,7 @@ export function WikiShareLoadError({ onRetry, testId }: { onRetry: () => void; t
         description="잠시 후 다시 시도해 주세요."
         actionLabel="다시 시도"
         onAction={onRetry}
+        titleAs={titleAs}
       />
     </div>
   )

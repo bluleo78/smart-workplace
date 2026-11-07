@@ -11,6 +11,11 @@ interface ResourceErrorStateProps {
   onAction: () => void;
   /** 액션을 이미 끝내 다시 누를 수 없을 때(예: 노트 공유 「요청함」, WP-579). */
   actionDisabled?: boolean;
+  /**
+   * 제목 태그 — 기본 p. 화면에 다른 제목이 없는 앱 셸 밖 화면(노트 공유 오류 등)은 'h1' 로 화면 대표 제목을 준다(WP-1429).
+   * 앱 셸 안 화면은 머리띠에 이미 h1 이 있어 기본값을 그대로 둔다(h1 중복 방지).
+   */
+  titleAs?: 'p' | 'h1';
 }
 
 // 존재하지 않거나 접근 권한이 없는 리소스(프로젝트/이슈) 진입 시 표시하는 에러 상태.
@@ -23,12 +28,13 @@ export function ResourceErrorState({
   actionLabel,
   onAction,
   actionDisabled = false,
+  titleAs: Title = 'p',
 }: ResourceErrorStateProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center min-h-[60vh]">
       <Icon className="h-12 w-12 text-muted-foreground" />
       <div className="space-y-2">
-        <p className="text-lg font-semibold">{title}</p>
+        <Title className="text-lg font-semibold">{title}</Title>
         <p className="text-sm text-muted-foreground max-w-md">{description}</p>
       </div>
       <Button variant="outline" onClick={onAction} disabled={actionDisabled}>

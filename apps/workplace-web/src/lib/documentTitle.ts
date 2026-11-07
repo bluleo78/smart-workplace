@@ -4,6 +4,9 @@
 /** 탭 제목 끝에 붙는 앱 이름. */
 export const APP_TITLE = 'Gen:iA Works'
 
+/** 드라이브 공유 링크 화면(/s/:token) 이름 — 탭 제목 기본값과 그 화면의 대표 제목(h1)이 같이 쓴다(WP-1429). */
+export const SHARE_LINK_TITLE = '공유 링크'
+
 /** 제목 조각 — 비었거나 거짓 값인 조각은 건너뛴다(로딩 중 이름이 아직 없을 때 등). */
 export type TitlePart = string | null | undefined | false
 
@@ -49,6 +52,9 @@ export function routeTitleParts(pathname: string): string[] {
       return ['로그인']
     case 'signup':
       return ['회원가입']
+    case 's':
+      // 드라이브 공유 링크(/s/:token) — 화면이 파일 이름을 알면 useDocumentTitle 로 앞에 붙인다(WP-1429).
+      return [SHARE_LINK_TITLE]
     case 'notifications':
       return ['알림']
     case 'apps':
