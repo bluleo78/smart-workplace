@@ -9,6 +9,8 @@ const CHIP_GAP = 16
 const MIN_GROUP_WIDTH = 120
 /** 상단 가운데 틀 표식(AIChip·TopCenterSlot 의 data-ai-chip — 비서가 없으면 검색 트리거 틀, WP-1324·WP-1353). */
 const CHIP_SELECTOR = '[data-ai-chip]'
+/** 헤더 우측 액션 표식(Page.Header 의 data-ai-actions) — 액션 폭이 칩 left 를 결정한다(3 번째 min 항, WP-1415). */
+const ACTIONS_SELECTOR = '[data-ai-actions]'
 
 /** 변경된 노드가 칩이거나 칩을 품고 있는지 — body 직계 자식 변화 중 칩과 무관한 portal(토스트·팝오버 등)은 건너뛴다. */
 function touchesChip(records: MutationRecord[]) {
@@ -63,17 +65,43 @@ export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>) {
     }
 
     measure()
-    const resizeObserver = new ResizeObserver(schedule)
+    let settlingTimer: ReturnType<typeof setTimeout> | undefined
+    const resizeObserver = new ResizeObserver(() => {
+      schedule()
+      // 칩 left 전환(200ms)이 액션 폭 변화로 끊기면 transitionend 가 안 와서 settling 후 재측정한다(WP-1415).
+      clearTimeout(settlingTimer)
+      settlingTimer = setTimeout(schedule, 250)
+    })
     // 그룹의 위치·가용 폭은 헤더(=콘텐츠 영역 폭)를 따라 움직인다.
     resizeObserver.observe(group.parentElement ?? group)
+    // 액션 폭이 칩 left 를 결정한다(3 번째 min 항) — 액션이 크면 칩이 왼쪽으로 밀리고, 그러면 그룹 클램프도 바뀐다(WP-1415).
+    // 칩의 left 전환이 끊기면(액션 폭이 여러 번 바뀌면) transitionend 가 안 와서 여기에서 재측정한다.
+    // 액션은 칩보다 늦게 마운트될 수 있어 등장 시점에 관찰을 건다.
+    let observedActions: HTMLElement | null = null
+    const observeActions = () => {
+      const actions = document.querySelector<HTMLElement>(ACTIONS_SELECTOR)
+      if (actions === observedActions) return
+      observedActions = actions
+      if (actions) resizeObserver.observe(actions)
+    }
+    observeActions()
     const mutationObserver = new MutationObserver((records) => {
       if (touchesChip(records)) schedule()
     })
     mutationObserver.observe(document.body, { childList: true })
+    // 액션은 헤더(그룹의 부모) 자식이라 헤더의 childList 로 등장/교체를 감지한다.
+    const header = group.parentElement
+    let actionsMutationObserver: MutationObserver | null = null
+    if (header) {
+      actionsMutationObserver = new MutationObserver(observeActions)
+      actionsMutationObserver.observe(header, { childList: true })
+    }
     return () => {
       cancelAnimationFrame(frame)
+      clearTimeout(settlingTimer)
       resizeObserver.disconnect()
       mutationObserver.disconnect()
+      actionsMutationObserver?.disconnect()
       chip?.removeEventListener('transitionend', onTransitionEnd)
       group.style.maxWidth = ''
     }

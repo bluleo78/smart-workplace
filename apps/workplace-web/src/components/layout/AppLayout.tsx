@@ -10,6 +10,7 @@ import { LazyAIFullscreen, LazyAISidePanel, LazyMobileAiSheet } from '@/componen
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
 import { DashboardEditDraftProvider } from '@/components/home/dashboard/DashboardEditDraftContext'
 import { AppRail } from '@/components/layout/AppRail'
+import { HeaderDensityProvider } from '@/components/layout/HeaderDensityContext'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
 import { TopCenterSlot } from '@/components/layout/TopCenterSlot'
@@ -85,6 +86,7 @@ export function AppLayout() {
         <AIAssistantProvider hotkeysEnabled={aiAvailable}>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
           <AiScreenContextProvider>
+            <HeaderDensityProvider>
             {/* WP-384: /?aiChat=<id> 딥링크 — 패널을 열고 그 대화를 복원한다(비서가 있을 때만). */}
             {aiAvailable && <AiChatDeepLink />}
             {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
@@ -138,6 +140,7 @@ export function AppLayout() {
             <LazyMailComposeDock />
             {/* WP-1235 「채팅·이슈로 보내기」 — 🔗 토스트·⋯·⬆︎ 시트가 openSendToChat 으로 연다. 셸 분기(isMobile) 밖에 둬 어느 화면에서나 뜬다. */}
             <SendToChatHost />
+            </HeaderDensityProvider>
           </AiScreenContextProvider>
         </AIAssistantProvider>
       </ChatSessionProvider>

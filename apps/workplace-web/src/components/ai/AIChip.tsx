@@ -4,6 +4,7 @@
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiSparkle } from '@/components/ai/AiSparkle';
+import { useHeaderDensity } from '@/components/layout/HeaderDensityContext';
 import { aiTriggerLabel } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';
 
@@ -11,22 +12,27 @@ import { cn } from '@/lib/utils';
 export function AIChip() {
   const { mode, cycleMode, triggerActivity } = useAssistant();
   const open = mode !== 'closed';
+  // 제목 자리가 160px보다 좁으면(보조 단추를 접고도) 글자 없는 32px 동그라미로 줄인다(WP-1415).
+  const { circle } = useHeaderDensity();
 
   return (
     <button
       type="button"
       data-testid="chat-launcher"
+      data-ai-density-chip
       // WP-54: AI 표면 표식 — non-modal 다이얼로그가 열린 채 칩을 눌러도 다이얼로그가 닫히지 않게(useAiPanelAwareDialog).
       data-ai-panel
       data-mode={mode}
       data-ai-activity={triggerActivity}
       aria-label={aiTriggerLabel('AI 어시스턴트', triggerActivity)}
       aria-expanded={open}
+      title={circle ? 'AI 어시스턴트' : undefined}
       onClick={cycleMode}
       className={cn(
-        // 치수: 인라인 raw px 제거 → 디자인 시스템 유틸/토큰 사용(text-xs, gap-1.5, px-4/py-1.5, pill). 위치는 감싼 틀이 맡는다.
-        // relative — 생성 중 테두리 빛(.ai-ring::before, absolute)이 칩을 기준으로 그려지게(예전엔 칩이 fixed 라 저절로 됐다).
-        'relative inline-flex min-w-[140px] items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs font-medium shadow-md backdrop-blur transition-[background-color,color,border-color] duration-200 ease-in-out',
+        // 치수: 인라인 raw px 제거 → 디자인 시스템 유틸/토큰 사용. 동그라미면 32px 원, 아니면 캡슐.
+        // relative — 생성 중 테두리 빛(.ai-ring::before, absolute)이 칩을 기준으로 그려지게.
+        'relative inline-flex items-center justify-center rounded-full border shadow-md backdrop-blur transition-[background-color,color,border-color] duration-200 ease-in-out',
+        circle ? 'h-8 w-8' : 'min-w-[140px] gap-1.5 px-4 py-1.5 text-xs font-medium',
         open
           ? 'border-ai-accent bg-card text-ai-accent'
           : 'bg-card/90 text-muted-foreground hover:text-foreground',
@@ -35,7 +41,7 @@ export function AIChip() {
       )}
     >
       <AiSparkle activity={triggerActivity} className="h-[18px] w-[18px]" dotClassName="right-2 top-1 ring-card" />
-      <span>AI 어시스턴트</span>
+      {!circle && <span>AI 어시스턴트</span>}
     </button>
   );
 }
