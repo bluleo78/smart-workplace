@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { LoopDriver, checkStop, noneDecisionMessage, projectKeyOf, shellQuote, watchEvents } from '../genia/loop.js'
-import { TOKEN_ENV, codexArgs, threadIdFrom, workLoopPrompt } from './lib.mjs'
+import { TOKEN_ENV, codexArgs, progressSummaryFrom, threadIdFrom, workLoopPrompt } from './lib.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const scripts = join(root, 'scripts')
@@ -73,12 +73,15 @@ function invoke(loopArgs) {
   const env = { ...process.env, [TOKEN_ENV]: key, GENIA_WORKS_WAKE_MODE: 'runner', GENIA_WORKS_RUNNER_WAKES: '1' }
   delete env.GENIA_WORKS_TOKEN
   log(thread ? `work-loop 부름(대화 ${thread} 이어서)` : 'work-loop 부름(새 대화)')
-  // --json 출력은 줄 단위로 읽어 thread.started 의 대화 id 만 찾는다 — 한 번의 실행이 길어도 출력을 메모리에 쌓지 않는다.
+  log('Codex 회차 시작 — 진행 상황을 기다립니다')
+  // --json 은 줄 단위로 읽어 대화 id 와 허용된 진행 요약만 기록한다 — 원시 출력은 쌓거나 로그하지 않는다.
   // 찾은 뒤에도 끝까지 읽어 버린다(읽기를 멈추면 파이프가 차서 codex 가 멈춘다).
   let id
   child = spawn(process.env.GW_CODEX || 'codex', argv, { env, stdio: ['ignore', 'pipe', 'inherit'] })
   createInterface({ input: child.stdout }).on('line', (line) => {
     if (!id) id = threadIdFrom(line)
+    const summary = progressSummaryFrom(line)
+    if (summary) log(summary)
   })
   child.on('error', (e) => log('codex 를 띄우지 못했습니다: ' + e.message))
   child.on('close', (code) => {
