@@ -523,13 +523,14 @@ export function WikiShareDialog({
               </div>
 
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-3">
-                <Label className="text-sm font-normal text-muted-foreground">열 수 있는 사람</Label>
+                {/* 각 Label 을 htmlFor/id 로 선택 상자에 이어 접근 가능한 이름을 준다(WP-1436 — 잇지 않으면 이름 없는 콤보박스로 읽혔다). */}
+                <Label htmlFor="wiki-share-audience" className="text-sm font-normal text-muted-foreground">열 수 있는 사람</Label>
                 <Select
                   value={share.audience}
                   onValueChange={(v) => changeAudience(v as WikiShareAudience)}
                   disabled={busy}
                 >
-                  <SelectTrigger className="h-9" data-testid="wiki-share-audience">
+                  <SelectTrigger id="wiki-share-audience" className="h-9" data-testid="wiki-share-audience">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -541,14 +542,14 @@ export function WikiShareDialog({
                     </SelectItem>
                   </SelectContent>
                 </Select>
-                <Label className="text-sm font-normal text-muted-foreground">권한</Label>
+                <Label htmlFor="wiki-share-permission" className="text-sm font-normal text-muted-foreground">권한</Label>
                 <Select
                   value={share.permission}
                   onValueChange={(v) => change({ permission: v as WikiSharePermission })}
                   // 외부는 보기만 — 고를 것이 없다.
                   disabled={busy || isPublic}
                 >
-                  <SelectTrigger className="h-9" data-testid="wiki-share-permission">
+                  <SelectTrigger id="wiki-share-permission" className="h-9" data-testid="wiki-share-permission">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -556,7 +557,7 @@ export function WikiShareDialog({
                     <SelectItem value="EDIT">편집 가능</SelectItem>
                   </SelectContent>
                 </Select>
-                <Label className="text-sm font-normal text-muted-foreground">만료</Label>
+                <Label htmlFor="wiki-share-expiry" className="text-sm font-normal text-muted-foreground">만료</Label>
                 <Select
                   value={share.expiresAt ? 'current' : 'none'}
                   onValueChange={(v) => {
@@ -565,7 +566,7 @@ export function WikiShareDialog({
                   }}
                   disabled={busy}
                 >
-                  <SelectTrigger className="h-9" data-testid="wiki-share-expiry">
+                  <SelectTrigger id="wiki-share-expiry" className="h-9" data-testid="wiki-share-expiry">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
