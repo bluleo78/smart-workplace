@@ -144,3 +144,26 @@ test('휴대폰 캘린더 결과는 반복 meta·꼬리표가 제목 아래 줄�
   // 393px 로 띄우므로 공용 헬퍼(390 고정) 대신 뷰포트 폭과 비교한다.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(393)
 })
+
+// WP-1432 — 🔍 는 스토어로 검색을 열어(DialogTrigger 없음) Radix 가 닫을 때 돌려줄 곳을 몰라 포커스가 body 로 빠졌다.
+// 실제 키보드 포커스 이동이라 브라우저로 본다 — Esc 로 닫을 때와 뒤로 가기로 닫을 때 둘 다.
+test('375px 에서 키보드로 연 검색을 Esc·뒤로 가기로 닫으면 포커스가 🔍 로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await stubChat(page)
+  await page.goto('/chat')
+  const button = page.getByTestId('mobile-search-button')
+  const palette = page.getByTestId('global-search')
+
+  await button.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('global-search-input')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(palette).toHaveCount(0)
+  await expect(button).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('global-search-input')).toBeFocused()
+  await page.goBack()
+  await expect(palette).toHaveCount(0)
+  await expect(button).toBeFocused()
+})
