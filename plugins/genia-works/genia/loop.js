@@ -20,7 +20,7 @@ export const GENIA_HEADER_SCRIPT_DENY = HEADER_SCRIPT_DENY.replace(/\/genia-work
 
 /**
  * work-loop 의 마지막 줄 「GW-NEXT-CHECK <ISO 시각>|none」 을 읽는다(SKILL.md 「깨우기를 실행기가 맡는 세션」).
- * 돌려주는 값: { kind: 'none' } — 다음 확인을 잡지 않는다(신원 오류·DRAIN·RESTART),
+ * 돌려주는 값: { kind: 'none' } — 다음 확인을 잡지 않는다(신원 오류·DRAIN·RESTART — LoopDriver 가 checkStop 으로 한 번 더 확인한다),
  *   { kind: 'at', delayMs } — 그 시각까지(60초~1시간으로 자름), { kind: 'missing', delayMs } — 줄이 없거나 시각을 못 읽음(기본 20분).
  * 여러 번 나오면 마지막 것을 쓴다(앞의 것은 중간 설명일 수 있다).
  */
@@ -43,45 +43,76 @@ export function clampDelay(ms) {
   return Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, ms))
 }
 
+// GW-NEXT-CHECK none 을 받았을 때 멈출지 확인하는 시간 제한(WP-1425) — 신원 확인·상태 보고(gw-status, curl 최대 10초)를 합쳐 이 안에 끝내야 한다.
+// 넘기면(네트워크가 매달림 등) 명령을 그룹째 끝내고 멈추지 않는 쪽(잘못 쓴 none)으로 본다 — 구동기가 확인을 기다리다 영영 서지 않게.
+export const CHECK_STOP_TIMEOUT_MS = 15 * 1000
+
+/**
+ * none 을 받았는데 계속 돌기로 한 것이 연달아 n 번째일 때의 다음 확인 간격 — 기본 20분에서 번마다 두 배(20→40→60분, 1시간으로 자름).
+ * 키가 회수돼도 gw-status 는 401·네트워크 실패를 RUN 으로 내므로, 같은 잘못이 되풀이될 때 20분마다 헛돌지 않게 늘린다.
+ */
+export function noneBackoffDelay(streak) {
+  return Math.min(MAX_DELAY_MS, DEFAULT_DELAY_MS * 2 ** Math.max(0, streak))
+}
+
 /**
  * work-loop 반복 상태 기계 — 「한 번에 하나만 부른다」·「일하는 중 깨움은 모았다가 끝나면 한 번」·「끝나면 다음 확인을 잡는다」를 맡는다.
  * genia 연결은 주입한다: run(args) — 지금 부르기를 시작한다(쉬는 세션에 /skill:work-loop 넣기), setTimer(fn, ms)·clearTimer(h), now().
+ * 선택(WP-1425): checkStop({ nextCheckAt }) — GW-NEXT-CHECK none 을 받았을 때 정말 멈출지 묻는다(Promise<{ stop, reason }>,
+ *   보통 아래 checkStop 함수 — 늘 시간 안에 답한다고 믿는다). 계속 돌면 잡을 시각을 넘겨 상태 보고가 서버의 다음 확인 시각을 지우지 않게 한다.
+ *   onDecision(decision) — 그 확인 결과(noneDecisionMessage 로 한 줄로 보인다). checkStop 이 없으면 none 은 예전처럼 바로 멈춘다.
  *
  * 흐름: start(args) → 바로 한 번 부름 → settled(text) 에서 다음 확인 시각을 정해 타이머를 건다. 부르는 중에 온 wake() 는 표시만 해 두고,
  * settled 때 표시가 있으면 타이머 대신 바로 다시 부른다(work-loop 4번: 처리 중인 이슈는 끊지 않는다). 쉬는 중 wake() 는 바로 부른다.
  * 사람이 직접 입력해 생긴 실행은 busy() 로 알린다 — 그 사이 타이머·wake 는 settled 까지 기다린다.
+ *
+ * none 확인(WP-1425): 모델이 규칙(none 은 신원 확인 멈춤·DRAIN·RESTART 에만)을 한 번 틀려도 AI 가 칸을 다시 띄울 때까지 죽지 않게,
+ * none 을 받으면 checkStop 으로 상태를 확인한다 — 멈출 까닭(신원 아님·DRAIN·RESTART)이면 멈추고, 그 밖(RUN·확인 실패·시간 초과·reject)이면
+ * missing 과 같은 기본 간격(DEFAULT_DELAY_MS)으로 다시 본다(인자를 지우지 않아 알림 wake() 도 계속 받는다). 잘못 쓴 none 이 연달아 오면
+ * 간격을 두 배씩 늘린다(noneBackoffDelay) — none 이 아닌 답(at·missing)이나 start() 에서 횟수를 0 으로 되돌린다.
+ * 확인은 비동기라 그 사이 start·stop·settled 가 오면 세대 번호(gen)를 올려 늦게 온 결과를 버린다. 쉬는 중 확인 중에 온 wake() 는
+ * 진짜 알림(일이 생김)이므로 확인을 버리고 바로 부른다.
  */
 export class LoopDriver {
-  constructor({ run, setTimer, clearTimer, now = () => Date.now() }) {
-    this.deps = { run, setTimer, clearTimer, now }
+  constructor({ run, setTimer, clearTimer, now = () => Date.now(), checkStop, onDecision }) {
+    this.deps = { run, setTimer, clearTimer, now, checkStop, onDecision }
     this.args = undefined // 반복 중인 work-loop 인자(없으면 반복하지 않음)
     this.running = false // genia 가 지금 일하는 중(우리가 부른 것이든 사람이 넣은 것이든)
     this.pendingWake = false
     this.timer = undefined
+    this.gen = 0 // 세대 번호 — none 확인을 시작할 때와 start·stop·wake·settled 마다 올려, 그 전에 시작한 확인의 결과를 버린다
+    this.noneStreak = 0 // 잘못 쓴 none 으로 계속 돌기로 한 연달은 횟수(간격 늘리기용)
   }
 
-  /** 반복 시작 — 인자를 기억하고 바로 한 번 부른다. 이미 일하는 중이면 끝난 뒤 부른다. */
+  /** 반복 시작 — 인자를 기억하고 바로 한 번 부른다. 이미 일하는 중이면 끝난 뒤 부른다. 진행 중인 none 확인은 버린다. */
   start(args) {
     this.args = args
+    this.noneStreak = 0
+    this.gen++ // 진행 중인 none 확인은 버린다
     this.#clear()
     if (this.running) this.pendingWake = true
     else this.#invoke()
   }
 
-  /** 반복 그만 — 인자를 비우고 타이머를 지운다(돌고 있는 부르기는 그대로 끝난다). GW-NEXT-CHECK none 도 이것으로 멈춘다. */
+  /** 반복 그만 — 인자를 비우고 타이머를 지운다(돌고 있는 부르기는 그대로 끝난다). 멈출 까닭이 확인된 GW-NEXT-CHECK none 도 이것으로 멈춘다. */
   stop() {
     this.args = undefined
     this.pendingWake = false
+    this.gen++ // 진행 중인 none 확인은 버린다
     this.#clear()
   }
 
-  /** 알림(wake 줄) — 쉬는 중이면 바로 부르고, 일하는 중이면 끝난 뒤 한 번 부른다. 반복 중이 아니면(none 으로 멈춤 포함) 무시한다. */
+  /**
+   * 알림(wake 줄) — 쉬는 중이면 바로 부르고, 일하는 중이면 끝난 뒤 한 번 부른다. 반복 중이 아니면(none 으로 멈춤 포함) 무시한다.
+   * 쉬는 중 none 확인 중이면 확인을 버리고 바로 부른다 — 진짜 알림은 할 일이 생겼다는 뜻이라 확인 결과를 기다리지 않는다.
+   */
   wake() {
     if (!this.args) return
     if (this.running) {
       this.pendingWake = true
       return
     }
+    this.gen++ // 진행 중인 none 확인은 버린다
     this.#clear()
     this.#invoke()
   }
@@ -93,20 +124,38 @@ export class LoopDriver {
 
   /**
    * genia 가 일을 마쳤다 — 마지막 답(text)에서 다음 확인을 읽어 잡는다. 반환: 이번에 정한 것(테스트·상태 줄용).
-   * 'wake' — 모아 둔 깨움으로 바로 다시 부름, 'none' — 멈춤, 'timer' — delayMs 뒤 부름, 'idle' — 반복 중이 아니거나 이미 멈춤.
+   * 'wake' — 모아 둔 깨움으로 바로 다시 부름, 'none' — 멈춤, 'timer' — delayMs 뒤 부름, 'idle' — 반복 중이 아니거나 이미 멈춤,
+   * 'checking' — none 을 받아 checkStop 으로 확인하는 중(done: 결정 Promise — 버려진 확인이면 undefined 로 끝난다).
    */
   settled(text) {
     this.running = false
+    // 앞서 시작한 none 확인이 있으면 버린다 — 이번 답이 더 새롭다.
+    this.gen++
     // 반복 중이 아니면 아무것도 잡지 않는다. GW-NEXT-CHECK none 으로 멈춘 뒤(stop 으로 인자를 비웠다) 사람이 칸에 넣은 입력이 끝나도
     // (그 답엔 줄이 없어 'missing') 여기서 걸려 다시 돌지 않는다 — /gw-loop 를 다시 불러야 재개.
     if (!this.args) return { action: 'idle' }
     const next = parseNextCheck(text, this.deps.now())
     if (next.kind === 'none') {
-      this.stop()
-      return { action: 'none' }
+      if (!this.deps.checkStop) {
+        this.stop()
+        return { action: 'none' }
+      }
+      return { action: 'checking', done: this.#checkNone() }
     }
+    // none 이 아닌 답이면 잘못 쓴 none 의 연달은 횟수를 되돌린다.
+    this.noneStreak = 0
+    return this.#schedule(next.delayMs)
+  }
+
+  /**
+   * 다음 부르기를 잡는다 — 모아 둔 깨움이 있으면 바로, 없으면 delayMs 뒤. settled 와 none 확인(RUN) 결정이 함께 쓴다.
+   * 일하는 중이면(none 확인 중 사람이 넣은 일이 시작됨) 잡지 않는다 — 그 일이 끝날 때(settled) 잡는다('busy').
+   */
+  #schedule(delayMs) {
+    if (this.running) return { action: 'busy' }
     if (this.pendingWake) {
       this.pendingWake = false
+      this.#clear()
       this.#invoke()
       return { action: 'wake' }
     }
@@ -117,8 +166,42 @@ export class LoopDriver {
       if (!this.args) return
       if (this.running) this.pendingWake = true
       else this.#invoke()
-    }, next.delayMs)
-    return { action: 'timer', delayMs: next.delayMs }
+    }, delayMs)
+    return { action: 'timer', delayMs }
+  }
+
+  /**
+   * none 을 받았을 때 checkStop 으로 멈출지 확인한다. 그 사이 start·stop·wake·settled 가 오면 세대 번호가 바뀌어 결과를 버린다.
+   * checkStop 이 reject 하면 멈추지 않는 쪽으로 본다 — 잘못 멈추는 것(조용히 죽음)이 20분 헛도는 것보다 나쁘다.
+   */
+  #checkNone() {
+    this.#clear()
+    const gen = ++this.gen
+    // 계속 돌기로 하면 잡을 간격 — 확인 전에 정해 상태 보고에 다음 확인 시각으로 넘긴다.
+    const delayMs = noneBackoffDelay(this.noneStreak)
+    const nextCheckAt = new Date(this.deps.now() + delayMs).toISOString()
+    const finish = (result) => (gen === this.gen ? this.#decide(result, delayMs) : undefined)
+    return Promise.resolve()
+      .then(() => this.deps.checkStop({ nextCheckAt }))
+      .then(
+        (r) => finish({ stop: Boolean(r?.stop), reason: String(r?.reason ?? '') }),
+        () => finish({ stop: false, reason: 'error' }),
+      )
+  }
+
+  /** none 확인 결과를 반영하고 onDecision 으로 알린다. delayMs — 계속 돌 때 잡을 간격. 반환: { stop, reason, action, delayMs? }. */
+  #decide({ stop, reason }, delayMs) {
+    let decision
+    if (stop) {
+      this.stop()
+      decision = { stop, reason, action: 'none' }
+    } else {
+      // 잘못 쓴 none 으로 계속 돈다 — 연달은 횟수를 늘려 다음 none 의 간격을 두 배로 한다.
+      this.noneStreak++
+      decision = { stop, reason, ...this.#schedule(delayMs) }
+    }
+    this.deps.onDecision?.(decision)
+    return decision
   }
 
   #invoke() {
@@ -130,6 +213,89 @@ export class LoopDriver {
     if (this.timer !== undefined) this.deps.clearTimer(this.timer)
     this.timer = undefined
   }
+}
+
+/** 확인 명령 하나의 결과 — 종료 코드(시간 초과·실행 실패면 null)와 표준 출력(조금만). 시간 초과면 그룹째 끝낸다. */
+function execCommand(cmd, args, { timeoutMs }) {
+  return new Promise((resolve) => {
+    let out = ''
+    let done = false
+    let timer
+    const end = (code) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve({ code, stdout: out })
+    }
+    let c
+    try {
+      // 자기 프로세스 그룹으로 띄워 시간 초과 때 그룹째(gw-status 가 부른 curl 까지) 끝낸다. 표준 오류는 버린다(보이지 않는다).
+      c = nodeSpawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], detached: true })
+    } catch {
+      return end(null)
+    }
+    c.stdout.on('data', (d) => {
+      if (out.length < 4096) out += d
+    })
+    c.on('error', () => end(null))
+    c.on('close', (code) => end(typeof code === 'number' ? code : null))
+    timer = setTimeout(() => {
+      try {
+        process.kill(-c.pid, 'SIGKILL')
+      } catch {
+        // 이미 끝났다.
+      }
+      end(null)
+    }, timeoutMs)
+  })
+}
+
+/**
+ * GW-NEXT-CHECK none 을 정말 따를지 확인한다(WP-1425) — LoopDriver 의 checkStop 으로 genia 확장·Codex 구동기가 함께 쓴다.
+ * 1. 신원: gw-lib.sh 의 gw_identity_key 가 확실히 실패(0 이 아닌 종료)하면 AI 키 신원이 아니다 → { stop: true, reason: 'identity' }
+ *    (work-loop 1번 멈춤과 같은 경우 — 헛도는 루프를 막는다). 키 값은 셸 안에서 /dev/null 로 버리고 종료 코드만 본다.
+ *    identity 'session'(genia, 기본) — $0 을 gw-lib.sh 경로로 넘겨 gw_identity 가 같은 폴더의 gw-session-key 로 이 세션의 선택(/gw-as)을 찾게 한다.
+ *    identity 'env'(Codex 구동기) — 구동기의 readKey 처럼 $0 을 sh 로 두어 GENIA_WORKS_AS 만 본다. codex 는 구동기의 자식이지 조상이 아니라
+ *    세션 찾기(조상 프로세스)가 엉뚱한 바깥 CLI 세션을 볼 수 있기 때문이다.
+ * 2. 상태: gw-status IDLE "" <nextCheckAt> 의 첫 줄이 DRAIN·RESTART 면 { stop: true }, 그 밖(RUN·빈 값)은 { stop: false, reason: 'RUN' }.
+ *    nextCheckAt(계속 돌 때 잡을 시각, ISO)을 함께 보고해 서버의 다음 확인 시각을 지우지 않는다(형식 검사는 gw-status 가 한다).
+ * 실행 실패·시간 초과(timeoutMs 안에 둘을 모두 끝내야 한다 — 넘긴 명령은 그룹째 끝낸다)는 { stop: false, reason: 'error'|'timeout' } — 멈추지 않는 쪽.
+ * 늘 이 시간 안에 답한다(LoopDriver 는 따로 시간 제한을 두지 않는다). exec(cmd, args, { timeoutMs }) → Promise<{ code: number|null, stdout }> 는 테스트용 주입 자리다.
+ */
+export async function checkStop({ scriptsDir, nextCheckAt, identity = 'session', exec = execCommand, timeoutMs = CHECK_STOP_TIMEOUT_MS, now = () => Date.now() }) {
+  const deadline = now() + timeoutMs
+  const left = () => Math.max(1, deadline - now())
+  const failed = () => ({ stop: false, reason: deadline <= now() ? 'timeout' : 'error' })
+  const idArgs =
+    identity === 'env'
+      ? ['-c', '. "$1/gw-lib.sh" && gw_identity_key >/dev/null 2>&1', 'sh', scriptsDir]
+      : ['-c', '. "$0" && gw_identity_key >/dev/null 2>&1', scriptsDir + '/gw-lib.sh']
+  try {
+    const id = await exec('sh', idArgs, { timeoutMs: left() })
+    if (id.code === null) return failed()
+    if (id.code !== 0) return { stop: true, reason: 'identity' }
+    const st = await exec(scriptsDir + '/gw-status', nextCheckAt ? ['IDLE', '', nextCheckAt] : ['IDLE'], { timeoutMs: left() })
+    if (st.code === null) return failed()
+    const desired = String(st.stdout ?? '').split(/\r?\n/)[0].trim()
+    if (desired === 'DRAIN' || desired === 'RESTART') return { stop: true, reason: desired }
+    return { stop: false, reason: 'RUN' }
+  } catch {
+    return { stop: false, reason: 'error' }
+  }
+}
+
+/** none 확인 결정(LoopDriver onDecision)을 사람에게 보일 한 줄로 — genia 알림·Codex 구동기 로그가 같은 문구를 쓴다. 키 값은 담지 않는다. */
+export function noneDecisionMessage(decision) {
+  const { reason, action } = decision ?? {}
+  if (action === 'none') {
+    const why = reason === 'identity' ? 'AI 키 신원이 아님' : '상태 ' + reason
+    return `다음 확인을 잡지 않습니다(GW-NEXT-CHECK none, ${why}) — 칸을 다시 띄우면 다시 시작합니다`
+  }
+  const state = reason === 'RUN' ? '상태가 RUN 이라' : '상태를 확인하지 못해'
+  if (action === 'wake') return `GW-NEXT-CHECK none 이지만 ${state} 모아 둔 깨움으로 바로 다시 부릅니다`
+  if (action === 'busy') return `GW-NEXT-CHECK none 이지만 ${state} 지금 일이 끝나면 다음 확인을 잡습니다`
+  const minutes = Math.round((decision?.delayMs ?? DEFAULT_DELAY_MS) / 60000)
+  return `GW-NEXT-CHECK none 이지만 ${state} ${minutes}분 뒤 다시 봅니다`
 }
 
 /**

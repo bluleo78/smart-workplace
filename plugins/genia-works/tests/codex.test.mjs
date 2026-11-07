@@ -53,7 +53,12 @@ test('guard: Codex PreToolUse 입력(Bash·apply_patch)에서 키 저장소·헤
   assert.equal(run('깨진 입력').status, 0) // hook 오류로 모든 도구가 멈추지 않게
 })
 
-test('gw-codex-loop: 칸 신원의 키를 codex 의 환경 변수로만 넘기고(명령줄엔 없음), GW-NEXT-CHECK none 이면 더 부르지 않는다', async () => {
+/**
+ * 가짜 codex 로 gw-codex-loop 를 띄워 「GW-NEXT-CHECK none」 한 번을 받게 하고, until(out) 이 참이 될 때까지 기다린 뒤 끝낸다.
+ * until 이 없으면 구동기가 스스로 끝나기를 기다린다(멈춘 구동기는 붙잡을 타이머·감시가 없다).
+ * as — 칸 신원(GENIA_WORKS_AS). 키는 kodi 로만 등록한다. 돌려주는 값: { calls(가짜 codex 가 받은 것), out(구동기 출력) }.
+ */
+async function runCodexLoopNone({ as, until: done }) {
   const dir = mkdtempSync(join(tmpdir(), 'gw-codex-test-'))
   const home = join(dir, 'home')
   mkdirSync(home)
@@ -76,27 +81,42 @@ console.log(JSON.stringify({ type: 'thread.started', thread_id: 'T1' }))
 `,
   )
   chmodSync(fake, 0o755)
-  // 알림 감시는 가짜 HOME 이라 AI 키 신원으로 붙지 못해 곧 끝난다 — 이 테스트는 부르기만 본다.
+  // 알림 감시는 가짜 HOME 이라 AI 키 신원으로 붙지 못해 곧 끝난다 — 이 테스트는 부르기와 none 확인만 본다.
+  // GENIA_AGENT_GENERATION 이 없어 gw-status 는 서버에 묻지 않고 RUN 을 낸다(Works 밖).
   const p = spawn(join(root, 'scripts', 'gw-codex-loop'), ['WP', '--queue', '"AI 개발팀"'], {
-    env: { ...env, GENIA_WORKS_AS: 'kodi', GW_CODEX: fake, GENIA_WORKS_TOKEN: 'swp_MINE', GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' },
+    env: { ...env, GENIA_WORKS_AS: as, GW_CODEX: fake, GENIA_WORKS_TOKEN: 'swp_MINE', GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let out = ''
   p.stdout.on('data', (d) => (out += d))
-  const until = async (f) => {
-    for (let i = 0; i < 100 && !f(); i++) await new Promise((r) => setTimeout(r, 100))
+  const closed = new Promise((r) => p.on('close', r))
+  if (done) {
+    for (let i = 0; i < 150 && !done(out); i++) await new Promise((r) => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 300))
+    p.kill('SIGTERM')
   }
-  await until(() => out.includes('GW-NEXT-CHECK none'))
-  await new Promise((r) => setTimeout(r, 300))
-  p.kill('SIGTERM')
-  await new Promise((r) => p.on('close', r))
+  await closed
   assert.ok(existsSync(record), out)
-  const calls = JSON.parse(readFileSync(record, 'utf8'))
-  assert.equal(calls.length, 1) // none — 다시 부르지 않는다
+  return { calls: JSON.parse(readFileSync(record, 'utf8')), out }
+}
+
+test('gw-codex-loop: 칸 신원의 키를 codex 의 환경 변수로만 넘기고(명령줄엔 없음), none 이어도 상태가 RUN 이면 멈추지 않고 20분 뒤 다시 본다(WP-1425)', async () => {
+  const { calls, out } = await runCodexLoopNone({ as: 'kodi', until: (o) => o.includes('20분 뒤 다시 봅니다') })
+  assert.equal(calls.length, 1) // 20분 타이머 — 테스트 동안 다시 부르지 않는다
   assert.equal(calls[0].token, 'ak_FAKE_CODEX_1')
   assert.equal(calls[0].wakes, '1')
   assert.equal(calls[0].mine, null) // 내 토큰은 넘기지 않는다
   assert.ok(!calls[0].argv.some((a) => a.includes('ak_FAKE_CODEX_1')))
   assert.ok(calls[0].argv.at(-1).includes('인자: WP --queue "AI 개발팀"'))
-  assert.ok(out.includes('다음 확인을 잡지 않습니다'))
+  assert.ok(out.includes('GW-NEXT-CHECK none 이지만 상태가 RUN 이라 20분 뒤 다시 봅니다'), out)
+  assert.ok(!out.includes('다음 확인을 잡지 않습니다'))
+  assert.ok(!out.includes('ak_FAKE_CODEX_1')) // 확인 명령이 키를 출력하지 않는다
+})
+
+// 구동기가 스스로 끝나기를 기다리므로, 멈추지 않는 회귀면 매달리지 않고 30초 안에 실패하게 시간 제한을 둔다.
+test('gw-codex-loop: 칸 신원의 키가 없으면(AI 키 신원 아님) GW-NEXT-CHECK none 대로 멈춘다', { timeout: 30_000 }, async () => {
+  const { calls, out } = await runCodexLoopNone({ as: 'nobody' })
+  assert.equal(calls.length, 1)
+  assert.ok(out.includes('다음 확인을 잡지 않습니다(GW-NEXT-CHECK none, AI 키 신원이 아님)'), out)
+  assert.ok(!out.includes('ak_FAKE_CODEX_1'))
 })

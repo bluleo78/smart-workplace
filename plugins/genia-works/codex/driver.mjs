@@ -3,7 +3,8 @@
 //   node driver.mjs <work-loop 인자…>   예: node driver.mjs WP --queue "AI 개발팀"
 // 하는 일(genia 확장과 같은 규칙 — 반복 상태 기계는 genia/loop.js 의 LoopDriver 를 함께 쓴다):
 //   - 부르기: 쉬고 있을 때만 `codex exec`(처음)·`codex exec resume <대화>`(그 뒤)로 work-loop 스킬을 한 번 부른다. 마지막 답의
-//     GW-NEXT-CHECK 로 다음 확인을 잡는다(none 이면 멈춘다).
+//     GW-NEXT-CHECK 로 다음 확인을 잡는다. none 이면 checkStop 으로 신원·상태(gw-status)를 확인해 멈출 까닭(신원 아님·DRAIN·RESTART)일 때만
+//     멈추고, 그 밖(RUN·확인 실패)이면 잘못 쓴 none 으로 보고 20분 뒤 다시 본다(WP-1425).
 //   - 깨우기: 알림 감시(agent-events tail·gw-events)를 자식으로 띄워 wake 줄마다 부른다 — 부르는 중이면 끝난 뒤 한 번.
 //   - 신원·키: 이 칸 신원(GENIA_WORKS_AS)의 AI 키를 gw-lib 로 읽어 codex 프로세스의 환경 변수로만 넘긴다(명령줄·셸 도구에는 없다).
 //     키 저장소·헤더 스크립트에 닿는 도구 호출은 PreToolUse hook(guard.mjs)이 막는다.
@@ -14,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
-import { LoopDriver, projectKeyOf, shellQuote, watchEvents } from '../genia/loop.js'
+import { LoopDriver, checkStop, noneDecisionMessage, projectKeyOf, shellQuote, watchEvents } from '../genia/loop.js'
 import { TOKEN_ENV, codexArgs, threadIdFrom, workLoopPrompt } from './lib.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -98,7 +99,8 @@ function invoke(loopArgs) {
     if (exiting) return
     const r = driver.settled(text)
     if (r.action === 'timer') log(`다음 확인 ${Math.round(r.delayMs / 1000)}초 뒤`)
-    else if (r.action === 'none') log('다음 확인을 잡지 않습니다(GW-NEXT-CHECK none) — 칸을 다시 띄우면 다시 시작합니다')
+    else if (r.action === 'checking') log('GW-NEXT-CHECK none — 멈출지 상태를 확인합니다')
+    // none 확인 결과는 onDecision 이 한 줄로 남긴다.
   })
 }
 
@@ -106,6 +108,11 @@ const driver = new LoopDriver({
   run: invoke,
   setTimer: (fn, ms) => setTimeout(fn, ms),
   clearTimer: (h) => clearTimeout(h),
+  // none 확인(WP-1425) — 신원은 readKey 처럼 GENIA_WORKS_AS 로 본다(까닭은 loop.js checkStop 설명).
+  checkStop: ({ nextCheckAt }) => checkStop({ scriptsDir: scripts, nextCheckAt, identity: 'env' }),
+  onDecision: (d) => {
+    if (!exiting) log(noneDecisionMessage(d))
+  },
 })
 
 function shutdown() {
