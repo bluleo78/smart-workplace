@@ -193,7 +193,18 @@ async function openPendingEventProposal(page: import('@playwright/test').Page) {
   const starts = page.getByTestId(`event-proposal-starts-${PROPOSAL_ID}`)
   const ends = page.getByTestId(`event-proposal-ends-${PROPOSAL_ID}`)
   await expect(starts).toBeVisible()
-  return { starts: (await starts.boundingBox())!, ends: (await ends.boundingBox())! }
+  await expect(ends).toBeVisible()
+  // 두 칸의 위치는 한 프레임에서 함께 잰다 — boundingBox 를 따로 부르면 그 사이 메시지 목록이 아래로 붙으며 스크롤돼
+  // (전체 회귀처럼 부하가 클 때) 같은 줄의 두 칸이 32px 어긋나 보였다. 스크롤과 무관한 상대 위치만 단언한다.
+  const rects = await page.evaluate(
+    ([startsId, endsId]) =>
+      [startsId, endsId].map((id) => {
+        const r = document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect()
+        return { x: r.x, y: r.y, width: r.width, height: r.height }
+      }),
+    [`event-proposal-starts-${PROPOSAL_ID}`, `event-proposal-ends-${PROPOSAL_ID}`] as const,
+  )
+  return { starts: rects[0], ends: rects[1] }
 }
 
 test.describe('일정 제안 카드 시작·종료 칸 배치(WP-593)', { tag: '@layout' }, () => {
