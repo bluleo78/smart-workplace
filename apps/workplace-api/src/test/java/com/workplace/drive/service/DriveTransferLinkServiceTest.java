@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import static com.workplace.drive.service.DriveExistenceHiding.assertHiddenLikeMissing;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
@@ -137,11 +138,13 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(row.getTokenHash()).isNotEqualTo(token).hasSize(64);
   }
 
+  /** 비멤버 발급 → 없는 파일과 같은 DriveFileNotFoundException·같은 문구(WP-1422 — 파일 id 존재 은닉). */
   @Test
-  void issue_nonMember_isNotFound() {
+  void issue_nonMember_isHiddenAsFileNotFound() {
     long outsider = withMembership(TestFixtures.createHuman(dsl));
-    assertThatThrownBy(() -> transfers.issueDownloadLink(outsider, driveFileId))
-        .isInstanceOf(DriveSpaceNotFoundException.class);
+    assertHiddenLikeMissing(
+        () -> transfers.issueDownloadLink(outsider, driveFileId),
+        () -> transfers.issueDownloadLink(outsider, driveFileId + 100_000L));
   }
 
   @Test
