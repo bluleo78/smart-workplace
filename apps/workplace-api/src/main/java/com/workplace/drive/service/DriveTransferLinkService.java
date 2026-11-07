@@ -441,7 +441,7 @@ public class DriveTransferLinkService {
         fileService.validateUploadTarget(link.userId(), link.spaceId(), link.folderId());
       }
     } catch (DriveFileNotFoundException e) {
-      throw uploadFileGone();
+      throw fileGoneOrLostPermission(link);
     } catch (DriveSpaceNotFoundException | DriveForbiddenException e) {
       throw lostUploadPermission();
     } catch (DriveFolderNotFoundException | DriveInvalidTargetException e) {
@@ -512,7 +512,7 @@ public class DriveTransferLinkService {
               : fileService.upload(link.userId(), link.spaceId(), link.folderId(), source);
     } catch (DriveFileNotFoundException e) {
       // 재확인과 이 트랜잭션 사이에 대상 파일이 휴지통으로 갔다(예외 문구의 내부 id 를 드러내지 않는다).
-      throw uploadFileGone();
+      throw fileGoneOrLostPermission(link);
     } catch (DriveSpaceNotFoundException | DriveForbiddenException e) {
       throw lostUploadPermission();
     } catch (DriveFolderNotFoundException | DriveInvalidTargetException e) {
@@ -597,5 +597,15 @@ public class DriveTransferLinkService {
   /** 공개 링크 URL — {publicBaseUrl}/api/v1/public/drive/transfer/{token}. */
   public String publicUrl(String token) {
     return publicBaseUrl + PUBLIC_PATH + token;
+  }
+
+  /**
+   * 파일 지정 링크에서 FileNotFound 를 받았을 때의 응답 선택(WP-1424). 파일 쓰기 가드는 공간 비멤버도 FileNotFound 로 숨기므로, 파일 행이
+   * 아직 살아 있으면 발급자가 공간 권한을 잃은 것(권한 상실)이고 행이 없을 때만 파일이 사라진 것이다.
+   */
+  private RuntimeException fileGoneOrLostPermission(TransferLinkRow link) {
+    return link.driveFileId() != null && files.findRow(link.driveFileId()).isPresent()
+        ? lostUploadPermission()
+        : uploadFileGone();
   }
 }

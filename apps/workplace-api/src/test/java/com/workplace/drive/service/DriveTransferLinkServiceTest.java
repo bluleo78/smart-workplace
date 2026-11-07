@@ -744,8 +744,9 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> transfers.issueFileUploadLink(viewer, driveFileId))
         .isInstanceOf(DriveForbiddenException.class);
+    // WP-1424: 파일 지정 경로는 비멤버에게 「파일 없음」 404 — 없는 파일 id 와 구분되지 않는다.
     assertThatThrownBy(() -> transfers.issueFileUploadLink(outsider, driveFileId))
-        .isInstanceOf(DriveSpaceNotFoundException.class);
+        .isInstanceOf(DriveFileNotFoundException.class);
     fileService.delete(owner, driveFileId);
     assertThatThrownBy(() -> transfers.issueFileUploadLink(owner, driveFileId))
         .isInstanceOf(DriveFileNotFoundException.class);

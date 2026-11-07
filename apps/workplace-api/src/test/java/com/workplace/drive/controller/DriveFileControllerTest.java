@@ -15,6 +15,7 @@ import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
+import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.dto.ExtractedTextSlice;
@@ -193,6 +194,21 @@ class DriveFileControllerTest extends WebMvcSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"a.txt\"}"))
         .andExpect(status().isConflict());
+  }
+
+  /** WP-1424: 공간 비멤버의 이름 변경은 서비스가 던지는 「파일 없음」 → 404, 응답에 공간 없음 문구가 없다. */
+  @Test
+  void rename_nonMember_returnsFileNotFound404() throws Exception {
+    when(fileService.rename(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyString()))
+        .thenThrow(new DriveFileNotFoundException(7L));
+    mockMvc
+        .perform(
+            patch("/api/v1/drive/files/7")
+                .header("Authorization", "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"a.txt\"}"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message").value("드라이브 파일을 찾을 수 없습니다"));
   }
 
   /** 빈 이름 → 400, 서비스 미호출(금지 문자 검사는 서비스 몫 — DriveFileServiceTest). */

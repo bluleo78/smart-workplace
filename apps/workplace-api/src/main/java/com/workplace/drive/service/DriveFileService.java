@@ -184,9 +184,7 @@ public class DriveFileService {
   @Transactional
   public DriveFileResponse updateTextFile(
       long callerId, long driveFileId, String content, String mimeType) throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    DriveFileRepository.DriveFileRow row = editableRow(callerId, driveFileId);
     String currentMime = files.findCurrentMime(row.fileId());
     if (!isTextLike(currentMime, row.name())) {
       throw new DriveNotTextFileException();
@@ -388,16 +386,13 @@ public class DriveFileService {
    * ID 로 지정한 파일에 새 버전 추가(WP-369) — 이름으로 찾지 않는다. 파일 지정 업로드 링크 PUT 이 쓴다. 이름·폴더는 그대로이고, 저장 이름(FILE 원본
    * 이름·확장자로 정하는 MIME)은 파일의 <b>지금 이름</b>이다 — 링크 발급 뒤 이름이 바뀌어도 같은 파일에 들어간다.
    *
-   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
-   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404) · 공간 비멤버도 같은 404(존재 은닉, WP-1424)
    * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
    */
   @Transactional
   public DriveFileResponse addVersion(long callerId, long driveFileId, UploadSource source)
       throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    DriveFileRepository.DriveFileRow row = editableRow(callerId, driveFileId);
     // 저장 이름은 store 가 행 잠금 아래에서 읽은 지금 이름으로 바꾼다.
     return store(callerId, row.spaceId(), row.folderId(), source, row.id(), null, false);
   }
@@ -407,16 +402,12 @@ public class DriveFileService {
    * 쓴다(WP-369).
    *
    * @return 대상 파일 행(이름·공간)
-   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
-   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404) · 공간 비멤버도 같은 404(존재 은닉, WP-1424)
    * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
    */
   @Transactional(readOnly = true)
   public DriveFileRepository.DriveFileRow validateVersionTarget(long callerId, long driveFileId) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    return row;
+    return editableRow(callerId, driveFileId);
   }
 
   /**
@@ -718,6 +709,17 @@ public class DriveFileService {
   }
 
   /**
+   * 편집 가드 — 없는·휴지통 파일 404, 스페이스 비멤버도 같은 404(파일 id 존재 은닉, WP-1424), 멤버의 EDITOR 미만·보관 공간은 403. 파일 id
+   * 로 들어오는 쓰기 경로는 반드시 이 한 곳을 거친다(공간 없음 문구로 파일 존재가 새지 않게).
+   */
+  private DriveFileRepository.DriveFileRow editableRow(long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireFileRole(row.spaceId(), callerId, driveFileId, "EDITOR");
+    return row;
+  }
+
+  /**
    * 읽기 가드(VIEWER+) — 없는·휴지통 파일과 볼 수 없는 파일(공간 비멤버)을 같은 404·같은 문구({@link
    * DriveFileNotFoundException})로 돌린다. 비멤버에게 「공간 없음」을 주면 문구 차이로 파일 id 존재가 드러났다(WP-1422).
    */
@@ -773,8 +775,7 @@ public class DriveFileService {
    * 파일 삭제 가능 여부만 판정한다(쓰기 없음 — 시퀀스 증가·감사 로그 미수행). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link
    * #delete} 가 같은 {@link #checkDeletable} 을 호출하므로 술어 포크가 없다.
    *
-   * @throws DriveFileNotFoundException 파일 없음(또는 이미 휴지통)
-   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws DriveFileNotFoundException 파일 없음(또는 이미 휴지통) · 공간 비멤버도 같은 404(존재 은닉, WP-1424)
    * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
    */
   @Transactional(readOnly = true)
@@ -784,10 +785,7 @@ public class DriveFileService {
 
   /** 삭제 술어 본체 — 존재·권한을 확인하고 대상 행을 돌려준다(실행 경로가 감사 로그용으로 재사용). */
   private DriveFileRepository.DriveFileRow checkDeletable(long callerId, long driveFileId) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    return row;
+    return editableRow(callerId, driveFileId);
   }
 
   /** 삭제 = 휴지통으로(soft). drive_file 행 보존·trashed 표시. blob 은 영구삭제 시점까지 보존. */
@@ -856,9 +854,7 @@ public class DriveFileService {
   @Transactional
   public DriveFileResponse rollback(long callerId, long driveFileId, int targetVersionNo)
       throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    DriveFileRepository.DriveFileRow row = editableRow(callerId, driveFileId);
     var target =
         versions
             .findVersion(driveFileId, targetVersionNo)
@@ -915,9 +911,7 @@ public class DriveFileService {
    */
   @Transactional
   public DriveFileResponse rename(long callerId, long driveFileId, String name) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    DriveFileRepository.DriveFileRow row = editableRow(callerId, driveFileId);
     String newName = SafeFileNames.validate(name, "파일");
     if (!newName.equals(row.name())) {
       requireNameFree(row.spaceId(), row.folderId(), newName);
@@ -953,9 +947,7 @@ public class DriveFileService {
    */
   @Transactional
   public long move(long callerId, long driveFileId, Long targetFolderId, boolean notify) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    DriveFileRepository.DriveFileRow row = editableRow(callerId, driveFileId);
     validateTargetSameSpace(row.spaceId(), targetFolderId);
     // 같은 폴더로의 이동은 no-op — 자기 자신과의 이름 충돌로 인한 잘못된 409 방지
     if (java.util.Objects.equals(row.folderId(), targetFolderId)) {
@@ -973,9 +965,7 @@ public class DriveFileService {
   @Transactional
   public DriveFileResponse copy(long callerId, long driveFileId, Long targetFolderId)
       throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    DriveFileRepository.DriveFileRow row = editableRow(callerId, driveFileId);
     validateTargetSameSpace(row.spaceId(), targetFolderId);
     // 쿼터 강제: 복사도 새 바이트를 소비하므로 upload 와 동일하게 advisory lock + 검사(#81).
     Long tenantId = TenantContext.get();
