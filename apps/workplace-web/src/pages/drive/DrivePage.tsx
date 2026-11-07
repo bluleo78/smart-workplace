@@ -1296,6 +1296,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         <ResourceErrorState
           icon={FolderX}
           title="드라이브 공간을 불러올 수 없습니다"
+          titleAs="h1"
           description="요청한 공간이 존재하지 않거나 접근 권한이 없습니다."
           actionLabel="드라이브로"
           onAction={() => navigate('/drive')}

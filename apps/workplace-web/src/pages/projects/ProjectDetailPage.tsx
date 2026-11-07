@@ -71,6 +71,7 @@ export default function ProjectDetailPage() {
       <ResourceErrorState
         icon={FolderX}
         title="프로젝트를 불러올 수 없습니다"
+        titleAs="h1"
         description="요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다."
         actionLabel="프로젝트 목록으로"
         onAction={() => navigate('/projects')}

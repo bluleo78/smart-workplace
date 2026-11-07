@@ -9,6 +9,7 @@ export function WikiSpaceUnavailableState({ onBack }: { onBack: () => void }) {
       <ResourceErrorState
         icon={FolderX}
         title="노트 공간을 찾을 수 없습니다"
+        titleAs="h1"
         description="요청한 노트 공간이 존재하지 않거나 접근 권한이 없습니다."
         actionLabel="노트 목록으로"
         onAction={onBack}

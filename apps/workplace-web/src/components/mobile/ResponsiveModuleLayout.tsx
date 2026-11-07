@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { MobileBackBar } from './MobileBackBar'
 import { MobileDetailCtx } from './MobileDetailContext'
 import { MobileListHeader } from './MobileListHeader'
+import { MobileResourceErrorHeadingContext } from './MobileResourceErrorHeadingContext'
 import { mobileSidebarListClass } from './sidebarListClass'
 
 export function ResponsiveModuleLayout({
@@ -56,6 +57,13 @@ export function ResponsiveModuleLayout({
     setHeaderCount((n) => n + 1)
     return () => setHeaderCount((n) => n - 1)
   }, [])
+  // 오류가 본문 제목을 맡는 동안만 모바일 모듈명의 h1 의미를 내려 중복 제목을 막는다.
+  const [errorHeadingCount, setErrorHeadingCount] = useState(0)
+  const registerErrorHeading = useCallback(() => {
+    setErrorHeadingCount((n) => n + 1)
+    return () => setErrorHeadingCount((n) => n - 1)
+  }, [])
+  const errorHeadingCtx = useMemo(() => ({ hasErrorHeading: errorHeadingCount > 0, register: registerErrorHeading }), [errorHeadingCount, registerErrorHeading])
   const detailCtx = useMemo(() => ({ title, register }), [title, register])
 
   if (!isMobile) {
@@ -74,24 +82,28 @@ export function ResponsiveModuleLayout({
   // 목록 = 모듈 루트 또는 경로 표가 탭 루트로 정한 하위 목록(노트 공간 /wiki/spaces/:id 처럼 2단 목록, WP-178).
   if (norm(pathname) === rootPath || isTabRoot(pathname)) {
     return (
-      <div className="flex h-full min-h-0 flex-1 flex-col">
-        {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
-            탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
-        {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
-        {listContext}
-        <div data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
-      </div>
+      <MobileResourceErrorHeadingContext.Provider value={errorHeadingCtx}>
+        <div className="flex h-full min-h-0 flex-1 flex-col">
+          {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
+              탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
+          {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
+          {listContext}
+          <div data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
+        </div>
+      </MobileResourceErrorHeadingContext.Provider>
     )
   }
 
   return (
-    <MobileDetailCtx.Provider value={detailCtx}>
-      <div className="flex h-full min-h-0 flex-1 flex-col">
-        {headerCount === 0 && <MobileBackBar title={title} />}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <Outlet />
+    <MobileResourceErrorHeadingContext.Provider value={errorHeadingCtx}>
+      <MobileDetailCtx.Provider value={detailCtx}>
+        <div className="flex h-full min-h-0 flex-1 flex-col">
+          {headerCount === 0 && <MobileBackBar title={title} />}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <Outlet />
+          </div>
         </div>
-      </div>
-    </MobileDetailCtx.Provider>
+      </MobileDetailCtx.Provider>
+    </MobileResourceErrorHeadingContext.Provider>
   )
 }

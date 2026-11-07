@@ -635,7 +635,7 @@ describe('머리말·주소', () => {
     const { user, location } = renderDrivePage(999, {
       handlers: [http.get(`${API}/spaces/999`, notFound), http.get(`${API}/spaces/999/items`, notFound), ...driveBaseHandlers()],
     })
-    expect(await screen.findByText('드라이브 공간을 불러올 수 없습니다', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: '드라이브 공간을 불러올 수 없습니다' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(screen.getByText('요청한 공간이 존재하지 않거나 접근 권한이 없습니다.')).toBeInTheDocument()
     expect(screen.queryByTestId('drive-empty-folder')).not.toBeInTheDocument()
     expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
