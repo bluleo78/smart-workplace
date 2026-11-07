@@ -88,8 +88,9 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
     String chain = ", 10.244.3.206, 10.244.4.57";
     for (int i = 0; i < 20; i++) mvc.perform(login(a + chain)).andExpect(status().isUnauthorized());
     untilLimited(() -> mvc.perform(login(a + chain)), 20);
-    // 위조한 첫 값을 바꿔 가며 보내도 같은 클라이언트면 계속 막힌다.
-    mvc.perform(login("1.2.3.4, " + a + chain)).andExpect(status().isTooManyRequests());
+    // 위조한 첫 값을 바꿔 가며 보내도 같은 클라이언트면 계속 막힌다. 부하로 앞 요청과 사이가 벌어지면 토큰이 하나 차 한 번은 통과할 수
+    // 있어(v0.9.50 push 에서 401) 다섯 번 안에 429 를 기다린다 — 따로 세는 새 버킷이면 20회까지 통과하므로 여전히 가려진다.
+    untilLimited(() -> mvc.perform(login("1.2.3.4, " + a + chain)), 5);
     // 같은 체인으로 온 다른 클라이언트는 막히지 않는다.
     mvc.perform(login(b + chain)).andExpect(status().isUnauthorized());
   }

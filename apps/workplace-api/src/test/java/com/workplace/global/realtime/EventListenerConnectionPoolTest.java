@@ -47,8 +47,11 @@ class EventListenerConnectionPoolTest extends IntegrationTestBase {
   /** 테스트 풀 크기(application-test.yml maximum-pool-size) — 이만큼의 쓰기가 커넥션을 하나씩 쥔다. */
   private static final int WRITERS = 2;
 
-  /** 정상이면 수백 ms 안에 끝난다. 교착이면 풀 타임아웃(30초)까지 멈추므로 그보다 넉넉히 짧게 둔다. */
-  private static final long DEADLINE_SECONDS = 10;
+  /**
+   * 정상이면 수백 ms 안에 끝난다. 교착이면 첫 조회부터 풀 타임아웃(30초)까지 멈추므로 그보다 짧게 둔다. 전체 회귀 부하에서는 목록 조회 20회 × 2스레드가 10초를
+   * 넘겨 실패했다(v0.9.50 push) — 교착을 가려낼 수 있는 30초 안쪽에서 넉넉히 잡는다.
+   */
+  private static final long DEADLINE_SECONDS = 25;
 
   @Autowired private ApplicationEventPublisher publisher;
   @Autowired private ProjectService projectService;

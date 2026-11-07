@@ -52,7 +52,8 @@ class ChatToAiAgentDispatchTest extends ExternalClientMockedTestBase {
         new CreateChatMessageRequest("<@" + s.agentId() + "> 처리해줘"));
 
     ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-    verify(client, timeout(2000).times(1)).publish(captor.capture());
+    // 비동기 리스너가 부르기를 기다린다 — 전체 회귀 부하에서는 2초를 넘겨 실패했다(v0.9.50 push). 오면 곧바로 끝나므로 상한만 넉넉히 둔다.
+    verify(client, timeout(15000).times(1)).publish(captor.capture());
     assertThat(captor.getValue().type()).isEqualTo("chat.message.posted");
     assertThat(captor.getValue().payload())
         .containsKeys("threadId", "messageId", "actor", "mentions", "body");
