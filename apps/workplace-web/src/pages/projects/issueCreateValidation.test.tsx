@@ -57,6 +57,9 @@ test('제목을 쓰면 beforeunload 경고가 켜지고, 대화상자를 닫으�
   await user.paste('작성 중인 제목')
   await waitFor(() => expect(dispatchBeforeUnload()).toBe(true))
   await user.click(screen.getByRole('button', { name: '취소' }))
+  await screen.findByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })
+  expect(dispatchBeforeUnload()).toBe(true)
+  await user.click(screen.getByRole('button', { name: '버리기' }))
   await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 이슈' })).not.toBeInTheDocument())
   expect(dispatchBeforeUnload()).toBe(false)
 })
@@ -72,38 +75,64 @@ async function closed() {
   await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 이슈' })).not.toBeInTheDocument())
 }
 
-// #178 — 닫혀 있는 동안 폼 상태가 남아 다시 열면 이전 입력·오류가 보이던 결함. Escape·취소 두 닫기 경로를 한 화면에서 이어 본다
-// (테스트마다 앱을 띄우면 2초 넘게 들어 한 번 띄운 화면에서 이어 간다). 제목 라벨의 필수 표시(*)도 함께 본다.
-test('Escape·취소로 닫고 다시 열면 입력값·유효성 오류가 남지 않고, 제목 라벨엔 필수 표시(*)가 있다 (#178)', async () => {
+// WP-1443 — 닫기 요청을 부모에게 바로 전달하면 초안이 사라진다. 계속 작성과 명시적 폐기를 구분한다.
+test('제목 입력 후 Escape는 폐기 확인을 띄우고 계속 작성하면 제목과 본문을 보존한다', async () => {
   const { user } = await openCreateDialog()
-  // 필수 칸 표시 — FormField 의 required 가 라벨 끝에 붉은 별표(text-destructive *)를 그린다.
-  const label = document.querySelector('label[for="issue-title"]') as HTMLElement
-  expect(label.querySelector('span.text-destructive')).toHaveTextContent('*')
-
-  // Escape — 입력값.
   await user.click(screen.getByLabelText(/^제목/))
   await user.paste('테스트 제목')
-  expect(screen.getByLabelText(/^제목/)).toHaveValue('테스트 제목')
+  await user.click(screen.getByLabelText('본문'))
+  await user.paste('작성 중인 본문')
   await user.keyboard('{Escape}')
+  expect(await screen.findByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '계속 작성' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByLabelText(/^제목/)).toHaveValue('테스트 제목')
+  expect(screen.getByLabelText('본문')).toHaveValue('작성 중인 본문')
+  await user.keyboard('{Escape}')
+  await user.click(await screen.findByRole('button', { name: '버리기' }))
   await closed()
   await reopen(user)
   expect(screen.getByLabelText(/^제목/)).toHaveValue('')
+  expect(screen.getByLabelText('본문')).toHaveValue('')
+})
 
-  // Escape — 유효성 오류.
+test('본문만 입력한 뒤 취소하면 폐기 확인을 띄우고 버린 뒤 다시 열면 입력이 비어 있다', async () => {
+  const { user } = await openCreateDialog()
+  await user.click(screen.getByLabelText('본문'))
+  await user.paste('본문만 있는 초안')
+  await user.click(screen.getByRole('button', { name: '취소' }))
+  expect(await screen.findByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '계속 작성' }))
+  expect(screen.getByLabelText(/^제목/)).toHaveValue('')
+  expect(screen.getByLabelText('본문')).toHaveValue('본문만 있는 초안')
+  await user.click(screen.getByRole('button', { name: '취소' }))
+  await user.click(await screen.findByRole('button', { name: '버리기' }))
+  await closed()
+  await reopen(user)
+  expect(screen.getByLabelText(/^제목/)).toHaveValue('')
+  expect(screen.getByLabelText('본문')).toHaveValue('')
+})
+
+// #178 — 빈 폼과 오류만 있는 폼은 확인 없이 닫히고 다시 열면 오류가 사라진다.
+test('빈 폼·유효성 오류는 확인 없이 닫히고 제목 라벨에는 필수 표시가 있다 (#178)', async () => {
+  const { user } = await openCreateDialog()
+  const label = document.querySelector('label[for="issue-title"]') as HTMLElement
+  expect(label.querySelector('span.text-destructive')).toHaveTextContent('*')
+  await user.keyboard('{Escape}')
+  await closed()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  await reopen(user)
+  await user.click(screen.getByRole('button', { name: '취소' }))
+  await closed()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  await reopen(user)
   await user.click(screen.getByRole('button', { name: '생성' }))
   expect(await screen.findByText('제목은 필수입니다')).toBeInTheDocument()
   await user.keyboard('{Escape}')
   await closed()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   await reopen(user)
   expect(screen.queryByText('제목은 필수입니다')).not.toBeInTheDocument()
-
-  // 취소 — 입력값.
-  await user.click(screen.getByLabelText(/^제목/))
-  await user.paste('임시 제목')
-  await user.click(screen.getByRole('button', { name: '취소' }))
-  await closed()
-  await reopen(user)
-  expect(screen.getByLabelText(/^제목/)).toHaveValue('')
 })
 
 // #131 — 응답을 기다리는 동안 버튼이 「생성 중…」으로 바뀌고 비활성이라 두 번 누를 수 없다.
@@ -120,4 +149,26 @@ test('제출 중에는 버튼이 「생성 중…」 이고 비활성이다 (#13
   expect(await screen.findByRole('button', { name: '생성 중…' })).toBeDisabled()
   release()
   await closed()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+})
+
+test('폐기 확인 중 생성에 성공하면 확인 창도 닫히고 다시 열어도 남지 않는다', async () => {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  const { user } = await openCreateDialog(async () => {
+    await held
+    return HttpResponse.json(createIssue({ title: '새 이슈' }), { status: 201 })
+  })
+  await user.click(screen.getByLabelText(/^제목/))
+  await user.paste('새 이슈')
+  await user.click(screen.getByRole('button', { name: '생성' }))
+  await screen.findByRole('button', { name: '생성 중…' })
+  await user.keyboard('{Escape}')
+  expect(await screen.findByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })).toBeInTheDocument()
+
+  release()
+  await closed()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  await reopen(user)
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 })
