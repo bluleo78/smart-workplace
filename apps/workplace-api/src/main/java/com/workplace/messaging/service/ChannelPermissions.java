@@ -75,9 +75,13 @@ public class ChannelPermissions {
     return new ChannelForbiddenException(channelId, userId, action);
   }
 
-  /** 시스템 ADMIN 보장. */
-  public void requireSystemAdmin(long userId, String action) {
-    if (!isSystemAdmin(userId)) throw new ChannelForbiddenException(0L, userId, action);
+  /**
+   * 시스템 ADMIN 보장. 거절은 다른 권한 검사와 같은 {@link #denied} 규칙을 따른다(WP-1419) — 비공개 채널 비멤버에게는 없는 채널과 같은 404,
+   * 그 밖은 403. 그래서 채널 id 를 받는다.
+   */
+  public void requireSystemAdmin(long channelId, long userId, String action) {
+    if (isSystemAdmin(userId)) return;
+    throw denied(channelId, userId, memberRepo.findRole(channelId, userId).orElse(null), action);
   }
 
   /** caller 의 역할 조회(없으면 empty). */
