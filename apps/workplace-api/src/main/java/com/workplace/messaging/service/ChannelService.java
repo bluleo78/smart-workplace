@@ -190,7 +190,7 @@ public class ChannelService {
   @Transactional
   public void hardDelete(long callerId, long channelId) {
     ensureExists(channelId);
-    perms.requireSystemAdmin(callerId, "delete-channel");
+    perms.requireSystemAdmin(channelId, callerId, "delete-channel");
     // cascade 로 멤버가 사라지므로 삭제 전 명단을 확보해 추가 수신자로 넘긴다.
     List<Long> before = memberRepo.findMemberIds(channelId);
     boolean isPublic = isPublicChannel(channelId, callerId);
