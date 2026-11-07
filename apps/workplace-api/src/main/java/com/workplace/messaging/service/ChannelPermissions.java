@@ -69,10 +69,29 @@ public class ChannelPermissions {
    * 수 있었다). 멤버이거나 공개 채널이면 403.
    */
   private RuntimeException denied(long channelId, long userId, String role, String action) {
-    if (role == null && !"PUBLIC".equals(channelRepo.findVisibility(channelId))) {
+    if (isHiddenFrom(channelId, role)) {
       return new ChannelNotFoundException(channelId);
     }
     return new ChannelForbiddenException(channelId, userId, action);
+  }
+
+  /**
+   * 이 역할(null = 비멤버)의 호출자에게 채널 존재를 숨겨야 하는지 — 비멤버 + 공개 채널 아님(비공개·DM). {@link #denied} 와 나가기가 같은 판정을
+   * 쓰도록 한 곳에 모았다(WP-1402).
+   */
+  private boolean isHiddenFrom(long channelId, String role) {
+    return role == null && !"PUBLIC".equals(channelRepo.findVisibility(channelId));
+  }
+
+  /**
+   * 비공개 채널(DM 포함)의 비멤버면 없는 채널과 같은 404 를 던진다. 던지지 않으면 호출자는 멤버이거나 공개 채널 비멤버이거나 시스템 ADMIN 이다. 나가기가 비공개
+   * 채널 비멤버에게 멱등 204 를 돌려 채널 id 존재가 드러나던 것을 막는다(WP-1402). 시스템 ADMIN 은 {@link #requireManage} 등 다른
+   * 경로에서도 비공개 채널을 볼 수 있으므로 숨기지 않는다 — 가려질 때만 ADMIN 여부를 물어 평소 경로에 쿼리를 더하지 않는다.
+   */
+  public void hideIfInvisibleNonMember(long channelId, long userId, String role) {
+    if (isHiddenFrom(channelId, role) && !isSystemAdmin(userId)) {
+      throw new ChannelNotFoundException(channelId);
+    }
   }
 
   /**
