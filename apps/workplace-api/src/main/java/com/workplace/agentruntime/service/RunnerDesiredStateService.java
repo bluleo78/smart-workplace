@@ -24,6 +24,9 @@ import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.ObservedUpdate;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository.Slot;
+import com.workplace.agentruntime.repository.VisibleRuntimeState;
 import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.ManagedKeyChain;
 import com.workplace.auth.service.AgentApiKeyService;
@@ -37,8 +40,10 @@ import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -68,6 +73,8 @@ public class RunnerDesiredStateService {
 
   private final AgentLocationRepository locations;
   private final AgentRuntimeSettingRepository settings;
+  private final AgentRuntimeSlotRepository slots;
+  private final AgentSlotStateWriter slotWriter;
   private final AgentTemplateRegistry registry;
   private final UserRepository userRepository;
   private final AgentRuntimeProperties properties;
@@ -166,7 +173,7 @@ public class RunnerDesiredStateService {
       locations.updateMetricsAvailable(location.id(), req.metricsAvailable());
     }
     Map<Long, ObservedUpdate> updated =
-        settings.updateObserved(location.id(), location.isDefault(), req.agents());
+        reconcileSlots(settings.updateObserved(location.id(), location.isDefault(), req.agents()));
     List<RunnerObservedAgent> applied = new ArrayList<>();
     List<Long> ignored = new ArrayList<>();
     for (RunnerObservedAgent o : req.agents()) {
@@ -176,6 +183,54 @@ public class RunnerDesiredStateService {
     afterObservedUpdated(principal.tenantId(), applied);
     notifyVisibleChanges(updated.values());
     return new RunnerObservedResponse(applied.size(), ignored);
+  }
+
+  /**
+   * 새 Pod 가 보인 AI 들의 옛 Pod 칸을 정리하고 합친 AI 상태를 다시 쓴다(WP-1409). 칸 보고만으로는 새 Pod 칸이 보고하기 전까지 옛 Pod 의
+   * 칸(마지막 WORKING 등)이 합친 상태에 남는다.
+   *
+   * <ul>
+   *   <li>대상: 시작 시각을 아는 AI 중 시작 시각이 이번 보고로 바뀌었거나, 관찰 UPDATE 가 새 Pod 라 agent_* 를 지운 AI 만. 같은 Pod 의
+   *       되풀이 보고(약 60초마다)는 칸을 읽지도 지우지도 않는다.
+   *   <li>대상 AI 의 칸을 한 번에 읽어 {@link AgentSlotStateWriter} 로 보고 흐름과 같은 규칙(옛 Pod 칸 빼고 지움 → 오래된 칸 빼고
+   *       합침 → 씀)을 적용한다. 새 Pod 판정의 「지우기」 위에 남은 칸이 있으면 그 합친 값으로 채우고, 없으면 지운 그대로(null)다.
+   *   <li>시작 시각을 모르는 AI(시각 없는 STARTING)는 손대지 않는다 — 옛 칸을 가를 기준이 없어 다시 합치면 옛 Pod 상태가 되살아난다. 시각을 알리는
+   *       다음 보고에서 정리된다.
+   * </ul>
+   *
+   * <p>잠금 순서는 보고 흐름과 같다 — 설정 행(관찰 UPDATE 가 이미 잠금) 다음 칸 테이블.
+   *
+   * @return 다시 쓴 AI 는 쓴 뒤 행으로 바꾼 결과(쓰기 전 값은 그대로 — 화면 변경 알림 판정용)
+   */
+  private Map<Long, ObservedUpdate> reconcileSlots(Map<Long, ObservedUpdate> updated) {
+    List<Long> targets =
+        updated.values().stream()
+            .filter(u -> u.row().startedAt() != null)
+            .filter(u -> podChanged(u) || clearedByNewPod(u))
+            .map(u -> u.row().agentUserId())
+            .toList();
+    if (targets.isEmpty()) return updated;
+    Map<Long, List<Slot>> slotsOf = slots.findAllOf(targets);
+    OffsetDateTime now = OffsetDateTime.now();
+    Map<Long, ObservedUpdate> out = new LinkedHashMap<>(updated);
+    for (Long id : targets) {
+      ObservedUpdate u = updated.get(id);
+      Row written =
+          slotWriter.write(id, slotsOf.getOrDefault(id, List.of()), u.row().startedAt(), now, null);
+      out.put(id, new ObservedUpdate(written, u.before()));
+    }
+    return out;
+  }
+
+  /** 이번 관찰 보고로 Pod 시작 시각이 바뀌었는지(새 Pod). */
+  private static boolean podChanged(ObservedUpdate u) {
+    return !Objects.equals(
+        u.before().startedAt(), VisibleRuntimeState.instant(u.row().startedAt()));
+  }
+
+  /** 관찰 UPDATE 가 새 Pod 라 AI 상태를 지웠는지 — 쓰기 전에는 있었고 쓴 뒤에는 없다. */
+  private static boolean clearedByNewPod(ObservedUpdate u) {
+    return u.before().agentState() != null && u.row().agentState() == null;
   }
 
   /** 고친 AI 들 중 화면에 보이는 값이 쓰기 전과 달라진 AI 만 모아 한 번 알린다(WP-1254) — 쓰기 전 값은 같은 UPDATE 가 돌려준다. */

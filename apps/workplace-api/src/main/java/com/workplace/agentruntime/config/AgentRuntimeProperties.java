@@ -1,5 +1,6 @@
 package com.workplace.agentruntime.config;
 
+import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -12,10 +13,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     응답에 실어 runner 가 Pod 환경으로 넘긴다. 비어 있으면 로컬 기본값.
  * @param apiUrl runner 가 띄운 AI 가 부를 REST 주소(WP-1249) — {@code /api/v1} 까지 포함한다(플러그인의 {@code
  *     GENIA_WORKS_API_URL} 에 그대로 들어가 {@code $api/events} 처럼 이어 붙인다). 비어 있으면 로컬 기본값.
+ * @param slotStaleAfter AI 상태 칸(work-loop 하나)의 마지막 보고가 이보다 오래되면 합치기에서 뺀다(WP-1409). 비어 있으면 {@link
+ *     #DEFAULT_SLOT_STALE_AFTER}.
  */
 @ConfigurationProperties("workplace.agent-runtime")
 public record AgentRuntimeProperties(
-    List<String> allowedImagePrefixes, String mcpUrl, String apiUrl) {
+    List<String> allowedImagePrefixes, String mcpUrl, String apiUrl, Duration slotStaleAfter) {
 
   /** 설정이 없을 때의 기본 허용 접두사. */
   public static final List<String> DEFAULT_ALLOWED_IMAGE_PREFIXES =
@@ -27,6 +30,13 @@ public record AgentRuntimeProperties(
   /** 설정이 없을 때의 REST 주소 — 로컬 workplace-api(6060). */
   public static final String DEFAULT_API_URL = "http://localhost:6060/api/v1";
 
+  /**
+   * 칸을 죽은 것으로 볼 보고 공백 기본값 — 6시간. work-loop 칸은 적어도 매 턴 끝(길어야 약 1시간)마다 보고하지만, WORKING 이슈 하나는 한 번의 호출
+   * 안에서 몇 시간 이어질 수 있다. 6시간은 그 사이 일하는 칸을 잘못 빼지 않을 여유이면서, 죽은 칸이 마지막 WORKING 으로 미뤄 둔 교체를 영영 막지는 않게 하는
+   * 상한이다(WP-1409).
+   */
+  public static final Duration DEFAULT_SLOT_STALE_AFTER = Duration.ofHours(6);
+
   public AgentRuntimeProperties {
     allowedImagePrefixes =
         allowedImagePrefixes == null || allowedImagePrefixes.isEmpty()
@@ -34,5 +44,9 @@ public record AgentRuntimeProperties(
             : List.copyOf(allowedImagePrefixes);
     mcpUrl = mcpUrl == null || mcpUrl.isBlank() ? DEFAULT_MCP_URL : mcpUrl.strip();
     apiUrl = apiUrl == null || apiUrl.isBlank() ? DEFAULT_API_URL : apiUrl.strip();
+    slotStaleAfter =
+        slotStaleAfter == null || slotStaleAfter.isZero() || slotStaleAfter.isNegative()
+            ? DEFAULT_SLOT_STALE_AFTER
+            : slotStaleAfter;
   }
 }

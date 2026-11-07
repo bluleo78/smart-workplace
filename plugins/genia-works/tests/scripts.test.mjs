@@ -1207,6 +1207,7 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
     'GENIA_WORKS_API_URL=http://127.0.0.1:6160/api/v1',
     'GENIA_WORKS_AS=kodi',
     'GENIA_WORKS_PANE_WAKES=1',
+    'GENIA_WORKS_PROJECT=WP',
     'GENIA_WORKS_UNATTENDED=1',
     'GENIA_WORKS_WAKE_MODE=pane',
     '--permission-mode',
@@ -1401,6 +1402,32 @@ test('gw-status: GENIA_AGENT_GENERATION 이 없으면(Works 가 띄운 AI 아님
     assert.equal(r.status, 0);
     assert.equal(r.stdout, 'RUN\n');
     assert.equal(srv.reqs.length, 0);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-status: GENIA_WORKS_PROJECT 가 있으면 대문자 slot 을 싣고, 형식이 아니면 빼고 보고한다 (WP-1409)', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '7' };
+  try {
+    const ok = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'wp' });
+    assert.equal(ok.stdout, 'DRAIN\n');
+    assert.deepEqual(JSON.parse(srv.reqs[0].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3', slot: 'WP' });
+
+    // 형식이 아니면 slot 없이 보고하고 서버 응답을 그대로 낸다(RUN 대체 아님).
+    const bad = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'W P' });
+    assert.equal(bad.stdout, 'DRAIN\n');
+    assert.deepEqual(JSON.parse(srv.reqs[1].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3' });
+
+    // 32자를 넘으면 서버 @Pattern 이 400 을 내므로 slot 을 빼고 보고한다 — 33자는 빼고, 32자는 싣는다.
+    const long = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'a'.repeat(33) });
+    assert.equal(long.stdout, 'DRAIN\n');
+    assert.deepEqual(JSON.parse(srv.reqs[2].body), { state: 'WORKING', generation: 7, issueKey: 'WP-3' });
+    const max = await runAsync('gw-status', ['WORKING', 'WP-3'], { ...env, GENIA_WORKS_PROJECT: 'a'.repeat(32) });
+    assert.equal(max.stdout, 'DRAIN\n');
+    assert.equal(JSON.parse(srv.reqs[3].body).slot, 'A'.repeat(32));
   } finally {
     srv.close();
   }

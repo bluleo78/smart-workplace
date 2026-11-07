@@ -61,6 +61,7 @@ public class AgentRuntimeSummaryService {
                         r.desired(), r.generation(), r.observedGeneration(), r.phase()),
                     r.agentState(),
                     r.agentIssueKey(),
+                    r.agentIssueKeys(),
                     r.agentNextCheckAt(),
                     r.locationId() == null ? null : nonDefaultNames.get(r.locationId()),
                     r.observedMessage()))

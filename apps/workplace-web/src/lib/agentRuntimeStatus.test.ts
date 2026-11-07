@@ -58,9 +58,24 @@ describe('statusDetail — 상태 옆 한 줄', () => {
     }
   })
   test('작업 중·막힘이면 이슈 키, 키가 없으면 null', () => {
-    expect(statusDetail({ ...base, agentState: 'WORKING', agentIssueKey: 'WD-319' })).toEqual({ kind: 'issue', text: 'WD-319' })
-    expect(statusDetail({ ...base, status: 'APPLY_PENDING', agentState: 'BLOCKED', agentIssueKey: 'WP-1203' })).toEqual({ kind: 'issue', text: 'WP-1203' })
+    expect(statusDetail({ ...base, agentState: 'WORKING', agentIssueKey: 'WD-319' })).toEqual({ kind: 'issue', text: 'WD-319', keys: ['WD-319'] })
+    expect(statusDetail({ ...base, status: 'APPLY_PENDING', agentState: 'BLOCKED', agentIssueKey: 'WP-1203' })).toEqual({ kind: 'issue', text: 'WP-1203', keys: ['WP-1203'] })
     expect(statusDetail({ ...base, agentState: 'WORKING' })).toBeNull()
+  })
+  test('여러 칸이 일하면 첫 키 외 n건으로 줄이고 keys 에 모두 담는다 (WP-1409)', () => {
+    expect(statusDetail({ ...base, agentState: 'WORKING', agentIssueKeys: ['HR-2', 'WP-1'] })).toEqual({
+      kind: 'issue',
+      text: 'HR-2 외 1건',
+      keys: ['HR-2', 'WP-1'],
+    })
+    expect(statusDetail({ ...base, agentState: 'WORKING', agentIssueKeys: ['A-1', 'B-2', 'C-3'] })?.text).toBe('A-1 외 2건')
+  })
+  test('agentIssueKeys 가 비면 옛 서버 응답처럼 agentIssueKey 하나로 본다 (WP-1409)', () => {
+    expect(statusDetail({ ...base, agentState: 'WORKING', agentIssueKeys: [], agentIssueKey: 'WD-1' })).toEqual({
+      kind: 'issue',
+      text: 'WD-1',
+      keys: ['WD-1'],
+    })
   })
   test('대기면 「다음 확인 HH:mm」(KST), 시각이 없으면 null', () => {
     expect(statusDetail({ ...base, agentState: 'IDLE', agentNextCheckAt: '2026-11-02T03:30:00Z' })).toEqual({ kind: 'nextCheck', text: '다음 확인 12:30' })

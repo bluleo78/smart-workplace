@@ -65,6 +65,7 @@ public class AgentRuntimeSettingRepository {
       OffsetDateTime observedAt,
       String agentState,
       String agentIssueKey,
+      List<String> agentIssueKeys,
       OffsetDateTime agentNextCheckAt,
       OffsetDateTime agentReportedAt) {
 
@@ -73,17 +74,11 @@ public class AgentRuntimeSettingRepository {
       return !Objects.equals(observedGeneration, generation);
     }
 
-    /** AI 가 마지막으로 쉬는 중(IDLE)이라고 보고했는지. */
+    /** AI 가 쉬는 중(IDLE)인지 — 칸별 보고를 합친 상태라 모든 칸이 쉴 때만 참이다(WP-1409). */
     public boolean isIdle() {
       return AgentState.IDLE.name().equals(agentState);
     }
   }
-
-  /**
-   * AI 상태 보고를 쓴 뒤의 행과 쓰기 전 화면용 값(WP-1250·1254) — 「쉬는 중으로 막 바뀜」을 가려 변경 이벤트를 한 번만 내고({@code
-   * before.agentState()}), 화면에 보이는 값이 달라졌을 때만 관리자 화면에 알리게 한다. 보고는 agent_* 칸만 바꾸므로 나머지 칸은 쓴 뒤 행과 같다.
-   */
-  public record AgentStateUpdate(Row row, VisibleRuntimeState before) {}
 
   private Row map(Record r) {
     return new Row(
@@ -104,8 +99,24 @@ public class AgentRuntimeSettingRepository {
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_STATE),
         r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY),
+        visibleIssueKeys(
+            r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS),
+            r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)),
         r.get(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT));
+  }
+
+  /**
+   * 화면·API 에 내보낼 현재 이슈 키 목록 — 이 규칙은 여기 한 곳에만 둔다(WP-1409). 롤링 배포 중 옛 API 인스턴스는
+   * agent_state·agent_issue_key 만 쓰고 agent_issue_keys 배열은 모르고 남겨 두므로, 배열이 비어 있지 않고 첫 키가
+   * agent_issue_key 와 같을 때만(새 인스턴스가 함께 쓴 값) 배열을 믿는다. 아니면 agent_issue_key 하나({@code [key]}), 그것도 없으면
+   * 빈 목록.
+   */
+  static List<String> visibleIssueKeys(String[] keys, String issueKey) {
+    if (keys != null && keys.length > 0 && keys[0] != null && keys[0].equals(issueKey)) {
+      return List.of(keys);
+    }
+    return issueKey == null ? List.of() : List.of(issueKey);
   }
 
   /** 단건 — 다른 워크스페이스의 설정은 RLS 로 보이지 않는다. */
@@ -262,6 +273,7 @@ public class AgentRuntimeSettingRepository {
                 cur.STARTED_AT.as("p_started_at"),
                 cur.AGENT_STATE.as("p_agent_state"),
                 cur.AGENT_ISSUE_KEY.as("p_issue_key"),
+                cur.AGENT_ISSUE_KEYS.as("p_issue_keys"),
                 cur.AGENT_NEXT_CHECK_AT.as("p_next_check_at"))
             .from(cur)
             .where(cur.AGENT_USER_ID.in(last.keySet()))
@@ -275,6 +287,7 @@ public class AgentRuntimeSettingRepository {
     Field<OffsetDateTime> pStart = before.field("p_started_at", OffsetDateTime.class);
     Field<String> pAgentState = before.field("p_agent_state", String.class);
     Field<String> pIssueKey = before.field("p_issue_key", String.class);
+    Field<String[]> pIssueKeys = before.field("p_issue_keys", String[].class);
     Field<OffsetDateTime> pNextCheck = before.field("p_next_check_at", OffsetDateTime.class);
 
     // 새 Pod 판정(보고 값이 없으면 그 근거는 보지 않는다) — 예전 건별 문장과 같은 규칙을 보고 값 칸으로 쓴다.
@@ -291,7 +304,8 @@ public class AgentRuntimeSettingRepository {
     newPod = newPod.andNot(reportedByNewPod);
 
     List<SelectField<?>> returning = new ArrayList<>(List.of(s.fields()));
-    returning.addAll(List.of(pGen, pPhase, pMessage, pStart, pAgentState, pIssueKey, pNextCheck));
+    returning.addAll(
+        List.of(pGen, pPhase, pMessage, pStart, pAgentState, pIssueKey, pIssueKeys, pNextCheck));
     Map<Long, ObservedUpdate> out = new LinkedHashMap<>();
     dsl.update(s)
         .set(s.OBSERVED_GENERATION, DSL.greatest(s.OBSERVED_GENERATION, vGen))
@@ -303,6 +317,7 @@ public class AgentRuntimeSettingRepository {
         .set(s.OBSERVED_AT, OffsetDateTime.now())
         .set(s.AGENT_STATE, clearedIf(newPod, s.AGENT_STATE))
         .set(s.AGENT_ISSUE_KEY, clearedIf(newPod, s.AGENT_ISSUE_KEY))
+        .set(s.AGENT_ISSUE_KEYS, clearedIf(newPod, s.AGENT_ISSUE_KEYS))
         .set(s.AGENT_NEXT_CHECK_AT, clearedIf(newPod, s.AGENT_NEXT_CHECK_AT))
         .set(s.AGENT_REPORTED_AT, clearedIf(newPod, s.AGENT_REPORTED_AT))
         .from(v, before)
@@ -325,6 +340,7 @@ public class AgentRuntimeSettingRepository {
                           VisibleRuntimeState.instant(r.get(pStart)),
                           r.get(pAgentState),
                           r.get(pIssueKey),
+                          visibleIssueKeys(r.get(pIssueKeys), r.get(pIssueKey)),
                           VisibleRuntimeState.instant(r.get(pNextCheck)))));
             });
     return out;
@@ -336,68 +352,33 @@ public class AgentRuntimeSettingRepository {
   }
 
   /**
-   * AI 가 스스로 보고한 상태를 쓴다(WP-1250) — 세 칸을 늘 함께 덮어써 쉬는 중 보고가 옛 이슈 키를 지운다. 보고 시각(agent_reported_at)도
-   * 남겨, 지금 Pod 가 뜨기 전의 보고를 적용 판정에서 거를 수 있게 한다(WP-1253). 원하는 상태 칸·generation·runner 관찰 칸·updated_at
-   * 은 건드리지 않는다(보고는 설정 변경이 아니다).
+   * 칸별 보고를 합친 AI 상태를 agent_* 칸에 쓴다(WP-1409) — 상태(null 허용 — 살아 있는 칸이 없으면 보고 없음)·현재 이슈 키(목록의 첫 키, 옛
+   * 화면·옛 인스턴스 호환)·현재 이슈 키 목록·다음 확인 시각·보고 시각만 고친다. 원하는 상태 칸·generation·runner 관찰 칸·updated_at 은 건드리지
+   * 않는다(보고는 설정 변경이 아니다). 보고 시각은 지금 Pod 가 뜨기 전의 보고를 적용 판정에서 거르는 기준이다(WP-1253). 합치기 규칙(서비스 계층)에 기대지
+   * 않도록 값만 받는다.
    *
-   * <p>한 문장으로 쓰고 읽는다 — 쓰기 전 AI 상태는 같은 행을 잠가 읽는 FROM 부분 질의에서, 쓴 뒤 행은 RETURNING 에서 받는다(동시 보고가 와도 잠금
-   * 순서대로 앞 보고의 결과를 「쓰기 전」으로 본다).
+   * <p>호출자가 이 행을 이미 잠갔다고 가정한다({@link #findForUpdate} 또는 관찰 보고의 UPDATE) — 설정 행 → 칸 테이블 순으로 잠가, 칸
+   * 쓰기·읽기· 합치기·이 쓰기가 한 줄로 서서 두 칸이 동시에 보고해도 합친 값이 어긋나지 않게.
    *
-   * @return 쓴 뒤 행과 쓰기 전 AI 상태(설정이 없으면 empty)
+   * @param issueKeys 현재 이슈 키 목록(칸 키 순) — 첫 키를 agent_issue_key 에도 쓴다
+   * @return 쓴 뒤 행
    */
-  public Optional<AgentStateUpdate> updateAgentState(
-      long agentUserId, AgentState state, String issueKey, OffsetDateTime nextCheckAt) {
-    var cur = AGENT_RUNTIME_SETTING.as("cur");
-    Table<?> before =
-        dsl.select(
-                cur.AGENT_USER_ID,
-                cur.AGENT_STATE.as("previous_agent_state"),
-                cur.AGENT_ISSUE_KEY.as("previous_issue_key"),
-                cur.AGENT_NEXT_CHECK_AT.as("previous_next_check_at"))
-            .from(cur)
-            .where(cur.AGENT_USER_ID.eq(agentUserId))
-            .forUpdate()
-            .asTable("before");
-    Field<Long> beforeId = before.field(cur.AGENT_USER_ID.getName(), Long.class);
-    Field<String> previousState = before.field("previous_agent_state", String.class);
-    Field<String> previousIssueKey = before.field("previous_issue_key", String.class);
-    Field<OffsetDateTime> previousNextCheckAt =
-        before.field("previous_next_check_at", OffsetDateTime.class);
-    List<SelectField<?>> returning = new ArrayList<>(List.of(AGENT_RUNTIME_SETTING.fields()));
-    returning.add(previousState);
-    returning.add(previousIssueKey);
-    returning.add(previousNextCheckAt);
-    return dsl.update(AGENT_RUNTIME_SETTING)
-        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, state.name())
-        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, issueKey)
-        .set(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT, nextCheckAt)
-        .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, OffsetDateTime.now())
-        .from(before)
-        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(beforeId))
-        .returningResult(returning)
-        .fetchOptional(
-            r ->
-                agentStateUpdate(
-                    map(r),
-                    r.get(previousState),
-                    r.get(previousIssueKey),
-                    r.get(previousNextCheckAt)));
-  }
-
-  /** 쓴 뒤 행 + 쓰기 전 agent_* 세 칸 → 상태 보고 결과(나머지 화면용 칸은 보고가 바꾸지 않아 쓴 뒤 행 값). */
-  private static AgentStateUpdate agentStateUpdate(
-      Row row, String previousState, String previousIssueKey, OffsetDateTime previousNextCheckAt) {
-    VisibleRuntimeState after = VisibleRuntimeState.of(row);
-    return new AgentStateUpdate(
-        row,
-        new VisibleRuntimeState(
-            after.observedGeneration(),
-            after.phase(),
-            after.observedMessage(),
-            after.startedAt(),
-            previousState,
-            previousIssueKey,
-            VisibleRuntimeState.instant(previousNextCheckAt)));
+  public Row writeAgentState(
+      long agentUserId,
+      AgentState state,
+      List<String> issueKeys,
+      OffsetDateTime nextCheckAt,
+      OffsetDateTime reportedAt) {
+    var s = AGENT_RUNTIME_SETTING;
+    return dsl.update(s)
+        .set(s.AGENT_STATE, state == null ? null : state.name())
+        .set(s.AGENT_ISSUE_KEY, issueKeys.isEmpty() ? null : issueKeys.get(0))
+        .set(s.AGENT_ISSUE_KEYS, issueKeys.toArray(new String[0]))
+        .set(s.AGENT_NEXT_CHECK_AT, nextCheckAt)
+        .set(s.AGENT_REPORTED_AT, reportedAt)
+        .where(s.AGENT_USER_ID.eq(agentUserId))
+        .returning()
+        .fetchOne(this::map);
   }
 
   /** 새 설정 — generation 1·desired STOP·apply_mode IDLE(컬럼 기본값). 넣은 행을 돌려준다(전이 모양을 컬럼 기본값에서 읽게). */

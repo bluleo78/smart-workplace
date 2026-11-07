@@ -265,6 +265,31 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(screen.getByTestId('agent-run-mode-lock')).toHaveTextContent('실행 중에는 바꿀 수 없어요')
   })
 
+  test('여러 칸이 일하면 상태 카드에 현재 이슈 링크가 모두 보인다 (WP-1409)', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'HR-2', agentIssueKeys: ['HR-2', 'WP-1'] })
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    const detail = await screen.findByTestId('agent-runtime-detail')
+    const links = within(detail).getAllByRole('link')
+    expect(links.map((a) => a.textContent)).toEqual(['HR-2', 'WP-1'])
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects/HR/issues/2', '/projects/WP/issues/1'])
+  })
+
+  test('일하는 중 다시 시작 확인 창은 일하는 이슈를 모두 적는다 (WP-1409)', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'HR-2', agentIssueKeys: ['HR-2', 'WP-1'] })
+    const { user } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-restart'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('HR-2, WP-1')
+    expect(dialog).toHaveTextContent('이어 받아요')
+  })
+
+  test('옛 서버 응답(agentIssueKeys 없음)이면 확인 창은 agentIssueKey 하나로 적는다 (WP-1409)', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319' })
+    const { user } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-restart'))
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('WD-319')
+  })
+
   test('작업 화면 보기는 작업 공간이 떠 있을 때(실행 중·쉴 때 적용 대기)만 보인다 (WP-1277)', async () => {
     await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'WORKING' }) }) } }))
     expect(await screen.findByTestId('agent-screen-open')).toHaveTextContent('작업 화면 보기')

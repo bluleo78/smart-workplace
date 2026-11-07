@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
+import com.workplace.jooq.tables.AgentRuntimeSlotState.AgentRuntimeSlotStatePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AgentRuntimeSettingRecord;
@@ -179,6 +180,12 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.agent_runtime_setting.agent_issue_keys</code>. 칸별
+     * 보고를 합친 현재 이슈 키 목록(WORKING·BLOCKED 칸, 칸 키 순, 중복 제외) — WP-1409
+     */
+    public final TableField<AgentRuntimeSettingRecord, String[]> AGENT_ISSUE_KEYS = createField(DSL.name("agent_issue_keys"), SQLDataType.CLOB.array(), this, "칸별 보고를 합친 현재 이슈 키 목록(WORKING·BLOCKED 칸, 칸 키 순, 중복 제외) — WP-1409");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -312,6 +319,19 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
             _tenant = new TenantPath(this, Keys.AGENT_RUNTIME_SETTING__FK_AGENT_RUNTIME_SETTING_TENANT, null);
 
         return _tenant;
+    }
+
+    private transient AgentRuntimeSlotStatePath _agentRuntimeSlotState;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_runtime_slot_state</code> table
+     */
+    public AgentRuntimeSlotStatePath agentRuntimeSlotState() {
+        if (_agentRuntimeSlotState == null)
+            _agentRuntimeSlotState = new AgentRuntimeSlotStatePath(this, null, Keys.AGENT_RUNTIME_SLOT_STATE__FK_AGENT_RUNTIME_SLOT_STATE_SETTING.getInverseKey());
+
+        return _agentRuntimeSlotState;
     }
 
     @Override

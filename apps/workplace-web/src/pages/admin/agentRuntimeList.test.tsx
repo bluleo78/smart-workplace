@@ -28,6 +28,7 @@ const AGENTS: AgentResponse[] = [
   createAgent(25, { username: 'failed', name: '실패봇', runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
   createAgent(26, { username: 'blocked', name: '막힘봇', runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
   createAgent(27, { username: 'off', name: '꺼짐봇', runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
+  createAgent(40, { username: 'multi', name: '다칸봇', runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
 ]
 
 const SUMMARIES = [
@@ -36,6 +37,7 @@ const SUMMARIES = [
   createSummary(25, { status: 'FAILED', locationName: 'PoC', message: '이미지를 받지 못했습니다 (ImagePullBackOff)' }),
   createSummary(26, { status: 'RUNNING', agentState: 'BLOCKED', agentIssueKey: 'WP-1203' }),
   createSummary(27, { status: 'OFF' }),
+  createSummary(40, { status: 'RUNNING', agentState: 'WORKING', agentIssueKey: 'HR-2', agentIssueKeys: ['HR-2', 'WP-1'] }),
 ]
 
 /** 목록 화면 — 에이전트 목록·요약·공통 비서 조회. */
@@ -102,6 +104,13 @@ test('막힘 — 알약 「막힘」과 이슈 키', async () => {
   await renderList()
   expect(screen.getByTestId('agent-runtime-status-26')).toHaveTextContent('막힘')
   expect(screen.getByTestId('agent-runtime-detail-26')).toHaveTextContent('WP-1203')
+})
+
+test('여러 칸이 일하면 「HR-2 외 1건」, title 에 키를 모두 (WP-1409)', async () => {
+  await renderList()
+  const detail = screen.getByTestId('agent-runtime-detail-40')
+  expect(detail).toHaveTextContent('HR-2 외 1건')
+  expect(detail).toHaveAttribute('title', 'HR-2, WP-1')
 })
 
 test('꺼짐 — 알약만 있고 한 줄 설명은 없다', async () => {

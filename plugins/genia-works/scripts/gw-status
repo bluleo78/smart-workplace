@@ -4,6 +4,7 @@
 # - GENIA_AGENT_GENERATION(runner 가 Pod 에 넣는 generation)이 없으면 Works 가 띄운 AI 가 아니다 — 서버에 묻지 않고 RUN 을 낸다.
 # - 보고가 실패해도 일을 막지 않는다: RUN 을 내고 표준 오류에 한 줄 알린 뒤 늘 종료 0.
 # - 이슈 키가 빈 값("")이면 보내지 않는다(쉬는 중). 다음 확인 시각은 ISO-8601(예: 2026-11-01T12:00:00+09:00).
+# - 칸 키는 GENIA_WORKS_PROJECT(agent-project 가 칸마다 넣는다)에서 읽어 slot 으로 보낸다 — 없거나 형식이 아니면 보내지 않는다(서버는 한 칸으로 본다, WP-1409).
 # 키·서버 주소·워크스페이스는 gw-events 와 같은 방식(gw_identity_key·gw_api_url·GENIA_WORKS_TENANT)으로 읽는다.
 # 키는 명령줄 인자로 넘기지 않고(ps 에 보인다) 표준 입력으로 curl 설정에 넣으며, 어디에도 출력하지 않는다.
 here=$(cd "$(dirname "$0")" && pwd)
@@ -33,9 +34,19 @@ case "$next" in *[!0-9TZ:+.-]*) fallback "다음 확인 시각 형식이 아닙�
 key=$(gw_identity_key) || key=""
 [ -n "$key" ] || fallback "AI 키 신원이 아니어서 보고하지 않았습니다"
 
+# 칸 키 — 서버가 대문자로 저장하므로 대문자로 보낸다. 형식은 서버 AgentStatusReportRequest.slot 의 @Pattern(^[A-Za-z0-9_-]{0,32}$)과 같다 —
+#   gw_valid_project_key 의 글자 집합(영문·숫자·_·-)이 그 정규식과 같고, 길이 32 는 여기서 따로 본다. 서버 쪽을 바꾸면 여기도 맞춘다. 형식(영문·숫자·_·-, 32자 이하)이 아니면 알리고 빼되 보고는 계속한다.
+# gw_project_list 는 공백을 지워 「W P」 가 「WP」 로 통과하므로 쓰지 않고 대문자 변환만 한다(공백 든 키는 형식 검사에서 거른다).
+slot=$(printf %s "${GENIA_WORKS_PROJECT:-}" | tr '[:lower:]' '[:upper:]')
+if [ -n "$slot" ] && { ! gw_valid_project_key "$slot" || [ "${#slot}" -gt 32 ]; }; then
+  echo "gw-status: GENIA_WORKS_PROJECT 형식이 아니라 칸 키 없이 보고합니다: $slot" >&2
+  slot=""
+fi
+
 body="{\"state\":\"$state\",\"generation\":$gen"
 [ -n "$issue" ] && body="$body,\"issueKey\":\"$issue\""
 [ -n "$next" ] && body="$body,\"nextCheckAt\":\"$next\""
+[ -n "$slot" ] && body="$body,\"slot\":\"$slot\""
 body="$body}"
 
 gw_api_request "$key" 5 10 -X PUT -H 'Content-Type: application/json' -d "$body" \

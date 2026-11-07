@@ -2,6 +2,7 @@ package com.workplace.agentruntime;
 
 import static com.workplace.jooq.Tables.AGENT_API_KEY;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SLOT_STATE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,9 +10,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.auth.repository.AgentApiKeyRepository;
@@ -58,6 +61,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   @Autowired AgentApiKeyService keyService;
   @Autowired AgentApiKeyRepository keyRepo;
   @Autowired ApplicationEvents appEvents;
+  @Autowired AgentRuntimeSlotRepository slots;
 
   private long admin;
   private AgentRuntimeTestFixtures fx;
@@ -137,7 +141,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(changedEvents()).isZero();
   }
 
-  /** 보고한 상태·이슈 키·다음 확인 시각이 관리자 화면의 관찰 상태로 보인다. 쉬는 중 보고는 이슈 키를 지운다. */
+  /** 보고한 상태·이슈 키가 관리자 화면의 관찰 상태로 보인다. 쉬는 중 보고는 이슈 키를 지운다. */
   @Test
   void status_storesAgentColumns() throws Exception {
     long g = fx.generationOf(agent);
@@ -158,7 +162,9 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.observed.agentState").value("WORKING"))
         .andExpect(jsonPath("$.observed.agentIssueKey").value("WD-1"))
-        .andExpect(jsonPath("$.observed.agentNextCheckAt").isNotEmpty());
+        .andExpect(jsonPath("$.observed.agentIssueKeys[0]").value("WD-1"))
+        // 다음 확인 시각은 쉬는 칸에서만 나온다(WP-1409 합치기 규칙) — 일하는 보고에 실린 값은 싣지 않는다.
+        .andExpect(jsonPath("$.observed.agentNextCheckAt").doesNotExist());
     assertThat(fx.generationOf(agent)).isEqualTo(g);
 
     report(key, "{\"state\":\"IDLE\"}").andExpect(status().isOk());
@@ -290,6 +296,163 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
   @Test
   void status_withoutState_returns400() throws Exception {
     report(key, "{\"issueKey\":\"WD-1\"}").andExpect(status().isBadRequest());
+  }
+
+  // ---- WP-1409 칸별 보고 ----
+
+  /** 이 AI 의 칸 키들(칸 키 순). */
+  private List<String> slotKeysOf(long agentUserId) {
+    return dsl.select(AGENT_RUNTIME_SLOT_STATE.SLOT_KEY)
+        .from(AGENT_RUNTIME_SLOT_STATE)
+        .where(AGENT_RUNTIME_SLOT_STATE.AGENT_USER_ID.eq(agentUserId))
+        .orderBy(AGENT_RUNTIME_SLOT_STATE.SLOT_KEY)
+        .fetch(AGENT_RUNTIME_SLOT_STATE.SLOT_KEY);
+  }
+
+  /** 칸 보고 본문 — null 인 값은 싣지 않는다. */
+  private String slotReport(String state, String slot, String issueKey, Long generation)
+      throws Exception {
+    return slotReport(state, slot, issueKey, generation, null);
+  }
+
+  /** 칸 보고 본문(다음 확인 시각 포함) — null 인 값은 싣지 않는다. */
+  private String slotReport(
+      String state, String slot, String issueKey, Long generation, String nextCheckAt)
+      throws Exception {
+    Map<String, Object> body = new java.util.LinkedHashMap<>();
+    body.put("state", state);
+    if (slot != null) body.put("slot", slot);
+    if (issueKey != null) body.put("issueKey", issueKey);
+    if (generation != null) body.put("generation", generation);
+    if (nextCheckAt != null) body.put("nextCheckAt", nextCheckAt);
+    return om.writeValueAsString(body);
+  }
+
+  /**
+   * 이슈가 요구한 핵심 — 칸 A 가 일하는 중에 칸 B 가 쉬는 중을 보고해도 AI 는 작업 중이고, 미뤄 둔 교체가 있어도 B 는 RESTART 가 아니라 DRAIN(새
+   * 이슈를 집지 않음)이며 변경 이벤트도 나가지 않는다.
+   */
+  @Test
+  void status_slotAWorkingSlotBIdle_aggregateIsWorkingAndNotApplied() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g - 1, "IDLE", "RUN");
+
+    report(key, slotReport("WORKING", "WP", "WP-1", g - 1))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("DRAIN"));
+    report(key, slotReport("IDLE", "HR", null, g - 1, "2026-11-01T12:00:00+09:00"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("DRAIN"));
+
+    Record s = settingOf(agent);
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isEqualTo("WP-1");
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS)).containsExactly("WP-1");
+    assertThat(changedEvents()).isZero();
+  }
+
+  /** 모든 칸이 쉴 때만 쉬는 중 — 마지막 일하던 칸이 쉬는 순간 RESTART·이벤트 1회, 그 뒤 거듭된 쉬는 중 보고는 이벤트를 다시 내지 않는다. */
+  @Test
+  void status_twoSlots_restartOnlyWhenAllIdle() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g - 1, "IDLE", "RUN");
+    report(key, slotReport("WORKING", "WP", "WP-1", g - 1)).andExpect(status().isOk());
+    report(key, slotReport("IDLE", "HR", null, g - 1)).andExpect(status().isOk());
+
+    report(key, slotReport("IDLE", "WP", null, g - 1))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RESTART"));
+    Record s = settingOf(agent);
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS)).containsExactly();
+    assertThat(appEvents.stream(AgentRuntimeDesiredChanged.class).toList())
+        .containsExactly(new AgentRuntimeDesiredChanged(1L, location));
+
+    report(key, slotReport("IDLE", "HR", null, g - 1)).andExpect(status().isOk());
+    assertThat(changedEvents()).isEqualTo(1);
+  }
+
+  /** 다음 확인 시각은 쉬는 칸 중 가장 이른 것. */
+  @Test
+  void status_nextCheckIsEarliestIdleSlot() throws Exception {
+    report(key, slotReport("IDLE", "WP", null, null, "2026-11-01T12:00:00+09:00"))
+        .andExpect(status().isOk());
+    report(key, slotReport("IDLE", "HR", null, null, "2026-11-01T11:00:00+09:00"))
+        .andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT).toInstant())
+        .isEqualTo(OffsetDateTime.parse("2026-11-01T11:00:00+09:00").toInstant());
+  }
+
+  /** 칸을 밝히지 않은 보고(옛 플러그인)는 '' 칸 하나로 — 지금처럼 마지막 보고가 AI 상태다. */
+  @Test
+  void status_withoutSlot_behavesAsSingleSlot() throws Exception {
+    report(key, slotReport("WORKING", null, "WD-1", null)).andExpect(status().isOk());
+    report(key, slotReport("IDLE", null, null, null)).andExpect(status().isOk());
+
+    Record s = settingOf(agent);
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isNull();
+    assertThat(slotKeysOf(agent)).containsExactly("");
+  }
+
+  /**
+   * Pod 가 다시 뜬 뒤에는 옛 Pod 의 칸('' 의 WORKING)이 합친 상태를 붙잡지 않고 지워진다. 시작 시각을 지금보다 5분 뒤로 두어 API 서버 시계가 30초
+   * 넘게 늦은 경우도 덮는다 — 그래도 방금 보고한 칸('WP')은 지우지 않고 합친다.
+   */
+  @Test
+  void status_legacySlotFromOldPod_isIgnoredAfterPodRestart() throws Exception {
+    report(key, slotReport("WORKING", null, "WP-0", null)).andExpect(status().isOk());
+    dsl.update(AGENT_RUNTIME_SETTING)
+        // 시계 차이 여유(30초)보다 충분히 뒤로 — 앞 보고도 이번 보고도 「시작 시각 − 30초」보다 앞선다.
+        .set(AGENT_RUNTIME_SETTING.STARTED_AT, OffsetDateTime.now().plusMinutes(5))
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(slotKeysOf(agent)).containsExactly("WP");
+  }
+
+  /**
+   * 보고가 6시간 넘게 끊긴 칸(죽은 칸)은 합치기에서 빠진다(WP-1409) — 7시간 전 WORKING 칸이 남아 있어도 다른 칸이 쉬면 AI 는 쉬는 중이고, 미뤄 둔
+   * 교체가 적용된다(RESTART·이벤트). 칸 행은 지우지 않는다.
+   */
+  @Test
+  void status_staleWorkingSlot_doesNotBlockIdleAggregate() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g - 1, "IDLE", "RUN");
+    slots.upsert(agent, "HR", AgentState.WORKING, "HR-2", null, OffsetDateTime.now().minusHours(7));
+
+    report(key, slotReport("IDLE", "WP", null, g - 1))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RESTART"));
+
+    Record s = settingOf(agent);
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(s.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS)).containsExactly();
+    assertThat(changedEvents()).isEqualTo(1);
+    assertThat(slotKeysOf(agent)).containsExactly("HR", "WP");
+  }
+
+  /** 칸 키는 대소문자를 가리지 않는다 — 'wp' 와 'WP' 는 같은 칸. */
+  @Test
+  void status_slotKeyIsCaseInsensitive() throws Exception {
+    report(key, slotReport("WORKING", "wp", "WP-1", null)).andExpect(status().isOk());
+    report(key, slotReport("IDLE", "WP", null, null)).andExpect(status().isOk());
+
+    assertThat(slotKeysOf(agent)).containsExactly("WP");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+  }
+
+  /** 형식이 아닌 칸 키(공백·33자)는 400 이고 아무것도 저장하지 않는다. */
+  @Test
+  void status_withInvalidSlot_returns400() throws Exception {
+    report(key, slotReport("IDLE", "W P", null, null)).andExpect(status().isBadRequest());
+    report(key, slotReport("IDLE", "A".repeat(33), null, null)).andExpect(status().isBadRequest());
+
+    assertThat(slotKeysOf(agent)).isEmpty();
   }
 
   /** 두 워크스페이스에 속한 AI — 설정은 테넌트 2 에만 있다. [tenant2, loc2, agent] */
