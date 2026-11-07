@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.*;
 import static org.assertj.core.api.Assertions.*;
 
 import com.workplace.drive.dto.DriveLinkResponse;
+import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
@@ -167,6 +168,25 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
     // then: ProjectAccessDeniedException (RuntimeException 하위)
     assertThatThrownBy(() -> service.add(stranger, p.key(), 1, df))
         .isInstanceOf(ProjectNotFoundException.class);
+  }
+
+  /** WP-1421: 프로젝트 멤버라도 드라이브 스페이스 비멤버면 남의 파일 id 는 없는 id 와 같은 「파일 없음」 404 로 받는다. */
+  @Test
+  void add_unviewableDriveFile_hiddenAsFileNotFound() {
+    long owner = createUser("owner");
+    long member = createUser("member");
+    ProjectResponse p = newProject(owner, "DL");
+    addMember(p, member, "MEMBER");
+    issue(p, 1, owner);
+    long df = seedDriveFileOwnedBy(owner); // member 는 스페이스 비멤버
+    long missing = df + 100_000L;
+
+    Throwable hidden = catchThrowable(() -> service.add(member, p.key(), 1, df));
+    Throwable absent = catchThrowable(() -> service.add(member, p.key(), 1, missing));
+
+    assertThat(hidden).isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(absent).isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(hidden.getMessage()).isEqualTo(absent.getMessage());
   }
 
   @Test

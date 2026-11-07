@@ -1,12 +1,14 @@
 package com.workplace.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
 import com.workplace.drive.dto.BacklinkResponse;
+import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.drive.service.DriveSpaceService;
@@ -124,6 +126,39 @@ class ChatDriveBacklinkIntegrationTest extends ExternalClientMockedTestBase {
     // deepLink 는 "/projects/{KEY}/issues/{NUMBER}" 형식이어야 한다.
     assertThat(chatBacklink.deepLink())
         .isEqualTo("/projects/" + s.projectKey() + "/issues/" + s.issueNumber());
+  }
+
+  /** WP-1421: 이슈 챗도 볼 수 없는 파일 id 를 없는 파일 id 와 같은 404 로 돌려 파일 id 존재를 숨긴다. */
+  @Test
+  void 볼_수_없는_드라이브_파일은_없는_파일과_같은_404로_거부된다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    // 담당자의 팀 스페이스 파일 — 보고자는 스페이스 비멤버.
+    var space = spaceService.createTeamSpace(s.assigneeId(), "test-backlink-" + s.projectKey());
+    MockMultipartFile mf =
+        new MockMultipartFile("file", "doc.txt", "text/plain", "hello".getBytes());
+    long hiddenId = driveFileService.upload(s.assigneeId(), space.id(), null, mf).id();
+    long missingId = hiddenId + 100_000L;
+    long threadId =
+        threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
+
+    Throwable hidden =
+        catchThrowable(
+            () ->
+                chatMessageService.create(
+                    s.reporterId(),
+                    threadId,
+                    new CreateChatMessageRequest("x", List.of(), List.of(hiddenId))));
+    Throwable absent =
+        catchThrowable(
+            () ->
+                chatMessageService.create(
+                    s.reporterId(),
+                    threadId,
+                    new CreateChatMessageRequest("x", List.of(), List.of(missingId))));
+
+    assertThat(hidden).isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(absent).isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(hidden.getMessage()).isEqualTo(absent.getMessage());
   }
 
   /** WP-102: 스레드를 다시 열 때 recentMessages 에도 드라이브 링크가 실려야 다시 연 화면에서 링크가 사라지지 않는다. */
