@@ -30,6 +30,7 @@ trap on_term TERM INT
 # 1. 필수 파일·env, /work 폴더
 check_required
 prepare_dirs
+start_display
 # 1b. 추가 CA(사내 GitLab 등) — 이 뒤의 모든 연결이 쓰게 먼저 합친다. 1c. genia 가 쓸 node 인증서 묶음(genia-root + 추가 CA).
 setup_ca
 genia_ca

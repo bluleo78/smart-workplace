@@ -103,6 +103,8 @@ exec ${realCurl} "$@"
     DOCKER_HOST: `unix://${d('no-docker.sock')}`,
     PLAYWRIGHT_BROWSERS_PATH: d('work', '.cache', 'ms-playwright'),
     GENIA_BASE_BROWSERS: d('no-base-browsers'),
+    GENIA_PLAYWRIGHT_CLI_CORE: d('no-playwright-cli'),
+    GENIA_XVFB: d('no-xvfb'), // 시험 기계에 Xvfb 가 있어도 진짜 화면을 띄우지 않는다
     GENIA_DIND_WAIT: '0',
     GENIA_SUPERVISE_INTERVAL: '1',
     GENIA_SKIP_VERSION_CHECK: '1', // 이미지 ENV(Dockerfile) — 칸까지 그대로 가는지 본다

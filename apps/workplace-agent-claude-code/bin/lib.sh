@@ -21,6 +21,9 @@ GENIA_RESTART_AFTER=${GENIA_RESTART_AFTER:-518400}  # 6일 — /loop 반복이 7
 GENIA_STOP_WAIT=${GENIA_STOP_WAIT:-40}              # SIGTERM 뒤 칸이 끝나기를 기다리는 초(grace 60초 안)
 GENIA_BASE_BROWSERS=${GENIA_BASE_BROWSERS:-/ms-playwright}
 BROWSERS_DIR=${PLAYWRIGHT_BROWSERS_PATH:-$GENIA_WORK/.cache/ms-playwright} # PVC 의 Playwright 브라우저 폴더
+GENIA_PLAYWRIGHT_CLI_CORE=${GENIA_PLAYWRIGHT_CLI_CORE:-/opt/genia/playwright-cli-core} # playwright-cli 가 품은 playwright-core(이미지 빌드가 링크, WP-1404)
+GENIA_XVFB=${GENIA_XVFB:-Xvfb}                      # 가상 화면 서버(베이스 이미지에 있다)
+GENIA_DISPLAY=${GENIA_DISPLAY:-:99}
 # 운영 Works origin — 빌드(install_plugins)와, 플러그인을 찾기 전이라 gw_api_url 을 쓸 수 없는 마켓플레이스 단계의 기본값.
 # runner 는 GENIA_WORKS_API_URL 을 늘 넣으므로 Pod 에서는 대개 쓰이지 않는다.
 GENIA_DEFAULT_ORIGIN=https://genia-works.iacloud.kr
@@ -64,6 +67,11 @@ seed_browsers() {
   for l in "$BROWSERS_DIR"/*; do
     [ -L "$l" ] && [ ! -e "$l" ] && rm -f "$l"
   done
+  # playwright-cli 의 chromium 을 설치 기록(.links)에 올린다(WP-1404) — 저장소 Playwright 를 받을 때 GC 는 기록된 설치가 쓰는 브라우저만 남기고
+  # 나머지를 지우므로, 올리지 않으면 이미지에서 링크한 cli 의 chromium 이 첫 저장소 준비에서 지워진다.
+  if [ -f "$GENIA_PLAYWRIGHT_CLI_CORE/browsers.json" ]; then
+    mkdir -p "$BROWSERS_DIR/.links" && printf '%s' "$GENIA_PLAYWRIGHT_CLI_CORE" > "$BROWSERS_DIR/.links/genia-playwright-cli"
+  fi
   [ -d "$GENIA_BASE_BROWSERS" ] || return 0
   for b in "$GENIA_BASE_BROWSERS"/*; do
     [ -e "$b" ] || continue
@@ -71,6 +79,16 @@ seed_browsers() {
     if [ -e "$target" ] && [ ! -L "$target" ]; then continue; fi
     ln -sfn "$b" "$target"
   done
+}
+
+# 가상 화면(WP-1404) — Pod 에는 화면이 없는데 화면 탐색 스킬은 playwright-cli --headed 로 브라우저를 띄운다(--headed 는 설정 파일의 headless 를 이긴다).
+# Xvfb 로 $GENIA_DISPLAY 를 띄우고 DISPLAY 를 내보내 뒤에 띄우는 칸(tmux)이 물려받게 한다. 이미 화면이 있거나 Xvfb 가 없으면 건너뛴다.
+start_display() {
+  [ -n "${DISPLAY:-}" ] && return 0
+  command -v "$GENIA_XVFB" >/dev/null 2>&1 || return 0
+  "$GENIA_XVFB" "$GENIA_DISPLAY" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 </dev/null &
+  export DISPLAY="$GENIA_DISPLAY"
+  log "가상 화면 $DISPLAY 를 띄웠습니다(Xvfb)"
 }
 
 # Works 의 origin(scheme://host[:port]) — GENIA_WORKS_API_URL(…/api/v1) 에서 뗀다. 마켓플레이스 주소를 만든다.
