@@ -99,20 +99,45 @@ test('레이아웃 샘플은 클릭 가능 대기 뒤의 전환 프레임도 잡
 
 type Stage = 'expanded' | 'folded' | 'circle'
 
-/** 화면의 칩·보조 메뉴 폭으로 단계를 구분한다. 잠깐 숨기거나 내부 상태만 바꾼 회귀도 잡는다. */
+/** 펼친 헤더의 보조 단추 + 주 단추 — 접히면 보조 넷이 「더보기」 하나로 들어간다. */
+const EXPANDED_ACTIONS = ['사이클', '버전', '타임라인', '설정', '새 태스크']
+
+/**
+ * 액션 그룹 안에서 실제로 그려진(폭이 있는) 단추의 글자와, 그 단추 폭의 합 + 단추 사이 flex 간격을 같은 프레임에서 잰다.
+ * 단추 글자 폭은 OS·글꼴마다 몇 px 씩 달라 그룹 폭을 고정값으로 비교하면 환경에 따라 늘 실패한다(WP-1441 — macOS 에서 153 기대, 149.25).
+ * 대신 「보이는 단추가 무엇인가」와 「그룹 폭 = 보이는 단추 폭 합 + 간격」(숨긴 채 자리만 차지하는 단추가 없다 — 단추 사이에 끼어도)으로 같은 회귀를 잡는다.
+ */
+async function measureActions(page: Page) {
+  return page.getByTestId('page-header').locator('[data-ai-actions]').evaluate((group) => {
+    const visible = [...group.querySelectorAll<HTMLElement>('button, a')]
+      .filter((el) => el.getBoundingClientRect().width > 0 && getComputedStyle(el).visibility !== 'hidden')
+      .filter((el) => !el.parentElement?.closest('button, a'))
+    const rects = visible.map((el) => el.getBoundingClientRect())
+    const groupRect = group.getBoundingClientRect()
+    return {
+      labels: visible.map((el) => (el.getAttribute('data-testid') === 'mobile-header-more' ? '더보기' : (el.textContent ?? '').replace(/^\+\s*/, '').trim())),
+      width: groupRect.width,
+      // 단추가 그룹의 직계 자식이 아니어도(더보기는 감싼 요소 안) 간격은 그룹의 column-gap 하나다.
+      expected: rects.reduce((sum, r) => sum + r.width, 0) + Math.max(0, rects.length - 1) * (parseFloat(getComputedStyle(group).columnGap) || 0),
+    }
+  })
+}
+
+/** 화면의 칩·보조 메뉴로 단계를 구분한다. 잠깐 숨기거나 내부 상태만 바꾼 회귀도 잡는다. */
 async function renderedStage(page: Page): Promise<Stage> {
   const chip = await measureBox(page.getByTestId('chat-launcher'), 'chat-launcher')
-  const actions = await measureBox(page.getByTestId('page-header').locator('[data-ai-actions]'), 'data-ai-actions')
+  const actions = await measureActions(page)
+  expect(actions.width, '액션 그룹 폭 = 보이는 단추 폭 합 + 간격(숨긴 단추가 자리를 차지하지 않음)').toBeCloseTo(actions.expected, 0)
   const more = page.getByTestId('mobile-header-more')
   if (await more.isVisible()) {
     const menu = await measureBox(more, '보조 단추 더보기')
     expect(menu.width, '접힌 보조 메뉴 폭').toBeCloseTo(44, 0)
-    expect(actions.width, '접힌 액션 그룹 폭').toBeCloseTo(153, 0)
+    expect(actions.labels, '접힌 액션 그룹 단추').toEqual(['더보기', '새 태스크'])
     if (Math.abs(chip.width - 32) < 0.5) return 'circle'
     expect(chip.width, '접힌 단계의 AI 알약 폭').toBeCloseTo(140, 0)
     return 'folded'
   }
-  expect(actions.width, '펼친 액션 그룹 폭').toBeCloseTo(412, 0)
+  expect(actions.labels, '펼친 액션 그룹 단추').toEqual(EXPANDED_ACTIONS)
   expect(chip.width, '펼친 단계의 AI 알약 폭').toBeCloseTo(140, 0)
   return 'expanded'
 }
