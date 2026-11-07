@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.*;
 import static org.assertj.core.api.Assertions.*;
 
 import com.workplace.drive.dto.DriveLinkResponse;
+import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
@@ -138,6 +139,40 @@ class MessageDriveLinkTest extends IntegrationTestBase {
             u, ch, new CreateMessageRequest("자료 공유", null, List.of(), List.of(df)));
 
     assertThat(created.driveLinks()).extracting(DriveLinkResponse::driveFileId).containsExactly(df);
+  }
+
+  /** WP-1421: 볼 수 없는(비멤버) 파일 id 는 「드라이브 파일을 찾을 수 없습니다」 404 — 공간 없음 문구로 존재가 드러나지 않는다. */
+  @Test
+  void create_unviewableDriveFile_hiddenAsFileNotFound() {
+    long owner = seedUser();
+    long sender = seedUser();
+    long ch = seedChannel(sender, "drv-hide");
+    long df = seedDriveFileOwnedBy(owner);
+
+    assertThatThrownBy(
+            () ->
+                messageService.create(
+                    sender, ch, new CreateMessageRequest("x", null, List.of(), List.of(df))))
+        .isInstanceOf(DriveFileNotFoundException.class)
+        .hasMessage(new DriveFileNotFoundException(df).getMessage());
+  }
+
+  /**
+   * WP-1421: 없는 파일 id 의 예외·문구(위 테스트의 볼 수 없는 파일과 같은 형태). 메시지 미생성은 요청 트랜잭션 롤백으로 보장된다(이 클래스는 클래스
+   * 단위 @Transactional 이라 롤백을 검증하지 않음).
+   */
+  @Test
+  void create_missingDriveFile_fileNotFound() {
+    long sender = seedUser();
+    long ch = seedChannel(sender, "drv-miss");
+    long missing = 999_999_999L;
+
+    assertThatThrownBy(
+            () ->
+                messageService.create(
+                    sender, ch, new CreateMessageRequest("x", null, List.of(), List.of(missing))))
+        .isInstanceOf(DriveFileNotFoundException.class)
+        .hasMessage(new DriveFileNotFoundException(missing).getMessage());
   }
 
   /** create_driveFileWithoutViewer_rejected: 발신자가 드라이브 스페이스 비멤버이면 RuntimeException 발생. */

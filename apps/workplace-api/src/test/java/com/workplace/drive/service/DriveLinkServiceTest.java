@@ -3,11 +3,11 @@ package com.workplace.drive.service;
 import static com.workplace.jooq.Tables.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveForbiddenException;
-import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.File;
@@ -119,12 +119,17 @@ class DriveLinkServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void createLink_nonMember_forbidden() {
+  void createLink_nonMember_hiddenAsFileNotFound() {
     long owner = user("owner");
     long stranger = user("stranger");
     long df = driveFile(owner, null);
-    assertThatThrownBy(() -> service.createLink(stranger, df, "ISSUE", 100L))
-        .isInstanceOfAny(DriveSpaceNotFoundException.class, DriveForbiddenException.class);
+    // WP-1421: 비멤버도 없는 파일과 같은 예외·같은 문구로 받아 파일 id 존재가 드러나지 않는다.
+    long missing = df + 100_000L;
+    Throwable hidden = catchThrowable(() -> service.createLink(stranger, df, "ISSUE", 100L));
+    Throwable absent = catchThrowable(() -> service.createLink(stranger, missing, "ISSUE", 100L));
+    assertThat(hidden).isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(absent).isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(hidden.getMessage()).isEqualTo(absent.getMessage());
   }
 
   @Test

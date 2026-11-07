@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidRoleException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
@@ -43,6 +44,19 @@ public class DrivePermissions {
       throw new DriveForbiddenException(spaceId, userId);
     }
     return role;
+  }
+
+  /**
+   * 파일을 볼 수 있는지(스페이스 VIEWER 이상) 검증하되, 비멤버는 「공간 없음」 대신 「파일 없음」({@link DriveFileNotFoundException})으로
+   * 돌려준다. 공간 없음과 파일 없음은 문구가 달라, 호출자가 파일 id 를 넣어 보는 것만으로 그 id 의 파일이 있는지 알 수 있었다(WP-1165 파일 카드 이름,
+   * WP-1421 메시지·이슈 드라이브 링크). VIEWER 는 가장 낮은 역할이라 멤버이면 항상 통과하므로, 막히는 경우는 비멤버뿐이다.
+   */
+  public void requireFileViewer(long spaceId, long userId, long driveFileId) {
+    try {
+      requireRole(spaceId, userId, "VIEWER");
+    } catch (DriveSpaceNotFoundException e) {
+      throw new DriveFileNotFoundException(driveFileId);
+    }
   }
 
   /**

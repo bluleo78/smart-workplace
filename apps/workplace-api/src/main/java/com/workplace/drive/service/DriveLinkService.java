@@ -78,13 +78,19 @@ public class DriveLinkService {
             .collect(Collectors.toMap(AttachmentSourceProvider::sourceType, Function.identity()));
   }
 
-  /** 링크 생성: 요청자가 파일에 ≥VIEWER 여야 함. 중복은 무시(멱등). 휴지통 파일은 드라이브 화면에서처럼 없는 파일로 본다(404, WP-685). */
+  /**
+   * 링크 생성: 요청자가 파일에 ≥VIEWER 여야 함. 중복은 무시(멱등). 휴지통 파일은 드라이브 화면에서처럼 없는 파일로 본다(404, WP-685).
+   *
+   * <p>볼 수 없는 파일(비멤버 — 「공간 없음」)도 없는 파일과 같은 {@link DriveFileNotFoundException} 으로 돌려준다 — 문구가 달라
+   * 메시지·이슈의 driveFileIds 로 파일 id 존재 여부를 알아낼 수 있었다(WP-1421, {@link
+   * DrivePermissions#requireFileViewer}).
+   */
   public void createLink(long callerId, long driveFileId, String sourceType, long sourceId) {
     var meta =
         fileRepo
             .findLinkMeta(driveFileId)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(meta.spaceId(), callerId, "VIEWER");
+    perms.requireFileViewer(meta.spaceId(), callerId, driveFileId);
     if (meta.trashed()) {
       throw new DriveFileNotFoundException(driveFileId);
     }
