@@ -69,6 +69,45 @@ class WikiPageServiceTest extends IntegrationTestBase {
     assertThat(tree).anyMatch(p -> p.parentId() != null && p.parentId().equals(root.id()));
   }
 
+  /** 기존 동률 데이터도 삽입 순서와 무관하게 ID 순으로 보여 트리 순서가 흔들리지 않아야 한다. */
+  @Test
+  void 동률_형제는_ID_순으로_조회된다() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    WikiPageDetail parent = pageService.create(u, sp.id(), new CreatePageRequest(null, "부모"));
+    long rootFirst = 9_000_000_000_000_000_001L;
+    long rootSecond = 9_000_000_000_000_000_002L;
+    long childFirst = 9_000_000_000_000_000_003L;
+    long childSecond = 9_000_000_000_000_000_004L;
+    // 큰 ID를 먼저 넣어 동률 position만 정렬하는 구현이 삽입 순서에 의존하는 상황을 재현한다.
+    dsl.insertInto(
+            WIKI_PAGE,
+            WIKI_PAGE.ID,
+            WIKI_PAGE.SPACE_ID,
+            WIKI_PAGE.PARENT_ID,
+            WIKI_PAGE.TITLE,
+            WIKI_PAGE.POSITION)
+        .values(rootSecond, sp.id(), null, "둘째 루트", 0)
+        .values(rootFirst, sp.id(), null, "첫 루트", 0)
+        .values(childSecond, sp.id(), parent.id(), "둘째 자식", 0)
+        .values(childFirst, sp.id(), parent.id(), "첫 자식", 0)
+        .execute();
+
+    List<WikiPageSummary> tree = pageService.listTree(u, sp.id());
+    assertThat(
+            tree.stream()
+                .filter(p -> p.parentId() == null && p.id() != parent.id())
+                .map(WikiPageSummary::id)
+                .toList())
+        .containsExactly(rootFirst, rootSecond);
+    assertThat(
+            tree.stream()
+                .filter(p -> p.parentId() != null && p.parentId().equals(parent.id()))
+                .map(WikiPageSummary::id)
+                .toList())
+        .containsExactly(childFirst, childSecond);
+  }
+
   @Test
   void title_is_single_line_and_trimmed_blank_becomes_untitled() {
     // WP-601 — 공백뿐인 제목은 빈 제목(화면 「제목 없음」), 앞뒤 공백·제로폭은 다듬고, 줄바꿈·탭은 공백 하나로.

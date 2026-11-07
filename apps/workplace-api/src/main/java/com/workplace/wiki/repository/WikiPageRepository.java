@@ -97,7 +97,9 @@ public class WikiPageRepository {
         .leftJoin(WIKI_PAGE_SHARE)
         .on(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))
         .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
-        .orderBy(WIKI_PAGE.PARENT_ID.asc().nullsFirst(), WIKI_PAGE.POSITION.asc())
+        // 기존 동률 위치도 ID로 순서를 고정해 트리를 다시 조회할 때 형제 순서가 흔들리지 않게 한다(WP-1438).
+        .orderBy(
+            WIKI_PAGE.PARENT_ID.asc().nullsFirst(), WIKI_PAGE.POSITION.asc(), WIKI_PAGE.ID.asc())
         .fetch(
             r ->
                 new WikiPageSummary(

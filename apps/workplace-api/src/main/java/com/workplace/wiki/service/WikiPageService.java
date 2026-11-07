@@ -89,11 +89,11 @@ public class WikiPageService {
   public WikiPageDetail create(
       long callerId, long spaceId, CreatePageRequest req, WikiPageKind kind) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 루트·자식 모두 위치 계산부터 삽입까지 직렬화해 동시 생성이 같은 말단 위치를 받지 않게 한다(WP-1438).
+    // 부모의 다른 스페이스 이동(WP-988)도 커밋을 기다린 뒤 검증해 옛 스페이스에 자식이 남지 않게 한다.
+    pages.lockSpaceTree(spaceId);
     // #758: 생성 시점의 parentId 도 검증한다 — 이동만 막으면 "다른 공간 페이지를 부모로" 를 생성으로 그대로 만들 수 있다.
     if (req.parentId() != null) {
-      // 다른 스페이스 이동(WP-988)이 부모를 옮기는 중이면 그 이동이 커밋될 때까지 기다린 뒤 부모를 본다 — 잠그지 않으면 이동 전 부모를 보고
-      // 새 자식이 옛 스페이스에 남아 「다른 스페이스 부모」(#758)가 다시 생긴다. 이동은 두 스페이스 트리 잠금을 커밋까지 쥔다.
-      pages.lockSpaceTree(spaceId);
       requireParentInSpace(spaceId, req.parentId());
     }
     int pos = pages.nextPosition(spaceId, req.parentId());
