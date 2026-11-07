@@ -9,7 +9,7 @@ import type { RequestHandler } from 'msw'
 import type { ReactElement } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 
-import { Toaster } from '@/components/ui/sonner'
+import { AppToaster } from '@/components/AppToaster'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
@@ -46,7 +46,8 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
         <BrowserRouter>
           <Tracked>
             <TooltipProvider>{ui}</TooltipProvider>
-            <Toaster />
+            {/* 앱과 같은 토스트 영역(위치·접근성 이름) — WP-1428 */}
+          <AppToaster />
           </Tracked>
         </BrowserRouter>
       </AuthContext.Provider>

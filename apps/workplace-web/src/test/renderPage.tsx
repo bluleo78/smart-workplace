@@ -18,7 +18,7 @@ import type { RequestHandler } from 'msw'
 import { BrowserRouter } from 'react-router-dom'
 
 import App from '@/App'
-import { Toaster } from '@/components/ui/sonner'
+import { AppToaster } from '@/components/AppToaster'
 import { AuthProvider } from '@/hooks/AuthContext'
 import type { UserResponse } from '@/types/auth'
 import type { RoleResponse } from '@/types/role'
@@ -74,7 +74,8 @@ export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handl
           <AuthProvider>
             <App />
           </AuthProvider>
-          <Toaster />
+          {/* 앱과 같은 토스트 영역(위치·접근성 이름) — WP-1428 */}
+          <AppToaster />
         </Tracked>
       </BrowserRouter>
     </QueryClientProvider>,
