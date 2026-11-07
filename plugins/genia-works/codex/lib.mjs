@@ -70,6 +70,48 @@ export function threadIdFrom(jsonl) {
   return undefined
 }
 
+/** 민감값을 먼저 숨긴 뒤 한 줄로 만든다 — 긴 토큰의 앞부분도 미리보기에 남기지 않는다. */
+function safePreview(text) {
+  // 셸 문자열의 이스케이프된 따옴표는 키·값 양쪽 경계로 인식해 JSON 인자의 비밀값도 가린다.
+  const redacted = text
+    .replace(/\bBearer\s+[^\s"'`]+/gi, 'Bearer [REDACTED]')
+    .replace(/(\b(?:[\w-]+_)?(?:token|api_key|password|secret)\b(?:\\*["'])?\s*[:=]\s*)(?:\\+"[\s\S]*?(?:\\+"|$)|\\+'[\s\S]*?(?:\\+'|$)|"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s,;"'`]+)/gi, '$1[REDACTED]')
+    .replace(/\b(?:ak_|swp_)[^\s"'`,;]+/g, '[REDACTED]')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  // UTF-16 단위로 자르면 이모지가 깨지므로 120 Unicode code points 로 제한한다(WP-1423).
+  return Array.from(redacted).slice(0, 120).join('')
+}
+
+/** Codex JSONL 한 줄에서 허용된 진행 필드만 요약한다 — 원시 이벤트·도구 출력·MCP 인자와 결과는 읽지 않는다. */
+export function progressSummaryFrom(line) {
+  let event
+  try {
+    event = JSON.parse(line)
+  } catch {
+    return undefined
+  }
+  const item = event?.item
+  if (!item || typeof item !== 'object') return undefined
+  const hasText = (value) => typeof value === 'string' && value.trim().length > 0
+  if (event.type === 'item.started' && item.type === 'command_execution' && hasText(item.command)) {
+    return '명령 실행: ' + safePreview(item.command)
+  }
+  if (event.type === 'item.started' && item.type === 'mcp_tool_call' && hasText(item.server) && hasText(item.tool)) {
+    return 'MCP 호출: ' + safePreview(item.server) + '/' + safePreview(item.tool)
+  }
+  if (event.type === 'item.completed' && item.type === 'agent_message' && hasText(item.text)) {
+    return '답변: ' + safePreview(item.text)
+  }
+  if ((event.type === 'item.updated' || event.type === 'item.completed') && item.type === 'todo_list') {
+    if (!Array.isArray(item.items) || !item.items.every((todo) => typeof todo?.text === 'string' && typeof todo.completed === 'boolean')) return undefined
+    const completed = item.items.filter((todo) => todo.completed).length
+    return `할 일: ${completed}/${item.items.length} 완료`
+  }
+  return undefined
+}
+
 /**
  * 키 보호 hook 판정 — Codex PreToolUse 입력({ tool_name, tool_input })을 받아 막을 이유 또는 undefined.
  * 판정 규칙은 genia 확장과 같다(키 저장소 경로·헤더 스크립트 실행). Codex 의 셸 도구 이름은 Bash 다(11-03 실측).

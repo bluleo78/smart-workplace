@@ -6,6 +6,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveTrashItemResponse;
 import com.workplace.drive.dto.DriveTrashListResponse;
+import com.workplace.drive.exception.DriveNotInTrashException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFileVersionRepository;
@@ -88,7 +89,7 @@ public class DriveTrashService {
             .orElseThrow(
                 () ->
                     new com.workplace.drive.exception.DriveNotInTrashException("folder", folderId));
-    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    requireTrashEditor(meta.spaceId(), callerId, "folder", folderId);
     // 1) 부모 보정 — 원래 부모가 없거나(영구삭제) 아직 휴지통이면 루트로
     Long parent = meta.parentId();
     if (parent != null && !folders.liveFolderExists(parent)) {
@@ -119,7 +120,7 @@ public class DriveTrashService {
                 () ->
                     new com.workplace.drive.exception.DriveNotInTrashException(
                         "file", driveFileId));
-    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    requireTrashEditor(meta.spaceId(), callerId, "file", driveFileId);
     // 1) 복원 대상 폴더 확정 — 원래 부모가 없거나 아직 휴지통이면 루트
     Long targetFolderId = meta.folderId();
     if (targetFolderId != null && !folders.liveFolderExists(targetFolderId)) {
@@ -145,7 +146,7 @@ public class DriveTrashService {
                 () ->
                     new com.workplace.drive.exception.DriveNotInTrashException(
                         "file", driveFileId));
-    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    requireTrashEditor(meta.spaceId(), callerId, "file", driveFileId);
     // 현재 버전뿐 아니라 전 버전 blob 모두 만료 처리 (#79)
     files.expireFiles(versions.fileIdsForDriveFile(driveFileId));
     files.delete(driveFileId);
@@ -161,10 +162,17 @@ public class DriveTrashService {
             .orElseThrow(
                 () ->
                     new com.workplace.drive.exception.DriveNotInTrashException("folder", folderId));
-    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    requireTrashEditor(meta.spaceId(), callerId, "folder", folderId);
     files.expireFiles(folders.findFileIdsUnderFolder(folderId)); // 서브트리(중첩 op 포함) 전체
     folders.delete(folderId); // CASCADE
     notifier.itemsChanged(OP_DELETED, meta.spaceId(), List.of(folderId), callerId);
+  }
+
+  /** 비멤버에게 없는 휴지통 항목과 같은 응답을 돌려 id 로 존재 여부가 새지 않게 한다. 멤버의 403 은 유지한다. */
+  private void requireTrashEditor(long spaceId, long callerId, String type, long id) {
+    perms.hidingNonMember(
+        () -> perms.requireRole(spaceId, callerId, "EDITOR"),
+        () -> new DriveNotInTrashException(type, id));
   }
 
   /** 휴지통 비우기 — 공간의 모든 trashed 행 제거. EDITOR. */
