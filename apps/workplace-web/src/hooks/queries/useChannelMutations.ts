@@ -75,10 +75,20 @@ export function useDeleteChannel() {
 }
 
 // 채널 나가기. OWNER 가 멤버 남긴 채 호출하면 서버 409 → 토스트.
+// 404 는 「이미 나갔거나 볼 수 없는 채널」 — 비공개 채널 비멤버의 나가기는 존재 은닉을 위해 서버가 404 를 돌린다(WP-1402).
+// 사용자 입장에선 멱등이어야 하므로 성공으로 처리해 목록만 갱신한다(소유권 토스트를 띄우지 않는다).
 export function useLeaveChannel() {
   const qc = useQueryClient();
   return useMutation<void, unknown, number>({
-    mutationFn: (channelId) => messagingApi.leaveChannel(channelId).then((r) => r.data),
+    mutationFn: async (channelId) => {
+      try {
+        await messagingApi.leaveChannel(channelId);
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (status === 404) return;
+        throw e;
+      }
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.channels() }),
     onError: (err) =>
       handleApiError(err, '먼저 소유권을 다른 멤버에게 넘긴 뒤 나갈 수 있습니다'),

@@ -29,6 +29,7 @@ import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.messaging.exception.ChannelForbiddenException;
+import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -402,9 +403,9 @@ class ConfirmActionDispatcher856Test extends IntegrationTestBase {
                 CHANNEL_MEMBER,
                 CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(member))))
         .isZero();
-    // 이미 나간 뒤엔 실행은 idempotent 지만 효과 없는 카드라 사전검증에서 거절.
+    // 이미 나간 뒤엔 비공개 채널의 비멤버라 없는 채널과 같은 404 로 거절 — 존재를 숨긴다(WP-1402).
     assertThatThrownBy(() -> dispatcher.validate(member, "messaging.leave_channel", ok))
-        .hasMessageContaining("멤버가 아닙니다");
+        .isInstanceOf(ChannelNotFoundException.class);
     // 미지 필드는 거절(requireOnly).
     assertThatThrownBy(
             () ->

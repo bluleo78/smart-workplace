@@ -134,9 +134,15 @@ public class ChannelMemberService {
    */
   @Transactional
   public void leave(long callerId, long channelId) {
+    // 잠그기 전에 존재 은닉부터 — 비공개 채널 비멤버가 그 채널의 행 잠금에 걸려 지연으로 존재를 알아내거나 실제 멤버 변경 쓰기 뒤에 줄 서지 않게(WP-1402,
+    // add() 와 같은 「권한 검사 뒤 잠금」 규칙).
+    ensureExists(channelId);
+    perms.hideIfInvisibleNonMember(
+        channelId, callerId, memberRepo.findRole(channelId, callerId).orElse(null));
     // 나갈 수 있는지(멤버인가·OWNER 인가)를 잠근 뒤에 판정한다 — 그사이 부서로 들어온 사람의 나가기가 「이미 비멤버」로 끝나지 않게(WP-1186).
     lockExisting(channelId);
-    if (!checkLeave(callerId, channelId)) return; // 이미 비멤버 — idempotent
+    // 이미 비멤버 — 공개 채널 비멤버(와 시스템 ADMIN)에게만 멱등. 비공개·DM 비멤버는 위에서 404(WP-1402).
+    if (!checkLeave(callerId, channelId)) return;
     memberRepo.remove(channelId, callerId);
     excludeIfCovered(channelId, callerId);
     rosterPublisher.publish(channelId);
@@ -144,8 +150,9 @@ public class ChannelMemberService {
   }
 
   /**
-   * 나가기 사전검증(#860) — 확인 카드 dry-run 이 {@link #leave} 와 같은 {@link #checkLeave} 를 쓴다. 실행은 비멤버여도
-   * 성공(idempotent)이지만 그런 카드는 아무 효과가 없으므로 사전검증에서만 사유와 함께 거절한다.
+   * 나가기 사전검증(#860) — 확인 카드 dry-run 이 {@link #leave} 와 같은 {@link #checkLeave} 를 쓴다. 실행은 공개 채널 비멤버(와
+   * 시스템 ADMIN)여도 성공(idempotent)이지만 그런 카드는 아무 효과가 없으므로 사전검증에서만 사유와 함께 거절한다. 비공개·DM 채널 비멤버는 없는 채널과 같은
+   * 404 다(WP-1402).
    */
   @Transactional(readOnly = true)
   public void validateLeavable(long callerId, long channelId) {
@@ -158,6 +165,8 @@ public class ChannelMemberService {
   private boolean checkLeave(long callerId, long channelId) {
     ensureExists(channelId);
     String role = memberRepo.findRole(channelId, callerId).orElse(null);
+    // 비공개 채널(DM 포함) 비멤버는 없는 채널과 같은 404 — 멱등 204 로 id 존재를 흘리지 않는다(WP-1402). 공개 채널 비멤버는 그대로 멱등.
+    perms.hideIfInvisibleNonMember(channelId, callerId, role);
     if ("OWNER".equals(role)) {
       throw new OwnershipTransferRequiredException(channelId);
     }
