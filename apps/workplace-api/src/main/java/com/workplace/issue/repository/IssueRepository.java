@@ -46,6 +46,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -87,9 +88,13 @@ public class IssueRepository {
    * 이슈 + 그 프로젝트 상태(WP-870) — 상태 이름·색을 행마다 스칼라 서브쿼리로 읽지 않고 한 번의 LEFT JOIN 으로 읽는다. {@link
    * #ROW_FIELDS} 로 SELECT 하는 모든 조회의 FROM 이다(같은 패키지의 {@link AiTaskRepository} 포함).
    *
-   * <p>잠그는 조회는 반드시 {@code .of(ISSUE)} 로 issue 행만 잠근다 — PostgreSQL 은 외부 조인의 nullable 쪽 잠금을 거절하고,
-   * inner JOIN 으로 바꿔 project_status 행까지 잠그면 상태 삭제(project_status 잠금 → issue UPDATE)와 잠금 순서가 반대가 되어
-   * 교착될 수 있다.
+   * <p>잠그는 조회는 이 조인을 통해 잠그지 않는다(WP-1420) — issue 테이블만으로 id 를 잠근 뒤 이 조인을 잠금 없이 다시 읽는다({@link
+   * #rereadLocked(List)}). 조인과 잠금을 한 문장에 두면 잠금을 기다린 뒤 PostgreSQL 이 issue 행만 최신판으로 다시 보고
+   * project_status 는 옛 행으로 조인해, 상태 이름·색이 null 로 빠진다.
+   *
+   * <p>배경: 예전에는 {@code .of(ISSUE)} 로 issue 행만 잠갔다 — PostgreSQL 은 외부 조인의 nullable 쪽 잠금을 거절하고, inner
+   * JOIN 으로 바꿔 project_status 행까지 잠그면 상태 삭제(project_status 잠금 → issue UPDATE)와 잠금 순서가 반대가 되어 교착될 수
+   * 있다. 지금도 project_status 행은 잠그지 않는다.
    */
   static final Table<?> ISSUE_WITH_STATUS = IssueStatusProjection.leftJoin(ISSUE);
 
@@ -168,17 +173,8 @@ public class IssueRepository {
    * 되돌린다(version 을 보내지 않는 호출자 포함). 트랜잭션 끝까지 유지된다.
    */
   public Optional<IssueRow> findByProjectAndNumberForUpdate(Long projectId, int number) {
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
-        .where(
-            ISSUE
-                .PROJECT_ID
-                .eq(projectId)
-                .and(ISSUE.NUMBER.eq(number))
-                .and(ISSUE.DELETED_AT.isNull()))
-        .forNoKeyUpdate()
-        .of(ISSUE)
-        .fetchOptional(this::mapToRow);
+    // WP-1420: issue 만 잠그고(조인 없이) 그 id 로 상태 이름까지 다시 읽는다 — lockOneThenReread 참고
+    return lockOneThenReread(activeByProjectAndNumber(projectId, number), LockMode.NO_KEY_UPDATE);
   }
 
   /**
@@ -187,17 +183,8 @@ public class IssueRepository {
    * soft-delete 라 통과). 반대로 이 잠금을 쥔 동안에는 삭제가 기다렸다가 새로 붙은 하위까지 함께 지운다. 트랜잭션 끝까지 유지된다.
    */
   public Optional<IssueRow> findByProjectAndNumberForShare(Long projectId, int number) {
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
-        .where(
-            ISSUE
-                .PROJECT_ID
-                .eq(projectId)
-                .and(ISSUE.NUMBER.eq(number))
-                .and(ISSUE.DELETED_AT.isNull()))
-        .forShare()
-        .of(ISSUE)
-        .fetchOptional(this::mapToRow);
+    // WP-1420: 잠그기와 읽기를 나눈다 — lockOneThenReread 참고
+    return lockOneThenReread(activeByProjectAndNumber(projectId, number), LockMode.SHARE);
   }
 
   /**
@@ -205,12 +192,53 @@ public class IssueRepository {
    * 결과. 잠금을 기다린 뒤의 최신 행이라, 그 사이 완료로 바뀐 에픽도 알 수 있다(WP-771).
    */
   public Optional<IssueRow> findActiveByIdForShare(Long id) {
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
-        .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
-        .forShare()
-        .of(ISSUE)
-        .fetchOptional(this::mapToRow);
+    // WP-1420: 잠그기와 읽기를 나눈다 — lockOneThenReread 참고
+    return lockOneThenReread(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()), LockMode.SHARE);
+  }
+
+  /** 프로젝트·번호의 활성 이슈 조건 — 번호로 잠그는 두 조회가 같은 조건을 쓰게 한다(WP-1420). */
+  private static Condition activeByProjectAndNumber(Long projectId, int number) {
+    return ISSUE
+        .PROJECT_ID
+        .eq(projectId)
+        .and(ISSUE.NUMBER.eq(number))
+        .and(ISSUE.DELETED_AT.isNull());
+  }
+
+  /** 한 건 잠금 조회의 잠금 종류(WP-1420) — 수정은 NO KEY UPDATE, 부모 지정 확인(WP-759)은 SHARE. */
+  private enum LockMode {
+    NO_KEY_UPDATE,
+    SHARE
+  }
+
+  /**
+   * 조건에 맞는 이슈 한 건을 issue 테이블만으로 잠그고, 그 행을 상태 이름·색까지 다시 읽는다(WP-1420). 없으면(지워졌거나 없는 번호) 빈 결과. 조인이 없으니
+   * 잠금 대상은 issue 행뿐이다.
+   */
+  private Optional<IssueRow> lockOneThenReread(Condition where, LockMode mode) {
+    var query = dsl.select(ISSUE.ID).from(ISSUE).where(where);
+    Optional<Long> locked =
+        (mode == LockMode.SHARE ? query.forShare() : query.forNoKeyUpdate())
+            .fetchOptional(ISSUE.ID);
+    return locked.flatMap(id -> rereadLocked(List.of(id)).stream().findFirst());
+  }
+
+  /**
+   * 방금 잠근 이슈 id 들을 상태 이름·색까지 잠금 없이 다시 읽어, 잠근 순서(받은 id 순서) 그대로 돌려준다(WP-1420). 결과에 없는 id 는 건너뛴다 —
+   * null 을 넣지 않는다(잠근 행이라 실제로는 빠지지 않는다).
+   *
+   * <p>왜 나누나: issue LEFT JOIN project_status 를 {@code FOR ... OF issue} 로 한 번에 읽으면, 다른 트랜잭션이 고친
+   * issue 행을 기다린 뒤 PostgreSQL(READ COMMITTED)은 issue 행만 최신판으로 다시 보고(EvalPlanQual) 잠그지 않은
+   * project_status 쪽은 처음 읽은 옛 상태 행으로 조인 조건을 다시 따진다. 새 status_id 와 옛 상태 행이 맞지 않아 LEFT JOIN 이 NULL 로
+   * 채워져 상태 이름·색이 빠지고, 이력(STATUS_CHANGED) 이전 값이 이름 대신 범주 코드로 남았다. 잠금은 issue 테이블만으로 잡고, 읽기는 잠금 없는 새
+   * 문장으로 한다 — READ COMMITTED 의 새 문장은 새 스냅숏이라 잠금 뒤의 최신 상태(첫 문장 스냅숏 뒤에 만든 상태 포함)가 보인다. 행은 이미 이 트랜잭션이
+   * 잠갔으니 두 문장 사이에 바뀌지 않는다.
+   */
+  private List<IssueRow> rereadLocked(List<Long> lockedIds) {
+    if (lockedIds.isEmpty()) return List.of();
+    Map<Long, IssueRow> byId = new HashMap<>();
+    findByIds(lockedIds).forEach(r -> byId.put(r.id(), r));
+    return lockedIds.stream().map(byId::get).filter(Objects::nonNull).toList();
   }
 
   /**
@@ -251,12 +279,15 @@ public class IssueRepository {
         .collect(java.util.stream.Collectors.toMap(IssueRow::number, r -> r));
   }
 
-  /** id 들로 활성(삭제 아님) 이슈를 한 번에 조회 — N+1 회피. 없는 id 는 결과에서 빠진다. */
+  /**
+   * id 들로 활성(삭제 아님) 이슈를 한 번에 조회 — N+1 회피. 없는 id 는 결과에서 빠진다. 순서는 정하지 않는다. id 는 배열 하나로 묶어 {@code =
+   * ANY(?)} 로 보낸다 — 하위가 많은 에픽의 잠금 뒤 다시 읽기(WP-1420)에서도 바인드 변수 수가 늘지 않게.
+   */
   public List<IssueRow> findByIds(Collection<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();
     return dsl.select(ROW_FIELDS)
         .from(ISSUE_WITH_STATUS)
-        .where(ISSUE.ID.in(ids).and(ISSUE.DELETED_AT.isNull()))
+        .where(ISSUE.ID.eq(DSL.any(ids.toArray(Long[]::new))).and(ISSUE.DELETED_AT.isNull()))
         .fetch(this::mapToRow);
   }
 
@@ -1520,13 +1551,15 @@ public class IssueRepository {
    * 에픽 행을 먼저 잠근 호출부가 부른다 — 「부모 → 하위」 잠금 순서(WP-771)를 지킨다.
    */
   public List<IssueRow> lockActiveChildren(Long parentId) {
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
-        .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
-        .orderBy(ISSUE.ID.asc())
-        .forNoKeyUpdate()
-        .of(ISSUE)
-        .fetch(this::mapToRow);
+    // WP-1420: id 순으로 issue 만 잠근 뒤 같은 순서로 상태 이름까지 다시 읽는다 — rereadLocked 참고
+    List<Long> locked =
+        dsl.select(ISSUE.ID)
+            .from(ISSUE)
+            .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
+            .orderBy(ISSUE.ID.asc())
+            .forNoKeyUpdate()
+            .fetch(ISSUE.ID);
+    return rereadLocked(locked);
   }
 
   /**
@@ -1549,13 +1582,16 @@ public class IssueRepository {
             .and(
                 ISSUE.PARENT_ISSUE_ID.in(
                     DSL.select(p.ID).from(p).where(p.PROJECT_ID.ne(projectId))));
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
-        .where(ISSUE.DELETED_AT.isNull().and(underThisProject.or(underOtherProject)))
-        .orderBy(ISSUE.ID.asc())
-        .forNoKeyUpdate()
-        .of(ISSUE)
-        .fetch(this::mapToRow);
+    // WP-1420: id 순으로 issue 만 잠근 뒤 같은 순서로 상태 이름까지 다시 읽는다 — rereadLocked 참고
+    List<Long> locked =
+        dsl.select(ISSUE.ID)
+            .from(ISSUE)
+            .where(ISSUE.DELETED_AT.isNull().and(underThisProject.or(underOtherProject)))
+            .orderBy(ISSUE.ID.asc())
+            // FROM 은 issue 하나뿐이라 OF 없이도 issue 행만 잠근다 — WHERE 의 부모 서브쿼리(xp_parent)는 잠그지 않는다
+            .forNoKeyUpdate()
+            .fetch(ISSUE.ID);
+    return rereadLocked(locked);
   }
 
   /**
