@@ -241,6 +241,28 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
       expect(scope.isDone()).toBe(true);
     });
 
+    // WP-1431: 인증 scheme 은 대소문자 무관(RFC 7235) — 소문자 bearer 로 와도 받고, workplace-api 로는 표준 표기 `Bearer` 로 싣는다.
+    it.each(['swp_valid', 'ak_valid'])('소문자 bearer %s 도 받아 같은 토큰으로 workplace-api 를 호출한다', async (token) => {
+      nock(API, { reqheaders: { authorization: `Bearer ${token}` } }).get('/auth/me').reply(200, { id: 9, username: 'u', kind: 'HUMAN' });
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { Authorization: `bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('create_issue');
+    });
+
+    // 넓히는 것은 대소문자뿐 — scheme 뒤 공백 둘은 예전처럼 401(토큰 앞에 공백이 남아 swp_/ak_ 로 시작하지 않는다).
+    it('scheme 뒤 공백이 둘이면 401 이다', async () => {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { Authorization: 'bearer  swp_valid', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(res.status).toBe(401);
+    });
+
     it('swp_·ak_ 어느 접두사도 아니면 401 이고 안내 문구가 둘 다 언급한다', async () => {
       const res = await fetch(baseUrl, {
         method: 'POST',

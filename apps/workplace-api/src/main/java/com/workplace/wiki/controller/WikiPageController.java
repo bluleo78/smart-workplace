@@ -1,6 +1,7 @@
 package com.workplace.wiki.controller;
 
 import com.workplace.global.security.AuthDetails;
+import com.workplace.global.security.BearerTokens;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.wiki.dto.CollabAccessResponse;
 import com.workplace.wiki.dto.HtmlLockHeartbeatRequest;
@@ -152,10 +153,13 @@ public class WikiPageController {
 
   /** Bearer 가 서명 검증되는 access JWT 일 때만 exp 를 돌려준다(swp_/ak_ 같은 Bearer PAT·API 키는 검증 실패 → null). */
   private Long jwtExpOf(String auth) {
-    if (auth == null || !auth.startsWith("Bearer ")) {
+    // 인증 필터와 같은 규칙(scheme 대소문자 무관, WP-1431)으로 토큰을 꺼낸다 — 필터는 bearer 로 인증했는데 여기서만 null 이 되면
+    // 동기화 서버가 만료 시각을 몰라 연결을 토큰 만료에 맞춰 끊지 못한다.
+    String token = BearerTokens.extract(auth);
+    if (token == null) {
       return null;
     }
-    return jwtTokenProvider.accessTokenExpEpochSeconds(auth.substring("Bearer ".length()));
+    return jwtTokenProvider.accessTokenExpEpochSeconds(token);
   }
 
   /**

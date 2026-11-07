@@ -602,6 +602,25 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.tokenExp").value(expectedExp));
   }
 
+  /**
+   * WP-1431: Bearer scheme 은 대소문자 무관(RFC 7235) — 소문자 {@code bearer} 로 인증한 JWT 도 exp 를 돌려줘야 동기화 서버가
+   * 연결을 토큰 만료에 맞춰 끊는다(필터만 받고 jwtExpOf 가 null 이면 어긋난다).
+   */
+  @Test
+  void collabAccessReturnsJwtExpForLowerCaseBearerScheme() throws Exception {
+    long pageId = seedPage("본문");
+    String token = jwt.generateAccessToken(userId, "user-" + userId, 1L);
+    String payload =
+        new String(Base64.getUrlDecoder().decode(token.split("\\.")[1]), StandardCharsets.UTF_8);
+    long expectedExp = objectMapper.readTree(payload).get("exp").asLong();
+    mvc.perform(
+            get("/api/v1/wiki/pages/{id}/collab-access", pageId)
+                .header("Authorization", "bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.userId").value(userId))
+        .andExpect(jsonPath("$.tokenExp").value(expectedExp));
+  }
+
   @Test
   void collabAccessTokenExpIsNullWhenNotJwtAuthenticated() throws Exception {
     long pageId = seedPage("본문");
