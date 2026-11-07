@@ -175,7 +175,7 @@ Smart Workplace의 색상 시스템은 **인디고(h≈264) 계열을 브랜드 
 
 ### 1-4. Semantic Status Tokens (success / warning / info)
 
-성공·경고·정보 상태를 표현하는 시맨틱 토큰. `index.css`에 Light/Dark 값이 모두 정의되어 있다. 각 상태는 `--{status}`(진한 색), `--{status}-foreground`(그 위 텍스트), `--{status}-subtle`(연한 배경) 세 토큰이 기본이고, 연한 바탕·본문 위 작은 글자 대비(4.5:1)가 필요한 상태는 `--{status}-text`(문구 색)를 더 둔다(`--warning-text`·`--success-text`·`--destructive-text`). `--destructive` 는 삭제분 표시용 `--destructive-subtle` 도 둔다.
+성공·경고·정보 상태를 표현하는 시맨틱 토큰. `index.css`에 Light/Dark 값이 모두 정의되어 있다. 각 상태는 `--{status}`(진한 색), `--{status}-foreground`(그 위 텍스트), `--{status}-subtle`(연한 배경) 세 토큰이 기본이고, 연한 바탕·본문 위 작은 글자 대비(4.5:1)가 필요한 상태는 `--{status}-text`(문구 색)를 더 둔다(`--warning-text`·`--success-text`·`--destructive-text`·`--info-text`). `--destructive` 는 삭제분 표시용 `--destructive-subtle` 도 둔다.
 
 #### 토큰 정의
 
@@ -194,6 +194,7 @@ Smart Workplace의 색상 시스템은 **인디고(h≈264) 계열을 브랜드 
 | `--info` | `oklch(0.55 0.15 240)` | `oklch(0.7 0.13 240)` | 청색 — 정보/진행 상태 (예: 동기화 중) |
 | `--info-foreground` | `oklch(0.985 0 0)` | `oklch(0.985 0 0)` | Info 위 텍스트 |
 | `--info-subtle` | `oklch(0.95 0.04 240)` | `oklch(0.2 0.04 240)` | 연한 청색 배경 |
+| `--info-text` | `oklch(0.46 0.13 240)` | `oklch(0.7 0.13 240)` | 정보·진행 중 **문구** 색 — `bg-info/10`·`--info-subtle` 위 작은 글자(`text-info-text`, 뱃지 「진행 중」 등). `--info` 는 채움·아이콘용이라 라이트에서 자기 색 10% 틴트 위 글자로 쓰면 3.55:1 로 AA 미달(WP-1430). 대비 4.5:1 은 `src/lib/statusTextTokens.test.ts` 가 고정 |
 
 #### 사용 패턴
 

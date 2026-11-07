@@ -66,6 +66,7 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-info-subtle: var(--info-subtle);
+  --color-info-text: var(--info-text);
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --color-pipeline: var(--pipeline);
   --color-pipeline-foreground: var(--pipeline-foreground);
@@ -161,6 +162,9 @@
   --info: oklch(0.55 0.15 240);
   --info-foreground: oklch(0.985 0 0);
   --info-subtle: oklch(0.95 0.04 240);
+  /* 진행 중 뱃지 등 info 글자색(WP-1430) — --info(L 0.55)는 채움·아이콘용이라 자기 색 10% 틴트(bg-info/10) 위 글자로는 3.55:1 로 AA 미달이다.
+     명도를 낮춘 글자 전용 값으로 bg-info/10 합성 배경(선택 행 bg-selected 위 최저 4.56:1)·뱃지 hover(bg-info/15, 5.23:1)·--info-subtle 위 4.5:1 이상을 지킨다(statusTextTokens.test, --success-text 와 같은 방식). */
+  --info-text: oklch(0.46 0.13 240);
   --pipeline: oklch(0.52 0.14 195);
   --pipeline-foreground: oklch(0.985 0 0);
   --dataset: oklch(0.45 0.2 264);
@@ -279,6 +283,8 @@
   --info: oklch(0.7 0.13 240);
   --info-foreground: oklch(0.985 0 0);
   --info-subtle: oklch(0.2 0.04 240);
+  /* 다크: 어두운 배경 위에선 --info 자체가 충분히 밝아 같은 값을 리터럴로 둔다(대비 테스트가 var() 를 못 읽음) — --info 를 바꾸면 함께 바꾼다. */
+  --info-text: oklch(0.7 0.13 240);
   --pipeline: oklch(0.75 0.12 195);
   --pipeline-foreground: oklch(0.985 0 0);
   --dataset: oklch(0.7 0.17 264);

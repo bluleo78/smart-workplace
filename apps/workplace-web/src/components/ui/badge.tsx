@@ -24,8 +24,10 @@ const badgeVariants = cva(
         // 라이트 대비가 1.5:1 에 그친다(WP-303). --warning-text 는 라이트 AA(약 5.6:1), 다크는 --warning 과 같다.
         warning:
           "bg-warning/10 text-warning-text border-warning/20 [a&]:hover:bg-warning/15",
+        // 글자는 --info-text: --info(L 0.55)는 채움·아이콘용이라 bg-info/10 위 글자로는 라이트 대비가 3.55:1 에 그친다(WP-1430).
+        // --info-text 는 라이트 AA(바탕에 따라 4.56~5.99:1), 다크는 --info 와 같다.
         info:
-          "bg-info/10 text-info border-info/20 [a&]:hover:bg-info/15",
+          "bg-info/10 text-info-text border-info/20 [a&]:hover:bg-info/15",
         // AI 가 만든·AI 와 관련된 표식(ai-accent 보라) — 라이트/다크는 토큰이 갈라 준다.
         ai:
           "bg-ai-accent/10 text-ai-accent border-ai-accent/20 [a&]:hover:bg-ai-accent/15",

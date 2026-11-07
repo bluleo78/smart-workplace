@@ -50,7 +50,7 @@ export function IssueDriveLinkItem({
         </button>
         {/* 드라이브 링크 구분 배지 */}
         <span
-          className="inline-flex items-center gap-1 rounded-full bg-info-subtle px-2 py-0.5 text-[10px] font-semibold text-info"
+          className="inline-flex items-center gap-1 rounded-full bg-info-subtle px-2 py-0.5 text-[10px] font-semibold text-info-text"
           data-testid={`issue-drive-link-badge-${link.driveFileId}`}
         >
           <Cloud className="h-3 w-3" /> 링크
