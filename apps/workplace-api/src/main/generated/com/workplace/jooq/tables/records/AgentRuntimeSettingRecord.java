@@ -343,6 +343,22 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (OffsetDateTime) get(22);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_setting.agent_issue_keys</code>. 칸별
+     * 보고를 합친 현재 이슈 키 목록(WORKING·BLOCKED 칸, 칸 키 순, 중복 제외) — WP-1409
+     */
+    public void setAgentIssueKeys(String[] value) {
+        set(23, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.agent_issue_keys</code>. 칸별
+     * 보고를 합친 현재 이슈 키 목록(WORKING·BLOCKED 칸, 칸 키 순, 중복 제외) — WP-1409
+     */
+    public String[] getAgentIssueKeys() {
+        return (String[]) get(23);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -366,7 +382,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -392,6 +408,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setUpdatedBy(updatedBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setAgentIssueKeys(agentIssueKeys);
         resetChangedOnNotNull();
     }
 }

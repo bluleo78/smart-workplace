@@ -187,6 +187,8 @@ public final class TenantPurgePlan {
           // AI 실행 위치(WP-1248) — runner 토큰(RLS 없음, tenant_id 로 삭제)과 실행 설정(WP-1247, location_id ON
           // DELETE
           // RESTRICT)이 위치를 참조하므로 둘 다 위치보다 먼저.
+          // 칸별 상태 보고(WP-1409) — 실행 설정을 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 실행 설정보다 먼저 비운다.
+          AGENT_RUNTIME_SLOT_STATE,
           AGENT_RUNTIME_SETTING,
           // AI 작업 화면 기록(WP-1277) — 입력 기록이 세션을 참조하므로 먼저. 세션은 위치·user 를 SET NULL·CASCADE 로 참조하지만 RLS
           // 아래

@@ -46,21 +46,34 @@ export function isRunningStatus(status: AgentRuntimeStatus): boolean {
 }
 
 /** 상태 옆 한 줄의 종류 — 화면이 글자를 다시 읽지 않고 모양(이슈 링크·오류 색)을 고른다. */
-export type StatusDetail = { kind: 'issue' | 'nextCheck' | 'error'; text: string };
+export type StatusDetail =
+  | { kind: 'issue'; text: string; keys: string[] }
+  | { kind: 'nextCheck' | 'error'; text: string };
+
+/** 현재 이슈 키 목록 — 칸별 합친 agentIssueKeys 가 있으면 그것, 비면(옛 서버 응답) agentIssueKey 하나. 화면의 이슈 표기는 모두 이 규칙을 쓴다. */
+export function currentIssueKeys(s: { agentIssueKey?: string | null; agentIssueKeys?: string[] | null }): string[] {
+  if (s.agentIssueKeys?.length) return s.agentIssueKeys;
+  return s.agentIssueKey ? [s.agentIssueKey] : [];
+}
 
 /**
- * 상태 옆 한 줄 — 작업 중·막힘이면 처리 중 이슈 키, 대기면 「다음 확인 HH:mm」, 실패면 사유. 보일 것이 없으면 null.
+ * 상태 옆 한 줄 — 작업 중·막힘이면 처리 중 이슈 키(여러 칸이 일하면 「첫 키 외 n건」, 전부는 keys — WP-1409), 대기면 「다음 확인 HH:mm」, 실패면 사유. 보일 것이 없으면 null.
  */
 export function statusDetail(s: {
   status: AgentRuntimeStatus;
   agentState: AgentObservedState['agentState'] | null | undefined;
   agentIssueKey: string | null | undefined;
+  /** 칸별 보고를 합친 이슈 키 전부. 옛 서버 응답엔 없을 수 있어 비면 agentIssueKey 하나로 본다. */
+  agentIssueKeys?: string[] | null;
   agentNextCheckAt: string | null | undefined;
   message: string | null | undefined;
 }): StatusDetail | null {
   if (s.status === 'FAILED') return s.message ? { kind: 'error', text: s.message } : null;
   if (s.status !== 'RUNNING' && s.status !== 'APPLY_PENDING') return null;
-  if ((s.agentState === 'WORKING' || s.agentState === 'BLOCKED') && s.agentIssueKey) return { kind: 'issue', text: s.agentIssueKey };
+  if (s.agentState === 'WORKING' || s.agentState === 'BLOCKED') {
+    const keys = currentIssueKeys(s);
+    if (keys.length > 0) return { kind: 'issue', text: keys.length > 1 ? `${keys[0]} 외 ${keys.length - 1}건` : keys[0], keys };
+  }
   if (s.agentState === 'IDLE' && s.agentNextCheckAt)
     return { kind: 'nextCheck', text: `다음 확인 ${formatClockTimeCompact(s.agentNextCheckAt)}` };
   return null;

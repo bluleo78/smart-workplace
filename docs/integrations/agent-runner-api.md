@@ -208,16 +208,23 @@ Works 가 그 AI 의 키(`ak_…`)를 새로 발급해 **원문을 이 응답으
 runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer ak_…`, 위 `agent-key`)로 부른다(WP-1250). 플러그인 스크립트 `gw-status` 가 이 호출을 하고, `GENIA_AGENT_GENERATION` 이 없으면(Works 가 띄운 AI 가 아니면) 부르지 않는다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다(플러그인이 env 가 있으면 붙인다).
 
 ```json
-{ "state": "IDLE", "issueKey": null, "nextCheckAt": "2026-11-01T12:00:00+09:00", "generation": 7 }
+{ "state": "IDLE", "issueKey": null, "nextCheckAt": "2026-11-01T12:00:00+09:00", "generation": 7, "slot": "WP" }
 ```
 
 - `state`: `IDLE`(쉬는 중) · `WORKING`(이슈 처리 중) · `BLOCKED` 중 하나(필수, 그 밖은 400). `issueKey` 32자. `generation` 은 Pod 의 `GENIA_AGENT_GENERATION`.
+- `slot`(WP-1409): 보고한 **칸** — 한 Pod 안의 work-loop 하나, 값은 그 칸의 프로젝트 키(플러그인은 칸 env `GENIA_WORKS_PROJECT` 를 싣는다). 형식 `^[A-Za-z0-9_-]{0,32}$`(아니면 400), 서버는 대문자로 바꿔 저장한다(`wp` 와 `WP` 는 같은 칸). 없거나 빈 값이면 `''` 칸 — 옛 플러그인·외부 구성은 지금처럼 한 칸으로 동작한다.
+- **여러 칸의 보고를 합친다**(WP-1409). 서버는 칸마다 마지막 보고를 남기고, 모든 칸을 아래 규칙으로 합친 값을 AI 상태로 쓴다 — 한 칸이 일하는 중에 다른 칸이 쉬는 중을 보고해도 AI 는 작업 중이다.
+  - `WORKING` 칸이 하나라도 있으면 `WORKING` · 아니면 `BLOCKED` 칸이 하나라도 있으면 `BLOCKED` · 모두 `IDLE` 이면 `IDLE`.
+  - 현재 이슈 = `WORKING`·`BLOCKED` 칸의 이슈 키(칸 키 순, 중복 제외).
+  - 다음 확인 = `IDLE` 칸 중 가장 이른 `nextCheckAt`(일하는 칸이 보낸 값은 쓰지 않는다).
+  - 지금 Pod 가 뜨기 전에 받은 칸 보고(`reported_at < started_at − 30초` — 옛 Pod 의 칸. 30초는 API 서버와 runner·kubelet 시계 차이 여유)는 합치기에서 빼고 지운다(방금 보고한 칸은 남긴다). runner 가 관찰 보고로 새 Pod 의 `startedAt` 을 알릴 때도 같은 규칙으로 옛 칸을 지우고 남은 칸으로 다시 합친다 — Pod 를 다시 만들면 옛 칸이 합친 상태를 붙잡지 않는다.
+  - 마지막 보고가 6시간(`workplace.agent-runtime.slot-stale-after`)보다 오래된 칸은 죽은 칸으로 보고 합치기에서 뺀다(행은 남는다 — 다시 보고하면 이어진다). 살아 있는 칸은 매 턴 끝마다 보고하므로, 죽은 칸의 마지막 `WORKING` 이 미뤄 둔 교체를 영영 막지 않게 하는 상한이다.
 - 응답 `{"desired": "RUN" | "DRAIN" | "RESTART"}`:
   - AI 가 꺼졌으면(desired=STOP) `DRAIN` — 지워지는 Pod 가 새 이슈를 집지 않게 하는 **안전장치일 뿐**이다. 끄기는 위 「끄기는 즉시 정지」대로 runner 가 바로 Pod 를 지운다.
-  - 보낸 `generation` 이 지금 설정보다 작으면, desired 의 `applyNow` 와 같은 판정(위 「언제 Pod 를 다시 만드나」 — 이번 보고까지 반영해서)이 참이면 `RESTART`(곧 다시 띄워진다 — 바로 적용, 이번 보고가 쉬는 중, 지금 Pod 의 옛 키가 24시간 안에 만료 등), 아니면 `DRAIN`(새 이슈를 집지 않고 쉰다 — 쉬면 runner 가 다시 띄운다).
+  - 보낸 `generation` 이 지금 설정보다 작으면, desired 의 `applyNow` 와 같은 판정(위 「언제 Pod 를 다시 만드나」 — 이번 보고까지 반영해서)이 참이면 `RESTART`(곧 다시 띄워진다 — 바로 적용, 합친 상태가 쉬는 중(**모든 칸이 쉼**), 지금 Pod 의 옛 키가 24시간 안에 만료 등), 아니면 `DRAIN`(새 이슈를 집지 않고 쉰다 — 쉬면 runner 가 다시 띄운다).
   - 그 밖은 `RUN`.
-- 보고는 관리자 화면의 AI 상태(`observed.agentState`·`agentIssueKey`·`agentNextCheckAt`)로 보인다. generation·원하는 상태는 바꾸지 않는다.
-- **쉬는 중으로 바뀐** 보고(앞 보고가 `IDLE` 이 아니었음 — 새 Pod 가 보여 AI 상태가 지워진 뒤 첫 보고 포함)인데 아직 반영하지 않은 generation 이 있으면(generation ≠ 마지막 observedGeneration) Works 가 그 AI 의 실제 위치로 `agent-runtime.changed` 를 낸다 — runner 가 다시 조회하면 `applyNow=true` 다. 이미 쉬는 중이던 AI 가 다음 확인마다 `IDLE` 을 거듭 보고해도 이벤트를 다시 내지 않는다(놓친 이벤트는 주기 조회가 맞춘다).
+- 합친 값은 관리자 화면의 AI 상태(`observed.agentState`·`agentIssueKey`(목록의 첫 키 — 옛 화면 호환)·`agentIssueKeys`(현재 이슈 모두, 보고 없으면 `[]`)·`agentNextCheckAt`)로 보인다. 관리자 AI 목록 요약(`/api/v1/admin/agent-runtime-summaries`)도 `agentIssueKeys` 를 싣는다. generation·원하는 상태는 바꾸지 않는다.
+- 합친 상태가 **쉬는 중으로 바뀐** 보고(모든 칸이 쉬게 된 보고 — 앞의 합친 상태가 `IDLE` 이 아니었음 — 새 Pod 가 보여 AI 상태가 지워진 뒤 첫 보고 포함)인데 아직 반영하지 않은 generation 이 있으면(generation ≠ 마지막 observedGeneration) Works 가 그 AI 의 실제 위치로 `agent-runtime.changed` 를 낸다 — runner 가 다시 조회하면 `applyNow=true` 다. 한 칸이 아직 일하면 다른 칸의 `IDLE` 보고는 `DRAIN` 을 받고 이벤트도 없다 — 마지막 일하던 칸이 `IDLE` 을 보고하는 순간 그 칸이 `RESTART` 를 받고 이벤트가 한 번 나간다. 이미 쉬는 중이던 AI 가 다음 확인마다 `IDLE` 을 거듭 보고해도 이벤트를 다시 내지 않는다(놓친 이벤트는 주기 조회가 맞춘다).
 - 실행 설정이 없는 AI(외부에서 돌리는 AI)나 워크스페이스가 정해지지 않은 호출은 아무것도 저장하지 않고 `RUN` 이다. AI 키(`ak_`)가 아닌 인증(사람 로그인·개인 토큰 등)으로 부르면 403(`AGENT_ONLY`).
 
 ## 로그인 계정 모델 목록 보고 — `PUT /api/v1/agent-runtime/me/models` (Pod 안의 AI 가 부름)

@@ -54,7 +54,7 @@ export function AgentRuntimeCell({ agent, summary }: Props) {
         {detail && (
           <span
             className={DETAIL_CLASS[detail.kind]}
-            title={detail.text}
+            title={detail.kind === 'issue' ? detail.keys.join(', ') : detail.text}
             data-testid={`agent-runtime-detail-${agent.id}`}
           >
             {detail.text}

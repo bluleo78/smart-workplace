@@ -45,6 +45,8 @@ workplace:
     # 기본값은 로컬(MCP 6090 · API 6060). 운영은 application-prod.yml 이 공개 웹 주소(WEB_BASE_URL)로 만든다.
     mcp-url: ${AGENT_RUNTIME_MCP_URL:http://localhost:6090/mcp}
     api-url: ${AGENT_RUNTIME_API_URL:http://localhost:6060/api/v1}
+    # AI 상태 칸(work-loop 하나)의 마지막 보고가 이보다 오래되면 죽은 칸으로 보고 합치기에서 뺀다(WP-1409) — 이유는 AgentRuntimeProperties.DEFAULT_SLOT_STALE_AFTER.
+    slot-stale-after: 6h
   storage:
     root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./storage-data}
     max-files-per-request: 3

@@ -134,6 +134,7 @@ export function createObserved(overrides: Partial<NonNullable<AgentRuntimeSettin
     observedAt: new Date().toISOString(),
     agentState: null,
     agentIssueKey: null,
+    agentIssueKeys: [],
     agentNextCheckAt: null,
     ...overrides,
   }
@@ -147,6 +148,7 @@ export function createSummary(agentUserId: number, overrides: Partial<AgentRunti
     status: 'OFF',
     agentState: null,
     agentIssueKey: null,
+    agentIssueKeys: [],
     agentNextCheckAt: null,
     locationName: null,
     message: null,

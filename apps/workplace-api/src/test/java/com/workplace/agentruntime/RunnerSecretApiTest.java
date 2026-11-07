@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.agentruntime.dto.AgentState;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
@@ -21,6 +22,8 @@ import com.workplace.agentruntime.dto.RunnerObservedRequest;
 import com.workplace.agentruntime.dto.RunnerPrincipal;
 import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository.Slot;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.agentruntime.service.RunnerDesiredStateService;
@@ -80,6 +83,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
   @Autowired ApplicationEvents appEvents;
   @Autowired RunnerDesiredStateService desiredService;
   @Autowired AgentApiKeyExpirySweeper sweeper;
+  @Autowired AgentRuntimeSlotRepository slotRepo;
 
   private long admin;
   private AgentRuntimeTestFixtures fx;
@@ -877,10 +881,71 @@ class RunnerSecretApiTest extends IntegrationTestBase {
             + "\"}";
     observedRaw(report);
     setAgentState(a1, "WORKING", OffsetDateTime.now());
+    // 시작 시각보다 한참 앞선 칸 — 같은 Pod 의 되풀이 보고는 칸을 읽지도 지우지도 않으므로 그대로 남는다(WP-1409).
+    slotRepo.upsert(a1, "WP", AgentState.IDLE, null, null, started.minusMinutes(10));
 
     observedRaw(report);
 
     assertThat(settingRow(a1).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("WORKING");
+    assertThat(slotRepo.findAll(a1)).extracting(Slot::slotKey).containsExactly("WP");
+  }
+
+  /**
+   * runner 가 새 Pod 의 시작 시각을 알리면 그보다 (30초 여유를 넘게) 앞선 옛 Pod 칸을 지우고 남은 칸으로 AI 상태를 다시 합친다(WP-1409) — 새
+   * Pod 칸이 이미 쉬는 중을 보고했으면 옛 Pod 칸의 WORKING 이 남아 붙잡지 않는다. 새 Pod 칸은 지우지 않는다.
+   */
+  @Test
+  void observed_newPodStartedAt_dropsOldPodSlotsAndReaggregates() throws Exception {
+    long g = fx.generationOf(a1);
+    OffsetDateTime started = OffsetDateTime.now().minusMinutes(1);
+    slotRepo.upsert(a1, "", AgentState.WORKING, "WP-0", null, started.minusMinutes(10));
+    slotRepo.upsert(a1, "WP", AgentState.IDLE, null, null, OffsetDateTime.now());
+    // 두 칸을 합친 지금 값(옛 칸의 WORKING) — 새 Pod 칸의 보고가 시작 뒤라 관찰 UPDATE 는 지우지 않는다.
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, "WP-0")
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS, new String[] {"WP-0"})
+        .set(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT, OffsetDateTime.now())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+        .execute();
+
+    observedRaw(
+        "{\"agentUserId\":"
+            + a1
+            + ",\"observedGeneration\":"
+            + g
+            + ",\"phase\":\"RUNNING\",\"startedAt\":\""
+            + started
+            + "\"}");
+
+    var row = settingRow(a1);
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isEqualTo("IDLE");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS)).containsExactly();
+    assertThat(slotRepo.findAll(a1)).extracting(Slot::slotKey).containsExactly("WP");
+  }
+
+  /** 새 Pod 라 AI 상태를 지울 때 옛 Pod 칸도 지워져 남은 칸이 없으면 AI 상태는 지운 그대로(빈 값)다(WP-1409). */
+  @Test
+  void observed_newPodClearing_withNoRemainingSlots_staysCleared() throws Exception {
+    long g = fx.generationOf(a1);
+    OffsetDateTime started = OffsetDateTime.now();
+    // 옛 Pod 칸(5분 전)만 있으면 지워지고 AI 상태도 빈 채로 남는다.
+    slotRepo.upsert(a1, "", AgentState.IDLE, null, null, started.minusMinutes(5));
+    setAgentState(a1, "IDLE", started.minusMinutes(5));
+
+    observedRaw(
+        "{\"agentUserId\":"
+            + a1
+            + ",\"observedGeneration\":"
+            + g
+            + ",\"phase\":\"STARTING\",\"startedAt\":\""
+            + started
+            + "\"}");
+
+    assertThat(settingRow(a1).get(AGENT_RUNTIME_SETTING.AGENT_STATE)).isNull();
+    assertThat(settingRow(a1).get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT)).isNull();
+    assertThat(slotRepo.findAll(a1)).isEmpty();
   }
 
   /** 지금 Pod 가 뜨기 전에 온 「쉬는 중」 보고로는 미뤄 둔 변경을 바로 적용하지 않는다(WP-1253). */

@@ -399,6 +399,7 @@ public class AgentRuntimeSettingService {
             r.observedAt(),
             r.agentState(),
             r.agentIssueKey(),
+            r.agentIssueKeys(),
             r.agentNextCheckAt()));
   }
 

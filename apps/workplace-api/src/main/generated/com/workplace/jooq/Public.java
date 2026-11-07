@@ -10,6 +10,7 @@ import com.workplace.jooq.tables.AgentRepoCredential;
 import com.workplace.jooq.tables.AgentReportedModel;
 import com.workplace.jooq.tables.AgentRunnerToken;
 import com.workplace.jooq.tables.AgentRuntimeSetting;
+import com.workplace.jooq.tables.AgentRuntimeSlotState;
 import com.workplace.jooq.tables.AgentScreenInput;
 import com.workplace.jooq.tables.AgentScreenSession;
 import com.workplace.jooq.tables.AgentWork;
@@ -210,6 +211,12 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_runtime_setting</code>.
      */
     public final AgentRuntimeSetting AGENT_RUNTIME_SETTING = AgentRuntimeSetting.AGENT_RUNTIME_SETTING;
+
+    /**
+     * AI 상태 보고의 칸(work-loop 하나 — 프로젝트 키)별 마지막 값(WP-1409). 서버가 합쳐
+     * agent_runtime_setting.agent_* 에 쓴다.
+     */
+    public final AgentRuntimeSlotState AGENT_RUNTIME_SLOT_STATE = AgentRuntimeSlotState.AGENT_RUNTIME_SLOT_STATE;
 
     /**
      * The table <code>public.agent_screen_input</code>.
@@ -982,6 +989,7 @@ public class Public extends SchemaImpl {
             AgentReportedModel.AGENT_REPORTED_MODEL,
             AgentRunnerToken.AGENT_RUNNER_TOKEN,
             AgentRuntimeSetting.AGENT_RUNTIME_SETTING,
+            AgentRuntimeSlotState.AGENT_RUNTIME_SLOT_STATE,
             AgentScreenInput.AGENT_SCREEN_INPUT,
             AgentScreenSession.AGENT_SCREEN_SESSION,
             AgentWork.AGENT_WORK,

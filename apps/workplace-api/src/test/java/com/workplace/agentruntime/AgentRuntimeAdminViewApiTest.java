@@ -222,6 +222,85 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
     assertThat(c.get("locationName").asText()).isEqualTo("L2");
   }
 
+  /** 여러 칸이 일하면(WP-1409) 상세의 관찰 상태와 요약 줄이 현재 이슈를 칸 키 순으로 모두 싣는다. 보고가 없는 AI 는 빈 목록이다. */
+  @Test
+  void issueKeys_fromAllWorkingSlots_inDetailAndSummary() throws Exception {
+    long agent = fx.runningAgent(null);
+    long silent = fx.runningAgent(null);
+    String key = keyService.issueManaged(agent, 1L, null, null, "L1").plaintext();
+    report(key, "{\"state\":\"WORKING\",\"issueKey\":\"WP-1\",\"slot\":\"WP\"}");
+    report(key, "{\"state\":\"WORKING\",\"issueKey\":\"HR-2\",\"slot\":\"HR\"}");
+
+    call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.observed.agentState").value("WORKING"))
+        .andExpect(jsonPath("$.observed.agentIssueKey").value("HR-2"))
+        .andExpect(jsonPath("$.observed.agentIssueKeys[0]").value("HR-2"))
+        .andExpect(jsonPath("$.observed.agentIssueKeys[1]").value("WP-1"))
+        .andExpect(jsonPath("$.observed.agentIssueKeys.length()").value(2));
+    call(admin, get("/api/v1/admin/agents/" + silent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.observed.agentIssueKeys").isArray())
+        .andExpect(jsonPath("$.observed.agentIssueKeys.length()").value(0));
+
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    JsonNode a = summaryOf(list, agent);
+    assertThat(a.get("agentIssueKeys").isArray()).isTrue();
+    assertThat(a.get("agentIssueKeys").get(0).asText()).isEqualTo("HR-2");
+    assertThat(a.get("agentIssueKeys").get(1).asText()).isEqualTo("WP-1");
+    assertThat(a.get("agentIssueKeys").size()).isEqualTo(2);
+    JsonNode b = summaryOf(list, silent);
+    assertThat(b.get("agentIssueKeys").isArray()).isTrue();
+    assertThat(b.get("agentIssueKeys").size()).isZero();
+  }
+
+  /**
+   * 롤링 배포 중 옛 API 인스턴스는 agent_issue_key 만 쓰고 agent_issue_keys 배열을 남겨 둔다(WP-1409) — 배열의 첫 키가
+   * agent_issue_key 와 같을 때만 배열을 믿고, 아니면 [agent_issue_key], 그것도 없으면 [] 다.
+   */
+  @Test
+  void issueKeys_fromOldInstanceWrite_fallBackToSingleKey() throws Exception {
+    long agent = fx.runningAgent(null);
+    String url = "/api/v1/admin/agents/" + agent + "/runtime-setting";
+
+    // 새 인스턴스가 함께 쓴 값 — 배열 그대로.
+    setIssueColumns(agent, "HR-2", new String[] {"HR-2", "WP-1"});
+    call(admin, get(url))
+        .andExpect(jsonPath("$.observed.agentIssueKeys.length()").value(2))
+        .andExpect(jsonPath("$.observed.agentIssueKeys[1]").value("WP-1"));
+
+    // 옛 인스턴스가 agent_issue_key 만 바꿈 — 낡은 배열 대신 그 키 하나.
+    setIssueColumns(agent, "WP-5", new String[] {"HR-2", "WP-1"});
+    call(admin, get(url))
+        .andExpect(jsonPath("$.observed.agentIssueKeys.length()").value(1))
+        .andExpect(jsonPath("$.observed.agentIssueKeys[0]").value("WP-5"));
+    JsonNode list =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    assertThat(summaryOf(list, agent).get("agentIssueKeys").size()).isEqualTo(1);
+    assertThat(summaryOf(list, agent).get("agentIssueKeys").get(0).asText()).isEqualTo("WP-5");
+
+    // 배열이 없음(마이그레이션 전 행) — 그 키 하나.
+    setIssueColumns(agent, "WP-5", null);
+    call(admin, get(url)).andExpect(jsonPath("$.observed.agentIssueKeys[0]").value("WP-5"));
+
+    // 옛 인스턴스가 쉬는 중 보고로 키를 지움 — 낡은 배열이 남아 있어도 빈 목록.
+    setIssueColumns(agent, null, new String[] {"HR-2"});
+    call(admin, get(url)).andExpect(jsonPath("$.observed.agentIssueKeys.length()").value(0));
+  }
+
+  /** 현재 이슈 칸 두 개를 직접 맞춘다(옛 인스턴스의 쓰기 흉내). */
+  private void setIssueColumns(long agent, String issueKey, String[] issueKeys) {
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY, issueKey)
+        .set(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS, issueKeys)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
   /** 기본 위치를 L2 로 옮기면 L2 의 AI 는 이름이 비고, 옛 기본(L1)을 직접 지정한 AI 는 L1 이 보인다. */
   @Test
   void summaries_afterDefaultMoves_followNewDefault() throws Exception {

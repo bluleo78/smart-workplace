@@ -3,7 +3,7 @@
 // Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
 
 import { Check, Info, MonitorPlay, X } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
@@ -36,6 +36,7 @@ import { accountFits, accountLabel } from '../../../../lib/agentAccount';
 import { startBlockReason } from '../../../../lib/agentRunMode';
 import { externalKeyStatusText } from '../../../../lib/agentRuntime';
 import {
+  currentIssueKeys,
   formatCpu,
   formatMemory,
   formatUptime,
@@ -206,13 +207,15 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         status,
         agentState: observed?.agentState,
         agentIssueKey: observed?.agentIssueKey,
+        agentIssueKeys: observed?.agentIssueKeys,
         agentNextCheckAt: observed?.agentNextCheckAt,
         message: observed?.message,
       })
     : null;
-  const detailPath = detail?.kind === 'issue' ? issueKeyPath(detail.text) : null;
   const working = running && observed?.agentState === 'WORKING';
-  const issueKey = observed?.agentIssueKey ?? null;
+  // 확인 창에 적을 현재 이슈 — 여러 칸이 일하면 모두(쉼표로 이음), 조사는 마지막 키 기준. 없으면 null.
+  const issueKeys = currentIssueKeys(observed ?? {});
+  const issueKey = issueKeys.length > 0 ? issueKeys.join(', ') : null;
   // 알약 옆 설명 — 이슈 키·다음 확인·실패 사유가 없을 때 그 상태가 무엇인지 한 줄로.
   const stateNote =
     status === 'STARTING' || (running && observed?.agentState == null)
@@ -276,10 +279,25 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
           {pill.label}
         </StatusBadge>
         {detail &&
-          (detailPath ? (
-            <Link to={detailPath} className="font-mono text-xs text-primary hover:underline" data-testid="agent-runtime-detail">
-              {detail.text}
-            </Link>
+          (detail.kind === 'issue' ? (
+            // 여러 칸이 일하면 현재 이슈를 모두 링크로 — 형식이 아닌 키는 링크 없이 글자만.
+            <span className="font-mono text-xs" data-testid="agent-runtime-detail">
+              {detail.keys.map((key, i) => {
+                const path = issueKeyPath(key);
+                return (
+                  <Fragment key={key}>
+                    {i > 0 && <span className="text-muted-foreground"> · </span>}
+                    {path ? (
+                      <Link to={path} className="text-primary hover:underline">
+                        {key}
+                      </Link>
+                    ) : (
+                      key
+                    )}
+                  </Fragment>
+                );
+              })}
+            </span>
           ) : (
             <span className={cn('text-xs', detail.kind === 'error' ? 'text-destructive' : 'text-muted-foreground')} data-testid="agent-runtime-detail">
               {detail.text}

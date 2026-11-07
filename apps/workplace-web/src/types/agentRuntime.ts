@@ -97,6 +97,8 @@ export interface AgentObservedState {
   /** IDLE=대기 · WORKING=작업 중 · BLOCKED=막힘(AI 보고). */
   agentState: 'IDLE' | 'WORKING' | 'BLOCKED' | null;
   agentIssueKey: string | null;
+  /** 칸(프로젝트)별 보고를 합친 현재 이슈 키 전부(WP-1409). 보고가 없으면 빈 배열. */
+  agentIssueKeys: string[];
   agentNextCheckAt: string | null;
 }
 
@@ -133,6 +135,8 @@ export interface AgentRuntimeSummary {
   status: AgentRuntimeStatus;
   agentState: AgentObservedState['agentState'];
   agentIssueKey: string | null;
+  /** 칸(프로젝트)별 보고를 합친 현재 이슈 키 전부(WP-1409). 보고가 없으면 빈 배열. */
+  agentIssueKeys: string[];
   agentNextCheckAt: string | null;
   /** 기본 위치가 아니면 그 위치 이름, 기본이면 null. */
   locationName: string | null;
