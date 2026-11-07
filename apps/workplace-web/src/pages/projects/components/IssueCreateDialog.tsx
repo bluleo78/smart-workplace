@@ -1,6 +1,12 @@
+import { useState } from 'react';
+
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/overlay/select';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -41,13 +47,24 @@ export function IssueCreateDialog(props: Props) {
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
 function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId });
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // 저장 성공 등 부모가 창을 닫을 때 별도 확인 창 상태도 끝내 다시 열 때 남지 않게 한다.
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setConfirmDiscard(false);
+    onOpenChange(nextOpen);
+  };
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange: handleOpenChange, initialTypeId, initialStatusId });
   const { register, watch, setValue, formState: { errors } } = f.form;
   const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
   const currentTypeId = watch('typeId');
+  // 닫기 요청 공통 경로 — 제목·본문이 있으면 확인하고, 빈 폼은 바로 닫는다.
+  const requestClose = () => {
+    if (f.hasContent) setConfirmDiscard(true);
+    else handleOpenChange(false);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (o) onOpenChange(true); else requestClose(); }}>
       <DialogContent>
         {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
         <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
@@ -215,7 +232,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
           )}
           </>)}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
+            <Button type="button" variant="outline" onClick={requestClose}>취소</Button>
             {/* AI 에게 맡겼으면(WP-1315) 주 버튼이 「만들고 지금 실행」, 옆에 「만들기만」(일정만 저장). 아니면 지금처럼 「생성」 하나. */}
             {/* 담당 AI 후보를 받는 중이면 같은 두 버튼을 잠가 둔다 — 받기 전에 눌러 맡기기가 빠진 채 만들어지지 않게. */}
             {f.aiActions ? (
@@ -233,6 +250,21 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
           </DialogFooter>
         </form>
       </DialogContent>
+      {/* 저장 성공은 훅의 부모 콜백으로 바로 닫고, 사용자의 닫기 요청만 폐기를 확인한다. */}
+      <AlertDialog open={open && confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <AlertDialogContent data-testid="issue-create-discard-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>작성 중인 내용을 버릴까요?</AlertDialogTitle>
+            <AlertDialogDescription>입력한 제목과 설명이 사라집니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="issue-create-discard-keep">계속 작성</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" data-testid="issue-create-discard-confirm" onClick={() => handleOpenChange(false)}>
+              버리기
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

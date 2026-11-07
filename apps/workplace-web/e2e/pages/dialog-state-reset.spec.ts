@@ -53,3 +53,42 @@ test('Dialog 닫기 버튼 클릭 영역이 24x24px 이상이다 (#706)', { tag:
   expect(box!.width).toBeGreaterThanOrEqual(24)
   expect(box!.height).toBeGreaterThanOrEqual(24)
 })
+
+// WP-1443 — Radix 닫기 이벤트·오버레이 입력은 실제 브라우저에서 네 경로를 함께 확인한다.
+test('이슈 초안을 닫는 모든 경로에서 계속 작성하거나 버릴 수 있다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubProjectPage(page)
+  await page.goto(`/projects/${PROJECT_KEY}`)
+  const openButton = page.getByRole('button', { name: '+ 새 태스크' })
+  const dialog = page.getByRole('dialog', { name: '새 이슈' })
+  const confirmation = page.getByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })
+  await openButton.click()
+
+  const closeRequests = [
+    { name: 'Escape', close: () => page.keyboard.press('Escape') },
+    // 화면 모서리는 가운데 대화상자 바깥의 오버레이에 해당한다.
+    { name: '바깥 클릭', close: () => page.mouse.click(5, 5) },
+    { name: '닫기(X)', close: () => dialog.locator('[data-slot="dialog-close"]').click() },
+    { name: '취소', close: () => dialog.getByRole('button', { name: '취소', exact: true }).click() },
+  ]
+  for (const request of closeRequests) {
+    await test.step(request.name, async () => {
+      await dialog.getByLabel(/^제목/).fill('작성 중인 제목')
+      await dialog.getByLabel('본문', { exact: true }).fill('작성 중인 본문')
+      await request.close()
+      await expect(confirmation).toBeVisible()
+      await confirmation.getByRole('button', { name: '계속 작성' }).click()
+      await expect(confirmation).toBeHidden()
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByLabel(/^제목/)).toHaveValue('작성 중인 제목')
+      await expect(dialog.getByLabel('본문', { exact: true })).toHaveValue('작성 중인 본문')
+      await request.close()
+      await expect(confirmation).toBeVisible()
+      await confirmation.getByRole('button', { name: '버리기' }).click()
+      await expect(confirmation).toBeHidden()
+      await expect(dialog).toBeHidden()
+      await openButton.click()
+      await expect(dialog.getByLabel(/^제목/)).toHaveValue('')
+      await expect(dialog.getByLabel('본문', { exact: true })).toHaveValue('')
+    })
+  }
+})
