@@ -491,6 +491,68 @@ test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 �
     .toBe(true);
 });
 
+// WP-1439 — 같은 기간 사이클이 6~7개면 이름표가 줄 수 제한 없이 쌓여(16px 씩) 첫 행(40px)을 넘어 이슈 막대 위로 내려왔다.
+// 이름표는 2줄까지만 그리고 나머지는 마지막 줄 이름표의 「+N」 으로 접는다 — 모든 이름표가 둘째 행 막대 위에 머문다.
+test('같은 기간 사이클이 많으면 이름표는 2줄까지만 쌓이고 나머지는 「+N」 으로 접혀 이슈 막대를 덮지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-19T03:00:00Z'));
+  await setupTimelineStubs(page);
+  const now = new Date().toISOString();
+  // 「+N」 주인(사이클 2)만 10/17 에 일찍 끝난다 — 주인 기간이 왼쪽 밖으로 지나가도 접힌 사이클(~10/28)이 보이면 이름표가 남는지 본다.
+  const cycles: CycleResponse[] = [1, 2, 3, 4, 5, 6].map((id) => ({
+    id, projectId: 1, name: `동시 사이클 ${id}`, goal: null, startDate: '2026-10-15', endDate: id === 2 ? '2026-10-17' : '2026-10-28',
+    status: 'ACTIVE', createdAt: now, updatedAt: now,
+  }));
+  await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cycles) });
+  });
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 1, title: '첫 이슈', startDate: '2026-10-16', dueDate: '2026-10-22' }),
+      createIssue({ number: 2, title: '둘째 이슈', startDate: '2026-10-20', dueDate: '2026-10-25' }),
+      // 축을 내년까지 늘려, 아래에서 10/20 을 차트 왼쪽 끝까지 스크롤할 여유를 둔다.
+      createIssue({ number: 3, title: '먼 이슈', startDate: '2027-02-01', dueDate: '2027-02-10' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expandNoEpicGroup(page);
+  await page.getByRole('button', { name: '오늘' }).click();
+  const labels = page.getByTestId('timeline-cycle-band');
+  await expect(labels).toHaveCount(2);
+  const more = page.getByTestId('timeline-cycle-band-more');
+  await expect(more).toHaveText('+4');
+  await expect(more).toBeVisible();
+  // 이름표 본문은 포인터를 통과시켜도 「+N」 칸에 올린 마우스는 툴팁 트리거(IconHint)까지 닿아 접힌 사이클 이름이 뜬다.
+  await more.hover();
+  await expect(page.getByRole('tooltip')).toHaveText('동시 사이클 3, 동시 사이클 4, 동시 사이클 5, 동시 사이클 6');
+  // 여러 번에 나눠 옮긴다 — Radix 툴팁은 트리거를 떠난 뒤 내용 쪽 유예 영역 밖의 pointermove 가 와야 닫혀, 한 번에 뛰면 열린 채 남는다.
+  await page.mouse.move(0, 0, { steps: 5 });
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  // 둘째 행(첫 이슈) 막대 위쪽보다 모든 이름표의 아래쪽이 위에 있다 — 이름표가 막대를 덮지 않는다.
+  const bar = page.locator('.timeline-gantt-root .wx-bar[data-task-id="1"]');
+  await expect(bar).toBeVisible();
+  await expect
+    .poll(async () => {
+      const barTop = (await bar.boundingBox())!.y;
+      const bottoms = await labels.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().bottom));
+      return bottoms.every((b) => b <= barTop + 0.5);
+    })
+    .toBe(true);
+  // 둘째 이슈 막대(10/20 시작)를 차트 왼쪽 끝 근처로 스크롤 — 주인 기간(10/15~10/17)은 왼쪽 밖, 접힌 사이클(~10/28)은 화면 안.
+  // 이름표 구간이 접힌 사이클 끝까지 늘어나 있으므로 「+4」 는 차트 왼쪽 끝에 붙어 계속 보인다.
+  const scroller = page.locator('.timeline-gantt-root .wx-chart');
+  const chart = (await scroller.boundingBox())!;
+  const bar2 = page.locator('.timeline-gantt-root .wx-bar[data-task-id="2"]');
+  const delta = (await bar2.boundingBox())!.x - chart.x - 4;
+  await scroller.evaluate((el, d) => el.scrollTo({ left: el.scrollLeft + d }), delta);
+  await expect.poll(async () => Math.abs((await bar2.boundingBox())!.x - chart.x - 4)).toBeLessThan(6);
+  await expect(more).toBeVisible();
+  await expect.poll(async () => (await more.boundingBox())!.x - chart.x).toBeLessThan(200);
+});
+
 // WP-595 — 기간이 아주 긴 이슈(1900~2099) 하나가 간트 축을 200년으로 늘려, 처음 열 때도 「오늘」을 눌러도 2005년 근처가 보였다.
 // 축 범위를 조회 기간 앞뒤로 자르므로 오늘선이 차트 안에 보이고, 긴 이슈 막대는 잘린 채 남는다.
 test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 오늘선이 차트 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
