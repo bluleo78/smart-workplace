@@ -109,6 +109,33 @@ describe('HeaderDensityProvider', () => {
     expect(screen.getByRole('status').textContent).toBe('false/false')
   })
 
+  it('제목 그룹 폭이 0이어도 유효한 좌표로 접기와 동그라미를 판정한다', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const left = this.hasAttribute('data-ai-chip') ? -60 : 128
+      return { left, right: left + 140, width: this.hasAttribute('data-ai-left-group') ? 0 : 140 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/true'))
+  })
+
+  it('동그라미에서 알약으로 바뀐 커밋에서 칩 오프셋을 함께 갱신한다', async () => {
+    let chipLeft = 120
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const circle = screen.queryByRole('status')?.textContent?.endsWith('/true') ?? false
+      const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
+      const width = this.hasAttribute('data-ai-chip') && circle ? 32 : 140
+      return { left, right: left + width, width } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/true'))
+    expect(document.querySelector<HTMLElement>('[data-ai-chip]')?.style.getPropertyValue('--ai-chip-offset')).toBe('88px')
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    chipLeft = 300
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(screen.getByRole('status').textContent).toBe('true/false')
+    expect(document.querySelector<HTMLElement>('[data-ai-chip]')?.style.getPropertyValue('--ai-chip-offset')).toBe('142px')
+  })
+
   it('검색만 있으면 제목 공간이 계속 좁아도 동그라미 상태에 진입하지 않는다', async () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       return { left: this.hasAttribute('data-ai-chip') ? 120 : 0, right: 220, width: 100 } as DOMRect

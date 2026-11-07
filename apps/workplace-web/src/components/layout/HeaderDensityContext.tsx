@@ -31,7 +31,8 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
       if (!chip || !left) { publish(expanded); return }
       const chipBox = chip.getBoundingClientRect()
       const leftBox = left.getBoundingClientRect()
-      if (!chipBox.width || !leftBox.width || settling) return
+      // 제목은 clamp로 폭이 0이 되어도 시작 좌표가 유효하므로 계속 밀도를 판정한다.
+      if (!chipBox.width || settling) return
       const titleSpace = chipBox.left - leftBox.left - 16
       if (unfoldedActionsWidth !== null && actions) {
         // 같은 시점의 액션 오른쪽 경계에서 펼친 액션의 정지선을 복원한다.
