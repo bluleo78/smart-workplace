@@ -5,16 +5,17 @@ export interface HeaderDensityState {
 }
 
 /** 제목 최소 공간 160px, 칩 폭 차이 108px를 복귀 여유로 사용한다. */
-export function nextHeaderDensityState({ titleSpace, hasAuxiliaryActions, current, foldDisplacement }: {
+export function nextHeaderDensityState({ titleSpace, hasAuxiliaryActions, hasAiChip = true, current, foldDisplacement }: {
   titleSpace: number
   hasAuxiliaryActions: boolean
+  hasAiChip?: boolean
   current: HeaderDensityState
   foldDisplacement: number
 }): HeaderDensityState {
   if (hasAuxiliaryActions && !current.folded && titleSpace < 160) return { folded: true, circle: false }
   // 동그라미부터 풀어 원래 칩 폭으로 측정한 뒤 보조 단추를 펼친다.
-  const circle = titleSpace < 160 || (current.circle && titleSpace <= 268)
+  const circle = hasAiChip && (titleSpace < 160 || (current.circle && titleSpace <= 268))
   const folded = hasAuxiliaryActions && current.folded
-    && (current.circle || titleSpace <= 160 + foldDisplacement)
+    && ((hasAiChip && current.circle) || titleSpace <= 160 + foldDisplacement)
   return { folded, circle }
 }

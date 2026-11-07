@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HeaderDensityProvider, useHeaderDensity, useHeaderDensityHeader } from './HeaderDensityContext'
 import { useAiActionsWidth } from './useAiActionsWidth'
 
-function Fixture({ mounted, chipMounted = mounted }: { mounted: boolean; chipMounted?: boolean }) {
+function Fixture({ mounted, chipMounted = mounted, ai = true }: { mounted: boolean; chipMounted?: boolean; ai?: boolean }) {
   useAiActionsWidth()
   const { folded, circle } = useHeaderDensity()
   const register = useHeaderDensityHeader()
@@ -16,7 +16,7 @@ function Fixture({ mounted, chipMounted = mounted }: { mounted: boolean; chipMou
       <div data-ai-left-group />
       <div data-ai-actions>{folded ? '더보기' : '설정'}</div>
     </header>}
-    {chipMounted && createPortal(<div data-ai-chip />, document.body)}
+    {chipMounted && createPortal(<div data-ai-chip>{ai && <button data-ai-density-chip />}</div>, document.body)}
   </>
 }
 
@@ -25,7 +25,8 @@ describe('HeaderDensityProvider', () => {
 
   it('제공자 이후 나타난 헤더와 포털을 측정해 접은 다음 동그라미로 줄인다', async () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      return { left: this.hasAttribute('data-ai-chip') ? 120 : 0, width: 100 } as DOMRect
+      const left = this.hasAttribute('data-ai-chip') ? 120 : 0
+      return { left, right: left + 100, width: 100 } as DOMRect
     })
     const view = render(<HeaderDensityProvider><Fixture mounted={false} /></HeaderDensityProvider>)
     expect(screen.getByRole('status').textContent).toBe('false/false')
@@ -48,7 +49,8 @@ describe('HeaderDensityProvider', () => {
     })
     let chipLeft = 500
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      return { left: this.hasAttribute('data-ai-chip') ? chipLeft : 0, width: 100 } as DOMRect
+      const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
+      return { left, right: left + 100, width: 100 } as DOMRect
     })
     const view = render(<HeaderDensityProvider><Fixture mounted={false} /></HeaderDensityProvider>)
     view.rerender(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
@@ -68,10 +70,62 @@ describe('HeaderDensityProvider', () => {
     await waitFor(() => expect(document.querySelector<HTMLElement>('[data-ai-chip]')?.style.getPropertyValue('--ai-actions-width')).toBe('100px'))
   })
 
+  it.each([-200, 100])('접기 안정 대기 중 액션 오른쪽 경계가 %ipx 이동해도 접기 폭만 복귀 여유로 쓴다', async (resize) => {
+    let right = 1000
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const folded = screen.queryByRole('status')?.textContent?.startsWith('true') ?? false
+      const actionsWidth = folded ? 428 : 678
+      const left = this.hasAttribute('data-ai-chip') ? right - actionsWidth - 156 : 0
+      return { left, right: this.hasAttribute('data-ai-actions') ? right : left + 100, width: this.hasAttribute('data-ai-actions') ? actionsWidth : 100 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/false'))
+    right += resize
+    act(() => window.dispatchEvent(new Event('resize')))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    if (resize < 0) {
+      right += 20
+      act(() => window.dispatchEvent(new Event('resize')))
+      expect(screen.getByRole('status').textContent).toBe('true/false')
+    } else {
+      expect(screen.getByRole('status').textContent).toBe('false/false')
+    }
+  })
+
+  it('중앙 한계가 액션 접기 이동을 제한하면 현재 배치의 실제 이동분만 사용한다', async () => {
+    let right = 1000
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const folded = screen.queryByRole('status')?.textContent?.startsWith('true') ?? false
+      const actionsWidth = folded ? 428 : 678
+      const left = this.hasAttribute('data-ai-chip') ? Math.min(216, right - actionsWidth - 156) : 0
+      return { left, right: this.hasAttribute('data-ai-actions') ? right : left + 100, width: this.hasAttribute('data-ai-actions') ? actionsWidth : 100 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/false'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    expect(screen.getByRole('status').textContent).toBe('true/false')
+    right += 20
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(screen.getByRole('status').textContent).toBe('false/false')
+  })
+
+  it('검색만 있으면 제목 공간이 계속 좁아도 동그라미 상태에 진입하지 않는다', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { left: this.hasAttribute('data-ai-chip') ? 120 : 0, right: 220, width: 100 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted ai={false} /></HeaderDensityProvider>)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/false'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    expect(screen.getByRole('status').textContent).toBe('true/false')
+  })
+
   it('접기 이동이 안정된 뒤 실측한 250px를 복귀 여유로 보존한다', async () => {
     let chipLeft = 120
+    let actionsRight = 676
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      return { left: this.hasAttribute('data-ai-chip') ? chipLeft : 0, width: 100 } as DOMRect
+      const width = this.hasAttribute('data-ai-actions') ? (screen.queryByRole('status')?.textContent?.startsWith('true') ? 150 : 400) : 100
+      const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
+      return { left, right: this.hasAttribute('data-ai-actions') ? actionsRight : left + width, width } as DOMRect
     })
     render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('true/false'))
@@ -79,6 +133,7 @@ describe('HeaderDensityProvider', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
     expect(screen.getByRole('status').textContent).toBe('true/false')
     chipLeft = 427
+    actionsRight = 733
     act(() => window.dispatchEvent(new Event('resize')))
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('false/false'))
   })

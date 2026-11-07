@@ -19,7 +19,7 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
     let left: HTMLElement | null = null
     let actions: HTMLElement | null = null
     let foldDisplacement = 0
-    let beforeFold: number | null = null
+    let unfoldedActionsWidth: number | null = null
     let settling = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const publish = (next: HeaderDensityState) => {
@@ -33,18 +33,23 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
       const leftBox = left.getBoundingClientRect()
       if (!chipBox.width || !leftBox.width || settling) return
       const titleSpace = chipBox.left - leftBox.left - 16
-      if (beforeFold !== null) {
-        foldDisplacement = Math.max(0, titleSpace - beforeFold)
-        beforeFold = null
+      if (unfoldedActionsWidth !== null && actions) {
+        // 같은 시점의 액션 오른쪽 경계에서 펼친 액션의 정지선을 복원한다.
+        // 검색 32px + 칩과 검색 간격 8px + 액션 앞 간격 16px = 56px.
+        // 현재 칩이 중앙/패널 한계에 먼저 닿았다면 실제 이동분만 남는다.
+        const unfoldedRightStop = actions.getBoundingClientRect().right - unfoldedActionsWidth - 56
+        foldDisplacement = Math.max(0, chipBox.right - unfoldedRightStop)
       }
       const next = nextHeaderDensityState({
         titleSpace,
         hasAuxiliaryActions: header?.dataset.aiHasAuxiliaryActions === 'true',
+        hasAiChip: !!chip.querySelector('[data-ai-density-chip]'),
         current,
         foldDisplacement,
       })
       if (next.folded !== current.folded || next.circle !== current.circle) {
-        if (next.folded && !current.folded) beforeFold = titleSpace
+        if (next.folded && !current.folded) unfoldedActionsWidth = actions?.getBoundingClientRect().width ?? null
+        if (!next.folded) unfoldedActionsWidth = null
         // left 전환(200ms) 중간값은 복귀 판정에 쓰지 않는다. 칩 폭 전환에도 같은 안정 시간을 둔다.
         settling = true
         timer = setTimeout(() => { settling = false; measure() }, 250)

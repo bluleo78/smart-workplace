@@ -4,6 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { nextHeaderDensityState } from './headerDensity'
 
 describe('nextHeaderDensityState', () => {
+  it('검색 전용은 동그라미를 켜지 않고 접기 복귀 경계를 적용한다', () => {
+    expect(nextHeaderDensityState({ titleSpace: 100, hasAuxiliaryActions: true, hasAiChip: false, current: { folded: true, circle: false }, foldDisplacement: 50 })).toEqual({ folded: true, circle: false })
+    expect(nextHeaderDensityState({ titleSpace: 220, hasAuxiliaryActions: true, hasAiChip: false, current: { folded: true, circle: true }, foldDisplacement: 50 })).toEqual({ folded: false, circle: false })
+  })
+
   it.each([
     [159, true, false, false, 250, true, false],
     [159, true, true, false, 250, true, true],
