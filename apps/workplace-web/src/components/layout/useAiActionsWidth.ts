@@ -5,6 +5,8 @@
 // (오프셋 = 88 + (칩폭-32)/2: 88px 는 동그라미 반폭 16 + 간격 8 + 검색 32 + 간격 16 + 여백 16.)
 import { useEffect } from 'react'
 
+import { useActiveDensityHeader } from './HeaderDensityContext'
+
 /** 헤더 우측 액션 표식(Page.Header 의 data-ai-actions). */
 const ACTIONS_SELECTOR = '[data-ai-actions]'
 /** 상단 가운데 틀 표식(TopCenterSlot 의 data-ai-chip — 폭이 칩 폭과 같다, 검색은 absolute). */
@@ -17,44 +19,41 @@ const CHIP_SELECTOR = '[data-ai-chip]'
  * 재측정: 액션 크기·칩 크기(동그라미↔일반 전환)·창 resize·액션 등장/사라짐.
  */
 export function useAiActionsWidth() {
+  const header = useActiveDensityHeader()
   useEffect(() => {
-    let ro: ResizeObserver | null = null
-    let chipRo: ResizeObserver | null = null
-    let actionsEl: HTMLElement | null = null
-
+    let actions: HTMLElement | null = null
+    let chip: HTMLElement | null = null
     const update = () => {
-      const chip = document.querySelector<HTMLElement>(CHIP_SELECTOR)
       if (!chip) return
-      chip.style.setProperty('--ai-actions-width', `${actionsEl ? actionsEl.getBoundingClientRect().width : 0}px`)
-      const w = chip.getBoundingClientRect().width
-      chip.style.setProperty('--ai-chip-offset', `${88 + Math.max(0, (w - 32) / 2)}px`)
+      chip.style.setProperty('--ai-actions-width', `${actions?.getBoundingClientRect().width ?? 0}px`)
+      const width = chip.getBoundingClientRect().width
+      chip.style.setProperty('--ai-chip-offset', `${88 + Math.max(0, (width - 32) / 2)}px`)
     }
-
-    // 액션 요소가 바뀌면(등장/사라짐/교체) ResizeObserver 를 다시 건다.
+    const ro = new ResizeObserver(update)
+    // 헤더와 포털이 각기 늦게 나타나도 두 요소를 함께 다시 연결한다.
     const attach = () => {
-      const actions = document.querySelector<HTMLElement>(ACTIONS_SELECTOR)
-      if (actions === actionsEl) return
-      ro?.disconnect()
-      actionsEl = actions
-      ro = actions ? new ResizeObserver(update) : null
-      if (ro && actions) ro.observe(actions)
+      const nextActions = header?.querySelector<HTMLElement>(ACTIONS_SELECTOR) ?? null
+      const nextChip = document.querySelector<HTMLElement>(CHIP_SELECTOR)
+      if (actions !== nextActions || chip !== nextChip) {
+        ro.disconnect()
+        actions = nextActions
+        chip = nextChip
+        if (actions) ro.observe(actions)
+        if (chip) ro.observe(chip)
+      }
       update()
     }
-
     attach()
-    const chip = document.querySelector<HTMLElement>(CHIP_SELECTOR)
-    if (chip) {
-      chipRo = new ResizeObserver(update)
-      chipRo.observe(chip)
-    }
-    const mo = new MutationObserver(attach)
-    mo.observe(document.body, { childList: true, subtree: true })
+    const bodyObserver = new MutationObserver(attach)
+    bodyObserver.observe(document.body, { childList: true })
+    const headerObserver = new MutationObserver(attach)
+    if (header) headerObserver.observe(header, { childList: true, subtree: true })
     window.addEventListener('resize', update)
     return () => {
-      ro?.disconnect()
-      chipRo?.disconnect()
-      mo.disconnect()
+      ro.disconnect()
+      bodyObserver.disconnect()
+      headerObserver.disconnect()
       window.removeEventListener('resize', update)
     }
-  }, [])
+  }, [header])
 }

@@ -4,7 +4,7 @@
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiSparkle } from '@/components/ai/AiSparkle';
-import { useAiChipCircle } from '@/components/ai/useAiChipCircle';
+import { useHeaderDensity } from '@/components/layout/HeaderDensityContext';
 import { aiTriggerLabel } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';
 
@@ -13,7 +13,7 @@ export function AIChip() {
   const { mode, cycleMode, triggerActivity } = useAssistant();
   const open = mode !== 'closed';
   // 제목 자리가 160px보다 좁으면(보조 단추를 접고도) 글자 없는 32px 동그라미로 줄인다(WP-1415).
-  const circle = useAiChipCircle();
+  const { circle } = useHeaderDensity();
 
   return (
     <button

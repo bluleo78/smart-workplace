@@ -3,9 +3,9 @@
 import { createContext, type ReactNode, type Ref, useContext, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { useHeaderDensity, useHeaderDensityHeader } from '@/components/layout/HeaderDensityContext'
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import { useAiChipClamp } from '@/components/layout/useAiChipClamp'
-import { useFoldAuxiliaryActions } from '@/components/layout/useFoldAuxiliaryActions'
 import { mobileRootHeaderClass, mobileRootTitleClass } from '@/components/mobile/headerClass'
 import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
@@ -207,9 +207,12 @@ function DesktopPageHeader({
   const leftGroupRef = useRef<HTMLDivElement>(null)
   useAiChipClamp(leftGroupRef)
   // 제목 자리가 160px보다 좁으면 보조 단추를 ⋯ 로 접는다(WP-1415).
-  const folded = useFoldAuxiliaryActions(leftGroupRef, auxiliaryActions != null)
+  const { folded } = useHeaderDensity()
+  const registerHeader = useHeaderDensityHeader()
   return (
     <header
+      ref={registerHeader}
+      data-ai-has-auxiliary-actions={auxiliaryActions != null}
       data-testid={testId}
       // relative z-45 — Sonner 토스트(index.css 에서 z-index:40 으로 하향)보다 위에 오도록 해
       // 헤더 우측 액션 버튼(검색/업로드 등)이 토스트에 클릭을 뺏기지 않게 함 (#715).
