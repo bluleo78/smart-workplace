@@ -8,6 +8,7 @@ import com.workplace.drive.exception.DriveSpaceTypeNotEditableException;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
 import java.util.Map;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -52,10 +53,45 @@ public class DrivePermissions {
    * WP-1421 메시지·이슈 드라이브 링크). VIEWER 는 가장 낮은 역할이라 멤버이면 항상 통과하므로, 막히는 경우는 비멤버뿐이다.
    */
   public void requireFileViewer(long spaceId, long userId, long driveFileId) {
+    requireFileRole(spaceId, userId, driveFileId, "VIEWER");
+  }
+
+  /**
+   * 파일 id 로 들어오는 요청의 역할 검증. {@link #requireRole} 과 같되 비멤버의 「공간 없음」을 「파일 없음」으로 바꿔, 파일 id 를 넣어 보는
+   * 것만으로 존재 여부가 새지 않게 한다(WP-1424). 멤버의 역할 부족·보관 공간 쓰기 403 은 그대로 둔다.
+   *
+   * @return 호출자의 실제 역할
+   */
+  public String requireFileRole(long spaceId, long userId, long driveFileId, String minRole) {
+    return hidingNonMember(
+        () -> requireRole(spaceId, userId, minRole),
+        () -> new DriveFileNotFoundException(driveFileId));
+  }
+
+  /**
+   * {@link #requireFileRole} 의 보관 공간 허용판 — 공유 링크 목록처럼 보관 공간에서도 봐야 하는 파일 범위 작업용(WP-1424, WP-526).
+   */
+  public String requireFileRoleEvenIfArchived(
+      long spaceId, long userId, long driveFileId, String minRole) {
+    return hidingNonMember(
+        () -> requireRoleEvenIfArchived(spaceId, userId, minRole),
+        () -> new DriveFileNotFoundException(driveFileId));
+  }
+
+  /**
+   * 역할 검증을 돌리되 비멤버의 「공간 없음」을 호출 경로가 다루는 대상의 「없음」 예외로 바꾼다 — 파일·링크처럼 공간이 아닌 id 로 들어오는 요청이 없는 id 와 같은
+   * 404 를 내 존재 여부가 새지 않게 하는 한 곳(WP-1424). 멤버의 역할 부족·보관 공간 403 은 그대로 둔다.
+   *
+   * @param roleCheck {@link #requireRole} 또는 {@link #requireRoleEvenIfArchived} 호출
+   * @param hiddenAs 비멤버에게 대신 던질 「없음」 예외
+   * @return 호출자의 실제 역할
+   */
+  public String hidingNonMember(
+      Supplier<String> roleCheck, Supplier<? extends RuntimeException> hiddenAs) {
     try {
-      requireRole(spaceId, userId, "VIEWER");
+      return roleCheck.get();
     } catch (DriveSpaceNotFoundException e) {
-      throw new DriveFileNotFoundException(driveFileId);
+      throw hiddenAs.get();
     }
   }
 

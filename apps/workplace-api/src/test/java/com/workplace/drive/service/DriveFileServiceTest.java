@@ -867,7 +867,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   /** VIEWER 는 403, 비멤버는 404(존재 은닉) — 비텍스트 파일이어도 409 보다 권한 검사가 먼저라 형식이 새지 않는다. */
   @Test
-  void updateTextFile_viewerForbidden_nonMemberHidden() throws Exception {
+  void updateTextFile_viewerForbidden_nonMemberSeesFileNotFound() throws Exception {
     long owner = seedUser();
     long viewer = seedUser();
     long outsider = seedUser();
@@ -880,8 +880,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
     assertThatThrownBy(() -> fileService.updateTextFile(viewer, image.id(), "y", null))
         .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
+    // WP-1424: 비멤버는 없는 파일 id 와 같은 「파일 없음」 404 — 공간 없음 문구로 파일 존재가 새지 않는다.
     assertThatThrownBy(() -> fileService.updateTextFile(outsider, image.id(), "y", null))
-        .isInstanceOf(com.workplace.drive.exception.DriveSpaceNotFoundException.class);
+        .isInstanceOf(DriveFileNotFoundException.class);
   }
 
   /** 휴지통 파일은 404. */

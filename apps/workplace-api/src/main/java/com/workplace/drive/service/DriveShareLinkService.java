@@ -68,7 +68,8 @@ public class DriveShareLinkService {
       long callerId, long driveFileId, CreateShareLinkRequest req) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    // WP-1424: 비멤버는 공간 없음 대신 파일 없음(404)으로 파일 id 존재를 숨긴다.
+    perms.requireFileRole(row.spaceId(), callerId, driveFileId, "EDITOR");
 
     String audience = req.audience();
     if (audience == null || !AUDIENCES.contains(audience)) {
@@ -125,7 +126,7 @@ public class DriveShareLinkService {
   public List<ShareLinkResponse> list(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRoleEvenIfArchived(row.spaceId(), callerId, "EDITOR");
+    perms.requireFileRoleEvenIfArchived(row.spaceId(), callerId, driveFileId, "EDITOR");
     return links.listByFile(driveFileId);
   }
 
@@ -134,7 +135,10 @@ public class DriveShareLinkService {
   public void revoke(long callerId, long linkId) {
     Long spaceId =
         links.findSpaceIdOfActive(linkId).orElseThrow(DriveShareLinkNotFoundException::new);
-    perms.requireRoleEvenIfArchived(spaceId, callerId, "EDITOR");
+    // WP-1424: 비멤버는 살아 있는 링크도 없는 링크 id 와 같은 404 — 공간 없음 문구로 링크 존재가 새지 않게 한다.
+    perms.hidingNonMember(
+        () -> perms.requireRoleEvenIfArchived(spaceId, callerId, "EDITOR"),
+        DriveShareLinkNotFoundException::new);
     links.revoke(linkId);
   }
 
