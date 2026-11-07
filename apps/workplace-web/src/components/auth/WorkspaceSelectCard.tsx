@@ -7,7 +7,8 @@ import { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import type { Membership } from '../../types/auth';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader } from '../ui/card';
+import { AuthCardTitle } from './AuthCardTitle';
 
 /**
  * @param notice 선택 화면 위에 띄울 안내(예: 쓰던 워크스페이스를 잃어 다시 골라야 할 때 — WP-341 후속). 없으면 기본 설명만.
@@ -30,10 +31,12 @@ export function WorkspaceSelectCard({ options, notice }: { options: Membership[]
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    // WP-1429: 로그인·SSO 완료 화면이 폼 대신 통째로 그리는 상태라 여기서 main·h1 을 준다(랜드마크·제목 탐색).
+    // 제목은 CardTitle(div) 과 모양이 같은 h1(AuthCardTitle).
+    <main className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">워크스페이스 선택</CardTitle>
+          <AuthCardTitle className="text-2xl">워크스페이스 선택</AuthCardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
             접속할 워크스페이스를 선택하세요.
           </p>
@@ -68,6 +71,6 @@ export function WorkspaceSelectCard({ options, notice }: { options: Membership[]
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

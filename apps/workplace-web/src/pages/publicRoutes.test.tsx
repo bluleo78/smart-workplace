@@ -130,12 +130,33 @@ describe('SSO 완료 라우트(WP-48)', () => {
   test('여러 워크스페이스면 선택 카드를 보여준다', async () => {
     renderAuthRoutes('/login/sso/complete?returnTo=%2F', ssoHandlers([T1, T2]))
     expect(await screen.findByText('워크스페이스 선택')).toBeInTheDocument()
+    // WP-1429: 선택 카드 상태도 main·h1 하나씩.
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: '워크스페이스 선택' })).toBeInTheDocument()
     expect(screen.getByTestId('workspace-option-2')).toBeInTheDocument()
   })
 
   test('워크스페이스가 없으면 안내한다', async () => {
     renderAuthRoutes('/login/sso/complete', ssoHandlers([]))
     expect(await screen.findByText('접속 가능한 워크스페이스가 없습니다. 관리자에게 문의하세요.')).toBeInTheDocument()
+    // WP-1429: 안내 상태도 main·h1 하나씩.
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 1, name: '로그인할 수 없습니다' })).toBeInTheDocument()
+  })
+
+  // WP-1429: 세션 확인 중(refresh 응답 대기)에도 main·h1 하나씩 — 보이는 「로그인 중…」이 제목.
+  test('세션 확인 중에는 「로그인 중…」 제목과 main 을 보인다', async () => {
+    // refresh 는 모듈 공용(중복 요청 합치기)이라 끝내지 않으면 다음 테스트로 새어 나간다 — 확인 뒤 실패로 풀어 준다.
+    let release: (r: Response) => void = () => {}
+    const { location } = renderAuthRoutes('/login/sso/complete', [
+      http.post(`${API}/auth/refresh`, () => new Promise<Response>((r) => (release = r))),
+      ...loginPageHandlers(false),
+    ])
+    expect(await screen.findByRole('heading', { level: 1, name: '로그인 중…' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    release(HttpResponse.json({ message: 'x' }, { status: 401 }))
+    await waitFor(() => expect(location()).toBe('/login?sso_error=retry'))
   })
 
   // 외부 returnTo 정제는 sso.test(safeReturnTo)가 지킨다.

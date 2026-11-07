@@ -32,6 +32,7 @@ import { driveFilePath } from '@/components/viewer/driveOpen'
 import type { ViewerItem, ViewerItemSource } from '@/components/viewer/types'
 import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { SHARE_LINK_TITLE } from '@/lib/documentTitle'
 import { formatFileSize } from '@/lib/formatters'
 import { savePendingPushTarget } from '@/lib/push/openTarget'
 
@@ -137,7 +138,9 @@ export default function ShareLinkPage() {
   const source = useMemo(() => shareViewerSource(token, viewToken, onUnauthorized), [token, viewToken, onUnauthorized])
 
   const file: ShareFileInfo | null = info.data && 'name' in info.data ? info.data : null
-  useDocumentTitle([file?.name])
+  // 탭 제목 — 파일을 알면 「{파일 이름} · 공유 링크 · Gen:iA Works」로 덮는다. 모르는 상태(로딩·잠금·오류)는 덮지 않아
+  // 주소 기본값 「공유 링크 · Gen:iA Works」(routeTitleParts)가 보인다(WP-1429).
+  useDocumentTitle(file ? [file.name, SHARE_LINK_TITLE] : [])
 
   // 뷰어 항목 — 요약·참조된 곳·가져오기·드라이브에서 열기 같은 부가 필드는 두지 않는다(공개 화면).
   const items = useMemo<ViewerItem[]>(() => {
@@ -179,6 +182,8 @@ export default function ShareLinkPage() {
   } else if (authLoading || info.isPending) {
     body = (
       <ShareCard>
+        {/* WP-1429: 로딩 상태도 h1 하나 — 눈에 보이는 문구는 그대로 두고 화면 이름을 sr-only 제목으로. */}
+        <h1 className="sr-only">{SHARE_LINK_TITLE}</h1>
         <p className="text-center text-sm text-muted-foreground" role="status" data-testid="share-loading">
           불러오는 중…
         </p>
@@ -240,11 +245,15 @@ export default function ShareLinkPage() {
         <DriveOpenLine token={token} file={file} isAuthenticated={isAuthenticated} fromLogin={fromLogin} />
       </>
     )
+  } else {
+    // 예상 밖 응답 모양(이름도 잠금 표시도 없음) — main 이 비지 않게 일시 실패 카드(h1 포함)로 다시 시도를 안내한다(WP-1429).
+    body = <ShareErrorCard status={0} onRetry={() => void refetchInfo()} />
   }
 
   return (
     // 전체 화면 중앙 정렬 — AppLayout 없이 최소 UI. 좁은 폰(360px)에서도 카드가 좌우 16px 여백 안에 들어간다.
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8">
+    // WP-1429: AppLayout 밖이라 main 을 주는 곳이 없어 바깥 틀을 main 으로(랜드마크 탐색). 제목(h1)은 상태마다 카드 안에 하나.
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-8">
       {/* 브랜드/홈 링크 — AppLayout 밖 독립 페이지라 대체 내비게이션 수단이 없어 둔다(#677). */}
       <Link to="/" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
         {/* WP-1364: 로고 마크 — BrandMark 의 안쪽 아이콘이 고정 크기(h-5)라 작은 칸에서는 [&>svg] 로 줄인다. */}
@@ -257,7 +266,7 @@ export default function ShareLinkPage() {
       {viewerOpen && items.length > 0 && (
         <AttachmentViewer items={items} index={0} onIndexChange={() => {}} onClose={() => setViewerOpen(false)} shareable={false} />
       )}
-    </div>
+    </main>
   )
 }
 
@@ -267,6 +276,8 @@ function ShareErrorCard({ status, onRetry }: { status: number; onRetry?: () => v
   return (
     <ShareCard>
       <div className="space-y-2 text-center">
+        {/* WP-1429: 오류 상태도 h1 하나 — 화면 이름을 보이지 않게(sr-only) 두고 원인 문구는 알림(role=alert) 그대로. */}
+        <h1 className="sr-only">{SHARE_LINK_TITLE}</h1>
         <p className="text-sm text-destructive" role="alert" data-testid="share-error-msg">
           {infoErrorMessage(status)}
         </p>

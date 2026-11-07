@@ -78,6 +78,9 @@ describe('로그인 → 워크스페이스 선택 (#219)', () => {
     ])
     await submitLogin(user)
     expect(await screen.findByText('워크스페이스 선택')).toBeInTheDocument()
+    // WP-1429: 선택 카드 상태도 main·h1 하나씩.
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: '워크스페이스 선택' })).toBeInTheDocument()
     expect(screen.getByTestId('workspace-option-20')).toBeInTheDocument()
     await user.click(screen.getByTestId('workspace-option-10'))
     await waitFor(() => expect(bodies).toEqual([{ tenantId: 10 }]))
@@ -119,6 +122,42 @@ describe('로그인 → 워크스페이스 선택 (#219)', () => {
     expect(await screen.findByText('워크스페이스 전환에 실패했습니다. 다시 시도해 주세요.')).toBeInTheDocument()
     expect(screen.getByText('워크스페이스 선택')).toBeInTheDocument()
     expect(screen.getByTestId('workspace-option-10')).toBeEnabled()
+  })
+})
+
+describe('비로그인 화면의 랜드마크·제목 (WP-1429)', () => {
+  // 스크린리더의 랜드마크·제목 탐색이 비지 않게 — 로그인·가입 화면마다 main 하나, 대표 제목 h1 하나.
+  test('로그인 화면은 main 과 「Gen:iA Works」 h1 이 하나씩이다', async () => {
+    renderAuthRoutes('/login', availability())
+    expect(await screen.findByRole('heading', { level: 1, name: 'Gen:iA Works' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('main')).toBeInTheDocument()
+  })
+
+  // 가용성 응답 전(스피너) — 보이지 않는 「회원가입」 h1 과 「로딩 중」 상태 알림.
+  test('가입 화면은 가용성을 묻는 동안에도 main·h1 과 로딩 상태 알림이 있다', async () => {
+    renderAuthRoutes('/signup', [
+      http.get('/api/v1/auth/signup-available', () => new Promise<Response>(() => {})),
+      http.get('/api/v1/auth/sso/status', () => HttpResponse.json({ m365: false })),
+    ])
+    expect(await screen.findByRole('status', { name: '로딩 중' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: '회원가입' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toBeInTheDocument()
+  })
+
+  test('가입 화면(폼·잠김) 모두 main 과 「회원가입」 h1 이 하나씩이다', async () => {
+    const { unmount } = renderAuthRoutes('/signup', availability(true))
+    expect(await screen.findByLabelText('아이디 (이메일)')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: '회원가입' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    unmount()
+
+    renderAuthRoutes('/signup', availability(false))
+    expect(await screen.findByText('회원가입이 비활성화되어 있습니다. 관리자에게 문의하세요.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: '회원가입' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('main')).toBeInTheDocument()
   })
 })
 

@@ -9,8 +9,9 @@ import { FormField } from '@/components/ui/form-field';
 import { extractApiError } from '@/lib/api-error';
 import type { ErrorResponse } from '@/types/auth';
 
+import { AuthCardTitle } from '../components/auth/AuthCardTitle';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { PasswordInput } from '../components/ui/password-input';
 import { useSignupAvailable } from '../hooks/queries/useSignupAvailable';
@@ -40,19 +41,25 @@ export default function SignupPage() {
   // 가용성 조회 중 — 폼 깜빡임 방지를 위해 스피너만 표시.
   if (isAvailabilityLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="로딩 중" />
-      </div>
+      // WP-1429: 스피너만 보이는 상태도 main·h1 을 둔다 — 제목은 눈에 안 보이게(sr-only) 두어 모양은 그대로.
+      // 스피너는 상태 알림(role=status)으로 감싸 「로딩 중」이 읽히게 한다(공유 링크 화면의 로딩과 같게).
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <h1 className="sr-only">회원가입</h1>
+        <div role="status" aria-label="로딩 중">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden="true" />
+        </div>
+      </main>
     );
   }
 
   // 가입이 잠긴 상태(첫 사용자 생성 이후) — 폼 대신 안내 + 로그인 링크만 노출.
   if (available === false) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
+      // WP-1429: 비로그인 화면의 랜드마크·제목 — CardTitle(div) 대신 모양이 같은 h1(AuthCardTitle).
+      <main className="flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">회원가입</CardTitle>
+            <AuthCardTitle className="text-2xl">회원가입</AuthCardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
@@ -63,7 +70,7 @@ export default function SignupPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </main>
     );
   }
 
@@ -87,10 +94,11 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    // WP-1429: 스크린리더의 랜드마크·제목 탐색 — 바깥은 main, 제목은 CardTitle(div) 과 모양이 같은 h1(AuthCardTitle).
+    <main className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">회원가입</CardTitle>
+          <AuthCardTitle className="text-2xl">회원가입</AuthCardTitle>
         </CardHeader>
         <CardContent>
           {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}
@@ -173,6 +181,6 @@ export default function SignupPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }
