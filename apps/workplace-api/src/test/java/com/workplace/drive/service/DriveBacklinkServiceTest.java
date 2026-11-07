@@ -1,13 +1,13 @@
 // DriveBacklinkServiceTest.java — 백링크 서비스 통합 테스트
 package com.workplace.drive.service;
 
+import static com.workplace.drive.service.DriveExistenceHiding.assertHiddenLikeMissing;
 import static com.workplace.jooq.Tables.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.BacklinkResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
-import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
@@ -174,15 +174,16 @@ class DriveBacklinkServiceTest extends IntegrationTestBase {
     assertThat(result.get(0).deepLink()).isNotBlank();
   }
 
-  /** 파일 비멤버(VIEWER 미만) → DriveSpaceNotFoundException(존재 은닉). */
+  /** 파일 비멤버 → 없는 파일과 같은 DriveFileNotFoundException·같은 문구(WP-1422 — 파일 id 존재 은닉). */
   @Test
-  void backlinks_nonMember_throwsSpaceNotFound() {
+  void backlinks_nonMember_hiddenAsFileNotFound() {
     long owner = seedUser("owner");
     long stranger = seedUser("stranger");
     long driveFileId = seedDriveFile(owner, "OWNER");
 
-    assertThatThrownBy(() -> service.backlinks(stranger, driveFileId))
-        .isInstanceOf(DriveSpaceNotFoundException.class);
+    assertHiddenLikeMissing(
+        () -> service.backlinks(stranger, driveFileId),
+        () -> service.backlinks(stranger, driveFileId + 100_000L));
   }
 
   /** 존재하지 않는 driveFileId → DriveFileNotFoundException. */

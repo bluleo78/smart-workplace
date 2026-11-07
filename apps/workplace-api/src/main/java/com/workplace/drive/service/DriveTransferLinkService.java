@@ -135,16 +135,15 @@ public class DriveTransferLinkService {
   }
 
   /**
-   * 다운로드 링크 발급. 휴지통·없는 파일은 404, 공간 비멤버는 404(존재 은닉), VIEWER 이상이면 발급한다. 발급자의 만료 행을 함께 정리한다.
+   * 다운로드 링크 발급. 휴지통·없는 파일은 404, VIEWER+ (비멤버는 없는 파일과 같은 404, WP-1422). 발급자의 만료 행을 함께 정리한다.
    *
    * <p>원본 blob 이 유실된 파일은 발급 단계에서 404(FileBlobMissing)로 거른다 — 받을 수 없는 링크를 만들지 않는다.
    */
   @Transactional
   public DriveDownloadLinkResponse issueDownloadLink(long callerId, long driveFileId)
       throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    // 파일 읽기 경로와 같은 가드 — 비멤버도 없는 파일과 같은 404·같은 문구.
+    DriveFileRepository.DriveFileRow row = fileService.viewableRow(callerId, driveFileId);
     FileContentResult meta = fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
 
     links.deleteExpiredByUser(callerId);

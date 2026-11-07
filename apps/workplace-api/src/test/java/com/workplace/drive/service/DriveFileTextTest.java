@@ -15,12 +15,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.drive.exception.DriveFileNotFoundException;
-import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.InvalidTextRangeException;
@@ -68,14 +69,14 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
   private Long driveFileId;
   private boolean hasExtraction;
 
-  /** 비멤버는 존재 은닉으로 거부된다. */
+  /** 비멤버는 없는 파일과 같은 「파일 없음」으로 거부된다(WP-1422 — 파일 id 존재 은닉). */
   @Test
   void readText_nonMember_isHiddenAsNotFound() {
     seedFixture("DONE", null, "비밀 본문");
 
     TenantContext.set(tid2);
     assertThatThrownBy(() -> fileService.readText(outsiderId, driveFileId, 0, 100))
-        .isInstanceOf(DriveSpaceNotFoundException.class);
+        .isInstanceOf(DriveFileNotFoundException.class);
   }
 
   /** 없는 드라이브 파일은 404. */
@@ -311,6 +312,59 @@ class DriveFileTextTest extends ExternalClientMockedTestBase {
       TenantContext.set(tid2);
     }
     verifyNoInteractions(worker);
+  }
+
+  /**
+   * WP-1422: 비멤버가 남의 파일 id 로 부른 응답과 없는 id 로 부른 응답이 HTTP 단에서 같다 — 둘 다 404·같은 문구라 응답만으로 파일 id 가 있는지 알
+   * 수 없다. 파일 id 로 여는 읽기 엔드포인트(다운로드·내용·썸네일·요약·텍스트·보기·미리보기·버전 목록·버전 다운로드·백링크·다운로드 링크 발급)를 모두 본다.
+   */
+  @Test
+  void readEndpoints_nonMemberAndMissingId_returnSame404() throws Exception {
+    seedFixture("DONE", null, "비밀 본문");
+    long missing = driveFileId + 100_000;
+    // {HTTP 메서드, /api/v1/drive/files/{id} 뒤에 붙는 경로}
+    String[][] endpoints = {
+      {"GET", "/download"},
+      {"GET", "/content"},
+      {"GET", "/thumbnail"},
+      {"GET", "/summary"},
+      {"GET", "/text"},
+      {"GET", "/view?page=1"},
+      {"GET", "/preview"},
+      {"GET", "/versions"},
+      {"GET", "/versions/1/download"},
+      {"GET", "/backlinks"},
+      {"POST", "/download-link"}
+    };
+    try {
+      for (String[] ep : endpoints) {
+        String hidden = notFoundBody(ep[0], "/api/v1/drive/files/" + driveFileId + ep[1]);
+        String absent = notFoundBody(ep[0], "/api/v1/drive/files/" + missing + ep[1]);
+        // 본문의 path 에는 id 가 들어가므로 id 자리만 다르다 — 그 밖(상태·문구)은 같아야 한다.
+        assertThat(normalized(hidden, driveFileId))
+            .as(ep[0] + " " + ep[1])
+            .isEqualTo(normalized(absent, missing));
+      }
+    } finally {
+      TenantContext.set(tid2);
+    }
+    verifyNoInteractions(worker);
+  }
+
+  /** 비멤버로 요청해 404·「파일 없음」 문구를 확인하고 응답 본문을 돌려준다. */
+  private String notFoundBody(String method, String url) throws Exception {
+    var req = "POST".equals(method) ? post(url) : get(url);
+    return mvc.perform(req.header("Authorization", tokenFor(outsiderId)))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message").value("드라이브 파일을 찾을 수 없습니다"))
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+  }
+
+  /** 응답 본문에서 id 와 timestamp 를 지워 두 응답을 비교할 수 있게 한다. */
+  private static String normalized(String body, long id) {
+    return body.replace(String.valueOf(id), "ID").replaceAll("\"timestamp\":\"[^\"]*\"", "");
   }
 
   // ---------------------------------------------------------------- 시드

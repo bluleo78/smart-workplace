@@ -215,14 +215,14 @@ public class DriveLinkService {
     refRepo.deleteAllForSources(sourceType, sourceIds);
   }
 
-  /** 백링크 조회: 파일에 연결된 소스(이슈/메시지)를 해석하여 접근 가능한 것만 반환. 파일에 ≥VIEWER 권한 필요. */
+  /** 백링크 조회: 파일에 연결된 소스(이슈/메시지)를 해석하여 접근 가능한 것만 반환. VIEWER+ (비멤버는 없는 파일과 같은 404, WP-1422). */
   @Transactional(readOnly = true)
   public List<BacklinkResponse> backlinks(long callerId, long driveFileId) {
     var meta =
         fileRepo
             .findLinkMeta(driveFileId)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(meta.spaceId(), callerId, "VIEWER");
+    perms.requireFileViewer(meta.spaceId(), callerId, driveFileId);
 
     // sourceType 별로 묶어 resolver 에 배치 조회
     Map<String, List<Long>> byType = new HashMap<>();

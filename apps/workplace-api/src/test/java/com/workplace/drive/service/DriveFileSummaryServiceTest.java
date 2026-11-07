@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.FileSummaryResponse;
-import com.workplace.drive.exception.DriveSpaceNotFoundException;
+import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -68,9 +68,9 @@ class DriveFileSummaryServiceTest extends IntegrationTestBase {
     seedFixture("보고서.docx", "DONE", "비밀 요약", true);
 
     TenantContext.set(tid2);
-    // 비멤버는 스페이스 존재 자체를 은닉(existence hiding) — DriveSpaceNotFoundException 반환.
+    // 비멤버는 없는 파일과 같은 「파일 없음」(WP-1422) — 문구 차이로 파일 id 존재가 드러나지 않게.
     assertThatThrownBy(() -> fileService.fileSummary(outsiderId, driveFileId))
-        .isInstanceOf(DriveSpaceNotFoundException.class);
+        .isInstanceOf(DriveFileNotFoundException.class);
   }
 
   @Test

@@ -666,9 +666,7 @@ public class DriveFileService {
   /** 다운로드. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. */
   @Transactional(readOnly = true)
   public FileContentResult download(long callerId, long driveFileId) throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    DriveFileRepository.DriveFileRow row = viewableRow(callerId, driveFileId);
     return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 
@@ -678,9 +676,7 @@ public class DriveFileService {
    */
   @Transactional(readOnly = true)
   public FileSummaryResponse fileSummary(long callerId, long driveFileId) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    DriveFileRepository.DriveFileRow row = viewableRow(callerId, driveFileId);
     var r = summaries.findSummary(row.fileId());
     // 사유 문구는 fileai 공용 변환을 쓴다(WP-242) — 첨부 구간 읽기와 같은 코드·문구.
     String reason =
@@ -721,25 +717,24 @@ public class DriveFileService {
     return viewableRow(callerId, driveFileId).fileId();
   }
 
-  /** 보기 가드 — 없는·휴지통 파일 404, 스페이스 VIEWER 미만 403. 보기 경로들이 이 한 곳의 규칙을 쓴다. */
-  private DriveFileRepository.DriveFileRow viewableRow(long callerId, long driveFileId) {
+  /**
+   * 읽기 가드(VIEWER+) — 없는·휴지통 파일과 볼 수 없는 파일(공간 비멤버)을 같은 404·같은 문구({@link
+   * DriveFileNotFoundException})로 돌린다. 비멤버에게 「공간 없음」을 주면 문구 차이로 파일 id 존재가 드러났다(WP-1422).
+   */
+  DriveFileRepository.DriveFileRow viewableRow(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    perms.requireFileViewer(row.spaceId(), callerId, driveFileId);
     return row;
   }
 
   /**
    * 채팅 앱 링크 카드용 파일 이름(WP-896) — {@link #resolveViewFileId} 와 같은 가드(없는·휴지통 파일 404, 스페이스 VIEWER 이상)를
-   * 거친다. 볼 수 없는 파일도 없는 파일과 같은 404 로 돌려 카드 요청으로 파일 id 가 있는지 알 수 없게 한다 — 비멤버가 받는 「공간 없음」을 「파일 없음」으로
-   * 바꾼다({@link DrivePermissions#requireFileViewer}, WP-1165 — 메시지가 달라 있는 id 와 없는 id 가 갈렸다).
+   * 거친다. 볼 수 없는 파일도 없는 파일과 같은 404 로 돌려 카드 요청으로 파일 id 가 있는지 알 수 없게 한다(WP-1165).
    */
   @Transactional(readOnly = true)
   public String viewableFileName(long callerId, long driveFileId) {
-    var row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireFileViewer(row.spaceId(), callerId, driveFileId);
-    return row.name();
+    return viewableRow(callerId, driveFileId).name();
   }
 
   /**
@@ -770,9 +765,7 @@ public class DriveFileService {
   /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
   @Transactional(readOnly = true)
   public Optional<FileContentResult> thumbnail(long callerId, long driveFileId) throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    DriveFileRepository.DriveFileRow row = viewableRow(callerId, driveFileId);
     return fileUpload.getThumbnailContentTrusted(row.fileId());
   }
 
@@ -826,9 +819,7 @@ public class DriveFileService {
   @Transactional(readOnly = true)
   public java.util.List<com.workplace.drive.dto.DriveFileVersionResponse> listVersions(
       long callerId, long driveFileId) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    DriveFileRepository.DriveFileRow row = viewableRow(callerId, driveFileId);
     var rows = versions.listForDriveFile(driveFileId); // version_no DESC
     java.util.List<com.workplace.drive.dto.DriveFileVersionResponse> out =
         new java.util.ArrayList<>();
@@ -852,9 +843,7 @@ public class DriveFileService {
   @Transactional(readOnly = true)
   public FileContentResult downloadVersion(long callerId, long driveFileId, int versionNo)
       throws IOException {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    DriveFileRepository.DriveFileRow row = viewableRow(callerId, driveFileId);
     var v =
         versions
             .findVersion(driveFileId, versionNo)

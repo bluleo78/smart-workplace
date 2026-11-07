@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import static com.workplace.drive.service.DriveExistenceHiding.assertHiddenLikeMissing;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
@@ -20,9 +21,11 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import javax.imageio.ImageIO;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,16 +110,45 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(fileService.thumbnail(u, f.id())).isEmpty();
   }
 
-  /** 비멤버는 썸네일 접근 불가(공간 존재 은닉 → NotFound). */
+  /**
+   * 파일 id 로 여는 읽기 경로를 비멤버가 남의 파일 id 로 부르면 없는 id 와 같은 예외·같은 문구다(WP-1422) — 응답만으로 그 id 의 파일이 있는지 알 수
+   * 없다. 가드가 내용을 읽기 전에 돌므로 작은 텍스트 파일 하나로 모든 경로를 본다.
+   */
   @Test
-  void thumbnail_byNonMember_isRejected() throws Exception {
+  void readPaths_byNonMember_areHiddenAsFileNotFound() throws Exception {
     long owner = seedUser();
     long outsider = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    long id = fileService.upload(owner, sp.id(), null, txt()).id();
+    long missing = id + 100_000L;
+    // 파일 id 를 받아 비멤버로 읽기 경로를 부르는 호출들
+    List<java.util.function.LongFunction<ThrowingCallable>> reads =
+        List.of(
+            f -> () -> fileService.download(outsider, f),
+            f -> () -> fileService.fileSummary(outsider, f),
+            f -> () -> fileService.readText(outsider, f, 0, 100),
+            f -> () -> fileService.resolveViewFileId(outsider, f),
+            f -> () -> fileService.viewableFileName(outsider, f),
+            f -> () -> fileService.thumbnail(outsider, f),
+            f -> () -> fileService.listVersions(outsider, f),
+            f -> () -> fileService.downloadVersion(outsider, f, 1));
+    for (var read : reads) {
+      assertHiddenLikeMissing(read.apply(id), read.apply(missing));
+    }
+  }
+
+  /** 멤버(VIEWER)는 그대로 읽는다 — 비멤버만 「파일 없음」으로 바뀌었는지 확인(WP-1422). */
+  @Test
+  void readPaths_byViewerMember_stillAllowed() throws Exception {
+    long owner = seedUser();
+    long viewer = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    spaceService.addMember(owner, sp.id(), viewer, "VIEWER");
     DriveFileResponse f = fileService.upload(owner, sp.id(), null, png());
 
-    assertThatThrownBy(() -> fileService.thumbnail(outsider, f.id()))
-        .isInstanceOf(com.workplace.drive.exception.DriveSpaceNotFoundException.class);
+    assertThat(fileService.thumbnail(viewer, f.id())).isPresent();
+    assertThat(fileService.listVersions(viewer, f.id())).hasSize(1);
+    assertThat(fileService.downloadVersion(viewer, f.id(), 1)).isNotNull();
   }
 
   /** 255자 넘는 파일명(WP-561) — 409 대신 확장자를 살려 255자로 줄여 저장한다. */
