@@ -24,10 +24,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
+import { IconHint } from '@/components/ui/icon-hint'
 import { formatDateKey, formatDateOnlyMonthDay, formatDateRangeMonthDay } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import type { IssueStatus } from '@/types/issue'
 
+import { layoutCycleLabelLanes } from './cycleLabelLanes'
 import {
   clusterLaneGroups,
   dayCellLabel,
@@ -115,6 +117,11 @@ const NO_VERSIONS: TimelineVersionMarker[] = []
 const LANE_CHIP_MIN_GAP_PX = 96
 // 겹치는 사이클 이름표 한 줄 높이(text-xs 줄 높이 16px) — 줄을 나눌 때 아래로 내리는 간격(WP-489).
 const CYCLE_LABEL_LANE_PX = 16
+// 간트 행 높이(px) — SVAR cellHeight 와 timeline-gantt.css 의 40px 행(#646)과 같은 값.
+const ROW_HEIGHT_PX = 40
+// 사이클 이름표 최대 줄 수(WP-1439) — 첫 행 높이에 들어가는 줄 수만큼만 쌓아야 둘째 행 이슈 막대를 가리지 않는다.
+// 행 높이에서 끌어내 두어, 행 높이나 줄 높이를 바꿔도 상한이 따라온다(40/16 → 2줄). 넘치는 사이클은 마지막 줄 이름표의 「+N」 으로 접는다.
+const CYCLE_LABEL_MAX_LANES = Math.max(1, Math.floor(ROW_HEIGHT_PX / CYCLE_LABEL_LANE_PX))
 
 const GROUP_ID_PREFIX = 'group-'
 const groupTaskId = (key: string) => `${GROUP_ID_PREFIX}${key}`
@@ -516,6 +523,9 @@ export function TimelineGantt({
     [dependencies, dueDateByIssueNumber],
   )
 
+  // 사이클 이름표 줄 배정(WP-1439) — 줄 수 상한 안에서 그릴 이름표와 접힌 사이클. 날짜만 보므로 스크롤·보기와 무관하다.
+  const cycleLabelSlots = useMemo(() => layoutCycleLabelLanes(cycles, CYCLE_LABEL_MAX_LANES), [cycles])
+
   // 사이클 구간에 속한 날짜는 highlightTime 이 반환하는 CSS 클래스로 셀 배경을 물들인다.
   const highlightTime = useMemo(() => {
     const bands = cycles.map((cycle) => ({
@@ -653,23 +663,19 @@ export function TimelineGantt({
       // 헤더 눈금 텍스트와 겹치지 않는다 — `.wx-chart` 자체는 헤더까지 포함해 top 이 0이라 헤더 높이를 더한다.
       const scaleHeader = scroller.querySelector<HTMLElement>('.wx-scale')
       const baseTop = scaleHeader ? scaleHeader.getBoundingClientRect().height : 0
-      // 기간이 겹치는 사이클은 이름표 줄을 나눈다(WP-489) — 시작일 순으로 훑어, 앞 줄의 마지막 사이클이 끝난 뒤에
-      // 시작하면 그 줄에, 아니면 새 줄에 둔다. 날짜 기준이라 스크롤과 무관하다.
-      const laneEnds: string[] = []
-      for (const band of [...cycles].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
-        let lane = laneEnds.findIndex((end) => end < band.startDate)
-        if (lane < 0) lane = laneEnds.length
-        laneEnds[lane] = band.endDate
-        const el = cycleBandLabelRefs.current.get(band.id)
-        if (el) el.style.top = `${baseTop + lane * CYCLE_LABEL_LANE_PX}px`
-      }
       chartLeft = baseLeft
       todayLeft = baseLeft + toOffset(new Date())
+      // 기간이 겹치는 사이클은 이름표 줄을 나눈다(WP-489) — 줄 배정은 cycleLabelSlots(최대 CYCLE_LABEL_MAX_LANES 줄, WP-1439).
+      // 접힌 사이클은 slot 이 없어 배치에서도 빠진다(띠 배경은 highlightTime 이 그대로 칠한다).
+      // 이름표 폭은 접힌 사이클까지 덮는 slot.endDate 로 잡는다 — 자기 기간이 왼쪽 밖으로 지나가도 접힌 사이클이 보이는 동안
+      // 이름표와 「+N」 이 차트 왼쪽 끝에 붙어 남는다.
       bandLefts.clear()
-      for (const band of cycles) {
-        const left = baseLeft + toOffset(parseISO(band.startDate))
-        const width = baseLeft + toOffset(parseISO(band.endDate)) - left
-        bandLefts.set(band.id, { left, width })
+      for (const { cycle, lane, endDate } of cycleLabelSlots.values()) {
+        const el = cycleBandLabelRefs.current.get(cycle.id)
+        if (el) el.style.top = `${baseTop + lane * CYCLE_LABEL_LANE_PX}px`
+        const left = baseLeft + toOffset(parseISO(cycle.startDate))
+        const width = baseLeft + toOffset(parseISO(endDate)) - left
+        bandLefts.set(cycle.id, { left, width })
       }
       const xOf = (date: string) => baseLeft + toOffset(parseISO(date))
       const fillLayout = <T extends { id: number }>(
@@ -766,7 +772,7 @@ export function TimelineGantt({
       resizeObserver.disconnect()
       cancelAnimationFrame(resizeFrame)
     }
-  }, [cycles, zoom, tasks, milestoneClusters, versionClusters])
+  }, [cycleLabelSlots, zoom, tasks, milestoneClusters, versionClusters])
 
   // 이슈 막대 상태별 색상(#639) — SVAR 는 task 필드 기반 className/style 주입 API 가 없어(스파이크 노트),
   // 렌더된 `.wx-bar` DOM 노드에 직접 CSS 변수를 주입한다. `--wx-gantt-task-color`(기본 배경)와
@@ -995,18 +1001,20 @@ export function TimelineGantt({
           data-testid="timeline-today-line"
           className="pointer-events-none absolute inset-y-0 left-0 z-10 w-px bg-destructive"
         />
-        {/* 사이클 밴드 라벨 — highlightTime 이 칠한 배경 위에 이름을 표시한다. */}
-        {cycles.map((band) => (
+        {/* 사이클 밴드 라벨 — highlightTime 이 칠한 배경 위에 이름을 표시한다. 줄이 모자라 접힌 사이클(WP-1439)은 그리지 않고,
+            접혀 들어온 이름표 뒤에 「+N」 을 붙인다. */}
+        {[...cycleLabelSlots.values()].map(({ cycle, folded }) => (
           <div
-            key={band.id}
+            key={cycle.id}
             ref={(el) => {
-              if (el) cycleBandLabelRefs.current.set(band.id, el)
-              else cycleBandLabelRefs.current.delete(band.id)
+              if (el) cycleBandLabelRefs.current.set(cycle.id, el)
+              else cycleBandLabelRefs.current.delete(cycle.id)
             }}
             data-testid="timeline-cycle-band"
-            className="pointer-events-none absolute top-0 left-0 z-10 truncate px-1 text-xs text-muted-foreground"
+            className="pointer-events-none absolute top-0 left-0 z-10 flex items-center gap-1 overflow-hidden px-1 text-xs text-muted-foreground"
           >
-            {band.name}
+            <span className="min-w-0 truncate">{cycle.name}</span>
+            {folded.length > 0 && <CycleFoldedMore folded={folded} />}
           </div>
         ))}
         {/* 마일스톤 마감일 세로 점선(#648) — 칩이 충돌로 밀려도 실제 마감 위치는 이 점선이 정확히 보장한다. */}
@@ -1055,7 +1063,7 @@ export function TimelineGantt({
             columns={GRID_COLUMNS}
             readonly={readOnly}
             // 행 40px·스케일 36px — Jira 급 밀도(#646). 제목 잘림 해소, 4px 그리드 준수
-            cellHeight={40}
+            cellHeight={ROW_HEIGHT_PX}
             scaleHeight={36}
             highlightTime={highlightTime}
             onUpdateTask={(ev) => {
@@ -1223,5 +1231,27 @@ function LaneGroupChip<T extends { id: number; name: string }>({
         })}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/**
+ * 접힌 사이클 「+N」(WP-1439) — 마우스·키보드는 툴팁, 터치는 탭 팝오버(IconHint)로 접힌 사이클 이름을 보인다.
+ * 화면 읽기 프로그램에는 숨긴 글자로 「사이클 N개 더: 이름…」 을 함께 읽힌다(IconHint 가 aria-label 을 받지 않아서).
+ */
+function CycleFoldedMore({ folded }: { folded: TimelineCycleBand[] }) {
+  const names = folded.map((c) => c.name).join(', ')
+  return (
+    <IconHint label={names}>
+      {/* 이름표 본문은 막대 클릭을 막지 않게 포인터를 통과시키고 「+N」 만 받는다(pointer-events-auto) — 일부러 정한 맞바꿈:
+          첫 행 막대 클릭을 이 칸(약 20px) 안에서만 막는 대신, 접힌 사이클 이름을 호버·키보드·탭으로 볼 수 있다.
+          포인터 이벤트는 이 칸에서 IconHint 의 트리거로 올라가 툴팁·팝오버를 연다. */}
+      <span
+        data-testid="timeline-cycle-band-more"
+        className="pointer-events-auto rounded-sm bg-muted px-1 font-medium text-foreground"
+      >
+        +{folded.length}
+      </span>
+      <span className="sr-only">{`사이클 ${folded.length}개 더: ${names}`}</span>
+    </IconHint>
   )
 }
