@@ -1,7 +1,11 @@
 // genia 확장의 순수 함수·반복 상태 기계 테스트(WP-1294) — genia 없이 node --test 로 돈다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import {
@@ -21,6 +25,10 @@ import {
   DEFAULT_DELAY_MS,
   MIN_DELAY_MS,
   MAX_DELAY_MS,
+  CHECK_STOP_TIMEOUT_MS,
+  noneBackoffDelay,
+  checkStop,
+  noneDecisionMessage,
 } from '../genia/loop.js'
 
 const NOW = Date.parse('2026-11-03T10:00:00Z')
@@ -294,4 +302,255 @@ test('conflictingMcpEntry: 손으로 적은 genia-works(이름의 - · _ 차이 
   assert.equal(conflictingMcpEntry('{"mcpServers":{"Genia_Works":{"url":"x"}}}'), 'Genia_Works')
   assert.equal(conflictingMcpEntry('{"mcpServers":{"github":{}}}'), undefined)
   assert.equal(conflictingMcpEntry('{'), undefined)
+})
+
+/** none 확인(WP-1425)용 가짜 genia — checkStop 결과를 손으로 정하고(resolve·reject), onDecision 을 기록한다. */
+function checkHarness() {
+  const runs = []
+  const timers = new Map()
+  const decisions = []
+  const checks = []
+  let seq = 0
+  const d = new LoopDriver({
+    run: (args) => runs.push(args),
+    setTimer: (fn, ms) => {
+      const h = ++seq
+      timers.set(h, { fn, ms })
+      return h
+    },
+    clearTimer: (h) => timers.delete(h),
+    now: () => NOW,
+    checkStop: (input) =>
+      new Promise((resolve, reject) => {
+        checks.push({ resolve, reject, input })
+      }),
+    onDecision: (x) => decisions.push(x),
+  })
+  // 확인을 시작해 결정 Promise 를 돌려준다 — 결과는 checks.at(-1) 로 정한다.
+  const settleNone = () => {
+    const r = d.settled('끝\nGW-NEXT-CHECK none')
+    assert.equal(r.action, 'checking')
+    return r.done
+  }
+  // checkStop 은 다음 마이크로태스크에서 불린다 — 결과를 정하기 전에 한 번 기다린다.
+  const tick = () => new Promise((r) => setImmediate(r))
+  // 걸린 타이머 하나를 울린다(다음 확인 타이머).
+  const fire = () => {
+    const [h, t] = [...timers.entries()][0]
+    timers.delete(h)
+    t.fn()
+  }
+  return { d, runs, timers, decisions, checks, settleNone, tick, fire }
+}
+
+test('LoopDriver none 확인: 상태가 RUN 이면 멈추지 않고 기본 20분 타이머, 그 뒤 깨움도 바로 부른다(WP-1425)', async () => {
+  const { d, runs, timers, decisions, checks, settleNone, tick } = checkHarness()
+  d.start('WP')
+  const done = settleNone()
+  await tick()
+  assert.equal(timers.size, 0) // 확인 중엔 타이머가 없다(시간 제한은 checkStop 이 진다)
+  // 계속 돌 때 잡을 시각을 넘겨 상태 보고가 서버의 다음 확인 시각을 지우지 않게 한다.
+  assert.deepEqual(checks[0].input, { nextCheckAt: new Date(NOW + DEFAULT_DELAY_MS).toISOString() })
+  checks[0].resolve({ stop: false, reason: 'RUN' })
+  const decision = await done
+  assert.deepEqual(decision, { stop: false, reason: 'RUN', action: 'timer', delayMs: DEFAULT_DELAY_MS })
+  assert.deepEqual(decisions, [decision])
+  assert.deepEqual([...timers.values()].map((t) => t.ms), [DEFAULT_DELAY_MS])
+  assert.equal(noneDecisionMessage(decision), 'GW-NEXT-CHECK none 이지만 상태가 RUN 이라 20분 뒤 다시 봅니다')
+  d.wake()
+  assert.equal(runs.length, 2)
+  assert.equal(timers.size, 0)
+})
+
+test('LoopDriver none 확인: DRAIN·RESTART·신원 아님이면 멈추고 타이머 없이 깨움도 무시한다', async () => {
+  for (const reason of ['DRAIN', 'RESTART', 'identity']) {
+    const { d, runs, timers, checks, settleNone, tick } = checkHarness()
+    d.start('WP')
+    const done = settleNone()
+    await tick()
+    checks[0].resolve({ stop: true, reason })
+    assert.deepEqual(await done, { stop: true, reason, action: 'none' })
+    assert.equal(timers.size, 0)
+    d.wake()
+    assert.equal(runs.length, 1)
+  }
+  assert.ok(noneDecisionMessage({ stop: true, reason: 'DRAIN', action: 'none' }).includes('다음 확인을 잡지 않습니다'))
+  assert.ok(noneDecisionMessage({ stop: true, reason: 'identity', action: 'none' }).includes('AI 키 신원이 아님'))
+})
+
+test('LoopDriver none 확인: checkStop 이 실패(reject)하면 멈추지 않는다', async () => {
+  const a = checkHarness()
+  a.d.start('WP')
+  const done = a.settleNone()
+  await a.tick()
+  a.checks[0].reject(new Error('x'))
+  assert.deepEqual(await done, { stop: false, reason: 'error', action: 'timer', delayMs: DEFAULT_DELAY_MS })
+  assert.ok(noneDecisionMessage(await done).includes('상태를 확인하지 못해 20분 뒤'))
+  assert.ok(noneDecisionMessage({ stop: false, reason: 'timeout', action: 'timer', delayMs: DEFAULT_DELAY_MS }).includes('상태를 확인하지 못해'))
+})
+
+test('LoopDriver none 확인: 쉬는 중 확인 중에 온 깨움은 확인을 버리고 바로 부르며, 늦게 온 결과는 버린다', async () => {
+  const a = checkHarness()
+  a.d.start('WP')
+  const done = a.settleNone()
+  a.d.wake()
+  assert.equal(a.runs.length, 2) // 진짜 알림 — 확인을 기다리지 않는다
+  assert.equal(a.timers.size, 0)
+  await a.tick()
+  a.checks[0].resolve({ stop: true, reason: 'DRAIN' })
+  assert.equal(await done, undefined)
+  assert.equal(a.decisions.length, 0)
+  assert.equal(a.d.args, 'WP') // 늦은 DRAIN 으로 멈추지 않는다
+})
+
+test('LoopDriver none 확인: 잘못 쓴 none 이 연달아 오면 간격을 20→40→60분으로 늘리고, none 이 아닌 답·start 에서 되돌린다', async () => {
+  assert.deepEqual([0, 1, 2, 3].map(noneBackoffDelay), [DEFAULT_DELAY_MS, 2 * DEFAULT_DELAY_MS, MAX_DELAY_MS, MAX_DELAY_MS])
+  const { d, timers, checks, settleNone, tick, fire } = checkHarness()
+  const round = async () => {
+    const done = settleNone()
+    await tick()
+    checks.at(-1).resolve({ stop: false, reason: 'RUN' })
+    return done
+  }
+  d.start('WP')
+  const delays = []
+  for (let i = 0; i < 3; i++) {
+    const r = await round()
+    delays.push(r.delayMs)
+    assert.deepEqual([...timers.values()].map((t) => t.ms), [r.delayMs])
+    fire()
+  }
+  assert.deepEqual(delays, [20, 40, 60].map((m) => m * 60 * 1000))
+  assert.equal(noneDecisionMessage({ stop: false, reason: 'RUN', action: 'timer', delayMs: delays[1] }), 'GW-NEXT-CHECK none 이지만 상태가 RUN 이라 40분 뒤 다시 봅니다')
+  assert.equal(checks.at(-1).input.nextCheckAt, new Date(NOW + MAX_DELAY_MS).toISOString())
+  // none 이 아닌 답이면 되돌린다.
+  d.settled('끝')
+  fire()
+  assert.equal((await round()).delayMs, DEFAULT_DELAY_MS)
+  fire()
+  assert.equal((await round()).delayMs, 2 * DEFAULT_DELAY_MS)
+  // start 도 되돌린다.
+  d.start('WP')
+  assert.equal((await round()).delayMs, DEFAULT_DELAY_MS)
+})
+
+test('LoopDriver none 확인: 확인 중 stop() 이면 결정이 와도 다시 돌지 않고, start() 면 새로 부른 뒤 늦은 결정은 버린다', async () => {
+  const a = checkHarness()
+  a.d.start('WP')
+  const done = a.settleNone()
+  a.d.stop()
+  await a.tick()
+  a.checks[0].resolve({ stop: false, reason: 'RUN' })
+  assert.equal(await done, undefined)
+  assert.deepEqual([a.runs.length, a.timers.size, a.decisions.length], [1, 0, 0])
+  a.d.wake()
+  assert.equal(a.runs.length, 1)
+  const b = checkHarness()
+  b.d.start('WP')
+  const done2 = b.settleNone()
+  b.d.start('WP')
+  assert.equal(b.runs.length, 2)
+  await b.tick()
+  b.checks[0].resolve({ stop: true, reason: 'DRAIN' })
+  assert.equal(await done2, undefined)
+  assert.equal(b.d.args, 'WP') // 늦은 DRAIN 으로 새 반복을 멈추지 않는다
+  assert.equal(b.timers.size, 0)
+})
+
+test('LoopDriver none 확인: 확인 중 사람이 넣은 일이 돌면 RUN 결정은 아무것도 잡지 않고, 그 일이 끝날 때 잡는다', async () => {
+  const { d, runs, timers, checks, settleNone, tick } = checkHarness()
+  d.start('WP')
+  const done = settleNone()
+  d.busy()
+  await tick()
+  checks[0].resolve({ stop: false, reason: 'RUN' })
+  assert.equal((await done).action, 'busy')
+  assert.deepEqual([runs.length, timers.size], [1, 0])
+  assert.deepEqual(d.settled('사람에게 한 답'), { action: 'timer', delayMs: DEFAULT_DELAY_MS })
+  // 확인 중 settled 가 다시 오면(사람 입력이 먼저 끝남) 앞선 확인은 버린다.
+  const h = checkHarness()
+  h.d.start('WP')
+  const done2 = h.settleNone()
+  h.d.busy()
+  h.d.settled('사람에게 한 답')
+  await h.tick()
+  h.checks[0].resolve({ stop: true, reason: 'DRAIN' })
+  assert.equal(await done2, undefined)
+  assert.equal(h.d.args, 'WP')
+})
+
+test('LoopDriver: checkStop 이 없으면 none 은 예전처럼 바로 멈춘다', () => {
+  const { d, runs, timers } = harness()
+  d.start('WP')
+  assert.deepEqual(d.settled('GW-NEXT-CHECK none'), { action: 'none' })
+  d.wake()
+  assert.deepEqual([runs.length, timers.size], [1, 0])
+})
+
+test('checkStop: 신원 실패는 identity 로 멈춤, gw-status 의 DRAIN·RESTART 는 멈춤, RUN·실행 실패·시간 초과는 계속', async () => {
+  const fake = (identityCode, status) => {
+    const calls = []
+    const exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts })
+      if (cmd === 'sh') return { code: identityCode, stdout: '' }
+      if (status instanceof Error) throw status
+      return status
+    }
+    return { exec, calls }
+  }
+  const run = async (identityCode, status, extra = {}) => {
+    const f = fake(identityCode, status)
+    return { r: await checkStop({ scriptsDir: '/p/scripts', exec: f.exec, ...extra }), calls: f.calls }
+  }
+  const id = await run(1, { code: 0, stdout: 'RUN\n' })
+  assert.deepEqual(id.r, { stop: true, reason: 'identity' })
+  assert.equal(id.calls.length, 1) // 신원이 아니면 상태 보고를 하지 않는다
+  // 키 값은 셸 안에서 버리고, $0 을 gw-lib.sh 로 두어 이 세션 선택을 찾게 한다.
+  assert.ok(id.calls[0].args[1].includes('gw_identity_key >/dev/null'))
+  assert.equal(id.calls[0].args[2], '/p/scripts/gw-lib.sh')
+  assert.deepEqual((await run(0, { code: 0, stdout: 'DRAIN\n' })).r, { stop: true, reason: 'DRAIN' })
+  assert.deepEqual((await run(0, { code: 0, stdout: 'RESTART\n' })).r, { stop: true, reason: 'RESTART' })
+  const ok = await run(0, { code: 0, stdout: 'RUN\n' })
+  assert.deepEqual(ok.r, { stop: false, reason: 'RUN' })
+  assert.deepEqual([ok.calls[1].cmd, ok.calls[1].args], ['/p/scripts/gw-status', ['IDLE']])
+  assert.ok(ok.calls[1].opts.timeoutMs <= CHECK_STOP_TIMEOUT_MS)
+  // 다음 확인 시각을 함께 보고한다(서버의 값을 지우지 않게). 시각 형식이 아니면 넘기지 않는다.
+  const at = '2026-11-03T10:20:00.000Z'
+  assert.deepEqual((await run(0, { code: 0, stdout: 'RUN' }, { nextCheckAt: at })).calls[1].args, ['IDLE', '', at])
+  // identity 'env'(Codex 구동기) — readKey 처럼 $0 을 sh 로 두어 GENIA_WORKS_AS 만 본다. 키는 여기서도 버린다.
+  const env = await run(1, { code: 0, stdout: 'RUN' }, { identity: 'env' })
+  assert.deepEqual(env.r, { stop: true, reason: 'identity' })
+  assert.deepEqual(env.calls[0].args.slice(2), ['sh', '/p/scripts'])
+  assert.ok(env.calls[0].args[1].includes('gw_identity_key >/dev/null'))
+  assert.deepEqual((await run(0, { code: 0, stdout: '' })).r, { stop: false, reason: 'RUN' })
+  assert.deepEqual((await run(0, new Error('spawn'))).r, { stop: false, reason: 'error' })
+  assert.deepEqual((await run(null, { code: 0, stdout: 'DRAIN' })).r, { stop: false, reason: 'error' })
+  // 시간 초과 — 남은 시간이 없으면 timeout.
+  let t = 0
+  const slow = async () => {
+    t += 30_000
+    return { code: null, stdout: '' }
+  }
+  assert.deepEqual(await checkStop({ scriptsDir: '/p', exec: slow, now: () => t }), { stop: false, reason: 'timeout' })
+})
+
+test('checkStop: 진짜 스크립트로 — 키가 없는 신원은 identity, 등록된 키·Works 밖이면 RUN(키는 출력되지 않는다)', async () => {
+  const scripts = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts')
+  const home = join(mkdtempSync(join(tmpdir(), 'gw-check-')), 'home')
+  mkdirSync(home)
+  assert.equal(spawnSync(join(scripts, 'gw-keys'), ['add', 'kodi'], { input: 'ak_FAKE_CHECK_1\n', env: { PATH: process.env.PATH, HOME: home } }).status, 0)
+  const saved = { HOME: process.env.HOME, AS: process.env.GENIA_WORKS_AS, GEN: process.env.GENIA_AGENT_GENERATION }
+  try {
+    process.env.HOME = home
+    delete process.env.GENIA_AGENT_GENERATION
+    process.env.GENIA_WORKS_AS = 'nobody'
+    assert.deepEqual(await checkStop({ scriptsDir: scripts }), { stop: true, reason: 'identity' })
+    process.env.GENIA_WORKS_AS = 'kodi'
+    assert.deepEqual(await checkStop({ scriptsDir: scripts }), { stop: false, reason: 'RUN' })
+  } finally {
+    for (const [k, v] of [['HOME', saved.HOME], ['GENIA_WORKS_AS', saved.AS], ['GENIA_AGENT_GENERATION', saved.GEN]]) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
 })

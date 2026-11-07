@@ -1,7 +1,8 @@
 // genia-works — Gen:iA Code(genia) 확장(WP-1294). Claude Code 플러그인(같은 폴더)의 스킬·스크립트를 그대로 쓰고, Claude 쪽 mod(hooks/register.js)와
 // /loop·Monitor 가 하던 일을 genia 확장 API 로 한다:
 //   - MCP 연결: genia-works 서버를 이 세션 신원으로 등록한다(AI 키는 헤더 스크립트가 연결할 때마다 읽는다 — 키가 env·명령줄에 남지 않는다).
-//   - 반복: /gw-loop <프로젝트 키> [--queue "<라벨>"] — 쉬고 있을 때 work-loop 를 한 번 부르고, 마지막 줄 GW-NEXT-CHECK 로 다음 확인을 잡는다.
+//   - 반복: /gw-loop <프로젝트 키> [--queue "<라벨>"] — 쉬고 있을 때 work-loop 를 한 번 부르고, 마지막 줄 GW-NEXT-CHECK 로 다음 확인을 잡는다
+//     (none 은 신원·상태를 확인해 멈출 까닭일 때만 따른다 — WP-1425).
 //   - 깨우기: 알림 감시(agent-events tail·gw-events)를 자식으로 띄워 wake 줄마다 부른다(일하는 중이면 끝난 뒤 한 번).
 //   - 키 보호: 키 저장소·헤더 스크립트에 닿는 도구 호출을 막고, 키 모양이 든 입력을 버린다. 내 토큰(GENIA_WORKS_TOKEN)은 받아 둔 뒤 환경에서 지운다
 //     (bash 도구가 물려받지 않게).
@@ -14,6 +15,8 @@ import { fileURLToPath } from 'node:url'
 import {
   LoopDriver,
   GENIA_COMMANDS,
+  checkStop,
+  noneDecisionMessage,
   GENIA_PROMPT_KEY_DROP,
   conflictingMcpEntry,
   mcpConfig,
@@ -105,6 +108,13 @@ export default function (genia: any) {
     },
     setTimer: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimer: (h: ReturnType<typeof setTimeout>) => clearTimeout(h),
+    // none 확인(WP-1425) — 신원·상태를 확인해 멈출 까닭일 때만 멈춘다(자세한 것은 loop.js checkStop 설명).
+    checkStop: ({ nextCheckAt }: { nextCheckAt: string }) => checkStop({ scriptsDir: scripts, nextCheckAt }),
+    // 확인 결과를 한 줄로 알린다 — 멈추면 경고, 계속 돌면 안내.
+    onDecision: (d: { action: string }) => {
+      if (shuttingDown) return
+      ctxRef?.ui?.notify?.(noneDecisionMessage(d), d.action === 'none' ? 'warning' : 'info')
+    },
   })
 
   // 알림 감시(loop.js watchEvents) — 띄우기·줄 나누기·재시작·그룹째 끝내기는 Codex 구동기와 같은 것을 쓴다.
