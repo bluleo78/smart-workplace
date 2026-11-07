@@ -123,7 +123,10 @@ export function WikiTreeRow({
           )}
         >
           {htmlDocument && <FileCode className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
-          <span className="truncate">{label}</span>
+          {/* WP-1440 — 깊은 단계에서 잘린 제목을 마우스로 확인. 버튼 이름과 같은 문자열이라 접근 이름은 바뀌지 않는다. */}
+          <span className="truncate" title={label}>
+            {label}
+          </span>
           {htmlDocument && <WikiHtmlBadge testId={`wiki-tree-html-badge-${id}`} />}
           {aiAttributed && (
             <AiSignalBadge

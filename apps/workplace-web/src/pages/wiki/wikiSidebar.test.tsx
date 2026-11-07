@@ -384,6 +384,25 @@ test('트리 행은 role=group 이고 열기 버튼 이름은 제목 그대로�
   expect(within(row).getByRole('button', { name: '제품 문서' })).toBeInTheDocument()
 })
 
+test('깊은 단계에서 잘리는 제목은 title 속성으로 전체 제목을 보이고, 열기 버튼 이름은 그대로다(WP-1440)', async () => {
+  const long = '아주 긴 하위 페이지 제목이라 깊은 단계에서는 몇 글자만 보인다'
+  open({
+    tree: () => [
+      wikiPageSummary({ id: 1, title: '부모' }),
+      wikiPageSummary({ id: 2, parentId: 1, title: '자식' }),
+      wikiPageSummary({ id: 3, parentId: 2, title: long }),
+      wikiPageSummary({ id: 4, title: '', position: 1 }),
+    ],
+  })
+  const deep = await screen.findByTestId('wiki-tree-row-3')
+  const openDeep = within(deep).getByRole('button', { name: long })
+  // 전체 제목은 버튼 안 제목 요소의 title 로 — 같은 문자열이라 버튼의 접근 이름은 바뀌지 않는다.
+  expect(within(openDeep).getByText(long)).toHaveAttribute('title', long)
+  // 제목이 비면 화면 글자와 같은 「제목 없음」을 title 로 보인다.
+  const untitled = within(screen.getByTestId('wiki-tree-row-4')).getByRole('button', { name: '제목 없음' })
+  expect(within(untitled).getByText('제목 없음')).toHaveAttribute('title', '제목 없음')
+})
+
 test('행 ⋯ 삭제 — 취소하면 요청이 없고, 확인하면 DELETE 후 트리에서 사라진다', async () => {
   let deleted = false
   const deletes: string[] = []
