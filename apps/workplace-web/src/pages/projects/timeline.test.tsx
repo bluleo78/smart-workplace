@@ -64,7 +64,14 @@ describe('타임라인 — 진입 (라우트 트리)', () => {
     const { user, location } = renderPage(`/projects/${KEY}`, {
       handlers: [...api.handlers, http.get(`${API}/views`, () => HttpResponse.json([]))],
     })
-    await user.click(await screen.findByRole('link', { name: '타임라인' }, { timeout: PAGE_LOAD_TIMEOUT }))
+    await screen.findByRole('link', { name: '타임라인' }, { timeout: PAGE_LOAD_TIMEOUT })
+    // 머리의 보조 링크는 Button asChild 로 링크 하나씩이다 — 링크 안에 버튼을 중첩하지 않는다(WP-1415·WP-1435 회귀 방지).
+    const header = screen.getByTestId('page-header')
+    for (const [name, path] of [['사이클', 'cycles'], ['버전', 'versions'], ['타임라인', 'timeline'], ['설정', 'settings']]) {
+      expect(within(header).getByRole('link', { name })).toHaveAttribute('href', `/projects/${KEY}/${path}`)
+      expect(within(header).queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+    await user.click(within(header).getByRole('link', { name: '타임라인' }))
     expect(await screen.findByTestId('timeline-page', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(location()).toMatch(new RegExp(`^/projects/${KEY}/timeline`))
   })
