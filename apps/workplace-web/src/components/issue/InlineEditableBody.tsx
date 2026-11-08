@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers';
 import { useAuth } from '@/hooks/useAuth';
+import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useIssueImageUpload } from '@/hooks/useIssueImageUpload';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
@@ -224,6 +225,10 @@ export function InlineEditableBody({
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
   useEditBarControls(editing, { save, cancel, disabled: disabled || uploading || overLimit }, onEditingChange);
 
+  // 본문 길이에 맞춰 편집 입력칸 높이를 늘린다(WP-1411) — 공용 훅이 JS 로 잰다(CSS field-sizing 은 iOS·Firefox 지원이 고르지 않다).
+  // 이른 return 앞에서 늘 부른다(훅 규칙). 편집이 열려 있을 때만 잰다.
+  useAutoGrowTextarea(textareaRef, draft, editing);
+
   if (!editing) {
     return (
       // Jira 식 — 본문 영역 전체가 클릭 가능. 호버 시 배경 변화로 편집 가능 신호.
@@ -301,7 +306,12 @@ export function InlineEditableBody({
           e.currentTarget.setSelectionRange(n, n);
         }}
         data-testid="issue-body-textarea"
-        className="min-h-[160px]"
+        // 높이는 useAutoGrowTextarea 가 본문 길이에 맞춰 늘린다 — 긴 본문도 앞뒤 맥락을 보며 고칠 수 있게(WP-1411). 최소 160px.
+        // 데스크톱: 70vh 에서 멈추고 그 뒤는 안에서 스크롤 — 입력칸이 화면을 다 차지해 아래 저장·취소 버튼이 밀려나지 않게.
+        //   (훅이 넣는 인라인 height 보다 max-height 가 이기고, overflow 기본값 auto 라 상한에서 내부 스크롤이 생긴다.)
+        // 모바일: 상한 없음 — 저장·취소는 하단 편집 바(MobileEditBar)에 있고, vh 상한은 화면 아래를 덮는 키보드 뒤로
+        //   캐럿을 숨긴다. 대신 페이지가 스크롤한다(MobileIssueCreateSheet 와 같은 방식).
+        className={cn('min-h-[160px]', !mobile && 'max-h-[70vh]')}
         ref={textareaRef}
         value={draft}
         disabled={disabled}

@@ -242,4 +242,63 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await expect(page.getByTestId('issue-body-draft-banner')).toBeHidden();
   });
 
+  // WP-1411: 본문 편집 입력칸은 본문 길이에 맞춰 늘어나고(최소 160px), 화면 높이 70% 에서 멈춘 뒤 그 안에서만 스크롤한다.
+  // 높이·스크롤은 jsdom 이 잴 수 없어 E2E(@layout)로 지킨다.
+  test.describe('본문 편집 입력칸 높이가 본문 길이를 따른다(WP-1411)', { tag: '@layout' }, () => {
+    const VIEWPORT = { width: 1440, height: 900 };
+
+    // n 줄짜리 본문 — 줄마다 내용이 달라야 마크다운 렌더·입력칸 모두 실제 줄 수가 된다.
+    const linesBody = (n: number) => Array.from({ length: n }, (_, i) => `본문 ${i + 1}번째 줄`).join('\n');
+
+    // 본문을 바꿔 상세에 들어가 편집을 열고, 입력칸 높이·스크롤 크기를 잰다.
+    async function openBodyEditor(page: import('@playwright/test').Page, body: string) {
+      const stub = await setupStubs(page);
+      stub.body = body;
+      await page.setViewportSize(VIEWPORT);
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      // 마크다운은 홑줄바꿈을 한 문단으로 묶으므로 부분 일치로 본문 표시를 기다린다.
+      await expect(page.getByText('본문 1번째 줄').first()).toBeVisible();
+      await page.getByRole('button', { name: '본문 편집' }).click();
+      const textarea = page.getByTestId('issue-body-textarea');
+      await expect(textarea).toHaveValue(body);
+      return textarea;
+    }
+
+    const measure = (textarea: import('@playwright/test').Locator) =>
+      textarea.evaluate((el) => ({
+        height: el.getBoundingClientRect().height,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      }));
+
+    test('한 줄 본문이면 입력칸은 최소 높이(160px)를 지킨다', async ({ authenticatedPage: page }) => {
+      const textarea = await openBodyEditor(page, linesBody(1));
+      const m = await measure(textarea);
+      expect(Math.abs(m.height - 160)).toBeLessThanOrEqual(2);
+    });
+
+    test('15줄 본문이면 입력칸이 늘어나 안에서 스크롤하지 않고 전부 보인다', async ({ authenticatedPage: page }) => {
+      const textarea = await openBodyEditor(page, linesBody(15));
+      const m = await measure(textarea);
+      expect(m.height).toBeGreaterThan(160);
+      expect(m.scrollHeight).toBeLessThanOrEqual(m.clientHeight + 2);
+    });
+
+    test('60줄 본문이면 입력칸은 화면 높이 70% 에서 멈추고 안에서 스크롤하며, 저장 버튼이 화면 안에 남는다', async ({
+      authenticatedPage: page,
+    }) => {
+      const textarea = await openBodyEditor(page, linesBody(60));
+      // 편집에 들어간 그 자리에서(손으로 스크롤하기 전) 저장 버튼이 화면 안에 있다.
+      const saveButton = page.getByRole('button', { name: '저장', exact: true });
+      await expect(saveButton).toBeInViewport();
+      const m = await measure(textarea);
+      // 상한(70vh)까지 늘어난 뒤 거기서 멈춘다.
+      expect(m.height).toBeGreaterThanOrEqual(VIEWPORT.height * 0.7 - 2);
+      expect(m.height).toBeLessThanOrEqual(VIEWPORT.height * 0.7 + 2);
+      expect(m.scrollHeight).toBeGreaterThan(m.clientHeight);
+      // 입력칸 윗단을 화면 맨 위에 맞춰도(위쪽 머리말이 더 짧은 화면과 같은 배치) 저장 버튼이 화면 안에 남는다.
+      await textarea.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await expect(saveButton).toBeInViewport();
+    });
+  });
 });

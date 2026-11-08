@@ -123,7 +123,8 @@ describe('본문 인라인 수정 (#117)', () => {
     const area = await screen.findByRole('button', { name: '본문 편집' })
     expect(area).toHaveClass('hover:bg-muted/50')
     await user.click(area)
-    expect(await screen.findByTestId('issue-body-textarea')).toBeInTheDocument()
+    // 데스크톱 편집기는 본문 길이에 맞춰 늘다가 70vh 에서 멈춘다 — 아래 저장·취소가 화면 밖으로 밀려나지 않게(WP-1411).
+    expect(await screen.findByTestId('issue-body-textarea')).toHaveClass('max-h-[70vh]')
     expect(screen.getByTestId('issue-body-save')).toBeInTheDocument()
     expect(screen.getByTestId('issue-body-cancel')).toBeInTheDocument()
   })
