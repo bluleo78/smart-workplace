@@ -1,5 +1,5 @@
 // 이슈 상세 제목·본문 인라인 수정 E2E (refs #117) — 브라우저가 있어야 판정되는 것만 남긴다:
-// 한글 IME 조합 Enter/Esc·저장 실패 뒤 포커스(@input), 긴 제목 줄바꿈·편집 버튼 계산 opacity(@layout),
+// 한글 IME 조합 Enter/Esc·저장 실패 뒤 포커스·본문 드래그 선택이 편집 진입이 아님(WP-1412)(@input), 긴 제목 줄바꿈·편집 버튼 계산 opacity(@layout),
 // SPA 이탈 → 브라우저 뒤로가기 재진입 시 초안 복구(@platform).
 // PATCH payload·빈 제목 차단·Esc/취소·5만자 상한·초안 정리·사용자별 초안 키는
 // src/pages/projects/issueDetailEdit.test.tsx 페이지 테스트가 지킨다(WP-971).
@@ -301,4 +301,32 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
       await expect(saveButton).toBeInViewport();
     });
   });
+
+  // WP-1412 — 실제 마우스 드래그 끝(mouseup)에 브라우저가 내는 click 이 편집 진입으로 처리되지 않는다.
+  // jsdom 은 드래그 뒤 click 을 만들지 않아 거짓 통과할 수 있으므로 브라우저에서 본다.
+  test('본문 글자를 드래그로 고르면 편집기로 바뀌지 않고 선택이 남으며, 이어 한 번 누르면 편집기가 열린다(WP-1412)', { tag: '@input' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const text = page.getByText('원본 본문', { exact: true });
+    await expect(text).toBeVisible();
+
+    // 글자 왼쪽 끝 근처에서 오른쪽 끝 근처까지 끌어 고른다.
+    const box = await text.boundingBox();
+    if (!box) throw new Error('본문 글자 위치를 알 수 없다');
+    const y = box.y + box.height / 2;
+    await page.mouse.move(box.x + 2, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 2, y, { steps: 10 });
+    await page.mouse.up();
+
+    await expect(page.getByTestId('issue-body-textarea')).toHaveCount(0);
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).not.toBe('');
+
+    // 고른 글자 위를 그냥 한 번 누르면 지금처럼 편집기가 열린다(선택이 남은 채 오는 click).
+    await text.click();
+    await expect(page.getByTestId('issue-body-textarea')).toBeVisible();
+  });
+
 });
