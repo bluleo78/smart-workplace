@@ -1,6 +1,6 @@
 # AI Pod ↔ 작업 공간 이미지 계약
 
-runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공간 이미지의 엔트리포인트가 이 문서 하나로 맞물린다. 작업 공간 이미지는 템플릿마다 하나다 — Claude Code(`apps/workplace-agent-claude-code`, 템플릿 `claude-code`, WP-1252), Gen:iA Code(`apps/workplace-agent-genia-code`, 템플릿 `genia-code`, WP-1296), Codex(`apps/workplace-agent-codex`, 템플릿 `codex`, WP-1297)다 — Gen:iA Code·Codex 는 공용 함수 `lib.sh`·`agent-screen` 을 Claude Code 이미지의 파일 그대로 쓴다. 세 쪽 테스트가 아래 값을 단언한다 — 값을 바꾸면 세 쪽을 함께 바꾼다. runner 가 Works 와 주고받는 API 는 [agent-runner-api.md](agent-runner-api.md) 다.
+runner(`apps/workplace-agent-runner`, WP-1251)가 만드는 Pod 와 작업 공간 이미지의 엔트리포인트가 이 문서 하나로 맞물린다. 작업 공간 이미지는 템플릿마다 하나다 — Claude Code(`apps/workplace-agent-claude-code`, 템플릿 `claude-code`, WP-1252), Gen:iA Code(`apps/workplace-agent-genia-code`, 템플릿 `genia-code`, WP-1296), Codex(`apps/workplace-agent-codex`, 템플릿 `codex`, WP-1297), OpenCode(`apps/workplace-agent-opencode`, 템플릿 `opencode`, WP-1410)다 — Gen:iA Code·Codex·OpenCode 는 공용 함수 `lib.sh`·`agent-screen` 을 Claude Code 이미지의 파일 그대로 쓴다. 네 쪽 테스트가 아래 값을 단언한다 — 값을 바꾸면 네 쪽을 함께 바꾼다. runner 가 Works 와 주고받는 API 는 [agent-runner-api.md](agent-runner-api.md) 다.
 
 ## 리소스
 
@@ -25,7 +25,7 @@ AI 한 명(`agentUserId`)마다 runner 가 설치된 네임스페이스에 아�
 | Secret 어노테이션 | `genia.works/agent-key-id` | 받은 AI 키 id(`keyId`) |
 | Secret 어노테이션 | `genia.works/agent-key-rotate-after` | 받은 키의 `rotateAfter`(ISO-8601) |
 | Secret 어노테이션 | `genia.works/claude-version` | 받은 모델 연결 `version` |
-| Secret 어노테이션 | `genia.works/login-version` | 받은 로그인 정보(Gen:iA·ChatGPT) `version` — AI 계정 id. 같으면 다시 받지 않는다 |
+| Secret 어노테이션 | `genia.works/login-version` | 받은 로그인 정보(Gen:iA·ChatGPT) 또는 OpenAI 호환 연결 정보 `version` — Gen:iA·ChatGPT 는 AI 계정 id, OpenAI 호환은 「연결 id + Pod 에 넘길 연결 정보 원문」에서 계산한 값(아래 「OpenCode 연결 정보」). 같으면 다시 받지 않는다 |
 | Secret 어노테이션 | `genia.works/repos-version` | 받은 저장소 토큰 `version`(epoch 밀리초). 같으면 다시 받지 않는다 |
 | Secret 어노테이션 | `genia.works/repo-hosts` | 받은 토큰의 `kind:host` 목록(`GITHUB:github.com,GITLAB:gitlab.iacloud.kr`, 원문 없음) — Pod 를 만들 때 볼륨 items 를 이것으로 만든다 |
 | Pod 어노테이션 | `genia.works/claude-version`·`genia.works/login-version`·`genia.works/repos-version` | Pod 를 만들 때 Secret 에 있던 값(없으면 어노테이션 없음). Secret 의 것과 다르면 Pod 를 다시 만든다 |
@@ -39,7 +39,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 |---|---|
 | `agent-key` | AI 키 원문(`ak_…`). Pod 를 만들기 전에 반드시 있다 |
 | `claude-token` | 모델 연결 원문 — provider 가 `anthropic` 일 때만. 연결이 없으면(`version` null) 키를 지운다 |
-| `login-info` | 로그인 정보 원문(Gen:iA·ChatGPT 프로그램의 `auth.json` 내용, JSON 문자열) — provider 검사 없음(서버가 템플릿 계정과 맞는 것만 준다). 연결이 없으면(`version` null·참조 없음·404) 키와 어노테이션을 지운다 |
+| `login-info` | 로그인 정보 원문(Gen:iA·ChatGPT 프로그램의 `auth.json` 내용, 또는 OpenCode 템플릿의 OpenAI 호환 연결 정보 — 아래 「OpenCode 연결 정보」, JSON 문자열) — provider 검사 없음(서버가 템플릿 계정과 맞는 것만 준다). 연결이 없으면(`version` null·참조 없음·404) 키와 어노테이션을 지운다 |
 | `repo-<kind 소문자>-<host>` | 저장소 토큰 원문(예 `repo-github-github.com`, `repo-gitlab-gitlab.iacloud.kr`) — AI 마다·호스트마다 하나. 받을 때 기존 `repo-*` 키를 모두 바꿔 넣고(빠진 host 는 지움), 등록이 없으면(`version` null·참조 없음) `repo-*` 키와 두 어노테이션을 지운다 |
 
 위치 단위 GitHub Secret(옛 Helm `github.existingSecret`)은 없다 — 저장소 토큰은 AI 마다 Works 에 저장하고 runner 가 받아 이 Secret 에 넣는다.
@@ -85,13 +85,13 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 
 ## 로그인 정보 (WP-1296)
 
-Gen:iA Code·Codex 처럼 ID/비밀번호 로그인(`auth.json`)을 쓰는 템플릿이 쓴다. runner 쪽 규칙:
+Gen:iA Code·Codex 처럼 ID/비밀번호 로그인(`auth.json`)을 쓰는 템플릿이 쓴다. OpenCode 템플릿(WP-1410)은 같은 경로로 OpenAI 호환 연결 정보를 받는다(아래 「OpenCode 연결 정보」) — runner 는 어느 쪽이든 provider 를 보지 않고 원문을 그대로 Secret 에 넣는다. runner 쪽 규칙:
 
 - desired 에 `login` 참조가 있고 `version` 이 Secret 어노테이션 `login-version` 과 다르면 `GET …/secrets/login` 으로 받아 Secret 키 `login-info`·어노테이션에 같은 apply 로 적는다. 참조가 없거나 `version` 이 `null`·404 면 키와 어노테이션을 지운다. 못 받으면 옛 값을 두고 AI 키는 그대로 적는다.
 - Pod 는 만들 때 Secret 에 `login-version` 이 있으면 `/run/genia/login-info`(subPath `login-info`, 읽기 전용)를 마운트하고 env `GENIA_LOGIN_VERSION`·Pod 어노테이션 `login-version` 을 넣는다. 없으면 셋 다 없다.
 - 로그인 파일은 Pod 시작 때 시딩되므로 모델 연결 교체와 같다 — Secret 의 `login-version` 이 Pod 의 것과 다르면(없음 ↔ 값 포함) `generation`·`applyNow` 와 무관하게 Pod 를 지우고 다음 회차에 다시 만든다. 허용 밖 이미지면 지우지 않고 `FAILED` 로 알린다.
 
-Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Code 는 WP-1296 에서 구현, Codex 는 WP-1297). 프로그램은 로그인을 스스로 갱신(토큰 새로고침)해 파일에 다시 쓰므로, 마운트 파일(읽기 전용 Secret)을 곧바로 쓰지 않고 `$AI_DIR` 아래에 보관본을 둔다.
+Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Code 는 WP-1296 에서 구현, Codex 는 WP-1297. OpenCode 는 갱신하는 로그인이 아니라 정적 연결 정보라 보관본·표식 없이 매 부팅 설정 파일을 새로 쓴다 — 아래 「OpenCode 연결 정보」). 프로그램은 로그인을 스스로 갱신(토큰 새로고침)해 파일에 다시 쓰므로, 마운트 파일(읽기 전용 Secret)을 곧바로 쓰지 않고 `$AI_DIR` 아래에 보관본을 둔다.
 
 - 마운트 파일 `/run/genia/login-info` 가 없으면 `$AI_DIR` 아래의 보관본을 지운다(연결이 끊긴 것).
 - `GENIA_LOGIN_VERSION` 이 `$AI_DIR/state` 에 적어 둔 표식과 다르면 마운트 파일을 보관본 위치로 복사하고 표식을 기록한다(새로 등록한 로그인으로 교체).
@@ -99,6 +99,20 @@ Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Co
 - Gen:iA Code 는 `GENIA_CODING_AGENT_DIR`, Codex 는 `CODEX_HOME` 을 `$AI_DIR` 아래로 두고(Codex 는 로그인을 파일 저장소로 강제한다) 보관본이 그 안에 놓이게 한다.
 - Gen:iA Code 의 실제 자리: 보관본 `$AI_DIR/genia-agent/auth.json`(600, `GENIA_CODING_AGENT_DIR=$AI_DIR/genia-agent`), 표식 `$AI_DIR/state/login-version`. 마운트가 없거나 비었으면 보관본과 표식을 함께 지운다. 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다 — genia 가 로그인 선택 화면에서 멈춰 work-loop 가 돌지 않는다(11-03 실측). 연결하면 runner 가 Pod 를 다시 만든다. 원문은 로그·명령줄에 남기지 않는다.
 - Codex 의 실제 자리(WP-1297): `CODEX_HOME=$AI_DIR/codex`(700), 보관본 `$AI_DIR/codex/auth.json`(600), 표식 `$AI_DIR/state/login-version`. 엔트리포인트가 매번 새로 쓰는 `$AI_DIR/codex/config.toml` 에 `cli_auth_credentials_store = "file"` 을 넣어 codex 가 키링이 아니라 이 파일을 읽고 갱신해 다시 쓰게 한다. 마운트가 없거나 비었으면 보관본과 표식을 함께 지우고, 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다(모델 목록도 묻지 않는다). 원문은 로그·명령줄에 남기지 않는다.
+
+## OpenCode 연결 정보 (WP-1410)
+
+OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 서버 주소·API 키)로 모델을 부른다. 새 경로를 만들지 않고 위 「로그인 정보」 경로를 그대로 쓴다 — desired 의 `login` 참조 → `GET …/secrets/login` → Secret 키 `login-info` → Pod `/run/genia/login-info`, env `GENIA_LOGIN_VERSION`. runner 는 provider 를 보지 않으므로 이 때문에 달라지는 runner 코드는 없다.
+
+- `version`(desired 의 `login.version` = `secrets/login` 응답의 `version` = Secret·Pod 어노테이션 `login-version`)은 Gen:iA·ChatGPT 와 달리 연결 행 id 가 아니다. 서버가 「연결 행 id + Pod 에 넘길 원문(연결 JSON 에 지정 모델 `assistant_config.model` 에서 온 `defaultModel` 을 더한 것)」의 SHA-256 앞 8바이트를 53비트로 줄인 양수(runner 가 JSON 숫자로 정확히 읽는 범위)로 계산한다 — desired 와 `secrets/login` 이 같은 함수를 쓴다. 그래서 연결을 다시 하거나, 비서 설정에서 모델만 바꾸거나, 같은 연결의 이미지 입력 지정(`vision`)을 고쳐도 version 이 바뀌어 runner 가 연결 정보를 다시 받고 Pod 를 다시 만든다. 생각의 깊이처럼 Pod 에 넘기지 않는 설정은 바꿔도 그대로다. 암호문이 아니라 원문으로 계산하므로 같은 값을 다시 저장하거나 다시 암호화해도(IV 가 바뀜) 그대로다.
+
+- `/run/genia/login-info` 의 모양(JSON 객체, 서버가 등록 때 저장한 연결 정보 원문을 그대로 내고 `defaultModel` 하나를 더한다): `providerId`(필수 — `[A-Za-z0-9._-]+`, 등록 때 서버가 같은 규칙으로 검증한다), `options`(필수 객체 — `baseURL`·`apiKey` 등 OpenCode provider options 그대로), `npm`·`name`·`models`(등록 요청에 넣었으면 있을 수 있다 — 화면 등록은 `providerId`·`options` 만 보내 넣지 않는다. 없으면 `npm` 은 `@ai-sdk/openai-compatible`, `name` 은 `providerId`, `models` 는 고른 모델 한 항목), `vision`(비서 설정에서 이미지 입력을 지정했을 때만 — boolean 또는 모델별 boolean 맵, 이 값이 이 모델에 true 면 이미지 입력을 선언한다), `defaultModel`(연결에 지정한 모델 — 이 연결의 `providerId/` 로 시작하고 모델 id 가 비지 않을 때만 그 값, 아니면(옛 Claude 기본값·다른 연결의 값·지정 없음) `null`).
+- 엔트리포인트(`apps/workplace-agent-opencode/bin/lib-opencode.sh write_opencode_config`)는 부팅마다 `$HOME/.config/opencode/opencode.json`(600)을 새로 쓴다: `autoupdate: false`·`share: "disabled"`·`permission: "allow"`, `provider.<providerId>`(`npm`·`name`·`options`·`models` 만 — OpenCode 가 모르는 키는 설정 검증에서 거절되므로 `vision`·`defaultModel` 은 넣지 않는다), `model: "<providerId>/<모델 id>"`. MCP 연결·키 보호 플러그인은 구동기(`plugins/genia-works/opencode`)가 env `OPENCODE_CONFIG_CONTENT` 로 넘기고 OpenCode 가 둘을 병합한다.
+- 모델 결정: 템플릿 `config.json` 의 `model` 이 `auto` 가 아니고 `<providerId>/` 로 시작하면 그것(칸이 서버의 실시간 모델 목록 — 값 `providerId/modelId` — 에서 고른 값), 아니면(`auto`·비었음·다른 연결의 접두) `defaultModel`. `defaultModel` 이 없거나 이 연결의 `providerId/` 접두가 아니면 접두를 붙여 추측하지 않고 오류 한 줄을 남겨 칸을 띄우지 않는다(엔트리포인트는 끝내지 않는다).
+- 마운트가 없거나 비었거나 꼴이 틀리면(연결 끊김·연결 정보 이상) 옛 `opencode.json` 을 지우고 경고·오류 한 줄만 남기고 칸을 띄우지 않는다. 연결하면 runner 가 Pod 를 다시 만든다. 연결 정보 원문(API 키)은 로그·명령줄에 남기지 않는다(`jq` 가 파일을 읽어 조립).
+- 대화 기록(OpenCode 의 sqlite — 구동기가 `-s <세션>` 으로 이어 받는다)은 `XDG_DATA_HOME=$AI_DIR/opencode/data`(영속)에 둔다. env `OPENCODE_DISABLE_AUTOUPDATE=1`·`OPENCODE_DISABLE_MODELS_FETCH=1`(모델은 연결 정보로만 정한다)을 내보내 칸이 물려받는다.
+- 모델 목록은 Pod 가 보고하지 않는다(「모델 목록 보고」는 로그인 정보 계정용) — 연결이 정적 API 키라 서버가 모델 서버에 직접 물어 실시간 목록을 만든다.
+- 사설 CA 가 있으면 공용 `setup_ca` 가 `NODE_EXTRA_CA_CERTS`(추가분)·`SSL_CERT_FILE`(시스템 CA 와 합친 번들)를 내보내고 OpenCode(Bun 실행 파일)가 둘 다 따른다(11-08 opencode 1.18.31 자체서명 서버로 확인). 스킬은 Claude 이미지와 같은 plugins.lock 의 플러그인 `skills/` 를 `~/.agents/skills/<플러그인>` 으로 이어 OpenCode 가 외부 스킬로 읽는다(`opencode debug skill` 확인).
 
 ## Gen:iA Code 프로그램 (WP-1296)
 
@@ -137,7 +151,7 @@ Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Co
 | `GENIA_WORKS_API_URL` | desired `apiUrl`(`/api/v1` 까지) |
 | `GENIA_WORKS_MCP_URL` | desired `mcpUrl` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Secret `claude-token`(optional — 없으면 비움). env 라 Pod 시작 때 고정된다(아래 「모델 연결 교체」) |
-| `GENIA_LOGIN_VERSION` | Secret 의 `login-version`(Pod 어노테이션과 같은 값). 로그인 정보가 있을 때만 — 없으면 이 env 도 없다. 엔트리포인트가 시딩 여부를 정하는 표식 |
+| `GENIA_LOGIN_VERSION` | Secret 의 `login-version`(Pod 어노테이션과 같은 값). 로그인 정보(OpenCode 는 연결 정보)가 있을 때만 — 없으면 이 env 도 없다. Gen:iA Code·Codex 는 시딩 여부를 정하는 표식(OpenCode 는 쓰지 않는다) |
 | `DOCKER_HOST` | `unix:///dind/docker.sock` |
 
 ### 모델 연결 교체

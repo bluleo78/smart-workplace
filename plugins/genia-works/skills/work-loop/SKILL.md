@@ -80,7 +80,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 ### 2. 잠금
 
-`"<이 스킬 폴더>/../../scripts/loop-lock" acquire "<MAIN>"` 을 실행한다. 이 저장소에 work-loop 하나만 돌게 하는 잠금(`MAIN/.work-loop/state/loop.lock`)이다 — 이 세션의 실행기 프로세스(claude·genia·codex)를 찾아 잡고, 잡은 프로세스가 끝났거나 pid 가 다른 프로세스에 다시 쓰였으면 넘겨받는다(규칙은 스크립트 머리 주석).
+`"<이 스킬 폴더>/../../scripts/loop-lock" acquire "<MAIN>"` 을 실행한다. 이 저장소에 work-loop 하나만 돌게 하는 잠금(`MAIN/.work-loop/state/loop.lock`)이다 — 이 세션의 실행기 프로세스(claude·genia·codex·opencode)를 찾아 잡고, 잡은 프로세스가 끝났거나 pid 가 다른 프로세스에 다시 쓰였으면 넘겨받는다(규칙은 스크립트 머리 주석).
 
 - `ok`(종료 코드 0): 진행한다. 같은 세션의 앞선 반복이 남긴 잠금도 `ok` 다 — 풀지 않는다.
 - `held <pid>`(종료 코드 1): 「다른 work-loop(pid <번호>)가 이 저장소를 돌고 있습니다」 한 줄만 남기고 아무것도 하지 않고 끝낸다(다음 확인은 길게).

@@ -338,6 +338,11 @@ export function agentDetailGuide(
     run.push('실행 중에는 실행 방식을 바꿀 수 없어요. 먼저 실행을 멈춰 주세요.')
     if (template.account === 'anthropic')
       run.push(`${title} 는 Anthropic(Claude) 계정만 쓸 수 있어요. 실행 중에 연결을 끊으면 다시 시작할 때부터 일하지 못해요.`)
+    else if (template.account === 'opencode')
+      // WP-1410: OpenCode 는 로그인 정보가 아니라 OpenAI 호환 연결(주소·키·모델)로 일한다 — 연결에 지정한 모델이 「모델」 칸 기본값(auto)이다.
+      run.push(
+        `${title} 는 OpenAI 호환 연결로 일해요. 「연결하기」에서 모델 서버 주소와 키, 쓸 모델을 넣어 주세요. 「모델」 칸이 기본이면 연결에 지정한 모델로 일해요.`,
+      )
     else if (template.account && isLoginProvider(template.account)) {
       const label = accountLabel(template.account)
       run.push(

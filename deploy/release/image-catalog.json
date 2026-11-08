@@ -177,6 +177,22 @@
         "plugins/genia-works/",
         ".dockerignore"
       ]
+    },
+    {
+      "id": "agent-opencode",
+      "repository": "docker.io/iacloudops/genia-works-agent-opencode",
+      "context": ".",
+      "dockerfile": "apps/workplace-agent-opencode/Dockerfile",
+      "helm": false,
+      "paths": [
+        "apps/workplace-agent-opencode/",
+        "apps/workplace-agent-claude-code/bin/lib.sh",
+        "apps/workplace-agent-claude-code/bin/agent-screen",
+        "apps/workplace-agent-claude-code/plugins.lock",
+        "apps/workplace-agent-genia-code/skills/",
+        "plugins/genia-works/",
+        ".dockerignore"
+      ]
     }
   ]
 }

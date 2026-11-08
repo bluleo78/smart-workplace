@@ -218,6 +218,14 @@ tmux attach -t kodi
 - **키**: 칸 신원(`GENIA_WORKS_AS`)의 AI 키를 구동기가 읽어 codex 프로세스의 환경 변수로만 넘깁니다 — 명령줄에 없고, 셸 도구에는 물려주지 않습니다(`shell_environment_policy.exclude`). 키 저장소·헤더 스크립트에 닿는 도구 호출은 PreToolUse hook(`codex/guard.mjs`)이 막습니다. 서버 작업 기록의 도구 이름은 `codex` 로 남습니다.
 - **사람이 Codex 에서 쓰기**: 이 폴더는 Codex 플러그인이기도 합니다(`.codex-plugin/plugin.json` — 스킬은 같은 `skills/`). `codex plugin marketplace add https://github.com/bluleo78/smart-workplace.git` → `codex plugin add genia-works@smart-workplace` 로 설치하고, Codex 플러그인 화면의 Gen:iA Works MCP 연결에 토큰을 넣습니다(연결 하나에 신원 하나 — 채팅·셸 명령에 적지 마세요). 저장소 루트의 `.codex/` 는 git 에 올리지 않습니다.
 
+### OpenCode 로 돌리기
+
+`/genia-works:start-agent <AI 이름> --cli opencode --restart` 로 칸의 실행기를 OpenCode 로 바꿉니다. Codex 처럼 칸에서는 구동기 `scripts/gw-opencode-loop` 가 돕니다.
+
+- **준비**: OpenCode 를 설치하고 쓸 모델(공급자·기본 모델)을 OpenCode 설정에 정해 둡니다. 구동기는 사용자 설정 파일을 고치지 않고, MCP·무승인·키 보호 플러그인을 부를 때마다 `OPENCODE_CONFIG_CONTENT` 로 넘깁니다(OpenCode 가 전역 설정과 합칩니다).
+- **하는 일**: 쉬고 있을 때만 `opencode run --format json`(처음)·`opencode run --format json -s <세션>`(그 뒤 — 맥락이 이어집니다)으로 work-loop 스킬 파일을 가리켜 한 번 부르고, 마지막 답의 `GW-NEXT-CHECK` 시각에 다시 부릅니다. 알림 감시의 `wake` 줄이 오면 바로 부릅니다(부르는 중이면 끝난 뒤 한 번). 이어 받던 세션이 없어졌으면 다음엔 새 세션으로 부릅니다. 무승인 실행(`"permission": "allow"`)이므로 **이 AI 전용 칸에서만** 씁니다.
+- **키**: 칸 신원(`GENIA_WORKS_AS`)의 AI 키를 구동기가 읽어 opencode 프로세스의 환경 변수로만 넘깁니다 — 명령줄·설정 내용에는 없고(`{env:GENIA_WORKS_MCP_TOKEN}` 치환), 셸 도구에서는 키 보호 플러그인(`opencode/guard-plugin.js`)이 그 변수를 비웁니다. 같은 플러그인이 키 저장소·헤더 스크립트에 닿는 도구 호출(bash·read·write·edit·glob·grep·apply_patch)을 막습니다. Codex 와 같이 명령 안에서 경로를 조립해 읽거나(`printf` 로 만든 경로 등), 부모 프로세스 환경을 직접 읽거나, 다른 이름으로 복사해 실행하는 우회까지 막지는 못합니다. 서버 작업 기록의 도구 이름은 `opencode` 로 남습니다.
+
 ### 반복 업무 맡기기 (본문 지시)
 
 AI 를 담당자로 둔 에픽 본문에 회차의 정의를 적어 두면, work-loop 가 그날 하위를 만들어 처리하고 마감이 지난 하위를 닫으며 이어 갑니다. 정해진 양식은 없고, 아래는 참고용 예시입니다.

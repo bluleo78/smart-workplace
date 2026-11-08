@@ -42,6 +42,15 @@ describe('agentAccount', () => {
     expect(accountFits('anthropic', { mode: 'WORKSPACE', template: codexTemplate })).toBe(false)
   })
 
+  test('workspaceMode_opencodeTemplate_fitsOnlyOpencodeAccount', () => {
+    // WP-1410: OpenCode 템플릿은 OpenAI 호환 연결만 맞다 — 로그인 정보 창이 아니라 OpenAI 호환 연결 창을 쓰는 계정이다
+    const opencodeTemplate = { ...CLAUDE_TEMPLATE, name: 'opencode', account: 'opencode' as const }
+    expect(accountFits('opencode', { mode: 'WORKSPACE', template: opencodeTemplate })).toBe(true)
+    expect(accountFits('anthropic', { mode: 'WORKSPACE', template: opencodeTemplate })).toBe(false)
+    expect(accountFits('chatgpt', { mode: 'WORKSPACE', template: opencodeTemplate })).toBe(false)
+    expect(isLoginProvider('opencode')).toBe(false)
+  })
+
   test('workspaceMode_fitsServerAccounts_whenTemplateNeedsNoAccount', () => {
     // 계정을 요구하지 않는 템플릿은 서버와 같이 기본 방식의 계정을 남긴다
     const plain = { ...CLAUDE_TEMPLATE, account: null }

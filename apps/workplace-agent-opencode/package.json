@@ -1,0 +1,10 @@
+{
+  "name": "@smart-workplace/workplace-agent-opencode",
+  "version": "0.0.1",
+  "description": "Works 가 띄우는 OpenCode 작업 공간 이미지 — 엔트리포인트가 OpenCode(OpenAI 호환 연결)·플러그인·저장소·work-loop 칸을 띄운다",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

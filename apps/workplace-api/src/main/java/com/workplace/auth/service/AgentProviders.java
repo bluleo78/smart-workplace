@@ -38,15 +38,18 @@ public final class AgentProviders {
    *
    * @param label 화면 이름(예외 문구용 — 웹 lib/agentAccount.ts 와 같은 이름)
    * @param requirement 이 계정을 요구하는 실행 템플릿 requires 값(없으면 null)
+   * @param podLoginInfo 작업 공간 Pod 에 계정 정보를 파일(login-info — runner 의 login 비밀값)로 넘기는가(WP-1410). 로그인
+   *     정보 계정과 OpenCode 템플릿이 쓰는 OpenAI 호환 연결이 그렇다. Claude 구독은 따로(claude 비밀값) 넘긴다
    */
-  private record Descriptor(String provider, Kind kind, String label, String requirement) {}
+  private record Descriptor(
+      String provider, Kind kind, String label, String requirement, boolean podLoginInfo) {}
 
   private static final List<Descriptor> DESCRIPTORS =
       List.of(
-          new Descriptor(ANTHROPIC, Kind.SERVER, "Claude 구독", "claude"),
-          new Descriptor(OPENCODE, Kind.SERVER, "OpenAI 호환", null),
-          new Descriptor(GENIA, Kind.LOGIN, "Gen:iA 로그인", "genia"),
-          new Descriptor(CHATGPT, Kind.LOGIN, "ChatGPT 로그인", "chatgpt"));
+          new Descriptor(ANTHROPIC, Kind.SERVER, "Claude 구독", "claude", false),
+          new Descriptor(OPENCODE, Kind.SERVER, "OpenAI 호환", "opencode", true),
+          new Descriptor(GENIA, Kind.LOGIN, "Gen:iA 로그인", "genia", true),
+          new Descriptor(CHATGPT, Kind.LOGIN, "ChatGPT 로그인", "chatgpt", true));
 
   private static final Map<String, Descriptor> BY_PROVIDER =
       DESCRIPTORS.stream().collect(Collectors.toUnmodifiableMap(Descriptor::provider, d -> d));
@@ -60,7 +63,7 @@ public final class AgentProviders {
   /** 등록할 수 있는 provider 값 전부. */
   public static final Set<String> ALL = BY_PROVIDER.keySet();
 
-  /** 계정을 요구하는 requires 값(claude·genia·chatgpt). */
+  /** 계정을 요구하는 requires 값(claude·genia·chatgpt·opencode). */
   public static final Set<String> ACCOUNT_REQUIREMENTS = ACCOUNT_BY_REQUIREMENT.keySet();
 
   private AgentProviders() {}
@@ -78,6 +81,17 @@ public final class AgentProviders {
   /** 로그인 정보(프로그램의 auth.json)로 연결하는 계정인가 — ai-agent 에 Claude 토큰처럼 넘기면 안 된다. */
   public static boolean isLogin(String provider) {
     return kindOf(provider) == Kind.LOGIN;
+  }
+
+  /**
+   * Pod 에 계정 정보를 파일(login-info)로 넘기는 계정인가(WP-1410) — 표의 {@code podLoginInfo} 칸(로그인 정보 계정
+   * genia·chatgpt 와 OpenCode 템플릿이 쓰는 OpenAI 호환 연결). OpenAI 호환은 종류(Kind)가 SERVER 로 남는다 — 서버가 모델을
+   * 실시간으로 조회하고 기본 방식도 쓰는 계정이라 {@link #isLogin} 이 되면 그 경로들이 깨진다. 그래서 「Pod 로 전달」 판정만 따로 둔다(runner 는
+   * provider 를 보지 않고 같은 login 비밀값 경로를 쓴다).
+   */
+  public static boolean deliversLoginInfo(String provider) {
+    Descriptor d = provider == null ? null : BY_PROVIDER.get(provider);
+    return d != null && d.podLoginInfo();
   }
 
   /** 서버(기본 실행 방식)가 쓸 수 있는 계정인가 — NULL 은 anthropic. */

@@ -2,27 +2,15 @@
 // Codex 에는 genia 같은 세션 안 확장 API 가 없어, 바깥 구동기가 `codex exec`(처음)·`codex exec resume <대화>`(그 뒤)로 work-loop 를 한 번씩 부른다.
 // 11-03 시험: resume 하면 맥락이 이어지고(캐시도 쓰인다), -o 로 마지막 답을, --json 의 thread.started 로 대화 id 를 받는다. 한 번에 하나만
 // 부르는 것은 구동기가 차례로 부르므로 저절로 지켜진다 — 대화 화면 + `codex queue` 는 공유 데몬·끝남 알림(hook)이 더 필요해 고르지 않았다.
-import { tenantHeader, toolBlockReason } from '../genia/loop.js'
+import { TOKEN_ENV, safePreview, tenantHeader, toolBlockReason } from '../genia/loop.js'
 
-// MCP 토큰을 넘기는 환경 변수 — codex 프로세스에만 넣고, 셸 도구에는 물려주지 않는다(shell_environment_policy.exclude).
-export const TOKEN_ENV = 'GENIA_WORKS_MCP_TOKEN'
+// MCP 토큰 변수(loop.js 한 곳에서 정한다) — codex 프로세스에만 넣고, 셸 도구에는 물려주지 않는다(shell_environment_policy.exclude).
+export { TOKEN_ENV }
 const SERVER = 'genia-works'
 
 /** TOML 기본 문자열(큰따옴표) — -c 값으로 넘긴다. */
 export function tomlString(s) {
   return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
-}
-
-/**
- * work-loop 를 부르는 프롬프트 — 플러그인 설치와 무관하게 스킬 파일을 직접 가리킨다(스킬은 Claude 플러그인과 한 벌).
- * 「이 스킬 폴더」를 알려 스킬 안의 `<이 스킬 폴더>/../../scripts/…` 경로가 풀리게 한다.
- */
-export function workLoopPrompt({ skillsDir, args }) {
-  const dir = skillsDir + '/work-loop'
-  return [
-    `genia-works work-loop 스킬을 한 번 실행한다. 스킬 파일 ${dir}/SKILL.md 를 읽고 그대로 따른다(같은 폴더의 다른 .md 도 스킬이 가리키면 읽는다).`,
-    `이 스킬 폴더는 ${dir} 이다. 인자: ${args}`,
-  ].join('\n')
 }
 
 /**
@@ -70,20 +58,6 @@ export function threadIdFrom(jsonl) {
   return undefined
 }
 
-/** 민감값을 먼저 숨긴 뒤 한 줄로 만든다 — 긴 토큰의 앞부분도 미리보기에 남기지 않는다. */
-function safePreview(text) {
-  // 셸 문자열의 이스케이프된 따옴표는 키·값 양쪽 경계로 인식해 JSON 인자의 비밀값도 가린다.
-  const redacted = text
-    .replace(/\bBearer\s+[^\s"'`]+/gi, 'Bearer [REDACTED]')
-    .replace(/(\b(?:[\w-]+_)?(?:token|api_key|password|secret)\b(?:\\*["'])?\s*[:=]\s*)(?:\\+"[\s\S]*?(?:\\+"|$)|\\+'[\s\S]*?(?:\\+'|$)|"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s,;"'`]+)/gi, '$1[REDACTED]')
-    .replace(/\b(?:ak_|swp_)[^\s"'`,;]+/g, '[REDACTED]')
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
-  // UTF-16 단위로 자르면 이모지가 깨지므로 120 Unicode code points 로 제한한다(WP-1423).
-  return Array.from(redacted).slice(0, 120).join('')
-}
-
 /** Codex JSONL 한 줄에서 허용된 진행 필드만 요약한다 — 원시 이벤트·도구 출력·MCP 인자와 결과는 읽지 않는다. */
 export function progressSummaryFrom(line) {
   let event
@@ -118,5 +92,6 @@ export function progressSummaryFrom(line) {
  */
 export function guardDecision(hookInput) {
   const name = String(hookInput?.tool_name ?? '').toLowerCase()
-  return toolBlockReason(name, hookInput?.tool_input)
+  // Codex 에는 genia 명령(/gw-as)이 없어 실행기에 맞는 문구로 막는다(WP-1410).
+  return toolBlockReason(name, hookInput?.tool_input, { cli: 'codex' })
 }

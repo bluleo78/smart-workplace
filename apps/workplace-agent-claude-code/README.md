@@ -27,7 +27,7 @@ Works 가 띄우는 AI Pod 의 작업 공간 이미지다(WP-1252). runner(`apps
 
 ## 다른 이미지와 함께 쓰는 파일
 
-`bin/lib.sh`·`bin/agent-screen` 은 Gen:iA Code 이미지([workplace-agent-genia-code](../workplace-agent-genia-code))와 Codex 이미지([workplace-agent-codex](../workplace-agent-codex))도 그대로 COPY 해 쓴다(그 이미지 전용 함수는 `lib-genia.sh`·`lib-codex.sh` 가 덮어쓴다). 두 이미지는 `lib.sh` 의 감독 회차 `tick`(훅 `before_supervise`·`can_launch`), 로그인 시딩 `seed_login_file`·`login_file_ready`, 시간 제한 받기 `bg_wait_timeout` 도 쓴다 — 이 이미지의 엔트리포인트는 `tick` 을 쓰지 않는다. 엔트리포인트 테스트의 공용 도구는 `tests/harness.mjs`(세 이미지가 함께 import)다. 함수 이름·인자나 harness 를 바꾸면 세 이미지의 테스트를 모두 돌린다.
+`bin/lib.sh`·`bin/agent-screen` 은 Gen:iA Code 이미지([workplace-agent-genia-code](../workplace-agent-genia-code))·Codex 이미지([workplace-agent-codex](../workplace-agent-codex))·OpenCode 이미지([workplace-agent-opencode](../workplace-agent-opencode))도 그대로 COPY 해 쓴다(그 이미지 전용 함수는 `lib-genia.sh`·`lib-codex.sh`·`lib-opencode.sh` 가 덮어쓴다). 세 이미지는 `lib.sh` 의 감독 회차 `tick`(훅 `before_supervise`·`can_launch`), 로그인 시딩 `seed_login_file`·`login_file_ready`, 시간 제한 받기 `bg_wait_timeout` 도 쓴다 — 이 이미지의 엔트리포인트는 `tick` 을 쓰지 않는다. 엔트리포인트 테스트의 공용 도구는 `tests/harness.mjs`(네 이미지가 함께 import)다. 함수 이름·인자나 harness 를 바꾸면 네 이미지의 테스트를 모두 돌린다.
 
 ## 테스트·빌드
 

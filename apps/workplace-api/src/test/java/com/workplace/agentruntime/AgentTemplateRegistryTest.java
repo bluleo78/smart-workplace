@@ -108,7 +108,7 @@ class AgentTemplateRegistryTest {
     }
   }
 
-  /** 번들된 템플릿(default·claude-code·genia-code·codex)이 모두 검증을 통과한다. */
+  /** 번들된 템플릿(default·claude-code·genia-code·codex·opencode)이 모두 검증을 통과한다. */
   @Test
   void load_whenBundledTemplates_allPass() throws IOException {
     List<AgentTemplate> all =
@@ -117,13 +117,14 @@ class AgentTemplateRegistryTest {
                 resource("default.yaml"),
                 resource("claude-code.yaml"),
                 resource("genia-code.yaml"),
-                resource("codex.yaml")),
+                resource("codex.yaml"),
+                resource("opencode.yaml")),
             ALLOWED,
             "dev");
 
     assertThat(all)
         .extracting(AgentTemplate::name)
-        .containsExactly("claude-code", "codex", "default", "genia-code");
+        .containsExactly("claude-code", "codex", "default", "genia-code", "opencode");
     assertThat(all.stream().filter(t -> t.name().equals("default")).findFirst().get().kind())
         .isEqualTo("SERVER");
   }
@@ -192,6 +193,39 @@ class AgentTemplateRegistryTest {
         .containsEntry("queue", "AI 개발팀");
     assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("effort", "ultra")))
         .isInstanceOf(InvalidAgentConfigException.class);
+  }
+
+  /**
+   * opencode.yaml(WP-1410) — OpenAI 호환 연결(opencode)·저장소 토큰을 요구하는 작업 공간 템플릿. 모델 칸 기본값은 「연결에 지정한
+   * 모델」(auto)이고, 칸을 열면 서버의 실시간 모델 목록(optionsFrom)에서 providerId/modelId 로 고른다.
+   */
+  @Test
+  void load_whenOpencodeTemplate_parsesOpencodeAccountAndAutoModel() throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(List.of(resource("opencode.yaml")), ALLOWED, "0.9.51").get(0);
+
+    assertThat(t.name()).isEqualTo("opencode");
+    assertThat(t.kind()).isEqualTo("WORKSPACE");
+    assertThat(t.card().title()).isEqualTo("OpenCode");
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-opencode:0.9.51");
+    assertThat(t.requires()).containsExactly("opencode", "repo");
+    assertThat(t.account()).isEqualTo("opencode");
+    assertThat(t.plugins()).isEmpty();
+    assertThat(t.sidecars()).extracting(AgentTemplate.Sidecar::name).containsExactly("dind");
+    assertThat(t.config())
+        .extracting(AgentTemplate.ConfigField::key)
+        .containsExactly("model", "queue");
+    AgentTemplate.ConfigField model = t.config().get(0);
+    assertThat(model.optionsFrom()).isEqualTo("account-models");
+    assertThat(model.options()).extracting(AgentTemplate.Option::value).containsExactly("auto");
+    assertThat(model.defaultValue()).isEqualTo("auto");
+
+    // auto 도, 실시간 목록에서 고른 providerId/modelId 도 꼴 검증을 통과한다.
+    assertThat(AgentTemplateRegistry.validateConfig(t, Map.of()))
+        .containsEntry("model", "auto")
+        .containsEntry("queue", "AI 개발팀");
+    assertThat(AgentTemplateRegistry.validateConfig(t, Map.of("model", "vllm/qwen3-32b")))
+        .containsEntry("model", "vllm/qwen3-32b");
   }
 
   /** 허용 레지스트리 밖 이미지는 시작 실패. */

@@ -60,6 +60,16 @@ public class AgentAccountFit implements AgentAccountFitPolicy {
     }
   }
 
+  @Override
+  public boolean deliversToPod(long agentUserId, String provider) {
+    return AgentProviders.deliversLoginInfo(provider)
+        && settings
+            .find(agentUserId)
+            .flatMap(row -> registry.find(row.templateName()))
+            .map(t -> provider.equals(t.account()))
+            .orElse(false);
+  }
+
   /**
    * 이 계정이 맞는지 — 「맞는 계정」 판정 한 곳(등록 검사·실행 설정 저장·기본 전환이 함께 쓴다). 템플릿이 계정을 요구하면 그 계정만, 아니면 서버가 쓰는
    * 계정(Claude·OpenAI 호환).

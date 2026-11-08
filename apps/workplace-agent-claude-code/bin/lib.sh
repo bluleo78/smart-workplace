@@ -372,6 +372,14 @@ bg_wait_timeout() {
   return $rc
 }
 
+# 설정 파일(config.toml·opencode.json)에 넣어도 되는 모델 id 인지 — 서버의 모델 id 꼴(ModelIds·AgentTemplateRegistry MODEL_ID)과 같은
+# 글자만, 128자까지. 따옴표·역슬래시·개행이 들어오면 TOML 이 깨지거나 다른 키가 끼어들 수 있고, 엉뚱한 값이 도구·명령줄로 흘러가지 않게 막는다.
+# Codex·OpenCode 이미지가 함께 쓴다.
+safe_model_id() {
+  case "$1" in '' | *[!A-Za-z0-9._:/@\[\]-]*) return 1 ;; esac
+  [ ${#1} -le 128 ]
+}
+
 # 로그인 정보 시딩(계약 「로그인 정보」 — Gen:iA Code·Codex 이미지가 쓴다) — seed_login_file <보관본 경로> <이름(로그용)>.
 #   마운트 파일($GENIA_RUN_DIR/login-info)이 없거나 비었으면 보관본·표식($AI_DIR/state/login-version)을 지운다(연결 끊기가 실제로 끊기게).
 #   표식이 GENIA_LOGIN_VERSION 과 다르면(없음 포함) 600 으로 원자적으로 복사하고 표식을 적는다. 같으면 그대로 — 프로그램이 스스로 갱신해(토큰

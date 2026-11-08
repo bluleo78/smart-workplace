@@ -32,13 +32,6 @@ codex_env() {
   mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME"
 }
 
-# config.toml 에 큰따옴표 문자열로 넣어도 되는 값인지 — 서버의 모델 id 꼴(AgentTemplateRegistry MODEL_ID)과 같은 글자만.
-# 따옴표·역슬래시·개행이 들어오면 TOML 이 깨지거나 다른 키가 끼어들 수 있어 막는다.
-codex_safe_value() {
-  case "$1" in '' | *[!A-Za-z0-9._:/@\[\]-]*) return 1 ;; esac
-  [ ${#1} -le 128 ]
-}
-
 # 5. Codex 설정(config.toml) — 매번 덮어쓴다(재생성된 Pod 에 옛 값이 남지 않게). 넣는 것은 사람 없는 칸에 필요한 최소 키뿐이다:
 #    - cli_auth_credentials_store = "file": 로그인을 $CODEX_HOME/auth.json 에 둔다(키링을 고르면 시딩한 보관본을 읽지 않는다).
 #    - check_for_update_on_startup = false: 버전은 이미지가 고정한다.
@@ -57,7 +50,7 @@ write_codex_config() {
   out='# Works 엔트리포인트가 Pod 를 띄울 때마다 새로 쓴다 — 고쳐도 다음에 덮인다(AI 상세 › 실행 설정에서 바꾼다).
 cli_auth_credentials_store = "file"
 check_for_update_on_startup = false'
-  if codex_safe_value "$model"; then
+  if safe_model_id "$model"; then
     out="$out
 model = \"$model\""
   elif [ -n "$model" ]; then

@@ -21,7 +21,7 @@
 #   (tail 은 wake 줄만 내므로 칸을 깨우지 않는다).
 # agent-events poke <AI 폴더> <프로젝트 키|-> — 쉬는 Claude Code 칸에 「/loop /genia-works:work-loop <인자>」를 넣어 깨운다(WP-1403). run 이 wake 줄마다
 #   뒤에서 부른다(「wake <키>-…」는 그 키, 「wake - …」(다시 붙음)는 - — 그 AI 의 모든 칸). 칸의 모델이 Monitor 걸기를 건너뛰거나 30분 뒤 다시 걸지 않으면
-#   알림이 칸에 닿지 않았다 — genia·Codex 칸처럼 깨우기를 감시 창이 맡는다. 실행기가 claude 일 때만 한다(genia·codex 는 실행기가 이미 깨운다).
+#   알림이 칸에 닿지 않았다 — genia·Codex 칸처럼 깨우기를 감시 창이 맡는다. 실행기가 claude 일 때만 한다(genia·codex·opencode 는 실행기가 이미 깨운다).
 #   넣는 것은 칸이 쉬고 있다고 화면으로 확인될 때뿐이다(사람이 친 글자·하던 일을 지키는 것이 먼저 — 놓친 알림은 정기 확인이 메운다):
 #     칸이 살아 있고, 사람이 그 칸을 보고 있지 않고(붙은 화면의 활성 칸), 입력 상자(위아래 ─ 줄 사이, ❯ 로 시작)를 찾았고,
 #     상자 바로 위에 일하는 중 표시(「✻ 동사… (8s · …)」·「Running…」·「Waiting…」·예전 판의 「esc to interrupt」)가 없고,
@@ -463,7 +463,7 @@ do_sweep_loop() {
 do_poke() {
   key=${1:-}
   [ "$key" = - ] || gw_valid_project_key "$key" || usage
-  # genia·codex 칸은 실행기가 이미 깨운다 — 실행기 확인이 가장 싸서 먼저 본다. poke - 가 칸마다 부를 때는 읽은 값을 넘겨받는다(GW_POKE_CLI).
+  # genia·codex·opencode 칸은 실행기가 이미 깨운다 — 실행기 확인이 가장 싸서 먼저 본다. poke - 가 칸마다 부를 때는 읽은 값을 넘겨받는다(GW_POKE_CLI).
   cli=${GW_POKE_CLI:-}
   [ -n "$cli" ] || cli=$("$here/agent-home" "$aidir" get cli 2>/dev/null) || cli=claude
   if [ "$cli" != claude ]; then

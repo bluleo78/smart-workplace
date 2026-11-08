@@ -63,11 +63,14 @@ test('gw-session-key: 절대 경로 실행(/…/claude --resume …)도 claude �
   assert.equal(run('gw-session-key').stdout.trim(), '400-Thu_Oct_15_06_00_00_2026');
 });
 
-// WP-1292 — Claude Code 밖의 실행기(genia·codex) 아래에서도 그 세션을 「이 세션」으로 잡는다.
+// WP-1292 — Claude Code 밖의 실행기(genia·codex·opencode) 아래에서도 그 세션을 「이 세션」으로 잡는다.
 for (const [name, args] of [
   ['genia(실행 스크립트가 exec 한 ~/.genia/app/genia)', '/Users/x/.genia/app/genia --approve /gw-loop WP'],
   ['codex(네이티브)', 'codex --dangerously-bypass-approvals-and-sandbox'],
   ['codex(npm — node …/bin/codex.js)', 'node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js exec'],
+  // WP-1410 — OpenCode 구동기가 띄운 opencode run(네이티브 설치 ~/.opencode/bin/opencode·npm opencode-ai 의 node …/bin/opencode).
+  ['opencode(네이티브)', '/Users/x/.opencode/bin/opencode run --format json -s ses_1'],
+  ['opencode(npm — node …/bin/opencode)', 'node /usr/local/lib/node_modules/opencode-ai/bin/opencode run --format json'],
 ]) {
   test(`gw-session-key: ${name} 도 이 세션으로 본다`, () => {
     setTable([
@@ -989,9 +992,11 @@ test('agent-home get/set queue: 저장한 적 없으면 1, 빈 값(가져오지 
   assert.deepEqual(readdirSync(d).filter((f) => f.includes('.tmp.')), []);
 });
 
-test('agent-home get/set cli: 저장한 적 없으면 claude, 띄울 수 있는 실행기(claude·genia·codex)만 저장한다(WP-1292)', () => {
+test('agent-home get/set cli: 저장한 적 없으면 claude, 띄울 수 있는 실행기(claude·genia·codex·opencode)만 저장한다(WP-1292·1410)', () => {
   const d = aiDir();
   assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'claude\n');
+  assert.equal(run('agent-home', [d, 'set', 'cli', 'opencode']).status, 0);
+  assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'opencode\n');
   assert.equal(run('agent-home', [d, 'set', 'cli', 'genia']).status, 0);
   assert.equal(run('agent-home', [d, 'get', 'cli']).stdout, 'genia\n');
   assert.equal(run('agent-home', [d, 'set', 'cli', 'gemini']).status, 2);
@@ -1323,6 +1328,29 @@ tmuxTest('agent-project start: 실행기가 genia 면 genia 인증서·「깨우
     '-e',
     join(scripts, '..'),
     '/gw-loop WP --queue "AI 개발팀"',
+    '',
+  ].join('\n'));
+});
+
+tmuxTest('agent-project start: 실행기가 opencode 면 「깨우기는 실행기가」 표시와 함께 구동기 gw-opencode-loop 를 띄운다(WP-1410)', async (t) => {
+  const { wrapper } = tmuxServer(t);
+  const d = aiDir();
+  mkdirSync(join(d, 'repos', 'WP'), { recursive: true });
+  run('agent-home', [d, 'set', 'cli', 'opencode']);
+  run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
+  // 구동기 대신 받은 환경·인자를 적는 가짜 — 칸 명령이 부르는 node 를 PATH 앞의 가짜로 바꾼다(구동기 스크립트가 exec node <driver.mjs> 한다).
+  writeFileSync(join(bin, 'node'), '#!/bin/sh\n{ env | grep -E "^(GENIA_WORKS_RUNNER|GENIA_WORKS_WAKE|GENIA_WORKS_AS|CLAUDE_AUTOCOMPACT)" | sort; printf "%s\\n" "$@"; } > "$HOME/opencode-args"\nexec sleep 60\n');
+  chmodSync(join(bin, 'node'), 0o755);
+  const r = run('agent-project', ['start', d, 'WP'], { env: { GW_TMUX: wrapper } });
+  assert.deepEqual([r.status, r.stdout], [0, 'started kodi\n']);
+  const out = join(home, 'opencode-args');
+  await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('driver.mjs'));
+  assert.equal(readFileSync(out, 'utf8'), [
+    'GENIA_WORKS_AS=kodi',
+    'GENIA_WORKS_RUNNER_WAKES=1',
+    'GENIA_WORKS_WAKE_MODE=runner',
+    scripts + '/../opencode/driver.mjs', // 구동기 스크립트가 자기 폴더 기준 경로로 부른다
+    'WP --queue "AI 개발팀"',
     '',
   ].join('\n'));
 });

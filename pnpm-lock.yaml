@@ -201,6 +201,8 @@ importers:
 
   apps/workplace-agent-genia-code: {}
 
+  apps/workplace-agent-opencode: {}
+
   apps/workplace-agent-runner:
     dependencies:
       '@kubernetes/client-node':

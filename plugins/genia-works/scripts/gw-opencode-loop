@@ -1,0 +1,5 @@
+#!/bin/sh
+# gw-opencode-loop <프로젝트 키> [--queue "<라벨>"] — OpenCode 로 work-loop 를 반복하는 구동기(WP-1410). 실행기가 opencode 인 칸(agent-project start)이 띄운다.
+# 본체는 ../opencode/driver.mjs(node) — 부르기·다음 확인·알림 깨우기·키 보호 플러그인은 그 파일 머리 주석.
+here=$(cd "$(dirname "$0")" && pwd)
+exec node "$here/../opencode/driver.mjs" "$@"

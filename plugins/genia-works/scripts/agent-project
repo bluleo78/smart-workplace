@@ -222,7 +222,8 @@ do_start() {
   #   genia  — genia-works 확장의 /gw-loop 가 반복·알림 깨우기를 맡는다(WP-1294). genia 인증서를 고정한다 — 이 셸의 NODE_EXTRA_CA_CERTS 가
   #            다른 값이면 genia 실행 스크립트가 자기 인증서를 쓰지 않아 「Connection error」가 난다.
   #   codex  — 바깥 구동기 gw-codex-loop 가 반복·알림 깨우기를 맡는다(WP-1295).
-  #   genia·codex 는 GENIA_WORKS_WAKE_MODE=runner(와 하위 호환 GENIA_WORKS_RUNNER_WAKES=1)로 work-loop 에 「깨우기·다음 확인은 실행기가 한다」를 알린다(WP-1293·1427).
+  #   opencode — 바깥 구동기 gw-opencode-loop 가 반복·알림 깨우기를 맡는다(WP-1410).
+  #   genia·codex·opencode 는 GENIA_WORKS_WAKE_MODE=runner(와 하위 호환 GENIA_WORKS_RUNNER_WAKES=1)로 work-loop 에 「깨우기·다음 확인은 실행기가 한다」를 알린다(WP-1293·1427).
   case "$cli" in
     claude)
       # 이 셸에 CLAUDE_CODE_OAUTH_TOKEN 이 있으면(Pod — Secret 에서 받는다, 또는 사람이 일반 셸에서 부름) AI 별 파일에 적는다
@@ -244,8 +245,9 @@ do_start() {
       # genia-works 확장·스킬은 이 플러그인 폴더(package.json 의 pi 목록)를 -e 로 싣는다 — 설치 없이 지금 플러그인 버전을 쓴다.
       set -- "$@" genia --approve -e "$(cd "$here/.." && pwd)" "/gw-loop $args"
       ;;
-    codex)
-      set -- "$@" GENIA_WORKS_WAKE_MODE=runner GENIA_WORKS_RUNNER_WAKES=1 "$here/gw-codex-loop" "$args"
+    codex|opencode)
+      # 바깥 구동기(gw-<실행기>-loop) — 알림은 구동기가 받아 회차를 부른다.
+      set -- "$@" GENIA_WORKS_WAKE_MODE=runner GENIA_WORKS_RUNNER_WAKES=1 "$here/gw-$cli-loop" "$args"
       ;;
   esac
   # shellcheck disable=SC2086 # restart 는 비었거나 --restart 한 단어다.

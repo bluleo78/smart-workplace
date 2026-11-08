@@ -138,7 +138,7 @@ public class AgentRuntimeSettingService {
     // 템플릿으로 바꾸면 새 계정이 아직 없어 그대로 일하지 못하므로 409 — 먼저 끄고 바꾼 뒤 연결한다. 끊기는 아래 위치·자리 검사(404·409)까지
     // 모두 통과한 뒤 저장 직전에 한다 — 거절된 저장이 아무것도 끊지 않게(롤백에 기대지 않는다).
     Optional<String> activeProvider = credentials.findActiveProvider(agentId);
-    if (row.desired() == Desired.RUN) requireLoginAccount(template, activeProvider);
+    if (row.desired() == Desired.RUN) requireLoginAccount(agentId, template, activeProvider);
 
     Long newEffective = oldEffective;
     if (!Objects.equals(req.locationId(), row.locationId())) {
@@ -182,7 +182,7 @@ public class AgentRuntimeSettingService {
                 () ->
                     new AgentRuntimeSettingConflictException(
                         "실행 템플릿을 찾을 수 없어 켤 수 없습니다. 실행 설정을 다시 저장하세요"));
-    requireLoginAccount(template, credentials.findActiveProvider(agentId));
+    requireLoginAccount(agentId, template, credentials.findActiveProvider(agentId));
     requireRepoTokens(agentId, template);
     locationRepository.lockTenantLocations();
     AgentLocationRepository.Row location = claimSeat(row.locationId(), null);
@@ -280,14 +280,24 @@ public class AgentRuntimeSettingService {
 
   /**
    * 켜기 전 로그인 계정 확인(WP-1296·1297) — 템플릿이 로그인 정보 계정(genia·chatgpt)을 쓰는데 그 종류의 활성 연결이 없으면 409. 그 프로그램은
-   * 로그인 없이 일을 못 한다. Claude 계정 템플릿은 지금처럼 확인하지 않는다(기존 켜기 흐름을 바꾸지 않게 — runner 가 연결 없음을 실패로 알린다).
+   * 로그인 없이 일을 못 한다. OpenCode 템플릿(WP-1410)의 OpenAI 호환 연결도 Pod 로 전달하는 계정이라 같다. Claude 계정 템플릿은 지금처럼
+   * 확인하지 않는다(기존 켜기 흐름을 바꾸지 않게 — runner 가 연결 없음을 실패로 알린다).
+   *
+   * <p>OpenAI 호환 연결은 providerId 가 Pod 가 받는 꼴(영문·숫자·. _ -)인지도 본다 — 등록 검증이 생기기 전에 저장된 옛 연결이면 켜져도 Pod
+   * 가 칸을 띄우지 않으므로 409 로 이유를 알린다.
    */
-  private static void requireLoginAccount(AgentTemplate template, Optional<String> activeProvider) {
+  private void requireLoginAccount(
+      long agentId, AgentTemplate template, Optional<String> activeProvider) {
     String account = template.account();
-    if (!AgentProviders.isLogin(account)) return;
+    if (!AgentProviders.deliversLoginInfo(account)) return;
     if (activeProvider.filter(p -> AgentAccountFit.fits(template, p)).isEmpty()) {
       throw new AgentRuntimeSettingConflictException(
           "「" + AgentProviders.label(account) + "」을 먼저 연결해 주세요");
+    }
+    if (AgentProviders.OPENCODE.equals(account)
+        && credentials.hasPodUnsafeOpencodeProviderId(agentId)) {
+      throw new AgentRuntimeSettingConflictException(
+          "「OpenAI 호환」 연결의 providerId 는 영문·숫자와 . _ - 만 쓸 수 있어 작업 공간에서 쓸 수 없습니다. 연결을 다시 해 주세요");
     }
   }
 

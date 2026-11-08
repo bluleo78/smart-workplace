@@ -2,6 +2,9 @@ package com.workplace.auth.repository;
 
 import static com.workplace.jooq.Tables.ASSISTANT_CONFIG;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -47,6 +50,21 @@ public class AssistantConfigRepository {
                     r.get(ASSISTANT_CONFIG.MAX_TURNS),
                     r.get(ASSISTANT_CONFIG.TIMEOUT_MS),
                     r.get(ASSISTANT_CONFIG.SUGGESTION_MODEL)));
+  }
+
+  /**
+   * 여러 agent 의 지정 모델(assistant_config.model)을 한 쿼리로(WP-1410 — runner desired 의 OpenCode login 버전).
+   * 행이 없거나 모델이 NULL 이면 빠진다.
+   */
+  public Map<Long, String> findModels(Collection<Long> agentUserIds) {
+    if (agentUserIds.isEmpty()) return Map.of();
+    Map<Long, String> out = new HashMap<>();
+    dsl.select(ASSISTANT_CONFIG.AGENT_USER_ID, ASSISTANT_CONFIG.MODEL)
+        .from(ASSISTANT_CONFIG)
+        .where(ASSISTANT_CONFIG.AGENT_USER_ID.in(agentUserIds))
+        .and(ASSISTANT_CONFIG.MODEL.isNotNull())
+        .forEach(r -> out.put(r.value1(), r.value2()));
+    return out;
   }
 
   /** upsert — null 인자는 그대로 NULL 저장(=디폴트 사용 의미). suggestion_model 은 건드리지 않는다(전용 setter 사용). */

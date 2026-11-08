@@ -79,6 +79,22 @@ public class AiAgentCredentialRepository {
   }
 
   /**
+   * 여러 AGENT 의 active 행 중 provider 가 같은 것만 한 쿼리로(WP-1410 — runner desired 가 OpenCode 연결의 login 버전을
+   * AI 마다 따로 조회하지 않게). AGENT id → 행(암호문 그대로 — 평문은 다루지 않는다). 없는 AGENT 는 빠진다.
+   */
+  public Map<Long, AiAgentCredentialRow> findActiveByUsersAndProvider(
+      Collection<Long> userIds, String provider) {
+    if (userIds.isEmpty()) return Map.of();
+    Map<Long, AiAgentCredentialRow> out = new HashMap<>();
+    dsl.selectFrom(AI_AGENT_CREDENTIAL)
+        .where(AI_AGENT_CREDENTIAL.USER_ID.in(userIds))
+        .and(AI_AGENT_CREDENTIAL.REVOKED_AT.isNull())
+        .and(AI_AGENT_CREDENTIAL.PROVIDER.eq(provider))
+        .forEach(r -> out.put(r.get(AI_AGENT_CREDENTIAL.USER_ID), mapRow(r)));
+    return out;
+  }
+
+  /**
    * 가장 최근에 등록된 행(회수된 행 포함, 없으면 empty) — WP-1322: 등록 시 지금 연결(revokedAt 이 null 이면 active)과 「연결을 끊은 뒤
    * 다른 provider 로 다시 연결」을 한 번의 조회로 함께 판단한다. active 행은 언제나 가장 최근 행이다(등록이 기존 active 를 회수한 뒤 새 행을
    * 넣는다).

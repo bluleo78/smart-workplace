@@ -18,6 +18,11 @@ export const GENIA_COMMANDS = { loop: 'gw-loop', login: 'gw-login', as: 'gw-as',
 export const GENIA_KEY_PATH_DENY = KEY_PATH_DENY.replace(/\/genia-works:as\b/, '/' + GENIA_COMMANDS.as)
 export const GENIA_HEADER_SCRIPT_DENY = HEADER_SCRIPT_DENY.replace(/\/genia-works:as\b/, '/' + GENIA_COMMANDS.as)
 
+// 바깥 구동기(OpenCode·Codex) 칸에서 막을 때의 문구(WP-1410) — 그 프로그램에는 신원 전환 명령(/gw-as·/genia-works:as)이 없고, 칸의 신원은
+// 구동기가 정한다. 그래서 명령을 안내하지 않고 「직접 다루지 말라」만 알린다.
+export const RUNNER_KEY_PATH_DENY = 'genia-works 키 저장소(~/.genia-works)는 열 수 없습니다. 이 칸의 신원과 키는 구동기가 정하니 직접 다루지 마세요.'
+export const RUNNER_HEADER_SCRIPT_DENY = 'genia-works 헤더 스크립트는 직접 실행할 수 없습니다 — 이 칸의 신원과 키는 구동기가 정하니 직접 다루지 마세요.'
+
 /**
  * work-loop 의 마지막 줄 「GW-NEXT-CHECK <ISO 시각>|none」 을 읽는다(SKILL.md 「깨우기를 실행기가 맡는 세션」).
  * 돌려주는 값: { kind: 'none' } — 다음 확인을 잡지 않는다(신원 오류·DRAIN·RESTART — LoopDriver 가 checkStop 으로 한 번 더 확인한다),
@@ -394,22 +399,47 @@ export function projectKeyOf(args) {
   return /^[A-Za-z0-9_-]+$/.test(first) ? first : undefined
 }
 
-// 도구 입력에서 검사할 글 — Claude mod 와 같은 필드(경로·명령) + genia 의 codemode 스크립트(code·script).
-const SCRIPT_FIELDS = ['code', 'script']
+// 도구 입력에서 검사할 글 — Claude mod 와 같은 필드(경로·명령) + genia 의 codemode 스크립트(code·script)
+// + OpenCode 의 파일 경로(read·write·edit 의 filePath — camelCase 라 mod 의 file_path 에 걸리지 않는다, WP-1410).
+const SCRIPT_FIELDS = ['code', 'script', 'filePath']
+
+/**
+ * OpenCode apply_patch 의 patchText 에서 고칠 파일 경로만 뽑는다(WP-1410) — 「*** Add/Update/Delete File: 경로」·「*** Move to: 경로」 줄.
+ * 패치 본문(바꿀 내용)에 키 저장소가 언급된 것까지 막지 않으려고 머리 줄만 본다(mod 가 content 를 보지 않는 것과 같은 까닭).
+ */
+function patchTargets(patchText) {
+  if (typeof patchText !== 'string') return []
+  const out = []
+  for (const m of patchText.matchAll(/^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)) out.push(m[1].trim())
+  return out
+}
+
+// 실행기마다 더 보는 도구 인자(WP-1410) — OpenCode bash 의 workdir(명령이 도는 폴더). 「workdir=키 저장소, command=cat keys/x」처럼
+// 명령에는 키 저장소가 보이지 않는 우회를 막는다. genia·Codex 의 판정은 바꾸지 않으려고 실행기를 줄 때만 본다.
+// (OpenCode 1.18.31 도구 인자: bash command·workdir, read·write·edit·lsp filePath, glob pattern·path, grep pattern·path·include, list path —
+//  path·pattern 은 mod 와 같은 필드로, filePath 는 SCRIPT_FIELDS 로 이미 본다.)
+const CLI_TARGET_FIELDS = { opencode: ['workdir'] }
 
 /**
  * 키를 지키는 도구 차단 판정(KEY_PATH_DENY·HEADER_SCRIPT_DENY 대응) — 막아야 하면 사람에게 보일 이유, 아니면 undefined.
  * bash 는 헤더 스크립트 실행도 막는다(그 출력이 활성 AI 키다). 우회(다른 이름으로 복사해 실행 등)는 막지 못한다 — README 에 적는다.
+ * cli: 부르는 실행기 — 없거나 genia 면 genia 문구(/gw-as 안내), opencode·codex 면 명령을 안내하지 않는 문구(RUNNER_*)를 낸다(WP-1410).
+ *      opencode 면 bash 의 workdir 도 검사한다.
  */
-export function toolBlockReason(toolName, input) {
+export function toolBlockReason(toolName, input, { cli } = {}) {
+  // genia 가 아닌 실행기(바깥 구동기 — codex·opencode)는 모두 /gw-as 같은 genia 명령이 없다.
+  const external = Boolean(cli) && cli !== 'genia'
+  const keyDeny = external ? RUNNER_KEY_PATH_DENY : GENIA_KEY_PATH_DENY
+  const headerDeny = external ? RUNNER_HEADER_SCRIPT_DENY : GENIA_HEADER_SCRIPT_DENY
   const texts = [...toolTargets(input)]
   if (input && typeof input === 'object') {
-    for (const k of SCRIPT_FIELDS) if (typeof input[k] === 'string') texts.push(input[k])
+    for (const k of [...SCRIPT_FIELDS, ...(CLI_TARGET_FIELDS[cli] ?? [])]) if (typeof input[k] === 'string') texts.push(input[k])
+    texts.push(...patchTargets(input.patchText))
   }
-  if (texts.some(isKeyPath)) return GENIA_KEY_PATH_DENY
-  if (isHeaderScriptCall(input)) return GENIA_HEADER_SCRIPT_DENY
+  if (texts.some(isKeyPath)) return keyDeny
+  if (isHeaderScriptCall(input)) return headerDeny
   // codemode 스크립트 안에서 헤더 스크립트를 부르는 것도 막는다(셸 명령처럼 실행 자리를 보지 않고 이름이 보이면).
-  if (toolName === 'codemode' && texts.some((t) => /gw-(?:headers|session-key)\b/.test(t))) return GENIA_HEADER_SCRIPT_DENY
+  if (toolName === 'codemode' && texts.some((t) => /gw-(?:headers|session-key)\b/.test(t))) return headerDeny
   return undefined
 }
 
@@ -418,6 +448,9 @@ export const promptHasSecret = containsSecretKey
 
 // 프롬프트에서 키를 버릴 때의 문구 — 키 값은 담지 않는다.
 export const GENIA_PROMPT_KEY_DROP = 'genia-works 키나 토큰은 대화에 넣을 수 없습니다 — AI 키는 /' + GENIA_COMMANDS.login + ' 으로 등록하세요'
+
+// 바깥 구동기(Codex·OpenCode)가 MCP 토큰을 넘기는 환경 변수 — 그 프로그램 프로세스에만 넣고, 셸 도구에는 물려주지 않는다.
+export const TOKEN_ENV = 'GENIA_WORKS_MCP_TOKEN'
 
 /** 워크스페이스 헤더 — tenant 가 숫자일 때만 X-On-Behalf-Of-Tenant 를 붙인다(그 밖의 값은 헤더·TOML 에 끼워 넣지 않는다). genia·Codex 가 함께 쓴다. */
 export function tenantHeader(tenant) {
@@ -448,6 +481,34 @@ export function conflictingMcpEntry(mcpJsonText) {
   } catch {
     return undefined
   }
+}
+
+/**
+ * work-loop 를 부르는 프롬프트 — 플러그인 설치와 무관하게 스킬 파일을 직접 가리킨다(스킬은 Claude 플러그인과 한 벌).
+ * 「이 스킬 폴더」를 알려 스킬 안의 `<이 스킬 폴더>/../../scripts/…` 경로가 풀리게 한다. 바깥 구동기(Codex·OpenCode)가 함께 쓴다.
+ */
+export function workLoopPrompt({ skillsDir, args }) {
+  const dir = skillsDir + '/work-loop'
+  return [
+    `genia-works work-loop 스킬을 한 번 실행한다. 스킬 파일 ${dir}/SKILL.md 를 읽고 그대로 따른다(같은 폴더의 다른 .md 도 스킬이 가리키면 읽는다).`,
+    `이 스킬 폴더는 ${dir} 이다. 인자: ${args}`,
+  ].join('\n')
+}
+
+/**
+ * 진행 요약에 넣을 미리보기 — 민감값을 먼저 숨긴 뒤 한 줄로 만든다(긴 토큰의 앞부분도 남기지 않는다). Codex·OpenCode 구동기가 함께 쓴다.
+ */
+export function safePreview(text) {
+  // 셸 문자열의 이스케이프된 따옴표는 키·값 양쪽 경계로 인식해 JSON 인자의 비밀값도 가린다.
+  const redacted = String(text)
+    .replace(/\bBearer\s+[^\s"'`]+/gi, 'Bearer [REDACTED]')
+    .replace(/(\b(?:[\w-]+_)?(?:token|api_key|password|secret)\b(?:\\*["'])?\s*[:=]\s*)(?:\\+"[\s\S]*?(?:\\+"|$)|\\+'[\s\S]*?(?:\\+'|$)|"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s,;"'`]+)/gi, '$1[REDACTED]')
+    .replace(/\b(?:ak_|swp_)[^\s"'`,;]+/g, '[REDACTED]')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  // UTF-16 단위로 자르면 이모지가 깨지므로 120 Unicode code points 로 제한한다(WP-1423).
+  return Array.from(redacted).slice(0, 120).join('')
 }
 
 /** 셸 한 단어로 감싼다(경로의 공백·따옴표). */

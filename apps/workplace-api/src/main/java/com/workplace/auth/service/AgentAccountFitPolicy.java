@@ -11,4 +11,10 @@ public interface AgentAccountFitPolicy {
    * com.workplace.auth.exception.InvalidProviderCredentialException}(400, 한국어 문구)을 던진다.
    */
   void requireFits(long agentUserId, String provider);
+
+  /**
+   * 이 AI 에 등록하는 이 계정(provider)이 작업 공간 Pod 로 넘어가는가(WP-1410) — 실행 템플릿이 바로 그 계정을 요구하고 그 계정이 Pod 로 로그인
+   * 정보를 넘기는 종류일 때 true. 그때만 등록이 Pod 가 받는 꼴을 따로 검사한다(기본·내 컴퓨터 방식의 기존 연결은 그대로 다시 등록할 수 있게).
+   */
+  boolean deliversToPod(long agentUserId, String provider);
 }

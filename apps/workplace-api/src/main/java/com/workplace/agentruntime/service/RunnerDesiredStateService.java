@@ -40,6 +40,7 @@ import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -117,35 +118,49 @@ public class RunnerDesiredStateService {
       // 활성 연결 id·provider 를 한 번에(WP-1296·1297) — claude 버전은 provider 와 상관없이 id,
       // login 버전은 템플릿 계정과 같은 종류일 때만.
       Map<Long, ActiveCredentialRef> credentialRefs = credentials.findActiveRefs(ids);
+      // 템플릿은 행마다 한 번만 찾는다 — 사라진 템플릿의 AI 는 띄울 방법이 없어 아래에서 싣지 않는다.
+      Map<Long, AgentTemplate> templates = new HashMap<>();
+      for (Row row : rows) {
+        registry.find(row.templateName()).ifPresent(t -> templates.put(row.agentUserId(), t));
+      }
       // 저장소 토큰 버전은 템플릿이 repo 를 요구하는 AI 만 묻는다 — 쓰지 않는 AI 까지 조회하지 않게.
       List<Long> repoIds =
-          rows.stream()
-              .filter(
-                  row ->
-                      registry
-                          .find(row.templateName())
-                          .map(t -> t.requires().contains("repo"))
-                          .orElse(false))
-              .map(Row::agentUserId)
+          templates.entrySet().stream()
+              .filter(e -> e.getValue().requires().contains("repo"))
+              .map(Map.Entry::getKey)
               .toList();
       Map<Long, Long> reposVersions =
           repoIds.isEmpty() ? Map.of() : repoCredentials.versions(repoIds);
+      // login 버전(WP-1296·1297·1410)은 템플릿이 로그인 계정을 요구하고 활성 연결이 바로 그 계정인 AI 만 한 번에 묻는다 —
+      // genia·chatgpt 는
+      // 연결 id, OpenCode 는 /secrets/login 과 같은 함수로 계산한 값. 맞지 않으면 null(runner 가 Pod 의 로그인 정보를 지운다).
+      Map<Long, ActiveCredentialRef> loginRefs = new HashMap<>();
+      templates.forEach(
+          (id, t) -> {
+            ActiveCredentialRef ref = credentialRefs.get(id);
+            if (ref != null
+                && AgentProviders.deliversLoginInfo(t.account())
+                && AgentAccountFit.fits(t, ref.provider())) {
+              loginRefs.put(id, ref);
+            }
+          });
+      Map<Long, Long> loginVersions =
+          loginRefs.isEmpty() ? Map.of() : credentials.podLoginVersions(loginRefs);
       for (Row row : rows) {
         long id = row.agentUserId();
-        registry
-            .find(row.templateName())
-            .ifPresent(
-                t ->
-                    agents.add(
-                        toAgent(
-                            principal,
-                            row,
-                            t,
-                            usernames.get(id),
-                            chains.getOrDefault(id, ManagedKeyChain.EMPTY),
-                            credentialRefs.get(id),
-                            reposVersions.get(id),
-                            now)));
+        AgentTemplate t = templates.get(id);
+        if (t == null) continue;
+        agents.add(
+            toAgent(
+                principal,
+                row,
+                t,
+                usernames.get(id),
+                chains.getOrDefault(id, ManagedKeyChain.EMPTY),
+                credentialRefs.get(id),
+                loginVersions.get(id),
+                reposVersions.get(id),
+                now));
       }
     }
     return new RunnerDesiredResponse(
@@ -351,6 +366,10 @@ public class RunnerDesiredStateService {
    * 로그인 정보 원문(WP-1296·1297) — 캐시 금지 응답으로 나간다. 이 위치에서 켜져 있는 AI 만(아니면 RUNNER_AGENT_NOT_FOUND 404 —
    * runner 가 다시 시도한다). 활성 연결이 없거나 템플릿의 로그인 계정과 다른 종류면(템플릿이 로그인 계정을 요구하지 않을 때 포함)
    * RUNNER_SECRET_NOT_FOUND 404 — runner 가 Pod 의 로그인 정보를 지운다. last_used_at 은 갱신하지 않는다(claude 와 같다).
+   *
+   * <p>WP-1410: OpenCode 템플릿의 OpenAI 호환 연결도 같은 경로로 나간다 — 원문 JSON 에 「연결에 지정한 모델」({@code
+   * defaultModel} — 이 연결의 「providerId/」 접두가 아니면 null)을 한 필드 더해, Pod 엔트리포인트가 모델 칸이 {@code auto} 일 때
+   * 쓰게 한다(runner 는 provider 를 보지 않는다). version 은 연결 id 가 아니라 desired 의 참조와 같은 함수로 계산한 값이다.
    */
   @Transactional(readOnly = true)
   public RunnerLoginSecretResponse loginSecret(RunnerPrincipal principal, long agentUserId) {
@@ -358,19 +377,18 @@ public class RunnerDesiredStateService {
     if (!settings.isRunningAt(agentUserId, location.id(), location.isDefault())) {
       throw new RunnerAgentNotFoundException();
     }
-    // 템플릿이 사라졌거나, 연결이 없거나, 템플릿의 로그인 계정과 다른 종류면 모두 「로그인 정보 없음」이다.
+    // 템플릿이 사라졌거나, 연결이 없거나, 템플릿의 로그인 계정과 다른 종류면 모두 「로그인 정보 없음」이다. OpenCode 는 원문 + defaultModel
+    // 과, desired 의 참조와 같은 함수로 계산한 version 이 같은 행에서 나온다(WP-1410).
     ActiveProviderSecret secret =
         settings
             .find(agentUserId)
             .flatMap(row -> registry.find(row.templateName()))
+            .filter(t -> AgentProviders.deliversLoginInfo(t.account()))
             .flatMap(
                 t ->
                     credentials
-                        .findActiveSecret(agentUserId)
-                        .filter(
-                            sec ->
-                                AgentProviders.isLogin(t.account())
-                                    && AgentAccountFit.fits(t, sec.provider())))
+                        .findPodLoginSecret(agentUserId)
+                        .filter(sec -> AgentAccountFit.fits(t, sec.provider())))
             .orElseThrow(() -> new RunnerSecretNotFoundException("AI 에 연결할 로그인 정보가 없습니다"));
     return new RunnerLoginSecretResponse(secret.id(), secret.provider(), secret.plaintext());
   }
@@ -401,6 +419,8 @@ public class RunnerDesiredStateService {
    *
    * @param keys 이 AI 의 이 워크스페이스 활성 managed 키 사슬
    * @param credential 활성 모델 연결 id·provider(없으면 null)
+   * @param loginVersion 로그인 정보 버전(템플릿이 로그인 계정을 요구하고 활성 연결이 그 계정일 때만 — genia·chatgpt 는 연결 id,
+   *     OpenCode 는 Pod 에 넘길 원문의 해시. 아니면 null)
    * @param reposVersion 저장소 토큰 버전(등록·교체·폐기 시각의 epoch 밀리초, 행이 없으면 null)
    */
   private RunnerDesiredAgent toAgent(
@@ -410,6 +430,7 @@ public class RunnerDesiredStateService {
       String username,
       ManagedKeyChain keys,
       ActiveCredentialRef credential,
+      Long loginVersion,
       Long reposVersion,
       OffsetDateTime now) {
     TemplateShape shape = shapeOf(t);
@@ -426,7 +447,7 @@ public class RunnerDesiredStateService {
         shape.sidecars(),
         shape.plugins(),
         row.config(),
-        secretsFor(t, keys.live(), credential, reposVersion));
+        secretsFor(t, keys.live(), credential, loginVersion, reposVersion));
   }
 
   /** 템플릿 한 개의 runner 모양 — 이름@버전마다 한 번만 바꾼다. */
@@ -446,11 +467,16 @@ public class RunnerDesiredStateService {
    * 비밀값 참조 — 원문 없이 이름·출처·버전만. agent-key 는 Works 가 띄우는 AI 모두에(현재 managed 키 id·rotateAfter, 아직 없으면
    * null — 정리 유예에 든 키만 남았으면 그것도 「없음」이라 runner 가 새로 받는다. 끄고 곧 다시 켰을 때 5분 뒤 만료될 키로 Pod 를 띄우지 않게),
    * claude 는 템플릿이 요구할 때(활성 연결 id, 없으면 null), repos 는 템플릿이 {@code repo} 를 요구할 때(AI 별·호스트별 저장소 토큰 묶음의
-   * 버전 — 등록·교체·폐기 시각의 epoch 밀리초, 토큰 행이 없으면 null. WP-1268), login 은 템플릿이 genia·chatgpt 를 요구할 때(활성
-   * 연결의 provider 가 템플릿 계정과 같을 때만 그 id, 없거나 다른 종류면 null — runner 가 Pod 의 로그인 정보를 지운다. WP-1296·1297).
+   * 버전 — 등록·교체·폐기 시각의 epoch 밀리초, 토큰 행이 없으면 null. WP-1268), login 은 템플릿이 genia·chatgpt·opencode 를
+   * 요구할 때 {@code loginVersion}(desired 가 미리 정한 값 — 활성 연결이 템플릿 계정과 같을 때만 있고, 없거나 다른 종류면 null 이라
+   * runner 가 Pod 의 로그인 정보를 지운다. WP-1296·1297·1410).
    */
   private static List<RunnerSecretRef> secretsFor(
-      AgentTemplate t, ManagedKeyChain keys, ActiveCredentialRef credential, Long reposVersion) {
+      AgentTemplate t,
+      ManagedKeyChain keys,
+      ActiveCredentialRef credential,
+      Long loginVersion,
+      Long reposVersion) {
     Long claudeVersion = credential == null ? null : credential.id();
     List<RunnerSecretRef> out = new ArrayList<>();
     Optional<ManagedKeyChain.Key> key = keys.current();
@@ -465,12 +491,7 @@ public class RunnerDesiredStateService {
         out.add(new RunnerSecretRef("claude", RunnerSecretRef.SOURCE_WORKS, claudeVersion, null));
       } else if ("repo".equals(need)) {
         out.add(new RunnerSecretRef("repos", RunnerSecretRef.SOURCE_WORKS, reposVersion, null));
-      } else if (AgentProviders.isLogin(AgentProviders.accountForRequirement(need))) {
-        Long loginVersion =
-            // 이 분기는 템플릿이 로그인 계정을 요구할 때만 오므로 fits 가 「바로 그 로그인 계정인가」와 같다.
-            credential != null && AgentAccountFit.fits(t, credential.provider())
-                ? credential.id()
-                : null;
+      } else if (AgentProviders.deliversLoginInfo(AgentProviders.accountForRequirement(need))) {
         out.add(new RunnerSecretRef("login", RunnerSecretRef.SOURCE_WORKS, loginVersion, null));
       }
     }

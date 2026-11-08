@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
@@ -21,6 +22,7 @@ import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.exception.OAuthTokenNotFoundException;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.PersonalAssistantService;
 import com.workplace.global.security.EncryptionService;
@@ -66,6 +68,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
   @Autowired AgentRuntimeSettingService settingService;
   @Autowired AiAgentCredentialService credentials;
   @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired AssistantConfigRepository configRepo;
   @Autowired EncryptionService encryption;
   @Autowired UserService userService;
   @Autowired PersonalAssistantService personalAssistants;
@@ -111,6 +114,15 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     return credentials
         .register(admin, agent, "chatgpt", chatgptLogin("c@example.test"), "codex", null)
         .id();
+  }
+
+  /** OpenAI 호환(opencode) 연결 원문 — 가짜 값. 모델은 등록 인자로 따로 받아 assistant_config 에 저장된다. */
+  private static final String OPENCODE_CONFIG =
+      "{\"providerId\":\"vllm\",\"npm\":\"@ai-sdk/openai-compatible\","
+          + "\"options\":{\"baseURL\":\"https://api.example.com/v1\",\"apiKey\":\"sk-fake-opencode\"}}";
+
+  private long registerOpencode(long agent, String model) {
+    return credentials.register(admin, agent, "opencode", OPENCODE_CONFIG, "vllm", model).id();
   }
 
   private long registerAnthropic(long agent) {
@@ -387,6 +399,344 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     putTemplate(agent, "claude-code");
 
     settingService.start(admin, agent);
+  }
+
+  // ---- OpenCode 템플릿(WP-1410) — OpenAI 호환(opencode) 연결도 로그인 정보 경로로 Pod 에 전달된다 ----
+
+  /**
+   * opencode 템플릿은 연결 종류(opencode)와 맞고 login 참조를 낸다 — version 은 연결 id 가 아니라 「연결 id + 지정 모델 + 연결
+   * 원문」에서 계산한 값이고, /secrets/login 응답의 version 과 같아야 한다(다르면 runner 가 매 회차 다시 받는다). 기본 방식의 연결 종류이므로
+   * 모델 조회 등 다른 경로는 그대로다.
+   */
+  @Test
+  void desired_opencodeTemplateWithOpencodeCredential_hasLoginRefMatchingLoginSecret()
+      throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+
+    JsonNode login = secretNamed(desiredAgent(agent), "login");
+    assertThat(login.get("source").asText()).isEqualTo("WORKS");
+    assertThat(login.get("version").isIntegralNumber()).isTrue();
+    assertThat(login.get("version").asLong()).isEqualTo(loginSecretVersion(agent));
+    // runner(TypeScript)의 JSON 숫자로 정확히 옮겨지는 범위(2^53 미만)여야 한다.
+    assertThat(login.get("version").asLong()).isBetween(1L, (1L << 53) - 1);
+    assertThat(secretNamed(desiredAgent(agent), "claude")).isNull();
+  }
+
+  /** /secrets/login 응답의 version. */
+  private long loginSecretVersion(long agent) throws Exception {
+    return om.readTree(
+            runner(get(RUNNER + "/agents/" + agent + "/secrets/login"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString())
+        .get("version")
+        .asLong();
+  }
+
+  /** /secrets/login 응답 payload(연결 원문 + defaultModel)를 JSON 으로. */
+  private JsonNode loginSecretPayload(long agent) throws Exception {
+    return om.readTree(
+        om.readTree(
+                runner(get(RUNNER + "/agents/" + agent + "/secrets/login"))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .get("payload")
+            .asText());
+  }
+
+  private long desiredLoginVersion(long agent) throws Exception {
+    return secretNamed(desiredAgent(agent), "login").get("version").asLong();
+  }
+
+  /**
+   * 비서 설정에서 모델만 바꿔도(assistant_config.model → defaultModel) login version 이 바뀐다 — 그대로면 runner 가
+   * login-info 를 다시 받지 않아 Pod 가 옛 모델로 뜬다. 바뀐 version 은 /secrets/login 의 version 과 같고 payload 에 새
+   * 모델이 실린다.
+   */
+  @Test
+  void desiredLoginVersion_whenConfiguredModelChanges_changesAndMatchesLoginSecret()
+      throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+    long before = desiredLoginVersion(agent);
+
+    configRepo.upsert(agent, "vllm/llama4", null, null, null);
+
+    long after = desiredLoginVersion(agent);
+    assertThat(after).isNotEqualTo(before);
+    assertThat(loginSecretVersion(agent)).isEqualTo(after);
+    assertThat(loginSecretPayload(agent).get("defaultModel").asText()).isEqualTo("vllm/llama4");
+  }
+
+  /**
+   * 같은 연결 행에서 이미지 입력 지정만 고쳐도(updateModelVision — 행을 그 자리에서 다시 쓴다) login version 이 바뀌고
+   * /secrets/login 과 같다.
+   */
+  @Test
+  void desiredLoginVersion_whenVisionChangesInPlace_changesAndMatchesLoginSecret()
+      throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+    long before = desiredLoginVersion(agent);
+
+    credentials.updateModelVision(agent, "vllm/qwen3", BooleanNode.TRUE);
+
+    long after = desiredLoginVersion(agent);
+    assertThat(after).isNotEqualTo(before);
+    assertThat(loginSecretVersion(agent)).isEqualTo(after);
+    assertThat(loginSecretPayload(agent).at("/vision/vllm~1qwen3").asBoolean()).isTrue();
+  }
+
+  /**
+   * 같은 값을 다시 저장하면(행은 새 IV 로 다시 암호화된다) login version 은 그대로다 — 원문으로 계산하므로 일하던 Pod 를 까닭 없이 다시 만들지 않는다.
+   */
+  @Test
+  void desiredLoginVersion_whenSameVisionResaved_staysTheSame() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+    credentials.updateModelVision(agent, "vllm/qwen3", BooleanNode.TRUE);
+    long before = desiredLoginVersion(agent);
+
+    credentials.updateModelVision(agent, "vllm/qwen3", BooleanNode.TRUE);
+
+    assertThat(desiredLoginVersion(agent)).isEqualTo(before);
+    assertThat(loginSecretVersion(agent)).isEqualTo(before);
+  }
+
+  /** 생각의 깊이처럼 Pod 에 넘기지 않는 설정만 바뀌면 login version 은 그대로다(쓸데없이 Pod 를 다시 만들지 않게). */
+  @Test
+  void desiredLoginVersion_whenOnlyThinkingDepthChanges_staysSame() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+    long before = desiredLoginVersion(agent);
+
+    configRepo.upsert(agent, "vllm/qwen3", "HIGH", null, null);
+
+    assertThat(desiredLoginVersion(agent)).isEqualTo(before);
+  }
+
+  /**
+   * 지정 모델이 이 연결의 「providerId/」 접두가 아니면(옛 Claude 기본값 등) defaultModel 은 null 로 나간다 — Pod 가 엉뚱한 모델로 뜨지
+   * 않고 「모델을 정할 수 없음」으로 멈추게.
+   */
+  @Test
+  void loginSecret_opencodeModelWithoutProviderPrefix_hasNullDefaultModel() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+
+    for (String model : List.of("claude-sonnet-4-5", "other/qwen3", "vllm/")) {
+      configRepo.upsert(agent, model, null, null, null);
+      JsonNode n = loginSecretPayload(agent);
+      assertThat(n.has("defaultModel")).as(model).isTrue();
+      assertThat(n.get("defaultModel").isNull()).as(model).isTrue();
+    }
+  }
+
+  /**
+   * opencode 템플릿에 다른 종류(anthropic) 연결만 남았으면 login version 은 null 이다(runner 가 Pod 의 로그인 정보를 지운다).
+   */
+  @Test
+  void desired_opencodeTemplateWithOtherProvider_hasNullLoginVersion() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+    forceCredential(agent, "anthropic", "T".repeat(64));
+
+    assertThat(secretNamed(desiredAgent(agent), "login").get("version").isNull()).isTrue();
+  }
+
+  /** /secrets/login 은 opencode 연결의 원문 JSON 에 연결에 지정한 모델(defaultModel)을 더해 캐시 금지로 준다. */
+  @Test
+  void loginSecret_opencodeTemplate_returnsOriginalPayloadWithDefaultModel() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+
+    String payload =
+        om.readTree(
+                runner(get(RUNNER + "/agents/" + agent + "/secrets/login"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.provider").value("opencode"))
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .get("payload")
+            .asText();
+    JsonNode n = om.readTree(payload);
+    assertThat(n.get("providerId").asText()).isEqualTo("vllm");
+    assertThat(n.get("npm").asText()).isEqualTo("@ai-sdk/openai-compatible");
+    assertThat(n.at("/options/baseURL").asText()).isEqualTo("https://api.example.com/v1");
+    assertThat(n.at("/options/apiKey").asText()).isEqualTo("sk-fake-opencode");
+    assertThat(n.get("defaultModel").asText()).isEqualTo("vllm/qwen3");
+  }
+
+  /** 연결을 읽어도 last_used_at 은 갱신하지 않는다(Pod 로 옮겨 담는 것이지 실제 호출이 아니다). */
+  @Test
+  void loginSecret_opencodeTemplate_doesNotTouchLastUsed() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+
+    runner(get(RUNNER + "/agents/" + agent + "/secrets/login")).andExpect(status().isOk());
+
+    assertThat(credentials.getActiveMeta(agent).lastUsedAt()).isNull();
+  }
+
+  /** 지정한 모델이 비어 있으면 defaultModel 은 null 이다(엔트리포인트가 분명한 오류로 실패한다). */
+  @Test
+  void loginSecret_opencodeTemplateWithoutModel_hasNullDefaultModel() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    forceCredential(agent, "opencode", OPENCODE_CONFIG);
+    settingService.start(admin, agent);
+
+    String payload =
+        om.readTree(
+                runner(get(RUNNER + "/agents/" + agent + "/secrets/login"))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .get("payload")
+            .asText();
+    JsonNode n = om.readTree(payload);
+    assertThat(n.has("defaultModel")).isTrue();
+    assertThat(n.get("defaultModel").isNull()).isTrue();
+  }
+
+  /** opencode 템플릿에 다른 종류(anthropic) 연결이면 /secrets/login 은 RUNNER_SECRET_NOT_FOUND 404. */
+  @Test
+  void loginSecret_opencodeTemplateWithOtherProvider_returnsSecretNotFound() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+    settingService.start(admin, agent);
+    forceCredential(agent, "anthropic", "T".repeat(64));
+
+    runner(get(RUNNER + "/agents/" + agent + "/secrets/login"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.errors.code").value("RUNNER_SECRET_NOT_FOUND"));
+  }
+
+  /** claude-code 템플릿에 opencode 연결이 남았어도(맞지 않는 옛 연결) /secrets/login 은 주지 않는다. */
+  @Test
+  void loginSecret_claudeTemplateWithOpencodeCredential_returnsSecretNotFound() throws Exception {
+    long agent = newAgent();
+    putTemplate(agent, "claude-code");
+    registerAnthropic(agent);
+    settingService.start(admin, agent);
+    forceCredential(agent, "opencode", OPENCODE_CONFIG);
+
+    runner(get(RUNNER + "/agents/" + agent + "/secrets/login"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.errors.code").value("RUNNER_SECRET_NOT_FOUND"));
+  }
+
+  /** opencode 템플릿도 맞는 연결이 없으면 켜지 않는다(409 — 「OpenAI 호환」을 먼저 연결). */
+  @Test
+  void start_opencodeTemplateWithoutCredential_returns409() {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+
+    assertThatThrownBy(() -> settingService.start(admin, agent))
+        .isInstanceOf(AgentRuntimeSettingConflictException.class)
+        .hasMessage("「OpenAI 호환」을 먼저 연결해 주세요");
+  }
+
+  /**
+   * 등록 때 검증하기 전에 저장된 옛 연결의 providerId 가 Pod 가 받는 꼴(영문·숫자·. _ -)이 아니면 켜지 않는다(409) — 켜져도 Pod 가 칸을 띄우지
+   * 않는다.
+   */
+  @Test
+  void start_opencodeTemplateWithUnsafeProviderId_returns409() {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    forceCredential(
+        agent,
+        "opencode",
+        "{\"providerId\":\"my provider/x\",\"options\":{\"baseURL\":\"https://api.example.com/v1\","
+            + "\"apiKey\":\"sk-fake\"}}");
+
+    assertThatThrownBy(() -> settingService.start(admin, agent))
+        .isInstanceOf(AgentRuntimeSettingConflictException.class)
+        .hasMessageContaining("providerId");
+  }
+
+  /** OpenCode 템플릿 AI 의 등록은 providerId 가 Pod 가 받는 꼴이 아니면(공백·슬래시·숫자 값) 400 이다. */
+  @Test
+  void register_opencodeWithUnsafeProviderId_isRejected() {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    for (String pid : List.of("\"a/b\"", "\"my provider\"", "\"\"", "123")) {
+      String payload =
+          "{\"providerId\":"
+              + pid
+              + ",\"options\":{\"baseURL\":\"https://api.example.com/v1\",\"apiKey\":\"sk-fake\"}}";
+      assertThatThrownBy(() -> credentials.register(admin, agent, "opencode", payload, "x", "x/m"))
+          .as(pid)
+          .isInstanceOf(InvalidProviderCredentialException.class)
+          .hasMessageContaining("providerId");
+    }
+  }
+
+  /**
+   * 기본(서버) 방식 AI 의 OpenAI 호환 연결은 Pod 로 넘어가지 않으므로 providerId 를 예전처럼 받는다 — 기존 연결의 키를 바꿔 다시 등록해도 400 이
+   * 나지 않게. 나중에 OpenCode 템플릿으로 바꾸면 켜기 확인이 409 로 막는다.
+   */
+  @Test
+  void register_opencodeWithUnsafeProviderIdInServerMode_isAcceptedButStartIsBlocked() {
+    long agent = newAgent();
+    String payload =
+        "{\"providerId\":\"my provider\",\"options\":{\"baseURL\":\"https://api.example.com/v1\","
+            + "\"apiKey\":\"sk-fake\"}}";
+
+    credentials.register(admin, agent, "opencode", payload, "x", "my provider/m");
+
+    putTemplate(agent, "opencode");
+    assertThatThrownBy(() -> settingService.start(admin, agent))
+        .isInstanceOf(AgentRuntimeSettingConflictException.class)
+        .hasMessageContaining("providerId");
+  }
+
+  /** 맞는 연결(opencode)이 있으면 opencode 템플릿이 켜진다. */
+  @Test
+  void start_opencodeTemplateWithOpencodeCredential_starts() {
+    long agent = newAgent();
+    putTemplate(agent, "opencode");
+    registerOpencode(agent, "vllm/qwen3");
+
+    settingService.start(admin, agent);
+  }
+
+  /** opencode 템플릿의 model 칸 기본값 auto 는 저장 검증을 통과한다. */
+  @Test
+  void put_opencodeTemplateWithAutoModel_isAccepted() {
+    long agent = newAgent();
+
+    settingService.put(
+        admin,
+        agent,
+        new PutAgentRuntimeSettingRequest("opencode", null, Map.of("model", "auto"), null));
   }
 
   // ---- 실행 방식 변경 때 끊기 ----

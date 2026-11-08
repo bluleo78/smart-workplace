@@ -180,6 +180,52 @@ describe('modelFieldOptions', () => {
   })
 })
 
+// WP-1410 — OpenCode 템플릿(account opencode): 서버가 OpenAI 호환 연결의 모델을 실시간으로 조회한다. 로그인 계정이 아니므로
+// 「AI 를 한 번 켜면 목록이 보여요」(awaitingReport) 안내는 뜨지 않는다.
+describe('modelFieldOptions — OpenCode 템플릿(opencode 계정)', () => {
+  const OPENCODE_FIELD: AgentTemplateConfigField = {
+    key: 'model',
+    label: '모델',
+    type: 'select',
+    optionsFrom: 'account-models',
+    options: [{ value: 'auto', label: '연결에 지정한 모델' }],
+    default: 'auto',
+    required: true,
+  }
+  const OPENCODE_CRED: AgentCredentialQuery = { provider: 'opencode', isPending: false }
+  const call = (query: AgentModelsQuery) =>
+    modelFieldOptions({ field: OPENCODE_FIELD, account: 'opencode', credential: OPENCODE_CRED, query, saved: 'auto' })
+
+  test('live — 기본 선택지(auto) 뒤에 providerId/modelId 실시간 목록이 붙는다', () => {
+    const r = call(loaded({ provider: 'opencode', models: [{ id: 'vllm/qwen3-32b', label: 'qwen3-32b' }] }))
+
+    expect(r.status).toBe('live')
+    expect(values(r)).toEqual(['auto', 'vllm/qwen3-32b'])
+    expect(r.hint).toBeNull()
+  })
+
+  test('빈 목록 — 켜면 보인다는 안내가 아니라 불러오지 못했다는 안내다', () => {
+    const r = call(loaded({ provider: 'opencode', models: [] }))
+
+    expect(r.status).toBe('failed')
+    expect(r.hint).not.toContain('한 번 켜면')
+    expect(values(r)).toEqual(['auto'])
+  })
+
+  test('Claude 구독이 연결돼 있으면 otherAccount — OpenAI 호환 연결을 안내한다', () => {
+    const r = modelFieldOptions({
+      field: OPENCODE_FIELD,
+      account: 'opencode',
+      credential: { provider: 'anthropic', isPending: false },
+      query: PENDING,
+      saved: 'auto',
+    })
+
+    expect(r.status).toBe('otherAccount')
+    expect(r.hint).toContain('OpenAI 호환')
+  })
+})
+
 describe('withSavedOption', () => {
   const OPTS = [{ value: 'a', label: 'A' }]
 

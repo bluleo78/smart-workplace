@@ -49,8 +49,8 @@ gw_read_key() {
   printf '%s\n' "$_gw_k"
 }
 
-# 칸으로 띄울 수 있는 실행기 — claude(Claude Code)·genia(genia 확장, WP-1294)·codex(Codex 구동기, WP-1295).
-GW_LAUNCH_CLIS="claude genia codex"
+# 칸으로 띄울 수 있는 실행기 — claude(Claude Code)·genia(genia 확장, WP-1294)·codex(Codex 구동기, WP-1295)·opencode(OpenCode 구동기, WP-1410).
+GW_LAUNCH_CLIS="claude genia codex opencode"
 
 # 실행기 이름 검사 — AI 폴더 설정(agent-home set cli)과 칸 띄우기가 같은 기준을 쓴다.
 gw_valid_cli() {
@@ -63,11 +63,13 @@ gw_valid_cli() {
 #   claude — 네이티브(claude, …/claude, …/claude/versions/x)와 npm(node …/bin/claude)
 #   genia  — 실행 스크립트(~/.local/bin/genia)가 exec 하는 ~/.genia/app/genia(bun 으로 묶은 실행 파일)
 #   codex  — 네이티브(codex, …/codex)와 npm(node …/bin/codex.js)
+#   opencode — 네이티브(opencode, …/opencode)와 npm(node …/bin/opencode — opencode-ai 의 실행 스크립트)
 gw_is_cli_word() {
   case "$1" in
     claude | */claude | */claude.exe | */claude/versions/*) return 0 ;;
     genia | */genia) return 0 ;;
     codex | */codex | */codex.js) return 0 ;;
+    opencode | */opencode) return 0 ;;
   esac
   return 1
 }

@@ -45,7 +45,10 @@ public class AgentTemplateRegistry {
 
   private static final Set<String> OPTIONS_FROM = Set.of(ACCOUNT_MODELS);
 
-  /** requires 에 쓸 수 있는 값(정규화 뒤) — 계정(claude·genia·chatgpt)과 저장소 토큰(repo). 오타가 조용히 무시되지 않게 막는다. */
+  /**
+   * requires 에 쓸 수 있는 값(정규화 뒤) — 계정(claude·genia·chatgpt·opencode)과 저장소 토큰(repo). 오타가 조용히 무시되지 않게
+   * 막는다.
+   */
   private static final Set<String> REQUIREMENTS =
       Stream.concat(AgentProviders.ACCOUNT_REQUIREMENTS.stream(), Stream.of("repo"))
           .collect(Collectors.toUnmodifiableSet());

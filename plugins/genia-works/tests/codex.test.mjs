@@ -6,7 +6,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsS
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { progressSummaryFrom, codexArgs, threadIdFrom, workLoopPrompt, guardDecision, tomlString, TOKEN_ENV } from '../codex/lib.mjs'
+import { progressSummaryFrom, codexArgs, threadIdFrom, guardDecision, tomlString, TOKEN_ENV } from '../codex/lib.mjs'
+import { workLoopPrompt } from '../genia/loop.js'
+import { RUNNER_HEADER_SCRIPT_DENY, RUNNER_KEY_PATH_DENY } from '../genia/loop.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..')
@@ -148,6 +150,9 @@ test('guard: Codex PreToolUse 입력(Bash·apply_patch)에서 키 저장소·헤
   assert.ok(guardDecision({ tool_name: 'Bash', tool_input: { command: `cat ${keyPath}` } }))
   assert.ok(guardDecision({ tool_name: 'Bash', tool_input: { command: '/p/scripts/gw-headers --authorization' } }))
   assert.equal(guardDecision({ tool_name: 'Bash', tool_input: { command: 'git status' } }), undefined)
+  // Codex 에는 genia 명령(/gw-as)이 없다 — 실행기 무관한 문구로 막는다(WP-1410).
+  assert.equal(guardDecision({ tool_name: 'Bash', tool_input: { command: `cat ${keyPath}` } }), RUNNER_KEY_PATH_DENY)
+  assert.equal(guardDecision({ tool_name: 'Bash', tool_input: { command: 'gw-headers' } }), RUNNER_HEADER_SCRIPT_DENY)
   const run = (input) => spawnSync('node', [join(root, 'codex', 'guard.mjs')], { input, encoding: 'utf8' })
   const blocked = run(JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: `cat ${keyPath}` } }))
   assert.equal(blocked.status, 2)
