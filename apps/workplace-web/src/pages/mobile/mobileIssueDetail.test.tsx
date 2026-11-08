@@ -427,7 +427,10 @@ describe('하단 편집 바 — 저장·취소 요청', () => {
     const { user, patches } = await open()
     await user.click(screen.getByRole('button', { name: '본문 편집' }))
     expect(screen.queryByTestId('issue-body-save')).not.toBeInTheDocument()
-    fireEvent.change(await screen.findByTestId('issue-body-textarea'), { target: { value: '바뀐 본문' } })
+    const textarea = await screen.findByTestId('issue-body-textarea')
+    // 모바일 편집기는 높이 상한이 없다 — 저장은 하단 바에 있고, vh 상한은 키보드 뒤로 캐럿을 숨긴다(WP-1411).
+    expect(textarea).not.toHaveClass('max-h-[70vh]')
+    fireEvent.change(textarea, { target: { value: '바뀐 본문' } })
     await user.click(screen.getByTestId('mobile-edit-save'))
     await waitFor(() => expect(patches()[0]?.body).toMatchObject({ body: '바뀐 본문' }))
     await waitFor(() => expect(screen.queryByTestId('mobile-edit-bar')).not.toBeInTheDocument())
