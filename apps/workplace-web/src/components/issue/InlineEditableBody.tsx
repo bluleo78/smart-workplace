@@ -39,6 +39,43 @@ function isFromInteractiveDescendant(e: React.SyntheticEvent<HTMLElement>): bool
   return hit !== null && e.currentTarget.contains(hit);
 }
 
+/**
+ * 보기 모드 본문 래퍼와 겹치는 글자 선택(공백만이 아닌)이 있는가(WP-1412).
+ * 왜: 본문 글자를 드래그해 고르면 끝(mouseup)에 브라우저가 click 을 내는데, 이를 편집 진입으로 처리하면 선택이 사라지고
+ * 편집창으로 바뀌어 복사할 수 없었다. 페이지 다른 곳의 선택은 본문 클릭을 막지 않는다. 공백만 고른 선택은 고른 글자가 없어
+ * 선택으로 치지 않는다(줄 링크 메뉴 rowLinkMenuAnchor 와 같은 규칙).
+ * 주의: 이미 고른 글자 위를 한 번 누르면 Chrome 은 click 이 끝난 뒤에야 선택을 접는다 — click 시점엔 선택이 남아 있으므로
+ * 호출부는 누른 뒤 선택이 바뀌었을 때(드래그로 고름·Shift+클릭으로 넓힘)만 이 판정을 쓴다(selectionChangedSince).
+ */
+function hasTextSelectionWithin(el: Element): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+  if (!selection.getRangeAt(0).intersectsNode(el)) return false;
+  return selection.toString().trim() !== '';
+}
+
+/** 누른 순간의 선택 양 끝 — Selection 은 살아 있는 객체라 값을 떠 둔다. 선택이 없거나 접혔으면 null(WP-1412). */
+type SelectionSnapshot = { anchorNode: Node | null; anchorOffset: number; focusNode: Node | null; focusOffset: number } | null;
+
+/** 지금 선택의 양 끝을 떠 둔다(WP-1412). */
+function snapshotSelection(): SelectionSnapshot {
+  const s = window.getSelection();
+  if (!s || s.isCollapsed || s.rangeCount === 0) return null;
+  return { anchorNode: s.anchorNode, anchorOffset: s.anchorOffset, focusNode: s.focusNode, focusOffset: s.focusOffset };
+}
+
+/** 누른 뒤 선택이 바뀌었는가(WP-1412) — 드래그로 새로 고르거나 Shift+클릭으로 넓히면 바뀐다. 고른 글자 위를 그냥 누르면 그대로다. */
+function selectionChangedSince(before: SelectionSnapshot): boolean {
+  const now = snapshotSelection();
+  if (before === null || now === null) return before !== now;
+  return (
+    before.anchorNode !== now.anchorNode ||
+    before.anchorOffset !== now.anchorOffset ||
+    before.focusNode !== now.focusNode ||
+    before.focusOffset !== now.focusOffset
+  );
+}
+
 /** 감싼 화면이 부르는 동작 — 초안 저장 키(사용자·워크스페이스·이슈) 규칙을 바깥이 몰라도 되게 이 컴포넌트가 맡는다. */
 export interface InlineEditableBodyHandle {
   /** 로컬 초안(localStorage, #824)을 지운다 — 「버리고 닫기」 뒤 다음 편집에 「작성 중이던 내용」으로 되살아나지 않게(WP-1374). */
@@ -221,6 +258,8 @@ export function InlineEditableBody({
   // 편집이 끝나면(Esc 취소·저장) textarea 가 사라져 포커스가 body 로 빠졌다 — 「본문 편집」 영역으로 돌린다(WP-813).
   const viewRef = useRef<HTMLDivElement | null>(null);
   useRestoreFocusOnExit(editing, viewRef);
+  // 보기 영역을 누른 순간의 선택 — click 이 글자를 고른(바꾼) 끝인지 그냥 누름인지 가르는 데 쓴다(WP-1412). 누름이 없으면 null.
+  const pressSelection = useRef<{ before: SelectionSnapshot } | null>(null);
 
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
   useEditBarControls(editing, { save, cancel, disabled: disabled || uploading || overLimit }, onEditingChange);
@@ -239,8 +278,19 @@ export function InlineEditableBody({
         tabIndex={disabled ? -1 : 0}
         aria-label={editLabel}
         aria-disabled={disabled}
+        onPointerDown={() => {
+          pressSelection.current = { before: snapshotSelection() };
+        }}
+        onPointerCancel={() => {
+          // 브라우저가 누름을 거둔 경우(스크롤 시작 등) — 남은 기록이 다음 click 판정에 섞이지 않게 지운다.
+          pressSelection.current = null;
+        }}
         onClick={(e) => {
+          const press = pressSelection.current;
+          pressSelection.current = null;
           if (disabled || isFromInteractiveDescendant(e)) return;
+          // 누른 뒤 본문 글자 선택이 바뀐 포인터 click(드래그·Shift+클릭)은 편집 진입이 아니다 — detail 0(키보드·보조기기·프로그램)은 늘 들어간다(WP-1412).
+          if (e.detail !== 0 && press && selectionChangedSince(press.before) && hasTextSelectionWithin(e.currentTarget)) return;
           enter();
         }}
         onKeyDown={(e) => {

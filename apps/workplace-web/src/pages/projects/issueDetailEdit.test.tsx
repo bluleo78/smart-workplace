@@ -2,12 +2,12 @@
 // 편집 → PATCH payload·취소·빈 값 차단·길이 상한 안내, 본문 초안 정리·사용자별 초안 키, 삭제 확인창 문구와 DELETE,
 // 상태 변경 뒤 목록 검색 캐시 무효화는 브라우저 없이 판정되므로
 // e2e/pages/projects/{issue-title-body-edit,issue-delete,issue-update-cache-invalidation}.spec.ts 에서 옮겼다.
-// IME 조합(@input)·포커스 복원(@input)·긴 제목 줄바꿈(@layout)·버튼 대비(@layout)·history 위치로 출발 목록에 되감기(@platform)는 E2E 에 남는다.
+// IME 조합(@input)·포커스 복원(@input)·실제 마우스 드래그 선택 뒤 click(@input, WP-1412)·긴 제목 줄바꿈(@layout)·버튼 대비(@layout)·history 위치로 출발 목록에 되감기(@platform)는 E2E 에 남는다.
 // 화면 테스트(WP-1002) — 이슈 상세 판정은 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이).
 // 목록 → 상세 → 목록을 넘나드는 캐시 무효화(#175) 한 건만 여러 화면이라 renderPage 로 남는다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 
 import { issueBodyDraftKey } from '@/lib/issueBodyDraft'
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
@@ -67,6 +67,28 @@ async function editBody(user: ReturnType<typeof renderIssueDetailScreen>['user']
   return textarea
 }
 
+/** 본문 글자('원본 본문')의 [start, end) 를 고른다(WP-1412) — 「본문 인라인 수정」 afterEach 가 지운다. */
+async function selectBody(start: number, end: number) {
+  const textNode = (await screen.findByText('원본 본문')).firstChild as Text
+  const range = document.createRange()
+  range.setStart(textNode, start)
+  range.setEnd(textNode, end)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return selection
+}
+
+/**
+ * 본문을 누르고 → 드래그가 만드는 선택([start, end))을 건 뒤 → 놓은 click(WP-1412).
+ * click 은 브라우저 포인터 누름처럼 detail 1 — init 으로 detail 0·shiftKey 를 바꾼다.
+ */
+async function drag(area: HTMLElement, [start, end]: [number, number], init: MouseEventInit = {}) {
+  fireEvent.pointerDown(area)
+  await selectBody(start, end)
+  fireEvent.click(area, { detail: 1, ...init })
+}
+
 describe('제목 인라인 수정 (#117)', () => {
   // #791 — h1 접근 이름에 편집 버튼 라벨(「제목 편집」)이 섞이지 않는다.
   test('제목 heading 의 접근 이름은 제목 글자만이다', async () => {
@@ -117,6 +139,9 @@ describe('제목 인라인 수정 (#117)', () => {
 })
 
 describe('본문 인라인 수정 (#117)', () => {
+  // 본문 글자 선택(WP-1412)이 다음 테스트로 넘어가지 않게 지운다.
+  afterEach(() => window.getSelection()?.removeAllRanges())
+
   // 본문 영역 전체가 편집 버튼(호버 배경 클래스) — 누르면 편집기와 저장·취소가 보인다.
   test('본문 영역을 누르면 편집기와 저장·취소 버튼이 보인다', async () => {
     const { user } = await openEditable()
@@ -127,6 +152,51 @@ describe('본문 인라인 수정 (#117)', () => {
     expect(await screen.findByTestId('issue-body-textarea')).toHaveClass('max-h-[70vh]')
     expect(screen.getByTestId('issue-body-save')).toBeInTheDocument()
     expect(screen.getByTestId('issue-body-cancel')).toBeInTheDocument()
+  })
+
+  // WP-1412: 드래그로 본문 글자를 고른 끝의 click 은 편집 진입이 아니다 — 선택이 남는다.
+  test('본문 글자를 드래그로 고른 끝의 클릭은 편집기로 바뀌지 않는다', async () => {
+    await openEditable()
+    const area = await screen.findByRole('button', { name: '본문 편집' })
+    await drag(area, [0, 2])
+    expect(screen.queryByTestId('issue-body-textarea')).not.toBeInTheDocument()
+    expect(window.getSelection()!.toString()).toBe('원본')
+  })
+
+  // WP-1412: 이미 고른 글자 위를 그냥 누르면(선택 그대로) 편집에 들어간다.
+  test('이미 고른 본문 글자 위를 그냥 누르면 편집기가 열린다', async () => {
+    await openEditable()
+    const area = await screen.findByRole('button', { name: '본문 편집' })
+    await selectBody(0, 2)
+    fireEvent.pointerDown(area)
+    fireEvent.click(area, { detail: 1 })
+    expect(await screen.findByTestId('issue-body-textarea')).toBeInTheDocument()
+  })
+
+  // WP-1412: 키보드·보조기기·프로그램 click(detail 0)은 선택이 바뀌었어도 편집에 들어간다 — 남은 누름 기록이 삼키지 않는다.
+  test('detail 0 클릭은 누른 뒤 본문 선택이 바뀌었어도 편집기가 열린다', async () => {
+    await openEditable()
+    const area = await screen.findByRole('button', { name: '본문 편집' })
+    await drag(area, [0, 2], { detail: 0 })
+    expect(await screen.findByTestId('issue-body-textarea')).toBeInTheDocument()
+  })
+
+  // WP-1412: Shift+클릭으로 고른 범위를 넓히면 편집에 들어가지 않는다.
+  test('Shift+클릭으로 본문 선택을 넓히면 편집기로 바뀌지 않는다', async () => {
+    await openEditable()
+    const area = await screen.findByRole('button', { name: '본문 편집' })
+    await selectBody(0, 2)
+    await drag(area, [0, 4], { shiftKey: true })
+    expect(screen.queryByTestId('issue-body-textarea')).not.toBeInTheDocument()
+  })
+
+  // WP-1412: 공백만 새로 고른 선택은 고른 글자가 없다 — 지금처럼 편집에 들어간다.
+  test('드래그로 본문의 공백만 고르면 편집기가 열린다', async () => {
+    await openEditable()
+    const area = await screen.findByRole('button', { name: '본문 편집' })
+    // '원본 본문' 의 가운데 공백 한 칸.
+    await drag(area, [2, 3])
+    expect(await screen.findByTestId('issue-body-textarea')).toBeInTheDocument()
   })
 
   test('본문을 고쳐 Ctrl+Enter 하면 PATCH {body} 가 나가고 새 본문이 보인다', async () => {
