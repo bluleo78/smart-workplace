@@ -1,5 +1,5 @@
 # Codex 작업 공간 엔트리포인트의 전용 함수(WP-1297) — Claude Code 이미지의 lib.sh 를 먼저 읽고 이 파일을 뒤에 읽는다(같은 이름은 덮어쓴다).
-# 공용(필수 확인·폴더·추가 CA·키·git·dind·프로젝트·감독·정리·adopt_plugin_scripts·bg_wait)은 lib.sh 그대로, 여기에는 Codex 만의 일을 둔다:
+# 공용(필수 확인·폴더·추가 CA·키·git·dind·프로젝트·감독·정리·adopt_plugin_scripts·use_baked_plugin·write_superpowers_agents_md·bg_wait)은 lib.sh 그대로, 여기에는 Codex 만의 일을 둔다:
 #   - 플러그인 고르기(use_plugin) — 빌드 때 굳힌 genia-works(codex 구동기 포함)만 쓴다.
 #   - Codex 환경·설정·전역 지시·로그인 시딩(codex_env·write_codex_config·write_codex_agents_md·seed_login),
 #     모델 목록 보고와 추론 강도 맞추기(report_models·codex_fit_effort — 칸의 codex 가 쉴 때만), 감독 회차 훅(before_supervise·can_launch —
@@ -20,10 +20,8 @@ trust_folders() { return 0; }
 
 # 3. genia-works 플러그인 — 빌드 때 굳힌 것만 쓴다. 이미지와 플러그인이 같은 릴리스로 함께 빌드되므로(카탈로그 paths 가 plugins/genia-works/ 를
 #    본다) 마켓플레이스에서 따로 받지 않는다. 칸 명령(agent-project 의 codex 분기 → gw-codex-loop)이 부르는 구동기(codex/driver.mjs)가 있어야 한다.
-use_plugin() {
-  [ -f "$CODEX_PLUGIN_DIR/codex/driver.mjs" ] || return 1
-  adopt_plugin_scripts "$CODEX_PLUGIN_DIR/scripts"
-}
+#    확인·고르기는 lib.sh 의 use_baked_plugin.
+use_plugin() { use_baked_plugin "$CODEX_PLUGIN_DIR" codex; }
 
 # 4. Codex 환경 — 설정·로그인·대화 기록 폴더(CODEX_HOME)를 AI 폴더(/work, 영속) 아래로(codex 가 스스로 갱신한 로그인과 이어 받을 대화가
 #    Pod 를 다시 만들어도 남게). tmux 서버(첫 칸)가 뜨기 전에 내보내 칸(gw-codex-loop → codex exec)이 물려받게 한다.
@@ -72,21 +70,11 @@ model_reasoning_effort = \"$effort\""
 #     Gen:iA Code 는 superpowers 의 genia 확장이 이 안내를 넣는데, Codex 는 스킬을 목록으로만 보이고 세션 시작 hook 을 돌리지 않는다
 #     (superpowers 의 .codex-plugin 은 hooks 를 비워 두고 Codex 용 안내 글도 따로 싣지 않는다 — 7.0.x 확인). 안내가 없으면 모델이 계획·SDD 단계를
 #     건너뛰기 쉽다. Codex 는 $CODEX_HOME/AGENTS.md 를 모든 세션의 전역 지시로 읽으므로(11-06 codex debug prompt-input 확인) 여기에 짧은 지시를
-#     매번 새로 쓴다. 스킬이 이미지에 없으면(빌드가 바뀜) 경고하고 옛 파일을 지운다 — 없는 경로를 가리키지 않게.
+#     매번 새로 쓴다. 본문과 스킬이 없을 때의 처리는 lib.sh 의 write_superpowers_agents_md 가 하고, 여기서는 Codex 의 경로와 스킬 부르기·도구 이름 대응 항목만 넘긴다.
 CODEX_SUPERPOWERS_SKILL=${CODEX_SUPERPOWERS_SKILL:-$HOME/.agents/skills/superpowers/using-superpowers/SKILL.md}
 write_codex_agents_md() {
-  local out="$CODEX_HOME/AGENTS.md"
-  if [ ! -f "$CODEX_SUPERPOWERS_SKILL" ]; then
-    rm -f "$out"
-    log "경고: superpowers 의 using-superpowers 스킬($CODEX_SUPERPOWERS_SKILL)이 없습니다 — 세션 시작 안내 없이 띄워 계획·SDD 단계를 건너뛸 수 있습니다"
-    return 0
-  fi
-  gw_write_atomic "$out" "# 작업 공간 공통 지시 (Works 엔트리포인트가 Pod 를 띄울 때마다 새로 쓴다)
-
-이 작업 공간에는 superpowers 개발 절차 스킬이 설치되어 있다(~/.agents/skills/superpowers).
-
-- 세션을 시작하면 다른 무엇보다 먼저 using-superpowers 스킬 파일 $CODEX_SUPERPOWERS_SKILL 을 읽고 그대로 따른다.
-- 어떤 일을 하든(질문에 답하기 전 포함) 맞는 스킬이 있는지 먼저 확인하고, 있으면 그 스킬 파일을 읽어 그 절차대로 한다.
+  write_superpowers_agents_md "$CODEX_HOME/AGENTS.md" "$CODEX_SUPERPOWERS_SKILL" \
+    "- 어떤 일을 하든(질문에 답하기 전 포함) 맞는 스킬이 있는지 먼저 확인하고, 있으면 그 스킬 파일을 읽어 그 절차대로 한다.
 - 스킬 안의 Claude Code 전용 도구 이름(Skill·Task 등)은 Codex 에서 같은 일을 하는 도구로 바꿔 쓴다 — using-superpowers 의 references/codex-tools.md 를 본다."
 }
 

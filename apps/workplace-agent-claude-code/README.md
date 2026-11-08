@@ -27,7 +27,25 @@ Works 가 띄우는 AI Pod 의 작업 공간 이미지다(WP-1252). runner(`apps
 
 ## 다른 이미지와 함께 쓰는 파일
 
-`bin/lib.sh`·`bin/agent-screen` 은 Gen:iA Code 이미지([workplace-agent-genia-code](../workplace-agent-genia-code))·Codex 이미지([workplace-agent-codex](../workplace-agent-codex))·OpenCode 이미지([workplace-agent-opencode](../workplace-agent-opencode))도 그대로 COPY 해 쓴다(그 이미지 전용 함수는 `lib-genia.sh`·`lib-codex.sh`·`lib-opencode.sh` 가 덮어쓴다). 세 이미지는 `lib.sh` 의 감독 회차 `tick`(훅 `before_supervise`·`can_launch`), 로그인 시딩 `seed_login_file`·`login_file_ready`, 시간 제한 받기 `bg_wait_timeout` 도 쓴다 — 이 이미지의 엔트리포인트는 `tick` 을 쓰지 않는다. 엔트리포인트 테스트의 공용 도구는 `tests/harness.mjs`(네 이미지가 함께 import)다. 함수 이름·인자나 harness 를 바꾸면 네 이미지의 테스트를 모두 돌린다.
+`bin/lib.sh`·`bin/agent-screen` 은 Gen:iA Code 이미지([workplace-agent-genia-code](../workplace-agent-genia-code))·Codex 이미지([workplace-agent-codex](../workplace-agent-codex))·OpenCode 이미지([workplace-agent-opencode](../workplace-agent-opencode))도 그대로 COPY 해 쓴다(그 이미지 전용 함수는 `lib-genia.sh`·`lib-codex.sh`·`lib-opencode.sh` 가 덮어쓴다). 세 이미지는 `lib.sh` 의 감독 회차 `tick`(훅 `before_supervise`·`can_launch`), 로그인 시딩 `seed_login_file`·`login_file_ready`, 시간 제한 받기 `bg_wait_timeout` 도 쓴다 — 이 이미지의 엔트리포인트는 `tick` 을 쓰지 않는다. 종료 신호 trap(`install_term_trap`)과 감독 루프(`run_supervisor tick|boot`)는 네 엔트리포인트가 모두 `lib.sh` 의 것을 부른다(WP-1445) — 이 이미지는 `boot`(부팅 때 칸을 띄우고 한 회차 쉰 뒤부터 감독), 세 이미지는 `tick`(부팅 첫 회차부터 `tick`). 엔트리포인트 테스트의 공용 도구는 `tests/harness.mjs`(네 이미지가 함께 import)다. 함수 이름·인자나 harness 를 바꾸면 네 이미지의 테스트를 모두 돌린다.
+
+## 새 실행기 이미지 더하기
+
+실행기(칸에서 work-loop 를 도는 CLI)를 하나 더할 때는 Codex 이미지([workplace-agent-codex](../workplace-agent-codex))나 OpenCode 이미지([workplace-agent-opencode](../workplace-agent-opencode))를 본보기로 삼는다. 공용 일은 `lib.sh` 에 있으므로 새 이미지가 쓸 것은 아래뿐이다.
+
+- `bin/entrypoint` — 부팅 단계 목록(필수 확인·폴더·CA·플러그인·설정·로그인·키·git·dind·`agent-home set cli <실행기>`)을 이미지에 맞는 순서로 적고, `lib.sh`·`lib-<cli>.sh` 를 읽은 바로 뒤에 `install_term_trap`, 끝에 `run_supervisor tick` 을 부른다. trap·`on_term`·`while` 루프를 엔트리포인트에 다시 쓰지 않는다.
+- `bin/lib-<cli>.sh` — 그 실행기만의 일: 설정 파일 쓰기, 로그인 정보 시딩(`seed_login_file`)·`can_launch`(`login_file_ready`), 플러그인 고르기(빌드 때 굳힌 것이면 `use_plugin() { use_baked_plugin <플러그인 폴더> <구동기 하위 폴더>; }`), 세션 시작 hook 이 없는 실행기면 전역 지시(`write_superpowers_agents_md <출력 경로> <SKILL.md 경로> <실행기 항목>` — 스킬 부르기·도구 이름 대응 줄), 필요하면 `trust_folders`·`before_supervise` 덮어쓰기.
+- 부팅 단계 순서는 이미지마다 다르다(Claude: 플러그인 → 설정·신뢰 / Gen:iA Code: CA·genia 받기가 플러그인 앞 / Codex·OpenCode: 버전 로그). 그래서 단계 목록은 하나의 틀로 묶지 않고 엔트리포인트에 둔다.
+
+바꿀 파일:
+
+1. 새 이미지 폴더 `apps/workplace-agent-<cli>/` 의 `Dockerfile`·`bin/entrypoint`·`bin/lib-<cli>.sh`·`tests/entrypoint.test.mjs`(와 `package.json`·`README.md`).
+2. 릴리스 이미지 카탈로그 `deploy/release/image-catalog.json`(`helm: false` — 작업 공간 이미지는 Helm 으로 배포하지 않고 runner 가 템플릿의 `image` 로 Pod 를 만든다)과 그 테스트 `deploy/release/tests/catalog.test.mjs`.
+3. AI 템플릿 `apps/workplace-api/src/main/resources/agent-templates/<cli>.yaml`(이미지 주소·요구 로그인·설정 항목).
+4. genia-works 플러그인: `scripts/gw-lib.sh` 의 `GW_LAUNCH_CLIS`(실행기 이름 허용 목록), `scripts/agent-project` 의 실행기 분기(칸 명령), 필요하면 구동기 폴더(`<cli>/driver.mjs`).
+5. Pod 계약 `docs/integrations/agent-pod-contract.md`.
+
+Dockerfile 은 합치지 않았다(WP-1445). Claude Code·Gen:iA Code 는 받는 프로그램(Claude Code·사내 genia)과 COPY 가 크게 달라 ARG 로 줄일 수 없다. Codex·OpenCode 는 실제로 다른 곳이 npm 패키지·버전 ARG·구동기 폴더 COPY·`bin/` COPY 넷(약 10줄)뿐이라 `ARG CLI_PKG`/`ARG CLI_DIR` 한 벌로 줄일 수는 있지만, 그러면 릴리스 카탈로그(`deploy/release/image-catalog.json`)의 두 항목이 같은 Dockerfile 에 `buildArgs` 를 나눠 넘겨야 하고 이미지 경로 변경 감지(`paths`)도 함께 바뀐다 — 카탈로그는 이 정리에서 손대지 않기로 해서(동작 그대로) 두 벌로 둔다. 두 파일의 주석은 각 CLI 를 실제로 확인한 기록(버전·스킬 경로)이라 합치면 잃는다. 대신 apt·glab·Claude Code·playwright-cli·사용자를 만드는 「같은 도구 블록」은 글자까지 같게 두고, Codex 테스트(`dockerfileKeepsSharedToolBlockIdenticalToGeniaImage`)가 Gen:iA Code 의 블록과 어긋나면 실패시킨다 — 새 이미지도 그 블록을 그대로 복사하고 같은 테스트를 둔다.
 
 ## 테스트·빌드
 

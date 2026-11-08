@@ -688,3 +688,23 @@ test('bgWaitTimeout_returnsCommandStatusAndCleansBgPids', (t) => {
   const late = Number(r.stdout.match(/^late=(\d+)$/m)?.[1]);
   assert.ok(late >= 128, r.stdout);
 });
+
+// ---------------------------------------------------------------- 공용 감독·플러그인 도우미(WP-1445)
+
+test('runSupervisor_diesOnUnknownModeWithoutLooping', (t) => {
+  // 감독 모드는 tick(Gen:iA·Codex·OpenCode)·boot(Claude) 둘뿐이다 — 오타면 감독 없이 도는 대신 바로 끝나야 Pod 가 다시 뜬다.
+  const f = fixture(t);
+  const r = callLib(f.env, 'run_supervisor tic');
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /알 수 없는 감독 모드입니다 — tic/);
+});
+
+test('useBakedPlugin_adoptsScriptsOnlyWhenDriverExists', (t) => {
+  // 굳힌 플러그인은 그 실행기의 구동기(<하위 폴더>/driver.mjs)가 있어야 쓴다 — 없으면 1 이고 GW_SCRIPTS 를 정하지 않는다.
+  const f = fixture(t);
+  const plugin = dirname(pluginScripts);
+  const missing = callLib(f.env, `use_baked_plugin "${plugin}" no-such-runner; echo "rc=$? gw=\${GW_SCRIPTS:-}"`);
+  assert.match(missing.stdout, /^rc=1 gw=$/m, missing.stderr);
+  const ok = callLib(f.env, `use_baked_plugin "${plugin}" codex; echo "rc=$? gw=$GW_SCRIPTS"`);
+  assert.match(ok.stdout, /^rc=0 gw=.*plugins\/genia-works\/scripts$/m, ok.stderr);
+});

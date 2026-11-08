@@ -15,17 +15,8 @@ lib="$here/lib.sh"
 # shellcheck source=lib-genia.sh
 . "$here/lib-genia.sh"
 
-SLEEP_PID=""
-on_term() {
-  trap - TERM INT
-  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
-  # start_projects 가 저장소·브라우저를 받는 중이었다면 그 일들을 자손까지 끄고 임시 폴더를 치운다.
-  abort_boot
-  log "종료 신호 — 칸들을 정리합니다"
-  stop_all
-  exit 0
-}
-trap on_term TERM INT
+# 종료 신호 trap(lib.sh 의 on_term) — 부팅 도중에 온 신호도 정리하고 0 으로 끝내게 부팅 단계 앞에서 건다.
+install_term_trap
 
 # 1. 필수 파일·env, /work 폴더
 check_required
@@ -53,15 +44,5 @@ wait_dind
 "$GW_SCRIPTS/agent-home" "$AI_DIR" set cli genia || die "AI 폴더에 실행기(genia)를 적지 못했습니다"
 # 8·9. 감독 — 부팅 첫 회차부터 tick 하나로(genia 받기 → 칸을 띄울 수 있으면 supervise_once: 처음이면 start_projects, 그 뒤 칸 살피기·알림 감시 창).
 #    genia 가 없거나 로그인 정보가 없으면 칸을 띄우지 않는다 — 로그인 없이 띄우면 genia 가 로그인 선택 화면에서 멈춘다(11-03 실측).
-#    sleep 을 뒤에서 돌리고 wait 로 기다려 SIGTERM 을 바로 받는다. PROJECTS_READY·BOOT_KEYS 는 lib.sh 의 start_projects·supervise_once 가 읽고 쓴다.
-# shellcheck disable=SC2034
-PROJECTS_READY=0
-# shellcheck disable=SC2034
-BOOT_KEYS=""
-while :; do
-  tick
-  sleep "$GENIA_SUPERVISE_INTERVAL" &
-  SLEEP_PID=$!
-  wait "$SLEEP_PID"
-  SLEEP_PID=""
-done
+#    lib.sh 의 run_supervisor tick — 돌아오지 않는다(끝은 on_term).
+run_supervisor tick

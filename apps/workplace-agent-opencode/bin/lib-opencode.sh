@@ -1,5 +1,5 @@
 # OpenCode 작업 공간 엔트리포인트의 전용 함수(WP-1410) — Claude Code 이미지의 lib.sh 를 먼저 읽고 이 파일을 뒤에 읽는다(같은 이름은 덮어쓴다).
-# 공용(필수 확인·폴더·추가 CA·키·git·dind·프로젝트·감독·정리·adopt_plugin_scripts·bg_wait)은 lib.sh 그대로, 여기에는 OpenCode 만의 일을 둔다:
+# 공용(필수 확인·폴더·추가 CA·키·git·dind·프로젝트·감독·정리·adopt_plugin_scripts·use_baked_plugin·write_superpowers_agents_md·bg_wait)은 lib.sh 그대로, 여기에는 OpenCode 만의 일을 둔다:
 #   - 플러그인 고르기(use_plugin) — 빌드 때 굳힌 genia-works(opencode 구동기 포함)만 쓴다.
 #   - OpenCode 환경·설정·전역 지시(opencode_env·write_opencode_config·write_opencode_agents_md) — 모델 서버 연결은 Works 의 「OpenAI 호환」
 #     연결 정보(/run/genia/login-info)를 $HOME/.config/opencode/opencode.json 으로 옮겨 만든다,
@@ -17,10 +17,7 @@ trust_folders() { return 0; }
 
 # 3. genia-works 플러그인 — 빌드 때 굳힌 것만 쓴다. 이미지와 플러그인이 같은 릴리스로 함께 빌드되므로(카탈로그 paths 가 plugins/genia-works/ 를
 #    본다) 마켓플레이스에서 따로 받지 않는다. 칸 명령(agent-project 의 opencode 분기 → gw-opencode-loop)이 부르는 구동기(opencode/driver.mjs)가 있어야 한다.
-use_plugin() {
-  [ -f "$OPENCODE_PLUGIN_DIR/opencode/driver.mjs" ] || return 1
-  adopt_plugin_scripts "$OPENCODE_PLUGIN_DIR/scripts"
-}
+use_plugin() { use_baked_plugin "$OPENCODE_PLUGIN_DIR" opencode; }
 
 # 4. OpenCode 환경 — tmux 서버(첫 칸)가 뜨기 전에 내보내 칸(gw-opencode-loop → opencode run)이 물려받게 한다.
 #    - XDG_DATA_HOME: OpenCode 의 대화 기록(sqlite — 구동기가 `-s <세션>` 으로 이어 받는다)을 AI 폴더(/work, 영속) 아래로. 홈은 Pod 를 다시
@@ -136,23 +133,12 @@ write_opencode_config() {
 # 5b. 전역 지시(AGENTS.md) — superpowers 의 세션 시작 안내(using-superpowers)를 OpenCode 에 싣는다. Claude 는 superpowers 의 SessionStart hook 이,
 #     Gen:iA Code 는 superpowers 의 genia 확장이 이 안내를 넣는데, OpenCode 는 스킬을 목록으로만 보이고 세션 시작 hook 이 없다(superpowers 가 따로
 #     싣는 OpenCode 플러그인은 npm 으로 받아야 해 이미지에 넣지 않는다). 안내가 없으면 모델이 계획·SDD 단계를 건너뛰기 쉽다. OpenCode 는
-#     ~/.config/opencode/AGENTS.md 를 모든 세션의 전역 지시로 읽으므로 여기에 짧은 지시를 매번 새로 쓴다. 스킬이 이미지에 없으면(빌드가 바뀜)
-#     경고하고 옛 파일을 지운다 — 없는 경로를 가리키지 않게.
+#     ~/.config/opencode/AGENTS.md 를 모든 세션의 전역 지시로 읽으므로 여기에 짧은 지시를 매번 새로 쓴다. 본문과 스킬이 없을 때의 처리(경고·옛 파일
+#     지우기)는 lib.sh 의 write_superpowers_agents_md 가 하고(WP-1445), 여기서는 OpenCode 의 경로와 스킬 부르기·도구 이름 대응 항목만 넘긴다.
 OPENCODE_SUPERPOWERS_SKILL=${OPENCODE_SUPERPOWERS_SKILL:-$HOME/.agents/skills/superpowers/using-superpowers/SKILL.md}
 write_opencode_agents_md() {
-  local out
-  out="$(dirname "$OPENCODE_CONFIG_FILE")/AGENTS.md"
-  if [ ! -f "$OPENCODE_SUPERPOWERS_SKILL" ]; then
-    rm -f "$out"
-    log "경고: superpowers 의 using-superpowers 스킬($OPENCODE_SUPERPOWERS_SKILL)이 없습니다 — 세션 시작 안내 없이 띄워 계획·SDD 단계를 건너뛸 수 있습니다"
-    return 0
-  fi
-  mkdir -p "$(dirname "$out")" && gw_write_atomic "$out" "# 작업 공간 공통 지시 (Works 엔트리포인트가 Pod 를 띄울 때마다 새로 쓴다)
-
-이 작업 공간에는 superpowers 개발 절차 스킬이 설치되어 있다(~/.agents/skills/superpowers).
-
-- 세션을 시작하면 다른 무엇보다 먼저 using-superpowers 스킬 파일 $OPENCODE_SUPERPOWERS_SKILL 을 읽고 그대로 따른다.
-- 어떤 일을 하든(질문에 답하기 전 포함) 맞는 스킬이 있는지 먼저 확인하고, 있으면 skill 도구로 불러 그 절차대로 한다.
+  write_superpowers_agents_md "$(dirname "$OPENCODE_CONFIG_FILE")/AGENTS.md" "$OPENCODE_SUPERPOWERS_SKILL" \
+    "- 어떤 일을 하든(질문에 답하기 전 포함) 맞는 스킬이 있는지 먼저 확인하고, 있으면 skill 도구로 불러 그 절차대로 한다.
 - 스킬 안의 Claude Code 전용 도구 이름은 OpenCode 의 같은 도구로 바꿔 쓴다: Skill → skill, Task(서브에이전트) → task, TodoWrite → todowrite,
   Read·Write·Edit·Bash·Grep·Glob → read·write·edit·bash·grep·glob."
 }
