@@ -4,7 +4,7 @@ Works 가 띄우는 AI Pod 의 Codex 작업 공간 이미지다(WP-1297, 템플�
 
 ## 들어 있는 것
 
-- 베이스 `mcr.microsoft.com/playwright:v1.60.0-noble`. 도구 블록은 Gen:iA Code 이미지와 글자까지 같다(tmux, git, gh, glab, jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack), Noto CJK 글꼴, Claude Code CLI). 한쪽을 바꾸면 다른 쪽도 함께 바꾼다(테스트가 두 블록을 맞춰 본다).
+- 베이스 `mcr.microsoft.com/playwright:v1.60.0-noble`. 도구 블록은 Gen:iA Code 이미지와 글자까지 같다(tmux, git, gh, glab, jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack), Noto CJK 글꼴, lsof·iproute2 등 포트·프로세스 확인 도구, playwright-cli 와 그 chromium·headless 기본 설정, Claude Code CLI). 한쪽을 바꾸면 다른 쪽도 함께 바꾼다(테스트가 두 블록을 맞춰 본다).
 - Codex CLI `@openai/codex` 고정 버전(`ARG CODEX_VERSION`, 지금 0.167.0). 공개 패키지라 이미지에 넣는다. 올리면 구동기(`plugins/genia-works/codex`)의 `exec`·`resume`·`-c` 인자와 아래 config.toml 키가 그대로 먹는지 확인한다.
 - genia-works 플러그인: 빌드할 때 저장소의 `plugins/genia-works` 중 Codex 구동기가 쓰는 것(`package.json`·`.claude-plugin`·`codex`·`genia`(구동기가 import 하는 `loop.js`)·`hooks`(`loop.js` 가 import 하는 `lib.js`)·`scripts`·`skills`)만 `/opt/genia/plugin/genia-works` 에 넣는다. Pod 가 뜰 때 마켓플레이스에서 따로 받지 않는다 — 이미지와 플러그인이 같은 릴리스로 함께 빌드된다(카탈로그 paths 가 `plugins/genia-works/` 를 본다).
 - 개발 절차 플러그인(WP-1336): Claude Code CLI(실행하지 않고 받는 데만 쓴다)로 Claude 이미지의 [plugins.lock](../workplace-agent-claude-code/plugins.lock)을 `genia-works` 만 빼고 받은 뒤, `skills/` 가 있는 플러그인(superpowers·frontend-design)의 그 폴더를 Codex 가 읽는 `~/.agents/skills/<플러그인 이름>` 으로 링크한다. 에이전트 형식이라 Codex 가 읽지 못하는 `code-simplifier` 는 Gen:iA Code 이미지가 스킬로 옮긴 것(`../workplace-agent-genia-code/skills/code-simplifier`)을 같은 자리에 COPY 한다. 명령(commands) 형식(code-review·feature-dev)은 Codex 가 읽지 못한다.
@@ -15,7 +15,7 @@ Codex 가 스킬을 찾는 자리(11-06 codex 0.164 `codex debug prompt-input` �
 
 ## 엔트리포인트 (`bin/entrypoint`, 함수는 `lib.sh` + `bin/lib-codex.sh`)
 
-1. 필수 파일·env 를 확인하고 `/work` 아래 폴더를 만든다(lib.sh). 위치의 추가 CA 가 있으면 시스템 CA 와 합친다(`setup_ca`).
+1. 필수 파일·env 를 확인하고 `/work` 아래 폴더를 만든다(lib.sh). 가상 화면(Xvfb)을 띄우고(`start_display`) 위치의 추가 CA 가 있으면 시스템 CA 와 합친다(`setup_ca`).
 2. `use_plugin`: 이미지에 굳힌 플러그인(`codex/driver.mjs` 가 있어야 한다)을 쓰고 플러그인 공용 함수(`gw-lib.sh`)를 읽는다.
 3. `codex_env`: `CODEX_HOME=$AI_DIR/codex`(영속, 700). tmux 서버가 뜨기 전에 내보내므로 칸이 물려받는다 — 로그인·대화 기록(이어 받기)이 Pod 를 다시 만들어도 남는다.
 4. `write_codex_config`: `$CODEX_HOME/config.toml` 을 매번 새로 쓴다. 넣는 것은 `cli_auth_credentials_store = "file"`(로그인을 `auth.json` 파일로), `check_for_update_on_startup = false`, `model`·`model_reasoning_effort`(config.json 의 `model`·`effort` — 비었거나 꼴이 이상하면 빼고 Codex 기본값)뿐이다. MCP·무승인 실행·키 보호 hook 은 구동기가 `-c` 로 넘기므로 적지 않는다.

@@ -30,6 +30,8 @@ trap on_term TERM INT
 # 1. 필수 파일·env, /work 폴더
 check_required
 prepare_dirs
+# 1a. 가상 화면(Xvfb) — 화면 탐색 스킬이 playwright-cli --headed 로 브라우저를 띄울 수 있게 DISPLAY 를 내보낸다(WP-1404). 칸이 물려받는다.
+start_display
 # 1b. 추가 CA(사내 GitLab 등) — 이 뒤의 모든 연결이 쓰게 먼저 합친다(codex 는 node 감싸개라 NODE_EXTRA_CA_CERTS·SSL_CERT_FILE 을 물려받는다).
 setup_ca
 # 2. 플러그인(이미지에 굳힌 codex 구동기 포함 genia-works) — 못 찾으면 띄울 수 없다. 이 뒤로는 gw-lib 를 쓴다.

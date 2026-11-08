@@ -14,6 +14,8 @@ ARG GLAB_SHA256_ARM64=f7c1930977fdd75bea6735eed0b628d4411536b3208c124101db42d6cf
 
 # Claude Code — 실행하지 않고 빌드 때 플러그인을 받는 데만 쓴다(아래). Claude 이미지와 같은 버전으로 둔다.
 ARG CLAUDE_CODE_VERSION=2.1.316
+# playwright-cli(WP-1404) — 화면 탐색 스킬이 쓰는 브라우저 명령. 작업 공간 이미지들이 같은 버전을 쓴다.
+ARG PLAYWRIGHT_CLI_VERSION=0.1.15
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -21,6 +23,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # 도구 — gh·docker(CLI·compose v2)는 공식 apt 저장소. openjdk postinst 가 man 링크를 만들다 실패하지 않게 man 폴더를 먼저 만든다(PoC).
 # tini 는 PID 1 로 SIGTERM 을 엔트리포인트에 넘기고 고아 프로세스(tmux 서버 등)를 거둔다.
 # fonts-noto-cjk — 한글 폭이 달라져 배치를 재는 E2E 가 작업 공간에서만 깨지지 않게(WP-1285). fonts-wqy-zenhei 는 우선순위가 높아 지운다.
+# 포트·프로세스 확인 도구(WP-1404) — Mac 에는 기본으로 있어 저장소·탐색 스크립트가 당연히 쓰는데 베이스에는 없다(일반 사용자라 Pod 에서 깔 수 없다).
+# lsof·ss(iproute2)는 live-stack·explore-stack 의 듣는 포트 찾기와 빈 포트 판정, ip(iproute2)는 e2e-netns. 나머지는 Mac 기본 명령을 맞춘 것:
+# nc(BSD 판 — Mac 과 같은 옵션)·netstat(net-tools)·fuser·killall(psmisc)·file·xxd·column(bsdextrautils)·bc·zip·dig·ping·rsync·uuidgen.
+# 끝 줄은 빌드 때 존재 확인 — 빠지면 이미지가 빌드되지 않는다.
 RUN set -eux; \
     mkdir -p /usr/share/man/man1 /etc/apt/keyrings; \
     apt-get update; \
@@ -33,9 +39,11 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       tmux git jq tini procps less openssh-client unzip \
       openjdk-21-jdk-headless gh docker-ce-cli docker-compose-plugin docker-buildx-plugin \
-      fonts-noto-cjk; \
+      fonts-noto-cjk \
+      lsof iproute2 netcat-openbsd net-tools psmisc file xxd bsdextrautils bc zip dnsutils iputils-ping rsync uuid-runtime; \
     apt-get purge -y fonts-wqy-zenhei; \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*; \
+    lsof -v 2>&1 | grep -q revision; ss -V; ip -V; nc -h 2>&1 | grep -q OpenBSD
 
 # glab — 공식 릴리스 패키지(gitlab.com/gitlab-org/cli). 아키텍처마다 checksums.txt 의 해시로 확인한다.
 RUN set -eux; \
@@ -54,6 +62,21 @@ RUN set -eux; \
     npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     npm cache clean --force; \
     corepack enable
+
+# playwright-cli(WP-1404) — 화면 탐색 스킬(ai-driven-explorer)이 브라우저를 이것으로만 다룬다. 고정 버전으로 넣고,
+# 이 cli 가 품은 Playwright 의 chromium 을 베이스 브라우저 폴더(/ms-playwright)에 받아 둔다 — 엔트리포인트가 PVC 브라우저 폴더에 링크한다(seed_browsers).
+# cli 의 install-browser 는 0.1.15 에서 --no-shell 을 「--shell」 옵션으로 잘못 읽어, 품은 playwright-core 의 install 을 직접 부른다.
+# 기본 설정(아래 ~/.playwright)이 channel chromium(정식 chromium 의 headless)이라 headless shell 은 받지 않는다.
+# 브라우저 지우기(GC)는 끈다 — 베이스가 받은 chromium 은 설치 기록(.links)이 없어 GC 가 「안 쓰는 것」으로 보고 지운다.
+# 품은 playwright-core 폴더는 /opt/genia/playwright-cli-core 로 가리켜 둔다 — 엔트리포인트가 PVC 브라우저 폴더의 설치 기록(.links)에 올려, 저장소 Playwright 를 받을 때 GC 가 이 chromium 을 지우지 않게 한다.
+RUN set -eux; \
+    npm install -g --no-fund --no-audit "@playwright/cli@${PLAYWRIGHT_CLI_VERSION}"; \
+    npm cache clean --force; \
+    core=$(node -e 'console.log(require("path").dirname(require.resolve("playwright-core", { paths: [process.argv[1]] })))' "$(npm root -g)/@playwright/cli"); \
+    PLAYWRIGHT_SKIP_BROWSER_GC=1 node "$core/cli.js" install --no-shell chromium; \
+    mkdir -p /opt/genia; \
+    ln -sfn "$core" /opt/genia/playwright-cli-core; \
+    playwright-cli --version
 
 # agent 사용자 UID/GID 1001 — 베이스의 pwuser 가 1001 이라 이름과 홈만 바꾼다(없으면 새로 만든다).
 # /work 은 PVC·노드 폴더가 덮지만 그 없이 띄워도(확인용 docker run) 쓸 수 있게 1001 소유로 둔다. /run/genia 는 runner 가 파일만 꽂는 곳.
@@ -92,6 +115,20 @@ RUN set -eu; \
       ln -sfn "$path/skills" "/home/agent/.agents/skills/${id%@*}"; \
     done; \
     test -f /home/agent/.agents/skills/superpowers/using-superpowers/SKILL.md
+# playwright-cli 기본 설정(WP-1404) — Pod 에는 화면도 Google Chrome 도 없는데 cli 는 설정이 없으면 channel chrome 을 찾는다.
+# 위에서 받은 chromium 을 headless 로 쓰게 전역 설정(~/.playwright/cli.config.json)을 둔다 — 가장 약한 설정이라 저장소의 .playwright/·--config 가 덮는다.
+# 스킬이 --headed 로 띄우면 엔트리포인트가 띄운 가상 화면(Xvfb, start_display)에 그린다.
+# 빌드 때 about:blank 를 실제로 열어 본다 — 브라우저·설정이 어긋나면 이미지가 빌드되지 않는다. 열어 본 흔적(세션·데몬 파일)은 지운다.
+RUN set -eux; \
+    mkdir -p /home/agent/.playwright; \
+    printf '%s\n' '{"browser":{"browserName":"chromium","launchOptions":{"channel":"chromium","headless":true}}}' > /home/agent/.playwright/cli.config.json; \
+    t=$(mktemp -d); \
+    cd "$t"; \
+    playwright-cli open about:blank; \
+    playwright-cli close; \
+    cd /; \
+    rm -rf "$t" /home/agent/.cache/ms-playwright
+
 # 에이전트 형식이라 Codex 가 읽지 못하는 code-simplifier 는 Gen:iA Code 이미지가 스킬로 옮긴 것(같은 내용, Apache-2.0)을 그대로 쓴다(WP-1336).
 COPY --chown=1001:1001 apps/workplace-agent-genia-code/skills/ /home/agent/.agents/skills/
 
