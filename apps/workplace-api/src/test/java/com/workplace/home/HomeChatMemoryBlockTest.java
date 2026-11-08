@@ -104,7 +104,20 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
     chatService.startChat(uid, null, "질문");
     assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     UUID sid = onlySession(uid);
-    return sessionService.getMessages(uid, sid).get(1);
+    return assistantOf(uid, sid);
+  }
+
+  /**
+   * 세션의 ASSISTANT 메시지 하나. 목록 순서(created_at = 트랜잭션 시작 시각)는 DB 시계가 되돌려지면 질문·답이 뒤바뀔 수 있어(전체 회귀 중 VM 시계
+   * 보정에서 실제로 일어남) 자리(get(1)) 대신 역할로 고른다.
+   */
+  private HomeMessageResponse assistantOf(long uid, UUID sid) {
+    List<HomeMessageResponse> answers =
+        sessionService.getMessages(uid, sid).stream()
+            .filter(m -> "ASSISTANT".equals(m.role()))
+            .toList();
+    assertThat(answers).hasSize(1);
+    return answers.get(0);
   }
 
   /** 재발행된 이벤트 payload 들(이름별). */
@@ -394,7 +407,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
     chatService.cancelChat(r.correlationId(), uid);
     verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), any());
     UUID sid = r.sessionId();
-    HomeMessageResponse a = sessionService.getMessages(uid, sid).get(1);
+    HomeMessageResponse a = assistantOf(uid, sid);
 
     assertThat(a.status()).isEqualTo("STOPPED");
     assertThat(a.content()).isEmpty();
