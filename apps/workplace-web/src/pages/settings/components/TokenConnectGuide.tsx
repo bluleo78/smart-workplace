@@ -29,7 +29,7 @@ export function TokenConnectGuide({ tokenSource, testIdPrefix: p, serverUrlTestI
     <div className="space-y-3">
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">1. 플러그인 설치 (Claude Code 안에서)</p>
-        <CopyableCommand command={buildPluginInstallCommands()} testId={`${p}-plugin-install-command`} />
+        <CopyableCommand command={buildPluginInstallCommands()} testId={`${p}-plugin-install-command`} label="설치 명령" />
       </div>
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">2. 토큰 넣기</p>
@@ -61,7 +61,7 @@ export function TokenConnectGuide({ tokenSource, testIdPrefix: p, serverUrlTestI
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-2 pt-2">
           <p className="text-xs text-muted-foreground">연결 주소</p>
-          <CopyableCommand command={MCP_ENDPOINT} testId={`${p}-mcp-endpoint`} />
+          <CopyableCommand command={MCP_ENDPOINT} testId={`${p}-mcp-endpoint`} label="연결 주소" />
           {/* WP-350: 기본 주소는 전체 도구를 싣는다 — Claude·ChatGPT 는 도구 정의를 전부 읽으므로 필요한 앱만, 또는 읽기 전용으로 좁히는 방법을 알린다. */}
           <div className="space-y-1 text-xs text-muted-foreground" data-testid={`${p}-connect-scope-guide`}>
             <p>

@@ -95,7 +95,7 @@ export function AgentLocationTokenDialog({ issued, showInstall, onClose }: Props
                     <p className="text-sm font-medium">
                       {i + 1}. {s.title}
                     </p>
-                    <CopyableCommand command={s.command} testId={`agent-location-install-${i + 1}`} />
+                    <CopyableCommand command={s.command} testId={`agent-location-install-${i + 1}`} label={`${i + 1}단계 명령`} />
                     {s.note && <p className="text-xs text-muted-foreground">{s.note}</p>}
                   </li>
                 ))}
@@ -103,7 +103,7 @@ export function AgentLocationTokenDialog({ issued, showInstall, onClose }: Props
               <div className="space-y-1.5" data-testid="agent-location-install-troubleshoot">
                 {/* 문제 해결 설명은 설정 가이드(실행 환경)로 옮겼다(WP-1281) — 여기엔 칠 명령만 남긴다. */}
                 <p className="text-xs text-muted-foreground">연결이 안 될 때 연결 프로그램 기록 보기</p>
-                <CopyableCommand command={RUNNER_LOGS_COMMAND} testId="agent-location-install-logs" />
+                <CopyableCommand command={RUNNER_LOGS_COMMAND} testId="agent-location-install-logs" label="기록 보기 명령" />
               </div>
             </>
           ) : (

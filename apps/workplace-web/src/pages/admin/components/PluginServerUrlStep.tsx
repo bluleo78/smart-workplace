@@ -14,7 +14,7 @@ export function PluginServerUrlStep({ testId = 'plugin-server-url' }: { testId?:
         이 서버는 기본 주소가 아니에요 — <code className="font-mono">/plugin configure genia-works@genia-works</code> 에서
         서버 주소를 아래 주소로 바꾸세요.
       </p>
-      <CopyableCommand command={MCP_ENDPOINT} testId={testId} />
+      <CopyableCommand command={MCP_ENDPOINT} testId={testId} label="서버 주소" />
     </div>
   );
 }
