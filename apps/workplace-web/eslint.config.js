@@ -24,6 +24,14 @@ const srcDocIframeRule = {
   message:
     'srcDoc iframe 은 직접 쓰지 말고 SandboxedHtmlFrame(src/components/SandboxedHtmlFrame.tsx)을 사용하세요 — sandbox 격리와 슬림 스크롤바 주입을 함께 맡습니다.',
 }
+// 링크 안에 버튼을 중첩하면 탭 정지가 둘(링크 + 버튼)이고 스크린리더는 이름 없는 링크로 읽는다 — 팀 머리만 고치고
+// 개인 머리가 남았던 일(WP-1415→1435). 버튼 모양 링크는 Button asChild 로 링크 하나를 만든다.
+const nestedButtonInLinkRule = {
+  selector:
+    'JSXElement[openingElement.name.name=/^(Link|NavLink|a)$/] JSXElement[openingElement.name.name=/^(Button|button)$/]',
+  message:
+    '링크 안에 버튼을 넣지 마세요 — 탭 정지가 둘이 됩니다. 버튼 모양 링크는 <Button asChild><Link …>…</Link></Button> 로 쓰세요(WP-1435).',
+}
 // 페이지 헤더 바를 화면에서 직접 만들면 높이·여백·폭이 다시 갈라진다 — Page.Header / PanelHeader / subPaneHeaderClass 를 쓴다.
 // 헤더 바(h-14 + border-b) 직접 생성 금지 — 한 className 속성 안이면 문자열·템플릿 조각이 나뉘어 있어도 잡는다.
 // 예) className="flex h-14 border-b" · cn('flex h-14', 'border-b') · `h-14 ${x} border-b` · cn(`h-14`, 'border-b').
@@ -92,7 +100,7 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'warn',
       // 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
       // 난립해 표기 불일치(#617)가 반복됐다. 문서만으로는 재발을 못 막아 린트로 강제한다(#632).
-      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, headerBarRule],
+      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, headerBarRule, nestedButtonInLinkRule],
       // 팝오버·선택 창·메뉴는 앱 공용 래퍼(src/components/overlay)로만 — 휴대폰 하단 탭바를 피하는 충돌 여백이
       // 거기서 한 번에 들어간다(WP-806). ui/* 나 Radix 원본을 직접 쓰면 그 화면만 탭바 밑으로 펼쳐진다.
       // (src/components/ui 는 globalIgnores 라 shadcn 원본의 radix-ui 가져오기는 걸리지 않는다.)
@@ -117,7 +125,7 @@ export default defineConfig([
     // 헤더 틀 구현부(layout)와 모바일 헤더는 h-14 + border-b 를 직접 쓴다 — 헤더 규칙만 해제하고 나머지 두 규칙은 유지.
     files: ['src/components/layout/**', 'src/components/mobile/**', 'src/**/mobile/**'],
     rules: {
-      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule],
+      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, nestedButtonInLinkRule],
     },
   },
   // 컴포넌트 테스트·테스트 헬퍼 — HMR 경계가 아니므로 컴포넌트 외 export(헬퍼·픽스처)를 허용한다(WP-413).

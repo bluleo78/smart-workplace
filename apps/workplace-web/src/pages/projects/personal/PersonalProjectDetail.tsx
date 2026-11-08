@@ -88,9 +88,10 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
         // 설정 진입(WP-1362) — 팀 화면과 같은 순서로 보조 링크 → 주 액션.
         actions={
           <>
-            <Link to={settingsTo}>
-              <Button variant="outline">설정</Button>
-            </Link>
+            {/* 링크 안에 버튼을 중첩하지 않는다 — 탭 정지 하나·이름 있는 링크 하나(WP-1435). */}
+            <Button asChild variant="outline">
+              <Link to={settingsTo}>설정</Link>
+            </Button>
             <Button onClick={openQuickAdd}>+ 빠른 추가</Button>
           </>
         }
