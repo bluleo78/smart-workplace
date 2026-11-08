@@ -7,9 +7,10 @@
 # 그 앞(필수 확인·마켓플레이스)은 이미지에 genia-works 가 없을 수도 있어(빌더에서 Works 에 닿지 않음) gw-lib 없이 돈다.
 # Gen:iA Code 이미지(apps/workplace-agent-genia-code, WP-1296)도 이 파일을 그대로 COPY 해 쓰고, 그 이미지 전용 함수(lib-genia.sh)를 뒤에 읽어 덮어쓴다 —
 # 함수 이름·인자를 바꾸면 그 이미지의 엔트리포인트·테스트도 함께 본다.
-#   다른 이미지가 덮어쓰는 지점: trust_folders(7 의 폴더 신뢰)·before_supervise·can_launch(감독 회차 tick). 함께 쓰는 것: adopt_plugin_scripts·bg_wait·
-#   bg_wait_timeout·seed_login_file·login_file_ready·tick 과 필수 확인·CA·키·git·dind·프로젝트·감독·정리. Claude Code 엔트리포인트는 tick 을 쓰지 않는다
-#   (부팅 때 start_projects 를 한 번 부르고 회차마다 supervise_once 를 부른다).
+#   다른 이미지가 덮어쓰는 지점: trust_folders(7 의 폴더 신뢰)·before_supervise·can_launch(감독 회차 tick). 함께 쓰는 것: adopt_plugin_scripts·
+#   use_baked_plugin·write_superpowers_agents_md·bg_wait·bg_wait_timeout·seed_login_file·login_file_ready·tick 과 필수 확인·CA·키·git·dind·프로젝트·
+#   감독·정리, 그리고 종료 신호 trap(install_term_trap)·감독 루프(run_supervisor) — 엔트리포인트는 부팅 단계만 적고 이 둘을 부른다.
+#   Claude Code 엔트리포인트는 tick 을 쓰지 않는다(run_supervisor boot — 부팅 때 start_projects 를 한 번 부르고 회차마다 supervise_once 를 부른다).
 #   Claude Code 전용(다른 이미지는 부르지 않는다): update_plugins·resolve_plugin_scripts·write_settings·mark_trust·install_plugins·verify_plugin_lock.
 
 GENIA_RUN_DIR=${GENIA_RUN_DIR:-/run/genia}          # runner 가 파일 하나씩(subPath) 꽂는 곳 — 읽기만 한다
@@ -149,6 +150,37 @@ adopt_plugin_scripts() {
     AI_DIR="$AI_HOME/$GENIA_AGENT_NAME"
   fi
   return 0
+}
+
+# 빌드 때 굳힌 플러그인을 쓰기로 한다(Codex 등 마켓플레이스에서 따로 받지 않는 이미지의 use_plugin 공용) — use_baked_plugin <플러그인 폴더> <구동기 하위 폴더>.
+# 이미지와 플러그인이 같은 릴리스로 함께 빌드되므로 칸 명령(agent-project 의 실행기 분기)이 부르는 구동기(<하위 폴더>/driver.mjs)가 있어야
+# 쓸 수 있다 — 없으면 1(엔트리포인트가 멈춘다). 있으면 그 플러그인의 scripts 를 adopt_plugin_scripts 로 고른다.
+use_baked_plugin() {
+  local dir=$1 driver=$2
+  [ -f "$dir/$driver/driver.mjs" ] || return 1
+  adopt_plugin_scripts "$dir/scripts"
+}
+
+# 전역 지시 파일(AGENTS.md 등)에 superpowers 세션 시작 안내를 쓴다(세션 시작 hook 을 돌리지 않는 실행기 공용 — Codex 의 write_codex_agents_md,
+# OpenCode 의 write_opencode_agents_md).
+#   write_superpowers_agents_md <출력 경로> <using-superpowers SKILL.md 경로> <실행기 항목>
+#   셋째 인자는 「스킬 파일을 읽고 따른다」 항목 뒤에 붙는 본문 줄 그대로다 — 스킬을 부르는 방법과 Claude Code 전용 도구 이름을 무엇으로
+#   바꾸는지가 실행기마다 다르다(여러 줄이어도 된다).
+# 매번 새로 쓴다(gw_write_atomic — gw-lib 를 읽은 뒤에 부른다). 스킬이 이미지에 없으면(빌드가 바뀜) 경고하고 옛 파일을 지운 뒤 0 —
+# 없는 경로를 가리키지 않게, 그리고 안내가 없어도 칸은 띄울 수 있게.
+write_superpowers_agents_md() {
+  local out=$1 skill=$2 runner_items=$3
+  if [ ! -f "$skill" ]; then
+    rm -f "$out"
+    log "경고: superpowers 의 using-superpowers 스킬($skill)이 없습니다 — 세션 시작 안내 없이 띄워 계획·SDD 단계를 건너뛸 수 있습니다"
+    return 0
+  fi
+  mkdir -p "$(dirname "$out")" && gw_write_atomic "$out" "# 작업 공간 공통 지시 (Works 엔트리포인트가 Pod 를 띄울 때마다 새로 쓴다)
+
+이 작업 공간에는 superpowers 개발 절차 스킬이 설치되어 있다(~/.agents/skills/superpowers).
+
+- 세션을 시작하면 다른 무엇보다 먼저 using-superpowers 스킬 파일 $skill 을 읽고 그대로 따른다.
+$runner_items"
 }
 
 # 3. ~/.claude/settings.json — 매번 덮어쓴다(재생성된 Pod 에 옛 값이 남지 않게, Review Focus 5). 플러그인 MCP 주소는 플러그인 설정
@@ -532,6 +564,62 @@ tick() {
   if can_launch; then supervise_once; fi
   printf '%s\n' "$SUPERVISE_TICKS" > "$AI_DIR/state/supervise-ticks" 2>/dev/null
   return 0
+}
+
+# SIGTERM·SIGINT 처리(모든 엔트리포인트 공용) — 칸들을 정리하고 0 으로 끝낸다. 0 이 아니면 kubelet 이 실패로 본다.
+# 감독의 sleep 을 먼저 끄고(SLEEP_PID — supervise_nap 이 적는다), start_projects 가 저장소·브라우저를 받는 중이었거나(Codex: 모델 목록을
+# 묻는 중이었거나) 하면 그 일들을 자손(git·npx 등)까지 끄고 임시 폴더를 치운다(abort_boot) — 남기면 정리 뒤에도 clone 이 이어진다.
+# 끝에서 exit 하므로 trap 이 끊은 wait 로 감독 루프가 돌아가지 않는다.
+SLEEP_PID=""
+on_term() {
+  trap - TERM INT
+  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  abort_boot
+  log "종료 신호 — 칸들을 정리합니다"
+  stop_all
+  exit 0
+}
+
+# 종료 신호 trap 을 건다 — 엔트리포인트가 lib 를 읽은 바로 뒤(부팅 단계 앞)에서 부른다. 부팅 도중(start_projects 전·중)에 온 신호도
+# 같은 on_term 으로 정리하고 0 으로 끝내게 하려는 것이다(감독 루프 안에서 걸면 부팅 동안은 기본 동작으로 죽는다).
+install_term_trap() {
+  trap on_term TERM INT
+}
+
+# 감독 한 회차 쉬기 — sleep 을 뒤에서 돌리고 wait 로 기다린다. 앞쪽 sleep 동안에는 trap 이 돌지 않아 SIGTERM 을 바로 받지 못하기 때문이다.
+# 쉬는 sleep 의 pid 를 SLEEP_PID 에 적어 on_term 이 끄게 한다.
+supervise_nap() {
+  sleep "$GENIA_SUPERVISE_INTERVAL" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID"
+  SLEEP_PID=""
+}
+
+# 감독 루프(모든 엔트리포인트 공용) — run_supervisor <tick|boot>. 돌아오지 않는다(끝은 on_term 의 exit).
+#   tick(Gen:iA Code·Codex·OpenCode): 부팅 첫 회차부터 tick 하나로 — 회차마다 tick(이미지 훅 → 띄울 수 있으면 supervise_once) 뒤 쉰다.
+#   boot(Claude Code): 부팅 때 start_projects 를 한 번 부르고 알림 감시 창을 챙긴 뒤, 쉬고 나서 supervise_once 를 회차마다 부른다.
+#     첫 supervise_once 전에 쉬는 것이 tick 과 다르다 — 부팅 직후 agent-window 를 한 번 더 부르지 않게(옛 동작 그대로).
+# PROJECTS_READY·BOOT_KEYS 는 start_projects·supervise_once 가 읽고 쓰는 전역이라 local 로 두지 않는다.
+run_supervisor() {
+  PROJECTS_READY=0
+  BOOT_KEYS=""
+  case "$1" in
+    tick)
+      while :; do
+        tick
+        supervise_nap
+      done
+      ;;
+    boot)
+      start_projects && PROJECTS_READY=1
+      ensure_events
+      while :; do
+        supervise_nap
+        supervise_once
+      done
+      ;;
+    *) die "run_supervisor: 알 수 없는 감독 모드입니다 — $1" ;;
+  esac
 }
 
 # 9. 정리 — 칸마다 SIGTERM(claude 가 스스로 끝내게) → 최대 GENIA_STOP_WAIT 초 기다림 → tmux 서버 끄기.
