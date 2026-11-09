@@ -66,6 +66,12 @@ describe('accountStatusPill', () => {
     expect(accountStatusPill(account({ status: 'RELOGIN_REQUIRED', usage: usage({ status: 'OK' }) })).label).toBe('다시 로그인 필요');
   });
 
+  test('계정이 확인 필요(NEEDS_CHECK)면 사용량 판정보다 먼저 「확인 필요」(경고), 다시 로그인 필요보다는 뒤', () => {
+    expect(accountStatusPill(account({ status: 'NEEDS_CHECK', usage: usage({ status: 'OK' }) }))).toEqual({ label: '확인 필요', type: 'warning', reason: null });
+    expect(accountStatusPill(account({ status: 'NEEDS_CHECK', usage: usage({ status: 'LIMIT_REACHED' }) })).label).toBe('확인 필요');
+    expect(accountStatusPill(account({ status: 'NEEDS_CHECK', usage: usage({ status: 'RELOGIN_REQUIRED' }) })).label).toBe('다시 로그인 필요');
+  });
+
   test('쓰는 AI 가 없으면 여유·정상·확인 전 대신 「쓰는 AI 없음」, 한도 문제는 그보다 먼저', () => {
     expect(accountStatusPill(account({ agents: [], usage: usage({ status: 'OK' }) }))).toMatchObject({ label: '쓰는 AI 없음', type: 'unknown' });
     expect(accountStatusPill(account({ agents: [], usage: usage({ status: 'UNLIMITED' }) })).label).toBe('쓰는 AI 없음');

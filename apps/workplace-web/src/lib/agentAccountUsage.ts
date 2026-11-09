@@ -14,7 +14,7 @@ export interface AccountStatusPill {
 }
 
 /**
- * 상태 칸 판정. 우선순위(위가 먼저): 다시 로그인 필요(계정 또는 사용량) → 확인 실패 → 한도 도달 → 곧 한도 →
+ * 상태 칸 판정. 우선순위(위가 먼저): 다시 로그인 필요(계정 또는 사용량) → 확인 필요(계정) → 확인 실패 → 한도 도달 → 곧 한도 →
  * 쓰는 AI 없음 → 여유(OK) → 정상(한도 없음) → 확인 전. 계정 상태가 사용량 상태보다 앞선다 — 다시 로그인이 먼저 할 일이다.
  */
 export function accountStatusPill(account: Pick<AgentAccountResponse, 'status' | 'agents' | 'usage'>): AccountStatusPill {
@@ -23,6 +23,8 @@ export function accountStatusPill(account: Pick<AgentAccountResponse, 'status' |
   if (account.status === 'RELOGIN_REQUIRED' || status === 'RELOGIN_REQUIRED') {
     return { label: '다시 로그인 필요', type: 'error', reason: null };
   }
+  // 옛 연결에서 옮겨 와 아직 확인 전인 로그인 계정 — 다시 로그인만큼 급하진 않지만 사용량보다 먼저 확인할 일이다.
+  if (account.status === 'NEEDS_CHECK') return { label: '확인 필요', type: 'warning', reason: null };
   if (status === 'CHECK_FAILED') return { label: '확인 실패', type: 'warning', reason: usage?.errorMessage ?? null };
   if (status === 'LIMIT_REACHED') return { label: '한도 도달', type: 'error', reason: null };
   if (status === 'NEAR_LIMIT') return { label: '곧 한도', type: 'warning', reason: null };

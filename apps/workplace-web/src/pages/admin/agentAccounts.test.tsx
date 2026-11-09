@@ -82,6 +82,14 @@ function accounts(): AgentAccountResponse[] {
       // 사용량은 OK 여도 계정의 다시 로그인이 먼저
       usage: createUsage({ status: 'OK', checkedAt: '2026-11-09T00:00:00Z' }),
     }),
+    // 옛 연결에서 옮겨 와 아직 확인 전 — 사용량이 OK 여도 「확인 필요」가 먼저
+    createAccount({
+      id: 9,
+      provider: 'chatgpt',
+      label: 'ChatGPT 옮겨 온 계정',
+      status: 'NEEDS_CHECK',
+      usage: createUsage({ status: 'OK', checkedAt: '2026-11-09T00:00:00Z' }),
+    }),
     createAccount({
       id: 8,
       label: '새 Claude',
@@ -148,11 +156,13 @@ test('상태 칸 — 상태마다 문구, 확인 실패는 이유를 함께, 계
   expect(status(6)).toHaveTextContent('쓰는 AI 없음')
   expect(status(7)).toHaveTextContent('다시 로그인 필요')
   expect(status(8)).toHaveTextContent('확인 전')
+  expect(status(9)).toHaveTextContent('확인 필요')
   // 배지 색 — 의미 단위(StatusBadge data-status)
   expect(within(status(1)).getByText('여유')).toHaveAttribute('data-status', 'success')
   expect(within(status(2)).getByText('곧 한도')).toHaveAttribute('data-status', 'warning')
   expect(within(status(3)).getByText('한도 도달')).toHaveAttribute('data-status', 'error')
   expect(within(status(7)).getByText('다시 로그인 필요')).toHaveAttribute('data-status', 'error')
+  expect(within(status(9)).getByText('확인 필요')).toHaveAttribute('data-status', 'warning')
   expect(within(status(6)).getByText('쓰는 AI 없음')).toHaveAttribute('data-status', 'unknown')
 })
 
@@ -683,23 +693,70 @@ test('수정 — 「키 교체」를 열어 둔 채 키가 비면 라벨만 바�
   await waitFor(() => expect(calls.updates).toEqual([{ label: 'Claude 팀 A2' }]))
 })
 
-test('수정 — OpenAI 호환 키 교체에서 키만 비우고 라벨을 바꿔도 반쪽 연결 정보를 보내지 않는다', async () => {
+test('수정 — OpenAI 호환 키 교체는 프리셋·주소를 빈 채로 시작해 다시 받는다: 키만 넣으면 저장이 막히고, 새로 넣은 주소를 보낸다', async () => {
   const { user, calls } = renderWritable({ list: [createAccount({ id: 1, provider: 'opencode', label: '사내 모델' })] })
   await screen.findByTestId('agent-account-row-1')
   await pickRowMenu(user, 1, 'edit')
   const dialog = await screen.findByTestId('agent-account-dialog')
   await user.click(within(dialog).getByTestId('agent-account-replace-toggle'))
-  // 주소는 기본값이 채워져 있지만 키가 없다 — 반쪽
+  // 지금 주소는 응답에 없다 — 기본 프리셋(Bedrock)으로 채우지 않고 비워 두고 다시 넣으라고 알린다
+  expect(within(dialog).getByTestId('agent-account-opencode-reenter-hint')).toHaveTextContent(
+    '주소는 보안상 다시 받지 않아요. 키를 바꾸려면 주소도 다시 넣어 주세요.',
+  )
+  expect(within(dialog).getByTestId('credential-preset')).toHaveTextContent('프리셋을 고르세요')
+  expect(within(dialog).getByTestId('credential-base-url')).toHaveValue('')
+  // 키만 넣으면 — 주소가 없어 저장·연결 확인이 막힌다(회사 서버 주소가 Bedrock 으로 덮이지 않게)
+  await user.click(within(dialog).getByTestId('credential-api-key'))
+  await user.paste('sk-new')
+  expect(within(dialog).getByTestId('agent-account-submit')).toBeDisabled()
+  expect(within(dialog).getByTestId('agent-account-probe')).toBeDisabled()
+  // 프리셋을 고르고(직접 입력 — 주소는 비어 있다) 주소를 넣어야 열린다
+  await user.click(within(dialog).getByTestId('credential-preset'))
+  await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: '직접 입력' }))
+  expect(within(dialog).getByTestId('agent-account-submit')).toBeDisabled()
+  await user.click(within(dialog).getByTestId('credential-base-url'))
+  await user.paste('https://llm.corp.example/v1')
+  await user.click(within(dialog).getByTestId('agent-account-submit'))
+  await waitFor(() => expect(calls.updates).toHaveLength(1))
+  expect(calls.updates[0]).toEqual({
+    providerConfig: { providerId: 'custom', options: { baseURL: 'https://llm.corp.example/v1', apiKey: 'sk-new' } },
+  })
+})
+
+test('수정 — OpenAI 호환 키 교체를 「교체 안 함」으로 접으면 providerConfig 를 보내지 않고, 다시 열면 주소도 빈 칸이다', async () => {
+  const { user, calls } = renderWritable({ list: [createAccount({ id: 1, provider: 'opencode', label: '사내 모델' })] })
+  await screen.findByTestId('agent-account-row-1')
+  await pickRowMenu(user, 1, 'edit')
+  const dialog = await screen.findByTestId('agent-account-dialog')
+  const toggle = within(dialog).getByTestId('agent-account-replace-toggle')
+  await user.click(toggle)
+  await user.click(within(dialog).getByTestId('credential-base-url'))
+  await user.paste('https://llm.corp.example/v1')
+  await user.click(within(dialog).getByTestId('credential-api-key'))
+  await user.paste('sk-new')
+  await user.click(toggle)
   const label = within(dialog).getByTestId('agent-account-label')
   await user.clear(label)
   await user.click(label)
   await user.paste('사내 모델 2')
-  expect(within(dialog).getByTestId('agent-account-submit')).toBeDisabled()
-  await user.click(within(dialog).getByTestId('credential-api-key'))
-  await user.paste('sk-new')
   await user.click(within(dialog).getByTestId('agent-account-submit'))
-  await waitFor(() => expect(calls.updates).toHaveLength(1))
-  expect(calls.updates[0]).toMatchObject({ label: '사내 모델 2', providerConfig: { options: { apiKey: 'sk-new' } } })
+  await waitFor(() => expect(calls.updates).toEqual([{ label: '사내 모델 2' }]))
+})
+
+test('수정 — 접었다 다시 연 OpenAI 호환 키 교체는 넣던 주소·프리셋 없이 빈 칸에서 시작한다', async () => {
+  const { user } = renderWritable({ list: [createAccount({ id: 1, provider: 'opencode', label: '사내 모델' })] })
+  await screen.findByTestId('agent-account-row-1')
+  await pickRowMenu(user, 1, 'edit')
+  const dialog = await screen.findByTestId('agent-account-dialog')
+  const toggle = within(dialog).getByTestId('agent-account-replace-toggle')
+  await user.click(toggle)
+  await user.click(within(dialog).getByTestId('credential-preset'))
+  await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: 'OpenAI' }))
+  expect(within(dialog).getByTestId('credential-base-url')).toHaveValue('https://api.openai.com/v1')
+  await user.click(toggle)
+  await user.click(toggle)
+  expect(within(dialog).getByTestId('credential-preset')).toHaveTextContent('프리셋을 고르세요')
+  expect(within(dialog).getByTestId('credential-base-url')).toHaveValue('')
 })
 
 test('추가 — 「연결 확인」 결과는 Base URL·API Key 를 바꾸면 지워진다(지금 값의 결과가 아니므로)', async () => {

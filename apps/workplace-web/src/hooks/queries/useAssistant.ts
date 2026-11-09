@@ -25,6 +25,8 @@ export const assistantKeys = {
 
 // 프로바이더 모델 목록 쿼리키 — 관리자(AGENT별)/본인(개인 비서) 분리.
 export const providerModelsKeys = {
+  /** 모델 목록 전부 — 계정의 키·주소가 바뀌면(WP-1451) 어느 AI 의 목록이 그 계정을 쓰는지 모르니 통째로 다시 받는다. */
+  all: ['providerModels'] as const,
   forAgent: (userId: number | null, accountId?: number | null) => ['providerModels', 'agent', userId, accountId ?? null] as const,
   me: ['providerModels', 'me'] as const,
 };

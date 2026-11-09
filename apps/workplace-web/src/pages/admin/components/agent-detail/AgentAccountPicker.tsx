@@ -3,6 +3,7 @@
 // 지금 묶인 계정(라벨·종류·5시간/주간 사용률·상태)을 보이고, 「계정 고르기」/「바꾸기」가 이 방식에 맞는 종류(accountFits)의 계정만 고르는 창을 연다.
 // 고르면 PUT /admin/agents/{id}/agent-account {accountId} — 서버가 runner 에 알려 작업 공간이 다시 시작되므로 창에 끊김 안내를 둔다.
 // 고른 계정이 없고 예전 방식(AI 별 연결)의 키가 남아 있으면 그 사실을 한 줄로 알린다 — 다시 넣는 UI 는 두지 않고 계정을 고르게 한다.
+// 보기 전용(readOnly, 사용 중지된 AI)은 묶인 계정만 보이고 「계정 고르기」/「바꾸기」를 두지 않는다 — 다시 사용으로 바꾼 뒤에 고른다.
 // 연결 해제(DELETE)는 두지 않는다 — 풀면 이 AI 는 일할 계정이 없어질 뿐이고, 계정 정리는 다른 계정으로 바꾸거나 실행 방식을 바꾸면 서버가 함께 푼다.
 
 import { useState } from 'react';
@@ -40,11 +41,14 @@ const ACCOUNTS_TAB_PATH = '/settings/agents/accounts';
 
 interface Props {
   agentUserId: number;
-  /** 이 실행 방식(템플릿)이 쓰는 계정 종류. */
-  required: CredentialProvider;
+  /** 이 실행 방식(템플릿)이 쓰는 계정 종류. 보기 전용에서 방식 정의를 모르면 null — 종류 안내·어긋남 안내를 빼고 묶인 계정만 보인다. */
+  required: CredentialProvider | null;
+  /** 보기 전용 — 사용 중지된 AI. 고르기 단추·창 없이 묶인 계정(없으면 빈 줄)만 보인다. */
+  readOnly?: boolean;
 }
 
-export function AgentAccountPicker({ agentUserId, required }: Props) {
+/** 작업 공간 AI 의 계정 — 묶인 계정을 보이고, 보기 전용이 아니면 고르는 창을 연다. */
+export function AgentAccountPicker({ agentUserId, required, readOnly = false }: Props) {
   const bound = useAgentBoundAccount(agentUserId);
   // 예전 방식(AI 마다 넣은 연결, WP-1448 전) — 고른 계정이 없을 때 남아 있으면 알린다. runner 는 고른 계정이 없으면 이 연결로 일한다.
   // 고른 계정이 「없음」으로 확인됐을 때만 받는다 — 계정이 묶여 있으면 옛 연결은 보이지 않으니 부르지 않는다.
@@ -56,7 +60,7 @@ export function AgentAccountPicker({ agentUserId, required }: Props) {
   // 남은 시간 계산 기준 — 1분마다 바뀌는 화면 시계(계정 탭과 같다).
   const { now } = useMinuteNow('minute');
   // 템플릿이 바뀌면 서버가 맞지 않는 묶음을 풀지만, 그 사이 낡은 응답이면 이 방식으로 일하지 못한다고 알린다.
-  const mismatch = account != null && !fitsTemplate(account.provider, required);
+  const mismatch = account != null && required != null && !fitsTemplate(account.provider, required);
 
   // 첫 조회 실패는 다시 시도하는 동안에도 안내를 둔다(failedWithoutData) — 그래서 「불러오는 중」보다 먼저 본다.
   if (failedWithoutData(bound)) {
@@ -71,23 +75,27 @@ export function AgentAccountPicker({ agentUserId, required }: Props) {
       ) : legacyProvider ? (
         // 고른 계정은 없지만 예전 방식의 키가 남아 있다 — 「계정 없음」으로 보이면 키가 사라진 줄 안다. 고르면 서버가 그 계정으로 바꾼다.
         <p className="text-sm text-muted-foreground" data-testid="agent-account-picker-legacy">
-          예전 방식으로 연결된 {accountLabel(legacyProvider)} 키가 있어요 — 계정을 고르면 그 계정으로 바뀝니다
+          예전 방식으로 연결된 {accountLabel(legacyProvider)} 키가 있어요
+          {readOnly ? '' : ' — 계정을 고르면 그 계정으로 바뀝니다'}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground" data-testid="agent-account-picker-empty">
-          이 방식은 {accountLabel(required)} 계정으로 일해요. 아직 고른 계정이 없습니다.
+          {required != null && `이 방식은 ${accountLabel(required)} 계정으로 일해요. `}아직 고른 계정이 없습니다.
         </p>
       )}
-      {mismatch && (
+      {mismatch && required != null && (
         <p className="rounded-md bg-warning-subtle px-3 py-2 text-xs text-warning" data-testid="agent-account-picker-mismatch">
           이 방식은 {accountLabel(required)} 계정으로 일해요. 지금 계정으로는 일하지 못하니 바꿔 주세요.
         </p>
       )}
-      <Button size="sm" variant={account && !mismatch ? 'outline' : 'default'} onClick={() => setOpen(true)} data-testid="agent-account-pick">
-        {account ? '바꾸기' : '계정 고르기'}
-      </Button>
+      {/* 보기 전용·방식 정의 모름이면 고르지 않는다 — 고를 종류(required)를 모르면 창이 맞는 계정을 거를 수 없다. */}
+      {!readOnly && required != null && (
+        <Button size="sm" variant={account && !mismatch ? 'outline' : 'default'} onClick={() => setOpen(true)} data-testid="agent-account-pick">
+          {account ? '바꾸기' : '계정 고르기'}
+        </Button>
+      )}
       {/* 창을 열 때만 목록을 받는다 — 상세 화면에 머무는 동안 계정 목록을 60초마다 다시 받지 않게. */}
-      {open && (
+      {open && !readOnly && required != null && (
         <ChooseAccountDialog agentUserId={agentUserId} required={required} currentId={account?.id ?? null} now={now} onClose={() => setOpen(false)} />
       )}
     </div>

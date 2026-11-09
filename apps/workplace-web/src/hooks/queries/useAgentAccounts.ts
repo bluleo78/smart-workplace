@@ -18,6 +18,8 @@ import type {
   AgentAccountResponse,
   AgentAccountUpdateRequest,
 } from '../../types/agentAccount';
+import { agentRuntimeKeys } from './agentRuntimeKeys';
+import { providerModelsKeys } from './useAssistant';
 
 /** 계정 목록을 다시 받는 간격(ms). */
 const AGENT_ACCOUNTS_REFETCH_MS = 60_000;
@@ -63,12 +65,19 @@ export function useCreateAgentAccount() {
   });
 }
 
-/** 계정 수정 — 라벨·원문이 바뀌면 목록과 AI 별 묶인 계정 표시가 함께 낡으니 계정 키 전부를 무효화한다. */
+/**
+ * 계정 수정 — 라벨·원문이 바뀌면 목록과 AI 별 묶인 계정 표시가 함께 낡으니 계정 키 전부를 무효화한다.
+ * 키·주소를 바꿨으면 그 계정으로 받은 모델 목록도 낡는다 — 어느 AI 가 이 계정을 쓰는지 여기서 모르니 모델 목록 전부를 다시 받게 한다.
+ */
 export function useUpdateAgentAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, body }: { id: number; body: AgentAccountUpdateRequest }) => updateAgentAccount(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: agentAccountKeys.all }),
+    onSuccess: (_data, { body }) => {
+      const secretChanged = body.token != null || body.providerConfig != null || body.loginInfo != null;
+      if (secretChanged) void qc.invalidateQueries({ queryKey: providerModelsKeys.all });
+      return qc.invalidateQueries({ queryKey: agentAccountKeys.all });
+    },
   });
 }
 
@@ -81,7 +90,10 @@ export function useDeleteAgentAccount() {
   });
 }
 
-/** 이 AI 를 계정에 묶는다 — 목록(쓰는 AI 칸)은 다시 받고, 이 AI 의 묶인 계정은 응답(묶인 계정)으로 바로 채운다(한 번 더 받지 않게). */
+/**
+ * 이 AI 를 계정에 묶는다 — 목록(쓰는 AI 칸)은 다시 받고, 이 AI 의 묶인 계정은 응답(묶인 계정)으로 바로 채운다(한 번 더 받지 않게).
+ * 묶으면 서버가 작업 공간을 다시 시작하므로 이 AI 의 실행 상태(상태 섹션·목록 요약)도 다시 받는다.
+ */
 export function useBindAgentAccount(userId: number | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -89,6 +101,8 @@ export function useBindAgentAccount(userId: number | null) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: agentAccountKeys.list() });
       qc.setQueryData(agentAccountKeys.forAgent(userId), data);
+      if (userId != null) void qc.invalidateQueries({ queryKey: agentRuntimeKeys.setting(userId) });
+      void qc.invalidateQueries({ queryKey: agentRuntimeKeys.summaries });
     },
   });
 }

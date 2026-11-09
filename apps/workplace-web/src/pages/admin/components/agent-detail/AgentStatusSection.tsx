@@ -53,6 +53,7 @@ import {
 import { canViewScreen } from '../../../../lib/agentScreen';
 import { handleApiError } from '../../../../lib/api-error';
 import { issuePath } from '../../../../lib/appUrl';
+import { failedWithoutData } from '../../../../lib/queryFailure';
 import { missingRepoHosts as missingHostsOf } from '../../../../lib/repoHosts';
 import { parseIssueKeyQuery } from '../../../../lib/sendToChat';
 import { cn, objectParticle, subjectParticle } from '../../../../lib/utils';
@@ -240,7 +241,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   // 묶인 계정이 있으면 그것만 본다(맞지 않아도 옛 연결로 내려가지 않는다). 옛 연결로 내려가는 것은 묶인 계정 조회가 「없음(404 → null)」으로
   // 끝났을 때뿐이다 — 받는 중이면 아직 모르고(어긋남 안내를 띄우지 않는다), 404 가 아닌 오류면 옛 연결로 판정하지 않고 「불러오지 못했어요」만 보인다.
   // 계정이 필요 없는 방식이면 꺼 둔 조회가 늘 pending 이라 「확인하고 있어요」에 머물지 않게 판정하지 않는다(null).
-  const accountCheck: AccountCheck = account == null ? null : bound.isPending ? 'loading' : bound.isError ? 'error' : null;
+  // 앞서 받은 값이 있으면 그 뒤 다시 받기가 실패해도 그 값으로 판정한다 — 실패는 값 없이 실패했을 때(다시 부르는 중 포함)만.
+  const accountCheck: AccountCheck =
+    account == null ? null : failedWithoutData(bound) ? 'error' : bound.isPending ? 'loading' : null;
   const connected = accountCheck != null ? undefined : bound.data ? bound.data.provider : credential.data?.provider;
   const accountOk = account != null && connected != null && accountFits(connected, { mode: 'WORKSPACE', template });
   const projectCount = projects.data?.length ?? 0;
@@ -501,12 +504,12 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   );
 }
 
-/** 확인 항목 표시 — 통과 ✓(성공 색), 아니면 ✗(경고 색). */
 /** 아직 판정하지 못한 항목 — 통과·필요 어느 쪽도 아니라 흐린 줄표로 둔다(계정 정보를 받는 중·못 받음). */
 function UnknownMark() {
   return <Minus className="size-4 shrink-0 text-muted-foreground" aria-label="확인 못 함" />;
 }
 
+/** 확인 항목 표시 — 통과 ✓(성공 색), 아니면 ✗(경고 색). */
 function CheckMark({ ok }: { ok: boolean }) {
   return ok ? (
     <Check className="size-4 shrink-0 text-success" aria-label="통과" />

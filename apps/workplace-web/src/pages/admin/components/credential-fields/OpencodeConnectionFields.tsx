@@ -14,7 +14,8 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { OPENCODE_PRESETS, type OpencodePresetKey } from '@/lib/opencode-presets';
 
 interface Props {
-  presetKey: OpencodePresetKey;
+  /** 고른 프리셋 — null 이면 아직 안 고름(계정 수정의 키 교체는 주소를 다시 받으려 빈 채로 시작한다). 칸에 「프리셋을 고르세요」가 보인다. */
+  presetKey: OpencodePresetKey | null;
   /** 프리셋을 바꿨다 — Base URL 은 이 칸이 프리셋 값으로 다시 채운다(onBaseUrlChange 로). */
   onPresetChange: (key: OpencodePresetKey) => void;
   baseUrl: string;
@@ -42,9 +43,9 @@ export function OpencodeConnectionFields({
     <>
       <div className="space-y-1.5">
         <Label htmlFor="credential-preset">프리셋</Label>
-        <Select value={presetKey} onValueChange={(v) => changePreset(v as OpencodePresetKey)}>
+        <Select value={presetKey ?? ''} onValueChange={(v) => changePreset(v as OpencodePresetKey)}>
           <SelectTrigger id="credential-preset" data-testid="credential-preset">
-            <SelectValue />
+            <SelectValue placeholder="프리셋을 고르세요" />
           </SelectTrigger>
           <SelectContent>
             {OPENCODE_PRESETS.map((p) => (

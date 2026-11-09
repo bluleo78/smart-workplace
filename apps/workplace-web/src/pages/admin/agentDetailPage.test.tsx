@@ -8,8 +8,10 @@ import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import { agentRuntimeKeys } from '@/hooks/queries/agentRuntimeKeys'
 import { agentAccountKeys } from '@/hooks/queries/useAgentAccounts'
 import { formatDateMonthDayPadded } from '@/lib/formatters'
+import { server } from '@/test/msw/server'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
 import type { AgentApiKey } from '@/types/agentKey'
@@ -912,6 +914,48 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(apply).toBeEnabled()
     await user.click(apply)
     await waitFor(() => expect(calls.settingDeletes).toBe(1))
+  })
+
+  test('사용 중지된 작업 공간 AI — 고른 계정을 보기 전용으로 보인다(옛 연결 문구 「아직 연결하지 않았어요」가 아니다), 바꾸기 단추는 없다', async () => {
+    await renderDetail(claude({ agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE', isActive: false }), boundAccounts: { [id]: 1 } }))
+    const group = await screen.findByTestId('agent-ai-account-group')
+    expect(await within(group).findByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 A')
+    expect(within(group).getByTestId('agent-account-bound')).toHaveTextContent('Claude 구독')
+    expect(within(group).getByTestId('agent-account-bound-five-hour')).toHaveTextContent('42%')
+    expect(group).not.toHaveTextContent('아직 연결하지 않았어요')
+    expect(within(group).queryByTestId('agent-account-pick')).not.toBeInTheDocument()
+  })
+
+  test('사용 중지된 작업 공간 AI 에 고른 계정이 없으면 빈 줄만 — 고르기 단추는 없다', async () => {
+    await renderDetail(claude({ agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE', isActive: false }) }))
+    const group = await screen.findByTestId('agent-ai-account-group')
+    expect(await within(group).findByTestId('agent-account-picker-empty')).toHaveTextContent('아직 고른 계정이 없습니다.')
+    expect(group).not.toHaveTextContent('아직 연결하지 않았어요')
+    expect(within(group).queryByTestId('agent-account-pick')).not.toBeInTheDocument()
+  })
+
+  test('고른 계정을 다시 받다 실패해도 앞서 받은 계정으로 판정해 실행 시작을 막지 않는다', async () => {
+    const { queryClient } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
+    // 이제부터 묶인 계정 조회는 실패한다 — 다시 받으면 isError 지만 앞서 받은 값은 남는다
+    server.use(http.get('/api/v1/admin/agents/:id/agent-account', () => HttpResponse.json({ message: '실패' }, { status: 500 })))
+    await queryClient.refetchQueries({ queryKey: agentAccountKeys.forAgent(id) }).catch(() => {})
+    await waitFor(() => expect(queryClient.getQueryState(agentAccountKeys.forAgent(id))?.status).toBe('error'))
+    expect(screen.getByTestId('agent-runtime-start')).toBeEnabled()
+    expect(screen.queryByTestId('agent-runtime-check-account-error')).not.toBeInTheDocument()
+  })
+
+  test('계정을 바꾸면 작업 공간이 다시 시작되니 이 AI 의 실행 상태도 다시 받게 한다', async () => {
+    const { user, queryClient } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    await screen.findByTestId('agent-account-bound')
+    const before = queryClient.getQueryState(agentRuntimeKeys.setting(id))?.dataUpdatedAt ?? 0
+    const dialog = await openChooser(user)
+    await user.click(within(dialog).getByTestId('agent-account-option-3'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => {
+      const st = queryClient.getQueryState(agentRuntimeKeys.setting(id))
+      expect(st?.isInvalidated || (st?.dataUpdatedAt ?? 0) > before).toBe(true)
+    })
   })
 
   test('실행 방식을 바꾸면 계정 목록과 이 AI 의 고른 계정 캐시를 다시 받게 한다(서버가 묶음을 풀 수 있다)', async () => {

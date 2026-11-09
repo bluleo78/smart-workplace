@@ -92,10 +92,20 @@ export function AgentRunSection({ agent, templates, worksRun, savedTemplateName 
       ) : !agent.isActive ? (
         // 사용 중지된 AI(WP-705·WP-1075) — 연결·키는 보기·정리만. 실행 방식·작업 설정은 다시 사용으로 바꾼 뒤에 다룬다.
         <>
-          {agent.runMode !== 'EXTERNAL' && (
-            <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
-              <AgentAiAccountGroup agentUserId={agent.id} canConfigure={canAdminConfigure} readOnly />
-            </DetailGroup>
+          {/* 작업 공간 AI 는 계정 목록에서 고른 계정(WP-1451)을, 서버 실행 AI 는 AI 마다 넣은 연결을 보기 전용으로 보인다.
+              작업 공간 방식이 계정을 쓰지 않으면(정의를 알 때) 묶음을 그리지 않는다. */}
+          {agent.runMode === 'WORKSPACE' ? (
+            (worksRun == null || worksRun.template.account) && (
+              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
+                <AgentAccountPicker agentUserId={agent.id} required={worksRun?.template.account ?? null} readOnly />
+              </DetailGroup>
+            )
+          ) : (
+            agent.runMode !== 'EXTERNAL' && (
+              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
+                <AgentAiAccountGroup agentUserId={agent.id} canConfigure={canAdminConfigure} readOnly />
+              </DetailGroup>
+            )
           )}
           <DetailGroup title="접속 키">
             <AgentKeysSection {...keyProps} canIssue={false} blockedNote="사용 중지된 AI 에는 새 키를 발급하지 않아요. 남은 키는 폐기해 정리할 수 있어요." />

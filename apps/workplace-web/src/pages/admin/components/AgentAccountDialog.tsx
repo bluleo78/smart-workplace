@@ -2,6 +2,8 @@
 // 추가: 종류(Claude 구독 / OpenAI 호환 / ChatGPT 로그인 / Gen:iA 로그인) + 라벨(비우면 서버가 「<종류> 계정」) + 종류별 입력.
 // 수정: 라벨 바꾸기 + (선택) 키 교체. 종류는 바꾸지 못한다(표시만). 비밀값(토큰·API Key·로그인 정보)은 응답에 없으니 채워 두지 않고, 바꾼 칸만 보낸다.
 // 종류별 입력부와 길이 규칙은 AI 별 연결 창(ProviderCredentialDialog)과 같은 것(credential-fields·lib/loginInfo)을 쓴다.
+// OpenAI 호환 계정의 키 교체는 연결 설정(주소+키)을 통째로 바꾼다. 응답에 주소가 없어 채워 둘 수 없으니, 수정 창의 키 교체는 프리셋·주소를
+// 빈 채로 시작해 다시 받는다 — 기본 프리셋(Bedrock)으로 채워 두면 키만 바꾸려다 회사 서버 주소가 조용히 Bedrock 으로 덮인다.
 // OpenAI 호환 계정은 모델을 받지 않는다 — 계정 요청에 모델 칸이 없고 모델은 이 계정을 쓰는 AI 마다 고른다. 대신 「연결 확인」으로 주소·키가 맞는지 미리 본다.
 import { useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
@@ -43,6 +45,9 @@ const KINDS: readonly CredentialProvider[] = ['anthropic', 'opencode', 'chatgpt'
 /** 라벨 최대 길이 — 서버 @Size(max = 80) 과 같다. */
 const LABEL_MAX = 80;
 
+/** 수정 창의 OpenAI 호환 키 교체 안내 — 주소는 응답에 없어 다시 받는다. */
+const OPENCODE_REENTER_HINT = '주소는 보안상 다시 받지 않아요. 키를 바꾸려면 주소도 다시 넣어 주세요.';
+
 /** 로그인 계정(ChatGPT·Gen:iA) 안내 — 같은 auth.json 을 두 곳에서 쓰면 갱신 토큰이 1회용이라 한쪽 로그인이 풀린다. */
 const LOGIN_FILE_WARNING =
   '내 컴퓨터에서 쓰던 로그인 파일을 그대로 넣지 마세요. 이 계정용으로 새로 로그인한 파일을 넣어야 해요. 같은 로그인을 두 곳에서 쓰면 한쪽이 로그아웃돼요.';
@@ -71,8 +76,9 @@ export function AgentAccountDialog({ account, onClose }: Props) {
 
   // 종류별 원문 — 수정 창도 늘 빈 값에서 시작한다(기존 비밀값은 응답에 없고, 채우지도 않는다).
   const [token, setToken] = useState('');
-  const [presetKey, setPresetKey] = useState<OpencodePresetKey>(DEFAULT_OPENCODE_PRESET);
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_OPENCODE_BASE_URL);
+  // OpenAI 호환 프리셋·주소 — 추가는 기본 프리셋(Bedrock)으로, 수정의 키 교체는 빈 채로(null) 시작해 다시 고르게 한다(지금 주소는 응답에 없다).
+  const [presetKey, setPresetKey] = useState<OpencodePresetKey | null>(editing ? null : DEFAULT_OPENCODE_PRESET);
+  const [baseUrl, setBaseUrl] = useState(editing ? '' : DEFAULT_OPENCODE_BASE_URL);
   const [apiKey, setApiKey] = useState('');
   const [loginInfo, setLoginInfo] = useState('');
   const loginCheck = useMemo(
@@ -80,9 +86,12 @@ export function AgentAccountDialog({ account, onClose }: Props) {
     [kind, loginInfo],
   );
 
-  const providerConfig = toOpencodeProviderConfig(presetKey, baseUrl, apiKey);
+  // 프리셋을 아직 고르지 않았으면 보낼 설정이 없다 — secretReady 가 막으므로 보내지 않고, 연결 확인도 막힌다.
+  const providerConfig = presetKey != null ? toOpencodeProviderConfig(presetKey, baseUrl, apiKey) : null;
   // 「연결 확인」 — 모델 목록을 받아 보면 주소·키가 맞는지 알 수 있다. 결과는 안내로만 쓰고 등록을 막지 않는다.
-  const probe = useMutation({ mutationFn: () => probeAgentModels({ providerConfig }) });
+  const probe = useMutation({
+    mutationFn: () => probeAgentModels({ providerConfig: providerConfig as ProviderConfig }),
+  });
 
   // 서버 상한을 넘은 토큰 — 보내면 400 이니 칸 아래에 바로 알리고 저장을 막는다(최소 길이는 제출 때 토스트, AI 별 연결 창과 같다).
   // 로그인 정보의 상한은 미리 확인(checkLoginInfo)이 함께 본다 — 넘으면 확인 결과가 거절이라 아래 secretReady 가 막는다.
@@ -93,7 +102,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
     kind === 'anthropic'
       ? token.trim().length > 0 && !tokenTooLong
       : kind === 'opencode'
-        ? baseUrl.trim().length > 0 && apiKey.length > 0
+        ? presetKey != null && baseUrl.trim().length > 0 && apiKey.length > 0
         : loginCheck?.ok === true;
 
   const trimmedLabel = label.trim();
@@ -108,7 +117,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
   /** 종류에 맞는 원문 한 칸 — 등록·키 교체 요청이 같이 쓴다. 검사는 submit 이 먼저 하고 여기는 모양만 바꾼다. */
   const secretPart = (): { token: string } | { providerConfig: ProviderConfig } | { loginInfo: string } => {
     if (kind === 'anthropic') return { token: token.trim() };
-    if (kind === 'opencode') return { providerConfig };
+    if (kind === 'opencode') return { providerConfig: providerConfig as ProviderConfig };
     return { loginInfo };
   };
 
@@ -166,8 +175,13 @@ export function AgentAccountDialog({ account, onClose }: Props) {
 
   // 「교체 안 함」으로 접으면 넣던 원문을 비운다 — 접으면 입력부가 사라져 로그인 정보 칸의 요약(가림) 상태도 함께 사라지므로,
   // 원문이 남아 있으면 다시 열 때 auth.json 이 칸에 그대로 펼쳐진다. 다시 열면 늘 빈 칸에서 시작한다.
+  // OpenAI 호환의 프리셋·주소도 비운다 — 다시 열면 주소를 다시 받는다(수정 창에서만 접을 수 있다).
   const toggleReplacing = () => {
-    if (replacing) clearSecrets();
+    if (replacing) {
+      clearSecrets();
+      setPresetKey(null);
+      setBaseUrl('');
+    }
     setReplacing(!replacing);
   };
 
@@ -263,6 +277,11 @@ export function AgentAccountDialog({ account, onClose }: Props) {
               )}
               {kind === 'opencode' && (
                 <>
+                  {editing && (
+                    <p className="text-xs text-muted-foreground" data-testid="agent-account-opencode-reenter-hint">
+                      {OPENCODE_REENTER_HINT}
+                    </p>
+                  )}
                   <OpencodeConnectionFields
                     presetKey={presetKey}
                     onPresetChange={resettingProbe(setPresetKey)}
@@ -277,7 +296,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
                       variant="outline"
                       size="sm"
                       onClick={() => probe.mutate()}
-                      disabled={probe.isPending || !baseUrl.trim() || !apiKey}
+                      disabled={probe.isPending || presetKey == null || !baseUrl.trim() || !apiKey}
                       data-testid="agent-account-probe"
                     >
                       {probe.isPending ? '확인 중…' : '연결 확인'}
