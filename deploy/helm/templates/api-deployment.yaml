@@ -49,6 +49,11 @@ spec:
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: prod
+            {{- with .Values.agentImages }}
+            # 실행 템플릿이 쓸 작업 공간 이미지(저장소@sha256:…) — values.yaml agentImages 참고
+            - name: AGENT_RUNTIME_IMAGES
+              value: {{ join "," . | quote }}
+            {{- end }}
             - name: WORKPLACE_AI_AGENT_URL
               value: http://ai-agent:7070
             - name: WORKPLACE_WORKER_URL

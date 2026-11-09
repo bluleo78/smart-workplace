@@ -47,6 +47,8 @@ workplace:
     api-url: ${AGENT_RUNTIME_API_URL:http://localhost:6060/api/v1}
     # AI 상태 칸(work-loop 하나)의 마지막 보고가 이보다 오래되면 죽은 칸으로 보고 합치기에서 뺀다(WP-1409) — 이유는 AgentRuntimeProperties.DEFAULT_SLOT_STALE_AFTER.
     slot-stale-after: 6h
+    # 릴리스가 고정한 작업 공간 이미지(저장소@sha256:…, 쉼표 구분) — 운영 배포가 매니페스트에서 넣는다. 비면 템플릿은 API 버전 태그를 쓴다.
+    images: ${AGENT_RUNTIME_IMAGES:}
   storage:
     root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./storage-data}
     max-files-per-request: 3

@@ -88,6 +88,16 @@ test('릴리스 버전·커밋은 렌더 결과 어디에도 들어가지 않는
   assert.ok(!BASE.out.includes(RELEASE.version) && !BASE.out.includes(RELEASE.commit));
 });
 
+test('agentImages 는 api 의 AGENT_RUNTIME_IMAGES 로 쉼표로 이어 들어가고, 없으면 환경변수를 두지 않는다', () => {
+  const a = `docker.io/iacloudops/genia-works-agent-codex@sha256:${'a'.repeat(64)}`;
+  const b = `docker.io/iacloudops/genia-works-agent-opencode@sha256:${'b'.repeat(64)}`;
+  const r = render('-f', IMAGES, '--set', `agentImages={${a},${b}}`);
+  assert.ok(r.ok, r.err);
+  const api = docs(r.out).get('Deployment/api');
+  assert.match(api, new RegExp(`- name: AGENT_RUNTIME_IMAGES\\n\\s+value: "${a},${b}"`));
+  assert.doesNotMatch(BASE_DOCS.get('Deployment/api'), /AGENT_RUNTIME_IMAGES/);
+});
+
 test('이미지 값이 없으면 렌더가 실패한다(:latest 로 새지 않는다)', () => {
   const { ok, err } = render();
   assert.equal(ok, false);

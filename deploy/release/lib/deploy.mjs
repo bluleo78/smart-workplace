@@ -1,7 +1,7 @@
 // 릴리스 반영·롤백·상태 확인의 순수 함수 (WP-443) — helm·kubectl·네트워크에 접근하지 않는다.
 // 호출자(CLI)가 매니페스트·`helm get values/history` 결과·파드 JSON·HTTP 응답 본문을 모아 넘기고, 여기서는 같은 입력이면 항상 같은 결과를 낸다.
 import { DIGEST_RE } from './build.mjs';
-import { deploysWithHelm, isPlainObject } from './catalog.mjs';
+import { deploysWithHelm, isPlainObject, isWorkspaceImage } from './catalog.mjs';
 
 /**
  * imageID 끝의 digest — `repo@sha256:…`, `docker-pullable://repo@sha256:…`, 접두 없는 `sha256:…`, `docker://sha256:…` 모두 `sha256:<64hex>` 로 끝난다.
@@ -20,11 +20,17 @@ export function helmImages(manifest) {
 /**
  * 매니페스트 → `helm upgrade -f` 로 넘길 값(JSON 으로 써도 helm 이 읽는다).
  * images 는 repository·digest 만 — action·reasons 같은 빌드 메타는 차트가 쓰지 않는다. release 는 「지금 운영 릴리스」 표식(`helm get values` 로 되읽는다).
+ * agentImages 는 작업 공간 이미지(카탈로그 workspace: true)의 `저장소@digest`(id 순) — API 가 실행 템플릿 이미지를 이것으로 고정한다
+ * (이유는 AgentTemplateRegistry.APP_VERSION_TOKEN). runner 는 템플릿이 쓰지 않아 넣지 않는다 — runner 만 바뀐 릴리스에 API 가 다시 뜨지 않게.
  */
 export function imageValues(manifest) {
   const images = {};
   for (const [id, img] of helmImages(manifest)) images[id] = { repository: img.repository, digest: img.digest };
-  return { images, release: { version: manifest.version, commit: manifest.commit } };
+  const agentImages = Object.entries(manifest.images)
+    .filter(([, img]) => isWorkspaceImage(img))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, img]) => `${img.repository}@${img.digest}`);
+  return { images, agentImages, release: { version: manifest.version, commit: manifest.commit } };
 }
 
 /**

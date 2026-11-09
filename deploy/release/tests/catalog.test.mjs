@@ -35,6 +35,12 @@ test('검증: helm 은 생략하거나 true/false 여야 한다', () => {
   assert.throws(() => validateCatalog(withImages([{ ...OK, helm: 'no' }])), /helm/);
 });
 
+test('검증: workspace 는 true 만, 그리고 helm: false 이미지에만 쓴다', () => {
+  assert.doesNotThrow(() => validateCatalog(withImages([{ ...OK, helm: false, workspace: true }])));
+  assert.throws(() => validateCatalog(withImages([{ ...OK, helm: false, workspace: false }])), /workspace/);
+  assert.throws(() => validateCatalog(withImages([{ ...OK, workspace: true }])), /workspace/);
+});
+
 test('카탈로그는 linux/amd64 단일 플랫폼이고 web 은 VITE_MCP_URL 을 빈 값으로 넘긴다', () => {
   assert.equal(catalog.platform, 'linux/amd64');
   const web = catalog.images.find((i) => i.id === 'web');

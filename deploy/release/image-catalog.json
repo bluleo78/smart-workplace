@@ -143,6 +143,7 @@
       "context": "apps/workplace-agent-claude-code",
       "dockerfile": "apps/workplace-agent-claude-code/Dockerfile",
       "helm": false,
+      "workspace": true,
       "paths": [
         "apps/workplace-agent-claude-code/"
       ]
@@ -153,6 +154,7 @@
       "context": ".",
       "dockerfile": "apps/workplace-agent-genia-code/Dockerfile",
       "helm": false,
+      "workspace": true,
       "paths": [
         "apps/workplace-agent-genia-code/",
         "apps/workplace-agent-claude-code/bin/lib.sh",
@@ -168,6 +170,7 @@
       "context": ".",
       "dockerfile": "apps/workplace-agent-codex/Dockerfile",
       "helm": false,
+      "workspace": true,
       "paths": [
         "apps/workplace-agent-codex/",
         "apps/workplace-agent-claude-code/bin/lib.sh",
@@ -184,6 +187,7 @@
       "context": ".",
       "dockerfile": "apps/workplace-agent-opencode/Dockerfile",
       "helm": false,
+      "workspace": true,
       "paths": [
         "apps/workplace-agent-opencode/",
         "apps/workplace-agent-genia-code/genia-root.crt",

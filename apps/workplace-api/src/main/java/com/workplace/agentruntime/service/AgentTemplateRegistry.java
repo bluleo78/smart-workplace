@@ -17,8 +17,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -54,10 +58,18 @@ public class AgentTemplateRegistry {
           .collect(Collectors.toUnmodifiableSet());
 
   /**
-   * 템플릿 YAML 의 이미지 태그 자리표시 — 이 API 의 릴리스 버전으로 바꾼다. 작업 공간 이미지는 API 와 같은 릴리스 태그로 빌드되므로(릴리스 카탈로그는 바뀌지
-   * 않은 이미지도 태그를 승계한다), 템플릿을 릴리스마다 고치지 않아도 늘 같은 릴리스의 이미지를 가리킨다.
+   * 템플릿 YAML 의 이미지 태그 자리표시. 운영은 배포가 넘긴 고정 이미지(저장소@digest, {@link AgentRuntimeProperties#images()})로
+   * 먼저 바꾸고, 없으면 이 API 의 릴리스 버전 태그로 채운다. 버전만으로는 부족하다 — API 이미지는 API 가 바뀐 릴리스에서만 다시 빌드돼(바뀌지 않으면 이전
+   * 이미지를 승계) 그 사이 새로 빌드된 작업 공간 이미지를 못 가리킨다.
    */
   static final String APP_VERSION_TOKEN = "{appVersion}";
+
+  private static final Logger log = LoggerFactory.getLogger(AgentTemplateRegistry.class);
+
+  /** 템플릿 YAML 의 {@code image: 저장소:{appVersion}} 한 줄 — 1: 앞부분(들여쓰기·image:), 2: 저장소. */
+  private static final Pattern PINNABLE_IMAGE =
+      Pattern.compile(
+          "(?m)^(\\s*-?\\s*image:\\s*)(\\S+):" + Pattern.quote(APP_VERSION_TOKEN) + "[ \\t]*$");
 
   /** 빌드 인자가 없는 로컬·테스트의 버전 값 — 이때는 이미지 태그를 {@code latest} 로 둔다. */
   private static final String DEV_VERSION = "dev";
@@ -83,7 +95,8 @@ public class AgentTemplateRegistry {
       for (Resource r : resources) {
         sources.add(new String(r.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
       }
-      this.templates = load(sources, properties.allowedImagePrefixes(), appVersion);
+      this.templates =
+          load(sources, properties.allowedImagePrefixes(), appVersion, properties.images());
     } catch (IOException e) {
       throw new IllegalStateException("실행 템플릿을 읽지 못했습니다", e);
     }
@@ -109,14 +122,48 @@ public class AgentTemplateRegistry {
    */
   public static List<AgentTemplate> load(
       List<String> yamlSources, List<String> allowedImagePrefixes, String appVersion) {
+    return load(yamlSources, allowedImagePrefixes, appVersion, List.of());
+  }
+
+  /**
+   * {@link #load(List, List, String)} 에 릴리스가 고정한 이미지를 더한다 — {@code image:} 값이 {@code
+   * 저장소:{appVersion}} 이면 같은 저장소의 고정 이미지로 바꾼다(이유는 {@link #APP_VERSION_TOKEN}).
+   *
+   * @param pinnedImages {@code 저장소@sha256:…} 목록(비면 버전 태그만 쓴다). {@code @} 가 없거나 맨 앞인 값은 무시한다.
+   */
+  public static List<AgentTemplate> load(
+      List<String> yamlSources,
+      List<String> allowedImagePrefixes,
+      String appVersion,
+      List<String> pinnedImages) {
     String tag =
         appVersion == null || appVersion.isBlank() || DEV_VERSION.equals(appVersion)
             ? "latest"
             : appVersion.strip();
     List<AgentTemplate> result = new ArrayList<>();
     Set<String> names = new HashSet<>();
+    // 저장소 → 고정 이미지. @ 가 없거나 맨 앞인 값은 버린다.
+    Map<String, String> pinnedByRepo = new LinkedHashMap<>();
+    for (String pinned : pinnedImages) {
+      int at = pinned.indexOf('@');
+      if (at > 0) pinnedByRepo.put(pinned.substring(0, at), pinned);
+    }
     for (String src : yamlSources) {
+      // image: 값 전체가 「고정 목록에 있는 저장소:{appVersion}」일 때만 바꾼다 — 주석·다른 저장소는 건드리지 않는다.
+      src =
+          PINNABLE_IMAGE
+              .matcher(src)
+              .replaceAll(
+                  m -> {
+                    String pinned = pinnedByRepo.get(m.group(2));
+                    return Matcher.quoteReplacement(
+                        pinned == null ? m.group() : m.group(1) + pinned);
+                  });
       AgentTemplate t = parse(src.replace(APP_VERSION_TOKEN, tag));
+      // 고정 목록을 받았는데 작업 공간 템플릿이 버전 태그로 남았으면 저장소 이름이 어긋난 것 — 옛 이미지로 뜰 수 있어 남긴다.
+      if (!pinnedImages.isEmpty() && "WORKSPACE".equals(t.kind()) && !t.image().contains("@")) {
+        log.warn("실행 템플릿 {} 의 이미지가 릴리스 고정 목록에 없어 버전 태그를 씁니다: {}", t.name(), t.image());
+      }
       validate(t, allowedImagePrefixes);
       if (!names.add(t.name())) {
         throw new IllegalStateException("실행 템플릿 이름이 겹칩니다: " + t.name());
