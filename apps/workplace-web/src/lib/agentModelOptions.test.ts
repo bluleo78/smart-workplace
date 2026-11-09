@@ -96,7 +96,7 @@ describe('modelFieldOptions', () => {
 
     expect(r.status).toBe('noAccount')
     expect(values(r)).toEqual(['opus', 'sonnet'])
-    expect(r.hint).toContain('AI 계정을 연결하면')
+    expect(r.hint).toBe('고른 계정이 쓸 수 있는 모델이 보여요.')
   })
 
   test('연결 조회 중이면 loading, 연결 조회가 실패하면 failed', () => {
