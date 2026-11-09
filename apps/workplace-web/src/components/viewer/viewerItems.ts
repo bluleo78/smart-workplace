@@ -57,16 +57,28 @@ export function attachmentMime(contentType: string | null | undefined, filename:
   return mimeFromFilename(filename) ?? 'application/octet-stream'
 }
 
-/** 콘텐츠 경로 끝 `/content` → `/security-check`(WP-1262) — 출처마다 점검 API 가 콘텐츠 API 옆에 같은 모양으로 있다. */
-export const securityPathFrom = (contentPath: string): string => contentPath.replace(/\/content$/, '/security-check')
+/** 콘텐츠 API 경로 끝 — siblingPath 가 옆 API 경로로 바꿀 부분. */
+const CONTENT_SUFFIX_RE = /\/content$/
+
+/**
+ * 콘텐츠 경로 끝 `/content` → `/{name}` — 점검(`security-check`, WP-1262)·변환 PDF(`preview`, WP-1457) API 가
+ * 출처마다 콘텐츠 API 옆에 같은 모양·같은 가드로 있다. 두 경로가 한 규칙(정규식)을 쓰게 한 곳에 둔다.
+ * 끝이 `/content` 가 아니면(옆 API 가 없는 모르는 출처) undefined — 호출자는 그 경로를 달지 않는다.
+ */
+export const siblingPath = (contentPath: string, name: string): string | undefined =>
+  CONTENT_SUFFIX_RE.test(contentPath) ? contentPath.replace(CONTENT_SUFFIX_RE, `/${name}`) : undefined
+
+/** 가상 첨부 중 서버가 `/content` 옆에 `/preview` 를 두는 출처(WP-1457) — 이슈·이슈챗·채널 메시지 첨부. 노트(WIKI)는 경로가 없다. */
+const VIRTUAL_PREVIEW_SOURCES: ReadonlySet<string> = new Set(['ISSUE', 'CHAT_MESSAGE', 'MESSAGE'])
 
 /**
  * HTML 항목에만 점검 경로를 붙인다(WP-1262) — ViewerBody 가 HTML 로 그리는 판정(resolvePreviewKind === 'HTML')과 같아 본문과 패널이 늘 일치한다.
  * 경로가 `/content` 로 끝나지 않으면(모르는 출처) 붙이지 않는다. 어댑터가 만든 항목의 mimeType·contentPath 로 파생해 감싼다.
  */
 function withSecurityCheck(item: ViewerItem): ViewerItem {
-  if (resolvePreviewKind(item.mimeType) !== 'HTML' || !item.contentPath.endsWith('/content')) return item
-  return { ...item, securityCheckPath: securityPathFrom(item.contentPath) }
+  if (resolvePreviewKind(item.mimeType) !== 'HTML') return item
+  const securityCheckPath = siblingPath(item.contentPath, 'security-check')
+  return securityCheckPath ? { ...item, securityCheckPath } : item
 }
 
 /** 메일 첨부 표시·저장 이름 — 첨부 칩과 뷰어(제목·접근 이름·저장 파일명)가 같은 이름을 쓰게 한 곳에 둔다. */
@@ -98,7 +110,9 @@ export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
 
 /**
  * 항목의 미리보기 종류 — 변환 PDF 경로가 있고 변환 대상 형식이면 CONVERTED_PDF, 아니면 mime 기준(resolvePreviewKind).
- * 왜: 변환 경로는 드라이브 파일(WP-431)·메일 첨부(WP-432)에만 있어, 이슈·채팅의 같은 HWP 는 지금처럼 미지원 안내로 둔다.
+ * 왜: 변환 경로는 드라이브(WP-431)·메일(WP-432)·이슈 첨부·채팅 업로드·드라이브 링크·메인 AI 첨부·첨부 모아보기(WP-1457)에 있지만
+ * 노트 첨부·이슈 본문 이미지·열 수 없는 링크에는 없다 — 그 출처의 문서는 미지원 안내(+ 다운로드)로 둔다.
+ * 항목에는 형식과 무관하게 경로를 달고, 쓸지는 여기서 형식(CONVERTIBLE_MIMES)으로 고른다.
  */
 export function itemPreviewKind(item: ViewerItem): PreviewKind {
   if (item.previewPath && CONVERTIBLE_MIMES.has(item.mimeType)) return 'CONVERTED_PDF'
@@ -162,29 +176,39 @@ export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
   }
   // 메일이 아닌 행은 fileId 가 있을 때만 가져오기(file 대상) — 판정은 목록 행의 저장 버튼과 같은 함수다.
   const importTarget = virtualAttachmentImportTarget(a)
+  // 변환 경로는 이슈·이슈챗·채널 메시지 첨부에만(WP-1457) — 이슈 본문 이미지는 첨부 /preview 가드가 거절하므로 뺀다.
+  // 같은 파일이 이슈 화면과 모아보기에서 다르게 보이지 않게 하려는 것.
+  const convertible = VIRTUAL_PREVIEW_SOURCES.has(a.sourceType) && a.kind !== 'BODY_IMAGE'
   return withSecurityCheck({
     // 키는 목록 탐색(virtualAttachmentViewerKey)과 같은 규칙 — id 가 빠진 비정상 행도 `file:null` 로 한 키에 몰리지 않는다.
     key: virtualAttachmentViewerKey(a),
     name: a.name,
-    mimeType: a.mimeType,
+    // 형식은 이슈·채팅 첨부와 같은 규칙으로 정규화 — octet-stream 으로 저장된 `보고서.DOCX` 도 변환 판정에 들게(WP-1457).
+    mimeType: attachmentMime(a.mimeType, a.name),
     sizeBytes: a.sizeBytes,
     contentPath: a.downloadUrl,
     downloadPath: a.downloadUrl,
+    ...(convertible ? { previewPath: siblingPath(a.downloadUrl, 'preview') } : {}),
     ...(importTarget ? { importTarget } : {}),
     sourceLink: a.deepLink,
   })
 }
 
-/** 이슈 업로드 첨부 — 멤버 권한 콘텐츠 경로. 다운로드도 같은 엔드포인트라(api downloadAttachment 와 동일) 경로를 같이 쓴다. */
+/**
+ * 이슈 업로드 첨부 — 멤버 권한 콘텐츠 경로. 다운로드도 같은 엔드포인트라(api downloadAttachment 와 동일) 경로를 같이 쓴다.
+ * 변환 PDF 경로(previewPath)는 콘텐츠 경로 옆 `/preview`(WP-1457) — 쓸지는 itemPreviewKind 가 형식으로 고른다.
+ */
 export function issueAttachmentItem(projectKey: string, number: number, a: IssueAttachment): ViewerItem {
   const path = attachmentContentPath(projectKey, number, a.fileId)
   return withSecurityCheck({
     key: fileViewerKey(a.fileId),
     name: a.originalName,
-    mimeType: a.mimeType,
+    // 형식은 채팅·링크와 같은 규칙으로 정규화 — octet-stream 으로 저장된 `보고서.DOCX` 가 변환 판정에서 빠지지 않게(WP-1457).
+    mimeType: attachmentMime(a.mimeType, a.originalName),
     sizeBytes: a.sizeBytes,
     contentPath: path,
     downloadPath: path,
+    previewPath: siblingPath(path, 'preview'),
     importTarget: { kind: 'file', fileId: a.fileId },
     // read_file 의 이슈 첨부 attachmentId 는 core fileId 다(get_issue_detail attachments[].attachmentId 와 같은 값).
     aiRefs: { source: 'issue', issueKey: formatIssueKey(projectKey, number), attachmentId: a.fileId },
@@ -201,7 +225,7 @@ export function issueDriveLinkItem(projectKey: string, number: number, l: DriveL
 
 /**
  * 드라이브 링크 공통 항목(이슈·팀 채팅·이슈 채팅) — 화면마다 다른 것은 키와 링크 전용 콘텐츠 경로뿐이다.
- * 활성 링크만 ✨(요약)·드라이브에서 열기를 건다. 원본이 휴지통·삭제면 unavailable — 열어도 볼 수 없는 곳(요약 없음·not-found)으로 보내지 않게.
+ * 활성 링크만 ✨(요약)·드라이브에서 열기·변환 PDF 경로(previewPath, WP-1457)를 건다. 원본이 휴지통·삭제면 unavailable — 열어도 볼 수 없는 곳(요약 없음·not-found)으로 보내지 않게.
  * ☁(가져오기)는 없다 — 이미 드라이브 파일이다.
  */
 function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
@@ -217,6 +241,7 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
     ...(unavailable
       ? {}
       : {
+          previewPath: siblingPath(path, 'preview'),
           summaryDriveFileId: l.driveFileId,
           driveOpen: { spaceId: l.spaceId, driveFileId: l.driveFileId, name: l.name },
           aiRefs: { source: 'drive', driveFileId: l.driveFileId },
@@ -228,7 +253,7 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
 }
 
 /**
- * 채팅 업로드 첨부 공통 항목 — 콘텐츠 경로로 받고 내려받기도 같은 경로(감사 경로 없음).
+ * 채팅 업로드 첨부 공통 항목 — 콘텐츠 경로로 받고 내려받기도 같은 경로(감사 경로 없음). 변환 PDF 경로는 그 옆 `/preview`(WP-1457).
  * importable 이면 ☁ 드라이브로 가져오기(core fileId — 메시지·이슈 채팅 첨부 소스 프로바이더가 권한을 검사).
  * 원본으로 이동(sourceLink)은 두지 않는다 — 이미 그 메시지를 보고 있는 화면에서 연다.
  */
@@ -246,6 +271,7 @@ function chatUploadItem(
     sizeBytes: a.sizeBytes,
     contentPath: path,
     downloadPath: path,
+    previewPath: siblingPath(path, 'preview'),
     ...(importable ? { importTarget: { kind: 'file', fileId: a.fileId } } : {}),
     aiRefs,
   })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CONVERTIBLE_MIMES, isPresentationMime, resolvePreviewKind, XLS_MIME } from './previewKind'
+import { CONVERTIBLE_MIMES, DOCX_MIME, isPresentationMime, resolvePreviewKind, XLS_MIME, XLSX_MIME } from './previewKind'
 
 describe('resolvePreviewKind', () => {
   it('이미지 mime(svg 포함)는 IMAGE', () => {
@@ -21,13 +21,11 @@ describe('resolvePreviewKind', () => {
     expect(resolvePreviewKind('text/csv')).toBe('CSV')
     expect(resolvePreviewKind('application/csv')).toBe('CSV')
   })
-  it('office 문서는 XLSX/DOCX', () => {
-    expect(
-      resolvePreviewKind('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
-    ).toBe('XLSX')
-    expect(
-      resolvePreviewKind('application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
-    ).toBe('DOCX')
+  it('엑셀은 시트 표(XLSX), 워드(DOCX)는 mime 만으로는 UNSUPPORTED — 서버 변환 PDF 대상이다(WP-1457)', () => {
+    expect(resolvePreviewKind(XLSX_MIME)).toBe('XLSX')
+    expect(resolvePreviewKind(DOCX_MIME)).toBe('UNSUPPORTED')
+    expect(CONVERTIBLE_MIMES.has(DOCX_MIME)).toBe(true)
+    expect(CONVERTIBLE_MIMES.has(XLSX_MIME)).toBe(false)
   })
   it('영상·오디오 계열은 VIDEO·AUDIO(WP-281) — 코덱과 무관하게 계열로 받는다', () => {
     for (const t of ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska']) {
@@ -45,8 +43,9 @@ describe('resolvePreviewKind', () => {
     expect(XLS_MIME).toBe('application/vnd.ms-excel')
     expect(resolvePreviewKind('application/vnd.ms-excel')).toBe('XLSX')
   })
-  it('변환 대상 5종은 mime 만으로는 UNSUPPORTED — 변환 미리보기는 드라이브 항목(previewPath)만 판정한다(WP-431)', () => {
+  it('변환 대상 6종은 mime 만으로는 UNSUPPORTED — 변환 미리보기는 변환 경로(previewPath)가 있는 항목만 판정한다(WP-431·WP-1457)', () => {
     const convertible = [
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/x-hwp',
       'application/hwp+zip',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',

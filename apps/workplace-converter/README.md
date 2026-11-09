@@ -2,7 +2,7 @@
 
 문서 변환 서비스 (Python/FastAPI, 로컬 포트 6085 · 컨테이너 7085). WP-430.
 
-HWP·HWPX·PPTX·PPT·DOC 원본 바이트를 받아 PDF(또는 텍스트)로 돌려준다. 상태 없음 — DB·스토리지·콜백 없음.
+HWP·HWPX·PPTX·PPT·DOC·DOCX 원본 바이트를 받아 PDF(또는 텍스트)로 돌려준다. 상태 없음 — DB·스토리지·콜백 없음.
 
 ## API
 

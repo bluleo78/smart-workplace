@@ -7,6 +7,8 @@ import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.FileSecurityCheckService;
 import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
+import com.workplace.filepreview.PreviewResponses;
+import com.workplace.filepreview.service.FilePreviewService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -39,13 +41,17 @@ public class ChatMessageAttachmentController {
 
   private final FileSecurityCheckService securityChecks;
 
+  private final FilePreviewService previewService;
+
   public ChatMessageAttachmentController(
       ChatMessageAttachmentService service,
       AttachmentViewService attachmentView,
-      FileSecurityCheckService securityChecks) {
+      FileSecurityCheckService securityChecks,
+      FilePreviewService previewService) {
     this.service = service;
     this.attachmentView = attachmentView;
     this.securityChecks = securityChecks;
+    this.previewService = previewService;
   }
 
   /** 선업로드 → fileId 메타 목록. 이후 메시지 전송 시 fileIds 에 포함해 바인딩. */
@@ -95,6 +101,24 @@ public class ChatMessageAttachmentController {
         ContentDisposition.attachment().filename(f.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(f.sizeBytes());
     return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+  }
+
+  /**
+   * 문서 미리보기(서버 변환 PDF, WP-1457) — /content 와 같은 가드({@link
+   * ChatMessageAttachmentService#resolveContentFileId}: 스레드 읽기 + 메시지 소속 + 그 메시지 첨부, 삭제 메시지 제외)로
+   * file id 를 확인한다. 응답 계약은 {@link PreviewResponses}(드라이브와 같음).
+   *
+   * @param start 시도의 첫 요청이면 true — 이때만 실패 행을 다시 선점한다. 폴링은 생략
+   */
+  @GetMapping("/threads/{id}/messages/{msgId}/attachments/{fileId}/preview")
+  public ResponseEntity<?> preview(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long threadId,
+      @PathVariable("msgId") long messageId,
+      @PathVariable long fileId,
+      @RequestParam(defaultValue = "false") boolean start) {
+    long id = service.resolveContentFileId(callerId, threadId, messageId, fileId);
+    return PreviewResponses.of(previewService.open(id, start));
   }
 
   /**

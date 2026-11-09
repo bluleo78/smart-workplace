@@ -9,7 +9,6 @@ import { cn } from '../../lib/utils'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { FileTypeIcon } from '../drive/FileTypeIcon'
 import { CsvTablePreview } from '../drive/preview/CsvTablePreview'
-import { DocxPreview } from '../drive/preview/DocxPreview'
 import { SheetPreview } from '../drive/preview/SheetPreview'
 import { Button } from '../ui/button'
 import { ConvertFailedNotice, ConvertingNotice } from './ConvertStateNotice'
@@ -40,7 +39,7 @@ const HTML_DECODE_MAX_BYTES = 20 * 1024 * 1024
 
 /**
  * blob 을 종류별로 변환한 표시 내용 — 한 번에 하나만 있으므로 상태 하나(판별 유니언)로 든다.
- * url = 이미지 object URL, pdf = WP-203 검증을 통과한 PDF blob, text = 텍스트류(앞부분만), buffer = XLSX/DOCX 파서 입력.
+ * url = 이미지 object URL, pdf = WP-203 검증을 통과한 PDF blob, text = 텍스트류(앞부분만), buffer = XLSX 시트 파서 입력(DOCX 는 서버 변환 PDF 로 연다 — WP-1457).
  */
 type BodyContent =
   | { k: 'url'; url: string }
@@ -138,7 +137,7 @@ export const ViewerBody = memo(function ViewerBody({
    * 이미지는 사진 앱처럼 화면 전체에 맞추고 반투명 바가 위에 겹친다.
    */
   chromeInset?: boolean
-  /** 모바일 바가 숨겨진 상태 — 본문 밖 스크롤러를 가진 형식(PDF·HTML·DOCX)은 여백을 거둬 전체 높이를 쓴다. */
+  /** 모바일 바가 숨겨진 상태 — 본문 밖 스크롤러를 가진 형식(PDF·변환 PDF·HTML)은 여백을 거둬 전체 높이를 쓴다. */
   barsHidden?: boolean
   /**
    * 원본 blob 상태 보고(WP-278) — 모바일 ⤴ 공유는 제스처 직후 동기 호출이 필요해 뷰어가 blob 을 미리 들고 있어야 한다.
@@ -162,10 +161,10 @@ export const ViewerBody = memo(function ViewerBody({
   onScriptsAllowedHtmlChange?: (html: string | null) => void
 }) {
   const kind = itemPreviewKind(item)
-  // 서버 변환 PDF(WP-431) — 원본 대신 변환 결과를 받아 PDF 경로로 그린다. 원본은 받지 않으므로 10MB 확인도 건너뛴다.
+  // 서버 변환 PDF(WP-431, DOCX 는 WP-1457) — 원본 대신 변환 결과를 받아 PDF 경로로 그린다. 원본은 받지 않으므로 10MB 확인도 건너뛴다.
   const converted = kind === 'CONVERTED_PDF'
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
-  const parsed = kind === 'XLSX' || kind === 'DOCX'
+  const parsed = kind === 'XLSX'
   const isMedia = kind === 'VIDEO' || kind === 'AUDIO'
   const renderable = kind === 'IMAGE' || kind === 'PDF' || converted || textLike || parsed || isMedia
   // 그릴 내용의 출처 — 형식으로 하나를 고르고, 아래는 출처를 몰라도 같은 방식으로 그린다. 훅 규칙상 둘 다 부르되 고르지 않은 쪽은 꺼 둔다
@@ -209,12 +208,9 @@ export const ViewerBody = memo(function ViewerBody({
   // 변환 항목의 로딩(변환 중 + 받은 PDF 검증 중)은 스켈레톤 대신 변환 중 안내. 실패·미지원 응답이면 각자의 화면으로.
   const { failed: convertFailed, unsupported: convertUnsupported } = source
   const converting = converted && loading && !convertFailed && !convertUnsupported
-  // iframe(PDF·HTML·DOCX)은 캔버스를 가득 채우고, 그 외(텍스트·표·안내 문구)는 안쪽 여백을 둔다.
+  // PDF(변환 PDF 포함)·HTML iframe 은 캔버스를 가득 채우고, 그 외(텍스트·표·안내 문구)는 안쪽 여백을 둔다.
   const fillsFrame =
-    !error &&
-    (((kind === 'PDF' || converted) && content?.k === 'pdf') ||
-      (kind === 'HTML' && content?.k === 'text') ||
-      (kind === 'DOCX' && content?.k === 'buffer'))
+    !error && (((kind === 'PDF' || converted) && content?.k === 'pdf') || (kind === 'HTML' && content?.k === 'text'))
 
   // 받은 blob → 종류별 표시 형태. blob 이 바뀌면(파일 전환) 이전 결과를 비우고 다시 변환한다.
   useEffect(() => {
@@ -255,7 +251,7 @@ export const ViewerBody = memo(function ViewerBody({
         const t = await blobToText(blob, { maxBytes: isHtml ? HTML_DECODE_MAX_BYTES : TEXT_DECODE_MAX_BYTES })
         if (alive) setContent({ k: 'text', text: isHtml ? t : t.slice(0, TEXT_PREVIEW_LIMIT) })
       } else {
-        // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
+        // 바이너리 파서(XLSX 시트)는 arrayBuffer 가 필요.
         const buf = await blob.arrayBuffer()
         if (alive) setContent({ k: 'buffer', buffer: buf })
       }
@@ -289,7 +285,7 @@ export const ViewerBody = memo(function ViewerBody({
         zoomScroll && SCROLL_REGION_RING_INSET,
         // 상단 바(3.5rem=min-h-14 + 노치)·하단 겹침 바 높이 + 여유 1rem 만큼 비켜선다.
         // 하단은 AttachmentViewer 가 잰 실제 높이(--viewer-bottom-chrome — "참조된 곳" 띠·홈 인디케이터 포함), 재기 전엔 4칸 바(3.5rem)+안전영역.
-        // 단 바를 숨기면(가로 기본·탭) PDF·HTML·DOCX 처럼 본문 밖에 스크롤러를 가진(fillsFrame) 형식은 여백을 거둔다 —
+        // 단 바를 숨기면(가로 기본·탭) PDF·HTML 처럼 본문 밖에 스크롤러를 가진(fillsFrame) 형식은 여백을 거둔다 —
         // 여백이 스크롤 영역 밖 고정 띠가 되어 가로 화면의 4할 가까이를 비우기 때문. 텍스트류는 여백이 내용과 함께 스크롤되므로
         // 그대로 둔다(토글 때 글이 들썩이지 않게).
         chromeInset &&
@@ -425,7 +421,6 @@ export const ViewerBody = memo(function ViewerBody({
           <SheetPreview buffer={content.buffer} />
         </PaperCard>
       )}
-      {!error && kind === 'DOCX' && content?.k === 'buffer' && <DocxPreview buffer={content.buffer} />}
     </div>
   )
 })

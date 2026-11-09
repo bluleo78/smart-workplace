@@ -6,6 +6,8 @@ import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.FileSecurityCheckService;
 import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
+import com.workplace.filepreview.PreviewResponses;
+import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeUploadedFile;
 import com.workplace.home.service.HomeAttachmentService;
@@ -43,6 +45,8 @@ public class HomeAttachmentController {
   private final AttachmentViewService attachmentView;
 
   private final FileSecurityCheckService securityChecks;
+
+  private final FilePreviewService previewService;
 
   /** 선업로드 — fileId 메타 목록. files 파트가 없으면 서비스가 한국어 400 을 낸다(스프링 기본 오류 대신). */
   @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -108,6 +112,22 @@ public class HomeAttachmentController {
     } catch (InvalidMediaTypeException e) {
       return MediaType.APPLICATION_OCTET_STREAM;
     }
+  }
+
+  /**
+   * 문서 미리보기(서버 변환 PDF, WP-1457) — /content 와 같은 가드(세션 소유자·그 세션 첨부, 아니면 404)로 file id 를 확인한다. 응답 계약은
+   * {@link PreviewResponses}(드라이브와 같음).
+   *
+   * @param start 시도의 첫 요청이면 true — 이때만 실패 행을 다시 선점한다. 폴링은 생략
+   */
+  @GetMapping("/sessions/{sid}/attachments/{fileId}/preview")
+  public ResponseEntity<?> preview(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable UUID sid,
+      @PathVariable long fileId,
+      @RequestParam(defaultValue = "false") boolean start) {
+    long id = service.resolveViewFileId(callerId, sid, fileId);
+    return PreviewResponses.of(previewService.open(id, start));
   }
 
   /** HTML 보안 점검 상태(WP-1262) — /content 와 같은 가드(세션 소유자·그 세션 첨부, 아니면 404). */

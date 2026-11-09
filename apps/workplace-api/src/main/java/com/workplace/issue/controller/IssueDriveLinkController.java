@@ -4,6 +4,8 @@ import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.fileai.security.FileSecurityCheckService;
 import com.workplace.fileai.security.dto.SecurityCheckView;
+import com.workplace.filepreview.PreviewResponses;
+import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.service.IssueDriveLinkService;
 import java.io.IOException;
@@ -24,6 +26,8 @@ public class IssueDriveLinkController {
   private final IssueDriveLinkService service;
 
   private final FileSecurityCheckService securityChecks;
+
+  private final FilePreviewService previewService;
 
   /** 드라이브 링크 추가 요청 바디. */
   public record AddDriveLinkRequest(long driveFileId) {}
@@ -75,6 +79,24 @@ public class IssueDriveLinkController {
     headers.setContentDisposition(
         ContentDisposition.attachment().filename(f.originalName(), StandardCharsets.UTF_8).build());
     return ResponseEntity.ok().headers(headers).body(f.resource());
+  }
+
+  /**
+   * 링크된 드라이브 파일의 문서 미리보기(서버 변환 PDF, WP-1457) — /content 와 같은 이슈 조회 가드·링크 확인으로 그 파일의 현재 core file id
+   * 를 얻는다. 응답 계약은 {@link PreviewResponses}(드라이브와 같음).
+   *
+   * @param start 시도의 첫 요청이면 true — 이때만 실패 행을 다시 선점한다. 폴링은 생략
+   */
+  @GetMapping("/{driveFileId}/preview")
+  @RequirePermission("project:read")
+  public ResponseEntity<?> preview(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable long driveFileId,
+      @RequestParam(defaultValue = "false") boolean start) {
+    long fileId = service.linkFileId(callerId, key, number, driveFileId);
+    return PreviewResponses.of(previewService.open(fileId, start));
   }
 
   /** 링크된 드라이브 파일의 HTML 보안 점검 상태(WP-1262) — /content 와 같은 이슈 조회 가드·링크 확인. */

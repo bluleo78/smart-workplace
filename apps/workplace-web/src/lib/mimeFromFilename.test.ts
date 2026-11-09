@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { canonicalMime, isGenericMime, mimeFromFilename } from './mimeFromFilename'
-import { resolvePreviewKind } from './previewKind'
+import { CONVERTIBLE_MIMES, resolvePreviewKind } from './previewKind'
 
 describe('mimeFromFilename', () => {
   it('대소문자와 무관하게 마지막 확장자로 고른다', () => {
@@ -23,9 +23,14 @@ describe('mimeFromFilename', () => {
       ['a.pdf', 'PDF'], ['a.png', 'IMAGE'], ['a.webp', 'IMAGE'],
       ['a.md', 'MARKDOWN'], ['a.markdown', 'MARKDOWN'], ['a.txt', 'TEXT'], ['a.log', 'TEXT'],
       ['a.csv', 'CSV'], ['a.json', 'TEXT'], ['a.xml', 'TEXT'], ['a.yml', 'TEXT'], ['a.yaml', 'TEXT'],
-      ['a.html', 'HTML'], ['a.htm', 'HTML'], ['a.xlsx', 'XLSX'], ['a.docx', 'DOCX'],
+      ['a.html', 'HTML'], ['a.htm', 'HTML'], ['a.xlsx', 'XLSX'],
     ]
     for (const [name, kind] of cases) expect([name, resolvePreviewKind(mimeFromFilename(name)!)]).toEqual([name, kind])
+  })
+
+  it('워드(docx)는 서버 변환 PDF 대상 형식을 돌려준다 — 대문자 확장자도(WP-1457)', () => {
+    expect(CONVERTIBLE_MIMES.has(mimeFromFilename('a.docx')!)).toBe(true)
+    expect(CONVERTIBLE_MIMES.has(mimeFromFilename('보고서.DOCX')!)).toBe(true)
   })
 
   it('영상·오디오 확장자는 VIDEO·AUDIO 로 판정되는 형식을 돌려준다(WP-281)', () => {

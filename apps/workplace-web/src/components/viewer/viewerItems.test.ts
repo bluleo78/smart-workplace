@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
+import {
+  DOCX_MIME as DOCX,
+  HWP_MIME as HWP,
+  PPTX_MIME as PPTX,
+  XLS_MIME as XLS,
+  XLSX_MIME as XLSX,
+} from '../../lib/previewKind'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import type { HomeUploadedFile } from '../../types/home'
 import type { EmailAttachmentMeta } from '../../types/mailMessage'
 import type { MessageAttachment } from '../../types/messaging'
+import type { ViewerItem } from './types'
 import {
   attachmentMime,
   driveFileItem,
@@ -25,7 +33,7 @@ import {
   parseChatViewerKey,
   parseViewerKey,
   resolveBundle,
-  securityPathFrom,
+  siblingPath,
   teamChatBundle,
   virtualAttachmentImportTarget,
   virtualAttachmentItem,
@@ -241,13 +249,14 @@ describe('mailAttachmentItem', () => {
     expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
   })
 
-  it('변환 대상이 아닌 메일 첨부(PDF·DOCX)는 previewPath 가 없고 원래 렌더러로 연다', () => {
+  it('변환 대상이 아닌 메일 첨부(PDF·XLSX)는 previewPath 가 없고 원래 렌더러로 연다 — DOCX 는 변환 대상(WP-1457)', () => {
     expect(mailAttachmentItem(att()).previewPath).toBeUndefined()
-    const docx = mailAttachmentItem(att({
-      filename: 'a.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    }))
-    expect(docx.previewPath).toBeUndefined()
-    expect(itemPreviewKind(docx)).toBe('DOCX')
+    const xlsx = mailAttachmentItem(att({ filename: 'a.xlsx', contentType: XLSX }))
+    expect(xlsx.previewPath).toBeUndefined()
+    expect(itemPreviewKind(xlsx)).toBe('XLSX')
+    const docx = mailAttachmentItem(att({ filename: 'a.docx', contentType: DOCX }))
+    expect(docx.previewPath).toBe('/mail/attachments/7/preview')
+    expect(itemPreviewKind(docx)).toBe('CONVERTED_PDF')
   })
 
   it('형식·파일명이 없으면 octet-stream·attachment-{id} 로 채운다(예전 다운로드 파일명 규칙)', () => {
@@ -303,6 +312,8 @@ describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
       key: 'msg:42:file:5', name: '사진.png', mimeType: 'image/png', sizeBytes: 10,
       contentPath: '/messaging/channels/3/messages/42/attachments/5/content',
       downloadPath: '/messaging/channels/3/messages/42/attachments/5/content',
+      // WP-1457: 변환 경로는 늘 단다 — 쓸지는 itemPreviewKind 가 형식으로 고른다(이미지는 원래 렌더러).
+      previewPath: '/messaging/channels/3/messages/42/attachments/5/preview',
       importTarget: { kind: 'file', fileId: 5 },
       aiRefs: { source: 'message', channelId: 3, messageId: 42, attachmentId: 5 },
     })
@@ -341,6 +352,7 @@ describe('issueChatAttachmentItem / issueChatDriveLinkItem', () => {
       key: 'cmsg:42:file:5', name: 'a.txt', mimeType: 'text/plain', sizeBytes: 10,
       contentPath: '/chat/threads/8/messages/42/attachments/5/content',
       downloadPath: '/chat/threads/8/messages/42/attachments/5/content',
+      previewPath: '/chat/threads/8/messages/42/attachments/5/preview',
       importTarget: { kind: 'file', fileId: 5 },
       // issueKey 는 묶음이 모른다 — 화면 컨텍스트가 이슈 상세의 issueKey 로 채운다(overlayScreenContext).
       aiRefs: { source: 'issue_chat', messageId: 42, attachmentId: 5 },
@@ -364,6 +376,7 @@ describe('homeChatAttachmentItem', () => {
       key: 'home:77', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9,
       contentPath: '/home/sessions/s-1/attachments/77/content',
       downloadPath: '/home/sessions/s-1/attachments/77/content',
+      previewPath: '/home/sessions/s-1/attachments/77/preview',
       // 이 대화의 첨부는 read_chat_attachment({fileId}) 로 읽는다.
       aiRefs: { fileId: 77 },
     })
@@ -440,20 +453,20 @@ describe('itemPreviewKind — 변환 미리보기 판정(WP-431)', () => {
     expect(it.mimeType).toBe('application/x-hwp')
     expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
   })
-  it('드라이브·메일 밖(이슈 첨부·이슈 드라이브 링크)의 HWP 는 변환 경로가 없어 UNSUPPORTED', () => {
+  it('이슈 첨부·이슈 드라이브 링크의 HWP 도 변환 경로를 갖고 CONVERTED_PDF(WP-1457)', () => {
     const a = { fileId: 6, originalName: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 3 } as IssueAttachment
     const issue = issueAttachmentItem('WP', 12, a)
-    expect(issue.previewPath).toBeUndefined()
-    expect(itemPreviewKind(issue)).toBe('UNSUPPORTED')
+    expect(issue.previewPath).toBe('/projects/WP/issues/12/attachments/6/preview')
+    expect(itemPreviewKind(issue)).toBe('CONVERTED_PDF')
     const l = { driveFileId: 81, fileId: 301, name: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 3, spaceId: 1, availability: 'ACTIVE' } as DriveLink
     const link = issueDriveLinkItem('WP', 12, l)
-    expect(link.previewPath).toBeUndefined()
-    expect(itemPreviewKind(link)).toBe('UNSUPPORTED')
+    expect(link.previewPath).toBe('/projects/WP/issues/12/drive-links/81/preview')
+    expect(itemPreviewKind(link)).toBe('CONVERTED_PDF')
   })
-  it('변환 대상이 아닌 드라이브 파일(docx)은 previewPath 가 있어도 원래 렌더러(DOCX)', () => {
-    const it = driveFileItem({ ...hwp, name: 'a.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+  it('변환 대상이 아닌 드라이브 파일(xlsx)은 previewPath 가 있어도 원래 렌더러(XLSX)', () => {
+    const it = driveFileItem({ ...hwp, name: 'a.xlsx', mimeType: XLSX })
     expect(it.previewPath).toBeDefined()
-    expect(itemPreviewKind(it)).toBe('DOCX')
+    expect(itemPreviewKind(it)).toBe('XLSX')
   })
   it('범용 형식 첨부도 파일명 확장자로 HWP 를 알아본다', () => {
     expect(attachmentMime('application/octet-stream', '보고서.hwp')).toBe('application/x-hwp')
@@ -469,8 +482,8 @@ describe('securityCheckPath', () => {
   const upload = (over: Partial<HomeUploadedFile> = {}) =>
     ({ fileId: 6, originalName: 'h.html', mimeType: 'text/html', sizeBytes: 1, ...over }) as HomeUploadedFile
 
-  it('securityPathFrom_replacesTrailingContent', () => {
-    expect(securityPathFrom('/drive/files/1/content')).toBe('/drive/files/1/security-check')
+  it('siblingPath_replacesTrailingContent', () => {
+    expect(siblingPath('/drive/files/1/content', 'security-check')).toBe('/drive/files/1/security-check')
   })
 
   it('driveFileItem_hasPath_whenHtmlWithCharsetParam', () => {
@@ -483,9 +496,12 @@ describe('securityCheckPath', () => {
     expect(virtualAttachmentItem(v).securityCheckPath).toBe('/api/v1/projects/WP/issues/1/attachments/3/security-check')
   })
 
-  it('issueAttachmentItem_hasNoPath_whenMimeHasCharsetParam', () => {
-    // ViewerBody 는 정확히 text/html 일 때만 HTML 로 그린다 — 파라미터가 붙은 원문 mime 은 본문이 TEXT 라 카드도 두지 않는다.
-    expect(issueAttachmentItem('WP', 1, attachment('text/html; charset=utf-8')).securityCheckPath).toBeUndefined()
+  it('issueAttachmentItem_hasPath_whenMimeHasCharsetParam', () => {
+    // WP-1457: 이슈 첨부 형식도 채팅·링크처럼 정규화(attachmentMime)해 파라미터가 붙은 원문 mime 도 text/html —
+    // 본문이 HTML 로 그려지므로 점검 카드도 함께 둔다(본문과 패널이 늘 같은 판정).
+    const item = issueAttachmentItem('WP', 1, attachment('text/html; charset=utf-8'))
+    expect(item.mimeType).toBe('text/html')
+    expect(item.securityCheckPath).toBe('/projects/WP/issues/1/attachments/5/security-check')
   })
 
   it('issueAttachmentItem_hasPath_onlyForHtml', () => {
@@ -508,5 +524,93 @@ describe('securityCheckPath', () => {
       '/messaging/channels/2/messages/9/attachments/6/security-check',
       '/messaging/channels/2/messages/9/drive-links/8/security-check',
     ])
+  })
+})
+
+// WP-1457: 문서(DOCX·HWP·PPTX)는 어디서 열든 서버 변환 PDF — 첨부·링크마다 `/content` 옆 `/preview` 를 쓴다.
+describe('previewPath — 출처별 변환 경로(WP-1457)', () => {
+  /** 출처별 항목 빌더 — 이름·형식만 바꿔 같은 파일을 각 화면에서 연 항목을 만든다. */
+  const builders: [string, (name: string, mimeType: string) => ViewerItem][] = [
+    ['드라이브', (name, mimeType) => driveFileItem({ id: 80, fileId: 300, name, mimeType, sizeBytes: 1 } as DriveFile)],
+    ['메일', (name, mimeType) => mailAttachmentItem({ id: 7, filename: name, contentType: mimeType, sizeBytes: 1, contentId: null })],
+    ['이슈 첨부', (name, mimeType) => issueAttachmentItem('WP', 12, { fileId: 5, originalName: name, mimeType, sizeBytes: 1 } as IssueAttachment)],
+    ['팀 채팅 업로드', (name, mimeType) => teamChatBundle(3, { id: 9, attachments: [msgAtt({ originalName: name, mimeType, messageId: 9 })] })[0]],
+    ['이슈챗 업로드', (name, mimeType) => issueChatBundle(4, { id: 9, attachments: [msgAtt({ originalName: name, mimeType, messageId: 9 })] })[0]],
+    ['메인 AI 첨부', (name, mimeType) => homeChatAttachmentItem('s1', { fileId: 5, originalName: name, mimeType, sizeBytes: 1 })],
+    ['이슈 드라이브 링크', (name, mimeType) => issueDriveLinkItem('WP', 12, link({ driveFileId: 80, name, mimeType }))],
+    ['팀 채팅 드라이브 링크', (name, mimeType) => teamChatBundle(3, { id: 9, driveLinks: [link({ driveFileId: 80, name, mimeType })] })[0]],
+    ['이슈챗 드라이브 링크', (name, mimeType) => issueChatBundle(4, { id: 9, driveLinks: [link({ driveFileId: 80, name, mimeType })] })[0]],
+    ...(['ISSUE', 'CHAT_MESSAGE', 'MESSAGE'] as const).map((sourceType): [string, (name: string, mimeType: string) => ViewerItem] => [
+      `모아보기 ${sourceType}`,
+      (name, mimeType) => virtualAttachmentItem({
+        fileId: 5, name, mimeType, sizeBytes: 1, sourceType, downloadUrl: '/api/v1/projects/WP/issues/12/attachments/5/content', deepLink: '/x',
+      } as VirtualAttachment),
+    ]),
+  ]
+  const docs: [string, string][] = [['a.docx', DOCX], ['a.hwp', HWP], ['a.pptx', PPTX]]
+
+  it.each(builders.flatMap(([source, build]) => docs.map(([name, mime]) => [source, name, build(name, mime)] as const)))(
+    '변환 대상은 출처 어디서든 CONVERTED_PDF — %s %s',
+    (_source, _name, item) => {
+      expect(item.previewPath).toMatch(/\/preview$/)
+      expect(itemPreviewKind(item)).toBe('CONVERTED_PDF')
+    },
+  )
+
+  it.each(builders)('XLSX·XLS 는 previewPath 가 있어도 XLSX — %s', (_source, build) => {
+    expect(itemPreviewKind(build('a.xlsx', XLSX))).toBe('XLSX')
+    expect(itemPreviewKind(build('a.xls', XLS))).toBe('XLSX')
+  })
+
+  it('previewPath 는 /content 를 /preview 로', () => {
+    expect(siblingPath('/drive/files/1/content', 'preview')).toBe('/drive/files/1/preview')
+    // 끝이 /content 가 아니면(모르는 출처) 경로를 만들지 않는다.
+    expect(siblingPath('/api/v1/wiki/x/file.docx', 'preview')).toBeUndefined()
+    expect(siblingPath('/a/content/b', 'preview')).toBeUndefined()
+    const paths = builders.filter(([s]) => s !== '드라이브' && s !== '메일').map(([source, build]) => [source, build('a.docx', DOCX).previewPath])
+    expect(Object.fromEntries(paths)).toEqual({
+      '이슈 첨부': '/projects/WP/issues/12/attachments/5/preview',
+      '팀 채팅 업로드': '/messaging/channels/3/messages/9/attachments/5/preview',
+      '이슈챗 업로드': '/chat/threads/4/messages/9/attachments/5/preview',
+      '메인 AI 첨부': '/home/sessions/s1/attachments/5/preview',
+      '이슈 드라이브 링크': '/projects/WP/issues/12/drive-links/80/preview',
+      '팀 채팅 드라이브 링크': '/messaging/channels/3/messages/9/drive-links/80/preview',
+      '이슈챗 드라이브 링크': '/chat/threads/4/messages/9/drive-links/80/preview',
+      '모아보기 ISSUE': '/api/v1/projects/WP/issues/12/attachments/5/preview',
+      '모아보기 CHAT_MESSAGE': '/api/v1/projects/WP/issues/12/attachments/5/preview',
+      '모아보기 MESSAGE': '/api/v1/projects/WP/issues/12/attachments/5/preview',
+    })
+  })
+
+  it('변환 경로가 없는 출처의 DOCX 는 UNSUPPORTED', () => {
+    const v = (o: Partial<VirtualAttachment>) =>
+      virtualAttachmentItem({ fileId: 5, name: 'a.docx', mimeType: DOCX, sizeBytes: 1, deepLink: '/x', ...o } as VirtualAttachment)
+    const items = [
+      // 노트 첨부 — 서버가 /preview 를 두지 않는다.
+      v({ sourceType: 'WIKI', downloadUrl: '/api/v1/wiki/pages/3/attachments/5/content' }),
+      // 이슈 본문 이미지 — 첨부 /preview 가드가 본문 이미지를 404 로 거절한다.
+      v({ sourceType: 'ISSUE', kind: 'BODY_IMAGE', downloadUrl: '/api/v1/projects/WP/issues/12/attachments/5/content' }),
+      // 경로가 /content 로 끝나지 않는 행.
+      v({ sourceType: 'ISSUE', downloadUrl: '/api/v1/somewhere/5' }),
+      // 휴지통 드라이브 링크 — 열 수 없다.
+      issueDriveLinkItem('WP', 12, link({ name: 'a.docx', mimeType: DOCX, availability: 'TRASHED' })),
+    ]
+    for (const it of items) {
+      expect(it.previewPath).toBeUndefined()
+      expect(itemPreviewKind(it)).toBe('UNSUPPORTED')
+    }
+  })
+
+  it('octet-stream 으로 저장된 보고서.DOCX 이슈 첨부·팀 채팅 업로드·모아보기도 CONVERTED_PDF', () => {
+    const octet = 'application/octet-stream'
+    const issue = issueAttachmentItem('WP', 12, { fileId: 5, originalName: '보고서.DOCX', mimeType: octet, sizeBytes: 1 } as IssueAttachment)
+    const team = teamChatBundle(3, { id: 9, attachments: [msgAtt({ originalName: '보고서.DOCX', mimeType: octet, messageId: 9 })] })[0]
+    const virtual = virtualAttachmentItem({
+      fileId: 5, name: '보고서.DOCX', mimeType: octet, sizeBytes: 1, sourceType: 'MESSAGE', downloadUrl: '/api/v1/messaging/channels/3/messages/9/attachments/5/content', deepLink: '/x',
+    } as VirtualAttachment)
+    for (const it of [issue, team, virtual]) {
+      expect(it.mimeType).toBe(DOCX)
+      expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
+    }
   })
 })
