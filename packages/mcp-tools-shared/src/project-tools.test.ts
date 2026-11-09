@@ -308,6 +308,53 @@ describe('toIssueListItem sourceKey (WP-1239)', () => {
   });
 });
 
+describe('list_issues cycles (WP-1456)', () => {
+  it('항목마다 사이클을 {name, status} 로 서버 순서대로 싣고, 없거나 null·배열 아님이면 키가 없다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssues).mockResolvedValue({
+      items: [
+        // 사이클 0개 — 키 없음
+        { projectKey: 'WP', number: 1, title: 'a', cycles: [] },
+        // 사이클 1개
+        { projectKey: 'WP', number: 2, title: 'b', cycles: [{ id: 11, name: 'S12', status: 'ACTIVE', startDate: '2026-11-01', endDate: '2026-11-14' }] },
+        // 사이클 2개 — 서버 순서(시작일 최신순) 유지, 숫자 id·기간 제외
+        {
+          projectKey: 'WP', number: 3, title: 'c', agentWork: [{ tool: 'mcp', state: 'REVIEW' }],
+          cycles: [
+            { id: 11, name: 'S12', status: 'ACTIVE', startDate: '2026-11-01' },
+            { id: 10, name: 'S11', status: 'COMPLETED', startDate: '2026-10-18' },
+          ],
+        },
+        // null — 키 없음
+        { projectKey: 'WP', number: 4, title: 'd', cycles: null },
+        // 배열 아님(이상 응답) — 예외 없이 키 없음
+        { projectKey: 'WP', number: 5, title: 'e', cycles: 'S12' as unknown as [] },
+        // 이름 없는 이상 항목도 버리지 않는다 — 버리면 사이클에 든 이슈가 「사이클 없음」으로 읽힌다
+        { projectKey: 'WP', number: 6, title: 'f', cycles: [{ id: 12, status: 'PLANNED' }, { id: 13, name: 'S13', status: 'PLANNED' }] },
+      ],
+    });
+    const out = JSON.parse(resultText(await tool(c, 'list_issues').handler({ assignee: 'any' })));
+    const byKey = Object.fromEntries(out.items.map((it: { issueKey: string }) => [it.issueKey, it]));
+    expect(byKey['WP-1']).not.toHaveProperty('cycles');
+    expect(byKey['WP-2'].cycles).toStrictEqual([{ name: 'S12', status: 'ACTIVE' }]);
+    expect(byKey['WP-3'].cycles).toStrictEqual([
+      { name: 'S12', status: 'ACTIVE' },
+      { name: 'S11', status: 'COMPLETED' },
+    ]);
+    // 다른 항목 필드 회귀 없음
+    expect(byKey['WP-3'].agentWork).toHaveLength(1);
+    expect(byKey['WP-4']).not.toHaveProperty('cycles');
+    expect(byKey['WP-5']).not.toHaveProperty('cycles');
+    expect(byKey['WP-6'].cycles).toStrictEqual([{ status: 'PLANNED' }, { name: 'S13', status: 'PLANNED' }]);
+  });
+
+  it('도구 설명이 cycles 와 생략 의미(사이클 없음)를 알린다', () => {
+    const d = tool(mockClient(), 'list_issues').description;
+    expect(d).toContain('cycles');
+    expect(d).toContain('cycles (absent = none)');
+  });
+});
+
 describe('list_issues', () => {
   it('pendingForMe 를 서버 쿼리로 넘기고 기본 assignee=me 를 유지한다 (WP-373)', async () => {
     const c = mockClient();
