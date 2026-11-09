@@ -167,13 +167,18 @@ public class AssistantModelsController {
     if (AgentProviders.isLogin(provider)) {
       return new AgentModelsResponse(provider, reportedModels.findFor(agentId, binding.ref().id()));
     }
-    ActiveProviderSecret secret;
+    ActiveProviderSecret secret = null;
     try {
-      secret = podAccountSource.findBoundSecret(agentId).orElseThrow();
+      secret = podAccountSource.findBoundSecret(agentId).orElse(null);
     } catch (CryptoException e) {
       if (AgentProviders.OPENCODE.equals(provider)) throw e;
       log.warn("묶인 계정 토큰 복호화 실패 — 정적 목록으로 폴백: agentUserId={}", agentId);
       return new AgentModelsResponse(provider, AssistantModels.ANTHROPIC);
+    }
+    if (secret == null) {
+      // 묶음 참조와 계정 조회 사이의 경합(그 사이 해제·폐기)으로 묶인 계정 원문이 없으면, 묶이지 않은 것과 같은 규칙으로
+      // 옛 연결 경로를 쓴다 — 참조 없는 조회가 500 대신 기존 계약(옛 연결 목록 또는 404)으로 끝나게 한다.
+      return resolveLegacyModels(agentId);
     }
     if (AgentProviders.OPENCODE.equals(provider)) {
       ProviderConfig config = parsePayload(secret.plaintext());
