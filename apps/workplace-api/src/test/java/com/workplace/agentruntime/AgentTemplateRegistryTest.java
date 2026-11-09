@@ -98,6 +98,46 @@ class AgentTemplateRegistryTest {
     assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-claude-code:0.9.40");
   }
 
+  /**
+   * 릴리스가 고정한 이미지(저장소@digest)가 있으면 API 버전 대신 그것을 쓴다 — API 이미지가 다시 빌드되지 않은 릴리스에서도 AI Pod 가 그 릴리스의 작업
+   * 공간 이미지를 받게. 고정 이미지가 없는 저장소는 API 버전 태그 그대로다.
+   */
+  @Test
+  void load_whenPinnedImageGiven_usesDigestOverAppVersion() throws IOException {
+    String pinned = "docker.io/iacloudops/genia-works-agent-opencode@sha256:" + "a".repeat(64);
+
+    List<AgentTemplate> all =
+        AgentTemplateRegistry.load(
+            List.of(resource("opencode.yaml"), resource("claude-code.yaml")),
+            ALLOWED,
+            "0.9.51",
+            List.of(pinned, "@없는-값은-무시"));
+
+    assertThat(all)
+        .extracting(AgentTemplate::image)
+        .containsExactlyInAnyOrder(
+            pinned, "docker.io/iacloudops/genia-works-agent-claude-code:0.9.51");
+  }
+
+  /**
+   * 고정 값이 @ 없는 태그 이미지이거나, 저장소 이름이 템플릿과 어긋나면(레지스트리 접두 없음 등) 바꾸지 않고 버전 태그를 그대로 둔다 — 엉뚱한 이미지 문자열을 만들지
+   * 않는다.
+   */
+  @Test
+  void load_whenPinnedImageMalformedOrMismatched_keepsVersionTag() throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(
+                List.of(resource("opencode.yaml")),
+                ALLOWED,
+                "0.9.51",
+                List.of(
+                    "docker.io/iacloudops/genia-works-agent-opencode:0.9.53",
+                    "iacloudops/genia-works-agent-opencode@sha256:" + "b".repeat(64)))
+            .get(0);
+
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-opencode:0.9.51");
+  }
+
   /** 로컬·테스트(버전 dev·없음)는 latest 태그 — 존재하지 않는 dev 태그를 가리키지 않게. */
   @Test
   void load_whenDevOrBlankVersion_fallsBackToLatest() throws IOException {

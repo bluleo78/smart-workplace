@@ -15,10 +15,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     GENIA_WORKS_API_URL} 에 그대로 들어가 {@code $api/events} 처럼 이어 붙인다). 비어 있으면 로컬 기본값.
  * @param slotStaleAfter AI 상태 칸(work-loop 하나)의 마지막 보고가 이보다 오래되면 합치기에서 뺀다(WP-1409). 비어 있으면 {@link
  *     #DEFAULT_SLOT_STALE_AFTER}.
+ * @param images 릴리스가 고정한 작업 공간 이미지({@code 저장소@sha256:…}) — 운영 배포가 매니페스트에서 넘긴다. 쓰임은 {@link
+ *     com.workplace.agentruntime.service.AgentTemplateRegistry#APP_VERSION_TOKEN}. 비면(로컬·테스트) API
+ *     버전 태그를 쓴다.
  */
 @ConfigurationProperties("workplace.agent-runtime")
 public record AgentRuntimeProperties(
-    List<String> allowedImagePrefixes, String mcpUrl, String apiUrl, Duration slotStaleAfter) {
+    List<String> allowedImagePrefixes,
+    String mcpUrl,
+    String apiUrl,
+    Duration slotStaleAfter,
+    List<String> images) {
 
   /** 설정이 없을 때의 기본 허용 접두사. */
   public static final List<String> DEFAULT_ALLOWED_IMAGE_PREFIXES =
@@ -48,5 +55,10 @@ public record AgentRuntimeProperties(
         slotStaleAfter == null || slotStaleAfter.isZero() || slotStaleAfter.isNegative()
             ? DEFAULT_SLOT_STALE_AFTER
             : slotStaleAfter;
+    // 빈 환경변수("")는 빈 원소 하나로 묶일 수 있어 공백 원소를 걸러 낸다.
+    images =
+        images == null
+            ? List.of()
+            : images.stream().map(String::strip).filter(v -> !v.isEmpty()).toList();
   }
 }

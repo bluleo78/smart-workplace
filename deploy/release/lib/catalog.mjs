@@ -42,6 +42,9 @@ export function validateCatalog(catalog) {
     // helm: false — 운영 차트(deploy/helm)로 반영하지 않는 이미지(실행 위치마다 따로 설치하는 runner·Pod 가 쓰는 작업 공간, WP-1245).
     // 빌드·태그 승계는 같게 하고 반영(helm 값·digest 확인)·새 앱 점검에서만 뺀다.
     if (image.helm !== undefined && typeof image.helm !== 'boolean') throw new Error(`${id}: helm 은 true/false 여야 한다`);
+    // workspace: true — API 실행 템플릿이 AI Pod 로 띄우는 작업 공간 이미지. 반영 때 그 digest 를 API 에 넘겨 템플릿 이미지를 고정한다(runner 는 아님).
+    if (image.workspace !== undefined && image.workspace !== true) throw new Error(`${id}: workspace 는 true 만 쓴다`);
+    if (isWorkspaceImage(image) && image.helm !== false) throw new Error(`${id}: workspace 이미지는 helm: false 여야 한다`);
     if (image.buildArgs !== undefined) {
       const args = image.buildArgs;
       if (!isPlainObject(args) || Object.values(args).some((v) => typeof v !== 'string')) {
@@ -58,6 +61,9 @@ export function validateCatalog(catalog) {
 
 /** 운영 차트로 반영하는 이미지인가 — 카탈로그 항목·매니페스트 항목 모두 `helm: false` 가 아니면 반영한다. */
 export const deploysWithHelm = (image) => image?.helm !== false;
+
+/** API 실행 템플릿이 AI Pod 로 띄우는 작업 공간 이미지인가 — 카탈로그 항목·매니페스트 항목 모두 `workspace: true`. */
+export const isWorkspaceImage = (image) => image?.workspace === true;
 
 /** 저장소의 카탈로그 파일을 읽어 검증한 뒤 돌려준다. */
 export function loadCatalog(repoRoot) {

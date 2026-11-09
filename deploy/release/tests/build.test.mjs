@@ -257,6 +257,9 @@ test('helm: false 카탈로그 앱은 빌드·승계 모두 매니페스트에 h
   assert.equal(manifest.images['agent-claude-code'].action, 'carry');
   assert.equal(manifest.images['agent-claude-code'].helm, false);
   assert.equal('helm' in manifest.images.api, false);
+  // 작업 공간 표시도 빌드·승계와 상관없이 카탈로그를 따른다 — runner 는 작업 공간이 아니다.
+  assert.equal(manifest.images['agent-claude-code'].workspace, true);
+  assert.equal('workspace' in manifest.images['agent-runner'], false);
 });
 
 test('checkAlreadyPublished: 게시 없음 → 통과, 게시됨 → --force 없으면 throw, --force 면 경고만, dry-run 도 경고만', () => {

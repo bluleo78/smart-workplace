@@ -16,11 +16,19 @@ const ctr = (name, imageID, ready = true) => ({ name, imageID, ready });
 test('imageValues: 매니페스트의 repository·digest 만 images 로, version·commit 은 release 로', () => {
   const m = baseManifest();
   const v = imageValues(m);
-  assert.deepEqual(Object.keys(v), ['images', 'release']);
+  assert.deepEqual(Object.keys(v), ['images', 'agentImages', 'release']);
   assert.deepEqual(v.release, { version: '0.8.0', commit: '1'.repeat(40) });
   assert.deepEqual(Object.keys(v.images).sort(), Object.keys(m.images).filter((id) => m.images[id].helm !== false).sort());
   assert.deepEqual(v.images.api, { repository: m.images.api.repository, digest: m.images.api.digest });
   assert.deepEqual(Object.keys(v.images.web).sort(), ['digest', 'repository']); // action·reasons·builtVersion 등은 새지 않는다
+});
+
+test('imageValues: 작업 공간 이미지(workspace)만 agentImages 에 저장소@digest 로 id 순 — runner 는 빠진다', () => {
+  const m = baseManifest();
+  const ids = Object.keys(m.images).filter((id) => m.images[id].workspace === true).sort();
+  assert.ok(ids.length > 0);
+  assert.ok(!ids.includes('agent-runner') && m.images['agent-runner'] !== undefined);
+  assert.deepEqual(imageValues(m).agentImages, ids.map((id) => `${m.images[id].repository}@${m.images[id].digest}`));
 });
 
 test('imageValues: JSON 직렬화가 helm -f 로 읽을 수 있는 모양이다', () => {

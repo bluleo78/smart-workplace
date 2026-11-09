@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isPlainObject, loadCatalog, workspaceDeps } from './catalog.mjs';
+import { isPlainObject, isWorkspaceImage, loadCatalog, workspaceDeps } from './catalog.mjs';
 import { isoSeconds, withTempDir } from './cli.mjs';
 import { findBaseTag, isVersionTag, parseVersion } from './semver.mjs';
 import { selectImages } from './select.mjs';
@@ -301,6 +301,7 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
     // (현재 카탈로그 값을 적으면 만들어지지 않은 인자를 기록하게 된다). 기준 항목에 없으면(구 매니페스트) 적지 않는다.
     // 반영 대상 표시는 지금 카탈로그 값을 따른다(빌드 입력이 아니라 「어디로 반영하나」라서 승계 앱도 같다).
     if (byId.get(id).helm === false) images[id].helm = false;
+    if (isWorkspaceImage(byId.get(id))) images[id].workspace = true;
     if (!carried) images[id].buildArgs = byId.get(id).buildArgs ?? {};
     else if (carried.buildArgs !== undefined) images[id].buildArgs = { ...carried.buildArgs };
   }
