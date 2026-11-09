@@ -6,6 +6,8 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentAccount;
 import com.workplace.jooq.tables.AgentAccountBinding;
+import com.workplace.jooq.tables.AgentAccountUsage;
+import com.workplace.jooq.tables.AgentAccountUsageCheck;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
@@ -193,6 +195,16 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_account_binding</code>.
      */
     public final AgentAccountBinding AGENT_ACCOUNT_BINDING = AgentAccountBinding.AGENT_ACCOUNT_BINDING;
+
+    /**
+     * The table <code>public.agent_account_usage</code>.
+     */
+    public final AgentAccountUsage AGENT_ACCOUNT_USAGE = AgentAccountUsage.AGENT_ACCOUNT_USAGE;
+
+    /**
+     * The table <code>public.agent_account_usage_check</code>.
+     */
+    public final AgentAccountUsageCheck AGENT_ACCOUNT_USAGE_CHECK = AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK;
 
     /**
      * The table <code>public.agent_api_key</code>.
@@ -997,6 +1009,8 @@ public class Public extends SchemaImpl {
         return Arrays.asList(
             AgentAccount.AGENT_ACCOUNT,
             AgentAccountBinding.AGENT_ACCOUNT_BINDING,
+            AgentAccountUsage.AGENT_ACCOUNT_USAGE,
+            AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK,
             AgentApiKey.AGENT_API_KEY,
             AgentLocation.AGENT_LOCATION,
             AgentRepoCredential.AGENT_REPO_CREDENTIAL,

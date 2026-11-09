@@ -69,6 +69,8 @@ workplace:
   # 백필 동작은 AgentAccountBackfillTest 가 backfillTenant 를 직접 불러 검증한다.
   agent-account:
     backfill-on-startup: false
+    usage:
+      enabled: false
   # 테스트가 쓰는 가짜 모델 서버 호스트(DNS 에 없다) — 허용 목록에 넣어 이름 풀이 없이 통과시킨다(WP-596).
   assistant:
     model-url-allowed-hosts: api.example.com,ep.example,provider.test

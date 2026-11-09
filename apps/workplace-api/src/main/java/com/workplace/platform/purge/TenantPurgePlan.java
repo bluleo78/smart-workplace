@@ -202,6 +202,9 @@ public final class TenantPurgePlan {
           // AI 계정 목록(WP-1448) — 묶음이 계정을 NO ACTION 으로 참조하므로 묶음이 계정보다 먼저. user 도 참조하지만 RLS 아래 명시 삭제로
           // 비운다.
           AGENT_ACCOUNT_BINDING,
+          // 사용량 스냅샷·조회 기록(WP-1449) — 계정을 참조하므로 계정보다 먼저.
+          AGENT_ACCOUNT_USAGE,
+          AGENT_ACCOUNT_USAGE_CHECK,
           AGENT_ACCOUNT,
           AGENT_RUNNER_TOKEN,
           AGENT_LOCATION,

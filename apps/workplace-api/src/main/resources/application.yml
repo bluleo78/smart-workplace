@@ -103,6 +103,18 @@ workplace:
     timeout: ${WORKPLACE_PUSH_TIMEOUT:5s}
     vapid-public-key: ${WORKPLACE_PUSH_VAPID_PUBLIC:}
     vapid-private-key: ${WORKPLACE_PUSH_VAPID_PRIVATE:}
+  # WP-1449: AI 계정 사용량 조회(Claude 응답 헤더·ChatGPT wham). 주기·모델·임계값·외부 주소·타임아웃은 모두 여기서 정한다.
+  agent-account:
+    usage:
+      enabled: true
+      interval: 10m
+      claude-model: claude-haiku-4-5
+      near-limit-percent: 75
+      anthropic-base-url: https://api.anthropic.com
+      chatgpt-base-url: https://chatgpt.com
+      connect-timeout: 5s
+      read-timeout: 15s
+      lease: 2m
   # WP-139: 추천·후속 질문 자동 모델(Anthropic 비서) — 비서 설정의 추천 모델이 비어 있으면 API 가 이 값을 ai-agent 에 실어 보낸다.
   # 자동 모델은 API 한 곳에서만 정한다(ai-agent 는 기본값 없음). 상태 응답의 suggestionModelAuto 도 이 값을 쓴다.
   ai:

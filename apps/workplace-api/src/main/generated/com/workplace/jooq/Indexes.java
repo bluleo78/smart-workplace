@@ -6,6 +6,8 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentAccount;
 import com.workplace.jooq.tables.AgentAccountBinding;
+import com.workplace.jooq.tables.AgentAccountUsage;
+import com.workplace.jooq.tables.AgentAccountUsageCheck;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
@@ -192,6 +194,8 @@ public class Indexes {
     public static final Index IDX_AAC_USER = Internal.createIndex(DSL.name("idx_aac_user"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, false);
     public static final Index IDX_AGENT_ACCOUNT_BINDING_ACCOUNT = Internal.createIndex(DSL.name("idx_agent_account_binding_account"), AgentAccountBinding.AGENT_ACCOUNT_BINDING, new OrderField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.ACCOUNT_ID }, false);
     public static final Index IDX_AGENT_ACCOUNT_TENANT = Internal.createIndex(DSL.name("idx_agent_account_tenant"), AgentAccount.AGENT_ACCOUNT, new OrderField[] { AgentAccount.AGENT_ACCOUNT.TENANT_ID }, false);
+    public static final Index IDX_AGENT_ACCOUNT_USAGE_CHECK_TENANT = Internal.createIndex(DSL.name("idx_agent_account_usage_check_tenant"), AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK, new OrderField[] { AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK.TENANT_ID }, false);
+    public static final Index IDX_AGENT_ACCOUNT_USAGE_TENANT = Internal.createIndex(DSL.name("idx_agent_account_usage_tenant"), AgentAccountUsage.AGENT_ACCOUNT_USAGE, new OrderField[] { AgentAccountUsage.AGENT_ACCOUNT_USAGE.TENANT_ID }, false);
     public static final Index IDX_AGENT_API_KEY_HASH = Internal.createIndex(DSL.name("idx_agent_api_key_hash"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.KEY_HASH }, false);
     public static final Index IDX_AGENT_API_KEY_MANAGED = Internal.createIndex(DSL.name("idx_agent_api_key_managed"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID, AgentApiKey.AGENT_API_KEY.TENANT_ID, AgentApiKey.AGENT_API_KEY.ID }, false);
     public static final Index IDX_AGENT_API_KEY_USER = Internal.createIndex(DSL.name("idx_agent_api_key_user"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, false);
