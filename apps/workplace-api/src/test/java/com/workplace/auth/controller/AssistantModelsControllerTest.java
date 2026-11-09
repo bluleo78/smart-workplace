@@ -19,9 +19,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
-import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentaccount.service.AgentAccountService;
+import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
+import com.workplace.agentruntime.service.AgentRuntimeSettingService;
+import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.dto.ModelOption;
 import com.workplace.auth.dto.ProbeModelsRequest;
 import com.workplace.auth.dto.ProviderConfig;
@@ -31,6 +33,9 @@ import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AgentReportedModelService;
+import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
+import com.workplace.auth.service.PodAccountSource;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.WebSessionAuth;
@@ -39,6 +44,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.assertj.core.api.Assertions;
 import org.jooq.DSLContext;
@@ -50,6 +56,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,15 +71,20 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
   @Autowired AiAgentCredentialRepository credentialRepository;
   @Autowired PersonalAssistantRepository personalAssistantRepository;
   @Autowired AgentAccountRepository accounts;
-  @Autowired AgentAccountBindingRepository bindings;
   @Autowired AgentAccountService accountService;
   @Autowired AgentReportedModelService reportedModels;
+  @Autowired AiAgentCredentialService credentials;
+  @Autowired AgentRuntimeSettingService settingService;
+
+  @MockitoBean PodAccountSource podAccountSource;
 
   @Autowired AiAgentModelsClient modelsClient;
 
   @BeforeEach
   void setTenant() {
     TenantContext.set(1L);
+    // 기본은 ‘묶인 계정 없음’(옛 경로) — 묶음이 나오는 테스트만 덧쓴다.
+    org.mockito.Mockito.when(podAccountSource.findBoundRefs(any())).thenReturn(Map.of());
   }
 
   @AfterEach
@@ -464,7 +476,16 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         accountService
             .register(admin, new AgentAccountRequest("anthropic", token, null, "팀 구독", null))
             .id();
-    bindings.upsert(agent, account, null, null, null);
+    long secretVersion = accounts.findActive(account).orElseThrow().secretVersion();
+    // 묶음 참조는 실재하는 계정을 가리키고, 원문은 복호화된 것처럼 넘긴다(조회 방향만 본다).
+    when(podAccountSource.findBoundRefs(List.of(agent)))
+        .thenReturn(
+            Map.of(
+                agent,
+                new PodAccountSource.BoundRef(
+                    new ActiveCredentialRef(secretVersion, "anthropic"), 1L)));
+    when(podAccountSource.findBoundSecret(agent))
+        .thenReturn(Optional.of(new ActiveProviderSecret(secretVersion, "anthropic", token)));
     when(modelsClient.listAnthropicModels(eq(token)))
         .thenReturn(List.of(new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5")));
 
@@ -485,7 +506,16 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         accountService
             .register(admin, new AgentAccountRequest("anthropic", accountToken, null, "팀 구독", null))
             .id();
-    bindings.upsert(agent, account, null, null, null);
+    long secretVersion = accounts.findActive(account).orElseThrow().secretVersion();
+    when(podAccountSource.findBoundRefs(List.of(agent)))
+        .thenReturn(
+            Map.of(
+                agent,
+                new PodAccountSource.BoundRef(
+                    new ActiveCredentialRef(secretVersion, "anthropic"), 1L)));
+    when(podAccountSource.findBoundSecret(agent))
+        .thenReturn(
+            Optional.of(new ActiveProviderSecret(secretVersion, "anthropic", accountToken)));
     mvc.perform(
             post("/api/v1/admin/agents/" + agent + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
@@ -507,21 +537,29 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     verify(modelsClient, never()).listAnthropicModels(eq(credentialToken));
   }
 
-  @Test // 묶인 로그인 계정(genia·chatgpt)도 보고분을 그대로 돌려준다 — 보고는 계정 version 기준(옛 버전은 무시).
+  @Test // 묶인 로그인 계정(genia·chatgpt)도 보고분을 그대로 돌려준다 — 보고 종목 검증은 로그인 연결 버전 기준(옛 버전은 무시).
   void 관리자_AGENT_묶인_채팅GPT계정_보고목록_반환() throws Exception {
     Long admin = createHumanUserForTest("ADMIN");
     Long agent = createAgentUserWithMembership("models-chatgpt-account");
-    long account =
-        accountService
-            .register(
-                admin,
-                new AgentAccountRequest(
-                    "chatgpt", null, null, "로그인", chatgptLogin("a@example.test")))
+    TenantContext.set(1L);
+    // 로그인 계정은 계정 종류만 맞으면 되는 게 아니라 그 실행 방식의 AI — 테스트 전용 템플릿으로 고정한다.
+    settingService.put(
+        admin, agent, new PutAgentRuntimeSettingRequest("test-chatgpt", null, Map.of(), null));
+    long credentialId =
+        credentials
+            .register(admin, agent, "chatgpt", chatgptLogin("a@example.test"), "codex", null)
             .id();
-    bindings.upsert(agent, account, null, null, null);
-    long version = accounts.findActive(account).orElseThrow().secretVersion();
-    reportedModels.report(agent, version, List.of(new ModelOption("gpt-6-luna", "GPT-6-Luna")));
-    reportedModels.report(agent, version + 1000, List.of(new ModelOption("gpt-stale", "Stale")));
+    // 묶음 참조는 계정 버전을 쓰지만, 보고 저장·사용은 로그인 연결 버전 기준이라 실제 연결 행과 맞춘다.
+    when(podAccountSource.findBoundRefs(List.of(agent)))
+        .thenReturn(
+            Map.of(
+                agent,
+                new PodAccountSource.BoundRef(
+                    new ActiveCredentialRef(credentialId, "chatgpt"), 2L)));
+    reportedModels.report(
+        agent, credentialId, List.of(new ModelOption("gpt-6-luna", "GPT-6-Luna")));
+    reportedModels.report(
+        agent, credentialId + 1000, List.of(new ModelOption("gpt-stale", "Stale")));
 
     adminModels(admin, agent)
         .andExpect(status().isOk())
@@ -535,7 +573,20 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     Long admin = createHumanUserForTest("ADMIN");
     Long agent = createAgentUserWithMembership("models-opencode-account");
     long account = registerOpencodeAccount(admin, "myhost", "https://api.example.com/v1");
-    bindings.upsert(agent, account, null, null, null);
+    long secretVersion = accounts.findActive(account).orElseThrow().secretVersion();
+    when(podAccountSource.findBoundRefs(List.of(agent)))
+        .thenReturn(
+            Map.of(
+                agent,
+                new PodAccountSource.BoundRef(
+                    new ActiveCredentialRef(secretVersion, "opencode"), 1L)));
+    when(podAccountSource.findBoundSecret(agent))
+        .thenReturn(
+            Optional.of(
+                new ActiveProviderSecret(
+                    secretVersion,
+                    "opencode",
+                    "{\"providerId\":\"myhost\",\"options\":{\"baseURL\":\"https://api.example.com/v1\",\"apiKey\":\"sk-account\"}}")));
     ArgumentCaptor<ProviderConfig> probe = ArgumentCaptor.forClass(ProviderConfig.class);
     when(modelsClient.probeModels(probe.capture(), eq(true)))
         .thenReturn(List.of(new ModelOption("m1", "M1")));
@@ -547,6 +598,21 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     Assertions.assertThat(probe.getValue().providerId()).isEqualTo("myhost");
     Assertions.assertThat(probe.getValue().options().get("baseURL"))
         .isEqualTo("https://api.example.com/v1");
+  }
+
+  @Test // 묶음 참조와 계정 조회 사이의 경합(그 사이 해제·폐기)으로 원문이 사라지면 500 대신 옛 경로 계약(옛 연결 없음 = 404)이 된다.
+  void 관리자_AGENT_묶인계정_조회경합_원문없음_500아님() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUserWithMembership("models-race-empty");
+    when(podAccountSource.findBoundRefs(List.of(agent)))
+        .thenReturn(
+            Map.of(
+                agent,
+                new PodAccountSource.BoundRef(new ActiveCredentialRef(3L, "anthropic"), 1L)));
+    when(podAccountSource.findBoundSecret(agent)).thenReturn(Optional.empty());
+
+    adminModels(admin, agent).andExpect(status().isNotFound());
+    verifyNoInteractions(modelsClient);
   }
 
   private ResultActions adminModels(Long admin, Long agent) throws Exception {
