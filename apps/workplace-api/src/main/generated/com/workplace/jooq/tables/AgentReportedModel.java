@@ -7,7 +7,6 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
-import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AgentReportedModelRecord;
@@ -168,7 +167,7 @@ public class AgentReportedModel extends TableImpl<AgentReportedModelRecord> {
 
     @Override
     public List<ForeignKey<AgentReportedModelRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.AGENT_REPORTED_MODEL__AGENT_REPORTED_MODEL_AGENT_USER_ID_FKEY, Keys.AGENT_REPORTED_MODEL__AGENT_REPORTED_MODEL_CREDENTIAL_ID_FKEY, Keys.AGENT_REPORTED_MODEL__FK_AGENT_REPORTED_MODEL_TENANT);
+        return Arrays.asList(Keys.AGENT_REPORTED_MODEL__AGENT_REPORTED_MODEL_AGENT_USER_ID_FKEY, Keys.AGENT_REPORTED_MODEL__FK_AGENT_REPORTED_MODEL_TENANT);
     }
 
     private transient UserPath _user;
@@ -181,19 +180,6 @@ public class AgentReportedModel extends TableImpl<AgentReportedModelRecord> {
             _user = new UserPath(this, Keys.AGENT_REPORTED_MODEL__AGENT_REPORTED_MODEL_AGENT_USER_ID_FKEY, null);
 
         return _user;
-    }
-
-    private transient AiAgentCredentialPath _aiAgentCredential;
-
-    /**
-     * Get the implicit join path to the <code>public.ai_agent_credential</code>
-     * table.
-     */
-    public AiAgentCredentialPath aiAgentCredential() {
-        if (_aiAgentCredential == null)
-            _aiAgentCredential = new AiAgentCredentialPath(this, Keys.AGENT_REPORTED_MODEL__AGENT_REPORTED_MODEL_CREDENTIAL_ID_FKEY, null);
-
-        return _aiAgentCredential;
     }
 
     private transient TenantPath _tenant;

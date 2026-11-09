@@ -66,6 +66,13 @@ export const CODEX_TEMPLATE: AgentTemplate = {
 
 export const TEMPLATES: AgentTemplate[] = [DEFAULT_TEMPLATE, CLAUDE_TEMPLATE]
 
+/** AI 가 묶인 계정 fixture — 그 종류가 옛 연결보다 먼저 모델 목록 원천이 된다(WP-1458). */
+export interface AccountsOption {
+  id: number
+  provider: CredentialProvider
+  label: string
+}
+
 /** AI 계정 메타 — 로그인 정보면 계정 이메일이 있다. */
 function credentialMeta(provider: CredentialProvider) {
   const login = provider === 'genia' || provider === 'chatgpt'
@@ -206,6 +213,8 @@ export interface RuntimeApiOptions {
   locations?: AgentLocation[]
   templates?: AgentTemplate[]
   projects?: AgentRuntimeProject[]
+  /** AI 가 묶인 계정 — 그 종류로 모델 목록 원천이 된다(WP-1458: 묶인 계정이 옛 연결보다 앞선다). */
+  accounts?: Record<number, AccountsOption>
   /** Claude(anthropic) AI 연결이 있는 에이전트 id — 그 밖은 404. */
   claudeFor?: number[]
   /** 에이전트 id → 연결된 AI 계정 종류(claudeFor 보다 앞선다, WP-1296). 등록하면 여기에 반영돼 재조회에 보인다. */
@@ -230,6 +239,8 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
   }
   const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], order: [] }
   let repoCredentials = [...(opts.repoCredentials ?? [])]
+  /** AI → 묶인 계정(먼저 등록하면 그 종류가 연결로 보고된다). */
+  const accounts: Record<number, AccountsOption> = { ...(opts.accounts ?? {}) }
   const fail = () =>
     opts.failWrites
       ? HttpResponse.json({ message: opts.failWrites.message }, { status: opts.failWrites.status })
@@ -276,6 +287,15 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
       return provider
         ? HttpResponse.json(credentialMeta(provider))
         : HttpResponse.json({ message: '없음' }, { status: 404 })
+    }),
+    http.get(`${API}/admin/agents/:id/agent-account`, ({ params }) => {
+      const account = accounts[Number(params.id)]
+      if (!account) return HttpResponse.json({ message: '없음' }, { status: 404 })
+      const now = '2026-11-02T01:00:00Z'
+      return HttpResponse.json({
+        id: account.id, provider: account.provider, label: account.label, accountEmail: null,
+        lastRefreshedAt: null, status: 'ACTIVE', createdAt: now, updatedAt: now, agents: [], usage: null,
+      })
     }),
     http.post(`${API}/admin/agents/:id/provider-credential`, async ({ params, request }) => {
       const body = (await request.json()) as RuntimeCalls['credentialRegisters'][number]

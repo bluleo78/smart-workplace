@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 
 import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAgentProviderCredential';
 import { useAgentLocations } from '../../../../hooks/queries/useAgentRuntime';
-import { useAgentModels } from '../../../../hooks/queries/useAssistant';
+import { useAgentAccount, useAgentModels } from '../../../../hooks/queries/useAssistant';
 import { accountFits } from '../../../../lib/agentAccount';
 import { modelFieldOptions, withSavedOption } from '../../../../lib/agentModelOptions';
 import { locationOptionLabel } from '../../../../lib/agentRuntimeStatus';
@@ -90,18 +90,24 @@ function FieldSelect({ field, draft, id, options }: { field: AgentTemplateConfig
 }
 
 /**
- * 계정 모델 칸(WP-1405) — 그 AI 에 연결된 계정의 모델 목록을 받아 정적 별칭 뒤에 붙여 보인다. 조회 중·실패여도 정적 선택지로 고를 수 있게
+ * 계정 모델 칸(WP-1405) — 그 AI 가 쓰는 계정(묶인 계정 우선·옛 연결은 그다음)의 모델 목록을 받아 정적 별칭 뒤에 붙여 보인다. 조회 중·실패여도 정적 선택지로 고를 수 있게
  * 막지 않고, 상태는 칸 아래 한 줄로 알린다. 선택지만 바뀌고 초안 값은 건드리지 않아 목록이 늦게 와도 「저장하지 않은 변경」이 생기지 않는다.
- * 모델 목록은 AI 계정 묶음과 같은 쿼리키라 캐시를 나눠 쓰고, 연결을 바꾸면 함께 새로 받는다.
+ * 목록 키에 계정 id 가 들어 있어 계정이 바뀌면 함께 새로 받는다.
  */
 function AccountModelSelect({ field, draft, agentId, id }: { field: AgentTemplateConfigField; draft: WorkSettingsDraft; agentId: number; id: string }) {
   const account = draft.template.account;
+  const credential = useAgentProviderCredentialMeta(agentId);
+  // 계정 원천 순서는 서버와 같다 — 묶인 계정 먼저, 그것이 없거나 폐기·해제면 옛 연결(연결 종류가 맞는지 판정은 같은 규칙).
+  const boundAccount = useAgentAccount(agentId).data ?? null;
+  const connected = boundAccount != null
+    ? boundAccount.provider
+    : credential.data === undefined
+      ? undefined
+      : (credential.data?.provider ?? null);
   // 연결된 계정 종류가 이 방식의 계정과 같을 때만 모델 목록을 부른다 — 다르면(방식 바꾸는 중 등) 서버가 그 계정의 목록(예: OpenAI 호환 프로브)을
   // 돌리고, 그 실패가 「불러오지 못해」로 잘못 보이기 때문이다. 연결 조회는 AI 계정 묶음·방식 바꾸기 확인 창과 같은 훅(같은 캐시)이다.
-  const credential = useAgentProviderCredentialMeta(agentId);
-  const connected = credential.data === undefined ? undefined : (credential.data?.provider ?? null);
   const fits = connected != null && accountFits(connected, { mode: 'WORKSPACE', template: draft.template });
-  const models = useAgentModels(fits ? agentId : null);
+  const models = useAgentModels(fits ? agentId : null, fits ? boundAccount?.id ?? null : null);
   const { options, hint } = modelFieldOptions({
     field,
     account,

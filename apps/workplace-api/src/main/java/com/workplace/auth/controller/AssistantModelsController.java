@@ -15,8 +15,10 @@ import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AgentReportedModelService;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
 import com.workplace.auth.service.AssistantModels;
 import com.workplace.auth.service.ModelBaseUrlGuard;
+import com.workplace.auth.service.PodAccountSource;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
@@ -46,6 +48,7 @@ public class AssistantModelsController {
 
   private final AiAgentModelsClient modelsClient;
   private final AiAgentCredentialService credentialService;
+  private final PodAccountSource podAccountSource;
   private final PersonalAssistantRepository personalRepo;
   private final ObjectMapper objectMapper;
   private final ModelBaseUrlGuard urlGuard;
@@ -113,11 +116,18 @@ public class AssistantModelsController {
     return new ProbeModelsResponse(prefixed);
   }
 
-  /**
-   * provider(anthropic/opencode) 별 모델 목록 해석. anthropic 은 저장된 토큰으로 Anthropic Models API 실시간 조회(#873,
-   * 실패 시 정적 목록 폴백), opencode 는 복호화 payload 로 실시간 프로브 후 providerId/ 접두.
-   */
+  /** 모델 목록 원천 선택(WP-1458) — 묶인 계정(폐기 아님)이 있으면 계정이, 없고 그 AI 에 옛 AI별 연결만 있으면 옛 연결이 답한다. */
   private AgentModelsResponse resolveAgentModels(long agentId) {
+    // WP-1458: 묶인 계정(agent_account_binding, 폐기 아님)이 있으면 그 계정이 모델 목록의 원천이다. 없고 옛 AI별 연결뿐이면
+    // 지금과 같은 경로로 간다(‘묶인 계정 우선, 없으면 옛 연결’).
+    var bound = podAccountSource.findBoundRefs(List.of(agentId)).get(agentId);
+    if (bound != null) {
+      return resolveBoundModels(agentId, bound);
+    }
+    return resolveLegacyModels(agentId);
+  }
+
+  private AgentModelsResponse resolveLegacyModels(long agentId) {
     // 활성 연결은 복호화 없이 한 번만 읽고(없으면 404) 그 provider 로 가른다 — 복호화는 아래에서 그 행으로, 필요한 경우에만.
     AiAgentCredentialRow row = credentialService.requireActiveRow(agentId);
     // 로그인 정보 계정(genia·chatgpt)은 서버가 모델 목록을 조회할 수 없다(WP-1296·1297) — ChatGPT 의 refresh token 이
@@ -149,8 +159,39 @@ public class AssistantModelsController {
   }
 
   /**
-   * anthropic 실시간 모델 목록(+저장된 모델). 드롭다운이 비어 설정 자체가 막히지 않도록 토큰 복호화 실패(키 교체·손상 행)와 조회 실패(토큰
-   * 만료·네트워크·ai-agent 장애)는 502/500 으로 올리지 않고 정적 목록으로 폴백한다. 폴백 시에도 저장된 모델은 유지한다.
+   * 묶인 계정이 모델 목록의 원천일 때(WP-1458) — 계정 종류별로 기존 경로와 같은 규칙: 로그인 정보 계정(genia·chatgpt)은 서버가 조회할 수 없어 Pod
+   * 보고분을, OpenAI 호환은 계정의 연결 설정으로 실시간 프로브를, Claude 구독은 계정 원문으로 실시간 조회(정적 폴백)를 쓴다.
+   */
+  private AgentModelsResponse resolveBoundModels(long agentId, PodAccountSource.BoundRef binding) {
+    String provider = AgentProviders.normalize(binding.ref().provider());
+    if (AgentProviders.isLogin(provider)) {
+      return new AgentModelsResponse(provider, reportedModels.findFor(agentId, binding.ref().id()));
+    }
+    ActiveProviderSecret secret;
+    try {
+      secret = podAccountSource.findBoundSecret(agentId).orElseThrow();
+    } catch (CryptoException e) {
+      if (AgentProviders.OPENCODE.equals(provider)) throw e;
+      log.warn("묶인 계정 토큰 복호화 실패 — 정적 목록으로 폴백: agentUserId={}", agentId);
+      return new AgentModelsResponse(provider, AssistantModels.ANTHROPIC);
+    }
+    if (AgentProviders.OPENCODE.equals(provider)) {
+      ProviderConfig config = parsePayload(secret.plaintext());
+      String baseUrl = requireOption(config, "baseURL");
+      urlGuard.validate(baseUrl);
+      String prefix = config.providerId() + "/";
+      List<ModelOption> prefixed =
+          modelsClient.probeModels(config, true).stream()
+              .map(m -> new ModelOption(prefix + m.id(), prefix + m.label(), m.efforts()))
+              .toList();
+      return new AgentModelsResponse(provider, prefixed);
+    }
+    return new AgentModelsResponse(provider, anthropicModels(secret.plaintext(), null));
+  }
+
+  /**
+   * Anthropic 실시간 모델 목록(+저장된 모델). 토큰 복호화 실패(키 교체·손상 행)와 조회 실패(토큰 만료·네트워크·ai-agent 장애)는 502/500 으로
+   * 올리지 않고 정적 목록으로 폴백한다. 폴백 시에도 저장된 모델은 유지한다.
    */
   private List<ModelOption> anthropicModels(AiAgentCredentialRow row) {
     ProviderCredentialRedeemResponse redeemed;
@@ -158,16 +199,20 @@ public class AssistantModelsController {
       redeemed = credentialService.decryptPayload(row);
     } catch (CryptoException e) {
       log.warn("Anthropic 토큰 복호화 실패 — 정적 모델 목록으로 폴백");
-      return AssistantModels.ANTHROPIC;
+      return anthropicModels(null, null);
     }
-    List<ModelOption> models;
+    return anthropicModels(redeemed.token(), redeemed.model());
+  }
+
+  private List<ModelOption> anthropicModels(String token, String savedModel) {
     try {
-      models = modelsClient.listAnthropicModels(redeemed.token());
+      return token == null
+          ? AssistantModels.ANTHROPIC
+          : withSavedModel(modelsClient.listAnthropicModels(token), savedModel);
     } catch (AssistantModelsProbeException e) {
       log.warn("Anthropic 모델 실시간 조회 실패 — 정적 목록으로 폴백");
-      models = AssistantModels.ANTHROPIC;
+      return withSavedModel(AssistantModels.ANTHROPIC, savedModel);
     }
-    return withSavedModel(models, redeemed.model());
   }
 
   /**

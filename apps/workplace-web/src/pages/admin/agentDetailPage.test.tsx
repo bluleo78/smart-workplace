@@ -539,6 +539,30 @@ describe('작업 설정 「모델」 — 연결된 계정의 모델 목록(WP-14
     })
   const hint = () => screen.queryByTestId('agent-runtime-config-model-hint')
 
+  test('묶인 계정이 옛 연결보다 먼저 — 옛 연결이 없어도 묶인 계정으로 목록을 부른다(WP-1458)', async () => {
+    const { user, modelCalls } = await renderDetail(
+      works({
+        claudeFor: [],
+        accounts: { [id]: { id: 5, provider: 'anthropic', label: '팀 구독' } },
+        models: live,
+      }),
+    )
+    await screen.findByTestId('agent-work-settings-group')
+    // 옛 연결이 없으므로 옛 경로였다면 목록 조회가 비활성이었을 것이다 — 묶인 계정 기준 조회.
+    await user.click(await screen.findByTestId('agent-runtime-config-model'))
+    const listbox = await screen.findByRole('listbox')
+    await waitFor(() => expect(modelCalls.count).toBe(1))
+    await waitFor(() =>
+      expect(within(listbox).getAllByRole('option').map((o) => o.textContent)).toEqual([
+        'Opus(최신)',
+        'Sonnet(최신)',
+        'Claude Opus 5.5',
+        'Claude Sonnet 5',
+      ]),
+    )
+    expect(hint()).not.toBeInTheDocument()
+  })
+
   test('계정 목록을 받으면 별칭(최신) 뒤에 계정 모델이 보이고, 골라 저장하면 그 id 를 보낸다', async () => {
     const { user, calls } = await renderDetail(works({ models: live }))
     await user.click(await screen.findByTestId('agent-runtime-config-model'))
@@ -559,9 +583,9 @@ describe('작업 설정 「모델」 — 연결된 계정의 모델 목록(WP-14
     expect(calls.saves[0].config.model).toBe('claude-sonnet-5')
   })
 
-  test('AI 계정이 연결돼 있지 않으면 「AI 계정을 연결하면」 안내를 보이고 모델 목록을 부르지 않는다', async () => {
+  test('AI 계정이 연결돼 있지 않으면 「고른 계정」 안내를 보이고 모델 목록을 부르지 않는다', async () => {
     const { modelCalls } = await renderDetail(works({ claudeFor: [], models: live }))
-    await waitFor(() => expect(hint()).toHaveTextContent('AI 계정을 연결하면 그 계정이 쓸 수 있는 모델이 보여요.'))
+    await waitFor(() => expect(hint()).toHaveTextContent('고른 계정이 쓸 수 있는 모델이 보여요.'))
     expect(modelCalls.count).toBe(0)
   })
 

@@ -2,6 +2,7 @@
 // baseURL `/api/v1` 가 client 에 포함되어 있어 경로는 상대로 작성.
 
 import type { AgentResponse, AgentRuntime } from '../types/agent';
+import type { AgentAccount } from '../types/agentAccount';
 import type { AgentApiKey, AgentApiKeyIssueResponse } from '../types/agentKey';
 import type { UserResponse } from '../types/auth';
 import type { AvatarCrop, AvatarUploadResponse } from '../types/avatar';
@@ -119,4 +120,10 @@ export async function registerAgentProviderCredential(
 // 자격증명 회수 — idempotent. 회수 후 AGENT 는 LLM 호출 불가 상태.
 export async function revokeAgentProviderCredential(userId: number): Promise<void> {
   await client.delete<void>(`/admin/agents/${userId}/provider-credential`);
+}
+
+// AI 가 묶인 계정(meta) — 평문 없음. 묶이지 않았으면 404(호출 측이 미묶음으로 본다, WP-1458).
+export async function getAgentAccount(userId: number): Promise<AgentAccount> {
+  const { data } = await client.get<AgentAccount>(`/admin/agents/${userId}/agent-account`);
+  return data;
 }

@@ -21,7 +21,7 @@ function hintOf(status: ModelOptionsStatus, account: CredentialProvider | null |
     case 'live':
       return null
     case 'noAccount':
-      return 'AI 계정을 연결하면 그 계정이 쓸 수 있는 모델이 보여요.'
+      return '고른 계정이 쓸 수 있는 모델이 보여요.'
     case 'otherAccount':
       // 계정 이름은 화면 공통 표(accountLabel)에서 — AI 계정 묶음과 같은 이름으로 보인다.
       return account

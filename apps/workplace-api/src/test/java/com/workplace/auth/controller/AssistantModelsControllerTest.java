@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -17,6 +18,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.agentaccount.dto.AgentAccountRequest;
+import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
+import com.workplace.agentaccount.repository.AgentAccountRepository;
+import com.workplace.agentaccount.service.AgentAccountService;
 import com.workplace.auth.dto.ModelOption;
 import com.workplace.auth.dto.ProbeModelsRequest;
 import com.workplace.auth.dto.ProviderConfig;
@@ -25,22 +30,28 @@ import com.workplace.auth.exception.AssistantModelsProbeException;
 import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
+import com.workplace.auth.service.AgentReportedModelService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.WebSessionAuth;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.assertj.core.api.Assertions;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Task10 — 모델 목록/프로브 API 통합 테스트. ai-agent 호출은 AiAgentModelsClient @MockitoBean 으로 대체. */
@@ -52,6 +63,10 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
   @Autowired DSLContext dsl;
   @Autowired AiAgentCredentialRepository credentialRepository;
   @Autowired PersonalAssistantRepository personalAssistantRepository;
+  @Autowired AgentAccountRepository accounts;
+  @Autowired AgentAccountBindingRepository bindings;
+  @Autowired AgentAccountService accountService;
+  @Autowired AgentReportedModelService reportedModels;
 
   @Autowired AiAgentModelsClient modelsClient;
 
@@ -436,6 +451,134 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(creReq)))
         .andExpect(status().isBadRequest());
+  }
+
+  // ── WP-1458: 모델 목록이 묶인 계정을 먼저 본다 ───────────────────────────────────────────────
+
+  @Test // 묶인 계정만 있고 옛 연결이 없으면 계정 목록이 보인다(옛 코드라면 옛 연결 없음 = 404).
+  void 관리자_AGENT_옛연결없이_묶인계정만_있으면_계정_모델목록() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUserWithMembership("models-account-only");
+    String token = "A".repeat(64);
+    long account =
+        accountService
+            .register(admin, new AgentAccountRequest("anthropic", token, null, "팀 구독", null))
+            .id();
+    bindings.upsert(agent, account, null, null, null);
+    when(modelsClient.listAnthropicModels(eq(token)))
+        .thenReturn(List.of(new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5")));
+
+    adminModels(admin, agent)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.provider").value("anthropic"))
+        .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"));
+    verify(modelsClient).listAnthropicModels(eq(token));
+  }
+
+  @Test // 옛 연결과 계정이 둘 다 있으면 계정이 이긴다.
+  void 관리자_AGENT_묶인계정_있으면_옛연결_대신_쓴다() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUserWithMembership("models-account-wins");
+    String accountToken = "A".repeat(64);
+    String credentialToken = "B".repeat(64);
+    long account =
+        accountService
+            .register(admin, new AgentAccountRequest("anthropic", accountToken, null, "팀 구독", null))
+            .id();
+    bindings.upsert(agent, account, null, null, null);
+    mvc.perform(
+            post("/api/v1/admin/agents/" + agent + "/provider-credential")
+                .with(authentication(authWith(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("token", credentialToken, "label", "t"))))
+        .andExpect(status().isCreated());
+    when(modelsClient.listAnthropicModels(eq(accountToken)))
+        .thenReturn(List.of(new ModelOption("claude-account", "Account")));
+    when(modelsClient.listAnthropicModels(eq(credentialToken)))
+        .thenReturn(List.of(new ModelOption("claude-legacy", "Legacy")));
+
+    adminModels(admin, agent)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models.length()").value(1))
+        .andExpect(jsonPath("$.models[0].id").value("claude-account"));
+    verify(modelsClient).listAnthropicModels(eq(accountToken));
+    verify(modelsClient, never()).listAnthropicModels(eq(credentialToken));
+  }
+
+  @Test // 묶인 로그인 계정(genia·chatgpt)도 보고분을 그대로 돌려준다 — 보고는 계정 version 기준(옛 버전은 무시).
+  void 관리자_AGENT_묶인_채팅GPT계정_보고목록_반환() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUserWithMembership("models-chatgpt-account");
+    long account =
+        accountService
+            .register(
+                admin,
+                new AgentAccountRequest(
+                    "chatgpt", null, null, "로그인", chatgptLogin("a@example.test")))
+            .id();
+    bindings.upsert(agent, account, null, null, null);
+    long version = accounts.findActive(account).orElseThrow().secretVersion();
+    reportedModels.report(agent, version, List.of(new ModelOption("gpt-6-luna", "GPT-6-Luna")));
+    reportedModels.report(agent, version + 1000, List.of(new ModelOption("gpt-stale", "Stale")));
+
+    adminModels(admin, agent)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.provider").value("chatgpt"))
+        .andExpect(jsonPath("$.models.length()").value(1))
+        .andExpect(jsonPath("$.models[0].id").value("gpt-6-luna"));
+  }
+
+  @Test // 묶인 OpenAI 호환 계정은 그 계정의 연결 설정으로 조회한다(providerId 접두 유지).
+  void 관리자_AGENT_묶인_OpenAI호환계정_그것의_설정으로_프로브() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUserWithMembership("models-opencode-account");
+    long account = registerOpencodeAccount(admin, "myhost", "https://api.example.com/v1");
+    bindings.upsert(agent, account, null, null, null);
+    ArgumentCaptor<ProviderConfig> probe = ArgumentCaptor.forClass(ProviderConfig.class);
+    when(modelsClient.probeModels(probe.capture(), eq(true)))
+        .thenReturn(List.of(new ModelOption("m1", "M1")));
+
+    adminModels(admin, agent)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.provider").value("opencode"))
+        .andExpect(jsonPath("$.models[0].id").value("myhost/m1"));
+    Assertions.assertThat(probe.getValue().providerId()).isEqualTo("myhost");
+    Assertions.assertThat(probe.getValue().options().get("baseURL"))
+        .isEqualTo("https://api.example.com/v1");
+  }
+
+  private ResultActions adminModels(Long admin, Long agent) throws Exception {
+    TenantContext.set(1L);
+    ResultActions r =
+        mvc.perform(
+            get("/api/v1/admin/agents/" + agent + "/models")
+                .with(authentication(authWith(admin, "user:write"))));
+    TenantContext.set(1L);
+    return r;
+  }
+
+  /** 가짜 OpenAI 호환 계정 원문(providerConfig JSON). */
+  private long registerOpencodeAccount(Long admin, String providerId, String baseUrl) {
+    var config =
+        new ProviderConfig(providerId, null, Map.of("baseURL", baseUrl, "apiKey", "sk-account"));
+    return accountService
+        .register(admin, new AgentAccountRequest("opencode", null, config, "팀 호환", null))
+        .id();
+  }
+
+  /** 가짜 ChatGPT 로그인 정보(auth.json 모양). */
+  private static String chatgptLogin(String email) {
+    Base64.Encoder enc = Base64.getUrlEncoder().withoutPadding();
+    String idToken =
+        enc.encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8))
+            + "."
+            + enc.encodeToString(("{\"email\":\"" + email + "\"}").getBytes(StandardCharsets.UTF_8))
+            + ".sig";
+    return "{\"auth_mode\":\"chatgpt\",\"OPENAI_API_KEY\":null,\"tokens\":{\"id_token\":\""
+        + idToken
+        + "\",\"access_token\":\"fake-access\",\"refresh_token\":\"fake-refresh\"}}";
   }
 
   private Long createHumanUserForTest(String roleName) {

@@ -3,6 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { getAgentAccount } from '../../api/agents';
 import {
   clearWorkspaceAssistant,
   disableMyAssistant,
@@ -15,6 +16,7 @@ import {
   updateWorkspaceAssistantSettings,
 } from '../../api/assistant';
 import { getAgentModels, getMyAssistantModels } from '../../api/models';
+import type { AgentAccount } from '../../types/agentAccount';
 import type { UpdateAssistantSettings } from '../../types/assistant';
 import type { ProviderCredentialRegisterRequest } from '../../types/providerCredential';
 
@@ -25,8 +27,13 @@ export const assistantKeys = {
 
 // 프로바이더 모델 목록 쿼리키 — 관리자(AGENT별)/본인(개인 비서) 분리.
 export const providerModelsKeys = {
-  forAgent: (userId: number | null) => ['providerModels', 'agent', userId] as const,
+  forAgent: (userId: number | null, accountId?: number | null) => ['providerModels', 'agent', userId, accountId ?? null] as const,
   me: ['providerModels', 'me'] as const,
+};
+
+// AI 가 묶인 계정(식별 — 평문 없음, WP-1448/1458). 모델 목록 키가 계정을 따르므로 묶음이 바뀌면 목록도 새 키로 다시 받는다.
+export const agentAccountKeys = {
+  forUser: (userId: number | null) => ['agentAccount', userId] as const,
 };
 
 // 개인 비서 상태 조회.
@@ -125,12 +132,28 @@ export function useClearWorkspaceAssistant() {
   });
 }
 
-// 관리자 — AGENT 의 저장된 자격증명 기준 모델 목록. userId 미지정(null) 이면 비활성화.
-// WP-1405: 5분 동안 새로 받지 않는다 — 상세 화면을 열 때마다 ai-agent → Anthropic 조회를 반복하지 않게. 연결·다시 연결·끊기는
-// invalidateConnection(useAgentProviderCredential) 이 이 키를 무효화하므로 연결이 바뀐 목록이 남지 않는다.
-export function useAgentModels(userId: number | null) {
+// 관리자 — AGENT 가 묶인 계정(meta, WP-1448). 묶이지 않았으면 404 → null(옛 연결 경로 목록은 계정 키 없이 조회된다).
+export function useAgentAccount(userId: number | null) {
+  return useQuery<AgentAccount | null>({
+    queryKey: agentAccountKeys.forUser(userId),
+    enabled: userId != null,
+    queryFn: async () => {
+      try {
+        return await getAgentAccount(userId as number);
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (status === 404) return null;
+        throw e;
+      }
+    },
+  });
+}
+
+// 관리자 — AGENT 의 모델 목록(묶인 계정/저장된 자격증명 기준). WP-1405: 5분 동안 새로 받지 않는다 — 상세 화면을 열 때마다 ai-agent →
+// Anthropic 조회를 반복하지 않게. 계정이 바뀌면 키(accountId)가 달라져 새로 받고, 연결·다시 연결·끊기의 무효화도 함께 걸린다.
+export function useAgentModels(userId: number | null, accountId?: number | null) {
   return useQuery({
-    queryKey: providerModelsKeys.forAgent(userId),
+    queryKey: providerModelsKeys.forAgent(userId, accountId ?? null),
     enabled: userId != null,
     staleTime: 5 * 60_000,
     queryFn: () => getAgentModels(userId as number),

@@ -22,8 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
  * 로그인 계정 모델 목록 보고 서비스(WP-1297). ChatGPT 로그인은 refresh token 이 1회용이라 Works 서버가 저장된 로그인으로 모델 목록을 조회하면
  * Pod 안 프로그램의 로그인이 풀린다 — 그래서 목록은 Pod 가 자기 AI 키로 보고하고, 서버는 보고를 저장해 두었다가 모델 목록 조회가 그대로 돌려준다.
  *
- * <p>보고는 보고 당시의 활성 연결 행 id 와 함께 저장한다. 조회는 지금 활성 행이 그 행일 때만 쓴다 — 연결을 다른 계정으로 바꾸면 옛 계정의 목록이 새 계정에 섞이지
- * 않는다(목록이 비어 보이다가 Pod 가 다시 보고하면 채워진다).
+ * <p>보고는 보고 당시의 로그인 정보 버전과 함께 저장한다. 버전은 활성 연결의 행 id 이거나 AI 가 묶인 계정의 version ({@link
+ * PodAccountSource} 참조 id = 계정 {@code secret_version}) — 지금 그 버전일 때만 조회가 써서, 연결을 다른 계정/연결로 바꾸면 옛
+ * 목록이 안 섞인다(목록이 비어 보이다가 Pod 가 다시 보고하면 채워진다).
  *
  * <p>평문 로그인 정보는 다루지 않는다 — 활성 연결의 id·provider 만 본다.
  */
@@ -42,25 +43,42 @@ public class AgentReportedModelService {
 
   private final AgentReportedModelRepository repo;
   private final AiAgentCredentialRepository credentials;
+  private final PodAccountSource podAccountSource;
   private final ObjectMapper objectMapper;
 
   /**
-   * 보고를 저장한다. 활성 연결이 로그인 계정(genia·chatgpt)이고 Pod 가 보고한 로그인 version 이 그 연결 id 와 같을 때만 저장하고, 아니면(연결
-   * 없음·서버 실행 계정·테넌트 미정·옛 로그인의 Pod) 아무것도 저장하지 않는다 — 관리자가 연결을 바꾸는 사이에 옛 Pod 가 보고해도 옛 계정의 목록이 새 연결로
-   * 저장되지 않는다. 오류로 올리지 않고 조용히 무시한다.
+   * 보고를 저장한다. 활성 연결이 로그인 계정(genia·chatgpt)이고 Pod 가 보고한 로그인 version 이 그 행일 때만, 또는 버전이 그 AI 가 묶인 로그인
+   * 계정의 version(계정 {@code secret_version})일 때만 저장한다 — 계정 목록 경로를 쓰는 AI 의 보고도 함께 남아야 관리자 모델 목록이 그 계정의
+   * 목록을 돌려준다. 아니면(연결 없음·서버 실행 계정·테넌트 미정·옛 로그인의 Pod·다른 계정) 아무것도 저장하지 않는다 — 관리자가 연결/묶음을 바꾸는 사이에 옛 계정의
+   * 목록이 새 계정으로 저장되지 않는다. 오류로 올리지 않고 조용히 무시한다.
    *
-   * @param loginVersion Pod 가 받은 로그인 정보의 version(= 연결 id)
+   * @param loginVersion Pod 가 받은 로그인 정보의 version(= 활성 연결 행 id 이거나 묶인 계정의 secret_version)
    */
   public void report(long agentUserId, long loginVersion, List<ModelOption> models) {
     if (TenantContext.get() == null) return;
-    // 활성 연결 한 행만 읽는다 — 복호화하지 않는다(id·provider 만 본다).
-    Optional<AiAgentCredentialRow> active = credentials.findActive(agentUserId);
-    if (active.isEmpty()
-        || !AgentProviders.isLogin(active.get().provider())
-        || active.get().id() != loginVersion) {
-      return;
-    }
+    if (!isAcceptedLoginVersion(agentUserId, loginVersion)) return;
     repo.upsert(agentUserId, loginVersion, toJson(dedupe(models)));
+  }
+
+  /**
+   * 보고 버전이 지금 저장 대상인가 — 활성 로그인 연결 행이거나, AI 가 묶인 로그인 계정의 version({@link PodAccountSource} 참조가 폐기되지
+   * 않은 계정만 싣는다). 판정 자체의 안전장치 — 확인이 안 되면 옛 동작대로 저장하지 않는다.
+   */
+  private boolean isAcceptedLoginVersion(long agentUserId, long loginVersion) {
+    Optional<AiAgentCredentialRow> active = credentials.findActive(agentUserId);
+    if (active.isPresent()
+        && AgentProviders.isLogin(active.get().provider())
+        && active.get().id() == loginVersion) {
+      return true;
+    }
+    try {
+      var bound = podAccountSource.findBoundRefs(List.of(agentUserId)).get(agentUserId);
+      return bound != null
+          && AgentProviders.isLogin(AgentProviders.normalize(bound.ref().provider()))
+          && bound.ref().id() == loginVersion;
+    } catch (RuntimeException e) {
+      return false;
+    }
   }
 
   /**
