@@ -63,9 +63,15 @@ function checkGenia(v: Record<string, unknown>): LoginInfoCheck {
   };
 }
 
-/** 붙여 넣은 로그인 정보를 살펴본다 — 비었으면 null(아직 넣지 않음). */
+/** 로그인 정보(auth.json) 최대 길이 — 서버 @Size(max = 16384) 와 같다. 넘으면 보내도 400 이라 미리 막는다. */
+export const LOGIN_INFO_MAX = 16384;
+
+/** 붙여 넣은 로그인 정보를 살펴본다 — 비었으면 null(아직 넣지 않음). 서버 상한보다 길면 읽기 전에 거절한다. */
 export function checkLoginInfo(text: string, provider: LoginProvider): LoginInfoCheck | null {
   if (text.trim() === '') return null;
+  if (text.length > LOGIN_INFO_MAX) {
+    return { ok: false, reason: `로그인 정보가 너무 깁니다 (최대 ${LOGIN_INFO_MAX}자) — auth.json 내용만 넣었는지 확인하세요` };
+  }
   let v: unknown;
   try {
     v = JSON.parse(text);

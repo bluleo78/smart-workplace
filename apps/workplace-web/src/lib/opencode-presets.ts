@@ -2,6 +2,8 @@
 // baseURL 템플릿 자동 채움용. 프리셋은 UX 편의이며 providerId 는 opencode 설정에서
 // 프로바이더 블록을 구분하는 키로만 쓰인다(백엔드는 값 자체를 검증하지 않음).
 
+import type { ProviderConfig } from '../types/providerCredential';
+
 export const OPENCODE_PRESETS = [
   {
     key: 'amazon-bedrock-openai',
@@ -57,4 +59,12 @@ export function presetLabelFor(baseUrl: string | null | undefined): string | nul
     return new RegExp(`^${pattern}$`).test(host);
   });
   return preset?.label ?? null;
+}
+
+/**
+ * OpenAI 호환 칸 값 → 보낼 연결 설정(providerConfig) — 연결 창·계정 창의 연결 확인(모델 불러오기)과 등록이 같은 모양을 쓴다. Base URL 은 앞뒤 공백을 떼고, API Key 는 그대로.
+ * 이미지 입력(vision) 같은 덧붙일 값은 부르는 쪽이 펼쳐 더한다.
+ */
+export function toOpencodeProviderConfig(presetKey: OpencodePresetKey, baseUrl: string, apiKey: string): ProviderConfig {
+  return { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } };
 }

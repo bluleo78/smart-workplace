@@ -62,6 +62,8 @@ test.describe('/settings/agents/:id 작업 화면 보기', () => {
     await page.route(/\/api\/v1\/admin\/agents\/100\/provider-credential$/, (r) =>
       r.fulfill(json({ id: 1, provider: 'anthropic', baseUrl: null, label: null, createdAt: '2026-10-20T00:00:00Z', lastUsedAt: null })),
     );
+    // 계정 목록에서 고른 계정(WP-1451) — 이 장면은 고르지 않은 상태(404 = 안 묶임)
+    await page.route(/\/api\/v1\/admin\/agents\/100\/agent-account$/, (r) => r.fulfill(json({ message: '이 AI 가 쓰는 계정이 없어요' }, 404)));
     await page.route(/\/api\/v1\/admin\/agents\/100\/keys$/, (r) => r.fulfill(json([])));
     await page.route(/\/api\/v1\/admin\/agents\/100\/screen-sessions$/, (r) =>
       r.fulfill(json({ sessionId: 's-1', ticket: 'tk-1', expiresAt: new Date(Date.now() + 30_000).toISOString() }, 201)),

@@ -3,7 +3,6 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getAgentAccount } from '../../api/agents';
 import {
   clearWorkspaceAssistant,
   disableMyAssistant,
@@ -16,7 +15,6 @@ import {
   updateWorkspaceAssistantSettings,
 } from '../../api/assistant';
 import { getAgentModels, getMyAssistantModels } from '../../api/models';
-import type { AgentAccount } from '../../types/agentAccount';
 import type { UpdateAssistantSettings } from '../../types/assistant';
 import type { ProviderCredentialRegisterRequest } from '../../types/providerCredential';
 
@@ -27,13 +25,10 @@ export const assistantKeys = {
 
 // 프로바이더 모델 목록 쿼리키 — 관리자(AGENT별)/본인(개인 비서) 분리.
 export const providerModelsKeys = {
+  /** 모델 목록 전부 — 계정의 키·주소가 바뀌면(WP-1451) 어느 AI 의 목록이 그 계정을 쓰는지 모르니 통째로 다시 받는다. */
+  all: ['providerModels'] as const,
   forAgent: (userId: number | null, accountId?: number | null) => ['providerModels', 'agent', userId, accountId ?? null] as const,
   me: ['providerModels', 'me'] as const,
-};
-
-// AI 가 묶인 계정(식별 — 평문 없음, WP-1448/1458). 모델 목록 키가 계정을 따르므로 묶음이 바뀌면 목록도 새 키로 다시 받는다.
-export const agentAccountKeys = {
-  forUser: (userId: number | null) => ['agentAccount', userId] as const,
 };
 
 // 개인 비서 상태 조회.
@@ -128,23 +123,6 @@ export function useClearWorkspaceAssistant() {
       qc.invalidateQueries({ queryKey: assistantKeys.workspace });
       // 에이전트 목록의 '유형' 컬럼(공통/일반)도 갱신.
       qc.invalidateQueries({ queryKey: ['agents'] });
-    },
-  });
-}
-
-// 관리자 — AGENT 가 묶인 계정(meta, WP-1448). 묶이지 않았으면 404 → null(옛 연결 경로 목록은 계정 키 없이 조회된다).
-export function useAgentAccount(userId: number | null) {
-  return useQuery<AgentAccount | null>({
-    queryKey: agentAccountKeys.forUser(userId),
-    enabled: userId != null,
-    queryFn: async () => {
-      try {
-        return await getAgentAccount(userId as number);
-      } catch (e: unknown) {
-        const status = (e as { response?: { status?: number } })?.response?.status;
-        if (status === 404) return null;
-        throw e;
-      }
     },
   });
 }

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 
+import { useAgentBoundAccount } from '../../../../hooks/queries/useAgentAccounts';
 import { useAgentKeys, useRevokeAgentKey } from '../../../../hooks/queries/useAgentKeys';
 import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAgentProviderCredential';
 import { useSaveAgentRuntimeSetting, useUseServerTemplate } from '../../../../hooks/queries/useAgentRuntime';
@@ -40,6 +41,7 @@ import type { AgentTemplate } from '../../../../types/agentRuntime';
 import { AgentAiAccountGroup, WorkspaceAssistantGroup } from '../AgentConnectionSection';
 import { AgentKeyIssueDialog } from '../AgentKeyIssueDialog';
 import { AgentKeysSection } from '../AgentKeysSection';
+import { AgentAccountPicker } from './AgentAccountPicker';
 import { AgentRepoConnectionGroup } from './AgentRepoConnectionGroup';
 import type { WorksRun } from './AgentStatusSection';
 import { DetailGroup } from './DetailGroup';
@@ -90,10 +92,20 @@ export function AgentRunSection({ agent, templates, worksRun, savedTemplateName 
       ) : !agent.isActive ? (
         // 사용 중지된 AI(WP-705·WP-1075) — 연결·키는 보기·정리만. 실행 방식·작업 설정은 다시 사용으로 바꾼 뒤에 다룬다.
         <>
-          {agent.runMode !== 'EXTERNAL' && (
-            <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
-              <AgentAiAccountGroup agentUserId={agent.id} canConfigure={canAdminConfigure} readOnly />
-            </DetailGroup>
+          {/* 작업 공간 AI 는 계정 목록에서 고른 계정(WP-1451)을, 서버 실행 AI 는 AI 마다 넣은 연결을 보기 전용으로 보인다.
+              작업 공간 방식이 계정을 쓰지 않으면(정의를 알 때) 묶음을 그리지 않는다. */}
+          {agent.runMode === 'WORKSPACE' ? (
+            (worksRun == null || worksRun.template.account) && (
+              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
+                <AgentAccountPicker agentUserId={agent.id} required={worksRun?.template.account ?? null} readOnly />
+              </DetailGroup>
+            )
+          ) : (
+            agent.runMode !== 'EXTERNAL' && (
+              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
+                <AgentAiAccountGroup agentUserId={agent.id} canConfigure={canAdminConfigure} readOnly />
+              </DetailGroup>
+            )
           )}
           <DetailGroup title="접속 키">
             <AgentKeysSection {...keyProps} canIssue={false} blockedNote="사용 중지된 AI 에는 새 키를 발급하지 않아요. 남은 키는 폐기해 정리할 수 있어요." />
@@ -229,7 +241,11 @@ function PendingSwitch({
   const busy = setRuntime.isPending || useServer.isPending || save.isPending;
   // 지금 연결된 AI 계정 — 새 방식이 그 계정으로 일하지 못하면 확인 창에 「연결이 해제돼요」를 보인다(끊기는 서버가 방식 변경과 함께 한다, WP-1296).
   const credential = useAgentProviderCredentialMeta(agent.id);
-  const summary = modeChangeSummary(from, to, fromTemplate, credential.data?.provider ?? null);
+  // 계정 목록에서 고른 계정(WP-1451) — 작업 공간 AI 만 묶이므로 그때만 묻는다(계정 고르기와 같은 캐시). 방식을 바꾸며 서버가 풀면 확인 창에 알린다.
+  const bound = useAgentBoundAccount(from.mode === 'WORKSPACE' ? agent.id : null);
+  const summary = modeChangeSummary(from, to, fromTemplate, credential.data?.provider ?? null, bound.data ?? null);
+  // 작업 공간에서 출발하면 고른 계정을 다 받기 전엔 요약에 「고른 계정 … 연결이 풀려요」가 빠질 수 있다 — 받을 때까지(성공·실패) 확정을 막는다.
+  const boundLoading = from.mode === 'WORKSPACE' && bound.isPending;
 
   const apply = () => {
     const done = { onSuccess: onDone };
@@ -274,8 +290,8 @@ function PendingSwitch({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={apply} data-testid="agent-run-mode-confirm-apply">
-              바꾸기
+            <AlertDialogAction onClick={apply} disabled={boundLoading} data-testid="agent-run-mode-confirm-apply">
+              {boundLoading ? '확인하는 중…' : '바꾸기'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -286,7 +302,10 @@ function PendingSwitch({
 
 type KeyProps = { agentId: number; onIssued: (k: string) => void; onRevoke: (id: number) => void };
 
-/** Works 가 실행하는 AI — AI 계정(Claude 가 필요한 방식만) · 작업 설정 · 접속 키(Works 가 관리 + 남은 직접 발급 키). */
+/**
+ * Works 가 실행하는 AI — AI 계정(계정이 필요한 방식만) · 작업 설정 · 접속 키(Works 가 관리 + 남은 직접 발급 키).
+ * AI 계정은 AI 마다 연결하지 않고 계정 목록에서 고른다(WP-1451, AgentAccountPicker).
+ */
 function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: WorksRun; keyProps: KeyProps }) {
   const { template, saved, draft } = run;
   const save = useSaveAgentRuntimeSetting(agent.id);
@@ -301,7 +320,7 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
     <>
       {template.account && (
         <DetailGroup title="AI 계정" how="바로 반영" data-testid="agent-ai-account-group">
-          <AgentAiAccountGroup agentUserId={agent.id} canConfigure required={template.account} />
+          <AgentAccountPicker agentUserId={agent.id} required={template.account} />
         </DetailGroup>
       )}
       {template.requires.includes('repo') && (

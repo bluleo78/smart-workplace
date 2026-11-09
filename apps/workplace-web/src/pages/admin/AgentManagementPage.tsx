@@ -1,5 +1,6 @@
-// ADMIN — 「에이전트」 화면(WP-1281). 한 화면에 탭 [목록 | 실행 환경].
-// 주소가 곧 탭이다 — /settings/agents = 목록, /settings/agents/locations = 실행 환경(옛 /settings/agent-locations 는 라우트가 이리로 넘긴다).
+// ADMIN — 「에이전트」 화면(WP-1281). 한 화면에 탭 [목록 | 실행 환경 | 계정(WP-1451)].
+// 주소가 곧 탭이다 — /settings/agents = 목록, /settings/agents/locations = 실행 환경(옛 /settings/agent-locations 는 라우트가 이리로 넘긴다),
+// /settings/agents/accounts = AI 계정 목록.
 // 머리 주 단추와 설정 가이드는 탭을 따라 바뀐다. 에이전트 상세는 시트가 아니라 별도 페이지(/settings/agents/:id, AgentDetailPage).
 
 import { useState } from 'react';
@@ -7,25 +8,46 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { settingsGuides } from '@/components/settings-guide/settingsGuides';
+import type { SettingsGuide } from '@/components/settings-guide/types';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { parseId } from '@/lib/historyParam';
 
+import { AgentAccountsTab } from './components/AgentAccountsTab';
 import { AgentListTab } from './components/AgentListTab';
 import { AgentLocationsTab } from './components/AgentLocationsTab';
 
-type AgentTab = 'list' | 'locations';
+type AgentTab = 'list' | 'locations' | 'accounts';
 
-/** 탭별 주소(탭을 바꾸면 이 주소로 이동 — 뒤로 가기로 앞 탭에 돌아온다)와 머리 주 단추. */
-const TABS: Record<AgentTab, { path: string; createLabel: string; createTestId: string }> = {
-  list: { path: '/settings/agents', createLabel: '+ 새 에이전트', createTestId: 'new-agent-trigger' },
-  locations: { path: '/settings/agents/locations', createLabel: '+ 실행 환경 추가', createTestId: 'agent-location-new' },
+/** 탭별 주소(탭을 바꾸면 이 주소로 이동 — 뒤로 가기로 앞 탭에 돌아온다)·머리 주 단추·설정 가이드. */
+const TABS: Record<AgentTab, { path: string; createLabel: string; createTestId: string; guide: SettingsGuide }> = {
+  list: { path: '/settings/agents', createLabel: '+ 새 에이전트', createTestId: 'new-agent-trigger', guide: settingsGuides.agents },
+  locations: {
+    path: '/settings/agents/locations',
+    createLabel: '+ 실행 환경 추가',
+    createTestId: 'agent-location-new',
+    guide: settingsGuides.agentLocations,
+  },
+  accounts: {
+    path: '/settings/agents/accounts',
+    createLabel: '+ 계정 추가',
+    createTestId: 'agent-account-new',
+    guide: settingsGuides.agentAccounts,
+  },
 };
+
+/** 주소 → 탭. 정적 경로(/locations·/accounts)만 보고, 나머지는 목록이다. */
+function tabOf(pathname: string): AgentTab {
+  const path = pathname.replace(/\/$/, '');
+  if (path.endsWith('/locations')) return 'locations';
+  if (path.endsWith('/accounts')) return 'accounts';
+  return 'list';
+}
 
 export default function AgentManagementPage() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
-  const tab: AgentTab = pathname.replace(/\/$/, '').endsWith('/locations') ? 'locations' : 'list';
+  const tab = tabOf(pathname);
   // 머리 「+ 새 에이전트」·「+ 실행 환경 추가」가 여는 창 — 창 자체는 각 탭이 그린다. 탭을 바꾸면 닫는다(onValueChange).
   const [createOpen, setCreateOpen] = useState(false);
   // 옛 상세 딥링크(?agent=<id>, 시트 시절 WP-209)는 상세 페이지로 넘긴다 — 알림·문서에 남은 링크가 계속 열리게.
@@ -35,7 +57,7 @@ export default function AgentManagementPage() {
   return (
     <SettingsPage
       title="에이전트"
-      guide={tab === 'list' ? settingsGuides.agents : settingsGuides.agentLocations}
+      guide={TABS[tab].guide}
       actions={
         /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
         <Button onClick={() => setCreateOpen(true)} data-testid={TABS[tab].createTestId}>
@@ -57,12 +79,17 @@ export default function AgentManagementPage() {
           <TabsTrigger value="locations" data-testid="agent-tab-locations">
             실행 환경
           </TabsTrigger>
+          <TabsTrigger value="accounts" data-testid="agent-tab-accounts">
+            계정
+          </TabsTrigger>
         </TabsList>
       </Tabs>
       {tab === 'list' ? (
         <AgentListTab createOpen={createOpen} onCreateOpenChange={setCreateOpen} />
-      ) : (
+      ) : tab === 'locations' ? (
         <AgentLocationsTab createOpen={createOpen} onCreateOpenChange={setCreateOpen} />
+      ) : (
+        <AgentAccountsTab createOpen={createOpen} onCreateOpenChange={setCreateOpen} />
       )}
     </SettingsPage>
   );

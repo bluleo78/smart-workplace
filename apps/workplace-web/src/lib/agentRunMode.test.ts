@@ -121,6 +121,39 @@ describe('modeChangeSummary — from → to 조합별', () => {
     expect(modeChangeSummary(codex, EXTERNAL, codex.template, 'chatgpt').some((l) => l.startsWith('AI 계정'))).toBe(false)
   })
 
+  test('작업 공간 AI 가 고른 계정은 서버가 묶음을 푸는 경우에만 라벨로 알리고 옛 연결 줄과 겹치지 않는다(WP-1451)', () => {
+    const codex: RunModeCard = { ...WORKS, id: 'codex', title: 'Codex', template: { ...CLAUDE_TEMPLATE, name: 'codex', account: 'chatgpt' } }
+    const bound = { label: 'Claude 팀 A', provider: 'anthropic' as const }
+    const line = '고른 계정 「Claude 팀 A」(Claude 구독) 연결이 풀려요.'
+    // 작업 공간을 떠나면 맞든 안 맞든 푼다(외부·기본 모두) — 옛 연결 줄은 따로 내지 않는다
+    expect(modeChangeSummary(WORKS, EXTERNAL, CLAUDE_TEMPLATE, null, bound)[0]).toBe(line)
+    const toServer = modeChangeSummary(WORKS, SERVER, CLAUDE_TEMPLATE, 'chatgpt', bound)
+    expect(toServer[0]).toBe(line)
+    expect(toServer.some((l) => l.startsWith('AI 계정'))).toBe(false)
+    // 다른 작업 공간 방식은 맞지 않을 때만 푼다
+    expect(modeChangeSummary(WORKS, codex, CLAUDE_TEMPLATE, null, bound)[0]).toBe(line)
+    const fits = { ...codex, template: { ...CLAUDE_TEMPLATE, name: 'claude-2' }, id: 'claude-2' }
+    expect(modeChangeSummary(WORKS, fits, CLAUDE_TEMPLATE, null, bound)).not.toContain(line)
+    // 작업 공간이 아닌 방식에서 출발하면 묶인 계정이 없다(있어도 알리지 않는다)
+    expect(modeChangeSummary(SERVER, EXTERNAL, null, null, bound)).not.toContain(line)
+  })
+
+  test('작업 공간 → 다른 작업 공간 방식은 묶음 풀기와 옛 연결 끊기를 서버처럼 따로 판정한다(unbindUnfit·revokeUnfit)', () => {
+    const codex: RunModeCard = { ...WORKS, id: 'codex', title: 'Codex', template: { ...CLAUDE_TEMPLATE, name: 'codex', account: 'chatgpt' } }
+    const bound = { label: 'Claude 팀 A', provider: 'anthropic' as const }
+    const boundLine = '고른 계정 「Claude 팀 A」(Claude 구독) 연결이 풀려요.'
+    // 고른 계정도 옛 연결도 Codex 에 맞지 않으면 둘 다 풀리고 끊긴다 — 두 줄 모두
+    const both = modeChangeSummary(WORKS, codex, CLAUDE_TEMPLATE, 'anthropic', bound)
+    expect(both.slice(0, 2)).toEqual([boundLine, 'AI 계정(Claude 구독) 연결이 해제돼요.'])
+    // 옛 연결이 맞으면 서버는 그대로 둔다 — 고른 계정 줄만
+    const legacyFits = modeChangeSummary(WORKS, codex, CLAUDE_TEMPLATE, 'chatgpt', bound)
+    expect(legacyFits[0]).toBe(boundLine)
+    expect(legacyFits.some((l) => l.startsWith('AI 계정'))).toBe(false)
+    // 고른 계정은 맞고 옛 연결만 맞지 않으면 옛 줄만
+    const fitsBound = { label: 'ChatGPT 팀', provider: 'chatgpt' as const }
+    expect(modeChangeSummary(WORKS, codex, CLAUDE_TEMPLATE, 'anthropic', fitsBound)[0]).toBe('AI 계정(Claude 구독) 연결이 해제돼요.')
+  })
+
   test('같은 작업 공간 카드로의 이동은 지울 것이 없다(저장만)', () => {
     const lines = modeChangeSummary(WORKS, WORKS, CLAUDE_TEMPLATE)
     expect(lines.some((l) => l.includes('지워져요'))).toBe(false)
@@ -141,6 +174,12 @@ describe('startBlockReason — 위에서부터 고칠 순서', () => {
   }
   test('모두 갖추면 null', () => {
     expect(startBlockReason(ok)).toBeNull()
+  })
+  test('고른 계정을 받는 중·못 받았으면 「먼저 연결해 주세요」 대신 그 까닭을 든다(WP-1451)', () => {
+    expect(startBlockReason({ ...ok, accountOk: false, accountCheck: 'loading' })).toBe('계정 정보를 확인하고 있어요')
+    expect(startBlockReason({ ...ok, accountOk: false, accountCheck: 'error' })).toBe('계정 정보를 불러오지 못했어요')
+    // 계정이 필요 없는 방식이면 상관없다
+    expect(startBlockReason({ ...ok, account: null, accountOk: false, accountCheck: 'error' })).toBeNull()
   })
   test('맡는 프로젝트가 0 이면 막는다(WP-1281 결정)', () => {
     expect(startBlockReason({ ...ok, projectCount: 0 })).toBe('맡는 프로젝트를 먼저 정해 주세요')

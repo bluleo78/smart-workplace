@@ -47,10 +47,11 @@ describe('agentDetailGuide — 계정 모델 목록(WP-1405)', () => {
     expect(tips).not.toContain('Opus(최신)')
   })
 
-  it('OpenCode(opencode 계정)는 OpenAI 호환 연결 안내이고 「한 번 켜면 모델 목록이 보여요」 같은 로그인 안내는 없다(WP-1410)', () => {
+  it('OpenCode(opencode 계정)는 OpenAI 호환 계정을 「계정 고르기」로 고르라는 안내이고 「한 번 켜면 모델 목록이 보여요」 같은 로그인 안내는 없다(WP-1410·WP-1451)', () => {
     const opencode = { ...CLAUDE_TEMPLATE, name: 'opencode', account: 'opencode' as const }
     const tips = runTips(opencode)
-    expect(tips).toContain('OpenAI 호환 연결로 일해요')
+    expect(tips).toContain('OpenAI 호환 계정으로 일해요')
+    expect(tips).toContain('「계정 고르기」')
     expect(tips).not.toContain('로그인 정보')
     expect(tips).not.toContain('한 번 켜면')
   })

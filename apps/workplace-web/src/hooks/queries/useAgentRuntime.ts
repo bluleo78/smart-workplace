@@ -26,6 +26,7 @@ import { setAgentRuntime } from '../../api/agents';
 import { handleApiError } from '../../lib/api-error';
 import type { PutAgentRuntimeSettingRequest, RepoKind } from '../../types/agentRuntime';
 import { agentRuntimeKeys, agentRuntimeLiveKeys } from './agentRuntimeKeys';
+import { agentAccountKeys } from './useAgentAccounts';
 import { agentKeys } from './useAgents';
 
 export { agentRuntimeKeys };
@@ -61,11 +62,14 @@ export function useAgentLocations(enabled = true) {
 
 // 설정·상태가 바뀌면 상세·목록 요약·위치 자리 수·에이전트 목록(실행 방식)을 함께 다시 읽는다(템플릿 캐시는 둔다).
 // AI 실행 화면 조회 전부 + 에이전트 키 — 실행에 영향을 주는 변경(실행 설정·사용 중지 등) 뒤 함께 다시 읽는다.
+// AI 계정(WP-1451)도 — 실행 방식을 바꾸면 서버가 고른 계정 묶음을 풀 수 있어(작업 공간을 떠나거나 맞지 않는 템플릿) 계정 목록(쓰는 AI 칸)과
+// AI 별 고른 계정(접두어 all 이 둘 다 덮는다)이 낡는다.
 export function useInvalidateRuntime() {
   const qc = useQueryClient();
   return () => {
     for (const queryKey of agentRuntimeLiveKeys) void qc.invalidateQueries({ queryKey });
     void qc.invalidateQueries({ queryKey: agentKeys.all });
+    void qc.invalidateQueries({ queryKey: agentAccountKeys.all });
   };
 }
 
