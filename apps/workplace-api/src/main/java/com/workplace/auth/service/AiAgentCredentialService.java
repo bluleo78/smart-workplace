@@ -25,10 +25,6 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -37,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -360,15 +355,26 @@ public class AiAgentCredentialService {
    */
   @Transactional(readOnly = true)
   public Optional<ActiveProviderSecret> findPodLoginSecret(long agentUserId) {
-    return findActiveSecret(agentUserId)
-        .map(
-            sec -> {
-              if (!AgentProviders.OPENCODE.equals(sec.provider())) return sec;
-              String model = configRepo.find(agentUserId).map(ConfigRow::model).orElse(null);
-              String payload = withDefaultModel(sec.plaintext(), model);
-              return new ActiveProviderSecret(
-                  opencodeLoginVersion(sec.id(), payload), sec.provider(), payload);
-            });
+    return findActiveSecret(agentUserId).map(sec -> toPodLoginSecret(agentUserId, sec));
+  }
+
+  /**
+   * 원문 하나를 runner 의 login-info 모양으로 바꾼다(WP-1410·1448) — 활성 연결({@link #findPodLoginSecret})과 AI 가 묶인
+   * 계정 (WP-1448 {@link PodAccountSource})이 같은 함수를 쓰게 한 곳에 둔다. genia·chatgpt 는 그대로(version = 받은 id).
+   * OpenCode 는 원문 JSON 에 그 AI 의 지정 모델({@code assistant_config.model})로 {@code defaultModel} 을 더하고,
+   * version 은 {@link #opencodeLoginVersion}(받은 id + 그 원문)이다 — 같은 계정을 여러 AI 가 써도 AI 마다 모델이 달라 버전이 다를
+   * 수 있다.
+   *
+   * @param agentUserId 원문을 받을 AI(지정 모델을 읽는다)
+   * @param raw 복호화한 원문과 그 버전(활성 연결이면 연결 id, 계정이면 secret_version)
+   */
+  @Transactional(readOnly = true)
+  public ActiveProviderSecret toPodLoginSecret(long agentUserId, ActiveProviderSecret raw) {
+    if (!AgentProviders.OPENCODE.equals(raw.provider())) return raw;
+    String model = configRepo.find(agentUserId).map(ConfigRow::model).orElse(null);
+    String payload = withDefaultModel(raw.plaintext(), model);
+    return new ActiveProviderSecret(
+        opencodeLoginVersion(raw.id(), payload), raw.provider(), payload);
   }
 
   /**
@@ -403,42 +409,16 @@ public class AiAgentCredentialService {
     return out;
   }
 
-  /**
-   * OpenCode login version(WP-1410) — 「연결 행 id + Pod 에 넘길 원문(연결 JSON + defaultModel)」의 SHA-256 앞
-   * 8바이트를 53비트로 줄인 양수. 연결을 다시 하면(id), 비서 설정에서 모델을 바꾸면(defaultModel), 원문을 고치면(이미지 입력 지정) 바뀌어 runner
-   * 가 login-info 를 다시 받고 Pod 를 다시 만든다. 암호문이 아니라 원문으로 계산한다 — AES-GCM 은 IV 가 매번 달라, 같은 값을 다시 저장하거나 키를
-   * 다시 암호화해도 버전이 바뀌어 일하던 Pod 가 까닭 없이 다시 만들어지지 않게. 생각의 깊이처럼 Pod 에 넘기지 않는 설정은 넣지 않는다. 53비트로 줄이는 까닭:
-   * runner(TypeScript)가 JSON 숫자로 읽으므로 2^53 이상이면 정밀도를 잃는다. genia·chatgpt 의 version 은 그대로 연결 id 다.
-   */
+  /** OpenCode login version — 계산식은 {@link OpencodeLoginInfo#version}(묶인 계정 경로와 같은 함수). */
   static long opencodeLoginVersion(long credentialId, String payload) {
-    String input = credentialId + "\0" + payload;
-    try {
-      byte[] h =
-          MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
-      long v = ByteBuffer.wrap(h, 0, Long.BYTES).getLong() & ((1L << 53) - 1);
-      return v == 0 ? 1 : v;
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 을 쓸 수 없습니다", e);
-    }
+    return OpencodeLoginInfo.version(credentialId, payload);
   }
 
   /**
-   * OpenAI 호환 연결 원문 JSON 에 {@code defaultModel} 필드를 더한다(원문 키는 그대로). 지정 모델이 이 연결의 「providerId/모델 id」
-   * 꼴이 아니면 (옛 Claude 기본값·다른 연결의 값·빈 모델 id) null — Pod 가 엉뚱한 모델로 뜨지 않고 「모델을 정할 수 없음」으로 멈추게. 저장 때 객체
-   * JSON 으로 검증된 값이라 읽을 수 없으면 서버 내부 오류로 본다 — 원문이 예외 메시지에 실리지 않게 원인을 싣지 않는다.
+   * 원문에 {@code defaultModel} 을 더한다 — {@link OpencodeLoginInfo#withDefaultModel}(묶인 계정 경로와 같은 함수).
    */
   private String withDefaultModel(String plaintext, String model) {
-    try {
-      ObjectNode node = (ObjectNode) objectMapper.readTree(plaintext);
-      String prefix = node.path("providerId").asText("") + "/";
-      String m = model == null ? "" : model.strip();
-      node.put(
-          "defaultModel",
-          prefix.length() > 1 && m.startsWith(prefix) && m.length() > prefix.length() ? m : null);
-      return objectMapper.writeValueAsString(node);
-    } catch (JsonProcessingException | ClassCastException e) {
-      throw new IllegalStateException("저장된 OpenAI 호환 연결을 읽을 수 없습니다");
-    }
+    return OpencodeLoginInfo.withDefaultModel(objectMapper, plaintext, model);
   }
 
   /**
@@ -448,32 +428,34 @@ public class AiAgentCredentialService {
    */
   @Transactional(readOnly = true)
   public boolean hasPodUnsafeOpencodeProviderId(long agentUserId) {
+    // 복호화·키 설정 오류는 잡지 않는다 — 「다시 연결」로 잘못 안내하지 않고 서버 오류로 드러나게.
     return repo.findActive(agentUserId)
         .filter(r -> AgentProviders.OPENCODE.equals(r.provider()))
-        .map(
-            row -> {
-              try {
-                return !isPodSafeProviderId(readPayload(row).get("providerId"));
-              } catch (JsonProcessingException e) {
-                // 원문이 JSON 이 아니면 Pod 가 받지 못한다. 복호화·키 설정 오류는 잡지 않는다 — 「다시 연결」로 잘못 안내하지 않고 서버 오류로
-                // 드러나게.
-                return true;
-              }
-            })
+        .map(row -> isPodUnsafeOpencodePayload(encryptionService.decrypt(row.encryptedToken())))
         .orElse(false);
   }
 
   /**
-   * OpenCode Pod 가 받는 providerId 꼴인가(WP-1410) — 영문·숫자와 {@code . _ -} 만. Pod 엔트리포인트(lib-opencode.sh
-   * 의 opencode_login_ok)와 같은 규칙이다. 설정 파일의 provider 키·모델 접두로 그대로 쓰이므로 다른 글자는 받지 않는다.
+   * OpenAI 호환 원문(provider config JSON)의 providerId 가 Pod 가 받는 꼴이 아닌가 — 활성 연결과 묶인 AI 계정(WP-1448)의 켜기
+   * 확인이 같은 판정을 쓰게 한 곳에 둔다. JSON 이 아니면 Pod 가 받지 못하므로 true.
+   */
+  public boolean isPodUnsafeOpencodePayload(String plaintext) {
+    try {
+      return !isPodSafeProviderId(objectMapper.readTree(plaintext).get("providerId"));
+    } catch (JsonProcessingException e) {
+      return true;
+    }
+  }
+
+  /**
+   * JSON 의 providerId 가 OpenCode Pod 가 받는 꼴인가(WP-1410) — 문자열이어야 하고, 꼴 규칙은 {@link
+   * AgentProviders#isPodSafeProviderId} 한 곳(AI 계정 목록과 같이 쓴다).
    */
   private static boolean isPodSafeProviderId(JsonNode providerId) {
     return providerId != null
         && providerId.isTextual()
-        && POD_SAFE_PROVIDER_ID.matcher(providerId.asText()).matches();
+        && AgentProviders.isPodSafeProviderId(providerId.asText());
   }
-
-  private static final Pattern POD_SAFE_PROVIDER_ID = Pattern.compile("[A-Za-z0-9._-]+");
 
   /**
    * 활성 자격증명 원문 — toString 에 원문을 싣지 않는다. id 는 runner 쪽 Secret 버전이다(OpenCode 는 {@link
@@ -596,10 +578,14 @@ public class AiAgentCredentialService {
    * .../models 프로브에서 적용되는 것과 동일한 ModelBaseUrlGuard(https·공인 주소, 운영자 허용 목록 예외 — WP-596) 를 등록 시점에도
    * 통과해야 한다 — 그렇지 않으면 등록은 성공하나 모델 목록 조회가 매번 400 으로 실패하는 비일관 상태가 된다. 실패 시 400.
    *
+   * <p>WP-1448: AI 계정 목록(AgentAccountService)도 OpenAI 호환 계정을 등록·교체할 때 이 검증을 그대로 쓴다(복사하지 않는다) — 계정
+   * 목록은 작업 공간(Pod) AI 만 쓰므로 계정 API·이관 백필은 늘 {@code podBound=true} 로 부른다. 기존 연결 등록 다리만 연결 등록과 같은
+   * 값({@link AgentAccountFitPolicy#deliversToPod})을 넘긴다 — 등록이 받아들인 연결을 다리가 400 으로 깨지 않게.
+   *
    * @param podBound 실행 템플릿이 이 연결을 OpenCode Pod 로 넘기는가 — 그때만 providerId 를 Pod 가 받는 꼴로 좁힌다(WP-1410)
    * @return 검증된 providerId(추천 모델 유지 판단용)
    */
-  private String validateOpencodePayload(String plaintextSecret, boolean podBound) {
+  public String validateOpencodePayload(String plaintextSecret, boolean podBound) {
     JsonNode node;
     try {
       node = objectMapper.readTree(plaintextSecret);

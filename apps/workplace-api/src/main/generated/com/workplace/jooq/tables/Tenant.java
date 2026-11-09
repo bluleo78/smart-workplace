@@ -6,6 +6,8 @@ package com.workplace.jooq.tables;
 
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AgentAccount.AgentAccountPath;
+import com.workplace.jooq.tables.AgentAccountBinding.AgentAccountBindingPath;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
 import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
@@ -597,6 +599,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _filePreview = new FilePreviewPath(this, null, Keys.FILE_PREVIEW__FILE_PREVIEW_TENANT_ID_FKEY.getInverseKey());
 
         return _filePreview;
+    }
+
+    private transient AgentAccountBindingPath _agentAccountBinding;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_binding</code> table
+     */
+    public AgentAccountBindingPath agentAccountBinding() {
+        if (_agentAccountBinding == null)
+            _agentAccountBinding = new AgentAccountBindingPath(this, null, Keys.AGENT_ACCOUNT_BINDING__FK_AGENT_ACCOUNT_BINDING_TENANT.getInverseKey());
+
+        return _agentAccountBinding;
+    }
+
+    private transient AgentAccountPath _agentAccount;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account</code> table
+     */
+    public AgentAccountPath agentAccount() {
+        if (_agentAccount == null)
+            _agentAccount = new AgentAccountPath(this, null, Keys.AGENT_ACCOUNT__FK_AGENT_ACCOUNT_TENANT.getInverseKey());
+
+        return _agentAccount;
     }
 
     private transient AgentLocationPath _agentLocation;
@@ -2022,6 +2050,14 @@ public class Tenant extends TableImpl<TenantRecord> {
             _workerJob = new WorkerJobPath(this, null, Keys.WORKER_JOB__WORKER_JOB_TENANT_ID_FKEY.getInverseKey());
 
         return _workerJob;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>agent_account_binding_agent_user_id_fkey</code> key
+     */
+    public UserPath agentAccountBindingAgentUserIdFkey() {
+        return agentAccountBinding().agentAccountBindingAgentUserIdFkey();
     }
 
     /**

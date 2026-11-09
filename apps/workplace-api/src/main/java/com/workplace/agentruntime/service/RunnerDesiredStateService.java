@@ -34,6 +34,7 @@ import com.workplace.auth.service.AgentApiKeyService.ManagedKey;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
+import com.workplace.auth.service.PodAccountSource;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
@@ -82,6 +83,7 @@ public class RunnerDesiredStateService {
   private final ObjectMapper objectMapper;
   private final AgentApiKeyService agentKeys;
   private final AiAgentCredentialService credentials;
+  private final PodAccountSource podAccounts;
   private final AgentRepoCredentialService repoCredentials;
   private final AgentRuntimeChangeNotifier changeNotifier;
   private final AgentRuntimeTransitions transitions;
@@ -117,7 +119,14 @@ public class RunnerDesiredStateService {
       Map<Long, ManagedKeyChain> chains = agentKeys.managedChains(ids, principal.tenantId());
       // 활성 연결 id·provider 를 한 번에(WP-1296·1297) — claude 버전은 provider 와 상관없이 id,
       // login 버전은 템플릿 계정과 같은 종류일 때만.
-      Map<Long, ActiveCredentialRef> credentialRefs = credentials.findActiveRefs(ids);
+      // WP-1448: AI 가 계정 목록의 계정에 묶였으면 그 계정(id 자리 = secret_version)이 활성 연결보다 먼저다.
+      // 묶인 AI 의 활성 연결은 어차피 묶인 계정에 가려지므로 묶이지 않은 AI 만 조회한다.
+      Map<Long, ActiveCredentialRef> boundRefs = podAccounts.findBoundRefs(ids);
+      Map<Long, ActiveCredentialRef> credentialRefs =
+          new HashMap<>(
+              credentials.findActiveRefs(
+                  ids.stream().filter(id -> !boundRefs.containsKey(id)).toList()));
+      credentialRefs.putAll(boundRefs);
       // 템플릿은 행마다 한 번만 찾는다 — 사라진 템플릿의 AI 는 띄울 방법이 없어 아래에서 싣지 않는다.
       Map<Long, AgentTemplate> templates = new HashMap<>();
       for (Row row : rows) {
@@ -134,18 +143,27 @@ public class RunnerDesiredStateService {
       // login 버전(WP-1296·1297·1410)은 템플릿이 로그인 계정을 요구하고 활성 연결이 바로 그 계정인 AI 만 한 번에 묻는다 —
       // genia·chatgpt 는
       // 연결 id, OpenCode 는 /secrets/login 과 같은 함수로 계산한 값. 맞지 않으면 null(runner 가 Pod 의 로그인 정보를 지운다).
-      Map<Long, ActiveCredentialRef> loginRefs = new HashMap<>();
+      // 묶인 계정에서 온 참조와 활성 연결에서 온 참조를 나눈다 — 활성 연결 쪽은 연결 행을 몰아 읽는 기존 함수로, 계정 쪽은
+      // 계정 원문으로 같은 계산을 한다(WP-1448).
+      Map<Long, ActiveCredentialRef> legacyLoginRefs = new HashMap<>();
+      Map<Long, ActiveCredentialRef> boundLoginRefs = new HashMap<>();
       templates.forEach(
           (id, t) -> {
             ActiveCredentialRef ref = credentialRefs.get(id);
             if (ref != null
                 && AgentProviders.deliversLoginInfo(t.account())
                 && AgentAccountFit.fits(t, ref.provider())) {
-              loginRefs.put(id, ref);
+              (boundRefs.containsKey(id) ? boundLoginRefs : legacyLoginRefs).put(id, ref);
             }
           });
       Map<Long, Long> loginVersions =
-          loginRefs.isEmpty() ? Map.of() : credentials.podLoginVersions(loginRefs);
+          new HashMap<>(
+              legacyLoginRefs.isEmpty() ? Map.of() : credentials.podLoginVersions(legacyLoginRefs));
+      // 묶인 계정 쪽은 한 프록시 메서드 안에서 복호화·계산하고 AI 하나의 실패를 그 안에서 뺀다 — 여기서 AI 마다 프록시를 부르고 잡으면,
+      // 안쪽 프록시를 지난 예외가 이 트랜잭션을 rollback-only 로 표시해 위치 전체가 500 이 된다.
+      if (!boundLoginRefs.isEmpty()) {
+        loginVersions.putAll(podAccounts.findBoundPodLoginVersions(boundLoginRefs));
+      }
       for (Row row : rows) {
         long id = row.agentUserId();
         AgentTemplate t = templates.get(id);
@@ -355,9 +373,11 @@ public class RunnerDesiredStateService {
     if (!settings.isRunningAt(agentUserId, location.id(), location.isDefault())) {
       throw new RunnerAgentNotFoundException();
     }
+    // WP-1448: 묶인 계정이 먼저, 없으면 활성 연결 — desired 의 claude 버전과 같은 순서.
     ActiveProviderSecret secret =
-        credentials
-            .findActiveSecret(agentUserId)
+        podAccounts
+            .findBoundSecret(agentUserId)
+            .or(() -> credentials.findActiveSecret(agentUserId))
             .orElseThrow(() -> new RunnerSecretNotFoundException("AI 에 등록된 모델 연결이 없습니다"));
     return new RunnerClaudeSecretResponse(secret.id(), secret.provider(), secret.plaintext());
   }
@@ -386,11 +406,22 @@ public class RunnerDesiredStateService {
             .filter(t -> AgentProviders.deliversLoginInfo(t.account()))
             .flatMap(
                 t ->
-                    credentials
-                        .findPodLoginSecret(agentUserId)
+                    podLoginSecret(agentUserId)
                         .filter(sec -> AgentAccountFit.fits(t, sec.provider())))
             .orElseThrow(() -> new RunnerSecretNotFoundException("AI 에 연결할 로그인 정보가 없습니다"));
     return new RunnerLoginSecretResponse(secret.id(), secret.provider(), secret.plaintext());
+  }
+
+  /**
+   * Pod 에 넘길 로그인 정보(WP-1448) — 묶인 계정이 먼저, 없으면 활성 연결. 둘 다 같은 함수({@link
+   * AiAgentCredentialService#toPodLoginSecret})로 다듬으므로 version 이 desired 의 login 버전과 같다. 묶인 계정이
+   * 템플릿에 맞지 않으면 (활성 연결로 내려가지 않고) 호출자의 맞음 검사에서 「없음」이 된다 — desired 도 묶인 계정 참조로 판정해 null 이다.
+   */
+  private Optional<ActiveProviderSecret> podLoginSecret(long agentUserId) {
+    return podAccounts
+        .findBoundSecret(agentUserId)
+        .map(sec -> credentials.toPodLoginSecret(agentUserId, sec))
+        .or(() -> credentials.findPodLoginSecret(agentUserId));
   }
 
   /**

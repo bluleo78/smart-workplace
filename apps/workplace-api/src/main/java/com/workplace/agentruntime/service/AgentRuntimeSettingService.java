@@ -22,6 +22,8 @@ import com.workplace.agentruntime.service.AgentRuntimeTransitions.State;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
+import com.workplace.auth.service.PodAccountSource;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -70,6 +72,7 @@ public class AgentRuntimeSettingService {
   private final AgentRuntimeProjectRepository projectRepository;
   private final AgentRepoCredentialService repoCredentials;
   private final AiAgentCredentialService credentials;
+  private final PodAccountSource podAccounts;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -113,10 +116,10 @@ public class AgentRuntimeSettingService {
     locationRepository.lockTenantLocations();
     if (existing.isEmpty()) {
       if (req.locationId() != null) requireLocation(req.locationId());
-      // WP-1296·1297: 지금 AI 계정이 새 템플릿에 맞지 않으면 방식 변경과 함께 끊는다(같은 트랜잭션). 위치 확인 등 거절 검사를 모두 통과한 뒤
-      // 저장 직전에만 끊는다 — 거절된 저장이 연결을 끊지 않게.
-      AgentAccountFit.revokeUnfit(
-          credentials, callerId, agentId, template, credentials.findActiveProvider(agentId));
+      // WP-1448: 다른 방식 → 작업 공간이면 지금 활성 연결은 맞든 안 맞든 끊는다(같은 트랜잭션) — 작업 공간 AI 는 AI 계정 목록에서 계정을 고른다
+      // (기존 연결을 계정으로 자동 변환하지 않는다, 설계 6절). 위치 확인 등 거절 검사를 모두 통과한 뒤 저장 직전에만 끊는다 — 거절된 저장이 연결을
+      // 끊지 않게. 회수는 멱등이라 연결이 없으면 아무것도 하지 않는다.
+      credentials.revoke(callerId, agentId);
       Row inserted =
           settings.insert(
               agentId, template.name(), template.version(), req.locationId(), config, callerId);
@@ -152,6 +155,8 @@ public class AgentRuntimeSettingService {
         newEffective = locationService.effectiveLocationId(null);
       }
     }
+    // WP-1448: 새 템플릿에 맞지 않는 묶인 계정은 풀고(관리자가 맞는 계정을 다시 고른다), 맞지 않는 활성 연결은 지금처럼 끊는다 — 둘 다 거절 검사 뒤.
+    AgentAccountFit.unbindUnfit(podAccounts, callerId, agentId, template);
     AgentAccountFit.revokeUnfit(credentials, callerId, agentId, template, activeProvider);
     next =
         next.withApplyMode(req.applyMode() == null ? ApplyMode.IDLE : req.applyMode())
@@ -236,10 +241,15 @@ public class AgentRuntimeSettingService {
   /**
    * 실행 설정 삭제 — 켜져 있으면 409(먼저 끄기). 실행 방식은 바꾸지 않는다 — 화면이 이어서 기존 실행 방식 변경 API 를 부른다. 남은 자동 발급 키는 정리
    * 유예로 줄인다(WP-1253 — 끌 때 이미 줄었으면 그대로).
+   *
+   * <p>AI 계정에 묶여 있었으면 풀고 남은 활성 연결도 끊는다(WP-1448 — 새 방식의 연결을 요구). 묶여 있지 않았으면 연결은 그대로 두고, 이어지는 실행 방식
+   * 변경(기본 전환이면 맞지 않는 연결 끊기)이 지금처럼 정한다.
    */
   public void delete(long callerId, long agentId) {
     Row row = lockRow(agentId);
     if (row.desired() == Desired.RUN) throw AgentRuntimeSettingConflictException.running();
+    // 설정 행을 지우기 전에 푼다 — runner 알림이 지금 실행 설정을 읽는다.
+    AgentAccountFit.leaveWorkspace(credentials, podAccounts, callerId, agentId);
     settings.delete(agentId);
     transitions.applyTransition(agentId, State.of(row), null, callerId);
     audit(callerId, "AGENT_RUNTIME_SETTING_DELETED", agentId, "AI 실행 설정 삭제", Map.of());
@@ -285,11 +295,28 @@ public class AgentRuntimeSettingService {
    *
    * <p>OpenAI 호환 연결은 providerId 가 Pod 가 받는 꼴(영문·숫자·. _ -)인지도 본다 — 등록 검증이 생기기 전에 저장된 옛 연결이면 켜져도 Pod
    * 가 칸을 띄우지 않으므로 409 로 이유를 알린다.
+   *
+   * <p>WP-1448: runner 가 실제로 쓸 출처만 판정한다. AI 계정이 묶여 있으면 그 계정만 본다 — 맞으면 통과(providerId 검사도 그 계정 원문에),
+   * 맞지 않으면 409(runner 는 묶인 계정이 맞지 않을 때 활성 연결로 내려가지 않는다). 묶인 계정이 없을 때만 지금처럼 활성 연결로 판정한다.
    */
   private void requireLoginAccount(
       long agentId, AgentTemplate template, Optional<String> activeProvider) {
     String account = template.account();
     if (!AgentProviders.deliversLoginInfo(account)) return;
+    Optional<ActiveProviderSecret> bound = podAccounts.findBoundSecret(agentId);
+    if (bound.isPresent()) {
+      // 묶인 계정이 있으면 활성 연결은 보지 않는다 — runner 계약(묶인 계정 우선, 맞지 않으면 없음)과 같은 판정.
+      if (!AgentAccountFit.fits(template, bound.get().provider())) {
+        throw new AgentRuntimeSettingConflictException(
+            "「" + AgentProviders.label(account) + "」을 먼저 연결해 주세요");
+      }
+      if (AgentProviders.OPENCODE.equals(account)
+          && credentials.isPodUnsafeOpencodePayload(bound.get().plaintext())) {
+        throw new AgentRuntimeSettingConflictException(
+            "「OpenAI 호환」 계정의 providerId 는 영문·숫자와 . _ - 만 쓸 수 있어 작업 공간에서 쓸 수 없습니다. 계정을 다시 등록해 주세요");
+      }
+      return;
+    }
     if (activeProvider.filter(p -> AgentAccountFit.fits(template, p)).isEmpty()) {
       throw new AgentRuntimeSettingConflictException(
           "「" + AgentProviders.label(account) + "」을 먼저 연결해 주세요");

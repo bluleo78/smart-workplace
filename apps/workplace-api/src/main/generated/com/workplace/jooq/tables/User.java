@@ -7,6 +7,8 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AgentAccount.AgentAccountPath;
+import com.workplace.jooq.tables.AgentAccountBinding.AgentAccountBindingPath;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentLocation.AgentLocationPath;
 import com.workplace.jooq.tables.AgentRepoCredential.AgentRepoCredentialPath;
@@ -347,6 +349,47 @@ public class User extends TableImpl<UserRecord> {
             _user = new UserPath(this, Keys.USER__USER_PERSONAL_ASSISTANT_AGENT_ID_FKEY, null);
 
         return _user;
+    }
+
+    private transient AgentAccountBindingPath _agentAccountBindingAgentUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_binding</code> table, via the
+     * <code>agent_account_binding_agent_user_id_fkey</code> key
+     */
+    public AgentAccountBindingPath agentAccountBindingAgentUserIdFkey() {
+        if (_agentAccountBindingAgentUserIdFkey == null)
+            _agentAccountBindingAgentUserIdFkey = new AgentAccountBindingPath(this, null, Keys.AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _agentAccountBindingAgentUserIdFkey;
+    }
+
+    private transient AgentAccountBindingPath _agentAccountBindingBoundByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_binding</code> table, via the
+     * <code>agent_account_binding_bound_by_fkey</code> key
+     */
+    public AgentAccountBindingPath agentAccountBindingBoundByFkey() {
+        if (_agentAccountBindingBoundByFkey == null)
+            _agentAccountBindingBoundByFkey = new AgentAccountBindingPath(this, null, Keys.AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_BOUND_BY_FKEY.getInverseKey());
+
+        return _agentAccountBindingBoundByFkey;
+    }
+
+    private transient AgentAccountPath _agentAccount;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account</code> table
+     */
+    public AgentAccountPath agentAccount() {
+        if (_agentAccount == null)
+            _agentAccount = new AgentAccountPath(this, null, Keys.AGENT_ACCOUNT__AGENT_ACCOUNT_CREATED_BY_FKEY.getInverseKey());
+
+        return _agentAccount;
     }
 
     private transient AgentApiKeyPath _agentApiKeyCreatedByFkey;
@@ -1821,6 +1864,14 @@ public class User extends TableImpl<UserRecord> {
             _workspaceAssistantUpdatedByFkey = new WorkspaceAssistantPath(this, null, Keys.WORKSPACE_ASSISTANT__WORKSPACE_ASSISTANT_UPDATED_BY_FKEY.getInverseKey());
 
         return _workspaceAssistantUpdatedByFkey;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table, via the <code>fk_agent_account_binding_tenant</code> key
+     */
+    public TenantPath fkAgentAccountBindingTenant() {
+        return agentAccountBindingAgentUserIdFkey().tenant();
     }
 
     /**

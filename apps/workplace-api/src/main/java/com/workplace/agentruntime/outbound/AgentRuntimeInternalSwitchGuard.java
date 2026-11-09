@@ -7,8 +7,10 @@ import com.workplace.agentruntime.service.AgentAccountFit;
 import com.workplace.agentruntime.service.AgentKeyRetirement;
 import com.workplace.agentruntime.service.AgentRuntimeTransitions;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.PodAccountSource;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.outbound.AgentRuntimeChanged;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.Ordered;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Component;
  *       규칙, WP-1264) — 「기본」 템플릿 = 행 없음 + INTERNAL. 관리자 화면에 지워졌다고 알린다(WP-1254). 둘 다 {@link
  *       AgentRuntimeTransitions} 가 한다(WP-1274).
  *   <li>활성 AI 계정이 기본 방식에서 쓸 수 없는 종류(로그인 정보 genia·chatgpt 등)면 끊는다(WP-1296·1297).
+ *   <li>작업 공간 AI 가 AI 계정 목록의 계정에 묶여 있었으면 묶음을 풀고 남은 활성 연결도 끊는다 — 기본 방식의 연결을 새로 요구한다(WP-1448).
  * </ul>
  *
  * <p>가장 먼저 돌게 해(@Order) 다른 리스너(AI 작업 기록 정리 등)가 일을 벌인 뒤에 거절되는 일이 없게 한다.
@@ -35,22 +38,26 @@ public class AgentRuntimeInternalSwitchGuard {
   private final AgentRuntimeSettingRepository settings;
   private final AgentRuntimeTransitions transitions;
   private final AiAgentCredentialService credentials;
+  private final PodAccountSource podAccounts;
 
   @EventListener
   @Order(Ordered.HIGHEST_PRECEDENCE)
   public void onAgentRuntimeChanged(AgentRuntimeChanged e) {
     if (!AgentRuntime.INTERNAL.equals(e.runtime())) return;
-    settings
-        .findForUpdate(e.agentUserId())
-        .ifPresent(
-            row -> {
-              if (row.desired() == Desired.RUN)
-                throw AgentRuntimeSettingConflictException.running();
-              settings.delete(e.agentUserId());
-              // 꺼진 채 지워진다 — 키 정리·관리자 알림(지워짐)은 전이 한곳이 한다(WP-1274).
-              transitions.applyTransition(
-                  e.agentUserId(), AgentRuntimeTransitions.State.of(row), null, null);
-            });
+    Optional<AgentRuntimeSettingRepository.Row> locked = settings.findForUpdate(e.agentUserId());
+    if (locked.isPresent()) {
+      AgentRuntimeSettingRepository.Row row = locked.get();
+      if (row.desired() == Desired.RUN) throw AgentRuntimeSettingConflictException.running();
+      // WP-1448: 계정 묶음은 작업 공간 방식만 쓴다 — 풀고, 묶여 있었으면 남은 옛 연결도 끊는다(설정 행을 지우기 전에 — runner 알림이 행을 읽는다).
+      boolean wasBound =
+          AgentAccountFit.leaveWorkspace(credentials, podAccounts, e.callerId(), e.agentUserId());
+      settings.delete(e.agentUserId());
+      // 꺼진 채 지워진다 — 키 정리·관리자 알림(지워짐)은 전이 한곳이 한다(WP-1274).
+      transitions.applyTransition(
+          e.agentUserId(), AgentRuntimeTransitions.State.of(row), null, null);
+      // 묶여 있었으면 연결은 위에서 이미 모두 끊었다 — 아래 맞지 않는 연결 끊기는 할 일이 없다.
+      if (wasBound) return;
+    }
     // WP-1296·1297: 기본 방식에 맞지 않는 계정(로그인 정보 등)은 방식 변경과 함께 끊는다 — 등록 검사와 같은 판정. 켜져 있어 거절(409)되는
     // 변경은 위에서 이미 던졌으므로 아무것도 끊지 않는다. 실행 설정 행이 없던 「내 컴퓨터」 AI 도 여기서 끊긴다.
     AgentAccountFit.revokeUnfit(

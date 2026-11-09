@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -116,6 +117,18 @@ public final class AgentProviders {
         .filter(a -> a != null)
         .findFirst()
         .orElse(null);
+  }
+
+  /** OpenCode Pod 가 받는 providerId 꼴 — 영문·숫자와 {@code . _ -} 만(WP-1410). */
+  private static final Pattern POD_SAFE_PROVIDER_ID = Pattern.compile("[A-Za-z0-9._-]+");
+
+  /**
+   * OpenCode Pod 가 받는 providerId 꼴인가(WP-1410) — 영문·숫자와 {@code . _ -} 만. Pod 엔트리포인트(lib-opencode.sh
+   * 의 opencode_login_ok)와 같은 규칙이다. 설정 파일의 provider 키·모델 접두로 그대로 쓰이므로 다른 글자는 받지 않는다. AI 연결
+   * (AiAgentCredentialService)과 AI 계정 목록(WP-1448 AgentAccountService)이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
+   */
+  public static boolean isPodSafeProviderId(String providerId) {
+    return providerId != null && POD_SAFE_PROVIDER_ID.matcher(providerId).matches();
   }
 
   /** 계정 종류의 화면 이름 — 모르는 값이면 값 그대로. */

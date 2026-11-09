@@ -701,7 +701,8 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
 
   /**
    * 기본(서버) 방식 AI 의 OpenAI 호환 연결은 Pod 로 넘어가지 않으므로 providerId 를 예전처럼 받는다 — 기존 연결의 키를 바꿔 다시 등록해도 400 이
-   * 나지 않게. 나중에 OpenCode 템플릿으로 바꾸면 켜기 확인이 409 로 막는다.
+   * 나지 않게. 작업 공간으로 옮기면 그 연결은 끊기고(WP-1448 — 계정을 고르게), 작업 공간에 남은 같은 꼴의 옛 연결(등록 검증 전 저장분)은 켜기 확인이 409
+   * 로 막는다.
    */
   @Test
   void register_opencodeWithUnsafeProviderIdInServerMode_isAcceptedButStartIsBlocked() {
@@ -713,6 +714,8 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     credentials.register(admin, agent, "opencode", payload, "x", "my provider/m");
 
     putTemplate(agent, "opencode");
+    assertThat(activeProvider(agent)).isEmpty();
+    forceCredential(agent, "opencode", payload);
     assertThatThrownBy(() -> settingService.start(admin, agent))
         .isInstanceOf(AgentRuntimeSettingConflictException.class)
         .hasMessageContaining("providerId");
@@ -753,16 +756,37 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     assertThat(activeProvider(agent)).isEmpty();
   }
 
-  /** anthropic 연결은 로그인 템플릿으로 바꾸면(기존 행 변경) 끊기고, 맞는 템플릿(claude-code)으로 처음 둘 때는 남는다. */
+  /**
+   * 템플릿을 바꾸는 저장(기존 행 변경)은 새 템플릿에 맞지 않는 연결만 끊는다 — anthropic 연결은 로그인 템플릿으로 바꾸면 끊기고, chatgpt 연결은 같은
+   * 계정을 쓰는 템플릿끼리 바꾸면 남는다. (처음 작업 공간으로 옮길 때는 맞든 안 맞든 끊긴다 — WP-1448.)
+   */
   @Test
   void put_revokesOnlyNonFittingCredential() {
+    long agent = newAgent();
+    putTemplate(agent, "claude-code");
+    registerAnthropic(agent);
+
+    putTemplate(agent, LOGIN_TEMPLATE);
+    assertThat(activeProvider(agent)).isEmpty();
+
+    long codex = newAgent();
+    putTemplate(codex, "codex");
+    registerChatgpt(codex);
+
+    putTemplate(codex, LOGIN_TEMPLATE);
+    assertThat(activeProvider(codex)).contains("chatgpt");
+  }
+
+  /**
+   * 처음 작업 공간으로 옮길 때는 맞는 연결(anthropic → claude-code)도 끊긴다 — 작업 공간 AI 는 AI 계정 목록에서 계정을 고른다(WP-1448).
+   */
+  @Test
+  void put_firstWorkspaceSetting_revokesEvenFittingCredential() {
     long agent = newAgent();
     registerAnthropic(agent);
 
     putTemplate(agent, "claude-code");
-    assertThat(activeProvider(agent)).contains("anthropic");
 
-    putTemplate(agent, LOGIN_TEMPLATE);
     assertThat(activeProvider(agent)).isEmpty();
   }
 
