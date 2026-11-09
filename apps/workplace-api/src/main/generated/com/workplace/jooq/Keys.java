@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentAccount;
 import com.workplace.jooq.tables.AgentAccountBinding;
+import com.workplace.jooq.tables.AgentAccountLoginRefresh;
 import com.workplace.jooq.tables.AgentAccountUsage;
 import com.workplace.jooq.tables.AgentAccountUsageCheck;
 import com.workplace.jooq.tables.AgentApiKey;
@@ -163,6 +164,7 @@ import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 import com.workplace.jooq.tables.records.AgentAccountBindingRecord;
+import com.workplace.jooq.tables.records.AgentAccountLoginRefreshRecord;
 import com.workplace.jooq.tables.records.AgentAccountRecord;
 import com.workplace.jooq.tables.records.AgentAccountUsageCheckRecord;
 import com.workplace.jooq.tables.records.AgentAccountUsageRecord;
@@ -341,6 +343,7 @@ public class Keys {
 
     public static final UniqueKey<AgentAccountRecord> AGENT_ACCOUNT_PKEY = Internal.createUniqueKey(AgentAccount.AGENT_ACCOUNT, DSL.name("agent_account_pkey"), new TableField[] { AgentAccount.AGENT_ACCOUNT.ID }, true);
     public static final UniqueKey<AgentAccountBindingRecord> AGENT_ACCOUNT_BINDING_PKEY = Internal.createUniqueKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_pkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.TENANT_ID, AgentAccountBinding.AGENT_ACCOUNT_BINDING.AGENT_USER_ID }, true);
+    public static final UniqueKey<AgentAccountLoginRefreshRecord> AGENT_ACCOUNT_LOGIN_REFRESH_PKEY = Internal.createUniqueKey(AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH, DSL.name("agent_account_login_refresh_pkey"), new TableField[] { AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH.ACCOUNT_ID }, true);
     public static final UniqueKey<AgentAccountUsageRecord> AGENT_ACCOUNT_USAGE_PKEY = Internal.createUniqueKey(AgentAccountUsage.AGENT_ACCOUNT_USAGE, DSL.name("agent_account_usage_pkey"), new TableField[] { AgentAccountUsage.AGENT_ACCOUNT_USAGE.ACCOUNT_ID, AgentAccountUsage.AGENT_ACCOUNT_USAGE.WINDOW_KEY }, true);
     public static final UniqueKey<AgentAccountUsageCheckRecord> AGENT_ACCOUNT_USAGE_CHECK_PKEY = Internal.createUniqueKey(AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK, DSL.name("agent_account_usage_check_pkey"), new TableField[] { AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK.ACCOUNT_ID }, true);
     public static final UniqueKey<AgentApiKeyRecord> AGENT_API_KEY_PKEY = Internal.createUniqueKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_pkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.ID }, true);
@@ -543,6 +546,8 @@ public class Keys {
     public static final ForeignKey<AgentAccountBindingRecord, UserRecord> AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_AGENT_USER_ID_FKEY = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_agent_user_id_fkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.AGENT_USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentAccountBindingRecord, UserRecord> AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_BOUND_BY_FKEY = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_bound_by_fkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.BOUND_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentAccountBindingRecord, TenantRecord> AGENT_ACCOUNT_BINDING__FK_AGENT_ACCOUNT_BINDING_TENANT = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("fk_agent_account_binding_tenant"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
+    public static final ForeignKey<AgentAccountLoginRefreshRecord, AgentAccountRecord> AGENT_ACCOUNT_LOGIN_REFRESH__AGENT_ACCOUNT_LOGIN_REFRESH_ACCOUNT_ID_FKEY = Internal.createForeignKey(AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH, DSL.name("agent_account_login_refresh_account_id_fkey"), new TableField[] { AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH.ACCOUNT_ID }, Keys.AGENT_ACCOUNT_PKEY, new TableField[] { AgentAccount.AGENT_ACCOUNT.ID }, true);
+    public static final ForeignKey<AgentAccountLoginRefreshRecord, TenantRecord> AGENT_ACCOUNT_LOGIN_REFRESH__FK_AGENT_ACCOUNT_LOGIN_REFRESH_TENANT = Internal.createForeignKey(AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH, DSL.name("fk_agent_account_login_refresh_tenant"), new TableField[] { AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<AgentAccountUsageRecord, AgentAccountRecord> AGENT_ACCOUNT_USAGE__AGENT_ACCOUNT_USAGE_ACCOUNT_ID_FKEY = Internal.createForeignKey(AgentAccountUsage.AGENT_ACCOUNT_USAGE, DSL.name("agent_account_usage_account_id_fkey"), new TableField[] { AgentAccountUsage.AGENT_ACCOUNT_USAGE.ACCOUNT_ID }, Keys.AGENT_ACCOUNT_PKEY, new TableField[] { AgentAccount.AGENT_ACCOUNT.ID }, true);
     public static final ForeignKey<AgentAccountUsageRecord, TenantRecord> AGENT_ACCOUNT_USAGE__FK_AGENT_ACCOUNT_USAGE_TENANT = Internal.createForeignKey(AgentAccountUsage.AGENT_ACCOUNT_USAGE, DSL.name("fk_agent_account_usage_tenant"), new TableField[] { AgentAccountUsage.AGENT_ACCOUNT_USAGE.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<AgentAccountUsageCheckRecord, AgentAccountRecord> AGENT_ACCOUNT_USAGE_CHECK__AGENT_ACCOUNT_USAGE_CHECK_ACCOUNT_ID_FKEY = Internal.createForeignKey(AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK, DSL.name("agent_account_usage_check_account_id_fkey"), new TableField[] { AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK.ACCOUNT_ID }, Keys.AGENT_ACCOUNT_PKEY, new TableField[] { AgentAccount.AGENT_ACCOUNT.ID }, true);

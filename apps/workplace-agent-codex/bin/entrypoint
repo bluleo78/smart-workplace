@@ -40,6 +40,8 @@ codex_env || die "$AI_DIR/codex 를 만들지 못했습니다"
 write_codex_config || die "$CODEX_HOME/config.toml 을 쓰지 못했습니다"
 write_codex_agents_md || log "경고: $CODEX_HOME/AGENTS.md(superpowers 세션 시작 안내)를 쓰지 못했습니다"
 seed_login
+# 3b. 서버가 갱신한 로그인을 칸을 띄우기 전에 한 번 받는다(WP-1450 — 이후는 감독 회차마다 간격대로). 실패해도 부팅은 계속한다.
+sync_login
 # 4. AI 키·git·저장소 자격 증명
 install_key || die "AI 키를 놓지 못했습니다"
 setup_git

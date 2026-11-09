@@ -39,6 +39,8 @@ export interface RunnerDesiredAgent {
   plugins: Record<string, unknown>[];
   config: Record<string, string>;
   secrets: RunnerSecretRef[];
+  /** 묶인 로그인 계정의 내용 변경 번호(WP-1450) — 서버가 같은 계정의 로그인을 갱신하면 오른다. 로그인이 없으면 null. 옛 서버는 필드 없음. */
+  loginRevision?: number | null;
 }
 
 export interface RunnerDesired {

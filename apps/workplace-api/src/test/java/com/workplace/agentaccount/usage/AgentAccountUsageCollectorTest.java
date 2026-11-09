@@ -88,7 +88,15 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
 
   private long account(String provider, String secret, String status) {
     return accounts.insert(
-        provider, provider + "-계정", encryption.encrypt(secret), null, null, status, null, null);
+        provider,
+        provider + "-계정",
+        encryption.encrypt(secret),
+        null,
+        null,
+        status,
+        null,
+        null,
+        true);
   }
 
   private String status(long accountId) {
@@ -247,7 +255,8 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
   @Test
   void undecryptableSecret_recordsBadSecret_withoutProbing() {
     long id =
-        accounts.insert("anthropic", "깨진 원문", "not-encrypted", null, null, "ACTIVE", null, null);
+        accounts.insert(
+            "anthropic", "깨진 원문", "not-encrypted", null, null, "ACTIVE", null, null, true);
 
     assertThat(collector.collectAccount(1L, id)).isTrue();
 

@@ -96,6 +96,7 @@ Pod 안 시딩 규칙(이미지 엔트리포인트가 구현한다 — Gen:iA Co
 - 마운트 파일 `/run/genia/login-info` 가 없으면 `$AI_DIR` 아래의 보관본을 지운다(연결이 끊긴 것).
 - `GENIA_LOGIN_VERSION` 이 `$AI_DIR/state` 에 적어 둔 표식과 다르면 마운트 파일을 보관본 위치로 복사하고 표식을 기록한다(새로 등록한 로그인으로 교체).
 - 같으면 보관본을 그대로 둔다 — 프로그램이 스스로 갱신한 로그인을 옛 Secret 값으로 덮지 않는다.
+- **로그인 동기화(WP-1450, Codex)**: 서버에 묶인 ChatGPT 계정은 Works 서버가 만료 전에 갱신한다(Secret 의 `login-version` 은 바뀌지 않아 Pod 는 교체되지 않는다). Codex Pod 는 부팅 때(seed 직후·칸을 띄우기 전)와 감독 회차마다 `GENIA_LOGIN_SYNC_INTERVAL`(기본 300초) 간격으로 AI 키로 `GET /api/v1/agent-runtime/me/login?revision=<표식>` 을 부른다(표식 `$AI_DIR/state/login-revision`, 새 연결이면 지운다). 204(변경 없음)·404(묶이지 않은 옛 로그인 — 지금처럼 Pod 안 Codex 가 스스로 갱신)면 끝. 200 이면 응답 `version` 이 `GENIA_LOGIN_VERSION` 과 다를 때(선택이 바뀐 직후) 쓰지 않고, 같으면 서버 payload 의 `last_refresh` 가 로컬 auth.json 과 같거나 새로울 때 auth.json 을 원자적으로 덮고 표식에 `revision` 을 적는다. 로컬이 엄격히 새로우면(마이그레이션된 계정 등) `PUT …/me/login`(`{version, payload}`)으로 올린다. 칸의 codex 가 도는 중에 덮어도 된다(codex 는 갱신 직전에 디스크를 다시 읽는다). 실패해도 감독은 멈추지 않고 경고 한 줄만 남기며 로그인 원문은 남기지 않는다. Gen:iA Code 는 갱신 토큰이 없어 서버 갱신·동기화가 없다.
 - Gen:iA Code 는 `GENIA_CODING_AGENT_DIR`, Codex 는 `CODEX_HOME` 을 `$AI_DIR` 아래로 두고(Codex 는 로그인을 파일 저장소로 강제한다) 보관본이 그 안에 놓이게 한다.
 - Gen:iA Code 의 실제 자리: 보관본 `$AI_DIR/genia-agent/auth.json`(600, `GENIA_CODING_AGENT_DIR=$AI_DIR/genia-agent`), 표식 `$AI_DIR/state/login-version`. 마운트가 없거나 비었으면 보관본과 표식을 함께 지운다. 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다 — genia 가 로그인 선택 화면에서 멈춰 work-loop 가 돌지 않는다(11-03 실측). 연결하면 runner 가 Pod 를 다시 만든다. 원문은 로그·명령줄에 남기지 않는다.
 - Codex 의 실제 자리(WP-1297): `CODEX_HOME=$AI_DIR/codex`(700), 보관본 `$AI_DIR/codex/auth.json`(600), 표식 `$AI_DIR/state/login-version`. 엔트리포인트가 매번 새로 쓰는 `$AI_DIR/codex/config.toml` 에 `cli_auth_credentials_store = "file"` 을 넣어 codex 가 키링이 아니라 이 파일을 읽고 갱신해 다시 쓰게 한다. 마운트가 없거나 비었으면 보관본과 표식을 함께 지우고, 로그인 정보가 없으면 경고 한 줄만 남기고 칸을 띄우지 않는다(모델 목록도 묻지 않는다). 원문은 로그·명령줄에 남기지 않는다.
@@ -123,7 +124,7 @@ OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 �
 
 ## 모델 목록 보고 (WP-1297)
 
-로그인 정보 계정(Codex 의 ChatGPT 등)은 Works 서버가 모델 목록을 조회할 수 없다 — ChatGPT 의 access token 수명은 10일이고 refresh token 은 1회용(회전)이라, 서버가 저장된 로그인으로 갱신하면 Pod 안 프로그램의 로그인이 풀린다. 그래서 **Pod 가 보고한다**(관리자 화면 「모델」 칸이 이 보고로 채워진다).
+로그인 정보 계정(Codex 의 ChatGPT 등)은 Works 서버가 모델 목록을 조회하지 않는다 — ChatGPT 의 access token 수명은 10일이고 refresh token 은 1회용(회전)이라 갱신하는 쪽이 둘이면 로그인이 풀린다. WP-1450 이후 서버에 묶인 계정은 서버만 갱신하고 Pod 는 `/me/login` 으로 받아 쓰지만(위 「로그인 동기화」), 모델 목록은 Pod 의 프로그램이 로그인으로 직접 뽑는 편이 계정별 목록을 정확히 얻으므로 여전히 **Pod 가 보고한다**(관리자 화면 「모델」 칸이 이 보고로 채워진다).
 
 - 이미지 엔트리포인트(Codex 이미지)는 칸을 띄울 수 있을 때(로그인 있음) 부팅 첫 회차와 이후 주기적으로(하루 1회 또는 6시간) 프로그램에서 모델 목록을 뽑는다. Codex: `codex debug models` 의 `visibility == "list"` 만 `priority` 오름차순으로, `{id: slug, label: display_name, efforts: supported_reasoning_levels[].effort}` 로 바꾼다.
 - 그 JSON `{"models":[…]}` 을 플러그인 스크립트에 표준 입력으로 넘긴다: `"$GW_SCRIPTS/gw-models" < models.json` (`GW_SCRIPTS` = 이미지의 플러그인 `scripts/` 폴더). 스크립트가 AI 키·서버 주소·워크스페이스를 `gw-status` 와 같은 방식으로 읽고, env `GENIA_LOGIN_VERSION`(이 Pod 가 받은 로그인 정보의 `version` = 연결 행 id)을 `jq` 로 본문에 `loginVersion` 으로 덧붙여 `PUT /api/v1/agent-runtime/me/models` 를 부른다(계약은 `agent-runner-api.md` 「로그인 계정 모델 목록 보고」). `GENIA_AGENT_GENERATION` 이나 `GENIA_LOGIN_VERSION` 이 없으면(Works 가 띄운 AI 가 아니거나 로그인이 없음) 아무것도 하지 않는다. 이미지에는 `jq` 가 있어야 한다.

@@ -52,7 +52,9 @@ public class AgentAccountRepository {
         r.get(AGENT_ACCOUNT.CREATED_BY),
         toInstant(r.get(AGENT_ACCOUNT.CREATED_AT)),
         toInstant(r.get(AGENT_ACCOUNT.UPDATED_AT)),
-        toInstant(r.get(AGENT_ACCOUNT.REVOKED_AT)));
+        toInstant(r.get(AGENT_ACCOUNT.REVOKED_AT)),
+        r.get(AGENT_ACCOUNT.LOGIN_REVISION),
+        r.get(AGENT_ACCOUNT.SERVER_REFRESH_READY));
   }
 
   /** 「살아 있는 이 계정」 조건(id 일치 + 폐기 안 됨) — 단건 조회·잠금·수정·폐기가 같이 쓴다(살아 있음 규칙을 한 곳에). */
@@ -68,7 +70,10 @@ public class AgentAccountRepository {
     return t == null ? null : t.atOffset(ZoneOffset.UTC);
   }
 
-  /** 계정을 새로 넣는다. secret_version 은 시퀀스 기본값, 반환은 새 id. */
+  /**
+   * 계정을 새로 넣는다. secret_version 은 시퀀스 기본값, 반환은 새 id. {@code serverRefreshReady} 는 사람이 방금 넣은 원문이면
+   * true(서버가 갱신을 맡아도 된다), 이관 백필이면 false.
+   */
   public long insert(
       String provider,
       String label,
@@ -77,7 +82,8 @@ public class AgentAccountRepository {
       Instant lastRefreshedAt,
       String status,
       String fingerprint,
-      Long createdBy) {
+      Long createdBy,
+      boolean serverRefreshReady) {
     return dsl.insertInto(AGENT_ACCOUNT)
         .set(AGENT_ACCOUNT.PROVIDER, provider)
         .set(AGENT_ACCOUNT.LABEL, label)
@@ -87,6 +93,7 @@ public class AgentAccountRepository {
         .set(AGENT_ACCOUNT.STATUS, status)
         .set(AGENT_ACCOUNT.FINGERPRINT, fingerprint)
         .set(AGENT_ACCOUNT.CREATED_BY, createdBy)
+        .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, serverRefreshReady)
         .returning(AGENT_ACCOUNT.ID)
         .fetchOne()
         .getId();
@@ -112,6 +119,15 @@ public class AgentAccountRepository {
   public List<AgentAccountRow> findAllActive() {
     return dsl.selectFrom(AGENT_ACCOUNT)
         .where(AGENT_ACCOUNT.REVOKED_AT.isNull())
+        .orderBy(AGENT_ACCOUNT.ID)
+        .fetch(this::mapRow);
+  }
+
+  /** 이 워크스페이스의 폐기되지 않은 계정 중 주어진 종류만(id 오름차순) — 서버 로그인 갱신(WP-1450)이 갱신할 종류만 SQL 에서 고른다. */
+  public List<AgentAccountRow> findAllActiveByProviders(Collection<String> providers) {
+    if (providers.isEmpty()) return List.of();
+    return dsl.selectFrom(AGENT_ACCOUNT)
+        .where(AGENT_ACCOUNT.REVOKED_AT.isNull().and(AGENT_ACCOUNT.PROVIDER.in(providers)))
         .orderBy(AGENT_ACCOUNT.ID)
         .fetch(this::mapRow);
   }
@@ -150,7 +166,7 @@ public class AgentAccountRepository {
 
   /**
    * 원문을 교체한다 — secret_version 을 시퀀스에서 새로 받아 이 계정을 쓰는 AI 의 Pod 가 바뀐 것을 알게 한다. 이메일·갱신 시각·상태·정체성도 함께
-   * 갱신한다.
+   * 갱신한다. 사람이 방금 넣은 새 원문이라 서버 갱신 준비(server_refresh_ready)도 true 로 둔다.
    */
   public void replaceSecret(
       long id,
@@ -166,6 +182,30 @@ public class AgentAccountRepository {
         .set(AGENT_ACCOUNT.LAST_REFRESHED_AT, toOffset(lastRefreshedAt))
         .set(AGENT_ACCOUNT.STATUS, status)
         .set(AGENT_ACCOUNT.FINGERPRINT, fingerprint)
+        .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, true)
+        .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
+        .where(activeById(id))
+        .execute();
+  }
+
+  /** 서버 보관본이 신선하다고 확인된 계정으로 표시한다(Pod 가 더 새 로그인을 올렸을 때) — 이후 서버가 갱신을 맡는다. */
+  public void markServerRefreshReady(long id) {
+    dsl.update(AGENT_ACCOUNT)
+        .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, true)
+        .where(activeById(id))
+        .execute();
+  }
+
+  /**
+   * 서버 갱신이 영구 실패했음을 표시한다(WP-1450) — 같은 UPDATE 한 번으로 상태를 {@code status}(다시 로그인 필요)로 두고 서버 갱신 준비
+   * (server_refresh_ready)를 내린다. 사용량 조회 성공 등 다른 코드가 상태를 ACTIVE 로 되돌려도 서버가 죽은 갱신 토큰으로 다시 호출하지 않게 하기
+   * 위해서다. 준비 표시는 사람이 원문을 교체하거나({@link #replaceSecret}) Pod 가 더 새 로그인을 올릴 때({@link
+   * #updateLoginContentConfirmed})만 다시 선다.
+   */
+  public void markRefreshFailedPermanently(long id, String status) {
+    dsl.update(AGENT_ACCOUNT)
+        .set(AGENT_ACCOUNT.STATUS, status)
+        .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, false)
         .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
         .where(activeById(id))
         .execute();
@@ -181,6 +221,65 @@ public class AgentAccountRepository {
         .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
         .where(activeById(id))
         .execute();
+  }
+
+  /**
+   * 로그인 내용만 바꾼다(WP-1450) — 서버 갱신·Pod 되가져오기용. secret_version 이 expected 와 같을 때만 원문·갱신 시각을 바꾸고
+   * login_revision 을 1 올린다. secret_version 은 그대로라 이 계정을 쓰는 AI 의 Pod 는 갈리지 않는다(Pod 가 login_revision
+   * 으로 내용 변경만 안다). 그 사이 사람이 원문을 교체했거나(secret_version 변경) 폐기됐으면 바꾸지 않는다.
+   *
+   * @return 바꿨으면 true, 바뀐 행이 없으면 false
+   */
+  public boolean updateLoginContent(
+      long accountId,
+      long expectedSecretVersion,
+      String encryptedSecret,
+      OffsetDateTime lastRefreshedAt) {
+    return updateLoginContent(
+        accountId, expectedSecretVersion, encryptedSecret, lastRefreshedAt, null);
+  }
+
+  /**
+   * Pod 가 올린 더 새 로그인으로 내용을 바꾼다(WP-1450) — {@link #updateLoginContent(long, long, String,
+   * OffsetDateTime)} 와 같은 조건·변경에 더해, 같은 UPDATE 한 번으로 서버 갱신 준비(server_refresh_ready)를 true 로, 상태를
+   * {@code status}(정상)로 둔다. Pod 가 직접 되가져온 로그인은 서버 보관본보다 새롭고 살아 있다고 확인된 것이라서다.
+   *
+   * @return 바꿨으면 true, 바뀐 행이 없으면 false
+   */
+  public boolean updateLoginContentConfirmed(
+      long accountId,
+      long expectedSecretVersion,
+      String encryptedSecret,
+      OffsetDateTime lastRefreshedAt,
+      String status) {
+    return updateLoginContent(
+        accountId, expectedSecretVersion, encryptedSecret, lastRefreshedAt, status);
+  }
+
+  /** 로그인 내용 변경 UPDATE 한 곳 — {@code confirmedStatus} 가 있으면 서버 갱신 준비·상태도 함께 바꾼다. */
+  private boolean updateLoginContent(
+      long accountId,
+      long expectedSecretVersion,
+      String encryptedSecret,
+      OffsetDateTime lastRefreshedAt,
+      String confirmedStatus) {
+    var update =
+        dsl.update(AGENT_ACCOUNT)
+            .set(AGENT_ACCOUNT.ENCRYPTED_SECRET, encryptedSecret)
+            .set(AGENT_ACCOUNT.LAST_REFRESHED_AT, lastRefreshedAt)
+            .set(AGENT_ACCOUNT.LOGIN_REVISION, AGENT_ACCOUNT.LOGIN_REVISION.plus(1L))
+            .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now());
+    if (confirmedStatus != null) {
+      update =
+          update
+              .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, true)
+              .set(AGENT_ACCOUNT.STATUS, confirmedStatus);
+    }
+    return update
+            .where(
+                activeById(accountId).and(AGENT_ACCOUNT.SECRET_VERSION.eq(expectedSecretVersion)))
+            .execute()
+        > 0;
   }
 
   /**

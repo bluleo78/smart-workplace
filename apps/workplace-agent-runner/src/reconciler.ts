@@ -8,6 +8,7 @@ import {
   ANN_AGENT_KEY_ID,
   ANN_AGENT_KEY_ROTATE_AFTER,
   ANN_CLAUDE_VERSION,
+  ANN_LOGIN_REVISION,
   ANN_LOGIN_VERSION,
   ANN_REPO_HOSTS,
   ANN_REPOS_VERSION,
@@ -399,7 +400,7 @@ export class Reconciler {
     const oldData = decodeData(existing);
     const ann = { ...oldAnn };
     const data = { ...oldData };
-    const fetches = secretFetches(agent.secrets, ann, this.now());
+    const fetches = secretFetches(agent.secrets, ann, this.now(), agent.loginRevision);
 
     // 원문을 받다 실패함 — 이미 떠 있는 Pod 는 옛 값으로 두고, 새 Pod 는 다 받은 뒤에 만든다
     let fetchError: unknown;
@@ -449,13 +450,22 @@ export class Reconciler {
     const clearLogin = () => {
       delete data[SECRET_LOGIN_INFO];
       delete ann[ANN_LOGIN_VERSION];
+      delete ann[ANN_LOGIN_REVISION];
     };
     if (fetches.login === 'clear') {
       clearLogin();
     } else if (fetches.login === 'fetch') {
+      // version 은 그대로이고 revision 만 올라 다시 받는 경우(WP-1450 서버 갱신) — 계정 자체는 바뀌지 않았다
+      const desiredLoginVersion = refVersion(agent.secrets, 'login');
+      const revisionOnly =
+        desiredLoginVersion !== undefined && oldAnn[ANN_LOGIN_VERSION] === desiredLoginVersion && !!oldData[SECRET_LOGIN_INFO];
       try {
         const s = await this.works.getLoginSecret(id);
-        if (!s) {
+        if (!s && revisionOnly) {
+          // 갱신본만 받으러 갔는데 404(복호화 실패·일시적 템플릿 불일치) — 지우면 Pod 가 로그인 없이 다시 만들어진다(목표의 반대).
+          // 옛 login-info·version 을 그대로 두고 revision 기록도 올리지 않아 다음 회차에 다시 받으러 간다.
+          this.log.warn('로그인 정보를 다시 받지 못해 옛 값을 둡니다', { agentUserId: id, loginRevision: agent.loginRevision });
+        } else if (!s) {
           clearLogin();
           // desired 는 버전을 냈는데 받으러 간 사이 끊김·다른 종류로 바뀜 — desired 의 버전만 적어 두어 desired 가 다시 바뀔 때까지
           // 회차마다 다시 받으러 가지 않게 한다(원문 없이 둔다 — Pod 는 원문이 있을 때만 마운트한다. 저장소 토큰과 같은 규칙)
@@ -465,6 +475,12 @@ export class Reconciler {
           data[SECRET_LOGIN_INFO] = s.payload;
           ann[ANN_LOGIN_VERSION] = String(s.version);
           this.log.info('로그인 정보를 받았습니다', { agentUserId: id, version: s.version });
+        }
+        // 받은 로그인의 변경 번호를 적는다(받음·버전 바뀐 404 공통) — 같으면 다음 회차에 다시 받지 않고, 오르면 Secret 만 새로 받는다(Pod 는 건드리지 않는다).
+        // revision 만 오른 404 는 적지 않는다(위 — 다음 회차에 다시 받는다).
+        if (s || !revisionOnly) {
+          if (agent.loginRevision == null) delete ann[ANN_LOGIN_REVISION];
+          else ann[ANN_LOGIN_REVISION] = String(agent.loginRevision);
         }
       } catch (e) {
         // 못 받아도 받은 AI 키는 아래에서 꼭 적는다(옛 값은 그대로)

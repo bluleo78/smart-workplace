@@ -40,7 +40,8 @@ class AgentAccountRepositoryTest extends IntegrationTestBase {
   }
 
   private long newAccount(String label) {
-    return accounts.insert("anthropic", label, "iv:cipher", null, null, "ACTIVE", null, null);
+    return accounts.insert(
+        "anthropic", label, "iv:cipher", null, null, "ACTIVE", null, null, false);
   }
 
   @Test

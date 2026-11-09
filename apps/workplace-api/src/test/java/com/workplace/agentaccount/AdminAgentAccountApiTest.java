@@ -315,7 +315,7 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     long tenant2 = TestFixtures.createTenant(dsl, "ACTIVE");
     useTenant(tenant2);
     long foreign =
-        accounts.insert("anthropic", "남의 계정", "iv:cipher", null, null, "ACTIVE", null, null);
+        accounts.insert("anthropic", "남의 계정", "iv:cipher", null, null, "ACTIVE", null, null, false);
     useTenant(1L);
 
     call(get(BASE + "/" + foreign), admin)

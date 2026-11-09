@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentAccountBinding.AgentAccountBindingPath;
+import com.workplace.jooq.tables.AgentAccountLoginRefresh.AgentAccountLoginRefreshPath;
 import com.workplace.jooq.tables.AgentAccountUsage.AgentAccountUsagePath;
 import com.workplace.jooq.tables.AgentAccountUsageCheck.AgentAccountUsageCheckPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
@@ -134,6 +135,18 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
      */
     public final TableField<AgentAccountRecord, OffsetDateTime> REVOKED_AT = createField(DSL.name("revoked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.agent_account.login_revision</code>.
+     */
+    public final TableField<AgentAccountRecord, Long> LOGIN_REVISION = createField(DSL.name("login_revision"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.BIGINT)), this, "");
+
+    /**
+     * The column <code>public.agent_account.server_refresh_ready</code>. 서버
+     * 보관본이 신선하다고 확인돼 서버가 로그인 갱신을 맡아도 되는지(사람이 넣음·교체함, Pod 가 더 새 로그인을 올림이면 true,
+     * 이관 백필은 false)
+     */
+    public final TableField<AgentAccountRecord, Boolean> SERVER_REFRESH_READY = createField(DSL.name("server_refresh_ready"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "서버 보관본이 신선하다고 확인돼 서버가 로그인 갱신을 맡아도 되는지(사람이 넣음·교체함, Pod 가 더 새 로그인을 올림이면 true, 이관 백필은 false)");
+
     private AgentAccount(Name alias, Table<AgentAccountRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -256,6 +269,19 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
             _agentAccountBinding = new AgentAccountBindingPath(this, null, Keys.AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_ACCOUNT_ID_FKEY.getInverseKey());
 
         return _agentAccountBinding;
+    }
+
+    private transient AgentAccountLoginRefreshPath _agentAccountLoginRefresh;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_login_refresh</code> table
+     */
+    public AgentAccountLoginRefreshPath agentAccountLoginRefresh() {
+        if (_agentAccountLoginRefresh == null)
+            _agentAccountLoginRefresh = new AgentAccountLoginRefreshPath(this, null, Keys.AGENT_ACCOUNT_LOGIN_REFRESH__AGENT_ACCOUNT_LOGIN_REFRESH_ACCOUNT_ID_FKEY.getInverseKey());
+
+        return _agentAccountLoginRefresh;
     }
 
     private transient AgentAccountUsagePath _agentAccountUsage;

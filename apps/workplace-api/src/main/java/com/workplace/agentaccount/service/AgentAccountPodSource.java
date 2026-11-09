@@ -10,10 +10,12 @@ import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.service.AgentAccountFit;
 import com.workplace.agentruntime.service.AgentTemplateRegistry;
 import com.workplace.auth.dto.ActiveCredentialRef;
+import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.service.AgentAccountFitPolicy;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
+import com.workplace.auth.service.LoginInfoNormalizer;
 import com.workplace.auth.service.OpencodeLoginInfo;
 import com.workplace.auth.service.PodAccountSource;
 import com.workplace.global.security.EncryptionService;
@@ -21,6 +23,8 @@ import com.workplace.global.util.Texts;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -65,19 +69,26 @@ public class AgentAccountPodSource implements PodAccountSource {
   private final AssistantConfigRepository configRepo;
   private final ObjectMapper objectMapper;
 
-  /** 묶음·계정을 한 번씩 몰아 읽는다(AI 마다 조회하지 않게). 버전 자리는 {@link #versionId} 다. */
+  /**
+   * 묶음·계정을 한 번씩 몰아 읽는다(AI 마다 조회하지 않게). 버전 자리는 {@link #versionId} 다. 같은 계정 행의 login_revision 도 함께 실어
+   * runner desired 가 계정을 다시 읽지 않게 한다(WP-1450).
+   */
   @Override
-  public Map<Long, ActiveCredentialRef> findBoundRefs(Collection<Long> agentUserIds) {
+  public Map<Long, BoundRef> findBoundRefs(Collection<Long> agentUserIds) {
     Map<Long, Binding> bound = bindings.findBindings(agentUserIds);
     if (bound.isEmpty()) return Map.of();
     Map<Long, AgentAccountRow> rows =
         accounts.findActiveByIds(bound.values().stream().map(Binding::accountId).toList());
-    Map<Long, ActiveCredentialRef> out = new HashMap<>();
+    Map<Long, BoundRef> out = new HashMap<>();
     bound.forEach(
         (agentId, binding) -> {
           AgentAccountRow row = rows.get(binding.accountId());
           if (row != null) {
-            out.put(agentId, new ActiveCredentialRef(versionId(binding, row), row.provider()));
+            out.put(
+                agentId,
+                new BoundRef(
+                    new ActiveCredentialRef(versionId(binding, row), row.provider()),
+                    row.loginRevision()));
           }
         });
     return out;
@@ -149,6 +160,122 @@ public class AgentAccountPodSource implements PodAccountSource {
           }
         });
     return out;
+  }
+
+  /**
+   * Pod 용 묶인 로그인 — version 은 desired 의 loginVersion 과 같은 {@link #versionId}(이관 override 포함). 알던 번호와
+   * 같으면 복호화 없이 payload 없는 결과, 아니면 원문을 싣는다 — 원문을 읽지 못하면 그 사유를 싣지 않고 empty(계정이 없는 것과 같이 404).
+   */
+  @Override
+  public Optional<BoundLogin> findBoundLogin(long agentUserId, Long knownRevision) {
+    return bindings
+        .findBinding(agentUserId)
+        .flatMap(
+            binding ->
+                accounts
+                    .findActive(binding.accountId())
+                    .filter(row -> AgentProviders.isLogin(row.provider()))
+                    .flatMap(row -> toBoundLogin(agentUserId, binding, row, knownRevision)));
+  }
+
+  /** 읽은 묶음·계정 행으로 Pod 용 로그인을 만든다 — 알던 번호와 같으면 복호화하지 않는다. */
+  private Optional<BoundLogin> toBoundLogin(
+      long agentUserId, Binding binding, AgentAccountRow row, Long knownRevision) {
+    if (knownRevision != null && knownRevision == row.loginRevision()) {
+      return Optional.of(
+          new BoundLogin(versionId(binding, row), row.loginRevision(), row.provider(), null));
+    }
+    try {
+      return Optional.of(
+          new BoundLogin(
+              versionId(binding, row),
+              row.loginRevision(),
+              row.provider(),
+              encryptionService.decrypt(row.encryptedSecret())));
+    } catch (RuntimeException e) {
+      // 암호문·예외 메시지는 싣지 않는다 — 값이 섞일 수 있다.
+      log.warn(
+          "묶인 로그인 원문을 읽지 못함: agentUserId={} accountId={} ({})",
+          agentUserId,
+          row.id(),
+          e.getClass().getSimpleName());
+      return Optional.empty();
+    }
+  }
+
+  /**
+   * Pod 가 올린 로그인을 저장한다. 계정 행을 잠가 읽고 같은 잠금 안에서 검사·저장하므로 서버 갱신·원문 교체와 겹쳐도 어긋나지 않는다 — 저장은 {@code
+   * secret_version = 읽은 값}일 때만이라 사람이 그 사이 원문을 교체했으면(version 이 바뀜) 저장되지 않는다. 이유 코드만 돌려주고 올린 원문은 어디에도
+   * 싣지 않는다.
+   */
+  @Override
+  @Transactional
+  public LoginUploadOutcome uploadBoundLogin(long agentUserId, long version, String payload) {
+    Binding binding = bindings.findBinding(agentUserId).orElse(null);
+    AgentAccountRow row =
+        binding == null ? null : accounts.findActiveForUpdate(binding.accountId()).orElse(null);
+    if (row == null) return LoginUploadOutcome.NOT_BOUND;
+    if (!AgentProviders.CHATGPT.equals(row.provider())) return LoginUploadOutcome.NOT_CHATGPT;
+    // 선택이 바뀐 직후의 Pod 는 낡은 로그인을 올릴 수 있다 — 지금 login 버전과 다르면 받지 않는다.
+    if (versionId(binding, row) != version) return LoginUploadOutcome.VERSION_MISMATCH;
+    String stored;
+    try {
+      stored = encryptionService.decrypt(row.encryptedSecret());
+    } catch (RuntimeException e) {
+      // 저장본을 못 읽는 계정 — GET 과 같이 「받을 로그인 없음」(404)으로 본다. 암호문·예외 메시지는 싣지 않는다.
+      log.warn(
+          "묶인 로그인 저장본을 읽지 못해 올리기를 받지 않음: agentUserId={} accountId={} ({})",
+          agentUserId,
+          row.id(),
+          e.getClass().getSimpleName());
+      return LoginUploadOutcome.NOT_BOUND;
+    }
+    String normalized;
+    try {
+      normalized = LoginInfoNormalizer.normalize(AgentProviders.CHATGPT, payload);
+    } catch (InvalidProviderCredentialException | IllegalStateException e) {
+      return LoginUploadOutcome.INVALID;
+    }
+    // 다른 ChatGPT 계정의 로그인을 올리면 이 계정을 덮어쓰게 된다 — account_id 가 같아야 한다. 어느 쪽이든 없으면 같은 계정임을 확인할 수 없어 받지
+    // 않는다.
+    String storedAccountId = LoginInfoNormalizer.chatgptAccountId(stored);
+    String incomingAccountId = LoginInfoNormalizer.chatgptAccountId(normalized);
+    if (storedAccountId == null || !storedAccountId.equals(incomingAccountId)) {
+      return LoginUploadOutcome.ACCOUNT_MISMATCH;
+    }
+    // 갱신 토큰은 1회용이라 옛 로그인으로 덮으면 계정이 죽는다 — last_refresh 가 저장본보다 엄격히 새로울 때만.
+    Instant incoming = AgentAccountService.lastRefreshOf(normalized);
+    Instant current = AgentAccountService.lastRefreshOf(stored);
+    if (current == null) current = row.lastRefreshedAt();
+    if (incoming == null || (current != null && !incoming.isAfter(current))) {
+      return LoginUploadOutcome.NOT_NEWER;
+    }
+    // Pod 가 직접 되가져온 로그인은 가장 새 것이다 — 이관 직후(NEEDS_CHECK)·갱신 토큰 무효(RELOGIN_REQUIRED) 표시를 푼다.
+    boolean statusCleared = !AgentAccountService.STATUS_ACTIVE.equals(row.status());
+    // 내용 저장·서버 갱신 준비(server_refresh_ready — 이제 서버가 이 계정의 갱신을 맡아도 된다)·정상 상태를 UPDATE 한 번으로.
+    boolean saved =
+        accounts.updateLoginContentConfirmed(
+            row.id(),
+            row.secretVersion(),
+            encryptionService.encrypt(normalized),
+            incoming.atOffset(ZoneOffset.UTC),
+            AgentAccountService.STATUS_ACTIVE);
+    if (!saved) return LoginUploadOutcome.VERSION_MISMATCH;
+    // 감사 기록 — 계정 id·종류·라벨(공통 메타)에 더해 출처·변경 번호·AI·상태 변화만. 원문은 싣지 않는다.
+    Map<String, String> extra = new HashMap<>();
+    extra.put("source", "pod-upload");
+    extra.put("revision", String.valueOf(row.loginRevision() + 1));
+    extra.put("agent_user_id", String.valueOf(agentUserId));
+    if (statusCleared) extra.put("status_from", row.status());
+    accountService.audit(
+        agentUserId,
+        "AGENT_ACCOUNT_UPDATED",
+        row.id(),
+        "AI 계정 수정: " + row.label() + " (Pod 가 갱신한 로그인 반영" + (statusCleared ? ", 정상 확인" : "") + ")",
+        row.provider(),
+        row.label(),
+        extra);
+    return LoginUploadOutcome.SAVED;
   }
 
   /**

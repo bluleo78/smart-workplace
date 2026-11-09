@@ -8,6 +8,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentAccount.AgentAccountPath;
 import com.workplace.jooq.tables.AgentAccountBinding.AgentAccountBindingPath;
+import com.workplace.jooq.tables.AgentAccountLoginRefresh.AgentAccountLoginRefreshPath;
 import com.workplace.jooq.tables.AgentAccountUsage.AgentAccountUsagePath;
 import com.workplace.jooq.tables.AgentAccountUsageCheck.AgentAccountUsageCheckPath;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
@@ -614,6 +615,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _agentAccountBinding = new AgentAccountBindingPath(this, null, Keys.AGENT_ACCOUNT_BINDING__FK_AGENT_ACCOUNT_BINDING_TENANT.getInverseKey());
 
         return _agentAccountBinding;
+    }
+
+    private transient AgentAccountLoginRefreshPath _agentAccountLoginRefresh;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_login_refresh</code> table
+     */
+    public AgentAccountLoginRefreshPath agentAccountLoginRefresh() {
+        if (_agentAccountLoginRefresh == null)
+            _agentAccountLoginRefresh = new AgentAccountLoginRefreshPath(this, null, Keys.AGENT_ACCOUNT_LOGIN_REFRESH__FK_AGENT_ACCOUNT_LOGIN_REFRESH_TENANT.getInverseKey());
+
+        return _agentAccountLoginRefresh;
     }
 
     private transient AgentAccountPath _agentAccount;

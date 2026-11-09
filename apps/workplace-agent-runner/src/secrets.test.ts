@@ -100,4 +100,19 @@ describe('refVersion', () => {
     expect(refVersion(r, 'repos')).toBe('0');
     expect(refVersion(r, 'login')).toBeUndefined();
   });
+
+  // WP-1450 — 서버가 같은 계정의 로그인을 갱신하면 loginVersion 은 그대로고 loginRevision 만 오른다
+  it('loginRefetchesWhenOnlyRevisionChanges', () => {
+    const r = refs(812, 57, null, undefined, 88);
+    const withRev = { ...ANNOTATED, 'genia.works/login-revision': '3' };
+    expect(secretFetches(r, withRev, NOW, 4).login).toBe('fetch');
+    expect(secretFetches(r, withRev, NOW, 3).login).toBe('keep');
+    // revision 없음(null·undefined) — 버전으로만 판정
+    expect(secretFetches(r, withRev, NOW, null).login).toBe('keep');
+    expect(secretFetches(r, withRev, NOW).login).toBe('keep');
+    // 로그인이 없으면(clear) revision 이 있어도 지운다
+    expect(secretFetches(refs(812, 57, null, undefined, null), withRev, NOW, 4).login).toBe('clear');
+    // 기록이 없는 옛 Secret — 한 번 받아 기록을 남긴다(안 그러면 이후 갱신을 영영 모른다)
+    expect(secretFetches(r, ANNOTATED, NOW, 0).login).toBe('fetch');
+  });
 });

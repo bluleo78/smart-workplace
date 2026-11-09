@@ -356,7 +356,8 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
             null,
             AgentAccountService.STATUS_ACTIVE,
             AgentAccountService.fingerprint("opencode", unsafe),
-            admin);
+            admin,
+            false);
     bindingService.bind(admin, agent, accountId);
 
     assertThatThrownBy(() -> settingService.start(admin, agent))

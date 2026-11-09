@@ -592,6 +592,78 @@ describe('Reconciler', () => {
       expect(JSON.stringify(logs)).not.toContain('fake-login-secret-value');
     });
 
+    it('refreshesOnlySecretWhenOnlyLoginRevisionChanges', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      // 옛 Secret 은 revision 3 으로 기록 — 서버가 갱신해 4 가 됨(loginVersion 은 그대로)
+      const seeded = cluster.get<V1Secret>('Secret', 'agent-42')!;
+      seeded.metadata!.annotations!['genia.works/login-revision'] = '3';
+      const agent = { ...loginAgent(88), loginRevision: 4 };
+      const works = new FakeWorks(desired([agent]));
+      withLoginSecret(works, 88);
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+
+      expect(works.getLoginSecret).toHaveBeenCalledWith(42);
+      expect(cluster.calls).toEqual(['apply Secret/agent-42']);
+      expect(cluster.calls).not.toContain('delete Pod/agent-42');
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe(LOGIN_PAYLOAD);
+      const ann = cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations;
+      expect(ann?.['genia.works/login-revision']).toBe('4');
+      expect(ann?.['genia.works/login-version']).toBe('88');
+      expect(JSON.stringify(logs)).not.toContain('fake-login-secret-value');
+
+      // 다음 회차 — revision 이 같으니 다시 받지 않는다
+      works.getLoginSecret.mockClear();
+      cluster.calls.length = 0;
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+      expect(works.getLoginSecret).not.toHaveBeenCalled();
+      expect(cluster.calls).toEqual([]);
+    });
+
+    it('keepsLoginAndPodWhenRevisionOnlyRefetchReturnsNotFound', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      const seeded = cluster.get<V1Secret>('Secret', 'agent-42')!;
+      seeded.metadata!.annotations!['genia.works/login-revision'] = '3';
+      // version 은 그대로, revision 만 오름 — 그런데 받으러 가니 404(복호화 실패·일시 불일치)
+      const agent = { ...loginAgent(88), loginRevision: 4 };
+      const works = new FakeWorks(desired([agent]));
+      works.getLoginSecret.mockResolvedValue(null);
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+
+      // 옛 로그인 정보·version·revision 은 그대로 두고 Pod 도 건드리지 않는다(경고만 남긴다)
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe('{"old":true}');
+      const ann = cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations;
+      expect(ann?.['genia.works/login-version']).toBe('88');
+      expect(ann?.['genia.works/login-revision']).toBe('3');
+      expect(cluster.calls).not.toContain('delete Pod/agent-42');
+      expect(cluster.calls).toEqual([]);
+      expect(JSON.stringify(logs)).toContain('로그인 정보를 다시 받지 못해');
+
+      // 다음 회차 — revision 기록이 그대로라 다시 받으러 가고, 이번엔 받으면 Secret 만 바꾼다
+      withLoginSecret(works, 88);
+      works.getLoginSecret.mockClear();
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+      expect(works.getLoginSecret).toHaveBeenCalledWith(42);
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe(LOGIN_PAYLOAD);
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/login-revision']).toBe('4');
+      expect(cluster.calls).not.toContain('delete Pod/agent-42');
+    });
+
+    it('recreatesPodWhenLoginVersionChangesEvenWithRevision', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      const agent = { ...loginAgent(89), loginRevision: 1 };
+      const works = new FakeWorks(desired([agent]));
+      withLoginSecret(works, 89);
+      await makeReconciler(cluster, works).reconcileOnce();
+
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/login-revision']).toBe('1');
+    });
+
     it('recreatesPodWhenLoginVersionBecomesNull', async () => {
       const cluster = new FakeCluster();
       seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');

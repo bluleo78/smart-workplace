@@ -72,7 +72,10 @@ public class AgentAccountService {
   /** 확인 필요 — 이관 백필이 옮긴 로그인형 계정(서버 보관본이 낡았을 수 있다). 첫 사용량 조회(WP-1449)가 판정한다. */
   public static final String STATUS_NEEDS_CHECK = "NEEDS_CHECK";
 
-  /** 다시 로그인 필요 — 「확인 필요」 계정의 첫 사용량 조회가 401 계열로 실패했을 때(WP-1449). 조회가 성공하면 「정상」으로 돌아간다. */
+  /**
+   * 다시 로그인 필요 — 「확인 필요」 계정의 첫 사용량 조회가 401 계열로 실패했거나(WP-1449), 갱신 토큰이 더 통하지 않거나 로그인이 만료된
+   * 계정(WP-1450). 사용량 조회가 성공하거나 Pod 가 더 새 로그인을 올리면 「정상」으로 돌아가고, 아니면 사람이 다시 로그인해 원문을 교체한다.
+   */
   public static final String STATUS_RELOGIN_REQUIRED = "RELOGIN_REQUIRED";
 
   /** 같은 키 유일 인덱스(V274) — 동시 등록 경합에서 DB 위반을 409 로 옮길 때 이름으로 가린다. */
@@ -120,7 +123,7 @@ public class AgentAccountService {
       throw new AgentAccountDuplicateException();
     }
     String label = labelOrDefault(req.label(), provider);
-    long id = insertAccount(provider, label, parts, STATUS_ACTIVE, callerId);
+    long id = insertAccount(provider, label, parts, STATUS_ACTIVE, callerId, true);
     audit(
         callerId, "AGENT_ACCOUNT_REGISTERED", id, "AI 계정 등록: " + label, provider, label, Map.of());
     return get(id);
@@ -264,7 +267,7 @@ public class AgentAccountService {
     }
     String resolved = labelOrDefault(label, p);
     String status = backfill && AgentProviders.isLogin(p) ? STATUS_NEEDS_CHECK : STATUS_ACTIVE;
-    long id = insertAccount(p, resolved, parts, status, callerId);
+    long id = insertAccount(p, resolved, parts, status, callerId, !backfill);
     audit(
         callerId,
         "AGENT_ACCOUNT_REGISTERED",
@@ -276,9 +279,17 @@ public class AgentAccountService {
     return id;
   }
 
-  /** 계정 행을 암호화해 넣고 새 id 를 낸다 — 동시 등록 경합의 같은 키 유일 인덱스 위반은 409 로 옮긴다. 등록과 다리·백필이 같이 쓴다. */
+  /**
+   * 계정 행을 암호화해 넣고 새 id 를 낸다 — 동시 등록 경합의 같은 키 유일 인덱스 위반은 409 로 옮긴다. 등록과 다리·백필이 같이 쓴다. {@code
+   * serverRefreshReady}: 사람이 넣은 원문(등록·다리)이면 true, 이관 백필이면 false(Pod 가 이미 갱신 토큰을 돌렸을 수 있다).
+   */
   private long insertAccount(
-      String provider, String label, SecretParts parts, String status, Long createdBy) {
+      String provider,
+      String label,
+      SecretParts parts,
+      String status,
+      Long createdBy,
+      boolean serverRefreshReady) {
     try {
       return accounts.insert(
           provider,
@@ -288,7 +299,8 @@ public class AgentAccountService {
           parts.lastRefreshedAt(),
           status,
           parts.fingerprint(),
-          createdBy);
+          createdBy,
+          serverRefreshReady);
     } catch (IntegrityConstraintViolationException e) {
       throw duplicateOr(e);
     }
@@ -561,8 +573,11 @@ public class AgentAccountService {
     return out;
   }
 
-  /** 감사 로그 — 메타(계정 id·종류·라벨)만 싣는다. 원문은 절대 싣지 않는다. */
-  private void audit(
+  /**
+   * 계정 감사 로그 — 공통 메타(계정 id·종류·라벨)에 호출자의 extra 를 더해 싣는다. 원문은 절대 싣지 않는다. 같은 패키지의 Pod 로그인 올리기({@link
+   * AgentAccountPodSource})도 같은 형식으로 남기도록 패키지 공개.
+   */
+  void audit(
       Long callerId,
       String action,
       long id,
