@@ -111,6 +111,8 @@ workplace:
       enabled: true
       interval: 1h
       refresh-before: 5d
+      # 마지막 갱신 뒤 이만큼은 다시 갱신하지 않는다(만료 전 토큰만) — access token 수명이 refresh-before 보다 짧아도 매 주기 갱신하지 않게.
+      min-interval: 12h
       token-url: https://auth.openai.com/oauth/token
     usage:
       enabled: true

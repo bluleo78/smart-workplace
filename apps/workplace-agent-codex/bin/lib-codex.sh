@@ -91,8 +91,9 @@ seed_login() {
 }
 
 # 6b. 로그인 동기화(WP-1450) — 서버가 만료 전에 갱신해 둔 ChatGPT 로그인을 받아 auth.json 을 바꾸고, Pod 쪽이 더 새로우면 서버에 올린다.
-#    왜: 묶인 계정은 서버가 갱신 토큰을 돌리므로(1회용) Pod 의 auth.json 이 낡으면 쓸 수 없게 된다. Secret 을 바꾸면 runner 가 Pod 를 지우므로
-#    Secret 은 두고 Pod 가 GET /agent-runtime/me/login 으로 받아 간다. 칸의 codex 가 도는 중에 덮어도 된다 — codex 는 갱신 직전에
+#    왜: 묶인 계정은 서버가 갱신 토큰을 돌리므로(1회용) Pod 의 auth.json 이 낡으면 쓸 수 없게 된다. 서버가 갱신하면 login_revision 만 올라
+#    runner 는 Pod 를 다시 만들지 않고 Secret 의 login-info 만 새로 받는다 — 그런데 login-info 는 subPath 로 마운트돼 Secret 이 바뀌어도
+#    Pod 안 파일은 그대로라, Pod 가 GET /agent-runtime/me/login 으로 직접 받아 간다. 칸의 codex 가 도는 중에 덮어도 된다 — codex 는 갱신 직전에
 #    디스크의 auth.json 을 다시 읽어 바뀌었으면 갱신하지 않고, access token 만료 5분 전에만 갱신한다(design.md 근거).
 #    - 부르는 곳: 부팅(seed_login 직후, 칸을 띄우기 전)과 감독 회차(before_supervise). 간격 GENIA_LOGIN_SYNC_INTERVAL(기본 300초, SECONDS 로 잰다).
 #    - GENIA_LOGIN_VERSION(Pod 의 로그인 연결 id)이 없으면 로그인이 없다 — 아무것도 하지 않는다.
@@ -100,6 +101,7 @@ seed_login() {
 #    - 서버 payload 의 version 이 GENIA_LOGIN_VERSION 과 다르면 선택이 바뀐 직후라 runner 가 곧 Pod 를 교체한다 — 덮지 않는다.
 #    - 서버 last_refresh 가 로컬과 같거나 새로우면 auth.json 을 덮고 표식($AI_DIR/state/login-revision)에 revision 을 적는다.
 #      로컬이 엄격히 새로우면(마이그레이션된 계정 등) PUT 으로 올린다 — 표식은 그대로 두어 다음 회차 GET 이 새 revision 을 받게 한다.
+#      다만 서버가 이미 거절한(409) 로컬 값이면 다시 올리지 않고 서버 보관본으로 덮는다 — Pod 가 서버와 갈라진 채 남지 않게.
 #    키는 gw-lib 의 gw_api_request 가 curl 설정(표준 입력)으로 넘겨 명령줄에 안 보인다. 올릴 본문은 umask 077 임시 파일(--data-binary @)로만 다룬다.
 GENIA_LOGIN_SYNC_INTERVAL=${GENIA_LOGIN_SYNC_INTERVAL:-300}                    # 로그인 동기화 간격(초)
 LOGIN_SYNC_NEXT=0
@@ -182,12 +184,11 @@ login_sync_once() {
   case "$srv_ts" in '' | *[!0-9]*) srv_ts=0 ;; esac
   case "$loc_ts" in '' | *[!0-9]*) loc_ts=0 ;; esac
 
-  if [ "$loc_ts" -gt "$srv_ts" ]; then
-    # 서버가 이미 이 로컬 값을 거절했다(409) — 로컬이 그대로인 동안은 다시 올리지 않는다(같은 거절·경고가 5분마다 쌓이지 않게).
-    # 서버 200 이 auth.json 을 덮거나 codex 가 새로 갱신하면 값이 달라져 자연히 풀린다.
-    if [ -n "$rejected_str" ] && [ "$rejected_str" = "$loc_str" ]; then
-      return 0
-    fi
+  # 서버가 이미 이 로컬 값을 거절했다(409, 서버 갱신 꺼짐·다른 계정 등) — 다시 올리지 않고(같은 거절·경고가 5분마다 쌓이지 않게) 아래에서
+  # 서버 보관본으로 덮는다. 위의 version 검사를 지났으니 같은 로그인 연결의 서버본이다.
+  local rejected=0
+  if [ -n "$rejected_str" ] && [ "$rejected_str" = "$loc_str" ]; then rejected=1; fi
+  if [ "$loc_ts" -gt "$srv_ts" ] && [ "$rejected" = 0 ]; then
     # Pod 쪽이 더 새롭다 — 서버에 올린다. 본문은 600 임시 파일로만 만들고(원문이 명령줄에 안 나가게) 끝나면 지운다.
     upload=$(umask 077 && mktemp "$GENIA_WORK/tmp/codex-login.XXXXXX") || {
       log "경고: 로그인 동기화 — 올릴 임시 파일을 만들지 못했습니다"
@@ -217,7 +218,7 @@ login_sync_once() {
     return 1
   fi
 
-  # 서버가 같거나 새롭다 — auth.json 을 덮고 표식을 적는다(둘 다 원자적 쓰기, 원문은 셸 내장 printf 로만).
+  # 서버가 같거나 새롭다(또는 로컬이 거절됐다) — auth.json 을 덮고 표식을 적는다(둘 다 원자적 쓰기, 원문은 셸 내장 printf 로만).
   srv_str=$(printf '%s' "$payload" | jq -r '.last_refresh // "" | tostring' 2>/dev/null)
   if gw_write_atomic "$local_file" "$payload" && gw_write_atomic "$AI_DIR/state/login-revision" "$rev" \
     && gw_write_atomic "$AI_DIR/state/login-synced-refresh" "$srv_str"; then

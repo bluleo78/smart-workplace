@@ -594,7 +594,7 @@ test('syncLogin_sendsNoRevisionWhenSyncedMarkerIsMissing', async (t) => {
   assert.equal(works.requests[0].url, '/api/v1/agent-runtime/me/login');
 });
 
-test('syncLogin_doesNotUploadAgainWhileLocalLoginStaysRejected', async (t) => {
+test('syncLogin_acceptsServerCopyInsteadOfUploadingAgainWhenLocalLoginWasRejected', async (t) => {
   const works = await fakeWorks(t, (req) =>
     req.method === 'PUT' ? { status: 409, body: JSON.stringify({ code: 'AGENT_LOGIN_REJECTED', reason: 'ACCOUNT_MISMATCH' }) } : loginReply(OLD_AUTH, { revision: 0 }));
   const s = syncFixture(t, works, { local: NEW_AUTH });
@@ -604,8 +604,26 @@ test('syncLogin_doesNotUploadAgainWhileLocalLoginStaysRejected', async (t) => {
   assert.equal(s.stateValue('login-rejected-refresh'), '2026-11-08T00:00:00.5Z');
   const second = await s.run('GENIA_LOGIN_SYNC_INTERVAL=0 && sync_login');
   assert.equal(second.status, 0, second.stderr);
-  assert.equal(works.requests.filter((q) => q.method === 'PUT').length, 1); // 로컬이 그대로라 다시 올리지 않는다
+  assert.equal(works.requests.filter((q) => q.method === 'PUT').length, 1); // 거절된 값은 다시 올리지 않는다
   assert.doesNotMatch(second.stderr, /경고/); // 경고도 한 번만
+  // 거절된 로컬 대신 서버 보관본을 받아들여 Pod 가 서버와 갈라진 채 남지 않는다
+  assert.equal(s.auth(), OLD_AUTH);
+  assert.equal(s.stateValue('login-revision'), '0');
+  assert.equal(s.stateValue('login-rejected-refresh'), null);
+});
+
+test('syncLogin_keepsRejectedLocalLoginWhenServerVersionDiffers', async (t) => {
+  // 거절된 로컬이라도 서버 version 이 Pod 의 것과 다르면(선택이 바뀐 직후) 덮지 않는다 — runner 가 곧 Pod 를 교체한다.
+  let version = 11;
+  const works = await fakeWorks(t, (req) =>
+    req.method === 'PUT' ? { status: 409, body: JSON.stringify({ code: 'AGENT_LOGIN_REJECTED', reason: 'ACCOUNT_MISMATCH' }) } : loginReply(OLD_AUTH, { revision: 0, version }));
+  const s = syncFixture(t, works, { local: NEW_AUTH });
+  assert.equal((await s.run()).status, 0);
+  version = 12;
+  const second = await s.run('GENIA_LOGIN_SYNC_INTERVAL=0 && sync_login');
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(s.auth(), NEW_AUTH);
+  assert.equal(s.stateValue('login-rejected-refresh'), '2026-11-08T00:00:00.5Z');
 });
 
 test('syncLogin_doesNotOverwriteWhenServerVersionDiffersFromPodVersion', async (t) => {

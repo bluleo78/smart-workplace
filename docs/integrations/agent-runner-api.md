@@ -81,7 +81,7 @@ AI 를 끄면 desired 목록에서 빠지고, runner 는 그 Pod 를 바로 지�
 | `login` | `WORKS` | `GET …/agents/{id}/secrets/login`(아래). `version` = 활성 AI 계정(자격증명) id(OpenAI 호환은 아래 「로그인 정보 받기」의 계산 값) — **활성 계정의 종류가 템플릿이 요구하는 계정(`genia`→Gen:iA 로그인, `chatgpt`→ChatGPT 로그인, `opencode`→OpenAI 호환 연결)과 같을 때만**, 연결이 없거나 다른 종류면 `null`. 템플릿이 `genia`·`chatgpt`·`opencode` 를 요구할 때만 실린다. |
 | `repos` | `WORKS` | `GET …/agents/{id}/secrets/repos`(아래). `version` = 그 AI 의 저장소 토큰 등록·교체·폐기 시각(epoch 밀리초) 중 가장 늦은 것 — 하나도 없으면 `null`. 템플릿이 `repo`(옛 이름 `github`)를 요구할 때만 실린다. 옛 `github`/`LOCATION`(위치 Secret)은 없어졌다. |
 
-`login` 참조와 별개로 각 AI 항목에는 `loginRevision`(숫자, 로그인이 없으면 `null`)이 실린다(WP-1450). 서버가 같은 계정의 ChatGPT 로그인을 갱신하면 `login.version` 은 그대로고 `loginRevision` 만 오른다 — runner 는 이것이 Secret 어노테이션 `genia.works/login-revision` 과 다르면 `login-info` 만 다시 받아 Secret 을 갱신하고 **Pod 는 다시 만들지 않는다**(Pod 교체는 `login.version` 이 바뀔 때만).
+`login` 참조와 별개로 각 AI 항목에는 `loginRevision`(숫자, 로그인이 없으면 `null`)이 실린다(WP-1450). 서버가 같은 계정의 ChatGPT 로그인을 갱신하면 `login.version` 은 그대로고 `loginRevision` 만 오른다 — runner 는 이것이 Secret 어노테이션 `genia.works/login-revision` 과 다르면 `login-info` 만 다시 받아 Secret 을 갱신하고 **Pod 는 다시 만들지 않는다**(Pod 교체는 `login.version` 이 바뀔 때만). 이렇게 `loginRevision` 만 올라 다시 받았는데 `404` 면(복호화 실패·일시적 템플릿 불일치) 옛 `login-info`·`login-version` 을 그대로 두고 `login-revision` 도 적지 않아 다음 회차에 다시 받는다(경고 로그만).
 
 **언제 다시 받나**: runner 쪽 Secret 에 받은 버전을 적어 두고, `version` 이 그것과 다르거나(`null` → 값 포함) `rotateAfter` 가 지났을 때만 원문 엔드포인트를 부른다. `agent-key.version` 이 `null` 이면 Pod 를 띄우기 전에 먼저 받는다. `claude.version` 이 `null` 이면 연결이 없는 것이다(Pod 는 띄울 수 있지만 모델을 부를 수 없다). `repos.version` 이 `null` 이면 등록된 저장소 토큰이 없는 것이다(남은 `repo-*` 키를 지운다). `repos` 참조가 아예 없어도 같다. `login.version` 이 `null` 이거나 `login` 참조가 없으면 남은 로그인 정보를 지운다(서버가 종류를 맞춰 보내므로 runner 는 `provider` 를 따로 검사하지 않는다).
 
@@ -248,7 +248,7 @@ runner 가 아니라 **Pod 안의 AI** 가 자기 AI 키(`Authorization: Bearer 
 
 ## 로그인 받기·올리기 — `GET`·`PUT /api/v1/agent-runtime/me/login` (Pod 안의 AI 가 부름)
 
-ChatGPT 로그인(`chatgpt`)의 갱신 토큰은 1회용이라, 한 계정을 쓰는 Pod 들이 각자 갱신하면 로그인이 풀린다. 그래서 묶인 계정은 **서버가 만료 전에 갱신**하고(`server_refresh_ready` 인 계정만 — 사람이 넣었거나 교체한 계정, Pod 가 더 새 로그인을 올린 계정), Pod 는 자기 AI 키(`Authorization: Bearer ak_…`)로 이 API 를 5분마다 불러 갱신된 `auth.json` 을 받아 간다(WP-1450). Secret 을 바꾸면 runner 가 Pod 를 지우므로 Secret 은 그대로 두고 Pod 가 직접 받는다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다.
+ChatGPT 로그인(`chatgpt`)의 갱신 토큰은 1회용이라, 한 계정을 쓰는 Pod 들이 각자 갱신하면 로그인이 풀린다. 그래서 묶인 계정은 **서버가 만료 전에 갱신**하고(`server_refresh_ready` 인 계정만 — 사람이 넣었거나 교체한 계정, Pod 가 더 새 로그인을 올린 계정), Pod 는 자기 AI 키(`Authorization: Bearer ak_…`)로 이 API 를 5분마다 불러 갱신된 `auth.json` 을 받아 간다(WP-1450). 서버가 갱신하면 `loginRevision` 만 올라 runner 는 Pod 를 다시 만들지 않고 Secret 의 `login-info` 만 새로 받는다 — 하지만 `login-info` 는 subPath 로 마운트돼 Secret 이 바뀌어도 떠 있는 Pod 안 파일은 그대로라 Pod 가 이 API 로 직접 받는다(Secret 갱신은 다음에 다시 만들어지는 Pod 를 위한 것). 영구 갱신 실패(갱신 토큰 무효)면 계정은 `RELOGIN_REQUIRED` 가 되고 `server_refresh_ready` 도 내려가 사람이 원문을 교체하거나 Pod 가 더 새 로그인을 올릴 때까지 서버는 갱신을 시도하지 않는다. 만료 전 토큰은 마지막 갱신 뒤 `min-interval`(기본 12시간)이 지나야 다시 갱신한다. 여러 워크스페이스에 속한 AI 는 `X-On-Behalf-Of-Tenant: <GENIA_WORKS_TENANT>` 를 함께 보낸다.
 
 ### 받기 — `GET /api/v1/agent-runtime/me/login[?revision=<번호>]`
 
@@ -278,7 +278,7 @@ Pod 의 codex 가 스스로 갱신해 서버 보관본보다 새로워진 `auth.
   - `NOT_NEWER` — `last_refresh` 가 저장본보다 엄격히 새롭지 않다(1회용 갱신 토큰이라 옛 로그인으로 덮지 않는다).
   - `INVALID` — `payload` 가 올바른 ChatGPT 로그인 정보가 아니다.
 - `404`: 묶인 계정이 없거나 템플릿과 맞지 않거나 저장본을 읽을 수 없다. `403`(`AGENT_ONLY`): AI 키가 아닌 인증.
-- Pod 쪽 규칙(코드 `lib-codex.sh` 의 `sync_login`): 로컬 `last_refresh` 가 서버에서 받았거나 마지막으로 올린 값과 다르면 `revision` 없이 받아(`200`) 비교하고, 로컬이 엄격히 새로우면 올린다. `409` 를 받으면 로컬 로그인이 바뀔 때까지 같은 값을 다시 올리지 않는다.
+- Pod 쪽 규칙(코드 `lib-codex.sh` 의 `sync_login`): 로컬 `last_refresh` 가 서버에서 받았거나 마지막으로 올린 값과 다르면 `revision` 없이 받아(`200`) 비교하고, 로컬이 엄격히 새로우면 올린다. `409` 를 받으면 같은 값을 다시 올리지 않고, 다음 회차에 서버 보관본(`version` 이 Pod 의 `GENIA_LOGIN_VERSION` 과 같을 때만)으로 `auth.json` 을 덮어 서버와 맞춘다.
 
 ## 맡는 프로젝트 — `GET /api/v1/agent-runtime/me/projects` (AI 가 부름)
 

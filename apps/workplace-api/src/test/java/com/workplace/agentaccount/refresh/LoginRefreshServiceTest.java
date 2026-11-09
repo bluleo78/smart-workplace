@@ -68,7 +68,7 @@ class LoginRefreshServiceTest extends IntegrationTestBase {
     ChatgptTokenClient client = new ChatgptTokenClient(RestClient.create(), server.url());
     var props =
         new LoginRefreshProperties(
-            true, null, Duration.ofDays(5), server.url(), null, null, Duration.ofSeconds(30));
+            true, null, Duration.ofDays(5), server.url(), null, null, Duration.ofSeconds(30), null);
     service =
         new LoginRefreshService(
             tenantRepository, accounts, refreshes, encryption, client, props, txManager);
@@ -236,6 +236,71 @@ class LoginRefreshServiceTest extends IntegrationTestBase {
     var rr = refreshRow(id);
     assertThat(rr.get("error_code")).isEqualTo("refresh_token_reused");
     assertThat(rr.get("lease_until")).isNull();
+  }
+
+  /**
+   * 영구 실패 뒤 사용량 조회 성공이 상태를 ACTIVE 로 되돌려도(직접 UPDATE 로 흉내) 다음 갱신 회차는 죽은 갱신 토큰으로 외부 호출을 하지 않는다 — 영구
+   * 실패가 같은 저장에서 server_refresh_ready 를 내리기 때문. 사람이 원문을 교체하거나 Pod 가 더 새 로그인을 올려야 다시 선다.
+   */
+  @Test
+  void permanentFailure_thenUsageRestoresActive_nextCycleMakesNoCall() {
+    long id = account("chatgpt", authJson(inDays(1), Instant.now()), "ACTIVE");
+    server.status = 400;
+    server.responseBody = "{\"error\":{\"code\":\"refresh_token_reused\"}}";
+
+    service.refreshDue();
+
+    assertThat(row(id).get("status")).isEqualTo("RELOGIN_REQUIRED");
+    assertThat(
+            callInTenant(
+                TENANT,
+                () ->
+                    dsl.fetchValue(
+                        "SELECT server_refresh_ready FROM agent_account WHERE id = ?", id)))
+        .isEqualTo(false);
+
+    // 사용량 조회 성공(AgentAccountUsageCollector)이 ACTIVE 로 되돌린 것과 같다.
+    callInTenant(
+        TENANT, () -> dsl.execute("UPDATE agent_account SET status = 'ACTIVE' WHERE id = ?", id));
+    server.requests.clear();
+    server.status = 200;
+    server.responseBody = "{\"access_token\":\"at-NEW\",\"refresh_token\":\"rt-NEW\"}";
+
+    assertThat(service.refreshDue()).isZero();
+    service.refreshOne(TENANT, id);
+    assertThat(server.requests).isEmpty();
+  }
+
+  /**
+   * access token 수명이 refresh-before 보다 짧아도, 방금 갱신했으면 min-interval 동안은 다시 갱신하지 않는다 — 매 시간 갱신 방지. 다만
+   * access token 이 이미 만료됐으면 min-interval 안이라도 갱신한다.
+   */
+  @Test
+  void shortLivedToken_isNotRefreshedAgainWithinMinInterval_unlessExpired() {
+    long id = account("chatgpt", authJson(inDays(1), Instant.now()), "ACTIVE");
+    // 새 access token 도 수명 1일 — refresh-before(5일) 안쪽이라 exp 만 보면 곧바로 다시 갱신할 때다.
+    server.responseBody =
+        "{\"access_token\":\"" + jwt(inDays(1)) + "\",\"refresh_token\":\"rt-NEW\"}";
+
+    assertThat(service.refreshDue()).isEqualTo(1);
+    assertThat(server.requests).hasSize(1);
+
+    // 다음 회차 — 방금(last_refreshed_at) 갱신했으니 호출하지 않는다.
+    assertThat(service.refreshDue()).isZero();
+    service.refreshOne(TENANT, id);
+    assertThat(server.requests).hasSize(1);
+
+    // access token 이 이미 만료된 원문이면 min-interval 안이라도 갱신한다.
+    callInTenant(
+        TENANT,
+        () ->
+            dsl.execute(
+                "UPDATE agent_account SET encrypted_secret = ? WHERE id = ?",
+                encryption.encrypt(
+                    authJson(Instant.now().minus(Duration.ofMinutes(5)), Instant.now())),
+                id));
+    assertThat(service.refreshDue()).isEqualTo(1);
+    assertThat(server.requests).hasSize(2);
   }
 
   @Test

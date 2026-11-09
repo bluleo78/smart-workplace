@@ -197,6 +197,21 @@ public class AgentAccountRepository {
   }
 
   /**
+   * 서버 갱신이 영구 실패했음을 표시한다(WP-1450) — 같은 UPDATE 한 번으로 상태를 {@code status}(다시 로그인 필요)로 두고 서버 갱신 준비
+   * (server_refresh_ready)를 내린다. 사용량 조회 성공 등 다른 코드가 상태를 ACTIVE 로 되돌려도 서버가 죽은 갱신 토큰으로 다시 호출하지 않게 하기
+   * 위해서다. 준비 표시는 사람이 원문을 교체하거나({@link #replaceSecret}) Pod 가 더 새 로그인을 올릴 때({@link
+   * #updateLoginContentConfirmed})만 다시 선다.
+   */
+  public void markRefreshFailedPermanently(long id, String status) {
+    dsl.update(AGENT_ACCOUNT)
+        .set(AGENT_ACCOUNT.STATUS, status)
+        .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, false)
+        .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
+        .where(activeById(id))
+        .execute();
+  }
+
+  /**
    * 상태만 바꾼다(원문이 그대로라 secret_version 은 건드리지 않는다) — 기존 연결 등록 다리가 「확인 필요」 계정에 사람이 방금 같은 원문을 넣었을 때
    * 「정상」으로 되돌린다.
    */
