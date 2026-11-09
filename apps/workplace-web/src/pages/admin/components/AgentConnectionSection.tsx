@@ -45,15 +45,13 @@ import {
 } from '../../../hooks/queries/useAssistant';
 import { useAssistantVisionSetting } from '../../../hooks/useAssistantVisionSetting';
 import { useAuth } from '../../../hooks/useAuth';
-import { accountFits, accountLabel, isLoginProvider } from '../../../lib/agentAccount';
+import { accountLabel } from '../../../lib/agentAccount';
 import { providerIdOf } from '../../../lib/ai/suggestionModel';
 import { handleApiError } from '../../../lib/api-error';
 import { formatMonthDayClock } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
-import { euroRo } from '../../../lib/utils';
 import type { ThinkingDepth } from '../../../types/assistant';
 import type { CredentialProvider } from '../../../types/providerCredential';
-import { LoginInfoDialog } from './LoginInfoDialog';
 import { ProviderCredentialDialog } from './ProviderCredentialDialog';
 
 interface Props {
@@ -84,16 +82,13 @@ function providerLabel(meta: { provider: CredentialProvider; baseUrl: string | n
 /**
  * 「AI 계정」 묶음(바로 반영) — 이 AI 가 부를 AI 모델의 연결. 연결 정보(공급자·Base URL·등록·최근 사용) + 다시 연결 · 연결 끊기 / 연결하기.
  * readOnly(사용 중지된 AI)면 정보만 보인다. 개인 비서(canConfigure=false)는 연결 등록·다시 연결을 주인만 하므로 연결 끊기만 정리 수단으로 남는다(WP-1163).
- *
- * required(템플릿 실행 화면, WP-1296·1297) — 그 템플릿이 쓰는 계정 종류. 연결 창은 그 종류만 받고(로그인 정보면 로그인 정보 창),
- * 다른 종류가 연결돼 있으면 「이 방식으로는 일하지 못해요」를 알린다. 없으면(기본 방식) 지금처럼 Claude 구독·OpenAI 호환 중에 고른다.
+ * 작업 공간 실행 방식은 이 묶음 대신 계정 목록에서 계정을 고른다(AgentAccountPicker, WP-1451) — 여기는 Claude 구독·OpenAI 호환 중에 고르는 연결만 받는다.
  */
 export function AgentAiAccountGroup({
   agentUserId,
   canConfigure,
   readOnly = false,
-  required,
-}: Props & { readOnly?: boolean; required?: CredentialProvider }) {
+}: Props & { readOnly?: boolean }) {
   const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
   const revoke = useRevokeAgentProviderCredential(agentUserId);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -111,10 +106,6 @@ export function AgentAiAccountGroup({
 
   if (isLoading) return <p className="text-sm text-muted-foreground">불러오는 중…</p>;
 
-  // 템플릿이 쓰는 종류와 다른 계정이 연결돼 있으면 이 방식으로는 일하지 못한다 — 다시 연결을 권한다.
-  const mismatch = required != null && meta != null && !accountFits(meta.provider, { mode: 'WORKSPACE', template: { account: required } });
-  const loginRequired = required != null && isLoginProvider(required) ? required : null;
-
   return (
     <div className="space-y-3" data-testid="agent-ai-account">
       {meta ? (
@@ -129,16 +120,7 @@ export function AgentAiAccountGroup({
           </span>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          {loginRequired ? `이 방식은 ${accountLabel(loginRequired)}${euroRo(accountLabel(loginRequired))} 일해요. ` : null}
-          아직 연결하지 않았어요.
-        </p>
-      )}
-
-      {mismatch && (
-        <p className="rounded-md bg-warning-subtle px-3 py-2 text-xs text-warning" data-testid="credential-mismatch">
-          이 방식은 {accountLabel(required)}{euroRo(accountLabel(required))} 일해요. 지금 연결({providerLabel(meta)})로는 일하지 못하니 다시 연결해 주세요.
-        </p>
+        <p className="text-sm text-muted-foreground">아직 연결하지 않았어요.</p>
       )}
 
       {/* WP-1170: 개인 비서인데 연결도 없으면 둘 단추가 없다 — 빈 줄이 틈을 남기지 않게 그리지 않는다. */}
@@ -147,7 +129,7 @@ export function AgentAiAccountGroup({
           {meta ? (
             <>
               {canConfigure && (
-                <Button size="sm" variant={mismatch ? 'default' : 'outline'} onClick={() => setDialogOpen(true)} data-testid="oauth-token-reissue">
+                <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)} data-testid="oauth-token-reissue">
                   다시 연결
                 </Button>
               )}
@@ -164,7 +146,7 @@ export function AgentAiAccountGroup({
             </>
           ) : canConfigure ? (
             <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
-              {loginRequired ? `${accountLabel(loginRequired)} 연결` : '연결하기'}
+              연결하기
             </Button>
           ) : null}
         </div>
@@ -177,17 +159,7 @@ export function AgentAiAccountGroup({
         </p>
       )}
 
-      {loginRequired ? (
-        <LoginInfoDialog open={dialogOpen} onOpenChange={setDialogOpen} agentUserId={agentUserId} provider={loginRequired} isReissue={meta != null} />
-      ) : (
-        <ProviderCredentialDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          agentUserId={agentUserId}
-          isReissue={meta != null}
-          only={required != null && !isLoginProvider(required) ? required : undefined}
-        />
-      )}
+      <ProviderCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} agentUserId={agentUserId} isReissue={meta != null} />
 
       <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
         <AlertDialogContent data-testid="oauth-revoke-dialog">

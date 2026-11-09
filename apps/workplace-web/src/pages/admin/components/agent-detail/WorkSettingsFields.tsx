@@ -5,9 +5,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+import { useAgentBoundAccount } from '../../../../hooks/queries/useAgentAccounts';
 import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAgentProviderCredential';
 import { useAgentLocations } from '../../../../hooks/queries/useAgentRuntime';
-import { useAgentAccount, useAgentModels } from '../../../../hooks/queries/useAssistant';
+import { useAgentModels } from '../../../../hooks/queries/useAssistant';
 import { accountFits } from '../../../../lib/agentAccount';
 import { modelFieldOptions, withSavedOption } from '../../../../lib/agentModelOptions';
 import { locationOptionLabel } from '../../../../lib/agentRuntimeStatus';
@@ -98,7 +99,8 @@ function AccountModelSelect({ field, draft, agentId, id }: { field: AgentTemplat
   const account = draft.template.account;
   const credential = useAgentProviderCredentialMeta(agentId);
   // 계정 원천 순서는 서버와 같다 — 묶인 계정 먼저, 그것이 없거나 폐기·해제면 옛 연결(연결 종류가 맞는지 판정은 같은 규칙).
-  const boundAccount = useAgentAccount(agentId).data ?? null;
+  // 묶인 계정은 계정 고르기(AgentAccountPicker)와 같은 쿼리 — 바꾸면 그 캐시가 새 계정으로 채워져 모델 목록 키도 따라 바뀐다(WP-1451).
+  const boundAccount = useAgentBoundAccount(agentId).data ?? null;
   const connected = boundAccount != null
     ? boundAccount.provider
     : credential.data === undefined

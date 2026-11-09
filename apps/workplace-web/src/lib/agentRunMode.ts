@@ -81,16 +81,26 @@ function workSettingNames(t: AgentTemplate | null): string {
  * 방식을 바꾸면 무엇이 달라지는지 — 확인 창 ②(WP-1278)의 항목. 「기본」 카드도 바로 저장하지 않고 이 요약을 거친다.
  * from 이 작업 공간이면 그 정의(fromTemplate)로 지워질 칸 이름을 적는다.
  * account 는 지금 연결된 AI 계정 종류 — 새 방식이 그 계정으로 일하지 못하면 바꿀 때 함께 끊긴다고 알린다(WP-1296: 맞지 않는 계정을 남기지 않는다).
+ * bound 는 작업 공간 AI 가 계정 목록에서 고른 계정(WP-1451) — 서버는 작업 공간을 떠나면 늘, 다른 작업 공간 방식으로 바꾸면 맞지 않을 때 그 묶음을
+ * 푼다(AgentAccountFit.leaveWorkspace·unbindUnfit). 그때는 고른 계정의 라벨로 알린다.
+ * 옛 연결 줄은 서버를 그대로 따른다:
+ * - 작업 공간을 떠나며 묶음이 풀리면 서버(leaveWorkspace)가 옛 연결도 맞든 안 맞든 함께 끊는다 — 같은 일이라 고른 계정 줄 하나로 말하고 옛 줄은 뺀다.
+ * - 작업 공간 → 다른 작업 공간 방식은 묶음 풀기(unbindUnfit)와 옛 연결 끊기(revokeUnfit)를 따로 판정한다 — 옛 줄은 묶음과 상관없이 지금 규칙대로.
  */
 export function modeChangeSummary(
   from: RunModeCard,
   to: RunModeCard,
   fromTemplate: AgentTemplate | null,
   account: CredentialProvider | null = null,
+  bound: { label: string; provider: CredentialProvider } | null = null,
 ): string[] {
   const lines: string[] = [];
-  if (account && !accountFits(account, to)) lines.push(`AI 계정(${accountLabel(account)}) 연결이 해제돼요.`);
+  // 지금 작업 공간 방식에서 다른 카드로 옮기는가 — 고른 계정 풀기와 작업 설정 지우기가 같은 조건에서 출발한다.
   const leavingWorks = from.mode === 'WORKSPACE' && to.id !== from.id;
+  const unbinds = bound != null && leavingWorks && (to.mode !== 'WORKSPACE' || !accountFits(bound.provider, to));
+  if (unbinds) lines.push(`고른 계정 「${bound.label}」(${accountLabel(bound.provider)}) 연결이 풀려요.`);
+  const leavesWithBound = unbinds && to.mode !== 'WORKSPACE';
+  if (!leavesWithBound && account && !accountFits(account, to)) lines.push(`AI 계정(${accountLabel(account)}) 연결이 해제돼요.`);
   if (leavingWorks) {
     lines.push(`${fromTemplate?.card.title ?? from.title} 작업 설정(${workSettingNames(fromTemplate)})이 지워져요.`);
     if (to.mode !== 'WORKSPACE') lines.push('Works 가 관리하던 접속 키는 폐기돼요.');
@@ -112,12 +122,17 @@ export function modeChangeSummary(
   return lines;
 }
 
+/** 계정 확인을 아직 판정하지 못한 까닭 — 고른 계정을 받는 중(loading)·못 받음(error). 판정했으면 null. */
+export type AccountCheck = 'loading' | 'error' | null;
+
 /** 실행 전 확인 결과 — 화면은 이 값으로 ✓/✗ 와 실행 시작을 막는 이유를 그린다. */
 export interface StartChecks {
   /** 이 방식이 쓰는 AI 계정 종류(템플릿의 account) — 필요 없으면 null 이고 항목을 그리지 않는다. */
   account: CredentialProvider | null;
   /** 그 종류의 AI 계정이 연결돼 있는지. */
   accountOk: boolean;
+  /** 계정 확인을 판정하지 못했으면 그 까닭 — 이때는 「먼저 연결해 주세요」 대신 확인 중·못 불러옴을 이유로 든다. */
+  accountCheck?: AccountCheck;
   /** 저장소 토큰이 필요한 방식인지(템플릿 requires 에 repo, WP-1268) — 필요 없으면 항목을 그리지 않는다. */
   needsRepos: boolean;
   /** 맡는 프로젝트 저장소 호스트 중 토큰이 없는 것. */
@@ -136,6 +151,8 @@ export interface StartChecks {
 /** 실행 시작을 막는 첫 이유 — 막히지 않으면 null. 위에서부터 고칠 순서대로 고른다. */
 export function startBlockReason(c: StartChecks): string | null {
   if (c.inactive) return '사용 중지된 AI 는 실행할 수 없어요';
+  if (c.account && c.accountCheck === 'loading') return '계정 정보를 확인하고 있어요';
+  if (c.account && c.accountCheck === 'error') return '계정 정보를 불러오지 못했어요';
   if (c.account && !c.accountOk) return `${accountLabel(c.account)}${objectParticle(accountLabel(c.account))} 먼저 연결해 주세요`;
   if (c.needsRepos && c.missingRepoHosts.length > 0) return '저장소를 먼저 연결해 주세요';
   if (c.projectCount === 0) return '맡는 프로젝트를 먼저 정해 주세요';

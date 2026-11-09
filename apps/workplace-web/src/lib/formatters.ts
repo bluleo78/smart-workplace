@@ -189,11 +189,12 @@ export function formatMonthDayClock(dateStr: string | null | undefined): string 
  * UTC 파싱(parseUtcDate)을 사용하여 서버 LocalDateTime 문자열을 정확히 처리.
  * (같은 출력의 `timeAgo`·`formatElapsedTime` 은 미사용 중복이라 #632 에서 제거.)
  */
-export function formatRelativeTime(dateStr: string | null | undefined): string {
+export function formatRelativeTime(dateStr: string | null | undefined, now?: Date): string {
   if (!dateStr) return '-';
   const d = parseUtcDate(dateStr);
   if (Number.isNaN(d.getTime())) return '-';
-  const diff = Date.now() - d.getTime();
+  // now — 화면이 자기 시계(주기적으로 갱신되는 지금)로 맞출 때 넘긴다. 없으면 지금.
+  const diff = (now?.getTime() ?? Date.now()) - d.getTime();
   const mins = Math.floor(diff / 60_000);
   if (mins < 1) return '방금 전';
   if (mins < 60) return `${mins}분 전`;

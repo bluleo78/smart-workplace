@@ -3,6 +3,7 @@
 import { http, HttpResponse } from 'msw'
 
 import type { AgentResponse } from '@/types/agent'
+import type { AgentAccountResponse } from '@/types/agentAccount'
 import type {
   AgentLocation,
   AgentRepoCredential,
@@ -65,13 +66,6 @@ export const CODEX_TEMPLATE: AgentTemplate = {
 }
 
 export const TEMPLATES: AgentTemplate[] = [DEFAULT_TEMPLATE, CLAUDE_TEMPLATE]
-
-/** AI 가 묶인 계정 fixture — 그 종류가 옛 연결보다 먼저 모델 목록 원천이 된다(WP-1458). */
-export interface AccountsOption {
-  id: number
-  provider: CredentialProvider
-  label: string
-}
 
 /** AI 계정 메타 — 로그인 정보면 계정 이메일이 있다. */
 function credentialMeta(provider: CredentialProvider) {
@@ -202,6 +196,8 @@ export interface RuntimeCalls {
   repoRevokes: number[]
   /** POST /admin/agents/:id/provider-credential 본문(로그인 정보 포함 — 테스트 안에서만 본다) */
   credentialRegisters: { provider?: string; loginInfo?: string; token?: string }[]
+  /** PUT /admin/agents/:id/agent-account 본문(계정 고르기, WP-1451) */
+  binds: { accountId: number }[]
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]
 }
@@ -213,8 +209,6 @@ export interface RuntimeApiOptions {
   locations?: AgentLocation[]
   templates?: AgentTemplate[]
   projects?: AgentRuntimeProject[]
-  /** AI 가 묶인 계정 — 그 종류로 모델 목록 원천이 된다(WP-1458: 묶인 계정이 옛 연결보다 앞선다). */
-  accounts?: Record<number, AccountsOption>
   /** Claude(anthropic) AI 연결이 있는 에이전트 id — 그 밖은 404. */
   claudeFor?: number[]
   /** 에이전트 id → 연결된 AI 계정 종류(claudeFor 보다 앞선다, WP-1296). 등록하면 여기에 반영돼 재조회에 보인다. */
@@ -225,6 +219,17 @@ export interface RuntimeApiOptions {
   failRepoRegister?: { status: number; message: string }
   /** 설정 PUT·시작 등 쓰기를 이 상태로 실패시킨다(메시지 포함). */
   failWrites?: { status: number; message: string }
+  /** 계정 목록(GET /admin/agent-accounts, WP-1451) — 기본 빈 목록. */
+  accounts?: AgentAccountResponse[]
+  /** 에이전트 id → 묶인 계정 id(accounts 안의 것). 없으면 묶인 계정 조회가 404(안 묶임). 고르면 여기에 반영돼 재조회에 보인다.
+   *  묶인 계정의 종류가 옛 연결보다 먼저 모델 목록 원천이 된다(WP-1458). */
+  boundAccounts?: Record<number, number>
+  /** 묶인 계정 조회를 이 상태로 실패시킨다(404 가 아닌 실패). */
+  failBoundGet?: number
+  /** 묶인 계정 조회가 이 약속이 풀릴 때까지 답하지 않는다 — 받는 중 화면을 본다. */
+  holdBoundGet?: Promise<unknown>
+  /** 계정 고르기(PUT)를 이 상태·문구·코드로 실패시킨다. */
+  failBind?: { status: number; message: string; code?: string }
 }
 
 /**
@@ -237,10 +242,10 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
     ...Object.fromEntries((opts.claudeFor ?? []).map((id) => [id, 'anthropic' as const])),
     ...(opts.credentials ?? {}),
   }
-  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], order: [] }
+  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], order: [] }
+  const accounts = opts.accounts ?? []
+  const boundAccounts = { ...(opts.boundAccounts ?? {}) }
   let repoCredentials = [...(opts.repoCredentials ?? [])]
-  /** AI → 묶인 계정(먼저 등록하면 그 종류가 연결로 보고된다). */
-  const accounts: Record<number, AccountsOption> = { ...(opts.accounts ?? {}) }
   const fail = () =>
     opts.failWrites
       ? HttpResponse.json({ message: opts.failWrites.message }, { status: opts.failWrites.status })
@@ -288,21 +293,31 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
         ? HttpResponse.json(credentialMeta(provider))
         : HttpResponse.json({ message: '없음' }, { status: 404 })
     }),
-    http.get(`${API}/admin/agents/:id/agent-account`, ({ params }) => {
-      const account = accounts[Number(params.id)]
-      if (!account) return HttpResponse.json({ message: '없음' }, { status: 404 })
-      const now = '2026-11-02T01:00:00Z'
-      return HttpResponse.json({
-        id: account.id, provider: account.provider, label: account.label, accountEmail: null,
-        lastRefreshedAt: null, status: 'ACTIVE', createdAt: now, updatedAt: now, agents: [], usage: null,
-      })
-    }),
     http.post(`${API}/admin/agents/:id/provider-credential`, async ({ params, request }) => {
       const body = (await request.json()) as RuntimeCalls['credentialRegisters'][number]
       calls.credentialRegisters.push(body)
       const provider = (body.provider ?? 'anthropic') as CredentialProvider
       credentials[Number(params.id)] = provider
       return HttpResponse.json(credentialMeta(provider), { status: 201 })
+    }),
+    http.get(`${API}/admin/agent-accounts`, () => HttpResponse.json(accounts)),
+    http.get(`${API}/admin/agents/:id/agent-account`, async ({ params }) => {
+      if (opts.holdBoundGet) await opts.holdBoundGet
+      if (opts.failBoundGet) return HttpResponse.json({ message: '실패' }, { status: opts.failBoundGet })
+      const account = accounts.find((a) => a.id === boundAccounts[Number(params.id)])
+      return account
+        ? HttpResponse.json(account)
+        : HttpResponse.json({ message: '이 AI 가 쓰는 계정이 없어요', errors: { code: 'AGENT_ACCOUNT_NOT_BOUND' } }, { status: 404 })
+    }),
+    http.put(`${API}/admin/agents/:id/agent-account`, async ({ params, request }) => {
+      const body = (await request.json()) as { accountId: number }
+      calls.binds.push(body)
+      if (opts.failBind) {
+        const { status, message, code } = opts.failBind
+        return HttpResponse.json({ status, message, errors: code ? { code } : undefined }, { status })
+      }
+      boundAccounts[Number(params.id)] = body.accountId
+      return HttpResponse.json(accounts.find((a) => a.id === body.accountId))
     }),
     http.get(`${API}/admin/agents/:id/repo-credentials`, () => HttpResponse.json(repoCredentials)),
     http.post(`${API}/admin/agents/:id/repo-credentials`, async ({ request }) => {

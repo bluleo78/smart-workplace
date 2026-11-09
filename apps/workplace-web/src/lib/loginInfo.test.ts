@@ -2,7 +2,7 @@
 // 값은 모두 가짜다(실제 토큰 모양만 흉내 낸다).
 import { describe, expect, test } from 'vitest'
 
-import { checkLoginInfo } from './loginInfo'
+import { checkLoginInfo, LOGIN_INFO_MAX } from './loginInfo'
 
 /** 서명 없는 가짜 JWT — 가운데 부분만 의미가 있다. */
 function fakeJwt(payload: Record<string, unknown>): string {
@@ -35,6 +35,20 @@ describe('checkLoginInfo', () => {
   test('returnsNull_whenEmpty', () => {
     // 아직 넣지 않았으면 아무 안내도 하지 않는다
     expect(checkLoginInfo('  ', 'chatgpt')).toBeNull()
+  })
+
+  test('rejects_whenLongerThanServerMax', () => {
+    // 형식이 맞아도 서버 상한(16384자)을 넘으면 보내도 400 이라 미리 거절한다 — 상한 딱 그 길이는 받는다
+    const padded = (len: number) => {
+      const base = chatgpt({ pad: '' })
+      return chatgpt({ pad: 'x'.repeat(len - base.length) })
+    }
+    expect(padded(LOGIN_INFO_MAX + 1).length).toBe(LOGIN_INFO_MAX + 1)
+    expect(checkLoginInfo(padded(LOGIN_INFO_MAX + 1), 'chatgpt')).toEqual({
+      ok: false,
+      reason: '로그인 정보가 너무 깁니다 (최대 16384자) — auth.json 내용만 넣었는지 확인하세요',
+    })
+    expect(checkLoginInfo(padded(LOGIN_INFO_MAX), 'chatgpt')).toMatchObject({ ok: true })
   })
 
   test('readsAccountAndExpiry_whenChatgptLogin', () => {

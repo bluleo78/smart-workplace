@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/overlay/select';
 import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
+import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
 
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
@@ -157,8 +158,8 @@ export function PersonalAssistantSection() {
   const submitCredential = async () => {
     if (connectionType === 'anthropic') {
       const trimmed = token.trim();
-      // 백엔드 검증과 정합 (@Size(min = 32)) — 기존 문구 유지(회귀 방지).
-      if (trimmed.length < 32) {
+      // 백엔드 검증과 정합 (@Size(min = 32), 에이전트 연결 창과 같은 상수) — 기존 문구 유지(회귀 방지).
+      if (trimmed.length < CLAUDE_TOKEN_MIN) {
         toast.error('토큰 형식이 올바르지 않습니다.');
         return;
       }

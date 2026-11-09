@@ -2,7 +2,7 @@
 // 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「실행 시작 / 실행 멈춤 / 다시 시작」.
 // Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
 
-import { Check, Info, MonitorPlay, X } from 'lucide-react';
+import { Check, Info, Minus, MonitorPlay, X } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -23,6 +23,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Switch } from '@/components/ui/switch';
 
 import { usersApi } from '../../../../api/users';
+import { useAgentBoundAccount } from '../../../../hooks/queries/useAgentAccounts';
 import { useAgentProviderCredentialMeta } from '../../../../hooks/queries/useAgentProviderCredential';
 import {
   useAgentLocations,
@@ -33,7 +34,7 @@ import {
   useSaveAgentRuntimeSetting,
 } from '../../../../hooks/queries/useAgentRuntime';
 import { accountFits, accountLabel } from '../../../../lib/agentAccount';
-import { startBlockReason } from '../../../../lib/agentRunMode';
+import { type AccountCheck, startBlockReason } from '../../../../lib/agentRunMode';
 import { externalKeyStatusText } from '../../../../lib/agentRuntime';
 import {
   currentIssueKeys,
@@ -188,6 +189,9 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const locations = useAgentLocations();
   const projects = useAgentRuntimeProjects(agent.id);
   const credential = useAgentProviderCredentialMeta(agent.id);
+  // 계정 목록에서 고른 계정(WP-1451) — runner 는 묶인 계정을 AI 의 옛 연결보다 먼저 쓴다(서버 requireLoginAccount 와 같은 판정).
+  // 템플릿이 계정을 쓰지 않으면 확인할 것이 없으니 받지 않는다(아래 accountCheck 도 그때는 판정하지 않는다).
+  const bound = useAgentBoundAccount(template.account ? agent.id : null);
   const needsRepos = template.requires.includes('repo');
   const repoCredentials = useAgentRepoCredentials(agent.id, needsRepos);
   const save = useSaveAgentRuntimeSetting(agent.id);
@@ -233,7 +237,11 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const target = locationId == null ? defaultLocation : (locations.data?.find((l) => l.id === locationId) ?? null);
   const account = template.account ?? null;
   // 템플릿이 요구하는 계정이 있을 때만 확인한다 — 맞는지는 공용 규칙(accountFits) 하나로 본다.
-  const connected = credential.data?.provider;
+  // 묶인 계정이 있으면 그것만 본다(맞지 않아도 옛 연결로 내려가지 않는다). 옛 연결로 내려가는 것은 묶인 계정 조회가 「없음(404 → null)」으로
+  // 끝났을 때뿐이다 — 받는 중이면 아직 모르고(어긋남 안내를 띄우지 않는다), 404 가 아닌 오류면 옛 연결로 판정하지 않고 「불러오지 못했어요」만 보인다.
+  // 계정이 필요 없는 방식이면 꺼 둔 조회가 늘 pending 이라 「확인하고 있어요」에 머물지 않게 판정하지 않는다(null).
+  const accountCheck: AccountCheck = account == null ? null : bound.isPending ? 'loading' : bound.isError ? 'error' : null;
+  const connected = accountCheck != null ? undefined : bound.data ? bound.data.provider : credential.data?.provider;
   const accountOk = account != null && connected != null && accountFits(connected, { mode: 'WORKSPACE', template });
   const projectCount = projects.data?.length ?? 0;
   // 맡는 프로젝트 저장소 호스트 중 토큰이 없는 것(WP-1268) — 두 목록을 다 받은 뒤에만 판정해 로딩 중에 잠깐 「빠짐」으로 깜박이지 않게.
@@ -242,6 +250,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const blocked = startBlockReason({
     account,
     accountOk,
+    accountCheck,
     needsRepos,
     missingRepoHosts,
     projectCount,
@@ -361,13 +370,19 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
           <ul className="max-w-2xl space-y-1.5 text-sm" data-testid="agent-runtime-checks">
             {account && (
               <li className="flex flex-wrap items-center gap-x-2" data-testid="agent-runtime-check-account">
-                <CheckMark ok={accountOk} />
+                {accountCheck ? <UnknownMark /> : <CheckMark ok={accountOk} />}
                 <span>{accountLabel(account)} 연결</span>
-                {!accountOk && (
+                {accountCheck === 'loading' && <span className="text-xs text-muted-foreground">— 확인하고 있어요</span>}
+                {accountCheck === 'error' && (
+                  <span className="text-xs text-muted-foreground" data-testid="agent-runtime-check-account-error">
+                    — 계정 정보를 불러오지 못했어요
+                  </span>
+                )}
+                {accountCheck == null && !accountOk && (
                   <span className="text-xs text-muted-foreground">
-                    {credential.data
-                      ? `— ${accountLabel(credential.data.provider)}${subjectParticle(accountLabel(credential.data.provider))} 연결돼 있어요. 아래 실행 › AI 계정에서 바꿔 주세요`
-                      : '— 아래 실행 › AI 계정에서 연결해 주세요'}
+                    {connected
+                      ? `— ${accountLabel(connected)}${subjectParticle(accountLabel(connected))} 연결돼 있어요. 아래 실행 › AI 계정에서 바꿔 주세요`
+                      : '— 아래 실행 › AI 계정에서 계정을 골라 주세요'}
                   </span>
                 )}
               </li>
@@ -487,6 +502,11 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
 }
 
 /** 확인 항목 표시 — 통과 ✓(성공 색), 아니면 ✗(경고 색). */
+/** 아직 판정하지 못한 항목 — 통과·필요 어느 쪽도 아니라 흐린 줄표로 둔다(계정 정보를 받는 중·못 받음). */
+function UnknownMark() {
+  return <Minus className="size-4 shrink-0 text-muted-foreground" aria-label="확인 못 함" />;
+}
+
 function CheckMark({ ok }: { ok: boolean }) {
   return ok ? (
     <Check className="size-4 shrink-0 text-success" aria-label="통과" />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { presetLabelFor } from './opencode-presets'
+import { presetLabelFor, toOpencodeProviderConfig } from './opencode-presets'
 
 describe('presetLabelFor', () => {
   it('정확히 같은 baseUrl 은 매칭', () => {
@@ -28,5 +28,14 @@ describe('presetLabelFor', () => {
 
   it('잘못된 URL 형식은 예외 없이 null', () => {
     expect(presetLabelFor('not-a-url')).toBeNull()
+  })
+})
+
+describe('toOpencodeProviderConfig', () => {
+  it('Base URL 은 앞뒤 공백을 떼고 API Key 는 그대로 담는다', () => {
+    expect(toOpencodeProviderConfig('openai', '  https://api.openai.com/v1 ', ' sk-x ')).toEqual({
+      providerId: 'openai',
+      options: { baseURL: 'https://api.openai.com/v1', apiKey: ' sk-x ' },
+    })
   })
 })

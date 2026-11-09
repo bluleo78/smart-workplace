@@ -1,6 +1,6 @@
 // 설정 화면별 가이드 문구 — 한 파일에 모아 문구 리뷰를 한곳에서 한다(WP-399).
 // 원칙: 실제 동작을 확인한 사실만 쓰고, 섹션 description 과 같은 말을 반복하지 않는다(왜·언제·주의). 해요체·짧은 문장.
-import { accountLabel, isLoginProvider, loginProgram } from '@/lib/agentAccount'
+import { accountLabel } from '@/lib/agentAccount'
 import { workResourceText } from '@/lib/agentRuntimeStatus'
 import { MCP_ENDPOINT } from '@/lib/mcpEndpoint'
 import {
@@ -222,6 +222,19 @@ export const settingsGuides = {
     caution: '토큰을 재발급하면 옛 토큰은 바로 끊겨요. 클러스터의 연결 프로그램이 새 토큰을 쓰도록 바꾸기 전까지 그 실행 환경의 AI 를 관리할 수 없어요.',
     related: [{ label: '에이전트 목록', to: '/settings/agents' }],
   },
+  // WP-1451: 에이전트 화면 「계정」 탭 — AI 가 쓸 계정을 한곳에 모으고 사용률을 본다.
+  // 「10분」은 workplace-api application.yml agent-account.usage.interval, 「75%」는 near-limit-percent 값이다 — 바꾸면 이 문구도 함께 고친다.
+  agentAccounts: {
+    title: '계정',
+    lead: 'AI 가 일할 때 쓰는 계정을 여기에 모아 두고, 계정마다 사용률을 봐요.',
+    tips: [
+      '5시간·주간 사용률은 Works 가 10분마다 재요. 75% 이상이면 「곧 한도」, 100% 면 「한도 도달」로 바뀌어요.',
+      'OpenAI 호환·Gen:iA 계정은 한도를 재지 않아 「한도 없음」으로 보이고, 대신 마지막으로 쓴 때를 보여요.',
+      '한 계정을 여러 AI 가 같이 쓰면 사용률도 함께 올라요. 한도에 자주 닿으면 계정을 나눠 묶으세요.',
+      '쓰는 AI 가 있는 계정은 지울 수 없어요. 그 AI 들을 먼저 다른 계정으로 바꿔 주세요.',
+    ],
+    related: [{ label: '에이전트 목록', to: '/settings/agents' }],
+  },
   // 에이전트 상세의 공통 부분 — 실행 방식별 문장은 agentDetailGuide() 가 덧붙인다(로딩 중에는 이 공통 부분만).
   agentDetail: {
     title: '에이전트 상세',
@@ -336,19 +349,13 @@ export function agentDetailGuide(
   } else if (works) {
     const title = template.card.title
     run.push('실행 중에는 실행 방식을 바꿀 수 없어요. 먼저 실행을 멈춰 주세요.')
-    if (template.account === 'anthropic')
-      run.push(`${title} 는 Anthropic(Claude) 계정만 쓸 수 있어요. 실행 중에 연결을 끊으면 다시 시작할 때부터 일하지 못해요.`)
-    else if (template.account === 'opencode')
-      // WP-1410: OpenCode 는 로그인 정보가 아니라 OpenAI 호환 연결(주소·키·모델)로 일한다 — 연결에 지정한 모델이 「모델」 칸 기본값(auto)이다.
-      run.push(
-        `${title} 는 OpenAI 호환 연결로 일해요. 「연결하기」에서 모델 서버 주소와 키, 쓸 모델을 넣어 주세요. 「모델」 칸이 기본이면 연결에 지정한 모델로 일해요.`,
-      )
-    else if (template.account && isLoginProvider(template.account)) {
+    // WP-1451: 작업 공간 AI 의 계정은 AI 마다 넣지 않고, 설정 › 에이전트 › 계정 탭의 목록에서 「계정 고르기」로 고른다.
+    if (template.account) {
       const label = accountLabel(template.account)
       run.push(
-        `${title} 는 ${label} 정보로 일해요. 내 컴퓨터에서 ${loginProgram(template.account)} 에 이 AI 전용 계정으로 로그인한 뒤, 그 로그인 정보를 「${label} 연결」에 넣어 주세요.`,
-        '로그인 갱신은 AI 가 일하는 곳에서 스스로 해요. 같은 로그인을 내 컴퓨터나 다른 AI 에서도 쓰면 갱신할 때 한쪽이 로그아웃되니 나눠 쓰지 마세요.',
-        `실행 방식을 ${title} 가 아닌 방식으로 바꾸면 ${label} 연결은 해제돼요.`,
+        `${title} 는 ${label} 계정으로 일해요. 「계정 고르기」에서 계정 탭에 넣어 둔 ${label} 계정 하나를 고르세요. 맞는 계정이 없으면 계정 탭에서 먼저 추가해요.`,
+        '계정을 바꾸면 이 AI 의 작업 공간이 다시 시작돼 일하는 중인 작업이 끊겨요.',
+        `실행 방식을 ${title} 가 아닌 방식으로 바꾸면 고른 계정에서 풀려요.`,
       )
     }
     if (template.requires.includes('repo'))

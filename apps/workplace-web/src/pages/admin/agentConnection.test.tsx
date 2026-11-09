@@ -259,6 +259,18 @@ test('32자 미만 토큰은 오류 토스트만 띄우고 보내지 않는다(�
   expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
 })
 
+test('2048자를 넘는 토큰은 오류 토스트만 띄우고 보내지 않는다(서버 상한과 같다)', async () => {
+  const { user, state } = await renderSection(null)
+  await user.click(screen.getByTestId('oauth-token-register'))
+  await user.click(await screen.findByRole('textbox', { name: '토큰' }))
+  await user.paste('x'.repeat(2049))
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+
+  expect(await screen.findByText('토큰이 너무 깁니다 (최대 2048자)')).toBeInTheDocument()
+  expect(state.posts).toEqual([])
+  expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
+})
+
 test('서버 400 이면 서버 메시지를 토스트로 띄우고 대화상자를 유지한다', async () => {
   const { user, state } = await renderSection(null, { postStatus: 400 })
   await user.click(screen.getByTestId('oauth-token-register'))

@@ -28,27 +28,27 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PasswordInput } from '@/components/ui/password-input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Textarea } from '@/components/ui/textarea';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
 import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';
 import { withProviderPrefix } from '@/lib/ai/suggestionModel';
 import { visionConfigFor } from '@/lib/ai/visionConfig';
 import { handleApiError } from '@/lib/api-error';
-import { OPENCODE_PRESETS, type OpencodePresetKey } from '@/lib/opencode-presets';
-import type { CredentialProvider, LoginProvider, ModelOption } from '@/types/providerCredential';
+import { type OpencodePresetKey, toOpencodeProviderConfig } from '@/lib/opencode-presets';
+import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
+
+import { CLAUDE_TOKEN_MAX, CLAUDE_TOKEN_MIN, ClaudeTokenField } from './credential-fields/ClaudeTokenField';
+import {
+  DEFAULT_OPENCODE_BASE_URL,
+  DEFAULT_OPENCODE_PRESET,
+  OpencodeConnectionFields,
+} from './credential-fields/OpencodeConnectionFields';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agentUserId: number;
   isReissue: boolean;
-  /**
-   * 받을 연결 방식을 하나로 정한다(템플릿 실행 화면, WP-1296) — 정하면 「연결 방식」 고르기를 숨긴다. Claude Code 템플릿은 Claude 구독만 쓴다.
-   * 로그인 정보(genia·chatgpt)는 이 창이 아니라 LoginInfoDialog 가 받는다.
-   */
-  only?: Exclude<CredentialProvider, LoginProvider>;
 }
 
 type PresetKey = OpencodePresetKey;
@@ -59,17 +59,15 @@ export function ProviderCredentialDialog({
   onOpenChange,
   agentUserId,
   isReissue,
-  only,
 }: Props) {
-  const initialType: CredentialProvider = only ?? 'anthropic';
-  const [connectionType, setConnectionType] = useState<CredentialProvider>(initialType);
+  const [connectionType, setConnectionType] = useState<CredentialProvider>('anthropic');
 
   // anthropic 입력.
   const [token, setToken] = useState('');
 
   // opencode 입력.
-  const [presetKey, setPresetKey] = useState<PresetKey>('amazon-bedrock-openai');
-  const [baseUrl, setBaseUrl] = useState<string>(OPENCODE_PRESETS[0].baseUrl);
+  const [presetKey, setPresetKey] = useState<PresetKey>(DEFAULT_OPENCODE_PRESET);
+  const [baseUrl, setBaseUrl] = useState<string>(DEFAULT_OPENCODE_BASE_URL);
   const [apiKey, setApiKey] = useState('');
   const [modelOptions, setModelOptions] = useState<ModelOption[] | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
@@ -87,16 +85,14 @@ export function ProviderCredentialDialog({
   const mutation = useRegisterAgentProviderCredential(agentUserId);
   const probe = useMutation({
     mutationFn: () =>
-      probeAgentModels({
-        providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
-      }),
+      probeAgentModels({ providerConfig: toOpencodeProviderConfig(presetKey, baseUrl, apiKey) }),
   });
 
   const reset = () => {
-    setConnectionType(initialType);
+    setConnectionType('anthropic');
     setToken('');
-    setPresetKey('amazon-bedrock-openai');
-    setBaseUrl(OPENCODE_PRESETS[0].baseUrl);
+    setPresetKey(DEFAULT_OPENCODE_PRESET);
+    setBaseUrl(DEFAULT_OPENCODE_BASE_URL);
     setApiKey('');
     setModelOptions(null);
     setProbeError(null);
@@ -105,11 +101,9 @@ export function ProviderCredentialDialog({
     resetVision();
   };
 
-  // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
+  // 프리셋 변경 시 이전 프로브 결과 초기화(baseURL 템플릿은 OpencodeConnectionFields 가 채운다).
   const onPresetChange = (key: PresetKey) => {
     setPresetKey(key);
-    const preset = OPENCODE_PRESETS.find((p) => p.key === key);
-    setBaseUrl(preset?.baseUrl ?? '');
     setModelOptions(null);
     setProbeError(null);
     setSelectedModel('');
@@ -139,9 +133,13 @@ export function ProviderCredentialDialog({
   const submit = async () => {
     if (connectionType === 'anthropic') {
       const trimmed = token.trim();
-      // 백엔드 검증과 정합 (@Size(min = 32))
-      if (trimmed.length < 32) {
-        toast.error('토큰이 너무 짧습니다 (최소 32자)');
+      // 백엔드 검증과 정합 (@Size(min = 32, max = 2048)) — 계정 창과 같은 상수. 넘거나 모자라면 보내도 400 이라 미리 알린다.
+      if (trimmed.length < CLAUDE_TOKEN_MIN) {
+        toast.error(`토큰이 너무 짧습니다 (최소 ${CLAUDE_TOKEN_MIN}자)`);
+        return;
+      }
+      if (trimmed.length > CLAUDE_TOKEN_MAX) {
+        toast.error(`토큰이 너무 깁니다 (최대 ${CLAUDE_TOKEN_MAX}자)`);
         return;
       }
       try {
@@ -167,8 +165,7 @@ export function ProviderCredentialDialog({
       await mutation.mutateAsync({
         provider: 'opencode',
         providerConfig: {
-          providerId: presetKey,
-          options: { baseURL: baseUrl.trim(), apiKey },
+          ...toOpencodeProviderConfig(presetKey, baseUrl, apiKey),
           // 수동 지정일 때만 { [최종 모델 id]: true|false } — 자동이면 키 생략.
           ...(visionConfig ? { vision: visionConfig } : {}),
         },
@@ -205,9 +202,7 @@ export function ProviderCredentialDialog({
         {/* min-h — 연결 방식(anthropic↔opencode)·프로브 결과 유무에 따라 내용 길이가 크게 달라져
             다이얼로그가 열릴 때마다 세로 크기가 요동치는 것을 막기 위해 가장 긴 상태(opencode +
             모델 목록 노출) 기준으로 최소 높이를 예약한다. */}
-        {/* 방식을 하나로 정했으면(only) 길이가 요동치지 않으므로 높이를 예약하지 않는다. */}
-        <div className={only == null ? 'space-y-4 min-h-[420px]' : 'space-y-4'}>
-          {only == null && (
+        <div className="space-y-4 min-h-[420px]">
           <div className="space-y-1.5">
             <Label>연결 방식</Label>
             <RadioGroup
@@ -239,61 +234,19 @@ export function ProviderCredentialDialog({
               </Label>
             </RadioGroup>
           </div>
-          )}
 
           {connectionType === 'anthropic' ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="oauth-token">토큰</Label>
-              <Textarea
-                id="oauth-token"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="sk-ant-oat..."
-                className="font-mono text-sm"
-                autoComplete="off"
-                spellCheck={false}
-                rows={4}
-              />
-            </div>
+            <ClaudeTokenField value={token} onChange={setToken} />
           ) : (
             <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="credential-preset">프리셋</Label>
-                <Select value={presetKey} onValueChange={(v) => onPresetChange(v as PresetKey)}>
-                  <SelectTrigger id="credential-preset" data-testid="credential-preset">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {OPENCODE_PRESETS.map((p) => (
-                      <SelectItem key={p.key} value={p.key}>
-                        {p.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="credential-base-url">Base URL</Label>
-                <Input
-                  id="credential-base-url"
-                  data-testid="credential-base-url"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://api.example.com/v1"
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="credential-api-key">API Key</Label>
-                <PasswordInput
-                  id="credential-api-key"
-                  fieldLabel="API Key"
-                  data-testid="credential-api-key"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  autoComplete="off"
-                />
-              </div>
+              <OpencodeConnectionFields
+                presetKey={presetKey}
+                onPresetChange={onPresetChange}
+                baseUrl={baseUrl}
+                onBaseUrlChange={setBaseUrl}
+                apiKey={apiKey}
+                onApiKeyChange={setApiKey}
+              />
               <Button
                 type="button"
                 variant="outline"

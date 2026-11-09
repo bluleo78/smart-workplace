@@ -1,5 +1,6 @@
 // 에이전트 상세 페이지(/settings/agents/:id, WP-1281) — 서버가 판정한 runMode(SERVER·WORKSPACE·EXTERNAL)와 유형(개인·공통)에 따라
 // 어떤 섹션·묶음이 그려지는지, 실행 시작이 막히는 이유(맡는 프로젝트 0 등), 다음 교체 시각, 404 상태를 본다.
+// 작업 공간 AI 의 AI 계정은 계정 목록에서 고른다(WP-1451) — 맞는 종류만·고르면 PUT {accountId}·사용률·끊김 안내·빈 목록·거절 문구를 본다.
 // 확인창·PUT payload 같은 섹션별 동작은 agentManagement.test.tsx, 설정 가이드 따라가기는 settingsGuide.test.tsx 가 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
@@ -7,13 +8,15 @@ import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import { agentAccountKeys } from '@/hooks/queries/useAgentAccounts'
 import { formatDateMonthDayPadded } from '@/lib/formatters'
-import { renderScreen } from '@/test/renderScreen'
+import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
 import type { AgentApiKey } from '@/types/agentKey'
 import type { AgentRepoCredential } from '@/types/agentRuntime'
 
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
+import { createAccount, createUsage } from '../../test/kits/admin/agentAccounts'
 import {
   agentRuntimeApi,
   CLAUDE_TEMPLATE,
@@ -543,7 +546,8 @@ describe('작업 설정 「모델」 — 연결된 계정의 모델 목록(WP-14
     const { user, modelCalls } = await renderDetail(
       works({
         claudeFor: [],
-        accounts: { [id]: { id: 5, provider: 'anthropic', label: '팀 구독' } },
+        accounts: [createAccount({ id: 5, provider: 'anthropic', label: '팀 구독' })],
+        boundAccounts: { [id]: 5 },
         models: live,
       }),
     )
@@ -672,82 +676,257 @@ describe('찾을 수 없음·로딩', () => {
   })
 })
 
-describe('로그인 정보로 일하는 방식의 AI 계정(WP-1296·1297)', () => {
+describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
+  // 작업 공간 AI 는 AI 마다 연결하지 않고 계정 목록(설정 › 에이전트 › 계정)에서 이 방식에 맞는 종류의 계정 하나를 고른다.
   const id = 600
-  const codex = (over: Partial<Opts> = {}): Opts => ({
+  const SELF = { userId: id, username: 'agent600', name: 'AI 600' }
+  const DEV_AI = { userId: 11, username: 'dev-ai', name: '개발 AI' }
+  /** 종류가 섞인 계정 목록 — Claude 구독 둘(여유·한도 도달), ChatGPT·OpenAI 호환·Gen:iA 하나씩. */
+  const ACCOUNTS = [
+    createAccount({
+      id: 1,
+      label: 'Claude 팀 A',
+      agents: [DEV_AI, SELF],
+      usage: createUsage({
+        status: 'OK',
+        fiveHour: { usedPercent: 42.5, resetsAt: null, observedAt: null },
+        weekly: { usedPercent: 80, resetsAt: null, observedAt: null },
+      }),
+    }),
+    createAccount({ id: 2, provider: 'chatgpt', label: 'ChatGPT 개발', agents: [], usage: createUsage({ status: 'OK', fiveHour: { usedPercent: 10, resetsAt: null, observedAt: null } }) }),
+    createAccount({
+      id: 3,
+      label: 'Claude 팀 B',
+      agents: [DEV_AI],
+      usage: createUsage({ status: 'LIMIT_REACHED', fiveHour: { usedPercent: 104.2, resetsAt: null, observedAt: null }, weekly: { usedPercent: 12, resetsAt: null, observedAt: null } }),
+    }),
+    createAccount({ id: 4, provider: 'opencode', label: '사내 모델', agents: [], usage: createUsage({ status: 'UNLIMITED' }) }),
+    createAccount({ id: 5, provider: 'genia', label: 'Gen:iA 예비', agents: [], usage: createUsage({ status: 'UNLIMITED' }) }),
+  ]
+  /** Claude Code(Claude 구독) 작업 공간 AI — 옛 연결은 없다(계정 목록만으로 일하는지 본다). */
+  const claude = (over: Partial<Opts> = {}): Opts => ({
     agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
-    settings: { [id]: createSetting(id, { templateName: 'codex' }) },
-    templates: [...TEMPLATES, CODEX_TEMPLATE],
+    settings: { [id]: createSetting(id) },
     repoCredentials: [repoCred(1, 'github.com')],
+    projects: PROJECTS,
+    accounts: ACCOUNTS,
     ...over,
   })
-  // 가짜 ChatGPT 로그인 정보 — 계정·만료는 서명 없는 JWT 가운데 부분에서 읽는다.
-  const jwt = (p: object) => `h.${btoa(JSON.stringify(p)).replace(/=+$/, '')}.s`
-  const loginInfo = JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { id_token: jwt({ email: 'ai-dev@example.com' }), access_token: jwt({ exp: 1_800_000_000 }), refresh_token: 'rt-fake' },
+  /** Codex(ChatGPT 로그인) 작업 공간 AI. */
+  const codex = (over: Partial<Opts> = {}): Opts =>
+    claude({ settings: { [id]: createSetting(id, { templateName: 'codex' }) }, templates: [...TEMPLATES, CODEX_TEMPLATE], ...over })
+
+  const openChooser = async (user: ScreenUser) => {
+    await user.click(await screen.findByTestId('agent-account-pick'))
+    return screen.findByTestId('agent-account-choose-dialog')
+  }
+
+  test('고른 계정이 없으면(묶인 계정 404) 오류가 아니라 「아직 고른 계정이 없습니다」와 「계정 고르기」, 실행 시작은 막힌다', async () => {
+    await renderDetail(claude())
+    const group = await screen.findByTestId('agent-ai-account-group')
+    expect(await within(group).findByTestId('agent-account-picker-empty')).toHaveTextContent(
+      '이 방식은 Claude 구독 계정으로 일해요. 아직 고른 계정이 없습니다.',
+    )
+    expect(within(group).getByTestId('agent-account-pick')).toHaveTextContent('계정 고르기')
+    expect(screen.queryByTestId('agent-account-picker-error')).not.toBeInTheDocument()
+    // 옛 연결 칸(AI 별 연결 등록)은 작업 공간 AI 에 더는 없다
+    expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('Claude 구독을 먼저 연결해 주세요'))
+    expect(screen.getByTestId('agent-runtime-check-account')).toHaveTextContent('아래 실행 › AI 계정에서 계정을 골라 주세요')
   })
 
-  test('connectsWithLoginInfo_whenNotConnected', async () => {
-    // 연결 전 — 이 방식의 계정 이름으로 안내하고, 실행 시작은 「ChatGPT 로그인」이 막는다
-    const { user, calls } = await renderDetail(codex())
-    const group = await screen.findByTestId('agent-ai-account-group')
-    await waitFor(() => expect(group).toHaveTextContent('이 방식은 ChatGPT 로그인으로 일해요'))
+  test('고른 계정 — 라벨·종류·상태와 5시간·주간 사용률(계정 탭과 같은 막대 색), 옛 연결이 없어도 실행 시작이 열린다', async () => {
+    await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    const bound = await screen.findByTestId('agent-account-bound')
+    expect(within(bound).getByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 A')
+    expect(bound).toHaveTextContent('Claude 구독')
+    expect(bound).toHaveTextContent('여유')
+    const five = within(bound).getByTestId('agent-account-bound-five-hour')
+    expect(five).toHaveTextContent('42%')
+    expect(within(five).getByRole('progressbar')).toHaveAttribute('data-tone', 'primary')
+    const week = within(bound).getByTestId('agent-account-bound-weekly')
+    expect(week).toHaveTextContent('80%')
+    expect(within(week).getByRole('progressbar')).toHaveAttribute('data-tone', 'warning')
+    expect(screen.getByTestId('agent-account-pick')).toHaveTextContent('바꾸기')
+    // 묶인 계정이 이 방식에 맞으면 실행 전 확인을 통과한다(서버도 묶인 계정을 먼저 본다)
+    await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
+  })
+
+  test('바꾸기 — 이 방식에 맞는 종류만, 줄마다 사용률·상태·다른 AI 수와 끊김 안내, 고르면 PUT {accountId} 후 새 계정을 보인다', async () => {
+    const { user, calls } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    await screen.findByTestId('agent-account-bound')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(
+      '바꾸면 이 AI 의 작업 공간이 다시 시작돼 일하는 중인 작업이 끊깁니다',
+    )
+    // Claude 구독 둘만 — ChatGPT·OpenAI 호환·Gen:iA 는 고를 수 없다
+    const radios = await within(dialog).findAllByRole('radio')
+    expect(radios.map((r) => r.dataset.testid)).toEqual(['agent-account-option-1', 'agent-account-option-3'])
+    expect(dialog).not.toHaveTextContent('ChatGPT 개발')
+    expect(dialog).not.toHaveTextContent('사내 모델')
+    expect(dialog).not.toHaveTextContent('Gen:iA 예비')
+    // 지금 계정이 골라져 있고, 같은 계정이면 바꾸기가 닫혀 있다
+    expect(within(dialog).getByTestId('agent-account-option-1')).toBeChecked()
+    expect(within(dialog).getByTestId('agent-account-option-row-1')).toHaveTextContent('지금')
+    expect(within(dialog).getByTestId('agent-account-choose-confirm')).toBeDisabled()
+    // 다른 AI 수는 이 AI 를 빼고 센다
+    expect(within(dialog).getByTestId('agent-account-option-others-1')).toHaveTextContent('다른 AI 1명이 써요')
+    expect(within(dialog).getByTestId('agent-account-option-others-3')).toHaveTextContent('다른 AI 1명이 써요')
+    const row3 = within(dialog).getByTestId('agent-account-option-row-3')
+    expect(row3).toHaveTextContent('한도 도달')
+    expect(within(dialog).getByTestId('agent-account-option-five-hour-3')).toHaveTextContent('104%')
+    expect(within(within(dialog).getByTestId('agent-account-option-five-hour-3')).getByRole('progressbar')).toHaveAttribute('data-tone', 'destructive')
+    expect(within(dialog).getByTestId('agent-account-option-weekly-3')).toHaveTextContent('12%')
+
+    await user.click(within(dialog).getByTestId('agent-account-option-3'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('agent-account-choose-dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 B'))
+  })
+
+  test('한도 없는 계정 줄은 5시간·주간 「한도 없음」 — Gen:iA 방식이면 Gen:iA 계정만 보인다', async () => {
+    const genia = { ...CODEX_TEMPLATE, name: 'genia-code', card: { ...CODEX_TEMPLATE.card, title: 'Gen:iA Code' }, requires: ['genia', 'repo'], account: 'genia' as const }
+    const { user } = await renderDetail(
+      claude({ settings: { [id]: createSetting(id, { templateName: 'genia-code' }) }, templates: [...TEMPLATES, genia] }),
+    )
+    const dialog = await openChooser(user)
+    const radios = await within(dialog).findAllByRole('radio')
+    expect(radios.map((r) => r.dataset.testid)).toEqual(['agent-account-option-5'])
+    expect(within(dialog).getByTestId('agent-account-option-five-hour-5')).toHaveTextContent('한도 없음')
+    expect(within(dialog).getByTestId('agent-account-option-weekly-5')).toHaveTextContent('한도 없음')
+    expect(within(dialog).getByTestId('agent-account-option-others-5')).toHaveTextContent('다른 AI 는 쓰지 않아요')
+    // 고르기 전에는 바꾸기가 닫혀 있다
+    expect(within(dialog).getByTestId('agent-account-choose-confirm')).toBeDisabled()
+  })
+
+  test('맞는 계정이 없으면 고를 줄 대신 안내와 계정 탭으로 가는 링크', async () => {
+    const { user } = await renderDetail(codex({ accounts: ACCOUNTS.filter((a) => a.provider !== 'chatgpt') }))
+    const dialog = await openChooser(user)
+    expect(await within(dialog).findByTestId('agent-account-choose-empty')).toHaveTextContent('고를 수 있는 ChatGPT 로그인 계정이 없어요.')
+    expect(within(dialog).queryAllByRole('radio')).toHaveLength(0)
+    expect(within(dialog).getByRole('link', { name: '계정 탭에서 먼저 추가' })).toHaveAttribute('href', '/settings/agents/accounts')
+    expect(within(dialog).getByTestId('agent-account-choose-confirm')).toBeDisabled()
+  })
+
+  test.each([
+    { status: 409, code: 'AGENT_ACCOUNT_NOT_POD', message: '작업 공간 실행 방식 AI 만 계정을 고를 수 있어요' },
+    { status: 400, code: 'AGENT_ACCOUNT_UNFIT', message: '이 실행 방식은 「Claude 구독」 계정으로만 일해요' },
+  ])('고르기가 거절되면($status) 서버 문구를 알리고 창은 남는다', async ({ status, code, message }) => {
+    const { user, calls } = await renderDetail(claude({ failBind: { status, code, message } }))
+    const dialog = await openChooser(user)
+    await user.click(await within(dialog).findByTestId('agent-account-option-1'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => expect(calls.binds).toEqual([{ accountId: 1 }]))
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.getByTestId('agent-account-choose-dialog')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-account-picker-empty')).toBeInTheDocument()
+  })
+
+  test('묶인 계정을 불러오지 못하면(404 가 아닌 실패) 오류 문구 — 빈 상태로 보이지 않는다', async () => {
+    await renderDetail(claude({ failBoundGet: 500 }))
+    expect(await screen.findByTestId('agent-account-picker-error')).toHaveTextContent('고른 계정을 불러오지 못했어요')
+    expect(screen.queryByTestId('agent-account-picker-empty')).not.toBeInTheDocument()
+  })
+
+  test('로그인 계정 방식(Codex)에 맞지 않는 계정이 묶여 있으면 바꾸라고 알리고 실행 시작은 「ChatGPT 로그인」으로 막힌다', async () => {
+    // 옛 연결이 ChatGPT 여도 묶인 계정이 먼저다(서버 runner 계약과 같다)
+    await renderDetail(codex({ boundAccounts: { [id]: 1 }, credentials: { [id]: 'chatgpt' } }))
+    expect(await screen.findByTestId('agent-account-picker-mismatch')).toHaveTextContent('이 방식은 ChatGPT 로그인 계정으로 일해요')
     await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('ChatGPT 로그인을 먼저 연결해 주세요'))
-
-    await user.click(within(group).getByTestId('oauth-token-register'))
-    const dialog = await screen.findByTestId('login-info-dialog')
-    expect(within(dialog).getByTestId('login-info-submit')).toBeDisabled()
-    await user.click(within(dialog).getByTestId('login-info-text'))
-    await user.paste(loginInfo)
-    // 넣은 뒤에는 내용 대신 「넣었어요」만 보이고, 계정을 알려 준다
-    expect(within(dialog).getByTestId('login-info-filled')).toHaveTextContent('로그인 정보를 넣었어요')
-    expect(dialog).not.toHaveTextContent('rt-fake')
-    expect(within(dialog).getByTestId('login-info-check')).toHaveTextContent('ChatGPT 로그인 정보예요 · ai-dev@example.com')
-    await user.click(within(dialog).getByTestId('login-info-submit'))
-
-    await waitFor(() => expect(calls.credentialRegisters).toEqual([{ provider: 'chatgpt', loginInfo }]))
-    await waitFor(() => expect(screen.queryByTestId('login-info-dialog')).not.toBeInTheDocument())
-    expect(await within(group).findByTestId('credential-account')).toHaveTextContent('ai-dev@example.com')
+    expect(screen.getByTestId('agent-runtime-check-account')).toHaveTextContent('Claude 구독이 연결돼 있어요')
   })
 
-  test('blocksSubmit_whenOtherProgramLoginInfo', async () => {
-    // Gen:iA 로그인 정보를 넣으면 무엇을 넣었는지 알리고 연결을 막는다
-    const { user, calls } = await renderDetail(codex())
+  test('고른 계정이 있는 AI 의 실행 방식을 바꾸면 확인 창에 그 계정의 연결이 풀린다고 알린다(서버가 묶음을 푼다)', async () => {
+    const { user } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    await screen.findByTestId('agent-account-bound')
+    await user.click(screen.getByTestId('agent-run-mode-EXTERNAL'))
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    const confirm = await screen.findByTestId('agent-run-mode-confirm')
+    expect(confirm).toHaveTextContent('고른 계정 「Claude 팀 A」(Claude 구독) 연결이 풀려요.')
+  })
+
+  test('고른 계정이 없으면 확인 창에 계정 연결이 풀린다는 줄이 없다', async () => {
+    const { user } = await renderDetail(claude())
+    await screen.findByTestId('agent-account-picker-empty')
+    await user.click(screen.getByTestId('agent-run-mode-EXTERNAL'))
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    const confirm = await screen.findByTestId('agent-run-mode-confirm')
+    expect(confirm).toHaveTextContent('작업 설정')
+    expect(confirm).not.toHaveTextContent('연결이 풀려요')
+  })
+
+  test('묶인 계정이 없으면 예전처럼 옛 연결로 실행 전 확인을 본다', async () => {
+    await renderDetail(codex({ credentials: { [id]: 'chatgpt' } }))
+    await screen.findByTestId('agent-account-picker-legacy')
+    await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
+  })
+
+  test('고른 계정이 없고 예전 방식의 키가 남아 있으면 그 키를 알리고 「계정 고르기」는 그대로 둔다', async () => {
+    await renderDetail(claude({ credentials: { [id]: 'anthropic' } }))
     const group = await screen.findByTestId('agent-ai-account-group')
-    await user.click(await within(group).findByTestId('oauth-token-register'))
-    const dialog = await screen.findByTestId('login-info-dialog')
-    await user.click(within(dialog).getByTestId('login-info-text'))
-    await user.paste(JSON.stringify({ genia: { type: 'oauth', refresh: 'rt-fake' } }))
-    expect(within(dialog).getByTestId('login-info-check')).toHaveTextContent('Gen:iA 로그인 정보예요 — ChatGPT 로그인 정보를 넣어 주세요.')
-    expect(within(dialog).getByTestId('login-info-submit')).toBeDisabled()
-    expect(calls.credentialRegisters).toEqual([])
+    expect(await within(group).findByTestId('agent-account-picker-legacy')).toHaveTextContent(
+      '예전 방식으로 연결된 Claude 구독 키가 있어요 — 계정을 고르면 그 계정으로 바뀝니다',
+    )
+    expect(within(group).queryByTestId('agent-account-picker-empty')).not.toBeInTheDocument()
+    expect(within(group).getByTestId('agent-account-pick')).toHaveTextContent('계정 고르기')
+    // 예전 키를 다시 넣는 칸은 없다
+    expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()
   })
 
-  test('keepsTextareaVisible_whenTyping', async () => {
-    // 직접 타이핑하면 한 글자를 쳐도 칸이 그대로 보여 이어 쓸 수 있고, 「지우기」로 바뀌는 것은 붙여넣기·파일로 넣었을 때뿐이다
-    const { user } = await renderDetail(codex())
-    const group = await screen.findByTestId('agent-ai-account-group')
-    await user.click(await within(group).findByTestId('oauth-token-register'))
-    const dialog = await screen.findByTestId('login-info-dialog')
-    const area = within(dialog).getByTestId('login-info-text')
-    await user.type(area, '{{"a')
-    expect(within(dialog).getByTestId('login-info-text')).toHaveValue('{"a')
-    expect(within(dialog).queryByTestId('login-info-filled')).not.toBeInTheDocument()
-    // 이어서 붙여 넣으면 요약으로 바뀌고, 「지우기」는 내용과 요약을 함께 비운다
-    await user.paste('":1}')
-    expect(within(dialog).getByTestId('login-info-filled')).toBeInTheDocument()
-    // 타이핑한 앞부분과 붙여 넣은 글이 이어져 {"a":1} 로 읽힌다(읽지 못했어요가 아니라 다른 프로그램 파일로)
-    expect(within(dialog).getByTestId('login-info-check')).toHaveTextContent('다른 프로그램의 파일 같아요')
-    await user.click(within(within(dialog).getByTestId('login-info-filled')).getByRole('button', { name: '지우기' }))
-    expect(within(dialog).getByTestId('login-info-text')).toHaveValue('')
-    expect(within(dialog).queryByTestId('login-info-check')).not.toBeInTheDocument()
+  test('고른 계정을 받는 중이면 옛 연결로 어긋남을 판정하지 않고 「확인하고 있어요」, 없음(404)으로 끝나면 옛 연결로 본다', async () => {
+    let release = () => {}
+    const hold = new Promise<void>((r) => (release = r))
+    // Claude Code 방식인데 옛 연결은 ChatGPT — 받는 중에 이걸로 판정하면 「ChatGPT 로그인이 연결돼 있어요」가 잘못 뜬다
+    await renderDetail(claude({ credentials: { [id]: 'chatgpt' }, holdBoundGet: hold }))
+    const check = await screen.findByTestId('agent-runtime-check-account')
+    await waitFor(() => expect(check).toHaveTextContent('확인하고 있어요'))
+    expect(check).not.toHaveTextContent('연결돼 있어요')
+    expect(screen.getByTestId('agent-run-group')).toHaveTextContent('계정 정보를 확인하고 있어요')
+    release()
+    await waitFor(() => expect(screen.getByTestId('agent-runtime-check-account')).toHaveTextContent('ChatGPT 로그인이 연결돼 있어요'))
   })
 
-  test('warnsMismatch_whenOtherAccountConnected', async () => {
-    // Codex 인데 Claude 구독이 남아 있으면 맞지 않는다고 알리고 다시 연결을 앞세운다
-    await renderDetail(codex({ credentials: { [id]: 'anthropic' } }))
-    expect(await screen.findByTestId('credential-mismatch')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('ChatGPT 로그인을 먼저 연결해 주세요'))
+  test('고른 계정을 불러오지 못하면(404 가 아닌 실패) 옛 연결로 판정하지 않고 「계정 정보를 불러오지 못했어요」만', async () => {
+    await renderDetail(claude({ credentials: { [id]: 'chatgpt' }, failBoundGet: 500 }))
+    expect(await screen.findByTestId('agent-runtime-check-account-error')).toHaveTextContent('계정 정보를 불러오지 못했어요')
+    expect(screen.getByTestId('agent-runtime-check-account')).not.toHaveTextContent('연결돼 있어요')
+    expect(screen.getByTestId('agent-run-group')).not.toHaveTextContent('먼저 연결해 주세요')
+    expect(screen.getByTestId('agent-runtime-start')).toBeDisabled()
+  })
+
+  test('작업 공간에서 방식을 바꾸는 확인 창은 고른 계정을 다 받기 전엔 「바꾸기」를 막는다(풀리는 계정 줄이 빠지지 않게)', async () => {
+    let release = () => {}
+    const hold = new Promise<void>((r) => (release = r))
+    const { user, calls } = await renderDetail(claude({ boundAccounts: { [id]: 1 }, holdBoundGet: hold }))
+    await user.click(await screen.findByTestId('agent-run-mode-EXTERNAL'))
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    const confirm = await screen.findByTestId('agent-run-mode-confirm')
+    const apply = within(confirm).getByTestId('agent-run-mode-confirm-apply')
+    expect(apply).toBeDisabled()
+    expect(apply).toHaveTextContent('확인하는 중…')
+    expect(confirm).not.toHaveTextContent('연결이 풀려요')
+    release()
+    await waitFor(() => expect(confirm).toHaveTextContent('고른 계정 「Claude 팀 A」(Claude 구독) 연결이 풀려요.'))
+    expect(apply).toBeEnabled()
+    await user.click(apply)
+    await waitFor(() => expect(calls.settingDeletes).toBe(1))
+  })
+
+  test('실행 방식을 바꾸면 계정 목록과 이 AI 의 고른 계정 캐시를 다시 받게 한다(서버가 묶음을 풀 수 있다)', async () => {
+    const { user, queryClient } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    await screen.findByTestId('agent-account-bound')
+    // 계정 탭에서 받아 둔 목록이 캐시에 있다고 둔다
+    queryClient.setQueryData(agentAccountKeys.list(), ACCOUNTS)
+    const boundBefore = queryClient.getQueryState(agentAccountKeys.forAgent(id))?.dataUpdatedAt ?? 0
+    await user.click(screen.getByTestId('agent-run-mode-EXTERNAL'))
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    await user.click(within(await screen.findByTestId('agent-run-mode-confirm')).getByTestId('agent-run-mode-confirm-apply'))
+    await waitFor(() => expect(queryClient.getQueryState(agentAccountKeys.list())?.isInvalidated).toBe(true))
+    await waitFor(() => {
+      const st = queryClient.getQueryState(agentAccountKeys.forAgent(id))
+      expect(st?.isInvalidated || (st?.dataUpdatedAt ?? 0) > boundBefore).toBe(true)
+    })
   })
 })
