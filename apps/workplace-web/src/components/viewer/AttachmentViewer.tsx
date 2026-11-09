@@ -516,8 +516,10 @@ export function AttachmentViewer({
         showCloseButton={false}
         // 기본 DialogContent 의 가운데 정렬·max-w·테두리를 덮어 전체 화면으로 — 기본의 w-full 은 w-auto 로 덮는다(width 100% 고정이 inset 을 과제약해 lg:right 패널 비움이 무시됨).
         // — 다크 토큰 강제(.dark).
+        // 기본 DialogContent 의 높이 상한·창 안 스크롤(WP-1453)도 덮는다 — 안 덮으면 전체 화면 높이가 화면-2rem 으로 잘린다.
+        // max-h-none 이 아니라 max-h-[none] — tailwind-merge 가 max-h-none 을 기본값과 같은 묶음으로 알아보지 못해 둘 다 남기 때문.
         className={cn(
-          'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-transparent p-0 text-foreground sm:max-w-none',
+          'dark fixed inset-0 top-0 left-0 flex h-[100dvh] max-h-[none] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-visible rounded-none border-0 bg-transparent p-0 text-foreground sm:max-w-none',
           // 모바일: 포털이라 MobileShell 의 --vvh·안전영역 처리 밖 — 직접 적용(스펙 §4.2). 키보드가 없으면 변수 미설정 → 100dvh·0.
           mobile && 'top-[var(--vv-top,0px)] h-[var(--vvh,100dvh)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
           // AI 시트(z-[60]) 위 — 다른 AI 표면 레이어(확인창·첨부 바텀시트)와 같은 z-[80].
