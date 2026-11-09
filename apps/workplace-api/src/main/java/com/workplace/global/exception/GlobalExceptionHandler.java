@@ -497,7 +497,11 @@ public class GlobalExceptionHandler {
     com.workplace.messaging.exception.ChannelUnarchiveNameTakenException.class,
     com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException.class,
     com.workplace.agentruntime.exception.AgentRuntimeException.class,
-    com.workplace.global.security.AgentOnlyException.class
+    com.workplace.global.security.AgentOnlyException.class,
+    com.workplace.agentaccount.exception.AgentAccountNotFoundException.class,
+    com.workplace.agentaccount.exception.AgentAccountInUseException.class,
+    com.workplace.agentaccount.exception.AgentAccountDuplicateException.class,
+    com.workplace.agentaccount.exception.AgentAccountBindingException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

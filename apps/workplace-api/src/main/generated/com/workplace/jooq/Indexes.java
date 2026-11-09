@@ -4,6 +4,8 @@
 package com.workplace.jooq;
 
 
+import com.workplace.jooq.tables.AgentAccount;
+import com.workplace.jooq.tables.AgentAccountBinding;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
@@ -188,6 +190,8 @@ public class Indexes {
     public static final Index HOME_MESSAGE_EMBEDDING_PENDING_IDX = Internal.createIndex(DSL.name("home_message_embedding_pending_idx"), HomeMessage.HOME_MESSAGE, new OrderField[] { HomeMessage.HOME_MESSAGE.ID }, false);
     public static final Index HOME_SESSION_MEMORY_CLEANUP_IDX = Internal.createIndex(DSL.name("home_session_memory_cleanup_idx"), HomeSession.HOME_SESSION, new OrderField[] { HomeSession.HOME_SESSION.TENANT_ID, HomeSession.HOME_SESSION.LAST_MESSAGE_AT }, false);
     public static final Index IDX_AAC_USER = Internal.createIndex(DSL.name("idx_aac_user"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, false);
+    public static final Index IDX_AGENT_ACCOUNT_BINDING_ACCOUNT = Internal.createIndex(DSL.name("idx_agent_account_binding_account"), AgentAccountBinding.AGENT_ACCOUNT_BINDING, new OrderField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.ACCOUNT_ID }, false);
+    public static final Index IDX_AGENT_ACCOUNT_TENANT = Internal.createIndex(DSL.name("idx_agent_account_tenant"), AgentAccount.AGENT_ACCOUNT, new OrderField[] { AgentAccount.AGENT_ACCOUNT.TENANT_ID }, false);
     public static final Index IDX_AGENT_API_KEY_HASH = Internal.createIndex(DSL.name("idx_agent_api_key_hash"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.KEY_HASH }, false);
     public static final Index IDX_AGENT_API_KEY_MANAGED = Internal.createIndex(DSL.name("idx_agent_api_key_managed"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID, AgentApiKey.AGENT_API_KEY.TENANT_ID, AgentApiKey.AGENT_API_KEY.ID }, false);
     public static final Index IDX_AGENT_API_KEY_USER = Internal.createIndex(DSL.name("idx_agent_api_key_user"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, false);
@@ -473,6 +477,7 @@ public class Indexes {
     public static final Index SHARED_AI_MEMORY_SPACE_IDX = Internal.createIndex(DSL.name("shared_ai_memory_space_idx"), SharedAiMemory.SHARED_AI_MEMORY, new OrderField[] { SharedAiMemory.SHARED_AI_MEMORY.TENANT_ID, SharedAiMemory.SHARED_AI_MEMORY.SPACE_TYPE, SharedAiMemory.SHARED_AI_MEMORY.SPACE_ID, SharedAiMemory.SHARED_AI_MEMORY.UPDATED_AT.desc() }, false);
     public static final Index UK_EMAIL_MESSAGE_PROVIDER_MSG = Internal.createIndex(DSL.name("uk_email_message_provider_msg"), EmailMessage.EMAIL_MESSAGE, new OrderField[] { EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID, EmailMessage.EMAIL_MESSAGE.PROVIDER_MESSAGE_ID }, true);
     public static final Index UQ_AAC_ACTIVE = Internal.createIndex(DSL.name("uq_aac_active"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, true);
+    public static final Index UQ_AGENT_ACCOUNT_FINGERPRINT = Internal.createIndex(DSL.name("uq_agent_account_fingerprint"), AgentAccount.AGENT_ACCOUNT, new OrderField[] { AgentAccount.AGENT_ACCOUNT.TENANT_ID, AgentAccount.AGENT_ACCOUNT.PROVIDER, AgentAccount.AGENT_ACCOUNT.FINGERPRINT }, true);
     public static final Index UQ_AGENT_LOCATION_DEFAULT = Internal.createIndex(DSL.name("uq_agent_location_default"), AgentLocation.AGENT_LOCATION, new OrderField[] { AgentLocation.AGENT_LOCATION.TENANT_ID }, true);
     public static final Index UQ_AGENT_REPO_CREDENTIAL_ACTIVE = Internal.createIndex(DSL.name("uq_agent_repo_credential_active"), AgentRepoCredential.AGENT_REPO_CREDENTIAL, new OrderField[] { AgentRepoCredential.AGENT_REPO_CREDENTIAL.TENANT_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.AGENT_USER_ID, AgentRepoCredential.AGENT_REPO_CREDENTIAL.HOST }, true);
     public static final Index UQ_AGENT_RUNNER_TOKEN_ACTIVE = Internal.createIndex(DSL.name("uq_agent_runner_token_active"), AgentRunnerToken.AGENT_RUNNER_TOKEN, new OrderField[] { AgentRunnerToken.AGENT_RUNNER_TOKEN.LOCATION_ID }, true);

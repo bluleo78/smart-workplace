@@ -132,13 +132,8 @@ public final class LoginInfoNormalizer {
         return textOrNull(root.path("genia").get("email"));
       }
       if (AgentProviders.CHATGPT.equals(provider)) {
-        String idToken = textOrNull(root.path("tokens").get("id_token"));
-        if (idToken == null) return null;
-        String[] parts = idToken.split("\\.");
-        if (parts.length < 2) return null;
-        byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
-        return textOrNull(
-            MAPPER.readTree(new String(payload, StandardCharsets.UTF_8)).get("email"));
+        JsonNode claims = idTokenClaims(root);
+        return claims == null ? null : textOrNull(claims.get("email"));
       }
       return null;
     } catch (Exception e) {
@@ -146,11 +141,41 @@ public final class LoginInfoNormalizer {
     }
   }
 
+  /**
+   * 다듬어 저장한 ChatGPT 로그인 정보에서 로그인한 사람의 사용자 id 를 꺼낸다(best-effort, WP-1448) — 이메일이 없는 로그인의 계정 지문용.
+   * tokens.id_token JWT 본문의 {@code https://api.openai.com/auth} 안 {@code chatgpt_user_id}·{@code
+   * user_id}, 없으면 {@code sub} 순서(서명 검증 없음 — 같은 사람 판정에만 쓴다). account_id 는 Team·Enterprise 에서 여러 사람이
+   * 함께 쓰는 워크스페이스 id 라 사람을 가르려면 이 값이 따로 필요하다. 읽지 못하면 null.
+   */
+  public static String chatgptUserId(String stored) {
+    try {
+      JsonNode claims = idTokenClaims(MAPPER.readTree(stored));
+      if (claims == null) return null;
+      JsonNode auth = claims.path("https://api.openai.com/auth");
+      String id = textOrNull(auth.get("chatgpt_user_id"));
+      if (id == null) id = textOrNull(auth.get("user_id"));
+      return id != null ? id : textOrNull(claims.get("sub"));
+    } catch (Exception e) {
+      return null; // best-effort — 읽지 못하면 호출자가 다른 기준(원문 지문)으로 넘어간다.
+    }
+  }
+
+  /** tokens.id_token JWT 본문(서명 검증 없음) — 없거나 JWT 모양이 아니면 null. 디코딩 실패는 호출자의 catch 가 받는다. */
+  private static JsonNode idTokenClaims(JsonNode root) throws java.io.IOException {
+    String idToken = textOrNull(root.path("tokens").get("id_token"));
+    if (idToken == null) return null;
+    String[] parts = idToken.split("\\.");
+    if (parts.length < 2) return null;
+    byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
+    return MAPPER.readTree(new String(payload, StandardCharsets.UTF_8));
+  }
+
   private static boolean isBlankText(JsonNode n) {
     return n == null || !n.isTextual() || n.asText().isBlank();
   }
 
-  private static String textOrNull(JsonNode n) {
+  /** 비어 있지 않은 문자열 노드의 값, 아니면 null — 계정 목록(WP-1448)의 지문·갱신 시각 읽기도 같은 규칙을 쓴다. */
+  public static String textOrNull(JsonNode n) {
     return n != null && n.isTextual() && !n.asText().isBlank() ? n.asText() : null;
   }
 }

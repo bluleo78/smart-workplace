@@ -4,6 +4,8 @@
 package com.workplace.jooq;
 
 
+import com.workplace.jooq.tables.AgentAccount;
+import com.workplace.jooq.tables.AgentAccountBinding;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
@@ -181,6 +183,16 @@ public class Public extends SchemaImpl {
      * The reference instance of <code>public</code>
      */
     public static final Public PUBLIC = new Public();
+
+    /**
+     * The table <code>public.agent_account</code>.
+     */
+    public final AgentAccount AGENT_ACCOUNT = AgentAccount.AGENT_ACCOUNT;
+
+    /**
+     * The table <code>public.agent_account_binding</code>.
+     */
+    public final AgentAccountBinding AGENT_ACCOUNT_BINDING = AgentAccountBinding.AGENT_ACCOUNT_BINDING;
 
     /**
      * The table <code>public.agent_api_key</code>.
@@ -983,6 +995,8 @@ public class Public extends SchemaImpl {
     @Override
     public final List<Table<?>> getTables() {
         return Arrays.asList(
+            AgentAccount.AGENT_ACCOUNT,
+            AgentAccountBinding.AGENT_ACCOUNT_BINDING,
             AgentApiKey.AGENT_API_KEY,
             AgentLocation.AGENT_LOCATION,
             AgentRepoCredential.AGENT_REPO_CREDENTIAL,

@@ -4,6 +4,8 @@
 package com.workplace.jooq;
 
 
+import com.workplace.jooq.tables.AgentAccount;
+import com.workplace.jooq.tables.AgentAccountBinding;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
@@ -166,6 +168,16 @@ import com.workplace.jooq.tables.WorkspaceAssistant;
  */
 @SuppressWarnings({ "all", "unchecked", "rawtypes", "this-escape" })
 public class Tables {
+
+    /**
+     * The table <code>public.agent_account</code>.
+     */
+    public static final AgentAccount AGENT_ACCOUNT = AgentAccount.AGENT_ACCOUNT;
+
+    /**
+     * The table <code>public.agent_account_binding</code>.
+     */
+    public static final AgentAccountBinding AGENT_ACCOUNT_BINDING = AgentAccountBinding.AGENT_ACCOUNT_BINDING;
 
     /**
      * The table <code>public.agent_api_key</code>.

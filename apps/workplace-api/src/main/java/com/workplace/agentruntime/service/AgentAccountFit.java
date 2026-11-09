@@ -6,6 +6,7 @@ import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.service.AgentAccountFitPolicy;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.PodAccountSource;
 import com.workplace.user.repository.UserRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -45,11 +46,7 @@ public class AgentAccountFit implements AgentAccountFitPolicy {
     if (row.isPresent()) {
       AgentTemplate t = registry.find(row.get().templateName()).orElse(null);
       if (!fits(t, provider)) {
-        String account = t == null ? null : t.account();
-        throw new InvalidProviderCredentialException(
-            account != null
-                ? "이 AI 의 실행 템플릿은 「" + AgentProviders.label(account) + "」 계정을 써요 — 그 계정으로 연결해 주세요."
-                : "이 실행 템플릿에서는 " + SERVER_ACCOUNTS + " 계정만 쓸 수 있어요.");
+        throw new InvalidProviderCredentialException(unfitTemplateMessage(t));
       }
       return;
     }
@@ -68,6 +65,18 @@ public class AgentAccountFit implements AgentAccountFitPolicy {
             .flatMap(row -> registry.find(row.templateName()))
             .map(t -> provider.equals(t.account()))
             .orElse(false);
+  }
+
+  /**
+   * 작업 공간 템플릿에 맞지 않는 계정을 거절할 때의 문구 — AI 연결 등록 검사와 AI 계정 묶기(WP-1448)가 같은 문구를 쓰게 한 곳에 둔다.
+   *
+   * @param template 작업 공간 템플릿(사라졌으면 null — 서버가 쓰는 계정 문구)
+   */
+  public static String unfitTemplateMessage(AgentTemplate template) {
+    String account = template == null ? null : template.account();
+    return account != null
+        ? "이 AI 의 실행 템플릿은 「" + AgentProviders.label(account) + "」 계정을 써요 — 그 계정으로 연결해 주세요."
+        : "이 실행 템플릿에서는 " + SERVER_ACCOUNTS + " 계정만 쓸 수 있어요.";
   }
 
   /**
@@ -97,5 +106,33 @@ public class AgentAccountFit implements AgentAccountFitPolicy {
     activeProvider
         .filter(p -> !fits(template, p))
         .ifPresent(p -> credentials.revoke(callerId, agentId));
+  }
+
+  /**
+   * 묶인 AI 계정(WP-1448)이 이 템플릿에 맞지 않으면 푼다(맞으면·없으면 그대로) — 템플릿을 바꾸는 실행 설정 저장이 쓴다. 풀린 AI 는 runner 계약에서
+   * 활성 연결로 돌아가고(그것도 {@link #revokeUnfit} 로 맞는 것만 남는다), 관리자가 새 템플릿에 맞는 계정을 다시 고른다.
+   */
+  public static void unbindUnfit(
+      PodAccountSource podAccounts, Long callerId, long agentId, AgentTemplate template) {
+    podAccounts
+        .findBoundProvider(agentId)
+        .filter(p -> !fits(template, p))
+        .ifPresent(p -> podAccounts.unbindIfBound(callerId, agentId));
+  }
+
+  /**
+   * 작업 공간을 떠날 때(실행 설정 삭제·기본 전환, WP-1448) — 묶인 계정을 풀고, 묶여 있었으면 남은 활성 연결(이관 때 남겨 둔 옛 행·기존 등록 다리가 쓴
+   * 행)도 끊는다. 계정은 작업 공간 방식만 쓰므로 새 방식에서는 그 방식의 연결을 새로 요구한다.
+   *
+   * @return 묶여 있다가 풀렸는지 — false 면 호출자가 지금 규칙(맞지 않는 연결만 끊기 등)을 그대로 따른다
+   */
+  public static boolean leaveWorkspace(
+      AiAgentCredentialService credentials,
+      PodAccountSource podAccounts,
+      Long callerId,
+      long agentId) {
+    if (!podAccounts.unbindIfBound(callerId, agentId)) return false;
+    credentials.revoke(callerId, agentId);
+    return true;
   }
 }

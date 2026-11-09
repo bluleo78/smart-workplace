@@ -199,6 +199,10 @@ public final class TenantPurgePlan {
           AGENT_REPO_CREDENTIAL,
           // AI 가 보고한 로그인 계정 모델 목록(WP-1297) — 연결 행·user 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 비운다.
           AGENT_REPORTED_MODEL,
+          // AI 계정 목록(WP-1448) — 묶음이 계정을 NO ACTION 으로 참조하므로 묶음이 계정보다 먼저. user 도 참조하지만 RLS 아래 명시 삭제로
+          // 비운다.
+          AGENT_ACCOUNT_BINDING,
+          AGENT_ACCOUNT,
           AGENT_RUNNER_TOKEN,
           AGENT_LOCATION,
           // 연락처·그룹

@@ -214,6 +214,41 @@ class LoginInfoNormalizerTest {
     assertThat(LoginInfoNormalizer.accountEmail(AgentProviders.GENIA, "broken")).isNull();
   }
 
+  /**
+   * ChatGPT 사용자 id(WP-1448, 이메일 없는 로그인의 계정 지문용) — id_token 본문의
+   * https://api.openai.com/auth.chatgpt_user_id, 없으면 user_id, 없으면 sub. 읽지 못하면 null.
+   */
+  @Test
+  void chatgptUserId_readsUserClaimBestEffort() {
+    assertThat(LoginInfoNormalizer.chatgptUserId(withClaims("{\"sub\":\"auth0|s\"}")))
+        .isEqualTo("auth0|s");
+    assertThat(
+            LoginInfoNormalizer.chatgptUserId(
+                withClaims(
+                    "{\"sub\":\"auth0|s\",\"https://api.openai.com/auth\":"
+                        + "{\"user_id\":\"user-u\"}}")))
+        .isEqualTo("user-u");
+    assertThat(
+            LoginInfoNormalizer.chatgptUserId(
+                withClaims(
+                    "{\"sub\":\"auth0|s\",\"https://api.openai.com/auth\":"
+                        + "{\"user_id\":\"user-u\",\"chatgpt_user_id\":\"user-c\"}}")))
+        .isEqualTo("user-c");
+    assertThat(LoginInfoNormalizer.chatgptUserId(withClaims("{}"))).isNull();
+    assertThat(LoginInfoNormalizer.chatgptUserId("broken")).isNull();
+  }
+
+  /** 본문 claims 를 그대로 실은 가짜 id_token 의 다듬은 ChatGPT 로그인 정보. */
+  private static String withClaims(String claimsJson) {
+    Base64.Encoder enc = Base64.getUrlEncoder().withoutPadding();
+    String idToken =
+        enc.encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8))
+            + "."
+            + enc.encodeToString(claimsJson.getBytes(StandardCharsets.UTF_8))
+            + ".sig";
+    return "{\"tokens\":{\"id_token\":\"" + idToken + "\",\"account_id\":\"ws\"}}";
+  }
+
   private static void assertRejects(String provider, String raw, String message) {
     assertThatThrownBy(() -> LoginInfoNormalizer.normalize(provider, raw))
         .isInstanceOf(InvalidProviderCredentialException.class)

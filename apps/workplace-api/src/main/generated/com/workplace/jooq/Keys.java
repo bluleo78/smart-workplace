@@ -4,6 +4,8 @@
 package com.workplace.jooq;
 
 
+import com.workplace.jooq.tables.AgentAccount;
+import com.workplace.jooq.tables.AgentAccountBinding;
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentLocation;
 import com.workplace.jooq.tables.AgentRepoCredential;
@@ -158,6 +160,8 @@ import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
+import com.workplace.jooq.tables.records.AgentAccountBindingRecord;
+import com.workplace.jooq.tables.records.AgentAccountRecord;
 import com.workplace.jooq.tables.records.AgentApiKeyRecord;
 import com.workplace.jooq.tables.records.AgentLocationRecord;
 import com.workplace.jooq.tables.records.AgentRepoCredentialRecord;
@@ -331,6 +335,8 @@ public class Keys {
     // UNIQUE and PRIMARY KEY definitions
     // -------------------------------------------------------------------------
 
+    public static final UniqueKey<AgentAccountRecord> AGENT_ACCOUNT_PKEY = Internal.createUniqueKey(AgentAccount.AGENT_ACCOUNT, DSL.name("agent_account_pkey"), new TableField[] { AgentAccount.AGENT_ACCOUNT.ID }, true);
+    public static final UniqueKey<AgentAccountBindingRecord> AGENT_ACCOUNT_BINDING_PKEY = Internal.createUniqueKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_pkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.TENANT_ID, AgentAccountBinding.AGENT_ACCOUNT_BINDING.AGENT_USER_ID }, true);
     public static final UniqueKey<AgentApiKeyRecord> AGENT_API_KEY_PKEY = Internal.createUniqueKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_pkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.ID }, true);
     public static final UniqueKey<AgentLocationRecord> AGENT_LOCATION_PKEY = Internal.createUniqueKey(AgentLocation.AGENT_LOCATION, DSL.name("agent_location_pkey"), new TableField[] { AgentLocation.AGENT_LOCATION.ID }, true);
     public static final UniqueKey<AgentLocationRecord> UQ_AGENT_LOCATION_NAME = Internal.createUniqueKey(AgentLocation.AGENT_LOCATION, DSL.name("uq_agent_location_name"), new TableField[] { AgentLocation.AGENT_LOCATION.TENANT_ID, AgentLocation.AGENT_LOCATION.NAME }, true);
@@ -525,6 +531,12 @@ public class Keys {
     // FOREIGN KEY definitions
     // -------------------------------------------------------------------------
 
+    public static final ForeignKey<AgentAccountRecord, UserRecord> AGENT_ACCOUNT__AGENT_ACCOUNT_CREATED_BY_FKEY = Internal.createForeignKey(AgentAccount.AGENT_ACCOUNT, DSL.name("agent_account_created_by_fkey"), new TableField[] { AgentAccount.AGENT_ACCOUNT.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
+    public static final ForeignKey<AgentAccountRecord, TenantRecord> AGENT_ACCOUNT__FK_AGENT_ACCOUNT_TENANT = Internal.createForeignKey(AgentAccount.AGENT_ACCOUNT, DSL.name("fk_agent_account_tenant"), new TableField[] { AgentAccount.AGENT_ACCOUNT.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
+    public static final ForeignKey<AgentAccountBindingRecord, AgentAccountRecord> AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_ACCOUNT_ID_FKEY = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_account_id_fkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.ACCOUNT_ID }, Keys.AGENT_ACCOUNT_PKEY, new TableField[] { AgentAccount.AGENT_ACCOUNT.ID }, true);
+    public static final ForeignKey<AgentAccountBindingRecord, UserRecord> AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_AGENT_USER_ID_FKEY = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_agent_user_id_fkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.AGENT_USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
+    public static final ForeignKey<AgentAccountBindingRecord, UserRecord> AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_BOUND_BY_FKEY = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("agent_account_binding_bound_by_fkey"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.BOUND_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
+    public static final ForeignKey<AgentAccountBindingRecord, TenantRecord> AGENT_ACCOUNT_BINDING__FK_AGENT_ACCOUNT_BINDING_TENANT = Internal.createForeignKey(AgentAccountBinding.AGENT_ACCOUNT_BINDING, DSL.name("fk_agent_account_binding_tenant"), new TableField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<AgentApiKeyRecord, UserRecord> AGENT_API_KEY__AGENT_API_KEY_CREATED_BY_FKEY = Internal.createForeignKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_created_by_fkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentApiKeyRecord, TenantRecord> AGENT_API_KEY__AGENT_API_KEY_TENANT_ID_FKEY = Internal.createForeignKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_tenant_id_fkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<AgentApiKeyRecord, UserRecord> AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY = Internal.createForeignKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_user_id_fkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);

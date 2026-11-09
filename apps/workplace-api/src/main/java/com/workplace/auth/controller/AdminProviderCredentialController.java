@@ -3,6 +3,7 @@ package com.workplace.auth.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
+import com.workplace.auth.service.AdminProviderCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
@@ -33,12 +34,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminProviderCredentialController {
 
   private final AiAgentCredentialService service;
+  private final AdminProviderCredentialService adminCredentials;
   private final ObjectMapper objectMapper;
   private final WorkspaceMemberGuard memberGuard;
 
   /**
    * 등록(또는 재발급 — 기존 active 자동 revoke). provider 생략 시 anthropic(하위호환). anthropic 은 token, opencode 는
-   * providerConfig(+model 필수)를 사용하며 형태 검증은 서비스 계층에서 수행한다.
+   * providerConfig(+model 필수)를 사용하며 형태 검증은 서비스 계층에서 수행한다. 작업 공간(Pod) AI 면 같은 원문의 AI 계정에도
+   * 묶는다(WP-1448 — {@link AdminProviderCredentialService}).
    */
   @PostMapping
   @RequireWebSession
@@ -58,17 +61,17 @@ public class AdminProviderCredentialController {
         ProviderCredentialSecrets.resolveSecret(
             objectMapper, provider, req.token(), req.providerConfig(), req.loginInfo());
     OAuthTokenMetaResponse meta =
-        service.register(callerId, userId, provider, secret, req.label(), req.model());
+        adminCredentials.register(callerId, userId, provider, secret, req.label(), req.model());
     return ResponseEntity.status(HttpStatus.CREATED).body(meta);
   }
 
-  /** 회수 — idempotent. */
+  /** 회수 — idempotent. 묶인 AI 계정도 푼다(WP-1448). */
   @DeleteMapping
   @RequirePermission("user:write")
   public ResponseEntity<Void> revoke(Authentication auth, @PathVariable Long userId) {
     Long callerId = (Long) auth.getPrincipal();
     memberGuard.require(userId);
-    service.revoke(callerId, userId);
+    adminCredentials.revoke(callerId, userId);
     return ResponseEntity.noContent().build();
   }
 

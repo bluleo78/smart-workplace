@@ -1,0 +1,17 @@
+# 테스트 전용 템플릿(WP-1448) — AI 계정을 요구하지 않는 작업 공간 템플릿. 「맞는 계정」은 서버가 쓰는 계정(Claude·OpenAI 호환)이고,
+# 그 계정이 Pod 로 넘어가지 않으므로(deliversToPod=false) OpenAI 호환 연결의 providerId 를 Pod 꼴로 좁히지 않는다.
+# 기존 연결 등록 다리가 연결 등록과 같은 검사를 쓰는지 보는 통합 테스트가 쓴다. 이미지는 허용 접두사만 맞춘 가짜 값이다.
+name: test-no-account
+version: "1"
+kind: WORKSPACE
+card:
+  title: 테스트 계정 없음
+  description: 테스트 전용
+image: docker.io/iacloudops/genia-works-agent-test:latest
+requires: []
+resources:
+  cpuRequest: "1"
+  memoryRequest: 1Gi
+  cpuLimit: "1"
+  memoryLimit: 1Gi
+  workDisk: 1Gi
