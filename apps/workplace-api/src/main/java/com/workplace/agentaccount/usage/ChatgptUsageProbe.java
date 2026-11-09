@@ -62,7 +62,8 @@ public class ChatgptUsageProbe implements UsageProbe {
     } catch (RestClientException | IllegalArgumentException e) {
       throw new UsageProbeException("NETWORK", "연결 실패");
     }
-    if (status == 401) {
+    // 403 도 토큰이 거절된 것 — 401 과 같은 계열로 다뤄 「다시 로그인 필요」 규칙을 탄다.
+    if (status == 401 || status == 403) {
       throw new UsageProbeException("TOKEN_EXPIRED", "토큰 만료 — 다시 로그인 필요할 수 있음");
     }
     if (status < 200 || status >= 300) {

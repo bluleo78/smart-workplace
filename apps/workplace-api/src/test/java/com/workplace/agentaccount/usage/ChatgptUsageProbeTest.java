@@ -88,6 +88,15 @@ class ChatgptUsageProbeTest {
   }
 
   @Test
+  void http403_tokenExpired() {
+    server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.FORBIDDEN));
+
+    assertThatThrownBy(() -> probe.read(AUTH))
+        .isInstanceOfSatisfying(
+            UsageProbeException.class, e -> assertThat(e.code()).isEqualTo("TOKEN_EXPIRED"));
+  }
+
+  @Test
   void brokenAuthJson_badSecret_noHttpCall() {
     assertThatThrownBy(() -> probe.read("not-json"))
         .isInstanceOfSatisfying(

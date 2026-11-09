@@ -92,6 +92,26 @@ class UsageStatusCalculatorTest {
   }
 
   @Test
+  void checkRowLimitReachedIgnoredWhenAllWindowsReset() {
+    // 모든 창이 이미 초기화됐으면 지난 limitReached 는 무시 — 한도 도달이 아니다
+    List<UsageSnapshot> past =
+        List.of(
+            new UsageSnapshot(
+                UsageWindow.FIVE_HOUR, new BigDecimal("5.00"), T.minusSeconds(1), null, T),
+            new UsageSnapshot(
+                UsageWindow.WEEKLY, new BigDecimal("5.00"), T.minusSeconds(60), null, T));
+    assertThat(claude(past, ok(true))).isEqualTo("OK");
+    // 한 창이라도 아직 안 지났으면 limitReached 유지
+    List<UsageSnapshot> oneLive =
+        List.of(
+            new UsageSnapshot(
+                UsageWindow.FIVE_HOUR, new BigDecimal("5.00"), T.minusSeconds(1), null, T),
+            new UsageSnapshot(
+                UsageWindow.WEEKLY, new BigDecimal("5.00"), T.plusSeconds(60), null, T));
+    assertThat(claude(oneLive, ok(true))).isEqualTo("LIMIT_REACHED");
+  }
+
+  @Test
   void windowsAlreadyResetDoNotCount() {
     // 1시간 전에 초기화된 100% 5시간 창 + 지난 rejected 주간 창 — 둘 다 지금은 풀렸으므로 판정에서 빠진다
     Instant past = T.minusSeconds(3600);

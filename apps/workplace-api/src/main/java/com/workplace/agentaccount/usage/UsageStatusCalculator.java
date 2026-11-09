@@ -63,7 +63,11 @@ public final class UsageStatusCalculator {
     if (check.errorCode() != null) return CHECK_FAILED;
     if (check.succeededAt() == null) return UNKNOWN;
     BigDecimal max = BigDecimal.ZERO;
-    boolean rejected = check.limitReached();
+    // 확인 단위의 limitReached 도 창 초기화 필터를 탄다 — 모든 창이 이미 초기화됐으면 지난 한도 도달이라 무시.
+    boolean allReset =
+        !snapshots.isEmpty()
+            && snapshots.stream().allMatch(s -> s.resetsAt() != null && s.resetsAt().isBefore(now));
+    boolean rejected = check.limitReached() && !allReset;
     for (UsageSnapshot s : snapshots) {
       // 이미 초기화된 창 — 지금 사용률이 아니므로 판정에 넣지 않는다.
       if (s.resetsAt() != null && s.resetsAt().isBefore(now)) continue;

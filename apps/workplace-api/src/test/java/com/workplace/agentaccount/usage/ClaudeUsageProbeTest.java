@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.response.DefaultResponseCreator;
@@ -142,5 +143,26 @@ class ClaudeUsageProbeTest {
     assertThatThrownBy(() -> probe.read("t"))
         .isInstanceOfSatisfying(
             UsageProbeException.class, e -> assertThat(e.code()).isEqualTo("HTTP_500"));
+  }
+
+  /** 400·500·529 는 unified 헤더가 붙어 와도 성공이 아니라 HTTP_<코드> 실패다. */
+  @Test
+  void errorStatusWithHeaders_isHttpFailure() {
+    for (int st : new int[] {400, 500, 529}) {
+      server.reset();
+      server
+          .expect(requestTo("https://claude.test/v1/messages"))
+          .andRespond(
+              withStatus(HttpStatusCode.valueOf(st))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .body("{}")
+                  .header(P + "5h-utilization", "0.5")
+                  .header(P + "5h-reset", "1800000000")
+                  .header(P + "5h-status", "allowed"));
+
+      assertThatThrownBy(() -> probe.read("t"))
+          .isInstanceOfSatisfying(
+              UsageProbeException.class, e -> assertThat(e.code()).isEqualTo("HTTP_" + st));
+    }
   }
 }

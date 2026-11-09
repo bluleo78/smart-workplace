@@ -15,8 +15,8 @@ import org.springframework.web.client.RestClientException;
 
 /**
  * Claude(setup-token) 사용량 조회기. /v1/messages 에 최소 호출(max_tokens=1)을 보내고 응답의
- * anthropic-ratelimit-unified-* 헤더를 읽는다(/api/oauth/usage 는 setup-token 에 403 이라 쓰지 않는다). 200 과 429
- * 모두 헤더가 있으면 성공 판독이다 — 429 는 한도 도달.
+ * anthropic-ratelimit-unified-* 헤더를 읽는다(/api/oauth/usage 는 setup-token 에 403 이라 쓰지 않는다). 2xx 와 429
+ * 만 헤더가 있으면 성공 판독이다 — 429 는 한도 도달. 그 밖의 상태는 HTTP_<코드> 실패.
  */
 public class ClaudeUsageProbe implements UsageProbe {
 
@@ -68,6 +68,11 @@ public class ClaudeUsageProbe implements UsageProbe {
     if (status == 401 || status == 403) {
       throw new UsageProbeException("UNAUTHORIZED", "토큰이 거절됨");
     }
+    // 성공 판독은 2xx 와 429(한도 도달)만 — 400(폐기된 모델)·5xx 등은 헤더가 붙어 와도 실패로 다뤄
+    // 기존 실패 이유가 「정상」으로 덮이지 않게 한다.
+    if (!(status >= 200 && status < 300) && status != 429) {
+      throw new UsageProbeException("HTTP_" + status, "응답 오류(" + status + ")");
+    }
     Instant now = Instant.now();
     List<UsageSnapshot> windows = new ArrayList<>();
     boolean rejected = status == 429;
@@ -93,9 +98,6 @@ public class ClaudeUsageProbe implements UsageProbe {
               now));
     }
     if (windows.isEmpty()) {
-      if (status >= 400) {
-        throw new UsageProbeException("HTTP_" + status, "응답 오류(" + status + ")");
-      }
       throw new UsageProbeException("BAD_RESPONSE", "사용량 헤더가 없음");
     }
     return new UsageReading(List.copyOf(windows), rejected);
