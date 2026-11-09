@@ -265,11 +265,12 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         };
         // 서버 응답(IssueResponse)은 reporterId·assignees[].id 같은 숫자 사용자 ID 를 담는다 — 목록 행과 같은 뷰로 바꿔 내보낸다(#833, WP-353).
         const createdRaw = (await client.createIssue(projectKey, body)) as IssueRow;
+        const createdKey = createdRaw.issueKey ?? `${projectKey}-${createdRaw.number}`;
         // WP-888: 이슈는 이미 만들어졌다 — 버전 붙이기가 실패하면 되돌리지 않고 결과에 알린다(이슈는 생겼고 버전만 못 붙였다).
         let versionsError: string | undefined;
         if (fixVersionIds || affectsVersionIds) {
           try {
-            const updated = (await client.replaceIssueVersions(createdRaw.issueKey ?? `${projectKey}-${createdRaw.number}`, { fixVersionIds, affectsVersionIds })) as {
+            const updated = (await client.replaceIssueVersions(createdKey, { fixVersionIds, affectsVersionIds })) as {
               fixVersions?: unknown;
               affectsVersions?: unknown;
             } | null;
@@ -279,8 +280,18 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
             versionsError = `이슈는 만들어졌지만 버전을 붙이지 못했습니다: ${errText(e)}`;
           }
         }
+        // WP-1456: 생성 응답은 cycles 를 싣지 않아(null) 그대로 두면 사이클을 붙여 만든 이슈가 「사이클 없음」으로 읽힌다.
+        // 사이클을 준 호출만 get_issue_detail 과 같은 조회로 다시 읽는다. 이슈는 이미 만들어졌으니 실패해도 되돌리지 않고 결과에 알린다.
+        let cyclesError: string | undefined;
+        if (cycleIds?.length) {
+          try {
+            createdRaw.cycles = await client.getIssueCycles(createdKey);
+          } catch (e) {
+            cyclesError = `이슈는 만들어졌지만 사이클을 다시 읽지 못했습니다: ${errText(e)}`;
+          }
+        }
         const created = toIssueListItem(createdRaw);
-        return JSON.stringify(dropEmpty({ ...created, ...createdLabelsField(labelPart), versionsError }));
+        return JSON.stringify(dropEmpty({ ...created, ...createdLabelsField(labelPart), versionsError, cyclesError }));
       },
     },
     {

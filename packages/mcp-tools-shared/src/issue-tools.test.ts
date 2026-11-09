@@ -547,6 +547,40 @@ describe('buildSharedIssueTools', () => {
     expect(out.versionsError).toContain('서버 오류');
   });
 
+  // WP-1456: 생성 응답은 cycles 가 null 이라, 사이클을 붙여 만들면 다시 읽어 결과에 싣는다(안 그러면 「사이클 없음」으로 읽힌다).
+  it('WP-1456: 사이클을 주고 만들면 getIssueCycles 로 다시 읽어 결과에 {name, status} 로 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ number: 7, issueKey: 'WP-7', title: 'x', cycles: null });
+    vi.mocked(c.getIssueCycles).mockResolvedValue([{ id: 30, name: 'Sprint 3', status: 'ACTIVE' }]);
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: 'x', cycles: ['Sprint 3'] })));
+    expect(vi.mocked(c.createIssue).mock.calls[0][1].cycleIds).toEqual([30]);
+    expect(c.getIssueCycles).toHaveBeenCalledWith('WP-7');
+    expect(out.cycles).toStrictEqual([{ name: 'Sprint 3', status: 'ACTIVE' }]);
+    expect(out).not.toHaveProperty('cyclesError');
+  });
+
+  it('WP-1456: 사이클 없이 만들면 getIssueCycles 를 부르지 않고 cycles 키도 없다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ number: 7, issueKey: 'WP-7', title: 'x', cycles: null });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: 'x' })));
+    expect(c.getIssueCycles).not.toHaveBeenCalled();
+    expect(out).not.toHaveProperty('cycles');
+    expect(out).not.toHaveProperty('cyclesError');
+  });
+
+  it('WP-1456: 만든 뒤 사이클 다시 읽기가 실패해도 이슈는 돌려주고 cyclesError 로 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ number: 7, issueKey: 'WP-7', title: 'x', cycles: null });
+    vi.mocked(c.getIssueCycles).mockRejectedValue(new Error('서버 오류'));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: 'x', cycles: ['Sprint 3'] })));
+    expect(out.issueKey).toBe('WP-7');
+    expect(out).not.toHaveProperty('cycles');
+    expect(out.cyclesError).toContain('서버 오류');
+  });
+
   it('WP-888: updateReplacesOnlyGivenKind — fixVersions 만 주면 PUT 본문에 그 종류만 싣는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

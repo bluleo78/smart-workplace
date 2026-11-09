@@ -213,7 +213,22 @@ export function toIssueListItem(it: IssueRow) {
     blocked: Boolean(it.blocked),
     // WP-377: AI 가 이 이슈에서 하는 작업 — 없으면 키가 없다(dropEmpty 가 undefined 를 뺀다).
     agentWork: it.agentWork?.length ? it.agentWork.map(toAgentWorkView) : undefined,
+    // WP-1456: 속한 사이클 — 없으면 undefined 라 키가 빠지므로 「cycles 없음 = 사이클 없음」이다.
+    cycles: toCyclesView(it.cycles),
   };
+}
+
+/**
+ * 이슈 행의 사이클 요약 → LLM 뷰 [{name, status}](WP-1456). 숫자 id·기간은 빼서 get_issue_detail 의 사이클 모양과 맞추고,
+ * 서버 순서(시작일 최신순)를 그대로 둔다. 배열이 아니거나(null·이상 응답) 비면 undefined(agentWork 와 같이 키 없음).
+ * 이름 없는 이상 항목도 버리지 않는다 — 버리면 사이클에 든 이슈가 「cycles 없음 = 사이클 없음」으로 잘못 읽힌다. 없는 필드만 뺀다.
+ */
+function toCyclesView(cycles: IssueRow['cycles']): { name?: string; status?: string }[] | undefined {
+  if (!Array.isArray(cycles) || cycles.length === 0) return undefined;
+  return cycles.map((c) => ({
+    ...(typeof c?.name === 'string' && c.name !== '' && { name: c.name }),
+    ...(typeof c?.status === 'string' && c.status !== '' && { status: c.status }),
+  }));
 }
 
 /**
@@ -330,8 +345,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         'Lists issues (이슈): {items, hasMore?, nextCursor?}, size 30. If hasMore, pass nextCursor as cursor (same filters) or ' +
         'say the list is partial. due/start/closed/created/updated From-To: yyyy-MM-dd inclusive, closed/created/updated KST; ' +
         'default updatedAt desc, empty last; done work: ' +
-        'status=DONE (closed ranges also match CANCELED). Items: issueKey, sourceKey, fields, parent, children, ' +
-        'blocked, agentWork; empty omitted; body/comments: get_issue_detail.',
+        'status=DONE (closed ranges also hit CANCELED). Items: issueKey, sourceKey, fields, parent, children, ' +
+        'blocked, agentWork, cycles (absent = none); empty omitted; body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, mentionsMe, ...p } = listIssuesInput.parse(args);

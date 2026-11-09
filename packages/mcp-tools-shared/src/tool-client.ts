@@ -112,6 +112,8 @@ export interface IssueRow {
   blocked?: boolean;
   /** AI 작업 진행(WP-377) — 없으면 키 자체가 없다. */
   agentWork?: Record<string, unknown>[] | null;
+  /** 속한 사이클 요약(WP-1456) — 서버는 시작일 최신순으로 id·name·status·기간을 준다. 뷰는 name·status 만 싣는다. */
+  cycles?: { name?: string; status?: string; [key: string]: unknown }[] | null;
   [key: string]: unknown;
 }
 
