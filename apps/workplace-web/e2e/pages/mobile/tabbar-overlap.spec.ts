@@ -117,7 +117,9 @@ test.describe('390×664 — 낮은 화면', () => {
 
     // 창 자체를 overflow-hidden 으로 둔 창(개인 작업 모달·명령 창처럼 안쪽 영역이 스크롤을 맡는 창)은 높이 상한만 받고
     // overflow 는 그 창 값(hidden) 그대로 — 바깥까지 auto 로 바꾸면 스크롤이 두 겹이 되고 머리·닫기 X 가 밀려 올라간다.
+    // 공용 DialogContent 기본 클래스의 overflow-y-auto(WP-1453)는 창이 overflow-hidden 을 주면 cn(tailwind-merge)이 지운다 — 같은 결과를 흉내 낸다.
     const style = await dialog.evaluate((el) => {
+      el.classList.remove('overflow-y-auto')
       el.classList.add('overflow-hidden')
       const cs = getComputedStyle(el)
       return { overflowY: cs.overflowY, maxHeight: parseFloat(cs.maxHeight) }
