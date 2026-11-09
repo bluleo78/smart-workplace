@@ -27,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>묶기 규칙(순서대로): AI 가 이 워크스페이스 구성원인 AI(아니면 404) → 개인 비서 아님(400) → 실행 설정 행 있음(작업 공간 방식, 409) → 계정이
  * 이 워크스페이스의 살아 있는 계정(404) → 실행 템플릿이 있고(409) 그 템플릿이 요구하는 계정 종류({@link AgentAccountFit#fits}, 400).
  *
- * <p>계정 행을 잠근 뒤 묶는다 — 폐기({@link AgentAccountService#revoke})도 같은 행을 잠그고 「쓰는 AI 있음」을 확인하므로, 폐기 확인과
- * 실제 폐기 사이에 묶기가 끼어들지 못한다.
+ * <p>실행 설정 행 → 계정 행 순으로 잠근 뒤 묶는다. 실행 설정 행 잠금은 실행 방식 전환·실행 설정 삭제(같은 행을 {@code findForUpdate} 로 잠근다)와
+ * 차례로 서게 한다 — 전환이 묶음을 푼 직후 묶기가 끼어들어 다른 방식이 된 AI 에 묶음이 남지 않게. 계정 행 잠금은 폐기({@link
+ * AgentAccountService#revoke})도 같은 행을 잠그고 「쓰는 AI 있음」을 확인하므로, 폐기 확인과 실제 폐기 사이에 묶기가 끼어들지 못한다.
  *
  * <p>묶기·옮기기·풀기는 runner 에 알린다({@link AgentAccountRuntimeNotifier}) — generation 은 그대로지만 desired 의
  * 비밀값 버전이 바뀐다.
@@ -92,8 +93,9 @@ public class AgentAccountBindingService {
     if (AgentUsernames.isPersonalAssistant(agent.username())) {
       throw AgentAccountBindingException.personalAssistant();
     }
+    // 실행 설정 행 잠금 — 실행 방식 전환·삭제(같은 행을 잠근다)와 차례로 선다. 잠금 순서는 설정 행 → 계정 행(전환 경로와 같은 방향).
     AgentRuntimeSettingRepository.Row setting =
-        settings.find(agentUserId).orElseThrow(AgentAccountBindingException::notPod);
+        settings.findForUpdate(agentUserId).orElseThrow(AgentAccountBindingException::notPod);
     // 계정 행 잠금 — 동시 폐기와 차례로 선다(폐기는 같은 행을 잠그고 쓰는 AI 를 확인한다).
     AgentAccountRow account =
         accounts.findActiveForUpdate(accountId).orElseThrow(AgentAccountNotFoundException::new);
@@ -137,7 +139,8 @@ public class AgentAccountBindingService {
     // 묶음이 없으면 가드 없이 바로 false — 연결 회수(사람·비구성원 대상의 멱등 noop)·실행 방식 전환이 묶이지 않은 대상에 404 를 받지 않게.
     Optional<Long> current = bindings.findAccountId(agentUserId);
     if (current.isEmpty()) return false;
-    // 묶음이 있을 때만 구성원 AI 인지 본다 — 사용 중지된 AI 면 가드가 404 를 던진다.
+    // 묶음이 있을 때만 구성원 AI 인지 본다. 사용 중지(AgentRemovalService)는 멤버십을 정지하기 전에 여기로 와서 묶음을 풀므로, 사용 중지된 AI
+    // 에 묶음이 남지 않는다 — 이 가드가 404 를 던지는 것은 이 워크스페이스의 활성 구성원이 아닌 대상을 잘못 부른 경우뿐이다.
     UserResponse agent = memberGuard.requireAgent(agentUserId);
     if (bindings.delete(agentUserId) == 0) return false;
     runtimeNotifier.inputsChanged(List.of(agentUserId), callerId);

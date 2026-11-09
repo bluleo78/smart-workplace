@@ -1,5 +1,6 @@
 package com.workplace.agentaccount.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository.Binding;
@@ -9,16 +10,21 @@ import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.service.AgentAccountFit;
 import com.workplace.agentruntime.service.AgentTemplateRegistry;
 import com.workplace.auth.dto.ActiveCredentialRef;
+import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.service.AgentAccountFitPolicy;
+import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
+import com.workplace.auth.service.OpencodeLoginInfo;
 import com.workplace.auth.service.PodAccountSource;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.util.Texts;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +62,8 @@ public class AgentAccountPodSource implements PodAccountSource {
   private final UserRepository userRepository;
   private final AgentTemplateRegistry registry;
   private final AgentAccountFitPolicy accountFit;
+  private final AssistantConfigRepository configRepo;
+  private final ObjectMapper objectMapper;
 
   /** 묶음·계정을 한 번씩 몰아 읽는다(AI 마다 조회하지 않게). 버전 자리는 {@link #versionId} 다. */
   @Override
@@ -96,6 +104,54 @@ public class AgentAccountPodSource implements PodAccountSource {
   }
 
   /**
+   * 묶인 계정의 login 버전을 한 번에(runner desired). 묶음·계정·지정 모델을 각각 한 쿼리로 읽고, OpenCode 계정만 AI 마다 원문을 복호화해
+   * {@link OpencodeLoginInfo#toPod} 로 계산한다 — 활성 연결 쪽({@code
+   * AiAgentCredentialService.podLoginVersions})과 같은 함수·같은 매퍼라 {@code /secrets/login} 의 version 과
+   * 같다.
+   *
+   * <p>AI 하나의 원문을 읽지 못하면 이 본문 안에서 잡아 그 AI 만 뺀다. 복호화({@link EncryptionService})·계산({@link
+   * OpencodeLoginInfo})은 트랜잭션 프록시가 아니므로 예외가 어떤 참여 트랜잭션 경계도 넘지 않는다 — 넘으면 runner desired 트랜잭션이
+   * rollback-only 로 표시돼, 잡아도 커밋 때 위치 전체가 500 이 된다.
+   */
+  @Override
+  public Map<Long, Long> findBoundPodLoginVersions(Map<Long, ActiveCredentialRef> refs) {
+    Map<Long, Long> out = new HashMap<>();
+    List<Long> opencodeIds = new ArrayList<>();
+    refs.forEach(
+        (agentId, ref) -> {
+          if (AgentProviders.OPENCODE.equals(ref.provider())) opencodeIds.add(agentId);
+          else out.put(agentId, ref.id());
+        });
+    if (opencodeIds.isEmpty()) return out;
+    Map<Long, Binding> bound = bindings.findBindings(opencodeIds);
+    Map<Long, AgentAccountRow> rows =
+        accounts.findActiveByIds(bound.values().stream().map(Binding::accountId).toList());
+    Map<Long, String> models = configRepo.findModels(opencodeIds);
+    bound.forEach(
+        (agentId, binding) -> {
+          AgentAccountRow row = rows.get(binding.accountId());
+          // 참조를 읽은 뒤 계정이 폐기됐거나 종류가 바뀌었으면 login 버전 없음(묶이지 않은 것과 같다).
+          if (row == null || !AgentProviders.OPENCODE.equals(row.provider())) return;
+          try {
+            String plaintext = encryptionService.decrypt(row.encryptedSecret());
+            out.put(
+                agentId,
+                OpencodeLoginInfo.toPod(
+                        objectMapper, versionId(binding, row), plaintext, models.get(agentId))
+                    .version());
+          } catch (RuntimeException e) {
+            // 원문·암호문·예외 메시지는 싣지 않는다 — 값이 섞일 수 있다.
+            log.warn(
+                "묶인 OpenAI 호환 계정 원문을 읽지 못해 login version 을 뺍니다: agentUserId={} accountId={} ({})",
+                agentId,
+                row.id(),
+                e.getClass().getSimpleName());
+          }
+        });
+    return out;
+  }
+
+  /**
    * AI 의 runner 버전 원천 id — 이관 백필이 남긴 옛 연결 id 가 있고 계정 secret_version 이 그때 그대로면 그 옛 연결 id, 아니면 계정
    * secret_version. claude 버전·genia/chatgpt login 버전·OpenCode login 버전 계산의 id 입력이 모두 이 값이라, 이관 전 옛
    * 연결 경로가 내던 버전과 똑같다(이관된 Pod 가 다시 만들어지지 않는다). 원문을 교체하면 secret_version 이 바뀌어 계정 버전으로 넘어간다(사람이 의도한
@@ -124,7 +180,9 @@ public class AgentAccountPodSource implements PodAccountSource {
   @Transactional
   public void bindFromLegacy(
       Long callerId, long agentUserId, String provider, String normalizedPlaintext, String label) {
-    Optional<AgentRuntimeSettingRepository.Row> setting = settings.find(agentUserId);
+    // 실행 설정 행을 먼저 잠근다 — 아래 계정 찾기·만들기가 계정 행을 고칠(키 교체) 수 있어, 묶기({@link
+    // AgentAccountBindingService})와 같은 「설정 행 → 계정 행」 순서를 지켜 동시 묶기와 교착하지 않게.
+    Optional<AgentRuntimeSettingRepository.Row> setting = settings.findForUpdate(agentUserId);
     if (setting.isEmpty()) return;
     UserResponse agent = userRepository.findById(agentUserId).orElse(null);
     if (agent == null || AgentUsernames.isPersonalAssistant(agent.username())) return;

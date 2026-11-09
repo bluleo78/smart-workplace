@@ -1,5 +1,7 @@
 package com.workplace.agentaccount;
 
+import static com.workplace.jooq.Tables.AGENT_ACCOUNT_BINDING;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -16,6 +18,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
+import com.workplace.wiki.service.WikiSpaceService;
 import java.util.List;
 import java.util.Map;
 import org.jooq.DSLContext;
@@ -44,6 +47,7 @@ class AgentAccountBindingApiTest extends IntegrationTestBase {
   @Autowired AgentAccountService accountService;
   @Autowired AgentAccountRepository accounts;
   @Autowired AgentRuntimeSettingService settingService;
+  @Autowired WikiSpaceService wikiSpaceService;
 
   private long admin;
 
@@ -173,5 +177,28 @@ class AgentAccountBindingApiTest extends IntegrationTestBase {
     call(get(url(agent)))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.errors.code").value("AGENT_ACCOUNT_NOT_BOUND"));
+  }
+
+  /**
+   * 리뷰 수정(WP-1448) — 지울 수 없는(기록이 남은) 계정 묶인 AI 를 삭제하면 사용 중지로 끝나고, 이 워크스페이스의 묶음도 풀린다. 묶음이 남으면 계정 폐기가
+   * 「쓰는 AI 있음」 409 로 막히고, 다시 켜면 그 계정 키가 다시 간다.
+   */
+  @Test
+  void deactivatingAgentUnbindsItsAccount() throws Exception {
+    long agent = newAgent("claude-code");
+    long acc = anthropicAccount();
+    bind(agent, acc).andExpect(status().isOk());
+    // 개인 노트 공간 — wiki_space.owner_id 가 user 를 NO ACTION 으로 가리켜 완전 삭제를 막는다(AdminAgentDeleteTest 와 같은
+    // 방법).
+    useTenant(1L);
+    wikiSpaceService.ensurePersonalSpace(agent);
+
+    call(delete("/api/v1/admin/agents/" + agent))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.result").value("DEACTIVATED"));
+
+    assertThat(dsl.fetchCount(AGENT_ACCOUNT_BINDING, AGENT_ACCOUNT_BINDING.AGENT_USER_ID.eq(agent)))
+        .isZero();
+    call(delete("/api/v1/admin/agent-accounts/" + acc)).andExpect(status().isNoContent());
   }
 }

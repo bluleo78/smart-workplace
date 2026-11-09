@@ -40,6 +40,7 @@ public class AgentRemovalService {
   private final MembershipRepository memberships;
   private final AgentApiKeyRepository apiKeys;
   private final AiAgentCredentialService credentials;
+  private final PodAccountSource podAccounts;
   private final TransactionTemplate savepoint;
 
   public AgentRemovalService(
@@ -48,12 +49,14 @@ public class AgentRemovalService {
       MembershipRepository memberships,
       AgentApiKeyRepository apiKeys,
       AiAgentCredentialService credentials,
+      PodAccountSource podAccounts,
       PlatformTransactionManager txManager) {
     this.userService = userService;
     this.workspaceAssistant = workspaceAssistant;
     this.memberships = memberships;
     this.apiKeys = apiKeys;
     this.credentials = credentials;
+    this.podAccounts = podAccounts;
     // 바깥 트랜잭션 안의 savepoint — 삭제가 FK 에 막혀도 그 지점까지만 되돌리고 사용 중지로 이어 간다.
     this.savepoint = new TransactionTemplate(txManager);
     this.savepoint.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
@@ -92,8 +95,13 @@ public class AgentRemovalService {
   /**
    * 사용 중지 — 이 워크스페이스 멤버십을 정지(열린 연결 닫기·「구성원 정지」 감사 기록 포함, WP-417)하고, 다른 워크스페이스에서 쓰고 있지 않으면 API 키·AI
    * 연결도 회수한다(키·연결은 워크스페이스 구분 없이 AI 에 붙는다 — 멤버십이 하나도 없는 키도 테넌트 없이 인증은 된다).
+   *
+   * <p>WP-1448: 이 워크스페이스의 AI 계정 묶음도 푼다 — 남기면 계정 폐기가 「쓰는 AI 있음」 409 로 막히고, 다시 켜면 그 계정 키가 다시 간다. 묶음은
+   * 테넌트 단위(이 워크스페이스의 계정을 가리킨다)라 다른 워크스페이스 멤버십과 상관없이 푼다 — 키·연결처럼 「다른 곳에서 쓰는지」를 볼 까닭이 없다. 풀기는 구성원
+   * 가드(사용 중지된 AI 면 404)를 지나므로 멤버십을 정지하기 <b>전에</b> 푼다. 감사 기록·runner 알림은 관리자 풀기와 같은 경로다.
    */
   private void deactivate(long callerId, UserResponse agent) {
+    podAccounts.unbindIfBound(callerId, agent.id());
     userService.setUserActive(agent.id(), false, callerId);
     if (memberships.findActiveByUser(agent.id()).isEmpty()) {
       apiKeys.revokeAllActive(agent.id());

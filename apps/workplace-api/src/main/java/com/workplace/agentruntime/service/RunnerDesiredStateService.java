@@ -50,7 +50,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,7 +63,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @Transactional
-@Slf4j
 @RequiredArgsConstructor
 public class RunnerDesiredStateService {
 
@@ -161,7 +159,11 @@ public class RunnerDesiredStateService {
       Map<Long, Long> loginVersions =
           new HashMap<>(
               legacyLoginRefs.isEmpty() ? Map.of() : credentials.podLoginVersions(legacyLoginRefs));
-      loginVersions.putAll(boundLoginVersions(boundLoginRefs));
+      // 묶인 계정 쪽은 한 프록시 메서드 안에서 복호화·계산하고 AI 하나의 실패를 그 안에서 뺀다 — 여기서 AI 마다 프록시를 부르고 잡으면,
+      // 안쪽 프록시를 지난 예외가 이 트랜잭션을 rollback-only 로 표시해 위치 전체가 500 이 된다.
+      if (!boundLoginRefs.isEmpty()) {
+        loginVersions.putAll(podAccounts.findBoundPodLoginVersions(boundLoginRefs));
+      }
       for (Row row : rows) {
         long id = row.agentUserId();
         AgentTemplate t = templates.get(id);
@@ -187,32 +189,6 @@ public class RunnerDesiredStateService {
         properties.mcpUrl(),
         properties.apiUrl(),
         agents);
-  }
-
-  /**
-   * 묶인 계정의 login 버전(WP-1448) — genia·chatgpt 는 계정 secret_version 그대로, OpenCode 는 {@code
-   * /secrets/login} 과 같은 함수({@link AiAgentCredentialService#toPodLoginSecret} — 계정 원문 + 그 AI 의 지정
-   * 모델)로 계산한다. 같은 계정이어도 AI 마다 지정 모델이 달라 버전이 다를 수 있다. OpenCode 계정만 원문을 AI 마다 읽는다. 한 AI 의 원문을 읽지 못하면
-   * 그 AI 만 빠진다(활성 연결 쪽과 같다 — 이 위치의 다른 AI 목록은 나가야 하므로).
-   */
-  private Map<Long, Long> boundLoginVersions(Map<Long, ActiveCredentialRef> refs) {
-    Map<Long, Long> out = new HashMap<>();
-    refs.forEach(
-        (id, ref) -> {
-          if (!AgentProviders.OPENCODE.equals(ref.provider())) {
-            out.put(id, ref.id());
-            return;
-          }
-          try {
-            podAccounts
-                .findBoundSecret(id)
-                .map(sec -> credentials.toPodLoginSecret(id, sec))
-                .ifPresent(sec -> out.put(id, sec.id()));
-          } catch (RuntimeException e) {
-            log.warn("묶인 OpenAI 호환 계정 원문을 읽지 못해 login version 을 뺍니다: agentUserId={}", id);
-          }
-        });
-    return out;
   }
 
   /**

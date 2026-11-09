@@ -29,6 +29,19 @@ public interface PodAccountSource {
    */
   Optional<ActiveProviderSecret> findBoundSecret(long agentUserId);
 
+  /**
+   * 묶인 계정의 runner login 버전을 한 번에(runner desired) — AI id → login version. genia·chatgpt 는 참조의 id(계정
+   * secret_version) 그대로, OpenCode 는 계정 원문 + 그 AI 의 지정 모델로 {@link OpencodeLoginInfo} 의 같은 함수로
+   * 계산한다({@code /secrets/login} 의 version 과 같은 값 — 다르면 runner 가 매 회차 다시 받는다).
+   *
+   * <p>구현은 복호화·계산을 이 메서드 본문 안에서 하고, AI 하나의 원문을 읽지 못하면(복호화·JSON 실패) 본문 안에서 잡아 그 AI 만 뺀다 — 예외가 트랜잭션
+   * 프록시 경계를 넘으면 호출자의 트랜잭션이 rollback-only 로 표시돼 위치 전체 desired 가 500 이 되기 때문이다. 이 메서드는 그런 AI 하나의 실패로
+   * 예외를 던지지 않는다.
+   *
+   * @param refs Pod 로 로그인 정보를 넘길 AI 의 묶인 계정 참조({@link #findBoundRefs} 결과 중 템플릿에 맞는 것)
+   */
+  Map<Long, Long> findBoundPodLoginVersions(Map<Long, ActiveCredentialRef> refs);
+
   /** AI 가 묶인 계정의 종류 — 묶이지 않았거나 계정이 폐기됐으면 empty. 원문을 복호화하지 않는다(실행 방식 전환의 「맞는 계정」 판정용). */
   default Optional<String> findBoundProvider(long agentUserId) {
     return Optional.ofNullable(findBoundRefs(List.of(agentUserId)).get(agentUserId))

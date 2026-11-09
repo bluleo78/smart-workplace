@@ -25,10 +25,6 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -413,42 +409,16 @@ public class AiAgentCredentialService {
     return out;
   }
 
-  /**
-   * OpenCode login version(WP-1410) — 「연결 행 id + Pod 에 넘길 원문(연결 JSON + defaultModel)」의 SHA-256 앞
-   * 8바이트를 53비트로 줄인 양수. 연결을 다시 하면(id), 비서 설정에서 모델을 바꾸면(defaultModel), 원문을 고치면(이미지 입력 지정) 바뀌어 runner
-   * 가 login-info 를 다시 받고 Pod 를 다시 만든다. 암호문이 아니라 원문으로 계산한다 — AES-GCM 은 IV 가 매번 달라, 같은 값을 다시 저장하거나 키를
-   * 다시 암호화해도 버전이 바뀌어 일하던 Pod 가 까닭 없이 다시 만들어지지 않게. 생각의 깊이처럼 Pod 에 넘기지 않는 설정은 넣지 않는다. 53비트로 줄이는 까닭:
-   * runner(TypeScript)가 JSON 숫자로 읽으므로 2^53 이상이면 정밀도를 잃는다. genia·chatgpt 의 version 은 그대로 연결 id 다.
-   */
+  /** OpenCode login version — 계산식은 {@link OpencodeLoginInfo#version}(묶인 계정 경로와 같은 함수). */
   static long opencodeLoginVersion(long credentialId, String payload) {
-    String input = credentialId + "\0" + payload;
-    try {
-      byte[] h =
-          MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
-      long v = ByteBuffer.wrap(h, 0, Long.BYTES).getLong() & ((1L << 53) - 1);
-      return v == 0 ? 1 : v;
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 을 쓸 수 없습니다", e);
-    }
+    return OpencodeLoginInfo.version(credentialId, payload);
   }
 
   /**
-   * OpenAI 호환 연결 원문 JSON 에 {@code defaultModel} 필드를 더한다(원문 키는 그대로). 지정 모델이 이 연결의 「providerId/모델 id」
-   * 꼴이 아니면 (옛 Claude 기본값·다른 연결의 값·빈 모델 id) null — Pod 가 엉뚱한 모델로 뜨지 않고 「모델을 정할 수 없음」으로 멈추게. 저장 때 객체
-   * JSON 으로 검증된 값이라 읽을 수 없으면 서버 내부 오류로 본다 — 원문이 예외 메시지에 실리지 않게 원인을 싣지 않는다.
+   * 원문에 {@code defaultModel} 을 더한다 — {@link OpencodeLoginInfo#withDefaultModel}(묶인 계정 경로와 같은 함수).
    */
   private String withDefaultModel(String plaintext, String model) {
-    try {
-      ObjectNode node = (ObjectNode) objectMapper.readTree(plaintext);
-      String prefix = node.path("providerId").asText("") + "/";
-      String m = model == null ? "" : model.strip();
-      node.put(
-          "defaultModel",
-          prefix.length() > 1 && m.startsWith(prefix) && m.length() > prefix.length() ? m : null);
-      return objectMapper.writeValueAsString(node);
-    } catch (JsonProcessingException | ClassCastException e) {
-      throw new IllegalStateException("저장된 OpenAI 호환 연결을 읽을 수 없습니다");
-    }
+    return OpencodeLoginInfo.withDefaultModel(objectMapper, plaintext, model);
   }
 
   /**
