@@ -1,6 +1,6 @@
 // 비밀값을 언제 다시 받을지 — Secret 어노테이션(받은 기록)과 desired 의 version 을 비교한다.
 // agent-key 를 받으면 곧 교체(generation+1 → Pod 재생성)라, runner 재시작만으로는 절대 다시 받지 않아야 한다.
-import { ANN_AGENT_KEY_ID, ANN_AGENT_KEY_ROTATE_AFTER, ANN_CLAUDE_VERSION, ANN_LOGIN_VERSION, ANN_REPOS_VERSION } from './k8s/manifest.js';
+import { ANN_AGENT_KEY_ID, ANN_AGENT_KEY_ROTATE_AFTER, ANN_CLAUDE_VERSION, ANN_LOGIN_REVISION, ANN_LOGIN_VERSION, ANN_REPOS_VERSION } from './k8s/manifest.js';
 import type { RunnerSecretRef } from './works/client.js';
 
 /** 비밀값(claude·login·repos)을 어떻게 할지 — 받기 · 지우기(연결·등록 없음) · 그대로. */
@@ -32,12 +32,16 @@ function fetchOf(ref: RunnerSecretRef[], name: string, recorded: string | undefi
  * repos(WP-1268): 참조가 없거나 version null 이면 clear(남은 repo-* 키를 지운다), 어노테이션 repos-version 과 다르면 fetch, 같으면 keep.
  * login(WP-1296): claude 와 같다 — 참조가 없거나 version null 이면 clear, 어노테이션 login-version 과 다르면 fetch, 같으면 keep.
  *   version 이 null 인 경우(활성 연결 없음·템플릿 계정과 다른 종류)는 서버가 정해 보내므로 runner 는 provider 를 따로 보지 않는다.
+ *   loginRevision(WP-1450): 서버가 같은 계정의 로그인을 갱신하면 version 은 그대로고 revision 만 오른다 — version 이 keep 인데 revision 이
+ *   있고(null·undefined 면 버전으로만 판정) 기록과 다르면 fetch(Secret 만 갱신, Pod 교체 조건은 version 그대로).
+ *   기록이 없는 옛 Secret 도 한 번 받아 기록을 남긴다(안 그러면 이후 갱신을 영영 알 수 없다).
  * claude: 참조가 없거나 version null 이면 clear(남은 토큰을 지운다), version 이 기록과 다르면 fetch, 같으면 keep.
  */
 export function secretFetches(
   ref: RunnerSecretRef[],
   annotations: Record<string, string>,
   now: Date,
+  loginRevision?: number | null,
 ): { agentKey: boolean; claude: SecretFetch; repos: SecretFetch; login: SecretFetch } {
   const agentKeyVersion = refVersion(ref, 'agent-key');
 
@@ -52,7 +56,8 @@ export function secretFetches(
 
   const claude = fetchOf(ref, 'claude', annotations[ANN_CLAUDE_VERSION]);
   const repos = fetchOf(ref, 'repos', annotations[ANN_REPOS_VERSION]);
-  const login = fetchOf(ref, 'login', annotations[ANN_LOGIN_VERSION]);
+  let login = fetchOf(ref, 'login', annotations[ANN_LOGIN_VERSION]);
+  if (login === 'keep' && loginRevision != null && annotations[ANN_LOGIN_REVISION] !== String(loginRevision)) login = 'fetch';
 
   return { agentKey, claude, repos, login };
 }

@@ -8,6 +8,7 @@ import {
   ANN_AGENT_KEY_ID,
   ANN_AGENT_KEY_ROTATE_AFTER,
   ANN_CLAUDE_VERSION,
+  ANN_LOGIN_REVISION,
   ANN_LOGIN_VERSION,
   ANN_REPO_HOSTS,
   ANN_REPOS_VERSION,
@@ -399,7 +400,7 @@ export class Reconciler {
     const oldData = decodeData(existing);
     const ann = { ...oldAnn };
     const data = { ...oldData };
-    const fetches = secretFetches(agent.secrets, ann, this.now());
+    const fetches = secretFetches(agent.secrets, ann, this.now(), agent.loginRevision);
 
     // 원문을 받다 실패함 — 이미 떠 있는 Pod 는 옛 값으로 두고, 새 Pod 는 다 받은 뒤에 만든다
     let fetchError: unknown;
@@ -449,6 +450,7 @@ export class Reconciler {
     const clearLogin = () => {
       delete data[SECRET_LOGIN_INFO];
       delete ann[ANN_LOGIN_VERSION];
+      delete ann[ANN_LOGIN_REVISION];
     };
     if (fetches.login === 'clear') {
       clearLogin();
@@ -466,6 +468,9 @@ export class Reconciler {
           ann[ANN_LOGIN_VERSION] = String(s.version);
           this.log.info('로그인 정보를 받았습니다', { agentUserId: id, version: s.version });
         }
+        // 받은 로그인의 변경 번호를 적는다(두 갈래 공통) — 같으면 다음 회차에 다시 받지 않고, 오르면 Secret 만 새로 받는다(Pod 는 건드리지 않는다)
+        if (agent.loginRevision == null) delete ann[ANN_LOGIN_REVISION];
+        else ann[ANN_LOGIN_REVISION] = String(agent.loginRevision);
       } catch (e) {
         // 못 받아도 받은 AI 키는 아래에서 꼭 적는다(옛 값은 그대로)
         this.log.warn('로그인 정보를 받지 못했습니다', { agentUserId: id, error: errMessage(e) });

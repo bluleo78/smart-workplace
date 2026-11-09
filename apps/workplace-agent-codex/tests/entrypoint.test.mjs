@@ -6,12 +6,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as h from '../../workplace-agent-claude-code/tests/harness.mjs';
-import { bareRepo, exe, tmuxTest, until } from '../../workplace-agent-claude-code/tests/harness.mjs';
+import { callLibAsync, bareRepo, exe, tmuxTest, until } from '../../workplace-agent-claude-code/tests/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appDir = join(here, '..');
@@ -485,6 +486,225 @@ test('reportModels_defersWhilePaneCodexExecRunsThenRunsWhenIdle', async (t) => {
   assert.equal(idle.status, 0, idle.stderr);
   assert.equal(f.modelsCalls(), 1);
   assert.equal(f.reports().length, 1);
+});
+
+// ---------------------------------------------------------------- 로그인 동기화(sync_login, WP-1450)
+
+/** 서버가 갱신한 로그인 / Pod 의 로그인 — last_refresh 만 다르다(서버가 새로움·로컬이 새로움 시나리오에 쓴다). */
+const authAt = (lastRefresh, mark = 'x') =>
+  JSON.stringify({ auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { access_token: `fake-access-${mark}`, refresh_token: `fake-refresh-${mark}`, id_token: 'x.y.z', account_id: 'acc' }, last_refresh: lastRefresh });
+const OLD_AUTH = authAt('2026-11-01T00:00:00.123456789Z', 'old');
+const NEW_AUTH = authAt('2026-11-08T00:00:00.5Z', 'new');
+
+/** 가짜 Works — /agent-runtime/me/login 만 답한다. 받은 요청(메서드·경로·헤더·본문)을 requests 에 쌓는다. */
+async function fakeWorks(t, respond) {
+  const requests = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (b) => (body += b));
+    req.on('end', () => {
+      requests.push({ method: req.method, url: req.url, headers: req.headers, body });
+      const r = respond(req, body);
+      res.writeHead(r.status, { 'Content-Type': 'application/json' });
+      res.end(r.body ?? '');
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  return { apiUrl: `http://127.0.0.1:${server.address().port}/api/v1`, requests };
+}
+
+/** 로그인 동기화 시험 환경 — 로컬 auth.json(없으면 만들지 않는다)·표식을 두고 sync_login 을 부르는 함수를 돌려 준다. */
+function syncFixture(t, works, { local = OLD_AUTH, mark, synced, rejected, env = {} } = {}) {
+  const f = fixture(t, { env: { GENIA_WORKS_API_URL: works.apiUrl, GENIA_LOGIN_VERSION: '11', ...env } });
+  const codex = f.d('work', 'agents', 'kodi', 'codex');
+  const state = f.d('work', 'agents', 'kodi', 'state');
+  mkdirSync(codex, { recursive: true });
+  mkdirSync(state, { recursive: true });
+  if (local !== null) writeFileSync(join(codex, 'auth.json'), `${local}\n`);
+  if (mark !== undefined) writeFileSync(join(state, 'login-revision'), `${mark}\n`);
+  if (synced !== undefined) writeFileSync(join(state, 'login-synced-refresh'), `${synced}\n`);
+  if (rejected !== undefined) writeFileSync(join(state, 'login-rejected-refresh'), `${rejected}\n`);
+  const stateValue = (name) => (existsSync(join(state, name)) ? readFileSync(join(state, name), 'utf8').trim() : null);
+  const auth = () => readFileSync(join(codex, 'auth.json'), 'utf8').trim();
+  const run = (script = 'sync_login') => callLibAsync([lib, libCodex], f.env, `${BOOT} && ${script}`);
+  return { f, auth, stateValue, run };
+}
+const loginReply = (payload, { version = 11, revision = 5 } = {}) => ({ status: 200, body: JSON.stringify({ version, revision, provider: 'chatgpt', payload }) });
+const noSecrets = (r) => assert.doesNotMatch(r.stdout + r.stderr, /fake-access|fake-refresh/);
+
+test('syncLogin_replacesAuthJsonWithServerLoginWhenServerIsNewerAndRecordsRevision', async (t) => {
+  const works = await fakeWorks(t, () => loginReply(NEW_AUTH, { revision: 5 }));
+  const s = syncFixture(t, works);
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(s.auth(), NEW_AUTH);
+  assert.equal(statSync(join(s.f.d('work', 'agents', 'kodi', 'codex'), 'auth.json')).mode & 0o777, 0o600);
+  assert.equal(s.stateValue('login-revision'), '5');
+  assert.equal(s.stateValue('login-synced-refresh'), '2026-11-08T00:00:00.5Z'); // 받은 파일의 last_refresh 를 함께 적는다
+  // 표식이 없으면 revision 을 보내지 않는다(처음 — 서버 번호가 0 이어도 204 로 지나치지 않게). 인증·워크스페이스 헤더는 gw-lib 와 같다.
+  assert.equal(works.requests.length, 1);
+  assert.equal(works.requests[0].method, 'GET');
+  assert.equal(works.requests[0].url, '/api/v1/agent-runtime/me/login');
+  assert.equal(works.requests[0].headers.authorization, 'Bearer ak_testkey123');
+  assert.equal(works.requests[0].headers['x-on-behalf-of-tenant'], '3');
+  noSecrets(r);
+  assert.deepEqual(readdirSync(s.f.d('work', 'tmp')).filter((n) => n.startsWith('codex-login')), []);
+});
+
+test('syncLogin_replacesAuthJsonWhenServerLastRefreshEqualsLocal', async (t) => {
+  const works = await fakeWorks(t, () => loginReply(authAt('2026-11-01T00:00:00Z', 'srv'), { revision: 2 }));
+  const s = syncFixture(t, works, { local: authAt('2026-11-01T00:00:00.9Z', 'loc') });
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(s.auth(), /fake-access-srv/);
+  assert.equal(s.stateValue('login-revision'), '2');
+});
+
+test('syncLogin_sendsStoredRevisionAndLeavesFileOn204', async (t) => {
+  const works = await fakeWorks(t, () => ({ status: 204 }));
+  const s = syncFixture(t, works, { mark: 5, synced: '2026-11-01T00:00:00.123456789Z' });
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(works.requests.length, 1);
+  assert.equal(works.requests[0].url, '/api/v1/agent-runtime/me/login?revision=5');
+  assert.equal(s.auth(), OLD_AUTH);
+  assert.equal(s.stateValue('login-revision'), '5');
+});
+
+test('syncLogin_dropsRevisionAndUploadsWhenLocalLoginIsNewerThanSyncedMarker', async (t) => {
+  // 표식(revision·synced-refresh)이 있어도 Pod 의 codex 가 스스로 갱신해 로컬이 표식보다 새로우면 revision 없이 물어 200 으로 비교한다.
+  const works = await fakeWorks(t, (req) => (req.method === 'PUT' ? { status: 204 } : loginReply(OLD_AUTH, { revision: 5 })));
+  const s = syncFixture(t, works, { local: NEW_AUTH, mark: 5, synced: '2026-11-01T00:00:00.123456789Z' });
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(works.requests[0].method, 'GET');
+  assert.equal(works.requests[0].url, '/api/v1/agent-runtime/me/login');
+  const put = works.requests.find((q) => q.method === 'PUT');
+  assert.ok(put, '올리기 요청이 없다');
+  assert.equal(JSON.parse(put.body).payload.trim(), NEW_AUTH);
+  assert.equal(s.stateValue('login-synced-refresh'), '2026-11-08T00:00:00.5Z');
+});
+
+test('syncLogin_sendsNoRevisionWhenSyncedMarkerIsMissing', async (t) => {
+  const works = await fakeWorks(t, () => ({ status: 204 }));
+  const s = syncFixture(t, works, { mark: 5 });
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(works.requests[0].url, '/api/v1/agent-runtime/me/login');
+});
+
+test('syncLogin_doesNotUploadAgainWhileLocalLoginStaysRejected', async (t) => {
+  const works = await fakeWorks(t, (req) =>
+    req.method === 'PUT' ? { status: 409, body: JSON.stringify({ code: 'AGENT_LOGIN_REJECTED', reason: 'ACCOUNT_MISMATCH' }) } : loginReply(OLD_AUTH, { revision: 0 }));
+  const s = syncFixture(t, works, { local: NEW_AUTH });
+  const first = await s.run();
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(works.requests.filter((q) => q.method === 'PUT').length, 1);
+  assert.equal(s.stateValue('login-rejected-refresh'), '2026-11-08T00:00:00.5Z');
+  const second = await s.run('GENIA_LOGIN_SYNC_INTERVAL=0 && sync_login');
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(works.requests.filter((q) => q.method === 'PUT').length, 1); // 로컬이 그대로라 다시 올리지 않는다
+  assert.doesNotMatch(second.stderr, /경고/); // 경고도 한 번만
+});
+
+test('syncLogin_doesNotOverwriteWhenServerVersionDiffersFromPodVersion', async (t) => {
+  // 선택이 바뀐 직후 — runner 가 곧 Pod 를 교체하므로 덮지도 올리지도 않는다.
+  const works = await fakeWorks(t, () => loginReply(NEW_AUTH, { version: 12 }));
+  const s = syncFixture(t, works);
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(s.auth(), OLD_AUTH);
+  assert.equal(s.stateValue('login-revision'), null);
+  assert.equal(works.requests.length, 1);
+  assert.match(r.stderr, /로그인 선택이 바뀐 직후/);
+});
+
+test('syncLogin_uploadsLocalLoginWithVersionWhenLocalIsStrictlyNewer', async (t) => {
+  const works = await fakeWorks(t, (req) => (req.method === 'PUT' ? { status: 204 } : loginReply(OLD_AUTH, { revision: 0 })));
+  const s = syncFixture(t, works, { local: NEW_AUTH });
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  const put = works.requests.find((q) => q.method === 'PUT');
+  assert.ok(put, '올리기 요청이 없다');
+  assert.equal(put.url, '/api/v1/agent-runtime/me/login');
+  assert.equal(put.headers['content-type'], 'application/json');
+  assert.equal(put.headers.authorization, 'Bearer ak_testkey123');
+  const sent = JSON.parse(put.body);
+  assert.equal(sent.version, 11);
+  assert.equal(sent.payload.trim(), NEW_AUTH);
+  assert.equal(s.auth(), NEW_AUTH); // 파일은 그대로
+  assert.equal(s.stateValue('login-revision'), null); // 다음 회차 GET 이 새 revision 을 받는다
+  assert.equal(s.stateValue('login-synced-refresh'), '2026-11-08T00:00:00.5Z');
+  noSecrets(r);
+  assert.deepEqual(readdirSync(s.f.d('work', 'tmp')).filter((n) => n.startsWith('codex-login')), []);
+});
+
+test('syncLogin_warnsWithoutBodyWhenServerRejectsUpload', async (t) => {
+  const works = await fakeWorks(t, (req) =>
+    req.method === 'PUT' ? { status: 409, body: JSON.stringify({ code: 'AGENT_LOGIN_REJECTED', reason: 'stale' }) } : loginReply(OLD_AUTH, { revision: 0 }));
+  const s = syncFixture(t, works, { local: NEW_AUTH });
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /경고: .*409/);
+  noSecrets(r);
+});
+
+test('syncLogin_continuesQuietlyWhenAccountNotBound404', async (t) => {
+  const works = await fakeWorks(t, () => ({ status: 404, body: '{"code":"NOT_FOUND"}' }));
+  const s = syncFixture(t, works);
+  const r = await s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(s.auth(), OLD_AUTH);
+  assert.equal(s.stateValue('login-revision'), null);
+  assert.doesNotMatch(r.stderr, /경고/);
+});
+
+test('syncLogin_survivesUnreachableServerAndServerError', async (t) => {
+  const down = syncFixture(t, { apiUrl: 'http://127.0.0.1:9/api/v1' });
+  const r1 = await down.run();
+  assert.equal(r1.status, 0, r1.stderr);
+  assert.equal(down.auth(), OLD_AUTH);
+  assert.match(r1.stderr, /경고: 로그인 동기화/);
+  const works = await fakeWorks(t, () => ({ status: 500, body: 'boom' }));
+  const s = syncFixture(t, works);
+  const r2 = await s.run();
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.equal(s.auth(), OLD_AUTH);
+});
+
+test('syncLogin_skipsWithoutLoginVersionAndRespectsInterval', async (t) => {
+  const works = await fakeWorks(t, () => ({ status: 204 }));
+  const none = syncFixture(t, works, { env: { GENIA_LOGIN_VERSION: '' } });
+  assert.equal((await none.run()).status, 0);
+  assert.equal(works.requests.length, 0);
+  const s = syncFixture(t, works);
+  const r = await s.run('sync_login && sync_login && sync_login');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(works.requests.length, 1);
+  const again = await s.run('GENIA_LOGIN_SYNC_INTERVAL=0 && sync_login && sync_login');
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(works.requests.length, 3);
+});
+
+test('seedLogin_clearsRevisionMarkerWhenLoginVersionChanges', (t) => {
+  // 새로 연결한 로그인은 다른 계정일 수 있어 옛 계정의 revision 표식을 버린다.
+  const f = fixture(t);
+  writeFileSync(f.d('run', 'login-info'), LOGIN);
+  const run = (version) => callLib({ ...f.env, GENIA_LOGIN_VERSION: version }, `${BOOT} && seed_login`);
+  assert.equal(run('11').status, 0);
+  const mark = f.d('work', 'agents', 'kodi', 'state', 'login-revision');
+  writeFileSync(mark, '5\n');
+  assert.equal(run('11').status, 0);
+  assert.equal(existsSync(mark), true);
+  const synced = f.d('work', 'agents', 'kodi', 'state', 'login-synced-refresh');
+  const rejected = f.d('work', 'agents', 'kodi', 'state', 'login-rejected-refresh');
+  writeFileSync(synced, 'x\n');
+  writeFileSync(rejected, 'y\n');
+  assert.equal(run('12').status, 0);
+  assert.equal(existsSync(mark), false);
+  assert.equal(existsSync(synced), false);
+  assert.equal(existsSync(rejected), false);
 });
 
 // ---------------------------------------------------------------- 이미지·카탈로그

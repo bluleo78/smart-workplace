@@ -38,7 +38,8 @@ class AgentAccountUsageRepositoryTest extends IntegrationTestBase {
   void seed() {
     TenantContext.set(1L);
     agent = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createAgentNoToken(dsl));
-    account = accounts.insert("anthropic", "사용량", "iv:cipher", null, null, "ACTIVE", null, null);
+    account =
+        accounts.insert("anthropic", "사용량", "iv:cipher", null, null, "ACTIVE", null, null, true);
     bindings.upsert(agent, account, null, null, null);
   }
 

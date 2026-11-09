@@ -18,10 +18,17 @@ import java.util.Optional;
 public interface PodAccountSource {
 
   /**
-   * 여러 AI 가 묶인 계정의 참조를 한 번에 — AI id → {@code ActiveCredentialRef(id = 계정 secret_version, provider =
-   * 계정 종류)}. 묶이지 않았거나 계정이 폐기된 AI 는 빠진다.
+   * 여러 AI 가 묶인 계정의 참조를 한 번에 — AI id → {@link BoundRef}({@code ActiveCredentialRef(id = 계정
+   * secret_version, provider = 계정 종류)} + 계정의 login_revision). 묶이지 않았거나 계정이 폐기된 AI 는 빠진다.
    */
-  Map<Long, ActiveCredentialRef> findBoundRefs(Collection<Long> agentUserIds);
+  Map<Long, BoundRef> findBoundRefs(Collection<Long> agentUserIds);
+
+  /**
+   * 묶인 계정 참조 한 건 — runner 버전 참조와, 같은 계정 행에서 읽은 로그인 내용 변경 번호(WP-1450). runner desired 가 묶음·계정을 한 번만
+   * 읽고 둘 다 쓰도록 함께 싣는다. {@code loginRevision} 은 genia·chatgpt 계정에서만 뜻이 있다(서버 갱신·Pod 되가져오기는
+   * secret_version 을 바꾸지 않으므로 runner 는 이 번호로 내용 변경을 안다).
+   */
+  record BoundRef(ActiveCredentialRef ref, long loginRevision) {}
 
   /**
    * AI 가 묶인 계정의 원문 — {@code ActiveProviderSecret(secret_version, 종류, 복호화 원문)}. 묶이지 않았거나 계정이 폐기됐으면
@@ -42,10 +49,57 @@ public interface PodAccountSource {
    */
   Map<Long, Long> findBoundPodLoginVersions(Map<Long, ActiveCredentialRef> refs);
 
+  /**
+   * Pod 가 받아 갈 묶인 로그인(WP-1450) — genia·chatgpt 계정만. version 은 desired 의 login 버전과 같은 값이다. 묶이지 않았거나
+   * 폐기됐거나 다른 종류면 empty. 원문은 Pod 용 응답 본문으로만 나가고 로그·예외에 싣지 않는다.
+   *
+   * <p>{@code knownRevision} 이 계정의 현재 login_revision 과 같으면 원문을 복호화하지 않고 payload 없는 결과({@link
+   * BoundLogin#unchanged()})를 돌려준다 — Pod 가 주기적으로 묻는 흔한 경우라 복호화를 아끼고, 묶음·계정을 한 번만 읽는다. 다르거나 null 이면
+   * 복호화하고, 원문을 읽지 못하면 empty.
+   */
+  Optional<BoundLogin> findBoundLogin(long agentUserId, Long knownRevision);
+
+  /**
+   * Pod 가 올린 로그인을 묶인 chatgpt 계정에 저장한다(WP-1450). 조건: 묶인 chatgpt 계정, version 이 현재 login 버전과 같음, 로그인
+   * 정보 규칙 통과, account_id 가 저장본과 같음, last_refresh 가 저장본보다 엄격히 새로움. 저장은 secret_version 을 바꾸지 않고
+   * login_revision 만 올리며 NEEDS_CHECK·RELOGIN_REQUIRED 는 ACTIVE 로 되돌린다. 거절이면 저장본은 그대로다.
+   */
+  LoginUploadOutcome uploadBoundLogin(long agentUserId, long version, String payload);
+
+  /** Pod 용 묶인 로그인 한 건. {@code payload} 는 원문이라 toString 에서 뺀다 — 알던 번호와 같아 복호화하지 않았으면 null. */
+  record BoundLogin(long version, long revision, String provider, String payload) {
+    /** 호출자가 알던 번호와 같아 원문을 싣지 않은 결과인가(바뀐 것 없음). */
+    public boolean unchanged() {
+      return payload == null;
+    }
+
+    @Override
+    public String toString() {
+      return "BoundLogin[version="
+          + version
+          + ", revision="
+          + revision
+          + ", provider="
+          + provider
+          + "]";
+    }
+  }
+
+  /** {@link #uploadBoundLogin} 결과 — SAVED 만 저장했고 나머지는 거절 이유다(NOT_BOUND 는 404, 그 밖은 409). */
+  enum LoginUploadOutcome {
+    SAVED,
+    NOT_BOUND,
+    VERSION_MISMATCH,
+    NOT_CHATGPT,
+    ACCOUNT_MISMATCH,
+    NOT_NEWER,
+    INVALID
+  }
+
   /** AI 가 묶인 계정의 종류 — 묶이지 않았거나 계정이 폐기됐으면 empty. 원문을 복호화하지 않는다(실행 방식 전환의 「맞는 계정」 판정용). */
   default Optional<String> findBoundProvider(long agentUserId) {
     return Optional.ofNullable(findBoundRefs(List.of(agentUserId)).get(agentUserId))
-        .map(ActiveCredentialRef::provider);
+        .map(b -> b.ref().provider());
   }
 
   /**

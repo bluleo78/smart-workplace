@@ -105,6 +105,13 @@ workplace:
     vapid-private-key: ${WORKPLACE_PUSH_VAPID_PRIVATE:}
   # WP-1449: AI 계정 사용량 조회(Claude 응답 헤더·ChatGPT wham). 주기·모델·임계값·외부 주소·타임아웃은 모두 여기서 정한다.
   agent-account:
+    # AI 계정 로그인 서버 갱신(WP-1450) — 서버가 ChatGPT 로그인(Codex auth.json)의 access token 을 만료 refresh-before 전에 갱신한다.
+    # 같은 계정을 여러 Pod 가 함께 쓰므로 1회용 갱신 토큰을 서버 한 곳만 돌린다. 끄려면 enabled=false(스케줄러 빈이 등록되지 않는다).
+    login-refresh:
+      enabled: true
+      interval: 1h
+      refresh-before: 5d
+      token-url: https://auth.openai.com/oauth/token
     usage:
       enabled: true
       interval: 10m

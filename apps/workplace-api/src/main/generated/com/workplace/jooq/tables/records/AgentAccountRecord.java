@@ -216,6 +216,38 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
         return (OffsetDateTime) get(13);
     }
 
+    /**
+     * Setter for <code>public.agent_account.login_revision</code>.
+     */
+    public void setLoginRevision(Long value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_account.login_revision</code>.
+     */
+    public Long getLoginRevision() {
+        return (Long) get(14);
+    }
+
+    /**
+     * Setter for <code>public.agent_account.server_refresh_ready</code>. 서버
+     * 보관본이 신선하다고 확인돼 서버가 로그인 갱신을 맡아도 되는지(사람이 넣음·교체함, Pod 가 더 새 로그인을 올림이면 true,
+     * 이관 백필은 false)
+     */
+    public void setServerRefreshReady(Boolean value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_account.server_refresh_ready</code>. 서버
+     * 보관본이 신선하다고 확인돼 서버가 로그인 갱신을 맡아도 되는지(사람이 넣음·교체함, Pod 가 더 새 로그인을 올림이면 true,
+     * 이관 백필은 false)
+     */
+    public Boolean getServerRefreshReady() {
+        return (Boolean) get(15);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -239,7 +271,7 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
     /**
      * Create a detached, initialised AgentAccountRecord
      */
-    public AgentAccountRecord(Long id, Long tenantId, String provider, String label, String encryptedSecret, Long secretVersion, String accountEmail, OffsetDateTime lastRefreshedAt, String status, String fingerprint, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime revokedAt) {
+    public AgentAccountRecord(Long id, Long tenantId, String provider, String label, String encryptedSecret, Long secretVersion, String accountEmail, OffsetDateTime lastRefreshedAt, String status, String fingerprint, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime revokedAt, Long loginRevision, Boolean serverRefreshReady) {
         super(AgentAccount.AGENT_ACCOUNT);
 
         setId(id);
@@ -256,6 +288,8 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setRevokedAt(revokedAt);
+        setLoginRevision(loginRevision);
+        setServerRefreshReady(serverRefreshReady);
         resetChangedOnNotNull();
     }
 }

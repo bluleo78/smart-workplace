@@ -592,6 +592,47 @@ describe('Reconciler', () => {
       expect(JSON.stringify(logs)).not.toContain('fake-login-secret-value');
     });
 
+    it('refreshesOnlySecretWhenOnlyLoginRevisionChanges', async () => {
+      const cluster = new FakeCluster();
+      const logs: unknown[] = [];
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      // 옛 Secret 은 revision 3 으로 기록 — 서버가 갱신해 4 가 됨(loginVersion 은 그대로)
+      const seeded = cluster.get<V1Secret>('Secret', 'agent-42')!;
+      seeded.metadata!.annotations!['genia.works/login-revision'] = '3';
+      const agent = { ...loginAgent(88), loginRevision: 4 };
+      const works = new FakeWorks(desired([agent]));
+      withLoginSecret(works, 88);
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+
+      expect(works.getLoginSecret).toHaveBeenCalledWith(42);
+      expect(cluster.calls).toEqual(['apply Secret/agent-42']);
+      expect(cluster.calls).not.toContain('delete Pod/agent-42');
+      expect(decodeSecret(cluster, 'agent-42')['login-info']).toBe(LOGIN_PAYLOAD);
+      const ann = cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations;
+      expect(ann?.['genia.works/login-revision']).toBe('4');
+      expect(ann?.['genia.works/login-version']).toBe('88');
+      expect(JSON.stringify(logs)).not.toContain('fake-login-secret-value');
+
+      // 다음 회차 — revision 이 같으니 다시 받지 않는다
+      works.getLoginSecret.mockClear();
+      cluster.calls.length = 0;
+      await makeReconciler(cluster, works, logs).reconcileOnce();
+      expect(works.getLoginSecret).not.toHaveBeenCalled();
+      expect(cluster.calls).toEqual([]);
+    });
+
+    it('recreatesPodWhenLoginVersionChangesEvenWithRevision', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');
+      const agent = { ...loginAgent(89), loginRevision: 1 };
+      const works = new FakeWorks(desired([agent]));
+      withLoginSecret(works, 89);
+      await makeReconciler(cluster, works).reconcileOnce();
+
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/login-revision']).toBe('1');
+    });
+
     it('recreatesPodWhenLoginVersionBecomesNull', async () => {
       const cluster = new FakeCluster();
       seedRunningAgent(cluster, loginAgent(88), ctx.locationId, '88');

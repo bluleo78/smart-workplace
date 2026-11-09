@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentAccount;
 import com.workplace.jooq.tables.AgentAccountBinding;
+import com.workplace.jooq.tables.AgentAccountLoginRefresh;
 import com.workplace.jooq.tables.AgentAccountUsage;
 import com.workplace.jooq.tables.AgentAccountUsageCheck;
 import com.workplace.jooq.tables.AgentApiKey;
@@ -180,6 +181,11 @@ public class Tables {
      * The table <code>public.agent_account_binding</code>.
      */
     public static final AgentAccountBinding AGENT_ACCOUNT_BINDING = AgentAccountBinding.AGENT_ACCOUNT_BINDING;
+
+    /**
+     * The table <code>public.agent_account_login_refresh</code>.
+     */
+    public static final AgentAccountLoginRefresh AGENT_ACCOUNT_LOGIN_REFRESH = AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH;
 
     /**
      * The table <code>public.agent_account_usage</code>.

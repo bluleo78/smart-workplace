@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentAccount;
 import com.workplace.jooq.tables.AgentAccountBinding;
+import com.workplace.jooq.tables.AgentAccountLoginRefresh;
 import com.workplace.jooq.tables.AgentAccountUsage;
 import com.workplace.jooq.tables.AgentAccountUsageCheck;
 import com.workplace.jooq.tables.AgentApiKey;
@@ -193,6 +194,7 @@ public class Indexes {
     public static final Index HOME_SESSION_MEMORY_CLEANUP_IDX = Internal.createIndex(DSL.name("home_session_memory_cleanup_idx"), HomeSession.HOME_SESSION, new OrderField[] { HomeSession.HOME_SESSION.TENANT_ID, HomeSession.HOME_SESSION.LAST_MESSAGE_AT }, false);
     public static final Index IDX_AAC_USER = Internal.createIndex(DSL.name("idx_aac_user"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, false);
     public static final Index IDX_AGENT_ACCOUNT_BINDING_ACCOUNT = Internal.createIndex(DSL.name("idx_agent_account_binding_account"), AgentAccountBinding.AGENT_ACCOUNT_BINDING, new OrderField[] { AgentAccountBinding.AGENT_ACCOUNT_BINDING.ACCOUNT_ID }, false);
+    public static final Index IDX_AGENT_ACCOUNT_LOGIN_REFRESH_TENANT = Internal.createIndex(DSL.name("idx_agent_account_login_refresh_tenant"), AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH, new OrderField[] { AgentAccountLoginRefresh.AGENT_ACCOUNT_LOGIN_REFRESH.TENANT_ID }, false);
     public static final Index IDX_AGENT_ACCOUNT_TENANT = Internal.createIndex(DSL.name("idx_agent_account_tenant"), AgentAccount.AGENT_ACCOUNT, new OrderField[] { AgentAccount.AGENT_ACCOUNT.TENANT_ID }, false);
     public static final Index IDX_AGENT_ACCOUNT_USAGE_CHECK_TENANT = Internal.createIndex(DSL.name("idx_agent_account_usage_check_tenant"), AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK, new OrderField[] { AgentAccountUsageCheck.AGENT_ACCOUNT_USAGE_CHECK.TENANT_ID }, false);
     public static final Index IDX_AGENT_ACCOUNT_USAGE_TENANT = Internal.createIndex(DSL.name("idx_agent_account_usage_tenant"), AgentAccountUsage.AGENT_ACCOUNT_USAGE, new OrderField[] { AgentAccountUsage.AGENT_ACCOUNT_USAGE.TENANT_ID }, false);

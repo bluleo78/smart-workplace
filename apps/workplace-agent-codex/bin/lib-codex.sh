@@ -80,7 +80,154 @@ write_codex_agents_md() {
 
 # 6. 로그인 정보 시딩(계약 「로그인 정보」) — 보관본 $CODEX_HOME/auth.json(규칙은 lib.sh 의 seed_login_file). 로그인이 없으면 codex exec 가
 #    인증 오류로 끝나 work-loop 가 돌지 않으므로 can_launch 가 막는다. 연결을 새로 하면 runner 가 Pod 를 다시 만든다.
-seed_login() { seed_login_file "$CODEX_HOME/auth.json" ChatGPT; }
+#    새 연결(login-version 이 바뀜)이면 다른 계정일 수 있어 서버 변경 번호 표식(login-revision, sync_login)도 버린다.
+seed_login() {
+  local before after
+  before=$(cat "$AI_DIR/state/login-version" 2>/dev/null)
+  seed_login_file "$CODEX_HOME/auth.json" ChatGPT
+  after=$(cat "$AI_DIR/state/login-version" 2>/dev/null)
+  [ "$before" = "$after" ] || rm -f "$AI_DIR/state/login-revision" "$AI_DIR/state/login-synced-refresh" "$AI_DIR/state/login-rejected-refresh"
+  return 0
+}
+
+# 6b. 로그인 동기화(WP-1450) — 서버가 만료 전에 갱신해 둔 ChatGPT 로그인을 받아 auth.json 을 바꾸고, Pod 쪽이 더 새로우면 서버에 올린다.
+#    왜: 묶인 계정은 서버가 갱신 토큰을 돌리므로(1회용) Pod 의 auth.json 이 낡으면 쓸 수 없게 된다. Secret 을 바꾸면 runner 가 Pod 를 지우므로
+#    Secret 은 두고 Pod 가 GET /agent-runtime/me/login 으로 받아 간다. 칸의 codex 가 도는 중에 덮어도 된다 — codex 는 갱신 직전에
+#    디스크의 auth.json 을 다시 읽어 바뀌었으면 갱신하지 않고, access token 만료 5분 전에만 갱신한다(design.md 근거).
+#    - 부르는 곳: 부팅(seed_login 직후, 칸을 띄우기 전)과 감독 회차(before_supervise). 간격 GENIA_LOGIN_SYNC_INTERVAL(기본 300초, SECONDS 로 잰다).
+#    - GENIA_LOGIN_VERSION(Pod 의 로그인 연결 id)이 없으면 로그인이 없다 — 아무것도 하지 않는다.
+#    - 404(묶이지 않은 옛 로그인)·204(바뀐 것 없음)는 조용히 끝, 그 밖의 실패는 경고 한 줄(원문·응답 본문은 싣지 않는다)이고 늘 0 이다 — 감독을 멈추지 않는다.
+#    - 서버 payload 의 version 이 GENIA_LOGIN_VERSION 과 다르면 선택이 바뀐 직후라 runner 가 곧 Pod 를 교체한다 — 덮지 않는다.
+#    - 서버 last_refresh 가 로컬과 같거나 새로우면 auth.json 을 덮고 표식($AI_DIR/state/login-revision)에 revision 을 적는다.
+#      로컬이 엄격히 새로우면(마이그레이션된 계정 등) PUT 으로 올린다 — 표식은 그대로 두어 다음 회차 GET 이 새 revision 을 받게 한다.
+#    키는 gw-lib 의 gw_api_request 가 curl 설정(표준 입력)으로 넘겨 명령줄에 안 보인다. 올릴 본문은 umask 077 임시 파일(--data-binary @)로만 다룬다.
+GENIA_LOGIN_SYNC_INTERVAL=${GENIA_LOGIN_SYNC_INTERVAL:-300}                    # 로그인 동기화 간격(초)
+LOGIN_SYNC_NEXT=0
+# auth.json 의 last_refresh(ISO 8601, 소수 초 있을 수 있음)를 epoch 초로 — jq fromdateiso8601 은 소수 초를 못 읽어 소수부를 자른다. 없거나 이상하면 0.
+# 주의: Z 로 끝나는 시각만 읽는다(Codex 와 서버가 둘 다 Z 로 쓴다) — +09:00 같은 오프셋은 0 으로 쳐 로컬이 이기지 못한다.
+LOGIN_TS_JQ='(.last_refresh // "" | tostring | sub("\\.[0-9]+"; "") | try fromdateiso8601 catch 0)'
+
+sync_login() {
+  [ -n "${GENIA_LOGIN_VERSION:-}" ] || return 0
+  [ "$SECONDS" -ge "$LOGIN_SYNC_NEXT" ] || return 0
+  LOGIN_SYNC_NEXT=$((SECONDS + GENIA_LOGIN_SYNC_INTERVAL))
+  login_sync_once || true
+  return 0
+}
+
+# 로그인 동기화 한 번 — 실패면 경고 한 줄을 남기고 1(호출한 sync_login 이 삼킨다).
+login_sync_once() {
+  local key mark base_url url body payload local_file srv_ts loc_ts srv_ver rev code upload loc_str synced_str rejected_str srv_str
+  case "$GENIA_LOGIN_VERSION" in *[!0-9]*)
+    log "경고: 로그인 동기화를 건너뜁니다 — GENIA_LOGIN_VERSION 이 숫자가 아닙니다"
+    return 1
+    ;;
+  esac
+  key=$(head -n 1 "$GENIA_RUN_DIR/agent-key" 2>/dev/null)
+  # 키 형식은 gw-lib 의 gw_key_ok 와 같은 기준으로 본다 — 비었거나 공백·따옴표가 섞인 키는 curl 설정을 깨뜨릴 수 있어 쓰지 않는다.
+  if ! gw_key_ok "$key"; then
+    log "경고: 로그인 동기화를 건너뜁니다 — AI 키를 읽지 못했거나 형식이 맞지 않습니다"
+    return 1
+  fi
+  local_file="$CODEX_HOME/auth.json"
+  # GET·PUT 이 같은 주소를 쓴다 — GET 만 아래에서 ?revision= 을 붙인다.
+  base_url="$(gw_api_url)/agent-runtime/me/login"
+  url="$base_url"
+  mark=$(cat "$AI_DIR/state/login-revision" 2>/dev/null)
+  # 로컬 auth.json 의 last_refresh 문자열이 「서버에서 받았거나 마지막으로 올린 값」(login-synced-refresh)과 같을 때만 revision 을 붙인다.
+  # 왜: revision 만 붙이면 Pod 의 codex 가 스스로 갱신해도 서버 revision 은 그대로라 204 로 끝나 올리기 비교가 영영 돌지 않는다.
+  # 다르거나 표식이 없으면 revision 을 빼 200 을 받아 아래 비교(덮기/올리기)를 한다.
+  loc_str=$(jq -r '.last_refresh // "" | tostring' "$local_file" 2>/dev/null)
+  synced_str=$(cat "$AI_DIR/state/login-synced-refresh" 2>/dev/null)
+  rejected_str=$(cat "$AI_DIR/state/login-rejected-refresh" 2>/dev/null)
+  case "$mark" in
+    '' | *[!0-9]*) ;;
+    *) [ -n "$synced_str" ] && [ "$synced_str" = "$loc_str" ] && url="$url?revision=$mark" ;;
+  esac
+
+  gw_api_request "$key" 5 15 "$url"
+  code=$GW_CODE
+  body=$GW_BODY
+  GW_BODY=""
+  case "$code" in
+    204 | 404) return 0 ;;
+    200) ;;
+    *)
+      log "경고: 로그인 동기화 실패(HTTP ${code:-000}) — 다음 회차에 다시 합니다"
+      return 1
+      ;;
+  esac
+
+  # version·revision 은 jq 한 번으로 「|」로 이어 읽는다(없으면 빈 값 — 아래 검사가 거른다). 탭·공백은 read 가 연속 구분자를 하나로 합쳐
+  # 빈 version 뒤의 revision 이 앞 칸으로 밀리므로 공백이 아닌 구분자를 쓴다.
+  IFS='|' read -r srv_ver rev < <(printf '%s' "$body" | jq -r '"\(.version // "")|\(.revision // "")"' 2>/dev/null) || true
+  payload=$(printf '%s' "$body" | jq -r '.payload // empty' 2>/dev/null)
+  body=""
+  if [ -z "$payload" ] || ! printf '%s' "$payload" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    log "경고: 로그인 동기화 — 서버 응답의 로그인 정보 형식이 이상해 쓰지 않습니다"
+    return 1
+  fi
+  case "$rev" in '' | *[!0-9]*)
+    log "경고: 로그인 동기화 — 서버 응답의 revision 이 이상해 쓰지 않습니다"
+    return 1
+    ;;
+  esac
+  if [ "$srv_ver" != "$GENIA_LOGIN_VERSION" ]; then
+    log "로그인 동기화: 로그인 선택이 바뀐 직후라 auth.json 을 덮지 않습니다(곧 Pod 가 교체됩니다)"
+    return 0
+  fi
+
+  srv_ts=$(printf '%s' "$payload" | jq -r "$LOGIN_TS_JQ" 2>/dev/null)
+  loc_ts=$(jq -r "$LOGIN_TS_JQ" "$local_file" 2>/dev/null)
+  case "$srv_ts" in '' | *[!0-9]*) srv_ts=0 ;; esac
+  case "$loc_ts" in '' | *[!0-9]*) loc_ts=0 ;; esac
+
+  if [ "$loc_ts" -gt "$srv_ts" ]; then
+    # 서버가 이미 이 로컬 값을 거절했다(409) — 로컬이 그대로인 동안은 다시 올리지 않는다(같은 거절·경고가 5분마다 쌓이지 않게).
+    # 서버 200 이 auth.json 을 덮거나 codex 가 새로 갱신하면 값이 달라져 자연히 풀린다.
+    if [ -n "$rejected_str" ] && [ "$rejected_str" = "$loc_str" ]; then
+      return 0
+    fi
+    # Pod 쪽이 더 새롭다 — 서버에 올린다. 본문은 600 임시 파일로만 만들고(원문이 명령줄에 안 나가게) 끝나면 지운다.
+    upload=$(umask 077 && mktemp "$GENIA_WORK/tmp/codex-login.XXXXXX") || {
+      log "경고: 로그인 동기화 — 올릴 임시 파일을 만들지 못했습니다"
+      return 1
+    }
+    if ! jq -Rs --argjson v "$GENIA_LOGIN_VERSION" '{version: $v, payload: .}' "$local_file" > "$upload" 2>/dev/null; then
+      rm -f "$upload"
+      log "경고: 로그인 동기화 — 올릴 본문을 만들지 못했습니다"
+      return 1
+    fi
+    gw_api_request "$key" 5 15 -X PUT -H 'Content-Type: application/json' --data-binary "@$upload" "$base_url"
+    code=$GW_CODE
+    GW_BODY=""
+    rm -f "$upload"
+    if [ "$code" = 204 ]; then
+      gw_write_atomic "$AI_DIR/state/login-synced-refresh" "$loc_str" || true
+      rm -f "$AI_DIR/state/login-rejected-refresh"
+      log "로그인 동기화: Pod 의 더 새 로그인을 서버에 올렸습니다"
+      return 0
+    fi
+    if [ "$code" = 409 ]; then
+      gw_write_atomic "$AI_DIR/state/login-rejected-refresh" "$loc_str" || true
+      log "경고: 서버가 Pod 의 로그인을 거절했습니다(HTTP 409) — 로컬 로그인이 바뀔 때까지 다시 올리지 않습니다"
+      return 1
+    fi
+    log "경고: 로그인 올리기 실패(HTTP ${code:-000}) — 다음 회차에 다시 합니다"
+    return 1
+  fi
+
+  # 서버가 같거나 새롭다 — auth.json 을 덮고 표식을 적는다(둘 다 원자적 쓰기, 원문은 셸 내장 printf 로만).
+  srv_str=$(printf '%s' "$payload" | jq -r '.last_refresh // "" | tostring' 2>/dev/null)
+  if gw_write_atomic "$local_file" "$payload" && gw_write_atomic "$AI_DIR/state/login-revision" "$rev" \
+    && gw_write_atomic "$AI_DIR/state/login-synced-refresh" "$srv_str"; then
+    rm -f "$AI_DIR/state/login-rejected-refresh"
+    log "로그인 동기화: 서버의 로그인으로 auth.json 을 바꿨습니다(revision $rev)"
+    return 0
+  fi
+  log "경고: 로그인 동기화 — auth.json 을 쓰지 못했습니다"
+  return 1
+}
 
 # 칸을 띄울 수 있는지(lib.sh tick 의 훅) — 로그인 정보가 있을 때만. 아니면 칸도 알림 감시 창도 띄우지 않고 모델 목록도 묻지 않는다.
 can_launch() { login_file_ready "$CODEX_HOME/auth.json"; }
@@ -89,6 +236,7 @@ can_launch() { login_file_ready "$CODEX_HOME/auth.json"; }
 # 갱신이 겹치지 않고(report_models 머리 주석), 받은 목록으로 맞춘 추론 강도로 칸이 처음부터 뜨며, start_projects(저장소 받기)가 길어도
 # 화면의 모델 선택지가 일찍 채워진다.
 before_supervise() {
+  sync_login
   if can_launch; then report_models; fi
   return 0
 }

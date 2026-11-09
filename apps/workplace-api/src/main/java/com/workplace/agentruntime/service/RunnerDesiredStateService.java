@@ -35,6 +35,7 @@ import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
 import com.workplace.auth.service.PodAccountSource;
+import com.workplace.auth.service.PodAccountSource.BoundRef;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
@@ -127,12 +128,12 @@ public class RunnerDesiredStateService {
       // login 버전은 템플릿 계정과 같은 종류일 때만.
       // WP-1448: AI 가 계정 목록의 계정에 묶였으면 그 계정(id 자리 = secret_version)이 활성 연결보다 먼저다.
       // 묶인 AI 의 활성 연결은 어차피 묶인 계정에 가려지므로 묶이지 않은 AI 만 조회한다.
-      Map<Long, ActiveCredentialRef> boundRefs = podAccounts.findBoundRefs(ids);
+      Map<Long, BoundRef> boundRefs = podAccounts.findBoundRefs(ids);
       Map<Long, ActiveCredentialRef> credentialRefs =
           new HashMap<>(
               credentials.findActiveRefs(
                   ids.stream().filter(id -> !boundRefs.containsKey(id)).toList()));
-      credentialRefs.putAll(boundRefs);
+      boundRefs.forEach((id, bound) -> credentialRefs.put(id, bound.ref()));
       // 템플릿은 행마다 한 번만 찾는다 — 사라진 템플릿의 AI 는 띄울 방법이 없어 아래에서 싣지 않는다.
       Map<Long, AgentTemplate> templates = new HashMap<>();
       for (Row row : rows) {
@@ -170,6 +171,15 @@ public class RunnerDesiredStateService {
       if (!boundLoginRefs.isEmpty()) {
         loginVersions.putAll(podAccounts.findBoundPodLoginVersions(boundLoginRefs));
       }
+      // 로그인 내용 변경 번호(WP-1450) — 묶인 genia·chatgpt 계정만. 갱신은 secret_version 을 안 바꾸므로 이 번호로 runner 가
+      // 안다. 위 findBoundRefs 가 읽은 계정 행의 번호를 그대로 쓴다(묶음·계정을 다시 읽지 않게).
+      Map<Long, Long> loginRevisions = new HashMap<>();
+      boundLoginRefs.forEach(
+          (id, ref) -> {
+            if (AgentProviders.isLogin(ref.provider())) {
+              loginRevisions.put(id, boundRefs.get(id).loginRevision());
+            }
+          });
       for (Row row : rows) {
         long id = row.agentUserId();
         AgentTemplate t = templates.get(id);
@@ -183,6 +193,7 @@ public class RunnerDesiredStateService {
                 chains.getOrDefault(id, ManagedKeyChain.EMPTY),
                 credentialRefs.get(id),
                 loginVersions.get(id),
+                loginRevisions.get(id),
                 reposVersions.get(id),
                 now));
       }
@@ -477,6 +488,7 @@ public class RunnerDesiredStateService {
    * @param credential 활성 모델 연결 id·provider(없으면 null)
    * @param loginVersion 로그인 정보 버전(템플릿이 로그인 계정을 요구하고 활성 연결이 그 계정일 때만 — genia·chatgpt 는 연결 id,
    *     OpenCode 는 Pod 에 넘길 원문의 해시. 아니면 null)
+   * @param loginRevision 묶인 로그인 계정의 내용 변경 번호(WP-1450, 아니면 null)
    * @param reposVersion 저장소 토큰 버전(등록·교체·폐기 시각의 epoch 밀리초, 행이 없으면 null)
    */
   private RunnerDesiredAgent toAgent(
@@ -487,6 +499,7 @@ public class RunnerDesiredStateService {
       ManagedKeyChain keys,
       ActiveCredentialRef credential,
       Long loginVersion,
+      Long loginRevision,
       Long reposVersion,
       OffsetDateTime now) {
     TemplateShape shape = shapeOf(t);
@@ -503,7 +516,8 @@ public class RunnerDesiredStateService {
         shape.sidecars(),
         shape.plugins(),
         row.config(),
-        secretsFor(t, keys.live(), credential, loginVersion, reposVersion));
+        secretsFor(t, keys.live(), credential, loginVersion, reposVersion),
+        loginVersion == null ? null : loginRevision);
   }
 
   /** 템플릿 한 개의 runner 모양 — 이름@버전마다 한 번만 바꾼다. */

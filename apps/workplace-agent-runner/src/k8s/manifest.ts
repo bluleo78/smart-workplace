@@ -40,6 +40,12 @@ export const ANN_CLAUDE_VERSION = 'genia.works/claude-version';
  */
 export const ANN_LOGIN_VERSION = 'genia.works/login-version';
 /**
+ * 로그인 정보 내용 변경 번호(WP-1450) — Secret 에만 적는다(Pod 어노테이션·Pod 교체 조건에는 쓰지 않는다).
+ * 서버가 같은 계정의 로그인을 갱신하면 login version 은 그대로고 이 번호만 올라, runner 는 Secret 의 login-info 만 새로 받는다
+ * (Pod 는 subPath 로 마운트하므로 떠 있는 Pod 는 못 본다 — 다시 만들어질 때 새 값으로 시딩되게 하는 용도).
+ */
+export const ANN_LOGIN_REVISION = 'genia.works/login-revision';
+/**
  * 저장소 토큰(WP-1268) — Secret 에는 받은 repos version, Pod 에는 만들 때 넣은 version. 둘이 다르면 Pod 를 다시 만든다
  * (작업 공간 이미지가 Pod 시작 때 gh 로그인을 해 고정되므로 — Claude 모델 연결과 같은 이유).
  */

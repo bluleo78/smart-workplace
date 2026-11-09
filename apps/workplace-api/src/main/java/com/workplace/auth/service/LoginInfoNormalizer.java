@@ -160,11 +160,32 @@ public final class LoginInfoNormalizer {
     }
   }
 
+  /**
+   * 다듬어 저장한 ChatGPT 로그인 정보의 tokens.account_id(앞뒤 공백 제거) — 같은 ChatGPT 계정인지 가를 때 쓴다(WP-1450 Pod 올리기).
+   * 없거나 비었거나 문자열이 아니거나 읽지 못하면 null.
+   */
+  public static String chatgptAccountId(String stored) {
+    try {
+      String id = textOrNull(MAPPER.readTree(stored).path("tokens").get("account_id"));
+      return id == null ? null : id.strip();
+    } catch (Exception e) {
+      return null; // 읽지 못하면 같은 계정임을 확인할 수 없다 — 호출자가 거절한다.
+    }
+  }
+
   /** tokens.id_token JWT 본문(서명 검증 없음) — 없거나 JWT 모양이 아니면 null. 디코딩 실패는 호출자의 catch 가 받는다. */
   private static JsonNode idTokenClaims(JsonNode root) throws java.io.IOException {
-    String idToken = textOrNull(root.path("tokens").get("id_token"));
-    if (idToken == null) return null;
-    String[] parts = idToken.split("\\.");
+    return jwtClaims(textOrNull(root.path("tokens").get("id_token")));
+  }
+
+  /**
+   * JWT 본문(payload)을 JSON 으로 읽는다 — 서명은 검증하지 않는다(표시·만료 시각 읽기 등 값을 엿볼 때만 쓴다). id_token 메타와 access
+   * token 만료(WP-1450 서버 갱신)가 같은 디코딩을 쓰도록 한 곳에 둔다. token 이 null 이거나 JWT 모양이 아니면 null, 디코딩·파싱 실패는
+   * 예외(호출자의 catch 가 받는다).
+   */
+  public static JsonNode jwtClaims(String token) throws java.io.IOException {
+    if (token == null) return null;
+    String[] parts = token.split("\\.");
     if (parts.length < 2) return null;
     byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
     return MAPPER.readTree(new String(payload, StandardCharsets.UTF_8));
