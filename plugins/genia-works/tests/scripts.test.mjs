@@ -1900,7 +1900,8 @@ const P = '\x1b[39m❯\u00a0'; // 입력 상자의 프롬프트 — 실제 화�
 const screen = (above, box, footer = '  ⏵⏵ bypass permissions on (shift+tab to cycle)') =>
   [`\x1b[38;5;246m\x1b[48;5;237m❯\u00a0\x1b[38;5;231m이전 지시\x1b[39m`, '⏺ ok', ...above, RULE, ...box, RULE, footer].join('\n');
 const IDLE = screen(['✻ Baked for 26s · done 2:19 PM'], [`${P}${DIM('Try "fix lint errors"')}`]);
-const LOOP = '/loop /genia-works:work-loop WP --queue "AI 개발팀"';
+const loopFor = (key) => `/loop /genia-works:work-loop ${key} --queue "AI 개발팀"`;
+const LOOP = loopFor('WP');
 
 /** 그 키의 가짜 칸을 띄운다 — 화면을 찍고 받은 입력을 <home>/typed-<키> 에 적는다. 화면이 보일 때까지 기다린다. */
 // later 를 주면 처음 화면(text)을 찍고 기다리다가 finish() 를 부르면 화면을 지우고 later 를 찍는다(일하던 칸이 쉬게 되는 것).
@@ -1920,18 +1921,37 @@ async function fakeClaudePane(wrapper, tmux, key, text, later) {
 
 // 다시 보기(WP-1403)는 테스트마다 정한다 — 기본은 기다리지 않고(MAX 0) 바로 판정한다.
 // 막 뜬 칸 보호(WP-1403)도 테스트마다 정한다 — 기본은 끈다(FRESH 0).
-function pokeSetup(t, { cli = 'claude', retrySec = '1', retryMax = '0', freshSec = '0' } = {}) {
+// attachedIdleSec(WP-1459) — 보고 있는 칸을 입력 없은 지 몇 초부터 풀지. 안 주면 스크립트 기본(600초).
+function pokeSetup(t, { cli = 'claude', retrySec = '1', retryMax = '0', freshSec = '0', attachedIdleSec } = {}) {
   const { wrapper, tmux } = tmuxServer(t);
   const d = aiDir();
   run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
   run('agent-home', [d, 'set', 'cli', cli]);
   const logFile = join(d, 'state', 'events.log');
   const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
-  const poke = (key) => runAsync('agent-events', ['poke', d, key], {
+  const poke = (key, ...extra) => runAsync('agent-events', ['poke', d, key, ...extra], {
     GW_TMUX: wrapper, GW_POKE_RETRY_SEC: retrySec, GW_POKE_RETRY_MAX: retryMax, GW_POKE_FRESH_SEC: freshSec,
+    ...(attachedIdleSec === undefined ? {} : { GW_ATTACHED_IDLE_SEC: attachedIdleSec }),
   });
   return { wrapper, tmux, d, log, poke };
 }
+
+// util-linux 의 script(-c·-f)만 쓴다 — macOS/BSD 에는 없는 옵션이라 linux 이고 script 가 있을 때만 돌리고, 아니면 건너뛴다(false 를 낸다).
+const canAttach = process.platform === 'linux' && spawnSync('sh', ['-c', 'command -v script']).status === 0;
+
+/** 격리 서버의 kodi 세션에 진짜 클라이언트를 붙인다(script 가 가짜 터미널을 준다) — 붙을 때까지 기다리고, 테스트가 끝나면 끈다. */
+async function attachClient(t, wrapper, tmux) {
+  const child = spawn('script', ['-qfc', `${wrapper} attach -t =kodi`, '/dev/null'], { stdio: ['pipe', 'ignore', 'ignore'], env: { ...process.env, TERM: 'xterm' } });
+  // spawn 실패('error')가 처리되지 않은 예외로 번져 전체 실행을 죽이지 않게 한다.
+  child.on('error', () => {});
+  t.after(() => { child.kill('SIGKILL'); tmux('kill-server'); });
+  await until(() => tmux('list-clients', '-t', '=kodi', '-F', '#{client_activity}') !== '');
+}
+
+// 붙은 클라이언트가 필요한 테스트 — tmux 가 없거나 붙일 수 없는 환경이면 건너뛴다.
+const attachTest = canAttach
+  ? tmuxTest
+  : (name, fn) => test(name, { skip: !hasTmux ? 'tmux 없음' : '붙은 클라이언트 흉내는 linux + util-linux script 에서만' }, fn);
 
 const settle = (ms = 700) => new Promise((r) => setTimeout(r, ms));
 
@@ -1945,6 +1965,134 @@ tmuxTest('agentEvents_poke_sendsLoopToIdleClaudePane', async (t) => {
   assert.match(log(), /^poke WP sent$/m);
 });
 
+// 보고 있는 칸(WP-1459) — 사람이 붙어 있어도 마지막 입력이 GW_ATTACHED_IDLE_SEC(기본 600초) 넘게 오래됐으면 막지 않는다.
+attachTest('agentEvents_poke_attachedRecentInputBlocks', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  await attachClient(t, wrapper, tmux);
+  assert.equal((await poke('WP')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.match(log(), /^poke WP attached$/m);
+});
+
+attachTest('agentEvents_poke_attachedIdleClientAllowsPoke', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t, { attachedIdleSec: '1' });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  await attachClient(t, wrapper, tmux);
+  await settle(2200);
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed().includes('\n'));
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+});
+
+tmuxTest('agentWindow_paneReportsInputIdleSeconds', async (t) => {
+  const { wrapper, tmux } = pokeSetup(t);
+  await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  const r = run('agent-window', ['--pane', 'kodi', 'WP'], { env: { GW_TMUX: wrapper } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim().split(' ')[4], '-1');
+  // 여섯째 낱말 — 모드(copy-mode 등) 중이면 1 (WP-1459).
+  assert.equal(r.stdout.trim().split(' ')[5], '0');
+});
+
+// copy-mode 칸(WP-1459) — 사람이 스크롤해 읽는 중이라 붙은 화면이 없어도 attached 로 막고 아무것도 넣지 않는다.
+tmuxTest('agentEvents_poke_copyModePaneIsAttached', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  const id = panes(tmux, 'kodi').find((p) => p.key === 'WP').id;
+  tmux('copy-mode', '-t', id);
+  const r = run('agent-window', ['--pane', 'kodi', 'WP'], { env: { GW_TMUX: wrapper } });
+  assert.equal(r.stdout.trim().split(' ')[5], '1');
+  assert.equal((await poke('WP')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.match(log(), /^poke WP attached$/m);
+});
+
+// 일하는 칸 안내(WP-1459) — 이슈 키·종류가 있으면 기다리지 않고 안내 한 줄, 같은 이슈는 5분에 한 번, /loop 표시는 건드리지 않는다.
+const NOTICE = (k) => `[genia-works 알림] ${k} ISSUE_CHAT_MENTION — 하던 일 사이에 확인해 주세요\n`;
+const BUSY = screen(['✻ Effecting… (8s · ↓ 81 tokens)'], [P]);
+
+tmuxTest('agentEvents_poke_noticesBusyPaneOnce', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', BUSY);
+  assert.equal((await poke('WP', 'WP-1451', 'ISSUE_CHAT_MENTION')).status, 0);
+  await until(() => wp.typed().includes('\n'));
+  assert.equal(wp.typed(), NOTICE('WP-1451'));
+  // 기다리지 않는 설정(retryMax 0) — 안내만 들어가고 마지막 줄은 busy.
+  assert.match(log(), /^poke WP noticed WP-1451\npoke WP busy\n/);
+  assert.equal(existsSync(pokeMark(d, 'WP')), false);
+  assert.equal((await poke('WP', 'WP-1451', 'ISSUE_CHAT_MENTION')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), NOTICE('WP-1451'));
+  assert.match(log(), /^poke WP notice-debounced WP-1451$/m);
+  assert.equal((await poke('WP', 'WP-1452', 'ISSUE_CHAT_MENTION')).status, 0);
+  await until(() => wp.typed() === NOTICE('WP-1451') + NOTICE('WP-1452'));
+});
+
+// 안내는 /loop 를 대신하지 않는다 — 안내가 먼저 바로 들어가고, 칸이 쉬게 되면 /loop 가 뒤따른다(안내는 한 번만).
+tmuxTest('agentEvents_poke_noticesImmediatelyThenWaitsForIdle', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { retryMax: '20' });
+  // 일하는 가짜 칸은 finish() 전에는 입력을 읽지 않는다(tty 에 쌓인다) — 안내가 바로 갔는지는 기록으로 본다.
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', BUSY, IDLE);
+  const started = Date.now();
+  const p = poke('WP', 'WP-1451', 'ISSUE_CHAT_MENTION');
+  await until(() => log().includes('noticed'));
+  assert.ok(Date.now() - started < 1000 + 1000, '기다리지 않고 바로 넣는다');
+  await settle(1500);
+  assert.equal(log(), 'poke WP noticed WP-1451\n', '일하는 동안에는 /loop 를 넣지 않고 안내도 되풀이하지 않는다');
+  assert.equal(existsSync(pokeMark(d, 'WP')), false);
+  wp.finish();
+  assert.equal((await p).status, 0);
+  await until(() => wp.typed().includes(LOOP));
+  await settle();
+  assert.equal(wp.typed(), `${NOTICE('WP-1451')}${LOOP}\n`);
+  assert.equal(log(), 'poke WP noticed WP-1451\npoke WP sent-after-wait\n');
+  assert.ok(existsSync(pokeMark(d, 'WP')));
+});
+
+tmuxTest('agentEvents_poke_noticeDebouncedStillSendsLoopWhenIdle', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { retryMax: '20' });
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(noticeMark(d, 'WP-1451'), `${Math.floor(Date.now() / 1000)}\n`);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', BUSY, IDLE);
+  const p = poke('WP', 'WP-1451', 'ISSUE_CHAT_MENTION');
+  await settle(1500);
+  assert.equal(wp.typed(), '');
+  wp.finish();
+  assert.equal((await p).status, 0);
+  await until(() => wp.typed().includes(LOOP));
+  await settle();
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.equal(log(), 'poke WP notice-debounced WP-1451\npoke WP sent-after-wait\n');
+});
+
+// 엄격한 모양이 아니면 안내 없이 기존 기다림 동작(busy 기록) 그대로.
+tmuxTest('agentEvents_poke_noNoticeForLooseIssueOrKind', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', BUSY);
+  // 이슈 키·종류가 아예 없거나 공백 든 값도 같다.
+  assert.equal((await poke('WP')).status, 0);
+  for (const [i, k] of [['WP-1 x', 'ISSUE_CHAT_MENTION'], ['WP-1451', 'a"b'], ['WP', 'ISSUE_CHAT_MENTION'], ['wp-1', 'ISSUE_CHAT_MENTION'], ['WP-abc', 'ISSUE_CHAT_MENTION'], ['-x', 'ISSUE_CHAT_MENTION'], ['WP-1451', 'issue_chat']]) {
+    assert.equal((await poke('WP', i, k)).status, 0);
+  }
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.match(log(), /^poke WP busy$/m);
+  assert.doesNotMatch(log(), /notice/);
+});
+
+tmuxTest('agentEvents_poke_idlePaneWithIssueGetsLoopNotNotice', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  assert.equal((await poke('WP', 'WP-1451', 'ISSUE_CHAT_MENTION')).status, 0);
+  await until(() => wp.typed().includes('\n'));
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+});
+
 tmuxTest('agentEvents_poke_skipsBusyPane', async (t) => {
   const { wrapper, tmux, log, poke } = pokeSetup(t);
   // v2.1 의 일하는 중 표시(도구 실행·훅)와 예전 판의 「esc to interrupt」 — 입력 줄이 비어 있어도 넣지 않는다.
@@ -1953,9 +2101,6 @@ tmuxTest('agentEvents_poke_skipsBusyPane', async (t) => {
     HR: screen(['⏺ Bash(sleep 8)', '  ⎿  Running…', '✽ Effecting… (running PreToolUse hooks… 1/2 · 6s · ↓ 14 tokens)'], [P]),
     QA: screen(['✳ Wrangling…'], [P]),
     // 할 일 목록이 길면 스피너 줄이 상자에서 멀다 — 마지막 출력(⏺) 아래 전체를 본다
-    // 턴은 끝났지만 뒤에서 돌리는 셸이 남아 있다 — 끝나면 그 알림으로 이어 가므로 새 /loop 를 넣지 않는다
-    BG: screen(['⏺ started', '✻ Brewed for 9s · done 2:49 PM · 1 shell still running'], [P], '  ⏵⏵ bypass permissions on · 1 shell'),
-    BG2: screen(['⏺ started', '✻ Brewed for 9s · done 2:49 PM'], [P], '  ⏵⏵ bypass permissions on · 2 shells'),
     DOC: screen(['✻ Effecting… (1m 2s · ↓ 3.1k tokens)', ...Array.from({ length: 12 }, (_, i) => `  ⎿  ☐ 할 일 ${i + 1}`)], [P]),
     OPS: screen(['✶ Thinking… (esc to interrupt)'], ['> ']),
   };
@@ -1969,6 +2114,61 @@ tmuxTest('agentEvents_poke_skipsBusyPane', async (t) => {
   }
   // 넣지 않았으면 표시를 남기지 않는다 — 일이 끝난 뒤 온 알림은 바로 깨운다.
   assert.ok(!readdirSync(join(aiDir(), 'state')).some((f) => f.startsWith('poke-')));
+});
+
+// 상태 줄(상자 아래)의 셸·에이전트·백그라운드 표시는 쉬는 칸에도 굳어 남는다 — 바쁨 근거가 아니다(WP-1459).
+tmuxTest('agentEvents_poke_sendsLoopDespiteBackgroundShellFooter', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const cases = {
+    BG: screen(['⏺ started', '✻ Brewed for 9s · done 2:49 PM · 1 shell still running'], [P], '  ⏵⏵ bypass permissions on · 1 shell'),
+    BG2: screen(['⏺ started', '✻ Brewed for 9s · done 2:49 PM'], [P], '  ⏵⏵ bypass permissions on · 2 shells'),
+    AG: screen(['✻ Baked for 26s · done 2:19 PM'], [P], '  ⏵⏵ bypass permissions on · 2 agents'),
+    BT: screen(['✻ Baked for 26s · done 2:19 PM'], [P], '  ⏵⏵ bypass permissions on · 1 background task'),
+  };
+  const fakes = {};
+  for (const [k, s] of Object.entries(cases)) fakes[k] = await fakeClaudePane(wrapper, tmux, k, s);
+  for (const k of Object.keys(cases)) {
+    assert.equal((await poke(k)).status, 0);
+    await until(() => fakes[k].typed().includes('\n'));
+    assert.equal(fakes[k].typed(), `${loopFor(k)}\n`, k);
+    assert.match(log(), new RegExp(`^poke ${k} sent$`, 'm'));
+  }
+});
+
+// 긴 글을 쓰는 동안(Claude Code 2.1.3xx)에는 스피너 줄이 없고 상태 줄의 「esc to interrupt」가 유일한 바쁨 표시다 — 넣지 않는다(WP-1459).
+tmuxTest('agentEvents_poke_skipsPaneStreamingWithFooterEscOnly', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t);
+  const footer = '  ⏵⏵ bypass permissions on · 1 shell · esc to interrupt · ↓ to manage';
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', screen(['글을 쓰는 중입니다', '이어서 쓰는 글 한 줄'], [P], footer));
+  assert.equal((await poke('WP')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.match(log(), /^poke WP busy$/m);
+  // 안내가 딸린 poke 는 바쁜 칸 경로 — 안내 한 줄을 넣는다.
+  assert.equal((await poke('WP', 'WP-1451', 'ISSUE_CHAT_MENTION')).status, 0);
+  await until(() => wp.typed() === NOTICE('WP-1451'));
+  assert.match(log(), /^poke WP noticed WP-1451$/m);
+  assert.equal(existsSync(pokeMark(d, 'WP')), false);
+});
+
+// 지난 출력 블록(● 2.1.3xx)이 위에 있고 지금은 쉬는 칸이면 넣는다 — 위로 훑기가 ● 에서 멈춘다(WP-1459).
+tmuxTest('agentEvents_poke_sendsLoopWhenEarlierBulletBlockAboveAndIdle', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', screen(['✻ Effecting… (8s · ↓ 81 tokens)', '● 이전 답', '  끝났습니다'], [P], '  ⏵⏵ bypass permissions on · 1 shell · ↓ to manage'));
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed().includes('\n'));
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+});
+
+// 일하는 중 표시가 있어도 사람이 친 글자가 상자에 있으면 typing — 친 글자가 바쁨보다 먼저다(WP-1459).
+tmuxTest('agentEvents_poke_typedTextBeatsBusy', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', screen(['✻ Effecting… (8s · ↓ 81 tokens)'], [`${P}사람이 치는 중`]));
+  assert.equal((await poke('WP')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), '');
+  assert.match(log(), /^poke WP typing$/m);
 });
 
 tmuxTest('agentEvents_poke_skipsPaneWithTypedTextOrUnknownScreen', async (t) => {
@@ -2016,7 +2216,7 @@ tmuxTest('agentEvents_poke_waitsForBusyPaneThenSendsOnce', async (t) => {
   await settle();
   assert.equal(wp.typed(), `${LOOP}\n`);
   assert.equal(log(), 'poke WP sent-after-wait\n');
-  assert.ok(existsSync(join(aiDir(), 'state', 'poke-WP')));
+  assert.ok(existsSync(pokeMark(aiDir(), 'WP')));
 });
 
 tmuxTest('agentEvents_poke_givesUpOnPaneBusyPastLimit', async (t) => {
@@ -2029,7 +2229,7 @@ tmuxTest('agentEvents_poke_givesUpOnPaneBusyPastLimit', async (t) => {
   assert.equal(wp.typed(), '');
   // 마지막 이유 한 줄만 남긴다.
   assert.equal(log(), 'poke WP busy\n');
-  assert.ok(!existsSync(join(aiDir(), 'state', 'poke-WP')));
+  assert.ok(!existsSync(pokeMark(aiDir(), 'WP')));
 });
 
 // 쉬는 칸으로 봐야 하는 화면 — 빈 입력 줄의 반전 커서가 흐린 안내문 첫 글자 위에 있다, 모델의 마지막 글이 「…」로 끝나거나 도구 표시 글자를 담는다.
@@ -2097,7 +2297,7 @@ tmuxTest('agentEvents_poke_allKeysForReconnect', async (t) => {
   assert.equal(existsSync(oldTyped) ? readFileSync(oldTyped, 'utf8') : '', '');
   assert.ok(!log().includes('poke OLD'), log());
   assert.equal(wp.typed(), `${LOOP}\n`);
-  assert.equal(hr.typed(), '/loop /genia-works:work-loop HR --queue "AI 개발팀"\n');
+  assert.equal(hr.typed(), `${loopFor('HR')}\n`);
   assert.match(log(), /^poke WP sent$/m);
   assert.match(log(), /^poke HR sent$/m);
   // 칸이 없는 키는 아무것도 넣지 않는다(칸 열기는 open 이 맡는다).
@@ -2115,18 +2315,18 @@ tmuxTest('agentEvents_poke_reconnectWakesOncePerInterval', async (t) => {
   assert.equal((await poke('-')).status, 0);
   await until(() => wp.typed().includes('\n') && hr.typed().includes('\n'));
   // 키마다 60초 표시를 지워 「1분 넘게 지난 뒤 또 다시 붙음」을 흉내 낸다 — 다시 붙음 간격에만 걸려야 한다.
-  rmSync(join(d, 'state', 'poke-WP'), { force: true });
-  rmSync(join(d, 'state', 'poke-HR'), { force: true });
+  rmSync(pokeMark(d, 'WP'), { force: true });
+  rmSync(pokeMark(d, 'HR'), { force: true });
   assert.equal((await poke('-')).status, 0);
   assert.equal((await poke('-')).status, 0);
   await settle();
   assert.equal(wp.typed(), `${LOOP}\n`);
-  assert.equal(hr.typed(), '/loop /genia-works:work-loop HR --queue "AI 개발팀"\n');
+  assert.equal(hr.typed(), `${loopFor('HR')}\n`);
   assert.match(log(), /^poke - debounced$/m);
   // 키 알림은 그대로 깨운다.
   assert.equal((await poke('WP')).status, 0);
   await until(() => wp.typed() === `${LOOP}\n${LOOP}\n`);
-  assert.equal(hr.typed(), '/loop /genia-works:work-loop HR --queue "AI 개발팀"\n');
+  assert.equal(hr.typed(), `${loopFor('HR')}\n`);
 });
 
 tmuxTest('agentEvents_poke_ignoresNonClaudeRunner', async (t) => {
@@ -2146,9 +2346,32 @@ const idleMark = (d, key) => {
   mkdirSync(join(d, 'state'), { recursive: true });
   return join(d, 'state', `idle-${key}`);
 };
+// 안내 기록(notice-<이슈 키>)·/loop 표시(poke-<키>)의 파일 — idleMark 처럼 state 폴더를 만들어 두고 경로를 낸다.
+const noticeMark = (d, issue) => {
+  mkdirSync(join(d, 'state'), { recursive: true });
+  return join(d, 'state', `notice-${issue}`);
+};
+const pokeMark = (d, key) => {
+  mkdirSync(join(d, 'state'), { recursive: true });
+  return join(d, 'state', `poke-${key}`);
+};
 const ago = (secs) => `${Math.floor(Date.now() / 1000) - secs}\n`;
 /** 기록(「시각 지문」)의 지문은 그대로 두고 시각만 secs 초 앞으로 당긴 줄 — 같은 화면을 그만큼 오래 본 것처럼. */
 const backdate = (d, key, secs) => `${Math.floor(Date.now() / 1000) - secs} ${readFileSync(idleMark(d, key), 'utf8').trim().split(' ')[1]}\n`;
+
+// 오래된 안내 기록(notice-<이슈 키>, WP-1459)은 sweep 이 지운다 — GW_NOTICE_SEC(기본 300초)가 지난 것만, 새 것은 둔다.
+test('agentEvents_sweep_removesStaleNoticeMarks', async () => {
+  const d = aiDir();
+  run('agent-home', [d, 'set', 'cli', 'claude']);
+  const sd = join(d, 'state');
+  mkdirSync(sd, { recursive: true });
+  const now = Math.floor(Date.now() / 1000);
+  writeFileSync(noticeMark(d, 'WP-1'), `${now - 1000}\n`);
+  writeFileSync(noticeMark(d, 'WP-2'), `${now}\n`);
+  assert.equal((await runAsync('agent-events', ['sweep', d], { GW_TMUX: 'false-tmux-none' })).status, 0);
+  assert.equal(existsSync(noticeMark(d, 'WP-1')), false);
+  assert.equal(existsSync(noticeMark(d, 'WP-2')), true);
+});
 
 tmuxTest('agentEvents_sweep_pokesPaneIdleOverAnHourOnlyOnce', async (t) => {
   const { wrapper, tmux, d, log } = pokeSetup(t);
@@ -2173,6 +2396,18 @@ tmuxTest('agentEvents_sweep_pokesPaneIdleOverAnHourOnlyOnce', async (t) => {
   await sweep();
   await settle();
   assert.equal(wp.typed(), `${LOOP}\n`);
+});
+
+// 상태 줄에 굳은 「· 1 shell」이 남은 쉬는 칸도 1시간 뒤 sweep 이 깨운다(WP-1459).
+tmuxTest('agentEvents_sweep_pokesIdlePaneWithStaleShellFooter', async (t) => {
+  const { wrapper, tmux, d } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', screen(['✻ Baked for 26s · done 2:19 PM'], [`${P}${DIM('Try "fix lint errors"')}`], '  ⏵⏵ bypass permissions on · 1 shell'));
+  const sweep = () => runAsync('agent-events', ['sweep', d], sweepEnv(wrapper));
+  assert.equal((await sweep()).status, 0);
+  assert.ok(existsSync(idleMark(d, 'WP')));
+  writeFileSync(idleMark(d, 'WP'), backdate(d, 'WP', 3700));
+  await sweep();
+  await until(() => wp.typed() === `${LOOP}\n`);
 });
 
 // 5분 표본만 보면 잠깐 일하고 다시 쉰 칸도 늘 idle 로 찍힌다 — 화면 지문이 바뀌었으면(그 사이 출력함) 시간을 다시 센다.

@@ -139,6 +139,30 @@ gw_valid_project_key() {
   return 0
 }
 
+# 이슈 키 검사 — ^[A-Z][A-Z0-9_]*-[0-9]+$. 칸에 글자로 들어가는 값이라 느슨한 프로젝트 키 검사 대신 서버 이슈 키 모양만 받는다(WP-1459).
+# 전역 변수를 만들지 않는다 — 값을 case 에서 바로 잘라 본다.
+gw_valid_issue_key() {
+  case "$1" in [A-Z]*-[0-9]*) ;; *) return 1 ;; esac
+  case "${1%-*}" in *[!A-Z0-9_]*) return 1 ;; esac
+  case "${1##*-}" in *[!0-9]*) return 1 ;; esac
+  return 0
+}
+
+# 알림 종류 검사 — ^[A-Z][A-Z0-9_]*$ (예 ISSUE_CHAT_MENTION). 안내 글에 들어가므로 모양만 받는다(WP-1459).
+gw_valid_event_kind() {
+  case "$1" in [A-Z]*) ;; *) return 1 ;; esac
+  case "$1" in *[!A-Z0-9_]*) return 1 ;; esac
+  return 0
+}
+
+# 표시 파일(내용이 에포크 초 — 디바운스·안내 기록)의 나이 — 그 시각부터 지금까지 몇 초인지 낸다.
+# 파일이 없거나 비었거나 숫자가 아니면 아무것도 내지 않고 1(기록 없음으로 본다).
+gw_stamp_age() {
+  gw_sa_val=$(cat "$1" 2>/dev/null)
+  case "$gw_sa_val" in '' | *[!0-9]*) return 1 ;; esac
+  echo $(($(date +%s) - gw_sa_val))
+}
+
 # AI 폴더(start-agent 의 <홈>/<AI 이름>) 검사 — 있는 폴더이고 이름이 AI 이름 규칙(gw_valid_name)을 지키면 절대 경로를 내고 0.
 # 폴더 이름이 그 칸의 신원(GENIA_WORKS_AS)·tmux 세션 이름이 되므로 me·공백 든 이름은 받지 않는다(WP-1053).
 gw_ai_dir() {
