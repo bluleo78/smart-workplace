@@ -17,7 +17,10 @@ export interface ViewerItem {
   contentPath: string
   /** 다운로드 경로 — 드라이브는 /download(감사 로그), 나머지는 contentPath 와 같다. */
   downloadPath: string
-  /** 서버 변환 PDF 경로(드라이브 파일만). 있으면 HWP·PPT·DOC 를 원래 모양으로 본다(WP-431). */
+  /**
+   * 서버 변환 PDF 경로 — 드라이브·공유 링크·메일(WP-431·432)과 이슈 첨부·채팅 업로드·드라이브 링크·메인 AI 첨부·첨부 모아보기(콘텐츠 경로 옆 `/preview`, WP-1457).
+   * 있으면 DOCX·DOC·HWP·HWPX·PPTX·PPT 를 원래 모양(PDF)으로 본다. 쓸지는 itemPreviewKind 가 형식으로 고른다.
+   */
   previewPath?: string
   /** 있으면 HTML 미리보기 안내 줄에서 AI 보안 점검을 조회·요청한다(WP-1262). 공개 공유 링크는 두지 않는다. */
   securityCheckPath?: string

@@ -50,7 +50,10 @@ const EXT_MIME: Record<string, string> = {
   flac: 'audio/flac',
 }
 
-/** 내용을 말해 주지 않는 범용 형식 — 이 형식이면 파일명으로 추론한다. */
+/**
+ * 내용을 말해 주지 않는 범용 형식 — 이 형식이면 파일명으로 추론한다.
+ * API `PreviewTypes.GENERIC_MIMES`(workplace-api filepreview)와 같은 목록이어야 한다 — 다르면 웹은 변환 뷰어를 여는데 /preview 는 404 가 된다.
+ */
 const GENERIC_MIMES = new Set([
   'application/octet-stream',
   'binary/octet-stream',

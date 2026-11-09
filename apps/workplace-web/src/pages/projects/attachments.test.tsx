@@ -1,5 +1,5 @@
 // 이슈 첨부(업로드·삭제·검증·스피너·버튼 이름)와 첨부 뷰어 묶음의 조건부 표시(WP-203·WP-277·WP-431·#782·#783) — 페이지 테스트(WP-980).
-// 파일 선택 → POST·토스트·목록 갱신, 25MB·10개 한도 사전 검증, 업로드 중 스피너, 권한별 삭제 버튼, 미리보기 미지원(HWP)·휴지통·삭제된 링크,
+// 파일 선택 → POST·토스트·목록 갱신, 25MB·10개 한도 사전 검증, 업로드 중 스피너, 권한별 삭제 버튼, 문서(HWP) 변환 경로·휴지통·삭제된 링크,
 // 요약 403·요약 패널·⋯ 메뉴, 드라이브로 가져오기 POST, 없는 첨부 딥링크 안내는 브라우저 없이 판정되므로
 // e2e/pages/projects/attachments.spec.ts 에서 옮겼다. 그 spec 에는 다운로드·PDF·이미지 렌더·실시간 재조회(@platform),
 // ‹ › 키보드 넘기기·포커스 복귀(@input), 드라이브 폴더로 여는 흐름(@flow)이 남는다.
@@ -161,19 +161,18 @@ describe('이슈 첨부 업로드·삭제', () => {
 })
 
 describe('첨부 뷰어 — 조건부 표시', () => {
-  // WP-431: 변환 미리보기는 드라이브만 — 이슈 첨부 HWP 는 미지원 안내 그대로, /preview·콘텐츠도 받지 않는다.
-  test('이슈 첨부 HWP 는 미리 볼 수 없다는 안내만 보이고 변환·콘텐츠를 요청하지 않는다', async () => {
+  // WP-1457: 이슈 첨부 문서(HWP)도 드라이브처럼 서버 변환 PDF — 첨부 콘텐츠 경로 옆 /preview 를 부르고 원본은 받지 않는다.
+  test('이슈 첨부 HWP 는 변환 경로(/preview?start=true)를 부르고 원본 콘텐츠는 받지 않는다', async () => {
     const requests = recordRequests()
     const name = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp'
     const { user } = await openIssueDetail({
       detail: detail(1),
       attachments: [createAttachment({ fileId: 7302, originalName: name, mimeType: 'application/x-hwp' })],
+      handlers: [http.get(`${ATT}/7302/preview`, () => HttpResponse.json({ status: 'CONVERTING' }, { status: 202 }))],
     })
     await user.click(await screen.findByRole('button', { name: `${name} 미리보기` }))
-    expect(await screen.findByTestId('preview-body')).toHaveTextContent('이 형식은 미리 볼 수 없어요')
-    expect(screen.queryByTestId('preview-converting')).not.toBeInTheDocument()
-    await act(() => new Promise((r) => setTimeout(r, 200)))
-    expect(requests.of('ANY', /\/preview$/)).toHaveLength(0)
+    expect(await screen.findByTestId('preview-converting')).toBeInTheDocument()
+    await waitFor(() => expect(requests.of('GET', `${ATT}/7302/preview`).filter((r) => r.search.get('start') === 'true')).toHaveLength(1))
     expect(requests.count('GET', `${ATT}/7302/content`)).toBe(0)
   })
 

@@ -1,4 +1,4 @@
-// ViewerBody 변환 미리보기(WP-431) — 드라이브 HWP·PPT·DOC 를 서버 변환 PDF 로 그릴 때의 상태 화면과 배선.
+// ViewerBody 변환 미리보기(WP-431·WP-1457) — DOCX·DOC·HWP·PPT 를 서버 변환 PDF 로 그릴 때의 상태 화면과 배선.
 // 폴링 훅(useConvertedPreview)·PDF 검증·pdf.js 렌더러는 끊고, 상태별로 어떤 화면·버튼이 나오는지만 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -52,6 +52,18 @@ const hwp = (over: Partial<ViewerItem> = {}): ViewerItem => ({
   contentPath: '/drive/files/7/content',
   downloadPath: '/drive/files/7/download',
   previewPath: '/drive/files/7/preview',
+  ...over,
+})
+
+/** 이슈 첨부 DOCX — 첨부 콘텐츠 경로 옆 /preview 로 변환 PDF 를 연다(WP-1457). */
+const docx = (over: Partial<ViewerItem> = {}): ViewerItem => ({
+  key: 'file:5',
+  name: '보고서.docx',
+  mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  sizeBytes: 40 * 1024,
+  contentPath: '/projects/WP/issues/1/attachments/5/content',
+  downloadPath: '/projects/WP/issues/1/attachments/5/content',
+  previewPath: '/projects/WP/issues/1/attachments/5/preview',
   ...over,
 })
 
@@ -164,5 +176,41 @@ describe('ViewerBody 변환 미리보기', () => {
     expect(api.fetchConvertedPreview).not.toHaveBeenCalled()
     // 훅을 부르더라도 꺼진 채로만 부른다.
     expect(hook.calls.every((c) => !c.enabled)).toBe(true)
+  })
+})
+
+// WP-1457: DOCX 는 브라우저에서 그리지 않고 어디서 열든 서버 변환 PDF 로 연다.
+describe('ViewerBody DOCX — 서버 변환 PDF(WP-1457)', () => {
+  it('DOCX 항목은 원본을 받지 않고 변환 PDF 경로를 부른다', async () => {
+    hook.state = { s: 'ready', blob: pdf }
+    renderBody(docx())
+    expect(await screen.findByTestId('pdf-pages')).toBeInTheDocument()
+    expect(hook.calls.some((c) => c.enabled && c.item.previewPath === '/projects/WP/issues/1/attachments/5/preview')).toBe(true)
+    expect(api.fetchBlobByPath).not.toHaveBeenCalled()
+  })
+
+  it('20MB DOCX 도 크기 확인 없이 변환 경로', () => {
+    renderBody(docx({ sizeBytes: 20 * 1024 * 1024 }))
+    expect(screen.getByTestId('preview-converting')).toBeInTheDocument()
+    expect(screen.queryByTestId('preview-size-confirm')).toBeNull()
+    expect(api.fetchBlobByPath).not.toHaveBeenCalled()
+  })
+
+  it('previewPath 없는 DOCX 는 미지원 화면 + 다운로드', () => {
+    renderBody(docx({ previewPath: undefined }))
+    expect(screen.getByText('이 형식은 미리 볼 수 없어요')).toBeInTheDocument()
+    expect(screen.queryByTestId('preview-converting')).toBeNull()
+    expect(hook.calls.every((c) => !c.enabled)).toBe(true)
+    // 원본을 받아 브라우저에서 그리지 않는다.
+    expect(api.fetchBlobByPath).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '다운로드' }))
+    expect(download).toHaveBeenCalledWith(expect.objectContaining({ key: 'file:5' }), null)
+  })
+
+  it('변환 대상 아님(404 NOT_APPLICABLE) 응답이면 미지원 화면(변환기 꺼짐)', () => {
+    hook.state = { s: 'unsupported' }
+    renderBody(docx())
+    expect(screen.getByTestId('preview-unsupported')).toBeInTheDocument()
+    expect(api.fetchBlobByPath).not.toHaveBeenCalled()
   })
 })

@@ -12,8 +12,10 @@ export type PreviewKind =
   | 'TEXT'
   | 'CSV'
   | 'XLSX'
-  | 'DOCX'
-  /** 서버가 PDF 로 변환해 주는 문서(HWP·HWPX·PPTX·PPT·DOC, WP-431) — 드라이브 항목(previewPath)에서만 나온다(itemPreviewKind). */
+  /**
+   * 서버가 PDF 로 변환해 주는 문서(DOCX·DOC·HWP·HWPX·PPTX·PPT, WP-431·WP-1457) — 변환 경로(previewPath)를 가진 항목에서만 나온다(itemPreviewKind).
+   * DOCX 도 브라우저에서 그리지 않고 여기로 보낸다 — 원본과 모양이 다른 브라우저 렌더 대신 어디서 열든 같은 PDF 로 보이게(WP-1457).
+   */
   | 'CONVERTED_PDF'
   | 'VIDEO'
   | 'AUDIO'
@@ -32,10 +34,11 @@ export const PPT_MIME = 'application/vnd.ms-powerpoint'
 export const DOC_MIME = 'application/msword'
 
 /**
- * 서버 변환 PDF 로 미리 보는 형식(WP-431). resolvePreviewKind 는 이 형식을 UNSUPPORTED 로 둔다 —
- * 변환 경로는 드라이브 파일에만 있어서, 항목이 previewPath 를 가질 때만 CONVERTED_PDF 로 판정한다(itemPreviewKind).
+ * 서버 변환 PDF 로 미리 보는 형식(WP-431, DOCX 는 WP-1457). API 의 변환 대상 표(PreviewTypes)와 같다 — 엑셀(XLSX·XLS)은 빼고 시트 표로 둔다.
+ * resolvePreviewKind 는 이 형식을 UNSUPPORTED 로 둔다 — 변환 경로가 없는 출처(노트 첨부·본문 이미지 등)가 있어서,
+ * 항목이 previewPath 를 가질 때만 CONVERTED_PDF 로 판정한다(itemPreviewKind).
  */
-export const CONVERTIBLE_MIMES: ReadonlySet<string> = new Set([HWP_MIME, HWPX_MIME, PPTX_MIME, PPT_MIME, DOC_MIME])
+export const CONVERTIBLE_MIMES: ReadonlySet<string> = new Set([DOCX_MIME, DOC_MIME, HWP_MIME, HWPX_MIME, PPTX_MIME, PPT_MIME])
 
 /** 발표 자료(pptx·ppt)인지 — 변환 PDF 를 슬라이드처럼 보여 줄지 고를 때 쓴다. */
 export function isPresentationMime(mime: string): boolean {
@@ -51,7 +54,6 @@ export function resolvePreviewKind(mimeType: string): PreviewKind {
   if (mimeType === 'text/html') return 'HTML'
   if (mimeType === 'text/csv' || mimeType === 'application/csv') return 'CSV'
   if (mimeType === XLSX_MIME || mimeType === XLS_MIME) return 'XLSX'
-  if (mimeType === DOCX_MIME) return 'DOCX'
   // 영상·오디오는 형식 계열 전체를 받는다(WP-281) — 실제 재생 가능 여부(코덱)는 브라우저만 알므로
   // .avi·.mkv·HEVC .mov 처럼 못 트는 것은 플레이어의 error 이벤트에서 미지원 화면으로 바꾼다.
   if (mimeType.startsWith('video/')) return 'VIDEO'

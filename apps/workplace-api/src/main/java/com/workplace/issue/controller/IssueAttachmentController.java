@@ -5,6 +5,8 @@ import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.FileSecurityCheckService;
 import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.fileai.service.AttachmentViewService;
+import com.workplace.filepreview.PreviewResponses;
+import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.ClaimAttachmentsRequest;
 import com.workplace.issue.dto.IssueAttachmentResponse;
@@ -47,6 +49,8 @@ public class IssueAttachmentController {
   private final AttachmentViewService attachmentView;
 
   private final FileSecurityCheckService securityChecks;
+
+  private final FilePreviewService previewService;
 
   /** 다중 multipart 업로드. files 필드명 고정. */
   @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -138,6 +142,24 @@ public class IssueAttachmentController {
         ContentDisposition.attachment().filename(f.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(f.sizeBytes());
     return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+  }
+
+  /**
+   * 문서 미리보기(서버 변환 PDF, WP-1457) — /content 와 같은 첨부 열람 가드(조회 가드 + 이 이슈 첨부, 본문 이미지는 404)로 file id 를
+   * 확인한다. 응답 계약(200·202·422·404 NOT_APPLICABLE)은 {@link PreviewResponses} 가 드라이브와 같게 맡는다.
+   *
+   * @param start 시도의 첫 요청(뷰어 열기·[다시 시도])이면 true — 이때만 실패 행을 다시 선점한다. 폴링은 생략
+   */
+  @GetMapping("/{fileId}/preview")
+  @RequirePermission("project:read")
+  public ResponseEntity<?> preview(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable Long fileId,
+      @RequestParam(defaultValue = "false") boolean start) {
+    long id = service.resolveAttachmentFileId((Long) auth.getPrincipal(), key, number, fileId);
+    return PreviewResponses.of(previewService.open(id, start));
   }
 
   /** HTML 보안 점검 상태(WP-1262) — /content 와 같은 첨부 열람 가드로 file id 를 확인한다(본문 이미지는 받지 않는다, WP-1331). */

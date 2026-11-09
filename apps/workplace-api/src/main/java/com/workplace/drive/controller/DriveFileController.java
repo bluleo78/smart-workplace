@@ -201,8 +201,8 @@ public class DriveFileController {
   }
 
   /**
-   * 문서 미리보기(서버 변환 PDF, WP-431) — HWP·HWPX·PPTX·PPT·DOC 를 원래 모양 그대로 보여 준다. 권한은 /view 와 같은 가드(VIEWER
-   * 이상, 비멤버는 존재 은닉 404)를 거친 현재 버전 core file.id 로 판정한다.
+   * 문서 미리보기(서버 변환 PDF, WP-431) — HWP·HWPX·PPTX·PPT·DOC·DOCX(WP-1457) 를 원래 모양 그대로 보여 준다. 권한은 /view 와
+   * 같은 가드(VIEWER 이상, 비멤버는 존재 은닉 404)를 거친 현재 버전 core file.id 로 판정한다.
    *
    * <p>응답 계약(200·202·422·404 NOT_APPLICABLE, ETag·304)은 {@link PreviewResponses} 가 맡는다. ETag 는
    * {@code "<core file id>-<엔진 버전>-<PDF 수정 시각>"} — 원본 새 버전이면 drive 파일 id 가 같아도 달라진다. 휴지통·권한 없음·원본

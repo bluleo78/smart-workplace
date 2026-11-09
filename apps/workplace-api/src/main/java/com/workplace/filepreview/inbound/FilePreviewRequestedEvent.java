@@ -5,8 +5,9 @@ import com.workplace.global.tenant.TenantContext;
 /**
  * 드라이브 문서 미리 변환 요청 이벤트(WP-431). 드라이브 업로드·새 버전(업로드 핵심 경로 한 곳)만 발행한다.
  *
- * <p>추출 이벤트({@code FileExtractionRequestedEvent})를 재사용하지 않는 이유: 그 이벤트는 이슈·채팅 첨부도 발행하는데, 미리보기는 드라이브
- * 전용 범위라 첨부까지 변환하면 안 된다. 리스너는 커밋 후(AFTER_COMMIT) 백그라운드 실행기에 넘기기만 한다.
+ * <p>추출 이벤트({@code FileExtractionRequestedEvent})를 재사용하지 않는 이유: 그 이벤트는 이슈·채팅 첨부도 발행하는데, 미리 변환은 드라이브
+ * 전용 범위라 첨부까지 변환하면 안 된다 — 첨부는 수가 많고 대부분 다시 열리지 않아 첫 열람 때 변환한다(WP-1457). 리스너는 커밋 후(AFTER_COMMIT)
+ * 백그라운드 실행기에 넘기기만 한다.
  *
  * @param fileId 코어 file.id
  * @param tenantId 행의 tenant_id — 실행기 스레드에서 RLS 컨텍스트를 세우는 데 쓴다

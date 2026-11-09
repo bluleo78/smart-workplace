@@ -9,6 +9,8 @@ class PreviewTypesTest {
 
   private static final String PPTX =
       "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  private static final String DOCX =
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
   @Test
   void HWP_정규형과_별칭은_x_hwp_로() {
@@ -29,11 +31,27 @@ class PreviewTypesTest {
   }
 
   @Test
+  void DOCX_는_정규형으로_판정한다() {
+    // 웹 mammoth 렌더 대신 서버 변환 PDF 로 통일한다(WP-1457).
+    assertThat(PreviewTypes.targetMime(DOCX, "a.docx")).isEqualTo(DOCX);
+    assertThat(PreviewTypes.targetMime(DOCX + "; charset=binary", null)).isEqualTo(DOCX);
+  }
+
+  @Test
   void 범용_mime_이면_확장자로_판정한다() {
     assertThat(PreviewTypes.targetMime("application/octet-stream", "발표.PPTX")).isEqualTo(PPTX);
     assertThat(PreviewTypes.targetMime("", "a.ppt")).isEqualTo("application/vnd.ms-powerpoint");
     assertThat(PreviewTypes.targetMime(null, "a.hwp")).isEqualTo("application/x-hwp");
+    assertThat(PreviewTypes.targetMime("application/octet-stream", "회의록.DOCX")).isEqualTo(DOCX);
     assertThat(PreviewTypes.targetMime("application/octet-stream", "a.zip")).isNull();
+    // 웹 GENERIC_MIMES 와 같은 범용 목록 — 팀 채팅이 원문 저장한 force-download 도 확장자로 판정(웹과 드리프트 방지).
+    assertThat(PreviewTypes.targetMime("application/force-download", "report.docx"))
+        .isEqualTo(DOCX);
+    assertThat(PreviewTypes.targetMime("binary/octet-stream", "a.hwp"))
+        .isEqualTo("application/x-hwp");
+    assertThat(PreviewTypes.targetMime("application/x-download", "a.pptx")).isEqualTo(PPTX);
+    assertThat(PreviewTypes.targetMime("application/unknown", "a.doc"))
+        .isEqualTo("application/msword");
     assertThat(PreviewTypes.targetMime("application/octet-stream", null)).isNull();
   }
 
@@ -47,8 +65,7 @@ class PreviewTypesTest {
   void 변환_대상이_아닌_형식은_null() {
     assertThat(
             PreviewTypes.targetMime(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "a.docx"))
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "a.xlsx"))
         .isNull();
     assertThat(PreviewTypes.targetMime("application/vnd.ms-excel", "a.xls")).isNull();
     assertThat(PreviewTypes.targetMime("application/pdf", "a.pdf")).isNull();

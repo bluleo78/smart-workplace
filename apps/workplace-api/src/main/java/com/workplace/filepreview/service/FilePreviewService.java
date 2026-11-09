@@ -23,8 +23,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 드라이브 문서 미리보기(서버 변환 PDF) 오케스트레이션(WP-431) — file 행으로 변환 대상({@link DriveFileTarget})을 만들고,
- * 판정·선점·변환·기록은 공용 {@link PreviewEngine}(WP-432)에 맡긴다. 업로드 직후 미리 변환(백그라운드 실행기)만 드라이브 전용이다.
+ * 드라이브·첨부 문서 미리보기(서버 변환 PDF) 오케스트레이션(WP-431, 첨부는 WP-1457) — file 행으로 변환 대상({@link
+ * DriveFileTarget})을 만들고, 판정·선점·변환·기록은 공용 {@link PreviewEngine}(WP-432)에 맡긴다. 업로드 직후 미리 변환(백그라운드
+ * 실행기)만 드라이브 전용이다.
  *
  * <p>클래스·메서드에 {@code @Transactional} 을 두지 않는다: 변환 호출은 트랜잭션 밖에서 해야 하므로 file 행 읽기도 {@link
  * TransactionTemplate} 의 짧은 트랜잭션으로 한다.
@@ -56,8 +57,9 @@ public class FilePreviewService {
   }
 
   /**
-   * 미리보기를 연다(웹 {@code GET /drive/files/{id}/preview}). 필요하면 변환을 선점해 대화형 실행기에 넘기고 {@code Converting}
-   * 을 돌려준다. 호출자가 권한을 확인한 core file.id 여야 하며, 요청 스레드의 활성 테넌트로 동작한다.
+   * 미리보기를 연다(웹 {@code GET /drive/files/{id}/preview} 와 첨부·드라이브 링크·메인 AI 첨부의 {@code …/preview}).
+   * 필요하면 변환을 선점해 대화형 실행기에 넘기고 {@code Converting} 을 돌려준다. 호출자가 그 출처의 {@code /content} 와 같은 가드로 확인한
+   * core file.id 여야 하며(이 메서드는 권한을 보지 않는다), 요청 스레드의 활성 테넌트로 동작한다.
    *
    * @param start 시도의 첫 요청(뷰어 열기·[다시 시도])이면 true — 이때만 FAILED 행을 다시 선점한다. 폴링은 false.
    * @throws FileBlobMissingException 원본 blob 이 디스크에 없을 때(기존 {@code /content} 와 같은 404)

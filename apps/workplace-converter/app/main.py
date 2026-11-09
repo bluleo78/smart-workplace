@@ -42,7 +42,7 @@ app = FastAPI(lifespan=lifespan)
 
 # mime → 엔진 함수 레지스트리. 지원 mime 의 단일 원천 — 엔진은 여기 등록된 mime 으로만 호출된다.
 # HWP·HWPX: rhwp SVG(→ rsvg-convert PDF / SVG 글자 위치 텍스트)
-# Office(PPTX·PPT·DOC → PDF, XLS 는 텍스트만): 상주 soffice + UNO 헬퍼
+# Office(PPTX·PPT·DOC·DOCX → PDF, XLS 는 텍스트만): 상주 soffice + UNO 헬퍼
 PDF_ENGINES: dict[str, Callable[[bytes, str], PdfResult]] = {
     **dict.fromkeys(hwp.MIMES, hwp.to_pdf),
     **dict.fromkeys(office.PDF_MIMES, office.to_pdf),

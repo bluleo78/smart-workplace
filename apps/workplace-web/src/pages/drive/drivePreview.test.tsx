@@ -259,8 +259,8 @@ describe('묶음·딥링크', () => {
 describe('요약·참조 패널', () => {
   // Office 문서(미리보기 본문 없이 카드만 보려는 형식).
   const docx = createFile({ id: 1, fileId: 10, name: '문서.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', category: 'WORD', sizeBytes: 1024 })
-  // 본문은 받지 못한 것으로 둔다(E2E 와 같이 오류 화면) — 카드만 본다. 가짜 바이트를 주면 mammoth 가 jsdom 의 다른 realm ArrayBuffer 를 읽지 못해 던진다.
-  const noContent = http.get(`${API}/files/1/content`, () => new HttpResponse(null, { status: 404 }))
+  // DOCX 는 서버 변환 PDF 로 열린다(WP-1457) — 변환 대상 아님(변환기 꺼짐)으로 응답해 본문은 미지원 화면으로 두고 카드만 본다.
+  const noContent = http.get(`${API}/files/1/preview`, () => HttpResponse.json({ status: 'NOT_APPLICABLE' }, { status: 404 }))
 
   // #526·WP-277: 요약 DONE 은 사이드 패널에 펼친 카드로 보인다.
   // #633: 요약 마크다운 헤딩은 원시 「#」 대신 heading 으로.

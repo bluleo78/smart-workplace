@@ -372,14 +372,27 @@ class FilePreviewServiceTest extends ExternalClientMockedTestBase {
 
   @Test
   void 대상_형식이_아니면_NotApplicable() {
+    // XLS(X) 는 웹이 시트 표로 그리므로 변환 대상이 아니다.
+    long id =
+        createFile(
+            "a.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 100L);
+
+    assertThat(open(id, true)).isInstanceOf(PreviewOutcome.NotApplicable.class);
+    assertThat(row(id)).isNull();
+  }
+
+  @Test
+  void DOCX_는_변환을_선점한다() {
+    // DOCX 도 서버 변환 PDF 로 통일한다(WP-1457) — 첫 열람이 변환 행을 선점하고 변환 중을 돌려준다.
+    when(converter.convertPdf(any(), anyString())).thenReturn(new ConvertOutcome.Success(PDF, 1));
     long id =
         createFile(
             "a.docx",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             100L);
 
-    assertThat(open(id, true)).isInstanceOf(PreviewOutcome.NotApplicable.class);
-    assertThat(row(id)).isNull();
+    assertThat(open(id, true)).isInstanceOf(PreviewOutcome.Converting.class);
+    awaitStatus(id, "READY");
   }
 
   @Test

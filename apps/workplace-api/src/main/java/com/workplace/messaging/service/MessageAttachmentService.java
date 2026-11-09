@@ -160,13 +160,9 @@ public class MessageAttachmentService {
   @Transactional(readOnly = true)
   public MessageAttachmentRepository.StoredFileRow download(
       long callerId, long channelId, long messageId, Long fileId) {
-    ensureReadable(channelId, callerId);
-    if (!messageRepo.belongsToChannel(messageId, channelId)) {
-      throw new InvalidMessageAttachmentException(fileId);
-    }
-    var row =
-        repo.findStoredFile(fileId, messageId)
-            .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
+    // 가드는 /preview(resolveContentFileId)와 한 곳(findGuardedStoredFile)에 — 두 경로의 거절 범위가 갈라지지
+    // 않게(WP-1457).
+    var row = findGuardedStoredFile(callerId, channelId, messageId, fileId);
     // 상대경로를 절대경로로 복원 — FileSystemResource 에 넘기기 전에 반드시 resolve 필요
     return new MessageAttachmentRepository.StoredFileRow(
         fileStore.resolve(row.path()).toString(),
@@ -194,12 +190,36 @@ public class MessageAttachmentService {
    */
   @Transactional(readOnly = true)
   public long resolveViewFileId(long callerId, long channelId, long messageId, long fileId) {
+    // 지금은 /content 와 같은 가드라 같은 helper 를 쓴다 — /text·/view 규칙을 따로 바꿀 땐 여기만 갈라 낸다.
+    findGuardedStoredFile(callerId, channelId, messageId, fileId);
+    return fileId;
+  }
+
+  /**
+   * 문서 미리보기용 파일 id 확인(WP-1457) — {@link #download}(/content) 와 같은 가드를 거쳐 core file.id 만 돌려준다. 거절
+   * 예외도 download 와 같다. 규칙 "/preview 는 /content 와 같은 가드"를 이름으로 드러내려고 /text·/view 용 {@link
+   * #resolveViewFileId} 와 따로 둔다. 변환은 이 읽기 전용 트랜잭션이 끝난 뒤 컨트롤러가 미리보기 서비스로 연다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveContentFileId(long callerId, long channelId, long messageId, long fileId) {
+    findGuardedStoredFile(callerId, channelId, messageId, fileId);
+    return fileId;
+  }
+
+  /**
+   * /content(download)·/preview 가 함께 쓰는 첨부 가드 — 읽기 권한(멤버 또는 보관된 공개 채널, 아니면 403) + 메시지가 이 채널 소속 + 그
+   * 메시지에 붙은 첨부(아니면 400 InvalidMessageAttachmentException)를 확인하고 저장 행(상대 경로)을 돌려준다.
+   *
+   * <p>왜 한 곳에: 경로마다 같은 검사를 복사해 두면 한쪽만 고쳐 거절 범위가 달라진다. 호출자의 readOnly 트랜잭션 안에서 실행된다.
+   */
+  private MessageAttachmentRepository.StoredFileRow findGuardedStoredFile(
+      long callerId, long channelId, long messageId, long fileId) {
     ensureReadable(channelId, callerId);
-    if (!messageRepo.belongsToChannel(messageId, channelId)
-        || repo.findStoredFile(fileId, messageId).isEmpty()) {
+    if (!messageRepo.belongsToChannel(messageId, channelId)) {
       throw new InvalidMessageAttachmentException(fileId);
     }
-    return fileId;
+    return repo.findStoredFile(fileId, messageId)
+        .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
   }
 
   /** 읽기 검사 — 멤버 또는 보관된 공개 채널(WP-621). 그 밖의 비멤버는 ChannelNotMemberException(403). */

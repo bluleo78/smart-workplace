@@ -1,4 +1,4 @@
-"""Office 엔진 — PPTX·PPT·DOC 를 PDF 로, 거기에 XLS 를 더해 텍스트로 바꾼다.
+"""Office 엔진 — PPTX·PPT·DOC·DOCX 를 PDF 로, 거기에 XLS 를 더해 텍스트로 바꾼다.
 
 실제 변환은 상주 soffice(OFFICE) 에 맡기고, 이 모듈은 mime → (입력 확장자, 가져오기 필터) 매핑과
 결과 검증(PDF 쪽수 계산·UTF-8 디코드)만 한다.
@@ -15,6 +15,7 @@ from .soffice import OFFICE
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 PPT = "application/vnd.ms-powerpoint"
 DOC = "application/msword"
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLS = "application/vnd.ms-excel"
 
 # mime → (soffice 입력 파일 확장자, LibreOffice 가져오기 필터 이름)
@@ -22,10 +23,12 @@ _SPEC = {
     PPTX: (".pptx", "Impress MS PowerPoint 2007 XML"),
     PPT: (".ppt", "MS PowerPoint 97"),
     DOC: (".doc", "MS Word 97"),
+    DOCX: (".docx", "MS Word 2007 XML"),
     XLS: (".xls", "MS Excel 97"),
 }
 # PDF 미리보기 대상. XLS 는 시트 PDF 가 미리보기로 쓸모없어(쪽 분할이 제각각) 텍스트만 지원한다.
-PDF_MIMES = (PPTX, PPT, DOC)
+# DOCX 는 웹 mammoth 렌더가 원본과 모양이 달라 서버 변환 PDF 로 통일한다(WP-1457).
+PDF_MIMES = (PPTX, PPT, DOC, DOCX)
 TEXT_MIMES = tuple(_SPEC)
 
 

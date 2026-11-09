@@ -1,4 +1,4 @@
-"""Office 엔진 테스트 — PPTX·PPT·DOC → PDF, PPTX·PPT·DOC·XLS → 텍스트.
+"""Office 엔진 테스트 — PPTX·PPT·DOC·DOCX → PDF, PPTX·PPT·DOC·DOCX·XLS → 텍스트.
 
 단위 테스트는 OFFICE.convert 를 가짜로 바꿔 mime↔확장자·가져오기 필터 매핑, 쪽수 계산, 오류 매핑만 검증한다.
 `@pytest.mark.engine` 테스트는 soffice·python3-uno 가 있는 컨테이너 test 타깃에서만 돈다.
@@ -17,6 +17,7 @@ from app.errors import ConvertError
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 PPT = "application/vnd.ms-powerpoint"
 DOC = "application/msword"
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLS = "application/vnd.ms-excel"
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -46,7 +47,7 @@ def fake_office(monkeypatch):
 
 # ---- 단위 ----
 
-@pytest.mark.parametrize("mime,suffix", [(PPTX, ".pptx"), (PPT, ".ppt"), (DOC, ".doc")])
+@pytest.mark.parametrize("mime,suffix", [(PPTX, ".pptx"), (PPT, ".ppt"), (DOC, ".doc"), (DOCX, ".docx")])
 def test_office_suffix_by_mime(fake_office, mime, suffix):
     office.to_pdf(b"SRC", mime)
     call = fake_office["calls"][0]
@@ -57,6 +58,7 @@ def test_office_suffix_by_mime(fake_office, mime, suffix):
     (PPTX, "Impress MS PowerPoint 2007 XML"),
     (PPT, "MS PowerPoint 97"),
     (DOC, "MS Word 97"),
+    (DOCX, "MS Word 2007 XML"),
     (XLS, "MS Excel 97"),
 ])
 def test_office_import_filter_by_mime(fake_office, mime, filter_name):
@@ -105,8 +107,8 @@ def test_office_text_is_utf8_decoded(fake_office, bom):
 
 
 def test_office_engines_registered():
-    """main 레지스트리: PDF 는 PPTX·PPT·DOC, 텍스트는 거기에 XLS 추가."""
-    for mime in (PPTX, PPT, DOC):
+    """main 레지스트리: PDF 는 PPTX·PPT·DOC·DOCX, 텍스트는 거기에 XLS 추가."""
+    for mime in (PPTX, PPT, DOC, DOCX):
         assert main.PDF_ENGINES[mime] is office.to_pdf
         assert main.TEXT_ENGINES[mime] is office.to_text
     assert XLS not in main.PDF_ENGINES
@@ -155,6 +157,14 @@ def test_pptx_to_pdf_pages_match_slides(live_office):
 @pytest.mark.engine
 def test_doc_to_pdf(live_office):
     result = office.to_pdf(_fixture("sample.doc"), DOC)
+    assert result.page_count >= 1
+    assert result.data.startswith(b"%PDF")
+
+
+@pytest.mark.engine
+def test_docx_to_pdf(live_office):
+    """DOCX 도 Writer 가져오기 필터로 PDF 가 된다 — 웹 mammoth 렌더 대신 서버 변환 PDF 로 통일(WP-1457)."""
+    result = office.to_pdf(_fixture("sample.docx"), DOCX)
     assert result.page_count >= 1
     assert result.data.startswith(b"%PDF")
 
