@@ -8,6 +8,8 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentAccountBinding.AgentAccountBindingPath;
+import com.workplace.jooq.tables.AgentAccountUsage.AgentAccountUsagePath;
+import com.workplace.jooq.tables.AgentAccountUsageCheck.AgentAccountUsageCheckPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AgentAccountRecord;
@@ -254,6 +256,32 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
             _agentAccountBinding = new AgentAccountBindingPath(this, null, Keys.AGENT_ACCOUNT_BINDING__AGENT_ACCOUNT_BINDING_ACCOUNT_ID_FKEY.getInverseKey());
 
         return _agentAccountBinding;
+    }
+
+    private transient AgentAccountUsagePath _agentAccountUsage;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_usage</code> table
+     */
+    public AgentAccountUsagePath agentAccountUsage() {
+        if (_agentAccountUsage == null)
+            _agentAccountUsage = new AgentAccountUsagePath(this, null, Keys.AGENT_ACCOUNT_USAGE__AGENT_ACCOUNT_USAGE_ACCOUNT_ID_FKEY.getInverseKey());
+
+        return _agentAccountUsage;
+    }
+
+    private transient AgentAccountUsageCheckPath _agentAccountUsageCheck;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_account_usage_check</code> table
+     */
+    public AgentAccountUsageCheckPath agentAccountUsageCheck() {
+        if (_agentAccountUsageCheck == null)
+            _agentAccountUsageCheck = new AgentAccountUsageCheckPath(this, null, Keys.AGENT_ACCOUNT_USAGE_CHECK__AGENT_ACCOUNT_USAGE_CHECK_ACCOUNT_ID_FKEY.getInverseKey());
+
+        return _agentAccountUsageCheck;
     }
 
     @Override

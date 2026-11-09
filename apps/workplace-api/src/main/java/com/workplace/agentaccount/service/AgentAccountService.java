@@ -2,6 +2,7 @@ package com.workplace.agentaccount.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.agentaccount.dto.AccountUsage;
 import com.workplace.agentaccount.dto.AgentAccountRequest;
 import com.workplace.agentaccount.dto.AgentAccountResponse;
 import com.workplace.agentaccount.dto.AgentAccountResponse.BoundAgent;
@@ -12,6 +13,12 @@ import com.workplace.agentaccount.exception.AgentAccountInUseException;
 import com.workplace.agentaccount.exception.AgentAccountNotFoundException;
 import com.workplace.agentaccount.repository.AgentAccountBindingRepository;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
+import com.workplace.agentaccount.usage.AgentAccountUsageProperties;
+import com.workplace.agentaccount.usage.AgentAccountUsageRepository;
+import com.workplace.agentaccount.usage.UsageCheckRow;
+import com.workplace.agentaccount.usage.UsageSnapshot;
+import com.workplace.agentaccount.usage.UsageStatusCalculator;
+import com.workplace.agentaccount.usage.UsageWindow;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.controller.ProviderCredentialSecrets;
 import com.workplace.auth.dto.ProviderConfig;
@@ -24,6 +31,7 @@ import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.Texts;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -64,6 +72,9 @@ public class AgentAccountService {
   /** 확인 필요 — 이관 백필이 옮긴 로그인형 계정(서버 보관본이 낡았을 수 있다). 첫 사용량 조회(WP-1449)가 판정한다. */
   public static final String STATUS_NEEDS_CHECK = "NEEDS_CHECK";
 
+  /** 다시 로그인 필요 — 「확인 필요」 계정의 첫 사용량 조회가 401 계열로 실패했을 때(WP-1449). 조회가 성공하면 「정상」으로 돌아간다. */
+  public static final String STATUS_RELOGIN_REQUIRED = "RELOGIN_REQUIRED";
+
   /** 같은 키 유일 인덱스(V274) — 동시 등록 경합에서 DB 위반을 409 로 옮길 때 이름으로 가린다. */
   private static final String FINGERPRINT_INDEX = "uq_agent_account_fingerprint";
 
@@ -78,6 +89,8 @@ public class AgentAccountService {
   private final AiAgentCredentialService credentialService;
   private final ObjectMapper objectMapper;
   private final AgentAccountRuntimeNotifier runtimeNotifier;
+  private final AgentAccountUsageRepository usageRepository;
+  private final AgentAccountUsageProperties usageProperties;
 
   /**
    * 검증·정규화를 마친 계정 원문과 그 메타. {@code plaintext} 는 저장 직전 암호화할 평문이라 {@link #toString()} 에 싣지 않는다.
@@ -305,6 +318,8 @@ public class AgentAccountService {
     } catch (IntegrityConstraintViolationException e) {
       throw duplicateOr(e);
     }
+    // 남은 사용량·실패 이유는 옛 키의 것이다 — 같은 트랜잭션에서 비워 「모름」으로 두고, 다음 회차가 간격을 기다리지 않고 새 키를 조회하게 한다(WP-1449).
+    usageRepository.resetForNewSecret(id);
     // 원문을 바꾸면 secret_version 이 새로 나와 이 계정을 쓰는 모든 AI 의 desired 버전이 바뀐다 — runner 가 폴링을 기다리지 않고 다시
     // 받아 가게 알린다(generation 은 그대로).
     List<Long> boundAgents = bindings.findAgentsByAccounts(List.of(id)).getOrDefault(id, List.of());
@@ -473,6 +488,40 @@ public class AgentAccountService {
         : e;
   }
 
+  /**
+   * 계정 한 건의 사용량 블록(WP-1449) — 상태는 {@link UsageStatusCalculator} 가 정하고, 창 값·조회 시각·실패 이유·마지막 사용 시각은
+   * 저장된 그대로 싣는다(마지막 시도가 실패해도 마지막 성공 값은 함께 보인다). 기록이 없으면 각 칸이 null 이다.
+   */
+  private AccountUsage usageOf(
+      AgentAccountRow r, List<UsageSnapshot> snapshots, UsageCheckRow check) {
+    String status =
+        UsageStatusCalculator.status(
+            r.provider(),
+            r.status(),
+            snapshots,
+            check,
+            BigDecimal.valueOf(usageProperties.nearLimitPercent()),
+            Instant.now());
+    return new AccountUsage(
+        status,
+        windowOf(snapshots, UsageWindow.FIVE_HOUR),
+        windowOf(snapshots, UsageWindow.WEEKLY),
+        check == null ? null : check.checkedAt(),
+        check == null ? null : check.succeededAt(),
+        check == null ? null : check.errorCode(),
+        check == null ? null : check.errorMessage(),
+        check == null ? null : check.lastUsedAt());
+  }
+
+  /** 스냅샷들 중 한 창 → 응답 창(없으면 null). */
+  private static AccountUsage.Window windowOf(List<UsageSnapshot> snapshots, UsageWindow w) {
+    for (UsageSnapshot s : snapshots) {
+      if (s.window() == w)
+        return new AccountUsage.Window(s.usedPercent(), s.resetsAt(), s.observedAt());
+    }
+    return null;
+  }
+
   /** 행들 → 응답. 쓰는 AI 는 계정·사용자를 한 번씩 몰아 조회한다(N+1 방지). */
   private List<AgentAccountResponse> toResponses(List<AgentAccountRow> rows) {
     if (rows.isEmpty()) return List.of();
@@ -485,6 +534,10 @@ public class AgentAccountService {
             ? Map.of()
             : userRepository.findByIds(agentIds).stream()
                 .collect(Collectors.toMap(UserResponse::id, Function.identity(), (a, b) -> a));
+    // 사용량도 계정마다 따로 읽지 않고 id 묶음으로 한 번씩 읽는다(WP-1449)
+    List<Long> ids = rows.stream().map(AgentAccountRow::id).toList();
+    Map<Long, List<UsageSnapshot>> snapshots = usageRepository.findSnapshots(ids);
+    Map<Long, UsageCheckRow> checks = usageRepository.findChecks(ids);
     List<AgentAccountResponse> out = new ArrayList<>(rows.size());
     for (AgentAccountRow r : rows) {
       List<BoundAgent> agents = new ArrayList<>();
@@ -502,7 +555,8 @@ public class AgentAccountService {
               r.status(),
               r.createdAt(),
               r.updatedAt(),
-              agents));
+              agents,
+              usageOf(r, snapshots.getOrDefault(r.id(), List.of()), checks.get(r.id()))));
     }
     return out;
   }

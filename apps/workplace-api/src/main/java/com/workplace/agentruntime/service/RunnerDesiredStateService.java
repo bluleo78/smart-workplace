@@ -50,6 +50,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,10 +65,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 @RequiredArgsConstructor
+@Slf4j
 public class RunnerDesiredStateService {
 
   /** runner 가 변경 스트림과 별도로 desired 를 다시 조회하는 주기(초) — 이벤트를 놓쳐도 이 안에 맞춰진다. */
   public static final int POLL_INTERVAL_SECONDS = 300;
+
+  /** runner 가 Pod 를 RUNNING 으로 본다고 알리는 phase 값. */
+  private static final String PHASE_RUNNING = "RUNNING";
 
   private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
   private static final TypeReference<List<Map<String, Object>>> LIST_TYPE =
@@ -87,6 +92,7 @@ public class RunnerDesiredStateService {
   private final AgentRepoCredentialService repoCredentials;
   private final AgentRuntimeChangeNotifier changeNotifier;
   private final AgentRuntimeTransitions transitions;
+  private final AgentAccountUsageTouch accountUsageTouch;
 
   /**
    * 템플릿 이름@버전 → runner 모양으로 바꾼 자원·보조 컨테이너·플러그인. 템플릿은 시작 때 한 번 읽혀 바뀌지 않으므로 요청마다 다시 바꾸지 않는다. 응답과 같은
@@ -214,8 +220,27 @@ public class RunnerDesiredStateService {
       else ignored.add(o.agentUserId());
     }
     afterObservedUpdated(principal.tenantId(), applied);
+    touchAccountsOfRunning(applied);
     notifyVisibleChanges(updated.values());
     return new RunnerObservedResponse(applied.size(), ignored);
+  }
+
+  /**
+   * 이 위치의 AI 로 반영된 보고 중 RUNNING 인 AI 가 묶인 계정의 마지막 사용 시각을 올린다(WP-1449). 계정 화면의 부가 정보라 실패해도 관찰 응답은
+   * 그대로 둔다 — 구현이 세이브포인트로 되돌리고 여기서는 예외 종류만 남긴다(메시지에 값이 섞이지 않게).
+   */
+  private void touchAccountsOfRunning(List<RunnerObservedAgent> applied) {
+    List<Long> running =
+        applied.stream()
+            .filter(o -> PHASE_RUNNING.equals(o.phase()))
+            .map(RunnerObservedAgent::agentUserId)
+            .toList();
+    if (running.isEmpty()) return;
+    try {
+      accountUsageTouch.touchRunning(running);
+    } catch (RuntimeException e) {
+      log.warn("AI 계정 마지막 사용 시각 갱신 실패: {}", e.getClass().getSimpleName());
+    }
   }
 
   /**
