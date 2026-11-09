@@ -53,6 +53,7 @@ function fixture(t, { env: extra = {}, config = CONFIG } = {}) {
   mkdirSync(d('run', 'repo-tokens', 'github'), { recursive: true });
   writeFileSync(d('run', 'repo-tokens', 'github', 'github.com'), 'ghp_secrettoken\n');
   writeFileSync(d('tmp', 'system.pem'), 'SYSTEM-ROOTS\n');
+  writeFileSync(d('tmp', 'genia-root.crt'), 'GENIA-ROOT\n');
 
   exe(d('bin', 'gh'), `#!/bin/sh
 printf 'args %s\\n' "$*" >> "$FAKE_OUT/gh.log"
@@ -120,6 +121,7 @@ exec ${realCurl} "$@"
     GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1',
     GENIA_WORKS_MCP_URL: 'http://127.0.0.1:9/mcp',
     GENIA_SYSTEM_CA: d('tmp', 'system.pem'),
+    GENIA_ROOT_CRT: d('tmp', 'genia-root.crt'),
     OPENCODE_PLUGIN_DIR: d('plugin'),
     DOCKER_HOST: `unix://${d('no-docker.sock')}`,
     PLAYWRIGHT_BROWSERS_PATH: d('work', '.cache', 'ms-playwright'),
@@ -198,6 +200,44 @@ test('setupCa_passesExtraCaToOpencodeBunRuntimeViaNodeExtraCaCertsAndMergedBundl
   assert.match(r.stdout, new RegExp(`^EXTRA=${f.d('run', 'ca', 'ca.crt')}$`, 'm'));
   const bundle = r.stdout.match(/^BUNDLE=(.*)$/m)[1];
   assert.equal(readFileSync(bundle, 'utf8'), 'SYSTEM-ROOTS\nPRIVATE-CA\n');
+});
+
+test('opencodeCa_passesModelServerRootWithOrWithoutLocationCa', (t) => {
+  // 사내 모델 서버(사설 루트 genia-root)에 OpenCode(Bun)가 붙으려면 NODE_EXTRA_CA_CERTS 에 그 루트가 있어야 한다(11-09 AI 테스터1 회차 실패).
+  // 위치 추가 CA 가 있으면 뒤에 잇고, 없어도(setup_ca 가 아무것도 내보내지 않음) 루트는 넘어간다.
+  for (const [locationCa, want] of [['PRIVATE-CA\n', 'GENIA-ROOT\nPRIVATE-CA\n'], [null, 'GENIA-ROOT\n']]) {
+    const f = fixture(t);
+    if (locationCa) {
+      mkdirSync(f.d('run', 'ca'), { recursive: true });
+      writeFileSync(f.d('run', 'ca', 'ca.crt'), locationCa);
+    }
+    const r = callLib(f.env, 'check_required && prepare_dirs && setup_ca && opencode_ca && echo "EXTRA=$NODE_EXTRA_CA_CERTS"');
+    assert.equal(r.status, 0, r.stderr);
+    const extra = r.stdout.match(/^EXTRA=(.*)$/m)[1];
+    assert.equal(extra, f.d('home', '.genia-node-ca.pem'));
+    assert.equal(readFileSync(extra, 'utf8'), want);
+  }
+});
+
+test('opencodeCa_whenBundleCannotBeWritten_fallsBackToRootAlone', (t) => {
+  // 홈에 묶음을 못 쓰면(가득 참 등) 루트만이라도 넘긴다 — 위치 추가 CA 는 setup_ca 의 합친 번들(SSL_CERT_FILE)에 남는다.
+  const f = fixture(t);
+  mkdirSync(f.d('home', '.genia-node-ca.pem.tmp'), { recursive: true }); // 임시 파일 자리를 폴더로 막아 쓰기를 실패시킨다
+  const r = callLib(f.env, 'check_required && prepare_dirs && opencode_ca && echo "EXTRA=$NODE_EXTRA_CA_CERTS"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`^EXTRA=${f.d('tmp', 'genia-root.crt')}$`, 'm'));
+  assert.match(r.stdout + r.stderr, /루트 CA 만 넘깁니다/);
+});
+
+test('opencodeCa_whenRootFileMissing_warnsAndKeepsLocationCa', (t) => {
+  // 루트 파일이 없으면(이미지 밖) 경고만 하고 setup_ca 가 정한 추가분을 그대로 둔다 — 부팅은 이어진다.
+  const f = fixture(t, { env: { GENIA_ROOT_CRT: '/nonexistent/genia-root.crt' } });
+  mkdirSync(f.d('run', 'ca'), { recursive: true });
+  writeFileSync(f.d('run', 'ca', 'ca.crt'), 'PRIVATE-CA\n');
+  const r = callLib(f.env, 'check_required && prepare_dirs && setup_ca && opencode_ca && echo "EXTRA=$NODE_EXTRA_CA_CERTS"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`^EXTRA=${f.d('run', 'ca', 'ca.crt')}$`, 'm'));
+  assert.match(r.stdout + r.stderr, /루트 CA/);
 });
 
 // ---------------------------------------------------------------- 설정(write_opencode_config)
@@ -451,8 +491,11 @@ test('dockerfilePinsOpencodeAndBakesDriverPluginAndSkills', () => {
   assert.match(dockerfile, /ln -sfn "\$path\/skills" "\/home\/agent\/\.agents\/skills\/\$\{id%@\*\}"/);
   assert.match(dockerfile, /test -f \/home\/agent\/\.agents\/skills\/superpowers\/using-superpowers\/SKILL\.md/);
   assert.match(dockerfile, /COPY --chown=1001:1001 apps\/workplace-agent-genia-code\/skills\/ \/home\/agent\/\.agents\/skills\//);
-  // 사내 Gen:iA 것·Codex 것은 넣지 않는다
-  assert.doesNotMatch(dockerfile, /genia-root\.crt|genia-code-server|GENIA_SKIP_VERSION_CHECK|@openai\/codex|gw-models/);
+  // 사내 모델 서버 루트 CA 는 넣는다 — 연결이 그 서버를 가리키면 OpenCode 가 믿어야 한다(11-09 AI 테스터1, opencode_ca 가 칸에 넘긴다)
+  assert.match(dockerfile, /^COPY --chmod=644 apps\/workplace-agent-genia-code\/genia-root\.crt \/usr\/local\/share\/ca-certificates\/genia-root\.crt$/m);
+  assert.match(dockerfile, /^RUN update-ca-certificates$/m);
+  // 그 밖의 사내 Gen:iA 것(배포 서버·실행기 설정)·Codex 것은 넣지 않는다
+  assert.doesNotMatch(dockerfile, /genia-code-server|GENIA_SKIP_VERSION_CHECK|@openai\/codex|gw-models/);
 });
 
 test('catalogRebuildsImageWhenItsInputsChange', () => {
@@ -465,6 +508,7 @@ test('catalogRebuildsImageWhenItsInputsChange', () => {
   assert.equal(entry.helm, false);
   for (const p of [
     'apps/workplace-agent-opencode/',
+    'apps/workplace-agent-genia-code/genia-root.crt',
     'apps/workplace-agent-claude-code/bin/lib.sh',
     'apps/workplace-agent-claude-code/bin/agent-screen',
     'apps/workplace-agent-claude-code/plugins.lock',
@@ -498,6 +542,8 @@ tmuxTest('entrypoint_launchesOpencodeLoopPaneWithConfigAndStopsOnSigterm', async
     'GENIA_WORKS_MCP_URL=http://127.0.0.1:9/mcp',
     'GENIA_WORKS_TENANT=3',
     'GENIA_AGENT_GENERATION=7',
+    // 사내 모델 서버 루트 CA 묶음(opencode_ca)이 칸의 opencode 까지 간다(11-09 운영 AI 테스터1)
+    `NODE_EXTRA_CA_CERTS=${f.d('home', '.genia-node-ca.pem')}`,
     'mcp-token-present',
     'config-content-present',
     'arg run',

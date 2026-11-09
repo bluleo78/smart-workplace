@@ -186,6 +186,7 @@
       "helm": false,
       "paths": [
         "apps/workplace-agent-opencode/",
+        "apps/workplace-agent-genia-code/genia-root.crt",
         "apps/workplace-agent-claude-code/bin/lib.sh",
         "apps/workplace-agent-claude-code/bin/agent-screen",
         "apps/workplace-agent-claude-code/plugins.lock",

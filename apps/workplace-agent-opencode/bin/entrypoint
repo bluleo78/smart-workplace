@@ -26,6 +26,8 @@ start_display
 # 1b. 추가 CA(사내 GitLab·사내 모델 서버 등) — 이 뒤의 모든 연결이 쓰게 먼저 합친다. OpenCode 는 Bun 으로 묶인 실행 파일이라 NODE_EXTRA_CA_CERTS(추가분)와
 #     SSL_CERT_FILE(합친 번들)을 물려받는다(setup_ca 가 둘 다 내보낸다).
 setup_ca
+# 1c. 사내 모델 서버 루트 CA(genia-root)를 위치 추가 CA 와 이어 NODE_EXTRA_CA_CERTS 로 — Bun 은 시스템 CA 파일을 읽지 않는다(lib-opencode.sh).
+opencode_ca
 # 2. 플러그인(이미지에 굳힌 opencode 구동기 포함 genia-works) — 못 찾으면 띄울 수 없다. 이 뒤로는 gw-lib 를 쓴다.
 use_plugin || die "genia-works 플러그인(opencode 구동기)을 찾지 못했습니다 — 이미지를 다시 빌드하세요"
 log "플러그인 $GW_SCRIPTS"

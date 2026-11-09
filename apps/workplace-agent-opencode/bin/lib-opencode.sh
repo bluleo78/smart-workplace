@@ -30,6 +30,22 @@ opencode_env() {
   mkdir -p "$XDG_DATA_HOME" "$(dirname "$OPENCODE_CONFIG_FILE")" && chmod 700 "$AI_DIR/opencode" "$(dirname "$OPENCODE_CONFIG_FILE")"
 }
 
+# 1c. 사내 모델 서버 루트 CA(genia-root) — OpenCode(Bun)는 시스템 CA 저장소를 기본으로 읽지 않아, 위치 추가 CA 가 없으면 사설 루트로 서명된
+#     사내 모델 서버에 TLS 로 붙지 못한다(11-09). 루트 + 위치 추가 CA 묶음을 NODE_EXTRA_CA_CERTS 로 넘긴다(Gen:iA Code 의 genia_ca 와 같은 짝).
+GENIA_ROOT_CRT=${GENIA_ROOT_CRT:-/usr/local/share/ca-certificates/genia-root.crt} # 사내 모델 서버의 루트 CA(공개 인증서, 이미지가 둔다)
+opencode_ca() {
+  local crt
+  if [ ! -s "$GENIA_ROOT_CRT" ]; then
+    log "경고: 사내 모델 서버 루트 CA($GENIA_ROOT_CRT)가 없습니다 — 사내 모델 서버에 닿지 못할 수 있습니다"
+    return 0
+  fi
+  if ! crt=$(node_ca_bundle "$GENIA_ROOT_CRT"); then
+    log "경고: 사내 모델 서버 인증서 묶음을 만들지 못했습니다 — 루트 CA 만 넘깁니다"
+    crt=$GENIA_ROOT_CRT
+  fi
+  export NODE_EXTRA_CA_CERTS="$crt"
+}
+
 # 모델 서버 연결 정보를 담은 JSON 이 쓸 수 있는 꼴인지 — 객체이고 providerId 가 안전한 글자의 문자열이며 options 가 객체.
 opencode_login_ok() {
   jq -e 'type == "object"

@@ -25,21 +25,18 @@ sha256_of() {
   fi
 }
 
-# 1c. genia 가 쓸 node 인증서 묶음 — genia-root.crt + (있으면) 위치 추가 CA. 플러그인 agent-project 의 genia 분기는 NODE_EXTRA_CA_CERTS 를
+# 1c. genia 가 쓸 node 인증서 묶음 — genia-root.crt + (있으면) 위치 추가 CA(lib.sh 의 node_ca_bundle). 플러그인 agent-project 의 genia 분기는 NODE_EXTRA_CA_CERTS 를
 #     GENIA_CA_CERT 로 덮으므로, setup_ca 가 내보낸 위치 CA 가 칸에서 빠지지 않게 둘을 이어 붙인 파일을 GENIA_CA_CERT 로 준다.
 #     (NODE_EXTRA_CA_CERTS 는 시스템 CA 에 「더하는」 값이라 시스템 CA 를 넣을 필요는 없다 — node 는 시스템 CA 파일을 읽지 않아 genia-root 가 따로 필요하다.)
 #     묶음을 못 만들면 경고하고 GENIA_CA_CERT 만 genia-root.crt 로 둔다 — 비워 두면 agent-project 가 ~/.genia/app(없음)으로 간다.
 genia_ca() {
-  local out="$HOME/.genia-node-ca.pem" extra="$GENIA_RUN_DIR/ca/ca.crt"
-  set -- "$GENIA_ROOT_CRT"
-  [ -s "$extra" ] && set -- "$@" "$extra"
-  if ! cat "$@" > "$out.tmp" 2>/dev/null || ! mv -f "$out.tmp" "$out"; then
-    rm -f "$out.tmp"
+  local crt
+  if ! crt=$(node_ca_bundle "$GENIA_ROOT_CRT"); then
     log "경고: Gen:iA 인증서 묶음을 만들지 못했습니다($GENIA_ROOT_CRT) — 사내 Gen:iA 서버에 닿지 못할 수 있습니다"
     export GENIA_CA_CERT="$GENIA_ROOT_CRT"
     return 0
   fi
-  export GENIA_CA_CERT="$out" NODE_EXTRA_CA_CERTS="$out"
+  export GENIA_CA_CERT="$crt" NODE_EXTRA_CA_CERTS="$crt"
 }
 
 # 배포 서버에서 하나 받기 — genia_fetch <url> <저장 파일> [<최대 초>]. CA 는 curl 기본(시스템 CA — genia-root 포함, 위치 CA 가 있으면 setup_ca 의

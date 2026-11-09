@@ -143,6 +143,11 @@ RUN set -eux; \
     npm install -g --no-fund --no-audit "opencode-ai@${OPENCODE_VERSION}"; \
     npm cache clean --force; \
     opencode --version
+# 사내 모델 서버의 루트 CA(공개 인증서, Gen:iA Code 이미지와 같은 파일) — 시스템 CA 에 넣어 curl·git(과 setup_ca 의 합친 번들)이 믿게 한다(root 만 할 수 있다).
+# OpenCode(Bun)는 시스템 CA 저장소를 기본으로 읽지 않아 엔트리포인트가 같은 파일을 NODE_EXTRA_CA_CERTS 로도 넘긴다(opencode_ca). 인증서만 바뀔 때
+# 플러그인 받기 단계를 다시 하지 않게 그 뒤에 둔다.
+COPY --chmod=644 apps/workplace-agent-genia-code/genia-root.crt /usr/local/share/ca-certificates/genia-root.crt
+RUN update-ca-certificates
 USER 1001
 
 # genia-works 플러그인을 빌드 때 굳힌다 — OpenCode 칸은 agent-project 의 opencode 분기가 띄우는 구동기(scripts/gw-opencode-loop → opencode/driver.mjs)로 돈다.

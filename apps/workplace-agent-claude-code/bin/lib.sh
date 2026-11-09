@@ -240,6 +240,21 @@ setup_ca() {
   log "추가 CA 를 시스템 CA 와 합쳤습니다($extra)"
 }
 
+# 1c. node 인증서 묶음 — node_ca_bundle <루트 CA 파일>: 루트 + (있으면) 위치 추가 CA 를 이은 $HOME/.genia-node-ca.pem 을 만들고 그 경로를 출력한다.
+#     node·Bun 은 이미지 시스템 CA 에 넣어 둔 사설 루트를 읽지 않아 NODE_EXTRA_CA_CERTS 로 따로 줘야 하는데, 그 값은 파일 하나라 위치 추가 CA 와
+#     이어 붙인다. 사설 루트를 싣는 실행기 이미지가 함께 쓴다. 못 만들면 출력 없이 1.
+node_ca_bundle() {
+  local out="$HOME/.genia-node-ca.pem" extra="$GENIA_RUN_DIR/ca/ca.crt"
+  set -- "$1"
+  [ -s "$extra" ] && set -- "$@" "$extra"
+  if cat "$@" > "$out.tmp" 2>/dev/null && mv -f "$out.tmp" "$out"; then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  rm -f "$out.tmp"
+  return 1
+}
+
 # 5b. git 신원과 저장소 자격 증명(WP-1268·WP-1276) — runner 가 AI 별·호스트별 토큰을 $GENIA_RUN_DIR/repo-tokens/<github|gitlab>/<host> 파일로 꽂는다.
 #     GitHub 는 호스트마다 gh 에 로그인(토큰은 표준 입력으로만 — 인자·로그에 남기지 않는다)하고 git 자격 증명 도우미를 건다.
 #     GitLab 은 호스트마다 git 자격 증명 도우미가 그때그때 토큰 파일을 읽게 한다(설정·로그에 토큰을 두지 않는다). MR 은 플러그인의

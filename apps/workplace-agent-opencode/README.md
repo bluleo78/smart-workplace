@@ -15,7 +15,7 @@ OpenCode 가 스킬을 찾는 자리(11-08 opencode 1.18.31 `opencode debug skil
 
 ## 엔트리포인트 (`bin/entrypoint`, 함수는 `lib.sh` + `bin/lib-opencode.sh`)
 
-1. 필수 파일·env 를 확인하고 `/work` 아래 폴더를 만든다(lib.sh). 가상 화면(Xvfb)을 띄우고(`start_display`) 위치의 추가 CA 가 있으면 시스템 CA 와 합친다(`setup_ca` — OpenCode 는 `NODE_EXTRA_CA_CERTS`(추가분)와 `SSL_CERT_FILE`(합친 번들)를 따른다. 자체서명 서버로 11-08 확인).
+1. 필수 파일·env 를 확인하고 `/work` 아래 폴더를 만든다(lib.sh). 가상 화면(Xvfb)을 띄우고(`start_display`) 위치의 추가 CA 가 있으면 시스템 CA 와 합친다(`setup_ca` — OpenCode 는 `NODE_EXTRA_CA_CERTS`(추가분)와 `SSL_CERT_FILE`(합친 번들)를 따른다. 자체서명 서버로 11-08 확인). 이어 사내 모델 서버 루트 CA(`genia-root.crt`)를 위치 추가 CA 와 이어 `NODE_EXTRA_CA_CERTS` 로 넘긴다(`opencode_ca` — Bun 은 시스템 CA 파일을 읽지 않는다).
 2. `use_plugin`: 이미지에 굳힌 플러그인(`opencode/driver.mjs` 가 있어야 한다)을 쓰고 플러그인 공용 함수(`gw-lib.sh`)를 읽는다.
 3. `opencode_env`: `XDG_DATA_HOME=$AI_DIR/opencode/data`(영속, 700 — OpenCode 대화 기록, 구동기가 `-s` 로 이어 받는다), `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1`(모델은 연결 정보로만 정한다). tmux 서버가 뜨기 전에 내보내므로 칸이 물려받는다.
 4. `write_opencode_agents_md`: `~/.config/opencode/AGENTS.md`(OpenCode 가 모든 세션에 싣는 전역 지시)를 매번 새로 쓴다 — 세션을 시작하면 먼저 `~/.agents/skills/superpowers/using-superpowers/SKILL.md` 를 읽고 따르라는 짧은 지시와 Claude Code 도구 이름 → OpenCode 도구 이름 대응이다. OpenCode 에는 세션 시작 hook 이 없다. 스킬이 없으면 경고하고 파일을 지운다.

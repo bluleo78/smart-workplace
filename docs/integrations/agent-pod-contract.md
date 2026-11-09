@@ -112,7 +112,7 @@ OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 �
 - 마운트가 없거나 비었거나 꼴이 틀리면(연결 끊김·연결 정보 이상) 옛 `opencode.json` 을 지우고 경고·오류 한 줄만 남기고 칸을 띄우지 않는다. 연결하면 runner 가 Pod 를 다시 만든다. 연결 정보 원문(API 키)은 로그·명령줄에 남기지 않는다(`jq` 가 파일을 읽어 조립).
 - 대화 기록(OpenCode 의 sqlite — 구동기가 `-s <세션>` 으로 이어 받는다)은 `XDG_DATA_HOME=$AI_DIR/opencode/data`(영속)에 둔다. env `OPENCODE_DISABLE_AUTOUPDATE=1`·`OPENCODE_DISABLE_MODELS_FETCH=1`(모델은 연결 정보로만 정한다)을 내보내 칸이 물려받는다.
 - 모델 목록은 Pod 가 보고하지 않는다(「모델 목록 보고」는 로그인 정보 계정용) — 연결이 정적 API 키라 서버가 모델 서버에 직접 물어 실시간 목록을 만든다.
-- 사설 CA 가 있으면 공용 `setup_ca` 가 `NODE_EXTRA_CA_CERTS`(추가분)·`SSL_CERT_FILE`(시스템 CA 와 합친 번들)를 내보내고 OpenCode(Bun 실행 파일)가 둘 다 따른다(11-08 opencode 1.18.31 자체서명 서버로 확인). 스킬은 Claude 이미지와 같은 plugins.lock 의 플러그인 `skills/` 를 `~/.agents/skills/<플러그인>` 으로 이어 OpenCode 가 외부 스킬로 읽는다(`opencode debug skill` 확인).
+- 사설 CA 가 있으면 공용 `setup_ca` 가 `NODE_EXTRA_CA_CERTS`(추가분)·`SSL_CERT_FILE`(시스템 CA 와 합친 번들)를 내보내고 OpenCode(Bun 실행 파일)가 둘 다 따른다(11-08 opencode 1.18.31 자체서명 서버로 확인). 사내 모델 서버 루트 CA(`genia-root.crt`, Gen:iA Code 이미지와 같은 파일)는 이미지가 시스템 CA 에 넣고, `opencode_ca` 가 그것과 위치 추가 CA 를 이은 `$HOME/.genia-node-ca.pem` 을 `NODE_EXTRA_CA_CERTS` 로 덮어 내보낸다 — Bun 은 시스템 CA 파일을 읽지 않아, 위치 CA 에 그 루트가 없으면 모델 요청이 TLS 로 실패한다(11-09). 스킬은 Claude 이미지와 같은 plugins.lock 의 플러그인 `skills/` 를 `~/.agents/skills/<플러그인>` 으로 이어 OpenCode 가 외부 스킬로 읽는다(`opencode debug skill` 확인).
 
 ## Gen:iA Code 프로그램 (WP-1296)
 
