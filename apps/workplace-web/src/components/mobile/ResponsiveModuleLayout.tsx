@@ -3,7 +3,7 @@
 // 모바일(list-detail): 모듈 루트면 사이드바를 전체폭 목록(탭 첫 화면)으로, 그 외 경로면 뒤로가기 바 + Outlet 만.
 // 사이드바 컴포넌트는 손대지 않고 래퍼 CSS 로 폭(w-56→전체)·테두리·자체 제목 헤더를 정리한다
 // (8개 사이드바 모두 <aside> 첫 자식이 sidebarTitleClass 제목 헤더라는 구조 규약에 기대어 숨김).
-import { type ReactNode, useCallback, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { ResizableSidebar } from '@/components/layout/ResizableSidebar'
@@ -16,6 +16,7 @@ import { MobileDetailCtx } from './MobileDetailContext'
 import { MobileListHeader } from './MobileListHeader'
 import { MobileResourceErrorHeadingContext } from './MobileResourceErrorHeadingContext'
 import { mobileSidebarListClass } from './sidebarListClass'
+import { useListScrollRestore } from './useListScrollRestore'
 
 export function ResponsiveModuleLayout({
   sidebar,
@@ -65,6 +66,12 @@ export function ResponsiveModuleLayout({
   }, [])
   const errorHeadingCtx = useMemo(() => ({ hasErrorHeading: errorHeadingCount > 0, register: registerErrorHeading }), [errorHeadingCount, registerErrorHeading])
   const detailCtx = useMemo(() => ({ title, register }), [title, register])
+  // 목록 분기 여부 — 목록 = 모듈 루트 또는 경로 표가 탭 루트로 정한 하위 목록(노트 공간 /wiki/spaces/:id 처럼 2단 목록, WP-178).
+  const isList = isMobile && (norm(pathname) === rootPath || isTabRoot(pathname))
+  // WP-1463: 상세로 가면 목록 DOM 이 언마운트돼 돌아오면 맨 위였다 — 목록 래퍼에서 스크롤을 기록해 다시 마운트될 때 복원한다.
+  // 훅 규칙상 분기 전에 선언하고, 목록 분기가 아닐 때(데스크톱·상세)는 키를 null 로 넘겨 리스너를 걸지 않는다.
+  const listRef = useRef<HTMLDivElement>(null)
+  useListScrollRestore(listRef, isList ? norm(pathname) : null)
 
   if (!isMobile) {
     return (
@@ -79,8 +86,7 @@ export function ResponsiveModuleLayout({
     )
   }
 
-  // 목록 = 모듈 루트 또는 경로 표가 탭 루트로 정한 하위 목록(노트 공간 /wiki/spaces/:id 처럼 2단 목록, WP-178).
-  if (norm(pathname) === rootPath || isTabRoot(pathname)) {
+  if (isList) {
     return (
       <MobileResourceErrorHeadingContext.Provider value={errorHeadingCtx}>
         <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -88,7 +94,7 @@ export function ResponsiveModuleLayout({
               탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
           {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
           {listContext}
-          <div data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
+          <div ref={listRef} data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
         </div>
       </MobileResourceErrorHeadingContext.Provider>
     )
