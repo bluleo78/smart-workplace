@@ -603,7 +603,8 @@ export function WikiSidebar() {
           pending={createPending}
         />
       ) : (
-        <nav className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
+        // data-tree-scroller: 선택 행이 스스로 드러날 스크롤 영역(WikiTreeRow, WP-1462).
+        <nav data-testid="wiki-tree-nav" data-tree-scroller className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
