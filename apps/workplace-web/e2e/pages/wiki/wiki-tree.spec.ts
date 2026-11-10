@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { measureBox } from '../../fixtures/wait'
 
 /** 페이지 생성 POST 본문. */
 type CreateBody = { parentId: number | null; title: string }
@@ -159,5 +160,63 @@ test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', { tag: '@layo
     await page.getByRole('menuitem', { name: '삭제' }).click()
     await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제' }).click()
     await deletes.waitFor()
+  })
+})
+
+// WP-1462: 루트 페이지가 많은 공간에서 선택 행이 목록(스크롤 nav) 밖에 남던 버그 — 스크롤 위치는 jsdom 이 못 재므로 E2E(@layout).
+test.describe('긴 목록에서 선택 행 드러내기(WP-1462)', { tag: '@layout' }, () => {
+  /** 루트 페이지 n개. */
+  const rootPages = (n: number): WikiPageSummary[] =>
+    Array.from({ length: n }, (_, i) => ({ id: i + 1, parentId: null, title: `문서 ${i + 1}`, position: i, aiLastUsedAt: null }))
+
+  /** 선택 행이 nav 보이는 영역 안에 들어올 때까지 기다린다(스크롤은 조건 대기). */
+  async function expectSelectedInNav(page: Page, id: number) {
+    const selected = page.getByTestId(`wiki-tree-row-${id}`).locator('[aria-current="page"]')
+    await expect(selected).toHaveCount(1)
+    const nav = page.getByTestId('wiki-tree-nav')
+    await expect
+      .poll(async () => {
+        const row = await measureBox(selected)
+        const area = await measureBox(nav)
+        return row.y >= area.y - 1 && row.y + row.height <= area.y + area.height + 1
+      })
+      .toBe(true)
+    return nav
+  }
+
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await routeCommon(page)
+  })
+
+  test('새 페이지를 만들면 — 목록이 새 행까지 스크롤된다', async ({ authenticatedPage: page }) => {
+    const NEW_ID = 31
+    let created = false
+    await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
+      if (r.request().method() === 'POST') {
+        created = true
+        return r.fulfill({ status: 201, json: detail(NEW_ID, '', null) })
+      }
+      const extra = created ? [{ id: NEW_ID, parentId: null, title: '', position: 30, aiLastUsedAt: null }] : []
+      return r.fulfill({ json: [...rootPages(30), ...extra] })
+    })
+    await page.route('**/api/v1/wiki/pages/*', (r) => r.fulfill({ json: detail(NEW_ID, '', null) }))
+
+    await page.goto(`/wiki/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('wiki-tree-row-30')).toBeAttached()
+    await page.getByRole('button', { name: '새 페이지', exact: true }).click()
+    await expectSelectedInNav(page, NEW_ID)
+  })
+
+  test('아래쪽 페이지를 주소로 열면 — 트리만 스크롤되고 바깥은 밀리지 않는다', async ({ authenticatedPage: page }) => {
+    const TARGET_ID = 28
+    await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => r.fulfill({ json: rootPages(30) }))
+    await page.route('**/api/v1/wiki/pages/*', (r) => r.fulfill({ json: detail(TARGET_ID, '문서 28', null) }))
+
+    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${TARGET_ID}`)
+    const nav = await expectSelectedInNav(page, TARGET_ID)
+    expect(await nav.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0)
+    await expect(page.getByRole('button', { name: '새 페이지', exact: true })).toBeInViewport()
   })
 })

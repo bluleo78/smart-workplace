@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ChevronDown, ChevronRight, CornerDownRight, FileCode, Link2, Link2Off, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { useLayoutEffect, useRef } from 'react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
@@ -12,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
+import { revealInScrollY } from '@/lib/revealInScrollY'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -80,6 +82,14 @@ export function WikiTreeRow({
   })
   const style = { transform: CSS.Translate.toString(transform), transition }
   const label = title || '제목 없음'
+  // WP-1462 선택된(mount 되거나 막 선택된) 행을 트리 스크롤 영역 안으로 드러낸다 — 새로 연 페이지 행이 목록 밖에 남지 않게.
+  // selected 에만 걸어 목록 재조회·끌기·접기에는 다시 굴리지 않는다.
+  const innerRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!selected || !innerRef.current) return
+    const scroller = innerRef.current.closest<HTMLElement>('[data-tree-scroller]')
+    if (scroller) revealInScrollY(scroller, innerRef.current)
+  }, [selected])
   const coarse = useIsCoarsePointer()
   // 삭제는 메뉴/시트가 닫힌 뒤 다이얼로그를 연다 — 닫히는 오버레이의 포커스 복귀·pointer-events 정리와 겹치지 않게.
   const requestDelete = () => setTimeout(() => onRequestDelete(id), 0)
@@ -95,7 +105,7 @@ export function WikiTreeRow({
       data-testid={`wiki-tree-row-${id}`}
       className={`group relative flex items-center ${isDragging ? 'opacity-50' : ''}`}
     >
-      <div className="flex w-full items-center" style={{ paddingLeft: depth * INDENT }}>
+      <div ref={innerRef} className="flex w-full items-center" style={{ paddingLeft: depth * INDENT }}>
         {hasChildren ? (
           <button
             type="button"
