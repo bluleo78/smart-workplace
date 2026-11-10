@@ -111,6 +111,25 @@ describe('ThreadPanel — 열린 채 답글 도착 시 스레드 읽음 처리(W
     expect(mocks.markThreadRead).toHaveBeenLastCalledWith(1, 3)
   })
 
+  it('미읽음 수만 변해도(답글 수 그대로) 다시 읽음 처리한다', () => {
+    const { rerender } = renderPanel()
+    rerender(panelElement({ parent: makeParent({ unreadReplyCount: 4 }) }))
+    expect(mocks.markThreadRead).toHaveBeenCalledTimes(2)
+    expect(mocks.markThreadRead).toHaveBeenLastCalledWith(1, 4)
+  })
+
+  it('답글이 먼저 와도(미읽음 0) 미읽음이 오르면 다시 읽음 처리한다(0 복귀 시 생략)', () => {
+    const { rerender } = renderPanel({ parent: makeParent({ unreadReplyCount: 0 }) })
+    mocks.replies = [makeReply(11)] // 답글 렌더 도착, 미읽음은 아직 0 → 생략
+    rerender(panelElement({ parent: makeParent({ unreadReplyCount: 0 }) }))
+    expect(mocks.markThreadRead).not.toHaveBeenCalled()
+    rerender(panelElement({ parent: makeParent({ unreadReplyCount: 1 }) })) // 미읽음 렌더 도착 → 재발화
+    expect(mocks.markThreadRead).toHaveBeenCalledTimes(1)
+    expect(mocks.markThreadRead).toHaveBeenCalledWith(1, 1)
+    rerender(panelElement({ parent: makeParent({ unreadReplyCount: 0 }) })) // bump 반영(0) → 생략, 반복 없음
+    expect(mocks.markThreadRead).toHaveBeenCalledTimes(1)
+  })
+
   it('부모 미읽음 수 0이면 처리하지 않는다', () => {
     renderPanel({ parent: makeParent({ unreadReplyCount: 0 }) })
     expect(mocks.markThreadRead).not.toHaveBeenCalled()

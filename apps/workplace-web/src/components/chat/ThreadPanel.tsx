@@ -41,12 +41,13 @@ export function ThreadPanel({ channelId, channelName, isDm = false, parent, memb
   const reply = useCreateReply(channelId, parent.id, me)
   const markThreadRead = useMarkThreadRead(channelId)
 
-  // 패널을 열 때 1회 + 열린 채 답글이 표시(길이 변화)될 때마다 읽음 처리한다.
-  // 미읽음 수는 클로저 시점 값 그대로 전달하고(생략 ≤0·낙관적 bump·서버 호출·무효화는 훅 담당), 부모 전환은 parent.id 가 담당한다.
+  // 패널을 열 때 1회 + 열린 채 신호가 바뀔 때마다 읽음 처리한다 — 표시 답글 도달 수(replies.length)와
+  // 내 미읽음 수(unreadReplyCount)가 따로 렌더로 도착해도(어느 순서든) 커버된다.
    
+  // 미읽음 수는 클로저 시점 값 그대로 전달한다(생략 ≤0·낙관적 bump·서버 호출·무효화는 훅 담당).
   useEffect(() => {
     if (canMarkRead) markThreadRead(parent.id, parent.unreadReplyCount)
-  }, [parent.id, replies.length, canMarkRead])
+  }, [parent.id, replies.length, parent.unreadReplyCount, canMarkRead])
 
   return (
     // 모바일: 채널 컬럼을 숨기고 전체폭(메일·연락처 상세와 같은 "목록 숨김 + 전체폭 상세" 규칙, WP-207).
