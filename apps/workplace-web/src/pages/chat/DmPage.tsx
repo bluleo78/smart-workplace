@@ -205,6 +205,8 @@ export default function DmPage() {
           depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
           initialAnchor={messageAnchor ?? chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
           anchorPending={detail.isPending}
+          // 맨 위로 올리면 앞 페이지를 받아 붙인다(WP-1471) — 링크 점프(useConversationLinkJump)와 같은 무한 조회를 공유한다.
+          older={messagesQuery}
         >
           <MessageList
             messages={messages}
