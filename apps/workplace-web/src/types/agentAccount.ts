@@ -32,13 +32,13 @@ export interface AccountUsage {
   status: AccountUsageStatus;
   fiveHour: UsageWindow | null;
   weekly: UsageWindow | null;
-  /** 마지막 조회 시도 시각 — 표의 「갱신」 칸. */
+  /** 마지막 조회 시도 시각 — 표의 「사용량 확인」 칸. */
   checkedAt: string | null;
   succeededAt: string | null;
   errorCode: string | null;
   /** 마지막 조회 실패 이유(짧은 한국어 문구). */
   errorMessage: string | null;
-  /** 이 계정을 쓰는 AI 가 마지막으로 실행 중이던 시각 — 한도 없는 계정의 「갱신」 칸. */
+  /** 이 계정을 쓰는 AI 가 마지막으로 실행 중이던 시각 — 표의 「쓰는 AI」 칸 아래 「마지막 사용」 줄(모든 종류). */
   lastUsedAt: string | null;
 }
 

@@ -1,6 +1,7 @@
-// 에이전트 › 계정 탭(WP-1451) — 화면 컴포넌트 테스트. 에이전트 화면 셸(AgentManagementPage, 주소 /settings/agents/accounts)을 renderScreen 으로 띄운다.
-// 응답 → 표 셀: 상태 칸 문구(우선순위), 막대 색(75%·100% 기준), 한도 없는 줄(「한도 없음」·마지막 사용), 초기화 시각(남은 시간·주간 날짜),
-// 갱신 상대 시각, 빈 목록·오류, 탭 주소·머리 단추·60초 다시 받기를 본다. 표시 규칙의 경계값은 lib/agentAccountUsage.test.ts 가 본다.
+// 에이전트 › 계정 탭(WP-1451·1465) — 화면 컴포넌트 테스트. 에이전트 화면 셸(AgentManagementPage, 주소 /settings/agents/accounts)을 renderScreen 으로 띄운다.
+// 응답 → 표 셀: 칸 머리말 8개, 계정(라벨만)·유형 칸, 상태 칸 문구(우선순위)와 실패 이유 한 줄, 막대 색(75%·100% 기준), 한도 없는 줄(두 칸을 합친 「한도 없음」),
+// 빈 창(값 없음/—), 초기화 시각(남은 시간·주간 날짜와 시각), 쓰는 AI 와 마지막 사용, 사용량 확인 상대 시각, 빈 목록·오류, 탭 주소·머리 단추·60초 다시 받기를 본다.
+// 표시 규칙의 경계값은 lib/agentAccountUsage.test.ts 가 본다.
 // 시각은 결정적으로 — vitest 는 TZ=Asia/Seoul 고정(vitest.config.ts), Date 는 2026-11-09(월) 10:00 KST 로 고정한다.
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
@@ -25,7 +26,7 @@ afterAll(() => vi.useRealTimers())
 
 const DEV_AI = { userId: 11, username: 'dev-ai', name: '개발 AI' }
 
-/** 상태마다 한 줄 — 여유·곧 한도·한도 도달·확인 실패·한도 없음(쓰는 AI 있음/없음)·다시 로그인 필요·확인 전. */
+/** 상태마다 한 줄 — 정상·곧 한도·한도 도달·확인 실패·한도 없음(쓰는 AI 있음/없음)·다시 로그인 필요·확인 필요(+실패 이유)·값 없음·확인 전. */
 function accounts(): AgentAccountResponse[] {
   return [
     createAccount({
@@ -38,6 +39,7 @@ function accounts(): AgentAccountResponse[] {
         weekly: { usedPercent: 30, resetsAt: '2026-11-12T15:00:00Z', observedAt: '2026-11-09T00:58:00Z' },
         checkedAt: '2026-11-09T00:58:00Z',
         succeededAt: '2026-11-09T00:58:00Z',
+        lastUsedAt: '2026-11-09T00:59:40Z',
       }),
     }),
     createAccount({
@@ -73,7 +75,8 @@ function accounts(): AgentAccountResponse[] {
       label: '사내 모델',
       usage: createUsage({ status: 'UNLIMITED', lastUsedAt: '2026-11-09T00:57:00Z' }),
     }),
-    createAccount({ id: 6, provider: 'genia', label: 'Gen:iA 예비', agents: [], usage: createUsage({ status: 'UNLIMITED' }) }),
+    // 쓰는 AI 가 없는데 예전 사용 기록이 남은 계정 — 「없음」 아래 마지막 사용 줄을 보이지 않는다
+    createAccount({ id: 6, provider: 'genia', label: 'Gen:iA 예비', agents: [], usage: createUsage({ status: 'UNLIMITED', lastUsedAt: '2026-11-09T00:50:00Z' }) }),
     createAccount({
       id: 7,
       provider: 'chatgpt',
@@ -89,6 +92,24 @@ function accounts(): AgentAccountResponse[] {
       label: 'ChatGPT 옮겨 온 계정',
       status: 'NEEDS_CHECK',
       usage: createUsage({ status: 'OK', checkedAt: '2026-11-09T00:00:00Z' }),
+    }),
+    // 확인 필요 계정의 마지막 조회도 실패 — 배지는 「확인 필요」, 그 아래 실패 이유 한 줄
+    createAccount({
+      id: 10,
+      provider: 'chatgpt',
+      label: '양동희(HOME)',
+      status: 'NEEDS_CHECK',
+      usage: createUsage({ status: 'CHECK_FAILED', checkedAt: '2026-11-09T00:55:00Z', errorMessage: '연결 실패', lastUsedAt: '2026-11-09T00:58:00Z' }),
+    }),
+    // 조회는 성공했는데 5시간 창을 주지 않는 계정 — 5시간 칸은 「값 없음」
+    createAccount({
+      id: 11,
+      label: 'Claude 주간만',
+      usage: createUsage({
+        status: 'OK',
+        weekly: { usedPercent: 63, resetsAt: '2026-11-12T05:05:00Z', observedAt: null },
+        checkedAt: '2026-11-09T00:55:00Z',
+      }),
     }),
     createAccount({
       id: 8,
@@ -107,7 +128,8 @@ async function renderAccounts(list: AgentAccountResponse[] = accounts()) {
 const status = (id: number) => screen.getByTestId(`agent-account-status-${id}`)
 const fiveHour = (id: number) => screen.getByTestId(`agent-account-five-hour-${id}`)
 const weekly = (id: number) => screen.getByTestId(`agent-account-weekly-${id}`)
-const refreshed = (id: number) => screen.getByTestId(`agent-account-refreshed-${id}`)
+const checked = (id: number) => screen.getByTestId(`agent-account-checked-${id}`)
+const agentsCell = (id: number) => screen.getByTestId(`agent-account-agents-${id}`)
 const bar = (cell: HTMLElement) => within(cell).getByRole('progressbar')
 
 test('계정 탭 — 주소 /settings/agents/accounts 에서 「계정」 탭이 골라지고 머리 단추는 「+ 계정 추가」', async () => {
@@ -134,36 +156,61 @@ test('다른 탭에서 「계정」 탭을 누르면 /settings/agents/accounts �
   expect(screen.getByTestId('agent-account-new')).toHaveTextContent('+ 계정 추가')
 })
 
-test('계정 칸 — 라벨·종류 배지·로그인 계정 이메일', async () => {
+test('칸 머리말 — 계정·유형·5시간·주간·쓰는 AI·상태·사용량 확인·메뉴(화면 읽기 전용)', async () => {
+  await renderAccounts()
+  await screen.findByTestId('agent-account-row-1')
+  const heads = screen.getAllByRole('columnheader')
+  expect(heads.map((h) => h.textContent)).toEqual(['계정', '유형', '5시간', '주간', '쓰는 AI', '상태', '사용량 확인', '메뉴'])
+  expect(within(heads[7]).getByText('메뉴')).toHaveClass('sr-only')
+  // 넓은 화면은 칸 너비를 고정 비율로 — 긴 값이 옆 칸을 밀지 않게
+  expect(screen.getByRole('table', { name: 'AI 계정 목록' })).toHaveClass('xl:table-fixed')
+})
+
+test('계정 칸은 라벨만(로그인 계정 이메일 없음), 종류 배지는 유형 칸에', async () => {
   await renderAccounts()
   const r2 = await screen.findByTestId('agent-account-row-2')
   expect(r2).toHaveTextContent('ChatGPT 개발')
-  expect(r2).toHaveTextContent('ChatGPT 로그인')
-  expect(r2).toHaveTextContent('dev@example.com')
-  expect(screen.getByTestId('agent-account-row-5')).toHaveTextContent('OpenAI 호환')
+  expect(r2).not.toHaveTextContent('dev@example.com')
+  expect(screen.getByTestId('agent-account-type-2')).toHaveTextContent('ChatGPT 로그인')
+  expect(screen.getByTestId('agent-account-type-5')).toHaveTextContent('OpenAI 호환')
+  expect(screen.getByTestId('agent-account-type-1')).toHaveTextContent('Claude 구독')
 })
 
-test('상태 칸 — 상태마다 문구, 확인 실패는 이유를 함께, 계정의 다시 로그인이 사용량보다 먼저', async () => {
+test('상태 칸 — 상태마다 문구, OK·한도 없음은 둘 다 「정상」, 쓰는 AI 가 없어도 상태는 사용량대로', async () => {
   await renderAccounts()
   await screen.findByTestId('agent-account-row-1')
-  expect(status(1)).toHaveTextContent('여유')
+  expect(status(1)).toHaveTextContent('정상')
   expect(status(2)).toHaveTextContent('곧 한도')
   expect(status(3)).toHaveTextContent('한도 도달')
   expect(status(4)).toHaveTextContent('확인 실패')
-  expect(status(4)).toHaveTextContent('토큰이 만료됐어요')
-  expect(within(status(4)).getByText('확인 실패')).toHaveAttribute('title', '토큰이 만료됐어요')
   expect(status(5)).toHaveTextContent('정상')
-  expect(status(6)).toHaveTextContent('쓰는 AI 없음')
+  expect(status(6)).toHaveTextContent('정상')
   expect(status(7)).toHaveTextContent('다시 로그인 필요')
   expect(status(8)).toHaveTextContent('확인 전')
   expect(status(9)).toHaveTextContent('확인 필요')
+  // 「쓰는 AI 없음」은 상태가 아니다 — 쓰는 AI 칸이 말한다
+  expect(status(6)).not.toHaveTextContent('쓰는 AI 없음')
   // 배지 색 — 의미 단위(StatusBadge data-status)
-  expect(within(status(1)).getByText('여유')).toHaveAttribute('data-status', 'success')
+  expect(within(status(1)).getByText('정상')).toHaveAttribute('data-status', 'success')
+  expect(within(status(5)).getByText('정상')).toHaveAttribute('data-status', 'success')
   expect(within(status(2)).getByText('곧 한도')).toHaveAttribute('data-status', 'warning')
   expect(within(status(3)).getByText('한도 도달')).toHaveAttribute('data-status', 'error')
   expect(within(status(7)).getByText('다시 로그인 필요')).toHaveAttribute('data-status', 'error')
   expect(within(status(9)).getByText('확인 필요')).toHaveAttribute('data-status', 'warning')
-  expect(within(status(6)).getByText('쓰는 AI 없음')).toHaveAttribute('data-status', 'unknown')
+})
+
+test('실패 이유 — 확인 실패는 이유만, 확인 필요는 「사용량 확인 실패 · <이유>」 한 줄, 상태 칸에만 한 번', async () => {
+  await renderAccounts()
+  await screen.findByTestId('agent-account-row-4')
+  expect(within(status(4)).getByText('확인 실패')).toHaveAttribute('title', '토큰이 만료됐어요')
+  expect(within(status(4)).getAllByText('토큰이 만료됐어요')).toHaveLength(1)
+  expect(status(4)).not.toHaveTextContent('사용량 확인 실패')
+  expect(within(status(10)).getByText('확인 필요')).toHaveAttribute('data-status', 'warning')
+  expect(within(status(10)).getAllByText('사용량 확인 실패 · 연결 실패')).toHaveLength(1)
+  // 이유는 다른 칸에 되풀이하지 않는다
+  for (const cell of [fiveHour(10), weekly(10), agentsCell(10), checked(10)]) expect(cell).not.toHaveTextContent('연결 실패')
+  // 실패가 아닌 줄에는 이유 줄이 없다
+  expect(status(9)).not.toHaveTextContent('사용량 확인 실패')
 })
 
 test('사용률 막대 — 75% 미만 primary, 75% 이상 warning, 100% 이상 destructive(막대는 가득까지만)', async () => {
@@ -184,64 +231,101 @@ test('사용률 막대 — 75% 미만 primary, 75% 이상 warning, 100% 이상 d
   expect(bar(weekly(3)).firstElementChild).toHaveClass('bg-primary')
 })
 
-test('초기화 시각 — 5시간은 남은 시간, 주간은 브라우저 시간대(KST)의 M/D (요일)', async () => {
+test('초기화 시각 — 5시간은 남은 시간, 주간은 브라우저 시간대(KST)의 「M/D (요일) 오전·오후 H:MM 초기화」', async () => {
   await renderAccounts()
   await screen.findByTestId('agent-account-row-1')
   expect(fiveHour(1)).toHaveTextContent('2시간 25분 뒤 초기화')
   expect(fiveHour(2)).toHaveTextContent('40분 뒤 초기화')
-  // UTC 날짜(11/12 목)가 아니라 KST 날짜
-  expect(weekly(1)).toHaveTextContent('11/13 (금)')
-  expect(weekly(2)).toHaveTextContent('11/11 (수)')
+  // UTC 날짜(11/12 목)가 아니라 KST 날짜, 0시는 오전 12:00
+  expect(weekly(1)).toHaveTextContent('11/13 (금) 오전 12:00 초기화')
+  expect(weekly(2)).toHaveTextContent('11/11 (수) 오후 2:00 초기화')
+  expect(weekly(11)).toHaveTextContent('11/12 (목) 오후 2:05 초기화')
 })
 
-test('한도 없는 줄 — 5시간·주간 「한도 없음」, 갱신 칸은 마지막 사용(없으면 「사용 기록 없음」)', async () => {
+test('한도 없는 줄 — 5시간·주간 두 칸을 합쳐 「한도 없음」 한 번, 사용량 확인은 「—」, 마지막 사용은 쓰는 AI 칸에', async () => {
   await renderAccounts()
   await screen.findByTestId('agent-account-row-5')
   for (const id of [5, 6]) {
-    expect(fiveHour(id)).toHaveTextContent('한도 없음')
-    expect(weekly(id)).toHaveTextContent('한도 없음')
-    expect(within(fiveHour(id)).queryByRole('progressbar')).toBeNull()
+    const merged = screen.getByTestId(`agent-account-unlimited-${id}`)
+    expect(merged).toHaveAttribute('colspan', '2')
+    expect(merged).toHaveTextContent('한도 없음')
+    expect(within(merged).queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByTestId(`agent-account-five-hour-${id}`)).toBeNull()
+    expect(screen.queryByTestId(`agent-account-weekly-${id}`)).toBeNull()
+    expect(checked(id)).toHaveTextContent('—')
   }
-  expect(refreshed(5)).toHaveTextContent('마지막 사용 3분 전')
-  expect(refreshed(6)).toHaveTextContent('사용 기록 없음')
+  expect(agentsCell(5)).toHaveTextContent('마지막 사용 3분 전')
+  // 사용 기록이 없으면 줄을 생략한다
+  expect(agentsCell(6)).not.toHaveTextContent('마지막 사용')
 })
 
-test('갱신 칸·빈 창 — 마지막 조회의 상대 시각, 사용량이 아직 없으면 막대 없이 「—」', async () => {
+test('빈 창 — 조회 성공이면 「값 없음」, 조회 전·확인 실패·확인 필요면 막대 없이 「—」', async () => {
   await renderAccounts()
   await screen.findByTestId('agent-account-row-1')
-  expect(refreshed(1)).toHaveTextContent('2분 전')
-  expect(refreshed(2)).toHaveTextContent('30분 전')
-  expect(refreshed(3)).toHaveTextContent('3시간 전')
-  expect(refreshed(4)).toHaveTextContent('방금 전')
-  expect(refreshed(8)).toHaveTextContent('—')
-  expect(fiveHour(8)).toHaveTextContent('—')
-  expect(within(fiveHour(8)).queryByRole('progressbar')).toBeNull()
+  expect(fiveHour(11)).toHaveTextContent('값 없음')
+  expect(within(fiveHour(11)).queryByRole('progressbar')).toBeNull()
+  expect(weekly(11)).toHaveTextContent('63%')
+  for (const id of [8, 4, 10]) {
+    expect(fiveHour(id)).toHaveTextContent(/^—$/)
+    expect(weekly(id)).toHaveTextContent(/^—$/)
+    expect(within(fiveHour(id)).queryByRole('progressbar')).toBeNull()
+  }
 })
 
-test('쓰는 AI — 이름 칩은 상세 링크, 셋을 넘으면 「외 N명」', async () => {
+test('사용량 확인 칸 — 마지막 조회의 상대 시각, 조회 전이면 「—」', async () => {
+  await renderAccounts()
+  await screen.findByTestId('agent-account-row-1')
+  expect(checked(1)).toHaveTextContent('2분 전')
+  expect(checked(2)).toHaveTextContent('30분 전')
+  expect(checked(3)).toHaveTextContent('3시간 전')
+  expect(checked(4)).toHaveTextContent('방금 전')
+  expect(checked(10)).toHaveTextContent('5분 전')
+  expect(checked(8)).toHaveTextContent('—')
+})
+
+test('쓰는 AI — 이름 칩은 상세 링크, 셋을 넘으면 「외 N명」, 아래에 마지막 사용, 없으면 「없음」', async () => {
   await renderAccounts()
   const cell = await screen.findByTestId('agent-account-agents-8')
   expect(within(cell).getAllByRole('link').map((a) => a.textContent)).toEqual(['개발 AI', '검수 AI', '문서 AI'])
   expect(within(cell).getByRole('link', { name: '개발 AI' })).toHaveAttribute('href', '/settings/agents/11')
   expect(cell).toHaveTextContent('외 1명')
-  expect(screen.getByTestId('agent-account-agents-6')).toHaveTextContent('—')
+  expect(agentsCell(6)).toHaveTextContent(/^없음$/)
+  expect(agentsCell(1)).toHaveTextContent('개발 AI')
+  expect(agentsCell(1)).toHaveTextContent('마지막 사용 방금 전')
+  // 로그인 계정도 같은 줄
+  expect(agentsCell(10)).toHaveTextContent('마지막 사용 2분 전')
 })
 
-test('좁은 폭 카드 — 계정 칸 안에 상태·사용률·쓰는 AI·갱신을 쌓는다', async () => {
+test('좁은 폭 카드 — 계정 칸 안에 유형·상태(+이유)·사용률·쓰는 AI(+마지막 사용)·사용량 확인을 쌓는다', async () => {
   await renderAccounts()
   const meta = await screen.findByTestId('agent-account-meta-1')
   expect(meta).toHaveClass('md:hidden')
-  expect(meta).toHaveTextContent('여유')
+  expect(meta).toHaveTextContent('정상')
   expect(meta).toHaveTextContent('42%')
   expect(meta).toHaveTextContent('2시간 25분 뒤 초기화')
-  expect(meta).toHaveTextContent('11/13 (금)')
+  expect(meta).toHaveTextContent('11/13 (금) 오전 12:00 초기화')
   expect(meta).toHaveTextContent('개발 AI')
-  expect(meta).toHaveTextContent('2분 전')
+  expect(meta).toHaveTextContent('마지막 사용 방금 전')
+  expect(meta).toHaveTextContent('사용량 확인 2분 전')
+  // xl 미만은 유형 칸이 숨으니 이름 옆 배지로
+  const row = screen.getByTestId('agent-account-row-1')
+  expect(within(row).getByTestId('agent-account-type-badge-1')).toHaveClass('xl:hidden')
+  expect(screen.getByTestId('agent-account-type-1')).toHaveClass('hidden', 'xl:table-cell')
+  // 확인 필요 + 실패 이유
+  expect(screen.getByTestId('agent-account-meta-10')).toHaveTextContent('확인 필요')
+  expect(screen.getByTestId('agent-account-meta-10')).toHaveTextContent('사용량 확인 실패 · 연결 실패')
+  // 한도 없음은 한 번만, 사용량 확인 줄은 없다
+  const meta5 = screen.getByTestId('agent-account-meta-5')
+  expect(within(meta5).getAllByText('한도 없음')).toHaveLength(1)
+  expect(meta5).not.toHaveTextContent('사용량 확인')
+  expect(meta5).toHaveTextContent('마지막 사용 3분 전')
 })
 
 test('계정이 없으면 빈 안내', async () => {
   await renderAccounts([])
-  expect(await screen.findByText(/아직 계정이 없어요/)).toBeInTheDocument()
+  const empty = await screen.findByText(/아직 계정이 없어요/)
+  // 칸 수(8)만큼 걸친다
+  expect(empty.closest('td')).toHaveAttribute('colspan', '8')
 })
 
 test('목록을 못 받으면 오류 문구 — 「다시 시도」로 다시 받으면 줄이 보인다', async () => {
@@ -253,6 +337,7 @@ test('목록을 못 받으면 오류 문구 — 「다시 시도」로 다시 �
     ],
   })
   expect(await screen.findByTestId('agent-account-error')).toHaveTextContent('계정 목록을 불러오지 못했습니다')
+  expect(screen.getByTestId('agent-account-error').closest('td')).toHaveAttribute('colspan', '8')
   fail = false
   await user.click(screen.getByTestId('agent-account-error-retry'))
   expect(await screen.findByTestId('agent-account-row-1')).toBeInTheDocument()
@@ -304,7 +389,7 @@ test('초기화 시각이 지난 창 — % 는 흐리게, 지난 날짜·남은 
   expect(weekly(1)).not.toHaveTextContent('11/9')
 })
 
-test('남은 시간·갱신 시각은 1분마다 도는 화면 시계로 — 다시 받기가 멈춰도 굳지 않는다', async () => {
+test('남은 시간·사용량 확인 시각은 1분마다 도는 화면 시계로 — 다시 받기가 멈춰도 굳지 않는다', async () => {
   // 이 테스트만 setInterval 까지 가짜로 — 화면 시계(useMinuteNow)와 60초 다시 받기를 손으로 1분 넘긴다.
   vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
   vi.setSystemTime(NOW)
@@ -333,12 +418,12 @@ test('남은 시간·갱신 시각은 1분마다 도는 화면 시계로 — 다
     })
     await screen.findByTestId('agent-account-row-1')
     expect(fiveHour(1)).toHaveTextContent('40분 뒤 초기화')
-    expect(refreshed(1)).toHaveTextContent('30분 전')
+    expect(checked(1)).toHaveTextContent('30분 전')
     await act(async () => {
       vi.advanceTimersByTime(60_000)
     })
     await waitFor(() => expect(fiveHour(1)).toHaveTextContent('39분 뒤 초기화'))
-    expect(refreshed(1)).toHaveTextContent('31분 전')
+    expect(checked(1)).toHaveTextContent('31분 전')
   } finally {
     vi.useRealTimers()
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -535,6 +620,8 @@ test('수정 — 종류는 표시만, 라벨은 지금 값, 비밀값은 채우�
   await pickRowMenu(user, 1, 'edit')
   const dialog = await screen.findByTestId('agent-account-dialog')
   expect(within(dialog).getByTestId('agent-account-kind-fixed')).toHaveTextContent('OpenAI 호환')
+  // 이메일이 없는 계정은 이메일 줄도 없다
+  expect(within(dialog).queryByTestId('agent-account-email')).not.toBeInTheDocument()
   expect(within(dialog).queryByTestId('agent-account-kind-opencode')).not.toBeInTheDocument()
   expect(within(dialog).getByTestId('agent-account-label')).toHaveValue('사내 모델')
   // 키 칸은 「키 교체」를 열기 전엔 없다 — 바꾼 것이 없으면 저장도 막힌다
@@ -567,6 +654,8 @@ test('수정 — 라벨과 로그인 정보를 함께 바꾸면 둘 다 보낸�
   await screen.findByTestId('agent-account-row-1')
   await pickRowMenu(user, 1, 'edit')
   const dialog = await screen.findByTestId('agent-account-dialog')
+  // 표에서 뺀 계정 이메일은 수정 창에서 보인다
+  expect(within(dialog).getByTestId('agent-account-email')).toHaveTextContent('dev@example.com')
   const label = within(dialog).getByTestId('agent-account-label')
   await user.clear(label)
   await user.click(label)
