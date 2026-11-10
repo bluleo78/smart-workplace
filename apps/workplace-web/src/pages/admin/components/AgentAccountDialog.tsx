@@ -207,6 +207,12 @@ export function AgentAccountDialog({ account, onClose }: Props) {
                   {kindName}
                 </Badge>
               </div>
+              {/* 로그인 계정(ChatGPT·Gen:iA)의 계정 이메일 — 표에서는 줄 높이를 맞추려고 빼고 여기서만 보인다(WP-1465). */}
+              {account.accountEmail && (
+                <p className="text-xs break-all text-muted-foreground" data-testid="agent-account-email">
+                  {account.accountEmail}
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-1.5">

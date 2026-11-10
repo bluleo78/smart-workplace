@@ -683,7 +683,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
   const id = 600
   const SELF = { userId: id, username: 'agent600', name: 'AI 600' }
   const DEV_AI = { userId: 11, username: 'dev-ai', name: '개발 AI' }
-  /** 종류가 섞인 계정 목록 — Claude 구독 둘(여유·한도 도달), ChatGPT·OpenAI 호환·Gen:iA 하나씩. */
+  /** 종류가 섞인 계정 목록 — Claude 구독 둘(정상·한도 도달), ChatGPT·OpenAI 호환·Gen:iA 하나씩. */
   const ACCOUNTS = [
     createAccount({
       id: 1,
@@ -742,7 +742,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     const bound = await screen.findByTestId('agent-account-bound')
     expect(within(bound).getByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 A')
     expect(bound).toHaveTextContent('Claude 구독')
-    expect(bound).toHaveTextContent('여유')
+    expect(bound).toHaveTextContent('정상')
     const five = within(bound).getByTestId('agent-account-bound-five-hour')
     expect(five).toHaveTextContent('42%')
     expect(within(five).getByRole('progressbar')).toHaveAttribute('data-tone', 'primary')
@@ -788,7 +788,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     await waitFor(() => expect(screen.getByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 B'))
   })
 
-  test('한도 없는 계정 줄은 5시간·주간 「한도 없음」 — Gen:iA 방식이면 Gen:iA 계정만 보인다', async () => {
+  test('한도 없는 계정 줄은 5시간·주간 대신 「한도 없음」 한 번 — Gen:iA 방식이면 Gen:iA 계정만 보인다', async () => {
     const genia = { ...CODEX_TEMPLATE, name: 'genia-code', card: { ...CODEX_TEMPLATE.card, title: 'Gen:iA Code' }, requires: ['genia', 'repo'], account: 'genia' as const }
     const { user } = await renderDetail(
       claude({ settings: { [id]: createSetting(id, { templateName: 'genia-code' }) }, templates: [...TEMPLATES, genia] }),
@@ -796,8 +796,11 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     const dialog = await openChooser(user)
     const radios = await within(dialog).findAllByRole('radio')
     expect(radios.map((r) => r.dataset.testid)).toEqual(['agent-account-option-5'])
-    expect(within(dialog).getByTestId('agent-account-option-five-hour-5')).toHaveTextContent('한도 없음')
-    expect(within(dialog).getByTestId('agent-account-option-weekly-5')).toHaveTextContent('한도 없음')
+    // 두 칸에 되풀이하지 않고 쌍 전체를 한 줄로(WP-1465)
+    expect(within(dialog).getByTestId('agent-account-option-unlimited-5')).toHaveTextContent('한도 없음')
+    expect(within(within(dialog).getByTestId('agent-account-option-row-5')).getAllByText('한도 없음')).toHaveLength(1)
+    expect(within(dialog).queryByTestId('agent-account-option-five-hour-5')).toBeNull()
+    expect(within(dialog).queryByTestId('agent-account-option-weekly-5')).toBeNull()
     expect(within(dialog).getByTestId('agent-account-option-others-5')).toHaveTextContent('다른 AI 는 쓰지 않아요')
     // 고르기 전에는 바꾸기가 닫혀 있다
     expect(within(dialog).getByTestId('agent-account-choose-confirm')).toBeDisabled()
