@@ -7,7 +7,7 @@
 // 한글 조합 중(isComposing)에는 모든 키를 무시한다.
 import { Search } from 'lucide-react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import { type KeyboardEvent, useContext, useEffect, useId, useRef, useState } from 'react'
+import { type KeyboardEvent, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useOptionalAssistant } from '@/components/ai/AIAssistantContext'
@@ -19,6 +19,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { chatLinkSessionId, withChatParam } from '@/lib/aiChatLink'
 import { hasLiveStateMark } from '@/lib/historyParam'
 import { isImeComposing } from '@/lib/imeKey'
+import { revealInScrollX } from '@/lib/revealInScrollX'
 import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits'
 import { cn } from '@/lib/utils'
 
@@ -121,6 +122,8 @@ function PaletteBody({
   const navigate = useNavigate()
   const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
+  // 종류 탭 줄 — 고른 탭이 보이게 옆으로 밀 때 쓴다.
+  const tabListRef = useRef<HTMLDivElement>(null)
   // 열 때의 현재 앱 — 탭 초기값과 「전체」 묶음 순서의 기준(열려 있는 동안 고정).
   const [current] = useState(() => currentAppFromPath(location.pathname))
   const [tab, setTab] = useState<SearchTabId>(initialTab ?? current ?? 'all')
@@ -146,6 +149,15 @@ function PaletteBody({
   useEffect(() => {
     if (active >= 0) document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: 'nearest' })
   }, [active, listId])
+
+  // 고른 탭이 탭 줄 안에 다 보이게(WP-1464) — 휴대폰에서 노트처럼 오른쪽 끝 탭으로 열면 줄이 맨 왼쪽에 머물러
+  // 고른 탭이 화면 밖에 있었다. 열 때와 탭을 바꿀 때(Tab 키·「더 보기」) 줄의 scrollLeft 만 민다(칩 줄과 같은 도우미 —
+  // scrollIntoView 는 넘침이 숨겨진 조상·문서까지 굴릴 수 있다). 여유 8px 은 탭 줄 안쪽 여백(px-2)과 같게. 그려진 직후 맞추려 layout effect.
+  useLayoutEffect(() => {
+    const list = tabListRef.current
+    const btn = list?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (list && btn) revealInScrollX(list, btn, 8)
+  }, [tab])
 
   const changeTab = (next: SearchTabId) => {
     setTab(next)
@@ -276,7 +288,7 @@ function PaletteBody({
           ↑↓ · ↵ · Tab · esc
         </span>
       </div>
-      <div role="tablist" aria-label="검색할 앱" className="flex shrink-0 gap-1 overflow-x-auto border-b px-2 py-1.5">
+      <div ref={tabListRef} role="tablist" aria-label="검색할 앱" className="flex shrink-0 gap-1 overflow-x-auto border-b px-2 py-1.5">
         {SEARCH_TABS.map((t) => (
           <button
             key={t.id}

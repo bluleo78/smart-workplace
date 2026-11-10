@@ -2,9 +2,11 @@
 // 헤더 🔍 위치·시작 탭·「취소」·뒤로 가기 닫기·결과 이동 뒤 뒤로 가기·목록 밀면 키보드 내리기는
 // vitest(src/components/search/SearchPaletteMobile.test.tsx)가 지킨다. 여기서는 jsdom 이 잴 수 없는 기하만 본다 —
 // 검색 화면이 뷰포트 전체를 덮고, 종류 탭 줄은 옆으로 넘쳐 밀리되 페이지 자체는 가로로 넘치지 않는다.
+// 오른쪽 끝 탭(노트)으로 열거나 Tab 으로 탭을 바꿔도 고른 탭은 탭 줄 안에 다 보인다(WP-1464).
 // 데스크톱 팔레트의 기하는 e2e/pages/global-search.spec.ts.
 import { measureBox } from '../../fixtures/wait'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { mockWikiNoSpaces } from '../../fixtures/wiki-mock'
 
 test('390px 에서 🔍 로 연 검색은 뷰포트 전체를 덮고 종류 탭 줄만 옆으로 넘친다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
@@ -28,6 +30,39 @@ test('390px 에서 🔍 로 연 검색은 뷰포트 전체를 덮고 종류 탭 
   const tabs = page.getByRole('tablist', { name: '검색할 앱' })
   const { scrollWidth, clientWidth } = await tabs.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
   expect(scrollWidth, `탭 줄 scrollWidth ${scrollWidth} vs clientWidth ${clientWidth}`).toBeGreaterThan(clientWidth)
+  await expectNoHorizontalOverflow(page)
+})
+
+// WP-1464 — 노트에서 열면 「노트」 탭(줄의 오른쪽 끝 쪽)이 골라지는데, 탭 줄이 맨 왼쪽에 머물러 고른 탭이 화면 밖에 있었다.
+// 스크롤 위치·잘림은 jsdom 이 잴 수 없어 브라우저로 본다.
+test('390px 노트에서 연 검색은 고른 「노트」 탭이 탭 줄 안에 다 보이고, Tab 으로 바꿔도 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockWikiNoSpaces(page, 999)
+  await page.goto('/wiki')
+  await page.getByTestId('mobile-search-button').click()
+  await expect(page.getByTestId('global-search-input')).toBeFocused()
+  const tabs = page.getByRole('tablist', { name: '검색할 앱' })
+
+  // 고른 탭의 상자가 탭 줄 상자 안에 다 들어오는지(±1px).
+  const expectFullyVisible = async (id: string) => {
+    const tab = page.getByTestId(`global-search-tab-${id}`)
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(async () => {
+      const list = await measureBox(tabs, 'tablist')
+      const t = await measureBox(tab, `tab-${id}`)
+      expect(t.x, `${id} 탭 왼쪽이 줄 밖`).toBeGreaterThanOrEqual(list.x - 1)
+      expect(t.x + t.width, `${id} 탭 오른쪽이 줄 밖`).toBeLessThanOrEqual(list.x + list.width + 1)
+    }).toPass()
+  }
+
+  await expectFullyVisible('wiki')
+  // Tab → 연락처(맨 끝), 한 번 더 → 전체(맨 앞, 왼쪽으로 돌아와야 보인다), Shift+Tab → 다시 연락처.
+  await page.keyboard.press('Tab')
+  await expectFullyVisible('contacts')
+  await page.keyboard.press('Tab')
+  await expectFullyVisible('all')
+  await page.keyboard.press('Shift+Tab')
+  await expectFullyVisible('contacts')
   await expectNoHorizontalOverflow(page)
 })
 
