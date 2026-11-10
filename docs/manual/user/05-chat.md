@@ -33,6 +33,8 @@ routes: [/chat, /chat/new, /chat/channels/:id, /chat/threads/inbox, /chat/dms/:i
 
 목록의 빨간 숫자는 그 대화의 안 읽은 메시지 수입니다. 레일의 **대화** 숫자는 모든 대화의 합입니다. 대화를 열어 마지막 메시지까지 보면 읽은 것으로 처리되어 숫자가 사라집니다. 읽지 않은 메시지가 있는 대화를 열면 처음 읽지 않은 메시지 위에 **여기까지 읽음** 줄이 보입니다.
 
+대화를 맨 위까지 올리면 그 앞의 메시지를 이어서 불러옵니다. 불러오지 못하면 맨 위에 「다시 시도」 가 보이니 눌러서 다시 불러옵니다.
+
 ## 메시지를 보낸다
 
 ![메시지 입력칸 — 첨부 메뉴를 연 모습](shots/user/chat-2.png){crop=attach+menu+format+input+send marks=attach,format,input}

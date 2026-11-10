@@ -30,12 +30,18 @@ const ANCHOR_START_GAP_PX = 8
  * @param initialAnchor 최초 진입 시 이동할 앵커(id + 정렬). 미전달이면 하단.
  * @param anchorPending true 면 앵커 여부를 아직 판단할 수 없음(예: DM 상세 미로드) — 하단으로 확정하지 않고 기다린다.
  *   메시지가 상세보다 먼저 오면 앵커 없이 하단으로 확정돼 버려 이후 나타난 앵커를 놓치기 때문이다(WP-256).
+ * @param onPositioned 최초 위치 잡기가 끝났을 때(앵커로 스크롤했거나, 앵커 없이 하단으로 내렸을 때) 부른다 — 여러 번 불릴 수 있다.
+ *   앵커를 기다리는 동안(판단 전·앵커가 아직 DOM 에 없음)은 부르지 않는다. 위쪽 끝 이전 메시지 sentinel 을 이 뒤에만 켜려는 용도다 —
+ *   첫 렌더(scrollTop 0)나 앵커 대기 중에 켜면 sentinel 이 화면 안이라 앞 페이지를 줄줄이 받는다(WP-1471).
+ *   콘텐츠가 화면보다 짧아 initialDone 이 확정되지 않는 짧은 대화에서도 하단으로 내렸으면 부른다 — 그래야 화면을 채울 때까지 앞 페이지를 받는다.
+ *   안정적인 함수(useCallback)로 넘긴다 — 위치 잡기 이펙트의 deps 라, 매 렌더 바뀌면 확정 전(짧은 대화) 위치 잡기가 렌더마다 다시 돈다.
  */
 export function useStickToBottom(
   depKey: unknown,
   resetKey?: unknown,
   initialAnchor?: EntryAnchor,
   anchorPending = false,
+  onPositioned?: () => void,
 ) {
   const initialAnchorId = initialAnchor?.id
   const initialAnchorAlign = initialAnchor?.align ?? 'center'
@@ -232,6 +238,7 @@ export function useStickToBottom(
         pendingAnchor.current = false
         initialDone.current = true
         anchorScrollDone.current = true // 앵커 스크롤 완료 — resetKey 하단 강제 비활성화
+        onPositioned?.()
         return
       }
       pendingAnchor.current = true
@@ -240,7 +247,8 @@ export function useStickToBottom(
     pendingAnchor.current = false
     toBottom()
     if (el.scrollHeight > el.clientHeight) initialDone.current = true // 콘텐츠 생겼을 때만 확정
-  }, [depKey, initialAnchorId, initialAnchorAlign, anchorPending])
+    onPositioned?.() // 앵커 없이 하단으로 내림 — 짧은 대화(확정 전)도 위치는 잡혔다(WP-1471)
+  }, [depKey, initialAnchorId, initialAnchorAlign, anchorPending, onPositioned])
 
   // resetKey 변경(세션 전환 등): 하단 고정으로 리셋하고 무조건 하단으로(#455).
   // stuck 여부와 무관하게 의도적 전환이므로 항상 최신 메시지를 보여준다.
