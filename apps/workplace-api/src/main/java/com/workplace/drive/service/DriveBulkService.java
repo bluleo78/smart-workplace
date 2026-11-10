@@ -22,8 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 벌크 이동/삭제 오케스트레이션. 모든 항목은 같은 공간(컨트롤러 spaceId)이어야 하며, 한 항목이라도 실패하면 전체 롤백된다(단일 트랜잭션). 삭제는 배치 전체가 하나의
- * trash_op_id 를 공유해 한 번의 복원으로 되돌린다.
+ * 벌크 이동/삭제 오케스트레이션. 모든 항목은 같은 공간(컨트롤러 spaceId)이어야 하며, 한 항목이라도 실패하면 전체 롤백된다(단일 트랜잭션). 삭제는 휴지통 최상위가
+ * 되는 항목마다 따로 trash_op_id 를 받아, 휴지통에서 한 행을 복원하면 그 항목(과 하위)만 돌아온다(WP-1467).
  */
 @Service
 @RequiredArgsConstructor
@@ -41,8 +41,9 @@ public class DriveBulkService {
   private final DriveChangeNotifier notifier;
 
   /**
-   * 벌크 삭제 — 선택된 파일/폴더를 휴지통으로(soft). 배치 전체가 동일 op-id 공유. 항목이 요청 공간(spaceId)에 속하지 않으면
-   * DriveInvalidTargetException 으로 전체 롤백.
+   * 벌크 삭제 — 선택된 파일/폴더를 휴지통으로(soft). 휴지통 최상위가 되는 항목마다 단건 삭제처럼 자기 op-id 를 받는다(WP-1467) — 휴지통 화면은
+   * 최상위마다 한 행·「복원」 버튼을 보여 주는데, 예전엔 배치 전체가 op-id 하나를 공유해 한 행만 복원해도 함께 지운 항목이 모두 돌아왔다. 항목이 요청
+   * 공간(spaceId)에 속하지 않으면 DriveInvalidTargetException 으로 전체 롤백.
    */
   @Transactional
   public void bulkDelete(long callerId, long spaceId, List<Long> fileIds, List<Long> folderIds) {
@@ -75,7 +76,9 @@ public class DriveBulkService {
       }
     }
 
-    long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
+    // 감사 로그에서 한 번의 벌크 삭제로 지운 파일들을 묶어 보기 위한 배치 키(bulkOpId).
+    // 복원 단위(trash_op_id)로는 쓰지 않는다 — 복원 단위는 아래에서 최상위 항목마다 따로 받는다(WP-1467).
+    long batchId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
     String username = usernameOf(callerId);
     // 2) 부모 폴더와 그 안의 폴더·파일을 함께 고르면 안쪽 항목은 부모와 함께 지워지므로 따로 표시하지 않는다(WP-782). 예전엔 부모를 먼저 표시한 뒤
     // 안쪽 항목을 「찾을 수 없음」 404 로 보고 전체를 실패시켰다. 안쪽 폴더를 따로 표시하면 휴지통 최상위(trash_root)로도 잘못 남는다.
@@ -90,13 +93,19 @@ public class DriveBulkService {
         }
       }
       for (Long folderId : folderIds) {
-        if (!nested.contains(folderId)) folders.markSubtreeTrashed(folderId, opId);
+        // 최상위 폴더마다 새 op-id — 그 서브트리(안쪽 폴더·파일, 함께 고른 안쪽 항목 포함)는 이 op 로 묶여 부모와 함께 복원된다.
+        if (!nested.contains(folderId)) {
+          folders.markSubtreeTrashed(
+              folderId, dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ));
+        }
       }
     }
     for (DriveFileRepository.DriveFileRow row : fileRows.values()) {
       long fileId = row.id();
       if (row.folderId() != null && covered.contains(row.folderId())) continue; // 고른 폴더와 함께 지워짐
-      files.markTrashed(fileId, opId);
+      // 최상위 파일도 자기 op-id — 다른 항목과 따로 복원된다(WP-1467).
+      long fileOpId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
+      files.markTrashed(fileId, fileOpId);
       // 단건 삭제와 동일하게 FILE_DELETE 감사 로그를 남긴다(#81).
       auditLogService.log(
           callerId,
@@ -109,7 +118,16 @@ public class DriveBulkService {
           null,
           "SUCCESS",
           null,
-          Map.of("spaceId", spaceId, "fileName", row.name(), "bulkOpId", opId));
+          // bulkOpId = 한 번의 벌크 삭제 묶음, trashOpId = 이 파일의 복원 단위(휴지통 행과 이어 보기 위함, WP-1467).
+          Map.of(
+              "spaceId",
+              spaceId,
+              "fileName",
+              row.name(),
+              "bulkOpId",
+              batchId,
+              "trashOpId",
+              fileOpId));
     }
     notifier.itemsChanged(OP_DELETED, spaceId, union(fileIds, folderIds), callerId);
   }
