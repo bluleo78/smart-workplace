@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -18,6 +19,7 @@ import org.springframework.web.client.RestClientException;
  * anthropic-ratelimit-unified-* 헤더를 읽는다(/api/oauth/usage 는 setup-token 에 403 이라 쓰지 않는다). 2xx 와 429
  * 만 헤더가 있으면 성공 판독이다 — 429 는 한도 도달. 그 밖의 상태는 HTTP_<코드> 실패.
  */
+@Slf4j
 public class ClaudeUsageProbe implements UsageProbe {
 
   private static final String PREFIX = "anthropic-ratelimit-unified-";
@@ -61,7 +63,9 @@ public class ClaudeUsageProbe implements UsageProbe {
               .body(body)
               .exchange((req, res) -> new Raw(res.getStatusCode(), res.getHeaders()));
     } catch (RestClientException | IllegalArgumentException e) {
-      // 원인 예외는 URL 등을 담을 수 있어 버리고 코드만 남긴다.
+      // 원인 예외는 URL 등을 담을 수 있어 예외에 잇지 않는다. 진단용으로 예외 클래스 이름 체인만 로그에 남긴다(메시지·토큰·URL 은 남기지 않음).
+      log.warn(
+          "AI 계정 사용량 조회 연결 실패 — provider {}: {}", provider(), UsageProbeException.causeChain(e));
       throw new UsageProbeException("NETWORK", "연결 실패");
     }
     int status = raw.status().value();

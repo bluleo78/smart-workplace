@@ -8,6 +8,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -16,6 +17,7 @@ import org.springframework.web.client.RestClientException;
  * ChatGPT(Codex 로그인) 사용량 조회기. 비밀은 Codex auth.json 원문이며, tokens.access_token·account_id 로
  * /backend-api/wham/usage 를 GET 한다. 토큰은 새로 고치지 않는다(WP-1450) — 401 이면 TOKEN_EXPIRED.
  */
+@Slf4j
 public class ChatgptUsageProbe implements UsageProbe {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -60,6 +62,9 @@ public class ChatgptUsageProbe implements UsageProbe {
       status = res.status();
       bodyBytes = res.body();
     } catch (RestClientException | IllegalArgumentException e) {
+      // 원인 예외는 URL 등을 담을 수 있어 예외에 잇지 않는다. 진단용으로 예외 클래스 이름 체인만 로그에 남긴다(메시지·토큰·URL 은 남기지 않음).
+      log.warn(
+          "AI 계정 사용량 조회 연결 실패 — provider {}: {}", provider(), UsageProbeException.causeChain(e));
       throw new UsageProbeException("NETWORK", "연결 실패");
     }
     // 403 도 토큰이 거절된 것 — 401 과 같은 계열로 다뤄 「다시 로그인 필요」 규칙을 탄다.
