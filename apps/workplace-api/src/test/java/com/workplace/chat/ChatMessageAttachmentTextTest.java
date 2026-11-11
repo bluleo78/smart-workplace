@@ -4,6 +4,11 @@ import static com.workplace.jooq.tables.File.FILE;
 import static com.workplace.jooq.tables.FileExtraction.FILE_EXTRACTION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
 
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.exception.ChatAttachmentNotFoundException;
@@ -12,17 +17,22 @@ import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
+import com.workplace.fileai.outbound.WorkerClient;
+import com.workplace.fileai.service.FileAiNudgeExecutorConfig;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -38,6 +48,12 @@ class ChatMessageAttachmentTextTest extends ExternalClientMockedTestBase {
 
   @Autowired SseRegistry sseRegistry;
   @Autowired AiAgentEventClient aiAgentEventClient;
+  @Autowired WorkerClient workerClient;
+
+  /** 커밋 후 추출 nudge 가 도는 풀 — 바인딩 뒤 이 풀이 비어야 추출 행 상태가 확정된다(WP-1497). */
+  @Autowired
+  @Qualifier(FileAiNudgeExecutorConfig.EXECUTOR)
+  Executor nudgeExecutor;
 
   @BeforeEach
   void setTenant() {
@@ -122,8 +138,19 @@ class ChatMessageAttachmentTextTest extends ExternalClientMockedTestBase {
                 .fetchOne(FILE.MIME_TYPE));
   }
 
+  /**
+   * 바인딩하면 TEXT_ONLY 추출 행이 생기고 커밋 후 워커로 디스패치된다.
+   *
+   * <p>WP-1497: 이 기반(ExternalClientMockedTestBase)은 워커를 켜 두므로, 바인딩 트랜잭션이 PENDING 행을 커밋하면 곧바로
+   * FileExtractionListener.dispatchAfterCommit 이 nudge 풀에서 PENDING→EXTRACTING 으로 선점한다. 바인딩 직후
+   * PENDING 을 읽으면 그 비동기 선점과 경합해 전체 스위트(부하)에서 간헐 실패했다. 그래서 nudge 풀이 빌 때까지 기다린 뒤, 정상 결과인 EXTRACTING 과
+   * 워커 디스패치(첨부라 페이지 표식 true)를 확인한다 — 행이 PENDING 으로 만들어지지 않았다면 CAS 가 실패해 EXTRACTING 이 될 수 없다.
+   */
   @Test
-  void 선업로드만_하면_추출_행이_없고_바인딩하면_TEXT_ONLY_PENDING() throws Exception {
+  void 선업로드만_하면_추출_행이_없고_바인딩하면_TEXT_ONLY_추출이_디스패치된다() throws Exception {
+    // 풀·워커 목은 캐시된 컨텍스트에서 공유된다 — 앞선 테스트가 남긴 nudge 가 이 테스트 중에 워커를 부르지 않게 먼저 비우고 호출 기록을 지운다.
+    AsyncPools.awaitIdle(nudgeExecutor);
+    clearInvocations(workerClient);
     ChatFixtures.Setup s = fx.setup();
     long threadId =
         threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
@@ -139,7 +166,11 @@ class ChatMessageAttachmentTextTest extends ExternalClientMockedTestBase {
 
     chatMessageService.create(
         s.reporterId(), threadId, new CreateChatMessageRequest("본문", List.of(fileId), List.of()));
-    assertThat(statusOf(fileId)).isEqualTo("PENDING");
+    // 커밋 후 nudge(비동기 dispatchPending)가 끝날 때까지 기다린다 — 끝난 뒤엔 상태가 더 바뀌지 않는다(워커는 목).
+    // 첫 인자는 worker_job id 라 파일 id 로 좁히지 않는다 — 앞에서 호출 기록을 지웠으므로 1회 호출이 이 바인딩의 디스패치다.
+    AsyncPools.awaitIdle(nudgeExecutor);
+    assertThat(statusOf(fileId)).isEqualTo("EXTRACTING");
+    verify(workerClient).dispatchExtract(anyLong(), any(), eq("application/pdf"), eq(1L), eq(true));
     assertThat(profileOf(fileId)).isEqualTo("TEXT_ONLY");
   }
 
