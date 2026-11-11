@@ -23,14 +23,14 @@ export function LazyAIFullscreen() {
   )
 }
 
-/** 옆 AI 패널 — mode==='side' 일 때만 본체를 불러와 그린다. */
-export function LazyAISidePanel() {
+/** 옆 AI 패널 — mode==='side' 일 때만 본체를 불러와 그린다. embedded 는 도움말과 위아래로 합친 칸 안일 때(AISidePanel 참고). */
+export function LazyAISidePanel({ embedded = false }: { embedded?: boolean }) {
   const { mode } = useAssistant()
   useAssistantChat()
   if (mode !== 'side') return null
   return (
     <Suspense fallback={null}>
-      <AISidePanel />
+      <AISidePanel embedded={embedded} />
     </Suspense>
   )
 }

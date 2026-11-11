@@ -18,26 +18,28 @@ import { DialogPortal } from '@/components/ui/dialog';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
-// side 모드 데스크톱 배치 — 페이지 영역(뷰포트 - 패널 폭) 중앙 + 폭 클램프.
+// side 모드 데스크톱 배치 — 페이지 영역(뷰포트 - 오른쪽 도킹 칸 폭) 중앙 + 폭 클램프.
+// 도킹 칸 폭은 --right-dock-width(index.css :root, AI 옆 패널 + 도움말 패널, WP-1505) 하나를 읽는다 — AI 폭만 빼면
+// 도움말이 열린 채 연 대화상자·메일 크게 보기가 도움말을 가렸다.
 // Tailwind 는 정적 클래스만 수집하므로 크기별 리터럴로 둔다.
 //  - default: 기본 DialogContent(sm:max-w-lg=32rem) 폭을 유지하되 페이지 영역을 넘지 않게 min().
 //  - form: 한 단계 넓은 폼(sm:max-w-xl=36rem)의 폭을 유지하되 페이지 영역을 넘지 않게 min() — default 로 덮으면 폼이 좁아진다.
 //  - wide: 넓은 미리보기(w-[64rem]·CSS resize)도 드래그로 패널을 덮지 못하게 페이지 영역 폭으로 제한.
-/** 페이지 영역(뷰포트 - 옆 패널 폭) 가운데 — 패널을 가리지 않는 다른 대화상자(메일 작성 크게 보기)도 같은 축을 쓴다. */
-export const AI_SIDE_CENTER_CLASS = 'lg:left-[calc((100%-var(--ai-side-width,0px))/2)]';
-/** 페이지 영역만 덮는 dim — 옆 패널 쪽은 비워 AI 를 그대로 쓰게 한다.
+/** 페이지 영역(뷰포트 - 오른쪽 도킹 칸 폭) 가운데 — 패널을 가리지 않는 다른 대화상자(메일 작성 크게 보기)도 같은 축을 쓴다. */
+export const AI_SIDE_CENTER_CLASS = 'lg:left-[calc((100%-var(--right-dock-width))/2)]';
+/** 페이지 영역만 덮는 dim — 오른쪽 도킹 칸(AI·도움말)은 비워 AI 를 그대로 쓰게 한다.
  *  z-[49]: 다이얼로그(z-50)보다 한 단계 아래 — 같은 z 면 DOM 순서로 위아래가 갈리는데, 패널이 닫힌 채 연 다이얼로그에서 칩으로
  *  side 를 열면 다이얼로그가 non-modal 로 다시 마운트되며 오버레이가 뒤에 붙어 다이얼로그 버튼을 덮었다(WP-1261). */
-export const AI_SIDE_OVERLAY_CLASS = 'fixed inset-0 z-[49] bg-black/50 lg:right-[var(--ai-side-width,0px)]';
+export const AI_SIDE_OVERLAY_CLASS = 'fixed inset-0 z-[49] bg-black/50 lg:right-[var(--right-dock-width)]';
 const SIDE_CONTENT_CLASS = {
-  default: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(32rem,calc(100%-var(--ai-side-width,0px)-2rem))]`,
+  default: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(32rem,calc(100%-var(--right-dock-width)-2rem))]`,
   // form: 한 단계 넓은 폼(sm:max-w-xl=36rem, 일정 편집 폼 WP-801) — 기본(32rem)으로 줄이면 시작·종료 두 칸이 한 줄에 안 들어가 꺾였다.
-  form: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(36rem,calc(100%-var(--ai-side-width,0px)-2rem))]`,
-  wide: `${AI_SIDE_CENTER_CLASS} lg:max-w-[calc(100%-var(--ai-side-width,0px)-2rem)]`,
+  form: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(36rem,calc(100%-var(--right-dock-width)-2rem))]`,
+  wide: `${AI_SIDE_CENTER_CLASS} lg:max-w-[calc(100%-var(--right-dock-width)-2rem)]`,
   // lightbox: 화면 전체를 덮는 뷰어(WP-277) — side 모드면 패널 폭만큼 오른쪽을 비운다.
-  lightbox: 'lg:right-[var(--ai-side-width,0px)]',
+  lightbox: 'lg:right-[var(--right-dock-width)]',
   // drawer: 오른쪽에 붙는 서랍(이슈 채팅, WP-1374) — side 모드면 패널 왼쪽에 붙어 패널을 덮지 않는다.
-  drawer: 'lg:right-[var(--ai-side-width,0px)]',
+  drawer: 'lg:right-[var(--right-dock-width)]',
 } as const;
 
 interface Options {

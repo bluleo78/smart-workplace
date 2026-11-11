@@ -404,6 +404,14 @@
   }
 }
 
+/* 오른쪽 도킹 칸 전체 폭(WP-1505) — AI 옆 패널(--ai-side-width, AIAssistantContext)과 도움말 패널(--help-side-width, RightDock)의 합.
+   두 변수 모두 <html> 인라인 style 에 붙고 닫히면 지워지므로(폴백 0) 이 값이 늘 칸 전체 폭이다 — 위아래로 합친 칸은 RightDock 이
+   --help-side-width 를 지우고 AI 폭이 칸 폭이 된다. 칸을 피해야 하는 소비처(대화상자 배치·상단 가운데 칩·메일 크게 보기 등)는
+   두 변수를 따로 더하지 말고 이것 하나를 읽는다(useAiPanelAwareDialog.test 가 지킨다). */
+:root {
+  --right-dock-width: calc(var(--ai-side-width, 0px) + var(--help-side-width, 0px));
+}
+
 /* 하단 탭바 위 대화상자(WP-801→WP-806) — 휴대폰 탭 루트 화면에서 여는 가운데 정렬 대화상자를 탭바 위 영역 가운데에 두고,
    높이도 그 안(위아래 1rem)으로 줄여 넘치면 안에서 스크롤한다. 화면 전체 기준이면 긴 창의 아래끝·푸터 버튼이 탭바 자리에 겹쳤다.
    - 탭바가 있을 때만(:root[data-mobile-tabbar], MobileTabBar 가 --mobile-tabbar-h 와 함께 단다) — 데스크톱·상세 화면은 그대로.
@@ -1015,4 +1023,11 @@ body:has([data-viewer-above-ai]) [data-sonner-toaster] {
 [data-message-id][data-link-highlight] {
   box-shadow: 0 0 0 2px var(--primary);
   transition: box-shadow 0.3s;
+}
+
+/* 도움말 본문의 굵은 화면 문구에 마우스를 올리면 같은 이름의 화면 버튼을 잠깐 강조한다(WP-1505, helpScreenControls 가 달았다 뗀다).
+   outline 이라 버튼 크기·배치가 바뀌지 않고, 색은 포커스 링과 같은 --ring 토큰. 둥근 버튼은 outline 도 그 모서리를 따른다. */
+[data-help-highlight] {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

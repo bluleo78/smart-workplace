@@ -36,9 +36,9 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
       const titleSpace = chipBox.left - leftBox.left - 16
       if (unfoldedActionsWidth !== null && actions) {
         // 같은 시점의 액션 오른쪽 경계에서 펼친 액션의 정지선을 복원한다.
-        // 검색 32px + 칩과 검색 간격 8px + 액션 앞 간격 16px = 56px.
+        // 검색 32px + 칩과 검색 간격 8px + 「?」 32px + 검색과 「?」 간격 8px + 액션 앞 간격 16px = 96px(WP-1505 에서 「?」 자리를 더했다).
         // 현재 칩이 중앙/패널 한계에 먼저 닿았다면 실제 이동분만 남는다.
-        const unfoldedRightStop = actions.getBoundingClientRect().right - unfoldedActionsWidth - 56
+        const unfoldedRightStop = actions.getBoundingClientRect().right - unfoldedActionsWidth - 96
         foldDisplacement = Math.max(0, chipBox.right - unfoldedRightStop)
       }
       const next = nextHeaderDensityState({

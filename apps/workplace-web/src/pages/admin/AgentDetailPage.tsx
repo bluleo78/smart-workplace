@@ -6,6 +6,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { useProvideHelpValues } from '@/components/help/helpValues';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { LoadErrorState } from '@/components/LoadErrorState';
 import { agentDetailGuide, settingsGuides } from '@/components/settings-guide/settingsGuides';
@@ -79,6 +80,8 @@ export default function AgentDetailPage() {
 
 function AgentDetail({ agent, backButton }: { agent: AgentResponse; backButton: React.ReactNode }) {
   const templates = useAgentTemplates();
+  // 도움말 패널의 `{agent.username}` 자리표시를 이 에이전트의 아이디로 채운다(WP-1505 — 화면이 값을 주는 첫 예).
+  useProvideHelpValues({ placeholders: { 'agent.username': agent.username } });
   const worksMode = agent.runMode === 'WORKSPACE';
   const setting = useAgentRuntimeSetting(agent.id, worksMode);
   const saved = worksMode ? (setting.data ?? null) : null;

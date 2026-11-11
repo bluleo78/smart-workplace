@@ -393,10 +393,10 @@ test('개인 프로젝트 — AI 패널을 연 채 작업 모달 위 채팅 서�
   const modal = await screen.findByTestId('personal-task-modal')
   await view.user.click(await within(modal).findByTestId('issue-chat-open'))
   const drawer = await screen.findByTestId('issue-chat-drawer')
-  // 서랍은 non-modal — 문서 포인터를 막지 않고 패널을 보조기기에서 숨기지 않으며, 패널 왼쪽에 붙는다(lg:right = 패널 폭).
+  // 서랍은 non-modal — 문서 포인터를 막지 않고 패널을 보조기기에서 숨기지 않으며, 패널 왼쪽에 붙는다(lg:right = 도킹 칸 폭 — AI + 도움말).
   expect(document.body.style.pointerEvents).not.toBe('none')
   expect(screen.getByTestId('ai-side-panel').closest('[aria-hidden="true"]')).toBeNull()
-  expect(drawer.className).toContain('lg:right-[var(--ai-side-width,0px)]')
+  expect(drawer.className).toContain('lg:right-[var(--right-dock-width)]')
   await chipHas('이슈 PME-1 블로그 초안')
   // 패널 입력창을 눌러 보내도(바깥 상호작용) 서랍·모달은 닫히지 않는다.
   expect((await send(view, '이 작업 정리해줘')).screenContext).toMatchObject({ focus: { refs: { issueKey: 'PME-1' } } })

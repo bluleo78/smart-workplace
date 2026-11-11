@@ -56,13 +56,13 @@ import { useMailAiDraft } from './useMailAiDraft';
  *   하단 서식 버튼이 모두 키보드 밖에 남는다(WP-154 — iOS 는 키보드가 열리며 보이는 영역이 아래로 밀리기도 한다).
  * - fill·dock 은 데스크톱 셸 전용이라 키보드 변수(--vvh·--kb-inset — 모바일 셸만 쓴다)에 기대지 않는다.
  * - fill: 다른 다이얼로그(useAiPanelAwareDialog)처럼 AI 와 함께 쓴다 — 같은 z-50 이라 AI 칩(z-[70])이 위에 남고,
- *   AI 옆 패널이 열려 있으면(--ai-side-width) 패널을 뺀 페이지 영역 가운데에 놓인다. 그 위에 여는 링크 창은 나중 포털이라 위에 뜬다.
+ *   AI 옆 패널·도움말 패널이 열려 있으면(--right-dock-width) 그 칸을 뺀 페이지 영역 가운데에 놓인다. 그 위에 여는 링크 창은 나중 포털이라 위에 뜬다.
  *   tabIndex=-1 이라 창 안 빈 곳을 눌러도 초점이 창에 남아 Esc 가 먹는다 — 그 초점 테두리는 숨긴다.
  *   (fill 은 데스크톱 전용이라 공용 클래스의 lg: 접두는 늘 적용된다.)
  */
 const PANEL_CLASS: Record<MailComposerLayout, string> = {
   mobile: 'fixed inset-x-0 top-[var(--vv-top,0px)] bottom-[var(--kb-inset,0px)] z-50 flex flex-col bg-background pt-[env(safe-area-inset-top)]',
-  fill: `${AI_SIDE_CENTER_CLASS} fixed top-1/2 z-50 flex h-[min(85vh,calc(100vh-2rem))] w-[min(960px,92vw,calc(100%-var(--ai-side-width,0px)-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border bg-background shadow-2xl outline-none`,
+  fill: `${AI_SIDE_CENTER_CLASS} fixed top-1/2 z-50 flex h-[min(85vh,calc(100vh-2rem))] w-[min(960px,92vw,calc(100%-var(--right-dock-width)-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border bg-background shadow-2xl outline-none`,
   dock: 'fixed bottom-0 right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl',
 };
 

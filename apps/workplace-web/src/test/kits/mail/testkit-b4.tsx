@@ -6,6 +6,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { MailModuleLayout } from '@/components/mail/MailModuleLayout'
@@ -81,6 +82,8 @@ export function renderMail(path = '/mail/1', { handlers = [], accounts, messages
   const ui = (
     <MailComposeProvider>
       <AIAssistantProvider hotkeysEnabled={false}>
+        {/* WP-1505: 모바일 메일 목록 헤더의 「?」가 도움말 상태를 읽는다 — AppLayout 처럼 AI 공급자 안에 둔다. */}
+        <HelpPanelProvider>
         {/* AppLayout 처럼 페이지 영역 표식 — 크게 보기 작성창이 이 안을 inert 로 만든다. 도크는 이 바깥(앱 전역)에 둔다. */}
         <div data-ai-page-root>
           <main>
@@ -95,6 +98,7 @@ export function renderMail(path = '/mail/1', { handlers = [], accounts, messages
           </main>
         </div>
         <MailComposeDock />
+        </HelpPanelProvider>
       </AIAssistantProvider>
     </MailComposeProvider>
   )

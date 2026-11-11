@@ -1,8 +1,8 @@
 // 상단 오른쪽 액션 폭과 칩 반폭 보정을 칩 포털에 CSS 변수로 넘기는 훅(WP-1415).
 // 왜: 칩은 body 에 portal 된 fixed 요소라 헤더 우측 액션의 폭·칩 자신의 폭을 CSS 로 알 수 없다.
 // 액션이 칩을 침범할 만큼 넓으면 TopCenterSlot 의 3 번째 min() 항이 칩을 왼쪽으로 밀어 겹침을 막는다.
-// 3 항의 오프셋은 칩 반폭에 맞게 바뀐다 — 동그라미(32px)면 88px, 일반 칩(140px)이면 142px.
-// (오프셋 = 88 + (칩폭-32)/2: 88px 는 동그라미 반폭 16 + 간격 8 + 검색 32 + 간격 16 + 여백 16.)
+// 3 항의 오프셋은 칩 반폭에 맞게 바뀐다 — 동그라미(32px)면 128px, 일반 칩(140px)이면 182px.
+// (오프셋 = 128 + (칩폭-32)/2: 128px 는 동그라미 반폭 16 + 간격 8 + 검색 32 + 간격 8 + 「?」 32 + 간격 16 + 여백 16 — WP-1505 에서 「?」 자리 40px 를 더했다.)
 import { useEffect, useLayoutEffect } from 'react'
 
 import { useActiveDensityHeader, useHeaderDensity } from './HeaderDensityContext'
@@ -16,7 +16,7 @@ const CHIP_SELECTOR = '[data-ai-chip]'
 function updateGeometry(chip: HTMLElement, actions: HTMLElement | null) {
   chip.style.setProperty('--ai-actions-width', `${actions?.getBoundingClientRect().width ?? 0}px`)
   const width = chip.getBoundingClientRect().width
-  chip.style.setProperty('--ai-chip-offset', `${88 + Math.max(0, (width - 32) / 2)}px`)
+  chip.style.setProperty('--ai-chip-offset', `${128 + Math.max(0, (width - 32) / 2)}px`)
 }
 
 /**

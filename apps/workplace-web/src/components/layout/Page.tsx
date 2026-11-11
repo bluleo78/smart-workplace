@@ -11,6 +11,7 @@ import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
+import { MobileHelpButton } from '@/components/mobile/MobileHelpButton'
 import { MobileSearchButton } from '@/components/mobile/MobileSearchButton'
 import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
@@ -111,13 +112,14 @@ interface PageHeaderProps {
   mobile?: 'bar' | 'hidden'
 }
 
-/** 모바일 헤더 전용 — 탭 루트에서만 🔍(전체 검색, WP-1354)·🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
+/** 모바일 헤더 전용 — 탭 루트에서만 🔍(전체 검색, WP-1354)·「?」(도움말, WP-1505)·🔔 를 이 순서로 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
 function MobileTabRootActions() {
   const { pathname } = useLocation()
   const chrome = useMobileChrome()
   return isTabRoot(pathname, chrome?.slots) ? (
     <>
       <MobileSearchButton />
+      <MobileHelpButton />
       <NotificationBell />
     </>
   ) : null
@@ -174,7 +176,7 @@ function MobilePageHeader({
       />
     )
   }
-  // 탭 루트 헤더: MobileListHeader 와 같은 규격(h-14·좌16·22px bold) + 우측 [클러스터] [🔍] [🔔] (U1-3·WP-1354).
+  // 탭 루트 헤더: MobileListHeader 와 같은 규격(h-14·좌16·22px bold) + 우측 [클러스터] [🔍] [?] [🔔] (U1-3·WP-1354, 「?」 도움말은 WP-1505).
   // 하단 구분선 없음 — MobileListHeader(채팅·작업)와 같게, 큰 제목 헤더는 본문과 한 면으로 보인다(U3-R3).
   return (
     <header data-testid={testId} className={cn('relative z-[45] bg-background', mobileRootHeaderClass, className)}>

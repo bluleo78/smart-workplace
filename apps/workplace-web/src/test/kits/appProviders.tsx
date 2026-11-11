@@ -4,6 +4,7 @@ import type { ReactElement } from 'react'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
@@ -16,9 +17,12 @@ export function withAppProviders(ui: ReactElement) {
       <MobileChromeProvider>
         <ChatSessionProvider>
           <AIAssistantProvider hotkeysEnabled={false}>
-            <AiScreenContextProvider>
-              <InboxProvider>{ui}</InboxProvider>
-            </AiScreenContextProvider>
+            {/* WP-1505: 모바일 헤더 「?」(MobileHelpButton)가 도움말 상태를 읽는다 — AppLayout 과 같은 자리(AI 공급자 바로 안). */}
+            <HelpPanelProvider>
+              <AiScreenContextProvider>
+                <InboxProvider>{ui}</InboxProvider>
+              </AiScreenContextProvider>
+            </HelpPanelProvider>
           </AIAssistantProvider>
         </ChatSessionProvider>
       </MobileChromeProvider>
