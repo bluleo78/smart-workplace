@@ -71,6 +71,7 @@ public class AgentRuntimeSettingService {
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
   private final AgentRuntimeTransitions transitions;
+  private final AgentRuntimeImmediateInputs immediateInputs;
   private final AgentRuntimeProjectRepository projectRepository;
   private final AgentRepoCredentialService repoCredentials;
   private final AiAgentCredentialService credentials;
@@ -139,7 +140,19 @@ public class AgentRuntimeSettingService {
             .withLocationId(req.locationId())
             .withConfig(config);
     Long oldEffective = locationService.effectiveLocationId(row.locationId());
-    if (next.equals(row)) return toResponse(row, oldEffective);
+    if (next.equals(row)) {
+      // WP-1515: 화면의 「지금 적용」은 저장된 설정을 그대로 NOW 로 다시 저장한다 — 바뀐 것이 없어도 켜져 있고 미뤄 둔
+      // generation(설정·계정 변경)이 있으면 apply_mode 만 NOW 로 돌려(generation 은 그대로) runner 가 바로 다시 만들게 한다.
+      // 「켜져 있고 미뤄 둔 generation 이 있으며 아직 NOW 가 아님」 판정은 SQL 한곳에 맡긴다
+      // ({@link AgentRuntimeImmediateInputs#markApplyNow}). 그 밖에는 지금처럼 아무것도 하지 않는다.
+      // 설정 행은 위에서 이미 잠갔다.
+      if (req.applyMode() == ApplyMode.NOW && immediateInputs.markApplyNow(List.of(agentId)) > 0) {
+        audit(callerId, "AGENT_RUNTIME_APPLIED_NOW", agentId, "AI 바뀐 설정 지금 적용", Map.of());
+        transitions.inputsChanged(agentId, State.of(row), callerId);
+        return toResponse(row.withApplyMode(ApplyMode.NOW), oldEffective);
+      }
+      return toResponse(row, oldEffective);
+    }
     // WP-1296·1297: 바뀌는 저장에서만 맞지 않는 AI 계정을 끊는다(바뀐 것이 없는 저장이 조용히 연결을 끊지 않게). 켜져 있는 AI 를 로그인 계정
     // 템플릿으로 바꾸면 새 계정이 아직 없어 그대로 일하지 못하므로 409 — 먼저 끄고 바꾼 뒤 연결한다. 끊기는 아래 위치·자리 검사(404·409)까지
     // 모두 통과한 뒤 저장 직전에 한다 — 거절된 저장이 아무것도 끊지 않게(롤백에 기대지 않는다).

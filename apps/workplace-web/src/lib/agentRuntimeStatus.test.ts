@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 
 import { CLAUDE_TEMPLATE, createLocation, DEFAULT_TEMPLATE } from '../test/kits/admin/agentRuntime'
 import {
+  accountAppliesAtIdle,
   configWithDefaults,
   connectionPill,
   formatCpu,
@@ -43,6 +44,21 @@ describe('statusPill — 상태 알약', () => {
 test('isRunningStatus — 켜는 중·켜짐·적용 대기만 켜진 상태', () => {
   expect(['STARTING', 'RUNNING', 'APPLY_PENDING'].every((s) => isRunningStatus(s as never))).toBe(true)
   expect(['OFF', 'STOPPING', 'FAILED'].some((s) => isRunningStatus(s as never))).toBe(false)
+})
+
+test('accountAppliesAtIdle — 서버 RolloutPolicy 처럼 실행 중이고 IDLE 보고가 아니면 쉴 때 적용 (WP-1515)', () => {
+  // 일하는 중·차단됨·보고 전(null)은 하던 일이 있을 수 있어 쉴 때로 미룬다.
+  expect(accountAppliesAtIdle('RUNNING', 'WORKING')).toBe(true)
+  expect(accountAppliesAtIdle('APPLY_PENDING', 'WORKING')).toBe(true)
+  expect(accountAppliesAtIdle('RUNNING', 'BLOCKED')).toBe(true)
+  expect(accountAppliesAtIdle('RUNNING', null)).toBe(true)
+  expect(accountAppliesAtIdle('STARTING', undefined)).toBe(true)
+  // 쉬는 중이라고 보고했으면 바로 다시 시작한다.
+  expect(accountAppliesAtIdle('RUNNING', 'IDLE')).toBe(false)
+  // 꺼졌거나 실패한 실행은 바로 반영한다 — 낡은 보고는 보지 않는다.
+  expect(accountAppliesAtIdle('OFF', 'WORKING')).toBe(false)
+  expect(accountAppliesAtIdle('OFF', null)).toBe(false)
+  expect(accountAppliesAtIdle('FAILED', 'WORKING')).toBe(false)
 })
 
 describe('statusDetail — 상태 옆 한 줄', () => {

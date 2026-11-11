@@ -128,4 +128,11 @@ public interface PodAccountSource {
    * @return 묶여 있다가 풀렸는지 — 실행 방식 전환이 남은 옛 연결까지 끊을지 판단한다
    */
   boolean unbindIfBound(Long callerId, long agentUserId);
+
+  /**
+   * 기존 연결 회수 다리(WP-1515) — 관리 경로로 AI 의 연결을 회수한 뒤 부른다. 회수는 바로 적용이라, 켜져 있는 작업 공간 AI 에 「쉴 때 적용」으로 미뤄 둔
+   * generation 이 있으면 바로 적용(NOW)으로 돌리고 묶음을 푼다({@link #unbindIfBound}) — 묶이지 않아 풀 것이 없어도 runner 의
+   * claude 버전은 바뀌므로 NOW 는 건다. 실행 설정 행 → 묶음 순으로 잠근다.
+   */
+  void unbindFromLegacy(Long callerId, long agentUserId);
 }

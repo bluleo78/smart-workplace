@@ -11,6 +11,7 @@ import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,14 @@ public class AgentRuntimeSettingRepository {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final TypeReference<LinkedHashMap<String, String>> CONFIG_TYPE =
       new TypeReference<>() {};
+
+  /**
+   * 아직 반영하지 않은 generation 이 있다(generation ≠ 관찰 generation, null 도 다른 값으로 본다) — 걸려 있는 바로 적용
+   * 지키기({@link #bumpGenerationForRotation})와 미뤄 둔 generation 의 NOW 표시({@link
+   * #markPendingApplyNow})가 같은 판정을 쓴다(WP-1515).
+   */
+  private static final Condition UNAPPLIED_GENERATION =
+      AGENT_RUNTIME_SETTING.GENERATION.isDistinctFrom(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION);
 
   private final DSLContext dsl;
 
@@ -429,12 +438,7 @@ public class AgentRuntimeSettingRepository {
    */
   public long bumpGenerationForRotation(long agentUserId, ApplyMode applyMode) {
     Condition pendingNow =
-        AGENT_RUNTIME_SETTING
-            .APPLY_MODE
-            .eq(ApplyMode.NOW.name())
-            .and(
-                AGENT_RUNTIME_SETTING.OBSERVED_GENERATION.isDistinctFrom(
-                    AGENT_RUNTIME_SETTING.GENERATION));
+        AGENT_RUNTIME_SETTING.APPLY_MODE.eq(ApplyMode.NOW.name()).and(UNAPPLIED_GENERATION);
     return dsl.update(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.GENERATION, AGENT_RUNTIME_SETTING.GENERATION.plus(1))
         .set(
@@ -443,6 +447,31 @@ public class AgentRuntimeSettingRepository {
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
         .returning(AGENT_RUNTIME_SETTING.GENERATION)
         .fetchOne(AGENT_RUNTIME_SETTING.GENERATION);
+  }
+
+  /**
+   * 미뤄 둔 generation 을 바로 적용으로 돌린다(WP-1515) — 한 문장으로 여러 AI 를 고친다. 켜져 있고(desired=RUN) 아직 반영하지 않은
+   * generation 이 있으며(generation ≠ 관찰 generation) apply_mode 가 NOW 가 아닌 행만 apply_mode=NOW 로 고친다.
+   * generation·설정·updated_by 등 다른 칸은 그대로다.
+   *
+   * <p>바로 적용해야 하는 입력 변경(키 원문 교체·저장소 토큰 교체·기존 연결 등록·회수)이 「쉴 때 적용」으로 미뤄 둔 계정·설정 변경 뒤에 묶여 기다리지 않게 쓴다 —
+   * Pod 를 새 토큰으로 띄우려면 어차피 다시 만들어야 하고, 다시 만들면 미뤄 둔 것까지 최신 generation 으로 뜬다. 화면의 「지금 적용」(바뀐 설정 없이 NOW
+   * 로 다시 저장)도 이것을 쓴다. 판정 규칙을 SQL 한곳에 두어 호출자가 같은 조건을 되풀이하지 않게 한다.
+   *
+   * <p>고치는 행을 잠근다 — 호출자는 계정 행을 잠그기 전에 부른다(잠금 순서 설정 행 → 계정 행, {@code AgentAccountBindingService}
+   * 참고).
+   *
+   * @return 실제로 NOW 로 돌린 행 수(대상이 비었거나 미뤄 둔 generation 이 없으면 0)
+   */
+  public int markPendingApplyNow(Collection<Long> agentUserIds) {
+    if (agentUserIds.isEmpty()) return 0;
+    return dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, ApplyMode.NOW.name())
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.in(agentUserIds))
+        .and(AGENT_RUNTIME_SETTING.DESIRED.eq(Desired.RUN.name()))
+        .and(UNAPPLIED_GENERATION)
+        .and(AGENT_RUNTIME_SETTING.APPLY_MODE.ne(ApplyMode.NOW.name()))
+        .execute();
   }
 
   public int delete(long agentUserId) {

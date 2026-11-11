@@ -1,6 +1,7 @@
 package com.workplace.agentruntime;
 
 import static com.workplace.jooq.Tables.AGENT_REPO_CREDENTIAL;
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
@@ -369,6 +370,69 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
             appEvents.stream(AgentRuntimeDesiredChanged.class)
                 .allMatch(e -> e.tenantId() == 1L && e.locationId() == l1))
         .isTrue();
+  }
+
+  /**
+   * 「쉴 때 적용」으로 미뤄 둔 generation 이 있는 켜진 AI 의 저장소 토큰을 바꾸면 apply_mode 가 NOW 로 돌아 runner 가 바로 다시
+   * 만든다(WP-1515) — generation 은 그대로. runner 는 미뤄 둔 generation 이 있는 동안 비밀값 버전만으로 Pod 를 갈지 않으므로 새 토큰이
+   * 쉴 때까지 기다리지 않게.
+   */
+  @Test
+  void register_whenDeferredGenerationPending_switchesToApplyNow() throws Exception {
+    long generation = fx.generationOf(a1);
+    // 지금 Pod 는 한 단계 전 generation 으로 일하는 중이고, 새 generation 은 쉴 때 적용으로 미뤄져 있다.
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, generation - 1)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+        .execute();
+    assertThat(applyNowOf(a1)).isFalse();
+
+    register(a1, "GITHUB", "github.com", TOKEN_A);
+
+    assertThat(applyModeOf(a1)).isEqualTo("NOW");
+    assertThat(fx.generationOf(a1)).isEqualTo(generation);
+    assertThat(applyNowOf(a1)).isTrue();
+  }
+
+  /**
+   * 미뤄 둔 generation 이 없으면 저장소 토큰을 바꿔도 apply_mode·generation 은 그대로다(runner 의 버전 비교로 바로 간다, WP-1515).
+   */
+  @Test
+  void register_whenNoDeferredGeneration_keepsApplyModeAndGeneration() throws Exception {
+    long generation = fx.generationOf(a1);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, generation)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(a1))
+        .execute();
+
+    register(a1, "GITHUB", "github.com", TOKEN_A);
+
+    assertThat(applyModeOf(a1)).isEqualTo("IDLE");
+    assertThat(fx.generationOf(a1)).isEqualTo(generation);
+    assertThat(applyNowOf(a1)).isFalse();
+  }
+
+  private String applyModeOf(long agent) {
+    TenantContext.set(1L);
+    return dsl.select(AGENT_RUNTIME_SETTING.APPLY_MODE)
+        .from(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .fetchOne(AGENT_RUNTIME_SETTING.APPLY_MODE);
+  }
+
+  /** desired 에서 AI 한 명의 applyNow. */
+  private boolean applyNowOf(long agent) throws Exception {
+    JsonNode desired = fx.json(runner(get(BASE + "/desired")).andExpect(status().isOk()));
+    for (JsonNode a : desired.get("agents")) {
+      if (a.get("agentUserId").asLong() == agent) return a.get("applyNow").asBoolean();
+    }
+    throw new AssertionError("desired 에 AI 없음: " + agent);
   }
 
   /** runner 는 원문을 받고 no-store, 받아 간 시각이 last_used_at 에 남는다. 목록에는 여전히 토큰이 없다. */

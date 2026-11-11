@@ -1,6 +1,6 @@
 // 에이전트 상세 페이지(/settings/agents/:id, WP-1281) — 서버가 판정한 runMode(SERVER·WORKSPACE·EXTERNAL)와 유형(개인·공통)에 따라
 // 어떤 섹션·묶음이 그려지는지, 시작이 막히는 이유(맡는 프로젝트 0 등), 다음 교체 시각, 404 상태를 본다.
-// 작업 공간 AI 의 AI 계정은 계정 목록에서 고른다(WP-1451) — 맞는 종류만·고르면 PUT {accountId}·사용률·끊김 안내·빈 목록·거절 문구를 본다.
+// 작업 공간 AI 의 AI 계정은 계정 목록에서 고른다(WP-1451) — 맞는 종류만·고르면 PUT {accountId}·사용률·다시 시작/쉴 때 적용 안내(WP-1515)·빈 목록·거절 문구를 본다.
 // 확인창·PUT payload 같은 섹션별 동작은 agentManagement.test.tsx, 설정 가이드 따라가기는 settingsGuide.test.tsx 가 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
@@ -287,6 +287,17 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(dialog).toHaveTextContent('지금 재시작할까요?')
     expect(dialog).toHaveTextContent('HR-2, WP-1')
     expect(dialog).toHaveTextContent('이어 받아요')
+  })
+
+  test('쉴 때 적용 대기면 「바꾼 설정은 쉴 때 적용돼요.」와 「지금 적용」 — 계정·작업 설정을 함께 가리키는 말 (WP-1515)', async () => {
+    const observed = createObserved({ agentState: 'IDLE' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'APPLY_PENDING', desired: 'RUN', observed }) } }))
+    const banner = await screen.findByTestId('agent-runtime-apply-pending')
+    expect(banner).toHaveTextContent('바꾼 설정은 쉴 때 적용돼요.')
+    expect(banner).not.toHaveTextContent('작업 설정')
+    // 일하는 중이 아니면 확인 창 없이 같은 설정을 NOW 로 다시 보낸다.
+    await user.click(within(banner).getByTestId('agent-runtime-apply-now'))
+    await waitFor(() => expect(calls.saves.map((b) => b.applyMode)).toEqual(['NOW']))
   })
 
   test('옛 서버 응답(agentIssueKeys 없음)이면 확인 창은 agentIssueKey 하나로 적는다 (WP-1409)', async () => {
@@ -828,12 +839,12 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
   })
 
-  test('바꾸기 — 이 방식에 맞는 종류만, 줄마다 사용률·상태·다른 AI 수와 끊김 안내, 고르면 PUT {accountId} 후 새 계정을 보인다', async () => {
+  test('바꾸기 — 이 방식에 맞는 종류만, 줄마다 사용률·상태·다른 AI 수와 다시 시작 안내, 고르면 PUT {accountId} 후 새 계정을 보인다', async () => {
     const { user, calls } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     await screen.findByTestId('agent-account-bound')
     const dialog = await openChooser(user)
     expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(
-      '바꾸면 이 AI 의 작업 공간이 다시 시작돼 일하는 중인 작업이 끊깁니다',
+      '바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요',
     )
     // Claude 구독 둘만 — ChatGPT·OpenAI 호환·Gen:iA 는 고를 수 없다
     const radios = await within(dialog).findAllByRole('radio')
@@ -1022,7 +1033,68 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(screen.queryByTestId('agent-runtime-check-account-error')).not.toBeInTheDocument()
   })
 
-  test('계정을 바꾸면 작업 공간이 다시 시작되니 이 AI 의 실행 상태도 다시 받게 한다', async () => {
+  test('AI 계정 꼬리표 — 꺼져 있으면 「바로 반영」 (WP-1515)', async () => {
+    await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    const off = await screen.findByTestId('agent-ai-account-group')
+    expect(off).toHaveTextContent('바로 반영')
+    expect(off).not.toHaveTextContent('쉴 때 적용')
+  })
+
+  test('AI 계정 꼬리표 — 실행 중이면 작업 설정처럼 「실행 중이면 쉴 때 적용」 (WP-1515)', async () => {
+    const observed = createObserved({ agentState: 'IDLE' })
+    await renderDetail(claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    const on = await screen.findByTestId('agent-ai-account-group')
+    expect(on).toHaveTextContent('실행 중이면 쉴 때 적용')
+    expect(on).not.toHaveTextContent('바로 반영')
+  })
+
+  // 쉴 때 적용 안내 — 서버 RolloutPolicy 처럼 실행 중이고 IDLE 보고가 아니면(일하는 중·차단됨·보고 전) 쉴 때 새 계정으로 바뀐다(WP-1515).
+  const AT_IDLE_NOTICE = '하던 작업이 있으면 마치고 쉴 때 새 계정으로 바뀌어요. 바로 바꾸려면 바꾼 뒤 「지금 적용」을 누르세요'
+  const NOW_NOTICE = '바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요'
+
+  /** 실행 중인 AI 의 고르기 창에서 3번 계정으로 바꾸고, 창 안내 문구를 돌려준다. */
+  async function switchWhileRunning(agentState: 'WORKING' | 'BLOCKED' | 'IDLE' | null) {
+    const observed = createObserved({ agentState, agentIssueKey: agentState === 'IDLE' || agentState == null ? null : 'WD-1' })
+    const { user, calls } = await renderDetail(
+      claude({ boundAccounts: { [id]: 1 }, settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }),
+    )
+    await screen.findByTestId('agent-account-bound')
+    const dialog = await openChooser(user)
+    const notice = within(dialog).getByTestId('agent-account-switch-notice').textContent
+    await user.click(await within(dialog).findByTestId('agent-account-option-3'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
+    return notice
+  }
+
+  test.each([
+    ['일하는 중(WORKING)', 'WORKING'],
+    ['차단됨(BLOCKED)', 'BLOCKED'],
+    ['아직 보고 전(null)', null],
+  ] as const)('실행 중이고 %s 이면 고르기 창이 「쉴 때 새 계정으로 바뀌어요 · 지금 적용」을, 토스트도 쉴 때 적용을 알린다 (WP-1515)', async (_label, agentState) => {
+    const notice = await switchWhileRunning(agentState)
+    expect(notice).toBe(AT_IDLE_NOTICE)
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다. 쉴 때 적용돼요.')).toBeInTheDocument()
+  })
+
+  test('실행 중이어도 쉬는 중(IDLE)이면 바로 다시 시작 안내, 토스트에 쉴 때 적용을 붙이지 않는다 (WP-1515)', async () => {
+    const notice = await switchWhileRunning('IDLE')
+    expect(notice).toBe(NOW_NOTICE)
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다.')).toBeInTheDocument()
+  })
+
+  test('꺼져 있으면 바로 다시 시작 안내, 토스트에 쉴 때 적용을 붙이지 않는다 (WP-1515)', async () => {
+    const { user, calls } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
+    await screen.findByTestId('agent-account-bound')
+    const dialog = await openChooser(user)
+    expect(within(dialog).getByTestId('agent-account-switch-notice')).toHaveTextContent(NOW_NOTICE)
+    await user.click(await within(dialog).findByTestId('agent-account-option-3'))
+    await user.click(within(dialog).getByTestId('agent-account-choose-confirm'))
+    await waitFor(() => expect(calls.binds).toEqual([{ accountId: 3 }]))
+    expect(await screen.findByText('「Claude 팀 B」 계정으로 바꿨습니다.')).toBeInTheDocument()
+  })
+
+  test('계정을 바꾸면 다시 시작되거나 쉴 때 적용 대기가 되니 이 AI 의 실행 상태도 다시 받게 한다', async () => {
     const { user, queryClient } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     await screen.findByTestId('agent-account-bound')
     const before = queryClient.getQueryState(agentRuntimeKeys.setting(id))?.dataUpdatedAt ?? 0

@@ -19,6 +19,7 @@ import com.workplace.agentaccount.usage.UsageCheckRow;
 import com.workplace.agentaccount.usage.UsageSnapshot;
 import com.workplace.agentaccount.usage.UsageStatusCalculator;
 import com.workplace.agentaccount.usage.UsageWindow;
+import com.workplace.agentruntime.service.AgentRuntimeImmediateInputs;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.controller.ProviderCredentialSecrets;
 import com.workplace.auth.dto.ProviderConfig;
@@ -94,7 +95,7 @@ public class AgentAccountService {
   private final AuditLogService auditLogService;
   private final AiAgentCredentialService credentialService;
   private final ObjectMapper objectMapper;
-  private final AgentAccountRuntimeNotifier runtimeNotifier;
+  private final AgentRuntimeImmediateInputs immediateInputs;
   private final AgentAccountUsageRepository usageRepository;
   private final AgentAccountUsageProperties usageProperties;
   private final AnthropicCredentialVerifier anthropicVerifier;
@@ -352,6 +353,11 @@ public class AgentAccountService {
             other -> {
               throw new AgentAccountDuplicateException();
             });
+    // WP-1515 잠금 순서: 계정 행을 고치기 전에 그 계정을 쓰는 AI 들의 실행 설정 행부터 고친다(미뤄 둔 generation → NOW). 묶기는 「설정 행 →
+    // 계정 행」 순서로 잠그므로, 여기서 계정 행을 먼저 고치고 설정 행을 나중에 고치면 동시 묶기와 서로 기다리며 교착한다. 기존 연결 등록 다리
+    // ({@link AgentAccountPodSource#bindFromLegacy})는 그 AI 의 설정 행을 이미 잠근 뒤 여기 오므로 같은 순서다.
+    List<Long> boundAgents = bindings.findAgentsByAccounts(List.of(id)).getOrDefault(id, List.of());
+    immediateInputs.markApplyNow(boundAgents);
     try {
       accounts.replaceSecret(
           id,
@@ -367,9 +373,8 @@ public class AgentAccountService {
     // 남은 사용량·실패 이유는 옛 키의 것이다 — 같은 트랜잭션에서 비워 「모름」으로 두고, 다음 회차가 간격을 기다리지 않고 새 키를 조회하게 한다(WP-1449).
     usageRepository.resetForNewSecret(id);
     // 원문을 바꾸면 secret_version 이 새로 나와 이 계정을 쓰는 모든 AI 의 desired 버전이 바뀐다 — runner 가 폴링을 기다리지 않고 다시
-    // 받아 가게 알린다(generation 은 그대로).
-    List<Long> boundAgents = bindings.findAgentsByAccounts(List.of(id)).getOrDefault(id, List.of());
-    runtimeNotifier.inputsChanged(boundAgents, callerId);
+    // 받아 가게 알린다(generation 은 그대로). 미뤄 둔 generation 의 NOW 표시는 위에서 계정 행보다 먼저 했다.
+    immediateInputs.notifyChanged(boundAgents, callerId);
   }
 
   /**

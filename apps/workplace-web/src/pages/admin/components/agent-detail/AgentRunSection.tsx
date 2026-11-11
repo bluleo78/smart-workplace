@@ -1,7 +1,8 @@
 // 에이전트 상세 「실행」 섹션(WP-1281·1278) — 이 AI 를 무엇으로, 어디서 돌릴지.
 // 방식 카드 셋(기본 / Works 실행 방식들 / 외부). 다른 카드를 누르면 그 방식에 필요한 칸이 펼쳐지고 「취소 · 바꾸기」, 바꾸기는 무엇이 달라지는지
 // 요약하는 확인 창(②)을 거쳐 저장한다 — 「기본」 카드도 바로 저장하지 않는다(예전엔 눌러서 바로 저장).
-// 묶음마다 반영 방식을 제목 옆에 붙인다: AI 계정·공통 비서는 바로 반영, 작업 설정은 저장해야 반영(실행 중이면 쉴 때 적용), 접속 키는 Works 가 관리.
+// 묶음마다 반영 방식을 제목 옆에 붙인다: 기본 방식의 AI 계정·공통 비서·저장소 연결은 바로 반영, 작업 설정은 저장해야 반영(실행 중이면 쉴 때 적용),
+// 작업 공간 AI 의 AI 계정은 실행 중이면 쉴 때 적용(아니면 바로 반영, WP-1515 — 사람이 바꾼 계정은 작업 설정처럼 하던 일을 마치고 쉴 때 새 계정으로 다시 뜬다), 접속 키는 Works 가 관리.
 
 import { useState } from 'react';
 
@@ -34,6 +35,7 @@ import {
   runModeCards,
   withSavedWorkspaceCard,
 } from '../../../../lib/agentRunMode';
+import { accountAppliesAtIdle } from '../../../../lib/agentRuntimeStatus';
 import { formatDateMonthDayPadded } from '../../../../lib/formatters';
 import { cn } from '../../../../lib/utils';
 import type { AgentResponse } from '../../../../types/agent';
@@ -311,6 +313,9 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
   const save = useSaveAgentRuntimeSetting(agent.id);
   const keys = useAgentKeys(agent.id);
   const running = saved?.desired === 'RUN';
+  // 계정을 바꾸면 쉴 때 적용되는지 — 서버 RolloutPolicy 와 같은 기준(실행 중이고 IDLE 보고가 아님, accountAppliesAtIdle).
+  // 계정 고르기 창이 「쉴 때 바뀜」/「바로 다시 시작」 안내를 고르는 데 쓴다(WP-1515).
+  const appliesAtIdle = accountAppliesAtIdle(saved?.status ?? 'OFF', saved?.observed?.agentState);
   // 다음 교체 무렵 — 가장 새로 받은 자동 발급 키의 만료 7일 전(서버 ManagedKeyChain.rotateAfter). 그때부터 새 키를 받아 쉴 때 적용한다.
   const latestManaged = (keys.data ?? [])
     .filter((k) => k.managed && k.revokedAt == null && k.expiresAt)
@@ -319,8 +324,9 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
   return (
     <>
       {template.account && (
-        <DetailGroup title="AI 계정" how="바로 반영" data-testid="agent-ai-account-group">
-          <AgentAccountPicker agentUserId={agent.id} required={template.account} />
+        // 사람이 바꾼 계정은 실행 중이면 쉴 때 적용된다(WP-1515, 서버가 실행 설정 저장처럼 generation 을 올린다) — 작업 설정과 같은 꼬리표.
+        <DetailGroup title="AI 계정" how={running ? '실행 중이면 쉴 때 적용' : '바로 반영'} data-testid="agent-ai-account-group">
+          <AgentAccountPicker agentUserId={agent.id} required={template.account} appliesAtIdle={appliesAtIdle} />
         </DetailGroup>
       )}
       {template.requires.includes('repo') && (
