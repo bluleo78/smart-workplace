@@ -166,7 +166,8 @@ test('홈에서는 전체 탭 — 묶음이 정해진 순서로, 묶음당 3건�
   const issueGroup = await screen.findByTestId('global-search-group-issues')
   // 작업 묶음이 노트 묶음보다 앞(탭 순서).
   expect(issueGroup.compareDocumentPosition(wikiGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(within(wikiGroup).getAllByRole('option')).toHaveLength(3)
+  // 묶음 틀은 결과 도착 전(로딩 skeleton)에도 생기므로, 결과(option)가 나타날 때까지 기다린 뒤 센다(WP-1491).
+  expect(await within(wikiGroup).findAllByRole('option')).toHaveLength(3)
   // 0건 앱(메일 등)의 묶음은 숨는다.
   expect(screen.queryByTestId('global-search-group-mail')).toBeNull()
 
