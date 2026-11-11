@@ -7,6 +7,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.regex.Pattern;
 
 /**
  * 능력 토큰(capability token) 도우미 — 로그인 없이 쓰는 일회용·공유 링크의 비밀 토큰을 만들고, DB 에 남길 SHA-256 해시를 계산한다.
@@ -21,6 +22,13 @@ public final class CapabilityTokens {
 
   private static final String BASE62 =
       "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+  /**
+   * 드라이브 공유 링크 토큰 문법(WP-1474) — {@code generate("sl_")} 가 만드는 모양(접두사 + base62, 대개 43자 안팎이라 64자로 넉넉히
+   * 막는다). 앱 카드 API(AppLinkController)와 미리보기 제외(LinkPreviewDispatcher)가 이 하나를 {@code
+   * matcher().matches()} 로 쓴다. 웹 parseAppLink 의 공유 토큰 문법과 같아야 한다.
+   */
+  public static final Pattern SHARE_LINK_TOKEN = Pattern.compile("sl_[0-9A-Za-z]{1,64}");
 
   /** SecureRandom 은 스레드 안전 — 호출마다 새로 만들지 않고 하나를 공유한다. */
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();

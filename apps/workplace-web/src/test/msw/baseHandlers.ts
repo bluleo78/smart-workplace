@@ -118,6 +118,8 @@ export const shellHandlers = [
   http.get(`${API}/notifications/unread-count`, () => HttpResponse.json({ count: 0 })),
   // 앱 링크 판정 설정(WP-1165) — 앱 셸이 한 번 부른다. 공개 호스트 없음(지금 호스트만 본다).
   http.get(`${API}/app-links/config`, () => HttpResponse.json({ appHost: null })),
+  // 드라이브 공유 링크 카드(WP-1474) — 본문에 /s/sl_… 주소가 있는 화면이 부른다. 기본은 아무것도 드러내지 않는 410(만료·없는 링크).
+  http.get(`${API}/app-links/shares/:token`, () => HttpResponse.json({ message: '공유 링크가 만료되었거나 해제되었습니다' }, { status: 410 })),
   http.get(`${API}/notifications`, () => HttpResponse.json([])),
   http.get(`${API}/mail/unread-summary`, () => HttpResponse.json({ workUnread: 0 })),
   // E2E 기본 스텁에는 없어 503 으로 새던 조회(WP-971 에서 발견) — 메일 계정이 없는 사용자로 둔다.

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildNotification,
   isAppRouteUrl,
+  isOutsideSpaPath,
   NAVIGATION_DENYLIST,
   parsePushPayload,
   requiresVisibleNotification,
@@ -180,5 +181,18 @@ describe('buildNotification', () => {
     expect(options.renotify).toBe(true)
     expect(options.data).toEqual({ url: '/chat/dms/42', tenantId: 3 })
     expect(options.icon).toBe('/pwa-192x192.png')
+  })
+})
+
+describe('isOutsideSpaPath', () => {
+  it('서비스 워커가 서버로 보내는 경로(NAVIGATION_DENYLIST)면 앱 밖이다 — 앱 링크 카드·노트 칩이 새 탭으로 연다(WP-1474)', () => {
+    expect(isOutsideSpaPath('/s/sl_Ab3')).toBe(true)
+    expect(isOutsideSpaPath('/wiki/share/wsh_token')).toBe(true)
+  })
+
+  it('앱 화면(드라이브 미리보기 쿼리 포함)은 앱 안 이동이다', () => {
+    expect(isOutsideSpaPath('/drive/spaces/5?folderId=12&preview=77')).toBe(false)
+    expect(isOutsideSpaPath('/projects/WP/issues/1')).toBe(false)
+    expect(isOutsideSpaPath('/settings/shares')).toBe(false)
   })
 })

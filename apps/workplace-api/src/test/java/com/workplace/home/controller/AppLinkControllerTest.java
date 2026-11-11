@@ -1,5 +1,6 @@
 package com.workplace.home.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,7 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.service.CalendarEventService;
+import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -37,6 +40,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,6 +72,7 @@ class AppLinkControllerTest extends IntegrationTestBase {
   @Autowired DmService dmService;
   @Autowired CalendarEventService calendarEventService;
   @Autowired EmailMessageRepository emailMessageRepo;
+  @Autowired DriveShareLinkService shareLinkService;
 
   private long ownerId; // 프로젝트·스페이스 주인 — 다 볼 수 있다
   private long strangerId; // 어디에도 멤버가 아닌 같은 워크스페이스 사람
@@ -355,6 +360,168 @@ class AppLinkControllerTest extends IntegrationTestBase {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.title").doesNotExist())
         .andExpect(jsonPath("$.message").value(missing));
+  }
+
+  @Test
+  void 기존_종류의_응답은_공유_링크_칸이_늘어도_그대로다() throws Exception {
+    // 카드 칸이 늘어도(WP-1474) NON_NULL 이라 파일 카드는 여전히 kind·title 두 키뿐이다.
+    long spaceId = driveSpaceService.createTeamSpace(ownerId, "앱링크키-" + UUID.randomUUID()).id();
+    TenantContext.set(1L);
+    long fileId =
+        driveFileService
+            .upload(
+                ownerId,
+                spaceId,
+                null,
+                new MockMultipartFile("file", "키.pdf", "application/pdf", "pdf".getBytes()))
+            .id();
+    Map<String, Object> body =
+        JsonPath.read(
+            call("/api/v1/app-links/files/" + fileId, ownerId)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8),
+            "$");
+    assertThat(body.keySet()).containsExactlyInAnyOrder("kind", "title");
+  }
+
+  // --- 드라이브 공유 링크(/s/{token}, WP-1474) ---
+
+  /** 공유 링크 카드의 대상 — 주인의 팀 공간 루트에 올린 파일. */
+  private record SharedFile(long spaceId, String spaceName, long fileId) {}
+
+  private SharedFile sharedFile() throws Exception {
+    String spaceName = "앱링크공유-" + UUID.randomUUID();
+    long spaceId = driveSpaceService.createTeamSpace(ownerId, spaceName).id();
+    TenantContext.set(1L);
+    long fileId =
+        driveFileService
+            .upload(
+                ownerId,
+                spaceId,
+                null,
+                new MockMultipartFile("file", "사업계획.pdf", "application/pdf", "pdf".getBytes()))
+            .id();
+    TenantContext.set(1L);
+    return new SharedFile(spaceId, spaceName, fileId);
+  }
+
+  private String shareLink(long fileId, String audience, String password, Instant expiresAt) {
+    TenantContext.set(1L);
+    String token =
+        shareLinkService
+            .create(ownerId, fileId, new CreateShareLinkRequest(audience, password, expiresAt))
+            .token();
+    TenantContext.set(1L);
+    return token;
+  }
+
+  @Test
+  void 공유_링크는_공간_구성원에게_드라이브의_파일로_가는_MEMBER_카드를_준다() throws Exception {
+    SharedFile f = sharedFile();
+    // 비밀번호·사내 링크여도 구성원은 드라이브에서 열 수 있다 — 링크 상태와 무관하게 MEMBER.
+    String token = shareLink(f.fileId(), "INTERNAL", "secret", null);
+
+    call("/api/v1/app-links/shares/" + token, ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("SHARE"))
+        .andExpect(jsonPath("$.shareState").value("MEMBER"))
+        .andExpect(jsonPath("$.title", startsWith("사업계획")))
+        .andExpect(jsonPath("$.mimeType").isNotEmpty())
+        .andExpect(jsonPath("$.spaceName").value(f.spaceName()))
+        .andExpect(jsonPath("$.driveSpaceId").value(f.spaceId()))
+        .andExpect(jsonPath("$.driveFileId").value(f.fileId()))
+        // 루트 파일이라 폴더 id 는 없다. 공유 링크로 여는 사람용 칸(크기·종류·만료)도 싣지 않는다.
+        .andExpect(jsonPath("$.driveFolderId").doesNotExist())
+        .andExpect(jsonPath("$.sizeBytes").doesNotExist())
+        .andExpect(jsonPath("$.typeLabel").doesNotExist());
+  }
+
+  @Test
+  void 공유_링크는_비구성원이_열_수_있으면_OPEN_카드에_종류_크기_만료일을_주고_공간은_주지_않는다() throws Exception {
+    SharedFile f = sharedFile();
+    Instant until = Instant.now().plus(7, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
+    String token = shareLink(f.fileId(), "EXTERNAL", null, until);
+
+    call("/api/v1/app-links/shares/" + token, strangerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("SHARE"))
+        .andExpect(jsonPath("$.shareState").value("OPEN"))
+        .andExpect(jsonPath("$.title", startsWith("사업계획")))
+        .andExpect(jsonPath("$.typeLabel").value("PDF"))
+        .andExpect(jsonPath("$.sizeBytes").value(3))
+        .andExpect(jsonPath("$.expiresAt").value(until.toString()))
+        .andExpect(jsonPath("$.spaceName").doesNotExist())
+        .andExpect(jsonPath("$.driveSpaceId").doesNotExist())
+        .andExpect(jsonPath("$.driveFileId").doesNotExist());
+  }
+
+  @Test
+  void 공유_링크가_비밀번호_링크면_비구성원_응답에_파일_정보가_하나도_없다() throws Exception {
+    SharedFile f = sharedFile();
+    String token =
+        shareLink(f.fileId(), "EXTERNAL", "secret", Instant.now().plus(3, ChronoUnit.DAYS));
+
+    Map<String, Object> body =
+        JsonPath.read(
+            call("/api/v1/app-links/shares/" + token, strangerId)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8),
+            "$");
+    // 화면에 그리지 않는 것만으로는 부족하다 — 이름·크기·종류·형식·공간·만료일이 응답 JSON 에도 없어야 한다. 제목은 아무것도
+    // 드러내지 않는 고정 문구다.
+    assertThat(body)
+        .containsExactlyInAnyOrderEntriesOf(
+            Map.of(
+                "kind", "SHARE",
+                "shareState", "PASSWORD",
+                "title", "비밀번호로 보호된 공유 파일"));
+  }
+
+  @Test
+  void 공유_링크가_만료_폐기됐거나_없으면_비구성원은_파일_정보_없는_410() throws Exception {
+    SharedFile f = sharedFile();
+    TenantContext.set(1L);
+    var revoked =
+        shareLinkService.create(
+            ownerId, f.fileId(), new CreateShareLinkRequest("EXTERNAL", null, null));
+    TenantContext.set(1L);
+    shareLinkService.revoke(ownerId, revoked.id());
+    TenantContext.set(1L);
+
+    for (String token :
+        List.of(revoked.token(), "sl_" + UUID.randomUUID().toString().replace("-", ""))) {
+      String body =
+          call("/api/v1/app-links/shares/" + token, strangerId)
+              .andExpect(status().isGone())
+              .andExpect(jsonPath("$.kind").doesNotExist())
+              .andExpect(jsonPath("$.shareState").doesNotExist())
+              .andReturn()
+              .getResponse()
+              .getContentAsString(StandardCharsets.UTF_8);
+      // 오류 본문에도 파일 이름·공간 이름이 새지 않는다.
+      assertThat(body).doesNotContain("사업계획").doesNotContain(f.spaceName());
+    }
+    // 폐기돼도 구성원은 드라이브의 파일로 간다.
+    call("/api/v1/app-links/shares/" + revoked.token(), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.shareState").value("MEMBER"));
+  }
+
+  @Test
+  void 공유_링크_토큰_문법_밖은_404_이고_비로그인은_401() throws Exception {
+    // 문법 밖(접두어 없음·허용 밖 글자·65자 초과)은 서비스를 부르기 전에 404.
+    for (String bad : List.of("abc", "sl_ab-c", "sl_" + "a".repeat(65), "xl_abc")) {
+      call("/api/v1/app-links/shares/" + bad, strangerId)
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.shareState").doesNotExist());
+    }
+    TenantContext.set(1L);
+    mvc.perform(get("/api/v1/app-links/shares/sl_abc")).andExpect(status().isUnauthorized());
+    TenantContext.set(1L);
   }
 
   /** 사용자 표시 이름 — 카드의 보낸 사람·DM 이름과 견준다. */

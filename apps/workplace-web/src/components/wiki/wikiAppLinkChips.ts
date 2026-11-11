@@ -4,10 +4,11 @@ import { type EditorState, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { CalendarDays, File as FileIcon, FileText, type LucideIcon, Mail, MessageSquare, SquareKanban } from 'lucide-react'
 
-import type { AppLinkCard } from '@/api/appLinks'
+import { type AppLinkCard, shareCardDrivePath } from '@/api/appLinks'
 import { APP_LINK_KIND_LABEL, type AppHosts, type AppLink, parseAppLink } from '@/lib/appLinks'
 import { ISSUE_STATUS_DOT_CLASS } from '@/lib/issueStatusBadgeType'
 import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
+import { isOutsideSpaPath } from '@/sw/logic'
 import type { IssueStatus } from '@/types/issue'
 
 import { lucideSvg } from './lucideSvg'
@@ -140,19 +141,26 @@ const ICONS: Record<AppLink['kind'], LucideIcon> = {
   MESSAGE: MessageSquare,
   EVENT: CalendarDays,
   MAIL: Mail,
+  // 드라이브 공유 링크(WP-1474) — 파일 칩과 같은 아이콘.
+  SHARE: FileIcon,
 }
 
 // 멘션 칩(WikiMentionChipView)과 같은 바탕 — 이슈 멘션과 이슈 링크 칩이 나란히 있어도 같아 보이게.
 const CHIP_CLASS =
   'wiki-app-link-chip inline-flex max-w-full cursor-pointer items-baseline gap-1 rounded bg-accent px-1 font-medium text-accent-foreground no-underline align-baseline'
 
-/** 칩 DOM — 앱 안 이동 경로를 data-app-link-to 로 단다(WikiEditor 의 본문 클릭이 읽는다). */
+/**
+ * 칩 DOM — 앱 안 이동 경로를 data-app-link-to 로 단다(WikiEditor 의 본문 클릭이 읽는다).
+ * 가는 곳이 앱 밖 화면(서비스 워커가 서버로 보내는 /s/… 등 — 구성원이 아닌 공유 링크, WP-1474)이면 data-app-link-new-tab 도 단다 —
+ * 본문 클릭이 앱 안 이동 대신 새 탭으로 연다(채팅 카드와 같은 isOutsideSpaPath).
+ */
 export function chipElement(link: AppLink, nav: string, card: AppLinkCard): HTMLElement {
   const el = document.createElement('a')
   el.href = nav
   el.className = CHIP_CLASS
   el.contentEditable = 'false'
   el.dataset.appLinkTo = nav
+  if (isOutsideSpaPath(nav)) el.dataset.appLinkNewTab = ''
   el.dataset.kind = link.kind
   el.dataset.testid = 'wiki-app-link-chip'
   const label = `${APP_LINK_KIND_LABEL[link.kind]} ${card.issueKey ? `${card.issueKey} ` : ''}${card.title}${card.statusName ? ` · ${card.statusName}` : ''}`
@@ -213,11 +221,15 @@ export function chipDecorations(state: EditorState, ranges: AppLinkRange[], card
   const decos: Decoration[] = []
   for (const r of ranges) {
     const card = cards.get(r.link.to)
+    // 카드가 없으면(볼 수 없는 대상·만료된 공유 링크의 410 등) 원래 링크로 둔다.
     if (!card || (editable && touches(state, r))) continue
-    // key 에 보이는 칸을 넣는다 — 원격 입력마다 같은 칩 DOM 을 다시 쓰고, 제목·상태가 바뀌면 새로 그린다.
-    const key = `app-link:${r.nav}:${card.title}:${card.statusCategory ?? ''}:${card.statusName ?? ''}`
+    // 공유 링크를 보는 사람이 공간 구성원이면 드라이브의 그 파일로 간다(WP-1474) — 채팅 카드와 같은 경로(shareCardDrivePath).
+    const nav = shareCardDrivePath(card) ?? r.nav
+    // key 에 보이는 칸을 넣는다 — 원격 입력마다 같은 칩 DOM 을 다시 쓰고, 제목·상태·이동 경로가 바뀌면 새로 그린다.
+    // 새 탭 여부도 이동 경로(nav)로만 정해지므로 nav 가 key 에 있으면 충분하다.
+    const key = `app-link:${nav}:${card.title}:${card.statusCategory ?? ''}:${card.statusName ?? ''}`
     decos.push(
-      Decoration.widget(r.from, () => chipElement(r.link, r.nav, card), { key, side: -1, stopEvent: () => true }),
+      Decoration.widget(r.from, () => chipElement(r.link, nav, card), { key, side: -1, stopEvent: () => true }),
       Decoration.inline(r.from, r.to, { class: 'hidden', 'data-app-link-src': '' }),
     )
   }
