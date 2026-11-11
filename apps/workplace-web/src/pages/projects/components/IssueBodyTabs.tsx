@@ -28,6 +28,7 @@ export function IssueBodyTabs({
   history,
   canReact,
   hideComposer = false,
+  commentLocked,
   scrollToCommentId,
   onScrolledToComment,
   linkedCommentId = null,
@@ -42,6 +43,8 @@ export function IssueBodyTabs({
   canReact: boolean;
   /** 모바일(WP-196) — 코멘트 작성창은 화면 하단 줄에 있으므로 탭 안 작성창을 뺀다. */
   hideComposer?: boolean;
+  /** 댓글 권한이 없을 때 작성창 대신 안내를 그린다(WP-1495). */
+  commentLocked?: boolean;
   /** 모바일 하단 작성창으로 방금 쓴 코멘트 — 코멘트 목록이 그리로 스크롤한다(WP-1016). */
   scrollToCommentId?: number | null;
   onScrolledToComment?: () => void;
@@ -91,6 +94,7 @@ export function IssueBodyTabs({
             comments={comments}
             canReact={canReact}
             hideComposer={hideComposer}
+            commentLocked={commentLocked}
             order={order}
             scrollToCommentId={scrollToCommentId}
             onScrolledToComment={onScrolledToComment}

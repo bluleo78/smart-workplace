@@ -905,6 +905,8 @@ public class IssueService {
     boolean isOwner = accessGuard.isOwner(project, callerId);
     boolean canWorkflow = memberOrAdmin;
     boolean canContent = memberOrAdmin || ("OPEN".equals(project.type()) && isReporter);
+    // 댓글 = 내용 쓰기 권한 또는 설정을 켠 OPEN(WP-1495) — 위에서 계산한 canContent 를 재사용해 중복 조회를 피한다.
+    boolean canComment = canContent || project.allowsNonMemberComment();
     boolean canDelete =
         isOwner
             || (isReporter
@@ -932,6 +934,7 @@ public class IssueService {
         canContent,
         canWorkflow,
         canDelete,
+        canComment,
         reporter,
         accessGuard.canChangeReporter(project, row.reporterId(), callerId),
         // 관계(WP-887) — 조회자가 읽을 수 있는 상대만. 외부 링크는 외부 주소라 프로젝트 권한과 무관하게 전부 싣는다.

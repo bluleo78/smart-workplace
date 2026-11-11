@@ -58,7 +58,8 @@ public final class OpenFixtures {
             rec.get(PROJECT.CREATED_AT).toInstant(),
             rec.get(PROJECT.UPDATED_AT).toInstant(),
             null,
-            null);
+            null,
+            false);
 
     return new FixtureResult(row);
   }

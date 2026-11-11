@@ -202,6 +202,20 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         return (String) get(12);
     }
 
+    /**
+     * Setter for <code>public.project.non_member_comment</code>.
+     */
+    public void setNonMemberComment(Boolean value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.project.non_member_comment</code>.
+     */
+    public Boolean getNonMemberComment() {
+        return (Boolean) get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -225,7 +239,7 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
     /**
      * Create a detached, initialised ProjectRecord
      */
-    public ProjectRecord(Long id, String key, String name, String description, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, String type, Boolean isDefault, Long tenantId, String repositoryUrl, String repositoryBranch) {
+    public ProjectRecord(Long id, String key, String name, String description, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, String type, Boolean isDefault, Long tenantId, String repositoryUrl, String repositoryBranch, Boolean nonMemberComment) {
         super(Project.PROJECT);
 
         setId(id);
@@ -241,6 +255,7 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         setTenantId(tenantId);
         setRepositoryUrl(repositoryUrl);
         setRepositoryBranch(repositoryBranch);
+        setNonMemberComment(nonMemberComment);
         resetChangedOnNotNull();
     }
 }

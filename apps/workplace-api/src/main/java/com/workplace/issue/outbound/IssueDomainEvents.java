@@ -69,6 +69,9 @@ public final class IssueDomainEvents {
   /**
    * 코멘트 추가. commentBody 는 agent 응답 트리거의 핵심 컨텍스트라 포함. issueNumber 는 SSE 브로드캐스트(#579)가 프론트
    * 쿼리키(issueKeys.detail(projectKey, number))를 그대로 구성하는 데 필요 — issueKey 문자열 파싱을 피한다.
+   *
+   * <p>actorCanWriteContent: 댓글 작성자가 원래 쓰기 권한이 있는 사람(멤버·ADMIN·OPEN 보고자)이면 true, 「비멤버 댓글」 설정으로만 댓글을
+   * 단 비멤버면 false(WP-1495). 알림·SSE 는 둘 다 처리하고, AI 발사(IssueEventDispatcher)만 false 를 건너뛴다.
    */
   public record IssueCommentedEvent(
       long issueId,
@@ -80,7 +83,8 @@ public final class IssueDomainEvents {
       List<UserSummary> assignees,
       long commentId,
       String commentBody,
-      Instant occurredAt) {}
+      Instant occurredAt,
+      boolean actorCanWriteContent) {}
 
   /** 코멘트 수정 (#717). commentBody 는 수정된(새) 본문. */
   public record IssueCommentUpdatedEvent(

@@ -22,6 +22,8 @@ public record IssueDetailResponse(
     boolean viewerCanEditWorkflow,
     /** 이슈 삭제 가능 여부(reporter 본인 또는 프로젝트 OWNER). */
     boolean viewerCanDelete,
+    /** 댓글을 달 수 있는지(WP-1495) — 내용 편집 권한이 있거나, 접수함 프로젝트가 비멤버 댓글을 허용한 경우. */
+    boolean viewerCanComment,
     /**
      * 보고자(이슈를 만든 사람) 요약 — 상세 속성 레일·모바일 속성 시트 표시용(WP-272). summary.reporterId 는 숫자뿐이라 이름·종류를 함께 싣는다.
      * 사용자 행을 찾지 못하면 null.

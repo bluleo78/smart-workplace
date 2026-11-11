@@ -22,7 +22,8 @@ public record ProjectResponse(
     String
         viewerRole, // 현재 요청자의 실제 멤버 역할(OWNER/MEMBER, 아니면 null) — ADMIN 우회 없이 「내가 속한 프로젝트」(WP-1011)
     String repositoryUrl, // 연결된 저장소 주소(WP-1011) — AI 가 이 프로젝트 이슈를 처리할 때 clone. 없으면 null
-    String repositoryBranch) { // 연결된 저장소의 기본 브랜치 — 없으면 저장소의 기본 브랜치
+    String repositoryBranch, // 연결된 저장소의 기본 브랜치 — 없으면 저장소의 기본 브랜치
+    boolean nonMemberComment) { // OPEN 프로젝트에서 비멤버도 이슈에 댓글을 달 수 있는지(WP-1495)
 
   /** 집계 없는 단건 응답(상세/생성 등) — 카운트 0/빈값. viewerIsMember·viewerRole 은 호출자가 명시적으로 지정. */
   public static ProjectResponse from(ProjectRow row, boolean viewerIsMember, String viewerRole) {
@@ -55,6 +56,7 @@ public record ProjectResponse(
         viewerIsMember,
         viewerRole,
         row.repositoryUrl(),
-        row.repositoryBranch());
+        row.repositoryBranch(),
+        row.nonMemberComment());
   }
 }

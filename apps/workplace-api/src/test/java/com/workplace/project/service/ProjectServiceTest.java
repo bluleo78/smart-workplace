@@ -568,7 +568,7 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse updated =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null));
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null));
 
     assertThat(updated.name()).isEqualTo("새이름");
     assertThat(updated.description()).isEqualTo("원래설명");
@@ -582,12 +582,13 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse described =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest(null, "새설명", null, null, null));
+            ownerId, key, new UpdateProjectRequest(null, "새설명", null, null, null, null));
     assertThat(described.name()).isEqualTo("이름");
     assertThat(described.description()).isEqualTo("새설명");
 
     ProjectResponse cleared =
-        projectService.update(ownerId, key, new UpdateProjectRequest(null, null, true, null, null));
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest(null, null, true, null, null, null));
     assertThat(cleared.name()).isEqualTo("이름");
     assertThat(cleared.description()).isNull();
   }
@@ -603,7 +604,7 @@ class ProjectServiceTest extends IntegrationTestBase {
             ownerId,
             key,
             new UpdateProjectRequest(
-                null, null, null, " https://github.com/acme/app.git ", "develop"));
+                null, null, null, " https://github.com/acme/app.git ", "develop", null));
     assertThat(linked.repositoryUrl()).isEqualTo("https://github.com/acme/app.git");
     assertThat(linked.repositoryBranch()).isEqualTo("develop");
     assertThat(linked.name()).isEqualTo("이름");
@@ -611,14 +612,73 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse renamed =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null));
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null));
     assertThat(renamed.repositoryUrl()).isEqualTo("https://github.com/acme/app.git");
     assertThat(projectService.get(ownerId, key).repositoryBranch()).isEqualTo("develop");
 
     // 주소만 지워도 브랜치가 함께 지워진다 — 다음에 다른 저장소를 연결할 때 옛 브랜치가 따라붙지 않게.
     ProjectResponse cleared =
-        projectService.update(ownerId, key, new UpdateProjectRequest(null, null, null, "", null));
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest(null, null, null, "", null, null));
     assertThat(cleared.repositoryUrl()).isNull();
     assertThat(cleared.repositoryBranch()).isNull();
+  }
+
+  /** WP-1495 — OPEN 프로젝트 소유자는 비멤버 댓글 허용을 켤 수 있다(기본은 꺼짐). */
+  @Test
+  void owner_can_turn_on_non_member_comment_for_open() {
+    String key = uniqueKey("NM");
+    ProjectResponse created =
+        projectService.create(ownerId, new CreateProjectRequest(key, "접수함", null, "OPEN"));
+    assertThat(created.nonMemberComment()).isFalse();
+
+    ProjectResponse updated =
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true));
+
+    assertThat(updated.nonMemberComment()).isTrue();
+  }
+
+  /** WP-1495 — 일반 멤버는 설정을 바꿀 수 없다(프로젝트 수정은 OWNER 만). */
+  @Test
+  void member_cannot_change_non_member_comment() {
+    String key = uniqueKey("NN");
+    projectService.create(ownerId, new CreateProjectRequest(key, "접수함", null, "OPEN"));
+    projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER"));
+
+    assertThatThrownBy(
+            () ->
+                projectService.update(
+                    otherUserId, key, new UpdateProjectRequest(null, null, null, null, null, true)))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  /** WP-1495 — 접수함이 아닌 프로젝트에 켜려 하면 400(IllegalArgumentException). */
+  @Test
+  void non_open_project_rejects_non_member_comment() {
+    String key = uniqueKey("NT");
+    projectService.create(ownerId, new CreateProjectRequest(key, "팀", null, "TEAM"));
+
+    assertThatThrownBy(
+            () ->
+                projectService.update(
+                    ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("접수함 프로젝트에서만 켤 수 있습니다.");
+  }
+
+  /** WP-1495 — 플래그를 보내지 않는 수정(이름만)은 켜 둔 값을 그대로 둔다. */
+  @Test
+  void update_without_flag_keeps_value() {
+    String key = uniqueKey("NK");
+    projectService.create(ownerId, new CreateProjectRequest(key, "접수함", null, "OPEN"));
+    projectService.update(
+        ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true));
+
+    ProjectResponse renamed =
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null));
+
+    assertThat(renamed.nonMemberComment()).isTrue();
   }
 }

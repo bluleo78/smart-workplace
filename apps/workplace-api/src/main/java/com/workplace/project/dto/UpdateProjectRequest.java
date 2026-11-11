@@ -20,7 +20,9 @@ public record UpdateProjectRequest(
     // 기본 브랜치 — git 브랜치 이름으로 쓸 수 있는 것만(clone --branch 가 거절할 .. // 끝의 / .lock 등도 미리 막는다).
     @Size(max = 100)
         @Pattern(regexp = REPOSITORY_BRANCH_PATTERN, message = REPOSITORY_BRANCH_MESSAGE)
-        String repositoryBranch) {
+        String repositoryBranch,
+    // 접수함(OPEN) 프로젝트에서 비멤버의 댓글 허용(WP-1495) — null 이면 변경 없음. OPEN 이 아닌 프로젝트에 true 를 보내면 서비스가 거절한다.
+    Boolean nonMemberComment) {
   /**
    * 저장소 주소 형식 — 빈 값, 또는 https://호스트[:포트]/경로 · ssh://[사용자@]호스트[:포트]/경로 · 사용자@호스트:경로(scp 형식). 웹
    * validations/project.ts 와 같은 규칙.

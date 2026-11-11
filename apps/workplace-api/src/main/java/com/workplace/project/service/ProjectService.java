@@ -225,13 +225,18 @@ public class ProjectService {
    */
   public ProjectResponse update(Long callerId, String projectKey, UpdateProjectRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    // 비멤버 댓글 허용(WP-1495)은 접수함(OPEN) 프로젝트에서만 켤 수 있다 — 다른 유형은 비멤버가 읽지도 못한다.
+    if (Boolean.TRUE.equals(req.nonMemberComment()) && !"OPEN".equals(project.type())) {
+      throw new IllegalArgumentException("접수함 프로젝트에서만 켤 수 있습니다.");
+    }
     projectRepository.update(
         project.id(),
         req.name(),
         req.description(),
         Boolean.TRUE.equals(req.clearDescription()),
         req.repositoryUrl(),
-        req.repositoryBranch());
+        req.repositoryBranch(),
+        req.nonMemberComment());
     ProjectRow updated =
         projectRepository
             .findById(project.id())

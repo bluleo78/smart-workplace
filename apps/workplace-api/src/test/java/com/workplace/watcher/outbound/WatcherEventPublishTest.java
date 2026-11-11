@@ -75,7 +75,8 @@ class WatcherEventPublishTest {
             Instant.now(),
             Instant.now(),
             null,
-            null);
+            null,
+            false);
     IssueRow issue =
         new IssueRow(
             ISSUE_ID,

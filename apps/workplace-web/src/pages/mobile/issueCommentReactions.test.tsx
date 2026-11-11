@@ -89,7 +89,7 @@ test('＋ 를 누르면 팝오버가 아닌 하단 시트(빠른 6종)가 열리
 })
 
 test('코멘트 작성 권한이 없으면 ＋ 가 없고 칩은 보인다', async () => {
-  const h = handlers([other({ reactions: [{ emoji: '👍', count: 2, reacted: false }] })], { viewerCanEditContent: false })
+  const h = handlers([other({ reactions: [{ emoji: '👍', count: 2, reacted: false }] })], { viewerCanEditContent: false, viewerCanComment: false })
   renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, { path: `/projects/${KEY}/issues/7`, handlers: h.list })
   expect(await screen.findByTestId('comment-reaction-pill-31-👍')).toBeInTheDocument()
   expect(document.querySelectorAll('[data-testid^="comment-reaction-add-"]')).toHaveLength(0)

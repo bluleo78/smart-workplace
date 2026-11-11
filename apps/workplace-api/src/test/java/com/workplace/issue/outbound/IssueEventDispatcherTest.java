@@ -199,7 +199,8 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             99L,
             "스스로 단 코멘트",
-            Instant.now());
+            Instant.now(),
+            true);
 
     dispatcher.onIssueCommented(event);
 
@@ -236,7 +237,8 @@ class IssueEventDispatcherTest {
     dispatcher.onIssueAssigned(
         new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now));
     dispatcher.onIssueCommented(
-        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now));
+        new IssueCommentedEvent(
+            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now, true));
     dispatcher.onIssueStatusChanged(
         new IssueStatusChangedEvent(
             1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", "할 일", "진행 중", now));
@@ -246,6 +248,19 @@ class IssueEventDispatcherTest {
     assertThat(captor.getAllValues())
         .extracting(EventEnvelope::type)
         .containsExactly("issue.assigned", "issue.commented", "issue.status_changed");
+  }
+
+  /** WP-1495: 설정으로만 댓글을 단 비멤버(actorCanWriteContent=false)의 댓글은 AI 로 발사하지 않는다. */
+  @Test
+  void 비멤버_댓글은_AI_로_발사하지_않는다() {
+    dispatcher = build(true);
+    var as = List.of(AGENT_ASSIGNEE);
+
+    dispatcher.onIssueCommented(
+        new IssueCommentedEvent(
+            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "해줘", Instant.now(), false));
+
+    verify(client, never()).publish(Mockito.any());
   }
 
   /** 비활성·self-loop 은 대행 에이전트 조회(DB) 없이 거른다. */
@@ -259,7 +274,8 @@ class IssueEventDispatcherTest {
             new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, as, List.of(), now));
     build(true)
         .onIssueCommented(
-            new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", AGENT_ACTOR, as, 9L, "hi", now));
+            new IssueCommentedEvent(
+                1L, "WP", "WP-1", 1, "t", AGENT_ACTOR, as, 9L, "hi", now, true));
 
     verifyNoInteractions(resolver);
     verify(client, never()).publish(Mockito.any());
@@ -281,7 +297,7 @@ class IssueEventDispatcherTest {
     dispatcher.onIssueAssigned(
         new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, as, List.of(), now));
     dispatcher.onIssueCommented(
-        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", now));
+        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", now, true));
     dispatcher.onIssueStatusChanged(
         new IssueStatusChangedEvent(
             1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, "TODO", "DONE", "할 일", "완료", now));
@@ -295,7 +311,8 @@ class IssueEventDispatcherTest {
     dispatcher = build(true);
     var as = List.of(EXTERNAL_AGENT, AGENT_ASSIGNEE, HUMAN_ASSIGNEE);
     var event =
-        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", Instant.now());
+        new IssueCommentedEvent(
+            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", Instant.now(), true);
 
     dispatcher.onIssueCommented(event);
 

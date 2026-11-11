@@ -34,6 +34,7 @@ import { handleApiError } from '../../lib/api-error';
 import { canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { canEditStatuses } from '../../lib/projectStatuses';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
+import { CommentPermissionSettings } from './components/CommentPermissionSettings';
 import { ComponentManagement } from './components/ComponentManagement';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
@@ -201,6 +202,11 @@ export default function ProjectSettingsPage() {
           {/* 연결된 저장소(WP-1011) — AI 가 이슈를 처리할 코드 저장소. 기본 정보와 같은 권한으로 고친다. */}
           {/* key — 다른 프로젝트로 옮기면 새로 띄워, 저장하지 않은 입력이 그 프로젝트로 넘어가지 않게(둘 다 빈 저장소면 값이 같아 맞추지 않는다). */}
           {project.data && <RepositorySettings key={project.data.key} project={project.data} canManage={canManage} />}
+
+          {/* 댓글(WP-1495) — 접수함(OPEN) 프로젝트만: 비멤버가 댓글을 달 수 있는지. */}
+          {project.data?.type === 'OPEN' && (
+            <CommentPermissionSettings key={project.data.key} project={project.data} canManage={canManage} />
+          )}
 
           {/* WP-386: 공용 AI 메모리 — 설정 › AI 비서 › 메모리 「공용 메모리」에서 관리(개인 프로젝트는 공유 대상이 아니라 숨김). */}
           {!isPersonal && project.data && <SharedMemoryLink projectId={project.data.id} />}
