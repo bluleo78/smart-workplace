@@ -122,7 +122,7 @@ describe('채널 탐색·목록', () => {
 })
 
 describe('DM 목록', () => {
-  // #298: DM 마다 상대를 알아볼 아바타 — 셀프는 본인 이니셜, 1:1 은 상대, AI 는 상대 아바타 + 에이전트 배지, 그룹은 첫 상대. 같은 말풍선 아이콘은 없다.
+  // #298: DM 마다 상대를 알아볼 아바타 — 셀프는 본인 이니셜, 1:1 은 상대, AI 는 상대 아바타 + 에이전트 배지. 같은 말풍선 아이콘은 없다.
   test('DM 항목은 상대 아바타로 구분되고 AI DM 엔 에이전트 배지', async () => {
     const me = createDmParticipant({ userId: 1, name: '테스트 사용자' })
     renderChat('/chat', {
@@ -138,8 +138,36 @@ describe('DM 목록', () => {
     const ai = screen.getByTestId('dm-link-3')
     expect(within(ai).getByTestId('user-avatar-10')).toBeInTheDocument()
     expect(within(ai).getByTestId('agent-badge')).toBeInTheDocument()
-    expect(within(screen.getByTestId('dm-link-4')).getByTestId('user-avatar-2')).toBeInTheDocument()
     expect(screen.getByTestId('dm-list').querySelector('svg.lucide-message-square')).toBeNull()
+  })
+
+  // WP-1466: 그룹 DM 은 첫 상대 한 명이 아니라 앞의 두 명을 반씩 나눈 동그라미 — 같은 상대와의 1:1 방과 다르게 보인다.
+  test('그룹 DM 은 앞의 두 상대로 나눈 아바타, 1:1 은 한 사람 아바타', async () => {
+    const me = createDmParticipant({ userId: 1, name: '테스트 사용자' })
+    renderChat('/chat', {
+      auth,
+      dms: [
+        createDm({ id: 2, participants: [me, createDmParticipant({ userId: 2, name: '밥' })] }),
+        createDm({
+          id: 4,
+          participants: [
+            me,
+            createDmParticipant({ userId: 2, name: '밥' }),
+            createDmParticipant({ userId: 3, name: '캐럴' }),
+            createDmParticipant({ userId: 5, name: '데이브' }),
+          ],
+        }),
+      ],
+    })
+    const one = await screen.findByTestId('dm-link-2')
+    expect(within(one).queryByTestId('group-avatar')).toBeNull()
+    expect(within(one).getByTestId('user-avatar-2')).toHaveTextContent('밥')
+
+    const group = within(screen.getByTestId('dm-link-4')).getByTestId('group-avatar')
+    const halves = within(group).getAllByTestId(/^group-avatar-part-/)
+    expect(halves.map((h) => h.getAttribute('data-testid'))).toEqual(['group-avatar-part-2', 'group-avatar-part-3'])
+    expect(halves.map((h) => h.textContent)).toEqual(['밥', '캐'])
+    expect(within(screen.getByTestId('dm-link-4')).queryByTestId('user-avatar-2')).toBeNull()
   })
 })
 

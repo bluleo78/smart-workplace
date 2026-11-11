@@ -15,13 +15,14 @@ import { useThreadsInboxUnreadCount } from '@/hooks/queries/useThreadsInboxUnrea
 import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { previewLine } from '@/lib/conversationPreview'
-import { dmDisplayName, isSelfDm } from '@/lib/dm'
+import { dmAvatarPeople, dmDisplayName, isSelfDm } from '@/lib/dm'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_NAV_CLASS, SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { ChannelBrowser } from './ChannelBrowser'
 import { CreateChannelModal } from './CreateChannelModal'
+import { DmAvatar } from './DmAvatar'
 import { MobileConversationRow } from './MobileConversationRow'
 
 // 미읽음 숫자 배지 — 데스크톱·모바일 행 공용(testid·99+ 상한 동일).
@@ -259,8 +260,8 @@ export function ChannelSidebar() {
           {dms
             ?.filter((dm) => dm.participants.some((p) => p.userId !== myId))
             .map((dm) => {
-              // 대표 상대(첫 비-본인 참여자) 이니셜 아바타로 DM 을 시각 구분.
-              const other = dm.participants.find((p) => p.userId !== myId)
+              // 1:1 은 상대 아바타, 그룹은 앞의 두 상대를 반씩 나눈 아바타로 DM 을 시각 구분(WP-1466 — 첫 상대만 그리면 그 사람과의 1:1 방과 같아 보였다).
+              const people = dmAvatarPeople(dm, myId)
               if (isMobile) {
                 return (
                   <MobileConversationRow
@@ -269,13 +270,7 @@ export function ChannelSidebar() {
                     testId={`dm-link-${dm.id}`}
                     testKey={String(dm.id)}
                     active={dmActive(dm.id)}
-                    icon={
-                      other ? (
-                        <UserAvatar user={{ id: other.userId, username: '', name: other.name }} size="lg" />
-                      ) : (
-                        <MessageSquare className="h-5 w-5" />
-                      )
-                    }
+                    icon={people.length > 0 ? <DmAvatar people={people} size="lg" /> : <MessageSquare className="h-5 w-5" />}
                     name={dmDisplayName(dm, myId)}
                     nameAdornment={
                       dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== myId) ? <AgentBadge size="xs" /> : undefined
@@ -304,11 +299,8 @@ export function ChannelSidebar() {
                     : 'text-muted-foreground hover:bg-accent/50',
                 )}
               >
-                {other ? (
-                  <UserAvatar
-                    user={{ id: other.userId, username: '', name: other.name }}
-                    size="xs"
-                  />
+                {people.length > 0 ? (
+                  <DmAvatar people={people} size="xs" />
                 ) : (
                   <MessageSquare className="h-4 w-4 shrink-0" />
                 )}
