@@ -5,15 +5,23 @@ import { PROJECT_TAB_PATHS } from '@/lib/projectTabPaths'
 /** 프로젝트 탭 식별자. */
 export type ProjectTabId = 'overview' | 'issues' | 'notes' | 'timeline' | 'cycles' | 'versions'
 
-/** 탭 정의 — 표시 순서대로. 노트는 노트 공간 기능(WP-1480·1481) 전이라 숨긴다. */
-export const PROJECT_TABS: readonly { id: ProjectTabId; label: string; visible: boolean }[] = [
-  { id: 'overview', label: '개요', visible: true },
-  { id: 'issues', label: '이슈', visible: true },
-  { id: 'notes', label: '노트', visible: false },
-  { id: 'timeline', label: '타임라인', visible: true },
-  { id: 'cycles', label: '사이클', visible: true },
-  { id: 'versions', label: '버전', visible: true },
+/**
+ * 탭 정의 — 표시 순서대로. 노트 탭은 프로젝트의 노트 공간을 불러온 프로젝트에서만 보인다(WP-1481) —
+ * 그 판정은 정적 값이 아니라 호출부가 넘기는 notesVisible 로 한다(visibleProjectTabs·parseTab).
+ */
+export const PROJECT_TABS: readonly { id: ProjectTabId; label: string }[] = [
+  { id: 'overview', label: '개요' },
+  { id: 'issues', label: '이슈' },
+  { id: 'notes', label: '노트' },
+  { id: 'timeline', label: '타임라인' },
+  { id: 'cycles', label: '사이클' },
+  { id: 'versions', label: '버전' },
 ]
+
+/** 지금 보이는 탭 — 노트 탭은 노트 공간이 있을 때(notesVisible)만 낀다. */
+export function visibleProjectTabs(notesVisible: boolean) {
+  return PROJECT_TABS.filter((t) => t.id !== 'notes' || notesVisible)
+}
 
 /**
  * 기억한 탭이 없을 때(첫 방문·저장값이 깨졌을 때) `/projects/:key` 가 여는 기본 탭.
@@ -58,12 +66,14 @@ export function tabFromPath(pathname: string, key: string): ProjectTabId | null 
   if (!trimmed.startsWith(`${base}/`)) return null
   const rest = trimmed.slice(base.length + 1)
   // 하위 길 탭 목록은 모바일 뒤로가기 판정(lib/mobile/routes.ts)과 같은 한 곳(lib/projectTabPaths)에서 받는다.
+  // 노트 탭은 `notes`(목록에 있음)와 `notes/<페이지 id>` 두 모양 — 뒤쪽만 따로 알아본다.
+  if (/^notes\/[^/]+$/.test(rest)) return 'notes'
   return PROJECT_TAB_PATHS.find((t) => t === rest) ?? null
 }
 
-/** 저장값을 탭으로 해석 — 보이는 탭만 통과(숨긴 노트·모르는 값·없음은 null). */
-export function parseTab(raw: string | null): ProjectTabId | null {
-  const found = PROJECT_TABS.find((t) => t.visible && t.id === raw)
+/** 저장값을 탭으로 해석 — 보이는 탭만 통과(노트 공간이 없을 때의 노트·모르는 값·없음은 null). notesVisible 기본은 숨김. */
+export function parseTab(raw: string | null, notesVisible = false): ProjectTabId | null {
+  const found = visibleProjectTabs(notesVisible).find((t) => t.id === raw)
   return found ? found.id : null
 }
 

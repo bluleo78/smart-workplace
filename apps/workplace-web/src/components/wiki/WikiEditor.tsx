@@ -90,6 +90,7 @@ import { WikiPresence } from './WikiPresence'
 import { announcePresence } from './wikiPresenceAnnounce'
 import { revealPresence, scrollToRelative, wikiPresenceCursorsKey } from './wikiPresenceCursors'
 import { WikiRevisionLayer } from './WikiRevisionLayer'
+import { useWikiRoutes } from './WikiRoutesContext'
 import { canManageShare, countDescendants } from './wikiShare'
 import { WikiShareDialog } from './WikiShareDialog'
 import { WikiShareTokenProvider } from './WikiShareTokenContext'
@@ -188,6 +189,7 @@ export function WikiEditor(props: WikiEditorProps) {
 
 function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const navigate = useNavigate()
+  const routes = useWikiRoutes()
   const location = useLocation()
   // 공유 화면(WP-579)의 토큰·링크로 볼 수 있는 페이지 — 콜백 의존성으로 쓰려고 원시값·배열로 꺼내 둔다.
   const shareToken = share?.token
@@ -202,8 +204,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const tree = share ? share.pages : spaceTree
   // 같은 노트 안 다른 페이지 주소 — 공유 화면이면 링크 안에서 옮겨 다닌다(경로·트리·멘션 이동이 같은 규칙).
   const pagePath = useCallback(
-    (id: number) => (shareToken != null ? `/wiki/share/${shareToken}/pages/${id}` : `/wiki/spaces/${spaceId}/pages/${id}`),
-    [shareToken, spaceId],
+    (id: number) => (shareToken != null ? `/wiki/share/${shareToken}/pages/${id}` : routes.pagePath(spaceId, id)),
+    [shareToken, spaceId, routes],
   )
   // 현재 페이지의 하위 페이지 존재 여부 — 트리에서 parentId 가 일치하는 항목 유무로 판단.
   const pageHasChildren = useMemo(
@@ -250,7 +252,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const roleCanEdit = role != null && isEditRole(role)
   // 공유 창을 둘 수 있는 사람(WP-579) — 스페이스 EDITOR 이상만. VIEWER 는 서버가 공유 설정·기록을 403 으로 막으므로 버튼도 조회도 없다.
   const spaceName = share ? undefined : spaces?.find((s) => s.id === spaceId)?.name
-  const spaceCrumb = spaceName != null ? { name: spaceName, to: `/wiki/spaces/${spaceId}` } : undefined
+  const spaceCrumb = spaceName != null ? { name: spaceName, to: routes.spacePath(spaceId) } : undefined
   const canShare = canManageShare(spaces?.find((s) => s.id === spaceId)?.role, share != null)
   // 주소의 ?share=1 표시를 지운다(기록을 남기지 않게 replace) — 창을 못 여는 사람이 들어왔거나 창을 닫을 때.
   const clearShareParam = useCallback(() => {
@@ -926,7 +928,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         // PAGE → 해소된 spaceId 가 있어야 위키 페이지 경로를 만들 수 있다.
         if (ref?.spaceId == null) return
         e.preventDefault()
-        navigate(`/wiki/spaces/${ref.spaceId}/pages/${id}`)
+        navigate(routes.pagePath(ref.spaceId, id))
       } else if (mtype === 'ISSUE') {
         // ISSUE → 해소된 projectKey+number 로 이슈 상세 경로.
         if (ref?.projectKey == null || ref.number == null) return
@@ -935,7 +937,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
       }
       // USER → 일반 사용자 프로필 라우트가 없어(관리자 전용 settings/users/:id 뿐) 무동작.
     },
-    [navigate, pageMentions, shareToken, sharePages, pagePath],
+    [navigate, pageMentions, shareToken, sharePages, pagePath, routes],
   )
 
   // 본문 클릭 위임 — 편집 모드의 Ctrl/⌘+클릭 링크 열기(WP-300)를 먼저 보고, 아니면 멘션 칩 내비게이션.
@@ -1034,11 +1036,11 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const handleDeleteCurrent = useCallback(() => {
     setConfirmDelete(false)
     del.mutate(page.id, {
-      onSuccess: () => navigate(`/wiki/spaces/${spaceId}`),
+      onSuccess: () => navigate(routes.spacePath(spaceId)),
       // 실패하면 알린다 — 예전엔 아무 안내 없이 페이지가 그대로 남았다(WP-602).
       onError: (e) => handleApiError(e, '페이지를 삭제하지 못했습니다'),
     })
-  }, [del, page.id, navigate, spaceId])
+  }, [del, page.id, navigate, spaceId, routes])
 
   // 생성 중 ESC 로 취소.
   useEffect(() => {
@@ -1062,7 +1064,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
     else void queryClient.invalidateQueries({ queryKey: wikiKeys.spaces() })
   }, [syncStatus, queryClient, shareToken])
   // 종료 안내의 "노트 목록으로" 목적지 — 아직 열 수 있는 스페이스면 그 목록, 아니면 /wiki.
-  const listPath = wikiListPath(spaceId, spaces)
+  const listPath = wikiListPath(spaceId, spaces, routes)
 
   // 본문 스크롤 영역 — 동기화 안내 띠가 sticky 로 붙고, 띠 높이만큼 scrollTop 을 보정하는 기준(WikiSyncNotice).
   const scrollRef = useRef<HTMLDivElement>(null)

@@ -6,6 +6,7 @@ import { useCreateHtmlPage, useCreatePage } from '../../hooks/queries/useWikiMut
 import { htmlDocumentTitleForFile, rejectOversizedHtmlSource } from './html-document/wikiHtmlDocument'
 import { convertHtmlToWiki, htmlFileBaseName } from './wikiHtmlImport'
 import { htmlImportNotice, readHtmlFile } from './wikiHtmlImportInsert'
+import { useWikiRoutes } from './WikiRoutesContext'
 
 /** 노트 제목 최대 길이 — 서버 CreatePageRequest 의 @Size(max = 255). <title> 이 더 길면 잘라 400 을 피한다. */
 const TITLE_MAX = 255
@@ -25,11 +26,12 @@ const TITLE_MAX = 255
 export function useCreateWikiPageAndOpen(spaceId: number | null) {
   const createPage = useCreatePage(spaceId ?? 0)
   const navigate = useNavigate()
+  const routes = useWikiRoutes()
   const create = async (parentId: number | null, withAiDraft = false) => {
     if (spaceId == null) return
     // 실제 저장값은 빈 문자열 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다.
     const created = await createPage.mutateAsync({ parentId, title: '' })
-    navigate(`/wiki/spaces/${spaceId}/pages/${created.id}`, {
+    navigate(routes.pagePath(spaceId, created.id), {
       state: withAiDraft ? { wikiAiDraft: true } : undefined,
     })
   }
@@ -51,7 +53,7 @@ export function useCreateWikiPageAndOpen(spaceId: number | null) {
         toast.error('HTML 파일 내용을 넣지 못했습니다 — 제목만 있는 노트를 열었습니다.')
       }
     }
-    navigate(`/wiki/spaces/${spaceId}/pages/${created.id}`)
+    navigate(routes.pagePath(spaceId, created.id))
   }
   const createHtmlPage = useCreateHtmlPage(spaceId ?? 0)
   const createHtmlDocument = async (parentId: number | null, doc: { title: string; html: string }): Promise<boolean> => {
@@ -59,7 +61,7 @@ export function useCreateWikiPageAndOpen(spaceId: number | null) {
     // 만들기 실패(413 등)는 useCreateHtmlPage 의 onError 가 서버 문구로 알린다.
     const created = await createHtmlPage.mutateAsync({ parentId, title: doc.title, html: doc.html }).catch(() => null)
     if (!created) return false
-    navigate(`/wiki/spaces/${spaceId}/pages/${created.id}`)
+    navigate(routes.pagePath(spaceId, created.id))
     return true
   }
   const createHtmlDocumentFromFile = async (parentId: number | null, file: File) => {

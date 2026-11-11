@@ -1,7 +1,7 @@
 // 프로젝트 탭 순수 함수 테스트(WP-1477) — 길 만들기·해석·저장값 파싱·되돌리기 판단·탭 목록.
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_PROJECT_TAB, parseTab, PROJECT_TABS, projectTabPath, shouldRememberTab, shouldRestoreTab, tabFromPath } from './projectTabs'
+import { DEFAULT_PROJECT_TAB, parseTab, projectTabPath, shouldRememberTab, shouldRestoreTab, tabFromPath, visibleProjectTabs } from './projectTabs'
 
 describe('projectTabPath', () => {
   it('이슈 탭은 프로젝트 길, 나머지는 하위 길', () => {
@@ -14,6 +14,9 @@ describe('tabFromPath', () => {
   it('탭 길을 해석하고 탭이 아닌 길은 null', () => {
     expect(tabFromPath('/projects/WP/', 'WP')).toBe('issues')
     expect(tabFromPath('/projects/WP/cycles', 'WP')).toBe('cycles')
+    expect(tabFromPath('/projects/WP/notes', 'WP')).toBe('notes')
+    expect(tabFromPath('/projects/WP/notes/12', 'WP')).toBe('notes')
+    expect(tabFromPath('/projects/WP/notes/12/x', 'WP')).toBeNull()
     expect(tabFromPath('/projects/WP/issues/12', 'WP')).toBeNull()
     expect(tabFromPath('/projects/WP/versions/3', 'WP')).toBeNull()
     expect(tabFromPath('/projects/WP/settings', 'WP')).toBeNull()
@@ -35,6 +38,7 @@ describe('parseTab', () => {
   it('보이는 탭만 통과', () => {
     expect(parseTab('cycles')).toBe('cycles')
     expect(parseTab('notes')).toBeNull()
+    expect(parseTab('notes', true)).toBe('notes')
     expect(parseTab('foo')).toBeNull()
     expect(parseTab(null)).toBeNull()
   })
@@ -63,7 +67,8 @@ describe('shouldRememberTab', () => {
 
 describe('PROJECT_TABS', () => {
   it('보이는 탭 라벨 순서', () => {
-    expect(PROJECT_TABS.filter((t) => t.visible).map((t) => t.label)).toEqual(['개요', '이슈', '타임라인', '사이클', '버전'])
+    expect(visibleProjectTabs(false).map((t) => t.label)).toEqual(['개요', '이슈', '타임라인', '사이클', '버전'])
+    expect(visibleProjectTabs(true).map((t) => t.label)).toEqual(['개요', '이슈', '노트', '타임라인', '사이클', '버전'])
   })
 })
 

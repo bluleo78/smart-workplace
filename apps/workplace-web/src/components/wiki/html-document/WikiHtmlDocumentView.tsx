@@ -30,6 +30,7 @@ import { breadcrumbOrSelf, buildBreadcrumb } from '../wikiBreadcrumb'
 import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../wikiHtmlBlockSecurity'
 import { WikiHtmlFileInput } from '../WikiHtmlFileInput'
 import { readHtmlFile } from '../wikiHtmlImportInsert'
+import { useWikiRoutes } from '../WikiRoutesContext'
 import { canManageShare, countDescendants } from '../wikiShare'
 import { WikiShareDialog } from '../WikiShareDialog'
 import { useHtmlEditSession, useWikiHtmlLock } from './useHtmlEditSession'
@@ -84,6 +85,7 @@ export interface WikiHtmlDocumentShare {
  */
 export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageDetail; spaceId: number; share?: WikiHtmlDocumentShare }) {
   const navigate = useNavigate()
+  const routes = useWikiRoutes()
   const { data: spaces } = useWikiSpaces()
   const role = share ? undefined : spaces?.find((s) => s.id === spaceId)?.role
   // 공유 링크 화면은 보기만 — 편집 공유여도 원본 저장은 스페이스 멤버 화면에서 한다(WP-1307 결정).
@@ -181,14 +183,14 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
     if (next !== page.title) saveTitle.mutate({ pageId: page.id, title: next })
   }
 
-  const pagePath = (id: number) => (share ? `/wiki/share/${share.token}/pages/${id}` : `/wiki/spaces/${spaceId}/pages/${id}`)
+  const pagePath = (id: number) => (share ? `/wiki/share/${share.token}/pages/${id}` : routes.pagePath(spaceId, id))
   const crumbs = useMemo(
     () => breadcrumbOrSelf(buildBreadcrumb(tree ?? [], page.id), { id: page.id, title: page.title }, tree != null),
     [tree, page.id, page.title],
   )
   const spaceName = share ? undefined : spaces?.find((s) => s.id === spaceId)?.name
   const breadcrumbItems: BreadcrumbItem[] = [
-    ...(spaceName != null ? [{ key: 'space', label: spaceName, title: spaceName, to: `/wiki/spaces/${spaceId}`, testId: 'wiki-breadcrumb-space' }] : []),
+    ...(spaceName != null ? [{ key: 'space', label: spaceName, title: spaceName, to: routes.spacePath(spaceId), testId: 'wiki-breadcrumb-space' }] : []),
     ...crumbs.map((c, i) =>
       i === crumbs.length - 1
         ? { key: c.id, label: c.title || '제목 없음', title: c.title, testId: 'wiki-breadcrumb-current' }

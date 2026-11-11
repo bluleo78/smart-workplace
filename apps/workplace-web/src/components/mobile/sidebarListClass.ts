@@ -5,13 +5,13 @@ import { cn } from '@/lib/utils'
 // 구조 규약: 섹션 머리말 = `.justify-between` 줄에 `.uppercase` 라벨 + 아이콘 버튼(채팅·작업·드라이브·노트 공통).
 // Tailwind 는 소스의 클래스 문자열을 정적으로 스캔하므로 선택자를 변수로 조립하지 않고 그대로 적는다.
 
-export const mobileSidebarListClass = cn(
+// 첫 줄(앱 제목) 숨김을 뺀 기본 규격 — 앱 제목이 없는 목록(프로젝트 노트 탭의 embedded 사이드바는 첫 줄이 도구줄)이 직접 쓴다.
+export const mobileSidebarListBaseClass = cn(
   'min-h-0 flex-1 overflow-y-auto',
   '[&>aside]:w-full [&>aside]:border-r-0 [&>aside]:bg-background',
   // 사이드바를 목록 영역 높이만큼 채운다 — 데스크톱처럼 하단 그룹(드라이브 사용량 등)은 맨 아래에, 빈 상태는 가운데에 오게(WP-143).
   // 목록이 화면보다 길면 영향 없음(래퍼가 스크롤).
   '[&>aside]:min-h-full',
-  '[&>aside>:first-child]:hidden',
   // 행(링크·버튼) 터치 영역 최소 44px(모바일 관례) — 섹션 머리말 안의 아이콘 버튼은 아래에서 되돌린다.
   // 체크박스(Radix Checkbox = button[role=checkbox])는 빼고, 대신 체크박스를 직접 품은 행(label·div)을 44px 로 —
   // 버튼 규칙이 체크박스에 걸리면 16×44 세로 막대로 그려졌다(캘린더 ☰ 시트). 사이드바 중 체크박스는 캘린더뿐.
@@ -28,6 +28,9 @@ export const mobileSidebarListClass = cn(
   // 머리말 아이콘(＋·🔍)은 본문색 — 채팅(ghost 버튼) 기준에 드라이브·노트의 흐린 ＋ 를 맞춘다(U3-R5).
   '[&_.justify-between:has(>.uppercase)_:is(a,button)]:text-foreground',
 )
+
+// 모듈 목록 기본 규격 — 기본 + 사이드바 첫 줄(앱 제목) 숨김. 목록 화면의 제목은 모바일 헤더가 대신 맡기 때문이다.
+export const mobileSidebarListClass = cn(mobileSidebarListBaseClass, '[&>aside>:first-child]:hidden')
 
 // 노트 목록 전용(U3-R5) — 노트 사이드바는 "페이지" 머리말이 스크롤 래퍼(p-3) 없이 aside 바로 아래(px-3)라 채팅·드라이브(24px)보다
 // 왼쪽(12px)에서 시작한다 → 24px 로 맞춘다. ＋ 는 글리프 문자라 아이콘(16px)보다 작아 보여 크기·폭을 채팅 ＋ 버튼(24px 칸)과 맞춘다.
