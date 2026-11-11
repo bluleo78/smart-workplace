@@ -737,15 +737,18 @@ export function CalendarPage() {
                 testId="calendar-events-error"
               />
             )}
-            {/* 모바일 월·주·일은 좌우 스와이프 영역으로 감싼다(pan-y: 세로 스크롤은 브라우저, 스와이프 뒤 click 은 훅이 한 번 막는다). */}
-            {GridView &&
-              (isMobile ? (
-                <div data-testid="calendar-swipe-area" className="flex min-h-0 flex-1 touch-pan-y flex-col" {...swipe}>
-                  <GridView {...viewProps} />
-                </div>
-              ) : (
+            {/* 모바일 월·주·일은 좌우 스와이프 영역으로 감싼다(pan-y: 세로 스크롤은 브라우저, 스와이프 뒤 click 은 훅이 한 번 막는다).
+                WP-1472: 감싸는 div 는 데스크톱에도 늘 둔다 — 모바일에만 두면 lg 경계를 넘을 때 GridView 가 다시 마운트돼 스크롤 위치 등이 사라진다.
+                데스크톱은 display: contents(배치에 끼지 않음)에 스와이프 핸들러·testid 없이 둬 예전 배치·동작 그대로다. */}
+            {GridView && (
+              <div
+                data-testid={isMobile ? 'calendar-swipe-area' : undefined}
+                className={isMobile ? 'flex min-h-0 flex-1 touch-pan-y flex-col' : 'contents'}
+                {...(isMobile ? swipe : {})}
+              >
                 <GridView {...viewProps} />
-              ))}
+              </div>
+            )}
             {mobileAgenda && <MobileAgendaView agenda={agenda} now={now} onSelectEvent={openEdit} onSelectIssue={openIssue} />}
             {view === 'agenda' && !isMobile && <AgendaView {...viewProps} />}
           </Page.Body>

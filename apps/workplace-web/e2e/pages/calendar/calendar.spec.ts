@@ -1,6 +1,6 @@
 // 캘린더 E2E — 브라우저가 필요한 판정만 남겼다(WP-966).
 // - @wiring: /calendar 진입 → 일정 API → 월 보기 칩 + 보기 전환(화면당 1건)
-// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138)·좁은 칸 넘침과 빈 열 넓히기(WP-1154), 모바일 오늘 배지 넘침
+// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138)·좁은 칸 넘침과 빈 열 넓히기(WP-1154), 모바일 오늘 배지 넘침, lg 경계를 넘어도 그리드 유지(WP-1472)
 // - @input: 주 보기 시간 구간 끌어 만들기
 // - @platform: 다시 들어오면 마지막 보기(localStorage, 데스크톱·모바일 따로)
 // 헤더 접근성 이름·요일·오늘 강조·일정 색·반복 회차 표시, 만들기·수정·삭제·반복 범위 선택 payload, 일정 폼 입력·검증은
@@ -10,6 +10,7 @@ import type { Page } from '@playwright/test'
 import type { CalendarEvent } from '../../../src/types/calendar'
 import { attendee, calendarEvent } from '../../factories/calendar.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { resizeAndSettle } from '../../fixtures/wait'
 
 /**
  * GET/POST /api/v1/calendar/events 를 메서드별로 분기 모킹.
@@ -413,4 +414,30 @@ test('다시 들어오면 마지막으로 쓴 보기로 열린다 (WP-948)', { t
   await page.goto('/calendar')
   await expect(page.getByTestId('calendar-view-select')).toHaveValue('week')
   await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+})
+
+// WP-1472: lg(1024px) 경계를 넘을 때 MobileSidebarSheet 본문과 주·월 그리드(GridView)가 다시 마운트되면 스크롤 위치 등 화면 상태가 사라졌다.
+// 실제 폭 전환(matchMedia)으로만 셸·분기가 바뀌므로 브라우저(@layout)로 본다 — 그리드 DOM 에 표식을 달아 같은 요소가 남는지 확인한다.
+test('폭이 lg 경계를 넘어도 주 보기 그리드가 다시 마운트되지 않는다 (WP-1472)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  const DESKTOP = { width: 1440, height: 900 }
+  const MOBILE = { width: 390, height: 844 }
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendarEvents(page, [])
+  await page.setViewportSize(DESKTOP)
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-view-week-btn').click()
+  const grid = page.getByTestId('calendar-view-week')
+  await expect(grid).toBeVisible()
+  // React 가 관리하지 않는 속성이라 다시 그려도 남고, 다시 마운트되면(새 요소) 사라진다.
+  await grid.evaluate((el) => el.setAttribute('data-e2e-mounted', 'first'))
+
+  await resizeAndSettle(page, MOBILE)
+  await expect(grid).toBeVisible()
+  await expect(page.getByTestId('calendar-swipe-area')).toBeVisible()
+  await expect(grid).toHaveAttribute('data-e2e-mounted', 'first')
+
+  await resizeAndSettle(page, DESKTOP)
+  await expect(grid).toBeVisible()
+  await expect(page.getByTestId('calendar-swipe-area')).toHaveCount(0)
+  await expect(grid).toHaveAttribute('data-e2e-mounted', 'first')
 })
