@@ -10,7 +10,6 @@ import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiLastOwnerException;
 import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
-import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
 import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
@@ -43,6 +42,8 @@ public class WikiSpaceService {
   private final ApplicationEventPublisher publisher;
   // WP-579: 편집 권한을 잃은 멤버가 만든 공유 해제, 스페이스 삭제 때 공유 감사.
   private final WikiShareLifecycle shareLifecycle;
+  // WP-1480: 사람의 멤버 편집·삭제 가드(TEAM·프로젝트 공간 아님) — 부서 멤버 서비스와 공용.
+  private final WikiTeamSpaceGuard teamSpaceGuard;
 
   /** 개인 공간 보장(없으면 생성). 멱등. */
   @Transactional
@@ -116,7 +117,7 @@ public class WikiSpaceService {
   @Transactional
   public void addMember(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
     perms.validateRole(role);
     if (membershipGuard.isForeignUser(userId)) {
       throw new WikiForbiddenException(spaceId, userId);
@@ -133,7 +134,7 @@ public class WikiSpaceService {
   @Transactional
   public void changeRole(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
     perms.validateRole(role);
     // 멤버가 아니면 바꿀 행이 없다 — 0행 UPDATE 를 성공(204)으로 돌려주지 않고 거절한다(WP-667).
     // 직접 멤버 행만 본다 — 부서로만 들어온 사람은 바꿀 직접 행이 없다(부서 역할은 부서 행에서 바꾼다, WP-1052).
@@ -151,7 +152,7 @@ public class WikiSpaceService {
   @Transactional
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
     removeTeamMember(callerId, spaceId, userId, true);
   }
 
@@ -219,7 +220,19 @@ public class WikiSpaceService {
   @Transactional
   public void deleteTeamSpace(long callerId, long spaceId) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    // 삭제 잠금(FOR UPDATE)을 가드(FOR SHARE)보다 먼저 잡는다 — 같은 공간을 동시에 지우는 두 요청이 둘 다 SHARE 를 쥔 채 UPDATE 로
+    // 올리려다 교착하지
+    // 않게. 같은 트랜잭션이 이미 쥔 FOR UPDATE 아래의 FOR SHARE 는 바로 통과한다.
+    spaces.lockForDelete(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
+    deleteSpace(callerId, spaceId);
+  }
+
+  /**
+   * 공간 영구 삭제 본체 — 권한·종류·프로젝트 연결 확인은 부르는 쪽 몫이다. 공개 삭제 API 와 프로젝트 공간 연결(WP-1480 — 「리포트」를 옮겨 비게 된 자동
+   * 공간 정리)이 함께 쓴다. 같은 패키지 안에서만 부른다.
+   */
+  void deleteSpace(long callerId, long spaceId) {
     // 공간 행 → 페이지 행 순으로 잠가 동시 페이지 생성·첨부 업로드가 아래 목록에서 빠지지 않게 한다(각 잠금 주석 참조).
     spaces.lockForDelete(spaceId);
     // WP-579: 함께 사라질 공유마다 감사(reason PAGE_DELETED) — 페이지 행을 잠그기 전에(교착 회피, 메서드 주석 참조).
@@ -267,18 +280,6 @@ public class WikiSpaceService {
   /** 마지막 OWNER 오류 문구용 공간 이름 — 멤버 행이 남아 있는 공간이라 FK 로 행이 있다. */
   private String spaceName(long spaceId) {
     return spaces.findName(spaceId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
-  }
-
-  /**
-   * TEAM 공간이 아니면 멤버 변경·공간 삭제를 거부한다(WP-495, 삭제 포함 WP-1397) — 개인 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 공간 목록이
-   * 영구히 열리지 않는다. 드라이브 공간의 같은 가드(DriveSpaceService.requireTeamSpace)와 같은 규칙.
-   */
-  private void requireTeamSpace(long spaceId) {
-    String type =
-        spaces.findType(spaceId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
-    if (!"TEAM".equals(type)) {
-      throw new WikiSpaceTypeNotEditableException(spaceId, type);
-    }
   }
 
   /** 동기화 서버 연결 재검증 이벤트 발행. 테넌트는 지금(요청 스레드) 담는다 — 리스너는 커밋 후 별도 스레드에서 돌아 TenantContext 를 볼 수 없다. */

@@ -5,7 +5,7 @@
 // ▸ 로 하위 부서까지 지금 구성원 펼치기)과, 사람·조직을 함께 고르는 공통 선택 창.
 // WP-1056 — 드라이브 팀 스페이스도 부서 멤버를 넘기고, 내 그룹도 골라 지금 구성원을 사람 멤버로 풀어 더한다(onAddPersonalGroupMembers).
 import { Building2, ChevronRight } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 
 import { GroupMembers } from '@/components/members/GroupMembers'
 import {
@@ -75,6 +75,7 @@ export function SpaceMemberDialog({
   onRemove,
   testIdPrefix,
   departments,
+  notice,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -97,6 +98,8 @@ export function SpaceMemberDialog({
   testIdPrefix: 'wiki' | 'drive'
   /** 조직도 부서 멤버(WP-1052) — 넘기면 부서 행과 사람·조직 선택 창을 켠다. 없으면 사람만. */
   departments?: SpaceMemberDepartments
+  /** 제목 아래 안내(WP-1480) — 프로젝트 노트 공간처럼 멤버를 다른 곳에서 바꾸는 공간이 이유와 갈 곳을 알린다. 없으면 그리지 않는다. */
+  notice?: ReactNode
 }) {
   const { user } = useAuth()
   const [searchOpen, setSearchOpen] = useState(false)
@@ -130,6 +133,7 @@ export function SpaceMemberDialog({
             <DialogTitle>멤버 — {spaceName}</DialogTitle>
             <DialogDescription>{roleHint}</DialogDescription>
           </DialogHeader>
+          {notice}
 
           {/* 인원 수 + 멤버 추가(소유자만). 검색에 AI 에이전트도 넣는다 — 팀 공간 일을 AI 에게도 맡길 수 있게.
               부서 멤버를 켜면 「멤버 3명 · 조직 1」로 부서 수도 함께 보이고, 사람·조직을 한 창에서 고른다. 내 그룹은 그룹 자체를 멤버로 두지 않아

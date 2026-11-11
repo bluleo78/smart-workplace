@@ -71,6 +71,14 @@ public class WikiSpaceMemberGroupRepository {
         .fetch(r -> new WikiMemberGroupResponse(r.value1(), r.value2(), r.value3(), r.value4()));
   }
 
+  /** 부서 행 전체(부서 → 역할) — 프로젝트 공간 멤버 맞추기(WP-1480)가 한 번의 조회로 지금 상태를 읽는다. */
+  public java.util.Map<Long, String> findRoles(long spaceId) {
+    return dsl.select(WIKI_SPACE_MEMBER_GROUP.GROUP_ID, WIKI_SPACE_MEMBER_GROUP.ROLE)
+        .from(WIKI_SPACE_MEMBER_GROUP)
+        .where(WIKI_SPACE_MEMBER_GROUP.SPACE_ID.eq(spaceId))
+        .fetchMap(WIKI_SPACE_MEMBER_GROUP.GROUP_ID, WIKI_SPACE_MEMBER_GROUP.ROLE);
+  }
+
   /** 부서 행의 역할(없으면 empty). */
   public Optional<String> findRole(long spaceId, long groupId) {
     return dsl.select(WIKI_SPACE_MEMBER_GROUP.ROLE)
@@ -92,8 +100,11 @@ public class WikiSpaceMemberGroupRepository {
         .fetchOptional(USER_GROUP.NAME);
   }
 
-  /** 부서 행을 더한다 — 이미 있으면 역할을 덮어쓴다(사람 멤버 추가 {@code WikiSpaceMemberRepository#add} 와 같은 업서트). */
-  public void upsert(long spaceId, long groupId, String role, long addedBy) {
+  /**
+   * 부서 행을 더한다 — 이미 있으면 역할을 덮어쓴다(사람 멤버 추가 {@code WikiSpaceMemberRepository#add} 와 같은 업서트). addedBy 는
+   * 프로젝트 공간 맞추기(WP-1480)처럼 더한 사람이 없으면 null.
+   */
+  public void upsert(long spaceId, long groupId, String role, Long addedBy) {
     dsl.insertInto(WIKI_SPACE_MEMBER_GROUP)
         .set(WIKI_SPACE_MEMBER_GROUP.SPACE_ID, spaceId)
         .set(WIKI_SPACE_MEMBER_GROUP.GROUP_ID, groupId)

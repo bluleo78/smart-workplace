@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -86,6 +87,8 @@ class ProjectResourceChangedIntegrationTest extends ExternalClientMockedTestBase
   void cleanup() {
     dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.in(createdProjectIds)).execute();
     dsl.deleteFrom(PROJECT).where(PROJECT.ID.in(createdProjectIds)).execute();
+    // 프로젝트 노트 공간(WP-1480) — soft delete 로 연결이 끊긴 공간은 프로젝트 하드 삭제 CASCADE 로 지워지지 않아 소유자 삭제를 막는다.
+    dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.OWNER_ID.in(createdUserIds)).execute();
     dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.in(createdUserIds)).execute();
     dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
     createdProjectIds.clear();

@@ -1,4 +1,4 @@
-// 노트 스페이스 삭제 메뉴 노출 판정(WP-580) — TEAM + OWNER 만.
+// 노트 스페이스 삭제 메뉴 노출 판정(WP-580) — TEAM + OWNER 만, 프로젝트 노트 공간은 제외(WP-1480).
 import { describe, expect, it } from 'vitest'
 
 import { canDeleteWikiSpace } from './wikiSpaces'
@@ -15,6 +15,11 @@ describe('canDeleteWikiSpace', () => {
 
   it('개인 스페이스는 OWNER 여도 지울 수 없다 — 다음 접속 때 다시 생긴다', () => {
     expect(canDeleteWikiSpace({ type: 'PERSONAL', role: 'OWNER' })).toBe(false)
+  })
+
+  it('프로젝트 노트 공간은 OWNER 여도 지울 수 없다(WP-1480) — 프로젝트를 따라가는 공간이다', () => {
+    expect(canDeleteWikiSpace({ type: 'TEAM', role: 'OWNER', projectKey: 'WP' })).toBe(false)
+    expect(canDeleteWikiSpace({ type: 'TEAM', role: 'OWNER', projectKey: null })).toBe(true)
   })
 
   it('스페이스를 아직 모르면(로딩 중·없는 주소) 지울 수 없다', () => {

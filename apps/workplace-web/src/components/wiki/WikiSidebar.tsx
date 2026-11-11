@@ -34,7 +34,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectSeparator,
   SelectTrigger,
   SelectValue,
@@ -42,6 +44,7 @@ import {
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { parseId } from '@/lib/historyParam'
 import { failedWithoutData } from '@/lib/queryFailure'
+import { groupWikiSpaces } from '@/lib/wikiSpaceGroups'
 import { canDeleteWikiSpace } from '@/lib/wikiSpaces'
 
 import { useDeletePage, useDeleteSpace, useMovePage } from '../../hooks/queries/useWikiMutations'
@@ -194,6 +197,9 @@ function getProjection(
 
 
 /** 위키 2차 사이드바 — 스페이스 선택 + 페이지 트리(드래그앤드롭 재정렬/재부모). */
+/** 공간 선택 상자 자리표시 — 고른 공간이 없거나 이름을 아직 모를 때(목록 받는 중·없는 id). */
+const SPACE_PLACEHOLDER = '노트 스페이스 선택'
+
 export function WikiSidebar() {
   const navigate = useNavigate()
   const { spaceId: spaceIdParam, pageId: pageIdParam } = useParams()
@@ -310,6 +316,8 @@ export function WikiSidebar() {
   const canEdit = canEditWikiSpace(spaces, spaceId)
   // 스페이스 삭제는 TEAM + OWNER 만 — 개인 스페이스는 다음 접속 때 자동으로 다시 생기므로 대상이 아니다(WP-580).
   const canDeleteSpace = canDeleteWikiSpace(selectedSpace)
+  // 선택 상자 묶음(WP-1480) — 개인 / 팀 / 프로젝트.
+  const spaceGroups = useMemo(() => groupWikiSpaces(spaces ?? []), [spaces])
   // 모바일 빈 공간(페이지 0개) — 트리 대신 생성 진입점 빈 상태(WP-179). 데스크톱은 본문(WikiPageView)이 빈 상태를 그린다.
   const showNoPages = isMobile && pages?.length === 0
   // 볼 수 없거나 없는 공간 주소(WP-559) — 만들어도 404 라 ＋ 를 숨기고, 모바일은 목록이 화면 전체라 여기서 안내한다(데스크톱은 본문이 그린다).
@@ -479,13 +487,38 @@ export function WikiSidebar() {
           >
             {/* 보이는 라벨이 없어 스크린리더가 「콤보박스」로만 읽던 것에 이름을 준다(WP-1436) — 선택 값은 그대로 값으로 읽힌다. */}
             <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm" aria-label="노트 스페이스">
-              <SelectValue />
+              {/* 표시 값은 이름만 — 항목 안의 프로젝트 key(작은 글자)가 선택 칸에 함께 찍히지 않게 직접 준다(WP-1480).
+                  공간 목록을 받는 중이거나 목록에 없는 id 면 이름을 모르니 빈 칸 대신 자리표시 문구를 보인다. */}
+              <SelectValue placeholder={SPACE_PLACEHOLDER}>
+                {selectedSpace ? (
+                  selectedSpace.name
+                ) : (
+                  <span className="text-muted-foreground" data-testid="wiki-space-select-placeholder">
+                    {SPACE_PLACEHOLDER}
+                  </span>
+                )}
+              </SelectValue>
             </SelectTrigger>
-            <SelectContent>
-              {(spaces ?? []).map((s) => (
-                <SelectItem key={s.id} value={String(s.id)}>
-                  {s.name}
-                </SelectItem>
+            {/* popper: 선택 상자 바로 아래에 펼친다. 기본(item-aligned)은 고른 항목을 상자 위치에 맞추느라
+                목록을 위로 밀어 올려, 아래쪽 묶음(프로젝트)을 고른 상태에서는 「개인 / 팀」 제목이 화면 밖으로 잘린다. */}
+            <SelectContent position="popper" align="start">
+              {/* 「개인 / 팀 / 프로젝트」 묶음 제목 아래로 나눠 보인다(WP-1480 A안) — 빈 묶음은 제목도 숨긴다(groupWikiSpaces). */}
+              {spaceGroups.map((g) => (
+                <SelectGroup key={g.kind} data-testid={`wiki-space-group-${g.kind}`}>
+                  <SelectLabel>{g.label}</SelectLabel>
+                  {g.spaces.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                      {/* 빈칸은 화면 낭독 이름(「모바일 앱 MOB」)용 — 항목이 flex 라 화면에서는 gap 만 보인다. */}
+                      {s.projectKey && (
+                        <>
+                          {' '}
+                          <span className="text-xs text-muted-foreground">{s.projectKey}</span>
+                        </>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               ))}
               <SelectSeparator />
               <SelectItem value={CREATE_SENTINEL} data-testid="wiki-space-create-item">

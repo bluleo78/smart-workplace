@@ -54,6 +54,14 @@ public class WikiSpaceMemberRepository {
         .fetchOptional(WIKI_SPACE_MEMBER.ROLE);
   }
 
+  /** 직접 멤버 행 전체(사용자 → 역할) — 프로젝트 공간 멤버 맞추기(WP-1480)가 한 번의 조회로 지금 상태를 읽는다. */
+  public Map<Long, String> findDirectRoles(long spaceId) {
+    return dsl.select(WIKI_SPACE_MEMBER.USER_ID, WIKI_SPACE_MEMBER.ROLE)
+        .from(WIKI_SPACE_MEMBER)
+        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .fetchMap(WIKI_SPACE_MEMBER.USER_ID, WIKI_SPACE_MEMBER.ROLE);
+  }
+
   /**
    * 여러 사람의 그 스페이스 실효 역할을 한 번에 읽는다 — 멤버가 아닌 사람은 빠진다(WP-988 스페이스 이동의 공유 유지 판정). 부서로 들어온 사람도 실효 역할로
    * 판정한다(WP-1052).

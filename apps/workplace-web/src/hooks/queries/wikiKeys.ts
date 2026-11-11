@@ -8,6 +8,8 @@ export const wikiKeys = {
   // 공유 링크로 받은 페이지 상세(WP-579) — 토큰을 넣어 멤버 캐시·다른 링크 캐시와 나눈다(멘션·이미지 blob 과 같은 방식). page(id) 가 접두라
   // page(id) 로 무효화하면 함께 무효화된다.
   sharedPage: (pageId: number, token: string) => ['wiki', 'page', pageId, token] as const,
+  // 프로젝트 노트 공간 요약(WP-1480) — 프로젝트 설정의 「노트 공간」 영역.
+  projectSpace: (projectKey: string) => ['wiki', 'projectSpace', projectKey] as const,
   members: (spaceId: number) => ['wiki', 'members', spaceId] as const,
   // 멤버인 조직도 부서(WP-1052) — members 와 따로 둔다(members 접두가 아니라 멤버 무효화가 부서 목록까지 다시 받지 않게).
   memberGroups: (spaceId: number) => ['wiki', 'member-groups', spaceId] as const,

@@ -89,6 +89,21 @@ public class WikiPageService {
   public WikiPageDetail create(
       long callerId, long spaceId, CreatePageRequest req, WikiPageKind kind) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    return insertPage(callerId, spaceId, req, kind);
+  }
+
+  /**
+   * 역할 검사 없이 페이지를 만든다 — 서버가 스스로 만드는 페이지(프로젝트 노트 공간의 첫 「리포트」, WP-1480) 전용. 작성자(프로젝트 소유자)가 백필 시점에 공간
+   * 멤버가 아닐 수 있어 사람의 요청 경로({@link #create})를 쓰지 못한다. 위치 계산·생성 알림 등 나머지는 같다. 같은 패키지 안에서만 부른다.
+   */
+  @Transactional
+  WikiPageDetail createWithoutRoleCheck(long authorId, long spaceId, CreatePageRequest req) {
+    return insertPage(authorId, spaceId, req, WikiPageKind.NOTE);
+  }
+
+  /** 페이지 생성 본체 — 호출자 권한은 부르는 쪽이 이미 확인했다. */
+  private WikiPageDetail insertPage(
+      long callerId, long spaceId, CreatePageRequest req, WikiPageKind kind) {
     // 루트·자식 모두 위치 계산부터 삽입까지 직렬화해 동시 생성이 같은 말단 위치를 받지 않게 한다(WP-1438).
     // 부모의 다른 스페이스 이동(WP-988)도 커밋을 기다린 뒤 검증해 옛 스페이스에 자식이 남지 않게 한다.
     pages.lockSpaceTree(spaceId);

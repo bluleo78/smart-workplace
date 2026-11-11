@@ -4,6 +4,7 @@ import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.realtime.UserAudienceResolver;
 import com.workplace.project.dto.ProjectRow;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,20 @@ public class ProjectChangeNotifier {
   }
 
   /**
+   * 부가 값을 더 실어 알린다 — 기본 attrs(projectKey)에 extraAttrs 를 합친다(같은 키면 projectKey 가 이긴다).
+   * project/updated 의 nameChanged(WP-1480)처럼 같은 트랜잭션 리스너가 변경 내용을 알아야 할 때 쓴다.
+   */
+  public void changed(
+      String resource,
+      String op,
+      ProjectRow project,
+      long id,
+      Long actorId,
+      Map<String, Object> extraAttrs) {
+    publish(resource, op, project, List.of(id), actorId, List.of(), extraAttrs);
+  }
+
+  /**
    * 여러 대상을 한 이벤트로 알린다 — 부서 행 제거·조직도 변경으로 여러 사람이 한꺼번에 빠질 때 사람마다 이벤트(SSE·리스너)를 내지 않게(WP-1057). extra
    * 는 위와 같다.
    */
@@ -79,6 +94,23 @@ public class ProjectChangeNotifier {
       Collection<Long> ids,
       Long actorId,
       Collection<Long> extra) {
+    publish(resource, op, project, ids, actorId, extra, Map.of());
+  }
+
+  /**
+   * 프로젝트 범위 이벤트를 만드는 유일한 곳 — 모든 changed(...) 가 여기로 모인다. attrs 는 extraAttrs 에 projectKey 를 얹은 것(프론트
+   * 쿼리 키 구성용 projectKey 는 늘 실린다).
+   */
+  private void publish(
+      String resource,
+      String op,
+      ProjectRow project,
+      Collection<Long> ids,
+      Long actorId,
+      Collection<Long> extra,
+      Map<String, Object> extraAttrs) {
+    Map<String, Object> attrs = new HashMap<>(extraAttrs);
+    attrs.put("projectKey", project.key());
     publisher.publishEvent(
         ResourceChangedEvent.of(
             resource,
@@ -86,7 +118,7 @@ public class ProjectChangeNotifier {
             ProjectAudienceResolver.SCOPE,
             project.id(),
             List.copyOf(ids),
-            Map.of("projectKey", project.key()),
+            attrs,
             actorId,
             extra));
   }

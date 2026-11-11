@@ -118,6 +118,20 @@ public class WikiSpaceRecord extends UpdatableRecordImpl<WikiSpaceRecord> {
         return (OffsetDateTime) get(6);
     }
 
+    /**
+     * Setter for <code>public.wiki_space.linked_project_id</code>.
+     */
+    public void setLinkedProjectId(Long value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_space.linked_project_id</code>.
+     */
+    public Long getLinkedProjectId() {
+        return (Long) get(7);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -141,7 +155,7 @@ public class WikiSpaceRecord extends UpdatableRecordImpl<WikiSpaceRecord> {
     /**
      * Create a detached, initialised WikiSpaceRecord
      */
-    public WikiSpaceRecord(Long id, Long tenantId, String type, String name, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public WikiSpaceRecord(Long id, Long tenantId, String type, String name, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long linkedProjectId) {
         super(WikiSpace.WIKI_SPACE);
 
         setId(id);
@@ -151,6 +165,7 @@ public class WikiSpaceRecord extends UpdatableRecordImpl<WikiSpaceRecord> {
         setOwnerId(ownerId);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setLinkedProjectId(linkedProjectId);
         resetChangedOnNotNull();
     }
 }

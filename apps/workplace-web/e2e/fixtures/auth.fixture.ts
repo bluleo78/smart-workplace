@@ -206,6 +206,14 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
           })
         : route.fallback(),
   )
+  // WP-1480: 프로젝트 설정의 「노트 공간」 영역이 /wiki/project-spaces/:key 를 조회한다 — 기본은 404(공간 없음, vitest baseHandlers 와 같다).
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/project-spaces\/[^/]+$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: '노트 공간이 없습니다' }) })
+        : route.fallback(),
+  )
   // 백링크(Task 9 예정)도 같은 자리에서 빈 기본 스텁으로 누수 예방.
   await page.route(
     (url) => /^\/api\/v1\/wiki\/pages\/\d+\/backlinks$/.test(url.pathname),

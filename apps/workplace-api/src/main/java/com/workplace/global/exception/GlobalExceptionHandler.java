@@ -824,6 +824,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 프로젝트 노트 공간 규칙 위반(WP-1480 — 수동 멤버 편집·삭제, 연결 조건) — 409. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiProjectSpaceConflictException.class)
+  public ResponseEntity<ErrorResponse> handleWikiProjectSpaceConflict(
+      com.workplace.wiki.exception.WikiProjectSpaceConflictException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
   /** 페이지 종류에 맞지 않는 저장(WP-1307 — HTML 문서에 마크다운 본문 등) — 409. */
   @ExceptionHandler(com.workplace.wiki.exception.WikiPageKindMismatchException.class)
   public ResponseEntity<ErrorResponse> handleWikiPageKindMismatch(
