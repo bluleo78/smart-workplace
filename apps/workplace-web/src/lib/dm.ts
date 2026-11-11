@@ -27,3 +27,12 @@ export function isDmRecipientInactive(dm: DmResponse, currentUserId: number): bo
 export function isSelfDm(dm: DmResponse, currentUserId: number): boolean {
   return dm.participants.length > 0 && dm.participants.every((p) => p.userId === currentUserId)
 }
+
+/**
+ * 사이드바 DM 아이콘에 그릴 사람(WP-1466) — 나를 뺀 참여자 중 앞의 두 명(참여자 순서 그대로).
+ * 1:1 은 한 명이라 그 사람 아바타, 그룹은 두 명이라 반씩 나눈 동그라미로 그린다 — 같은 상대와의 1:1 방과 그룹 방이 같아 보이지 않게.
+ * 셀프 DM 은 빈 목록(호출부가 내 아바타를 따로 그린다).
+ */
+export function dmAvatarPeople(dm: DmResponse, currentUserId: number): DmResponse['participants'] {
+  return dm.participants.filter((p) => p.userId !== currentUserId).slice(0, 2);
+}

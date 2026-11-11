@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DmResponse } from '@/types/messaging'
 
-import { dmDisplayName, isDmRecipientInactive, isSelfDm } from './dm'
+import { dmAvatarPeople, dmDisplayName, isDmRecipientInactive, isSelfDm } from './dm'
 
 function dm(participants: { userId: number; name: string; active?: boolean }[]): DmResponse {
   return {
@@ -64,5 +64,24 @@ describe('isDmRecipientInactive (WP-723)', () => {
   })
   it('셀프 DM(나만) → false', () => {
     expect(isDmRecipientInactive(dm([{ userId: 1, name: '나' }]), 1)).toBe(false)
+  })
+})
+
+// WP-1466: 사이드바 DM 아이콘 — 1:1 은 상대 한 명, 그룹은 앞의 두 명을 반씩 나눈 동그라미로 그린다.
+describe('dmAvatarPeople', () => {
+  it('1:1 → 상대 한 명', () => {
+    expect(dmAvatarPeople(dm([{ userId: 1, name: '나' }, { userId: 2, name: '밥' }]), 1).map((p) => p.userId)).toEqual([2])
+  })
+  it('그룹 → 나를 뺀 앞의 두 명(참여자 순서)', () => {
+    const group = dm([
+      { userId: 3, name: '캐럴' },
+      { userId: 1, name: '나' },
+      { userId: 2, name: '밥' },
+      { userId: 4, name: '데이브' },
+    ])
+    expect(dmAvatarPeople(group, 1).map((p) => p.userId)).toEqual([3, 2])
+  })
+  it('셀프 DM → 빈 목록', () => {
+    expect(dmAvatarPeople(dm([{ userId: 1, name: '나' }]), 1)).toEqual([])
   })
 })
