@@ -31,6 +31,7 @@ describe('loadConfig', () => {
       dindStorageLimit: '20Gi',
       dindResources: { requests: { cpu: '250m', memory: '512Mi' }, limits: { cpu: '2', memory: '4Gi' } },
       healthPort: 8080,
+      clusterCheckSeconds: 30,
       terminationGraceSeconds: 60,
       imagePullSecrets: [],
     });
@@ -57,6 +58,7 @@ describe('loadConfig', () => {
         // Helm toJson 은 따옴표 없는 cpu: 4 를 숫자로 내보낸다 — 문자열로 받아들인다
         DIND_RESOURCES: '{"requests":{"cpu":"1","memory":"2Gi"},"limits":{"cpu":4,"memory":"8Gi"}}',
         HEALTH_PORT: '18080',
+        CLUSTER_CHECK_SECONDS: '45',
       },
       readFile,
     );
@@ -72,6 +74,7 @@ describe('loadConfig', () => {
     expect(cfg.imagePullSecrets).toEqual(['dockerhub-pull', 'other']);
     expect(cfg.dindResources).toEqual({ requests: { cpu: '1', memory: '2Gi' }, limits: { cpu: '4', memory: '8Gi' } });
     expect(cfg.healthPort).toBe(18080);
+    expect(cfg.clusterCheckSeconds).toBe(45);
   });
 
   it.each([
@@ -89,6 +92,9 @@ describe('loadConfig', () => {
     ['dind resources without requests', { DIND_RESOURCES: '{"limits":{"cpu":"1"}}' }],
     ['dind resources bad quantity', { DIND_RESOURCES: '{"requests":{"cpu":true,"memory":"1Gi"}}' }],
     ['bad health port', { HEALTH_PORT: '0' }],
+    // 클러스터 다시 보기(WP-1501) — 너무 짧으면 API 서버를 두드리고, 주기 조회(300초)보다 길면 뜻이 없다
+    ['cluster check too short', { CLUSTER_CHECK_SECONDS: '4' }],
+    ['cluster check too long', { CLUSTER_CHECK_SECONDS: '301' }],
   ])('rejects %s', (_name, patch) => {
     expect(() => loadConfig({ ...BASE, ...patch }, readFile)).toThrow();
   });

@@ -171,6 +171,8 @@ OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 �
 
 클러스터가 Pod 등을 거절하면(쿼터·PodSecurity·검증) runner 는 그 AI 를 `FAILED` 로 보고하고(message: 종류·이름·HTTP 상태·서버 사유 한 줄 — Secret 은 사유만) 30초 뒤 다시 본다.
 
+AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 할 AI 의 Pod 가 사라지거나(kubectl delete 등) phase 가 `Succeeded`·`Failed` 로 끝나면(노드 재시작 뒤 Completed·Error) runner 가 `CLUSTER_CHECK_SECONDS`(기본 30초) 안에 알아채 끝난 Pod 를 지우고 다시 만든다 — `generation`·`applyNow` 와 무관(WP-1501). 컨테이너 재시작·CrashLoopBackOff 는 kubelet 몫이라 건드리지 않고, `Unknown`(노드 연락 끊김)도 끝난 것으로 보지 않는다.
+
 ## config.json
 
 ```json

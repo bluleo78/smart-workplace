@@ -332,8 +332,9 @@ export class Reconciler {
     }
 
     if (kind === 'recreate') {
-      // Pod 만 지운다 — PVC·Secret 은 그대로. 사라지면 다음 회차에 create
-      this.log.info('generation 이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id, generation: agent.generation });
+      // Pod 만 지운다 — PVC·Secret 은 그대로. 사라지면 다음 회차에 create. 끝나 버린 Pod(WP-1501)도 같은 길로 갈아 끼운다
+      if (current.pod?.finished) this.log.info('끝나 버린 Pod 를 다시 만듭니다', { agentUserId: id, generation: agent.generation });
+      else this.log.info('generation 이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id, generation: agent.generation });
       await this.cluster.delete('Pod', podName(id));
       return false;
     }
@@ -611,6 +612,25 @@ export class Reconciler {
   }
 
   /**
+   * 클러스터 다시 보기(WP-1501) — 마지막 desired 로 「떠 있어야 할 AI 의 Pod 가 없거나 끝났는지」만 본다. 그렇다면 true(조정을 깨운다).
+   * Works 는 부르지 않는다 — 조정 자체는 늘 desired 를 새로 받는 온전한 회차가 하므로, 오래된 desired 로 키를 다시 받는(=교체) 일이 없다.
+   * 클러스터에서 생긴 변화(kubectl 로 지움·노드 재시작으로 끝남)만 본다. generation 차이·STOPPED 미보고는 Works 쪽 변화라 변경 스트림·주기 조회 몫이고,
+   * 실패 사유가 있는 AI(허용 밖 이미지·이름 충돌 등)는 Works 쪽이 바뀌어야 낫기에 빼서 간격마다 헛 조정을 깨우지 않는다.
+   * desired 를 아직 못 받았으면 false — 조정 루프가 30초 재시도로 받고 있다.
+   */
+  async clusterNeedsReconcile(): Promise<boolean> {
+    const desired = this.lastDesired;
+    if (!desired) return false;
+    const { actual } = await this.observeCluster(desired.locationId);
+    const actualById = new Map(actual.map((a) => [a.agentUserId, a]));
+    return desired.agents.some((d) => {
+      if (this.failures.has(d.agentUserId)) return false;
+      const pod = actualById.get(d.agentUserId)?.pod;
+      return !pod || (!pod.deleting && pod.finished === true);
+    });
+  }
+
+  /**
    * 작업 화면 보기(WP-1277) — 그 AI 의 Pod 가 내 위치에서 떠 있으면(Running, 지우는 중 아님) Pod 이름. desired 를 아직 못 받았으면 null.
    * 위치 라벨로 거르므로 같은 네임스페이스의 다른 runner 가 띄운 AI 에는 붙지 않는다.
    */
@@ -731,6 +751,62 @@ export class ReconcileLoop {
       this.timer = undefined;
       void this.trigger();
     }, ms);
+  }
+
+  stop() {
+    this.stopped = true;
+    if (this.timer !== undefined) this.timers.clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+}
+
+/**
+ * 클러스터 다시 보기 타이머(WP-1501). intervalMs 마다 check(Works 를 부르지 않는 클러스터 목록 조회)를 돌려 true 면 wake(조정 루프 깨우기)를 부른다.
+ * Pod watch 대신 짧은 주기 조회를 고른 까닭: 이미 있는 listManaged·ReconcileLoop(트리거 합치기)를 그대로 쓰고, watch 의 끊김·재연결·
+ * 410 Gone(resourceVersion 만료)·디바운스를 따로 다루지 않아도 된다. 지워짐과 끝남을 한 길로 잡고, 1분 안 회복에는 30초 주기로 충분하다.
+ * 한 번에 하나만 돈다 — 앞 조회가 늦어져도 겹쳐 쌓이지 않게 끝난 뒤 다음을 예약한다. 실패는 경고만 남기고 다음 간격에 다시 본다.
+ */
+export class ClusterCheck {
+  private timer: unknown;
+  private stopped = false;
+
+  constructor(
+    private readonly check: () => Promise<boolean>,
+    private readonly wake: () => void,
+    private readonly intervalMs: number,
+    private readonly log: Logger,
+    private readonly timers: LoopTimers = {
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
+    },
+  ) {}
+
+  /** 첫 조회를 intervalMs 뒤로 예약한다(시작 직후는 조정 루프의 첫 회차가 본다). */
+  start() {
+    this.schedule();
+  }
+
+  /** 한 번 본다 — 클러스터가 desired 와 어긋났으면 조정을 깨운다. 끝나면 다음을 예약한다(테스트는 직접 부른다). */
+  async tick(): Promise<void> {
+    if (this.stopped) return;
+    try {
+      if (await this.check()) {
+        this.log.info('클러스터에서 AI Pod 가 사라졌거나 끝나 조정을 깨웁니다');
+        this.wake();
+      }
+    } catch (e) {
+      this.log.warn('클러스터 다시 보기 실패 — 다음 간격에 다시 봅니다', { error: errMessage(e) });
+    }
+    this.schedule();
+  }
+
+  private schedule() {
+    if (this.stopped) return;
+    if (this.timer !== undefined) this.timers.clearTimeout(this.timer);
+    this.timer = this.timers.setTimeout(() => {
+      this.timer = undefined;
+      void this.tick();
+    }, this.intervalMs);
   }
 
   stop() {

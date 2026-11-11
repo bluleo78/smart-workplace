@@ -53,6 +53,7 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     dindStorageLimit: '20Gi',
     dindResources: structuredClone(DEFAULT_DIND_RESOURCES),
     healthPort: 8080,
+    clusterCheckSeconds: 30,
     terminationGraceSeconds: 60,
     imagePullSecrets: [],
     ...overrides,

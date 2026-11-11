@@ -1,11 +1,11 @@
-// runner 진입점 — 설정을 읽고, 조정 루프·60초 관찰 보고·변경 스트림·/healthz 를 띄운다.
+// runner 진입점 — 설정을 읽고, 조정 루프·클러스터 다시 보기·60초 관찰 보고·변경 스트림·/healthz 를 띄운다.
 import { createServer, type Server } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { KubeConfig } from '@kubernetes/client-node';
 import { loadConfig } from './config.js';
 import { KubeCluster } from './k8s/cluster.js';
 import { KubePodExec } from './k8s/exec.js';
-import { ReconcileLoop, Reconciler } from './reconciler.js';
+import { ClusterCheck, ReconcileLoop, Reconciler } from './reconciler.js';
 import { openScreen, type ScreenRequest } from './screen.js';
 import { HttpWorksClient } from './works/client.js';
 import { runEventStream, type Logger } from './works/events.js';
@@ -64,6 +64,15 @@ async function main() {
 
   void loop.trigger();
 
+  // 클러스터 다시 보기(WP-1501) — Works 주기 조회(300초)와 따로, AI Pod 가 사라졌거나 끝났으면 조정을 깨운다(맨 Pod 라 다시 띄울 이가 없다)
+  const clusterCheck = new ClusterCheck(
+    () => reconciler.clusterNeedsReconcile(),
+    () => void loop.trigger(),
+    cfg.clusterCheckSeconds * 1000,
+    log,
+  );
+  clusterCheck.start();
+
   const observedTimer = setInterval(() => {
     reconciler.reportObserved().catch((e: unknown) =>
       log.warn('관찰 보고 실패', { error: e instanceof Error ? e.message : String(e) }),
@@ -97,6 +106,7 @@ async function main() {
     log.info('runner 를 멈춥니다', { signal });
     abort.abort();
     loop.stop();
+    clusterCheck.stop();
     clearInterval(observedTimer);
     health.close();
     // AI Pod 는 그대로 둔다 — runner 가 다시 뜨면 클러스터의 기록(라벨·어노테이션)으로 이어 간다
