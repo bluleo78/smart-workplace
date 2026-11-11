@@ -10,6 +10,7 @@ import { Route, Routes, useParams } from "react-router-dom";
 import { setAccessToken } from "@/api/client";
 import { AIAssistantProvider } from "@/components/ai/AIAssistantContext";
 import { ChatModuleLayout } from "@/components/chat/ChatModuleLayout";
+import { HelpPanelProvider } from "@/components/help/HelpPanelContext";
 import { MessagingConnectionContext } from "@/hooks/MessagingConnectionContext";
 import { useRouteDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -66,6 +67,8 @@ export function ChatRoutes() {
   return (
     // 첨부 뷰어가 AI 패널 상태(useAiPanelAwareDialog)를 읽으므로 앱 셸처럼 AI 어시스턴트 상태만 세운다(단축키 끔).
     <AIAssistantProvider hotkeysEnabled={false}>
+      {/* WP-1505: 휴대폰 대화 목록 머리줄의 「?」(MobileHelpButton)가 도움말 상태를 읽는다 — AppLayout 처럼 AI 공급자 안에 둔다. */}
+      <HelpPanelProvider>
       <ChatStreamHost>
         <RouteTitle />
         <Routes>
@@ -87,6 +90,7 @@ export function ChatRoutes() {
           <Route path="*" element={<div data-testid="outside-chat" />} />
         </Routes>
       </ChatStreamHost>
+      </HelpPanelProvider>
     </AIAssistantProvider>
   );
 }
