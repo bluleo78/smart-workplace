@@ -1,5 +1,6 @@
 package com.workplace.drive.controller;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,10 +18,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.dto.ShareInfoResponse;
+import com.workplace.drive.exception.DriveShareLinkGoneException;
+import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.exception.DriveShareLinkUnauthorizedException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveShareLinkService.ResolvedTarget;
+import com.workplace.drive.service.DriveSharePreview;
 import com.workplace.drive.service.ShareViewTokens;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.filepreview.service.FilePreviewService;
@@ -95,8 +100,35 @@ class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
         .perform(get("/api/v1/public/drive/share/sl_anon/download"))
         // then — 401 이 아닌 200 (Security Filter 에서 차단 안 됨)
         .andExpect(status().isOk())
-        .andExpect(
-            header().string("Content-Type", org.hamcrest.Matchers.containsString("text/plain")));
+        .andExpect(header().string("Content-Type", containsString("text/plain")));
+  }
+
+  /** 미리보기 메타(WP-1473) — 익명 200 + 검색 제외·캐시 금지 헤더, 열 수 없으면 204, part=image 는 그림 줄. */
+  @Test
+  void previewMeta_anonymous_headersAnd204() throws Exception {
+    given(shareLinks.previewCard("sl_ok"))
+        .willReturn(new DriveSharePreview.Open("a.pdf", "application/pdf", 10, null));
+    given(shareLinks.previewCard("sl_gone")).willThrow(new DriveShareLinkGoneException());
+    given(shareLinks.previewCard("sl_none")).willThrow(new DriveShareLinkNotFoundException());
+
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_ok/preview-meta"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "text/html;charset=UTF-8"))
+        .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(content().string(containsString("og:title\" content=\"a.pdf\"")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_ok/preview-meta?part=image"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("drive-pdf.png")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_gone/preview-meta"))
+        .andExpect(status().isNoContent())
+        .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_none/preview-meta?part=image"))
+        .andExpect(status().isNoContent());
   }
 
   /**
@@ -289,8 +321,7 @@ class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
                 .string(
                     "Content-Disposition",
                     org.hamcrest.Matchers.allOf(
-                        org.hamcrest.Matchers.startsWith("inline"),
-                        org.hamcrest.Matchers.containsString("UTF-8''"))));
+                        org.hamcrest.Matchers.startsWith("inline"), containsString("UTF-8''"))));
   }
 
   /** content — 열람 토큰이 없으면(가드 401) 파일을 읽지 않는다. */

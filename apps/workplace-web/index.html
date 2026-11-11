@@ -20,21 +20,27 @@
       og:url 은 두지 않는다 — 모든 경로가 이 파일을 받으므로 고정하면 깊은 링크의 대표 주소까지 루트로 바뀐다.
     -->
     <!--
-      공개 노트 공유 링크(WP-895)는 설명·제목만 그 노트 것으로 바꾼다. 아래 block 은 SSI 가 꺼진 응답(다른 모든 주소)에선 그냥 메타로 나가고,
-      nginx 가 SSI 를 켜는 /wiki/share/… 에선 숨겨졌다가 API 메타 조각을 받지 못하면(열 수 없는 링크·오류) stub 으로 대신 나간다.
+      공유 링크 미리보기 — 공개 노트(WP-895)·드라이브 파일(WP-1473) 공유 링크는 설명·제목(common_meta)과 그림(common_image)을 그 링크 것으로 바꾼다.
+      아래 block 두 개는 SSI 가 꺼진 응답(다른 모든 주소)에선 그냥 메타로 나가고, nginx 가 SSI 를 켜는 /wiki/share/… 와 /s/sl_… 에선
+      숨겨졌다가 각각 API 메타 조각(/__share-meta)·그림 조각(/__share-image)을 받지 못하면(열 수 없는 링크·오류·노트의 그림) stub 으로 대신 나간다.
+      include 에 wait="yes" 를 둔다 — 빈 204 하위 요청이 둘일 때 wait 없이는 stub 이 두 번 나가는 경우가 있다(nginx 1.29 로 재현, WP-1473).
+      줄 순서는 지금과 같게 둔다 — 설명·제목 → og:type·site_name → 그림 → og:locale.
     -->
     <!--# block name="common_meta" -->
     <meta name="description" content="%APP_DESCRIPTION%" />
     <meta property="og:title" content="%APP_NAME%" />
     <meta property="og:description" content="%APP_DESCRIPTION%" />
     <!--# endblock -->
-    <!--# include virtual="/__wiki-share-meta" stub="common_meta" -->
+    <!--# include virtual="/__share-meta" stub="common_meta" wait="yes" -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="%APP_NAME%" />
+    <!--# block name="common_image" -->
     <meta property="og:image" content="https://__PUBLIC_HOST__/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="%APP_NAME% — %APP_DESCRIPTION%" />
+    <!--# endblock -->
+    <!--# include virtual="/__share-image" stub="common_image" wait="yes" -->
     <meta property="og:locale" content="ko_KR" />
     <!-- 트위터(X)는 큰 카드 형식만 따로 알리고 제목·설명·이미지는 og:* 를 그대로 쓴다. -->
     <meta name="twitter:card" content="summary_large_image" />
