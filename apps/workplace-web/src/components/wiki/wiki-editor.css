@@ -250,6 +250,41 @@
   outline: 1px dashed color-mix(in oklab, var(--muted-foreground) 45%, transparent);
   outline-offset: 2px;
 }
+/* AI 지시 상자(WP-1482) — 노트 작성 AI 에게 주는 지시. 편집기·보기·판 미리보기·공개 공유 모두 `.ProseMirror` 아래라 같은 규칙으로 보인다.
+   AI 색 점선 테두리(꾸미기 인라인 border 를 이기려고 border 만 !important)·옅은 AI 바탕(꾸미기 배경이 이기도록 !important 없음)·위쪽 「AI 지시」 이름표. */
+.ProseMirror .wp-ai-instruction {
+  border: 1.5px dashed var(--ai-accent) !important;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--ai-accent-subtle) 60%, transparent);
+}
+.ProseMirror .wp-ai-instruction::before {
+  content: 'AI 지시';
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem; /* 오른쪽 위 「리포트에는 안 보임」(::after)과 같은 줄 높이 — 같은 줄에 나란히 놓이게 */
+  color: var(--ai-accent);
+  margin-bottom: 4px;
+}
+/* 맨 위 지시(최상위의 첫 지시 상자)에만 「리포트에는 안 보임」 안내를 오른쪽 위에 붙인다. 인라인 style 이 position 을 바꾸면 그쪽이 이긴다(받아들임). */
+.ProseMirror > .wp-ai-instruction:not(.wp-ai-instruction ~ .wp-ai-instruction) {
+  position: relative;
+}
+.ProseMirror > .wp-ai-instruction:not(.wp-ai-instruction ~ .wp-ai-instruction)::after {
+  content: '리포트에는 안 보임';
+  position: absolute;
+  /* 상자 안쪽 위 끝 — 이름표(::before)가 블록 첫 줄이라 같은 높이(line-height 1rem)의 오른쪽에만 놓이고, 본문은 그 아래에서 시작해 겹치지 않는다.
+     꾸미기로 안쪽 여백을 0 으로 해도 이름표 줄과 겹칠 수 있다 — 이름표 줄 오른쪽에만 놓인다. */
+  top: 0;
+  right: 12px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+/* 지시 상자는 테두리가 이미 경계라 편집 중 경계 outline 을 그리지 않는다. 바로 아래 통째 선택 outline 규칙과 특이도가 같고 뒤에 오므로 선택 outline 이 이긴다. */
+.wiki-editor .ProseMirror[contenteditable='true'] .wp-ai-instruction[data-wiki-html-box] {
+  outline: none;
+}
 /* 상자 통째 선택(WP-1303) — 테두리·여백을 누르거나 Esc 로 고른 상자는 진한 선택 테두리(HTML 블록 선택과 같은 색)로 보인다.
    상자는 NodeView 없이 그려져 ProseMirror 가 상자 요소 자신에 ProseMirror-selectednode 를 붙인다. 편집할 때만.
    테두리는 상자 안쪽에 그린다(offset -2px) — 모양이 있는 노트 본문은 contain: paint 라 본문 폭을 다 쓰는 상자의 바깥 테두리가 양옆에서 잘린다. */

@@ -1,17 +1,18 @@
 import type { Editor } from '@tiptap/core'
+import { useEditorState } from '@tiptap/react'
 import { Palette } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { EditorFloatingToolbar, EditorToolbarDivider } from '@/components/editor/EditorFloatingToolbar'
 import { Button } from '@/components/ui/button'
 
-import { addLineBesideBox, deleteBox, selectedBox, unwrapBox } from './wikiBox'
+import { addLineBesideBox, deleteBox, isAiInstructionBox, selectedBox, toggleSelectedBoxAiInstruction, unwrapBox } from './wikiBox'
 import { WikiBoxStylePanel } from './WikiBoxStylePanel'
 import { anchorPosition } from './wikiCollabPosition'
 import { keepFocus } from './wikiPinVisible'
 
 /**
- * 상자 막대(WP-1303) — 상자(wikiHtmlBox)가 통째 선택되면 상자 위에 뜬다: 꾸미기 | ↑ 줄 추가 | ↓ 줄 추가 | 글만 남기기 | 삭제.
+ * 상자 막대(WP-1303) — 상자(wikiHtmlBox)가 통째 선택되면 상자 위에 뜬다: 꾸미기 | ↑ 줄 추가 | ↓ 줄 추가 | 글만 남기기 | AI 지시로 바꾸기 / 일반 상자로(WP-1482) | 삭제.
  * - 들여온 HTML 카드도 같은 상자라 같은 막대가 뜬다.
  * - 상자는 NodeView 없이 그려져(자식 선택자·grid 배치를 지키려고 — htmlNodes.ts) 막대를 상자 안에 둘 수 없다 — 표 툴바처럼
  *   떠 있는 막대(EditorFloatingToolbar)를 상자 DOM 위에 붙인다.
@@ -44,6 +45,8 @@ export function WikiBoxToolbar({ editor, disabled }: { editor: Editor | null; di
     setStyling(false)
     editor?.view.focus()
   }, [editor])
+  // 지금 선택된 상자가 AI 지시 상자인지 — 전환 단추 글자가 따른다. 거래마다 다시 읽어 눌러 바뀐 뒤 글자가 곧바로 바뀐다.
+  const isInstruction = useEditorState({ editor, selector: ({ editor: ed }) => (ed ? isAiInstructionBox(selectedBox(ed.state)?.node) : false) })
   if (!editor) return null
 
   /** 지금 통째 선택된 상자 위치로 fn 을 부르고 편집기에 포커스를 돌린다 — 상자가 선택돼 있지 않으면 아무것도 하지 않는다. */
@@ -100,6 +103,9 @@ export function WikiBoxToolbar({ editor, disabled }: { editor: Editor | null; di
         <Palette aria-hidden="true" />
         꾸미기
       </Button>
+      <EditorToolbarDivider />
+      {/* AI 지시 전환(WP-1482) — 일반 상자 ↔ AI 지시 상자. run 감싸개가 누르는 순간의 선택에서 상자를 다시 읽고 편집기에 포커스를 돌린다. */}
+      {action('ai-instruction', isInstruction ? '일반 상자로' : 'AI 지시로 바꾸기', run(toggleSelectedBoxAiInstruction))}
       <EditorToolbarDivider />
       {action('line-above', '↑ 줄 추가', run((state, dispatch, pos) => addLineBesideBox(state, dispatch, pos, -1)))}
       {action('line-below', '↓ 줄 추가', run((state, dispatch, pos) => addLineBesideBox(state, dispatch, pos, 1)))}

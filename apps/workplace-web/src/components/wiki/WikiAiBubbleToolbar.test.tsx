@@ -217,6 +217,14 @@ describe('WikiAiBubbleToolbar — ✦ AI 메뉴·링크·상자·이슈', () => 
     expect(ed.state.doc.firstChild!.type.name).toBe('wikiHtmlBox')
   })
 
+  it('「AI 지시로 바꾸기」 버튼이 고른 글을 지시 상자로 감싼다(WP-1482)', async () => {
+    const { ed, user } = setup('가나다', '나')
+    await user.click(screen.getByTestId('wiki-format-tb-ai-instruction'))
+    expect(screen.queryByTestId('wiki-format-tb-ai-instruction')).toBeNull()
+    expect(ed.state.doc.firstChild!.type.name).toBe('wikiHtmlBox')
+    expect(ed.state.doc.firstChild!.attrs.className).toContain('wp-ai-instruction')
+  })
+
   it('권한 없음·생성 중(disabled)이면 그리지 않는다', () => {
     setup('가나다', '나', { disabled: true })
     expect(screen.queryByTestId('wiki-ai-toolbar')).toBeNull()
