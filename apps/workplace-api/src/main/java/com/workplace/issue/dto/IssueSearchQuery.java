@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -91,7 +92,106 @@ public record IssueSearchQuery(
     LocalDate updatedTo,
     // 시작일(start_date) 범위 — DATE 비교, 양끝 포함(WP-1238, 마감일 범위와 같은 규칙). 시작일 없는 이슈는 제외된다. null 이면 미적용.
     LocalDate startFrom,
-    LocalDate startTo) {
+    LocalDate startTo,
+    // 오래 멈춤 필터(WP-1478) — stale=true 면 「지금 − 7일」 시각. 진행 중이면서 마지막 움직임(상태 변경·댓글·생성)이 이보다 전인 이슈만.
+    // 정의는 IssueAttentionConditions.stale(프로젝트 개요와 같은 함수). null 이면 미적용.
+    OffsetDateTime staleCutoff,
+    // 기다리는 중 필터(WP-1478) — waiting=true 면 열린 이슈 중 AI 작업이 답변 필요이거나 닫히지 않은 선행에 막힌 이슈만.
+    // 정의는 IssueAttentionConditions.waiting. null 이면 미적용.
+    Boolean waiting) {
+
+  /** 오래 멈춤·기다리는 중 필터 없는 43-인자 호환 생성자 — 그 필터를 쓰지 않는 호출부용(WP-1478 이전 모양). */
+  public IssueSearchQuery(
+      String q,
+      List<String> statuses,
+      List<Long> assigneeIds,
+      boolean includeUnassigned,
+      List<String> priorities,
+      LocalDate dueFrom,
+      LocalDate dueTo,
+      IssueCursor cursor,
+      int size,
+      List<List<Long>> labelIdGroups,
+      List<Long> typeIds,
+      Integer parentNumber,
+      Boolean topLevel,
+      Boolean blocked,
+      Long fieldId,
+      String fieldValue,
+      List<Long> reporterIds,
+      List<Long> cycleIds,
+      boolean includeNoOpenCycle,
+      List<Long> milestoneIds,
+      Boolean excludeSubtasks,
+      Boolean excludeEpics,
+      Boolean hideInactiveClosed,
+      boolean includeNoCycle,
+      LocalDate closedFrom,
+      LocalDate closedTo,
+      LocalDate createdFrom,
+      LocalDate createdTo,
+      Long watcherId,
+      Long pendingForUserId,
+      List<Long> statusIds,
+      List<Long> componentIds,
+      boolean componentNone,
+      List<Long> fixVersionIds,
+      boolean fixVersionNone,
+      List<Long> affectsVersionIds,
+      boolean affectsVersionNone,
+      Long mentionedUserId,
+      String sourceKey,
+      LocalDate updatedFrom,
+      LocalDate updatedTo,
+      LocalDate startFrom,
+      LocalDate startTo) {
+    this(
+        q,
+        statuses,
+        assigneeIds,
+        includeUnassigned,
+        priorities,
+        dueFrom,
+        dueTo,
+        cursor,
+        size,
+        labelIdGroups,
+        typeIds,
+        parentNumber,
+        topLevel,
+        blocked,
+        fieldId,
+        fieldValue,
+        reporterIds,
+        cycleIds,
+        includeNoOpenCycle,
+        milestoneIds,
+        excludeSubtasks,
+        excludeEpics,
+        hideInactiveClosed,
+        includeNoCycle,
+        closedFrom,
+        closedTo,
+        createdFrom,
+        createdTo,
+        watcherId,
+        pendingForUserId,
+        statusIds,
+        componentIds,
+        componentNone,
+        fixVersionIds,
+        fixVersionNone,
+        affectsVersionIds,
+        affectsVersionNone,
+        mentionedUserId,
+        sourceKey,
+        updatedFrom,
+        updatedTo,
+        startFrom,
+        startTo,
+        null,
+        null);
+  }
 
   /** 원본 키 필터 없는 39-인자 호환 생성자 — 원본 키로 찾지 않는 호출부용(sourceKey·수정일·시작일 범위 null). */
   public IssueSearchQuery(

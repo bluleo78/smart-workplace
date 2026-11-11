@@ -78,13 +78,14 @@ test('recordLastVisited=false 면 마지막으로 본 노트를 저장하지 않
     http.get('/api/v1/wiki/pages/:id', ({ params }) => HttpResponse.json(wikiPageDetail({ id: Number(params.id), spaceId: 7 }))),
   ]
   localStorage.clear()
-  const off = renderScreen(<WikiPageView pageId={31} spaceId={7} recordLastVisited={false} />, { path: BASE, handlers })
+  // 저장소 키 수를 세는 테스트라 프로젝트 탭 기억은 심지 않는다(projectTabs: {}).
+  const off = renderScreen(<WikiPageView pageId={31} spaceId={7} recordLastVisited={false} />, { path: BASE, handlers, projectTabs: {} })
   // 불러오기·effect 가 끝날 시간을 준다(부재 확인이라 고정 대기 — 아래 기본 모드가 같은 조건에서 저장됨을 보인다).
   await new Promise((r) => setTimeout(r, 500))
   expect(localStorage.length).toBe(0)
   off.unmount()
 
-  renderScreen(<WikiPageView pageId={31} spaceId={7} />, { path: BASE, handlers })
+  renderScreen(<WikiPageView pageId={31} spaceId={7} />, { path: BASE, handlers, projectTabs: {} })
   await waitFor(() => expect(localStorage.length).toBeGreaterThan(0))
 })
 

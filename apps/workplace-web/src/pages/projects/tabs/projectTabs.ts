@@ -24,11 +24,10 @@ export function visibleProjectTabs(notesVisible: boolean) {
 }
 
 /**
- * 기억한 탭이 없을 때(첫 방문·저장값이 깨졌을 때) `/projects/:key` 가 여는 기본 탭.
- * 개요는 아직 「프로젝트 개요는 준비 중입니다」 자리 표시라, 첫 진입이 빈 화면이 되지 않게 이슈 탭으로 둔다.
- * 개요가 지표로 채워지면 여기 한 곳만 'overview' 로 바꾼다.
+ * 기억한 탭이 없을 때(첫 방문·저장값이 깨졌을 때) 조건 없는 `/projects/:key` 가 여는 기본 탭 — 개요(WP-1478, 처음 들어오는 사람은 개요).
+ * 쿼리가 있는 기존 주소·공유 링크(`/projects/:key?view=board` 등)는 되돌리지 않아(shouldRestoreTab) 그대로 이슈 탭으로 열린다.
  */
-export const DEFAULT_PROJECT_TAB: ProjectTabId = 'issues'
+export const DEFAULT_PROJECT_TAB: ProjectTabId = 'overview'
 
 /**
  * 탭의 길. 이슈 탭은 `/projects/:key` 그대로(기존 링크·필터 쿼리 호환), 나머지는 `/projects/:key/<탭>`.
@@ -36,6 +35,32 @@ export const DEFAULT_PROJECT_TAB: ProjectTabId = 'issues'
  */
 export function projectTabPath(key: string, tab: ProjectTabId): string {
   return tab === 'issues' ? `/projects/${key}` : `/projects/${key}/${tab}`
+}
+
+/**
+ * 프로젝트 화면으로 가는 이동이 router state 로 싣는 표시 — 모든 표시를 이 한 모양으로 싣고 readProjectNavState 로 읽는다
+ * (표시마다 따로 캐스팅하면 이름이 어긋나도 컴파일러가 잡지 못한다). 표시는 그 이동 한 번에만 붙는다 — 화면 안 replace 에는 실리지 않는다.
+ * - projectTab: 「이슈 탭을 고른 이동」 — 조건 없는 `/projects/:key` 로 가도 기억한 탭·기본 탭(개요)으로 되돌리지 않는다(shouldRestoreTab).
+ * - fromOverview: 개요 탭(WP-1478)의 링크로 온 이동 — 주소의 조건은 따르되 이슈 탭의 조건 기억(WP-1035)은 바꾸지 않는다(useRememberedIssueQuery).
+ */
+export interface ProjectNavState {
+  projectTab?: true
+  fromOverview?: true
+}
+
+/**
+ * 「이슈 탭을 고른 이동」 표시. 탭 줄의 이슈 탭 클릭(WP-1477)과, 이슈 목록으로 돌아가려는 앱 안 이동(이슈 삭제 뒤·없는 이슈에서
+ * 「프로젝트로 돌아가기」, WP-1478)이 싣는다. 사이드바·프로젝트 목록 같은 진입 링크는 싣지 않는다(기억한 탭·개요를 따른다).
+ */
+export const ISSUES_TAB_STATE: ProjectNavState = { projectTab: true }
+
+/** 개요 링크 표시 — 개요의 링크(OverviewIssueLink)만 싣는다. */
+export const FROM_OVERVIEW_STATE: ProjectNavState = { fromOverview: true }
+
+/** location.state 에서 프로젝트 이동 표시를 읽는다 — 다른 화면의 state·null 이면 둘 다 false. */
+export function readProjectNavState(state: unknown): { projectTab: boolean; fromOverview: boolean } {
+  const s = (state && typeof state === 'object' ? state : {}) as ProjectNavState
+  return { projectTab: s.projectTab === true, fromOverview: s.fromOverview === true }
 }
 
 /**

@@ -22,6 +22,7 @@ import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
+import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -50,6 +51,7 @@ class IssueMetricsServiceTest extends IntegrationTestBase {
   @Autowired IssueMetricsService metricsService;
   @Autowired IssueHistoryRecorder historyRecorder;
   @Autowired AgentWorkRepository agentWorkRepository;
+  @Autowired ProjectAccessGuard accessGuard;
 
   /** 기본 기간 11-03(화) ~ 11-09(월), 7일. 지난 기간은 10-27 ~ 11-02. */
   private static final MetricsPeriod WEEK =
@@ -651,5 +653,49 @@ class IssueMetricsServiceTest extends IntegrationTestBase {
     var expected = metricsService.forMe(a, WEEK, MetricsGranularity.DAY).closedIssues();
     assertThat(expected).extracting(ClosedIssueFact::issueId).containsExactly(i2, i1);
     assertThat(metricsService.closedIssuesForMe(a, WEEK)).isEqualTo(expected);
+  }
+
+  /**
+   * WP-1478 — 개요 숫자 카드용 {@code countsForProject} 가 성과 화면 {@code forProject} 의 완료·새로 생김(현재·지난 기간)과
+   * 같은 값을 낸다. 취소·다시 열림·삭제·서울 자정 경계·기간 밖 행을 섞어 둔다.
+   */
+  @Test
+  void counts_for_project_match_for_project_completed_and_created() {
+    Long owner = user("mt");
+    var p = project(owner, "TEAM");
+    // 현재 기간 완료 2(하나는 서울 자정 직전 11-09 23:59:59), 지난 기간 완료 1
+    long cur1 = issue(owner, p, t("2026-11-04T01:00:00Z"));
+    close(cur1, "DONE", t("2026-11-05T01:00:00Z"), null);
+    long curEdge = issue(owner, p, t("2026-10-20T01:00:00Z"));
+    close(curEdge, "DONE", t("2026-11-09T14:59:59Z"), null);
+    long prev1 = issue(owner, p, t("2026-10-28T01:00:00Z"));
+    close(prev1, "DONE", t("2026-10-30T01:00:00Z"), null);
+    // 기간 경계 밖 — 11-10 00:00 KST 에 닫힘(다음 기간), 지난 기간 시작 직전(10-27 00:00 KST 직전)에 생김
+    long after = issue(owner, p, t("2026-10-26T14:59:59Z"));
+    close(after, "DONE", t("2026-11-09T15:00:00Z"), null);
+    // 취소는 완료가 아니지만 새로 생김에는 든다, 지금 열린 이슈는 완료가 아니다
+    long canceled = issue(owner, p, t("2026-11-06T01:00:00Z"));
+    close(canceled, "CANCELED", t("2026-11-07T01:00:00Z"), null);
+    issue(owner, p, t("2026-10-29T01:00:00Z"));
+    // 삭제된 이슈는 어느 쪽에도 들지 않는다
+    long deleted = issue(owner, p, t("2026-11-05T01:00:00Z"));
+    close(deleted, "DONE", t("2026-11-06T01:00:00Z"), null);
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, t("2026-11-07T01:00:00Z"))
+        .where(ISSUE.ID.eq(deleted))
+        .execute();
+
+    var m = metricsService.forProject(owner, p.key(), WEEK, MetricsGranularity.DAY);
+    MetricsCounts c = metricsService.countsForProject(accessGuard.resolve(p.key()), WEEK);
+
+    assertThat(c)
+        .isEqualTo(
+            new MetricsCounts(
+                m.current().completed(),
+                m.previous().completed(),
+                m.current().created(),
+                m.previous().created()));
+    // 시드가 실제로 각 칸을 채웠는지(모두 0 으로 같아지는 것을 막는다)
+    assertThat(c).isEqualTo(new MetricsCounts(2, 1, 2, 2));
   }
 }

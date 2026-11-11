@@ -80,6 +80,19 @@ public class IssueMetricsService {
   }
 
   /**
+   * 프로젝트의 완료·새로 생김 수만(현재·지난 기간) — {@link #forProject} 의 {@code completed}·{@code created} 와 같은 값을 한
+   * 문장으로 센다(WP-1478 개요 숫자 카드). 권한은 부르는 쪽이 이미 확인한 프로젝트 행을 넘긴다 — 같은 요청에서 읽기 판정을 두 번 하지 않게.
+   *
+   * @param project 호출자가 읽을 수 있음을 확인한 프로젝트
+   */
+  @Transactional(readOnly = true)
+  public MetricsCounts countsForProject(ProjectRow project, MetricsPeriod period) {
+    if (period == null) throw new IllegalArgumentException("기간을 지정해 주세요");
+    Objects.requireNonNull(project, "project");
+    return repository.countPeriods(repository.projectScope(project.id()), period);
+  }
+
+  /**
    * 사람 기준 지표 — 호출자 본인. 완료는 「닫힐 때 내가 담당자」인 이슈(담당 여럿이어도 1건), 새로 생김은 내가 보고자인 이슈. 지금 읽을 수 있는 프로젝트(개인
    * 프로젝트 포함)의 이슈만 센다 — 멤버에서 빠진 프로젝트의 지난 일은 보이지 않는다.
    */

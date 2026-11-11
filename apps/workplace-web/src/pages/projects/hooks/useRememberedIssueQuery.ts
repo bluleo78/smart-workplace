@@ -4,6 +4,8 @@
 //   조건 없는 replace 를 모두 「지움」으로 보면 앱의 다른 replace(AI 대화 링크가 aiChat 을 지움, 모바일 뒤로 가기)가 기억을 지운다.
 //   이 화면에 조건이 있었어도 링크·뒤로 가기(PUSH·POP)로 조건 없이 다시 들어오면(사이드바의 같은 프로젝트 링크) 되살린다.
 // - 들어온 주소에 조건이 없을 때만 되살린다 — 공유 링크·에픽 링크·저장된 뷰처럼 주소에 조건이 있으면 그것을 따르고 기억을 바꾼다.
+// - 개요 탭(WP-1478)의 링크는 조건을 단 주소로 이슈 탭을 열지만 기억은 바꾸지 않는다(state FROM_OVERVIEW_STATE) — 「오래 멈춤」·
+//   고정 날짜(마감 ~11/10) 같은 그때그때의 조건이 사용자가 고른 기억을 덮지 않게. 화면 안에서 조건을 바꾸면(replace, state 없음) 다시 기억한다.
 // - 저장 위치는 내 브라우저의 사용자·워크스페이스·프로젝트별 localStorage(useIssueListColumns 와 같은 키 규칙).
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom'
@@ -14,6 +16,7 @@ import { userScopedKey } from '@/lib/userScopedKey'
 
 import { BOARD_TAB_PARAM } from '../../../lib/boardTabs'
 import { filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters'
+import { readProjectNavState } from '../tabs/projectTabs'
 
 const STORAGE_BASE = 'issue-list-query'
 
@@ -43,7 +46,9 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   const navigationType = useNavigationType()
   // 이동마다 다시 본다 — 되살린 주소를 같은 커밋의 다른 replace(AI 대화 링크가 aiChat 지우기)가 낡은 쿼리로 덮으면,
   // 조건 없는 주소가 다시 와도 stored 가 같아 effect 가 돌지 않는다.
-  const { key: locationKey } = useLocation()
+  const { key: locationKey, state } = useLocation()
+  // 개요 링크로 온 이동 — 주소의 조건을 따르되 기억은 쓰지도 지우지도 않는다.
+  const fromOverview = readProjectNavState(state).fromOverview
   const query = rememberedIssueQuery(params).toString()
   // 주소에 조건이 있는가 — 기본 보기(view=list)는 직렬화하면 빠지지만, 주소에 적혀 있으면 「목록으로」 고른 것이라 되살리지 않는다.
   const explicit = query !== '' || params.has('view')
@@ -68,10 +73,11 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
       }, { replace: true })
       return
     }
-    // 조건이 있으면 기억하고, 화면 안에서 지웠으면 기억도 지운다. 그 밖(기억이 없는 조건 없는 진입)은 건드리지 않는다.
+    // 조건이 있으면 기억하고, 화면 안에서 지웠으면 기억도 지운다. 그 밖(기억이 없는 조건 없는 진입·개요 링크로 온 이동)은 건드리지 않는다.
+    if (fromOverview) return
     if (explicit) writeStored(storageKey, query || null)
     else if (cleared) writeStored(storageKey, null)
-  }, [storageKey, stored, explicit, cleared, query, setParams, locationKey])
+  }, [storageKey, stored, explicit, cleared, query, setParams, locationKey, fromOverview])
 
   return stored !== ''
 }

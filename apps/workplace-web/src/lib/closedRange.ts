@@ -47,7 +47,8 @@ function fromUtc(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 const DAY = 24 * 60 * 60 * 1000;
-function addDays(key: string, n: number): string {
+/** 날짜 키에 n 일을 더한 날짜 키(UTC 자정 산술 — 시간대와 무관). 프로젝트 개요(WP-1478)도 같은 함수를 쓴다. */
+export function addDays(key: string, n: number): string {
   return fromUtc(toUtc(key) + n * DAY);
 }
 

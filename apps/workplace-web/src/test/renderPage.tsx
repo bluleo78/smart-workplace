@@ -28,6 +28,7 @@ import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
 import { trackLocation } from './locationProbe'
 import { authHandlers, MOCK_USER_ROLE, shellHandlers } from './msw/baseHandlers'
 import { server } from './msw/server'
+import { type RememberedProjectTabs, seedProjectTabs } from './projectTabMemory'
 
 export { settleHistory } from './history'
 
@@ -47,13 +48,16 @@ type RenderPageOptions = {
   roles?: RoleResponse[]
   /** 이 테스트의 API 응답 — 기본값(앱 셸)보다 우선한다. */
   handlers?: RequestHandler[]
+  /** 렌더 전에 심을 프로젝트 마지막 탭(WP-1478) — renderScreen 의 같은 옵션과 같다(기본 { WP: 'issues' }, {} 면 심지 않음). */
+  projectTabs?: RememberedProjectTabs
 }
 
 /**
  * path 로 앱을 띄운다. 반환값의 user 는 userEvent 인스턴스, location() 은 지금 주소다.
  * 화면이 다 뜨기를 기다리는 것은 테스트가 findBy* 로 한다.
  */
-export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handlers = [] }: RenderPageOptions = {}) {
+export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handlers = [], projectTabs }: RenderPageOptions = {}) {
+  seedProjectTabs(projectTabs)
   // 컴포넌트 테스트(renderWithProviders)는 RTL 기본값 그대로 두고 페이지 테스트만 늘린다 — 되돌리기는 setup.ts afterEach.
   configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
   server.use(...handlers, ...authHandlers(user ?? createUser({ aiAvailable: true }), roles), ...shellHandlers)

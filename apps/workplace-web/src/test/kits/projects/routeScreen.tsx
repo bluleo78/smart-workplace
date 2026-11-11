@@ -14,6 +14,7 @@ import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import type { AuthContextValue } from '@/hooks/auth-context-value'
 import { useEventStream } from '@/hooks/useEventStream'
 import { shellHandlers } from '@/test/msw/baseHandlers'
+import type { RememberedProjectTabs } from '@/test/projectTabMemory'
 import { renderScreen } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
@@ -32,6 +33,8 @@ export type ScreenOptions = {
   auth?: Partial<AuthContextValue>
   /** 화면 옆에 함께 그릴 것 — 앱 셸이 맡던 배선 하나만 필요할 때(예: 통합 SSE 를 여는 useEventStream). */
   extra?: ReactNode
+  /** 렌더 전에 심을 프로젝트 마지막 탭 — renderScreen 의 같은 옵션으로 넘긴다(기본 { WP: 'issues' }). */
+  projectTabs?: RememberedProjectTabs
 }
 
 /**
@@ -56,7 +59,7 @@ export function renderRouteScreen(routePath: string, element: ReactElement, path
  * renderRouteScreen 과 같되 라우트(<Route> 들)를 직접 받는다 — 레이아웃 라우트 아래 자식을 두는 화면(프로젝트 탭, WP-1477)용.
  * 다른 주소로 가면 아무것도 그리지 않는다.
  */
-export function renderRoutesScreen(routes: ReactNode, path: string, { handlers = [], auth, extra }: ScreenOptions = {}) {
+export function renderRoutesScreen(routes: ReactNode, path: string, { handlers = [], auth, extra, projectTabs }: ScreenOptions = {}) {
   return renderScreen(
     <AIAssistantProvider hotkeysEnabled={false}>
       {extra}
@@ -65,7 +68,7 @@ export function renderRoutesScreen(routes: ReactNode, path: string, { handlers =
         <Route path="*" element={null} />
       </Routes>
     </AIAssistantProvider>,
-    { path, handlers: [...handlers, ...shellHandlers], auth: { ...pageAuth, ...auth } },
+    { path, handlers: [...handlers, ...shellHandlers], auth: { ...pageAuth, ...auth }, projectTabs },
   )
 }
 

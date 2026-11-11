@@ -111,6 +111,9 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
         // 완료일 기간(WP-873) — 화면 칩과 같은 문구(프리셋은 이름+기간)로 AI 가 「지난 주 완료한 것」을 같은 범위로 안다.
         ['완료일', f.closedIn ? closedRangeLabel(f.closedIn) : null],
         ['차단됨', f.blocked],
+        // 개요 「살펴볼 이슈」 조건(WP-1478) — 화면 칩과 같은 이름으로, AI 가 이 목록이 「오래 멈춘」·「기다리는 중」 이슈만이라는 걸 안다.
+        ['오래 멈춤', f.stale ?? false],
+        ['기다리는 중', f.waiting ?? false],
         ['상위 이슈', f.parentNumber != null ? `${input.projectKey}-${f.parentNumber}` : null],
         ['최상위만', f.topLevel],
         ['사이클', names(f.cycleIds, lookups.cycles)],

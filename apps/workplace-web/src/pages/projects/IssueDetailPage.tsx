@@ -75,6 +75,7 @@ import { IssueReporterField } from './components/IssueReporterField';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 import { WorkflowLockedHint } from './components/WorkflowLockedHint';
 import { useVersionedPatch } from './hooks/useVersionedPatch';
+import { ISSUES_TAB_STATE, projectTabPath } from './tabs/projectTabs';
 
 // 이슈 상세 페이지 — URL 파라미터에서 프로젝트 키와 이슈 번호를 받아 단건 조회.
 export default function IssueDetailPage() {
@@ -227,7 +228,7 @@ export default function IssueDetailPage() {
         title="이슈를 찾을 수 없습니다"
         description="이슈가 삭제되었거나 접근 권한이 없습니다."
         actionLabel="프로젝트로 돌아가기"
-        onAction={() => navigate(`/projects/${key}`)}
+        onAction={() => navigate(projectTabPath(key, 'issues'), { state: ISSUES_TAB_STATE })}
       />
     );
   if (!data) return (
@@ -258,11 +259,11 @@ export default function IssueDetailPage() {
   const lockedNotice = workflowLockedNotice(canEditWorkflow, canEditContent);
 
   // 삭제 — cascade soft-delete. childCount > 0 이면 AlertDialog 경고 문구에 자식 수 포함.
-  // 성공 시 프로젝트 보드로 이동. 권한(첨부자/OWNER) 검증은 백엔드가 수행.
+  // 성공 시 프로젝트 이슈 목록(이슈 탭)으로 이동 — 기본 탭이 개요라도(WP-1478) 목록으로 돌아가게 이슈 탭 표시를 싣는다. 권한(첨부자/OWNER) 검증은 백엔드가 수행.
   const onDelete = () => setDeletePending(true);
   const onDeleteConfirm = () => {
     remove.mutate(undefined, {
-      onSuccess: () => navigate(`/projects/${key}`),
+      onSuccess: () => navigate(projectTabPath(key, 'issues'), { state: ISSUES_TAB_STATE }),
     });
   };
 

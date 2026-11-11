@@ -73,8 +73,8 @@ describe('PROJECT_TABS', () => {
 })
 
 describe('DEFAULT_PROJECT_TAB', () => {
-  it('기억한 탭이 없을 때 여는 기본 탭은 이슈 — 개요가 아직 자리 표시라 첫 진입이 빈 화면이 되지 않게', () => {
-    expect(DEFAULT_PROJECT_TAB).toBe('issues')
+  it('기억한 탭이 없을 때 여는 기본 탭은 개요 — 처음 들어오는 사람은 개요부터(WP-1478)', () => {
+    expect(DEFAULT_PROJECT_TAB).toBe('overview')
     // 기본 탭은 보이는 탭이어야 한다(저장값 해석을 통과하는 값).
     expect(parseTab(DEFAULT_PROJECT_TAB)).toBe(DEFAULT_PROJECT_TAB)
   })

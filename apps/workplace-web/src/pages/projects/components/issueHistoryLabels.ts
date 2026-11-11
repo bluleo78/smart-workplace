@@ -5,6 +5,39 @@ import { priorityLabel, statusLabel } from '@/lib/issueGrouping';
 import { relatedIssueKey } from '@/lib/issueRelations';
 import { HIDDEN_PARENT_LABEL } from '@/lib/parentRef';
 import { directionParticle } from '@/lib/utils';
+import type { IssueHistoryEventType } from '@/types/issue';
+
+/**
+ * 이력 종류 → 한국어 이름 — 백엔드 enum 과 1:1. 이슈 상세 활동 기록(IssueActivityTimeline)과 프로젝트 개요 「최근 활동」(WP-1478)이
+ * 같은 표를 써 같은 이력이 화면마다 다른 말로 보이지 않게 한다.
+ */
+export const HISTORY_EVENT_LABEL: Record<IssueHistoryEventType, string> = {
+  TITLE_CHANGED: '제목 변경',
+  STATUS_CHANGED: '상태 변경',
+  PRIORITY_CHANGED: '우선순위 변경',
+  ASSIGNEE_CHANGED: '담당자 변경',
+  ASSIGNEES_CHANGED: '담당자 변경',
+  DUE_DATE_CHANGED: '마감일 변경',
+  LABELS_CHANGED: '라벨 변경',
+  ATTACHMENTS_CHANGED: '첨부 변경',
+  TYPE_CHANGED: '유형 변경',
+  PARENT_CHANGED: '부모 변경',
+  DEPENDENCY_ADDED: '의존성 추가',
+  DEPENDENCY_REMOVED: '의존성 제거',
+  CUSTOM_FIELD_CHANGED: '필드',
+  START_DATE_CHANGED: '시작일 변경',
+  MILESTONE_CHANGED: '마일스톤 변경',
+  STATUS_MIGRATED: '상태 이전',
+  REPORTER_CHANGED: '보고자 변경',
+  RELATION_ADDED: '관계 추가',
+  RELATION_REMOVED: '관계 삭제',
+  EXTERNAL_LINK_ADDED: '외부 링크 추가',
+  EXTERNAL_LINK_UPDATED: '외부 링크 수정',
+  EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
+  COMPONENTS_CHANGED: '구성요소 변경',
+  FIX_VERSIONS_CHANGED: '수정 버전 변경',
+  AFFECTS_VERSIONS_CHANGED: '영향 버전 변경',
+};
 
 /** 상태 이력 값 → 표시명. null/빈 값은 '없음'. */
 export function historyStatusLabel(v: string | null): string {

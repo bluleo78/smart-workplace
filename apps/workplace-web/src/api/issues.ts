@@ -94,6 +94,9 @@ export function issueFilterParams(filters: IssueFilters): URLSearchParams {
   if (filters.hideInactiveClosed) params.set('hideInactiveClosed', 'true');
   // Phase 4b — blocked 검색 송신. UI 노출은 deferred.
   if (filters.blocked) params.set('blocked', 'true');
+  // 개요 「살펴볼 이슈」 조건(WP-1478) — 서버가 개요와 같은 조건 함수로 거른다.
+  if (filters.stale) params.set('stale', 'true');
+  if (filters.waiting) params.set('waiting', 'true');
   return params;
 }
 

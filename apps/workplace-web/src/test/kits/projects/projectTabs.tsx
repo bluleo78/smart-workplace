@@ -1,32 +1,13 @@
 // 프로젝트 탭 화면 테스트 도우미(WP-1477) — 탭 레이아웃(머리줄·탭 줄·새 태스크 대화상자)과 탭 본문을 App 과 같은 라우트 모양으로 띄운다.
-// 이슈 탭(/projects/:key)은 조건 없이 들어오면 기억한 탭으로 되돌리고, 기억이 없으면 기본 탭(이슈)에 그대로 머문다 —
-// 그래서 이슈 목록·보드를 보는 테스트는 기억을 따로 깔 필요가 없다. 되돌리기를 보는 테스트만 rememberProjectTab 으로 다른 탭을 심는다.
+// 이슈 탭(/projects/:key)은 조건 없이 들어오면 기억한 탭으로 되돌리고, 기억이 없으면 기본 탭(개요, WP-1478)으로 간다.
+// 이슈 목록·보드를 보는 테스트는 「전에 이슈 탭을 쓰던 사용자」로 연다 — 렌더 도우미(renderScreen·renderPage)가 렌더 전에 앱이 쓰는
+// 실제 기억(localStorage project-tab:*)에 이슈 탭을 심는다(src/test/projectTabMemory, 기본 WP). 다른 탭을 미리 심는 테스트는
+// 그 모듈의 rememberProjectTab 을 렌더 전에 부른다. 앱 모듈은 끊지 않는다.
 import type { ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
-import { writeStored } from '@/lib/storageWithFallback'
-import { userScopedKey } from '@/lib/userScopedKey'
 import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
-import type { ProjectTabId } from '@/pages/projects/tabs/projectTabs'
 import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
-
-/** 테스트 렌더 도우미의 기본 로그인 주인 — renderPage·renderRouteScreen(id 1, 워크스페이스 없음)과 renderScreen(testAuthValue: id 1, 워크스페이스 1). */
-const DEFAULT_OWNERS = [
-  { userId: 1, tenantId: null },
-  { userId: 1, tenantId: 1 },
-]
-
-/**
- * 프로젝트의 마지막 탭을 미리 기억시킨다(useRememberedProjectTab 과 같은 키). owners 를 주지 않으면 테스트 도우미들의 기본 로그인
- * 주인 모두에게 심어, 어느 렌더 도우미로 띄워도 같은 기억을 읽는다.
- */
-export function rememberProjectTab(
-  key: string,
-  tab: ProjectTabId = 'issues',
-  owners: readonly { userId: number; tenantId: number | null }[] = DEFAULT_OWNERS,
-) {
-  for (const owner of owners) writeStored(userScopedKey(`project-tab:${key}`, owner), tab)
-}
 
 /**
  * 탭 레이아웃 라우트 아래 index(탭 본문) 하나. path 를 주면(기본 /projects/:key) renderRoutesScreen 에 넘기고,
@@ -51,7 +32,7 @@ export function InProjectTabs({ children }: { children: ReactElement }) {
 
 /**
  * 이슈 탭(ProjectDetailPage)을 탭 레이아웃 아래에서 그린다 — `/projects/:key` 라우트 하나의 element 로 넘긴다.
- * 기억한 탭이 없으면 기본 탭이 이슈라 조건 없는 주소도 이슈 탭 그대로 열린다.
+ * 조건 없는 주소를 이슈 탭으로 열려면 렌더 도우미가 그 키의 기억을 심어야 한다(기본 WP, 다른 키는 projectTabs 옵션).
  */
 export function ProjectIssuesTab() {
   return (

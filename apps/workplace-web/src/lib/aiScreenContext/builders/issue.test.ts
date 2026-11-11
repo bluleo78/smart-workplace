@@ -124,6 +124,21 @@ describe('buildIssueListContext 상한 초과', () => {
     expect(facts).toContainEqual({ label: '상태', value: '검토 중, #99' });
     expect(facts.map((f) => f.label)).not.toContain('상태 범주');
   });
+  // WP-1478 — 개요에서 연 「오래 멈춤」·「기다리는 중」 조건도 「차단됨」처럼 facts 로 싣는다(꺼져 있으면 싣지 않는다).
+  it('오래 멈춤·기다리는 중 필터를 facts 로 싣고, 꺼져 있으면 뺀다', () => {
+    const lookups = { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [] };
+    const on = buildIssueListContext({
+      projectKey: 'WP', projectName: 'Workplace', view: 'list', groupBy: null,
+      filters: { ...emptyFilters, stale: true, waiting: true }, lookups,
+    });
+    expect(on.scope!.facts).toEqual(expect.arrayContaining([
+      { label: '오래 멈춤', value: '예' },
+      { label: '기다리는 중', value: '예' },
+    ]));
+    const off = buildIssueListContext({ projectKey: 'WP', projectName: 'Workplace', view: 'list', groupBy: null, filters: emptyFilters, lookups });
+    expect(off.scope!.facts!.map((f) => f.label)).not.toContain('오래 멈춤');
+    expect(off.scope!.facts!.map((f) => f.label)).not.toContain('기다리는 중');
+  });
   it('모든 필터가 켜지면 12개로 자르되 밀린 필터 이름을 "기타 필터"로 요약', () => {
     const ctx = buildIssueListContext({
       projectKey: 'WP', projectName: 'Workplace', view: 'board', groupBy: 'status',
