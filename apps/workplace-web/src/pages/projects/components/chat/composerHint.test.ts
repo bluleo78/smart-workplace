@@ -1,21 +1,29 @@
 import { describe, expect, it } from 'vitest'
 
-import { agentReplyHint, implicitAgentHint } from './composerHint'
+import { externalAgentHint, implicitAgentHint } from './composerHint'
 
-describe('agentReplyHint', () => {
-  it('받침 없는 이름은 「가」', () => {
-    expect(agentReplyHint('코디')).toBe('답변 입력… 멘션 없이 보내도 코디가 이어받아요')
+// WP-1499: 외부 실행 AI 안내도 WP-1377 형식(짧은 placeholder + 아래 한 줄) 하나로 — 늘 답하므로 판정 없음.
+describe('externalAgentHint', () => {
+  it('이름 → 짧은 placeholder 와 아래 한 줄', () => {
+    expect(externalAgentHint('코디')).toEqual({
+      placeholder: '코디에게 메시지 (Shift+Enter 로 줄바꿈)',
+      note: '담당 AI 코디 · 멘션 없이도 답합니다',
+    })
   })
-  it('받침 있는 이름은 「이」', () => {
-    expect(agentReplyHint('루미봇')).toBe('답변 입력… 멘션 없이 보내도 루미봇이 이어받아요')
+  it('터치 셸은 Shift+Enter 안내를 뺀다', () => {
+    expect(externalAgentHint('코디', true)?.placeholder).toBe('코디에게 메시지')
   })
-  it('한글로 끝나지 않으면 「이(가)」', () => {
-    expect(agentReplyHint('Claude')).toBe('답변 입력… 멘션 없이 보내도 Claude이(가) 이어받아요')
-    expect(agentReplyHint('봇2')).toBe('답변 입력… 멘션 없이 보내도 봇2이(가) 이어받아요')
+  it('받침 판정이 안 되는 이름에도 「이(가)」를 붙이지 않는다', () => {
+    expect(externalAgentHint('Claude')?.note).toBe('담당 AI Claude · 멘션 없이도 답합니다')
+    expect(externalAgentHint('AI 개발자6(D2)')?.note).toBe('담당 AI AI 개발자6(D2) · 멘션 없이도 답합니다')
   })
-  it('이름이 없으면 안내 없음', () => {
-    expect(agentReplyHint(null)).toBeUndefined()
-    expect(agentReplyHint('  ')).toBeUndefined()
+  it('이름이 없거나 공백이면 안내 없음', () => {
+    expect(externalAgentHint(null)).toBeUndefined()
+    expect(externalAgentHint(undefined)).toBeUndefined()
+    expect(externalAgentHint('  ')).toBeUndefined()
+  })
+  it('이름 앞뒤 공백은 지운다', () => {
+    expect(externalAgentHint('  코디 ')?.note).toBe('담당 AI 코디 · 멘션 없이도 답합니다')
   })
 })
 
@@ -29,13 +37,13 @@ describe('implicitAgentHint', () => {
   it('ALWAYS 면 마지막 글이 사람이어도 안내한다', () => {
     expect(implicitAgentHint({ id: AI, name: '코디', mode: 'ALWAYS' }, [human])).toEqual({
       placeholder: '코디에게 메시지 (Shift+Enter 로 줄바꿈)',
-      note: '이 작업의 담당 AI 코디가 멘션 없이도 답합니다',
+      note: '담당 AI 코디 · 멘션 없이도 답합니다',
     })
     expect(implicitAgentHint({ id: AI, name: '코디', mode: 'ALWAYS' }, [])).toBeDefined()
   })
   it('AFTER_AI_REPLY 는 마지막 글이 그 AI 면 안내한다', () => {
     expect(implicitAgentHint({ id: AI, name: '루미봇', mode: 'AFTER_AI_REPLY' }, [human, aiReply])?.note).toBe(
-      '이 작업의 담당 AI 루미봇이 멘션 없이도 답합니다',
+      '담당 AI 루미봇 · 멘션 없이도 답합니다',
     )
   })
   it('AFTER_AI_REPLY 는 마지막 글이 사람이면 안내하지 않는다', () => {
@@ -71,7 +79,7 @@ describe('implicitAgentHint', () => {
   it('터치 셸은 Shift+Enter 안내를 뺀다', () => {
     expect(implicitAgentHint({ id: AI, name: 'Claude', mode: 'ALWAYS' }, [], true)).toEqual({
       placeholder: 'Claude에게 메시지',
-      note: '이 작업의 담당 AI Claude이(가) 멘션 없이도 답합니다',
+      note: '담당 AI Claude · 멘션 없이도 답합니다',
     })
   })
   it('담당 AI 가 없으면 안내 없음', () => {

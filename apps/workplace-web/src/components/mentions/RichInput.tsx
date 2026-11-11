@@ -334,7 +334,8 @@ export function RichInput({
         'aria-label': ariaLabel,
         // 한 줄 레이아웃 데스크톱은 36px(＋·보내기 버튼과 같은 높이), 그 밖은 44px 터치 타깃.
         // 모바일 한 줄은 원형 ＋·보내기와 어울리게 둥근 모서리(메인 AI 채팅 모바일 입력과 같은 rounded-2xl).
-        class: `${inlineSubmit ? 'min-h-11 max-lg:rounded-2xl lg:min-h-9 lg:py-1.5' : 'min-h-[44px]'} ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
+        // chat-rich-input: 빈 입력 안내를 한 줄로 자르는 CSS 범위(chat-rich-input.css, WP-1499) — 노트 에디터 등 다른 ProseMirror 와 가른다.
+        class: `chat-rich-input ${inlineSubmit ? 'min-h-11 max-lg:rounded-2xl lg:min-h-9 lg:py-1.5' : 'min-h-[44px]'} ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
       },
       // 클립보드 파일(스크린샷 등)은 본문에 넣지 않고 첨부로 넘긴다. 텍스트가 함께 있으면 텍스트 붙여넣기(filesFromPaste).
       handlePaste: (_view, event) => {

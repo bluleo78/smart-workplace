@@ -32,8 +32,8 @@ interface ChatComposerProps {
   // 포커스 요청 번호 — 0 보다 크면(마운트 포함) 입력창에 포커스하고 onFocusRequestDone 을 부른다(개인 작업 「채팅으로 이동」, WP-1372). RichInput 으로 그대로 넘긴다.
   focusRequest?: number;
   onFocusRequestDone?: () => void;
-  // 지정되면 기기와 무관하게 이 안내를 placeholder 로 쓴다(외부 실행 AI 담당 이슈의 답변 안내, WP-373).
-  // 긴 문구라 모바일 폭에서 두 줄로 접히므로 루트에 data-long-placeholder 를 달아 CSS 가 높이를 확보하게 한다.
+  // 지정되면 기본 안내 대신 이 문구를 placeholder 로 쓴다 — 멘션 없이도 답하는 담당 AI 안내(짧은 한 줄, WP-1377·WP-1499).
+  // 짧은 한 줄이라 기본 placeholder 처럼 높이를 차지하지 않는다(두 줄 높이 확보용 CSS 는 WP-1499 에서 없앴다).
   placeholder?: string;
 }
 
@@ -69,7 +69,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus,
   };
 
   return (
-    <div className="relative border-t p-3" data-testid="chat-composer" data-long-placeholder={placeholder ? '' : undefined} {...dropProps}>
+    <div className="relative border-t p-3" data-testid="chat-composer" {...dropProps}>
       {isDragging && <ComposerDropOverlay />}
       <ComposerAttachmentChips
         testIdPrefix="chat-composer"
