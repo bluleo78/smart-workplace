@@ -544,6 +544,26 @@ describe('앱 링크 카드 (WP-896)', () => {
     expect(screen.queryByTestId('link-preview-36-0')).not.toBeInTheDocument()
   })
 
+  test('드라이브 공유 링크는 공유 카드 — 예전에 저장된 OG 미리보기(공유 링크 화면 껍데기)는 겹쳐 보이지 않는다(WP-1474)', async () => {
+    const SHARE_URL = 'http://localhost/s/sl_Ab3xYz'
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({
+        id: 37, channelId: 1, authorId: 20, authorName: '이진우', body: `자료 ${SHARE_URL}`,
+        linkPreviews: [createLinkPreview({ position: 0, url: SHARE_URL, title: '공유 파일 — Gen:iA Works' })],
+      }),
+    ], {
+      handlers: [
+        http.get(`${API}/app-links/shares/:token`, () =>
+          HttpResponse.json({ kind: 'SHARE', shareState: 'OPEN', title: 'a.pdf', mimeType: 'application/pdf', typeLabel: 'PDF', sizeBytes: 2048 }),
+        ),
+      ],
+    })
+    const card = await settled('app-link-37-0', 'ready')
+    expect(card).toHaveTextContent('a.pdf')
+    expect(card).toHaveAttribute('href', '/s/sl_Ab3xYz')
+    expect(screen.queryByTestId('link-preview-37-0')).not.toBeInTheDocument()
+  })
+
   test('다른 호스트·앱 화면이 아닌 주소에는 앱 카드가 없다', async () => {
     const calls: string[] = []
     openChannel(createChannel({ id: 1, member: true }), [

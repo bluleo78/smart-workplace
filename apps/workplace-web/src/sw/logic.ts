@@ -108,6 +108,14 @@ export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: st
  */
 export const NAVIGATION_DENYLIST: RegExp[] = [/^\/api\//, /^\/s\//, /^\/wiki\/share\//]
 
+/**
+ * 앱 안 이동(SPA)으로 열면 안 되는 경로인가 — 서비스 워커가 서버로 보내는 주소(NAVIGATION_DENYLIST)와 같은 목록으로 판정한다.
+ * 그런 화면(드라이브 공유 링크 /s/… 등)은 AppLayout 밖이라 앱 링크 카드·노트 칩이 새 탭으로 연다(WP-1474). path 는 경로(+쿼리)다.
+ */
+export function isOutsideSpaPath(path: string): boolean {
+  return NAVIGATION_DENYLIST.some((pattern) => pattern.test(path))
+}
+
 // notificationclick 이 postMessage 로 라우팅을 넘겨도 되는 "앱 라우트"가 아닌 경로 — 로그인/가입/공유링크/알림
 // 진입점/OAuth 콜백은 AppLayout(라우터) 밖이라 push-navigate 메시지를 받아 처리할 화면이 없다.
 const NON_APP_EXACT_PATHS = new Set(['/login', '/signup', '/push-open'])

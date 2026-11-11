@@ -1,6 +1,7 @@
 package com.workplace.messaging.outbound;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.PublicAppHost;
 import com.workplace.messaging.service.LinkPreviewService;
 import com.workplace.messaging.service.LinkUrlExtractor;
@@ -23,9 +24,9 @@ import org.springframework.stereotype.Component;
  * messaging.message.link-previews} 보다 먼저 나간다(별도 리스너면 두 커밋 뒤 작업의 순서가 보장되지 않아 미리보기가 메시지보다 먼저 도착할 수
  * 있었다). 실행기의 TenantContextTaskDecorator 가 제출 시점(요청 스레드)의 테넌트를 워커로 복원한다.
  *
- * <p>우리 앱의 이슈·노트·파일 주소(공개 웹 주소 {@code workplace.public-base-url} 와 호스트가 같고 경로가 그 화면인 URL)는 가져오지
- * 않는다(WP-896) — 웹이 보는 사람 권한으로 앱 카드를 따로 그린다. 가져오면 SPA 껍데기의 같은 제목 카드가 함께 붙는다. 같은 호스트라도 카드가 없는 경로(공개
- * 노트 공유 링크 등 — 자기 OG 메타가 있다)는 지금처럼 가져온다. 경로 규칙은 웹 {@code src/lib/appLinks.ts} 와 같아야 한다.
+ * <p>우리 앱의 이슈·노트·파일·드라이브 공유 링크 주소(공개 웹 주소 {@code workplace.public-base-url} 와 호스트가 같고 경로가 그 화면인
+ * URL)는 가져오지 않는다(WP-896) — 웹이 보는 사람 권한으로 앱 카드를 따로 그린다. 가져오면 SPA 껍데기의 같은 제목 카드가 함께 붙는다. 같은 호스트라도 카드가
+ * 없는 경로(공개 노트 공유 링크 등 — 자기 OG 메타가 있다)는 지금처럼 가져온다. 경로 규칙은 웹 {@code src/lib/appLinks.ts} 와 같아야 한다.
  */
 @Slf4j
 @Component
@@ -92,8 +93,9 @@ public class LinkPreviewDispatcher {
    * 웹이 앱 카드로 그리는 주소인지 — 호스트가 우리 앱이고 경로가 {@code /projects/{KEY}/issues/{n}}·{@code
    * /wiki/spaces/{s}/pages/{id}}·{@code /wiki/open/{id}}·{@code /drive/spaces/{s}?file={id}}·{@code
    * /drive/spaces/{s}?preview={id}}·{@code /chat/channels/{c}?message={id}}·{@code
-   * /chat/dms/{c}?message={id}}·{@code /calendar?eventId={id}}·{@code /mail/{a}?messageId={id}} 중
-   * 하나(쿼리 값은 처음 나온 것만 본다). 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
+   * /chat/dms/{c}?message={id}}·{@code /calendar?eventId={id}}·{@code
+   * /mail/{a}?messageId={id}}·{@code /s/{token}}(드라이브 공유 링크, WP-1474 — 쿼리·조각은 보지 않는다) 중 하나(쿼리 값은 처음
+   * 나온 것만 본다). 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
    * 표(test/resources/app-links/app-card-urls.json)를 읽어 어긋나면 실패한다.
    */
   boolean isAppCardUrl(String url) {
@@ -132,6 +134,12 @@ public class LinkPreviewDispatcher {
     // 메일(WP-1236): /mail/{accountId}?messageId={id}
     if (p.length == 2 && p[0].equals("mail") && ID.matcher(p[1]).matches()) {
       return idParam(MAIL_PARAM, m.group(3));
+    }
+    // 드라이브 공유 링크(WP-1474): /s/{token} — 보는 사람 권한 카드를 웹이 그린다. 하위 경로·다른 접두어는 카드가 아니다.
+    if (p.length == 2
+        && p[0].equals("s")
+        && CapabilityTokens.SHARE_LINK_TOKEN.matcher(p[1]).matches()) {
+      return true;
     }
     return false;
   }

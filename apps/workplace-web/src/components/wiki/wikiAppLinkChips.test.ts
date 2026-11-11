@@ -138,6 +138,56 @@ describe('WikiAppLinkChips — 칩 그리기', () => {
     expect(editor.view.dom.textContent).toContain(ISSUE)
   })
 
+  it('공유 링크(WP-1474) — 이름 있는 카드는 이름, 비밀번호 카드는 서버가 준 고정 제목, 만료(410 — 카드 없음)는 원래 링크로 남는다', () => {
+    const open = `https://${HOST}/s/sl_open1`
+    const locked = `https://${HOST}/s/sl_locked1`
+    const expired = `https://${HOST}/s/sl_gone1`
+    const { editor } = makeEditor(`<p>${open} ${locked} ${expired}</p>`)
+    // 만료된 링크는 410 이라 카드를 받지 못한다 — 받은 카드에 넣지 않는다.
+    receive(editor, {
+      '/s/sl_open1': { kind: 'SHARE', shareState: 'OPEN', title: '계획.pdf', mimeType: 'application/pdf' },
+      '/s/sl_locked1': { kind: 'SHARE', shareState: 'PASSWORD', title: '비밀번호로 보호된 공유 파일' },
+    })
+    const [a, b, ...rest] = chips(editor)
+    expect(rest).toHaveLength(0)
+    expect(a.dataset.appLinkTo).toBe('/s/sl_open1')
+    expect(a.title).toBe('파일 계획.pdf')
+    expect(b.textContent).toBe('비밀번호로 보호된 공유 파일')
+    expect(b.title).toBe('파일 비밀번호로 보호된 공유 파일')
+    expect(editor.view.dom.textContent).toContain(expired)
+    // 앱 밖 화면(/s/<token>)으로 가는 칩은 새 탭으로 연다.
+    expect(a.hasAttribute('data-app-link-new-tab')).toBe(true)
+    expect(b.hasAttribute('data-app-link-new-tab')).toBe(true)
+  })
+
+  it('공유 링크(WP-1474) — 공간 구성원 칩은 채팅 카드와 같은 드라이브 파일 경로로 앱 안에서 간다', () => {
+    const member = `https://${HOST}/s/sl_member1`
+    const root = `https://${HOST}/s/sl_member2`
+    const { editor } = makeEditor(`<p>${member} ${root}</p>`)
+    receive(editor, {
+      '/s/sl_member1': { kind: 'SHARE', shareState: 'MEMBER', title: '계획.pdf', spaceName: '팀', driveSpaceId: 5, driveFolderId: 12, driveFileId: 77 },
+      '/s/sl_member2': { kind: 'SHARE', shareState: 'MEMBER', title: 'a.txt', spaceName: '팀', driveSpaceId: 5, driveFileId: 78 },
+    })
+    const [a, b] = chips(editor)
+    expect(a.dataset.appLinkTo).toBe('/drive/spaces/5?folderId=12&preview=77')
+    expect(a.getAttribute('href')).toBe('/drive/spaces/5?folderId=12&preview=77')
+    expect(b.dataset.appLinkTo).toBe('/drive/spaces/5?preview=78')
+    expect(a.hasAttribute('data-app-link-new-tab')).toBe(false)
+  })
+
+  it('공유 링크(WP-1474) — 이름이 같아도 이동 경로가 바뀌면(비구성원 → 구성원) 칩을 새로 그린다', () => {
+    const link = `https://${HOST}/s/sl_state1`
+    const { editor } = makeEditor(`<p>${link}</p>`)
+    receive(editor, { '/s/sl_state1': { kind: 'SHARE', shareState: 'OPEN', title: '계획.pdf' } })
+    const [before] = chips(editor)
+    expect(before.hasAttribute('data-app-link-new-tab')).toBe(true)
+    receive(editor, { '/s/sl_state1': { kind: 'SHARE', shareState: 'MEMBER', title: '계획.pdf', driveSpaceId: 5, driveFileId: 77 } })
+    const [after] = chips(editor)
+    expect(after).not.toBe(before)
+    expect(after.dataset.appLinkTo).toBe('/drive/spaces/5?preview=77')
+    expect(after.hasAttribute('data-app-link-new-tab')).toBe(false)
+  })
+
   it('편집 중 커서가 그 링크에 닿으면 원래 글자를 드러내고, 벗어나면 다시 칩이다', () => {
     const { editor } = makeEditor(`<p>앞 ${ISSUE} 뒤</p>`, { editable: true })
     receive(editor, { '/projects/WP/issues/12': ISSUE_CARD })

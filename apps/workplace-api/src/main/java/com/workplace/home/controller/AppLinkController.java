@@ -1,8 +1,14 @@
 package com.workplace.home.controller;
 
 import com.workplace.calendar.service.CalendarEventService;
+import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveShareAppCard;
+import com.workplace.drive.service.DriveShareLinkService;
+import com.workplace.drive.service.DriveSharePreviewMeta;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.PublicAppHost;
 import com.workplace.home.dto.AppLinkCard;
 import com.workplace.home.dto.AppLinkConfig;
@@ -33,6 +39,7 @@ public class AppLinkController {
   private final MessageService messageService;
   private final CalendarEventService calendarEventService;
   private final MailMessageService mailMessageService;
+  private final DriveShareLinkService driveShareLinkService;
   // 공개 웹 주소의 호스트 — 서버 OG 제외와 같은 값(PublicAppHost). 설정이 비었거나 잘못됐으면 null.
   private final String appHost;
 
@@ -43,6 +50,7 @@ public class AppLinkController {
       MessageService messageService,
       CalendarEventService calendarEventService,
       MailMessageService mailMessageService,
+      DriveShareLinkService driveShareLinkService,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.issueService = issueService;
     this.pageService = pageService;
@@ -50,6 +58,7 @@ public class AppLinkController {
     this.messageService = messageService;
     this.calendarEventService = calendarEventService;
     this.mailMessageService = mailMessageService;
+    this.driveShareLinkService = driveShareLinkService;
     this.appHost = PublicAppHost.of(publicBaseUrl);
   }
 
@@ -128,5 +137,33 @@ public class AppLinkController {
     String subject = m.subject() == null || m.subject().isBlank() ? "(제목 없음)" : m.subject();
     String from = m.fromName() == null || m.fromName().isBlank() ? m.fromAddress() : m.fromName();
     return AppLinkCard.mail(subject, from, m.sentAt());
+  }
+
+  /**
+   * 드라이브 공유 링크(/s/{token}, WP-1474) — 보는 사람 권한으로 고른 카드. 파일 공간 구성원이면 링크 상태와 무관하게 드라이브의 파일(MEMBER),
+   * 아니면 링크로 열 수 있는지에 따라 OPEN·PASSWORD. PASSWORD 는 파일 정보 없이 고정 제목만 싣는다. 열 수 없는 링크(없는 토큰·비활성
+   * 워크스페이스·폐기·만료·휴지통/없는 파일)는 410(본문에 파일 정보 없음), 다른 워크스페이스의 사내 링크와 토큰 문법 밖의 값은 404(문법은 서비스를 부르기 전에
+   * 거른다). 조회일 뿐이라 비밀번호 시도 칸을 쓰지 않는다.
+   */
+  @GetMapping("/shares/{token}")
+  public AppLinkCard share(
+      @AuthenticationPrincipal Long callerId, @PathVariable("token") String token) {
+    if (!CapabilityTokens.SHARE_LINK_TOKEN.matcher(token).matches()) {
+      throw new DriveShareLinkNotFoundException();
+    }
+    return switch (driveShareLinkService.appLinkCard(token, TenantContext.get(), callerId)) {
+      case DriveShareAppCard.Member m ->
+          AppLinkCard.shareMember(
+              m.name(), m.mimeType(), m.spaceName(), m.spaceId(), m.folderId(), m.fileId());
+      case DriveShareAppCard.Open o ->
+          AppLinkCard.shareOpen(
+              o.name(),
+              o.mimeType(),
+              // 메신저 미리보기 카드와 같은 종류 이름(WP-1473)
+              DriveSharePreviewMeta.typeLabel(o.name(), o.mimeType()),
+              o.sizeBytes(),
+              o.expiresAt() == null ? null : o.expiresAt().toInstant());
+      case DriveShareAppCard.PasswordProtected p -> AppLinkCard.sharePassword();
+    };
   }
 }

@@ -957,7 +957,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
           return
         }
         const to = chip.getAttribute('data-app-link-to')!
-        if (e.metaKey || e.ctrlKey) window.open(to, '_blank', 'noopener,noreferrer')
+        // 앱 밖 화면으로 가는 칩(구성원이 아닌 공유 링크 /s/<token> 등, WP-1474 — chipElement 가 data-app-link-new-tab 을 단다)은 늘 새 탭으로 연다.
+        if (e.metaKey || e.ctrlKey || chip.hasAttribute('data-app-link-new-tab')) window.open(to, '_blank', 'noopener,noreferrer')
         else navigate(to)
         return
       }

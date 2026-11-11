@@ -7,10 +7,12 @@ import com.workplace.drive.dto.ShareInfoResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.exception.DriveShareLinkGoneException;
 import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
+import com.workplace.drive.repository.DriveSpaceRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.CapabilityTokens;
@@ -61,6 +63,9 @@ public class DriveShareLinkService {
 
   /** 「드라이브에서 열기」 판정 — 요청자의 공간 역할(부서 역할 포함, WP-1227). */
   private final DriveSpaceMemberRepository spaceMembers;
+
+  /** 앱 카드 Member 판정과 공간 이름(WP-1474) — 실효 역할(부서 역할 포함)이 있는 공간만 돌려준다. */
+  private final DriveSpaceRepository spaces;
 
   /** 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시 저장 → 평문 1회 반환. */
   @Transactional
@@ -270,6 +275,79 @@ public class DriveShareLinkService {
   }
 
   /**
+   * 채팅 앱 카드 판정(WP-1474) — 로그인한 보는 사람 권한으로 그 순간 카드 칸을 정한다. 구성원이면 링크가 닫혔어도 카드를 보여야 해서 {@link
+   * #resolveActive}(닫힌 링크를 곧장 410 으로 던진다)를 쓰지 않고 따로 본다.
+   *
+   * <p>순서: 없는 토큰·비활성 테넌트 → 410. 다른 워크스페이스(또는 테넌트 없음)면 파일을 읽기 전에 폐기·만료 → 410, 사내 링크 → 404(존재를 더 드러내지
+   * 않는다). 그다음 링크 워크스페이스에서 {@link #judgeAppCard} 가 가른다. 410 은 공개 공유 경로와 같은 {@link
+   * DriveShareLinkGoneException} 이라 본문에 파일 정보가 없다.
+   *
+   * <p>조회일 뿐이라 비밀번호 시도 칸을 쓰지 않고 감사도 남기지 않는다. 파일·공간은 링크 워크스페이스로 컨텍스트를 세워 트랜잭션 안에서 읽고(FORCE RLS),
+   * {@link TenantContext#callAs} 가 끝나면 요청자 컨텍스트로 되돌린다.
+   *
+   * @param requesterTenantId 요청자 워크스페이스(없으면 null — 구성원 판정을 하지 않는다)
+   * @throws DriveShareLinkGoneException 보는 사람이 열 수 없는 링크일 때(410)
+   * @throws DriveShareLinkNotFoundException 다른 워크스페이스가 사내 링크를 볼 때(404)
+   */
+  public DriveShareAppCard appLinkCard(String token, Long requesterTenantId, long requesterUserId) {
+    var link =
+        links
+            .resolve(CapabilityTokens.sha256Hex(token))
+            .filter(l -> tenantStatusChecker.isActive(l.tenantId()))
+            .orElseThrow(DriveShareLinkGoneException::new);
+    boolean sameWorkspace =
+        requesterTenantId != null && requesterTenantId.longValue() == link.tenantId();
+    // 다른 워크스페이스 요청자는 구성원일 수 없다 — 열 수 없는 링크면 링크 워크스페이스의 파일을 읽지 않고 끝낸다.
+    if (!sameWorkspace) {
+      if (isClosed(link)) throw new DriveShareLinkGoneException();
+      if ("INTERNAL".equals(link.audience())) throw new DriveShareLinkNotFoundException();
+    }
+    return TenantContext.callAs(
+        link.tenantId(),
+        () -> tx.execute(st -> judgeAppCard(link, sameWorkspace, requesterUserId)));
+  }
+
+  /**
+   * 앱 카드 판정의 파일 단계 — 링크 워크스페이스 컨텍스트와 트랜잭션 안에서 부른다. 파일 행과 메타를 먼저 한 번씩 읽고 거기서 가른다.
+   *
+   * <ul>
+   *   <li>휴지통·없는 파일(메타 없음 포함) → 410(구성원에게도 드라이브에서 열 파일이 없고, 비밀번호 링크라도 열 수 없다 — 상태와 무관하게 같다)
+   *   <li>같은 워크스페이스이고 공간 실효 역할이 있으면 → Member(만료·폐기·비밀번호·audience 와 무관). 판정은 {@code
+   *       spaces.findForUser} — {@link #info} 의 「드라이브에서 열기」({@code spaceMembers.findRole})와 같은 실효
+   *       역할 규칙(부서 역할 포함)이고 공간 이름도 함께 읽는다. 보관된 공간도 VIEWER 로 열람은 되므로(쓰기만 막힘, {@link
+   *       DrivePermissions#requireRole}) Member 다.
+   *   <li>폐기·만료 → 410. 비밀번호 링크 → PasswordProtected(이름·크기·종류를 싣지 않는다). 그 밖 → Open.
+   * </ul>
+   */
+  private DriveShareAppCard judgeAppCard(
+      DriveShareLinkRepository.ResolvedLink link, boolean sameWorkspace, long requesterUserId) {
+    var row = files.findRow(link.driveFileId()).orElseThrow(DriveShareLinkGoneException::new);
+    var meta = links.findFileMeta(row.fileId()).orElseThrow(DriveShareLinkGoneException::new);
+    if (sameWorkspace) {
+      var space = spaces.findForUser(row.spaceId(), requesterUserId);
+      if (space.isPresent()) {
+        return new DriveShareAppCard.Member(
+            row.name(),
+            meta.mimeType(),
+            space.get().name(),
+            row.spaceId(),
+            row.folderId(),
+            row.id());
+      }
+    }
+    if (isClosed(link)) throw new DriveShareLinkGoneException();
+    if (link.passwordHash() != null) return new DriveShareAppCard.PasswordProtected();
+    return new DriveShareAppCard.Open(
+        row.name(), meta.mimeType(), meta.sizeBytes(), link.expiresAt());
+  }
+
+  /** 링크가 닫혔는지 — 폐기됐거나 만료일이 지났다. 공개 경로 가드({@link #resolveActive})와 앱 카드 판정이 같은 기준을 쓴다. */
+  private static boolean isClosed(DriveShareLinkRepository.ResolvedLink link) {
+    return link.revokedAt() != null
+        || (link.expiresAt() != null && link.expiresAt().isBefore(OffsetDateTime.now()));
+  }
+
+  /**
    * 링크 가드(시도 칸 없음) — 404(없음·비활성 테넌트) → 410(만료·폐기) → 사내 링크 로그인(401)·워크스페이스(403). 비밀번호는 보지 않는다(
    * {@link #verifyPassword} 또는 열람 토큰이 맡는다). 모든 공개 경로가 매 요청 이 가드를 거친다.
    */
@@ -292,10 +370,8 @@ public class DriveShareLinkService {
       throw new com.workplace.drive.exception.DriveShareLinkNotFoundException();
     }
 
-    if (link.revokedAt() != null
-        || (link.expiresAt() != null
-            && link.expiresAt().isBefore(java.time.OffsetDateTime.now()))) {
-      throw new com.workplace.drive.exception.DriveShareLinkGoneException();
+    if (isClosed(link)) {
+      throw new DriveShareLinkGoneException();
     }
     return link;
   }

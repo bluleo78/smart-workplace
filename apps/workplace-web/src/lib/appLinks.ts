@@ -1,4 +1,4 @@
-// 채팅 본문의 우리 앱 링크 읽기(WP-896) — 같은 호스트의 이슈·노트·드라이브 파일 주소를 종류·id 로 바꾼다. DOM 비의존 순수 함수.
+// 채팅 본문의 우리 앱 링크 읽기(WP-896) — 같은 호스트의 이슈·노트·드라이브 파일·드라이브 공유 링크(/s/sl_…, WP-1474) 주소를 종류·id 로 바꾼다. DOM 비의존 순수 함수.
 // 카드는 서버가 보는 사람 권한으로 채우고(/api/v1/app-links), 여기서는 어느 링크가 앱 링크인지와 앱 안 이동 경로만 정한다.
 import { calendarEventPath, chatMessagePath, issuePath, mailMessagePath } from '@/lib/appUrl'
 import { commentIdFromHash } from '@/lib/issueCommentLink'
@@ -16,6 +16,8 @@ export type AppLink =
   | { kind: 'MESSAGE'; to: string; messageId: number }
   | { kind: 'EVENT'; to: string; eventId: number }
   | { kind: 'MAIL'; to: string; mailId: number }
+  // 드라이브 공유 링크(WP-1474) — to 는 공유 링크 화면(/s/<token>). 카드를 받은 뒤 구성원이면 드라이브의 그 파일로 간다(AppLinkCard).
+  | { kind: 'SHARE'; to: string; token: string }
 
 /** 앱 링크 종류의 화면 이름 — 채팅 카드와 노트 칩이 같은 말을 쓴다. */
 export const APP_LINK_KIND_LABEL: Record<AppLink['kind'], string> = {
@@ -25,6 +27,8 @@ export const APP_LINK_KIND_LABEL: Record<AppLink['kind'], string> = {
   MESSAGE: '메시지',
   EVENT: '일정',
   MAIL: '메일',
+  // 다른 워크스페이스 사람이 내부 공유 링크를 보면 「볼 수 없는 파일입니다」(설계 문서 3장).
+  SHARE: '파일',
 }
 
 // 마크다운 링크 [글](url) — 서버 LinkUrlExtractor.MD_LINK 와 같은 모양. 주소만 남겨 글 쪽 URL 과 한 토큰으로 붙지 않게 한다.
@@ -35,6 +39,8 @@ const MD_LINK = /\[[^\]\n]*\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g
 //   - 노트·파일 id 는 Number() 로 바꿔도 값이 그대로인 15자리까지(2^53 아래)
 const ISSUE_NUMBER = /^[1-9][0-9]{0,8}$/
 const ID = /^[1-9][0-9]{0,14}$/
+// 드라이브 공유 링크 토큰(WP-1474) — CapabilityTokens.generate("sl_") 의 sl_ + base62. 서버 CapabilityTokens.SHARE_LINK_TOKEN 과 같다.
+const SHARE_TOKEN = /^sl_[0-9A-Za-z]{1,64}$/
 
 /** 본문에서 카드 대상 URL(href)을 나온 순서대로, 중복 없이 최대 3개 — 서버가 미리보기를 고르는 규칙과 같다. */
 export function cardUrls(body: string): string[] {
@@ -94,6 +100,7 @@ function isAppHost(hostname: string, appHosts: AppHosts): boolean {
  *   - /drive/spaces/{spaceId}?file={id} · /drive/spaces/{spaceId}?preview={id}(드라이브 미리보기, WP-1235)
  *   - /chat/channels/{id}?message={id} · /chat/dms/{id}?message={id}(스레드 답글은 &thread={rootId} 도) · /calendar?eventId={id}
  *     · /mail/{accountId}?messageId={id}(WP-1236) — 쿼리가 없으면 대화·캘린더·메일함 화면이라 카드가 아니다
+ *   - /s/{sl_토큰}(드라이브 공유 링크, WP-1474) — 정확히 세그먼트 2개, 쿼리·조각은 무시
  */
 export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
   let url: URL
@@ -157,6 +164,10 @@ export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
     const mail = q('messageId')
     return mail ? { kind: 'MAIL', to: mailMessagePath(Number(parts[1]), Number(mail)), mailId: Number(mail) } : null
   }
+  // 드라이브 공유 링크(WP-1474) — 이동 경로는 공유 링크 화면 그대로(쿼리·조각은 버린다).
+  if (parts.length === 2 && parts[0] === 's' && SHARE_TOKEN.test(parts[1])) {
+    return { kind: 'SHARE', to: `/s/${parts[1]}`, token: parts[1] }
+  }
   return null
 }
 
@@ -189,6 +200,8 @@ export function appLinkTarget(link: AppLink): string {
       return `EVENT:${link.eventId}`
     case 'MAIL':
       return `MAIL:${link.mailId}`
+    case 'SHARE':
+      return `SHARE:${link.token}`
   }
 }
 

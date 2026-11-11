@@ -6,16 +6,18 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 채팅 본문의 우리 앱 링크 카드(WP-896) — 링크를 보는 사람의 권한으로 그 순간 채운다(저장하지 않는다). 종류마다 쓰는 칸만 싣는다.
+ * 채팅 본문의 우리 앱 링크 카드(WP-896) — 링크를 보는 사람의 권한으로 그 순간 채운다(저장하지 않는다). 종류마다 쓰는 칸만 싣는다(NON_NULL — 비운 칸은
+ * 응답 JSON 에 키조차 없다).
  *
- * @param kind ISSUE | PAGE | FILE | MESSAGE | EVENT | MAIL
- * @param title 이슈 제목 / 노트 제목 / 파일 이름 / 메시지 본문 미리보기 / 일정 제목 / 메일 제목
+ * @param kind ISSUE | PAGE | FILE | MESSAGE | EVENT | MAIL | SHARE
+ * @param title 이슈 제목 / 노트 제목 / 파일 이름 / 메시지 본문 미리보기 / 일정 제목 / 메일 제목 / SHARE(MEMBER·OPEN) — 파일 이름,
+ *     SHARE(PASSWORD) — 고정 문구 {@link #SHARE_PASSWORD_TITLE}
  * @param issueKey ISSUE — KEY-N
  * @param statusName ISSUE — 상태 이름
  * @param statusCategory ISSUE — 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED — 배지 색, 다른 이슈 화면과 같다)
  * @param assignees ISSUE — 담당자
  * @param priority ISSUE — 우선순위(HIGHEST·HIGH·MID·LOW·LOWEST)
- * @param spaceName PAGE — 노트 스페이스 이름
+ * @param spaceName PAGE — 노트 스페이스 이름 / SHARE(MEMBER) — 파일이 있는 드라이브 공간 이름
  * @param channelName MESSAGE — 채널 이름. DM 이면 보는 사람 기준 상대 이름(대화 목록과 같은 표기)
  * @param channelKind MESSAGE — CHANNEL | DM
  * @param authorName MESSAGE — 보낸 사람 이름 / MAIL — 보낸 사람 표시 이름(없으면 주소)
@@ -23,6 +25,14 @@ import java.util.List;
  * @param startAt EVENT — 시작 시각
  * @param endAt EVENT — 끝 시각
  * @param allDay EVENT — 종일 일정인지
+ * @param shareState SHARE — MEMBER | OPEN | PASSWORD(WP-1474). 열 수 없는 링크는 카드가 아니라 410 이다
+ * @param mimeType SHARE(MEMBER·OPEN) — 파일 형식
+ * @param typeLabel SHARE(OPEN) — 사람이 읽는 종류 이름(메신저 미리보기 카드와 같은 표기)
+ * @param sizeBytes SHARE(OPEN) — 파일 크기
+ * @param expiresAt SHARE(OPEN) — 링크 만료 시각(만료일 없는 링크면 없음)
+ * @param driveSpaceId SHARE(MEMBER) — 드라이브 공간 id
+ * @param driveFolderId SHARE(MEMBER) — 파일이 든 폴더 id(루트면 없음)
+ * @param driveFileId SHARE(MEMBER) — 드라이브 파일 id
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AppLinkCard(
@@ -40,7 +50,18 @@ public record AppLinkCard(
     Instant sentAt,
     Instant startAt,
     Instant endAt,
-    Boolean allDay) {
+    Boolean allDay,
+    String shareState,
+    String mimeType,
+    String typeLabel,
+    Long sizeBytes,
+    Instant expiresAt,
+    Long driveSpaceId,
+    Long driveFolderId,
+    Long driveFileId) {
+
+  /** 비밀번호 공유 링크 카드의 제목(WP-1474) — 파일 이름 대신 쓰는, 아무것도 드러내지 않는 고정 문구. */
+  public static final String SHARE_PASSWORD_TITLE = "비밀번호로 보호된 공유 파일";
 
   /** 이슈 카드. */
   public static AppLinkCard issue(
@@ -50,69 +71,157 @@ public record AppLinkCard(
       String statusCategory,
       List<UserSummary> assignees,
       String priority) {
-    return new AppLinkCard(
-        "ISSUE",
-        title,
-        issueKey,
-        statusName,
-        statusCategory,
-        assignees,
-        priority,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null);
+    Builder b = new Builder("ISSUE", title);
+    b.issueKey = issueKey;
+    b.statusName = statusName;
+    b.statusCategory = statusCategory;
+    b.assignees = assignees;
+    b.priority = priority;
+    return b.build();
   }
 
   /** 노트 카드. */
   public static AppLinkCard page(String title, String spaceName) {
-    return new AppLinkCard(
-        "PAGE", title, null, null, null, null, null, spaceName, null, null, null, null, null, null,
-        null);
+    Builder b = new Builder("PAGE", title);
+    b.spaceName = spaceName;
+    return b.build();
   }
 
   /** 파일 카드. */
   public static AppLinkCard file(String name) {
-    return new AppLinkCard(
-        "FILE", name, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    return new Builder("FILE", name).build();
   }
 
   /** 채널·DM 메시지 카드(WP-1236) — 본문 미리보기·대화 이름·보낸 사람·보낸 시각. */
   public static AppLinkCard message(
       String preview, String channelName, String channelKind, String authorName, Instant sentAt) {
-    return new AppLinkCard(
-        "MESSAGE",
-        preview,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        channelName,
-        channelKind,
-        authorName,
-        sentAt,
-        null,
-        null,
-        null);
+    Builder b = new Builder("MESSAGE", preview);
+    b.channelName = channelName;
+    b.channelKind = channelKind;
+    b.authorName = authorName;
+    b.sentAt = sentAt;
+    return b.build();
   }
 
   /** 일정 카드(WP-1236) — 제목·시작·끝·종일 여부. */
   public static AppLinkCard event(String title, Instant startAt, Instant endAt, boolean allDay) {
-    return new AppLinkCard(
-        "EVENT", title, null, null, null, null, null, null, null, null, null, null, startAt, endAt,
-        allDay);
+    Builder b = new Builder("EVENT", title);
+    b.startAt = startAt;
+    b.endAt = endAt;
+    b.allDay = allDay;
+    return b.build();
   }
 
   /** 메일 카드(WP-1236) — 제목·보낸 사람·메일 날짜. 본문은 싣지 않는다. */
   public static AppLinkCard mail(String subject, String fromName, Instant sentAt) {
-    return new AppLinkCard(
-        "MAIL", subject, null, null, null, null, null, null, null, null, fromName, sentAt, null,
-        null, null);
+    Builder b = new Builder("MAIL", subject);
+    b.authorName = fromName;
+    b.sentAt = sentAt;
+    return b.build();
+  }
+
+  /**
+   * 공유 링크 카드 — 보는 사람이 파일 공간의 구성원(WP-1474). 드라이브의 그 파일로 가도록 공간·폴더·파일 id 를 싣는다.
+   *
+   * @param folderId 루트면 null(응답에서 빠진다)
+   */
+  public static AppLinkCard shareMember(
+      String name, String mimeType, String spaceName, long spaceId, Long folderId, long fileId) {
+    Builder b = new Builder("SHARE", name);
+    b.shareState = "MEMBER";
+    b.mimeType = mimeType;
+    b.spaceName = spaceName;
+    b.driveSpaceId = spaceId;
+    b.driveFolderId = folderId;
+    b.driveFileId = fileId;
+    return b.build();
+  }
+
+  /**
+   * 공유 링크 카드 — 구성원이 아니지만 링크로 열 수 있다(WP-1474). 이름·형식·종류 이름·크기·만료일만 — 공간·위치는 싣지 않는다.
+   *
+   * @param expiresAt 만료일 없는 링크면 null(응답에서 빠진다)
+   */
+  public static AppLinkCard shareOpen(
+      String name, String mimeType, String typeLabel, long sizeBytes, Instant expiresAt) {
+    Builder b = new Builder("SHARE", name);
+    b.shareState = "OPEN";
+    b.mimeType = mimeType;
+    b.typeLabel = typeLabel;
+    b.sizeBytes = sizeBytes;
+    b.expiresAt = expiresAt;
+    return b.build();
+  }
+
+  /**
+   * 공유 링크 카드 — 비밀번호 링크(WP-1474). 파일 정보를 하나도 싣지 않고 제목은 아무것도 드러내지 않는 고정 문구다(잠긴 내용이 응답으로 새지 않게, 그래도 모든
+   * 카드에 title 이 있게).
+   */
+  public static AppLinkCard sharePassword() {
+    Builder b = new Builder("SHARE", SHARE_PASSWORD_TITLE);
+    b.shareState = "PASSWORD";
+    return b.build();
+  }
+
+  /**
+   * 카드 생성 도우미 — 종류·제목만 정한 빈 카드에서 시작해 그 종류가 쓰는 칸만 채운다. 칸이 많아 위치 인자 생성자를 팩토리마다 쓰면 null 자리를 헤아려야 해서
+   * 읽기·고치기 어렵다.
+   */
+  private static final class Builder {
+    private final String kind;
+    private final String title;
+    private String issueKey;
+    private String statusName;
+    private String statusCategory;
+    private List<UserSummary> assignees;
+    private String priority;
+    private String spaceName;
+    private String channelName;
+    private String channelKind;
+    private String authorName;
+    private Instant sentAt;
+    private Instant startAt;
+    private Instant endAt;
+    private Boolean allDay;
+    private String shareState;
+    private String mimeType;
+    private String typeLabel;
+    private Long sizeBytes;
+    private Instant expiresAt;
+    private Long driveSpaceId;
+    private Long driveFolderId;
+    private Long driveFileId;
+
+    private Builder(String kind, String title) {
+      this.kind = kind;
+      this.title = title;
+    }
+
+    private AppLinkCard build() {
+      return new AppLinkCard(
+          kind,
+          title,
+          issueKey,
+          statusName,
+          statusCategory,
+          assignees,
+          priority,
+          spaceName,
+          channelName,
+          channelKind,
+          authorName,
+          sentAt,
+          startAt,
+          endAt,
+          allDay,
+          shareState,
+          mimeType,
+          typeLabel,
+          sizeBytes,
+          expiresAt,
+          driveSpaceId,
+          driveFolderId,
+          driveFileId);
+    }
   }
 }

@@ -59,6 +59,22 @@ describe('parseAppLink', () => {
     expect(appLinksOf(body, HOST)).toHaveLength(1)
   })
 
+  it('드라이브 공유 링크(/s/sl_…)는 공유 카드다 — 이동 경로는 공유 링크 화면, 쿼리·조각은 버린다(WP-1474)', () => {
+    expect(parseAppLink('https://works.example.com/s/sl_Ab3?x=1#y', HOST)).toEqual({ kind: 'SHARE', to: '/s/sl_Ab3', token: 'sl_Ab3' })
+    // 토큰 글자 수 경계 — sl_ 뒤 64자까지(서버 CapabilityTokens.SHARE_LINK_TOKEN 과 같다).
+    const max = `sl_${'a'.repeat(64)}`
+    expect(parseAppLink(`https://works.example.com/s/${max}`, HOST)).toMatchObject({ kind: 'SHARE', token: max })
+    expect(parseAppLink(`https://works.example.com/s/sl_${'a'.repeat(65)}`, HOST)).toBeNull()
+    // 다른 접두(공개 노트 공유 등)·하위 경로는 아니다.
+    expect(parseAppLink('https://works.example.com/s/ws_abc', HOST)).toBeNull()
+    expect(parseAppLink('https://works.example.com/s/sl_abc/download', HOST)).toBeNull()
+  })
+
+  it('같은 공유 링크가 두 번 나와도(쿼리만 다름) 카드 하나다(WP-1474)', () => {
+    const body = 'https://works.example.com/s/sl_abc https://works.example.com/s/sl_abc?from=mail https://works.example.com/s/sl_xyz'
+    expect(appLinksOf(body, HOST).map((l) => l.to)).toEqual(['/s/sl_abc', '/s/sl_xyz'])
+  })
+
   it('호스트는 대소문자·포트와 무관하게 같으면 앱 링크다', () => {
     expect(parseAppLink('http://WORKS.example.com:8443/wiki/open/1', HOST)).toMatchObject({ kind: 'PAGE', pageId: 1 })
   })
