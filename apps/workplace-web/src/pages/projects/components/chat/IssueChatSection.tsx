@@ -18,6 +18,7 @@ import { useCreateChatMessage } from '../../../../hooks/queries/useCreateChatMes
 import { useDeleteChatMessage } from '../../../../hooks/queries/useDeleteChatMessage';
 import { useIssue } from '../../../../hooks/queries/useIssue';
 import { useMarkChatRead } from '../../../../hooks/queries/useMarkChatRead';
+import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
 import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMessage';
 import { useAiWorkingBubbles } from '../../../../hooks/useAiWorkingBubbles';
 import { useAuth } from '../../../../hooks/useAuth';
@@ -29,6 +30,7 @@ import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
 import { agentReplyHint, implicitAgentHint } from './composerHint';
+import { issueChatMentionCandidates } from './issueChatMentionCandidates';
 import type { QuestionWorks } from './questionState';
 
 interface IssueChatSectionProps {
@@ -112,6 +114,17 @@ function IssueChatSectionBody({
     [messagesQ.data],
   );
 
+  // WP-1492: @ 후보 = 스레드 참여자 + 이 프로젝트의 AI 구성원 — 아직 대화에 없는 AI 도 멘션하면 서버가 스레드에 넣고 깨운다.
+  // 프로젝트 멤버는 이슈 상세와 같은 쿼리 키라 캐시를 공유한다. 받기 전·실패면 참여자만 후보다.
+  const projectMembersQ = useProjectMembers(projectKey);
+  const threadMembers = threadQ.data?.members;
+  const projectMembers = projectMembersQ.data;
+  const meId = me?.id ?? 0;
+  const mentionCandidates = useMemo(
+    () => issueChatMentionCandidates(threadMembers ?? [], projectMembers, meId),
+    [threadMembers, projectMembers, meId],
+  );
+
   const threadId = threadQ.data?.threadId ?? 0;
   const createMutation = useCreateChatMessage(
     threadId,
@@ -120,7 +133,7 @@ function IssueChatSectionBody({
       name: me?.name ?? me?.username ?? '나',
       kind: 'HUMAN',
     },
-    threadQ.data?.members ?? [],
+    mentionCandidates,
   );
   const updateMutation = useUpdateChatMessage(threadId);
   const deleteMutation = useDeleteChatMessage(threadId);
@@ -305,7 +318,7 @@ function IssueChatSectionBody({
         <>
           <ChatComposer
             threadId={threadId}
-            members={thread.members}
+            members={mentionCandidates}
             onSubmit={(body, fileIds, driveFileIds) =>
               createMutation.mutateAsync({ body, fileIds, driveFileIds })
             }

@@ -9,16 +9,16 @@ import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
 import { chatOverLimitMessage } from '@/components/mentions/chatFormatting';
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize';
 import { RichInput } from '@/components/mentions/RichInput';
+import type { MentionCandidate } from '@/components/mentions/types';
 import { useAttachmentDraft } from '@/hooks/useAttachmentDraft';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { MESSAGE_PLACEHOLDER } from '@/lib/submitEnter';
 
-import type { ChatMemberResponse } from '../../../../types/chat';
-
 interface ChatComposerProps {
   threadId: number;
-  members: ChatMemberResponse[];
+  // @ 후보·평문 @이름 변환 대상 — 이슈챗은 참여자 + 프로젝트 AI(WP-1492).
+  members: MentionCandidate[];
   // Promise 를 반환하면 RichInput 이 성공(resolve) 시에만 입력창을 비운다 — 전송 실패 시 입력 보존(#123).
   onSubmit: (
     body: string,
