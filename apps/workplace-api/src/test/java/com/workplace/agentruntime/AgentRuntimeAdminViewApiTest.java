@@ -182,11 +182,11 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
   // ---------------------------------------------------------------- 실행 상태 요약
 
   /**
-   * 요약은 실행 설정이 있는 AI 만, 템플릿 제목·상태와 함께 싣는다. 실행 위치 이름은 기본 위치면(미지정·기본 위치를 직접 지정) null, 기본이 아닌 위치면
-   * 이름이다. 관찰 메시지(실패 이유)도 실린다.
+   * 요약은 실행 설정이 있는 AI 만, 템플릿 제목·상태와 함께 싣는다. 실행 위치 이름은 실제로 도는 곳의 이름이다(WP-1513) — 미지정이면 기본 위치(L1) 이름,
+   * 기본 위치를 직접 지정해도 그 이름, 기본이 아닌 위치면 그 이름. 관찰 메시지(실패 이유)도 실린다.
    */
   @Test
-  void summaries_listAgentsWithSettingAndHideDefaultLocationName() throws Exception {
+  void summaries_listAgentsWithSettingAndEffectiveLocationName() throws Exception {
     long unassigned = fx.runningAgent(null);
     long explicitDefault = fx.newAgent(l1);
     long elsewhere = fx.runningAgent(l2);
@@ -207,7 +207,7 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
     assertThat(a.get("templateName").asText()).isEqualTo("claude-code");
     assertThat(a.get("templateTitle").asText()).isNotBlank();
     assertThat(a.get("status").asText()).isEqualTo("FAILED");
-    assertThat(a.get("locationName").isNull()).isTrue();
+    assertThat(a.get("locationName").asText()).isEqualTo("L1");
     assertThat(a.get("message").asText()).isEqualTo("이미지를 받지 못했습니다");
     assertThat(a.has("agentState")).isTrue();
     assertThat(a.has("agentIssueKey")).isTrue();
@@ -215,7 +215,7 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
 
     JsonNode b = summaryOf(list, explicitDefault);
     assertThat(b.get("status").asText()).isEqualTo("OFF");
-    assertThat(b.get("locationName").isNull()).isTrue();
+    assertThat(b.get("locationName").asText()).isEqualTo("L1");
 
     JsonNode c = summaryOf(list, elsewhere);
     assertThat(c.get("status").asText()).isEqualTo("STARTING");
@@ -301,11 +301,12 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
         .execute();
   }
 
-  /** 기본 위치를 L2 로 옮기면 L2 의 AI 는 이름이 비고, 옛 기본(L1)을 직접 지정한 AI 는 L1 이 보인다. */
+  /** 기본 위치를 L2 로 옮기면 미지정 AI 는 새 기본(L2) 이름을 따르고, 직접 지정한 AI 는 지정한 위치 이름 그대로다. */
   @Test
   void summaries_afterDefaultMoves_followNewDefault() throws Exception {
     long onL1 = fx.newAgent(l1);
     long onL2 = fx.newAgent(l2);
+    long unassigned = fx.newAgent(null);
     TenantContext.set(1L);
     locationService.setDefault(l2);
 
@@ -314,7 +315,8 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
             call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
 
     assertThat(summaryOf(list, onL1).get("locationName").asText()).isEqualTo("L1");
-    assertThat(summaryOf(list, onL2).get("locationName").isNull()).isTrue();
+    assertThat(summaryOf(list, onL2).get("locationName").asText()).isEqualTo("L2");
+    assertThat(summaryOf(list, unassigned).get("locationName").asText()).isEqualTo("L2");
   }
 
   /** ADMIN 이 아니면 user:write 가 있어도 요약·프로젝트 API 를 부를 수 없다 — 403. */

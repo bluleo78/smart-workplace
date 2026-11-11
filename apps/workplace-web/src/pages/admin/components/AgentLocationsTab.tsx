@@ -62,7 +62,7 @@ interface Props {
 
 export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
   const locations = useAgentLocations();
-  // AI 열의 상태 글자(작업 중·쉬는 중 등) — 목록 「실행」 열과 같은 요약을 AI id 로 찾는다(실행 환경 응답을 넓히지 않게).
+  // AI 열의 상태 글자(작업 중·대기 중 등) — 목록 「상태」 열과 같은 요약을 AI id 로 찾는다(실행 환경 응답을 넓히지 않게).
   const summaries = useAgentRuntimeSummaries();
   const summaryById = useMemo(() => new Map(summaries.data?.map((s) => [s.agentUserId, s])), [summaries.data]);
   const setDefault = useSetDefaultAgentLocation();

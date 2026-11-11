@@ -10,7 +10,7 @@ export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> =
   INPUT_REQUIRED: '답변 필요',
   AUTH_REQUIRED: '인증 필요',
   REVIEW: '검토 필요',
-  BLOCKED: '막힘',
+  BLOCKED: '차단됨',
   WORKING: '작업 중',
   PAUSED: '일시 중지',
   // 다른 사람·AI 의 차례를 기다리는 작업(WP-1024 — PR 리뷰·수정, 다른 AI 의 답 등, 무엇인지는 note). 사람이 할 일이 아니라 흐린 윤곽.
@@ -34,7 +34,7 @@ export const TERMINAL_AGENT_STATES: AgentWorkState[] = ['COMPLETED', 'FAILED', '
 export type AgentStateTone = 'action' | 'info' | 'warning' | 'success' | 'destructive' | 'muted'
 
 /**
- * 상태별 배지 톤 — 사람이 할 일(답변·인증·검토)은 action, 작업 중은 info, 막힘은 경고.
+ * 상태별 배지 톤 — 사람이 할 일(답변·인증·검토)은 action, 작업 중은 info, 차단됨은 경고.
  * 종료 결과는 실제 결과가 구분되게: 완료 성공·실패 위험, 취소·반려는 중립(일시 중지·시작 전과 같은 흐린 윤곽).
  */
 export function agentStateTone(state: AgentWorkState | 'NOT_STARTED'): AgentStateTone {

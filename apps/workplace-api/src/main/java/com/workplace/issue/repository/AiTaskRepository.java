@@ -542,7 +542,7 @@ public class AiTaskRepository {
     Map<String, List<String>> m = new LinkedHashMap<>();
     m.put("input_required", List.of(AgentWorkState.INPUT_REQUIRED));
     m.put("review", List.of(AgentWorkState.REVIEW));
-    // 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
+    // 차단됨 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
     m.put("blocked", List.of(AgentWorkState.BLOCKED, AgentWorkState.AUTH_REQUIRED));
     m.put("working", List.of(AgentWorkState.WORKING));
     m.put("waiting", List.of(AgentWorkState.WAITING));

@@ -208,7 +208,7 @@ describe('뷰 토글·목록/보드 표시', () => {
     expect(screen.getByTestId('personal-task-row-1')).toHaveTextContent('블로그 초안')
     expect(screen.getByTestId('personal-task-row-2')).toHaveTextContent('운동 계획')
     expect(screen.queryByTestId('ai-delegation-badge-2')).not.toBeInTheDocument()
-    expect(screen.getByTestId('ai-delegation-badge-4')).toHaveTextContent('막힘')
+    expect(screen.getByTestId('ai-delegation-badge-4')).toHaveTextContent('차단됨')
     expect(screen.getByTestId('personal-checklist')).not.toHaveTextContent('처리중')
   })
 

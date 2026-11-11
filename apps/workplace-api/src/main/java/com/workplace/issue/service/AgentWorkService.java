@@ -191,8 +191,9 @@ public class AgentWorkService {
   }
 
   /**
-   * 서버가 대신 기록하는 작업이 알릴 상태({@link AgentWorkNoticeEvent#ON_ENTER} — 검토 대기·막힘 등)로 들어섰을 때, 명시 보고와 같은 AI
-   * 작업 알림 경로로 알린다. 수신 후보도 보고 경로와 같은 [이 작업자 담당 행을 만든 사람, 보고자] 순서이고, 사람인지·이슈를 볼 수 있는지는 notify 가 판정한다.
+   * 서버가 대신 기록하는 작업이 알릴 상태({@link AgentWorkNoticeEvent#ON_ENTER} — 검토 대기·차단됨 등)로 들어섰을 때, 명시 보고와 같은
+   * AI 작업 알림 경로로 알린다. 수신 후보도 보고 경로와 같은 [이 작업자 담당 행을 만든 사람, 보고자] 순서이고, 사람인지·이슈를 볼 수 있는지는 notify 가
+   * 판정한다.
    */
   public void publishEnteredNotice(IssueRow issue, long agentId, String state) {
     if (!AgentWorkNoticeEvent.ON_ENTER.contains(state)) return;
@@ -296,7 +297,7 @@ public class AgentWorkService {
    * 작업이 시작돼 이슈가 진행 중으로 올라가던 문제를 막는다. 작업 시작은 명시 보고(report_agent_work)로만 한다 — claim_issue 는 담당자만 더해
    * 시작 전 작업을 남기고, 그 뒤 첫 보고가 시작한다. 사람·AI 담당자 모두 같은 규칙이다.
    *
-   * <p>이미 일하던 작업(SUBMITTED 밖의 진행 중 행)이면 도구를 갱신하고 updated_at 을 터치하며(무소식 해소), 답변 필요·인증 필요·막힘·일시 중지에서
+   * <p>이미 일하던 작업(SUBMITTED 밖의 진행 중 행)이면 도구를 갱신하고 updated_at 을 터치하며(무소식 해소), 답변 필요·인증 필요·차단됨·일시 중지에서
    * 다시 쓰기 시작했으면 작업 중으로 되돌린다. 삭제·종료된 이슈와 담당자가 아닌 쓰기는 무시한다 — 완료 처리·담당 해제 직후 작업이 되살아나지 않게.
    */
   @EventListener
@@ -311,10 +312,10 @@ public class AgentWorkService {
     // 담당에서 빠진 뒤 남은 작업 행은 터치하지 않는다.
     if (!assigneeRepository.findUserIdsByIssue(e.issueId()).contains(e.actorId())) return;
     String state = existing.state();
-    // 답변 필요·인증 필요·막힘·일시 중지에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요·작업 중·대기·예약은 그대로 —
+    // 답변 필요·인증 필요·차단됨·일시 중지에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요·작업 중·대기·예약은 그대로 —
     // tool 갱신과 updated_at 터치(무소식 해소)만 한다. SUBMITTED 는 위에서 걸렀다.
     String next = AgentWorkState.RESUMES_TO_WORKING.contains(state) ? AgentWorkState.WORKING : null;
-    // 답변 필요·인증 필요에서 복귀하면 질문·요청 note 는 낡았으므로 지운다(막힘·일시 중지의 사유 note 는 유지).
+    // 답변 필요·인증 필요에서 복귀하면 질문·요청 note 는 낡았으므로 지운다(차단됨·일시 중지의 사유 note 는 유지).
     boolean clearNote = AgentWorkState.isInterrupt(state);
     repository.update(
         existing.id(), new AgentWorkPatch(e.tool(), next, null, clearNote, null, null, null));

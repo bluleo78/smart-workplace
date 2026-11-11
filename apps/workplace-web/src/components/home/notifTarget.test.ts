@@ -46,7 +46,7 @@ describe('notifTarget', () => {
     expect(notifTarget(notif({ type: 'AI_WORK_FAILED', agentWorkState: 'FAILED' }))).toBe('/projects/WP/issues/452')
   })
 
-  it('AI 질문은 상태(권한 필요·막힘)가 있어도 챗 드로워로 연다 (WP-913)', () => {
+  it('AI 질문은 상태(권한 필요·차단됨)가 있어도 챗 드로워로 연다 (WP-913)', () => {
     expect(notifTarget(notif({ type: 'AI_QUESTION', agentWorkState: 'AUTH_REQUIRED' }))).toBe('/projects/WP/issues/452?chat=1')
     expect(notifTarget(notif({ type: 'AI_QUESTION', agentWorkState: 'BLOCKED' }))).toBe('/projects/WP/issues/452?chat=1')
   })

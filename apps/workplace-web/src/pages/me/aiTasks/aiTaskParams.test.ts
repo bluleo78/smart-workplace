@@ -12,7 +12,7 @@ describe('aiTaskParams', () => {
     expect(out.state).toBe('INPUT_REQUIRED')
   })
 
-  it('막힘 칩은 BLOCKED 와 AUTH_REQUIRED 를 함께 요청하고 건수 요청엔 싣지 않는다', () => {
+  it('차단됨 칩은 BLOCKED 와 AUTH_REQUIRED 를 함께 요청하고 건수 요청엔 싣지 않는다', () => {
     const out = aiTaskParams(new URLSearchParams('state=BLOCKED'))
     expect(out.state).toBe('BLOCKED')
     expect(out.list).toEqual({ scope: 'MINE', agentState: 'BLOCKED,AUTH_REQUIRED' })
@@ -43,7 +43,7 @@ describe('aiTaskParams', () => {
     expect(aiTaskParams(new URLSearchParams('')).doneView).toBe(false)
   })
 
-  it('칩 순서는 미완료 다음 답변·검토·막힘·작업 중·대기 중·다음 회차 대기, 마지막이 완료 — 칩 라벨·건수 키', () => {
+  it('칩 순서는 미완료 다음 답변·검토·차단됨·작업 중·대기 중·다음 회차 대기, 마지막이 완료 — 칩 라벨·건수 키', () => {
     expect(QUICK_STATES).toEqual(['INPUT_REQUIRED', 'REVIEW', 'BLOCKED', 'WORKING', 'WAITING', 'SCHEDULED', 'DONE'])
     // WP-1024: 대기 중은 다른 사람·AI 의 차례 — 「답변 필요」와 섞이지 않는 라벨.
     expect(QUICK_STATE_META.WAITING).toMatchObject({ countKey: 'waiting', label: '대기 중', agentState: 'WAITING' })

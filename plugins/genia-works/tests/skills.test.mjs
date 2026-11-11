@@ -441,7 +441,7 @@ test('상태를 보내는 보고 틀은 note 를 함께 보낸다 — 빼면 mes
 });
 
 test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964·998)', () => {
-  const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 막힘\n'));
+  const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 차단됨\n'));
   assert.ok(lead.length > 100, '검토자 절이 없다');
   assertBefore(lead, '**리뷰**', '**main 충돌 확인**');
   assertBefore(lead, '**main 충돌 확인**', '`gw-repo pr-merge');
@@ -497,7 +497,7 @@ test('SKILL.md: AI 담당자가 여럿이면 멘션된 AI 만 반응하고 나�
 // WP-994 오래 걸리는 작업 — 빠지면 push 게이트 동안 루프가 다른 일을 못 하거나, 끝난 게이트 결과를 이어 받지 못한다.
 test('process-issue.md: 오래 걸리는 작업은 bg-job 으로 띄우고 notes 에 적은 뒤 SCHEDULED 로 양보하고, 이어 받기에서 상태별로 갈린다 (WP-994)', () => {
   const text = workLoop('process-issue.md');
-  assertBefore(text, '\n### 오래 걸리는 작업 (백그라운드)\n', '\n### 막힘\n');
+  assertBefore(text, '\n### 오래 걸리는 작업 (백그라운드)\n', '\n### 차단됨\n');
   assertBefore(text, '1. **띄우기**', '2. **적기**');
   assertBefore(text, '2. **적기**', '3. **양보**');
   for (const s of ['`running`', '`passed`', '`failed <코드>`', '`lost`']) assert.ok(text.includes(s), `이어 받기에 ${s} 갈래가 없다`);

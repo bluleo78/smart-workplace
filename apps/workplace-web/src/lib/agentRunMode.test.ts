@@ -1,4 +1,4 @@
-// 에이전트 실행 방식 화면 판정(WP-1273·1278·1281) — 방식 카드·현재 카드·방식 바꾸기 요약·실행 시작 막는 이유.
+// 에이전트 실행 방식 화면 판정(WP-1273·1278·1281) — 방식 카드·현재 카드·방식 바꾸기 요약·시작 막는 이유.
 import { describe, expect, test } from 'vitest'
 
 import { CLAUDE_TEMPLATE, DEFAULT_TEMPLATE } from '../test/kits/admin/agentRuntime'

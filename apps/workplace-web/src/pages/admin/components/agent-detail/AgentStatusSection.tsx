@@ -1,5 +1,5 @@
 // 에이전트 상세 「상태」 섹션(WP-1281) — 이 AI 를 쓸 수 있는지(「사용」 스위치)와 지금 무엇을 하는지.
-// 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「실행 시작 / 실행 멈춤 / 다시 시작」.
+// 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「시작 / 종료 / 재시작」(WP-1513 일반 용어).
 // Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
 
 import { Check, Info, Minus, MonitorPlay, X } from 'lucide-react';
@@ -178,12 +178,12 @@ function keyObjectParticle(key: string): string {
   return objectParticle(key);
 }
 
-/** 확인 창 ①의 종류 — 쉴 때 적용을 지금 하기 / 다시 시작. */
+/** 확인 창 ①의 종류 — 쉴 때 적용을 지금 하기 / 재시작. */
 type NowConfirm = 'apply' | 'restart' | null;
 
 /**
- * 「실행」 묶음 — 상태 종류: 꺼짐 · 시작하는 중 · 작업 중 · 쉬는 중 · 막힘 · 실패 · 멈추는 중(statusPill).
- * 꺼져 있으면 실행 전 확인(Claude 연결 · 저장소 연결 · 맡는 프로젝트 · 실행 환경 여유)과 실행 시작, 저장 안 한 작업 설정이 있으면 「저장하고 실행 시작」.
+ * 「실행」 묶음 — 상태 종류: 종료됨 · 시작 중 · 작업 중 · 대기 중 · 차단됨 · 오류 · 종료 중(statusPill).
+ * 꺼져 있으면 실행 전 확인(Claude 연결 · 저장소 연결 · 맡는 프로젝트 · 실행 환경 여유)과 시작, 저장 안 한 작업 설정이 있으면 「저장하고 시작」.
  */
 function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const { template, saved, draft } = run;
@@ -203,7 +203,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const status = saved?.status ?? 'OFF';
   const observed = saved?.observed ?? null;
   const running = isRunningStatus(status);
-  // 원하는 상태가 RUN 인데 실패면 자리는 이미 잡혀 있어 확인 없이 「다시 시작」·「실행 멈춤」.
+  // 원하는 상태가 RUN 인데 실패면 자리는 이미 잡혀 있어 확인 없이 「재시작」·「종료」.
   const failedOn = status === 'FAILED' && saved?.desired === 'RUN';
   const off = !running && !failedOn && status !== 'STOPPING';
   const pill = statusPill(status, observed?.agentState);
@@ -266,12 +266,12 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const pendingReq = save.isPending || action.isPending;
   const limit = resourceLimitText(template);
 
-  // 실행 시작 — 저장 안 한 작업 설정이 있으면 먼저 저장하고 시작한다.
+  // 시작 — 저장 안 한 작업 설정이 있으면 먼저 저장하고 시작한다.
   const onStart = () => {
     if (dirty && draft) save.mutate(draft.body(), { onSuccess: () => action.mutate('start') });
     else action.mutate('start');
   };
-  // 실패한 채 실행 중이면 — 바뀐 설정은 NOW 로 저장해 바로 다시 만들고, 아니면 다시 시작(서버가 다시 만든다).
+  // 실패한 채 실행 중이면 — 바뀐 설정은 NOW 로 저장해 바로 다시 만들고, 아니면 재시작(서버가 다시 만든다).
   const onRetry = () => {
     if (dirty && draft) save.mutate(draft.body('NOW'));
     else action.mutate('start');
@@ -322,7 +322,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         {(running || failedOn) && saved?.effectiveLocation && (
           <span className="ml-auto text-xs text-muted-foreground">실행 환경 {saved.effectiveLocation.name}</span>
         )}
-        {/* 작업 화면 보기(WP-1277) — 작업 공간이 떠 있을 때만(시작하는 중·멈추는 중·실패는 붙을 화면이 없다) */}
+        {/* 작업 화면 보기(WP-1277) — 작업 공간이 떠 있을 때만(시작 중·종료 중·오류는 붙을 화면이 없다) */}
         {canViewScreen(status) && (
           <Button size="xs" variant="outline" className={cn(!saved?.effectiveLocation && 'ml-auto')} onClick={() => setScreenOpen(true)} data-testid="agent-screen-open">
             <MonitorPlay aria-hidden />
@@ -452,37 +452,37 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
             {/* 실행 중이면 지금 설정으로 다시 띄우고(확인 창 ①), 실패면 고친 설정을 저장하고 다시 켠다. */}
             {running ? (
               <Button size="sm" variant="outline" disabled={pendingReq} onClick={onRestart} data-testid="agent-runtime-restart">
-                다시 시작
+                재시작
               </Button>
             ) : (
               <Button size="sm" variant="outline" disabled={pendingReq || (draft?.missingRequired ?? false)} onClick={onRetry} data-testid="agent-runtime-start">
-                다시 시작
+                재시작
               </Button>
             )}
             <Button size="sm" variant="outline" disabled={pendingReq} onClick={() => action.mutate('stop')} data-testid="agent-runtime-stop">
-              실행 멈춤
+              종료
             </Button>
           </>
         )}
         {off && (
           <>
             <Button size="sm" disabled={pendingReq || blocked != null} onClick={onStart} data-testid="agent-runtime-start">
-              {dirty ? '저장하고 실행 시작' : '실행 시작'}
+              {dirty ? '저장하고 시작' : '시작'}
             </Button>
             {blocked && <span className="text-xs text-muted-foreground">{blocked}</span>}
           </>
         )}
       </div>
 
-      {/* 확인 창 ① — 일하는 중에 지금 적용·다시 시작. 일하는 중이 아니면 확인 없이 바로 한다. */}
+      {/* 확인 창 ① — 일하는 중에 지금 적용·재시작. 일하는 중이 아니면 확인 없이 바로 한다. */}
       <AlertDialog open={nowConfirm != null} onOpenChange={(o) => !o && setNowConfirm(null)}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>{nowConfirm === 'restart' ? '지금 다시 시작할까요?' : '지금 적용할까요?'}</AlertDialogTitle>
+            <AlertDialogTitle>{nowConfirm === 'restart' ? '지금 재시작할까요?' : '지금 적용할까요?'}</AlertDialogTitle>
             <AlertDialogDescription>
               {agent.name}
               {subjectParticle(agent.name)} {issueKey ? `${issueKey} ${keyObjectParticle(issueKey)}` : '이슈를'} 처리하고 있어요.{' '}
-              {nowConfirm === 'restart' ? '지금 다시 시작하면' : '지금 적용하면'} 작업 공간을 새 설정으로 다시 시작하고, 다시 뜬 뒤{' '}
+              {nowConfirm === 'restart' ? '지금 재시작하면' : '지금 적용하면'} 작업 공간을 새 설정으로 다시 띄우고, 뜬 뒤{' '}
               {issueKey ? `${issueKey} ${keyObjectParticle(issueKey)}` : '하던 이슈를'} 이어 받아요. 커밋하지 않은 변경은 작업 공간에 남아요.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -495,7 +495,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
                 setNowConfirm(null);
               }}
             >
-              {nowConfirm === 'restart' ? '다시 시작' : '지금 적용'}
+              {nowConfirm === 'restart' ? '재시작' : '지금 적용'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,5 +1,5 @@
 // 저장소 호스트 판정(WP-1268) — 연결해야 할 호스트(서버가 프로젝트 응답의 repositoryHost 로 계산해 준다)와 등록된 토큰을 한 목록으로 묶는다.
-// 저장소 URL 해석은 서버(RepoHosts.hostOf)가 기준이라 화면은 URL 을 직접 읽지 않는다 — 「연결 안 됨」 판정이 서버의 실행 시작 막기와 어긋나지 않게 한다.
+// 저장소 URL 해석은 서버(RepoHosts.hostOf)가 기준이라 화면은 URL 을 직접 읽지 않는다 — 「연결 안 됨」 판정이 서버의 시작 막기와 어긋나지 않게 한다.
 
 import type { AgentRepoCredential, AgentRuntimeProject, RepoKind } from '../types/agentRuntime';
 

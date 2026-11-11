@@ -5,7 +5,7 @@ package com.workplace.issue.dto;
  * AI 의 작업 기록(agent_work)을 남겨, 내부 AI 가 맡은 이슈도 AI 위임 작업에 모이게 한다.
  *
  * @param phase {@code STARTED}(실행 시작) 또는 {@code FINISHED}(실행 끝)
- * @param ok FINISHED 일 때 실행이 정상으로 끝났는지 — 아니면 「막힘」으로 남긴다(STARTED 에서는 쓰지 않는다)
+ * @param ok FINISHED 일 때 실행이 정상으로 끝났는지 — 아니면 「차단됨」으로 남긴다(STARTED 에서는 쓰지 않는다)
  * @param note FINISHED 이고 ok 가 아닐 때의 실패 사유(짧은 한 줄, 길면 서버가 자른다)
  */
 public record ServerAgentRunReport(String phase, boolean ok, String note) {

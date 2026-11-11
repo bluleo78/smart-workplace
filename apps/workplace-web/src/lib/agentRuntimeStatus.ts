@@ -8,6 +8,7 @@ import type {
   AgentTemplate,
   LocationConnection,
 } from '../types/agentRuntime';
+import { AGENT_STATE_LABEL } from './agentWork';
 import { formatClockTimeCompact } from './formatters';
 
 export interface StatusPill {
@@ -16,8 +17,8 @@ export interface StatusPill {
 }
 
 /**
- * 상태 알약 — 실행 중이면(RUNNING·APPLY_PENDING) AI 가 보고한 일 상태로 나눈다. 아직 보고가 없으면 「시작하는 중」.
- * 문구는 에이전트 상세 시안(WP-1281)의 상태 종류 그대로 — 꺼짐·시작하는 중·작업 중·쉬는 중·막힘·실패·멈추는 중.
+ * 상태 알약 — 실행 중이면(RUNNING·APPLY_PENDING) AI 가 보고한 일 상태로 나눈다. 아직 보고가 없으면 「시작 중」.
+ * 문구는 에이전트 상세 시안(WP-1281)의 상태 종류를 일반 용어로(WP-1513) — 종료됨·시작 중·작업 중·대기 중·차단됨·오류·종료 중.
  */
 export function statusPill(
   status: AgentRuntimeStatus,
@@ -25,22 +26,23 @@ export function statusPill(
 ): StatusPill {
   switch (status) {
     case 'OFF':
-      return { label: '꺼짐', type: 'inactive' };
+      return { label: '종료됨', type: 'inactive' };
     case 'STARTING':
-      return { label: '시작하는 중', type: 'info' };
+      return { label: '시작 중', type: 'info' };
     case 'STOPPING':
-      return { label: '멈추는 중', type: 'inactive' };
+      return { label: '종료 중', type: 'inactive' };
     case 'FAILED':
-      return { label: '실패', type: 'error' };
+      return { label: '오류', type: 'error' };
     default:
-      if (agentState === 'WORKING') return { label: '작업 중', type: 'active' };
-      if (agentState === 'IDLE') return { label: '쉬는 중', type: 'active' };
-      if (agentState === 'BLOCKED') return { label: '막힘', type: 'warning' };
-      return { label: '시작하는 중', type: 'info' };
+      // 작업 중·차단됨은 AI 위임 작업 상태와 같은 말이라 AGENT_STATE_LABEL 을 그대로 쓴다(WP-1513).
+      if (agentState === 'WORKING') return { label: AGENT_STATE_LABEL.WORKING, type: 'active' };
+      if (agentState === 'IDLE') return { label: '대기 중', type: 'active' };
+      if (agentState === 'BLOCKED') return { label: AGENT_STATE_LABEL.BLOCKED, type: 'warning' };
+      return { label: '시작 중', type: 'info' };
   }
 }
 
-/** 실행 중인 상태인지 — 「다시 시작」「실행 멈춤」을 보일지. */
+/** 실행 중인 상태인지 — 「재시작」「종료」를 보일지. */
 export function isRunningStatus(status: AgentRuntimeStatus): boolean {
   return status === 'STARTING' || status === 'RUNNING' || status === 'APPLY_PENDING';
 }
@@ -57,7 +59,7 @@ export function currentIssueKeys(s: { agentIssueKey?: string | null; agentIssueK
 }
 
 /**
- * 상태 옆 한 줄 — 작업 중·막힘이면 처리 중 이슈 키(여러 칸이 일하면 「첫 키 외 n건」, 전부는 keys — WP-1409), 대기면 「다음 확인 HH:mm」, 실패면 사유. 보일 것이 없으면 null.
+ * 상태 옆 한 줄 — 작업 중·차단됨이면 처리 중 이슈 키(여러 칸이 일하면 「첫 키 외 n건」, 전부는 keys — WP-1409), 대기면 「다음 확인 HH:mm」, 실패면 사유. 보일 것이 없으면 null.
  */
 export function statusDetail(s: {
   status: AgentRuntimeStatus;

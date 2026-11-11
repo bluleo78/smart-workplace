@@ -71,7 +71,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 거둔다. 남는 위험(설계 WP-1310 §6, 이번 범위 밖): 팀 이슈의 설명(=지시)은 팀원이 고칠 수 있어, 개인 비서 일정의 지시가 바뀔 수 있다.
  *
  * <p>AI 작업 기록(agent_work)은 회차 사이 「다음 회차 대기」(SCHEDULED + next_run_at), 실행 중 「작업 중」(WORKING)이다. 3회 연속
- * 실패하면 반복을 끄고 「막힘」(BLOCKED)으로 둔다. 이슈가 끝났거나(완료·취소·삭제) 담당에서 그 AI 가 빠지면 작업 기록을 닫는 그 자리에서 반복도
+ * 실패하면 반복을 끄고 「차단됨」(BLOCKED)으로 둔다. 이슈가 끝났거나(완료·취소·삭제) 담당에서 그 AI 가 빠지면 작업 기록을 닫는 그 자리에서 반복도
  * 거둔다({@link AgentWorkService} — WP-1114). 스케줄러의 회차 확인은 그 밖의 경로로 어긋난 경우를 위한 안전망으로 남긴다.
  *
  * <p>회차는 이슈 본문이 시킨 쓰기를 확인 카드 없이 하고, 본문이 확인을 받으라고 하면 결과 글을 질문으로 남긴다(WP-1311). 그 질문은 반복 행에 「답을 기다리는
@@ -727,7 +727,7 @@ public class IssueRecurrenceService {
    *
    * <ul>
    *   <li>성공: 결과를 그 AI 이름으로 이슈 챗에 남기고 연속 실패 수를 0 으로, 작업은 「다음 회차 대기」로.
-   *   <li>실패: 연속 실패 수 +1, 「이번 회차를 실행하지 못했습니다: 사유」 글. 3회째면 반복을 끄고 작업을 「막힘」으로 두고 안내 글을 남긴다. 아니면 「다음
+   *   <li>실패: 연속 실패 수 +1, 「이번 회차를 실행하지 못했습니다: 사유」 글. 3회째면 반복을 끄고 작업을 「차단됨」으로 두고 안내 글을 남긴다. 아니면 「다음
    *       회차 대기」로 되돌린다.
    *   <li>묘비(실행 중에 지운 반복): 결과 글만 남기고 행을 지운다.
    * </ul>
@@ -784,7 +784,7 @@ public class IssueRecurrenceService {
 
   /**
    * 회차 하나의 결과(보고된 성공·실패, 또는 결과를 못 받은 실패)를 반영한다 — 결과 대기를 비우고 연속 실패 수를 바꾸고, 그 AI 이름으로 이슈 챗에 글을 남기고,
-   * 작업 기록을 「다음 회차 대기」나(3회 연속 실패) 「막힘」으로 둔다. 묘비면 글만 남기고 끝낸다({@link #finishTombstone}). 바뀐 연속 실패 수를
+   * 작업 기록을 「다음 회차 대기」나(3회 연속 실패) 「차단됨」으로 둔다. 묘비면 글만 남기고 끝낸다({@link #finishTombstone}). 바뀐 연속 실패 수를
    * 돌려준다(묘비는 0) — {@link #MAX_CONSECUTIVE_FAILURES} 이상이면 이번 결과로 반복이 멈춘 것이다. question 이면(WP-1311) 결과
    * 글을 답변이 필요한 질문으로 남기고 반복 행의 「답을 기다리는 질문」으로 둔다(WP-1312 — 소유자가 답하면 {@link
    * IssueRecurrenceFollowUpService} 가 이어 처리한다). 작업은 그대로 「다음 회차 대기」라 다음 회차도 돈다. 이어 처리가 도는 중이면 「작업
@@ -994,7 +994,7 @@ public class IssueRecurrenceService {
     }
   }
 
-  /** 반복이 멈춘 작업을 「막힘」으로 두고 소유자에게 알린다. 이슈가 끝났거나 AI 가 담당에서 빠졌으면 작업 기록을 되살리지 않는다(종료·담당 해제가 이미 닫았다). */
+  /** 반복이 멈춘 작업을 「차단됨」으로 두고 소유자에게 알린다. 이슈가 끝났거나 AI 가 담당에서 빠졌으면 작업 기록을 되살리지 않는다(종료·담당 해제가 이미 닫았다). */
   private void block(IssueRow issue, long agentId, String note) {
     if (!live(issue, agentId)) return;
     agentWorkService.startOrUpdateTracked(
@@ -1002,7 +1002,7 @@ public class IssueRecurrenceService {
         agentId,
         TOOL,
         new AgentWorkPatch(TOOL, AgentWorkState.BLOCKED, note, false, null, null, null));
-    // 막힘으로 들어선 순간 — 명시 보고와 같은 AI 작업 알림 경로(AgentWorkNoticeEvent)로 소유자에게 「답변 필요」 알림을 낸다. 수신자는
+    // 차단됨으로 들어선 순간 — 명시 보고와 같은 AI 작업 알림 경로(AgentWorkNoticeEvent)로 소유자에게 「답변 필요」 알림을 낸다. 수신자는
     // notify 가 이슈 챗 질문과 같은 규칙으로 고른다(개인 작업이라 소유자).
     agentWorkService.publishEnteredNotice(issue, agentId, AgentWorkState.BLOCKED);
   }

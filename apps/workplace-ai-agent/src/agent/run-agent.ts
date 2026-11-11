@@ -90,7 +90,7 @@ export async function runAgent(
   const userMessage = withSharedMemory(envelope.payload, buildUserMessage(envelope));
 
   // fire-and-forget — 델타 미소비. collect 가 완료까지 순회하고 timeout/result.is_error 시 throw →
-  // 끝 보고(막힘)를 보낸 뒤 다시 던져 event-handler 의 .catch 가 로깅(현행 CLI 와 동일한 실패 처리).
+  // 끝 보고(차단됨)를 보낸 뒤 다시 던져 event-handler 의 .catch 가 로깅(현행 CLI 와 동일한 실패 처리).
   // 이슈 이벤트는 항상 담당 AGENT 자격으로 실행(#34) — onBehalfOfId = agentId, userId 없음.
   // 'issue' 프로필 도구 14종(읽기 5[get_issue_detail·get_project + 위키 읽기 3] + add_comment/update_comment/
   // create_issue/update_issue(상태 변경 포함)/unassign_self/link_issues/react(코멘트 반응, WP-812)/

@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>외부 AI 는 MCP 의 report_agent_work 로 스스로 보고하지만, 서버 AI 는 그 도구를 싣지 않고(모델이 아닌 서버가 기록한다) Internal 대행
  * 호출이고 이슈 쓰기는 작업을 시작하지 않는다(WP-1365). 그래서 기록이 하나도 없어 AI 위임 작업에서 빠졌다. ai-agent 가 담당 지정·코멘트로 깨어난 실행의
- * 시작과 끝을 알리면 여기서 「작업 중」 → 「검토 대기」(정상 끝) 또는 「막힘」(실패)으로 남긴다.
+ * 시작과 끝을 알리면 여기서 「작업 중」 → 「검토 대기」(정상 끝) 또는 「차단됨」(실패)으로 남긴다.
  *
  * <p>기록을 바꾸지 않는 경우: 이슈가 끝났거나(완료·취소 — 완료 처리가 이미 기록을 닫았다) AI 가 담당에서 빠졌으면(스스로 빠짐 포함) 되살리지 않는다. 그 AI 가
  * 이 이슈의 반복을 돌리면 반복이 기록(다음 회차 대기 등)을 맡으므로 건드리지 않는다.
@@ -69,7 +69,7 @@ public class ServerAgentRunService {
     // 읽은 뒤 다른 트랜잭션이 이슈를 닫았으면 AgentWorkIssueClosedException(409) 이 그대로 나간다 — 같은 트랜잭션이 이미 롤백 전용이라
     // 여기서 삼켜도 커밋이 실패한다. ai-agent 는 보고 실패를 로그로만 남기고 넘어간다.
     var transition = agentWorkService.startOrUpdateTracked(issueId, agentId, TOOL, patch);
-    // 검토 대기·막힘으로 들어선 순간에만 명시 보고와 같은 AI 작업 알림(검토 요청·답변 필요)을 낸다 — 같은 상태 보고는 다시 알리지 않는다.
+    // 검토 대기·차단됨으로 들어선 순간에만 명시 보고와 같은 AI 작업 알림(검토 요청·답변 필요)을 낸다 — 같은 상태 보고는 다시 알리지 않는다.
     String state = transition.view().state();
     if (!Objects.equals(transition.previousState(), state)) {
       agentWorkService.publishEnteredNotice(issue, agentId, state);

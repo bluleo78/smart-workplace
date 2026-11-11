@@ -34,18 +34,26 @@ public class AgentRuntimeSummaryService {
 
   /**
    * 이 워크스페이스에서 실행 설정 행이 있는 모든 AI 의 실행 상태 요약 — AI id 순. 설정 전체 1회 + 위치 전체 1회로 읽고(AI 마다 다시 읽지 않는다),
-   * 템플릿 제목은 메모리의 레지스트리에서 붙인다. 실행 위치 이름은 기본 위치가 아닐 때만 싣는다 — 목록에서는 「기본이 아닌 곳에서 돈다」만 눈에 띄면 된다.
+   * 템플릿 제목은 메모리의 레지스트리에서 붙인다. 실행 위치 이름은 실제로 도는 곳의 이름을 늘 싣는다 — 지정한 위치, 미지정이면 워크스페이스 기본 위치(WP-1513:
+   * 목록 「실행 환경」 열이 기본 환경이어도 이름을 보인다). 기본 위치가 아예 없으면(미지정일 때) null — 지정 위치는 FK(ON DELETE RESTRICT)라 늘
+   * 찾는다.
    */
   public List<AgentRuntimeSummaryResponse> summaries() {
     List<Row> rows = settings.findAll();
     if (rows.isEmpty()) return List.of();
-    // 기본 위치는 이름을 비우므로 기본이 아닌 위치만 이름 맵에 담는다 — 지정 위치가 기본이거나 미지정이면 맵에 없어 null.
-    Map<Long, String> nonDefaultNames =
-        locations.findAll().stream()
-            .filter(l -> !l.isDefault())
+    // 위치 전체를 한 번 읽어 id → 이름 맵과 기본 위치 이름을 함께 만든다 — 미지정 AI 는 기본 위치에서 돌므로 그 이름을 쓴다.
+    List<AgentLocationRepository.Row> allLocations = locations.findAll();
+    Map<Long, String> names =
+        allLocations.stream()
             .collect(
                 Collectors.toMap(
                     AgentLocationRepository.Row::id, AgentLocationRepository.Row::name));
+    String defaultName =
+        allLocations.stream()
+            .filter(AgentLocationRepository.Row::isDefault)
+            .map(AgentLocationRepository.Row::name)
+            .findFirst()
+            .orElse(null);
     return rows.stream()
         .map(
             r ->
@@ -63,7 +71,7 @@ public class AgentRuntimeSummaryService {
                     r.agentIssueKey(),
                     r.agentIssueKeys(),
                     r.agentNextCheckAt(),
-                    r.locationId() == null ? null : nonDefaultNames.get(r.locationId()),
+                    r.locationId() == null ? defaultName : names.get(r.locationId()),
                     r.observedMessage()))
         .toList();
   }

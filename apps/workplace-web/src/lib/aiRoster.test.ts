@@ -18,7 +18,7 @@ describe('toRosterRow — 대표 상태', () => {
     expect(row.active).toEqual([])
   })
 
-  it('급한 순 — 답변 필요 > 막힘(인증 필요 포함) > 작업 중 > 기다림', () => {
+  it('급한 순 — 답변 필요 > 차단됨(인증 필요 포함) > 작업 중 > 기다림', () => {
     expect(state(ag(1, 'A', { works: [w({ state: 'BLOCKED' }), w({ state: 'INPUT_REQUIRED' })] }))).toBe('needs')
     expect(state(ag(1, 'A', { works: [w({ state: 'WORKING' }), w({ state: 'AUTH_REQUIRED' })] }))).toBe('blocked')
     expect(state(ag(1, 'A', { works: [w({ state: 'SCHEDULED' }), w({ state: 'WORKING' })] }))).toBe('working')

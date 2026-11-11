@@ -94,7 +94,7 @@ export interface AgentObservedState {
   memoryBytes: number | null;
   startedAt: string | null;
   observedAt: string | null;
-  /** IDLE=대기 · WORKING=작업 중 · BLOCKED=막힘(AI 보고). */
+  /** IDLE=대기 · WORKING=작업 중 · BLOCKED=차단됨(AI 보고). */
   agentState: 'IDLE' | 'WORKING' | 'BLOCKED' | null;
   agentIssueKey: string | null;
   /** 칸(프로젝트)별 보고를 합친 현재 이슈 키 전부(WP-1409). 보고가 없으면 빈 배열. */
@@ -126,7 +126,7 @@ export interface PutAgentRuntimeSettingRequest {
   applyMode?: AgentApplyMode;
 }
 
-/** 목록 「실행」 열 한 줄 — 설정이 있는 AI 만 온다. */
+/** 목록 「실행 방식 · 상태 · 실행 환경」 열의 한 행 요약 — 설정이 있는 AI 만 온다. */
 export interface AgentRuntimeSummary {
   agentUserId: number;
   templateName: string;
@@ -138,7 +138,7 @@ export interface AgentRuntimeSummary {
   /** 칸(프로젝트)별 보고를 합친 현재 이슈 키 전부(WP-1409). 보고가 없으면 빈 배열. */
   agentIssueKeys: string[];
   agentNextCheckAt: string | null;
-  /** 기본 위치가 아니면 그 위치 이름, 기본이면 null. */
+  /** 실제 실행 위치 이름 — 지정한 위치, 미지정이면 기본 위치의 이름(WP-1513, 기본 위치도 이름이 온다). 기본 위치가 없으면 null. */
   locationName: string | null;
   message: string | null;
 }

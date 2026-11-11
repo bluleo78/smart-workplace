@@ -182,12 +182,12 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
     expect(buildAiTasksContext({ facets: {}, scope: 'mine' }).scope).toEqual({ label: 'AI 위임 작업' });
   });
   it('AI 위임 작업 AI별 보기(WP-1201) — 보기·범위·AI 상태 칩 + 보이는 AI 수', () => {
-    expect(buildAiAgentsContext({ scope: 'all', rosterLabel: '막힘', count: 2 }).scope).toEqual({
+    expect(buildAiAgentsContext({ scope: 'all', rosterLabel: '차단됨', count: 2 }).scope).toEqual({
       label: 'AI 위임 작업',
       facts: [
         { label: '보기', value: 'AI별' },
         { label: '범위', value: '전체' },
-        { label: 'AI 상태', value: '막힘' },
+        { label: 'AI 상태', value: '차단됨' },
       ],
       count: 2,
     });

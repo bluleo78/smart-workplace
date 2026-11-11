@@ -268,7 +268,7 @@ public class NotificationDispatcher {
   }
 
   /**
-   * AI 작업 상태 알림(WP-913) — 검토 요청·실패는 그 AI 를 맡긴 사람(없거나 못 보면 보고자)에게, 권한 필요·막힘·글 없는 답변 필요는 「답변 필요」
+   * AI 작업 상태 알림(WP-913) — 검토 요청·실패는 그 AI 를 맡긴 사람(없거나 못 보면 보고자)에게, 권한 필요·차단됨·글 없는 답변 필요는 「답변 필요」
    * AI_QUESTION 으로. 판정·수신자 계산은 서비스 트랜잭션 안(RLS).
    */
   @Async("notifyEventExecutor")

@@ -169,7 +169,7 @@ public class IssueRecurrenceFollowUpService implements RecurringQuestionAnswers 
     if (!repository.markFollowUpDispatched(issueId, runId, now, test ? actorId : null)) {
       throw new IssueRecurrenceConflictException(RUN_IN_FLIGHT);
     }
-    // 작업은 「작업 중」으로 — 켜진 반복일 때만(멈춘 반복의 「막힘」 등은 그대로 둔다). 결과 보고가 「다음 회차 대기」로 되돌린다. 끝난 「한 번만」
+    // 작업은 「작업 중」으로 — 켜진 반복일 때만(멈춘 반복의 「차단됨」 등은 그대로 둔다). 결과 보고가 「다음 회차 대기」로 되돌린다. 끝난 「한 번만」
     // 예약(WP-1315)은 꺼져 있어도 답을 기다리던 작업이라 「작업 중」으로 두고, 결과 보고가 작업을 끝낸다. 테스트 이어 처리는 정기 회차의 작업 기록과
     // 따로라 바꾸지 않는다.
     if ((row.enabled() || IssueRecurrenceService.finishedOnce(row)) && !test) {

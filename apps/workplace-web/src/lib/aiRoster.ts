@@ -3,23 +3,24 @@
 // AI 마다 판정은 rosterRows 에서 한 번만 하고, 정렬·건수·거르기·그리기는 그 결과(RosterRow)를 읽는다.
 import type { AiAgentStatus, AiAgentWork } from '../api/aiAgents'
 import type { AgentWorkState } from '../types/issue'
+import { AGENT_STATE_LABEL } from './agentWork'
 
-/** AI 한 명의 대표 상태 — 급한 순. 연결 끊김은 막힘과 같은 급함. */
+/** AI 한 명의 대표 상태 — 급한 순. 연결 끊김은 차단됨과 같은 급함. */
 export type RosterState = 'needs' | 'blocked' | 'offline' | 'working' | 'waiting' | 'idle'
 
 export const ROSTER_STATES: RosterState[] = ['needs', 'blocked', 'offline', 'working', 'waiting', 'idle']
 
-/** 화면 라벨 — 작업 행 배지(AGENT_STATE_LABEL)·이슈별 빠른 필터 칩과 어휘를 맞춘다. */
+/** 화면 라벨 — 작업 행 배지·이슈별 빠른 필터 칩과 같은 상태는 AGENT_STATE_LABEL 을 그대로 쓴다(이름을 바꿀 때 한 곳만 고치게 — WP-1513). */
 export const ROSTER_LABEL: Record<RosterState, string> = {
-  needs: '답변 필요',
-  blocked: '막힘',
+  needs: AGENT_STATE_LABEL.INPUT_REQUIRED,
+  blocked: AGENT_STATE_LABEL.BLOCKED,
   offline: '연결 끊김',
-  working: '작업 중',
+  working: AGENT_STATE_LABEL.WORKING,
   waiting: '기다림',
   idle: '쉬는 중',
 }
 
-// 작업 행 상태 → 대표 상태 묶음. 인증 필요는 이슈별 빠른 필터 칩처럼 「막힘」에 묶는다(같은 행이 보기마다 다른 칩에 들어가지 않게).
+// 작업 행 상태 → 대표 상태 묶음. 인증 필요는 이슈별 빠른 필터 칩처럼 「차단됨」에 묶는다(같은 행이 보기마다 다른 칩에 들어가지 않게).
 // 검토 필요(REVIEW)는 AI 가 일을 끝내고 사람 검토·배포를 기다리는 행이라 AI 를 바쁘게 보이지 않는다(따로 건수).
 const GROUP: Partial<Record<AgentWorkState, RosterState>> = {
   INPUT_REQUIRED: 'needs',

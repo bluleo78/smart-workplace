@@ -125,7 +125,7 @@ export function modeChangeSummary(
 /** 계정 확인을 아직 판정하지 못한 까닭 — 고른 계정을 받는 중(loading)·못 받음(error). 판정했으면 null. */
 export type AccountCheck = 'loading' | 'error' | null;
 
-/** 실행 전 확인 결과 — 화면은 이 값으로 ✓/✗ 와 실행 시작을 막는 이유를 그린다. */
+/** 실행 전 확인 결과 — 화면은 이 값으로 ✓/✗ 와 시작을 막는 이유를 그린다. */
 export interface StartChecks {
   /** 이 방식이 쓰는 AI 계정 종류(템플릿의 account) — 필요 없으면 null 이고 항목을 그리지 않는다. */
   account: CredentialProvider | null;
@@ -148,7 +148,7 @@ export interface StartChecks {
   inactive: boolean;
 }
 
-/** 실행 시작을 막는 첫 이유 — 막히지 않으면 null. 위에서부터 고칠 순서대로 고른다. */
+/** 시작을 막는 첫 이유 — 막히지 않으면 null. 위에서부터 고칠 순서대로 고른다. */
 export function startBlockReason(c: StartChecks): string | null {
   if (c.inactive) return '사용 중지된 AI 는 실행할 수 없어요';
   if (c.account && c.accountCheck === 'loading') return '계정 정보를 확인하고 있어요';

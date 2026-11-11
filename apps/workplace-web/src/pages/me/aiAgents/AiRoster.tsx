@@ -20,7 +20,7 @@ const DASH = <span className="text-muted-foreground">—</span>
 
 const issuePath = (w: AiAgentWork) => `/projects/${w.projectKey}/issues/${w.number}`
 
-/** 대표 상태 배지 — 작업 행 배지(AgentStateBadge)와 같은 톤: 답변 필요는 AI 신호 채움, 작업 중은 AI 신호 옅게, 막힘 경고,
+/** 대표 상태 배지 — 작업 행 배지(AgentStateBadge)와 같은 톤: 답변 필요는 AI 신호 채움, 작업 중은 AI 신호 옅게, 차단됨 경고,
  *  끊김은 옅은 위험, 기다림은 흐린 윤곽, 쉬는 중은 성공(일손이 남음). */
 export function RosterStateBadge({ state, 'data-testid': testId }: { state: RosterState; 'data-testid'?: string }) {
   const label = ROSTER_LABEL[state]

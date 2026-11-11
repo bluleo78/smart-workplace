@@ -108,8 +108,8 @@ public class NotificationService {
   }
 
   /**
-   * AI_QUESTION 생성 본체. agentWorkState 는 AI 작업 상태로 생긴 「답변 필요」(권한 필요·막힘·글 없는 답변 필요, WP-913)의 원인 상태이고,
-   * 이슈 챗 질문 글로 생긴 것이면 null 이다. 알림 행과 푸시에 함께 실어 인박스·푸시가 같은 상태별 문구를 쓰게 한다.
+   * AI_QUESTION 생성 본체. agentWorkState 는 AI 작업 상태로 생긴 「답변 필요」(권한 필요·차단됨·글 없는 답변 필요, WP-913)의 원인
+   * 상태이고, 이슈 챗 질문 글로 생긴 것이면 null 이다. 알림 행과 푸시에 함께 실어 인박스·푸시가 같은 상태별 문구를 쓰게 한다.
    */
   private void aiQuestion(
       long issueId, List<Long> mentionedIds, Long actorId, String agentWorkState) {

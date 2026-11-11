@@ -71,9 +71,9 @@ test('에이전트 표는 휴대폰 폭 안에 들어오고, 아이디·유형·
   })
   expect(overflow).toBeLessThanOrEqual(0)
 
-  // 좁은 화면에서는 아이디·유형·실행·생성일 열 머리를 숨긴다
-  for (const name of ['아이디', '유형', '실행', '생성일']) {
-    await expect(page.getByRole('columnheader', { name })).toBeHidden()
+  // 좁은 화면에서는 아이디·유형·실행 방식·계정·상태·실행 환경·생성일 열 머리를 숨긴다(WP-1513 에서 「실행」을 세 열로, 「계정」 열 추가)
+  for (const name of ['아이디', '유형', '실행 방식', '계정', '상태', '실행 환경', '생성일']) {
+    await expect(page.getByRole('columnheader', { name, exact: true })).toBeHidden()
   }
 
   // 숨긴 값은 이름 아래 한 줄에 모인다

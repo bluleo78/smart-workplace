@@ -12,12 +12,14 @@ import { formatDateOnly } from '@/lib/formatters';
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea';
 
 import { AvatarPicture } from '../../../components/users/AvatarPicture';
+import { useAgentAccounts } from '../../../hooks/queries/useAgentAccounts';
 import { useAgentRuntimeSummaries } from '../../../hooks/queries/useAgentRuntime';
 import { useAgents } from '../../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../../hooks/queries/useAssistant';
 import { clickableRowProps } from '../../../lib/clickableRowProps';
 import type { AgentResponse } from '../../../types/agent';
-import { AgentRuntimeCell, AgentRuntimeMetaBadge } from './AgentRuntimeCell';
+import type { AgentAccountResponse } from '../../../types/agentAccount';
+import { AgentAccountCell, AgentRunLocationCell, AgentRunModeCell, AgentRunStateCell, AgentRuntimeMetaBadge } from './AgentRuntimeCell';
 import { NewAgentDialog } from './NewAgentDialog';
 
 interface Props {
@@ -32,11 +34,19 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
   // 개인 비서는 주인이 관리하므로 관리자 목록에서는 숨기는 것이 기본이다(WP-1361 — WP-1281 의 기본 표시를 되돌림).
   const [includePersonal, setIncludePersonal] = useState(false);
   const agents = useAgents(includePersonal);
-  // Works 가 실행하는 AI 의 실행 요약(WP-1255) — 목록 「실행」 열의 상태 알약·처리 중 이슈.
+  // Works 가 실행하는 AI 의 실행 요약(WP-1255) — 목록 「상태」·「실행 환경」 열(WP-1513)의 상태 알약·처리 중 이슈·실행 위치.
   const summaries = useAgentRuntimeSummaries();
   // 행마다 찾지 않게 한 번 표로 — 표·모바일 두 배치가 같은 렌더에서 함께 부른다.
   const summaryById = useMemo(() => new Map(summaries.data?.map((s) => [s.agentUserId, s])), [summaries.data]);
   const summaryOf = (id: number) => summaryById.get(id) ?? null;
+  // AI 계정 목록(WP-1451) — 목록 「계정」 열(WP-1513). 서버를 바꾸지 않고 계정마다 실린 「쓰는 AI」(agents[])를 뒤집어 AI id → 계정 표를 만든다.
+  // 계정 목록을 못 읽으면(오류·권한) data 가 없어 모든 칸이 「—」 — 에이전트 목록 자체는 그대로 보인다.
+  const accounts = useAgentAccounts();
+  const accountByAgentId = useMemo(() => {
+    const map = new Map<number, AgentAccountResponse>();
+    for (const account of accounts.data ?? []) for (const bound of account.agents) map.set(bound.userId, account);
+    return map;
+  }, [accounts.data]);
   // 공통 비서 상태 — 표 배지 + 빈 상태 배너.
   const ws = useWorkspaceAssistant();
   const isEmpty = !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
@@ -83,26 +93,31 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
               {/* 좁은 화면은 나머지 열을 숨기고 이름 아래 한 줄로 모은다 — 표가 휴대폰 폭을 넘었다(WP-639) */}
               <TableHead className="hidden md:table-cell">아이디</TableHead>
               <TableHead className="hidden md:table-cell">유형</TableHead>
-              <TableHead className="hidden md:table-cell">실행</TableHead>
+              {/* 실행 방식·상태·실행 환경을 세 열로 나눴다(WP-1513) — 한 칸에 쌓으면 행마다 높이가 달라졌다. */}
+              <TableHead className="hidden md:table-cell">실행 방식</TableHead>
+              {/* 묶인 AI 계정 이름(WP-1513) — 어느 계정으로 도는지 상세에 들어가지 않고 본다. */}
+              <TableHead className="hidden md:table-cell">계정</TableHead>
+              <TableHead className="hidden md:table-cell">상태</TableHead>
+              <TableHead className="hidden md:table-cell">실행 환경</TableHead>
               <TableHead className="hidden md:table-cell">생성일</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {agents.isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                   로딩 중…
                 </TableCell>
               </TableRow>
             ) : agents.isError ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-destructive">
+                <TableCell colSpan={8} className="py-8 text-center text-destructive">
                   목록을 불러오지 못했습니다
                 </TableCell>
               </TableRow>
             ) : isEmpty ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground" data-testid="agent-list-empty">
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground" data-testid="agent-list-empty">
                   에이전트가 없습니다
                   {/* 기본으로 숨긴 개인 비서가 있을 수 있으니 켜는 곳을 알려 준다(WP-1361). */}
                   {!includePersonal && (
@@ -138,7 +153,7 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
                             사용 중지
                           </Badge>
                         )}
-                        {/* 모바일 전용 — 숨긴 아이디·유형·실행 열의 값(WP-639) */}
+                        {/* 모바일 전용 — 숨긴 아이디·유형·실행 방식·상태 열의 값(WP-639, 실행 환경은 상세에서) */}
                         <div
                           className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground md:hidden"
                           data-testid={`agent-meta-${a.id}`}
@@ -155,7 +170,16 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
                     <AgentTypeBadge agent={a} />
                   </TableCell>
                   <TableCell className="hidden md:table-cell" data-testid={`agent-runtime-cell-${a.id}`}>
-                    <AgentRuntimeCell agent={a} summary={summaryOf(a.id)} />
+                    <AgentRunModeCell agent={a} summary={summaryOf(a.id)} />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell" data-testid={`agent-account-cell-${a.id}`}>
+                    <AgentAccountCell agentId={a.id} account={accountByAgentId.get(a.id) ?? null} />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell" data-testid={`agent-runtime-state-cell-${a.id}`}>
+                    <AgentRunStateCell agent={a} summary={summaryOf(a.id)} />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell" data-testid={`agent-runtime-location-cell-${a.id}`}>
+                    <AgentRunLocationCell agent={a} summary={summaryOf(a.id)} />
                   </TableCell>
                   <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
                     {formatDateOnly(a.createdAt)}
