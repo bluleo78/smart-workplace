@@ -28,6 +28,7 @@ import com.workplace.global.util.MentionParser;
 import com.workplace.issue.domain.IssueKeys;
 import com.workplace.issue.dto.ChecklistCursor;
 import com.workplace.issue.dto.ChecklistOrder;
+import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueStatuses;
@@ -38,7 +39,6 @@ import com.workplace.version.dto.VersionKind;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -1167,9 +1167,6 @@ public class IssueRepository {
         .asTable(alias);
   }
 
-  /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
-  private static final ZoneId FILTER_ZONE = com.workplace.issue.dto.IssueDueWindow.ZONE;
-
   /**
    * 날짜 범위 조건 — 단일/횡단 검색 공용. 마감일(due_date)·시작일(start_date, WP-1238)은 DATE 컬럼이라 그대로 비교하고,
    * 종료일·생성일(WP-307)·수정일(WP-1238)은 시각 컬럼이라 Asia/Seoul 하루 경계로 해석해 양끝을 포함한다. 종료일·시작일 필터는 값이 없는 이슈를 자연히
@@ -1195,14 +1192,18 @@ public class IssueRepository {
     return c;
   }
 
-  /** 시각 컬럼을 Asia/Seoul 날짜 범위(양끝 포함)로 자른다 — from 00:00 이상, to 다음 날 00:00 미만. null 쪽은 미적용. */
+  /**
+   * 시각 컬럼을 Asia/Seoul 날짜 범위(양끝 포함)로 자른다 — from 00:00 이상, to 다음 날 00:00 미만. null 쪽은 미적용. AI 비서가 "이번
+   * 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). 경계는 성과 지표 기간(WP-1476)과 같은 {@link IssueDueWindow}
+   * 헬퍼를 쓴다.
+   */
   private static Condition seoulDayRange(Field<OffsetDateTime> col, LocalDate from, LocalDate to) {
     Condition c = noCondition();
     if (from != null) {
-      c = c.and(col.ge(from.atStartOfDay(FILTER_ZONE).toOffsetDateTime()));
+      c = c.and(col.ge(IssueDueWindow.startOfDay(from)));
     }
     if (to != null) {
-      c = c.and(col.lt(to.plusDays(1).atStartOfDay(FILTER_ZONE).toOffsetDateTime()));
+      c = c.and(col.lt(IssueDueWindow.endOfDayExclusive(to)));
     }
     return c;
   }
@@ -2053,6 +2054,6 @@ public class IssueRepository {
                         .eq(ISSUE.ID)
                         .and(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.USER_ID.eq(userId))))
         .and(ISSUE.STATUS.in(IssueStatuses.OPEN))
-        .and(ISSUE.DUE_DATE.between(com.workplace.issue.dto.IssueDueWindow.from(today), today));
+        .and(ISSUE.DUE_DATE.between(IssueDueWindow.from(today), today));
   }
 }

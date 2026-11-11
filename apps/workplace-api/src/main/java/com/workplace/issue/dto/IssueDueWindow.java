@@ -2,6 +2,7 @@ package com.workplace.issue.dto;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 
 /**
@@ -20,6 +21,19 @@ public final class IssueDueWindow {
   /** clock 기준 Asia/Seoul 의 오늘. */
   public static LocalDate today(Clock clock) {
     return LocalDate.now(clock.withZone(ZONE));
+  }
+
+  /**
+   * 서울 날짜 하루의 시작 시각(00:00 KST, 포함). 서울 날짜 범위를 시각 범위로 바꾸는 곳(이슈 날짜 필터, 성과 지표 기간 WP-1476)이 같은 경계를 쓰게 한
+   * 곳에 둔다 — JVM 기본 zone(UTC)으로 자르면 하루가 9시간 밀린다.
+   */
+  public static OffsetDateTime startOfDay(LocalDate date) {
+    return date.atStartOfDay(ZONE).toOffsetDateTime();
+  }
+
+  /** 서울 날짜 하루의 끝 경계(다음 날 00:00 KST, 제외) — {@link #startOfDay} 와 짝. */
+  public static OffsetDateTime endOfDayExclusive(LocalDate date) {
+    return startOfDay(date.plusDays(1));
   }
 
   /** 창의 하한 — 1년 넘게 지난 마감은 홈(SynthesisLayer)에도 보이지 않는다. */
