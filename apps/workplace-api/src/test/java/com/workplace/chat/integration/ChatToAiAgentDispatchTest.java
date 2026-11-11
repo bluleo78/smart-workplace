@@ -59,6 +59,31 @@ class ChatToAiAgentDispatchTest extends ExternalClientMockedTestBase {
         .containsKeys("threadId", "messageId", "actor", "mentions", "body");
   }
 
+  /**
+   * WP-1492: 대화에 아직 없는 프로젝트 AI 를 멘션해도 그 AI 가 깨어난다 — 서버가 멘션된 AI 를 스레드 멤버로 넣고(add-only) 실행 이벤트를 보낸다.
+   * 웹 이슈챗 @ 후보가 비참여 프로젝트 AI 를 보이는 근거.
+   */
+  @Test
+  void humanMentionsNonParticipantProjectAgent_joinsThreadAndPublishes() {
+    ChatFixtures.AgentSetup s = fx.setupWithAgent();
+    var thread =
+        threadService.getOrCreate(
+            s.base().reporterId(), s.base().projectKey(), s.base().issueNumber());
+    assertThat(memberRepo.isMember(thread.threadId(), s.agentId())).isFalse();
+
+    messageService.create(
+        s.base().reporterId(),
+        thread.threadId(),
+        new CreateChatMessageRequest("<@" + s.agentId() + "> 처리해줘"));
+
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, timeout(15000).times(1)).publish(captor.capture());
+    assertThat(captor.getValue().type()).isEqualTo("chat.message.posted");
+    // 멘션한 그 AI 가 대행 실행 AI 로 실린다(깨어남).
+    assertThat(captor.getValue().payload()).containsEntry("actingAgentId", s.agentId());
+    assertThat(memberRepo.isMember(thread.threadId(), s.agentId())).isTrue();
+  }
+
   @Test
   void humanNoMention_doesNotPublish() throws InterruptedException {
     ChatFixtures.Setup s = fx.setup();

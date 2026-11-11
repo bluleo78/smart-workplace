@@ -17,7 +17,7 @@ import {
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { agentWorker, createAgentWork, createAiTaskCounts } from '../../factories/agentWork.factory';
 import { mockApi } from '../../fixtures/api-mock';
-import { createProject } from '../../factories/project.factory';
+import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
 import { hydrateMentions } from '../../../src/lib/chat-mentions';
 import { formatChatTimestamp } from '../../../src/pages/projects/components/chat/formatChatTimestamp';
 import type { ChatMessageResponse } from '../../../src/types/chat';
@@ -373,6 +373,52 @@ test.describe('이슈 chat panel', () => {
     await expect(agentChip).toHaveClass(/bg-background/);
     await expect(agentChip).toHaveClass(/text-ai-accent/);
     await expect(agentChip).not.toHaveClass(/purple/);
+  });
+
+  // WP-1492: @ 후보 = 스레드 참여자 + 프로젝트 AI. 대화에 없는 프로젝트 AI 도 고를 수 있고(서버가 스레드에 넣고 깨운다),
+  // 비참여 사람·남의 개인 비서는 후보에 없다. TipTap 입력에 글자를 쳐야 멘션 팝업이 열려 jsdom 대신 E2E(@input)다.
+  test('@mention — 대화에 없는 프로젝트 AI 도 후보에 보이고 고르면 <@id> 로 전송된다', { tag: '@input' }, async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'project ai mention 테스트' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    // 공통 스텁의 빈 멤버 목록보다 나중에 등록해 이 응답이 우선한다.
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          createMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' }),
+          createMember({ userId: 2, username: 'kim', name: '김사람', role: 'MEMBER' }),
+          createAgentMember({ userId: 50, username: 'codi', name: '코디봇' }),
+          createAgentMember({ userId: 51, username: '__assistant_u7', name: '남의 비서' }),
+        ]),
+      }),
+    );
+    const stubs = freshStubs();
+    const sent = await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+
+    const input = page.getByTestId('chat-composer-input');
+    await input.click();
+    await page.keyboard.type('hi @');
+    await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
+    // 참여자(나·AI Agent) + 프로젝트 AI(코디봇). 비참여 사람·남의 개인 비서는 없다.
+    await expect(page.getByTestId('chat-mention-option-50')).toBeVisible();
+    await expect(page.getByTestId('chat-mention-option-99')).toBeVisible();
+    await expect(page.getByTestId('chat-mention-option-2')).toHaveCount(0);
+    await expect(page.getByTestId('chat-mention-option-51')).toHaveCount(0);
+    await page.getByTestId('chat-mention-option-50').click();
+    await expect(input).toContainText('@코디봇');
+
+    await page.getByTestId('chat-composer-submit').click();
+    await expect.poll(() => sent.createBodies().map((p) => p.body.trim())).toEqual(['hi <@50>']);
   });
 
   // 회귀 — 인라인 편집기의 멘션 팝업이 열린 상태에서 composer 로 포커스 이동 후 Enter.

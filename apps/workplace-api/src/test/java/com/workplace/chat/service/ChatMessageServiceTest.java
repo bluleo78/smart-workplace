@@ -1,6 +1,8 @@
 package com.workplace.chat.service;
 
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,6 +61,27 @@ class ChatMessageServiceTest extends IntegrationTestBase {
         new CreateChatMessageRequest("<@" + s.agentId() + "> 도와줘"));
 
     assertThat(memberRepo.isMember(thread.threadId(), s.agentId())).isTrue();
+    // WP-1492: 웹이 이슈챗 @ 후보에 대화에 없는 프로젝트 AI 를 보이므로, 그 AI 를 멘션하면 스레드 멤버로만 들어가고 담당자·워처는 그대로여야 한다
+    // (멘션은 대화 참여일 뿐 이슈를 맡기거나 구독시키지 않는다).
+    long issueId = s.base().issueId();
+    assertThat(
+            dsl.select(ISSUE_ASSIGNEE.USER_ID)
+                .from(ISSUE_ASSIGNEE)
+                .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId))
+                .fetch(ISSUE_ASSIGNEE.USER_ID))
+        .containsExactly(s.base().assigneeId());
+    assertThat(
+            dsl.select(ISSUE_WATCHER.USER_ID)
+                .from(ISSUE_WATCHER)
+                .where(ISSUE_WATCHER.ISSUE_ID.eq(issueId))
+                .fetch(ISSUE_WATCHER.USER_ID))
+        .containsExactly(s.base().watcherId());
+    // 생성 이벤트의 멘션에 그 AI 가 실린다 — 커밋 뒤 ChatEventDispatcher 가 이 멘션으로 AI 를
+    // 깨운다(ChatToAiAgentDispatchTest).
+    assertThat(events.stream(ChatMessageCreatedEvent.class))
+        .singleElement()
+        .satisfies(
+            e -> assertThat(e.mentions()).extracting(u -> u.id()).containsExactly(s.agentId()));
   }
 
   @Test

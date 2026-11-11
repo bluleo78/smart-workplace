@@ -6,10 +6,10 @@
 import { type InfiniteData,useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { chatApi } from '../../api/chat';
+import type { MentionCandidate } from '../../components/mentions/types';
 import { handleApiError } from '../../lib/api-error';
 import { hydrateMentions } from '../../lib/chat-mentions';
 import type {
-  ChatMemberResponse,
   ChatMessagePage,
   ChatMessageResponse,
   CreateChatMessageRequest,
@@ -26,7 +26,8 @@ interface MeContext {
 export function useCreateChatMessage(
   threadId: number,
   me: MeContext,
-  members: ChatMemberResponse[],
+  // 낙관적 메시지의 멘션 칩 이름에 쓰는 후보 — 이슈챗은 참여자 + 프로젝트 AI(WP-1492)를 넘긴다.
+  members: MentionCandidate[],
 ) {
   const qc = useQueryClient();
 
