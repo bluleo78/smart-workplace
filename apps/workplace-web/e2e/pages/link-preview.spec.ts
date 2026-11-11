@@ -39,10 +39,13 @@ test.describe('링크 미리보기 메타 (WP-894)', { tag: '@platform' }, () =>
     expect(await meta('og:image')).toEqual(['https://__PUBLIC_HOST__/og-image.png'])
     // 대표 주소를 고정하면 깊은 링크가 루트로 묶이므로 og:url 은 두지 않는다.
     expect(await meta('og:url')).toEqual([])
-    // 공개 노트 공유 링크(WP-895)는 nginx SSI 가 설명·제목 block 을 노트 메타 조각으로 바꾼다 — 그 표기가 빌드에 남아 있어야 한다.
+    // 공유 링크(노트 WP-895·드라이브 WP-1473)는 nginx SSI 가 설명·제목 block 과 그림 block 을 그 링크의 조각으로 바꾼다 — 그 표기가 빌드에 남아 있어야 한다.
     // (SSI 가 꺼진 이 서버·다른 주소에선 주석이라 위의 공통 메타가 그대로 쓰인다.)
     expect(html).toMatch(
-      /<!--# block name="common_meta" -->\s*<meta name="description"[^>]*>\s*<meta property="og:title"[^>]*>\s*<meta property="og:description"[^>]*>\s*<!--# endblock -->\s*<!--# include virtual="\/__wiki-share-meta" stub="common_meta" -->/,
+      /<!--# block name="common_meta" -->\s*<meta name="description"[^>]*>\s*<meta property="og:title"[^>]*>\s*<meta property="og:description"[^>]*>\s*<!--# endblock -->\s*<!--# include virtual="\/__share-meta" stub="common_meta" wait="yes" -->/,
+    )
+    expect(html).toMatch(
+      /<!--# block name="common_image" -->\s*<meta property="og:image"[^>]*>\s*<meta property="og:image:width"[^>]*>\s*<meta property="og:image:height"[^>]*>\s*<meta property="og:image:alt"[^>]*>\s*<!--# endblock -->\s*<!--# include virtual="\/__share-image" stub="common_image" wait="yes" -->/,
     )
   })
 

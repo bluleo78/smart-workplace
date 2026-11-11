@@ -2,16 +2,23 @@ package com.workplace.drive.controller;
 
 import com.workplace.drive.dto.ShareInfoResponse;
 import com.workplace.drive.dto.UnlockShareRequest;
+import com.workplace.drive.exception.DriveShareLinkGoneException;
+import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveShareLinkService.ResolvedTarget;
+import com.workplace.drive.service.DriveSharePreview;
+import com.workplace.drive.service.DriveSharePreviewMeta;
 import com.workplace.drive.service.ShareViewTokens;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.filepreview.PreviewResponses;
 import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.global.tenant.TenantContext;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -38,6 +45,9 @@ public class PublicDriveShareController {
   private final DriveFileService fileService;
   private final FilePreviewService previewService;
 
+  /** 카드 날짜는 서비스 기준 한국 시간으로 보인다 — 설계 결정(봇·받는 사람의 시간대를 알 수 없다). */
+  private static final ZoneId PREVIEW_ZONE = ZoneId.of("Asia/Seoul");
+
   /** 열람 토큰 헤더(WP-1227). */
   static final String VIEW_TOKEN_HEADER = "X-Share-View-Token";
 
@@ -51,6 +61,32 @@ public class PublicDriveShareController {
       @RequestHeader(value = VIEW_TOKEN_HEADER, required = false) String viewToken) {
     return ResponseEntity.ok(
         shareLinks.info(token, viewToken, TenantContext.get(), requesterUserId()));
+  }
+
+  /**
+   * 링크 미리보기 메타 조각(WP-1473) — web nginx 가 드라이브 공유 주소의 index.html 에 SSI 로 끼워 넣는 {@code <meta>} 줄. 메신저
+   * 봇은 JS 를 실행하지 않아 HTML 에 파일 이름·종류가 있어야 카드가 된다. {@code part=image} 는 og:image 줄, 그 밖(기본)은 설명·제목 줄.
+   *
+   * <p>열 수 없는 링크(없음·만료·폐기·휴지통)는 204 빈 응답 — nginx 가 사이트 공통 메타를 쓴다. 비밀번호·사내 링크는 파일 정보 없이 잠금 안내만 낸다.
+   * 열람 토큰·로그인은 보지 않는다(봇 기준 익명 판정). 링크가 곧 권한이라 검색 제외·캐시 금지 헤더를 단다.
+   */
+  @GetMapping(value = "/share/{token}/preview-meta", produces = "text/html;charset=UTF-8")
+  public ResponseEntity<String> previewMeta(
+      @PathVariable("token") String token,
+      @RequestParam(value = "part", required = false) String part,
+      HttpServletResponse response) {
+    response.setHeader("X-Robots-Tag", "noindex, nofollow");
+    response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+    try {
+      DriveSharePreview preview = shareLinks.previewCard(token);
+      String html =
+          "image".equals(part)
+              ? DriveSharePreviewMeta.imageHtml(preview)
+              : DriveSharePreviewMeta.metaHtml(preview, ZonedDateTime.now(PREVIEW_ZONE));
+      return ResponseEntity.ok(html);
+    } catch (DriveShareLinkNotFoundException | DriveShareLinkGoneException e) {
+      return ResponseEntity.noContent().build();
+    }
   }
 
   /**

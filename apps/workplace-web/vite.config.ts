@@ -129,7 +129,8 @@ export default defineConfig({
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // 링크 미리보기 이미지(WP-894)는 메신저 봇만 받는다 — 앱이 쓰지 않으므로 모든 설치본이 미리 받아 두지 않게 뺀다.
-        globIgnores: ['**/node_modules/**', 'og-image.png'],
+        // 드라이브 공유 카드 그림(og/drive-*.png, WP-1473)도 같은 이유로 뺀다.
+        globIgnores: ['**/node_modules/**', 'og-image.png', 'og/**'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       devOptions: { enabled: process.env.E2E === '1', type: 'module' },

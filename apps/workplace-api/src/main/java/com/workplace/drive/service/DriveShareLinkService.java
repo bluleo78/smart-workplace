@@ -222,16 +222,9 @@ public class DriveShareLinkService {
         () ->
             tx.execute(
                 st -> {
-                  DriveFileRepository.DriveFileRow row =
-                      files
-                          .findRow(link.driveFileId())
-                          .orElseThrow(
-                              com.workplace.drive.exception.DriveShareLinkNotFoundException::new);
-                  var meta =
-                      links
-                          .findFileMeta(row.fileId())
-                          .orElseThrow(
-                              com.workplace.drive.exception.DriveShareLinkNotFoundException::new);
+                  var f = loadFile(link);
+                  var row = f.row();
+                  var meta = f.meta();
                   String sharedBy = links.findCreatorName(tokenHash).orElse(null);
                   // 「드라이브에서 열기」는 같은 워크스페이스에서 그 공간을 볼 수 있는(VIEWER 이상, 부서 역할 포함) 사람에게만 보인다 —
                   // 볼 수 없는 사람에게 공간·폴더 id 를 알려 주지 않는다.
@@ -247,6 +240,32 @@ public class DriveShareLinkService {
                       sharedBy,
                       !authenticated,
                       driveOpen);
+                }));
+  }
+
+  /**
+   * 메신저 봇 미리보기 카드 판정(WP-1473) — 열람 토큰·로그인을 보지 않는 익명 기준. 순서: 404(없음·비활성 테넌트) → 410(만료·폐기) → 사내 링크면
+   * {@link DriveSharePreview.InternalOnly} → 비밀번호 링크면 {@link
+   * DriveSharePreview.PasswordProtected}(열람 토큰이 없으니 잠긴 것으로 본다) → 파일 정보({@link
+   * DriveSharePreview.Open}). 휴지통·없는 파일은 404. 잠긴 링크는 파일 정보를 읽지도 않아 이름·크기가 새지 않는다. 시도 칸을 쓰지 않는다.
+   */
+  public DriveSharePreview previewCard(String token) {
+    var link = resolveActive(CapabilityTokens.sha256Hex(token));
+    if ("INTERNAL".equals(link.audience())) {
+      return new DriveSharePreview.InternalOnly();
+    }
+    if (link.passwordHash() != null) {
+      return new DriveSharePreview.PasswordProtected();
+    }
+    // FORCE RLS 라 링크 워크스페이스 컨텍스트를 세워 트랜잭션 안에서 읽는다.
+    return TenantContext.callAs(
+        link.tenantId(),
+        () ->
+            tx.execute(
+                st -> {
+                  var f = loadFile(link);
+                  return new DriveSharePreview.Open(
+                      f.row().name(), f.meta().mimeType(), f.meta().sizeBytes(), link.expiresAt());
                 }));
   }
 
@@ -349,6 +368,20 @@ public class DriveShareLinkService {
       attemptService.attemptSucceeded(tokenHash);
     }
   }
+
+  /**
+   * 링크의 파일 행·형식/크기를 읽는다(휴지통·없는 파일은 404). 호출부가 링크 워크스페이스 컨텍스트와 트랜잭션 안에서 불러야 한다(FORCE RLS) — info 와
+   * previewCard 가 같은 읽기를 공유한다.
+   */
+  private LoadedFile loadFile(DriveShareLinkRepository.ResolvedLink link) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(link.driveFileId()).orElseThrow(DriveShareLinkNotFoundException::new);
+    var meta = links.findFileMeta(row.fileId()).orElseThrow(DriveShareLinkNotFoundException::new);
+    return new LoadedFile(row, meta);
+  }
+
+  private record LoadedFile(
+      DriveFileRepository.DriveFileRow row, DriveShareLinkRepository.FileMeta meta) {}
 
   /** 가드를 통과한 링크(토큰 해시 + resolve 결과). */
   private record GuardedLink(String tokenHash, DriveShareLinkRepository.ResolvedLink link) {

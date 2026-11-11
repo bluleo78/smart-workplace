@@ -1,0 +1,228 @@
+<!doctype html>
+<!--
+  드라이브 공유 링크 미리보기 카드 8장(public/og/drive-*.png) 원본 — render-share-cards.mjs 가 `?kind=` 별로 1200×630 을 찍는다(WP-1473).
+  kind: pdf · doc · sheet · slide · image · file · password · internal (API 의 그림 키와 같다 — 이름을 바꾸면 API 도 바꾼다).
+  Teams 가운데 잘림(x 202~998)을 견디도록 모든 내용을 .safe(x 202~998) 안에 둔다(og-image.html 과 같은 이유). 오른쪽 아래 옅은 원은 가로로 .safe 안에 두고 아래로만 넘긴다.
+  글꼴은 macOS 의 Apple SD Gothic Neo, 없으면(리눅스) Noto Sans CJK KR 이다.
+-->
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+      }
+      body {
+        /* 브랜드 primary — favicon.svg 와 같은 인디고 */
+        background: #4338ca;
+        position: relative;
+        overflow: hidden;
+        font-family: 'Apple SD Gothic Neo', 'Noto Sans CJK KR', sans-serif;
+      }
+      /* Teams 가 남기는 가로 범위(x 202~998) — 내용은 전부 여기 안에 둔다. 넘치는 장식은 여기서 잘린다. */
+      .safe {
+        position: absolute;
+        left: 202px;
+        top: 0;
+        width: 796px;
+        height: 630px;
+        overflow: hidden;
+      }
+      .deco {
+        position: absolute;
+        /* 가로로는 .safe 안에 통째로 들어와(오른쪽 끝 x 990) 세로 직선으로 잘리지 않는다 — 카카오톡·Slack 은 전체를 보여 준다. 아래로만 넘쳐 잘린다. */
+        right: 8px;
+        bottom: -200px;
+        width: 440px;
+        height: 440px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.07);
+      }
+      .brand {
+        position: absolute;
+        left: 38px;
+        top: 44px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: #fff;
+        font-size: 30px;
+        font-weight: 700;
+        line-height: 1;
+      }
+      .brand svg {
+        width: 44px;
+        height: 44px;
+        padding: 7px;
+        box-sizing: border-box;
+        border-radius: 12px;
+        border: 2px solid rgba(255, 255, 255, 0.28);
+        background: rgba(255, 255, 255, 0.08);
+      }
+      /* 가운데 흰 문서(오른쪽 위 접힌 귀) — clip-path 로 귀를 잘라내고 ::before 로 접힌 면을 그린다 */
+      .doc {
+        position: absolute;
+        left: 38px;
+        top: 168px;
+        width: 220px;
+        height: 290px;
+        background: #fff;
+        clip-path: polygon(0 0, 164px 0, 100% 56px, 100% 100%, 0 100%);
+        border-radius: 14px 0 14px 14px;
+      }
+      .fold {
+        position: absolute;
+        left: 38px;
+        top: 168px;
+        width: 220px;
+        height: 290px;
+        pointer-events: none;
+      }
+      .fold::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 56px;
+        height: 56px;
+        background: linear-gradient(to bottom left, transparent 50%, #c7d2fe 50%);
+        border-bottom-left-radius: 8px;
+      }
+      .lines {
+        position: absolute;
+        left: 28px;
+        top: 90px;
+        width: 140px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .lines i {
+        display: block;
+        height: 9px;
+        border-radius: 5px;
+        background: #e0e7ff;
+      }
+      .lines i:nth-child(2) {
+        width: 80%;
+      }
+      .lines i:nth-child(3) {
+        width: 60%;
+      }
+      .label {
+        position: absolute;
+        left: 28px;
+        bottom: 26px;
+        min-width: 96px;
+        padding: 0 14px;
+        height: 46px;
+        box-sizing: border-box;
+        border-radius: 10px;
+        color: #fff;
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 46px;
+        text-align: center;
+        letter-spacing: 1px;
+      }
+      /* 잠금 카드 — 문서 대신 흰 둥근 사각 안에 자물쇠 */
+      .lock {
+        position: absolute;
+        left: 38px;
+        top: 168px;
+        width: 220px;
+        height: 290px;
+        border-radius: 14px;
+        background: #fff;
+      }
+      .lock svg {
+        position: absolute;
+        left: 60px;
+        top: 52px;
+        width: 100px;
+        height: 100px;
+      }
+      .lock .label {
+        left: 50%;
+        bottom: 36px;
+        transform: translateX(-50%);
+        background: #4338ca;
+      }
+      .text {
+        position: absolute;
+        left: 298px;
+        right: 0;
+        top: 238px;
+      }
+      .title {
+        color: #fff;
+        font-size: 60px;
+        font-weight: 700;
+        line-height: 1.1;
+        white-space: nowrap;
+      }
+      .sub {
+        margin-top: 18px;
+        color: #c7d2fe;
+        font-size: 30px;
+        font-weight: 400;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="safe">
+      <div class="deco"></div>
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z" />
+          <path d="m7 16.5-4.74-2.85" />
+          <path d="m7 16.5 5-3" />
+          <path d="M7 16.5v5.17" />
+          <path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z" />
+          <path d="m17 16.5-5-3" />
+          <path d="m17 16.5 4.74-2.85" />
+          <path d="M17 16.5v5.17" />
+          <path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z" />
+          <path d="M12 8 7.26 5.15" />
+          <path d="m12 8 4.74-2.85" />
+          <path d="M12 13.5V8" />
+        </svg>
+        <span>Gen:iA Works</span>
+      </div>
+      <!-- 아래 요소는 스크립트가 kind 에 맞춰 채운다 -->
+      <div id="visual"></div>
+      <div class="text">
+        <div class="title" id="title"></div>
+        <div class="sub" id="sub"></div>
+      </div>
+    </div>
+    <script>
+      // 종류별 라벨·색·제목·작은 줄. 잠금 두 장(password·internal)은 문서 대신 자물쇠를 그린다.
+      const KINDS = {
+        pdf: { label: 'PDF', color: '#dc2626', title: 'PDF 파일', sub: '드라이브 공유' },
+        doc: { label: 'DOC', color: '#2563eb', title: '문서', sub: '드라이브 공유' },
+        sheet: { label: 'XLS', color: '#16a34a', title: '스프레드시트', sub: '드라이브 공유' },
+        slide: { label: 'PPT', color: '#ea580c', title: '발표 자료', sub: '드라이브 공유' },
+        image: { label: 'IMG', color: '#0d9488', title: '이미지', sub: '드라이브 공유' },
+        file: { label: 'FILE', color: '#6b7280', title: '파일', sub: '드라이브 공유' },
+        password: { lock: true, title: '보호된 파일', sub: '비밀번호 필요' },
+        internal: { lock: true, title: '사내 공유 파일', sub: '로그인 필요' },
+      }
+      const LOCK_SVG =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="#4338ca" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>'
+      const kind = new URLSearchParams(location.search).get('kind')
+      const k = KINDS[kind]
+      if (!k) throw new Error('알 수 없는 kind: ' + kind)
+      document.getElementById('title').textContent = k.title
+      document.getElementById('sub').textContent = k.sub
+      document.getElementById('visual').innerHTML = k.lock
+        ? '<div class="lock">' + LOCK_SVG + '<div class="label">잠김</div></div>'
+        : '<div class="doc"><div class="lines"><i></i><i></i><i></i></div><div class="label" style="background:' + k.color + '">' + k.label + '</div></div>' +
+          '<div class="fold"></div>'
+    </script>
+  </body>
+</html>

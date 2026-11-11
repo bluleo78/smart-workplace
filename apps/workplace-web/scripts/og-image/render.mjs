@@ -2,6 +2,7 @@
 // 실행: apps/workplace-web 에서 macOS 로 `node scripts/og-image/render.mjs` — 내용이 Teams 잘림 범위를 벗어나면 실패하고, 찍은 뒤 가로 범위를 알린다.
 import { chromium } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
+import { KEEP_LEFT, KEEP_RIGHT } from './png.mjs'
 
 // 시안의 글꼴(Apple SD Gothic Neo)은 macOS 시스템 글꼴이다 — 다른 OS 에서 찍으면 대체 글꼴로 폭이 달라진 PNG 가 덮어써진다.
 if (process.platform !== 'darwin') {
@@ -10,8 +11,6 @@ if (process.platform !== 'darwin') {
 }
 
 /** Teams 가 가운데 잘림으로 남기는 가로 범위 — 내용이 이 밖으로 나가면 찍지 않는다. */
-const KEEP_LEFT = 202
-const KEEP_RIGHT = 998
 
 const source = new URL('./og-image.html', import.meta.url)
 const output = fileURLToPath(new URL('../../public/og-image.png', import.meta.url))
