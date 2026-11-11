@@ -502,6 +502,73 @@ describe('Reconciler', () => {
     expect(works.getClaudeSecret).not.toHaveBeenCalled();
   });
 
+  describe('미뤄 둔 generation 과 모델 연결 교체(WP-1515)', () => {
+    // 사람이 AI 계정을 바꾸면 Works 가 generation 을 올리고(apply_mode IDLE) 모델 연결 version 도 바뀐다.
+    // 일하는 중(applyNow=false)이면 Pod 는 그 generation 과 함께 쉴 때 가고, Secret 만 새 값으로 먼저 고친다.
+    const claude58 = (overrides: Partial<RunnerDesiredAgent> = {}) =>
+      desiredAgent({
+        secrets: [desiredAgent().secrets[0]!, { name: 'claude', source: 'WORKS', version: 58, rotateAfter: null }],
+        ...overrides,
+      });
+
+    it('deletesPodWhenGenerationSameAndClaudeVersionChanges', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      // 키 교체(원문 교체) — generation 은 그대로라 applyNow 와 무관하게 바로 다시 만든다(기존 동작)
+      const works = new FakeWorks(desired([claude58({ applyNow: false })]));
+      works.getClaudeSecret.mockResolvedValue({ version: 58, provider: 'anthropic', payload: 'sk-ant-new' });
+
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+    });
+
+    it('keepsPodButUpdatesSecretWhenGenerationPendingAndApplyNowFalse', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      // Pod 는 generation 7, desired 는 8 — 사람이 계정을 바꿨고 AI 는 일하는 중
+      const works = new FakeWorks(desired([claude58({ generation: 8, applyNow: false })]));
+      works.getClaudeSecret.mockResolvedValue({ version: 58, provider: 'anthropic', payload: 'sk-ant-new' });
+
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42']);
+      expect(cluster.get<V1Pod>('Pod', 'agent-42')?.metadata?.labels?.['genia.works/generation']).toBe('7');
+      expect(cluster.get<V1Secret>('Secret', 'agent-42')?.metadata?.annotations?.['genia.works/claude-version']).toBe('58');
+      expect(decodeSecret(cluster, 'agent-42')['claude-token']).toBe('sk-ant-new');
+    });
+
+    it('keepsPodWithoutGenerationLabelWhenApplyNowFalse', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      // generation 라벨이 없는 옛 Pod — plan.ts 처럼 다른 generation 으로 보아 applyNow 규칙을 따른다
+      delete cluster.get<V1Pod>('Pod', 'agent-42')!.metadata!.labels!['genia.works/generation'];
+      const works = new FakeWorks(desired([claude58({ applyNow: false })]));
+      works.getClaudeSecret.mockResolvedValue({ version: 58, provider: 'anthropic', payload: 'sk-ant-new' });
+
+      await makeReconciler(cluster, works).reconcileOnce();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42']);
+    });
+
+    it('recreatesPodWhenGenerationPendingAndApplyNowTrue', async () => {
+      const cluster = new FakeCluster();
+      seedRunningAgent(cluster, desiredAgent());
+      // 쉬는 때가 됨(applyNow=true) — 미뤄 둔 generation 과 새 계정이 함께 적용된다
+      const works = new FakeWorks(desired([claude58({ generation: 8, applyNow: true })]));
+      works.getClaudeSecret.mockResolvedValue({ version: 58, provider: 'anthropic', payload: 'sk-ant-new' });
+      const r = makeReconciler(cluster, works);
+
+      await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['apply Secret/agent-42', 'delete Pod/agent-42']);
+
+      cluster.finishPodDeletion('agent-42');
+      cluster.calls.length = 0;
+      await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['apply ConfigMap/agent-42', 'apply Pod/agent-42']);
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42');
+      expect(pod?.metadata?.labels?.['genia.works/generation']).toBe('8');
+      expect(pod?.metadata?.annotations?.['genia.works/claude-version']).toBe('58');
+    });
+  });
+
   describe('로그인 정보(WP-1296)', () => {
     const LOGIN_PAYLOAD = '{"tokens":{"access_token":"fake-login-secret-value"}}';
     /** 기본 AI(claude·repos 는 seed 와 같아 안 흔들림)에 login 참조를 더한 AI. */

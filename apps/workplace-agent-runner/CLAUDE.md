@@ -48,6 +48,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
   기존 `listManaged`·`ReconcileLoop` 를 그대로 쓰고 watch 의 재연결·410 Gone·디바운스를 다루지 않아도 되기 때문.
 - 모델 연결 교체: Pod 어노테이션 `genia.works/claude-version`(만들 때 Secret 의 version)이 Secret 의 것과 다르면(없음 ↔ 값 포함) generation·applyNow 와
   무관하게 Pod 를 다시 만든다 — 토큰이 env 로 고정되고 Works 는 재등록에 generation 을 올리지 않기 때문. 허용 밖 이미지면 지우지 않는다.
+  단, 미뤄 둔 generation 이 있으면(Pod generation ≠ desired — 라벨 없음 포함 — 이고 applyNow=false) Secret 만 고치고 Pod 는 그 교체와 함께 쉴 때 간다(WP-1515, 사람의 AI 계정 변경). 로그인 정보·저장소 토큰 교체도 같다.
 - 로그인 정보(WP-1296, Gen:iA·ChatGPT): desired 의 `login`(WORKS) 참조 version 이 Secret 어노테이션 `genia.works/login-version` 과 다르면 `GET …/secrets/login` 으로 받아 Secret 키 `login-info`·어노테이션에 적고, 참조가 없거나 version null·404 면 둘 다 지운다(claude 와 같은 규칙, provider 검사 없음 — 서버가 템플릿 계정과 맞을 때만 version 을 싣는다). 못 받으면 옛 값을 두고 AI 키는 적는다. 원문은 로그에 남기지 않는다.
   Pod 는 Secret 에 login version 이 있을 때만 `/run/genia/login-info`(subPath `login-info`)·env `GENIA_LOGIN_VERSION`·Pod 어노테이션 `login-version` 을 넣고, Secret 의 version 이 Pod 의 것과 다르면(없음 ↔ 값 포함) 모델 연결 교체처럼 바로 Pod 를 다시 만든다. `NON_ANTHROPIC_MESSAGE` 실패는 `claude` 참조에만 쓴다.
 - 저장소 토큰(WP-1268): desired 의 `repos`(WORKS) 참조 version 이 Secret 어노테이션 `genia.works/repos-version` 과 다르면 `GET …/secrets/repos` 로 받아 Secret 의 `repo-<kind>-<host>` 키를 모두 바꿔 넣고(어노테이션 `repo-hosts` 에 `kind:host` 목록), 참조가 없거나 version null 이면 `repo-*` 키·두 어노테이션을 지운다.

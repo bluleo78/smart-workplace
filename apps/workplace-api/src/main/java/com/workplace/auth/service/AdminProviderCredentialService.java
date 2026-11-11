@@ -54,6 +54,7 @@ public class AdminProviderCredentialService {
   /** 연결을 회수하고(없으면 noop) 묶인 계정도 푼다 — 남은 묶음이 회수한 키 대신 계속 Pod 로 가지 않게. */
   public void revoke(Long callerId, Long agentUserId) {
     credentials.revoke(callerId, agentUserId);
-    podAccounts.unbindIfBound(callerId, agentUserId);
+    // WP-1515: 묶음이 없어도 미뤄 둔 generation 을 바로 적용으로 돌리는 회수 전용 창구를 쓴다.
+    podAccounts.unbindFromLegacy(callerId, agentUserId);
   }
 }

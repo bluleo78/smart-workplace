@@ -8,6 +8,7 @@ import com.workplace.agentaccount.repository.AgentAccountRepository;
 import com.workplace.agentruntime.dto.AgentTemplate;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.agentruntime.service.AgentAccountFit;
+import com.workplace.agentruntime.service.AgentRuntimeImmediateInputs;
 import com.workplace.agentruntime.service.AgentTemplateRegistry;
 import com.workplace.auth.dto.ActiveCredentialRef;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
@@ -62,6 +63,7 @@ public class AgentAccountPodSource implements PodAccountSource {
   private final EncryptionService encryptionService;
   private final AgentAccountService accountService;
   private final AgentAccountBindingService bindingService;
+  private final AgentRuntimeImmediateInputs immediateInputs;
   private final AgentRuntimeSettingRepository settings;
   private final UserRepository userRepository;
   private final AgentTemplateRegistry registry;
@@ -320,10 +322,15 @@ public class AgentAccountPodSource implements PodAccountSource {
     if (setting.isEmpty()) return;
     UserResponse agent = userRepository.findById(agentUserId).orElse(null);
     if (agent == null || AgentUsernames.isPersonalAssistant(agent.username())) return;
+    // WP-1515: 기존 연결 등록은 바로 적용이다 — 아래에서 묶거나 풀지 않아도(같은 계정·템플릿 사라짐 등) runner 의 버전이 바뀔 수 있으니 먼저
+    // 미뤄 둔 generation 을 NOW 로 돌린다. 설정 행은 위에서 잠갔고 계정 행은 아직이라 잠금 순서(설정 행 → 계정 행)도 지킨다. 알림은 아래 묶기·풀기가
+    // 내지 않았을 때만 한 번 낸다({@link #notifyIfMarkedOnly}).
+    boolean markedNow = markApplyNow(agentUserId);
     AgentTemplate template = registry.find(setting.get().templateName()).orElse(null);
     if (template == null || !AgentAccountFit.fits(template, provider)) {
       // 묶을 수 없는 상태 — 옛 묶음이 남으면 runner 가 방금 넣은 연결 대신 옛 계정을 계속 쓰므로 푼다. 비밀값은 로그에 싣지 않는다.
       boolean unbound = bindingService.unbindIfBound(callerId, agentUserId);
+      notifyIfMarkedOnly(callerId, agentUserId, markedNow, unbound);
       log.info(
           "기존 연결 등록 다리: 계정에 묶지 않음 agentUserId={} provider={} reason={} unbound={}",
           agentUserId,
@@ -342,7 +349,8 @@ public class AgentAccountPodSource implements PodAccountSource {
             resolved,
             accountFit.deliversToPod(agentUserId, provider),
             workspaceId);
-    bindingService.bindWithoutResponse(callerId, agentUserId, accountId);
+    boolean bound = bindingService.bindWithoutResponse(callerId, agentUserId, accountId);
+    notifyIfMarkedOnly(callerId, agentUserId, markedNow, bound);
   }
 
   /** 옛 연결에서 만든 계정의 기본 라벨 「<AI 이름> 계정」 — 다리와 이관 백필({@link AgentAccountBackfill})이 같은 값을 쓴다. */
@@ -360,5 +368,44 @@ public class AgentAccountPodSource implements PodAccountSource {
   @Transactional
   public boolean unbindIfBound(Long callerId, long agentUserId) {
     return bindingService.unbindIfBound(callerId, agentUserId);
+  }
+
+  /**
+   * 기존 연결 회수 다리(WP-1515) — 묶음을 풀기 전에 실행 설정 행을 잠그고 미뤄 둔 generation 을 NOW 로 돌린다. 연결 회수는 바로 적용이라, 묶이지
+   * 않은 AI(풀 것이 없음)라도 runner 가 받는 claude 버전이 바뀌므로 미뤄 둔 generation 뒤에 묶여 기다리지 않게 한다. 실행 설정이 없으면(Pod
+   * 아님) 묶음만 푼다.
+   */
+  @Override
+  @Transactional
+  public void unbindFromLegacy(Long callerId, long agentUserId) {
+    // 잠금 순서: 설정 행 → 묶음. 풀기({@link AgentAccountBindingService#unbindIfBound})도
+    // 같은 행을 다시 잠그지만 같은 트랜잭션이라 기다리지 않는다 — 잠근 행을 넘기는 별도 창구를 두기보다
+    // 조회 한 번을 더 쓰는 쪽을 택했다.
+    boolean markedNow =
+        settings.findForUpdate(agentUserId).isPresent() && markApplyNow(agentUserId);
+    boolean unbound = bindingService.unbindIfBound(callerId, agentUserId);
+    notifyIfMarkedOnly(callerId, agentUserId, markedNow, unbound);
+  }
+
+  /**
+   * 기존 연결 등록·회수 다리의 「바로 적용」 앞 절반(WP-1515) — 미뤄 둔 generation 을 NOW 로만 돌린다(알림은 내지 않는다). 호출자는 실행 설정 행을
+   * 이미 잠근 뒤 부른다.
+   *
+   * @return 실제로 NOW 로 돌렸으면 true
+   */
+  private boolean markApplyNow(long agentUserId) {
+    return immediateInputs.markApplyNow(List.of(agentUserId)) > 0;
+  }
+
+  /**
+   * NOW 로 돌렸는데 뒤의 묶기·풀기가 runner 에 알리지 않았으면(같은 계정에 다시 묶기·묶이지 않아 풀 것 없음) 여기서 한 번 알린다(WP-1515) — 연결
+   * 등록·회수는 원래 폴링에 맡기지만, 이미 미뤄 둔 generation 을 알고 있는 runner 가 NOW 를 폴링까지 기다리지 않게. 묶기·풀기가 이미 알렸으면 두 번
+   * 알리지 않는다.
+   */
+  private void notifyIfMarkedOnly(
+      Long callerId, long agentUserId, boolean markedNow, boolean alreadyNotified) {
+    if (markedNow && !alreadyNotified) {
+      immediateInputs.notifyChanged(List.of(agentUserId), callerId);
+    }
   }
 }

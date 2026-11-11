@@ -332,10 +332,18 @@ export class Reconciler {
       return 'soon';
     }
     // keep 인데 모델 연결이 바뀜 → Pod 를 갈아야 한다. 지우기 전에 이미지를 본다 — 허용 밖이면 지운 뒤 다시 만들지 못한다
+    // 단, 미뤄 둔 generation 이 있으면(Pod generation ≠ desired, applyNow=false) 갈지 않는다(WP-1515) — 사람이 AI 계정을 바꾸면
+    // Works 가 generation 을 올려 「쉴 때 적용」으로 미루는데, 같은 변경이 모델 연결 version 도 바꾸므로 여기서 바로 갈면 일하던 AI 가 끊긴다.
+    // Secret 은 위에서 이미 새 값으로 고쳤고(떠 있는 Pod 의 토큰은 env 로 시작 때 고정이라 옛 계정으로 계속 일한다), 쉴 때 applyNow=true 가 되면
+    // plan 이 recreate 해 새 Secret 으로 뜬다. 라벨이 없는(null) 옛 Pod 도 plan.ts 처럼 다른 generation 으로 본다.
+    // 바로 적용해야 하는 교체(키·저장소 토큰 교체)는 Works 가 미뤄 둔 generation 을 NOW 로 바꿔 applyNow=true 로 온다.
+    const generationPending =
+      current.pod !== undefined && current.pod.generation !== agent.generation && !agent.applyNow;
     const swapPod =
       kind === 'keep' &&
       current.pod !== undefined &&
       !current.pod.deleting &&
+      !generationPending &&
       (versionChanged(current.pod.claudeVersion, secret.claudeVersion) ||
         versionChanged(current.pod.loginVersion, secret.loginVersion) ||
         versionChanged(current.pod.reposVersion, secret.repos.version));
@@ -367,8 +375,9 @@ export class Reconciler {
       // 지우는 중인 Pod 는 사라지면 다음 회차에 create
       if (!swapPod) return !current.pod?.deleting;
       // 모델 연결 토큰은 env(CLAUDE_CODE_OAUTH_TOKEN)로 들어가 Pod 시작 때 고정된다. Works 는 연결 재등록에 generation 을
-      // 올리지 않으므로(언제 다시 만들지는 runner 몫) Secret 의 version 이 Pod 의 것과 다르면 generation·applyNow 와 무관하게
+      // 올리지 않으므로(언제 다시 만들지는 runner 몫) Secret 의 version 이 Pod 의 것과 다르면 applyNow 와 무관하게
       // 바로 다시 만든다 — 재등록은 대개 옛 토큰이 끊겼을 때라 기다리면 AI 가 모델을 못 부른 채 남는다.
+      // 다만 미뤄 둔 generation 이 있으면(사람의 AI 계정 변경 등, WP-1515) swapPod 가 false 라 여기 오지 않고, 그 교체와 함께 쉴 때 간다.
       // 저장소 토큰도 같다 — gh 로그인이 Pod 시작 때 고정되고 Works 는 토큰 변경에 generation 을 올리지 않는다.
       // 로그인 정보(Gen:iA·ChatGPT)도 같다 — 이미지가 Pod 시작 때 파일을 시딩한다.
       this.log.info('모델 연결·로그인 정보·저장소 토큰이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });

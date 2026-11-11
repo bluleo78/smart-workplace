@@ -222,6 +222,94 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     assertThat(desiredEvents()).isEmpty();
   }
 
+  /**
+   * 화면의 「지금 적용」(WP-1515) — 저장된 설정을 그대로 applyMode NOW 로 다시 저장하면, 켜져 있고 미뤄 둔 generation 이 있을 때
+   * apply_mode 만 NOW 로 바뀌고(generation 그대로) runner 에 알린다. 미뤄 둔 generation 이 없으면 지금처럼 아무것도 바뀌지 않는다.
+   */
+  @Test
+  void put_whenUnchangedWithApplyNowAndDeferredGeneration_marksNow() throws Exception {
+    long loc = newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent).andExpect(status().isOk());
+    action(agent, "start").andExpect(status().isOk());
+    // 켜진 Pod 가 지금 generation 으로 일하는 중 — 그 뒤 설정을 바꿔 쉴 때 적용으로 미룬다.
+    setWorkingAtCurrentGeneration(agent);
+    String sonnet = "{\"templateName\":\"claude-code\",\"config\":{\"model\":\"sonnet\"}}";
+    putSetting(agent, sonnet)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.applyMode").value("IDLE"));
+    long deferred = fx.generationOf(agent);
+    appEvents.clear();
+
+    putSetting(
+            agent,
+            "{\"templateName\":\"claude-code\",\"config\":{\"model\":\"sonnet\"},\"applyMode\":\"NOW\"}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.applyMode").value("NOW"))
+        .andExpect(jsonPath("$.generation").value(deferred));
+
+    assertThat(applyModeOf(agent)).isEqualTo("NOW");
+    assertThat(fx.generationOf(agent)).isEqualTo(deferred);
+    assertThat(desiredEvents()).containsExactly(new AgentRuntimeDesiredChanged(1L, loc));
+    // 「지금 적용」도 다른 실행 설정 변경처럼 감사 로그를 남긴다.
+    assertThat(appliedNowAudits(agent)).isOne();
+  }
+
+  /**
+   * 미뤄 둔 generation 이 없으면 같은 설정을 NOW 로 다시 저장해도 apply_mode·generation 이 그대로이고 runner 에 알리지
+   * 않는다(WP-1515).
+   */
+  @Test
+  void put_whenUnchangedWithApplyNowAndNothingDeferred_isNoop() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent).andExpect(status().isOk());
+    action(agent, "start").andExpect(status().isOk());
+    setWorkingAtCurrentGeneration(agent);
+    long generation = fx.generationOf(agent);
+    appEvents.clear();
+
+    putSetting(agent, "{\"templateName\":\"claude-code\",\"config\":{},\"applyMode\":\"NOW\"}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.applyMode").value("IDLE"))
+        .andExpect(jsonPath("$.generation").value(generation));
+
+    assertThat(applyModeOf(agent)).isEqualTo("IDLE");
+    assertThat(desiredEvents()).isEmpty();
+    assertThat(appliedNowAudits(agent)).isZero();
+  }
+
+  /** 「지금 적용」 감사 로그 수(WP-1515). */
+  private int appliedNowAudits(long agent) {
+    TenantContext.set(1L);
+    return dsl.fetchCount(
+        AUDIT_LOG,
+        AUDIT_LOG
+            .ACTION_TYPE
+            .eq("AGENT_RUNTIME_APPLIED_NOW")
+            .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(agent))));
+  }
+
+  /** 지금 Pod 가 지금 generation 으로 일하는 중이라고 관찰 칸을 맞춘다(apply_mode IDLE). */
+  private void setWorkingAtCurrentGeneration(long agent) {
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, AGENT_RUNTIME_SETTING.GENERATION)
+        .set(AGENT_RUNTIME_SETTING.PHASE, "RUNNING")
+        .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  private String applyModeOf(long agent) {
+    TenantContext.set(1L);
+    return dsl.select(AGENT_RUNTIME_SETTING.APPLY_MODE)
+        .from(AGENT_RUNTIME_SETTING)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .fetchOne(AGENT_RUNTIME_SETTING.APPLY_MODE);
+  }
+
   /** 위치를 바꾸면 옛·새 위치 둘 다 알린다. */
   @Test
   void put_whenLocationChanged_publishesBothLocations() throws Exception {

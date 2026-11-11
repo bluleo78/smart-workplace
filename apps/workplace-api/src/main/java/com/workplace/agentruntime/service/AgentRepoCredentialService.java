@@ -7,7 +7,6 @@ import com.workplace.agentruntime.exception.AgentRepoCredentialNotFoundException
 import com.workplace.agentruntime.exception.InvalidAgentRepoCredentialException;
 import com.workplace.agentruntime.repository.AgentRepoCredentialRepository;
 import com.workplace.agentruntime.repository.AgentRepoCredentialRepository.Row;
-import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.user.dto.UserResponse;
@@ -45,8 +44,7 @@ public class AgentRepoCredentialService {
   private final EncryptionService encryptionService;
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
-  private final AgentRuntimeSettingRepository settings;
-  private final AgentRuntimeTransitions transitions;
+  private final AgentRuntimeImmediateInputs immediateInputs;
 
   /** 그 AI 의 활성 토큰 메타(host 오름차순) — 토큰·암호문 없음. */
   @Transactional(readOnly = true)
@@ -131,12 +129,13 @@ public class AgentRepoCredentialService {
    * 켜져 있는 AI 면 실제 위치(지정 위치 ?? 기본)의 runner 에게 desired 를 다시 받아 가게 알리고, 관리자 화면에는 「바뀜」을 알린다(알림 규칙은
    * {@link AgentRuntimeTransitions#inputsChanged}). Claude 연결 등록은 runner 에 알리지 않고 폴링(5분)에 맡기지만, 저장소
    * 토큰은 「바로 반영」으로 보여 주므로 알린다. 실행 설정 행이 없으면 화면 알림만 낸다.
+   *
+   * <p>WP-1515: 켜져 있는 AI 에 「쉴 때 적용」으로 미뤄 둔 generation(설정·계정 변경)이 있으면 apply_mode 를 NOW 로
+   * 돌린다(generation 은 그대로). runner 는 미뤄 둔 generation 이 있는 동안 비밀값 버전만으로 Pod 를 갈지 않으므로, 그대로 두면 새 토큰이
+   * AI 가 쉴 때까지 기다린다. 규칙은 {@link AgentRuntimeImmediateInputs} 한곳에 있다.
    */
   private void notifyRuntime(long callerId, long agentUserId) {
-    transitions.inputsChanged(
-        agentUserId,
-        settings.find(agentUserId).map(AgentRuntimeTransitions.State::of).orElse(null),
-        callerId);
+    immediateInputs.changed(List.of(agentUserId), callerId);
   }
 
   /** 감사 로그 — 메타에 토큰은 싣지 않는다(대상 AI·kind·host 만). 호출자 이름을 못 찾으면 system 으로 남긴다. */

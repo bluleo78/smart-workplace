@@ -47,6 +47,16 @@ export function isRunningStatus(status: AgentRuntimeStatus): boolean {
   return status === 'STARTING' || status === 'RUNNING' || status === 'APPLY_PENDING';
 }
 
+/**
+ * 사람이 바꾼 AI 계정이 쉴 때 적용되는지(WP-1515) — 실행 중(isRunningStatus)이고 AI 가 IDLE 을 보고하지 않았을 때.
+ * 서버 RolloutPolicy 와 같은 기준이다: 서버는 AI 가 IDLE 을 보고했을 때만 바로 다시 띄우고, 그 밖(WORKING·BLOCKED·보고 없음)은
+ * 하던 일이 있을 수 있어 쉴 때로 미룬다. 그래서 「일하는 중(WORKING)」만 보면 차단됨·보고 전 상태에서 「바로 다시 시작」을 잘못 약속하게 된다.
+ * (서버는 IDLE 보고가 Pod 시작 뒤에 온 것인지도 보지만, 화면은 그 시각을 갖지 않아 지금 보고된 상태만 본다.)
+ */
+export function accountAppliesAtIdle(status: AgentRuntimeStatus, agentState: AgentObservedState['agentState'] | null | undefined): boolean {
+  return isRunningStatus(status) && agentState !== 'IDLE';
+}
+
 /** 상태 옆 한 줄의 종류 — 화면이 글자를 다시 읽지 않고 모양(이슈 링크·오류 색)을 고른다. */
 export type StatusDetail =
   | { kind: 'issue'; text: string; keys: string[] }

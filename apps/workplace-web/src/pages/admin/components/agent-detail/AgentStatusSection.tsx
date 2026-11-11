@@ -401,7 +401,8 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
           className="flex max-w-2xl flex-wrap items-center gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-foreground"
           data-testid="agent-runtime-apply-pending"
         >
-          <span className="flex-1">바꾼 작업 설정은 쉴 때 적용돼요.</span>
+          {/* 작업 설정뿐 아니라 사람이 바꾼 AI 계정도 쉴 때 적용돼(WP-1515) 「작업」을 뺀 말로 둘 다 가리킨다. */}
+          <span className="flex-1">바꾼 설정은 쉴 때 적용돼요.</span>
           <Button size="sm" variant="outline" disabled={pendingReq} onClick={onApplyNow} data-testid="agent-runtime-apply-now">
             지금 적용
           </Button>

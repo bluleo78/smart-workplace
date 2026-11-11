@@ -37,7 +37,7 @@ public class AdminAgentAccountBindingController {
     return service.get(userId);
   }
 
-  /** AI 를 계정에 묶는다(옮기기 포함) — 묶은 계정의 메타를 돌려준다. */
+  /** AI 를 계정에 묶는다(옮기기 포함) — 묶은 계정의 메타를 돌려준다. 켜진 AI 는 쉴 때 적용된다(WP-1515). */
   @PutMapping
   @RequireWebSession
   @RequirePermission("user:write")
@@ -48,12 +48,12 @@ public class AdminAgentAccountBindingController {
     return service.bind((Long) auth.getPrincipal(), userId, req.accountId());
   }
 
-  /** AI 의 묶음을 푼다(204, 멱등). */
+  /** AI 의 묶음을 푼다(204, 멱등) — 사람 경로라 켜진 AI 는 쉴 때 적용된다(WP-1515). */
   @DeleteMapping
   @RequireWebSession
   @RequirePermission("user:write")
   public ResponseEntity<Void> unbind(Authentication auth, @PathVariable long userId) {
-    service.unbindIfBound((Long) auth.getPrincipal(), userId);
+    service.unbindByPerson((Long) auth.getPrincipal(), userId);
     return ResponseEntity.noContent().build();
   }
 }

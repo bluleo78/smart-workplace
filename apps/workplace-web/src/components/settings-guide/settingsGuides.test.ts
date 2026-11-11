@@ -62,6 +62,14 @@ describe('agentDetailGuide — 계정 모델 목록(WP-1405)', () => {
   })
 })
 
+describe('agentDetailGuide — 계정 바꾸기(WP-1515)', () => {
+  it('계정을 바꾸면 일하는 중이면 쉴 때 바뀌고 「지금 적용」으로 바로 바꾼다고 안내한다 — 「작업이 끊겨요」 옛 말은 없다', () => {
+    const tips = runTips(CLAUDE_TEMPLATE)
+    expect(tips).toContain('일하는 중이면 하던 이슈를 마치고 쉴 때 바뀌고, 바로 바꾸려면 상태의 「지금 적용」을 눌러요.')
+    expect(tips).not.toContain('작업이 끊겨요')
+  })
+})
+
 // WP-1298 — 설정 화면 가이드를 화면 섹션별로 나눴다. 섹션 id 는 화면 SettingsSection 과 함께 쓰는 상수에서만 오고(화면 쪽 대조는
 // 각 화면 테스트의 expectGuideSectionsOnScreen), 섹션마다 도움말이 있으며, AI 화면 맥락은 섹션 도움말을 빠짐없이 싣는다.
 describe('섹션별 설정 가이드', () => {
