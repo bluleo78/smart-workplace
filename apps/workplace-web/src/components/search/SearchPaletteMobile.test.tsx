@@ -5,6 +5,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, expect, test, vi } from 'vitest'
 
+import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
 import { Page } from '@/components/layout/Page'
 import { MobileListHeader } from '@/components/mobile/MobileListHeader'
 import { ChatSessionContext } from '@/hooks/chat-session-context'
@@ -25,6 +26,11 @@ vi.mock('@/components/ai/AIAssistantContext', () => ({
 }))
 
 const API = '/api/v1'
+
+/** 헤더 「?」(MobileHelpButton, WP-1505)가 도움말 상태를 읽으므로 AppLayout 처럼 도움말 공급자로 감싸 띄운다. */
+function renderHelpScreen(ui: React.ReactElement, options: Parameters<typeof renderScreen>[1]) {
+  return renderScreen(<HelpPanelProvider>{ui}</HelpPanelProvider>, options)
+}
 
 /** 모든 앱이 빈 결과를 주는 기본 핸들러 + 헤더 벨의 안읽음 수. */
 function emptyApis() {
@@ -69,30 +75,35 @@ beforeEach(() => {
   localStorage.clear()
 })
 
-test('탭 첫 화면 목록 헤더 — 🔍 가 알림 벨 바로 왼쪽에 있고, 벨을 숨긴 화면에는 🔍 도 없다', async () => {
-  const { unmount } = renderScreen(<MobileListHeader title="대화" />, { path: '/chat', handlers: emptyApis() })
+test('탭 첫 화면 목록 헤더 — 🔍 → 「?」 → 알림 벨 순서이고, 벨을 숨긴 화면에는 🔍·「?」도 없다', async () => {
+  const { unmount } = renderHelpScreen(<MobileListHeader title="대화" />, { path: '/chat', handlers: emptyApis() })
   const header = screen.getByTestId('mobile-list-header')
   const search = within(header).getByRole('button', { name: '검색' })
-  expect(search.nextElementSibling).toBe(within(header).getByTestId('mobile-bell'))
+  const help = within(header).getByRole('button', { name: '도움말' })
+  expect(search.nextElementSibling).toBe(help)
+  expect(help.nextElementSibling).toBe(within(header).getByTestId('mobile-bell'))
   unmount()
 
-  renderScreen(<MobileListHeader title="알림" hideBell />, { path: '/notifications', handlers: emptyApis() })
+  renderHelpScreen(<MobileListHeader title="알림" hideBell />, { path: '/notifications', handlers: emptyApis() })
   expect(screen.queryByTestId('mobile-search-button')).toBeNull()
+  expect(screen.queryByTestId('mobile-help-button')).toBeNull()
   expect(screen.queryByTestId('mobile-bell')).toBeNull()
 })
 
-test('모바일 PageHeader — 탭 루트에는 🔍 가 벨 왼쪽에 있고, 탭 루트가 아닌 상세에는 없다', async () => {
-  const { unmount } = renderScreen(<Page.Header title="캘린더" />, { path: '/calendar', handlers: emptyApis() })
+test('모바일 PageHeader — 탭 루트에는 🔍 → 「?」 → 벨 순서이고, 탭 루트가 아닌 상세에는 없다', async () => {
+  const { unmount } = renderHelpScreen(<Page.Header title="캘린더" />, { path: '/calendar', handlers: emptyApis() })
   const search = await screen.findByTestId('mobile-search-button')
-  expect(search.nextElementSibling).toBe(screen.getByTestId('mobile-bell'))
+  expect(search.nextElementSibling).toBe(screen.getByTestId('mobile-help-button'))
+  expect(screen.getByTestId('mobile-help-button').nextElementSibling).toBe(screen.getByTestId('mobile-bell'))
   unmount()
 
-  renderScreen(<Page.Header title="이슈" />, { path: '/projects/WP/issues/1', handlers: emptyApis() })
+  renderHelpScreen(<Page.Header title="이슈" />, { path: '/projects/WP/issues/1', handlers: emptyApis() })
   expect(screen.queryByTestId('mobile-search-button')).toBeNull()
+  expect(screen.queryByTestId('mobile-help-button')).toBeNull()
 })
 
 test('🔍 를 누르면 전체 화면 검색이 열리고 지금 앱(대화) 탭에서 시작하며 입력에 포커스가 간다', async () => {
-  const { user } = renderScreen(<Shell />, { path: '/chat', handlers: emptyApis() })
+  const { user } = renderHelpScreen(<Shell />, { path: '/chat', handlers: emptyApis() })
   await user.click(screen.getByTestId('mobile-search-button'))
   const input = await screen.findByTestId('global-search-input')
   expect(input).toHaveFocus()
@@ -105,7 +116,7 @@ test('🔍 를 누르면 전체 화면 검색이 열리고 지금 앱(대화) �
 })
 
 test('「취소」는 검색을 닫고 넣었던 히스토리 항목을 걷어 내 열기 전 항목으로 돌아간다', async () => {
-  const { user, location } = renderScreen(<Shell />, { path: '/chat', handlers: emptyApis() })
+  const { user, location } = renderHelpScreen(<Shell />, { path: '/chat', handlers: emptyApis() })
   const before = historyIdx()
   await user.click(screen.getByTestId('mobile-search-button'))
   await screen.findByTestId('global-search-input')
@@ -121,7 +132,7 @@ test('「취소」는 검색을 닫고 넣었던 히스토리 항목을 걷어 �
 })
 
 test('열린 채 뒤로 가기는 검색만 닫고 주소는 열기 전 그대로다', async () => {
-  const { user, location } = renderScreen(<Shell />, { path: '/chat', handlers: emptyApis() })
+  const { user, location } = renderHelpScreen(<Shell />, { path: '/chat', handlers: emptyApis() })
   const before = historyIdx()
   await user.click(screen.getByTestId('mobile-search-button'))
   await screen.findByTestId('global-search-input')
@@ -134,7 +145,7 @@ test('열린 채 뒤로 가기는 검색만 닫고 주소는 열기 전 그대�
 })
 
 test('결과를 고르면 그 화면으로 가고, 거기서 뒤로 가면 검색이 다시 열리지 않고 검색 전 화면이다', async () => {
-  const { user, location } = renderScreen(<Shell children={<MobileListHeader title="노트" />} />, {
+  const { user, location } = renderHelpScreen(<Shell children={<MobileListHeader title="노트" />} />, {
     path: '/wiki',
     handlers: [wikiHandler(), ...emptyApis()],
   })
@@ -159,7 +170,7 @@ test('결과를 고르면 그 화면으로 가고, 거기서 뒤로 가면 검�
 })
 
 test('결과 목록을 손가락으로 밀면 입력을 놓아 키보드를 내린다', async () => {
-  const { user } = renderScreen(<Shell />, { path: '/wiki', handlers: [wikiHandler(), ...emptyApis()] })
+  const { user } = renderHelpScreen(<Shell />, { path: '/wiki', handlers: [wikiHandler(), ...emptyApis()] })
   await user.click(screen.getByTestId('mobile-search-button'))
   const input = await screen.findByTestId('global-search-input')
   fireEvent.change(input, { target: { value: '배포' } })
@@ -176,7 +187,7 @@ test('「AI에게 검색 요청하기」는 검색 항목을 걷어 낸 뒤에 A
   ai.value = { mode: 'closed', open, dismiss: vi.fn() }
   const newSession = vi.fn()
   const submitQuery = vi.fn().mockResolvedValue(true)
-  const { user } = renderScreen(
+  const { user } = renderHelpScreen(
     <ChatSessionContext.Provider value={{ newSession, submitQuery } as never}>
       <Shell />
     </ChatSessionContext.Provider>,

@@ -5,19 +5,7 @@
 // 데스크톱(lg) = 기본 56px 아이콘 레일(라벨은 Tooltip), 펼치면 152px(아이콘+라벨).
 //   축소 시 상단 마크 클릭 → 펼치기, 확장 시 로고 클릭 → 접기(별도 접기 버튼 없음). localStorage 영속.
 // 모바일 = 오버레이 드로어(브랜드 로고 + 아이콘+라벨).
-import {
-  BookOpen,
-  CalendarDays,
-  HardDrive,
-  Home,
-  LayoutList,
-  type LucideIcon,
-  Mail,
-  Menu,
-  MessageSquare,
-  Settings,
-  Users,
-} from 'lucide-react'
+import { type LucideIcon, Menu } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -29,9 +17,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { type UnreadKind, unreadLabel, useAppUnreadCounts } from '@/hooks/useAppUnreadCounts'
+import { unreadLabel, useAppUnreadCounts } from '@/hooks/useAppUnreadCounts'
 import { cn } from '@/lib/utils'
 
+import { isRailItemActive, RAIL_MODULES, type RailItem } from './appRailModules'
 import { AppRailUserMenu } from './AppRailUserMenu'
 import { BrandLogo } from './BrandLogo'
 import { BrandMark } from './BrandMark'
@@ -39,45 +28,9 @@ import { InboxPanel } from './InboxPanel'
 import { useRailExpanded } from './useRailExpanded'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
-interface RailItem {
-  label: string
-  href: string
-  icon: LucideIcon
-  // 활성 판별용 prefix(들). 없으면 href 로 판별한다.
-  // (예: 관리 모듈은 href='/admin/users'(실제 라우트)지만 '/admin/*' 전체에서 활성,
-  //  이슈 모듈은 '/projects' 와 '/me'(내 태스크) 양쪽에서 활성)
-  match?: string | string[]
-  // 안 읽은 수 배지 출처 — 모바일 탭바와 같은 집계(useAppUnreadCounts)를 쓴다(WP-796).
-  badge?: UnreadKind
-}
-
-// 활성화된 모듈 런처 항목 — 일일 사용 빈도 우선 순서.
-// 소통 묶음(대화·메일)을 앞에 인접 배치, 작업관리는 그 다음, 파일/노트, 연락처는 설정 직전.
-const MODULES: RailItem[] = [
-  { label: '홈', href: '/', icon: Home },
-  { label: '대화', href: '/chat', icon: MessageSquare, badge: 'chat' },
-  { label: '메일', href: '/mail', icon: Mail, badge: 'mail' },
-  { label: '캘린더', href: '/calendar', icon: CalendarDays },
-  { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
-  { label: '드라이브', href: '/drive', icon: HardDrive },
-  { label: '노트', href: '/wiki', icon: BookOpen },
-  { label: '연락처', href: '/contacts', icon: Users },
-  { label: '설정', href: '/settings/profile', icon: Settings, match: ['/settings', '/admin'] },
-]
+// 모듈 표(RAIL_MODULES)·활성 판별(isRailItemActive)은 도움말 브레드크럼과 함께 쓰려고 appRailModules.ts 로 옮겼다(WP-1505).
 // 예정 모듈 — 현재 없음(노트 활성화로 비활성 앱 소진).
 const SOON: { label: string; icon: LucideIcon }[] = []
-
-// 현재 경로가 해당 모듈에 속하는지 판별. 홈('/')은 정확히 일치할 때만 활성.
-// 활성 판별 prefix 는 item.match(문자열/배열) 우선, 없으면 href.
-// (관리 모듈이 /admin/* 전체에서, 이슈 모듈이 /projects·/me 전체에서 활성이 되도록)
-function isActive(pathname: string, item: RailItem): boolean {
-  const matchPaths = item.match
-    ? Array.isArray(item.match)
-      ? item.match
-      : [item.match]
-    : [item.href]
-  return matchPaths.some((p) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))
-}
 
 // 단일 레일 링크. 데스크톱(lg)은 아이콘만 + 라벨 Tooltip(축소) 또는 아이콘+라벨(확장), 모바일 드로어는 아이콘+라벨.
 function RailLink({
@@ -181,7 +134,7 @@ export function AppRail() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mobileOpen])
 
-  const items = MODULES
+  const items = RAIL_MODULES
 
   return (
     <TooltipProvider>
@@ -272,7 +225,7 @@ export function AppRail() {
             <RailLink
               key={item.href}
               item={item}
-              active={isActive(location.pathname, item)}
+              active={isRailItemActive(location.pathname, item)}
               expanded={expanded}
               count={item.badge ? unread[item.badge] : 0}
               onNavigate={onNavigate}

@@ -130,8 +130,8 @@ function PersonalTaskModal({
         className={cn(
           'flex h-[min(85vh,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(70rem,calc(100%-2rem))]',
           aiAware.contentClassName,
-          // side 모드 — 페이지 영역(화면 - AI 패널 폭) 안에서도 70rem 을 넘지 않게.
-          !aiAware.modal && 'lg:max-w-[min(70rem,calc(100%-var(--ai-side-width,0px)-2rem))]',
+          // side 모드 — 페이지 영역(화면 - AI·도움말 도킹 칸 폭) 안에서도 70rem 을 넘지 않게.
+          !aiAware.modal && 'lg:max-w-[min(70rem,calc(100%-var(--right-dock-width)-2rem))]',
         )}
         {...aiAware.contentProps}
       >

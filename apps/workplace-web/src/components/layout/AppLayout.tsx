@@ -6,13 +6,17 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { AIChip } from '@/components/ai/AIChip'
-import { LazyAIFullscreen, LazyAISidePanel, LazyMobileAiSheet } from '@/components/ai/LazyAiSurfaces'
+import { LazyAIFullscreen, LazyMobileAiSheet } from '@/components/ai/LazyAiSurfaces'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
+import { HelpTrigger } from '@/components/help/HelpTrigger'
+import { MobileHelpSheet } from '@/components/help/MobileHelpSheet'
 import { DashboardEditDraftProvider } from '@/components/home/dashboard/DashboardEditDraftContext'
 import { AppRail } from '@/components/layout/AppRail'
 import { HeaderDensityProvider } from '@/components/layout/HeaderDensityContext'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { NodeSlot, PageHost } from '@/components/layout/NodeSlot'
+import { RightDock } from '@/components/layout/RightDock'
 import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
 import { TopCenterSlot } from '@/components/layout/TopCenterSlot'
 import { useNodeBridge } from '@/components/layout/useNodeBridge'
@@ -88,6 +92,8 @@ export function AppLayout() {
       <MobileChromeProvider>
       <ChatSessionProvider>
         <AIAssistantProvider hotkeysEnabled={aiAvailable}>
+          {/* WP-1505: 도움말 패널 상태(열림·폭·이동·? 단축키) — 아래 셸 분기 바깥이라 데스크톱·모바일 셸이 같은 상태를 본다. */}
+          <HelpPanelProvider>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
           <AiScreenContextProvider>
             <HeaderDensityProvider>
@@ -104,7 +110,15 @@ export function AppLayout() {
                 {isMobile ? (
                   // WP-54 표식 유지 — display:contents 로 레이아웃 영향 없이 페이지 영역 컨테이너 역할.
                   <div data-ai-page-root className="contents">
-                    <MobileShell overlay={aiAvailable ? <LazyMobileAiSheet /> : null}>
+                    {/* WP-1505: 도움말 시트 — AI 시트와 한 번에 하나(MobileHelpSheet 가 조정). 비서가 없어도 도움말은 연다. */}
+                    <MobileShell
+                      overlay={
+                        <>
+                          {aiAvailable && <LazyMobileAiSheet />}
+                          <MobileHelpSheet />
+                        </>
+                      }
+                    >
                       <NodeSlot bridge={pageBridge} />
                     </MobileShell>
                   </div>
@@ -124,8 +138,9 @@ export function AppLayout() {
                       {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). 비서 있을 때만. */}
                       {aiAvailable && <LazyAIFullscreen />}
                     </main>
-                    {/* 사이드 패널 — flex 형제로 본문을 밀어냄(reflow). mode!=='side' 면 null. 비서 있을 때만. */}
-                    {aiAvailable && <LazyAISidePanel />}
+                    {/* 오른쪽 도킹 — 도움말 패널(WP-1505)·AI 사이드 패널을 flex 형제로 붙여 본문을 밀어냄(reflow).
+                        둘 다 열리면 나란히, 본문이 좁아지면 한 칸에 위아래. AI 패널은 비서 있을 때만. */}
+                    <RightDock aiAvailable={aiAvailable} />
                   </div>
                 )}
                 {/* WP-1468: 페이지는 셸 분기 뒤 형제 자리에서 한 번만 렌더 — 셸이 바뀌어도 다시 마운트되지 않고 각 셸의 NodeSlot 이 호스트 DOM 을 옮겨 붙인다(이유는 NodeSlot.tsx·useNodeBridge.ts). */}
@@ -134,9 +149,10 @@ export function AppLayout() {
               </DashboardEditDraftProvider>
             </InboxProvider>
             {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만.
-                WP-1353: 칩 오른쪽에 통합 검색 트리거(가운데 팔레트). 비서가 없으면 검색만 같은 자리에 둔다. */}
+                WP-1353: 칩 오른쪽에 통합 검색 트리거(가운데 팔레트). 비서가 없으면 검색이 칩 자리에 선다.
+                WP-1505: 검색 오른쪽에 도움말 「?」 — 비서가 있든 없든 검색 → 도움말 순서. */}
             {!isMobile && (
-              <TopCenterSlot trailing={aiAvailable ? <SearchTrigger /> : undefined}>
+              <TopCenterSlot trailing={aiAvailable ? <><SearchTrigger /><HelpTrigger /></> : <HelpTrigger />}>
                 {aiAvailable ? <AIChip /> : <SearchTrigger />}
               </TopCenterSlot>
             )}
@@ -148,6 +164,7 @@ export function AppLayout() {
             <SendToChatHost />
             </HeaderDensityProvider>
           </AiScreenContextProvider>
+          </HelpPanelProvider>
         </AIAssistantProvider>
       </ChatSessionProvider>
       </MobileChromeProvider>

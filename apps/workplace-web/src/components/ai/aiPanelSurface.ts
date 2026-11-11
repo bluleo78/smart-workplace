@@ -5,6 +5,12 @@
 /** DOM 표식 — 사이드 패널 루트·AI 칩처럼 React 트리상 패널 밖이거나 패널 자체인 AI 표면. */
 export const AI_PANEL_SELECTOR = '[data-ai-panel]';
 
+/**
+ * 오른쪽 도킹 칸 표식(WP-1505 RightDock) — 도움말 패널과 AI 옆 패널을 함께 담는 칸. AI 패널이 아직 없어도(열 때 불러와 뒤늦게 그려진다)
+ * 칸 자체는 inert 하지 않고 안으로 내려가 AI 가 아닌 형제(도움말)만 inert 한다 — 칸을 통째로 막으면 나중에 그려진 AI 패널까지 막힌다.
+ */
+export const AI_DOCK_SELECTOR = '[data-ai-dock]';
+
 /** 앱 셸의 페이지 영역 컨테이너 표식 — 자식 중 AI 패널이 아닌 것(AppRail·main)이 inert 대상. */
 export const AI_PAGE_ROOT_SELECTOR = '[data-ai-page-root]';
 
@@ -46,7 +52,7 @@ export function inertPageArea(): () => void {
   const collect = (parent: Element) => {
     for (const el of Array.from(parent.children)) {
       if (!(el instanceof HTMLElement) || el.matches(AI_PANEL_SELECTOR)) continue;
-      if (el.querySelector(AI_PANEL_SELECTOR)) collect(el);
+      if (el.matches(AI_DOCK_SELECTOR) || el.querySelector(AI_PANEL_SELECTOR)) collect(el);
       else if (!el.inert) targets.push(el);
     }
   };

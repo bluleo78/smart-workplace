@@ -1,6 +1,8 @@
 // 헤더 좌측 그룹을 AI 칩 좌측 경계 앞에서 자르는 훅 — 칩 위치를 실측해 max-width 를 직접 정한다.
 // 왜: 칩은 body 에 portal 된 fixed 요소라 위치가 레일 폭(56↔152px)·AI 옆 패널 폭(--ai-side-width)에 따라 바뀐다.
 // 고정식(50vw-360px)은 레일 펼침에서 겹치고, 칩이 비켜난 상황에선 필요 이상으로 제목을 잘랐다(#830 일반화).
+// 칩 오른쪽 검색·「?」(WP-1505)·도움말 패널 폭(--help-side-width)은 칩 위치(TopCenterSlot 의 min() 항)에만 들어가고,
+// 이 훅은 그 결과인 칩 왼쪽 경계만 재므로 계산이 바뀌지 않는다.
 import { type RefObject, useLayoutEffect } from 'react'
 
 /** 칩과 좌측 그룹 사이 최소 간격(px). */

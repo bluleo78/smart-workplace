@@ -32,7 +32,8 @@ export type AIMode = 'closed' | 'side' | 'fullscreen';
 const MODE_KEY = 'ai-mode';
 const WIDTH_KEY = 'ai-side-width';
 // 전체화면 히스토리 표식 키(router state). 값은 '1'.
-const HISTORY_KEY = 'aiOpen';
+// 휴대폰 도움말 시트(MobileHelpSheet)가 AI 가 제 항목을 넣었는지 보려고 같은 키를 읽는다.
+export const AI_HISTORY_KEY = 'aiOpen';
 
 interface AIAssistantValue {
   mode: AIMode;
@@ -107,7 +108,7 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   const [sidePanelWidth, setWidth] = useState<number>(readInitialWidth);
 
   // 전체화면 히스토리 — 들어갈 때 push, 나올 때 그 항목을 되돌린다(공용 useHistoryParam state 모드).
-  const { value: historyValue, open: pushHistory, close: popHistory } = useHistoryParam(HISTORY_KEY, { mode: 'state' });
+  const { value: historyValue, open: pushHistory, close: popHistory } = useHistoryParam(AI_HISTORY_KEY, { mode: 'state' });
   const historyOpen = historyValue != null;
 
   // 콜백은 이벤트 핸들러에서만 불리므로 호출 시점 최신 값을 ref 로 읽는다 — 콜백·컨텍스트 값이 탐색마다 바뀌지 않게.
@@ -131,7 +132,7 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   // 위치가 바뀌지 않은 것으로 보여 동기화를 놓친다(WP-209).
   useEffect(() => {
     const onPop = () => {
-      const has = hasLiveStateMark(HISTORY_KEY);
+      const has = hasLiveStateMark(AI_HISTORY_KEY);
       const mobile = getIsMobile();
       setMode((cur) => {
         const fs = effectiveMode(cur, mobile) === 'fullscreen';
@@ -146,7 +147,7 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
 
   // 새로고침 뒤 남은 표식 정리(마운트 1회) — 모드는 closed 로 시작하므로, 남은 aiOpen+마크를 하위 화면이 상속해
   // back 에 AI 가 되살아나거나 닫기가 하위 화면까지 되돌리지 않게 표식만 지운다.
-  useStripStaleStateMark(HISTORY_KEY);
+  useStripStaleStateMark(AI_HISTORY_KEY);
 
   const open = useCallback(
     (m: Exclude<AIMode, 'closed'>) => {

@@ -166,7 +166,7 @@ test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 
   await expect(page.getByTestId('page-header')).toContainText('연락처')
 })
 
-test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56, 제목 22px bold, ☰·🔍·🔔 순)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56, 제목 22px bold, ☰·🔍·「?」·🔔 순)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const measure = async (headerTestId: string) => {
     const header = page.getByTestId(headerTestId)
@@ -193,15 +193,19 @@ test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56,
   }
   expect(home.font).toBe('22px/700')
   expect(chat.titleX).toBe(16)
-  // 캘린더: 오른쪽 클러스터는 ☰ · 🔍 · 🔔 순서로 붙어 있다(🔍 는 벨 바로 앞 — WP-1354).
+  // 캘린더: 오른쪽 클러스터는 ☰ · 🔍 · 「?」 · 🔔 순서로 붙어 있다(🔍 는 「?」 앞 — WP-1354, 「?」 는 벨 바로 앞 — WP-1505).
   const trigger = (await page.getByTestId('mobile-sidebar-trigger').boundingBox())!
   const search = (await page.getByTestId('mobile-search-button').boundingBox())!
+  const help = (await page.getByTestId('mobile-help-button').boundingBox())!
   const bell = (await page.getByTestId('mobile-bell').boundingBox())!
   expect(trigger.x).toBeLessThan(search.x)
-  expect(search.x).toBeLessThan(bell.x)
+  expect(search.x).toBeLessThan(help.x)
+  expect(help.x).toBeLessThan(bell.x)
   expect(search.x - trigger.x).toBeLessThanOrEqual(48)
-  expect(bell.x - search.x).toBeLessThanOrEqual(48)
-  expect(trigger.x).toBeGreaterThan(230)
+  expect(help.x - search.x).toBeLessThanOrEqual(48)
+  expect(bell.x - help.x).toBeLessThanOrEqual(48)
+  // 「?」 단추 44px 와 앞 간격 gap-1(4px)로 ☰ 가 48px 왼쪽으로 온다(예전 하한 230 → 182) — 제목 자리를 넘지 않는지만 본다.
+  expect(trigger.x).toBeGreaterThan(182)
   await expectNoHorizontalOverflow(page)
 })
 

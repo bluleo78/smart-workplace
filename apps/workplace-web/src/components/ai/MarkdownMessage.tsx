@@ -7,6 +7,7 @@ import { mentionSeg, parseMessageSegments, type RenderMention } from '@/componen
 import type { MentionUser } from '@/components/mentions/types'
 import { chatLinkSessionId, isInternalHref, withChatParam } from '@/lib/aiChatLink'
 import { mayContainIssueKey, type RenderIssueRef, splitIssueKeys } from '@/lib/issueKeyRefs'
+import { markdownListClass } from '@/lib/markdownListClass'
 import { cn } from '@/lib/utils'
 
 const REMARK_PLUGINS = [remarkGfm]
@@ -103,11 +104,6 @@ function rehypePluginsFor(withMention: boolean, withIssue: boolean) {
   ]
 }
 
-/** 목록 클래스 — 체크리스트(contains-task-list)면 불릿 없이 얕게, 아니면 지정한 불릿 스타일. */
-function listClass(className: string | undefined, marker: string): string {
-  return className?.includes('contains-task-list') ? 'list-none space-y-0.5 pl-1' : `${marker} space-y-0.5 pl-5`
-}
-
 /** 새 탭 링크 — 외부 링크와 라우터 밖(정적 렌더) 링크 공용. */
 function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
   return (
@@ -160,10 +156,10 @@ const BASE_COMPONENTS: Components = {
   // GFM 체크리스트(`- [ ]`)는 remark-gfm 이 ul.contains-task-list > li.task-list-item > input 으로 낸다(WP-254).
   // 불릿과 체크박스가 겹쳐 보이지 않도록 체크리스트 목록만 불릿을 끄고 들여쓰기를 줄인다(일반 목록은 그대로).
   ul: ({ children, className }) => (
-    <ul className={listClass(className, 'list-disc')}>{children}</ul>
+    <ul className={markdownListClass(className, 'list-disc')}>{children}</ul>
   ),
   ol: ({ children, className }) => (
-    <ol className={listClass(className, 'list-decimal')}>{children}</ol>
+    <ol className={markdownListClass(className, 'list-decimal')}>{children}</ol>
   ),
   // 항목 안 줄바꿈(「3. 항목\n이어지는 문장」)은 p 처럼 pre-wrap 으로 보존한다 — tight list 의 li 는 p 없이 글자를 바로 담는다.
   // 체크리스트 항목 — 체크박스를 왼쪽 여백에 절대배치해, 긴 항목이 줄바꿈돼도 둘째 줄이 체크박스 밑으로 파고들지 않고

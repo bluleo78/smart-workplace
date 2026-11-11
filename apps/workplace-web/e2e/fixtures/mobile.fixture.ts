@@ -33,10 +33,12 @@ export async function toCalendarMonthView(page: Page, scope: Page | Locator = pa
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 }
 
-/** 390px 뷰포트에서 문서가 가로로 넘치지 않는지. */
-export async function expectNoHorizontalOverflow(page: Page) {
-  const w = await page.evaluate(() => document.documentElement.scrollWidth)
-  expect(w).toBeLessThanOrEqual(390)
+/**
+ * 문서가 가로로 넘치지 않는지 — 문서 폭(scrollWidth)이 width 이하. 창 크기를 바꾼 직후에도 쓰도록 자리 잡을 때까지 다시 잰다.
+ * @param width 넘지 않아야 할 폭 — 기본은 지금 뷰포트 폭(모바일 스펙은 390)
+ */
+export async function expectNoHorizontalOverflow(page: Page, width = page.viewportSize()?.width ?? 390) {
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
 }
 
 /**

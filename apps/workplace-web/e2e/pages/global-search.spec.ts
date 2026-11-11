@@ -15,7 +15,7 @@ for (const width of [1024, 1280]) {
     const header = page.getByTestId('canvas-header')
     await expect(header).toBeVisible()
 
-    // 트리거 32px 원형 — TopCenterSlot 의 110px 계산과 맞물리는 크기(WP-1415).
+    // 트리거 32px 원형 — TopCenterSlot 의 150px 계산(검색·도움말 「?」 각 32px, WP-1505)과 맞물리는 크기(WP-1415).
     const toggle = page.getByTestId('global-search-toggle')
     const t = await measureBox(toggle, 'global-search-toggle')
     expect(Math.round(t.width)).toBe(32)
