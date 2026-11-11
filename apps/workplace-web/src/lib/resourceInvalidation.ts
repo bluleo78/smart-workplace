@@ -59,6 +59,8 @@ export function issueTargets(pk: string): InvalidationTarget[] {
     { queryKey: ['issueCycles', pk] },
     { queryKey: ['cycleProgress', pk] },
     { queryKey: ['versions', pk] }, // 버전 진행 막대·상세 이슈 목록(WP-888) — 이슈 상태·수정 버전이 바뀌면 달라진다
+    // 내 작업 개요·홈 위젯 어제/오늘(WP-1484) — 닫기·마감·담당이 바뀌면 숫자와 목록이 달라진다. prefix 라 개요(기간·칸별)와 today 를 함께 다시 받는다.
+    { queryKey: ['me-overview'] },
   ];
 }
 
@@ -89,6 +91,7 @@ const MY_ISSUE_TARGETS: InvalidationTarget[] = [
   { queryKey: ['my-issue-dues'] },
   { queryKey: ['home', 'myIssues'] },
   { queryKey: ['home', 'watched'] },
+  { queryKey: ['me-overview'] }, // 삭제된 프로젝트의 이슈는 내 작업 개요 숫자·목록에서도 빠진다(WP-1484)
 ];
 
 // 일정·이슈 삭제는 그 알림 행을 cascade 로 함께 지우지만 notification 이벤트는 따로 발행되지 않는다(WP-83).

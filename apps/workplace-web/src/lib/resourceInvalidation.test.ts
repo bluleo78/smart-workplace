@@ -38,6 +38,21 @@ describe('invalidationTargets', () => {
     );
   });
 
+  it('issue 변경 → 내 작업 개요(기간·칸별)와 홈 어제/오늘 요약을 함께 다시 받는다(WP-1484)', async () => {
+    const { QueryClient: RealQueryClient } = await import('@tanstack/react-query');
+    const qc = new RealQueryClient();
+    const overviewKey = ['me-overview', 'MONTH', 'DAY'];
+    const todayKey = ['me-overview', 'today'];
+    qc.setQueryData(overviewKey, 1);
+    qc.setQueryData(todayKey, 1);
+    const targets = invalidationTargets({ resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 21 });
+    expect(targets).toContainEqual({ queryKey: ['me-overview'] });
+    // prefix 무효화라 개요 키·today 키가 모두 stale 이 된다.
+    await Promise.all(targets.map((t) => qc.invalidateQueries({ queryKey: t.queryKey, exact: t.exact ?? false })));
+    expect(qc.getQueryState(overviewKey)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(todayKey)?.isInvalidated).toBe(true);
+  });
+
   it('projectKey 없는 issue 이벤트 · 모르는 resource → 빈 목록', () => {
     expect(invalidationTargets({ resource: 'issue', op: 'updated' } as never)).toEqual([]);
     expect(invalidationTargets({ resource: 'nope', op: 'updated' } as never)).toEqual([]);

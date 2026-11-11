@@ -12,14 +12,19 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { renderScreen } from '@/test/renderScreen'
+import { testAuthValue } from '@/test/renderWithProviders'
 import type { IssueSearchResponse } from '@/types/issue'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../../e2e/factories/label.factory'
+import { myTasksTabKey, writeLastMyTasksTab } from './myTasksLastTab'
 import MyTasksPage from './MyTasksPage'
+import { clearMyTasksFilters, hasMyTasksFilters } from './myTasksQuery'
 
 afterEach(() => {
   vi.useRealTimers()
+  // 마지막에 본 탭 기억(WP-1484)이 다음 테스트로 새지 않게.
+  localStorage.clear()
 })
 
 const EX = { name: '외부 연동 프로젝트', size: 7 }
@@ -95,8 +100,9 @@ describe('내 작업 탭', () => {
     expect(reported.get('hideClosed')).toBeNull()
   })
 
-  // WP-926: 알 수 없는 탭은 필터 쿼리를 유지한 채 할당 탭 주소로 바로잡고 할당 탭을 선택해 그린다.
-  test('잘못된 탭은 할당 탭 주소로 바로잡고 할당 탭을 그린다', async () => {
+  // WP-926: 알 수 없는 탭은 필터 쿼리를 유지한 채 마지막에 본 탭(WP-1484 — 여기선 할당을 기억해 둔다) 주소로 바로잡고 그 탭을 그린다.
+  test('잘못된 탭은 마지막에 본 탭(할당) 주소로 바로잡고 할당 탭을 그린다', async () => {
+    writeLastMyTasksTab(myTasksTabKey({ userId: testAuthValue.user!.id, tenantId: 1 }), 'assigned')
     const { location } = renderMyTasks('/me/tasks/bogus?priority=HIGH', () =>
       createIssueSearchResponse([createIssue({ id: 55, title: '폴백 할당 이슈' })]),
     )
@@ -248,6 +254,23 @@ describe('내 작업 묶음 목록(WP-916)', () => {
     expect(seen.at(-1)?.get('status')).toBe('DONE')
     expect(seen.at(-1)?.get('hideClosed')).toBeNull()
     expect(screen.getByTestId('show-all-closed-toggle')).toBeDisabled()
+  })
+
+  // WP-1484: 개요 「모두 보기」 주소(status=DONE&closedIn=기간)는 완료일 기간을 서버 closedFrom/closedTo 로 보내고, 필터 초기화가 함께 지운다.
+  test('완료일 기간(closedIn)은 closedFrom·closedTo 로 조회하고, 필터로 세어 초기화가 지운다', async () => {
+    const done = createIssue({ id: 77, title: '기간 안 완료', status: 'DONE' })
+    const { seen } = renderMyTasks('/me/tasks/assigned?status=DONE&closedIn=2026-11-01~2026-11-11', (sp) =>
+      createIssueSearchResponse(sp.get('closedFrom') ? [done] : []),
+    )
+    expect(await screen.findByTestId('assigned-row-77')).toHaveTextContent('기간 안 완료')
+    expect(seen[0].get('closedFrom')).toBe('2026-11-01')
+    expect(seen[0].get('closedTo')).toBe('2026-11-11')
+    expect(seen[0].get('status')).toBe('DONE')
+    expect(seen[0].has('hideClosed')).toBe(false)
+    // 필터로 센다(0건이면 「필터 0건 + 초기화」) — 초기화는 closedIn 도 지운다.
+    const sp = new URLSearchParams('status=DONE&closedIn=2026-11-01~2026-11-11&x=1')
+    expect(hasMyTasksFilters(new URLSearchParams('closedIn=2026-11-01~2026-11-11'))).toBe(true)
+    expect(clearMyTasksFilters(sp).toString()).toBe('x=1')
   })
 
   test('내가 만든 탭에는 완료 모두 보기 토글이 없다', async () => {

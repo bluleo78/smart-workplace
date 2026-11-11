@@ -3,19 +3,23 @@ import type { Page } from '@playwright/test'
 import type { IssueSearchResponse } from '../../../src/types/issue'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../factories/label.factory'
+import { createMeOverview } from '../../factories/meOverview.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 
-// 내 작업 페이지(3탭) E2E — 실제 브라우저가 필요한 것만 남긴다.
+// 내 작업 페이지(4탭 — 개요 WP-1484) E2E — 실제 브라우저가 필요한 것만 남긴다.
 // 탭별 조회 파라미터·탭 이동·잘못된 탭 바로잡기·facet 칩·아이콘·aria-controls 패널·프로젝트 묶음 머리·레이블 +N·행 클릭 이동·
 // 마감 지남·완료 모두 보기·실패·로딩·필터 0건·데이터 없음 상태는 src/pages/me/myTasksPage.test.tsx(vitest 화면 테스트)가 지킨다.
-// 여기에는 /me/tasks → 할당 탭 대표 흐름(@wiring)과 헤더 정렬·배지 한 줄·행 높이·ID 헤더 x 맞춤(@layout)만 둔다.
+// 개요 탭 판정은 src/pages/me/myOverview.test.tsx 가 지킨다.
+// 여기에는 /me/tasks → 개요·할당 탭 대표 흐름(@wiring)과 헤더 정렬·배지 한 줄·행 높이·ID 헤더 x 맞춤(@layout)만 둔다.
 
-// 라우트 → 페이지 → API → 화면 대표 흐름 — /me/tasks 는 할당 탭으로 넘어가고 assignee=me 결과를 행으로 그린다.
-test('내 작업 — /me/tasks 는 할당 탭으로 넘어가 assignee=me 로 조회하고 결과를 렌더한다', { tag: '@wiring' }, async ({
+// 라우트 → 페이지 → API → 화면 대표 흐름 — /me/tasks 는 처음엔 개요 탭(WP-1484)으로 넘어가 /me/overview 결과를 그리고,
+// 할당 탭으로 옮기면 assignee=me 결과를 행으로 그린다.
+test('내 작업 — /me/tasks 는 개요 탭으로 넘어가 개요를 그리고, 할당 탭은 assignee=me 로 조회한다', { tag: '@wiring' }, async ({
   authenticatedPage: page,
 }) => {
+  const overview = await mockApi(page, 'GET', '/api/v1/me/overview', createMeOverview(), { capture: true })
   const cap = await mockApi(
     page,
     'GET',
@@ -24,8 +28,13 @@ test('내 작업 — /me/tasks 는 할당 탭으로 넘어가 assignee=me 로 �
     { capture: true },
   )
   await page.goto('/me/tasks')
-  await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
+  await expect(page).toHaveURL(/\/me\/tasks\/overview$/)
+  const ovReq = await overview.waitForRequest()
+  expect(ovReq.searchParams.get('period')).toBe('MONTH')
+  await expect(page.getByTestId('closed-row-1467')).toContainText('드라이브 복원')
 
+  await page.getByRole('tab', { name: '할당' }).click()
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
   const req = await cap.waitForRequest()
   expect(req.searchParams.get('assignee')).toBe('me')
   await expect(page.getByTestId('assigned-row-11')).toContainText('할당된 이슈')

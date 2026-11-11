@@ -3,7 +3,7 @@ import { parseFilters } from '../../lib/issueFilters'
 import type { IssueFilters } from '../../types/issue'
 import { meFacetParams } from './meFacetParams'
 
-export type MyTasksTab = 'assigned' | 'reported' | 'watched'
+export type MyTasksTab = 'overview' | 'assigned' | 'reported' | 'watched'
 
 /**
  * 할당 탭에서 완료·취소를 숨기는 중인지 — 「완료 모두 보기」 토글 표시와 빈 상태 안내가 같은 판정을 쓴다.
@@ -31,8 +31,8 @@ export function hasMyTasksFilters(params: URLSearchParams): boolean {
   return Object.keys(meFacetParams(params)).length > 0
 }
 
-/** 필터 초기화로 지우는 URL 키 — facet 과 「완료 모두 보기」. 탭은 경로라 그대로 남는다. */
-const MY_TASKS_FILTER_KEYS = ['status', 'priority', 'dueFrom', 'dueTo', 'dueDate', 'blocked', 'closed'] as const
+/** 필터 초기화로 지우는 URL 키 — facet·완료일 기간(개요 「모두 보기」, WP-1484)과 「완료 모두 보기」. 탭은 경로라 그대로 남는다. */
+const MY_TASKS_FILTER_KEYS = ['status', 'priority', 'dueFrom', 'dueTo', 'dueDate', 'blocked', 'closed', 'closedIn'] as const
 
 /** 필터 초기화 — 필터 키만 지운 새 URLSearchParams(다른 키는 보존). */
 export function clearMyTasksFilters(params: URLSearchParams): URLSearchParams {

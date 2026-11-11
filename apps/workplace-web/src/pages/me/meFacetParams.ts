@@ -1,5 +1,6 @@
 // URL SearchParams → useMeIssues 에 합칠 facet query 파라미터(status/priority CSV).
 // 컴포넌트와 분리(react-refresh) — 횡단 "내 작업"/"AI 위임" 페이지가 공유.
+import { resolveClosedRange } from '../../lib/closedRange'
 import { parseFilters } from '../../lib/issueFilters'
 
 // yyyy-MM-dd(로컬) — 마감일(LocalDate) 비교용. 홈 합성 레이어의 '오늘 마감' 카운트와 동일 정의를 써야
@@ -22,6 +23,15 @@ export function meFacetParams(params: URLSearchParams): Record<string, string> {
   if (f.dueTo) out.dueTo = f.dueTo
   // 막힘(blocked) 필터 — 내 작업 위젯 '막힘' 그룹 딥링크(?blocked=true). 백엔드 /me/issues 가 이미 지원.
   if (f.blocked) out.blocked = 'true'
+  // 완료일 기간(closedIn) — 개요 탭 「모두 보기」가 고른 기간의 끝낸 이슈를 할당 탭에서 보이게 건다(WP-1484).
+  // 서버는 /me/issues 에서도 closedFrom/closedTo(KST 날짜 양끝 포함)를 받는다. 프리셋이면 지금 시점으로 푼다.
+  if (f.closedIn) {
+    const range = resolveClosedRange(f.closedIn)
+    if (range) {
+      out.closedFrom = range.from
+      out.closedTo = range.to
+    }
+  }
   // 홈 '오늘 마감' 셀 딥링크(#275) — dueDate=today 를 오늘 날짜 범위(dueFrom=dueTo=오늘)로 변환해
   // 서버의 DUE_DATE 필터로 합친다. URL 은 ?dueDate=today 로 안정 유지(북마크 가능).
   if (params.get('dueDate') === 'today') {

@@ -8,17 +8,33 @@ import { expect, test } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueSearchResponse } from '@/types/issue'
+import type { MeDaySummary } from '@/types/meOverview'
 
 import { createIssue, createIssueSearchResponse } from '../../../../../e2e/factories/issue.factory'
 import MyTasksBody from './MyTasksBody'
 
 type Issue = ReturnType<typeof createIssue>
 
-/** 담당·구독 두 조회를 준다 — 위젯은 둘 다 있어야 분류한다. */
-function renderTasks(assigned: Issue[] | 'fail', watched: Issue[]) {
+/** 어제/오늘 요약(WP-1484) — 위젯 맨 위 한 줄. */
+const TODAY: MeDaySummary = {
+  yesterday: '2026-11-10',
+  yesterdayCompleted: 5,
+  yesterdayCompletedWithAi: 4,
+  yesterdayCompletedOnTime: 5,
+  yesterdayCreated: 2,
+  today: '2026-11-11',
+  overdue: 3,
+  oldestOverdueDays: 6,
+  dueToday: 2,
+  waiting: 4,
+}
+
+/** 담당·구독 두 조회를 준다 — 위젯은 둘 다 있어야 분류한다. 어제/오늘 요약은 기본 성공, 'fail' 이면 500. */
+function renderTasks(assigned: Issue[] | 'fail', watched: Issue[], today: MeDaySummary | 'fail' = TODAY) {
   return renderScreen(<MyTasksBody count={5} />, {
     path: '/',
     handlers: [
+      http.get('/api/v1/me/overview/today', () => (today === 'fail' ? HttpResponse.json({}, { status: 500 }) : HttpResponse.json(today))),
       http.get('/api/v1/me/issues', () =>
         assigned === 'fail' ? HttpResponse.json({}, { status: 500 }) : HttpResponse.json(createIssueSearchResponse(assigned) as IssueSearchResponse),
       ),
@@ -68,4 +84,19 @@ test('담당 조회만 5xx 여도 위젯 전체를 오류+재시도로 보인다
   const error = await screen.findByTestId('dash-mytasks-error')
   expect(error).toHaveTextContent('다시 시도')
   expect(screen.queryByTestId('dash-mytasks')).not.toBeInTheDocument()
+})
+
+test('맨 위 한 줄에 어제 끝냄·오늘 기한 지남·나를 기다림, 누르면 내 작업 개요 탭으로 간다(WP-1484)', async () => {
+  const { user, location } = renderTasks([createIssue({ id: 1, number: 1, title: '진행 작업', status: 'IN_PROGRESS' })], [])
+  const line = await screen.findByTestId('dash-mytasks-today')
+  expect(line).toHaveTextContent('어제 끝냄 5 · 오늘 기한 지남 3 · 나를 기다림 4')
+  await user.click(line)
+  expect(location()).toBe('/me/tasks/overview')
+})
+
+test('어제/오늘 요약만 실패하면 그 한 줄만 숨기고 목록은 그대로 보인다', async () => {
+  renderTasks([createIssue({ id: 1, number: 1, title: '진행 작업', status: 'IN_PROGRESS' })], [], 'fail')
+  expect(await screen.findByRole('link', { name: '진행 중 →' })).toBeInTheDocument()
+  expect(screen.queryByTestId('dash-mytasks-today')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('dash-mytasks-error')).not.toBeInTheDocument()
 })

@@ -3,6 +3,8 @@
 // 실제 폭(56·224px)·창 넓히기(@layout)와 호버 Tooltip(@input)만 남긴다. 접힘 분기·링크 이름/주소/선택 표시·「내 작업」 이동·
 // 아이콘 「새 프로젝트」 생성 창은 페이지 테스트 src/pages/projects/issueSidebarCompact.test.tsx 가 지킨다(WP-971).
 import type { ProjectResponse } from '../../../src/types/project'
+import { createEmptyMeOverview } from '../../factories/meOverview.factory'
+import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 const eng: ProjectResponse = {
@@ -78,9 +80,10 @@ test.describe('좁은 데스크톱 창(1100px)', () => {
     await expect(all).toHaveClass(/selection-bar|bg-selected/)
     expect(Math.round((await all.boundingBox())!.height)).toBeGreaterThanOrEqual(32)
 
-    // 「내 작업」 링크(/me/tasks)는 라우터가 기본 탭(할당)으로 바꿔 연다(App.tsx 의 Navigate).
+    // 「내 작업」 링크(/me/tasks)는 라우터가 마지막에 본 탭(처음은 개요, WP-1484)으로 바꿔 연다(MyTasksIndexRedirect).
+    await mockApi(page, 'GET', '/api/v1/me/overview', createEmptyMeOverview())
     await myTasks.click()
-    await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
+    await expect(page).toHaveURL(/\/me\/tasks\/overview$/)
   })
 })
 
