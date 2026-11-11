@@ -60,7 +60,8 @@ root.render(appTree)
 // __E2E_REUSE_APP__ 를 켤 때만 생기고, 운영에서는 이 값이 없어 아무 일도 하지 않는다.
 type E2EWindow = Window & {
   __E2E_REUSE_APP__?: boolean
-  __e2eRemount?: (path: string, storage: Record<string, string> | null) => Promise<void>
+  /** 다시 띄웠으면 true, 문서가 바뀌어 다시 띄울 수 없으면 false — false 면 fixture 가 문서를 실제로 새로 연다. */
+  __e2eRemount?: (path: string, storage: Record<string, string> | null) => Promise<boolean>
   __e2eUnmount?: () => void
 }
 const e2eWindow = window as E2EWindow
@@ -80,6 +81,9 @@ if (e2eWindow.__E2E_REUSE_APP__) {
     root.unmount()
   }
   e2eWindow.__e2eRemount = async (path, storage) => {
+    // 테스트가 setContent·document.write 로 문서를 덮었으면 옛 root 는 문서에서 떨어졌고 head 에 앱 CSS 도 없다 —
+    // 여기에 다시 그리면 화면에 아무것도 보이지 않는다(WP-1516). 손대지 않고 false 를 돌려 fixture 가 문서를 새로 열게 한다.
+    if (!rootElement.isConnected) return false
     e2eWindow.__e2eUnmount!()
     queryClient.clear()
     // 모듈 안에 남는 상태도 새 문서처럼 비운다 — 메모리 액세스 토큰, 노트 동시 편집 세션(페이지 번호로 재사용돼 앞 테스트의 문서가 남는다),
@@ -124,5 +128,6 @@ if (e2eWindow.__E2E_REUSE_APP__) {
     root = createRoot(rootElement)
     root.render(appTree)
     mounted = true
+    return true
   }
 }
