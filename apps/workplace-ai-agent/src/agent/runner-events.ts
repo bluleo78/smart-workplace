@@ -156,7 +156,8 @@ export function answerChunks(events: RunnerEvent[]): string[] {
 }
 
 // 한 조각(도구 사이)의 라우터 텍스트 — text_delta 우선, 없으면 assistant_text 를 줄바꿈으로. 서브에이전트 텍스트는 뺀다.
-function segmentText(seg: RunnerEvent[]): string {
+// WP-1489: 메시징 대신 답하기(messaging-reply.ts)가 마지막 조각의 텍스트를 같은 규칙으로 고르도록 내보낸다.
+export function segmentText(seg: RunnerEvent[]): string {
   const deltas = seg.filter(
     (e): e is Extract<RunnerEvent, { type: 'text_delta' }> => e.type === 'text_delta' && e.parentToolUseId == null,
   );

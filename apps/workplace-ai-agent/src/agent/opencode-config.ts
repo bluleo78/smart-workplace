@@ -69,9 +69,11 @@ function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVisi
   if (mcp.onBehalfOfTenantId != null) env.MCP_ON_BEHALF_OF_TENANT = String(mcp.onBehalfOfTenantId);
   // WP-1313: 테스트 이어 처리의 허락된 쓰기(JSON 배열). env 는 스폰 시 고정되지만 recurring-test 는 hostBridge 를 넘겨 웜 풀에서 빠진다.
   if (mcp.recurringPermits?.length) env.MCP_RECURRING_PERMITS = JSON.stringify(mcp.recurringPermits);
-  // hostBridge(propose/submit/unassign 콜백) 또는 onTool(도구 호출 로깅) 이 필요하면 브리지 좌표를
-  // 심는다. 실제 등록(registerBridge)은 러너가 수행 — 이 함수는 순수 config 조립만 담당.
-  if (mcp.hostBridge || mcp.onTool) {
+  // hostBridge(propose/submit/unassign 콜백)가 필요하면 브리지 좌표를 심는다. 실제 등록(registerBridge)은 러너가 수행 — 이 함수는 순수 config 조립만 담당.
+  // WP-1489: onTool 만으로는 심지 않는다 — opencode 경로의 onTool 은 러너가 세션 이벤트(도구 part)에서 직접 부르고 브리지(kind: proposal·
+  // submit_response·unassign)를 타지 않는다. 러너는 hostBridge 가 있을 때만 registerBridge 하므로, onTool 만 넘긴 실행(메시징)에 좌표를 심으면
+  // 등록되지 않은 runId 를 가리키는 브리지가 MCP 쪽에 생겨, 그 프로필이 언젠가 hostBridge 를 쓰면 콜백이 조용히 버려진다.
+  if (mcp.hostBridge) {
     const port = process.env.PORT ?? String(DEFAULT_PORT);
     env.MCP_BRIDGE_URL = `http://localhost:${port}/internal/bridge`;
     env.MCP_BRIDGE_RUN_ID = runId;
