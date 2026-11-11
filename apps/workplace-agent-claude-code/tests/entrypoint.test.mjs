@@ -537,6 +537,24 @@ tmuxTest('panesReceiveTenantAndGenerationEnv', async (t) => {
   assert.equal((await e.exited).code, 0);
 });
 
+// WP-1500: AI 폴더(agent.conf)는 Pod 를 지워도 남는다 — 다른 실행기 템플릿으로 돌던 AI 의 cli=opencode 가 남아 있어도
+// 부팅마다 cli=claude 로 덮어써 칸이 claude 로 떠야 한다(덮어쓰지 않으면 gw-opencode-loop 를 띄우다 ENOENT 로 멈췄다).
+tmuxTest('bootOverwritesLeftoverCliWithClaude', async (t) => {
+  const f = fixture(t);
+  writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));
+  const aiDir = f.d('work', 'agents', 'kodi');
+  mkdirSync(aiDir, { recursive: true });
+  writeFileSync(join(aiDir, 'agent.conf'), 'cli=opencode\n');
+  const e = startEntrypoint(t, f.env);
+  await until(() => existsSync(f.d('out', 'pane-WP.env')), 'WP 칸의 claude', 30000, e.log);
+  const conf = readFileSync(join(aiDir, 'agent.conf'), 'utf8');
+  assert.match(conf, /^cli=claude$/m);
+  assert.doesNotMatch(conf, /opencode/);
+  assert.ok(f.read('out', 'pane-WP.env').split('\n').includes('arg /loop /genia-works:work-loop WP --queue "AI 개발팀"'));
+  e.child.kill('SIGTERM');
+  assert.equal((await e.exited).code, 0);
+});
+
 tmuxTest('supervisorRevivesDeadPane', async (t) => {
   const f = fixture(t);
   writeFileSync(f.d('out', 'projects.json'), JSON.stringify(oneProject(bareRepo(f.d('git')))));

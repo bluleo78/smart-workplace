@@ -31,6 +31,9 @@ install_key || die "AI 키를 놓지 못했습니다"
 setup_git
 # 6. dind
 wait_dind
+# 6b. 칸의 실행기를 claude 로(WP-1500) — AI 폴더(agent.conf)는 Pod 를 지워도 남아, 다른 실행기 템플릿으로 돌던 AI 면
+#     cli=opencode 등이 남는다. agent-project 는 cli 가 비었을 때만 claude 로 정하므로 부팅마다 덮어쓴다(다른 이미지와 같다).
+"$GW_SCRIPTS/agent-home" "$AI_DIR" set cli claude || die "AI 폴더에 실행기(claude)를 적지 못했습니다"
 # 7·8. 프로젝트마다 저장소·칸을 띄우고(목록을 못 읽으면 감독이 다시 한다) 알림 감시 창을 한 번 챙긴 뒤, 회차마다 감독한다(supervise_once).
 #      lib.sh 의 run_supervisor boot — 첫 감독 전에 한 회차 쉰다. 돌아오지 않는다(끝은 on_term).
 run_supervisor boot
