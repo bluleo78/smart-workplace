@@ -263,7 +263,7 @@ AI 가 스스로 일을 집어 가게 하는 쓰기 도구 `claim_issue({issueKe
 - **허용 목록이 아니라 제거 목록**이다(`compact.ts` 의 `omitKeys`). 서버에 새 필드가 생겨도 조용히 사라지지 않는다.
 - 값이 없는 키(null·빈 배열)는 `dropEmpty` 로 생략한다. 키가 없다 = 값이 없다. 반복되는 기본값(`unreadCount:0`·`archived:false`·`deleted:false`)도 같은 뜻으로 생략하고 설명에 적는다.
 - 가공은 도구 핸들러에서만 한다(rest-client 는 raw). 같은 서버 DTO 를 내보내는 도구는 모두 같은 뷰를 쓴다.
-- 코멘트·이력처럼 길어지는 하위 목록은 최근 N건만 싣고, 잘리면 빠진 개수(`commentsOmitted`·`historyOmitted`)를 알린다. 더 읽는 방법(`allComments`)을 설명에 적는다.
+- 코멘트·이력처럼 길어지는 하위 목록은 최근 N건만 싣고, 잘리면 빠진 개수(`commentsOmitted`·`historyOmitted`)를 알린다. 더 읽는 방법(`allComments`)을 설명에 적는다. 응답이 AI 도구 결과 한도를 넘는 경우를 위해 줄여 읽는 옵션도 둔다(WP-1494: `get_issue_detail` 의 `comments`·`history`·`bodyMaxChars`, `list_issues` 의 `fields`) — 옵션이 없으면 응답은 그대로이고, 잘랐으면 그 사실(`commentsOmitted`·`historyTotal`·`bodyTruncated`·`bodyLength`)을 알린다.
 - 메일 본문은 평문 `bodyText` 하나다. 평문이 비어 있고 HTML 만 있으면 `html-text.ts` 의 `htmlToText` 로 바꿔 채운다.
 
 ## 노출 기준 (WP-347)

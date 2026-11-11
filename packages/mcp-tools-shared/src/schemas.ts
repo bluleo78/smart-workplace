@@ -48,9 +48,17 @@ export const claimIssueInput = issueKeyInput.extend({
   queueLabel: z.string().min(1).max(40).describe('Queue label name on the issue, e.g. "AI 개발팀"'),
 });
 
-/** get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건, allComments 는 최근 200건까지). */
+/**
+ * get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건, allComments 는 최근 200건까지).
+ * WP-1494: 응답이 AI 도구 결과 한도를 넘지 않게 줄이는 옵션 셋을 더했다 — 모두 생략하면 응답이 예전과 같다.
+ * comments 는 최근 N건(0 = 없음, 하드 상한 200 으로 자른다 — 거절 대신 잘라 쓰기 쉽게), history:false 는 이력 빼기, bodyMaxChars 는 본문 앞 N 코드 포인트만.
+ * 쓰는 법은 도구 설명에 한 번만 적고 파라미터 설명은 달지 않는다(정의 토큰 상한).
+ */
 export const getIssueDetailInput = issueKeyInput.extend({
   allComments: z.boolean().optional(),
+  comments: z.number().int().min(0).optional(),
+  history: z.boolean().optional(),
+  bodyMaxChars: z.number().int().min(1).optional(),
 });
 
 /** 이슈 생성 입력 — projectKey 필수(위임 컨텍스트 없이 대상 프로젝트 명시). */
@@ -194,11 +202,12 @@ export const issueListFilterShape = {
   // WP-807: 공유 필터(show_issue_list)의 status 는 웹·서버 status 로 그대로 가 범주만 받는다 — 상태 이름 안내는 list_issues 덮어쓰기에만 둔다.
   status: z.string().optional().describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
   priority: z.array(issuePriorityInput).optional(),
-  label: z.string().optional().describe('Label names CSV; all must match'),
-  component: z.string().optional().describe('Component names CSV; any matches, "none" = no component'),
+  // WP-1494: 정의 토큰 상한 안에 새 인자(list_issues fields·get_issue_detail 크기 옵션)를 들이려고 필터 설명을 같은 뜻의 짧은 말로 줄였다.
+  label: z.string().optional().describe('Names CSV; all must match'),
+  component: z.string().optional().describe('Names CSV; any matches; "none" = no component'),
   fixVersion: z.string().optional().describe('Names CSV; "none"'),
   affectsVersion: z.string().optional().describe('Names CSV; "none"'),
-  type: z.string().optional().describe('Type names CSV; any matches'),
+  type: z.string().optional().describe('Names CSV; any matches'),
   dueFrom: z.string().optional().describe('Due date range, yyyy-MM-dd'),
   dueTo: z.string().optional(),
   // WP-307: 종료일·생성일 범위 — 서버가 Asia/Seoul 하루 경계로 자른다. 값을 그대로 서버에 넘기므로 show_issue_list 도 공유한다.
@@ -206,9 +215,9 @@ export const issueListFilterShape = {
   closedTo: z.string().optional(),
   createdFrom: z.string().optional().describe('Created date range, yyyy-MM-dd KST, inclusive'),
   createdTo: z.string().optional(),
-  q: z.string().optional().describe('Substring of title or body'),
-  blocked: z.boolean().optional().describe('Only issues with an unfinished blocker'),
-  topLevel: z.boolean().optional().describe('Only issues without a parent'),
+  q: z.string().optional().describe('Title/body substring'),
+  blocked: z.boolean().optional().describe('Has unfinished blocker'),
+  topLevel: z.boolean().optional().describe('No parent'),
   assignee: z.string().optional().describe(assigneeDescription('')),
   reporter: z.string().optional().describe('CSV: "me" or usernames'),
   size: z.number().int().min(1).max(100).optional(),
@@ -264,6 +273,8 @@ export const listIssuesInput = z.object({
   mentionsMe: z.boolean().optional().describe('Others @mentioned me since my last post'),
   // WP-1239: 가져올 때 받은 원본 키(예: Jira INFRA-123)와 정확히 같은 이슈 — 서버 sourceKey 필터로 그대로 보낸다. 담당과 무관한 조회라 기본 "me" 를 끈다.
   sourceKey: z.string().optional().describe('Exact import key'),
+  // WP-1494: 항목을 고른 키로만 줄인다(issueKey 는 늘 남는다) — 다른 list_issues 목록 인자처럼 CSV. 쓸 수 있는 이름·쓰는 법은 도구 설명에 적는다.
+  fields: z.string().optional(),
 });
 
 /** get_issue_chat 입력(WP-373). after 는 이전 응답의 next(메시지 id). 생략하면 내 마지막 글 이후 새 글 + 직전 맥락. */
