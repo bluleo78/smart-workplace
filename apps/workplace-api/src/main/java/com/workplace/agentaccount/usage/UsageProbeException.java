@@ -25,4 +25,20 @@ public class UsageProbeException extends Exception {
   public String userMessage() {
     return userMessage;
   }
+
+  /**
+   * 예외와 원인 체인의 클래스 이름만 「A <- B <- C」 꼴로 잇는다(WP-1487 실패 로그용). 메시지는 URL·응답 조각을 담을 수 있어 읽지 않는다. 순환 원인에
+   * 갇히지 않게 깊이를 제한한다.
+   */
+  static String causeChain(Throwable e) {
+    StringBuilder sb = new StringBuilder();
+    Throwable t = e;
+    for (int depth = 0; t != null && depth < 8; depth++) {
+      if (depth > 0) sb.append(" <- ");
+      sb.append(t.getClass().getName());
+      if (t.getCause() == t) break;
+      t = t.getCause();
+    }
+    return sb.toString();
+  }
 }

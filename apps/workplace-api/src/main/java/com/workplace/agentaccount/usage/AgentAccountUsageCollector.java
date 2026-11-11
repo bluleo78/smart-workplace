@@ -157,9 +157,24 @@ public class AgentAccountUsageCollector {
       return Outcome.failure("BAD_SECRET", "저장된 키를 읽을 수 없음");
     }
     try {
-      return Outcome.success(probes.get(account.provider()).read(secret));
+      return Outcome.success(readWithRetry(probes.get(account.provider()), secret));
     } catch (UsageProbeException e) {
       return Outcome.failure(e.code(), e.userMessage());
+    }
+  }
+
+  /**
+   * 조회기를 부르고, NETWORK 실패면 같은 회차 안에서 바로 한 번 더 시도한다(WP-1487). 끊긴 연결·일시 네트워크 오류는 곧바로 다시 하면 대개 통하는데,
+   * 기다리면 다음 회차(10분 뒤)까지 「연결 실패」로 남는다. 401·403·HTTP_xxx·BAD_RESPONSE·BAD_SECRET 은 다시 해도 같은 결과라 재시도하지
+   * 않는다. 최악(연결 5초 + 응답 15초)×2 도 임대(2분) 안에 끝난다.
+   */
+  private static UsageReading readWithRetry(UsageProbe probe, String secret)
+      throws UsageProbeException {
+    try {
+      return probe.read(secret);
+    } catch (UsageProbeException e) {
+      if (!"NETWORK".equals(e.code())) throw e;
+      return probe.read(secret);
     }
   }
 
