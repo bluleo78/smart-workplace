@@ -1,4 +1,4 @@
-// 연락처 E2E — 라우트 → 목록 API → 상세 배선(@wiring), 한글 IME 연속 입력(@input), 좁은 폭 2단 배치(@layout) (page.route 모킹).
+// 연락처 E2E — 라우트 → 목록 API → 상세 배선(@wiring), 한글 IME 연속 입력(@input), 좁은 폭 2단 배치·lg 경계 입력 유지(@layout) (page.route 모킹).
 // 타입 필터·검색 쿼리, 선택 표시, 그룹 뷰 헤더 버튼, 사이드바 타이틀, 즐겨찾기 필터·빈 상태, 외부 고급 필터, 404 안내(데스크톱)는
 // src/pages/contacts/contactsPage.test.tsx 가, 404 안내(모바일)는 src/pages/mobile/backContacts.test.tsx 가 지킨다(WP-966).
 import type { Page } from "@playwright/test";
@@ -11,6 +11,7 @@ import {
 } from "../../factories/contacts.factory";
 import { expect, test } from "../../fixtures/auth.fixture";
 import { trackRequests } from "../../fixtures/requests";
+import { resizeAndSettle } from "../../fixtures/wait";
 
 // /api/v1/contacts 목록 — 멤버·외부 1건씩(쿼리와 무관).
 async function stubList(page: Page) {
@@ -106,5 +107,48 @@ test(
     await page.getByTestId("mobile-back").click();
     await expect(page.getByTestId("contact-list")).toBeVisible();
     await expect(page.getByTestId("mobile-tabbar")).toBeVisible();
+  },
+);
+
+// WP-1472: 연락처 본문은 MobileSidebarSheet(데스크톱 사이드바 ↔ 모바일 시트) 안에 있다 — lg(1024px) 경계를 넘을 때 본문이 다시 마운트되면
+// 열린 새 연락처 창과 입력이 사라졌다. useIsMobile 이 matchMedia 로 바뀌는 실제 폭 전환이라 브라우저(@layout)로 본다(WP-1468 과 같은 방식).
+test(
+  "새 연락처 창의 입력이 lg 경계를 넘어도 남고, 모바일에선 ☰ 로 목록 시트가 열린다 (WP-1472)",
+  { tag: ["@layout"] },
+  async ({ authenticatedPage: page }) => {
+    const DESKTOP = { width: 1440, height: 900 };
+    const MOBILE = { width: 390, height: 844 };
+    await stubList(page);
+    await page.setViewportSize(DESKTOP);
+    await page.goto("/contacts");
+    await page.getByTestId("contact-create").click();
+    const dialog = page.getByTestId("external-contact-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByTestId("c-name").fill("쓰던 이름");
+
+    await resizeAndSettle(page, MOBILE);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("c-name")).toHaveValue("쓰던 이름");
+
+    await resizeAndSettle(page, DESKTOP);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("c-name")).toHaveValue("쓰던 이름");
+
+    // 창을 닫고 모바일로 가면 ☰ 가 생기고 목록 시트가 열린다(데스크톱에선 ☰ 가 없다).
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("[data-mobile-sidebar-trigger]")).toHaveCount(0);
+    await resizeAndSettle(page, MOBILE);
+    const sheet = page.getByTestId("mobile-sidebar-sheet");
+    await page.locator("[data-mobile-sidebar-trigger]").click();
+    await expect(sheet).toBeVisible();
+
+    // 시트를 연 채 데스크톱에 갔다 돌아오면 시트는 닫혀 있다(경계를 넘으면 닫는다) — ☰ 로 다시 열 수 있다.
+    await resizeAndSettle(page, DESKTOP);
+    await expect(sheet).toHaveCount(0);
+    await resizeAndSettle(page, MOBILE);
+    await expect(sheet).toHaveCount(0);
+    await page.locator("[data-mobile-sidebar-trigger]").click();
+    await expect(sheet).toBeVisible();
   },
 );
