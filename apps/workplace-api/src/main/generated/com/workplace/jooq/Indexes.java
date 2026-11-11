@@ -149,6 +149,7 @@ import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
+import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
@@ -470,6 +471,7 @@ public class Indexes {
     public static final Index IDX_WIKI_SPACE_MEMBER_GROUP_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_member_group_tenant"), WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, new OrderField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_member_tenant"), WikiSpaceMember.WIKI_SPACE_MEMBER, new OrderField[] { WikiSpaceMember.WIKI_SPACE_MEMBER.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_tenant"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID }, false);
+    public static final Index IDX_WORK_PROFILE_TENANT = Internal.createIndex(DSL.name("idx_work_profile_tenant"), WorkProfile.WORK_PROFILE, new OrderField[] { WorkProfile.WORK_PROFILE.TENANT_ID }, false);
     public static final Index IDX_WORKSPACE_ASSISTANT_TENANT = Internal.createIndex(DSL.name("idx_workspace_assistant_tenant"), WorkspaceAssistant.WORKSPACE_ASSISTANT, new OrderField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, false);
     public static final Index IX_FILE_EXTRACTION_EMBEDDING = Internal.createIndex(DSL.name("ix_file_extraction_embedding"), FileExtraction.FILE_EXTRACTION, new OrderField[] { FileExtraction.FILE_EXTRACTION.EMBEDDING }, false);
     public static final Index IX_FILE_EXTRACTION_RESUME = Internal.createIndex(DSL.name("ix_file_extraction_resume"), FileExtraction.FILE_EXTRACTION, new OrderField[] { FileExtraction.FILE_EXTRACTION.STATUS, FileExtraction.FILE_EXTRACTION.LEASED_UNTIL }, false);

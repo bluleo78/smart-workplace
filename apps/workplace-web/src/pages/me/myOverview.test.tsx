@@ -1,16 +1,17 @@
 // 「내 작업 · 개요」 탭(WP-1484) — 화면 테스트(renderScreen). 탭 기억(첫 방문 개요 → 그다음 마지막 탭), 위젯 렌더(숫자·문구),
 // 「완료한 이슈」 카드·추이 막대 → 할당 탭 완료 목록 주소, 직전 같은 기간 툴팁, 기간·단위 전환 → 요청 파라미터, 타일 전환, 빈 상태(처음 쓰는 사람), 실패 → 다시 시도.
 // 모두 API 응답·주소가 화면으로 바뀌는 판정이라 브라우저 없이 본다(apps/workplace-web/CLAUDE.md 「테스트 종류 판정」).
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
-import type { MeOverviewResponse } from '@/types/meOverview'
+import type { MeOverviewResponse, WorkProfile, WorkProfileAnalyzeResponse } from '@/types/meOverview'
 
 import { createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createEmptyMeOverview as emptyOverview, createMeOverview as overview } from '../../../e2e/factories/meOverview.factory'
+import { createEmptyWorkProfile, createWorkProfile } from '../../../e2e/factories/workProfile.factory'
 import MyTasksIndexRedirect from './MyTasksIndexRedirect'
 import MyTasksPage from './MyTasksPage'
 
@@ -19,6 +20,13 @@ beforeEach(() => {
 })
 
 type Respond = (sp: URLSearchParams) => MeOverviewResponse | Response
+/** 업무 프로파일(WP-1485) 조회·다시 분석 응답자 — 응답 본문 또는 오류 Response. */
+type ProfileRespond = (sp: URLSearchParams) => WorkProfile | Response
+type AnalyzeRespond = (sp: URLSearchParams) => WorkProfileAnalyzeResponse | Response
+interface ProfileOptions {
+  profile?: ProfileRespond
+  analyze?: AnalyzeRespond
+}
 
 function routes() {
   return (
@@ -30,9 +38,14 @@ function routes() {
   )
 }
 
-/** 내 작업 화면 — 개요 API 요청 파라미터를 모아 두고, 다른 탭 목록은 빈 응답. */
-function renderTasks(path: string, respond: Respond = () => overview()) {
+/** 내 작업 화면 — 개요·업무 프로파일 API 요청 파라미터를 모아 두고, 다른 탭 목록은 빈 응답. */
+function renderTasks(path: string, respond: Respond = () => overview(), opts: ProfileOptions = {}) {
   const seen: URLSearchParams[] = []
+  const profileSeen: URLSearchParams[] = []
+  const analyzeSeen: URLSearchParams[] = []
+  const profile = opts.profile ?? (() => createWorkProfile())
+  const analyze = opts.analyze ?? (() => ({ outcome: 'STARTED' as const, profile: createWorkProfile({ status: 'PENDING' }) }))
+  const json = (body: object) => (body instanceof Response ? body : HttpResponse.json(body))
   const view = renderScreen(routes(), {
     path,
     handlers: [
@@ -42,11 +55,21 @@ function renderTasks(path: string, respond: Respond = () => overview()) {
         const body = respond(sp)
         return body instanceof Response ? body : HttpResponse.json(body)
       }),
+      http.get('/api/v1/me/work-profile', ({ request }) => {
+        const sp = new URL(request.url).searchParams
+        profileSeen.push(sp)
+        return json(profile(sp))
+      }),
+      http.post('/api/v1/me/work-profile/analyze', ({ request }) => {
+        const sp = new URL(request.url).searchParams
+        analyzeSeen.push(sp)
+        return json(analyze(sp))
+      }),
       http.get('/api/v1/me/issues', () => HttpResponse.json(createIssueSearchResponse([]))),
       http.get('/api/v1/me/watched-issues', () => HttpResponse.json(createIssueSearchResponse([]))),
     ],
   })
-  return { ...view, seen }
+  return { ...view, seen, profileSeen, analyzeSeen }
 }
 
 describe('내 작업 · 개요', () => {
@@ -237,5 +260,141 @@ describe('내 작업 · 개요', () => {
     await user.click(within(error).getByRole('button', { name: /다시 시도/ }))
     expect(await screen.findByTestId('overview')).toBeInTheDocument()
     expect(seen.length).toBe(2)
+  })
+})
+
+// 업무 프로파일 카드(WP-1485) — 응답 → 카드 문구·태그, 기간 → 요청, PENDING 다시 읽기, 다시 분석 결과 토스트, 빈·실패 상태.
+describe('업무 프로파일', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test('제목·부제·상태줄·요약·안내·세 그룹이 그려진다', async () => {
+    renderTasks('/me/tasks/overview')
+    const card = await screen.findByTestId('overview-work-profile')
+    const c = within(card)
+    expect(await c.findByText('업무 프로파일')).toBeInTheDocument()
+    expect(c.getByText('끝낸 이슈에서 분석 · 보고서 원자료')).toBeInTheDocument()
+    // 상태줄 — 날짜 표기(오늘/n월 n일)는 지금 시각에 따라 다르므로 앞부분만 본다(정확한 표기는 workProfileModel.test.ts).
+    expect(c.getByTestId('work-profile-status')).toHaveTextContent(/^이번 달 37건 분석 · /)
+    expect(c.getByText(createWorkProfile().summary!)).toBeInTheDocument()
+    expect(c.getByText('AI 가 끝낸 이슈의 제목·본문·라벨·검토 기록을 읽고 씁니다. 나만 볼 수 있어요.')).toBeInTheDocument()
+    expect(c.getByTestId('work-profile-tasks')).toHaveTextContent('주요 업무기능 개발 12결함 수정 19')
+    expect(c.getByTestId('work-profile-areas')).toHaveTextContent('자주 일한 영역이슈 트래커 9메일 4')
+    // 역량 — 숫자 없이 이름만.
+    expect(c.getByTestId('work-profile-skills')).toHaveTextContent(/^역량ReactSpring Boot$/)
+    expect(c.getByRole('button', { name: '다시 분석' })).toBeEnabled()
+    expect(c.queryByRole('button', { name: '보고서 만들기' })).toBeNull()
+  })
+
+  test('카드가 맡은 이슈보다 앞, 추이보다 뒤', async () => {
+    renderTasks('/me/tasks/overview')
+    await screen.findByTestId('overview')
+    const order = ['overview-trend', 'overview-due', 'overview-work-profile', 'overview-upcoming'].map((id) => screen.getByTestId(id))
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  })
+
+  test('기간을 바꾸면 그 기간으로 다시 읽는다', async () => {
+    const { user, profileSeen } = renderTasks('/me/tasks/overview', undefined, {
+      profile: (sp) => createWorkProfile({ period: (sp.get('period') ?? 'MONTH') as WorkProfile['period'] }),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    await waitFor(() => expect(profileSeen[0]?.get('period')).toBe('MONTH'))
+    await user.click(within(screen.getByRole('group', { name: '조회 기간' })).getByRole('button', { name: '이번 주' }))
+    await waitFor(() => expect(profileSeen.at(-1)?.get('period')).toBe('WEEK'))
+    await waitFor(() => expect(within(card).getByTestId('work-profile-status')).toHaveTextContent(/^이번 주 37건 분석/))
+  })
+
+  test('PENDING 이면 「분석하는 중」·버튼 비활성, 3초 뒤 READY 로 바뀐다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let calls = 0
+    renderTasks('/me/tasks/overview', undefined, {
+      profile: () => (calls++ === 0 ? createWorkProfile({ status: 'PENDING', summary: null, tasks: [], areas: [], skills: [], analyzedAt: null }) : createWorkProfile()),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    expect(await within(card).findByText('분석하는 중…')).toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: '다시 분석' })).toBeDisabled()
+    await act(async () => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(await within(card).findByText(createWorkProfile().summary!)).toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: '다시 분석' })).toBeEnabled()
+  })
+
+  test('다시 분석 → UNCHANGED 면 「바뀐 것이 없어 그대로 둡니다」 토스트', async () => {
+    const { user, analyzeSeen } = renderTasks('/me/tasks/overview', undefined, {
+      analyze: () => ({ outcome: 'UNCHANGED', profile: createWorkProfile() }),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    await user.click(await within(card).findByRole('button', { name: '다시 분석' }))
+    expect(await screen.findByText('바뀐 것이 없어 그대로 둡니다')).toBeInTheDocument()
+    expect(analyzeSeen[0].get('period')).toBe('MONTH')
+  })
+
+  test('다시 분석 → 429 면 서버 문구 「오늘은 더 분석할 수 없어요」 토스트', async () => {
+    const { user } = renderTasks('/me/tasks/overview', undefined, {
+      analyze: () => HttpResponse.json({ status: 429, message: '오늘은 더 분석할 수 없어요' }, { status: 429 }),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    await user.click(await within(card).findByRole('button', { name: '다시 분석' }))
+    expect(await screen.findByText('오늘은 더 분석할 수 없어요')).toBeInTheDocument()
+  })
+
+  test('다시 분석 → STARTED 면 카드가 곧장 「분석하는 중」으로 바뀐다', async () => {
+    const { user } = renderTasks('/me/tasks/overview')
+    const card = await screen.findByTestId('overview-work-profile')
+    await user.click(await within(card).findByRole('button', { name: '다시 분석' }))
+    expect(await within(card).findByText('분석하는 중…')).toBeInTheDocument()
+  })
+
+  test('끝낸 이슈가 없으면 빈 상태 문구', async () => {
+    renderTasks('/me/tasks/overview', undefined, { profile: () => createEmptyWorkProfile() })
+    const card = await screen.findByTestId('overview-work-profile')
+    expect(await within(card).findByText('이 기간에 끝낸 이슈가 없어 분석할 것이 없어요')).toBeInTheDocument()
+    expect(within(card).queryByTestId('work-profile-tasks')).toBeNull()
+    expect(within(card).queryByTestId('work-profile-areas')).toBeNull()
+    expect(within(card).queryByTestId('work-profile-skills')).toBeNull()
+  })
+
+  test('FAILED 면 오류 문구와 이전 내용', async () => {
+    renderTasks('/me/tasks/overview', undefined, {
+      profile: () => createWorkProfile({ status: 'FAILED', error: 'AI 비서가 설정되지 않아 분석할 수 없어요' }),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    expect(await within(card).findByText('AI 비서가 설정되지 않아 분석할 수 없어요')).toBeInTheDocument()
+    expect(within(card).getByText(createWorkProfile().summary!)).toBeInTheDocument()
+    expect(within(card).getByTestId('work-profile-tasks')).toHaveTextContent('기능 개발 12')
+  })
+
+  test('첫 분석이 실패한 FAILED(0건)는 빈 상태 대신 오류 문구를 보인다', async () => {
+    renderTasks('/me/tasks/overview', undefined, {
+      profile: () => ({ ...createEmptyWorkProfile(), status: 'FAILED', error: 'AI 비서가 설정되지 않아 분석할 수 없어요' }),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    expect(await within(card).findByText('AI 비서가 설정되지 않아 분석할 수 없어요')).toBeInTheDocument()
+    expect(within(card).queryByTestId('overview-work-profile-empty')).toBeNull()
+  })
+
+  test('끝낸 이슈가 없는 NONE 이면 「다시 분석」을 누를 수 없다', async () => {
+    renderTasks('/me/tasks/overview', undefined, { profile: () => createEmptyWorkProfile() })
+    const card = await screen.findByTestId('overview-work-profile')
+    await within(card).findByText('이 기간에 끝낸 이슈가 없어 분석할 것이 없어요')
+    expect(within(card).getByRole('button', { name: '다시 분석' })).toBeDisabled()
+  })
+
+  test('프로파일 조회 실패는 개요 전체를 막지 않는다', async () => {
+    let fail = true
+    const { user, profileSeen } = renderTasks('/me/tasks/overview', undefined, {
+      profile: () => (fail ? HttpResponse.json({}, { status: 500 }) : createWorkProfile()),
+    })
+    expect(await screen.findByTestId('overview')).toBeInTheDocument()
+    const card = screen.getByTestId('overview-work-profile')
+    const retry = await within(card).findByRole('button', { name: /다시 시도/ })
+    fail = false
+    await user.click(retry)
+    expect(await within(card).findByText(createWorkProfile().summary!)).toBeInTheDocument()
+    expect(profileSeen.length).toBe(2)
   })
 })

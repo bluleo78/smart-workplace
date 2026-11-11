@@ -107,6 +107,7 @@ import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPa
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup.WikiSpaceMemberGroupPath;
+import com.workplace.jooq.tables.WorkProfile.WorkProfilePath;
 import com.workplace.jooq.tables.WorkspaceAssistant.WorkspaceAssistantPath;
 import com.workplace.jooq.tables.records.UserRecord;
 
@@ -1836,6 +1837,19 @@ public class User extends TableImpl<UserRecord> {
             _wikiSpace = new WikiSpacePath(this, null, Keys.WIKI_SPACE__WIKI_SPACE_OWNER_ID_FKEY.getInverseKey());
 
         return _wikiSpace;
+    }
+
+    private transient WorkProfilePath _workProfile;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.work_profile</code> table
+     */
+    public WorkProfilePath workProfile() {
+        if (_workProfile == null)
+            _workProfile = new WorkProfilePath(this, null, Keys.WORK_PROFILE__WORK_PROFILE_USER_ID_FKEY.getInverseKey());
+
+        return _workProfile;
     }
 
     private transient WorkspaceAssistantPath _workspaceAssistantAgentUserIdFkey;

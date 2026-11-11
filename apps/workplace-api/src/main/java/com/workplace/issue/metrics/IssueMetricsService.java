@@ -94,7 +94,32 @@ public class IssueMetricsService {
         granularity,
         readable.and(repository.assigneeCandidate(me)),
         readable.and(repository.reportedBy(me)),
-        ev -> ev.assigneesAtClose().contains(me));
+        assignedAtClose(me));
+  }
+
+  /**
+   * 호출자 본인이 기간 안에 끝낸 이슈만(닫힌 시각 내림차순) — {@link #forMe} 의 {@code closedIssues} 와 같은 정의·같은 결과(WP-1485
+   * 업무 프로파일용). 지난 기간 조회·새로 생김·칸 묶음을 하지 않아 끝낸 이슈 목록만 필요한 곳에서 가볍다.
+   */
+  @Transactional(readOnly = true)
+  public List<ClosedIssueFact> closedIssuesForMe(Long callerId, MetricsPeriod period) {
+    if (period == null) throw new IllegalArgumentException("기간을 지정해 주세요");
+    Objects.requireNonNull(callerId, "callerId");
+    long me = callerId;
+    Condition closedScope = repository.readableBy(me).and(repository.assigneeCandidate(me));
+    List<ClosedIssueFact> facts = new ArrayList<>();
+    for (Evaluated ev :
+        evaluateClosed(
+            closedScope, period.startInclusive(), period.endExclusive(), assignedAtClose(me))) {
+      if (period.contains(ev.fact().closedDate())) facts.add(ev.fact());
+    }
+    facts.sort(IssueMetricsCalculator.CLOSED_DESC);
+    return List.copyOf(facts);
+  }
+
+  /** 사람 기준 완료 조건 — 닫힐 때 담당자 중에 그 사람이 있다(forMe·closedIssuesForMe 공통). */
+  private static Predicate<Evaluated> assignedAtClose(long me) {
+    return ev -> ev.assigneesAtClose().contains(me);
   }
 
   private static void validate(MetricsPeriod period, MetricsGranularity granularity) {
@@ -119,45 +144,10 @@ public class IssueMetricsService {
     OffsetDateTime from = prev.startInclusive();
     OffsetDateTime toExclusive = period.endExclusive();
 
-    // ① 후보 → ②③④ 원재료(쿼리 수 고정)
-    List<ClosedCandidate> candidates = repository.findClosedDone(closedScope, from, toExclusive);
-    List<Long> ids = candidates.stream().map(ClosedCandidate::issueId).toList();
-    Map<Long, List<AssigneeChange>> assigneeChanges = new HashMap<>();
-    Map<Long, List<DueChange>> dueChanges = new HashMap<>();
-    for (HistoryEvent e : repository.findHistory(ids)) {
-      if (IssueMetricsRepository.ASSIGNEES_CHANGED.equals(e.eventType())) {
-        IssueMetricsCalculator.parseAssigneeChange(e)
-            .ifPresent(
-                c -> assigneeChanges.computeIfAbsent(e.issueId(), k -> new ArrayList<>()).add(c));
-      } else {
-        IssueMetricsCalculator.parseDueChange(e)
-            .ifPresent(c -> dueChanges.computeIfAbsent(e.issueId(), k -> new ArrayList<>()).add(c));
-      }
-    }
-    Map<Long, Set<Long>> current = new HashMap<>();
-    for (CurrentAssignee a : repository.findCurrentAssignees(ids)) {
-      current.computeIfAbsent(a.issueId(), k -> new LinkedHashSet<>()).add(a.userId());
-    }
-    Map<Long, OffsetDateTime> agentStarts = repository.findFirstAgentRunAt(ids);
-
-    // ⑥ 이력·현재 담당자에 나오는 사람 전부의 종류를 한 번에 조회(이슈마다 묻지 않는다)
-    Set<Long> people = new HashSet<>();
-    current.values().forEach(people::addAll);
-    assigneeChanges.values().forEach(list -> list.forEach(c -> c.userIds().forEach(people::add)));
-    Map<Long, String> kinds = repository.findKinds(people);
-
+    // ①~⑥ 완료 후보 평가 후 현재·지난 기간으로 나눈다
     List<ClosedIssueFact> currentFacts = new ArrayList<>();
     List<ClosedIssueFact> previousFacts = new ArrayList<>();
-    for (ClosedCandidate c : candidates) {
-      IssueInput in =
-          new IssueInput(
-              c,
-              assigneeChanges.getOrDefault(c.issueId(), List.of()),
-              dueChanges.getOrDefault(c.issueId(), List.of()),
-              current.getOrDefault(c.issueId(), Set.of()),
-              agentStarts.get(c.issueId()));
-      Evaluated ev = IssueMetricsCalculator.evaluate(in, kinds);
-      if (!include.test(ev)) continue;
+    for (Evaluated ev : evaluateClosed(closedScope, from, toExclusive, include)) {
       if (period.contains(ev.fact().closedDate())) {
         currentFacts.add(ev.fact());
       } else if (prev.contains(ev.fact().closedDate())) {
@@ -186,5 +176,57 @@ public class IssueMetricsService {
         IssueMetricsCalculator.summarize(previousFacts, createdPrevious),
         IssueMetricsCalculator.buckets(period, granularity, currentFacts, createdCurrent),
         List.copyOf(currentFacts));
+  }
+
+  /**
+   * 완료 후보 평가 — [from, toExclusive) 에 닫힌 DONE 후보를 모아 이슈별로 평가하고 {@code include} 를 통과한 것만 후보 순서대로
+   * 돌려준다. 「완료」 정의(DONE·closed_at·닫힐 때 담당자)를 compute·closedIssuesForMe 가 한 경로로 공유하게 한 것. 기간 나누기·정렬은
+   * 호출부 몫.
+   */
+  private List<Evaluated> evaluateClosed(
+      Condition closedScope,
+      OffsetDateTime from,
+      OffsetDateTime toExclusive,
+      Predicate<Evaluated> include) {
+    // ① 후보 → ②③④ 원재료(쿼리 수 고정)
+    List<ClosedCandidate> candidates = repository.findClosedDone(closedScope, from, toExclusive);
+    List<Long> ids = candidates.stream().map(ClosedCandidate::issueId).toList();
+    Map<Long, List<AssigneeChange>> assigneeChanges = new HashMap<>();
+    Map<Long, List<DueChange>> dueChanges = new HashMap<>();
+    for (HistoryEvent e : repository.findHistory(ids)) {
+      if (IssueMetricsRepository.ASSIGNEES_CHANGED.equals(e.eventType())) {
+        IssueMetricsCalculator.parseAssigneeChange(e)
+            .ifPresent(
+                c -> assigneeChanges.computeIfAbsent(e.issueId(), k -> new ArrayList<>()).add(c));
+      } else {
+        IssueMetricsCalculator.parseDueChange(e)
+            .ifPresent(c -> dueChanges.computeIfAbsent(e.issueId(), k -> new ArrayList<>()).add(c));
+      }
+    }
+    Map<Long, Set<Long>> current = new HashMap<>();
+    for (CurrentAssignee a : repository.findCurrentAssignees(ids)) {
+      current.computeIfAbsent(a.issueId(), k -> new LinkedHashSet<>()).add(a.userId());
+    }
+    Map<Long, OffsetDateTime> agentStarts = repository.findFirstAgentRunAt(ids);
+
+    // ⑥ 이력·현재 담당자에 나오는 사람 전부의 종류를 한 번에 조회(이슈마다 묻지 않는다)
+    Set<Long> people = new HashSet<>();
+    current.values().forEach(people::addAll);
+    assigneeChanges.values().forEach(list -> list.forEach(c -> c.userIds().forEach(people::add)));
+    Map<Long, String> kinds = repository.findKinds(people);
+
+    List<Evaluated> out = new ArrayList<>();
+    for (ClosedCandidate c : candidates) {
+      IssueInput in =
+          new IssueInput(
+              c,
+              assigneeChanges.getOrDefault(c.issueId(), List.of()),
+              dueChanges.getOrDefault(c.issueId(), List.of()),
+              current.getOrDefault(c.issueId(), Set.of()),
+              agentStarts.get(c.issueId()));
+      Evaluated ev = IssueMetricsCalculator.evaluate(in, kinds);
+      if (include.test(ev)) out.add(ev);
+    }
+    return out;
   }
 }

@@ -1,7 +1,7 @@
 // 「내 작업 · 개요」 탭(WP-1484) — 어제/오늘, 숫자 넷, 완료 추이 + 마감 준수, 맡은 이슈를 한 화면에. 앞으로 할 일(맡은 이슈)로 끝난다.
 // 완료한 이슈 목록(옛 「끝낸 일」)은 두지 않는다 — 「완료한 이슈」 카드와 추이 막대가 할당 탭 완료 목록(완료일 기간)으로 보낸다(문구 감사 결정).
 // 숫자는 서버(지표 모듈)가 계산한 값을 그대로 그린다. 나만 볼 수 있다 — API 가 호출자 본인 것만 준다.
-// 업무 프로파일(WP-1485)·「일일 보고 보기」(WP-1486)는 이 이슈 범위 밖이라 자리를 두지 않는다.
+// 업무 프로파일(WP-1485)은 추이/마감 아래·맡은 이슈 위 전체 폭 카드로 둔다(자기 조회라 실패해도 개요 전체를 막지 않는다). 「일일 보고 보기」(WP-1486)는 아직 자리를 두지 않는다.
 import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -16,6 +16,7 @@ import { CompareHint, OverviewCard } from './OverviewCard'
 import { DueCard, TrendCard } from './OverviewCharts'
 import { UpcomingCard } from './OverviewLists'
 import { closedListHref, dayLabel, formatDays, formatRate, parsePeriod, PERIOD_OPTIONS, PERIOD_PARAM } from './overviewModel'
+import { WorkProfileCard } from './WorkProfileCard'
 
 /**
  * 탭 줄 오른쪽 — 「나에게만 보여요」(자물쇠) + 기간 고르기. 기간은 URL(?period=)에 둬 공유·새로고침해도 유지되고, 기본(이번 달)은 주소에 적지 않는다.
@@ -100,6 +101,7 @@ export function MyOverviewTab() {
         <TrendCard className="lg:col-span-8" data={data} granularity={granularity} onGranularity={setGranularity} />
         <DueCard className="lg:col-span-4" data={data} />
       </div>
+      <WorkProfileCard period={period} />
       <UpcomingCard upcoming={data.upcoming} today={data.day.today} />
     </div>
   )

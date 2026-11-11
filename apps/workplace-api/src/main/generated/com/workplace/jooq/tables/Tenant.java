@@ -141,6 +141,7 @@ import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPa
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup.WikiSpaceMemberGroupPath;
+import com.workplace.jooq.tables.WorkProfile.WorkProfilePath;
 import com.workplace.jooq.tables.WorkerJob.WorkerJobPath;
 import com.workplace.jooq.tables.WorkspaceAssistant.WorkspaceAssistantPath;
 import com.workplace.jooq.tables.records.TenantRecord;
@@ -1624,6 +1625,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _wikiHtmlScriptsCheck = new WikiHtmlScriptsCheckPath(this, null, Keys.WIKI_HTML_SCRIPTS_CHECK__FK_WIKI_HTML_SCRIPTS_CHECK_TENANT.getInverseKey());
 
         return _wikiHtmlScriptsCheck;
+    }
+
+    private transient WorkProfilePath _workProfile;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.work_profile</code> table
+     */
+    public WorkProfilePath workProfile() {
+        if (_workProfile == null)
+            _workProfile = new WorkProfilePath(this, null, Keys.WORK_PROFILE__FK_WORK_PROFILE_TENANT.getInverseKey());
+
+        return _workProfile;
     }
 
     private transient WorkspaceAssistantPath _workspaceAssistant;

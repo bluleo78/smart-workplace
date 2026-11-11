@@ -7,6 +7,12 @@ vi.mock('../agent/run-issue-summary.js', () => ({
   runIssueProgressSummary: vi.fn(),
 }));
 
+vi.mock('../agent/run-work-profile.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../agent/run-work-profile.js')>()),
+  runWorkProfile: vi.fn(),
+}));
+
+import { runWorkProfile } from '../agent/run-work-profile.js';
 import { createIssueRouter } from './issue.js';
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js';
 
@@ -100,5 +106,40 @@ describe('POST /issue/progress-summary', () => {
     const arg = vi.mocked(runIssueProgressSummary).mock.calls[0][0];
     expect(arg.body).toBe('');
     expect(arg.chat).toEqual([]);
+  });
+});
+
+// WP-1485: 업무 프로파일 — 200 패스스루 / 101건 400 / 러너 실패 502.
+describe('POST /issue/work-profile', () => {
+  const issue = { key: 'WP-1', title: '제목', project: 'WP', dueResult: '기한 내' };
+  const valid = {
+    periodLabel: '이번 달',
+    issues: [issue],
+    assistantAgentId: 3,
+    model: 'm',
+    maxTurns: 8,
+    timeoutMs: 60000,
+  };
+
+  it('정상 200 + 본문 패스스루', async () => {
+    const result = { summary: '요약', skills: ['a'], items: [{ key: 'WP-1', task: '기타', area: '' }] };
+    vi.mocked(runWorkProfile).mockResolvedValue(result);
+    const res = await request(app()).post('/issue/work-profile').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(result);
+  });
+
+  it('issues 101건이면 400 invalid_payload', async () => {
+    const issues = Array.from({ length: 101 }, (_, i) => ({ ...issue, key: `WP-${i}` }));
+    const res = await request(app()).post('/issue/work-profile').send({ ...valid, issues });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+  });
+
+  it('러너 실패 502 work_profile_failed', async () => {
+    vi.mocked(runWorkProfile).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/issue/work-profile').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'work_profile_failed' });
   });
 });
