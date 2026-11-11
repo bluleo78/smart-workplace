@@ -16,6 +16,8 @@ import { MANAGED_BY_KEY, MANAGED_BY_VALUE } from '../k8s/manifest.js';
 export class FakeCluster implements ClusterApi {
   readonly objects = new Map<string, KubernetesObject>();
   readonly calls: string[] = [];
+  /** 나열 호출 기록(managed·pods) — calls 와 따로 두어 기존 apply·delete 순서 단언을 흔들지 않는다. */
+  readonly lists: string[] = [];
   /** true 면 Pod 삭제를 바로 끝낸다(유예 없이 사라짐). */
   instantPodDelete = false;
   /** true 면 PVC 삭제도 「지우는 중」으로만 바꾼다(pvc-protection 파이널라이저로 Terminating 에 머무는 것처럼). */
@@ -46,6 +48,17 @@ export class FakeCluster implements ClusterApi {
   }
 
   async listManaged(): Promise<ManagedResources> {
+    this.lists.push('managed');
+    return this.snapshot();
+  }
+
+  async listManagedPods(): Promise<V1Pod[]> {
+    this.lists.push('pods');
+    return this.snapshot().pods;
+  }
+
+  /** runner 라벨이 붙은 객체를 종류별로 복사해 돌려준다. */
+  private snapshot(): ManagedResources {
     const managed = [...this.objects.values()].filter(
       (o) => o.metadata?.labels?.[MANAGED_BY_KEY] === MANAGED_BY_VALUE,
     );

@@ -40,9 +40,11 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 
 - desired 에 있고 Pod 없음 → 만든다(applyNow 무관). generation 이 다르면 `applyNow=true` 일 때만 Pod 를 지우고 다음 회차에 다시 만든다(PVC·Secret 유지).
 - Pod phase 가 `Succeeded`·`Failed`(노드 재시작 뒤 Completed·Error — 맨 Pod 라 아무도 다시 띄우지 않음)면 generation·applyNow 와 무관하게 지우고 다시 만든다(WP-1501). phase 만 본다 — 컨테이너 재시작은 kubelet 몫, `Unknown` 은 제외.
+  계속 끝나면 간격을 늘린다(`FINISH_BACKOFF_MS` — 첫 번째 바로, 이후 30초·1분·2분·5분). 기다리는 동안은 재시도 없이 두고 `ClusterCheck` 가 간격 뒤 깨운다. 지우기 전 `status.reason`·`message` 를 로그에 남기고 다음 관찰 보고 한 번에 message 로 싣는다.
+  연속 `FINISH_FAIL_AFTER`(3)번부터는 FAILED(끝난 사유)로 보고한다. Ready 로 `FINISH_STABLE_MS`(10분) 떠 있거나 generation 이 바뀌면 횟수를 지운다. 기록은 `failures` 와 따로 둔 메모리 맵(`finishLoops`)이라 runner 재시작 시 0 부터.
 - 조정은 시작·변경 스트림·재시도·desired 의 `pollIntervalSeconds`(300초)마다 돈다. 그와 따로 `ClusterCheck` 가 `CLUSTER_CHECK_SECONDS`(기본 30초)마다 마지막 desired 로
-  클러스터 목록만 보고, 떠 있어야 할 AI 의 Pod 가 없거나 끝났으면 조정을 깨운다(WP-1501). Works 는 부르지 않는다 — 조정은 늘 desired 를 새로 받는 회차가 해서
-  오래된 desired 로 키를 다시 받는(=교체) 일이 없다. 실패 사유가 있는 AI·지우는 중인 Pod·generation 차이는 깨우지 않는다. Pod watch 대신 이것을 고른 까닭은
+  Pod 목록만(`listManagedPods`) 보고 `planReconcile` 에 「Pod 없음(create)·Pod 끝남(recreate)」 할 일이 있으면 조정을 깨운다(WP-1501). Works 는 부르지 않는다 — 조정은 늘 desired 를 새로 받는 회차가 해서
+  오래된 desired 로 키를 다시 받는(=교체) 일이 없다. Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — `blocked`)인 AI·간격을 기다리는 끝난 Pod·지우는 중인 Pod·generation 차이는 깨우지 않는다(클러스터 거절 같은 그 밖의 실패는 깨운다). Pod watch 대신 이것을 고른 까닭은
   기존 `listManaged`·`ReconcileLoop` 를 그대로 쓰고 watch 의 재연결·410 Gone·디바운스를 다루지 않아도 되기 때문.
 - 모델 연결 교체: Pod 어노테이션 `genia.works/claude-version`(만들 때 Secret 의 version)이 Secret 의 것과 다르면(없음 ↔ 값 포함) generation·applyNow 와
   무관하게 Pod 를 다시 만든다 — 토큰이 env 로 고정되고 Works 는 재등록에 generation 을 올리지 않기 때문. 허용 밖 이미지면 지우지 않는다.
@@ -64,7 +66,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
   `genia.works/work-node` 에 적어 다시 만드는 Pod 를 그 노드에 고정한다(init 컨테이너 `work-owner` 가 폴더 주인을 1001 로). 노드 폴더는 지우지 않는다.
   `pvc` 방식에서만 PVC 를 만들고 지우는 중인 PVC 를 기다린다. 예전 PVC 가 남아 있으면 방식과 무관하게 desired 에서 빠질 때 지운다.
 - PVC 는 없을 때만 만든다. ConfigMap 은 Pod 를 만들 때만 쓴다(config.json 에 generation 이 있어 keep 중인 Pod 를 흔들지 않게).
-- 메모리 상태는 마지막 desired 와 AI 별 실패 사유뿐 — 나머지 기록은 모두 클러스터에 있다.
+- 메모리 상태는 마지막 desired·AI 별 실패 사유·연속 끝남 기록뿐 — 나머지 기록은 모두 클러스터에 있다.
 
 ## env (Helm 차트 `deploy/helm-agent-runner` 가 넣는다)
 

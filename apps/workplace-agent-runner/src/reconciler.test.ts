@@ -1068,6 +1068,33 @@ describe('클러스터 다시 보기(WP-1501)', () => {
     expect(cluster.calls).toEqual([`delete Pod/${podName}`, `apply ConfigMap/${podName}`, `apply Pod/${podName}`]);
   });
 
+  it('listsOnlyPodsForCheck', async () => {
+    const { cluster, r } = await runningSetup();
+    cluster.lists.length = 0;
+    await r.clusterNeedsReconcile();
+    expect(cluster.lists).toEqual(['pods']);
+  });
+
+  it('wakesForDeletedPodEvenWithUnrelatedFailure', async () => {
+    // 클러스터가 Secret 갱신을 거절함(쿼터·검증 등 — 저절로 나을 수 있는 실패) — 그 AI 의 Pod 가 지워지면 여전히 조정을 깨운다
+    const { cluster, works, r, podName } = await runningSetup();
+    works.getClaudeSecret.mockImplementation(async () => ({ version: 58, provider: 'anthropic', payload: 'sk-ant-new' }));
+    works.desired = desired([
+      desiredAgent({
+        secrets: desiredAgent().secrets.map((ref) => (ref.name === 'claude' ? { ...ref, version: 58 } : ref)),
+      }),
+    ]);
+    cluster.rejectApply = (obj) =>
+      obj.kind === 'Secret' ? new ClusterError('apply', 'Secret', obj.metadata?.name ?? '', 403, 'Forbidden') : undefined;
+    expect((await r.reconcileOnce()).retry).toBe('later');
+    await r.reportObserved();
+    expect(works.reportObserved.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({ phase: 'FAILED' });
+
+    cluster.instantPodDelete = true;
+    await cluster.delete('Pod', podName);
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+  });
+
   it('doesNotWakeBeforeDesiredOrForFailedAgent', async () => {
     const cluster = new FakeCluster();
     // 허용 밖 이미지 — Works 쪽이 바뀌어야 낫는다. Pod 가 없어도 간격마다 깨우지 않는다
@@ -1077,6 +1104,124 @@ describe('클러스터 다시 보기(WP-1501)', () => {
     await r.reconcileOnce();
     expect(cluster.get('Pod', `agent-${agent.agentUserId}`)).toBeUndefined();
     expect(await r.clusterNeedsReconcile()).toBe(false);
+  });
+});
+
+describe('계속 끝나는 Pod 의 간격·사유 보고(WP-1501)', () => {
+  /** 시계를 움직일 수 있는 reconciler 와 떠 있는 AI 하나. Pod 삭제는 바로 끝난다(지우기 회차 → 만들기 회차). */
+  async function loopSetup(overrides: Partial<RunnerDesiredAgent> = {}) {
+    const cluster = new FakeCluster();
+    cluster.instantPodDelete = true;
+    const agent = desiredAgent(overrides);
+    seedRunningAgent(cluster, agent);
+    const works = new FakeWorks(desired([agent]));
+    const logs: unknown[][] = [];
+    const clock = { t: NOW.getTime() };
+    const log = {
+      info: (...a: unknown[]) => logs.push(a),
+      warn: (...a: unknown[]) => logs.push(a),
+      error: (...a: unknown[]) => logs.push(a),
+    };
+    const r = new Reconciler({ cluster, works, cfg: runnerConfig(), now: () => new Date(clock.t), log });
+    await r.reconcileOnce();
+    const name = `agent-${agent.agentUserId}`;
+    /** 노드 압박으로 쫓겨난 것처럼 Pod 를 끝낸다. */
+    const evict = () => {
+      cluster.get<V1Pod>('Pod', name)!.status = { phase: 'Failed', reason: 'Evicted', message: 'low on ephemeral-storage' };
+    };
+    const lastObserved = () => works.reportObserved.mock.calls.at(-1)?.[0]?.find((a) => a.agentUserId === agent.agentUserId);
+    return { cluster, works, r, logs, clock, name, evict, lastObserved };
+  }
+
+  it('backsOffRepeatedFinishesAndReportsFailedAfterThree', async () => {
+    const { cluster, r, clock, name, evict, lastObserved } = await loopSetup();
+
+    // 1번째 — 바로 다시 만든다
+    evict();
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+    await r.reconcileOnce();
+    expect(cluster.get('Pod', name)).toBeUndefined();
+    await r.reconcileOnce();
+    expect(cluster.get('Pod', name)).toBeDefined();
+
+    // 2번째 — 30초 간격 전에는 깨우지도 지우지도 않는다
+    evict();
+    clock.t += 10_000;
+    expect(await r.clusterNeedsReconcile()).toBe(false);
+    cluster.calls.length = 0;
+    expect((await r.reconcileOnce()).retry).toBeUndefined();
+    expect(cluster.calls).toEqual([]);
+    clock.t += 20_000;
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+    expect(cluster.get<V1Pod>('Pod', name)?.status).toBeUndefined();
+
+    // 3번째 — 1분 간격. 다시 만든 뒤 관찰 보고는 FAILED + 끝난 사유
+    evict();
+    clock.t += 59_000;
+    expect(await r.clusterNeedsReconcile()).toBe(false);
+    clock.t += 1_000;
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ phase: 'FAILED', message: expect.stringContaining('연속 3번') });
+    expect(lastObserved()?.message).toContain('Evicted — low on ephemeral-storage');
+
+    // 4번째 — 2분 간격
+    evict();
+    clock.t += 119_000;
+    expect(await r.clusterNeedsReconcile()).toBe(false);
+    clock.t += 1_000;
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+  });
+
+  it('resetsAfterPodStaysReadyOrGenerationChanges', async () => {
+    const { cluster, works, r, clock, name, evict } = await loopSetup();
+    evict();
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+
+    // 새 Pod 가 Ready 로 10분 떠 있었다 — 기록이 지워져 다음 끝남은 바로 다시 만든다
+    clock.t += 11 * 60_000;
+    cluster.get<V1Pod>('Pod', name)!.status = {
+      phase: 'Running',
+      conditions: [{ type: 'Ready', status: 'True', lastTransitionTime: new Date(clock.t - 10 * 60_000) }],
+    };
+    expect(await r.clusterNeedsReconcile()).toBe(false);
+    evict();
+    expect(await r.clusterNeedsReconcile()).toBe(true);
+    await r.reconcileOnce();
+    await r.reconcileOnce();
+
+    // 곧바로 또 끝남 — 간격 중이지만 generation 이 바뀌면 다른 Pod 라 기록을 지우고 바로 다시 만든다
+    evict();
+    expect(await r.clusterNeedsReconcile()).toBe(false);
+    works.desired = desired([desiredAgent({ generation: 8 })]);
+    cluster.calls.length = 0;
+    await r.reconcileOnce();
+    expect(cluster.calls).toEqual([`delete Pod/${name}`]);
+  });
+
+  it('logsFinishReasonAndReportsItOnNextObserved', async () => {
+    const { cluster, works, r, logs, name, evict, lastObserved } = await loopSetup();
+    evict();
+    // generation 도 바뀐 Pod — 두 까닭을 함께 남긴다
+    works.desired = desired([desiredAgent({ generation: 8 })]);
+    cluster.calls.length = 0;
+    await r.reconcileOnce();
+    expect(cluster.calls).toEqual([`delete Pod/${name}`]);
+    expect(logs).toContainEqual([
+      '끝나 버렸고 generation 도 바뀐 Pod 를 다시 만듭니다',
+      expect.objectContaining({ generation: 8, podGeneration: 7, reason: 'Evicted — low on ephemeral-storage', consecutive: 1 }),
+    ]);
+
+    // Pod 는 이미 지워졌다 — 다음 보고 한 번에 끝난 사유를 싣고(phase 는 지금 상태), 그다음 보고에는 싣지 않는다
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ phase: 'STARTING', message: '이전 Pod 가 끝나 다시 띄웠습니다 — Evicted — low on ephemeral-storage' });
+    await r.reportObserved();
+    expect(lastObserved()).toMatchObject({ phase: 'STARTING', message: null });
   });
 });
 
