@@ -158,7 +158,7 @@ describe('코멘트 반응 — 권한·수정 (WP-504)', () => {
         createComment({ id: 41, issueId: ISSUE_ID, authorId: 2, body: '반응 있는 코멘트(읽기 전용)', reactions: [{ emoji: '👍', count: 2, reacted: false }] }),
         createComment({ id: 42, issueId: ISSUE_ID, authorId: 2, body: '반응 없는 코멘트(읽기 전용)' }),
       ],
-      { detail: { viewerCanEditContent: false }, reactors: { 41: { '👍': [{ userId: 3, name: '이영희' }, { userId: 4, name: '박지훈' }] } } },
+      { detail: { viewerCanEditContent: false, viewerCanComment: false }, reactors: { 41: { '👍': [{ userId: 3, name: '이영희' }, { userId: 4, name: '박지훈' }] } } },
     )
     expect(document.querySelectorAll('[data-testid^="comment-reaction-add-"]')).toHaveLength(0)
     const pill = screen.getByTestId('comment-reaction-pill-41-👍')

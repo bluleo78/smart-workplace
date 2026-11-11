@@ -282,6 +282,8 @@ export interface IssueDetailResponse {
   viewerCanEditContent: boolean;   // 제목·본문 편집 가능 (멤버 또는 OPEN reporter)
   viewerCanEditWorkflow: boolean;  // 상태·우선순위·유형·담당자 변경 가능 (멤버만)
   viewerCanDelete: boolean;        // 이슈 삭제 가능 (reporter 또는 OWNER)
+  // 코멘트 작성 가능(WP-1495) — 멤버, 또는 OPEN 프로젝트가 비멤버 댓글을 허용한 경우. 구버전 서버는 undefined(작성 가능으로 둔다).
+  viewerCanComment?: boolean;
   // 보고자(만든 사람) 요약 (WP-272) — 사용자 행이 없으면 null. 구버전 서버(롤링 배포 중)는 undefined 일 수 있다.
   reporter?: UserSummary | null;
   // 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN 또는 지금 보고자. 구버전 서버는 undefined(읽기 전용으로 둔다).

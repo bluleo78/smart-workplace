@@ -89,7 +89,8 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
         true,
         "OWNER",
         null,
-        null);
+        null,
+        false);
   }
 
   @Test
@@ -131,7 +132,8 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
             true,
             "OWNER",
             null,
-            null);
+            null,
+            false);
     when(projectService.create(eq(1L), any())).thenReturn(personal);
 
     mockMvc
@@ -258,7 +260,7 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new UpdateProjectRequest("Updated", "new", null, null, null))))
+                        new UpdateProjectRequest("Updated", "new", null, null, null, null))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.key").value("WP"));
   }

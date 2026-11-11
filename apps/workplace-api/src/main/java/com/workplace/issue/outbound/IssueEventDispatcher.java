@@ -71,6 +71,8 @@ public class IssueEventDispatcher {
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueCommented(IssueCommentedEvent e) {
+    // 설정으로만 댓글을 단 비멤버의 댓글은 AI 에게 지시로 보내지 않는다(WP-1495) — 프로젝트 밖 사람이 AI 에게 일을 시키지 못하게.
+    if (!e.actorCanWriteContent()) return;
     Long actingAgentId = actingAgentOrSkip(e.actor(), e.assignees());
     if (actingAgentId == null) return;
     Map<String, Object> p =

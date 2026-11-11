@@ -242,6 +242,25 @@ public class ProjectAccessGuard {
   }
 
   /**
+   * 댓글 작성·수정·삭제 판정(WP-1495). 내용 쓰기 권한이 있거나, OPEN 프로젝트가 「비멤버 댓글」 설정을 켰으면 true. 이슈 제목·본문 수정과 이슈 채팅은
+   * 여전히 {@link #canWriteContent} 를 쓴다 — 댓글만 개방하는 것이 설정의 뜻이다.
+   */
+  public boolean canComment(ProjectRow project, Long reporterId, Long callerId) {
+    // 메모리 값 판정을 먼저 — 설정이 켜진 OPEN 이면 멤버십 조회 없이 끝난다.
+    return project.allowsNonMemberComment() || canWriteContent(project, reporterId, callerId);
+  }
+
+  /** {@link #canComment} 가 거짓이면 던진다 — 볼 수 없으면 404(숨김), 볼 수 있는데 자격이 없으면 403. */
+  public void assertCommentable(ProjectRow project, Long reporterId, Long callerId) {
+    if (!canComment(project, reporterId, callerId)) {
+      if (!isReadable(project, callerId)) {
+        throw ProjectNotFoundException.hidden();
+      }
+      throw new ProjectAccessDeniedException("이 이슈에 댓글을 달 권한이 없습니다");
+    }
+  }
+
+  /**
    * projectId 로 프로젝트를 찾아 {@link #canWriteContent(ProjectRow, Long, Long)} 판정. 프로젝트가 없으면(삭제 포함)
    * false.
    */

@@ -145,6 +145,11 @@ public class Project extends TableImpl<ProjectRecord> {
      */
     public final TableField<ProjectRecord, String> REPOSITORY_BRANCH = createField(DSL.name("repository_branch"), SQLDataType.VARCHAR(100), this, "");
 
+    /**
+     * The column <code>public.project.non_member_comment</code>.
+     */
+    public final TableField<ProjectRecord, Boolean> NON_MEMBER_COMMENT = createField(DSL.name("non_member_comment"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private Project(Name alias, Table<ProjectRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

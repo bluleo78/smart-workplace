@@ -27,7 +27,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 이슈 코멘트 서비스. 코멘트 작업 전 이슈 → 프로젝트 멤버십을 검증한다. */
+/**
+ * 이슈 코멘트 서비스. 코멘트 작업 전 이슈 → 프로젝트 접근을 검증한다. 댓글 작성 자격은 멤버·ADMIN·OPEN 보고자 본인, 또는 「비멤버 댓글」 설정을 켠 OPEN
+ * 프로젝트의 비멤버(WP-1495). 설정으로만 댓글을 단 비멤버의 댓글은 AI 담당자를 깨우지 않는다.
+ */
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -116,7 +119,7 @@ public class IssueCommentService {
       throw new ProjectAccessDeniedException(deniedMessage);
     }
     // WP-492: 작성자라도 지금 이 이슈에 글을 쓸 수 없으면(OPEN 프로젝트에서 빠진 멤버 등) 수정·삭제도 막는다 — 작성(create)과 같은 규칙·문구.
-    accessGuard.assertContentWritable(
+    accessGuard.assertCommentable(
         issueAndProject.project(), issueAndProject.issue().reporterId(), callerId);
     return new MutableComment(issueAndProject, existing);
   }
@@ -137,8 +140,9 @@ public class IssueCommentService {
   }
 
   /**
-   * 코멘트 생성. 작성 = 멤버/ADMIN 또는 (OPEN && 이슈 reporter 본인)만(assertContentWritable). 임의 테넌트 유저는 목록 조회만
-   * 가능하고 작성은 403. 작성자를 자동으로 issue watcher 로 등록한다.
+   * 코멘트 생성. 작성 = 멤버/ADMIN 또는 (OPEN && 이슈 reporter 본인), 또는 설정을 켠 OPEN 의 비멤버(assertCommentable,
+   * WP-1495). 그 외 임의 테넌트 유저는 목록 조회만 가능하고 작성은 403. 작성자를 자동으로 issue watcher 로 등록한다. 설정으로만 자격을 얻은 비멤버의
+   * 댓글은 알림·SSE 는 그대로 내되 AI 를 깨우지 않는다(이벤트의 actorCanWriteContent=false, IssueHumanReplyPosted 미발행).
    */
   public IssueCommentResponse create(Long callerId, Long issueId, CreateCommentRequest req) {
     var issue = issueRepository.findById(issueId).orElseThrow(IssueNotFoundException::new);
@@ -149,7 +153,13 @@ public class IssueCommentService {
             .orElseThrow(IssueNotFoundException::new);
     requireVisible(project, callerId);
     // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(볼 수는 있는 임의 테넌트 reader)는 403.
-    accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
+    // 접수함 프로젝트가 비멤버 댓글을 허용하면(WP-1495) 그 비멤버도 통과 — assertCommentable.
+    // 원래 쓰기 권한자인지를 먼저 한 번만 구해(멤버십 조회 1회) 아래 AI 깨우기 판정에도 쓴다 — 아니면 그때만 댓글 자격을 본다.
+    // 원래 쓰기 권한자의 댓글인지는 이슈 챗을 비멤버에게 열지 않은 것과 같은 이유로 쓴다 — 설정으로만 댓글을 단 비멤버가 AI 에게 일을 시키지 못하게(WP-1495).
+    boolean actorCanWrite = accessGuard.canWriteContent(project, issue.reporterId(), callerId);
+    if (!actorCanWrite) {
+      accessGuard.assertCommentable(project, issue.reporterId(), callerId);
+    }
     var resp = commentRepository.insert(issueId, callerId, req.body());
     // 코멘트 이미지 연결(WP-362) — 이미지 참조가 없는 코멘트(대부분)는 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, issueId, callerId, null, req.body());
@@ -174,12 +184,13 @@ public class IssueCommentService {
             assignees,
             resp.id(),
             req.body(),
-            Instant.now()));
+            Instant.now(),
+            actorCanWrite));
     // MCP(수행 도구 헤더) 경유 코멘트면 이미 있는 AI 작업을 터치한다(WP-377) — 새로 시작하지는 않는다(WP-1365). 코멘트 작성은 이슈 updated
     // 알림을 거치지 않아 여기서 직접 낸다.
     AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId, false);
-    // 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다(챗 글과 같은 신호, WP-377 §4.3).
-    if (actor != null && UserKind.HUMAN.equals(actor.kind())) {
+    // 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다(챗 글과 같은 신호, WP-377 §4.3). 비멤버 댓글은 제외.
+    if (actorCanWrite && actor != null && UserKind.HUMAN.equals(actor.kind())) {
       publisher.publishEvent(new IssueHumanReplyPosted(issueId));
     }
 

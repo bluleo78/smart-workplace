@@ -401,6 +401,15 @@ function CommentAppLinkCards({ commentId, body }: { commentId: number; body: str
   return <LinkPreviewList messageId={commentId} previews={[]} appLinks={links} testIdPrefix="comment-app-link" />;
 }
 
+/** 댓글 입력이 잠겼을 때 입력 대신 보이는 안내(WP-1495) — 데스크톱 목록 아래와 모바일 하단 막대가 함께 쓴다(문구 한 곳). */
+export function CommentLockedNotice() {
+  return (
+    <p className="text-sm text-muted-foreground" data-testid="comment-locked-notice">
+      이 프로젝트 멤버만 댓글을 달 수 있어요
+    </p>
+  );
+}
+
 // 코멘트 목록을 고른 순서(WP-1016)로 표시하고, 작성창에서 신규 코멘트를 추가.
 // 작성창은 새 코멘트가 붙는 쪽에 둔다 — 오래된 순이면 목록 아래, 최신순이면 목록 위(새 글이 작성창 바로 옆에 붙어 스크롤이 필요 없다).
 /** 코멘트를 모두 지웠을 때 포커스를 받을 작성칸 — 데스크톱은 목록 위·아래, 모바일(WP-196)은 화면 하단 줄에 하나만 그려진다. */
@@ -424,6 +433,7 @@ export function IssueCommentList({
   comments,
   canReact,
   hideComposer = false,
+  commentLocked = false,
   order = DEFAULT_ACTIVITY_ORDER,
   scrollToCommentId = null,
   onScrolledToComment,
@@ -438,6 +448,8 @@ export function IssueCommentList({
   canReact: boolean;
   /** 모바일(WP-196)은 작성창을 화면 하단 줄에 따로 두므로 목록 아래 작성창을 뺀다(testid 중복 방지). */
   hideComposer?: boolean;
+  /** 댓글 권한이 없을 때(WP-1495) — 참이면 작성창 대신 안내를 그린다. */
+  commentLocked?: boolean;
   /** 보이는 순서(WP-1016) — comments 는 늘 오래된 순으로 받는다. */
   order?: ActivityOrder;
   /** 모바일 하단 작성창으로 방금 쓴 코멘트 id — 목록에 나타나면 그리로 스크롤한다(WP-1016). */
@@ -520,7 +532,9 @@ export function IssueCommentList({
 
   const composer = !hideComposer && (
     <div key="composer" className="space-y-2">
-      <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} />
+      {commentLocked
+        ? <CommentLockedNotice />
+        : <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} />}
     </div>
   );
 

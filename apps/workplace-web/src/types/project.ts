@@ -29,6 +29,8 @@ export interface ProjectResponse {
   // 연결된 저장소(WP-1011) — AI 가 이 프로젝트의 이슈를 처리할 때 쓰는 코드 저장소 주소·기본 브랜치. 없으면 null.
   repositoryUrl?: string | null;
   repositoryBranch?: string | null;
+  // 접수함(OPEN) 프로젝트에서 멤버가 아닌 사람도 이슈에 댓글을 달 수 있는지(WP-1495). 구버전 서버는 undefined.
+  nonMemberComment?: boolean;
 }
 
 export type ProjectMemberRole = 'OWNER' | 'MEMBER';
@@ -73,6 +75,8 @@ export interface UpdateProjectRequest {
   description?: string;
   repositoryUrl?: string;
   repositoryBranch?: string;
+  // 비멤버 댓글 허용(WP-1495) — 소유자·ADMIN 만, OPEN 프로젝트만 켤 수 있다.
+  nonMemberComment?: boolean;
 }
 
 export interface AddMemberRequest {

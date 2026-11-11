@@ -122,7 +122,7 @@ test.describe('WP-504 이슈 코멘트 반응 — 모바일', () => {
 
   test('reader long press opens reactors without plus', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     // 코멘트 작성 권한이 없으면 ＋ 는 없고, 칩은 눌러도 토글되지 않지만 길게 눌러 반응한 사람은 볼 수 있다.
-    await setup(page, [other({ reactions: [{ emoji: '👍', count: 2, reacted: false }] })], { viewerCanEditContent: false });
+    await setup(page, [other({ reactions: [{ emoji: '👍', count: 2, reacted: false }] })], { viewerCanEditContent: false, viewerCanComment: false });
     const writes = trackRequests(page, 'ANY', REACTION_PATH);
     await expect(page.getByTestId('comment-reaction-pill-31-👍')).toBeVisible();
     await expect(page.locator('[data-testid^="comment-reaction-add-"]')).toHaveCount(0);

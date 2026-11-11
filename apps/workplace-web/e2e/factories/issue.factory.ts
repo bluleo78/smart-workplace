@@ -103,6 +103,7 @@ export function createIssueDetail(overrides: Partial<IssueDetailResponse> = {}):
     viewerCanEditContent: true,
     viewerCanEditWorkflow: true,
     viewerCanDelete: true,
+    viewerCanComment: true,
     // 보고자(WP-272) — 기본은 reporterId(1) 와 같은 사람 사용자.
     reporter: { id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' },
     ...overrides,

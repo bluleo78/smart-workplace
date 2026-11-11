@@ -47,7 +47,8 @@ class IssueSseDispatcherTest {
             List.of(),
             100L,
             "재현 조건 확인했습니다",
-            Instant.now()));
+            Instant.now(),
+            true));
 
     verify(registry).fanOut(eq(List.of(1L, 2L, 3L)), eq("issue.commented"), any());
   }
@@ -65,7 +66,8 @@ class IssueSseDispatcherTest {
             List.of(),
             100L,
             "재현 조건 확인했습니다",
-            Instant.now()));
+            Instant.now(),
+            true));
 
     Mockito.verify(registry)
         .fanOut(

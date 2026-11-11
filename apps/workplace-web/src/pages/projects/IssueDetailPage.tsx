@@ -69,6 +69,7 @@ import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssueCommentComposer } from './components/IssueCommentComposer';
+import { CommentLockedNotice } from './components/IssueCommentList';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 import { IssueReporterField } from './components/IssueReporterField';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
@@ -247,6 +248,8 @@ export default function IssueDetailPage() {
   const canEditContent = data.viewerCanEditContent ?? false;
   const canEditWorkflow = data.viewerCanEditWorkflow ?? false;
   const canDelete = data.viewerCanDelete ?? false;
+  // 댓글 작성 권한(WP-1495) — 구버전 서버(필드 없음)는 이전처럼 작성 가능. 없으면 입력 대신 안내를 그린다.
+  const canComment = data.viewerCanComment ?? true;
   // 보고자 바꾸기(WP-944) — 서버 플래그가 참일 때만 레일·모바일 시트의 보고자 필드가 고르기 트리거가 된다.
   const reporterEdit = data.viewerCanChangeReporter
     ? { projectKey: key, issueNumber: issueNumber, currentUserId: user?.id, isOpenProject: project.data?.type === 'OPEN' }
@@ -577,8 +580,9 @@ export default function IssueDetailPage() {
                 issueId={summary.id}
                 comments={comments}
                 history={history}
-                canReact={canEditContent}
+                canReact={canComment}
                 hideComposer={isMobile}
+                commentLocked={!canComment}
                 scrollToCommentId={postedCommentId}
                 onScrolledToComment={() => setPostedCommentId(null)}
                 linkedCommentId={linkedCommentId}
@@ -600,15 +604,19 @@ export default function IssueDetailPage() {
           {editControls && <MobileEditBar controls={editControls} />}
           {/* 편집 바가 떠 있는 동안에도 작성창은 언마운트하지 않고 숨긴다 — 쓰던 코멘트 초안·이탈 경고 상태 보존. */}
           <div hidden={editControls != null}>
-            <IssueCommentComposer
-              projectKey={key}
-              issueNumber={issueNumber}
-              issueId={summary.id}
-              // 정확히 4줄 — lh 단위는 에디터 자신의 줄 높이(터치 16px 글꼴 기준)라 4lh + py-2(1rem) + 테두리 2px = 4줄 + 여백.
-              editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
-              inlineSubmit
-              onPosted={setPostedCommentId}
-            />
+            {!canComment ? (
+              <CommentLockedNotice />
+            ) : (
+              <IssueCommentComposer
+                projectKey={key}
+                issueNumber={issueNumber}
+                issueId={summary.id}
+                // 정확히 4줄 — lh 단위는 에디터 자신의 줄 높이(터치 16px 글꼴 기준)라 4lh + py-2(1rem) + 테두리 2px = 4줄 + 여백.
+                editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
+                inlineSubmit
+                onPosted={setPostedCommentId}
+              />
+            )}
           </div>
         </div>
       )}

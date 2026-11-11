@@ -87,7 +87,8 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A),
             55L,
             "확인 부탁 <@7> <@8> 그리고 다시 <@7>",
-            Instant.now());
+            Instant.now(),
+            true);
 
     dispatcher.onIssueCommented(e);
 

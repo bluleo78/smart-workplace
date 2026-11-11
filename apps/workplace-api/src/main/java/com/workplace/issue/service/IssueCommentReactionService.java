@@ -24,8 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 이슈 코멘트 이모지 반응(WP-504). 채팅 ReactionService 와 같은 규칙(이모지 하나·멱등·1인 20개·종류 50종)을 이슈 권한에 맞춘다 — 추가·취소는
- * 코멘트 작성 권한(assertContentWritable), 반응자 조회는 이슈 읽기 권한. 반응은 알림을 만들지 않고 watcher 로 등록하지도 않으며, 실제로 바뀌었을
- * 때만 실시간 재조회 이벤트를 낸다.
+ * 코멘트 작성 권한(assertCommentable — 설정을 켠 OPEN 의 비멤버 포함, WP-1495), 반응자 조회는 이슈 읽기 권한. 반응은 알림을 만들지 않고
+ * watcher 로 등록하지도 않으며, 실제로 바뀌었을 때만 실시간 재조회 이벤트를 낸다.
  */
 @Service
 @Transactional
@@ -146,10 +146,13 @@ public class IssueCommentReactionService {
             actorId));
   }
 
-  /** 볼 수 있는 이슈의 살아 있는 코멘트 + 이 이슈에 글을 쓸 수 있는 사람(멤버/ADMIN 또는 OPEN reporter 본인)인지. 아니면 403. */
+  /**
+   * 볼 수 있는 이슈의 살아 있는 코멘트 + 이 이슈에 댓글을 달 수 있는 사람(멤버/ADMIN·OPEN reporter 본인, 또는 설정을 켠 OPEN 의 비멤버)인지.
+   * 아니면 403.
+   */
   private Target requireWritableComment(long callerId, long issueId, long commentId) {
     var target = requireReadableComment(callerId, issueId, commentId);
-    accessGuard.assertContentWritable(target.project(), target.issue().reporterId(), callerId);
+    accessGuard.assertCommentable(target.project(), target.issue().reporterId(), callerId);
     return target;
   }
 

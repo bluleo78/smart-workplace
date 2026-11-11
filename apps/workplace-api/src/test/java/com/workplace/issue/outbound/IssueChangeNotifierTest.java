@@ -22,7 +22,18 @@ class IssueChangeNotifierTest {
     var notifier = new IssueChangeNotifier(publisher);
     var project =
         new ProjectRow(
-            7L, "EX", "예제", null, 1L, "TEAM", false, Instant.now(), Instant.now(), null, null);
+            7L,
+            "EX",
+            "예제",
+            null,
+            1L,
+            "TEAM",
+            false,
+            Instant.now(),
+            Instant.now(),
+            null,
+            null,
+            false);
 
     notifier.deleted(project, 21, 39L, 1L);
 
@@ -44,7 +55,18 @@ class IssueChangeNotifierTest {
     var notifier = new IssueChangeNotifier(publisher);
     var project =
         new ProjectRow(
-            7L, "EX", "예제", null, 1L, "OPEN", false, Instant.now(), Instant.now(), null, null);
+            7L,
+            "EX",
+            "예제",
+            null,
+            1L,
+            "OPEN",
+            false,
+            Instant.now(),
+            Instant.now(),
+            null,
+            null,
+            false);
 
     notifier.created(project, 21, 39L, 5L);
     notifier.updated(project, 21, 39L, null);
