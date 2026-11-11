@@ -510,6 +510,8 @@ test('checkStop: 신원 실패는 identity 로 멈춤, gw-status 의 DRAIN·REST
   assert.equal(id.calls[0].args[2], '/p/scripts/gw-lib.sh')
   assert.deepEqual((await run(0, { code: 0, stdout: 'DRAIN\n' })).r, { stop: true, reason: 'DRAIN' })
   assert.deepEqual((await run(0, { code: 0, stdout: 'RESTART\n' })).r, { stop: true, reason: 'RESTART' })
+  // HOLD(새 작업만 받지 않음, WP-1514)는 하던 일을 계속하므로 RUN 처럼 멈추지 않는다.
+  assert.deepEqual((await run(0, { code: 0, stdout: 'HOLD\n' })).r, { stop: false, reason: 'RUN' })
   const ok = await run(0, { code: 0, stdout: 'RUN\n' })
   assert.deepEqual(ok.r, { stop: false, reason: 'RUN' })
   assert.deepEqual([ok.calls[1].cmd, ok.calls[1].args], ['/p/scripts/gw-status', ['IDLE']])

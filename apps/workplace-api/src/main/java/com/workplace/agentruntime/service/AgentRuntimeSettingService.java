@@ -13,6 +13,7 @@ import com.workplace.agentruntime.exception.AgentLocationNotFoundException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingConflictException;
 import com.workplace.agentruntime.exception.AgentRuntimeSettingNotFoundException;
 import com.workplace.agentruntime.exception.InvalidAgentConfigException;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.repository.AgentLocationRepository;
 import com.workplace.agentruntime.repository.AgentRuntimeProjectRepository;
@@ -24,6 +25,7 @@ import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AiAgentCredentialService.ActiveProviderSecret;
 import com.workplace.auth.service.PodAccountSource;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -73,6 +75,7 @@ public class AgentRuntimeSettingService {
   private final AgentRepoCredentialService repoCredentials;
   private final AiAgentCredentialService credentials;
   private final PodAccountSource podAccounts;
+  private final AgentRuntimeChangeNotifier changeNotifier;
 
   /** 실행 설정 조회 — 없으면 404. 템플릿이 사라졌으면 500 대신 {@code templateMissing=true}. */
   @Transactional(readOnly = true)
@@ -197,7 +200,9 @@ public class AgentRuntimeSettingService {
             .withConfig(repinConfig(template, row.config()))
             .withDesired(Desired.RUN)
             .withApplyMode(ApplyMode.NOW)
-            .withGeneration(row.generation() + 1);
+            .withGeneration(row.generation() + 1)
+            // 종료·시작 모두 새 출발 — 「새 작업 받기」 를 다시 켠다(WP-1514).
+            .withAcceptNewWork(true);
     settings.update(next, callerId);
     transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_STARTED", agentId, "AI 켜기", Map.of("locationId", location.id()));
@@ -205,18 +210,46 @@ public class AgentRuntimeSettingService {
   }
 
   /**
-   * 끄기 — desired STOP·generation+1. 이미 꺼져 있으면 변화 없음. Works 가 자동 발급한 키는 정리 유예(5분)로 줄인다(WP-1253) —
-   * 지워지는 Pod 가 SIGTERM 유예 안에 마무리할 시간만 남기고, 그 뒤에는 꺼진 AI 의 키가 쓰이지 않게.
+   * 끄기 — desired STOP·generation+1·「새 작업 받기」 true 로 되돌림. 이미 꺼져 있으면 변화 없음. Works 가 자동 발급한 키는 정리
+   * 유예(5분)로 줄인다(WP-1253) — 지워지는 Pod 가 SIGTERM 유예 안에 마무리할 시간만 남기고, 그 뒤에는 꺼진 AI 의 키가 쓰이지 않게.
    */
   public AgentRuntimeSettingResponse stop(long callerId, long agentId) {
     Row row = lockRow(agentId);
     Long effective = locationService.effectiveLocationId(row.locationId());
     if (row.desired() == Desired.STOP) return toResponse(row, effective);
-    Row next = bumpDesired(row, Desired.STOP, row.applyMode());
+    // 종료는 「새 작업 받기」 를 켜진 상태로 되돌린다(WP-1514) — 꺼 둔 채 종료해도 다음 시작은 새 출발.
+    Row next = bumpDesired(row, Desired.STOP, row.applyMode()).withAcceptNewWork(true);
     settings.update(next, callerId);
     transitions.applyTransition(agentId, State.of(row), State.of(next), callerId);
     audit(callerId, "AGENT_RUNTIME_STOPPED", agentId, "AI 끄기", Map.of());
     return toResponse(next, effective);
+  }
+
+  /**
+   * 「새 작업 받기」 변경(WP-1514) — 값만 바꾼다. generation·desired·applyMode 는 그대로 두므로 runner 가 AI 를 다시 띄우지
+   * 않는다(AI 가 다음 점검에서 값을 읽는다). 같은 값이면 저장·감사 없이 그대로 돌려준다.
+   */
+  public AgentRuntimeSettingResponse setAcceptNewWork(
+      long callerId, long agentId, boolean acceptNewWork) {
+    Row row = lockRow(agentId);
+    Long effective = locationService.effectiveLocationId(row.locationId());
+    if (row.acceptNewWork() == acceptNewWork) return toResponse(row, effective);
+    Row next = row.withAcceptNewWork(acceptNewWork);
+    settings.update(next, callerId);
+    audit(
+        callerId,
+        "AGENT_RUNTIME_ACCEPT_NEW_WORK_CHANGED",
+        agentId,
+        acceptNewWork ? "AI 새 작업 받기 켜기" : "AI 새 작업 받기 끄기",
+        Map.of("acceptNewWork", acceptNewWork));
+    // 값만 바뀌어도 관리자 화면이 새로 읽게 알린다(runner 알림·generation 은 없음).
+    changeNotifier.agentChanged(ResourceChangedEvent.OP_UPDATED, agentId, callerId);
+    return toResponse(next, effective);
+  }
+
+  /** 「새 작업 받기」 여부 — 실행 설정 행이 없는 AI 는 true. 이슈 대기열 가져가기가 모듈 경계 너머로 묻는다(WP-1514). */
+  public boolean acceptsNewWork(long agentUserId) {
+    return settings.find(agentUserId).map(Row::acceptNewWork).orElse(true);
   }
 
   /** 다시 시작 — 켜져 있을 때만(아니면 409). generation+1·apply_mode NOW 로 runner 가 바로 다시 띄우게 한다. */
@@ -437,7 +470,8 @@ public class AgentRuntimeSettingService {
             r.agentState(),
             r.agentIssueKey(),
             r.agentIssueKeys(),
-            r.agentNextCheckAt()));
+            r.agentNextCheckAt()),
+        r.acceptNewWork());
   }
 
   private static Map<String, Object> meta(AgentTemplate t, PutAgentRuntimeSettingRequest req) {

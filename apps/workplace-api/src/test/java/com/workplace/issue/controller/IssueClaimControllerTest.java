@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.ROLE;
@@ -152,6 +153,49 @@ class IssueClaimControllerTest extends AgentWorkTestSupport {
     assertRejected(claim(keyFor(internal), QUEUE), "CLAIM_AGENT_ONLY");
 
     assertUnchanged();
+  }
+
+  /** 실행 설정 행을 만든다(WP-1514) — 「새 작업 받기」 값은 기본(true)이고 {@link #setAcceptNewWork} 로 바꾼다. */
+  private void seedRuntimeSetting(long agentUserId) {
+    inTenantRun(
+        () ->
+            dsl.insertInto(AGENT_RUNTIME_SETTING)
+                .set(AGENT_RUNTIME_SETTING.AGENT_USER_ID, agentUserId)
+                .set(AGENT_RUNTIME_SETTING.TEMPLATE_NAME, "claude-code")
+                .set(AGENT_RUNTIME_SETTING.TEMPLATE_VERSION, "1")
+                .execute());
+  }
+
+  private void setAcceptNewWork(long agentUserId, boolean value) {
+    inTenantRun(
+        () ->
+            dsl.update(AGENT_RUNTIME_SETTING)
+                .set(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK, value)
+                .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
+                .execute());
+  }
+
+  /** 새 작업을 받지 않도록 설정된 AI 는 가져가기가 409 NEW_WORK_PAUSED 이고 이슈는 그대로다. */
+  @Test
+  void claim_acceptNewWorkOff_409() {
+    seedRuntimeSetting(claimerId);
+    setAcceptNewWork(claimerId, false);
+
+    assertRejected(claim(claimerToken, QUEUE), "NEW_WORK_PAUSED");
+
+    assertUnchanged();
+  }
+
+  /** 같은 AI 를 다시 켜면 가져가기가 성공한다. */
+  @Test
+  void claim_acceptNewWorkOn_ok() {
+    seedRuntimeSetting(claimerId);
+    setAcceptNewWork(claimerId, false);
+    assertRejected(claim(claimerToken, QUEUE), "NEW_WORK_PAUSED");
+
+    setAcceptNewWork(claimerId, true);
+
+    assertOk(claim(claimerToken, QUEUE));
   }
 
   @Test

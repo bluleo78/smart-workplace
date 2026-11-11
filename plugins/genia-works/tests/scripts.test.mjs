@@ -1435,6 +1435,18 @@ test('gw-status: GENIA_AGENT_GENERATION 이 없으면(Works 가 띄운 AI 아님
   }
 });
 
+test('gw-status: 서버가 HOLD(새 작업 받지 않음, WP-1514)를 주면 HOLD 를 내고 종료 0', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeStatusServer({ body: '{"desired":"HOLD"}' });
+  try {
+    const r = await runAsync('gw-status', ['IDLE'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_GENERATION: '3' });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, 'HOLD\n');
+  } finally {
+    srv.close();
+  }
+});
+
 test('gw-status: GENIA_WORKS_PROJECT 가 있으면 대문자 slot 을 싣고, 형식이 아니면 빼고 보고한다 (WP-1409)', async () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
   const srv = await fakeStatusServer({ body: '{"desired":"DRAIN"}' });

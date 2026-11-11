@@ -1,6 +1,6 @@
 #!/bin/sh
 # gw-status <IDLE|WORKING|BLOCKED> [이슈 키] [다음 확인 시각] — Works 가 띄운 AI 가 지금 상태를 보고하고(PUT /agent-runtime/me/status),
-# 서버가 정한 다음 동작 한 줄(RUN·DRAIN·RESTART)을 낸다(WP-1250). work-loop 가 후보 고르기 전·이슈를 집은 뒤·쉬기 전에 부른다.
+# 서버가 정한 다음 동작 한 줄(RUN·HOLD·DRAIN·RESTART)을 낸다(WP-1250). HOLD 는 하던 일은 계속하고 새 작업만 받지 않는 상태다(WP-1514). work-loop 가 후보 고르기 전·이슈를 집은 뒤·쉬기 전에 부른다.
 # - GENIA_AGENT_GENERATION(runner 가 Pod 에 넣는 generation)이 없으면 Works 가 띄운 AI 가 아니다 — 서버에 묻지 않고 RUN 을 낸다.
 # - 보고가 실패해도 일을 막지 않는다: RUN 을 내고 표준 오류에 한 줄 알린 뒤 늘 종료 0.
 # - 이슈 키가 빈 값("")이면 보내지 않는다(쉬는 중). 다음 확인 시각은 ISO-8601(예: 2026-11-01T12:00:00+09:00).
@@ -55,6 +55,6 @@ gw_api_request "$key" 5 10 -X PUT -H 'Content-Type: application/json' -d "$body"
 desired=${GW_BODY#*\"desired\":\"}
 desired=${desired%%\"*}
 case "$desired" in
-  RUN | DRAIN | RESTART) echo "$desired" ;;
+  RUN | HOLD | DRAIN | RESTART) echo "$desired" ;;
   *) fallback "응답을 읽지 못했습니다" ;;
 esac

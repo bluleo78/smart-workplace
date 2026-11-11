@@ -14,6 +14,7 @@ import {
   listAgentRuntimeSummaries,
   listAgentTemplates,
   listRepoCredentials,
+  putAgentAcceptNewWork,
   putAgentRuntimeSetting,
   registerRepoCredential,
   revokeRepoCredential,
@@ -79,6 +80,21 @@ export function useSaveAgentRuntimeSetting(userId: number) {
     mutationFn: (body: PutAgentRuntimeSettingRequest) => putAgentRuntimeSetting(userId, body),
     onSuccess: invalidate,
     onError: (e) => handleApiError(e, '실행 설정을 저장하지 못했습니다'),
+  });
+}
+
+// 「새 작업 받기」 스위치(WP-1514) — 응답(바뀐 설정)을 상세 캐시에 바로 넣어 다시 읽기 전에 스위치가 옛 값으로 깜박이지 않게 하고,
+// 목록 요약(「새 작업 안 받음」 표시)까지 함께 다시 읽는다. 실패하면 오류 토스트 — 화면은 진행 중 값이 사라져 저장된 값으로 돌아간다.
+export function useSetAgentAcceptNewWork(userId: number) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateRuntime();
+  return useMutation({
+    mutationFn: (acceptNewWork: boolean) => putAgentAcceptNewWork(userId, acceptNewWork),
+    onSuccess: (data) => {
+      qc.setQueryData(agentRuntimeKeys.setting(userId), data);
+      invalidate();
+    },
+    onError: (e) => handleApiError(e, '「새 작업 받기」를 바꾸지 못했습니다'),
   });
 }
 

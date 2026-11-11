@@ -67,7 +67,8 @@ public class AgentRuntimeSettingRepository {
       String agentIssueKey,
       List<String> agentIssueKeys,
       OffsetDateTime agentNextCheckAt,
-      OffsetDateTime agentReportedAt) {
+      OffsetDateTime agentReportedAt,
+      @With boolean acceptNewWork) {
 
     /** 아직 반영하지 않은 generation 이 있는지 — generation ≠ 마지막 관찰 generation(뜬 적 없으면 늘 참). */
     public boolean hasUnappliedGeneration() {
@@ -103,7 +104,8 @@ public class AgentRuntimeSettingRepository {
             r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEYS),
             r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY)),
         r.get(AGENT_RUNTIME_SETTING.AGENT_NEXT_CHECK_AT),
-        r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT));
+        r.get(AGENT_RUNTIME_SETTING.AGENT_REPORTED_AT),
+        r.get(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK));
   }
 
   /**
@@ -410,6 +412,7 @@ public class AgentRuntimeSettingRepository {
         .set(AGENT_RUNTIME_SETTING.DESIRED, next.desired().name())
         .set(AGENT_RUNTIME_SETTING.APPLY_MODE, next.applyMode().name())
         .set(AGENT_RUNTIME_SETTING.GENERATION, next.generation())
+        .set(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK, next.acceptNewWork())
         .set(AGENT_RUNTIME_SETTING.UPDATED_BY, updatedBy)
         .set(AGENT_RUNTIME_SETTING.UPDATED_AT, OffsetDateTime.now())
         .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(next.agentUserId()))

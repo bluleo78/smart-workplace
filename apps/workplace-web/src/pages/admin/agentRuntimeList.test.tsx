@@ -223,3 +223,25 @@ test('행을 누르면 시트 대신 상세 페이지(/settings/agents/:id)로 �
   await user.click(screen.getByTestId('agent-row-23'))
   expect(location()).toBe('/settings/agents/23')
 })
+
+test('「새 작업 받기」를 끈 AI 는 상태 칸에 「새 작업 안 받음」, 켠 AI 는 없다 (WP-1514)', async () => {
+  await renderList({
+    summaries: [
+      createSummary(23, { status: 'RUNNING', agentState: 'WORKING', agentIssueKey: 'WD-319', acceptNewWork: false }),
+      createSummary(24, { status: 'RUNNING', agentState: 'IDLE', acceptNewWork: true }),
+    ],
+  })
+  expect(within(stateCell(23)).getByTestId('agent-new-work-paused-23')).toHaveTextContent('새 작업 안 받음')
+  expect(within(stateCell(24)).queryByText('새 작업 안 받음')).not.toBeInTheDocument()
+})
+
+test('종료됐거나 종료 중인 AI 는 「새 작업 받기」가 꺼져 있어도 배지가 없다 (WP-1514)', async () => {
+  await renderList({
+    summaries: [
+      createSummary(23, { status: 'OFF', acceptNewWork: false }),
+      createSummary(24, { status: 'STOPPING', acceptNewWork: false }),
+    ],
+  })
+  expect(within(stateCell(23)).queryByText('새 작업 안 받음')).not.toBeInTheDocument()
+  expect(within(stateCell(24)).queryByText('새 작업 안 받음')).not.toBeInTheDocument()
+})

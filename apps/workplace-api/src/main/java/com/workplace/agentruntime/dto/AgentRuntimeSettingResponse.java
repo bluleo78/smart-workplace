@@ -11,6 +11,7 @@ import java.util.Map;
  * @param effectiveLocation 실제로 쓰는 위치(기본 해석 뒤) — 기본 위치도 없으면 null
  * @param desired 원하는 상태(켜 둠·꺼 둠)
  * @param generation 원하는 상태가 바뀔 때마다 1씩 오르는 번호
+ * @param acceptNewWork 새 작업을 받는지(WP-1514) — false 면 하던 작업만 마친다. generation 과 무관
  */
 public record AgentRuntimeSettingResponse(
     long agentUserId,
@@ -25,4 +26,5 @@ public record AgentRuntimeSettingResponse(
     ApplyMode applyMode,
     long generation,
     AgentRuntimeStatus status,
-    ObservedState observed) {}
+    ObservedState observed,
+    boolean acceptNewWork) {}

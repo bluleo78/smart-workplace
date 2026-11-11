@@ -36,6 +36,12 @@ export async function putAgentRuntimeSetting(
   return data;
 }
 
+// 「새 작업 받기」(WP-1514) — 끄면 하던 일은 마치고 대기열에서 새 이슈를 가져가지 않는다. 다시 띄우지 않는다(generation·desired 그대로).
+export async function putAgentAcceptNewWork(userId: number, acceptNewWork: boolean): Promise<AgentRuntimeSetting> {
+  const { data } = await client.put<AgentRuntimeSetting>(`/admin/agents/${userId}/runtime-setting/accept-new-work`, { acceptNewWork });
+  return data;
+}
+
 // 실행 설정 삭제 — 꺼져 있을 때만(켜져 있으면 409). 실행 방식은 호출한 쪽이 이어서 바꾼다.
 export async function deleteAgentRuntimeSetting(userId: number): Promise<void> {
   await client.delete<void>(`/admin/agents/${userId}/runtime-setting`);

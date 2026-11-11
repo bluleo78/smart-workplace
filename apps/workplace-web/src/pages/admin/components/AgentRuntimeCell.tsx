@@ -14,6 +14,7 @@ import { statusDetail, statusPill } from '../../../lib/agentRuntimeStatus';
 import type { AgentResponse } from '../../../types/agent';
 import type { AgentAccountResponse } from '../../../types/agentAccount';
 import type { AgentRuntimeSummary } from '../../../types/agentRuntime';
+import { NewWorkPausedBadge } from './NewWorkPausedBadge';
 
 interface Props {
   agent: AgentResponse;
@@ -62,7 +63,16 @@ export function AgentAccountCell({ agentId, account }: { agentId: number; accoun
   );
 }
 
-/** 「상태」 칸 — Works 실행 AI 는 알약 + 한 줄 설명, 외부는 마지막 접속 시각, 기본은 「—」. */
+/**
+ * 「새 작업 받기」를 끈 AI 인지(WP-1514) — 옛 서버 응답(값 없음)은 받는 것으로 본다.
+ * 종료됐거나 종료 중인 AI 는 시작할 때 값이 다시 켜지므로 상세 화면처럼 배지를 보이지 않는다.
+ */
+function newWorkPaused(summary: AgentRuntimeSummary): boolean {
+  if (summary.status === 'OFF' || summary.status === 'STOPPING') return false;
+  return summary.acceptNewWork === false;
+}
+
+/** 「상태」 칸 — Works 실행 AI 는 알약 + (「새 작업 받기」를 껐으면 「새 작업 안 받음」) + 한 줄 설명, 외부는 마지막 접속 시각, 기본은 「—」. */
 export function AgentRunStateCell({ agent, summary }: Props) {
   if (!summary) {
     if (agent.runMode !== 'EXTERNAL') return <EmptyValue />;
@@ -80,6 +90,7 @@ export function AgentRunStateCell({ agent, summary }: Props) {
       <StatusBadge type={pill.type} data-testid={`agent-runtime-status-${agent.id}`}>
         {pill.label}
       </StatusBadge>
+      {newWorkPaused(summary) && <NewWorkPausedBadge data-testid={`agent-new-work-paused-${agent.id}`} />}
       {detail && (
         <span
           className={DETAIL_CLASS[detail.kind]}
@@ -107,7 +118,7 @@ export function AgentRunLocationCell({ agent, summary }: Props) {
   );
 }
 
-/** 모바일 이름 아래 줄 — 배지 + (작업 공간이면) 상태 알약. */
+/** 모바일 이름 아래 줄 — 배지 + (작업 공간이면) 상태 알약과 「새 작업 안 받음」. */
 export function AgentRuntimeMetaBadge({ agent, summary }: Props) {
   if (!summary) return <RuntimeBadge agent={agent} summary={null} />;
   const pill = statusPill(summary.status, summary.agentState);
@@ -115,6 +126,7 @@ export function AgentRuntimeMetaBadge({ agent, summary }: Props) {
     <>
       <RuntimeBadge agent={agent} summary={summary} />
       <StatusBadge type={pill.type}>{pill.label}</StatusBadge>
+      {newWorkPaused(summary) && <NewWorkPausedBadge />}
     </>
   );
 }

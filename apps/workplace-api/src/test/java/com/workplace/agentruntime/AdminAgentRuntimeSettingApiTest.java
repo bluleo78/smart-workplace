@@ -13,11 +13,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.agentruntime.dto.CreateAgentLocationRequest;
+import com.workplace.agentruntime.outbound.AgentRuntimeChangeNotifier;
 import com.workplace.agentruntime.outbound.AgentRuntimeDesiredChanged;
 import com.workplace.agentruntime.service.AgentLocationService;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.auth.service.AgentRemovalService;
 import com.workplace.auth.service.WorkspaceAssistantService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -103,6 +105,13 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
 
   private ResultActions action(long agent, String verb) throws Exception {
     return call(post(base(agent) + "/" + verb));
+  }
+
+  /** 지금까지 나간 AI 실행 관리자 알림 수. */
+  private long adminEvents() {
+    return appEvents.stream(ResourceChangedEvent.class)
+        .filter(e -> AgentRuntimeChangeNotifier.RESOURCE_AGENT_RUNTIME.equals(e.resource()))
+        .count();
   }
 
   private List<AgentRuntimeDesiredChanged> desiredEvents() {
@@ -347,6 +356,133 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
     action(agent, "restart")
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.generation").value(3));
+  }
+
+  private ResultActions putAcceptNewWork(long agent, String body) throws Exception {
+    return call(
+        put(base(agent) + "/accept-new-work")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body));
+  }
+
+  /** 요약 목록에서 이 AI 의 acceptNewWork 값. */
+  private boolean summaryAcceptNewWork(long agent) throws Exception {
+    String json =
+        call(get("/api/v1/admin/agent-runtime-summaries"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    for (com.fasterxml.jackson.databind.JsonNode n : om.readTree(json)) {
+      if (n.get("agentUserId").asLong() == agent) return n.get("acceptNewWork").asBoolean();
+    }
+    throw new AssertionError("요약에 AI 가 없음: " + agent);
+  }
+
+  /** 새 설정의 「새 작업 받기」 기본은 true — 설정·요약 모두. */
+  @Test
+  void acceptNewWork_defaultsTrue() throws Exception {
+    long agent = newAgent();
+    putClaude(agent);
+
+    call(get(base(agent)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.acceptNewWork").value(true));
+    assertThat(summaryAcceptNewWork(agent)).isTrue();
+  }
+
+  /** 값을 false 로 바꿔도 generation·desired·applyMode 는 그대로(AI 를 다시 띄우지 않는다), runner 이벤트도 없다. */
+  @Test
+  void putAcceptNewWork_false_keepsGenerationAndDesired() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent);
+    action(agent, "start");
+    var before = om.readTree(call(get(base(agent))).andReturn().getResponse().getContentAsString());
+    int eventsBefore = desiredEvents().size();
+    long adminEventsBefore = adminEvents();
+
+    putAcceptNewWork(agent, "{\"acceptNewWork\":false}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.acceptNewWork").value(false))
+        .andExpect(jsonPath("$.generation").value(before.get("generation").asLong()))
+        .andExpect(jsonPath("$.desired").value(before.get("desired").asText()))
+        .andExpect(jsonPath("$.applyMode").value(before.get("applyMode").asText()));
+
+    assertThat(summaryAcceptNewWork(agent)).isFalse();
+    assertThat(desiredEvents()).hasSize(eventsBefore);
+    // 관리자 화면 갱신 알림은 한 번 나간다.
+    assertThat(adminEvents()).isEqualTo(adminEventsBefore + 1);
+    assertThat(
+            dsl.fetchCount(
+                AUDIT_LOG, AUDIT_LOG.ACTION_TYPE.eq("AGENT_RUNTIME_ACCEPT_NEW_WORK_CHANGED")))
+        .isEqualTo(1);
+  }
+
+  /** 다시 시작은 「새 작업 받기」 값을 유지한다. */
+  @Test
+  void restart_keepsAcceptNewWork() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent);
+    action(agent, "start");
+    putAcceptNewWork(agent, "{\"acceptNewWork\":false}").andExpect(status().isOk());
+
+    action(agent, "restart")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.acceptNewWork").value(false));
+  }
+
+  /** 종료하면 true 로 되돌아가고, 다시 켜도 true 다. */
+  @Test
+  void stopThenStart_resetsAcceptNewWorkTrue() throws Exception {
+    newLocation("운영", 3);
+    long agent = newAgent();
+    putClaude(agent);
+    action(agent, "start");
+    putAcceptNewWork(agent, "{\"acceptNewWork\":false}").andExpect(status().isOk());
+    action(agent, "stop")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.acceptNewWork").value(true));
+    assertThat(summaryAcceptNewWork(agent)).isTrue();
+
+    action(agent, "start")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.acceptNewWork").value(true));
+  }
+
+  /** 실행 설정이 없으면 404. */
+  @Test
+  void putAcceptNewWork_noSetting_404() throws Exception {
+    long agent = newAgent();
+
+    putAcceptNewWork(agent, "{\"acceptNewWork\":false}").andExpect(status().isNotFound());
+  }
+
+  /** ADMIN 이 아니면 403. */
+  @Test
+  void putAcceptNewWork_nonAdmin_403() throws Exception {
+    long agent = newAgent();
+    putClaude(agent);
+    long member = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createHuman(dsl));
+
+    TenantContext.set(1L);
+    mvc.perform(
+            put(base(agent) + "/accept-new-work")
+                .with(authentication(auth(member)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"acceptNewWork\":false}"))
+        .andExpect(status().isForbidden());
+    TenantContext.set(1L);
+  }
+
+  /** 값이 없으면 400. */
+  @Test
+  void putAcceptNewWork_nullBody_400() throws Exception {
+    long agent = newAgent();
+    putClaude(agent);
+
+    putAcceptNewWork(agent, "{}").andExpect(status().isBadRequest());
   }
 
   /** 켜져 있는 AI 의 실행 설정은 지울 수 없다 — 409. */

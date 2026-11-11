@@ -119,6 +119,7 @@ export function createSetting(
     generation: 3,
     status: 'OFF',
     observed: null,
+    acceptNewWork: true,
     ...overrides,
   }
 }
@@ -154,6 +155,7 @@ export function createSummary(agentUserId: number, overrides: Partial<AgentRunti
     // 서버는 기본 위치여도 실제 실행 위치 이름을 싣는다(WP-1513) — 기본값도 기본 위치 이름.
     locationName: '기본 클러스터',
     message: null,
+    acceptNewWork: true,
     ...overrides,
   }
 }
@@ -199,6 +201,8 @@ export interface RuntimeCalls {
   credentialRegisters: { provider?: string; loginInfo?: string; token?: string }[]
   /** PUT /admin/agents/:id/agent-account 본문(계정 고르기, WP-1451) */
   binds: { accountId: number }[]
+  /** PUT /admin/agents/:id/runtime-setting/accept-new-work 본문(「새 작업 받기」 스위치, WP-1514) */
+  acceptNewWorks: { acceptNewWork: boolean }[]
   /** 호출 순서 — 「삭제 → 실행 방식 PUT」처럼 순서를 볼 때 */
   order: string[]
 }
@@ -243,7 +247,7 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
     ...Object.fromEntries((opts.claudeFor ?? []).map((id) => [id, 'anthropic' as const])),
     ...(opts.credentials ?? {}),
   }
-  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], order: [] }
+  const calls: RuntimeCalls = { saves: [], settingDeletes: 0, actions: [], runtimes: [], repoRegisters: [], repoRevokes: [], credentialRegisters: [], binds: [], acceptNewWorks: [], order: [] }
   const accounts = opts.accounts ?? []
   const boundAccounts = { ...(opts.boundAccounts ?? {}) }
   let repoCredentials = [...(opts.repoCredentials ?? [])]
@@ -269,6 +273,16 @@ export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {
       if (err) return err
       const id = Number(params.id)
       settings[id] = { ...(settings[id] ?? createSetting(id)), templateName: body.templateName, locationId: body.locationId, config: body.config }
+      return HttpResponse.json(settings[id])
+    }),
+    // 「새 작업 받기」 스위치(WP-1514) — 값만 바꿔 설정에 반영한다(generation·desired 는 그대로). failWrites 면 그 상태로 실패.
+    http.put(`${API}/admin/agents/:id/runtime-setting/accept-new-work`, async ({ params, request }) => {
+      const body = (await request.json()) as { acceptNewWork: boolean }
+      calls.acceptNewWorks.push(body)
+      const err = fail()
+      if (err) return err
+      const id = Number(params.id)
+      settings[id] = { ...(settings[id] ?? createSetting(id)), acceptNewWork: body.acceptNewWork }
       return HttpResponse.json(settings[id])
     }),
     http.delete(`${API}/admin/agents/:id/runtime-setting`, ({ params }) => {
