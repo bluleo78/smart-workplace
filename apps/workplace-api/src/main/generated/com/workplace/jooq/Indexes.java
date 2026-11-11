@@ -505,5 +505,6 @@ public class Indexes {
     public static final Index UQ_PROJECT_DEFAULT_PERSONAL = Internal.createIndex(DSL.name("uq_project_default_personal"), Project.PROJECT, new OrderField[] { Project.PROJECT.OWNER_ID }, true);
     public static final Index UQ_STAGED_UPLOAD_LINK_TOKEN = Internal.createIndex(DSL.name("uq_staged_upload_link_token"), StagedUploadLink.STAGED_UPLOAD_LINK, new OrderField[] { StagedUploadLink.STAGED_UPLOAD_LINK.TOKEN_HASH }, true);
     public static final Index UQ_WIKI_SHARE_ACCESS_REQUEST_PENDING = Internal.createIndex(DSL.name("uq_wiki_share_access_request_pending"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.PAGE_ID, WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.REQUESTER_ID }, true);
+    public static final Index UQ_WIKI_SPACE_LINKED_PROJECT = Internal.createIndex(DSL.name("uq_wiki_space_linked_project"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.LINKED_PROJECT_ID }, true);
     public static final Index UQ_WIKI_SPACE_PERSONAL_OWNER = Internal.createIndex(DSL.name("uq_wiki_space_personal_owner"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID, WikiSpace.WIKI_SPACE.OWNER_ID }, true);
 }

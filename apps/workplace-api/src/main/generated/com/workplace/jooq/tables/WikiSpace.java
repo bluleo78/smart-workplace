@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
@@ -101,6 +102,11 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
      */
     public final TableField<WikiSpaceRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.wiki_space.linked_project_id</code>.
+     */
+    public final TableField<WikiSpaceRecord, Long> LINKED_PROJECT_ID = createField(DSL.name("linked_project_id"), SQLDataType.BIGINT, this, "");
+
     private WikiSpace(Name alias, Table<WikiSpaceRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -170,7 +176,7 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_WIKI_SPACE_TENANT, Indexes.UQ_WIKI_SPACE_PERSONAL_OWNER);
+        return Arrays.asList(Indexes.IDX_WIKI_SPACE_TENANT, Indexes.UQ_WIKI_SPACE_LINKED_PROJECT, Indexes.UQ_WIKI_SPACE_PERSONAL_OWNER);
     }
 
     @Override
@@ -185,7 +191,19 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
 
     @Override
     public List<ForeignKey<WikiSpaceRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.WIKI_SPACE__WIKI_SPACE_OWNER_ID_FKEY, Keys.WIKI_SPACE__WIKI_SPACE_TENANT_ID_FKEY);
+        return Arrays.asList(Keys.WIKI_SPACE__WIKI_SPACE_LINKED_PROJECT_ID_FKEY, Keys.WIKI_SPACE__WIKI_SPACE_OWNER_ID_FKEY, Keys.WIKI_SPACE__WIKI_SPACE_TENANT_ID_FKEY);
+    }
+
+    private transient ProjectPath _project;
+
+    /**
+     * Get the implicit join path to the <code>public.project</code> table.
+     */
+    public ProjectPath project() {
+        if (_project == null)
+            _project = new ProjectPath(this, Keys.WIKI_SPACE__WIKI_SPACE_LINKED_PROJECT_ID_FKEY, null);
+
+        return _project;
     }
 
     private transient UserPath _user;

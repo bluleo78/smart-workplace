@@ -236,8 +236,16 @@ public class ProjectService {
         projectRepository
             .findById(project.id())
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+    // 이름이 실제로 바뀌었는지 싣는다(WP-1480) — 프로젝트 노트 공간이 이름 변경일 때만 공간 이름을 따라 바꾸게(설명만 고친 수정에 사용자가 고른 공간
+    // 이름이 덮이지 않게).
+    boolean nameChanged = !java.util.Objects.equals(project.name(), updated.name());
     changeNotifier.changed(
-        ProjectChangeNotifier.RESOURCE_PROJECT, OP_UPDATED, updated, updated.id(), callerId);
+        ProjectChangeNotifier.RESOURCE_PROJECT,
+        OP_UPDATED,
+        updated,
+        updated.id(),
+        callerId,
+        Map.of("nameChanged", nameChanged));
     // update 는 OWNER(또는 ADMIN 우회)만 가능 — 업데이트 성공 시 항상 viewerIsMember. 역할은 실제 멤버 행으로.
     return ProjectResponse.from(updated, true, memberRole(updated, callerId));
   }

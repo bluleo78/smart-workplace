@@ -5,14 +5,11 @@ import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.wiki.dto.WikiMemberGroupResponse;
 import com.workplace.wiki.exception.WikiSpaceMemberNotFoundException;
-import com.workplace.wiki.exception.WikiSpaceNotFoundException;
-import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
 import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceGrownEvent;
 import com.workplace.wiki.repository.WikiSpaceMemberGroupRepository;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
-import com.workplace.wiki.repository.WikiSpaceRepository;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -40,13 +37,14 @@ public class WikiSpaceMemberGroupService {
   /** 부서 행이 가질 수 있는 역할 — OWNER 는 받지 않는다. */
   private static final Set<String> GROUP_ROLES = Set.of("EDITOR", "VIEWER");
 
-  private final WikiSpaceRepository spaces;
   private final WikiSpaceMemberRepository members;
   private final WikiSpaceMemberGroupRepository groups;
   private final WikiPermissions perms;
   private final WikiChangeNotifier notifier;
   private final ApplicationEventPublisher publisher;
   private final WikiShareLifecycle shareLifecycle;
+  // WP-1480: TEAM·프로젝트 공간 아님 가드 — 사람 멤버 변경·공간 삭제와 같은 규칙·문구(WikiTeamSpaceGuard).
+  private final WikiTeamSpaceGuard teamSpaceGuard;
 
   /** 스페이스 멤버 부서 목록(이름순, 부서마다 들어오는 사람 수) — 사람 멤버 목록과 같이 멤버면 볼 수 있다. */
   @Transactional(readOnly = true)
@@ -63,7 +61,7 @@ public class WikiSpaceMemberGroupService {
   @Transactional
   public WikiMemberGroupResponse add(long callerId, long spaceId, long groupId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
     validateGroupRole(role);
     // 노트 공유의 부서 지정과 같은 검증·문구 — 개인 그룹은 조건으로, 다른 워크스페이스 그룹은 RLS 로 빠진다.
     if (groups.findDepartmentName(groupId).isEmpty()) {
@@ -84,7 +82,7 @@ public class WikiSpaceMemberGroupService {
   public WikiMemberGroupResponse changeRole(
       long callerId, long spaceId, long groupId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
     validateGroupRole(role);
     if (groups.findRole(spaceId, groupId).isEmpty()) {
       throw new WikiSpaceMemberNotFoundException();
@@ -103,7 +101,7 @@ public class WikiSpaceMemberGroupService {
   @Transactional
   public void remove(long callerId, long spaceId, long groupId) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    teamSpaceGuard.requireEditableTeamSpace(spaceId);
     if (groups.findRole(spaceId, groupId).isEmpty()) {
       throw new WikiSpaceMemberNotFoundException();
     }
@@ -169,15 +167,6 @@ public class WikiSpaceMemberGroupService {
     perms.validateRole(role);
     if (!GROUP_ROLES.contains(role)) {
       throw new IllegalArgumentException("부서에는 편집 또는 보기 역할만 줄 수 있습니다");
-    }
-  }
-
-  /** TEAM 공간이 아니면 부서 멤버 변경을 거부한다 — 사람 멤버 변경·공간 삭제의 가드(WikiSpaceService, WP-495·1397)와 같은 규칙·문구. */
-  private void requireTeamSpace(long spaceId) {
-    String type =
-        spaces.findType(spaceId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
-    if (!"TEAM".equals(type)) {
-      throw new WikiSpaceTypeNotEditableException(spaceId, type);
     }
   }
 }

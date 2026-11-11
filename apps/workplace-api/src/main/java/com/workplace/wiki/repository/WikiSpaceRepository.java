@@ -1,5 +1,6 @@
 package com.workplace.wiki.repository;
 
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 
 import com.workplace.global.share.WikiSpaceMembership;
@@ -109,6 +110,109 @@ public class WikiSpaceRepository {
         .fetchOptional(WIKI_SPACE.NAME);
   }
 
+  // ── 프로젝트 노트 공간(WP-1480) ──
+
+  /** 이 공간이 이어진 프로젝트 id. 프로젝트 공간이 아니면(또는 공간이 없으면) empty — 수동 멤버 편집 잠금 가드용. */
+  public Optional<Long> findLinkedProjectId(long spaceId) {
+    return dsl.select(WIKI_SPACE.LINKED_PROJECT_ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .fetchOptional(WIKI_SPACE.LINKED_PROJECT_ID);
+  }
+
+  /** 공간 행의 테넌트 — 커밋 뒤 리스너용 이벤트에 담을 테넌트를 컨텍스트 없이도 정확히 얻는다. 없으면 empty. */
+  public Optional<Long> findTenantId(long spaceId) {
+    return dsl.select(WIKI_SPACE.TENANT_ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .fetchOptional(WIKI_SPACE.TENANT_ID);
+  }
+
+  /**
+   * 공간 유형과 프로젝트 연결.
+   *
+   * @param linkedProjectId 프로젝트 노트 공간이면 그 프로젝트 id, 아니면 null
+   */
+  public record TypeAndLink(String type, Long linkedProjectId) {}
+
+  /**
+   * 공간 행을 FOR SHARE 로 잠그고 유형·프로젝트 연결을 한 번에 읽는다(WP-1480) — 사람의 멤버 편집·공간 삭제 가드용. 연결(link 가 같은 행을 FOR
+   * UPDATE 로 잠근다)과 차례를 세운다: 연결이 진행 중이면 그 커밋을 기다렸다 연결된 상태를 보고 거절하고, 가드를 먼저 통과했으면 연결이 이 트랜잭션의 끝을 기다린다
+   * — 연결 직후 사람이 넣은 프로젝트 밖 멤버가 맞추기를 피해 남지 않게. 없으면 empty.
+   */
+  public Optional<TypeAndLink> findTypeAndLinkForShare(long spaceId) {
+    return dsl.select(WIKI_SPACE.TYPE, WIKI_SPACE.LINKED_PROJECT_ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .forShare()
+        .fetchOptional(r -> new TypeAndLink(r.value1(), r.value2()));
+  }
+
+  /** 연결할 공간 행을 FOR UPDATE 로 잠근다(WP-1480) — 사람의 멤버 편집 가드(FOR SHARE)와 다른 프로젝트의 동시 연결을 이 연결 뒤로 세운다. */
+  public void lockForLink(long spaceId) {
+    dsl.select(WIKI_SPACE.ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .forUpdate()
+        .execute();
+  }
+
+  /**
+   * 아직 어느 프로젝트에도 이어지지 않은 공간만 프로젝트에 잇는다(조건부 갱신). 0 이면 그새 다른 프로젝트에 이어졌다 — 부르는 쪽이 409 로 돌려보낸다. 같은
+   * 프로젝트에 이미 다른 공간이 이어져 있으면 유일 인덱스 위반이므로 먼저 끊는다.
+   */
+  public int linkIfUnlinked(long spaceId, long projectId) {
+    return dsl.update(WIKI_SPACE)
+        .set(WIKI_SPACE.LINKED_PROJECT_ID, projectId)
+        .set(WIKI_SPACE.UPDATED_AT, java.time.OffsetDateTime.now())
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .and(WIKI_SPACE.LINKED_PROJECT_ID.isNull())
+        .execute();
+  }
+
+  /** 프로젝트에 이어진 공간 id(프로젝트당 하나 — 부분 유일 인덱스). 없으면 empty. */
+  public Optional<Long> findIdByLinkedProject(long projectId) {
+    return dsl.select(WIKI_SPACE.ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.LINKED_PROJECT_ID.eq(projectId))
+        .fetchOptional(WIKI_SPACE.ID);
+  }
+
+  /** 공간의 프로젝트 연결을 바꾼다(null = 끊기). 프로젝트당 하나라 다른 공간에 이어져 있으면 유일 위반이다 — 부르는 쪽이 먼저 끊는다. */
+  public void setLinkedProject(long spaceId, Long projectId) {
+    dsl.update(WIKI_SPACE)
+        .set(WIKI_SPACE.LINKED_PROJECT_ID, projectId)
+        .set(WIKI_SPACE.UPDATED_AT, java.time.OffsetDateTime.now())
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .execute();
+  }
+
+  /** 공간 이름을 바꾼다 — 프로젝트 공간이 프로젝트 이름을 따라갈 때만 쓴다(사용자 이름변경 API 는 없다). */
+  public void rename(long spaceId, String name) {
+    dsl.update(WIKI_SPACE)
+        .set(WIKI_SPACE.NAME, name)
+        .set(WIKI_SPACE.UPDATED_AT, java.time.OffsetDateTime.now())
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .execute();
+  }
+
+  /**
+   * 테넌트 안의 TEAM 공간(excludeId 제외) 중 같은 이름이 있는지(대소문자·앞뒤 공백 무시). {@link #existsVisibleTeamSpaceName} 과
+   * 달리 볼 수 있는 범위로 좁히지 않는다 — 프로젝트 공간 이름은 사람이 고르지 않고 서버가 정하므로 존재가 드러날 염려가 없고, 테넌트 전체에서 겹치지 않게 하는 것이
+   * 설계 결정이다(WP-1480). RLS 가 테넌트 범위를 정한다.
+   */
+  public boolean existsTeamSpaceName(String name, Long excludeId) {
+    var cond =
+        WIKI_SPACE
+            .TYPE
+            .eq("TEAM")
+            .and(DSL.lower(DSL.trim(WIKI_SPACE.NAME)).eq(name.strip().toLowerCase()));
+    if (excludeId != null) {
+      cond = cond.and(WIKI_SPACE.ID.ne(excludeId));
+    }
+    return dsl.fetchExists(dsl.selectOne().from(WIKI_SPACE).where(cond));
+  }
+
   public Optional<Long> findPersonalSpaceId(long ownerId) {
     return dsl.select(WIKI_SPACE.ID)
         .from(WIKI_SPACE)
@@ -129,8 +233,12 @@ public class WikiSpaceRepository {
             WIKI_SPACE.NAME,
             WIKI_SPACE.OWNER_ID,
             role,
-            WIKI_SPACE.CREATED_AT)
+            WIKI_SPACE.CREATED_AT,
+            PROJECT.KEY)
         .from(WIKI_SPACE)
+        // 프로젝트 노트 공간이면 그 프로젝트 key 를 싣는다(WP-1480) — 연결이 없으면 null.
+        .leftJoin(PROJECT)
+        .on(PROJECT.ID.eq(WIKI_SPACE.LINKED_PROJECT_ID))
         .where(WIKI_SPACE.ID.eq(spaceId))
         .and(WikiSpaceMembership.isMember(WIKI_SPACE.ID, DSL.val(userId)))
         .fetchOptional(WikiSpaceRepository::map);
@@ -148,8 +256,12 @@ public class WikiSpaceRepository {
             WIKI_SPACE.NAME,
             WIKI_SPACE.OWNER_ID,
             role,
-            WIKI_SPACE.CREATED_AT)
+            WIKI_SPACE.CREATED_AT,
+            PROJECT.KEY)
         .from(WIKI_SPACE)
+        // 프로젝트 노트 공간이면 그 프로젝트 key 를 싣는다(WP-1480) — 연결이 없으면 null.
+        .leftJoin(PROJECT)
+        .on(PROJECT.ID.eq(WIKI_SPACE.LINKED_PROJECT_ID))
         .where(WikiSpaceMembership.isMember(WIKI_SPACE.ID, DSL.val(userId)))
         .orderBy(
             DSL.when(WIKI_SPACE.TYPE.eq("PERSONAL"), DSL.inline(0)).otherwise(DSL.inline(1)),
@@ -164,6 +276,7 @@ public class WikiSpaceRepository {
         r.get(WIKI_SPACE.NAME),
         r.get(WIKI_SPACE.OWNER_ID),
         r.get(ROLE, String.class),
-        r.get(WIKI_SPACE.CREATED_AT));
+        r.get(WIKI_SPACE.CREATED_AT),
+        r.get(PROJECT.KEY));
   }
 }
