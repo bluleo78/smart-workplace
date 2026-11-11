@@ -72,7 +72,8 @@ public class AgentRuntimeSummaryService {
                     r.agentIssueKeys(),
                     r.agentNextCheckAt(),
                     r.locationId() == null ? defaultName : names.get(r.locationId()),
-                    r.observedMessage()))
+                    r.observedMessage(),
+                    r.acceptNewWork()))
         .toList();
   }
 

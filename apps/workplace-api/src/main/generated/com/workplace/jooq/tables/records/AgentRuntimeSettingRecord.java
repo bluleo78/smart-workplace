@@ -359,6 +359,20 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (String[]) get(23);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_setting.accept_new_work</code>.
+     */
+    public void setAcceptNewWork(Boolean value) {
+        set(24, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.accept_new_work</code>.
+     */
+    public Boolean getAcceptNewWork() {
+        return (Boolean) get(24);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -382,7 +396,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -409,6 +423,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setAgentIssueKeys(agentIssueKeys);
+        setAcceptNewWork(acceptNewWork);
         resetChangedOnNotNull();
     }
 }

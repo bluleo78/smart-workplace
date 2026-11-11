@@ -89,14 +89,16 @@ public class AgentStatusReportService {
   /**
    * 원하는 상태 — 꺼졌으면 DRAIN(지워지는 Pod 가 새 이슈를 집지 않게 하는 안전장치 — 끄기 자체는 runner 가 바로 한다). 보고한 generation 이
    * 설정보다 뒤처졌으면 runner 의 {@code applyNow} 와 같은 판정({@link RolloutPolicy})이 지금 적용이면 RESTART, 아니면
-   * DRAIN(쉬면 runner 가 다시 띄운다). 그 밖은 RUN. 키 사슬은 뒤처졌을 때만 읽는다.
+   * DRAIN(쉬면 runner 가 다시 띄운다). 그 밖에 「새 작업 받기」가 꺼져 있으면 HOLD, 아니면 RUN(STOP 이 HOLD 보다 먼저). 키 사슬은 뒤처졌을
+   * 때만 읽는다.
    *
    * @param row 이번 보고를 합쳐 쓴 뒤의 행(모든 칸이 쉬면 IDLE — 그때만 쉴 때 적용이 지금 적용으로 바뀐다)
    */
   private String desiredFor(Row row, Long reportedGeneration, long tenantId) {
     if (row.desired() == Desired.STOP) return AgentStatusReportResponse.DRAIN;
     if (reportedGeneration == null || reportedGeneration >= row.generation()) {
-      return AgentStatusReportResponse.RUN;
+      // 뒤처지지 않은 경우만 HOLD 를 본다 — 뒤처졌으면 새 설정으로 다시 떠야 하므로 RESTART/DRAIN 이 먼저(WP-1514).
+      return row.acceptNewWork() ? AgentStatusReportResponse.RUN : AgentStatusReportResponse.HOLD;
     }
     RolloutPolicy.Decision decision =
         RolloutPolicy.decide(

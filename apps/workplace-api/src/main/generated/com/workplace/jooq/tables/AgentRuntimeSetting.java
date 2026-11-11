@@ -186,6 +186,11 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, String[]> AGENT_ISSUE_KEYS = createField(DSL.name("agent_issue_keys"), SQLDataType.CLOB.array(), this, "칸별 보고를 합친 현재 이슈 키 목록(WORKING·BLOCKED 칸, 칸 키 순, 중복 제외) — WP-1409");
 
+    /**
+     * The column <code>public.agent_runtime_setting.accept_new_work</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, Boolean> ACCEPT_NEW_WORK = createField(DSL.name("accept_new_work"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("true"), SQLDataType.BOOLEAN)), this, "");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -2,6 +2,7 @@ package com.workplace.agentruntime.controller;
 
 import com.workplace.agentruntime.dto.AgentRuntimeProjectResponse;
 import com.workplace.agentruntime.dto.AgentRuntimeSettingResponse;
+import com.workplace.agentruntime.dto.PutAcceptNewWorkRequest;
 import com.workplace.agentruntime.dto.PutAgentRuntimeSettingRequest;
 import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.agentruntime.service.AgentRuntimeSummaryService;
@@ -64,6 +65,17 @@ public class AdminAgentRuntimeSettingController {
   public ResponseEntity<Void> delete(Authentication auth, @PathVariable long userId) {
     service.delete((Long) auth.getPrincipal(), userId);
     return ResponseEntity.noContent().build();
+  }
+
+  /** 「새 작업 받기」 변경(WP-1514) — generation 을 올리지 않아 AI 를 다시 띄우지 않는다. 행이 없으면 404. */
+  @PutMapping("/accept-new-work")
+  @RequirePermission("user:write")
+  public ResponseEntity<AgentRuntimeSettingResponse> putAcceptNewWork(
+      Authentication auth,
+      @PathVariable long userId,
+      @Valid @RequestBody PutAcceptNewWorkRequest req) {
+    return ResponseEntity.ok(
+        service.setAcceptNewWork((Long) auth.getPrincipal(), userId, req.acceptNewWork()));
   }
 
   /** 켜기. */

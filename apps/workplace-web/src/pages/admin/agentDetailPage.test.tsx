@@ -296,6 +296,79 @@ describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
     expect(await screen.findByRole('alertdialog')).toHaveTextContent('WD-319')
   })
 
+  // 「새 작업 받기」 스위치(WP-1514) — 끄면 하던 일은 마치고 새 이슈를 가져가지 않는다. 종료는 하던 일을 끊으니 일하는 중이면 확인 창.
+  test('실행 중이면 「새 작업 받기」 스위치가 켜져 있고, 끄면 PUT {acceptNewWork:false} 뒤 「새 작업 안 받음」이 보인다 (WP-1514)', async () => {
+    const setting = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'IDLE' }) })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: setting } }))
+    const toggle = await screen.findByRole('switch', { name: '새 작업 받기' })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByText('새 작업 안 받음')).not.toBeInTheDocument()
+    await user.click(toggle)
+    await waitFor(() => expect(calls.acceptNewWorks).toEqual([{ acceptNewWork: false }]))
+    expect(await screen.findByTestId('agent-new-work-paused')).toHaveTextContent('새 작업 안 받음')
+    expect(screen.getByRole('switch', { name: '새 작업 받기' })).toHaveAttribute('aria-checked', 'false')
+    // 스위치는 시작·종료가 아니다 — 실행 요청은 가지 않는다.
+    expect(calls.actions).toEqual([])
+  })
+
+  test('「새 작업 받기」 PUT 이 실패하면 스위치가 다시 켜짐으로 돌아가고 표시 없이 오류 토스트 (WP-1514)', async () => {
+    const setting = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'IDLE' }) })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: setting }, failWrites: { status: 500, message: '서버 오류가 났어요' } }))
+    await user.click(await screen.findByRole('switch', { name: '새 작업 받기' }))
+    await waitFor(() => expect(calls.acceptNewWorks).toEqual([{ acceptNewWork: false }]))
+    expect(await screen.findByText('서버 오류가 났어요')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('switch', { name: '새 작업 받기' })).toHaveAttribute('aria-checked', 'true'))
+    expect(screen.queryByTestId('agent-new-work-paused')).not.toBeInTheDocument()
+  })
+
+  test('스위치가 꺼진 채로 저장돼 있으면 꺼짐과 「새 작업 안 받음」이 보인다 (WP-1514)', async () => {
+    const setting = createSetting(id, { status: 'RUNNING', desired: 'RUN', acceptNewWork: false, observed: createObserved({ agentState: 'WORKING', agentIssueKeys: ['WP-1'] }) })
+    await renderDetail(works({ settings: { [id]: setting } }))
+    expect(await screen.findByRole('switch', { name: '새 작업 받기' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByTestId('agent-new-work-paused')).toHaveTextContent('새 작업 안 받음')
+  })
+
+  test('종료된 AI(desired STOP)에는 「새 작업 받기」 스위치가 없다 (WP-1514)', async () => {
+    await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'OFF', desired: 'STOP' }) } }))
+    expect(await screen.findByTestId('agent-runtime-status')).toHaveTextContent('종료됨')
+    expect(screen.queryByRole('switch', { name: '새 작업 받기' })).not.toBeInTheDocument()
+  })
+
+  test('일하는 중에 「종료」를 누르면 확인 창 — 취소면 요청 없음, 「종료」면 POST stop 한 번 (WP-1514)', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'WP-1489', agentIssueKeys: ['WP-1489', 'WP-12'] })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    let dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('AI 200 을 종료할까요?')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('하던 작업 WP-1489, WP-12 가 끊기고, 작업 공간의 커밋·push 하지 않은 변경은 지워져요.')
+    expect(dialog).toHaveTextContent('하던 작업을 마치게 하려면 「새 작업 받기」를 먼저 끄세요.')
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(calls.actions).toEqual([])
+
+    await user.click(screen.getByTestId('agent-runtime-stop'))
+    dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: '종료' }))
+    await waitFor(() => expect(calls.actions).toEqual(['stop']))
+  })
+
+  test('알약 설명이 이슈 키가 아니어도(막힘) 현재 이슈 키가 있으면 종료 확인 창이 뜬다 (WP-1514)', async () => {
+    const observed = createObserved({ agentState: 'BLOCKED', agentIssueKeys: ['WP-5'] })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('하던 작업 WP-5 가 끊기고')
+    expect(calls.actions).toEqual([])
+  })
+
+  test('일하지 않는 중(이슈 키 없음)에 「종료」를 누르면 확인 창 없이 바로 POST stop (WP-1514)', async () => {
+    const observed = createObserved({ agentState: 'IDLE' })
+    const { user, calls } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    await waitFor(() => expect(calls.actions).toEqual(['stop']))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
   test('작업 화면 보기는 작업 공간이 떠 있을 때(실행 중·쉴 때 적용 대기)만 보인다 (WP-1277)', async () => {
     await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'WORKING' }) }) } }))
     expect(await screen.findByTestId('agent-screen-open')).toHaveTextContent('작업 화면 보기')

@@ -22,6 +22,9 @@ public class IssueClaimRejectedException extends RuntimeException implements Cod
   /** 호출자가 외부 실행 AI 구성원이 아니다 — 사람이면 라벨만 사라지고 AI 가 안 붙고, 내부 실행 AI 면 AI 작업이 안 만들어져 방치되므로 막는다. */
   public static final String CLAIM_AGENT_ONLY = "CLAIM_AGENT_ONLY";
 
+  /** 「새 작업 받기」가 꺼진 AI 다(WP-1514) — 하던 작업만 마치게 두는 중이라 새 이슈를 가져갈 수 없다. */
+  public static final String NEW_WORK_PAUSED = "NEW_WORK_PAUSED";
+
   private final String code;
 
   public IssueClaimRejectedException(String code, String message) {

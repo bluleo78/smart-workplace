@@ -205,6 +205,85 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.desired").value("RESTART"));
   }
 
+  /** 새 작업 받기 스위치를 DB 에서 직접 맞춘다(WP-1514). */
+  private void setAcceptNewWork(long agentUserId, boolean value) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.ACCEPT_NEW_WORK, value)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agentUserId))
+        .execute();
+  }
+
+  /** 스위치가 꺼지고 generation 이 최신이면 HOLD — 하던 일은 마치되 새 이슈는 집지 않는다. */
+  @Test
+  void status_acceptNewWorkFalse_returnsHold() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g, "IDLE", "RUN");
+    setAcceptNewWork(agent, false);
+
+    report(key, "{\"state\":\"IDLE\",\"generation\":" + g + "}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("HOLD"));
+  }
+
+  /** 보고에 generation 이 없어도(옛 플러그인) 스위치가 꺼져 있으면 HOLD. */
+  @Test
+  void status_acceptNewWorkFalse_generationNull_returnsHold() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g, "IDLE", "RUN");
+    setAcceptNewWork(agent, false);
+
+    report(key, "{\"state\":\"IDLE\"}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("HOLD"));
+  }
+
+  /** 꺼진 AI(STOP)는 스위치가 꺼져 있어도 DRAIN — 종료가 이긴다. */
+  @Test
+  void status_stopAndSwitchOff_returnsDrain() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g, "IDLE", "STOP");
+    setAcceptNewWork(agent, false);
+
+    report(key, "{\"state\":\"IDLE\",\"generation\":" + g + "}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("DRAIN"));
+  }
+
+  /** 뒤처진 generation 은 스위치가 꺼져 있어도 RESTART/DRAIN 이 먼저 — 새 설정으로 다시 떠야 한다. */
+  @Test
+  void status_laggingGenerationNow_switchOff_returnsRestart() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g - 1, "NOW", "RUN");
+    setAcceptNewWork(agent, false);
+
+    report(key, "{\"state\":\"WORKING\",\"generation\":" + (g - 1) + "}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RESTART"));
+  }
+
+  @Test
+  void status_laggingGenerationIdle_switchOff_returnsDrain() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g - 1, "IDLE", "RUN");
+    setAcceptNewWork(agent, false);
+
+    report(key, "{\"state\":\"WORKING\",\"issueKey\":\"WD-2\",\"generation\":" + (g - 1) + "}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("DRAIN"));
+  }
+
+  /** 스위치가 켜져 있으면 기존 동작 그대로 RUN. */
+  @Test
+  void status_switchOn_returnsRun() throws Exception {
+    long g = fx.generationOf(agent);
+    setRow(agent, g, "IDLE", "RUN");
+    setAcceptNewWork(agent, true);
+
+    report(key, "{\"state\":\"IDLE\",\"generation\":" + g + "}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.desired").value("RUN"));
+  }
+
   /** 떠 있는 generation 이 최신이면 RUN, 교체 대기가 없으니 쉬는 중 보고에도 이벤트가 없다. */
   @Test
   void status_whenUpToDate_returnsRun() throws Exception {

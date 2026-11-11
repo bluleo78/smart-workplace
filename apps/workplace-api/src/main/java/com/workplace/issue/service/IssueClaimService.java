@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.agentruntime.service.AgentRuntimeSettingService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.ClaimIssueResponse;
 import com.workplace.issue.dto.IssueStatuses;
@@ -36,6 +37,7 @@ public class IssueClaimService {
   private final ProjectAccessGuard accessGuard;
   private final ProjectMemberRepository memberRepository;
   private final UserRepository userRepository;
+  private final AgentRuntimeSettingService runtimeSettingService;
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueLabelRepository issueLabelRepository;
@@ -45,8 +47,8 @@ public class IssueClaimService {
   /**
    * 대기열 이슈를 호출자(AI)의 담당으로 가져온다.
    *
-   * <p>순서: 프로젝트 멤버 확인(비멤버는 기존 권한 오류) → 호출자가 외부 실행 AI 인지 → 이슈 행 잠금 → 닫힘·라벨 유무·AI 담당 유무 판정 → 담당자 추가 →
-   * 라벨 제거.
+   * <p>순서: 프로젝트 멤버 확인(비멤버는 기존 권한 오류) → 호출자가 외부 실행 AI 인지 → 「새 작업 받기」 꺼짐이면 NEW_WORK_PAUSED → 이슈 행 잠금
+   * → 닫힘·라벨 유무·AI 담당 유무 판정 → 담당자 추가 → 라벨 제거.
    *
    * @throws IssueClaimRejectedException 조건 불충족(409, errors.code 가 사유)
    */
@@ -62,6 +64,12 @@ public class IssueClaimService {
     if (!userRepository.isExternalAgent(callerId)) {
       throw new IssueClaimRejectedException(
           IssueClaimRejectedException.CLAIM_AGENT_ONLY, "외부 실행 AI 구성원만 이슈를 가져갈 수 있습니다");
+    }
+
+    // 「새 작업 받기」가 꺼진 AI 는 대기열에서 가져갈 수 없다(WP-1514) — 이슈 잠금 전에 거른다. 실행 설정 행이 없는 AI 는 통과.
+    if (!runtimeSettingService.acceptsNewWork(callerId)) {
+      throw new IssueClaimRejectedException(
+          IssueClaimRejectedException.NEW_WORK_PAUSED, "새 작업을 받지 않도록 설정된 AI 입니다");
     }
 
     // 이슈 행 잠금 — 판정과 변경 사이에 다른 AI 가 끼어들지 못하게 트랜잭션 끝까지 유지한다.

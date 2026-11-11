@@ -11,7 +11,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 | 방식 | 누가 깨우나 | 알림 감시(`Monitor`) | 다음 확인 |
 |---|---|---|---|
-| `runner` | 실행기(genia 확장·Codex 구동기)가 반복·알림 깨우기를 맡는다 — 실행기가 같은 감시를 띄워 `wake` 줄마다 이 스킬을 부른다 | 걸지도 다시 걸지도 않는다(5번 「알림으로 깨우기」) | 깨우기 도구로 잡지 않는다 — 5번 규칙대로 시각을 정하고 `gw-status` 로 쉬는 중을 보고한 뒤, 부르기의 **마지막 줄**에 `GW-NEXT-CHECK <다음 확인 시각(ISO-8601)>` 을 쓴다. 어떻게 끝나든(2번 잠금 `held`·오류 포함) 늘 쓰고, 시각은 5번이 그 끝에 정한 간격으로 정한다. 잡지 않는 경우(1번에서 멈춤·`DRAIN`·`RESTART`)만 `GW-NEXT-CHECK none` 이다. (`none` 을 받으면 실행기가 신원·`gw-status` 를 다시 확인해, AI 키 신원이 아니거나 `DRAIN`·`RESTART` 일 때만 멈추고 `RUN` 이면 20분 뒤 다시 부른다.) |
+| `runner` | 실행기(genia 확장·Codex 구동기)가 반복·알림 깨우기를 맡는다 — 실행기가 같은 감시를 띄워 `wake` 줄마다 이 스킬을 부른다 | 걸지도 다시 걸지도 않는다(5번 「알림으로 깨우기」) | 깨우기 도구로 잡지 않는다 — 5번 규칙대로 시각을 정하고 `gw-status` 로 쉬는 중을 보고한 뒤, 부르기의 **마지막 줄**에 `GW-NEXT-CHECK <다음 확인 시각(ISO-8601)>` 을 쓴다. 어떻게 끝나든(2번 잠금 `held`·오류 포함) 늘 쓰고, 시각은 5번이 그 끝에 정한 간격으로 정한다. 잡지 않는 경우(1번에서 멈춤·`DRAIN`·`RESTART`)만 `GW-NEXT-CHECK none` 이다. (`none` 을 받으면 실행기가 신원·`gw-status` 를 다시 확인해, AI 키 신원이 아니거나 `DRAIN`·`RESTART` 일 때만 멈추고 `RUN`·`HOLD` 이면 20분 뒤 다시 부른다.) |
 | `pane` | start-agent·Pod 로 띄운 Claude Code 칸 — 그 AI 의 알림 감시 창이 `wake` 줄을 받을 때 쉬는 칸에 `/loop /genia-works:work-loop <인자>` 를 직접 넣어 깨운다 | 걸지도 다시 걸지도 않는다 | 지금처럼 `ScheduleWakeup` 으로 잡는다(5번) — `GW-NEXT-CHECK` 줄은 쓰지 않는다 |
 | `self` | 이 세션이 스스로(사람이 직접 띄운 Claude Code `/loop`) | 5번대로 건다 | 지금처럼 `ScheduleWakeup` 으로 잡는다(5번) |
 
@@ -88,8 +88,9 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 ### 3. 후보 고르기
 
-**상태 보고 먼저** — 후보를 고를 때마다(4번에서 돌아올 때도) 먼저 `"<이 스킬 폴더>/../../scripts/gw-status" IDLE` 을 실행한다. Works 가 띄운 AI 면 서버가 정한 다음 동작 한 줄(`RUN`·`DRAIN`·`RESTART`)을 낸다. Works 가 띄운 AI 가 아니면(외부 실행) 스크립트는 서버에 묻지 않고 `RUN` 만 낸다 — 이 절의 보고는 모두 그대로 넘어간다.
+**상태 보고 먼저** — 후보를 고를 때마다(4번에서 돌아올 때도) 먼저 `"<이 스킬 폴더>/../../scripts/gw-status" IDLE` 을 실행한다. Works 가 띄운 AI 면 서버가 정한 다음 동작 한 줄(`RUN`·`HOLD`·`DRAIN`·`RESTART`)을 낸다. Works 가 띄운 AI 가 아니면(외부 실행) 스크립트는 서버에 묻지 않고 `RUN` 만 낸다 — 이 절의 보고는 모두 그대로 넘어간다.
 - `RUN`: 그대로 고른다.
+- `HOLD`: 새 작업을 받지 않는다 — ⑤⑥ 새 작업·대기열 가져가기·열린 하위를 맡을지 처음 묻기를 고르지 않고, ⓪~④·⑦(하던 작업·PR 리뷰·멘션 답·본문 지시 회차와 그 하위)은 그대로 고른다. 구현할 시작 전 이슈에 새 글이 오면 답만 하고 「지금 새 작업을 받지 않아 시작하지 않습니다」를 적는다. 다음 확인·알림 감시는 `RUN` 과 같게 잡는다. 실행 끝 요약에 「새 작업 받지 않음 — 시작하지 않은 이슈 n개(<키들>)」를 적는다.
 - `DRAIN`·`RESTART`: 꺼지는 중이거나 새 설정으로 다시 띄워질 차례다. 새 이슈를 집지 않고(대기열도 가져오지 않는다) 부르기를 끝낸다 — 다음 확인·새 프로젝트 확인·알림 감시를 잡지 않는다(Works 가 곧 다시 띄운다).
 
 `list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS', size: 100 })` 로 이 프로젝트의 내 이슈를 모두 읽는다(`hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지) — 이것이 후보다. 아래 「동시 진행 상한」의 `slots` 가 없을 때만 `projectKey` 없이 읽어 모든 프로젝트를 합쳐 세고, 후보는 그중 이 프로젝트의 이슈(`issueKey` 가 `<프로젝트 키>-` 로 시작)만 쓴다. `list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS', pendingForMe: true })` 가 「새 글이 있는 이슈」다 — 사람이든 다른 AI(검토자·개발자)든 내 마지막 글 뒤에 남이 쓴 글이다. 「글」은 이슈 챗 글과 댓글 둘 다다 — 이슈 챗은 `get_issue_chat`, 댓글은 `get_issue_detail` 의 `comments` 로 읽는다. 글에 반응할지는 글의 맥락으로 정한다.
@@ -138,6 +139,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 2. 남은 이슈를 우선순위 HIGHEST·HIGH·MID·LOW·LOWEST → 같으면 오래된 순(`createdAt`)으로 하나씩 `claim_issue({ issueKey, queueLabel: <대기열 라벨> })` 로 가져가 본다.
    - 성공하면 거기서 멈춘다. 한 번 가져갈 때 **최대 하나**다 — 가져간 이슈를 멈출 지점까지 처리한 뒤(4번) 다시 3번에서 고를 후보가 없으면 같은 부르기에서 또 가져갈 수 있다(동시 진행 상한·30분 안에서). 처리하기 전에 여러 개를 쌓아 두지 않는다 — 다른 AI 몫을 막는다.
    - 거절이 `NOT_IN_QUEUE`(다른 AI 가 먼저 가져가 라벨이 없다)·`AI_ALREADY_ASSIGNED`(AI 담당이 이미 있다)·`ISSUE_CLOSED`(그 사이 닫혔다)면 — 목록을 읽은 뒤 대기열을 떠난 이슈다 — 다음 이슈로 간다.
+   - `NEW_WORK_PAUSED`(이 AI 가 새 작업을 받지 않는 중이다)면 가져가기를 멈추고 아래 「할 일 없음」으로 간다.
    - `CLAIM_AGENT_ONLY` 와 그 밖의 오류(권한·연결 등)면 더 시도하지 않고 이유를 실행 끝 요약에 적는다.
 3. 가져간 이슈는 내 담당이 되고 내 행은 없거나 시작 전(SUBMITTED)이다 — 위 표의 「새 작업」으로 4번에서 처리한다(열린 하위가 있으면 위 「하위 이슈가 있는 이슈」 규칙대로). 가져갔다는 메시지를 따로 남기지 않는다 — 첫 보고는 새 작업과 같다.
 

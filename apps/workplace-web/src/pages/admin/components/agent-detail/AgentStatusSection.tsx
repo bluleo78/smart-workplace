@@ -32,6 +32,7 @@ import {
   useAgentRuntimeProjects,
   useInvalidateRuntime,
   useSaveAgentRuntimeSetting,
+  useSetAgentAcceptNewWork,
 } from '../../../../hooks/queries/useAgentRuntime';
 import { accountFits, accountLabel } from '../../../../lib/agentAccount';
 import { type AccountCheck, startBlockReason } from '../../../../lib/agentRunMode';
@@ -59,6 +60,7 @@ import { parseIssueKeyQuery } from '../../../../lib/sendToChat';
 import { cn, objectParticle, subjectParticle } from '../../../../lib/utils';
 import type { AgentResponse } from '../../../../types/agent';
 import type { AgentRuntimeSetting, AgentTemplate } from '../../../../types/agentRuntime';
+import { NewWorkPausedBadge } from '../NewWorkPausedBadge';
 import { AgentScreenDialog } from './AgentScreenDialog';
 import type { WorkSettingsDraft } from './useWorkSettingsDraft';
 
@@ -171,12 +173,18 @@ function issueKeyPath(key: string): string | null {
   return k ? issuePath(k.projectKey, k.number) : null;
 }
 
-/** 이슈 키 뒤 목적격 조사 — 「WP-1271 을」. 숫자로 끝나면 읽는 소리(일·이·삼…)의 받침으로 고른다. */
-function keyObjectParticle(key: string): string {
-  const last = key.slice(-1);
-  if (/\d/.test(last)) return '013678'.includes(last) ? '을' : '를';
-  return objectParticle(key);
+/**
+ * 이슈 키 뒤 조사 — 「WP-1271 을/이」. 숫자로 끝나면 읽는 소리(일·이·삼…)의 받침으로 고르고,
+ * 아니면 일반 조사 규칙(목적격 objectParticle·주격 subjectParticle)을 따른다.
+ */
+function digitParticle(text: string, withFinal: string, withoutFinal: string): string | null {
+  const last = text.slice(-1);
+  if (!/\d/.test(last)) return null;
+  return '013678'.includes(last) ? withFinal : withoutFinal;
 }
+
+const keyObjectParticle = (text: string) => digitParticle(text, '을', '를') ?? objectParticle(text);
+const keySubjectParticle = (text: string) => digitParticle(text, '이', '가') ?? subjectParticle(text);
 
 /** 확인 창 ①의 종류 — 쉴 때 적용을 지금 하기 / 재시작. */
 type NowConfirm = 'apply' | 'restart' | null;
@@ -197,7 +205,11 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const repoCredentials = useAgentRepoCredentials(agent.id, needsRepos);
   const save = useSaveAgentRuntimeSetting(agent.id);
   const action = useAgentRuntimeAction(agent.id);
+  const acceptMut = useSetAgentAcceptNewWork(agent.id);
   const [nowConfirm, setNowConfirm] = useState<NowConfirm>(null);
+  // 종료 확인 창 — 열릴 때의 이슈 키를 고정해 둔다(폴링으로 키가 비어도 문구가 깨지지 않게). null 이면 닫힘.
+  const [stopConfirm, setStopConfirm] = useState<string[] | null>(null);
+  const confirmKeys = stopConfirm ?? [];
   const [screenOpen, setScreenOpen] = useState(false);
 
   const status = saved?.status ?? 'OFF';
@@ -221,6 +233,14 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   // 확인 창에 적을 현재 이슈 — 여러 칸이 일하면 모두(쉼표로 이음), 조사는 마지막 키 기준. 없으면 null.
   const issueKeys = currentIssueKeys(observed ?? {});
   const issueKey = issueKeys.length > 0 ? issueKeys.join(', ') : null;
+  // 「새 작업 받기」(WP-1514) — 요청 중이면 보낸 값을 바로 보이고(실패하면 진행 중 값이 사라져 저장된 값으로 돌아간다),
+  // 종료된 AI(desired STOP)는 시작할 때 다시 켜지는 값이라 스위치·표시를 두지 않는다.
+  const acceptSwitchShown = saved != null && saved.desired !== 'STOP';
+  const acceptNewWork = acceptMut.isPending ? acceptMut.variables : (saved?.acceptNewWork ?? true);
+  const newWorkPaused = acceptSwitchShown && !acceptNewWork;
+  // 종료하면 끊길 하던 작업 — 상태 알약 옆에 보이는 이슈 키와 같은 값. 없으면 확인 없이 바로 종료한다.
+  const stopKeys = running ? issueKeys : [];
+  const onStop = () => (stopKeys.length > 0 ? setStopConfirm(stopKeys) : action.mutate('stop'));
   // 알약 옆 설명 — 이슈 키·다음 확인·실패 사유가 없을 때 그 상태가 무엇인지 한 줄로.
   const stateNote =
     status === 'STARTING' || (running && observed?.agentState == null)
@@ -290,6 +310,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         <StatusBadge type={pill.type} data-testid="agent-runtime-status">
           {pill.label}
         </StatusBadge>
+        {newWorkPaused && <NewWorkPausedBadge data-testid="agent-new-work-paused" />}
         {detail &&
           (detail.kind === 'issue' ? (
             // 여러 칸이 일하면 현재 이슈를 모두 링크로 — 형식이 아닌 키는 링크 없이 글자만.
@@ -353,6 +374,25 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
               {METRICS_UNAVAILABLE_REASON}
             </p>
           )}
+        </div>
+      )}
+
+      {/* 「새 작업 받기」 스위치(WP-1514) — 끄면 다시 띄우지 않고 하던 일만 마친 뒤 새 이슈를 가져가지 않는다. 종료 전에 끄면 일이 끊기지 않는다. */}
+      {acceptSwitchShown && (
+        <div className="max-w-2xl">
+          <SettingsToggleRow
+            label="새 작업 받기"
+            description="끄면 하던 작업은 마치고, 새 이슈는 가져가지 않아요."
+            data-testid="agent-accept-new-work"
+            control={
+              <Switch
+                checked={acceptNewWork}
+                onCheckedChange={(next) => acceptMut.mutate(next)}
+                disabled={acceptMut.isPending}
+                aria-label="새 작업 받기"
+              />
+            }
+          />
         </div>
       )}
 
@@ -459,7 +499,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
                 재시작
               </Button>
             )}
-            <Button size="sm" variant="outline" disabled={pendingReq} onClick={() => action.mutate('stop')} data-testid="agent-runtime-stop">
+            <Button size="sm" variant="outline" disabled={pendingReq} onClick={onStop} data-testid="agent-runtime-stop">
               종료
             </Button>
           </>
@@ -496,6 +536,33 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
               }}
             >
               {nowConfirm === 'restart' ? '재시작' : '지금 적용'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 종료 확인 창(WP-1514) — 하던 작업이 있을 때만. 종료는 작업 공간을 지우니 끊길 이슈와, 마치게 하는 방법(「새 작업 받기」 끄기)을 알린다. */}
+      <AlertDialog open={stopConfirm != null} onOpenChange={(open) => !open && setStopConfirm(null)}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{agent.name} {keyObjectParticle(agent.name)} 종료할까요?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-1">
+                <p>하던 작업 {confirmKeys.join(', ')} {keySubjectParticle(confirmKeys.at(-1) ?? '')} 끊기고, 작업 공간의 커밋·push 하지 않은 변경은 지워져요.</p>
+                <p>하던 작업을 마치게 하려면 「새 작업 받기」를 먼저 끄세요.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setStopConfirm(null);
+                action.mutate('stop');
+              }}
+            >
+              종료
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

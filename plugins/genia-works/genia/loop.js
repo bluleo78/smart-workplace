@@ -262,7 +262,7 @@ function execCommand(cmd, args, { timeoutMs }) {
  *    identity 'session'(genia, 기본) — $0 을 gw-lib.sh 경로로 넘겨 gw_identity 가 같은 폴더의 gw-session-key 로 이 세션의 선택(/gw-as)을 찾게 한다.
  *    identity 'env'(Codex 구동기) — 구동기의 readKey 처럼 $0 을 sh 로 두어 GENIA_WORKS_AS 만 본다. codex 는 구동기의 자식이지 조상이 아니라
  *    세션 찾기(조상 프로세스)가 엉뚱한 바깥 CLI 세션을 볼 수 있기 때문이다.
- * 2. 상태: gw-status IDLE "" <nextCheckAt> 의 첫 줄이 DRAIN·RESTART 면 { stop: true }, 그 밖(RUN·빈 값)은 { stop: false, reason: 'RUN' }.
+ * 2. 상태: gw-status IDLE "" <nextCheckAt> 의 첫 줄이 DRAIN·RESTART 면 { stop: true }, 그 밖(RUN·HOLD·빈 값)은 { stop: false, reason: 'RUN' }.
  *    nextCheckAt(계속 돌 때 잡을 시각, ISO)을 함께 보고해 서버의 다음 확인 시각을 지우지 않는다(형식 검사는 gw-status 가 한다).
  * 실행 실패·시간 초과(timeoutMs 안에 둘을 모두 끝내야 한다 — 넘긴 명령은 그룹째 끝낸다)는 { stop: false, reason: 'error'|'timeout' } — 멈추지 않는 쪽.
  * 늘 이 시간 안에 답한다(LoopDriver 는 따로 시간 제한을 두지 않는다). exec(cmd, args, { timeoutMs }) → Promise<{ code: number|null, stdout }> 는 테스트용 주입 자리다.
@@ -282,6 +282,7 @@ export async function checkStop({ scriptsDir, nextCheckAt, identity = 'session',
     const st = await exec(scriptsDir + '/gw-status', nextCheckAt ? ['IDLE', '', nextCheckAt] : ['IDLE'], { timeoutMs: left() })
     if (st.code === null) return failed()
     const desired = String(st.stdout ?? '').split(/\r?\n/)[0].trim()
+    // HOLD(새 작업만 받지 않음, WP-1514)는 하던 일을 계속하므로 RUN 처럼 멈추지 않는다.
     if (desired === 'DRAIN' || desired === 'RESTART') return { stop: true, reason: desired }
     return { stop: false, reason: 'RUN' }
   } catch {

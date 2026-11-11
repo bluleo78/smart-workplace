@@ -117,6 +117,8 @@ export interface AgentRuntimeSetting {
   generation: number;
   status: AgentRuntimeStatus;
   observed: AgentObservedState | null;
+  /** 「새 작업 받기」(WP-1514) — false 면 하던 일은 마치고 대기열에서 새 이슈를 가져가지 않는다. 시작할 때 true 로 돌아간다. */
+  acceptNewWork: boolean;
 }
 
 export interface PutAgentRuntimeSettingRequest {
@@ -141,6 +143,8 @@ export interface AgentRuntimeSummary {
   /** 실제 실행 위치 이름 — 지정한 위치, 미지정이면 기본 위치의 이름(WP-1513, 기본 위치도 이름이 온다). 기본 위치가 없으면 null. */
   locationName: string | null;
   message: string | null;
+  /** 「새 작업 받기」(WP-1514) — false 면 상태 칸에 「새 작업 안 받음」. 옛 서버 응답엔 없을 수 있다. */
+  acceptNewWork?: boolean;
 }
 
 /** AI 한 명의 저장소 토큰(WP-1268) — 호스트마다 하나. 토큰 원문은 서버가 돌려주지 않는다. */

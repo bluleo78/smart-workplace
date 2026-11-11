@@ -43,6 +43,16 @@ test('work-loop SKILL.md 는 상태 보고(gw-status IDLE)가 후보 고르기(l
   assertBefore(text, '\n### 5. 다음 확인\n', '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE "" <다음 확인 시각(ISO-8601)>`');
 });
 
+test('work-loop SKILL.md 는 HOLD(새 작업 받지 않음)와 claim_issue 의 NEW_WORK_PAUSED 거절을 다룬다 (WP-1514)', () => {
+  const text = body(workLoop('SKILL.md'));
+  assert.match(text, /^- `HOLD`:[^\n]*새 작업을 받지 않는다/m);
+  assert.ok(text.includes('지금 새 작업을 받지 않아 시작하지 않습니다'));
+  assert.ok(text.includes('새 작업 받지 않음 — 시작하지 않은 이슈'));
+  assert.match(text, /`NEW_WORK_PAUSED`[^\n]*할 일 없음/);
+  // GW-NEXT-CHECK none 조건은 DRAIN·RESTART 만 — HOLD 는 다음 확인을 RUN 처럼 잡는다.
+  assert.ok(!/`HOLD`[^\n]*GW-NEXT-CHECK none/.test(text));
+});
+
 test('process-issue.md 에서 「브랜치 라이브 검증」이 「PR」보다 먼저 나온다', () => {
   // 검증에 실패한 변경을 PR 로 올리면 검토자가 그것을 머지할 수 있다.
   assertBefore(workLoop('process-issue.md'), '\n### 8. 브랜치 라이브 검증\n', '\n### 9. PR\n');

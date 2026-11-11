@@ -14,6 +14,7 @@ import java.util.List;
  * @param agentIssueKeys 현재 이슈 키 모두 — 칸 키 순(WP-1409, 보고 없으면 빈 목록)
  * @param locationName 실제 실행 위치 이름 — 지정한 위치, 미지정이면 워크스페이스 기본 위치의 이름(WP-1513, 기본 위치도 이름을 싣는다). 기본 위치가
  *     없으면 null
+ * @param acceptNewWork 새 작업을 받는지(WP-1514) — false 면 하던 작업만 마치는 중
  * @param message runner 가 보고한 관찰 메시지(예: 실패 이유, 없으면 null)
  */
 public record AgentRuntimeSummaryResponse(
@@ -26,4 +27,5 @@ public record AgentRuntimeSummaryResponse(
     List<String> agentIssueKeys,
     OffsetDateTime agentNextCheckAt,
     String locationName,
-    String message) {}
+    String message,
+    boolean acceptNewWork) {}

@@ -613,7 +613,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Takes a queued issue for you: if it carries queueLabel and has no AI assignee, adds you as assignee (people stay) and removes that label, ' +
-        'atomically. Refused (code NOT_IN_QUEUE / AI_ALREADY_ASSIGNED) if another AI got it first.',
+        'atomically. Refused (code NOT_IN_QUEUE / AI_ALREADY_ASSIGNED) if another AI got it first, or NEW_WORK_PAUSED if you are set not to accept new work.',
       inputSchema: claimIssueInput,
       async handler(args) {
         const { issueKey, queueLabel } = claimIssueInput.parse(args);
