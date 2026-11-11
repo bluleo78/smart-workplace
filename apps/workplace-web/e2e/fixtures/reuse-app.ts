@@ -59,6 +59,8 @@ export function setReusedStorage(page: Page, key: string, value: string) {
 }
 
 // 문서 시작부터 손대는 API — 부르면 이번 테스트는 더럽힘.
+// setContent 처럼 문서를 통째로 덮는 것은 일부러 넣지 않는다 — 컨텍스트는 멀쩡해 버릴 까닭이 없고, 아래 goto 가
+// 다시 띄울 앱이 문서에 없음을 보고 같은 컨텍스트에서 문서를 새로 연다(WP-1516).
 const DIRTY_PAGE_METHODS = ['addInitScript', 'exposeFunction', 'exposeBinding', 'emulateMedia', 'setExtraHTTPHeaders', 'routeWebSocket'] as const
 const DIRTY_CLOCK_METHODS = ['install', 'setFixedTime', 'setSystemTime', 'fastForward', 'runFor', 'pauseAt', 'resume'] as const
 const DIRTY_CONTEXT_METHODS = [
@@ -134,20 +136,26 @@ async function createSlot(
   }
 
   // goto — 앱이 이미 뜬 문서면 다시 띄우기, 아니면(첫 테스트·더럽힘) 실제로 연다.
+  // 앞 테스트가 setContent·document.write 로 문서를 덮었거나 data:·다른 출처로 이동했으면 다시 띄울 앱이 없다(WP-1516) —
+  // __e2eRemount 가 없거나(다른 문서) false(옛 root 가 문서에서 떨어짐)를 돌리면 아래로 내려가 같은 컨텍스트에서 문서를 실제로 연다.
+  // 컨텍스트 상태(쿠키·권한 등)는 그대로라 버리지 않는다.
   const originalGoto = page.goto.bind(page)
   page.goto = async (url, options) => {
     const target = new URL(url, use.baseURL)
     const sameOrigin = target.origin === new URL(use.baseURL ?? target.origin).origin
     if (slot.booted && !slot.dirty && sameOrigin && !page.url().startsWith('about:')) {
-      await page.evaluate(
-        ([path, storage]) =>
-          (window as unknown as { __e2eRemount: (p: string, s: Record<string, string> | null) => Promise<void> }).__e2eRemount(path, storage),
+      const remounted = await page.evaluate(
+        async ([path, storage]) =>
+          (await (window as unknown as { __e2eRemount?: (p: string, s: Record<string, string> | null) => Promise<boolean> }).__e2eRemount?.(path, storage)) ?? false,
         [target.pathname + target.search + target.hash, slot.navigated ? null : slot.storage] as const,
       )
-      slot.navigated = true
-      slot.remounted = true
-      stats.remount++
-      return null
+      if (remounted) {
+        slot.navigated = true
+        slot.remounted = true
+        stats.remount++
+        return null
+      }
+      if (process.env.E2E_REUSE_DEBUG) console.log('[e2e reuse] remount skipped — document replaced, opening fresh')
     }
     // 테스트의 첫 이동일 때만 저장소 시작 값을 넘긴다 — 두 번째부터는 새로고침처럼 저장소를 그대로 둔다.
     // 앞 테스트가 이 출처에 남긴 저장소는 이동 전에 비운다(새 탭이면 비어 있다).
