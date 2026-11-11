@@ -1714,6 +1714,11 @@ test('gwEvents_lockFile_secondInstanceExitsSilently', async () => {
   }
 });
 
+/** run 이 화면용으로 띄운 기록 따라가기(tail -F events.log, WP-1498)가 이 테스트의 AI 폴더에 남아 있으면 그 pid — run 이 끝난 뒤 비어야 한다.
+ * 고아는 init 의 자식이 되어 pgrep -P 로는 못 찾으므로 명령줄로 찾는다(가짜 HOME 폴더 이름은 테스트마다 다르다). */
+const eventsTails = () =>
+  spawnSync('pgrep', ['-f', `tail .*-F .*${basename(dirname(home))}/home/agents/kodi/state/events.log`], { encoding: 'utf8' }).stdout.trim();
+
 /**
  * agent-events 를 띄우고 during(지금까지의 출력을 읽는 함수)을 마친 뒤, done(출력)이 참이 될 때까지(늦어도 deadlineMs) 기다렸다가
  * SIGTERM 으로 끝낸다 — 고정 시간 대신 조건을 기다려 부하가 걸려도 결과가 같게 한다. 남은 자식이 없는지도 본다.
@@ -1780,9 +1785,16 @@ test('agentEvents_run_appendsWakeLinesAndReconnects', async () => {
     const expected = 'wake WP-1 ISSUE_CHAT_MENTION\nwake WD-2 ISSUE_CHAT_MENTION\nwake - reconnect\nwake WP-3 ISSUE_CHAT_MENTION\n';
     const read = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8') : '');
     // 칸이 없는 프로젝트를 여는 open(WP-1272)은 tmux 를 못 읽으면 아무것도 하지 않는다 — 사람의 tmux 를 건드리지 않게 없는 tmux 를 준다.
-    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url, GW_TMUX: '/nonexistent/tmux' }, { done: () => read().startsWith(expected) });
-    assert.equal(r.out, '');
+    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url, GW_TMUX: '/nonexistent/tmux' }, {
+      done: (out) => read().startsWith(expected) && /^\d\d:\d\d:\d\d wake WP-3 /m.test(out),
+    });
     assert.equal(r.orphans, '');
+    // 감시 창(알림 탭) 화면 — 안내 줄과, 기록에 쓴 줄을 시각(HH:MM:SS)을 붙여 그대로 보인다(WP-1498).
+    assert.match(r.out, /^알림 감시 — 받은 알림과 칸 깨우기 기록$/m);
+    for (const line of expected.trim().split('\n')) assert.match(r.out, new RegExp(`^\\d\\d:\\d\\d:\\d\\d ${line}$`, 'm'), r.out);
+    assert.ok(!r.out.includes('ak_FAKE_KODI'));
+    assert.equal(eventsTails(), '');
+    // 기록 파일의 모양은 그대로다(시각을 붙이지 않는다 — agent-events tail 이 읽는다).
     const log = read();
     assert.ok(log.startsWith(expected), log);
     assert.ok(!log.includes('ak_FAKE_KODI'));
@@ -1812,6 +1824,49 @@ test('agentEvents_run_marksReconnectWhenWatcherRestarts', async () => {
     });
     assert.equal(read(), 'wake - reconnect\n');
     assert.equal(r.orphans, '');
+  } finally {
+    srv.close();
+  }
+});
+
+// WP-1498 — 감시 창을 처음 열면 안내와 최근 기록이 보이고, 기록을 1MB 에서 넘긴 뒤에도 새 줄이 화면에 계속 나온다.
+test('agentEvents_run_showsRecentLinesAndKeepsFollowingAfterRotation', async () => {
+  const d = aiDir();
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  const logFile = join(d, 'state', 'events.log');
+  mkdirSync(join(d, 'state'), { recursive: true });
+  // 1MB 를 막 넘기기 직전까지 채운다 — 첫 wake 줄이 넘기기(events.log → events.log.1)를 일으킨다.
+  // 1,048,560 바이트 — 넘기기 기준(1,048,576)보다 16 작고, 첫 wake 줄(29바이트)을 쓰면 넘는다.
+  const filler = `${'x'.repeat(99)}\n`.repeat(10485) + `${'y'.repeat(30)}\n`;
+  writeFileSync(logFile, `${filler}open WP started\npoke WP sent\n`);
+  assert.equal(statSync(logFile).size, 1048560);
+  const srv = await fakeEventRounds([[mention('WP-1')], [mention('WP-3')]]);
+  try {
+    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url, GW_TMUX: '/nonexistent/tmux' }, {
+      done: (out) => /^\d\d:\d\d:\d\d wake WP-3 /m.test(out),
+    });
+    assert.equal(r.orphans, '');
+    assert.equal(eventsTails(), '');
+    const lines = r.out.split('\n');
+    // 시작 화면 — 안내 줄 다음에 최근 기록(시각을 모르니 --:--:--)이 이어진다.
+    assert.equal(lines[0], '알림 감시 — 받은 알림과 칸 깨우기 기록');
+    assert.ok(lines.includes('--:--:-- open WP started'), r.out);
+    assert.ok(lines.includes('--:--:-- poke WP sent'), r.out);
+    assert.ok(lines.indexOf('--:--:-- poke WP sent') < lines.findIndex((l) => / wake WP-1 /.test(l)), r.out);
+    // 최근 줄은 한 번만 — 따라가기가 시작 확인용으로 다시 읽는 마지막 줄은 시각을 붙여 또 내지 않는다.
+    assert.equal(lines.filter((l) => l.endsWith(' poke WP sent')).length, 1, r.out);
+    // 넘긴 뒤 새 파일에 쓴 줄(다시 붙음·WP-3)도 화면에 나온다.
+    assert.match(r.out, /^\d\d:\d\d:\d\d wake WP-1 ISSUE_CHAT_MENTION$/m);
+    assert.match(r.out, /^\d\d:\d\d:\d\d wake - reconnect$/m);
+    assert.match(r.out, /^\d\d:\d\d:\d\d wake WP-3 ISSUE_CHAT_MENTION$/m);
+    assert.ok(existsSync(`${logFile}.1`));
+    // 새 파일에는 넘긴 뒤의 줄만 있다 — 기록 모양은 그대로(시각 없음).
+    const fresh = readFileSync(logFile, 'utf8');
+    assert.match(fresh, /^wake - reconnect$/m);
+    assert.match(fresh, /^wake WP-3 ISSUE_CHAT_MENTION$/m);
+    assert.ok(!fresh.includes('xxxx') && !/^\d\d:/m.test(fresh), fresh);
+    assert.match(readFileSync(`${logFile}.1`, 'utf8'), /^wake WP-1 ISSUE_CHAT_MENTION$/m);
+    assert.ok(!r.out.includes('ak_FAKE_KODI'));
   } finally {
     srv.close();
   }
@@ -2551,10 +2606,23 @@ tmuxTest('agentEvents_run_pokesIdlePaneOnWake', async (t) => {
   const srv = await fakeEventRounds([[mention('WP-1')]]);
   try {
     // WP 알림은 WP 칸만 깨운다 — HR 칸은 그대로.
-    await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url, GW_TMUX: wrapper, GW_POKE_FRESH_SEC: '0' }, { done: () => wp.typed().includes('\n') });
-    assert.equal(wp.typed(), `${LOOP}\n`);
-    assert.equal(hr.typed(), '');
+    // WP 칸이 깨어난 그때의 두 칸을 본다 — 알림 서버가 연결을 끊으면 곧 「다시 붙음」이 모든 칸을 깨우므로 화면 줄을 기다린 뒤에는 늦다.
+    let typedAtWake;
+    const r = await runAgentEvents(['run', d], { GENIA_WORKS_API_URL: srv.url, GW_TMUX: wrapper, GW_POKE_FRESH_SEC: '0' }, {
+      during: async () => {
+        for (let i = 0; i < 300 && !wp.typed().includes('\n'); i++) await new Promise((res) => setTimeout(res, 100));
+        typedAtWake = { wp: wp.typed(), hr: hr.typed() };
+      },
+      done: (out) => /^\d\d:\d\d:\d\d poke WP sent$/m.test(out),
+    });
+    assert.equal(typedAtWake.wp, `${LOOP}\n`);
+    assert.equal(typedAtWake.hr, '');
     assert.match(log(), /^wake WP-1 ISSUE_CHAT_MENTION$/m);
+    assert.match(log(), /^poke WP sent$/m);
+    // 깨우기 결과(poke 줄)도 감시 창 화면에 시각과 함께 나온다(WP-1498).
+    assert.match(r.out, /^\d\d:\d\d:\d\d wake WP-1 ISSUE_CHAT_MENTION$/m);
+    assert.match(r.out, /^\d\d:\d\d:\d\d poke WP sent$/m);
+    assert.ok(!r.out.includes('ak_FAKE_KODI'));
   } finally {
     srv.close();
   }

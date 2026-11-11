@@ -11,6 +11,9 @@
 #   gw-events 는 스스로 다시 붙으므로(끊긴 사이는 「wake - reconnect」) 여기서 다시 띄우는 것은 gw-events 가 끝났을 때뿐이다 —
 #   「gw-events: …」 줄(AI 키 신원 아님·인증 실패)로 끝났으면 5분 쉬고, 그 밖이면 1초부터 30초까지 늘려 가며 쉰다.
 #   gw-events 는 <AI 폴더>/state/events.pid 로 잠가 하나만 돈다. 로그가 1MB 를 넘으면 events.log.1 로 넘기고 새로 쓴다.
+#   감시 창은 AI 작업 화면의 「알림」 탭이다(WP-1498) — 기록 파일에만 쓰면 탭이 늘 비어 있었다. 그래서 시작할 때 안내 줄과 최근 기록을 보이고,
+#   events.log 를 따라가며(tail -F — 넘긴 뒤 새 파일도) 쓰인 모든 줄(wake·gw-events·poke·open·다시 붙음)을 「HH:MM:SS 줄」로 화면에 낸다.
+#   최근 기록 줄은 언제 쓰였는지 모르므로 「--:--:--」를 붙인다. 기록 파일의 모양은 바꾸지 않는다(tail 이 읽는다).
 # agent-events tail <AI 폴더> <프로젝트 키[,키…]> — work-loop 의 Monitor 가 거는 명령. ensure 를 한 번 부른 뒤 events.log 를 지금 끝부터
 #   따라가며 그 프로젝트의 「wake <키>-…」 줄과 「wake - …」(다시 붙음) 줄만 낸다. 감시 연결은 창이 들고 있으므로 이 명령이 끝나도 끊기지 않는다.
 # agent-events open <AI 폴더> <프로젝트 키> — 칸이 없는 프로젝트의 알림이 오면 run 이 뒤에서 부른다(WP-1272). 정기 「새 프로젝트 확인」(work-loop,
@@ -126,6 +129,61 @@ kill_children_on_exit() {
   trap 'exit 143' TERM INT HUP
 }
 
+# 감시 창 화면(WP-1498) — 안내 줄과 최근 기록을 보인 뒤, 기록 파일을 뒤에서 따라가며 새 줄마다 지금 시각(HH:MM:SS)을 붙여 낸다.
+# 따라가기는 run 이 한 번만 띄운다(gw-events 를 다시 띄우거나 쉬는 동안에도 계속 보인다). tail 과 읽는 쪽 모두 run 의 직접 자식이라
+# run 이 끝나거나 창을 다시 띄우면 kill_children_on_exit 이 함께 끝낸다(고아가 남지 않는다).
+# 키는 기록에 없으므로(gw-events 가 표준 입력으로만 쓴다) 화면에도 나오지 않는다.
+show_log() {
+  : >> "$log" || return 0
+  echo '알림 감시 — 받은 알림과 칸 깨우기 기록'
+  echo "($name · 기록 파일 state/events.log · 최근 줄은 시각을 몰라 --:--:--)"
+  # 크기 한 번(바이트)을 기준으로 최근 줄과 따라가기 시작점을 함께 정한다 — 따로 세면 그 사이 덧붙은 줄이 두 번 나온다.
+  bytes=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
+  case $bytes in
+    '' | *[!0-9]*)
+      # 크기를 못 읽었다 — 기록 전체를 지금 시각으로 쏟지 않게 지금 끝부터 새 줄만 따라간다.
+      follow_log -n 0 0
+      return 0
+      ;;
+  esac
+  head -c "$bytes" "$log" | tail -n 10 | sed 's/^/--:--:-- /'
+  # 따라가기는 마지막 줄을 한 번 더 읽고(화면에는 내지 않는다) 시작한다 — 그 줄을 읽었다는 것은 tail 이 지금 파일(넘기기 전)을
+  # 열었다는 뜻이다. 기록을 넘기는 것은 이 run 의 gw-events 루프뿐이므로, 그 줄을 읽을 때까지 루프에 들어가지 않으면
+  # tail 이 넘긴 뒤의 새 파일에 옛 시작점을 써 줄을 숨기는 일이 없다.
+  last=$(head -c "$bytes" "$log" | tail -n 1 | wc -c | tr -d ' ')
+  if [ "$bytes" -eq 0 ] || [ "${last:-0}" -eq 0 ]; then
+    follow_log -c +1 0
+    return 0
+  fi
+  ready="$state/.view-ready.$$"
+  rm -f "$ready"
+  follow_log -c "+$((bytes - last + 1))" 1 "$ready"
+  # 늦어도 5초 — 따라가기가 죽었어도 감시는 계속한다.
+  n=0
+  while [ ! -f "$ready" ] && [ "$n" -lt 50 ]; do
+    sleep 0.1
+    n=$((n + 1))
+  done
+  rm -f "$ready"
+}
+
+# follow_log <tail 위치 옵션> <값> <앞에서 버릴 줄 수> [<버린 뒤 만들 표시 파일>] — 기록을 뒤에서 따라가며 줄마다 시각을 붙여 낸다.
+# -F 라 1MB 를 넘겨 이름을 넘긴 뒤에도 새 events.log 를 처음부터 따라간다.
+follow_log() {
+  tail "$1" "$2" -F "$log" 2>/dev/null | {
+    skip=$3
+    [ "$skip" -gt 0 ] || { [ -z "${4:-}" ] || : > "$4"; }
+    while IFS= read -r line; do
+      if [ "$skip" -gt 0 ]; then
+        skip=$((skip - 1))
+        [ "$skip" -gt 0 ] || : > "$4"
+        continue
+      fi
+      printf '%s %s\n' "$(date +%H:%M:%S)" "$line"
+    done
+  } &
+}
+
 do_run() {
   mkdir -p "$state" || exit 1
   # 감시 창은 모델 로그인이 필요 없다 — 예전(0.1.34 이하) tmux 서버가 토큰 있는 셸에서 떠 물려준 토큰이 있으면, 여기서 부르는
@@ -136,6 +194,7 @@ do_run() {
   # 안전장치(WP-1427) — 알림이 없어도 오래 쉬는 칸을 깨운다. 감시 창이 (오래) 죽었다 살아났으면 지난 idle 기록은 믿을 수 없다 —
   # 모두 지워 지금부터 1시간을 센다(살아나자마자 한꺼번에 깨우지 않게).
   rm -f "$state"/idle-*
+  show_log
   # 따로 된 프로세스로 띄운다 — 자기 $$ 로 자식(sweep·poke)을 끝낼 수 있게(하위 셸의 $$ 는 run 의 것이라 그 자식을 못 찾는다).
   # 이 프로세스는 run 의 자식이라 감시 창이 끝나면 kill_children_on_exit 이 신호를 보내고, 그러면 sweep-loop 가 자기 자식을 끝낸다.
   "$here/agent-events" sweep-loop "$aidir" </dev/null >/dev/null 2>&1 &
