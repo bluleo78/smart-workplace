@@ -328,6 +328,7 @@ public class Indexes {
     public static final Index IDX_ISSUE_CYCLE_TENANT = Internal.createIndex(DSL.name("idx_issue_cycle_tenant"), IssueCycle.ISSUE_CYCLE, new OrderField[] { IssueCycle.ISSUE_CYCLE.TENANT_ID }, false);
     public static final Index IDX_ISSUE_DEP_BLOCKS = Internal.createIndex(DSL.name("idx_issue_dep_blocks"), IssueDependency.ISSUE_DEPENDENCY, new OrderField[] { IssueDependency.ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID }, false);
     public static final Index IDX_ISSUE_DEPENDENCY_TENANT = Internal.createIndex(DSL.name("idx_issue_dependency_tenant"), IssueDependency.ISSUE_DEPENDENCY, new OrderField[] { IssueDependency.ISSUE_DEPENDENCY.TENANT_ID }, false);
+    public static final Index IDX_ISSUE_DONE_CLOSED = Internal.createIndex(DSL.name("idx_issue_done_closed"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.CLOSED_AT }, false);
     public static final Index IDX_ISSUE_EXTERNAL_LINK_ISSUE = Internal.createIndex(DSL.name("idx_issue_external_link_issue"), IssueExternalLink.ISSUE_EXTERNAL_LINK, new OrderField[] { IssueExternalLink.ISSUE_EXTERNAL_LINK.ISSUE_ID }, false);
     public static final Index IDX_ISSUE_EXTERNAL_LINK_TENANT = Internal.createIndex(DSL.name("idx_issue_external_link_tenant"), IssueExternalLink.ISSUE_EXTERNAL_LINK, new OrderField[] { IssueExternalLink.ISSUE_EXTERNAL_LINK.TENANT_ID }, false);
     public static final Index IDX_ISSUE_EXTERNAL_LINK_TYPE = Internal.createIndex(DSL.name("idx_issue_external_link_type"), IssueExternalLink.ISSUE_EXTERNAL_LINK, new OrderField[] { IssueExternalLink.ISSUE_EXTERNAL_LINK.TYPE_ID }, false);
@@ -339,6 +340,7 @@ public class Indexes {
     public static final Index IDX_ISSUE_LABEL_TENANT = Internal.createIndex(DSL.name("idx_issue_label_tenant"), IssueLabel.ISSUE_LABEL, new OrderField[] { IssueLabel.ISSUE_LABEL.TENANT_ID }, false);
     public static final Index IDX_ISSUE_MILESTONE = Internal.createIndex(DSL.name("idx_issue_milestone"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.MILESTONE_ID }, false);
     public static final Index IDX_ISSUE_PARENT = Internal.createIndex(DSL.name("idx_issue_parent"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PARENT_ISSUE_ID }, false);
+    public static final Index IDX_ISSUE_PROJECT_CLOSED = Internal.createIndex(DSL.name("idx_issue_project_closed"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.CLOSED_AT }, false);
     public static final Index IDX_ISSUE_PROJECT_STATUS_ID_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_id_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS_ID, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_PROJECT_STATUS_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_RECURRENCE_AGENT = Internal.createIndex(DSL.name("idx_issue_recurrence_agent"), IssueRecurrence.ISSUE_RECURRENCE, new OrderField[] { IssueRecurrence.ISSUE_RECURRENCE.AGENT_USER_ID }, false);
@@ -351,6 +353,7 @@ public class Indexes {
     public static final Index IDX_ISSUE_RELATION_TARGET = Internal.createIndex(DSL.name("idx_issue_relation_target"), IssueRelation.ISSUE_RELATION, new OrderField[] { IssueRelation.ISSUE_RELATION.TARGET_ISSUE_ID }, false);
     public static final Index IDX_ISSUE_RELATION_TENANT = Internal.createIndex(DSL.name("idx_issue_relation_tenant"), IssueRelation.ISSUE_RELATION, new OrderField[] { IssueRelation.ISSUE_RELATION.TENANT_ID }, false);
     public static final Index IDX_ISSUE_RELATION_TYPE_TENANT = Internal.createIndex(DSL.name("idx_issue_relation_type_tenant"), IssueRelationType.ISSUE_RELATION_TYPE, new OrderField[] { IssueRelationType.ISSUE_RELATION_TYPE.TENANT_ID }, false);
+    public static final Index IDX_ISSUE_REPORTER_CREATED = Internal.createIndex(DSL.name("idx_issue_reporter_created"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.REPORTER_ID, Issue.ISSUE.CREATED_AT }, false);
     public static final Index IDX_ISSUE_SOURCE = Internal.createIndex(DSL.name("idx_issue_source"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.SOURCE_TYPE, Issue.ISSUE.SOURCE_ID }, false);
     public static final Index IDX_ISSUE_TENANT = Internal.createIndex(DSL.name("idx_issue_tenant"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.TENANT_ID }, false);
     public static final Index IDX_ISSUE_TYPE = Internal.createIndex(DSL.name("idx_issue_type"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.TYPE_ID }, false);
