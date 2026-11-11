@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -211,7 +212,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
 
   /** 개인 비서 anthropic 자격증명 등록(구독 토큰). 등록 시 model 은 기본값(AssistantDefaults.MODEL)으로 채워진다. */
   private void registerMyAnthropic(Long human, String token) throws Exception {
-    var creReq = new RegisterAssistantCredentialRequest(null, token, null, null, "내 토큰");
+    var creReq = new RegisterAssistantCredentialRequest(null, token, null, null, "내 토큰", null);
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
@@ -225,7 +226,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     Long human = createHumanUserForTest("USER");
     String token = "sk-ant-oat01-" + "X".repeat(64);
     registerMyAnthropic(human, token);
-    when(modelsClient.listAnthropicModels(token))
+    when(modelsClient.listAnthropicModels(token, null))
         .thenReturn(
             List.of(
                 new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5"),
@@ -237,14 +238,57 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.models.length()").value(2))
         .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"))
         .andExpect(jsonPath("$.models[0].label").value("Claude Sonnet 5.5"));
-    verify(modelsClient).listAnthropicModels(token);
+    verify(modelsClient).listAnthropicModels(token, null);
+  }
+
+  @Test // WP-1496: 사용자 API 키(sk-ant-usr) 연결은 저장된 워크스페이스 ID 를 함께 넘겨 조회한다
+  void 개인비서_사용자API키_모델목록_워크스페이스ID_전달() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    String token = "sk-ant-usr01-" + "X".repeat(40);
+    mvc.perform(
+            put("/api/v1/users/me/assistant/credential")
+                .with(authentication(authWith(human)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("token", token, "workspaceId", "wrkspc_models"))))
+        .andExpect(status().isNoContent());
+    when(modelsClient.listAnthropicModels(token, "wrkspc_models"))
+        .thenReturn(List.of(new ModelOption("claude-opus-5-5", "Claude Opus 5.5")));
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        // 맨 앞은 저장된 기본 모델(목록에 없어 덧붙임), 그다음이 실시간 조회 결과.
+        .andExpect(jsonPath("$.models[1].id").value("claude-opus-5-5"));
+    verify(modelsClient).listAnthropicModels(token, "wrkspc_models");
+  }
+
+  @Test // WP-1496: 묶인 계정의 워크스페이스 ID 도 모델 조회에 실린다
+  void 관리자_AGENT_묶인_사용자API키_계정_워크스페이스ID_전달() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUserWithMembership("models-usr-account");
+    String token = "sk-ant-usr01-" + "A".repeat(40);
+    when(podAccountSource.findBoundRefs(List.of(agent)))
+        .thenReturn(
+            Map.of(
+                agent,
+                new PodAccountSource.BoundRef(new ActiveCredentialRef(7L, "anthropic"), 1L)));
+    when(podAccountSource.findBoundSecret(agent))
+        .thenReturn(Optional.of(new ActiveProviderSecret(7L, "anthropic", token, "wrkspc_bound")));
+    when(modelsClient.listAnthropicModels(token, "wrkspc_bound"))
+        .thenReturn(List.of(new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5")));
+
+    adminModels(admin, agent)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"));
+    verify(modelsClient).listAnthropicModels(token, "wrkspc_bound");
   }
 
   @Test // #873: 실시간 조회 실패는 502 가 아니라 정적 목록 폴백(드롭다운이 비어 설정이 막히지 않게)
   void 개인비서_anthropic_실시간조회_실패시_정적목록_폴백() throws Exception {
     Long human = createHumanUserForTest("USER");
     registerMyAnthropic(human, "X".repeat(64));
-    when(modelsClient.listAnthropicModels(any()))
+    when(modelsClient.listAnthropicModels(any(), any()))
         .thenThrow(new AssistantModelsProbeException("down"));
 
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
@@ -268,7 +312,8 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"));
-    verifyNoInteractions(modelsClient);
+    // 모델 조회는 하지 않는다 — 등록 때의 키 확인(WP-1496)은 별개라 목록 조회만 본다.
+    verify(modelsClient, never()).listAnthropicModels(any(), any());
   }
 
   @Test // #873: 저장된 모델(별칭 등)이 목록에 없으면 맨 앞에 덧붙여 드롭다운이 현재값을 빈칸으로 표시하지 않게
@@ -281,7 +326,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"model\":\"claude-haiku-4-5\"}"))
         .andExpect(status().is2xxSuccessful());
-    when(modelsClient.listAnthropicModels(any()))
+    when(modelsClient.listAnthropicModels(any(), any()))
         .thenReturn(List.of(new ModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5")));
 
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
@@ -302,7 +347,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"" + token + "\",\"label\":\"t\"}"))
         .andExpect(status().isCreated());
-    when(modelsClient.listAnthropicModels(token))
+    when(modelsClient.listAnthropicModels(token, null))
         .thenReturn(List.of(new ModelOption("claude-opus-5-5", "Claude Opus 5.5")));
 
     // 요청 필터 체인이 끝나면 TenantContext 가 비워진다 — 관리자 경로의 구성원 검사(WP-703)가 테넌트를 보므로 다시 맞춘다.
@@ -322,7 +367,8 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         new ProviderConfig(
             "bedrock", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
     var creReq =
-        new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
+        new RegisterAssistantCredentialRequest(
+            "opencode", null, config, "gpt-4.1", "opencode", null);
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
@@ -346,7 +392,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
   void 개인비서_anthropic_efforts_전달() throws Exception {
     Long human = createHumanUserForTest("USER");
     registerMyAnthropic(human, "X".repeat(64));
-    when(modelsClient.listAnthropicModels(any()))
+    when(modelsClient.listAnthropicModels(any(), any()))
         .thenReturn(
             List.of(
                 new ModelOption(
@@ -364,7 +410,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
   void 개인비서_anthropic_정적폴백_efforts_null() throws Exception {
     Long human = createHumanUserForTest("USER");
     registerMyAnthropic(human, "X".repeat(64));
-    when(modelsClient.listAnthropicModels(any()))
+    when(modelsClient.listAnthropicModels(any(), any()))
         .thenThrow(new AssistantModelsProbeException("down"));
 
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
@@ -385,7 +431,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 .content(
                     objectMapper.writeValueAsString(
                         new RegisterAssistantCredentialRequest(
-                            "opencode", null, config, "bedrock/gpt-5", "opencode"))))
+                            "opencode", null, config, "bedrock/gpt-5", "opencode", null))))
         .andExpect(status().isNoContent());
     when(modelsClient.probeModels(any(), eq(true)))
         .thenReturn(List.of(new ModelOption("gpt-5", "gpt-5", List.of("LOW", "MEDIUM", "HIGH"))));
@@ -422,7 +468,8 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         new ProviderConfig(
             "bedrock", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
     var creReq =
-        new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
+        new RegisterAssistantCredentialRequest(
+            "opencode", null, config, "gpt-4.1", "opencode", null);
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
@@ -455,7 +502,8 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
         new ProviderConfig(
             "bedrock", null, Map.of("baseURL", "http://api.openai.com/v1", "apiKey", "sk-xxxx"));
     var creReq =
-        new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
+        new RegisterAssistantCredentialRequest(
+            "opencode", null, config, "gpt-4.1", "opencode", null);
 
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
@@ -474,7 +522,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     String token = "A".repeat(64);
     long account =
         accountService
-            .register(admin, new AgentAccountRequest("anthropic", token, null, "팀 구독", null))
+            .register(admin, new AgentAccountRequest("anthropic", token, null, "팀 구독", null, null))
             .id();
     long secretVersion = accounts.findActive(account).orElseThrow().secretVersion();
     // 묶음 참조는 실재하는 계정을 가리키고, 원문은 복호화된 것처럼 넘긴다(조회 방향만 본다).
@@ -485,15 +533,15 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 new PodAccountSource.BoundRef(
                     new ActiveCredentialRef(secretVersion, "anthropic"), 1L)));
     when(podAccountSource.findBoundSecret(agent))
-        .thenReturn(Optional.of(new ActiveProviderSecret(secretVersion, "anthropic", token)));
-    when(modelsClient.listAnthropicModels(eq(token)))
+        .thenReturn(Optional.of(new ActiveProviderSecret(secretVersion, "anthropic", token, null)));
+    when(modelsClient.listAnthropicModels(eq(token), isNull()))
         .thenReturn(List.of(new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5")));
 
     adminModels(admin, agent)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.provider").value("anthropic"))
         .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"));
-    verify(modelsClient).listAnthropicModels(eq(token));
+    verify(modelsClient).listAnthropicModels(eq(token), isNull());
   }
 
   @Test // 옛 연결과 계정이 둘 다 있으면 계정이 이긴다.
@@ -504,7 +552,8 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     String credentialToken = "B".repeat(64);
     long account =
         accountService
-            .register(admin, new AgentAccountRequest("anthropic", accountToken, null, "팀 구독", null))
+            .register(
+                admin, new AgentAccountRequest("anthropic", accountToken, null, "팀 구독", null, null))
             .id();
     long secretVersion = accounts.findActive(account).orElseThrow().secretVersion();
     when(podAccountSource.findBoundRefs(List.of(agent)))
@@ -515,7 +564,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                     new ActiveCredentialRef(secretVersion, "anthropic"), 1L)));
     when(podAccountSource.findBoundSecret(agent))
         .thenReturn(
-            Optional.of(new ActiveProviderSecret(secretVersion, "anthropic", accountToken)));
+            Optional.of(new ActiveProviderSecret(secretVersion, "anthropic", accountToken, null)));
     mvc.perform(
             post("/api/v1/admin/agents/" + agent + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
@@ -524,17 +573,17 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                     objectMapper.writeValueAsString(
                         Map.of("token", credentialToken, "label", "t"))))
         .andExpect(status().isCreated());
-    when(modelsClient.listAnthropicModels(eq(accountToken)))
+    when(modelsClient.listAnthropicModels(eq(accountToken), isNull()))
         .thenReturn(List.of(new ModelOption("claude-account", "Account")));
-    when(modelsClient.listAnthropicModels(eq(credentialToken)))
+    when(modelsClient.listAnthropicModels(eq(credentialToken), isNull()))
         .thenReturn(List.of(new ModelOption("claude-legacy", "Legacy")));
 
     adminModels(admin, agent)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.models.length()").value(1))
         .andExpect(jsonPath("$.models[0].id").value("claude-account"));
-    verify(modelsClient).listAnthropicModels(eq(accountToken));
-    verify(modelsClient, never()).listAnthropicModels(eq(credentialToken));
+    verify(modelsClient).listAnthropicModels(eq(accountToken), isNull());
+    verify(modelsClient, never()).listAnthropicModels(eq(credentialToken), any());
   }
 
   @Test // 묶인 로그인 계정(genia·chatgpt)도 보고분을 그대로 돌려준다 — 보고 종목 검증은 로그인 연결 버전 기준(옛 버전은 무시).
@@ -586,7 +635,8 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
                 new ActiveProviderSecret(
                     secretVersion,
                     "opencode",
-                    "{\"providerId\":\"myhost\",\"options\":{\"baseURL\":\"https://api.example.com/v1\",\"apiKey\":\"sk-account\"}}")));
+                    "{\"providerId\":\"myhost\",\"options\":{\"baseURL\":\"https://api.example.com/v1\",\"apiKey\":\"sk-account\"}}",
+                    null)));
     ArgumentCaptor<ProviderConfig> probe = ArgumentCaptor.forClass(ProviderConfig.class);
     when(modelsClient.probeModels(probe.capture(), eq(true)))
         .thenReturn(List.of(new ModelOption("m1", "M1")));
@@ -630,7 +680,7 @@ class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
     var config =
         new ProviderConfig(providerId, null, Map.of("baseURL", baseUrl, "apiKey", "sk-account"));
     return accountService
-        .register(admin, new AgentAccountRequest("opencode", null, config, "팀 호환", null))
+        .register(admin, new AgentAccountRequest("opencode", null, config, "팀 호환", null, null))
         .id();
   }
 

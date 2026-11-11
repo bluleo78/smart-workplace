@@ -10,11 +10,12 @@ import { routerToolsFor } from '../mcp/tools.js';
 import { mapSdkMessage, type RunnerEvent } from './runner-events.js';
 
 // credential 이 anthropic 이 아니면 이 러너를 쓸 수 없음(팩토리가 보장하지만 방어적으로 재확인).
-function requireAnthropicToken(credential: ProviderCredential): string {
+// WP-1496: 토큰과 함께 워크스페이스 ID(선택, 없으면 null)도 꺼낸다.
+function requireAnthropicCredential(credential: ProviderCredential): { token: string; workspaceId: string | null } {
   if (credential.provider !== 'anthropic') {
     throw new Error('ClaudeSdkRunner 는 anthropic credential 만 지원합니다');
   }
-  return credential.token;
+  return { token: credential.token, workspaceId: credential.workspaceId ?? null };
 }
 
 // RunnerInput → SdkRunInput. mcp/서브에이전트는 지정된 경우에만 러너 내부에서 구성한다
@@ -57,12 +58,14 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
     }
   }
 
+  const { token, workspaceId } = requireAnthropicCredential(i.credential);
   return {
     userMessage: i.userMessage,
     systemPrompt: i.systemPrompt,
     model: i.model,
     maxTurns: i.maxTurns,
-    token: requireAnthropicToken(i.credential),
+    token,
+    workspaceId,
     agentId: i.agentId,
     userId: i.userId,
     timeoutMs: i.timeoutMs,

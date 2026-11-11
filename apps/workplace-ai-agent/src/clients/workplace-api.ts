@@ -362,7 +362,13 @@ export function createWorkplaceApiClient(opts: {
       const model = r.data?.model ?? null;
       return r.data?.provider === 'opencode'
         ? { provider: 'opencode', payload: JSON.parse(String(r.data.payload)), model }
-        : { provider: 'anthropic', token: String(r.data?.token ?? ''), model };
+        : {
+            provider: 'anthropic',
+            token: String(r.data?.token ?? ''),
+            model,
+            // WP-1496: Anthropic 워크스페이스 ID(선택) — 문자열이 아니면(구 api·미등록) null.
+            workspaceId: typeof r.data?.workspaceId === 'string' ? r.data.workspaceId : null,
+          };
     },
 
     async getChatMessages(agentId, threadId, limit) {

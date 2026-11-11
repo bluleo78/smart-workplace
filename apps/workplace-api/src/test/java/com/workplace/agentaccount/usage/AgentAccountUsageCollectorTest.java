@@ -98,7 +98,8 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
         status,
         null,
         null,
-        true);
+        true,
+        null);
   }
 
   private String status(long accountId) {
@@ -258,7 +259,7 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
   void undecryptableSecret_recordsBadSecret_withoutProbing() {
     long id =
         accounts.insert(
-            "anthropic", "깨진 원문", "not-encrypted", null, null, "ACTIVE", null, null, true);
+            "anthropic", "깨진 원문", "not-encrypted", null, null, "ACTIVE", null, null, true, null);
 
     assertThat(collector.collectAccount(1L, id)).isTrue();
 
@@ -307,7 +308,7 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
         () -> {
           // 조회가 도는 사이 원문이 교체됐다 — 옛 원문의 결과로 새 원문의 상태를 정하지 않는다.
           accounts.replaceSecret(
-              id, encryption.encrypt("tok-new"), null, null, "NEEDS_CHECK", null);
+              id, encryption.encrypt("tok-new"), null, null, "NEEDS_CHECK", null, null);
           throw new UsageProbeException("UNAUTHORIZED", "토큰이 거절됨");
         });
 

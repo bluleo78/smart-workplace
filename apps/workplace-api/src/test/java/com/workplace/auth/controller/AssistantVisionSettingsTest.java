@@ -85,7 +85,7 @@ class AssistantVisionSettingsTest extends IntegrationTestBase {
                 .content(
                     om.writeValueAsString(
                         new RegisterAssistantCredentialRequest(
-                            "opencode", null, config, "openai/gpt-4.1", "opencode"))))
+                            "opencode", null, config, "openai/gpt-4.1", "opencode", null))))
         .andExpect(status().isNoContent());
     return human;
   }

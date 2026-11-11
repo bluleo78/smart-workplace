@@ -25,6 +25,8 @@ import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.service.AgentProviders;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.AnthropicCredentialVerifier;
+import com.workplace.auth.service.AnthropicKeys;
 import com.workplace.auth.service.LoginInfoNormalizer;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.util.CapabilityTokens;
@@ -38,6 +40,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -94,6 +97,7 @@ public class AgentAccountService {
   private final AgentAccountRuntimeNotifier runtimeNotifier;
   private final AgentAccountUsageRepository usageRepository;
   private final AgentAccountUsageProperties usageProperties;
+  private final AnthropicCredentialVerifier anthropicVerifier;
 
   /**
    * 검증·정규화를 마친 계정 원문과 그 메타. {@code plaintext} 는 저장 직전 암호화할 평문이라 {@link #toString()} 에 싣지 않는다.
@@ -102,9 +106,15 @@ public class AgentAccountService {
    * @param accountEmail 로그인형의 계정 이메일(읽지 못하면 null, 그 밖의 종류는 null)
    * @param lastRefreshedAt 로그인형의 마지막 갱신 시각(auth.json 의 last_refresh, 없으면 지금). 그 밖의 종류는 null
    * @param fingerprint 같은 키 판정용 지문({@link #fingerprint})
+   * @param workspaceId Anthropic 워크스페이스 ID(WP-1496, 선택) — anthropic 이 아니거나 지정하지 않았으면 null. 지문에는 넣지
+   *     않는다
    */
   public record SecretParts(
-      String plaintext, String accountEmail, Instant lastRefreshedAt, String fingerprint) {
+      String plaintext,
+      String accountEmail,
+      Instant lastRefreshedAt,
+      String fingerprint,
+      String workspaceId) {
     @Override
     public String toString() {
       return "SecretParts[accountEmail="
@@ -118,10 +128,13 @@ public class AgentAccountService {
   /** 계정을 등록한다 — 검증·정규화 → 같은 키 확인 → 암호화 저장 → 감사 로그. label 이 비면 「<종류 이름> 계정」. */
   public AgentAccountResponse register(Long callerId, AgentAccountRequest req) {
     String provider = ProviderCredentialSecrets.resolveProvider(req.provider());
-    SecretParts parts = parse(provider, req.token(), req.providerConfig(), req.loginInfo());
+    SecretParts parts =
+        parse(provider, req.token(), req.providerConfig(), req.loginInfo(), req.workspaceId());
     if (accounts.findActiveByFingerprint(provider, parts.fingerprint()).isPresent()) {
       throw new AgentAccountDuplicateException();
     }
+    // WP-1496: Claude 토큰이면 저장 전에 ai-agent 로 키·워크스페이스를 시험한다(필요·거절만 400, 장애는 통과).
+    anthropicVerifier.verify(provider, parts.plaintext(), parts.workspaceId());
     String label = labelOrDefault(req.label(), provider);
     long id = insertAccount(provider, label, parts, STATUS_ACTIVE, callerId, true);
     audit(
@@ -149,12 +162,18 @@ public class AgentAccountService {
     AgentAccountRow row = requireActive(id);
     boolean secretReplaced = req.hasSecret();
     if (secretReplaced) {
-      replaceSecret(
-          callerId,
-          id,
-          row.provider(),
-          parse(row.provider(), req.token(), req.providerConfig(), req.loginInfo()));
+      SecretParts parts =
+          parse(
+              row.provider(),
+              req.token(),
+              req.providerConfig(),
+              req.loginInfo(),
+              req.workspaceId());
+      // WP-1496: Claude 토큰으로 바꾸면 교체 전에 시험한다 — 필요·거절이면 옛 원문이 그대로 남는다.
+      anthropicVerifier.verify(row.provider(), parts.plaintext(), parts.workspaceId());
+      replaceSecret(callerId, id, row.provider(), parts);
     }
+    // 원문을 바꾸지 않으면(라벨만) workspaceId 는 무시한다 — 저장된 워크스페이스 ID 는 그 원문의 짝이라 그대로 둔다(WP-1496).
     String label = row.label();
     if (req.label() != null) {
       label = labelOrDefault(req.label(), row.provider());
@@ -182,12 +201,18 @@ public class AgentAccountService {
    * @param podBound OpenAI 호환 원문의 Pod 꼴(providerId) 검사 여부 — 기존 연결 등록이 쓴 값({@link
    *     com.workplace.auth.service.AgentAccountFitPolicy#deliversToPod})을 그대로 받는다. 연결 등록이 받아들인 값을
    *     다리가 400 으로 깨지 않게(계정 API 는 늘 엄격하다)
+   * @param workspaceId Anthropic 워크스페이스 ID(WP-1496, 선택) — 연결 등록이 이미 검증·확인했다. anthropic 이 아니면 버린다
    * @return 계정 id
    */
   public long findOrRegisterFromLegacy(
-      Long callerId, String provider, String normalizedPlaintext, String label, boolean podBound) {
+      Long callerId,
+      String provider,
+      String normalizedPlaintext,
+      String label,
+      boolean podBound,
+      String workspaceId) {
     return findOrRegister(
-        callerId, provider, normalizedPlaintext, label, LegacySource.BRIDGE, podBound);
+        callerId, provider, normalizedPlaintext, label, LegacySource.BRIDGE, podBound, workspaceId);
   }
 
   /**
@@ -204,12 +229,15 @@ public class AgentAccountService {
    *
    * @param normalizedPlaintext 정규화한 옛 연결 원문
    * @param label 새로 만들 때의 라벨(「<AI 이름> 계정」)
+   * @param workspaceId 옛 연결에 저장된 Anthropic 워크스페이스 ID(WP-1496, 없으면 null)
    * @return 계정 id
    */
   public long findOrRegisterFromBackfill(
-      String provider, String normalizedPlaintext, String label) {
+      String provider, String normalizedPlaintext, String label, String workspaceId) {
     // 백필은 Pod AI 의 옛 연결을 옮긴다 — 계정 API 와 같은 엄격한 검사(podBound=true)를 그대로 쓴다.
-    return findOrRegister(null, provider, normalizedPlaintext, label, LegacySource.BACKFILL, true);
+    // WP-1496: 옛 연결에 저장된 워크스페이스 ID 를 계정이 이어받는다(선택 값이라 없어도 건너뛰지 않는다). 확인 호출은 하지 않는다.
+    return findOrRegister(
+        null, provider, normalizedPlaintext, label, LegacySource.BACKFILL, true, workspaceId);
   }
 
   /** 옛 연결 원문이 어디서 왔는가 — 사람이 방금 넣은 등록(다리)인가, 서버 보관본을 옮기는 백필인가. */
@@ -232,15 +260,19 @@ public class AgentAccountService {
       String normalizedPlaintext,
       String label,
       LegacySource source,
-      boolean podBound) {
+      boolean podBound,
+      String workspaceId) {
     String p = AgentProviders.normalize(provider);
-    SecretParts parts = partsOf(p, normalizedPlaintext, podBound);
+    SecretParts parts = partsOf(p, normalizedPlaintext, podBound, workspaceId);
     boolean backfill = source == LegacySource.BACKFILL;
     Optional<AgentAccountRow> same = accounts.findActiveByFingerprint(p, parts.fingerprint());
     if (same.isPresent()) {
       AgentAccountRow row = same.get();
       if (backfill) return row.id(); // 백필은 있는 계정을 그대로 쓴다(위 javadoc) — 원문 비교(복호화)도 필요 없다
-      boolean differs = !encryptionService.decrypt(row.encryptedSecret()).equals(parts.plaintext());
+      // WP-1496: 같은 키라도 워크스페이스 ID 가 바뀌었으면 방금 넣은 값으로 교체한다(원문과 워크스페이스는 한 키의 짝).
+      boolean differs =
+          !encryptionService.decrypt(row.encryptedSecret()).equals(parts.plaintext())
+              || !Objects.equals(row.workspaceId(), parts.workspaceId());
       if (differs) {
         replaceSecret(callerId, row.id(), p, parts);
         audit(
@@ -300,7 +332,8 @@ public class AgentAccountService {
           status,
           parts.fingerprint(),
           createdBy,
-          serverRefreshReady);
+          serverRefreshReady,
+          parts.workspaceId());
     } catch (IntegrityConstraintViolationException e) {
       throw duplicateOr(e);
     }
@@ -326,7 +359,8 @@ public class AgentAccountService {
           parts.accountEmail(),
           parts.lastRefreshedAt(),
           STATUS_ACTIVE,
-          parts.fingerprint());
+          parts.fingerprint(),
+          parts.workspaceId());
     } catch (IntegrityConstraintViolationException e) {
       throw duplicateOr(e);
     }
@@ -362,9 +396,11 @@ public class AgentAccountService {
    * 는 provider config(Pod 가 받는 providerId 꼴 포함 — 계정 목록은 Pod AI 만 쓴다), genia·chatgpt 는 auth.json 을 그
    * 프로그램이 읽는 키만 남겨 다듬는다.
    *
+   * @param workspaceId Anthropic 워크스페이스 ID(WP-1496, 선택) — anthropic 이면 형식을 검증해 남기고, 그 밖이면 버린다
    * @throws InvalidProviderCredentialException 모르는 종류이거나 형식이 맞지 않음(400)
    */
-  public SecretParts parse(String provider, String token, ProviderConfig cfg, String loginInfo) {
+  public SecretParts parse(
+      String provider, String token, ProviderConfig cfg, String loginInfo, String workspaceId) {
     String p = AgentProviders.normalize(provider);
     if (!AgentProviders.ALL.contains(p)) {
       throw new InvalidProviderCredentialException("지원하지 않는 계정 종류예요: " + p);
@@ -374,7 +410,7 @@ public class AgentAccountService {
       throw new InvalidProviderCredentialException("OpenAI 호환 계정에는 providerConfig 가 필요해요");
     }
     // 계정 API 는 늘 Pod 꼴까지 엄격하게 본다 — 계정 목록은 Pod AI 만 쓴다.
-    return partsOf(p, raw, true);
+    return partsOf(p, raw, true, workspaceId);
   }
 
   /**
@@ -383,19 +419,21 @@ public class AgentAccountService {
    * @param p 정규화된 계정 종류
    * @param raw 원문(anthropic 토큰 / opencode 설정 JSON / auth.json)
    * @param podBound OpenAI 호환 원문의 providerId 를 Pod 가 받는 꼴로 검사할지 — 계정 API·백필은 true, 다리는 연결 등록과 같은 값
+   * @param workspaceId Anthropic 워크스페이스 ID(WP-1496, 선택) — anthropic 에서만 검증해 남기고(비면 null) 그 밖은 null
    */
-  private SecretParts partsOf(String p, String raw, boolean podBound) {
+  private SecretParts partsOf(String p, String raw, boolean podBound, String workspaceId) {
     if (AgentProviders.isLogin(p)) {
       String normalized = LoginInfoNormalizer.normalize(p, raw);
       return new SecretParts(
           normalized,
           LoginInfoNormalizer.accountEmail(p, normalized),
           lastRefreshOrNow(normalized),
-          fingerprint(p, normalized));
+          fingerprint(p, normalized),
+          null);
     }
     if (AgentProviders.OPENCODE.equals(p)) {
       credentialService.validateOpencodePayload(raw, podBound);
-      return new SecretParts(raw, null, null, fingerprint(p, raw));
+      return new SecretParts(raw, null, null, fingerprint(p, raw), null);
     }
     if (raw == null || raw.isBlank()) {
       throw new InvalidProviderCredentialException("Claude 구독 토큰을 넣어 주세요");
@@ -403,7 +441,9 @@ public class AgentAccountService {
     if (raw.length() < 32 || raw.length() > 2048) {
       throw new InvalidProviderCredentialException("Claude 구독 토큰은 32~2048자여야 해요");
     }
-    return new SecretParts(raw, null, null, fingerprint(p, raw));
+    // WP-1496: 워크스페이스 ID 는 선택 — 형식이 틀리면 400, 비면 null. 지문은 토큰만으로 — 워크스페이스는 키 정체성이 아니다.
+    String ws = AnthropicKeys.normalizeWorkspaceId(workspaceId);
+    return new SecretParts(raw, null, null, fingerprint(p, raw), ws);
   }
 
   /**

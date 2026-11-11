@@ -865,3 +865,68 @@ test('추가 — 「연결 확인」 결과는 Base URL·API Key 를 바꾸면 �
   await user.type(within(dialog).getByTestId('credential-base-url'), '/')
   expect(within(dialog).queryByTestId('agent-account-probe-result')).not.toBeInTheDocument()
 })
+
+// WP-1496: Anthropic 워크스페이스 ID(선택) — Claude 구독 종류의 토큰 칸 아래에만 보이고, 넣으면 다듬어 싣고, 비우면 싣지 않는다.
+const NEED_WORKSPACE_MESSAGE = '이 키는 Anthropic 워크스페이스 ID 가 필요합니다. Anthropic 콘솔 Workspaces 에서 ID 를 확인해 넣어 주세요.'
+
+test('추가 — Claude 구독은 워크스페이스 ID 칸이 보이고 넣으면 앞뒤 공백을 다듬어 싣는다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  await user.click(within(dialog).getByLabelText('Anthropic 워크스페이스 ID(선택)'))
+  await user.paste(' wrkspc_01AbC ')
+  await user.click(within(dialog).getByTestId('agent-account-submit'))
+  await waitFor(() => expect(calls.creates).toEqual([{ provider: 'anthropic', token: TOKEN_64, workspaceId: 'wrkspc_01AbC' }]))
+})
+
+test('추가 — OpenAI 호환·로그인 종류에는 워크스페이스 ID 칸이 없다', async () => {
+  const { user } = renderWritable()
+  const dialog = await openCreate(user)
+  expect(within(dialog).getByTestId('anthropic-workspace-id-input')).toBeInTheDocument()
+  await user.click(within(dialog).getByTestId('agent-account-kind-opencode'))
+  expect(within(dialog).queryByTestId('anthropic-workspace-id-input')).not.toBeInTheDocument()
+  await user.click(within(dialog).getByTestId('agent-account-kind-chatgpt'))
+  expect(within(dialog).queryByTestId('anthropic-workspace-id-input')).not.toBeInTheDocument()
+})
+
+test('추가 — 워크스페이스 ID 가 128자를 넘으면 칸 아래에 알리고 보내지 않는다', async () => {
+  const { user, calls } = renderWritable()
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  await user.click(within(dialog).getByTestId('anthropic-workspace-id-input'))
+  await user.paste('w'.repeat(129))
+  await user.click(within(dialog).getByTestId('agent-account-submit'))
+  expect(await within(dialog).findByTestId('anthropic-workspace-id-error')).toHaveTextContent('128자 이하')
+  expect(calls.creates).toEqual([])
+})
+
+test('추가 — 서버가 워크스페이스 ID 가 필요하다고 거절하면 칸 아래 안내를 보이고 칸으로 초점을 옮긴다(창·토큰 유지)', async () => {
+  const { user, calls } = renderWritable({
+    create: { status: 400, body: { status: 400, error: 'Bad Request', message: '입력값 검증에 실패했습니다', errors: { workspaceId: NEED_WORKSPACE_MESSAGE } } },
+  })
+  const dialog = await openCreate(user)
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  await user.click(within(dialog).getByTestId('agent-account-submit'))
+  expect(await within(dialog).findByTestId('anthropic-workspace-id-error')).toHaveTextContent(NEED_WORKSPACE_MESSAGE)
+  expect(within(dialog).getByTestId('anthropic-workspace-id-input')).toHaveFocus()
+  expect(within(dialog).getByLabelText('토큰')).toHaveValue(TOKEN_64)
+  expect(calls.creates).toHaveLength(1)
+})
+
+test('수정 — 워크스페이스 ID 칸은 「키 교체」를 열 때만 보이고, 넣으면 토큰과 함께 보낸다', async () => {
+  const { user, calls } = renderWritable()
+  await screen.findByTestId('agent-account-row-1')
+  await pickRowMenu(user, 1, 'edit')
+  const dialog = await screen.findByTestId('agent-account-dialog')
+  expect(within(dialog).queryByTestId('anthropic-workspace-id-input')).not.toBeInTheDocument()
+  await user.click(within(dialog).getByTestId('agent-account-replace-toggle'))
+  await user.click(within(dialog).getByLabelText('토큰'))
+  await user.paste(TOKEN_64)
+  await user.click(within(dialog).getByTestId('anthropic-workspace-id-input'))
+  await user.paste('wrkspc_02')
+  await user.click(within(dialog).getByTestId('agent-account-submit'))
+  await waitFor(() => expect(calls.updates).toEqual([{ token: TOKEN_64, workspaceId: 'wrkspc_02' }]))
+})

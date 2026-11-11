@@ -6,18 +6,22 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.workplace.auth.dto.ModelOption;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.exception.AssistantModelsProbeException;
+import com.workplace.auth.outbound.AiAgentModelsClient.CredentialCheck;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -33,7 +37,8 @@ class AiAgentModelsClientTest {
   void setUp() {
     builder = RestClient.builder().baseUrl("http://ai-agent.test");
     server = MockRestServiceServer.bindTo(builder).build();
-    client = new AiAgentModelsClient(builder, "tok-123");
+    // 목록 조회·등록 확인이 같은 목 서버를 쓰도록 같은 빌더를 두 번 넘긴다(WP-1496 — 운영은 확인용 짧은 타임아웃 빌더가 따로다).
+    client = new AiAgentModelsClient(builder, builder, "tok-123");
   }
 
   private ProviderConfig config() {
@@ -85,13 +90,17 @@ class AiAgentModelsClientTest {
         .andExpect(method(HttpMethod.POST))
         .andExpect(header(HttpHeaders.AUTHORIZATION, "Internal tok-123"))
         .andExpect(jsonPath("$.token").value("sk-ant-oat01-x"))
+        // WP-1496: 워크스페이스 ID 가 없으면 본문에 싣지 않는다(ai-agent 는 선택 필드로 받는다).
+        .andExpect(jsonPath("$.workspaceId").doesNotExist())
+        // WP-1496: 목록 조회는 probe 를 싣지 않는다(전체 목록을 받는다).
+        .andExpect(jsonPath("$.probe").doesNotExist())
         .andRespond(
             withSuccess(
                 "{\"models\":[{\"id\":\"claude-sonnet-5-5\",\"label\":\"Claude Sonnet 5.5\"},"
                     + "{\"id\":\"claude-opus-5-5\",\"label\":\"Claude Opus 5.5\"}]}",
                 MediaType.APPLICATION_JSON));
 
-    assertThat(client.listAnthropicModels("sk-ant-oat01-x"))
+    assertThat(client.listAnthropicModels("sk-ant-oat01-x", null))
         .containsExactly(
             new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5"),
             new ModelOption("claude-opus-5-5", "Claude Opus 5.5"));
@@ -103,7 +112,7 @@ class AiAgentModelsClientTest {
     server
         .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
         .andRespond(withServerError());
-    assertThatThrownBy(() -> client.listAnthropicModels("sk-ant-oat01-secret"))
+    assertThatThrownBy(() -> client.listAnthropicModels("sk-ant-oat01-secret", null))
         .isInstanceOf(AssistantModelsProbeException.class)
         .satisfies(e -> assertThat(e.getMessage()).doesNotContain("sk-ant-oat01-secret"));
     server.verify();
@@ -133,6 +142,106 @@ class AiAgentModelsClientTest {
             new ModelOption("gpt-5", "gpt-5", List.of("LOW", "MEDIUM", "HIGH")),
             new ModelOption("qwen3", "qwen3", List.of()),
             new ModelOption("x", "x", null));
+    server.verify();
+  }
+
+  @Test // WP-1496: 사용자 API 키 조회는 워크스페이스 ID 를 본문에 싣는다
+  void anthropic_모델목록_워크스페이스ID_전달() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andExpect(jsonPath("$.token").value("sk-ant-usr01-x"))
+        .andExpect(jsonPath("$.workspaceId").value("wrkspc_1"))
+        .andRespond(
+            withSuccess("{\"models\":[{\"id\":\"claude-opus-5-5\"}]}", MediaType.APPLICATION_JSON));
+
+    assertThat(client.listAnthropicModels("sk-ant-usr01-x", "wrkspc_1"))
+        .containsExactly(new ModelOption("claude-opus-5-5", "claude-opus-5-5"));
+    server.verify();
+  }
+
+  @Test // WP-1496: 등록 확인 — 200 이면 받아들임
+  void 키확인_정상이면_ACCEPTED() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andExpect(header(HttpHeaders.AUTHORIZATION, "Internal tok-123"))
+        .andExpect(jsonPath("$.workspaceId").value("wrkspc_1"))
+        // WP-1496: 등록 확인은 probe 로 한 쪽(1개)만 받게 한다.
+        .andExpect(jsonPath("$.probe").value(true))
+        .andRespond(withSuccess("{\"models\":[]}", MediaType.APPLICATION_JSON));
+    assertThat(client.checkAnthropicCredential("sk-ant-usr01-x", "wrkspc_1"))
+        .isEqualTo(CredentialCheck.ACCEPTED);
+    server.verify();
+  }
+
+  @Test // WP-1496: ai-agent 가 400 credential_rejected 면 거절
+  void 키확인_credential_rejected_이면_REJECTED() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andRespond(
+            withBadRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":\"credential_rejected\",\"message\":\"키가 맞지 않아요\"}"));
+    assertThat(client.checkAnthropicCredential("sk-ant-usr01-x", "wrkspc_1"))
+        .isEqualTo(CredentialCheck.REJECTED);
+    server.verify();
+  }
+
+  @Test // WP-1496 개정: 워크스페이스 ID 가 필요한 키(not scoped to a workspace)는 따로 알린다
+  void 키확인_workspace_required_이면_WORKSPACE_REQUIRED() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andExpect(jsonPath("$.token").value("sk-ant-api03-x"))
+        .andExpect(jsonPath("$.workspaceId").doesNotExist())
+        .andRespond(
+            withBadRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":\"workspace_required\",\"message\":\"워크스페이스 필요\"}"));
+    assertThat(client.checkAnthropicCredential("sk-ant-api03-x", null))
+        .isEqualTo(CredentialCheck.WORKSPACE_REQUIRED);
+    server.verify();
+  }
+
+  @Test // WP-1496: 키에 맞지 않는 워크스페이스 ID(Anthropic 400 「must be a valid workspace ID」)는 따로 알린다
+  void 키확인_workspace_invalid_이면_WORKSPACE_INVALID() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andExpect(jsonPath("$.workspaceId").value("wrkspc_wrong"))
+        .andExpect(jsonPath("$.probe").value(true))
+        .andRespond(
+            withBadRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":\"workspace_invalid\"}"));
+    assertThat(client.checkAnthropicCredential("sk-ant-usr01-x", "wrkspc_wrong"))
+        .isEqualTo(CredentialCheck.WORKSPACE_INVALID);
+    server.verify();
+  }
+
+  @Test // WP-1496: 다른 400(본문 검증 실패 등)·502·연결 실패는 모름 — 등록을 막지 않는다
+  void 키확인_그밖의_실패는_UNAVAILABLE() {
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andRespond(
+            withBadRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":\"invalid_request\"}"));
+    assertThat(client.checkAnthropicCredential("sk-ant-usr01-x", "wrkspc_1"))
+        .isEqualTo(CredentialCheck.UNAVAILABLE);
+    server.verify();
+
+    server.reset();
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+    assertThat(client.checkAnthropicCredential("sk-ant-usr01-x", "wrkspc_1"))
+        .isEqualTo(CredentialCheck.UNAVAILABLE);
+    server.verify();
+
+    server.reset();
+    server
+        .expect(requestTo("http://ai-agent.test/models/anthropic/list"))
+        .andRespond(withBadRequest().body("not json"));
+    assertThat(client.checkAnthropicCredential("sk-ant-usr01-x", "wrkspc_1"))
+        .isEqualTo(CredentialCheck.UNAVAILABLE);
     server.verify();
   }
 }

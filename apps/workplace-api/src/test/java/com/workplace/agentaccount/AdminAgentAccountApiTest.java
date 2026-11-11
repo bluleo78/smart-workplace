@@ -92,7 +92,7 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
   }
 
   private long registerAnthropic(String token, String label) throws Exception {
-    return json(register(new AgentAccountRequest("anthropic", token, null, label, null))
+    return json(register(new AgentAccountRequest("anthropic", token, null, label, null, null))
             .andExpect(status().isCreated()))
         .get("id")
         .asLong();
@@ -132,7 +132,7 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
   @Test
   void registerAnthropicReturnsMetaWithoutSecret() throws Exception {
     ResultActions r =
-        register(new AgentAccountRequest("anthropic", TOKEN, null, "팀 구독", null))
+        register(new AgentAccountRequest("anthropic", TOKEN, null, "팀 구독", null, null))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.provider").value("anthropic"))
             .andExpect(jsonPath("$.label").value("팀 구독"))
@@ -144,20 +144,20 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
 
   @Test
   void registerWithoutLabelUsesProviderLabel() throws Exception {
-    register(new AgentAccountRequest("anthropic", TOKEN, null, " ", null))
+    register(new AgentAccountRequest("anthropic", TOKEN, null, " ", null, null))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.label").value("Claude 구독 계정"));
   }
 
   @Test
   void registerChatgptNormalizesLoginInfo() throws Exception {
-    register(new AgentAccountRequest("chatgpt", null, null, null, "{\"nope\":1}"))
+    register(new AgentAccountRequest("chatgpt", null, null, null, "{\"nope\":1}", null))
         .andExpect(status().isBadRequest());
 
     ResultActions ok =
         register(
                 new AgentAccountRequest(
-                    "chatgpt", null, null, "코덱스", chatgptAuthJson("a@example.test", "acc-1")))
+                    "chatgpt", null, null, "코덱스", chatgptAuthJson("a@example.test", "acc-1"), null))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.provider").value("chatgpt"))
             .andExpect(jsonPath("$.accountEmail").value("a@example.test"))
@@ -171,13 +171,13 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     var bad =
         new ProviderConfig(
             "a b", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
-    register(new AgentAccountRequest("opencode", null, bad, null, null))
+    register(new AgentAccountRequest("opencode", null, bad, null, null, null))
         .andExpect(status().isBadRequest());
 
     var good =
         new ProviderConfig(
             "custom", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
-    register(new AgentAccountRequest("opencode", null, good, null, null))
+    register(new AgentAccountRequest("opencode", null, good, null, null, null))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.label").value("OpenAI 호환 계정"));
   }
@@ -186,18 +186,18 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
   void registerDuplicateKeyIsConflict() throws Exception {
     registerAnthropic(TOKEN, "첫째");
 
-    register(new AgentAccountRequest("anthropic", TOKEN, null, "둘째", null))
+    register(new AgentAccountRequest("anthropic", TOKEN, null, "둘째", null, null))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AGENT_ACCOUNT_DUPLICATE"));
 
     // ChatGPT 는 같은 account_id·같은 사람(이메일)이면 다른 토큰이어도 같은 계정이다.
     register(
             new AgentAccountRequest(
-                "chatgpt", null, null, null, chatgptAuthJson("a@x.test", "A", "refresh-1")))
+                "chatgpt", null, null, null, chatgptAuthJson("a@x.test", "A", "refresh-1"), null))
         .andExpect(status().isCreated());
     register(
             new AgentAccountRequest(
-                "chatgpt", null, null, null, chatgptAuthJson("a@x.test", "A", "refresh-2")))
+                "chatgpt", null, null, null, chatgptAuthJson("a@x.test", "A", "refresh-2"), null))
         .andExpect(status().isConflict());
   }
 
@@ -210,14 +210,14 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     long first =
         json(register(
                     new AgentAccountRequest(
-                        "chatgpt", null, null, "가", chatgptAuthJson("a@team.test", "WS-1")))
+                        "chatgpt", null, null, "가", chatgptAuthJson("a@team.test", "WS-1"), null))
                 .andExpect(status().isCreated()))
             .get("id")
             .asLong();
     long second =
         json(register(
                     new AgentAccountRequest(
-                        "chatgpt", null, null, "나", chatgptAuthJson("b@team.test", "WS-1")))
+                        "chatgpt", null, null, "나", chatgptAuthJson("b@team.test", "WS-1"), null))
                 .andExpect(status().isCreated()))
             .get("id")
             .asLong();
@@ -248,7 +248,7 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     long acc = registerAnthropic(TOKEN, "옛 이름");
     long before = secretVersion(acc);
 
-    update(acc, new AgentAccountUpdateRequest("새 이름", null, null, null))
+    update(acc, new AgentAccountUpdateRequest("새 이름", null, null, null, null))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.label").value("새 이름"));
 
@@ -262,14 +262,14 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     String newToken = "sk-ant-oat01-" + "G".repeat(40);
 
     ResultActions r =
-        update(acc, new AgentAccountUpdateRequest(null, newToken, null, null))
+        update(acc, new AgentAccountUpdateRequest(null, newToken, null, null, null))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.label").value("구독"));
 
     assertThat(secretVersion(acc)).isGreaterThan(before);
     assertThat(r.andReturn().getResponse().getContentAsString()).doesNotContain(newToken);
     // 짧은 토큰은 400 — 등록과 같은 검증.
-    update(acc, new AgentAccountUpdateRequest(null, "short", null, null))
+    update(acc, new AgentAccountUpdateRequest(null, "short", null, null, null))
         .andExpect(status().isBadRequest());
   }
 
@@ -278,7 +278,7 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     registerAnthropic(TOKEN, "첫째");
     long second = registerAnthropic("sk-ant-oat01-" + "H".repeat(40), "둘째");
 
-    update(second, new AgentAccountUpdateRequest(null, TOKEN, null, null))
+    update(second, new AgentAccountUpdateRequest(null, TOKEN, null, null, null))
         .andExpect(status().isConflict());
   }
 
@@ -315,13 +315,14 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
     long tenant2 = TestFixtures.createTenant(dsl, "ACTIVE");
     useTenant(tenant2);
     long foreign =
-        accounts.insert("anthropic", "남의 계정", "iv:cipher", null, null, "ACTIVE", null, null, false);
+        accounts.insert(
+            "anthropic", "남의 계정", "iv:cipher", null, null, "ACTIVE", null, null, false, null);
     useTenant(1L);
 
     call(get(BASE + "/" + foreign), admin)
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.errors.code").value("AGENT_ACCOUNT_NOT_FOUND"));
-    update(foreign, new AgentAccountUpdateRequest("가로채기", null, null, null))
+    update(foreign, new AgentAccountUpdateRequest("가로채기", null, null, null, null))
         .andExpect(status().isNotFound());
     call(delete(BASE + "/" + foreign), admin).andExpect(status().isNotFound());
   }
@@ -336,15 +337,15 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     om.writeValueAsString(
-                        new AgentAccountRequest("anthropic", TOKEN, null, null, null))),
+                        new AgentAccountRequest("anthropic", TOKEN, null, null, null, null))),
             member)
         .andExpect(status().isForbidden());
   }
 
   @Test
   void requestToStringHidesSecrets() {
-    var req = new AgentAccountRequest("anthropic", TOKEN, null, "라벨", "{\"x\":1}");
-    var upd = new AgentAccountUpdateRequest("라벨", TOKEN, null, "{\"x\":1}");
+    var req = new AgentAccountRequest("anthropic", TOKEN, null, "라벨", "{\"x\":1}", null);
+    var upd = new AgentAccountUpdateRequest("라벨", TOKEN, null, "{\"x\":1}", null);
 
     assertThat(req.toString()).doesNotContain(TOKEN).doesNotContain("{\"x\"").contains("라벨");
     assertThat(upd.toString()).doesNotContain(TOKEN).doesNotContain("{\"x\"");

@@ -2029,13 +2029,16 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
-  /** 멀티 프로바이더(anthropic/opencode): 허용되지 않은 provider·잘못된 payload·model 누락 → 400. */
+  /**
+   * 멀티 프로바이더(anthropic/opencode): 허용되지 않은 provider·잘못된 payload·model 누락 → 400. 필드별 오류(WP-1496 —
+   * 워크스페이스 ID 가 필요한 Anthropic 키면 errors.workspaceId)가 있으면 errors 로 싣는다.
+   */
   @ExceptionHandler(com.workplace.auth.exception.InvalidProviderCredentialException.class)
   public ResponseEntity<ErrorResponse> handleInvalidProviderCredential(
       com.workplace.auth.exception.InvalidProviderCredentialException ex,
       HttpServletRequest request) {
     return ResponseEntity.badRequest()
-        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), ex.getErrors(), request));
   }
 
   /** Phase 5a — 존재하지 않거나 user 와 불일치하는 키 id → 404. */

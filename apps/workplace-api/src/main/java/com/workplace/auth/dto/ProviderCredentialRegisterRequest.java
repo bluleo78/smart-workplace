@@ -16,8 +16,9 @@ public record ProviderCredentialRegisterRequest(
     // assistant_config.model 에 저장된다 — 폭(64)을 넘으면 409 대신 400(WP-823).
     @Size(max = 64) String model,
     @Size(max = 80) String label,
-    @Size(max = 16384) String loginInfo) {
-
+    @Size(max = 16384) String loginInfo,
+    // WP-1496: Anthropic 워크스페이스 ID(선택, 모든 Claude 토큰) — 형식 검증은 서비스(AnthropicKeys).
+    String workspaceId) {
   /** 로그인 정보 원문이 로그에 새지 않게 toString 에서 뺀다(token·providerConfig 도 함께). */
   @Override
   public String toString() {

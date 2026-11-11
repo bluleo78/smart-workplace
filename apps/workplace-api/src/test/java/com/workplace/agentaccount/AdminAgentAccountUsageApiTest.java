@@ -127,12 +127,13 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
   void listCarriesUsageAndNoPlaintext() throws Exception {
     long claude =
         accountService
-            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, "구독", null))
+            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, "구독", null, null))
             .id();
     long chatgpt =
         accountService
             .register(
-                admin, new AgentAccountRequest("chatgpt", null, null, null, chatgptAuthJson()))
+                admin,
+                new AgentAccountRequest("chatgpt", null, null, null, chatgptAuthJson(), null))
             .id();
     Instant t0 = Instant.parse("2026-11-09T00:00:00Z");
     // 초기화 시각은 지금 기준 미래로 둔다 — 지난 창은 상태 판정에서 빠지므로(날짜가 지나도 테스트가 흔들리지 않게)
@@ -186,7 +187,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
   void replacingSecretClearsUsage() throws Exception {
     long claude =
         accountService
-            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, "교체", null))
+            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, "교체", null, null))
             .id();
     Instant base = Instant.now().truncatedTo(ChronoUnit.SECONDS);
     // 옛 키의 사용량(95%·한도 도달)과 마지막 실패를 심는다
@@ -210,7 +211,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     om.writeValueAsString(
-                        new AgentAccountUpdateRequest(null, newToken, null, null))))
+                        new AgentAccountUpdateRequest(null, newToken, null, null, null))))
         .andExpect(status().isOk());
 
     // 옛 키의 값은 사라지고 「모름」 — 창·실패 이유 없음
@@ -227,7 +228,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
   void accountWithoutRecordIsUnknownWithNullWindows() throws Exception {
     long claude =
         accountService
-            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, null, null))
+            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, null, null, null))
             .id();
     JsonNode u = item(listBody(), claude).get("usage");
     assertThat(u.get("status").asText()).isEqualTo("UNKNOWN");
@@ -253,6 +254,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
                         "vllm",
                         null,
                         Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-fake")),
+                    null,
                     null,
                     null))
             .id();
@@ -290,7 +292,7 @@ class AdminAgentAccountUsageApiTest extends IntegrationTestBase {
             .plaintextToken();
     long claude =
         accountService
-            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, null, null))
+            .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, null, null, null))
             .id();
     useTenant(1L);
     long agent =

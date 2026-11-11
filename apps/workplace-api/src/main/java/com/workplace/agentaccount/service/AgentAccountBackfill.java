@@ -103,14 +103,18 @@ public class AgentAccountBackfill {
     this.onStartup = onStartup;
   }
 
-  /** 옮길 AI 하나 — 원문은 평문이라 {@link #toString()} 에 싣지 않는다. */
+  /**
+   * 옮길 AI 하나 — 원문은 평문이라 {@link #toString()} 에 싣지 않는다. workspaceId 는 옛 연결에 저장된 Anthropic 워크스페이스
+   * ID(WP-1496, 없으면 null) — 계정이 이어받는다.
+   */
   private record Candidate(
       UserResponse agent,
       long credentialId,
       String provider,
       String plaintext,
       String fingerprint,
-      Instant lastRefresh) {
+      Instant lastRefresh,
+      String workspaceId) {
     @Override
     public String toString() {
       return "Candidate[agent=" + agent.id() + ", provider=" + provider + "]";
@@ -203,7 +207,8 @@ public class AgentAccountBackfill {
           provider,
           normalized,
           AgentAccountService.fingerprint(provider, normalized),
-          login ? AgentAccountService.lastRefreshOf(normalized) : null);
+          login ? AgentAccountService.lastRefreshOf(normalized) : null,
+          row.workspaceId());
     } catch (RuntimeException e) {
       log.warn(
           "AI 계정 이관 건너뜀 — 연결 원문을 읽지 못함 agent={} credential={} ({})",
@@ -240,7 +245,9 @@ public class AgentAccountBackfill {
                 accountService.findOrRegisterFromBackfill(
                     best.provider(),
                     best.plaintext(),
-                    AgentAccountPodSource.defaultLabel(c.agent()));
+                    AgentAccountPodSource.defaultLabel(c.agent()),
+                    // WP-1496: 살린 원문의 연결에 저장된 워크스페이스 ID — 원문과 한 짝이다.
+                    best.workspaceId());
             bindingService.bindFromBackfill(agentId, accountId, c.credentialId());
           });
       return true;

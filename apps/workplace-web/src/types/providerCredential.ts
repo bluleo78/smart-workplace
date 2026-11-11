@@ -41,6 +41,8 @@ export interface ProviderCredentialRegisterRequest {
   /** genia·chatgpt — 그 프로그램이 로그인한 결과(auth.json 내용) 그대로. 서버가 확인·다듬어 암호화 저장한다. */
   loginInfo?: string;
   label?: string;
+  /** anthropic — Anthropic 워크스페이스 ID(선택, WP-1496). 다듬어서 비었으면 싣지 않는다. */
+  workspaceId?: string;
 }
 
 // 모델 선택 옵션 — id(저장/전송용), label(표시명).

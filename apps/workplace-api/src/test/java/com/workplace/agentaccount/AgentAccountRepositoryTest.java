@@ -41,7 +41,7 @@ class AgentAccountRepositoryTest extends IntegrationTestBase {
 
   private long newAccount(String label) {
     return accounts.insert(
-        "anthropic", label, "iv:cipher", null, null, "ACTIVE", null, null, false);
+        "anthropic", label, "iv:cipher", null, null, "ACTIVE", null, null, false, null);
   }
 
   @Test
@@ -70,7 +70,7 @@ class AgentAccountRepositoryTest extends IntegrationTestBase {
     long version = accounts.findActive(id).orElseThrow().secretVersion();
     assertThat(version).isGreaterThanOrEqualTo(1_000_000_000_000L).isLessThan(1L << 53);
 
-    accounts.replaceSecret(id, "iv:again", null, null, "ACTIVE", "fp-version");
+    accounts.replaceSecret(id, "iv:again", null, null, "ACTIVE", "fp-version", null);
     assertThat(accounts.findActive(id).orElseThrow().secretVersion())
         .isGreaterThanOrEqualTo(1_000_000_000_000L)
         .isLessThan(1L << 53);
@@ -81,7 +81,7 @@ class AgentAccountRepositoryTest extends IntegrationTestBase {
     long id = newAccount("a");
     long before = accounts.findActive(id).orElseThrow().secretVersion();
 
-    accounts.replaceSecret(id, "iv:other", "a@example.test", Instant.now(), "ACTIVE", "fp1");
+    accounts.replaceSecret(id, "iv:other", "a@example.test", Instant.now(), "ACTIVE", "fp1", null);
 
     AgentAccountRow after = accounts.findActive(id).orElseThrow();
     assertThat(after.secretVersion()).isGreaterThan(before);

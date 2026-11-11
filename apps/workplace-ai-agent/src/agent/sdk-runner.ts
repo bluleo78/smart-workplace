@@ -6,13 +6,16 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { log } from '../logger.js';
 import { computeToolPolicy } from './tool-allowlist.js';
 import { RunnerLimitError } from './runner-limit.js';
+import { safeWorkspaceId } from './anthropic-key.js';
 
 export interface SdkRunInput {
   userMessage: string;
   systemPrompt: string;
   model: string;
   maxTurns: number;
-  token: string; // OAuth 구독 토큰
+  token: string; // Claude 토큰(구독 OAuth sk-ant-oat, 사용자 API 키 sk-ant-usr 등 — WP-1496)
+  // WP-1496: Anthropic 워크스페이스 ID(선택) — 있으면 키 종류와 상관없이 anthropic-workspace-id 헤더로 싣는다.
+  workspaceId?: string | null;
   agentId: number; // ACTING_AGENT_ID
   userId?: number; // ACTING_USER_ID (드라이브 등 사용자 귀속 리소스)
   timeoutMs: number;
@@ -38,10 +41,19 @@ export function buildSdkOptions(i: SdkRunInput): Options {
     allowFileRead: i.allowFileRead,
     allowSubagents: i.allowSubagents,
   });
-  // 구독 모드 강제: API 키 제거하고 OAuth 토큰만. agentId/userId 는 MCP 서버가 X-On-Behalf-Of 로 쓴다.
+  // agentId/userId 는 MCP 서버가 X-On-Behalf-Of 로 쓴다.
   const env: NodeJS.ProcessEnv = { ...process.env };
+  // 구독 모드 슬롯: API 키 변수를 지우고 토큰은 키 종류와 상관없이 CLAUDE_CODE_OAUTH_TOKEN 에 넣는다.
+  // WP-1496: 워크스페이스에 묶인 사용자 API 키(sk-ant-usr)도 이 슬롯으로 동작함을 이슈 실측(WP-1496 댓글 15:18·15:23)으로 확인해
+  // 이 슬롯을 첫 선택으로 둔다. 라이브 검증에서 실패하면 API 키 계열을 ANTHROPIC_API_KEY 로 옮긴다.
   delete env.ANTHROPIC_API_KEY;
   env.CLAUDE_CODE_OAUTH_TOKEN = i.token;
+  // WP-1496: 호스트 env 에 걸린 커스텀 헤더가 모든 요청에 실리지 않게 늘 지운다. 워크스페이스 ID 가 있을 때만(키 종류 무관)
+  // anthropic-workspace-id 헤더를 싣는다 — Claude Code 는 ANTHROPIC_CUSTOM_HEADERS("이름: 값")를 /v1/messages 등 API 요청에 싣는다(실측).
+  // 공백·줄바꿈·제어 문자가 섞인 값은 버린다(헤더 주입 방지 — safeWorkspaceId).
+  delete env.ANTHROPIC_CUSTOM_HEADERS;
+  const workspaceId = safeWorkspaceId(i.workspaceId);
+  if (workspaceId) env.ANTHROPIC_CUSTOM_HEADERS = `anthropic-workspace-id: ${workspaceId}`;
   env.ACTING_AGENT_ID = String(i.agentId);
   if (i.userId !== undefined) env.ACTING_USER_ID = String(i.userId);
   // WP-351: 위임하는 실행은 백그라운드 작업을 끈다. SDK 0.3.x 는 Agent 위임을 기본으로 백그라운드(비동기)로 띄워, 라우터가 서브에이전트

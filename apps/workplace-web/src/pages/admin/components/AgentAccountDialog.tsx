@@ -25,12 +25,14 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useCreateAgentAccount, useUpdateAgentAccount } from '@/hooks/queries/useAgentAccounts';
 import { accountLabel, isLoginProvider } from '@/lib/agentAccount';
+import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { extractApiError, handleApiError } from '@/lib/api-error';
 import { checkLoginInfo } from '@/lib/loginInfo';
 import { type OpencodePresetKey, toOpencodeProviderConfig } from '@/lib/opencode-presets';
 import type { AgentAccountResponse } from '@/types/agentAccount';
 import type { CredentialProvider, ProviderConfig } from '@/types/providerCredential';
 
+import { AnthropicWorkspaceIdField } from './credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MAX, CLAUDE_TOKEN_MIN, ClaudeTokenField } from './credential-fields/ClaudeTokenField';
 import { LoginInfoField } from './credential-fields/LoginInfoField';
 import {
@@ -76,6 +78,8 @@ export function AgentAccountDialog({ account, onClose }: Props) {
 
   // 종류별 원문 — 수정 창도 늘 빈 값에서 시작한다(기존 비밀값은 응답에 없고, 채우지도 않는다).
   const [token, setToken] = useState('');
+  // WP-1496: Anthropic 워크스페이스 ID(선택) — Claude 구독 토큰을 넣을 때(추가·키 교체)만 보낸다. 형식 오류·서버 거절 안내는 칸 아래.
+  const workspace = useAnthropicWorkspaceId();
   // OpenAI 호환 프리셋·주소 — 추가는 기본 프리셋(Bedrock)으로, 수정의 키 교체는 빈 채로(null) 시작해 다시 고르게 한다(지금 주소는 응답에 없다).
   const [presetKey, setPresetKey] = useState<OpencodePresetKey | null>(editing ? null : DEFAULT_OPENCODE_PRESET);
   const [baseUrl, setBaseUrl] = useState(editing ? '' : DEFAULT_OPENCODE_BASE_URL);
@@ -115,8 +119,11 @@ export function AgentAccountDialog({ account, onClose }: Props) {
     : secretReady;
 
   /** 종류에 맞는 원문 한 칸 — 등록·키 교체 요청이 같이 쓴다. 검사는 submit 이 먼저 하고 여기는 모양만 바꾼다. */
-  const secretPart = (): { token: string } | { providerConfig: ProviderConfig } | { loginInfo: string } => {
-    if (kind === 'anthropic') return { token: token.trim() };
+  const secretPart = ():
+    | { token: string; workspaceId?: string }
+    | { providerConfig: ProviderConfig }
+    | { loginInfo: string } => {
+    if (kind === 'anthropic') return { token: token.trim(), ...workspace.part() };
     if (kind === 'opencode') return { providerConfig: providerConfig as ProviderConfig };
     return { loginInfo };
   };
@@ -129,6 +136,8 @@ export function AgentAccountDialog({ account, onClose }: Props) {
       toast.error(`토큰이 너무 짧습니다 (최소 ${CLAUDE_TOKEN_MIN}자)`);
       return;
     }
+    // 워크스페이스 ID 형식(공백·제어 문자 없음, 128자 이하) — 토큰을 보낼 때만 본다. 틀리면 칸 아래에 알리고 보내지 않는다.
+    if (replacing && kind === 'anthropic' && !workspace.validate()) return;
     const secret = replacing ? secretPart() : undefined;
     try {
       if (editing) {
@@ -143,6 +152,8 @@ export function AgentAccountDialog({ account, onClose }: Props) {
       }
       onClose();
     } catch (e) {
+      // 서버가 「이 키는 워크스페이스 ID 가 필요하다」고 거절하면 창과 토큰은 그대로 두고 ID 칸에서 바로 고치게 한다(WP-1496).
+      if (replacing && kind === 'anthropic' && workspace.absorbApiError(e)) return;
       // 409 중복(같은 키의 계정이 이미 있음)·400 형식 오류는 서버 문구를 그대로 보인다.
       handleApiError(e, editing ? '계정을 수정하지 못했습니다' : '계정을 추가하지 못했습니다');
     }
@@ -162,6 +173,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
   /** 입력한 원문(토큰·API Key·로그인 정보)과 연결 확인 결과를 비운다 — 종류 바꾸기와 「교체 안 함」이 같이 쓴다. */
   const clearSecrets = () => {
     setToken('');
+    workspace.reset();
     setApiKey('');
     setLoginInfo('');
     probe.reset();
@@ -279,6 +291,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
                       토큰이 너무 깁니다 (최대 {CLAUDE_TOKEN_MAX}자)
                     </p>
                   )}
+                  <AnthropicWorkspaceIdField {...workspace.fieldProps} />
                 </>
               )}
               {kind === 'opencode' && (

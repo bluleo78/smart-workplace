@@ -104,7 +104,7 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
       body =
           om.writeValueAsString(
               new RegisterAssistantCredentialRequest(
-                  "opencode", null, config, "gpt-4.1", "opencode"));
+                  "opencode", null, config, "gpt-4.1", "opencode", null));
     } else {
       body = "{\"token\":\"" + "Y".repeat(64) + "\",\"label\":\"t2\"}";
     }
@@ -208,7 +208,12 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
                 .content(
                     om.writeValueAsString(
                         new RegisterAssistantCredentialRequest(
-                            "opencode", null, config, "openai/" + "m".repeat(60), "opencode"))))
+                            "opencode",
+                            null,
+                            config,
+                            "openai/" + "m".repeat(60),
+                            "opencode",
+                            null))))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.model").value("최대 64까지 입력할 수 있습니다"));
   }

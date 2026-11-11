@@ -11,24 +11,71 @@ import { z } from 'zod';
 import { assertModelHostAllowed, BlockedModelHostError, MODEL_REQUEST_GUARD } from '../clients/model-url-guard.js';
 import { lookupOpencodeEfforts, type EffortsMap } from '../agent/opencode-efforts.js';
 import { effortsList, type EffortLevel } from '../agent/thinking.js';
+import { safeWorkspaceId, usesApiKeyAuth } from '../agent/anthropic-key.js';
 
 const PROBE_TIMEOUT_MS = 10_000;
 
 // 드롭다운 오픈 경로 — workplace-api 가 읽기 트랜잭션(DB 커넥션)을 쥔 채 기다리므로 프로브보다 짧게 끊는다.
 const ANTHROPIC_TIMEOUT_MS = 5_000;
 
-const anthropicRequestSchema = z.object({ token: z.string().min(1) });
+// WP-1496: workspaceId(선택)는 키 종류와 상관없이 있으면 anthropic-workspace-id 헤더로 싣는다.
+// probe(선택)가 true 면 등록 확인용 가벼운 조회 — 한 쪽만 limit 1 로 받고(자동 페이지 넘김 없음) 생각의 깊이 단계도 계산하지 않는다.
+const anthropicRequestSchema = z.object({
+  token: z.string().min(1),
+  workspaceId: z.string().nullish(),
+  probe: z.boolean().optional(),
+});
 
-// API 키(sk-ant-api…)는 x-api-key, 그 외(구독 OAuth sk-ant-oat…)는 Bearer + oauth 베타 헤더로 인증한다.
+// WP-1496: Anthropic 이 키 인증 자체를 거절한 응답(401)만 credential_rejected 로 본다. 어떤 토큰은 추론(messages)은 되는데
+// 모델 목록 권한이 없어 403·다른 400 을 받을 수 있다 — 그런 토큰의 등록을 막지 않도록 분명한 인증 실패에만 막고 나머지는 502(확인 못 함).
+// api 는 아래 두 본문의 error 코드만 등록 거절로 본다. 사용자에게 보일 문구는 api 가 자기 것을 쓰고 여기 message 는 읽지 않으므로
+// 코드만 보낸다.
+const CREDENTIAL_REJECTED_BODY = { error: 'credential_rejected' } as const;
+// 워크스페이스에 묶인 키를 워크스페이스 ID 없이 쓰면 Anthropic 이 400 「… not scoped to a workspace …」로 답한다 — 칸을 채우라고 따로 알린다.
+const WORKSPACE_REQUIRED_BODY = { error: 'workspace_required' } as const;
+const WORKSPACE_REQUIRED_MARKER = 'not scoped to a workspace';
+
+// 키에 맞지 않는 워크스페이스 ID 를 실으면 Anthropic 이 400 「anthropic-workspace-id header must be a valid workspace ID.」로 답한다
+// (2026-11-11 실측). 확인 못 함(502)으로 넘기면 api 가 틀린 ID 를 그대로 저장하므로 workspace_invalid 로 따로 알린다.
+// 「not scoped to a workspace」 안내문에도 헤더 이름이 들어갈 수 있어 workspace_required 를 먼저 가린 뒤에만 이 표지를 본다.
+const WORKSPACE_INVALID_BODY = { error: 'workspace_invalid' } as const;
+const WORKSPACE_INVALID_MARKER = 'anthropic-workspace-id';
+
+/** 업스트림 오류의 메시지와 본문을 한 문자열로 — 문구가 어느 쪽에 와도 찾을 수 있게 한다. */
+function upstreamErrorText(e: InstanceType<typeof Anthropic.APIError>): string {
+  let body = '';
+  try {
+    body = JSON.stringify(e.error ?? '');
+  } catch {
+    // 본문을 문자열로 못 바꾸면 메시지만 본다.
+  }
+  return `${e.message} ${body}`;
+}
+
+/** 업스트림 400 이 「워크스페이스 ID 가 필요하다」는 거절인가. */
+function isWorkspaceRequired(e: InstanceType<typeof Anthropic.APIError>): boolean {
+  return upstreamErrorText(e).includes(WORKSPACE_REQUIRED_MARKER);
+}
+
+/** 업스트림 400 이 「실은 워크스페이스 ID 를 받지 않는다」는 거절인가 — workspace_required 가 아닌 것만 부른다. */
+function isWorkspaceInvalid(e: InstanceType<typeof Anthropic.APIError>): boolean {
+  return upstreamErrorText(e).toLowerCase().includes(WORKSPACE_INVALID_MARKER);
+}
+
+// API 키(sk-ant-api…·사용자 API 키 sk-ant-usr…, WP-1496)는 x-api-key, 그 외(구독 OAuth sk-ant-oat…)는 Bearer + oauth 베타 헤더로
+// 인증한다. WP-1496: 워크스페이스 ID 가 있으면 키 종류와 상관없이 anthropic-workspace-id 헤더를 더한다.
 // 재시도 없이 짧게 끊는다(실패 시 workplace-api 가 정적 목록으로 폴백).
-function anthropicClientFor(token: string): Anthropic {
+function anthropicClientFor(token: string, workspaceId: string | null): Anthropic {
   const common = { timeout: ANTHROPIC_TIMEOUT_MS, maxRetries: 0 };
-  if (token.startsWith('sk-ant-api')) return new Anthropic({ ...common, apiKey: token, authToken: null });
+  const workspaceHeader: Record<string, string> = workspaceId ? { 'anthropic-workspace-id': workspaceId } : {};
+  if (usesApiKeyAuth(token)) {
+    return new Anthropic({ ...common, apiKey: token, authToken: null, defaultHeaders: workspaceHeader });
+  }
   return new Anthropic({
     ...common,
     apiKey: null,
     authToken: token,
-    defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
+    defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20', ...workspaceHeader },
   });
 }
 
@@ -143,8 +190,22 @@ export function createModelsRouter(deps: ModelsRouterDeps = { lookupOpencodeEffo
       res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
       return;
     }
+    const { token, probe } = parsed.data;
+    // WP-1496: 워크스페이스 ID 가 왔는데 헤더로 쓸 수 없는 값(공백·줄바꿈·제어 문자 등)이면 조회하지 않고 거절로 답한다
+    // (헤더 주입 방지 — api 도 저장 때 거르지만 여기서도 거른다). 비었거나 없으면 헤더 없이 조회한다.
+    const workspaceId = safeWorkspaceId(parsed.data.workspaceId);
+    if (parsed.data.workspaceId?.trim() && !workspaceId) {
+      res.status(400).json(CREDENTIAL_REJECTED_BODY);
+      return;
+    }
     try {
-      const client = anthropicClientFor(parsed.data.token);
+      const client = anthropicClientFor(token, workspaceId);
+      if (probe) {
+        // 등록 확인 — 첫 쪽(1개)만 받아 키·워크스페이스가 통하는지만 본다. 목록이 비어도 인증은 통했으니 200.
+        const page = await client.models.list({ limit: 1 });
+        res.status(200).json({ models: page.data.map((m) => ({ id: m.id, label: m.display_name })) });
+        return;
+      }
       const models: { id: string; label: string; efforts?: string[] }[] = [];
       // 응답은 최신 출시순 — 순서를 그대로 유지해 드롭다운 상단에 최신 모델이 오게 한다.
       for await (const m of client.models.list({ limit: 100 })) {
@@ -159,6 +220,22 @@ export function createModelsRouter(deps: ModelsRouterDeps = { lookupOpencodeEffo
     } catch (e) {
       const status = e instanceof Anthropic.APIError ? e.status : undefined;
       console.error('[models-anthropic] 조회 실패:', status ? `upstream ${status}` : e instanceof Error ? e.message : String(e));
+      // WP-1496: 워크스페이스 ID 가 빠진 거절(400 not scoped to a workspace)은 workspace_required, 받지 않는 워크스페이스 ID
+      // (400 anthropic-workspace-id … valid workspace ID)는 workspace_invalid, 인증 실패(401)는 credential_rejected 로 구분한다. 그 밖(다른 400·403·5xx·연결 실패·시간 초과)은 확인 못 함으로 502 — 목록 권한만 없는
+      // 토큰도 실행은 될 수 있어 등록을 막지 않는다.
+      if (e instanceof Anthropic.APIError && status === 400 && isWorkspaceRequired(e)) {
+        res.status(400).json(WORKSPACE_REQUIRED_BODY);
+        return;
+      }
+      // 받지 않는 워크스페이스 ID(400 「anthropic-workspace-id header must be a valid workspace ID.」)는 workspace_invalid.
+      if (e instanceof Anthropic.APIError && status === 400 && isWorkspaceInvalid(e)) {
+        res.status(400).json(WORKSPACE_INVALID_BODY);
+        return;
+      }
+      if (status === 401) {
+        res.status(400).json(CREDENTIAL_REJECTED_BODY);
+        return;
+      }
       res.status(502).json({ message: 'Anthropic 모델 목록 조회에 실패했습니다.' });
     }
   });

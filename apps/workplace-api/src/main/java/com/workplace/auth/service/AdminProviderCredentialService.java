@@ -26,22 +26,28 @@ public class AdminProviderCredentialService {
   private final AiAgentCredentialService credentials;
   private final PodAccountSource podAccounts;
 
-  /** 연결을 등록하고(기존 활성 연결은 자동 회수), Pod AI 면 같은 원문의 계정에 묶는다. */
+  /**
+   * 연결을 등록하고(기존 활성 연결은 자동 회수), Pod AI 면 같은 원문의 계정에 묶는다. workspaceId(WP-1496)는 Anthropic 워크스페이스
+   * ID(선택) — 계정에도 같이 넘긴다.
+   */
   public OAuthTokenMetaResponse register(
       Long callerId,
       Long agentUserId,
       String provider,
       String plaintextSecret,
       String label,
-      String model) {
+      String model,
+      String workspaceId) {
+    // WP-1496: 워크스페이스 ID 검증·Claude 토큰 등록 확인은 연결 등록이 한다(필요·거절이면 여기서 400, 묶기 전).
     OAuthTokenMetaResponse meta =
-        credentials.register(callerId, agentUserId, provider, plaintextSecret, label, model);
+        credentials.register(
+            callerId, agentUserId, provider, plaintextSecret, label, model, workspaceId);
     // 연결 등록과 같은 정규화 — 로그인형은 그 프로그램이 읽는 키만 남긴 원문이 저장되므로 계정도 같은 원문을 받는다(등록이 이미 형식을 검증했다).
     String normalized =
         AgentProviders.isLogin(provider)
             ? LoginInfoNormalizer.normalize(provider, plaintextSecret)
             : plaintextSecret;
-    podAccounts.bindFromLegacy(callerId, agentUserId, provider, normalized, label);
+    podAccounts.bindFromLegacy(callerId, agentUserId, provider, normalized, label, workspaceId);
     return meta;
   }
 

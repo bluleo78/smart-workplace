@@ -226,13 +226,220 @@ describe('POST /models/anthropic/list', () => {
     expect(res.body.models).toEqual([{ id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }]);
   });
 
-  it('upstream 401 → 502 (토큰 비노출)', async () => {
+  // WP-1496: 인증 실패(401)만 credential_rejected — api 가 등록을 막는다.
+  it('upstream 401 → 400 credential_rejected (토큰 비노출)', async () => {
     nock(ANTHROPIC).get('/v1/models').query(true).reply(401, { type: 'error', error: { type: 'authentication_error' } });
 
     const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-oat01-secret' });
 
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(400);
+    // 문구는 api 가 자기 것을 쓰므로 코드만 보낸다.
+    expect(res.body).toEqual({ error: 'credential_rejected' });
     expect(JSON.stringify(res.body)).not.toContain('sk-ant-oat01-secret');
+  });
+
+  // WP-1496: 목록 권한만 없는 토큰(403·다른 400)은 실행은 될 수 있어 거절로 보지 않는다 — 502(확인 못 함)라 api 가 그대로 저장한다.
+  it.each([403, 400])('upstream %i (워크스페이스 문구 없음) → 502, 오류 코드 없음', async (status) => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(status, { type: 'error', error: { type: 'permission_error' } });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-oat01-secret' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain('sk-ant-oat01-secret');
+  });
+
+  it('probe 면 limit 1 로 한 쪽만 받고 다음 쪽을 넘기지 않는다 (WP-1496)', async () => {
+    const scope = nock(ANTHROPIC)
+      .get('/v1/models')
+      .query({ limit: '1' })
+      .reply(200, {
+        data: [{ type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-09-21T00:00:00Z' }],
+        has_more: true,
+        first_id: 'claude-opus-5-5',
+        last_id: 'claude-opus-5-5',
+      });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-api03-x', probe: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ models: [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }] });
+    expect(scope.isDone()).toBe(true);
+    expect(nock.pendingMocks()).toEqual([]);
+  });
+
+  it('probe 면 빈 목록이어도 200 (인증은 통했다, WP-1496)', async () => {
+    nock(ANTHROPIC).get('/v1/models').query({ limit: '1' }).reply(200, { data: [], has_more: false });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-api03-x', probe: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ models: [] });
+  });
+
+  it('probe 도 같은 오류 구분 — 401 은 credential_rejected, 워크스페이스 문구 400 은 workspace_required (WP-1496)', async () => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(401, { type: 'error', error: { type: 'authentication_error' } });
+    const rejected = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-api03-x', probe: true });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toBe('credential_rejected');
+
+    nock(ANTHROPIC)
+      .get('/v1/models')
+      .query(true)
+      .reply(400, { type: 'error', error: { type: 'invalid_request_error', message: 'This API key is not scoped to a workspace' } });
+    const ws = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-usr01-x', probe: true });
+    expect(ws.status).toBe(400);
+    expect(ws.body.error).toBe('workspace_required');
+  });
+
+  it('upstream 500 → 502 (일시 장애는 거절로 보지 않는다, WP-1496)', async () => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(500, { type: 'error', error: { type: 'api_error' } });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-api03-x' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBeUndefined();
+  });
+
+  it('사용자 API 키(sk-ant-usr) → x-api-key + anthropic-workspace-id 헤더로 조회 (WP-1496)', async () => {
+    const scope = nock(ANTHROPIC)
+      .matchHeader('x-api-key', 'sk-ant-usr01-x')
+      .matchHeader('anthropic-workspace-id', 'wrkspc_01abc')
+      .get('/v1/models')
+      .query(true)
+      .reply(200, {
+        data: [{ type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-09-21T00:00:00Z' }],
+        has_more: false,
+      });
+
+    const res = await request(app())
+      .post('/models/anthropic/list')
+      .set(AUTH)
+      .send({ token: 'sk-ant-usr01-x', workspaceId: 'wrkspc_01abc' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toEqual([{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }]);
+    expect(scope.isDone()).toBe(true);
+  });
+
+  // 업스트림에 실린 워크스페이스 헤더를 잡아 둔다(없으면 undefined).
+  function captureWorkspaceHeader() {
+    const seen: { value: string | string[] | undefined } = { value: 'unset' };
+    nock(ANTHROPIC)
+      .get('/v1/models')
+      .query(true)
+      .reply(function () {
+        seen.value = this.req.headers['anthropic-workspace-id'];
+        return [200, { data: [{ type: 'model', id: 'm', display_name: 'M', created_at: '2026-01-01T00:00:00Z' }], has_more: false }];
+      });
+    return seen;
+  }
+
+  it('OAuth 토큰에도 workspaceId 가 오면 Bearer+oauth 베타와 함께 워크스페이스 헤더를 싣는다 (WP-1496)', async () => {
+    const scope = nock(ANTHROPIC)
+      .matchHeader('authorization', 'Bearer sk-ant-oat01-x')
+      .matchHeader('anthropic-beta', /oauth-2025-04-20/)
+      .matchHeader('anthropic-workspace-id', 'wrkspc_01abc')
+      .get('/v1/models')
+      .query(true)
+      .reply(200, { data: [{ type: 'model', id: 'm', display_name: 'M', created_at: '2026-01-01T00:00:00Z' }], has_more: false });
+
+    const res = await request(app())
+      .post('/models/anthropic/list')
+      .set(AUTH)
+      .send({ token: 'sk-ant-oat01-x', workspaceId: 'wrkspc_01abc' });
+
+    expect(res.status).toBe(200);
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('표준 API 키에도 workspaceId 가 오면 워크스페이스 헤더를 싣는다 (WP-1496)', async () => {
+    const seen = captureWorkspaceHeader();
+    const res = await request(app())
+      .post('/models/anthropic/list')
+      .set(AUTH)
+      .send({ token: 'sk-ant-api03-x', workspaceId: 'wrkspc_01abc' });
+    expect(res.status).toBe(200);
+    expect(seen.value).toBe('wrkspc_01abc');
+  });
+
+  it('workspaceId 가 없으면 워크스페이스 헤더를 싣지 않는다 (WP-1496)', async () => {
+    const seen = captureWorkspaceHeader();
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-usr01-x', workspaceId: null });
+    expect(res.status).toBe(200);
+    expect(seen.value).toBeUndefined();
+  });
+
+  it('upstream 400 「not scoped to a workspace」 → 400 workspace_required (WP-1496)', async () => {
+    nock(ANTHROPIC)
+      .get('/v1/models')
+      .query(true)
+      .reply(400, {
+        type: 'error',
+        error: { type: 'invalid_request_error', message: 'This API key is not scoped to a workspace; provide anthropic-workspace-id.' },
+      });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-usr01-secret' });
+
+    expect(res.status).toBe(400);
+    // 문구는 api 가 자기 것을 쓰므로 코드만 보낸다.
+    expect(res.body).toEqual({ error: 'workspace_required' });
+    expect(JSON.stringify(res.body)).not.toContain('sk-ant-usr01-secret');
+  });
+
+  // 2026-11-11 실측: 키에 맞지 않는 워크스페이스 ID 를 실으면 Anthropic 은 아래 본문으로 400 을 돌려준다.
+  const WORKSPACE_INVALID_UPSTREAM = {
+    type: 'error',
+    error: { type: 'invalid_request_error', message: 'anthropic-workspace-id header must be a valid workspace ID.' },
+  };
+
+  it('upstream 400 「anthropic-workspace-id header must be a valid workspace ID」 → 400 workspace_invalid (WP-1496)', async () => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(400, WORKSPACE_INVALID_UPSTREAM);
+
+    const res = await request(app())
+      .post('/models/anthropic/list')
+      .set(AUTH)
+      .send({ token: 'sk-ant-usr01-secret', workspaceId: 'wrkspc_wrong' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'workspace_invalid' });
+    expect(JSON.stringify(res.body)).not.toContain('sk-ant-usr01-secret');
+  });
+
+  it('probe 도 받지 않는 워크스페이스 ID 400 은 workspace_invalid (WP-1496)', async () => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(400, WORKSPACE_INVALID_UPSTREAM);
+
+    const res = await request(app())
+      .post('/models/anthropic/list')
+      .set(AUTH)
+      .send({ token: 'sk-ant-api03-x', workspaceId: 'wrkspc_wrong', probe: true });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'workspace_invalid' });
+  });
+
+  it('워크스페이스와 무관한 다른 400 은 여전히 502 (WP-1496)', async () => {
+    nock(ANTHROPIC)
+      .get('/v1/models')
+      .query(true)
+      .reply(400, { type: 'error', error: { type: 'invalid_request_error', message: 'limit: must be at most 1000' } });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-api03-x', probe: true });
+
+    expect(res.status).toBe(502);
+  });
+
+  it('사용자 API 키의 workspaceId 에 줄바꿈이 섞이면 조회하지 않고 400 credential_rejected (WP-1496)', async () => {
+    const scope = nock(ANTHROPIC).get('/v1/models').query(true).reply(200, { data: [], has_more: false });
+
+    const res = await request(app())
+      .post('/models/anthropic/list')
+      .set(AUTH)
+      .send({ token: 'sk-ant-usr01-x', workspaceId: 'wrkspc_1\r\nx-evil: 1' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('credential_rejected');
+    expect(scope.isDone()).toBe(false);
   });
 
   it('빈 목록 → 502', async () => {

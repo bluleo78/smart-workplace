@@ -177,7 +177,16 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       .get(`${PREFIX}/users/me/provider-credential`)
       .reply(200, { provider: 'anthropic', token: 'tk-plain', model: 'claude-sonnet-5' });
     const r = await newClient().getProviderCredential(AGENT_ID);
-    expect(r).toEqual({ provider: 'anthropic', token: 'tk-plain', model: 'claude-sonnet-5' });
+    expect(r).toEqual({ provider: 'anthropic', token: 'tk-plain', model: 'claude-sonnet-5', workspaceId: null });
+  });
+
+  // WP-1496: 사용자 API 키(sk-ant-usr)는 워크스페이스 ID 를 함께 받는다.
+  it('getProviderCredential → anthropic 응답의 workspaceId 를 읽는다', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/users/me/provider-credential`)
+      .reply(200, { provider: 'anthropic', token: 'sk-ant-usr01-x', model: null, workspaceId: 'wrkspc_01abc' });
+    const r = await newClient().getProviderCredential(AGENT_ID);
+    expect(r).toEqual({ provider: 'anthropic', token: 'sk-ant-usr01-x', model: null, workspaceId: 'wrkspc_01abc' });
   });
 
   it('getProviderCredential → opencode 응답은 payload 를 JSON 파싱해 반환', async () => {
@@ -198,7 +207,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       .get(`${PREFIX}/users/me/provider-credential`)
       .reply(200, { provider: 'anthropic', token: 'tk-plain' });
     const r = await newClient().getProviderCredential(AGENT_ID);
-    expect(r).toEqual({ provider: 'anthropic', token: 'tk-plain', model: null });
+    expect(r).toEqual({ provider: 'anthropic', token: 'tk-plain', model: null, workspaceId: null });
   });
 
   it('getProviderCredential → 404 면 throw', async () => {

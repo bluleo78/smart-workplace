@@ -14,8 +14,9 @@ public record AgentAccountUpdateRequest(
     @Size(max = 80) String label,
     @Size(min = 32, max = 2048) String token,
     @Valid ProviderConfig providerConfig,
-    @Size(max = 16384) String loginInfo) {
-
+    @Size(max = 16384) String loginInfo,
+    // WP-1496: Anthropic 워크스페이스 ID(선택) — 토큰을 바꿀 때만 의미가 있다(라벨만 바꾸면 기존 값 유지).
+    String workspaceId) {
   /** 원문이 하나라도 왔는가 — 오면 원문 교체로 본다. JSON 속성이 아니다. */
   @JsonIgnore
   public boolean hasSecret() {

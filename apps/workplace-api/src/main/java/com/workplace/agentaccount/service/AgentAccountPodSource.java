@@ -111,7 +111,9 @@ public class AgentAccountPodSource implements PodAccountSource {
                             new ActiveProviderSecret(
                                 versionId(binding, row),
                                 row.provider(),
-                                encryptionService.decrypt(row.encryptedSecret()))));
+                                encryptionService.decrypt(row.encryptedSecret()),
+                                // WP-1496: 계정의 워크스페이스 ID(선택 — 모델 조회가 쓴다)
+                                row.workspaceId())));
   }
 
   /**
@@ -306,7 +308,12 @@ public class AgentAccountPodSource implements PodAccountSource {
   @Override
   @Transactional
   public void bindFromLegacy(
-      Long callerId, long agentUserId, String provider, String normalizedPlaintext, String label) {
+      Long callerId,
+      long agentUserId,
+      String provider,
+      String normalizedPlaintext,
+      String label,
+      String workspaceId) {
     // 실행 설정 행을 먼저 잠근다 — 아래 계정 찾기·만들기가 계정 행을 고칠(키 교체) 수 있어, 묶기({@link
     // AgentAccountBindingService})와 같은 「설정 행 → 계정 행」 순서를 지켜 동시 묶기와 교착하지 않게.
     Optional<AgentRuntimeSettingRepository.Row> setting = settings.findForUpdate(agentUserId);
@@ -333,7 +340,8 @@ public class AgentAccountPodSource implements PodAccountSource {
             provider,
             normalizedPlaintext,
             resolved,
-            accountFit.deliversToPod(agentUserId, provider));
+            accountFit.deliversToPod(agentUserId, provider),
+            workspaceId);
     bindingService.bindWithoutResponse(callerId, agentUserId, accountId);
   }
 

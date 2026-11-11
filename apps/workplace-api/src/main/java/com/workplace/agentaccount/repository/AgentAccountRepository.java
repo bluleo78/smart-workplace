@@ -54,7 +54,8 @@ public class AgentAccountRepository {
         toInstant(r.get(AGENT_ACCOUNT.UPDATED_AT)),
         toInstant(r.get(AGENT_ACCOUNT.REVOKED_AT)),
         r.get(AGENT_ACCOUNT.LOGIN_REVISION),
-        r.get(AGENT_ACCOUNT.SERVER_REFRESH_READY));
+        r.get(AGENT_ACCOUNT.SERVER_REFRESH_READY),
+        r.get(AGENT_ACCOUNT.WORKSPACE_ID));
   }
 
   /** 「살아 있는 이 계정」 조건(id 일치 + 폐기 안 됨) — 단건 조회·잠금·수정·폐기가 같이 쓴다(살아 있음 규칙을 한 곳에). */
@@ -72,7 +73,8 @@ public class AgentAccountRepository {
 
   /**
    * 계정을 새로 넣는다. secret_version 은 시퀀스 기본값, 반환은 새 id. {@code serverRefreshReady} 는 사람이 방금 넣은 원문이면
-   * true(서버가 갱신을 맡아도 된다), 이관 백필이면 false.
+   * true(서버가 갱신을 맡아도 된다), 이관 백필이면 false. {@code workspaceId} 는 Anthropic 워크스페이스 ID(WP-1496, 선택 —
+   * 없거나 anthropic 이 아니면 null).
    */
   public long insert(
       String provider,
@@ -83,7 +85,8 @@ public class AgentAccountRepository {
       String status,
       String fingerprint,
       Long createdBy,
-      boolean serverRefreshReady) {
+      boolean serverRefreshReady,
+      String workspaceId) {
     return dsl.insertInto(AGENT_ACCOUNT)
         .set(AGENT_ACCOUNT.PROVIDER, provider)
         .set(AGENT_ACCOUNT.LABEL, label)
@@ -94,6 +97,7 @@ public class AgentAccountRepository {
         .set(AGENT_ACCOUNT.FINGERPRINT, fingerprint)
         .set(AGENT_ACCOUNT.CREATED_BY, createdBy)
         .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, serverRefreshReady)
+        .set(AGENT_ACCOUNT.WORKSPACE_ID, workspaceId)
         .returning(AGENT_ACCOUNT.ID)
         .fetchOne()
         .getId();
@@ -166,7 +170,8 @@ public class AgentAccountRepository {
 
   /**
    * 원문을 교체한다 — secret_version 을 시퀀스에서 새로 받아 이 계정을 쓰는 AI 의 Pod 가 바뀐 것을 알게 한다. 이메일·갱신 시각·상태·정체성도 함께
-   * 갱신한다. 사람이 방금 넣은 새 원문이라 서버 갱신 준비(server_refresh_ready)도 true 로 둔다.
+   * 갱신한다. 사람이 방금 넣은 새 원문이라 서버 갱신 준비(server_refresh_ready)도 true 로 둔다. 워크스페이스 ID(WP-1496)도 새 원문의 값으로
+   * 바꾼다(없으면 null) — 원문과 워크스페이스는 한 키의 짝이라 늘 함께 바뀐다.
    */
   public void replaceSecret(
       long id,
@@ -174,7 +179,8 @@ public class AgentAccountRepository {
       String accountEmail,
       Instant lastRefreshedAt,
       String status,
-      String fingerprint) {
+      String fingerprint,
+      String workspaceId) {
     dsl.update(AGENT_ACCOUNT)
         .set(AGENT_ACCOUNT.ENCRYPTED_SECRET, encryptedSecret)
         .set(AGENT_ACCOUNT.SECRET_VERSION, DSL.field("nextval('" + VERSION_SEQ + "')", Long.class))
@@ -183,6 +189,7 @@ public class AgentAccountRepository {
         .set(AGENT_ACCOUNT.STATUS, status)
         .set(AGENT_ACCOUNT.FINGERPRINT, fingerprint)
         .set(AGENT_ACCOUNT.SERVER_REFRESH_READY, true)
+        .set(AGENT_ACCOUNT.WORKSPACE_ID, workspaceId)
         .set(AGENT_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
         .where(activeById(id))
         .execute();

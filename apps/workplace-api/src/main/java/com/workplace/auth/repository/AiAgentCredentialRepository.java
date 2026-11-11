@@ -39,18 +39,34 @@ public class AiAgentCredentialRepository {
         r.get(AI_AGENT_CREDENTIAL.CREATED_BY),
         created != null ? created.toInstant() : null,
         lastUsed != null ? lastUsed.toInstant() : null,
-        revoked != null ? revoked.toInstant() : null);
+        revoked != null ? revoked.toInstant() : null,
+        r.get(AI_AGENT_CREDENTIAL.WORKSPACE_ID));
   }
 
-  /** 신규 행 삽입. revoked_at NULL, created_at DB default. 반환은 신규 id. */
+  /** 워크스페이스 ID 없는 신규 행 삽입(WP-1496, workspaceId=null) — 테스트가 옛 연결을 직접 넣을 때 쓴다. */
   public Long insert(
       Long userId, String provider, String encryptedToken, String label, Long createdBy) {
+    return insert(userId, provider, encryptedToken, label, createdBy, null);
+  }
+
+  /**
+   * 신규 행 삽입. revoked_at NULL, created_at DB default. 반환은 신규 id. workspaceId 는 Anthropic 워크스페이스
+   * ID(WP-1496, 선택 — 없으면 null). 서비스가 검증한 값만 받는다.
+   */
+  public Long insert(
+      Long userId,
+      String provider,
+      String encryptedToken,
+      String label,
+      Long createdBy,
+      String workspaceId) {
     return dsl.insertInto(AI_AGENT_CREDENTIAL)
         .set(AI_AGENT_CREDENTIAL.USER_ID, userId)
         .set(AI_AGENT_CREDENTIAL.PROVIDER, provider)
         .set(AI_AGENT_CREDENTIAL.ENCRYPTED_TOKEN, encryptedToken)
         .set(AI_AGENT_CREDENTIAL.LABEL, label)
         .set(AI_AGENT_CREDENTIAL.CREATED_BY, createdBy)
+        .set(AI_AGENT_CREDENTIAL.WORKSPACE_ID, workspaceId)
         .returning(AI_AGENT_CREDENTIAL.ID)
         .fetchOne()
         .getId();

@@ -40,12 +40,24 @@ public class PersonalAssistantService {
   /**
    * 자격증명 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 자격증명을 등록(기존 active 는 자동 revoke).
    * provider='opencode' 이면 model 이 필수(credentialService.register 가 검증 + assistant_config.model 함께
-   * upsert).
+   * upsert). workspaceId(WP-1496)는 Anthropic 워크스페이스 ID(선택) — 검증·등록 확인은 credentialService 가 한다.
    */
   public void registerCredential(
-      long callerId, String provider, String plaintextSecret, String label, String model) {
+      long callerId,
+      String provider,
+      String plaintextSecret,
+      String label,
+      String model,
+      String workspaceId) {
     long agentId = ensurePersonalAgent(callerId);
-    credentialService.register(callerId, agentId, provider, plaintextSecret, label, model);
+    credentialService.register(
+        callerId, agentId, provider, plaintextSecret, label, model, workspaceId);
+  }
+
+  /** 워크스페이스 ID 를 지정하지 않는 등록(WP-1496, workspaceId=null) — 테스트 등 워크스페이스 ID 를 받지 않는 호출이 쓴다. */
+  public void registerCredential(
+      long callerId, String provider, String plaintextSecret, String label, String model) {
+    registerCredential(callerId, provider, plaintextSecret, label, model, null);
   }
 
   /** 부분 설정 변경(WP-139) — 요청에 있는 필드만 바꾼다. 비서 미설정이면 예외. */

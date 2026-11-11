@@ -61,7 +61,9 @@ public class AdminProviderCredentialController {
         ProviderCredentialSecrets.resolveSecret(
             objectMapper, provider, req.token(), req.providerConfig(), req.loginInfo());
     OAuthTokenMetaResponse meta =
-        adminCredentials.register(callerId, userId, provider, secret, req.label(), req.model());
+        // WP-1496: Anthropic 워크스페이스 ID(선택) — 검증·등록 확인은 서비스가 한다.
+        adminCredentials.register(
+            callerId, userId, provider, secret, req.label(), req.model(), req.workspaceId());
     return ResponseEntity.status(HttpStatus.CREATED).body(meta);
   }
 
