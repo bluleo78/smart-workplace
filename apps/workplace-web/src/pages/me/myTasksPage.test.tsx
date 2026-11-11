@@ -284,6 +284,17 @@ describe('내 작업 묶음 목록(WP-916)', () => {
     expect(screen.queryByRole('button', { name: /^완료일:/ })).not.toBeInTheDocument()
   })
 
+  // 완료일 기간만 남아도(상태 칩을 지움) 완료 숨김을 풀어야 한다 — 숨기면 「완료일만 + 완료 숨김」으로 늘 빈 목록이었다(프로젝트 목록과 같은 규칙).
+  test('완료일 기간만 걸려도 완료를 숨기지 않고, 「완료 모두 보기」는 눌린 채 비활성이다', async () => {
+    const { seen, user } = renderMyTasks('/me/tasks/assigned?status=DONE&closedIn=2026-11-01~2026-11-11')
+    await screen.findByRole('button', { name: /^완료일:/ })
+    await user.click(screen.getByRole('button', { name: '상태 범주 필터 제거' }))
+    await waitFor(() => expect(seen.at(-1)?.get('status')).toBeNull())
+    expect(seen.at(-1)?.get('closedFrom')).toBe('2026-11-01')
+    expect(seen.at(-1)?.has('hideClosed')).toBe(false)
+    expect(screen.getByTestId('show-all-closed-toggle')).toBeDisabled()
+  })
+
   test('내가 만든 탭에는 완료 모두 보기 토글이 없다', async () => {
     renderMyTasks('/me/tasks/reported')
     await screen.findByTestId('reported-row-52')

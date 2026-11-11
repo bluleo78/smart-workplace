@@ -16,11 +16,13 @@ export function isHidingClosed(params: URLSearchParams): boolean {
 }
 
 /**
- * 완료 숨김을 무력화하는 명시 필터 — 내 작업은 상태 범주 facet 만 해당한다(프로젝트 목록 issueFilters.overridesClosedHiding 과 같은 구조).
+ * 완료 숨김을 무력화하는 명시 필터 — 내 작업은 상태 범주 facet 과 완료일 기간이 해당한다(프로젝트 목록 issueFilters.overridesClosedHiding 과 같은 구조).
  * 숨김 판정(isHidingClosed)·필터 바 토글(눌림·비활성)·빈 상태 안내가 이 한 곳의 판정을 쓴다 — 손으로 다시 적으면 서로 어긋난다.
  */
 export function overridesMyTasksClosedHiding(f: IssueFilters): boolean {
-  return f.statuses.length > 0
+  // 완료일 기간(closedIn, WP-1484 개요 「모두 보기」)도 끝난 이슈만 고르는 조건이라 숨김을 푼다 — 프로젝트 목록과 같은 규칙.
+  // 풀지 않으면 상태 칩만 지운 뒤 「완료일만 걸림 + 완료 숨김」으로 늘 빈 목록이 됐다(라이브 검증).
+  return f.statuses.length > 0 || f.closedIn != null
 }
 
 /**
