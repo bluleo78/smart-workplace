@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries'
+import { useMeToday } from '@/hooks/queries/useMeOverview'
 import { formatRelativeTime } from '@/lib/formatters'
 import { buildMyTaskRows, dueLabel, type MyTaskBucket, type MyTaskRow } from '@/lib/myTasks'
 import { showsLoadError } from '@/lib/queryFailure'
@@ -32,6 +33,8 @@ export default function MyTasksBody({
 }) {
   const assigned = useMyIssues({ assignee: 'me', size: 50 }, { enabled: !previewData })
   const watched = useWatchedIssues({ enabled: !previewData })
+  // 어제/오늘 한 줄(WP-1484) — 개요 탭과 같은 요약. 미리보기(카탈로그)에선 부르지 않고, 실패하면 이 줄만 숨긴다(목록은 그대로).
+  const today = useMeToday({ enabled: !previewData })
   const loading = !previewData && (assigned.isLoading || watched.isLoading)
   // 둘 중 하나라도 실패하면 분류가 거짓이 되므로 전체를 에러 처리(#205).
   const isError = !previewData && (showsLoadError(assigned) || showsLoadError(watched))
@@ -106,6 +109,19 @@ export default function MyTasksBody({
 
   return (
     <div data-testid="dash-mytasks">
+      {today.data && (
+        // 누르면 내 작업 개요 탭 — 어제 한 일·오늘 할 일을 자세히 본다.
+        <Link
+          to="/me/tasks/overview"
+          className="mb-1 block text-xs text-muted-foreground hover:text-ai-accent hover:underline"
+          data-testid="dash-mytasks-today"
+        >
+          {/* 개요 탭과 같은 말(완료·마감 지남·답변 필요) — 아래 「n건이 나를 기다림」(맡은 처리할 이슈)과 겹치지 않게 「나를 기다림」을 쓰지 않는다. */}
+          어제 완료 <span className="font-medium text-foreground">{today.data.yesterdayCompleted}</span> · 마감 지남{' '}
+          <span className={today.data.overdue > 0 ? 'font-medium text-destructive' : 'font-medium text-foreground'}>{today.data.overdue}</span> · 답변
+          필요 <span className="font-medium text-foreground">{today.data.waiting}</span>
+        </Link>
+      )}
       {/* 헤더 부제 — 기다리는 건수(→할당) 또는 구독 총량(→구독). 숫자 자체가 필터 조회로 가는 링크. */}
       <div className="mb-2 text-sm text-muted-foreground">
         {result.isEmpty ? (

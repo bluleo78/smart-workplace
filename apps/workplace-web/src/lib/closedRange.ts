@@ -38,7 +38,7 @@ export function parseClosedIn(raw: string | null): string | null {
   return parseCustom(raw) ? raw : null;
 }
 
-// 날짜 키 산술 — 시간대 영향이 없게 UTC 자정으로 계산한다(로컬 Date 의 DST·시각 변환 회피).
+// 날짜 키 산술 — 시간대 영향이 없게 UTC 자정으로 계산한다(로컬 Date 의 DST·시각 변환 회피). 개요 탭(overviewModel)도 같은 함수를 쓴다.
 function toUtc(key: string): number {
   const [y, m, d] = key.split('-').map(Number);
   return Date.UTC(y, m - 1, d);
@@ -49,6 +49,11 @@ function fromUtc(ms: number): string {
 const DAY = 24 * 60 * 60 * 1000;
 function addDays(key: string, n: number): string {
   return fromUtc(toUtc(key) + n * DAY);
+}
+
+/** 두 날짜 키 사이 날수(b − a) — 같은 UTC 자정 산술이라 시간대·DST 와 무관하다. */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((toUtc(b) - toUtc(a)) / DAY);
 }
 
 /**

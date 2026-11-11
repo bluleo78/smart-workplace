@@ -14,6 +14,8 @@ import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 import type { ProjectResponse } from '@/types/project'
 
+import { createEmptyMeOverview } from '../../../e2e/factories/meOverview.factory'
+
 // 1100px 데스크톱(마우스) — 1280px 미만이라 사이드바가 아이콘 줄로 접힌다. matchMedia 결과가 파일 안에서 캐시되므로 맨 위에서 한 번.
 mockViewport({ width: 1100, height: 800, pointer: 'fine' })
 
@@ -79,16 +81,21 @@ test('이름은 sr-only 로 숨겨도 링크 이름·주소·선택 표시는 �
 })
 
 // 「내 작업」 링크(/me/tasks)가 앱 라우트의 기본 탭 리다이렉트를 거쳐 도착하는 주소를 본다 — 앱 라우트 트리가 필요해 renderPage 로 연다.
-test('「내 작업」을 누르면 기본 탭(할당)으로 이동한다', async () => {
+// 기억한 탭이 없으면(첫 방문) 개요 탭이다(WP-1484).
+test('「내 작업」을 누르면 기본 탭(개요)으로 이동한다', async () => {
   // 즐겨찾기는 서버에 저장한다(WP-1001) — ENG 만 서버에 둔다.
   const favorites = projectFavoriteHandlers(['ENG'])
   const { user, location } = renderPage('/projects', {
-    handlers: [...favorites.handlers, http.get('/api/v1/projects', () => HttpResponse.json({ content: [eng], page: 0, size: 20, totalElements: 1, totalPages: 1 }))],
+    handlers: [
+      ...favorites.handlers,
+      http.get('/api/v1/projects', () => HttpResponse.json({ content: [eng], page: 0, size: 20, totalElements: 1, totalPages: 1 })),
+      http.get('/api/v1/me/overview', () => HttpResponse.json(createEmptyMeOverview())),
+    ],
   })
   const sidebar = await screen.findByTestId('issue-sidebar', {}, { timeout: PAGE_LOAD_TIMEOUT })
   await user.click(within(sidebar).getByRole('link', { name: '내 작업' }))
   // 새 화면 모듈을 처음 불러오는 시간이 들어 첫 화면과 같은 여유를 준다.
-  await expect.poll(location, { timeout: PAGE_LOAD_TIMEOUT }).toBe('/me/tasks/assigned')
+  await expect.poll(location, { timeout: PAGE_LOAD_TIMEOUT }).toBe('/me/tasks/overview')
 })
 
 test('새 프로젝트 버튼도 아이콘으로 남아 생성 창을 연다', async () => {

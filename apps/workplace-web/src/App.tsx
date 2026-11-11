@@ -36,6 +36,7 @@ const VersionsPage = lazy(() => import('./pages/projects/versions/VersionsPage')
 const VersionDetailPage = lazy(() => import('./pages/projects/versions/VersionDetailPage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
+const MyTasksIndexRedirect = lazy(() => import('./pages/me/MyTasksIndexRedirect'))
 const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
 const ChatModuleLayout = lazy(() =>
   import('./components/chat/ChatModuleLayout').then((m) => ({ default: m.ChatModuleLayout })),
@@ -203,7 +204,7 @@ export default function App() {
                 <Route element={<IssueModuleLayout />}>
                   {/* 프로젝트 / 이슈 */}
                   {/* /tasks — 작업 모듈 허브. 데스크톱은 기존 진입점으로, 모바일은 IssueModuleLayout 이 rootPath 에서 사이드바 목록을 그려 본문 불필요. */}
-                  <Route path="tasks" element={<DesktopOnly><Navigate to="/me/tasks/assigned" replace /></DesktopOnly>} />
+                  <Route path="tasks" element={<DesktopOnly><Navigate to="/me/tasks" replace /></DesktopOnly>} />
                   <Route path="projects" element={<ProjectListPage />} />
                   <Route path="projects/:key" element={<ProjectDetailPage />} />
                   <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
@@ -216,8 +217,8 @@ export default function App() {
                   {/* 하위호환 — 구버전 경로를 새 탭으로 리다이렉트 */}
                   <Route path="me/watched" element={<Navigate to="/me/tasks/watched" replace />} />
 
-                  {/* 내 작업 — 할당/내가 만든/구독 3탭 */}
-                  <Route path="me/tasks" element={<Navigate to="/me/tasks/assigned" replace />} />
+                  {/* 내 작업 — 개요/할당/내가 만든/구독 4탭. 탭 없는 주소는 마지막에 본 탭(없으면 개요)으로(WP-1484) */}
+                  <Route path="me/tasks" element={<MyTasksIndexRedirect />} />
                   <Route path="me/tasks/:tab" element={<MyTasksPage />} />
 
                   {/* AI 위임 작업 — 내가 만든 이슈 중 AI 담당 */}

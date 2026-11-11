@@ -3,7 +3,7 @@ import { parseFilters } from '../../lib/issueFilters'
 import type { IssueFilters } from '../../types/issue'
 import { meFacetParams } from './meFacetParams'
 
-export type MyTasksTab = 'assigned' | 'reported' | 'watched'
+export type MyTasksTab = 'overview' | 'assigned' | 'reported' | 'watched'
 
 /**
  * 할당 탭에서 완료·취소를 숨기는 중인지 — 「완료 모두 보기」 토글 표시와 빈 상태 안내가 같은 판정을 쓴다.
@@ -16,11 +16,13 @@ export function isHidingClosed(params: URLSearchParams): boolean {
 }
 
 /**
- * 완료 숨김을 무력화하는 명시 필터 — 내 작업은 상태 범주 facet 만 해당한다(프로젝트 목록 issueFilters.overridesClosedHiding 과 같은 구조).
+ * 완료 숨김을 무력화하는 명시 필터 — 내 작업은 상태 범주 facet 과 완료일 기간이 해당한다(프로젝트 목록 issueFilters.overridesClosedHiding 과 같은 구조).
  * 숨김 판정(isHidingClosed)·필터 바 토글(눌림·비활성)·빈 상태 안내가 이 한 곳의 판정을 쓴다 — 손으로 다시 적으면 서로 어긋난다.
  */
 export function overridesMyTasksClosedHiding(f: IssueFilters): boolean {
-  return f.statuses.length > 0
+  // 완료일 기간(closedIn, WP-1484 개요 「완료한 이슈」·추이 막대)도 끝난 이슈만 고르는 조건이라 숨김을 푼다 — 프로젝트 목록과 같은 규칙.
+  // 풀지 않으면 상태 칩만 지운 뒤 「완료일만 걸림 + 완료 숨김」으로 늘 빈 목록이 됐다(라이브 검증).
+  return f.statuses.length > 0 || f.closedIn != null
 }
 
 /**
@@ -31,8 +33,8 @@ export function hasMyTasksFilters(params: URLSearchParams): boolean {
   return Object.keys(meFacetParams(params)).length > 0
 }
 
-/** 필터 초기화로 지우는 URL 키 — facet 과 「완료 모두 보기」. 탭은 경로라 그대로 남는다. */
-const MY_TASKS_FILTER_KEYS = ['status', 'priority', 'dueFrom', 'dueTo', 'dueDate', 'blocked', 'closed'] as const
+/** 필터 초기화로 지우는 URL 키 — facet·완료일 기간(개요 「완료한 이슈」·추이 막대, WP-1484)과 「완료 모두 보기」. 탭은 경로라 그대로 남는다. */
+const MY_TASKS_FILTER_KEYS = ['status', 'priority', 'dueFrom', 'dueTo', 'dueDate', 'blocked', 'closed', 'closedIn'] as const
 
 /** 필터 초기화 — 필터 키만 지운 새 URLSearchParams(다른 키는 보존). */
 export function clearMyTasksFilters(params: URLSearchParams): URLSearchParams {

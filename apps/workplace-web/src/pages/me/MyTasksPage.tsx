@@ -1,5 +1,5 @@
-// 내 작업 — 할당/내가 만든/구독 3탭. 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
-import { useMemo, useState } from 'react'
+// 내 작업 — 개요/할당/내가 만든/구독 4탭(개요 WP-1484). 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
+import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -14,8 +14,10 @@ import { cn } from '@/lib/utils'
 
 import { meFacetParams } from './meFacetParams'
 import { MeTaskFilterBar } from './MeTaskFilterBar'
+import { isMyTasksTab, readLastMyTasksTab, useMyTasksTabKey, writeLastMyTasksTab } from './myTasksLastTab'
 import { clearMyTasksFilters, hasMyTasksFilters, isHidingClosed, myTasksQueryParams, type MyTasksTab } from './myTasksQuery'
 import { MY_TASKS_TAB_LABEL } from './myTasksTabs'
+import { MyOverviewTab, OverviewPeriodPicker } from './overview/MyOverviewTab'
 
 // 할당/내가 만든 탭은 /me/issues 기반 — 프로젝트 묶음 정렬(group)과 facet 을 서버 쿼리로 합친다(myTasksQuery, WP-916).
 // 할당 탭은 내가 맡은 일이라 담당자 열을 두지 않고, 내가 만든·구독 탭은 남이 맡은 일이 섞여 담당자 열을 둔다.
@@ -102,25 +104,28 @@ function WatchedTab({ scrollRoot }: { scrollRoot: Element | null }) {
   )
 }
 
-const TABS: readonly MyTasksTab[] = ['assigned', 'reported', 'watched']
-
 export default function MyTasksPage() {
   const navigate = useNavigate()
   const { tab } = useParams<{ tab: string }>()
-  const isKnownTab = (TABS as readonly string[]).includes(tab ?? '')
-  // 잘못된 탭은 할당으로 그린 뒤 아래에서 주소도 할당 탭으로 바로잡는다(에러 아님).
-  const active: MyTasksTab = isKnownTab ? (tab as MyTasksTab) : 'assigned'
+  const isKnownTab = isMyTasksTab(tab)
+  const tabKey = useMyTasksTabKey()
+  // 잘못된 탭은 마지막에 본 탭(없으면 개요)으로 그린 뒤 아래에서 주소도 그 탭으로 바로잡는다(에러 아님).
+  const active: MyTasksTab = isKnownTab ? (tab as MyTasksTab) : readLastMyTasksTab(tabKey)
+  // 지금 보는 탭을 기억한다 — 다음에 /me/tasks(사이드바 「내 작업」)로 들어오면 이 탭으로 연다(WP-1484, 프로젝트 화면 기억과 같은 규칙).
+  useEffect(() => {
+    if (isKnownTab) writeLastMyTasksTab(tabKey, active)
+  }, [isKnownTab, tabKey, active])
   // WP-54: 탭 + facet 을 AI 화면 컨텍스트(목록 상태)로 등록 — 건수는 탭 하위 목록이 소유해 이번 범위에선 생략.
   // 구독 탭은 facet 을 적용하지 않으므로(필터 바 미노출) URL 에 남은 facet 을 싣지 않는다.
   const [params] = useSearchParams()
-  const facets = useMemo(() => (active === 'watched' ? {} : meFacetParams(params)), [active, params])
+  const facets = useMemo(() => (active === 'watched' || active === 'overview' ? {} : meFacetParams(params)), [active, params])
   useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
   // 본문 스크롤 요소 — 탭 목록 무한 로드 sentinel 의 root(DS 05 §A-3). state ref 라 마운트 뒤 observer 가 다시 붙는다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
-  // 알 수 없는 탭 주소(/me/tasks/abc)는 할당 탭 주소로 바꾼다 — 주소가 그대로 남으면 공유·새로고침해도
+  // 알 수 없는 탭 주소(/me/tasks/abc)는 마지막에 본 탭(없으면 개요) 주소로 바꾼다 — 주소가 그대로 남으면 공유·새로고침해도
   // 없는 탭 주소가 퍼지고, 보이는 탭과 주소가 어긋난다(WP-926). 필터 쿼리는 그대로 넘긴다.
-  if (!isKnownTab) return <Navigate to={{ pathname: '/me/tasks/assigned', search: params.toString() }} replace />
+  if (!isKnownTab) return <Navigate to={{ pathname: `/me/tasks/${active}`, search: params.toString() }} replace />
 
   return (
     <Page>
@@ -132,11 +137,19 @@ export default function MyTasksPage() {
         {/* 탭 내용은 TabsContent(role=tabpanel) 안에 둔다 — 없으면 탭의 aria-controls 가 없는 id 를 가리켜 스크린리더가 탭과
             내용을 잇지 못한다(WP-841). 선택 탭의 패널만 그려진다(Radix 기본). */}
         <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)} className="gap-4">
+          {/* 탭 줄 오른쪽 — 개요 탭에서만 「나만 볼 수 있어요」 + 기간 고르기. 좁은 폭은 탭 아래로 내려간다. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList>
+            <TabsTrigger value="overview" data-testid="tab-overview">{MY_TASKS_TAB_LABEL.overview}</TabsTrigger>
             <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
             <TabsTrigger value="reported" data-testid="tab-reported">{MY_TASKS_TAB_LABEL.reported}</TabsTrigger>
             <TabsTrigger value="watched" data-testid="tab-watched">{MY_TASKS_TAB_LABEL.watched}</TabsTrigger>
           </TabsList>
+          {active === 'overview' && <OverviewPeriodPicker />}
+          </div>
+          <TabsContent value="overview">
+            <MyOverviewTab />
+          </TabsContent>
           {/* facet 바는 /me/issues 기반 탭(할당·내가 만든)에서만 노출 — 구독은 다른 엔드포인트라 제외. */}
           <TabsContent value="assigned" className="space-y-4">
             {/* 할당 탭만 완료를 기본으로 숨기므로 「완료 모두 보기」 토글을 둔다(WP-916). */}

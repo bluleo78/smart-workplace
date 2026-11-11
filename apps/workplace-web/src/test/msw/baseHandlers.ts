@@ -62,6 +62,10 @@ export const shellHandlers = [
   http.get(`${API}/me/issues`, () => HttpResponse.json(emptyCursor)),
   http.get(`${API}/me/watched-issues`, () => HttpResponse.json(emptyCursor)),
   http.get(`${API}/me/activity`, () => HttpResponse.json({ items: [], nextCursor: null })),
+  // 홈 「내 작업」 위젯의 어제/오늘 한 줄(WP-1484) — 0 요약.
+  http.get(`${API}/me/overview/today`, () =>
+    HttpResponse.json({ yesterday: '2026-01-01', yesterdayCompleted: 0, yesterdayCompletedWithAi: 0, yesterdayCompletedOnTime: 0, yesterdayCreated: 0, today: '2026-01-02', overdue: 0, oldestOverdueDays: null, dueToday: 0, waiting: 0 }),
+  ),
   http.get(`${API}/projects`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/members`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/drive/spaces`, () => HttpResponse.json([])),

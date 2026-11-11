@@ -17,6 +17,7 @@ import type { NotificationResponse } from '@/types/notification'
 
 import { calendarEvent } from '../../../e2e/factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { createMeDaySummary } from '../../../e2e/factories/meOverview.factory'
 
 const API = '/api/v1'
 
@@ -75,6 +76,7 @@ function home(initial: DashboardLayout, data: Data = {}) {
     }),
     http.get(`${API}/me/issues`, () => HttpResponse.json(issues)),
     http.get(`${API}/me/watched-issues`, () => HttpResponse.json(issues)),
+    http.get(`${API}/me/overview/today`, () => HttpResponse.json(createMeDaySummary())),
     http.get(`${API}/calendar/events`, () => HttpResponse.json(data.events ?? [calendarEvent({ id: 1, title: '스탠드업 미팅' })])),
     http.get(`${API}/notifications`, () => HttpResponse.json(data.notifications ?? [notif({ id: 1 })])),
     http.get(`${API}/notifications/unread-count`, () => HttpResponse.json({ count: 1 })),

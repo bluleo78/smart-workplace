@@ -3,19 +3,23 @@ import type { Page } from '@playwright/test'
 import type { IssueSearchResponse } from '../../../src/types/issue'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../factories/label.factory'
+import { createMeOverview, createUpcomingItem } from '../../factories/meOverview.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 
-// 내 작업 페이지(3탭) E2E — 실제 브라우저가 필요한 것만 남긴다.
+// 내 작업 페이지(4탭 — 개요 WP-1484) E2E — 실제 브라우저가 필요한 것만 남긴다.
 // 탭별 조회 파라미터·탭 이동·잘못된 탭 바로잡기·facet 칩·아이콘·aria-controls 패널·프로젝트 묶음 머리·레이블 +N·행 클릭 이동·
 // 마감 지남·완료 모두 보기·실패·로딩·필터 0건·데이터 없음 상태는 src/pages/me/myTasksPage.test.tsx(vitest 화면 테스트)가 지킨다.
-// 여기에는 /me/tasks → 할당 탭 대표 흐름(@wiring)과 헤더 정렬·배지 한 줄·행 높이·ID 헤더 x 맞춤(@layout)만 둔다.
+// 개요 탭 판정은 src/pages/me/myOverview.test.tsx 가 지킨다.
+// 여기에는 /me/tasks → 개요·할당 탭 대표 흐름(@wiring)과 헤더 정렬·배지 한 줄·행 높이·ID 헤더 x 맞춤(@layout)만 둔다.
 
-// 라우트 → 페이지 → API → 화면 대표 흐름 — /me/tasks 는 할당 탭으로 넘어가고 assignee=me 결과를 행으로 그린다.
-test('내 작업 — /me/tasks 는 할당 탭으로 넘어가 assignee=me 로 조회하고 결과를 렌더한다', { tag: '@wiring' }, async ({
+// 라우트 → 페이지 → API → 화면 대표 흐름 — /me/tasks 는 처음엔 개요 탭(WP-1484)으로 넘어가 /me/overview 결과를 그리고,
+// 할당 탭으로 옮기면 assignee=me 결과를 행으로 그린다.
+test('내 작업 — /me/tasks 는 개요 탭으로 넘어가 개요를 그리고, 할당 탭은 assignee=me 로 조회한다', { tag: '@wiring' }, async ({
   authenticatedPage: page,
 }) => {
+  const overview = await mockApi(page, 'GET', '/api/v1/me/overview', createMeOverview(), { capture: true })
   const cap = await mockApi(
     page,
     'GET',
@@ -24,8 +28,14 @@ test('내 작업 — /me/tasks 는 할당 탭으로 넘어가 assignee=me 로 �
     { capture: true },
   )
   await page.goto('/me/tasks')
-  await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
+  await expect(page).toHaveURL(/\/me\/tasks\/overview$/)
+  const ovReq = await overview.waitForRequest()
+  expect(ovReq.searchParams.get('period')).toBe('MONTH')
+  await expect(page.getByTestId('stat-completed')).toContainText('완료한 이슈')
+  await expect(page.getByTestId('overview-upcoming-list')).toContainText('genia 실행기 첫 응답 지연')
 
+  await page.getByRole('tab', { name: '할당' }).click()
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
   const req = await cap.waitForRequest()
   expect(req.searchParams.get('assignee')).toBe('me')
   await expect(page.getByTestId('assigned-row-11')).toContainText('할당된 이슈')
@@ -131,4 +141,21 @@ test('내 작업 — ID 헤더 글자가 키 글자와 2px 이내로 맞는다',
   const headX = await page.getByRole('columnheader', { name: 'ID', exact: true }).evaluate(textLeft)
   const keyX = await key.evaluate(textLeft)
   expect(Math.abs(headX - keyX)).toBeLessThanOrEqual(2)
+})
+
+// WP-1484 라이브 검증 결함 — 390px 에서 AI 태그·마감 표기를 한 줄에 넣으면 맡은 이슈 줄의 제목이 「모바일 …」로 잘렸다.
+// 좁은 폭에선 키 칸을 줄이고 AI 태그를 숨겨 제목이 보여야 한다(jsdom 은 폭을 잴 수 없다). 옛 「끝낸 일」 줄 검사는 섹션을 빼며 이 줄로 옮겼다.
+test('내 작업 개요 — 390px 에서 AI 태그가 붙은 맡은 이슈 줄도 제목이 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const base = createMeOverview()
+  const item = createUpcomingItem(501, '파일 업로드 용량 제한 안내', '2026-11-05', ['Claude Dev'])
+  await mockApi(page, 'GET', '/api/v1/me/overview', createMeOverview({ upcoming: { ...base.upcoming, overdue: 1, overdueTop: [item] } }))
+  await page.goto('/me/tasks/overview')
+  const list = page.getByTestId('overview-upcoming-list')
+  const title = list.getByText('파일 업로드 용량 제한 안내', { exact: true })
+  await expect(title).toBeVisible()
+  expect((await title.boundingBox())!.width).toBeGreaterThan(120)
+  // 줄 전체(마감 표기 포함)가 화면 밖으로 넘치지 않는다.
+  const due = (await list.getByText('6일 지남', { exact: true }).boundingBox())!
+  expect(due.x + due.width).toBeLessThanOrEqual(390)
 })

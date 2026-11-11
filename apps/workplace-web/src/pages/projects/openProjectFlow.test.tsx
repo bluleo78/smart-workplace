@@ -11,6 +11,7 @@ import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
+import { createMeDaySummary } from '../../../e2e/factories/meOverview.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 
 const KEY = 'OPNQA'
@@ -57,6 +58,7 @@ describe('OPEN 보고자 건의 — 홈', () => {
       handlers: [
         http.get('/api/v1/me/issues', () => HttpResponse.json({ items: [mine], nextCursor: null, hasMore: false })),
         http.get('/api/v1/me/watched-issues', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+        http.get('/api/v1/me/overview/today', () => HttpResponse.json(createMeDaySummary())),
       ],
     })
     const widget = await screen.findByTestId('dash-mytasks')
