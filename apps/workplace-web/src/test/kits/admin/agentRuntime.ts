@@ -100,7 +100,7 @@ export function createLocations(): AgentLocation[] {
   ]
 }
 
-/** 저장된 실행 설정 — status·observed 만 바꿔 쓴다. 기본은 꺼짐(observed 없음). */
+/** 저장된 실행 설정 — status·observed 만 바꿔 쓴다. 기본은 종료됨(observed 없음). */
 export function createSetting(
   agentUserId: number,
   overrides: Partial<AgentRuntimeSetting> = {},
@@ -151,7 +151,8 @@ export function createSummary(agentUserId: number, overrides: Partial<AgentRunti
     agentIssueKey: null,
     agentIssueKeys: [],
     agentNextCheckAt: null,
-    locationName: null,
+    // 서버는 기본 위치여도 실제 실행 위치 이름을 싣는다(WP-1513) — 기본값도 기본 위치 이름.
+    locationName: '기본 클러스터',
     message: null,
     ...overrides,
   }
@@ -233,7 +234,7 @@ export interface RuntimeApiOptions {
 }
 
 /**
- * AI 실행 관련 API 전부 — 템플릿·설정(조회·저장·삭제·켜기/끄기/다시 시작)·요약·프로젝트·위치 조회와 에이전트 실행 방식 PUT.
+ * AI 실행 관련 API 전부 — 템플릿·설정(조회·저장·삭제·시작/종료/재시작)·요약·프로젝트·위치 조회와 에이전트 실행 방식 PUT.
  * 쓰기 요청은 calls 에 모은다. 저장·삭제는 settings 에 반영해 재조회에 보인다.
  */
 export function agentRuntimeApi(opts: RuntimeApiOptions = {}) {

@@ -156,7 +156,7 @@ function cardLockReason(agent: AgentResponse, running: boolean): string | null {
   if (agent.type === 'PERSONAL') return '개인 비서는 기본 방식으로만 돌아요.';
   if (agent.type === 'WORKSPACE') return '공통 비서는 기본 방식으로만 돌아요. 다른 방식으로 바꾸려면 공통 비서 지정을 먼저 풀어 주세요.';
   if (!agent.isActive) return '사용 중지된 AI 는 실행 방식을 바꿀 수 없어요.';
-  if (running) return '실행 중에는 바꿀 수 없어요. 먼저 실행을 멈춰 주세요.';
+  if (running) return '실행 중에는 바꿀 수 없어요. 먼저 실행을 종료해 주세요.';
   return null;
 }
 

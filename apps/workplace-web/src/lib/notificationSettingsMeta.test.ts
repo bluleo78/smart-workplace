@@ -18,7 +18,7 @@ describe('ITEM_META', () => {
     expect(ITEM_META.ISSUE_STATUS_CHANGED).toEqual({ label: '상태 변경', description: '완료 포함 · 내가 담당·지켜보는 이슈' })
     expect(ITEM_META.ISSUE_PRIORITY_CHANGED).toEqual({ label: '우선순위 변경' })
     expect(ITEM_META.ISSUE_MENTIONED).toEqual({ label: '나를 멘션' })
-    expect(ITEM_META.ISSUE_AI_NEEDS_INPUT).toEqual({ label: '답변 필요', description: '질문 · 권한 필요 · 막힘', ai: true })
+    expect(ITEM_META.ISSUE_AI_NEEDS_INPUT).toEqual({ label: '답변 필요', description: '질문 · 권한 필요 · 차단됨', ai: true })
     expect(ITEM_META.ISSUE_AI_REVIEW_REQUESTED).toEqual({ label: '검토 요청', description: '내가 맡긴 작업이 검토 대기', ai: true })
     expect(ITEM_META.ISSUE_AI_FAILED).toEqual({ label: '실패', description: '내가 맡긴 작업 실패·거절', ai: true })
     expect(ITEM_META.CHAT_DM).toEqual({ label: 'DM' })

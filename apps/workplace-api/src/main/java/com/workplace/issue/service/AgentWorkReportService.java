@@ -170,7 +170,7 @@ public class AgentWorkReportService {
   }
 
   /**
-   * 진행 상태로 들어설 때 알릴 상태인지 — {@link AgentWorkNoticeEvent#ON_ENTER}(검토 대기·권한 필요·막힘·답변 필요). 답변 필요는 글이
+   * 진행 상태로 들어설 때 알릴 상태인지 — {@link AgentWorkNoticeEvent#ON_ENTER}(검토 대기·권한 필요·차단됨·답변 필요). 답변 필요는 글이
    * 없을 때만 — 글이 있으면 챗 질문 글이 AI_QUESTION 을 만든다.
    */
   private static boolean noticeOnEnter(String state, boolean hasMessage) {

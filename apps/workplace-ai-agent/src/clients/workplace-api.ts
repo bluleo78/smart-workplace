@@ -256,7 +256,7 @@ export interface WorkplaceApiClient {
       pausedActions?: PausedAction[];
     },
   ): Promise<void>;
-  // WP-1219: 담당 지정·코멘트로 깨어난 이슈 실행의 시작·끝 보고 — 실행한 AI(agentId) 대행. API 가 그 AI 의 작업 기록(작업 중 → 검토 대기·막힘)을 남긴다.
+  // WP-1219: 담당 지정·코멘트로 깨어난 이슈 실행의 시작·끝 보고 — 실행한 AI(agentId) 대행. API 가 그 AI 의 작업 기록(작업 중 → 검토 대기·차단됨)을 남긴다.
   reportAgentRun(
     agentId: number,
     issueId: number,

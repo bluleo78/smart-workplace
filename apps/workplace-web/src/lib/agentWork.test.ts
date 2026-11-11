@@ -23,7 +23,7 @@ describe('AGENT_STATE_LABEL', () => {
   })
 })
 describe('agentStateTone', () => {
-  it('사람이 할 일은 action, 작업 중은 info, 막힘은 warning', () => {
+  it('사람이 할 일은 action, 작업 중은 info, 차단됨은 warning', () => {
     for (const s of ['INPUT_REQUIRED', 'AUTH_REQUIRED', 'REVIEW'] as const) expect(agentStateTone(s)).toBe('action')
     expect(agentStateTone('WORKING')).toBe('info')
     expect(agentStateTone('BLOCKED')).toBe('warning')

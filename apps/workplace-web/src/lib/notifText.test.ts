@@ -44,7 +44,7 @@ describe('notificationAction — AI 작업 알림 (WP-913)', () => {
     expect(notificationAction(n({ type: 'AI_QUESTION' }))).toBe('님이 이슈 챗에서 질문했습니다');
     expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'INPUT_REQUIRED' }))).toBe('님이 답변을 기다리고 있습니다');
     expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'AUTH_REQUIRED' }))).toBe('님이 권한이 필요하다고 알렸습니다');
-    expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'BLOCKED' }))).toBe('님이 작업이 막혔다고 알렸습니다');
+    expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'BLOCKED' }))).toBe('님이 작업이 차단됐다고 알렸습니다');
   });
 
   it('다른 종류는 상태가 있어도 종류별 문구', () => {

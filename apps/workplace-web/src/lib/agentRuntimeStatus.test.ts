@@ -20,10 +20,10 @@ import {
 
 describe('statusPill — 상태 알약', () => {
   test.each([
-    ['OFF', null, '꺼짐', 'inactive'],
-    ['STARTING', null, '시작하는 중', 'info'],
-    ['STOPPING', null, '멈추는 중', 'inactive'],
-    ['FAILED', null, '실패', 'error'],
+    ['OFF', null, '종료됨', 'inactive'],
+    ['STARTING', null, '시작 중', 'info'],
+    ['STOPPING', null, '종료 중', 'inactive'],
+    ['FAILED', null, '오류', 'error'],
   ] as const)('%s 는 AI 보고와 무관하게 %s', (status, state, label, type) => {
     expect(statusPill(status, state)).toEqual({ label, type })
     // 켜짐 계열이 아니면 AI 가 보고한 일 상태가 있어도 무시한다.
@@ -31,12 +31,12 @@ describe('statusPill — 상태 알약', () => {
   })
   test.each(['RUNNING', 'APPLY_PENDING'] as const)('%s 는 AI 가 보고한 일 상태로 나뉜다', (status) => {
     expect(statusPill(status, 'WORKING')).toEqual({ label: '작업 중', type: 'active' })
-    expect(statusPill(status, 'IDLE')).toEqual({ label: '쉬는 중', type: 'active' })
-    expect(statusPill(status, 'BLOCKED')).toEqual({ label: '막힘', type: 'warning' })
+    expect(statusPill(status, 'IDLE')).toEqual({ label: '대기 중', type: 'active' })
+    expect(statusPill(status, 'BLOCKED')).toEqual({ label: '차단됨', type: 'warning' })
   })
-  test('실행 중인데 아직 보고가 없으면 시작하는 중', () => {
-    expect(statusPill('RUNNING', null)).toEqual({ label: '시작하는 중', type: 'info' })
-    expect(statusPill('RUNNING', undefined)).toEqual({ label: '시작하는 중', type: 'info' })
+  test('실행 중인데 아직 보고가 없으면 시작 중', () => {
+    expect(statusPill('RUNNING', null)).toEqual({ label: '시작 중', type: 'info' })
+    expect(statusPill('RUNNING', undefined)).toEqual({ label: '시작 중', type: 'info' })
   })
 })
 
@@ -52,12 +52,12 @@ describe('statusDetail — 상태 옆 한 줄', () => {
     expect(statusDetail({ ...base, status: 'FAILED', message: '' })).toBeNull()
     expect(statusDetail({ ...base, status: 'FAILED', message: null })).toBeNull()
   })
-  test('꺼짐·끄는 중·켜는 중에는 보일 것이 없다', () => {
+  test('종료됨·종료 중·시작 중에는 보일 것이 없다', () => {
     for (const status of ['OFF', 'STOPPING', 'STARTING'] as const) {
       expect(statusDetail({ ...base, status, agentState: 'WORKING', agentIssueKey: 'WD-1' })).toBeNull()
     }
   })
-  test('작업 중·막힘이면 이슈 키, 키가 없으면 null', () => {
+  test('작업 중·차단됨이면 이슈 키, 키가 없으면 null', () => {
     expect(statusDetail({ ...base, agentState: 'WORKING', agentIssueKey: 'WD-319' })).toEqual({ kind: 'issue', text: 'WD-319', keys: ['WD-319'] })
     expect(statusDetail({ ...base, status: 'APPLY_PENDING', agentState: 'BLOCKED', agentIssueKey: 'WP-1203' })).toEqual({ kind: 'issue', text: 'WP-1203', keys: ['WP-1203'] })
     expect(statusDetail({ ...base, agentState: 'WORKING' })).toBeNull()

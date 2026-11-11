@@ -44,7 +44,7 @@ public record AgentWorkNoticeEvent(
   /** 권한 필요 → AI_QUESTION. */
   public static final String AUTH_REQUIRED = AgentWorkState.AUTH_REQUIRED;
 
-  /** 막힘 → AI_QUESTION. */
+  /** 차단됨 → AI_QUESTION. */
   public static final String BLOCKED = AgentWorkState.BLOCKED;
 
   /** 진행 상태로 들어설 때 알리는 상태(INPUT_REQUIRED 는 글이 없을 때만 — 그 판단은 발행 쪽이 한다). */

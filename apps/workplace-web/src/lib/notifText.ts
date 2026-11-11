@@ -42,7 +42,7 @@ const AGENT_WORK_STATE_LABEL: Partial<Record<string, string>> = {
   REJECTED: '님이 작업을 거절했습니다',
   INPUT_REQUIRED: '님이 답변을 기다리고 있습니다',
   AUTH_REQUIRED: '님이 권한이 필요하다고 알렸습니다',
-  BLOCKED: '님이 작업이 막혔다고 알렸습니다',
+  BLOCKED: '님이 작업이 차단됐다고 알렸습니다',
 };
 
 // 종류별로 상태 문구를 쓰는 상태 — 표에 없는 종류·상태 조합(검토 요청 전부, 실패의 FAILED·모르는 상태, 다른 종류)은 종류 문구 그대로.

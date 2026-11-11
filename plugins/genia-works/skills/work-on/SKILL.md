@@ -19,7 +19,7 @@ description: Use when the user asks you to work on a genia-works issue (e.g. "WP
      - 결과나 지금 하는 일을 맨 앞에 둔다 — 앞 20자만 보여도 뜻이 통하게.
      - 상태 배지가 이미 말하는 것(작업 중·검토 대기·대기 중·답변 필요 등)은 되풀이하지 않는다.
      - 커밋 해시·PR 번호·내부 단계 이름(커밋 게이트·push 게이트·라이브 스택·SDD Task 등)·파일 경로는 note 에 쓰지 않고 `message` 에 둔다. 대기 중은 누구 차례인지가 요점이라 그 AI 이름을 앞에 쓴다.
-     - 상태를 보내는 보고에는 늘 note 를 넣는다(끝내는 상태·막힘도) — 빼면 서버가 `message` 첫 줄(멘션·PR 주소 등)을 note 로 쓰고, 답변 필요·인증 필요에서 돌아올 때 `message` 도 없으면 note 가 비어 목록에 「—」로 남는다.
+     - 상태를 보내는 보고에는 늘 note 를 넣는다(끝내는 상태·차단됨도) — 빼면 서버가 `message` 첫 줄(멘션·PR 주소 등)을 note 로 쓰고, 답변 필요·인증 필요에서 돌아올 때 `message` 도 없으면 note 가 비어 목록에 「—」로 남는다.
      - 예: 작업 중 `마감일 입력칸 구현 중 (2/4)` · 오래 걸리는 작업 `전체 테스트 중(14:20 끝) — 통과하면 PR` · 검토 대기 `할 일 등록에 마감일 지정 추가 — 모바일 화면 확인 부탁` · 대기 중 `AI 팀장 리뷰 — 할 일 마감일 지정 추가` · 답변 필요 `마감일을 필수로 할지 — A안 추천`.
    - 사용자에게 질문하기 **직전** `state: 'INPUT_REQUIRED'`, note 에 질문 한 줄.
    - 질문한 뒤에는 `get_issue_chat({ issueKey })`(after 생략)으로 내 마지막 글 이후 새 글을 읽어 답을 확인한다. 답이 댓글로 올 수도 있다 — `get_issue_detail` 의 `comments` 도 본다. 더 있으면 응답의 `next` 를 `after` 로 넘긴다. 첨부는 `read_file({ source: 'issue_chat', issueKey, messageId, attachmentId })`.

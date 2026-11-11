@@ -1,5 +1,5 @@
 // 에이전트 상세 페이지(/settings/agents/:id, WP-1281) — 서버가 판정한 runMode(SERVER·WORKSPACE·EXTERNAL)와 유형(개인·공통)에 따라
-// 어떤 섹션·묶음이 그려지는지, 실행 시작이 막히는 이유(맡는 프로젝트 0 등), 다음 교체 시각, 404 상태를 본다.
+// 어떤 섹션·묶음이 그려지는지, 시작이 막히는 이유(맡는 프로젝트 0 등), 다음 교체 시각, 404 상태를 본다.
 // 작업 공간 AI 의 AI 계정은 계정 목록에서 고른다(WP-1451) — 맞는 종류만·고르면 PUT {accountId}·사용률·끊김 안내·빈 목록·거절 문구를 본다.
 // 확인창·PUT payload 같은 섹션별 동작은 agentManagement.test.tsx, 설정 가이드 따라가기는 settingsGuide.test.tsx 가 본다.
 import { screen, waitFor, within } from '@testing-library/react'
@@ -210,7 +210,7 @@ describe('실행 방식별 섹션 구성', () => {
   })
 })
 
-describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', () => {
+describe('Works 실행 AI — 시작 막힘·접속 키 교체 시각', () => {
   const id = 200
   const works = (over: Partial<Opts> = {}): Opts => ({
     agent: createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE' }),
@@ -221,7 +221,7 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     ...over,
   })
 
-  test('맡는 프로젝트가 0 이면 실행 시작이 막히고 이유를 보인다(WP-1281 결정)', async () => {
+  test('맡는 프로젝트가 0 이면 시작이 막히고 이유를 보인다(WP-1281 결정)', async () => {
     await renderDetail(works({ projects: [] }))
     const start = await screen.findByTestId('agent-runtime-start')
     await waitFor(() => expect(screen.getByTestId('agent-runtime-checks')).toHaveTextContent('맡는 프로젝트'))
@@ -230,7 +230,7 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(screen.getByRole('link', { name: '프로젝트에 추가하러 가기' })).toHaveAttribute('href', '/projects')
   })
 
-  test('프로젝트가 있고 Claude 가 연결돼 있고 실행 환경에 자리가 있으면 실행 시작이 열리고 POST start 를 보낸다', async () => {
+  test('프로젝트가 있고 Claude 가 연결돼 있고 실행 환경에 자리가 있으면 시작이 열리고 POST start 를 보낸다', async () => {
     const { user, calls } = await renderDetail(works({ projects: PROJECTS }))
     const start = await screen.findByTestId('agent-runtime-start')
     await waitFor(() => expect(start).toBeEnabled())
@@ -258,13 +258,13 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(screen.getByTestId('agent-runtime-start')).toBeDisabled()
   })
 
-  test('실행 중이면 시작 대신 다시 시작·실행 멈춤이 보이고, 상태 알약은 AI 보고(작업 중)를 따른다', async () => {
+  test('실행 중이면 시작 대신 재시작·종료가 보이고, 상태 알약은 AI 보고(작업 중)를 따른다', async () => {
     const setting = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'WORKING', agentIssueKey: 'WD-319' }) })
     await renderDetail(works({ settings: { [id]: setting } }))
     expect(await screen.findByTestId('agent-runtime-status')).toHaveTextContent('작업 중')
     expect(screen.getByTestId('agent-runtime-detail')).toHaveTextContent('WD-319')
-    expect(screen.getByTestId('agent-runtime-restart')).toBeInTheDocument()
-    expect(screen.getByTestId('agent-runtime-stop')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-runtime-restart')).toHaveTextContent('재시작')
+    expect(screen.getByTestId('agent-runtime-stop')).toHaveTextContent('종료')
     expect(screen.queryByTestId('agent-runtime-start')).not.toBeInTheDocument()
     // 실행 중에는 방식 카드를 바꿀 수 없다.
     expect(screen.getByTestId('agent-run-mode-lock')).toHaveTextContent('실행 중에는 바꿀 수 없어요')
@@ -279,11 +279,12 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects/HR/issues/2', '/projects/WP/issues/1'])
   })
 
-  test('일하는 중 다시 시작 확인 창은 일하는 이슈를 모두 적는다 (WP-1409)', async () => {
+  test('일하는 중 재시작 확인 창은 일하는 이슈를 모두 적는다 (WP-1409)', async () => {
     const observed = createObserved({ agentState: 'WORKING', agentIssueKey: 'HR-2', agentIssueKeys: ['HR-2', 'WP-1'] })
     const { user } = await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) } }))
     await user.click(await screen.findByTestId('agent-runtime-restart'))
     const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('지금 재시작할까요?')
     expect(dialog).toHaveTextContent('HR-2, WP-1')
     expect(dialog).toHaveTextContent('이어 받아요')
   })
@@ -300,7 +301,7 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     expect(await screen.findByTestId('agent-screen-open')).toHaveTextContent('작업 화면 보기')
   })
 
-  test('꺼져 있거나 시작하는 중이면 작업 화면 보기가 없다', async () => {
+  test('꺼져 있거나 시작 중이면 작업 화면 보기가 없다', async () => {
     await renderDetail(works({ settings: { [id]: createSetting(id, { status: 'STARTING', desired: 'RUN' }) } }))
     expect(await screen.findByTestId('agent-runtime-status')).toBeInTheDocument()
     expect(screen.queryByTestId('agent-screen-open')).not.toBeInTheDocument()
@@ -334,7 +335,7 @@ describe('Works 실행 AI — 실행 시작 막힘·접속 키 교체 시각', (
     await waitFor(() => expect(screen.getByTestId('agent-run-group')).toHaveTextContent('실행 환경에 여유가 없어요'))
     await user.click(screen.getByTestId('agent-runtime-location'))
     await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /워크스페이스 기본/ }))
-    const start = await screen.findByRole('button', { name: '저장하고 실행 시작' })
+    const start = await screen.findByRole('button', { name: '저장하고 시작' })
     await waitFor(() => expect(start).toBeEnabled())
   })
 
@@ -505,7 +506,7 @@ describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
     expect(within(screen.getByTestId('agent-repo-dialog')).getByTestId('agent-repo-token')).toHaveValue('glpat-0123456789abcdefghij')
   })
 
-  test('켜기 전 확인 — 연결 안 된 호스트를 알리고 실행 시작을 「저장소를 먼저 연결해 주세요」로 막는다(Claude 다음·프로젝트 앞)', async () => {
+  test('켜기 전 확인 — 연결 안 된 호스트를 알리고 시작을 「저장소를 먼저 연결해 주세요」로 막는다(Claude 다음·프로젝트 앞)', async () => {
     await renderDetail(works())
     const item = await screen.findByTestId('agent-runtime-check-repos')
     await waitFor(() => expect(item).toHaveTextContent('gitlab.iacloud.kr 가 연결돼 있지 않아요. 아래 실행 › 저장소 연결에서 연결해 주세요'))
@@ -517,7 +518,7 @@ describe('Works 실행 AI — 저장소 연결(WP-1268)', () => {
     expect(text.indexOf('저장소 연결')).toBeLessThan(text.indexOf('맡는 프로젝트'))
   })
 
-  test('호스트를 모두 연결하면 ✓ 로 바뀌고 실행 시작이 열린다', async () => {
+  test('호스트를 모두 연결하면 ✓ 로 바뀌고 시작이 열린다', async () => {
     await renderDetail(works({ repoCredentials: [repoCred(1, 'github.com'), repoCred(2, 'gitlab.iacloud.kr')] }))
     const item = await screen.findByTestId('agent-runtime-check-repos')
     await waitFor(() => expect(within(item).getByLabelText('통과')).toBeInTheDocument())
@@ -723,7 +724,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     return screen.findByTestId('agent-account-choose-dialog')
   }
 
-  test('고른 계정이 없으면(묶인 계정 404) 오류가 아니라 「아직 고른 계정이 없습니다」와 「계정 고르기」, 실행 시작은 막힌다', async () => {
+  test('고른 계정이 없으면(묶인 계정 404) 오류가 아니라 「아직 고른 계정이 없습니다」와 「계정 고르기」, 시작은 막힌다', async () => {
     await renderDetail(claude())
     const group = await screen.findByTestId('agent-ai-account-group')
     expect(await within(group).findByTestId('agent-account-picker-empty')).toHaveTextContent(
@@ -737,7 +738,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(screen.getByTestId('agent-runtime-check-account')).toHaveTextContent('아래 실행 › AI 계정에서 계정을 골라 주세요')
   })
 
-  test('고른 계정 — 라벨·종류·상태와 5시간·주간 사용률(계정 탭과 같은 막대 색), 옛 연결이 없어도 실행 시작이 열린다', async () => {
+  test('고른 계정 — 라벨·종류·상태와 5시간·주간 사용률(계정 탭과 같은 막대 색), 옛 연결이 없어도 시작이 열린다', async () => {
     await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     const bound = await screen.findByTestId('agent-account-bound')
     expect(within(bound).getByTestId('agent-account-bound-label')).toHaveTextContent('Claude 팀 A')
@@ -835,7 +836,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(screen.queryByTestId('agent-account-picker-empty')).not.toBeInTheDocument()
   })
 
-  test('로그인 계정 방식(Codex)에 맞지 않는 계정이 묶여 있으면 바꾸라고 알리고 실행 시작은 「ChatGPT 로그인」으로 막힌다', async () => {
+  test('로그인 계정 방식(Codex)에 맞지 않는 계정이 묶여 있으면 바꾸라고 알리고 시작은 「ChatGPT 로그인」으로 막힌다', async () => {
     // 옛 연결이 ChatGPT 여도 묶인 계정이 먼저다(서버 runner 계약과 같다)
     await renderDetail(codex({ boundAccounts: { [id]: 1 }, credentials: { [id]: 'chatgpt' } }))
     expect(await screen.findByTestId('agent-account-picker-mismatch')).toHaveTextContent('이 방식은 ChatGPT 로그인 계정으로 일해요')
@@ -937,7 +938,7 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
     expect(within(group).queryByTestId('agent-account-pick')).not.toBeInTheDocument()
   })
 
-  test('고른 계정을 다시 받다 실패해도 앞서 받은 계정으로 판정해 실행 시작을 막지 않는다', async () => {
+  test('고른 계정을 다시 받다 실패해도 앞서 받은 계정으로 판정해 시작을 막지 않는다', async () => {
     const { queryClient } = await renderDetail(claude({ boundAccounts: { [id]: 1 } }))
     await waitFor(() => expect(screen.getByTestId('agent-runtime-start')).toBeEnabled())
     // 이제부터 묶인 계정 조회는 실패한다 — 다시 받으면 isError 지만 앞서 받은 값은 남는다

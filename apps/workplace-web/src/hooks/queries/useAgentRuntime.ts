@@ -97,9 +97,9 @@ export function useUseServerTemplate(userId: number) {
 }
 
 const ACTION_DONE: Record<AgentRuntimeAction, string> = {
-  start: '실행을 시작했어요',
-  stop: '실행을 멈추는 중이에요',
-  restart: 'AI 를 다시 시작합니다',
+  start: 'AI 를 시작했어요',
+  stop: 'AI 를 종료하는 중이에요',
+  restart: 'AI 를 재시작합니다',
 };
 
 export function useAgentRuntimeAction(userId: number) {

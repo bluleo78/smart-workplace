@@ -435,7 +435,7 @@ describe('알림 인박스', () => {
   })
 
   // WP-452 — 이슈 챗 AI 질문·멘션은 챗 드로워가 열린 이슈 상세(?chat=1)로. WP-650 — 코멘트 멘션은 드로워 없이.
-  // WP-913 — AI 검토 요청·막힘은 서버 푸시와 같은 문구, 검토 요청은 드로워 없이 상세로.
+  // WP-913 — AI 검토 요청·차단됨은 서버 푸시와 같은 문구, 검토 요청은 드로워 없이 상세로.
   test('이슈 챗·코멘트 멘션·AI 작업 알림 문구와 이동 주소', async () => {
     const { user, reads, location } = await openInbox(
       [
@@ -454,7 +454,7 @@ describe('알림 인박스', () => {
     expect(items[1]).toHaveTextContent('박민수님이 이슈 챗에서 회원님을 멘션했습니다')
     expect(items[2]).toHaveTextContent('박민수님이 코멘트에서 회원님을 멘션했습니다')
     expect(items[3]).toHaveTextContent('님이 검토를 요청했습니다')
-    expect(items[4]).toHaveTextContent('님이 작업이 막혔다고 알렸습니다')
+    expect(items[4]).toHaveTextContent('님이 작업이 차단됐다고 알렸습니다')
 
     await user.click(items[0])
     await waitFor(() => expect(location()).toBe('/projects/WP/issues/12?chat=1'))

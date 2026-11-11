@@ -253,6 +253,6 @@ class PushContentServiceTest extends IntegrationTestBase {
             content.forInbox(agentWorkEvent(NotificationType.AI_QUESTION, "AUTH_REQUIRED")).body())
         .isEqualTo("박민수님이 권한이 필요하다고 알렸습니다");
     assertThat(content.forInbox(agentWorkEvent(NotificationType.AI_QUESTION, "BLOCKED")).body())
-        .isEqualTo("박민수님이 작업이 막혔다고 알렸습니다");
+        .isEqualTo("박민수님이 작업이 차단됐다고 알렸습니다");
   }
 }

@@ -185,7 +185,7 @@ public class PushContentService {
           AgentWorkNoticeEvent.REJECTED, "님이 작업을 거절했습니다",
           AgentWorkNoticeEvent.INPUT_REQUIRED, "님이 답변을 기다리고 있습니다",
           AgentWorkNoticeEvent.AUTH_REQUIRED, "님이 권한이 필요하다고 알렸습니다",
-          AgentWorkNoticeEvent.BLOCKED, "님이 작업이 막혔다고 알렸습니다");
+          AgentWorkNoticeEvent.BLOCKED, "님이 작업이 차단됐다고 알렸습니다");
 
   /** 행위 문구(행위자 이름 뒤에 붙음). */
   private static String label(NotificationType t) {

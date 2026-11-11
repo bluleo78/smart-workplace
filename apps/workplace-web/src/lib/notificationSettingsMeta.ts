@@ -24,7 +24,7 @@ export const ITEM_META: Record<NotificationSettingItem, { label: string; descrip
   ISSUE_STATUS_CHANGED: { label: '상태 변경', description: '완료 포함 · 내가 담당·지켜보는 이슈' },
   ISSUE_PRIORITY_CHANGED: { label: '우선순위 변경' },
   ISSUE_MENTIONED: { label: '나를 멘션' },
-  ISSUE_AI_NEEDS_INPUT: { label: '답변 필요', description: '질문 · 권한 필요 · 막힘', ai: true },
+  ISSUE_AI_NEEDS_INPUT: { label: '답변 필요', description: '질문 · 권한 필요 · 차단됨', ai: true },
   ISSUE_AI_REVIEW_REQUESTED: { label: '검토 요청', description: '내가 맡긴 작업이 검토 대기', ai: true },
   ISSUE_AI_FAILED: { label: '실패', description: '내가 맡긴 작업 실패·거절', ai: true },
   CHAT_DM: { label: 'DM' },

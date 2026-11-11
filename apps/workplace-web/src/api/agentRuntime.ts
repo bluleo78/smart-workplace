@@ -43,7 +43,7 @@ export async function deleteAgentRuntimeSetting(userId: number): Promise<void> {
 
 export type AgentRuntimeAction = 'start' | 'stop' | 'restart';
 
-// 켜기·끄기·다시 시작.
+// 시작·종료·재시작.
 export async function runAgentRuntimeAction(
   userId: number,
   action: AgentRuntimeAction,
@@ -52,7 +52,7 @@ export async function runAgentRuntimeAction(
   return data;
 }
 
-// 목록 「실행」 열 — 실행 설정이 있는 AI 들의 요약(한 번에).
+// 목록 「실행 방식 · 상태 · 실행 환경」 열 — 실행 설정이 있는 AI 들의 요약(한 번에).
 export async function listAgentRuntimeSummaries(): Promise<AgentRuntimeSummary[]> {
   const { data } = await client.get<AgentRuntimeSummary[]>('/admin/agent-runtime-summaries');
   return data;

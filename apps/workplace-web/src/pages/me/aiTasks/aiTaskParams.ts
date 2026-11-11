@@ -6,7 +6,7 @@ import { AGENT_STATE_LABEL, TERMINAL_AGENT_STATES } from '@/lib/agentWork'
 import { meFacetParams } from '../meFacetParams'
 
 /**
- * 빠른 필터 칩이 다루는 값(URL `state`) — AI 진행 상태 칩 여섯(답변·검토·막힘·작업 중·대기 중·다음 회차 대기) + 완료(DONE, WP-396). state 가 없으면 「미완료」(진행 중 작업이 있는 이슈 전부).
+ * 빠른 필터 칩이 다루는 값(URL `state`) — AI 진행 상태 칩 여섯(답변·검토·차단됨·작업 중·대기 중·다음 회차 대기) + 완료(DONE, WP-396). state 가 없으면 「미완료」(진행 중 작업이 있는 이슈 전부).
  * 일시 중지·시작 전은 칩이 없어 URL 로 와도 무시한다.
  */
 export type QuickState = 'INPUT_REQUIRED' | 'REVIEW' | 'BLOCKED' | 'WORKING' | 'WAITING' | 'SCHEDULED' | 'DONE'
@@ -22,7 +22,7 @@ export type QuickCountKey = 'inputRequired' | 'review' | 'blocked' | 'working' |
 
 /**
  * 칩별 표시·서버 대응 — label 은 칩 글자, countKey 는 건수 필드, agentState 는 목록 요청의 쉼표 구분 상태.
- * 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요)를 함께 본다 — 건수도 서버가 같은 합으로 준다.
+ * 차단됨 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요)를 함께 본다 — 건수도 서버가 같은 합으로 준다.
  * 완료 칩은 종료 상태 넷을 함께 보낸다 — 서버는 진행 중 작업이 없고 종료 작업이 있는 이슈만 주고, 행 배지는 가장 최근 종료 결과다.
  */
 export const QUICK_STATE_META: Record<QuickState, { label: string; countKey: QuickCountKey; agentState: string }> = {

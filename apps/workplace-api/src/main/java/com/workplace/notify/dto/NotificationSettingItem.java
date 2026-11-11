@@ -16,7 +16,7 @@ public enum NotificationSettingItem {
   ISSUE_STATUS_CHANGED(ISSUE, false, false),
   ISSUE_PRIORITY_CHANGED(ISSUE, false, false),
   ISSUE_MENTIONED(ISSUE, true, true),
-  ISSUE_AI_NEEDS_INPUT(ISSUE, null, true), // 질문·권한 필요·막힘 — 「사람이 손대야 AI 가 계속한다」 하나로 묶음
+  ISSUE_AI_NEEDS_INPUT(ISSUE, null, true), // 질문·권한 필요·차단됨 — 「사람이 손대야 AI 가 계속한다」 하나로 묶음
   ISSUE_AI_REVIEW_REQUESTED(ISSUE, null, true),
   ISSUE_AI_FAILED(ISSUE, null, true), // 실패·거절
   CHAT_DM(CHAT, true, true),

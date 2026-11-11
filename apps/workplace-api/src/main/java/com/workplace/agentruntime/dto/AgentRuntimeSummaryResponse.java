@@ -12,7 +12,8 @@ import java.util.List;
  * @param agentState AI 스스로 보고한 상태(IDLE·WORKING·BLOCKED, 없으면 null) — 칸이 여럿이면 합친 상태(WP-1409)
  * @param agentIssueKey 현재 이슈 키 목록의 첫 키(없으면 null — 옛 화면 호환)
  * @param agentIssueKeys 현재 이슈 키 모두 — 칸 키 순(WP-1409, 보고 없으면 빈 목록)
- * @param locationName 실제 실행 위치 이름 — 워크스페이스 기본 위치면(위치 미지정 포함) null
+ * @param locationName 실제 실행 위치 이름 — 지정한 위치, 미지정이면 워크스페이스 기본 위치의 이름(WP-1513, 기본 위치도 이름을 싣는다). 기본 위치가
+ *     없으면 null
  * @param message runner 가 보고한 관찰 메시지(예: 실패 이유, 없으면 null)
  */
 public record AgentRuntimeSummaryResponse(

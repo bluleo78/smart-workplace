@@ -7,7 +7,7 @@ export interface AiTaskCounts {
   all: number
   inputRequired: number
   review: number
-  // 막힘 + 인증 필요 합.
+  // 차단됨 + 인증 필요 합.
   blocked: number
   working: number
   // 대기 중 — 다른 사람·AI 의 차례를 기다리는 작업(WP-1024).
