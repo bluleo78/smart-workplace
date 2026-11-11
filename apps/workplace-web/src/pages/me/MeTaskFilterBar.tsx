@@ -2,12 +2,13 @@
 // 프로젝트별 IssueFilterBar 와 달리 projectKey 가 없으므로 정적 enum(상태·우선순위)만 노출한다.
 // (label/cycle/type 은 프로젝트별 동적 옵션 — 횡단 뷰에는 단일 옵션 소스가 없어 제외.)
 // URL SearchParams 가 단일 source of truth — 탭(경로 세그먼트)·assignee/reporter(프로그램 인자)와
-// 독립적으로 status/priority 만 query 로 읽고 쓴다.
+// 독립적으로 status/priority(+ 걸려 있으면 완료일 closedIn) 만 query 로 읽고 쓴다.
 import { useSearchParams } from 'react-router-dom';
 
 import { type FacetDef, type FilterValue, QuickFilterBar } from '@/components/filter';
 import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 
+import { CLOSED_PRESETS, closedRangeLabel } from '../../lib/closedRange';
 import { parseFilters } from '../../lib/issueFilters';
 import { ISSUE_PRIORITY_OPTIONS } from '../../lib/issueGrouping';
 import { overridesMyTasksClosedHiding } from './myTasksQuery';
@@ -34,6 +35,7 @@ export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle
   const filterValue: FilterValue = {
     status: filters.statuses,
     priority: filters.priorities,
+    closedIn: filters.closedIn ? [filters.closedIn] : [],
   };
 
   const facets: FacetDef[] = [
@@ -41,6 +43,19 @@ export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle
     { key: 'status', label: '상태 범주', options: STATUS_OPTIONS },
     // 우선순위는 공용 5단계 선택지(매우 높음→매우 낮음, WP-886) — 프로젝트 화면 필터와 같은 순서·문구.
     { key: 'priority', label: '우선순위', options: ISSUE_PRIORITY_OPTIONS },
+    // 「완료일」 — 개요 탭 「모두 보기」가 건 기간(closedIn, WP-1484)이 화면에 보이고 풀 수 있게, 값이 걸렸을 때만 칩으로 둔다.
+    // 걸리지 않았을 땐 넣지 않는다 — 이 화면엔 「더 보기」 메뉴가 없고, 완료일을 고르는 길은 개요 탭이다.
+    ...(filters.closedIn
+      ? [
+          {
+            key: 'closedIn',
+            label: '완료일',
+            single: true,
+            options: CLOSED_PRESETS.map((p) => ({ value: p.value, label: closedRangeLabel(p.value) })),
+            valueLabel: (v) => closedRangeLabel(String(v)) || undefined,
+          } satisfies FacetDef,
+        ]
+      : []),
   ];
 
   // FilterValue → URL. status/priority 만 갱신하고 다른 query 키(있다면)는 보존.
@@ -53,6 +68,9 @@ export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle
     else p.delete('status');
     if (priorities.length) p.set('priority', priorities.join(','));
     else p.delete('priority');
+    const closedIn = next.closedIn?.[0];
+    if (closedIn != null) p.set('closedIn', String(closedIn));
+    else p.delete('closedIn');
     setParams(p, { replace: true });
   }
 

@@ -273,6 +273,17 @@ describe('내 작업 묶음 목록(WP-916)', () => {
     expect(clearMyTasksFilters(sp).toString()).toBe('x=1')
   })
 
+  // WP-1484 라이브 검증 결함: 완료일 기간이 보이지 않게 걸려, 상태 칩만 풀면 빈 목록에 걸린 필터가 안 보였다 — 칩으로 보이고 풀 수 있어야 한다.
+  test('완료일 기간(closedIn)은 「완료일」 칩으로 보이고, 칩을 풀면 기간 없이 다시 조회한다', async () => {
+    const { seen, user } = renderMyTasks('/me/tasks/assigned?status=DONE&closedIn=2026-11-01~2026-11-11')
+    const chip = await screen.findByRole('button', { name: /^완료일: .*11\/1–11\/11$/ })
+    expect(chip).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '완료일 필터 제거' }))
+    await waitFor(() => expect(seen.at(-1)?.get('closedFrom')).toBeNull())
+    expect(seen.at(-1)?.get('status')).toBe('DONE')
+    expect(screen.queryByRole('button', { name: /^완료일:/ })).not.toBeInTheDocument()
+  })
+
   test('내가 만든 탭에는 완료 모두 보기 토글이 없다', async () => {
     renderMyTasks('/me/tasks/reported')
     await screen.findByTestId('reported-row-52')
