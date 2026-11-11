@@ -71,7 +71,7 @@ export async function dismissByOutsideClick(page: Page, layer: Locator, point = 
 
 /**
  * 뷰포트를 바꾸고 앱 셸 전환(1024 경계: 데스크톱 AppLayout ↔ MobileShell)이 끝날 때까지 기다린다.
- * 경계를 넘으면 화면이 통째로 다시 마운트되므로, 바로 재면 옛 배치나 사라지는 요소를 잡는다.
+ * 경계를 넘으면 셸(레일·탭바)이 바뀌고 페이지 DOM 이 새 셸로 옮겨지므로(WP-1468), 바로 재면 옛 배치를 잡는다.
  * 셸 전환 뒤에도 내부가 늦게 자리 잡을 수 있으니 측정 단언은 stableBox·expect(...).toPass() 와 함께 쓴다.
  * AppLayout 안(로그인 뒤) 화면에서 goto 이후에만 쓴다 — 셸이 없는 화면은 setViewportSize 를 그대로 쓴다.
  */
