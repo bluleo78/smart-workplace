@@ -129,4 +129,19 @@ apps/workplace-web/src/lib/pluginGuide.ts" \
 run_case "훅 스크립트 변경 → 훅 셸 테스트" "scripts/husky/gate-scope.sh" "훅 셸 테스트 실행"
 run_case "훅 밖 변경 → 훅 셸 테스트 없음" "apps/workplace-web/src/lib/a.ts" "vitest" "훅 셸 테스트"
 
+# 18) 매뉴얼 — 도구(docs/manual/scripts/)·도움말 묶음 플러그인(scripts/vite-manual-help.*)이 바뀌면 test:manual·test:scripts,
+#     docs/manual/ 아래가 하나라도 바뀌면 manual:check(그림 낡음·링크·id). 둘 다 비코드 판정(그 뒤 skip)보다 먼저 돈다.
+run_case "매뉴얼 lib 변경 → 매뉴얼·scripts 테스트" "docs/manual/scripts/lib/help-markup.mjs" "매뉴얼 도구 변경 — pnpm test:manual"
+run_case "매뉴얼 lib 변경 → manual:check" "docs/manual/scripts/lib/help-markup.mjs" "pnpm manual:check"
+run_case "플러그인이 쓰지 않는 lib 변경 → 매뉴얼 테스트·manual:check" "docs/manual/scripts/lib/capture-kit.mjs" "매뉴얼 도구 변경 — pnpm test:manual · pnpm test:scripts"
+run_case "플러그인이 쓰지 않는 lib 변경 → manual:check 뒤 비코드 skip" "docs/manual/scripts/lib/capture-kit.mjs" "비코드 변경만 감지" "gradle 단계"
+run_case "플러그인이 쓰는 lib 변경 → 비코드로 끝나지 않는다" "docs/manual/scripts/lib/help-markup.mjs" "pnpm manual:check" "비코드 변경만 감지"
+run_case "매뉴얼 lib 밖 도구 변경 → 매뉴얼 테스트 뒤 비코드 skip" "docs/manual/scripts/capture.mjs" "매뉴얼 도구 변경 — pnpm test:manual"
+run_case "매뉴얼 lib 밖 도구만 → 비코드(E2E·gradle 없음)" "docs/manual/scripts/capture.mjs" "비코드 변경만 감지" "gradle 단계"
+run_case "도움말 묶음 플러그인 변경 → scripts 테스트" "scripts/vite-manual-help.mjs" "매뉴얼 도구 변경 — pnpm test:manual · pnpm test:scripts" "pnpm manual:check"
+run_case "매뉴얼 장 원고·도움말 그림만 → manual:check" "docs/manual/user/01-start.md
+docs/manual/help-figures/user/a-1.png" "매뉴얼 변경 — pnpm manual:check 실행" "test:manual"
+run_case "매뉴얼 장 원고만 → manual:check 뒤 비코드 skip" "docs/manual/operator/01-start.md" "비코드 변경만 감지"
+run_case "매뉴얼 밖 문서만 → manual:check 없음" "docs/ops/release.md" "비코드 변경만 감지" "manual:check"
+
 finish

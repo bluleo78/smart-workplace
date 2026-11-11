@@ -28,13 +28,22 @@ export function extractUiStrings(source) {
 // 테스트·목 파일은 화면 문구가 아니다.
 const isExcluded = (rel) => /\.test\.[tj]sx?$/.test(rel) || /(^|\/)(test|__tests__)\//.test(rel);
 
-/** srcDir 아래 .ts·.tsx 의 화면 문구를 모두 모아 Set 으로 돌려준다. */
-export async function collectUiStrings(srcDir) {
+/**
+ * srcDir 아래 화면 소스 파일(.ts·.tsx, 테스트·목 제외)의 절대 경로 목록(정렬).
+ * 화면 문구 수집과 도움말 data-help 수집(help-screen.mjs)이 같은 「화면 소스」 범위를 쓰도록 한 곳에 둔다.
+ */
+export async function listSourceFiles(srcDir) {
   const entries = await readdir(srcDir, { recursive: true, withFileTypes: true });
-  const files = entries
+  return entries
     .filter((e) => e.isFile() && /\.tsx?$/.test(e.name))
     .map((e) => path.join(e.parentPath ?? e.path, e.name))
-    .filter((full) => !isExcluded(path.relative(srcDir, full).split(path.sep).join('/')));
+    .filter((full) => !isExcluded(path.relative(srcDir, full).split(path.sep).join('/')))
+    .sort();
+}
+
+/** srcDir 아래 .ts·.tsx 의 화면 문구를 모두 모아 Set 으로 돌려준다. */
+export async function collectUiStrings(srcDir) {
+  const files = await listSourceFiles(srcDir);
   // 파일 수가 많아(수백 개) 차례로 읽으면 느리므로 한꺼번에 읽는다. 결과는 집합이라 순서와 무관하다.
   const sources = await Promise.all(files.map((f) => readFile(f, 'utf-8')));
   return new Set(sources.flatMap(extractUiStrings));

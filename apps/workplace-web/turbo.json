@@ -4,7 +4,15 @@
   "tasks": {
     "build": {
       "env": ["APP_VERSION", "GIT_SHA", "E2E", "CI", "E2E_RELEASE_NOTES_DIR"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/vite-app-version.*", "$TURBO_ROOT$/releases/**"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/vite-app-version.*",
+        "$TURBO_ROOT$/releases/**",
+        "$TURBO_ROOT$/scripts/vite-manual-help.*",
+        "$TURBO_ROOT$/docs/manual/user/**",
+        "$TURBO_ROOT$/docs/manual/scripts/lib/**",
+        "$TURBO_ROOT$/docs/manual/help-figures/**"
+      ]
     }
   }
 }

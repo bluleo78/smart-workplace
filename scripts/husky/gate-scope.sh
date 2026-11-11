@@ -11,12 +11,19 @@
 #   web 의 resource-contract.json 은 api 의 ResourceChangedContractTest 가 읽는다(키 목록이 서버와 같은지).
 GATE_SCOPE_SHARED_RE='^apps/workplace-web/src/lib/resource-contract\.json$'
 
+# 앱 폴더 밖이지만 web 앱만의 입력인 파일 — web 변경으로 센다(api·admin 은 읽지 않는다).
+#   도움말 묶음 플러그인과 그것이 불러오는 매뉴얼 lib(noncode.sh MANUAL_WEB_LIB_RE)는 웹 빌드(vite.config.ts)만 불러 /help/ 를 싣는다
+#   (WP-1504) — web E2E 의 preview 빌드가 실제로 돌린다. scripts/vite-app-version.* 는 admin vite.config.ts 도 불러 넣지 않는다(full).
+GATE_SCOPE_WEB_EXTRA_RE="^(${MANUAL_WEB_LIB_RE}\$|scripts/vite-manual-help\.)"
+
 # gate_scope <base> <commit> — base 와 갈라진 뒤 commit 이 바꾼 코드 파일로 범위를 낸다.
 # base 와 commit 의 merge-base 부터 본다 — main 이 앞서 있어도 브랜치가 바꾼 것만 센다.
 gate_scope() {
   _gs_mb=$(git merge-base "$1" "$2" 2>/dev/null) || { echo full; return; }
   _gs_files=$(code_files "$(git -c core.quotePath=false diff --name-only --no-renames "$_gs_mb" "$2")")
   [ -n "$_gs_files" ] || { echo full; return; }
+  # web 앱만의 입력(앱 폴더 밖)은 web 파일로 바꿔 센다.
+  _gs_files=$(printf '%s\n' "$_gs_files" | sed -E "s#${GATE_SCOPE_WEB_EXTRA_RE}.*#apps/workplace-web/(web-extra)#")
   # 앱 하나에만 걸린 변경인지 — 두 앱 밖 경로나 다른 앱이 읽는 파일이 하나라도 있으면 full.
   if printf '%s\n' "$_gs_files" | grep -qvE '^apps/workplace-(web|admin)/'; then echo full; return; fi
   if printf '%s\n' "$_gs_files" | grep -qE "$GATE_SCOPE_SHARED_RE"; then echo full; return; fi

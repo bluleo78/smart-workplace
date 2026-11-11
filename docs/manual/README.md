@@ -15,10 +15,12 @@ Gen:iA Works 의 매뉴얼 두 권을 Markdown 원본에서 HTML 을 거쳐 A4 �
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `pnpm manual:check [<book>]` | 프론트매터(`part` 포함), 장 `routes` 와 앱 라우터 대조(미커버·유령·중복), 이모지, 그림·표식 키 존재. 오류가 있으면 실패 |
+| `pnpm manual:check [<book>]` | 프론트매터(`part` 포함), 장 `routes` 와 앱 라우터 대조(미커버·유령·중복), 이모지, 그림·표식 키 존재, 도움말 검사(도움말 id 중복·표시 형식·위치·층, 절 링크, 자리표시·조건 블록, 화면 소스 `data-help` 짝, 사용자 책의 도움말 그림 PNG 없음·오래됨 — 표기는 집필 규칙 스킬 「도움말 표시와 자리표시」). 오류가 있으면 실패 |
 | `pnpm manual:prose [<book>]` | 굵게 쓴 문구를 앱 소스의 한국어 화면 문구와 대조(못 찾은 것은 「미확인 굵게」 목록으로만 출력), 알림 상자 표기, 장 번호 앞 0, 강조 미종결, 남은 `TODO(집필)` |
 | `pnpm manual:pdf [<book>]` | `dist/manual/<book>/manual.html` 과 PDF 를 만든다(Playwright Chromium 인쇄). 장이 없거나, 못 실은 그림이나 없는 표식 키가 있으면 실패(예전 산출물은 먼저 지운다) |
 | `pnpm manual:shots` | 화면을 찍고 표식 좌표를 `shots/<book>/boxes.json` 에 기록한다. 환경변수 `MANUAL_BOOK`(기본 `user`)·`MANUAL_WEB`·`MANUAL_API`·`MANUAL_PASS` — 뒤의 셋은 기본값이 없어 찍을 장면이 있으면 반드시 준다. 일부만 다시 찍기는 `MANUAL_SHOTS_ONLY=id,...`. 실패한 장면의 좌표는 기록하지 않는다 |
+| `pnpm manual:help` | 사용자 매뉴얼을 절 단위 도움말 묶음으로 `dist/manual/help/` 에 쓴다(`--out <dir>` 로 바꿈 — 저장소 안이면 `dist/` 아래만, 시작 전에 비움). 묶음 내용 문제(중복 id·못 푼 절 링크·그림 PNG 없음 등)가 있으면 산출물은 쓰고 exit 1 — 아래 「도움말 묶음」 |
+| `pnpm manual:help-figures` | 사용자 매뉴얼 그림마다 PDF 와 같은 자르기·번호 표식을 얹은 도움말 그림 PNG 를 `help-figures/user/` 에 만든다(Playwright Chromium). 입력 해시가 `manifest.json` 과 다르거나 없는 그림만 다시 찍고 `--all` 이면 전부, 매뉴얼에서 빠진 그림은 지운다. 원본 샷이 없거나 찍다가 실패한 그림이 있으면 나머지와 manifest 는 쓰고 exit 1. 다시 찍은(`manual:shots`) 뒤 돌리고 PNG 를 함께 커밋한다 |
 | `pnpm test:manual` | 매뉴얼 도구의 단위 시험 |
 | `node docs/manual/scripts/seed-operator.mjs` | 운영자 매뉴얼 촬영용 가상 테넌트를 격리 스택에 넣는다. 환경변수 `MANUAL_API`·`MANUAL_PASS`(둘 다 필수, 값은 출력하지 않음). 빈 DB 의 첫 가입자를 슈퍼어드민(`ops@example.com`)으로 만들고, 나머지는 플랫폼 API 로만 넣는다. 다시 돌려도 된다(있는 테넌트·계정은 건너뜀). **운영자 매뉴얼 격리 스택에만 돈다** — `MANUAL_API` 가 `http://localhost:6166` 이 아니면 멈춘다(공유 개발 DB·다른 세션 스택의 첫 가입 자리를 가져가지 않게) |
 | `node docs/manual/scripts/seed-user.mjs` | 사용자 매뉴얼 촬영 테넌트(누리커머스)를 가상 회사 데이터로 채운다. 이미 만든 테넌트에 소유자로 로그인해 HTTP API 로만 넣는다. 환경변수 `MANUAL_API`·`MANUAL_TENANT_SLUG`·`MANUAL_PASS`(셋 다 필수, 비밀번호는 출력하지 않음), localhost 가 아니면 `MANUAL_SEED_CONFIRM`(slug 와 같은 값)도 필수. 빈 테넌트에만 돈다 — 아래 「사용자 매뉴얼 촬영 테넌트」 |
@@ -35,6 +37,7 @@ docs/manual/
   shots/targets.md          촬영 대상 표(그림 id·경로·계정·준비 조작·자르기·표식 키·시드)
   shots/<book>/<id>.png     촬영 원본(커밋)
   shots/<book>/boxes.json   자르기·표식 상자 좌표(원본 px, 커밋)
+  help-figures/<book>/      도움말 그림 PNG 와 manifest.json(입력 해시·크기) — manual:help-figures 생성물(커밋, 지금은 user 만)
   styles/manual.css         PDF 스타일(A4 세로)
   scripts/
     build.mjs               HTML → PDF 빌드
@@ -45,8 +48,13 @@ docs/manual/
     scenes/user-kit.mjs     사용자 앱 화면 여는 도우미·허용 규칙·고정 시각(제품 소개 자료 장면도 쓴다)
     seed-operator.mjs       운영자 매뉴얼 촬영용 시드(격리 스택, 플랫폼 API)
     seed-user.mjs           사용자 매뉴얼 촬영 테넌트 시드(이미 만든 테넌트, 소유자 토큰으로 HTTP API)
-    lib/                    공용 모듈(책 설정·명령줄, 장 읽기, 프론트매터, 마크다운 줄·펜스·링크, HTML, 그림, boxes.json, 렌더, 라우터, 화면 문구, 촬영 도구)
+    help-bundle.mjs         도움말 묶음 쓰기(manual:help, 생성은 lib/help-bundle.mjs)
+    help-figures.mjs        도움말 그림 PNG 만들기(manual:help-figures, 순수 부분은 lib/help-figures.mjs)
+    lib/                    공용 모듈(책 설정·명령줄, 장 읽기, 프론트매터, 마크다운 줄·펜스·링크, HTML, 그림, boxes.json, 렌더, 라우터, 화면 문구, 촬영 도구,
+                            도움말 표기·자리표시 목록·묶음·그림·검사 — 웹 이미지 빌드도 이 폴더를 읽는다)
 dist/manual/<book>/         빌드 산출물(커밋하지 않음)
+dist/manual/help/           manual:help 산출물(커밋하지 않음)
+scripts/vite-manual-help.mjs  (저장소 루트) 웹 빌드가 묶음을 /help/ 로 싣는 vite 플러그인
 ```
 
 ## 그림
@@ -58,6 +66,33 @@ dist/manual/<book>/         빌드 산출물(커밋하지 않음)
 ```
 
 `crop` 은 `boxes.json` 상자들의 합집합으로 자르고, `marks` 는 적은 순서대로 1부터 번호를 얹는다. 번호 원은 상자 바깥의 빈 자리를 빌더가 고르고, 자리가 없으면 검사가 실패한다(`key@r` 로 자리 지정, `key!inside` 로 상자 안 — 집필 규칙 스킬). 화면이 바뀌면 그 그림만 다시 찍으면 된다. 자르기 폭 기준과 촬영 환경은 집필 규칙 스킬에 있다.
+
+## 도움말 묶음
+
+사용자 매뉴얼은 앱 도움말 패널·MCP·검색 색인의 단일 원본이다(설계 `docs/superpowers/specs/help-panel-design.md` 9절·14절). 같은 원본에서 PDF 와 절 단위 묶음을 함께 만든다.
+
+**표기 요약** — 절 제목 끝 `{help=<id> label=<화면 칸 이름>}`(장 제목 줄에 달면 장 첫머리 절), 자리표시 `{agent.username}` 처럼 점이 든 이름, 조건 블록 `{if app.customMcpServer}…{/if}`. PDF 는 표시를 지우고 자리표시를 「<AI 아이디>」 꼴로, 조건 블록은 꼬리표와 함께 보인다. 쓰는 법·금지 사항은 집필 규칙 스킬 「도움말 표시와 자리표시」, 검사는 `pnpm manual:check`.
+
+**산출물 배치**(묶음 루트 기준 — 웹은 `/help/`, 서버는 자기 위치 아래 같은 배치):
+
+| 파일 | 내용 |
+| --- | --- |
+| `manual-index.json` | 목차 — 장마다 `chapter`·`number`·`title`·`routes`·`audience`·`sections[{ id, label, title, parent, level }]` |
+| `manual/<chapter>.json` | 장 하나 — 절마다 하위 절을 뺀 `markdown`·`figures`·`links` |
+| `manual-vars.json` | 자리표시·조건 목록(`placeholders[{ name, display, description }]`·`conditions[{ name, tag, description }]`) — 값이 없을 때 웹·MCP 가 PDF 와 같은 이름을 보이게 |
+| `figures/<figureId>.png` | 번호 표식을 얹은 도움말 그림(`help-figures/user/` 에서 복사) |
+
+- `chapter` 는 장 slug(`agents`) — 장 번호는 다시 매길 수 있어 파일명·PDF 앵커와 같은 slug 를 키로 쓰고, 번호는 `number` 로 따로 싣는다. id 없는 절은 `<chapter>#<제목 slug>`, 장 첫머리는 표시가 없으면 `<chapter>#_intro`.
+- `markdown` 은 자리표시·조건 블록·굵게·알림 상자·코드를 그대로 두고 셋만 바꾼다 — 그림 지시문 줄 → `![alt](figure:<figureId>)`, 절 링크 → `[글](help:<절 id>)`, 저장소 파일 링크 → 글만. 제목 줄은 넣지 않는다.
+- 그림 id 는 샷 id(`agents-1`), 같은 샷을 다시 쓰면 `~2`·`~3`. `figures[].src` 는 묶음 루트 기준 상대(`figures/<id>.png`)라 쓰는 쪽이 자기 루트를 앞에 붙인다. `marks[].label` 은 그림 바로 뒤 번호 목록의 n번째 항목 첫 문장(없으면 표식 키), 키는 `marks[].key`.
+- 묶음 JSON 은 커밋하지 않고 빌드 때 원본에서 만든다(배포된 앱과 매뉴얼 버전이 늘 같게). 그림 PNG 만 미리 만들어 커밋한다 — 웹 이미지 빌드 단계에는 Chromium 이 없다.
+
+**웹** — `apps/workplace-web` 빌드가 vite 플러그인 [`scripts/vite-manual-help.mjs`](../../scripts/vite-manual-help.mjs) 로 `dist/help/` 에 싣는다(dev 서버는 `/help/*` 요청마다 원본에서 새로 만들어 매뉴얼을 고치면 새로고침만으로 보인다). 매뉴얼 내용 문제는 웹 빌드를 멈추지 않고 경고만 낸다 — 판정은 `manual:check`·`manual:help` 몫. nginx `location /help/` 는 `Cache-Control: no-cache`(해시 없는 이름이라 새 배포가 바로 보이게)와 `try_files $uri =404`(없는 장이 SPA `index.html` 200 으로 오지 않게)다. PWA 미리 받기(`globIgnores`)에서 `help/**` 를 빼 설치본마다 그림 수십 MB 를 받지 않게 했고, 패널이 장 단위로 필요할 때 받는다. 웹 Dockerfile 은 플러그인이 읽는 `docs/manual/scripts/lib`·`docs/manual/user`·`docs/manual/help-figures/user` 를 빌드 단계에 COPY 한다(목록은 플러그인 `MANUAL_HELP_INPUTS`, 테스트가 대조).
+
+**서버가 같은 산출물을 쓰는 방법**(경로만 정함 — 구현은 WP-1503 의 해당 하위 이슈):
+
+- Node 서버(`workplace-mcp`): 이미지 빌드 때 같은 생성기 `node docs/manual/scripts/help-bundle.mjs --out <dir>` 를 돌려 이미지 안에 같은 배치로 둔다(Dockerfile 에 웹과 같은 입력 COPY). 같은 릴리스 태그에서 빌드되므로 웹과 버전이 같다. 코드에서 직접 부를 때는 `docs/manual/scripts/lib/help-bundle.mjs` 의 `buildHelpBundle()` 을 import 해 메모리로 받는다.
+- JVM·파이썬 서버(API·워커의 의미 검색 색인): 생성기를 들이지 않고 같은 릴리스의 웹 서비스에서 HTTP 로 받는다 — 클러스터 안 `http://web:8080/help/manual-index.json` 다음 장 파일들. 다시 색인할지는 받은 파일들의 sha256 을 색인에 적어 두고 비교해 정한다.
 
 ## 현재 상태
 

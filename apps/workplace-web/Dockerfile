@@ -25,6 +25,12 @@ COPY packages/wiki-editor-schema/src/ ./packages/wiki-editor-schema/src/
 COPY apps/workplace-web/ ./apps/workplace-web/
 # vite.config 가 import 하는 버전 상수·version.json 헬퍼(WP-439) — 빌드가 tsc -b 로 vite.config.ts 를 타입 검사하므로 .d.mts 선언도 함께 복사한다(없으면 TS7016)
 COPY scripts/vite-app-version.mjs scripts/vite-app-version.d.mts ./scripts/
+# 도움말 묶음(WP-1504) — vite 플러그인이 빌드 때 매뉴얼 원본으로 /help/ 정적 파일을 만든다(그림 PNG 는 커밋된 생성물).
+# 플러그인도 vite.config 가 import 하므로 위와 같이 .d.mts 와 함께 복사한다. 읽는 경로 목록은 플러그인의 MANUAL_HELP_INPUTS 와 같다(테스트가 대조).
+COPY scripts/vite-manual-help.mjs scripts/vite-manual-help.d.mts ./scripts/
+COPY docs/manual/scripts/lib ./docs/manual/scripts/lib
+COPY docs/manual/user ./docs/manual/user
+COPY docs/manual/help-figures/user ./docs/manual/help-figures/user
 # 앱 안 릴리스 노트(What's New)를 vite glob 으로 번들한다 — 저장소 루트 releases/ (WP-439)
 COPY releases ./releases
 

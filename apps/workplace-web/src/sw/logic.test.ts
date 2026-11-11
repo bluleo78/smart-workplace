@@ -143,6 +143,13 @@ describe('NAVIGATION_DENYLIST', () => {
     expect(denied('/wiki/share/wsh_token/pages/12')).toBe(true)
   })
 
+  it('매뉴얼 도움말 묶음(/help/)은 서버로 보낸다 — 앱 셸로 가로채면 JSON·PNG 대신 index.html 이 온다(WP-1504)', () => {
+    expect(denied('/help/manual-index.json')).toBe(true)
+    expect(denied('/help/figures/04-issue.png')).toBe(true)
+    // 접두가 같을 뿐인 앱 경로는 그대로 앱 셸
+    expect(denied('/helpdesk')).toBe(false)
+  })
+
   it('일반 앱 화면은 precache 앱 셸로 연다', () => {
     expect(denied('/')).toBe(false)
     expect(denied('/wiki/spaces/3/pages/12')).toBe(false)

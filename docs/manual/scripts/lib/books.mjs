@@ -21,6 +21,9 @@ export const BOOKS = {
     appSrc: 'apps/workplace-web/src',
     pdfName: 'genia-works-user-manual.pdf',
     capture: { apiBase: '/api/v1', usernameSelector: 'input[placeholder="아이디를 입력하세요"]' },
+    // 도움말 묶음 대상 표시(WP-1504). 앱 도움말 패널·MCP 가 쓰는 절 단위 묶음은 사용자 책만 만든다.
+    // figuresDir 은 번호 표식을 얹어 미리 만든(커밋된) 도움말 그림 PNG 폴더 — 묶음은 여기 있는 그림만 싣는다.
+    help: { figuresDir: 'docs/manual/help-figures/user' },
   },
   operator: {
     key: 'operator',

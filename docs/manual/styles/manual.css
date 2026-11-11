@@ -81,3 +81,6 @@ blockquote p { margin: 0.3em 0; }
 .chapter ol.steps { list-style: none; counter-reset: step; padding-left: 0; }
 .chapter ol.steps > li { counter-increment: step; position: relative; padding-left: 28px; margin: 0.35em 0; }
 .chapter ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0.2em; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; background: #e5484d; color: #fff; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; }
+
+/* 조건 블록 꼬리표(도움말 표기, WP-1504): `{if …}…{/if}` 블록을 PDF 에 그대로 보이되 「누구에게만 해당하는지」를 작은 회색 글자로 알린다. */
+.cond-tag { font-size: 0.85em; color: #5b636c; }

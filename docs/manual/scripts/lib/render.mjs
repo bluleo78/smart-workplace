@@ -4,6 +4,7 @@ import { hasParts } from './books.mjs';
 import { partOrderErrors } from './frontmatter.mjs';
 import { parseFigureLine, renderFigure } from './figure.mjs';
 import { esc } from './html.mjs';
+import { applyHelpMarkupForPdf } from './help-markup.mjs';
 import { codeLineMask, replaceChapterLinks, stripRepoLinks } from './markdown.mjs';
 
 // audience 값 → 배지에 찍을 한국어 표기.
@@ -14,9 +15,16 @@ const AUDIENCE_LABEL = { member: '구성원', admin: '관리자', operator: '슈
  * - 그림 줄(한 줄 전체가 그림 지시문)은 renderFigure HTML 로 바꾼다(앞뒤 빈 줄로 HTML 블록을 분리).
  * - `[x](NN-slug.md)` → `#ch-<slug>`(대상 장이 없으면 텍스트만), `../` 링크 → 텍스트만(저장소 파일은 PDF 에서 의미 없음).
  * - 본문 첫 `# ` 줄은 버린다(제목은 프론트매터 title 로 다시 그린다).
- * 코드 펜스 안은 건드리지 않는다.
+ * - 맨 먼저 도움말 표기(제목 끝 표시·자리표시·조건 블록, WP-1504)를 PDF 모양으로 바꾼다 — `# ` 줄 제거보다 앞서야
+ *   장 제목 줄의 표시가 지워진 뒤 같은 정규식으로 버려진다. 닫히지 않은 조건 블록은 파일 이름을 붙여 던진다(빌드 실패).
+ * 코드 펜스 안은 건드리지 않는다(도움말 자리표시만 표시 이름으로 바꾼다).
  */
 function preprocess(body, slugByFile, boxesDoc, file) {
+  try {
+    body = applyHelpMarkupForPdf(body);
+  } catch (e) {
+    throw new Error(`${file}: ${e.message}`);
+  }
   let out = body.replace(/^\s*#\s+.*\n/, '');
   const lines = out.split('\n');
   // 펜스 판정은 검사 도구와 같은 규칙(``` 와 ~~~ 모두, 같은 문자로만 닫힘)을 쓴다.
