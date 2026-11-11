@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
 import { MobileHelpButton } from '@/components/mobile/MobileHelpButton'
 import { settleHistory } from '@/test/history'
-import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { helpBundleHandlers, helpSearchHandler } from '@/test/kits/help/helpBundleKit'
 import { renderScreen } from '@/test/renderScreen'
 
 import { HelpPanelProvider, useHelpPanel } from './HelpPanelContext'
@@ -55,6 +55,37 @@ describe('MobileHelpSheet', () => {
     await user.click(screen.getByRole('button', { name: '닫기' }))
     await waitFor(() => expect(screen.queryByTestId('help-sheet')).toBeNull())
     expect(screen.getByTestId('help-open')).toHaveTextContent('closed')
+  })
+
+  it('검색 칸에 질의가 있으면 Esc 는 질의만 지우고, 빈 칸에서 Esc 면 시트가 닫힌다(WP-1509)', async () => {
+    const { user } = renderScreen(ui, { path: '/', handlers: [helpSearchHandler(), ...helpBundleHandlers()] })
+    await openSheet()
+    const input = screen.getByRole('combobox', { name: '도움말 검색' })
+    await user.type(input, '위젯')
+    await screen.findByRole('listbox', { name: '도움말 검색 결과' })
+    await user.keyboard('{Escape}')
+    expect(input).toHaveValue('')
+    expect(screen.getByTestId('help-sheet')).toBeInTheDocument()
+    expect(await screen.findByText('홈 첫머리 본문', { exact: false })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('help-sheet')).toBeNull())
+  })
+
+  it('포커스가 칸 밖(본문)이어도 질의가 있으면 Esc 는 검색을 지우고 시트는 남는다 — 다음 Esc 로 닫힌다(WP-1509)', async () => {
+    const { user } = renderScreen(ui, { path: '/', handlers: [helpSearchHandler(), ...helpBundleHandlers()] })
+    await openSheet()
+    const input = screen.getByRole('combobox', { name: '도움말 검색' })
+    await user.type(input, '위젯')
+    await screen.findByRole('listbox', { name: '도움말 검색 결과' })
+    act(() => screen.getByTestId('help-panel-content').focus())
+    expect(input).not.toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(input).toHaveValue('')
+    expect(screen.getByTestId('help-sheet')).toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: '도움말 검색 결과' })).toBeNull()
+    expect(await screen.findByText('홈 첫머리 본문', { exact: false })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('help-sheet')).toBeNull())
   })
 
   it('뒤로 가기로 닫히고 기록 위치가 연 자리로 돌아온다', async () => {

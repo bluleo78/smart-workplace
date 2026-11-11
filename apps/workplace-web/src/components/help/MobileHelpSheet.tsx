@@ -26,7 +26,7 @@ const HISTORY_KEY = 'helpSheet'
 const noop = () => {}
 
 export function MobileHelpSheet() {
-  const { open, setOpen } = useHelpPanel()
+  const { open, setOpen, searchActive, clearSearch } = useHelpPanel()
   const ai = useAssistant()
   const aiOpen = ai.mode !== 'closed'
   // 보이는 조건 — 도움말을 열었고 지금 항목이 AI 전체 화면 항목이 아닐 때. AI 모드(aiOpen)가 아니라 AI 항목(historyOpen)을 보는 이유:
@@ -79,6 +79,17 @@ export function MobileHelpSheet() {
     setOpen(false)
   }, [setOpen])
 
+  /**
+   * 검색 칸에 질의가 있을 때의 Esc 는 검색을 지우는 키다(WP-1509, HelpPanel 검색 칸) — 시트를 닫지 않는다.
+   * Radix 는 Esc 를 document 캡처 단계에서 받아 칸의 onKeyDown 보다 먼저 닫으므로 여기서 막고, 포커스가 칸 밖(본문 등)이어도
+   * 헛키가 되지 않게 여기서 검색을 지운다(질의·칩을 비우고 검색 전 내용으로 — 칸의 Esc 와 같다). 질의가 없으면 그대로 닫는다.
+   */
+  const keepOpenWhileSearching = (e: KeyboardEvent) => {
+    if (!searchActive) return
+    e.preventDefault()
+    clearSearch()
+  }
+
   if (!visible) return null
   return (
     <DialogPrimitive.Root open onOpenChange={(next) => !next && setOpen(false)}>
@@ -88,6 +99,7 @@ export function MobileHelpSheet() {
         <RawSheetContent
           data-testid="help-sheet"
           aria-describedby={undefined}
+          onEscapeKeyDown={keepOpenWhileSearching}
           className="fixed inset-x-0 top-[var(--vv-top,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-card pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none"
         >
           <DialogPrimitive.Title className="sr-only">도움말</DialogPrimitive.Title>

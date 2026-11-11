@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { describe, expect, it } from 'vitest'
 
 import type { HelpVars } from './helpBundle'
-import { applyHelpConditions, remarkHelpPlaceholders } from './helpMarkup'
+import { applyHelpConditions, fillHelpSnippet, remarkHelpPlaceholders } from './helpMarkup'
 
 const vars: HelpVars = {
   placeholders: [
@@ -161,5 +161,17 @@ describe('remarkHelpPlaceholders', () => {
   it('manual-vars 를 못 받으면 산문은 이름 그대로 <name>, 코드는 값이 있는 이름만', () => {
     expect(render('{agent.username}', {}, null)).toBe('<p>&lt;agent.username&gt;</p>')
     expect(render('`{app.origin}` `{props.title}`', { 'app.origin': 'X' }, null)).toBe('<p><code>X</code> <code>{props.title}</code></p>')
+  })
+})
+
+describe('fillHelpSnippet', () => {
+  it('자리표시를 값으로 채우고, 값이 없으면 `<표시 이름>` 꼴', () => {
+    const values = { placeholders: { 'agent.username': 'bot1' }, conditions: {} }
+    expect(fillHelpSnippet('아이디는 {agent.username}, 주소는 {app.origin}.', values, vars)).toBe('아이디는 bot1, 주소는 <앱 주소>.')
+  })
+
+  it('목록 밖 이름·탈출한 중괄호는 그대로', () => {
+    const values = { placeholders: {}, conditions: {} }
+    expect(fillHelpSnippet('{props.title} ${agent.username}', values, vars)).toBe('{props.title} ${agent.username}')
   })
 })

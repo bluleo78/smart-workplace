@@ -72,8 +72,8 @@ describe('HelpPanel', () => {
     expect(within(crumbs).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['설정', 'AI 에이전트 관리'])
     // 첫 화면에는 돌아갈 곳이 없다.
     expect(screen.queryByTestId('help-back')).toBeNull()
-    // 검색 칸은 자리만(동작은 WP-1509).
-    expect(screen.getByRole('textbox', { name: '도움말 검색' })).toBeDisabled()
+    // 검색 칸은 쓸 수 있다(동작은 HelpPanel.search.test.tsx).
+    expect(screen.getByRole('combobox', { name: '도움말 검색' })).toBeEnabled()
   })
 
   it('⌄ 목록에서 고르면 그 절이 보이고 뒤로 단추가 생긴다', async () => {

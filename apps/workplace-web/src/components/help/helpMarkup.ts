@@ -289,18 +289,11 @@ function escapedFlags(value: string, source: string | null): boolean[] | null {
 }
 
 /**
- * 자리표시 remark 플러그인. `remarkPlugins={[remarkHelpPlaceholders({ values, vars })]}` 로 쓴다.
- * - 텍스트·인라인 코드·코드 블록 값과 링크 주소의 `{이름}` 을 바꾼다. `$`·`\` 바로 뒤 중괄호는 건너뛴다(braceTokens).
- * - vars 가 있으면 vars.placeholders 의 이름만 — 목록 밖 `{props.title}` 은 글자 그대로(PDF·검사와 같다).
- * - 값이 없으면 `<표시 이름>`(vars 의 display, 못 받았으면 `<이름>`).
- * - vars 를 못 받았으면 산문은 자리표시 꼴이면 모두(산문의 목록 밖 이름은 검사 오류라 자리표시로 봐도 된다),
- *   코드 안은 values 에 이름이 있는 것만 바꾼다 — 코드의 `{props.title}` 같은 글자를 지키려고.
- * 값을 AST 노드 값으로 넣으므로 markdown 으로 다시 해석되지 않는다.
+ * 글 하나의 `{이름}` 자리표시를 바꾸는 함수를 만든다(remarkHelpPlaceholders 와 검색 결과 발췌가 같은 규칙을 쓰게 뺐다).
+ * escaped 는 글자별 원문 탈출·문자 참조 여부(텍스트 노드만), inCode 면 코드 안(산문보다 좁게).
  */
-export function remarkHelpPlaceholders(opts: { values: Record<string, string | undefined>; vars: HelpVars | null }) {
-  const { values, vars } = opts
+function makePlaceholderReplacer(values: Record<string, string | undefined>, vars: HelpVars | null) {
   const display = new Map(vars?.placeholders.map((p) => [p.name, p.display]) ?? [])
-
   // 이 이름을 바꿀지 — inCode 면 코드 안(산문보다 좁게).
   const known = (name: string, inCode: boolean) => {
     if (!PLACEHOLDER_NAME_RE.test(name)) return false
@@ -308,7 +301,7 @@ export function remarkHelpPlaceholders(opts: { values: Record<string, string | u
     return !inCode || Object.hasOwn(values, name)
   }
 
-  // 글 하나의 자리표시를 바꾼다. escaped 는 글자별 원문 탈출·문자 참조 여부(텍스트 노드만).
+  // 글 하나의 자리표시를 바꾼다.
   const replace = (text: string, inCode: boolean, escaped: boolean[] | null = null) => {
     if (!text.includes('{')) return text
     let out = ''
@@ -324,6 +317,29 @@ export function remarkHelpPlaceholders(opts: { values: Record<string, string | u
     }
     return out + text.slice(pos)
   }
+  return replace
+}
+
+/**
+ * 검색 결과 발췌를 본문처럼 읽히게 한다 — 자리표시를 본문과 같은 규칙으로 채운다(값 없으면 `<AI 아이디>` 꼴).
+ * 조건 표기 `{if 이름}`·`{/if}` 는 서버가 색인할 때 이미 지웠다(HelpMarkdownText) — 여기서는 자리표시만 본다.
+ */
+export function fillHelpSnippet(snippet: string, values: HelpValues, vars: HelpVars | null): string {
+  return makePlaceholderReplacer(values.placeholders, vars)(snippet, false)
+}
+
+/**
+ * 자리표시 remark 플러그인. `remarkPlugins={[remarkHelpPlaceholders({ values, vars })]}` 로 쓴다.
+ * - 텍스트·인라인 코드·코드 블록 값과 링크 주소의 `{이름}` 을 바꾼다. `$`·`\` 바로 뒤 중괄호는 건너뛴다(braceTokens).
+ * - vars 가 있으면 vars.placeholders 의 이름만 — 목록 밖 `{props.title}` 은 글자 그대로(PDF·검사와 같다).
+ * - 값이 없으면 `<표시 이름>`(vars 의 display, 못 받았으면 `<이름>`).
+ * - vars 를 못 받았으면 산문은 자리표시 꼴이면 모두(산문의 목록 밖 이름은 검사 오류라 자리표시로 봐도 된다),
+ *   코드 안은 values 에 이름이 있는 것만 바꾼다 — 코드의 `{props.title}` 같은 글자를 지키려고.
+ * 값을 AST 노드 값으로 넣으므로 markdown 으로 다시 해석되지 않는다.
+ */
+export function remarkHelpPlaceholders(opts: { values: Record<string, string | undefined>; vars: HelpVars | null }) {
+  const { values, vars } = opts
+  const replace = makePlaceholderReplacer(values, vars)
 
   return () => (tree: Root, file?: { value?: unknown }) => {
     const source = typeof file?.value === 'string' ? file.value : null
