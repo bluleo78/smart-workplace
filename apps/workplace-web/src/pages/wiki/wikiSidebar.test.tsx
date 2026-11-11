@@ -175,6 +175,8 @@ test('스페이스 선택 상자는 개인 / 팀 / 프로젝트 묶음으로 나
   expect(screen.getByTestId('wiki-space-group-personal')).toHaveTextContent(/^개인/)
   expect(screen.getByTestId('wiki-space-group-team')).toHaveTextContent(/^팀/)
   expect(screen.getByTestId('wiki-space-group-project')).toHaveTextContent(/^프로젝트/)
+  // 상자 아래로 펼친다(popper) — 기본(item-aligned)은 프로젝트 공간을 고른 채 열면 목록을 위로 밀어 「개인 / 팀」 제목이 잘린다.
+  expect(screen.getByRole('listbox').closest('[data-radix-popper-content-wrapper]')).not.toBeNull()
   await user.click(screen.getByRole('option', { name: 'Gen:iA Works 프로젝트 WP' }))
   await waitFor(() => expect(location()).toBe('/wiki/spaces/4'))
 })

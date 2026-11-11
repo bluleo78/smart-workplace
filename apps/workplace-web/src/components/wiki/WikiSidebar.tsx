@@ -499,7 +499,9 @@ export function WikiSidebar() {
                 )}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            {/* popper: 선택 상자 바로 아래에 펼친다. 기본(item-aligned)은 고른 항목을 상자 위치에 맞추느라
+                목록을 위로 밀어 올려, 아래쪽 묶음(프로젝트)을 고른 상태에서는 「개인 / 팀」 제목이 화면 밖으로 잘린다. */}
+            <SelectContent position="popper" align="start">
               {/* 「개인 / 팀 / 프로젝트」 묶음 제목 아래로 나눠 보인다(WP-1480 A안) — 빈 묶음은 제목도 숨긴다(groupWikiSpaces). */}
               {spaceGroups.map((g) => (
                 <SelectGroup key={g.kind} data-testid={`wiki-space-group-${g.kind}`}>
