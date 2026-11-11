@@ -12,8 +12,10 @@ import { DashboardEditDraftProvider } from '@/components/home/dashboard/Dashboar
 import { AppRail } from '@/components/layout/AppRail'
 import { HeaderDensityProvider } from '@/components/layout/HeaderDensityContext'
 import { InboxProvider } from '@/components/layout/InboxContext'
+import { NodeSlot, PageHost } from '@/components/layout/NodeSlot'
 import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
 import { TopCenterSlot } from '@/components/layout/TopCenterSlot'
+import { useNodeBridge } from '@/components/layout/useNodeBridge'
 import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
@@ -39,6 +41,8 @@ export function AppLayout() {
   const aiAvailable = useAiAvailable()
   // WP-121: 모바일(<lg) 여부 — 탭바 셸 / 데스크톱 레일 레이아웃 분기.
   const isMobile = useIsMobile()
+  // WP-1468: 페이지(Outlet) DOM 을 담는 분리된 호스트 — 셸이 바뀌어도 같은 노드를 새 셸의 슬롯으로 옮겨 붙인다.
+  const pageBridge = useNodeBridge()
   // 인증된 앱 셸에서 통합 실시간 SSE 를 1회 구독(유저당 단일 커넥션). chat·messaging·notify 이벤트를
   // 이름 prefix 로 fan-out 한다. 과거 3개 스트림(커넥션 3개)을 단일 /api/v1/events 로 통합(#506).
   const { isConnected } = useEventStream(user?.id ?? 0)
@@ -101,7 +105,7 @@ export function AppLayout() {
                   // WP-54 표식 유지 — display:contents 로 레이아웃 영향 없이 페이지 영역 컨테이너 역할.
                   <div data-ai-page-root className="contents">
                     <MobileShell overlay={aiAvailable ? <LazyMobileAiSheet /> : null}>
-                      <Outlet />
+                      <NodeSlot bridge={pageBridge} />
                     </MobileShell>
                   </div>
                 ) : (
@@ -116,7 +120,7 @@ export function AppLayout() {
                       tabIndex={-1}
                       className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 outline-none lg:pt-0"
                     >
-                      <Outlet />
+                      <NodeSlot bridge={pageBridge} />
                       {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). 비서 있을 때만. */}
                       {aiAvailable && <LazyAIFullscreen />}
                     </main>
@@ -124,6 +128,8 @@ export function AppLayout() {
                     {aiAvailable && <LazyAISidePanel />}
                   </div>
                 )}
+                {/* WP-1468: 페이지는 셸 분기 뒤 형제 자리에서 한 번만 렌더 — 셸이 바뀌어도 다시 마운트되지 않고 각 셸의 NodeSlot 이 호스트 DOM 을 옮겨 붙인다(이유는 NodeSlot.tsx·useNodeBridge.ts). */}
+                <PageHost bridge={pageBridge}><Outlet /></PageHost>
               </MessagingConnectionContext.Provider>
               </DashboardEditDraftProvider>
             </InboxProvider>

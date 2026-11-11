@@ -6,7 +6,9 @@
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
+import { NodeSlot, PageHost } from '@/components/layout/NodeSlot'
 import { ResizableSidebar } from '@/components/layout/ResizableSidebar'
+import { useNodeBridge } from '@/components/layout/useNodeBridge'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { isTabRoot, norm } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
@@ -73,42 +75,52 @@ export function ResponsiveModuleLayout({
   const listRef = useRef<HTMLDivElement>(null)
   useListScrollRestore(listRef, isList ? norm(pathname) : null)
 
+  // WP-1468: 본문은 분기 뒤에 PageHost 로 한 번 렌더하고 분기마다 NodeSlot 에 붙인다(NodeSlot.tsx) — lg 경계를 넘어도 다시 마운트되지 않는다.
+  // 모바일 목록엔 본문이 없어 PageHost 를 내린다. 공급자도 분기 바깥에 둬야 PageHost 위치가 같다(값 null = 공급자 없음).
+  const pageBridge = useNodeBridge()
+
+  let branch: ReactNode
   if (!isMobile) {
-    return (
+    branch = (
       <div className="flex h-full min-h-0 flex-1">
         {/* 데스크톱만 경계선을 끌어 목록 폭 조절 — 모바일 목록 래퍼는 [&>aside] 직계 선택자에 기대므로 감싸지 않는다.
             접힌 사이드바(compactSidebar)는 폭이 고정이라 틀 없이 그린다. */}
         {compactSidebar ?? <ResizableSidebar widthKey={widthKey}>{sidebar}</ResizableSidebar>}
         <div className={outletClass}>
-          <Outlet />
+          <NodeSlot bridge={pageBridge} />
+        </div>
+      </div>
+    )
+  } else if (isList) {
+    branch = (
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
+            탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
+        {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
+        {listContext}
+        <div ref={listRef} data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
+      </div>
+    )
+  } else {
+    branch = (
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        {headerCount === 0 && <MobileBackBar title={title} />}
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <NodeSlot bridge={pageBridge} />
         </div>
       </div>
     )
   }
 
-  if (isList) {
-    return (
-      <MobileResourceErrorHeadingContext.Provider value={errorHeadingCtx}>
-        <div className="flex h-full min-h-0 flex-1 flex-col">
-          {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
-              탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
-          {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
-          {listContext}
-          <div ref={listRef} data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
-        </div>
-      </MobileResourceErrorHeadingContext.Provider>
-    )
-  }
-
   return (
-    <MobileResourceErrorHeadingContext.Provider value={errorHeadingCtx}>
-      <MobileDetailCtx.Provider value={detailCtx}>
-        <div className="flex h-full min-h-0 flex-1 flex-col">
-          {headerCount === 0 && <MobileBackBar title={title} />}
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+    <MobileResourceErrorHeadingContext.Provider value={isMobile ? errorHeadingCtx : null}>
+      <MobileDetailCtx.Provider value={isMobile && !isList ? detailCtx : null}>
+        {branch}
+        {!isList && (
+          <PageHost bridge={pageBridge}>
             <Outlet />
-          </div>
-        </div>
+          </PageHost>
+        )}
       </MobileDetailCtx.Provider>
     </MobileResourceErrorHeadingContext.Provider>
   )
