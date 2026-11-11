@@ -54,11 +54,11 @@ function visibleTile(choice: TileChoice | null, u: Upcoming): TileKey {
   return firstTile(u)
 }
 
-/** AI 태그 — 함께한(지금 담당인) AI 이름. AI 마커 토큰(DS 01 §1-5). */
-function AiTags({ names }: { names: string[] }) {
+/** AI 태그 — 함께한(지금 담당인) AI 이름. AI 마커 토큰(DS 01 §1-5). className 으로 좁은 폭에서 숨기는 등 자리별로 조정한다. */
+function AiTags({ names, className }: { names: string[]; className?: string }) {
   if (names.length === 0) return null
   return (
-    <span className="flex shrink-0 gap-1">
+    <span className={cn('flex shrink-0 gap-1', className)}>
       {names.map((n) => (
         <span key={n} className="rounded border border-ai-accent/40 bg-ai-accent-subtle px-1.5 text-xs text-ai-accent">
           {n}
@@ -123,11 +123,12 @@ export function UpcomingCard({ upcoming, today }: { upcoming: Upcoming; today: s
                       to={`/projects/${i.projectKey}/issues/${i.number}`}
                       className="flex items-center gap-3 rounded px-1 py-2 text-sm hover:bg-muted/50"
                     >
-                      <span className="w-20 shrink-0 text-xs text-muted-foreground">
+                      {/* 좁은 폭(모바일)에선 제목이 우선 — 키 칸을 줄이고 AI 태그를 숨긴다(390px 에서 제목이 「모바일 …」로 잘렸다). */}
+                      <span className="w-14 shrink-0 text-xs text-muted-foreground sm:w-20">
                         {i.projectKey}-{i.number}
                       </span>
-                      <span className="flex-1 truncate">{i.title}</span>
-                      <AiTags names={i.aiNames} />
+                      <span className="min-w-0 flex-1 truncate">{i.title}</span>
+                      <AiTags names={i.aiNames} className="hidden sm:flex" />
                       <span className={cn('w-16 shrink-0 text-right text-xs', due.overdue ? 'font-medium text-destructive' : 'text-muted-foreground')}>
                         {due.label}
                       </span>
@@ -246,7 +247,9 @@ function ClosedRow({ item }: { item: ClosedItem }) {
   const hasDetail = item.request != null || item.lastComment != null
   return (
     <li data-testid={`closed-row-${item.issueId}`}>
-      <div className="flex items-center gap-2 px-1 py-2 text-sm">
+      {/* 좁은 폭(모바일)에선 두 줄 — 첫 줄 키·제목, 둘째 줄 AI 태그·마감 배지·소요일. 한 줄에 다 넣으면 AI 태그가 붙은 줄의 제목이
+          0px 로 눌려 사라졌다(390px 라이브 검증). sm 부터는 한 줄. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-2 text-sm">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -257,15 +260,20 @@ function ClosedRow({ item }: { item: ClosedItem }) {
         >
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </button>
-        <Link to={`/projects/${item.projectKey}/issues/${item.number}`} className="flex min-w-0 flex-1 items-center gap-3 hover:underline">
-          <span className="w-20 shrink-0 text-xs text-muted-foreground">
+        <Link
+          to={`/projects/${item.projectKey}/issues/${item.number}`}
+          className="flex min-w-0 flex-1 basis-[calc(100%-1.5rem)] items-center gap-3 hover:underline sm:basis-0"
+        >
+          <span className="w-14 shrink-0 text-xs text-muted-foreground sm:w-20">
             {item.projectKey}-{item.number}
           </span>
           <span className="truncate">{item.title}</span>
         </Link>
-        <AiTags names={item.aiNames} />
-        <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-xs', TONE_CLASS[badge.tone])}>{badge.label}</span>
-        <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{formatDays(item.leadTimeDays)}</span>
+        <span className="flex w-full items-center justify-end gap-2 sm:w-auto sm:shrink-0" data-testid={`closed-meta-${item.issueId}`}>
+          <AiTags names={item.aiNames} />
+          <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-xs', TONE_CLASS[badge.tone])}>{badge.label}</span>
+          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{formatDays(item.leadTimeDays)}</span>
+        </span>
       </div>
       {open && hasDetail && (
         <div className="mb-2 ml-7 space-y-1 rounded-md bg-muted/50 px-3 py-2 text-xs" data-testid={`closed-detail-${item.issueId}`}>
