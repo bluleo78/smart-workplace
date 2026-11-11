@@ -29,9 +29,9 @@ import { cn } from '@/lib/utils'
 import { linkableTeamSpaces } from '@/lib/wikiSpaceGroups'
 import type { WikiSpace } from '@/types/wiki'
 
-/** 연결 확인 창의 경고 — 되돌리기 어려운 변화(페이지 이동·멤버 제외·자동 공간 삭제)를 미리 알린다. */
+/** 연결 확인 창의 경고 — 되돌리기 어려운 변화(페이지 이동·멤버 제외·자동 공간 삭제)와, 연결 뒤 공간 이름이 프로젝트 이름을 따라간다는 점을 미리 알린다. */
 export const LINK_WARNING =
-  '리포트 페이지가 이 공간으로 옮겨지고, 프로젝트 멤버가 아닌 사람은 이 공간에서 빠집니다. 자동으로 만든 공간은 비어 있으면 지워집니다.'
+  '리포트 페이지가 이 공간으로 옮겨지고, 프로젝트 멤버가 아닌 사람은 이 공간에서 빠집니다. 자동으로 만든 공간은 비어 있으면 지워집니다. 공간 이름이 앞으로 프로젝트 이름을 따라갑니다.'
 
 export function ProjectNoteSpaceSettings({ projectKey }: { projectKey: string }) {
   const space = useWikiProjectSpace(projectKey)

@@ -84,6 +84,8 @@ describe('노트 공간 영역', () => {
     const confirm = await screen.findByRole('alertdialog')
     expect(confirm).toHaveTextContent('「제품팀」 공간을 연결할까요?')
     expect(confirm).toHaveTextContent(LINK_WARNING)
+    // 연결하면 공간 이름이 프로젝트 이름을 따라간다는 안내도 함께 보인다.
+    expect(confirm).toHaveTextContent('공간 이름이 앞으로 프로젝트 이름을 따라갑니다.')
     await user.click(within(confirm).getByTestId('project-note-space-link-confirm'))
 
     expect(await screen.findByText('「제품팀」 공간을 이 프로젝트의 노트 공간으로 연결했어요')).toBeInTheDocument()
