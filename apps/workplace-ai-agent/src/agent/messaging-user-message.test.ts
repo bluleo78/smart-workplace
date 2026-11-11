@@ -27,6 +27,12 @@ describe('buildMessagingUserMessage', () => {
     expect(msg).toContain('채널');
   });
 
+  it('WP-1490: 마지막 답 이후에 온 메시지들에 한 번에 답하라고 지시한다(밀린 메시지 합친 다시 실행이 앞 답과 겹치지 않게)', () => {
+    const msg = buildMessagingUserMessage(payload, recent);
+    expect(msg).toContain('마지막 답 이후에 당신에게 온 메시지들');
+    expect(msg).toContain('다른 사람끼리 나눈 말에는 끼어들지 않습니다');
+  });
+
   it('WP-352: 더 과거 대화는 list_channel_messages 의 nextCursor 로 이어 읽도록 안내하고 옛 이름·"100건까지만" 은 없다', () => {
     const msg = buildMessagingUserMessage(payload, recent);
     expect(msg).toContain('list_channel_messages(42)');
