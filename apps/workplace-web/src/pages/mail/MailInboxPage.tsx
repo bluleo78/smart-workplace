@@ -51,6 +51,7 @@ import { replyAllCc } from '@/lib/mailRecipients'
 import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { SELECTED_BG_CLASS } from '@/lib/selectionStyles'
 import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
@@ -501,7 +502,8 @@ function AttachmentList({
       data-testid="mail-attachments"
       className={cn(
         'mt-2 flex gap-2',
-        compact ? '-mx-4 flex-nowrap overflow-x-auto px-4 py-1.5 [scrollbar-width:none]' : 'flex-wrap',
+        compact ? '-mx-4 flex-nowrap overflow-x-auto px-4 py-1.5' : 'flex-wrap',
+        compact && HIDE_SCROLLBAR,
       )}
     >
       {attachments.map((a) => {

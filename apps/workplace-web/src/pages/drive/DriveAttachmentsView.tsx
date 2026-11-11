@@ -28,6 +28,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { mimeToCategory } from '@/lib/fileCategory'
 import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
+import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { VirtualAttachment, VirtualAttachmentSource } from '@/types/drive'
@@ -148,7 +149,7 @@ export function DriveAttachmentsView() {
         {isMobile && search}
         <div
           data-testid="drive-attachment-filters"
-          className={cn('flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', isMobile && 'flex-1')}
+          className={cn('flex min-w-0 items-center gap-2 overflow-x-auto', HIDE_SCROLLBAR, isMobile && 'flex-1')}
         >
           {SOURCE_FILTERS.map((s) => (
             <button
