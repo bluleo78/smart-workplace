@@ -771,3 +771,4 @@ describe('연락처', () => {
     expect(body.screenContext!.focus!.refs).not.toHaveProperty('externalId')
   })
 })
+

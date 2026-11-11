@@ -5,6 +5,7 @@
 // 헤더는 탭바·AI 시트가 아니라 각 화면(Page 헤더·모듈 레이아웃)이 그리므로 앱 셸 없이 그 화면만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { IssueModuleLayout } from '@/components/issue/IssueModuleLayout'
@@ -17,6 +18,7 @@ import { createProject } from '../../../e2e/factories/project.factory'
 import HomePage from '../HomePage'
 import { MailInboxPage } from '../mail/MailInboxPage'
 import CyclesPage from '../projects/CyclesPage'
+import { ProjectTabsLayout } from '../projects/tabs/ProjectTabsLayout'
 
 // 모바일(iPhone 13 폭·터치) — matchMedia 결과가 파일 안에서 캐시되므로 첫 렌더 전에 한 번.
 mockViewport()
@@ -52,10 +54,17 @@ describe('모바일 헤더', () => {
     expect(screen.getAllByTestId('mail-sidebar')).toHaveLength(1)
   })
 
-  // 병합 헤더(U1-1): 프로젝트 하위 화면(사이클)은 헤더 선두에 ‹ 하나를 둔다.
-  test('프로젝트 하위 페이지(사이클)는 모바일 헤더 안에 ‹ 가 있다', async () => {
-    // ‹ 는 작업 모듈 레이아웃의 모바일 상세 분기가 헤더에 넣으므로 레이아웃과 함께 띄운다.
-    renderMobileModule(<IssueModuleLayout />, [['/projects/:key/cycles', <CyclesPage />]], {
+  // 병합 헤더(U1-1): 프로젝트 사이클 탭은 탭 레이아웃 머리줄(프로젝트 이름) 선두에 ‹ 하나를 둔다(WP-1477).
+  test('프로젝트 사이클 탭은 모바일 헤더 안에 ‹ 가 있다', async () => {
+    // ‹ 는 작업 모듈 레이아웃의 모바일 상세 분기가 헤더에 넣으므로 레이아웃과 함께 띄운다. 머리줄은 프로젝트 탭 레이아웃이 그린다.
+    const cyclesTab = (
+      <Routes>
+        <Route element={<ProjectTabsLayout />}>
+          <Route index element={<CyclesPage />} />
+        </Route>
+      </Routes>
+    )
+    renderMobileModule(<IssueModuleLayout />, [['/projects/:key/cycles', cyclesTab]], {
       path: '/projects/WP/cycles',
       handlers: [http.get('/api/v1/projects/WP', () => HttpResponse.json(createProject()))],
     })

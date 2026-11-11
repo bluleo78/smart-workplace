@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiSpace } from '../../../src/types/wiki'
 import { member, page as makeContactPage } from '../../factories/contacts.factory'
-import { createProject } from '../../factories/project.factory'
+import { createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 import { dismissByOutsideClick } from '../../fixtures/wait'
@@ -275,8 +275,12 @@ test('노트 페이지: ‹·페이지 제목·⋯·✦ 가 한 줄 헤더(레�
 })
 
 test('⋯ 메뉴 키보드: 열면 첫 항목 포커스, ↓↑ 로 이동, Esc 로 닫고 ⋯ 로 포커스 복귀', { tag: '@input' }, async ({ authenticatedPage: page }) => {
-  await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
-  await page.goto('/projects/WP')
+  // 프로젝트 화면은 설정만 남아(WP-1477 탭 이동) ⋯ 가 인라인 링크 하나로 바뀌어 메뉴가 없다 — 항목이 여럿인 드라이브 헤더로 본다.
+  await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace(), createSpace()] }) : r.fallback())
+  await page.route((u) => u.pathname === '/api/v1/drive/spaces/1/items', (r) => r.fulfill({ json: { folders: [], files: [] } }))
+  await page.route('**/api/v1/drive/spaces/*/trash', (r) => r.fulfill({ json: makeTrashList() }))
+  await page.goto('/drive/spaces/1')
   const trigger = page.getByTestId('mobile-header-more')
   await trigger.focus()
   await page.keyboard.press('Enter')

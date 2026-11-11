@@ -9,6 +9,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 import type { CycleResponse } from '@/types/cycle'
 import type { IssueResponse } from '@/types/issue'
@@ -104,7 +105,7 @@ async function open(opts: Opts = {}) {
   const period = opts.period === undefined ? 'all' : opts.period
   if (period) params.set('period', period)
   const qs = params.toString()
-  const view = renderMobileRoute('/projects/:key/timeline', <TimelinePage />, { path: `/projects/${KEY}/timeline${qs ? `?${qs}` : ''}`, handlers: handlers(opts) })
+  const view = renderMobileRoute('/projects/:key/timeline', <InProjectTabs><TimelinePage /></InProjectTabs>, { path: `/projects/${KEY}/timeline${qs ? `?${qs}` : ''}`, handlers: handlers(opts) })
   if (opts.waitAgenda ?? true) await screen.findByTestId('timeline-agenda')
   return view
 }

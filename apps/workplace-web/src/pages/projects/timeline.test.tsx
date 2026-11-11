@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { API, cycle, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
@@ -38,7 +39,7 @@ function defaultApi(over: Parameters<typeof timelineApi>[0] = {}) {
 
 /** 타임라인 화면만 띄운다 — 화면이 부르는 부가 조회는 shellHandlers 의 빈 기본값이 받는다. */
 function renderTimeline(path: string, handlers: NonNullable<Parameters<typeof renderScreen>[1]>['handlers'] = []) {
-  return renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), { path, handlers: [...handlers, ...shellHandlers] })
+  return renderScreen(atRoute('/projects/:key/timeline', <InProjectTabs><TimelinePage /></InProjectTabs>), { path, handlers: [...handlers, ...shellHandlers] })
 }
 
 /** 간트가 그려질 때까지 기다린다. */
@@ -58,20 +59,21 @@ function expectToggle(el: HTMLElement, on: boolean) {
 }
 
 describe('타임라인 — 진입 (라우트 트리)', () => {
-  // 프로젝트 홈 헤더의 「타임라인」 링크가 타임라인 라우트로 이어지는지.
-  test('프로젝트 홈 헤더의 타임라인 링크로 들어간다', async () => {
+  // 프로젝트 화면의 「타임라인」 탭이 타임라인 라우트로 이어지는지(WP-1477 — 머리 링크가 탭으로 바뀌었다).
+  test('프로젝트 화면의 타임라인 탭으로 들어간다', async () => {
     const api = defaultApi()
     const { user, location } = renderPage(`/projects/${KEY}`, {
       handlers: [...api.handlers, http.get(`${API}/views`, () => HttpResponse.json([]))],
     })
-    await screen.findByRole('link', { name: '타임라인' }, { timeout: PAGE_LOAD_TIMEOUT })
-    // 머리의 보조 링크는 Button asChild 로 링크 하나씩이다 — 링크 안에 버튼을 중첩하지 않는다(WP-1415·WP-1435 회귀 방지).
+    // 탭 줄은 nav「프로젝트 탭」 안 페이지 이동 링크(ARIA 탭 패턴 아님, WP-1477).
+    const nav = await screen.findByRole('navigation', { name: '프로젝트 탭' }, { timeout: PAGE_LOAD_TIMEOUT })
+    const tab = within(nav).getByRole('link', { name: '타임라인' })
+    // 머리의 보조 링크는 Button asChild 로 링크 하나다 — 링크 안에 버튼을 중첩하지 않는다(WP-1415·WP-1435 회귀 방지).
     const header = screen.getByTestId('page-header')
-    for (const [name, path] of [['사이클', 'cycles'], ['버전', 'versions'], ['타임라인', 'timeline'], ['설정', 'settings']]) {
-      expect(within(header).getByRole('link', { name })).toHaveAttribute('href', `/projects/${KEY}/${path}`)
-      expect(within(header).queryByRole('button', { name })).not.toBeInTheDocument()
-    }
-    await user.click(within(header).getByRole('link', { name: '타임라인' }))
+    expect(within(header).getByRole('link', { name: '설정' })).toHaveAttribute('href', `/projects/${KEY}/settings`)
+    expect(within(header).queryByRole('button', { name: '설정' })).not.toBeInTheDocument()
+    expect(tab).toHaveAttribute('href', `/projects/${KEY}/timeline`)
+    await user.click(tab)
     expect(await screen.findByTestId('timeline-page', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(location()).toMatch(new RegExp(`^/projects/${KEY}/timeline`))
   })
@@ -292,7 +294,8 @@ describe('타임라인 — 상태 목록 관문 (WP-938)', () => {
       }),
       ...api.handlers,
     ])
-    expect(await screen.findByRole('heading', { name: '타임라인' })).toBeInTheDocument()
+    // 머리줄은 탭 레이아웃 몫(WP-1477) — 타임라인 화면은 도구 줄(줌)이 관문 밖에서 먼저 보인다.
+    expect(await screen.findByRole('group', { name: '줌 전환' })).toBeInTheDocument()
     expect(await screen.findByText('로딩 중…')).toBeInTheDocument()
     expect(screen.queryByTestId('add-filter-trigger')).not.toBeInTheDocument()
     expect(screen.queryByTestId('timeline-gantt')).not.toBeInTheDocument()

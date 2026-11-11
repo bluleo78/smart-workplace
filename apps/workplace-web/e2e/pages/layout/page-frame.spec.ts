@@ -34,9 +34,9 @@ for (const width of DESKTOP_WIDTHS) {
       const header = page.getByTestId('page-header')
       await expectHeaderBottomAt56(header)
       const body = page.getByTestId('page-body-content')
-      // 헤더의 ← 버튼과 본문 첫 요소(사이클 목록) 시작 x 일치(둘 다 16px 축).
+      // 헤더 제목(프로젝트 이름 — 탭 레이아웃 머리줄, WP-1477)과 본문 첫 요소(사이클 목록) 시작 x 일치(둘 다 16px 축).
       // page-body-content 자신의 상자는 여백(px-4)을 포함해 16px 앞에서 시작하므로 첫 자식으로 비교한다.
-      await expectStartAligned(header.getByRole('button', { name: '프로젝트로 돌아가기' }), body.locator('> *').first())
+      await expectStartAligned(header.getByRole('heading', { level: 1 }), body.locator('> *').first())
       expect((await boxOf(body)).width).toBeLessThanOrEqual(768)
     })
 
@@ -64,16 +64,16 @@ for (const width of DESKTOP_WIDTHS) {
       await expectStartAligned(header.getByRole('heading', { level: 1 }), page.getByTestId('view-chip-bar').locator('> *').first())
     })
 
-    test('타임라인 — 헤더 ← 버튼과 일정 미정 섹션이 같은 x', async ({ authenticatedPage: page }) => {
+    test('타임라인 — 헤더 제목과 일정 미정 섹션이 같은 x', async ({ authenticatedPage: page }) => {
       await mockApi(page, 'GET', '/api/v1/projects/WP', createProject())
       // 일정 없는 이슈 1건 — 간트 막대 대신 일정 미정 섹션에 노출된다.
       await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createIssueSearchResponse([createIssue({ number: 1, projectKey: 'WP', title: '일정 없음' })]))
       await page.goto('/projects/WP/timeline?period=all')
       const header = page.getByTestId('page-header')
       await expectHeaderBottomAt56(header)
-      // 헤더 첫 요소(←, icon 슬롯)와 일정 미정 summary 시작 x 가 같은 16px 축.
+      // 헤더 제목(프로젝트 이름 — 탭 레이아웃 머리줄, WP-1477)과 일정 미정 summary 시작 x 가 같은 16px 축.
       await expectStartAligned(
-        header.getByRole('button', { name: '프로젝트로 돌아가기' }),
+        header.getByRole('heading', { level: 1 }),
         page.getByTestId('unscheduled-section').locator('summary'),
       )
     })

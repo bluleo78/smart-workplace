@@ -8,6 +8,7 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 
@@ -15,7 +16,6 @@ import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/i
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { statusFieldsOf } from '../../../e2e/factories/projectStatus.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 mockViewport()
 
@@ -47,7 +47,7 @@ function handlers({ issues = [TODO1, TODO2, PROG, DONE1], type = 'TEAM' as 'TEAM
 
 /** 이슈 목록·보드 화면을 path 로 띄운다. */
 const openBoard = (path: string, h: ReturnType<typeof handlers>) =>
-  renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path, handlers: h })
+  renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path, handlers: h })
 
 const tab = (statusId: number) => screen.getByTestId(`board-tab-${statusId}`)
 
@@ -118,3 +118,4 @@ test('개인 프로젝트 보드는 탭 3개(취소 없음)이고 상태 편집 
   expect(screen.queryByTestId('board-tab-menu')).not.toBeInTheDocument()
   expect(screen.queryByTestId('board-tab-band-1')).not.toBeInTheDocument()
 })
+

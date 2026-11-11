@@ -30,7 +30,14 @@ describe('moduleRootFor', () => {
     ['/chat/channels/1', '/chat'],
     // 프로젝트 하위 화면은 그 프로젝트로(병합 헤더의 ‹ 가 "프로젝트로 돌아가기" 아이콘을 대체).
     ['/projects/MOB/issues/1', '/projects/MOB'],
-    ['/projects/MOB/cycles', '/projects/MOB'],
+    ['/projects/MOB/versions/3', '/projects/MOB'],
+    ['/projects/MOB/settings', '/projects/MOB'],
+    // 프로젝트 탭 길(WP-1477)은 이슈 탭(/projects/:key)과 같은 곳으로 — 탭은 하위 화면이 아니다.
+    ['/projects/MOB/overview', '/tasks'],
+    ['/projects/MOB/timeline', '/tasks'],
+    ['/projects/MOB/cycles', '/tasks'],
+    ['/projects/MOB/versions', '/tasks'],
+    ['/projects/MOB/cycles/', '/tasks'],
     ['/projects/MOB', '/tasks'],
     ['/notifications', '/'],
     ['/me/tasks/assigned', '/tasks'],

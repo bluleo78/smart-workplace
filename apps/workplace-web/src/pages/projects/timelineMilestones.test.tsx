@@ -9,6 +9,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { API, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
@@ -32,7 +33,7 @@ async function open({ viewerIsMember = true, patchStatus }: { viewerIsMember?: b
       createIssue({ number: 2, title: '연결 이슈', dueDate: '2026-07-10', milestoneId: 1 }),
     ],
   })
-  const view = renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+  const view = renderScreen(atRoute('/projects/:key/timeline', <InProjectTabs><TimelinePage /></InProjectTabs>), {
     path: `/projects/${KEY}/timeline?period=all`,
     handlers: [
       http.post(`${API}/milestones`, async ({ request }) => {
@@ -89,7 +90,7 @@ describe('타임라인 마일스톤 — 레인·생성', () => {
       milestones: [milestone({ id: 1, name: '베타', dueDate: '2026-08-01' }), milestone({ id: 2, name: '출시', dueDate: '2026-08-01' })],
       issues: [createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' })],
     })
-    return renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+    return renderScreen(atRoute('/projects/:key/timeline', <InProjectTabs><TimelinePage /></InProjectTabs>), {
       path: `/projects/${KEY}/timeline?period=all`,
       handlers: [...api.handlers, ...shellHandlers],
     })

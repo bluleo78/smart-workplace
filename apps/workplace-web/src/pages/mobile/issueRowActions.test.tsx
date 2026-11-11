@@ -8,12 +8,12 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 mockViewport()
 
@@ -52,7 +52,7 @@ function issueApi() {
 /** 목록(group=none)을 열고 첫 행이 뜰 때까지 기다린다. */
 async function open() {
   const api = issueApi()
-  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
+  const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
   await screen.findByTestId('issue-row-21')
   return { ...page, api }
 }
@@ -125,3 +125,4 @@ describe('모바일 선택 모드', () => {
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/22`))
   })
 })
+

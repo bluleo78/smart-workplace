@@ -48,12 +48,20 @@ export const pageAuth: Partial<AuthContextValue> = {
  * (이동은 location() 으로 본다). 화면 전체를 띄우므로 상태·유형·관계 유형 같은 부가 조회는 앱 셸 기본값(shellHandlers)을
  * 테스트 핸들러 뒤에 깐다.
  */
-export function renderRouteScreen(routePath: string, element: ReactElement, path: string, { handlers = [], auth, extra }: ScreenOptions = {}) {
+export function renderRouteScreen(routePath: string, element: ReactElement, path: string, options: ScreenOptions = {}) {
+  return renderRoutesScreen(<Route path={routePath} element={element} />, path, options)
+}
+
+/**
+ * renderRouteScreen 과 같되 라우트(<Route> 들)를 직접 받는다 — 레이아웃 라우트 아래 자식을 두는 화면(프로젝트 탭, WP-1477)용.
+ * 다른 주소로 가면 아무것도 그리지 않는다.
+ */
+export function renderRoutesScreen(routes: ReactNode, path: string, { handlers = [], auth, extra }: ScreenOptions = {}) {
   return renderScreen(
     <AIAssistantProvider hotkeysEnabled={false}>
       {extra}
       <Routes>
-        <Route path={routePath} element={element} />
+        {routes}
         <Route path="*" element={null} />
       </Routes>
     </AIAssistantProvider>,

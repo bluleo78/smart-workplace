@@ -3,7 +3,7 @@ slug: work
 title: 작업 관리
 part: 2
 audience: [member, admin]
-routes: [/projects, /projects/:key, /projects/:key/settings, /projects/:key/cycles, /projects/:key/versions, /projects/:key/versions/:versionId, /projects/:key/timeline, /projects/:key/issues/:number, /me/tasks/:tab]
+routes: [/projects, /projects/:key, /projects/:key/overview, /projects/:key/settings, /projects/:key/cycles, /projects/:key/versions, /projects/:key/versions/:versionId, /projects/:key/timeline, /projects/:key/issues/:number, /me/tasks/:tab]
 ---
 
 # 작업 관리
@@ -36,11 +36,11 @@ routes: [/projects, /projects/:key, /projects/:key/settings, /projects/:key/cycl
 
 ## 이슈를 목록으로 본다
 
-프로젝트를 열면 이슈가 사이클별로 묶인 목록이 보입니다.
+팀 프로젝트 화면은 머리 아래 탭 줄로 **개요**·**이슈**·**타임라인**·**사이클**·**버전** 을 오갑니다. 프로젝트를 다시 열면 마지막에 본 탭이 열리고, 처음 열면 **이슈** 탭이 열려 이슈가 사이클별로 묶인 목록이 보입니다. **개요** 탭은 아직 준비 중입니다. 개인 프로젝트는 탭 없이 이슈 화면만 있습니다.
 
 ![프로젝트 이슈 목록](shots/user/work-2.png){marks=pages,create,filters,view@bl,group}
 
-1. 머리의 **사이클**·**버전**·**타임라인**·**설정** 으로 프로젝트의 다른 화면을 엽니다(아래 「진행을 본다」). 화면 폭이 좁거나 **AI 어시스턴트** 를 열어 제목 공간이 줄면 네 링크는 **더보기** 메뉴에 모입니다.
+1. 탭 줄의 **타임라인**·**사이클**·**버전** 으로 프로젝트의 다른 화면을 엽니다(아래 「진행을 본다」). 머리의 **설정** 은 화면 폭이 좁거나 **AI 어시스턴트** 를 열어 제목 공간이 줄면 **더보기** 메뉴에 들어갑니다.
 2. **새 태스크** 로 새 이슈를 만듭니다(아래 「새 이슈를 만든다」).
 3. 목록 위 깔때기 줄의 **제목·키** 칸에 말을 넣으면 제목이나 이슈 키로 목록을 거릅니다. 이 칸은 늘 보이며 모바일에서도 마찬가지입니다. 이어서 **담당자**·**상태**·**유형**·**라벨**·**우선순위** 로 목록을 거릅니다. **더 보기** 를 누르면 거를 항목을 더 고를 수 있습니다. 화면 맨 위 돋보기의 통합 검색은 모든 곳을 찾고, 이 칸은 이 목록만 거릅니다.
 4. 오른쪽 단추로 목록 보기와 보드 보기를 바꿉니다.
@@ -133,7 +133,7 @@ AI 와 함께 담당했거나 AI 가 작업한 이슈도 내가 담당자였다�
 
 ### 타임라인으로 본다
 
-프로젝트 머리의 **타임라인** 을 누르면 에픽과 이슈를 기간 막대로 봅니다.
+프로젝트의 **타임라인** 탭을 누르면 에픽과 이슈를 기간 막대로 봅니다.
 
 ![타임라인](shots/user/work-8.png){marks=scale,filter,list,milestone}
 

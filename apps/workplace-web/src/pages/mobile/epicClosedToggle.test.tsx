@@ -7,12 +7,12 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 모바일 폭 — 필터 칩 줄(mobile-chip-*)과 에픽 바텀시트가 그려지는 조건.
 mockViewport()
@@ -27,7 +27,7 @@ const CLOSED_EPICS = [createIssue({ id: 52, number: 52, projectKey: KEY, title: 
 test('진행 중 에픽은 숨김을 유지하고, 종료된 에픽을 고르면 켜지며, 칩 ✕ 로 벗어나면 꺼진다', async () => {
   // 본문 이슈 검색(에픽 목록 조회 제외)의 쿼리 — 숨김 파라미터 확인용.
   const searches: URLSearchParams[] = []
-  const { user, location } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, {
+  const { user, location } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, {
     path: `/projects/${KEY}?group=none`,
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, type: 'TEAM' }))),
@@ -77,3 +77,4 @@ test('진행 중 에픽은 숨김을 유지하고, 종료된 에픽을 고르면
   await waitFor(() => expect(location()).not.toMatch(/parent=/))
   expect(location()).not.toMatch(/closed=all/)
 })
+

@@ -1,10 +1,9 @@
 // 프로젝트 사이클 관리 — 목록 + 진행 막대 + 생성/수정/삭제. 생성·수정·삭제는 프로젝트 OWNER(·ADMIN)만 보인다(WP-1008 — 서버 가드와 같다).
-import { ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
-import { Page } from '@/components/layout/Page';
-import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
+import { Page, pageReadingWidthClass } from '@/components/layout/Page';
 import { MobileActionSheet } from '@/components/mobile/MobileActionSheet';
 import { TOUCH_ROW_TRIGGER } from '@/components/mobile/TouchRowActionsMenu';
 import { Button } from '@/components/ui/button';
@@ -15,21 +14,23 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
-import { useCanManageProject } from '../../hooks/useCanManageProject';
+import { useCanManageProjectOf } from '../../hooks/useCanManageProject';
 import { cycleMetaText } from '../../lib/cycleMeta';
 import { deletionImpactNote } from '../../lib/deletionImpact';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
-import { ProjectUnavailableState } from './components/ProjectUnavailableState';
+import { useProjectTabs } from './tabs/ProjectTabsContext';
+import { TabScreen, TabToolbar } from './tabs/TabToolbar';
 
 export default function CyclesPage() {
   const { key = '' } = useParams();
-  const navigate = useNavigate();
+  // 프로젝트는 탭 레이아웃이 불러와 넘긴다 — 로딩·접근 불가(403·404) 화면도 레이아웃이 맡는다(WP-480·WP-1477).
+  const { project } = useProjectTabs();
   // 버전·마일스톤과 같은 관리 판정 — 아니면 목록·진행만 보이고 새 사이클·수정·삭제·⋯ 는 숨긴다.
-  const { project, canManage } = useCanManageProject(key);
+  const canManage = useCanManageProjectOf(key, project);
   const cycles = useCycles(key);
   // 탭 제목 — 「사이클 · {프로젝트}」(WP-814).
-  useDocumentTitle(['사이클', project.data?.name]);
+  useDocumentTitle(['사이클', project.name]);
   const progress = useCycleProgress(key);
   const del = useDeleteCycle(key);
   const [editing, setEditing] = useState<CycleResponse | undefined>();
@@ -37,7 +38,7 @@ export default function CyclesPage() {
   const isMobile = useIsMobile();
   // 모바일 ⋯ 시트 대상 사이클(WP-197) — 시트·삭제 확인은 페이지에 하나만 두고 CycleMobileActions 가 그린다.
   const [sheetCycle, setSheetCycle] = useState<CycleResponse | null>(null);
-  // 새 사이클 — 데스크톱 헤더 버튼과 모바일 ＋ 가 같은 폼을 연다.
+  // 새 사이클 — 본문 맨 위 도구 줄의 단추가 연다(데스크톱·모바일 같은 단추).
   const openNew = () => {
     setEditing(undefined);
     setOpen(true);
@@ -49,52 +50,19 @@ export default function CyclesPage() {
     return m;
   }, [progress.data]);
 
-  // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
-  if (project.error) return <ProjectUnavailableState />;
-
+  // 프로젝트 탭 레이아웃(WP-1477) 안의 사이클 탭 — 머리줄은 레이아웃이 그리고, 주 액션(새 사이클)은 본문 맨 위 도구 줄에 둔다.
+  // 읽기 폭(768px)은 본문 안 최대 폭으로 지킨다.
   return (
-    <Page width="reading" data-testid="cycles-page">
-      <Page.Header
-        icon={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="프로젝트로 돌아가기"
-            onClick={() => navigate(`/projects/${key}`)}
-          >
-            <ArrowLeft className="h-4 w-4" />
+    <TabScreen testId="cycles-page">
+      <TabToolbar>
+        {canManage && (
+          // size 미지정(default) — 04-components §E 주 액션 규정(#744/#747). 간격·아이콘 크기는 Button cva 가 담당.
+          <Button onClick={openNew} data-testid="cycle-new">
+            <Plus /> 새 사이클
           </Button>
-        }
-        title="사이클"
-        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
-        actions={
-          /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
-          canManage && (
-            <Button
-              onClick={openNew}
-              data-testid="cycle-new"
-            >
-              {/* mr-1·h-4 w-4 제거 — 간격은 Button cva 의 gap 이, 크기는 같은 cva 의
-                  [&_svg:not([class*='size-'])]:size-4 가 담당한다. */}
-              <Plus /> 새 사이클
-            </Button>
-          )
-        }
-        // 모바일: 단일 주 액션은 ⋯ 로 접지 않고 ＋ 아이콘으로 인라인(같은 testid — actions 는 모바일에서 렌더 안 함).
-        mobilePrimaryAction={
-          canManage && (
-            <HeaderIconAction
-              label="새 사이클"
-              data-testid="cycle-new"
-              onClick={openNew}
-            >
-              <Plus />
-            </HeaderIconAction>
-          )
-        }
-        mobileActions={null}
-      />
-      <Page.Body>
+        )}
+      </TabToolbar>
+      <Page.Body className={pageReadingWidthClass}>
       <ul className="space-y-3">
         {(cycles.data ?? []).map((c) =>
           isMobile ? (
@@ -170,7 +138,7 @@ export default function CyclesPage() {
             아직 사이클이 없습니다.
           </li>
         )}
-      </ul>
+        </ul>
       </Page.Body>
 
       <CycleFormDialog projectKey={key} cycle={editing} open={open} onOpenChange={setOpen} />
@@ -186,7 +154,7 @@ export default function CyclesPage() {
           issueCountOf={(id) => progressById.get(id)?.total}
         />
       )}
-    </Page>
+    </TabScreen>
   );
 }
 

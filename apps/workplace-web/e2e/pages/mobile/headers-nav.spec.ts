@@ -80,23 +80,22 @@ test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', { tag: '@input' }
   await dismissByOutsideClick(page, menu, { x: 200, y: 500 })
 })
 
-test('프로젝트 상세: ＋ 새 태스크는 인라인, 사이클·타임라인·설정은 ⋯ 메뉴', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('프로젝트 상세: ＋ 새 태스크·설정은 인라인, 사이클·타임라인은 탭 줄(WP-1477)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.goto(`/projects/${KEY}`)
   await expectSingleMergedHeader(page, 'page-header')
   await expect(page.getByTestId('mobile-new-issue')).toBeVisible()
   await expect(page.getByRole('button', { name: '사이클' })).toBeHidden()
-  await page.getByTestId('mobile-header-more').click()
-  const menu = page.getByTestId('mobile-header-more-menu')
-  // 메뉴 항목은 링크 하나씩(role=menuitem, U3-C3·R13).
-  await expect(menu.getByRole('menuitem', { name: '사이클' })).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: '타임라인' })).toBeVisible()
-  await menu.getByRole('menuitem', { name: '설정' }).click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings$`))
+  // 보조 항목이 설정 하나라 ⋯ 없이 바로 둔다(U3-R7). 사이클·타임라인은 탭 줄에 있다.
+  await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
+  await expect(page.getByTestId('project-tab-cycles')).toBeVisible()
+  await expect(page.getByTestId('project-tab-timeline')).toBeAttached()
   await expectNoHorizontalOverflow(page)
+  await page.getByTestId('page-header').getByRole('link', { name: '설정' }).click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings$`))
 })
 
-test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌아간다(“프로젝트로 돌아가기” 아이콘 대체)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('프로젝트 사이클 탭 딥링크: ‹ 는 이슈 탭과 같이 작업 목록으로 간다(탭은 하위 화면이 아니다, WP-1477)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.route(`**/api/v1/projects/${KEY}/cycles`, (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
   await page.route(`**/api/v1/projects/${KEY}/cycles/progress`, (r) => r.fulfill({ json: [] }))
@@ -108,7 +107,7 @@ test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌�
   await expect(page.getByRole('button', { name: '프로젝트로 돌아가기' })).toHaveCount(0)
   await expect(page.getByTestId('cycle-new')).toBeVisible()
   await page.getByTestId('mobile-back').click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`))
+  await expect(page).toHaveURL(/\/tasks$/)
 })
 
 test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고, 항목이 파일 하나면 ⋯ 없이 인라인', { tag: '@layout' }, async ({ authenticatedPage: page }) => {

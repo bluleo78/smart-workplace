@@ -1,7 +1,7 @@
 // 프로젝트 타임라인(간트) — 진입·툴바(줌/오늘)·필터·읽기·드래그 편집(Task 8)·마일스톤 UX(Task 9)·
 // 의존 화살표(표시 전용)+일정 미정 섹션(Task 10) 렌더. URL: /projects/:key/timeline
 import { format } from 'date-fns';
-import { ArrowLeft, Diamond } from 'lucide-react';
+import { Diamond } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -16,15 +16,15 @@ import { cn } from '@/lib/utils';
 import { remainingPagesFailed, useFetchAllPages } from '../../../hooks/queries/useFetchAllPages';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
-import { useProject } from '../../../hooks/queries/useProjects';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useVersions } from '../../../hooks/queries/useVersions';
-import { useCanManageProject } from '../../../hooks/useCanManageProject';
+import { useCanManageProjectOf } from '../../../hooks/useCanManageProject';
 import { parseFilters } from '../../../lib/issueFilters';
 import type { IssueFilters } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { ProjectStatusesGate } from '../components/ProjectStatusesGate';
-import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
+import { useProjectTabs } from '../tabs/ProjectTabsContext';
+import { TabScreen, TabToolbar } from '../tabs/TabToolbar';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
@@ -36,6 +36,13 @@ import { TimelinePeriodPicker } from './TimelinePeriodPicker';
 import type { PeriodParam, TimelineViewOptions } from './timelineTypes';
 import { useTimelinePeriod } from './useTimelinePeriod';
 import { useTimelineZoom } from './useTimelineZoom';
+
+/** 줌 단추 — 보기 단위(일·주·월) 순서대로. */
+const ZOOM_OPTIONS = [
+  { value: 'day', label: '일' },
+  { value: 'week', label: '주' },
+  { value: 'month', label: '월' },
+] as const;
 
 export default function TimelinePage() {
   const { key = '' } = useParams();
@@ -62,13 +69,14 @@ export default function TimelinePage() {
     anchorRect: DOMRect;
   } | null>(null);
 
-  const project = useProject(key);
+  // 프로젝트는 탭 레이아웃이 불러와 넘긴다 — 로딩·접근 불가(403·404) 화면도 레이아웃이 맡는다(WP-480·WP-1477).
+  const { project } = useProjectTabs();
   // 탭 제목 — 「타임라인 · {프로젝트}」(WP-814).
-  useDocumentTitle(['타임라인', project.data?.name]);
+  useDocumentTitle(['타임라인', project.name]);
   const search = useIssueSearch(key, effectiveFilters, 100);
   const milestones = useMilestones(key);
   // 버전 출시일(WP-888) — 출시일 있는 미출시·출시됨만 「버전」 레인/모바일 칩으로. 개인 프로젝트는 버전이 없어 요청하지 않는다.
-  const versions = useVersions(key, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
+  const versions = useVersions(key, { enabled: project.type !== 'PERSONAL' });
   const versionMarkers = useMemo(() => versionsToMarkers(versions.data ?? []), [versions.data]);
   // 조회 기간(WP-247) — 화면 거름은 상태 필터의 「취소」 포함 여부와 함께 간트·아젠다에 넘긴다(조회 자체는 전량 그대로).
   const periodCtl = useTimelinePeriod(key);
@@ -81,9 +89,9 @@ export default function TimelinePage() {
   const issues = useMemo(() => (search.data?.pages ?? []).flatMap((p) => p.items), [search.data]);
   // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.
   const isMobile = useIsMobile();
-  const readOnly = !(project.data?.viewerIsMember ?? false);
+  const readOnly = !(project.viewerIsMember ?? false);
   // 마일스톤 추가·수정·삭제는 버전·사이클처럼 프로젝트 OWNER(·ADMIN)만(WP-1008) — 이슈 막대 편집(멤버)과 따로 판정한다.
-  const { canManage: canManageMilestones } = useCanManageProject(key);
+  const canManageMilestones = useCanManageProjectOf(key, project);
   // 기간을 바꾸면 간트를 새 기간 시작일로 옮긴다 — 새 기간이 화면 밖일 수 있어서. 전체(null)면 그대로.
   const changePeriod = (p: PeriodParam) => {
     periodCtl.setParam(p);
@@ -110,62 +118,41 @@ export default function TimelinePage() {
     scrollTo(initialScrollDate(periodCtl.period, new Date()));
   }
 
-  // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
-  if (project.error) return <ProjectUnavailableState />;
+  // 프로젝트 탭 레이아웃(WP-1477) 안의 타임라인 탭 — 머리줄은 레이아웃이 그리고, 줌·「오늘」·「마일스톤 추가」는 본문 맨 위 도구 줄에 둔다.
+  // 「마일스톤 추가」는 OWNER 만(WP-1008) — 한 번만 만들고 모양만 폭에 맞춘다(모바일은 글자 단추, 데스크톱은 줌 단추와 같은 테두리).
+  const milestoneAdd = canManageMilestones && (
+    <Button
+      variant={isMobile ? 'ghost' : 'outline'}
+      size="sm"
+      data-testid="milestone-add-button"
+      onClick={() => setMilestoneDialogState({})}
+    >
+      <Diamond aria-hidden className={isMobile ? undefined : 'mr-1 h-3 w-3'} />
+      마일스톤 추가
+    </Button>
+  );
 
   return (
-    <Page data-testid="timeline-page">
-      <Page.Header
-        icon={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="프로젝트로 돌아가기"
-            onClick={() => navigate(`/projects/${key}`)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        }
-        title="타임라인"
-        // 모바일: 줌·「오늘」은 아젠다에 의미가 없어 숨기고, OWNER 만 「마일스톤 추가」(항목 1개라 헤더에 인라인 — U3-R7).
-        mobileActions={
-          canManageMilestones && (
-            <Button variant="ghost" size="sm" data-testid="milestone-add-button" onClick={() => setMilestoneDialogState({})}>
-              <Diamond aria-hidden />
-              마일스톤 추가
-            </Button>
-          )
-        }
-        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
-        actions={
+    <TabScreen testId="timeline-page">
+      {/* 도구 줄 — 탭 줄 바로 아래 오른쪽, 본문(timeline-body) 밖. 관문(상태 목록) 밖이라 로딩 중에도 줌을 바꿀 수 있다(예전 머리줄과 같다).
+          모바일: 줌·「오늘」은 아젠다에 의미가 없어 숨기고 「마일스톤 추가」만(U3-R7). */}
+      <TabToolbar testId="timeline-toolbar">
+        {isMobile ? (
+          milestoneAdd
+        ) : (
           <div className="flex items-center gap-1" role="group" aria-label="줌 전환">
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={zoom === 'day'}
-              className={zoom === 'day' ? TOGGLE_ON_CLASS : undefined}
-              onClick={() => setZoom('day')}
-            >
-              일
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={zoom === 'week'}
-              className={zoom === 'week' ? TOGGLE_ON_CLASS : undefined}
-              onClick={() => setZoom('week')}
-            >
-              주
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={zoom === 'month'}
-              className={zoom === 'month' ? TOGGLE_ON_CLASS : undefined}
-              onClick={() => setZoom('month')}
-            >
-              월
-            </Button>
+            {ZOOM_OPTIONS.map((z) => (
+              <Button
+                key={z.value}
+                variant="outline"
+                size="sm"
+                aria-pressed={zoom === z.value}
+                className={zoom === z.value ? TOGGLE_ON_CLASS : undefined}
+                onClick={() => setZoom(z.value)}
+              >
+                {z.label}
+              </Button>
+            ))}
             <Button
               variant="outline"
               size="sm"
@@ -174,20 +161,10 @@ export default function TimelinePage() {
             >
               오늘
             </Button>
-            {canManageMilestones && (
-              <Button
-                variant="outline"
-                size="sm"
-                data-testid="milestone-add-button"
-                onClick={() => setMilestoneDialogState({})}
-              >
-                <Diamond className="mr-1 h-3 w-3" />
-                마일스톤 추가
-              </Button>
-            )}
+            {milestoneAdd}
           </div>
-        }
-      />
+        )}
+      </TabToolbar>
       {/* 본문은 자체 레이아웃(padded=false) — 간트는 필터 줄·간트·일정 미정 섹션이 각자 pageGutterClass 로 헤더 축에 맞춘다. */}
       <Page.Body padded={false} className="flex-col overflow-hidden" data-testid="timeline-body">
         {nextPageFailed && (
@@ -266,7 +243,7 @@ export default function TimelinePage() {
           onClose={() => setMilestoneEditState(null)}
         />
       )}
-    </Page>
+    </TabScreen>
   );
 }
 

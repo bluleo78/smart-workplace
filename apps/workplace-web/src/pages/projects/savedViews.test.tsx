@@ -10,9 +10,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import { atRoute } from '@/test/kits/projects/atRoute'
 import { API, type Call, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
@@ -42,7 +42,7 @@ async function openWithViews(initial: SavedViewResponse[], { path = `/projects/$
   const views = [...initial]
   const calls: Call[] = []
   const api = projectScreen(KEY)
-  const page = renderScreen(atRoute('/projects/:key', <ProjectDetailPage />), {
+  const page = renderScreen(atRoute('/projects/:key', <ProjectIssuesTab />), {
     path,
     handlers: [
       ...extra,
@@ -248,3 +248,4 @@ function membersWithMyRole(role: 'OWNER' | 'MEMBER') {
     ]),
   )
 }
+

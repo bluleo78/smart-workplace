@@ -194,3 +194,4 @@ describe('저장한 뷰 칩 — 지금 적용 중인 뷰 표시', () => {
     expect(screen.queryByTestId('view-chip-modified-1')).not.toBeInTheDocument()
   })
 })
+

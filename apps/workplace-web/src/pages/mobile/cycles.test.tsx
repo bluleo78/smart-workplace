@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 import type { CycleProgress, CycleResponse } from '@/types/cycle'
 
@@ -43,7 +44,7 @@ function handlers(deletes: number[]) {
 
 test('⋯ → 삭제 → 취소는 요청 없이 유지, 다시 ⋯ → 삭제 → 확인은 그 사이클 DELETE', async () => {
   const deletes: number[] = []
-  const { user } = renderMobileRoute('/projects/:key/cycles', <CyclesPage />, { path: `/projects/${KEY}/cycles`, handlers: handlers(deletes) })
+  const { user } = renderMobileRoute('/projects/:key/cycles', <InProjectTabs><CyclesPage /></InProjectTabs>, { path: `/projects/${KEY}/cycles`, handlers: handlers(deletes) })
   await user.click(await screen.findByTestId('cycle-more-2'))
   await user.click(within(await screen.findByTestId('cycle-sheet')).getByTestId('mobile-action-delete'))
   const dialog = await screen.findByRole('alertdialog')
@@ -58,7 +59,7 @@ test('⋯ → 삭제 → 취소는 요청 없이 유지, 다시 ⋯ → 삭제 �
 })
 
 test('행을 누르면 그 사이클로 필터된 이슈 목록으로 간다', async () => {
-  const { user, location } = renderMobileRoute('/projects/:key/cycles', <CyclesPage />, { path: `/projects/${KEY}/cycles`, handlers: handlers([]) })
+  const { user, location } = renderMobileRoute('/projects/:key/cycles', <InProjectTabs><CyclesPage /></InProjectTabs>, { path: `/projects/${KEY}/cycles`, handlers: handlers([]) })
   const row = await screen.findByTestId('cycle-row-1')
   await user.click(within(row).getByRole('link'))
   await waitFor(() => expect(new URLSearchParams(location().split('?')[1]).get('cycle')).toBe('1'))

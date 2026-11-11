@@ -80,3 +80,4 @@ test('그룹만 담은 뷰를 고르면 칩 라벨·시트 ✓ 가 그 뷰다 �
   expect(screen.queryByTestId('mobile-chip-view-modified')).not.toBeInTheDocument()
   expect(new URLSearchParams(location().split('?')[1]).get('group')).toBe('assignee')
 })
+

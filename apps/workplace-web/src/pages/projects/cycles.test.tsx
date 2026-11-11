@@ -1,5 +1,5 @@
 // 사이클 관리·피커·필터 — 페이지 테스트(WP-971).
-// 진행바 색 칸·집계 문구, 헤더의 프로젝트 복귀, 생성(입력 상한)·종료일 역전 차단·수정·삭제 payload,
+// 진행바 색 칸·집계 문구, 도구 줄의 새 사이클(머리줄은 프로젝트 탭 레이아웃 몫, WP-1477), 생성(입력 상한)·종료일 역전 차단·수정·삭제 payload,
 // 이슈 상세 사이클 피커 PUT(완료 사이클 규칙 WP-659), 목록 사이클 필터 → 요청 cycle=1 은 브라우저 없이 판정되므로
 // e2e/pages/projects/cycles.spec.ts 에서 옮겼다. 그 spec 에는 사이클 화면 배선 1건(@wiring)과 실제 오프라인 저장(@platform)이 남는다.
 // 화면 테스트(WP-1002) — 사이클 화면(CyclesPage)·이슈 상세의 사이클 피커(CyclePickerPopover)는 그것만, 목록 필터는 필터 바와 목록 검색이
@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 
 import { CyclePickerPopover } from '@/components/cycle/CyclePickerPopover'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { renderRouteScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { server } from '@/test/msw/server'
@@ -34,7 +35,7 @@ function createCycle(overrides: Partial<CycleResponse> = {}): CycleResponse {
 
 /** 사이클 화면 — cycles 는 매 GET 마다 읽는다(쓰기 핸들러가 바꾸면 재조회에 반영). */
 async function openCycles(cycles: { current: CycleResponse[] }, progress: CycleProgress[] = []) {
-  const view = renderRouteScreen('/projects/:key/cycles', <CyclesPage />, `/projects/${KEY}/cycles`, {
+  const view = renderRouteScreen('/projects/:key/cycles', <InProjectTabs><CyclesPage /></InProjectTabs>, `/projects/${KEY}/cycles`, {
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
       http.get(CYCLES, () => HttpResponse.json(cycles.current)),
@@ -43,7 +44,7 @@ async function openCycles(cycles: { current: CycleResponse[] }, progress: CycleP
       http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role: 'OWNER' })])),
     ],
   })
-  await screen.findByTestId('page-header', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  await screen.findByTestId('cycles-page', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   if (cycles.current.length) await screen.findByTestId(`cycle-row-${cycles.current[0].id}`)
   else await screen.findByText('아직 사이클이 없습니다.')
   return view
@@ -67,13 +68,13 @@ describe('사이클 관리', () => {
     expect(bar.querySelectorAll('[class*="bg-success"]')).toHaveLength(2)
   })
 
-  test('헤더에 프로젝트 키가 보이고 「프로젝트로 돌아가기」는 프로젝트 목록 화면으로 간다 (#667)', async () => {
-    const { user, location } = await openCycles({ current: [] })
-    const header = screen.getByTestId('page-header')
-    expect(header).toHaveTextContent(KEY)
-    // 돌아간 화면은 그리지 않는다(사이클 화면만 띄웠다) — 이동 주소만 본다.
-    await user.click(within(header).getByRole('button', { name: '프로젝트로 돌아가기' }))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: SCREEN_LOAD_TIMEOUT })
+  test('사이클 탭은 자기 머리줄·「프로젝트로 돌아가기」 없이 본문 도구 줄에 「새 사이클」을 둔다 (#667 → WP-1477)', async () => {
+    await openCycles({ current: [] })
+    // 머리줄(이름·키·탭 줄)은 프로젝트 탭 레이아웃이 하나만 그린다 — 사이클 본문은 자기 머리줄이 없고, 탭으로 오가므로 ← 복귀 단추도 없다.
+    expect(screen.getAllByTestId('page-header')).toHaveLength(1)
+    expect(within(screen.getByTestId('cycles-page')).queryByTestId('page-header')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '프로젝트로 돌아가기' })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('cycles-page')).getByTestId('cycle-new')).toHaveTextContent('새 사이클')
   })
 
   test('새 사이클 — 이름·목표는 서버 상한(60·2000자)에서 더 들어가지 않고, 저장하면 POST 한다 (WP-687)', async () => {

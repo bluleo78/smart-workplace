@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { openMobileQuickFacet } from '@/test/kits/projects/quickFilter'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
@@ -15,7 +16,6 @@ import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/i
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { serverEpicFilter } from '../../../e2e/fixtures/epic-search'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 이 파일은 iPhone 13 폭·터치 포인터 — matchMedia 결과가 파일 안에서 캐시되므로 첫 렌더 전에 한 번 부른다.
 mockViewport()
@@ -106,7 +106,7 @@ function issueApi(opts: MockOpts = {}) {
 /** 목록을 열고 첫 행이 뜰 때까지 기다린다. */
 async function open(query = 'group=none', opts: MockOpts = {}) {
   const api = issueApi(opts)
-  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}${query ? `?${query}` : ''}`, handlers: api.handlers })
+  const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}${query ? `?${query}` : ''}`, handlers: api.handlers })
   await screen.findByTestId('mobile-issue-toolbar')
   return { ...page, api }
 }
@@ -505,3 +505,4 @@ describe('모바일 이슈 목록 — 종료된 에픽(WP-245·WP-389)', () => {
     expect(await within(sheet).findByTestId('mobile-epic-closed-54')).toBeInTheDocument()
   })
 })
+

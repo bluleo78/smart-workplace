@@ -192,3 +192,4 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
     expect(screen.getAllByText('전체 목록 이슈').length).toBeGreaterThan(0)
   })
 })
+
