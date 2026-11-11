@@ -1362,3 +1362,93 @@ describe('이슈 관계·외부 링크 도구 (WP-887)', () => {
     expect(out.externalLinks[0].type).toBe('검토를 요청함');
   });
 });
+
+/**
+ * WP-1494: get_issue_detail 크기 옵션(comments·history·bodyMaxChars). 옵션을 안 주면 응답이 이전과 글자 하나까지 같아야 한다 —
+ * work-loop 같은 기존 AI 가 기본 코멘트·이력에 기대기 때문이다. 기본 응답은 변경 전 코드로 만든 스냅숏과 비교한다.
+ */
+describe('get_issue_detail 크기 옵션 (WP-1494)', () => {
+  // 서로게이트 쌍(😀) 이 경계에 걸리게 본문을 짠다 — 'a' 9개 + 😀 + 'b' 여러 개.
+  const longBody = `${'a'.repeat(9)}😀${'b'.repeat(500)}`;
+  const rich = {
+    issueKey: 'WP-12',
+    summary: {
+      projectKey: 'WP', number: 12, title: '긴 이슈', status: 'IN_PROGRESS', statusName: '진행 중', priority: 'HIGH',
+      assignees: [{ id: 1, username: 'alice', name: '앨리스', kind: 'HUMAN' }], labels: [{ id: 1, name: 'bug', colorToken: 'red' }],
+      blockedBy: [{ number: 5, title: 'x', status: 'TODO' }], blocks: [], blocked: true,
+      agentWork: [{ agentUsername: 'ai1', agentName: 'AI', state: 'WORKING', note: 'n' }],
+      createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-02T00:00:00Z',
+    },
+    body: longBody,
+    reporter: { id: 2, username: 'bob', name: '밥', kind: 'HUMAN' },
+    comments: Array.from({ length: 45 }, (_, i) => ({ id: i + 1, body: `코멘트 ${i + 1}`, authorUsername: 'alice', authorName: '앨리스', authorKind: 'HUMAN', createdAt: '2026-11-03T00:00:00Z' })),
+    history: Array.from({ length: 40 }, (_, i) => ({ createdAt: '2026-11-03T00:00:00Z', actorUsername: 'bob', actorName: '밥', actorKind: 'HUMAN', eventType: 'TITLE_CHANGED', fromValue: `t${i}`, toValue: `t${i + 1}` })),
+    attachments: [{ fileId: 77, originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 3, attachedByUsername: 'bob', attachedByName: '밥', attachedAt: '2026-11-03T00:00:00Z' }],
+    relations: [{ id: 3, typeCode: 'RELATES', label: '관련', issue: { projectKey: 'WP', number: 7, title: 'r', status: 'TODO' } }],
+  };
+  const setup = () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(structuredClone(rich));
+    vi.mocked(c.getIssueCycles).mockResolvedValue([{ id: 1, name: 'S1', status: 'ACTIVE' }] as never);
+    vi.mocked(c.getIssueWatchers).mockResolvedValue([{ userId: 1, username: 'alice', name: '앨리스' }] as never);
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'get_issue_detail')!;
+    return async (args: Record<string, unknown>) => resultText(await t.handler({ issueKey: 'WP-12', ...args }));
+  };
+
+  it('옵션이 없으면 응답 문자열이 변경 전과 같다', async () => {
+    expect(await setup()({})).toMatchSnapshot();
+  });
+
+  it('comments:0 이면 코멘트를 싣지 않고 commentsOmitted 로 전체 수를 알린다', async () => {
+    const out = JSON.parse(await setup()({ comments: 0 }));
+    expect(out.comments).toEqual([]);
+    expect(out.commentsOmitted).toBe(45);
+  });
+
+  it('comments:N 이면 최근 N건만 — allComments 보다 우선하고, 하드 상한(200)을 넘지 않는다', async () => {
+    const run = setup();
+    const five = JSON.parse(await run({ comments: 5, allComments: true }));
+    expect(five.comments.map((c: { id: number }) => c.id)).toEqual([41, 42, 43, 44, 45]);
+    expect(five.commentsOmitted).toBe(40);
+    const many = JSON.parse(await run({ comments: 1000 }));
+    expect(many.comments).toHaveLength(45);
+    expect(many).not.toHaveProperty('commentsOmitted');
+  });
+
+  it('history:false 면 history 를 빼고 historyTotal 로 전체 수를 알린다(historyOmitted 는 잘림 전용이라 싣지 않는다)', async () => {
+    const out = JSON.parse(await setup()({ history: false }));
+    expect(out).not.toHaveProperty('history');
+    expect(out).not.toHaveProperty('historyOmitted');
+    expect(out.historyTotal).toBe(40);
+    // 코멘트는 기본(최근 30건) 그대로다.
+    expect(out.comments).toHaveLength(30);
+  });
+
+  it('bodyMaxChars 면 본문 앞 N 코드 포인트만 싣고 bodyTruncated·bodyLength 로 알린다(서로게이트 쌍을 가르지 않는다)', async () => {
+    const out = JSON.parse(await setup()({ bodyMaxChars: 10 }));
+    expect(out.body).toBe(`${'a'.repeat(9)}😀`);
+    expect(out.bodyTruncated).toBe(true);
+    expect(out.bodyLength).toBe(Array.from(longBody).length);
+    // 키 순서 — body 바로 뒤에 표지가 온다.
+    const keys = Object.keys(out);
+    expect(keys.slice(keys.indexOf('body'), keys.indexOf('body') + 3)).toEqual(['body', 'bodyTruncated', 'bodyLength']);
+  });
+
+  it('본문이 bodyMaxChars 이하면 그대로 두고 표지를 달지 않는다', async () => {
+    const out = JSON.parse(await setup()({ bodyMaxChars: 100_000 }));
+    expect(out.body).toBe(longBody);
+    expect(out).not.toHaveProperty('bodyTruncated');
+    expect(out).not.toHaveProperty('bodyLength');
+  });
+
+  it('bodyMaxChars 는 1 이상, comments 는 0 이상 정수만 받는다', async () => {
+    const run = setup();
+    await expect(run({ bodyMaxChars: 0 })).rejects.toThrow();
+    await expect(run({ comments: -1 })).rejects.toThrow();
+  });
+
+  it('도구 설명이 새 옵션을 알린다', () => {
+    const d = buildSharedIssueTools(mockClient()).find((x) => x.name === 'get_issue_detail')!.description;
+    for (const k of ['comments:N', 'max 200', 'history:false', 'historyTotal', 'bodyMaxChars', 'bodyTruncated', 'parent, children']) expect(d).toContain(k);
+  });
+});

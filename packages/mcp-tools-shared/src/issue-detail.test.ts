@@ -73,9 +73,9 @@ describe('normalizeIssueDetail relations·externalLinks (WP-887)', () => {
       { createdAt: '2026-10-24T00:01:00Z', eventType: 'EXTERNAL_LINK_UPDATED', actorUsername: 'alice', actorName: 'Alice', fromValue: JSON.stringify({ label: '관련', key: null, title: '옛', url: 'https://x.example' }), toValue: JSON.stringify({ label: '관련', key: 'K-1', title: '새', url: 'https://x.example' }) },
     ];
     const d = normalizeIssueDetail({ ...raw, history });
-    expect(d.history[0].to).toEqual({ label: '관련', other: { hidden: true } });
-    expect(d.history[1].from).toMatchObject({ title: '옛' });
-    expect(d.history[1].to).toMatchObject({ key: 'K-1', title: '새' });
+    expect(d.history![0].to).toEqual({ label: '관련', other: { hidden: true } });
+    expect(d.history![1].from).toMatchObject({ title: '옛' });
+    expect(d.history![1].to).toMatchObject({ key: 'K-1', title: '새' });
   });
 });
 
@@ -227,7 +227,7 @@ describe('normalizeIssueDetail', () => {
       summary: { title: 't' },
       history: [{ eventType: 'TITLE_CHANGED', actorName: 'x', fromValue: '{"id":3}', toValue: '["a"]' }],
     });
-    expect(d.history[0]).toMatchObject({ from: '{"id":3}', to: '["a"]' });
+    expect(d.history![0]).toMatchObject({ from: '{"id":3}', to: '["a"]' });
   });
 
   it('첨부 이력 payload 의 fileId 도 뺀다', () => {
@@ -235,14 +235,14 @@ describe('normalizeIssueDetail', () => {
       summary: { title: 't' },
       history: [{ eventType: 'ATTACHMENTS_CHANGED', actorName: 'x', toValue: '{"added":[{"fileId":42,"originalName":"a.pdf"}],"removed":[]}' }],
     });
-    expect(d.history[0].to).toEqual({ added: [{ originalName: 'a.pdf' }], removed: [] });
+    expect(d.history![0].to).toEqual({ added: [{ originalName: 'a.pdf' }], removed: [] });
   });
 
   it('이력은 최근 것만 싣는다', () => {
     const history = Array.from({ length: ISSUE_DETAIL_HISTORY_LIMIT + 5 }, (_, i) => ({ eventType: `E${i}`, actorName: 'x' }));
     const d = normalizeIssueDetail({ summary: { title: 't' }, history });
     expect(d.history).toHaveLength(ISSUE_DETAIL_HISTORY_LIMIT);
-    expect(d.history.at(-1)!.event).toBe(`E${ISSUE_DETAIL_HISTORY_LIMIT + 4}`);
+    expect(d.history!.at(-1)!.event).toBe(`E${ISSUE_DETAIL_HISTORY_LIMIT + 4}`);
   });
 
   it('이력이 잘리면 빠진 개수를 historyOmitted 로 알리고, 안 잘리면 키가 없다 (WP-353)', () => {

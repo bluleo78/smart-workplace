@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`list_issues fields (WP-1494) > 옵션이 없으면 응답 문자열이 변경 전과 같다 1`] = `"{"items":[{"issueKey":"WP-1","title":"첫째","status":"TODO","statusName":"할 일","priority":"HIGH","type":"BUG","assignees":[{"username":"alice","name":"앨리스","kind":"HUMAN"}],"dueDate":"2026-11-30","createdAt":"2026-11-01T09:00:00+09:00","updatedAt":"2026-11-02T09:00:00+09:00","labels":["bug"],"milestone":"v1","children":{"total":3,"done":1},"blocked":true,"cycles":[{"name":"S1","status":"ACTIVE"}]},{"issueKey":"WP-2","title":"둘째","status":"DONE","priority":"LOW","closedAt":"2026-11-03T09:00:00+09:00","blocked":false}],"hasMore":true,"nextCursor":"abc"}"`;

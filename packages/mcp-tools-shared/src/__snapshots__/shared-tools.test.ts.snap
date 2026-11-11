@@ -1269,6 +1269,19 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "allComments": {
           "type": "boolean",
         },
+        "bodyMaxChars": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "comments": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "history": {
+          "type": "boolean",
+        },
         "issueKey": {
           "minLength": 1,
           "type": "string",
@@ -1743,7 +1756,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "blocked": {
-          "description": "Only issues with an unfinished blocker",
+          "description": "Has unfinished blocker",
           "type": "boolean",
         },
         "closedFrom": {
@@ -1753,7 +1766,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "component": {
-          "description": "Component names CSV; any matches, "none" = no component",
+          "description": "Names CSV; any matches; "none" = no component",
           "type": "string",
         },
         "createdFrom": {
@@ -1783,12 +1796,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "description": ""name=value" custom field match (not MULTI_SELECT); needs projectKey",
           "type": "string",
         },
+        "fields": {
+          "type": "string",
+        },
         "fixVersion": {
           "description": "Names CSV; "none"",
           "type": "string",
         },
         "label": {
-          "description": "Label names CSV; all must match",
+          "description": "Names CSV; all must match",
           "type": "string",
         },
         "mentionsMe": {
@@ -1825,7 +1841,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "q": {
-          "description": "Substring of title or body",
+          "description": "Title/body substring",
           "type": "string",
         },
         "reporter": {
@@ -1856,11 +1872,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "topLevel": {
-          "description": "Only issues without a parent",
+          "description": "No parent",
           "type": "boolean",
         },
         "type": {
-          "description": "Type names CSV; any matches",
+          "description": "Names CSV; any matches",
           "type": "string",
         },
         "updatedFrom": {

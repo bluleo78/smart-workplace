@@ -219,6 +219,40 @@ export function toIssueListItem(it: IssueRow) {
 }
 
 /**
+ * list_issues fields 로 고를 수 있는 항목 키(WP-1494) — toIssueListItem 의 키 전부. 거절 메시지와 테스트가 이 한 목록을 같이 쓴다.
+ * 아래 타입 검사가 toIssueListItem 에 키가 늘었는데 여기에 빠뜨리면 컴파일을 막는다(고를 수 없는 키가 생기지 않게).
+ */
+export const ISSUE_LIST_FIELDS = [
+  'issueKey', 'sourceKey', 'title', 'status', 'statusName', 'priority', 'type', 'assignees', 'dueDate', 'startDate', 'createdAt', 'updatedAt',
+  'closedAt', 'labels', 'components', 'fixVersions', 'affectsVersions', 'milestone', 'parent', 'children', 'blocked', 'agentWork', 'cycles',
+] as const satisfies readonly (keyof ReturnType<typeof toIssueListItem>)[];
+type IssueListField = (typeof ISSUE_LIST_FIELDS)[number];
+// toIssueListItem 의 키 중 ISSUE_LIST_FIELDS 에 없는 것 — never 가 아니면 아래 대입이 컴파일 오류가 된다.
+const _allListFieldsCovered: Exclude<keyof ReturnType<typeof toIssueListItem>, IssueListField> extends never ? true : never = true;
+void _allListFieldsCovered;
+
+/**
+ * list_issues fields CSV → 남길 키 목록(WP-1494). issueKey 는 늘 남긴다 — 고른 항목을 다시 가리킬(get_issue_detail 등) 열쇠라서.
+ * 모르는 이름은 조회 전에 throw 하고 쓸 수 있는 이름을 알려 AI 가 고쳐 부르게 한다(다른 list_issues 인자의 이름 해석 실패와 같은 방식).
+ * 이름이 하나도 없으면(빈 CSV) undefined — 옵션을 안 준 것과 같이 전체 항목을 준다.
+ */
+export function parseIssueListFields(csv: string): IssueListField[] | undefined {
+  const names = csv.split(',').map((t) => t.trim()).filter(Boolean);
+  if (names.length === 0) return undefined;
+  const allowed: readonly string[] = ISSUE_LIST_FIELDS;
+  const unknown = names.filter((n) => !allowed.includes(n));
+  if (unknown.length > 0) {
+    throw new Error(`fields 에 모르는 이름이 있습니다: ${unknown.join(', ')} — 쓸 수 있는 이름: ${ISSUE_LIST_FIELDS.join(', ')}`);
+  }
+  return ['issueKey', ...names.filter((n) => n !== 'issueKey')] as IssueListField[];
+}
+
+/** 항목에서 고른 키만 남긴다(WP-1494) — 순서는 고른 순서(issueKey 가 맨 앞). 없는(빈 값으로 빠진) 키는 그대로 없다. */
+function pickListFields<T extends Record<string, unknown>>(item: T, fields: readonly string[]): Partial<T> {
+  return Object.fromEntries(fields.filter((f) => f in item).map((f) => [f, item[f]])) as Partial<T>;
+}
+
+/**
  * 이슈 행의 사이클 요약 → LLM 뷰 [{name, status}](WP-1456). 숫자 id·기간은 빼서 get_issue_detail 의 사이클 모양과 맞추고,
  * 서버 순서(시작일 최신순)를 그대로 둔다. 배열이 아니거나(null·이상 응답) 비면 undefined(agentWork 와 같이 키 없음).
  * 이름 없는 이상 항목도 버리지 않는다 — 버리면 사이클에 든 이슈가 「cycles 없음 = 사이클 없음」으로 잘못 읽힌다. 없는 필드만 뺀다.
@@ -345,11 +379,13 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         'Lists issues (이슈): {items, hasMore?, nextCursor?}, size 30. If hasMore, pass nextCursor as cursor (same filters) or ' +
         'say the list is partial. due/start/closed/created/updated From-To: yyyy-MM-dd inclusive, closed/created/updated KST; ' +
         'default updatedAt desc, empty last; done work: ' +
-        'status=DONE (closed ranges also hit CANCELED). Items: issueKey, sourceKey, fields, parent, children, ' +
-        'blocked, agentWork, cycles (absent = none); empty omitted; body/comments: get_issue_detail.',
+        'status=DONE (closed ranges also hit CANCELED). Item keys: ' +
+        `${ISSUE_LIST_FIELDS.join(',')} (absent = none); empty omitted. fields: CSV subset (+issueKey). body/comments: get_issue_detail.`,
       inputSchema: listIssuesInput,
       async handler(args) {
-        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, mentionsMe, ...p } = listIssuesInput.parse(args);
+        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, mentionsMe, fields: fieldsCsv, ...p } = listIssuesInput.parse(args);
+        // WP-1494: 고를 항목 키 — 모르는 이름은 서버를 부르기 전에 거절한다.
+        const pick = fieldsCsv ? parseIssueListFields(fieldsCsv) : undefined;
         // WP-356: 부모는 이슈 키로 받는다 — 서버 parent 는 프로젝트 안의 번호라 키의 프로젝트로 범위를 고정한다(없으면 모든 프로젝트의 같은 번호가 걸린다).
         let projectKey = p.projectKey;
         let parentNumber: number | undefined;
@@ -403,7 +439,9 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         const page = await client.listIssues(query);
         // #850: 행마다 반복되는 null·빈 배열 키는 빼 토큰을 줄인다(빠진 키 = 값 없음).
         // WP-352: size 를 안 줘도 기본 30건에서 잘리므로, 다음 페이지가 있으면 hasMore·nextCursor 로 알린다(없으면 생략).
-        return JSON.stringify(cursorPageView(page.items.map((it) => dropEmpty(toIssueListItem(it))), page));
+        // WP-1494: fields 를 주면 항목을 그 키로만 줄인다(페이지 필드 hasMore·nextCursor 는 그대로). 안 주면 예전 응답 그대로.
+        const items = page.items.map((it) => dropEmpty(toIssueListItem(it)));
+        return JSON.stringify(cursorPageView(pick ? items.map((it) => pickListFields(it, pick)) : items, page));
       },
     },
     {

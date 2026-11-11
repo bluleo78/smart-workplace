@@ -113,6 +113,12 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('allComments=true');
     expect(prompt).toContain('최근 200건');
   });
+
+  // WP-1494: 응답이 너무 클 때 줄여 읽는 옵션(get_issue_detail comments·history·bodyMaxChars, list_issues fields)을 안내한다.
+  it('상세·목록을 줄여 읽는 옵션을 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    for (const k of ['comments=N', 'history=false', 'historyTotal', 'bodyMaxChars=N', 'bodyTruncated', 'fields=']) expect(prompt).toContain(k);
+  });
   // WP-421: 구독·해제가 watch_issue(watching) 하나로 합쳐졌고, 첨부용 텍스트는 upload_file 의 content 로만 올린다(AI Chat 은 업로드 링크 불가).
   it('watch_issue(watching)·upload_file(content 전용) 안내가 있고 옛 unwatch_issue 는 없다 (WP-421)', () => {
     const prompt = loaded['issue-agent'].prompt;

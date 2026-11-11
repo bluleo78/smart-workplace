@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildProjectTools, toIssueListItem } from './project-tools.js';
+import { ISSUE_LIST_FIELDS, buildProjectTools, toIssueListItem } from './project-tools.js';
 import type { MemberToolClient, ProjectToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
@@ -1017,5 +1017,50 @@ describe('create_project_meta·update_project_meta (WP-356)', () => {
       await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'c', status: 'RELEASED' })).rejects.toThrow('PLANNED | ACTIVE | COMPLETED');
       expect(c.updateProjectMeta).not.toHaveBeenCalled();
     });
+  });
+});
+
+/** WP-1494: list_issues fields — 항목을 고른 키로만 줄인다(issueKey 는 늘 남는다). 옵션이 없으면 응답이 이전과 같다. */
+describe('list_issues fields (WP-1494)', () => {
+  const rows = [
+    {
+      projectKey: 'WP', number: 1, title: '첫째', status: 'TODO', statusName: '할 일', priority: 'HIGH', type: { id: 1, name: 'BUG' },
+      assignees: [{ id: 1, username: 'alice', name: '앨리스', kind: 'HUMAN' }], dueDate: '2026-11-30', createdAt: '2026-11-01T00:00:00Z',
+      updatedAt: '2026-11-02T00:00:00Z', labels: [{ id: 1, name: 'bug' }], milestoneName: 'v1', blocked: true, childCount: 3, childDoneCount: 1,
+      cycles: [{ id: 9, name: 'S1', status: 'ACTIVE' }],
+    },
+    { projectKey: 'WP', number: 2, title: '둘째', status: 'DONE', priority: 'LOW', closedAt: '2026-11-03T00:00:00Z' },
+  ];
+  const setup = () => {
+    const c = mockClient();
+    vi.mocked(c.listIssues).mockResolvedValue({ items: structuredClone(rows), hasMore: true, nextCursor: 'abc' } as never);
+    return { c, run: async (args: Record<string, unknown>) => resultText(await tool(c, 'list_issues').handler({ assignee: 'any', ...args })) };
+  };
+
+  it('옵션이 없으면 응답 문자열이 변경 전과 같다', async () => {
+    expect(await setup().run({})).toMatchSnapshot();
+  });
+
+  it('fields 는 항목을 그 키로만 줄이고 issueKey 는 늘 남긴다 — 페이지 필드는 그대로', async () => {
+    const out = JSON.parse(await setup().run({ fields: 'title, status,dueDate' }));
+    expect(out.items).toStrictEqual([
+      { issueKey: 'WP-1', title: '첫째', status: 'TODO', dueDate: '2026-11-30' },
+      // 값이 없는 키는 기본처럼 뺀다.
+      { issueKey: 'WP-2', title: '둘째', status: 'DONE' },
+    ]);
+    expect(out.hasMore).toBe(true);
+    expect(out.nextCursor).toBe('abc');
+  });
+
+  it('모르는 필드 이름은 조회 전에 거절하고 쓸 수 있는 이름을 알린다', async () => {
+    const { c, run } = setup();
+    await expect(run({ fields: 'title,body' })).rejects.toThrow(/body.*issueKey.*title/s);
+    expect(c.listIssues).not.toHaveBeenCalled();
+  });
+
+  it('도구 설명이 fields 와 고를 수 있는 키 이름 전부를 알린다', () => {
+    const d = tool(mockClient(), 'list_issues').description;
+    expect(d).toContain('fields: CSV');
+    expect(d).toContain(ISSUE_LIST_FIELDS.join(','));
   });
 });

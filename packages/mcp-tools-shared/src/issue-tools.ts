@@ -190,15 +190,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'read',
       description:
-        'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
-        'relations and externalLinks (non-blocking links, with ids for remove_issue_relation), ' +
-        `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
-        `${ISSUE_DETAIL_HISTORY_LIMIT} history entries; commentsOmitted/historyOmitted count older ones (absent = complete); ` +
-        `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: DONE or CANCELED time. People ` +
+        'One issue (이슈) by issueKey: Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
+        'relations/externalLinks (ids for remove_issue_relation), ' +
+        `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments/` +
+        `${ISSUE_DETAIL_HISTORY_LIMIT} history; commentsOmitted/historyOmitted count older (absent = complete). ` +
+        `allComments:true: up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments; comments:N latest (max ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}, 0 none; wins); ` +
+        'history:false (historyTotal); bodyMaxChars:N (bodyTruncated, bodyLength). closedAt: DONE/CANCELED time. People ' +
         '{username, name, kind}, watchers lack kind; username null if unknown.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
-        const { issueKey, allComments } = getIssueDetailInput.parse(args);
+        const { issueKey, ...sizeOptions } = getIssueDetailInput.parse(args);
         // WP-176: update_issue 의 cycles 는 집합 교체라, 기존 사이클을 알아야 추가·제거 시 다른 사이클을 지우지 않는다 — 함께 동봉.
         // WP-356: 워처·드라이브 링크도 상세 화면에 있는 정보라 함께 싣는다(모두 독립 조회라 병렬).
         const [raw, cycles, watchers, driveLinks] = await Promise.all([
@@ -207,7 +208,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           client.getIssueWatchers(issueKey),
           client.getIssueDriveLinks(issueKey),
         ]);
-        const detail = normalizeIssueDetail(raw, { allComments, relationTypeNames: await customRelationTypeNames(client, raw) });
+        const detail = normalizeIssueDetail(raw, { ...sizeOptions, relationTypeNames: await customRelationTypeNames(client, raw) });
         return JSON.stringify({
           ...detail,
           cycles: cycles.map(({ name, status }) => ({ name, status })),
@@ -223,10 +224,10 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles, components and assignees (usernames, "me" = caller) are names ' +
-        'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown labels are ' +
-        'created (gray; createdLabels). fileIds attach staged files. New assignees are notified; an assigned AI agent starts working ' +
-        '(not agentRuntime INTERNAL ones, which ignore other AIs\' actions).',
+        'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles, components, assignees (usernames, "me" = caller): names ' +
+        'from get_project; unknown fail before creating, listing allowed values. labels too, but unknown labels are ' +
+        'created (gray; createdLabels). fileIds attach staged files. New assignees are notified; an assigned AI starts working ' +
+        '(not agentRuntime INTERNAL, which ignore other AIs\' actions).',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, components, fixVersions, affectsVersions, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -300,11 +301,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles and components replace the set ([] clears). ' +
-        'reporter (username, humans only; open projects: non-members too): project OWNER/ADMIN or the current reporter only. ' +
-        'Names (type, milestone, cycles, components, fields) come from get_project; unknown ones fail before any write. Unknown labels are created ' +
-        '(gray; createdLabels). fileIds attach staged files. Parts save separately: {ok, results, createdLabels?}; an unknown status fails results.content and writes nothing else. Status/priority changes notify ' +
-        'assignees and watchers, new assignees too. agentRuntime INTERNAL AIs ignore other AIs\' actions (assigning, comments, status).',
+        'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles, components replace the set ([] clears). ' +
+        'reporter (username, humans only; open projects: non-members too): project OWNER/ADMIN or current reporter only. ' +
+        'Names (type, milestone, cycles, components, fields) from get_project; unknown fail before any write. Unknown labels are created ' +
+        '(gray; createdLabels). fileIds attach staged files. Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
+        'Status/priority changes notify assignees, watchers, new assignees. agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, status, type, parent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
@@ -499,7 +500,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         `Replaces an issue comment body (its author only; a project OWNER can delete but not edit others' comments). commentId: comments[].id from get_issue_detail ` +
-        `(latest ${ISSUE_DETAIL_COMMENT_LIMIT}; allComments:true for up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}).`,
+        `(latest ${ISSUE_DETAIL_COMMENT_LIMIT}; allComments:true: up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}).`,
       inputSchema: editCommentInput,
       async handler(args) {
         const { issueKey, commentId, body } = editCommentInput.parse(args);

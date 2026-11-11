@@ -74,6 +74,10 @@ export interface IssueDetail {
   sourceKey?: string;
   title: string;
   body: string | null;
+  /** bodyMaxChars 로 본문이 잘렸을 때만 true(WP-1494) — 전체는 bodyMaxChars 없이 다시 읽는다. */
+  bodyTruncated?: true;
+  /** 본문이 잘렸을 때만: 전체 본문 길이(코드 포인트 수 — bodyMaxChars 와 같은 단위). */
+  bodyLength?: number;
   /** 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED). */
   status: string;
   /** 프로젝트 상태 이름(WP-807) — 범주 안의 개별 상태. 서버가 안 주면 null. */
@@ -110,14 +114,17 @@ export interface IssueDetail {
   customFields: { name: string; type: string; value: unknown }[];
   attachments: { attachmentId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null; reactions?: Record<string, number> }[];
-  /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로도 200건이 넘으면 생긴다). */
+  /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로도 200건이 넘으면, comments:N 이면 N건을 넘으면 생긴다). */
   commentsOmitted?: number;
   /** AI 가 이 이슈에서 하는 작업(WP-377) — 없으면 키가 없다. */
   agentWork?: AgentWorkOut[];
   /** 최근 변경 이력(오래된→최신). from/to 는 상태값 같은 문자열이거나, 집합 변경이면 객체(숫자 id·색 토큰 제외). */
-  history: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
+  /** history:false 로 부르면 키가 없다(WP-1494) — 그때는 historyTotal 이 전체 이력 수다. */
+  history?: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
   /** 이력이 상한에 걸려 잘렸을 때만: 빠진 오래된 이력 수. */
   historyOmitted?: number;
+  /** history:false 로 이력을 뺐을 때만(WP-1494): 전체 이력 수(0 포함). 「잘림」인 historyOmitted 와 뜻을 섞지 않으려고 따로 둔다. */
+  historyTotal?: number;
 }
 
 /** 이력 payload 에서 뺄 키 — 숫자 id 는 쓰기 도구로 흘려보내지 않고(#833), 색·아이콘은 LLM 에 쓸모없는 토큰이다. */
@@ -186,14 +193,42 @@ const relationTypeOf = (v: Raw, typeNames: ReadonlyMap<number, string> | undefin
 /** 뒤에서 limit 개만(최근 것) 남기고 빠진 개수를 함께 돌려준다. */
 function keepRecent<T>(list: T[], limit: number): { kept: T[]; omitted: number } {
   if (list.length <= limit) return { kept: list, omitted: 0 };
-  return { kept: list.slice(-limit), omitted: list.length - limit };
+  // slice(-0) 은 전체를 돌려주므로 limit 0(comments:0, WP-1494)은 따로 빈 목록으로 둔다.
+  return { kept: limit === 0 ? [] : list.slice(-limit), omitted: list.length - limit };
 }
 
-/** 정규화 옵션 — allComments 는 코멘트 상한을 30 에서 하드 상한 200 으로 늘린다(get_issue_detail 의 allComments). */
+/**
+ * 정규화 옵션 — allComments 는 코멘트 상한을 30 에서 하드 상한 200 으로 늘린다(get_issue_detail 의 allComments).
+ * WP-1494 크기 옵션: comments(최근 N건, allComments 보다 우선, 200 으로 자른다)·history(false 면 이력 빼기)·bodyMaxChars(본문 앞 N 코드 포인트).
+ * 모두 생략하면 결과가 예전과 같다 — 키도 순서도 늘지 않는다.
+ */
 export interface NormalizeIssueDetailOptions {
   allComments?: boolean;
+  comments?: number;
+  history?: boolean;
+  bodyMaxChars?: number;
   /** 관계 유형 id → 이름(WP-887) — 사용자 정의 유형(코드 없음)의 type 을 이름으로 채운다. 없으면 이 이슈 쪽 말로 대신한다. */
   relationTypeNames?: ReadonlyMap<number, string>;
+}
+
+/**
+ * 코멘트 상한 — comments 를 주면 그것이 allComments 보다 우선한다(가장 구체적인 요청이 이긴다). 그래도 하드 상한(200)은 넘지 않는다.
+ * 주지 않으면 예전 규칙 그대로(allComments 면 200, 아니면 30).
+ */
+function commentLimitOf(options: NormalizeIssueDetailOptions): number {
+  if (options.comments !== undefined) return Math.min(options.comments, ISSUE_DETAIL_COMMENT_HARD_LIMIT);
+  return options.allComments ? ISSUE_DETAIL_COMMENT_HARD_LIMIT : ISSUE_DETAIL_COMMENT_LIMIT;
+}
+
+/**
+ * 본문 자르기(WP-1494) — 앞 max 코드 포인트만 남긴다. UTF-16 단위로 자르면 이모지 같은 서로게이트 쌍이 반쪽으로 깨지므로 Array.from 으로 코드 포인트를 센다.
+ * 잘렸을 때만 bodyTruncated·bodyLength(전체 코드 포인트 수)를 붙여 AI 가 전체를 다시 읽어야 함을 안다. 잘리지 않으면 표지 키를 싣지 않는다.
+ */
+function truncateBody(body: string | null, max: number | undefined): { body: string | null; bodyTruncated?: true; bodyLength?: number } {
+  if (body == null || max === undefined || body.length <= max) return { body };
+  const points = Array.from(body);
+  if (points.length <= max) return { body };
+  return { body: points.slice(0, max).join(''), bodyTruncated: true, bodyLength: points.length };
 }
 
 /** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로 바꾼다. 코멘트·이력은 최근 것만(잘리면 …Omitted 로 알린다). */
@@ -201,10 +236,9 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
   const r = (raw ?? {}) as Raw;
   const s = (r.summary ?? {}) as Raw;
   const { kept: history, omitted: historyOmitted } = keepRecent((r.history ?? []) as Raw[], ISSUE_DETAIL_HISTORY_LIMIT);
-  const { kept: comments, omitted: commentsOmitted } = keepRecent(
-    (r.comments ?? []) as Raw[],
-    options.allComments ? ISSUE_DETAIL_COMMENT_HARD_LIMIT : ISSUE_DETAIL_COMMENT_LIMIT,
-  );
+  const { kept: comments, omitted: commentsOmitted } = keepRecent((r.comments ?? []) as Raw[], commentLimitOf(options));
+  // WP-1494: history:false 면 이력을 싣지 않고 전체 수를 historyTotal 로 알린다 — historyOmitted 는 「오래된 것이 잘림」만 뜻하게 둔다.
+  const withHistory = options.history !== false;
   const issueKey = String(r.issueKey ?? r.key ?? (s.projectKey && `${s.projectKey}-${s.number}`) ?? '');
   // 의존성 링크는 같은 프로젝트라 이 이슈의 프로젝트 키로 링크의 issueKey 를 만든다.
   const projectKey = s.projectKey ?? issueKey.replace(/-\d+$/, '');
@@ -213,7 +247,8 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     // WP-1239: 원본 키는 가져온 이슈에만 있다 — 없으면 키를 싣지 않는다(대부분 이슈의 출력이 늘지 않게).
     ...(typeof s.sourceKey === 'string' && s.sourceKey ? { sourceKey: s.sourceKey } : {}),
     title: String(s.title ?? r.title ?? ''),
-    body: (r.body ?? s.body ?? null) as string | null,
+    // WP-1494: bodyMaxChars 면 본문 앞부분만 — 잘렸을 때만 bodyTruncated·bodyLength 가 body 바로 뒤에 붙는다.
+    ...truncateBody((r.body ?? s.body ?? null) as string | null, options.bodyMaxChars),
     status: String(s.status ?? r.status ?? ''),
     statusName: (s.statusName ?? r.statusName ?? null) as string | null,
     priority: String(s.priority ?? r.priority ?? ''),
@@ -283,13 +318,16 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     }),
     ...(commentsOmitted > 0 && { commentsOmitted }),
     ...(Array.isArray(s.agentWork) && s.agentWork.length > 0 && { agentWork: (s.agentWork as Raw[]).map(toAgentWorkView) }),
-    history: history.map((h) => ({
-      at: toSeoulIso(h.createdAt),
-      actor: toAuthorView(h.actorUsername, h.actorName, h.actorKind),
-      event: String(h.eventType ?? ''),
-      from: historyValue(h.eventType, h.fromValue),
-      to: historyValue(h.eventType, h.toValue),
-    })),
-    ...(historyOmitted > 0 && { historyOmitted }),
+    ...(withHistory && {
+      history: history.map((h) => ({
+        at: toSeoulIso(h.createdAt),
+        actor: toAuthorView(h.actorUsername, h.actorName, h.actorKind),
+        event: String(h.eventType ?? ''),
+        from: historyValue(h.eventType, h.fromValue),
+        to: historyValue(h.eventType, h.toValue),
+      })),
+    }),
+    ...(withHistory && historyOmitted > 0 && { historyOmitted }),
+    ...(!withHistory && { historyTotal: ((r.history ?? []) as Raw[]).length }),
   };
 }
