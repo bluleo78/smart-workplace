@@ -6,7 +6,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@/test/renderWithProviders';
 
+import type { ProjectResponse } from '../../../types/project';
 import type { VersionResponse, VersionStatus } from '../../../types/version';
+import { ProjectTabsContext } from '../tabs/ProjectTabsContext';
 import VersionsPage from './VersionsPage';
 
 const state = vi.hoisted(() => ({
@@ -28,9 +30,6 @@ vi.mock('@/hooks/queries/useVersions', () => {
     useDeleteVersion: () => mutation,
   };
 });
-vi.mock('@/hooks/queries/useProjects', () => ({
-  useProject: () => ({ error: null, data: { key: 'WP', name: '워크플레이스', type: state.type } }),
-}));
 vi.mock('@/hooks/queries/useProjectMembers', () => ({
   useProjectMembers: () => ({ isLoading: false, data: state.members }),
 }));
@@ -46,7 +45,17 @@ const ver = (id: number, name: string, status: VersionStatus, extra: Partial<Ver
 function renderPage() {
   return renderWithProviders(
     <Routes>
-      <Route path="/" element={<VersionsPage />} />
+      <Route
+        path="/"
+        element={
+          // 버전 탭은 탭 레이아웃이 넘기는 프로젝트(컨텍스트)를 읽는다 — 레이아웃 대신 같은 값을 직접 준다(WP-1477).
+          <ProjectTabsContext.Provider
+            value={{ project: { key: 'WP', name: '워크플레이스', type: state.type } as ProjectResponse, openCreate: () => {} }}
+          >
+            <VersionsPage />
+          </ProjectTabsContext.Provider>
+        }
+      />
     </Routes>,
   );
 }

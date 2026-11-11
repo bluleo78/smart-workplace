@@ -1,6 +1,7 @@
 // 모바일 경로 판정 — 탭바를 보일지(탭 루트), 뒤로가기가 어디로 갈지(모듈 루트)를 경로만으로 결정한다.
 // 상태 없이 렌더 시점에 판정하므로 회전·딥링크 진입에도 일관된다.
 
+import { PROJECT_TAB_PATHS } from '../projectTabPaths'
 import { DEFAULT_TAB_SLOTS } from './tabConfig'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId, under } from './tabs'
 
@@ -28,6 +29,11 @@ const LIST_PARENTS: Record<string, string> = { '/settings': '/apps', '/notificat
 // 페이지의 "프로젝트로 돌아가기" 아이콘을 ‹ 하나로 대체하므로 딥링크에서도 같은 곳으로 돌아가게 한다.
 const PROJECT_SUB = /^(\/projects\/[^/]+)\/.+$/
 
+// 프로젝트 탭 길(WP-1477) — 개요·타임라인·사이클·버전은 하위 화면이 아니라 프로젝트 화면(이슈 탭 /projects/:key)의 다른 탭이다.
+// 뒤로가기 대상을 이슈 탭과 같게(작업 모듈 루트) 둬, 탭에서 ‹ 를 누르면 프로젝트 화면을 떠난다(다른 탭으로 한 단계 내려가지 않는다).
+// 탭 길 목록은 탭 정의(주소 해석)와 같은 한 곳(lib/projectTabPaths)에서 만든다 — 탭을 더할 때 한쪽만 고쳐 어긋나지 않게.
+const PROJECT_TAB = new RegExp(`^(/projects/[^/]+)/(?:${PROJECT_TAB_PATHS.join('|')})$`)
+
 // 노트 공간 목록(/wiki/spaces/:id) — 노트는 "공간 → 페이지" 2단 목록이라 공간을 고른 화면도 목록(탭 루트)이다(WP-178).
 // 페이지(/wiki/spaces/:id/pages/:id)는 상세. 모듈 레이아웃도 이 판정으로 목록/상세를 가른다.
 const WIKI_SPACE_LIST = /^\/wiki\/spaces\/[^/]+$/
@@ -48,6 +54,8 @@ export function isTabRoot(pathname: string, slots: readonly MobileTabId[] = DEFA
 export function moduleRootFor(pathname: string): string {
   const p = norm(pathname)
   if (LIST_PARENTS[p]) return LIST_PARENTS[p]
+  const projectTab = PROJECT_TAB.exec(p)
+  if (projectTab) return moduleRootFor(projectTab[1])
   const project = PROJECT_SUB.exec(p)
   if (project) return project[1]
   const extra = EXTRA_ROOTS.find(([match]) => match(p))

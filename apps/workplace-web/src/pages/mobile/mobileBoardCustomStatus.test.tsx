@@ -10,6 +10,7 @@ import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileScreen } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 import type { ProjectStatus } from '@/types/projectStatus'
@@ -17,7 +18,6 @@ import type { ProjectStatus } from '@/types/projectStatus'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder, makeProjectStatus, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 import ProjectSettingsPage from '../projects/ProjectSettingsPage'
 
 // 휴대폰 폭·터치 포인터 — 보드가 모바일 탭 보기로 그려지게 한다.
@@ -99,7 +99,7 @@ async function open(query: string, opts: Parameters<typeof boardApi>[0] = {}) {
   const api = boardApi(opts)
   const view = renderMobileScreen(
     <Routes>
-      <Route path="/projects/:key" element={<ProjectDetailPage />} />
+      <Route path="/projects/:key" element={<ProjectIssuesTab />} />
       <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
     </Routes>,
     { path: `/projects/${KEY}?view=board&group=none${query}`, handlers: api.handlers },
@@ -236,3 +236,4 @@ describe('모바일 보드 — 상태 탭 동작', () => {
     await waitFor(() => expect(screen.getByTestId('board-tab-12')).toHaveAttribute('aria-selected', 'true'))
   })
 })
+

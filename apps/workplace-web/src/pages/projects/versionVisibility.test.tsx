@@ -10,9 +10,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
-import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { InProjectTabs, ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { BASE, KEY, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
@@ -22,7 +22,7 @@ import { createVersion, toVersionSummary } from '../../../e2e/factories/version.
 
 /** 프로젝트 목록 화면만 띄운다 — 화면이 부르는 부가 조회는 shellHandlers 의 빈 기본값이 받는다. */
 const renderList = (api: ReturnType<typeof versionApi>) =>
-  renderScreen(atRoute('/projects/:key', <ProjectDetailPage />), {
+  renderScreen(atRoute('/projects/:key', <ProjectIssuesTab />), {
     path: `/projects/${KEY}?group=none`,
     handlers: [...api.handlers, ...shellHandlers],
   })
@@ -57,13 +57,13 @@ async function expectDetailVisibility(opts: VersionApiOptions, shown: boolean) {
   view.unmount()
 }
 
-/** 목록 — 필터 후보·열 후보·머리 링크. 머리의 「버전」 링크는 버전이 없어도 늘 보인다(만들 곳이 있어야 한다). */
+/** 목록 — 필터 후보·열 후보·버전 탭. 「버전」 탭은 버전이 없어도 늘 보인다(만들 곳이 있어야 한다, WP-1477 에서 머리 링크 → 탭). */
 async function expectListVisibility(opts: VersionApiOptions, shown: boolean) {
   const api = versionApi(opts)
   const { user } = renderList(api)
   await screen.findByTestId('issue-row-1')
   await versionsServed(api)
-  expect(screen.getByRole('link', { name: '버전' })).toBeInTheDocument()
+  expect(within(screen.getByRole('navigation', { name: '프로젝트 탭' })).getByRole('link', { name: '버전' })).toHaveAttribute('href', '/projects/WP/versions')
 
   // 버전 facet 은 「더 보기」 소속(WP-1020) — 있으면 목록에 보이고, 없으면 빠진다.
   await user.click(screen.getByTestId('quick-filter-more'))
@@ -146,7 +146,7 @@ describe('버전 노출 — 타임라인 레인', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-07-08T03:00:00Z'))
     const api = versionApi({ ...opts, issue: { startDate: '2026-07-01', dueDate: '2026-07-14' } })
-    const { user } = renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+    const { user } = renderScreen(atRoute('/projects/:key/timeline', <InProjectTabs><TimelinePage /></InProjectTabs>), {
       path: `/projects/${KEY}/timeline?period=all`,
       handlers: [http.get(`${BASE}/issue-dependencies`, () => HttpResponse.json([])), ...api.handlers, ...shellHandlers],
     })
@@ -238,3 +238,4 @@ describe('버전 노출 — 타임라인 레인', () => {
     expect(screen.queryByTestId('version-lane')).not.toBeInTheDocument()
   })
 })
+

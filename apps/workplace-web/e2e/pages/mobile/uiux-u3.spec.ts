@@ -115,26 +115,19 @@ test('C2 ⋯ 메뉴 항목이 연 다이얼로그 안의 ↓ 키는 메뉴가 �
   expect(notPrevented).toBe(true)
 })
 
-test('C3·R13 프로젝트 ⋯: 항목은 링크 하나씩(버튼 중첩 없음)·role=menuitem, 탭으로 열면 첫 항목에 포커스하지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('C3·R7 프로젝트 머리의 설정: 항목이 하나라 ⋯ 없이 헤더에 인라인 링크(버튼 중첩 없음, 44px) — WP-1477', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.goto(`/projects/${KEY}`)
-  await page.getByTestId('mobile-header-more').click()
-  const menu = page.getByTestId('mobile-header-more-menu')
-  await expect(menu).toBeVisible()
-  await expect(menu).toHaveAttribute('role', 'menu')
-  // 사이클 · 버전(WP-888) · 타임라인 · 설정
-  await expect(menu.getByRole('menuitem')).toHaveCount(4)
-  await expect(menu.getByRole('menuitem', { name: '버전' })).toBeVisible()
+  // 사이클·버전·타임라인은 탭 줄로 옮겨 머리의 보조 항목은 설정 하나 — 한 항목은 메뉴 없이 바로 둔다(U3-R7).
+  const inline = page.getByTestId('page-header').getByTestId('mobile-header-inline-action')
+  await expect(inline).toBeVisible()
+  await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
   // 링크 안에 버튼이 없다 — 항목당 포커스 한 번.
-  await expect(menu.locator('a button')).toHaveCount(0)
-  await expect(menu.locator('a[role="menuitem"]')).toHaveCount(4)
-  // 메뉴 항목 모양(44px·좌측 정렬·테두리 없음).
-  const item = menu.getByRole('menuitem', { name: '사이클' })
+  await expect(inline.locator('a button')).toHaveCount(0)
+  const item = inline.getByRole('link', { name: '설정' })
   expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   expect(await item.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
-  // 포인터로 열었으니 포커스는 메뉴 항목으로 옮겨가지 않는다.
-  expect(await menu.evaluate((m) => m.contains(document.activeElement))).toBe(false)
-  await menu.getByRole('menuitem', { name: '설정' }).click()
+  await item.click()
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings$`))
 })
 

@@ -9,13 +9,13 @@ import { expect, test } from 'vitest'
 
 import { spyScrollTo } from '@/test/kits/layout'
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
 import { createChatMessagePage, createChatThread } from '../../../e2e/factories/chat.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../../e2e/factories/label.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 mockViewport()
 
@@ -86,7 +86,7 @@ function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
 /** 작업 상세(?task=1, query 로 더 붙일 수 있다)를 띄운다. */
 async function openTask(opts: { failRecurrence?: boolean; query?: string } = {}) {
   const p = stubPersonal(opts)
-  const view = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?task=1${opts.query ?? ''}`, handlers: p.handlers })
+  const view = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?task=1${opts.query ?? ''}`, handlers: p.handlers })
   await screen.findByTestId('personal-task-mobile')
   // 칩은 상세 조회가 끝난 뒤 그려진다.
   await screen.findByTestId('mobile-prop-status')
@@ -95,7 +95,7 @@ async function openTask(opts: { failRecurrence?: boolean; query?: string } = {})
 
 test('개인 툴바 — 뷰·에픽 칩 없이 필터·그룹·검색·체크리스트 토글, 토글하면 보드로, 저장 뷰는 조회하지 않는다', async () => {
   const p = stubPersonal()
-  const { user, location } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  const { user, location } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}`, handlers: p.handlers })
   const bar = await screen.findByTestId('mobile-issue-toolbar')
   expect(await screen.findByTestId('personal-checklist')).toBeInTheDocument()
   expect(within(bar).queryByTestId('mobile-chip-view')).not.toBeInTheDocument()
@@ -122,7 +122,7 @@ test('개인 툴바 — 뷰·에픽 칩 없이 필터·그룹·검색·체크리
 
 test('그룹 시트 선택지는 없음·상태·우선순위 세 가지', async () => {
   const p = stubPersonal()
-  const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  const { user } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}`, handlers: p.handlers })
   await user.click(await screen.findByTestId('mobile-chip-group'))
   const group = await screen.findByTestId('mobile-group-sheet')
   expect(within(group).getAllByRole('option')).toHaveLength(3)
@@ -131,7 +131,7 @@ test('그룹 시트 선택지는 없음·상태·우선순위 세 가지', async
 
 test('보드 카드를 눌러도 모달 대신 같은 전체 화면 상세가 열린다(칩 순서 = 상태·우선순위·마감·담당자·반복·라벨)', async () => {
   const p = stubPersonal()
-  const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?view=board`, handlers: p.handlers })
+  const { user } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?view=board`, handlers: p.handlers })
   const card = await screen.findByTestId('issue-card-1')
   await user.click(within(card).getByRole('link'))
   const layer = await screen.findByTestId('personal-task-mobile')
@@ -280,7 +280,7 @@ test('제목 편집 — 하단이 [취소·저장] 바로 바뀌고, Esc 는 편
 // 누르면 설정 화면 주소로 간다. 빠른 추가 ＋ 는 그대로 남는다.
 test('헤더에 「설정」 링크가 ⋯ 없이 바로 있고, 누르면 /projects/<키>/settings 로 간다', async () => {
   const p = stubPersonal()
-  const { user, location } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  const { user, location } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}`, handlers: p.handlers })
   const inline = await screen.findByTestId('mobile-header-inline-action')
   expect(screen.queryByTestId('mobile-header-more')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '빠른 추가' })).toBeInTheDocument()

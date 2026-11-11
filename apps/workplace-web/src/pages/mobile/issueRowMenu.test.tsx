@@ -8,12 +8,12 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createAgentMember, createMember, createProject } from '../../../e2e/factories/project.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 모바일 폭·터치 포인터 — 행마다 ⋯ 와 액션 시트가 그려지는 조건.
 mockViewport()
@@ -59,7 +59,7 @@ function issueApi(members = [ME, KIM, BOT]) {
 /** 목록을 열고 21번 행의 ⋯ 시트를 띄운다. */
 async function openSheet(members?: Parameters<typeof issueApi>[0]) {
   const api = issueApi(members)
-  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
+  const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
   await page.user.click(await screen.findByTestId('issue-row-21-menu'))
   await screen.findByTestId('mobile-action-sheet')
   return { ...page, api }
@@ -125,3 +125,4 @@ describe('모바일 이슈 행 ⋯ 시트', () => {
     expect(screen.queryByTestId('issue-row-22-menu')).not.toBeInTheDocument()
   })
 })
+

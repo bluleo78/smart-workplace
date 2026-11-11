@@ -8,12 +8,12 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 휴대폰 폭·터치 포인터 — 「＋」가 전체 화면 생성 시트(MobileIssueCreateSheet)를 연다.
 mockViewport()
@@ -52,7 +52,7 @@ function projectApi(key = KEY, project = createProject({ key }), list = [EPIC]) 
 /** 목록을 열고 「＋」로 생성 시트를 연다. */
 async function openSheet() {
   const api = projectApi()
-  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: api.handlers })
+  const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}`, handlers: api.handlers })
   await page.user.click(await screen.findByTestId('mobile-new-issue'))
   const sheet = await screen.findByTestId('issue-create-sheet')
   return { ...page, api, sheet }
@@ -180,7 +180,7 @@ describe('모바일 이슈 생성 시트 — 개인 프로젝트', () => {
     // 개인 프로젝트는 유형·에픽 개념을 쓰지 않는다 — 프로젝트 type 에 따른 칩 구성 분기.
     const PKEY = 'PME'
     const api = projectApi(PKEY, createProject({ id: 7, key: PKEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }), [])
-    const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${PKEY}`, handlers: api.handlers })
+    const { user } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${PKEY}`, handlers: api.handlers })
     const header = await screen.findByTestId('page-header')
     // 빈 개인 목록은 본문에도 「빠른 추가」가 있어 머리말의 버튼으로 좁힌다.
     await user.click(await within(header).findByRole('button', { name: '빠른 추가' }))
@@ -218,7 +218,7 @@ describe('모바일 이슈 생성 시트 — AI 에게 맡기기(WP-1315)', () =
       }),
       ...api.handlers,
     ]
-    const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${PKEY}`, handlers })
+    const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${PKEY}`, handlers })
     const header = await screen.findByTestId('page-header')
     await page.user.click(await within(header).findByRole('button', { name: '빠른 추가' }))
     const sheet = await screen.findByTestId('issue-create-sheet')
@@ -282,3 +282,4 @@ describe('모바일 이슈 생성 시트 — AI 에게 맡기기(WP-1315)', () =
     expect(within(sheet).queryByTestId('create-only')).toBeNull()
   })
 })
+

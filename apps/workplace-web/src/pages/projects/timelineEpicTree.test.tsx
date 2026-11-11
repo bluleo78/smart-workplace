@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { KEY, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
@@ -43,7 +44,7 @@ function toggleGroup(title: string) {
 
 async function open(issues = TREE, extra: RequestHandler[] = []) {
   const api = timelineApi({ issues })
-  const view = renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+  const view = renderScreen(atRoute('/projects/:key/timeline', <InProjectTabs><TimelinePage /></InProjectTabs>), {
     path: `/projects/${KEY}/timeline?period=all`,
     handlers: [...extra, ...api.handlers, ...shellHandlers],
   })

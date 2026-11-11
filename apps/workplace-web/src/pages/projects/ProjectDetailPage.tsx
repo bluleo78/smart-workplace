@@ -1,14 +1,10 @@
-import { FolderX, Plus } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { Page, pageGutterClass } from '@/components/layout/Page';
 import { ResizableSidebar } from '@/components/layout/ResizableSidebar';
-import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { EPIC_PANEL_WIDTH_KEY } from '@/components/layout/sidebarWidth';
-import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
-import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
@@ -20,7 +16,6 @@ import { useLabels } from '../../hooks/queries/useLabels';
 import { useMilestones } from '../../hooks/queries/useMilestones';
 import { useProjectEpics } from '../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
-import { useProject } from '../../hooks/queries/useProjects';
 import { useProjectStatusList } from '../../hooks/queries/useProjectStatuses';
 import { useVersions } from '../../hooks/queries/useVersions';
 import { useAuth } from '../../hooks/useAuth';
@@ -30,9 +25,9 @@ import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue'
 import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
 import { canCreateIssueIn, canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { canEditStatuses } from '../../lib/projectStatuses';
+import type { ProjectResponse } from '../../types/project';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
-import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/IssueCycleGroupedList';
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
@@ -43,107 +38,48 @@ import { ProjectStatusesGate } from './components/ProjectStatusesGate';
 import { ViewChipBar } from './components/ViewChipBar';
 import { useIssueListColumns } from './hooks/useIssueListColumns';
 import { useRememberedIssueQuery } from './hooks/useRememberedIssueQuery';
-import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
+import { useProjectTabs } from './tabs/ProjectTabsContext';
 
-// 프로젝트 홈 — 태스크 필터/뷰 영역 + 새 태스크 생성. URL: /projects/:key
-// view / 필터는 URL SearchParams 가 단일 source of truth.
+// 팀·공개 프로젝트 이슈 탭 — 태스크 필터/뷰 영역. URL: /projects/:key (ProjectTabsLayout 의 index 자식, WP-1477)
+// view / 필터는 URL SearchParams 가 단일 source of truth. 로딩·오류·머리줄·탭 줄·새 태스크 대화상자는 레이아웃이 맡는다.
+// 개인 프로젝트는 레이아웃이 이 화면 대신 개인 전용 화면(PersonalProjectDetail)을 바로 그린다 — 여기는 팀 전용.
 export default function ProjectDetailPage() {
   const { key = '' } = useParams();
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  // 새 이슈의 처음 상태(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」는 그 컬럼 상태 id 를, 헤더 「+ 새 태스크」는 기본(할 일)을 넘긴다.
-  const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined);
-  const openCreate = (statusId?: number) => {
-    setCreateStatusId(statusId);
-    setOpen(true);
-  };
-  const project = useProject(key);
-  // 필터·보기·그룹 기억(WP-1035) — 주소에 조건이 없으면 지난번 조건으로 되살린다. 개인 프로젝트 화면도 같은 주소라 분기 전에 부른다.
-  const restoring = useRememberedIssueQuery(key, project.data != null);
-  const isMobile = useIsMobile();
+  // 프로젝트는 레이아웃이 불러와 컨텍스트로 넘긴다(같은 쿼리를 다시 부르지 않는다).
+  const { project } = useProjectTabs();
+  // 필터·보기·그룹 기억(WP-1035) — 주소에 조건이 없으면 지난번 조건으로 되살린다.
+  // 레이아웃의 탭 되돌리기가 이슈 탭에 남기로 정한 뒤에만 이 화면이 그려지므로, 되살리기도 그 뒤에만 돈다.
+  const restoring = useRememberedIssueQuery(key, true);
   // 탭 제목 — 「이슈 · {프로젝트}」(WP-814).
-  useDocumentTitle(['이슈', project.data?.name]);
+  useDocumentTitle(['이슈', project.name]);
 
-  if (project.isLoading || restoring)
-    return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
-  if (project.error)
-    return (
-      <ResourceErrorState
-        icon={FolderX}
-        title="프로젝트를 불러올 수 없습니다"
-        titleAs="h1"
-        description="요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다."
-        actionLabel="프로젝트 목록으로"
-        onAction={() => navigate('/projects')}
-      />
-    );
+  if (restoring) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
+  return <TeamIssuesTab projectKey={key} project={project} />;
+}
 
-  // 개인 프로젝트는 전용 화면으로 분기 — 팀 화면(사이클·버전·타임라인·필터바)은 렌더하지 않고, 머리의 「설정」 링크는 같이 둔다(WP-1362).
-  if (project.data?.type === 'PERSONAL') {
-    return <PersonalProjectDetail project={project.data} />;
-  }
-
+/** 팀·공개 프로젝트 이슈 탭 본문 — 새 태스크 열기는 레이아웃 컨텍스트에서 받는다. */
+function TeamIssuesTab({ projectKey, project }: { projectKey: string; project: ProjectResponse }) {
+  const { openCreate } = useProjectTabs();
+  const isMobile = useIsMobile();
   // OPEN 프로젝트: 테넌트 전원 이슈 생성 허용. TEAM 은 멤버만(canCreateIssueIn).
-  const canCreateIssue = canCreateIssueIn(project.data);
+  const canCreateIssue = canCreateIssueIn(project);
   // 모바일은 드래그 대신 길게 누르기 액션(WP-193) — dnd-kit PointerSensor(distance 5)가 터치 스크롤과 충돌한다.
   // 길게 누르기 액션 권한은 드래그가 아니라 멤버 여부(isMember)다.
-  const isMember = project.data?.viewerIsMember ?? false;
+  const isMember = project.viewerIsMember ?? false;
   const canDragStatus = isMember && !isMobile;
 
   return (
-    <Page>
-      <Page.Header
-        title={project.data?.name ?? ''}
-        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
-        actions={
-          canCreateIssue && (
-            <Button onClick={() => openCreate()}>+ 새 태스크</Button>
-          )
-        }
-        // 접을 수 있는 보조 단추(WP-1415) — 제목 자리가 160px보다 좁으면 ⋯ 로 접힌다. 모바일 메뉴와 같은 묶음.
-        auxiliaryActions={
-          <>
-            <Button asChild variant="outline">
-              <Link to={`/projects/${key}/cycles`}>사이클</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link to={`/projects/${key}/versions`}>버전</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link to={`/projects/${key}/timeline`}>타임라인</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link to={`/projects/${key}/settings`}>설정</Link>
-            </Button>
-          </>
-        }
-        // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·버전·타임라인·설정은 ⋯ 메뉴로(U1-2).
-        mobilePrimaryAction={canCreateIssue && (
-          <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => openCreate()}><Plus /></HeaderIconAction>
-        )}
-        // 메뉴 항목은 링크 하나씩(포커스 한 번) — Link 안에 Button 을 중첩하지 않는다(U3-C3). 모양은 ⋯ 패널이 입힌다.
-        mobileActions={
-          <>
-            <Link to={`/projects/${key}/cycles`}>사이클</Link>
-            <Link to={`/projects/${key}/versions`}>버전</Link>
-            <Link to={`/projects/${key}/timeline`}>타임라인</Link>
-            <Link to={`/projects/${key}/settings`}>설정</Link>
-          </>
-        }
+    // 본문 래퍼(자체 레이아웃 — padded=false)는 스크롤하지 않고 남은 높이만 고정한다. 스크롤은 IssueArea 안에서
+    // 에픽 패널(자체 목록 스크롤)과 우측 목록/보드 영역이 각자 독립적으로 담당한다.
+    // (래퍼가 스크롤하면 패널과 목록이 한 덩어리로 같이 스크롤된다.) 좌우 여백은 헤더와 같은 pageGutterClass 축.
+    <Page.Body padded={false} className={cn('flex-col overflow-hidden', pageGutterClass, isMobile ? 'pt-1 pb-0' : 'py-6')}>
+      <IssueArea
+        projectKey={projectKey}
+        onOpenCreate={canCreateIssue ? openCreate : undefined}
+        canDragStatus={canDragStatus}
+        canEdit={isMember}
       />
-      {/* 본문 래퍼(자체 레이아웃 — padded=false)는 스크롤하지 않고 남은 높이만 고정한다. 스크롤은 IssueArea 안에서
-          에픽 패널(자체 목록 스크롤)과 우측 목록/보드 영역이 각자 독립적으로 담당한다.
-          (래퍼가 스크롤하면 패널과 목록이 한 덩어리로 같이 스크롤된다.) 좌우 여백은 헤더와 같은 pageGutterClass 축. */}
-      <Page.Body padded={false} className={cn('flex-col overflow-hidden', pageGutterClass, isMobile ? 'pt-1 pb-0' : 'py-6')}>
-        <IssueArea
-          projectKey={key}
-          onOpenCreate={canCreateIssue ? openCreate : undefined}
-          canDragStatus={canDragStatus}
-          canEdit={isMember}
-        />
-      </Page.Body>
-      <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} initialStatusId={createStatusId} />
-    </Page>
+    </Page.Body>
   );
 }
 
@@ -201,25 +137,25 @@ function ProjectIssuesSection({
   // 드래그 권한(멤버)이 있을 때만 — 비멤버는 드래그 자체가 없으므로 불필요한 요청을 막는다.
   useProjectEpics(projectKey, canDragStatus);
 
-  // WP-54: 필터 id → 이름 해석용 목록(IssueFilterBar 와 같은 쿼리 키 → 캐시 공유) + 프로젝트 이름.
-  const project = useProject(projectKey);
+  // WP-54: 필터 id → 이름 해석용 목록(IssueFilterBar 와 같은 쿼리 키 → 캐시 공유). 프로젝트(이름·유형)는 레이아웃 컨텍스트에서.
+  const { project } = useProjectTabs();
   const members = useProjectMembers(projectKey);
   const labels = useLabels(projectKey);
   const types = useIssueTypes(projectKey);
   const cycles = useCycles(projectKey);
   const milestones = useMilestones(projectKey);
-  // 구성요소(WP-933) — 필터 바 facet 과 같은 쿼리 키(캐시 공유). 개인 프로젝트는 구성요소가 없어 요청하지 않는다(프로젝트 유형을 안 뒤에).
-  const components = useComponents(projectKey, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
+  // 구성요소(WP-933) — 필터 바 facet 과 같은 쿼리 키(캐시 공유). 이 화면은 팀 전용이라(개인은 레이아웃이 따로 그린다) 늘 요청한다.
+  const components = useComponents(projectKey);
   // 버전(WP-888) — AI 화면 맥락이 버전 필터를 이름으로 풀게 한다. 필터 바 facet 과 같은 쿼리(캐시 공유).
-  const versions = useVersions(projectKey, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
+  const versions = useVersions(projectKey);
   // 프로젝트 상태(WP-808) — 보드 컬럼, 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기.
   const projectStatuses = useProjectStatusList(projectKey);
   // 보드에서 상태 추가·이름 변경 — 프로젝트 OWNER 만(서버와 같은 규칙, 개인 프로젝트는 이 화면에 오지 않는다).
   const { user, isAdmin } = useAuth();
   const isOwner = isProjectOwner(members.data, user?.id);
-  const statusEditable = canEditStatuses(isOwner, project.data?.type);
+  const statusEditable = canEditStatuses(isOwner, project.type);
   // 다른 멤버의 공유 뷰 삭제(모더레이션, WP-655) — 서버 assertWithRole(OWNER) 와 같은 규칙(OWNER, 개인 프로젝트가 아닌 곳의 ADMIN).
-  const canManage = canManageProject(isOwner, isAdmin, project.data?.type === 'PERSONAL');
+  const canManage = canManageProject(isOwner, isAdmin, project.type === 'PERSONAL');
   // 리스트 뷰가 보고하는 로드 건수 — 보드는 컬럼별 로드, 사이클 그룹(#878)은 구간별 로드라 건수를 싣지 않는다.
   const [loaded, setLoaded] = useState<{ count: number; hasMore: boolean } | null>(null);
   // 목록 정체성(보기 + 리스트 쿼리 키와 같은 기본 범위 적용 필터)이 바뀌면 이전 건수를 버린다 —
@@ -241,7 +177,7 @@ function ProjectIssuesSection({
     () =>
       buildIssueListContext({
         projectKey,
-        projectName: project.data?.name ?? projectKey,
+        projectName: project.name,
         view,
         groupBy,
         filters,
@@ -258,7 +194,7 @@ function ProjectIssuesSection({
         count: listLoaded?.count,
         hasMore: listLoaded?.hasMore,
       }),
-    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, components.data, versions.data, listLoaded],
+    [projectKey, project.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, components.data, versions.data, listLoaded],
   );
   useRegisterAiScreenContext(screenContext);
 

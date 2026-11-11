@@ -49,7 +49,7 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
   ],
 };
 
-// 개인 프로젝트 상세 본체. ProjectDetailPage 에서 type==='PERSONAL' 일 때만 렌더된다.
+// 개인 프로젝트 상세 본체. 프로젝트 탭 레이아웃(ProjectTabsLayout)이 개인 프로젝트의 이슈 길에서 바로 그린다(WP-1477).
 export function PersonalProjectDetail({ project }: { project: ProjectResponse }) {
   const isMobile = useIsMobile();
   const key = project.key;

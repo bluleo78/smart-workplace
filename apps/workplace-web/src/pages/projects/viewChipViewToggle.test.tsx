@@ -6,15 +6,15 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import { atRoute } from '@/test/kits/projects/atRoute'
 import { API, expectToggleLook, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { SavedViewResponse } from '@/types/savedView'
 
 function open(path: string, views: SavedViewResponse[]) {
-  return renderScreen(atRoute('/projects/:key', <ProjectDetailPage />), {
+  return renderScreen(atRoute('/projects/:key', <ProjectIssuesTab />), {
     path,
     handlers: [
       ...projectMeta(),
@@ -69,3 +69,4 @@ describe('뷰칩 활성 판정 (#599)', () => {
     expectChips({ all: false, saved: true })
   })
 })
+

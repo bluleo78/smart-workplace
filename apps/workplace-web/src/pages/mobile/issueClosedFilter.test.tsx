@@ -7,11 +7,11 @@ import { http, HttpResponse } from 'msw'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
-import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 휴대폰 폭 — 필터는 두 번째 칩 줄의 칩·「더 보기」 → 바텀시트로 연다.
 mockViewport()
@@ -30,7 +30,7 @@ afterAll(() => {
 describe('모바일 필터 시트 — 완료일', () => {
   test('「더 보기」 목록에 완료일이 1건 있고, 프리셋을 고르면 URL 에 closedIn 이 실리고 칩이 생긴다', async () => {
     // 완료일 facet 이 목록에 한 번만 있고(중복 등록 회귀), 고른 프리셋이 URL 상태·칩 라벨(기간 포함)로 이어진다.
-    const { user, location } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, {
+    const { user, location } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, {
       path: `/projects/${KEY}`,
       handlers: [
         http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
@@ -49,3 +49,4 @@ describe('모바일 필터 시트 — 완료일', () => {
     expect(await screen.findByTestId('mobile-quick-filter-closedIn')).toHaveTextContent('완료일: 지난 주 (10/12–10/18)')
   })
 })
+

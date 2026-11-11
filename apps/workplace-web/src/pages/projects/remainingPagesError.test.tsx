@@ -27,3 +27,4 @@ describe('에픽 패널 「종료된 에픽」 — 다음 페이지 실패 (WP-1
     expect(closed.cursors.filter((c) => c === '1')).toHaveLength(2)
   })
 })
+

@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 import VersionDetailPage from '@/pages/projects/versions/VersionDetailPage'
 import VersionsPage from '@/pages/projects/versions/VersionsPage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { settleMembers } from '@/test/msw/projectMetaHandlers'
 import { BASE, KEY, OWNER_MEMBERS, PLAIN_MEMBERS, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
@@ -79,7 +80,7 @@ describe('버전 목록 — 관리 권한', () => {
   /** 같은 데이터로 목록을 열고 행이 그려지고 구성원 응답이 나간 뒤를 돌려준다 — 그 전의 「없음」 은 권한 판정 전이라 의미가 없다. */
   async function openList(members: VersionApiOptions['members']) {
     const api = versionApi({ versions: [createVersion({ id: 1, name: '1.0.0', releaseDate: '2026-12-01' })], members })
-    const view = renderScreen(atRoute('/projects/:key/versions', <VersionsPage />), {
+    const view = renderScreen(atRoute('/projects/:key/versions', <InProjectTabs><VersionsPage /></InProjectTabs>), {
       path: `/projects/${KEY}/versions`,
       handlers: [...api.handlers, ...shellHandlers],
     })

@@ -1,22 +1,22 @@
 // 프로젝트 버전 목록(WP-888) — 「미출시 N · 출시됨 N」 요약, 표(이름·상태·진행·시작일·출시일)와 ⋯ 메뉴, 보관한 버전 접기.
 // 만들기·편집·출시·보관·삭제는 프로젝트 OWNER 와 테넌트 ADMIN(canManage) — 그 밖에는 읽기 전용. 모바일은 표 대신 카드 목록.
-import { ArrowLeft, ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import { Page } from '@/components/layout/Page';
-import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
 import { useVersions } from '../../../hooks/queries/useVersions';
-import { useCanManageProject } from '../../../hooks/useCanManageProject';
+import { useCanManageProjectOf } from '../../../hooks/useCanManageProject';
 import { EMPTY_GLYPH, kstDateKey } from '../../../lib/formatters';
 import { versionDateText, versionDueState } from '../../../lib/versions';
 import type { VersionResponse } from '../../../types/version';
-import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
+import { useProjectTabs } from '../tabs/ProjectTabsContext';
+import { TabScreen, TabToolbar } from '../tabs/TabToolbar';
 import { useVersionActions } from './useVersionActions';
 import { VersionDeleteDialog } from './VersionDeleteDialog';
 import { VersionFormDialog } from './VersionFormDialog';
@@ -29,21 +29,19 @@ const EMPTY_HINT = '출시 단위로 이슈를 모으고 진행을 봐요. 버�
 
 export default function VersionsPage() {
   const { key = '' } = useParams();
-  const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { project, canManage } = useCanManageProject(key);
+  // 프로젝트는 탭 레이아웃이 불러와 넘긴다 — 로딩·접근 불가(403·404) 화면도 레이아웃이 맡는다(WP-1477).
+  const { project } = useProjectTabs();
+  const canManage = useCanManageProjectOf(key, project);
   const versions = useVersions(key);
   const actions = useVersionActions(key);
-  useDocumentTitle(['버전', project.data?.name]);
+  useDocumentTitle(['버전', project.name]);
 
   // 대화상자 대상 — 만들기('new')·편집은 form, 출시는 release, 삭제는 del.
   const [form, setForm] = useState<VersionResponse | 'new' | null>(null);
   const [release, setRelease] = useState<VersionResponse | null>(null);
   const [del, setDel] = useState<VersionResponse | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-
-  // 프로젝트를 볼 수 없으면(403·404) 빈 관리 화면 대신 접근 불가 안내. 훅을 모두 부른 뒤에 분기한다.
-  if (project.error) return <ProjectUnavailableState />;
 
   const list = versions.data ?? [];
   const active = list.filter((v) => v.status !== 'ARCHIVED');
@@ -61,32 +59,16 @@ export default function VersionsPage() {
   };
   const rowProps = { projectKey: key, canManage, today, isMobile, handlers };
 
+  // 프로젝트 탭 레이아웃(WP-1477) 안의 버전 탭 — 머리줄은 레이아웃이 그리고, 주 액션(버전 만들기)은 본문 맨 위 도구 줄에 둔다.
   return (
-    <Page data-testid="versions-page">
-      <Page.Header
-        icon={
-          <Button variant="ghost" size="icon" aria-label="프로젝트로 돌아가기" onClick={() => navigate(`/projects/${key}`)}>
-            <ArrowLeft className="h-4 w-4" />
+    <TabScreen testId="versions-page">
+      <TabToolbar>
+        {canManage && (
+          <Button onClick={() => setForm('new')} data-testid="version-new">
+            <Plus /> 버전 만들기
           </Button>
-        }
-        title="버전"
-        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
-        actions={
-          canManage && (
-            <Button onClick={() => setForm('new')} data-testid="version-new">
-              <Plus /> 버전 만들기
-            </Button>
-          )
-        }
-        mobilePrimaryAction={
-          canManage && (
-            <HeaderIconAction label="버전 만들기" data-testid="version-new" onClick={() => setForm('new')}>
-              <Plus />
-            </HeaderIconAction>
-          )
-        }
-        mobileActions={null}
-      />
+        )}
+      </TabToolbar>
       <Page.Body>
         {versions.isLoading ? (
           <p className="text-muted-foreground">로딩 중…</p>
@@ -129,7 +111,7 @@ export default function VersionsPage() {
       />
       <VersionReleaseDialog projectKey={key} version={release} onClose={() => setRelease(null)} />
       <VersionDeleteDialog projectKey={key} version={del} onClose={() => setDel(null)} />
-    </Page>
+    </TabScreen>
   );
 }
 

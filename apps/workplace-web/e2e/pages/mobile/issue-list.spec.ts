@@ -129,7 +129,8 @@ test.describe('모바일 툴바', () => {
     await expect(page.getByTestId('view-chip-bar')).toHaveCount(0);
     await expect(page.getByTestId('epic-panel-toggle')).toHaveCount(0);
     // 키워드 칸이 늘 보이는 한 줄(WP-1355)이 툴바 위에 더해져 첫 행 기준을 150 → 200 으로 늘렸다(첫 행은 여전히 첫 화면 위쪽).
-    expect((await page.getByTestId('issue-row-21').boundingBox())!.y).toBeLessThanOrEqual(200);
+    // 프로젝트 탭 줄(WP-1477, 한 줄 ≈ 25px)이 머리줄 아래에 더해져 200 → 250 으로 늘렸다.
+    expect((await page.getByTestId('issue-row-21').boundingBox())!.y).toBeLessThanOrEqual(250);
     await expectNoHorizontalOverflow(page);
   });
 

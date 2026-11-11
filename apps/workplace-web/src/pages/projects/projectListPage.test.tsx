@@ -11,11 +11,11 @@ import { describe, expect, test } from 'vitest'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { IssueModuleLayout } from '@/components/issue/IssueModuleLayout'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
-import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import ProjectListPage from '@/pages/projects/ProjectListPage'
 import ProjectSettingsPage from '@/pages/projects/ProjectSettingsPage'
 import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
+import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { ProjectResponse } from '@/types/project'
@@ -33,7 +33,7 @@ function renderProjects(path: string, { handlers = [] }: { handlers?: RequestHan
       <Routes>
         <Route element={<IssueModuleLayout />}>
           <Route path="/projects" element={<ProjectListPage />} />
-          <Route path="/projects/:key" element={<ProjectDetailPage />} />
+          <Route path="/projects/:key" element={<ProjectIssuesTab />} />
           <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
           <Route
             path="/projects/:key/issues/:number"
@@ -351,3 +351,4 @@ describe('리소스 로드 실패 화면 (#787)', () => {
     await waitFor(() => expect(location()).toBe('/projects/WP'))
   })
 })
+

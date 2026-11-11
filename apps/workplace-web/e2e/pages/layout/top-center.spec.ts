@@ -1,5 +1,6 @@
 // top-center.spec.ts — 상단 AI 칩·검색 단추 위치(WP-1415)의 브라우저 판정.
-// 세로 가운데·겹침(오른쪽 단추 앞 16px)·접힘(⋯)·동그라미(32px).
+// 세로 가운데·겹침(오른쪽 단추 앞 16px)·동그라미(32px). 프로젝트 머리줄은 접는 보조 단추가 없어(설정은 늘 보이는 액션, WP-1477)
+// 좁아지면 접힘(⋯) 없이 AI 칩만 동그라미로 줄어든다 — 접힘이 나타나면 회귀다.
 // jsdom 이 잴 수 없는 기하(실측 위치·겹침·단계 안정성)만 본다. 내부 밀도 상태는 판정에 쓰지 않는다.
 import type { Page } from '@playwright/test'
 
@@ -8,21 +9,26 @@ import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { expectStays, measureBox, nextFrame } from '../../fixtures/wait'
 
-/** 프로젝트 화면으로 이동 — 헤더에 사이클·버전·타임라인·설정(보조) + 새 태스크(주) 단추가 있다. */
+/** 프로젝트 화면으로 이동 — 헤더에 설정(보조) + 새 태스크(주) 단추가 있다(사이클·버전·타임라인은 탭 줄, WP-1477). */
 async function gotoProject(page: Page) {
   await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP', name: '프로젝트' }))
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
   await page.goto('/projects/WP')
+  // 머리줄·탭 줄이 실제로 그려질 때까지 기다린 뒤 잰다. AI 칩·검색은 body 포털이라 페이지(지연 로딩되는 탭 레이아웃·이슈 탭)보다
+  // 먼저 보인다 — 머리줄이 없을 때 단계 판정을 시작하면 실패 원인이 「단계가 틀렸다」로 잘못 보인다. 이슈 탭이 골라져 있으면
+  // 마지막 탭 기억(WP-1477)이 다른 탭으로 보내지 않은 이슈 화면 머리줄이다.
+  await expect(page.getByRole('navigation', { name: '프로젝트 탭' }).getByRole('link', { name: '이슈' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('page-header').locator('[data-ai-actions]')).toBeVisible()
 }
 
-/** 패널을 연 접힌 상태에서 메뉴의 실제 목적지와 키보드 동작을 검사한다. */
-async function openFoldedProject(page: Page) {
+/** 1024px + AI 옆 패널 460px — 제목 자리가 가장 좁아 AI 칩이 동그라미가 되는 상태로 연다. */
+async function openNarrowProject(page: Page) {
   await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '460'))
-  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.setViewportSize({ width: 1024, height: 900 })
   await gotoProject(page)
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  await expectStage(page, 'folded')
+  await expectStage(page, 'circle')
 }
 
 /** 헤더 세로 가운데(28px) 기준 — 칩·검색의 세로 가운데가 이 값과 ±0.5px 이내인지. */
@@ -99,8 +105,11 @@ test('레이아웃 샘플은 클릭 가능 대기 뒤의 전환 프레임도 잡
 
 type Stage = 'expanded' | 'folded' | 'circle'
 
-/** 펼친 헤더의 보조 단추 + 주 단추 — 접히면 보조 넷이 「더보기」 하나로 들어간다. */
-const EXPANDED_ACTIONS = ['사이클', '버전', '타임라인', '설정', '새 태스크']
+/**
+ * 프로젝트 머리줄 액션 — 설정(테두리 단추) + 새 태스크(주 단추). 사이클·버전·타임라인은 탭 줄로 옮겼다(WP-1477).
+ * 접는 보조 단추가 없으니 펼침·동그라미 어느 단계에서도 이 둘이 그대로 보여야 한다.
+ */
+const HEADER_ACTIONS = ['설정', '새 태스크']
 
 /**
  * 액션 그룹 안에서 실제로 그려진(폭이 있는) 단추의 글자와, 그 단추 폭의 합 + 단추 사이 flex 간격을 같은 프레임에서 잰다.
@@ -128,16 +137,12 @@ async function renderedStage(page: Page): Promise<Stage> {
   const chip = await measureBox(page.getByTestId('chat-launcher'), 'chat-launcher')
   const actions = await measureActions(page)
   expect(actions.width, '액션 그룹 폭 = 보이는 단추 폭 합 + 간격(숨긴 단추가 자리를 차지하지 않음)').toBeCloseTo(actions.expected, 0)
-  const more = page.getByTestId('mobile-header-more')
-  if (await more.isVisible()) {
-    const menu = await measureBox(more, '보조 단추 더보기')
-    expect(menu.width, '접힌 보조 메뉴 폭').toBeCloseTo(44, 0)
-    expect(actions.labels, '접힌 액션 그룹 단추').toEqual(['더보기', '새 태스크'])
-    if (Math.abs(chip.width - 32) < 0.5) return 'circle'
-    expect(chip.width, '접힌 단계의 AI 알약 폭').toBeCloseTo(140, 0)
-    return 'folded'
-  }
-  expect(actions.labels, '펼친 액션 그룹 단추').toEqual(EXPANDED_ACTIONS)
+  // 접기 틀(MobileHeaderMore — ⋯ 또는 한 항목 인라인)이 데스크톱 머리줄에 나타나면 'folded' — 어느 테스트도 기대하지 않으므로 회귀로 잡힌다.
+  const header = page.getByTestId('page-header')
+  const foldFrames = await header.getByTestId('mobile-header-more').count() + await header.getByTestId('mobile-header-inline-action').count()
+  if (foldFrames > 0) return 'folded'
+  expect(actions.labels, '머리줄 액션 단추(접힘 없음)').toEqual(HEADER_ACTIONS)
+  if (Math.abs(chip.width - 32) < 0.5) return 'circle'
   expect(chip.width, '펼친 단계의 AI 알약 폭').toBeCloseTo(140, 0)
   return 'expanded'
 }
@@ -148,50 +153,17 @@ async function expectStage(page: Page, stage: Stage) {
   await expectNoOverlap(page)
 }
 
-test('접힌 보조 메뉴는 네 목적지마다 메뉴 항목 하나만 렌더한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-  await openFoldedProject(page)
-  await page.getByTestId('mobile-header-more').click()
-
-  const menu = page.getByTestId('mobile-header-more-menu')
-  const items = menu.getByRole('menuitem')
-  await expect(items).toHaveCount(4)
-  const destinations = await items.evaluateAll((elements) =>
-    elements.map((element) => element instanceof HTMLAnchorElement ? element.getAttribute('href') : null),
-  )
-  expect(destinations).toEqual([
-    '/projects/WP/cycles',
-    '/projects/WP/versions',
-    '/projects/WP/timeline',
-    '/projects/WP/settings',
-  ])
-})
-
-test('접힌 보조 메뉴는 목적지마다 한 번씩 이동하고 Esc 로 닫혀 AI 패널을 유지한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
-  await openFoldedProject(page)
-  const trigger = page.getByTestId('mobile-header-more')
-  await trigger.focus()
-  await page.keyboard.press('Enter')
-
-  const menu = page.getByTestId('mobile-header-more-menu')
-  const items = menu.getByRole('menuitem')
-  const destinations = [
-    '/projects/WP/cycles',
-    '/projects/WP/versions',
-    '/projects/WP/timeline',
-    '/projects/WP/settings',
-  ]
-  await expect(items).toHaveCount(destinations.length)
-  await expect(items.nth(0)).toBeFocused()
-  for (let index = 1; index < destinations.length; index += 1) {
-    await page.keyboard.press('ArrowDown')
-    await expect(items.nth(index)).toBeFocused()
-    await expect(items.nth(index)).toHaveAttribute('href', destinations[index])
-  }
-
-  await page.keyboard.press('Escape')
-  await expect(menu).toBeHidden()
-  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  await expect(trigger).toBeFocused()
+test('가장 좁아 AI 칩이 동그라미가 돼도 설정은 ⋯·인라인 링크로 접히지 않고 테두리 단추로 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openNarrowProject(page)
+  // 옛 머리줄(보조 단추 넷)은 여기서 ⋯ 로 접혔다. 이제 보조 단추가 없어(WP-1477) 접기 틀이 아예 없고, 설정은 원래 단추 그대로 보인다.
+  const header = page.getByTestId('page-header')
+  await expect(header.getByTestId('mobile-header-more')).toHaveCount(0)
+  await expect(header.getByTestId('mobile-header-inline-action')).toHaveCount(0)
+  const settings = header.locator('[data-ai-actions]').getByRole('link', { name: '설정' })
+  await expect(settings).toBeVisible()
+  await expect(settings).toHaveAttribute('href', '/projects/WP/settings')
+  // 테두리 단추 모양(Button variant=outline 의 border) 그대로 — 접기 틀의 인라인 링크는 테두리를 걷는다.
+  expect(await settings.evaluate((el) => getComputedStyle(el).borderTopWidth)).not.toBe('0px')
 })
 
 /** 실제 손잡이를 끄는 중에도 각 프레임의 검색·액션 사이 16px 간격을 확인한다. */
@@ -244,17 +216,19 @@ test('1024px 패널 닫힘 — 겹침 없음', { tag: '@layout' }, async ({ auth
 })
 
 // 1440px + AI 옆 패널 460px — 겹침 없음(≥16px).
+// 머리줄 액션이 설정·새 태스크 둘(약 169px)로 줄어 제목 자리가 160px 이상 남으므로(약 290px) 접지도 줄이지도 않는다(WP-1477).
+// 옛 머리줄(단추 다섯, 약 360px)에서는 여기서 보조 단추가 접혔다.
 test('1440px + AI 옆 패널 460px — 겹침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '460'))
   await page.setViewportSize({ width: 1440, height: 900 })
   await gotoProject(page)
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  await expectStage(page, 'folded')
+  await expectStage(page, 'expanded')
 })
 
 // 1024px + AI 옆 패널 460px — 겹침 없음(≥16px).
-test('1024px + AI 옆 패널 460px — 동그라미·접힌 메뉴가 레일을 가리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('1024px + AI 옆 패널 460px — 동그라미가 레일을 가리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '460'))
   await page.setViewportSize({ width: 1024, height: 900 })
   await gotoProject(page)
@@ -272,21 +246,24 @@ test('1024px + AI 옆 패널 460px — 동그라미·접힌 메뉴가 레일을 
 })
 
 // 리뷰에서 왕복하던 폭을 각각 새 화면에서 열어, 관측한 단계가 3초 동안 유지되는지 본다.
+// 세 폭 모두 제목 자리가 약 195~255px — 동그라미로 줄이는 기준(160 미만)과 되돌리는 기준(268 초과) 사이 이력 구간이라
+// 왕복이 생긴다면 여기서 생긴다. 접는 보조 단추가 없어(WP-1477) 이 구간의 단계는 접힘이 아니라 펼친 알약이다.
 for (const width of [1180, 1200, 1240]) {
-  test(`${width}px + AI 옆 패널 460px — 접힌 알약 단계가 3초간 안정적이다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  test(`${width}px + AI 옆 패널 460px — 펼친 알약 단계가 3초간 안정적이다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '460'))
     await page.setViewportSize({ width, height: 900 })
     await gotoProject(page)
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-    await expectStage(page, 'folded')
+    await expectStage(page, 'expanded')
     // 부재 확인: 재시도 없이 50ms마다 실측해 리뷰의 3초 왕복 창 전체에서 단계 변화를 잡는다.
-    await expectStays(page, () => renderedStage(page), 'folded', { ms: 3000, message: '접힌 알약 단계 유지' })
+    await expectStays(page, () => renderedStage(page), 'expanded', { ms: 3000, message: '펼친 알약 단계 유지' })
     await expectNoOverlap(page)
   })
 }
 
-test('1420px에서 패널을 끄는 동안 16px 간격을 지키고 펼침 → 접힘 → 동그라미 → 펼침으로 복귀한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+// 460px 은 제목 자리가 약 267px 로 이력 구간 안이라 펼친 채 남고(옛 머리줄은 여기서 접혔다), 600px 에서 160 밑으로 떨어져 동그라미가 된다(WP-1477).
+test('1420px에서 패널을 끄는 동안 16px 간격을 지키고 펼침 → 펼침 → 동그라미 → 펼침으로 복귀한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '320'))
   await page.setViewportSize({ width: 1420, height: 900 })
   await gotoProject(page)
@@ -294,23 +271,24 @@ test('1420px에서 패널을 끄는 동안 16px 간격을 지키고 펼침 → �
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await expectStage(page, 'expanded')
   await dragPanelTo(page, 460)
-  await expectStage(page, 'folded')
+  await expectStage(page, 'expanded')
   await dragPanelTo(page, 600)
   await expectStage(page, 'circle')
   await dragPanelTo(page, 320)
   await expectStage(page, 'expanded')
 })
 
+// 1200px + 460px 는 펼친 알약(제목 자리 약 210px). 레일을 펼치면(+96px) 160 밑으로 떨어져 동그라미, 접으면 다시 펼침(WP-1477 — 옛 머리줄은 접힘 단계였다).
 test('레일을 펼치고 접을 때 16px 간격과 동그라미 단계 전환이 안정적이다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '460'))
   await page.setViewportSize({ width: 1200, height: 900 })
   await gotoProject(page)
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  await expectStage(page, 'folded')
+  await expectStage(page, 'expanded')
   await expectNoOverlapDuring(page, () => page.getByTestId('rail-toggle').click())
   await expectStage(page, 'circle')
   await expectStays(page, () => renderedStage(page), 'circle', { ms: 3000, message: '레일 펼친 동그라미 단계 유지' })
   await expectNoOverlapDuring(page, () => page.getByTestId('rail-collapse').click())
-  await expectStage(page, 'folded')
+  await expectStage(page, 'expanded')
 })

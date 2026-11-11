@@ -9,6 +9,7 @@ import { expect, test } from 'vitest'
 import CyclesPage from '@/pages/projects/CyclesPage'
 import ProjectSettingsPage from '@/pages/projects/ProjectSettingsPage'
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
+import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -20,8 +21,8 @@ test.each(['settings', 'cycles', 'timeline'])('비멤버가 /projects/SEC/%s 를
   renderScreen(
     <Routes>
       <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
-      <Route path="/projects/:key/cycles" element={<CyclesPage />} />
-      <Route path="/projects/:key/timeline" element={<TimelinePage />} />
+      <Route path="/projects/:key/cycles" element={<InProjectTabs><CyclesPage /></InProjectTabs>} />
+      <Route path="/projects/:key/timeline" element={<InProjectTabs><TimelinePage /></InProjectTabs>} />
     </Routes>,
     {
       path: `/projects/${KEY}/${path}`,
