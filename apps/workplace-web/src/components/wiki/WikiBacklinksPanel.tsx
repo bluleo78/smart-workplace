@@ -6,10 +6,12 @@ import { Link2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useWikiBacklinks } from '../../hooks/queries/useWikiBacklinks'
+import { useWikiRoutes } from './WikiRoutesContext'
 
 /** 이 페이지를 참조하는 위키 페이지(백링크) 패널. items 가 없으면 렌더하지 않는다. */
 export function WikiBacklinksPanel({ pageId }: { pageId: number }) {
   const { data, isLoading, isError } = useWikiBacklinks(pageId)
+  const routes = useWikiRoutes()
   const items = data?.items ?? []
 
   // 로딩/에러/빈 결과는 패널 자체를 숨긴다 — 참조가 있는 페이지에서만 절제적으로 노출.
@@ -26,7 +28,7 @@ export function WikiBacklinksPanel({ pageId }: { pageId: number }) {
           <li key={b.pageId}>
             {/* 출처 페이지로 이동 — 각 백링크 자신의 spaceId/pageId 사용(현재 페이지 아님). */}
             <Link
-              to={`/wiki/spaces/${b.spaceId}/pages/${b.pageId}`}
+              to={routes.pagePath(b.spaceId, b.pageId)}
               data-testid={`wiki-backlink-${b.pageId}`}
               className="flex items-baseline gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
             >

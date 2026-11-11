@@ -44,8 +44,10 @@ import {
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { parseId } from '@/lib/historyParam'
 import { failedWithoutData } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils'
 import { groupWikiSpaces } from '@/lib/wikiSpaceGroups'
 import { canDeleteWikiSpace } from '@/lib/wikiSpaces'
+import { childrenByParent } from '@/lib/wikiTree'
 
 import { useDeletePage, useDeleteSpace, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
@@ -64,6 +66,7 @@ import { WikiMoveShareDialog } from './WikiMoveShareDialog'
 import { lastChildPosition } from './wikiMoveTargets'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
+import { useWikiRoutes } from './WikiRoutesContext'
 import { hasShareMoveImpact, shareMoveImpact, treeShareMarks } from './wikiShare'
 import { WikiSharedPagesDialog } from './WikiSharedPagesDialog'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
@@ -98,15 +101,7 @@ interface FlatItem {
 // collapsed 집합에 포함된 노드의 자손은 렌더에서 제외(DnD 도 보이는 항목만 대상).
 // parentId 가 목록에 없는(고아) 페이지는 루트로 취급한다.
 function flattenTree(pages: WikiPageSummary[], collapsed: Set<number>): FlatItem[] {
-  const ids = new Set(pages.map((p) => p.id))
-  const byParent = new Map<number | null, WikiPageSummary[]>()
-  for (const p of pages) {
-    const key = p.parentId != null && ids.has(p.parentId) ? p.parentId : null
-    const arr = byParent.get(key) ?? []
-    arr.push(p)
-    byParent.set(key, arr)
-  }
-  for (const arr of byParent.values()) arr.sort((a, b) => a.position - b.position)
+  const byParent = childrenByParent(pages)
 
   const result: FlatItem[] = []
   const walk = (parentId: number | null, depth: number) => {
@@ -200,12 +195,23 @@ function getProjection(
 /** 공간 선택 상자 자리표시 — 고른 공간이 없거나 이름을 아직 모를 때(목록 받는 중·없는 id). */
 const SPACE_PLACEHOLDER = '노트 스페이스 선택'
 
-export function WikiSidebar() {
+/**
+ * 노트 사이드바. props 가 없으면 노트 앱처럼 주소(useParams)에서 공간·페이지를 읽는다.
+ * 프로젝트 「노트」 탭(WP-1481)은 공간·열린 페이지를 props 로 지정하고 `embedded` 로 띄운다 —
+ * embedded 면 앱 제목·공간 선택 상자·공간 만들기·공간 삭제를 그리지 않는다(공간은 프로젝트가 정한다).
+ */
+export function WikiSidebar({
+  spaceId: spaceIdProp,
+  activePageId: activePageIdProp,
+  embedded = false,
+}: { spaceId?: number; activePageId?: number | null; embedded?: boolean } = {}) {
   const navigate = useNavigate()
+  const routes = useWikiRoutes()
   const { spaceId: spaceIdParam, pageId: pageIdParam } = useParams()
   // 숫자가 아닌 주소 번호는 없는 것으로 본다(WP-612) — NaN 으로 트리·삭제 API 를 부르지 않게.
-  const spaceId = parseId(spaceIdParam ?? null)
-  const activePageId = parseId(pageIdParam ?? null)
+  // props 가 주어지면(탭 모드) 주소 값보다 우선한다.
+  const spaceId = spaceIdProp ?? parseId(spaceIdParam ?? null)
+  const activePageId = activePageIdProp !== undefined ? activePageIdProp : parseId(pageIdParam ?? null)
 
   const spacesQuery = useWikiSpaces()
   const spaces = spacesQuery.data
@@ -324,7 +330,10 @@ export function WikiSidebar() {
   const spaceUnavailable = isWikiSpaceUnavailable(spacesQuery, spaceId)
   const showSpaceUnavailable = isMobile && spaceUnavailable
 
-  const openPage = (id: number) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)
+  // 공간이 정해지지 않았으면(null) 열 곳이 없다 — 예전엔 /wiki/spaces/null/... 로 가던 죽은 경로.
+  const openPage = (id: number) => {
+    if (spaceId != null) navigate(routes.pagePath(spaceId, id))
+  }
 
 
   const toggleCollapse = (id: number) =>
@@ -357,7 +366,7 @@ export function WikiSidebar() {
     if (id == null || spaceId == null) return
     deletePage.mutate(id, {
       onSuccess: () => {
-        if (activePageId === id) navigate(`/wiki/spaces/${spaceId}`)
+        if (activePageId === id) navigate(routes.spacePath(spaceId))
       },
     })
   }
@@ -428,7 +437,8 @@ export function WikiSidebar() {
   }
 
   // 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬). 세 갈래(실패·공간 0개·평소)가 같이 쓴다.
-  const appTitle = (
+  // 탭 모드(embedded)는 탭 자체가 제목이라 그리지 않는다.
+  const appTitle = embedded ? null : (
     <div className={sidebarTitleClass}>
       <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
       노트
@@ -455,7 +465,8 @@ export function WikiSidebar() {
 
   // 공간 0개(WP-143) — 선택 상자·페이지 트리 대신 빈 상태. 모바일은 이 목록이 화면 전체라 여기 그리고,
   // 데스크톱은 본문(/wiki, WikiIndexRedirect)이 같은 빈 상태를 그리므로 사이드바는 타이틀만 남긴다.
-  if (spaces?.length === 0) {
+  // 단 탭 모드(embedded)는 늘 공간 id 가 정해져 있으니 목록이 비었어도(stale) 그 공간 트리를 그린다 — 프로젝트가 공간을 정한다.
+  if (spaces?.length === 0 && !embedded) {
     return (
       <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
         {appTitle}
@@ -471,61 +482,65 @@ export function WikiSidebar() {
       {/* 공간 목록 실패 중이면 선택 상자 자리에 안내(WP-865) — 트리는 아래에 그대로.
           스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버, WP-580: 삭제) */}
       {spacesError ? (
-        <div className="border-b">{spacesError}</div>
+        <div className="border-b">
+          {spacesError}
+        </div>
       ) : (
-        <div className="flex items-center gap-1 border-b p-2">
-          <Select
-            value={String(spaceId ?? '')}
-            onValueChange={(v) => {
-              // 생성 항목은 이동 대신 다이얼로그를 연다.
-              if (v === CREATE_SENTINEL) {
-                openCreateSpace()
-                return
-              }
-              navigate(`/wiki/spaces/${v}`)
-            }}
-          >
-            {/* 보이는 라벨이 없어 스크린리더가 「콤보박스」로만 읽던 것에 이름을 준다(WP-1436) — 선택 값은 그대로 값으로 읽힌다. */}
-            <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm" aria-label="노트 스페이스">
-              {/* 표시 값은 이름만 — 항목 안의 프로젝트 key(작은 글자)가 선택 칸에 함께 찍히지 않게 직접 준다(WP-1480).
-                  공간 목록을 받는 중이거나 목록에 없는 id 면 이름을 모르니 빈 칸 대신 자리표시 문구를 보인다. */}
-              <SelectValue placeholder={SPACE_PLACEHOLDER}>
-                {selectedSpace ? (
-                  selectedSpace.name
-                ) : (
-                  <span className="text-muted-foreground" data-testid="wiki-space-select-placeholder">
-                    {SPACE_PLACEHOLDER}
-                  </span>
-                )}
-              </SelectValue>
-            </SelectTrigger>
-            {/* popper: 선택 상자 바로 아래에 펼친다. 기본(item-aligned)은 고른 항목을 상자 위치에 맞추느라
-                목록을 위로 밀어 올려, 아래쪽 묶음(프로젝트)을 고른 상태에서는 「개인 / 팀」 제목이 화면 밖으로 잘린다. */}
-            <SelectContent position="popper" align="start">
-              {/* 「개인 / 팀 / 프로젝트」 묶음 제목 아래로 나눠 보인다(WP-1480 A안) — 빈 묶음은 제목도 숨긴다(groupWikiSpaces). */}
-              {spaceGroups.map((g) => (
-                <SelectGroup key={g.kind} data-testid={`wiki-space-group-${g.kind}`}>
-                  <SelectLabel>{g.label}</SelectLabel>
-                  {g.spaces.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {s.name}
-                      {/* 빈칸은 화면 낭독 이름(「모바일 앱 MOB」)용 — 항목이 flex 라 화면에서는 gap 만 보인다. */}
-                      {s.projectKey && (
-                        <>
-                          {' '}
-                          <span className="text-xs text-muted-foreground">{s.projectKey}</span>
-                        </>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-              <SelectSeparator />
-              <SelectItem value={CREATE_SENTINEL} data-testid="wiki-space-create-item">
-                ＋ 새 스페이스
-              </SelectItem>
-            </SelectContent>
-          </Select>
+        <div className={cn('flex items-center gap-1 border-b p-2', embedded && 'justify-end')}>
+          {!embedded && (
+            <Select
+              value={String(spaceId ?? '')}
+              onValueChange={(v) => {
+                // 생성 항목은 이동 대신 다이얼로그를 연다.
+                if (v === CREATE_SENTINEL) {
+                  openCreateSpace()
+                  return
+                }
+                navigate(`/wiki/spaces/${v}`)
+              }}
+            >
+              {/* 보이는 라벨이 없어 스크린리더가 「콤보박스」로만 읽던 것에 이름을 준다(WP-1436) — 선택 값은 그대로 값으로 읽힌다. */}
+              <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm" aria-label="노트 스페이스">
+                {/* 표시 값은 이름만 — 항목 안의 프로젝트 key(작은 글자)가 선택 칸에 함께 찍히지 않게 직접 준다(WP-1480).
+                    공간 목록을 받는 중이거나 목록에 없는 id 면 이름을 모르니 빈 칸 대신 자리표시 문구를 보인다. */}
+                <SelectValue placeholder={SPACE_PLACEHOLDER}>
+                  {selectedSpace ? (
+                    selectedSpace.name
+                  ) : (
+                    <span className="text-muted-foreground" data-testid="wiki-space-select-placeholder">
+                      {SPACE_PLACEHOLDER}
+                    </span>
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              {/* popper: 선택 상자 바로 아래에 펼친다. 기본(item-aligned)은 고른 항목을 상자 위치에 맞추느라
+                  목록을 위로 밀어 올려, 아래쪽 묶음(프로젝트)을 고른 상태에서는 「개인 / 팀」 제목이 화면 밖으로 잘린다. */}
+              <SelectContent position="popper" align="start">
+                {/* 「개인 / 팀 / 프로젝트」 묶음 제목 아래로 나눠 보인다(WP-1480 A안) — 빈 묶음은 제목도 숨긴다(groupWikiSpaces). */}
+                {spaceGroups.map((g) => (
+                  <SelectGroup key={g.kind} data-testid={`wiki-space-group-${g.kind}`}>
+                    <SelectLabel>{g.label}</SelectLabel>
+                    {g.spaces.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}
+                        {/* 빈칸은 화면 낭독 이름(「모바일 앱 MOB」)용 — 항목이 flex 라 화면에서는 gap 만 보인다. */}
+                        {s.projectKey && (
+                          <>
+                            {' '}
+                            <span className="text-xs text-muted-foreground">{s.projectKey}</span>
+                          </>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+                <SelectSeparator />
+                <SelectItem value={CREATE_SENTINEL} data-testid="wiki-space-create-item">
+                  ＋ 새 스페이스
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           {/* 스페이스 ⋯ — 공유 중인 페이지(WP-579)는 모든 스페이스, 멤버(WP-582)·삭제(WP-580)는 팀 스페이스만. 드라이브 공간 줄 ⋯ 와 같은 자리. */}
           {selectedSpace && !spaceUnavailable && (
             <DropdownMenu>
@@ -554,7 +569,7 @@ export function WikiSidebar() {
                   </DropdownMenuItem>
                 )}
                 {/* 삭제는 소유자에게만 — 되돌릴 수 없는 동작이라 구분선으로 떼어 둔다. */}
-                {canDeleteSpace && (
+                {!embedded && canDeleteSpace && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -628,7 +643,7 @@ export function WikiSidebar() {
       </div>
       {/* 모바일은 공간 화면이 목록이라 본문 빈 상태가 없다 — 페이지 0개면 트리 대신 생성 진입점을 준다(WP-179). */}
       {showSpaceUnavailable ? (
-        <WikiSpaceUnavailableState onBack={() => navigate('/wiki')} />
+        <WikiSpaceUnavailableState onBack={() => navigate(routes.homePath())} />
       ) : showNoPages ? (
         <WikiNoPages
           className="flex-1"
@@ -746,7 +761,7 @@ export function WikiSidebar() {
                 onSuccess: () => {
                   const name = spaces?.find((s) => s.id === targetSpaceId)?.name ?? '다른 스페이스'
                   toast.success(`「${name}」 스페이스로 옮겼습니다`)
-                  navigate(`/wiki/spaces/${targetSpaceId}/pages/${target}`)
+                  navigate(routes.pagePath(targetSpaceId, target))
                 },
               },
             )

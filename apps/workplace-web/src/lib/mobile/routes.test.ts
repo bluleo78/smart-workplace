@@ -39,6 +39,10 @@ describe('moduleRootFor', () => {
     ['/projects/MOB/versions', '/tasks'],
     ['/projects/MOB/cycles/', '/tasks'],
     ['/projects/MOB', '/tasks'],
+    // 노트 탭(WP-1481): 목록(/notes)은 탭 길과 같게 작업 모듈 루트로, 페이지(/notes/:id)는 목록으로.
+    ['/projects/MOB/notes', '/tasks'],
+    ['/projects/MOB/notes/', '/tasks'],
+    ['/projects/MOB/notes/21', '/projects/MOB/notes'],
     ['/notifications', '/'],
     ['/me/tasks/assigned', '/tasks'],
     ['/drive/spaces/5', '/drive'],

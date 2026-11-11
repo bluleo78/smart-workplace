@@ -1,11 +1,11 @@
-// 프로젝트 탭 줄(WP-1477) — 개요·이슈·타임라인·사이클·버전. 모양은 components/ui/tabs 의 line 변형(밑줄)과 같게 하되
+// 프로젝트 탭 줄(WP-1477) — 개요·이슈·노트·타임라인·사이클·버전. 모양은 components/ui/tabs 의 line 변형(밑줄)과 같게 하되
 // 탭을 링크(<Link>)로 그려 새 창 열기·주소 복사가 되게 한다. 좁은 폭에서는 줄바꿈 없이 가로 스크롤(스크롤바 숨김).
 import { Link } from 'react-router-dom'
 
 import { pageGutterClass } from '@/components/layout/Page'
 import { cn } from '@/lib/utils'
 
-import { PROJECT_TABS, type ProjectTabId, projectTabPath } from './projectTabs'
+import { type ProjectTabId, projectTabPath, visibleProjectTabs } from './projectTabs'
 
 /**
  * 탭 하나의 모양 — line 변형 탭(TabsTrigger)처럼 옅은 글자 + 고른 탭만 진한 글자·아래 2px 밑줄.
@@ -26,7 +26,16 @@ const tabClass = cn(
  *   (routes.ts PROJECT_TAB: ‹ 는 프로젝트 화면을 떠난다). REPLACE 는 「마지막 탭으로 되돌리기」(PUSH·첫 진입만) 대상이 아니다.
  * - 이슈 탭 링크는 state.projectTab 을 실어 되돌리기를 한 번 더 막는다(이슈 탭을 눌렀는데 기억한 다른 탭으로 튕기지 않게).
  */
-export function ProjectTabBar({ projectKey, active }: { projectKey: string; active: ProjectTabId | null }) {
+export function ProjectTabBar({
+  projectKey,
+  active,
+  notesVisible,
+}: {
+  projectKey: string
+  active: ProjectTabId | null
+  /** 프로젝트 노트 공간을 불러왔을 때만 「노트」 탭을 낀다(WP-1481). */
+  notesVisible: boolean
+}) {
   return (
     // 스크롤바 숨김은 !important(`…!`)로 건다 — index.css 의 전역 `* { scrollbar-width: thin }` 은 레이어 밖 규칙이라
     // @layer utilities 의 보통 유틸리티를 이겨, 그냥 [scrollbar-width:none] 이면 320px 에서 탭 밑에 얇은 스크롤바가 남는다.
@@ -35,7 +44,7 @@ export function ProjectTabBar({ projectKey, active }: { projectKey: string; acti
       className={cn('shrink-0 overflow-x-auto border-b whitespace-nowrap [scrollbar-width:none]! [&::-webkit-scrollbar]:hidden', pageGutterClass)}
     >
       <div className="flex w-max items-center gap-1">
-        {PROJECT_TABS.filter((t) => t.visible).map((t) => (
+        {visibleProjectTabs(notesVisible).map((t) => (
           <Link
             key={t.id}
             aria-current={active === t.id ? 'page' : undefined}

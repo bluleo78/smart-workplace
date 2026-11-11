@@ -33,6 +33,7 @@ const ProjectTabsLayout = lazy(() =>
   import('./pages/projects/tabs/ProjectTabsLayout').then((m) => ({ default: m.ProjectTabsLayout })),
 )
 const ProjectOverviewTab = lazy(() => import('./pages/projects/tabs/ProjectOverviewTab'))
+const ProjectNotesTab = lazy(() => import('./pages/projects/tabs/ProjectNotesTab'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const CyclesPage = lazy(() => import('./pages/projects/CyclesPage'))
 const TimelinePage = lazy(() => import('./pages/projects/timeline/TimelinePage'))
@@ -214,6 +215,8 @@ export default function App() {
                   <Route path="projects/:key" element={<ProjectTabsLayout />}>
                     <Route index element={<ProjectDetailPage />} />
                     <Route path="overview" element={<ProjectOverviewTab />} />
+                    <Route path="notes" element={<ProjectNotesTab />} />
+                    <Route path="notes/:pageId" element={<ProjectNotesTab />} />
                     <Route path="timeline" element={<TimelinePage />} />
                     <Route path="cycles" element={<CyclesPage />} />
                     <Route path="versions" element={<VersionsPage />} />

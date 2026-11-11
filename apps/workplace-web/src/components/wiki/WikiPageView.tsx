@@ -28,11 +28,21 @@ import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { WikiEditor } from './WikiEditor'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
 import { type ConfirmedLoadState, trackConfirmedLoad, wikiPageViewMode } from './wikiPageViewMode'
+import { useWikiRoutes } from './WikiRoutesContext'
 import { canEditWikiSpace, isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
 import { WikiSpaceUnavailableState } from './WikiSpaceUnavailableState'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
-export function WikiPageView({ pageId, spaceId }: { pageId: number | null; spaceId: number }) {
+export function WikiPageView({
+  pageId,
+  spaceId,
+  recordLastVisited = true,
+}: {
+  pageId: number | null
+  spaceId: number
+  /** false 면 「마지막으로 본 노트」를 기록·정리하지 않는다 — 프로젝트 탭(WP-1481)은 노트 앱의 복원 위치를 건드리지 않는다. */
+  recordLastVisited?: boolean
+}) {
   const { data: page, isLoading, isError, error, isSuccess, isFetching } = useWikiPage(pageId)
   // 이번 방문에서 조회 성공을 확인했는지 — 캐시만으로는 확인하지 않고, 노트가 바뀌면(노트 없음 포함) 버린다(WP-296).
   // 렌더 중 상태 갱신(바뀌었을 때만)으로 같은 렌더에 반영한다 — effect 로 미루면 한 프레임 동안 예전 확인으로 그린다.
@@ -41,6 +51,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   if (nextConfirm !== confirmState) setConfirmState(nextConfirm)
   const { create: createPage, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
   const navigate = useNavigate()
+  const routes = useWikiRoutes()
   const lastVisitedKey = useWikiLastVisitedKey()
 
   // WP-54: 위키 화면 컨텍스트 — 스페이스 이름은 캐시된 스페이스 목록에서(WikiSidebar 와 같은 쿼리).
@@ -70,17 +81,17 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   const loadedPageId = isError ? undefined : page?.id
   const gone = isError && isWikiPageGone(error)
   useEffect(() => {
-    if (!lastVisitedKey) return
+    if (!recordLastVisited || !lastVisitedKey) return
     if (loadedPageId != null) writeWikiLastVisited(lastVisitedKey, loadedPageId)
     else if (gone && pageId != null && readWikiLastVisited(lastVisitedKey) === pageId) clearWikiLastVisited(lastVisitedKey)
-  }, [lastVisitedKey, loadedPageId, gone, pageId])
+  }, [recordLastVisited, lastVisitedKey, loadedPageId, gone, pageId])
 
   // 본문 자리 분기 — 이 화면에서 불러온 노트는 재조회가 실패해도(삭제 SSE 뒤 404) 에디터를 유지한다(WP-296).
   const mode = wikiPageViewMode({ pageId, isLoading, isError, dataId: page?.id, loadedInThisView: nextConfirm.confirmed })
   // 공간 주소만 열었는데 내 공간 목록에 없으면(남의·없는 공간) 「새 페이지 만들기」 빈 상태 대신 안내만 둔다(WP-559) —
   // 만들기를 눌러도 404 라 쓸모없고, 페이지 주소의 접근 불가 안내와 같은 모양으로 맞춘다.
   if (mode === 'empty' && isWikiSpaceUnavailable(spaces, spaceId)) {
-    return <WikiSpaceUnavailableState onBack={() => navigate('/wiki')} />
+    return <WikiSpaceUnavailableState onBack={() => navigate(routes.homePath())} />
   }
   if (mode === 'empty') {
     // 읽기 전용 공간(VIEWER)이면 만들기 버튼 대신 안내만 둔다(WP-602) — 눌러도 403 이다.
@@ -118,9 +129,9 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     /** #788: 존재하지 않는 페이지 ID 등 로드 실패 — 무한 skeleton 대신 ResourceErrorState(4요소) 표시. */
     // 404 면 이 페이지를 덮는 공유가 있는지 먼저 묻는다(WP-987) — 스페이스 멤버가 아닌 사람이 노트 주소를 받았으면 공유 보기로 옮겨 연다.
     if (pageId != null && isAxiosError(error) && error.response?.status === 404) {
-      return <WikiPageShareFallback pageId={pageId} onBack={() => navigate('/wiki')} />
+      return <WikiPageShareFallback pageId={pageId} onBack={() => navigate(routes.homePath())} />
     }
-    return <WikiPageUnavailableState onBack={() => navigate('/wiki')} />
+    return <WikiPageUnavailableState onBack={() => navigate(routes.homePath())} />
   }
   // !page 는 타입 좁히기용 — 모드가 'editor' 면 page 가 있다.
   if (mode === 'loading' || !page) {
@@ -128,7 +139,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     return <WikiPageSkeleton testId="wiki-page-skeleton" />
   }
   // 다른 스페이스로 옮겨진 노트의 예전 주소(WP-988) — 옮긴 스페이스 주소로 연결한다. 옛 스페이스 사이드바에 남지 않게.
-  if (page.spaceId !== spaceId) return <Navigate to={`/wiki/spaces/${page.spaceId}/pages/${page.id}`} replace />
+  if (page.spaceId !== spaceId) return <Navigate to={routes.pagePath(page.spaceId, page.id)} replace />
   // 「HTML 문서」(WP-1307)는 블록 편집기(동기화 서버) 대신 원본을 격리 iframe 으로 그리는 화면 — 서버가 동기화 접근을 409 로 막는다.
   if (isHtmlPage(page)) return <WikiHtmlDocumentView key={page.id} page={page} spaceId={spaceId} />
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
