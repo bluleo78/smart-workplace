@@ -453,6 +453,14 @@ export interface HostBridge {
   onUnassignResult(r: { ok: boolean; canonical?: string }): void;
 }
 
+// WP-1489: messaging 위임 도구(propose_*)가 카드를 올렸을 때 돌려주는 결과 문구. 이 도구들은 API 실패를 throw 하지 않고 「…실패했습니다: …」
+// 문구로 돌려주므로(재시도 허용), 실행이 답장을 남겼는지 가리는 쪽(agent/messaging-reply.ts)이 isError 만으로는 성공을 알 수 없어 이 문구로 판정한다.
+// 핸들러와 판정이 같은 상수를 써서 문구가 어긋나지 않게 한다. 「이미 … 등록했습니다」는 앞선 호출이 성공했을 때만 나오므로(가드는 성공 뒤에만 선다) 성공이다.
+export const PROPOSE_CREATE_ISSUE_OK = '제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
+export const PROPOSE_CREATE_ISSUE_ALREADY = '이미 이 요청에 대한 제안을 등록했습니다.';
+export const PROPOSE_CREATE_EVENT_OK = '일정 제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
+export const PROPOSE_CREATE_EVENT_ALREADY = '이미 이 요청에 대한 일정 제안을 등록했습니다.';
+
 // L3 위임: 이슈 생성 제안 도구 입력 스키마.
 // channelId·위임자·parent 는 코드가 env 에서 스탬프 — AI 입력에서 제외(가스라이팅 방지).
 // projectKey: AI 가 위임 후보 목록에서 추론해 고름. 맞는 게 없으면 생략(백엔드 개인 작업 폴백).
@@ -683,7 +691,7 @@ export function buildTools(
         inputSchema: proposeCreateIssueInput,
         async handler(args) {
           // guard: 이미 성공적으로 제안을 등록한 경우 재호출 차단.
-          if (proposed) return '이미 이 요청에 대한 제안을 등록했습니다.';
+          if (proposed) return PROPOSE_CREATE_ISSUE_ALREADY;
           const { title, body, priority, projectKey } = proposeCreateIssueInput.parse(args);
           try {
             await client.proposeCreateIssue(agentId, dc.channelId, {
@@ -699,7 +707,7 @@ export function buildTools(
           }
           // await 성공 후에만 guard 설정 — 실패 시 재시도 허용.
           proposed = true;
-          return '제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
+          return PROPOSE_CREATE_ISSUE_OK;
         },
       });
 
@@ -712,7 +720,7 @@ export function buildTools(
           '사용자가 대화 내용을 일정으로 잡아달라고 할 때 호출합니다. 일정 생성 "확인 카드"를 그 자리에 올립니다(실제 생성은 위임자 승인 후). title·startsAt·endsAt(타임존 오프셋 포함 ISO-8601, 예: 2026-06-20T14:00:00+09:00)을 채우고, 필요하면 location/reminderMinutes 를 넣으세요. 함께 초대할 사람이 있으면 attendees 에 그 구성원의 username 을 넣으세요(모르면 search_members 로 확인, 위임자 본인은 넣지 않음). 위치·위임자는 시스템이 정합니다. 호출 시 add_channel_message 는 호출하지 마세요(카드가 곧 응답).',
         inputSchema: proposeCreateEventInput,
         async handler(args) {
-          if (eventProposed) return '이미 이 요청에 대한 일정 제안을 등록했습니다.';
+          if (eventProposed) return PROPOSE_CREATE_EVENT_ALREADY;
           const { summary: _summary, attendees, ...params } = proposeCreateEventInput.parse(args);
           // #852: 참석자 username → user id. 확정 못 하면 카드를 만들지 않고 교정 가능한 사유를 돌려준다.
           const resolved = await resolveAttendees(attendees, dc.actorId);
@@ -750,7 +758,7 @@ export function buildTools(
           }
           // await 성공 후에만 guard 설정 — 실패 시 재시도 허용.
           eventProposed = true;
-          return '일정 제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
+          return PROPOSE_CREATE_EVENT_OK;
         },
       });
     }

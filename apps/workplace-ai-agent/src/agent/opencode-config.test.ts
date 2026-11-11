@@ -354,7 +354,8 @@ describe('buildOpencodeConfig', () => {
     expect(env?.MCP_BRIDGE_RUN_ID).toBe('run-99');
   });
 
-  it('mcp.onTool 만 있어도 브리지 좌표 추가', () => {
+  // WP-1489: onTool 은 러너가 세션 이벤트로 직접 부르므로 브리지가 필요 없다 — 등록되지 않은 runId 의 브리지 좌표를 심지 않는다.
+  it('mcp.onTool 만 있으면 브리지 좌표를 심지 않는다', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({ mcp: { client, profile: 'home', onBehalfOfId: 1, onTool: vi.fn() } }),
@@ -362,8 +363,8 @@ describe('buildOpencodeConfig', () => {
       ['cmd'], VISION_ON,
     );
     const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
-    expect(env?.MCP_BRIDGE_URL).toBeDefined();
-    expect(env?.MCP_BRIDGE_RUN_ID).toBe('run-7');
+    expect(env?.MCP_BRIDGE_URL).toBeUndefined();
+    expect(env?.MCP_BRIDGE_RUN_ID).toBeUndefined();
   });
 
   it('anthropic credential 로 호출하면 throw', () => {
