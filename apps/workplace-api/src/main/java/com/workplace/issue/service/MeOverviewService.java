@@ -89,7 +89,7 @@ public class MeOverviewService {
     Objects.requireNonNull(callerId, "callerId");
     if (period == null) throw new IllegalArgumentException("기간을 지정해 주세요");
     if (granularity == null) throw new IllegalArgumentException("칸 묶음 단위를 지정해 주세요");
-    LocalDate today = seoulToday(now);
+    LocalDate today = IssueDueWindow.seoulDate(now);
     MetricsPeriod range = period.resolve(today);
 
     IssueMetrics metrics = metricsService.forMe(callerId, range, granularity);
@@ -126,12 +126,8 @@ public class MeOverviewService {
   @Transactional(readOnly = true)
   MeDaySummary today(Long callerId, OffsetDateTime now) {
     Objects.requireNonNull(callerId, "callerId");
-    LocalDate today = seoulToday(now);
+    LocalDate today = IssueDueWindow.seoulDate(now);
     return daySummary(callerId, today, repository.findOpenIssues(callerId), null);
-  }
-
-  private static LocalDate seoulToday(OffsetDateTime now) {
-    return now.atZoneSameInstant(IssueDueWindow.ZONE).toLocalDate();
   }
 
   /**

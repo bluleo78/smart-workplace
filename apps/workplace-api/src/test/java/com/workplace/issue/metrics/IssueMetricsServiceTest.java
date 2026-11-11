@@ -624,4 +624,32 @@ class IssueMetricsServiceTest extends IntegrationTestBase {
     assertThat(m.closedIssues()).extracting(ClosedIssueFact::issueId).containsExactly(i3, i2, i1);
     assertThat(factOf(m, i3).lateDays()).isEqualTo(4);
   }
+
+  /** closedIssuesForMe(WP-1485 업무 프로파일용 좁은 진입점)는 forMe 의 closedIssues 와 같은 이슈·같은 순서를 돌려준다. */
+  @Test
+  void closed_issues_for_me_matches_for_me_closed_issues() {
+    Long a = user("ma");
+    Long b = user("mb");
+    var p = project(a, "OPEN");
+    // 현재 기간에 A 가 끝낸 2건 + B 가 끝낸 1건 + 지난 기간에 A 가 끝낸 1건 + 취소 1건
+    long i1 = issue(a, p, t("2026-11-02T01:00:00Z"));
+    assign(i1, a, a);
+    close(i1, "DONE", t("2026-11-04T01:00:00Z"), null);
+    long i2 = issue(a, p, t("2026-11-02T01:00:00Z"));
+    assign(i2, a, a);
+    close(i2, "DONE", t("2026-11-07T01:00:00Z"), LocalDate.of(2026, 11, 5));
+    long other = issue(a, p, t("2026-11-02T01:00:00Z"));
+    assign(other, b, a);
+    close(other, "DONE", t("2026-11-05T01:00:00Z"), null);
+    long old = issue(a, p, t("2026-10-25T01:00:00Z"));
+    assign(old, a, a);
+    close(old, "DONE", t("2026-10-30T01:00:00Z"), null);
+    long canceled = issue(a, p, t("2026-11-02T01:00:00Z"));
+    assign(canceled, a, a);
+    close(canceled, "CANCELED", t("2026-11-06T01:00:00Z"), null);
+
+    var expected = metricsService.forMe(a, WEEK, MetricsGranularity.DAY).closedIssues();
+    assertThat(expected).extracting(ClosedIssueFact::issueId).containsExactly(i2, i1);
+    assertThat(metricsService.closedIssuesForMe(a, WEEK)).isEqualTo(expected);
+  }
 }

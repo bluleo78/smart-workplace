@@ -6,6 +6,7 @@ import { createTokenResponse, createUser } from '../factories/auth.factory'
 import { defaultNotificationSettings } from '../factories/notificationSettings.factory'
 import { defaultRelationTypes } from '../factories/issueRelation.factory'
 import { seedStatuses } from '../factories/projectStatus.factory'
+import { createEmptyWorkProfile } from '../factories/workProfile.factory'
 import { mockApi } from './api-mock'
 import { beginReusedTest, endReusedTest, REUSE_APP, type ReuseHolder, reusedSlot, reuseSlotFixture, setReusedStorage, slotOfContext } from './reuse-app'
 import { collabTestToken, injectCollabNamespace, useCollabNamespaceForReusedPage } from './collab'
@@ -83,6 +84,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/me/activity', { items: [], nextCursor: null })
   // 홈 「내 작업」 위젯의 어제/오늘 한 줄(WP-1484) — 같은 이유로 빈(0) 요약.
   await mockApi(page, 'GET', '/api/v1/me/overview/today', { yesterday: '2026-01-01', yesterdayCompleted: 0, yesterdayCompletedWithAi: 0, yesterdayCompletedOnTime: 0, yesterdayCreated: 0, today: '2026-01-02', overdue: 0, oldestOverdueDays: null, dueToday: 0, waiting: 0 })
+  // 개요 탭 업무 프로파일 카드(WP-1485) — 같은 이유로 빈(끝낸 이슈 없음) 프로파일. 개요를 검증하는 spec 은 나중에 등록해 덮는다.
+  await mockApi(page, 'GET', '/api/v1/me/work-profile', createEmptyWorkProfile())
   // 공통 부가 조회 빈 기본 스텁(WP-85). 전체 E2E 에서 모킹 누락으로 503 이 가장 많이 난 목록·개수 조회들이다
   // (프로젝트 목록 543회, 드라이브 스페이스 285회, 사이클 252회, 유형 215회 …). 503 은 에러 토스트·재시도로 화면을
   // 다시 그려 클릭 타이밍 flaky 의 원인이 될 수 있어 빈 성공 응답으로 고정한다. 각 spec 이 나중에 등록한 라우트가 우선한다.

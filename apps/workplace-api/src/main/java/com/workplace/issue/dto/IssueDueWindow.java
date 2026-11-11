@@ -23,6 +23,11 @@ public final class IssueDueWindow {
     return LocalDate.now(clock.withZone(ZONE));
   }
 
+  /** 시각 t 가 속한 Asia/Seoul 날짜 — 이미 잡은 「지금」을 서울 날짜로 바꾸는 곳(내 개요·업무 프로파일)이 같은 변환을 쓰게 한다. */
+  public static LocalDate seoulDate(OffsetDateTime t) {
+    return t.atZoneSameInstant(ZONE).toLocalDate();
+  }
+
   /**
    * 서울 날짜 하루의 시작 시각(00:00 KST, 포함). 서울 날짜 범위를 시각 범위로 바꾸는 곳(이슈 날짜 필터, 성과 지표 기간 WP-1476)이 같은 경계를 쓰게 한
    * 곳에 둔다 — JVM 기본 zone(UTC)으로 자르면 하루가 9시간 밀린다.

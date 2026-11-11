@@ -162,6 +162,7 @@ import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
+import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
@@ -980,6 +981,11 @@ public class Public extends SchemaImpl {
     public final WikiSpaceMemberGroup WIKI_SPACE_MEMBER_GROUP = WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP;
 
     /**
+     * The table <code>public.work_profile</code>.
+     */
+    public final WorkProfile WORK_PROFILE = WorkProfile.WORK_PROFILE;
+
+    /**
      * The table <code>public.worker_job</code>.
      */
     public final WorkerJob WORKER_JOB = WorkerJob.WORKER_JOB;
@@ -1171,6 +1177,7 @@ public class Public extends SchemaImpl {
             WikiSpace.WIKI_SPACE,
             WikiSpaceMember.WIKI_SPACE_MEMBER,
             WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP,
+            WorkProfile.WORK_PROFILE,
             WorkerJob.WORKER_JOB,
             WorkspaceAssistant.WORKSPACE_ASSISTANT
         );

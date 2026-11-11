@@ -11,6 +11,7 @@ import { createTokenResponse, createUser } from '../../../e2e/factories/auth.fac
 import { defaultRelationTypes } from '../../../e2e/factories/issueRelation.factory'
 import { defaultNotificationSettings } from '../../../e2e/factories/notificationSettings.factory'
 import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
+import { createEmptyWorkProfile } from '../../../e2e/factories/workProfile.factory'
 
 export const MOCK_USER_ROLE: RoleResponse = { id: 2, name: 'USER', description: '일반 사용자', isSystem: true }
 export const MOCK_ADMIN_ROLE: RoleResponse = { id: 1, name: 'ADMIN', description: '시스템 관리자', isSystem: true }
@@ -66,6 +67,8 @@ export const shellHandlers = [
   http.get(`${API}/me/overview/today`, () =>
     HttpResponse.json({ yesterday: '2026-01-01', yesterdayCompleted: 0, yesterdayCompletedWithAi: 0, yesterdayCompletedOnTime: 0, yesterdayCreated: 0, today: '2026-01-02', overdue: 0, oldestOverdueDays: null, dueToday: 0, waiting: 0 }),
   ),
+  // 개요 탭 업무 프로파일 카드(WP-1485) — 끝낸 이슈 없음(NONE)으로 깔아 개요를 띄우는 다른 테스트가 모킹 누락으로 깨지지 않게 한다.
+  http.get(`${API}/me/work-profile`, () => HttpResponse.json(createEmptyWorkProfile())),
   http.get(`${API}/projects`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/members`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/drive/spaces`, () => HttpResponse.json([])),

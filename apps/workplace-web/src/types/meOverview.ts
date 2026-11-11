@@ -94,3 +94,37 @@ export interface MeOverviewResponse {
   /** 늦게 완료한 이슈 상위 2건 — 기간 전체에서 서버가 고른다. */
   lateTop: LateItem[]
 }
+
+// 업무 프로파일(WP-1485) — 백엔드 WorkProfileResponse·WorkProfileAnalyzeResponse 와 1:1. 끝낸 이슈를 AI 가 분류한 결과(보고서 원자료).
+
+/** 분석 상태 — NONE 은 아직 저장된 결과가 없음(끝낸 이슈가 없거나 처음), FAILED 는 이전 결과를 실은 채 올 수 있다. */
+export type WorkProfileStatus = 'NONE' | 'PENDING' | 'READY' | 'FAILED'
+
+/** 주요 업무·자주 일한 영역 한 칸 — 이름과 건수. */
+export interface WorkProfileCount {
+  name: string
+  count: number
+}
+
+/** 기간 하나의 업무 프로파일. analyzedAt 은 서버 시각(ISO), periodFrom/To 는 서울 날짜 키. */
+export interface WorkProfile {
+  period: MeOverviewPeriod
+  status: WorkProfileStatus
+  periodFrom: string
+  periodTo: string
+  analyzedAt: string | null
+  /** 기간에 끝낸 이슈 전체 수 — 상한(100건)을 넘으면 analyzedCount 보다 크다. */
+  totalCount: number
+  analyzedCount: number
+  summary: string | null
+  tasks: WorkProfileCount[]
+  areas: WorkProfileCount[]
+  skills: string[]
+  error: string | null
+}
+
+/** 「다시 분석」 응답 — STARTED 분석 시작, UNCHANGED 끝낸 이슈가 그대로라 다시 하지 않음, ALREADY_RUNNING 이미 분석 중. */
+export interface WorkProfileAnalyzeResponse {
+  outcome: 'STARTED' | 'UNCHANGED' | 'ALREADY_RUNNING'
+  profile: WorkProfile
+}

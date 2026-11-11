@@ -161,6 +161,7 @@ import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WikiSpaceMemberGroup;
+import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 import com.workplace.jooq.tables.records.AgentAccountBindingRecord;
@@ -320,6 +321,7 @@ import com.workplace.jooq.tables.records.WikiShareAccessRequestRecord;
 import com.workplace.jooq.tables.records.WikiSpaceMemberGroupRecord;
 import com.workplace.jooq.tables.records.WikiSpaceMemberRecord;
 import com.workplace.jooq.tables.records.WikiSpaceRecord;
+import com.workplace.jooq.tables.records.WorkProfileRecord;
 import com.workplace.jooq.tables.records.WorkerJobRecord;
 import com.workplace.jooq.tables.records.WorkspaceAssistantRecord;
 
@@ -533,6 +535,8 @@ public class Keys {
     public static final UniqueKey<WikiSpaceRecord> WIKI_SPACE_PKEY = Internal.createUniqueKey(WikiSpace.WIKI_SPACE, DSL.name("wiki_space_pkey"), new TableField[] { WikiSpace.WIKI_SPACE.ID }, true);
     public static final UniqueKey<WikiSpaceMemberRecord> WIKI_SPACE_MEMBER_PKEY = Internal.createUniqueKey(WikiSpaceMember.WIKI_SPACE_MEMBER, DSL.name("wiki_space_member_pkey"), new TableField[] { WikiSpaceMember.WIKI_SPACE_MEMBER.SPACE_ID, WikiSpaceMember.WIKI_SPACE_MEMBER.USER_ID }, true);
     public static final UniqueKey<WikiSpaceMemberGroupRecord> WIKI_SPACE_MEMBER_GROUP_PKEY = Internal.createUniqueKey(WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, DSL.name("wiki_space_member_group_pkey"), new TableField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.SPACE_ID, WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.GROUP_ID }, true);
+    public static final UniqueKey<WorkProfileRecord> UQ_WORK_PROFILE_TENANT_USER_PERIOD = Internal.createUniqueKey(WorkProfile.WORK_PROFILE, DSL.name("uq_work_profile_tenant_user_period"), new TableField[] { WorkProfile.WORK_PROFILE.TENANT_ID, WorkProfile.WORK_PROFILE.USER_ID, WorkProfile.WORK_PROFILE.PERIOD_TYPE }, true);
+    public static final UniqueKey<WorkProfileRecord> WORK_PROFILE_PKEY = Internal.createUniqueKey(WorkProfile.WORK_PROFILE, DSL.name("work_profile_pkey"), new TableField[] { WorkProfile.WORK_PROFILE.ID }, true);
     public static final UniqueKey<WorkerJobRecord> WORKER_JOB_PKEY = Internal.createUniqueKey(WorkerJob.WORKER_JOB, DSL.name("worker_job_pkey"), new TableField[] { WorkerJob.WORKER_JOB.ID }, true);
     public static final UniqueKey<WorkspaceAssistantRecord> WORKSPACE_ASSISTANT_PKEY = Internal.createUniqueKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("workspace_assistant_pkey"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, true);
 
@@ -945,6 +949,8 @@ public class Keys {
     public static final ForeignKey<WikiSpaceMemberGroupRecord, UserGroupRecord> WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_GROUP_ID_FKEY = Internal.createForeignKey(WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, DSL.name("wiki_space_member_group_group_id_fkey"), new TableField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.GROUP_ID }, Keys.USER_GROUP_PKEY, new TableField[] { UserGroup.USER_GROUP.ID }, true);
     public static final ForeignKey<WikiSpaceMemberGroupRecord, WikiSpaceRecord> WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_SPACE_ID_FKEY = Internal.createForeignKey(WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, DSL.name("wiki_space_member_group_space_id_fkey"), new TableField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.SPACE_ID }, Keys.WIKI_SPACE_PKEY, new TableField[] { WikiSpace.WIKI_SPACE.ID }, true);
     public static final ForeignKey<WikiSpaceMemberGroupRecord, TenantRecord> WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_TENANT_ID_FKEY = Internal.createForeignKey(WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, DSL.name("wiki_space_member_group_tenant_id_fkey"), new TableField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
+    public static final ForeignKey<WorkProfileRecord, TenantRecord> WORK_PROFILE__FK_WORK_PROFILE_TENANT = Internal.createForeignKey(WorkProfile.WORK_PROFILE, DSL.name("fk_work_profile_tenant"), new TableField[] { WorkProfile.WORK_PROFILE.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
+    public static final ForeignKey<WorkProfileRecord, UserRecord> WORK_PROFILE__WORK_PROFILE_USER_ID_FKEY = Internal.createForeignKey(WorkProfile.WORK_PROFILE, DSL.name("work_profile_user_id_fkey"), new TableField[] { WorkProfile.WORK_PROFILE.USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<WorkerJobRecord, TenantRecord> WORKER_JOB__WORKER_JOB_TENANT_ID_FKEY = Internal.createForeignKey(WorkerJob.WORKER_JOB, DSL.name("worker_job_tenant_id_fkey"), new TableField[] { WorkerJob.WORKER_JOB.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<WorkspaceAssistantRecord, TenantRecord> WORKSPACE_ASSISTANT__FK_WORKSPACE_ASSISTANT_TENANT = Internal.createForeignKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("fk_workspace_assistant_tenant"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
     public static final ForeignKey<WorkspaceAssistantRecord, UserRecord> WORKSPACE_ASSISTANT__WORKSPACE_ASSISTANT_AGENT_USER_ID_FKEY = Internal.createForeignKey(WorkspaceAssistant.WORKSPACE_ASSISTANT, DSL.name("workspace_assistant_agent_user_id_fkey"), new TableField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.AGENT_USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);

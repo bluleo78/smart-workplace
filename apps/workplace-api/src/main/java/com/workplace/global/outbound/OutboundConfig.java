@@ -210,6 +210,25 @@ public class OutboundConfig {
   }
 
   /**
+   * 업무 프로파일 분석(WP-1485 WorkProfileService) 전용 executor. 한 건이 ai-agent 분류 호출로 스레드를 수십 초 점유하므로 이벤트
+   * 발사용 {@code aiAgentEventExecutor} 와 분리한다. core/max 2 로 LLM 동시 호출을 묶고(core 와 max 를 같게 둬야 큐가 차기
+   * 전에도 2개가 돈다 — homeSuggestionExecutor 참조). 매일 갱신은 스케줄러 스레드에서 동기로 돌아 이 풀을 쓰지 않으므로, 큐는 사람이 띄운 분석(카드
+   * 조회의 자동 시작·「다시 분석」 — 하루 상한으로 묶임)만 받으면 돼 100 으로 둔다. 넘치면 호출부가 TaskRejectedException 을 받아 행을 FAILED
+   * 로 둔다. TenantContext 를 전파해 워커의 트랜잭션이 RLS GUC 를 받게 한다.
+   */
+  @Bean(name = "workProfileExecutor")
+  public ThreadPoolTaskExecutor workProfileExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("work-profile-");
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * notify 디스패처 전용 executor. @Async 무인자는 단일 Executor 빈(aiAgentEventExecutor)에 바인딩되거나, 빈이 2개면 모호해져
    * SimpleAsyncTaskExecutor 로 조용히 폴백한다. 따라서 항상 명시 한정(@Async("notifyEventExecutor"))한다. 알림은 가벼운
    * insert+fan-out 이므로 작은 풀로 충분, queue 는 버스트 흡수용으로 넉넉히.

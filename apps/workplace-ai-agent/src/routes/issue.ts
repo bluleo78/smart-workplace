@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { RunAgentDeps } from '../agent/run-agent.js'
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js'
 import { issueClassifyInputSchema, runIssueClassify } from '../agent/run-issue-classify-ai.js'
+import { runWorkProfile, workProfileInputSchema } from '../agent/run-work-profile.js'
 
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
@@ -69,6 +70,21 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     } catch (e) {
       console.error('[issue-classify] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'issue_classify_failed' })
+    }
+  })
+
+  // 업무 프로파일(WP-1485) — 끝낸 이슈 목록 → 요약·역량 태그·이슈별 분류. 건수는 API 가 센다.
+  router.post('/issue/work-profile', async (req: Request, res: Response): Promise<void> => {
+    const parsed = workProfileInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues })
+      return
+    }
+    try {
+      res.status(200).json(await runWorkProfile(parsed.data, deps))
+    } catch (e) {
+      console.error('[issue-work-profile] 실패:', e instanceof Error ? e.message : String(e))
+      res.status(502).json({ error: 'work_profile_failed' })
     }
   })
 
