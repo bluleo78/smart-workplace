@@ -11,6 +11,7 @@ import {
   MANAGED_BY_VALUE,
   podGeneration,
 } from './k8s/manifest.js';
+import { podFinishReason } from './observe.js';
 import type { RunnerDesiredAgent } from './works/client.js';
 
 /** 클러스터에 남은 AI 한 명의 runner 리소스. */
@@ -18,9 +19,21 @@ export interface ActualAgent {
   agentUserId: number;
   /**
    * Pod 가 있으면 그 generation 라벨, 지우는 중인지, 만들 때 넣은 모델 연결 version(어노테이션, 없으면 undefined),
-   * 배치된 노드(spec.nodeName — 아직 배치 전이면 undefined).
+   * 배치된 노드(spec.nodeName — 아직 배치 전이면 undefined), 끝나 버렸는지(finished — {@link podFinished}),
+   * 끝난 사유(finishReason — 끝났을 때만), 준비된 시각(readySince — Running 이고 Ready 조건이 True 면 그 조건이 바뀐 시각).
+   * readySince 는 연속 끝남 횟수를 「오래 잘 떠 있었으면」 지우는 데 쓴다(WP-1501).
    */
-  pod?: { generation: number | null; deleting: boolean; claudeVersion?: string; loginVersion?: string; reposVersion?: string; nodeName?: string };
+  pod?: {
+    generation: number | null;
+    deleting: boolean;
+    claudeVersion?: string;
+    loginVersion?: string;
+    reposVersion?: string;
+    nodeName?: string;
+    finished?: boolean;
+    finishReason?: string;
+    readySince?: Date;
+  };
   pvc: boolean;
   /** PVC 가 지워지는 중(deletionTimestamp) — 끄고 바로 켠 AI 는 사라질 때까지 기다렸다 새로 만든다. */
   pvcDeleting?: boolean;
@@ -35,12 +48,36 @@ export function emptyActual(agentUserId: number): ActualAgent {
   return { agentUserId, pvc: false, secret: false, configMap: false };
 }
 
+/** planReconcile 의 사유 중 「클러스터에서 생긴 변화」 둘 — 클러스터 다시 보기(WP-1501)가 이것으로 조정을 깨울지 정한다. */
+export const REASON_NO_POD = 'no pod';
+export const REASON_POD_FINISHED = 'pod finished';
+
 export type ActionKind = 'create' | 'recreate' | 'keep' | 'delete' | 'reportStopped';
 
 export interface Action {
   kind: ActionKind;
   agentUserId: number;
   reason: string;
+}
+
+/**
+ * Pod 가 끝나 버렸는지(WP-1501) — phase 가 Succeeded·Failed. AI Pod 는 Deployment 없는 맨 Pod 라 끝나면 아무도 다시 띄우지 않는다
+ * (노드 재시작 뒤 Completed·Error 로 남는 경우). phase 만 본다 — restartPolicy Always 라 컨테이너가 terminated·CrashLoopBackOff 인 것은
+ * kubelet 이 다시 띄우는 중이라 runner 가 지우면 서로 다툰다. Unknown(노드와 연락 끊김)도 끝난 것으로 보지 않는다 —
+ * hostPath 작업 디스크면 같은 노드에 고정되어 다시 만들어도 낫지 않는다.
+ */
+export function podFinished(pod: V1Pod): boolean {
+  const phase = pod.status?.phase;
+  return phase === 'Succeeded' || phase === 'Failed';
+}
+
+/** Running 이고 Ready 조건이 True 면 그 조건이 True 가 된 시각 — 아니면 undefined. */
+function readySince(pod: V1Pod): Date | undefined {
+  if (pod.status?.phase !== 'Running') return undefined;
+  const ready = pod.status.conditions?.find((c) => c.type === 'Ready');
+  if (ready?.status !== 'True' || !ready.lastTransitionTime) return undefined;
+  const at = new Date(ready.lastTransitionTime);
+  return Number.isNaN(at.getTime()) ? undefined : at;
 }
 
 /** runner 라벨과 AI id 라벨이 모두 있는 리소스의 AI id — 아니면 null(만지지 않는다). */
@@ -79,6 +116,7 @@ export function collectActual(res: ManagedResources): ActualAgent[] {
   for (const p of res.pods) {
     const id = managedAgentId(p);
     if (id === null) continue;
+    const finished = podFinished(p as V1Pod);
     entry(id).pod = {
       generation: podGeneration(p),
       deleting: Boolean(p.metadata?.deletionTimestamp),
@@ -86,6 +124,9 @@ export function collectActual(res: ManagedResources): ActualAgent[] {
       loginVersion: p.metadata?.annotations?.[ANN_LOGIN_VERSION],
       reposVersion: p.metadata?.annotations?.[ANN_REPOS_VERSION],
       nodeName: (p as V1Pod).spec?.nodeName || undefined,
+      finished,
+      finishReason: finished ? podFinishReason(p as V1Pod) : undefined,
+      readySince: readySince(p as V1Pod),
     };
   }
   // [목록, 있음 칸, 지우는 중 칸] — 한 번 돌며 둘 다 채운다(ConfigMap 은 지우는 중을 따로 보지 않는다)
@@ -110,8 +151,9 @@ export function collectActual(res: ManagedResources): ActualAgent[] {
  * AI 마다 할 일. 규칙(계획 Task 3 · runner API 계약):
  * - desired 에 있고 Pod 없음 → create(applyNow 무관 — 새 AI 는 바로 띄운다)
  * - Pod 가 지우는 중 → keep(사라지면 다음 회차에 create)
+ * - Pod 가 끝남(Succeeded·Failed) → recreate(generation·applyNow 무관 — 끝난 Pod 는 하던 일이 없고, 두면 영영 다시 뜨지 않는다)
  * - generation 같음 → keep / 다르고 applyNow → recreate / applyNow=false → keep(하던 일을 마치게)
- * - desired 에 없고 Pod 가 있음 → delete(Pod·PVC·Secret, ConfigMap 은 남김)
+ * - desired 에 없고 Pod 가 있음 → delete(Pod·PVC·Secret, ConfigMap 은 남김 — 끝난 Pod 도 같다)
  * - desired 에 없고 Pod 는 없는데 리소스가 남음 → reportStopped(STOPPED 가 받아들여지면 ConfigMap 을 지움)
  */
 export function planReconcile(desired: RunnerDesiredAgent[], actual: ActualAgent[]): Action[] {
@@ -123,9 +165,11 @@ export function planReconcile(desired: RunnerDesiredAgent[], actual: ActualAgent
     const id = d.agentUserId;
     const pod = actualById.get(id)?.pod;
     if (!pod) {
-      actions.push({ kind: 'create', agentUserId: id, reason: 'no pod' });
+      actions.push({ kind: 'create', agentUserId: id, reason: REASON_NO_POD });
     } else if (pod.deleting) {
       actions.push({ kind: 'keep', agentUserId: id, reason: 'pod terminating' });
+    } else if (pod.finished) {
+      actions.push({ kind: 'recreate', agentUserId: id, reason: REASON_POD_FINISHED });
     } else if (pod.generation === d.generation) {
       actions.push({ kind: 'keep', agentUserId: id, reason: 'generation matches' });
     } else if (d.applyNow) {

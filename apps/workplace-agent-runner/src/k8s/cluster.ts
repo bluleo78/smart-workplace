@@ -34,6 +34,8 @@ export interface PodUsage {
 export interface ClusterApi {
   /** runner 라벨(managed-by=genia-agent-runner)로 고른 리소스만 돌려준다. */
   listManaged(): Promise<ManagedResources>;
+  /** runner 라벨이 붙은 Pod 만 — 클러스터 다시 보기(WP-1501)가 30초마다 Secret·ConfigMap·PVC 까지 나열하지 않게. */
+  listManagedPods(): Promise<V1Pod[]>;
   /** 같은 이름의 리소스가 있는지 — 라벨 없는 남의 리소스를 덮어쓰지 않으려고 만들기 전에 본다. */
   exists(kind: ManagedKind, name: string): Promise<boolean>;
   /** server-side apply(fieldManager genia-agent-runner). */
@@ -149,6 +151,15 @@ export class KubeCluster implements ClusterApi {
       return { pods: pods.items, pvcs: pvcs.items, secrets: secrets.items, configMaps: configMaps.items };
     } catch (e) {
       throw wrap(e, 'list', 'managed', MANAGED_SELECTOR);
+    }
+  }
+
+  async listManagedPods(): Promise<V1Pod[]> {
+    try {
+      const pods = await this.core.listNamespacedPod({ namespace: this.namespace, labelSelector: MANAGED_SELECTOR });
+      return pods.items;
+    } catch (e) {
+      throw wrap(e, 'list', 'Pod', MANAGED_SELECTOR);
     }
   }
 

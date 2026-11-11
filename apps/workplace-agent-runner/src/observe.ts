@@ -34,6 +34,17 @@ function failingContainer(statuses: V1ContainerStatus[]): string | null {
 }
 
 /**
+ * 끝나 버린 Pod(phase Succeeded·Failed)의 사유 한 줄(500자) — 관찰 보고·로그·연속 끝남 실패 사유(WP-1501)가 같은 글을 쓴다.
+ * Failed 면 status.reason·message(Evicted — The node was low on resource: ephemeral-storage… 등), Succeeded 면 「Pod 가 끝났습니다」.
+ */
+export function podFinishReason(pod: V1Pod): string {
+  const status = pod.status ?? {};
+  // restartPolicy Always 라 정상이면 Succeeded 는 오지 않는다 — 끝나 버린 Pod 는 실패로 알린다
+  if (status.phase === 'Succeeded') return 'Pod 가 끝났습니다';
+  return clip(join(status.reason ?? 'Pod 실패', status.message));
+}
+
+/**
  * Pod → phase. stopping 은 그 AI 가 desired 에서 빠졌는지(지우는 중) — Pod 가 없으면 STOPPED, 있으면 STARTING(아직 못 만듦).
  * 순서: 지우는 중 → 실패 → 준비 중 → 실행 중.
  */
@@ -46,12 +57,8 @@ export function toObserved(pod: V1Pod | undefined, stopping: boolean): ObservedS
   if (pod.metadata?.deletionTimestamp) return { ...base, phase: 'STOPPING', message: null };
 
   const status = pod.status ?? {};
-  if (status.phase === 'Failed') {
-    return { ...base, phase: 'FAILED', message: clip(join(status.reason ?? 'Pod 실패', status.message)) };
-  }
-  if (status.phase === 'Succeeded') {
-    // restartPolicy Always 라 정상이면 오지 않는다 — 끝나 버린 Pod 는 실패로 알린다
-    return { ...base, phase: 'FAILED', message: 'Pod 가 끝났습니다' };
+  if (status.phase === 'Failed' || status.phase === 'Succeeded') {
+    return { ...base, phase: 'FAILED', message: podFinishReason(pod) };
   }
   const statuses = [...(status.initContainerStatuses ?? []), ...(status.containerStatuses ?? [])];
   const failing = failingContainer(statuses);

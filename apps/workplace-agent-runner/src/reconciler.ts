@@ -1,6 +1,6 @@
 // 조정 — desired 를 받아 planReconcile 대로 Pod·PVC·Secret·ConfigMap 을 맞추고, 관찰 상태를 보고한다.
-// 메모리에 들고 있는 것은 「마지막 desired」와 「AI 별 실패 사유」뿐이다. 받은 키·STOPPED 미보고 같은 기록은
-// 모두 클러스터(Secret 어노테이션·남은 ConfigMap)에 있어 runner 가 언제 다시 떠도 같은 판단을 한다.
+// 메모리에 들고 있는 것은 「마지막 desired」·「AI 별 실패 사유」·「AI 별 연속 끝남 기록(WP-1501)」뿐이다. 받은 키·STOPPED 미보고 같은 기록은
+// 모두 클러스터(Secret 어노테이션·남은 ConfigMap)에 있어 runner 가 언제 다시 떠도 같은 판단을 한다(연속 끝남 기록만 재시작하면 0 부터).
 import type { V1Secret } from '@kubernetes/client-node';
 import type { RunnerConfig } from './config.js';
 import { ClusterError, type ClusterApi, type ManagedKind, type ManagedResources, type PodUsage } from './k8s/cluster.js';
@@ -35,6 +35,8 @@ import {
   emptyActual,
   ownedByLocation,
   planReconcile,
+  REASON_NO_POD,
+  REASON_POD_FINISHED,
   type Action,
   type ActualAgent,
 } from './plan.js';
@@ -61,6 +63,32 @@ export type Retry = 'soon' | 'wait' | 'later';
 export const RETRY_MS: Record<Retry, number> = { soon: 5_000, wait: 15_000, later: 30_000 };
 /** desired·목록 조회 자체가 실패했을 때 다음 회차까지. */
 export const RETRY_ON_ERROR_MS = 30_000;
+
+/**
+ * 끝나 버린 Pod 를 다시 만들기 전 기다릴 간격(WP-1501) — 연속으로 다시 만든 횟수(앞서 끝나 다시 만든 수)로 고르고 마지막 값에서 멈춘다.
+ * 첫 번째는 바로(노드 재시작 뒤 1분 안 회복), 그 뒤 30초·1분·2분·5분. DinD emptyDir sizeLimit 초과·노드 압박으로 계속 쫓겨나는(Evicted) AI 가
+ * 끝없이 바로 다시 떠 노드를 흔들지 않게. 간격은 마지막으로 다시 만든(끝난 Pod 를 지운) 때부터 잰다.
+ * 기다리는 동안 조정은 Works 를 다시 부르지 않고(재시도 없음), 클러스터 다시 보기가 간격이 지난 뒤 조정을 깨운다 — 그래서 실제 간격은 최대 CLUSTER_CHECK_SECONDS 만큼 늦다.
+ */
+export const FINISH_BACKOFF_MS = [0, 30_000, 60_000, 120_000, 300_000] as const;
+/** 연속으로 이만큼 다시 만들었으면 FAILED(끝난 사유)로 관리자에게 알린다 — 한두 번은 노드 재시작으로 흔하고, 세 번째부터는 스스로 낫지 않는 문제로 본다. */
+export const FINISH_FAIL_AFTER = 3;
+/**
+ * 새 Pod 가 Ready 로 이만큼 떠 있으면 연속 끝남 기록을 지운다. 10분 — 쫓겨남은 대개 작업이 디스크를 채우는 몇 분 안에 다시 오고,
+ * 너무 길면 한참 전 일로 첫 회복이 늦어진다. 이보다 오래 떠 있다 쫓겨나는 AI 는 매번 0 부터라 실패로 알리지 못한다(알려진 한계).
+ */
+export const FINISH_STABLE_MS = 10 * 60_000;
+
+/** AI 하나의 연속 끝남 기록 — count: 연속으로 끝난 Pod 를 지운 수, lastAt: 마지막으로 지운 때(ms), generation: 그때의 desired generation. */
+interface FinishLoop {
+  count: number;
+  lastAt: number;
+  generation: number;
+  /** 마지막으로 끝난 Pod 의 사유(podFinishReason). */
+  reason: string;
+  /** 사유를 아직 관찰 보고에 싣지 않았는지 — 끝난 Pod 는 30초 안에 지워져 60초 보고 사이에 FAILED 가 안 보일 수 있어 다음 보고에 한 번 싣는다. */
+  unreported: boolean;
+}
 
 /** 두 재시도 중 더 빨리 다시 봐야 하는 쪽(없으면 다른 쪽). */
 export function sooner(a: Retry | undefined, b: Retry | undefined): Retry | undefined {
@@ -147,6 +175,13 @@ export class Reconciler {
   private lastDesired: RunnerDesired | undefined;
   /** AI 별 실패 사유(허용 밖 이미지·이름 충돌·모델 연결 종류·클러스터 거절) — 관찰 보고에서 FAILED 로 덮는다. */
   private readonly failures = new Map<number, string>();
+  /**
+   * failures 중 Works 쪽이 바뀌어야 낫는 AI(허용 밖 이미지·이름 충돌·모델 연결 종류) — 클러스터 다시 보기가 헛 조정을 깨우지 않게 뺀다.
+   * 클러스터 거절(쿼터 등)은 저절로 나을 수 있어 넣지 않는다.
+   */
+  private readonly blocked = new Set<number>();
+  /** AI 별 연속 끝남 기록(WP-1501) — failures 와 따로 둔다(reconcileDesired 가 할 일을 마치면 failures 를 지우므로). */
+  private readonly finishLoops = new Map<number, FinishLoop>();
   /** 마지막으로 조정이 끝까지 돈 시각(/healthz). */
   lastSuccessAt: Date | undefined;
 
@@ -176,7 +211,8 @@ export class Reconciler {
     };
 
     // desired 에서 빠진 AI 의 실패 기록은 버린다
-    for (const id of [...this.failures.keys()]) if (!desiredById.has(id)) this.failures.delete(id);
+    for (const id of [...this.failures.keys()]) if (!desiredById.has(id)) this.clearFailure(id);
+    this.trackFinishLoops(desired.agents, actual);
 
     // planReconcile 은 AI 마다 할 일 하나지만 id 로 한 번 더 거른다 — desired 에 같은 id 가 두 번 와도 한 AI 를 동시에 두 번 다루지 않게
     const seen = new Set<number>();
@@ -259,19 +295,27 @@ export class Reconciler {
     // 그 자체가 교체(generation+1)이고, recreate 는 허용 밖 이미지로 바뀐 템플릿 때문에 멀쩡히 돌던 Pod 를 지우지 않게.
     const imageProblem = checkImages(agent, this.cfg.allowedImagePrefixes);
     if (kind !== 'keep' && imageProblem) {
-      this.fail(id, imageProblem);
+      this.fail(id, imageProblem, true);
       return undefined;
+    }
+    // 끝나 버린 Pod 를 연속으로 다시 만드는 중이면 간격이 지날 때까지 두고 본다(재시도 없음 — 클러스터 다시 보기가 간격 뒤 깨운다)
+    if (kind === 'recreate' && current.pod?.finished) {
+      const waitMs = this.finishBackoffLeft(id);
+      if (waitMs > 0) {
+        this.log.info('끝나 버린 Pod 를 간격을 두고 다시 만듭니다', { agentUserId: id, waitMs, reason: current.pod.finishReason });
+        return undefined;
+      }
     }
     if (kind === 'create' && this.diskFor(current) === 'pvc' && current.pvcDeleting) {
       // 끄고 곧바로 다시 켬 — 지워지는 중인 PVC 에 새 Pod 를 붙이면 서로 기다리며 멈춘다. 사라진 뒤 새로 만든다(그동안 키도 받지 않는다)
       this.log.info('지워지는 중인 작업 디스크가 사라지기를 기다립니다', { agentUserId: id });
-      this.failures.delete(id);
+      this.clearFailure(id);
       return 'wait';
     }
     if (kind === 'create') {
       const foreign = await this.findForeign(current, id);
       if (foreign) {
-        this.fail(id, foreign);
+        this.fail(id, foreign, true);
         return undefined;
       }
     }
@@ -280,8 +324,9 @@ export class Reconciler {
     const secret = await this.ensureSecret(kind, agent, current, existingSecret, ctx);
     if (!secret.ok) {
       // 바뀌지 않을 실패(provider·이름 충돌)는 주기 조회에 맡기고, 키를 아직 못 받았으면 곧 다시
+      // 이름 충돌·모델 연결 종류 — 둘 다 Works(또는 사람이 남의 리소스를 치움)가 바뀌어야 낫는다
       if (secret.message) {
-        this.fail(id, secret.message);
+        this.fail(id, secret.message, true);
         return undefined;
       }
       return 'soon';
@@ -295,12 +340,12 @@ export class Reconciler {
         versionChanged(current.pod.loginVersion, secret.loginVersion) ||
         versionChanged(current.pod.reposVersion, secret.repos.version));
     if (swapPod && imageProblem) {
-      this.fail(id, imageProblem);
+      this.fail(id, imageProblem, true);
       return undefined;
     }
     // 실패 기록은 이 AI 의 할 일이 끝까지 된 뒤에 지운다 — 중간(Pod apply 거절 등)에 관찰 보고가 끼어들어도 사유가 사라지지 않게
     const done = await this.convergePod(kind, agent, current, swapPod, secret, ctx);
-    this.failures.delete(id);
+    this.clearFailure(id);
     return done ? undefined : 'wait';
   }
 
@@ -332,8 +377,29 @@ export class Reconciler {
     }
 
     if (kind === 'recreate') {
-      // Pod 만 지운다 — PVC·Secret 은 그대로. 사라지면 다음 회차에 create
-      this.log.info('generation 이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id, generation: agent.generation });
+      // Pod 만 지운다 — PVC·Secret 은 그대로. 사라지면 다음 회차에 create. 끝나 버린 Pod(WP-1501)도 같은 길로 갈아 끼운다
+      const pod = current.pod;
+      if (pod?.finished) {
+        // 끝난 사유(Evicted 등)는 지우면 사라지므로 지우기 전에 남기고, 연속 끝남 기록에 적어 다음 관찰 보고에 싣는다.
+        // generation 도 바뀐 Pod 면 두 까닭을 함께 남긴다(끝남이 먼저 고른 까닭이라 generation 만 보면 왜 다시 만들었는지 놓친다)
+        const generationChanged = pod.generation !== agent.generation;
+        const loop = this.noteFinished(id, agent.generation, pod.finishReason ?? 'Pod 가 끝났습니다');
+        this.log.info(
+          generationChanged ? '끝나 버렸고 generation 도 바뀐 Pod 를 다시 만듭니다' : '끝나 버린 Pod 를 다시 만듭니다',
+          {
+            agentUserId: id,
+            generation: agent.generation,
+            ...(generationChanged ? { podGeneration: pod.generation } : {}),
+            reason: loop.reason,
+            consecutive: loop.count,
+          },
+        );
+        if (loop.count >= FINISH_FAIL_AFTER) {
+          this.log.warn('AI Pod 가 계속 끝납니다 — FAILED 로 알립니다', { agentUserId: id, consecutive: loop.count, reason: loop.reason });
+        }
+      } else {
+        this.log.info('generation 이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id, generation: agent.generation });
+      }
       await this.cluster.delete('Pod', podName(id));
       return false;
     }
@@ -605,9 +671,85 @@ export class Reconciler {
     return retry;
   }
 
-  private fail(id: number, message: string) {
+  /** 실패 사유를 적는다. blocking: Works 쪽이 바뀌어야 낫는 실패라 클러스터 다시 보기가 이 AI 로 조정을 깨우지 않는다. */
+  private fail(id: number, message: string, blocking = false) {
     if (this.failures.get(id) !== message) this.log.warn('AI 를 띄우지 않습니다', { agentUserId: id, reason: message });
     this.failures.set(id, message);
+    if (blocking) this.blocked.add(id);
+    else this.blocked.delete(id);
+  }
+
+  private clearFailure(id: number) {
+    this.failures.delete(id);
+    this.blocked.delete(id);
+  }
+
+  /**
+   * 연속 끝남 기록을 정리한다(조정 회차·클러스터 다시 보기마다). desired 에서 빠졌거나 generation 이 바뀐 AI(템플릿·설정이 바뀌어
+   * 다른 Pod 다), 새 Pod 가 Ready 로 {@link FINISH_STABLE_MS} 넘게 떠 있는 AI 는 지운다.
+   */
+  private trackFinishLoops(desired: RunnerDesiredAgent[], actual: ActualAgent[]) {
+    if (this.finishLoops.size === 0) return;
+    const generationById = new Map(desired.map((d) => [d.agentUserId, d.generation]));
+    const actualById = new Map(actual.map((a) => [a.agentUserId, a]));
+    const now = this.now().getTime();
+    for (const [id, loop] of [...this.finishLoops]) {
+      const readySince = actualById.get(id)?.pod?.readySince;
+      const stable = readySince !== undefined && now - readySince.getTime() >= FINISH_STABLE_MS;
+      if (generationById.get(id) !== loop.generation || stable) this.finishLoops.delete(id);
+    }
+  }
+
+  /** 끝난 Pod 를 지우기 직전에 부른다 — 연속 횟수를 올리고 사유를 다음 관찰 보고에 싣게 표시한다. */
+  private noteFinished(id: number, generation: number, reason: string): FinishLoop {
+    const prev = this.finishLoops.get(id);
+    const loop: FinishLoop = {
+      count: (prev?.count ?? 0) + 1,
+      lastAt: this.now().getTime(),
+      generation,
+      reason,
+      unreported: true,
+    };
+    this.finishLoops.set(id, loop);
+    return loop;
+  }
+
+  /** 끝난 Pod 를 다시 만들기까지 남은 시간(ms) — 0 이면 지금 다시 만든다. 첫 번째(기록 없음)는 늘 0. */
+  private finishBackoffLeft(id: number): number {
+    const loop = this.finishLoops.get(id);
+    if (!loop) return 0;
+    const delay = FINISH_BACKOFF_MS[Math.min(loop.count, FINISH_BACKOFF_MS.length - 1)]!;
+    return Math.max(0, loop.lastAt + delay - this.now().getTime());
+  }
+
+  /** 연속 끝남이 {@link FINISH_FAIL_AFTER} 번에 닿은 AI 의 실패 사유 — 아니면 undefined. */
+  private finishFailure(id: number): string | undefined {
+    const loop = this.finishLoops.get(id);
+    if (!loop || loop.count < FINISH_FAIL_AFTER) return undefined;
+    return `AI Pod 가 연속 ${loop.count}번 끝나 간격을 늘려 다시 띄웁니다 — ${loop.reason}`;
+  }
+
+  /**
+   * 클러스터 다시 보기(WP-1501) — 마지막 desired 와 지금 Pod 목록(Pod 만 — Secret·ConfigMap·PVC 는 나열하지 않는다)으로 planReconcile 을 돌려,
+   * 「Pod 없음(create)·Pod 끝남(recreate)」 할 일이 있으면 true(조정을 깨운다). 조정과 같은 계획 함수를 써 기준이 어긋나지 않게 한다.
+   * Works 는 부르지 않는다 — 조정 자체는 늘 desired 를 새로 받는 온전한 회차가 하므로, 오래된 desired 로 키를 다시 받는(=교체) 일이 없다.
+   * 클러스터에서 생긴 변화(kubectl 로 지움·노드 재시작으로 끝남)만 본다. generation 차이·STOPPED 미보고는 Works 쪽 변화라 변경 스트림·주기 조회 몫이다.
+   * 빼는 AI: Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — {@link blocked})는 간격마다 헛 조정을 깨우지 않게,
+   * 끝난 Pod 를 간격을 두고 다시 만드는 중({@link FINISH_BACKOFF_MS})이면 간격이 지날 때까지. 클러스터 거절 같은 그 밖의 실패는 깨운다.
+   * desired 를 아직 못 받았으면 false — 조정 루프가 30초 재시도로 받고 있다.
+   */
+  async clusterNeedsReconcile(): Promise<boolean> {
+    const desired = this.lastDesired;
+    if (!desired) return false;
+    const pods = ownedByLocation({ pods: await this.cluster.listManagedPods(), pvcs: [], secrets: [], configMaps: [] }, desired.locationId);
+    const actual = collectActual(pods);
+    this.trackFinishLoops(desired.agents, actual);
+    // Pod 만 넣었으니 desired 에 없는 AI 의 delete·reportStopped 도 나올 수 있으나 create·recreate 만 본다
+    return planReconcile(desired.agents, actual).some((a) => {
+      if (this.blocked.has(a.agentUserId)) return false;
+      if (a.kind === 'create' && a.reason === REASON_NO_POD) return true;
+      return a.kind === 'recreate' && a.reason === REASON_POD_FINISHED && this.finishBackoffLeft(a.agentUserId) === 0;
+    });
   }
 
   /**
@@ -648,11 +790,18 @@ export class Reconciler {
       const name = podName(id);
       const pod = podsByName.get(name);
       const state = toObserved(pod, stopping);
-      const failure = stopping ? undefined : this.failures.get(id);
+      // 실패 사유가 이기고, 없으면 연속 끝남(FINISH_FAIL_AFTER 번 이상) 실패
+      const failure = stopping ? undefined : (this.failures.get(id) ?? this.finishFailure(id));
+      // 끝나 지운 Pod 의 사유는 다음 보고 한 번에 싣는다 — 그 사이 Pod 는 지워지는 중·없음·새로 뜨는 중이라 사유가 사라지기 때문.
+      // phase 는 지금 상태(STOPPING·STARTING·RUNNING) 그대로 두고 message 만 채운다(지금 상태가 이미 message 를 내면 그것을 둔다)
+      const loop = stopping ? undefined : this.finishLoops.get(id);
+      const lastFinish = loop?.unreported && !state.message ? `이전 Pod 가 끝나 다시 띄웠습니다 — ${loop.reason}` : undefined;
+      if (loop && !stopping) loop.unreported = false;
       const u = pod ? usage.get(name) : undefined;
       return {
         agentUserId: id,
         ...state,
+        ...(lastFinish ? { message: clip(lastFinish) } : {}),
         ...(failure ? { phase: 'FAILED' as const, message: clip(failure) } : {}),
         cpuMillicores: u?.cpuMillicores ?? null,
         memoryBytes: u?.memoryBytes ?? null,
@@ -678,6 +827,43 @@ export interface LoopTimers {
   clearTimeout(handle: unknown): void;
 }
 
+/** 실제 타이머 — ReconcileLoop·ClusterCheck 의 기본값. 테스트는 가짜를 넘긴다. */
+export const realTimers: LoopTimers = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
+};
+
+/**
+ * 다음 예약을 늘 하나만 두는 타이머 — ReconcileLoop·ClusterCheck 가 같은 「앞 예약 지우고 하나 두기·멈추면 더 두지 않기」를 나눠 쓴다.
+ */
+class SingleTimer {
+  private handle: unknown;
+  stopped = false;
+
+  constructor(private readonly timers: LoopTimers) {}
+
+  /** ms 뒤에 fn 을 한 번 부른다. 앞 예약은 지운다. 멈췄으면 아무것도 하지 않는다. */
+  schedule(fn: () => void, ms: number) {
+    if (this.stopped) return;
+    this.cancel();
+    this.handle = this.timers.setTimeout(() => {
+      this.handle = undefined;
+      fn();
+    }, ms);
+  }
+
+  /** 예약을 지우고 다시는 두지 않는다. */
+  stop() {
+    this.stopped = true;
+    this.cancel();
+  }
+
+  private cancel() {
+    if (this.handle !== undefined) this.timers.clearTimeout(this.handle);
+    this.handle = undefined;
+  }
+}
+
 /**
  * 조정은 한 번에 하나만 돈다. 트리거(시작·SSE 이벤트·주기·재시도)가 도는 중에 오면 하나로 합쳐 끝난 뒤 한 번 더 돈다.
  * 회차가 끝나면 다음 예약을 하나만 둔다 — 남은 일이 있으면 {@link RETRY_MS}(곧 5초·지우는 중 기다림 15초·거절 30초),
@@ -686,21 +872,19 @@ export interface LoopTimers {
 export class ReconcileLoop {
   private running = false;
   private pending = false;
-  private timer: unknown;
-  private stopped = false;
+  private readonly timer: SingleTimer;
 
   constructor(
     private readonly run: () => Promise<ReconcileResult>,
     private readonly log: Logger,
-    private readonly timers: LoopTimers = {
-      setTimeout: (fn, ms) => setTimeout(fn, ms),
-      clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
-    },
-  ) {}
+    timers: LoopTimers = realTimers,
+  ) {
+    this.timer = new SingleTimer(timers);
+  }
 
   /** 조정을 깨운다. 도는 중이면 끝난 뒤 한 번 더. 끝나면 돌려준 promise 가 풀린다(테스트용). */
   async trigger(): Promise<void> {
-    if (this.stopped) return;
+    if (this.timer.stopped) return;
     if (this.running) {
       this.pending = true;
       return;
@@ -717,25 +901,61 @@ export class ReconcileLoop {
           nextMs = RETRY_ON_ERROR_MS;
           this.log.error('조정 실패 — 다시 시도합니다', { error: errMessage(e), retryMs: nextMs });
         }
-      } while (this.pending && !this.stopped);
+      } while (this.pending && !this.timer.stopped);
     } finally {
       this.running = false;
     }
-    this.schedule(nextMs);
-  }
-
-  private schedule(ms: number) {
-    if (this.stopped) return;
-    if (this.timer !== undefined) this.timers.clearTimeout(this.timer);
-    this.timer = this.timers.setTimeout(() => {
-      this.timer = undefined;
-      void this.trigger();
-    }, ms);
+    this.timer.schedule(() => void this.trigger(), nextMs);
   }
 
   stop() {
-    this.stopped = true;
-    if (this.timer !== undefined) this.timers.clearTimeout(this.timer);
-    this.timer = undefined;
+    this.timer.stop();
+  }
+}
+
+/**
+ * 클러스터 다시 보기 타이머(WP-1501). intervalMs 마다 check(Works 를 부르지 않는 클러스터 목록 조회)를 돌려 true 면 wake(조정 루프 깨우기)를 부른다.
+ * Pod watch 대신 짧은 주기 조회를 고른 까닭: Pod 목록 조회(listManagedPods)·ReconcileLoop(트리거 합치기)를 그대로 쓰고, watch 의 끊김·재연결·
+ * 410 Gone(resourceVersion 만료)·디바운스를 따로 다루지 않아도 된다. 지워짐과 끝남을 한 길로 잡고, 1분 안 회복에는 30초 주기로 충분하다.
+ * 한 번에 하나만 돈다 — 앞 조회가 늦어져도 겹쳐 쌓이지 않게 끝난 뒤 다음을 예약한다. 실패는 경고만 남기고 다음 간격에 다시 본다.
+ */
+export class ClusterCheck {
+  private readonly timer: SingleTimer;
+
+  constructor(
+    private readonly check: () => Promise<boolean>,
+    private readonly wake: () => void,
+    private readonly intervalMs: number,
+    private readonly log: Logger,
+    timers: LoopTimers = realTimers,
+  ) {
+    this.timer = new SingleTimer(timers);
+  }
+
+  /** 첫 조회를 intervalMs 뒤로 예약한다(시작 직후는 조정 루프의 첫 회차가 본다). */
+  start() {
+    this.schedule();
+  }
+
+  /** 한 번 본다 — 클러스터가 desired 와 어긋났으면 조정을 깨운다. 끝나면 다음을 예약한다(테스트는 직접 부른다). */
+  async tick(): Promise<void> {
+    if (this.timer.stopped) return;
+    try {
+      if (await this.check()) {
+        this.log.info('클러스터에서 AI Pod 가 사라졌거나 끝나 조정을 깨웁니다');
+        this.wake();
+      }
+    } catch (e) {
+      this.log.warn('클러스터 다시 보기 실패 — 다음 간격에 다시 봅니다', { error: errMessage(e) });
+    }
+    this.schedule();
+  }
+
+  private schedule() {
+    this.timer.schedule(() => void this.tick(), this.intervalMs);
+  }
+
+  stop() {
+    this.timer.stop();
   }
 }

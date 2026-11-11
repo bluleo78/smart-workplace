@@ -44,6 +44,11 @@ export interface RunnerConfig {
   dindResources: V1ResourceRequirements;
   /** /healthz 포트 — 클러스터 안 기본 8080. 로컬에서 다른 서비스와 겹치면 HEALTH_PORT 로 바꾼다. */
   healthPort: number;
+  /**
+   * 클러스터 다시 보기 간격(초, WP-1501) — Works 조회 없이 AI Pod 가 사라졌거나 끝났는지만 보고, 그렇다면 조정을 깨운다.
+   * Works 의 주기 조회(300초)와 따로 돌아 kubectl 로 지운 Pod·노드 재시작으로 끝난 Pod 를 이 간격 안에 알아챈다.
+   */
+  clusterCheckSeconds: number;
   terminationGraceSeconds: number;
   /** AI Pod 이미지를 받을 때 쓸 pull secret 이름들(이 네임스페이스에 미리 만든 것) — 작업 공간 이미지가 비공개 레지스트리(Docker Hub iacloudops)에 있다. */
   imagePullSecrets: string[];
@@ -180,6 +185,7 @@ const envSchema = z
       ALLOWED_IMAGE_PREFIXES: csvEnv.pipe(z.array(z.string()).min(1, { error: 'ALLOWED_IMAGE_PREFIXES 가 비어 있습니다' })),
       TERMINATION_GRACE_SECONDS: intEnv('60', 0, Number.MAX_SAFE_INTEGER, 'TERMINATION_GRACE_SECONDS 는 0 이상의 정수여야 합니다'),
       HEALTH_PORT: intEnv('8080', 1, 65535, 'HEALTH_PORT 는 1~65535 의 정수여야 합니다'),
+      CLUSTER_CHECK_SECONDS: intEnv('30', 5, 300, 'CLUSTER_CHECK_SECONDS 는 5~300 의 정수여야 합니다'),
       NAMESPACE: requiredStr('NAMESPACE'),
       AGENT_NODE_SELECTOR: jsonEnv(
         'AGENT_NODE_SELECTOR',
@@ -224,6 +230,7 @@ const envSchema = z
         dindStorageLimit: e.DIND_STORAGE_LIMIT as string,
         dindResources: e.DIND_RESOURCES,
         healthPort: e.HEALTH_PORT,
+        clusterCheckSeconds: e.CLUSTER_CHECK_SECONDS,
         terminationGraceSeconds: e.TERMINATION_GRACE_SECONDS,
         imagePullSecrets: e.AGENT_IMAGE_PULL_SECRETS,
       }),

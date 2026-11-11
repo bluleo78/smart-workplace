@@ -72,6 +72,56 @@ describe('planReconcile', () => {
     ]);
   });
 
+  it('recreatesFinishedPodRegardlessOfGenerationAndApplyNow', () => {
+    // 노드 재시작 뒤 Completed·Error 로 남은 맨 Pod(WP-1501) — 아무도 다시 띄우지 않으므로 runner 가 갈아 끼운다
+    const actions = planReconcile(
+      [
+        desiredAgent({ agentUserId: 1, generation: 7, applyNow: false }),
+        desiredAgent({ agentUserId: 2, generation: 8, applyNow: false }),
+        // 끝났지만 이미 지우는 중이면 사라질 때까지 기다린다(다음 회차에 create)
+        desiredAgent({ agentUserId: 3, generation: 7, applyNow: true }),
+      ],
+      [
+        actual({ agentUserId: 1, pod: { generation: 7, deleting: false, finished: true } }),
+        actual({ agentUserId: 2, pod: { generation: 7, deleting: false, finished: true } }),
+        actual({ agentUserId: 3, pod: { generation: 7, deleting: true, finished: true } }),
+      ],
+    );
+    expect(actions.map((a) => [a.agentUserId, a.kind, a.reason])).toEqual([
+      [1, 'recreate', 'pod finished'],
+      [2, 'recreate', 'pod finished'],
+      [3, 'keep', 'pod terminating'],
+    ]);
+  });
+
+  it('deletesFinishedPodNotInDesired', () => {
+    // 끈 AI 의 끝난 Pod 는 다시 만들지 않고 여느 때처럼 지운다(Pod·PVC·Secret)
+    const actions = planReconcile([], [actual({ agentUserId: 1, pod: { generation: 7, deleting: false, finished: true } })]);
+    expect(actions.map((a) => [a.agentUserId, a.kind])).toEqual([[1, 'delete']]);
+  });
+
+  it('marksOnlySucceededOrFailedPodAsFinished', () => {
+    const pod = (id: number, phase: string | undefined): V1Pod => ({
+      metadata: { name: `agent-${id}`, labels: { ...MANAGED, 'genia.works/agent': String(id), 'genia.works/generation': '7' } },
+      status: phase ? { phase } : undefined,
+    });
+    const found = collectActual({
+      // Running·Pending·Unknown(노드와 연락 끊김)·상태 없음은 끝난 것이 아니다
+      pods: [pod(1, 'Succeeded'), pod(2, 'Failed'), pod(3, 'Running'), pod(4, 'Pending'), pod(5, 'Unknown'), pod(6, undefined)],
+      pvcs: [],
+      secrets: [],
+      configMaps: [],
+    });
+    expect(found.map((a) => [a.agentUserId, a.pod?.finished])).toEqual([
+      [1, true],
+      [2, true],
+      [3, false],
+      [4, false],
+      [5, false],
+      [6, false],
+    ]);
+  });
+
   it('ignoresResourcesWithoutRunnerLabel', () => {
     const pods: V1Pod[] = [
       { metadata: { name: 'agent-1', labels: { ...MANAGED, 'genia.works/agent': '1', 'genia.works/generation': '7' } } },
@@ -86,7 +136,7 @@ describe('planReconcile', () => {
 
     const found = collectActual({ pods, pvcs, secrets, configMaps });
     expect(found).toEqual([
-      { agentUserId: 1, pod: { generation: 7, deleting: false }, pvc: false, secret: false, configMap: false },
+      { agentUserId: 1, pod: { generation: 7, deleting: false, finished: false }, pvc: false, secret: false, configMap: false },
     ]);
     // desired 가 비어도 라벨 없는 8·9 는 지울 대상이 아니다
     expect(planReconcile([], found).map((a) => a.agentUserId)).toEqual([1]);

@@ -29,16 +29,23 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 | `src/works/events.ts` | 변경 스트림(SSE) — `agent-runtime.changed` 만 조정 트리거, 헤더 30초·무데이터 90초 제한, 1→30초 백오프, 401 은 1분 |
 | `src/k8s/manifest.ts` | 계약대로 Pod·PVC·ConfigMap·Secret 을 만드는 순수 함수 |
 | `src/k8s/cluster.ts` | `ClusterApi`·`@kubernetes/client-node` 구현(server-side apply, fieldManager `genia-agent-runner`) |
-| `src/plan.ts` | `ownedByLocation`·`collectActual`·`emptyActual`·`planReconcile`·`checkImages`(순수) |
+| `src/plan.ts` | `ownedByLocation`·`collectActual`·`emptyActual`·`podFinished`·`planReconcile`·`checkImages`(순수) |
 | `src/secrets.ts` | `secretFetches` — 언제 원문(agent-key·claude·login·repos)을 다시 받을지(순수) |
 | `src/observe.ts` | `toObserved` — Pod → phase, metrics 수량 해석(순수) |
-| `src/reconciler.ts` | 조정 한 회차(AI 별 동시 4명, STOPPED 는 회차 끝에 200명씩 모아 보냄)·관찰 보고·`ReconcileLoop`(트리거 합치기, `retry` — 일시 오류 5초·지우는 중 기다림 15초·거절 30초, 주기 조회) |
+| `src/reconciler.ts` | 조정 한 회차(AI 별 동시 4명, STOPPED 는 회차 끝에 200명씩 모아 보냄)·관찰 보고·`ReconcileLoop`(트리거 합치기, `retry` — 일시 오류 5초·지우는 중 기다림 15초·거절 30초, 주기 조회)·`ClusterCheck`(클러스터 다시 보기, WP-1501) |
 | `src/screen.ts`·`src/works/screenSocket.ts`·`src/k8s/exec.ts` | 작업 화면 보기(WP-1277) — SSE `agent-runtime.screen` 을 받으면 Works 로 화면 소켓(`…/runner/screen/{sessionId}`)을 열고 AI Pod 에 exec 로 `agent-screen` 을 붙여 바이트를 잇는다. 보기 전용이면 입력 바이트를 버리고, 입력 허용으로 바뀌면 `--input` 으로 다시 붙는다. 입력은 `SCREEN_ALLOW_INPUT=true`(차트 `screen.allowInput`, 기본 꺼짐)일 때만 받는다 — 셸 권한과 같다. 한 runner 에 동시 10개 |
 | `src/main.ts` | 배선·`/healthz`(`HEALTH_PORT`, 기본 8080, 마지막 조정 성공 10분 안이면 200) |
 
 ## 동작 요점
 
 - desired 에 있고 Pod 없음 → 만든다(applyNow 무관). generation 이 다르면 `applyNow=true` 일 때만 Pod 를 지우고 다음 회차에 다시 만든다(PVC·Secret 유지).
+- Pod phase 가 `Succeeded`·`Failed`(노드 재시작 뒤 Completed·Error — 맨 Pod 라 아무도 다시 띄우지 않음)면 generation·applyNow 와 무관하게 지우고 다시 만든다(WP-1501). phase 만 본다 — 컨테이너 재시작은 kubelet 몫, `Unknown` 은 제외.
+  계속 끝나면 간격을 늘린다(`FINISH_BACKOFF_MS` — 첫 번째 바로, 이후 30초·1분·2분·5분). 기다리는 동안은 재시도 없이 두고 `ClusterCheck` 가 간격 뒤 깨운다. 지우기 전 `status.reason`·`message` 를 로그에 남기고 다음 관찰 보고 한 번에 message 로 싣는다.
+  연속 `FINISH_FAIL_AFTER`(3)번부터는 FAILED(끝난 사유)로 보고한다. Ready 로 `FINISH_STABLE_MS`(10분) 떠 있거나 generation 이 바뀌면 횟수를 지운다. 기록은 `failures` 와 따로 둔 메모리 맵(`finishLoops`)이라 runner 재시작 시 0 부터.
+- 조정은 시작·변경 스트림·재시도·desired 의 `pollIntervalSeconds`(300초)마다 돈다. 그와 따로 `ClusterCheck` 가 `CLUSTER_CHECK_SECONDS`(기본 30초)마다 마지막 desired 로
+  Pod 목록만(`listManagedPods`) 보고 `planReconcile` 에 「Pod 없음(create)·Pod 끝남(recreate)」 할 일이 있으면 조정을 깨운다(WP-1501). Works 는 부르지 않는다 — 조정은 늘 desired 를 새로 받는 회차가 해서
+  오래된 desired 로 키를 다시 받는(=교체) 일이 없다. Works 쪽이 바뀌어야 낫는 실패(허용 밖 이미지·이름 충돌·모델 연결 종류 — `blocked`)인 AI·간격을 기다리는 끝난 Pod·지우는 중인 Pod·generation 차이는 깨우지 않는다(클러스터 거절 같은 그 밖의 실패는 깨운다). Pod watch 대신 이것을 고른 까닭은
+  기존 `listManaged`·`ReconcileLoop` 를 그대로 쓰고 watch 의 재연결·410 Gone·디바운스를 다루지 않아도 되기 때문.
 - 모델 연결 교체: Pod 어노테이션 `genia.works/claude-version`(만들 때 Secret 의 version)이 Secret 의 것과 다르면(없음 ↔ 값 포함) generation·applyNow 와
   무관하게 Pod 를 다시 만든다 — 토큰이 env 로 고정되고 Works 는 재등록에 generation 을 올리지 않기 때문. 허용 밖 이미지면 지우지 않는다.
 - 로그인 정보(WP-1296, Gen:iA·ChatGPT): desired 의 `login`(WORKS) 참조 version 이 Secret 어노테이션 `genia.works/login-version` 과 다르면 `GET …/secrets/login` 으로 받아 Secret 키 `login-info`·어노테이션에 적고, 참조가 없거나 version null·404 면 둘 다 지운다(claude 와 같은 규칙, provider 검사 없음 — 서버가 템플릿 계정과 맞을 때만 version 을 싣는다). 못 받으면 옛 값을 두고 AI 키는 적는다. 원문은 로그에 남기지 않는다.
@@ -59,13 +66,13 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
   `genia.works/work-node` 에 적어 다시 만드는 Pod 를 그 노드에 고정한다(init 컨테이너 `work-owner` 가 폴더 주인을 1001 로). 노드 폴더는 지우지 않는다.
   `pvc` 방식에서만 PVC 를 만들고 지우는 중인 PVC 를 기다린다. 예전 PVC 가 남아 있으면 방식과 무관하게 desired 에서 빠질 때 지운다.
 - PVC 는 없을 때만 만든다. ConfigMap 은 Pod 를 만들 때만 쓴다(config.json 에 generation 이 있어 keep 중인 Pod 를 흔들지 않게).
-- 메모리 상태는 마지막 desired 와 AI 별 실패 사유뿐 — 나머지 기록은 모두 클러스터에 있다.
+- 메모리 상태는 마지막 desired·AI 별 실패 사유·연속 끝남 기록뿐 — 나머지 기록은 모두 클러스터에 있다.
 
 ## env (Helm 차트 `deploy/helm-agent-runner` 가 넣는다)
 
 `WORKS_URL`, `RUNNER_TOKEN_FILE`, `NAMESPACE`, `ALLOWED_IMAGE_PREFIXES`(쉼표), `AGENT_NODE_SELECTOR`·`AGENT_TOLERATIONS`·`AGENT_HOST_ALIASES`(JSON),
 `AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `AGENT_CA_CONFIGMAP`(추가 CA ConfigMap — 키 `ca.crt` 를 AI Pod `/run/genia/ca` 에 꽂는다, WP-1276), `DIND_STORAGE_LIMIT`(기본 20Gi), `DIND_RESOURCES`(JSON, 기본 requests 250m/512Mi·limits 2/4Gi),
-`AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다).
+`AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다), `CLUSTER_CHECK_SECONDS`(5~300, 기본 30 — 클러스터 다시 보기 간격, 차트는 넣지 않는다).
 
 로컬 실행은 `pnpm --filter @smart-workplace/workplace-agent-runner start:local`(KUBECONFIG·env 필요). `dev` 스크립트는 일부러 없다 —
 루트 `pnpm dev` 가 클러스터를 만지는 runner 를 띄우지 않게.
