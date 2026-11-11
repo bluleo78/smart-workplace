@@ -10,6 +10,8 @@
     "test:helm": "node --test deploy/helm/tests/*.test.mjs deploy/helm-agent-runner/tests/*.test.mjs",
     "test:release": "node --test deploy/release/tests/*.test.mjs",
     "manual:check": "node docs/manual/scripts/check.mjs",
+    "manual:help": "node docs/manual/scripts/help-bundle.mjs",
+    "manual:help-figures": "node docs/manual/scripts/help-figures.mjs",
     "manual:prose": "node docs/manual/scripts/prose.mjs",
     "manual:pdf": "node docs/manual/scripts/build.mjs",
     "manual:shots": "node docs/manual/scripts/capture.mjs",

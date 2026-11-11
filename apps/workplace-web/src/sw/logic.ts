@@ -105,8 +105,10 @@ export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: st
  * 네비게이션을 precache 된 앱 셸(index.html)로 가로채지 않을 경로 — 서버로 그대로 보낸다.
  * API 는 캐시 대상이 아니고, 공유 링크(드라이브 `/s/`·노트 `/wiki/share/`)는 앱을 쓰던 브라우저로 열어도 늘 최신 앱을 받아야 한다 —
  * 새 버전은 사용자가 토스트를 눌러야 적용되므로, 가로채면 그 링크 화면이 없던 옛 앱이 떠 404 가 난다(WP-867).
+ * 매뉴얼 도움말 묶음(`/help/` 아래 JSON·PNG, WP-1504)은 앱 화면이 아니라 정적 파일이다 — 주소창으로 열거나 새 탭으로 열 때
+ * 앱 셸로 가로채면 파일 대신 index.html 이 뜨고, 서버의 "없는 파일은 404" 판정도 건너뛴다.
  */
-export const NAVIGATION_DENYLIST: RegExp[] = [/^\/api\//, /^\/s\//, /^\/wiki\/share\//]
+export const NAVIGATION_DENYLIST: RegExp[] = [/^\/api\//, /^\/s\//, /^\/wiki\/share\//, /^\/help\//]
 
 /**
  * 앱 안 이동(SPA)으로 열면 안 되는 경로인가 — 서비스 워커가 서버로 보내는 주소(NAVIGATION_DENYLIST)와 같은 목록으로 판정한다.

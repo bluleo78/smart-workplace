@@ -55,6 +55,26 @@ export function chapterLinkTargets(line) {
   return [...line.matchAll(CHAPTER_LINK)].map((m) => m[2]);
 }
 
+// 절을 가리킬 수 있는 링크: 장 링크 `[글](NN-slug.md)`·`[글](NN-slug.md#앵커)`, 같은 장 앵커 `[글](#앵커)`. 이미지는 제외.
+// 그룹: 1=글, 2=장 파일명(선택), 3=앵커(선택). 장 파일 부분은 CHAPTER_LINK 와 같은 문법이다.
+const SECTION_LINK = /(?<!!)\[([^\]]+)\]\((\d\d-[a-z0-9-]+\.md)?(?:#([^)]*))?\)/g;
+
+/**
+ * 줄에서 절을 가리킬 수 있는 링크를 나온 순서로 꺼낸다 → [{ text, file, anchor, index, raw }].
+ * file·anchor 는 없으면 null(둘 다 없는 `[글]()` 는 링크로 치지 않는다). 앵커는 인코딩된 그대로 돌려준다(푸는 쪽이 decode).
+ * 도움말 묶음이 「관련」 링크(links)와 `help:<절 id>` 바꾸기에 쓴다(WP-1504). 장 링크만 보는 기존 함수는 그대로 둔다.
+ */
+export function sectionLinks(line) {
+  const out = [];
+  for (const m of line.matchAll(SECTION_LINK)) {
+    const file = m[2] ?? null;
+    const anchor = m[3] ?? null;
+    if (file === null && !anchor) continue;
+    out.push({ text: m[1], file, anchor: anchor || null, index: m.index, raw: m[0] });
+  }
+  return out;
+}
+
 // 저장소 파일로 가는 상대 링크 `[글](../…)`. 이미지(![..])는 제외한다. 그룹 1=글.
 const REPO_LINK = /(?<!!)\[([^\]]+)\]\((?:\.\.\/)+[^)]*\)/g;
 

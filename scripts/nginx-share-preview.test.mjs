@@ -7,33 +7,17 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { locationBody, readWebNginxConf } from './nginx-conf-test-utils.mjs'
+
 // 저장소 루트 — 실행 위치(cwd)와 상관없이 파일을 찾는다(다른 scripts/*.test.mjs 와 같은 방식).
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const conf = readFileSync(path.join(root, 'apps/workplace-web/nginx.conf'), 'utf8').replace(/#.*$/gm, '')
+const conf = readWebNginxConf()
 const html = readFileSync(path.join(root, 'apps/workplace-web/index.html'), 'utf8')
 
-/** 머리(location 뒤 ~ `{` 앞)가 조건에 맞는 location 의 본문을 꺼낸다. 중첩 블록(if 등)은 본문에 그대로 남는다. */
-function locationBody(match) {
-  const re = /location\s+([^{]+)\{/g
-  let m
-  while ((m = re.exec(conf))) {
-    if (!match(m[1].trim())) continue
-    let depth = 1
-    let i = re.lastIndex
-    while (depth > 0 && i < conf.length) {
-      if (conf[i] === '{') depth++
-      else if (conf[i] === '}') depth--
-      i++
-    }
-    return conf.slice(re.lastIndex, i - 1)
-  }
-  return null
-}
-
-const drive = locationBody((h) => h.includes('/s/'))
-const wiki = locationBody((h) => h.includes('/wiki/share/'))
-const shareImage = locationBody((h) => h === '= /__share-image')
-const shareMeta = locationBody((h) => h === '= /__share-meta')
+const drive = locationBody(conf, (h) => h.includes('/s/'))
+const wiki = locationBody(conf, (h) => h.includes('/wiki/share/'))
+const shareImage = locationBody(conf, (h) => h === '= /__share-image')
+const shareMeta = locationBody(conf, (h) => h === '= /__share-meta')
 
 test('/s/sl_ location 이 SSI 를 켜고 드라이브 preview-meta 주소를 변수로 정한다', () => {
   assert.ok(drive, '/s/ location 이 없다')

@@ -1,4 +1,5 @@
 // 매뉴얼 구조 검사: 장 프론트매터의 routes 를 앱 라우터와 대조하고, 그림 지시문과 이모지도 점검한다.
+// 도움말 검사(WP-1504): 도움말 표시·자리표시·조건 블록·절 링크·화면 소스 data-help 짝·도움말 그림 PNG 상태(사용자 책만)도 본다.
 // 사용: node check.mjs [user|operator]  (인자 없으면 둘 다). 오류가 하나라도 있으면 exit 1, 알 수 없는 책이면 exit 2.
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -12,6 +13,9 @@ import { chapterLinkTargets, hasEmoji, proseLines } from './lib/markdown.mjs';
 import { loadChapters } from './lib/chapters.mjs';
 import { runBooks } from './lib/cli.mjs';
 import { extractRoutes, matchRoute } from './lib/routes.mjs';
+import { helpErrors } from './lib/help-check.mjs';
+import { collectDataHelp } from './lib/help-screen.mjs';
+import { collectFigures, figureInputs, figureState, readFigureOutput } from './lib/help-figures.mjs';
 
 // 라우트가 아니라 매뉴얼 대상이 아닌 경로(와일드카드 404, OAuth 팝업 콜백).
 const EXCLUDED_PATHS = new Set(['*', '/*', '/oauth/m365/callback']);
@@ -79,6 +83,21 @@ async function isComingSoon(book, element) {
   return /\bComingSoon\b/.test(await readFile(file, 'utf-8'));
 }
 
+/**
+ * 도움말 그림 PNG 상태(사용자 책처럼 book.help 가 있는 책만) → { missing, stale } 또는 null(도움말 그림 대상이 아닌 책).
+ * 그림 생성(help-figures.mjs)과 같은 해시 함수로 지금 입력 해시를 내 manifest 와 비교한다. boxes.json 을 못 읽었으면
+ * 해시를 낼 수 없어 「없음」만 본다(boxes 문제는 따로 보고된다).
+ */
+async function helpFigureState(book, chapters, boxesDoc) {
+  if (!book.help) return null;
+  const figures = collectFigures(chapters);
+  const { hashes } = boxesDoc
+    ? await figureInputs(figures, boxesDoc, { manualDir: path.join(ROOT, 'docs/manual'), book: book.key })
+    : { hashes: {} };
+  const { manifest, existingFiles } = await readFigureOutput(path.join(ROOT, book.help.figuresDir));
+  return figureState({ figures, manifest, hashes, existingFiles });
+}
+
 // 책 하나를 검사해 { lines, errors } 를 돌려준다. lines 는 출력할 모든 줄, errors 는 그중 오류 줄 수.
 async function checkBook(book) {
   const loaded = await loadChapters(book);
@@ -116,6 +135,14 @@ async function checkBook(book) {
       for (const e of checkFigureLine(fig, { book, boxesDoc, exists, at: `${file}:${lineNo}` })) err(e);
     }
   }
+
+  // 도움말 검사 — 그림 검사 뒤에 둔다. 정보 줄(동적 data-help 수)은 오류로 세지 않는다.
+  const help = helpErrors(loaded, {
+    screen: await collectDataHelp(path.join(ROOT, book.appSrc), { base: ROOT }),
+    figureState: await helpFigureState(book, loaded, boxesDoc),
+  });
+  for (const e of help.errors) err(e);
+  lines.push(...help.info);
 
   // 실제 경로 집합: 라우터의 pages 에서 제외 대상을 뺀다(redirects 는 애초에 pages 가 아니다).
   const { pages } = extractRoutes(await readFile(path.join(ROOT, book.appFile), 'utf-8'));

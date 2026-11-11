@@ -71,6 +71,28 @@ check "공유 패키지 → full" "$(gate_scope origin/main s-pkg)" "full"
 check "lockfile → full" "$(gate_scope origin/main s-lock)" "full"
 check "코드 변경 없음(판정 불가) → full" "$(gate_scope origin/main s-docs)" "full"
 check "api 테스트가 읽는 web 파일(resource-contract.json) → full" "$(gate_scope origin/main s-contract)" "full"
+# 매뉴얼 도구: 도움말 묶음 플러그인(scripts/vite-manual-help.*)과 그것이 불러오는 lib(noncode.sh MANUAL_WEB_LIB_RE)는 웹 빌드 입력이라
+# 코드이고 web 범위다. lib 의 나머지(capture-kit 등)·lib 밖 매뉴얼 도구(캡처·PDF·검사 CLI)와 장 원고·도움말 그림은 비코드 —
+# api·web 회귀 없이 pre-commit 의 test:manual·manual:check 만 돈다.
+check "code_files: 플러그인이 쓰는 매뉴얼 lib 는 코드" "$(code_files 'docs/manual/scripts/lib/help-markup.mjs')" "docs/manual/scripts/lib/help-markup.mjs"
+check "code_files: 플러그인이 쓰지 않는 lib·lib 밖 도구·장 원고·도움말 그림·다른 문서는 비코드" "[$(code_files "$(printf 'docs/manual/scripts/lib/capture-kit.mjs\ndocs/manual/scripts/lib/help-check.mjs\ndocs/manual/scripts/check.mjs\ndocs/manual/user/01-a.md\ndocs/manual/help-figures/user/a.png\ndocs/manual/README.md\ndocs/ops/x.md')")]" "[]"
+check "code_files: 이름이 비슷해도 목록 밖(books.mjs.bak)은 비코드" "[$(code_files 'docs/manual/scripts/lib/books.mjs.bak')]" "[]"
+check "code_files: 섞이면 플러그인이 쓰는 lib 만 남는다" "$(code_files "$(printf 'docs/manual/user/01-a.md\ndocs/manual/scripts/lib/capture-kit.mjs\ndocs/manual/scripts/lib/markdown.mjs')")" "docs/manual/scripts/lib/markdown.mjs" "capture-kit"
+branch_with s-manual docs/manual/scripts/lib/help-bundle.mjs
+branch_with s-manual-plugin scripts/vite-manual-help.mjs scripts/vite-manual-help.d.mts
+branch_with s-manual-web docs/manual/scripts/lib/books.mjs apps/workplace-web/src/e.ts
+branch_with s-manual-admin docs/manual/scripts/lib/figure.mjs apps/workplace-admin/src/e.ts
+branch_with s-manual-tool docs/manual/scripts/capture.mjs docs/manual/scripts/lib/capture-kit.mjs docs/manual/user/01-a.md
+branch_with s-app-version scripts/vite-app-version.mjs
+branch_with s-other-script scripts/other.mjs
+check "매뉴얼 lib 변경 → web" "$(gate_scope origin/main s-manual)" "web" "full"
+check "도움말 묶음 플러그인 변경 → web" "$(gate_scope origin/main s-manual-plugin)" "web" "full"
+check "매뉴얼 lib + web → web" "$(gate_scope origin/main s-manual-web)" "web" "full"
+check "매뉴얼 lib + admin → web+admin" "$(gate_scope origin/main s-manual-admin)" "web+admin"
+check "admin 도 쓰는 vite-app-version 은 full" "$(gate_scope origin/main s-app-version)" "full"
+check "다른 루트 scripts 는 그대로 full" "$(gate_scope origin/main s-other-script)" "full"
+check "매뉴얼 lib 변경 push → 회귀(비코드로 생략하지 않음)" "$(decide "$(line s-manual)")" "전체 회귀 실행" "비코드 변경만"
+check "플러그인이 쓰지 않는 lib·lib 밖 도구·장 원고만 push → 비코드라 회귀 생략" "$(decide "$(line s-manual-tool)")" "비코드 변경만" "전체 회귀 실행"
 # main 이 앞서 나가도(api 변경) 브랜치가 바꾼 것만 센다
 git checkout -q main; commit_file apps/workplace-api/src/C.java 'main moved'; git push -q origin main; git fetch -q origin
 check "main 이 api 로 앞서 나가도 브랜치 기준 → web" "$(gate_scope origin/main s-web)" "web" "full"

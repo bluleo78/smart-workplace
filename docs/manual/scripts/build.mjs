@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { resolveBooks, ROOT } from './lib/books.mjs';
 import { boxesPath, readBoxesDoc } from './lib/boxes-file.mjs';
 import { loadChapters } from './lib/chapters.mjs';
-import { loadChromium } from './lib/cli.mjs';
+import { loadChromium, waitForPageAssets } from './lib/cli.mjs';
 import { renderBook } from './lib/render.mjs';
 
 const [book] = resolveBooks(process.argv[2]); // 생략하면 user
@@ -61,14 +61,8 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage();
   await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'load' });
-  // 웹폰트·이미지 디코딩이 끝나야 인쇄 결과가 화면과 같다.
-  await page.evaluate(async () => {
-    await document.fonts.ready;
-    await Promise.all([...document.images].map((img) => img.decode().catch(() => {})));
-  });
-  missing = await page.evaluate(() =>
-    [...document.images].filter((img) => img.naturalWidth === 0).map((img) => img.getAttribute('src')),
-  );
+  // 웹폰트·이미지 디코딩이 끝나야 인쇄 결과가 화면과 같다. 깨진 이미지 src 를 함께 받는다.
+  missing = await waitForPageAssets(page);
   if (!missing.length) {
     await page.emulateMedia({ media: 'print' });
     await page.pdf({ path: pdfPath, format: 'A4', printBackground: true, preferCSSPageSize: true });

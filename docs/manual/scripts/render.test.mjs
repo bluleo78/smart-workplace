@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { renderBook } from './lib/render.mjs';
 import { loadChapters } from './lib/chapters.mjs';
 import { BOOKS } from './lib/books.mjs';
+import { applyHelpMarkupForPdf, braceTokens, parseHeading } from './lib/help-markup.mjs';
+import { codeLineMask } from './lib/markdown.mjs';
 
 // 그림 픽스처(Task 2 와 같은 모양).
 const boxes = {
@@ -149,6 +151,14 @@ test('renderBook marks only the ordered list right after a figure as steps', () 
   assert.match(html, /<ol>\s*<li>그냥 목록/);
 });
 
+test('renderBook keeps steps across line-level condition blocks between list items (WP-1504)', () => {
+  const body = ['## 절', '', '![그림](shots/user/s.png){crop=a marks=a}', '', '1. 첫 단계', '{if app.customMcpServer}', '2. 추가 단계', '{/if}', '3. 셋째 단계', ''].join('\n');
+  const html = renderBook(BOOKS.user, [mk(1, 'intro', '소개', ['member'], body)], boxes, dateOpt);
+  assert.match(html, /<\/figure>\s*<ol class="steps">\s*<li>첫 단계/);
+  assert.equal(html.match(/<ol/g).length, 1);
+  assert.match(html, /<li><span class="cond-tag">[^<]*<\/span> 추가 단계<\/li>\s*<li>셋째 단계/);
+});
+
 test('renderBook leaves tilde-fenced figure lines untouched', () => {
   const body = ['~~~', '![그림](shots/user/zz.png){marks=nope}', '~~~', ''].join('\n');
   const html = renderBook(BOOKS.user, [mk(1, 'intro', '소개', ['member'], body)], boxes, dateOpt);
@@ -179,3 +189,85 @@ test('stripRepoLinks keeps link text and leaves images and chapter links', async
   const { stripRepoLinks } = await import('./lib/markdown.mjs');
   assert.equal(stripRepoLinks('[코드](../../apps/x.ts) ![i](../img.png) [장](02-b.md)'), '코드 ![i](../img.png) [장](02-b.md)');
 });
+
+// ── 도움말 표기(WP-1504): PDF 결과가 표기 전과 같아야 한다 ──
+
+// 표시를 단 장과 달지 않은 장을 같은 본문으로 만든다(제목 끝 표시만 다르다).
+const helpBody = (mark) =>
+  [
+    '',
+    `# 본문 첫 제목${mark(' {help=agents label=에이전트}')}`,
+    '',
+    `## 실행${mark(' {help=agent.run}')}`,
+    '',
+    '실행 설명.',
+    '',
+    `### 저장소 토큰을 연결한다${mark(' {help=agent.run.repo label=저장소 연결}')}`,
+    '',
+    '1. 토큰을 만든다',
+    '2. 붙여 넣는다',
+    '',
+    `## AI 와 함께 쓰기${mark(' {help=agent.ai}')}`,
+    '',
+    'AI 문단.',
+    '',
+  ].join('\n');
+
+test('renderBook: 제목에 도움말 표시를 단 장 = 달기 전 장', () => {
+  const plain = mk(1, 'intro', '소개', ['member'], helpBody(() => ''));
+  const marked = mk(1, 'intro', '소개', ['member'], helpBody((m) => m));
+  assert.notEqual(plain.body, marked.body);
+  assert.equal(renderBook(BOOKS.user, [marked, ch2], boxes, dateOpt), renderBook(BOOKS.user, [plain, ch2], boxes, dateOpt));
+});
+
+test('renderBook: 자리표시는 산문·인라인 코드·펜스 모두 <AI 아이디> 로 보인다', () => {
+  const body = ['', '아이디는 {agent.username} 이다.', '', '명령 `login {agent.username}` 을 친다.', '', '```bash', 'claude --as {agent.username}', '```', ''].join('\n');
+  const html = renderBook(BOOKS.user, [mk(1, 'intro', '소개', ['member'], body)], boxes, dateOpt);
+  assert.match(html, /아이디는 &lt;AI 아이디&gt; 이다/);
+  assert.match(html, /<code>login &lt;AI 아이디&gt;<\/code>/);
+  assert.match(html, /claude --as &lt;AI 아이디&gt;/);
+  assert.doesNotMatch(html, /<AI/);
+  assert.doesNotMatch(html, /agent\.username/);
+});
+
+test('renderBook: 조건 블록은 꼬리표와 함께 글을 보인다', () => {
+  const body = [
+    '',
+    '앞 {if app.customMcpServer}서버 주소를 바꾼다{/if} 뒤.',
+    '',
+    '1. 첫 단계',
+    '{if app.customMcpServer}',
+    '2. 주소를 넣는다',
+    '{/if}',
+    '3. 마친다',
+    '',
+  ].join('\n');
+  const html = renderBook(BOOKS.user, [mk(1, 'intro', '소개', ['member'], body)], boxes, dateOpt);
+  const tag = '<span class="cond-tag">(기본 주소가 아닌 서버만)</span>';
+  assert.ok(html.includes(`${tag} 서버 주소를 바꾼다 뒤`), html);
+  assert.equal(html.split(tag).length - 1, 2);
+  assert.match(html, /주소를 넣는다/);
+  assert.doesNotMatch(html, /\{\/?if/);
+});
+
+// 장 본문에 도움말 표기(제목 끝 표시·자리표시·조건 블록)가 하나라도 있는지. 실제 책 항등 테스트가 표기 단 장을 건너뛰는 데 쓴다.
+function hasHelpMarkup(body) {
+  const lines = body.split('\n');
+  const code = codeLineMask(lines);
+  return lines.some((line, i) => {
+    if (code[i]) return braceTokens(line, { inCode: true }).length > 0;
+    if (parseHeading(line)?.id) return true;
+    return braceTokens(line).some((t) => ['placeholder', 'if', 'endif'].includes(t.kind));
+  });
+}
+
+for (const key of ['user', 'operator']) {
+  test(`applyHelpMarkupForPdf: 실제 ${key} 책의 표기 없는 장은 그대로`, async () => {
+    const chapters = await loadChapters(BOOKS[key]);
+    assert.ok(chapters.length > 0);
+    for (const ch of chapters) {
+      if (hasHelpMarkup(ch.body)) continue; // 표기 단 장의 동일성은 위 픽스처 테스트가 맡는다
+      assert.equal(applyHelpMarkupForPdf(ch.body), ch.body, ch.file);
+    }
+  });
+}

@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # pre-commit gate (firehub 패턴 기반)
 # - 가벼운 정합성 검사는 항상 실행 (lint-staged)
+# - 매뉴얼(docs/manual/·도움말 묶음 플러그인)이 바뀌면 비코드여도 매뉴얼 테스트·manual:check (몇 초, WP-1504)
 # - 무거운 회귀(E2E + gradle)는 변경 영역 분석으로 선택 실행
 #   - 비코드 단독: skip
 #   - workplace-web 공유 영역/매핑 모호: 전체 E2E
@@ -19,6 +20,13 @@ set -e
 # 무거운 단계(vitest·E2E·gradle)는 저장소 전역에서 한 번에 하나만 — test-lock.sh 참조 (WP-98)
 . "$(dirname "$0")/test-lock.sh"
 
+# without_git_env <명령…> — 훅이 물려받은 git 환경(GIT_DIR·GIT_INDEX_FILE 등)을 끊고 명령을 돌린다.
+# 임시 저장소에서 git init·commit 을 부르는 테스트(test:scripts·test:hooks)가 이 값을 물려받으면 그 git 이 이 저장소·인덱스를 건드린다
+# (다시 초기화해 core.bare 를 바꾸거나 공유 브랜치에 커밋). 끊을 목록을 한곳에 두어 단계마다 어긋나지 않게 한다(2.5·3.7 단계).
+without_git_env() {
+  env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR "$@"
+}
+
 # 1) 변경 파일 목록 (테스트용 주입 우선, 없으면 git stage 에서 추출)
 if [ -n "$PRECOMMIT_CHANGED_FILES" ]; then
   CHANGED="$PRECOMMIT_CHANGED_FILES"
@@ -29,6 +37,27 @@ fi
 # 2) lint-staged 는 항상 (테스트 주입 모드면 skip — 실제 stage 가 없어 의미 없음)
 if [ -z "$PRECOMMIT_CHANGED_FILES" ]; then
   pnpm exec lint-staged
+fi
+
+# 2.5) 매뉴얼(docs/manual/) — 비코드 판정보다 먼저 돈다(WP-1504). 장 원고·도움말 그림·lib 밖 도구는 비코드라 아래 3) 에서 끝나므로
+# 여기서 돌리지 않으면 아무 검사 없이 커밋된다. 둘 다 Node 만 쓰는 빠른 검사(test:manual·test:scripts 몇 초, manual:check 1초 안팎)라
+# 「비코드 커밋은 훅이 빠르게 끝난다」를 해치지 않는다.
+# 삭제도 센다 — CHANGED 는 삭제를 빼므로(--diff-filter=ACMR) 3.7 처럼 경로를 따로 본다(지운 장을 가리키는 링크가 남은 채 커밋되지 않게).
+# test:scripts 에는 임시 저장소에서 git init·commit·checkout 을 부르는 테스트가 있어 물려받은 git 환경을 끊고 돌린다(without_git_env).
+if [ -n "$PRECOMMIT_CHANGED_FILES" ]; then
+  MANUAL_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^(docs/manual/|scripts/vite-manual-help\.)' || true)
+else
+  MANUAL_CHANGED=$(git diff --cached --name-only -- docs/manual/ 'scripts/vite-manual-help.*')
+fi
+# 매뉴얼 도구(docs/manual/scripts/)·도움말 묶음 플러그인 — 매뉴얼 테스트와 루트 scripts 테스트(플러그인 테스트가 거기 있다).
+if printf '%s\n' "$MANUAL_CHANGED" | grep -qE '^(docs/manual/scripts/|scripts/vite-manual-help\.)'; then
+  echo "[pre-commit] 매뉴얼 도구 변경 — pnpm test:manual · pnpm test:scripts 실행"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || without_git_env sh -c 'pnpm test:manual && pnpm test:scripts'
+fi
+# docs/manual/ 아래 무엇이든(장 원고·도움말 그림·도구) — manual:check(경로 대조·그림·도움말 id·절 링크·그림 낡음). 오류면 exit 1 로 막는다.
+if printf '%s\n' "$MANUAL_CHANGED" | grep -qE '^docs/manual/'; then
+  echo "[pre-commit] 매뉴얼 변경 — pnpm manual:check 실행(장 원고·그림 낡음·도움말 id·절 링크)"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || without_git_env pnpm manual:check
 fi
 
 # 3) 비코드만? → skip (규칙은 pre-push 와 공유 — noncode.sh, WP-446)
@@ -61,7 +90,7 @@ fi
 # 3.7) 게이트 훅 스크립트(scripts/husky/) — 셸 테스트(*.test.sh, 임시 저장소, 수십 초)를 돌린다 (WP-1208).
 # 이 테스트는 CI 에서 돌지 않아, 여기서 돌리지 않으면 범위·기록 판정이 깨진 채 커밋된다(가짜 「검증 완료」가 남으면 회귀를 건너뛴다).
 # 삭제도 센다 — CHANGED 는 삭제를 빼므로(--diff-filter=ACMR) 훅 파일만 따로 본다(지운 헬퍼를 source 하는 훅이 깨진 채 커밋되지 않게).
-# 테스트는 임시 저장소에서 git 을 부르므로, 훅이 물려받은 GIT_DIR·GIT_INDEX_FILE 등을 끊는다 — 남기면 그 git 이 이 저장소·인덱스를 건드린다.
+# 테스트는 임시 저장소에서 git 을 부르므로, 훅이 물려받은 git 환경을 끊고 돌린다(without_git_env).
 if [ -n "$PRECOMMIT_CHANGED_FILES" ]; then
   HOOKS_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^scripts/husky/' || true)
 else
@@ -69,7 +98,7 @@ else
 fi
 if [ -n "$HOOKS_CHANGED" ]; then
   echo "[pre-commit] 게이트 훅 변경 — 훅 셸 테스트 실행(pnpm test:hooks)"
-  [ -n "$PRECOMMIT_DRY_RUN" ] || env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR pnpm test:hooks
+  [ -n "$PRECOMMIT_DRY_RUN" ] || without_git_env pnpm test:hooks
 fi
 
 # 4) workplace-web 변경 영역 분석
