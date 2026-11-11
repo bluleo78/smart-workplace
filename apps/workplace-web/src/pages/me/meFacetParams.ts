@@ -23,7 +23,7 @@ export function meFacetParams(params: URLSearchParams): Record<string, string> {
   if (f.dueTo) out.dueTo = f.dueTo
   // 막힘(blocked) 필터 — 내 작업 위젯 '막힘' 그룹 딥링크(?blocked=true). 백엔드 /me/issues 가 이미 지원.
   if (f.blocked) out.blocked = 'true'
-  // 완료일 기간(closedIn) — 개요 탭 「모두 보기」가 고른 기간의 끝낸 이슈를 할당 탭에서 보이게 건다(WP-1484).
+  // 완료일 기간(closedIn) — 개요 탭 「완료한 이슈」 카드·추이 막대가 고른 기간에 완료한 이슈를 할당 탭에서 보이게 건다(WP-1484).
   // 서버는 /me/issues 에서도 closedFrom/closedTo(KST 날짜 양끝 포함)를 받는다. 프리셋이면 지금 시점으로 푼다.
   if (f.closedIn) {
     const range = resolveClosedRange(f.closedIn)

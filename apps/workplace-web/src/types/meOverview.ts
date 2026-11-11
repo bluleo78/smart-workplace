@@ -6,9 +6,6 @@ export type MeOverviewPeriod = 'WEEK' | 'MONTH' | 'QUARTER'
 /** 추이 칸 단위 — 일별(기본) / 주별 / 월별. */
 export type MetricsGranularity = 'DAY' | 'WEEK' | 'MONTH'
 
-/** 마감 판정 — 닫힌 날과 닫힐 당시 마감일 비교. */
-export type DueOutcome = 'ON_TIME' | 'OVERDUE' | 'NO_DUE'
-
 /** 어제 한 일 / 오늘 할 일 — 기간과 무관. 홈 위젯 한 줄도 같은 값(/me/overview/today). */
 export interface MeDaySummary {
   yesterday: string
@@ -18,7 +15,7 @@ export interface MeDaySummary {
   yesterdayCreated: number
   today: string
   overdue: number
-  /** 기한 지난 것 중 가장 오래된 것의 지난 날수 — 없으면 null. */
+  /** 마감 지난 것 중 가장 오래된 것의 지난 날수 — 없으면 null. */
   oldestOverdueDays: number | null
   dueToday: number
   waiting: number
@@ -47,7 +44,7 @@ export interface MetricsBucket {
   created: number
 }
 
-/** 앞으로 할 일 한 줄. */
+/** 맡은 이슈 한 줄. */
 export interface UpcomingItem {
   issueId: number
   projectKey: string
@@ -58,7 +55,7 @@ export interface UpcomingItem {
   aiNames: string[]
 }
 
-/** 앞으로 할 일 — 타일은 서로 겹칠 수 있다(「그 밖」만 앞 셋에 안 드는 것). */
+/** 맡은 이슈 — 타일은 서로 겹칠 수 있다(other = 「마감 여유·없음」만 앞 셋에 안 드는 것). */
 export interface Upcoming {
   openAssigned: number
   overdue: number
@@ -71,23 +68,13 @@ export interface Upcoming {
   otherTop: UpcomingItem[]
 }
 
-/** 끝낸 일 한 줄. */
-export interface ClosedItem {
+/** 마감 준수 카드의 늦게 완료한 이슈 한 줄. */
+export interface LateItem {
   issueId: number
   projectKey: string
   number: number
   title: string
-  closedAt: string
-  closedDate: string
-  dueAtClose: string | null
-  outcome: DueOutcome
-  lateDays: number | null
-  leadTimeDays: number | null
-  withAi: boolean
-  aiNames: string[]
-  /** 요청 내용 — 본문 앞부분 평문. */
-  request: string | null
-  lastComment: { authorName: string; text: string } | null
+  lateDays: number
 }
 
 /** 개요 한 화면 전체. */
@@ -96,19 +83,14 @@ export interface MeOverviewResponse {
   granularity: MetricsGranularity
   from: string
   to: string
+  /** 직전 같은 기간(같은 길이의 바로 앞 기간) 첫날·마지막 날 — 비교 문구 툴팁에 보인다. */
   previousFrom: string
   previousTo: string
   day: MeDaySummary
   current: MetricsSummary
   previous: MetricsSummary
   buckets: MetricsBucket[]
-  /** 날짜별 끝냄·만듦(일별) — 끝낸 일 목록 날짜 줄 합계용. */
-  dailyTotals: MetricsBucket[]
   upcoming: Upcoming
-  /** 끝낸 이슈 — 최근 끝낸 순 최대 50건. */
-  closed: ClosedItem[]
-  /** 기간에 끝낸 이슈 전체 수 — closed 보다 많으면 목록이 잘렸다(「모두 보기」로 안내). */
-  closedTotal: number
-  /** 늦은 이슈 상위 2건 — 잘린 목록이 아니라 기간 전체에서 서버가 고른다. */
-  lateTop: ClosedItem[]
+  /** 늦게 완료한 이슈 상위 2건 — 기간 전체에서 서버가 고른다. */
+  lateTop: LateItem[]
 }

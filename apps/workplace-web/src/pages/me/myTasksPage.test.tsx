@@ -256,7 +256,7 @@ describe('내 작업 묶음 목록(WP-916)', () => {
     expect(screen.getByTestId('show-all-closed-toggle')).toBeDisabled()
   })
 
-  // WP-1484: 개요 「모두 보기」 주소(status=DONE&closedIn=기간)는 완료일 기간을 서버 closedFrom/closedTo 로 보내고, 필터 초기화가 함께 지운다.
+  // WP-1484: 개요 「완료한 이슈」·추이 막대 주소(status=DONE&closedIn=기간)는 완료일 기간을 서버 closedFrom/closedTo 로 보내고, 필터 초기화가 함께 지운다.
   test('완료일 기간(closedIn)은 closedFrom·closedTo 로 조회하고, 필터로 세어 초기화가 지운다', async () => {
     const done = createIssue({ id: 77, title: '기간 안 완료', status: 'DONE' })
     const { seen } = renderMyTasks('/me/tasks/assigned?status=DONE&closedIn=2026-11-01~2026-11-11', (sp) =>

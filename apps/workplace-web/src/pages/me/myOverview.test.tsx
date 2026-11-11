@@ -1,7 +1,7 @@
-// 「내 작업 · 개요」 탭(WP-1484) — 화면 테스트(renderScreen). 탭 기억(첫 방문 개요 → 그다음 마지막 탭), 위젯 렌더(숫자·배지·날짜 묶음),
-// 기간·단위 전환 → 요청 파라미터, 타일 전환, 막대 클릭 → 끝낸 일 목록이 그 칸으로, 줄 펼치기, 빈 상태(처음 쓰는 사람), 실패 → 다시 시도.
+// 「내 작업 · 개요」 탭(WP-1484) — 화면 테스트(renderScreen). 탭 기억(첫 방문 개요 → 그다음 마지막 탭), 위젯 렌더(숫자·문구),
+// 「완료한 이슈」 카드·추이 막대 → 할당 탭 완료 목록 주소, 직전 같은 기간 툴팁, 기간·단위 전환 → 요청 파라미터, 타일 전환, 빈 상태(처음 쓰는 사람), 실패 → 다시 시도.
 // 모두 API 응답·주소가 화면으로 바뀌는 판정이라 브라우저 없이 본다(apps/workplace-web/CLAUDE.md 「테스트 종류 판정」).
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test } from 'vitest'
@@ -69,83 +69,112 @@ describe('내 작업 · 개요', () => {
     await waitFor(() => expect(bogus.location()).toBe('/me/tasks/assigned'))
   })
 
-  test('어제/오늘·숫자 넷·기한 준수가 응답 숫자로 그려진다', async () => {
+  test('어제/오늘·숫자 넷·마감 준수가 응답 숫자와 앱 말투(해요체·완료·마감·제때/늦게)로 그려진다', async () => {
     const { seen } = renderTasks('/me/tasks/overview')
     const yesterday = await screen.findByTestId('overview-yesterday')
-    expect(yesterday).toHaveTextContent('11월 10일 (화)')
-    expect(yesterday).toHaveTextContent('2 건 끝냄')
-    expect(yesterday).toHaveTextContent('그중 AI와 함께 1 · 기한 내 1')
-    expect(yesterday).toHaveTextContent('2 건 새로 만듦')
+    expect(within(yesterday).getByRole('heading')).toHaveTextContent(/^어제 11월 10일 \(화\)$/)
+    expect(yesterday).toHaveTextContent('완료 2건')
+    expect(yesterday).toHaveTextContent('AI와 함께 1건 · 제때 1건')
+    expect(yesterday).toHaveTextContent('새로 만든 이슈 2건')
     const today = screen.getByTestId('overview-today')
-    expect(today).toHaveTextContent('3 건 기한 지남')
-    expect(today).toHaveTextContent('가장 오래된 것 6일')
-    expect(today).toHaveTextContent('2 건 오늘 마감')
-    expect(today).toHaveTextContent('4 건 나를 기다림')
+    expect(within(today).getByRole('heading')).toHaveTextContent(/^오늘 11월 11일 \(수\)할당 탭에서 보기$/)
+    expect(today).toHaveTextContent('마감 지남 3건')
+    expect(today).toHaveTextContent('최장 6일 지남')
+    expect(today).toHaveTextContent('오늘 마감 2건')
+    expect(today).toHaveTextContent('답변 필요 4건')
+    expect(today).toHaveTextContent('AI가 질문함')
     expect(within(today).getByRole('link', { name: '할당 탭에서 보기' })).toHaveAttribute('href', '/me/tasks/assigned')
     // 기본 요청 — 이번 달·일별.
     expect(seen[0].get('period')).toBe('MONTH')
     expect(seen[0].get('granularity')).toBe('DAY')
 
-    expect(screen.getByTestId('stat-completed')).toHaveTextContent('끝낸 이슈 · 이번 달3지난 기간 5 · 그중 AI와 함께 1')
-    expect(screen.getByTestId('stat-due')).toHaveTextContent('1/1')
-    expect(screen.getByTestId('stat-due')).toHaveTextContent('마감 있는 2건 · 준수율 50%')
-    expect(screen.getByTestId('stat-lead')).toHaveTextContent('2.8일')
-    expect(screen.getByTestId('stat-lead')).toHaveTextContent('지난 기간 3.6일')
-    expect(screen.getByTestId('stat-created')).toHaveTextContent('지난 기간 4')
+    // 숫자 카드 — 기간을 제목에 되풀이하지 않고, 비교는 「직전 같은 기간」.
+    const stats = screen.getByTestId('overview-stats')
+    expect(stats).not.toHaveTextContent('이번 달')
+    expect(stats).not.toHaveTextContent('지난 기간')
+    const completed = screen.getByTestId('stat-completed')
+    expect(completed).toHaveTextContent('완료한 이슈3')
+    expect(completed).toHaveTextContent('AI와 함께 1건 ·직전 같은 기간 5건')
+    expect(screen.getByTestId('stat-due')).toHaveTextContent('제때 / 늦게1/1')
+    expect(screen.getByTestId('stat-due')).toHaveTextContent('마감 있던 2건 중 50% 제때')
+    expect(screen.getByTestId('stat-lead')).toHaveTextContent('평균 처리 기간2.8일')
+    expect(screen.getByTestId('stat-lead')).toHaveTextContent('만든 날부터 완료까지 ·직전 같은 기간 3.6일')
+    expect(screen.getByTestId('stat-created')).toHaveTextContent('새로 만든 이슈3직전 같은 기간 4건')
 
+    const due = screen.getByTestId('overview-due')
+    expect(within(due).getByRole('heading')).toHaveTextContent('마감 준수 마감 있던 2건')
+    expect(due).toHaveTextContent('제때 완료1')
+    expect(due).toHaveTextContent('늦게 완료1')
     expect(screen.getByTestId('overview-due-rate')).toHaveTextContent('50%')
-    expect(screen.getByTestId('overview-due-meta')).toHaveTextContent('늦은 1건 · 평균 2일 늦음 · 지난 기간 준수율 75%')
-    expect(within(screen.getByTestId('overview-late-top')).getByRole('link')).toHaveTextContent('WP-1465노트 표 붙여넣기2일')
-    expect(screen.getByTestId('overview-trend')).toHaveTextContent('하루 평균 0.3건')
+    expect(screen.getByTestId('overview-due-meta')).toHaveTextContent('늦은 1건은 평균 2일 늦었어요 ·직전 같은 기간 75%')
+    expect(due).toHaveTextContent('가장 늦게 완료한 이슈')
+    expect(within(screen.getByTestId('overview-late-top')).getByRole('link')).toHaveTextContent('WP-1465노트 표 붙여넣기2일 늦음')
+    const trend = screen.getByTestId('overview-trend')
+    expect(trend).toHaveTextContent('완료 추이하루 평균 0.3건')
+    expect(trend).toHaveTextContent('그중 늦게 완료')
+    expect(trend).toHaveTextContent('막대를 눌러 그 기간에 완료한 이슈 보기')
   })
 
-  test('끝낸 일은 날짜별 묶음·배지·AI 태그·소요일, 펼치면 요청 내용과 마지막 코멘트', async () => {
-    const { user } = renderTasks('/me/tasks/overview')
-    const day10 = await screen.findByTestId('closed-day-2026-11-10')
-    expect(day10).toHaveTextContent('11월 10일 (화) · 끝냄 2 · 만듦 2')
-    expect(screen.getByTestId('closed-day-2026-11-09')).toHaveTextContent('끝냄 1 · 만듦 1')
-    const row = screen.getByTestId('closed-row-1467')
-    expect(row).toHaveTextContent('WP-1467드라이브 복원AI 개발자2기한 내1.5일')
-    expect(screen.getByTestId('closed-row-1465')).toHaveTextContent('2일 늦음')
-    expect(screen.getByTestId('closed-row-1447')).toHaveTextContent('마감 없음')
-    // 「모두 보기」 — 할당 탭 완료 목록에 이 기간을 건다.
-    expect(screen.getByTestId('overview-closed-all')).toHaveAttribute('href', '/me/tasks/assigned?status=DONE&closedIn=2026-11-01%7E2026-11-11')
-
-    expect(screen.queryByTestId('closed-detail-1467')).toBeNull()
-    await user.click(within(row).getByRole('button', { name: 'WP-1467 요청 내용 펼치기' }))
-    const detail = screen.getByTestId('closed-detail-1467')
-    expect(detail).toHaveTextContent('요청일괄 삭제한 묶음에서 하나만 복원')
-    expect(detail).toHaveTextContent('마지막 코멘트AI 개발자2 — 복원 단위를 바꿨어요')
+  test('「끝낸 일」 목록은 없고 화면은 맡은 이슈로 끝난다', async () => {
+    renderTasks('/me/tasks/overview')
+    const page = await screen.findByTestId('overview')
+    expect(screen.queryByTestId('overview-closed')).toBeNull()
+    expect(page).not.toHaveTextContent('끝낸 일')
+    expect(page.lastElementChild).toBe(screen.getByTestId('overview-upcoming'))
   })
 
-  test('막대를 누르면 끝낸 일 목록이 그날로 좁혀지고, 칩으로 되돌린다', async () => {
-    const { user } = renderTasks('/me/tasks/overview')
-    const bar = await screen.findByRole('button', { name: '11월 9일 (월) · 끝냄 1 · 새로 만듦 1 · 기한 초과 0' })
+  test('「완료한 이슈」 카드를 누르면 할당 탭 완료 목록이 이 기간·완료(취소 제외)로 열린다', async () => {
+    const { user, location } = renderTasks('/me/tasks/overview')
+    const link = await screen.findByTestId('stat-completed-link')
+    expect(link).toHaveAttribute('href', '/me/tasks/assigned?status=DONE&closedIn=2026-11-01%7E2026-11-11')
+    await user.click(link)
+    await waitFor(() => expect(location()).toBe('/me/tasks/assigned?status=DONE&closedIn=2026-11-01%7E2026-11-11'))
+  })
+
+  test('추이 막대는 그 칸의 기간으로 할당 탭 완료 목록을 연다(툴팁·aria 는 완료 n건 (늦게 n건) / 새로 만든 이슈 n건)', async () => {
+    const { user, location } = renderTasks('/me/tasks/overview')
+    const late = await screen.findByRole('link', { name: '11월 10일 (화) · 완료 2건 (늦게 1건) · 새로 만든 이슈 2건' })
+    expect(late).toHaveAttribute('href', '/me/tasks/assigned?status=DONE&closedIn=2026-11-10%7E2026-11-10')
+    // 늦게 완료가 없으면 괄호를 뺀다.
+    const bar = screen.getByRole('link', { name: '11월 9일 (월) · 완료 1건 · 새로 만든 이슈 1건' })
     await user.click(bar)
-    expect(bar).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('closed-day-2026-11-09')).toBeInTheDocument()
-    expect(screen.queryByTestId('closed-day-2026-11-10')).toBeNull()
-    expect(screen.getByTestId('overview-closed-picked')).toHaveTextContent('11월 9일 (월)만 보는 중')
-    // 일이 없는 날을 누르면 그 칸엔 없다고 알린다.
-    await user.click(screen.getByRole('button', { name: '11월 3일 (화) · 끝냄 0 · 새로 만듦 0 · 기한 초과 0' }))
-    expect(screen.getByTestId('overview-closed-empty')).toHaveTextContent('이 칸에 끝낸 이슈가 없어요')
-    await user.click(screen.getByTestId('overview-closed-picked'))
-    expect(screen.getByTestId('closed-day-2026-11-10')).toBeInTheDocument()
-    expect(screen.getByTestId('closed-day-2026-11-09')).toBeInTheDocument()
+    await waitFor(() => expect(location()).toBe('/me/tasks/assigned?status=DONE&closedIn=2026-11-09%7E2026-11-09'))
+  })
+
+  test('주별 추이 막대는 그 주(기간 안으로 잘린 칸)로 건다', async () => {
+    const weekly = overview({
+      granularity: 'WEEK',
+      buckets: [
+        { start: '2026-11-01', end: '2026-11-01', completed: 0, overdue: 0, created: 0 },
+        { start: '2026-11-02', end: '2026-11-08', completed: 1, overdue: 0, created: 1 },
+        { start: '2026-11-09', end: '2026-11-11', completed: 2, overdue: 1, created: 2 },
+      ],
+    })
+    const { user } = renderTasks('/me/tasks/overview', () => weekly)
+    await screen.findByTestId('overview')
+    await user.click(within(screen.getByRole('group', { name: '막대 단위' })).getByRole('button', { name: '주별' }))
+    const link = await screen.findByRole('link', { name: /^11월 9일 ~ 11월 11일 · 완료 2건/ })
+    expect(link).toHaveAttribute('href', '/me/tasks/assigned?status=DONE&closedIn=2026-11-09%7E2026-11-11')
+  })
+
+  test('「직전 같은 기간」에 초점을 주면 실제 비교 날짜를 툴팁으로 보인다', async () => {
+    renderTasks('/me/tasks/overview')
+    const compare = await screen.findByTestId('stat-completed-compare')
+    expect(compare).toHaveTextContent('직전 같은 기간 5건')
+    fireEvent.focus(compare)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('10월 21일~31일과 비교')
   })
 
   test('기간·추이 단위를 바꾸면 그 값으로 다시 부르고 기간은 주소에 남는다', async () => {
     const { user, seen, location } = renderTasks('/me/tasks/overview', (sp) => overview({ period: (sp.get('period') ?? 'MONTH') as MeOverviewResponse['period'] }))
     await screen.findByTestId('overview')
-    const periods = within(screen.getByRole('group', { name: '기간' }))
-    expect(screen.getByTestId('overview-period')).toHaveTextContent('나만 볼 수 있어요')
+    const periods = within(screen.getByRole('group', { name: '조회 기간' }))
+    expect(screen.getByTestId('overview-period')).toHaveTextContent('나에게만 보여요')
     expect(periods.getByRole('button', { name: '이번 달' })).toHaveAttribute('aria-pressed', 'true')
     await user.click(periods.getByRole('button', { name: '이번 주' }))
     await waitFor(() => expect(location()).toBe('/me/tasks/overview?period=WEEK'))
     await waitFor(() => expect(seen.at(-1)?.get('period')).toBe('WEEK'))
-    expect(await screen.findByText(/끝낸 이슈 · 이번 주/)).toBeInTheDocument()
-
-    await user.click(within(screen.getByRole('group', { name: '추이 단위' })).getByRole('button', { name: '주별' }))
+    await user.click(within(screen.getByRole('group', { name: '막대 단위' })).getByRole('button', { name: '주별' }))
     await waitFor(() => expect(seen.at(-1)?.get('granularity')).toBe('WEEK'))
     expect(seen.at(-1)?.get('period')).toBe('WEEK')
 
@@ -154,12 +183,12 @@ describe('내 작업 · 개요', () => {
     await waitFor(() => expect(location()).toBe('/me/tasks/overview'))
   })
 
-  test('앞으로 할 일 — 건수가 있는 첫 타일이 골라져 있고, 타일을 누르면 상위 목록이 바뀐다', async () => {
+  test('맡은 이슈 — 건수가 있는 첫 타일이 골라져 있고, 타일을 누르면 상위 목록이 바뀐다', async () => {
     const { user } = renderTasks('/me/tasks/overview')
     const card = await screen.findByTestId('overview-upcoming')
-    expect(card).toHaveTextContent('맡은 열린 이슈 18')
+    expect(within(card).getByRole('heading')).toHaveTextContent('맡은 이슈 열린 이슈 18건')
+    expect(within(card).getByRole('group', { name: '맡은 이슈 분류' })).toHaveTextContent('마감 지남3 7일 안 마감4 답변 필요4 마감 여유·없음7')
     expect(screen.getByTestId('upcoming-tile-overdue')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('upcoming-tile-other')).toHaveTextContent('그 밖7')
     const list = () => screen.getByTestId('overview-upcoming-list')
     expect(list()).toHaveTextContent('WP-1294genia 실행기 첫 응답 지연AI 개발자16일 지남')
     await user.click(screen.getByTestId('upcoming-tile-waiting'))
@@ -170,18 +199,33 @@ describe('내 작업 · 개요', () => {
     // 상위가 없는 묶음.
     await user.click(screen.getByTestId('upcoming-tile-other'))
     expect(screen.queryByTestId('overview-upcoming-list')).toBeNull()
-    expect(within(card).getByRole('link', { name: '할당 탭에서 모두 보기' })).toHaveAttribute('href', '/me/tasks/assigned')
+    expect(card).toHaveTextContent('해당하는 이슈가 없어요')
+    expect(within(card).getByRole('link', { name: '할당 탭에서 보기' })).toHaveAttribute('href', '/me/tasks/assigned')
   })
 
   test('처음 쓰는 사람은 위젯마다 짧은 안내가 보인다', async () => {
     renderTasks('/me/tasks/overview', () => emptyOverview())
-    expect(await screen.findByTestId('overview-trend-empty')).toHaveTextContent('이 기간에 끝낸 이슈가 없어요')
-    expect(screen.getByTestId('overview-due-empty')).toBeInTheDocument()
-    expect(screen.getByTestId('overview-upcoming-empty')).toHaveTextContent('맡은 열린 이슈가 없어요')
-    expect(screen.getByTestId('overview-closed-empty')).toHaveTextContent('이 기간에 끝낸 이슈가 없어요')
-    expect(screen.getByTestId('overview-yesterday')).toHaveTextContent('어제 끝내거나 만든 이슈가 없어요')
+    expect(await screen.findByTestId('overview-trend-empty')).toHaveTextContent('이 기간에 완료한 이슈가 없어요')
+    expect(screen.getByTestId('overview-due-empty')).toHaveTextContent('이슈를 완료하면 마감 준수율을 보여 드려요')
+    expect(screen.getByTestId('overview-upcoming-empty')).toHaveTextContent('지금 맡은 열린 이슈가 없어요')
+    expect(screen.getByTestId('overview-yesterday')).toHaveTextContent('어제 완료하거나 만든 이슈가 없어요')
     expect(screen.getByTestId('stat-lead')).toHaveTextContent('—')
-    expect(screen.getByTestId('stat-due')).toHaveTextContent('준수율 —')
+    expect(screen.getByTestId('stat-due')).toHaveTextContent('마감이 있던 이슈가 없어요')
+  })
+
+  test('완료는 있는데 모두 마감 없음이면 마감 준수에 「—」 대신 안내, 늦은 건이 없으면 평균 대신 사실만', async () => {
+    const o = overview()
+    renderTasks('/me/tasks/overview', () =>
+      overview({ current: { ...o.current, onTime: 0, overdue: 0, noDue: 3, onTimeRate: null, overdueLateDaysAvg: null }, lateTop: [] }),
+    )
+    expect(await screen.findByTestId('overview-due-nodue')).toHaveTextContent('마감이 있던 이슈가 없어요')
+    expect(screen.queryByTestId('overview-due-rate')).toBeNull()
+  })
+
+  test('늦게 완료한 이슈가 없으면 「늦은 0건은 평균 —」 대신 그 사실을 말한다', async () => {
+    const o = overview()
+    renderTasks('/me/tasks/overview', () => overview({ current: { ...o.current, onTime: 2, overdue: 0, overdueLateDaysAvg: null, onTimeRate: 1 }, lateTop: [] }))
+    expect(await screen.findByTestId('overview-due-meta')).toHaveTextContent('늦게 완료한 이슈가 없어요 ·직전 같은 기간 75%')
   })
 
   test('불러오기 실패는 다시 시도, 누르면 다시 부른다', async () => {

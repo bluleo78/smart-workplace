@@ -86,10 +86,12 @@ test('담당 조회만 5xx 여도 위젯 전체를 오류+재시도로 보인다
   expect(screen.queryByTestId('dash-mytasks')).not.toBeInTheDocument()
 })
 
-test('맨 위 한 줄에 어제 끝냄·오늘 기한 지남·나를 기다림, 누르면 내 작업 개요 탭으로 간다(WP-1484)', async () => {
+test('맨 위 한 줄에 어제 완료·마감 지남·답변 필요, 누르면 내 작업 개요 탭으로 간다(WP-1484)', async () => {
   const { user, location } = renderTasks([createIssue({ id: 1, number: 1, title: '진행 작업', status: 'IN_PROGRESS' })], [])
   const line = await screen.findByTestId('dash-mytasks-today')
-  expect(line).toHaveTextContent('어제 끝냄 5 · 오늘 기한 지남 3 · 나를 기다림 4')
+  expect(line).toHaveTextContent('어제 완료 5 · 마감 지남 3 · 답변 필요 4')
+  // 아래 줄의 「n건이 나를 기다림」과 겹치지 않게 이 줄엔 「나를 기다림」을 쓰지 않는다.
+  expect(line).not.toHaveTextContent('나를 기다림')
   await user.click(line)
   expect(location()).toBe('/me/tasks/overview')
 })

@@ -1,14 +1,10 @@
 package com.workplace.issue.service;
 
-import com.workplace.global.util.ChatMarkdownText;
-import com.workplace.global.util.MentionParser;
-import com.workplace.global.util.Texts;
 import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.dto.MeDaySummary;
 import com.workplace.issue.dto.MeOverviewPeriod;
 import com.workplace.issue.dto.MeOverviewResponse;
-import com.workplace.issue.dto.MeOverviewResponse.ClosedItem;
-import com.workplace.issue.dto.MeOverviewResponse.LastComment;
+import com.workplace.issue.dto.MeOverviewResponse.LateItem;
 import com.workplace.issue.dto.MeOverviewResponse.Upcoming;
 import com.workplace.issue.dto.MeOverviewResponse.UpcomingItem;
 import com.workplace.issue.metrics.ClosedIssueFact;
@@ -21,23 +17,19 @@ import com.workplace.issue.metrics.MetricsGranularity;
 import com.workplace.issue.metrics.MetricsPeriod;
 import com.workplace.issue.metrics.MetricsSummary;
 import com.workplace.issue.repository.MeOverviewRepository;
-import com.workplace.issue.repository.MeOverviewRepository.CommentHead;
 import com.workplace.issue.repository.MeOverviewRepository.IssueDisplay;
 import com.workplace.issue.repository.MeOverviewRepository.OpenIssueRow;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,13 +37,14 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 「내 작업 · 개요」 탭(WP-1484) — 호출자 본인의 개요 한 화면과, 홈 위젯이 쓰는 「어제/오늘」 요약을 만든다.
  *
- * <p>숫자는 지표 모듈({@link IssueMetricsService#forMe})을 그대로 쓴다 — 기간 지표, 어제 끝냄(어제가 고른 기간 안이면 기간 결과의 일별
- * 칸·끝낸 이슈 판정에서 꺼내고, 기간 밖이거나 홈 위젯 요약이면 하루짜리 기간으로 한 번 더 부른다), 추이 칸, 끝낸 이슈 판정. 지표 모듈에 없는 것(열린 이슈의
- * 오늘/앞으로 할 일, 나를 기다림, 끝낸 일 표시 정보)만 {@link MeOverviewRepository} 로 채운다. 다른 사람 id 를 받는 메서드는 일부러 두지
- * 않는다 — 관리자라도 남의 개요를 볼 길이 없게(설계 「하면 안 되는 것」).
+ * <p>숫자는 지표 모듈({@link IssueMetricsService#forMe})을 그대로 쓴다 — 기간 지표, 어제 완료(어제가 고른 기간 안이고 추이가 일별이면 기간
+ * 결과의 일별 칸·완료 판정에서 꺼내고, 아니면 하루짜리 기간으로 한 번 더 부른다), 추이 칸, 완료 판정. 지표 모듈에 없는 것(열린 이슈의 오늘/맡은 이슈, 답변 필요,
+ * 늦게 완료한 이슈의 키·제목)만 {@link MeOverviewRepository} 로 채운다. 완료한 이슈 목록은 싣지 않는다 — 화면이 할당 탭(완료일 필터)으로
+ * 보낸다(WP-1484 문구 감사로 「끝낸 일」 섹션을 뺐다). 다른 사람 id 를 받는 메서드는 일부러 두지 않는다 — 관리자라도 남의 개요를 볼 길이 없게(설계 「하면 안
+ * 되는 것」).
  *
- * <p>쿼리 수는 이슈 수와 무관하게 고정이다: 지표 모듈 호출 1~3번(기간, 칸 단위가 일별이 아니면 날짜 줄용 일별, 어제가 기간 밖이면 어제) + 열린 이슈 1 + 표시
- * 정보 1 + 마지막 코멘트 1 + AI 이름 2 + 멘션 이름 1. 끝낸 일 목록은 최근 {@link #CLOSED_LIMIT} 건만 표시 정보를 채운다.
+ * <p>쿼리 수는 이슈 수와 무관하게 고정이다: 지표 모듈 호출 1~2번(기간, 어제를 기간 결과에서 꺼낼 수 없으면 어제) + 열린 이슈 1 + 늦은 이슈 표시 정보 1 +
+ * 맡은 이슈 AI 이름 1.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,16 +56,8 @@ public class MeOverviewService {
   /** 마감 임박 범위(일) — 오늘부터 7일 뒤까지(설계: 「마감 임박 7일」). */
   static final int DUE_SOON_DAYS = 7;
 
-  /** 요청 내용·마지막 코멘트 미리보기 글자 수 — 펼친 줄에서 두세 줄 정도. */
-  static final int EXCERPT_CHARS = 200;
-
-  /** 끝낸 일 목록에 싣는 최대 건수(최근 끝낸 순) — 석 달 치를 통째로 내려 코멘트·AI 이름·멘션까지 붙이지 않게. 나머지는 「모두 보기」로 간다. */
-  static final int CLOSED_LIMIT = 50;
-
-  /** 기한 준수 카드의 「늦은 이슈 상위」 건수 — 목록을 잘라도 기간 전체에서 고르도록 서버가 따로 계산한다. */
+  /** 마감 준수 카드의 「가장 늦게 완료한 이슈」 건수 — 기간 전체에서 서버가 고른다. */
   static final int LATE_TOP_N = 2;
-
-  private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
   private final IssueMetricsService metricsService;
   private final MeOverviewRepository repository;
@@ -108,18 +93,16 @@ public class MeOverviewService {
     MetricsPeriod range = period.resolve(today);
 
     IssueMetrics metrics = metricsService.forMe(callerId, range, granularity);
-    // 끝낸 일 목록의 날짜 줄(「끝냄 n · 만듦 n」)은 하루 단위라, 추이를 주별·월별로 볼 때만 일별 칸을 한 번 더 받는다.
-    List<MetricsBucket> daily =
-        granularity == MetricsGranularity.DAY
-            ? metrics.buckets()
-            : metricsService.forMe(callerId, range, MetricsGranularity.DAY).buckets();
 
     List<OpenIssueRow> open = repository.findOpenIssues(callerId);
-    // 어제가 고른 기간 안이면 이미 받은 기간 결과(자르기 전 끝낸 이슈 전부 + 일별 칸)에서 어제 숫자를 꺼낸다 — 지표 모듈을 한 번 덜 부른다.
-    MeDaySummary day =
-        daySummary(callerId, today, open, new InRange(range, metrics.closedIssues(), daily));
+    // 추이가 일별이면 기간 결과(완료 판정 전부 + 일별 칸)에서 어제 숫자를 꺼낸다 — 지표 모듈을 한 번 덜 부른다. 주별·월별이면 어제 만든 수를 칸에서
+    // 꺼낼 수 없으므로 하루짜리 기간으로 따로 묻는다(기간 전체를 일별로 다시 받는 것보다 싸다).
+    InRange inRange =
+        granularity == MetricsGranularity.DAY
+            ? new InRange(range, metrics.closedIssues(), metrics.buckets())
+            : null;
+    MeDaySummary day = daySummary(callerId, today, open, inRange);
     Upcoming upcoming = upcoming(open, today);
-    ClosedList closed = closedList(metrics.closedIssues());
 
     return new MeOverviewResponse(
         period,
@@ -132,11 +115,8 @@ public class MeOverviewService {
         metrics.current(),
         metrics.previous(),
         metrics.buckets(),
-        daily,
         withAiNames(upcoming),
-        closed.items(),
-        closed.total(),
-        closed.lateTop());
+        lateTop(metrics.closedIssues()));
   }
 
   /**
@@ -158,8 +138,8 @@ public class MeOverviewService {
    * 개요가 이미 받은 기간 결과 — 어제 숫자를 다시 묻지 않고 꺼내는 데 쓴다.
    *
    * @param range 고른 기간
-   * @param facts 기간의 끝낸 이슈 판정 전부(목록 자르기 전)
-   * @param daily 기간의 일별 칸
+   * @param facts 기간의 완료 판정 전부
+   * @param daily 기간의 일별 칸(추이가 일별일 때의 칸)
    */
   private record InRange(
       MetricsPeriod range, List<ClosedIssueFact> facts, List<MetricsBucket> daily) {}
@@ -168,7 +148,7 @@ public class MeOverviewService {
    * 어제 한 일은 지표 모듈과 같은 정의(닫힐 때 담당자·닫힐 당시 마감일·AI와 함께)로 센다 — 어제가 기간 안이면 기간 결과에서, 아니면(홈 위젯 요약 포함) 하루짜리
    * 기간(달력상 어제)을 지표 모듈에 따로 묻는다. 오늘 할 일은 열린 이슈에서 센다.
    *
-   * @param inRange 개요가 받은 기간 결과(홈 위젯 요약이면 null)
+   * @param inRange 개요가 받은 기간 결과(홈 위젯 요약이거나 추이가 일별이 아니면 null)
    */
   private MeDaySummary daySummary(
       long callerId, LocalDate today, List<OpenIssueRow> open, InRange inRange) {
@@ -222,8 +202,8 @@ public class MeOverviewService {
   }
 
   /**
-   * 앞으로 할 일 — 타일은 서로 겹칠 수 있다({@link Upcoming} 참조). 「그 밖」은 맡은 열린 이슈 중 기한 지남·마감 임박·나를 기다림 어디에도 들지 않는
-   * 것.
+   * 맡은 이슈 — 타일은 서로 겹칠 수 있다({@link Upcoming} 참조). 「마감 여유·없음」(other)은 맡은 열린 이슈 중 마감 지남·7일 안 마감·답변 필요
+   * 어디에도 들지 않는 것.
    */
   static Upcoming upcoming(List<OpenIssueRow> open, LocalDate today) {
     LocalDate soonLimit = today.plusDays(DUE_SOON_DAYS);
@@ -245,7 +225,7 @@ public class MeOverviewService {
         Comparator.comparing(
                 OpenIssueRow::waitingSince, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(OpenIssueRow::issueId);
-    // 그 밖은 마감이 있는 것 먼저(가까운 순), 마감 없으면 최근 바뀐 순 — 손댈 차례가 가까운 것부터.
+    // 마감 여유·없음은 마감이 있는 것 먼저(가까운 순), 마감 없으면 최근 바뀐 순 — 손댈 차례가 가까운 것부터.
     Comparator<OpenIssueRow> byOther =
         Comparator.comparing(OpenIssueRow::dueDate, Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(OpenIssueRow::updatedAt, Comparator.reverseOrder())
@@ -280,14 +260,14 @@ public class MeOverviewService {
         .toList();
   }
 
-  /** 앞으로 할 일 상위 줄에 지금 담당인 AI 이름을 붙인다 — 타일 넷의 상위 id 를 모아 한 번에 조회. */
+  /** 맡은 이슈 상위 줄에 지금 담당인 AI 이름을 붙인다 — 타일 넷의 상위 id 를 모아 한 번에 조회. */
   private Upcoming withAiNames(Upcoming u) {
     Set<Long> ids = new LinkedHashSet<>();
     for (List<UpcomingItem> list :
         List.of(u.overdueTop(), u.dueSoonTop(), u.waitingTop(), u.otherTop())) {
       list.forEach(i -> ids.add(i.issueId()));
     }
-    Map<Long, List<String>> names = repository.findAiNames(ids, true);
+    Map<Long, List<String>> names = repository.findCurrentAiNames(ids);
     return new Upcoming(
         u.openAssigned(),
         u.overdue(),
@@ -315,22 +295,10 @@ public class MeOverviewService {
   }
 
   /**
-   * 끝낸 일 목록 결과.
-   *
-   * @param items 최근 끝낸 순 최대 {@link #CLOSED_LIMIT} 건(표시 정보가 사라진 경합 건은 빠진다)
-   * @param total 기간에 끝낸 이슈 전체 수(지표 모듈 판정 수 — 목록이 잘렸는지 화면이 안다)
-   * @param lateTop 기간 전체에서 늦은 날수 큰 순 상위 {@link #LATE_TOP_N} 건
+   * 마감 준수 카드의 「가장 늦게 완료한 이슈」 — 기간 전체의 완료 판정에서 늦은 날수 큰 순(같으면 최근 닫힌 순) 상위 {@link #LATE_TOP_N} 건을 골라
+   * 키·제목만 붙인다. 지표 모듈이 센 직후 이슈가 지워진 경합이면 표시 정보가 없어 그 건만 뺀다(숫자는 지표 모듈 것을 그대로 둔다).
    */
-  private record ClosedList(List<ClosedItem> items, int total, List<ClosedItem> lateTop) {}
-
-  /**
-   * 지표 모듈의 끝낸 이슈 판정에 키·제목·AI 이름·요청 내용·마지막 코멘트를 붙인다(순서 = 닫힌 시각 내림차순 유지). 표시 정보는 최근 {@link
-   * #CLOSED_LIMIT} 건에만 붙이고, 늦은 이슈 상위는 기간 전체에서 골라 키·제목만 붙인다(목록에 들어 있으면 그 줄을 그대로 쓴다).
-   */
-  private ClosedList closedList(List<ClosedIssueFact> facts) {
-    if (facts.isEmpty()) return new ClosedList(List.of(), 0, List.of());
-    List<ClosedIssueFact> shown = facts.stream().limit(CLOSED_LIMIT).toList();
-    // 늦은 날수 큰 순, 같으면 최근 닫힌 순(지표 모듈 기본 순서) — 화면이 하던 정렬을 기간 전체로 옮겼다.
+  private List<LateItem> lateTop(List<ClosedIssueFact> facts) {
     List<ClosedIssueFact> late =
         facts.stream()
             .filter(f -> f.outcome() == DueOutcome.OVERDUE)
@@ -340,93 +308,16 @@ public class MeOverviewService {
                     .thenComparing(IssueMetricsCalculator.CLOSED_DESC))
             .limit(LATE_TOP_N)
             .toList();
-
-    List<Long> shownIds = shown.stream().map(ClosedIssueFact::issueId).toList();
-    Set<Long> displayIds = new LinkedHashSet<>(shownIds);
-    late.forEach(f -> displayIds.add(f.issueId()));
-    Map<Long, IssueDisplay> displays = repository.findDisplays(displayIds);
-    // 코멘트·AI 이름·멘션은 목록에 보이는 줄에만 필요하다.
-    Map<Long, CommentHead> comments = repository.findLastComments(shownIds);
-    List<Long> withAiIds =
-        shown.stream().filter(ClosedIssueFact::withAi).map(ClosedIssueFact::issueId).toList();
-    Map<Long, List<String>> aiNames = repository.findAiNames(withAiIds, false);
-
-    // 본문·코멘트의 멘션 토큰(<@id>)을 이름으로 — 나온 사람 id 를 모아 한 번에 조회한다.
-    Set<Long> mentioned = new LinkedHashSet<>();
-    for (Long id : shownIds) {
-      IssueDisplay d = displays.get(id);
-      if (d != null) mentioned.addAll(MentionParser.parse(d.bodyHead()));
-    }
-    comments.values().forEach(c -> mentioned.addAll(MentionParser.parse(c.bodyHead())));
-    Map<Long, String> names = repository.findNames(mentioned);
-
-    List<ClosedItem> items = new ArrayList<>(shown.size());
-    Map<Long, ClosedItem> byId = new HashMap<>();
-    for (ClosedIssueFact f : shown) {
-      IssueDisplay d = displays.get(f.issueId());
-      // 지표 모듈이 센 직후 이슈가 지워진 경합 — 표시 정보가 없으면 목록에서만 뺀다(숫자는 지표 모듈 것을 그대로 둔다).
-      if (d == null) continue;
-      CommentHead c = comments.get(f.issueId());
-      String commentText = c == null ? null : excerpt(c.bodyHead(), names);
-      ClosedItem item =
-          closedItem(
-              f,
-              d,
-              f.withAi() ? aiNames.getOrDefault(f.issueId(), List.of()) : List.of(),
-              excerpt(d.bodyHead(), names),
-              commentText == null ? null : new LastComment(c.authorName(), commentText));
-      items.add(item);
-      byId.put(f.issueId(), item);
-    }
-
-    List<ClosedItem> lateTop = new ArrayList<>(late.size());
-    for (ClosedIssueFact f : late) {
-      ClosedItem full = byId.get(f.issueId());
-      if (full != null) {
-        lateTop.add(full);
-        continue;
-      }
-      IssueDisplay d = displays.get(f.issueId());
-      if (d == null) continue; // 위와 같은 삭제 경합
-      // 목록 밖 늦은 이슈 — 카드는 키·제목·늦은 날수만 보이므로 AI 이름·요청 내용·코멘트는 채우지 않는다.
-      lateTop.add(closedItem(f, d, List.of(), null, null));
-    }
-    return new ClosedList(items, facts.size(), lateTop);
-  }
-
-  private static ClosedItem closedItem(
-      ClosedIssueFact f,
-      IssueDisplay d,
-      List<String> aiNames,
-      String request,
-      LastComment lastComment) {
-    return new ClosedItem(
-        f.issueId(),
-        d.projectKey(),
-        d.number(),
-        d.title(),
-        f.closedAt(),
-        f.closedDate(),
-        f.dueAtClose(),
-        f.outcome(),
-        f.lateDays(),
-        f.leadTimeDays(),
-        f.withAi(),
-        aiNames,
-        request,
-        lastComment);
-  }
-
-  /**
-   * 본문 앞부분 → 한 줄 미리보기 평문. 마크다운 기호를 지우고(채팅 미리보기와 같은 규칙), 멘션은 {@code @이름}(모르는 사람은 {@code @사용자}),
-   * 공백·줄바꿈은 한 칸으로 접어 {@link #EXCERPT_CHARS} 자에서 자른다. 비면 null.
-   */
-  static String excerpt(String raw, Map<Long, String> names) {
-    if (raw == null || raw.isBlank()) return null;
-    String named = MentionParser.replace(raw, id -> "@" + names.getOrDefault(id, "사용자"));
-    String plain = WHITESPACE.matcher(ChatMarkdownText.toPlain(named)).replaceAll(" ").strip();
-    if (plain.isEmpty()) return null;
-    String head = Texts.headUtf16(plain, EXCERPT_CHARS);
-    return head.length() < plain.length() ? head + "…" : head;
+    if (late.isEmpty()) return List.of();
+    Map<Long, IssueDisplay> displays =
+        repository.findDisplays(late.stream().map(ClosedIssueFact::issueId).toList());
+    return late.stream()
+        .filter(f -> displays.containsKey(f.issueId()))
+        .map(
+            f -> {
+              IssueDisplay d = displays.get(f.issueId());
+              return new LateItem(f.issueId(), d.projectKey(), d.number(), d.title(), f.lateDays());
+            })
+        .toList();
   }
 }

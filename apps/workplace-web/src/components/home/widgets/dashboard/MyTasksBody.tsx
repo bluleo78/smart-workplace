@@ -116,9 +116,10 @@ export default function MyTasksBody({
           className="mb-1 block text-xs text-muted-foreground hover:text-ai-accent hover:underline"
           data-testid="dash-mytasks-today"
         >
-          어제 끝냄 <span className="font-medium text-foreground">{today.data.yesterdayCompleted}</span> · 오늘 기한 지남{' '}
-          <span className={today.data.overdue > 0 ? 'font-medium text-destructive' : 'font-medium text-foreground'}>{today.data.overdue}</span> · 나를
-          기다림 <span className="font-medium text-foreground">{today.data.waiting}</span>
+          {/* 개요 탭과 같은 말(완료·마감 지남·답변 필요) — 아래 「n건이 나를 기다림」(맡은 처리할 이슈)과 겹치지 않게 「나를 기다림」을 쓰지 않는다. */}
+          어제 완료 <span className="font-medium text-foreground">{today.data.yesterdayCompleted}</span> · 마감 지남{' '}
+          <span className={today.data.overdue > 0 ? 'font-medium text-destructive' : 'font-medium text-foreground'}>{today.data.overdue}</span> · 답변
+          필요 <span className="font-medium text-foreground">{today.data.waiting}</span>
         </Link>
       )}
       {/* 헤더 부제 — 기다리는 건수(→할당) 또는 구독 총량(→구독). 숫자 자체가 필터 조회로 가는 링크. */}

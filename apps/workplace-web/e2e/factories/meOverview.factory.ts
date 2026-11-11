@@ -1,5 +1,5 @@
 // 「내 작업 · 개요」(WP-1484) 응답 팩토리 — vitest 화면 테스트(src/pages/me/myOverview.test.tsx)와 E2E(e2e/pages/me/my-tasks.spec.ts)가 같이 쓴다.
-import type { ClosedItem, MeDaySummary, MeOverviewResponse, MetricsBucket, UpcomingItem } from '../../src/types/meOverview'
+import type { LateItem, MeDaySummary, MeOverviewResponse, MetricsBucket, UpcomingItem } from '../../src/types/meOverview'
 
 export const overviewDays = (from: number, to: number, f: (d: string) => Partial<MetricsBucket> = () => ({})): MetricsBucket[] =>
   Array.from({ length: to - from + 1 }, (_, i) => {
@@ -7,25 +7,8 @@ export const overviewDays = (from: number, to: number, f: (d: string) => Partial
     return { start: d, end: d, completed: 0, overdue: 0, created: 0, ...f(d) }
   })
 
-export function createClosedItem(over: Partial<ClosedItem>): ClosedItem {
-  return {
-    issueId: 1,
-    projectKey: 'WP',
-    number: 1,
-    title: '제목',
-    closedAt: '2026-11-10T01:00:00Z',
-    closedDate: '2026-11-10',
-    dueAtClose: null,
-    outcome: 'NO_DUE',
-    lateDays: null,
-    leadTimeDays: 1.5,
-    withAi: false,
-    aiNames: [],
-    request: null,
-    lastComment: null,
-    ...over,
-  }
-}
+/** 마감 준수 카드의 늦게 완료한 이슈 한 줄. */
+export const createLateItem = (issueId: number, title: string, lateDays: number): LateItem => ({ issueId, projectKey: 'WP', number: issueId, title, lateDays })
 
 export const createUpcomingItem = (issueId: number, title: string, dueDate: string | null, aiNames: string[] = []): UpcomingItem => ({
   issueId,
@@ -36,7 +19,7 @@ export const createUpcomingItem = (issueId: number, title: string, dueDate: stri
   aiNames,
 })
 
-/** 이번 달(11-01~11-11) 개요 — 11-10 에 둘(하나는 AI와 함께·늦음), 11-09 에 하나 끝냄. */
+/** 이번 달(11-01~11-11) 개요 — 11-10 에 둘(하나는 AI와 함께·늦음), 11-09 에 하나 완료. 직전 같은 기간은 10-21~10-31. */
 export function createMeOverview(over: Partial<MeOverviewResponse> = {}): MeOverviewResponse {
   const counts: Record<string, Partial<MetricsBucket>> = {
     '2026-11-09': { completed: 1, created: 1 },
@@ -87,7 +70,6 @@ export function createMeOverview(over: Partial<MeOverviewResponse> = {}): MeOver
       leadTimeDaysMedian: 3,
     },
     buckets,
-    dailyTotals: buckets,
     upcoming: {
       openAssigned: 18,
       overdue: 3,
@@ -99,23 +81,7 @@ export function createMeOverview(over: Partial<MeOverviewResponse> = {}): MeOver
       waitingTop: [createUpcomingItem(1310, '답을 기다리는 일', null)],
       otherTop: [],
     },
-    closed: [
-      createClosedItem({
-        issueId: 1467,
-        number: 1467,
-        title: '드라이브 복원',
-        closedDate: '2026-11-10',
-        outcome: 'ON_TIME',
-        withAi: true,
-        aiNames: ['AI 개발자2'],
-        request: '일괄 삭제한 묶음에서 하나만 복원',
-        lastComment: { authorName: 'AI 개발자2', text: '복원 단위를 바꿨어요' },
-      }),
-      createClosedItem({ issueId: 1465, number: 1465, title: '노트 표 붙여넣기', closedDate: '2026-11-10', outcome: 'OVERDUE', lateDays: 2, leadTimeDays: 4 }),
-      createClosedItem({ issueId: 1447, number: 1447, title: 'AI 계정 목록 설계', closedDate: '2026-11-09', outcome: 'NO_DUE', leadTimeDays: 3 }),
-    ],
-    closedTotal: 3,
-    lateTop: [createClosedItem({ issueId: 1465, number: 1465, title: '노트 표 붙여넣기', closedDate: '2026-11-10', outcome: 'OVERDUE', lateDays: 2, leadTimeDays: 4 })],
+    lateTop: [createLateItem(1465, '노트 표 붙여넣기', 2)],
     ...over,
   }
 }
@@ -130,14 +96,10 @@ export function createEmptyMeOverview(): MeOverviewResponse {
     current: zero,
     previous: zero,
     buckets: overviewDays(1, 11),
-    dailyTotals: overviewDays(1, 11),
     upcoming: { openAssigned: 0, overdue: 0, dueSoon: 0, waiting: 0, other: 0, overdueTop: [], dueSoonTop: [], waitingTop: [], otherTop: [] },
-    closed: [],
-    closedTotal: 0,
     lateTop: [],
   }
 }
-
 
 /** 어제/오늘 요약(/me/overview/today) — 기본은 모두 0(홈 「내 작업」 위젯 한 줄). */
 export function createMeDaySummary(over: Partial<MeDaySummary> = {}): MeDaySummary {

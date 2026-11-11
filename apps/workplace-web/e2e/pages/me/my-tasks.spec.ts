@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 import type { IssueSearchResponse } from '../../../src/types/issue'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../factories/label.factory'
-import { createClosedItem, createMeOverview } from '../../factories/meOverview.factory'
+import { createMeOverview, createUpcomingItem } from '../../factories/meOverview.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
@@ -31,7 +31,8 @@ test('내 작업 — /me/tasks 는 개요 탭으로 넘어가 개요를 그리�
   await expect(page).toHaveURL(/\/me\/tasks\/overview$/)
   const ovReq = await overview.waitForRequest()
   expect(ovReq.searchParams.get('period')).toBe('MONTH')
-  await expect(page.getByTestId('closed-row-1467')).toContainText('드라이브 복원')
+  await expect(page.getByTestId('stat-completed')).toContainText('완료한 이슈')
+  await expect(page.getByTestId('overview-upcoming-list')).toContainText('genia 실행기 첫 응답 지연')
 
   await page.getByRole('tab', { name: '할당' }).click()
   await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
@@ -142,28 +143,19 @@ test('내 작업 — ID 헤더 글자가 키 글자와 2px 이내로 맞는다',
   expect(Math.abs(headX - keyX)).toBeLessThanOrEqual(2)
 })
 
-// WP-1484 라이브 검증 결함 — 390px 에서 AI 태그·마감 배지·소요일을 한 줄에 넣으면 끝낸 일 줄의 제목이 0px 로 눌려 사라졌다.
-// 좁은 폭에선 둘째 줄로 내려 제목이 보여야 한다(jsdom 은 폭을 잴 수 없다).
-test('내 작업 개요 — 390px 에서 AI 태그가 붙은 끝낸 일 줄도 제목이 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+// WP-1484 라이브 검증 결함 — 390px 에서 AI 태그·마감 표기를 한 줄에 넣으면 맡은 이슈 줄의 제목이 「모바일 …」로 잘렸다.
+// 좁은 폭에선 키 칸을 줄이고 AI 태그를 숨겨 제목이 보여야 한다(jsdom 은 폭을 잴 수 없다). 옛 「끝낸 일」 줄 검사는 섹션을 빼며 이 줄로 옮겼다.
+test('내 작업 개요 — 390px 에서 AI 태그가 붙은 맡은 이슈 줄도 제목이 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  const item = createClosedItem({
-    issueId: 501,
-    number: 501,
-    title: '파일 업로드 용량 제한 안내',
-    aiNames: ['Claude Dev'],
-    withAi: true,
-    outcome: 'OVERDUE',
-    lateDays: 1,
-    dueAtClose: '2026-11-09',
-  })
-  await mockApi(page, 'GET', '/api/v1/me/overview', createMeOverview({ closed: [item], closedTotal: 1 }))
+  const base = createMeOverview()
+  const item = createUpcomingItem(501, '파일 업로드 용량 제한 안내', '2026-11-05', ['Claude Dev'])
+  await mockApi(page, 'GET', '/api/v1/me/overview', createMeOverview({ upcoming: { ...base.upcoming, overdue: 1, overdueTop: [item] } }))
   await page.goto('/me/tasks/overview')
-  const row = page.getByTestId('closed-row-501')
-  const title = row.getByText('파일 업로드 용량 제한 안내', { exact: true })
+  const list = page.getByTestId('overview-upcoming-list')
+  const title = list.getByText('파일 업로드 용량 제한 안내', { exact: true })
   await expect(title).toBeVisible()
   expect((await title.boundingBox())!.width).toBeGreaterThan(120)
-  // 메타(AI 태그·배지·소요일)는 제목 아래 줄로 내려가고 화면 밖으로 넘치지 않는다.
-  const meta = (await row.getByTestId('closed-meta-501').boundingBox())!
-  expect(meta.y).toBeGreaterThan((await title.boundingBox())!.y)
-  expect(meta.x + meta.width).toBeLessThanOrEqual(390)
+  // 줄 전체(마감 표기 포함)가 화면 밖으로 넘치지 않는다.
+  const due = (await list.getByText('6일 지남', { exact: true }).boundingBox())!
+  expect(due.x + due.width).toBeLessThanOrEqual(390)
 })

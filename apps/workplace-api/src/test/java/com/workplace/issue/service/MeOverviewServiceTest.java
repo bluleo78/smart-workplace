@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
-import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
@@ -20,7 +19,6 @@ import com.workplace.issue.dto.MeDaySummary;
 import com.workplace.issue.dto.MeOverviewPeriod;
 import com.workplace.issue.dto.MeOverviewResponse;
 import com.workplace.issue.dto.MeOverviewResponse.UpcomingItem;
-import com.workplace.issue.metrics.DueOutcome;
 import com.workplace.issue.metrics.MetricsGranularity;
 import com.workplace.issue.repository.MeOverviewRepository;
 import com.workplace.project.dto.AddMemberRequest;
@@ -41,7 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * WP-1484 — 「내 작업 · 개요」 API 통합 테스트. 본인만(다른 사람 지표를 볼 길 없음), 기간 경계(이번 주/이번 달/최근 3개월), 어제/오늘(서울 자정
- * 경계), 나를 기다림, 앞으로 할 일 타일, 끝낸 일 표시 정보를 고정한다.
+ * 경계), 답변 필요, 맡은 이슈 타일, 늦게 완료한 이슈 상위를 고정한다. 완료한 이슈 목록은 응답에 싣지 않는다(「끝낸 일」 섹션 삭제).
  *
  * <p>「지금」은 서비스의 시각을 받는 판(같은 패키지)으로 넘긴다 — 싱글턴 빈의 시계를 바꾸지 않게. 이슈는 담당자·마감 없이 만들고 상태·시각은 직접 갱신한다(지표 모듈
  * 테스트와 같은 방식).
@@ -159,16 +157,6 @@ class MeOverviewServiceTest extends IntegrationTestBase {
     }
   }
 
-  private void comment(long issueId, long authorId, String body, OffsetDateTime at) {
-    dsl.insertInto(ISSUE_COMMENT)
-        .set(ISSUE_COMMENT.ISSUE_ID, issueId)
-        .set(ISSUE_COMMENT.AUTHOR_ID, authorId)
-        .set(ISSUE_COMMENT.BODY, body)
-        .set(ISSUE_COMMENT.CREATED_AT, at)
-        .set(ISSUE_COMMENT.UPDATED_AT, at)
-        .execute();
-  }
-
   private String tokenFor(long userId) {
     return jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
   }
@@ -239,26 +227,22 @@ class MeOverviewServiceTest extends IntegrationTestBase {
     assertThat(week.to()).isEqualTo(d("2026-11-11"));
     assertThat(week.previousFrom()).isEqualTo(d("2026-11-06"));
     assertThat(week.buckets()).hasSize(3);
-    assertThat(week.closed())
-        .extracting(MeOverviewResponse.ClosedItem::issueId)
-        .containsExactly(monday);
+    assertThat(week.current().completed()).isEqualTo(1); // 월요일 건만
+    assertThat(week.previousTo()).isEqualTo(d("2026-11-08"));
     assertThat(week.previous().completed()).isEqualTo(1); // 일요일 건이 지난 기간(11-06~11-08)
 
     var month = service.overview(me, MeOverviewPeriod.MONTH, MetricsGranularity.DAY, now);
     assertThat(month.from()).isEqualTo(d("2026-11-01"));
     assertThat(month.current().completed()).isEqualTo(2);
-    // 닫힌 시각 내림차순.
-    assertThat(month.closed())
-        .extracting(MeOverviewResponse.ClosedItem::issueId)
-        .containsExactly(monday, sunday);
+    // 직전 같은 기간 = 같은 길이(11일)의 바로 앞 — 화면 툴팁이 이 날짜를 그대로 보인다.
+    assertThat(month.previousFrom()).isEqualTo(d("2026-10-21"));
+    assertThat(month.previousTo()).isEqualTo(d("2026-10-31"));
 
     var quarter = service.overview(me, MeOverviewPeriod.QUARTER, MetricsGranularity.WEEK, now);
     assertThat(quarter.from()).isEqualTo(d("2026-08-14"));
     assertThat(quarter.to()).isEqualTo(d("2026-11-11"));
     assertThat(quarter.current().completed()).isEqualTo(3);
     assertThat(quarter.previous().completed()).isEqualTo(1);
-    // 주별 추이여도 날짜 줄용 일별 합계는 하루 단위(90칸)로 온다.
-    assertThat(quarter.dailyTotals()).hasSize(90);
     assertThat(quarter.buckets().size()).isLessThan(20);
   }
 
@@ -406,39 +390,30 @@ class MeOverviewServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void closed_items_carry_display_ai_names_request_and_last_comment() {
+  void late_top_carries_key_title_and_late_days_without_closed_list() {
     Long me = user("mo-me");
     Long agent = createAgentUser("mo-ai");
     var p = project(me);
     long id = issue(me, p, "드라이브 복원", t("2026-11-01T00:00:00Z"));
-    dsl.update(ISSUE)
-        .set(ISSUE.BODY, "**일괄 삭제**한 묶음에서\n\n- 하나만 복원 <@" + me + "> 확인")
-        .where(ISSUE.ID.eq(id))
-        .execute();
     assign(id, me);
-    // AI 가 닫기 전에 실제로 일함 → AI와 함께.
+    // AI 가 닫기 전에 실제로 일함 → AI와 함께. 마감(11-03)보다 이틀 늦게 완료.
     agentWork(id, agent, "WORKING", t("2026-11-02T00:00:00Z"), true);
-    comment(id, me, "첫 코멘트", t("2026-11-03T00:00:00Z"));
-    comment(id, agent, "복원 단위를 바꿨어요", t("2026-11-04T00:00:00Z"));
     close(id, t("2026-11-05T03:00:00Z"), d("2026-11-03"));
 
     var res =
         service.overview(
             me, MeOverviewPeriod.MONTH, MetricsGranularity.DAY, t("2026-11-11T03:00:00Z"));
-    assertThat(res.closed()).hasSize(1);
-    var item = res.closed().get(0);
-    assertThat(item.projectKey()).isEqualTo(p.key());
-    assertThat(item.title()).isEqualTo("드라이브 복원");
-    assertThat(item.closedDate()).isEqualTo(d("2026-11-05"));
-    assertThat(item.outcome()).isEqualTo(DueOutcome.OVERDUE);
-    assertThat(item.lateDays()).isEqualTo(2);
-    assertThat(item.withAi()).isTrue();
-    assertThat(item.aiNames()).containsExactly("mo-ai");
-    assertThat(item.request()).isEqualTo("일괄 삭제한 묶음에서 하나만 복원 @mo-me 확인");
-    assertThat(item.lastComment().authorName()).isEqualTo("mo-ai");
-    assertThat(item.lastComment().text()).isEqualTo("복원 단위를 바꿨어요");
+    assertThat(res.current().completed()).isEqualTo(1);
     assertThat(res.current().completedWithAi()).isEqualTo(1);
-    assertThat(res.dailyTotals()).hasSize(11);
+    assertThat(res.lateTop())
+        .singleElement()
+        .satisfies(
+            l -> {
+              assertThat(l.issueId()).isEqualTo(id);
+              assertThat(l.projectKey()).isEqualTo(p.key());
+              assertThat(l.title()).isEqualTo("드라이브 복원");
+              assertThat(l.lateDays()).isEqualTo(2);
+            });
   }
 
   @Test
@@ -454,11 +429,13 @@ class MeOverviewServiceTest extends IntegrationTestBase {
     assign(tue, me);
     close(tue, t("2026-11-10T03:00:00Z"), d("2026-11-05"));
 
-    // 11-11(수) — 어제 11-10 이 이번 달 안: 기간 결과에서 꺼낸 값이 홈 위젯(따로 묻는 값)과 같아야 한다.
+    // 11-11(수) — 어제 11-10 이 이번 달 안: 일별 추이면 기간 결과에서 꺼낸 값, 주별 추이면 따로 묻는 값 — 둘 다 홈 위젯과 같아야 한다.
     OffsetDateTime wed = t("2026-11-11T03:00:00Z");
     MeDaySummary fromPeriod =
-        service.overview(me, MeOverviewPeriod.MONTH, MetricsGranularity.WEEK, wed).day();
+        service.overview(me, MeOverviewPeriod.MONTH, MetricsGranularity.DAY, wed).day();
     assertThat(fromPeriod).isEqualTo(service.today(me, wed));
+    assertThat(service.overview(me, MeOverviewPeriod.MONTH, MetricsGranularity.WEEK, wed).day())
+        .isEqualTo(fromPeriod);
     assertThat(fromPeriod.yesterdayCompleted()).isEqualTo(1);
     assertThat(fromPeriod.yesterdayCompletedOnTime()).isZero();
 
@@ -474,35 +451,33 @@ class MeOverviewServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void closed_list_is_capped_with_total_and_late_top_from_whole_period() {
+  void late_top_picks_most_late_from_whole_period() {
     Long me = user("mo-me");
     var p = project(me);
-    // 가장 오래된(11-01) 이슈가 가장 많이 늦음 — 목록(최근 50건) 밖이어도 늦은 이슈 상위에 나와야 한다.
+    // 가장 오래된(11-01) 이슈가 가장 많이 늦음 — 최근에 닫힌 이슈가 많아도 기간 전체에서 늦은 날수 큰 순으로 고른다.
     long oldLate = issue(me, p, "오래 늦음", t("2026-10-01T00:00:00Z"));
     assign(oldLate, me);
     close(oldLate, t("2026-11-01T03:00:00Z"), d("2026-10-20"));
-    int extra = MeOverviewService.CLOSED_LIMIT + 1;
-    for (int i = 0; i < extra; i++) {
-      long id = issue(me, p, "끝냄 " + i, t("2026-10-01T00:00:00Z"));
+    long littleLate = issue(me, p, "조금 늦음", t("2026-10-01T00:00:00Z"));
+    assign(littleLate, me);
+    close(littleLate, t("2026-11-09T03:00:00Z"), d("2026-11-08"));
+    long midLate = issue(me, p, "중간 늦음", t("2026-10-01T00:00:00Z"));
+    assign(midLate, me);
+    close(midLate, t("2026-11-08T03:00:00Z"), d("2026-11-03"));
+    for (int i = 0; i < 3; i++) {
+      long id = issue(me, p, "제때 " + i, t("2026-10-01T00:00:00Z"));
       assign(id, me);
-      close(id, t("2026-11-02T00:00:00Z").plusMinutes(i), null);
+      close(id, t("2026-11-10T00:00:00Z").plusMinutes(i), d("2026-11-10"));
     }
 
     var res =
         service.overview(
             me, MeOverviewPeriod.MONTH, MetricsGranularity.DAY, t("2026-11-11T03:00:00Z"));
-    assertThat(res.closedTotal()).isEqualTo(extra + 1);
-    assertThat(res.closed()).hasSize(MeOverviewService.CLOSED_LIMIT);
-    assertThat(res.closed().get(0).title()).isEqualTo("끝냄 " + (extra - 1)); // 최근 끝낸 순
-    assertThat(res.closed()).noneMatch(c -> c.issueId() == oldLate);
+    assertThat(res.current().completed()).isEqualTo(6);
     assertThat(res.lateTop())
-        .singleElement()
-        .satisfies(
-            c -> {
-              assertThat(c.issueId()).isEqualTo(oldLate);
-              assertThat(c.title()).isEqualTo("오래 늦음");
-              assertThat(c.lateDays()).isEqualTo(12);
-            });
+        .extracting(MeOverviewResponse.LateItem::issueId)
+        .containsExactly(oldLate, midLate);
+    assertThat(res.lateTop().get(0).lateDays()).isEqualTo(12);
   }
 
   @Test
@@ -525,16 +500,5 @@ class MeOverviewServiceTest extends IntegrationTestBase {
     // 서비스는 표시 정보가 없는 id 를 목록에서 뺀다 — 지운 이슈·지운 프로젝트 이슈는 표시 정보가 오지 않아야 한다.
     var displays = repository.findDisplays(List.of(alive, deleted, inDeletedProject));
     assertThat(displays).containsOnlyKeys(alive);
-  }
-
-  @Test
-  void excerpt_folds_whitespace_and_cuts() {
-    assertThat(MeOverviewService.excerpt(null, java.util.Map.of())).isNull();
-    assertThat(MeOverviewService.excerpt("  \n ", java.util.Map.of())).isNull();
-    String longText = "가".repeat(MeOverviewService.EXCERPT_CHARS + 5);
-    assertThat(MeOverviewService.excerpt(longText, java.util.Map.of()))
-        .hasSize(MeOverviewService.EXCERPT_CHARS + 1)
-        .endsWith("…");
-    assertThat(MeOverviewService.excerpt("<@999999999>님", java.util.Map.of())).isEqualTo("@사용자님");
   }
 }

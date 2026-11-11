@@ -1,41 +1,19 @@
-// 「내 작업 · 개요」 화면 판정(WP-1484) — 기간 파싱, 표기, 마감 배지, 날짜 묶음, 칸 범위, 「모두 보기」 주소.
+// 「내 작업 · 개요」 화면 판정(WP-1484) — 기간 파싱, 표기, 직전 같은 기간 툴팁, 할당 탭 완료 목록 주소.
 import { describe, expect, it } from 'vitest'
 
-import type { ClosedItem, MetricsBucket } from '@/types/meOverview'
+import type { MetricsBucket } from '@/types/meOverview'
 
 import {
   bucketLabel,
   closedListHref,
+  compareRangeLabel,
   dailyAverage,
   daysBetween,
-  dueBadge,
   formatDays,
   formatRate,
-  groupClosedByDate,
-  groupsInRange,
   parsePeriod,
   upcomingDueLabel,
 } from './overviewModel'
-
-function closed(over: Partial<ClosedItem>): ClosedItem {
-  return {
-    issueId: 1,
-    projectKey: 'WP',
-    number: 1,
-    title: 't',
-    closedAt: '2026-11-10T01:00:00Z',
-    closedDate: '2026-11-10',
-    dueAtClose: null,
-    outcome: 'NO_DUE',
-    lateDays: null,
-    leadTimeDays: 1,
-    withAi: false,
-    aiNames: [],
-    request: null,
-    lastComment: null,
-    ...over,
-  }
-}
 
 const bucket = (start: string, completed: number, created: number, end = start): MetricsBucket => ({ start, end, completed, overdue: 0, created })
 
@@ -59,35 +37,19 @@ describe('overviewModel', () => {
     expect(dailyAverage(22, 11)).toBe('2')
   })
 
-  it('마감 배지 — 기한 내 / n일 늦음 / 마감 없음', () => {
-    expect(dueBadge({ outcome: 'ON_TIME', lateDays: null })).toEqual({ label: '기한 내', tone: 'success' })
-    expect(dueBadge({ outcome: 'OVERDUE', lateDays: 2 })).toEqual({ label: '2일 늦음', tone: 'warning' })
-    expect(dueBadge({ outcome: 'NO_DUE', lateDays: null })).toEqual({ label: '마감 없음', tone: 'muted' })
+  it('직전 같은 기간 툴팁 — 같은 달·달 넘김·하루·해 넘김', () => {
+    expect(compareRangeLabel('2026-10-21', '2026-10-31')).toBe('10월 21일~31일과 비교')
+    expect(compareRangeLabel('2026-10-26', '2026-11-01')).toBe('10월 26일~11월 1일과 비교')
+    expect(compareRangeLabel('2026-11-08', '2026-11-08')).toBe('11월 8일과 비교')
+    expect(compareRangeLabel('2026-12-07', '2027-01-04')).toBe('2026년 12월 7일~2027년 1월 4일과 비교')
   })
 
-  it('앞으로 할 일 마감 표기', () => {
+  it('맡은 이슈 마감 표기', () => {
     expect(upcomingDueLabel({ dueDate: '2026-11-05' }, '2026-11-11')).toEqual({ label: '6일 지남', overdue: true })
     expect(upcomingDueLabel({ dueDate: '2026-11-11' }, '2026-11-11')).toEqual({ label: '오늘 마감', overdue: false })
     expect(upcomingDueLabel({ dueDate: '2026-11-14' }, '2026-11-11')).toEqual({ label: '3일 남음', overdue: false })
     expect(upcomingDueLabel({ dueDate: null }, '2026-11-11')).toEqual({ label: '마감 없음', overdue: false })
     expect(daysBetween('2026-10-31', '2026-11-01')).toBe(1)
-  })
-
-  it('끝낸 일은 날짜별로 묶고 날짜 줄 합계는 일별 칸에서', () => {
-    const items = [
-      closed({ issueId: 1, closedDate: '2026-11-10' }),
-      closed({ issueId: 2, closedDate: '2026-11-10' }),
-      closed({ issueId: 3, closedDate: '2026-11-09' }),
-    ]
-    const groups = groupClosedByDate(items, [bucket('2026-11-09', 1, 0), bucket('2026-11-10', 2, 3)])
-    expect(groups.map((g) => [g.date, g.completed, g.created, g.items.map((i) => i.issueId)])).toEqual([
-      ['2026-11-10', 2, 3, [1, 2]],
-      ['2026-11-09', 1, 0, [3]],
-    ])
-    // 칸으로 고르면 그 칸 범위만.
-    expect(groupsInRange(groups, { start: '2026-11-09', end: '2026-11-09' }).map((g) => g.date)).toEqual(['2026-11-09'])
-    expect(groupsInRange(groups, { start: '2026-11-03', end: '2026-11-10' })).toHaveLength(2)
-    expect(groupsInRange(groups, null)).toHaveLength(2)
   })
 
   it('칸 라벨 — 일별·주별·월별', () => {
@@ -97,7 +59,7 @@ describe('overviewModel', () => {
     expect(bucketLabel(bucket('2026-10-01', 0, 0, '2026-10-31'), 'MONTH', now)).toBe('10월')
   })
 
-  it('「모두 보기」는 할당 탭 완료 목록에 완료일 기간을 건다', () => {
+  it('완료 목록 주소는 할당 탭에 완료(취소 제외)와 완료일 기간을 건다', () => {
     const href = closedListHref('2026-11-01', '2026-11-11')
     const url = new URL(href, 'http://x')
     expect(url.pathname).toBe('/me/tasks/assigned')
