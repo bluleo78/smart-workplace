@@ -147,6 +147,11 @@ public class AgentAccount extends TableImpl<AgentAccountRecord> {
      */
     public final TableField<AgentAccountRecord, Boolean> SERVER_REFRESH_READY = createField(DSL.name("server_refresh_ready"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "서버 보관본이 신선하다고 확인돼 서버가 로그인 갱신을 맡아도 되는지(사람이 넣음·교체함, Pod 가 더 새 로그인을 올림이면 true, 이관 백필은 false)");
 
+    /**
+     * The column <code>public.agent_account.workspace_id</code>.
+     */
+    public final TableField<AgentAccountRecord, String> WORKSPACE_ID = createField(DSL.name("workspace_id"), SQLDataType.VARCHAR(128), this, "");
+
     private AgentAccount(Name alias, Table<AgentAccountRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

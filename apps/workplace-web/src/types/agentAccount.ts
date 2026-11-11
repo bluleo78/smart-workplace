@@ -70,6 +70,8 @@ export interface AgentAccountCreateRequest {
   providerConfig?: ProviderConfig;
   label?: string;
   loginInfo?: string;
+  /** anthropic — Anthropic 워크스페이스 ID(선택, WP-1496). 다듬어서 비었으면 싣지 않는다. */
+  workspaceId?: string;
 }
 
 /** 계정 수정 요청 — label 만 보내면 이름만 바꾸고, 원문을 보내면 교체한다. 종류는 바꿀 수 없다. */
@@ -78,4 +80,6 @@ export interface AgentAccountUpdateRequest {
   token?: string;
   providerConfig?: ProviderConfig;
   loginInfo?: string;
+  /** anthropic 토큰 교체 때만 — Anthropic 워크스페이스 ID(선택, WP-1496). */
+  workspaceId?: string;
 }

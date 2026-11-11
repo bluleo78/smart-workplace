@@ -192,6 +192,28 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
     assertThat(encryption.decrypt(row.encryptedSecret())).isEqualTo(claudeToken('A'));
   }
 
+  /**
+   * WP-1496: 옛 연결에 저장된 Anthropic 워크스페이스 ID 를 계정이 이어받는다 — 사용자 API 키(sk-ant-usr)여도 건너뛰지 않는다(워크스페이스 ID
+   * 는 선택).
+   */
+  @Test
+  void backfillCarriesWorkspaceIdOfLegacyConnection() {
+    String usr = "sk-ant-usr01-" + "W".repeat(40);
+    long withWs = newAgent();
+    settingService.put(
+        admin, withWs, new PutAgentRuntimeSettingRequest("claude-code", null, Map.of(), null));
+    useTenant(TENANT);
+    credentialRepo.insert(
+        withWs, "anthropic", encryption.encrypt(usr), "legacy", admin, "wrkspc_legacy");
+    long withoutWs = podAgentWithLegacy("claude-code", "anthropic", claudeToken('N'));
+
+    assertThat(runBackfill()).isEqualTo(2);
+
+    assertThat(accountRow(boundAccount(withWs).orElseThrow()).workspaceId())
+        .isEqualTo("wrkspc_legacy");
+    assertThat(accountRow(boundAccount(withoutWs).orElseThrow()).workspaceId()).isNull();
+  }
+
   /** 같은 setup-token 을 쓰던 Pod AI 둘 → 계정 하나를 함께 가리킨다. */
   @Test
   void backfillMergesSameSetupToken() {
@@ -343,7 +365,8 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
                     null,
                     null,
                     null,
-                    chatgptLogin("acc-existing", "refresh-fresh", "2026-11-09T00:00:00Z")))
+                    chatgptLogin("acc-existing", "refresh-fresh", "2026-11-09T00:00:00Z"),
+                    null))
             .id();
 
     assertThat(runBackfill()).isEqualTo(1);
@@ -380,7 +403,7 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
     settingService.put(
         admin, second, new PutAgentRuntimeSettingRequest(LOGIN_TEMPLATE, null, Map.of(), null));
     useTenant(TENANT);
-    adminCredentials.register(admin, second, "chatgpt", login, null, null);
+    adminCredentials.register(admin, second, "chatgpt", login, null, null, null);
 
     assertThat(boundAccount(second)).contains(accountId);
     AgentAccountRow after = accountRow(accountId);
@@ -484,7 +507,7 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
 
     useTenant(TENANT);
     accountService.update(
-        admin, accountId, new AgentAccountUpdateRequest(null, claudeToken('N'), null, null));
+        admin, accountId, new AgentAccountUpdateRequest(null, claudeToken('N'), null, null, null));
 
     long next = accountRow(accountId).secretVersion();
     assertThat(next).isNotEqualTo(legacy);
@@ -504,7 +527,8 @@ class AgentAccountBackfillTest extends IntegrationTestBase {
     long other =
         accountService
             .register(
-                admin, new AgentAccountRequest("anthropic", claudeToken('O'), null, null, null))
+                admin,
+                new AgentAccountRequest("anthropic", claudeToken('O'), null, null, null, null))
             .id();
 
     useTenant(TENANT);

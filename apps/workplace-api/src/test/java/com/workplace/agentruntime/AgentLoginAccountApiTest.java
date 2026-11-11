@@ -219,7 +219,7 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
     String ok =
         om.writeValueAsString(
             new ProviderCredentialRegisterRequest(
-                "chatgpt", null, null, null, "codex", chatgptLogin("meta@example.test")));
+                "chatgpt", null, null, null, "codex", chatgptLogin("meta@example.test"), null));
     TenantContext.set(1L);
     String body =
         mvc.perform(
@@ -243,7 +243,8 @@ class AgentLoginAccountApiTest extends IntegrationTestBase {
                 null,
                 null,
                 "codex",
-                "{\"auth_mode\":\"apikey\",\"k\":\"SECRETX\"}"));
+                "{\"auth_mode\":\"apikey\",\"k\":\"SECRETX\"}",
+                null));
     TenantContext.set(1L);
     String err =
         mvc.perform(

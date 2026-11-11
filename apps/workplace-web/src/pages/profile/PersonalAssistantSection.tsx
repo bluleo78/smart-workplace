@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from '@/components/overlay/select';
 import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
+import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
+import { AnthropicWorkspaceIdField } from '@/pages/admin/components/credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
 
 import { probeMyAssistantModels } from '../../api/models';
@@ -77,6 +79,8 @@ export function PersonalAssistantSection() {
 
   // anthropic 입력.
   const [token, setToken] = useState('');
+  // WP-1496: Anthropic 워크스페이스 ID(선택) — 형식 오류·서버 거절 안내는 칸 아래에 보이고, 서버 거절이면 이 칸으로 초점을 옮긴다.
+  const workspace = useAnthropicWorkspaceId();
 
   // opencode 입력.
   const [presetKey, setPresetKey] = useState<OpencodePresetKey>('amazon-bedrock-openai');
@@ -113,6 +117,7 @@ export function PersonalAssistantSection() {
   const resetForm = () => {
     setConnectionType('anthropic');
     setToken('');
+    workspace.reset();
     setPresetKey('amazon-bedrock-openai');
     setBaseUrl(OPENCODE_PRESETS[0].baseUrl);
     setApiKey('');
@@ -163,12 +168,16 @@ export function PersonalAssistantSection() {
         toast.error('토큰 형식이 올바르지 않습니다.');
         return;
       }
+      // 워크스페이스 ID 형식(공백·제어 문자 없음, 128자 이하) — 틀리면 칸 아래에 알리고 보내지 않는다.
+      if (!workspace.validate()) return;
       try {
-        await register.mutateAsync({ provider: 'anthropic', token: trimmed });
+        await register.mutateAsync({ provider: 'anthropic', token: trimmed, ...workspace.part() });
         resetForm();
         toast.success('개인 비서 토큰을 저장했습니다.');
         void refreshUser();
       } catch (e) {
+        // 서버가 「이 키는 워크스페이스 ID 가 필요하다」고 거절하면 입력한 토큰은 두고 ID 칸에서 바로 고치게 한다.
+        if (workspace.absorbApiError(e)) return;
         handleApiError(e, '토큰 등록에 실패했습니다.');
       }
       return;
@@ -474,18 +483,22 @@ export function PersonalAssistantSection() {
 
             {/* 토큰·Base URL·API Key 입력 묶음은 폭 상한(라디오 카드·버튼은 제한 없음). */}
             {connectionType === 'anthropic' ? (
-              <div className={cn('space-y-2', settingsFieldClass)}>
-                <label className="text-sm font-medium" htmlFor="assistant-token-input">
-                  토큰
-                </label>
-                <Input
-                  id="assistant-token-input"
-                  data-testid="assistant-token-input"
-                  type="password"
-                  placeholder="sk-ant-oat-..."
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
+              <div className={cn('space-y-4', settingsFieldClass)}>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="assistant-token-input">
+                    토큰
+                  </label>
+                  <Input
+                    id="assistant-token-input"
+                    data-testid="assistant-token-input"
+                    type="password"
+                    placeholder="sk-ant-oat-..."
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                  />
+                </div>
+                {/* WP-1496: 워크스페이스를 지정하지 않고 만든 API 키용 — 늘 보이는 선택 칸. */}
+                <AnthropicWorkspaceIdField {...workspace.fieldProps} />
               </div>
             ) : (
               <div className={cn('space-y-3', settingsFieldClass)}>

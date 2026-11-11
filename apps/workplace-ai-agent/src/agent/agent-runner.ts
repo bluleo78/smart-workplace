@@ -10,9 +10,10 @@ import type { EffortLevel } from './thinking.js';
 import { ClaudeSdkRunner } from './claude-sdk-runner.js';
 import { OpencodeRunner } from './opencode-runner.js';
 
-// LLM 공급자 자격증명. anthropic=구독 OAuth 토큰, opencode=공급자별 설정 블록(Task 9).
+// LLM 공급자 자격증명. anthropic=구독 OAuth 토큰 또는 API 키, opencode=공급자별 설정 블록(Task 9).
+// WP-1496: anthropic 의 workspaceId 는 선택 Anthropic 워크스페이스 ID(주로 사용자 API 키 sk-ant-usr) — 없으면 null(또는 생략).
 export type ProviderCredential =
-  | { provider: 'anthropic'; token: string; model: string | null }
+  | { provider: 'anthropic'; token: string; model: string | null; workspaceId?: string | null }
   | { provider: 'opencode'; payload: OpencodeProviderConfig; model: string | null };
 
 export interface OpencodeProviderConfig {

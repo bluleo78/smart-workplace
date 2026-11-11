@@ -129,13 +129,15 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     return accountService
         .register(
             admin,
-            new AgentAccountRequest("chatgpt", null, null, null, chatgptLogin(accountId, refresh)))
+            new AgentAccountRequest(
+                "chatgpt", null, null, null, chatgptLogin(accountId, refresh), null))
         .id();
   }
 
   private long anthropicAccount(char c) {
     return accountService
-        .register(admin, new AgentAccountRequest("anthropic", claudeToken(c), null, null, null))
+        .register(
+            admin, new AgentAccountRequest("anthropic", claudeToken(c), null, null, null, null))
         .id();
   }
 
@@ -309,7 +311,8 @@ class RunnerAccountContractTest extends IntegrationTestBase {
     accountService.update(
         admin,
         login,
-        new AgentAccountUpdateRequest(null, null, null, chatgptLogin("acc-rot", "refresh-new")));
+        new AgentAccountUpdateRequest(
+            null, null, null, chatgptLogin("acc-rot", "refresh-new"), null));
     assertThat(desiredChangedEvents()).isGreaterThan(before);
 
     long v = secretVersion(login);
@@ -371,6 +374,7 @@ class RunnerAccountContractTest extends IntegrationTestBase {
                         "vllm",
                         null,
                         Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-fake")),
+                    null,
                     null,
                     null))
             .id();

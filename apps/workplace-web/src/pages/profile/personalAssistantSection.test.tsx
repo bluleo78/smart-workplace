@@ -51,6 +51,8 @@ function open(opts: {
   replies?: { credential?: number; settings?: number; name?: number; disable?: number; probe?: number }
   probeModels?: Model[]
   onCredential?: () => void
+  /** 등록(PUT credential) 실패 본문 — 주면 그 ErrorResponse 를 400 으로 돌려준다(WP-1496 워크스페이스 ID 거절). */
+  credentialError?: object
 }) {
   const bodies = { credential: [] as unknown[], settings: [] as unknown[], name: [] as unknown[], probe: [] as unknown[], disable: 0 }
   const r = opts.replies ?? {}
@@ -63,6 +65,7 @@ function open(opts: {
     }),
     http.put(`${API}/credential`, async ({ request }) => {
       bodies.credential.push(await request.json())
+      if (opts.credentialError) return HttpResponse.json(opts.credentialError, { status: 400 })
       if (r.credential && r.credential >= 400) return fail(r.credential, '서버 오류가 발생했습니다.')
       opts.onCredential?.()
       return new HttpResponse(null, { status: 204 })
@@ -172,6 +175,58 @@ describe('개인 비서 — 미설정 등록 폼', () => {
     await user.click(screen.getByRole('button', { name: '등록' }))
     expect(await screen.findByText('토큰 형식이 올바르지 않습니다.')).toBeInTheDocument()
     expect(bodies.credential).toHaveLength(0)
+  })
+})
+
+// WP-1496: Anthropic 워크스페이스 ID(선택) — 토큰 칸 아래 늘 보이고, 비우면 싣지 않고, 넣으면 다듬어 싣는다.
+describe('개인 비서 — Anthropic 워크스페이스 ID', () => {
+  const TOKEN = 'sk-ant-usr-' + 'a'.repeat(40)
+  const NEED_WORKSPACE_MESSAGE = '이 키는 Anthropic 워크스페이스 ID 가 필요합니다. Anthropic 콘솔 Workspaces 에서 ID 를 확인해 넣어 주세요.'
+
+  test('칸이 토큰 아래 늘 보이고, 비우면 workspaceId 없이 보낸다', async () => {
+    const { user, bodies } = open({ status: unconfigured })
+    await user.click(await screen.findByTestId('assistant-token-input'))
+    await user.paste(TOKEN)
+    expect(screen.getByRole('textbox', { name: 'Anthropic 워크스페이스 ID(선택)' })).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    expect(await screen.findByText('개인 비서 토큰을 저장했습니다.')).toBeInTheDocument()
+    expect(bodies.credential).toEqual([{ provider: 'anthropic', token: TOKEN }])
+  })
+
+  test('넣으면 앞뒤 공백을 다듬어 workspaceId 로 보낸다', async () => {
+    const { user, bodies } = open({ status: unconfigured })
+    await user.click(await screen.findByTestId('assistant-token-input'))
+    await user.paste(TOKEN)
+    await user.click(screen.getByTestId('anthropic-workspace-id-input'))
+    await user.paste('  wrkspc_01AbC ')
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    expect(await screen.findByText('개인 비서 토큰을 저장했습니다.')).toBeInTheDocument()
+    expect(bodies.credential).toEqual([{ provider: 'anthropic', token: TOKEN, workspaceId: 'wrkspc_01AbC' }])
+  })
+
+  test('공백이 섞이면 칸 아래 오류를 보이고 보내지 않는다', async () => {
+    const { user, bodies } = open({ status: unconfigured })
+    await user.click(await screen.findByTestId('assistant-token-input'))
+    await user.paste(TOKEN)
+    await user.click(screen.getByTestId('anthropic-workspace-id-input'))
+    await user.paste('wrkspc 01')
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    expect(await screen.findByTestId('anthropic-workspace-id-error')).toHaveTextContent('공백')
+    expect(bodies.credential).toHaveLength(0)
+  })
+
+  test('서버가 워크스페이스 ID 가 필요하다고 거절하면 칸 아래 안내를 보이고 칸으로 초점을 옮긴다(토큰 유지)', async () => {
+    const { user, bodies } = open({
+      status: unconfigured,
+      credentialError: { status: 400, error: 'Bad Request', message: '입력값 검증에 실패했습니다', errors: { workspaceId: NEED_WORKSPACE_MESSAGE } },
+    })
+    await user.click(await screen.findByTestId('assistant-token-input'))
+    await user.paste(TOKEN)
+    await user.click(screen.getByRole('button', { name: '등록' }))
+    expect(await screen.findByTestId('anthropic-workspace-id-error')).toHaveTextContent(NEED_WORKSPACE_MESSAGE)
+    expect(screen.getByTestId('anthropic-workspace-id-input')).toHaveFocus()
+    expect(screen.getByTestId('assistant-token-input')).toHaveValue(TOKEN)
+    expect(bodies.credential).toHaveLength(1)
   })
 })
 

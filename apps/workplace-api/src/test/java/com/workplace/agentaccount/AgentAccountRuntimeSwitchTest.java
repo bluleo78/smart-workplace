@@ -138,7 +138,8 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
 
   private long anthropicAccount(char c) {
     return accountService
-        .register(admin, new AgentAccountRequest("anthropic", claudeToken(c), null, null, null))
+        .register(
+            admin, new AgentAccountRequest("anthropic", claudeToken(c), null, null, null, null))
         .id();
   }
 
@@ -146,7 +147,8 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     return accountService
         .register(
             admin,
-            new AgentAccountRequest("chatgpt", null, null, null, chatgptLogin(accountId, refresh)))
+            new AgentAccountRequest(
+                "chatgpt", null, null, null, chatgptLogin(accountId, refresh), null))
         .id();
   }
 
@@ -187,7 +189,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
 
   private static ProviderCredentialRegisterRequest anthropicRequest(char c, String label) {
     return new ProviderCredentialRegisterRequest(
-        "anthropic", claudeToken(c), null, null, label, null);
+        "anthropic", claudeToken(c), null, null, label, null, null);
   }
 
   private JsonNode runnerSecret(long agent, String kind) throws Exception {
@@ -357,7 +359,8 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
             AgentAccountService.STATUS_ACTIVE,
             AgentAccountService.fingerprint("opencode", unsafe),
             admin,
-            false);
+            false,
+            null);
     bindingService.bind(admin, agent, accountId);
 
     assertThatThrownBy(() -> settingService.start(admin, agent))
@@ -376,7 +379,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     adminRegister(
         agent,
         new ProviderCredentialRegisterRequest(
-            "chatgpt", null, null, null, null, chatgptLogin("acc-bridge", "refresh-bridge")));
+            "chatgpt", null, null, null, null, chatgptLogin("acc-bridge", "refresh-bridge"), null));
 
     assertThat(activeProvider(agent)).contains("chatgpt");
     Optional<Long> bound = boundAccount(agent);
@@ -422,7 +425,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     adminRegister(
         agent,
         new ProviderCredentialRegisterRequest(
-            "chatgpt", null, null, null, null, chatgptLogin("acc-same", "refresh-old")));
+            "chatgpt", null, null, null, null, chatgptLogin("acc-same", "refresh-old"), null));
     long first = boundAccount(agent).orElseThrow();
     useTenant(1L);
     long oldVersion = accounts.findActive(first).orElseThrow().secretVersion();
@@ -430,7 +433,7 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
     adminRegister(
         agent,
         new ProviderCredentialRegisterRequest(
-            "chatgpt", null, null, null, null, chatgptLogin("acc-same", "refresh-new")));
+            "chatgpt", null, null, null, null, chatgptLogin("acc-same", "refresh-new"), null));
 
     assertThat(accountList()).hasSize(1);
     assertThat(boundAccount(agent)).contains(first);
@@ -460,7 +463,8 @@ class AgentAccountRuntimeSwitchTest extends IntegrationTestBase {
 
     adminRegister(
         agent,
-        new ProviderCredentialRegisterRequest("opencode", null, unsafe, "gpt-test", null, null));
+        new ProviderCredentialRegisterRequest(
+            "opencode", null, unsafe, "gpt-test", null, null, null));
 
     assertThat(activeProvider(agent)).contains("opencode");
     Optional<Long> bound = boundAccount(agent);

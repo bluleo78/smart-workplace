@@ -69,6 +69,58 @@ describe('buildSdkOptions', () => {
     }
   });
 
+  // WP-1496: 토큰은 키 종류와 상관없이 OAuth 슬롯에, 워크스페이스 ID 가 있을 때만 커스텀 헤더 — 호스트 env 의 값은 새지 않는다.
+  describe('env: 인증 변수·워크스페이스 헤더 (WP-1496)', () => {
+    const KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_CUSTOM_HEADERS'] as const;
+    // 호스트 env 에 세 변수가 모두 있는 상태로 돌려 누출이 없는지 본다.
+    function withHostEnv(fn: () => void) {
+      const prev = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+      process.env.ANTHROPIC_API_KEY = 'host-api-key';
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'host-oauth';
+      process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-host: leak';
+      try {
+        fn();
+      } finally {
+        for (const k of KEYS) {
+          if (prev[k] === undefined) delete process.env[k];
+          else process.env[k] = prev[k];
+        }
+      }
+    }
+
+    it.each(['sk-ant-oat01-x', 'sk-ant-usr01-x'])('%s 는 CLAUDE_CODE_OAUTH_TOKEN 에, ANTHROPIC_API_KEY 는 지운다', (token) => {
+      withHostEnv(() => {
+        const o = buildSdkOptions(baseInput({ token }));
+        expect(o.env!.CLAUDE_CODE_OAUTH_TOKEN).toBe(token);
+        expect(o.env!.ANTHROPIC_API_KEY).toBeUndefined();
+      });
+    });
+
+    it('워크스페이스 ID 가 없으면 커스텀 헤더 없음 — 호스트의 ANTHROPIC_CUSTOM_HEADERS 도 지운다', () => {
+      withHostEnv(() => {
+        expect(buildSdkOptions(baseInput({ token: 'sk-ant-oat01-x' })).env!.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined();
+        expect(buildSdkOptions(baseInput({ token: 'sk-ant-usr01-x', workspaceId: null })).env!.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined();
+      });
+    });
+
+    it.each(['sk-ant-oat01-x', 'sk-ant-usr01-x'])('%s + 워크스페이스 ID → anthropic-workspace-id 헤더', (token) => {
+      withHostEnv(() => {
+        const o = buildSdkOptions(baseInput({ token, workspaceId: 'wrkspc_01abc' }));
+        expect(o.env!.ANTHROPIC_CUSTOM_HEADERS).toBe('anthropic-workspace-id: wrkspc_01abc');
+        expect(o.env!.CLAUDE_CODE_OAUTH_TOKEN).toBe(token);
+        expect(o.env!.ANTHROPIC_API_KEY).toBeUndefined();
+      });
+    });
+
+    it('워크스페이스 ID 에 줄바꿈이 섞이면 헤더를 싣지 않는다(헤더 주입 방지)', () => {
+      withHostEnv(() => {
+        const o = buildSdkOptions(baseInput({ token: 'sk-ant-usr01-x', workspaceId: 'wrkspc_1\nx-evil: 1' }));
+        expect(o.env!.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined();
+        expect(o.env!.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-usr01-x');
+      });
+    });
+  });
+
   // WP-351: 위임(Agent)이 백그라운드로 떠 라우터가 결과 전에 턴을 끝내지 않게 동기로 돌린다.
   it('env: 위임하는 실행만 백그라운드 작업을 끈다(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1)', () => {
     expect(buildSdkOptions(baseInput({ allowSubagents: true })).env!.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');

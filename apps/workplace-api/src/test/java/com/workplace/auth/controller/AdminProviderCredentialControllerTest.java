@@ -50,7 +50,8 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test
   void no_permission_returns_403() throws Exception {
     Long admin = createHumanUserForTest();
-    var req = new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, null, null);
+    var req =
+        new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, null, null, null);
     mvc.perform(
             post("/api/v1/admin/agents/9999/provider-credential")
                 .with(authentication(authWith(admin, "agent_unauthorized")))
@@ -63,7 +64,8 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   void register_생략시_anthropic_하위호환_그리고_평문미포함() throws Exception {
     Long admin = createHumanUserForTest();
     Long agentId = withMembership(createAgentUserForTest());
-    var req = new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, "main", null);
+    var req =
+        new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, "main", null, null);
     mvc.perform(
             post("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
@@ -86,7 +88,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
             "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
     var req =
         new ProviderCredentialRegisterRequest(
-            "opencode", null, config, "gpt-4.1", "opencode-main", null);
+            "opencode", null, config, "gpt-4.1", "opencode-main", null, null);
     mvc.perform(
             post("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
@@ -110,7 +112,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
             Map.of("custom/qwen3.6-35b-vl", true));
     var req =
         new ProviderCredentialRegisterRequest(
-            "opencode", null, config, "custom/qwen3.6-35b-vl", "opencode-vision", null);
+            "opencode", null, config, "custom/qwen3.6-35b-vl", "opencode-vision", null, null);
     mvc.perform(
             post("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
@@ -134,7 +136,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
             "yes");
     var req =
         new ProviderCredentialRegisterRequest(
-            "opencode", null, config, "custom/m", "opencode-bad", null);
+            "opencode", null, config, "custom/m", "opencode-bad", null, null);
     mvc.perform(
             post("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
@@ -150,7 +152,8 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
     var config =
         new ProviderConfig(
             "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
-    var req = new ProviderCredentialRegisterRequest("opencode", null, config, null, null, null);
+    var req =
+        new ProviderCredentialRegisterRequest("opencode", null, config, null, null, null, null);
     mvc.perform(
             post("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))

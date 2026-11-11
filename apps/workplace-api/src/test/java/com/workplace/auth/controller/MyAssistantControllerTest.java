@@ -56,7 +56,8 @@ class MyAssistantControllerTest extends IntegrationTestBase {
   @Test
   void register_credential_생략시_anthropic_하위호환_204() throws Exception {
     Long human = createHumanUserForTest();
-    var req = new RegisterAssistantCredentialRequest(null, "X".repeat(64), null, null, "내 토큰");
+    var req =
+        new RegisterAssistantCredentialRequest(null, "X".repeat(64), null, null, "내 토큰", null);
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
@@ -78,7 +79,8 @@ class MyAssistantControllerTest extends IntegrationTestBase {
         new ProviderConfig(
             "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
     var req =
-        new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
+        new RegisterAssistantCredentialRequest(
+            "opencode", null, config, "gpt-4.1", "opencode", null);
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
@@ -100,7 +102,7 @@ class MyAssistantControllerTest extends IntegrationTestBase {
     var config =
         new ProviderConfig(
             "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
-    var req = new RegisterAssistantCredentialRequest("opencode", null, config, null, null);
+    var req = new RegisterAssistantCredentialRequest("opencode", null, config, null, null, null);
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))

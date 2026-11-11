@@ -191,7 +191,9 @@ public class AssistantModelsController {
               .toList();
       return new AgentModelsResponse(provider, prefixed);
     }
-    return new AgentModelsResponse(provider, anthropicModels(secret.plaintext(), null));
+    // WP-1496: 계정에 워크스페이스 ID 가 있으면 함께 넘긴다.
+    return new AgentModelsResponse(
+        provider, anthropicModels(secret.plaintext(), secret.workspaceId(), null));
   }
 
   /**
@@ -204,16 +206,17 @@ public class AssistantModelsController {
       redeemed = credentialService.decryptPayload(row);
     } catch (CryptoException e) {
       log.warn("Anthropic 토큰 복호화 실패 — 정적 모델 목록으로 폴백");
-      return anthropicModels(null, null);
+      return anthropicModels(null, null, null);
     }
-    return anthropicModels(redeemed.token(), redeemed.model());
+    return anthropicModels(redeemed.token(), redeemed.workspaceId(), redeemed.model());
   }
 
-  private List<ModelOption> anthropicModels(String token, String savedModel) {
+  /** workspaceId 는 연결·계정에 저장된 Anthropic 워크스페이스 ID(WP-1496, 선택) — 없으면 null. */
+  private List<ModelOption> anthropicModels(String token, String workspaceId, String savedModel) {
     try {
       return token == null
           ? AssistantModels.ANTHROPIC
-          : withSavedModel(modelsClient.listAnthropicModels(token), savedModel);
+          : withSavedModel(modelsClient.listAnthropicModels(token, workspaceId), savedModel);
     } catch (AssistantModelsProbeException e) {
       log.warn("Anthropic 모델 실시간 조회 실패 — 정적 목록으로 폴백");
       return withSavedModel(AssistantModels.ANTHROPIC, savedModel);

@@ -48,7 +48,9 @@ public class MyAssistantController {
     String secret =
         ProviderCredentialSecrets.resolveSecret(
             objectMapper, provider, req.token(), req.providerConfig(), null);
-    service.registerCredential(callerId, provider, secret, req.label(), req.model());
+    // WP-1496: Anthropic 워크스페이스 ID(선택) — 검증·등록 확인은 서비스가 한다.
+    service.registerCredential(
+        callerId, provider, secret, req.label(), req.model(), req.workspaceId());
     return ResponseEntity.noContent().build();
   }
 

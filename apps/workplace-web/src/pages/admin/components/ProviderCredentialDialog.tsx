@@ -33,10 +33,12 @@ import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProv
 import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';
 import { withProviderPrefix } from '@/lib/ai/suggestionModel';
 import { visionConfigFor } from '@/lib/ai/visionConfig';
+import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { handleApiError } from '@/lib/api-error';
 import { type OpencodePresetKey, toOpencodeProviderConfig } from '@/lib/opencode-presets';
 import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
 
+import { AnthropicWorkspaceIdField } from './credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MAX, CLAUDE_TOKEN_MIN, ClaudeTokenField } from './credential-fields/ClaudeTokenField';
 import {
   DEFAULT_OPENCODE_BASE_URL,
@@ -64,6 +66,8 @@ export function ProviderCredentialDialog({
 
   // anthropic 입력.
   const [token, setToken] = useState('');
+  // WP-1496: Anthropic 워크스페이스 ID(선택) — 형식 오류·서버 거절 안내는 칸 아래에 보이고, 서버 거절이면 이 칸으로 초점을 옮긴다.
+  const workspace = useAnthropicWorkspaceId();
 
   // opencode 입력.
   const [presetKey, setPresetKey] = useState<PresetKey>(DEFAULT_OPENCODE_PRESET);
@@ -91,6 +95,7 @@ export function ProviderCredentialDialog({
   const reset = () => {
     setConnectionType('anthropic');
     setToken('');
+    workspace.reset();
     setPresetKey(DEFAULT_OPENCODE_PRESET);
     setBaseUrl(DEFAULT_OPENCODE_BASE_URL);
     setApiKey('');
@@ -142,15 +147,20 @@ export function ProviderCredentialDialog({
         toast.error(`토큰이 너무 깁니다 (최대 ${CLAUDE_TOKEN_MAX}자)`);
         return;
       }
+      // 워크스페이스 ID 형식(공백·제어 문자 없음, 128자 이하) — 틀리면 칸 아래에 알리고 보내지 않는다.
+      if (!workspace.validate()) return;
       try {
         await mutation.mutateAsync({
           provider: 'anthropic',
           token: trimmed,
+          ...workspace.part(),
         });
         toast.success(isReissue ? '연결 정보를 변경했습니다.' : 'AI에 연결했습니다.');
         reset();
         onOpenChange(false);
       } catch (e) {
+        // 서버가 「이 키는 워크스페이스 ID 가 필요하다」고 거절하면 창과 토큰은 그대로 두고 ID 칸에서 바로 고치게 한다.
+        if (workspace.absorbApiError(e)) return;
         handleApiError(e, '연결에 실패했습니다');
       }
       return;
@@ -236,7 +246,10 @@ export function ProviderCredentialDialog({
           </div>
 
           {connectionType === 'anthropic' ? (
-            <ClaudeTokenField value={token} onChange={setToken} />
+            <>
+              <ClaudeTokenField value={token} onChange={setToken} />
+              <AnthropicWorkspaceIdField {...workspace.fieldProps} />
+            </>
           ) : (
             <div className="space-y-3">
               <OpencodeConnectionFields

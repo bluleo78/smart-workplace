@@ -146,6 +146,20 @@ public class AiAgentCredentialRecord extends UpdatableRecordImpl<AiAgentCredenti
         return (String) get(8);
     }
 
+    /**
+     * Setter for <code>public.ai_agent_credential.workspace_id</code>.
+     */
+    public void setWorkspaceId(String value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.ai_agent_credential.workspace_id</code>.
+     */
+    public String getWorkspaceId() {
+        return (String) get(9);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -169,7 +183,7 @@ public class AiAgentCredentialRecord extends UpdatableRecordImpl<AiAgentCredenti
     /**
      * Create a detached, initialised AiAgentCredentialRecord
      */
-    public AiAgentCredentialRecord(Long id, Long userId, String encryptedToken, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, String provider) {
+    public AiAgentCredentialRecord(Long id, Long userId, String encryptedToken, String label, Long createdBy, OffsetDateTime createdAt, OffsetDateTime lastUsedAt, OffsetDateTime revokedAt, String provider, String workspaceId) {
         super(AiAgentCredential.AI_AGENT_CREDENTIAL);
 
         setId(id);
@@ -181,6 +195,7 @@ public class AiAgentCredentialRecord extends UpdatableRecordImpl<AiAgentCredenti
         setLastUsedAt(lastUsedAt);
         setRevokedAt(revokedAt);
         setProvider(provider);
+        setWorkspaceId(workspaceId);
         resetChangedOnNotNull();
     }
 }

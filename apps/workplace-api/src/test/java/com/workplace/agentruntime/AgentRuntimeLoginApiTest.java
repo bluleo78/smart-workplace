@@ -128,7 +128,7 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
         .register(
             admin,
             new AgentAccountRequest(
-                "chatgpt", null, null, null, chatgptLogin(accountId, refresh, lastRefresh)))
+                "chatgpt", null, null, null, chatgptLogin(accountId, refresh, lastRefresh), null))
         .id();
   }
 
@@ -289,7 +289,7 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
         admin,
         account,
         new AgentAccountUpdateRequest(
-            null, null, null, chatgptLogin("acc-1", "refresh-human", NEWER)));
+            null, null, null, chatgptLogin("acc-1", "refresh-human", NEWER), null));
 
     assertThat(row().serverRefreshReady()).isTrue();
   }
@@ -389,7 +389,7 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
     long g = newAgentOn("genia-code");
     long ga =
         accountService
-            .register(admin, new AgentAccountRequest("genia", null, null, null, GENIA_LOGIN))
+            .register(admin, new AgentAccountRequest("genia", null, null, null, GENIA_LOGIN, null))
             .id();
     bind(g, ga);
     run(g);
@@ -448,7 +448,8 @@ class AgentRuntimeLoginApiTest extends IntegrationTestBase {
                     null,
                     null,
                     null,
-                    chatgptLogin("y", "refresh-y", OLD).replace(",\"account_id\":\"y\"", "")))
+                    chatgptLogin("y", "refresh-y", OLD).replace(",\"account_id\":\"y\"", ""),
+                    null))
             .id();
     bind(other, noIdAccount);
     run(other);

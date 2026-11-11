@@ -158,6 +158,7 @@ class RunnerDesiredBrokenAccountTest extends IntegrationTestBase {
                                 null,
                                 Map.of("baseURL", "https://api.example.com/v1", "apiKey", apiKey)),
                             null,
+                            null,
                             null))
                     .id());
     accountIds.add(id);
@@ -173,7 +174,7 @@ class RunnerDesiredBrokenAccountTest extends IntegrationTestBase {
                     .register(
                         admin,
                         new AgentAccountRequest(
-                            "anthropic", "sk-ant-oat01-" + "D".repeat(40), null, null, null))
+                            "anthropic", "sk-ant-oat01-" + "D".repeat(40), null, null, null, null))
                     .id());
     accountIds.add(id);
     return id;

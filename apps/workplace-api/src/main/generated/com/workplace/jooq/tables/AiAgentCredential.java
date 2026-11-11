@@ -105,6 +105,11 @@ public class AiAgentCredential extends TableImpl<AiAgentCredentialRecord> {
      */
     public final TableField<AiAgentCredentialRecord, String> PROVIDER = createField(DSL.name("provider"), SQLDataType.VARCHAR(32).nullable(false).defaultValue(DSL.field(DSL.raw("'anthropic'::character varying"), SQLDataType.VARCHAR)), this, "");
 
+    /**
+     * The column <code>public.ai_agent_credential.workspace_id</code>.
+     */
+    public final TableField<AiAgentCredentialRecord, String> WORKSPACE_ID = createField(DSL.name("workspace_id"), SQLDataType.VARCHAR(128), this, "");
+
     private AiAgentCredential(Name alias, Table<AiAgentCredentialRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

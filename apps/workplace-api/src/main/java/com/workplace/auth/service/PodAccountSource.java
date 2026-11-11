@@ -109,9 +109,15 @@ public interface PodAccountSource {
    *
    * @param normalizedPlaintext 연결 등록과 같은 규칙으로 정규화한 원문(로그인형은 {@code LoginInfoNormalizer} 결과)
    * @param label 요청 라벨 — 비었으면 「<AI 이름> 계정」
+   * @param workspaceId Anthropic 워크스페이스 ID(WP-1496, 선택) — anthropic 이 아니면 계정에 저장하지 않는다
    */
   void bindFromLegacy(
-      Long callerId, long agentUserId, String provider, String normalizedPlaintext, String label);
+      Long callerId,
+      long agentUserId,
+      String provider,
+      String normalizedPlaintext,
+      String label,
+      String workspaceId);
 
   /**
    * AI 의 묶음을 푼다 — 묶이지 않았으면 아무것도 하지 않는다. 실제로 풀었으면 runner 에 알린다(묶기 서비스와 같은 경로).

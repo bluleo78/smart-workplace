@@ -38,11 +38,25 @@ const ANTHROPIC_META: CredentialMeta = {
   lastUsedAt: null,
 }
 
+/** POST 응답 — 성공·일반 400·「워크스페이스 ID 가 필요한 키」 400(WP-1496). */
+type PostStatus = 200 | 400 | 'needWorkspace'
+
+/** 서버가 워크스페이스 ID 없이 쓸 수 없는 키를 거절할 때의 ErrorResponse(WP-1496). */
+const NEED_WORKSPACE_MESSAGE = '이 키는 Anthropic 워크스페이스 ID 가 필요합니다. Anthropic 콘솔 Workspaces 에서 ID 를 확인해 넣어 주세요.'
+const NEED_WORKSPACE_BODY = {
+  status: 400,
+  error: 'Bad Request',
+  message: '입력값 검증에 실패했습니다',
+  errors: { workspaceId: NEED_WORKSPACE_MESSAGE },
+  timestamp: '2026-11-11T06:00:00Z',
+  path: CREDENTIAL,
+}
+
 /**
  * 자격증명 GET/POST/DELETE 를 한 상태로 다룬다 — POST 는 메타를 바꾸고 DELETE 는 지운다(재조회에 반영).
  * posts·deletes 에 요청 본문·횟수를 모은다. 공통 비서는 미지정(모델 목록 조회 없음).
  */
-function credentialApi(initial: CredentialMeta | null, { postStatus = 200 }: { postStatus?: 200 | 400 } = {}) {
+function credentialApi(initial: CredentialMeta | null, { postStatus = 200 }: { postStatus?: PostStatus } = {}) {
   const state = { current: initial, posts: [] as unknown[], deletes: 0 }
   const handlers = [
     http.get('/api/v1/admin/workspace-assistant', () =>
@@ -57,6 +71,7 @@ function credentialApi(initial: CredentialMeta | null, { postStatus = 200 }: { p
       const body = (await request.json()) as Record<string, unknown>
       state.posts.push(body)
       if (postStatus === 400) return HttpResponse.json({ message: 'invalid token' }, { status: 400 })
+      if (postStatus === 'needWorkspace') return HttpResponse.json(NEED_WORKSPACE_BODY, { status: 400 })
       const provider = body.provider as CredentialMeta['provider']
       const config = body.providerConfig as { options?: { baseURL?: string } } | undefined
       state.current = {
@@ -98,7 +113,7 @@ const MODELS = [
 /** 섹션을 띄우고 첫 상태(미등록 안내 또는 재발급 버튼)가 보일 때까지 기다린다. */
 async function renderSection(
   initial: CredentialMeta | null,
-  opts: { postStatus?: 200 | 400 } = {},
+  opts: { postStatus?: PostStatus } = {},
   more: ReturnType<typeof http.post>[] = [],
 ) {
   const api = credentialApi(initial, opts)
@@ -305,4 +320,58 @@ test('개인 비서(canConfigure=false)는 재발급·연결하기·공통 비�
   expect(await screen.findByText('아직 연결하지 않았어요.')).toBeInTheDocument()
   expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()
   expect(api.state.posts).toEqual([])
+})
+
+// WP-1496: 워크스페이스 ID(선택) — Claude 토큰 칸 아래 늘 보이고, 비우면 싣지 않고, 넣으면 다듬어 싣는다.
+test('Claude 토큰 칸 아래 워크스페이스 ID 칸이 늘 보이고, 비우면 workspaceId 를 싣지 않는다', async () => {
+  const { user, state } = await renderSection(null)
+  await user.click(screen.getByTestId('oauth-token-register'))
+  await user.click(await screen.findByRole('textbox', { name: '토큰' }))
+  await user.paste(VALID_TOKEN_64)
+  expect(screen.getByRole('textbox', { name: 'Anthropic 워크스페이스 ID(선택)' })).toHaveValue('')
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  expect(state.posts).toEqual([{ provider: 'anthropic', token: VALID_TOKEN_64 }])
+})
+
+test('워크스페이스 ID 를 넣으면 앞뒤 공백을 다듬어 workspaceId 로 싣는다', async () => {
+  const { user, state } = await renderSection(null)
+  await user.click(screen.getByTestId('oauth-token-register'))
+  await user.click(await screen.findByRole('textbox', { name: '토큰' }))
+  await user.paste(VALID_TOKEN_64)
+  await user.click(screen.getByTestId('anthropic-workspace-id-input'))
+  await user.paste('  wrkspc_01AbC  ')
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+
+  expect(await screen.findByText('AI에 연결했습니다.')).toBeInTheDocument()
+  expect(state.posts).toEqual([{ provider: 'anthropic', token: VALID_TOKEN_64, workspaceId: 'wrkspc_01AbC' }])
+})
+
+test('워크스페이스 ID 에 공백이 섞이면 칸 아래 오류만 보이고 보내지 않는다', async () => {
+  const { user, state } = await renderSection(null)
+  await user.click(screen.getByTestId('oauth-token-register'))
+  await user.click(await screen.findByRole('textbox', { name: '토큰' }))
+  await user.paste(VALID_TOKEN_64)
+  await user.click(screen.getByTestId('anthropic-workspace-id-input'))
+  await user.paste('wrkspc 01')
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+
+  expect(await screen.findByTestId('anthropic-workspace-id-error')).toHaveTextContent('공백')
+  expect(screen.getByTestId('anthropic-workspace-id-input')).toHaveAttribute('aria-invalid', 'true')
+  expect(state.posts).toEqual([])
+})
+
+test('서버가 워크스페이스 ID 가 필요하다고 거절하면 칸 아래 안내를 보이고 칸으로 초점을 옮긴다(대화상자·토큰 유지)', async () => {
+  const { user, state } = await renderSection(null, { postStatus: 'needWorkspace' })
+  await user.click(screen.getByTestId('oauth-token-register'))
+  await user.click(await screen.findByRole('textbox', { name: '토큰' }))
+  await user.paste(VALID_TOKEN_64)
+  await user.click(screen.getByRole('button', { name: '연결하기' }))
+
+  expect(await screen.findByTestId('anthropic-workspace-id-error')).toHaveTextContent(NEED_WORKSPACE_MESSAGE)
+  expect(screen.getByTestId('anthropic-workspace-id-input')).toHaveFocus()
+  expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: '토큰' })).toHaveValue(VALID_TOKEN_64)
+  expect(state.posts).toHaveLength(1)
 })

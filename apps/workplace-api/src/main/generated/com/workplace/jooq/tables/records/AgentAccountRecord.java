@@ -248,6 +248,20 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
         return (Boolean) get(15);
     }
 
+    /**
+     * Setter for <code>public.agent_account.workspace_id</code>.
+     */
+    public void setWorkspaceId(String value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_account.workspace_id</code>.
+     */
+    public String getWorkspaceId() {
+        return (String) get(16);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -271,7 +285,7 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
     /**
      * Create a detached, initialised AgentAccountRecord
      */
-    public AgentAccountRecord(Long id, Long tenantId, String provider, String label, String encryptedSecret, Long secretVersion, String accountEmail, OffsetDateTime lastRefreshedAt, String status, String fingerprint, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime revokedAt, Long loginRevision, Boolean serverRefreshReady) {
+    public AgentAccountRecord(Long id, Long tenantId, String provider, String label, String encryptedSecret, Long secretVersion, String accountEmail, OffsetDateTime lastRefreshedAt, String status, String fingerprint, Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime revokedAt, Long loginRevision, Boolean serverRefreshReady, String workspaceId) {
         super(AgentAccount.AGENT_ACCOUNT);
 
         setId(id);
@@ -290,6 +304,7 @@ public class AgentAccountRecord extends UpdatableRecordImpl<AgentAccountRecord> 
         setRevokedAt(revokedAt);
         setLoginRevision(loginRevision);
         setServerRefreshReady(serverRefreshReady);
+        setWorkspaceId(workspaceId);
         resetChangedOnNotNull();
     }
 }

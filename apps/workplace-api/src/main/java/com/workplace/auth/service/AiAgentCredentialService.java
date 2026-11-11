@@ -63,14 +63,9 @@ public class AiAgentCredentialService {
   private final ModelBaseUrlGuard urlGuard;
   private final ApplicationEventPublisher publisher;
   private final AgentAccountFitPolicy accountFit;
+  private final AnthropicCredentialVerifier anthropicVerifier;
 
-  /**
-   * AGENT 에 새 자격증명 등록 — 기존 active 가 있으면 자동 revoke.
-   *
-   * <p>provider='anthropic': plaintextSecret=OAuth 토큰. provider='opencode':
-   * plaintextSecret=provider config JSON 문자열({"providerId","options":{"baseURL","apiKey",...}}) 이며
-   * model 이 필수 — 같은 트랜잭션에서 assistant_config.model 을 함께 upsert한다(maxTurns/timeoutMs 는 기존 값 보존).
-   */
+  /** 워크스페이스 ID 를 지정하지 않는 등록(WP-1496, workspaceId=null) — 테스트 등 워크스페이스 ID 를 받지 않는 호출이 쓴다. */
   public OAuthTokenMetaResponse register(
       Long callerId,
       Long agentUserId,
@@ -78,6 +73,28 @@ public class AiAgentCredentialService {
       String plaintextSecret,
       String label,
       String model) {
+    return register(callerId, agentUserId, provider, plaintextSecret, label, model, null);
+  }
+
+  /**
+   * AGENT 에 새 자격증명 등록 — 기존 active 가 있으면 자동 revoke.
+   *
+   * <p>provider='anthropic': plaintextSecret=OAuth 토큰. provider='opencode':
+   * plaintextSecret=provider config JSON 문자열({"providerId","options":{"baseURL","apiKey",...}}) 이며
+   * model 이 필수 — 같은 트랜잭션에서 assistant_config.model 을 함께 upsert한다(maxTurns/timeoutMs 는 기존 값 보존).
+   *
+   * <p>workspaceId(WP-1496)는 Anthropic 워크스페이스 ID — anthropic 토큰에 선택(앞뒤 공백 제거, 비면 null, 공백 문자
+   * 없음·128자 이내). anthropic 토큰은 저장 전에 ai-agent 모델 조회로 키와 워크스페이스가 맞는지 확인한다 — 워크스페이스 ID 필요·거절이면 400 이고
+   * 기존 연결은 그대로 남는다. 다른 provider 는 workspaceId 를 버린다(null 저장).
+   */
+  public OAuthTokenMetaResponse register(
+      Long callerId,
+      Long agentUserId,
+      String provider,
+      String plaintextSecret,
+      String label,
+      String model,
+      String workspaceId) {
     UserResponse agent = assertAgent(agentUserId);
     // WP-1163: 개인 비서의 연결은 주인만 등록·재발급한다 — 관리자 경로(AdminProviderCredentialController)도 이 메서드를 쓰므로
     // 등록 지점 한 곳에서 막는다. 남이 바꾸면 주인의 대화가 주인 모르게 그 사람의 연결로 나간다(403). 회수는 정리 수단으로 남긴다.
@@ -96,6 +113,8 @@ public class AiAgentCredentialService {
     accountFit.requireFits(agentUserId, provider);
     // opencode 연결의 providerId — 추천 모델("providerId/model") 유지 판단에 쓴다. anthropic 은 null.
     String providerId = null;
+    // WP-1496: 저장할 워크스페이스 ID — anthropic 토큰에서만 값이 있을 수 있다(아래 anthropic 분기에서 정한다).
+    String storedWorkspaceId = null;
     if ("opencode".equals(provider)) {
       providerId =
           validateOpencodePayload(plaintextSecret, accountFit.deliversToPod(agentUserId, provider));
@@ -107,6 +126,10 @@ public class AiAgentCredentialService {
       plaintextSecret = LoginInfoNormalizer.normalize(provider, plaintextSecret);
     } else if (plaintextSecret == null || plaintextSecret.isBlank()) {
       throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
+    } else {
+      // WP-1496: 워크스페이스 ID(선택)를 검증하고, 저장(기존 연결 회수) 전에 ai-agent 로 키를 시험한다 — 필요·거절이면 여기서 400.
+      storedWorkspaceId = AnthropicKeys.normalizeWorkspaceId(workspaceId);
+      anthropicVerifier.verify(AgentProviders.ANTHROPIC, plaintextSecret, storedWorkspaceId);
     }
 
     // 회수 전에 가장 최근 행을 한 번 읽어 두 판단에 함께 쓴다(provider NULL 은 AgentProviders.normalize 로 anthropic).
@@ -129,7 +152,7 @@ public class AiAgentCredentialService {
     repo.revokeActive(agentUserId); // 기존 active 가 있으면 회수 (없으면 noop)
 
     String encrypted = encryptionService.encrypt(plaintextSecret);
-    Long id = repo.insert(agentUserId, provider, encrypted, label, callerId);
+    Long id = repo.insert(agentUserId, provider, encrypted, label, callerId, storedWorkspaceId);
 
     // opencode→anthropic 전환처럼 provider 가 바뀌면 이전 provider 형식의 model 문자열
     // (예: "amazon-bedrock-openai/google.gemma-...")이 새 provider 에는 무의미해진다. anthropic 은
@@ -342,7 +365,10 @@ public class AiAgentCredentialService {
         .map(
             row ->
                 new ActiveProviderSecret(
-                    row.id(), row.provider(), encryptionService.decrypt(row.encryptedToken())));
+                    row.id(),
+                    row.provider(),
+                    encryptionService.decrypt(row.encryptedToken()),
+                    row.workspaceId()));
   }
 
   /**
@@ -374,7 +400,7 @@ public class AiAgentCredentialService {
     String model = configRepo.find(agentUserId).map(ConfigRow::model).orElse(null);
     String payload = withDefaultModel(raw.plaintext(), model);
     return new ActiveProviderSecret(
-        opencodeLoginVersion(raw.id(), payload), raw.provider(), payload);
+        opencodeLoginVersion(raw.id(), payload), raw.provider(), payload, raw.workspaceId());
   }
 
   /**
@@ -459,9 +485,12 @@ public class AiAgentCredentialService {
 
   /**
    * 활성 자격증명 원문 — toString 에 원문을 싣지 않는다. id 는 runner 쪽 Secret 버전이다(OpenCode 는 {@link
-   * #opencodeLoginVersion}).
+   * #opencodeLoginVersion}). workspaceId(WP-1496)는 Anthropic 워크스페이스 ID(선택) — 없거나 다른 provider 면
+   * null.
    */
-  public record ActiveProviderSecret(long id, String provider, String plaintext) {
+  public record ActiveProviderSecret(
+      long id, String provider, String plaintext, String workspaceId) {
+
     @Override
     public String toString() {
       return "ActiveProviderSecret[id=" + id + ", provider=" + provider + "]";
@@ -478,8 +507,10 @@ public class AiAgentCredentialService {
     String plaintext = encryptionService.decrypt(row.encryptedToken());
     String model = configRepo.find(agentUserId).map(ConfigRow::model).orElse(null);
     return "opencode".equals(row.provider())
-        ? new ProviderCredentialRedeemResponse("opencode", null, plaintext, model, row.label())
-        : new ProviderCredentialRedeemResponse("anthropic", plaintext, null, model, row.label());
+        ? new ProviderCredentialRedeemResponse(
+            "opencode", null, plaintext, model, row.label(), null)
+        : new ProviderCredentialRedeemResponse(
+            "anthropic", plaintext, null, model, row.label(), row.workspaceId());
   }
 
   /**

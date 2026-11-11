@@ -84,6 +84,25 @@ describe('ClaudeSdkRunner.collect', () => {
     expect(arg.maxTurns).toBe(8);
   });
 
+  // WP-1496: 사용자 API 키의 워크스페이스 ID 를 실행 입력으로 넘겨 헤더를 싣게 한다.
+  it('credential.workspaceId 를 SdkRunInput.workspaceId 로 넘긴다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const runner = new ClaudeSdkRunner();
+    await runner.collect(
+      baseInput({ credential: { provider: 'anthropic', token: 'sk-ant-usr01-x', model: null, workspaceId: 'wrkspc_1' } }),
+    );
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.token).toBe('sk-ant-usr01-x');
+    expect(arg.workspaceId).toBe('wrkspc_1');
+  });
+
+  it('credential.workspaceId 가 없으면 SdkRunInput.workspaceId 는 null', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const runner = new ClaudeSdkRunner();
+    await runner.collect(baseInput());
+    expect(vi.mocked(runSdkCollect).mock.calls[0][0].workspaceId).toBeNull();
+  });
+
   it('비JSON 라인은 무시', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue(['not-json{{', JSON.stringify({ type: 'result', subtype: 'success', result: 'ok' })]);
     const runner = new ClaudeSdkRunner();

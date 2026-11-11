@@ -14,8 +14,9 @@ public record AgentAccountRequest(
     @Size(min = 32, max = 2048) String token,
     @Valid ProviderConfig providerConfig,
     @Size(max = 80) String label,
-    @Size(max = 16384) String loginInfo) {
-
+    @Size(max = 16384) String loginInfo,
+    // WP-1496: Anthropic 워크스페이스 ID(선택, 모든 Claude 토큰) — 형식 검증은 서비스(AnthropicKeys).
+    String workspaceId) {
   /** 평문(token·providerConfig·loginInfo)이 로그에 새지 않게 종류·라벨만 싣는다. */
   @Override
   public String toString() {

@@ -97,7 +97,7 @@ class AgentAccountBindingApiTest extends IntegrationTestBase {
 
   private long anthropicAccount() {
     return accountService
-        .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, "팀 구독", null))
+        .register(admin, new AgentAccountRequest("anthropic", TOKEN, null, "팀 구독", null, null))
         .id();
   }
 
@@ -156,7 +156,8 @@ class AgentAccountBindingApiTest extends IntegrationTestBase {
     long tenant2 = TestFixtures.createTenant(dsl, "ACTIVE");
     useTenant(tenant2);
     long foreign =
-        accounts.insert("anthropic", "남의 계정", "iv:cipher", null, null, "ACTIVE", null, null, false);
+        accounts.insert(
+            "anthropic", "남의 계정", "iv:cipher", null, null, "ACTIVE", null, null, false, null);
     useTenant(1L);
 
     bind(agent, foreign)
