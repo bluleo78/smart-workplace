@@ -37,6 +37,8 @@ export function buildMessagingUserMessage(
     `메시지: "${triggerBody}"\n\n` +
     `## 최근 대화 흐름 (오래된→최신)\n${thread || '(이전 메시지 없음)'}\n\n` +
     `더 과거 대화가 필요하면 list_channel_messages(${payload.channelId}) — 최신순이고, 결과의 nextCursor 를 cursor 로 넘기면 더 오래된 메시지를 이어 읽습니다(한 번에 최대 100건). ` +
+    // WP-1490: 실행 중에 온 메시지는 끝난 뒤 한 번에 다시 처리하므로, 앞 실행의 답과 겹치지 않게 범위를 못 박는다.
+    `당신(AI)의 마지막 답 이후에 당신에게 온 메시지들(위 메시지와 그 사이 당신에게 한 말)에 한 번에 답하세요 — 이미 답한 내용은 되풀이하지 않고, 다른 사람끼리 나눈 말에는 끼어들지 않습니다. ` +
     `파악이 끝나면 add_channel_message(${payload.channelId}, 답변) 을 정확히 한 번 호출해 답하세요.\n\n` +
     `## 위임 가능 프로젝트\n${projectList}\n` +
     `사용자가 일을 이슈로 만들어 당신에게 맡기려 하면 위 목록에서 projectKey 를 골라 propose_create_issue 를 호출하세요. ` +
