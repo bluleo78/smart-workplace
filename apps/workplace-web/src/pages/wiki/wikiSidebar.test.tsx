@@ -156,6 +156,44 @@ test('스페이스 선택기는 shadcn Select(combobox)이고 다른 스페이�
   await waitFor(() => expect(location()).toBe('/wiki/spaces/2'))
 })
 
+test('스페이스 선택 상자는 개인 / 팀 / 프로젝트 묶음으로 나뉘고, 프로젝트 공간은 이름 순에 key 가 붙는다(WP-1480)', async () => {
+  const team = wikiSpace({ id: 2, name: '제품팀', role: 'OWNER' })
+  const mobile = wikiSpace({ id: 3, name: '모바일 앱', projectKey: 'MOB', role: 'EDITOR' })
+  const wp = wikiSpace({ id: 4, name: 'Gen:iA Works 프로젝트', projectKey: 'WP', role: 'EDITOR' })
+  const { user, location } = open({ path: '/wiki/spaces/3', spaces: () => [PERSONAL, mobile, team, wp] })
+  const trigger = await screen.findByRole('combobox', { name: '노트 스페이스' })
+  // 선택 칸에는 이름만 — 프로젝트 key 는 목록 항목에만 붙는다.
+  await waitFor(() => expect(trigger).toHaveTextContent(/^모바일 앱$/))
+  await user.click(trigger)
+  const groups = await screen.findAllByRole('group')
+  expect(groups.map((g) => [within(g).getAllByRole('option').map((o) => o.textContent)])).toEqual([
+    [['내 노트']],
+    [['제품팀']],
+    // 한국어 정렬 — 한글 이름이 로마자 이름보다 앞선다.
+    [['모바일 앱 MOB', 'Gen:iA Works 프로젝트 WP']],
+  ])
+  expect(screen.getByTestId('wiki-space-group-personal')).toHaveTextContent(/^개인/)
+  expect(screen.getByTestId('wiki-space-group-team')).toHaveTextContent(/^팀/)
+  expect(screen.getByTestId('wiki-space-group-project')).toHaveTextContent(/^프로젝트/)
+  await user.click(screen.getByRole('option', { name: 'Gen:iA Works 프로젝트 WP' }))
+  await waitFor(() => expect(location()).toBe('/wiki/spaces/4'))
+})
+
+test('목록에 없는 공간 id 면 선택 칸이 비지 않고 자리표시 문구를 보인다(WP-1480)', async () => {
+  open({ path: '/wiki/spaces/99', spaces: () => [PERSONAL] })
+  const trigger = await screen.findByRole('combobox', { name: '노트 스페이스' })
+  await waitFor(() => expect(trigger).toHaveTextContent('노트 스페이스 선택'))
+  expect(screen.getByTestId('wiki-space-select-placeholder')).toBeInTheDocument()
+})
+
+test('팀 공간이 없으면 「팀」 묶음은 제목도 없다(WP-1480)', async () => {
+  const { user } = open({ spaces: () => [PERSONAL, wikiSpace({ id: 3, name: '모바일 앱', projectKey: 'MOB' })] })
+  await user.click(await screen.findByRole('combobox', { name: '노트 스페이스' }))
+  expect(await screen.findByTestId('wiki-space-group-project')).toBeInTheDocument()
+  expect(screen.getByTestId('wiki-space-group-personal')).toBeInTheDocument()
+  expect(screen.queryByTestId('wiki-space-group-team')).not.toBeInTheDocument()
+})
+
 // ── 스페이스 삭제(wiki-space-delete) ─────────────────────────────────────────
 
 const TEAM = wikiSpace({ id: 2, name: '제품기획팀', role: 'OWNER' })
@@ -213,6 +251,14 @@ test('스페이스 삭제가 실패하면 서버 사유를 안내하고 확인 �
 
 test('팀 스페이스 OWNER 가 아니면 ⋯ 메뉴에 멤버만 있고 삭제는 없다', async () => {
   const { user } = openTeam(204, { ...TEAM, role: 'EDITOR' })
+  await screen.findByText('회의록')
+  await user.click(screen.getByTestId('wiki-space-menu'))
+  expect(await screen.findByTestId('wiki-space-members')).toBeInTheDocument()
+  expect(screen.queryByTestId('wiki-space-delete')).not.toBeInTheDocument()
+})
+
+test('프로젝트 노트 공간은 OWNER 여도 ⋯ 메뉴에 삭제가 없다(WP-1480)', async () => {
+  const { user } = openTeam(204, { ...TEAM, projectKey: 'WP' })
   await screen.findByText('회의록')
   await user.click(screen.getByTestId('wiki-space-menu'))
   expect(await screen.findByTestId('wiki-space-members')).toBeInTheDocument()

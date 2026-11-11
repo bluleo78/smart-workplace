@@ -10,6 +10,15 @@ export interface WikiSpace {
   ownerId: number
   role: WikiRole
   createdAt: string
+  /** 프로젝트 노트 공간이면 연결된 프로젝트 key, 아니면 null(WP-1480). 구버전 서버 응답엔 없다. */
+  projectKey?: string | null
+}
+
+/** 프로젝트 노트 공간 요약(WP-1480) — GET /wiki/project-spaces/{projectKey}·PUT .../link 응답. */
+export interface WikiProjectSpace {
+  id: number
+  name: string
+  projectKey: string
 }
 
 export interface WikiMember {

@@ -106,6 +106,8 @@ export const shellHandlers = [
   http.get(`${API}/users/me/ai-memories`, () => HttpResponse.json({ items: [], limit: 50 })),
   http.get(`${API}/users/me/ai-memories/changes`, () => HttpResponse.json({ items: [], nextCursor: null, count30d: 0 })),
   http.get(`${API}/shared-ai-memories/spaces`, () => HttpResponse.json({ items: [] })),
+  // 프로젝트 설정의 「노트 공간」 영역(WP-1480, 소유자에게만) — 기본은 공간 없음(404). 영역을 검증하는 테스트는 자기 응답을 앞에 건다.
+  http.get(`${API}/wiki/project-spaces/:key`, () => HttpResponse.json({ message: '노트 공간이 없습니다' }, { status: 404 })),
   http.post(`${API}/ai/suggestions`, () => HttpResponse.json({ items: [], enabled: true })),
   http.get(`${API}/wiki/pages/:id/mentions`, () => HttpResponse.json([])),
   http.get(`${API}/wiki/pages/:id/summary`, () =>

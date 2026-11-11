@@ -65,6 +65,8 @@ const projectHandlers = (project: ProjectResponse) => {
     // 멤버 추가 후보(구성원 디렉터리)·공용 메모리 링크(팀 프로젝트)가 부르는 조회.
     http.get('/api/v1/members', () => HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })),
     http.get('/api/v1/shared-ai-memories/spaces', () => HttpResponse.json({ items: [] })),
+    // 소유자에게 보이는 「노트 공간」 영역(WP-1480)이 부르는 조회 — 공간 없음(404).
+    http.get('/api/v1/wiki/project-spaces/:key', () => HttpResponse.json({ message: '노트 공간이 없습니다' }, { status: 404 })),
   ]
 }
 

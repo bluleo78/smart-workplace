@@ -41,7 +41,7 @@ const SUBTREE: Record<number, UserGroupMemberHit[]> = {
  * 나(1, 소유자)와 편집자 이서연(3), 부서 groups 를 가진 스페이스 멤버 창을 띄운다.
  * 받은 쓰기 요청(부서·사람 POST, 부서 PATCH·DELETE)과 사람 검색의 kind 를 모으고, 쓰면 서버 상태를 바꿔 다시 받은 목록이 반영되게 한다.
  */
-function openDialog(initialGroups: WikiMemberGroup[] = [], role: 'OWNER' | 'EDITOR' = 'OWNER') {
+function openDialog(initialGroups: WikiMemberGroup[] = [], role: 'OWNER' | 'EDITOR' = 'OWNER', projectKey: string | null = null) {
   let groups = [...initialGroups]
   let members: WikiMember[] = [
     { userId: 1, name: '나', role: 'OWNER' },
@@ -51,7 +51,7 @@ function openDialog(initialGroups: WikiMemberGroup[] = [], role: 'OWNER' | 'EDIT
   const kinds: string[] = []
   const subtreeCalls: number[] = []
   const view = renderScreen(
-    <WikiSpaceMemberDialog space={wikiSpace({ id: SPACE, name: '제품팀 노트', ownerId: 1, role })} open onOpenChange={() => {}} />,
+    <WikiSpaceMemberDialog space={wikiSpace({ id: SPACE, name: '제품팀 노트', ownerId: 1, role, projectKey })} open onOpenChange={() => {}} />,
     {
       handlers: [
         http.get(`${API}/members`, () => HttpResponse.json(members)),
@@ -214,5 +214,31 @@ describe('노트 스페이스 멤버 — 조직도 부서(WP-1052)', () => {
     expect(sub).toHaveTextContent('백엔드')
     expect(sub).toHaveTextContent('조직에 포함됨')
     expect(sub).toHaveAttribute('aria-disabled', 'true')
+  })
+})
+
+describe('프로젝트 노트 공간 멤버(WP-1480)', () => {
+  test('소유자여도 명단만 보이고, 추가·역할 변경·제거가 없으며 프로젝트 설정으로 가는 안내가 붙는다', async () => {
+    openDialog([DEV], 'OWNER', 'WP')
+    // 명단(사람·부서)은 그대로 읽힌다.
+    expect(await screen.findByTestId('wiki-member-row-3')).toHaveTextContent('이서연')
+    expect(screen.getByTestId('wiki-member-role-3')).toHaveTextContent('편집자')
+    expect(await screen.findByTestId('wiki-member-group-role-10')).toHaveTextContent('편집자')
+    // 편집 UI 는 없다 — 멤버는 프로젝트 멤버를 따라간다.
+    expect(screen.queryByTestId('wiki-member-add-trigger')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-member-role-select-3')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-member-remove-3')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-member-group-role-select-10')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-member-group-remove-10')).not.toBeInTheDocument()
+    const notice = screen.getByTestId('wiki-member-project-notice')
+    expect(notice).toHaveTextContent('프로젝트 멤버와 같습니다 — 멤버는 프로젝트 설정에서 바꿉니다.')
+    expect(within(notice).getByRole('link', { name: '프로젝트 설정 열기' })).toHaveAttribute('href', '/projects/WP/settings')
+  })
+
+  test('일반 팀 공간에는 안내가 없고 소유자가 편집할 수 있다', async () => {
+    openDialog([], 'OWNER')
+    expect(await screen.findByTestId('wiki-member-role-select-3')).toBeInTheDocument()
+    expect(screen.getByTestId('wiki-member-add-trigger')).toBeInTheDocument()
+    expect(screen.queryByTestId('wiki-member-project-notice')).not.toBeInTheDocument()
   })
 })

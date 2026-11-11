@@ -39,6 +39,7 @@ import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
+import { ProjectNoteSpaceSettings } from './components/ProjectNoteSpaceSettings';
 import { ProjectUnavailableState } from './components/ProjectUnavailableState';
 import { RepositorySettings } from './components/RepositorySettings';
 import { StatusManagement } from './components/status/StatusManagement';
@@ -208,6 +209,9 @@ export default function ProjectSettingsPage() {
           {isPersonal
             ? <MemberManagement projectKey={key} agentOnly ownerId={project.data?.ownerId} canManage={canManage} />
             : <MemberManagement projectKey={key} canManage={canManage} openProject={project.data?.type === 'OPEN'} />}
+
+          {/* 노트 공간(WP-1480) — 프로젝트 OWNER 에게만. ADMIN 은 프로젝트 OWNER 가 아니면 서버가 연결을 거절해 canManage 가 아니라 isOwner 로 가린다. */}
+          {isOwner && !isPersonal && project.data && <ProjectNoteSpaceSettings projectKey={key} />}
 
           {/* 상태(WP-809) — 개인 프로젝트는 상태를 고칠 수 없어(서버 400) 섹션을 그리지 않는다. 편집은 OWNER 만, 멤버는 읽기 전용. */}
           {!isPersonal && <StatusManagement projectKey={key} canEdit={canEditStatuses(isOwner, project.data?.type)} />}

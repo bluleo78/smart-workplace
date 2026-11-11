@@ -18,6 +18,7 @@ import type {
   WikiPageShareState,
   WikiPageSummary,
   WikiPageSummaryState,
+  WikiProjectSpace,
   WikiRevisionDetail,
   WikiRevisionList,
   WikiSearchResult,
@@ -42,6 +43,11 @@ export const wikiApi = {
   getSpace: (spaceId: number) => client.get<WikiSpace>(`/wiki/spaces/${spaceId}`),
   // 팀 스페이스 영구 삭제(WP-580) — OWNER 만, 개인 스페이스는 서버가 거부한다.
   deleteSpace: (spaceId: number) => client.delete<void>(`/wiki/spaces/${spaceId}`),
+  // 프로젝트 노트 공간(WP-1480) — 요약 조회는 공간 멤버(= 프로젝트 멤버)만(아니면 404), 연결은 프로젝트 OWNER 이면서 대상 팀 공간 OWNER 만.
+  getProjectSpace: (projectKey: string) =>
+    client.get<WikiProjectSpace>(`/wiki/project-spaces/${encodeURIComponent(projectKey)}`),
+  linkProjectSpace: (projectKey: string, spaceId: number) =>
+    client.put<WikiProjectSpace>(`/wiki/project-spaces/${encodeURIComponent(projectKey)}/link`, { spaceId }),
   listMembers: (spaceId: number) => client.get<WikiMember[]>(`/wiki/spaces/${spaceId}/members`),
   // 멤버 추가 — TEAM 스페이스 공유. 기본 EDITOR 로 초대(호출처 지정).
   addMember: (spaceId: number, userId: number, role: string) =>
