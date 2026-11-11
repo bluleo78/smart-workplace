@@ -104,9 +104,11 @@ AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
 
 - assistant 프로필 MCP 서버는 전 도구 union 을 등록한다(서브에이전트가 같은 서버를 쓴다). 라우터(메인 스레드)는 `ASSISTANT_ROUTER_TOOLS`(`mcp/tools.ts` — 읽기·`show_*`·알림·첨부 읽기)만 싣고, 쓰기·`propose_*`·`submit_response` 는 담당 서브에이전트 frontmatter 에만 있다.
 - Claude: 메인 스레드를 `Options.agent`(`ROUTER_AGENT_NAME`, `toRouterAgentDefinition`)로 돌려 그 `tools` 로 좁힌다. SDK 는 서브에이전트 도구를 메인 스레드 tools 가 아니라 서버 전체에서 고른다(실측). 위임은 `Agent(issue-agent, …)` 로 우리 서브에이전트만 허용한다 — 내장 에이전트(general-purpose 등)는 서버 전 도구를 상속해 경계를 우회한다. 자기 위임은 `Agent(<이름>)` 거부로도 막는다.
-- opencode 는 좁히지 않는다: primary `tools` 의 `'*': false` 가 위임 도구 `task` 까지 꺼서(`opencode debug agent` 실측 `task:false`) opencode 라우터는 쓰기를 직접 한다.
+- opencode(WP-1493): 위임하는 assistant 실행은 primary `tools` 를 `{ '*': false, task: true, workplace_<라우터 도구>: true }`(약 57개)로 좁힌다 — 전 도구(~130)를 싣던 때 128개 상한 모델(genia/gpt-6-luna)이 `array too long` 으로 거절했다. `'*': false` 는 `task` 도 끄지만 이름으로 `task: true` 를 적으면 다시 켜지고, 서브에이전트는 primary 가 끈 workplace 도구도 자기 frontmatter 대로 쓴다(1.19.5 실측). 위임은 primary `permission.task`(`'*': deny` + 우리 서브에이전트 allow)로 좁히고 내장 `general`·`explore` 는 `disable` 한다 — general 은 bash·edit·모든 MCP 도구가 열려 있다(`opencode debug agent general` 실측). 다른 프로필·위임 없는 실행은 종전대로 `'workplace*'`.
+- opencode 러너 이벤트: 위임은 자식 세션(`session.created` 의 `parentID`)에서 돌아 도구 진행·확인 카드(브리지는 같은 stdio MCP 라 실행 단위 그대로)가 자식 sessionID 로 온다 — 러너는 알려진 세션(부모가 알려진 세션이면 편입)의 part 를 받아 `parentToolUseId` 에 자식 세션 id 를 싣는다. 위임 도구 `task` 자체는 `tool_use`(진행 라벨, `run-ai-chat` 이 `Agent`·`task` 둘 다 본다)로만 내고 도구 줄(`onTool`)에는 싣지 않는다. 자식 `session.error` 는 `opencode_subsession_error` 로 남기고 실행은 끝내지 않는다(실측: 자식 실패는 task 결과로 primary 에 가고 primary 가 이어 답한다). result 텍스트는 primary 글만, kill·timeout 은 자식 세션까지 abort 한다. 우리 서브에이전트가 아닌 `subagent_type` 으로 위임하면(허용 목록이 무시된 경우) `opencode_unknown_subagent` 경고 후 실행을 끊는다. 실행마다 `opencode_tool_count`(primary·서브에이전트 최대 도구 수, 와일드카드 primary 는 null) 로그를 남긴다.
+- 위임 뒤 라우터 글(두 러너 공통): `run-ai-chat` 은 위임(`Agent`·`task`) 뒤 라우터 text_delta 를 라이브로 내보내지 않고 모아 두었다가, 위임 답(submit_response)이 있으면 버리고 없을 때만 끝에 내보낸다 — 위임 답(onText)과 라우터 요약이 같은 delta 채널에 이어 붙어 답이 두 번 보이던 것을 막는다(WP-1493).
 - SDK 0.3.x 주의(실측): 위임 도구가 `Task` 로도 불려 `Task` 거부가 Agent 를 숨긴다 → `allowSubagents` 면 Task 도 푼다(`tool-allowlist`). Agent 위임은 기본 백그라운드라 위임하는 실행은 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 로 동기 실행한다(`sdk-runner`).
-- 라우터 프롬프트는 러너별(`assistantSystemPrompt('claude'|'opencode')`): Claude 는 위임 전용 규칙, opencode primary 는 직접 제안 규칙(#842 고쳐 재제안·#843 재제안)을 받는다.
+- 라우터 프롬프트(`assistantSystemPrompt('claude'|'opencode')`)는 두 러너 모두 위임 전용 규칙이고 위임 도구 표기만 다르다(Claude `Agent`·general-purpose 금지 / opencode `task`). 확인 카드 오류 시 고쳐 재제안(#842)은 제안 도구가 있는 서브에이전트 agent.md 에 있고(`subagent-loader.test.ts` 가 고정), 승인 실패 뒤 재시도(#843)는 라우터가 사유를 위임 prompt 에 적어 다시 맡긴다.
 
 ## 메인 AI 채팅 첨부 (WP-234)
 

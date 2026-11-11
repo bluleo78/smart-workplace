@@ -219,3 +219,16 @@ describe('실제 서브에이전트 allowlist (#844)', () => {
     }
   });
 });
+
+// WP-1493: opencode 라우터도 위임만 하게 되면서 확인 카드 실패(#842) 처리 규칙은 서브에이전트 프롬프트에만 있다 — 제안 도구가 있는 모든
+// 서브에이전트가 「propose_* 가 오류를 반환하면 … 고쳐 다시 제안」 규칙을 갖는지 고정한다.
+describe('확인 카드 실패 규칙(#842) — 제안 도구가 있는 서브에이전트', () => {
+  const defs = loadSubagents();
+  for (const [name, def] of Object.entries(defs)) {
+    if (!def.tools.some((t) => t.startsWith('mcp__workplace__propose_'))) continue;
+    it(`${name} 는 propose_* 오류 시 고쳐 다시 제안하거나 사유를 알리는 규칙을 갖는다`, () => {
+      expect(def.prompt).toContain('propose_* 가 오류를 반환하면 확인 카드는 만들어지지 않은 것입니다');
+      expect(def.prompt).toContain('파라미터를 고쳐 다시 제안');
+    });
+  }
+});

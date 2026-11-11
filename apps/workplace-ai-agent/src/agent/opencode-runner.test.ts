@@ -22,7 +22,10 @@ const { sessionCreate, sessionAbort, sessionPromptAsync, eventSubscribe, serverC
 });
 vi.mock('./opencode-spawn.js', () => ({ createIsolatedOpencode }));
 
-vi.mock('./opencode-config.js', () => ({
+vi.mock('./opencode-config.js', async (importActual) => ({
+  // WP-1493: 도구 수 세기는 실제 구현을 쓴다(config 만 갈아 끼운다).
+  opencodeToolCount: (await importActual<typeof import('./opencode-config.js')>()).opencodeToolCount,
+  OPENCODE_DELEGATION_TOOL: 'task',
   buildOpencodeConfig: vi.fn(() => ({})),
   resolveStdioEntryCmd: vi.fn(() => ['npx', 'tsx', 'entry.ts']),
   splitOpencodeModel: vi.fn((model: string) => {
@@ -85,6 +88,7 @@ vi.mock('./attachment-prep.js', () => ({ attachmentRootDir: vi.fn((agentId: numb
 import { OpencodeRunner } from './opencode-runner.js';
 import { buildOpencodeConfig } from './opencode-config.js';
 import { classifyProviderError } from './provider-error.js';
+import { log } from '../logger.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -524,6 +528,187 @@ describe('OpencodeRunner.stream', () => {
     await handle.done;
 
     expect(events[0]).toEqual({ type: 'tool_use', name: 'mcp__workplace__get_issue', input: { key: 'ABC-1' }, parentToolUseId: null });
+  });
+
+  // WP-1493: assistant 라우터가 위임(task)하면 도구 진행·확인 카드·오류가 자식 세션에서 일어난다 — UI 와 오류 처리에 닿아야 한다.
+  describe('위임 자식 세션 이벤트(WP-1493)', () => {
+    const toolPart = (id: string, sessionID: string, name: string, status: 'running' | 'completed', input: unknown = {}, output = '{"ok":true}') => ({
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          id,
+          sessionID,
+          messageID: `m-${id}`,
+          type: 'tool',
+          callID: id,
+          tool: name,
+          state: status === 'running' ? { status, input, time: { start: 0 } } : { status, input, output, title: 't', metadata: {}, time: { start: 0, end: 1 } },
+        },
+      },
+    });
+    const run = async (input: RunnerInput, pushes: unknown[]) => {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      for (const p of pushes) es.push(p as never);
+      es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+      const events: RunnerEvent[] = [];
+      await new OpencodeRunner().stream(input, (e) => events.push(e)).done;
+      return events;
+    };
+
+    it('자식 세션의 확인 카드 제안(propose_*)이 onTool 로 라이브 발행되고 브리지는 실행당 한 번만 등록된다', async () => {
+      const onTool = vi.fn();
+      const hostBridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() } as unknown as HostBridge;
+      const events = await run(
+        baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1, hostBridge, onTool } }),
+        [
+          { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
+          toolPart('p1', 'child-1', 'workplace_propose_delete_issue', 'running', { issueKey: 'WP-1' }),
+          toolPart('p1', 'child-1', 'workplace_propose_delete_issue', 'completed', { issueKey: 'WP-1' }, '제안 카드를 올렸습니다.'),
+        ],
+      );
+      expect(events).toContainEqual({ type: 'tool_use', name: 'workplace_propose_delete_issue', input: { issueKey: 'WP-1' }, parentToolUseId: 'child-1' });
+      expect(onTool.mock.calls.map((c) => c[0])).toEqual([
+        { seq: 1, event: 'tool_use_start', toolName: 'workplace_propose_delete_issue', args: { issueKey: 'WP-1' } },
+        { seq: 1, event: 'tool_result', toolName: 'workplace_propose_delete_issue', isError: false, result: '제안 카드를 올렸습니다.' },
+      ]);
+      expect(registerBridge).toHaveBeenCalledTimes(1);
+    });
+
+    it('손자 세션(자식이 다시 만든 세션)도 알려진 세션으로 편입한다', async () => {
+      const events = await run(baseInput(), [
+        { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
+        { type: 'session.created', properties: { info: { id: 'grand-1', parentID: 'child-1' } } },
+        toolPart('g1', 'grand-1', 'workplace_update_issue', 'running', { issueKey: 'WP-2' }),
+      ]);
+      expect(events).toContainEqual({ type: 'tool_use', name: 'workplace_update_issue', input: { issueKey: 'WP-2' }, parentToolUseId: 'grand-1' });
+    });
+
+    it('위임 도구(task) 자체는 tool_use 로만 낸다(위임 라벨용) — onTool 도구 줄에는 싣지 않는다(Claude 경로의 Agent 와 같게)', async () => {
+      vi.mocked(buildOpencodeConfig).mockReturnValueOnce({ agent: { 'issue-agent': { mode: 'subagent' } } });
+      const onTool = vi.fn();
+      const input = { description: '이슈 상태 변경', prompt: 'WP-1 진행중', subagent_type: 'issue-agent' };
+      const events = await run(
+        baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1, onTool } }),
+        [toolPart('t1', 'sess-1', 'task', 'running', input), toolPart('t1', 'sess-1', 'task', 'completed', input, '하위 결과')],
+      );
+      expect(events).toContainEqual({ type: 'tool_use', name: 'task', input, parentToolUseId: null });
+      expect(onTool).not.toHaveBeenCalled();
+    });
+
+    it('자식 세션 session.error 는 원인을 로그로 남기고 실행을 끝내지 않는다 — 위임 도구 오류를 받은 primary 가 이어서 답한다', async () => {
+      const errSpy = vi.spyOn(log, 'error');
+      const error = { name: 'APIError', data: { message: 'tools too long' } };
+      const events = await run(baseInput(), [
+        { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
+        { type: 'session.error', properties: { sessionID: 'child-1', error } },
+        { type: 'message.updated', properties: { info: { id: 'm9', sessionID: 'sess-1', role: 'assistant', tokens: { input: 1, output: 2 } } } },
+        { type: 'message.part.updated', properties: { part: { id: 'x9', sessionID: 'sess-1', messageID: 'm9', type: 'text', text: '처리하지 못했습니다.' } } },
+      ]);
+      expect(errSpy).toHaveBeenCalledWith('opencode-runner', 'opencode_subsession_error', expect.objectContaining({ sessionId: 'child-1', error }));
+      expect(events.at(-1)).toEqual({ type: 'result', ok: true, text: '처리하지 못했습니다.', usage: { inputTokens: 1, outputTokens: 2 } });
+      errSpy.mockRestore();
+    });
+
+    it('result 텍스트는 라우터(primary) 글만 — 서브에이전트 글은 text_delta 로만 낸다', async () => {
+      const events = await run(baseInput(), [
+        { type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } },
+        { type: 'message.updated', properties: { info: { id: 'c1', sessionID: 'child-1', role: 'assistant', tokens: { input: 0, output: 0 } } } },
+        { type: 'message.part.updated', properties: { part: { id: 'cp', sessionID: 'child-1', messageID: 'c1', type: 'text', text: '하위 답' } } },
+        { type: 'message.updated', properties: { info: { id: 'm1', sessionID: 'sess-1', role: 'assistant', tokens: { input: 0, output: 0 } } } },
+        { type: 'message.part.updated', properties: { part: { id: 'pp', sessionID: 'sess-1', messageID: 'm1', type: 'text', text: '라우터 답' } } },
+      ]);
+      expect(events).toContainEqual({ type: 'text_delta', text: '하위 답', parentToolUseId: 'child-1' });
+      expect(events.at(-1)).toMatchObject({ type: 'result', ok: true, text: '라우터 답' });
+    });
+
+    it('오류로 끝나도 result 텍스트에 서브에이전트 글이 섞이지 않는다', async () => {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      es.push({ type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } });
+      es.push({ type: 'message.updated', properties: { info: { id: 'c1', sessionID: 'child-1', role: 'assistant', tokens: { input: 0, output: 0 } } } });
+      es.push({ type: 'message.part.updated', properties: { part: { id: 'cp', sessionID: 'child-1', messageID: 'c1', type: 'text', text: '하위 답' } } });
+      es.push({ type: 'session.error', properties: { sessionID: 'sess-1', error: { name: 'UnknownError' } } });
+      const events: RunnerEvent[] = [];
+      await expect(new OpencodeRunner().stream(baseInput(), (e) => events.push(e)).done).rejects.toThrow();
+      expect(events.at(-1)).toEqual({ type: 'result', ok: false, text: null, usage: null });
+    });
+
+    it('kill() 은 primary 와 알려진 자식 세션을 모두 abort 한다(개별 실패는 무시)', async () => {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      sessionAbort.mockImplementation(async ({ path }: { path: { id: string } }) => {
+        es.finish();
+        if (path.id === 'child-1') throw new Error('already gone');
+        return { data: true, error: undefined };
+      });
+      es.push({ type: 'session.created', properties: { info: { id: 'child-1', parentID: 'sess-1' } } });
+      const handle = new OpencodeRunner().stream(baseInput(), () => {});
+      await vi.waitFor(() => expect(eventSubscribe).toHaveBeenCalled());
+      // session.created 가 처리될 때까지 기다린다(이벤트 루프 한 바퀴).
+      await new Promise((r) => setTimeout(r, 10));
+      handle.kill();
+      await expect(handle.done).resolves.toBeUndefined();
+      expect(sessionAbort.mock.calls.map((c) => (c[0] as { path: { id: string } }).path.id).sort()).toEqual(['child-1', 'sess-1']);
+    });
+
+    it('우리 서브에이전트가 아닌 이름으로 위임하면(허용 목록이 무시된 경우) 경고를 남기고 실행을 끊는다', async () => {
+      vi.mocked(buildOpencodeConfig).mockReturnValueOnce({ agent: { 'issue-agent': { mode: 'subagent' } } });
+      const warnSpy = vi.spyOn(log, 'warn');
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      es.push(toolPart('t1', 'sess-1', 'task', 'running', { description: 'x', prompt: 'y', subagent_type: 'general' }));
+      const events: RunnerEvent[] = [];
+      const handle = new OpencodeRunner().stream(baseInput(), (e) => events.push(e));
+      await expect(handle.done).rejects.toThrow(/unknown subagent: general/);
+      expect(warnSpy).toHaveBeenCalledWith('opencode-runner', 'opencode_unknown_subagent', expect.objectContaining({ subagentType: 'general' }));
+      expect(sessionAbort).toHaveBeenCalledWith(expect.objectContaining({ path: { id: 'sess-1' } }));
+      expect(events.at(-1)).toMatchObject({ type: 'result', ok: false });
+      warnSpy.mockRestore();
+    });
+
+    it('무관한 세션의 session.error 는 무시한다', async () => {
+      const errSpy = vi.spyOn(log, 'error');
+      const events = await run(baseInput(), [{ type: 'session.error', properties: { sessionID: 'other', error: { name: 'UnknownError' } } }]);
+      expect(events.at(-1)).toMatchObject({ type: 'result', ok: true });
+      expect(errSpy).not.toHaveBeenCalledWith('opencode-runner', 'opencode_subsession_error', expect.anything());
+      errSpy.mockRestore();
+    });
+  });
+
+  // WP-1493: 모델에 넘기는 도구 수를 실행마다 남긴다 — 128개 상한 같은 회귀가 로그에 바로 보이게.
+  it('실행마다 primary 와 서브에이전트에 싣는 도구 수를 로그로 남긴다', async () => {
+    const infoSpy = vi.spyOn(log, 'info');
+    vi.mocked(buildOpencodeConfig).mockReturnValueOnce({
+      agent: {
+        primary: { mode: 'primary', tools: { '*': false, task: true, workplace_list_issues: true } },
+        'issue-agent': { mode: 'subagent', tools: { '*': false, workplace_update_issue: true, workplace_get_issue_detail: true } },
+        general: { disable: true },
+      },
+    });
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+    await new OpencodeRunner().stream(baseInput({ requestId: 'r-1' }), () => {}).done;
+    expect(infoSpy).toHaveBeenCalledWith('opencode-runner', 'opencode_tool_count', {
+      requestId: 'r-1',
+      profile: null,
+      primary: 2,
+      primaryWildcard: false,
+      subagentMax: 2,
+    });
+    infoSpy.mockRestore();
+  });
+
+  it('primary 가 와일드카드면 도구 수는 null(모름)로 남기고 primaryWildcard 로 표시한다', async () => {
+    const infoSpy = vi.spyOn(log, 'info');
+    vi.mocked(buildOpencodeConfig).mockReturnValueOnce({ agent: { primary: { mode: 'primary', tools: { '*': false, 'workplace*': true } } } });
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+    await new OpencodeRunner().stream(baseInput(), () => {}).done;
+    expect(infoSpy).toHaveBeenCalledWith('opencode-runner', 'opencode_tool_count', expect.objectContaining({ primary: null, primaryWildcard: true, subagentMax: null }));
+    infoSpy.mockRestore();
   });
 
   // WP-262: pending(input {}) 만으로는 시작을 내지 않는다 — 빈 인자 카드·로그가 남지 않게.

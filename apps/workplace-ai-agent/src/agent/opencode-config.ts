@@ -6,6 +6,7 @@
 import type { Config as OpencodeConfig, AgentConfig as OpencodeAgentConfig } from '@opencode-ai/sdk';
 
 import { DEFAULT_API_BASE_URL, DEFAULT_PORT } from '../constants.js';
+import { routerToolsFor } from '../mcp/tools.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { OpencodeModelLimit, OpencodeModelSettings, OpencodeVision } from './opencode-vision.js';
 import { loadSubagents, type SubagentDefinition } from './subagent-loader.js';
@@ -104,6 +105,41 @@ export function toOpencodeSubagents(
   return out;
 }
 
+/**
+ * opencode 위임 도구 이름(WP-1493). config(primary tools·task 권한), 러너(도구 줄 제외·허용 목록 가드), run-ai-chat(위임 진행 라벨)이 함께 쓴다.
+ */
+export const OPENCODE_DELEGATION_TOOL = 'task';
+
+/**
+ * 위임하는 라우터 primary 의 도구 — 위임 도구(task) + 라우터 도구(opencode 표기 workplace_<이름>).
+ *
+ * WP-1493: assistant 실행은 MCP 서버에 전 도구 union(~130)을 등록하는데, primary 가 'workplace*' 로 전부 받으면 도구 128개 상한 모델
+ * (genia/gpt-6-luna 등)이 "array too long ... maximum length 128" 로 거절했다. Claude 경로처럼 라우터 도구만 싣고 쓰기는 서브에이전트가 한다.
+ * opencode 1.19.5 실측: '*': false 뒤에 task: true 를 이름으로 적으면 위임 도구가 다시 켜지고, 서브에이전트는 primary 가 끈 workplace
+ * 도구도 자기 tools 대로 쓴다(primary {"*":false,"task":true,"workplace_list_issues":true} + subagent {"*":false,"workplace_update_issue":true}
+ * → 서브에이전트가 update_issue 호출 성공).
+ */
+function routerPrimaryTools(names: readonly string[]): Record<string, boolean> {
+  return { [OPENCODE_DELEGATION_TOOL]: true, ...Object.fromEntries(names.map((n) => [`workplace_${n}`, true])) };
+}
+
+/**
+ * task 권한 허용 목록 — 우리 서브에이전트 이름만 allow, 나머지는 deny(뒤 규칙이 이긴다 — 1.19.5 `debug agent` 의 규칙 순서로 확인).
+ * opencode v1 SDK 타입의 permission 에는 task 가 없지만 서버는 받는다(1.19.5 실측) — 그래서 반환 타입을 넓게 둔다.
+ */
+function taskAllowlist(subagents: Record<string, OpencodeAgentConfig>): Record<string, 'allow' | 'deny'> {
+  return { '*': 'deny', ...Object.fromEntries(Object.keys(subagents).map((n) => [n, 'allow' as const])) };
+}
+
+/**
+ * 에이전트 tools 맵이 모델에 싣는 도구 수 — 실행 로그(opencode_tool_count)로 도구 상한 회귀를 바로 보이게 한다(WP-1493).
+ * 이름으로 연 도구만 정확히 센다. 'workplace*' 같은 와일드카드는 실제 수를 MCP 서버가 정하므로 1로 세고 wildcard 로 표시한다.
+ */
+export function opencodeToolCount(tools: Record<string, boolean> | undefined): { count: number; wildcard: boolean } {
+  const enabled = Object.entries(tools ?? {}).filter(([k, v]) => v === true && k !== '*');
+  return { count: enabled.length, wildcard: enabled.some(([k]) => k.includes('*')) };
+}
+
 // WP-241: 비전 지원이 확인되지 않은 모델(미지원·알 수 없음)의 시스템 프롬프트에 덧붙이는 규칙. 이미지를 못 보면
 // 모델이 "다시 첨부해 달라"고 되묻는데(실측), 재업로드로는 해결되지 않으므로 모델 전환을 안내하게 한다.
 export const NO_VISION_PROMPT_RULE = `
@@ -140,6 +176,9 @@ export function buildOpencodeConfig(
   const { payload } = i.credential;
   const { providerID, modelID } = splitOpencodeModel(i.model);
   const promptSuffix = opts.vision === true ? '' : NO_VISION_PROMPT_RULE;
+  const subagents = i.allowSubagents ? toOpencodeSubagents(loadSubagents(), promptSuffix + (i.subagentPromptSuffix ?? '')) : undefined;
+  // WP-1493: 위임하는 실행에서만 라우터 도구로 좁힌다(지금은 assistant 만 — routerToolsFor). 위임이 없으면 쓰기를 맡길 곳이 없어 종전처럼 연다.
+  const routerTools = subagents ? routerToolsFor(i.mcp?.profile) : undefined;
 
   const config: OpencodeConfig = {
     provider: {
@@ -158,18 +197,27 @@ export function buildOpencodeConfig(
         // 도구만 허용. 이름은 stdio-entry 서버명 'workplace' 접두 네임스페이스와 일치.
         // 예외(WP-236): allowFileRead(이슈 챗 첨부)면 read 를 연다. 러너가 인스턴스 디렉터리를 실행 첨부 폴더로
         // 지정하므로 read 는 그 안만 닿고, 바깥은 external_directory 로 막는다.
-        // WP-351: assistant 라우터도 여기서는 좁히지 않는다 — '*': false 가 opencode 위임 도구(task)까지 꺼서(opencode debug agent 실측
-        // tools.task=false) opencode 라우터는 위임하지 못하고 쓰기를 직접 한다. 라우터 도구만 열면 쓰기를 전부 잃는다.
-        tools: { '*': false, 'workplace*': true, ...(i.allowFileRead ? { read: true } : {}) },
+        // WP-1493: 위임하는 라우터(assistant + allowSubagents)는 와일드카드 대신 라우터 도구 + 위임 도구(task)만 연다(routerPrimaryTools).
+        tools: {
+          '*': false,
+          ...(routerTools ? routerPrimaryTools(routerTools) : { 'workplace*': true }),
+          ...(i.allowFileRead ? { read: true } : {}),
+        },
         permission: {
           edit: 'deny',
           bash: 'deny',
           webfetch: 'deny',
           ...(i.allowFileRead ? { external_directory: 'deny' as const } : {}),
+          // WP-1493: 위임은 우리 서브에이전트로만 — 나머지 이름은 막는다(아래 내장 서브에이전트 끄기와 이중 방어).
+          ...(subagents && routerTools ? { [OPENCODE_DELEGATION_TOOL]: taskAllowlist(subagents) } : {}),
         },
       },
       // WP-55: 서브에이전트에는 비전 규칙 뒤에 요청별 메모리 블록을 붙인다(primary 는 블록이 사용자 메시지에 있다).
-      ...(i.allowSubagents ? toOpencodeSubagents(loadSubagents(), promptSuffix + (i.subagentPromptSuffix ?? '')) : {}),
+      ...(subagents ?? {}),
+      // WP-1493: opencode 내장 서브에이전트(general·explore)를 끈다. 1.19.5 실측(`opencode debug agent general`): general 은
+      // bash·edit·write·webfetch 와 모든 MCP 도구가 열려 있어, 라우터가 그쪽으로 위임하면 도구 경계를 우회하고 서버 셸까지 닿는다
+      // (Claude 경로가 general-purpose 를 막는 것과 같은 이유). disable 하면 `opencode agent list` 에서 사라진다(실측).
+      ...(subagents && routerTools ? { general: { disable: true }, explore: { disable: true } } : {}),
     },
     mcp: i.mcp
       ? {

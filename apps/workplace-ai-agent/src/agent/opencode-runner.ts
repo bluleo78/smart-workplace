@@ -10,7 +10,7 @@ import { log } from '../logger.js';
 import type { AgentRunner, OpencodeProviderConfig, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
 import { OPENCODE_SESSION_CREATE_FAILED } from './provider-error.js';
 import { registerBridge, releaseBridge } from './bridge-registry.js';
-import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from './opencode-config.js';
+import { buildOpencodeConfig, OPENCODE_DELEGATION_TOOL, opencodeToolCount, resolveStdioEntryCmd, splitOpencodeModel } from './opencode-config.js';
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
 import { createIsolatedOpencode } from './opencode-spawn.js';
 import { attachmentRootDir } from './attachment-prep.js';
@@ -33,6 +33,24 @@ function requireOpencodeCredential(i: RunnerInput): OpencodeProviderConfig {
 // WP-263: 결과를 보지 않고도 답을 쓸 수 있는 도구 — 화면 표시(show_*)·확인 카드 제안(propose_*). 이름은 opencode 표기
 // (workplace_<도구>)와 SDK 표기(mcp__workplace__<도구>)를 모두 받는다.
 const RESULT_FREE_TOOL = /^(?:mcp__workplace__|workplace_)?(?:show|propose)_/;
+
+/**
+ * config 의 에이전트별 tools 로 모델에 싣는 도구 수를 실행마다 남긴다(WP-1493). 도구 128개 상한 모델이 전 도구(~130)를 받아 거절되던 일이
+ * 다시 생기면 로그에 바로 보이게 한다. primary 는 그대로, 서브에이전트는 가장 많은 것 하나만(위임 한 번에 그 에이전트 도구만 실린다).
+ */
+// primary 가 와일드카드('workplace*')면 실제 수는 MCP 서버가 정하므로 primary 는 null(모름)로 남기고 primaryWildcard 로 표시한다.
+function logToolCount(i: RunnerInput, config: ReturnType<typeof buildOpencodeConfig>): void {
+  const agents = Object.values(config.agent ?? {});
+  const primary = opencodeToolCount(config.agent?.primary?.tools);
+  const subagentCounts = agents.filter((a) => a?.mode === 'subagent').map((a) => opencodeToolCount(a?.tools).count);
+  log.info('opencode-runner', 'opencode_tool_count', {
+    requestId: i.requestId,
+    profile: i.mcp?.profile ?? null,
+    primary: primary.wildcard ? null : primary.count,
+    primaryWildcard: primary.wildcard,
+    subagentMax: subagentCounts.length ? Math.max(...subagentCounts) : null,
+  });
+}
 
 // 웜 캐시 대상 프로필 — hostBridge 를 쓰는 실행은 프로필과 무관하게 poolKeyFor 가 추가로 제외한다.
 // messaging/home 은 MCP_BRIDGE_RUN_ID(요청마다 고유)가 stdio 자식 프로세스 부팅 시 env 로
@@ -99,10 +117,15 @@ export class OpencodeRunner implements AgentRunner {
     // kill()/timeout 이 비동기 세션 abort 를 시도할 수 있도록 client/sessionId 를 클로저 밖에서 공유.
     let liveClient: OpencodeHandle['client'] | undefined;
     let liveSessionId: string | undefined;
+    // 이 실행의 세션들 — primary 와 위임으로 생긴 자식(손자) 세션. 이벤트 필터와 abort 가 함께 쓴다(아래 for-await 주석 참고).
+    const knownSessionIds = new Set<string>();
 
+    // WP-1493: primary 만이 아니라 알려진 자식 세션도 모두 abort 한다 — 위임 중에 끊기면 서브에이전트가 계속 돌며 도구(쓰기)를 부를 수 있다.
+    // 자식이 primary abort 로 함께 멈추는지에 기대지 않는 best effort 다(세션별 실패는 무시).
     const requestAbort = (): void => {
-      if (liveClient && liveSessionId) {
-        void liveClient.session.abort({ path: { id: liveSessionId }, query: directoryQuery }).catch(() => {});
+      if (!liveClient || !liveSessionId) return;
+      for (const id of knownSessionIds.size ? knownSessionIds : [liveSessionId]) {
+        void liveClient.session.abort({ path: { id }, query: directoryQuery }).catch(() => {});
       }
     };
 
@@ -114,6 +137,8 @@ export class OpencodeRunner implements AgentRunner {
       let server: OpencodeHandle['server'] | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
+      // WP-1493: 허용 목록 밖 서브에이전트로 위임해 실행을 끊었을 때 그 이름(런타임 가드).
+      let unknownSubagent: string | undefined;
       // session.error 의 원본 오류 객체 — 던질 때 cause 로 보존한다(WP-1347).
       let sessionError: unknown;
       try {
@@ -135,6 +160,9 @@ export class OpencodeRunner implements AgentRunner {
         poolKey = poolKeyFor(runInput, settings);
         const stdioEntryCmd = resolveStdioEntryCmd();
         const config = buildOpencodeConfig(runInput, runId, stdioEntryCmd, settings);
+        logToolCount(runInput, config);
+        // WP-1493: 우리가 정의한 서브에이전트 이름 — 위임(task)이 이 밖의 이름(내장 general·explore 등)이면 config 의 허용 목록이 무시된 것으로 보고 끊는다.
+        const ownSubagents = new Set(Object.entries(config.agent ?? {}).filter(([, a]) => a?.mode === 'subagent').map(([n]) => n));
         // createIsolatedOpencode 는 (1) 포트 충돌 회피(port:0 → OS 할당)와 (2) 데이터 디렉터리
         // 격리(서버마다 고유 XDG_DATA_HOME → 자기 SQLite)를 함께 처리한다. 둘 다 동시 스폰 시 크래시를
         // 막기 위한 것 — 4096 포트 고정 충돌과 공유 opencode.db 'database is locked' 경합(opencode-spawn.ts).
@@ -228,7 +256,9 @@ export class OpencodeRunner implements AgentRunner {
         // sessionID 를 실어 보내므로, primary 세션 id 만으로 필터링하면 자식 세션의 모든 파트(도구
         // 호출·텍스트)가 조용히 드롭된다. session.created/session.updated 이벤트로 parentID 를 추적해
         // "알려진 세션" 집합에 편입시키고, 그 집합 기준으로 필터링한다.
-        const knownSessionIds = new Set<string>([session.id]);
+        // WP-1493: 부모가 이미 알려진 세션이면 편입한다(자식이 다시 위임한 손자 세션까지) — 지금 서브에이전트는 task 가 꺼져 있지만
+        // 위임이 primary 한 단계라는 전제에 기대지 않는다.
+        knownSessionIds.add(session.id);
         // opencode 는 사용자가 보낸 메시지 자신도 message.part.updated(type:'text') 로 흘려보낸다
         // (message.updated 로 role:'user' 메시지가 먼저 생성된 뒤 그 메시지의 text part 갱신 이벤트가
         // 뒤따름). role 구분 없이 모든 text part 를 델타로 처리하면 사용자 입력 자체가 응답으로
@@ -259,7 +289,7 @@ export class OpencodeRunner implements AgentRunner {
 
           if (ev.type === 'session.created' || ev.type === 'session.updated') {
             const info = ev.properties.info;
-            if (info.parentID === session.id) {
+            if (info.parentID && knownSessionIds.has(info.parentID)) {
               knownSessionIds.add(info.id);
             }
             continue;
@@ -281,7 +311,8 @@ export class OpencodeRunner implements AgentRunner {
               // 판정은 델타마다 한다 — text part 가 도구보다 먼저 (빈 채로) 생기고 도구 뒤에 채워지는 경우가 있다(실측).
               if (narrationMessageIds.has(part.messageID)) continue;
               if (delta) {
-                fullText += delta;
+                // WP-1493: result 텍스트(정상·오류·압축 실패 모두)는 라우터(primary) 글만 — 서브에이전트 글은 text_delta(parentToolUseId)로만 낸다.
+                if (!isChildSession) fullText += delta;
                 onEvent({ type: 'text_delta', text: delta, parentToolUseId });
               }
               continue;
@@ -300,18 +331,34 @@ export class OpencodeRunner implements AgentRunner {
                 const prev = firstToolStart.get(part.messageID);
                 if (typeof started === 'number' && (prev === undefined || started < prev)) firstToolStart.set(part.messageID, started);
               }
+              // WP-1493: 위임 도구(task) 자체는 도구 줄(onTool — 화면 단계 목록·한도 도달 마무리의 근거)에 싣지 않는다. Claude 경로의 Agent 도
+              // MCP 도구가 아니라 도구 줄에 없다 — 위임은 tool_use 이벤트로 진행 라벨(run-ai-chat delegationLabel)이 알리고, 실제 도구 줄은
+              // 자식 세션의 workplace 도구가 낸다. 결과(서브에이전트 출력 전문)를 도구 결과로 모으지도 않는다.
+              const mirror = part.tool !== OPENCODE_DELEGATION_TOOL;
               if ((status === 'running' || finished) && !startedTools.has(part.id)) {
                 startedTools.add(part.id);
                 seq += 1;
                 toolSeq.set(part.id, seq);
                 onEvent({ type: 'tool_use', name: part.tool, input: part.state.input, parentToolUseId });
-                i.mcp?.onTool?.({ seq, event: 'tool_use_start', toolName: part.tool, args: part.state.input });
+                // WP-1493 런타임 가드: config 의 task 허용 목록·내장 끄기가 (버전 차이 등으로) 조용히 무시돼 우리 것이 아닌 서브에이전트로 위임하면
+                // 실행을 끊는다 — 내장 general 은 bash·모든 MCP 도구가 열려 있어 돌게 두면 도구 경계를 우회한다.
+                if (!mirror) {
+                  const sub = (part.state.input as { subagent_type?: unknown } | undefined)?.subagent_type;
+                  if (typeof sub !== 'string' || !ownSubagents.has(sub)) {
+                    unknownSubagent = String(sub);
+                    log.warn('opencode-runner', 'opencode_unknown_subagent', { requestId: i.requestId, subagentType: unknownSubagent });
+                    requestAbort();
+                    onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
+                    break;
+                  }
+                }
+                if (mirror) i.mcp?.onTool?.({ seq, event: 'tool_use_start', toolName: part.tool, args: part.state.input });
               }
               if ((status === 'completed' || status === 'error') && !finishedTools.has(part.id)) {
                 finishedTools.add(part.id);
                 const startSeq = toolSeq.get(part.id)!;
                 onEvent({ type: 'tool_done' });
-                i.mcp?.onTool?.({
+                if (mirror) i.mcp?.onTool?.({
                   seq: startSeq,
                   event: 'tool_result',
                   toolName: part.tool,
@@ -397,6 +444,13 @@ export class OpencodeRunner implements AgentRunner {
               onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
               break;
             }
+            // WP-1493: 위임한 자식 세션의 오류 — 실행을 끝내지 않는다. opencode 는 자식 실패를 위임 도구(task)의 결과로 primary 에 돌려주고
+            // primary 가 이어서 답한다(1.19.5 실측: 서브에이전트 모델 호출 400 → 자식 sessionID 의 session.error → task 끝남 → primary 가 다음
+            // 단계를 호출해 답하고 idle). 같은 원인이면 primary 자신도 session.error 를 내 위에서 끝난다. 여기서 끊으면 primary 의 안내 답을
+            // 잃는다. 다만 예전처럼 조용히 버리지 않고 원인을 남긴다(서브에이전트 도구 상한 초과 등 진단용).
+            if (knownSessionIds.has(sid)) {
+              log.error('opencode-runner', 'opencode_subsession_error', { requestId: i.requestId, sessionId: sid, error: ev.properties.error });
+            }
           }
         }
       } finally {
@@ -419,6 +473,9 @@ export class OpencodeRunner implements AgentRunner {
       if (killed) {
         log.info('opencode-runner', 'opencode_killed', { requestId: i.requestId });
         return; // 의도적 종료 — cli_killed 와 동일 의미(정상 resolve)
+      }
+      if (unknownSubagent !== undefined) {
+        throw new Error(`${i.logTag} opencode unknown subagent: ${unknownSubagent}`);
       }
       if (errored) {
         log.error('opencode-runner', 'opencode_session_error', { requestId: i.requestId });

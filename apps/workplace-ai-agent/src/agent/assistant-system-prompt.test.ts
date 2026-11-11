@@ -313,22 +313,36 @@ describe('라우터 도구 집합과 프롬프트 정합 (WP-351)', () => {
   });
 });
 
-// WP-351: opencode primary 는 위임 도구(task)가 꺼져 workplace 쓰기·propose_* 를 직접 쓴다 — subagent agent.md 규칙을 보지 못하므로
-// 직접 제안 규칙(#351·#842·#843)을 그대로 받아야 한다. Claude 라우터 전용 문구는 들어가지 않는다.
-describe('러너별 라우터 규칙 (WP-351)', () => {
+// WP-1493: opencode 라우터도 Claude 처럼 라우터 도구 + 위임 도구(task)만 싣는다 — 쓰기·확인 카드는 서브에이전트가 하므로 위임 전용 규칙을 받고,
+// 위임 도구 이름만 opencode 의 `task` 로 바꾼다. 직접 제안 규칙(#842 고쳐 재제안)은 서브에이전트 agent.md 에 있다.
+describe('러너별 라우터 규칙 (WP-351·WP-1493)', () => {
   const oc = assistantSystemPrompt('opencode');
   it('Claude 라우터 프롬프트는 ASSISTANT_SYSTEM_PROMPT 와 같다', () => {
     expect(assistantSystemPrompt('claude')).toBe(ASSISTANT_SYSTEM_PROMPT);
   });
-  it('opencode: 쓰기 도구가 없다고 하지 않는다', () => {
-    expect(oc).not.toContain('라우터에는 쓰기·확인 카드');
-    expect(oc).not.toContain('확인 카드는 서브에이전트가 만든다');
+  it('opencode: 위임 전용 규칙 — 쓰기·확인 카드 도구가 없고, #842·#843 은 서브에이전트에 다시 맡긴다', () => {
+    expect(oc).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
+    expect(oc).toContain('확인 카드는 서브에이전트가 만든다');
+    expect(oc).toMatch(/실패 사유와 고칠 내용을 위임 prompt 에 적어 담당 서브에이전트에 다시 맡긴다/);
+    expect(oc).toContain('같은 종류의 비가역 작업 여러 건은 한 번에 위임');
   });
-  it('opencode: #842 오류 시 고쳐 재제안, #843 승인 실패 후 직접 재제안, #351 직접 다건 제안 규칙을 담는다', () => {
-    expect(oc).toContain('propose_* 가 오류를 반환하면 확인 카드는 만들어지지 않은 것이다');
-    expect(oc).toContain('오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안');
-    expect(oc).toContain('사유를 반영해 파라미터를 고친 뒤 새로 제안한다');
-    expect(oc).toMatch(/같은 종류의 비가역 작업은 한 턴에 여러 건 제안 가능/);
+  it('opencode: 직접 제안 규칙(종전 opencode primary 용)은 없다', () => {
+    expect(oc).not.toContain('오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안');
+    expect(oc).not.toContain('사유를 반영해 파라미터를 고친 뒤 새로 제안한다');
+  });
+  it('opencode: 위임 도구는 `task`(subagent_type) — Claude 의 `Agent`·general-purpose 문구는 없다', () => {
+    expect(oc).toContain('`task` 도구');
+    expect(oc).toContain('subagent_type');
+    expect(oc).not.toContain('`Agent` 도구');
+    expect(oc).not.toContain('general-purpose');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('`Agent` 도구');
+  });
+  it('opencode: 프롬프트가 언급하는 도구도 모두 라우터 도구에 있다', () => {
+    const mentioned = new Set(
+      oc.match(/\b(?:show|list|get|search|discover|read|mark|draft|create|update|add|remove|propose|sync|move|restore|rsvp|open|leave|watch|unwatch|rename|submit|unassign)_[a-z_]+/g) ?? [],
+    );
+    const missing = [...mentioned].filter((n) => !ASSISTANT_ROUTER_TOOLS.includes(n) && n !== 'add_channel_message');
+    expect(missing).toEqual([]);
   });
   it('공통 부분(읽기 직접 처리·위임 표·화면 맥락)은 두 러너가 같다', () => {
     for (const p of [ASSISTANT_SYSTEM_PROMPT, oc]) {
@@ -353,9 +367,10 @@ describe('메일 분류 교정 (WP-1341)', () => {
       expect(p).toMatch(/메일 분류 교정[^\n]*그 메일 한 통에만 해당하면 분류만 바꾼다/);
     }
   });
-  it('Claude 라우터는 분류 바꾸기를 mail-agent 에 맡기고, opencode 는 update_mail_category 로 직접 바꾼다', () => {
-    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/메일 분류 교정[^\n]*mail-agent 에 맡기고/);
-    expect(oc).toMatch(/메일 분류 교정[^\n]*`update_mail_category`/);
+  // WP-1493: opencode 라우터도 쓰기 도구가 없어 분류 바꾸기를 mail-agent 에 맡긴다.
+  it('두 러너 모두 분류 바꾸기를 mail-agent 에 맡긴다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, oc]) expect(p).toMatch(/메일 분류 교정[^\n]*mail-agent 에 맡기고/);
+    expect(oc).not.toMatch(/메일 분류 교정[^\n]*`update_mail_category`/);
   });
   it('위임 표의 mail-agent 행에 분류 바꾸기가 있다', () => {
     const row = ASSISTANT_SYSTEM_PROMPT.split('\n').find((l) => l.includes('**mail-agent**'));
@@ -523,12 +538,13 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
   }
 
   // F-f: 위임과 함께 불러도 된다는 문장은 위임이 있는 Claude 라우터에만 — opencode primary 는 위임 도구가 꺼져 있다.
-  it('위임과 같은 턴 호출 허용 문장은 claude 에만 있고 opencode 에는 없다', () => {
+  // WP-1493: opencode 라우터도 위임하므로 같은 문장을 받는다.
+  it('위임과 같은 턴 호출 허용 문장은 두 러너 모두에 있다', () => {
     const sentence = '위임과 같은 턴에 함께 호출해도 된다.';
-    expect(ASSISTANT_SYSTEM_PROMPT).toContain(`하위 에이전트는 이전 대화를 보지 못한다). ${sentence}`);
-    const opencode = assistantSystemPrompt('opencode');
-    expect(opencode).not.toContain(sentence);
-    expect(opencode).toContain('메모리는 메인 라우터가 직접 저장한다');
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt('opencode')]) {
+      expect(p).toContain(`하위 에이전트는 이전 대화를 보지 못한다). ${sentence}`);
+      expect(p).toContain('메모리는 메인 라우터가 직접 저장한다');
+    }
   });
 
   it('claude: 라우터 직접 쓰기 예외에 메모리 도구를 이름으로 적는다(규칙 자체는 그대로)', () => {

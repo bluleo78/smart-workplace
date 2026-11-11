@@ -22,41 +22,35 @@ export function delegationLabel(subagentType: string): string | null {
   return DELEGATION_LABELS[subagentType] ?? null;
 }
 
-// WP-351: 러너별로 다른 규칙. Claude 라우터는 메인 스레드 에이전트로 도구가 좁혀져 쓰기·확인 카드(propose_*)가 없고 위임만 한다.
-// opencode primary 는 위임 도구(task)가 꺼져 있어 workplace 도구 전부(쓰기·propose_* 포함)로 직접 처리하므로, 종전의 직접 제안 규칙을 쓴다
-// (#842 오류 시 고쳐 재제안·#843 승인 실패 후 재제안). subagent agent.md 의 같은 규칙은 opencode primary 가 보지 못한다.
+// WP-351: 러너별로 다른 규칙. WP-1493 부터 두 러너 모두 라우터 도구 + 위임 도구만 싣고(쓰기·확인 카드 `propose_*` 없음) 위임만 하므로
+// 규칙 본문은 같고, 다른 것은 위임 도구 표기뿐이다 — Claude 는 `Agent`(내장 general-purpose 는 런타임 차단), opencode 는 `task`
+// (내장 general·explore 는 config 에서 끈다, opencode-config.ts). 종전 opencode primary 용 직접 제안 규칙(#842 고쳐 재제안·#843 직접 재제안)은
+// 위임으로 옮겨 가 서브에이전트 agent.md 의 「propose_* 가 오류를 반환하면」 규칙과 라우터의 #843 위임 재시도 규칙이 맡는다.
 export type AssistantRunner = 'claude' | 'opencode';
 interface RunnerRules {
-  writeToolsNote: string;
-  rule4: string;
-  rule6: string;
-  rule7Retry: string;
-  /** WP-55: 메모리 도구와 위임의 관계 — 위임이 있는 Claude 라우터에만 싣는다(opencode primary 는 위임 도구가 꺼져 있다). */
-  memoryDelegationNote: string;
-  /**
-   * WP-1341: 메일 분류 교정에서 분류를 바꾸는 방법. Claude 라우터는 쓰기 도구가 없어 mail-agent 에 맡기고,
-   * opencode primary 는 위임 도구가 꺼져 있어 공유 도구로 직접 바꾼다. 기억 저장은 두 러너 모두 메인이 직접 한다.
-   */
-  mailCategoryChange: string;
+  /** 위임 도구 이름 — 위임 안내 문장에 그대로 들어간다. */
+  delegationTool: string;
+  /** 내장 범용 에이전트 위임 금지 줄(Claude 만 — opencode 는 config 에서 꺼 이름을 알릴 필요가 없다). */
+  builtinBan: string;
 }
 const RUNNER_RULES: Record<AssistantRunner, RunnerRules> = {
   claude: {
-    writeToolsNote: ' 라우터에는 쓰기·확인 카드(`propose_*`) 도구가 없습니다 — 쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory·remember_shared_memory)만 직접 하고, 나머지는 모두 서브에이전트가 합니다.',
-    rule4: '4. **같은 종류의 비가역 작업 여러 건은 한 번에 위임**합니다 — 서브에이전트가 항목마다 확인 카드(`propose_*`)를 만들어 한 턴에 여러 건 제안할 수 있습니다. **다른 종류이거나 앞 결과에 의존**하면 하나씩 확인 후 진행(#351).',
-    rule6: '6. **확인 카드는 서브에이전트가 만든다**(#842 — 서버가 승인 시점과 같은 검증을 미리 수행해, 검증에 걸리면 카드가 만들어지지 않는다). 서브에이전트가 제안하지 못했다고 보고하면 그 사유를 그대로 알린다. 실패를 성공처럼 보고하지 않는다.',
-    rule7Retry: '사용자가 고쳐 달라고 하면 실패 사유와 고칠 내용을 위임 prompt 에 적어 담당 서브에이전트에 다시 맡긴다(같은 파라미터 재제안 금지 — 서브에이전트는 이전 대화를 보지 못한다).',
-    memoryDelegationNote: ' 위임과 같은 턴에 함께 호출해도 된다.',
-    mailCategoryChange: '분류 바꾸기는 mail-agent 에 맡기고(위임 prompt 에 messageId 와 바꿀 분류를 적는다)',
+    delegationTool: 'Agent',
+    builtinBan: '- `subagent_type: general-purpose` 위임은 **절대 금지**(런타임 차단).\n',
   },
   opencode: {
-    writeToolsNote: '',
-    rule4: '4. **같은 종류의 비가역 작업은 한 턴에 여러 건 제안 가능**(propose_* 항목마다 호출). **다른 종류이거나 앞 결과에 의존**하면 하나씩 확인 후 진행(#351).',
-    rule6: '6. **propose_* 가 오류를 반환하면 확인 카드는 만들어지지 않은 것이다**(#842 — 서버가 승인 시점과 같은 검증을 미리 수행). 오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안하거나, 고칠 수 없으면 그 사유를 사용자에게 알린다. 실패를 성공처럼 보고하지 않는다.',
-    rule7Retry: '사용자가 고쳐 달라고 하면 사유를 반영해 파라미터를 고친 뒤 새로 제안한다(같은 파라미터 재제안 금지).',
-    memoryDelegationNote: '',
-    mailCategoryChange: '`update_mail_category` 로 분류를 바꾸고',
+    delegationTool: 'task',
+    builtinBan: '- 위 표에 **없는** `subagent_type` 으로 위임하지 않는다(런타임 차단).\n',
   },
 };
+
+// 두 러너가 함께 쓰는 위임 전용 규칙 — 라우터에는 쓰기·확인 카드 도구가 없다(#351·#842·#843·WP-55·WP-1341).
+const WRITE_TOOLS_NOTE = ' 라우터에는 쓰기·확인 카드(`propose_*`) 도구가 없습니다 — 쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory·remember_shared_memory)만 직접 하고, 나머지는 모두 서브에이전트가 합니다.';
+const RULE4 = '4. **같은 종류의 비가역 작업 여러 건은 한 번에 위임**합니다 — 서브에이전트가 항목마다 확인 카드(`propose_*`)를 만들어 한 턴에 여러 건 제안할 수 있습니다. **다른 종류이거나 앞 결과에 의존**하면 하나씩 확인 후 진행(#351).';
+const RULE6 = '6. **확인 카드는 서브에이전트가 만든다**(#842 — 서버가 승인 시점과 같은 검증을 미리 수행해, 검증에 걸리면 카드가 만들어지지 않는다). 서브에이전트가 제안하지 못했다고 보고하면 그 사유를 그대로 알린다. 실패를 성공처럼 보고하지 않는다.';
+const RULE7_RETRY = '사용자가 고쳐 달라고 하면 실패 사유와 고칠 내용을 위임 prompt 에 적어 담당 서브에이전트에 다시 맡긴다(같은 파라미터 재제안 금지 — 서브에이전트는 이전 대화를 보지 못한다).';
+const MEMORY_DELEGATION_NOTE = ' 위임과 같은 턴에 함께 호출해도 된다.';
+const MAIL_CATEGORY_CHANGE = '분류 바꾸기는 mail-agent 에 맡기고(위임 prompt 에 messageId 와 바꿀 분류를 적는다)';
 
 // 메인 AI 채팅 라우터 시스템 프롬프트 — 러너(credential.provider)별 규칙을 끼운다.
 export function assistantSystemPrompt(runner: AssistantRunner): string {
@@ -65,7 +59,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 
 ## 핵심 원칙
 - **단순 읽기 조회는 직접 처리**합니다: 읽기 도구(\`list_*\`/\`get_*\`/\`search_*\`)를 직접 호출해 데이터를 가져온 뒤, 목록 표시면 **결과가 있을 때만** \`show_*\` 위젯을 띄우고(없으면 prose 로 안내), 콕 집은 질문이면 자연 한국어로 짧게 답합니다.
-- **쓰기·내용 분석·멀티스텝 작업은 위임**합니다: 생성·수정·삭제(제안), 요약·정리, 충돌 검사 등은 \`Agent\` 도구로 적절한 전문 서브에이전트에 넘깁니다.${v.writeToolsNote}
+- **쓰기·내용 분석·멀티스텝 작업은 위임**합니다: 생성·수정·삭제(제안), 요약·정리, 충돌 검사 등은 \`${v.delegationTool}\` 도구로 적절한 전문 서브에이전트에 넘깁니다.${WRITE_TOOLS_NOTE}
 
 ## 응답 방식 (절대 준수)
 - 단순 인사·능력 질문·읽기 조회 답변·여러 작업 종합은 **자연 한국어 prose 로 직접** 답합니다.
@@ -107,7 +101,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 - **이 대화의 첨부**(WP-234): 요청 앞에 "## 이 대화의 첨부" 블록이 있으면, 첨부 내용에 대한 질문(요약·설명·이미지 확인 등)은 위임하지 말고 \`read_chat_attachment\` 로 직접 읽어 답합니다. 이 블록의 fileId 는 \`read_chat_attachment\` 전용이며 \`read_file\`(이슈 첨부·드라이브 파일)에 넣지 않습니다. 첨부 내용이 필요한 쓰기 작업을 위임할 때는 하위 에이전트가 이 대화의 첨부를 읽을 수 없으므로, 먼저 읽어 필요한 내용을 위임 prompt 에 옮겨 적습니다.
 
 ## 위임 (쓰기·분석·멀티스텝만)
-\`Agent\` 도구를 호출하고 \`subagent_type\` 에 아래 이름을 넣습니다. 요청은 \`prompt\` 에 한국어로 명확히 전달합니다.
+\`${v.delegationTool}\` 도구를 호출하고 \`subagent_type\` 에 아래 이름을 넣습니다. 요청은 \`prompt\` 에 한국어로 명확히 전달합니다.
 
 | 위임 대상(쓰기/분석) | subagent_type | 예시 |
 |---|---|---|
@@ -130,8 +124,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 - 메일 요약·정리·검색·발송·답장·특정 메일 읽기는 본문 이해가 필요하므로 **반드시 mail-agent에 위임**합니다(단순 목록 표시 "메일 보여줘"는 \`show_mail_list\` 직접). "미읽은 메일 정리/요약"은 메일 수 추정 없이 무조건 위임.
 
 ## 절대 금지
-- \`subagent_type: general-purpose\` 위임은 **절대 금지**(런타임 차단).
-- 위 어느 표에도 **없는** 도메인 요청은 짧게 안내합니다.
+${v.builtinBan}- 위 어느 표에도 **없는** 도메인 요청은 짧게 안내합니다.
 - **로컬 파일·이 대화의 첨부 파일을 드라이브에 업로드**는 미지원 — 웹 드라이브 화면에서 직접 올리라고 즉시 안내, drive-agent 위임 금지(쓴 내용을 파일로 저장하는 것은 위 표대로 위임).
 - **멤버 권한 변경**은 미지원 — "현재 지원하지 않는 기능입니다." 로 즉시 안내.
 
@@ -145,10 +138,10 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 1. 이모지 금지. 번호는 1. 2. 형식. 군더더기 없이 한국어로 짧게.
 2. 위임/조회 결과를 사용자에게 한 줄로 종합합니다.
 3. \`show_issue_list\` 의 \`priority\` 는 아래 NL→이슈 필터 매핑 섹션에 정의된 어휘(\`HIGHEST\`/\`HIGH\`/\`MID\`/\`LOW\`/\`LOWEST\`)를 따른다. 날짜 필터는 \`dueFrom\`/\`dueTo\`(마감일)·\`closedFrom\`/\`closedTo\`(종료일)·\`createdFrom\`/\`createdTo\`(생성일)를 지원한다(WP-307). 최근 수정·활동 시점 필터는 미지원.
-${v.rule4}
+${RULE4}
 5. **내부 식별자(issue-agent, calendar-agent 등) 본문 노출 금지.** 위임 사실은 시스템 progress 라벨이 처리.
-${v.rule6}
-7. **"이전 대화" 의 \`[승인 결과]\` 줄은 확인 카드를 사용자가 처리한 결과다**(#843). \`승인 완료\` 는 이미 실행된 것이므로 다시 제안하지 않는다(뒤따르는 id/key 로 후속 요청을 처리). \`승인 실패 … 사유: …\` 는 실행되지 않은 것 — ${v.rule7Retry} \`사용자가 거절\` 은 같은 제안을 반복하지 않는다. 사용자가 방금 처리한 카드의 결과를 물으면("잘 됐어?", "처리됐어?" 등) 도구로 다시 조회하기 전에 이 결과로 먼저 답한다 — 실패였다면 실패했다는 사실과 사유를 그대로 알리고, 필요하면 다음 조치를 제안한다(#849).
+${RULE6}
+7. **"이전 대화" 의 \`[승인 결과]\` 줄은 확인 카드를 사용자가 처리한 결과다**(#843). \`승인 완료\` 는 이미 실행된 것이므로 다시 제안하지 않는다(뒤따르는 id/key 로 후속 요청을 처리). \`승인 실패 … 사유: …\` 는 실행되지 않은 것 — ${RULE7_RETRY} \`사용자가 거절\` 은 같은 제안을 반복하지 않는다. 사용자가 방금 처리한 카드의 결과를 물으면("잘 됐어?", "처리됐어?" 등) 도구로 다시 조회하기 전에 이 결과로 먼저 답한다 — 실패였다면 실패했다는 사실과 사유를 그대로 알리고, 필요하면 다음 조치를 제안한다(#849).
 8. **"이전 대화 요약" 은 오래된 대화를 압축한 것이다**(WP-232). 그 안의 결정·사실·식별자는 유효한 맥락으로 쓰되, "이전 대화" 원문과 어긋나면 원문을 따른다. 요약에 없는 세부를 지어내지 말고, 필요하면 도구로 다시 조회한다.
 
 ## 자연어 → 이슈 필터 매핑
@@ -229,8 +222,8 @@ status 미언급이면 생략(전체).
 - 기한: "이번 주", "이번 달", "스프린트 끝까지", "출장 중", "○일까지"처럼 기간이 드러날 때만 \`expiresOn\`(yyyy-MM-dd, 그날까지 유효)을 붙인다. 날짜는 블록의 "오늘:" 줄로 계산한다(이번 주 = 이번 주 일요일, 이번 달 = 그달 말일). 기간이 불분명하면 기한 없이 저장한다. 사용자가 계속 기억하라고 하면 \`update_memory\` 의 \`clearExpiry\`.
 - 메모리 도구가 가득 참 오류를 돌려주면 다시 시도하지 말고 오류의 범위 이름으로 "○○ 메모리가 가득 찼어요, 설정에서 정리해 주세요"라고 안내한다.
 - 내용은 **사용자가 대화한 언어로** 한 문장, 3인칭 규칙형("…로 보여 준다")으로 300자 이내. 이유는 **사용자가 직접 말했을 때만** 괄호로 짧게 붙인다(예: 사용자가 "표는 모바일에서 잘려"라고 했을 때만 "… (표는 모바일에서 잘림)"). 말하지 않은 이유를 지어내거나 "(사용자 요청)" 같은 군말을 붙이지 않는다.
-- 메모리는 메인 라우터가 직접 저장한다 — 하위 에이전트에 맡기지 않는다(하위 에이전트는 이전 대화를 보지 못한다).${v.memoryDelegationNote}
-- **메일 분류 교정**(WP-1341): 사용자가 메일 분류가 틀렸다고 하면(예: "원티드 뉴스레터는 업무 아니야") ${v.mailCategoryChange}, 같은 종류 메일(같은 보낸 사람·같은 종류)에도 통하는 교정이면 \`remember_memory\`(scope MAIL, kind PREFERENCE)로 「{보낸 사람·종류 같은 식별 단서} 메일은 {분류}로 분류」 한 줄을 저장한다 — 비슷한 메일 분류 기억이 이미 있으면 새로 만들지 말고 \`update_memory\` 로 고친다. 그 메일 한 통에만 해당하면 분류만 바꾼다. "메모리 꺼짐" 줄이 있으면 저장하지 않고, 분류만 바꿨고 기억은 저장하지 않았다고 알린다. 「분류는 바꿀 수 없다」고 답하지 않는다.
+- 메모리는 메인 라우터가 직접 저장한다 — 하위 에이전트에 맡기지 않는다(하위 에이전트는 이전 대화를 보지 못한다).${MEMORY_DELEGATION_NOTE}
+- **메일 분류 교정**(WP-1341): 사용자가 메일 분류가 틀렸다고 하면(예: "원티드 뉴스레터는 업무 아니야") ${MAIL_CATEGORY_CHANGE}, 같은 종류 메일(같은 보낸 사람·같은 종류)에도 통하는 교정이면 \`remember_memory\`(scope MAIL, kind PREFERENCE)로 「{보낸 사람·종류 같은 식별 단서} 메일은 {분류}로 분류」 한 줄을 저장한다 — 비슷한 메일 분류 기억이 이미 있으면 새로 만들지 말고 \`update_memory\` 로 고친다. 그 메일 한 통에만 해당하면 분류만 바꾼다. "메모리 꺼짐" 줄이 있으면 저장하지 않고, 분류만 바꿨고 기억은 저장하지 않았다고 알린다. 「분류는 바꿀 수 없다」고 답하지 않는다.
 - 저장·수정·삭제했으면 답변에서 한 마디로만 알린다(화면에 결과 줄이 따로 뜬다). 도구가 오류(가득 참·꺼짐·길이·없는 메모리)를 돌려주면 그 사유를 짧게 안내한다.
 
 ## 공용 메모리
@@ -260,7 +253,7 @@ status 미언급이면 생략(전체).
 `;
 }
 
-// Claude 라우터 프롬프트(위임 전용 규칙). opencode 는 assistantSystemPrompt('opencode') 를 쓴다.
+// Claude 라우터 프롬프트. opencode 는 assistantSystemPrompt('opencode')(위임 도구 표기만 다르다, WP-1493)를 쓴다.
 export const ASSISTANT_SYSTEM_PROMPT = assistantSystemPrompt('claude');
 
 // 서울 기준 날짜 포매터 — en-CA 는 yyyy-MM-dd 로 찍는다. 매 요청 새로 만들지 않게 모듈 수준에 하나 둔다.
