@@ -61,6 +61,8 @@ describe('buildAgentResources', () => {
     expect(pod.spec?.securityContext).toEqual({ fsGroup: 1001 });
     const agent = container(pod, 'agent');
     expect(agent.securityContext).toMatchObject({ runAsUser: 1001, runAsGroup: 1001, runAsNonRoot: true });
+    // agent 는 AppArmor 를 끈다(계약 문서 「사용자·디스크」)
+    expect(agent.securityContext?.appArmorProfile).toEqual({ type: 'Unconfined' });
     expect(agent.image).toBe('docker.io/iacloudops/genia-works-agent-claude-code:0.9.40');
     expect(pod.spec?.restartPolicy).toBe('Always');
     expect(pod.spec?.terminationGracePeriodSeconds).toBe(60);

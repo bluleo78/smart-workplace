@@ -306,7 +306,9 @@ export function buildAgentResources(
     image: agent.image,
     env,
     resources: resourcesOf(agent),
-    securityContext: { runAsUser: AGENT_UID, runAsGroup: AGENT_UID, runAsNonRoot: true },
+    // AppArmor 는 끈다 — Ubuntu 26.04 노드의 containerd 기본 프로필이 같은 컨테이너 안 kill 까지 막아(라벨이 `…//&unconfined` 로 겹쳐 붙음)
+    // vitest 워커 정리·커밋 훅이 깨진다. dind 없는 템플릿에도 똑같이 막히므로 늘 끈다(차트가 네임스페이스를 privileged 로 둔다).
+    securityContext: { runAsUser: AGENT_UID, runAsGroup: AGENT_UID, runAsNonRoot: true, appArmorProfile: { type: 'Unconfined' } },
     volumeMounts,
   };
 
