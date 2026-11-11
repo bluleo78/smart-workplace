@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { normalizeLinkInput } from '@/components/wiki/wikiLinkUrl';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { shortcutKeys } from '@/lib/platform';
+import { HIDE_SCROLLBAR } from '@/lib/scrollStyles';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
@@ -104,7 +105,7 @@ export function ChatFormatToolbar({ editor, testId }: { editor: Editor; testId: 
       id={`${testId}-toolbar`}
       data-testid={`${testId}-toolbar`}
       // 모바일은 한 줄 가로 스크롤(스크롤바 숨김), 데스크톱은 폭 안에서 한 줄.
-      className="flex items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className={`flex items-center gap-0.5 overflow-x-auto ${HIDE_SCROLLBAR}`}
     >
       {GROUPS.map((group, gi) => (
         <div key={gi} className="flex shrink-0 items-center gap-0.5">

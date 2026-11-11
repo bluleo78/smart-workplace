@@ -11,6 +11,7 @@ import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerShe
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import type { FocusReturn } from '@/hooks/useFocusReturn';
 import { keepFocusProps } from '@/lib/keepFocus';
+import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { cn } from '@/lib/utils';
 
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
@@ -159,7 +160,7 @@ export function CreateIssueChips({
       <div className="flex items-center">
         <div
           data-testid="create-chips-scroller"
-          className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-2 pr-8 pl-4 [mask-image:linear-gradient(to_right,#000_calc(100%_-_32px),transparent)] [scrollbar-width:none]"
+          className={`flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-2 pr-8 pl-4 [mask-image:linear-gradient(to_right,#000_calc(100%_-_32px),transparent)] ${HIDE_SCROLLBAR}`}
         >
           {!personal &&
             chip(

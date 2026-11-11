@@ -101,8 +101,8 @@ export function FilterLine({
                   <div className="flex shrink-0 @2xl:relative @2xl:max-w-full @2xl:shrink-0">
                     <div
                       ref={chipsScrollRef}
-                      // 넓은 폭의 스크롤바 숨김은 @2xl: 접두사가 붙어 HIDE_SCROLLBAR 를 쓸 수 없다 — Tailwind 는 정적 리터럴만 스캔한다.
-                      className="flex shrink-0 items-center gap-2 @2xl:min-w-0 @2xl:shrink @2xl:overflow-x-auto @2xl:px-0.5 @2xl:py-0.5 @2xl:[scrollbar-width:none] @2xl:[&::-webkit-scrollbar]:hidden [&>*]:flex-nowrap [&>*]:shrink-0"
+                      // 넓은 폭의 스크롤바 숨김은 @2xl: 접두사가 붙어 HIDE_SCROLLBAR 상수를 쓸 수 없다 — 같은 shadcn no-scrollbar 유틸리티를 변형과 함께 직접 쓴다(WP-1502).
+                      className="flex shrink-0 items-center gap-2 @2xl:min-w-0 @2xl:shrink @2xl:overflow-x-auto @2xl:px-0.5 @2xl:py-0.5 @2xl:no-scrollbar [&>*]:flex-nowrap [&>*]:shrink-0"
                     >
                       {chips}
                     </div>
