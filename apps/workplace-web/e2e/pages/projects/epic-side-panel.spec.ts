@@ -16,6 +16,9 @@ import { expectSelectedRow, expectToggle, selectionBarStyle } from '../../fixtur
 const PROJECT_KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
 
+// 조건 없는 /projects/WP2 도 이슈 목록으로 연다 — 기억한 탭이 없으면 기본 탭(개요)으로 열린다(WP-1478). 기본 기억(WP)에 WP2 를 더한다.
+test.use({ rememberedProjectTabs: { [PROJECT_KEY]: 'issues', WP2: 'issues' } });
+
 async function stubProjectMeta(page: Page) {
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}`, createProject({ key: PROJECT_KEY, type: 'TEAM' }));
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/members`, []);

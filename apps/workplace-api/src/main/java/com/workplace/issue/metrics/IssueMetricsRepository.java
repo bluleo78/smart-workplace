@@ -231,6 +231,46 @@ public class IssueMetricsRepository {
         .fetch(ISSUE.CREATED_AT);
   }
 
+  /**
+   * 완료·새로 생김 수만 — 현재·지난 기간 넷을 {@code COUNT(*) FILTER} 한 문장으로 센다(WP-1478 개요 숫자 카드). 술어는 {@link
+   * #findClosedDone}(DONE·closed_at 구간)·{@link #findCreatedAts}(created_at 구간)와 같고, 구간은 {@link
+   * MetricsPeriod} 의 서울 경계라 계산기가 서울 날짜로 기간을 가르는 것과 같은 결과다 — 성과 화면의 「완료 수」와 같은 값이 나온다.
+   */
+  public MetricsCounts countPeriods(Condition scope, MetricsPeriod period) {
+    MetricsPeriod prev = period.previous();
+    OffsetDateTime prevFrom = prev.startInclusive();
+    OffsetDateTime curFrom = period.startInclusive();
+    OffsetDateTime toExclusive = period.endExclusive();
+    Condition done = ISSUE.STATUS.eq(IssueStatuses.DONE);
+    var completed =
+        DSL.count()
+            .filterWhere(
+                done.and(ISSUE.CLOSED_AT.ge(curFrom)).and(ISSUE.CLOSED_AT.lt(toExclusive)));
+    var previousCompleted =
+        DSL.count()
+            .filterWhere(done.and(ISSUE.CLOSED_AT.ge(prevFrom)).and(ISSUE.CLOSED_AT.lt(curFrom)));
+    var created =
+        DSL.count().filterWhere(ISSUE.CREATED_AT.ge(curFrom).and(ISSUE.CREATED_AT.lt(toExclusive)));
+    var previousCreated =
+        DSL.count().filterWhere(ISSUE.CREATED_AT.ge(prevFrom).and(ISSUE.CREATED_AT.lt(curFrom)));
+    var r =
+        dsl.select(completed, previousCompleted, created, previousCreated)
+            .from(ISSUE)
+            .join(PROJECT)
+            .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+            .where(scope)
+            .and(alive())
+            // 두 기간 어느 쪽에도 닿지 않는 행은 처음부터 거른다 — 닫힘·생성 인덱스를 탈 수 있게.
+            .and(
+                ISSUE
+                    .CLOSED_AT
+                    .ge(prevFrom)
+                    .and(ISSUE.CLOSED_AT.lt(toExclusive))
+                    .or(ISSUE.CREATED_AT.ge(prevFrom).and(ISSUE.CREATED_AT.lt(toExclusive))))
+            .fetchOne();
+    return new MetricsCounts(r.value1(), r.value2(), r.value3(), r.value4());
+  }
+
   /** 사람 기준 「새로 생김」 범위 — 내가 보고자인 이슈. */
   public Condition reportedBy(long userId) {
     return ISSUE.REPORTER_ID.eq(userId);

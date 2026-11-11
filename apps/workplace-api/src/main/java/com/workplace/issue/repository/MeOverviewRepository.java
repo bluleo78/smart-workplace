@@ -6,7 +6,6 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 
-import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.metrics.IssueMetricsRepository;
 import com.workplace.user.dto.UserKind;
@@ -70,15 +69,6 @@ public class MeOverviewRepository {
     return ISSUE.DELETED_AT.isNull().and(PROJECT.DELETED_AT.isNull());
   }
 
-  /** 답변 필요로 진행 중인 AI 작업 — 끝난 작업(ended_at)은 보지 않는다. */
-  private static Condition waitingWork() {
-    return AGENT_WORK
-        .ISSUE_ID
-        .eq(ISSUE.ID)
-        .and(AGENT_WORK.STATE.eq(AgentWorkState.INPUT_REQUIRED))
-        .and(AGENT_WORK.ENDED_AT.isNull());
-  }
-
   /**
    * 내 열린 이슈 — 지금 담당인 열린 이슈 전부와, 보고자이면서 AI 답변을 기다리는 열린 이슈. 한 사람이 맡은 열린 이슈는 많아야 수백 건이라 전부 가져와 자바에서
    * 타일·상위 목록을 나눈다(타일 넷 × 상위 3건을 쿼리 넷으로 나누지 않게).
@@ -91,11 +81,15 @@ public class MeOverviewRepository {
                     .from(ISSUE_ASSIGNEE)
                     .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
                     .and(ISSUE_ASSIGNEE.USER_ID.eq(userId))));
+    // 「AI 답변 기다림」 정의는 프로젝트 개요 「기다리는 중」과 같은
+    // IssueAttentionConditions.inputRequiredWork·awaitingAgentInput 를
+    // 쓴다(WP-1478).
     Field<OffsetDateTime> waitingSince =
         DSL.field(
-            DSL.select(DSL.min(AGENT_WORK.STATE_CHANGED_AT)).from(AGENT_WORK).where(waitingWork()));
-    Field<Boolean> waiting =
-        DSL.field(DSL.exists(DSL.selectOne().from(AGENT_WORK).where(waitingWork())));
+            DSL.select(DSL.min(AGENT_WORK.STATE_CHANGED_AT))
+                .from(AGENT_WORK)
+                .where(IssueAttentionConditions.inputRequiredWork()));
+    Field<Boolean> waiting = DSL.field(IssueAttentionConditions.awaitingAgentInput());
     return dsl.select(
             ISSUE.ID,
             PROJECT.KEY,
@@ -118,7 +112,7 @@ public class MeOverviewRepository {
                     ISSUE
                         .REPORTER_ID
                         .eq(userId)
-                        .and(DSL.exists(DSL.selectOne().from(AGENT_WORK).where(waitingWork())))))
+                        .and(IssueAttentionConditions.awaitingAgentInput())))
         .fetch(
             r ->
                 new OpenIssueRow(

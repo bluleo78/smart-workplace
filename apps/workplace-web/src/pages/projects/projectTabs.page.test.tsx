@@ -1,5 +1,5 @@
 // 프로젝트 화면 탭(WP-1477) — 머리줄·탭 줄, 탭 길(기존 주소 호환), 마지막 탭 기억·되돌리기 페이지 테스트.
-// App 라우트 배선(첫 진입 → 이슈 탭, 탭 이동, 기존 주소, 이슈 상세는 탭 밖)은 renderPage 로 실제 라우트 트리를 띄워 보고,
+// App 라우트 배선(첫 진입 → 개요 탭, 탭 이동, 기존 주소, 이슈 상세는 탭 밖)은 renderPage 로 실제 라우트 트리를 띄워 보고,
 // 되돌리기 규칙(PUSH·첫 진입만, POP·REPLACE·이슈 탭 클릭·쿼리는 되돌리지 않음, 되돌리는 렌더에서 쓰지 않음, 개인·없는 프로젝트는
 // 읽지도 쓰지도 않음)은 레이아웃 + 탭 자리 표시 본문을 renderRoutesScreen 으로 띄워 이동 종류를 직접 만들어 본다.
 import { act, screen, waitFor, within } from '@testing-library/react'
@@ -11,13 +11,14 @@ import { PROJECT_TABS, type ProjectTabId } from '@/pages/projects/tabs/projectTa
 import { ProjectTabsLayout } from '@/pages/projects/tabs/ProjectTabsLayout'
 import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
-import { rememberProjectTab } from '@/test/kits/projects/projectTabs'
 import { renderRoutesScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
+import { rememberProjectTab } from '@/test/projectTabMemory'
 import { PAGE_LOAD_TIMEOUT, renderPage, settleHistory } from '@/test/renderPage'
 import type { ProjectResponse } from '@/types/project'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import { createProjectOverview } from '../../../e2e/factories/projectOverview.factory'
 
 // 개인 프로젝트의 이슈 길은 레이아웃이 개인 전용 화면을 바로 그린다 — 여기선 레이아웃의 분기만 보므로 그 화면을 자리 표시로 바꾼다
 // (개인 화면 자체는 personalProjectDetail.test.tsx·mobile/personalProject.test.tsx 가 본다).
@@ -29,6 +30,8 @@ const KEY = 'WP'
 /** 기본 로그인 사용자(id 1, 워크스페이스 없음)의 탭 기억 키 — useRememberedProjectTab 과 같은 규칙. */
 const STORE_KEY = `project-tab:${KEY}:1:-`
 const stored = () => window.localStorage.getItem(STORE_KEY)
+/** 렌더 도우미가 기본으로 심는 탭 기억(WP → 이슈)을 끈다 — 이 파일은 기억이 없을 때의 기본 탭(개요)과 기억·되돌리기 규칙 자체를 본다. */
+const NO_MEMORY = {}
 
 /** 탭 줄(nav「프로젝트 탭」) — 페이지 이동 링크 묶음이라 tablist 가 아니라 navigation 이다. */
 const tabNav = () => screen.getByRole('navigation', { name: '프로젝트 탭' })
@@ -47,20 +50,23 @@ function appHandlers(project: ProjectResponse = createProject({ key: KEY, name: 
       HttpResponse.json({ content: [project], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
     ),
     http.get('/api/v1/me/project-favorites', () => HttpResponse.json({ projectKeys: [KEY] })),
+    http.get(`/api/v1/projects/${KEY}/overview`, () => HttpResponse.json(createProjectOverview())),
   ]
 }
 
 describe('프로젝트 탭 — 앱 라우트', () => {
-  test('처음 /projects/WP 에 들어오면(기억 없음) 이슈 탭으로 열리고, 머리줄은 설정·+ 새 태스크만 둔다 — 개요 탭을 누르면 개요가 열리고 기억된다', async () => {
-    const { user, location } = renderPage(`/projects/${KEY}`, { handlers: appHandlers() })
-    // 기본 탭은 이슈(DEFAULT_PROJECT_TAB) — 개요가 아직 자리 표시라 첫 진입을 이슈 목록으로 연다. 주소는 그대로.
-    expect(await screen.findByRole('region', { name: '태스크' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
-    expect(location()).toBe(`/projects/${KEY}`)
-    expect(tab('issues')).toHaveAttribute('aria-current', 'page')
-    expect(tab('overview')).not.toHaveAttribute('aria-current')
-    expect(screen.queryByText('프로젝트 개요는 준비 중입니다')).not.toBeInTheDocument()
-    // 첫 진입(주소 입력)도 고른 탭이라 이슈 탭을 기억한다.
-    await waitFor(() => expect(stored()).toBe('issues'))
+  test('처음 /projects/WP 에 들어오면(기억 없음) 개요 탭으로 열리고, 머리줄은 설정·+ 새 태스크만 둔다 — 이슈 탭을 누르면 이슈 목록이 열리고 기억된다', async () => {
+    const setItem = vi.spyOn(window.localStorage, 'setItem')
+    const { user, location } = renderPage(`/projects/${KEY}`, { handlers: appHandlers(), projectTabs: NO_MEMORY })
+    // 기본 탭은 개요(DEFAULT_PROJECT_TAB, WP-1478) — 처음 들어오는 사람은 개요부터. 이슈 목록은 그리지 않는다.
+    expect(await screen.findByTestId('project-overview-widgets', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}/overview`)
+    expect(tab('overview')).toHaveAttribute('aria-current', 'page')
+    expect(tab('issues')).not.toHaveAttribute('aria-current')
+    expect(screen.queryByRole('region', { name: '태스크' })).not.toBeInTheDocument()
+    // 되돌리는 렌더는 이슈 탭을 기억에 쓰지 않고, 도착한 개요를 기억한다.
+    await waitFor(() => expect(stored()).toBe('overview'))
+    expect(setItem.mock.calls.filter(([k, v]) => k === STORE_KEY && v === 'issues')).toEqual([])
 
     // 탭 다섯 — 순서대로, 노트는 숨김.
     const tabs = within(tabNav()).getAllByRole('link')
@@ -82,16 +88,16 @@ describe('프로젝트 탭 — 앱 라우트', () => {
       expect(within(header).queryByRole('link', { name })).not.toBeInTheDocument()
     }
 
-    // 개요 탭 클릭 — 개요 자리 표시가 열리고, 개요를 연 것을 기억한다.
-    await user.click(tab('overview'))
-    expect(await screen.findByText('프로젝트 개요는 준비 중입니다')).toBeInTheDocument()
-    expect(location()).toBe(`/projects/${KEY}/overview`)
-    expect(tab('overview')).toHaveAttribute('aria-current', 'page')
-    await waitFor(() => expect(stored()).toBe('overview'))
+    // 이슈 탭 클릭 — 이슈 목록이 열리고(되돌리지 않음), 이슈 탭을 기억한다.
+    await user.click(tab('issues'))
+    expect(await screen.findByRole('region', { name: '태스크' })).toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}`)
+    expect(tab('issues')).toHaveAttribute('aria-current', 'page')
+    await waitFor(() => expect(stored()).toBe('issues'))
   })
 
   test('사이클 탭을 연 뒤 링크로 /projects/WP 에 다시 들어오면 사이클로, 이슈 탭을 연 뒤면 이슈 탭으로 열린다', async () => {
-    const { user, location } = renderPage(`/projects/${KEY}/cycles`, { handlers: appHandlers() })
+    const { user, location } = renderPage(`/projects/${KEY}/cycles`, { handlers: appHandlers(), projectTabs: NO_MEMORY })
     expect(await screen.findByText('아직 사이클이 없습니다.', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(tab('cycles')).toHaveAttribute('aria-current', 'page')
 
@@ -122,7 +128,7 @@ describe('프로젝트 탭 — 앱 라우트', () => {
 
   test('쿼리가 있는 기존 주소(/projects/WP?view=board)는 기억과 상관없이 이슈 탭 보드를 그대로 연다', async () => {
     rememberProjectTab(KEY, 'cycles')
-    const { location } = renderPage(`/projects/${KEY}?view=board`, { handlers: appHandlers() })
+    const { location } = renderPage(`/projects/${KEY}?view=board`, { handlers: appHandlers(), projectTabs: NO_MEMORY })
     expect(await screen.findByTestId('board-scroll', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(location()).toBe(`/projects/${KEY}?view=board`)
     expect(tab('issues')).toHaveAttribute('aria-current', 'page')
@@ -130,6 +136,7 @@ describe('프로젝트 탭 — 앱 라우트', () => {
 
   test('기존 버전 주소(/projects/WP/versions)는 버전 탭, 이슈 상세(/projects/WP/issues/1)는 탭 줄 없는 상세 화면이다', async () => {
     const { location } = renderPage(`/projects/${KEY}/versions`, {
+      projectTabs: NO_MEMORY,
       handlers: [
         ...appHandlers(),
         ...issueDetailSubHandlers({ key: KEY, number: 1, detail: createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '상세 이슈' }) }) }),
@@ -180,6 +187,7 @@ const tabRoutes = (
 /** 레이아웃을 path 에서 띄운다 — 프로젝트 응답만 준다(404 면 status). */
 function openLayout(path: string, project: ProjectResponse | 404 = createProject({ key: KEY })) {
   return renderRoutesScreen(tabRoutes, path, {
+    projectTabs: NO_MEMORY,
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () =>
         project === 404
@@ -277,13 +285,13 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
     expect(location()).toBe(`/projects/${KEY}?view=board`)
   })
 
-  test.each(['notes', 'foo'])('기억한 값이 %s(숨긴 탭·모르는 값)면 기억 없음과 같이 기본 탭(이슈)으로 연다 — 주소 그대로', async (value) => {
+  test.each(['notes', 'foo'])('기억한 값이 %s(숨긴 탭·모르는 값)면 기억 없음과 같이 기본 탭(개요)으로 연다', async (value) => {
     window.localStorage.setItem(STORE_KEY, value)
     const { location } = openLayout(`/projects/${KEY}`)
-    expect(await screen.findByText('이슈 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByText('개요 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
     await settleHistory()
-    expect(location()).toBe(`/projects/${KEY}`)
-    expect(screen.queryByText('개요 본문')).not.toBeInTheDocument()
+    expect(location()).toBe(`/projects/${KEY}/overview`)
+    expect(screen.queryByText('이슈 본문')).not.toBeInTheDocument()
   })
 
   test('개인 프로젝트는 탭 줄·팀 머리줄 없이 개인 이슈 화면만 — 주소 그대로, 기억을 읽지도 쓰지도 않는다', async () => {

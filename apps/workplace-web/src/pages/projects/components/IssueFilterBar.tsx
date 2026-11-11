@@ -25,6 +25,7 @@ import {
 import type { IssueGroupBy } from '../../../types/issue';
 import { type IssueFilterBarOptions, useIssueFilterControls } from '../hooks/useIssueFilterControls';
 import { IssueColumnPickerButton } from './IssueColumnPicker';
+import { IssueConditionChips } from './IssueConditionChips';
 import { IssueSortMenu } from './IssueSortMenu';
 
 export function IssueFilterBar({
@@ -50,14 +51,18 @@ export function IssueFilterBar({
       }
       // 빠른 필터 칩 — 자주 쓰는 facet 은 칩으로 바로, 나머지는 「더 보기」(WP-1020). 칩 고정·숨김은 화면·사용자별로 기억한다.
       // 필터 줄 안에서는 FilterLine 이 줄바꿈을 막고, 넘치면 칩 묶음만 가로 스크롤한다(필터 줄 규칙 5).
+      // 빠른 필터 칩 뒤에 facet 이 없는 조건 칩(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 개요 링크로 온 조건을 보이고 × 로 푼다.
       chips={
-        <QuickFilterBar
-          facets={c.facets}
-          value={c.filterValue}
-          onChange={c.onFilterChange}
-          defaultChips={c.quickChips}
-          storageKey={c.quickFilterStorageKey}
-        />
+        <>
+          <QuickFilterBar
+            facets={c.facets}
+            value={c.filterValue}
+            onChange={c.onFilterChange}
+            defaultChips={c.quickChips}
+            storageKey={c.quickFilterStorageKey}
+          />
+          <IssueConditionChips chips={c.conditionChips} onRemove={c.removeCondition} />
+        </>
       }
       // 「필터 지우기」 — 예전 「초기화」와 같은 범위(검색어 포함 필터 전부, view·group·열 구성은 유지).
       // 칩 스크롤에 가려지지 않도록 chips 밖 clear 슬롯에 둔다(필터 줄 규칙 6). 걸린 필터가 없으면 슬롯을 비운다.

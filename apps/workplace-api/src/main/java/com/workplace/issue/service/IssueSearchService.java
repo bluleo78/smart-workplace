@@ -24,6 +24,7 @@ import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
+import com.workplace.issue.repository.IssueAttentionConditions;
 import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
@@ -40,7 +41,9 @@ import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.version.repository.VersionRepository;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -91,6 +94,9 @@ public class IssueSearchService {
   // WP-1238: 사용자 지정 정렬(sort·direction) — 목록·보드 컬럼·/me/issues 공용.
   private final IssueSortedRepository sortedRepository;
 
+  /** 오래 멈춤 기준 시각(지금 − 7일)을 정하는 시계 — 개요와 같은 「지금」 기준(WP-1478). */
+  private final Clock clock = Clock.systemUTC();
+
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
       java.util.Set.of("status", "statusId", "priority", "assignee");
@@ -118,8 +124,8 @@ public class IssueSearchService {
    * 검색. params 키: q, status, statusId·statusName(WP-807), assignee, priority, dueFrom, dueTo,
    * startFrom·startTo·updatedFrom·updatedTo(WP-1238), label, type, component(WP-933, id·이름·none),
    * fixVersion·affectsVersion(WP-888, id·이름·none), cursor, size, watching(WP-356, true 만),
-   * sort·direction(WP-1238, {@link IssueSort}). assignee·reporter 는 me/숫자 id/username, label·type 은
-   * 숫자 id/이름을 받는다(#841).
+   * sort·direction(WP-1238, {@link IssueSort}), stale·waiting(WP-1478, true 만). assignee·reporter 는
+   * me/숫자 id/username, label·type 은 숫자 id/이름을 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -625,6 +631,13 @@ public class IssueSearchService {
     Long mentionedUserId = "true".equalsIgnoreCase(p.get("mentionsMe")) ? callerId : null;
     // WP-1239 — sourceKey=<원본 키> 면 가져올 때 그 원본 키를 받은 이슈만(정확히 일치, 앞뒤 공백은 뗀다). 이관한 Jira 키로 이슈를 찾는다.
     String sourceKey = trimToNull(p.get("sourceKey"));
+    // WP-1478 — stale=true 면 오래 멈춤(진행 중인데 7일 넘게 상태 변경·댓글이 없음), waiting=true 면 기다리는 중(AI 답변 필요 또는
+    // 닫히지 않은 선행에 막힘). 값은 true 만 받는다. 프로젝트 개요 「살펴볼 이슈」와 같은 조건 함수(IssueAttentionConditions)를 쓴다.
+    OffsetDateTime staleCutoff =
+        "true".equalsIgnoreCase(p.get("stale"))
+            ? IssueAttentionConditions.staleCutoff(OffsetDateTime.now(clock))
+            : null;
+    Boolean waiting = "true".equalsIgnoreCase(p.get("waiting")) ? Boolean.TRUE : null;
 
     Long fieldId = null;
     String fieldValue = trimToNull(p.get("fieldValue"));
@@ -680,7 +693,9 @@ public class IssueSearchService {
         updatedFrom,
         updatedTo,
         startFrom,
-        startTo);
+        startTo,
+        staleCutoff,
+        waiting);
   }
 
   private static LocalDate parseDate(String s) {

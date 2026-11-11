@@ -7,12 +7,13 @@ import { describe, expect, test } from 'vitest'
 
 import { wikiKeys } from '@/hooks/queries/wikiKeys'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
-import { rememberProjectTab } from '@/test/kits/projects/projectTabs'
 import { attachSilentCollab, editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
+import { rememberProjectTab } from '@/test/projectTabMemory'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { WikiPageDetail, WikiPageSummary } from '@/types/wiki'
 
 import { createProject } from '../../../e2e/factories/project.factory'
+import { createProjectOverview } from '../../../e2e/factories/projectOverview.factory'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
 
 const KEY = 'WP'
@@ -32,6 +33,8 @@ function open(path: string, space: () => Response, extra: RequestHandler[] = [])
   return renderPage(path, {
     handlers: [
       ...extra,
+      // 기억한 노트 탭을 못 쓰면 기본 탭(개요)으로 내려앉는다(WP-1478) — 그때 개요가 부르는 조회.
+      http.get(`/api/v1/projects/${KEY}/overview`, () => HttpResponse.json(createProjectOverview())),
       ...projectScreen(KEY, { project: createProject({ key: KEY, name: '워크플레이스' }) }).handlers,
       ...editorSideHandlers,
       http.get(SPACE_API, () => space()),
@@ -51,6 +54,7 @@ const notFound = () => HttpResponse.json({ message: '없음' }, { status: 404 })
 const serverError = () => HttpResponse.json({ message: '오류' }, { status: 500 })
 const storedTab = () => window.localStorage.getItem(`project-tab:${KEY}:1:-`)
 const tabNav = () => screen.getByRole('navigation', { name: '프로젝트 탭' })
+const OVERVIEW_PATH = `/projects/${KEY}/overview`
 
 describe('프로젝트 노트 탭', () => {
   test('공간이 있으면 탭 줄에 「노트」가 보이고, 누르면 첫 최상위 페이지(position 순)로 replace 이동한다', async () => {
@@ -130,11 +134,11 @@ describe('프로젝트 노트 탭', () => {
     expect(storedTab()).toBe('notes')
   })
 
-  test('기억한 탭이 노트여도 공간이 404 면 이슈 탭에 머문다', async () => {
+  test('기억한 탭이 노트여도 공간이 404 면 기본 탭(개요)으로 간다', async () => {
     rememberProjectTab(KEY, 'notes')
     const { location } = open(`/projects/${KEY}`, notFound)
-    expect(await screen.findByRole('region', { name: '태스크' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
-    expect(location()).toBe(`/projects/${KEY}`)
+    await waitFor(() => expect(location()).toBe(OVERVIEW_PATH), { timeout: PAGE_LOAD_TIMEOUT })
+    expect(await screen.findByTestId('project-tab-overview')).toHaveAttribute('aria-current', 'page')
     expect(within(tabNav()).queryByRole('link', { name: '노트' })).not.toBeInTheDocument()
   })
   test('공간을 한 번 받은 뒤 재조회가 500 이어도 페이지·노트 탭이 그대로 보이고 주소도 그대로다', async () => {
@@ -162,18 +166,18 @@ describe('프로젝트 노트 탭', () => {
     expect(location()).toBe(`/projects/${KEY}/notes/21`)
   })
 
-  test('기억한 탭이 노트이고 공간 첫 조회가 500 이면 이슈 탭에 내려앉고, 재조회가 성공해도 노트로 끌려가지 않는다', async () => {
+  test('기억한 탭이 노트이고 공간 첫 조회가 500 이면 기본 탭(개요)에 내려앉고, 재조회가 성공해도 노트로 끌려가지 않는다', async () => {
     rememberProjectTab(KEY, 'notes')
     let fail = true
     const { location, queryClient } = open(`/projects/${KEY}`, () => (fail ? serverError() : ok()))
-    expect(await screen.findByRole('region', { name: '태스크' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    await waitFor(() => expect(location()).toBe(OVERVIEW_PATH), { timeout: PAGE_LOAD_TIMEOUT })
     fail = false
     await queryClient.invalidateQueries({ queryKey: wikiKeys.projectSpace(KEY) })
     // 노트 탭이 나타날 만큼 성공했음을 확인한 뒤에도 주소는 그대로.
     expect(await within(tabNav()).findByRole('link', { name: '노트' })).toBeInTheDocument()
     await new Promise((r) => setTimeout(r, 200))
-    expect(location()).toBe(`/projects/${KEY}`)
-    expect(screen.getByRole('region', { name: '태스크' })).toBeInTheDocument()
+    expect(location()).toBe(OVERVIEW_PATH)
+    expect(screen.getByTestId('project-tab-overview')).toHaveAttribute('aria-current', 'page')
   })
 
   test('트리 조회가 500 이면 /notes 에서 빈 상태(새 페이지 만들기) 대신 다시 시도할 수 있는 오류를 보인다', async () => {

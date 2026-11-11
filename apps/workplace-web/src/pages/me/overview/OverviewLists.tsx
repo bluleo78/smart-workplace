@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import type { Upcoming, UpcomingItem } from '@/types/meOverview'
 
 import { OverviewCard } from './OverviewCard'
-import { upcomingDueLabel } from './overviewModel'
+import { type TileChoice, upcomingDueLabel, visibleTile } from './overviewModel'
 
 type TileKey = 'overdue' | 'dueSoon' | 'waiting' | 'other'
 
@@ -33,18 +33,6 @@ function firstTile(u: Upcoming): TileKey {
   return TILES.find((t) => u[t.key] > 0)?.key ?? 'overdue'
 }
 
-/** 사용자가 누른 타일과 그때의 데이터 — 데이터가 바뀌었는지 참조로 알아 본다(쿼리 structural sharing 이라 안 바뀌면 같은 참조). */
-type TileChoice = { key: TileKey; source: Upcoming }
-
-/**
- * 보일 타일 — 고른 적 없으면 건수 있는 첫 타일. 고른 타일은 그 데이터 그대로면(빈 타일을 눌러 「없어요」를 보는 중이어도) 유지하고,
- * 데이터가 바뀌어 그 타일이 0건이 되면 건수 있는 첫 타일로 돌아간다(다른 탭에서 이슈를 닫아 묶음이 비었을 때 빈 칸에 멈추지 않게).
- */
-function visibleTile(choice: TileChoice | null, u: Upcoming): TileKey {
-  if (choice && (choice.source === u || u[choice.key] > 0)) return choice.key
-  return firstTile(u)
-}
-
 /** AI 태그 — 함께한(지금 담당인) AI 이름. AI 마커 토큰(DS 01 §1-5). className 으로 좁은 폭에서 숨기는 등 자리별로 조정한다. */
 function AiTags({ names, className }: { names: string[]; className?: string }) {
   if (names.length === 0) return null
@@ -61,9 +49,9 @@ function AiTags({ names, className }: { names: string[]; className?: string }) {
 
 /** 맡은 이슈 — 열린 이슈 수, 타일 넷(누르면 아래 상위 3건이 바뀐다), 「할당 탭에서 보기」. 기간과 무관. 개요 화면의 마지막 카드다. */
 export function UpcomingCard({ upcoming, today }: { upcoming: Upcoming; today: string }) {
-  const [choice, setChoice] = useState<TileChoice | null>(null)
+  const [choice, setChoice] = useState<TileChoice<TileKey, Upcoming> | null>(null)
   // 렌더 중에 데이터에서 파생한다 — 처음 값만 state 로 고정하면 데이터가 바뀌어도 빈 타일에 머문다.
-  const tile = visibleTile(choice, upcoming)
+  const tile = visibleTile(choice, upcoming, (k) => upcoming[k], firstTile(upcoming))
   const items = TOP_OF[tile](upcoming)
   const nothing = upcoming.openAssigned === 0 && upcoming.waiting === 0
   return (

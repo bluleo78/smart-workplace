@@ -22,6 +22,7 @@ import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
+import { type IssueConditionChip, issueConditionChips, type IssueConditionKey, withoutCondition } from '../../../lib/issueConditionChips';
 import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
   carrySort,
@@ -100,6 +101,8 @@ export interface IssueFilterControls {
   showSort: boolean; // 정렬 칩 노출(WP-1238)
   sort: IssueSortValue | null; // 고른 정렬 — null = 기본(수정일 내림차순)
   setSort: (s: IssueSortValue | null) => void; // 필터·보기·그룹은 두고 정렬만 바꾼다. null = 기본으로
+  conditionChips: IssueConditionChip[]; // facet 이 없는 조건(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 지울 수 있는 칩
+  removeCondition: (key: IssueConditionKey) => void; // 조건 칩 하나만 지운다(다른 필터·보기·그룹은 그대로)
 }
 
 export function useIssueFilterControls(
@@ -208,7 +211,12 @@ export function useIssueFilterControls(
     filters.typeIds.length > 0 ||
     filters.assigneeIds.length > 0 ||
     filters.includeUnassigned ||
-    filters.closedIn != null;
+    filters.closedIn != null ||
+    // 조건 칩(WP-1478) — 개요 링크가 실어 온 오래 멈춤·기다리는 중·마감 기간도 「필터 지우기」로 풀 수 있게.
+    !!filters.stale ||
+    !!filters.waiting ||
+    filters.dueFrom != null ||
+    filters.dueTo != null;
 
   // URL filters → 범용 FilterValue. 상태 범주/우선순위는 문자열, 상태/라벨/사이클/유형/담당자는 숫자 id.
   const filterValue: FilterValue = useMemo(
@@ -370,7 +378,15 @@ export function useIssueFilterControls(
 
   // 활성 facet 수(q 제외) — 모바일 칩 줄 「필터 지우기」 노출 판정.
   // 담당자 「미지정」은 assignee facet 값('none')에 담기므로 담당자 facet 하나로 센다.
-  const activeFilterCount = countActiveFacets(filterValue, filters.includeUnassigned);
+  // 조건 칩(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 라벨 기준일은 완료일 프리셋과 같은 KST 오늘 정오.
+  const conditionChips = useMemo(() => issueConditionChips(filters, todayNoon), [filters, todayNoon]);
+  // 조건 칩도 하나씩 센다 — 모바일 「필터 지우기」가 조건 칩만 걸린 때도 보이게.
+  const activeFilterCount = countActiveFacets(filterValue, filters.includeUnassigned) + conditionChips.length;
+
+  // 조건 칩 하나 지우기 — 그 조건만 빼고 다시 쓴다.
+  function removeCondition(key: IssueConditionKey) {
+    writeFilters(withoutCondition(filters, key), view, groupParam);
+  }
 
   // 「완료 모두 보기」 토글 — 데스크톱 버튼과 모바일 뷰 시트가 공유.
   function toggleShowAllClosed() {
@@ -407,5 +423,7 @@ export function useIssueFilterControls(
     showSort,
     sort,
     setSort,
+    conditionChips,
+    removeCondition,
   };
 }

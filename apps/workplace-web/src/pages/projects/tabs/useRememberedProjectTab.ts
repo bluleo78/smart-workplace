@@ -7,7 +7,16 @@ import { useAuth } from '@/hooks/useAuth'
 import { readStored, writeStored } from '@/lib/storageWithFallback'
 import { userScopedKey } from '@/lib/userScopedKey'
 
-import { DEFAULT_PROJECT_TAB, parseTab, type ProjectTabId, projectTabPath, shouldRememberTab, shouldRestoreTab, tabFromPath } from './projectTabs'
+import {
+  DEFAULT_PROJECT_TAB,
+  parseTab,
+  type ProjectTabId,
+  projectTabPath,
+  readProjectNavState,
+  shouldRememberTab,
+  shouldRestoreTab,
+  tabFromPath,
+} from './projectTabs'
 
 const STORAGE_BASE = 'project-tab'
 
@@ -35,13 +44,13 @@ export function useRememberedProjectTab(
   const navigationType = useNavigationType()
   const tab = tabFromPath(pathname, key)
 
-  // 이슈 탭(index) 진입이고 되돌릴 조건이면 기억한 탭(없으면 기본 탭 DEFAULT_PROJECT_TAB — 지금은 이슈라 그대로 머문다)으로.
+  // 이슈 탭(index) 진입이고 되돌릴 조건이면 기억한 탭(없으면 기본 탭 DEFAULT_PROJECT_TAB = 개요)으로.
   // 되돌릴 조건일 때만 읽으므로(개인·없는 프로젝트, 이슈 탭이 아닌 주소에서는 읽지 않는다) 조건까지 따진다.
-  const fromTab = (state as { projectTab?: boolean } | null)?.projectTab === true
+  const fromTab = readProjectNavState(state).projectTab
   const restore = canPersist && tab === 'issues' && shouldRestoreTab({ search, navigationType, locationKey, fromTab })
   // 한 진입(locationKey)의 판정 재료를 한 번만 정해 고정한다 — 렌더 중 state 조정 패턴(effect 로 setState 하지 않는다).
   // raw: 기억한 값 — 이동마다 한 번만 읽는다(같은 주소에서 다시 그릴 때마다 저장소를 읽지 않게).
-  // visible: 노트 가시성은 notesVisible 이 처음 정해진(null 아님) 값으로 고정한다 — 공간 조회가 실패해 이슈 탭에
+  // visible: 노트 가시성은 notesVisible 이 처음 정해진(null 아님) 값으로 고정한다 — 공간 조회가 실패해 기본 탭(개요)에
   //   내려앉은 사용자를 나중에 재조회가 성공했다고 노트로 끌고 가지 않게. 아직 모르면(null) 정해질 때까지 비워 둔다.
   // 팀 프로젝트를 불러오기 전(canPersist=false)의 임시 값은 판정이 아니므로 고정하지 않는다.
   const [latch, setLatch] = useState<{ locationKey: string; storageKey: string; raw: string | null; visible: boolean | null } | null>(null)

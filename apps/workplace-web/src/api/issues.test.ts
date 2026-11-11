@@ -92,3 +92,14 @@ describe('searchIssues — 정렬', () => {
     expect(q().has('sort')).toBe(false);
   });
 });
+
+// WP-1478: 오래 멈춤·기다리는 중은 서버에 stale=true·waiting=true 로 실린다(개요와 같은 조건 함수).
+describe('issueFilterParams — 오래 멈춤·기다리는 중', () => {
+  it('켠 조건만 보낸다', () => {
+    const p = issueFilterParams({ ...EMPTY, stale: true, waiting: true });
+    expect(p.get('stale')).toBe('true');
+    expect(p.get('waiting')).toBe('true');
+    expect(issueFilterParams(EMPTY).has('stale')).toBe(false);
+    expect(issueFilterParams(EMPTY).has('waiting')).toBe(false);
+  });
+});

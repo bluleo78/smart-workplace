@@ -37,6 +37,7 @@ import {
   formatRelationChanged,
   formatStatusMigrated,
   formatVersionsChanged,
+  HISTORY_EVENT_LABEL,
   historyPriorityLabel,
   historyStatusLabel,
 } from './issueHistoryLabels';
@@ -71,35 +72,6 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   // 수정 버전·영향 버전(WP-888) — 출시 꼬리표 아이콘.
   FIX_VERSIONS_CHANGED: Tag,
   AFFECTS_VERSIONS_CHANGED: Tag,
-};
-
-// 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
-const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
-  TITLE_CHANGED: '제목 변경',
-  STATUS_CHANGED: '상태 변경',
-  PRIORITY_CHANGED: '우선순위 변경',
-  ASSIGNEE_CHANGED: '담당자 변경',
-  ASSIGNEES_CHANGED: '담당자 변경',
-  DUE_DATE_CHANGED: '마감일 변경',
-  LABELS_CHANGED: '라벨 변경',
-  ATTACHMENTS_CHANGED: '첨부 변경',
-  TYPE_CHANGED: '유형 변경',
-  PARENT_CHANGED: '부모 변경',
-  DEPENDENCY_ADDED: '의존성 추가',
-  DEPENDENCY_REMOVED: '의존성 제거',
-  CUSTOM_FIELD_CHANGED: '필드',
-  START_DATE_CHANGED: '시작일 변경',
-  MILESTONE_CHANGED: '마일스톤 변경',
-  STATUS_MIGRATED: '상태 이전',
-  REPORTER_CHANGED: '보고자 변경',
-  RELATION_ADDED: '관계 추가',
-  RELATION_REMOVED: '관계 삭제',
-  EXTERNAL_LINK_ADDED: '외부 링크 추가',
-  EXTERNAL_LINK_UPDATED: '외부 링크 수정',
-  EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
-  COMPONENTS_CHANGED: '구성요소 변경',
-  FIX_VERSIONS_CHANGED: '수정 버전 변경',
-  AFFECTS_VERSIONS_CHANGED: '영향 버전 변경',
 };
 
 // TYPE_CHANGED 페이로드는 toValue 에 {from:{id,name}, to:{id,name}} JSON.
@@ -242,7 +214,7 @@ export function IssueActivityTimeline({
                   <span>· {formatDateTimeMinute(e.createdAt)}</span>
                 </div>
                 <div>
-                  <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
+                  <span className="font-medium">{HISTORY_EVENT_LABEL[e.eventType]}</span>:{' '}
                   {e.eventType === 'STATUS_CHANGED' ? (
                     <span>
                       {historyStatusLabel(e.fromValue)} → {historyStatusLabel(e.toValue)}

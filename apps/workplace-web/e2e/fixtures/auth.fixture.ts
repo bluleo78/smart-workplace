@@ -11,6 +11,7 @@ import { mockApi } from './api-mock'
 import { beginReusedTest, endReusedTest, REUSE_APP, type ReuseHolder, reusedSlot, reuseSlotFixture, setReusedStorage, slotOfContext } from './reuse-app'
 import { collabTestToken, injectCollabNamespace, useCollabNamespaceForReusedPage } from './collab'
 import { stubDraftsDefault } from './mail-drafts-mock'
+import { DEFAULT_REMEMBERED_PROJECT_TABS, type RememberedProjectTabs, seedProjectTabs, seedProjectTabsForReusedPage } from './project-tab'
 
 // 인증 모킹 fixture.
 // - 실제 백엔드 없이 인증된 상태 / 관리자 권한 상태의 page 를 제공.
@@ -370,6 +371,14 @@ type AuthFixtures = {
    * 주지 않으면 기존처럼 같은 사용자(id 1).
    */
   newAuthedPage: (opts?: { user?: Partial<UserResponse> }) => Promise<Page>
+  /**
+   * 프로젝트 마지막 탭 기억(WP-1478) — 앱은 기억한 탭이 없으면 조건 없는 /projects/:key 를 기본 탭(개요)으로 보낸다.
+   * 기본 { WP: 'issues' } 로 「전에 이슈 탭을 쓰던 사용자」를 심는다(실제 저장 키). 다른 키를 더하거나, 기본 탭(개요)을 보는 스펙은
+   * test.use({ rememberedProjectTabs: {} }) 로 끈다.
+   */
+  rememberedProjectTabs: RememberedProjectTabs
+  /** rememberedProjectTabs 를 테스트마다 심는 자동 fixture — 스펙은 직접 쓰지 않는다. */
+  _seedProjectTabs: void
 }
 
 /** 테스트마다 고유한 동기화 문서 네임스페이스 — 문서 이름 규칙([^/]+)에 맞게 '/' 등은 '-' 로 바꾼다. */
@@ -413,6 +422,20 @@ export const test = withReuse.extend<AuthFixtures>({
           const ns = collabNsName(testInfo)
           await injectCollabNamespace(context, ns)
           await use(ns)
+        },
+    { auto: true },
+  ],
+  rememberedProjectTabs: [DEFAULT_REMEMBERED_PROJECT_TABS, { option: true }],
+  // 이어 쓰는 page(WP-1002)는 앱을 다시 띄울 때 넣고(collabNs 와 같은 길), 아니면 컨텍스트 시작 스크립트로 넣는다.
+  _seedProjectTabs: [
+    REUSE_APP
+      ? async ({ page, rememberedProjectTabs }, use) => {
+          seedProjectTabsForReusedPage(rememberedProjectTabs, (key, value) => setReusedStorage(page, key, value))
+          await use()
+        }
+      : async ({ context, rememberedProjectTabs }, use) => {
+          await seedProjectTabs(context, rememberedProjectTabs)
+          await use()
         },
     { auto: true },
   ],

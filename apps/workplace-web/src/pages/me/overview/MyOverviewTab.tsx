@@ -12,7 +12,7 @@ import { useMeOverview } from '@/hooks/queries/useMeOverview'
 import { cn } from '@/lib/utils'
 import type { MeDaySummary, MeOverviewPeriod, MeOverviewResponse, MetricsGranularity } from '@/types/meOverview'
 
-import { CompareHint, OverviewCard } from './OverviewCard'
+import { CompareHint, OverviewCard, StatCard } from './OverviewCard'
 import { DueCard, TrendCard } from './OverviewCharts'
 import { UpcomingCard } from './OverviewLists'
 import { closedListHref, dayLabel, formatDays, formatRate, parsePeriod, PERIOD_OPTIONS, PERIOD_PARAM } from './overviewModel'
@@ -212,41 +212,5 @@ function StatCards({ data }: { data: MeOverviewResponse }) {
         meta={compare(`${previous.created}건`, 'stat-created-compare')}
       />
     </div>
-  )
-}
-
-/**
- * 숫자 카드 하나. href 가 있으면 제목·숫자가 링크다 — 아랫줄(비교 툴팁)은 링크 밖에 둔다(터치에선 툴팁이 단추라 링크 안 단추가 되지 않게).
- */
-function StatCard({
-  title,
-  value,
-  meta,
-  testId,
-  href,
-}: {
-  title: string
-  value: React.ReactNode
-  meta: React.ReactNode
-  testId: string
-  href?: string
-}) {
-  const head = (
-    <>
-      <p className="text-xs text-muted-foreground">{title}</p>
-      <p className="text-2xl font-semibold tabular-nums">{value}</p>
-    </>
-  )
-  return (
-    <OverviewCard testId={testId} className="space-y-1">
-      {href ? (
-        <Link to={href} className="-m-1 block space-y-1 rounded p-1 hover:bg-muted/50" data-testid={`${testId}-link`}>
-          {head}
-        </Link>
-      ) : (
-        head
-      )}
-      <div className="flex flex-wrap items-baseline gap-x-1 text-xs text-muted-foreground">{meta}</div>
-    </OverviewCard>
   )
 }

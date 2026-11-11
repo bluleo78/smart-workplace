@@ -452,3 +452,24 @@ describe('정렬 sort·direction (WP-1238)', () => {
     expect(carryViewOptions(next, new URLSearchParams('sort=dueDate&direction=asc')).has('sort')).toBe(false);
   });
 });
+
+// WP-1478: 프로젝트 개요 「살펴볼 이슈」가 여는 조건 — stale·waiting 은 'true' 만 받고, 꺼지면 필드를 두지 않는다(예전 필터 객체와 같은 모양).
+describe('오래 멈춤·기다리는 중 (WP-1478)', () => {
+  it("stale=true·waiting=true 가 왕복하고, 'true' 가 아니면 버린다", () => {
+    const f = parseFilters(new URLSearchParams('stale=true&waiting=true'));
+    expect(f.stale).toBe(true);
+    expect(f.waiting).toBe(true);
+    const p = filtersToParams(f, 'list', null);
+    expect(p.get('stale')).toBe('true');
+    expect(p.get('waiting')).toBe('true');
+    const off = parseFilters(new URLSearchParams('stale=1&waiting=false'));
+    expect('stale' in off).toBe(false);
+    expect('waiting' in off).toBe(false);
+    expect(off).toEqual(EMPTY);
+  });
+
+  it('걸려 있으면 필터로 센다(filterOnlyKey) — 「전체」·저장 뷰 판정이 조건을 놓치지 않게', () => {
+    expect(filterOnlyKey(EMPTY)).toBe('');
+    expect(filterOnlyKey({ ...EMPTY, stale: true })).toBe('stale=true');
+  });
+});

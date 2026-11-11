@@ -177,6 +177,9 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     excludeSubtasks,
     closedIn: parseClosedIn(params.get('closedIn')),
     showAllClosed,
+    // 개요 「살펴볼 이슈」 조건(WP-1478) — 'true' 만 통과. 꺼진 값은 필드를 두지 않아 예전 필터 객체와 같은 모양이다(toEqual·쿼리 키).
+    ...(params.get('stale') === 'true' ? { stale: true } : {}),
+    ...(params.get('waiting') === 'true' ? { waiting: true } : {}),
     ...parseSort(params),
   };
 }
@@ -304,6 +307,9 @@ export function filtersToParams(
   if (f.excludeSubtasks) p.set('excludeSubtasks', 'true');
   // 「완료 모두 보기」 직렬화 — 켰을 때만 명시(기본 숨김은 빈 정규형).
   if (f.showAllClosed) p.set('closed', 'all');
+  // 「오래 멈춤」·「기다리는 중」(WP-1478) — 켰을 때만 명시.
+  if (f.stale) p.set('stale', 'true');
+  if (f.waiting) p.set('waiting', 'true');
   // 정렬(WP-1238) — 고른 때만. 방향은 늘 같이 적어 주소·조건 기억·저장 뷰가 한 가지 모양이 되게 한다(desc 생략 형태와 섞이지 않게).
   if (f.sort && f.direction) {
     p.set('sort', f.sort);

@@ -320,6 +320,43 @@ describe('삭제 확인 AlertDialog (#161)', () => {
     await waitFor(() => expect(deletes()).toBe(1))
   })
 
+  // WP-1478 — 기본 탭이 개요가 된 뒤에도 삭제 뒤에는 이슈 목록(이슈 탭)으로 돌아간다. 기억한 탭이 없는 첫 방문이라(projectTabs: {})
+  // 조건 없는 /projects/WP 로 그냥 보내면 개요로 되돌려진다 — App 라우트 전체(탭 레이아웃·되돌리기)를 renderPage 로 띄워 본다.
+  test('삭제가 끝나면 (기억한 탭이 없어도) 개요가 아니라 프로젝트 이슈 목록으로 간다', async () => {
+    const remaining = createIssue({ id: 1, number: 1, title: '남은 태스크' })
+    const { user, location } = renderPage(`/projects/${KEY}/issues/2`, {
+      projectTabs: {},
+      handlers: [
+        http.delete(`${API}/projects/${KEY}/issues/2`, () => new HttpResponse(null, { status: 204 })),
+        ...issueDetailSubHandlers({ key: KEY, number: 2, detail: () =>
+          createIssueDetail({ summary: createIssue({ id: 2, number: 2, title: '삭제 대상 태스크' }) }) }),
+        ...projectScreen(KEY, { search: () => [remaining] }).handlers,
+      ],
+    })
+    await user.click(await screen.findByTestId('issue-delete', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    expect(await screen.findByRole('link', { name: '남은 태스크' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '태스크' })).toBeInTheDocument()
+    expect(screen.queryByTestId('project-overview')).not.toBeInTheDocument()
+  })
+
+  test('없는 이슈에서 「프로젝트로 돌아가기」를 누르면 (기억한 탭이 없어도) 프로젝트 이슈 목록으로 간다', async () => {
+    const remaining = createIssue({ id: 1, number: 1, title: '남은 태스크' })
+    const { user, location } = renderPage(`/projects/${KEY}/issues/99`, {
+      projectTabs: {},
+      handlers: [
+        // 상세·하위 조회(지켜보는 사람 등) 모두 404 — 지워졌거나 없는 이슈.
+        http.get(`${API}/projects/${KEY}/issues/99*`, () => HttpResponse.json({ message: '이슈를 찾을 수 없습니다' }, { status: 404 })),
+        ...projectScreen(KEY, { search: () => [remaining] }).handlers,
+      ],
+    })
+    await user.click(await screen.findByRole('button', { name: '프로젝트로 돌아가기' }, { timeout: PAGE_LOAD_TIMEOUT }))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    expect(await screen.findByRole('link', { name: '남은 태스크' })).toBeInTheDocument()
+    expect(screen.queryByTestId('project-overview')).not.toBeInTheDocument()
+  })
+
   test('하위가 있으면 하위 태스크 수와 함께 삭제된다는 경고를 보인다', async () => {
     const { dialog } = await openDeletable({ childCount: 3 })
     expect(within(dialog).getByText('이 태스크에는 하위 태스크가 3개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.')).toBeInTheDocument()

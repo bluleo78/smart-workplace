@@ -15,6 +15,7 @@ import { ISSUE_GROUP_BY_LABEL } from '../../../../lib/issueGrouping';
 import type { IssueGroupBy } from '../../../../types/issue';
 import { type IssueFilterBarOptions, type IssueFilterControls, useIssueFilterControls } from '../../hooks/useIssueFilterControls';
 import { type SavedViewState, useSavedViewState } from '../../hooks/useSavedViewState';
+import { IssueConditionChips } from '../IssueConditionChips';
 import { HIDE_SCROLLBAR, MOBILE_CHIP } from './chipStyles';
 import { MobileQuickFilterRow } from './MobileQuickFilterRow';
 import { MobileSortChip } from './MobileSortSheet';
@@ -79,6 +80,8 @@ function ToolbarBody({
             </button>
             {/* 정렬(WP-1238) — 데스크톱 정렬 칩과 같은 URL 값. 개인 화면(checklist 순서)은 options.showSort=false 로 숨긴다. */}
             {c.showSort && <MobileSortChip sort={c.sort} onChange={c.setSort} />}
+            {/* 조건 칩(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 개요 링크로 온 조건을 보이고 × 로 푼다. */}
+            <IssueConditionChips chips={c.conditionChips} onRemove={c.removeCondition} variant="mobile" />
           </div>
           <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background" aria-hidden="true" />
         </div>

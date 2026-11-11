@@ -104,3 +104,19 @@ export function closedListHref(from: string, to: string): string {
   const sp = new URLSearchParams({ status: 'DONE', closedIn: `${from}~${to}` })
   return `/me/tasks/assigned?${sp.toString()}`
 }
+
+/**
+ * 타일 고르기(맡은 이슈·프로젝트 개요 「살펴볼 이슈」, WP-1478) — 사용자가 누른 타일과 그때의 데이터.
+ * 데이터가 바뀌었는지 참조로 알아 본다(쿼리 structural sharing 이라 안 바뀌면 같은 참조).
+ */
+export type TileChoice<K extends string, S> = { key: K; source: S }
+
+/**
+ * 보일 타일 — 고른 적 없으면 first(건수 있는 첫 타일). 고른 타일은 그 데이터 그대로면(빈 타일을 눌러 「없어요」를 보는 중이어도) 유지하고,
+ * 데이터가 바뀌어 그 타일이 0건이 되면 first 로 돌아간다(다른 탭에서 이슈를 닫아 묶음이 비었을 때 빈 칸에 멈추지 않게).
+ * count 는 타일의 건수.
+ */
+export function visibleTile<K extends string, S>(choice: TileChoice<K, S> | null, source: S, count: (key: K) => number, first: K): K {
+  if (choice && (choice.source === source || count(choice.key) > 0)) return choice.key
+  return first
+}

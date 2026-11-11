@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { pageGutterClass } from '@/components/layout/Page'
 import { cn } from '@/lib/utils'
 
-import { type ProjectTabId, projectTabPath, visibleProjectTabs } from './projectTabs'
+import { ISSUES_TAB_STATE, type ProjectTabId, projectTabPath, visibleProjectTabs } from './projectTabs'
 
 /**
  * 탭 하나의 모양 — line 변형 탭(TabsTrigger)처럼 옅은 글자 + 고른 탭만 진한 글자·아래 2px 밑줄.
@@ -51,7 +51,7 @@ export function ProjectTabBar({
             data-testid={`project-tab-${t.id}`}
             to={projectTabPath(projectKey, t.id)}
             replace
-            state={t.id === 'issues' ? { projectTab: true } : undefined}
+            state={t.id === 'issues' ? ISSUES_TAB_STATE : undefined}
             className={tabClass}
           >
             {t.label}

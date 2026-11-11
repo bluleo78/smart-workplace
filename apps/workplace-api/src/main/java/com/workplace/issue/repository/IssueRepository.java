@@ -594,6 +594,29 @@ public class IssueRepository {
    * 완료(COMPLETED) 사이클 연결만 있는 이슈는 백로그로 본다 — 끝난 스프린트의 미완료 이슈가 백로그로 돌아오는 Jira 관례. includeNoCycle 이면
    * 사이클 연결이 하나도 없는 이슈를 OR 로 매칭한다(WP-176). 셋 다 없으면 조건 미적용.
    */
+  /**
+   * 차단·오래 멈춤·기다리는 중 필터 — 프로젝트 경로({@link #projectFilterCondition})와 횡단 경로가 함께 쓴다(WP-1478).
+   *
+   * <p>blocked=true: 닫히지 않은 선행이 있는 이슈만. 대상 이슈 자신이 이미 DONE/CANCELED 면 선행이 남아 있어도 차단 아님(#826). 차단
+   * 판정(선행 미종료·미삭제)·오래 멈춤·기다리는 중은 {@link IssueAttentionConditions} 한 정의를 써서 프로젝트 개요 「살펴볼 이슈」와 같은 이슈
+   * 집합을 보인다.
+   */
+  private static Condition attentionFilters(Condition where, IssueSearchQuery query) {
+    if (Boolean.TRUE.equals(query.blocked())) {
+      where =
+          where
+              .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
+              .and(IssueAttentionConditions.blockedByOpen());
+    }
+    if (query.staleCutoff() != null) {
+      where = where.and(IssueAttentionConditions.stale(query.staleCutoff()));
+    }
+    if (Boolean.TRUE.equals(query.waiting())) {
+      where = where.and(IssueAttentionConditions.waiting());
+    }
+    return where;
+  }
+
   private org.jooq.Condition cycleCondition(com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition cond = noCondition();
     if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
@@ -800,40 +823,11 @@ public class IssueRepository {
       if (Boolean.TRUE.equals(query.excludeSubtasks())) excludedTypeNames.add("SUBTASK");
       if (Boolean.TRUE.equals(query.excludeEpics())) excludedTypeNames.add("EPIC");
       if (!excludedTypeNames.isEmpty()) {
-        where =
-            where.and(
-                ISSUE.TYPE_ID.notIn(
-                    dsl.select(ISSUE_TYPE_DEF.ID)
-                        .from(ISSUE_TYPE_DEF)
-                        .where(
-                            ISSUE_TYPE_DEF
-                                .PROJECT_ID
-                                .eq(projectId)
-                                .and(ISSUE_TYPE_DEF.NAME.in(excludedTypeNames)))));
+        // 개요 작업 범위(IssueAttentionConditions.workScope)와 같은 유형 제외 모양 하나를 쓴다(WP-1478).
+        where = where.and(IssueAttentionConditions.excludeTypeNames(projectId, excludedTypeNames));
       }
     }
-    // Phase 4b — blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
-    // 대상 이슈 자신이 이미 DONE/CANCELED 면 차단자가 남아있어도 blocked=false 로 취급한다 (#826).
-    if (Boolean.TRUE.equals(query.blocked())) {
-      var blockerAlias = ISSUE.as("blocker");
-      where =
-          where
-              .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
-              .and(
-                  org.jooq.impl.DSL.exists(
-                      dsl.selectOne()
-                          .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
-                          .join(blockerAlias)
-                          .on(
-                              blockerAlias.ID.eq(
-                                  com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
-                          .where(
-                              com.workplace.jooq.Tables.ISSUE_DEPENDENCY
-                                  .BLOCKS_ISSUE_ID
-                                  .eq(ISSUE.ID)
-                                  .and(blockerAlias.STATUS.notIn(IssueStatuses.CLOSED))
-                                  .and(blockerAlias.DELETED_AT.isNull()))));
-    }
+    where = attentionFilters(where, query);
     // Phase 4c — custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
     if (query.fieldId() != null && query.fieldValue() != null) {
       where =
@@ -1440,28 +1434,7 @@ public class IssueRepository {
     if (Boolean.TRUE.equals(query.topLevel())) {
       where = where.and(topLevelCondition());
     }
-    // blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
-    // 대상 이슈 자신이 이미 DONE/CANCELED 면 차단자가 남아있어도 blocked=false 로 취급한다 (#826).
-    if (Boolean.TRUE.equals(query.blocked())) {
-      var blockerAlias = ISSUE.as("blocker");
-      where =
-          where
-              .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
-              .and(
-                  org.jooq.impl.DSL.exists(
-                      dsl.selectOne()
-                          .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
-                          .join(blockerAlias)
-                          .on(
-                              blockerAlias.ID.eq(
-                                  com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
-                          .where(
-                              com.workplace.jooq.Tables.ISSUE_DEPENDENCY
-                                  .BLOCKS_ISSUE_ID
-                                  .eq(ISSUE.ID)
-                                  .and(blockerAlias.STATUS.notIn(IssueStatuses.CLOSED))
-                                  .and(blockerAlias.DELETED_AT.isNull()))));
-    }
+    where = attentionFilters(where, query);
     // custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
     if (query.fieldId() != null && query.fieldValue() != null) {
       where =
@@ -1822,6 +1795,31 @@ public class IssueRepository {
         .groupBy(ISSUE.EPIC_COLOR)
         .fetch()
         .forEach(r -> result.put(r.value1(), r.value2()));
+    return result;
+  }
+
+  /**
+   * 자식 진행 — 종료(완료·취소, WP-243) 자식 수와 전체 자식 수(삭제 제외).
+   *
+   * @param done 종료된 자식 수
+   * @param total 자식 수
+   */
+  public record ChildProgress(int done, int total) {}
+
+  /**
+   * 부모 id 집합 → 자식 진행 맵 — {@link #countChildrenByParentIds}·{@link #countDoneChildrenByParentIds} 를
+   * 한 GROUP BY({@code COUNT(*) FILTER})로 센다. 자식이 없는 부모는 맵에 없다(부르는 쪽이 0/0 으로 본다).
+   */
+  public Map<Long, ChildProgress> countChildProgressByParentIds(Collection<Long> parentIds) {
+    Map<Long, ChildProgress> result = new HashMap<>();
+    if (parentIds == null || parentIds.isEmpty()) return result;
+    var total = count();
+    var done = count().filterWhere(ISSUE.STATUS.in(IssueStatuses.CLOSED));
+    dsl.select(ISSUE.PARENT_ISSUE_ID, done, total)
+        .from(ISSUE)
+        .where(ISSUE.PARENT_ISSUE_ID.in(parentIds).and(ISSUE.DELETED_AT.isNull()))
+        .groupBy(ISSUE.PARENT_ISSUE_ID)
+        .forEach(r -> result.put(r.value1(), new ChildProgress(r.value2(), r.value3())));
     return result;
   }
 
