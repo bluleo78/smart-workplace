@@ -51,7 +51,9 @@ function seedMessages() {
 }
 
 const KODI = { id: 77, username: 'kodi', name: '코디', kind: 'AGENT' as const };
-const HINT = '답변 입력… 멘션 없이 보내도 코디가 이어받아요';
+// WP-1499: 외부 실행 AI 안내도 WP-1377 형식 — 짧은 placeholder + 입력칸 아래 한 줄(chat-implicit-agent-hint).
+const HINT = '코디에게 메시지 (Shift+Enter 로 줄바꿈)';
+const HINT_NOTE = '담당 AI 코디 · 멘션 없이도 답합니다';
 
 async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = {}) {
   const messages = seedMessages();
@@ -242,46 +244,49 @@ test.describe('이슈 챗 질문 표시', () => {
     expect(b!.y - (a!.y + a!.height)).toBeLessThan(8);
   });
 
-  test.describe('작성창 안내 (WP-373 §5.2)', () => {
+  test.describe('작성창 안내 (WP-373 §5.2, WP-1499)', () => {
     const emptyLine = (page: Page) =>
       page.getByTestId('chat-composer').locator('.ProseMirror p.is-editor-empty');
 
-    // WP-990 — 데스크톱에서도 이슈 챗 칸이 좁으면 긴 안내가 두 줄로 접힌다. 화면 폭(모바일)과 상관없이
-    // 입력창이 접힌 안내 높이만큼 늘어나 둘째 줄이 잘리지 않아야 한다.
-    test('데스크톱 좁은 이슈 챗 칸에서 긴 안내가 두 줄로 접혀도 입력창이 늘어나 잘리지 않는다', { tag: '@layout' }, async ({
+    // WP-1499 — 예전 긴 안내(WP-373)는 좁은 이슈 챗 칸(WP-990)에서 두 줄로 접혀 입력창을 키워야 했다. 이제 안내는
+    // 짧은 placeholder 한 줄 + 입력칸 아래 한 줄이라, 좁은 칸에서도 빈 입력칸은 한 줄 높이로 남는다.
+    test('좁은 이슈 챗 칸에서도 빈 입력칸이 한 줄 높이이고 안내는 한 줄, 아래 한 줄 설명이 보이며 「이(가)」가 없다', { tag: '@layout' }, async ({
       authenticatedPage: page,
     }) => {
       await setup(page, { externalAgent: { ...KODI, name: 'AI 개발자1' } });
       await openDrawer(page);
       const line = emptyLine(page);
-      await expect(line).toHaveAttribute('data-placeholder', '답변 입력… 멘션 없이 보내도 AI 개발자1이(가) 이어받아요');
+      await expect(line).toHaveAttribute('data-placeholder', 'AI 개발자1에게 메시지 (Shift+Enter 로 줄바꿈)');
+      const note = page.getByTestId('chat-implicit-agent-hint');
+      await expect(note).toBeVisible();
+      await expect(note).toHaveText('담당 AI AI 개발자1 · 멘션 없이도 답합니다');
 
       const m = await line.evaluate((p) => {
-        const editor = p.closest('.ProseMirror') as HTMLElement;
-        const lineHeight = parseFloat(getComputedStyle(p).lineHeight);
+        const before = getComputedStyle(p, '::before');
         return {
-          lineHeight,
-          hint: parseFloat(getComputedStyle(p, '::before').height),
+          lineHeight: parseFloat(getComputedStyle(p).lineHeight),
           p: p.getBoundingClientRect().height,
-          editorBottom: editor.getBoundingClientRect().bottom,
-          pBottom: p.getBoundingClientRect().bottom,
+          // 안내(::before)가 그려진 높이 — 접히면 두 줄 높이가 된다(WP-1499 전에는 접힌 둘째 줄이 입력칸 밖으로 잘렸다).
+          hint: parseFloat(before.height),
+          whiteSpace: before.whiteSpace,
+          textOverflow: before.textOverflow,
         };
       });
-      // 이 폭에서 안내가 두 줄로 접히므로 빈 입력 줄도 두 줄 높이가 되고(고치기 전엔 한 줄이라 둘째 줄이 잘렸다),
-      // 접힌 안내 높이를 모두 품으며, 입력창이 그 끝까지 보인다.
-      expect(m.p).toBeGreaterThanOrEqual(m.lineHeight * 2 - 1);
-      expect(m.p).toBeGreaterThanOrEqual(m.hint - 0.5);
-      expect(m.editorBottom).toBeGreaterThanOrEqual(m.pBottom - 0.5);
+      // 빈 입력 줄은 한 줄 높이이고, 안내는 좁은 칸에서도 접히지 않고 한 줄로 남아 넘치면 말줄임으로 잘린다.
+      expect(m.p).toBeLessThan(m.lineHeight * 1.5);
+      expect(m.hint).toBeLessThan(m.lineHeight * 1.5);
+      expect(m.whiteSpace).toBe('nowrap');
+      expect(m.textOverflow).toBe('ellipsis');
+      // 아래 한 줄 설명도 한 줄이다 — 위아래 여백(pb-2 등)을 뺀 글 높이로 잰다.
+      const noteBox = await note.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          h: el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom),
+          lh: parseFloat(cs.lineHeight),
+        };
+      });
+      expect(noteBox.h).toBeLessThan(noteBox.lh * 1.5);
       await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-desktop-narrow.png' });
-
-      // 글자를 치면 안내가 사라지고 입력창은 한 줄로 돌아간다(첫 줄에 캐럿).
-      await page.getByTestId('chat-composer').locator('.ProseMirror').click();
-      await page.keyboard.type('네');
-      const typed = await page.getByTestId('chat-composer').locator('.ProseMirror p').first().evaluate((p) => ({
-        h: p.getBoundingClientRect().height,
-        lh: parseFloat(getComputedStyle(p).lineHeight),
-      }));
-      expect(typed.h).toBeLessThan(typed.lh * 1.5);
     });
 
     test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
@@ -306,6 +311,7 @@ test.describe('이슈 챗 질문 표시', () => {
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       await page.getByTestId('issue-chat-open').click();
       await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
+      await expect(page.getByTestId('chat-implicit-agent-hint')).toHaveText(HINT_NOTE);
 
       // 드로워는 모달이라 닫고 상세의 담당자 선택기에서 사람 한 명으로 바꾼 뒤 다시 연다 —
       // 변경 성공이 챗 스레드 캐시를 무효화해 새 응답(externalAgent=null)을 받아야 한다.
@@ -317,7 +323,9 @@ test.describe('이슈 챗 질문 표시', () => {
       await expect(page.getByText('담당자를 저장했습니다')).toBeVisible();
 
       await page.getByTestId('issue-chat-open').click();
-      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+      // 외부 실행 AI 가 빠지면 「…에게 메시지」 안내도, 아래 한 줄도 없다(WP-1499).
+      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /에게 메시지/);
+      await expect(page.getByTestId('chat-implicit-agent-hint')).toHaveCount(0);
     });
 
     test('열려 있는 작성창은 다시 만들어지지 않고도 스레드 응답이 바뀌면 안내가 바뀐다', { tag: '@platform' }, async ({
@@ -327,6 +335,7 @@ test.describe('이슈 챗 질문 표시', () => {
       const events = await mockGatedEvents(page);
       await openDrawer(page);
       await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
+      await expect(page.getByTestId('chat-implicit-agent-hint')).toHaveText(HINT_NOTE);
       await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-1280.png' });
 
       // 에디터가 다시 만들어지지 않았음을 증명할 표식 — DOM 요소가 바뀌면 사라진다.
@@ -345,8 +354,9 @@ test.describe('이슈 챗 질문 표시', () => {
         }),
       );
 
-      // 안내 문구(agentReplyHint)는 composerHint.test.ts 가 담당 — 외부 실행 AI 가 빠지면 기본 안내로 돌아오는지만 본다.
+      // 안내 문구(externalAgentHint)는 composerHint.test.ts 가 담당 — 외부 실행 AI 가 빠지면 기본 안내로 돌아오고 아래 한 줄이 사라지는지만 본다.
       await expect(emptyLine(page)).toHaveAttribute('data-placeholder', '메시지 입력 (Shift+Enter 로 줄바꿈)');
+      await expect(page.getByTestId('chat-implicit-agent-hint')).toHaveCount(0);
       await expect(editor).toHaveAttribute('data-e2e-mounted', 'same');
     });
   });
