@@ -393,7 +393,7 @@ export const RECURRING_TEST_PAUSED_MESSAGE =
 /**
  * WP-351: AI Chat 라우터(assistant 프로필의 메인 스레드)가 모델에 싣는 도구 — 라우터가 직접 쓰는 것만 둔다.
  * assistant 프로필 MCP 서버는 서브에이전트와 함께 쓰므로 전 앱 도구 union 을 그대로 등록하고, 라우터만 이 목록으로 좁힌다
- * (Claude 경로의 메인 스레드 에이전트 tools). 쓰기·확인 카드(propose_*)·답 제출은 담당 서브에이전트에만 있다 —
+ * (Claude 경로의 메인 스레드 에이전트 tools, opencode 경로의 primary tools — WP-1493). 쓰기·확인 카드(propose_*)·답 제출은 담당 서브에이전트에만 있다 —
  * 매 실행 싣는 도구 정의(토큰)를 줄이고, 라우터가 쓰기를 직접 하지 않고 위임하게 한다.
  * 포함: 프롬프트 표의 직접 읽기 도구, 표시 위젯(show_*), 알림(조회·읽음 처리 — 담당 서브에이전트가 없다), 첨부 읽기.
  * 메일 요약·답장/이슈 초안·계정 목록, 드라이브 휴지통은 읽기여도 프롬프트가 mail-agent·drive-agent 로 보내므로 두지 않는다.
@@ -435,9 +435,9 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
 ];
 
 /**
- * WP-351: 서브에이전트에 위임하는 Claude 실행에서 메인 스레드(라우터)가 싣는 도구 이름 — 지금은 assistant 만 좁힌다.
+ * WP-351: 서브에이전트에 위임하는 실행에서 메인 스레드(라우터)가 싣는 도구 이름 — 지금은 assistant 만 좁힌다.
  * undefined 면 러너는 종전처럼 프로필 도구 전부를 메인 스레드에 싣는다.
- * opencode 는 쓰지 않는다 — primary 의 위임 도구(task)가 꺼져 있어 쓰기를 직접 해야 한다(opencode-config.ts 참고).
+ * WP-1493: opencode 도 쓴다 — primary 를 이 도구 + 위임 도구(task)로 좁힌다(opencode-config.ts routerPrimaryTools).
  */
 export function routerToolsFor(profile: McpProfile | undefined): readonly string[] | undefined {
   return profile === 'assistant' ? ASSISTANT_ROUTER_TOOLS : undefined;

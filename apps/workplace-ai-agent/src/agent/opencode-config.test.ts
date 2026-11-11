@@ -13,7 +13,9 @@ import {
   isDev,
   resolveStdioEntryCmd,
   NO_VISION_PROMPT_RULE,
+  opencodeToolCount,
 } from './opencode-config.js';
+import { ASSISTANT_ROUTER_TOOLS } from '../mcp/tools.js';
 
 // 모델 한도는 따로 보는 테스트(WP-250)만 넣는다 — 나머지는 한도 없음(undefined).
 const VISION_ON = { vision: true, limit: undefined };
@@ -223,13 +225,66 @@ describe('buildOpencodeConfig', () => {
     expect(cfg.agent?.['issue-agent']).toMatchObject({ mode: 'subagent', prompt: 'p' });
   });
 
-  // WP-351: opencode primary 는 '*': false 로 위임 도구(task)가 꺼져 쓰기를 직접 하므로, assistant 라우터여도 도구를 좁히지 않는다.
-  it('assistant + allowSubagents 여도 primary 는 workplace 전체를 연다(라우터 축소는 Claude 경로만)', () => {
+  // WP-1493: 128개 도구 상한 모델(gpt-6-luna 등)이 전 도구(~130)를 받아 실패하던 문제 — assistant 라우터는 Claude 경로처럼
+  // 라우터 도구 + 위임 도구(task)만 싣고, 쓰기는 서브에이전트에 맡긴다.
+  describe('assistant 라우터 도구 축소(WP-1493)', () => {
     const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
-    const cfg = buildOpencodeConfig(
-      baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], VISION_ON,
-    );
-    expect(cfg.agent?.primary?.tools).toEqual({ '*': false, 'workplace*': true });
+    const assistant = (over: Partial<RunnerInput> = {}) =>
+      baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 1 }, ...over });
+
+    it('primary 는 task + 라우터 도구(workplace_<이름>)만 연다 — workplace 와일드카드 없음', () => {
+      const cfg = buildOpencodeConfig(assistant(), 'run-1', ['cmd'], VISION_ON);
+      const tools = cfg.agent?.primary?.tools ?? {};
+      expect(tools['*']).toBe(false);
+      expect(tools.task).toBe(true);
+      expect(Object.keys(tools).some((k) => k.startsWith('workplace') && k.includes('*'))).toBe(false);
+      const workplace = Object.keys(tools).filter((k) => k.startsWith('workplace_'));
+      expect(workplace.sort()).toEqual(ASSISTANT_ROUTER_TOOLS.map((t) => `workplace_${t}`).sort());
+      expect(Object.values(tools).filter((v) => v === true)).toHaveLength(ASSISTANT_ROUTER_TOOLS.length + 1);
+      // 쓰기·확인 카드·답 제출은 라우터에 없다(서브에이전트 frontmatter 에만).
+      expect(tools.workplace_update_issue).toBeUndefined();
+      expect(tools.workplace_propose_delete_issue).toBeUndefined();
+      expect(tools.workplace_submit_response).toBeUndefined();
+    });
+
+    it('위임은 우리 서브에이전트로만 — task 허용 목록 + 내장 서브에이전트(general·explore) 끄기', () => {
+      const cfg = buildOpencodeConfig(assistant(), 'run-1', ['cmd'], VISION_ON);
+      expect((cfg.agent?.primary?.permission as Record<string, unknown>).task).toEqual({ '*': 'deny', 'issue-agent': 'allow' });
+      expect(cfg.agent?.general).toEqual({ disable: true });
+      expect(cfg.agent?.explore).toEqual({ disable: true });
+      expect(cfg.agent?.['issue-agent']).toMatchObject({ mode: 'subagent' });
+    });
+
+    it('allowFileRead 예외(read)는 그대로 둔다', () => {
+      const cfg = buildOpencodeConfig(assistant({ allowFileRead: true }), 'run-1', ['cmd'], VISION_ON);
+      expect(cfg.agent?.primary?.tools?.read).toBe(true);
+      expect(cfg.agent?.primary?.tools?.task).toBe(true);
+    });
+
+    it('assistant 라도 allowSubagents 가 없으면 종전처럼 workplace 전체(위임 도구 없음)', () => {
+      const cfg = buildOpencodeConfig(assistant({ allowSubagents: false }), 'run-1', ['cmd'], VISION_ON);
+      expect(cfg.agent?.primary?.tools).toEqual({ '*': false, 'workplace*': true });
+      expect(cfg.agent?.general).toBeUndefined();
+    });
+
+    it('다른 프로필은 allowSubagents 여도 바뀌지 않는다', () => {
+      const cfg = buildOpencodeConfig(
+        baseInput({ allowSubagents: true, mcp: { client, profile: 'issue', onBehalfOfId: 1 } }), 'run-1', ['cmd'], VISION_ON,
+      );
+      expect(cfg.agent?.primary?.tools).toEqual({ '*': false, 'workplace*': true });
+      expect(cfg.agent?.primary?.permission).toEqual({ edit: 'deny', bash: 'deny', webfetch: 'deny' });
+      expect(cfg.agent?.general).toBeUndefined();
+      expect(cfg.agent?.explore).toBeUndefined();
+    });
+  });
+
+  describe('opencodeToolCount(WP-1493)', () => {
+    it('명시한 도구는 정확히 센다', () => {
+      expect(opencodeToolCount({ '*': false, task: true, workplace_a: true, workplace_b: true, read: false })).toEqual({ count: 3, wildcard: false });
+    });
+    it('와일드카드(workplace*)가 있으면 wildcard 로 표시한다(정확한 수는 MCP 서버가 정한다)', () => {
+      expect(opencodeToolCount({ '*': false, 'workplace*': true, read: true })).toEqual({ count: 2, wildcard: true });
+    });
   });
 
   it('allowSubagents 미지정 시 서브에이전트 미포함', () => {

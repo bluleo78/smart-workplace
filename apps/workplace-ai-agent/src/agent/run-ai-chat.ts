@@ -20,6 +20,7 @@ import type { RunAgentDeps } from './run-agent.js';
 import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
+import { OPENCODE_DELEGATION_TOOL } from './opencode-config.js';
 import { opencodeVisionFor } from './opencode-vision.js';
 import { formatMemoryBlock, type MemoryItem, type MemoryScope, subagentMemorySuffix } from './memory-block.js';
 import {
@@ -243,7 +244,7 @@ export async function runAiChatStream(
   const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
   // 요청 시점 Seoul 기준 오늘 날짜를 상대 날짜 필터 앵커로 주입한다.
   const dateDirective = dateContextDirective(seoulToday());
-  // WP-351: Claude 라우터는 쓰기 도구 없이 위임만 하고, opencode primary 는 위임 도구가 꺼져 직접 쓰기·제안하므로 규칙이 다르다.
+  // WP-351·WP-1493: 두 러너 모두 라우터는 쓰기 도구 없이 위임만 한다 — 프롬프트는 위임 도구 표기(Claude `Agent`, opencode `task`)만 다르다.
   const runnerKind = credential.provider === 'anthropic' ? 'claude' : 'opencode';
   const systemPrompt = assistantSystemPrompt(runnerKind) + dateDirective;
   // WP-1322: 생각의 깊이는 시스템 프롬프트 문장이 아니라 모델 추론 노력으로 — Claude 는 SDK effort, opencode 는 variant. 설정 안 함이면 둘 다 미지정.
@@ -301,6 +302,11 @@ export async function runAiChatStream(
   };
   // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. 완료 후 답 결정에 사용.
   let streamedText = '';
+  // WP-1493: 라우터가 위임(Agent·task)한 뒤에 쓴 글은 라이브로 내보내지 않고 모아 둔다. 위임 답(submit_response)이 오면 그 답을 onText 로
+  // 내보내므로, 위임 뒤 라우터 요약까지 라이브로 나가면 같은 답이 두 번 보였다(두 러너 공통 — 화면은 delta 를 이어 붙인다). 위임 답이 없을 때만
+  // 끝에서 한 번에 내보내 종전처럼 라우터 글이 답이 된다.
+  let delegated = false;
+  let heldText = '';
 
   log.info('ai-chat', 'cli_spawn', {
     requestId: input.requestId,
@@ -366,13 +372,19 @@ export async function runAiChatStream(
       // #463: 라우터 자기 text_delta 를 라이브 emit(parentToolUseId null 필터 — 서브에이전트 누수 방지).
       //   누적한 streamedText 를 완료 후 답 결정 우선순위 2위로 사용한다.
       if (ev.type === 'text_delta' && ev.parentToolUseId == null && ev.text) {
-        streamedText += ev.text;
-        onDelta?.(ev.text);
+        if (delegated) {
+          heldText += ev.text;
+        } else {
+          streamedText += ev.text;
+          onDelta?.(ev.text);
+        }
       }
       // #333: assistant tool_use 중 Agent 위임을 검사·라벨링한다.
       // #462 슬라이스4: 화이트리스트(checkSubagentWhitelist) 제거 — Options.agents 로 정의된 에이전트만
       // SDK 가 호출하므로 미정의 에이전트 이름을 kill+throw 로 차단할 필요 없음.
-      if (ev.type === 'tool_use' && ev.name === 'Agent') {
+      // WP-1493: opencode 라우터의 위임 도구는 `task` 다(입력 subagent_type 은 같다).
+      if (ev.type === 'tool_use' && (ev.name === 'Agent' || ev.name === OPENCODE_DELEGATION_TOOL)) {
+        if (ev.parentToolUseId == null) delegated = true;
         const rawSub = (ev.input as { subagent_type?: unknown })?.subagent_type;
         const subType = typeof rawSub === 'string' ? rawSub : '';
         const label = delegationLabel(subType);
@@ -395,6 +407,11 @@ export async function runAiChatStream(
     limit = e; // 러너가 cli_max_turns/cli_timeout 으로 이미 로그했다.
   }
 
+  // WP-1493: 위임 뒤 모아 둔 라우터 글 — 위임 답이 없으면 지금 내보내 라우터 글(streamedText)로 이어 쓴다. 위임 답이 있으면 버린다(답은 위임 답).
+  if (heldText && subagentTexts.length === 0) {
+    streamedText += heldText;
+    onDelta?.(heldText);
+  }
   // #351: HostBridge.onProposal 콜백이 누산한 제안 배열(proposals).
   const pendingActions: unknown[] = proposals;
   // #378: unassign_self 실패 시 HostBridge.onUnassignResult 가 {ok:false,canonical} 를 전달.

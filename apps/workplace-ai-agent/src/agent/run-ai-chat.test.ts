@@ -436,6 +436,47 @@ describe('runAiChatStream (서브에이전트 통합 #333)', () => {
     expect(labels).toContain('이슈 전문가에게 위임 중');
   });
 
+  // WP-1493: opencode 라우터의 위임 도구 이름은 `task` 다(입력 subagent_type 은 같다).
+  it('opencode 위임(task) tool_use 도 onProgress 로 위임 라벨 발행', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([
+      toolUse('task', { description: '상태 변경', prompt: 'x', subagent_type: 'calendar-agent' }),
+      result(''),
+    ]));
+    const labels: string[] = [];
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
+    expect(labels).toContain('캘린더 전문가에게 위임 중');
+  });
+
+  // WP-1493: 위임 뒤 라우터 요약이 라이브로 나가고 위임 답(onText)이 또 나가 같은 답이 두 번 보이던 것 — 위임 답이 있으면 위임 뒤 라우터 글은 내보내지 않는다.
+  it.each(['Agent', 'task'])('위임(%s) 뒤 라우터 글은 위임 답이 있으면 내보내지 않고 답은 한 번만 나간다', async (name) => {
+    streamSpy.mockImplementation(makeRunnerImpl([
+      textDelta('확인할게요. '),
+      toolUse(name, { subagent_type: 'issue-agent', prompt: 'x' }),
+      textDelta('하위 진행', 'child'),
+      textDelta('WP-1 을 진행중으로 바꿨어요.'),
+      result(''),
+    ], { subagent: 'WP-1 상태를 진행 중으로 바꿨습니다.' }));
+    const deltas: string[] = [];
+    const texts: string[] = [];
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => texts.push(t), new AbortController().signal, undefined, undefined, (d) => deltas.push(d));
+    expect(deltas).toEqual(['확인할게요. ']);
+    expect(texts).toEqual(['WP-1 상태를 진행 중으로 바꿨습니다.']);
+    expect(out.fullText).toBe('WP-1 상태를 진행 중으로 바꿨습니다.');
+  });
+
+  it('위임했지만 위임 답이 없으면 모아 둔 라우터 글을 끝에 내보내 답으로 쓴다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([
+      toolUse('task', { subagent_type: 'issue-agent', prompt: 'x' }),
+      textDelta('처리하지 못했어요.'),
+      result(''),
+    ]));
+    const deltas: string[] = [];
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, undefined, undefined, (d) => deltas.push(d));
+    expect(deltas).toEqual(['처리하지 못했어요.']);
+    expect(out.fullText).toBe('처리하지 못했어요.');
+    expect(out.source).toBe('router_prose');
+  });
+
   it('pendingActions — HostBridge.onProposal 콜백으로 누산된 배열 반환', async () => {
     streamSpy.mockImplementation(makeRunnerImpl([result('')], { pendingAction: { actionType: 'calendar.create_event', summary: 's', params: { title: 't' } } }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
@@ -1499,16 +1540,16 @@ describe('runAiChatStream — 메인 AI 채팅 첨부 (WP-234)', () => {
     expect(runnerInput().userMessage).toContain('이미지·문서 모두 read_chat_attachment');
   });
 
-  // WP-351: 라우터 규칙은 러너별 — opencode primary 는 위임 도구가 꺼져 쓰기·propose_* 를 직접 하므로 직접 제안 규칙을 받는다.
-  it('opencode: 시스템 프롬프트는 쓰기 도구가 없다고 하지 않고 #842 직접 재제안 규칙을 담는다', async () => {
+  // WP-1493: opencode 라우터도 라우터 도구 + task 만 싣고 위임하므로 위임 전용 규칙을 받는다(위임 도구 표기만 task).
+  it('opencode: 시스템 프롬프트는 위임 전용 라우터 규칙(task)을 담는다', async () => {
     (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
       vi.fn().mockResolvedValue(opencodeCred);
     opencodeVisionFor.mockResolvedValue({ value: true });
     await run({ model: 'custom/x' });
     const sys = runnerInput().systemPrompt;
-    expect(sys).not.toContain('라우터에는 쓰기·확인 카드');
-    expect(sys).toContain('오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안');
-    expect(sys).toContain('사유를 반영해 파라미터를 고친 뒤 새로 제안한다');
+    expect(sys).toContain('라우터에는 쓰기·확인 카드');
+    expect(sys).toContain('`task` 도구를 호출하고');
+    expect(sys).not.toContain('사유를 반영해 파라미터를 고친 뒤 새로 제안한다');
   });
 
   it('anthropic: 시스템 프롬프트는 위임 전용 라우터 규칙을 담는다', async () => {
