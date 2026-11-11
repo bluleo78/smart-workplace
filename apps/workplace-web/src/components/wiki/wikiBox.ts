@@ -43,6 +43,19 @@ export const BOX_BASIC_STYLE = 'border: 1px solid var(--border, #e5e7eb); border
  */
 export const BOX_EMPTY_STYLE = 'display: block'
 
+/** AI 지시 상자(WP-1482)를 나타내는 class — 일반 상자와 같은 wikiHtmlBox 에 이 class 토큰만 더한다(스키마 불변). 서버가 이 class 로 지시 상자를 가려낸다. */
+export const AI_INSTRUCTION_CLASS = 'wp-ai-instruction'
+
+/** class 속성 글자를 공백 기준 토큰으로 나눈다 — 비었으면 빈 배열. */
+function classTokens(className: unknown): string[] {
+  return typeof className === 'string' ? className.split(/\s+/).filter(Boolean) : []
+}
+
+/** AI 지시 상자인지 — 상자이고 className 토큰에 AI_INSTRUCTION_CLASS 가 있으면 참. */
+export function isAiInstructionBox(node: PMNode | null | undefined): boolean {
+  return isBox(node) && classTokens(node.attrs.className).includes(AI_INSTRUCTION_CLASS)
+}
+
 /** 선택이 통째 고른 상자(노드 선택) — 아니면 null. 상자 막대·키 동작이 쓴다. */
 export function selectedBox(state: EditorState): SelectedBlock | null {
   return selectedNode(state, isBox)
@@ -55,10 +68,10 @@ function inTable($pos: ResolvedPos): boolean {
 }
 
 /** 「기본」 모양 빈 상자 — 빈 문단 하나를 담는다. 스키마에 상자·문단이 없으면 null. */
-function emptyBox(state: EditorState): PMNode | null {
+function emptyBox(state: EditorState, className: string | null): PMNode | null {
   const box = state.schema.nodes[WIKI_HTML_BOX]
   const paragraph = state.schema.nodes.paragraph
-  return box && paragraph ? box.create({ style: BOX_BASIC_STYLE }, paragraph.create()) : null
+  return box && paragraph ? box.create({ style: BOX_BASIC_STYLE, className }, paragraph.create()) : null
 }
 
 /**
@@ -66,29 +79,36 @@ function emptyBox(state: EditorState): PMNode | null {
  * 빈 줄(「/상자」만 친 줄)이면 그 줄을 상자로 바꾸고, 글자가 있는 줄이면 그 줄 뒤에 넣는다. 그 자리에 상자가 들 수 없으면
  * (목록 항목 첫 줄 — 항목은 문단으로 시작해야 한다) 줄 뒤에 넣는다. 표 안·코드 글자 안이면 넣지 않는다.
  */
-export const insertBox: Command = ({ state, tr, dispatch }) => {
-  const box = emptyBox(state)
-  const { $from } = tr.selection
-  const line = $from.parent
-  if (!box || !isWritableLine(line) || $from.depth < 1 || inTable($from)) return false
-  const container = $from.node(-1)
-  const index = $from.index(-1)
-  const replace = line.type.name === 'paragraph' && line.content.size === 0 && container.canReplaceWith(index, index + 1, box.type)
-  if (!replace && !container.canReplaceWith(index + 1, index + 1, box.type)) return false
-  if (!dispatch) return true
-  const at = $from.before()
-  if (replace) tr.replaceWith(at, $from.after(), box)
-  else tr.insert($from.after(), box)
-  // 상자(1) + 문단(1) 안 — 상자 앞 위치에서 2 칸 들어간 자리.
-  tr.setSelection(TextSelection.create(tr.doc, (replace ? at : $from.after()) + 2))
-  return true
+function insertBoxWith(className: string | null): Command {
+  return ({ state, tr, dispatch }) => {
+    const box = emptyBox(state, className)
+    const { $from } = tr.selection
+    const line = $from.parent
+    if (!box || !isWritableLine(line) || $from.depth < 1 || inTable($from)) return false
+    const container = $from.node(-1)
+    const index = $from.index(-1)
+    const replace = line.type.name === 'paragraph' && line.content.size === 0 && container.canReplaceWith(index, index + 1, box.type)
+    if (!replace && !container.canReplaceWith(index + 1, index + 1, box.type)) return false
+    if (!dispatch) return true
+    const at = $from.before()
+    if (replace) tr.replaceWith(at, $from.after(), box)
+    else tr.insert($from.after(), box)
+    // 상자(1) + 문단(1) 안 — 상자 앞 위치에서 2 칸 들어간 자리.
+    tr.setSelection(TextSelection.create(tr.doc, (replace ? at : $from.after()) + 2))
+    return true
+  }
 }
+
+export const insertBox: Command = insertBoxWith(null)
+
+/** 슬래시·도구막대 「AI 지시」 — insertBox 와 같은 규칙으로 넣되 새 상자에 AI 지시 class 를 단다(WP-1482). */
+export const insertAiInstructionBox: Command = insertBoxWith(AI_INSTRUCTION_CLASS)
 
 /**
  * 감쌀 범위와 감싸는 방법 — 고른 글이 걸친 블록들. 그 자리에 상자가 들 수 없으면(목록 항목 안 문단 — 항목은 문단으로 시작해야 한다)
  * 한 단계씩 바깥 범위(목록 통째)로 넓혀 본다. 빈 선택·노드 선택·표 안이면 null.
  */
-function boxWrapTarget(state: EditorState): { range: NodeRange; wrapping: NonNullable<ReturnType<typeof findWrapping>> } | null {
+function boxWrapTarget(state: EditorState, className: string | null = null): { range: NodeRange; wrapping: NonNullable<ReturnType<typeof findWrapping>> } | null {
   const type = state.schema.nodes[WIKI_HTML_BOX]
   const sel = state.selection
   if (!type || sel.empty || sel instanceof NodeSelection) return null
@@ -106,7 +126,7 @@ function boxWrapTarget(state: EditorState): { range: NodeRange; wrapping: NonNul
   }
   let range = $from.blockRange($to)
   while (range) {
-    const wrapping = findWrapping(range, type, { style: BOX_BASIC_STYLE })
+    const wrapping = findWrapping(range, type, { style: BOX_BASIC_STYLE, className })
     if (wrapping) return { range, wrapping }
     if (range.depth === 0) return null
     range = new NodeRange($from, $to, range.depth - 1)
@@ -121,9 +141,10 @@ export function canWrapInBox(state: EditorState): boolean {
 
 /**
  * 「상자로 감싸기」 — 고른 글이 걸친 블록들을 「기본」 모양 상자 하나로 감싸고, 그 상자를 통째 선택한다(상자 막대가 떠 바로 꾸미거나 풀 수 있게).
+ * className 을 주면 감싸는 상자에 그 class 를 단다(WP-1482 — AI 지시 상자로 감싸기는 AI_INSTRUCTION_CLASS).
  */
-export function wrapInBox(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
-  const target = boxWrapTarget(state)
+export function wrapInBox(state: EditorState, dispatch?: (tr: Transaction) => void, className: string | null = null): boolean {
+  const target = boxWrapTarget(state, className)
   if (!target) return false
   if (!dispatch) return true
   const tr = state.tr.wrap(target.range, target.wrapping)
@@ -198,6 +219,24 @@ export function writeSelectedBoxStyle(editor: TiptapEditor, next: (style: string
   if (!hit) return null
   const style = sanitizeInlineStyle(next(hit.node.attrs.style as string | null)) ?? BOX_EMPTY_STYLE
   return setBoxStyle(editor, hit.pos, style) ? style : null
+}
+
+/**
+ * 통째 선택된 상자의 AI 지시 class 를 뒤집는다(WP-1482) — 없으면 넣고 있으면 뺀다. 다른 class 토큰은 순서대로 남긴다. 토큰이 다 빠지면 className 은 null 이고,
+ * style 도 비어 있으면 자리 지킴 선언(BOX_EMPTY_STYLE)을 넣는다(class·style 둘 다 없으면 다시 읽을 때 상자가 사라진다).
+ * 선택된 상자가 없으면 false. 속성 바꾸기 한 단계라 통째 선택이 그대로 남는다.
+ */
+export function toggleSelectedBoxAiInstruction(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined): boolean {
+  const hit = selectedBox(state)
+  if (!hit) return false
+  if (!dispatch) return true
+  const tokens = classTokens(hit.node.attrs.className)
+  const next = tokens.includes(AI_INSTRUCTION_CLASS) ? tokens.filter((t) => t !== AI_INSTRUCTION_CLASS) : [...tokens, AI_INSTRUCTION_CLASS]
+  const className = next.length ? next.join(' ') : null
+  const tr = state.tr.setNodeAttribute(hit.pos, 'className', className)
+  if (!className && !sanitizeInlineStyle(hit.node.attrs.style as string | null)) tr.setNodeAttribute(hit.pos, 'style', BOX_EMPTY_STYLE)
+  dispatch(tr)
+  return true
 }
 
 /** 「삭제」 — 상자를 안 내용째 지운다(통째 선택 후 deleteSelection — Delete 키와 같다). pos 에 상자가 없으면 false. */

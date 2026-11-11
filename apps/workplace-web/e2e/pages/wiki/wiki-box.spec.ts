@@ -37,10 +37,11 @@ test.describe('노트 상자 (WP-1303)', { tag: '@input' }, () => {
     await page.keyboard.press('Enter')
     await page.keyboard.type('/')
     const popover = page.getByTestId('wiki-slash-popover')
-    // 삽입 묶음 순서 — 표 · 이미지 · 상자 · HTML 블록.
+    // 삽입 묶음 순서 — 표 · 이미지 · 상자 · AI 지시(WP-1482) · HTML 블록.
     await expect(popover.getByRole('option').first()).toHaveText('표')
     await expect(popover.getByRole('option').nth(2)).toHaveText('상자')
-    await expect(popover.getByRole('option').nth(3)).toHaveText('HTML 블록')
+    await expect(popover.getByRole('option').nth(3)).toHaveText('AI 지시')
+    await expect(popover.getByRole('option').nth(4)).toHaveText('HTML 블록')
     await shot(page, 'slash-menu-box')
     await page.getByTestId('wiki-slash-option-box').click()
 
@@ -88,9 +89,9 @@ test.describe('노트 상자 (WP-1303)', { tag: '@input' }, () => {
     // 상자 막대는 상자 바로 위에 붙는다.
     const [bar, rect] = [(await toolbar.boundingBox())!, (await card.boundingBox())!]
     expect(bar.y + bar.height).toBeLessThanOrEqual(rect.y + 1)
-    // 막대 단추 — 꾸미기(WP-1304)·줄 추가·글만 남기기·삭제.
+    // 막대 단추 — 꾸미기(WP-1304)·AI 지시 전환(WP-1482)·줄 추가·글만 남기기·삭제.
     await expect(toolbar.getByTestId('wiki-box-style')).toBeEnabled()
-    await expect(toolbar.getByRole('button')).toHaveText(['꾸미기', '↑ 줄 추가', '↓ 줄 추가', '글만 남기기', '삭제'])
+    await expect(toolbar.getByRole('button')).toHaveText(['꾸미기', 'AI 지시로 바꾸기', '↑ 줄 추가', '↓ 줄 추가', '글만 남기기', '삭제'])
     await shot(page, 'box-selected-toolbar')
 
     // 안 글을 누르면 통째 선택이 풀리고 그 자리에 글을 쓴다.

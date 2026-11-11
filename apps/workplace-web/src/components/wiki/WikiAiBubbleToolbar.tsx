@@ -12,6 +12,7 @@ import {
   Highlighter,
   Italic,
   Link,
+  MessageSquareDashed,
   SquareDashed,
   Strikethrough,
   Underline,
@@ -34,7 +35,7 @@ import { ghostToggleClass } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { LANGUAGE_PRESETS, TONE_PRESETS, TRANSFORM_ACTIONS, type TransformActionKey } from './wikiAiActions'
-import { canWrapInBox, wrapInBox } from './wikiBox'
+import { AI_INSTRUCTION_CLASS, canWrapInBox, wrapInBox } from './wikiBox'
 import { WIKI_TABLE_ALIGNS } from './wikiTableCommands'
 import {
   type BlockSize,
@@ -245,6 +246,8 @@ export function WikiAiBubbleToolbar({
   const AlignIcon = alignOption.icon
   const linkActive = editor.isActive('link')
 
+  // 상자로 감싸기·AI 지시로 바꾸기 두 단추가 같이 쓰는 조건 — 렌더마다 한 번만 구한다.
+  const canWrap = canWrapInBox(editor.state)
   return (
     <EditorFloatingToolbar
       editor={editor}
@@ -344,7 +347,7 @@ export function WikiAiBubbleToolbar({
       )}
       {/* 상자로 감싸기(WP-1303) — 고른 글이 걸친 블록들을 「기본」 모양 상자로 감싼다. 감쌀 수 없는 자리(표 안 등)면 두지 않는다.
           감싼 뒤엔 상자가 통째 선택돼 이 막대 대신 상자 막대가 뜬다. */}
-      {canWrapInBox(editor.state) && (
+      {canWrap && (
         <Button
           type="button"
           variant="ghost"
@@ -359,6 +362,25 @@ export function WikiAiBubbleToolbar({
           }}
         >
           <SquareDashed aria-hidden="true" />
+        </Button>
+      )}
+      {/* AI 지시로 바꾸기(WP-1482) — 고른 글을 AI 지시 상자로 감싼다(상자로 감싸기와 같은 조건). 아이콘은 Sparkles 대신 지시 느낌의
+          말풍선 점선 — 이 막대의 AI 마커는 ✦ AI 메뉴 트리거 한 곳뿐이다(마커 중첩 금지). */}
+      {canWrap && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="AI 지시로 바꾸기"
+          title="AI 지시로 바꾸기"
+          data-testid="wiki-format-tb-ai-instruction"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            wrapInBox(editor.state, editor.view.dispatch, AI_INSTRUCTION_CLASS)
+            editor.view.focus()
+          }}
+        >
+          <MessageSquareDashed aria-hidden="true" />
         </Button>
       )}
       {/* ✦ AI 메뉴 — 톤·번역(하위 메뉴로 프리셋)·확장·축약·다듬기. 공유 링크 화면(aiHidden)엔 두지 않는다.

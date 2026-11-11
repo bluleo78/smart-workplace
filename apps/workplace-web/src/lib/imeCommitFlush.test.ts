@@ -5,11 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // (Safari 전용 대비). 고치려는 건 Chrome 경로라, prosemirror-view 가 모듈을 읽기 전에 Chrome 으로 보이게 한다.
 vi.hoisted(() => Object.defineProperty(navigator, 'vendor', { value: 'Google Inc.', configurable: true }));
 
+import { wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema';
+import { Editor } from '@tiptap/core';
 import { keymap } from '@tiptap/pm/keymap';
 import { schema } from '@tiptap/pm/schema-basic';
 import { EditorState, Plugin, TextSelection } from '@tiptap/pm/state';
 import { EditorView } from '@tiptap/pm/view';
 
+import { WikiBox } from '../components/wiki/wikiBox';
 import { flushBeforeComposedKey } from './imeCommitFlush';
 
 let view: EditorView | null = null;
@@ -67,5 +70,24 @@ describe('flushBeforeComposedKey — 조합 종료 직후 키 입력이 확정 �
     const seen = mount(true);
     keydown('Enter', 13);
     expect(seen).toEqual(['가나']);
+  });
+
+  it('상자 안 문단에서도 조합 중 Enter 가 확정 글자를 남긴다(WP-1482 — AI 지시 상자)', () => {
+    const seen: string[] = [];
+    const ed = new Editor({
+      extensions: [...wikiSchemaExtensions(), WikiBox],
+      content: '<div class="wp-ai-instruction">\n\n가\n\n</div>',
+    });
+    ed.registerPlugin(new Plugin({ props: { handleDOMEvents: { keydown: flushBeforeComposedKey } } }), (p, all) => [p, ...all]);
+    ed.registerPlugin(keymap({ Enter: (state) => (seen.push(state.doc.textContent), true) }), (p, all) => [p, ...all]);
+    const dom = ed.view.dom;
+    document.body.append(dom);
+    ed.commands.setTextSelection(3);
+    dom.dispatchEvent(new CompositionEvent('compositionstart', { data: '', bubbles: true }));
+    (dom.querySelector('p')!.firstChild as Text).appendData('나');
+    dom.dispatchEvent(new CompositionEvent('compositionend', { data: '나', bubbles: true }));
+    dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+    expect(seen).toEqual(['가나']);
+    ed.destroy();
   });
 });

@@ -15,8 +15,8 @@ describe('filterSlashItems', () => {
     expect(k).toEqual(expect.arrayContaining(['table', 'image', 'heading1', 'horizontalRule']))
     expect(k).not.toContain('draft')
     expect(k).not.toContain('continue')
-    // 입력으로 찾아도 나오지 않는다.
-    expect(keys('AI', { inTable: false, aiEnabled: false })).toEqual([])
+    // 입력으로 찾아도 AI 호출 항목은 나오지 않는다(삽입 항목 「AI 지시」(WP-1482)는 LLM 을 거치지 않아 남는다).
+    expect(keys('AI', { inTable: false, aiEnabled: false })).toEqual(['aiInstruction'])
   })
   it('표 안에서는 표 항목을 뺀다', () => {
     expect(keys('', { inTable: true, aiEnabled: true })).not.toContain('table')
@@ -29,8 +29,20 @@ describe('filterSlashItems', () => {
   })
   it('상자(WP-1303)는 이미지 다음·HTML 블록 앞에 있고 표 안에서는 빠진다', () => {
     const k = keys('', { inTable: false, aiEnabled: false })
-    expect(k.slice(0, 4)).toEqual(['table', 'image', 'box', 'htmlEmbed'])
+    expect(k.slice(0, 5)).toEqual(['table', 'image', 'box', 'aiInstruction', 'htmlEmbed'])
     expect(keys('', { inTable: true, aiEnabled: false })).not.toContain('box')
     expect(keys('상자', { inTable: false, aiEnabled: false })).toEqual(['box'])
+  })
+  it('AI 지시(WP-1482)는 상자 바로 다음에 있고 표 안에서는 빠지며 AI 꺼짐이어도 보인다', () => {
+    for (const aiEnabled of [true, false]) {
+      const k = keys('', { inTable: false, aiEnabled })
+      expect(k.indexOf('aiInstruction')).toBe(k.indexOf('box') + 1)
+      expect(keys('지시', { inTable: false, aiEnabled })).toEqual(['aiInstruction'])
+    }
+    expect(keys('', { inTable: true, aiEnabled: true })).not.toContain('aiInstruction')
+    expect(filterSlashItems('', { inTable: false, aiEnabled: true }).find((i) => i.key === 'aiInstruction')).toMatchObject({
+      label: 'AI 지시',
+      kind: 'insert',
+    })
   })
 })
