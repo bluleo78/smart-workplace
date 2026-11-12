@@ -27,7 +27,7 @@ export interface MobileSheetAction {
 }
 
 export function MobileActionSheet({
-  open, onClose, title, description, actions, testId = 'mobile-action-sheet', aboveAiSheet = false,
+  open, onClose, title, description, actions, testId = 'mobile-action-sheet', aboveAiSheet = false, 'data-help': dataHelp,
 }: {
   open: boolean;
   onClose: () => void;
@@ -41,6 +41,8 @@ export function MobileActionSheet({
    * index.css 규칙이 shadcn 이 내부에서 그리는 딤(overlay)도 함께 올리게 한다(시안 7-2: 시트 위 추가 딤, WP-234).
    */
   aboveAiSheet?: boolean;
+  /** 도움말 절 id(WP-1508) — 시트는 포털이라 화면 쪽 data-help 를 물려받지 못해, 열려 있는 동안 도움말 패널이 따라갈 절을 직접 단다. */
+  'data-help'?: string;
 }) {
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
@@ -48,6 +50,7 @@ export function MobileActionSheet({
         side="bottom"
         showCloseButton={false}
         data-testid={testId}
+        data-help={dataHelp}
         data-ai-layer={aboveAiSheet || undefined}
         className={cn('max-h-[85dvh] gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]', aboveAiSheet && 'z-[80]')}
         // 트리거 없는 시트 — 닫힐 때 포커스를 되돌리지 않는다(행으로 포커스가 튀어 스크롤되는 것 방지).

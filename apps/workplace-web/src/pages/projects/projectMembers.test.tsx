@@ -27,7 +27,7 @@ test('개인 프로젝트 설정 → AI 어시스턴트 추가 → POST {userId,
   const searches: string[] = []
   const project = createProject({ id: 10, key: KEY, name: '내 프로젝트', type: 'PERSONAL', isDefault: false })
   // 설정의 「멤버」 섹션만 띄운다 — 개인 프로젝트면 설정 화면이 AI 어시스턴트 전용(agentOnly)·주인 id 로 그린다.
-  const { user } = renderScreen(<MemberManagement projectKey={KEY} agentOnly ownerId={project.ownerId} canManage />, {
+  const { user } = renderScreen(<MemberManagement data-help="project-settings.assistants" projectKey={KEY} agentOnly ownerId={project.ownerId} canManage />, {
     path: `/projects/${KEY}/settings`,
     handlers: [
       http.get('/api/v1/members', ({ request }) => {

@@ -8,12 +8,14 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueRelationType, IssueRelationTypeAdmin, SaveIssueRelationTypeRequest } from '@/types/issue'
 
 import { defaultRelationTypes } from '../../../../e2e/factories/issueRelation.factory'
-import { expectGuideSectionsOnScreen } from '../testkit-b7'
 import WorkAppSettingsPage from './WorkAppSettingsPage'
 
 const ADMIN = '/api/v1/admin/issue-relation-types'
@@ -91,8 +93,6 @@ const fill = async (user: ReturnType<typeof renderScreen>['user'], el: HTMLEleme
 
 test('기본 유형은 편집·삭제가 없고 차단은 「고정」이라 숨길 수 없다', async () => {
   await openWorkApp()
-  // WP-1298 — 가이드 섹션(이슈 관계 유형)이 화면 섹션과 같은 id·제목으로 이어진다.
-  expectGuideSectionsOnScreen(settingsGuides.workApp)
   expect(byTestId('relation-type-row-1')).toHaveTextContent('차단')
   expect(byTestId('relation-type-row-1')).toHaveTextContent('고정')
   expect(screen.queryByTestId('relation-type-toggle-hidden-1')).not.toBeInTheDocument()
@@ -247,4 +247,43 @@ test('사용 중 삭제 — 관계도 함께 삭제(deleteLinks=true)', async ()
   expect(calls[0].search.get('deleteLinks')).toBe('true')
   expect(calls[0].search.has('moveTo')).toBe(false)
   await waitFor(() => expect(screen.queryByTestId('relation-type-row-7')).not.toBeInTheDocument())
+})
+
+// WP-1508 — 칸을 만지면 도움말 패널이 여는 절은 가장 가까운 [data-help] 조상의 값이다. 섹션이 하나라 섹션이 대표 절이다.
+test('칸과 대화상자가 맞는 도움말 절로 이어진다 (WP-1508)', async () => {
+  const { user } = await openWorkApp([customType({ id: 7 })])
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '이슈 관계 유형' }), 'work-app')
+  expectHelpTarget(byTestId('relation-type-add'), 'work-app.add')
+  expectHelpTarget(byTestId('relation-type-edit-7'), 'work-app.add')
+  expectHelpTarget(byTestId('relation-type-toggle-hidden-7'), 'work-app.hide')
+  expectHelpTarget(byTestId('relation-type-delete-7'), 'work-app.delete')
+
+  await user.click(byTestId('relation-type-add'))
+  expectHelpTarget(await screen.findByRole('dialog'), 'work-app.add')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+  await user.click(byTestId('relation-type-edit-7'))
+  expectHelpTarget(await screen.findByRole('dialog'), 'work-app.add')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+  await user.click(byTestId('relation-type-delete-7'))
+  expectHelpTarget(await screen.findByRole('dialog'), 'work-app.delete')
+})
+
+// 설정 가이드 대신 매뉴얼 대표 절 요약이 AI 화면 참고에 실린다.
+test('가이드 없이 화면 참고에 「설정 · 작업 관리」와 매뉴얼 설명이 실린다 (WP-1508)', async () => {
+  const api = relationTypeApi()
+  renderScreen(withScreenContextProbe(<WorkAppSettingsPage />), {
+    path: '/settings/apps/work',
+    auth: { isAdmin: true },
+    handlers: [...helpBundleHandlers(), ...api.handlers, ...shellHandlers],
+  })
+  await screen.findByTestId('relation-type-row-1')
+  await waitFor(() => expect(currentScreenContext()?.scope?.facts).toContainEqual({ label: '소개', value: '관계 유형 본문.' }))
+  expect(currentScreenContext()!.view).toBe('설정 · 작업 관리')
+  const facts = currentScreenContext()!.scope!.facts!
+  expect(facts).toContainEqual({ label: '관계 유형 삭제 · 경고', value: '관계 삭제 경고.' })
+  expect(facts).toContainEqual({ label: '관계 유형 삭제', value: '삭제 본문.' })
 })

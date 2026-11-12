@@ -39,14 +39,11 @@ export function UserActiveSection({
   user,
   onChanged,
   lockedReason,
-  id,
 }: {
   user: AccessUser;
   onChanged: (active: boolean) => void;
   /** 끌 수 없는 이유 — 있으면 활성인 스위치를 막고 이유를 보인다(예: 공통 비서는 지정 해제가 먼저, WP-1075). 서버도 409 로 막는다. */
   lockedReason?: string;
-  /** 섹션 앵커 id — 설정 가이드가 이 섹션을 따라가게(사용자 상세, WP-1298). */
-  id?: string;
 }) {
   const { user: currentUser } = useAuth();
   const [isToggling, setIsToggling] = useState(false);
@@ -80,7 +77,8 @@ export function UserActiveSection({
   return (
     <>
       <AlertDialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <AlertDialogContent size="sm">
+        {/* 확인 창도 같은 도움말 절 — 열려 있는 동안 도움말 패널이 활성 상태 절을 보인다(WP-1508). */}
+        <AlertDialogContent size="sm" data-help="user.active">
           <AlertDialogHeader>
             <AlertDialogTitle>{isAgent ? '에이전트 비활성화' : '사용자 비활성화'}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -104,8 +102,10 @@ export function UserActiveSection({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* data-help 를 리터럴로 둔 것은 의도다 — 이 컴포넌트의 호출처가 사용자 상세 화면뿐이라서다(WP-1508).
+          에이전트 화면에서 다시 쓰게 되면 UserRolesSection 처럼 'data-help' prop 으로 받게 바꾼다. */}
       <SettingsSection
-        id={id}
+        data-help="user.active"
         title="활성 상태"
         description={
           isAgent
@@ -140,15 +140,12 @@ export function UserRolesSection({
   user,
   allRoles,
   onSaved,
-  id,
   'data-help': dataHelp,
 }: {
   user: AccessUser;
   allRoles: RoleResponse[];
   onSaved: (updated: UserDetailResponse) => void;
-  /** 섹션 앵커 id — 설정 가이드가 이 섹션을 따라가게(구성원 상세). */
-  id?: string;
-  /** 이 섹션을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(에이전트 상세, WP-1507) — 호출부가 글자 그대로 넘긴다. */
+  /** 이 섹션을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(구성원·에이전트 상세, WP-1507·1508) — 호출부가 글자 그대로 넘긴다. */
   'data-help'?: string;
 }) {
   const { user: currentUser } = useAuth();
@@ -182,7 +179,6 @@ export function UserRolesSection({
 
   return (
     <SettingsSection
-      id={id}
       data-help={dataHelp}
       title="역할 할당"
       description={

@@ -86,7 +86,7 @@ export const helpIndexFixture: HelpIndexChapter[] = [
     chapter: 'my-settings',
     number: 12,
     title: '내 설정',
-    routes: ['/settings/tokens'],
+    routes: ['/settings/tokens', '/settings/profile', '/settings/notifications', '/settings/assistant'],
     audience: ['member'],
     sections: [
       { id: 'my-settings#_intro', label: '내 설정', title: '내 설정', parent: null, level: 1 },
@@ -94,6 +94,57 @@ export const helpIndexFixture: HelpIndexChapter[] = [
       { id: 'tokens.issue', label: 'API 토큰 발급', title: '토큰을 발급한다', parent: 'tokens', level: 3 },
       { id: 'tokens.list', label: 'API 토큰 목록', title: '발급한 토큰을 관리한다', parent: 'tokens', level: 3 },
       { id: 'tokens.connect', label: '도구에 연결하기', title: '도구에 연결한다', parent: 'tokens', level: 3 },
+      // WP-1508: 프로필·알림·AI 비서 화면의 대표 절과 하위 절 — 앞 절들의 순서·층은 패널 테스트가 보므로 뒤에 붙인다.
+      { id: 'profile', label: '프로필', title: '프로필과 비밀번호를 바꾼다', parent: null, level: 2 },
+      { id: 'profile.password', label: '비밀번호 변경', title: '비밀번호를 바꾼다', parent: 'profile', level: 3 },
+      { id: 'notifications', label: '알림', title: '받을 알림을 고른다', parent: null, level: 2 },
+      { id: 'notifications.device', label: '이 기기', title: '이 기기로 푸시를 받는다', parent: 'notifications', level: 3 },
+      { id: 'assistant', label: 'AI 비서', title: 'AI 비서를 설정한다', parent: null, level: 2 },
+      { id: 'assistant.personal', label: '개인 비서', title: '개인 비서를 연결한다', parent: 'assistant', level: 3 },
+    ],
+  },
+  // WP-1508: 로그인·앱 설정(16장) — SSO·작업 관리 화면의 대표 절과 하위 절. 앞 장들의 순서를 바꾸지 않으려고 뒤에 붙인다.
+  {
+    chapter: 'workspace-settings',
+    number: 16,
+    title: '로그인·앱 설정',
+    routes: ['/settings/sso', '/settings/apps/work'],
+    audience: ['admin'],
+    sections: [
+      { id: 'workspace-settings#_intro', label: '로그인·앱 설정', title: '로그인·앱 설정', parent: null, level: 1 },
+      { id: 'sso', label: 'SSO', title: 'Microsoft 계정 로그인을 켠다', parent: null, level: 2 },
+      { id: 'sso.login', label: 'SSO 로그인', title: 'SSO 로그인을 켜고 끈다', parent: 'sso', level: 3 },
+      { id: 'work-app', label: '작업 관리', title: '이슈 관계 유형을 정한다', parent: null, level: 2 },
+      { id: 'work-app.delete', label: '관계 유형 삭제', title: '관계 유형을 지운다', parent: 'work-app', level: 3 },
+    ],
+  },
+  // WP-1508: 구성원과 역할(14장) — 사용자 상세·역할 상세 화면의 대표 절과 하위 절. 앞 장들의 순서를 바꾸지 않으려고 뒤에 붙인다.
+  {
+    chapter: 'members',
+    number: 14,
+    title: '구성원과 역할',
+    routes: ['/settings/users/:id', '/settings/roles/:id'],
+    audience: ['admin'],
+    sections: [
+      { id: 'members#_intro', label: '구성원과 역할', title: '구성원과 역할', parent: null, level: 1 },
+      { id: 'user', label: '사용자 상세', title: '구성원을 비활성화하고 역할을 준다', parent: null, level: 2 },
+      { id: 'user.active', label: '활성 상태', title: '구성원을 비활성화한다', parent: 'user', level: 3 },
+      { id: 'role', label: '역할 상세', title: '역할 상세에서 고친다', parent: null, level: 2 },
+      { id: 'role.permissions', label: '권한 할당', title: '권한을 고른다', parent: 'role', level: 3 },
+    ],
+  },
+  // WP-1508: 작업 관리(8장) — 프로젝트 설정 화면의 대표 절과 하위 절(멤버·AI 어시스턴트). 앞 장들의 순서를 바꾸지 않으려고 뒤에 붙인다.
+  {
+    chapter: 'work',
+    number: 8,
+    title: '작업 관리',
+    routes: ['/projects/:key/settings'],
+    audience: ['member'],
+    sections: [
+      { id: 'work#_intro', label: '작업 관리', title: '작업 관리', parent: null, level: 1 },
+      { id: 'project-settings', label: '프로젝트 설정', title: '프로젝트를 설정한다', parent: null, level: 2 },
+      { id: 'project-settings.members', label: '멤버', title: '멤버를 관리한다', parent: 'project-settings', level: 3 },
+      { id: 'project-settings.assistants', label: 'AI 어시스턴트', title: 'AI 어시스턴트를 추가한다', parent: 'project-settings', level: 3 },
     ],
   },
 ]
@@ -136,6 +187,41 @@ export const helpChapterFixtures: Record<string, HelpChapter> = {
       { ...helpIndexFixture[2].sections[2], markdown: '발급 본문. **토큰 발급** 을 누른다.', figures: [], links: [] },
       { ...helpIndexFixture[2].sections[3], markdown: '목록 본문. **폐기** 를 누른다.', figures: [], links: [] },
       { ...helpIndexFixture[2].sections[4], markdown: '연결 본문. **복사** 를 누른다.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[5], markdown: '프로필 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[6], markdown: '비밀번호 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[7], markdown: '알림 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[8], markdown: '이 기기 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[9], markdown: '비서 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[10], markdown: '개인 비서 본문.\n\n> **주의**\n>\n> 연결 해제 주의.', figures: [], links: [] },
+    ],
+  },
+  'workspace-settings': {
+    ...helpIndexFixture[3],
+    sections: [
+      { ...helpIndexFixture[3].sections[0], markdown: '로그인·앱 설정 첫머리 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[3].sections[1], markdown: '로그인 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[3].sections[2], markdown: 'SSO 로그인 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[3].sections[3], markdown: '관계 유형 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[3].sections[4], markdown: '삭제 본문.\n\n> **경고**\n>\n> 관계 삭제 경고.', figures: [], links: [] },
+    ],
+  },
+  members: {
+    ...helpIndexFixture[4],
+    sections: [
+      { ...helpIndexFixture[4].sections[0], markdown: '구성원과 역할 첫머리 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[4].sections[1], markdown: '사용자 상세 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[4].sections[2], markdown: '활성 상태 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[4].sections[3], markdown: '역할 상세 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[4].sections[4], markdown: '권한 본문.', figures: [], links: [] },
+    ],
+  },
+  work: {
+    ...helpIndexFixture[5],
+    sections: [
+      { ...helpIndexFixture[5].sections[0], markdown: '작업 관리 첫머리 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[5].sections[1], markdown: '프로젝트 설정 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[5].sections[2], markdown: '멤버 본문.\n\n> **주의**\n>\n> 담당 비워짐 주의.', figures: [], links: [] },
+      { ...helpIndexFixture[5].sections[3], markdown: 'AI 어시스턴트 본문.', figures: [], links: [] },
     ],
   },
 }

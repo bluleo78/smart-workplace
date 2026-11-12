@@ -1317,8 +1317,6 @@ describe('도움말 문맥 — 실행 방식·유형마다 섹션·묶음·대�
 
   test('설정 가이드 단추가 없고, 화면 참고에 매뉴얼 설명과 에이전트 대상이 함께 실린다', async () => {
     await renderDetail({ agent: createAgent(100, { name: '내부봇', username: 'ai-dev' }), probe: true })
-    expect(screen.queryByTestId('settings-guide-button')).toBeNull()
-    expect(screen.queryByTestId('settings-guide-aside')).toBeNull()
     await waitFor(() => expect(currentScreenContext()?.scope?.facts).toBeDefined())
     const ctx = currentScreenContext()!
     expect(ctx.view).toBe('설정 · 에이전트 상세')

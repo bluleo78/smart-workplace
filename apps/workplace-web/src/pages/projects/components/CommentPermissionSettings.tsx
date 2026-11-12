@@ -43,6 +43,7 @@ export function CommentPermissionSettings({ project, canManage }: CommentPermiss
 
   return (
     <SettingsSection
+      data-help="project-settings.comments"
       title="댓글"
       description="접수함 프로젝트의 이슈에 누가 댓글을 달 수 있는지 정해요."
       data-testid="project-comment-permission"

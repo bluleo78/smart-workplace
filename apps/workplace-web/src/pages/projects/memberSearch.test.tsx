@@ -73,7 +73,7 @@ function settingsApi(initial: StubMember[], { personal = false } = {}) {
 /** 설정의 「멤버」 섹션(MemberManagement)만 띄운다 — 보는 사람은 OWNER(설정 화면이 canManage 로 넘기는 값). */
 function openSettings(initial: StubMember[]) {
   const api = settingsApi(initial)
-  const view = renderScreen(<MemberManagement projectKey={KEY} canManage />, { path: `/projects/${KEY}/settings`, handlers: api.handlers })
+  const view = renderScreen(<MemberManagement data-help="project-settings.members" projectKey={KEY} canManage />, { path: `/projects/${KEY}/settings`, handlers: api.handlers })
   return { ...view, ref: api.ref }
 }
 

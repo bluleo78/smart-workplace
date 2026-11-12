@@ -67,6 +67,7 @@ export function ComponentManagement({ projectKey, canManage }: { projectKey: str
 
   return (
     <SettingsSection
+      data-help="project-settings.components"
       title="구성요소"
       description="이슈를 영역으로 나누고, 영역 담당자를 새 이슈에 자동으로 붙여요."
       data-testid="component-section"
@@ -199,6 +200,7 @@ function ComponentTable({
               {onDelete && (
                 <DeleteConfirmDialog
                   entityName="구성요소"
+                  data-help="project-settings.components"
                   itemName={c.name}
                   impact={<DeleteImpactNote note={deletionImpactNote('component', c.issueCount)} />}
                   onConfirm={() => onDelete(c)}

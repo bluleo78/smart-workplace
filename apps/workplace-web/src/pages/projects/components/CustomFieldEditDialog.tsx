@@ -64,7 +64,7 @@ function EditForm({ projectKey, field, onClose }: { projectKey: string; field: I
   }
 
   return (
-    <DialogContent data-testid="custom-field-edit-dialog">
+    <DialogContent data-testid="custom-field-edit-dialog" data-help="project-settings.fields">
       <DialogHeader>
         <DialogTitle>프로젝트 필드 편집</DialogTitle>
         <DialogDescription>

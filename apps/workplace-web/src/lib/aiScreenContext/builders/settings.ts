@@ -1,11 +1,10 @@
-// 설정 화면 컨텍스트 builder(WP-414) — 설정 가이드가 있는 화면에서 AI 가 「이 설정」 이 무엇인지 알게 한다.
-// - WP-1507: 가이드 글이 매뉴얼 도움말로 옮겨 간 화면은 가이드 대신 매뉴얼 대표 절 요약(helpSummaryPairs)을 같은 자리(scope.facts)에 싣는다.
-// - view 「설정 · <가이드 제목>」, scope.facts 에 가이드 요약(소개·주의·알아두기)을 실어 AI 가 화면 규칙을 같은 말로 설명하게 한다.
+// 설정 화면 컨텍스트 builder(WP-414) — 설정 화면에서 AI 가 「이 설정」 이 무엇인지 알게 한다.
+// - 화면 설명은 매뉴얼 도움말 절이 가진다(WP-1507·1508) — 대표 절 요약(helpSummaryPairs)을 scope.facts 에 실어 AI 가 화면 규칙을 매뉴얼과 같은 말로 설명하게 한다.
+// - view 「설정 · <화면 이름>」.
 // - 페이지가 주는 핵심 값: 대상이 있는 화면(사용자·역할·프로젝트)은 focus, 대상 없이 상태만 있는 화면(SSO·알림·프로필)은 scope.facts 앞쪽.
 //   대상 없는 화면을 focus 로 두면 칩이 「설정 · …」 대신 값 문구로 바뀌어 사용자가 어느 화면 맥락인지 알기 어렵다.
 // - 페이지는 비밀값(비밀번호·토큰·시크릿)을 넘기지 않는다 — 넘기는 값은 각 페이지가 고른 리터럴 라벨뿐이라 여기서 라벨로 다시 거르지 않는다.
 import type { HelpSummaryItem } from '@/components/help/manualSummary';
-import type { SettingsGuide } from '@/components/settings-guide/types';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, type FactValue, LIMITS } from '../common';
@@ -24,23 +23,8 @@ export interface SettingsFocusInput {
 /** 페이지가 SettingsPage 에 넘기는 화면 값 — focus(대상) 와 facts(상태 값) 중 화면에 맞는 쪽을 쓴다. */
 export interface SettingsAiContextInput {
   focus?: SettingsFocusInput | null;
-  /** 대상 없는 화면의 현재 상태 값 — 가이드 요약보다 앞에 둔다(상한 초과 시 뒤쪽이 요약된다). */
+  /** 대상 없는 화면의 현재 상태 값 — 도움말 요약보다 앞에 둔다(상한 초과 시 뒤쪽이 요약된다). */
   facts?: Array<[string, FactValue]>;
-}
-
-/**
- * 가이드 요약 — 소개 → 주의(되돌리기 어려운 동작, 영향이 커 앞쪽) → 알아두기 순.
- * 섹션별 가이드(WP-1281)는 섹션 주의·알아두기를 「섹션 제목 · 주의/알아두기 n」 으로 펼쳐 싣는다(명령 단계는 싣지 않는다).
- */
-export function guidePairs(guide: SettingsGuide): Array<[string, FactValue]> {
-  const sections = guide.sections ?? [];
-  return [
-    ['소개', guide.lead],
-    ['주의', guide.caution],
-    ...sections.flatMap((s): Array<[string, FactValue]> => (s.caution ? [[`${s.title} · 주의`, s.caution]] : [])),
-    ...(guide.tips ?? []).map((tip, i): [string, FactValue] => [`알아두기 ${i + 1}`, tip]),
-    ...sections.flatMap((s) => (s.tips ?? []).map((tip, i): [string, FactValue] => [`${s.title} · 알아두기 ${i + 1}`, tip])),
-  ];
 }
 
 /**
@@ -77,7 +61,7 @@ export function helpSummaryPairs(summary: HelpSummaryItem[] | null): Array<[stri
 }
 
 /**
- * 설정 화면 컨텍스트 — 화면 이름과 요약 쌍(guidePairs 또는 helpSummaryPairs)에 페이지 값(선택)을 얹는다.
+ * 설정 화면 컨텍스트 — 화면 이름과 요약 쌍(helpSummaryPairs)에 페이지 값(선택)을 얹는다.
  * 페이지 값(facts)을 요약보다 앞에 둔다 — 상한(LIMITS.facts)을 넘으면 뒤쪽 요약이 「그 밖의 안내」로 줄어든다.
  * 요약이 비면(도움말 요약을 아직 못 받음 등) 화면 이름과 페이지 값만 싣는다 — 받지 않은 설명을 지어 넣지 않는다.
  */

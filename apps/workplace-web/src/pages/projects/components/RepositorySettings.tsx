@@ -50,6 +50,7 @@ export function RepositorySettings({ project, canManage }: RepositorySettingsPro
 
   return (
     <SettingsSection
+      data-help="project-settings.repo"
       title="연결된 저장소"
       description="AI 가 이 프로젝트의 이슈를 처리할 때 쓰는 코드 저장소예요. 개발 프로젝트가 아니면 비워 두세요."
       data-testid="project-repository"

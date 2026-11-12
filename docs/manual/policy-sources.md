@@ -23,7 +23,7 @@
 | 07 | 반복 일정 삭제 범위 3가지 | `web/components/calendar/RecurrenceScopeDialog.tsx:26-66`, `CalendarEventService.java:1093-1130` |
 | 07 | 「모든 일정 삭제」 는 로컬 캘린더만, 영구 삭제·알림 없음 | `web/components/calendar/CalendarSidebar.tsx:181-194`, `web/pages/calendar/CalendarPage.tsx:774-776`, `api/calendar/service/CalendarService.java:97-109` |
 | 07·12 | 외부 캘린더는 Outlook(M365) 메일 계정 연결로만, IMAP 은 캘린더 없음 | `api/calendar/.../CalendarAccountSyncDispatcher.java`, `CalendarSyncService.java:20,58` |
-| 08 | 프로젝트 역할 소유자·멤버, 관리자 우회(팀 프로젝트만), 삭제 확인 문구 | `web/.../MemberManagement.tsx:263-264`, `api/.../ProjectAccessGuard.java:14-15,186-188`, `api/.../ProjectService.java:220,270`, `web/components/settings-guide/settingsGuides.ts:108-119`, `web/pages/projects/ProjectSettingsPage.tsx:228-255` |
+| 08 | 프로젝트 역할 소유자·멤버, 관리자 우회(팀 프로젝트만), 삭제 확인 문구 | `web/.../MemberManagement.tsx:263-264`, `api/.../ProjectAccessGuard.java:14-15,186-188`, `api/.../ProjectService.java:220,270`, `web/lib/projectPermissions.ts`(`canManageProject`·`isProjectOwner` — 이름·설명·멤버는 소유자·관리자, 유형·필드는 소유자), `web/lib/projectStatuses.ts`(`canEditStatuses`), `web/pages/projects/ProjectSettingsPage.tsx`(위험 구역 설명 `DEFAULT_PROJECT_UNDELETABLE`) |
 | 09 | 공유 링크는 편집자 이상, 드라이브 외부 공유 차단 설정 없음 | `api/drive/service/DriveShareLinkService.java:58`, 설정은 노트(`web/pages/admin/WikiSharingPage.tsx:65-69`)에만 있음 |
 | 09 | 공간 역할(쓰기 = 편집자, 읽기 = 보기 전용, 공간 관리 = 소유자) | `api/drive/service/DrivePermissions.java:16`, `DriveFileService`·`DriveFolderService`(EDITOR/VIEWER), `DriveSpaceService.java:107-181`(OWNER) |
 | 09 | 저장 공간 = 테넌트 파일 전체(휴지통·첨부·보낸 메일 사본 포함, 내부 파일 제외), 메일 첨부 임시 보관은 한도 밖, 종류별 내역은 줄을 눌러 펼침 (WP-1391) | `api/drive/repository/DriveQuotaRepository.java`, `api/drive/service/DriveQuotaService.java`, `web/components/drive/DriveSidebar.tsx`(`DriveUsageBlock`) |
@@ -40,6 +40,7 @@
 | 12 | AI 어시스턴트에 설정 변경 도구 없음 | `agent/mcp/tools.ts`(설정 도구 없음, 메모리 도구만 `:373-375`) |
 | 14 | SSO 전용 구성원 추가(로그인 방식 라디오) | `web/components/users/AddMemberDialog.tsx:45,82,139-153,205-222` |
 | 14 | 할당된 역할은 삭제 불가 | `api/role/service/RoleService.java:94-105` |
+| 16 | SSO 를 끄면 세션 갱신 때(최대 30분) 더 쓸 수 없음 | `apps/workplace-api/src/main/resources/application.yml:209`(`app.jwt.access-expiration` 1800000ms) |
 | 15 | 공통 비서 해제 → 개인 비서 없는 사람은 AI 끔 | `api/auth/service/WorkspaceAssistantService.java:110-112`, `api/user/service/UserService.java:166,176`, `web/components/layout/AppLayout.tsx:75-119` |
 | 15 | 에이전트 삭제: 기록 없으면 삭제, 있으면 사용 중지 | `api/auth/service/AgentRemovalService.java`, `web/pages/admin/AgentManagementPage.tsx:116-122`, `web/hooks/queries/useAgents.ts:64-71`, `.../migration/V9__multi_assignee.sql:5-10` |
 | 17 | 감사 로그 삭제·내보내기 없음(보관 기간 설정 없음 → 운영자 문의) | `api/audit/controller/AuditLogController.java:31`(조회만), `web/pages/admin/AuditLogListPage.tsx` |

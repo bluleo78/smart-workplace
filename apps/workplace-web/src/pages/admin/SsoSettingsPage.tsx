@@ -5,8 +5,6 @@ import { toast } from 'sonner'
 import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -51,12 +49,13 @@ export default function SsoSettingsPage() {
     <SettingsPage
       title="SSO"
       width="form"
-      guide={settingsGuides.sso}
+      // 설명은 매뉴얼 16장 도움말(sso 절)이 맡는다(WP-1508).
+      help={{ id: 'sso', name: 'SSO' }}
       // WP-414: AI 화면 맥락 — 사용 여부만(관리자 동의 링크 등 다른 값은 싣지 않는다). 로드 전엔 보내지 않는다.
       aiContext={data ? { facts: [['SSO 로그인', data.enabled ? '켜짐' : '꺼짐']] } : null}
     >
       <SettingsSection
-        id={SETTINGS_SECTION_IDS.ssoLogin}
+        data-help="sso.login"
         title="SSO 로그인"
         description='켜면 구성원이 Microsoft 계정으로 로그인할 수 있고, 비밀번호 없는 "SSO 전용" 구성원을 등록할 수 있어요.'
       >
@@ -81,6 +80,7 @@ export default function SsoSettingsPage() {
 
       {data?.adminConsentUrl && (
         <SettingsSection
+          data-help="sso.consent"
           title="관리자 동의 링크"
           description='회사 Entra(Microsoft 365) 관리자에게 전달해 한 번 승인받으세요. 승인 전에는 구성원이 "관리자 승인 필요" 오류로 로그인하지 못할 수 있어요.'
         >
@@ -92,7 +92,7 @@ export default function SsoSettingsPage() {
       )}
 
       <AlertDialog open={confirmOff} onOpenChange={setConfirmOff}>
-        <AlertDialogContent>
+        <AlertDialogContent data-help="sso.login.off">
           <AlertDialogHeader>
             <AlertDialogTitle>SSO 로그인을 끌까요?</AlertDialogTitle>
             <AlertDialogDescription>

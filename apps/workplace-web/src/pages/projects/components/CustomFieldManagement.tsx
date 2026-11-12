@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/overlay/select';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,7 +72,7 @@ export function CustomFieldManagement({
   }
 
   return (
-    <SettingsSection id={SETTINGS_SECTION_IDS.projectFields} title="프로젝트 필드" description="이슈에 붙일 이 프로젝트만의 입력 항목이에요.">
+    <SettingsSection data-help="project-settings.fields" title="프로젝트 필드" description="이슈에 붙일 이 프로젝트만의 입력 항목이에요.">
       {isOwner && (
         <form
           onSubmit={(e) => {
@@ -210,7 +209,7 @@ export function CustomFieldManagement({
         open={pendingDeleteId != null}
         onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
       >
-        <AlertDialogContent data-testid="custom-field-delete-dialog">
+        <AlertDialogContent data-testid="custom-field-delete-dialog" data-help="project-settings.fields">
           <AlertDialogHeader>
             <AlertDialogTitle>프로젝트 필드 삭제</AlertDialogTitle>
             <AlertDialogDescription>

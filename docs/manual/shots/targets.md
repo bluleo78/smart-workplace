@@ -218,7 +218,7 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 
 | 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
 | --- | --- | --- | --- | --- | --- | --- |
-| my-settings-1 | `/settings/profile` | 김서연 | 연 그대로 | (전체) | `nav!inside,profile,password,guide` | — |
+| my-settings-1 | `/settings/profile` | 김서연 | 연 그대로 | (전체) | `nav!inside,profile,password` | — |
 | my-settings-2 | `/settings/notifications` | 김서연 | 폭 1024 로 연다(헤드리스 브라우저는 알림 권한 차단 안내가 보인다) | `head+device+row` | `device,app,cols,row` | — |
 | my-settings-3 | `/settings/assistant` | 김서연 | 폭 1024 로 연다(토큰 칸은 비어 있다) | `head+mode+memory` | `mode,token,suggest,memory` | — |
 | my-settings-4 | `/settings/tokens` | 김서연 | **토큰 발급** 으로 창을 연다(발급하지 않음) | `dialog` | `name,expiry,submit` | — |

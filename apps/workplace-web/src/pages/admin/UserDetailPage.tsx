@@ -3,13 +3,10 @@ import { useEffect,useState } from 'react';
 import { Navigate, useNavigate,useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
-
 import { rolesApi } from '../../api/roles';
 import { usersApi } from '../../api/users';
 import { SettingsPage } from '../../components/layout/SettingsPage';
 import { SettingsSection } from '../../components/layout/SettingsSection';
-import { settingsGuides } from '../../components/settings-guide/settingsGuides';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Skeleton } from '../../components/ui/skeleton';
@@ -60,7 +57,7 @@ export default function UserDetailPage() {
 
   if (isLoading) {
     return (
-      <SettingsPage title="사용자 상세" icon={backButton} width="form" guide={settingsGuides.userDetail}>
+      <SettingsPage title="사용자 상세" icon={backButton} width="form" help={{ id: 'user', name: '사용자 상세' }}>
         <div className="space-y-4 py-6">
           <Skeleton className="h-4 w-64" />
           <Skeleton className="h-4 w-48" />
@@ -80,7 +77,7 @@ export default function UserDetailPage() {
       title="사용자 상세"
       icon={backButton}
       width="form"
-      guide={settingsGuides.userDetail}
+      help={{ id: 'user', name: '사용자 상세' }}
       // WP-414: AI 화면 맥락 — 저장된 값(이름·역할·활성)만. 체크만 바꾼 미저장 역할은 싣지 않는다.
       aiContext={{
         focus: {
@@ -96,7 +93,7 @@ export default function UserDetailPage() {
       }}
     >
       {/* 기본 정보 — 읽기 전용(가입 정보는 본인만 수정) */}
-      <SettingsSection title="기본 정보" description="가입 정보는 구성원 본인만 바꿀 수 있어요.">
+      <SettingsSection data-help="user.info" title="기본 정보" description="가입 정보는 구성원 본인만 바꿀 수 있어요.">
         {/* 값 열은 minmax(0,1fr) — 섹션 입력 열의 wrap-anywhere 와 함께, 공백 없는 긴 아이디·이메일이 min-content 로 열을 늘려 모바일 본문을 가로로 넘기지 않게(WP-397 D2).
             라벨 열은 좁은 본문(@container 640 미만)에서 80px 로 줄여 값 폭을 확보한다. */}
         <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-2 text-sm @min-[640px]:grid-cols-[120px_minmax(0,1fr)]">
@@ -118,8 +115,8 @@ export default function UserDetailPage() {
       </SettingsSection>
 
       {/* 활성 상태·역할 할당 — 에이전트 상세와 같은 섹션(WP-1075). key 로 다른 사용자 전환 시 역할 선택을 다시 시드한다. */}
-      <UserActiveSection key={user.id} id={SETTINGS_SECTION_IDS.userActive} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
-      <UserRolesSection key={user.id} id={SETTINGS_SECTION_IDS.userRoles} user={user} allRoles={allRoles} onSaved={setUser} />
+      <UserActiveSection key={user.id} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
+      <UserRolesSection key={user.id} data-help="user.roles" user={user} allRoles={allRoles} onSaved={setUser} />
     </SettingsPage>
   );
 }

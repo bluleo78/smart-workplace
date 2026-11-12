@@ -23,6 +23,8 @@ export function MobileStatusRowSheet({
       onClose={onClose}
       title={status?.name ?? ''}
       testId="status-row-sheet"
+      // 포털 시트라 상태 섹션의 data-help 를 물려받지 못한다 — 상태 절로 직접 잇는다(WP-1508).
+      data-help="project-settings.statuses"
       actions={
         actions
           ? [

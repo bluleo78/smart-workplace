@@ -7,6 +7,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
 import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 import type { ProjectStatus } from '@/types/projectStatus'
@@ -59,6 +60,12 @@ const rowIds = (category: string) =>
   )
 
 describe('모바일 상태 섹션', () => {
+  test('⋯ 시트는 포털이어도 상태 도움말 절로 이어진다(WP-1508)', async () => {
+    const { user } = await open()
+    await user.click(screen.getByTestId('status-menu-13'))
+    expectHelpTarget(await screen.findByTestId('status-row-sheet'), 'project-settings.statuses')
+  })
+
   test('손잡이 없이 ⋯ 시트의 위로/아래로 이동으로 순서를 바꾼다', async () => {
     const { user, orders } = await open()
     // 터치 끌기는 스크롤과 충돌해 손잡이를 그리지 않는다.

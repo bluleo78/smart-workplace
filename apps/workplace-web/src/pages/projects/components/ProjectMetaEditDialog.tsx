@@ -116,8 +116,11 @@ export function ProjectMetaEditDialog({
   onClose,
   nameMaxLength = 40,
   validateName,
+  'data-help': dataHelp,
 }: {
   title: string;
+  /** 이 창을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(WP-1508) — 호출부가 글자 그대로 넘긴다. */
+  'data-help'?: string;
   /** 이름 화면 검증 — 오류 문구를 돌려주면 창 안에 보이고 저장하지 않는다(라벨 쉼표 금지, WP-1386). 없으면 검증하지 않는다. */
   validateName?: (name: string) => string | null;
   /** 이름 최대 길이 — 라벨·유형은 40, 상태는 30(서버 ProjectStatusService.NAME_MAX, WP-809). */
@@ -129,7 +132,7 @@ export function ProjectMetaEditDialog({
   return (
     <Dialog open={target != null} onOpenChange={(open) => { if (!open) onClose(); }}>
       {/* 대상이 바뀔 때마다 입력을 새로 채우려고 key 로 다시 그린다. */}
-      {target && <EditForm key={target.id} title={title} initial={target} onSave={onSave} onClose={onClose} nameMaxLength={nameMaxLength} validateName={validateName} />}
+      {target && <EditForm key={target.id} title={title} initial={target} onSave={onSave} onClose={onClose} nameMaxLength={nameMaxLength} validateName={validateName} dataHelp={dataHelp} />}
     </Dialog>
   );
 }
@@ -141,8 +144,10 @@ function EditForm({
   onClose,
   nameMaxLength,
   validateName,
+  dataHelp,
 }: {
   title: string;
+  dataHelp?: string;
   nameMaxLength: number;
   validateName?: (name: string) => string | null;
   initial: ProjectMetaEditValue;
@@ -178,7 +183,7 @@ function EditForm({
   }
 
   return (
-    <DialogContent data-testid="meta-edit-dialog">
+    <DialogContent data-testid="meta-edit-dialog" data-help={dataHelp}>
       <DialogHeader>
         <DialogTitle className="break-words pr-6">{title}</DialogTitle>
         <DialogDescription className="sr-only">{title}</DialogDescription>

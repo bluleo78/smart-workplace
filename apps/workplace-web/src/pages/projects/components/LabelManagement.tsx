@@ -6,7 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -65,7 +64,7 @@ export function LabelManagement({
   }
 
   return (
-    <SettingsSection id={SETTINGS_SECTION_IDS.projectLabels} title="라벨" description="이슈를 분류하는 색 꼬리표예요.">
+    <SettingsSection data-help="project-settings.labels" title="라벨" description="이슈를 분류하는 색 꼬리표예요.">
 
       {canCreate && (
         <form
@@ -133,6 +132,7 @@ export function LabelManagement({
                   {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148) */}
                   <DeleteConfirmDialog
                     entityName="라벨"
+                    data-help="project-settings.labels"
                     itemName={l.name}
                     impact={<LabelDeleteImpact projectKey={projectKey} labelId={l.id} />}
                     onConfirm={() => del.mutate(l.id)}
@@ -154,6 +154,7 @@ export function LabelManagement({
 
       {/* 편집 Dialog — 이름 중복(409) 등 실패는 창 안에 보이고 닫지 않는다(WP-660) */}
       <ProjectMetaEditDialog
+        data-help="project-settings.labels"
         title="라벨 편집"
         target={editTarget}
         // 이름을 바꿀 때만 쉼표를 막는다(WP-1386) — 쉼표가 든 기존 라벨도 색만 바꿔 저장할 수 있게 지금 이름 그대로면 통과.

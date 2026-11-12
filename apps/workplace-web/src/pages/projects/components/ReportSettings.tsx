@@ -211,7 +211,7 @@ export function ReportSettings({ projectKey, canManage }: ReportSettingsProps) {
       </ReportRow>
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !reset.isPending && setConfirmOpen(open)}>
-        <AlertDialogContent>
+        <AlertDialogContent data-help="project-settings.report.reset">
           <AlertDialogHeader>
             <AlertDialogTitle>{RESET_TITLE}</AlertDialogTitle>
             <AlertDialogDescription>{RESET_BODY}</AlertDialogDescription>

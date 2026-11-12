@@ -49,7 +49,7 @@ describe('MemberManagement — 개인/팀 프로젝트 모드', () => {
   })
 
   it('agentOnly(개인 프로젝트): 「AI 어시스턴트」 헤딩·추가 버튼, 「멤버」 헤딩·역할 선택 없음', () => {
-    renderWithProviders(<MemberManagement projectKey="MY" agentOnly />)
+    renderWithProviders(<MemberManagement data-help="project-settings.assistants" projectKey="MY" agentOnly />)
     expect(screen.getByRole('heading', { name: 'AI 어시스턴트' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '멤버' })).not.toBeInTheDocument()
     expect(screen.getByTestId('member-add-trigger')).toHaveTextContent('AI 어시스턴트 추가')
@@ -57,7 +57,7 @@ describe('MemberManagement — 개인/팀 프로젝트 모드', () => {
   })
 
   it('팀 프로젝트: 「멤버」 헤딩·「멤버 추가」 버튼·역할 선택', () => {
-    renderWithProviders(<MemberManagement projectKey="WP" />)
+    renderWithProviders(<MemberManagement data-help="project-settings.members" projectKey="WP" />)
     expect(screen.getByRole('heading', { name: '멤버' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'AI 어시스턴트' })).not.toBeInTheDocument()
     expect(screen.getByTestId('member-add-trigger')).toHaveTextContent('멤버 추가')
@@ -71,7 +71,7 @@ describe('MemberManagement — 개인/팀 프로젝트 모드', () => {
       { userId: 1, username: 'me', name: '나', kind: 'HUMAN', role: 'OWNER', active: true },
       { userId: 2, username: 'bot', name: '봇', kind: 'AGENT', role: 'MEMBER', active: true },
     ]
-    renderWithProviders(<MemberManagement projectKey="MY" agentOnly ownerId={1} />)
+    renderWithProviders(<MemberManagement data-help="project-settings.assistants" projectKey="MY" agentOnly ownerId={1} />)
     expect(screen.queryByRole('combobox', { name: '나 역할' })).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: '봇 역할' })).not.toBeInTheDocument()
     expect(screen.getByTestId('member-role-1')).toHaveTextContent('소유자')
@@ -85,7 +85,7 @@ describe('MemberManagement — 개인/팀 프로젝트 모드', () => {
     membersState.data = [
       { userId: 1, username: 'me', name: '나', kind: 'HUMAN', role: 'OWNER', active: true },
     ]
-    renderWithProviders(<MemberManagement projectKey="WP" />)
+    renderWithProviders(<MemberManagement data-help="project-settings.members" projectKey="WP" />)
     expect(screen.getByRole('combobox', { name: '나 역할' })).toBeInTheDocument()
   })
 })

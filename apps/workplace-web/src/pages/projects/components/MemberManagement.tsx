@@ -7,7 +7,6 @@ import { SettingsSection } from '@/components/layout/SettingsSection';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/overlay/select';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +55,8 @@ interface MemberManagementProps {
   canManage?: boolean;
   // 공개(OPEN) 프로젝트인가 — 워크스페이스 전원이 읽을 수 있어, 조직을 빼도 그 사람들은 프로젝트를 계속 본다(조직 제거 확인 문구, WP-1128).
   openProject?: boolean;
+  // 섹션과 두 제거 확인창이 이어질 매뉴얼 도움말 id(WP-1508) — 팀은 멤버 절, 개인(agentOnly)은 AI 어시스턴트 절이라 호출부가 글자 그대로 넘긴다.
+  'data-help': string;
 }
 
 // 프로젝트 멤버 관리 — 검색 picker 로 추가, 역할 변경/제거.
@@ -63,7 +64,7 @@ interface MemberManagementProps {
 // 부서 행(「개발팀 · 12명 [조직]」, 역할은 멤버 고정 — 소유자는 사람에게만, ▸ 로 하위 부서까지 지금 구성원 펼치기, 제거)을 사람 행 위에 보인다.
 // 내 그룹은 그룹 자체를 멤버로 두지 않고 고를 때 그 구성원을 한 명씩 펼쳐 더한다(WP-1052 노트 공유와 같다).
 // 멤버 목록 API 는 실효 멤버(부서로 들어온 사람 direct=false 포함)라 표에는 직접 멤버 행만 보인다.
-export function MemberManagement({ projectKey, agentOnly = false, ownerId, canManage = true, openProject = false }: MemberManagementProps) {
+export function MemberManagement({ projectKey, agentOnly = false, ownerId, canManage = true, openProject = false, 'data-help': dataHelp }: MemberManagementProps) {
   const members = useProjectMembers(projectKey);
   const addMember = useAddMember(projectKey);
   const updateRole = useUpdateMemberRole(projectKey);
@@ -238,9 +239,9 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
 
   return (
     <>
-    {/* agentOnly 모드(개인 프로젝트)면 "AI 어시스턴트" 섹션, 팀 프로젝트면 "멤버" — 주석 섹션(WP-397) */}
+    {/* agentOnly 모드(개인 프로젝트)면 "AI 어시스턴트" 섹션, 팀 프로젝트면 "멤버" — 주석 섹션(WP-397). 도움말 절은 호출부가 정한다 — 팀은 멤버 절, 개인은 AI 어시스턴트 절(WP-1508) */}
     <SettingsSection
-      id={SETTINGS_SECTION_IDS.projectMembers}
+      data-help={dataHelp}
       title={agentOnly ? 'AI 어시스턴트' : '멤버'}
       description={
         agentOnly
@@ -452,6 +453,7 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
     {/* 멤버 제거 확인 AlertDialog — window.confirm() 대체. */}
     <AlertDialog open={!!confirmRemove} onOpenChange={(open) => !open && setConfirmRemove(null)}>
       <AlertDialogContent
+        data-help={dataHelp}
         onCloseAutoFocus={(e) => {
           // 제거했으면 지운 「제거」 버튼 대신 이웃으로 옮긴다(WP-891). 취소·Esc 는 기본 복원(연 버튼).
           if (!removedInDialog.current) return;
@@ -474,7 +476,7 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
     </AlertDialog>
     {/* 조직 제거 확인(WP-1057) — 부서로만 들어와 있던 사람은 서버가 멤버 제거처럼 정리한다(담당 해제 등). */}
     <AlertDialog open={!!confirmRemoveGroup} onOpenChange={(open) => !open && setConfirmRemoveGroup(null)}>
-      <AlertDialogContent>
+      <AlertDialogContent data-help={dataHelp}>
         <AlertDialogHeader>
           <AlertDialogTitle>조직 제거</AlertDialogTitle>
           <AlertDialogDescription>

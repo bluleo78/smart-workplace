@@ -7,7 +7,6 @@ import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
 import { SettingsSection } from '@/components/layout/SettingsSection';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -63,13 +62,14 @@ export function IssueRelationTypesSection() {
 
   return (
     <SettingsSection
-      id={SETTINGS_SECTION_IDS.relationTypes}
+      // 화면 섹션이 하나라 섹션이 곧 대표 절이고, 칸마다 하위 절로 이어진다(WP-1508).
+      data-help="work-app"
       title="이슈 관계 유형"
       description="이슈 사이 관계의 종류예요. 모든 프로젝트에 같이 쓰이고, 이슈 화면 「관계」 묶음의 제목이 돼요."
       data-testid="issue-relation-types-section"
     >
       <div className="flex justify-end">
-        <Button onClick={openCreate} data-testid="relation-type-add">
+        <Button onClick={openCreate} data-help="work-app.add" data-testid="relation-type-add">
           <Plus className="h-4 w-4" />
           관계 유형 추가
         </Button>
@@ -146,6 +146,7 @@ export function IssueRelationTypesSection() {
                             aria-label={t.hidden ? `${t.name} 다시 보이기` : `${t.name} 숨기기`}
                             disabled={setHidden.isPending}
                             onClick={() => setHidden.mutate({ id: t.id, hidden: !t.hidden })}
+                            data-help="work-app.hide"
                             data-testid={`relation-type-toggle-hidden-${t.id}`}
                           >
                             {t.hidden ? '보이기' : '숨기기'}
@@ -162,6 +163,7 @@ export function IssueRelationTypesSection() {
                                 setEditing(t);
                                 setFormOpen(true);
                               }}
+                              data-help="work-app.add"
                               data-testid={`relation-type-edit-${t.id}`}
                             >
                               편집
@@ -175,6 +177,7 @@ export function IssueRelationTypesSection() {
                                 setDeleteSnapshot(t);
                                 setDeleteOpen(true);
                               }}
+                              data-help="work-app.delete"
                               data-testid={`relation-type-delete-${t.id}`}
                             >
                               삭제

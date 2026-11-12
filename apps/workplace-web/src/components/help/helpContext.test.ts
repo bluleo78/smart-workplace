@@ -53,7 +53,7 @@ const agents: HelpIndexChapter = {
 const index = [mySettings, agents]
 
 describe('상수', () => {
-  it('스크롤 정착·기준선은 설정 가이드(activeSection.ts)와 같은 값', () => {
+  it('스크롤 정착·기준선 값', () => {
     expect(HELP_SCROLL_SETTLE_MS).toBe(200)
     expect(HELP_SCROLL_BASELINE).toBe(0.3)
     expect(HELP_SCROLL_BASELINE_AT_BOTTOM).toBe(0.6)
