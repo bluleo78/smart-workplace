@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.WIKI_SPACE;
 
 import com.workplace.drive.api.AttachmentSourceProvider;
 import com.workplace.global.share.WikiSpaceMembership;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import java.util.List;
@@ -94,7 +95,7 @@ public class WikiAttachmentSourceProvider implements AttachmentSourceProvider {
                   r.get(FILE.SIZE_BYTES),
                   r.get(FILE.THUMBNAIL_PATH) != null,
                   spaceName + " / " + title,
-                  "/wiki/spaces/" + spaceId + "/pages/" + pageId,
+                  AppWebLinks.wikiPagePath(spaceId, pageId),
                   // 노트 첨부 다운로드 경로 (WikiAttachmentController GET /{fileId}/content) — 본문 정본 경로와 같다
                   WikiAttachmentResponse.urlOf(pageId, fileId),
                   r.get(WIKI_PAGE_ATTACHMENT.ATTACHED_AT).toInstant());

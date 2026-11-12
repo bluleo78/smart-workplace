@@ -10,6 +10,7 @@ import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.DriveLinkSourceResolver;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.global.util.ChatMarkdownText;
 import java.util.Collection;
 import java.util.HashMap;
@@ -79,8 +80,8 @@ public class ChatMessageDriveLinkSourceResolver implements DriveLinkSourceResolv
               boolean acc = Boolean.TRUE.equals(r.get(accessible));
               // 라벨: "KEY-번호 · 본문미리보기" 형식
               String label = key + "-" + num + " · " + preview;
-              // 딥링크: IssueDriveLinkSourceResolver 와 동일한 "/projects/KEY/issues/번호" 패턴
-              String deepLink = "/projects/" + key + "/issues/" + num;
+              // 딥링크: 이슈 화면 경로(AppWebLinks.issuePath — 다른 출처 딥링크와 같은 한 곳)
+              String deepLink = AppWebLinks.issuePath(key, num);
               out.put(msgId, new Resolved(label, deepLink, acc));
               return null;
             });

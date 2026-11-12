@@ -436,8 +436,9 @@ describe('전송 링크·파일 올리기 (WP-369)', () => {
     } as never);
     const out = await tool(c, 'create_drive_download_link').handler({ driveFileId: 5 });
     expect(c.createDriveDownloadLink).toHaveBeenCalledWith(5);
+    // WP-1523: 화면 주소 url 과 헷갈리지 않게 downloadUrl 로 싣는다.
     expect(JSON.parse(resultText(out))).toEqual({
-      url: 'https://w.example/api/v1/public/drive/transfer/dl_abc', expiresAt: '2026-10-13T05:52:00Z', name: '회의 메모.md',
+      downloadUrl: 'https://w.example/api/v1/public/drive/transfer/dl_abc', expiresAt: '2026-10-13T05:52:00Z', name: '회의 메모.md',
       sizeBytes: 21, mimeType: 'text/markdown', singleUse: true,
     });
     await expect(tool(c, 'create_drive_download_link').handler({ fileId: 5 })).rejects.toThrow();
@@ -552,7 +553,7 @@ describe('전송 링크·파일 올리기 (WP-369)', () => {
     const dl = tool(c, 'create_drive_download_link').description;
     expect(dl.split('.')[0]).toMatch(/download/);
     // 이름에 공백이 있어도(예: 회의 메모.md) 셸이 한 인자로 받도록 따옴표로 감싼 형태를 알려 준다.
-    for (const s of ['10 minutes', 'no login', 'show it only to the user', 'Works once', 'new link', 'curl -o "<name>" "<url>"', 'read_file']) {
+    for (const s of ['10 minutes', 'no login', 'show it only to the user', 'Works once', 'new link', 'curl -o "<name>" "<downloadUrl>"', 'read_file']) {
       expect(dl).toContain(s);
     }
     const up = tool(c, 'create_drive_file').description;

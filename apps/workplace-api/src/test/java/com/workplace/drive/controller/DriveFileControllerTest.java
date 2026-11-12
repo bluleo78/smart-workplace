@@ -228,6 +228,6 @@ class DriveFileControllerTest extends WebMvcSliceTestBase {
   private static DriveFileResponse fileResponse(String name) {
     java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
     return new DriveFileResponse(
-        7L, null, 70L, name, "text/plain", 5L, "DOCUMENT", now, now, 1, true);
+        7L, null, 70L, name, "text/plain", 5L, "DOCUMENT", now, now, 1, true, null);
   }
 }

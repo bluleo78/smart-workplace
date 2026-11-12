@@ -17,6 +17,15 @@ describe('buildInstructions (WP-350)', () => {
     for (const app of TOOL_APPS) expect(text, app).toContain(`- ${TOOL_APP_GUIDES[app].label}:`);
   });
 
+  // WP-1523: AI 가 본문에 없는 화면 주소를 지어내지 않게 — 이슈는 키로, 주소는 도구가 돌려준 url 만 쓴다는 규칙이 상한 안에 들어 있다.
+  it('이슈 키·도구 url 만 쓰는 링크 규칙이 들어 있다(읽기 전용 연결에도)', () => {
+    for (const scope of [FULL_SCOPE, { apps: null, readOnly: true }] as McpScope[]) {
+      const text = make(scope);
+      expect(text).toContain('Issues by key (WP-12; auto-links in issues/comments/chat)');
+      expect(text).toContain('Other links (e.g. wiki): only tool-returned urls, never built.');
+    }
+  });
+
   it('앱별 안내가 맨 앞쪽(요약 한 줄 바로 뒤)에 온다', () => {
     const lines = make(FULL_SCOPE).split('\n');
     expect(lines[1]).toBe('Apps:');

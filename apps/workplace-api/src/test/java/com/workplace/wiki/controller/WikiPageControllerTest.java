@@ -123,6 +123,30 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
             isNull());
 
     String atLimit = "가".repeat(1_000_000);
+    // 저장 응답에는 화면 주소(url)가 붙는다(WP-1523) — 컨트롤러가 응답의 spaceId·id 로 만든다.
+    when(pageService.save(
+            anyLong(),
+            anyLong(),
+            org.mockito.ArgumentMatchers.any(SavePageRequest.class),
+            org.mockito.ArgumentMatchers.anyBoolean(),
+            isNull()))
+        .thenReturn(
+            new com.workplace.wiki.dto.WikiPageDetail(
+                7L,
+                3L,
+                null,
+                "t",
+                "b",
+                2,
+                1L,
+                null,
+                null,
+                null,
+                false,
+                false,
+                false,
+                com.workplace.wiki.dto.WikiPageKind.NOTE,
+                null));
     mockMvc
         .perform(
             put("/api/v1/wiki/pages/7")
@@ -132,7 +156,10 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                     "{\"title\":\"t\",\"body\":\""
                         + atLimit
                         + "\",\"version\":1,\"snapshot\":false}"))
-        .andExpect(status().isOk());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(7))
+        .andExpect(
+            jsonPath("$.url").value(org.hamcrest.Matchers.endsWith("/wiki/spaces/3/pages/7")));
   }
 
   /**

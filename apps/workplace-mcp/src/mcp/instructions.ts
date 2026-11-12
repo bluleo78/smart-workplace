@@ -33,9 +33,11 @@ export function buildInstructions(tools: readonly SharedTool[], scope: McpScope)
     `Gen:iA Works workplace tools. Scope: ${range}. ${mode}`,
     'Apps:',
     ...lines,
-    'Issues are referenced by key (e.g. WP-12) and people by username. Deletion and mail sending are not provided.',
+    // WP-1523: 본문·코멘트·노트에 화면 주소를 지어내지 않게 — 이슈 키는 이슈 본문·코멘트·채팅에서만 자동 링크가 되고(노트는 아니다), 그 밖의 링크는
+    // 도구가 돌려준 url 만. 2,048자 상한 안에 맞추려 아래 목록 규칙 줄과 메일 안내의 「(no sending)」(이 줄과 겹침)을 줄였다.
+    'Issues by key (WP-12; auto-links in issues/comments/chat), people by username. Other links (e.g. wiki): only tool-returned urls, never built. No deletion or mail sending.',
     // 목록 도구의 페이지·잘림 규칙(WP-352)을 한 번 더 요약한다 — 도구 설명에도 있지만 일부만 보고 전부처럼 답하는 실수가 가장 흔하다.
-    'Lists: hasMore means another page (pass the returned next value); truncated means partial with no next page. Never present a partial list as complete.',
+    'Lists: hasMore = more pages (pass next); truncated = partial, no next. Never call a partial list complete.',
   ];
   // 범위를 좁혔을 때만 넓히는 방법을 알린다 — 전체 연결에서는 군더더기다.
   if (scope.apps !== null || scope.readOnly) {

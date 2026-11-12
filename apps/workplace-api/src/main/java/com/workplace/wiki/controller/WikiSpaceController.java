@@ -1,5 +1,7 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.global.dto.WithWebUrl;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.wiki.dto.AddMemberGroupRequest;
 import com.workplace.wiki.dto.AddMemberRequest;
 import com.workplace.wiki.dto.ChangeRoleRequest;
@@ -40,6 +42,9 @@ public class WikiSpaceController {
   // WP-1307: 「HTML 문서」 페이지 만들기.
   private final WikiHtmlPageService htmlPageService;
   private final WikiSpaceMemberGroupService memberGroupService;
+
+  /** 화면 주소(WP-1523) — 페이지 만들기 응답에 url 로 싣는다. */
+  private final AppWebLinks webLinks;
 
   @GetMapping("/spaces")
   public ResponseEntity<List<WikiSpaceResponse>> mySpaces(@AuthenticationPrincipal Long callerId) {
@@ -147,21 +152,26 @@ public class WikiSpaceController {
   }
 
   @PostMapping("/spaces/{id}/pages")
-  public ResponseEntity<WikiPageDetail> createPage(
+  public ResponseEntity<WithWebUrl<WikiPageDetail>> createPage(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long spaceId,
       @Valid @RequestBody CreatePageRequest req) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(pageService.create(callerId, spaceId, req));
+        .body(withUrl(pageService.create(callerId, spaceId, req)));
   }
 
   /** 「HTML 문서」 페이지 만들기(WP-1307) — 원본 HTML 을 그대로 보관하는 페이지. EDITOR 이상, 원본 5MB 초과 413. */
   @PostMapping("/spaces/{id}/html-pages")
-  public ResponseEntity<WikiPageDetail> createHtmlPage(
+  public ResponseEntity<WithWebUrl<WikiPageDetail>> createHtmlPage(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long spaceId,
       @Valid @RequestBody CreateHtmlPageRequest req) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(htmlPageService.create(callerId, spaceId, req));
+        .body(withUrl(htmlPageService.create(callerId, spaceId, req)));
+  }
+
+  /** 만든 페이지 응답에 화면 주소(/wiki/spaces/{spaceId}/pages/{id})를 붙인다(WP-1523). */
+  private WithWebUrl<WikiPageDetail> withUrl(WikiPageDetail page) {
+    return WithWebUrl.of(page, webLinks.wikiPage(page.spaceId(), page.id()));
   }
 }

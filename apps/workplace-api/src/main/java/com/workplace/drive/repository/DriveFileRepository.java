@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.FILE;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.file.api.AttachmentBindings;
 import com.workplace.file.storage.FileStore;
+import com.workplace.global.util.AppWebLinks;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -44,6 +45,9 @@ public class DriveFileRepository {
    */
   private final AttachmentBindings attachmentBindings;
 
+  /** 파일 행의 화면 주소(url, WP-1523)를 만든다 — 목록·생성·이름 바꾸기 등 모든 파일 행이 이 매퍼를 지나므로 여기서 한 번에 싣는다. */
+  private final AppWebLinks webLinks;
+
   /**
    * fileId 를 가리키는 drive_file(휴지통 포함) 또는 drive_file_version 이 있는지(WP-722). 둘 다 file 에 NO ACTION FK
    * 라, 있으면 file 행을 지울 수 없다.
@@ -72,7 +76,8 @@ public class DriveFileRepository {
 
   /**
    * listInFolder/searchByName/findResponse 세 projection 이 동일하게 중복하던 DriveFileResponse 생성 로직을 단일화한
-   * 매퍼(#739). 각 projection 은 FILE.STORAGE_PATH 를 반드시 select 해야 한다.
+   * 매퍼(#739). 각 projection 은 FILE.STORAGE_PATH 와 DRIVE_FILE.SPACE_ID(화면 주소용, WP-1523)를 반드시 select
+   * 해야 한다.
    */
   private DriveFileResponse toResponse(Record r) {
     return new DriveFileResponse(
@@ -86,7 +91,9 @@ public class DriveFileRepository {
         r.get(DRIVE_FILE.CREATED_AT),
         r.get(DRIVE_FILE.UPDATED_AT),
         r.get(DRIVE_FILE.VERSION_COUNT),
-        fileStore.exists(r.get(FILE.STORAGE_PATH)));
+        fileStore.exists(r.get(FILE.STORAGE_PATH)),
+        webLinks.driveFile(
+            r.get(DRIVE_FILE.SPACE_ID), r.get(DRIVE_FILE.FOLDER_ID), r.get(DRIVE_FILE.ID)));
   }
 
   public long insert(long spaceId, Long folderId, long fileId, String name) {
@@ -259,7 +266,8 @@ public class DriveFileRepository {
                 DRIVE_FILE.CREATED_AT,
                 DRIVE_FILE.UPDATED_AT,
                 DRIVE_FILE.VERSION_COUNT,
-                FILE.STORAGE_PATH)
+                FILE.STORAGE_PATH,
+                DRIVE_FILE.SPACE_ID)
             .from(DRIVE_FILE)
             .join(FILE)
             .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
@@ -285,7 +293,8 @@ public class DriveFileRepository {
             DRIVE_FILE.CREATED_AT,
             DRIVE_FILE.UPDATED_AT,
             DRIVE_FILE.VERSION_COUNT,
-            FILE.STORAGE_PATH)
+            FILE.STORAGE_PATH,
+            DRIVE_FILE.SPACE_ID)
         .from(DRIVE_FILE)
         .join(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
@@ -439,7 +448,8 @@ public class DriveFileRepository {
             DRIVE_FILE.CREATED_AT,
             DRIVE_FILE.UPDATED_AT,
             DRIVE_FILE.VERSION_COUNT,
-            FILE.STORAGE_PATH)
+            FILE.STORAGE_PATH,
+            DRIVE_FILE.SPACE_ID)
         .from(DRIVE_FILE)
         .join(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))

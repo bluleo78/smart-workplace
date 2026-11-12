@@ -314,3 +314,13 @@ describe('normalizeIssueDetail 코멘트 반응 (WP-812)', () => {
     expect('reactions' in comments[3]).toBe(false);
   });
 });
+
+describe('normalizeIssueDetail url (WP-1523)', () => {
+  // 서버가 준 화면 주소를 issueKey 바로 뒤에 옮긴다 — AI 가 본문에 주소를 지어내지 않고 이 값을 쓴다.
+  it('서버 url 을 그대로 싣고, 없으면 키가 없다', () => {
+    const d = normalizeIssueDetail({ ...raw, url: 'https://works.example.com/projects/WP/issues/12' });
+    expect(d.url).toBe('https://works.example.com/projects/WP/issues/12');
+    expect(Object.keys(d).slice(0, 2)).toEqual(['issueKey', 'url']);
+    expect(normalizeIssueDetail(raw)).not.toHaveProperty('url');
+  });
+});

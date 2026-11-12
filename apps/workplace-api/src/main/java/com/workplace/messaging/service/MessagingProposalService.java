@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.messaging.dto.ConfirmProposalRequest;
@@ -245,7 +246,7 @@ public class MessagingProposalService {
             .findRef(row.messageId())
             .map(MessageRepository.MessageRef::parentMessageId)
             .orElse(null);
-    String url = "/projects/" + issue.projectKey() + "/issues/" + issue.number();
+    String url = AppWebLinks.issuePath(issue.projectKey(), issue.number());
     String resultBody =
         "✅ **" + issueKey + "** 「" + title + "」 만들었어요. 제가 맡았습니다 → [이슈 보기](" + url + ")";
     long resultMsgId =

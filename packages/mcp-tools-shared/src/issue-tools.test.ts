@@ -394,6 +394,29 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
+  // WP-1523: 서버가 준 화면 주소(url)를 결과에 옮긴다 — AI 가 본문에 주소를 지어내지 않고 이 값을 쓴다. 서버가 안 주면(공개 웹 주소 미설정) 키가 없다.
+  it('WP-1523: create_issue 결과에 서버가 준 url 을 싣고, 없으면 키가 없다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ projectKey: 'WP', number: 80, title: '새 이슈', url: 'https://works.example.com/projects/WP/issues/80' });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: '새 이슈' })));
+    expect(out.issueKey).toBe('WP-80');
+    expect(out.url).toBe('https://works.example.com/projects/WP/issues/80');
+    vi.mocked(c.createIssue).mockResolvedValue({ projectKey: 'WP', number: 81, title: 'x' });
+    expect(JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: 'x' })))).not.toHaveProperty('url');
+  });
+
+  // WP-1523: update_issue 는 내용 PATCH 응답의 화면 주소(url)를 결과에 옮긴다 — 내용을 고치지 않았으면 키가 없다.
+  it('WP-1523: update_issue 결과에 내용 수정 응답의 url 을 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.updateIssueContent).mockResolvedValue({ summary: { number: 12 }, url: 'https://works.example.com/projects/WP/issues/12' });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '고친 제목' })));
+    expect(out).toMatchObject({ ok: true, url: 'https://works.example.com/projects/WP/issues/12' });
+    vi.mocked(c.updateIssueContent).mockResolvedValue(undefined);
+    expect(JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: 'x' })))).not.toHaveProperty('url');
+  });
+
   it('WP-356: create_issue 는 모르는 마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;

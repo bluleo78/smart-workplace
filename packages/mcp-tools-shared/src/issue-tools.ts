@@ -1,4 +1,5 @@
 // src/issue-tools.ts — 두 앱 공유 이슈 도구 13종(WP-800: claim_issue 추가, WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+import { LINK_RULE_AUTOLINK } from './link-rule.js';
 import { normalizeTimezone } from './calendar-tools.js';
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
@@ -228,7 +229,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'Creates an issue (이슈) in projectKey. type, milestone, cycles, components, assignees (usernames, "me" = caller): names ' +
         'from get_project; unknown fail before creating, listing allowed values. labels too, but unknown labels are ' +
         'created (gray; createdLabels). New assignees are notified; an assigned AI starts working ' +
-        '(not agentRuntime INTERNAL, which ignore other AIs\' actions).',
+        '(not agentRuntime INTERNAL, which ignore other AIs\' actions).' +
+        LINK_RULE_AUTOLINK,
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, components, fixVersions, affectsVersions, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -293,7 +295,10 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           }
         }
         const created = toIssueListItem(createdRaw);
-        return JSON.stringify(dropEmpty({ ...created, ...createdLabelsField(labelPart), versionsError, cyclesError }));
+        // WP-1523: 서버가 준 화면 주소를 issueKey 바로 뒤에 싣는다 — 목록 행 뷰(toIssueListItem)에는 넣지 않는다(목록은 키로 충분, 행마다 토큰이 는다).
+        const { issueKey, ...restCreated } = created;
+        const url = typeof createdRaw.url === 'string' && createdRaw.url ? createdRaw.url : undefined;
+        return JSON.stringify(dropEmpty({ issueKey, url, ...restCreated, ...createdLabelsField(labelPart), versionsError, cyclesError }));
       },
     },
     {
@@ -306,7 +311,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'reporter (username, humans only; open projects: non-members too): project OWNER/ADMIN or current reporter only. ' +
         'Names (type, milestone, cycles, components, fields) from get_project; unknown fail before any write. Unknown labels are created ' +
         '(gray; createdLabels). Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
-        'Status/priority changes notify assignees, watchers, new assignees. agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.',
+        'Status/priority changes notify assignees, watchers, new assignees. agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.' +
+        LINK_RULE_AUTOLINK,
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, status, type, parent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
@@ -346,6 +352,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         // 2) 필드별 팬아웃 — 각 단계 독립 저장, 성공/실패 구조화.
         const results: Record<string, string> = {};
+        let url: string | undefined;
 
         // 모르는 상태 이름은 어떤 쓰기보다 먼저 실패해야 한다 — 담당자·라벨 등만 바뀐 반쯤 고친 이슈를 남기지 않게.
         // 이름은 서버가 내용 PATCH 에서 해석·거절하므로 보통은 내용 PATCH 를 맨 앞에 두는 것으로 충분하다(아래 contentFirst).
@@ -375,7 +382,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (milestoneId !== undefined) content.milestoneId = milestoneId;
         if (milestone === null) content.clearMilestone = true;
         if (Object.keys(content).length > 0) {
-          await run('content', () => client.updateIssueContent(issueKey, content));
+          await run('content', async () => {
+            // WP-1523: 내용 PATCH 응답(상세)에 서버가 실은 화면 주소를 결과에 옮긴다. 내용을 고치지 않은 호출에는 없다.
+            const updated = (await client.updateIssueContent(issueKey, content)) as { url?: unknown } | null | undefined;
+            if (typeof updated?.url === 'string' && updated.url) url = updated.url;
+          });
           // 상태 이름을 실은 내용 PATCH 가 실패했으면(모르는 이름 400 등) 나머지는 쓰지 않는다 — 이 앞의 쓰기는 첨부·링크뿐이고 그때는 이름을 미리 확인했다.
           if (statusName !== undefined && results.content !== 'ok') return JSON.stringify({ ok: false, results });
         }
@@ -403,7 +414,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         const ok = Object.values(results).every((v) => v === 'ok');
         // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.
-        return JSON.stringify({ ok, results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });
+        return JSON.stringify({ ok, ...(url && { url }), results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });
       },
     },
     {
@@ -468,7 +479,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Posts to an issue (이슈) chat without changing work state (replies, answers to @mentions); any issue you can write to. ' +
-        '@username mentions notify. State changes: report_agent_work.',
+        '@username mentions notify. State changes: report_agent_work.' +
+        LINK_RULE_AUTOLINK,
       inputSchema: addIssueChatInput,
       async handler(args) {
         const { issueKey, body } = addIssueChatInput.parse(args);
@@ -485,7 +497,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Adds a Markdown comment to an issue (이슈); the caller starts watching it. Assignees and watchers are notified, @username mentions ' +
-        'too; an assigned AI agent may reply.',
+        'too; an assigned AI agent may reply.' +
+        LINK_RULE_AUTOLINK,
       inputSchema: addCommentInput,
       async handler(args) {
         const { issueKey, body } = addCommentInput.parse(args);
@@ -501,7 +514,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         `Replaces an issue comment body (its author only; a project OWNER can delete but not edit others' comments). commentId: comments[].id from get_issue_detail ` +
-        `(latest ${ISSUE_DETAIL_COMMENT_LIMIT}; allComments:true: up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}).`,
+        `(latest ${ISSUE_DETAIL_COMMENT_LIMIT}; allComments:true: up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}).` +
+        LINK_RULE_AUTOLINK,
       inputSchema: editCommentInput,
       async handler(args) {
         const { issueKey, commentId, body } = editCommentInput.parse(args);

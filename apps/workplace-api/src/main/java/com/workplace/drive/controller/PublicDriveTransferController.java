@@ -101,7 +101,8 @@ public class PublicDriveTransferController {
                 body,
                 ClientIpExtractor.extract(request),
                 request.getHeader(HttpHeaders.USER_AGENT));
-        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        // WP-1523: 공개(로그인 없는) 응답이라 내부 공간 id 가 든 화면 주소는 싣지 않는다.
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved.withoutUrl());
       }
     } finally {
       TenantContext.clear();

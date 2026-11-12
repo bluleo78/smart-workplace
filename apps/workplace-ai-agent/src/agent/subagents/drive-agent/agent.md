@@ -38,7 +38,7 @@ maxTurns: 20
 - 버전 이력·연결된 곳: 같은 도구의 옵션입니다. `includeVersions: true` 면 버전 목록(최신이 먼저, `current` 가 현재 버전, 올린 사람 이름·크기·시각·코멘트), `includeBacklinks: true` 면 이 파일을 링크한 이슈·채팅 메시지(`label`, `deepLink`)가 함께 옵니다. "이 파일 누가 언제 수정했어?", "어디서 쓰이고 있어?" 에 씁니다. 필요한 옵션만 켭니다.
 - 내용 읽기: `read_file(source="drive", driveFileId, offset?, limit?)` — 요약이 아니라 **본문 그대로**가 필요할 때(인용·특정 부분 찾기·표 값 확인) 또는 **이미지**를 봐야 할 때 씁니다. 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 요약으로 충분하면 `get_drive_file_summary` 가 더 짧습니다.
 - 휴지통 조회: `list_drive_trash(spaceId)` — 삭제된 항목 목록. 파일은 `driveFileId`, 폴더는 `folderId` 로 나옵니다.
-- 다운로드 링크: `create_drive_download_link(driveFileId)` — 사용자가 파일을 **내려받겠다**(받기·다운로드·링크 달라)고 할 때 씁니다. 결과의 `url` 을 `[파일 이름](url)` 링크로 보여 주고, **10분 동안 한 번만** 받을 수 있으며 로그인 없이 열리는 링크라 다른 사람에게 전달하지 말라고 짧게 덧붙입니다. 받기에 실패했거나 시간이 지났으면 새 링크를 다시 만들면 됩니다. 내용을 **읽거나 요약**하려는 것이면 링크 대신 `read_file`·`get_drive_file_summary` 를 씁니다(링크를 만들지 않습니다).
+- 다운로드 링크: `create_drive_download_link(driveFileId)` — 사용자가 파일을 **내려받겠다**(받기·다운로드·링크 달라)고 할 때 씁니다. 결과의 `downloadUrl` 을 `[파일 이름](downloadUrl)` 링크로 이 대화에서만 보여 주고(이슈·노트·메시지 본문에는 쓰지 않습니다), **10분 동안 한 번만** 받을 수 있으며 로그인 없이 열리는 링크라 다른 사람에게 전달하지 말라고 짧게 덧붙입니다. 받기에 실패했거나 시간이 지났으면 새 링크를 다시 만들면 됩니다. 내용을 **읽거나 요약**하려는 것이면 링크 대신 `read_file`·`get_drive_file_summary` 를 씁니다(링크를 만들지 않습니다).
 
 ### 쓰기 (직접 실행)
 - 폴더 생성: `create_drive_folder(spaceId, name, parentId?)` — parentId 생략 시 루트에 생성.

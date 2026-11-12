@@ -7,7 +7,9 @@ import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.dto.InviteAttendeesRequest;
 import com.workplace.calendar.dto.RsvpRequest;
 import com.workplace.calendar.service.CalendarEventService;
+import com.workplace.global.dto.WithWebUrl;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.util.AppWebLinks;
 import jakarta.validation.Valid;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -25,6 +27,9 @@ import org.springframework.web.bind.annotation.*;
 @RequirePermission("calendar:read")
 public class CalendarEventController {
   private final CalendarEventService service;
+
+  /** 화면 주소(WP-1523) — 단건 조회·생성·수정 응답에 url 로 싣는다. */
+  private final AppWebLinks webLinks;
 
   /** [from,to) 와 겹치는 내 일정 목록. */
   @GetMapping
@@ -47,9 +52,9 @@ public class CalendarEventController {
 
   /** 단건 조회. */
   @GetMapping("/{id}")
-  public ResponseEntity<CalendarEventResponse> get(
+  public ResponseEntity<WithWebUrl<CalendarEventResponse>> get(
       @AuthenticationPrincipal Long callerId, @PathVariable long id) {
-    return ResponseEntity.ok(service.get(callerId, id));
+    return ResponseEntity.ok(withUrl(service.get(callerId, id)));
   }
 
   /**
@@ -58,11 +63,12 @@ public class CalendarEventController {
    */
   @PostMapping
   @RequirePermission("calendar:write")
-  public ResponseEntity<CalendarEventResponse> create(
+  public ResponseEntity<WithWebUrl<CalendarEventResponse>> create(
       @AuthenticationPrincipal Long callerId,
       @Valid @RequestBody CalendarEventRequest req,
       @RequestParam(defaultValue = "true") boolean notify) {
-    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req, notify));
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(withUrl(service.create(callerId, req, notify)));
   }
 
   /**
@@ -71,14 +77,14 @@ public class CalendarEventController {
    */
   @PatchMapping("/{id}")
   @RequirePermission("calendar:write")
-  public ResponseEntity<CalendarEventResponse> update(
+  public ResponseEntity<WithWebUrl<CalendarEventResponse>> update(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
       @Valid @RequestBody CalendarEventRequest req,
       @RequestParam(defaultValue = "ALL") EditScope scope,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           OffsetDateTime occurrenceDate) {
-    return ResponseEntity.ok(service.update(callerId, id, req, scope, occurrenceDate));
+    return ResponseEntity.ok(withUrl(service.update(callerId, id, req, scope, occurrenceDate)));
   }
 
   /** RSVP 응답. 참석자 본인만 가능(비참석자 → 404 은닉). calendar:read 권한으로 충분(쓰기 권한 없는 참석자도 응답 가능). */
@@ -123,5 +129,12 @@ public class CalendarEventController {
           OffsetDateTime occurrenceDate) {
     service.delete(callerId, id, scope, occurrenceDate);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 일정 응답에 화면 주소(/calendar?eventId={id})를 붙인다(WP-1523). 단건 조회·생성·수정은 늘 실제 일정 행을 돌려준다(가상 회차가 아니다).
+   */
+  private WithWebUrl<CalendarEventResponse> withUrl(CalendarEventResponse e) {
+    return WithWebUrl.of(e, webLinks.calendarEvent(e.id()));
   }
 }

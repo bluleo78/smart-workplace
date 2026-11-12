@@ -56,6 +56,7 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.RunnerTokenAuthenticator;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.home.controller.HomeChatController;
 import com.workplace.home.controller.HomeSessionController;
 import com.workplace.home.service.HomeChatService;
@@ -185,6 +186,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     })
 @Import({
   AlwaysActiveTenantStatusChecker.class,
+  // 화면 주소(WP-1523) — 이슈·노트·일정 컨트롤러가 응답 url 을 만든다. 설정값만 읽는 빈이라 목 대신 실제로 올린다.
+  AppWebLinks.class,
   ApiKeyAuthenticationFilter.class,
   JwtAuthenticationFilter.class,
   MailExceptionHandler.class,

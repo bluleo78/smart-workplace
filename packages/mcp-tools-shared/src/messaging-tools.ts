@@ -5,6 +5,7 @@
 // WP-355: 채널 참여(join_channel)·리액션·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
 // 리액션 추가·제거는 reaction-tools.ts 의 react 가 한다(WP-421 에서 합치고 WP-812 에서 이슈 코멘트 반응까지 한 도구로).
 // 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(AI Chat 확인 카드도 아직 없음). 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
+import { LINK_RULE_AUTOLINK } from './link-rule.js';
 import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, reactionSummary, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -452,7 +453,7 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
-      description: `${ADD_CHANNEL_MESSAGE_DESCRIPTION} ${ADD_CHANNEL_MESSAGE_ATTACHMENTS_DESCRIPTION}`,
+      description: `${ADD_CHANNEL_MESSAGE_DESCRIPTION} ${ADD_CHANNEL_MESSAGE_ATTACHMENTS_DESCRIPTION}${LINK_RULE_AUTOLINK}`,
       inputSchema: addChannelMessageInput,
       async handler(args) {
         const { channelId, body, fileIds, driveFileIds } = addChannelMessageInput.parse(args);
@@ -549,7 +550,8 @@ export function buildMessagingTools(
       hints: { destructive: true, idempotent: true },
       description:
         'Replaces the body of my own message (any age, replies too) with new Markdown; it shows as edited and the old text is lost. Mention with ' +
-        '@username as in add_channel_message; edits send no notification.',
+        '@username as in add_channel_message; edits send no notification.' +
+        LINK_RULE_AUTOLINK,
       inputSchema: updateChannelMessageInput,
       async handler(args) {
         const { messageId, body } = updateChannelMessageInput.parse(args);

@@ -465,6 +465,8 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
             .andExpect(jsonPath("$.mimeType").value("text/markdown"))
             .andExpect(jsonPath("$.sizeBytes").value(content.length))
             .andExpect(jsonPath("$.versionCount").value(1))
+            // WP-1523: 로그인 없는 공개 응답에는 내부 공간 id 가 든 화면 주소(url)를 싣지 않는다.
+            .andExpect(jsonPath("$.url").doesNotExist())
             .andReturn()
             .getResponse()
             .getContentAsString();
