@@ -123,7 +123,10 @@ import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectMemberGroup;
+import com.workplace.jooq.tables.ProjectReport;
+import com.workplace.jooq.tables.ProjectReportSetting;
 import com.workplace.jooq.tables.ProjectStatus;
+import com.workplace.jooq.tables.ProjectStatusSummary;
 import com.workplace.jooq.tables.ProjectVersion;
 import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.PushVapidKey;
@@ -774,9 +777,24 @@ public class Tables {
     public static final ProjectMemberGroup PROJECT_MEMBER_GROUP = ProjectMemberGroup.PROJECT_MEMBER_GROUP;
 
     /**
+     * The table <code>public.project_report</code>.
+     */
+    public static final ProjectReport PROJECT_REPORT = ProjectReport.PROJECT_REPORT;
+
+    /**
+     * The table <code>public.project_report_setting</code>.
+     */
+    public static final ProjectReportSetting PROJECT_REPORT_SETTING = ProjectReportSetting.PROJECT_REPORT_SETTING;
+
+    /**
      * The table <code>public.project_status</code>.
      */
     public static final ProjectStatus PROJECT_STATUS = ProjectStatus.PROJECT_STATUS;
+
+    /**
+     * The table <code>public.project_status_summary</code>.
+     */
+    public static final ProjectStatusSummary PROJECT_STATUS_SUMMARY = ProjectStatusSummary.PROJECT_STATUS_SUMMARY;
 
     /**
      * The table <code>public.project_version</code>.

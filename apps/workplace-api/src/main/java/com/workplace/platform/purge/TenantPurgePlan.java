@@ -92,6 +92,11 @@ public final class TenantPurgePlan {
           PROJECT_ISSUE_SEQUENCE,
           // 프로젝트 상태 AI 요약(WP-1479) — project 보다 먼저. 저장소가 SQL 로 다뤄 jOOQ 코드젠 클래스가 없어 이름으로 가리킨다
           DSL.table(DSL.name("project_status_summary")),
+          // 프로젝트 리포트(WP-1483) — 회차(project_report)는 wiki_page·project 를, 설정은 project·wiki_page 를
+          // 참조하므로 둘보다 먼저.
+          // 코드젠 클래스 없이 이름으로 가리킨다
+          DSL.table(DSL.name("project_report")),
+          DSL.table(DSL.name("project_report_setting")),
           ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)
           ISSUE_TYPE_DEF,
           PROJECT_STATUS,

@@ -19,7 +19,10 @@ import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
+import com.workplace.jooq.tables.ProjectReport.ProjectReportPath;
+import com.workplace.jooq.tables.ProjectReportSetting.ProjectReportSettingPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
+import com.workplace.jooq.tables.ProjectStatusSummary.ProjectStatusSummaryPath;
 import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
@@ -424,6 +427,32 @@ public class Project extends TableImpl<ProjectRecord> {
         return _projectMember;
     }
 
+    private transient ProjectReportPath _projectReport;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report</code> table
+     */
+    public ProjectReportPath projectReport() {
+        if (_projectReport == null)
+            _projectReport = new ProjectReportPath(this, null, Keys.PROJECT_REPORT__PROJECT_REPORT_PROJECT_ID_FKEY.getInverseKey());
+
+        return _projectReport;
+    }
+
+    private transient ProjectReportSettingPath _projectReportSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report_setting</code> table
+     */
+    public ProjectReportSettingPath projectReportSetting() {
+        if (_projectReportSetting == null)
+            _projectReportSetting = new ProjectReportSettingPath(this, null, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_PROJECT_ID_FKEY.getInverseKey());
+
+        return _projectReportSetting;
+    }
+
     private transient ProjectStatusPath _projectStatus;
 
     /**
@@ -435,6 +464,19 @@ public class Project extends TableImpl<ProjectRecord> {
             _projectStatus = new ProjectStatusPath(this, null, Keys.PROJECT_STATUS__PROJECT_STATUS_PROJECT_ID_FKEY.getInverseKey());
 
         return _projectStatus;
+    }
+
+    private transient ProjectStatusSummaryPath _projectStatusSummary;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_status_summary</code> table
+     */
+    public ProjectStatusSummaryPath projectStatusSummary() {
+        if (_projectStatusSummary == null)
+            _projectStatusSummary = new ProjectStatusSummaryPath(this, null, Keys.PROJECT_STATUS_SUMMARY__PROJECT_STATUS_SUMMARY_PROJECT_ID_FKEY.getInverseKey());
+
+        return _projectStatusSummary;
     }
 
     private transient ProjectVersionPath _projectVersion;
@@ -487,6 +529,7 @@ public class Project extends TableImpl<ProjectRecord> {
     @Override
     public List<Check<ProjectRecord>> getChecks() {
         return Arrays.asList(
+            Internal.createCheck(this, DSL.name("project_status_summary_interval_check"), "((status_summary_interval = ANY (ARRAY['H1'::text, 'H2'::text, 'H4'::text, 'DAILY'::text])))", true),
             Internal.createCheck(this, DSL.name("project_type_check"), "(((type)::text = ANY ((ARRAY['TEAM'::character varying, 'PERSONAL'::character varying, 'OPEN'::character varying])::text[])))", true)
         );
     }

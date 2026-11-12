@@ -55,6 +55,7 @@ import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload
 import { useWikiLinkUi } from './useWikiLinkUi'
 import { useWikiRevisionHistory } from './useWikiRevisionHistory'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
+import { aiAttributionLabel } from './wikiAiAttribution'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { insertAiMarkdown } from './wikiAiInsert'
 import { announceAiWriting } from './wikiAiPresence'
@@ -1083,6 +1084,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         aiState={previewing ? 'previewing' : aiState}
         aiBusy={aiBusy}
         aiAttributed={page.aiLastUsedAt != null}
+        // 리포트(WP-1483)면 「AI 작성」 / 「AI 작성 · {이름} 수정 {시각}」, 그 밖은 null(「AI 생성」 그대로).
+        aiLabel={aiAttributionLabel(page, new Date())}
         pagePath={pagePath}
         // 경로 시작점 = 공간(§B-1, WP-979). 공유 링크 화면은 공간을 모르므로 공유한 맨 위 페이지부터 보인다.
         spaceCrumb={spaceCrumb}

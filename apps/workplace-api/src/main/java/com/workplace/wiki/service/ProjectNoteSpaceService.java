@@ -101,24 +101,11 @@ public class ProjectNoteSpaceService {
     spaces.setLinkedProject(spaceId, projectId);
     syncMembers(project, spaceId, actorId);
     pageService.createWithoutRoleCheck(
-        reportAuthor(project), spaceId, new CreatePageRequest(null, REPORT_TITLE));
+        // 「리포트」 작성자 — 리포트·템플릿과 같은 규칙.
+        projects.findReportAuthor(project.id(), project.ownerId()),
+        spaceId,
+        new CreatePageRequest(null, REPORT_TITLE));
     return Optional.of(spaceId);
-  }
-
-  /**
-   * 「리포트」 작성자 — 프로젝트 소유자(project.owner_id)가 지금도 프로젝트 직접 멤버면 그 사람, 아니면(백필 때 이미 떠났으면) 지금 OWNER 멤버 중
-   * 가장 작은 id, OWNER 멤버가 없을 때만 owner_id 로 돌아간다. 떠난 사람이 새 공간의 첫 페이지 작성자로 보이지 않게.
-   */
-  private long reportAuthor(ProjectInfo project) {
-    Map<Long, String> roles = projects.findDirectMemberRoles(project.id());
-    if (roles.containsKey(project.ownerId())) {
-      return project.ownerId();
-    }
-    return roles.entrySet().stream()
-        .filter(e -> OWNER.equals(e.getValue()))
-        .map(Map.Entry::getKey)
-        .min(Long::compare)
-        .orElse(project.ownerId());
   }
 
   /**
@@ -264,11 +251,35 @@ public class ProjectNoteSpaceService {
     }
   }
 
-  /** 자동 공간 맨 위 페이지 중 제목이 「리포트」인 것(여럿이면 먼저 만든 것). 지웠거나 이름을 바꿨으면 empty — 옮길 것이 없다. */
-  private Optional<Long> findReportPage(long spaceId) {
+  /**
+   * 공간 맨 위 페이지 중 제목이 「리포트」인 것(여럿이면 먼저 만든 것). 지웠거나 이름을 바꿨으면 empty — 연결 때는 옮길 것이 없고, 리포트 생성(WP-1483)은
+   * {@link #ensureReportPage} 로 새로 만든다.
+   */
+  Optional<Long> findReportPage(long spaceId) {
     List<Long> roots = pages.childIdsOrdered(spaceId, null);
     Map<Long, String> titles = pages.findTitles(roots);
     return roots.stream().filter(id -> REPORT_TITLE.equals(titles.get(id))).min(Long::compare);
+  }
+
+  /**
+   * 공간의 「리포트」 페이지 id — 없으면(사람이 지웠거나 이름을 바꿨으면) 맨 위 첫 자리에 새로 만든다(WP-1483). 작성자는 부르는 쪽이 정한 사람(리포트 작성자
+   * 규칙 OWNER)이고 역할 검사는 하지 않는다 — 실행기에는 사용자 세션이 없다. 같은 패키지의 {@link WikiSystemPageWriter} 만 부른다.
+   */
+  @Transactional
+  long ensureReportPage(long spaceId, long authorId) {
+    // 같은 공간 트리 잠금으로 동시 생성이 「리포트」를 둘 만들지 않게 한다(잠근 뒤 다시 찾는다).
+    pages.lockSpaceTree(spaceId);
+    Optional<Long> found = findReportPage(spaceId);
+    if (found.isPresent()) {
+      return found.get();
+    }
+    long id =
+        pageService
+            .createWithoutRoleCheck(authorId, spaceId, new CreatePageRequest(null, REPORT_TITLE))
+            .id();
+    // 새로 만든 페이지는 맨 끝 — 처음 공간을 만들 때처럼 맨 위 첫 자리로 올린다.
+    pageService.moveAsSystem(authorId, id, null, 0);
+    return id;
   }
 
   /** key 로 공간을 둘 수 있는(지워지지 않은 TEAM·OPEN) 프로젝트를 찾는다. 없으면 404. */

@@ -21,6 +21,8 @@ function renderHeader(
     syncStatus?: SyncStatus
     onShare?: () => void
     shareTarget?: ShareTarget
+    aiAttributed?: boolean
+    aiLabel?: string | null
   } = {},
 ) {
   return renderWithProviders(
@@ -29,7 +31,8 @@ function renderHeader(
       syncStatus={props.syncStatus ?? 'live'}
       aiState="ready"
       aiBusy={false}
-      aiAttributed={false}
+      aiAttributed={props.aiAttributed ?? false}
+      aiLabel={props.aiLabel}
       pagePath={(id: number) => `/wiki/spaces/1/pages/${id}`}
       onAiAction={() => {}}
       onDelete={() => {}}
@@ -119,5 +122,28 @@ describe('WikiPageHeader 링크 복사(WP-1234)', () => {
     await user.click(screen.getByTestId('menu-send-to-chat'))
     await waitFor(() => expect(sendToChatTarget()).toBe(target))
     act(() => closeSendToChat())
+  })
+})
+
+describe('WikiPageHeader 「AI 작성」 표지(WP-1483)', () => {
+  it('리포트 문구가 있으면 「AI」 칩 자리에 그 글을 보인다', () => {
+    renderHeader({ aiAttributed: true, aiLabel: 'AI 작성 · 양동희 수정 오늘 10:12' })
+    expect(screen.getByTestId('wiki-page-ai-attribution-badge')).toHaveTextContent('AI 작성 · 양동희 수정 오늘 10:12')
+  })
+
+  it('데스크톱 표지는 「AI 작성」만 보이고 수정 정보 전체 문구는 title·스크린리더 글로 남는다(제목 우선)', () => {
+    renderHeader({ aiAttributed: true, aiLabel: 'AI 작성 · 양동희 수정 오늘 10:12' })
+    const badge = screen.getByTestId('wiki-page-ai-attribution-badge')
+    expect(badge).toHaveAttribute('title', 'AI 작성 · 양동희 수정 오늘 10:12')
+    // 눈에 보이는 글(aria-hidden)은 짧은 표지뿐이다.
+    expect(badge.querySelector('span[aria-hidden="true"]')).toHaveTextContent(/^AI 작성$/)
+    expect([...badge.querySelectorAll('.sr-only')].pop()).toHaveTextContent('AI 작성 · 양동희 수정 오늘 10:12')
+  })
+
+  it('문구가 없으면 지금처럼 「AI」 생성 칩', () => {
+    renderHeader({ aiAttributed: true, aiLabel: null })
+    const badge = screen.getByTestId('wiki-page-ai-attribution-badge')
+    expect(badge).toHaveTextContent('생성 포함')
+    expect(badge).not.toHaveTextContent('AI 작성')
   })
 })

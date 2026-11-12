@@ -91,6 +91,8 @@ export interface WikiPageDetail {
   // WP-1307: 페이지 종류와 「HTML 문서」 원본. HTML 페이지면 body 는 원본에서 뽑은 글자(검색·AI 용)이고 화면은 html 을 그린다. 노트면 html 은 null.
   kind?: WikiPageKind
   html?: string | null
+  // WP-1483: 마지막으로 고친 사람의 표시 이름 — 노트 머리 「AI 작성 · {이름} 수정」. 노트를 여는 조회만 채우고 저장 응답 등은 null, 구버전 서버엔 없다.
+  updatedByName?: string | null
 }
 
 // 멘션 참조 종류 — 본문 토큰(<@id>·<#page:id>·<#issue:id>) 의 대상 타입.

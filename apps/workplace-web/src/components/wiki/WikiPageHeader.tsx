@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 
 import { isAccessLost, isTerminalStatus, type SyncStatus } from '../../lib/collab/collabStatus'
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
+import { shortAiAttributionLabel } from './wikiAiAttribution'
 import { WikiSyncStatusChip } from './WikiSyncStatusChip'
 
 /**
@@ -58,6 +59,7 @@ export function WikiPageHeader({
   aiState,
   aiBusy,
   aiAttributed,
+  aiLabel = null,
   pagePath,
   spaceCrumb,
   onAiAction,
@@ -83,6 +85,12 @@ export function WikiPageHeader({
   // #736: 이 페이지에 AI 생성 이력이 있는지 — 우측 AI 액션 버튼(기능 트리거)과는 별개로 좌측
   // 브레드크럼 옆에 콘텐츠 출처 신호를 노출한다(중첩 판정은 설계 문서 §5 참고).
   aiAttributed: boolean
+  /**
+   * AI 가 페이지 전체를 쓴 노트(리포트, WP-1483)의 출처 문구 — 「AI 작성」 / 「AI 작성 · 양동희 수정 오늘 10:12」.
+   * 있으면 「AI 생성」 칩 자리에 이 글을 보인다(모바일·데스크톱 모두). 없으면(null) 지금처럼 aiAttributed 로 「AI 생성」.
+   * AI 사용 이력이 있는 페이지에서만 나오므로 aiAttributed 가 참일 때만 넘긴다.
+   */
+  aiLabel?: string | null
   /** 같은 노트 안 페이지 주소 — 경로의 조상 항목이 이 주소로 가는 링크가 된다(공유 화면이면 공유 링크 안 주소). */
   pagePath: (pageId: number) => string
   /** 경로 시작점인 공간(§B-1 「시작점」, WP-979). 공유 링크 화면은 공간을 볼 수 없어 넘기지 않는다 — 공유한 맨 위 페이지가 시작점이다. */
@@ -118,6 +126,45 @@ export function WikiPageHeader({
   shareTarget?: ShareTarget
 }) {
   const isMobile = useIsMobile()
+  // 출처 표지(모바일 제목 옆 칩·데스크톱 경로 뒤 칩)의 문구를 한 번에 정한다 — 리포트(WP-1483)면 aiLabel 의 「AI 작성」 문구,
+  // 아니면 AI 생성 이력(#736)의 「AI 생성」. 리포트 모바일 칩은 좁은 폭이라 짧은 표지만 보이고 전체 문구는 title·스크린리더 글로 둔다.
+  const aiBadge = aiLabel
+    ? {
+        mobileTitle: aiLabel,
+        mobileText: (
+          <>
+            <span aria-hidden="true">{shortAiAttributionLabel(aiLabel)}</span>
+            <span className="sr-only">{aiLabel}</span>
+          </>
+        ),
+        // 데스크톱 경로 칸은 좁게 묶여 있어(#830) 제목이 우선이다 — 칩은 항상 짧은 「AI 작성」만 보이고,
+        // 「{이름} 수정 {시각}」 같은 수정 정보를 담은 전체 문구는 호버(title)·스크린리더 글로 둔다.
+        desktopReason: aiLabel,
+        desktopClassName: 'whitespace-nowrap',
+        desktopText: (
+          <>
+            <span aria-hidden="true">AI 작성</span>
+            <span className="sr-only">{aiLabel}</span>
+          </>
+        ),
+      }
+    : aiAttributed
+      ? {
+          mobileTitle: 'AI가 생성한 콘텐츠를 포함합니다',
+          mobileText: (
+            <>
+              AI 생성<span className="sr-only"> 콘텐츠 포함</span>
+            </>
+          ),
+          desktopReason: 'AI가 생성한 콘텐츠를 포함합니다',
+          desktopClassName: undefined,
+          desktopText: (
+            <>
+              AI<span className="sr-only"> 생성 포함</span>
+            </>
+          ),
+        }
+      : null
   // 공유 링크 화면(sharedBy 있음)엔 AI 작성을 두지 않는다 — 스페이스 멤버 전용 기능이다(WP-579).
   const aiHidden = sharedBy != null
   // 모바일 상세 분기 안이면 등록(→ 레이아웃 뒤로가기 바 숨김) 후 병합 헤더로 그린다(U2-8).
@@ -371,13 +418,13 @@ export function WikiPageHeader({
                   공유 만료
                 </span>
               )}
-              {aiAttributed && (
+              {aiBadge && (
                 <span
                   data-testid="wiki-page-ai-attribution-badge"
-                  title="AI가 생성한 콘텐츠를 포함합니다"
+                  title={aiBadge.mobileTitle}
                   className={cn(aiSignalBadgeClass('info'), 'shrink-0 whitespace-nowrap text-[11px]')}
                 >
-                  AI 생성<span className="sr-only"> 콘텐츠 포함</span>
+                  {aiBadge.mobileText}
                 </span>
               )}
             </>
@@ -416,9 +463,14 @@ export function WikiPageHeader({
           aria-label="페이지 경로"
           data-testid="wiki-breadcrumb"
           trailing={
-            aiAttributed ? (
-              <AiSignalBadge variant="info" reason="AI가 생성한 콘텐츠를 포함합니다" data-testid="wiki-page-ai-attribution-badge">
-                AI<span className="sr-only"> 생성 포함</span>
+            aiBadge ? (
+              <AiSignalBadge
+                variant="info"
+                reason={aiBadge.desktopReason}
+                data-testid="wiki-page-ai-attribution-badge"
+                className={aiBadge.desktopClassName}
+              >
+                {aiBadge.desktopText}
               </AiSignalBadge>
             ) : undefined
           }

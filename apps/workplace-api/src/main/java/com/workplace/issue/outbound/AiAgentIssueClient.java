@@ -5,6 +5,8 @@ import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.issue.outbound.dto.IssueSummaryRequest;
 import com.workplace.issue.outbound.dto.IssueSummaryResult;
+import com.workplace.issue.outbound.dto.ProjectReportAiRequest;
+import com.workplace.issue.outbound.dto.ProjectReportAiResult;
 import com.workplace.issue.outbound.dto.ProjectStatusAiRequest;
 import com.workplace.issue.outbound.dto.ProjectStatusAiResult;
 import com.workplace.issue.outbound.dto.WorkProfileAiRequest;
@@ -22,18 +24,31 @@ import org.springframework.web.client.RestClientException;
 @Slf4j
 public class AiAgentIssueClient {
 
+  /**
+   * 프로젝트 리포트 AI 실행 예산(ms, WP-1483) — 20,000자 템플릿과 이슈 60건을 읽고 긴 한국어 글을 쓰므로 비서 기본 예산(60초)으로는 모자라 따로
+   * 둔다. 리포트 전용 RestClient 의 읽기 시간 제한({@link IssueAiConfig#REPORT_READ_TIMEOUT})이 이보다 길어야 API 가
+   * ai-agent 보다 먼저 포기하지 않는다.
+   */
+  public static final long PROJECT_REPORT_TIMEOUT_MS = 180_000L;
+
   /** ai-agent baseUrl 이 이미 설정된 RestClient. */
   private final RestClient restClient;
+
+  /** 프로젝트 리포트 전용 RestClient — 읽기 시간 제한이 리포트 예산보다 길다(다른 호출의 90초와 따로). */
+  private final RestClient reportRestClient;
 
   /** Internal 인증 토큰 — ai-agent 에 전달. */
   private final String internalToken;
 
   /**
-   * @param builder baseUrl·factory 가 설정된 빌더(IssueAiConfig 에서 주입)
+   * @param builder 일반 이슈 AI 호출용 빌더(IssueAiConfig 에서 주입)
+   * @param reportBuilder 프로젝트 리포트용 빌더 — 읽기 시간 제한이 {@link #PROJECT_REPORT_TIMEOUT_MS} 보다 길다
    * @param internalToken AiAgentProperties.internalToken
    */
-  public AiAgentIssueClient(RestClient.Builder builder, String internalToken) {
+  public AiAgentIssueClient(
+      RestClient.Builder builder, RestClient.Builder reportBuilder, String internalToken) {
     this.restClient = builder.build();
+    this.reportRestClient = reportBuilder.build();
     this.internalToken = internalToken;
   }
 
@@ -45,6 +60,7 @@ public class AiAgentIssueClient {
    */
   public IssueSummaryResult summarizeProgress(IssueSummaryRequest req) {
     return post(
+        restClient,
         "/issue/progress-summary",
         req,
         IssueSummaryResult.class,
@@ -60,7 +76,12 @@ public class AiAgentIssueClient {
    */
   public IssueClassifyResult classify(IssueClassifyRequest req) {
     return post(
-        "/issue/classify", req, IssueClassifyResult.class, "AI 이슈 분류 요청에 실패했어요.", "issue classify");
+        restClient,
+        "/issue/classify",
+        req,
+        IssueClassifyResult.class,
+        "AI 이슈 분류 요청에 실패했어요.",
+        "issue classify");
   }
 
   /**
@@ -71,6 +92,7 @@ public class AiAgentIssueClient {
    */
   public WorkProfileAiResult analyzeWorkProfile(WorkProfileAiRequest req) {
     return post(
+        restClient,
         "/issue/work-profile",
         req,
         WorkProfileAiResult.class,
@@ -86,6 +108,7 @@ public class AiAgentIssueClient {
    */
   public ProjectStatusAiResult summarizeProjectStatus(ProjectStatusAiRequest req) {
     return post(
+        restClient,
         "/issue/project-status",
         req,
         ProjectStatusAiResult.class,
@@ -94,14 +117,37 @@ public class AiAgentIssueClient {
   }
 
   /**
-   * 공개 메서드들이 공유하는 호출 본체 — Internal 토큰을 단 JSON POST 후 응답 본문을 type 으로 받는다. HTTP 오류·연결 실패는 로그를 남기고
-   * IssueAiException(failMessage) 으로 바꾼다. 메서드마다 같던 try/catch 를 한 곳으로 모은 것.
+   * 템플릿·계산값·이슈 목록을 보내 프로젝트 리포트 마크다운을 받는다(WP-1483). 실패 시 IssueAiException.
+   *
+   * @param req 요청 DTO(템플릿 샘플·표 행·이슈 목록·비서 사양)
+   * @return AI 가 쓴 리포트 본문 마크다운(후처리 전)
+   */
+  public ProjectReportAiResult writeProjectReport(ProjectReportAiRequest req) {
+    return post(
+        reportRestClient,
+        "/issue/project-report",
+        req,
+        ProjectReportAiResult.class,
+        "AI 리포트 작성 요청에 실패했어요.",
+        "project report");
+  }
+
+  /**
+   * 공개 메서드들이 공유하는 호출 본체 — 정한 RestClient(리포트는 시간 제한이 긴 전용)로 Internal 토큰을 단 JSON POST 후 응답 본문을 type
+   * 으로 받는다. HTTP 오류·연결 실패는 로그를 남기고 IssueAiException(failMessage) 으로 바꾼다. 메서드마다 같던 try/catch 를 한 곳으로
+   * 모은 것.
    *
    * @param logLabel 로그 접두 「ai-agent {logLabel} 실패」에 들어갈 이름
    */
-  private <T> T post(String uri, Object req, Class<T> type, String failMessage, String logLabel) {
+  private <T> T post(
+      RestClient client,
+      String uri,
+      Object req,
+      Class<T> type,
+      String failMessage,
+      String logLabel) {
     try {
-      return restClient
+      return client
           .post()
           .uri(uri)
           .header("Authorization", "Internal " + internalToken)

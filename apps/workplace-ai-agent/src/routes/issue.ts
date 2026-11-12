@@ -6,6 +6,7 @@ import { runIssueProgressSummary } from '../agent/run-issue-summary.js'
 import { issueClassifyInputSchema, runIssueClassify } from '../agent/run-issue-classify-ai.js'
 import { runWorkProfile, workProfileInputSchema } from '../agent/run-work-profile.js'
 import { projectStatusInputSchema, runProjectStatus } from '../agent/run-project-status.js'
+import { projectReportInputSchema, runProjectReport } from '../agent/run-project-report.js'
 
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
@@ -101,6 +102,21 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     } catch (e) {
       console.error('[issue-project-status] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'project_status_failed' })
+    }
+  })
+
+  // 프로젝트 리포트 본문(WP-1483) — 템플릿 샘플·계산값·이슈 목록 → 리포트 마크다운. 표·배지·링크는 API 가 후처리로 바로잡는다.
+  router.post('/issue/project-report', async (req: Request, res: Response): Promise<void> => {
+    const parsed = projectReportInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues })
+      return
+    }
+    try {
+      res.status(200).json(await runProjectReport(parsed.data, deps))
+    } catch (e) {
+      console.error('[issue-project-report] 실패:', e instanceof Error ? e.message : String(e))
+      res.status(502).json({ error: 'project_report_failed' })
     }
   })
 

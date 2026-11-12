@@ -51,6 +51,10 @@ function appHandlers(project: ProjectResponse = createProject({ key: KEY, name: 
     ),
     http.get('/api/v1/me/project-favorites', () => HttpResponse.json({ projectKeys: [KEY] })),
     http.get(`/api/v1/projects/${KEY}/overview`, () => HttpResponse.json(createProjectOverview())),
+    // 개요 리포트 줄(WP-1483) — 리포트 없음.
+    http.get(`/api/v1/projects/${KEY}/reports`, () =>
+      HttpResponse.json({ latest: null, past: [], reportsPageId: null, cadenceLabel: null }),
+    ),
   ]
 }
 

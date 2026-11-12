@@ -625,3 +625,15 @@ export function formatKstDayClock(dateStr: string | null | undefined, now: Date 
   if (kstDayRelative(t, now) === 'today') return todayLabel ? `${todayLabel} ${clock}` : clock
   return `${t.m}월 ${t.d}일 ${clock}`
 }
+
+/**
+ * 서울 기준 「월 일 (요일) 24시간 시각」 — `11월 16일 (월) 09:00`. 올해(now 기준, KST)가 아니면 `2025년 11월 16일 (월) 09:00`.
+ * 개요 카드 리포트 줄의 만든 시각(WP-1483) — 회차 날짜를 읽게 「오늘」로 줄이지 않는다. 무효 입력이면 ''.
+ */
+export function formatKstMonthDayWeekdayClock(dateStr: string | null | undefined, now: Date = new Date()): string {
+  const d = parseUtcDate(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  const t = kstParts(d)
+  const text = `${t.m}월 ${t.d}일 (${kstWeekday(t)}) ${pad2(t.h)}:${pad2(t.min)}`
+  return t.y === kstParts(now).y ? text : `${t.y}년 ${text}`
+}

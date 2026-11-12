@@ -203,6 +203,7 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                     false,
                     false,
                     WikiPageKind.NOTE,
+                    null,
                     null),
                 null));
     when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>"), isNull()))
@@ -237,6 +238,7 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                 false,
                 false,
                 WikiPageKind.NOTE,
+                null,
                 null));
     when(hydrationService.backlinks(eq(1L), eq(7L)))
         .thenReturn(

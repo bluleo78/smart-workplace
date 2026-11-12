@@ -37,6 +37,11 @@ export function projectTabPath(key: string, tab: ProjectTabId): string {
   return tab === 'issues' ? `/projects/${key}` : `/projects/${key}/${tab}`
 }
 
+/** 프로젝트 노트 탭의 페이지 주소 `/projects/:key/notes/<페이지 id>` — 개요 리포트 줄·설정 리포트 줄이 같이 쓴다. */
+export function projectNotePath(key: string, pageId: number): string {
+  return `${projectTabPath(key, 'notes')}/${pageId}`
+}
+
 /**
  * 프로젝트 화면으로 가는 이동이 router state 로 싣는 표시 — 모든 표시를 이 한 모양으로 싣고 readProjectNavState 로 읽는다
  * (표시마다 따로 캐스팅하면 이름이 어긋나도 컴파일러가 잡지 못한다). 표시는 그 이동 한 번에만 붙는다 — 화면 안 replace 에는 실리지 않는다.

@@ -108,7 +108,10 @@ import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
+import com.workplace.jooq.tables.ProjectReport.ProjectReportPath;
+import com.workplace.jooq.tables.ProjectReportSetting.ProjectReportSettingPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
+import com.workplace.jooq.tables.ProjectStatusSummary.ProjectStatusSummaryPath;
 import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.Role.RolePath;
 import com.workplace.jooq.tables.RolePermission.RolePermissionPath;
@@ -1498,6 +1501,45 @@ public class Tenant extends TableImpl<TenantRecord> {
             _projectMember = new ProjectMemberPath(this, null, Keys.PROJECT_MEMBER__FK_PROJECT_MEMBER_TENANT.getInverseKey());
 
         return _projectMember;
+    }
+
+    private transient ProjectReportSettingPath _projectReportSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report_setting</code> table
+     */
+    public ProjectReportSettingPath projectReportSetting() {
+        if (_projectReportSetting == null)
+            _projectReportSetting = new ProjectReportSettingPath(this, null, Keys.PROJECT_REPORT_SETTING__FK_PROJECT_REPORT_SETTING_TENANT.getInverseKey());
+
+        return _projectReportSetting;
+    }
+
+    private transient ProjectReportPath _projectReport;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report</code> table
+     */
+    public ProjectReportPath projectReport() {
+        if (_projectReport == null)
+            _projectReport = new ProjectReportPath(this, null, Keys.PROJECT_REPORT__FK_PROJECT_REPORT_TENANT.getInverseKey());
+
+        return _projectReport;
+    }
+
+    private transient ProjectStatusSummaryPath _projectStatusSummary;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_status_summary</code> table
+     */
+    public ProjectStatusSummaryPath projectStatusSummary() {
+        if (_projectStatusSummary == null)
+            _projectStatusSummary = new ProjectStatusSummaryPath(this, null, Keys.PROJECT_STATUS_SUMMARY__FK_PROJECT_STATUS_SUMMARY_TENANT.getInverseKey());
+
+        return _projectStatusSummary;
     }
 
     private transient ProjectPath _project;

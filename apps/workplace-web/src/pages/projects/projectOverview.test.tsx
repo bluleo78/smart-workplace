@@ -50,6 +50,10 @@ function open(path: string, overview: ProjectOverviewResponse | number = createP
           ? HttpResponse.json({ status: overview, message: '서버 오류' }, { status: overview })
           : HttpResponse.json(overview)
       }),
+      // 개요 리포트 줄(WP-1483) — 리포트 없음.
+      http.get(`/api/v1/projects/${KEY}/reports`, () =>
+        HttpResponse.json({ latest: null, past: [], reportsPageId: null, cadenceLabel: null }),
+      ),
       http.get(`/api/v1/projects/${KEY}/types`, () =>
         HttpResponse.json([makeIssueType({ id: 1, name: 'TASK' }), makeIssueType({ id: EPIC_TYPE_ID, name: 'EPIC', isSystem: true })]),
       ),

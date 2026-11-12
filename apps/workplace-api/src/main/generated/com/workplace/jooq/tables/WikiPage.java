@@ -8,6 +8,8 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Notification.NotificationPath;
+import com.workplace.jooq.tables.ProjectReport.ProjectReportPath;
+import com.workplace.jooq.tables.ProjectReportSetting.ProjectReportSettingPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.WikiHtmlDraft.WikiHtmlDraftPath;
@@ -312,6 +314,32 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _notification = new NotificationPath(this, null, Keys.NOTIFICATION__NOTIFICATION_WIKI_PAGE_ID_FKEY.getInverseKey());
 
         return _notification;
+    }
+
+    private transient ProjectReportPath _projectReport;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report</code> table
+     */
+    public ProjectReportPath projectReport() {
+        if (_projectReport == null)
+            _projectReport = new ProjectReportPath(this, null, Keys.PROJECT_REPORT__PROJECT_REPORT_PAGE_ID_FKEY.getInverseKey());
+
+        return _projectReport;
+    }
+
+    private transient ProjectReportSettingPath _projectReportSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_report_setting</code> table
+     */
+    public ProjectReportSettingPath projectReportSetting() {
+        if (_projectReportSetting == null)
+            _projectReportSetting = new ProjectReportSettingPath(this, null, Keys.PROJECT_REPORT_SETTING__PROJECT_REPORT_SETTING_TEMPLATE_PAGE_ID_FKEY.getInverseKey());
+
+        return _projectReportSetting;
     }
 
     private transient WikiHtmlDraftPath _wikiHtmlDraft;

@@ -35,6 +35,10 @@ function open(path: string, space: () => Response, extra: RequestHandler[] = [])
       ...extra,
       // 기억한 노트 탭을 못 쓰면 기본 탭(개요)으로 내려앉는다(WP-1478) — 그때 개요가 부르는 조회.
       http.get(`/api/v1/projects/${KEY}/overview`, () => HttpResponse.json(createProjectOverview())),
+      // 개요 리포트 줄(WP-1483) — 리포트 없음.
+      http.get(`/api/v1/projects/${KEY}/reports`, () =>
+        HttpResponse.json({ latest: null, past: [], reportsPageId: null, cadenceLabel: null }),
+      ),
       ...projectScreen(KEY, { project: createProject({ key: KEY, name: '워크플레이스' }) }).handlers,
       ...editorSideHandlers,
       http.get(SPACE_API, () => space()),
