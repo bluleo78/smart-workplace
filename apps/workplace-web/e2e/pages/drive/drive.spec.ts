@@ -159,7 +159,8 @@ test('파일 행 액션 — 마우스 없이 키보드 포커스만으로 노출
 // WP-643 — 단일 파일 업로드 중 버튼에 진행률(%)을 보인다. 라우트 가로채기에선 실제 전송 진행 이벤트가 한 번에 끝나므로,
 // 업로드 XHR 의 upload 객체에 42% 진행 이벤트를 직접 흘려(브라우저가 보내는 것과 같은 ProgressEvent) 표시를 확인한다.
 // 실제 XHR 업로드 진행 이벤트가 필요해 E2E 에 둔다(@platform) — jsdom+MSW 의 XHR 은 upload 진행 이벤트를 흘리지 못한다.
-test('단일 파일 업로드 중 버튼에 진행률(%)이 보이고, 끝나면 「업로드」로 돌아온다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+// WP-1531: 진행률은 오른쪽 아래 업로드 패널의 파일 행(「42% · 크기」·진행 막대)에 보이고, 단추는 「업로드 중…」으로 막힌다.
+test('단일 파일 업로드 중 패널 행에 진행률(%)과 막대가 보이고, 끝나면 「업로드」로 돌아온다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => {
     const send = XMLHttpRequest.prototype.send
     XMLHttpRequest.prototype.send = function (body) {
@@ -185,12 +186,20 @@ test('단일 파일 업로드 중 버튼에 진행률(%)이 보이고, 끝나면
   await expect(page.getByTestId('drive-page')).toBeVisible()
   await page.getByTestId('file-input').setInputFiles({ name: 'big.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(1024) })
   const btn = page.getByTestId('drive-upload')
-  await expect(btn).toHaveText('업로드 중… 42%')
+  await expect(btn).toHaveText('업로드 중…')
+  await expect(btn).toBeDisabled()
+  const row = page.getByTestId('drive-upload-panel').getByTestId('drive-upload-row')
+  await expect(row).toHaveAttribute('data-status', 'uploading')
+  await expect(row).toContainText('42%')
+  await expect(row.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42')
   resolveUpload()
   await expect(btn).toHaveText('업로드')
+  await expect(page.getByTestId('drive-upload-panel')).toContainText('1개 업로드 완료')
 })
 
-test('100MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내한다', { tag: '@layout' }, async ({ authenticatedPage: page }, testInfo) => {
+// WP-1531: 안내는 토스트가 아니라 업로드 패널의 실패 행(「100MB 초과」, 다시 시도 없음)이다.
+// 패널은 오른쪽 아래에 떠 있어 머리의 업로드 단추를 가리지 않아야 한다(#715 의 「안내가 툴바를 막지 않는다」 의도).
+test('100MB 초과 파일은 업로드 요청 없이 패널 실패 행으로 안내하고, 패널이 업로드 단추를 가리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }, testInfo) => {
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))
   // 업로드 엔드포인트가 호출되면 안 된다(클라이언트 사전 차단).
@@ -209,30 +218,27 @@ test('100MB 초과 파일은 업로드 요청 없이 클라이언트에서 안�
   truncateSync(huge, 100 * 1024 * 1024 + 1)
   await page.getByTestId('file-input').setInputFiles(huge)
 
-  await expect(page.getByText('파일 크기가 100MB를 초과합니다.')).toBeVisible()
+  const panel = page.getByTestId('drive-upload-panel')
+  const row = panel.getByTestId('drive-upload-row')
+  await expect(row).toHaveAttribute('data-status', 'failed')
+  await expect(row).toContainText('100MB 초과')
+  await expect(row.getByTestId('drive-upload-retry')).toHaveCount(0)
+  await expect(page.getByText('파일 크기가 100MB를 초과합니다.')).toHaveCount(0)
   expect(uploads.count()).toBe(0)
 
-  // #715 — 에러 토스트가 헤더 툴바(검색/새 폴더/업로드)를 가려 클릭을 막지 않아야 한다.
-  const toaster = page.locator('[data-sonner-toaster]')
-  await expect(toaster).toHaveAttribute('data-y-position', 'top')
+  // 패널은 화면 안 오른쪽 아래에 있고, 업로드 단추 가운데를 덮지 않는다.
+  await expect(panel).toBeInViewport()
   await expect(page.getByTestId('drive-upload')).toBeInViewport()
-  const uploadBox = await page.getByTestId('drive-upload').boundingBox()
-  expect(uploadBox).not.toBeNull()
-  if (uploadBox) {
-    // fixture 의 에러 토스트 포인터 통과 규칙을 걷어내고 실제 화면과 같은 조건에서 히트테스트한다 —
-    // 규칙이 남아 있으면 elementFromPoint 가 토스트를 건너뛰어 이 단언이 공허해진다(auth.fixture.ts).
-    await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
-    // 토스트가 진입 위치가 아닌 최종 위치에 자리 잡은 뒤 검사한다.
-    await expect(page.locator('[data-sonner-toast]').first()).toHaveAttribute('data-mounted', 'true')
-    const centerX = uploadBox.x + uploadBox.width / 2
-    const centerY = uploadBox.y + uploadBox.height / 2
-    // 토스트가 버튼 위에 겹쳐 있으면 elementFromPoint 가 토스트(li[data-sonner-toast])를 반환한다.
-    const coveredByToast = await page.evaluate(
-      ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-sonner-toast]') !== null,
-      [centerX, centerY],
-    )
-    expect(coveredByToast).toBe(false)
-  }
+  const uploadBox = await measureBox(page.getByTestId('drive-upload'))
+  const coveredByPanel = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid="drive-upload-panel"]') != null,
+    [uploadBox.x + uploadBox.width / 2, uploadBox.y + uploadBox.height / 2],
+  )
+  expect(coveredByPanel).toBe(false)
+  const panelBox = await measureBox(panel)
+  const viewport = page.viewportSize()!
+  expect(viewport.width - (panelBox.x + panelBox.width)).toBeLessThanOrEqual(24)
+  expect(viewport.height - (panelBox.y + panelBox.height)).toBeLessThanOrEqual(24)
 })
 
 // WP-95 — 헤더(z-45)가 토스트(z-40) 위에 그려지므로 토스트가 헤더에 걸치면 윗부분이 잘린다.
@@ -243,18 +249,23 @@ for (const width of [390, 800, 1280]) {
     await page.setViewportSize({ width, height: 844 })
     await stubSpaces(page)
     await stubItems(page, () => ({ folders: [], files: [] }))
-    // 작은 파일 + 업로드 400 → 에러 토스트. 위치만 보면 되므로 가장 가벼운 토스트 경로를 쓴다.
+    // 휴지통 화면에 끌어 오면 뜨는 안내 토스트(drive-add-blocked, WP-1167)로 잰다 — 업로드 결과는 WP-1531 부터 토스트가 아니라
+    // 업로드 패널에 보여, 요청 없이 띄울 수 있는 가장 가벼운 토스트 경로가 이것이다.
     await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
-      (route) =>
-        route.request().method() === 'POST'
-          ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ status: 400, message: '업로드 실패' }) })
-          : route.fallback(),
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/trash`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
     )
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await expect(page.getByTestId('drive-page')).toBeVisible()
-    await page.getByTestId('file-input').setInputFiles({ name: 'memo.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') })
+    // 좁은 폭은 머리 동작이 ⋯ 메뉴 안이라 메뉴를 먼저 연다.
+    const trashToggle = page.getByTestId('trash-toggle')
+    if (!(await trashToggle.isVisible())) await page.getByTestId('page-header').getByRole('button', { name: '더보기' }).click()
+    await trashToggle.click()
+    await expect(page.getByTestId('trash-view')).toBeVisible()
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+    await page.getByTestId('drive-dropzone').dispatchEvent('dragover', { dataTransfer })
+    await expect(page.getByText('휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.')).toBeVisible()
 
     // 진입 애니메이션이 아닌 최종 위치에서 잰다.
     const toast = page.locator('[data-sonner-toast]').first()

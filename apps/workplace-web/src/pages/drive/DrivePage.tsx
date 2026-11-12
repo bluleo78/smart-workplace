@@ -93,17 +93,16 @@ import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
 import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveTrashItem } from '../../types/drive'
-import { type DroppedFile,readDroppedTree } from './folderUpload'
-import { uploadLimitFor } from './uploadLimit'
+import { DriveUploadPanel } from './DriveUploadPanel'
+import { readDroppedTree } from './folderUpload'
+import { useDriveUploadQueue } from './useDriveUploadQueue'
 import { useFolderNavigation } from './useFolderNavigation'
 
-// 업로드 전 크기 안내는 파일별 상한(uploadLimitFor — 동영상 1GB, 그 외 100MB, WP-1519)으로 한다.
-// 100MB 이하의 형식별 상한(미분류 25MB 등)은 서버가 한국어 문구로 거절한다.
-
-// #658: AbortController.abort() 로 취소된 axios 요청인지 판별 — 실패 토스트 대신 취소 안내로 분기.
-function isUploadAborted(err: unknown): boolean {
-  return axios.isCancel(err)
-}
+// 모바일 선택 막대(renderMobileBulkBar) 높이 — 위 테두리 1px + 위아래 여백 py-1.5(0.75rem) + 단추 min-h-11·size-11(2.75rem).
+// 업로드 패널(fixed)이 이 막대를 가리지 않게 그만큼 올리는 데 쓴다(WP-1531). 막대의 높이 클래스를 바꾸면 이 값도 함께 바꾼다.
+// 재지 않고 상수로 둔 까닭: 막대는 한 줄 고정 높이라 값이 변하지 않고, 측정(ResizeObserver)은 첫 그리기 뒤에야 값이 와 패널이 한 번 튄다.
+// 드로워(embedded)는 막대가 하단 안전 영역만큼 더 길지만, 패널의 기본 bottom 이 이미 안전 영역을 비켜 있어 따로 더하지 않는다.
+const MOBILE_BULK_BAR_H = 'calc(3.5rem + 1px)'
 
 // 데스크톱 행 hover 액션 묶음(폴더·파일 공용) — 평소엔 숨기고 hover·키보드 포커스(group-kbd)일 때만 보인다.
 // ⋯ 메뉴가 열린 동안에도 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
@@ -297,16 +296,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 폴더 이름 Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331, WP-335 에서 함께 적용).
   const folderNameEnter = useSingleLineEnter()
 
-  // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
-  const [uploading, setUploading] = useState(false)
-  // WP-643: 단일 파일 업로드 진행률(0~100) — 큰 파일이 멈췄는지 올라가는 중인지 보이게. null 이면 아직 모름.
-  const [uploadPercent, setUploadPercent] = useState<number | null>(null)
-  // #658: 현재 업로드 배치(단일/다중/드롭)를 취소할 수 있는 AbortController.
-  // 배치 전체에 하나만 두고(개별 파일별 취소는 범위 밖) 취소 버튼에서 abort() 호출.
-  const uploadAbortRef = useRef<AbortController | null>(null)
+  // WP-1531: 업로드(버튼·끌어 놓기 공용)는 파일별 상태를 가진 큐 하나로 — 오른쪽 아래 패널이 그대로 그린다.
+  // 배치의 자리(시작한 순간의 공간·폴더)는 큐가 배치에 담아 콜백마다 넘긴다 — 올리는 중에 다른 폴더·공간으로 옮겨 가도 처음 자리로 올린다.
+  const uploadQueue = useDriveUploadQueue({
+    resolveFolder: async (root, parentId, name) => (await driveApi.resolveFolder(root.sid, parentId, name)).data.id,
+    upload: (root, targetId, file, signal, onProgress) => driveApi.uploadFile(root.sid, targetId, file, signal, onProgress),
+    // 끝나면(성공이 없어도 — 놓은 폴더는 만들어졌을 수 있다, 취소 뒤에도, 화면을 떠난 뒤에도) 업로드한 공간의 목록·사용량 캐시를 무효화한다.
+    // 지금 보는 공간이 아니라 배치의 공간이어야 옮겨 간 뒤에도 맞는 목록이 갱신된다. 선택은 풀지 않는다(clearSel 없음) — 업로드는 선택과 무관하다.
+    onSettled: (root) => {
+      void queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(root.sid) })
+      invalidateQuota()
+    },
+  })
+  // 지금 보는 곳이 올리고 있는 그 폴더인지 — 빈 폴더 안내는 여기서만 숨긴다(곧 파일이 생길 폴더). 다른 빈 폴더는 평소처럼 안내한다.
+  // 떠 있는 업로드 패널의 실제 높이(px) — 목록 스크롤 영역 아래에 그만큼(+ 패널 아래 여백) 공간을 둬 마지막 행을 가리지 않게 한다.
+  const [uploadPanelHeight, setUploadPanelHeight] = useState(0)
+  const batchRoot = uploadQueue.batch?.root
+  const uploadingHere = uploadQueue.busy && batchRoot?.sid === sid && batchRoot.folderId === (folderId ?? null)
 
-  // #82: 폴더 드래그앤드롭 업로드 상태.
-  const [dropProgress, setDropProgress] = useState<{ done: number; total: number } | null>(null)
   const [dragOver, setDragOver] = useState(false)
 
   // #82: 멀티셀렉트 상태 — 선택된 파일/폴더 id 집합 + 벌크 이동 picker 가시성.
@@ -581,68 +588,16 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
 
-  // #82: 드롭된 폴더 트리를 구조 재생(resolveFolder=merge) 후 파일을 순차 업로드.
-  // 부분 실패는 성공분 유지 + 실패 요약 토스트(롤백 없음).
-  // #658: controller.signal 로 현재 파일 요청을 취소할 수 있고, controller.signal.aborted 를
-  // 루프 조건으로 확인해 남은 파일 업로드도 시작하지 않는다(전체 취소).
-  async function uploadDroppedTree(dropped: DroppedFile[]) {
-    if (dropped.length === 0) return
-    const controller = new AbortController()
-    uploadAbortRef.current = controller
-    setDropProgress({ done: 0, total: dropped.length })
-    // 경로(상위 폴더 체인) → folderId 캐시. 루트는 현재 folderId.
-    const folderCache = new Map<string, number | null>()
-    folderCache.set('', folderId)
-    const failures: string[] = []
+  // 올리는 중에 또 올리려 하면 — 첫 배치의 컨트롤러를 덮어쓰지 않도록 막고 끝난 뒤 다시 하라고 알린다(Review Focus 1).
+  // 끌고 있는 동안 여러 번 와도 토스트는 하나만 남게 id 를 고정한다.
+  function notifyUploadBusy() {
+    toast.message('올리는 중인 파일이 끝난 뒤 다시 놓아 주세요.', { id: 'drive-upload-busy' })
+  }
 
-    async function ensureFolder(path: string[]): Promise<number | null> {
-      const key = path.join('/')
-      if (folderCache.has(key)) return folderCache.get(key)!
-      const parent = await ensureFolder(path.slice(0, -1))
-      const { data } = await driveApi.resolveFolder(sid, parent, path[path.length - 1])
-      folderCache.set(key, data.id)
-      return data.id
-    }
-
-    let done = 0
-    let cancelled = false
-    for (const d of dropped) {
-      if (controller.signal.aborted) {
-        cancelled = true
-        break
-      }
-      try {
-        const limit = uploadLimitFor(d.file)
-        if (d.file.size > limit.maxBytes) {
-          failures.push(`${d.file.name} (${limit.label} 초과)`)
-        } else {
-          const target = await ensureFolder(d.relativePath)
-          await driveApi.uploadFile(sid, target, d.file, controller.signal)
-        }
-      } catch (err) {
-        if (isUploadAborted(err)) {
-          cancelled = true
-          break
-        }
-        // 백엔드 실패 사유(크기/유형 등)를 그대로 노출 — 파일명만으론 원인 불명.
-        failures.push(`${d.file.name} (${extractApiError(err, '업로드 실패')})`)
-      } finally {
-        done += 1
-        setDropProgress({ done, total: dropped.length })
-      }
-    }
-
-    setDropProgress(null)
-    uploadAbortRef.current = null
-    invalidateQuota()
-    await reloadAndClear()
-    if (cancelled) {
-      toast.message('업로드를 취소했습니다.')
-    } else if (failures.length > 0) {
-      toast.error(`${failures.length}개 항목 업로드 실패: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? ' 외' : ''}`)
-    } else {
-      toast.success(`${dropped.length}개 파일 업로드 완료`)
-    }
+  // WP-1531: 배치를 시작한다 — 자리는 지금 공간·폴더. 이미 올리는 중이면 큐가 거절한다.
+  function startUpload(targets: Array<{ file: File; path: string[] }>) {
+    if (targets.length === 0) return
+    if (!uploadQueue.start(targets, { sid, folderId: folderId ?? null })) notifyUploadBusy()
   }
 
   // 만들기·업로드·놓기의 마지막 관문 — 단추를 숨기는 것과 별개로 핸들러에서 한 번 더 본다. 새 진입점이 생겨도
@@ -658,8 +613,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     e.preventDefault()
     setDragOver(false)
     if (readOnly || !guardAddHere()) return
+    // 올리는 중이면 트리를 읽기 전에 막는다 — 큰 폴더를 다 읽고 나서야 거절하지 않게.
+    if (uploadQueue.busy) {
+      notifyUploadBusy()
+      return
+    }
     const dropped = await readDroppedTree(e.dataTransfer.items)
-    await uploadDroppedTree(dropped)
+    startUpload(dropped.map((d) => ({ file: d.file, path: d.relativePath })))
   }
 
   function onNewFolder() {
@@ -671,103 +631,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     if (!guardAddHere()) return
     fileInput.current?.click()
   }
-  // #589: 업로드 버튼 경로도 드래그앤드롭(uploadDroppedTree)과 동일하게 다중 파일을 지원.
-  // input[multiple] 로 선택된 파일 전체를 순차 업로드하고 부분 실패는 성공분 유지 + 실패 요약 토스트.
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  // #589: 업로드 버튼으로 고른 파일(하나·여럿)도 끌어 놓기와 같은 큐로 올린다 — 진행·실패·취소는 모두 패널에 보인다(WP-1531).
+  // 크기 초과도 큐가 요청 없이 그 파일의 실패 행으로 둔다(예전의 「파일 크기가 … 초과합니다」 토스트 대신).
+  function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (files.length === 0) return
-
-    // 단일 파일: 개별 에러 토스트 + 업로드 버튼에 진행률(%)(WP-643).
-    // #658: AbortController 를 배선해 "업로드 취소" 버튼에서 요청을 중단할 수 있게 한다.
-    if (files.length === 1) {
-      const file = files[0]
-      // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
-      const limit = uploadLimitFor(file)
-      if (file.size > limit.maxBytes) {
-        toast.error(`파일 크기가 ${limit.label}를 초과합니다.`)
-        return
-      }
-      const controller = new AbortController()
-      uploadAbortRef.current = controller
-      // 업로드 시작 — 버튼 비활성화로 중복 업로드 방지 (#170).
-      setUploading(true)
-      try {
-        await driveApi.uploadFile(sid, folderId, file, controller.signal, setUploadPercent)
-        invalidateQuota()
-        await reloadAndClear()
-      } catch (err) {
-        if (isUploadAborted(err)) {
-          toast.message('업로드를 취소했습니다.')
-        } else {
-          handleApiError(err, '파일을 업로드하지 못했습니다.')
-        }
-      } finally {
-        uploadAbortRef.current = null
-        setUploading(false)
-        setUploadPercent(null)
-      }
-      return
-    }
-
-    // 다중 파일: 드롭 경로와 동일한 순차 업로드 + 실패 집계 패턴.
-    // #658: 취소 버튼 클릭 시 controller.abort() → 진행 중 요청 중단 + 남은 파일 스킵.
-    const controller = new AbortController()
-    uploadAbortRef.current = controller
-    setUploading(true)
-    setDropProgress({ done: 0, total: files.length })
-    const failures: string[] = []
-    let cancelled = false
-    let done = 0
-    try {
-      for (const file of files) {
-        if (controller.signal.aborted) {
-          cancelled = true
-          break
-        }
-        try {
-          const limit = uploadLimitFor(file)
-          if (file.size > limit.maxBytes) {
-            failures.push(`${file.name} (${limit.label} 초과)`)
-          } else {
-            await driveApi.uploadFile(sid, folderId, file, controller.signal)
-          }
-        } catch (err) {
-          if (isUploadAborted(err)) {
-            cancelled = true
-            break
-          }
-          // 백엔드 실패 사유(크기/유형 등)를 그대로 노출 — 파일명만으론 원인 불명.
-          failures.push(`${file.name} (${extractApiError(err, '업로드 실패')})`)
-        } finally {
-          done += 1
-          setDropProgress({ done, total: files.length })
-        }
-      }
-      invalidateQuota()
-      await reloadAndClear()
-      if (cancelled) {
-        toast.message('업로드를 취소했습니다.')
-      } else if (failures.length > 0) {
-        toast.error(`${failures.length}개 항목 업로드 실패: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? ' 외' : ''}`)
-      } else {
-        toast.success(`${files.length}개 파일 업로드 완료`)
-      }
-    } finally {
-      uploadAbortRef.current = null
-      setDropProgress(null)
-      setUploading(false)
-    }
+    startUpload(files.map((file) => ({ file, path: [] })))
   }
-
-  // 단일 파일 업로드 중 문구 — 100% 뒤에는 서버가 저장·처리하는 중이라 퍼센트를 떼고 「업로드 중…」만 보인다(WP-643).
-  const uploadingLabel = uploadPercent != null && uploadPercent < 100 ? `업로드 중… ${uploadPercent}%` : '업로드 중…'
 
   // WP-216: 모바일 선택 모드 하단 일괄 작업 바 — 스크롤 영역 밖(페이지 맨 아래)에 둬 목록을 내려도 항상 보인다.
   // 셸은 탭바 위까지만 페이지를 그리므로 탭바와 겹치지 않는다. 드로워(embedded)는 셸 밖 전체폭 시트라 하단 안전영역을 직접 띄운다.
   // testid 는 데스크톱 툴바와 같다(둘 중 하나만 렌더).
+  // 선택 막대가 떠 있는지 — 막대 그리기와 업로드 패널 위치(막대 위로 비키기)가 같은 조건을 쓴다.
+  const mobileBulkBarShown = mobileSelecting && trash == null
   function renderMobileBulkBar() {
-    if (!mobileSelecting || trash != null) return null
+    if (!mobileBulkBarShown) return null
     const btn = 'flex min-h-11 items-center gap-1.5 rounded-md px-3 active:bg-accent disabled:opacity-50 [&_svg]:size-4'
     return (
       <div
@@ -921,11 +799,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     ], readOnlyRole)
   }
 
-  // #658: 현재 업로드 배치를 취소 — abort() 는 진행 중인 axios 요청을 중단시키고,
-  // 각 업로드 루프의 aborted 체크가 남은 파일을 더 이상 시작하지 않도록 막는다.
-  function onCancelUpload() {
-    uploadAbortRef.current?.abort()
-  }
   function onRenameFolder(id: number, current: string) {
     resetNameDialog({ mode: 'rename', folderId: id }, current)
   }
@@ -1342,28 +1215,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 새 폴더
               </button>
             )}
-            {/* 업로드 중엔 휴지통 화면이어도 진행 표시를 남긴다 — 옆의 「취소」가 무엇을 취소하는지 보이게(WP-1101). 올리는 중이라 눌리지 않는다. */}
-            {(canCreateHere || uploading) && (
+            {/* 업로드 중엔 휴지통 화면이어도 진행 표시를 남긴다 — 패널의 「취소」가 무엇을 취소하는지 보이게(WP-1101). 올리는 중이라 눌리지 않는다.
+                진행률·취소는 오른쪽 아래 업로드 패널이 맡는다(WP-1531). */}
+            {(canCreateHere || uploadQueue.busy) && (
               <button
                 type="button"
                 onClick={openUploadPicker}
                 data-testid="drive-upload"
-                disabled={uploading || !!space?.archived}
+                disabled={uploadQueue.busy || !!space?.archived}
                 className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {uploading ? uploadingLabel : '업로드'}
-              </button>
-            )}
-            {/* #658: 업로드 중인 파일(들) 전체 취소 — 개별 파일별 취소는 범위 밖.
-                다중/드롭 업로드는 drop-progress 쪽에 취소 버튼이 별도로 노출되므로 중복 방지. */}
-            {uploading && !dropProgress && (
-              <button
-                type="button"
-                onClick={onCancelUpload}
-                data-testid="drive-upload-cancel"
-                className="rounded border px-2 py-1 text-sm text-destructive hover:bg-destructive/10"
-              >
-                취소
+                {uploadQueue.busy ? '업로드 중…' : '업로드'}
               </button>
             )}
             <input ref={fileInput} type="file" multiple hidden onChange={onUpload} data-testid="file-input" />
@@ -1457,6 +1319,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       )}
       <div
         className={cn('min-h-0 flex-1 overflow-y-auto py-4', pageGutterClass)}
+        // 업로드 패널이 떠 있는 동안 맨 아래 공간 = 패널 높이 + 패널이 스크롤 영역 아래 끝에서 뜬 거리(데스크톱 bottom-4 16px,
+        // 모바일 8px — 모바일 스크롤 영역은 이미 탭바·선택 막대 위에서 끝나 패널과의 거리는 늘 8px) + 숨 쉴 틈 8px.
+        style={{
+          ...(uploadQueue.batch && uploadPanelHeight > 0 ? { paddingBottom: uploadPanelHeight + (isMobile ? 8 : 16) + 8 } : null),
+          ...(dragOver ? { outline: '2px solid var(--color-primary)', borderRadius: '0.375rem' } : null),
+        }}
         data-testid="drive-dropzone"
         onDragOver={(e) => {
           e.preventDefault()
@@ -1471,7 +1339,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        style={dragOver ? { outline: '2px solid var(--color-primary)', borderRadius: '0.375rem' } : undefined}
       >
         {/* #76: 보관된 채널에 연동된 공간 — 읽기 전용 배너. */}
         {space?.archived && (
@@ -1489,35 +1356,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
           >
             이 공간은 보기 권한만 있어 내려받기만 할 수 있습니다.
-          </div>
-        )}
-        {/* #82: 폴더 드롭 업로드 진행 표시. #658: 전체 취소 버튼 동반(드래그앤드롭은 툴바 버튼이 비활성화되지 않으므로 별도 노출). */}
-        {dropProgress && (
-          <div data-testid="drop-progress" className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-            <span>업로드 중… {dropProgress.done}/{dropProgress.total}</span>
-            <button
-              type="button"
-              onClick={onCancelUpload}
-              data-testid="drop-progress-cancel"
-              className="rounded border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10"
-            >
-              취소
-            </button>
-          </div>
-        )}
-        {/* WP-643: 모바일은 헤더 동작(업로드 버튼·취소)이 ⋯ 메뉴 안이라 업로드 중임이 화면에 안 보인다 —
-            단일 파일 업로드도 위 드롭 진행 줄과 같은 자리·모양으로 진행률과 취소를 보인다. 데스크톱은 툴바 버튼이 맡는다. */}
-        {isMobile && uploading && !dropProgress && (
-          <div data-testid="upload-progress" role="status" className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-            <span>{uploadingLabel}</span>
-            <button
-              type="button"
-              onClick={onCancelUpload}
-              data-testid="upload-progress-cancel"
-              className="rounded border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10"
-            >
-              취소
-            </button>
           </div>
         )}
         {trash != null ? (
@@ -1718,8 +1556,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 </div>
               </li>
             )}
-            {!itemsQuery.isLoading && !itemsQuery.isPlaceholderData && items.folders.length === 0 && items.files.length === 0 && (
-              // 빈 폴더 empty state — DS §2.5: 아이콘+제목+설명+CTA 4요소.
+            {!uploadingHere && !itemsQuery.isLoading && !itemsQuery.isPlaceholderData && items.folders.length === 0 && items.files.length === 0 && (
+              // 빈 폴더 empty state — DS §2.5: 아이콘+제목+설명+CTA 4요소. 이 폴더에 올리는 동안엔 곧 파일이 생길 폴더라 그리지 않는다(WP-1531).
               <li
                 className="flex flex-col items-center gap-2 px-4 py-12 text-center"
                 data-testid="drive-empty-folder"
@@ -1905,6 +1743,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* WP-1531: 업로드 패널 — 배치가 있을 때만. 페이지가 갖고 있어 폴더를 옮겨 다니거나 휴지통을 열어도 남는다. */}
+      {uploadQueue.batch && uploadQueue.summary && (
+        <DriveUploadPanel
+          // 배치마다 새로 마운트해 접힘 상태를 처음(데스크톱 펼침·모바일 접힘)으로 — 다시 시도는 같은 배치라 그대로 둔다.
+          key={uploadQueue.batch.id}
+          batch={uploadQueue.batch}
+          summary={uploadQueue.summary}
+          isMobile={isMobile}
+          mobileLift={mobileBulkBarShown ? MOBILE_BULK_BAR_H : undefined}
+          onHeightChange={setUploadPanelHeight}
+          onCancel={uploadQueue.cancel}
+          onRetry={uploadQueue.retry}
+          onClose={uploadQueue.close}
+        />
+      )}
     </Page>
   )
 }
