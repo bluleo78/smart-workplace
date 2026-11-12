@@ -3,9 +3,11 @@ package com.workplace.home.controller;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveShareAppCard;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveSharePreviewMeta;
+import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
@@ -21,6 +23,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -36,6 +39,8 @@ public class AppLinkController {
   private final IssueService issueService;
   private final WikiPageService pageService;
   private final DriveFileService driveFileService;
+  private final DriveFolderService driveFolderService;
+  private final DriveSpaceService driveSpaceService;
   private final MessageService messageService;
   private final CalendarEventService calendarEventService;
   private final MailMessageService mailMessageService;
@@ -47,6 +52,8 @@ public class AppLinkController {
       IssueService issueService,
       WikiPageService pageService,
       DriveFileService driveFileService,
+      DriveFolderService driveFolderService,
+      DriveSpaceService driveSpaceService,
       MessageService messageService,
       CalendarEventService calendarEventService,
       MailMessageService mailMessageService,
@@ -55,6 +62,8 @@ public class AppLinkController {
     this.issueService = issueService;
     this.pageService = pageService;
     this.driveFileService = driveFileService;
+    this.driveFolderService = driveFolderService;
+    this.driveSpaceService = driveSpaceService;
     this.messageService = messageService;
     this.calendarEventService = calendarEventService;
     this.mailMessageService = mailMessageService;
@@ -99,6 +108,30 @@ public class AppLinkController {
   @GetMapping("/files/{id}")
   public AppLinkCard file(@AuthenticationPrincipal Long callerId, @PathVariable("id") long fileId) {
     return AppLinkCard.file(driveFileService.viewableFileName(callerId, fileId));
+  }
+
+  /**
+   * 드라이브 폴더 링크(/drive/spaces/{spaceId}?folderId={id}, WP-1536) — 폴더 목록을 열 때와 같은 VIEWER 판정. 링크의
+   * 공간(spaceId)을 함께 받아, 없거나 휴지통에 있거나 볼 수 없거나 그 공간에 없는(링크를 눌러도 열리지 않는) 폴더는 모두 같은 404(폴더·공간 이름이 새지
+   * 않는다).
+   */
+  @GetMapping("/folders/{id}")
+  public AppLinkCard folder(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long folderId,
+      @RequestParam("spaceId") long spaceId) {
+    var f = driveFolderService.linkCard(callerId, spaceId, folderId);
+    return AppLinkCard.folder(f.name(), f.spaceName());
+  }
+
+  /**
+   * 드라이브 공간 링크(/drive/spaces/{id} — 파일·미리보기·폴더 쿼리가 없는 공간 첫 화면, WP-1536) — 공간을 열 때와 같은 VIEWER 판정. 없는
+   * 공간과 볼 수 없는 공간은 같은 404.
+   */
+  @GetMapping("/drive-spaces/{id}")
+  public AppLinkCard driveSpace(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long spaceId) {
+    return AppLinkCard.driveSpace(driveSpaceService.getSpace(callerId, spaceId).name());
   }
 
   /**

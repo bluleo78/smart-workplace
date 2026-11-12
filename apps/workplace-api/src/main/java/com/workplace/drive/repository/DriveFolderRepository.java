@@ -62,6 +62,19 @@ public class DriveFolderRepository {
         .fetchOptional(DRIVE_FOLDER.ID);
   }
 
+  /**
+   * 그 공간에 있는 살아있는 폴더의 이름(WP-1536 앱 링크 카드). 폴더가 없거나 휴지통에 있거나 다른 공간에 있으면 empty — 링크의 공간과 폴더의 실제 공간이
+   * 다르면 링크를 눌러도 그 폴더가 열리지 않으므로 카드도 없는 폴더로 본다.
+   */
+  public Optional<String> findNameInSpace(long spaceId, long folderId) {
+    return dsl.select(DRIVE_FOLDER.NAME)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.ID.eq(folderId))
+        .and(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+        .fetchOptional(DRIVE_FOLDER.NAME);
+  }
+
   public Optional<Long> findSpaceId(long folderId) {
     return dsl.select(DRIVE_FOLDER.SPACE_ID)
         .from(DRIVE_FOLDER)

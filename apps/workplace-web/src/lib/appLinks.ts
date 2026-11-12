@@ -1,6 +1,6 @@
-// 채팅 본문의 우리 앱 링크 읽기(WP-896) — 같은 호스트의 이슈·노트·드라이브 파일·드라이브 공유 링크(/s/sl_…, WP-1474) 주소를 종류·id 로 바꾼다. DOM 비의존 순수 함수.
+// 채팅 본문의 우리 앱 링크 읽기(WP-896) — 같은 호스트의 이슈·노트·드라이브 파일·폴더·공간(WP-1536)·드라이브 공유 링크(/s/sl_…, WP-1474) 주소를 종류·id 로 바꾼다. DOM 비의존 순수 함수.
 // 카드는 서버가 보는 사람 권한으로 채우고(/api/v1/app-links), 여기서는 어느 링크가 앱 링크인지와 앱 안 이동 경로만 정한다.
-import { calendarEventPath, chatMessagePath, issuePath, mailMessagePath } from '@/lib/appUrl'
+import { calendarEventPath, chatMessagePath, driveFolderPath, issuePath, mailMessagePath } from '@/lib/appUrl'
 import { commentIdFromHash } from '@/lib/issueCommentLink'
 import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
 import { PROJECT_KEY_RE } from '@/lib/validations/project'
@@ -13,6 +13,9 @@ export type AppLink =
   | { kind: 'ISSUE'; to: string; key: string; number: number; fragment?: string }
   | { kind: 'PAGE'; to: string; pageId: number }
   | { kind: 'FILE'; to: string; fileId: number }
+  // 드라이브 폴더(?folderId=)와 공간 첫 화면(/drive/spaces/{id}, WP-1536) — 카드는 서버가 보는 사람 권한으로 이름을 채운다.
+  | { kind: 'FOLDER'; to: string; spaceId: number; folderId: number }
+  | { kind: 'DRIVE_SPACE'; to: string; spaceId: number }
   | { kind: 'MESSAGE'; to: string; messageId: number }
   | { kind: 'EVENT'; to: string; eventId: number }
   | { kind: 'MAIL'; to: string; mailId: number }
@@ -24,6 +27,9 @@ export const APP_LINK_KIND_LABEL: Record<AppLink['kind'], string> = {
   ISSUE: '이슈',
   PAGE: '노트',
   FILE: '파일',
+  // 볼 수 없으면 「볼 수 없는 폴더입니다」·「볼 수 없는 드라이브입니다」(WP-1536).
+  FOLDER: '폴더',
+  DRIVE_SPACE: '드라이브',
   MESSAGE: '메시지',
   EVENT: '일정',
   MAIL: '메일',
@@ -98,6 +104,9 @@ function isAppHost(hostname: string, appHosts: AppHosts): boolean {
  *   - /projects/{KEY}/issues/{n}
  *   - /wiki/spaces/{spaceId}/pages/{id} · /wiki/open/{id}
  *   - /drive/spaces/{spaceId}?file={id} · /drive/spaces/{spaceId}?preview={id}(드라이브 미리보기, WP-1235)
+ *   - /drive/spaces/{spaceId}?folderId={id}(폴더) · /drive/spaces/{spaceId}(공간 첫 화면 — 쿼리가 아예 없을 때만, WP-1536).
+ *     우선순위는 파일(file → preview) → 폴더 → 공간. 빈 값(?file·?file=)은 없는 것과 같고, file·preview 가 id 가 아닌 값이면
+ *     폴더가 있어도 카드가 아니다(깨진 파일 링크를 폴더 카드로 바꾸지 않게). 쿼리는 URLSearchParams 로 디코딩해 읽는다 — 서버도 같게 디코딩한다
  *   - /chat/channels/{id}?message={id} · /chat/dms/{id}?message={id}(스레드 답글은 &thread={rootId} 도) · /calendar?eventId={id}
  *     · /mail/{accountId}?messageId={id}(WP-1236) — 쿼리가 없으면 대화·캘린더·메일함 화면이라 카드가 아니다
  *   - /s/{sl_토큰}(드라이브 공유 링크, WP-1474) — 정확히 세그먼트 2개, 쿼리·조각은 무시
@@ -143,6 +152,15 @@ export function parseAppLink(href: string, appHosts: AppHosts): AppLink | null {
       const folderQs = folder && ID.test(folder) ? `folderId=${folder}&` : ''
       return { kind: 'FILE', to: `/drive/spaces/${parts[2]}?${folderQs}preview=${preview}`, fileId: Number(preview) }
     }
+    // 파일·미리보기 값이 있는데 id 가 아니면 깨진 파일 링크다 — 폴더·공간 카드로 바꾸지 않는다. 빈 값('')은 없는 것과 같다
+    // (URLSearchParams 는 「?file」·「?file=」을 모두 '' 로 읽어, 서버 LinkPreviewDispatcher.isDriveSpaceCard 도 값이 비었는지로 본다).
+    if (file || preview) return null
+    // 폴더 링크(WP-1536) — 이동 경로는 드라이브가 읽는 폴더 쿼리만 남긴다(driveFolderPath).
+    const spaceId = Number(parts[2])
+    const folder = url.searchParams.get('folderId')
+    if (folder) return ID.test(folder) ? { kind: 'FOLDER', to: driveFolderPath(spaceId, Number(folder)), spaceId, folderId: Number(folder) } : null
+    // 공간 첫 화면(WP-1536) — 쿼리가 아예 없을 때만. 다른 쿼리가 붙은 주소는 무엇을 가리키는지 몰라 원래 링크로 둔다.
+    return url.search === '' ? { kind: 'DRIVE_SPACE', to: driveFolderPath(spaceId, null), spaceId } : null
   }
   // 메시지·일정·메일(WP-1236) — 이동 경로는 화면이 읽는 쿼리만 남긴다(다른 쿼리는 버린다).
   const q = (name: string) => {
@@ -194,6 +212,10 @@ export function appLinkTarget(link: AppLink): string {
       return `PAGE:${link.pageId}`
     case 'FILE':
       return `FILE:${link.fileId}`
+    case 'FOLDER':
+      return `FOLDER:${link.folderId}`
+    case 'DRIVE_SPACE':
+      return `DRIVE_SPACE:${link.spaceId}`
     case 'MESSAGE':
       return `MESSAGE:${link.messageId}`
     case 'EVENT':

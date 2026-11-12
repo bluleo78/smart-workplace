@@ -1,8 +1,8 @@
-// 채팅 본문의 우리 앱 링크 카드(WP-896, 시안 A) — 이슈·노트·드라이브 파일 링크 아래에 보는 사람 권한으로 그 순간 채운 정보를 보인다.
+// 채팅 본문의 우리 앱 링크 카드(WP-896, 시안 A) — 이슈·노트·드라이브 파일·폴더(WP-1536) 링크 아래에 보는 사람 권한으로 그 순간 채운 정보를 보인다.
 // 카드 전체가 앱 안 이동 링크다(본문 URL 은 지금처럼 새 탭 — 가는 곳이 앱 밖 화면(/s/… 등)이면 카드도 새 탭, WP-1474). 볼 수 없거나 없는 대상은
 // 정보 없이 점선 자리에 「볼 수 없는 …」만 둔다(만료된 공유 링크의 410 은 「만료된 공유 링크」).
 // 드라이브 공유 링크(/s/sl_…, WP-1474)는 보는 사람이 공간 구성원이면 드라이브 파일 카드, 아니면 링크 상태(열림·비밀번호) 카드다.
-import { Ban, CalendarDays, FileText, Lock, Mail, MessageSquare, SquareKanban } from 'lucide-react'
+import { Ban, CalendarDays, FileText, Folder, HardDrive, Lock, Mail, MessageSquare, SquareKanban } from 'lucide-react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -150,6 +150,12 @@ function CardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
       )
     case 'FILE':
       return <FileCardBody data={data} testId={testId} />
+    case 'FOLDER':
+      // 폴더 아이콘 + 폴더 이름, 둘째 줄에 공간 이름(WP-1536) — 드라이브 목록의 폴더 아이콘과 같은 모양.
+      return <IconCardBody icon={<Folder className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />} head="폴더" title={data.title} meta={data.spaceName} testId={testId} />
+    case 'DRIVE_SPACE':
+      // 공간 첫 화면 링크(WP-1536) — 제목이 공간 이름이라 덧줄이 없다.
+      return <IconCardBody icon={<HardDrive className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />} head="드라이브" title={data.title} testId={testId} />
     case 'SHARE':
       return <ShareCardBody data={data} testId={testId} />
   }
@@ -192,7 +198,7 @@ function TitledCardBody({
   )
 }
 
-/** 큰 아이콘 + 머리글·제목(·덧줄) — 드라이브 파일 카드와 공유 링크 카드(WP-1474)가 같은 모양을 쓴다. */
+/** 큰 아이콘 + 머리글·제목(·덧줄) — 드라이브 파일·폴더·공간 카드(WP-1536)와 공유 링크 카드(WP-1474)가 같은 모양을 쓴다. */
 function IconCardBody({ icon, head, title, meta, testId }: { icon: ReactNode; head: string; title: string; meta?: string; testId: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2">

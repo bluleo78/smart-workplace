@@ -81,21 +81,26 @@ public class LinkPreviewDispatcher {
   private static final Pattern ISSUE_NUMBER = Pattern.compile("[1-9][0-9]{0,8}");
   private static final Pattern ID = Pattern.compile("[1-9][0-9]{0,14}");
   private static final Pattern PROJECT_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9]{1,9}");
-  private static final Pattern FILE_PARAM = Pattern.compile("(?:^|&)file=([^&]*)");
-  // 드라이브 미리보기 주소(WP-1235) — 웹의 🔗·⇧⌘, 가 복사하는 파일 링크(/drive/spaces/{s}?folderId=..&preview={id}).
-  private static final Pattern PREVIEW_PARAM = Pattern.compile("(?:^|&)preview=([^&]*)");
-  // 메시지·일정·메일 주소(WP-1236) — 웹의 「링크 복사」가 만드는 모양. 그 쿼리가 있어야 카드다(/chat/channels/5·/calendar 만은 아니다).
-  private static final Pattern MESSAGE_PARAM = Pattern.compile("(?:^|&)message=([^&]*)");
-  private static final Pattern EVENT_PARAM = Pattern.compile("(?:^|&)eventId=([^&]*)");
-  private static final Pattern MAIL_PARAM = Pattern.compile("(?:^|&)messageId=([^&]*)");
+  // 쿼리 이름(WP-1536) — 값은 웹 URLSearchParams 처럼 디코딩한 뒤 본다(queryParam).
+  //   - file: 드라이브 파일 · preview: 드라이브 미리보기(WP-1235, 웹의 🔗·⇧⌘, 가 복사하는 파일 링크)
+  //   - folderId: 드라이브 폴더(WP-1536, 웹 driveFolderPath)
+  //   - message·eventId·messageId: 메시지·일정·메일(WP-1236) — 그 쿼리가 있어야 카드다(/chat/channels/5·/calendar 만은
+  // 아니다)
+  private static final String FILE_PARAM = "file";
+  private static final String PREVIEW_PARAM = "preview";
+  private static final String FOLDER_PARAM = "folderId";
+  private static final String MESSAGE_PARAM = "message";
+  private static final String EVENT_PARAM = "eventId";
+  private static final String MAIL_PARAM = "messageId";
 
   /**
    * 웹이 앱 카드로 그리는 주소인지 — 호스트가 우리 앱이고 경로가 {@code /projects/{KEY}/issues/{n}}·{@code
    * /wiki/spaces/{s}/pages/{id}}·{@code /wiki/open/{id}}·{@code /drive/spaces/{s}?file={id}}·{@code
-   * /drive/spaces/{s}?preview={id}}·{@code /chat/channels/{c}?message={id}}·{@code
+   * /drive/spaces/{s}?preview={id}}·{@code /drive/spaces/{s}?folderId={id}}(폴더)·{@code
+   * /drive/spaces/{s}}(공간 첫 화면 — 쿼리가 없을 때만, WP-1536)·{@code /chat/channels/{c}?message={id}}·{@code
    * /chat/dms/{c}?message={id}}·{@code /calendar?eventId={id}}·{@code
-   * /mail/{a}?messageId={id}}·{@code /s/{token}}(드라이브 공유 링크, WP-1474 — 쿼리·조각은 보지 않는다) 중 하나(쿼리 값은 처음
-   * 나온 것만 본다). 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
+   * /mail/{a}?messageId={id}}·{@code /s/{token}}(드라이브 공유 링크, WP-1474 — 쿼리·조각은 보지 않는다) 중 하나(쿼리는 웹처럼
+   * 디코딩하고 처음 나온 값만 본다). 웹 parseAppLink 와 같은 문법이어야 한다 — 두 쪽 테스트가 같은 사례
    * 표(test/resources/app-links/app-card-urls.json)를 읽어 어긋나면 실패한다.
    */
   boolean isAppCardUrl(String url) {
@@ -112,13 +117,8 @@ public class LinkPreviewDispatcher {
     if (p.length == 3 && p[0].equals("wiki") && p[1].equals("open")) {
       return ID.matcher(p[2]).matches();
     }
-    if (p.length == 3 && p[0].equals("drive") && p[1].equals("spaces") && m.group(3) != null) {
-      Matcher f = FILE_PARAM.matcher(m.group(3));
-      Matcher pv = PREVIEW_PARAM.matcher(m.group(3));
-      // file= 이 우선이고(웹 parseAppLink 와 같은 순서), 쓸 수 없으면 미리보기 id 를 본다.
-      boolean byFile = f.find() && ID.matcher(f.group(1)).matches();
-      boolean byPreview = pv.find() && ID.matcher(pv.group(1)).matches();
-      return ID.matcher(p[2]).matches() && (byFile || byPreview);
+    if (p.length == 3 && p[0].equals("drive") && p[1].equals("spaces")) {
+      return ID.matcher(p[2]).matches() && isDriveSpaceCard(m.group(3));
     }
     // 메시지(WP-1236): /chat/channels|dms/{c}?message={id} — thread= 등 다른 쿼리가 함께 있어도 된다.
     if (p.length == 3
@@ -144,11 +144,79 @@ public class LinkPreviewDispatcher {
     return false;
   }
 
+  /**
+   * 드라이브 공간 주소(/drive/spaces/{s})의 쿼리가 카드인지 — 웹 parseAppLink 와 같은 순서로 본다. 빈 값(「?file」·「?file=」)은 없는
+   * 것과 같다(웹 URLSearchParams 가 둘 다 '' 로 읽는다).
+   *
+   * <ol>
+   *   <li>file 이 카드 id 면 파일 카드, 아니면 preview 가 카드 id 면 파일 카드(WP-1235)
+   *   <li>file·preview 중 하나라도 id 가 아닌 값이 있으면 카드가 아니다 — 깨진 파일 링크를 폴더·공간 카드로 바꿔 보이지 않게
+   *   <li>folderId 가 있으면 카드 id 일 때만 폴더 카드(WP-1536)
+   *   <li>쿼리가 아예 없을 때만 공간 첫 화면 카드(WP-1536) — 다른 쿼리가 붙은 주소는 무엇을 가리키는지 몰라 원래 링크로 둔다
+   * </ol>
+   */
+  private static boolean isDriveSpaceCard(String query) {
+    String file = queryParam(query, FILE_PARAM);
+    String preview = queryParam(query, PREVIEW_PARAM);
+    if (isId(file) || isId(preview)) return true;
+    if (!isEmpty(file) || !isEmpty(preview)) return false;
+    String folder = queryParam(query, FOLDER_PARAM);
+    if (!isEmpty(folder)) return isId(folder);
+    return isEmpty(query);
+  }
+
+  private static boolean isId(String v) {
+    return v != null && ID.matcher(v).matches();
+  }
+
+  private static boolean isEmpty(String v) {
+    return v == null || v.isEmpty();
+  }
+
   /** 쿼리에서 처음 나온 그 이름의 값이 카드 id(ID 문법)인지. 쿼리가 없으면 false. */
-  private static boolean idParam(Pattern param, String query) {
-    if (query == null) return false;
-    Matcher q = param.matcher(query);
-    return q.find() && ID.matcher(q.group(1)).matches();
+  private static boolean idParam(String name, String query) {
+    return isId(queryParam(query, name));
+  }
+
+  /**
+   * 쿼리에서 처음 나온 그 이름의 값(디코딩한 것) — 쿼리나 그 이름이 없으면 null, 「?name」처럼 = 이 없으면 빈 값. 웹은 URLSearchParams 로
+   * 이름·값을 디코딩해 읽으므로(「?fol%64erId=%33」도 folderId=3) 같은 규칙으로 디코딩해야 웹이 카드로 그리는 주소의 OG 를 따로 가져오지 않는다.
+   */
+  static String queryParam(String query, String name) {
+    if (query == null || query.isEmpty()) return null;
+    for (String pair : query.split("&", -1)) {
+      if (pair.isEmpty()) continue;
+      int eq = pair.indexOf('=');
+      String key = formDecode(eq < 0 ? pair : pair.substring(0, eq));
+      if (key.equals(name)) return eq < 0 ? "" : formDecode(pair.substring(eq + 1));
+    }
+    return null;
+  }
+
+  /**
+   * application/x-www-form-urlencoded 디코딩 — WHATWG URL 표준(URLSearchParams)과 같다: + 는 공백, %XX(16진 두
+   * 자리)는 바이트, 그 밖의 % 는 글자 그대로, 바이트는 UTF-8(깨진 바이트는 대체 문자). java.net.URLDecoder 는 잘못된 %(예: %zz)에서 예외를
+   * 던져 웹과 갈리므로 직접 푼다.
+   */
+  private static String formDecode(String s) {
+    if (s.indexOf('%') < 0 && s.indexOf('+') < 0) return s;
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(s.length());
+    byte[] raw = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    for (int i = 0; i < raw.length; i++) {
+      byte c = raw[i];
+      if (c == '+') {
+        out.write(' ');
+      } else if (c == '%'
+          && i + 2 < raw.length
+          && Character.digit(raw[i + 1], 16) >= 0
+          && Character.digit(raw[i + 2], 16) >= 0) {
+        out.write(Character.digit(raw[i + 1], 16) * 16 + Character.digit(raw[i + 2], 16));
+        i += 2;
+      } else {
+        out.write(c);
+      }
+    }
+    return out.toString(java.nio.charset.StandardCharsets.UTF_8);
   }
 
   /** 테넌트가 없으면(전파 실패) RLS 가 막으므로 건너뛰고 남긴다. 미리보기는 best-effort — 실패는 로그만. */

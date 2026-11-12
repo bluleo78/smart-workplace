@@ -39,11 +39,21 @@ class LinkPreviewDispatcherTest extends IntegrationTestBase {
     assertThat(
             dispatcher.externalUrls(
                 "http://localhost:6173/wiki/share/abc http://localhost:6173/projects/WP/issues/x"
-                    + " http://localhost:6173/drive/spaces/5"))
+                    + " http://localhost:6173/drive/spaces/5?file=x"))
         .containsExactly(
             "http://localhost:6173/wiki/share/abc",
             "http://localhost:6173/projects/WP/issues/x",
-            "http://localhost:6173/drive/spaces/5");
+            "http://localhost:6173/drive/spaces/5?file=x");
+  }
+
+  @Test
+  void 드라이브_폴더_링크와_공간_첫_화면_링크는_앱_카드라_OG_를_가져오지_않는다() {
+    // 폴더(?folderId=)·공간 첫 화면(/drive/spaces/{id})은 웹이 앱 카드로 그린다(WP-1536) — OG 를 가져오면 껍데기 카드가 겹친다.
+    assertThat(
+            dispatcher.externalUrls(
+                "https://genia.example/x http://localhost:6173/drive/spaces/47?folderId=53"
+                    + " http://localhost:6173/drive/spaces/47"))
+        .containsExactly("https://genia.example/x");
   }
 
   @Test
