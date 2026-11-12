@@ -146,6 +146,7 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                 false,
                 false,
                 com.workplace.wiki.dto.WikiPageKind.NOTE,
+                null,
                 null));
     mockMvc
         .perform(
