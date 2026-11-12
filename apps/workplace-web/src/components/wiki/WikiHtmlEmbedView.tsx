@@ -4,10 +4,11 @@
 // WP-1309: 「글자 고치기」 — 블록 화면 위 글자를 눌러 바로 고친다(HTML 문서 보이는 화면 편집과 같은 공용 모듈 lib/htmlTextEdit).
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps, useEditorState } from '@tiptap/react'
-import { Code2, Crosshair, MoreHorizontal, Sparkles, Type, X } from 'lucide-react'
+import { Code2, Crosshair, MoreHorizontal, Type, X } from 'lucide-react'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import { AiIcon } from '@/components/ai/AiIcon'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useHtmlEditFrame } from '@/hooks/useHtmlEditFrame'
@@ -358,7 +359,7 @@ export function WikiHtmlEmbedView({ node, editor, view, getPos, decorations }: R
                 else setAiOpen(true)
               }}
             >
-              <Sparkles className="wiki-html-embed__icon" aria-hidden />
+              <AiIcon className="wiki-html-embed__icon" aria-hidden />
               AI로 고치기
             </button>
           )}

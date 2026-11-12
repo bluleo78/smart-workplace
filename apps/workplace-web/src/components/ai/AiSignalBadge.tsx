@@ -1,6 +1,6 @@
-import { Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { AiIcon } from './AiIcon'
 import { aiSignalBadgeClass, type AiSignalVariant } from './aiMarker'
 
 // ③ AI 판단신호 배지 — AI가 기존 콘텐츠에 매긴 라벨(회신필요/분류/확인필요 등).
@@ -31,7 +31,7 @@ export function AiSignalBadge({
       {/* ✨ 아이콘은 장식(aria-hidden) — AI 판단 신호임은 sr-only 텍스트로 스크린리더에 전달.
           (action 배지처럼 children 에 "AI"가 없는 경우에도 SR 사용자가 AI 표식을 인지) */}
       <span className="sr-only">AI </span>
-      <Sparkles className="h-3 w-3" aria-hidden="true" />
+      <AiIcon className="h-3 w-3" aria-hidden="true" />
       {children}
     </>
   )

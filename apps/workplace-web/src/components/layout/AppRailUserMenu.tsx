@@ -1,6 +1,7 @@
 // src/components/layout/AppRailUserMenu.tsx
 // 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃.
 // 아이콘 레일이므로 데스크톱(lg)은 아바타만, 모바일 드로어는 아바타+이름.
+// eslint-disable-next-line ai-marker/no-direct-sparkles -- 「새 소식」(릴리스 노트) 메뉴 아이콘, AI 와 무관
 import { LogOut, Moon, Sparkles, Sun, User as UserIcon } from 'lucide-react'
 import { lazy, Suspense, useState } from 'react'
 import { useNavigate } from 'react-router-dom'

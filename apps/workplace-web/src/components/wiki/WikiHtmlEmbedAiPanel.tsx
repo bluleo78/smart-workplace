@@ -1,6 +1,6 @@
 // 노트 HTML 블록 「AI로 고치기」 입력 칸(WP-1302, 설계 WP-1299 §3-3) — 블록 바로 아래에 열려 지시를 받고, AI 가 고친 HTML 을
 // 「지금」·「바뀐 뒤」 미리보기로 나란히 보여 준 뒤 「적용」할 때만 블록 소스를 바꾼다. 블록 화면(WikiHtmlEmbedView)이 그린다.
-import { Loader2, Sparkles } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { type KeyboardEvent, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -255,7 +255,7 @@ export function WikiHtmlEmbedAiPanel({
             onMouseDown={keepFocus}
             onClick={send}
           >
-            <Sparkles className="wiki-html-embed__icon" aria-hidden />
+            {/* AI 칸 안이라 이미 AI 영역이다 — 보내기 단추에는 AI 표식(아이콘)을 또 달지 않는다(마커 중첩 금지). */}
             보내기
           </button>
         </span>

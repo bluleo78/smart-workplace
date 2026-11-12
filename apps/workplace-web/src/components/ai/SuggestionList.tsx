@@ -4,10 +4,11 @@
 // 행은 문구 폭만큼만 누른다 — 짧은 문구 오른쪽 빈 곳(텍스트 선택 해제 등)을 눌렀다가 질문이 나가지 않게.
 // 터치 기기(pointer-coarse)는 화면 폭과 무관하게 44px 이상(10-accessibility) — 큰 터치 화면(태블릿 가로)도 같은 타깃을 받는다.
 // 긴 문구(최대 40자)는 두 줄까지 감는다. 목록이 바뀌면 짧게 페이드인(동작 줄이기 존중).
-import { Sparkles } from 'lucide-react';
 import { type HTMLAttributes, useId } from 'react';
 
 import { cn } from '@/lib/utils';
+
+import { AiIcon } from './AiIcon';
 
 interface Props {
   /** 목록 위 작은 머리말 — 그룹의 접근 이름도 된다. */
@@ -45,7 +46,7 @@ export function SuggestionList({ heading, items, disabled, onPick, testId, itemT
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
               )}
             >
-              <Sparkles aria-hidden className="mt-0.75 h-3.5 w-3.5 shrink-0 text-ai-accent" />
+              <AiIcon aria-hidden className="mt-0.75 h-3.5 w-3.5 shrink-0 text-ai-accent" />
               {/* 스펙 §4.3 최대 40자 — 좁은 패널·시트에서도 끝까지 읽히게 두 줄까지 감고, 낱말 중간에서 끊지 않는다. */}
               <span className="line-clamp-2 min-w-0 break-keep wrap-break-word">{q}</span>
             </button>

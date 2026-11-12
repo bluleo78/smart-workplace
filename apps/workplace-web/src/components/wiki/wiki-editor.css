@@ -552,6 +552,12 @@
 .wiki-html-embed-scope .wiki-html-embed__btn--primary {
   gap: 0.25rem;
 }
+/* 「AI로 고치기」 토글의 아이콘이 AI 1차 표식이다 — 색은 아이콘에만 입힌다(디자인 시스템 §7.2).
+   노트 CSS 가 AiLabel 의 span 을 가릴 수 있어 text-ai-accent 대신 전용 CSS 로 칠하고,
+   평소 아이콘을 투명하게 하는 규칙이 더 높은 명시도로 이긴다. */
+.wiki-html-embed-scope .wiki-html-embed__btn--ai .wiki-html-embed__icon {
+  color: var(--ai-accent);
+}
 .wiki-html-embed-scope .wiki-html-embed__btn--primary {
   border-color: var(--primary);
   background: var(--primary);

@@ -247,6 +247,7 @@ AI 생성물과 AI 신호를 UI에 표현할 때는 아래 어휘 표와 원칙�
 | ③ AI 신호 — 강조 | `AiSignalBadge variant="action"` | 솔리드 `ai-accent` 배경 뱃지. 사용자 행동을 유도하는 신호. | "회신 필요" 뱃지, "내 차례" 뱃지 |
 | ③ AI 신호 — 정보 | `AiSignalBadge variant="info"` | 연한 `ai-accent-subtle` 배경 뱃지. 정보 전달 신호. | "AI 분류됨" 뱃지, 사이드바 AI 표식 |
 | 인라인 텍스트 레이블 | `AiLabel` | `Sparkles` 아이콘 + 텍스트 인라인 조합. | "AI 요약", "AI 초안" 레이블 |
+| AI 아이콘(글자 없는 자리) | `AiIcon` | `Sparkles` 의 AI 표식 별칭. 내비·위젯 아이콘·아이콘 버튼·토스트 | 사이드바 「AI 위임 작업」, 뷰어 요약 토글 |
 | AI 액션 트리거 버튼 | `Button variant="outline" size="sm"` + `AiLabel` | 페이지 헤더 등 비-주(non-primary) 액션 위치의 AI 실행 버튼. 로딩 시 `AiLabel` → `Loader2`(크기 클래스 없음, cva 자동 16px)로 교체. size 근거는 [04. Components §E](./04-components.md#e-button-사용-규칙). | Wiki 페이지 헤더 "AI ▾" 버튼 |
 
 ```tsx
@@ -254,6 +255,7 @@ AI 생성물과 AI 신호를 UI에 표현할 때는 아래 어휘 표와 원칙�
 import { AiContent } from '@/components/ai/AiContent';
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge';
 import { AiLabel } from '@/components/ai/AiLabel';
+import { AiIcon } from '@/components/ai/AiIcon';
 
 // ② 생성물 — AI가 생성한 콘텐츠 블록을 감싼다
 <AiContent label="AI 요약">
@@ -322,7 +324,7 @@ import { AiLabel } from '@/components/ai/AiLabel';
 
 #### 재사용 의무
 
-AI 표면을 신규 개발하거나 기존 UI를 수정할 때는 반드시 `@/components/ai`의 프리미티브(`AiContent`, `AiSignalBadge`, `AiLabel`)를 사용한다. 직접 className을 조합해 AI 마커를 만드는 패턴은 금지한다.
+AI 표면을 신규 개발하거나 기존 UI를 수정할 때는 반드시 `@/components/ai`의 프리미티브(`AiContent`, `AiSignalBadge`, `AiLabel`)를 사용한다. 직접 className을 조합해 AI 마커를 만드는 패턴은 금지한다. `components/ai` 밖 `Sparkles` 직접 import·4색 원색 클래스는 ESLint `ai-marker/no-direct-sparkles`·`ai-marker/no-raw-ai-hue` 가 막는다(WP-1529).
 
 ### 7.3 금지 패턴
 

@@ -6,10 +6,11 @@ import {
   type LucideIcon,
   Mail,
   MessageSquare,
-  Sparkles,
   Zap,
 } from 'lucide-react'
 import { type ComponentType, lazy, type LazyExoticComponent } from 'react'
+
+import { AiIcon } from '@/components/ai/AiIcon'
 
 import {
   CalendarTodaySummary,
@@ -126,7 +127,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     type: 'priority_quadrant',
     title: 'AI 우선순위',
     description: '중요도·긴급도 기준 4분면으로 할 일을 정리해 보여줍니다.',
-    icon: Sparkles,
+    icon: AiIcon,
     Component: lazy(() => import('./dashboard/PriorityQuadrantBody')),
     wide: true,
     // 2x2 분면은 375px 에 담기지 않는다 → 타일(최상위 1건).

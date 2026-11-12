@@ -1,10 +1,11 @@
 // 설정 가이드 본문 — 열(aside)·데스크톱 시트·모바일 시트가 같은 마크업을 공유한다(WP-399).
 // 제목 「설정 가이드」 는 감싸는 쪽(열 헤더·시트 제목)이 그리고, 여기선 소개 → 알아두기 → 주의 → 관련 화면 → AI 에게 묻기 순으로만 그린다.
-import { ChevronRight, Sparkles, TriangleAlert } from 'lucide-react'
+import { ChevronRight, TriangleAlert } from 'lucide-react'
 import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
+import { AiIcon } from '@/components/ai/AiIcon'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { cn } from '@/lib/utils'
 
@@ -44,7 +45,7 @@ function AskAiButton({ onAsk }: { onAsk?: () => void }) {
       // ring-inset: 열(aside)이 overflow-y-auto 라 바깥 링은 왼쪽 가장자리에서 잘린다(WP-414) — 안쪽에 그린다.
       className="flex min-h-11 w-full items-center gap-2 rounded-md border border-ai-accent/30 bg-ai-accent-subtle px-3 text-left text-sm font-medium text-ai-accent outline-none hover:bg-ai-accent/15 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset lg:min-h-9"
     >
-      <Sparkles aria-hidden className="size-4 shrink-0" />
+      <AiIcon aria-hidden className="size-4 shrink-0" />
       이 설정에 대해 AI에게 묻기
     </button>
   )

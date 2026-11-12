@@ -7,6 +7,8 @@ import playwright from 'eslint-plugin-playwright'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+import noDirectSparkles from './eslint-rules/no-direct-sparkles.js'
+import noRawAiHue from './eslint-rules/no-raw-ai-hue.js'
 import requireE2eReasonTag from './eslint-rules/require-e2e-reason-tag.js'
 import untaggedBaseline from './e2e/untagged-baseline.json' with { type: 'json' }
 
@@ -74,6 +76,17 @@ const radixPopperPackageRule = {
   message: popperImportMessage,
 }
 
+// AI 표식 규칙(WP-1529) — Sparkles 직접 import·보라 계열 원색 클래스를 막는다. 문서(디자인 시스템 §7.2)만으로는
+// 화면마다 표식이 다시 갈라지는 걸 못 막아 린트로 강제한다. 기존 no-restricted-* 에 넣으면 예외 블록마다
+// 다른 항목을 다시 나열해야 해서, 별도 규칙 id 로 두고 예외는 'off' 한 줄로 끝낸다.
+const aiMarkerPlugin = {
+  rules: { 'no-direct-sparkles': noDirectSparkles, 'no-raw-ai-hue': noRawAiHue },
+}
+
+// 테스트 면제 glob — 단위 테스트와 e2e 를 나눠 면제 범위를 다르게 둔다.
+const UNIT_TEST_GLOBS = ['src/**/*.test.{ts,tsx}', 'src/test/**']
+const E2E_GLOBS = ['e2e/**/*.ts']
+
 export default defineConfig([
   globalIgnores(['dist', 'src/components/ui', 'playwright-report', 'test-results']),
   {
@@ -88,6 +101,7 @@ export default defineConfig([
     ],
     plugins: {
       'simple-import-sort': simpleImportSort,
+      'ai-marker': aiMarkerPlugin,
     },
     languageOptions: {
       ecmaVersion: 2020,
@@ -96,6 +110,9 @@ export default defineConfig([
     rules: {
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
+      // AI 표식은 @/components/ai 프리미티브로만, 보라 계열 원색은 시맨틱 토큰(ai-accent 등)으로만(WP-1529).
+      'ai-marker/no-direct-sparkles': 'error',
+      'ai-marker/no-raw-ai-hue': 'error',
       // 신규 권장 규칙이지만 강제는 부담 — 페이지/훅 패턴 정리 시점에 점진 해결
       'react-hooks/set-state-in-effect': 'warn',
       // 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
@@ -127,6 +144,26 @@ export default defineConfig([
     rules: {
       'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, nestedButtonInLinkRule],
     },
+  },
+  {
+    // AI 프리미티브 구현부 — Sparkles 를 실제로 import 하는 유일한 자리(AiIcon 등).
+    files: ['src/components/ai/**'],
+    rules: { 'ai-marker/no-direct-sparkles': 'off' },
+  },
+  {
+    // 사용자가 고르는 categorical 팔레트 — 원색 클래스가 데이터다(01-design-tokens §1-7 승인 예외, AI 와 무관).
+    files: ['src/lib/labelColors.ts', 'src/lib/calendarPalette.ts'],
+    rules: { 'ai-marker/no-raw-ai-hue': 'off' },
+  },
+  {
+    // 단위 테스트 — 팔레트 클래스 단언·아이콘 모양 비교에 원색·Sparkles 이름이 필요하다.
+    files: UNIT_TEST_GLOBS,
+    rules: { 'ai-marker/no-direct-sparkles': 'off', 'ai-marker/no-raw-ai-hue': 'off' },
+  },
+  {
+    // e2e 스펙 — 색 클래스 단언만 원색이 필요하다. Sparkles 직접 import 는 e2e 에서도 계속 막는다.
+    files: E2E_GLOBS,
+    rules: { 'ai-marker/no-raw-ai-hue': 'off' },
   },
   // 컴포넌트 테스트·테스트 헬퍼 — HMR 경계가 아니므로 컴포넌트 외 export(헬퍼·픽스처)를 허용한다(WP-413).
   {

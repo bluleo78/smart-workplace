@@ -2,12 +2,13 @@
 // 스레드도 채널처럼 URL ?thread 로 우측 칸(모바일 전체폭)에 연다 — 스레드 인박스의 DM 스레드가 여기로 온다(WP-1083).
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
-import { MessageSquare, Sparkles } from 'lucide-react'
+import { MessageSquare } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
+import { CatchupSummarizeButton } from '@/components/chat/CatchupSummarizeButton'
 import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DmHeader } from '@/components/chat/DmHeader'
@@ -121,14 +122,7 @@ export default function DmPage() {
     />
   ) : showCatchupButton ? (
     <div className="mx-4 my-2">
-      <button
-        type="button"
-        data-testid="catchup-summarize-btn"
-        onClick={() => setCatchupManual(true)}
-        className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[12px] font-medium text-indigo-700 hover:bg-indigo-100"
-      >
-        <Sparkles className="h-3.5 w-3.5" /> 놓친 대화 ✨요약
-      </button>
+      <CatchupSummarizeButton onClick={() => setCatchupManual(true)} />
     </div>
   ) : null
 

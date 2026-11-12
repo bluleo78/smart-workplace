@@ -1,10 +1,11 @@
 // 이슈 모듈 2차 사이드바 — 개인 영역(내 작업/AI 위임) + 프로젝트(컬러 식별자).
 // 좁은 데스크톱 창에선 compact(아이콘 줄, 56px)로 그린다(WP-506) — 이름은 숨기고 마우스를 올리면 Tooltip 으로 보인다.
 // compact 분기는 아래 SidebarItem(항목)·SidebarSection(섹션 머리말) 두 곳에만 둔다.
-import { LayoutGrid, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
+import { LayoutGrid, LayoutList, ListChecks, Plus, Star } from 'lucide-react'
 import { lazy, type ReactElement, type ReactNode, Suspense, useState } from 'react'
 import { Link, NavLink, type NavLinkProps, useLocation } from 'react-router-dom'
 
+import { AiIcon } from '@/components/ai/AiIcon'
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { ProjectBadge } from '@/components/ProjectBadge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -172,7 +173,7 @@ export function IssueSidebar({ compact = false }: { compact?: boolean }) {
         {/* 개인 영역 — 경쟁 솔루션 공통 패턴: 개인 작업을 사이드바 최상단에 고정 */}
         <nav className="space-y-1">
           <SidebarItem compact={compact} to="/me/tasks" icon={<ListChecks className="h-4 w-4 shrink-0" />} label="내 작업" />
-          <SidebarItem compact={compact} to="/me/ai-tasks" icon={<Sparkles className="h-4 w-4 shrink-0" />} label="AI 위임 작업" />
+          <SidebarItem compact={compact} to="/me/ai-tasks" icon={<AiIcon className="h-4 w-4 shrink-0" />} label="AI 위임 작업" />
         </nav>
 
         {(pinned.data?.length ?? 0) > 0 && (

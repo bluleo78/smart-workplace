@@ -1,9 +1,12 @@
 // 업무 프로파일 카드(WP-1485) — 그 기간에 끝낸 이슈를 AI 가 분류한 결과(요약·주요 업무·자주 일한 영역·역량). 개요의 추이/마감 아래, 맡은 이슈 위 전체 폭.
 // 보고서 원자료라 숫자·태그는 서버가 준 그대로 그린다. 분석 중(PENDING)이면 훅이 3초마다 다시 읽고, 「다시 분석」은 하루 상한(429)을 서버 문구로 알린다.
 // 조회 실패는 카드 안에서만 다시 시도를 보인다 — 개요 전체를 막지 않는다.
-import { RefreshCw } from 'lucide-react'
+// AI 결과 영역은 AiContent 가 「AI 분석」 로 한 번 표시한다(§7.2) — 안의 요약·태그에는 따로 표식을 더하지 않는다.
+import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { AiContent } from '@/components/ai/AiContent'
+import { AiLabel } from '@/components/ai/AiLabel'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,6 +25,8 @@ export function WorkProfileCard({ period }: { period: MeOverviewPeriod }) {
   const pending = profile?.status === 'PENDING'
   // 끝낸 이슈가 없는 기간(NONE)은 분석할 것이 없다 — 눌러도 하루 상한만 쓰고 빈 결과가 남으므로 막는다.
   const nothingToAnalyze = profile?.status === 'NONE'
+  // 분석 중(서버 PENDING 또는 방금 누른 요청)에는 AiIcon 대신 회전 스피너 — 접근 이름은 그대로 「다시 분석」.
+  const busy = pending || analyze.isPending
 
   // 다시 분석 — 시작(STARTED)·이미 분석 중은 카드가 「분석하는 중」으로 바뀌어 따로 알리지 않는다. 바뀐 게 없을 때와 실패만 토스트.
   const onAnalyze = () =>
@@ -42,9 +47,15 @@ export function WorkProfileCard({ period }: { period: MeOverviewPeriod }) {
         </div>
         <div className="flex items-center gap-2">
           {profile && <StatusText profile={profile} />}
-          <Button variant="outline" size="sm" onClick={onAnalyze} disabled={!profile || pending || nothingToAnalyze || analyze.isPending}>
-            <RefreshCw aria-hidden />
-            다시 분석
+          <Button variant="outline" size="sm" onClick={onAnalyze} disabled={!profile || busy || nothingToAnalyze}>
+            {busy ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden />
+                다시 분석
+              </>
+            ) : (
+              <AiLabel>다시 분석</AiLabel>
+            )}
           </Button>
         </div>
       </div>
@@ -87,15 +98,18 @@ function ProfileBody({ profile }: { profile: WorkProfile }) {
         이 기간에 끝낸 이슈가 없어 분석할 것이 없어요
       </p>
     )
-  return (
+  // AI 결과(요약·업무·영역·역량)가 하나라도 있을 때만 AiContent 로 감싼다 — 결과 없는 FAILED 오류 문구·첫 PENDING 스켈레톤은 AI 생성물이 아니다.
+  const hasResult = Boolean(profile.summary) || profile.tasks.length > 0 || profile.areas.length > 0 || profile.skills.length > 0
+  // 서버가 문구를 주지 않은 실패도 숨기지 않게 기본 문구로 채운다.
+  const errorEl =
+    profile.status === 'FAILED' ? (
+      <p className="text-xs text-destructive" data-testid="work-profile-error">
+        {profile.error ?? '분석하지 못했어요'}
+      </p>
+    ) : null
+  const grid = (
     <div className="grid gap-4 md:grid-cols-2">
       <div className="space-y-2">
-        {profile.status === 'FAILED' && (
-          // 서버가 문구를 주지 않은 실패도 숨기지 않게 기본 문구로 채운다.
-          <p className="text-xs text-destructive" data-testid="work-profile-error">
-            {profile.error ?? '분석하지 못했어요'}
-          </p>
-        )}
         {profile.summary ? (
           <p className="text-sm">{profile.summary}</p>
         ) : (
@@ -118,6 +132,19 @@ function ProfileBody({ profile }: { profile: WorkProfile }) {
           </TagGroup>
         )}
       </div>
+    </div>
+  )
+  // 오류는 항상 맨 위 한 곳에 둔다 — 결과가 있을 때만 그 아래 본문을 AiContent 로 감싼다.
+  return (
+    <div className="space-y-2">
+      {errorEl}
+      {hasResult ? (
+        <AiContent label="AI 분석" data-testid="work-profile-ai">
+          {grid}
+        </AiContent>
+      ) : (
+        grid
+      )}
     </div>
   )
 }

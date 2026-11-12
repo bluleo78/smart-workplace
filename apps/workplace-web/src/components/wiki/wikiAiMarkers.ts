@@ -7,9 +7,9 @@ import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { type EditorState, Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { Sparkles } from 'lucide-react'
 import { ySyncPluginKey } from 'y-prosemirror'
 
+import { AiIcon } from '@/components/ai/AiIcon'
 import type { AwarenessStates } from '@/lib/collab/presence'
 import type { AwarenessChanges, PresenceAwareness } from '@/lib/collab/presenceAwareness'
 
@@ -80,8 +80,8 @@ function markerWidget(name: string, key: string): HTMLElement {
   const label = document.createElement('span')
   label.className = 'wiki-ai-marker__name'
   label.textContent = shown
-  // 모양은 AiLabel 의 Sparkles 컴포넌트에서 읽는다 — 위젯은 React 밖 DOM 이라 컴포넌트를 그대로 쓸 수 없다.
-  tag.append(lucideSvg(Sparkles, 'wiki-ai-marker__icon'), label)
+  // 모양은 AiIcon 컴포넌트에서 읽는다 — 위젯은 React 밖 DOM 이라 컴포넌트를 그대로 쓸 수 없다.
+  tag.append(lucideSvg(AiIcon, 'wiki-ai-marker__icon'), label)
   el.append(caret, tag)
   return el
 }

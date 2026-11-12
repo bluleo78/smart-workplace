@@ -1,7 +1,7 @@
 // 모바일 AI 시트(WP-191) — 보던 화면 위로 올라오는 큰 바텀 시트. 탭바 ✦·헤더 ✦ 어디서 열든 같은 모양이다.
 // Radix 모달이 아닌 이유: 모달이면 아래 탭바를 누를 수 없고, 열린 엔티티 다이얼로그와 AI 표면을 가르는 WP-54 규칙과 부딪힌다.
 // MobileShell 이 본문+탭바를 덮는 셸 루트 레이어로 렌더한다. 키보드 높이는 셸(--vvh)이 이미 반영한다.
-import { ChevronDown, Plus, Sparkles } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
@@ -16,6 +16,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 import { useAssistantChat } from '@/hooks/useAssistantChat';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';
+
+import { AiIcon } from './AiIcon';
 
 // 이만큼(px) 넘게 끌어내리면 닫는다 — 그보다 짧으면 제자리로.
 const CLOSE_DRAG_PX = 80;
@@ -124,7 +126,7 @@ function SheetPanel() {
           <div data-testid="ai-sheet-handle" className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
           <div className="flex h-12 items-center gap-1 border-b pl-4 pr-1">
             <span className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-ai-accent">
-              <Sparkles className="h-4 w-4" aria-hidden />
+              <AiIcon className="h-4 w-4" aria-hidden />
               AI
             </span>
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>

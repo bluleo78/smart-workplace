@@ -1,7 +1,7 @@
 // src/components/ai/AIChatPanel.tsx
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
-import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Square } from 'lucide-react';
 import { Fragment, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
@@ -54,6 +54,8 @@ import { spaceOfScreenContext } from '@/lib/sharedAiMemory';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
 import type { MemoryBlock, MessageTurn } from '@/types/home';
+
+import { AiIcon } from './AiIcon';
 
 /** 홈 AI 대화 본문 상한 — 서버 HomeChatRequest.QUERY_MAX·ai-agent chatSchema 와 같은 값(WP-674). */
 export const HOME_CHAT_QUERY_MAX = 10000;
@@ -363,7 +365,7 @@ export function AIChatPanel({
             // 한다(형제·여백을 더하면 바깥이 다시 넘쳐 바닥 고정이 돌아온다). 키보드가 열린 동안엔 안내 글을 접어 추천이 맨 위에 보이게 한다.
             <div data-testid="ai-chat-empty-state" className="flex h-full flex-col items-center justify-center-safe gap-2 overflow-y-auto text-center">
               <div className={cn('flex flex-col items-center gap-2', showStarters && '[:root[data-keyboard-open]_&]:hidden')}>
-                <Sparkles className="h-9 w-9 shrink-0 text-muted-foreground/60" />
+                <AiIcon className="h-9 w-9 shrink-0 text-muted-foreground/60" />
                 <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
                 <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
               </div>
@@ -669,7 +671,7 @@ export function AIChatPanel({
               data-testid={notice.testId}
               className="mb-2 flex items-start gap-1.5 rounded-md bg-ai-accent-subtle px-2.5 py-1.5 text-xs text-foreground"
             >
-              <Sparkles aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ai-accent" />
+              <AiIcon aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ai-accent" />
               <span className="min-w-0 flex-1">{notice.text}</span>
               {notice.id === LIMIT_NOTICE_ID && showSessions && (
                 <button

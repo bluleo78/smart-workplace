@@ -38,6 +38,11 @@
 - [ ] **상세 페이지 탭 패턴 부재** — 탭형 상세 레이아웃이 아직 없음. 필요 모듈(이슈/프로젝트) 식별 후 표준 정의 여부 결정.
 - [x] **페이지 헤더 주(primary) 액션 Button size 를 `default` 로 통일** — 규정 확정 #744, 코드 정리 완료 #747. `CyclesPage`(새 사이클)·`AgentManagementPage`(새 에이전트)·`ContactsPage`(새 외부 연락처) **3개 페이지**의 `size="sm"` 을 제거해 `default`(h-9) 로 맞췄다. 세 페이지 모두 헤더가 `PageHeader`(고정 `h-14`)라 높이 변화가 레이아웃을 밀지 않는다(`SettingsPage` 도 내부적으로 `PageHeader` 사용). 라이트·다크 시각검증 완료.
   - **`CalendarPage` 는 대상이 아니다** — #744 가 4번째로 적었던 건 오기다. `CalendarPage.tsx` 의 `actions` 는 일/주/월 **뷰 전환 세그먼티드 컨트롤**이고 `icon` 슬롯은 오늘/이전/다음 네비게이션이라, §E 가 규정하는 "헤더 주 액션"이 아니다. 이 오분류를 빼면 집계는 `default` 8건 vs `sm` 3건이 되어 `default` 확정 근거는 오히려 강화된다 — **#744 규정은 그대로 유효하며 재검토 대상이 아니다.**
+- [x] **AI 표식 어휘 정리·린트 강제 (WP-1529, 2026-11-12)** — [07 §7.2](./07-iconography.md#72-ai-마커-어휘) 어휘대로 화면을 맞추고 재발을 린트로 막았다.
+  - 고친 화면: 메일 상세 버튼·대화상자 제목·작성 AI 검토 탭, 놓친 대화 요약 버튼, 업무 프로파일, 맡은 이슈 AI 태그, 노트 HTML AI로 고치기, 첨부 뷰어 요약 토글
+  - 새 `AiIcon`(`components/ai/AiIcon.ts`, `Sparkles` 별칭) — 글자 없는 자리의 AI 아이콘
+  - 규칙 두 개: `ai-marker/no-direct-sparkles`·`ai-marker/no-raw-ai-hue`. 허용 목록은 팔레트 2파일(`labelColors.ts`·`calendarPalette.ts`)·테스트·`components/ai`·「새 소식」 disable
+  - 남은 것: 「새 소식」 아이콘을 `AiIcon` 으로 바꿀지 판단, `timeline-gantt.css` 에픽 색은 사용자가 고르는 팔레트라 유지
 - [ ] **앱 간 공통 탐색 규칙 맞추기(WP-975)** — [05 §B-1](./05-page-patterns.md#b-1-앱-간-공통-탐색-규칙-wp-975) 확정(2026-10-26). 연락처·브레드크럼은 WP-976~979. 그 밖에 남은 것:
   - 드라이브 검색어를 URL `?q` 에 반영(지금은 화면 상태만 — 새로 고침·공유 때 사라짐)
   - 터치 ⋯ 정리 — 이슈 행·카드(hover 전용 ⋯ 라 터치 태블릿에서 안 보임), 캘린더·드라이브 공간(CSS 상시 노출) → `TouchRowActionsMenu`, 메일(길게 누르기만) → ⋯ 진입 추가

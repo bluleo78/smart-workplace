@@ -79,7 +79,12 @@ describe.each([
     const { user } = openConv(kind, detail(), readPlusUnread(id, 2), [
       catchupHandler(id, { unreadCount: 2, decisions: [], yourTurn: [], discussion: [{ text: '짧은 논의', sourceMessageIds: [101] }] }),
     ])
-    await user.click(await screen.findByTestId('catchup-summarize-btn'))
+    const btn = await screen.findByTestId('catchup-summarize-btn')
+    // AI 표식(§7.2) — 글자 ✨ 대신 AiIcon, 예전 indigo 색 없음.
+    expect(btn).toHaveTextContent(/^놓친 대화 요약$/)
+    expect(btn.querySelector('svg.lucide-sparkles')).not.toBeNull()
+    expect(btn.className).not.toMatch(/indigo/)
+    await user.click(btn)
     expect(screen.getByTestId('catchup-card')).toBeInTheDocument()
     expect(await screen.findByText('짧은 논의')).toBeInTheDocument()
   })
