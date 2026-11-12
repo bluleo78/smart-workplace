@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
@@ -15,6 +15,7 @@ import { isIOSStandalone } from '../../lib/platform'
 import { ghostToggleClass } from '../../lib/selectionStyles'
 import type { ShareTarget } from '../../lib/shareTarget'
 import { cn } from '../../lib/utils'
+import { AiIcon } from '../ai/AiIcon'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
 import { useRegisterAiScreenContext } from '../ai/screen-context/useAiScreenContext'
 import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
@@ -642,7 +643,8 @@ export function AttachmentViewer({
                   aria-pressed={panelOpen}
                   onClick={() => togglePanel(!panelOpen)}
                 >
-                  <Sparkles />
+                  {/* 켜짐이면 토글의 상태색(primary)을 상속, 꺼짐일 때만 AI 색 — §7.2 상태 색 우선 */}
+                  <AiIcon className={cn(!panelOpen && 'text-ai-accent')} />
                 </Button>
               )}
               {/* WP-1234 🔗 — ⋯ 의 예전 「링크 복사」를 헤더로 꺼냈다. 툴팁은 body 포털이라 뷰어와 같은 다크 토큰을 단다. */}

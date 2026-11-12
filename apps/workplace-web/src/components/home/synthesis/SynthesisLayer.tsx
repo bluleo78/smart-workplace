@@ -4,12 +4,13 @@
 //   - 지금 신경 쓸 일: 크로스앱 급한 것만(마감 지난/오늘 + 멘션 + 회신 필요 메일), 최상위 포커스 카드 + 행 딥링크
 // 페치 정책: notifications·mail·calendar 훅은 ③ 위젯 바디와 동일 키 → TanStack Query 가 dedupe(이중 페치 없음).
 //   단 useMyIssueDues 는 어느 ③ 바디도 쓰지 않는 합성 전용 추가 쿼리다(마감 마커 — 스펙 허용).
-import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageCircle, MessageSquare, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageCircle, MessageSquare, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { PriorityItem } from '@/api/priorityItems'
 import { AiContent } from '@/components/ai/AiContent'
+import { AiIcon } from '@/components/ai/AiIcon'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Card, CardContent } from '@/components/ui/card'
@@ -44,7 +45,7 @@ export interface SynthesisPreviewData {
 
 // 카운트 셀 — 로딩 시 셀만 스켈레톤(격리), 에러 시 '–'.
 // to 가 있으면 모듈 딥링크(Link), onClick 이 있으면 액션 버튼(예: '멘션' → 알림 패널 열기).
-// ai=true 이면 AI 분류 활성 신호(Sparkles 배지 + text-ai-accent 강조).
+// ai=true 이면 AI 분류 활성 신호(AiIcon 배지 + text-ai-accent 강조).
 // testId: data-testid 속성 전달(E2E 셀 단위 검증용).
 function CountCell({
   label,
@@ -75,8 +76,8 @@ function CountCell({
       ) : (
         <span className="flex items-center gap-0.5 text-xl font-semibold text-ai-accent">
           {error ? '–' : count}
-          {/* AI 분류 활성 시 Sparkles 아이콘으로 AI 신호 표시 — 이모지 대신 lucide 아이콘(ai-accent 토큰). */}
-          {ai && !error && <Sparkles className="inline h-3 w-3 text-ai-accent" />}
+          {/* AI 분류 활성 시 AiIcon 아이콘으로 AI 신호 표시 — 이모지 대신 lucide 아이콘(ai-accent 토큰). */}
+          {ai && !error && <AiIcon className="inline h-3 w-3 text-ai-accent" />}
         </span>
       )}
       {/* 라벨은 모바일 3열에서 한 줄 고정(꺾이면 셀 높이가 들쭉날쭉해진다, WP-142). 데스크톱 CSS 는 그대로(lg:whitespace-normal). */}
@@ -180,7 +181,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const failedSources = previewData ? [] : [dues, notifs, mail, messaging].filter(showsLoadError)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리). previewData 있으면 항상 로딩/에러 없음으로 고정.
-  // ai=true 이면 CountCell 이 Sparkles 배지를 표시(AI 분류 활성 신호).
+  // ai=true 이면 CountCell 이 AiIcon 배지를 표시(AI 분류 활성 신호).
   // testId: E2E 셀 단위 testid(선택적).
   const noQuery = { isLoading: false, isError: false }
   const cells: {
@@ -195,7 +196,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     { label: '오늘 마감', count: counts.dueToday, to: '/me/tasks/assigned?dueDate=today', q: previewData ? noQuery : dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
     { label: '멘션', count: counts.mention, onClick: () => openInbox(), q: previewData ? noQuery : notifs },
-    // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(Sparkles), 비활성 시 "안 읽음 N".
+    // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(AiIcon), 비활성 시 "안 읽음 N".
     classifyOn
       ? { label: '회신 필요', count: counts.mail, to: '/mail', q: previewData ? noQuery : mail, ai: true }
       : { label: '안 읽음', count: counts.mail, to: '/mail', q: previewData ? noQuery : mail },
@@ -328,7 +329,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             data-testid="dashboard-mail-cta"
             className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-ai-accent/70 bg-ai-accent-subtle/40 px-3 py-2 text-xs text-muted-foreground"
           >
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-ai-accent" />
+            <AiIcon className="h-3.5 w-3.5 shrink-0 text-ai-accent" />
             {/* 좁은 폭에선 문구가 어절 단위로 줄어들고 「켜기」·닫기는 줄지 않는다 — 링크가 「켜 / 기」로 꺾이던 문제(WP-603). */}
             <span className="min-w-0 break-keep">AI로 회신이 필요한 메일을 가려낼 수 있어요</span>
             <Link to="/settings/mail" className={`shrink-0 whitespace-nowrap font-medium text-ai-accent hover:underline ${HIT_AREA_COARSE_TIGHT}`}>

@@ -9,7 +9,7 @@
 //   펜(✒, 데스크톱은 📎 왼쪽·모바일은 상단 바 🗑 와 📎 사이)으로 빼고 넣는다. 보낼 때 서명 이미지는 작성창 업로드 사본으로 바꿔 cid 로 보낸다.
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Sparkles, Trash2, X } from 'lucide-react';
+import { Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ import { uploadComposeAttachment } from '@/api/mailMessages';
 import { stageSignatureImages } from '@/api/mailSignature';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiContent } from '@/components/ai/AiContent';
+import { AiIcon } from '@/components/ai/AiIcon';
 import { inertPageArea } from '@/components/ai/aiPanelSurface';
 import { AI_SIDE_CENTER_CLASS, AI_SIDE_OVERLAY_CLASS } from '@/components/ai/useAiPanelAwareDialog';
 import { mobileBackButtonClass, mobileDetailBarClass } from '@/components/mobile/headerClass';
@@ -908,9 +909,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                 runCoaching();
               }}
             >
-              {/* 장식 기호 → lucide 아이콘으로 교체 */}
+              {/* 탭은 「작성」 탭과 글자 모양을 공유 — AiLabel 대신 아이콘만 AI 색(§7.2 아이콘 1차, 색 보조). */}
               <span className="inline-flex items-center justify-center gap-1">
-                <Sparkles className="h-3 w-3" />
+                <AiIcon className={cn('size-3', tab !== 'review' && 'text-ai-accent')} />
                 AI 검토
               </span>
             </button>

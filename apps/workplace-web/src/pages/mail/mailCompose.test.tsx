@@ -238,6 +238,18 @@ test('크게 보기에서도 ✕ 는 묻지 않고 임시저장한 뒤 닫고 �
   expect(await screen.findByText('임시보관함에 저장했어요')).toBeInTheDocument()
 })
 
+test('AI 검토 탭 ✨ 는 선택 전엔 ai-accent, 선택되면 탭 활성색을 상속한다(§7.2 상태 색 우선)', async () => {
+  const { user } = await openReplyForCoaching()
+  const tab = screen.getByTestId('mail-review-tab')
+  const icon = tab.querySelector('svg.lucide-sparkles')
+  expect(icon).not.toBeNull()
+  expect(icon).toHaveClass('text-ai-accent')
+  await typeBody(user, '검토할 본문')
+  await user.click(tab)
+  expect(await screen.findByTestId('mail-coaching-note')).toBeInTheDocument()
+  expect(tab.querySelector('svg.lucide-sparkles')).not.toHaveClass('text-ai-accent')
+})
+
 test('크게 보기에서 AI 검토 탭을 열면 에디터·서식 버튼은 숨고 검토 패널만 보인다', async () => {
   const coach = record('post', '/api/v1/mail/draft-coaching', () => HttpResponse.json({ notes: [], improvedBodyHtml: '<p>개선본</p>' }))
   const view = renderMail('/mail/1', { handlers: [coach.handler] })

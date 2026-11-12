@@ -214,6 +214,8 @@ describe('내 작업 · 개요', () => {
     expect(screen.getByTestId('upcoming-tile-overdue')).toHaveAttribute('aria-pressed', 'true')
     const list = () => screen.getByTestId('overview-upcoming-list')
     expect(list()).toHaveTextContent('WP-1294genia 실행기 첫 응답 지연AI 개발자16일 지남')
+    // AI 태그 앞에는 Bot 아이콘(에이전트 주체, §7.2).
+    expect(list().querySelector('svg.lucide-bot')).not.toBeNull()
     await user.click(screen.getByTestId('upcoming-tile-waiting'))
     expect(screen.getByTestId('upcoming-tile-waiting')).toHaveAttribute('aria-pressed', 'true')
     expect(list()).toHaveTextContent('WP-1310답을 기다리는 일마감 없음')
@@ -285,6 +287,20 @@ describe('업무 프로파일', () => {
     expect(c.getByTestId('work-profile-skills')).toHaveTextContent(/^역량ReactSpring Boot$/)
     expect(c.getByRole('button', { name: '다시 분석' })).toBeEnabled()
     expect(c.queryByRole('button', { name: '보고서 만들기' })).toBeNull()
+    // AI 결과 영역은 AiContent 한 곳이 「AI 분석」 로 표시하고, 요약·주요 업무가 그 안에 든다.
+    const ai = c.getByTestId('work-profile-ai')
+    expect(within(ai).getByText('AI 분석')).toBeInTheDocument()
+    expect(within(ai).getByText(createWorkProfile().summary!)).toBeInTheDocument()
+    expect(within(ai).getByTestId('work-profile-tasks')).toBeInTheDocument()
+    // 「다시 분석」 버튼은 AiIcon.
+    expect(c.getByRole('button', { name: '다시 분석' }).querySelector('svg.lucide-sparkles')).not.toBeNull()
+  })
+
+  test('빈 상태에는 AI 분석 영역이 없다', async () => {
+    renderTasks('/me/tasks/overview', undefined, { profile: () => createEmptyWorkProfile() })
+    const card = await screen.findByTestId('overview-work-profile')
+    await within(card).findByText('이 기간에 끝낸 이슈가 없어 분석할 것이 없어요')
+    expect(within(card).queryByTestId('work-profile-ai')).toBeNull()
   })
 
   test('카드가 맡은 이슈보다 앞, 추이보다 뒤', async () => {
@@ -316,11 +332,16 @@ describe('업무 프로파일', () => {
     const card = await screen.findByTestId('overview-work-profile')
     expect(await within(card).findByText('분석하는 중…')).toBeInTheDocument()
     expect(within(card).getByRole('button', { name: '다시 분석' })).toBeDisabled()
+    // 분석 중에는 AiIcon 대신 회전 스피너 — 접근 이름은 그대로.
+    const busyBtn = within(card).getByRole('button', { name: '다시 분석' })
+    expect(busyBtn.querySelector('svg.lucide-loader-circle')).not.toBeNull()
+    expect(busyBtn.querySelector('svg.lucide-sparkles')).toBeNull()
     await act(async () => {
       vi.advanceTimersByTime(3000)
     })
     expect(await within(card).findByText(createWorkProfile().summary!)).toBeInTheDocument()
     expect(within(card).getByRole('button', { name: '다시 분석' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: '다시 분석' }).querySelector('svg.lucide-sparkles')).not.toBeNull()
   })
 
   test('다시 분석 → UNCHANGED 면 「바뀐 것이 없어 그대로 둡니다」 토스트', async () => {
@@ -375,6 +396,15 @@ describe('업무 프로파일', () => {
     const card = await screen.findByTestId('overview-work-profile')
     expect(await within(card).findByText('AI 비서가 설정되지 않아 분석할 수 없어요')).toBeInTheDocument()
     expect(within(card).queryByTestId('overview-work-profile-empty')).toBeNull()
+  })
+
+  test('결과 없는 FAILED 면 AI 분석 영역(work-profile-ai)은 없고 오류 문구는 보인다', async () => {
+    renderTasks('/me/tasks/overview', undefined, {
+      profile: () => ({ ...createEmptyWorkProfile(), status: 'FAILED', error: 'AI 비서가 설정되지 않아 분석할 수 없어요' }),
+    })
+    const card = await screen.findByTestId('overview-work-profile')
+    expect(await within(card).findByTestId('work-profile-error')).toBeInTheDocument()
+    expect(within(card).queryByTestId('work-profile-ai')).toBeNull()
   })
 
   test('끝낸 이슈가 없는 NONE 이면 「다시 분석」을 누를 수 없다', async () => {

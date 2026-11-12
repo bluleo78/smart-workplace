@@ -1,7 +1,8 @@
-import { Cloud, Download, Loader2, type LucideIcon, Share2, Sparkles, X } from 'lucide-react'
+import { Cloud, Download, Loader2, type LucideIcon, Share2, X } from 'lucide-react'
 
 import { TOGGLE_ON_TEXT_CLASS } from '../../lib/selectionStyles'
 import { cn } from '../../lib/utils'
+import { AiIcon } from '../ai/AiIcon'
 import { Button } from '../ui/button'
 import { DialogClose, DialogDescription, DialogTitle } from '../ui/dialog'
 import type { ViewerItem } from './types'
@@ -100,7 +101,7 @@ const SLOT_META: Record<SlotId, { label: string; icon: LucideIcon; testId: strin
   save: { label: '저장', icon: Download, testId: 'preview-download' },
   share: { label: '공유', icon: Share2, testId: 'viewer-slot-share' },
   drive: { label: '드라이브', icon: Cloud, testId: 'viewer-slot-drive' },
-  summary: { label: '요약', icon: Sparkles, testId: 'viewer-slot-summary' },
+  summary: { label: '요약', icon: AiIcon, testId: 'viewer-slot-summary' },
 }
 
 /** 칸 접근 이름 — 공유는 비활성 사유(받는 중/불가)를 이름에 담아 화면낭독기가 왜 못 누르는지 알게 한다. 플랫폼 미지원('none')은 칸 자체가 비어 이름이 쓰이지 않는다. */
@@ -173,8 +174,9 @@ export function ViewerActionBar({
                     s.id === 'summary' && summaryOpen && TOGGLE_ON_TEXT_CLASS,
                   )}
                 >
+                  {/* 요약 아이콘의 AI 색은 켜짐이면 뺀다 — 켜짐은 primary 상태색이 우선(§7.2). */}
                   <Icon
-                    className={cn('size-5', loading && 'animate-spin')}
+                    className={cn('size-5', s.id === 'summary' && !summaryOpen && 'text-ai-accent', loading && 'animate-spin')}
                     aria-hidden
                     data-testid={loading ? 'viewer-slot-share-spinner' : undefined}
                   />

@@ -3,9 +3,10 @@
 //  - 상단바: ‹ · 제목(본문 위 큰 제목이 스크롤로 사라지면 페이드인) · ⋯(안 읽음·AI 이슈·원본 배경) · ✦
 //  - 스크롤 영역: AI 요약(접힘) → 큰 제목 → 보낸사람 → 수신자 한 줄 요약(탭하면 펼침) → 첨부 → 일정 초대 카드(WP-986) → 본문
 //  - 하단 고정 바: 답장 · 전체답장 · 전달 · AI 답장
-import { ChevronDown, Forward, Loader2, Mail, Reply, ReplyAll, Sparkles } from 'lucide-react'
+import { ChevronDown, Forward, Loader2, Mail, Reply, ReplyAll } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 
+import { AiIcon } from '@/components/ai/AiIcon'
 import { AiLabel } from '@/components/ai/AiLabel'
 import { AI_CONTENT_CONTAINER_CLASS } from '@/components/ai/aiMarker'
 import { GeniaWorksSenderMark } from '@/components/mail/GeniaWorksSenderMark'
@@ -178,7 +179,7 @@ function MailMobileActionBar({
           onClick={aiReply.onClick}
           className={cn(actionClass, 'text-ai-accent')}
         >
-          {aiReply.pending ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}
+          {aiReply.pending ? <Loader2 aria-hidden className="animate-spin" /> : <AiIcon aria-hidden />}
           {aiReply.pending ? '작성 중…' : 'AI 답장'}
         </button>
       )}

@@ -1,5 +1,6 @@
-import { CircleCheck, MessagesSquare, Pin, Sparkles, X } from 'lucide-react'
+import { CircleCheck, MessagesSquare, Pin, X } from 'lucide-react'
 
+import { AiLabel } from '@/components/ai/AiLabel'
 import { Button } from '@/components/ui/button'
 import { catchupBasisLabel } from '@/lib/catchupBasis'
 import type { ChannelCatchupResponse } from '@/types/messaging'
@@ -34,8 +35,7 @@ export function ChannelCatchupCard({
       {/* 헤더: AiLabel(✨+텍스트) + 안읽은 카운트 + 닫기 버튼 */}
       <div className="flex items-center justify-between border-b border-ai-accent/20 px-3.5 py-2.5">
         <div className="flex items-center gap-1.5">
-          <Sparkles className="h-4 w-4 text-ai-accent" />
-          <span className="text-[13px] font-bold text-ai-accent">놓친 대화 요약</span>
+          <AiLabel>놓친 대화 요약</AiLabel>
           {data && (
             <span className="text-[11px] text-muted-foreground">· 안 읽은 {data.unreadCount}건</span>
           )}

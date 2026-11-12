@@ -1,8 +1,9 @@
 // 「HTML 문서」 보이는 화면 편집(WP-1309, 설계 WP-1299 §6-3) — 원본 화면을 격리 iframe 에 그대로 띄우고 그 위에서 글자를 눌러 고친다.
 // 스크립트가 그린 부분(차트 등)은 ◎ 고르기로 짚어 ✦ AI로 고치기(HTML 블록과 같은 공용 모듈)로 고친다.
-import { Crosshair, Sparkles } from 'lucide-react'
+import { Crosshair } from 'lucide-react'
 import { type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
+import { AiLabel } from '@/components/ai/AiLabel'
 import { Button } from '@/components/ui/button'
 import { useHtmlEditFrame } from '@/hooks/useHtmlEditFrame'
 
@@ -113,8 +114,7 @@ export function WikiHtmlVisualEditor({
             onClick={() => setAiOpen((v) => !v)}
             data-testid="wiki-html-visual-ai"
           >
-            <Sparkles aria-hidden="true" />
-            AI로 고치기
+            <AiLabel>AI로 고치기</AiLabel>
           </Button>
           <span className="min-w-0 text-xs text-muted-foreground" data-testid="wiki-html-visual-hint">
             {prepared.editable > 0 ? VISUAL_EDIT_HINT : VISUAL_EDIT_HINT_NONE}

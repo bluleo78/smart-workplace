@@ -1,10 +1,10 @@
 // WP-1341 메일 분류 바꾸기 훅 — 메뉴(MailCategoryMenu)·시트(MailCategorySheet)가 고른 분류를 저장하고 바꾼 직후 알림 두 개를 띄운다.
 import { useQueryClient } from '@tanstack/react-query'
-import { Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { deleteAiMemory, updateAiMemory } from '@/api/aiMemories'
 import { learnMailCategory, setMailCategory } from '@/api/mailMessages'
+import { AiIcon } from '@/components/ai/AiIcon'
 import { handleApiError } from '@/lib/api-error'
 import { directionParticle } from '@/lib/utils'
 import type { EmailMessageDetail, MailCategoryChange, MailCategoryState } from '@/types/mailMessage'
@@ -82,7 +82,7 @@ export function useChangeMailCategory(accountId: number | undefined) {
     }
     void qc.invalidateQueries({ queryKey: aiMemoryKeys.all })
     const toastId = toast(`AI 비서가 기억했어요: ${result.content}`, {
-      icon: <Sparkles className="size-4 text-ai-accent" aria-hidden />,
+      icon: <AiIcon className="size-4 text-ai-accent" aria-hidden />,
       duration: MEMORY_TOAST_MS,
       action: {
         label: '기억 취소',

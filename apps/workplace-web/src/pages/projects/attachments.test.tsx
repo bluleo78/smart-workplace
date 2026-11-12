@@ -214,8 +214,12 @@ describe('첨부 뷰어 — 조건부 표시', () => {
     expect(screen.queryByTestId('viewer-side-panel')).not.toBeInTheDocument()
     const toggle = await screen.findByRole('button', { name: 'AI 요약' })
     expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    // AI 표식 — 요약 토글 아이콘은 sparkles + ai-accent 색(WP-1529).
+    expect(toggle.querySelector('svg.lucide-sparkles')).toHaveClass('text-ai-accent')
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    // 켜짐이면 토글의 상태색(primary)을 상속 — AI 색은 빠진다(§7.2 상태 색 우선).
+    expect(toggle.querySelector('svg.lucide-sparkles')).not.toHaveClass('text-ai-accent')
     expect(within(await screen.findByTestId('viewer-side-panel')).getByTestId('drive-summary-card')).toHaveTextContent('링크 요약')
     await user.click(screen.getByRole('button', { name: '더 보기' }))
     expect(await screen.findByRole('menuitem', { name: '드라이브에서 열기' })).toBeInTheDocument()

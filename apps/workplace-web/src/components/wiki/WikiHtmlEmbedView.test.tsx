@@ -1002,6 +1002,8 @@ describe('HTML 블록 AI로 고치기', () => {
     const buttons = Array.from(bar.querySelectorAll(':scope > button')).map((b) => b.getAttribute('data-testid'))
     expect(buttons.slice(0, 3)).toEqual(['wiki-html-embed-label', 'wiki-html-embed-ai-toggle', 'wiki-html-embed-toggle'])
     expect(screen.getByTestId('wiki-html-embed-ai-toggle')).toHaveTextContent('AI로 고치기')
+    // AI 1차 표식 — 토글 안 아이콘은 AiIcon(sparkles) 이고 전용 CSS 클래스를 단다(WP-1529).
+    expect(screen.getByTestId('wiki-html-embed-ai-toggle').querySelector('svg.lucide-sparkles.wiki-html-embed__icon')).not.toBeNull()
     expect(screen.getByTestId('wiki-html-embed-ai-toggle').style.getPropertyPriority('display')).toBe('important')
     act(() => ed.setEditable(false))
     await waitFor(() => expect(screen.queryByTestId('wiki-html-embed-ai-toggle')).not.toBeInTheDocument())
@@ -1030,6 +1032,10 @@ describe('HTML 블록 AI로 고치기', () => {
 
     openPanel()
     expect(input().value).toBe('제목을 4분기로')
+    // 칸 안 보내기 단추에는 AI 표식을 또 달지 않는다(마커 중첩 금지, WP-1529).
+    const send = screen.getByTestId('wiki-html-embed-ai-send')
+    expect(send.querySelector('svg.lucide-sparkles')).toBeNull()
+    expect(send).toHaveTextContent('보내기')
   })
 
   it('요청 칩은 입력 칸에 시작 말을 채운다 — 쓴 글은 뒤에 남는다', async () => {

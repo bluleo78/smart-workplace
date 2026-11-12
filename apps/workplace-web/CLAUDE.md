@@ -54,6 +54,10 @@ src/
 ## Conventions
 
 - **디자인 시스템 필수 참조**: UI 작업(새 페이지·컴포넌트 생성, 기존 UI 수정) 시 반드시 [`docs/design-system/`](../../docs/design-system/index.md)를 참조해 구현한다. 타이포그래피·간격·페이지 패턴·폼·피드백 상태·색상 토큰 등 모든 UI 규칙의 **단일 원본(Single Source of Truth)**. 컴포넌트에는 hex/임의 색 금지 — 시맨틱 토큰(`bg-primary` 등)만 사용.
+- **AI 표식 (WP-1529)**: AI 생성물 `AiContent`, AI 신호 `AiSignalBadge`, 글자와 함께 `AiLabel`, 아이콘만 `AiIcon`, 에이전트 주체 `Bot` — 각각 `@/components/ai/AiContent`·`AiSignalBadge`·`AiLabel`·`AiIcon` 파일별로 import 한다(배럴 없음).
+  AI 실행 버튼은 `Button variant="outline" size="sm"` + `AiLabel`, 진행 중에는 크기 클래스 없는 `Loader2`. 색만으로 AI 를 표시하지 않고, AI 컨테이너 안에서 표식을 반복하지 않는다.
+  `lucide-react` `Sparkles` 직접 import 와 violet/purple/fuchsia/indigo 원색 클래스는 ESLint(`ai-marker/*`)가 막는다 — AI 와 무관한 아이콘은 사유를 달아 disable 한다.
+  상세: [07 §7.2](../../docs/design-system/07-iconography.md#72-ai-마커-어휘)
 - **shadcn UI primitives** (`src/components/ui/`) 는 `npx shadcn` CLI 로 추가/갱신. 수동 편집 금지
 - **테마**: `next-themes` (dark/light/system)
 - **토스트**: Sonner (`toast.success()`, `toast.error()`)

@@ -1,10 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles, Sun, Tag, Trash2, User } from 'lucide-react'
+import { Archive, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sun, Tag, Trash2, User } from 'lucide-react'
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { AiContent } from '@/components/ai/AiContent'
+import { AiIcon } from '@/components/ai/AiIcon'
+import { AiLabel } from '@/components/ai/AiLabel'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
@@ -791,7 +793,7 @@ function MessageDetailPanel({
                 {issueDraftPending ? (
                   <Loader2 aria-hidden className="h-4 w-4 animate-spin text-ai-accent" />
                 ) : (
-                  <Sparkles aria-hidden className="h-4 w-4 text-ai-accent" />
+                  <AiIcon aria-hidden className="h-4 w-4 text-ai-accent" />
                 )}
                 {issueDraftPending ? '이슈 작성 중…' : 'AI로 이슈 만들기'}
               </button>
@@ -860,10 +862,10 @@ function MessageDetailPanel({
             variant="outline"
             size="sm"
             data-testid="mail-ai-summary-generate"
-            className="mb-3 border-ai-accent/50 text-ai-accent hover:bg-ai-accent-subtle hover:text-ai-accent"
+            className="mb-3"
             onClick={() => messageId && generateSummary.mutate(messageId)}
           >
-            <Sparkles className="h-3.5 w-3.5" /> AI 요약
+            <AiLabel>AI 요약</AiLabel>
           </Button>
         )}
         <h2 className="text-lg font-semibold">{mailSubjectText(detail.subject)}</h2>
@@ -954,45 +956,41 @@ function MessageDetailPanel({
               <Trash2 className="h-3.5 w-3.5" /> 삭제
             </Button>
           )}
-          {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
+          {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 액션 트리거 버튼 — 일반 outline 버튼 + AiLabel(✨), 진행 중엔 스피너로 교체(디자인시스템 §7.2 「AI 액션 트리거 버튼」). */}
           {aiActions && (
             <Button
               variant="outline"
               size="sm"
               data-testid="mail-ai-reply-draft"
-              className="border-ai-accent/50 text-ai-accent hover:bg-ai-accent-subtle hover:text-ai-accent"
               disabled={aiDraftPending}
               onClick={() => onAiReplyDraft(detail)}
             >
               {aiDraftPending ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 초안 작성 중…
+                  <Loader2 className="animate-spin" aria-hidden />
+                  초안 작성 중…
                 </>
               ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" /> AI 답장 초안
-                </>
+                <AiLabel>AI 답장 초안</AiLabel>
               )}
             </Button>
           )}
-          {/* AI 이슈 생성 버튼 — 비서 있고 AI 사용 계정에서만 노출. #520. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
+          {/* AI 이슈 생성 버튼 — 비서 있고 AI 사용 계정에서만 노출. #520. AI 액션 트리거 버튼 — 일반 outline 버튼 + AiLabel(✨), 진행 중엔 스피너로 교체(디자인시스템 §7.2 「AI 액션 트리거 버튼」). */}
           {aiActions && (
             <Button
               variant="outline"
               size="sm"
               data-testid="mail-ai-issue"
-              className="border-ai-accent/50 text-ai-accent hover:bg-ai-accent-subtle hover:text-ai-accent"
               disabled={issueDraftPending}
               onClick={() => onAiIssue(detail)}
             >
               {issueDraftPending ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 이슈 작성 중…
+                  <Loader2 className="animate-spin" aria-hidden />
+                  이슈 작성 중…
                 </>
               ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" /> AI 이슈 생성
-                </>
+                <AiLabel>AI 이슈 생성</AiLabel>
               )}
             </Button>
           )}
@@ -1449,7 +1447,7 @@ function MailInbox() {
     // 링크(WP-1236) — 이 메일의 앱 링크. 메일은 계정 주인만 열 수 있어 남에게 보내면 「볼 수 없는 메일」로 보인다(나중에 내가 다시 찾기용).
     ...(accountIdNum != null ? rowLinkActions(mailShareTarget(accountIdNum, m)) : []),
     ...(aiAvailable && aiEnabled
-      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m, onAiIssue) }]
+      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <AiIcon />, onSelect: () => void withDetail(m, onAiIssue) }]
       : []),
     // WP-962 보관·옮기기·삭제 — 옮기기는 메일함 고르기 시트를 연다. 삭제는 파괴적 항목이라 맨 아래.
     ...(moveAvail.archive ? [{ key: 'archive', label: '보관', icon: <Archive />, onSelect: () => startMove([m.id], { kind: 'ARCHIVE' }) }] : []),

@@ -52,8 +52,8 @@ test('AI 이슈 생성 → 초안으로 사전채움 → 담당을 AI 비서로 
       { userId: 9, username: 'ai', name: 'AI 비서', kind: 'AGENT', role: 'MEMBER', createdAt: null },
     ]),
   ])
-  // AI 버튼은 ai-accent 보조 컬러(디자인시스템 §7.2 — 아이콘+색).
-  expect(screen.getByTestId('mail-ai-issue').className).toMatch(/text-ai-accent/)
+  // AI 버튼의 표식은 AiLabel 의 ✨ 아이콘이 맡는다(디자인시스템 §7.2 — 버튼에 색 직접 조합 없음).
+  expect(screen.getByTestId('mail-ai-issue').querySelector('svg.lucide-sparkles')).not.toBeNull()
   await user.click(screen.getByTestId('mail-ai-issue'))
   expect(await screen.findByTestId('mail-to-issue-dialog')).toBeInTheDocument()
   await waitFor(() => expect(screen.getByTestId('issue-draft-title')).toHaveValue('정산 자료 검토'))
@@ -62,6 +62,20 @@ test('AI 이슈 생성 → 초안으로 사전채움 → 담당을 AI 비서로 
   await user.click(screen.getByTestId('mail-to-issue-submit'))
   expect(await screen.findByText('이슈 FIN-12 를 만들었어요')).toBeInTheDocument()
   expect(promote.last().body).toMatchObject({ projectKey: 'FIN', title: '정산 자료 검토', priority: 'HIGH', assigneeIds: [9] })
+})
+
+test('AI 이슈 생성 대화상자 제목은 「이슈로 만들기」 + AI 초안 표식', async () => {
+  const { user } = await openIssueDialog([
+    draftHandler({ title: 't', body: 'b', priority: 'HIGH', suggestedProjectKey: 'FIN', candidateProjects: [{ key: 'FIN', name: '재무' }] }),
+    membersHandler(),
+  ])
+  await user.click(screen.getByTestId('mail-ai-issue'))
+  const dialog = await screen.findByTestId('mail-to-issue-dialog')
+  const heading = within(dialog).getByRole('heading')
+  expect(heading.textContent).toMatch(/^이슈로 만들기/)
+  expect(heading.textContent).toContain('AI 초안')
+  expect(heading.textContent).not.toContain('(')
+  expect(heading.querySelector('svg.lucide-sparkles')).not.toBeNull()
 })
 
 test('보고자: 기본은 보낸 사람, 볼 수 없는 프로젝트로 바꾸면 막히고 「나」, 다시 돌아와 만들면 reporter=SENDER(WP-954)', async () => {

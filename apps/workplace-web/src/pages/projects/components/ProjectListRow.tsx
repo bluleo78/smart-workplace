@@ -19,11 +19,11 @@ type RowProps = {
 }
 
 // 데스크톱·모바일 행이 공유하는 파생값 — 배지 색·완료율(바 너비와 라벨이 같은 값)·개인 여부.
-// 유형 칩 색 — 개인 초록, 팀 남색, 공개 접수함 주황(팀과 구분되게, WP-1157).
+// 유형 칩 색 — 개인 success, 팀 info, 공개 접수함 warning 시맨틱 토큰(팀과 구분되게, WP-1157).
 const TYPE_CHIP_CLASS: Record<ProjectResponse['type'], string> = {
-  PERSONAL: 'bg-green-50 text-green-700',
-  TEAM: 'bg-indigo-50 text-indigo-700',
-  OPEN: 'bg-amber-50 text-amber-700',
+  PERSONAL: 'bg-success-subtle text-success-text',
+  TEAM: 'bg-info-subtle text-info-text',
+  OPEN: 'bg-warning-subtle text-warning-text',
 }
 
 function rowBasics(p: ProjectResponse) {

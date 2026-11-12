@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { AiLabel } from '@/components/ai/AiLabel'
 import { IssueDraftFields, type IssueDraftValue } from '@/components/issue/IssueDraftFields'
 import { Button } from '@/components/ui/button'
 import {
@@ -82,7 +83,11 @@ export function MailToIssueDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="mail-to-issue-dialog">
         <DialogHeader>
-          <DialogTitle>이슈로 만들기 (AI 초안)</DialogTitle>
+          {/* 괄호 글자 표식 대신 AiLabel(✨ + 글자) — AI 가 채운 초안임을 §7.2 어휘로 표시. */}
+          <DialogTitle className="flex items-center gap-2">
+            이슈로 만들기{' '}
+            <AiLabel>AI 초안</AiLabel>
+          </DialogTitle>
           <DialogDescription className="sr-only">메일을 이슈로 승격</DialogDescription>
         </DialogHeader>
         {draft ? (

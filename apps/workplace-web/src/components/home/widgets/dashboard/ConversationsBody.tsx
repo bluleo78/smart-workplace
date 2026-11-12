@@ -16,7 +16,7 @@ function href(c: ConversationSummaryItem): string {
 }
 
 // 신호 배지(우선순위: AI 발굴 > 멘션 > 회신대기 > 새 답글).
-// AI 발굴은 ai-accent 시맨틱 토큰, 멘션은 violet, 회신대기는 amber, 새 답글은 sky 계열.
+// AI 발굴은 ai-accent 시맨틱 토큰, 멘션은 primary, 회신대기는 amber, 새 답글은 sky 계열.
 function Badge({ c }: { c: ConversationSummaryItem }) {
   // AI가 발굴한 암묵적 관련성 — 최우선 배지, AiSignalBadge action 변형으로 통일(reason=tooltip).
   if (c.aiReason != null)
@@ -29,7 +29,7 @@ function Badge({ c }: { c: ConversationSummaryItem }) {
     return (
       <span
         data-testid="dash-chat-badge-mention"
-        className="flex-none rounded-full bg-violet-100 px-1.5 text-xs font-semibold text-violet-700"
+        className="flex-none rounded-full bg-primary/10 px-1.5 text-xs font-semibold text-primary"
       >
         멘션
       </span>

@@ -2,6 +2,7 @@
 // 데스크톱 레일의 WorkspaceSwitcher·AppRailUserMenu 가 하던 일(워크스페이스 전환·프로필·로그아웃)을
 // 드롭다운 대신 터치에 맞는 목록으로 보여준다(테마 전환 포함 — 모바일에서 기능이 사라지지 않게). 모바일 앱 목록(/apps) 전용.
 // 멤버십 lazy fetch·로그아웃·테마 전환은 데스크톱 컴포넌트와 같은 공용 훅을 쓴다.
+// eslint-disable-next-line ai-marker/no-direct-sparkles -- 「새 소식」(릴리스 노트) 메뉴 아이콘, AI 와 무관
 import { Building2, Check, LogOut, Moon, Sparkles, Sun, User as UserIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'

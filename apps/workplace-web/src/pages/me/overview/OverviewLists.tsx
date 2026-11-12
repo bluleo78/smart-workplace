@@ -1,4 +1,5 @@
 // 개요 탭 목록(WP-1484) — 맡은 이슈(타일 넷 + 고른 타일 상위 3건). 옛 「끝낸 일」 목록은 할당 탭 완료 목록과 같아 뺐다(문구 감사 결정).
+import { Bot } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -33,13 +34,14 @@ function firstTile(u: Upcoming): TileKey {
   return TILES.find((t) => u[t.key] > 0)?.key ?? 'overdue'
 }
 
-/** AI 태그 — 함께한(지금 담당인) AI 이름. AI 마커 토큰(DS 01 §1-5). className 으로 좁은 폭에서 숨기는 등 자리별로 조정한다. */
+/** AI 태그 — 함께한(지금 담당인) AI 이름. Bot = 에이전트 주체(§7.2), 색은 보조. className 으로 좁은 폭에서 숨기는 등 자리별로 조정한다. */
 function AiTags({ names, className }: { names: string[]; className?: string }) {
   if (names.length === 0) return null
   return (
     <span className={cn('flex shrink-0 gap-1', className)}>
       {names.map((n) => (
-        <span key={n} className="rounded border border-ai-accent/40 bg-ai-accent-subtle px-1.5 text-xs text-ai-accent">
+        <span key={n} className="inline-flex items-center gap-0.5 rounded border border-ai-accent/40 bg-ai-accent-subtle px-1.5 text-xs text-ai-accent">
+          <Bot className="size-3" aria-hidden />
           {n}
         </span>
       ))}

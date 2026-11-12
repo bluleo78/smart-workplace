@@ -1,6 +1,6 @@
-import { Sparkles } from 'lucide-react'
 import { type ComponentProps, useId, useRef, useState } from 'react'
 
+import { AiIcon } from '@/components/ai/AiIcon'
 import { AiLabel } from '@/components/ai/AiLabel'
 import { MOBILE_SHEET_ROW, MobileSheetShell } from '@/components/mobile/MobileSheetShell'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
@@ -45,7 +45,7 @@ export function PresenceAvatar({ person, className, ...rest }: { person: Presenc
           data-testid={`wiki-presence-ai-${person.userId}`}
           className="-right-1 -bottom-1 bg-ai-accent text-ai-accent-foreground ring-1 group-data-[size=sm]/avatar:size-2.5 group-data-[size=sm]/avatar:[&>svg]:block group-data-[size=sm]/avatar:[&>svg]:size-2 dark:bg-ai-accent-subtle dark:text-ai-accent"
         >
-          <Sparkles aria-hidden="true" />
+          <AiIcon aria-hidden="true" />
         </AvatarBadge>
       )}
     </Avatar>

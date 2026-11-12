@@ -2,12 +2,14 @@
 // AI 어시스턴트 패널 상단 레이어 — 좌: ✦ AI 어시스턴트 타이틀 / 우: 표시 모드 전환(사이드·전체 화면) + 닫기.
 // 이전엔 사이드 패널에 닫기 수단이 칩 순환·Esc 뿐이라 발견성이 낮았다(WP-111).
 // 세션 스위처(대화 선택/새 대화) 행과 분리된 별도 레이어로 두어, 패널 조작과 대화 조작을 구분한다.
-import { Monitor, PanelRight, Sparkles, X } from 'lucide-react';
+import { Monitor, PanelRight, X } from 'lucide-react';
 
 import { type AIMode, useAssistant } from '@/components/ai/AIAssistantContext';
 import { PanelHeader } from '@/components/layout/PanelHeader';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
+
+import { AiIcon } from './AiIcon';
 
 const iconBtn = 'rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground';
 
@@ -60,7 +62,7 @@ export function AIPanelControls() {
 export function AIPanelTitle({ className }: { className?: string }) {
   return (
     <span className={cn('flex items-center gap-1.5 text-sm font-semibold', className)}>
-      <Sparkles className="h-4 w-4 text-ai-accent" />
+      <AiIcon className="h-4 w-4 text-ai-accent" />
       AI 어시스턴트
     </span>
   );
