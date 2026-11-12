@@ -4,6 +4,8 @@ import type { ReactElement } from 'react'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
+import { DriveUploadProvider } from '@/components/drive/upload/DriveUploadProvider'
 import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
@@ -13,6 +15,7 @@ import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
 /** AppLayout 의 상태 Provider 로 ui 를 감싼다 — 단축키는 끈다(테스트 키 입력이 AI 패널을 열지 않게). */
 export function withAppProviders(ui: ReactElement) {
   return (
+    <DriveUploadProvider>
     <MailComposeProvider>
       <MobileChromeProvider>
         <ChatSessionProvider>
@@ -27,5 +30,7 @@ export function withAppProviders(ui: ReactElement) {
         </ChatSessionProvider>
       </MobileChromeProvider>
     </MailComposeProvider>
+    <DriveUploadPanelHost />
+    </DriveUploadProvider>
   )
 }

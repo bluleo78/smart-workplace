@@ -78,6 +78,7 @@ import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
+import { useDriveUpload, useDriveUploadFloatingPanelHeight, useDriveUploadPanelLift } from '../../components/drive/upload/driveUploadContext'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { FilterLine } from '../../components/filter/FilterLine'
 import { Breadcrumb, type BreadcrumbItem, type BreadcrumbRenderItem } from '../../components/layout/Breadcrumb'
@@ -93,9 +94,7 @@ import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
 import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveTrashItem } from '../../types/drive'
-import { DriveUploadPanel } from './DriveUploadPanel'
 import { readDroppedTree } from './folderUpload'
-import { useDriveUploadQueue } from './useDriveUploadQueue'
 import { useFolderNavigation } from './useFolderNavigation'
 
 // 모바일 선택 막대(renderMobileBulkBar) 높이 — 위 테두리 1px + 위아래 여백 py-1.5(0.75rem) + 단추 min-h-11·size-11(2.75rem).
@@ -298,21 +297,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 폴더 이름 Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331, WP-335 에서 함께 적용).
   const folderNameEnter = useSingleLineEnter()
 
-  // WP-1531: 업로드(버튼·끌어 놓기 공용)는 파일별 상태를 가진 큐 하나로 — 오른쪽 아래 패널이 그대로 그린다.
-  // 배치의 자리(시작한 순간의 공간·폴더)는 큐가 배치에 담아 콜백마다 넘긴다 — 올리는 중에 다른 폴더·공간으로 옮겨 가도 처음 자리로 올린다.
-  const uploadQueue = useDriveUploadQueue({
-    resolveFolder: async (root, parentId, name) => (await driveApi.resolveFolder(root.sid, parentId, name)).data.id,
-    upload: (root, targetId, file, signal, onProgress) => driveApi.uploadFile(root.sid, targetId, file, signal, onProgress),
-    // 끝나면(성공이 없어도 — 놓은 폴더는 만들어졌을 수 있다, 취소 뒤에도, 화면을 떠난 뒤에도) 업로드한 공간의 목록·사용량 캐시를 무효화한다.
-    // 지금 보는 공간이 아니라 배치의 공간이어야 옮겨 간 뒤에도 맞는 목록이 갱신된다. 선택은 풀지 않는다(clearSel 없음) — 업로드는 선택과 무관하다.
-    onSettled: (root) => {
-      void queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(root.sid) })
-      invalidateQuota()
-    },
-  })
+  // WP-1534: 큐·패널은 앱 전역(DriveUploadProvider·셸 호스트), 이 화면은 구독만 한다.
+  // 다른 메뉴로 갔다 돌아와도 진행 중 배치가 이어 보이고, 끝난 뒤 캐시 무효화는 Provider 의 onSettled 가 한다.
+  const uploadQueue = useDriveUpload()
+  // 떠 있는 패널의 배치 — 높이로 목록 아래 여백을 둔다. 안쪽 호스트(채널 파일 드로워)가 패널을 흐름 안에 그리는 동안은
+  // 이 화면 위에 떠 있는 패널이 없으니 여백도 두지 않는다.
+  // 높이 하나만 구독해(안쪽 호스트가 있으면 0) 모바일 비킴 값이 바뀌어도 이 화면이 다시 그려지지 않는다.
+  const floatingPanelHeight = useDriveUploadFloatingPanelHeight()
   // 지금 보는 곳이 올리고 있는 그 폴더인지 — 빈 폴더 안내는 여기서만 숨긴다(곧 파일이 생길 폴더). 다른 빈 폴더는 평소처럼 안내한다.
-  // 떠 있는 업로드 패널의 실제 높이(px) — 목록 스크롤 영역 아래에 그만큼(+ 패널 아래 여백) 공간을 둬 마지막 행을 가리지 않게 한다.
-  const [uploadPanelHeight, setUploadPanelHeight] = useState(0)
   const batchRoot = uploadQueue.batch?.root
   const uploadingHere = uploadQueue.busy && batchRoot?.sid === sid && batchRoot.folderId === (folderId ?? null)
 
@@ -646,6 +638,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // testid 는 데스크톱 툴바와 같다(둘 중 하나만 렌더).
   // 선택 막대가 떠 있는지 — 막대 그리기와 업로드 패널 위치(막대 위로 비키기)가 같은 조건을 쓴다.
   const mobileBulkBarShown = mobileSelecting && trash == null
+  // 선택 막대가 떠 있으면 전역 업로드 패널을 그 위로 비킨다(언마운트 때 원복).
+  useDriveUploadPanelLift(mobileBulkBarShown ? MOBILE_BULK_BAR_H : undefined)
   function renderMobileBulkBar() {
     if (!mobileBulkBarShown) return null
     const btn = 'flex min-h-11 items-center gap-1.5 rounded-md px-3 active:bg-accent disabled:opacity-50 [&_svg]:size-4'
@@ -1324,7 +1318,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         // 업로드 패널이 떠 있는 동안 맨 아래 공간 = 패널 높이 + 패널이 스크롤 영역 아래 끝에서 뜬 거리(데스크톱 bottom-4 16px,
         // 모바일 8px — 모바일 스크롤 영역은 이미 탭바·선택 막대 위에서 끝나 패널과의 거리는 늘 8px) + 숨 쉴 틈 8px.
         style={{
-          ...(uploadQueue.batch && uploadPanelHeight > 0 ? { paddingBottom: uploadPanelHeight + (isMobile ? 8 : 16) + 8 } : null),
+          ...(uploadQueue.batch && floatingPanelHeight > 0 ? { paddingBottom: floatingPanelHeight + (isMobile ? 8 : 16) + 8 } : null),
           ...(dragOver ? { outline: '2px solid var(--color-primary)', borderRadius: '0.375rem' } : null),
         }}
         data-testid="drive-dropzone"
@@ -1747,21 +1741,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* WP-1531: 업로드 패널 — 배치가 있을 때만. 페이지가 갖고 있어 폴더를 옮겨 다니거나 휴지통을 열어도 남는다. */}
-      {uploadQueue.batch && uploadQueue.summary && (
-        <DriveUploadPanel
-          // 배치마다 새로 마운트해 접힘 상태를 처음(데스크톱 펼침·모바일 접힘)으로 — 다시 시도는 같은 배치라 그대로 둔다.
-          key={uploadQueue.batch.id}
-          batch={uploadQueue.batch}
-          summary={uploadQueue.summary}
-          isMobile={isMobile}
-          mobileLift={mobileBulkBarShown ? MOBILE_BULK_BAR_H : undefined}
-          onHeightChange={setUploadPanelHeight}
-          onCancel={uploadQueue.cancel}
-          onRetry={uploadQueue.retry}
-          onClose={uploadQueue.close}
-        />
-      )}
     </Page>
   )
 }

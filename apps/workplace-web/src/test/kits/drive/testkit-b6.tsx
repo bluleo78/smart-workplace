@@ -6,6 +6,8 @@ import type { ReactNode } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
+import { DriveUploadProvider } from '@/components/drive/upload/DriveUploadProvider'
 import type { AuthContextValue } from '@/hooks/auth-context-value'
 import { DrivePage } from '@/pages/drive/DrivePage'
 import { renderScreen } from '@/test/renderScreen'
@@ -76,11 +78,15 @@ export function renderDrivePage(
 ) {
   return renderScreen(
     <AIAssistantProvider hotkeysEnabled={false}>
-      {extra}
-      <Routes>
-        <Route path="/drive/spaces/:spaceId" element={<DrivePage />} />
-        <Route path="*" element={null} />
-      </Routes>
+      {/* WP-1534: 업로드 큐·패널은 앱 셸이 갖는다 — 테스트 셸도 같은 Provider·호스트로 감싼다. */}
+      <DriveUploadProvider>
+        {extra}
+        <Routes>
+          <Route path="/drive/spaces/:spaceId" element={<DrivePage />} />
+          <Route path="*" element={null} />
+        </Routes>
+        <DriveUploadPanelHost />
+      </DriveUploadProvider>
     </AIAssistantProvider>,
     { path: `/drive/spaces/${spaceId}${search}`, handlers, auth },
   )

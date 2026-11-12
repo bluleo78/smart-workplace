@@ -16,11 +16,19 @@ import type { UploadBatch, UploadItem, UploadSummary } from './uploadQueue'
 /** 올리는 중에 행으로 보일 완료 파일 수 — 넘치면 오래된 것부터 「완료 {n}개」 한 줄로 묶는다(긴 폴더 업로드에도 패널 높이를 지킨다). */
 const MAX_DONE_ROWS = 5
 
+/** 패널을 놓는 방식 */
+export type DriveUploadPlacement = 'floating' | 'inline'
+
 export interface DriveUploadPanelProps {
   batch: UploadBatch
   summary: UploadSummary
   /** 모바일이면 탭바 위 전체 폭에 접힌 채로 시작한다 — 목록을 가리지 않게. */
   isMobile: boolean
+  /**
+   * 놓는 방식 — floating(기본): 화면 오른쪽 아래(모바일은 탭바 위)에 떠 있다.
+   * inline: 모달 시트(채널 파일 드로워) 안 흐름 맨 아래에 붙는다 — 시트 덮개 아래에 깔리지 않고 시트 안에서 눌리게(WP-1534).
+   */
+  placement?: DriveUploadPlacement
   /**
    * 모바일에서 아래쪽에 더 비켜 줄 높이(CSS 길이) — 선택 막대처럼 화면 맨 아래에 붙는 막대가 떠 있을 때 그 높이를 준다.
    * 없으면 탭바·안전 영역 위 8px 에 뜬다.
@@ -119,6 +127,7 @@ export function DriveUploadPanel({
   batch,
   summary,
   isMobile,
+  placement = 'floating',
   mobileLift,
   onCancel,
   onRetry,
@@ -144,6 +153,11 @@ export function DriveUploadPanel({
       onHeightRef.current?.(0)
     }
   }, [])
+  const inline = placement === 'inline'
+  // 안쪽은 위치 식 없이 흐름에 붙고, 떠 있는 쪽은 모바일(탭바 위 bottom)·데스크톱(오른쪽 칸 옆 right)으로 갈린다.
+  const floatingStyle = isMobile ? { bottom: mobileBottom(mobileLift) } : { right: 'calc(var(--right-dock-width, 0px) + 1rem)' }
+  const floatingClass = cn('fixed z-40 rounded-lg border border-border shadow-lg', isMobile ? 'inset-x-2' : 'bottom-4 w-80')
+  const inlineClass = 'shrink-0 border-t border-border pb-[env(safe-area-inset-bottom,0px)]'
   // 펼침/접힘은 패널 안 상태 — 데스크톱은 펼친 채, 모바일은 목록을 덜 가리게 접힌 채 시작한다.
   const [expanded, setExpanded] = useState(!isMobile)
 
@@ -197,11 +211,11 @@ export function DriveUploadPanel({
       // 데스크톱은 오른쪽 아래 320px. 모바일은 좌우를 채우고 탭바(--mobile-tabbar-h, MobileTabBar 가 :root 에 단다) 바로 위 —
       // 탭바가 없는 화면(드라이브 공간 등)은 홈 인디케이터에 걸리지 않게 하단 안전 영역 위로. 둘 중 큰 값에 8px 을 띄운다.
       // 선택 막대처럼 맨 아래 막대가 떠 있으면 그 높이(mobileLift)만큼 더 올려 막대의 단추를 가리지 않는다.
-      style={isMobile ? { bottom: mobileBottom(mobileLift) } : undefined}
-      className={cn(
-        'fixed z-40 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg',
-        isMobile ? 'inset-x-2' : 'right-4 bottom-4 w-80',
-      )}
+      // 데스크톱은 오른쪽 칸(--right-dock-width: AI 옆 패널·도움말 패널) 옆에 띄워 그 입력창을 덮지 않는다(WP-1534).
+      // 안쪽(inline)은 시트 흐름의 맨 아래 띠 — 위치 식 없이 위 테두리로 목록과 나누고, 모바일 홈 인디케이터에 걸리지 않게 안전 영역만큼 띄운다.
+      data-placement={placement}
+      style={inline ? undefined : floatingStyle}
+      className={cn('overflow-hidden bg-popover text-popover-foreground', inline ? inlineClass : floatingClass)}
     >
       <div className={cn('flex items-center gap-2 px-3 py-2', showBody && 'border-b border-border')}>
         {allSucceeded && <Check className="h-4 w-4 shrink-0 text-success" aria-hidden />}

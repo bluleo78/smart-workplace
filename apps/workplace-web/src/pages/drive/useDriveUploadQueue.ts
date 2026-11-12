@@ -5,7 +5,7 @@
  * 실제 전송 함수(upload)·하위 폴더 만들기(resolveFolder)는 인자로 받아 페이지가 API 를 주입한다.
  * 배치의 자리(root — 공간·폴더)는 start 때 받아 배치 상태에 담고, 콜백마다 그대로 넘긴다.
  * AbortController 하나로 배치 전체를 취소하고, 다시 시도도 새 컨트롤러로 같은 규칙을 따른다.
- * 화면을 떠나도(언마운트) 배치는 끝까지 간다 — 예전 업로드와 같다. 끊는 것은 사용자의 취소·닫기뿐이다.
+ * 소유자는 앱 전역 DriveUploadProvider 라 화면 이동으로 언마운트되지 않는다. 끊는 것은 사용자의 취소·닫기와 Provider 의 로그아웃·언마운트 정리다.
  */
 import axios from 'axios'
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
@@ -107,7 +107,7 @@ export function useDriveUploadQueue(opts: UseDriveUploadQueueOptions): {
 
   // 지정한 id 들을 순차 업로드한다. 취소(signal.aborted) 뒤에는 어떤 액션도 보내지 않는다
   // — 리듀서가 상태와 무관하게 progress/done/fail 을 적용하므로 늦은 응답이 취소 행을 되살리면 안 된다.
-  // 화면을 떠난 뒤의 dispatch 는 React 가 무시한다(해 없음).
+  // Provider 가 내려간 뒤의 dispatch 는 React 가 무시한다(해 없음).
   const run = useCallback(async (ids: string[], controller: AbortController, ctx: RunContext) => {
     const { signal } = controller
     const { root } = ctx
@@ -143,7 +143,7 @@ export function useDriveUploadQueue(opts: UseDriveUploadQueueOptions): {
     }
     if (controllerRef.current === controller) controllerRef.current = null
     if (!signal.aborted) dispatch({ type: 'finish' })
-    // 언마운트 뒤에도 부른다 — 사용량·목록 캐시가 새 파일(과 놓으며 만든 폴더)을 반영하게.
+    // Provider 언마운트 뒤에도 부른다 — 사용량·목록 캐시가 새 파일(과 놓으며 만든 폴더)을 반영하게.
     if (!ctx.isRetry || anySucceeded) optsRef.current.onSettled(root)
   }, [])
 
@@ -211,13 +211,11 @@ export function useDriveUploadQueue(opts: UseDriveUploadQueueOptions): {
 
   const summary = useMemo(() => (batch ? summarize(batch) : null), [batch])
 
-  return {
-    batch,
-    summary,
-    busy: batch?.running ?? false,
-    start,
-    cancel,
-    retry,
-    close,
-  }
+  const busy = batch?.running ?? false
+  // 돌려줄 객체를 필드로 memo 한다 — 매 렌더 새 객체면 이를 담는 전역 Provider 의 컨텍스트 값도 매번 바뀌어
+  // 큐가 그대로여도 모든 구독자가 다시 그려진다(WP-1534).
+  return useMemo(
+    () => ({ batch, summary, busy, start, cancel, retry, close }),
+    [batch, summary, busy, start, cancel, retry, close],
+  )
 }
