@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EmailAttachmentMeta } from '../types/mailMessage';
+import { decodeCid } from './mailInlineImages';
 import { buildQuote, plainTextToMailHtml, unwrapMailHtml } from './mailQuote';
 
 // EmailMessageDetail(src/types/mailMessage.ts) 실제 필드는 대부분 nullable 이다.
@@ -284,6 +285,39 @@ describe('buildQuote — 인라인 이미지(cid)', () => {
     );
     expect(q.inlineImages.map((i) => i.contentId)).toEqual(['a.png']);
     expect(q.html.match(/cid:a\.png/g)).toHaveLength(2);
+  });
+
+  it('다른 cid 가 같은 첨부를 가리키면 재첨부는 첨부당 1회 — 뒤 참조는 첫 cid 로 바꿔 그림을 유지한다 (WP-1522)', () => {
+    // Outlook 식 `image001.png@01D9` 와 파일명 `image001.png` 가 둘 다 파일명 매칭으로 같은 첨부(id 1)에 닿는다
+    const q = buildQuote(
+      {
+        ...detail,
+        bodyHtml: '<img src="cid:image001.png@01D9"><p>중간</p><img src="cid:image001.png">',
+        attachments: [img({ id: 1, filename: 'image001.png' })],
+      },
+      'reply',
+    );
+    expect(q.inlineImages.map(({ attachment, contentId }) => ({ id: attachment.id, contentId }))).toEqual([
+      { id: 1, contentId: 'image001.png@01D9' },
+    ]);
+    expect(q.html.match(/cid:image001\.png@01D9/g)).toHaveLength(2);
+    expect(q.html).not.toContain('cid:image001.png"');
+  });
+
+  it('첫 cid 에 %25(퍼센트) 인코딩이 있어도 뒤 참조를 바꾼 값이 같은 Content-ID 로 풀린다 (WP-1522)', () => {
+    // 본문 `a%252541.png` → Content-ID `a%2541.png`. 디코딩한 값을 그대로 다시 쓰면 `a%41.png` 로 한 번 더 풀려 어긋난다
+    const q = buildQuote(
+      {
+        ...detail,
+        bodyHtml: '<img src="cid:a%252541.png"><img src="cid:a%252541.png@01D9">',
+        attachments: [img({ id: 1, filename: 'a%2541.png' })],
+      },
+      'reply',
+    );
+    expect(q.inlineImages.map((i) => i.contentId)).toEqual(['a%2541.png']);
+    const doc = new DOMParser().parseFromString(q.html, 'text/html');
+    const ids = [...doc.querySelectorAll('img')].map((el) => decodeCid((el.getAttribute('src') ?? '').slice(4)));
+    expect(ids).toEqual(['a%2541.png', 'a%2541.png']);
   });
 });
 

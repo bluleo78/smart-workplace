@@ -81,6 +81,18 @@ describe('인용문 본문 이미지(reservedBytes)', () => {
     expect(quoteInlineBytes({ inlineImages: [] })).toBe(0);
   });
 
+  it('같은 첨부를 가리키는 항목은 한 번만 센다 — 서버도 첨부마다 한 번만 받는다 (WP-1522)', () => {
+    const a = meta({ id: 11, filename: 'a.png', contentType: 'image/png', sizeBytes: 2 * MB });
+    expect(
+      quoteInlineBytes({
+        inlineImages: [
+          { contentId: 'a.png', attachment: a },
+          { contentId: 'a.png@01D', attachment: a },
+        ],
+      }),
+    ).toBe(2 * MB);
+  });
+
   it('합계·한도·다시 시도·보내기 잠금이 칩에 없는 본문 이미지 크기까지 센다', () => {
     const items = [chip({ key: 'a', size: 20 * MB })];
     // 칩만 보면 20MB 라 2MB 를 더 붙일 수 있지만, 본문 이미지 3MB 가 함께 나가 25MB 를 넘는다(서버와 같은 합).

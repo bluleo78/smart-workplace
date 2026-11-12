@@ -96,14 +96,19 @@ export interface QuoteInlineImage {
 
 /**
  * 인용문 DOM 의 cid 이미지를 정리한다(DOM 을 직접 수정).
- * - 첨부와 매칭되고 발송 가능한 Content-ID 면 재첨부 대상으로 수집(같은 Content-ID 는 1회)
+ * - 첨부와 매칭되고 발송 가능한 Content-ID 면 재첨부 대상으로 수집 — 첨부(id)마다 1회(WP-1522). 다른 cid 가 이미 모은 첨부를
+ *   가리키면(예: `image001.png@01D…` 와 `image001.png` 가 같은 파일명 첨부로 매칭) 그 <img> 를 첫 참조의 원래 src 로 바꾼다 —
+ *   같은 원본 이미지를 두 번 보내 용량을 두 배로 쓰지 않고, 그림은 그대로 보이게. 디코딩한 값이 아니라 원래 src 문자열을 쓰는 것은
+ *   `%25` 같은 인코딩이 decodeCid 를 다시 거쳐도 같은 Content-ID 로 풀리게 하려는 것
  * - 매칭되지 않으면 <img> 를 제거 — 그대로 보내면 수신자에게 깨진 이미지로 보인다(보낸편지함 메일에 답장 등)
  */
 export function collectQuoteInlineImages(
   root: Element,
   attachments: EmailAttachmentMeta[],
 ): QuoteInlineImage[] {
-  const out = new Map<string, QuoteInlineImage>()
+  const out = new Map<number, QuoteInlineImage>()
+  // 첨부 id → 첫 참조의 원래 src(인코딩 그대로) — 뒤 참조를 이 값으로 바꾼다
+  const firstSrc = new Map<number, string>()
   root.querySelectorAll('img').forEach((img) => {
     const src = (img.getAttribute('src') ?? '').trim()
     if (!/^cid:/i.test(src)) return
@@ -114,7 +119,14 @@ export function collectQuoteInlineImages(
       img.remove()
       return
     }
-    if (!out.has(contentId)) out.set(contentId, { contentId, attachment: att })
+    const first = out.get(att.id)
+    if (!first) {
+      out.set(att.id, { contentId, attachment: att })
+      firstSrc.set(att.id, src)
+    } else if (first.contentId !== contentId) {
+      // 같은 첨부의 다른 cid — 첫 참조로 통일(발송 파트는 하나만 붙는다)
+      img.setAttribute('src', firstSrc.get(att.id) ?? src)
+    }
   })
   return [...out.values()]
 }

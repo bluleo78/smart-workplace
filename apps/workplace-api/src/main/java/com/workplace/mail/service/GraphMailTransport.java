@@ -4,6 +4,7 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
+import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphApiClient.DraftRef;
@@ -26,9 +27,13 @@ import org.springframework.stereotype.Component;
  * 헤더(In-Reply-To/References)는 MailMimeBuilder 가 이미 포함하므로 직렬화만 담당. Graph 가 saveToSentItems 기본 동작으로
  * 서버 Sent 에 자동 저장하므로 별도 APPEND 가 없다.
  *
- * <p>WP-574 큰 메일: sendMail 요청 본문은 4MB 제한이라, 인코딩된 MIME 이 {@link #SEND_MAIL_LIMIT} 를 넘고 일반 첨부가 있으면 초안
- * 경로로 보낸다 — ① 일반 첨부를 뺀 MIME(본문·인용문 이미지·스레딩 헤더 유지)으로 초안 생성 ② 첨부마다 3MB 미만은 attachments API, 이상은 업로드
- * 세션 조각 PUT ③ 초안 send. 중간에 실패하면 초안 삭제를 시도하고 사용자 오류로 끝낸다. 보낸편지함 저장은 Graph 가 한다.
+ * <p>WP-574 큰 메일: sendMail 요청 본문은 4MB 제한이라, 인코딩된 MIME 이 {@link #SEND_MAIL_LIMIT} 를 넘고 일반 첨부나 인라인
+ * 이미지가 있으면 초안 경로로 보낸다 — ① 일반 첨부·인라인 이미지를 뺀 MIME(본문·스레딩 헤더 유지, 본문 HTML 의 cid: 참조는 그대로)으로 초안 생성 ② 일반
+ * 첨부, 이어서 인라인 이미지(WP-1522 — isInline·contentId)를 3MB 미만은 attachments API, 이상은 업로드 세션 조각 PUT 으로 붙임 ③
+ * 초안 send. 중간에 실패하면 초안 삭제를 시도하고 사용자 오류로 끝낸다. 보낸편지함 저장은 Graph 가 한다.
+ *
+ * <p>WP-1522: 예전에는 인용문(원본 메일) 이미지를 초안 MIME 안에 두어 4MB 요청 한도 때문에 합계 2MB 로 미리 거절했다. 이제 첨부처럼 따로 붙여 인라인
+ * 이미지만의 상한이 없다(전체 25MB 만 남는다).
  */
 @Slf4j
 @Component
@@ -47,7 +52,7 @@ public class GraphMailTransport implements MailTransport {
   /** 업로드 세션 조각 크기 — Graph 가 요구하는 320KiB 배수(10배 = 3,200KiB, 조각 상한 4MB 미만). */
   static final int UPLOAD_CHUNK = 320 * 1024 * 10;
 
-  static final String LARGE_SEND_FAILED = "첨부가 큰 메일을 보내지 못했어요. 잠시 뒤 다시 보내 주세요";
+  static final String LARGE_SEND_FAILED = "첨부·이미지가 큰 메일을 보내지 못했어요. 잠시 뒤 다시 보내 주세요";
 
   private final GraphTokenService tokenService;
   private final GraphApiClient graphApiClient;
@@ -70,12 +75,12 @@ public class GraphMailTransport implements MailTransport {
         return sendLarge(token, account, mail);
       }
       String base64 = toBase64(withBcc(message, mail), estimate);
-      if (base64.length() > SEND_MAIL_LIMIT && !mail.attachments().isEmpty()) {
+      if (base64.length() > SEND_MAIL_LIMIT && hasBinaryParts(mail)) {
         // 추정이 모자랐던 경계 사례 — 이미 만든 문자열을 버리고 초안 경로로
         base64 = null;
         return sendLarge(token, account, mail);
       }
-      // 작은 메일(또는 첨부 없이 본문만 큰 메일 — 초안으로 나눌 것이 없다): 기존 sendMail 한 번
+      // 작은 메일(또는 첨부·이미지 없이 본문만 큰 메일 — 초안으로 나눌 것이 없다): 기존 sendMail 한 번
       graphApiClient.sendMail(token, base64);
       // sendMail(raw MIME)은 MIME 의 Message-ID 를 그대로 쓴다
       return mail.messageId();
@@ -85,11 +90,16 @@ public class GraphMailTransport implements MailTransport {
   }
 
   /**
-   * 초안 경로로 보낼지(WP-574) — 일반 첨부가 있고 추정한 base64 MIME 길이가 sendMail 상한을 넘으면. 첨부 없이 본문만 큰 메일은 나눌 것이 없어
-   * sendMail 로 보낸다(실패하면 그대로 오류).
+   * 초안 경로로 보낼지(WP-574) — 일반 첨부나 인라인 이미지(WP-1522)가 있고 추정한 base64 MIME 길이가 sendMail 상한을 넘으면. 둘 다 없이
+   * 본문만 큰 메일은 나눌 것이 없어 sendMail 로 보낸다(실패하면 그대로 오류).
    */
   static boolean needsDraftPath(OutgoingMail mail, long estimatedBase64Length) {
-    return !mail.attachments().isEmpty() && estimatedBase64Length > SEND_MAIL_LIMIT;
+    return hasBinaryParts(mail) && estimatedBase64Length > SEND_MAIL_LIMIT;
+  }
+
+  /** 초안 경로에서 첨부 API 로 따로 붙일 파트(일반 첨부·인라인 이미지)가 있는지. */
+  private static boolean hasBinaryParts(OutgoingMail mail) {
+    return !mail.attachments().isEmpty() || !mail.inlineImages().isEmpty();
   }
 
   /**
@@ -136,8 +146,9 @@ public class GraphMailTransport implements MailTransport {
 
   /**
    * 큰 메일 경로(WP-574) — 초안 생성 → (실제 Message-ID 확인) → 첨부 붙이기 → 초안 send. 실제 Message-ID 는 확인한 값을, 확인하지
-   * 못하면 MIME 의 값을 돌려준다. 첨부는 모두 API 로 붙인다(초안 MIME 에는 본문·인용문 이미지만 — 크기를 확실히 4MB 아래로 두려고). 초안 MIME
-   * 문자열은 요청 인자로만 쓰고 지역 변수로 붙잡지 않는다. 실패하면 만든 초안을 지우려고 시도한다(404 는 이미 없음으로 성공 취급).
+   * 못하면 MIME 의 값을 돌려준다. 첨부·인라인 이미지는 모두 API 로 붙인다(초안 MIME 에는 본문만 — 크기를 확실히 4MB 아래로 두려고, WP-1522).
+   * 인라인 이미지는 본문 HTML 의 cid: 와 같은 contentId 로 붙어 받는 사람에게 본문 그림으로 보인다. 초안 MIME 문자열은 요청 인자로만 쓰고 지역 변수로
+   * 붙잡지 않는다. 실패하면 만든 초안을 지우려고 시도한다(404 는 이미 없음으로 성공 취급).
    */
   private String sendLarge(String token, EmailAccountResponse account, OutgoingMail mail)
       throws IOException, MessagingException {
@@ -147,7 +158,22 @@ public class GraphMailTransport implements MailTransport {
       draftId = draft.id();
       String actual = actualMessageId(token, draft);
       for (AttachmentPart att : mail.attachments()) {
-        attach(token, draftId, att);
+        attach(
+            token,
+            draftId,
+            att.filenameOrDefault(),
+            att.concreteContentType(),
+            att.content(),
+            null);
+      }
+      for (InlineImagePart img : mail.inlineImages()) {
+        attach(
+            token,
+            draftId,
+            img.attachmentName(),
+            img.concreteContentType(),
+            img.content(),
+            img.contentId());
       }
       graphApiClient.sendDraft(token, draftId);
       return actual != null ? actual : mail.messageId();
@@ -184,25 +210,27 @@ public class GraphMailTransport implements MailTransport {
     return trimmed.isEmpty() ? null : trimmed;
   }
 
-  /** 일반 첨부를 뺀 초안 MIME(본문·인용문 이미지·스레딩 헤더·Bcc) 의 base64. */
+  /** 일반 첨부·인라인 이미지를 뺀 초안 MIME(본문·스레딩 헤더·Bcc — 본문 HTML 의 cid: 참조는 그대로) 의 base64. */
   private String draftBase64(EmailAccountResponse account, OutgoingMail mail)
       throws IOException, MessagingException {
-    OutgoingMail draftMail = mail.withoutAttachments();
+    OutgoingMail draftMail = mail.withoutBinaryParts();
     return toBase64(
         withBcc(mimeBuilder.build(account, draftMail), draftMail), estimateBase64Length(draftMail));
   }
 
-  /** 첨부 하나를 초안에 붙인다 — 3MB 미만은 한 번에, 이상은 업로드 세션으로 나눠 PUT. */
-  private void attach(String token, String draftId, AttachmentPart att) {
-    String name = att.filenameOrDefault();
-    String type = att.concreteContentType();
-    byte[] content = att.content();
+  /**
+   * 첨부·인라인 이미지 하나를 초안에 붙인다 — 3MB 미만은 한 번에, 이상은 업로드 세션으로 나눠 PUT. contentId 가 있으면 인라인 이미지(WP-1522 —
+   * isInline·본문 cid: 값), null 이면 일반 첨부.
+   */
+  private void attach(
+      String token, String draftId, String name, String type, byte[] content, String contentId) {
     if (content.length < DIRECT_ATTACHMENT_LIMIT) {
-      graphApiClient.addFileAttachment(token, draftId, name, type, content);
+      graphApiClient.addFileAttachment(token, draftId, name, type, content, contentId);
       return;
     }
     String uploadUrl =
-        graphApiClient.createAttachmentUploadSession(token, draftId, name, type, content.length);
+        graphApiClient.createAttachmentUploadSession(
+            token, draftId, name, type, content.length, contentId);
     for (int from = 0; from < content.length; from += UPLOAD_CHUNK) {
       int to = Math.min(from + UPLOAD_CHUNK, content.length);
       graphApiClient.uploadAttachmentChunk(uploadUrl, content, from, to);

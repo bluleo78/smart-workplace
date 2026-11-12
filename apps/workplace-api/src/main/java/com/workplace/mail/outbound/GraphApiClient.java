@@ -298,15 +298,24 @@ public class GraphApiClient {
 
   /**
    * 초안에 작은 첨부(3MB 미만)를 한 번에 붙인다(WP-574 — POST /me/messages/{id}/attachments, fileAttachment).
+   * contentId 가 있으면 인라인 이미지(WP-1522)로 — isInline=true 와 본문 {@code cid:} 값과 같은 contentId(꺾쇠 없음)를 실어
+   * 받는 사람 메일 앱이 본문 그림으로 보이게 한다. null 이면 일반 첨부(두 필드를 싣지 않는다).
    *
+   * @param contentId 인라인 이미지의 Content-ID, 일반 첨부면 null
    * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
    */
   public void addFileAttachment(
-      String accessToken, String messageId, String name, String contentType, byte[] content) {
+      String accessToken,
+      String messageId,
+      String name,
+      String contentType,
+      byte[] content,
+      String contentId) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("@odata.type", "#microsoft.graph.fileAttachment");
     body.put("name", name);
     body.put("contentType", contentType);
+    putInline(body, contentId);
     body.put("contentBytes", Base64.getEncoder().encodeToString(content));
     post(
         accessToken,
@@ -319,17 +328,25 @@ public class GraphApiClient {
 
   /**
    * 큰 첨부(3MB 이상) 업로드 세션을 만든다(WP-574 — POST /me/messages/{id}/attachments/createUploadSession).
+   * contentId 가 있으면 AttachmentItem 에 isInline=true·contentId 를 실어 인라인 이미지로 올린다(WP-1522).
    *
+   * @param contentId 인라인 이미지의 Content-ID, 일반 첨부면 null
    * @return 조각을 PUT 할 사전 인증 uploadUrl(Authorization 헤더 없이 쓴다)
    * @throws MailSendException 2xx 외 응답·uploadUrl 없는 응답·네트워크 실패
    */
   public String createAttachmentUploadSession(
-      String accessToken, String messageId, String name, String contentType, long size) {
+      String accessToken,
+      String messageId,
+      String name,
+      String contentType,
+      long size,
+      String contentId) {
     Map<String, Object> item = new LinkedHashMap<>();
     item.put("attachmentType", "file");
     item.put("name", name);
     item.put("size", size);
     item.put("contentType", contentType);
+    putInline(item, contentId);
     JsonNode session =
         post(
             accessToken,
@@ -339,6 +356,14 @@ public class GraphApiClient {
             JsonNode.class,
             null);
     return requireText(session, "uploadUrl", "createUploadSession");
+  }
+
+  /** 인라인 이미지 표시(WP-1522) — contentId 가 있을 때만 isInline=true·contentId 를 넣는다(일반 첨부 JSON 은 그대로). */
+  private static void putInline(Map<String, Object> json, String contentId) {
+    if (contentId != null) {
+      json.put("isInline", true);
+      json.put("contentId", contentId);
+    }
   }
 
   /**

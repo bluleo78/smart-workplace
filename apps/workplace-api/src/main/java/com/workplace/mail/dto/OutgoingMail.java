@@ -63,8 +63,11 @@ public record OutgoingMail(
         attachments);
   }
 
-  /** 일반 첨부를 뺀 사본 — Graph 큰 메일 경로가 첨부를 API 로 따로 붙일 초안 MIME 을 만들 때 쓴다. */
-  public OutgoingMail withoutAttachments() {
+  /**
+   * 일반 첨부와 인라인 이미지를 모두 뺀 사본(WP-1522) — Graph 큰 메일 경로가 초안 MIME 을 본문(본문 HTML 의 cid: 참조는 그대로)·헤더만으로 만들
+   * 때 쓴다. 뺀 파트는 초안에 첨부 API 로 붙인다(인라인 이미지는 isInline·contentId 로).
+   */
+  public OutgoingMail withoutBinaryParts() {
     return new OutgoingMail(
         messageId,
         threadId,
@@ -80,7 +83,7 @@ public record OutgoingMail(
         references,
         snippet,
         sentAt,
-        inlineImages,
+        List.of(),
         List.of());
   }
 
@@ -99,6 +102,19 @@ public record OutgoingMail(
     /** 해시를 모르는 파트 — 보낸 메일 기록 때 계산한다. */
     public InlineImagePart(String contentId, String filename, String contentType, byte[] content) {
       this(contentId, filename, contentType, content, null);
+    }
+
+    /**
+     * Graph 인라인 첨부 이름(WP-1522) — 파일명이 없으면 Content-ID(fileAttachment 는 name 이 필요하다). 받는 사람에게는 본문
+     * 그림으로 보여 이름이 거의 드러나지 않는다.
+     */
+    public String attachmentName() {
+      return filename == null || filename.isBlank() ? contentId : filename;
+    }
+
+    /** Graph 인라인 첨부 Content-Type — 구체 타입이 아니면 application/octet-stream(일반 첨부와 같은 규칙). */
+    public String concreteContentType() {
+      return MimeNormalizer.concreteOrOctetStream(contentType);
     }
   }
 
