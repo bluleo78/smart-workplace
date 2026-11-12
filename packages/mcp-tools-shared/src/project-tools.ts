@@ -321,8 +321,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components (assignee, archived), versions, milestones (dueDate), cycles (status, ' +
-        'dates), fields (custom, with options), statuses, members (username, name, role), relationTypes (issue link types).',
+        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components, versions, milestones, cycles, ' +
+        'fields (custom, with options), statuses, members (username, role), relationTypes (issue link types).',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);

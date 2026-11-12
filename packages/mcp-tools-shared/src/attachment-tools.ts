@@ -159,12 +159,13 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
       kind: 'read',
       // WP-369 R7: 전송 도구 두 개를 정의 크기 상한 안에 넣으려고 압축했다 — 드라이브 id 출처(드라이브 앱의 목록·검색이 다 준다)·기본 길이·
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
+      // WP-1510: manual 도구 자리를 내려고 앞머리의 대상 나열(source 목록과 같은 말)을 빼고 한국어 제품명은 source 갈래 쪽에 붙였다.
       description:
-        'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
-        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail or body …/issue-images/{id}}; ' +
+        'Reads a drive file or an attachment by source: drive (드라이브) {driveFileId}; issue (이슈) {issueKey, attachmentId from get_issue_detail or ' +
+        'body …/issue-images/{id}}; ' +
         (issueChatSource ? 'issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; ' : '') +
-        'wiki image {pageId, attachmentId in …/attachments/{id}/content}; message {channelId, messageId, attachmentId = ' +
-        'attachments[].fileId from list_channel_messages/list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (nextOffset → offset); ' +
+        'wiki (노트) image {pageId, attachmentId in …/attachments/{id}/content}; message (메시지) {channelId, messageId, attachmentId = ' +
+        'attachments[].fileId from list_channel_messages/list_thread_replies}; mail (메일) {attachmentId from get_mail}. Text comes in slices (nextOffset → offset); ' +
         'truncated:true = extraction capped. Only READY has text: ' +
         'PENDING = extracting (retry soon), SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess. ' +
         // WP-250: 정의 크기 상한(16,000토큰) 때문에 한 문장씩만 — 이미지를 볼 수 없는 모델에는 pages 문장을 싣지 않는다.

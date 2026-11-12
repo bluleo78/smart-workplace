@@ -215,6 +215,9 @@ function sharedMock(): MockedShared {
     viewMessageAttachment: vi.fn(),
     viewIssueChatAttachment: vi.fn(),
     viewMailAttachment: vi.fn(),
+    // WP-1510: 제품 매뉴얼(manual) — ai-agent 프로필에는 아직 싣지 않지만 SharedToolClient 모양을 채운다.
+    searchManual: vi.fn(),
+    getManualSection: vi.fn(),
   };
 }
 

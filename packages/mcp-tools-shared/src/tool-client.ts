@@ -323,6 +323,28 @@ export interface WikiToolClient {
   moveWikiPage(pageId: number, body: { parentId: number | null; position: number }): Promise<void>;
 }
 
+/** 도움말 검색 결과 한 건(GET /help/search 의 results[]) — manual 도구가 id·path·title·summary 로 줄인다(WP-1510). */
+export interface ManualSearchHit {
+  chapter: string;
+  sectionId: string;
+  label: string;
+  title: string;
+  snippet: string;
+  /** 장 최상위부터 그 절까지 화면 칸 이름(label 이 없으면 title). */
+  path: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * 제품 매뉴얼(도움말) 읽기(WP-1510). 관리자 전용 장은 서버가 호출자 역할로 가린다(검색에서 빠지고, 절 조회는 없는 id 와 같은 404).
+ */
+export interface HelpToolClient {
+  /** GET /help/search?q= — 의미·키워드 검색 결과(서버 기본 8건). */
+  searchManual(query: string): Promise<{ mode?: string; results: ManualSearchHit[] }>;
+  /** GET /help/sections/{id} — 절 하나의 원문(markdown)·그림 표식·링크. id 는 경로 조각으로 인코딩한다(대체 id 에 `#` 이 들어간다). */
+  getManualSection(id: string): Promise<unknown>;
+}
+
 /**
  * 일정 생성·수정 본문 — 서버 CalendarEventRequest 와 1:1(WP-348). 수정(PATCH)도 전체 교체라 같은 모양이다:
  * null·생략한 선택 필드는 서버에서 비워진다(reminderMinutes 생략=리마인더 제거, recurrenceRule 생략=단일 일정).

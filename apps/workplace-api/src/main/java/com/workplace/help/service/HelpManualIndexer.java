@@ -58,9 +58,9 @@ public class HelpManualIndexer {
   public boolean refresh() {
     try {
       HelpBundle b = source.fetch();
-      // 빈 묶음은 정상 응답이 아닌 장애로 본다 — sync 가 색인 전체를 지우지 않게.
-      if (b == null || b.chapters() == null || b.chapters().isEmpty()) {
-        log.warn("도움말 묶음이 비어 있어 색인을 유지한다");
+      // 절이 없는 묶음은 정상 응답이 아닌 장애로 본다 — sync 가 색인 전체를 지우지 않게. 절 목록과 같은 판단(HelpBundle.hasNoSections).
+      if (HelpBundle.hasNoSections(b)) {
+        log.warn("도움말 묶음에 절이 없어 색인을 유지한다");
         return false;
       }
       sync(b);
@@ -74,7 +74,8 @@ public class HelpManualIndexer {
 
   /**
    * 묶음을 표에 맞춘다 — 한 트랜잭션에서 upsert 와 삭제를 함께. 해시·장 id·대상·순서가 모두 같은 절은 쓰지 않는다(매 갱신마다 전 행을 다시 쓰지 않게).
-   * 해시가 달라진 절만 임베딩이 비워진다.
+   * 해시가 달라진 절만 임베딩이 비워진다. 절 목록(HelpManualCatalog)은 여기서 넣지 않는다 — 파드마다 HelpCatalogRefresher 가 따로
+   * 갱신한다(WP-1510).
    */
   public SyncResult sync(HelpBundle bundle) {
     List<SectionRow> rows = toRows(bundle);
@@ -135,7 +136,7 @@ public class HelpManualIndexer {
       List<HelpBundle.Section> sections = c.sections() == null ? List.of() : c.sections();
       for (int si = 0; si < sections.size(); si++) {
         HelpBundle.Section s = sections.get(si);
-        String label = s.label() == null || s.label().isBlank() ? s.title() : s.label();
+        String label = HelpManualCatalog.labelOf(s);
         String body = HelpMarkdownText.toPlain(s.markdown());
         rows.add(
             new SectionRow(

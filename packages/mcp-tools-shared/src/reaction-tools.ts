@@ -44,7 +44,7 @@ export function buildReactionTools(client: IssueToolClient & MessagingToolClient
       hints: { destructive: true, idempotent: true },
       description:
         'Adds (reacted: true) or removes (false) my emoji reaction on a chat message (messageId) in a channel or DM I belong to, or on an issue comment ' +
-        '(issueKey + commentId) I can write to; repeating is a no-op. Reactions show on reads as {emoji: count}.',
+        '(issueKey + commentId) I can write to; repeating is a no-op.',
       inputSchema: reactInput,
       async handler(args) {
         const { emoji, reacted, messageId, issueKey, commentId } = reactInput.parse(args);

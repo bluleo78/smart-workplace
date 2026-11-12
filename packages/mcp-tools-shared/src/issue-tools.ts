@@ -223,10 +223,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
+      // WP-1510: 정의 크기 상한 — fileIds 안내는 입력 스키마 설명(stagedFileIdsInput)과 같은 말이라 설명에서 뺐다(update_issue·report_agent_work 도 같음).
       description:
-        'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles, components, assignees (usernames, "me" = caller): names ' +
+        'Creates an issue (이슈) in projectKey. type, milestone, cycles, components, assignees (usernames, "me" = caller): names ' +
         'from get_project; unknown fail before creating, listing allowed values. labels too, but unknown labels are ' +
-        'created (gray; createdLabels). fileIds attach staged files. New assignees are notified; an assigned AI starts working ' +
+        'created (gray; createdLabels). New assignees are notified; an assigned AI starts working ' +
         '(not agentRuntime INTERNAL, which ignore other AIs\' actions).',
       inputSchema: createIssueInput,
       async handler(args) {
@@ -304,7 +305,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles, components replace the set ([] clears). ' +
         'reporter (username, humans only; open projects: non-members too): project OWNER/ADMIN or current reporter only. ' +
         'Names (type, milestone, cycles, components, fields) from get_project; unknown fail before any write. Unknown labels are created ' +
-        '(gray; createdLabels). fileIds attach staged files. Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
+        '(gray; createdLabels). Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
         'Status/priority changes notify assignees, watchers, new assignees. agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.',
       inputSchema: updateIssueInput,
       async handler(args) {
@@ -413,7 +414,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED asking/awaiting a person, AUTH_REQUIRED if you need ' +
         'credentials/permission, REVIEW done awaiting review, BLOCKED + why, WAITING on another AI (note what), SCHEDULED yield until nextRunAt (none = after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
-        'work. message posts to issue chat (@username mentions and notifies); fileIds attach staged files.',
+        'work. message posts to issue chat (@username mentions and notifies).',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, nextRunAt, ...rest } = reportAgentWorkInput.parse(args);
@@ -517,7 +518,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Adds (linked: true) or removes (false) a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; ' +
-        '"blockedBy": the reverse. Repeating is a no-op; adding a cycle is an error. Adding returns the issue\'s links.',
+        '"blockedBy": the reverse. Repeating is a no-op; adding a cycle is an error.',
       inputSchema: linkIssuesInput,
       async handler(args) {
         const { issueKey, otherIssueKey, direction, linked } = linkIssuesInput.parse(args);

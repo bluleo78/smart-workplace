@@ -501,7 +501,8 @@ public class GlobalExceptionHandler {
     com.workplace.agentaccount.exception.AgentAccountNotFoundException.class,
     com.workplace.agentaccount.exception.AgentAccountInUseException.class,
     com.workplace.agentaccount.exception.AgentAccountDuplicateException.class,
-    com.workplace.agentaccount.exception.AgentAccountBindingException.class
+    com.workplace.agentaccount.exception.AgentAccountBindingException.class,
+    com.workplace.help.exception.HelpSectionNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

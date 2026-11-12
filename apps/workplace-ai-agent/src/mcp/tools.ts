@@ -66,9 +66,16 @@ export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>>
  * WP-373: get_issue_chat 도 같다 — 외부 AI 가 맡은 이슈에서 던진 질문의 답을 읽는 도구이고, 서버 AI 는 이슈 챗 스레드(chat 프로필)에서 직접 대화한다. 그래서 sharedTool() 이 이 이름을 거부하고,
  * WP-800: claim_issue 도 같다 — 대기열 라벨 이슈를 스스로 가져가는 외부 AI(work-loop) 전용이고, 서버 AI 는 담당 지정 시점에 일을 받는다.
  * WP-719: add_issue_chat 도 같다 — 외부 AI 가 담당 밖 이슈의 멘션에 이슈 챗으로 답하는 도구이고, 서버 AI 는 이슈 챗 스레드에서 직접 대화한다.
+ * WP-1510: manual(제품 매뉴얼 검색·절 읽기)은 외부 전용이 아니라 **아직 연결 전**이라 여기 둔다 — AI Chat 에 싣는 일(라우터 도구·지시·답 렌더링)은 WP-1511 이 하고, 그때 이 목록에서 뺀다.
  * tools.test.ts 의 "공유 도구 전부 노출" 검사도 이 목록만 빼고 본다. CARD_ONLY_SHARED_TOOLS 와 달리 대체 도구(확인 카드)는 없다.
  */
-export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set(['report_agent_work', 'get_issue_chat', 'add_issue_chat', 'claim_issue']);
+export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set([
+  'report_agent_work',
+  'get_issue_chat',
+  'add_issue_chat',
+  'claim_issue',
+  'manual',
+]);
 
 /**
  * WP-423: 에이전트 신원 프로필(messaging)에서 입력을 좁혀 싣는 공유 도구 — 도구 이름 → 뺀 입력 필드.

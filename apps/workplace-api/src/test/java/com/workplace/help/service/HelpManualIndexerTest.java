@@ -12,6 +12,7 @@ import com.workplace.support.FakeTextEmbedder;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,22 +23,28 @@ import org.springframework.context.annotation.Primary;
 
 /** 도움말 색인기 통합 시험(WP-1509) — 묶음 동기화·해시 유지·임베딩 채우기·부분 가져오기 보호. */
 @Import(HelpManualIndexerTest.TestSourceConfig.class)
-class HelpManualIndexerTest extends IntegrationTestBase {
+public class HelpManualIndexerTest extends IntegrationTestBase {
 
-  /** 시험용 가변 묶음 — 운영 구현이 없어도 주입되게 @Primary 로 둔다. */
-  static class MutableSource implements HelpBundleSource {
-    volatile HelpBundle bundle;
-    volatile IOException failure;
+  /**
+   * 시험용 가변 묶음 — 운영 구현이 없어도 주입되게 @Primary 로 둔다. 절 조회 API 시험(HelpSectionApiTest)도 같은 설정을 써 스프링 컨텍스트를
+   * 하나 더 띄우지 않게 public 으로 연다. fetches 는 묶음을 몇 번 읽었는지(빈 목록 첫 요청이 한 번만 읽는지 확인용).
+   */
+  public static class MutableSource implements HelpBundleSource {
+    public volatile HelpBundle bundle;
+    public volatile IOException failure;
+    public final AtomicInteger fetches = new AtomicInteger();
 
     @Override
     public HelpBundle fetch() throws IOException {
+      fetches.incrementAndGet();
       if (failure != null) throw failure;
       return bundle;
     }
   }
 
+  /** 가변 묶음을 @Primary 빈으로 올린다 — 다른 도움말 시험도 @Import 해 같은 컨텍스트를 함께 쓴다. */
   @TestConfiguration
-  static class TestSourceConfig {
+  public static class TestSourceConfig {
     @Bean
     @Primary
     MutableSource helpTestSource() {
@@ -181,6 +188,15 @@ class HelpManualIndexerTest extends IntegrationTestBase {
   void emptyBundleKeepsIndex() {
     indexer.sync(bundle("본문 둘"));
     source.bundle = new HelpBundle(List.of());
+    assertThat(indexer.refresh()).isFalse();
+    assertThat(repo.snapshot()).hasSize(3);
+  }
+
+  @Test
+  void bundleWithoutSectionsKeepsIndex() {
+    indexer.sync(bundle("본문 둘"));
+    // 장은 있는데 절이 하나도 없는 묶음 — 빈 묶음과 같은 장애로 보아 색인을 지우지 않는다
+    source.bundle = new HelpBundle(List.of(new Chapter("a", "시작하기", List.of(), List.of())));
     assertThat(indexer.refresh()).isFalse();
     assertThat(repo.snapshot()).hasSize(3);
   }

@@ -61,6 +61,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "list_wiki_backlinks:read",
   "list_wiki_pages:read",
   "list_wiki_spaces:read",
+  "manual:read",
   "mark_all_notifications_read:write",
   "mark_channel_read:write",
   "mark_mail_read:write",

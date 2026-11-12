@@ -167,8 +167,8 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       description:
         'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
         '(default), AGENT (AI) or ALL; active only unless includeInactive. channelId (a channel I belong to) lists its members with ' +
-        'role; search by name or username; includeInactive ignored. Otherwise AI rows add description (its role, for choosing ' +
-        'whom to hand work to) and agentRuntime (INTERNAL|EXTERNAL). Returns {items, total, hasMore?, nextPage?}; if hasMore, ' +
+        'role; search by name or username; includeInactive ignored. Otherwise AI rows add description (its role, for ' +
+        'handing off work) and agentRuntime (INTERNAL|EXTERNAL). Returns {items, total, hasMore?, nextPage?}; if hasMore, ' +
         'pass nextPage as page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
@@ -183,7 +183,7 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       app: 'member',
       kind: 'read',
       description:
-        'Returns one member by username ("me" = the caller): name, email, title, kind, active, membershipRole, membershipStatus; ' +
+        'Returns one member by username ("me" = the caller) with profile and membership fields; ' +
         'AI members add description and agentRuntime; "me" adds instructions and slots (work cap).',
       inputSchema: memberInput,
       async handler(args) {
@@ -203,7 +203,7 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       app: 'member',
       kind: 'read',
       description:
-        'Returns the contact card of a member by username: email, title, kind, groups (names) and isFavorite. For external contacts use ' +
+        'Returns a member\'s contact card (incl. groups, isFavorite) by username. For external contacts use ' +
         'get_external_contact.',
       inputSchema: memberInput,
       async handler(args) {

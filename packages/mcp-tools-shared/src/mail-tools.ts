@@ -269,7 +269,7 @@ export function buildMailTools(
       // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Syncs an account inbox with its server (M365 or IMAP): fetches new mail, overwrites read states with server values (IMAP: ' +
+        'Syncs an account inbox with its server (M365 or IMAP): fetches new mail, overwrites read states from it (IMAP: ' +
         'last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If a ' +
         'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail (best effort: all 0 may ' +
         'also mean a sync just started).',

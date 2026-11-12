@@ -61,6 +61,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_wiki_backlinks": "read",
   "list_wiki_pages": "read",
   "list_wiki_spaces": "read",
+  "manual": "read",
   "mark_all_notifications_read": "write",
   "mark_channel_read": "write",
   "mark_mail_read": "write",
@@ -2086,6 +2087,34 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "manual",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "search",
+            "get",
+          ],
+          "type": "string",
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "query": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "action",
+      ],
       "type": "object",
     },
   },

@@ -15,6 +15,7 @@ export const TOOL_APPS = [
   'contacts',
   'notify',
   'member',
+  'help',
 ] as const;
 
 export type ToolApp = (typeof TOOL_APPS)[number];
@@ -47,17 +48,20 @@ export interface ToolAppGuide {
 }
 
 // 전체 연결의 instructions 가 2,048자(workplace-mcp INSTRUCTIONS_MAX_LENGTH) 안에 들어와야 한다 — WP-421 에서 첨부 문구를 더하며 여러 앱의 "A and B" 를 "A/B" 로, 나열 끝의 "and" 를 쉼표로 줄였다.
+// WP-1510: 도움말(help) 앱 한 줄을 더하며 같은 방식으로 issue·project·wiki·drive·mail·notify 문구를 다시 줄였다(뜻은 그대로, 앱 이름이 이미 말하는 낱말·"A and B" 정리).
 export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
-  issue: { label: 'Issues (이슈)', read: 'find and read issues (incl. watched), read attachments', write: 'create/update issues, comment, link, watch, attach files, report work', entry: ['list_issues', 'get_issue_detail'] },
-  project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles, custom fields', write: 'create and rename projects, add members, create and edit labels, milestones, cycles', entry: ['list_projects', 'get_project'] },
-  wiki: { label: 'Wiki (노트)', read: 'search and read pages, summaries, revision history, backlinks', write: 'create, edit, move pages, add images, restore earlier revisions', entry: ['search_wiki', 'get_wiki_page'] },
-  drive: { label: 'Drive (드라이브)', read: 'find, summarize and read files, versions and backlinks, view trash', write: 'create folders; rename, move, copy; upload files or text; download links; import issue/chat attachments; restore from trash', entry: ['list_drive_items', 'search_drive'] },
-  mail: { label: 'Mail (메일)', read: 'read and summarize mail and attachments, draft replies and issues', write: 'mark read/unread, recategorize, sync, create issues (no sending)', entry: ['list_mail_accounts', 'list_mail'] },
+  issue: { label: 'Issues (이슈)', read: 'find/read issues (incl. watched) and attachments', write: 'create/update issues, comment, link, watch, attach files, report work', entry: ['list_issues', 'get_issue_detail'] },
+  project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles, custom fields', write: 'create/rename projects, add members, create/edit labels, milestones, cycles', entry: ['list_projects', 'get_project'] },
+  wiki: { label: 'Wiki (노트)', read: 'search and read pages, summaries, revision history, backlinks', write: 'create, edit, move pages, add images, restore revisions', entry: ['search_wiki', 'get_wiki_page'] },
+  drive: { label: 'Drive (드라이브)', read: 'find, summarize, read files, versions, backlinks, trash', write: 'create folders; rename/move/copy; upload files or text; download links; import attachments; restore from trash', entry: ['list_drive_items', 'search_drive'] },
+  mail: { label: 'Mail (메일)', read: 'read/summarize mail and attachments, draft replies and issues', write: 'mark read/unread, recategorize, sync, create issues (no sending)', entry: ['list_mail_accounts', 'list_mail'] },
   messaging: { label: 'Channels and DMs (채널·DM)', read: 'channels, messages, threads', write: 'post/edit own messages, attach files, react, mark read, create/join/leave channels, invite, open DMs', entry: ['list_channels', 'list_channel_messages'] },
   calendar: { label: 'Calendar (캘린더)', read: 'events', write: 'create/update events and attendees, RSVP', entry: ['list_events', 'get_event'] },
   contacts: { label: 'Contacts (연락처)', read: 'contacts and user groups', write: 'favorites, user groups, external contacts', entry: ['list_contacts', 'list_user_groups'] },
-  notify: { label: 'Notifications (알림)', read: 'inbox notifications, home overview (priorities, mail/chat summaries, activity, thread inbox)', write: 'mark read', entry: ['list_notifications', 'get_home_overview'] },
+  notify: { label: 'Notifications (알림)', read: 'inbox, home overview (priorities, mail/chat summaries, activity, thread inbox)', write: 'mark read', entry: ['list_notifications', 'get_home_overview'] },
   member: { label: 'Members (구성원)', read: 'find members and their contact cards', write: '', entry: ['search_members', 'get_member'] },
+  // WP-1510: 제품 매뉴얼(사용법) — 읽기 전용이라 write 는 비운다.
+  help: { label: 'Help (도움말)', read: 'how-to manual for this app', write: '', entry: ['manual'] },
 };
 
 /** 앱 이름 문자열이 유효한 앱인지(타입 가드). */
