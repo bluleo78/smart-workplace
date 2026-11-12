@@ -15,6 +15,7 @@ describe('formatAuditAction / formatAuditResource (#109, #778, WP-335, WP-369)',
     expect(formatAuditAction('FILE_RENAME')).toBe('파일 이름 변경');
     expect(formatAuditAction('TRANSFER_LINK_CREATE')).toBe('전송 링크 발급');
     expect(formatAuditAction('TRANSFER_LINK_USE')).toBe('전송 링크 사용');
+    expect(formatAuditAction('FILE_PLAYBACK')).toBe('파일 재생');
     expect(formatAuditResource('drive')).toBe('드라이브');
     expect(formatAuditResource('user_api_token')).toBe('API 토큰');
     expect(warn).not.toHaveBeenCalled();

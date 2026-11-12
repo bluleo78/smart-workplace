@@ -57,6 +57,8 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'FILE_RENAME', label: '파일 이름 변경' },
   { value: 'FILE_DELETE', label: '파일 삭제' },
   { value: 'FILE_ROLLBACK', label: '파일 롤백' },
+  // WP-1532: 드라이브 영상·오디오 재생 주소 발급(= 열람) — 범위 요청마다가 아니라 발급 때 한 번 남는다.
+  { value: 'FILE_PLAYBACK', label: '파일 재생' },
   { value: 'FILE_SHARE', label: '공유 링크 생성' },
   { value: 'SHARE_LINK_LOCKED', label: '공유 링크 잠금' },
   { value: 'TRANSFER_LINK_CREATE', label: '전송 링크 발급' },

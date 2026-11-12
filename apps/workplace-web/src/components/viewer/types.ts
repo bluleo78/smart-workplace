@@ -34,6 +34,13 @@ export interface ViewerItem {
   driveOpen?: DriveOpenTarget
   /** 있으면 ⋯ "원본으로 이동". */
   sourceLink?: string
+  /**
+   * 있으면 영상·오디오를 blob 으로 통째 받지 않고 이 드라이브 파일의 서명 재생 주소를 미디어 요소에 바로 넣어 재생한다(WP-1532 — Range 로 받으며
+   * 재생, 받는 중 %·10MB 확인 없음). 드라이브 화면의 파일(driveFileItem)에만 둔다 — 발급이 드라이브 볼 권한을 보므로, 이슈·채팅의 드라이브 링크
+   * (그 화면 권한으로 받음)·공유 링크·첨부는 지금처럼 blob 으로 받는다.
+   * versionFileId 는 현재 버전의 core file id — 새 버전이 오르면(목록 재조회) 값이 바뀌어 캐시된 이전 버전 주소를 쓰지 않는다.
+   */
+  playback?: DrivePlaybackTarget
   /** 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만. */
   unavailable?: boolean
   /**
@@ -68,6 +75,12 @@ export interface ViewerItemSource {
   fetchConverted: (path: string, signal?: AbortSignal) => Promise<ConvertedPreviewResponse>
   /** 원본 다운로드(브라우저 저장까지). 실패는 throw — 뷰어가 토스트로 알린다. */
   download: (item: ViewerItem) => Promise<void>
+}
+
+/** 재생 주소 대상(WP-1532) — 드라이브 파일 id 와 현재 버전 core file id. */
+export interface DrivePlaybackTarget {
+  driveFileId: number
+  versionFileId: number
 }
 
 /** ⋯ "드라이브에서 열기" 대상 — 폴더 id 를 모르므로 공간·파일 id·이름(폴더 검색용)만 든다. */

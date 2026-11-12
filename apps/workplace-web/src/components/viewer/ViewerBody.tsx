@@ -12,12 +12,14 @@ import { CsvTablePreview } from '../drive/preview/CsvTablePreview'
 import { SheetPreview } from '../drive/preview/SheetPreview'
 import { Button } from '../ui/button'
 import { ConvertFailedNotice, ConvertingNotice } from './ConvertStateNotice'
+import { isStreamableMime } from './drivePlayback'
 import { HtmlPreview } from './HtmlPreview'
 import { fitImageWidth } from './imageFit'
 import { MediaPlayer, type MediaSession } from './MediaPlayer'
 import { PdfPages } from './PdfPages'
 import type { ViewerItem } from './types'
 import { useConvertedSource } from './useConvertedSource'
+import { useDrivePlaybackUrl } from './useDrivePlaybackUrl'
 import { type PreviewProgress, type PreviewSource, usePreviewBlob } from './usePreviewBlob'
 import { itemPreviewKind } from './viewerItems'
 
@@ -170,40 +172,61 @@ export const ViewerBody = memo(function ViewerBody({
   // 그릴 내용의 출처 — 형식으로 하나를 고르고, 아래는 출처를 몰라도 같은 방식으로 그린다. 훅 규칙상 둘 다 부르되 고르지 않은 쪽은 꺼 둔다
   // (항목(key) 동안 형식·사용 가능 여부는 바뀌지 않아 enabled 도 고정이다). 원본 blob 받기·10MB 초과 확인은 원본 출처가, 변환 폴링은
   // 변환 출처가 맡는다. 영상·오디오는 받는 중 % 를 보여 주려고 진행도 든다.
-  const originalSource = usePreviewBlob(item, renderable && !converted, { trackProgress: isMedia })
+  // WP-1532: 드라이브 화면의 영상·오디오(playback)는 blob 을 받지 않고 봉인 재생 주소를 미디어 요소에 바로 넣는다 —
+  // Range 로 받으며 재생하므로 받는 중 %·10MB 확인이 없다(원본 출처를 꺼 두면 확인도 생기지 않는다). 다운로드는 원본 출처의 감사 경로 그대로.
+  // 서버가 발급하는 형식(isStreamableMime)만 — 그 밖의 영상(avi 등)은 지금처럼 받아서 재생을 시도한다.
+  const streams = isMedia && item.playback != null && isStreamableMime(item.mimeType) && !item.unavailable
+  const originalSource = usePreviewBlob(item, renderable && !converted && !streams, { trackProgress: isMedia })
   const convertedSource = useConvertedSource(item, converted)
+  const playback = useDrivePlaybackUrl(streams ? (item.playback ?? null) : null)
   const source: PreviewSource = converted ? convertedSource : originalSource
-  const { blob, confirmSize, retry } = source
+  const { blob, confirmSize } = source
+  const retry = streams ? playback.retry : source.retry
   const download = () => void source.download()
   // 변환 결과(없으면 아직 변환 전). WP-203: pdf 는 toVerifiedPdfBlob 을 통과한 blob 만 담아 pdf.js 로 넘긴다.
   const [content, setContent] = useState<BodyContent | null>(null)
   const [convertError, setConvertError] = useState(false)
   // 재생 불가(코덱 미지원 등 플레이어 error 이벤트)·브라우저가 못 그리는 이미지(img error) — 실패 화면이 아니라 미지원 화면 + 다운로드로 바꾼다(스펙 §5.3).
   const [unplayable, setUnplayable] = useState(false)
+  // 재생 주소로 연 항목의 미디어 오류 때 주소를 한 번 다시 받았는가 — 만료·새 버전으로 주소가 404 가 된 경우를 살리고,
+  // 다시 받은 주소로도 안 되면(코덱 미지원 등) 미지원 화면. 한 번뿐이라 되풀이하지 않는다.
+  const [reissued, setReissued] = useState(false)
+  const onMediaError = () => {
+    if (streams && !reissued) {
+      setReissued(true)
+      playback.reissue()
+    } else {
+      setUnplayable(true)
+    }
+  }
   // 이미지 확대 계산용 — 본문 내용 영역 크기(패딩 제외)와 이미지 원본 크기.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const box = useObservedBox(bodyEl, kind === 'IMAGE')
   const fitWidth = natural && box ? fitImageWidth(natural.w, natural.h, box.w, box.h) : null
-  const error = source.error || convertError
+  const error = source.error || convertError || playback.error
   // 부모(뷰어)에 blob 상태를 알린다 — 콜백은 최신값 ref 로 읽어 이펙트가 콜백 정체성에 흔들리지 않게.
   const onSourceRef = useRef(onSource)
   useEffect(() => {
     onSourceRef.current = onSource
   })
   // 원본이 아닌 blob(변환 PDF)은 보고하지 않는다 — 모바일 ⤴ 공유·저장이 변환 PDF 를 원본(.hwp) 이름으로 내보내지 않게.
-  const fetches = source.isOriginal && renderable && !item.unavailable && confirmSize == null && !error
+  // 재생 주소로 여는 항목은 blob 을 받지 않으므로 거짓 — 모바일 ⤴ 공유가 오지 않을 blob 을 기다리지 않게(저장은 /download 로 받는다).
+  const fetches = source.isOriginal && renderable && !item.unavailable && confirmSize == null && !error && !streams
   const reportedBlob = source.isOriginal ? blob : null
   // unplayable — 재생 불가로 미지원 화면이 된 영상·오디오. 뷰어가 이 항목을 미디어로 다루지 않게(키·터치 규칙) 함께 알린다.
   useEffect(() => {
     onSourceRef.current?.({ blob: reportedBlob, fetches, unplayable })
   }, [item.key, reportedBlob, fetches, unplayable])
+  // 영상·오디오에 넣을 주소 — 재생 주소(스트리밍) 또는 받은 blob 의 object URL.
+  const mediaUrl = streams ? playback.url : content?.k === 'url' ? content.url : null
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
+  // 재생 주소 항목은 주소를 받기 전까지가 로딩이다(content 는 늘 비어 있다).
   const loading =
     !item.unavailable &&
     !error &&
     renderable &&
-    content == null &&
+    (streams ? mediaUrl == null : content == null) &&
     confirmSize == null
   // 변환 항목의 로딩(변환 중 + 받은 PDF 검증 중)은 스켈레톤 대신 변환 중 안내. 실패·미지원 응답이면 각자의 화면으로.
   const { failed: convertFailed, unsupported: convertUnsupported } = source
@@ -326,14 +349,19 @@ export const ViewerBody = memo(function ViewerBody({
         <ConvertFailedNotice item={item} transient={convertFailed.transient} onRetry={retry} onDownload={download} />
       )}
       {/* #775: 콘텐츠 페치 중(로딩) — AI 요약 카드와 같은 animate-pulse 스켈레톤 패턴 재사용. */}
-      {/* 영상·오디오 상태 알림 — 받는 중 → 재생 준비(매 % 가 아니라 전환 때만, polite). 재생 불가는 미지원 화면이 그대로 읽힌다. */}
+      {/* 영상·오디오 상태 알림 — 받는 중(재생 주소는 여는 중) → 재생 준비(매 % 가 아니라 전환 때만, polite). 재생 불가는 미지원 화면이 그대로 읽힌다. */}
       {isMedia && (
         <p className="sr-only" aria-live="polite" data-testid="media-status-live">
-          {loading ? `${item.name} 받는 중` : !error && !unplayable && content?.k === 'url' ? `${item.name} 재생 준비됨` : ''}
+          {loading
+            ? `${item.name} ${streams ? '여는 중' : '받는 중'}`
+            : !error && !unplayable && mediaUrl != null
+              ? `${item.name} 재생 준비됨`
+              : ''}
         </p>
       )}
-      {loading && isMedia && <MediaProgress item={item} video={kind === 'VIDEO'} progress={source.progress} />}
-      {loading && !isMedia && !converted && (
+      {/* 통째로 받는 영상·오디오만 % 진행률 — 재생 주소는 받으며 재생하므로 주소를 받는 짧은 동안 일반 스켈레톤만. */}
+      {loading && isMedia && !streams && <MediaProgress item={item} video={kind === 'VIDEO'} progress={source.progress} />}
+      {loading && (!isMedia || streams) && !converted && (
         <div className="m-auto w-full max-w-md space-y-2" data-testid="preview-loading">
           <div className="h-3 w-full animate-pulse rounded bg-muted" />
           <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
@@ -355,14 +383,14 @@ export const ViewerBody = memo(function ViewerBody({
           style={fitWidth == null ? undefined : { width: fitWidth * zoom }}
         />
       )}
-      {!error && isMedia && !unplayable && content?.k === 'url' && (
+      {!error && isMedia && !unplayable && mediaUrl != null && (
         <MediaPlayer
           kind={kind}
-          url={content.url}
+          url={mediaUrl}
           itemKey={item.key}
           name={item.name}
           session={mediaSession}
-          onError={() => setUnplayable(true)}
+          onError={onMediaError}
           sideInset={sideInset}
         />
       )}

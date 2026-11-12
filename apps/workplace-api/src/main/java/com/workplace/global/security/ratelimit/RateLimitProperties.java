@@ -11,13 +11,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param avatarPerMinute 공개 아바타 이미지(WP-1222) — 같은 IP 에서 1분에 받는 횟수(기본 1200). 넉넉하게 둔 이유: 채널·구성원 목록 한
  *     화면이 처음(캐시 없이) 열릴 때 수십~백여 명의 아바타를 한꺼번에 받고, 회사 NAT 뒤에서는 여러 사람이 IP 하나를 나눠 쓴다. 이미지는 주소가 바뀌지 않는 한
  *     브라우저가 영구 캐시(immutable)하므로 정상 사용은 한도에 거의 닿지 않고, 주소를 바꿔 가며 두드리는 요청만 막힌다.
+ * @param drivePlaybackPerMinute 드라이브 재생 주소(WP-1532) — 같은 IP·같은 재생 주소에서 1분에 받는 범위 요청 수(기본 300). 영상
+ *     하나를 이리저리 탐색해도 범위 요청은 1분에 수십 번이라 넉넉하고, 주소 하나로 서버를 두드리는 요청만 막힌다. 주소별로 세어 회사 NAT 뒤 여러 사람이 각자 보는
+ *     영상은 서로 한도를 나눠 쓰지 않는다.
  */
 @ConfigurationProperties(prefix = "app.rate-limit")
 public record RateLimitProperties(
     Boolean enabled,
     Integer loginPerMinute,
     Integer sharePasswordPerMinute,
-    Integer avatarPerMinute) {
+    Integer avatarPerMinute,
+    Integer drivePlaybackPerMinute) {
 
   /** 값이 비면 기본값으로 채운다 — application.yml 에 키가 없어도 켜진 채 기본 한도로 돈다. */
   public RateLimitProperties {
@@ -25,5 +29,6 @@ public record RateLimitProperties(
     if (loginPerMinute == null) loginPerMinute = 20;
     if (sharePasswordPerMinute == null) sharePasswordPerMinute = 10;
     if (avatarPerMinute == null) avatarPerMinute = 1200;
+    if (drivePlaybackPerMinute == null) drivePlaybackPerMinute = 300;
   }
 }

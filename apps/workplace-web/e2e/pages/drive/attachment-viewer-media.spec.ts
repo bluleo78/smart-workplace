@@ -1,12 +1,13 @@
 // 통합 첨부 뷰어 영상·오디오(WP-281) — 데스크톱(chromium). 드라이브 묶음에서 실제 webm·mp3 를 열어 브라우저 기본 플레이어로 재생한다.
-// 실제 미디어 디코드·재생·스트리밍 받기(@platform), 영상 키보드 처리(@input), 플레이어 크기(@layout) — 모두 브라우저가 있어야 판정된다(WP-984).
+// 실제 미디어 디코드·재생·서명 재생 주소 Range(206) 받기(@platform, WP-1532), 영상 키보드 처리(@input), 플레이어 크기(@layout) — 모두 브라우저가 있어야 판정된다(WP-984).
 // 픽스처: e2e/fixtures/sample-10s.webm(VP8+Opus 160×120 10초)·sample-10s.mp3(10초). 재생 불가 = 쓰레기 바이트 .mov
 // (실제 HEVC 는 macOS Chromium 이 하드웨어 디코더로 틀 수 있어 "재생 불가" 를 결정적으로 만들지 못한다).
 
 import type { Locator, Page } from '@playwright/test'
 
-import { audioFile, type DriveStubFile, stubDriveFiles, videoFile } from '../../fixtures/drive-mock'
+import { audioFile, type DriveStubFile, isPlaybackPath, stubDriveFiles, videoFile } from '../../fixtures/drive-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { SAMPLE_WEBM } from '../../fixtures/samples'
 import { pausePageClock } from '../../fixtures/touch'
 
 const SPACE_ID = 1
@@ -75,79 +76,90 @@ test('넘기면 일시정지(위치 기억) — 넘겨 온 영상·되돌아온 
   expect((await state(video)).paused).toBe(true)
 })
 
-test('닫으면 미디어 요소가 정리되고 blob URL 이 해제된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
-  // revokeObjectURL 호출을 기록한다.
-  await page.addInitScript(() => {
-    const w = window as unknown as { __revoked: string[] }
-    w.__revoked = []
-    const orig = URL.revokeObjectURL.bind(URL)
-    URL.revokeObjectURL = (u: string) => {
-      w.__revoked.push(u)
-      orig(u)
-    }
+test('큰 영상은 다 받기를 기다리지 않고 서명 재생 주소로 Range(206) 재생하고, 탐색해도 이어 재생된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+  // WP-1532 — 600MB 로 보이는 영상(실제 본문은 10초 webm 78KB). 10MB 확인·받는 중 % 없이 곧바로 재생 주소를 <video src> 에 넣는다.
+  // 목 서버는 범위 응답을 16KB 씩·요청마다 250ms 늦게 보내 영상을 여러 번에 나눠 받게 한다 — 다 받기 전에 재생이 시작되는지 본다.
+  const total = SAMPLE_WEBM.length
+  await stubDriveFiles(
+    page,
+    [videoFile(80, 'big.webm', { sizeBytes: 600 * 1024 * 1024, rangeChunkBytes: 16 * 1024, delayMs: 250 })],
+    { spaceId: SPACE_ID },
+  )
+  const ranges: (string | undefined)[] = []
+  const served: [number, number][] = []
+  const statuses: number[] = []
+  const contentCalls: string[] = []
+  const issued: string[] = []
+  page.on('request', (r) => {
+    const u = new URL(r.url())
+    if (isPlaybackPath(u.pathname, 80)) ranges.push(r.headers()['range'])
+    if (u.pathname === '/api/v1/drive/files/80/content') contentCalls.push(r.url())
+    if (u.pathname === '/api/v1/drive/files/80/playback-url') issued.push(r.method())
   })
+  page.on('response', (r) => {
+    if (!isPlaybackPath(new URL(r.url()).pathname, 80)) return
+    statuses.push(r.status())
+    const m = /bytes (\d+)-(\d+)\//.exec(r.headers()['content-range'] ?? '')
+    if (m) served.push([Number(m[1]), Number(m[2])])
+  })
+  const coveredBytes = () => {
+    const hit = new Set<number>()
+    for (const [a, b] of served) for (let i = a; i <= b; i++) hit.add(i)
+    return hit.size
+  }
+  await openViewer(page, 'big.webm')
+  const video = page.getByTestId('media-video')
+  await expect.poll(async () => (await state(video)).time).toBeGreaterThan(0)
+  // 재생이 시작된 순간 아직 파일 전체를 받지 않았다(통째로 받는 blob 경로라면 불가능).
+  expect(coveredBytes()).toBeLessThan(total)
+  expect(isPlaybackPath(new URL((await state(video)).src).pathname, 80)).toBe(true)
+  await expect(page.getByTestId('preview-size-confirm')).toHaveCount(0)
+  await expect(page.getByRole('progressbar')).toHaveCount(0)
+  // 브라우저가 범위 요청으로 받고 서버(목)가 206 으로 응답했다 — iOS Safari 는 영상에 206 을 요구한다.
+  expect(ranges.every((r) => r?.startsWith('bytes='))).toBe(true)
+  expect(statuses.length).toBeGreaterThan(1)
+  expect(statuses.every((st) => st === 206)).toBe(true)
+  // 탐색 — 뒤쪽(8초)으로 옮기면 그 구간을 범위 요청으로 받아 그 위치부터 이어 재생된다(같은 주소, 재발급 없음).
+  await pauseAt(video, 8)
+  await video.evaluate((m: HTMLMediaElement) => m.play())
+  await expect.poll(async () => (await state(video)).time).toBeGreaterThan(8)
+  expect(served.some(([a]) => a > total / 2)).toBe(true)
+  // 원본 blob 은 받지 않고, 발급(=열람 감사)은 한 번만.
+  expect(contentCalls).toHaveLength(0)
+  expect(issued).toEqual(['POST'])
+})
+
+test('닫으면 미디어 요소가 정리되고 재생 주소 요청을 놓는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
   await expect.poll(async () => (await state(video)).paused).toBe(false)
-  const { src } = await state(video)
-  expect(src).toMatch(/^blob:/)
   await page.getByRole('button', { name: '닫기', exact: true }).click()
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
   await expect(page.locator('video, audio')).toHaveCount(0)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __revoked: string[] }).__revoked)).toContain(src)
 })
 
-test('받는 동안 % 진행률을 보이고 다 받으면 플레이어로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [videoFile(80, 'slow.webm', { delayMs: 1500 })], { spaceId: SPACE_ID })
-  await openViewer(page, 'slow.webm')
-  const bar = page.getByRole('progressbar', { name: 'slow.webm 받는 중' })
-  await expect(bar).toBeVisible()
-  await expect(bar).toHaveAttribute('aria-valuenow', '0')
-  await expect(page.getByTestId('media-progress-label')).toHaveText('영상 받는 중… 0%')
-  await expect(page.getByTestId('media-video')).toBeVisible()
-  await expect(bar).toHaveCount(0)
-  // 받는 중 → 재생 준비 전환을 스크린리더에 알린다(매 % 가 아니라 전환 때만).
-  await expect(page.getByTestId('media-status-live')).toHaveText('slow.webm 재생 준비됨')
-})
-
-test('받는 중에 넘기면 받던 요청을 끊는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [videoFile(80, 'slow-a.webm', { delayMs: 4000 }), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
-  const failed: string[] = []
-  page.on('requestfailed', (r) => {
-    if (r.url().includes('/drive/files/80/content')) failed.push(r.failure()?.errorText ?? '')
-  })
-  await openViewer(page, 'slow-a.webm')
-  await expect(page.getByRole('progressbar')).toBeVisible()
-  await page.getByRole('button', { name: '다음 파일' }).click()
-  await expect(page.getByTestId('media-video')).toBeVisible()
-  await expect.poll(() => failed.length).toBeGreaterThan(0)
-})
-
-test('10MB 초과 영상은 먼저 확인을 받고, 미리보기를 누르면 받아서 재생한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [videoFile(80, 'big.webm', { sizeBytes: 11 * 1024 * 1024 })], { spaceId: SPACE_ID })
-  const contentRequests: string[] = []
-  page.on('request', (r) => {
-    if (r.url().includes('/drive/files/80/content')) contentRequests.push(r.url())
-  })
-  await openViewer(page, 'big.webm')
-  await expect(page.getByTestId('preview-size-confirm')).toBeVisible()
-  // 동의 전엔 받지 않는다 — 진행률·플레이어 없음, 콘텐츠 요청 0회.
-  await expect(page.getByRole('progressbar')).toHaveCount(0)
+test('재생 주소 발급이 거절되면(권한·휴지통) 오류 화면과 다시 시도·다운로드', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [videoFile(80, 'gone.webm', { playbackStatus: 404 })], { spaceId: SPACE_ID })
+  await openViewer(page, 'gone.webm')
+  const err = page.getByTestId('preview-error')
+  await expect(err).toContainText('미리보기를 불러오지 못했습니다.')
+  await expect(err.getByRole('button', { name: '다시 시도' })).toBeVisible()
+  await expect(err.getByRole('button', { name: '다운로드' })).toBeVisible()
   await expect(page.locator('video')).toHaveCount(0)
-  expect(contentRequests).toHaveLength(0)
-  await page.getByRole('button', { name: '미리보기' }).click()
-  const video = page.getByTestId('media-video')
-  // 확인 클릭 뒤에도 직접 연 항목이라 자동재생된다.
-  await expect.poll(async () => (await state(video)).paused).toBe(false)
-  expect(contentRequests.length).toBeGreaterThan(0)
 })
 
 test('재생할 수 없는 영상은 미지원 화면과 다운로드로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [BROKEN], { spaceId: SPACE_ID })
+  const issued: string[] = []
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === `/api/v1/drive/files/${BROKEN.id}/playback-url`) issued.push(r.method())
+  })
   await openViewer(page, 'broken.mov')
   const notice = page.getByTestId('preview-unsupported')
   await expect(notice).toContainText('이 형식은 미리 볼 수 없어요')
+  // WP-1532: 첫 오류에 주소를 한 번 다시 받아(만료·새 버전 대비) 시도하고, 그래도 안 되면 미지원 — 되풀이하지 않는다.
+  expect(issued).toEqual(['POST', 'POST'])
   await expect(notice.getByRole('button', { name: '다운로드' })).toBeVisible()
   await expect(page.locator('video')).toHaveCount(0)
   // 안내는 본문 가운데(미디어 본문은 flex — m-auto 없으면 왼쪽 위에 붙는다).

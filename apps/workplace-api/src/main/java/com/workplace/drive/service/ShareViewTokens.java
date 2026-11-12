@@ -1,17 +1,14 @@
 package com.workplace.drive.service;
 
 import com.workplace.global.security.JwtProperties;
+import com.workplace.global.security.LabeledTokenCrypto;
 import com.workplace.global.util.CapabilityTokens;
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -36,11 +33,15 @@ public class ShareViewTokens {
   /** 열람 토큰 유효 시간 — 미리보기를 읽는 동안은 충분하고, 새어 나가도 오래 쓰이지 않게 짧게 둔다. */
   static final Duration TTL = Duration.ofMinutes(30);
 
-  private static final String HMAC = "HmacSHA256";
+  /** 키 파생 라벨 — 바꾸면 이미 발급한 열람 토큰이 모두 무효가 된다. */
+  static final String KEY_LABEL = "swp-share-view-v1";
+
   private static final Base64.Encoder B64 = Base64.getUrlEncoder().withoutPadding();
   private static final Base64.Decoder B64D = Base64.getUrlDecoder();
 
-  private final byte[] key;
+  /** 라벨 파생 키·HMAC·상수 시간 비교는 공용 도구에 둔다(WP-1532) — 서명 형식은 그대로라 발급된 토큰이 계속 통한다. */
+  private final LabeledTokenCrypto crypto;
+
   private final Clock clock;
 
   @Autowired
@@ -50,7 +51,7 @@ public class ShareViewTokens {
 
   /** 테스트용 — 시계를 고정해 만료된 토큰을 만든다. */
   ShareViewTokens(JwtProperties jwt, Clock clock) {
-    this.key = hmac(jwt.secret().getBytes(StandardCharsets.UTF_8), "swp-share-view-v1");
+    this.crypto = LabeledTokenCrypto.derive(jwt.secret(), KEY_LABEL);
     this.clock = clock;
   }
 
@@ -64,26 +65,23 @@ public class ShareViewTokens {
         B64.encodeToString(
             (tokenHash + "|" + expiresAt.getEpochSecond() + "|" + fingerprint(passwordHash))
                 .getBytes(StandardCharsets.UTF_8));
-    return new ViewToken(payload + "." + B64.encodeToString(hmac(key, payload)), expiresAt);
+    return new ViewToken(crypto.sign(payload), expiresAt);
   }
 
   /**
    * 서명이 맞고, 만료 전이며, 같은 링크·같은 비밀번호 해시로 발급된 토큰일 때만 true. 형식 오류를 포함한 모든 실패는 false(호출부가 401 또는 「비밀번호
-   * 필요」로 다룬다). 서명 비교는 상수 시간({@link MessageDigest#isEqual})이다.
+   * 필요」로 다룬다). 서명 비교는 상수 시간이다.
    */
   public boolean isValid(String viewToken, String tokenHash, String passwordHash) {
     if (viewToken == null || viewToken.isBlank()) return false;
     try {
-      int dot = viewToken.indexOf('.');
-      if (dot <= 0) return false;
-      String payload = viewToken.substring(0, dot);
-      byte[] sig = B64D.decode(viewToken.substring(dot + 1));
-      if (!MessageDigest.isEqual(sig, hmac(key, payload))) return false;
+      String payload = crypto.verifySigned(viewToken).orElse(null);
+      if (payload == null) return false;
       String[] parts = new String(B64D.decode(payload), StandardCharsets.UTF_8).split("\\|", -1);
       if (parts.length != 3) return false;
       // 링크·비밀번호 지문 비교도 상수 시간으로 — 서명이 맞은 뒤라 실익은 작지만 비교 방식을 한 가지로 둔다.
-      if (!constantEquals(parts[0], tokenHash)) return false;
-      if (!constantEquals(parts[2], fingerprint(passwordHash))) return false;
+      if (!LabeledTokenCrypto.constantEquals(parts[0], tokenHash)) return false;
+      if (!LabeledTokenCrypto.constantEquals(parts[2], fingerprint(passwordHash))) return false;
       return Instant.ofEpochSecond(Long.parseLong(parts[1])).isAfter(clock.instant());
     } catch (RuntimeException e) {
       return false;
@@ -93,21 +91,5 @@ public class ShareViewTokens {
   /** 비밀번호 해시 지문 — sha256 앞 16hex. 비밀번호 없는 링크는 빈 문자열. */
   private static String fingerprint(String passwordHash) {
     return passwordHash == null ? "" : CapabilityTokens.sha256Hex(passwordHash).substring(0, 16);
-  }
-
-  private static boolean constantEquals(String a, String b) {
-    return b != null
-        && MessageDigest.isEqual(
-            a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
-  }
-
-  private static byte[] hmac(byte[] key, String data) {
-    try {
-      Mac mac = Mac.getInstance(HMAC);
-      mac.init(new SecretKeySpec(key, HMAC));
-      return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
-    } catch (GeneralSecurityException e) {
-      throw new IllegalStateException(e);
-    }
   }
 }

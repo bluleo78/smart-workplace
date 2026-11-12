@@ -228,3 +228,13 @@ export interface BulkSelection {
 export interface BulkMoveBody extends BulkSelection {
   targetFolderId: number | null
 }
+
+/**
+ * 재생 주소 발급 응답(WP-1532) — 백엔드 DrivePlaybackUrlResponse 와 1:1.
+ * url 은 같은 출처 상대 경로(`/api/v1/public/drive/playback/{token}`)라 `<video src>` 에 그대로 넣는다.
+ */
+export interface DrivePlaybackUrl {
+  url: string
+  expiresAt: string
+  mimeType: string
+}

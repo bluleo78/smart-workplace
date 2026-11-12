@@ -116,6 +116,7 @@ export function itemPreviewKind(item: ViewerItem): PreviewKind {
  * 드라이브 화면의 파일 — 요약·참조된 곳을 쓰고, 이미 드라이브라 가져오기는 없다.
  * 형식은 별칭을 정규형으로 맞춘다(haansofthwp → x-hwp) — 변환 대상 판정이 정확 일치라서.
  * previewPath 는 모든 드라이브 파일에 두고, 실제로 쓸지는 itemPreviewKind 가 형식으로 고른다.
+ * playback(WP-1532)도 같다 — 영상·오디오일 때만 뷰어가 서명 재생 주소로 재생한다.
  */
 export function driveFileItem(f: DriveFile): ViewerItem {
   return withSecurityCheck({
@@ -126,6 +127,8 @@ export function driveFileItem(f: DriveFile): ViewerItem {
     contentPath: `/drive/files/${f.id}/content`,
     downloadPath: `/drive/files/${f.id}/download`,
     previewPath: `/drive/files/${f.id}/preview`,
+    // 영상·오디오는 서명 재생 주소로 바로 재생(WP-1532). 형식과 무관하게 달고, 쓸지는 뷰어 본문이 형식으로 고른다.
+    playback: { driveFileId: f.id, versionFileId: f.fileId },
     summaryDriveFileId: f.id,
     backlinksDriveFileId: f.id,
     aiRefs: { source: 'drive', driveFileId: f.id },

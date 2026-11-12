@@ -1,7 +1,9 @@
 package com.workplace.global.security.ratelimit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.drive.service.DrivePlaybackService;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.ClientIpExtractor;
 import com.workplace.user.service.AvatarService;
 import jakarta.servlet.FilterChain;
@@ -26,8 +28,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <p>계정별 잠금(5회·15분)은 아이디를 바꿔 가며 보내면 걸리지 않아, 요청마다 약 0.1초 CPU 를 쓰는 해시 계산을 대량 요청으로 소모시킬 수 있었다. 대상은
  * 로그인·가입·운영자 로그인({@link Policy#LOGIN})과 비밀번호를 실은 공유 링크 다운로드·비밀번호 확인({@link Policy#SHARE_PASSWORD}),
  * 공유 링크 미리보기 변환 시작({@link Policy#SHARE_PREVIEW}, WP-1227 — 익명이 변환 작업을 거듭 띄우지 못하게)이다. 인증 없이 요청마다
- * 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와 한국어
- * 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게 한다.
+ * 디스크를 읽는 공개 아바타 이미지({@link Policy#AVATAR}, WP-1222)와 드라이브 재생 주소({@link Policy#DRIVE_PLAYBACK},
+ * WP-1532)도 넉넉한 한도로 함께 센다. 넘치면 429 + Retry-After 와 한국어 안내를 돌려준다. CORS 필터 뒤에 두어 브라우저가 응답을 읽을 수 있게
+ * 한다.
  *
  * <p>클라이언트 IP: 감사 로그와 같은 {@link ClientIpExtractor} 판정을 쓴다(WP-1317) — 믿는 프록시에서 온 요청이면
  * X-Forwarded-For 를 오른쪽부터 걷어 믿는 프록시가 아닌 첫 주소. 예전에는 마지막 값을 써 web nginx 가 붙인 ingress 파드 주소 하나로 전 사용자가
@@ -66,8 +69,13 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     SHARE_PASSWORD,
     AVATAR,
     /** 공개 공유 미리보기 변환 시작(WP-1227) — 비밀번호 버킷과 따로 센다(키 접두가 다름), 한도는 같은 값. */
-    SHARE_PREVIEW
+    SHARE_PREVIEW,
+    /** 드라이브 재생 주소(WP-1532) — IP + 주소(토큰 해시)마다 센다. 탐색의 범위 요청은 넉넉히 받고 주소 하나로 두드리는 요청만 막는다. */
+    DRIVE_PLAYBACK
   }
+
+  /** 드라이브 재생 공개 경로 — 컨트롤러 매핑·SecurityConfig 와 같은 상수. */
+  private static final String DRIVE_PLAYBACK_PREFIX = DrivePlaybackService.PUBLIC_PATH;
 
   private final TokenBucketLimiter limiter;
   private final RateLimitProperties properties;
@@ -94,8 +102,9 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
           case LOGIN -> properties.loginPerMinute();
           case SHARE_PASSWORD, SHARE_PREVIEW -> properties.sharePasswordPerMinute();
           case AVATAR -> properties.avatarPerMinute();
+          case DRIVE_PLAYBACK -> properties.drivePlaybackPerMinute();
         };
-    long retryAfter = limiter.tryConsume(policy.name() + ":" + ip, capacity);
+    long retryAfter = limiter.tryConsume(bucketKey(policy, ip, request), capacity);
     if (retryAfter == 0) {
       chain.doFilter(request, response);
       return;
@@ -136,7 +145,22 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
     if (("GET".equals(method) || "HEAD".equals(method)) && uri.startsWith(AVATAR_PREFIX)) {
       return Policy.AVATAR;
     }
+    if (("GET".equals(method) || "HEAD".equals(method)) && uri.startsWith(DRIVE_PLAYBACK_PREFIX)) {
+      return Policy.DRIVE_PLAYBACK;
+    }
     return null;
+  }
+
+  /**
+   * 버킷 키 — 기본은 정책 + IP. 재생 주소는 주소(토큰)도 넣는다: 같은 사무실(NAT) 사람들이 각자 영상을 봐도 한도를 나눠 쓰지 않게. 토큰 원문은 키에 두지
+   * 않고 해시 앞부분만 쓴다(메모리·로그에 자격이 남지 않게).
+   */
+  private static String bucketKey(Policy policy, String ip, HttpServletRequest request) {
+    if (policy == Policy.DRIVE_PLAYBACK) {
+      String token = request.getRequestURI().substring(DRIVE_PLAYBACK_PREFIX.length());
+      return policy.name() + ":" + ip + ":" + CapabilityTokens.sha256Hex(token).substring(0, 16);
+    }
+    return policy.name() + ":" + ip;
   }
 
   private static boolean isLoopback(String ip) {

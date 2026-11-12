@@ -25,7 +25,7 @@ class PublicRateLimitFilterAvatarTest {
       new PublicRateLimitFilter(
           new TokenBucketLimiter(
               Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC)),
-          new RateLimitProperties(true, null, null, LIMIT));
+          new RateLimitProperties(true, null, null, LIMIT, null));
 
   /** 내부 대역(프록시)에서 X-Forwarded-For 로 클라이언트 IP 를 실어 보낸다. forwardedFor 가 null 이면 루프백에서 직접. */
   private int send(String method, String uri, String forwardedFor) throws Exception {
