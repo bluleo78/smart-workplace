@@ -61,6 +61,64 @@ export function moveTimedInGrid(
   return withSameLength(event, next)
 }
 
+/** 늘이기로 잡은 테두리 — start: 위(시작 바꿈, 종료 고정), end: 아래(종료 바꿈, 시작 고정) */
+export type ResizeEdge = 'start' | 'end'
+
+/**
+ * 주·일 보기 시간 그리드에서 일정의 위·아래 테두리를 끌어 시작 또는 종료만 바꾼다(WP-1518).
+ * 바꿀 쪽 시각에 끈 거리만큼(30분 칸 반올림, snappedMinuteDelta) 벽시계 분으로 더해 10:15 같은 일정도 원래 분을 지킨다.
+ * 다음 둘로 자른다 — 최소 길이(30분, 단 원래 길이가 더 짧으면 원래 길이: 더 짧게 만들지는 않는다),
+ * 잡은 날(day) 경계(시작은 그 날 0:00~마지막 칸(23:30) 안, 종료는 그 날 첫 칸(0:30)~다음 날 0:00 안 — 여러 날 일정도 잡은 날을 벗어나지 않는다).
+ * 결과가 원래와 같으면 null — 저장하지 않는다.
+ */
+export function resizeTimedInGrid(
+  event: Pick<CalendarEvent, 'startsAt' | 'endsAt'>,
+  edge: ResizeEdge,
+  day: Date,
+  deltaY: number,
+): MovedRange | null {
+  const minutes = snappedMinuteDelta(deltaY)
+  if (minutes === 0) return null
+  const start = new Date(event.startsAt).getTime()
+  const end = new Date(event.endsAt).getTime()
+  const dayStart = startOfDay(day).getTime()
+  const dayEnd = addDays(startOfDay(day), 1).getTime()
+  const slotMs = DRAG_SLOT_MINUTES * 60_000
+  // 최소 길이 — 30분, 원래 길이가 더 짧으면 그 길이
+  const minLength = Math.min(slotMs, end - start)
+  // 바꿀 쪽 시각을 벽시계 분으로 옮긴다(setMinutes) — 밀리초로 더하면 서머타임 바뀌는 날 한 시간 어긋난다.
+  const shifted = new Date(edge === 'start' ? start : end)
+  shifted.setMinutes(shifted.getMinutes() + minutes)
+  // 바꿀 쪽이 머물 구간 — 잡은 날 안(여러 날 일정도 잡은 날의 첫·마지막 칸까지)이고 반대쪽과 최소 길이를 지킨다.
+  const [lo, hi] =
+    edge === 'start' ? [dayStart, Math.min(dayEnd - slotMs, end - minLength)] : [Math.max(dayStart + slotMs, start + minLength), dayEnd]
+  const moved = Math.min(Math.max(shifted.getTime(), lo), hi)
+  const [nextStart, nextEnd] = edge === 'start' ? [moved, end] : [start, moved]
+  if (nextStart === start && nextEnd === end) return null
+  return { startsAt: new Date(nextStart).toISOString(), endsAt: new Date(nextEnd).toISOString() }
+}
+
+/** 이 높이(px)보다 낮은 블록은 위 손잡이를 빼 옮기기로 잡을 자리를 남긴다(아래 손잡이가 있을 때만). */
+export const RESIZE_MIN_BLOCK_PX = 24
+
+/**
+ * 시간 그리드의 한 날 조각(day)에 보일 늘이기 손잡이 — 위(start)는 시작이 그 날에 든 조각, 아래(end)는 종료가 그 날에 든 조각
+ * (다음 날 0시 종료는 그 날)에만 둔다. 블록이 낮으면 아래 손잡이가 있을 때만 위를 뺀다(자정 넘는 짧은 일정의 첫날 조각엔 위가 남는다).
+ */
+export function resizeHandles(
+  event: Pick<CalendarEvent, 'startsAt' | 'endsAt'>,
+  day: Date,
+  blockHeight: number,
+): { start: boolean; end: boolean } {
+  const dayStart = startOfDay(day)
+  const dayEnd = addDays(dayStart, 1)
+  const start = new Date(event.startsAt)
+  const end = new Date(event.endsAt)
+  const showEnd = end > dayStart && end <= dayEnd
+  const showStart = start >= dayStart && start < dayEnd && (!showEnd || blockHeight >= RESIZE_MIN_BLOCK_PX)
+  return { start: showStart, end: showEnd }
+}
+
 /** 로컬 날짜(자정 Date) → 그 날 로컬 자정의 ISO — 일정 창이 종일 일정을 저장하는 표현(toEventRequest)과 같다. */
 function localMidnightIso(day: Date): string {
   return startOfDay(day).toISOString()

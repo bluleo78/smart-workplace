@@ -7,7 +7,7 @@ import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } fro
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents, timedEventBox, timedEventColumnStyle } from '@/lib/calendar'
-import { type MovedRange, withRange } from '@/lib/calendarMove'
+import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -32,6 +32,9 @@ export interface ViewProps {
   // 끌어 옮길 수 있는 일정인가(내 캘린더 + 읽기 전용 아님) — 아니면 눌러도 끌리지 않고 지금처럼 연다.
   canMoveEvent?: (e: CalendarEvent) => boolean
 }
+
+/** 늘이기 손잡이 순서 — 위(시작)·아래(종료) */
+const RESIZE_EDGES: ResizeEdge[] = ['start', 'end']
 
 // TimeGrid 전용 추가 props
 interface TimeGridProps extends ViewProps {
@@ -263,6 +266,8 @@ export function TimeGrid({
               {/* 절대 위치 타임드 이벤트 블록 — 그날에 걸친 구간만(자정 넘김은 날짜별로 잘림 — WP-539),
                   겹치는 일정은 열을 나눠 나란히 그린다(WP-1138). */}
               {layoutsByDay[dayIndex].map(({ event: e, top, height, columnStyle }) => {
+                // 테두리 늘이기 손잡이(WP-1518) — 옮길 수 있는 일정만, 어느 조각에 둘지는 resizeHandles 가 정한다.
+                const handles = onMoveEvent && (!canMoveEvent || canMoveEvent(e)) ? resizeHandles(e, day, height) : null
                 return (
                   <button
                     key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
@@ -285,6 +290,16 @@ export function TimeGrid({
                   >
                     <ExtraTagDots event={e} />
                     {formatClockTimePadded(e.startsAt)} {e.title}
+                    {handles &&
+                      RESIZE_EDGES.filter((edge) => handles[edge]).map((edge) => (
+                        <span
+                          key={edge}
+                          aria-hidden
+                          data-resize-edge={edge}
+                          data-testid={`calendar-event-resize-${edge}`}
+                          className={`absolute inset-x-0 h-1.5 cursor-ns-resize ${edge === 'start' ? 'top-0' : 'bottom-0'}`}
+                        />
+                      ))}
                   </button>
                 )
               })}
@@ -296,7 +311,8 @@ export function TimeGrid({
                   className="pointer-events-none absolute inset-x-0.5 z-10 overflow-hidden rounded border border-primary bg-primary/15 px-1 text-xs font-medium text-primary"
                   style={timedEventBox(movedEvent, day)}
                 >
-                  {formatClockTimePadded(movedEvent.startsAt)} {movedEvent.title}
+                  {/* 옮기기·늘이기 모두 놓이면 갈 시각 범위와 제목을 보인다(시각은 formatters 로만 그린다) */}
+                  {formatClockTimePadded(movedEvent.startsAt)} – {formatClockTimePadded(movedEvent.endsAt)} {movedEvent.title}
                 </div>
               )}
             </div>

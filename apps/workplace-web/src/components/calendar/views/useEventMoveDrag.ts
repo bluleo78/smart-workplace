@@ -5,7 +5,7 @@ import { parse } from 'date-fns'
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 
 import { DRAG_THRESHOLD_PX } from '@/lib/calendar'
-import { type MovedRange, moveTimedInGrid, moveToDay } from '@/lib/calendarMove'
+import { type MovedRange, moveTimedInGrid, moveToDay, type ResizeEdge, resizeTimedInGrid } from '@/lib/calendarMove'
 import type { CalendarEvent } from '@/types/calendar'
 
 // 끌기를 마친 뒤 그 제스처의 click 을 막아 두는 시간(ms) — click 이 오지 않은 채 남은 막음이 한참 뒤의 클릭(새 일정 만들기 등)을 삼키지 않게.
@@ -35,6 +35,8 @@ interface MoveDrag {
   /** Esc 로 취소한 끌기 — 놓아도 저장하지 않고, 그 제스처의 click 도 일정을 열지 않는다. */
   cancelled?: boolean
   range: MovedRange | null
+  /** 테두리 늘이기(WP-1518) — 일정 블록 위·아래 손잡이에서 눌렀을 때만. 있으면 옮기지 않고 그 쪽 시각만 바꾼다. */
+  resize?: ResizeEdge
 }
 
 /** 포인터 아래 놓을 자리 요소 — 미리보기는 pointer-events-none 이라 걸리지 않는다. jsdom 엔 elementFromPoint 가 없을 수 있다. */
@@ -42,6 +44,12 @@ function dropTargetAt(x: number, y: number, kind: MoveKind): HTMLElement | null 
   const hit = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null
   const el = hit?.closest<HTMLElement>('[data-move-day]') ?? null
   return el && el.dataset.moveKind === kind ? el : null
+}
+
+/** 누른 요소가 든 늘이기 손잡이의 테두리(data-resize-edge) — 손잡이 밖이거나 모르는 값이면 undefined(옮기기). */
+function resizeEdgeAt(target: HTMLElement): ResizeEdge | undefined {
+  const value = target.closest<HTMLElement>('[data-resize-edge]')?.dataset.resizeEdge
+  return value === 'start' || value === 'end' ? value : undefined
 }
 
 /** data-move-day 값(yyyy-MM-dd) → 로컬 자정 Date */
@@ -101,9 +109,14 @@ export function useEventMoveDrag({
       if (canMoveEvent && !canMoveEvent(event)) return
       const column = ev.currentTarget.closest<HTMLElement>('[data-move-day]')
       const top = column?.getBoundingClientRect().top ?? 0
+      // 시간 그리드 일정 안의 손잡이(data-resize-edge)에서 눌렀으면 옮기기 대신 그 쪽 테두리를 늘인다.
+      const resize = kind === 'grid' ? resizeEdgeAt(ev.target as HTMLElement) : undefined
+      // 손잡이는 6px 띠라 첫 움직임에 곧바로 블록 밖으로 나간다 — 누르는 즉시 포인터를 붙잡아 끄는 내내 이 버튼이 이벤트를 받게 한다.
+      if (resize) ev.currentTarget.setPointerCapture?.(ev.pointerId)
       setDrag({
         event,
         kind,
+        resize,
         fromDay,
         startX: ev.clientX,
         startY: ev.clientY,
@@ -120,27 +133,34 @@ export function useEventMoveDrag({
         setDrag(null)
         return
       }
+      // 늘이기는 손잡이를 따라 세로로만 끈다 — 가로 흔들림이 끌기로 번져 클릭을 삼키지 않게 세로 거리만 문턱과 비교한다.
       const moved =
         drag.moved ||
-        Math.abs(ev.clientX - drag.startX) >= DRAG_THRESHOLD_PX ||
-        Math.abs(ev.clientY - drag.startY) >= DRAG_THRESHOLD_PX
+        Math.abs(ev.clientY - drag.startY) >= DRAG_THRESHOLD_PX ||
+        (!drag.resize && Math.abs(ev.clientX - drag.startX) >= DRAG_THRESHOLD_PX)
       if (!moved) return
       // 끌기가 시작되면 포인터를 이 버튼에 붙잡는다 — 칸 밖으로 끌어도 계속 받고, 놓은 뒤 click 도 이 버튼으로 온다.
-      if (!drag.moved) ev.currentTarget.setPointerCapture?.(ev.pointerId)
-      const target = dropTargetAt(ev.clientX, ev.clientY, drag.kind)
-      // 놓을 자리 밖(그리드 밖·다른 방식의 칸)이면 마지막으로 가리킨 자리를 그대로 둔다.
+      // 늘이기는 누를 때 이미 붙잡았다.
+      if (!drag.moved && !drag.resize) ev.currentTarget.setPointerCapture?.(ev.pointerId)
       let range = drag.range
-      if (target?.dataset.moveDay) {
-        const toDay = parseMoveDay(target.dataset.moveDay)
-        range =
-          drag.kind === 'grid'
-            ? moveTimedInGrid(
-                drag.event,
-                drag.fromDay,
-                toDay,
-                ev.clientY - target.getBoundingClientRect().top - drag.startColumnY,
-              )
-            : moveToDay(drag.event, drag.fromDay, toDay)
+      if (drag.resize) {
+        // 늘이기는 놓을 자리를 찾지 않고 누른 뒤 세로로 끈 거리만으로 범위를 계산한다(잡은 날 열 안에서만).
+        range = resizeTimedInGrid(drag.event, drag.resize, drag.fromDay, ev.clientY - drag.startY)
+      } else {
+        const target = dropTargetAt(ev.clientX, ev.clientY, drag.kind)
+        // 놓을 자리 밖(그리드 밖·다른 방식의 칸)이면 마지막으로 가리킨 자리를 그대로 둔다.
+        if (target?.dataset.moveDay) {
+          const toDay = parseMoveDay(target.dataset.moveDay)
+          range =
+            drag.kind === 'grid'
+              ? moveTimedInGrid(
+                  drag.event,
+                  drag.fromDay,
+                  toDay,
+                  ev.clientY - target.getBoundingClientRect().top - drag.startColumnY,
+                )
+              : moveToDay(drag.event, drag.fromDay, toDay)
+        }
       }
       // 놓일 범위가 그대로면(같은 칸 안에서 움직임) 다시 그리지 않는다 — 월 보기 42칸을 포인터가 움직일 때마다 다시 계산하지 않게.
       if (drag.moved && range?.startsAt === drag.range?.startsAt && range?.endsAt === drag.range?.endsAt) return

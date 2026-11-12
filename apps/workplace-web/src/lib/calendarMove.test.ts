@@ -3,11 +3,14 @@
 import { describe, expect, it } from 'vitest'
 
 import { calendar, calendarEvent } from '../../e2e/factories/calendar.factory'
+import { DRAG_SLOT_PX, HOUR_SLOT_PX } from './calendar'
 import {
   canMoveEvent,
   moveRequestBody,
   moveTimedInGrid,
   moveToDay,
+  resizeHandles,
+  resizeTimedInGrid,
   snappedMinuteDelta,
 } from './calendarMove'
 
@@ -183,5 +186,114 @@ describe('moveRequestBody — 수정 바디', () => {
     })
     expect(body).not.toHaveProperty('tagIds')
     expect(body).not.toHaveProperty('attendeeUserIds')
+  })
+})
+
+describe('resizeTimedInGrid — 일정 테두리 늘이기(WP-1518)', () => {
+  // 로컬 시각 일정 — 벽시계 기준으로 검증한다.
+  const ev = (sh: number, sm: number, eh: number, em: number, endDay = 12) => ({
+    startsAt: new Date(2026, 10, 12, sh, sm).toISOString(),
+    endsAt: new Date(2026, 10, endDay, eh, em).toISOString(),
+  })
+  const d = new Date(2026, 10, 12)
+  const iso = (day: number, h: number, m: number) => new Date(2026, 10, day, h, m).toISOString()
+
+  it('아래 테두리를 한 칸 내리면 종료만 30분 늦어진다', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 11, 0), 'end', d, DRAG_SLOT_PX)).toEqual({
+      startsAt: iso(12, 10, 0),
+      endsAt: iso(12, 11, 30),
+    })
+  })
+
+  it('아래 테두리를 크게 올려도 최소 30분에서 멈춘다', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 11, 0), 'end', d, -DRAG_SLOT_PX * 5)).toEqual({
+      startsAt: iso(12, 10, 0),
+      endsAt: iso(12, 10, 30),
+    })
+  })
+
+  it('위 테두리를 두 칸 올리면 시작만 한 시간 빨라진다', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 11, 0), 'start', d, -DRAG_SLOT_PX * 2)).toEqual({
+      startsAt: iso(12, 9, 0),
+      endsAt: iso(12, 11, 0),
+    })
+  })
+
+  it('위 테두리를 크게 내려도 최소 30분에서 멈춘다', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 11, 0), 'start', d, DRAG_SLOT_PX * 5)).toEqual({
+      startsAt: iso(12, 10, 30),
+      endsAt: iso(12, 11, 0),
+    })
+  })
+
+  it('위 테두리를 그리드 밖으로 끌면 그 날 0:00 에서 멈춘다', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 11, 0), 'start', d, -HOUR_SLOT_PX * 20)).toEqual({
+      startsAt: iso(12, 0, 0),
+      endsAt: iso(12, 11, 0),
+    })
+  })
+
+  it('아래 테두리를 그리드 밖으로 끌면 다음 날 0:00 에서 멈춘다', () => {
+    expect(resizeTimedInGrid(ev(22, 0, 23, 0), 'end', d, HOUR_SLOT_PX * 5)).toEqual({
+      startsAt: iso(12, 22, 0),
+      endsAt: iso(13, 0, 0),
+    })
+  })
+
+  it('칸에 안 맞는 일정(10:15)도 원래 분을 지킨 채 30분씩 움직인다', () => {
+    expect(resizeTimedInGrid(ev(10, 15, 10, 45), 'end', d, DRAG_SLOT_PX)).toEqual({
+      startsAt: iso(12, 10, 15),
+      endsAt: iso(12, 11, 15),
+    })
+  })
+
+  it('30분보다 짧은 일정은 더 짧게 만들지 않는다 — 제자리 null', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 10, 10), 'end', d, -DRAG_SLOT_PX)).toBeNull()
+  })
+
+  it('반 칸 미만으로 끌면 제자리 null', () => {
+    expect(resizeTimedInGrid(ev(10, 0, 11, 0), 'end', d, 5)).toBeNull()
+  })
+
+  it('여러 날 일정의 위 테두리를 잡은 날(첫날) 안에서 멀리 내려도 그 날 마지막 칸(23:30)에서 멈춘다', () => {
+    // 12일 22:00 ~ 14일 10:00, 잡은 날 12일
+    expect(resizeTimedInGrid(ev(22, 0, 10, 0, 14), 'start', d, HOUR_SLOT_PX * 20)).toEqual({
+      startsAt: iso(12, 23, 30),
+      endsAt: iso(14, 10, 0),
+    })
+  })
+
+  it('여러 날 일정의 아래 테두리를 잡은 날(끝날) 안에서 멀리 올려도 그 날 첫 칸(0:30)에서 멈춘다', () => {
+    expect(resizeTimedInGrid(ev(22, 0, 10, 0, 14), 'end', new Date(2026, 10, 14), -HOUR_SLOT_PX * 20)).toEqual({
+      startsAt: iso(12, 22, 0),
+      endsAt: iso(14, 0, 30),
+    })
+  })
+})
+
+describe('resizeHandles', () => {
+  // 11/12 로컬 시각 ISO
+  const at = (dayOfMonth: number, h: number, m: number) => new Date(2026, 10, dayOfMonth, h, m).toISOString()
+  const d12 = new Date(2026, 10, 12)
+
+  it('그 날 안의 일정은 위·아래 손잡이를 모두 둔다', () => {
+    expect(resizeHandles({ startsAt: at(12, 10, 0), endsAt: at(12, 11, 0) }, d12, 48)).toEqual({ start: true, end: true })
+  })
+
+  it('다음 날 0시에 끝나는 일정은 그 날 조각에 아래 손잡이를 둔다', () => {
+    expect(resizeHandles({ startsAt: at(12, 22, 0), endsAt: at(13, 0, 0) }, d12, 96)).toEqual({ start: true, end: true })
+  })
+
+  it('여러 날 일정은 시작 든 날에 위만, 종료 든 날에 아래만 둔다', () => {
+    const e = { startsAt: at(11, 22, 0), endsAt: at(13, 10, 0) }
+    expect(resizeHandles(e, new Date(2026, 10, 11), 96)).toEqual({ start: true, end: false })
+    expect(resizeHandles(e, d12, 1152)).toEqual({ start: false, end: false })
+    expect(resizeHandles(e, new Date(2026, 10, 13), 480)).toEqual({ start: false, end: true })
+  })
+
+  it('낮은 블록은 아래 손잡이가 있을 때만 위를 뺀다', () => {
+    expect(resizeHandles({ startsAt: at(12, 10, 0), endsAt: at(12, 10, 15) }, d12, 16)).toEqual({ start: false, end: true })
+    // 자정 넘는 짧은 일정의 첫날 조각 — 아래가 없으니 위를 남긴다.
+    expect(resizeHandles({ startsAt: at(12, 23, 45), endsAt: at(13, 2, 0) }, d12, 16)).toEqual({ start: true, end: false })
   })
 })

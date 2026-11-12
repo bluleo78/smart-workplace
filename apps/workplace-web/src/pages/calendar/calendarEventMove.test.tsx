@@ -161,7 +161,7 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     // 6/7(일) 시작 주 — 목(6/11)은 다섯째 열
     const thursday = screen.getAllByTestId('calendar-day-column')[4]
     drag(block, thursday, { dx: 0, dy: 48, up: false })
-    expect(within(thursday).getByTestId('calendar-move-preview')).toHaveTextContent('11:00 팀 회의')
+    expect(within(thursday).getByTestId('calendar-move-preview')).toHaveTextContent('오전 11:00 – 오후 12:00 팀 회의')
     fireEvent.pointerUp(block, { pointerId: 1, pointerType: 'mouse', clientX: 100, clientY: 148 })
     fireEvent.click(block)
 
@@ -173,6 +173,32 @@ describe('주 보기 시간 그리드에서 끌기', () => {
     })
     // 칸 click(새 일정 만들기)·일정 열기 어느 쪽도 열리지 않는다
     expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
+  })
+
+  test('아래 손잡이를 48px 끌어 놓으면 시작은 그대로 종료만 한 시간 늦춰 PATCH 한다', async () => {
+    const { user, requests } = await renderCalendar({ events: [meeting] })
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    const block = await within(await screen.findByTestId('calendar-view-week')).findByTestId('calendar-event-1')
+    const handle = within(block).getByTestId('calendar-event-resize-end')
+    // 가로로 흔들려도(dx) 세로 문턱만 보므로 늘이기로 인정된다
+    drag(handle, screen.getAllByTestId('calendar-day-column')[3], { dx: 2, dy: 48, up: false })
+    expect(screen.getByTestId('calendar-move-preview')).toHaveTextContent('오전 10:00 – 오후 12:00 팀 회의')
+    fireEvent.pointerUp(handle, { pointerId: 1, pointerType: 'mouse', clientX: 102, clientY: 148 })
+    fireEvent.click(handle)
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].body).toMatchObject({ startsAt: '2026-06-10T01:00:00.000Z', endsAt: '2026-06-10T03:00:00.000Z' })
+    expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
+  })
+
+  test('위 손잡이를 48px 끌어 놓으면 종료는 그대로 시작만 한 시간 늦춘다', async () => {
+    const longer = calendarEvent({ ...meeting, startsAt: '2026-06-10T01:00:00Z', endsAt: '2026-06-10T03:00:00Z' })
+    const { user, requests } = await renderCalendar({ events: [longer] })
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    const block = await within(await screen.findByTestId('calendar-view-week')).findByTestId('calendar-event-1')
+    const handle = within(block).getByTestId('calendar-event-resize-start')
+    drag(handle, screen.getAllByTestId('calendar-day-column')[3], { dx: 0, dy: 48 })
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    expect(requests.patches[0].body).toMatchObject({ startsAt: '2026-06-10T02:00:00.000Z', endsAt: '2026-06-10T03:00:00.000Z' })
   })
 
   test('종일 일정은 종일 줄 칸으로만 옮겨지고 시간 그리드 열에는 놓이지 않는다', async () => {
