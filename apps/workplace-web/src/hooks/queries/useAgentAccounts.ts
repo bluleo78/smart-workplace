@@ -9,14 +9,19 @@ import {
   createAgentAccount,
   deleteAgentAccount,
   getAgentBoundAccount,
+  getGeniaLogin,
   listAgentAccounts,
+  startGeniaLogin,
   updateAgentAccount,
 } from '../../api/agentAccounts';
 import { isNotFoundError } from '../../lib/api-error';
+import { GENIA_LOGIN_POLL_MS } from '../../lib/geniaLogin';
 import type {
   AgentAccountCreateRequest,
   AgentAccountResponse,
   AgentAccountUpdateRequest,
+  GeniaLoginResponse,
+  GeniaLoginStartRequest,
 } from '../../types/agentAccount';
 import { agentRuntimeKeys } from './agentRuntimeKeys';
 import { providerModelsKeys } from './useAssistant';
@@ -104,5 +109,56 @@ export function useBindAgentAccount(userId: number | null) {
       if (userId != null) void qc.invalidateQueries({ queryKey: agentRuntimeKeys.setting(userId) });
       void qc.invalidateQueries({ queryKey: agentRuntimeKeys.summaries });
     },
+  });
+}
+
+/**
+ * Gen:iA 브라우저 로그인 진행 키(WP-1461) — 계정 키(agentAccounts)와 접두어를 나눈다.
+ * 성공 때 계정 키 전부를 무효화하는데, 같은 접두어면 끝난 진행까지 한 번 더 묻게 된다.
+ */
+export const geniaLoginKeys = {
+  detail: (id: string | null) => ['geniaLogin', id] as const,
+};
+
+/** Gen:iA 브라우저 로그인 시작 — 받은 진행을 상태 캐시에 바로 넣어, 첫 상태 조회를 기다리지 않고 대기 화면을 그린다. */
+export function useStartGeniaLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: GeniaLoginStartRequest) => startGeniaLogin(req),
+    onSuccess: (data) => qc.setQueryData(geniaLoginKeys.detail(data.id), data),
+  });
+}
+
+/**
+ * Gen:iA 브라우저 로그인 진행 상태 — 대기(PENDING) 동안만 2초마다 다시 묻는다(이 조회가 API 의 Gen:iA 폴링을 일으킨다).
+ * 404(없음·지워짐 — 만료 뒤 쓸림·API 재시작)는 만료(EXPIRED) 응답으로 바꿔 돌려준다 — 화면은 만료로 보이고 폴링도 멈춘다.
+ * 창이 닫히면 바로 버린다(gcTime 0 — 다시 열 때 끝난 진행을 보이지 않게). 성공 뒤 계정 목록 무효화는 호출 측(계정 창)이 한다.
+ */
+export function useGeniaLogin(id: string | null) {
+  return useQuery<GeniaLoginResponse>({
+    queryKey: geniaLoginKeys.detail(id),
+    enabled: id != null,
+    queryFn: async () => {
+      try {
+        return await getGeniaLogin(id as string);
+      } catch (e) {
+        if (!isNotFoundError(e)) throw e;
+        return {
+          id: id as string,
+          status: 'EXPIRED',
+          authorizeUrl: null,
+          expiresAt: '',
+          accountId: null,
+          accountEmail: null,
+          errorMessage: null,
+        };
+      }
+    },
+    // 그 밖의 조회 실패(잠깐 끊김)는 TanStack Query 가 마지막 성공 값(PENDING)을 남기므로 계속 묻는다 — 화면이 대기 그대로 굳지 않게.
+    refetchInterval: (q) => (q.state.data?.status === 'PENDING' ? GENIA_LOGIN_POLL_MS : false),
+    // 시작 응답으로 채운 캐시를 마운트하자마자 다시 묻지 않게 — 다음 조회는 간격을 따른다.
+    staleTime: GENIA_LOGIN_POLL_MS,
+    retry: false,
+    gcTime: 0,
   });
 }

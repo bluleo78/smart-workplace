@@ -5,8 +5,10 @@
 // OpenAI 호환 계정의 키 교체는 연결 설정(주소+키)을 통째로 바꾼다. 응답에 주소가 없어 채워 둘 수 없으니, 수정 창의 키 교체는 프리셋·주소를
 // 빈 채로 시작해 다시 받는다 — 기본 프리셋(Bedrock)으로 채워 두면 키만 바꾸려다 회사 서버 주소가 조용히 Bedrock 으로 덮인다.
 // OpenAI 호환 계정은 모델을 받지 않는다 — 계정 요청에 모델 칸이 없고 모델은 이 계정을 쓰는 AI 마다 고른다. 대신 「연결 확인」으로 주소·키가 맞는지 미리 본다.
-import { useMutation } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+// Gen:iA 추가는 붙여 넣기 칸 위에 [로그인](Microsoft 브라우저 로그인, WP-1461)을 더한다 — 성공하면 서버가 이미 계정을 만들었으니 창은 [닫기] 만 남긴다.
+// 수정 창의 Gen:iA 「키 교체」에도 같은 [로그인] 을 두어(accountId 전달) 만료된 계정의 로그인 정보만 바꾼다 — 성공하면 라벨 수정만 남는다.
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { probeAgentModels } from '@/api/models';
@@ -23,7 +25,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useCreateAgentAccount, useUpdateAgentAccount } from '@/hooks/queries/useAgentAccounts';
+import { agentAccountKeys, useCreateAgentAccount, useUpdateAgentAccount } from '@/hooks/queries/useAgentAccounts';
 import { accountLabel, isLoginProvider } from '@/lib/agentAccount';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { extractApiError, handleApiError } from '@/lib/api-error';
@@ -34,6 +36,7 @@ import type { CredentialProvider, ProviderConfig } from '@/types/providerCredent
 
 import { AnthropicWorkspaceIdField } from './credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MAX, CLAUDE_TOKEN_MIN, ClaudeTokenField } from './credential-fields/ClaudeTokenField';
+import { GeniaBrowserLogin } from './credential-fields/GeniaBrowserLogin';
 import { LoginInfoField } from './credential-fields/LoginInfoField';
 import {
   DEFAULT_OPENCODE_BASE_URL,
@@ -66,6 +69,7 @@ interface Props {
  */
 export function AgentAccountDialog({ account, onClose }: Props) {
   const editing = account != null;
+  const qc = useQueryClient();
   const create = useCreateAgentAccount();
   const update = useUpdateAgentAccount();
   const pending = create.isPending || update.isPending;
@@ -75,6 +79,14 @@ export function AgentAccountDialog({ account, onClose }: Props) {
   const [label, setLabel] = useState(account?.label ?? '');
   // 수정 창에서 「키 교체」를 열었는가 — 추가 창은 늘 원문을 받는다.
   const [replacing, setReplacing] = useState(!editing);
+  // Gen:iA [로그인] 이 성공했는가 — 추가는 서버가 이미 계정을 만들었으니 종류·라벨을 잠그고 하단은 [닫기] 만 둔다(WP-1461).
+  // 수정은 로그인 정보가 이미 바뀌었으니 라벨 수정만 남긴다(붙여 넣기 칸·「교체 안 함」 숨김, 원문은 보내지 않는다).
+  const [loginDone, setLoginDone] = useState(false);
+  const addedByLogin = !editing && loginDone;
+  // 원문(토큰·연결 설정·로그인 정보)을 보내는가 — 「키 교체」를 열었고 브라우저 로그인으로 이미 바꾸지 않았을 때만.
+  const sendSecret = replacing && !loginDone;
+  // Gen:iA 브라우저 로그인이 진행 중인가 — 새 계정 라벨은 [로그인] 때 값으로 저장되므로 그동안 라벨 칸을 잠근다(바꿔도 반영되지 않는 값을 막는다).
+  const [geniaLoginActive, setGeniaLoginActive] = useState(false);
 
   // 종류별 원문 — 수정 창도 늘 빈 값에서 시작한다(기존 비밀값은 응답에 없고, 채우지도 않는다).
   const [token, setToken] = useState('');
@@ -112,10 +124,12 @@ export function AgentAccountDialog({ account, onClose }: Props) {
   const trimmedLabel = label.trim();
   const labelChanged = editing && trimmedLabel !== account.label;
   // 수정 창에서 「키 교체」를 열어 두고 키가 덜 채워졌는가 — 라벨만 바꿔도 저장을 막는다(빈·덜 넣은 키가 함께 가거나, 넣던 키가 조용히 버려지지 않게).
-  const replaceIncomplete = editing && replacing && !secretReady;
+  const replaceIncomplete = editing && sendSecret && !secretReady;
   // 수정은 바꾼 것이 있어야, 라벨을 비울 수는 없다(라벨만 고칠 때 빈 값은 서버가 바꾸지 않는다 — 헷갈리지 않게 막는다).
   const canSubmit = editing
-    ? trimmedLabel.length > 0 && !replaceIncomplete && (labelChanged || replacing)
+    ? loginDone
+      ? trimmedLabel.length > 0 && labelChanged
+      : trimmedLabel.length > 0 && !replaceIncomplete && (labelChanged || replacing)
     : secretReady;
 
   /** 종류에 맞는 원문 한 칸 — 등록·키 교체 요청이 같이 쓴다. 검사는 submit 이 먼저 하고 여기는 모양만 바꾼다. */
@@ -132,13 +146,14 @@ export function AgentAccountDialog({ account, onClose }: Props) {
     // 원문을 보낼 때(추가·「키 교체」) 다 채워졌는지는 canSubmit(secretReady)이 이미 거른다.
     if (!canSubmit) return;
     // 토큰 최소 길이는 제출 때 알린다(AI 별 연결 창과 같다) — 칸에 치는 중에 「짧다」가 먼저 뜨지 않게.
-    if (replacing && kind === 'anthropic' && token.trim().length < CLAUDE_TOKEN_MIN) {
+    if (sendSecret && kind === 'anthropic' && token.trim().length < CLAUDE_TOKEN_MIN) {
       toast.error(`토큰이 너무 짧습니다 (최소 ${CLAUDE_TOKEN_MIN}자)`);
       return;
     }
     // 워크스페이스 ID 형식(공백·제어 문자 없음, 128자 이하) — 토큰을 보낼 때만 본다. 틀리면 칸 아래에 알리고 보내지 않는다.
-    if (replacing && kind === 'anthropic' && !workspace.validate()) return;
-    const secret = replacing ? secretPart() : undefined;
+    if (sendSecret && kind === 'anthropic' && !workspace.validate()) return;
+    // 브라우저 로그인으로 이미 바꿨으면 원문은 보내지 않는다(서버가 로그인 정보를 갱신해 둔 뒤).
+    const secret = sendSecret ? secretPart() : undefined;
     try {
       if (editing) {
         await update.mutateAsync({
@@ -199,6 +214,16 @@ export function AgentAccountDialog({ account, onClose }: Props) {
 
   const kindName = accountLabel(kind);
 
+  /**
+   * Gen:iA 브라우저 로그인 성공(진행마다 한 번) — 서버가 계정을 새로 만들었거나 바꿨으니 계정 키 전부(목록·AI 별 묶인 계정)를 무효화하고,
+   * 창을 성공 상태로 바꾸고 알린다.
+   */
+  const onGeniaLoginSucceeded = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: agentAccountKeys.all });
+    setLoginDone(true);
+    toast.success(editing ? '계정을 수정했습니다.' : '계정을 추가했습니다.');
+  }, [qc, editing]);
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       {/* 추가 모드는 「계정 추가」, 수정 모드(⋯ 메뉴에서 연다)는 「계정 메뉴」 도움말 절로 잇는다(WP-1507). */}
@@ -233,6 +258,7 @@ export function AgentAccountDialog({ account, onClose }: Props) {
               <RadioGroup
                 value={kind}
                 onValueChange={(v) => changeKind(v as CredentialProvider)}
+                disabled={addedByLogin}
                 className="grid grid-cols-1 gap-2 sm:grid-cols-2"
                 aria-label="계정 종류"
               >
@@ -257,13 +283,14 @@ export function AgentAccountDialog({ account, onClose }: Props) {
               data-testid="agent-account-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
+              disabled={addedByLogin || (!editing && geniaLoginActive)}
               maxLength={LABEL_MAX}
               placeholder={editing ? undefined : `비우면 「${kindName} 계정」`}
               autoComplete="off"
             />
           </div>
 
-          {editing && (
+          {editing && !loginDone && (
             <div className="flex items-center justify-between gap-2 border-t pt-3">
               <div>
                 <p className="text-sm font-medium">키 교체</p>
@@ -337,14 +364,28 @@ export function AgentAccountDialog({ account, onClose }: Props) {
               )}
               {isLoginProvider(kind) && (
                 <>
-                  <p
-                    className="rounded-md bg-warning-subtle px-3 py-2 text-xs text-warning"
-                    role="note"
-                    data-testid="agent-account-login-warning"
-                  >
-                    {LOGIN_FILE_WARNING}
-                  </p>
-                  <LoginInfoField provider={kind} value={loginInfo} onChange={setLoginInfo} check={loginCheck} />
+                  {/* Gen:iA 만 — 추가는 라벨을 실어 새 계정을, 수정은 accountId 로 이 계정의 로그인 정보만 바꾼다. 붙여 넣기 칸은 아래에 그대로 둔다. */}
+                  {kind === 'genia' && (
+                    <GeniaBrowserLogin
+                      accountId={editing ? account.id : undefined}
+                      label={editing ? undefined : trimmedLabel || undefined}
+                      onSucceeded={onGeniaLoginSucceeded}
+                      onActiveChange={setGeniaLoginActive}
+                    />
+                  )}
+                  {/* 수정 창에서 로그인이 끝났으면 붙여 넣기 칸은 숨기고 성공 표시만 남긴다. */}
+                  {!(editing && loginDone) && (
+                    <>
+                      <p
+                        className="rounded-md bg-warning-subtle px-3 py-2 text-xs text-warning"
+                        role="note"
+                        data-testid="agent-account-login-warning"
+                      >
+                        {LOGIN_FILE_WARNING}
+                      </p>
+                      <LoginInfoField provider={kind} value={loginInfo} onChange={setLoginInfo} check={loginCheck} />
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -356,12 +397,15 @@ export function AgentAccountDialog({ account, onClose }: Props) {
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            취소
+          {/* 로그인이 끝났으면 계정은 이미 저장됐으니 [닫기], 아니면 [취소]. 로그인으로 추가한 창은 더 보낼 것이 없어 [추가] 를 숨긴다. */}
+          <Button variant="outline" onClick={onClose} data-testid="agent-account-close">
+            {loginDone ? '닫기' : '취소'}
           </Button>
-          <Button onClick={() => void submit()} disabled={!canSubmit || pending} data-testid="agent-account-submit">
-            {pending ? '저장 중…' : editing ? '저장' : '추가'}
-          </Button>
+          {!addedByLogin && (
+            <Button onClick={() => void submit()} disabled={!canSubmit || pending} data-testid="agent-account-submit">
+              {pending ? '저장 중…' : editing ? '저장' : '추가'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

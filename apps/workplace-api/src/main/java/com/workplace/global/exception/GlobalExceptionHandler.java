@@ -502,6 +502,8 @@ public class GlobalExceptionHandler {
     com.workplace.agentaccount.exception.AgentAccountInUseException.class,
     com.workplace.agentaccount.exception.AgentAccountDuplicateException.class,
     com.workplace.agentaccount.exception.AgentAccountBindingException.class,
+    com.workplace.agentaccount.exception.GeniaLoginNotFoundException.class,
+    com.workplace.agentaccount.exception.GeniaLoginUnavailableException.class,
     com.workplace.help.exception.HelpSectionNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(

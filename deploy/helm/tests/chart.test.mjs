@@ -134,10 +134,24 @@ test('aiAgent.extraCaCerts 를 채우면 ai-agent 가 그 CA 를 NODE_EXTRA_CA_C
   assert.doesNotMatch(BASE.out, /NODE_TLS_REJECT_UNAUTHORIZED/);
 });
 
+test('aiAgent.extraCaCerts 를 채우면 api 도 그 CA 를 GENIA_LOGIN_CA_CERT_FILE 로 신뢰한다', () => {
+  const api = BASE_DOCS.get('Deployment/api');
+  assert.match(api, /name: GENIA_LOGIN_CA_CERT_FILE\n\s+value: \/etc\/ssl\/extra-ca\/ca\.crt/);
+  assert.match(api, /mountPath: \/etc\/ssl\/extra-ca/);
+  assert.match(api, /name: ai-agent-extra-ca/);
+});
+
+test('api 가 읽는 Gen:iA CA 환경 변수 이름이 차트가 넣는 이름과 같다', () => {
+  // 차트가 GENIA_LOGIN_CA_CERT_FILE 을 넣어도 application.yml 이 다른 이름을 읽으면 사설 CA 를 신뢰하지 못한다 — 두 이름을 함께 묶어 둔다.
+  const yml = readFileSync(fileURLToPath(new URL('../../../apps/workplace-api/src/main/resources/application.yml', import.meta.url)), 'utf8');
+  assert.match(yml, /ca-cert-file: \$\{GENIA_LOGIN_CA_CERT_FILE:\}/);
+});
+
 test('차트 기본값만으로는 모델 서버 허용 목록·추가 CA 가 비어 있다(운영 외 설치에 SSRF 예외가 새지 않게)', () => {
   assert.match(DEFAULT_DOCS.get('ConfigMap/smart-workplace-config'), /MODEL_URL_ALLOWED_HOSTS: ""/);
   assert.equal(DEFAULT_DOCS.has('ConfigMap/ai-agent-extra-ca'), false);
   assert.doesNotMatch(DEFAULT_DOCS.get('Deployment/ai-agent'), /name: NODE_EXTRA_CA_CERTS|name: extra-ca/);
+  assert.doesNotMatch(DEFAULT_DOCS.get('Deployment/api'), /GENIA_LOGIN_CA_CERT_FILE|name: extra-ca/);
 });
 
 test('ConfigMap 을 읽는 api·ai-agent 는 설정 체크섬을 달아 설정만 바뀐 반영에도 다시 뜬다', () => {

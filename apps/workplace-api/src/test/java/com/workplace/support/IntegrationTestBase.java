@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
+import com.workplace.agentaccount.genialogin.GeniaLoginClient;
 import com.workplace.calendar.service.CalendarSyncService;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
@@ -93,6 +94,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       EmailAccountRepository.class,
       EmailMessageRepository.class,
       FileStore.class,
+      // WP-1461: Gen:iA 로그인 서버 응답 스텁(바깥 서버로 나가지 않게).
+      GeniaLoginClient.class,
       HomeMessageRepository.class,
       // WP-1377: 멘션 없이 답할 AI 판정 실패 주입(글 저장·스레드 조회 격리 확인).
       ImplicitChatAgents.class,

@@ -5,6 +5,8 @@ import type {
   AgentAccountCreateRequest,
   AgentAccountResponse,
   AgentAccountUpdateRequest,
+  GeniaLoginResponse,
+  GeniaLoginStartRequest,
 } from '../types/agentAccount';
 import { client } from './client';
 
@@ -41,4 +43,21 @@ export async function getAgentBoundAccount(userId: number): Promise<AgentAccount
 export async function bindAgentAccount(userId: number, accountId: number): Promise<AgentAccountResponse> {
   const { data } = await client.put<AgentAccountResponse>(`/admin/agents/${userId}/agent-account`, { accountId });
   return data;
+}
+
+// Gen:iA 브라우저 로그인 시작(WP-1461) — Microsoft 로그인 주소와 진행 id 를 받는다. Gen:iA 로그인 서버에 닿지 못하면 502.
+export async function startGeniaLogin(body: GeniaLoginStartRequest): Promise<GeniaLoginResponse> {
+  const { data } = await client.post<GeniaLoginResponse>('/admin/agent-accounts/genia-logins', body);
+  return data;
+}
+
+// Gen:iA 브라우저 로그인 진행 상태 — 이 조회가 API 의 Gen:iA 폴링을 일으킨다. 없거나 지워졌으면 404.
+export async function getGeniaLogin(id: string): Promise<GeniaLoginResponse> {
+  const { data } = await client.get<GeniaLoginResponse>(`/admin/agent-accounts/genia-logins/${encodeURIComponent(id)}`);
+  return data;
+}
+
+// Gen:iA 브라우저 로그인 취소 — 창을 닫을 때. 없어도 204(멱등).
+export async function cancelGeniaLogin(id: string): Promise<void> {
+  await client.delete<void>(`/admin/agent-accounts/genia-logins/${encodeURIComponent(id)}`);
 }

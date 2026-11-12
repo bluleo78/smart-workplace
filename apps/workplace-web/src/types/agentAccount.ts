@@ -83,3 +83,27 @@ export interface AgentAccountUpdateRequest {
   /** anthropic 토큰 교체 때만 — Anthropic 워크스페이스 ID(선택, WP-1496). */
   workspaceId?: string;
 }
+
+/** Gen:iA 브라우저 로그인 진행 상태(WP-1461) — 대기 · 성공(계정 저장됨) · 만료 · 실패. */
+export type GeniaLoginStatus = 'PENDING' | 'SUCCEEDED' | 'EXPIRED' | 'FAILED';
+
+/** Gen:iA 브라우저 로그인 시작 요청 — label 은 새 계정 이름(비우면 서버 기본), accountId 를 주면 그 계정에 다시 로그인한다. */
+export interface GeniaLoginStartRequest {
+  label?: string;
+  accountId?: number;
+}
+
+/**
+ * Gen:iA 브라우저 로그인 진행 응답 — 비밀값(code_verifier·state·토큰)은 실리지 않는다.
+ * authorizeUrl 은 대기(PENDING) 중에만 값이 있고, accountId·accountEmail 은 성공 때, errorMessage 는 실패 때 채워진다.
+ */
+export interface GeniaLoginResponse {
+  id: string;
+  status: GeniaLoginStatus;
+  authorizeUrl: string | null;
+  /** 진행이 끝나는 시각(ISO Instant). */
+  expiresAt: string;
+  accountId: number | null;
+  accountEmail: string | null;
+  errorMessage: string | null;
+}
