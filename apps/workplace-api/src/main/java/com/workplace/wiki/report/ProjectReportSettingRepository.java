@@ -19,7 +19,7 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * 프로젝트 리포트 설정(project_report_setting, V286) 저장소(WP-1483). 프로젝트당 한 행 — 없으면 기본값(꺼짐·매주·월요일·09:00)으로
+ * 프로젝트 리포트 설정(project_report_setting, V288) 저장소(WP-1483). 프로젝트당 한 행 — 없으면 기본값(꺼짐·매주·월요일·09:00)으로
  * 본다.
  *
  * <p>jOOQ 코드 생성 없이 이름(DSL.name)으로 다룬다(V285 상태 요약과 같은 방식). 테넌트 격리는 RLS 와 tenant_id

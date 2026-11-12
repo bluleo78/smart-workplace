@@ -18,7 +18,7 @@ import org.jooq.Table;
 import org.springframework.stereotype.Repository;
 
 /**
- * 프로젝트 리포트 회차(project_report, V286) 저장소(WP-1483). (project_id, period_start, period_end) 유일이라 같은
+ * 프로젝트 리포트 회차(project_report, V288) 저장소(WP-1483). (project_id, period_start, period_end) 유일이라 같은
  * 회차를 두 번 만들지 않는다. 회차는 시작일과 끝날로 구분한다 — 주기를 바꾸면 길이가 다른 회차가 같은 날 시작할 수 있어서(매주 → 격주).
  *
  * <p>상태: PENDING(생성 중 예약) → GENERATED(페이지 만듦) 또는 SKIPPED(변화 없음 — 페이지 없이 스냅숏만). 실패하면 PENDING 을
