@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -18,6 +19,7 @@ import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
+import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphApiClient.DraftRef;
@@ -149,7 +151,7 @@ class GraphMailTransportTest extends ExternalClientMockedTestBase {
     when(graphApiClient.createDraftFromMime(eq("FAKE_TOKEN"), anyString()))
         .thenReturn(new DraftRef("D1", null));
     when(graphApiClient.createAttachmentUploadSession(
-            eq("FAKE_TOKEN"), eq("D1"), anyString(), anyString(), anyLong()))
+            eq("FAKE_TOKEN"), eq("D1"), anyString(), anyString(), anyLong(), isNull()))
         .thenReturn("https://upload.example/session");
     EmailAccountResponse account = accountRepo.findByIdAndUser(user, accountId).orElseThrow();
     byte[] small = bytes(1024 * 1024);
@@ -168,10 +170,11 @@ class GraphMailTransportTest extends ExternalClientMockedTestBase {
     order.verify(graphApiClient).createDraftFromMime(eq("FAKE_TOKEN"), draft.capture());
     order
         .verify(graphApiClient)
-        .addFileAttachment("FAKE_TOKEN", "D1", "작은.pdf", "application/pdf", small);
+        .addFileAttachment("FAKE_TOKEN", "D1", "작은.pdf", "application/pdf", small, null);
     order
         .verify(graphApiClient)
-        .createAttachmentUploadSession("FAKE_TOKEN", "D1", "큰 영상.mp4", "video/mp4", big.length);
+        .createAttachmentUploadSession(
+            "FAKE_TOKEN", "D1", "큰 영상.mp4", "video/mp4", big.length, null);
     order
         .verify(graphApiClient)
         .uploadAttachmentChunk("https://upload.example/session", big, 0, 3_276_800);
@@ -201,7 +204,7 @@ class GraphMailTransportTest extends ExternalClientMockedTestBase {
     when(graphTokenService.getAccessToken(user, accountId)).thenReturn("FAKE_TOKEN");
     when(graphApiClient.createDraftFromMime(eq("FAKE_TOKEN"), anyString()))
         .thenReturn(new DraftRef("D2", null));
-    when(graphApiClient.createAttachmentUploadSession(any(), any(), any(), any(), anyLong()))
+    when(graphApiClient.createAttachmentUploadSession(any(), any(), any(), any(), anyLong(), any()))
         .thenReturn("https://upload.example/s2");
     doThrow(new MailSendException("Graph uploadChunk 실패: 500"))
         .when(graphApiClient)
@@ -213,7 +216,7 @@ class GraphMailTransportTest extends ExternalClientMockedTestBase {
     assertThatThrownBy(
             () -> transport.transmit(user, account, mimeBuilder.build(account, mail), mail))
         .isInstanceOf(MailSendException.class)
-        .hasMessageContaining("첨부가 큰 메일");
+        .hasMessageContaining("큰 메일을 보내지 못했어요");
 
     verify(graphApiClient, times(1)).uploadAttachmentChunk(anyString(), any(), anyInt(), anyInt());
     verify(graphApiClient).delete("FAKE_TOKEN", "/me/messages/D2");
@@ -279,5 +282,101 @@ class GraphMailTransportTest extends ExternalClientMockedTestBase {
     InOrder order = inOrder(graphApiClient);
     order.verify(graphApiClient).getInternetMessageId("FAKE_TOKEN", "D4");
     order.verify(graphApiClient).sendDraft("FAKE_TOKEN", "D4");
+  }
+
+  // ---- WP-1522: 인용문(원본 메일) 이미지 — 초안 MIME 에서 빼고 인라인 첨부로 붙인다 ----
+
+  /** 인라인 이미지만 있는 메일(일반 첨부 없음). 본문 HTML 은 cid: 로 이미지를 참조한다. */
+  private OutgoingMail mailWithInline(EmailAccountResponse account, List<InlineImagePart> images) {
+    return new OutgoingMail(
+        "inl@iacloud.kr",
+        "t@iacloud.kr",
+        account.emailAddress(),
+        account.displayName(),
+        List.of("peer@example.com"),
+        List.of(),
+        List.of(),
+        "RE: 이미지 많은 원본",
+        "b",
+        "<p>답장</p><blockquote><img src=\"cid:small.png\"><img src=\"cid:big.png@01D\"></blockquote>",
+        "parent@example.com",
+        "<parent@example.com>",
+        "b",
+        Instant.now(),
+        images,
+        List.of());
+  }
+
+  /**
+   * 원본 메일 이미지 합계가 sendMail 한도를 넘으면 거절하지 않고 초안 경로 — 초안 MIME 에는 이미지 파트가 없고(HTML 의 cid: 참조는 남는다), 3MB
+   * 미만 이미지는 attachments API, 이상은 업로드 세션으로 isInline·contentId 를 실어 붙인 뒤 send.
+   */
+  @Test
+  void transmit_bigInlineImages_draftThenInlineAttachmentsThenSend() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(user, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.createDraftFromMime(eq("FAKE_TOKEN"), anyString()))
+        .thenReturn(new DraftRef("DI", null));
+    when(graphApiClient.createAttachmentUploadSession(
+            eq("FAKE_TOKEN"), eq("DI"), anyString(), anyString(), anyLong(), anyString()))
+        .thenReturn("https://upload.example/inline");
+    EmailAccountResponse account = accountRepo.findByIdAndUser(user, accountId).orElseThrow();
+    byte[] small = bytes(1024 * 1024);
+    byte[] big = bytes(4 * 1024 * 1024); // 조각 2개(3,200KiB·나머지)
+    OutgoingMail mail =
+        mailWithInline(
+            account,
+            List.of(
+                new InlineImagePart("small.png", "small.png", "image/png", small),
+                new InlineImagePart("big.png@01D", "big.png", "image/png", big)));
+
+    transport.transmit(user, account, mimeBuilder.build(account, mail), mail);
+
+    InOrder order = inOrder(graphApiClient);
+    ArgumentCaptor<String> draft = ArgumentCaptor.forClass(String.class);
+    order.verify(graphApiClient).createDraftFromMime(eq("FAKE_TOKEN"), draft.capture());
+    order
+        .verify(graphApiClient)
+        .addFileAttachment("FAKE_TOKEN", "DI", "small.png", "image/png", small, "small.png");
+    order
+        .verify(graphApiClient)
+        .createAttachmentUploadSession(
+            "FAKE_TOKEN", "DI", "big.png", "image/png", big.length, "big.png@01D");
+    order
+        .verify(graphApiClient)
+        .uploadAttachmentChunk("https://upload.example/inline", big, 0, 3_276_800);
+    order
+        .verify(graphApiClient)
+        .uploadAttachmentChunk("https://upload.example/inline", big, 3_276_800, big.length);
+    order.verify(graphApiClient).sendDraft("FAKE_TOKEN", "DI");
+    verify(graphApiClient, never()).sendMail(any(), any());
+    verify(graphApiClient, never()).addFileAttachment(any(), any(), any(), any(), any(), isNull());
+
+    // 초안 MIME: 이미지 파트 없음(related 아님) + 본문 cid: 참조·스레딩 헤더 유지 + 작다
+    String decoded = new String(Base64.getDecoder().decode(draft.getValue()));
+    assertThat(decoded).doesNotContain("multipart/related").doesNotContain("Content-ID");
+    assertThat(decoded).contains("cid:small.png").contains("In-Reply-To:");
+    assertThat(draft.getValue().length()).isLessThan(100_000);
+  }
+
+  /** 인라인 이미지 파일명이 없으면 Content-ID 를 첨부 이름으로 쓴다(Graph fileAttachment 는 name 이 필요하다). */
+  @Test
+  void transmit_bigInlineImage_withoutFilename_usesContentIdAsName() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(user, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.createDraftFromMime(eq("FAKE_TOKEN"), anyString()))
+        .thenReturn(new DraftRef("DN", null));
+    EmailAccountResponse account = accountRepo.findByIdAndUser(user, accountId).orElseThrow();
+    byte[] img = bytes(2 * 1024 * 1024);
+    OutgoingMail mail =
+        mailWithInline(account, List.of(new InlineImagePart("small.png", null, "image/png", img)));
+
+    transport.transmit(user, account, mimeBuilder.build(account, mail), mail);
+
+    verify(graphApiClient)
+        .addFileAttachment("FAKE_TOKEN", "DN", "small.png", "image/png", img, "small.png");
+    verify(graphApiClient).sendDraft("FAKE_TOKEN", "DN");
   }
 }

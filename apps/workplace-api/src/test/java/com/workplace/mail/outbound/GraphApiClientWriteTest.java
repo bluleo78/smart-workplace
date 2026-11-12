@@ -151,7 +151,7 @@ class GraphApiClientWriteTest {
     GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
     byte[] content = {1, 2, 3, (byte) 0xFF};
 
-    api.addFileAttachment("tok", "D1", "한글.pdf", "application/pdf", content);
+    api.addFileAttachment("tok", "D1", "한글.pdf", "application/pdf", content, null);
 
     HttpRequest req = captured(http);
     assertThat(req.method()).isEqualTo("POST");
@@ -161,6 +161,9 @@ class GraphApiClientWriteTest {
     assertThat(body.path("name").asText()).isEqualTo("한글.pdf");
     assertThat(body.path("contentType").asText()).isEqualTo("application/pdf");
     assertThat(Base64.getDecoder().decode(body.path("contentBytes").asText())).isEqualTo(content);
+    // 일반 첨부(contentId null)에는 인라인 필드를 싣지 않는다(WP-1522 회귀)
+    assertThat(body.has("isInline")).isFalse();
+    assertThat(body.has("contentId")).isFalse();
   }
 
   @Test
@@ -168,7 +171,8 @@ class GraphApiClientWriteTest {
     HttpClient http = clientReturning(201, "{\"uploadUrl\":\"https://outlook.office.com/up/1\"}");
     GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
 
-    String url = api.createAttachmentUploadSession("tok", "D1", "big.mp4", "video/mp4", 7_000_000L);
+    String url =
+        api.createAttachmentUploadSession("tok", "D1", "big.mp4", "video/mp4", 7_000_000L, null);
 
     assertThat(url).isEqualTo("https://outlook.office.com/up/1");
     HttpRequest req = captured(http);
@@ -179,6 +183,56 @@ class GraphApiClientWriteTest {
     assertThat(item.path("name").asText()).isEqualTo("big.mp4");
     assertThat(item.path("size").asLong()).isEqualTo(7_000_000L);
     assertThat(item.path("contentType").asText()).isEqualTo("video/mp4");
+  }
+
+  /** WP-1522: 인라인 이미지 첨부 — isInline=true 와 본문 cid: 와 같은 contentId 를 싣는다(일반 첨부 필드는 같다). */
+  @Test
+  void addFileAttachment_withContentId_postsIsInlineAndContentId() throws Exception {
+    HttpClient http = clientReturning(201, "{\"id\":\"A2\"}");
+    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+    byte[] content = {9, 8, 7};
+
+    api.addFileAttachment("tok", "D1", "image001.png", "image/png", content, "image001.png@01D");
+
+    HttpRequest req = captured(http);
+    assertThat(req.uri().getPath()).isEqualTo("/v1.0/me/messages/D1/attachments");
+    JsonNode body = new ObjectMapper().readTree(bodyOf(req));
+    assertThat(body.path("@odata.type").asText()).isEqualTo("#microsoft.graph.fileAttachment");
+    assertThat(body.path("name").asText()).isEqualTo("image001.png");
+    assertThat(body.path("isInline").asBoolean()).isTrue();
+    assertThat(body.path("contentId").asText()).isEqualTo("image001.png@01D");
+    assertThat(Base64.getDecoder().decode(body.path("contentBytes").asText())).isEqualTo(content);
+  }
+
+  /** WP-1522: 큰 인라인 이미지 업로드 세션 — AttachmentItem 에 isInline=true·contentId 를 싣는다. */
+  @Test
+  void createAttachmentUploadSession_withContentId_postsIsInlineAndContentId() throws Exception {
+    HttpClient http = clientReturning(201, "{\"uploadUrl\":\"https://outlook.office.com/up/2\"}");
+    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+
+    String url =
+        api.createAttachmentUploadSession(
+            "tok", "D1", "big.png", "image/png", 4_000_000L, "big.png");
+
+    assertThat(url).isEqualTo("https://outlook.office.com/up/2");
+    JsonNode item = new ObjectMapper().readTree(bodyOf(captured(http))).path("AttachmentItem");
+    assertThat(item.path("attachmentType").asText()).isEqualTo("file");
+    assertThat(item.path("size").asLong()).isEqualTo(4_000_000L);
+    assertThat(item.path("isInline").asBoolean()).isTrue();
+    assertThat(item.path("contentId").asText()).isEqualTo("big.png");
+  }
+
+  /** 일반 첨부 업로드 세션에는 isInline·contentId 를 싣지 않는다(회귀). */
+  @Test
+  void createAttachmentUploadSession_regularHasNoInlineFields() throws Exception {
+    HttpClient http = clientReturning(201, "{\"uploadUrl\":\"https://outlook.office.com/up/3\"}");
+    GraphApiClient api = new GraphApiClient(http, new ObjectMapper(), props);
+
+    api.createAttachmentUploadSession("tok", "D1", "a.zip", "application/zip", 5_000_000L, null);
+
+    JsonNode item = new ObjectMapper().readTree(bodyOf(captured(http))).path("AttachmentItem");
+    assertThat(item.has("isInline")).isFalse();
+    assertThat(item.has("contentId")).isFalse();
   }
 
   /** 조각 PUT — 사전 인증 URL 이라 Authorization 없음, Content-Range 는 끝 포함 표기, 본문은 그 조각만. */

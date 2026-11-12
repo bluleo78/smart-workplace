@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,7 @@ import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.outbound.GraphApiClient;
+import com.workplace.mail.outbound.GraphApiClient.DraftRef;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
@@ -327,6 +329,12 @@ class MailComposeServiceTest extends ExternalClientMockedTestBase {
   /** Graph 원본 메일 + 첨부 1건 시드. 첨부 바이트는 Graph 단건 조회 스텁으로 제공한다. @return email_attachment.id */
   private long seedSourceAttachment(
       long accountId, String pmid, String filename, String contentType, long size) {
+    return seedSourceAttachment(accountId, pmid, filename, contentType, size, PNG);
+  }
+
+  /** 첨부 바이트를 지정하는 시드(WP-1522 — 큰 원본 이미지). size 는 메타 크기(검증이 세는 값). */
+  private long seedSourceAttachment(
+      long accountId, String pmid, String filename, String contentType, long size, byte[] bytes) {
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     ParsedMessage m =
         new ParsedMessage(
@@ -359,7 +367,7 @@ class MailComposeServiceTest extends ExternalClientMockedTestBase {
     when(graphApiClient.get(
             any(), contains(pmid + "/attachments/ATT-" + pmid), eq(GraphAttachment.class)))
         .thenReturn(
-            new GraphAttachment(filename, contentType, Base64.getEncoder().encodeToString(PNG)));
+            new GraphAttachment(filename, contentType, Base64.getEncoder().encodeToString(bytes)));
     return dsl.select(EMAIL_ATTACHMENT.ID)
         .from(EMAIL_ATTACHMENT)
         .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
@@ -479,12 +487,131 @@ class MailComposeServiceTest extends ExternalClientMockedTestBase {
     }
   }
 
-  /** Graph 는 요청 4MB 제한 — 인라인 원본 합계 2MB 초과면 사전검증에서 안내한다. */
+  /**
+   * WP-1522: M365 는 원본 메일 이미지 합계가 2MB 를 넘어도 거절하지 않는다 — 초안을 만들고 이미지마다 인라인 첨부(isInline·contentId)로 붙인
+   * 뒤 보낸다. sendMail(raw MIME) 은 쓰지 않는다.
+   */
   @Test
-  void validateSendable_inlineOverGraphCap_rejected() {
+  void send_graphQuotedImagesOver2MB_sentViaDraftInlineAttachments() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
-    long attId = seedSourceAttachment(accountId, "S5", "big.png", "image/png", 3L * 1024 * 1024);
+    when(graphTokenService.getAccessToken(eq(user), eq(accountId))).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.createDraftFromMime(eq("FAKE_TOKEN"), any()))
+        .thenReturn(new DraftRef("DQ", null));
+    byte[] a = bigBytes(1536 * 1024);
+    byte[] b = bigBytes(1536 * 1024 + 7);
+    long attA = seedSourceAttachment(accountId, "S5", "a.png", "image/png", a.length, a);
+    long attB = seedSourceAttachment(accountId, "S5B", "b.png", "image/png", b.length, b);
+
+    composeService.send(
+        user,
+        accountId,
+        replyWithInline(
+            List.of(new InlineImageRef(attA, "a.png"), new InlineImageRef(attB, "b.png@01D"))));
+
+    verify(graphApiClient).addFileAttachment("FAKE_TOKEN", "DQ", "a.png", "image/png", a, "a.png");
+    verify(graphApiClient)
+        .addFileAttachment("FAKE_TOKEN", "DQ", "b.png", "image/png", b, "b.png@01D");
+    verify(graphApiClient).sendDraft("FAKE_TOKEN", "DQ");
+    verify(graphApiClient, never()).sendMail(any(), any());
+  }
+
+  /**
+   * WP-1522: 용량은 실제로 나가는 파트 기준 — 완전히 같은 참조(첨부·cid)는 하나로 모아 한 번 세고, 같은 첨부라도 cid 가 다르면 파트가 cid 마다
+   * 붙으므로 cid 마다 센다. 바이트는 첨부마다 한 번만 받는다. 9MB 이미지: 두 cid(+같은 참조 반복) = 18MB 통과, 세 cid = 27MB 는 25MB
+   * 초과.
+   */
+  @Test
+  void send_sameAttachmentUnderTwoCids_countsPerPart_exactDuplicateOnce() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(eq(user), eq(accountId))).thenReturn("FAKE_TOKEN");
+    long attId = seedSourceAttachment(accountId, "S7", "dup.png", "image/png", 9L * 1024 * 1024);
+    List<InlineImageRef> refs =
+        List.of(
+            new InlineImageRef(attId, "dup.png"),
+            new InlineImageRef(attId, "dup.png@01D"),
+            new InlineImageRef(attId, "dup.png"));
+
+    composeService.validateSendable(user, accountId, replyWithInline(refs));
+    composeService.send(user, accountId, replyWithInline(refs));
+
+    verify(graphApiClient, times(1))
+        .get(any(), contains("S7/attachments/ATT-S7"), eq(GraphAttachment.class));
+    ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+    verify(graphApiClient).sendMail(eq("FAKE_TOKEN"), cap.capture());
+    MimeMessage sent =
+        new MimeMessage(
+            Session.getInstance(new Properties()),
+            new ByteArrayInputStream(Base64.getDecoder().decode(cap.getValue())));
+    MimeMultipart related = (MimeMultipart) sent.getContent();
+    assertThat(related.getCount()).isEqualTo(3); // alternative + cid 둘(완전히 같은 참조는 하나로)
+    assertThat(((MimeBodyPart) related.getBodyPart(1)).getContentID()).isEqualTo("<dup.png>");
+    assertThat(((MimeBodyPart) related.getBodyPart(2)).getContentID()).isEqualTo("<dup.png@01D>");
+
+    List<InlineImageRef> threeCids =
+        List.of(
+            new InlineImageRef(attId, "dup.png"),
+            new InlineImageRef(attId, "dup.png@01D"),
+            new InlineImageRef(attId, "dup.png@01E"));
+    assertThatThrownBy(
+            () -> composeService.validateSendable(user, accountId, replyWithInline(threeCids)))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("25MB");
+  }
+
+  /** WP-1522: 같은 Content-ID 가 서로 다른 원본 첨부를 가리키면 본문 cid 가 어느 그림인지 모호하다 — 거절한다. */
+  @Test
+  void validateSendable_sameContentIdForDifferentAttachments_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    long attA = seedSourceAttachment(accountId, "S10", "a.png", "image/png", 10);
+    long attB = seedSourceAttachment(accountId, "S11", "b.png", "image/png", 10);
+
+    assertThatThrownBy(
+            () ->
+                composeService.validateSendable(
+                    user,
+                    accountId,
+                    replyWithInline(
+                        List.of(
+                            new InlineImageRef(attA, "same.png"),
+                            new InlineImageRef(attB, "same.png")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("같은 Content-ID");
+  }
+
+  /**
+   * WP-1522: 메타 크기는 작아도 실제로 받은 원본 이미지 바이트가 25MB 를 넘으면 발송 중(Budget) 거절 — 이때도 문구가 원본 메일의 이미지 몫을
+   * 밝힌다(사전 검증과 같은 문구).
+   */
+  @Test
+  void send_quotedImageActualBytesOverTotal_messageNamesOriginalMail() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(eq(user), eq(accountId))).thenReturn("FAKE_TOKEN");
+    byte[] huge = new byte[26 * 1024 * 1024];
+    long attId = seedSourceAttachment(accountId, "S12", "huge.png", "image/png", 10, huge);
+
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user,
+                    accountId,
+                    replyWithInline(List.of(new InlineImageRef(attId, "huge.png")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("25MB")
+        .hasMessageContaining("원본 메일의 이미지");
+    verify(graphApiClient, never()).sendMail(any(), any());
+    verify(graphApiClient, never()).createDraftFromMime(any(), any());
+  }
+
+  /** WP-1522: SMTP 는 원본 메일 이미지 10MB 상한이 남는다 — 문구가 원본 메일의 이미지가 원인임을 밝힌다. */
+  @Test
+  void validateSendable_smtpQuotedImagesOverCap_messageNamesOriginalMail() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = account(user);
+    long attId = seedSourceAttachment(accountId, "S8", "big.png", "image/png", 11L * 1024 * 1024);
 
     assertThatThrownBy(
             () ->
@@ -493,7 +620,34 @@ class MailComposeServiceTest extends ExternalClientMockedTestBase {
                     accountId,
                     replyWithInline(List.of(new InlineImageRef(attId, "big.png")))))
         .isInstanceOf(MailValidationException.class)
-        .hasMessageContaining("용량이 너무 큽니다");
+        .hasMessageContaining("원본 메일의 이미지")
+        .hasMessageContaining("10MB");
+  }
+
+  /** WP-1522: 전체 25MB 를 원본 메일 이미지가 채웠으면 문구에 그 몫을 함께 보인다. */
+  @Test
+  void validateSendable_graphTotalOverByQuotedImages_messageNamesOriginalMail() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    long attId = seedSourceAttachment(accountId, "S9", "huge.png", "image/png", 26L * 1024 * 1024);
+
+    assertThatThrownBy(
+            () ->
+                composeService.validateSendable(
+                    user,
+                    accountId,
+                    replyWithInline(List.of(new InlineImageRef(attId, "huge.png")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("25MB")
+        .hasMessageContaining("원본 메일의 이미지");
+  }
+
+  private static byte[] bigBytes(int size) {
+    byte[] out = new byte[size];
+    for (int i = 0; i < size; i++) {
+      out[i] = (byte) (i % 251);
+    }
+    return out;
   }
 
   /** 개수 상한 초과는 거부. */
@@ -525,7 +679,7 @@ class MailComposeServiceTest extends ExternalClientMockedTestBase {
                 composeService.send(
                     user, accountId, replyWithInline(List.of(new InlineImageRef(attId, "a.png")))))
         .isInstanceOf(MailSendException.class)
-        .hasMessageContaining("인용문 이미지를 가져오지 못했습니다");
+        .hasMessageContaining("원본 메일의 이미지를 가져오지 못했어요");
     verify(graphApiClient, never()).sendMail(any(), any());
   }
 }

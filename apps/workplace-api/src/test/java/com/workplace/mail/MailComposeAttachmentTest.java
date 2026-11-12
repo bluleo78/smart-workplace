@@ -33,6 +33,7 @@ import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.MailSendRequest.InlineUploadRef;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.dto.ParsedMessage;
@@ -377,6 +378,55 @@ class MailComposeAttachmentTest extends ExternalClientMockedTestBase {
                         List.of(png.id()), List.of(new InlineUploadRef(png.id(), "a b<c>")))))
         .isInstanceOf(MailValidationException.class)
         .hasMessageContaining("본문 이미지 참조");
+    assertThat(greenMail.getReceivedMessages()).isEmpty();
+  }
+
+  /** 붙여 넣은 이미지의 Content-ID 가 인용문(원본 메일) 이미지와 겹치면 거절 — 본문 cid 가 어느 그림인지 모호하다(WP-1522 회귀). */
+  @Test
+  void validateSendable_inlineUploadContentIdCollidesWithQuotedImage_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    long quotedId = seedForwardSource(user, "Q1", "q.png", "image/png", PNG);
+    var png = upload(user, "image.png", "image/png", PNG);
+    MailSendRequest req =
+        new MailSendRequest(
+            List.of("rcpt@test.local"),
+            List.of(),
+            List.of(),
+            "RE: 원본",
+            "<p>답장</p><img src=\"cid:same@genia\">",
+            "답장",
+            null,
+            List.of(new InlineImageRef(quotedId, "same@genia")),
+            List.of(png.id()),
+            null,
+            null,
+            List.of(new InlineUploadRef(png.id(), "same@genia")));
+
+    assertThatThrownBy(() -> composeService.validateSendable(user, accountId, req))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("본문 이미지 참조가 올바르지 않습니다");
+  }
+
+  /** WP-1522: SMTP 본문 이미지 10MB 상한 — 인용문 없는 새 메일이면 원본 메일의 이미지를 탓하지 않는다. */
+  @Test
+  void send_inlineUploadOverSmtpCap_withoutQuote_doesNotBlameOriginalMail() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    var png = upload(user, "big.png", "image/png", new byte[11 * 1024 * 1024]);
+
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user,
+                    accountId,
+                    inlineRequest(
+                        List.of(png.id()),
+                        List.of(new InlineUploadRef(png.id(), "paste-1@genia")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("본문 이미지가 너무 커요")
+        .hasMessageContaining("최대 10MB")
+        .hasMessageNotContaining("원본 메일");
     assertThat(greenMail.getReceivedMessages()).isEmpty();
   }
 

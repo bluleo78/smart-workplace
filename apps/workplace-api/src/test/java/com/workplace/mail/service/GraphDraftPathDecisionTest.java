@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
+import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -55,7 +56,34 @@ class GraphDraftPathDecisionTest {
         .isTrue();
   }
 
-  /** 첨부 없이 본문만 큰 메일은 나눌 것이 없어 sendMail 그대로. */
+  /**
+   * WP-1522: 일반 첨부 없이 인용문(원본 메일) 이미지만 커도 초안 경로 — 이미지를 초안 인라인 첨부로 나눠 붙인다. 예전에는 sendMail 로 보내려다 4MB
+   * 요청 한도에 막혀 2MB 상한으로 미리 거절했다.
+   */
+  @Test
+  void inlineImagesOnly_big_goesToDraftPath() {
+    OutgoingMail m =
+        new OutgoingMail(
+            "m@x",
+            "t@x",
+            "me@x.com",
+            "나",
+            List.of("a@x.com"),
+            List.of(),
+            List.of(),
+            "s",
+            "b",
+            "<p><img src=\"cid:a.png\"></p>",
+            null,
+            null,
+            null,
+            Instant.now(),
+            List.of(new InlineImagePart("a.png", "a.png", "image/png", new byte[3 * 1024 * 1024])),
+            List.of());
+    assertThat(needsDraftPath(m)).isTrue();
+  }
+
+  /** 첨부·인라인 이미지 없이 본문만 큰 메일은 나눌 것이 없어 sendMail 그대로. */
   @Test
   void noAttachments_neverDraftPath() {
     assertThat(needsDraftPath(mail("가".repeat(2_000_000), List.of()))).isFalse();

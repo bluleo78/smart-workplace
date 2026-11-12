@@ -428,7 +428,7 @@ test('인용문을 제거하면 재첨부 대상도 보내지 않는다', async 
 })
 
 test('서버가 인라인 이미지 용량 초과(400)로 거부하면 그 문구를 보이고 도크를 유지한다', async () => {
-  const msg = '인용문 이미지 용량이 너무 큽니다(최대 2MB). 인용문을 제거하고 보내세요'
+  const msg = '원본 메일의 이미지가 너무 커요(지금 11.0MB, 최대 10MB). 인용문을 제거하고 보내세요'
   const send = sendHandler(() => HttpResponse.json({ status: 400, error: 'Bad Request', message: msg }, { status: 400 }))
   const { user } = await openInlineMail([send.handler])
   await user.click(screen.getByTestId('mail-reply'))

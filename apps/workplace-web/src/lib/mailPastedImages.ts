@@ -7,8 +7,8 @@ import type { DownscaleOptions } from './imageDownscale';
 import { type ComposeAttachment, sendAttachmentIds } from './mailComposeAttachments';
 
 /**
- * 붙여 넣은 이미지를 올리기 전 줄이는 한도 — 인라인 이미지는 MIME 안에 들어가 공급자 상한을 함께 쓴다(Graph 합계 2MB·SMTP 10MB,
- * 서버 MailComposeService.MAX_INLINE_TOTAL_*). 캡처 서너 장이 Graph 한도에 들도록 긴 변 1920px·한 장 512KB 를 넘으면 줄이고,
+ * 붙여 넣은 이미지를 올리기 전 줄이는 한도 — 인라인 이미지는 공급자 상한을 함께 쓴다(SMTP 합계 10MB, 서버
+ * MailComposeService.MAX_INLINE_TOTAL_SMTP. M365 는 WP-1522 부터 초안 인라인 첨부로 보내 전체 25MB 만 든다). 메일을 가볍게 두도록 긴 변 1920px·한 장 512KB 를 넘으면 줄이고,
  * 글자가 선명한 PNG 를 먼저 쓰되 그래도 크면 JPEG 로 바꾼다. BMP(그림판 복사)는 메일이 받지 않아 늘 바꾼다.
  */
 export const PASTED_IMAGE_DOWNSCALE: DownscaleOptions = {

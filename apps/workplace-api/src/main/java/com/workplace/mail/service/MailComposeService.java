@@ -41,6 +41,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -91,11 +92,10 @@ public class MailComposeService {
   static final int MAX_INLINE_IMAGES = 20;
 
   /**
-   * 인라인 이미지 원본 합계 상한 — Graph MIME sendMail 은 base64 요청 본문 4MB 제한(MIME 내부 base64 + 요청 base64 로 원본 대비
-   * 약 1.8배)이라 2MB, SMTP 는 일반 릴레이 한도 내 10MB.
+   * SMTP 인라인 이미지 원본 합계 상한 — 일반 릴레이 한도 내 10MB. Graph(M365)는 인라인 이미지만의 상한이 없다(WP-1522): 4MB 요청 한도에
+   * 걸리는 큰 메일은 GraphMailTransport 가 초안을 만들고 이미지를 인라인 첨부(isInline·contentId)로 따로 붙여 보내므로 전체 첨부
+   * 상한(25MB)만 적용한다. 예전 2MB 상한은 이미지를 sendMail MIME 안에 넣어 보냈을 때의 값이다.
    */
-  static final long MAX_INLINE_TOTAL_GRAPH = 2L * 1024 * 1024;
-
   static final long MAX_INLINE_TOTAL_SMTP = 10L * 1024 * 1024;
 
   static final String UPLOAD_UNUSABLE_MESSAGE = "첨부 파일을 찾을 수 없어요. 만료됐을 수 있으니 파일을 다시 올려 주세요";
@@ -180,22 +180,19 @@ public class MailComposeService {
 
     // 공급자별 전송기 존재 확인 — 미지원 공급자를 MIME 조립 전에 조기 차단.
     MailTransport transport = transportFor(account.provider());
-    List<InlineSource> inline =
-        validateInlineImages(userId, account.provider(), req.inlineImages());
+    QuotedImages quoted = validateInlineImages(userId, account.provider(), req.inlineImages());
+    List<InlineSource> inline = quoted.sources();
     List<StagedFile> uploads = checkUploads(userId, req.attachmentIds());
-    validateInlineUploads(account.provider(), req, inline, uploads);
+    validateInlineUploads(account.provider(), req, quoted, uploads);
     List<ForwardSource> forwards = validateForwards(userId, req.forwardAttachmentIds());
-    long total = 0;
-    for (InlineSource src : inline) {
-      total += src.meta().sizeBytes();
-    }
+    long total = quoted.bytes();
     for (StagedFile f : uploads) {
       total += f.sizeBytes();
     }
     for (ForwardSource f : forwards) {
       total += f.meta().sizeBytes();
     }
-    requireWithinTotal(total);
+    requireWithinTotal(total, quoted.bytes());
     return new SendPlan(account, to, cc, bcc, replyCtx, transport, inline, forwards);
   }
 
@@ -265,10 +262,23 @@ public class MailComposeService {
    * 판정이면 그때까지 받은 누적 합계다.
    */
   private void requireWithinTotal(long totalBytes) {
+    requireWithinTotal(totalBytes, 0);
+  }
+
+  /**
+   * {@link #requireWithinTotal(long)} 에 원본 메일 이미지 몫을 더한 형태(WP-1522) — 답장·전달 인용문이 다시 붙이는 원본 이미지가 합계에
+   * 들었으면 「원본 메일의 이미지 N 포함」을 함께 보여, 칩으로 보이지 않는 이미지가 원인임을 알게 한다.
+   */
+  private void requireWithinTotal(long totalBytes, long quotedImageBytes) {
     if (totalBytes > maxAttachmentTotal) {
+      String quoted =
+          quotedImageBytes > 0
+              ? ", 원본 메일의 이미지 " + MailAttachmentSizes.formatMb(quotedImageBytes) + " 포함"
+              : "";
       throw new MailValidationException(
           "첨부 파일이 너무 커요(지금 "
               + MailAttachmentSizes.formatMb(totalBytes)
+              + quoted
               + "). 메일 한 통에 모두 합쳐 "
               + (maxAttachmentTotal / (1024 * 1024))
               + "MB까지 보낼 수 있어요");
@@ -285,15 +295,31 @@ public class MailComposeService {
   private final class Budget {
     private long used;
 
+    /** 지금까지 더한 원본 메일 이미지(인용문 cid 파트) 바이트 — 상한 초과 문구에 그 몫을 밝힌다(WP-1522, 사전 검증과 같은 문구). */
+    private long quotedUsed;
+
     /** 받기 전에 알고 있는 실제 크기(캐시 blob 크기 등)로 먼저 판정 — 넘으면 받지 않고 거절. */
     void requireRoomFor(long knownBytes) {
-      requireWithinTotal(used + knownBytes);
+      requireRoomFor(knownBytes, false);
+    }
+
+    /** {@link #requireRoomFor(long)} — quoted 면 원본 메일 이미지 몫으로도 센다. */
+    void requireRoomFor(long knownBytes, boolean quoted) {
+      requireWithinTotal(used + knownBytes, quotedUsed + (quoted ? knownBytes : 0));
     }
 
     /** 받은 바이트를 더한다 — 넘으면 거절. */
     byte[] add(byte[] content) {
+      return add(content, false);
+    }
+
+    /** {@link #add(byte[])} — quoted 면 원본 메일 이미지 몫으로도 센다. */
+    byte[] add(byte[] content, boolean quoted) {
       used += content.length;
-      requireWithinTotal(used);
+      if (quoted) {
+        quotedUsed += content.length;
+      }
+      requireWithinTotal(used, quotedUsed);
       return content;
     }
   }
@@ -320,6 +346,7 @@ public class MailComposeService {
               userId,
               src.attachmentId(),
               budget,
+              false,
               FORWARD_MISSING_MESSAGE,
               "전달할 원본 첨부를 가져오지 못했어요. 잠시 뒤 다시 보내 주세요");
       parts.add(
@@ -333,9 +360,16 @@ public class MailComposeService {
    * 내 메일 첨부 바이트를 받는다 — 소유 확인만 짧은 읽기 트랜잭션에서 하고, 원본 서버 받기는 DB 연결 없이 한다({@link
    * MailAttachmentService#downloadForPreview}). 캐시에 있으면 그 blob 의 실제 크기로 읽기 전에 상한을 판정하고, 받은 뒤에도 실제
    * 바이트로 센다. 상한 초과(400)는 그대로, 원본 없음은 notFoundMessage 가 있으면 400 으로, 나머지 실패는 failMessage 의 502 로 바꾼다.
+   *
+   * @param quoted 원본 메일 이미지(인용문 cid)면 true — 상한 초과 문구가 그 몫을 밝힌다(WP-1522)
    */
   private AttachmentDownload fetchOwnedAttachment(
-      long userId, long attachmentId, Budget budget, String notFoundMessage, String failMessage) {
+      long userId,
+      long attachmentId,
+      Budget budget,
+      boolean quoted,
+      String notFoundMessage,
+      String failMessage) {
     try {
       TransactionTemplate readTx = new TransactionTemplate(txManager);
       readTx.setReadOnly(true);
@@ -346,8 +380,9 @@ public class MailComposeService {
                       .findContextForDownload(userId, attachmentId)
                       .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId)));
       AttachmentDownload dl =
-          attachmentService.downloadForPreview(userId, ctx, budget::requireRoomFor);
-      budget.add(dl.content());
+          attachmentService.downloadForPreview(
+              userId, ctx, size -> budget.requireRoomFor(size, quoted));
+      budget.add(dl.content(), quoted);
       return dl;
     } catch (MailValidationException e) {
       throw e;
@@ -362,25 +397,37 @@ public class MailComposeService {
   }
 
   /**
-   * 인용문 인라인 이미지 검증(WP-69) — 바이트는 읽지 않는다(validateSendable 읽기 전용 유지). 개수 → Content-ID 형식 → 소유(원본 첨부
-   * 존재) → image/* → 공급자별 총용량 순.
+   * 인용문 인라인 이미지 검증(WP-69) — 바이트는 읽지 않는다(validateSendable 읽기 전용 유지). 완전히 같은 참조(첨부·Content-ID) 하나로 →
+   * 개수 → Content-ID 형식 → 같은 Content-ID 가 다른 첨부를 가리키지 않는지 → 소유(원본 첨부 존재) → image/* → 공급자별 총용량 순.
+   *
+   * <p>총용량은 실제로 나가는 파트 기준이다(WP-1522) — 같은 원본 첨부라도 cid 가 다르면 파트가 cid 마다 붙으므로(MIME·Graph 초안 모두) 그만큼
+   * 센다. 바이트는 첨부마다 한 번만 받는다(loadInlineImages). 웹 작성창은 같은 첨부의 cid 를 하나로 모아 보내므로 보통은 첨부당 한 파트다.
    */
-  private List<InlineSource> validateInlineImages(
+  private QuotedImages validateInlineImages(
       long userId, MailProvider provider, List<InlineImageRef> refs) {
     if (refs.isEmpty()) {
-      return List.of();
+      return QuotedImages.NONE;
     }
-    if (refs.size() > MAX_INLINE_IMAGES) {
-      throw new MailValidationException("인용문 이미지는 최대 " + MAX_INLINE_IMAGES + "개까지 보낼 수 있습니다");
+    // 완전히 같은 참조는 하나로 — 같은 Content-ID 파트를 두 번 붙일 이유가 없다(null 은 아래 형식 검사가 거절하도록 남긴다).
+    List<InlineImageRef> distinct = new ArrayList<>(new LinkedHashSet<>(refs));
+    if (distinct.size() > MAX_INLINE_IMAGES) {
+      throw new MailValidationException(
+          "원본 메일의 이미지는 최대 " + MAX_INLINE_IMAGES + "개까지 다시 보낼 수 있습니다. 인용문을 줄이거나 제거하고 보내세요");
     }
     List<InlineSource> out = new ArrayList<>();
+    Set<String> contentIds = new HashSet<>();
     long total = 0;
-    for (InlineImageRef ref : refs) {
+    for (InlineImageRef ref : distinct) {
       if (ref == null
           || ref.attachmentId() == null
           || ref.contentId() == null
           || !CONTENT_ID.matcher(ref.contentId()).matches()) {
         throw new MailValidationException("인용문 이미지 참조가 올바르지 않습니다");
+      }
+      // 완전히 같은 참조는 위에서 하나로 모았으니, 여기서 겹치면 같은 Content-ID 가 서로 다른 첨부를 가리킨다 — 본문 cid 가 어느 그림인지 모호하다
+      if (!contentIds.add(ref.contentId())) {
+        throw new MailValidationException(
+            "인용문 이미지 참조가 올바르지 않습니다(같은 Content-ID 가 서로 다른 이미지를 가리킵니다)");
       }
       InlineSourceMeta meta =
           attachmentRepo
@@ -392,8 +439,17 @@ public class MailComposeService {
       total += meta.sizeBytes();
       out.add(new InlineSource(ref, meta));
     }
-    requireInlineWithin(provider, total, "인용문 이미지", "인용문을 제거하고 보내세요");
-    return out;
+    requireInlineWithin(
+        provider,
+        total,
+        "원본 메일의 이미지가 너무 커요(지금 " + MailAttachmentSizes.formatMb(total),
+        "인용문을 제거하고 보내세요");
+    return new QuotedImages(out, total);
+  }
+
+  /** 검증을 통과한 원본 메일 이미지와 그 메타 크기 합(실제로 나가는 파트 기준, WP-1522) — 붙여 넣은 이미지 검증·전체 상한이 다시 세지 않고 쓴다. */
+  private record QuotedImages(List<InlineSource> sources, long bytes) {
+    static final QuotedImages NONE = new QuotedImages(List.of(), 0);
   }
 
   /**
@@ -402,10 +458,8 @@ public class MailComposeService {
    * MIME 안에 들어가 Graph 요청 본문 상한을 함께 쓰므로 인용문 이미지와 같은 한도를 나눠 쓴다.
    */
   private void validateInlineUploads(
-      MailProvider provider,
-      MailSendRequest req,
-      List<InlineSource> inline,
-      List<StagedFile> uploads) {
+      MailProvider provider, MailSendRequest req, QuotedImages quoted, List<StagedFile> uploads) {
+    List<InlineSource> inline = quoted.sources();
     List<InlineUploadRef> refs = req.inlineUploads();
     if (refs.isEmpty()) {
       return;
@@ -419,11 +473,10 @@ public class MailComposeService {
       byId.put(f.fileId(), f);
     }
     Set<String> contentIds = new HashSet<>();
-    long total = 0;
     for (InlineSource src : inline) {
       contentIds.add(src.ref().contentId());
-      total += src.meta().sizeBytes();
     }
+    long total = quoted.bytes();
     Set<Long> seen = new HashSet<>();
     for (InlineUploadRef ref : refs) {
       if (ref == null
@@ -441,34 +494,60 @@ public class MailComposeService {
       }
       total += f.sizeBytes();
     }
-    requireInlineWithin(provider, total, "본문 이미지", "이미지를 줄이거나 첨부로 보내세요");
+    requireInlineWithin(
+        provider,
+        total,
+        // 원본 메일 이미지가 함께 갈 때만 그 몫을 밝힌다 — 새 메일·인용문을 지운 답장에서 원본 이미지를 탓하지 않게(WP-1522)
+        (inline.isEmpty() ? "본문 이미지가 너무 커요(지금 " : "본문 이미지가 원본 메일의 이미지와 합쳐 너무 커요(지금 ")
+            + MailAttachmentSizes.formatMb(total),
+        "이미지를 줄이거나 첨부로 보내세요");
   }
 
-  /** 인라인 이미지 원본 합계의 공급자별 상한 — 인용문 이미지와 붙여 넣은 본문 이미지가 같은 MIME 한도를 나눠 쓴다. */
+  /**
+   * 인라인 이미지 원본 합계의 공급자별 상한 — 인용문 이미지와 붙여 넣은 본문 이미지가 같은 MIME 한도를 나눠 쓴다. SMTP 만 10MB, Graph 는 초안+인라인
+   * 첨부로 보내 인라인만의 상한이 없다(WP-1522 — 전체 25MB 는 prepare 가 본다).
+   *
+   * @param lead 문구 앞부분(「… (지금 N」까지) — 뒤에 「, 최대 10MB). advice」가 붙는다
+   */
   private static void requireInlineWithin(
-      MailProvider provider, long total, String what, String advice) {
-    long max = provider == MailProvider.M365_GRAPH ? MAX_INLINE_TOTAL_GRAPH : MAX_INLINE_TOTAL_SMTP;
-    if (total > max) {
+      MailProvider provider, long total, String lead, String advice) {
+    if (provider == MailProvider.M365_GRAPH) {
+      return;
+    }
+    if (total > MAX_INLINE_TOTAL_SMTP) {
       throw new MailValidationException(
-          what + " 용량이 너무 큽니다(최대 " + (max / (1024 * 1024)) + "MB). " + advice);
+          lead + ", 최대 " + (MAX_INLINE_TOTAL_SMTP / (1024 * 1024)) + "MB). " + advice);
     }
   }
 
   /** 검증을 통과한 인라인 이미지 원본 — send 에서 바이트를 조회한다. */
   private record InlineSource(InlineImageRef ref, InlineSourceMeta meta) {}
 
-  /** 원본 첨부 바이트를 조회해 인라인 파트로 만든다. 실패 시 발송 전체를 실패시킨다 — 이미지를 빼고 보내면 수신자에게 깨진 참조가 남으므로 조용히 누락하지 않는다. */
+  /**
+   * 원본 첨부 바이트를 조회해 인라인 파트로 만든다. 실패 시 발송 전체를 실패시킨다 — 이미지를 빼고 보내면 수신자에게 깨진 참조가 남으므로 조용히 누락하지 않는다. 같은
+   * 원본 첨부를 가리키는 참조가 여럿이면(cid 가 다름) 바이트는 한 번만 받고 cid 마다 같은 바이트의 파트를 만든다 — 본문이 cid 를 모두 참조하므로 파트는 cid
+   * 마다 있어야 한다. 누적 상한에는 나가는 파트마다 더한다(WP-1522 — 실제 MIME·초안 크기와 맞춘다).
+   */
   private List<InlineImagePart> loadInlineImages(
       long userId, List<InlineSource> sources, Budget budget) {
     List<InlineImagePart> parts = new ArrayList<>();
+    Map<Long, AttachmentDownload> fetched = new HashMap<>();
     for (InlineSource src : sources) {
-      AttachmentDownload dl =
-          fetchOwnedAttachment(
-              userId,
-              src.ref().attachmentId(),
-              budget,
-              null,
-              "인용문 이미지를 가져오지 못했습니다. 인용문을 제거하고 다시 보내세요");
+      AttachmentDownload dl = fetched.get(src.ref().attachmentId());
+      if (dl == null) {
+        dl =
+            fetchOwnedAttachment(
+                userId,
+                src.ref().attachmentId(),
+                budget,
+                true,
+                null,
+                "원본 메일의 이미지를 가져오지 못했어요. 인용문을 제거하고 다시 보내 주세요");
+        fetched.put(src.ref().attachmentId(), dl);
+      } else {
+        // 이미 받은 첨부의 다른 cid 파트 — 다시 받지 않지만 파트 하나가 더 나가므로 상한에는 더한다
+        budget.add(dl.content(), true);
+      }
       parts.add(
           new InlineImagePart(
               src.ref().contentId(),

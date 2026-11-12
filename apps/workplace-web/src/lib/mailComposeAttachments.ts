@@ -77,11 +77,18 @@ export function exceedsTotalLimit(items: ComposeAttachment[], size: number, rese
 }
 
 /**
- * 인용문이 cid 로 다시 붙이는 본문 이미지의 바이트 합 — 발송 요청 inlineImages 와 같은 항목(서버도 항목마다 원본 크기를 더한다).
- * 인용문을 지우면(quote=null) 0 이다.
+ * 인용문이 cid 로 다시 붙이는 본문 이미지의 바이트 합 — 발송 요청 inlineImages 와 같은 항목. 같은 원본 첨부(id)는 한 번만 센다
+ * (서버도 첨부마다 한 번만 받아 센다, WP-1522). 인용문을 지우면(quote=null) 0 이다.
  */
 export function quoteInlineBytes(quote: Pick<MailQuote, 'inlineImages'> | null | undefined): number {
-  return (quote?.inlineImages ?? []).reduce((sum, i) => sum + i.attachment.sizeBytes, 0);
+  const seen = new Set<number>();
+  let sum = 0;
+  for (const { attachment } of quote?.inlineImages ?? []) {
+    if (seen.has(attachment.id)) continue;
+    seen.add(attachment.id);
+    sum += attachment.sizeBytes;
+  }
+  return sum;
 }
 
 /**
