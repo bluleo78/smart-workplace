@@ -250,7 +250,9 @@ public class WikiPageRepository {
         WikiPageKind.of(r.get(WIKI_PAGE.KIND)),
         // 원본 HTML 은 상세 컬럼(DETAIL_FIELDS)으로 읽은 행에만 있다 — 본문을 읽지 않는 조회(findDetailWithBody)는 노트 전용 경로라
         // null.
-        r.field(WIKI_PAGE.HTML_SOURCE.getName()) != null ? r.get(WIKI_PAGE.HTML_SOURCE) : null);
+        r.field(WIKI_PAGE.HTML_SOURCE.getName()) != null ? r.get(WIKI_PAGE.HTML_SOURCE) : null,
+        // 수정자 이름은 노트를 여는 조회(WikiPageService.get/read)만 채운다(WP-1483).
+        null);
   }
 
   /** 페이지 제목과 스페이스 이름(채팅 앱 링크 카드, WP-896) — 본문은 읽지 않는다. 권한은 호출자가 spaceId 로 확인한다. */
@@ -652,6 +654,36 @@ public class WikiPageRepository {
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.in(pageIds))
         .fetchMap(WIKI_PAGE.ID, WIKI_PAGE.TITLE);
+  }
+
+  /**
+   * 리포트 목록 한 줄에 필요한 페이지 값(WP-1483) — 공간(옮겨진 페이지 거르기), 지금 제목, 수정 시각과 AI 작성 시각(「수정됨」 판정). 본문은 읽지 않는다.
+   */
+  public record EditMark(
+      long id, long spaceId, String title, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt) {
+
+    /** AI 가 쓴 뒤 사람이 고쳤는지 — 수정 시각이 AI 작성 시각보다 늦으면. 같으면(열기만 함) 고치지 않은 것이다. */
+    public boolean editedAfterAi() {
+      return updatedAt != null && aiLastUsedAt != null && updatedAt.isAfter(aiLastUsedAt);
+    }
+  }
+
+  /** 여러 페이지의 {@link EditMark}(없는 id 는 빠진다) — 리포트 목록이 페이지마다 따로 읽지 않게 한 번에. */
+  public Map<Long, EditMark> findEditMarks(Collection<Long> pageIds) {
+    if (pageIds.isEmpty()) {
+      return Map.of();
+    }
+    return dsl.select(
+            WIKI_PAGE.ID,
+            WIKI_PAGE.SPACE_ID,
+            WIKI_PAGE.TITLE,
+            WIKI_PAGE.UPDATED_AT,
+            WIKI_PAGE.AI_LAST_USED_AT)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.in(pageIds))
+        .fetchMap(
+            WIKI_PAGE.ID,
+            r -> new EditMark(r.value1(), r.value2(), r.value3(), r.value4(), r.value5()));
   }
 
   /** 같은 부모(공간 스코프)의 자식 id 들을 position,id 순으로 — 재배열 기준 순서. */

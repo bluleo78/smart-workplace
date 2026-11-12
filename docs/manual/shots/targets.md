@@ -162,6 +162,8 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | work-9 | `/projects/MOB/versions/<베타 1.0>` | 김서연 | 버전 목록에서 **베타 1.0** 을 누른다 | `head+actions+issues` | `head,actions@l,tabs,issues` | 버전 베타 1.0·MOB-4~7 |
 | work-10 | `/projects/MOB/issues/6` | 김서연 | **AI 결과 — 한 번 찍어 고정, 재촬영 제외(once)**. **요약 생성** 을 누른다(POST …/issues/6/ai-summary 만 연다, AI 1회 — 서버가 요약을 이슈에 저장) | `card` | `card,generate` | MOB-6 |
 | work-11 | `/projects/MOB`(목록) | 김서연 | **AI 결과 — once**. **새 태스크** 창에 제목·본문을 넣고 **AI 제안 받기**(POST …/issues/ai-classify 만 연다, 저장 없음). **생성** 은 누르지 않는다 | `dialog` | `ai,fields,submit@tr` | — |
+| work-12 | `/projects/MOB/settings` | 김서연 | **리포트** 섹션까지 내려 연 그대로(스위치·선택 상자·**기본으로 되돌리기** 는 누르지 않음). 그림 지시문은 촬영 뒤 08장 「프로젝트를 설정한다」에 넣는다(WP-1483) | `section` | `summary,enabled,schedule,template` | MOB 리포트 설정 켜짐(템플릿 노트 있음) |
+| work-13 | `/projects/MOB/overview` | 김서연 | **AI 결과 — once**. 개요를 연 그대로(**지난 리포트** 는 펼쳐 찍고 닫는다). 그림 지시문은 촬영 뒤 08장 「프로젝트를 개요로 살핀다」에 넣는다(WP-1483) | `card` | `line,full,past` | MOB 주간 리포트 1편 이상(실제 AI 로 만든 것) |
 
 ### 09 드라이브
 

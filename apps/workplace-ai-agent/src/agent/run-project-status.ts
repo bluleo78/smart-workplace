@@ -34,10 +34,13 @@ const inputsSchema = z.object({
   trendDelta: z.number().nullable(),
 })
 
+// 상태 배지 — Spring StatusBadge 와 1:1(프로젝트 리포트 러너도 같이 쓴다).
+export const badgeSchema = z.enum(['ON_TRACK', 'WARN', 'RISK'])
+
 // 요청 바디 스키마 — Spring 의 ProjectStatusAiRequest 와 1:1.
 export const projectStatusInputSchema = z.object({
   projectName: z.string(),
-  badge: z.enum(['ON_TRACK', 'WARN', 'RISK']),
+  badge: badgeSchema,
   inputs: inputsSchema,
   assistantAgentId: z.number(),
   model: z.string(),
@@ -50,8 +53,8 @@ export interface ProjectStatusResult {
   summary: string
 }
 
-// 배지 → 화면과 같은 말.
-const BADGE_LABEL: Record<ProjectStatusInput['badge'], string> = {
+// 배지 → 화면과 같은 말(프로젝트 리포트 러너도 같이 쓴다).
+export const BADGE_LABEL: Record<z.infer<typeof badgeSchema>, string> = {
   ON_TRACK: '순조로움',
   WARN: '주의',
   RISK: '위험',

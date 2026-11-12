@@ -67,6 +67,10 @@ const projectHandlers = (project: ProjectResponse) => {
     http.get('/api/v1/shared-ai-memories/spaces', () => HttpResponse.json({ items: [] })),
     // 소유자에게 보이는 「노트 공간」 영역(WP-1480)이 부르는 조회 — 공간 없음(404).
     http.get('/api/v1/wiki/project-spaces/:key', () => HttpResponse.json({ message: '노트 공간이 없습니다' }, { status: 404 })),
+    // 「리포트」 섹션의 주간 리포트 줄(WP-1483) — 서버 기본값.
+    http.get(`${base}/report-settings`, () =>
+      HttpResponse.json({ enabled: false, cadence: 'WEEKLY', weekday: 'MONDAY', timeOfDay: '09:00', templatePageId: null, nextRunAt: null, canManage: true }),
+    ),
   ]
 }
 

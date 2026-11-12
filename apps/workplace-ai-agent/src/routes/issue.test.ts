@@ -17,8 +17,14 @@ vi.mock('../agent/run-project-status.js', async (importOriginal) => ({
   runProjectStatus: vi.fn(),
 }));
 
+vi.mock('../agent/run-project-report.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../agent/run-project-report.js')>()),
+  runProjectReport: vi.fn(),
+}));
+
 import { runWorkProfile } from '../agent/run-work-profile.js';
 import { runProjectStatus } from '../agent/run-project-status.js';
+import { runProjectReport } from '../agent/run-project-report.js';
 import { createIssueRouter } from './issue.js';
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js';
 
@@ -188,5 +194,45 @@ describe('POST /issue/project-status', () => {
     const res = await request(app()).post('/issue/project-status').send(valid);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'project_status_failed' });
+  });
+});
+
+// WP-1483: 프로젝트 리포트 — 200 패스스루 / 필드 누락 400 / 러너 실패 502.
+describe('POST /issue/project-report', () => {
+  const valid = {
+    projectName: 'WP',
+    title: '11월 2주차 주간 리포트',
+    periodLabel: '11월 9일 ~ 15일',
+    cadenceLabel: '주간',
+    templateMarkdown: '## 샘플',
+    badge: 'ON_TRACK',
+    tableRows: [{ label: '완료', current: '1', change: '+1' }],
+    issues: [],
+    assistantAgentId: 3,
+    model: 'm',
+    maxTurns: 8,
+    timeoutMs: 60000,
+  };
+
+  it('projectReport_success_200', async () => {
+    vi.mocked(runProjectReport).mockResolvedValue({ markdown: '## 본문' });
+    const res = await request(app()).post('/issue/project-report').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ markdown: '## 본문' });
+  });
+
+  it('projectReport_invalidPayload_400', async () => {
+    const { templateMarkdown: _t, ...rest } = valid;
+    const res = await request(app()).post('/issue/project-report').send(rest);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(runProjectReport).not.toHaveBeenCalled();
+  });
+
+  it('projectReport_runnerThrows_502', async () => {
+    vi.mocked(runProjectReport).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/issue/project-report').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'project_report_failed' });
   });
 });

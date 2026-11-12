@@ -123,7 +123,10 @@ import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectMemberGroup;
+import com.workplace.jooq.tables.ProjectReport;
+import com.workplace.jooq.tables.ProjectReportSetting;
 import com.workplace.jooq.tables.ProjectStatus;
+import com.workplace.jooq.tables.ProjectStatusSummary;
 import com.workplace.jooq.tables.ProjectVersion;
 import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.PushVapidKey;
@@ -789,9 +792,24 @@ public class Public extends SchemaImpl {
     public final ProjectMemberGroup PROJECT_MEMBER_GROUP = ProjectMemberGroup.PROJECT_MEMBER_GROUP;
 
     /**
+     * The table <code>public.project_report</code>.
+     */
+    public final ProjectReport PROJECT_REPORT = ProjectReport.PROJECT_REPORT;
+
+    /**
+     * The table <code>public.project_report_setting</code>.
+     */
+    public final ProjectReportSetting PROJECT_REPORT_SETTING = ProjectReportSetting.PROJECT_REPORT_SETTING;
+
+    /**
      * The table <code>public.project_status</code>.
      */
     public final ProjectStatus PROJECT_STATUS = ProjectStatus.PROJECT_STATUS;
+
+    /**
+     * The table <code>public.project_status_summary</code>.
+     */
+    public final ProjectStatusSummary PROJECT_STATUS_SUMMARY = ProjectStatusSummary.PROJECT_STATUS_SUMMARY;
 
     /**
      * The table <code>public.project_version</code>.
@@ -1156,7 +1174,10 @@ public class Public extends SchemaImpl {
             ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE,
             ProjectMember.PROJECT_MEMBER,
             ProjectMemberGroup.PROJECT_MEMBER_GROUP,
+            ProjectReport.PROJECT_REPORT,
+            ProjectReportSetting.PROJECT_REPORT_SETTING,
             ProjectStatus.PROJECT_STATUS,
+            ProjectStatusSummary.PROJECT_STATUS_SUMMARY,
             ProjectVersion.PROJECT_VERSION,
             PushSubscription.PUSH_SUBSCRIPTION,
             PushVapidKey.PUSH_VAPID_KEY,

@@ -5,6 +5,7 @@ import { Page } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectOverview } from '@/hooks/queries/useProjectOverview'
+import { useProjectReports } from '@/hooks/queries/useProjectReports'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 
 import { OverviewActivity } from '../overview/OverviewActivity'
@@ -21,6 +22,8 @@ export default function ProjectOverviewTab() {
   const { project } = useProjectTabs()
   useDocumentTitle(['개요', project.name])
   const query = useProjectOverview(project.key)
+  // 리포트 줄(WP-1483)은 따로 부른다 — 실패하거나 늦어도 개요를 막지 않고 줄만 빠진다.
+  const reports = useProjectReports(project.key)
 
   return (
     <Page.Body data-testid="project-overview">
@@ -47,7 +50,7 @@ export default function ProjectOverviewTab() {
         </div>
       ) : (
         <div className="min-w-0 space-y-4" data-testid="project-overview-widgets">
-          <OverviewStatusCard status={query.data.statusSummary} />
+          <OverviewStatusCard status={query.data.statusSummary} report={reports.data} projectKey={project.key} />
           <OverviewNumberCards projectKey={project.key} today={query.data.today} cards={query.data.cards} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
             <OverviewProgress

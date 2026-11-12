@@ -110,6 +110,7 @@ class WikiAiServiceTest {
         false,
         false,
         WikiPageKind.NOTE,
+        null,
         null);
   }
 

@@ -94,6 +94,29 @@ public class ProjectNoteSpaceRepository {
         .fetchMap(PROJECT_MEMBER.USER_ID, PROJECT_MEMBER.ROLE);
   }
 
+  /**
+   * 「리포트」·리포트·템플릿 작성자(WP-1480·1483 공통 규칙 하나) — 프로젝트 소유자(project.owner_id)가 지금도 프로젝트 직접 멤버면 그 사람,
+   * 아니면(이미 떠났으면) 지금 OWNER 직접 멤버 중 가장 작은 id, OWNER 멤버가 없을 때만 owner_id 로 돌아간다. 떠난 사람이 노트 작성자로 보이지 않게.
+   * 지워진 프로젝트도 읽는다(프로젝트가 없을 때만 부르는 쪽이 아는 소유자 {@code fallbackOwnerId}).
+   */
+  public long findReportAuthor(long projectId, long fallbackOwnerId) {
+    return findProject(projectId)
+        .map(p -> reportAuthor(p.ownerId(), findDirectMemberRoles(projectId)))
+        .orElse(fallbackOwnerId);
+  }
+
+  /** {@link #findReportAuthor} 의 규칙 — 소유자가 직접 멤버면 소유자, 아니면 가장 작은 OWNER id, 없으면 소유자. */
+  static long reportAuthor(long ownerId, Map<Long, String> directRoles) {
+    if (directRoles.containsKey(ownerId)) {
+      return ownerId;
+    }
+    return directRoles.entrySet().stream()
+        .filter(e -> "OWNER".equals(e.getValue()))
+        .map(Map.Entry::getKey)
+        .min(Long::compare)
+        .orElse(ownerId);
+  }
+
   /** 프로젝트 멤버로 둔 조직도 부서 id — SHARED 만(노트 공간 멤버 부서도 SHARED 만 받는다). */
   public List<Long> findDepartmentGroupIds(long projectId) {
     return dsl.select(PROJECT_MEMBER_GROUP.GROUP_ID)

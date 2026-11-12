@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -143,7 +144,23 @@ public class WikiPageService {
   @Transactional(readOnly = true)
   public WikiPageDetail get(long callerId, long pageId, String shareToken) {
     requireViewer(callerId, pageId, shareToken);
-    return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    return withUpdatedByName(
+        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId)));
+  }
+
+  /**
+   * 노트를 여는 조회에 마지막 수정자 이름을 얹는다(WP-1483 노트 머리 「AI 작성 · {이름} 수정」). 수정자가 없거나 사용자 행을 못 찾으면 이름 없이 — 화면은
+   * 「수정 {시각}」만 보인다.
+   */
+  private WikiPageDetail withUpdatedByName(WikiPageDetail detail) {
+    if (detail.updatedBy() == null) {
+      return detail;
+    }
+    try {
+      return detail.withUpdatedByName(users.summaryOf(detail.updatedBy()).name());
+    } catch (IllegalStateException e) {
+      return detail;
+    }
   }
 
   /**
@@ -185,7 +202,7 @@ public class WikiPageService {
     }
     // 권한 검사(없는 페이지 404·권한 없음 403)를 기록보다 먼저 — 실패하면 아무것도 남기지 않는다.
     requireViewer(callerId, pageId, shareToken);
-    return detailRecordingBase(pageId);
+    return withUpdatedByName(detailRecordingBase(pageId));
   }
 
   /**
@@ -261,31 +278,85 @@ public class WikiPageService {
       return tx.execute(
           s -> saveInTx(loadForEdit(callerId, pageId, titleShareToken), callerId, req));
     }
+    // snapshot 은 AI 적용일 때만(판정 R8) — 동기화 서버의 적용 저장이 직전 판을 리비전으로 남긴다. 사람 저장은 시간 규칙(5분 정적·30분)이
+    // 판단하므로 req.snapshot 은 무시한다.
+    return delegatedSave(tx, callerId, pageId, req, () -> loadForEdit(callerId, pageId), ai, ai);
+  }
 
+  /**
+   * 본문 위임 저장 ①~③ — 사람 저장({@link #save(long, long, SavePageRequest, boolean, String)})과 서버 저장({@link
+   * #saveAsSystem})이 공유한다. 둘은 ①의 페이지 로드(권한 검사 여부)와 스냅숏 판단만 다르다.
+   *
+   * @param load ① 트랜잭션 안에서 페이지를 읽는다(사람 경로는 EDITOR 검사 포함)
+   * @param snapshot 동기화 서버가 적용 직전 판을 리비전으로 남길지
+   */
+  private WikiPageDetail delegatedSave(
+      TransactionTemplate tx,
+      long actorId,
+      long pageId,
+      SavePageRequest req,
+      Supplier<WikiPageDetail> load,
+      boolean ai,
+      boolean snapshot) {
     // 호출자가 트랜잭션을 열어 두었으면 ①이 거기에 합류해 제목 행 잠금이 위임 내내 남는다 — 교착 대신 즉시 실패시킨다.
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("동기화 서버 본문 위임은 트랜잭션 밖에서 호출해야 합니다: page=" + pageId);
     }
-    // ① 권한 확인 + 기준본 해석 + 제목 커밋. 기준본이 없으면(만료) 여기서 409 — 제목 커밋·위임 전이라 아무것도 남기지 않는다.
+    // ① 로드(권한 확인) + 기준본 해석 + 제목 커밋. 기준본이 없으면(만료) 여기서 409 — 제목 커밋·위임 전이라 아무것도 남기지 않는다.
     //    작성자 표시 이름도 여기서(트랜잭션 안 — RLS GUC 필요) 구해 둔다. AGENT 주체(MCP·비서 계정)면 에이전트 자신의 이름이다.
     Delegation d =
         tx.execute(
             s -> {
-              WikiPageDetail current = requireNote(loadForEdit(callerId, pageId));
+              WikiPageDetail current = requireNote(load.get());
               requireVersionPresent(req, pageId);
               MergeBase base = resolveBase(current, req.version());
-              saveTitleIfPresent(current, req, callerId);
-              return new Delegation(base, users.summaryOf(callerId).name(), current);
+              saveTitleIfPresent(current, req, actorId);
+              return new Delegation(base, users.summaryOf(actorId).name(), current);
             });
 
     // ② 트랜잭션 밖에서 병합 위임(동기화 서버가 이 API 의 PUT /doc 으로 같은 행을 갱신한다 — 잠금 금지). 실패·타임아웃이면 예외로
-    //    끝나 ③의 기준본 기록도 하지 않는다(결과를 모르는 판을 기준으로 남기지 않는다). snapshot 은 AI 적용일 때만(판정 R8) — 동기화
-    //    서버의 적용 저장이 직전 판을 리비전으로 남긴다. 사람 저장은 시간 규칙(5분 정적·30분)이 판단하므로 req.snapshot 은 무시한다.
+    //    끝나 ③의 기준본 기록도 하지 않는다(결과를 모르는 판을 기준으로 남기지 않는다).
     CollabApplyResult applied =
         collab.applyMarkdown(
-            TenantContext.require(), pageId, d.base(), req.body(), callerId, d.actorName(), ai, ai);
+            TenantContext.require(),
+            pageId,
+            d.base(),
+            req.body(),
+            actorId,
+            d.actorName(),
+            ai,
+            snapshot);
 
-    return finishDelegation(tx, pageId, d.current(), req.title(), req.body(), callerId, applied);
+    // ③ 응답 판의 기준본을 남기고 응답을 만든다.
+    return finishDelegation(tx, pageId, d.current(), req.title(), req.body(), actorId, applied);
+  }
+
+  /**
+   * 서버가 쓰는 본문 저장(WP-1483 프로젝트 리포트·템플릿) — {@link #save(long, long, SavePageRequest, boolean)} 의
+   * 위임/비위임 두 경로를 그대로 따르되 공간 역할 검사를 하지 않는다. 실행기에는 사용자 세션이 없고, 작성자(리포트 작성자 규칙 — 소유자 또는 가장 작은 OWNER
+   * id)나 설정한 ADMIN 이 공간 멤버가 아닐 수 있어서다. 같은 패키지의 {@link WikiSystemPageWriter} 만 부른다.
+   *
+   * <p>트랜잭션 밖에서 불러야 한다(위임 경로는 {@link #save} 와 같은 이유로 막는다). 비위임 경로(동기화 서버 꺼짐)에서 snapshot 이면 시간 규칙과
+   * 무관하게 직전 판을 남긴다 — AI 쓰기면 AI, 아니면(템플릿 되돌리기) RESTORE 사유.
+   *
+   * @param ai AI 가 쓴 본문이면 true(동기화 서버의 ✦ 표시)
+   * @param snapshot 적용 직전 판을 리비전으로 남길지
+   */
+  WikiPageDetail saveAsSystem(
+      long authorId, long pageId, SavePageRequest req, boolean ai, boolean snapshot) {
+    boolean delegate = req.body() != null && collabProps.enabled();
+    TransactionTemplate tx = new TransactionTemplate(txManager);
+    if (!delegate) {
+      RevisionReason forced = snapshot ? (ai ? RevisionReason.AI : RevisionReason.RESTORE) : null;
+      return tx.execute(s -> saveInTx(loadUnchecked(pageId), authorId, req, forced));
+    }
+    // 역할 검사 없는 로드로 사람 경로와 같은 ①~③ — 스냅숏은 부른 쪽이 정한다(템플릿 되돌리기는 사람 쓰기지만 직전 판을 남긴다).
+    return delegatedSave(tx, authorId, pageId, req, () -> loadUnchecked(pageId), ai, snapshot);
+  }
+
+  /** 역할 검사 없이 페이지 상세를 읽는다(서버 쓰기 전용). 없으면 404. 트랜잭션 안에서 호출. */
+  private WikiPageDetail loadUnchecked(long pageId) {
+    return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
   /**
@@ -355,7 +426,8 @@ public class WikiPageService {
           c.shareExpired(),
           c.fullWidth(),
           c.kind(),
-          c.html());
+          c.html(),
+          null);
     }
   }
 
@@ -566,6 +638,29 @@ public class WikiPageService {
     shareLifecycle.onMoved(spaceId, pageId, oldParentId, req.parentId(), callerId);
     // #724: 트리 이동을 스페이스 멤버에게 알려 사이드바 트리가 재조회되도록 한다.
     publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, callerId, Instant.now()));
+  }
+
+  /**
+   * 서버가 하는 같은 공간 안 자리 옮기기(WP-1483 — 리포트·템플릿을 「리포트」 아래 맨 위로). {@link #move} 의 같은 공간 분기에서 역할 검사만 뺀
+   * 것이다 — 트리 잠금·사이클/공간 검사·형제 재번호·공유 범위 기록·이동 이벤트는 같다. 같은 패키지의 {@link WikiSystemPageWriter} 만 부른다.
+   *
+   * @param actorId 이벤트·공유 기록의 행위자(없으면 null — 부모가 바뀌는 공유 기록은 건너뛴다)
+   * @param parentId 새 부모(같은 공간), null 이면 맨 위
+   */
+  @Transactional
+  void moveAsSystem(Long actorId, long pageId, Long parentId, int position) {
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    pages.lockSpaceTree(spaceId);
+    requireStillInSpace(pageId, spaceId);
+    requireMovable(pageId, spaceId, parentId);
+    Long oldParentId = pages.findParentId(pageId);
+    pages.move(pageId, parentId, position);
+    reorderSiblings(spaceId, parentId, pageId, position);
+    if (actorId != null) {
+      shareLifecycle.onMoved(spaceId, pageId, oldParentId, parentId, actorId);
+    }
+    publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, actorId, Instant.now()));
   }
 
   /**
