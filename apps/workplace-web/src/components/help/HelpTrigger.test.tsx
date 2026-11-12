@@ -14,6 +14,12 @@ import { HelpTrigger } from './HelpTrigger'
 const mobile = vi.hoisted(() => ({ value: false }))
 vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => mobile.value, getIsMobile: () => mobile.value }))
 
+// 「?」 단추는 마우스·포커스가 오면 패널 본체를 미리 받는다(import 를 기다리지 않음). 이 테스트는 패널을 그리지 않는데,
+// 진짜 import 를 두면 무거운 모듈 사슬(→ axios)이 테스트가 끝나 환경이 정리된 뒤에도 이어져 전체 실행에서
+// EnvironmentTeardownError(처리되지 않은 오류)로 vitest 를 실패시켰다(WP-1530) — 미리 받기는 부른 것만 확인한다.
+const loader = vi.hoisted(() => ({ preloadHelpPanel: vi.fn(() => Promise.resolve()) }))
+vi.mock('./helpPanelLoader', () => loader)
+
 /** AI 모드·도움말 열림을 글로 보이고 AI 를 여는 단추를 둔 탐침. */
 function Probe() {
   const ai = useAssistant()
@@ -50,6 +56,14 @@ describe('HelpTrigger', () => {
     await user.click(button)
     expect(button).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByTestId('help-open')).toHaveTextContent('closed')
+  })
+
+  it('마우스가 오면 패널 본체를 미리 받는다', async () => {
+    mobile.value = false
+    loader.preloadHelpPanel.mockClear()
+    const { user } = renderScreen(wrap(<HelpTrigger />))
+    await user.hover(screen.getByRole('button', { name: '도움말 (?)' }))
+    expect(loader.preloadHelpPanel).toHaveBeenCalled()
   })
 })
 
