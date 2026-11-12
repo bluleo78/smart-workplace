@@ -285,7 +285,7 @@ export function DriveAttachmentsView() {
                                 // 조회 중(busy)에는 disabled 가 아닌 aria-disabled 로 막는다 — 방금 누른 버튼에 disabled 를 달면 포커스가 body 로
                                 // 떨어져 폴더 창이 닫힐 때 이 버튼으로 돌아오지 못한다. 누름은 begin 이 busy 면 무시한다. 모양은 Button 의 disabled 와 같게.
                                 aria-disabled={importer.busy || undefined}
-                                onClick={() => importer.begin(importTarget)}
+                                onClick={() => importer.begin(importTarget, { name: a.name, mimeType: a.mimeType })}
                                 className="shrink-0 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                               >
                                 드라이브에 저장

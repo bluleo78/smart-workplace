@@ -2,7 +2,6 @@ package com.workplace.drive.service;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.dto.CreateShareLinkRequest;
-import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareInfoResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
@@ -13,6 +12,7 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
+import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.CapabilityTokens;
@@ -24,12 +24,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** 공유 링크 관리(생성/목록/폐기). 생성 권한 EDITOR. 평문 토큰은 생성 응답 1회만. */
+/**
+ * 공유 링크 관리(생성/목록/폐기). 생성 권한 EDITOR. 토큰은 해시(resolve 용)와 AES-GCM 암호문(WP-1528, 목록에서 다시 보여주기 용)으로만 저장하고
+ * 평문은 저장하지 않는다.
+ */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DriveShareLinkService {
@@ -39,6 +44,9 @@ public class DriveShareLinkService {
   private final DriveFileRepository files;
   private final DrivePermissions perms;
   private final PasswordEncoder passwordEncoder;
+
+  /** 토큰 암호문 저장·복호화(WP-1528). */
+  private final EncryptionService encryption;
 
   /** 공유 링크 비밀번호 브루트포스 방어(#700). */
   private final DriveShareLinkAttemptService attemptService;
@@ -67,10 +75,12 @@ public class DriveShareLinkService {
   /** 앱 카드 Member 판정과 공간 이름(WP-1474) — 실효 역할(부서 역할 포함)이 있는 공간만 돌려준다. */
   private final DriveSpaceRepository spaces;
 
-  /** 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시 저장 → 평문 1회 반환. */
+  /**
+   * 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시+암호문 저장 → 목록과 같은 모양의 항목(평문 토큰·만든 사람 이름·만든 시각 포함)을 돌려준다
+   * (WP-1528). 예전 생성 응답의 칸(id·token·audience·hasPassword·expiresAt)은 그대로 들어 있어 기존 호출부와 호환된다.
+   */
   @Transactional
-  public CreatedShareLinkResponse create(
-      long callerId, long driveFileId, CreateShareLinkRequest req) {
+  public ShareLinkResponse create(long callerId, long driveFileId, CreateShareLinkRequest req) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     // WP-1424: 비멤버는 공간 없음 대신 파일 없음(404)으로 파일 id 존재를 숨긴다.
@@ -92,7 +102,15 @@ public class DriveShareLinkService {
     }
 
     long id =
-        links.insert(driveFileId, row.spaceId(), tokenHash, audience, pwHash, expiresAt, callerId);
+        links.insert(
+            driveFileId,
+            row.spaceId(),
+            tokenHash,
+            encryption.encrypt(token),
+            audience,
+            pwHash,
+            expiresAt,
+            callerId);
     // 감사 로그 — FILE_SHARE(#81), 같은 @Transactional 안에서 기록.
     auditLogService.log(
         callerId,
@@ -106,7 +124,10 @@ public class DriveShareLinkService {
         "SUCCESS",
         null,
         Map.of("spaceId", row.spaceId(), "audience", audience));
-    return new CreatedShareLinkResponse(id, token, audience, pwHash != null, expiresAt);
+    // 방금 넣은 행을 목록과 같은 조회로 읽는다 — 토큰은 이미 아는 평문을 그대로 싣는다(복호화할 까닭이 없다).
+    DriveShareLinkRepository.ShareLinkRow created =
+        links.findRow(id).orElseThrow(() -> new IllegalStateException("생성한 공유 링크를 찾지 못함 id=" + id));
+    return toResponse(created, token);
   }
 
   /**
@@ -126,13 +147,55 @@ public class DriveShareLinkService {
     return passwordEncoder.encode(password);
   }
 
-  /** 파일의 링크 목록. EDITOR 검증(보관 공간도 허용 — 폐기할 링크를 찾아야 하므로). 토큰 미포함. */
+  /**
+   * 파일의 링크 목록. EDITOR 검증(보관 공간도 허용 — 폐기할 링크를 찾아야 하므로). 살아 있는 링크만 토큰을 복호화해 돌려준다(WP-1528) — 폐기·만료된
+   * 링크는 다시 쓸 수 없으니 풀지 않고 null 로 둔다(불필요한 평문 노출을 줄인다).
+   */
   @Transactional(readOnly = true)
   public List<ShareLinkResponse> list(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireFileRoleEvenIfArchived(row.spaceId(), callerId, driveFileId, "EDITOR");
-    return links.listByFile(driveFileId);
+    return links.listByFile(driveFileId).stream().map(r -> toResponse(r, tokenFor(r))).toList();
+  }
+
+  /** 저장소 한 줄 → 응답 항목. 토큰은 호출부가 정한다(목록은 {@link #tokenFor}, 생성은 방금 만든 평문). */
+  private static ShareLinkResponse toResponse(
+      DriveShareLinkRepository.ShareLinkRow r, String token) {
+    return new ShareLinkResponse(
+        r.id(),
+        r.audience(),
+        r.hasPassword(),
+        r.expiresAt(),
+        r.revoked(),
+        r.active(),
+        r.createdAt(),
+        r.createdBy(),
+        r.createdByName(),
+        token);
+  }
+
+  /**
+   * 목록에 실을 토큰 — 살아 있지 않은(폐기·만료) 링크는 다시 쓸 수 없으니 풀지 않고 null. 살아 있으면 암호문을 평문으로 풀고, 그 행의 token_hash 와
+   * 맞는지 확인한다. 암호문이 없거나(WP-1528 이전 링크) 풀리지 않거나(키 교체·손상) 해시가 다르면(다른 행 암호문이 옮겨진 경우 등 — 엉뚱한 URL 을 복사하게
+   * 하지 않는다) null — 목록 전체가 실패하지 않게 한다. 로그에는 링크 id 만 남기고 토큰·암호문 값은 남기지 않는다.
+   */
+  private String tokenFor(DriveShareLinkRepository.ShareLinkRow r) {
+    if (!r.active() || r.tokenEncrypted() == null) {
+      return null;
+    }
+    String token;
+    try {
+      token = encryption.decrypt(r.tokenEncrypted());
+    } catch (RuntimeException e) {
+      log.warn("공유 링크 토큰 복호화 실패 linkId={}", r.id());
+      return null;
+    }
+    if (!CapabilityTokens.sha256Hex(token).equals(r.tokenHash())) {
+      log.warn("공유 링크 토큰 해시 불일치 linkId={}", r.id());
+      return null;
+    }
+    return token;
   }
 
   /** 링크 폐기. 링크의 공간 EDITOR 검증(보관 공간도 허용 — 공유 중단은 노출을 줄이는 작업). 미존재/이미폐기 → 404. */

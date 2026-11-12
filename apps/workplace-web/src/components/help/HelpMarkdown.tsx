@@ -58,7 +58,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const copy = async () => {
     // mdast → hast 가 코드 블록 끝에 줄바꿈 하나를 붙이므로 떼어 원문 명령 그대로 복사한다.
     const text = (preRef.current?.textContent ?? '').replace(/\n$/, '')
-    const ok = await copyToClipboard(text, { success: '복사했습니다', failure: '복사에 실패했습니다. 직접 선택해 복사하세요.' })
+    const ok = await copyToClipboard(text, { success: '복사했습니다' })
     if (ok) setCopied(true)
   }
   // 단추를 코드 위에 띄우지(absolute) 않고 코드 칸 옆 제 열에 둔다 — 띄우면 긴 줄이 가로로 넘칠 때 오른쪽 여백(pr)이 스크롤 끝에만 생겨

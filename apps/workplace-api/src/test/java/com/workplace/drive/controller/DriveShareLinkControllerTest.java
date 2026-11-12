@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.global.security.JwtProperties;
@@ -70,7 +69,9 @@ class DriveShareLinkControllerTest extends WebMvcSliceTestBase {
   @Test
   void create_returns201() throws Exception {
     given(service.create(eq(1L), eq(10L), any()))
-        .willReturn(new CreatedShareLinkResponse(5L, "sl_x", "EXTERNAL", false, null));
+        .willReturn(
+            new ShareLinkResponse(
+                5L, "EXTERNAL", false, null, false, true, null, 1L, "홍길동", "sl_x"));
 
     mockMvc
         .perform(
@@ -80,20 +81,28 @@ class DriveShareLinkControllerTest extends WebMvcSliceTestBase {
                 .content("{\"audience\":\"EXTERNAL\"}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.token").value("sl_x"))
-        .andExpect(jsonPath("$.id").value(5));
+        .andExpect(jsonPath("$.id").value(5))
+        .andExpect(jsonPath("$.active").value(true))
+        .andExpect(jsonPath("$.createdByName").value("홍길동"));
   }
 
   /** 링크 목록 → 200 + 배열. */
   @Test
   void list_returns200() throws Exception {
     given(service.list(eq(1L), eq(10L)))
-        .willReturn(List.of(new ShareLinkResponse(5L, "EXTERNAL", false, null, false, null, 1L)));
+        .willReturn(
+            List.of(
+                new ShareLinkResponse(
+                    5L, "EXTERNAL", false, null, false, true, null, 1L, "홍길동", "sl_abc")));
 
     mockMvc
         .perform(get("/api/v1/drive/files/10/share-links").with(authentication(userAuth(1L))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].id").value(5))
-        .andExpect(jsonPath("$[0].audience").value("EXTERNAL"));
+        .andExpect(jsonPath("$[0].audience").value("EXTERNAL"))
+        .andExpect(jsonPath("$[0].active").value(true))
+        .andExpect(jsonPath("$[0].token").value("sl_abc"))
+        .andExpect(jsonPath("$[0].createdByName").value("홍길동"));
   }
 
   /** 링크 폐기 → 204 No Content. */

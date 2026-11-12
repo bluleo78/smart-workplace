@@ -1,6 +1,7 @@
 package com.workplace.drive.service;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
 import static com.workplace.jooq.Tables.FILE;
@@ -12,7 +13,9 @@ import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.repository.DriveSpaceRepository;
+import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -31,6 +34,7 @@ class DriveShareLinkServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveShareLinkService service;
   @Autowired DriveSpaceRepository spaces;
+  @Autowired EncryptionService encryption;
 
   @BeforeEach
   void setCtx() {
@@ -51,9 +55,13 @@ class DriveShareLinkServiceTest extends IntegrationTestBase {
     var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
     assertThat(created.token()).startsWith("sl_");
     assertThat(created.hasPassword()).isFalse();
-    // 목록엔 토큰 없음, 1건
     var list = service.list(owner, fileId);
     assertThat(list).hasSize(1);
+    // WP-1528: 생성 응답은 목록 항목과 같은 모양 — 웹이 서버 행을 그대로 맨 위에 넣는다.
+    assertThat(created).isEqualTo(list.get(0));
+    assertThat(created.active()).isTrue();
+    assertThat(created.createdByName()).isEqualTo(nameOf(owner));
+    assertThat(created.createdAt()).isNotNull();
   }
 
   @Test
@@ -182,6 +190,151 @@ class DriveShareLinkServiceTest extends IntegrationTestBase {
         .isInstanceOf(DriveForbiddenException.class);
     assertThatThrownBy(() -> service.revoke(viewer, created.id()))
         .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  // --- WP-1528: 토큰 암호문 저장·목록 재노출 ---
+
+  @Test
+  void list_returnsSameTokenAsCreate() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+
+    var item = service.list(owner, fileId).get(0);
+    assertThat(item.token()).isEqualTo(created.token());
+    assertThat(item.createdByName()).isEqualTo(nameOf(owner));
+    assertThat(item.active()).isTrue();
+  }
+
+  @Test
+  void list_legacyRowWithoutCiphertext_returnsNullToken() {
+    long owner = seedUser();
+    long spaceId = seedSpace(owner);
+    long fileId = seedFile(owner, spaceId);
+    dsl.insertInto(DRIVE_SHARE_LINK)
+        .set(DRIVE_SHARE_LINK.DRIVE_FILE_ID, fileId)
+        .set(DRIVE_SHARE_LINK.SPACE_ID, spaceId)
+        .set(
+            DRIVE_SHARE_LINK.TOKEN_HASH,
+            UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", ""))
+        .set(DRIVE_SHARE_LINK.AUDIENCE, "EXTERNAL")
+        .set(DRIVE_SHARE_LINK.CREATED_BY, owner)
+        .execute();
+
+    var item = service.list(owner, fileId).get(0);
+    assertThat(item.token()).isNull();
+    assertThat(item.revoked()).isFalse();
+  }
+
+  @Test
+  void create_storesNoPlaintextToken() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+
+    var rec =
+        dsl.selectFrom(DRIVE_SHARE_LINK).where(DRIVE_SHARE_LINK.ID.eq(created.id())).fetchOne();
+    for (Object v : rec.intoArray()) {
+      assertThat(String.valueOf(v)).doesNotContain(created.token());
+    }
+    assertThat(rec.getTokenEncrypted()).isNotNull();
+    assertThat(encryption.decrypt(rec.getTokenEncrypted())).isEqualTo(created.token());
+    assertThat(rec.getTokenHash()).isEqualTo(CapabilityTokens.sha256Hex(created.token()));
+  }
+
+  @Test
+  void list_undecryptableCiphertext_returnsNullToken() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+    dsl.update(DRIVE_SHARE_LINK)
+        .set(DRIVE_SHARE_LINK.TOKEN_ENCRYPTED, "AAAA:BBBB")
+        .where(DRIVE_SHARE_LINK.ID.eq(created.id()))
+        .execute();
+
+    assertThat(service.list(owner, fileId).get(0).token()).isNull();
+  }
+
+  @Test
+  void list_byOtherEditor_seesCreatorNameAndToken() {
+    long owner = seedUser();
+    long editor = seedUser();
+    long spaceId = seedSpace(owner);
+    addMember(spaceId, editor, "EDITOR");
+    long fileId = seedFile(owner, spaceId);
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+
+    var item = service.list(editor, fileId).get(0);
+    assertThat(item.createdByName()).isEqualTo(nameOf(owner));
+    assertThat(item.token()).isEqualTo(created.token());
+  }
+
+  @Test
+  void list_byViewer_isForbidden() {
+    long owner = seedUser();
+    long viewer = seedUser();
+    long spaceId = seedSpace(owner);
+    addMember(spaceId, viewer, "VIEWER");
+    long fileId = seedFile(owner, spaceId);
+    service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+
+    assertThatThrownBy(() -> service.list(viewer, fileId))
+        .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  // 코드 리뷰: 폐기된 링크는 다시 쓸 수 없으니 서버가 토큰을 풀어 내려보내지 않는다.
+  @Test
+  void list_revokedRow_returnsNullToken() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+    service.revoke(owner, created.id());
+
+    var item = service.list(owner, fileId).get(0);
+    assertThat(item.revoked()).isTrue();
+    assertThat(item.active()).isFalse();
+    assertThat(item.token()).isNull();
+  }
+
+  // 코드 리뷰: 만료된 링크(서버 시계 기준)도 토큰을 내려보내지 않는다 — 만료 판정을 클라이언트 시계에 맡기지 않는다.
+  @Test
+  void list_expiredRow_returnsNullToken() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+    expire(created.id());
+
+    var item = service.list(owner, fileId).get(0);
+    assertThat(item.revoked()).isFalse();
+    assertThat(item.active()).isFalse();
+    assertThat(item.token()).isNull();
+  }
+
+  // 코드 리뷰: 복호화한 토큰이 그 행의 token_hash 와 맞지 않으면(다른 행 암호문이 옮겨진 경우 등) 잘못된 URL 을 보이지 않게 null.
+  @Test
+  void list_ciphertextNotMatchingHash_returnsNullToken() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+    dsl.update(DRIVE_SHARE_LINK)
+        .set(DRIVE_SHARE_LINK.TOKEN_ENCRYPTED, encryption.encrypt("sl_someone_else"))
+        .where(DRIVE_SHARE_LINK.ID.eq(created.id()))
+        .execute();
+
+    assertThat(service.list(owner, fileId).get(0).token()).isNull();
+  }
+
+  /** 링크의 만료 시각을 하루 전으로 당긴다 — 생성 API 는 과거 만료일을 막으므로 직접 고친다. */
+  private void expire(long linkId) {
+    dsl.update(DRIVE_SHARE_LINK)
+        .set(DRIVE_SHARE_LINK.EXPIRES_AT, java.time.OffsetDateTime.now().minusDays(1))
+        .where(DRIVE_SHARE_LINK.ID.eq(linkId))
+        .execute();
+  }
+
+  private String nameOf(long userId) {
+    return dsl.select(USER.NAME).from(USER).where(USER.ID.eq(userId)).fetchOne(USER.NAME);
   }
 
   // --- 시드 헬퍼 (DriveShareLinkRepositoryTest UUID-suffix 패턴) ---

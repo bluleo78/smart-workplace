@@ -8,6 +8,7 @@ import {
   isDriveSpaceReadOnly,
   isDriveSpaceViewer,
   partitionSpaces,
+  saveTargetSpaces,
   spaceDisplayName,
 } from './driveSpaces'
 
@@ -95,5 +96,27 @@ describe('spaceDisplayName', () => {
     expect(spaceDisplayName(space(1, 'PERSONAL', '홍길동'))).toBe('내 드라이브')
     expect(spaceDisplayName(space(2, 'TEAM', '개발팀'))).toBe('개발팀')
     expect(spaceDisplayName(space(3, 'CHANNEL', '#general'))).toBe('#general')
+  })
+})
+
+describe('saveTargetSpaces', () => {
+  it('채널·읽기 전용(보관·보기 전용)을 빼고 개인·팀 그룹으로 나눠 입력 순서로 돌려준다', () => {
+    const spaces: DriveSpace[] = [
+      space(1, 'TEAM', '마케팅'),
+      space(2, 'CHANNEL', '채널'),
+      space(3, 'PERSONAL', '내 드라이브'),
+      { ...space(4, 'TEAM', '보관'), archived: true },
+      { ...space(5, 'TEAM', '보기'), role: 'VIEWER' },
+    ]
+    const { personal, team, all } = saveTargetSpaces(spaces)
+    expect(personal.map((s) => s.id)).toEqual([3])
+    expect(team.map((s) => s.id)).toEqual([1])
+    // all = 개인 뒤에 팀
+    expect(all.map((s) => s.id)).toEqual([3, 1])
+  })
+
+  it('TEAM 이 아닌 공유 공간 유형도 PERSONAL·CHANNEL 이 아니면 팀 그룹에 넣는다', () => {
+    const odd = { ...space(8, 'TEAM', '기타'), type: 'PROJECT' as unknown as DriveSpace['type'] }
+    expect(saveTargetSpaces([odd]).team.map((s) => s.id)).toEqual([8])
   })
 })

@@ -59,3 +59,22 @@ export function isDriveSpaceViewer(space: Pick<DriveSpace, 'role'> | null | unde
 export function isDriveSpaceReadOnly(space: Pick<DriveSpace, 'archived' | 'role'> | null | undefined): boolean {
   return !!space && (space.archived || isDriveSpaceViewer(space))
 }
+
+/** 「드라이브에 저장」 후보 공간 그룹 — 개인(내 드라이브)과 팀(채널이 아닌 나머지 공유 공간). */
+export interface SaveTargetSpaces {
+  personal: DriveSpace[]
+  team: DriveSpace[]
+  /** personal + team 을 이은 전체 후보 — 합치기를 호출부마다 되풀이하지 않게 여기서 한 번만 만든다. */
+  all: DriveSpace[]
+}
+
+/**
+ * 「드라이브에 저장」 대상으로 고를 수 있는 공간(WP-1526) — 채널 연동 공간과 읽기 전용(보관·보기 전용) 공간은 뺀다.
+ * 공간 분류를 이 한 곳에서 한다: personal = PERSONAL, team = PERSONAL·CHANNEL 이 아닌 모든 공간. 각 그룹은 입력 순서를 유지한다.
+ */
+export function saveTargetSpaces(spaces: DriveSpace[]): SaveTargetSpaces {
+  const usable = spaces.filter((s) => s.type !== 'CHANNEL' && !isDriveSpaceReadOnly(s))
+  const personal = usable.filter((s) => s.type === 'PERSONAL')
+  const team = usable.filter((s) => s.type !== 'PERSONAL')
+  return { personal, team, all: [...personal, ...team] }
+}

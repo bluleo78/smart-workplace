@@ -4,7 +4,6 @@ import { downloadBlob } from '../lib/download'
 import type {
   BulkMoveBody,
   BulkSelection,
-  CreatedShareLink,
   DriveFile,
   DriveFileVersion,
   DriveFolder,
@@ -53,14 +52,14 @@ export async function readJsonBody(data: Blob): Promise<Record<string, unknown> 
 }
 
 // 공유 링크 타입은 types/drive 에 정의(DTO 단일 출처). 기존 import 처를 위해 재노출.
-export type { CreatedShareLink, ShareLink } from '../types/drive'
+export type { ShareLink } from '../types/drive'
 
-// 공유 링크 생성 — audience, 비밀번호(선택), 만료일(선택).
+// 공유 링크 생성 — audience, 비밀번호(선택), 만료일(선택). 응답은 목록 항목과 같은 모양(토큰·만든 사람 이름 포함, WP-1528).
 export async function createShareLink(
   fileId: number,
   body: { audience: 'EXTERNAL' | 'INTERNAL'; password?: string; expiresAt?: string },
-): Promise<CreatedShareLink> {
-  const { data } = await client.post<CreatedShareLink>(`/drive/files/${fileId}/share-links`, body);
+): Promise<ShareLink> {
+  const { data } = await client.post<ShareLink>(`/drive/files/${fileId}/share-links`, body);
   return data;
 }
 
