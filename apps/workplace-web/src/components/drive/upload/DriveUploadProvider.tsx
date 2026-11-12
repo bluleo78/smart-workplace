@@ -18,6 +18,7 @@ import { driveKeys } from '@/hooks/queries/driveKeys'
 import { useAuth } from '@/hooks/useAuth'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { onIdentityChange } from '@/lib/auth/identityChange'
+import { uploadDriveFile } from '@/lib/drive/chunkedUpload'
 import { useDriveUploadQueue } from '@/pages/drive/useDriveUploadQueue'
 
 import {
@@ -31,9 +32,12 @@ import {
   type DriveUploadLayoutValue,
 } from './driveUploadContext'
 
-/** 기본 전송 — 한 번에 올린다. WP-1520 이 이 함수(또는 Provider 의 upload prop)를 나눠 올리기로 바꾼다. */
+/**
+ * 기본 전송(WP-1520) — 20MB 이하는 한 번에, 넘으면 업로드 세션으로 조각을 나눠 이어 올린다.
+ * 끊기면 받은 데부터 잇고, 「다시 시도」로 같은 파일을 다시 올려도 이어 간다.
+ */
 const defaultDriveUpload: DriveFileUpload = (root, folderId, file, signal, onProgress) =>
-  driveApi.uploadFile(root.sid, folderId, file, signal, onProgress)
+  uploadDriveFile(root.sid, folderId, file, { signal, onProgress })
 
 /** 기본 폴더 해석 — 부모 아래 이름으로 폴더를 찾거나 만들어 id 를 준다. */
 const defaultDriveResolveFolder: DriveFolderResolve = async (root, parentId, name) =>

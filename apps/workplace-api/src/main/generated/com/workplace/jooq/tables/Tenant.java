@@ -52,6 +52,7 @@ import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.DriveSpaceMember.DriveSpaceMemberPath;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
 import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
+import com.workplace.jooq.tables.DriveUploadSession.DriveUploadSessionPath;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
 import com.workplace.jooq.tables.EmailAttachment.EmailAttachmentPath;
 import com.workplace.jooq.tables.EmailCalendarInvite.EmailCalendarInvitePath;
@@ -988,6 +989,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _driveSpace = new DriveSpacePath(this, null, Keys.DRIVE_SPACE__FK_DRIVE_SPACE_TENANT.getInverseKey());
 
         return _driveSpace;
+    }
+
+    private transient DriveUploadSessionPath _driveUploadSession;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_upload_session</code> table
+     */
+    public DriveUploadSessionPath driveUploadSession() {
+        if (_driveUploadSession == null)
+            _driveUploadSession = new DriveUploadSessionPath(this, null, Keys.DRIVE_UPLOAD_SESSION__FK_DRIVE_UPLOAD_SESSION_TENANT.getInverseKey());
+
+        return _driveUploadSession;
     }
 
     private transient EmailAccountPath _emailAccount;

@@ -75,6 +75,21 @@ public class FileStore {
     }
   }
 
+  /**
+   * 디스크의 다른 파일을 저장 경로로 옮긴다(WP-1520 — 나눠 올리기의 다 받은 임시 파일). {@link #storeFrom} 과 달리 원본을 복사하지 않아 큰 파일의
+   * 두 번째 전체 복사를 피한다. 원본(.part)도 같은 저장소 루트 아래에 있어 늘 같은 파일시스템 안의 옮기기다 — 복사 대체 경로는 두지 않고, 실패는 그대로 예외로
+   * 올린다.
+   */
+  public void moveFrom(String relativePath, Path source) {
+    try {
+      Path target = resolve(relativePath);
+      Files.createDirectories(target.getParent());
+      Files.move(source, target);
+    } catch (IOException e) {
+      throw new UncheckedIOException("파일 저장 실패: " + relativePath, e);
+    }
+  }
+
   public void storeBytes(String relativePath, byte[] bytes) {
     try {
       Path target = resolve(relativePath);

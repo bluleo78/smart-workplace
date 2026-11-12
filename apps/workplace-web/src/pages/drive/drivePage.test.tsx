@@ -949,6 +949,54 @@ describe('업로드', () => {
     expect(await screen.findByText('memo.txt', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
   })
 
+  // WP-1520: 20MB 를 넘는 파일은 한 번 올리기(POST files) 대신 세션을 열어 조각(PUT chunks?offset)으로 보내고 complete 로 마무리한다.
+  test('20MB 넘는 파일은 나눠 올리기 세션으로 조각을 보내고 완료되면 목록에 보인다', async () => {
+    const state: Items = { folders: [], files: [] }
+    const size = 20 * 1024 * 1024 + 1
+    const chunkSize = 20 * 1024 * 1024
+    const starts: unknown[] = []
+    const chunks: { offset: string | null; type: string | null; body: string }[] = []
+    let completed = 0
+    await openDrive(() => state, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => HttpResponse.json({ message: '한 번 올리기를 쓰면 안 된다' }, { status: 500 })),
+        http.post(`${API}/spaces/${SPACE_ID}/upload-sessions`, async ({ request }) => {
+          starts.push(await request.json())
+          return HttpResponse.json({ id: 'sess-1', chunkSize, receivedBytes: 0, size, expiresAt: '2026-11-13T00:00:00Z' }, { status: 201 })
+        }),
+        http.put(`${API}/upload-sessions/sess-1/chunks`, async ({ request }) => {
+          const offset = new URL(request.url).searchParams.get('offset')
+          chunks.push({ offset, type: request.headers.get('content-type'), body: await request.text() })
+          return HttpResponse.json({ receivedBytes: Math.min(Number(offset) + chunkSize, size) })
+        }),
+        http.post(`${API}/upload-sessions/sess-1/complete`, () => {
+          completed++
+          const file = createFile({ id: 50, name: 'big.mp4' })
+          state.files = [file]
+          return HttpResponse.json(file, { status: 201 })
+        }),
+      ],
+    })
+    // 20MB 를 실제로 채우면 happy-dom XHR·MSW 가 메모리를 넘친다 — 크기만 크다고 알리고 조각은 표식 문자열로 바꾼다.
+    // happy-dom Blob 은 Symbol.toStringTag 가 없어 axios 가 Blob 으로 못 알아보고 JSON 으로 바꾼다 — 브라우저 Blob 처럼 태그를 단다.
+    const file = new File(['x'], 'big.mp4', { type: 'video/mp4' })
+    Object.defineProperty(file, 'size', { value: size })
+    file.slice = (start?: number) => {
+      const chunk = new Blob([`chunk@${start}`])
+      Object.defineProperty(chunk, Symbol.toStringTag, { value: 'Blob' })
+      return chunk
+    }
+    chooseFiles([file])
+    // WP-1531 업로드 패널은 모두 성공하면 잠시 뒤 저절로 닫힌다 — 행 대신 complete 호출과 목록 갱신(새 파일 행)을 기다린다.
+    await waitFor(() => expect(completed).toBe(1))
+    await waitFor(() => expect(screen.getAllByText('big.mp4').length).toBeGreaterThan(0))
+    expect(starts).toEqual([{ fileName: 'big.mp4', contentType: 'video/mp4', size }])
+    expect(chunks).toEqual([
+      { offset: '0', type: 'application/octet-stream', body: 'chunk@0' },
+      { offset: String(chunkSize), type: 'application/octet-stream', body: `chunk@${chunkSize}` },
+    ])
+  })
+
   // #820: 업로드가 끝나면 새로고침 없이 사이드바 사용량을 다시 불러와 갱신한다(쿼터 쿼리 무효화).
   test('업로드 뒤 사이드바 사용량이 다시 조회돼 갱신된다', async () => {
     let quotaCalls = 0

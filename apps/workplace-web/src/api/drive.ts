@@ -17,6 +17,8 @@ import type {
   DriveSearchResult,
   DriveSpace,
   DriveTrashList,
+  DriveUploadSession,
+  DriveUploadSessionStartBody,
   SharedWithMeItem,
   ShareLink,
 } from '../types/drive'
@@ -181,6 +183,39 @@ export const driveApi = {
         : undefined,
     })
   },
+
+  // ── 나눠 올리기 세션(WP-1520) ── 20MB 초과 파일을 조각으로 이어 올린다. 흐름은 lib/drive/chunkedUpload.ts 가 맡는다.
+
+  // 세션 시작 — 바이트를 받기 전에 권한·폴더·형식별 한도·회사 용량을 서버가 먼저 검사한다.
+  startUploadSession: (spaceId: number, body: DriveUploadSessionStartBody, signal?: AbortSignal) =>
+    client.post<DriveUploadSession>(`/drive/spaces/${spaceId}/upload-sessions`, body, { signal }),
+
+  // 세션 상태 — 이어 올릴 때 서버가 실제로 받은 바이트(receivedBytes)를 확인한다. 만료·없음·남의 것은 404.
+  getUploadSession: (sessionId: string, signal?: AbortSignal) =>
+    client.get<DriveUploadSession>(`/drive/upload-sessions/${sessionId}`, { signal }),
+
+  // 조각 하나 보내기 — 원시 바이트(application/octet-stream)를 offset 위치에 잇는다. offset 이 서버 값과 다르면 409(본문 receivedBytes).
+  // onProgress 는 이 조각에서 보낸 바이트 수 — 전체 진행률 계산은 호출부가 한다.
+  putUploadChunk: (
+    sessionId: string,
+    offset: number,
+    chunk: Blob,
+    signal?: AbortSignal,
+    onProgress?: (loadedBytes: number) => void,
+  ) =>
+    client.put<{ receivedBytes: number }>(`/drive/upload-sessions/${sessionId}/chunks`, chunk, {
+      params: { offset },
+      headers: { 'Content-Type': 'application/octet-stream' },
+      signal,
+      onUploadProgress: onProgress ? (e) => onProgress(e.loaded) : undefined,
+    }),
+
+  // 세션 완료 — 다 받은 바이트를 드라이브 파일로 만든다(동명이면 새 버전). 덜 받았으면 409.
+  completeUploadSession: (sessionId: string, signal?: AbortSignal) =>
+    client.post<DriveFile>(`/drive/upload-sessions/${sessionId}/complete`, undefined, { signal }),
+
+  // 세션 취소 — 서버의 임시 파일·세션을 지운다.
+  cancelUploadSession: (sessionId: string) => client.delete<void>(`/drive/upload-sessions/${sessionId}`),
 
   deleteFile: (driveFileId: number) => client.delete<void>(`/drive/files/${driveFileId}`),
 

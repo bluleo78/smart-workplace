@@ -200,6 +200,9 @@ public final class TenantPurgePlan {
           WORKER_JOB,
           // 스테이징 업로드 링크(WP-421) — user·tenant 만 참조하고 file 과 FK 가 없다. 파일을 다루는 표라 file 과 함께 둔다.
           STAGED_UPLOAD_LINK,
+          // 드라이브 나눠 올리기 세션(WP-1520) — user·tenant 만 참조한다(공간·폴더 FK 없음). 저장소가 SQL 로 다뤄 jOOQ 코드젠 클래스가
+          // 없어 이름으로 가리킨다. 임시 파일은 tenant-{id}/upload-sessions/ 아래라 디렉터리 삭제로 함께 지워진다
+          DSL.table(DSL.name("drive_upload_session")),
           FILE,
           // AI 실행 위치(WP-1248) — runner 토큰(RLS 없음, tenant_id 로 삭제)과 실행 설정(WP-1247, location_id ON
           // DELETE

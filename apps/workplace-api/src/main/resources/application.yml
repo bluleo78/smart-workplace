@@ -100,6 +100,9 @@ workplace:
       redirect-uri: ${M365_REDIRECT_URI:http://localhost:6173/oauth/m365/callback}
   drive:
     default-quota-bytes: 10737418240  # 10 GB
+    # 나눠 올리기(WP-1520): 화면이 한 번에 보낼 조각 크기. 서버는 조각 하나를 이 값의 두 배까지 받는다.
+    upload-session:
+      chunk-size: 8MB
   # Web Push — 폐쇄망(푸시 서비스로 외부 연결 불가)이면 enabled=false. VAPID 키는 env 우선, 없으면 DB 자동 생성.
   push:
     enabled: ${WORKPLACE_PUSH_ENABLED:true}
