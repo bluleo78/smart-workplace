@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { renderScreen } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
-import { HelpPanelProvider, useHelpPanel } from './HelpPanelContext'
+import { HelpPanelProvider, useHelpPanel, useHelpPanelActions, useOptionalHelpPanel } from './HelpPanelContext'
 import { HELP_MAX_WIDTH, HELP_MIN_WIDTH } from './helpPanelStorage'
 
 // 셸 분기를 테스트에서 바꾸려고 모바일 판정을 가변 값으로 대신한다(jsdom 의 matchMedia 로는 폭 전환을 일으킬 수 없다).
@@ -157,5 +157,50 @@ describe('HelpPanelProvider', () => {
     first.unmount()
     renderScreen(ui)
     expect(screen.getByTestId('width')).toHaveTextContent(String(HELP_MAX_WIDTH))
+  })
+
+  it('useOptionalHelpPanel 은 Provider 밖에서 null, 안에서 값 (WP-1507)', () => {
+    /** 패널 상태가 있는지 글로 보이는 탐침. */
+    function OptionalProbe() {
+      const help = useOptionalHelpPanel()
+      return <output data-testid="optional">{help ? `value:${help.open ? 'open' : 'closed'}` : 'null'}</output>
+    }
+    mobile.value = false
+    const { unmount } = renderScreen(<OptionalProbe />)
+    expect(screen.getByTestId('optional')).toHaveTextContent('null')
+    unmount()
+    renderScreen(
+      <HelpPanelProvider>
+        <OptionalProbe />
+      </HelpPanelProvider>,
+    )
+    expect(screen.getByTestId('optional')).toHaveTextContent('value:closed')
+  })
+
+  it('useHelpPanelActions 는 Provider 밖에서 null, 안에서는 패널을 열어도 같은 값이다 (WP-1507)', async () => {
+    const seen = new Set<unknown>()
+    /** 여는 함수 묶음을 모으고, 그것으로 패널을 연다. 열림은 전체 상태로 따로 보인다. */
+    function ActionsProbe() {
+      const actions = useHelpPanelActions()
+      seen.add(actions)
+      return actions ? <button onClick={() => actions.setOpen(true)}>열기</button> : <output data-testid="actions">null</output>
+    }
+    function OpenState() {
+      return <output data-testid="open">{String(useHelpPanel().open)}</output>
+    }
+    mobile.value = false
+    const { unmount } = renderScreen(<ActionsProbe />)
+    expect(screen.getByTestId('actions')).toHaveTextContent('null')
+    unmount()
+    seen.clear()
+    const { user } = renderScreen(
+      <HelpPanelProvider>
+        <ActionsProbe />
+        <OpenState />
+      </HelpPanelProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: '열기' }))
+    expect(screen.getByTestId('open')).toHaveTextContent('true')
+    expect(seen.size).toBe(1)
   })
 })

@@ -7,7 +7,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
-import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,7 +59,7 @@ export function AgentBasicInfoSection({ agent }: { agent: AgentResponse }) {
 
   return (
     <SettingsSection
-      id={AGENT_DETAIL_SECTION_IDS.profile}
+      data-help="agent.profile"
       title="기본 정보"
       description={personal ? OWNER_MANAGED : '목록과 담당자 고르기에 보이는 모습이에요.'}
       data-testid="agent-basic-section"
@@ -108,7 +107,7 @@ export function AgentBasicInfoSection({ agent }: { agent: AgentResponse }) {
               aria-describedby="agent-username-help"
               onChange={(e) => setUsername(e.target.value)}
             />
-            {/* 칸 바로 옆에서 알아야 하는 주의라 가이드로 옮기지 않는다. */}
+            {/* 칸 바로 옆에서 알아야 하는 주의라 매뉴얼 도움말로 옮기지 않는다. */}
             <p id="agent-username-help" className="text-xs text-muted-foreground">
               @멘션과 이 AI 를 띄운 도구의 접속에 쓰여요. 바꾸면 예전 아이디로 한 멘션은 이 AI 에게 가지 않아요.
             </p>
@@ -141,7 +140,7 @@ export function AgentRolesSection({ agent }: { agent: AgentResponse }) {
   const roles = useQuery({ queryKey: roleKeys.roles, queryFn: () => rolesApi.getRoles().then((r) => r.data), staleTime: 0 });
   if (user.isError || roles.isError) {
     return (
-      <SettingsSection id={AGENT_DETAIL_SECTION_IDS.roles} title="역할 할당">
+      <SettingsSection data-help="agent.roles" title="역할 할당">
         <p className="text-sm text-destructive" data-testid="agent-access-error">
           역할을 불러오지 못했습니다.
         </p>
@@ -150,7 +149,7 @@ export function AgentRolesSection({ agent }: { agent: AgentResponse }) {
   }
   if (!user.data || !roles.data) {
     return (
-      <SettingsSection id={AGENT_DETAIL_SECTION_IDS.roles} title="역할 할당">
+      <SettingsSection data-help="agent.roles" title="역할 할당">
         <Skeleton className="h-24 w-full" />
       </SettingsSection>
     );
@@ -158,7 +157,7 @@ export function AgentRolesSection({ agent }: { agent: AgentResponse }) {
   return (
     <UserRolesSection
       key={agent.id}
-      id={AGENT_DETAIL_SECTION_IDS.roles}
+      data-help="agent.roles"
       user={user.data}
       allRoles={roles.data}
       onSaved={(updated) => qc.setQueryData(roleKeys.user(agent.id), updated)}
@@ -183,7 +182,7 @@ export function AgentDutySection({ agent }: { agent: AgentResponse }) {
 
   return (
     <SettingsSection
-      id={AGENT_DETAIL_SECTION_IDS.work}
+      data-help="agent.work"
       title="맡은 일과 지시"
       description={personal ? OWNER_MANAGED : '이 AI 가 무엇을 맡는지, 일할 때 무엇을 따르는지예요.'}
       data-testid="agent-duty-section"
@@ -200,7 +199,7 @@ export function AgentDutySection({ agent }: { agent: AgentResponse }) {
           placeholder={personal ? undefined : '예: 코드 리뷰를 맡습니다. 변경 이유와 빠진 테스트를 보고 이슈 댓글로 남깁니다.'}
           onChange={(e) => setDescription(e.target.value)}
         />
-        {/* 칸 설명은 설정 가이드로 옮겼다(WP-1281) — 글자 수만 남긴다. */}
+        {/* 칸 설명은 매뉴얼 도움말(맡은 일과 지시를 적는다)로 옮겼다(WP-1281·WP-1507) — 글자 수만 남긴다. */}
         <div className="flex justify-end">
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {description.length} / {AGENT_DESCRIPTION_MAX}
@@ -219,7 +218,7 @@ export function AgentDutySection({ agent }: { agent: AgentResponse }) {
           placeholder={personal ? undefined : '예:\n- 기획 이슈는 반드시 다른 서비스 사례를 조사해 근거와 링크를 붙인다.\n- 화면이 바뀌면 바뀌기 전·후 시안을 함께 올린다.'}
           onChange={(e) => setInstructions(e.target.value)}
         />
-        {/* 지시가 무엇인지는 설정 가이드에 있다 — 맡은 일 칸처럼 글자 수만 남긴다. */}
+        {/* 지시가 무엇인지는 매뉴얼 도움말에 있다 — 맡은 일 칸처럼 글자 수만 남긴다. */}
         <div className="flex justify-end">
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {instructions.length} / {AGENT_INSTRUCTIONS_MAX}
@@ -263,7 +262,7 @@ function repoLabel(url: string | null): string {
 export function AgentRepoSection({ agent }: { agent: AgentResponse }) {
   const projects = useAgentRuntimeProjects(agent.id);
   return (
-    <SettingsSection id={AGENT_DETAIL_SECTION_IDS.repos} title="코드 저장소" description="이 AI 가 맡는 프로젝트예요." data-testid="agent-repo-section">
+    <SettingsSection data-help="agent.repos" title="코드 저장소" description="이 AI 가 맡는 프로젝트예요." data-testid="agent-repo-section">
       {projects.isLoading ? (
         <Skeleton className="h-10 w-full max-w-2xl" />
       ) : projects.data && projects.data.length > 0 ? (
@@ -282,7 +281,7 @@ export function AgentRepoSection({ agent }: { agent: AgentResponse }) {
       ) : (
         <p className="text-sm text-muted-foreground">맡는 프로젝트가 없어요.</p>
       )}
-      {/* 무엇이 나오는지·외부 AI 의 GitHub 로그인 안내는 설정 가이드로 옮겼다(WP-1281). */}
+      {/* 무엇이 나오는지·외부 AI 의 GitHub 로그인 안내는 매뉴얼 도움말(맡는 프로젝트를 확인한다)로 옮겼다(WP-1281·WP-1507). */}
       <Link to="/projects" className="inline-block text-xs text-primary hover:underline">
         프로젝트 목록 열기
       </Link>
@@ -296,7 +295,7 @@ export function AgentDangerSection({ agent }: { agent: AgentResponse }) {
   const remove = useDeleteAgent();
   const [open, setOpen] = useState(false);
   return (
-    <SettingsSection id={AGENT_DETAIL_SECTION_IDS.danger} tone="danger" title="위험 구역" description="이 AI 와 접속 키를 지워요." data-testid="agent-danger-section">
+    <SettingsSection data-help="agent.danger" tone="danger" title="위험 구역" description="이 AI 와 접속 키를 지워요." data-testid="agent-danger-section">
       <Button
         variant="outline"
         className="text-destructive hover:text-destructive"
@@ -307,7 +306,7 @@ export function AgentDangerSection({ agent }: { agent: AgentResponse }) {
         에이전트 삭제
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent size="sm" data-testid="agent-confirm-dialog">
+        <AlertDialogContent size="sm" data-testid="agent-confirm-dialog" data-help="agent.danger">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {agent.name}

@@ -19,6 +19,8 @@ interface SettingsSectionProps {
   /** 섹션 앵커 id — `#statuses` 처럼 해시로 바로 찾아오게 한다(WP-809). */
   id?: string
   'data-testid'?: string
+  /** 이 섹션을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(WP-1507) — 호출부가 글자 그대로 넘겨 manual:check 가 짝을 본다. */
+  'data-help'?: string
 }
 
 export function SettingsSection({
@@ -28,6 +30,7 @@ export function SettingsSection({
   children,
   id,
   'data-testid': testId,
+  'data-help': dataHelp,
 }: SettingsSectionProps) {
   const headingId = useId()
   return (
@@ -35,6 +38,7 @@ export function SettingsSection({
       id={id}
       data-slot="settings-section"
       data-testid={testId}
+      data-help={dataHelp}
       // 영역 이름은 제목(h2) — 화면 낭독기가 섹션을 제목으로 찾는다.
       aria-labelledby={headingId}
       className="grid gap-x-12 gap-y-3 border-b py-6 first:pt-2 last:border-b-0 @min-[768px]:grid-cols-[240px_minmax(0,1fr)]"
@@ -63,6 +67,8 @@ interface SettingsToggleRowProps {
   /** 오른쪽 끝 컨트롤(보통 Switch). */
   control: ReactNode
   'data-testid'?: string
+  /** 이 행을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(WP-1507) — 호출부가 글자 그대로 넘긴다. */
+  'data-help'?: string
 }
 
 /**
@@ -70,9 +76,9 @@ interface SettingsToggleRowProps {
  * 왜: 단독 행 뒤에 안내 문단이 오면 행의 pb 가 섹션 간격(space-y-4)에 더해져 간격이 28px 로 벌어졌다(WP-397 D4).
  * 연속 행은 SettingsToggleGroup 으로 감싸 행 사이에만 여백·구분선을 둔다.
  */
-export function SettingsToggleRow({ label, description, control, 'data-testid': testId }: SettingsToggleRowProps) {
+export function SettingsToggleRow({ label, description, control, 'data-testid': testId, 'data-help': dataHelp }: SettingsToggleRowProps) {
   return (
-    <div data-testid={testId} data-slot="settings-toggle-row" className="flex items-start justify-between gap-4">
+    <div data-testid={testId} data-help={dataHelp} data-slot="settings-toggle-row" className="flex items-start justify-between gap-4">
       <div className="min-w-0 space-y-0.5">
         <div className="text-sm font-medium">{label}</div>
         {description != null && <div className="text-xs text-muted-foreground">{description}</div>}

@@ -53,6 +53,14 @@ export interface HelpPanelValue {
 
 const HelpPanelContext = createContext<HelpPanelValue | null>(null)
 
+/** 패널을 여는 쪽만 쓰는 안정된 함수 둘 — 열림·폭·이동이 바뀌어도 값이 그대로라 이것만 읽는 화면은 다시 그려지지 않는다. */
+export interface HelpPanelActions {
+  select: HelpPanelValue['select']
+  setOpen: HelpPanelValue['setOpen']
+}
+
+const HelpPanelActionsContext = createContext<HelpPanelActions | null>(null)
+
 /**
  * 도움말 패널 상태 Provider.
  * - 데스크톱은 이 사용자·워크스페이스가 기억한 열림으로 시작한다. 모바일은 늘 닫힌 채 시작하고 모바일에서 바꾼 열림은 저장하지 않는다
@@ -133,7 +141,33 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
     () => ({ open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, setSearchActive, clearSearch, setSearchClear }),
     [open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, clearSearch, setSearchClear],
   )
-  return <HelpPanelContext.Provider value={value}>{children}</HelpPanelContext.Provider>
+  // 여는 함수만 따로 — select 는 늘 같고 setOpen 은 사용자·워크스페이스가 바뀔 때만 바뀐다.
+  const actions = useMemo<HelpPanelActions>(() => ({ select, setOpen }), [select, setOpen])
+  return (
+    <HelpPanelActionsContext.Provider value={actions}>
+      <HelpPanelContext.Provider value={value}>{children}</HelpPanelContext.Provider>
+    </HelpPanelActionsContext.Provider>
+  )
+}
+
+/**
+ * 도움말 패널 상태 — HelpPanelProvider 밖이면 null(WP-1507).
+ * 화면 쪽에서 패널이 열렸는지 읽을 때 쓴다(설정 화면 AI 참고 요약 useManualSummary — 패널이 열렸을 때만 묶음을 받는다).
+ * 앱에서는 늘 Provider 안이지만, 화면 컴포넌트만 띄우는 테스트·도구에서는 밖일 수 있어 던지지 않고 null(닫힘으로 본다)을 돌린다.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOptionalHelpPanel(): HelpPanelValue | null {
+  return useContext(HelpPanelContext)
+}
+
+/**
+ * 패널을 여는 함수(select·setOpen)만 — HelpPanelProvider 밖이면 null(WP-1507).
+ * 화면 안 「연결 방법」 같은 단추가 쓴다: 열림·이동 상태를 구독하지 않아 패널을 움직일 때마다 화면이 다시 그려지지 않고,
+ * Provider 밖(화면만 띄우는 테스트)에서는 null 이라 그 단추만 뺀다.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useHelpPanelActions(): HelpPanelActions | null {
+  return useContext(HelpPanelActionsContext)
 }
 
 /** 도움말 패널 상태. HelpPanelProvider 밖에서 부르면 실수이므로 던진다. */

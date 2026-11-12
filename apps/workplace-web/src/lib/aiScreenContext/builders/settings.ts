@@ -1,8 +1,10 @@
 // 설정 화면 컨텍스트 builder(WP-414) — 설정 가이드가 있는 화면에서 AI 가 「이 설정」 이 무엇인지 알게 한다.
+// - WP-1507: 가이드 글이 매뉴얼 도움말로 옮겨 간 화면은 가이드 대신 매뉴얼 대표 절 요약(helpSummaryPairs)을 같은 자리(scope.facts)에 싣는다.
 // - view 「설정 · <가이드 제목>」, scope.facts 에 가이드 요약(소개·주의·알아두기)을 실어 AI 가 화면 규칙을 같은 말로 설명하게 한다.
 // - 페이지가 주는 핵심 값: 대상이 있는 화면(사용자·역할·프로젝트)은 focus, 대상 없이 상태만 있는 화면(SSO·알림·프로필)은 scope.facts 앞쪽.
 //   대상 없는 화면을 focus 로 두면 칩이 「설정 · …」 대신 값 문구로 바뀌어 사용자가 어느 화면 맥락인지 알기 어렵다.
 // - 페이지는 비밀값(비밀번호·토큰·시크릿)을 넘기지 않는다 — 넘기는 값은 각 페이지가 고른 리터럴 라벨뿐이라 여기서 라벨로 다시 거르지 않는다.
+import type { HelpSummaryItem } from '@/components/help/manualSummary';
 import type { SettingsGuide } from '@/components/settings-guide/types';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
@@ -30,7 +32,7 @@ export interface SettingsAiContextInput {
  * 가이드 요약 — 소개 → 주의(되돌리기 어려운 동작, 영향이 커 앞쪽) → 알아두기 순.
  * 섹션별 가이드(WP-1281)는 섹션 주의·알아두기를 「섹션 제목 · 주의/알아두기 n」 으로 펼쳐 싣는다(명령 단계는 싣지 않는다).
  */
-function guidePairs(guide: SettingsGuide): Array<[string, FactValue]> {
+export function guidePairs(guide: SettingsGuide): Array<[string, FactValue]> {
   const sections = guide.sections ?? [];
   return [
     ['소개', guide.lead],
@@ -41,26 +43,69 @@ function guidePairs(guide: SettingsGuide): Array<[string, FactValue]> {
   ];
 }
 
-/** 설정 화면 컨텍스트 — guide 의 제목·요약 + 페이지 값(선택). */
-export function buildSettingsScreenContext(guide: SettingsGuide, extra?: SettingsAiContextInput | null): AiScreenContext {
-  const view = clip(`설정 · ${guide.title}`, LIMITS.view);
+/**
+ * WP-1507: 매뉴얼 도움말 절 요약(summarizeHelpSection) → facts 쌍. 글 항목은 그대로, 표 항목은 행을 `; ` 로 이어 한 칸 상한
+ * (LIMITS.factValue)을 넘기 전에 끊고 「라벨 2」… 로 나눈다 — 뒤 행의 뜻이 말줄임에 잘려 사라지지 않게.
+ * 행 하나가 상한보다 길면 그 행만 한 칸에 두고, 말줄임은 buildFacts 가 한다. summary 가 null(아직 못 받음)이면 빈 목록.
+ */
+export function helpSummaryPairs(summary: HelpSummaryItem[] | null): Array<[string, FactValue]> {
+  const out: Array<[string, FactValue]> = [];
+  for (const item of summary ?? []) {
+    if ('text' in item) {
+      out.push([item.label, item.text]);
+      continue;
+    }
+    // 표 하나를 상한 안 칸들로 — 둘째 칸부터 「라벨 n」.
+    let n = 0;
+    let chunk = '';
+    const flush = () => {
+      if (!chunk) return;
+      n += 1;
+      out.push([n === 1 ? item.label : `${item.label} ${n}`, chunk]);
+      chunk = '';
+    };
+    for (const row of item.rows) {
+      const next = chunk ? `${chunk}; ${row}` : row;
+      if (chunk && next.length > LIMITS.factValue) {
+        flush();
+        chunk = row;
+      } else chunk = next;
+    }
+    flush();
+  }
+  return out;
+}
+
+/**
+ * 설정 화면 컨텍스트 — 화면 이름과 요약 쌍(guidePairs 또는 helpSummaryPairs)에 페이지 값(선택)을 얹는다.
+ * 페이지 값(facts)을 요약보다 앞에 둔다 — 상한(LIMITS.facts)을 넘으면 뒤쪽 요약이 「그 밖의 안내」로 줄어든다.
+ * 요약이 비면(도움말 요약을 아직 못 받음 등) 화면 이름과 페이지 값만 싣는다 — 받지 않은 설명을 지어 넣지 않는다.
+ */
+export function buildSettingsScreenContext(
+  title: string,
+  pairs: Array<[string, FactValue]>,
+  extra?: SettingsAiContextInput | null,
+): AiScreenContext {
+  const view = clip(`설정 · ${title}`, LIMITS.view);
+  const facts = buildFacts([...(extra?.facts ?? []), ...pairs], { overflowLabel: '그 밖의 안내' });
   const ctx: AiScreenContext = {
     view,
     scope: {
       // 범위 라벨에 화면 이름을 그대로 둬 칩이 「설정 · <제목>」 한 번만 보이게 한다(chipLabel 중복 회피 규칙).
       label: clip(view, LIMITS.label),
-      facts: buildFacts([...(extra?.facts ?? []), ...guidePairs(guide)], { overflowLabel: '그 밖의 안내' }),
+      // 실을 값이 없으면(요약을 아직 못 받음 등) 키를 빼 「빈 목록」으로 오해시키지 않는다.
+      ...(facts ? { facts } : {}),
     },
   };
   const f = extra?.focus;
   const label = f?.label.trim();
   if (f && label) {
-    const facts = buildFacts(f.facts ?? []);
+    const focusFacts = buildFacts(f.facts ?? []);
     ctx.focus = {
       type: clip(f.type, LIMITS.type),
       label: clip(label, LIMITS.label),
       refs: buildRefs(f.refs ?? {}),
-      ...(facts ? { facts } : {}),
+      ...(focusFacts ? { facts: focusFacts } : {}),
     };
   }
   return ctx;

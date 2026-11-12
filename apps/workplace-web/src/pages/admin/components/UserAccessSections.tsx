@@ -141,12 +141,15 @@ export function UserRolesSection({
   allRoles,
   onSaved,
   id,
+  'data-help': dataHelp,
 }: {
   user: AccessUser;
   allRoles: RoleResponse[];
   onSaved: (updated: UserDetailResponse) => void;
-  /** 섹션 앵커 id — 설정 가이드가 이 섹션을 따라가게(에이전트 상세, WP-1281). */
+  /** 섹션 앵커 id — 설정 가이드가 이 섹션을 따라가게(구성원 상세). */
   id?: string;
+  /** 이 섹션을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(에이전트 상세, WP-1507) — 호출부가 글자 그대로 넘긴다. */
+  'data-help'?: string;
 }) {
   const { user: currentUser } = useAuth();
   const [selectedRoleIds, setSelectedRoleIds] = useState(() => user.roles.map((r) => r.id));
@@ -180,6 +183,7 @@ export function UserRolesSection({
   return (
     <SettingsSection
       id={id}
+      data-help={dataHelp}
       title="역할 할당"
       description={
         user.kind === 'AGENT'

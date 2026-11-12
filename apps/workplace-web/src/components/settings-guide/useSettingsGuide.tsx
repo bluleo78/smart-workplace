@@ -116,11 +116,6 @@ export interface SettingsGuideUi {
   desktopSheet: ReactNode
   /** 모바일 하단 시트(Portal). */
   mobileSheet: ReactNode
-  /**
-   * 본문의 「가이드 열기」 단추용(WP-1281) — 열이 보이면 그대로, 접어 둔 열이면 다시 펴고, 아니면 시트를 연다.
-   * sectionId 를 주면 스크롤 위치와 관계없이 그 섹션 도움말로 연다(단추가 놓인 섹션). 본문을 다시 스크롤하면 그때부터 다시 따라간다.
-   */
-  open: (sectionId?: string) => void
 }
 
 /**
@@ -146,11 +141,7 @@ export function useSettingsGuide(
   const buttonRef = useRef<HTMLButtonElement>(null)
   const sheetId = useId()
   // 섹션별 가이드면 본문의 지금 섹션을 따라간다(WP-1281).
-  const scrolledSection = useActiveSection(scrollEl, (guide?.sections ?? []).map((g) => g.id).join('|'))
-  // 「가이드 열기」가 고른 섹션 — 본문 스크롤로 지금 섹션이 바뀌면 풀린다(렌더 중 상태 조정).
-  const [pinned, setPinned] = useState<{ id: string; from: string | null } | null>(null)
-  if (pinned && pinned.from !== scrolledSection) setPinned(null)
-  const activeSection = pinned?.id ?? scrolledSection
+  const activeSection = useActiveSection(scrollEl, (guide?.sections ?? []).map((g) => g.id).join('|'))
   if (!guide) return null
 
   // 넓은데 접어 둔 상태면 버튼은 시트 대신 열을 다시 편다.
@@ -175,11 +166,5 @@ export function useSettingsGuide(
       <SettingsGuideDesktopSheet guide={guide} activeSection={activeSection} open={sheetOpen} id={sheetId} onClose={closeSheet} returnFocusRef={buttonRef} />
     ),
     mobileSheet: isMobile ? <SettingsGuideMobileSheet guide={guide} activeSection={activeSection} open={sheetOpen} onClose={closeSheet} /> : null,
-    open: (sectionId) => {
-      if (sectionId) setPinned({ id: sectionId, from: scrolledSection })
-      if (showAside) return
-      if (reopensAside) setCollapsed(false)
-      else setSheetOpen(true)
-    },
   }
 }

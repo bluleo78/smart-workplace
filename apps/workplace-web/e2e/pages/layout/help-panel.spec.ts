@@ -1,7 +1,8 @@
 // 도움말 패널 배치(WP-1505) — 데스크톱 오른쪽 도킹의 브라우저 판정.
 // 나란히/위아래 판정 자체(isDockStacked)·열림 기억·이동은 vitest 가 지킨다. 여기엔 jsdom 이 잴 수 없는 것만 둔다:
 // - @layout: 실제 상자 위치(본문 | 도움말 | AI 나란히, 한 칸에 위아래), 창 폭·레일 펼침에 따른 전환과 그 중간 프레임의 흔들림,
-//   본문·헤더 단추·상단 「?」가 패널 밑으로 들어가지 않음(--help-side-width), 좁은 폭의 가로 넘침
+//   본문·헤더 단추·상단 「?」가 패널 밑으로 들어가지 않음(--help-side-width), 좁은 폭의 가로 넘침,
+//   코드 블록 복사 단추가 긴 코드 줄을 덮지 않음(WP-1507)
 // - @input: 실제 키보드·두 번 누르기로 패널 폭이 바뀌고 기억되는지(AI 패널 폭 손잡이 ai-panel-resize.spec 과 같은 방식)
 // 도움말 묶음(/help/…)은 작은 목으로 준다 — 실제 매뉴얼 내용에 기대지 않게.
 import type { Page } from '@playwright/test'
@@ -202,6 +203,29 @@ test('도움말 패널 폭을 가장 넓혀도 상단 「?」는 패널 왼쪽�
     const toggle = await measureBox(page.getByTestId('help-toggle'), 'help-toggle')
     expect(toggle.x + toggle.width, '상단 「?」 오른쪽 ≤ 합친 칸 왼쪽').toBeLessThanOrEqual(column.x)
   }).toPass()
+  await expectNoHorizontalOverflow(page)
+})
+
+test('긴 한 줄 코드 블록에서 복사 단추는 코드 글자를 덮지 않고, 코드는 제 칸 안에서 가로로 스크롤된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openHelp(page)
+  const panel = page.getByTestId('help-panel')
+  const pre = panel.locator('pre').first()
+  await pre.scrollIntoViewIfNeeded()
+  const copy = panel.getByTestId('help-code-copy').first()
+  await expect(async () => {
+    const code = await measureBox(pre, 'pre')
+    const button = await measureBox(copy, 'help-code-copy')
+    // 코드 칸(pre)과 단추 상자가 겹치지 않는다 — 단추는 코드 칸 오른쪽 바깥에 있다.
+    expect(button.x, '단추 왼쪽 ≥ 코드 칸 오른쪽').toBeGreaterThanOrEqual(code.x + code.width - 0.5)
+  }).toPass()
+  // 긴 줄은 코드 칸 안에서 넘쳐 가로로 스크롤되고(줄을 자르지 않는다), 코드 칸 오른쪽 끝 글자 자리의 맨 위 요소는 코드 자신이다.
+  const probe = await pre.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const hit = document.elementFromPoint(r.right - 4, r.top + r.height / 2)
+    return { scrollable: el.scrollWidth > el.clientWidth, onCode: !!hit && el.contains(hit) }
+  })
+  expect(probe).toEqual({ scrollable: true, onCode: true })
   await expectNoHorizontalOverflow(page)
 })
 

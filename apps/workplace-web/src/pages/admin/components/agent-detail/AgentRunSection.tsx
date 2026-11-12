@@ -3,12 +3,13 @@
 // 요약하는 확인 창(②)을 거쳐 저장한다 — 「기본」 카드도 바로 저장하지 않는다(예전엔 눌러서 바로 저장).
 // 묶음마다 반영 방식을 제목 옆에 붙인다: 기본 방식의 AI 계정·공통 비서·저장소 연결은 바로 반영, 작업 설정은 저장해야 반영(실행 중이면 쉴 때 적용),
 // 작업 공간 AI 의 AI 계정은 실행 중이면 쉴 때 적용(아니면 바로 반영, WP-1515 — 사람이 바꾼 계정은 작업 설정처럼 하던 일을 마치고 쉴 때 새 계정으로 다시 뜬다), 접속 키는 Works 가 관리.
+// 도움말 문맥(WP-1507): 섹션·묶음·확인 창에 매뉴얼 15장 agent.run 층의 data-help 를 글자 그대로 단다(변형 분기마다 같은 묶음은 같은 id).
 
+import { CircleHelp } from 'lucide-react';
 import { useState } from 'react';
 
+import { useHelpPanelActions } from '@/components/help/HelpPanelContext';
 import { SettingsSection } from '@/components/layout/SettingsSection';
-import { useOpenSettingsGuide } from '@/components/settings-guide/openSettingsGuide';
-import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,7 +83,7 @@ export function AgentRunSection({ agent, templates, worksRun, savedTemplateName 
 
   return (
     <SettingsSection
-      id={AGENT_DETAIL_SECTION_IDS.run}
+      data-help="agent.run"
       title="실행"
       description="이 AI 를 무엇으로, 어디서 돌릴지예요."
       data-testid="agent-run-section"
@@ -98,18 +99,18 @@ export function AgentRunSection({ agent, templates, worksRun, savedTemplateName 
               작업 공간 방식이 계정을 쓰지 않으면(정의를 알 때) 묶음을 그리지 않는다. */}
           {agent.runMode === 'WORKSPACE' ? (
             (worksRun == null || worksRun.template.account) && (
-              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
+              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group" data-help="agent.run.account.pick">
                 <AgentAccountPicker agentUserId={agent.id} required={worksRun?.template.account ?? null} readOnly />
               </DetailGroup>
             )
           ) : (
             agent.runMode !== 'EXTERNAL' && (
-              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group">
+              <DetailGroup title="AI 계정" data-testid="agent-ai-account-group" data-help="agent.run.account">
                 <AgentAiAccountGroup agentUserId={agent.id} canConfigure={canAdminConfigure} readOnly />
               </DetailGroup>
             )
           )}
-          <DetailGroup title="접속 키">
+          <DetailGroup title="접속 키" data-help="agent.run.keys">
             <AgentKeysSection {...keyProps} canIssue={false} blockedNote="사용 중지된 AI 에는 새 키를 발급하지 않아요. 남은 키는 폐기해 정리할 수 있어요." />
           </DetailGroup>
         </>
@@ -133,7 +134,7 @@ export function AgentRunSection({ agent, templates, worksRun, savedTemplateName 
         onOpenChange={(v) => !v && setPlaintext(null)}
       />
       <AlertDialog open={revokeKeyId != null} onOpenChange={(o) => !o && setRevokeKeyId(null)}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" data-help="agent.run.keys">
           <AlertDialogHeader>
             <AlertDialogTitle>키를 폐기할까요?</AlertDialogTitle>
             <AlertDialogDescription>폐기하면 이 키로는 바로 접속할 수 없어요.</AlertDialogDescription>
@@ -177,7 +178,7 @@ function ModeCards({
   onPick: (id: string) => void;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-help="agent.run.mode">
       <div role="radiogroup" aria-label="실행 방식" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {cards.map((c) => {
           const checked = c.id === currentId;
@@ -262,7 +263,7 @@ function PendingSwitch({
   };
 
   return (
-    <DetailGroup title={`${to.title}${to.mode === 'WORKSPACE' ? ' 작업 설정' : ''}`} how="바꾸기를 눌러야 반영" data-testid="agent-run-mode-pending">
+    <DetailGroup title={`${to.title}${to.mode === 'WORKSPACE' ? ' 작업 설정' : ''}`} how="바꾸기를 눌러야 반영" data-testid="agent-run-mode-pending" data-help="agent.run.mode">
       {draft ? (
         <WorkSettingsFields draft={draft} agentId={agent.id} idPrefix="pending" />
       ) : (
@@ -279,7 +280,7 @@ function PendingSwitch({
         </Button>
       </div>
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent data-testid="agent-run-mode-confirm">
+        <AlertDialogContent data-testid="agent-run-mode-confirm" data-help="agent.run.mode">
           <AlertDialogHeader>
             <AlertDialogTitle>{modeChangeTitle(to)}</AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -325,17 +326,17 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
     <>
       {template.account && (
         // 사람이 바꾼 계정은 실행 중이면 쉴 때 적용된다(WP-1515, 서버가 실행 설정 저장처럼 generation 을 올린다) — 작업 설정과 같은 꼬리표.
-        <DetailGroup title="AI 계정" how={running ? '실행 중이면 쉴 때 적용' : '바로 반영'} data-testid="agent-ai-account-group">
+        <DetailGroup title="AI 계정" how={running ? '실행 중이면 쉴 때 적용' : '바로 반영'} data-testid="agent-ai-account-group" data-help="agent.run.account.pick">
           <AgentAccountPicker agentUserId={agent.id} required={template.account} appliesAtIdle={appliesAtIdle} />
         </DetailGroup>
       )}
       {template.requires.includes('repo') && (
-        <DetailGroup title="저장소 연결" how="바로 반영" data-testid="agent-repo-group">
+        <DetailGroup title="저장소 연결" how="바로 반영" data-testid="agent-repo-group" data-help="agent.run.repo">
           <AgentRepoConnectionGroup agentUserId={agent.id} />
         </DetailGroup>
       )}
       {draft && (
-        <DetailGroup title="작업 설정" how={running ? '저장해야 반영 · 실행 중이면 쉴 때 적용' : '저장해야 반영'} data-testid="agent-work-settings-group">
+        <DetailGroup title="작업 설정" how={running ? '저장해야 반영 · 실행 중이면 쉴 때 적용' : '저장해야 반영'} data-testid="agent-work-settings-group" data-help="agent.run.settings">
           <WorkSettingsFields draft={draft} agentId={agent.id} />
           <div className="flex items-center gap-2">
             <Button disabled={!draft.dirty || draft.missingRequired || save.isPending} onClick={() => save.mutate(draft.body())} data-testid="agent-runtime-save">
@@ -349,7 +350,7 @@ function WorksRunGroups({ agent, run, keyProps }: { agent: AgentResponse; run: W
           </div>
         </DetailGroup>
       )}
-      <DetailGroup title="접속 키" how="Works 가 관리" data-testid="agent-managed-keys-group">
+      <DetailGroup title="접속 키" how="Works 가 관리" data-testid="agent-managed-keys-group" data-help="agent.run.keys">
         {nextRotation && (
           <p className="text-xs text-muted-foreground" data-testid="agent-key-next-rotation">
             다음 교체 {formatDateMonthDayPadded(nextRotation)} 무렵
@@ -368,15 +369,15 @@ function ServerGroups({ agent, canConfigure, keyProps }: { agent: AgentResponse;
   const showsAssistant = canConfigure || ws.data?.agentUserId === agent.id;
   return (
     <>
-      <DetailGroup title="AI 계정" how="바로 반영" data-testid="agent-ai-account-group">
+      <DetailGroup title="AI 계정" how="바로 반영" data-testid="agent-ai-account-group" data-help="agent.run.account">
         <AgentAiAccountGroup agentUserId={agent.id} canConfigure={canConfigure} />
       </DetailGroup>
       {showsAssistant && (
-        <DetailGroup title="공통 비서" how="바로 반영" data-testid="agent-assistant-group">
+        <DetailGroup title="공통 비서" how="바로 반영" data-testid="agent-assistant-group" data-help="agent.run.assistant">
           <WorkspaceAssistantGroup agentUserId={agent.id} canConfigure={canConfigure} />
         </DetailGroup>
       )}
-      <DetailGroup title="접속 키">
+      <DetailGroup title="접속 키" data-help="agent.run.keys">
         <AgentKeysSection
           {...keyProps}
           canIssue={canConfigure}
@@ -390,21 +391,36 @@ function ServerGroups({ agent, canConfigure, keyProps }: { agent: AgentResponse;
 }
 
 /**
- * 외부 방식 「접속 키」 — 화면에는 키 발급과 키 표만 둔다. 연결 방법 ②~⑤(플러그인 설치·서버 주소·로그인·자동 처리)는 설정 가이드 단계로 옮겼다(WP-1281).
- * 키가 아직 한 번도 쓰이지 않았으면(연결 전) 가이드로 가는 한 줄을 붙인다.
+ * 외부 방식 「접속 키」 — 화면에는 키 발급과 키 표만 둔다. 연결 순서(플러그인 설치·서버 주소·로그인·자동 처리)는 매뉴얼 15장
+ * 「외부 도구에 연결한다」 도움말 절(agent.run.keys.connect)에 있고, 명령의 AI 아이디·서버 주소는 패널이 채워 복사한다(WP-1507).
+ * 키가 아직 한 번도 쓰이지 않았으면(연결 전) 그 절을 바로 여는 짧은 단추 「연결 방법」을 붙인다.
+ * 도움말 패널 상태가 없는 곳(Provider 밖 — 일부 화면 테스트)에서는 열 패널이 없으므로 단추를 그리지 않는다.
  */
 function ExternalKeysGroup({ agent, keyProps }: { agent: AgentResponse; keyProps: KeyProps }) {
   const keys = useAgentKeys(agent.id);
-  const openGuide = useOpenSettingsGuide();
+  const help = useHelpPanelActions();
   const neverUsed = keys.data != null && keys.data.every((k) => k.lastUsedAt == null);
+  // 도움말 패널을 외부 도구 연결 절로 연다 — 직접 고른 절이라 화면 문맥이 바뀌기 전까지 그대로 보인다.
+  const openConnectHelp = () => {
+    if (!help) return;
+    help.select({ chapter: 'agents', sectionId: 'agent.run.keys.connect' }, null);
+    help.setOpen(true);
+  };
   return (
-    <DetailGroup title="접속 키" data-testid="external-connect-card">
+    <DetailGroup title="접속 키" data-testid="external-connect-card" data-help="agent.run.keys">
       <AgentKeysSection {...keyProps} canIssue />
-      {neverUsed && openGuide && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="external-connect-guide-hint">
-          연결 방법은 설정 가이드에 있어요
-          <Button type="button" variant="outline" size="sm" onClick={() => openGuide(AGENT_DETAIL_SECTION_IDS.run)} data-testid="external-connect-guide-open">
-            가이드 열기
+      {neverUsed && help && (
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openConnectHelp}
+            data-testid="external-connect-help-open"
+            data-help="agent.run.keys.connect"
+          >
+            <CircleHelp aria-hidden />
+            연결 방법
           </Button>
         </div>
       )}

@@ -248,16 +248,31 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 
 ### 15 AI 에이전트 관리
 
-> 2026-11-02 WP-1281 로 화면이 바뀌어(상세 시트 → 상세 페이지 `/settings/agents/:id`, 실행 위치 → **실행 환경** 탭, 설명·외부 연결 명령은 설정 가이드로) 아래 그림과 장면(`scripts/scenes/user.mjs` 의 agents-1~4)은 옛 화면 기준이다. 15장 본문은 그림 지시문을 빼 두었다 — 릴리스 뒤 장면을 새 testid 로 다시 쓰고 아래 새 행대로 찍어 지시문을 되살린다.
+> 2026-11-12 WP-1507 로 새 화면(탭 셋 **목록**·**실행 환경**·**계정**, 상세 페이지 `/settings/agents/:id`, 설정 가이드 대신 화면 **도움말** 패널) 기준 행과 장면(`scripts/scenes/user.mjs` 의 agents-1~6)을 썼다. **운영 배포 뒤 촬영**하고, 본문 그림 지시문은 PNG·`boxes.json` 이 생긴 뒤 아래 「되살릴 지시문」대로 되살린다(지금 넣으면 PNG 가 없어 `manual:check` 가 실패한다). 장면은 격리 로컬 스택에서 선택자만 확인했다(드라이런 산출물은 커밋하지 않음). `shots/user/agents-1~4.png` 와 `boxes.json` 의 옛 키는 옛 화면 그림이다 — 본문이 쓰지 않으며 재촬영 때 덮어쓴다.
 
-상세 「실행」 섹션의 AI 계정·공통 비서 묶음은 찍지 않는다 — **최근 사용** 시각이 AI 가 일할 때마다 바뀐다.
+상세 **실행** 섹션의 공통 비서 묶음과 접속 키 표는 찍지 않는다 — **최근 사용**·**마지막 접속** 시각이 AI 가 일할 때마다 바뀌고, 키 표에는 키 앞자리(ak_…)가 보인다. 계정 탭(agents-5)의 **5시간**·**주간**·**사용량 확인** 칸은 찍을 때마다 바뀌므로 표식은 단추·행 머리에만 둔다.
+
+agents-2·4·5 는 1440 폭에서 머리 단추(또는 사용 스위치)와 본문 왼쪽 끝 사이가 원본 2000px 안팎이라 데스크톱 최소 폭 1024 로 찍는다. 그래도 본문 전체 폭이라 자른 폭이 원본 1530px 안팎이고, agents-6(1440 폭)도 1520px 안팎이다(2026-11-12 로컬 드라이런). agents-3 의 **연결 방법** 단추는 release-bot 의 키를 한 번도 쓰지 않았을 때만 보인다 — 운영에서 키를 쓴 뒤면 장면을 도움말 검색으로 바꾼다. 로컬 서버는 기본 MCP 주소가 아니라 절 안의 `/plugin configure` 상자가 보였다 — 운영(기본 주소)에서는 보이지 않는다.
 
 | 그림 id | 경로 | 로그인 계정 | 준비 조작 | 자르기 | 표식 키 | 필요한 시드 |
 | --- | --- | --- | --- | --- | --- | --- |
 | agents-1 | `/settings/agents` | 김서연 | 연 그대로(**목록** 탭) | (전체) | `tabs,toggle,create,row` | 에이전트 지니(공통 비서) |
-| agents-2 | `/settings/agents/<지니>` | 김서연 | 목록에서 **지니** 행을 누른다 | `status+profile` | `status,profile` | 위와 같음 |
-| agents-3 | `/settings/agents/<release-bot>` | 김서연 | **배포 알리미**(release-bot) 상세에서 **가이드** 를 열고 **실행** 섹션까지 내린다(가이드가 외부 연결 단계로 따라간다) | `guide` | `keys,steps` | 외부 에이전트 release-bot |
-| agents-4 | `/settings/agents/locations` | 김서연 | **실행 환경** 탭을 연 그대로 | `area` | `create,row,menu` (`area` 도 기록) | 실행 환경 하나 이상 |
+| agents-2 | `/settings/agents/<지니>` | 김서연 | 폭 1024 로 열고 목록에서 **지니** 행을 누른다 | `status+profile` | `status,profile` | 위와 같음 |
+| agents-3 | `/settings/agents/<release-bot>` | 김서연 | **배포 알리미**(release-bot) 상세의 **접속 키** 묶음에서 **연결 방법** 을 눌러 도움말 패널의 「외부 도구 연결」 절을 연다. 키 표(ak_ 앞자리)는 자르기 밖 | `panel` | `copy` | 외부 에이전트 release-bot(`--app-extras`) |
+| agents-4 | `/settings/agents/locations` | 김서연 | 폭 1024 로 **실행 환경** 탭을 연다 | `area` | `create,row,menu` | 실행 환경 하나 이상 — **사람 확인**: 운영 테넌트에 없으면 만들어야 한다(쓰기, 시드 미작성) |
+| agents-5 | `/settings/agents/accounts` | 김서연 | 폭 1024 로 **계정** 탭을 연다 | `table+create` | `create,row,menu` | AI 계정 하나 이상 — **사람 확인**: 실제 계정 등록(비밀값)이 필요하고 사용률이 시점마다 바뀐다(시드 미작성) |
+| agents-6 | `/settings/agents/<Claude Code AI>` | 김서연 | **실행** 섹션까지 내린다 | `mode+account+repo` | `mode,account,repo` | Claude Code 방식 AI + 계정 + 실행 환경 — **사람 확인**: 운영 쓰기(에이전트·실행 설정) 필요(시드 미작성) |
+
+되살릴 지시문(본문 자리 — 그림 줄):
+
+- 「화면 도움말을 함께 본다」 둘째 문단 뒤: `![외부 도구 연결 절 — 도움말 패널의 명령 상자와 복사 단추](shots/user/agents-3.png){crop=panel marks=copy}`
+- 「에이전트 화면을 연다」 탭 표 앞: `![에이전트 화면 — 탭 셋, 개인 비서 표시, 새 에이전트, 에이전트 행](shots/user/agents-1.png){marks=tabs,toggle,create,row}`
+- 「실행 환경을 관리한다」 첫 문단 뒤: `![실행 환경 탭 — 추가 단추, 실행 환경 행과 행 메뉴](shots/user/agents-4.png){crop=area marks=create,row,menu}`
+- 「AI 계정을 모아 둔다」 첫 문단 뒤: `![계정 탭 — 추가 단추, 계정 행과 행 메뉴](shots/user/agents-5.png){crop=table+create marks=create,row,menu}`
+- 「에이전트 상세를 연다」 첫 문단 뒤: `![에이전트 상세 — 상태 섹션과 기본 정보 섹션](shots/user/agents-2.png){crop=status+profile marks=status,profile}`
+- 「실행을 설정한다」 첫 문단 뒤: `![Claude Code AI 의 실행 섹션 — 실행 방식, AI 계정, 저장소 연결](shots/user/agents-6.png){crop=mode+account+repo marks=mode,account,repo}`
+
+되살린 뒤 `pnpm manual:help-figures` 로 도움말 그림을 다시 만들고 `pnpm manual:check` 를 돌린다.
 
 ### 16 로그인·앱 설정
 

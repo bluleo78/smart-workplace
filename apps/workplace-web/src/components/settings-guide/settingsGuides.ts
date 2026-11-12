@@ -1,25 +1,10 @@
 // 설정 화면별 가이드 문구 — 한 파일에 모아 문구 리뷰를 한곳에서 한다(WP-399).
 // 원칙: 실제 동작을 확인한 사실만 쓰고, 섹션 description 과 같은 말을 반복하지 않는다(왜·언제·주의). 해요체·짧은 문장.
-import { accountLabel } from '@/lib/agentAccount'
-import { workResourceText } from '@/lib/agentRuntimeStatus'
-import { MCP_ENDPOINT } from '@/lib/mcpEndpoint'
-import {
-  buildLaunchAsCommand,
-  buildPluginInstallCommands,
-  buildSwitchCommand,
-  buildTokenFallbackCommand,
-  buildWorkLoopLaunchCommand,
-  buildWorkLoopStartCommand,
-  needsServerUrlSetting,
-  PLUGIN_COMMANDS,
-  PLUGIN_SKILLS,
-} from '@/lib/pluginGuide'
-import type { AgentResponse } from '@/types/agent'
-import type { AgentTemplate } from '@/types/agentRuntime'
+// 에이전트 화면 4곳(목록·실행 환경·계정·에이전트 상세)의 가이드는 매뉴얼 15장 도움말 절로 옮겼다(WP-1507) — 그 화면은 SettingsPage help 로 매뉴얼을 쓴다.
 import type { ProjectResponse } from '@/types/project'
 
-import { AGENT_DETAIL_SECTION_IDS, SETTINGS_SECTION_IDS as S } from './sectionIds'
-import type { SettingsGuide, SettingsGuideSection, SettingsGuideStep } from './types'
+import { SETTINGS_SECTION_IDS as S } from './sectionIds'
+import type { SettingsGuide } from './types'
 
 // 여러 화면이 같은 사실을 말하는 문장 — 한 곳에서 고치게 상수로 둔다.
 // 「최대 30분」은 workplace-api application.yml app.jwt.access-expiration(1800000ms) 값이다 — 바꾸면 이 문구도 함께 고친다.
@@ -32,7 +17,6 @@ const TIP_FIELD_PLACEMENT = '필드는 모든 이슈의 상세 화면 「커스�
 // 가이드를 다는 화면 전부 — satisfies 로 값마다 SettingsGuide 모양을 검사하고, 키는 객체 리터럴 그대로 남긴다.
 // 섹션별 가이드(WP-1298): 화면 섹션 하나에만 해당하는 알아두기·주의는 그 섹션(sections, id = 화면 SettingsSection id)에 담고,
 // 화면 전체에 해당하는 말(여러 섹션에 걸치는 말)만 최상위 tips·caution 에 남긴다. 섹션 순서는 화면 순서이고 도움말 없는 섹션은 넣지 않는다.
-// 목록형 화면(agents·agentLocations)은 화면 섹션이 없어 따라갈 대상이 없으므로 예전처럼 한 덩어리로 둔다.
 export const settingsGuides = {
   profile: {
     title: '프로필',
@@ -193,64 +177,6 @@ export const settingsGuides = {
       { label: '에이전트', to: '/settings/agents' },
     ],
   },
-  // WP-1281: 에이전트 화면 — 목록 탭·실행 환경 탭·에이전트 상세. 화면 설명 문단을 옮겨 왔다(화면에는 목록·설정과 지금 할 일만).
-  agents: {
-    title: '에이전트',
-    lead: '이슈를 맡기거나 대화에서 부를 AI 구성원을 만들고 관리해요.',
-    tips: [
-      '공통 비서는 개인 비서를 정하지 않은 구성원 모두가 쓰는 AI 예요. 공통 비서가 없으면 그 구성원들은 AI 를 쓸 수 없어요.',
-      '개인 비서는 구성원이 각자 만든 AI 라 주인이 관리해요. 「개인 비서 표시」를 켜야 목록에 보여요.',
-      '실행 방식은 셋이에요 — 기본(Works 가 바로 답함), Claude Code(Works 가 작업 공간을 띄움), 외부(직접 띄운 도구가 키로 접속).',
-      'AI 구성원의 역할과 사용 여부는 구성원 화면이 아니라 여기 에이전트 상세에서 바꿔요.',
-    ],
-    related: [
-      { label: '구성원', to: '/settings/users' },
-      { label: '역할', to: '/settings/roles' },
-      { label: 'AI 비서', to: '/settings/assistant' },
-    ],
-  },
-  agentLocations: {
-    title: '실행 환경',
-    lead: 'AI 를 Works 가 직접 띄우려면 그 AI 가 돌 클러스터를 여기에 실행 환경으로 등록해요.',
-    tips: [
-      '실행 환경마다 연결 프로그램을 한 번 설치하면 「연결됨」으로 바뀌어요. 그다음부터는 에이전트 상세의 「시작」·「종료」 단추대로 그 클러스터에서 AI 가 돌아요.',
-      '최대 AI 수는 이 실행 환경에서 동시에 실행할 수 있는 AI 수예요. 넘으면 AI 시작과 실행 환경 바꾸기가 거절돼요.',
-      '새 AI 는 기본 실행 환경을 써요. AI 마다 상세 › 실행 › 작업 설정에서 다른 실행 환경을 고를 수 있어요.',
-      '이 실행 환경을 쓰도록 설정된 AI 가 있거나 기본 실행 환경이면 지울 수 없어요.',
-      '「설치 대기」가 오래 가면 클러스터에서 Works 주소에 닿지 못하는 경우가 많아요. 설치 안내의 「내부 IP」 칸을 채워 다시 설치하세요.',
-    ],
-    caution: '토큰을 재발급하면 옛 토큰은 바로 끊겨요. 클러스터의 연결 프로그램이 새 토큰을 쓰도록 바꾸기 전까지 그 실행 환경의 AI 를 관리할 수 없어요.',
-    related: [{ label: '에이전트 목록', to: '/settings/agents' }],
-  },
-  // WP-1451: 에이전트 화면 「계정」 탭 — AI 가 쓸 계정을 한곳에 모으고 사용률을 본다.
-  // 「10분」은 workplace-api application.yml agent-account.usage.interval, 「75%」는 near-limit-percent 값이다 — 바꾸면 이 문구도 함께 고친다.
-  agentAccounts: {
-    title: '계정',
-    lead: 'AI 가 일할 때 쓰는 계정을 여기에 모아 두고, 계정마다 사용률을 봐요.',
-    tips: [
-      '5시간·주간 사용률은 Works 가 10분마다 재요. 75% 이상이면 「곧 한도」, 100% 면 「한도 도달」로 바뀌어요.',
-      'OpenAI 호환·Gen:iA 계정은 한도를 재지 않아 「한도 없음」으로 보여요. AI 가 마지막으로 쓴 때는 모든 계정의 「쓰는 AI」 칸 아래에 보여요.',
-      '한 계정을 여러 AI 가 같이 쓰면 사용률도 함께 올라요. 한도에 자주 닿으면 계정을 나눠 묶으세요.',
-      '쓰는 AI 가 있는 계정은 지울 수 없어요. 그 AI 들을 먼저 다른 계정으로 바꿔 주세요.',
-    ],
-    related: [{ label: '에이전트 목록', to: '/settings/agents' }],
-  },
-  // 에이전트 상세의 공통 부분 — 실행 방식별 문장은 agentDetailGuide() 가 덧붙인다(로딩 중에는 이 공통 부분만).
-  agentDetail: {
-    title: '에이전트 상세',
-    lead: '이 AI 를 쓸 수 있게 할지, 무엇을 맡기고 어떻게 돌릴지 이 화면에서 정해요.',
-    tips: [
-      '사용을 중지하면 실행 중이던 AI 도 멈춰요. 다시 사용으로 바꿔도 실행은 직접 시작해야 해요.',
-      '「맡은 일」은 다른 AI 가 일을 맡길 상대를 고를 때 읽어요. 무엇을 맡고 어떻게 일하는지 적어 두세요.',
-      '「지시」는 이 AI 가 이슈를 맡을 때마다 따르는 규칙이에요. 저장하면 다음 이슈부터 따르고, 다른 AI 는 보지 않아요. 프로젝트 저장소의 규칙과 부딪히면 저장소 규칙이 먼저예요.',
-      '공통 비서로 지정된 AI 는 지정을 먼저 풀어야 사용 중지나 실행 방식 바꾸기를 할 수 있어요.',
-    ],
-    caution: '에이전트를 삭제하면 실행을 멈추고 접속 키를 모두 폐기해요. 공통 비서로 지정돼 있으면 지정도 함께 풀려요. 남긴 기록이 있으면 지우지 않고 사용 중지로 바꿔요.',
-    related: [
-      { label: '에이전트 목록', to: '/settings/agents' },
-      { label: '실행 환경', to: '/settings/agents/locations' },
-    ],
-  },
   projectSettings: {
     title: '프로젝트 설정',
     lead: '새 프로젝트를 시작하거나 팀 구성·작업 방식이 바뀌었을 때 이 화면에서 정리해요.',
@@ -312,171 +238,4 @@ export function projectSettingsGuide(project: Pick<ProjectResponse, 'type'> | un
 export function notificationsGuide(pushDisabled: boolean): SettingsGuide {
   const g = settingsGuides.notifications
   return pushDisabled ? { ...g, sections: g.sections.filter((s) => s.id !== S.notificationDevice) } : g
-}
-
-
-/**
- * 에이전트 상세 가이드 고르기(WP-1281) — 화면에서 뺀 「무엇인지·왜·언제」 설명을 화면 섹션별로 묶고, 실행 방식에 맞춰 고른다.
- * Works 실행 방식의 자원·계정 조건은 방식 정의(template, 서버 agent-templates/*.yaml)에서 가져와 정의가 바뀌어도 문장이 따라간다.
- * 접속 키 교체 규칙(30일·만료 7일 전·하루 안 만료면 바로)은 서버 ManagedKeyChain·RolloutPolicy 값이다 — 바꾸면 이 문구도 함께 고친다.
- * 내용이 없는 섹션은 뺀다. 개인 비서는 역할 할당·코드 저장소·위험 구역이 화면에 없어 가이드에도 없다.
- */
-export function agentDetailGuide(
-  agent: Pick<AgentResponse, 'runMode' | 'type' | 'username'>,
-  template: AgentTemplate | null,
-): SettingsGuide {
-  const ids = AGENT_DETAIL_SECTION_IDS
-  const personal = agent.type === 'PERSONAL'
-  const works = agent.runMode === 'WORKSPACE' && template != null
-  const external = agent.runMode === 'EXTERNAL'
-
-  const status: string[] = ['사용을 중지하면 실행 중이던 AI 도 멈춰요. 다시 사용으로 바꿔도 실행은 직접 시작해야 해요.']
-  if (works)
-    status.push('「쉴 때」는 하던 이슈를 마치고 다음 일을 기다릴 때예요. 「지금 적용」을 누르면 작업 공간을 새 설정으로 다시 띄우고, 하던 이슈를 이어 받아요.')
-  if (agent.type === 'WORKSPACE') status.push('공통 비서로 지정된 AI 는 지정을 먼저 풀어야 사용을 중지할 수 있어요.')
-
-  const run: string[] = []
-  let runCaution: string | undefined
-  if (personal) {
-    run.push('개인 비서는 기본 방식으로만 돌아요. 관리자는 AI 계정 연결을 끊거나 남은 키를 폐기해 정리만 할 수 있어요.')
-  } else if (agent.runMode === 'SERVER') {
-    run.push(
-      '기본 방식의 AI 계정은 Claude 구독이나 OpenAI 호환 연결을 쓸 수 있어요. 연결해야 이 AI 가 답할 수 있어요.',
-      '공통 비서는 개인 비서를 정하지 않은 구성원 모두가 쓰는 AI 예요. 지정하면 모델·생각의 깊이·추천 질문 모델을 여기서 정해요.',
-      '공통 비서로 지정할 때 저장된 AI 계정으로 모델을 먼저 확인해요. 확인하지 못하면 한 번 더 묻고 지정해요. 지정을 풀면 개인 비서를 정하지 않은 구성원은 AI 를 쓰지 못해요.',
-    )
-    if (agent.type === 'WORKSPACE') run.push('공통 비서는 기본 방식으로만 돌아요. 다른 방식으로 바꾸려면 공통 비서 지정을 먼저 풀어 주세요.')
-  } else if (works) {
-    const title = template.card.title
-    run.push('실행 중에는 실행 방식을 바꿀 수 없어요. 먼저 실행을 종료해 주세요.')
-    // WP-1451: 작업 공간 AI 의 계정은 AI 마다 넣지 않고, 설정 › 에이전트 › 계정 탭의 목록에서 「계정 고르기」로 고른다.
-    if (template.account) {
-      const label = accountLabel(template.account)
-      run.push(
-        `${title} 는 ${label} 계정으로 일해요. 「계정 고르기」에서 계정 탭에 넣어 둔 ${label} 계정 하나를 고르세요. 맞는 계정이 없으면 계정 탭에서 먼저 추가해요.`,
-        // WP-1515: 사람이 바꾼 계정은 작업 설정처럼 일하는 중이면 쉴 때 적용된다(키 교체는 계정 탭에서 하고 바로 적용).
-        '계정을 바꾸면 이 AI 의 작업 공간이 새 계정으로 다시 시작돼요. 일하는 중이면 하던 이슈를 마치고 쉴 때 바뀌고, 바로 바꾸려면 상태의 「지금 적용」을 눌러요.',
-        `실행 방식을 ${title} 가 아닌 방식으로 바꾸면 고른 계정에서 풀려요.`,
-      )
-    }
-    if (template.requires.includes('repo'))
-      run.push(
-        '「저장소 연결」에는 이 AI 가 맡는 프로젝트 저장소의 호스트마다 토큰을 붙여 넣어요. 토큰은 AI 마다, 호스트마다 따로 저장하고 저장한 뒤에는 다시 보이지 않아요. 연결이 빠진 호스트가 있으면 실행을 시작할 수 없어요.',
-        'GitHub 토큰은 GitHub › Settings › Developer settings › Fine-grained personal access tokens 에서 만들어요. 대상 저장소를 고르고 Contents 와 Pull requests 를 Read and write 로 주세요.',
-        'GitLab 토큰은 GitLab › Preferences › Access tokens 에서 만드는 Personal access token 이에요. api 와 write_repository 범위를 체크하세요.',
-        '실행 중에 연결을 바꾸거나 끊으면 다음에 다시 시작할 때부터 적용돼요.',
-      )
-    // 모델 칸이 계정 모델 목록에서 선택지를 채우면(WP-1405) 무엇이 보이는지 알린다. 기본 선택지 이름은 템플릿 칸의 정적 options 에서 만든다 —
-    // 템플릿마다 별칭이 달라도(Gen:iA 등) 화면에 보이는 이름 그대로 안내하게.
-    for (const f of template.config.filter((c) => c.optionsFrom === 'account-models')) {
-      const names = f.options.map((o) => o.label).join('·')
-      // options 는 서버가 select 칸에 늘 요구하므로(비면 시작 실패) 빈 경우를 따로 두지 않는다.
-      run.push(
-        `「${f.label}」 선택지에는 연결한 AI 계정이 쓸 수 있는 모델이 보여요. 목록 맨 앞의 ${names} 도 고를 수 있고, 계정의 목록을 받지 못하면 이것만 보여요.`,
-      )
-    }
-    if (template.config.some((f) => f.key === 'queue'))
-      run.push('대기열 라벨을 적으면 맡긴 이슈 말고도 그 라벨이 붙은 담당자 없는 이슈를 가져가 처리해요.')
-    run.push('실행 환경을 바꾸면 쉴 때를 기다리지 않고 바로 옮겨 가요.')
-    const resource = workResourceText(template)
-    if (resource) run.push(`${title} 는 ${resource} 를 써요.`)
-    run.push(
-      '접속 키는 Works 가 30일짜리로 만들어 넘기고, 만료 7일 전부터 새 키로 바꿔요. 새 키는 쉴 때 적용되고, 옛 키가 하루 안에 만료되면 일하는 중이어도 바로 바꿔요. 직접 발급할 필요가 없어요.',
-      '예전에 직접 발급한 키가 남아 있으면 이제 쓰지 않으니 폐기하세요.',
-    )
-  } else if (external) {
-    run.push(
-      `이 AI 로 바꾼 세션만 이 AI 로 일하고, 다른 세션은 내 계정 그대로예요. ${PLUGIN_COMMANDS.logout} 하면 내 계정으로 돌아와요.`,
-      '자동으로 이슈 처리를 띄우면 할당된 이슈를 하나씩 가져와 구현·검증한 뒤 이슈 브랜치를 push 해 GitHub PR 을 만들고, 검토자가 머지하면 검토 대기로 올려요. main 에 직접 push 하거나 배포하지는 않아요.',
-      'PR 을 만들려면 이 AI 가 도는 컴퓨터에 gh 와 GitHub 토큰(GH_TOKEN)이 있어야 해요. 없으면 그 이슈를 「인증 필요」로 멈추고 알려 줘요.',
-      `자동 처리는 Claude Code 가 열려 있는 동안만 돌고 7일 뒤 다시 띄워야 해요. 이슈 하나만 맡길 때는 「${PLUGIN_SKILLS.workOn} 이슈키」를 쓰세요.`,
-    )
-    runCaution = '자동 처리는 권한을 묻지 않는 모드라 이 AI 전용 터미널에서만 쓰세요.'
-  }
-
-  const repos: string[] = ['「코드 저장소」에는 이 AI 가 멤버이고 저장소가 연결된 프로젝트가 나와요. 프로젝트 설정 › 멤버에서 이 AI 를 넣거나 빼요.']
-  if (external) repos.push('외부 AI 는 Works 가 코드를 받아 주지 않아요. 도구를 띄운 컴퓨터에서 GitHub 에 로그인해 두세요.')
-
-  const sections: SettingsGuideSection[] = [
-    { id: ids.status, title: '상태', tips: status },
-    ...(personal
-      ? [{ id: ids.profile, title: '기본 정보', tips: ['개인 비서는 구성원이 만든 AI 라 이름·아바타·맡은 일·지시를 주인이 정해요.'] }]
-      : [
-          { id: ids.profile, title: '기본 정보', tips: ['이름과 아바타는 목록·담당자 고르기·채팅에 이 AI 의 모습으로 보여요.'] },
-          { id: ids.roles, title: '역할 할당', tips: ['AI 에게는 관리자 역할이나 관리 권한이 든 역할을 줄 수 없어요. 이미 가진 역할은 화면에 남아 뺄 수 있어요.'] },
-        ]),
-    {
-      id: ids.work,
-      title: '맡은 일과 지시',
-      tips: [
-        '「맡은 일」은 다른 AI 가 일을 맡길 상대를 고를 때 읽어요. 무엇을 맡고 어떻게 일하는지 적어 두세요.',
-        '「지시」는 이 AI 가 이슈를 맡을 때마다 따르는 규칙이에요. 저장하면 다음 이슈부터 따르고, 다른 AI 는 보지 않아요. 프로젝트 저장소의 규칙과 부딪히면 저장소 규칙이 먼저예요.',
-      ],
-    },
-    {
-      id: ids.run,
-      title: '실행',
-      ...(external ? { stepsTitle: '연결 방법', steps: externalConnectSteps(agent.username) } : {}),
-      tips: run,
-      caution: runCaution,
-    },
-    ...(!personal && agent.runMode !== 'SERVER' ? [{ id: ids.repos, title: '코드 저장소', tips: repos }] : []),
-    ...(!personal ? [{ id: ids.danger, title: '위험 구역', caution: settingsGuides.agentDetail.caution }] : []),
-  ]
-
-  return {
-    title: settingsGuides.agentDetail.title,
-    lead: settingsGuides.agentDetail.lead,
-    sections,
-    related: settingsGuides.agentDetail.related,
-  }
-}
-
-/**
- * 외부 AI 연결 방법(WP-1281) — 예전엔 상세 화면 「연결 방법」 ①~⑤ 였다. 화면에는 ① 키 발급만 두고 ②부터는 가이드 단계로 옮겼다.
- * 명령은 플러그인 안내(lib/pluginGuide)가 만든 것을 그대로 쓴다. 서버 주소 단계는 기본 주소 배포에서도 그려 번호가 건너뛰지 않게 한다.
- */
-function externalConnectSteps(username: string): SettingsGuideStep[] {
-  const customServer = needsServerUrlSetting(MCP_ENDPOINT)
-  return [
-    { title: '① 키 발급', body: '화면의 「접속 키」에서 키를 발급해요. 키는 발급할 때 한 번만 보여요.' },
-    {
-      title: '② genia-works 플러그인 설치',
-      body: '컴퓨터마다 한 번만 해요. 이미 설치했으면 건너뛰세요.',
-      commands: [{ command: buildPluginInstallCommands(), testId: 'plugin-install-command' }],
-    },
-    customServer
-      ? {
-          title: '③ 서버 주소',
-          body: '이 서버는 기본 주소가 아니에요. 첫 명령으로 플러그인 설정을 열고, 서버 주소를 그 아래 주소로 바꾸세요.',
-          commands: [
-            { command: '/plugin configure genia-works@genia-works', testId: 'plugin-configure-command' },
-            { label: '서버 주소', command: MCP_ENDPOINT, testId: 'plugin-server-url' },
-          ],
-        }
-      : { title: '③ 서버 주소', body: '이 서버는 기본 주소라 그대로 두면 돼요.' },
-    {
-      title: '④ 이 AI 로 로그인',
-      body: `아래 명령에서 「새 AI 추가」를 고르고 ①에서 발급한 키를 붙여 넣으세요. 이름은 이 AI 의 아이디 ${username} 로 넣으면 그다음 명령을 그대로 쓸 수 있어요.`,
-      copyValue: { label: '아이디 복사', value: username, testId: 'agent-username-copy' },
-      commands: [
-        { command: PLUGIN_COMMANDS.login, testId: 'agent-login-command' },
-        { label: '지금 세션에서 이 AI 로 바꾸기', command: buildSwitchCommand(username), testId: 'agent-switch-command' },
-        { label: '처음부터 이 AI 로 띄우기', command: buildLaunchAsCommand(username), testId: 'agent-launch-as-command' },
-      ],
-    },
-    {
-      title: '⑤ 자동으로 이슈 처리',
-      commands: [
-        { label: '이 AI 전용 터미널에서 띄우기', command: buildWorkLoopLaunchCommand(username), testId: 'agent-work-loop-launch-command' },
-        { label: 'Claude Code 안에서 시작하기', command: buildWorkLoopStartCommand(), testId: 'agent-work-loop-start-command' },
-      ],
-    },
-    {
-      title: '다른 방법 (Windows 등 플러그인 전환을 쓸 수 없을 때)',
-      body: '키를 직접 넘겨 띄워요. 셸 기록에 키가 남을 수 있어요.',
-      commands: [{ command: buildTokenFallbackCommand(), testId: 'agent-fallback-command' }],
-      collapsed: true,
-    },
-  ]
 }

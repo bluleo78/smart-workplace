@@ -17,6 +17,7 @@ import {
   parseMemoryQuantity,
   statusDetail,
   statusPill,
+  workResourceText,
 } from './agentRuntimeStatus'
 
 describe('statusPill — 상태 알약', () => {
@@ -204,4 +205,21 @@ test('metricsUnavailable — 잴 수 없다고 확인된(false) 실행 환경만
   expect(metricsUnavailable(createLocation({ metricsAvailable: null }))).toBe(false)
   expect(metricsUnavailable(null)).toBe(false)
   expect(metricsUnavailable(undefined)).toBe(false)
+})
+
+// WP-1507: 에이전트 상세 AI 화면 참고의 자원 한 줄 — 옛 가이드 문장(workResourceText)을 화면 값 facts 로 되살렸다.
+describe('workResourceText — 평소·최대 자원 한 줄', () => {
+  test('요청값과 상한이 모두 있으면 평소·많이 쓸 때 최대를 함께', () => {
+    expect(workResourceText(CLAUDE_TEMPLATE)).toBe('평소 4코어·8GiB, 많이 쓸 때 최대 8코어·16GiB')
+  })
+  test('상한이 없으면 평소만, 한쪽 값만 있으면 그 값만', () => {
+    const r = { cpuRequest: '2', memoryRequest: null, cpuLimit: null, memoryLimit: null, workDisk: null }
+    expect(workResourceText({ ...CLAUDE_TEMPLATE, resources: r })).toBe('평소 2코어')
+    expect(workResourceText({ ...CLAUDE_TEMPLATE, resources: { ...r, memoryLimit: '4096M' } })).toBe('평소 2코어, 많이 쓸 때 최대 4096M')
+  })
+  test('자원 정의나 요청값이 없으면 null', () => {
+    expect(workResourceText(DEFAULT_TEMPLATE)).toBeNull()
+    const r = { cpuRequest: null, memoryRequest: null, cpuLimit: '8', memoryLimit: null, workDisk: null }
+    expect(workResourceText({ ...CLAUDE_TEMPLATE, resources: r })).toBeNull()
+  })
 })

@@ -52,6 +52,9 @@ import {
   railLinks,
 } from './user-kit.mjs';
 
+// Claude Code 로 도는 AI 의 아이디(agents-6) — 운영 촬영 테넌트에는 아직 없다. 사람 확인 뒤 이 아이디로 만든다(촬영 대상 표 15).
+const CLAUDE_CODE_AGENT = 'claude-dev';
+
 export const scenes = [
   // ── 01 소개 ──
   {
@@ -1169,34 +1172,115 @@ export const scenes = [
     },
   },
   // ── 15 AI 에이전트 관리 ────────────────────────────────────────────────────
+  // 새 화면(WP-1507): 탭 셋(목록·실행 환경·계정), 상세 페이지 /settings/agents/:id, 설명은 화면 도움말 패널. 모두 읽기만 한다(guardReadOnly·FIXED_NOW).
+  // 표식 상자는 컨테이너가 아니라 좁은 요소(단추·글자·행 머리)로 기록해 자른 폭이 원본 1400px 을 넘지 않게 한다(agents-1 전체 화면 제외).
   {
+    // 목록 탭 전체 화면 — 탭 셋, 개인 비서 표시, 새 에이전트, 지니 행.
     id: 'agents-1',
     account: ACCOUNT,
     async run({ page, rec }) {
       await openSettings(page, '/settings/agents', 'genie');
       await capture(page, rec, 'agents-1', {
-        toggle: page.getByText('개인 비서 표시', { exact: true }),
-        create: page.getByRole('button', { name: /새 에이전트/ }),
+        tabs: [byTestId(page, 'agent-tab-list'), byTestId(page, 'agent-tab-accounts')],
+        toggle: [byTestId(page, 'include-personal-toggle'), page.getByText('개인 비서 표시', { exact: true })],
+        create: byTestId(page, 'new-agent-trigger'),
         row: rowOf(page, 'agent-row-', 'genie', 'tr'),
       });
     },
   },
   {
-    // 에이전트 상세(오른쪽 패널) 윗부분 — 정보·실행 방식·활성 상태. 저장하지 않는다.
+    // 지니 상세 페이지 윗부분 — 상태 섹션과 기본 정보 섹션의 제목·첫 칸. 저장하지 않는다.
     id: 'agents-2',
     account: ACCOUNT,
     async run({ page, rec }) {
-      await openAgent(page);
-      const d = dialog(page);
-      await capture(page, rec, 'agents-2', {
-        info: [d.getByText('에이전트 정보', { exact: true }), d.getByRole('button', { name: '저장', exact: true })],
-        mode: [d.getByText('실행 방식', { exact: true }), d.getByText(/비서 지정을 먼저 해제하세요/)],
-        active: [d.getByText('활성 상태', { exact: true }), d.getByText(/지정을 해제한 뒤 비활성화할 수 있어요/)],
+      // 데스크톱 최소 폭(1024)으로 찍는다 — 1440 폭에서는 사용 스위치가 오른쪽 끝에 있어 자른 폭이 원본 2000px 을 넘는다.
+      await withViewport(page, 1024, async () => {
+        await openAgent(page, 'genie');
+        const status = byTestId(page, 'agent-status-section');
+        const profile = byTestId(page, 'agent-basic-section');
+        await capture(page, rec, 'agents-2', {
+          status: [status.getByText('상태', { exact: true }).first(), byTestId(page, 'agent-use-toggle')],
+          profile: [profile.getByText('기본 정보', { exact: true }).first(), byTestId(page, 'agent-name-input'), byTestId(page, 'agent-identity-save')],
+        });
       });
-      await closeDialog(page);
     },
   },
-  // 패널 아래쪽(AI 연결 및 모델·공통 비서·API 키)은 찍지 않는다 — 「최근 사용」 시각이 AI 가 일할 때마다(홈 우선순위 배치 포함) 바뀐다.
+  {
+    // 외부 에이전트 release-bot 상세에서 「연결 방법」 → 도움말 패널의 「외부 도구 연결」 절. 패널만 자른다 —
+    // 상세의 키 표(ak_ 앞자리)는 자르기 밖이다. 「연결 방법」 은 키를 한 번도 쓰지 않았을 때만 보인다(AgentRunSection).
+    id: 'agents-3',
+    account: ACCOUNT,
+    async run({ page, rec }) {
+      await openAgent(page, 'release-bot');
+      await byTestId(page, 'external-connect-help-open').click();
+      const panel = byTestId(page, 'help-panel-body');
+      await byTestId(page, 'help-breadcrumb').getByText('외부 도구 연결', { exact: true }).filter({ visible: true }).first().waitFor();
+      await panel.getByText('/genia-works:as release-bot', { exact: false }).first().waitFor();
+      await blurActive(page);
+      await fontsReady(page);
+      await capture(page, rec, 'agents-3', {
+        panel,
+        copy: panel.getByTestId('help-code-copy').first(),
+      });
+      await byTestId(page, 'help-close').click();
+    },
+  },
+  {
+    // 실행 환경 탭 — 추가 단추, 첫 행의 이름 칸, 행 메뉴 단추. 연결 상태·실행 중 AI 수는 표식 없이 본문에서 설명한다.
+    id: 'agents-4',
+    account: ACCOUNT,
+    async run({ page, rec }) {
+      // 데스크톱 최소 폭(1024)으로 찍는다 — 1440 폭에서는 머리 단추와 표 왼쪽 끝 사이가 원본 1600px 을 넘는다.
+      await withViewport(page, 1024, async () => {
+        await openSettings(page, '/settings/agents/locations', '최대 AI 수');
+        const row = page.locator('tr[data-testid^="agent-location-row-"]').first();
+        await row.waitFor();
+        await capture(page, rec, 'agents-4', {
+          create: byTestId(page, 'agent-location-new'),
+          row: row.locator('td').first(),
+          menu: row.locator('[data-testid^="agent-location-menu-"]'),
+          area: [byTestId(page, 'agent-location-new'), row, page.locator('table').first()],
+        });
+      });
+    },
+  },
+  {
+    // 계정 탭 — 추가 단추, 첫 행의 계정 칸, 행 메뉴 단추. 5시간·주간 사용률과 사용량 확인 시각은 찍을 때마다 바뀌어 표식을 두지 않는다.
+    id: 'agents-5',
+    account: ACCOUNT,
+    async run({ page, rec }) {
+      // 데스크톱 최소 폭(1024)으로 찍는다 — 1440 폭에서는 머리 단추와 표 왼쪽 끝 사이가 원본 1600px 을 넘는다.
+      await withViewport(page, 1024, async () => {
+        await openSettings(page, '/settings/agents/accounts', '사용량 확인');
+        const row = page.locator('tr[data-testid^="agent-account-row-"]').first();
+        await row.waitFor();
+        await capture(page, rec, 'agents-5', {
+          create: byTestId(page, 'agent-account-new'),
+          row: row.locator('td').first(),
+          menu: row.locator('[data-testid^="agent-account-menu-"]'),
+          table: page.locator('table').first(),
+        });
+      });
+    },
+  },
+  {
+    // Claude Code 로 도는 AI 의 상세 「실행」 섹션 — 실행 방식 카드, AI 계정 묶음, 저장소 연결 묶음. 시작하거나 저장하지 않는다.
+    // 작업 공간은 띄우지 않으므로 상태는 「종료됨」 그대로다.
+    id: 'agents-6',
+    account: ACCOUNT,
+    async run({ page, rec }) {
+      await openAgent(page, CLAUDE_CODE_AGENT);
+      const run = byTestId(page, 'agent-run-section');
+      await byTestId(page, 'agent-repo-group').waitFor();
+      await run.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await page.waitForTimeout(300);
+      await capture(page, rec, 'agents-6', {
+        mode: page.getByRole('radiogroup', { name: '실행 방식' }),
+        account: byTestId(page, 'agent-ai-account-group'),
+        repo: byTestId(page, 'agent-repo-group'),
+      });
+    },
+  },
   // ── 16 로그인·앱 설정 ──────────────────────────────────────────────────────
   {
     // SSO 켜기 칸만 자른다 — 아래 관리자 동의 링크(앱 등록 client_id 가 든 주소)는 그림에 넣지 않는다.
@@ -1442,28 +1526,6 @@ export const scenes = [
     },
   },
   {
-    // 외부 실행 에이전트 release-bot(시드)의 「외부 에이전트 연결」 — ② 플러그인 설치부터 ④ 이 AI 로 일하기까지.
-    // ① 의 키 목록에는 키 앞자리(ak_…)가 보이므로 자르기에 넣지 않는다.
-    id: 'agents-3',
-    account: ACCOUNT,
-    async run({ page, rec }) {
-      await openSettings(page, '/settings/agents', 'release-bot');
-      await page.locator('tr[data-testid^="agent-row-"]').filter({ hasText: 'release-bot' }).first().click();
-      const d = dialog(page);
-      await d.getByText('외부 에이전트 연결', { exact: true }).waitFor();
-      await blurActive(page);
-      await d.getByText(/② genia-works 플러그인 설치/).evaluate((el) => el.scrollIntoView({ block: 'start' }));
-      await page.waitForTimeout(300);
-      await capture(page, rec, 'agents-3', {
-        plugin: d.getByText(/② genia-works 플러그인 설치/),
-        login: d.getByText(/③ Claude Code 에 이 AI 등록/),
-        work: d.getByText('④ 이 AI로 일하기', { exact: false }),
-        area: [d.getByText(/② genia-works 플러그인 설치/), d.getByText('/genia-works:as release-bot', { exact: true })],
-      });
-      await closeDialog(page);
-    },
-  },
-  {
     // 09 파일 미리 보기 — PDF 는 원본을 GET 으로 받아 그린다(변환 요청 없음: 서버 변환은 한글·오피스 형식만, viewerItems.ts).
     // 미리 보기가 함께 부르는 AI 요약 GET(/summary)은 openApp 의 extraBlock 이 막는다.
     id: 'drive-6',
@@ -1493,30 +1555,6 @@ export const scenes = [
         next: page.getByRole('button', { name: '다음 파일' }),
         zoom: [page.getByRole('button', { name: '축소' }), page.getByRole('button', { name: '확대' })],
       });
-    },
-  },
-  {
-    // 15 지니의 AI 연결 및 모델 — 「최근 사용」 시각은 AI 가 일할 때마다 바뀐다. 그 줄 바로 아래(재발급·회수)부터 자른다.
-    // area 를 단추 안쪽으로 10px 줄여 자르기 위 끝(여백 24px)이 최근 사용 줄 아래에 오게 한다. 화면을 덮거나 고치지 않는다.
-    id: 'agents-4',
-    account: ACCOUNT,
-    async run({ page, rec }) {
-      await openAgent(page);
-      const sec = page.getByTestId('agent-connection-section');
-      await page.getByTestId('oauth-token-reissue').waitFor();
-      // 모델 목록은 늦게 온다 — 모델 칸과 추천 질문 모델 칸에 이름이 채워질 때까지 기다린다(비어 찍히면 그림이 흔들린다).
-      await page.getByTestId('workspace-assistant-model').getByText(/\S/).first().waitFor();
-      await sec.getByText(/자동 \(/).first().waitFor();
-      await sec.evaluate((el) => el.scrollIntoView({ block: 'start' }));
-      await page.waitForTimeout(300);
-      await capture(page, rec, 'agents-4', {
-        conn: [page.getByTestId('oauth-token-reissue'), page.getByTestId('oauth-token-revoke')],
-        model: [page.getByTestId('workspace-assistant-model'), page.getByTestId('workspace-assistant-depth'), page.getByText('추천·후속 질문을 만들 때만 쓰는 가벼운 모델이에요.')],
-        assistant: [page.getByText('이 에이전트를 공통 비서로 지정', { exact: true }), page.getByTestId('workspace-assistant-current')],
-        key: [page.getByText('API 키', { exact: true }), page.getByRole('button', { name: '키 발급' }), page.getByText('키가 없습니다')],
-        area: { at: [page.getByTestId('oauth-token-reissue'), page.getByRole('button', { name: '키 발급' }), page.getByText('키가 없습니다')], pad: -10 },
-      });
-      await closeDialog(page);
     },
   },
   // ── 04 AI 와 함께 일하기 ── 담당자 선택창만 연다(체크하지 않고 Esc — 바뀐 것이 없으면 저장 요청도 없다).

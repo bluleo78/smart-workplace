@@ -176,7 +176,7 @@ function ChooseAccountDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-xl" data-testid="agent-account-choose-dialog">
+      <DialogContent className="sm:max-w-xl" data-testid="agent-account-choose-dialog" data-help="agent.run.account.pick">
         <DialogHeader>
           <DialogTitle>계정 고르기</DialogTitle>
           <DialogDescription>

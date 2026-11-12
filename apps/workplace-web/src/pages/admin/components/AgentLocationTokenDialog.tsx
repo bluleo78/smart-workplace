@@ -42,7 +42,8 @@ export function AgentLocationTokenDialog({ issued, showInstall, onClose }: Props
 
   return (
     <Dialog open={issued != null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" data-testid="agent-location-token-dialog">
+      {/* 추가 직후·토큰 재발급 뒤 모두 「연결 프로그램을 설치한다」 도움말 절로 잇는다(WP-1507). */}
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" data-testid="agent-location-token-dialog" data-help="agents.locations.install">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {issued?.location.name} 연결 토큰
@@ -101,7 +102,7 @@ export function AgentLocationTokenDialog({ issued, showInstall, onClose }: Props
                 ))}
               </ol>
               <div className="space-y-1.5" data-testid="agent-location-install-troubleshoot">
-                {/* 문제 해결 설명은 설정 가이드(실행 환경)로 옮겼다(WP-1281) — 여기엔 칠 명령만 남긴다. */}
+                {/* 문제 해결 설명은 매뉴얼 도움말(연결 프로그램을 설치한다)로 옮겼다(WP-1281·WP-1507) — 여기엔 칠 명령만 남긴다. */}
                 <p className="text-xs text-muted-foreground">연결이 안 될 때 연결 프로그램 기록 보기</p>
                 <CopyableCommand command={RUNNER_LOGS_COMMAND} testId="agent-location-install-logs" label="기록 보기 명령" />
               </div>

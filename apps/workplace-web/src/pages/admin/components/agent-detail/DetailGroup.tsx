@@ -13,11 +13,13 @@ interface Props {
   first?: boolean;
   children: ReactNode;
   'data-testid'?: string;
+  /** 이 묶음을 만질 때 도움말 패널이 보일 매뉴얼 도움말 id(WP-1507) — 호출부가 글자 그대로 넘겨 manual:check 가 짝을 본다. */
+  'data-help'?: string;
 }
 
-export function DetailGroup({ title, how, first = false, children, 'data-testid': testId }: Props) {
+export function DetailGroup({ title, how, first = false, children, 'data-testid': testId, 'data-help': dataHelp }: Props) {
   return (
-    <div data-testid={testId} className={cn('space-y-3', !first && 'border-t pt-4')}>
+    <div data-testid={testId} data-help={dataHelp} className={cn('space-y-3', !first && 'border-t pt-4')}>
       <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold">
         {title}
         {how && <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{how}</span>}

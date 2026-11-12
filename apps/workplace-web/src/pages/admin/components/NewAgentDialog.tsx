@@ -48,7 +48,8 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="new-agent-dialog">
+      {/* 「새 에이전트를 만든다」 도움말 절로 잇는다(WP-1507) — 열린 대화상자가 포커스보다 앞서므로 안쪽 칸에는 따로 달지 않는다. */}
+      <DialogContent data-testid="new-agent-dialog" data-help="agents.list.create">
         <DialogHeader>
           <DialogTitle>새 에이전트</DialogTitle>
           <DialogDescription className="sr-only">새 에이전트</DialogDescription>

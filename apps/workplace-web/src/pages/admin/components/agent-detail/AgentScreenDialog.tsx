@@ -147,6 +147,8 @@ export function AgentScreenDialog({
         className="flex h-[92vh] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1600px)]"
         showCloseButton={false}
         data-testid="agent-screen-dialog"
+        // 도움말은 「AI 의 작업 화면을 본다」 절(WP-1507).
+        data-help="agent.status.screen"
         // 터미널이 키(Esc 포함)를 받아야 한다 — 입력 중에는 Esc 로 창이 닫히지 않게.
         onEscapeKeyDown={(e) => inputOn && e.preventDefault()}
       >
@@ -225,7 +227,7 @@ export function AgentScreenDialog({
         </div>
 
         <AlertDialog open={confirmInput} onOpenChange={setConfirmInput}>
-          <AlertDialogContent size="sm" data-testid="agent-screen-input-confirm">
+          <AlertDialogContent size="sm" data-testid="agent-screen-input-confirm" data-help="agent.status.screen">
             <AlertDialogHeader>
               <AlertDialogTitle>입력을 허용할까요?</AlertDialogTitle>
               <AlertDialogDescription>

@@ -10,10 +10,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
 import { helpBundleHandlers, helpIndexFixture } from '@/test/kits/help/helpBundleKit'
+import { HelpPanelHost } from '@/test/kits/help/HelpPanelHost'
 import { renderScreen } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
-import { HelpPanel } from './HelpPanel'
 import { HelpPanelProvider, useHelpPanel } from './HelpPanelContext'
 import { HelpTrigger } from './HelpTrigger'
 import { useProvideHelpValues } from './helpValues'
@@ -31,16 +31,14 @@ afterAll(() => {
   if (clientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', clientWidth)
 })
 
-/** 패널을 열림 상태에 따라 그리는 받침 — 「열기」 단추로 열고, AI 모드를 글로 보인다. */
+/** 패널 받침(HelpPanelHost — 「열기」 단추로 연다)에 AI 모드를 글로 보이는 칸을 더한다. */
 function Host() {
-  const help = useHelpPanel()
   const ai = useAssistant()
   return (
-    <div>
-      <button onClick={() => help.setOpen(true)}>열기</button>
+    <>
       <output data-testid="ai-mode">{ai.mode}</output>
-      {help.open && <HelpPanel />}
-    </div>
+      <HelpPanelHost openButton />
+    </>
   )
 }
 
@@ -48,6 +46,28 @@ function Host() {
 function ValueProbe() {
   useProvideHelpValues({ placeholders: { 'agent.username': 'dev5' } })
   return null
+}
+
+/**
+ * 외부 도구 연결 절(WP-1507)을 직접 고르는 탐침 — 화면처럼 값을 등록하고 「연결 절 열기」로 그 절을 연다.
+ * custom 이면 기본 주소가 아닌 서버(조건 참)와 그 MCP 주소를 준다.
+ */
+function ConnectProbe({ custom = false }: { custom?: boolean }) {
+  const help = useHelpPanel()
+  useProvideHelpValues({
+    placeholders: { 'agent.username': 'dev5', ...(custom ? { 'app.mcpEndpoint': 'https://x.example/mcp' } : {}) },
+    conditions: { 'app.customMcpServer': custom },
+  })
+  return (
+    <button
+      onClick={() => {
+        help.select({ chapter: 'agents', sectionId: 'agent.run.keys.connect' }, null)
+        help.setOpen(true)
+      }}
+    >
+      연결 절 열기
+    </button>
+  )
 }
 
 const ui = (extra?: React.ReactNode) => (
@@ -172,6 +192,36 @@ describe('HelpPanel', () => {
     await user.click(screen.getByRole('button', { name: '이 화면 도움말 목록' }))
     await user.click(within(await screen.findByTestId('help-section-menu')).getByRole('button', { name: '실행' }))
     expect(await screen.findByText('실행 본문. 아이디는 dev5 이다.')).toBeInTheDocument()
+  })
+
+  it('조건 블록 안 코드 블록 — 기본 서버면 숨기고, 번호 목록은 한 ol 로 남으며 아이디가 채워진다 (WP-1507)', async () => {
+    const { user } = renderScreen(ui(<ConnectProbe />), { path: '/settings/agents/7', handlers: helpBundleHandlers(), auth: admin })
+    await user.click(screen.getByRole('button', { name: '연결 절 열기' }))
+    const body = await screen.findByTestId('help-panel-content')
+    await within(body).findByText('외부 연결 본문.')
+    expect(body).not.toHaveTextContent('/plugin configure')
+    expect(body).not.toHaveTextContent('서버 주소를 바꿉니다.')
+    // 목록 항목 안에 들여 쓴 코드 블록이 번호 목록을 끊지 않는다 — 첫 단계와 마지막 단계가 같은 ol 이고 세 단계가 든다(브레드크럼 ol 과 섞지 않게 본문 글에서 찾는다).
+    const list = within(body).getByText('플러그인을 설치합니다.').closest('ol')!
+    expect(within(body).getByText('이 AI 로 바꿉니다.').closest('ol')).toBe(list)
+    expect(list.querySelectorAll(':scope > li')).toHaveLength(3)
+    const codes = within(body).getAllByRole('code').map((c) => c.textContent?.trim())
+    expect(codes).toEqual(['/plugin install genia-works@genia-works', '/genia-works:as dev5', 'GENIA_WORKS_AS=dev5 claude'])
+  })
+
+  it('조건 블록 안 코드 블록 — 기본 주소가 아닌 서버면 보이고, MCP 주소를 채워 복사한다 (WP-1507)', async () => {
+    const { user } = renderScreen(ui(<ConnectProbe custom />), { path: '/settings/agents/7', handlers: helpBundleHandlers(), auth: admin })
+    await user.click(screen.getByRole('button', { name: '연결 절 열기' }))
+    const body = await screen.findByTestId('help-panel-content')
+    await within(body).findByText('외부 연결 본문.')
+    expect(body).toHaveTextContent('서버 주소를 바꿉니다.')
+    const list = within(body).getByText('플러그인을 설치합니다.').closest('ol')!
+    expect(within(body).getByText('이 AI 로 바꿉니다.').closest('ol')).toBe(list)
+    expect(list.querySelectorAll(':scope > li')).toHaveLength(3)
+    const endpoint = within(body).getByText('https://x.example/mcp')
+    expect(within(body).getByText('/plugin configure genia-works@genia-works')).toBeInTheDocument()
+    await user.click(within(endpoint.closest('div')!).getByTestId('help-code-copy'))
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe('https://x.example/mcp'))
   })
 
   it('AI 가 없으면 AI에게 묻기 단추가 없다', async () => {

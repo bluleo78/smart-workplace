@@ -1,16 +1,16 @@
 // 도움말 패널 검색 칸(WP-1509) — 입력 → 디바운스 → `GET /api/v1/help/search`, 결과 목록(「결과 N건」·강조 카드),
 // ↑/↓·Enter 로 열기, 연 뒤 「다른 결과」 칩, Esc 로 검색 전 내용 복귀, 0건·늦은 응답·빈 질의를 본다.
-// 묶음·검색 응답은 MSW 로 준다(helpBundleKit). 받침(Host)은 HelpPanel.test.tsx 와 같은 모양이다.
+// 묶음·검색 응답은 MSW 로 준다(helpBundleKit). 받침은 HelpPanel.test.tsx 와 같은 HelpPanelHost 다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { delay, HttpResponse } from 'msw'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { helpBundleHandlers, helpSearchHandler, helpSearchHitsFixture } from '@/test/kits/help/helpBundleKit'
+import { HelpPanelHost } from '@/test/kits/help/HelpPanelHost'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 
-import { HelpPanel } from './HelpPanel'
-import { HelpPanelProvider, useHelpPanel } from './HelpPanelContext'
+import { HelpPanelProvider } from './HelpPanelContext'
 
 // 데스크톱 셸로 고정한다(jsdom matchMedia 로는 폭을 바꿀 수 없다).
 vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => false, getIsMobile: () => false }))
@@ -24,21 +24,10 @@ afterAll(() => {
   if (clientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', clientWidth)
 })
 
-/** 「열기」 단추로 패널을 여는 받침. */
-function Host() {
-  const help = useHelpPanel()
-  return (
-    <div>
-      <button onClick={() => help.setOpen(true)}>열기</button>
-      {help.open && <HelpPanel />}
-    </div>
-  )
-}
-
 const ui = (
   <AIAssistantProvider hotkeysEnabled={false}>
     <HelpPanelProvider>
-      <Host />
+      <HelpPanelHost openButton />
     </HelpPanelProvider>
   </AIAssistantProvider>
 )
@@ -274,8 +263,8 @@ describe('HelpPanel 검색', () => {
     const input = await openPanel(user)
     await user.type(input, '실행')
     const cards = await findCards()
-    // (fixture 의 display 가 이미 꺾쇠를 품어 두 겹으로 보인다)
-    expect(cards[0]).toHaveTextContent('아이디는 <<AI 아이디>> 이다. 서버를 바꾼다.')
+    // 값이 없으면 실제 manual-vars.json 처럼 「<표시 이름>」 한 겹으로 보인다.
+    expect(cards[0]).toHaveTextContent('아이디는 <AI 아이디> 이다. 서버를 바꾼다.')
     expect(cards[0].textContent).not.toMatch(/[{}]/)
   })
 })

@@ -50,7 +50,8 @@ export function AgentLocationFormDialog({ location, onClose, onCreated }: Props)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent data-testid="agent-location-form">
+      {/* 추가 모드는 「실행 환경 추가」, 바꾸기 모드(⋯ 메뉴에서 연다)는 「실행 환경 메뉴」 도움말 절로 잇는다(WP-1507). */}
+      <DialogContent data-testid="agent-location-form" data-help={location ? 'agents.locations.menu' : 'agents.locations.create'}>
         <DialogHeader>
           <DialogTitle>{location ? '이름·최대 AI 수 바꾸기' : '실행 환경 추가'}</DialogTitle>
           <DialogDescription>

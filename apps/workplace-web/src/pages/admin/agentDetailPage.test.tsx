@@ -1,16 +1,22 @@
 // 에이전트 상세 페이지(/settings/agents/:id, WP-1281) — 서버가 판정한 runMode(SERVER·WORKSPACE·EXTERNAL)와 유형(개인·공통)에 따라
 // 어떤 섹션·묶음이 그려지는지, 시작이 막히는 이유(맡는 프로젝트 0 등), 다음 교체 시각, 404 상태를 본다.
 // 작업 공간 AI 의 AI 계정은 계정 목록에서 고른다(WP-1451) — 맞는 종류만·고르면 PUT {accountId}·사용률·다시 시작/쉴 때 적용 안내(WP-1515)·빈 목록·거절 문구를 본다.
-// 확인창·PUT payload 같은 섹션별 동작은 agentManagement.test.tsx, 설정 가이드 따라가기는 settingsGuide.test.tsx 가 본다.
+// 확인창·PUT payload 같은 섹션별 동작은 agentManagement.test.tsx 가 본다. 섹션·묶음·대화상자가 매뉴얼 15장 도움말 절(data-help)로
+// 이어지는지와 AI 화면 참고(매뉴얼 요약 + 에이전트 대상)는 아래 「도움말 문맥」 묶음이 본다(WP-1507).
 import { screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { Route, Routes } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { agentRuntimeKeys } from '@/hooks/queries/agentRuntimeKeys'
 import { agentAccountKeys } from '@/hooks/queries/useAgentAccounts'
 import { formatDateMonthDayPadded } from '@/lib/formatters'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { withAppProviders } from '@/test/kits/appProviders'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { server } from '@/test/msw/server'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
@@ -34,13 +40,19 @@ import {
 } from '../../test/kits/admin/agentRuntime'
 import AgentDetailPage from './AgentDetailPage'
 
+// WP-1507: 에이전트 화면·상세는 AI 화면 참고용으로 /help 묶음을 받는다 — 모든 테스트에 묶음을 깐다(테스트 핸들러가 앞에 붙어 이긴다).
+beforeEach(() => {
+  // 앱 상태 Provider(withAppProviders)가 부르는 앱 셸 기본 조회도 깐다.
+  server.use(...helpBundleHandlers(), ...shellHandlers)
+})
+
 const ROLE = createRole({ id: 3, name: 'AGENT', description: 'AI 에이전트', isSystem: true })
 
-/** 섹션 앵커 id — 화면 SettingsSection 과 설정 가이드가 같은 값을 쓴다(AGENT_DETAIL_SECTION_IDS). */
-const SECTION = ['agent-status', 'agent-profile', 'agent-roles', 'agent-work', 'agent-run', 'agent-repos', 'agent-danger'] as const
+/** 섹션의 도움말 id — 화면 SettingsSection 의 data-help 와 매뉴얼 15장 절이 같은 값을 쓴다(WP-1507). */
+const SECTION = ['agent.status', 'agent.profile', 'agent.roles', 'agent.work', 'agent.run', 'agent.repos', 'agent.danger'] as const
 
-/** 지금 화면에 있는 섹션 id 들(화면 순서). */
-const presentSections = () => SECTION.filter((id) => document.getElementById(id) != null)
+/** 지금 화면에 있는 섹션의 도움말 id 들(화면 순서). */
+const presentSections = () => SECTION.filter((id) => document.querySelector(`section[data-help="${id}"]`) != null)
 
 const NOW_KEY: AgentApiKey = {
   id: 1, userId: 0, keyPrefix: 'ak_old', label: null, createdBy: null, createdAt: '2026-10-01T00:00:00Z',
@@ -62,14 +74,19 @@ interface Opts extends RuntimeApiOptions {
   readyTestId?: string
   /** 모델 목록(/admin/agents/:id/models) 응답 — 없으면 빈 목록(계정 없음 모양). */
   models?: () => Response
+  /** AI 화면 참고 탐침을 함께 그린다(WP-1507) — 탐침 JSON 에 이름 등이 들어가 다른 글자 찾기에 걸리지 않게 필요할 때만. */
+  probe?: boolean
+  /** 기본 목보다 먼저 맞출 핸들러 — 특정 조회를 멈춰 「받는 중」 을 흉내 낼 때. */
+  extraHandlers?: RequestHandler[]
 }
 
 /** 상세 페이지 — 에이전트 한 명·계정·역할·키·공통 비서와 AI 실행 API 를 준다. */
-async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'agent-detail-page', models, ...runtimeOpts }: Opts) {
+async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'agent-detail-page', models, probe = false, extraHandlers = [], ...runtimeOpts }: Opts) {
   const runtime = agentRuntimeApi(runtimeOpts)
   /** 모델 목록 조회 횟수 — 계정 모델 칸이 없는 방식은 부르지 않는지 본다. */
   const modelCalls = { count: 0 }
   const handlers = [
+    ...extraHandlers,
     http.get('/api/v1/admin/agents/:id', ({ params }) =>
       agentResponse
         ? agentResponse()
@@ -97,14 +114,17 @@ async function renderDetail({ agent, keys = [], agentResponse, readyTestId = 'ag
     }),
     ...runtime.handlers,
   ]
-  const view = renderScreen(
-    <AIAssistantProvider hotkeysEnabled={false}>
-      <Routes>
-        <Route path="/settings/agents/:id" element={<AgentDetailPage />} />
-      </Routes>
-    </AIAssistantProvider>,
-    { path: `/settings/agents/${agent.id}`, handlers },
+  // 앱 상태 Provider — 외부 방식의 「연결 방법」 단추가 도움말 패널을 여는 데 쓴다(앱에서는 AppLayout 이 끼운다).
+  // 탐침을 쓰는 테스트는 AI 패널을 연 상태로 — 화면 참고 요약은 AI·도움말 패널이 열려 있을 때만 매뉴얼을 받는다.
+  const routes = (
+    <Routes>
+      <Route path="/settings/agents/:id" element={<AgentDetailPage />} />
+    </Routes>
   )
+  const view = renderScreen(probe ? withScreenContextProbe(routes) : withAppProviders(routes), {
+    path: `/settings/agents/${agent.id}`,
+    handlers,
+  })
   await screen.findByTestId(readyTestId)
   return { ...view, ...runtime, modelCalls }
 }
@@ -113,7 +133,7 @@ describe('실행 방식별 섹션 구성', () => {
   test('SERVER(기본) — 저장소 섹션 없이 6개, 실행은 AI 계정·접속 키(발급 폼)이고 작업 설정·마지막 접속은 없다', async () => {
     await renderDetail({ agent: createAgent(100, { name: '내부봇', username: 'ai-dev' }) })
     await screen.findByTestId('agent-ai-account-group')
-    expect(presentSections()).toEqual(['agent-status', 'agent-profile', 'agent-roles', 'agent-work', 'agent-run', 'agent-danger'])
+    expect(presentSections()).toEqual(['agent.status', 'agent.profile', 'agent.roles', 'agent.work', 'agent.run', 'agent.danger'])
     // 머리 배지는 방식 이름(기본)
     expect(screen.getByTestId('agent-detail-page')).toHaveTextContent('@ai-dev')
     expect(screen.getByRole('radio', { name: /기본/ })).toBeChecked()
@@ -149,7 +169,7 @@ describe('실행 방식별 섹션 구성', () => {
     expect(await screen.findByTestId('agent-runtime-projects')).toHaveTextContent('WD')
   })
 
-  test('EXTERNAL — 상태에 마지막 접속, 실행에 접속 키(발급 폼)·가이드 안내, 저장소 섹션이 있고 AI 계정·작업 설정은 없다', async () => {
+  test('EXTERNAL — 상태에 마지막 접속, 실행에 접속 키(발급 폼)·「연결 방법」 단추, 저장소 섹션이 있고 AI 계정·작업 설정은 없다', async () => {
     await renderDetail({ agent: createAgent(300, { runtime: 'EXTERNAL', runMode: 'EXTERNAL', username: 'ext' }) })
     expect(await screen.findByTestId('external-connect-card')).toBeInTheDocument()
     expect(presentSections()).toEqual([...SECTION])
@@ -157,6 +177,9 @@ describe('실행 방식별 섹션 구성', () => {
     expect(screen.queryByTestId('agent-ai-account-group')).not.toBeInTheDocument()
     expect(screen.queryByTestId('agent-work-settings-group')).not.toBeInTheDocument()
     expect(await screen.findByTestId('key-issue-form')).toBeInTheDocument()
+    // 연결 순서(플러그인 설치·로그인·자동 처리)는 화면이 아니라 도움말 절이다 — 카드에는 그 절을 여는 짧은 단추만(WP-1507).
+    expect(await screen.findByTestId('external-connect-help-open')).toHaveTextContent('연결 방법')
+    expect(screen.queryByTestId('external-connect-guide-hint')).not.toBeInTheDocument()
   })
 
   test('EXTERNAL 에서 접속한 적이 있으면 마지막 접속을 상대 시각으로 보이고 연결 방법 안내는 없다', async () => {
@@ -167,13 +190,13 @@ describe('실행 방식별 섹션 구성', () => {
     })
     expect(await screen.findByTestId('agent-last-access')).toHaveTextContent('마지막 접속 5분 전')
     await screen.findByTestId('key-row-5')
-    expect(screen.queryByTestId('external-connect-guide-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('external-connect-help-open')).not.toBeInTheDocument()
   })
 
   test('개인 비서 — 역할·저장소·위험 구역이 없고 사용 스위치는 「주인이 관리」로 막히며, 실행 카드는 기본으로 고정된다', async () => {
     await renderDetail({ agent: createAgent(400, { type: 'PERSONAL', ownerName: '홍길동', name: '홍길동의 비서' }) })
     await screen.findByTestId('agent-ai-account-group')
-    expect(presentSections()).toEqual(['agent-status', 'agent-profile', 'agent-work', 'agent-run'])
+    expect(presentSections()).toEqual(['agent.status', 'agent.profile', 'agent.work', 'agent.run'])
     expect(screen.getByRole('switch', { name: '사용' })).toBeDisabled()
     expect(screen.getByTestId('agent-use-toggle')).toHaveTextContent('주인이 관리해요')
     expect(screen.getByTestId('agent-run-mode-lock')).toHaveTextContent('개인 비서는 기본 방식으로만 돌아요')
@@ -202,7 +225,7 @@ describe('실행 방식별 섹션 구성', () => {
   test('공통 비서 — 실행 방식은 「기본」 고정(다른 카드는 막힘)이고 공통 비서 묶음에 지정됨이 보인다', async () => {
     await renderDetail({ agent: createAgent(500, { type: 'WORKSPACE', name: '공통봇' }) })
     expect(await screen.findByTestId('workspace-assistant-current')).toHaveTextContent('지정됨')
-    expect(presentSections()).toEqual(['agent-status', 'agent-profile', 'agent-roles', 'agent-work', 'agent-run', 'agent-danger'])
+    expect(presentSections()).toEqual(['agent.status', 'agent.profile', 'agent.roles', 'agent.work', 'agent.run', 'agent.danger'])
     expect(screen.getByTestId('agent-run-mode-SERVER')).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByTestId('agent-run-mode-EXTERNAL')).toBeDisabled()
     expect(screen.getByTestId('agent-run-mode-claude-code')).toBeDisabled()
@@ -1121,5 +1144,224 @@ describe('작업 공간 AI 의 계정 고르기(WP-1451)', () => {
       const st = queryClient.getQueryState(agentAccountKeys.forAgent(id))
       expect(st?.isInvalidated || (st?.dataUpdatedAt ?? 0) > boundBefore).toBe(true)
     })
+  })
+})
+
+describe('도움말 문맥 — 실행 방식·유형마다 섹션·묶음·대화상자가 맞는 도움말 절로 이어진다 (WP-1507)', () => {
+  const id = 200
+  /** 화면 칸 testid → 도움말 id 표를 한꺼번에 단언한다. */
+  const expectTargets = (map: Record<string, string>) => {
+    for (const [testId, helpId] of Object.entries(map)) expectHelpTarget(screen.getByTestId(testId), helpId)
+  }
+  /** 모든 변형에 있는 섹션. */
+  const common = {
+    'agent-status-section': 'agent.status',
+    'agent-use-toggle': 'agent.status.use',
+    'agent-basic-section': 'agent.profile',
+    'agent-duty-section': 'agent.work',
+    'agent-run-section': 'agent.run',
+  }
+  const workspace = (over: Partial<AgentResponse> = {}) => createAgent(id, { runtime: 'EXTERNAL', runMode: 'WORKSPACE', ...over })
+  const running = createSetting(id, { status: 'RUNNING', desired: 'RUN', observed: createObserved({ agentState: 'WORKING' }) })
+
+  test.each<{ name: string; opts: () => Opts; ready: string; map: Record<string, string>; roles: boolean }>([
+    {
+      name: 'SERVER(기본)',
+      opts: () => ({ agent: createAgent(100) }),
+      ready: 'agent-assistant-group',
+      roles: true,
+      map: {
+        'agent-ai-account-group': 'agent.run.account',
+        'agent-assistant-group': 'agent.run.assistant',
+        'key-issue-form': 'agent.run.keys',
+        'agent-danger-section': 'agent.danger',
+      },
+    },
+    {
+      name: 'WORKSPACE(Claude Code, 실행 중)',
+      opts: () => ({ agent: workspace(), settings: { [id]: running }, claudeFor: [id], repoCredentials: [repoCred(1, 'github.com')], projects: PROJECTS }),
+      ready: 'agent-screen-open',
+      roles: true,
+      map: {
+        'agent-run-group': 'agent.status.run',
+        'agent-runtime-stop': 'agent.status.run',
+        'agent-screen-open': 'agent.status.screen',
+        'agent-accept-new-work': 'agent.status.new-work',
+        'agent-ai-account-group': 'agent.run.account.pick',
+        'agent-repo-group': 'agent.run.repo',
+        'agent-work-settings-group': 'agent.run.settings',
+        'agent-managed-keys-group': 'agent.run.keys',
+        'agent-repo-section': 'agent.repos',
+        'agent-danger-section': 'agent.danger',
+      },
+    },
+    {
+      name: 'EXTERNAL',
+      opts: () => ({ agent: createAgent(300, { runtime: 'EXTERNAL', runMode: 'EXTERNAL' }) }),
+      ready: 'external-connect-help-open',
+      roles: true,
+      map: {
+        'agent-last-access': 'agent.status',
+        'external-connect-card': 'agent.run.keys',
+        'key-issue-form': 'agent.run.keys',
+        'external-connect-help-open': 'agent.run.keys.connect',
+        'agent-repo-section': 'agent.repos',
+      },
+    },
+    {
+      name: '개인 비서',
+      opts: () => ({ agent: createAgent(400, { type: 'PERSONAL', ownerName: '홍길동' }) }),
+      ready: 'key-issue-blocked',
+      roles: false,
+      map: { 'agent-ai-account-group': 'agent.run.account', 'key-issue-blocked': 'agent.run.keys', 'agent-run-mode-lock': 'agent.run.mode' },
+    },
+    {
+      name: '공통 비서',
+      opts: () => ({ agent: createAgent(500, { type: 'WORKSPACE' }) }),
+      ready: 'workspace-assistant-current',
+      roles: true,
+      map: { 'agent-assistant-group': 'agent.run.assistant', 'agent-run-mode-lock': 'agent.run.mode', 'agent-danger-section': 'agent.danger' },
+    },
+    {
+      name: '사용 중지(기본)',
+      opts: () => ({ agent: createAgent(600, { isActive: false }) }),
+      ready: 'key-issue-blocked',
+      roles: true,
+      map: { 'agent-ai-account-group': 'agent.run.account', 'key-issue-blocked': 'agent.run.keys' },
+    },
+    {
+      name: '사용 중지(작업 공간)',
+      opts: () => ({ agent: workspace({ isActive: false }), settings: { [id]: createSetting(id) }, claudeFor: [id] }),
+      ready: 'key-issue-blocked',
+      roles: true,
+      map: { 'agent-ai-account-group': 'agent.run.account.pick', 'key-issue-blocked': 'agent.run.keys' },
+    },
+    {
+      name: '지원이 끝난 방식',
+      opts: () => ({ agent: workspace(), settings: { [id]: createSetting(id, { templateName: 'old-runner', templateMissing: true }) }, claudeFor: [id] }),
+      ready: 'agent-run-mode-unsupported',
+      roles: true,
+      map: { 'agent-run-mode-unsupported': 'agent.run', 'agent-run-mode-old-runner': 'agent.run.mode' },
+    },
+  ])('$name', async ({ opts, ready, map, roles }) => {
+    await renderDetail(opts())
+    await screen.findByTestId(ready)
+    expectTargets({ ...common, ...map })
+    expectHelpTarget(screen.getByRole('radiogroup', { name: '실행 방식' }), 'agent.run.mode')
+    if (roles) expectHelpTarget(await screen.findByRole('heading', { name: '역할 할당' }), 'agent.roles')
+  })
+
+  test('사용 중지·종료·작업 화면·입력 허용 확인 창은 상태 하위 절로 이어진다', async () => {
+    const observed = createObserved({ agentState: 'WORKING', agentIssueKeys: ['WP-1'] })
+    const { user } = await renderDetail({
+      agent: workspace(),
+      settings: { [id]: createSetting(id, { status: 'RUNNING', desired: 'RUN', observed }) },
+      claudeFor: [id],
+      repoCredentials: [repoCred(1, 'github.com')],
+    })
+    await user.click(await screen.findByTestId('agent-runtime-stop'))
+    expectHelpTarget(await screen.findByRole('alertdialog'), 'agent.status.run')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    await user.click(screen.getByRole('switch', { name: '사용' }))
+    expectHelpTarget(await screen.findByRole('alertdialog'), 'agent.status.use')
+  })
+
+  test('방식 바꾸기 묶음·확인 창은 실행 방식 절, 키 폐기 확인 창은 접속 키 절로 이어진다', async () => {
+    const key: AgentApiKey = { ...NOW_KEY, id: 9, managed: false, expiresAt: null }
+    const { user } = await renderDetail({ agent: createAgent(100), keys: [key] })
+    await user.click(await screen.findByTestId('key-revoke-9'))
+    expectHelpTarget(await screen.findByRole('alertdialog'), 'agent.run.keys')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    await user.click(screen.getByTestId('agent-run-mode-EXTERNAL'))
+    expectHelpTarget(await screen.findByTestId('agent-run-mode-pending'), 'agent.run.mode')
+    await user.click(screen.getByTestId('agent-run-mode-apply'))
+    expectHelpTarget(await screen.findByTestId('agent-run-mode-confirm'), 'agent.run.mode')
+  })
+
+  test('저장소 연결하기·다시 연결·호스트 추가 대화상자는 토큰 절, 연결 끊기 확인 창은 저장소 연결 절로 이어진다', async () => {
+    const projects = [
+      ...PROJECTS,
+      { projectKey: 'TTP', name: 'TTP', repositoryUrl: 'https://gitlab.iacloud.kr/t/ttp.git', repositoryBranch: 'main', repositoryHost: 'gitlab.iacloud.kr' },
+    ]
+    const { user } = await renderDetail({ agent: workspace(), settings: { [id]: createSetting(id) }, claudeFor: [id], projects, repoCredentials: [repoCred(1, 'github.com')] })
+    const close = async (testId: string) => {
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByTestId(testId)).not.toBeInTheDocument())
+    }
+    await user.click(await screen.findByTestId('agent-repo-connect-gitlab.iacloud.kr'))
+    expectHelpTarget(await screen.findByTestId('agent-repo-dialog'), 'agent.run.repo.token')
+    await close('agent-repo-dialog')
+    await user.click(screen.getByTestId('agent-repo-reconnect-github.com'))
+    expectHelpTarget(await screen.findByTestId('agent-repo-dialog'), 'agent.run.repo.token')
+    await close('agent-repo-dialog')
+    await user.click(screen.getByTestId('agent-repo-add'))
+    expectHelpTarget(await screen.findByTestId('agent-repo-dialog'), 'agent.run.repo.token')
+    await close('agent-repo-dialog')
+    await user.click(screen.getByTestId('agent-repo-revoke-github.com'))
+    expectHelpTarget(await screen.findByTestId('agent-repo-revoke-dialog'), 'agent.run.repo')
+  })
+
+  test('계정 고르기 대화상자는 계정 고르기 절로 이어진다', async () => {
+    const { user } = await renderDetail({ agent: workspace(), settings: { [id]: createSetting(id) }, claudeFor: [id], accounts: [createAccount({ id: 1, label: 'Claude 팀 A' })] })
+    await user.click(await screen.findByTestId('agent-account-pick'))
+    expectHelpTarget(await screen.findByTestId('agent-account-choose-dialog'), 'agent.run.account.pick')
+  })
+
+  test('기본 방식 AI 연결하기 대화상자는 AI 계정 절로 이어진다', async () => {
+    const { user } = await renderDetail({ agent: createAgent(100) })
+    await user.click(await screen.findByTestId('oauth-token-register'))
+    expectHelpTarget(await screen.findByRole('dialog'), 'agent.run.account')
+  })
+
+  test('설정 가이드 단추가 없고, 화면 참고에 매뉴얼 설명과 에이전트 대상이 함께 실린다', async () => {
+    await renderDetail({ agent: createAgent(100, { name: '내부봇', username: 'ai-dev' }), probe: true })
+    expect(screen.queryByTestId('settings-guide-button')).toBeNull()
+    expect(screen.queryByTestId('settings-guide-aside')).toBeNull()
+    await waitFor(() => expect(currentScreenContext()?.scope?.facts).toBeDefined())
+    const ctx = currentScreenContext()!
+    expect(ctx.view).toBe('설정 · 에이전트 상세')
+    expect(ctx.focus?.refs?.username).toBe('ai-dev')
+    // 자리표시는 화면이 준 이 에이전트의 아이디로 채운다.
+    expect(ctx.scope!.facts).toContainEqual({ label: '소개', value: '에이전트 상세 본문. 아이디는 ai-dev 이다.' })
+  })
+
+  test('대상에 지금 실행 방식과 작업 공간 방식의 자원 한 줄을 싣는다', async () => {
+    await renderDetail({ agent: workspace(), settings: { [id]: createSetting(id) }, probe: true })
+    await waitFor(() => expect(currentScreenContext()?.focus?.facts).toContainEqual({ label: '자원', value: '평소 4코어·8GiB, 많이 쓸 때 최대 8코어·16GiB' }))
+    expect(currentScreenContext()!.focus!.facts).toContainEqual({ label: '실행 방식', value: 'Claude Code' })
+  })
+
+  test('실행 방식 정의를 받는 동안에는 실행 방식·자원을 싣지 않는다(「-」 도 싣지 않는다)', async () => {
+    await renderDetail({
+      agent: workspace(),
+      settings: { [id]: createSetting(id) },
+      probe: true,
+      readyTestId: 'agent-detail-page',
+      extraHandlers: [http.get('/api/v1/admin/agent-templates', () => new Promise<Response>(() => {}))],
+    })
+    await waitFor(() => expect(currentScreenContext()?.focus?.label).toBeDefined())
+    await new Promise((r) => setTimeout(r, 50))
+    const labels = currentScreenContext()!.focus!.facts!.map((f) => f.label)
+    expect(labels).not.toContain('실행 방식')
+    expect(labels).not.toContain('자원')
+  })
+
+  test('기본 방식은 실행 방식만 — 자원은 싣지 않는다', async () => {
+    await renderDetail({ agent: createAgent(100, { name: '내부봇', username: 'ai-dev' }), probe: true })
+    await waitFor(() => expect(currentScreenContext()?.focus?.facts).toContainEqual({ label: '실행 방식', value: '기본' }))
+    expect(currentScreenContext()!.focus!.facts!.map((f) => f.label)).not.toContain('자원')
+  })
+
+  test('에이전트를 받는 동안에는 화면 이름만 — 대상(focus)은 싣지 않는다', async () => {
+    await renderDetail({
+      agent: createAgent(100),
+      agentResponse: () => new Promise<Response>(() => {}) as unknown as Response,
+      readyTestId: 'screen-context-probe',
+      probe: true,
+    })
+    await waitFor(() => expect(currentScreenContext()?.view).toBe('설정 · 에이전트 상세'))
+    expect(currentScreenContext()!.focus).toBeUndefined()
   })
 })

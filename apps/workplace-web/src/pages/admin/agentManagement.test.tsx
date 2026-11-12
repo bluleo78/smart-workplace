@@ -1,25 +1,41 @@
 // 설정 › 에이전트 — 목록 탭(/settings/agents)과 상세 페이지(/settings/agents/:id) 화면 컴포넌트 테스트(WP-971, WP-995, WP-1281).
 // WP-1281 에서 상세가 오른쪽 시트(드로어)에서 페이지로 바뀌었다 — 목록 셀(생성일·실행 배지·마지막 접속), 상세 섹션(상태 · 기본 정보 · 역할 · 맡은 일과 지시 ·
-// 실행 · 코드 저장소 · 위험 구역)의 확인창·PUT payload, 실행 방식 카드 전환(확인 창 요약·409 사유·공통 비서 잠금), 외부 연결 방법(설정 가이드로 이동)은
+// 실행 · 코드 저장소 · 위험 구역)의 확인창·PUT payload, 실행 방식 카드 전환(확인 창 요약·409 사유·공통 비서 잠금), 외부 연결 방법(도움말 절로 이동, WP-1507)은
 // 응답 → 화면, 입력 → payload 라 브라우저 없이 판정되므로 e2e 에서 옮겼다. AI 아바타 바꾸기·되돌리기(WP-1222)도 여기서 본다.
 // 상세 페이지는 라우트(:id)가 필요해 목록·상세 두 라우트를 Routes 로 묶어 renderScreen 으로 띄운다(앱 셸·가드는 거치지 않는다).
-// 런모드별(기본·작업 공간·외부) 섹션 구성과 시작 막힘 사유는 agentDetailPage.test.tsx, 설정 가이드 동작은 settingsGuide.test.tsx 가 본다.
+// 런모드별(기본·작업 공간·외부) 섹션 구성·도움말 문맥(data-help)과 시작 막힘 사유는 agentDetailPage.test.tsx 가 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
-import { expect, test } from 'vitest'
+import { beforeEach, expect, test } from 'vitest'
 
-import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AvatarsProvider } from '@/components/users/AvatarsProvider'
+import { MCP_ENDPOINT } from '@/lib/mcpEndpoint'
+import { needsServerUrlSetting } from '@/lib/pluginGuide'
+import { createAccount } from '@/test/kits/admin/agentAccounts'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { withAppProviders } from '@/test/kits/appProviders'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { HelpPanelHost } from '@/test/kits/help/HelpPanelHost'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
 import type { AvatarEntry } from '@/types/avatar'
 import type { RoleResponse } from '@/types/role'
 
 import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
-import { agentRuntimeApi } from '../../test/kits/admin/agentRuntime'
+import { agentRuntimeApi, createLocations } from '../../test/kits/admin/agentRuntime'
 import AgentDetailPage from './AgentDetailPage'
 import AgentManagementPage from './AgentManagementPage'
+
+// WP-1507: 에이전트 화면·상세는 AI 화면 참고를 매뉴얼 도움말 대표 절 요약으로 만들어 /help 묶음을 받는다 — 모든 테스트에 묶음을 깐다
+// (테스트가 renderScreen 에 준 핸들러가 앞에 붙어 이긴다).
+beforeEach(() => {
+  // 앱 상태 Provider(withAppProviders)가 부르는 앱 셸 기본 조회도 깐다.
+  server.use(...helpBundleHandlers(), ...shellHandlers)
+})
 
 const base = {
   email: null,
@@ -177,23 +193,25 @@ async function renderAgents(opts: Parameters<typeof agentApi>[0] = {}) {
 
 /**
  * 목록 ↔ 상세 두 라우트 — 상세에서 목록으로 돌아가는 이동(삭제 뒤·뒤로 가기)까지 같은 화면 테스트로 본다.
- * 설정 가이드(시트)의 「AI 에게 묻기」가 AI 패널 상태를 읽으므로 AI 패널 Provider 로 감싼다.
+ * 도움말 패널(「AI에게 묻기」)이 AI 패널 상태를 읽고 「연결 방법」이 패널을 열므로 앱 상태 Provider 로 감싸고, 열린 패널은 받침(HelpPanelHost)이 그린다.
  */
 function Screens() {
-  return (
-    <AIAssistantProvider hotkeysEnabled={false}>
-    <Routes>
-      <Route path="/settings/agents" element={<AgentManagementPage />} />
-      <Route path="/settings/agents/:id" element={<AgentDetailPage />} />
-    </Routes>
-    </AIAssistantProvider>
+  return withAppProviders(
+    <>
+      <Routes>
+        <Route path="/settings/agents" element={<AgentManagementPage />} />
+        <Route path="/settings/agents/:id" element={<AgentDetailPage />} />
+      </Routes>
+      <HelpPanelHost />
+    </>,
   )
 }
 
 /** 상세 페이지를 바로 띄운다 — 페이지가 그려질 때까지 기다린다. */
 async function renderDetail(id: number, opts: Parameters<typeof agentApi>[0] = {}, extra: ReturnType<typeof http.get>[] = []) {
   const api = agentApi(opts)
-  const view = renderScreen(<Screens />, { path: `/settings/agents/${id}`, handlers: [...extra, ...api.handlers] })
+  // 관리자 — 도움말 패널이 관리자 장(15장)을 보인다.
+  const view = renderScreen(<Screens />, { path: `/settings/agents/${id}`, handlers: [...extra, ...api.handlers], auth: { isAdmin: true } })
   await screen.findByTestId('agent-detail-page')
   return { ...view, calls: api.calls }
 }
@@ -212,6 +230,62 @@ test('목록 — 생성일은 zero-pad 하이픈, 실행 배지는 기본/외부
   expect(screen.getByTestId('agent-key-status-101')).toHaveTextContent('마지막 접속 5분 전')
   expect(screen.getByTestId('agent-key-status-102')).toHaveTextContent('아직 접속 안 함')
   expect(screen.queryByTestId('agent-key-status-100')).not.toBeInTheDocument()
+})
+
+test('목록 탭 — 칸과 대화상자가 맞는 도움말 절로 이어진다 (WP-1507)', async () => {
+  const { user } = await renderAgents()
+  expectHelpTarget(screen.getByRole('table', { name: '에이전트 목록' }), 'agents.list')
+  expectHelpTarget(screen.getByTestId('include-personal-toggle'), 'agents.list.personal')
+  expectHelpTarget(screen.getByText('개인 비서 표시'), 'agents.list.personal')
+  expectHelpTarget(screen.getByTestId('new-agent-trigger'), 'agents.list.create')
+  expectHelpTarget(screen.getByTestId('agent-tab-list'), 'agents.list')
+  expectHelpTarget(screen.getByTestId('agent-tab-locations'), 'agents.locations')
+  expectHelpTarget(screen.getByTestId('agent-tab-accounts'), 'agents.accounts')
+  expectHelpTarget(screen.getByRole('tablist', { name: '에이전트 화면' }), 'agents')
+  await user.click(screen.getByTestId('new-agent-trigger'))
+  expectHelpTarget(await screen.findByTestId('new-agent-dialog'), 'agents.list.create')
+})
+
+// 에이전트 화면 탭 셋(목록·실행 환경·계정) — 옛 설정 가이드 대신 매뉴얼 대표 절 요약이 AI 화면 참고에 실린다.
+test.each([
+  {
+    tab: '목록',
+    path: '/settings/agents',
+    handlers: () => agentApi().handlers,
+    row: 'agent-row-100',
+    view: '설정 · 에이전트',
+    facts: [
+      { label: '소개', value: '에이전트 표 안내. 새 에이전트 로 만든다.' },
+      { label: '개인 비서 표시', value: '개인 비서 표시 본문.' },
+    ],
+  },
+  {
+    tab: '실행 환경',
+    path: '/settings/agents/locations',
+    handlers: () => [
+      http.get('/api/v1/admin/agent-locations', () => HttpResponse.json(createLocations())),
+      http.get('/api/v1/admin/agent-runtime-summaries', () => HttpResponse.json([])),
+    ],
+    row: 'agent-location-row-1',
+    view: '설정 · 실행 환경',
+    facts: [{ label: '소개', value: '실행 환경 본문. 연결 프로그램을 설치한다.' }],
+  },
+  {
+    tab: '계정',
+    path: '/settings/agents/accounts',
+    handlers: () => [http.get('/api/v1/admin/agent-accounts', () => HttpResponse.json([createAccount()]))],
+    row: 'agent-account-row-1',
+    view: '설정 · 계정',
+    facts: [{ label: '소개', value: '계정 본문. 사용률을 본다.' }],
+  },
+])('$tab 탭 — 설정 가이드 단추·칸이 없고, 화면 참고에 화면 이름과 매뉴얼 설명이 실린다 (WP-1507)', async ({ path, handlers, row, view, facts }) => {
+  renderScreen(withScreenContextProbe(<AgentManagementPage />), { path, handlers: handlers() })
+  await screen.findByTestId(row)
+  expect(screen.queryByTestId('settings-guide-button')).toBeNull()
+  expect(screen.queryByTestId('settings-guide-aside')).toBeNull()
+  await waitFor(() => expect(currentScreenContext()?.scope?.facts).toBeDefined())
+  expect(currentScreenContext()!.view).toBe(view)
+  for (const f of facts) expect(currentScreenContext()!.scope!.facts).toContainEqual(f)
 })
 
 test('목록 — 행을 누르면 상세 페이지로 가고, ‹ 목록으로 돌아가기가 목록으로 되돌린다', async () => {
@@ -335,7 +409,7 @@ test('기본 AI 에 적힌 지시는 열린 칸에 보이고, 맡은 일만 고�
   expect(calls.puts[0]).not.toHaveProperty('instructions')
 })
 
-test('기본 → 외부 — 카드를 누르면 펼쳐지고 바꾸기 확인창의 요약을 거쳐 PUT 한 뒤, 접속 키 묶음과 가이드의 연결 방법이 나온다', async () => {
+test('기본 → 외부 — PUT 뒤 「연결 방법」이 도움말 외부 도구 연결 절을 열고, 명령의 아이디가 채워지며 복사 단추가 그 명령을 복사한다 (WP-1507)', async () => {
   const { user, calls } = await renderDetail(100)
   expect(await screen.findByTestId('agent-ai-account-group')).toBeInTheDocument()
   expect(screen.queryByTestId('external-connect-card')).not.toBeInTheDocument()
@@ -355,40 +429,43 @@ test('기본 → 외부 — 카드를 누르면 펼쳐지고 바꾸기 확인창
   expect(calls.runtimes).toEqual([{ runtime: 'EXTERNAL' }])
   expect(await screen.findByText('실행 방식을 변경했습니다')).toBeInTheDocument()
   expect(screen.queryByTestId('agent-ai-account-group')).not.toBeInTheDocument()
-  // 연결 방법 ②~⑤ 는 화면 카드가 아니라 설정 가이드 단계다 — 카드에는 키 발급·표와 가이드로 가는 한 줄만.
+  // 연결 순서는 화면 카드가 아니라 매뉴얼 도움말 절이다 — 카드에는 키 발급·표와 그 절을 여는 짧은 단추만.
   expect(within(card).queryByTestId('plugin-install-command')).not.toBeInTheDocument()
-  expect(within(card).getByTestId('external-connect-guide-hint')).toBeInTheDocument()
-  await user.click(within(card).getByTestId('external-connect-guide-open'))
+  expect(screen.queryByTestId('help-panel-body')).not.toBeInTheDocument()
+  await user.click(within(card).getByTestId('external-connect-help-open'))
 
-  const sheet = await screen.findByTestId('settings-guide-sheet')
-  // ② 플러그인 설치 ④ 이 AI 로 로그인 ⑤ 자동 이슈 처리 — 키·토큰이 든 명령은 없다.
-  // 두 줄 명령 — toHaveTextContent 는 줄바꿈을 공백으로 접으므로 원문을 그대로 비교한다.
-  expect(within(sheet).getByTestId('plugin-install-command').textContent).toBe(
-    `/plugin marketplace add ${window.location.origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`,
-  )
-  expect(within(sheet).getByTestId('agent-login-command')).toHaveTextContent('/genia-works:login')
-  expect(within(sheet).getByTestId('agent-switch-command')).toHaveTextContent('/genia-works:as ai-dev')
-  expect(within(sheet).getByTestId('agent-launch-as-command')).toHaveTextContent('GENIA_WORKS_AS=ai-dev claude')
-  expect(within(sheet).getByTestId('agent-work-loop-launch-command')).toHaveTextContent(
-    'GENIA_WORKS_AS=ai-dev GENIA_WORKS_UNATTENDED=1 claude --permission-mode bypassPermissions',
-  )
-  expect(within(sheet).getByTestId('agent-work-loop-start-command')).toHaveTextContent('/loop /genia-works:work-loop <프로젝트 키>')
-  // 동작 안내는 PR 흐름이다 — 옛 「main 머지까지·push 는 하지 않아요」가 남지 않고 GitHub 준비를 알린다(WP-1151).
-  expect(sheet).toHaveTextContent('이슈 브랜치를 push 해 GitHub PR 을 만들고')
-  expect(sheet).toHaveTextContent('main 에 직접 push 하거나 배포하지는 않아요')
-  expect(sheet).toHaveTextContent('GH_TOKEN')
-  expect(sheet).not.toHaveTextContent('main 머지까지')
-  // 다른 방법은 접혀 있다 — 펼쳐야 키를 직접 넘기는 명령이 보인다.
-  expect(within(sheet).queryByTestId('agent-fallback-command')).not.toBeInTheDocument()
-  await user.click(within(sheet).getByRole('button', { name: /다른 방법/ }))
-  expect(await within(sheet).findByTestId('agent-fallback-command')).toHaveTextContent('GENIA_WORKS_TOKEN=<발급한 키> claude')
-  await user.keyboard('{Escape}')
+  const panel = await screen.findByTestId('help-panel-body')
+  await within(panel).findByText('외부 연결 본문.')
+  expect(within(panel).getByTestId('help-breadcrumb')).toHaveTextContent('외부 도구 연결')
+  // 명령의 AI 아이디는 이 에이전트의 아이디로 채워진다 — 날것 자리표시가 새지 않는다.
+  const codes = within(panel).getAllByRole('code').map((c) => c.textContent?.trim())
+  expect(codes).toContain('/genia-works:as ai-dev')
+  expect(codes).toContain('GENIA_WORKS_AS=ai-dev claude')
+  expect(panel.textContent).not.toContain('{agent.username}')
+  // 「기본 주소가 아닌 서버」 블록(/plugin configure + 서버 주소)은 이 앱의 MCP 주소가 기본이 아닐 때만 보이고, 주소는 앱 값으로 채운다.
+  if (needsServerUrlSetting(MCP_ENDPOINT)) {
+    expect(codes).toContain('/plugin configure genia-works@genia-works')
+    expect(codes).toContain(MCP_ENDPOINT)
+  } else {
+    expect(panel).not.toHaveTextContent('/plugin configure')
+  }
+  // 그 블록의 복사 단추는 채워진 명령을 그대로 복사한다.
+  const switchBlock = within(panel).getByText('/genia-works:as ai-dev').closest('div')!
+  await user.click(within(switchBlock).getByTestId('help-code-copy'))
+  await waitFor(async () => expect(await navigator.clipboard.readText()).toBe('/genia-works:as ai-dev'))
 
-  // 키 발급 다이얼로그에는 로그인 안내만 있고 평문 키가 든 명령은 없다.
+  // 키 발급 대화상자 — 외부 도구 연결 절로 이어지고, 로그인 안내만 있고 평문 키가 든 명령은 없다. 옛 「설정 가이드」 안내는 없다.
   await user.click(within(screen.getByTestId('key-issue-form')).getByRole('button', { name: '키 발급' }))
   const keyDialog = await screen.findByTestId('agent-key-issue-dialog')
+  expect(keyDialog).toHaveAttribute('data-help', 'agent.run.keys.connect')
   expect(within(keyDialog).getByTestId('agent-key-login-guide')).toHaveTextContent('/genia-works:login')
   expect(within(keyDialog).getByTestId('agent-key-login-guide')).toHaveTextContent('ai-dev')
+  // 대화상자가 열린 동안엔 도움말 패널을 열 수 없다 — 키를 먼저 복사하고 닫은 뒤 「접속 키」 아래 「연결 방법」 으로 가라고 안내한다.
+  expect(within(keyDialog).getByTestId('agent-key-login-guide')).toHaveTextContent(
+    '플러그인을 아직 설치하지 않았으면 키를 먼저 복사한 뒤 창을 닫고 「접속 키」 아래의 「연결 방법」 을 누르세요.',
+  )
+  expect(keyDialog).not.toHaveTextContent('도움말에 있어요')
+  expect(keyDialog).not.toHaveTextContent('설정 가이드')
   expect(keyDialog).not.toHaveTextContent('GENIA_WORKS_TOKEN=ak_')
   expect(within(keyDialog).getByRole('button', { name: '키 복사' })).toBeInTheDocument()
 })
@@ -417,7 +494,7 @@ test('공통 비서는 다른 실행 방식 카드가 모두 막히고 「기본
 test('일반 에이전트 상세 — AI 에게 줄 수 없는 역할은 빠지고, 고른 역할을 저장하면 roleIds 로 PUT 한다 (WP-1075·WP-728)', async () => {
   const { user, calls } = await renderDetail(100)
   const access = await waitFor(() => {
-    const el = document.getElementById('agent-roles')
+    const el = document.querySelector<HTMLElement>('[data-help="agent.roles"]')
     expect(el).not.toBeNull()
     expect(el!.querySelector('#role-1')).not.toBeNull()
     return el!
@@ -483,7 +560,7 @@ test('개인 비서 상세 — 역할 할당·위험 구역이 없고 사용 스
   const toggle = await screen.findByRole('switch', { name: '사용' })
   expect(toggle).toBeDisabled()
   expect(within(screen.getByTestId('agent-use-toggle')).getByText('이 AI 는 주인이 관리해요.')).toBeInTheDocument()
-  expect(document.getElementById('agent-roles')).toBeNull()
+  expect(document.querySelector('[data-help="agent.roles"]')).toBeNull()
   expect(screen.queryByTestId('agent-delete-106')).not.toBeInTheDocument()
   expect(screen.queryByText('역할 할당')).not.toBeInTheDocument()
   expect(screen.queryByText('위험 구역')).not.toBeInTheDocument()
