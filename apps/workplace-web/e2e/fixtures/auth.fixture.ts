@@ -3,6 +3,7 @@ import { type BrowserContext, type Page, test as base, type TestInfo } from '@pl
 import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
+import { createMailSignature } from '../factories/mailSignature.factory'
 import { defaultNotificationSettings } from '../factories/notificationSettings.factory'
 import { defaultRelationTypes } from '../factories/issueRelation.factory'
 import { seedStatuses } from '../factories/projectStatus.factory'
@@ -241,6 +242,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 0 })
   // 메일 임시저장(WP-577) 기본 스텁 — 사이드바 개수·작성창 자동 저장이 dev 프록시로 새지 않게(상세는 stubDraftsDefault).
   await stubDraftsDefault(page)
+  // 메일 서명(WP-1517) 기본 스텁 — 작성창이 이 조회를 기다린 뒤 본문을 그리므로 미스텁이면 작성 스펙이 막힌다. 기본은 서명 없음.
+  await mockApi(page, 'GET', '/api/v1/mail/signature', createMailSignature())
   // WP-214: 메일을 열면 상세 조회와 별도로 읽음 요청(POST /mail/messages/{id}/read)이 나간다 — 미스텁 시 dev 프록시로 누수되고
   // 실패 롤백(행이 다시 안 읽음 + 오류 토스트)이 메일 상세를 여는 모든 스펙을 흔든다. 읽음 요청을 검증하는 스펙은 나중에 등록(LIFO 우선).
   await page.route(

@@ -9,6 +9,7 @@ import type { RoleResponse } from '@/types/role'
 
 import { createTokenResponse, createUser } from '../../../e2e/factories/auth.factory'
 import { defaultRelationTypes } from '../../../e2e/factories/issueRelation.factory'
+import { createMailSignature } from '../../../e2e/factories/mailSignature.factory'
 import { defaultNotificationSettings } from '../../../e2e/factories/notificationSettings.factory'
 import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
 import { createEmptyWorkProfile } from '../../../e2e/factories/workProfile.factory'
@@ -135,6 +136,8 @@ export const shellHandlers = [
   http.get(`${API}/mail/accounts`, () => HttpResponse.json([])),
   http.get(`${API}/mail/drafts/count`, () => HttpResponse.json({ count: 0 })),
   http.get(`${API}/mail/drafts`, () => HttpResponse.json([])),
+  // 메일 서명(WP-1517) — 작성창이 열기 전에 이 조회를 기다린다. 기본은 서명 없음(자동 넣기 없음).
+  http.get(`${API}/mail/signature`, () => HttpResponse.json(createMailSignature())),
   http.post(`${API}/mail/messages/:id/read`, () => new HttpResponse(null, { status: 204 })),
   http.post(`${API}/mail/messages/:id/unread`, () => new HttpResponse(null, { status: 204 })),
 ]

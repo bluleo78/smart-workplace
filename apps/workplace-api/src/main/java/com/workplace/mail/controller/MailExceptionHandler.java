@@ -8,6 +8,7 @@ import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailDraftConflictException;
 import com.workplace.mail.exception.MailDraftNotFoundException;
 import com.workplace.mail.exception.MailInviteNotRespondableException;
+import com.workplace.mail.exception.MailSignatureImageNotFoundException;
 import com.workplace.mail.exception.MailValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -95,6 +96,17 @@ public class MailExceptionHandler {
         HttpStatus.CONFLICT,
         e.getMessage(),
         Map.of("code", MailInviteNotRespondableException.CODE),
+        request);
+  }
+
+  /** 없거나 남의 서명 이미지(WP-1517) → 404 + errors.code=SIGNATURE_IMAGE_NOT_FOUND. */
+  @ExceptionHandler(MailSignatureImageNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleSignatureImageNotFound(
+      MailSignatureImageNotFoundException e, HttpServletRequest request) {
+    return error(
+        HttpStatus.NOT_FOUND,
+        e.getMessage(),
+        Map.of("code", MailSignatureImageNotFoundException.CODE),
         request);
   }
 

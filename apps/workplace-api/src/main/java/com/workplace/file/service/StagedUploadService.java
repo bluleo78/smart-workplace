@@ -53,7 +53,8 @@ import org.springframework.web.multipart.MultipartFile;
  *       경로로 직접 올린다(25MB 이하, 10분, 한 번).
  * </ul>
  *
- * <p>WP-574: 메일 작성창의 브라우저 멀티파트 업로드({@link #createFromMultipart})도 같은 행을 만든다.
+ * <p>WP-574: 메일 작성창의 브라우저 멀티파트 업로드({@link #createFromMultipart})도 같은 행을 만든다. WP-1517: 메일 서명 이미지의
+ * 발송용 사본({@link #createFromBytes})도 같다.
  *
  * <p>어느 길이든 결과는 같은 모양의 FILE 행이다: 업로더 = 호출자(링크는 발급자), category ATTACHMENT, 경로 {@code
  * tenant-*&#47;staged/…}, 만료 = 지금 + {@code temp-expiry-hours}(24). 그래야 {@link
@@ -180,6 +181,21 @@ public class StagedUploadService {
     fileStore.store(relativePath, file);
     fileStore.deleteOnRollback(relativePath);
     return insertStagedFile(callerId, safeName, mime, file.getSize(), relativePath);
+  }
+
+  /**
+   * 서버가 가진 바이트로 스테이징 파일 만들기(WP-1517 메일 서명 이미지의 발송용 사본) — 다른 길과 같은 모양의 임시 ATTACHMENT FILE 행을 만든다. 쿼터
+   * 검사·저장·롤백 시 파일 삭제는 {@link #createText} 와 같다. MIME 은 받은 값을 그대로 쓴다(호출자가 바이트로 이미 판정했다).
+   */
+  @Transactional
+  public StagedFileResponse createFromBytes(long callerId, String name, String mime, byte[] bytes) {
+    String safeName = SafeFileNames.sanitize(name, "file");
+    // 한도 검사는 바이트를 쓰기 전, 같은 트랜잭션 안에서 — 잠금이 file INSERT 커밋까지 유지된다.
+    quotaGuard.assertWithinQuotaLocked(bytes.length);
+    String relativePath = pathBuilder.build(StorageDomain.STAGED, safeName);
+    fileStore.storeBytes(relativePath, bytes);
+    fileStore.deleteOnRollback(relativePath);
+    return insertStagedFile(callerId, safeName, mime, bytes.length, relativePath);
   }
 
   /**

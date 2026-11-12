@@ -240,11 +240,20 @@ export function prepareHtmlTextEdit(source: string, { inertPage = false }: { ine
 
 // ── 정리기 ───────────────────────────────────────────────────────────────
 
-/** 받은 HTML 을 읽을 불활성 문서 — template 안이라 스크립트·그림이 돌지 않는다. */
+/** 받은 HTML 을 읽을 불활성 문서 — 브라우징 컨텍스트가 없어 그 안에 만든 요소는 스크립트·그림이 돌지 않는다. */
 let inertDoc: Document | null = null
-function parseInert(html: string): DocumentFragment {
+
+/**
+ * 불활성 문서 하나(처음 쓸 때 만든다) — 이 정리기와 메일 서명 노드(mailSignatureNode)가 요소를 만들고 직렬화하는 곳으로 같이 쓴다.
+ * 앱 문서에 붙이지 않은 요소만 다루므로 여러 곳이 같이 써도 서로 간섭하지 않는다.
+ */
+export function inertDocument(): Document {
   inertDoc ??= document.implementation.createHTMLDocument('')
-  const tpl = inertDoc.createElement('template')
+  return inertDoc
+}
+
+function parseInert(html: string): DocumentFragment {
+  const tpl = inertDocument().createElement('template')
   tpl.innerHTML = html
   return tpl.content
 }
@@ -417,8 +426,7 @@ function fragmentHtml(frag: DocumentFragment): string {
  * 원본 요소 되살리기 없이 거른다(붙인 내용의 번호 속성은 버린다).
  */
 export function sanitizeEditedHtml(html: string): string {
-  inertDoc ??= document.implementation.createHTMLDocument('')
-  return fragmentHtml(sanitizeToFragment(html, { doc: inertDoc }))
+  return fragmentHtml(sanitizeToFragment(html, { doc: inertDocument() }))
 }
 
 /** 붙인 일반 글자를 HTML 로 — 특수 문자를 풀어 쓰고 줄바꿈은 <br>. */

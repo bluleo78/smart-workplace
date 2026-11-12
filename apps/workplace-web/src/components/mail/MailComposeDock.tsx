@@ -4,13 +4,18 @@
 // - 첨부(WP-574): 📎(데스크톱은 보내기 옆, 모바일은 상단 바)·창 위로 끌어다 놓기 → 바로 올리고 본문 아래 칩으로 보인다.
 // - 임시저장(WP-577): 쓰는 동안 1.5초마다 자동 저장하고 상태를 제목 옆(모바일은 제목 아래)에 보인다. ✕·뒤로가기는 묻지 않고
 //   남은 저장을 마친 뒤 닫는다. 버리기(🗑)는 임시저장을 지우고 「되돌리기」 토스트를 띄운다.
+// - 서명(WP-1517): 처음 여는 작성은 설정(새 메일·답장·전달 스위치)대로 본문 끝에 빈 줄 + 서명을 넣는다. 본문은 서명 조회를 기다리지 않고 바로 그리고,
+//   서명이 늦게 오면 아직 손대지 않은 본문에만 넣는다(메일 화면이 미리 받아 두므로 보통은 처음 본문에 들어 있다).
+//   펜(✒, 데스크톱은 📎 왼쪽·모바일은 상단 바 🗑 와 📎 사이)으로 빼고 넣는다. 보낼 때 서명 이미지는 작성창 업로드 사본으로 바꿔 cid 로 보낸다.
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Maximize2, Minimize2, Minus, Paperclip, Send, Sparkles, Trash2, X } from 'lucide-react';
+import { Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Sparkles, Trash2, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { uploadComposeAttachment } from '@/api/mailMessages';
+import { stageSignatureImages } from '@/api/mailSignature';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiContent } from '@/components/ai/AiContent';
 import { inertPageArea } from '@/components/ai/aiPanelSurface';
@@ -20,6 +25,7 @@ import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { isKeyboardEditable } from '@/components/mobile/useVisualViewport';
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import { restoreMailDraft, toastDraftDiscarded, useOpenMailDraft } from '@/hooks/queries/useMailDrafts';
+import { useMailSignature } from '@/hooks/queries/useMailSignature';
 import { useAiAvailable } from '@/hooks/useAiAvailable';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -30,11 +36,21 @@ import { useSheetHistory } from '@/hooks/useSheetHistory';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { extractApiError } from '@/lib/api-error';
 import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
+import { hasLiveStateMark } from '@/lib/historyParam';
 import { isImeComposing } from '@/lib/imeKey';
 import { type ComposeAttachment, quoteInlineBytes } from '@/lib/mailComposeAttachments';
 import { buildDraftSavePayload } from '@/lib/mailDraftCompose';
-import { toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
+import { pastedImageSrc, toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { parseRecipientInput } from '@/lib/mailRecipients';
+import {
+  appendSignature,
+  htmlToPlainText,
+  replaceBodyKeepingSignature,
+  replaceSignatureImageSrcs,
+  shouldAutoInsertSignature,
+  signatureImageIds,
+  splitSignature,
+} from '@/lib/mailSignature';
 import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
@@ -127,6 +143,9 @@ const MAIL_SUBJECT_MAX = 500;
 /** 붙여 넣은 이미지 올리기(WP-947) — 일반 첨부와 같은 작성창 업로드로 올리고 id 만 쓴다(칩으로는 보이지 않는다). */
 const uploadPastedImage = (file: File) => uploadComposeAttachment(file).then((res) => res.id);
 
+/** 모바일 작성 화면의 히스토리 표식 키 — 서명 설정으로 옮겨 갈 때 그 항목을 설정 화면으로 바꾼다(MobileComposeHistory 와 같은 값). */
+const MOBILE_COMPOSE_HISTORY_KEY = 'mailCompose';
+
 /** 버림 확인이 없어졌으므로(WP-577 — back 은 자동 저장 후 닫기) 막힌 back 처리가 쓰이지 않는다. */
 const noop = () => {};
 
@@ -136,7 +155,7 @@ const noop = () => {};
  * 열려 있을 때만 마운트한다 — 훅이 위치(useLocation)를 구독하므로, 작성창 본체에 두면 모든 페이지 이동마다 작성창이 다시 렌더된다.
  */
 function MobileComposeHistory({ onClose }: { onClose: () => void }) {
-  useSheetHistory({ historyKey: 'mailCompose', open: true, hasContent: false, onClose, onBlockedBack: noop });
+  useSheetHistory({ historyKey: MOBILE_COMPOSE_HISTORY_KEY, open: true, hasContent: false, onClose, onBlockedBack: noop });
   return null;
 }
 
@@ -163,9 +182,21 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const [hasBody, setHasBody] = useState(false);
   // 마지막으로 코칭한 본문 HTML — 본문이 바뀌면(편집/개선본 교체) 재검토를 트리거하기 위한 stale 가드.
   // 평문이 아니라 HTML 로 비교한다(WP-404) — AI 입력이 HTML 이라, 굵게·빈 줄만 바꿔도 다시 검토해야 교체 때 그 서식이 남는다.
+  // 서명을 뺀 HTML 이다(WP-1517) — 서명만 넣고 뺀 것은 검토할 본문이 바뀐 것이 아니다.
   const lastCoachedRef = useRef<string | null>(null);
 
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  // 내 서명(WP-1517) — 처음 여는 작성의 자동 넣기와 펜 단추가 읽는다. 본문은 조회를 기다리지 않는다(늦으면 아래 효과가 넣는다).
+  const signature = useMailSignature();
+  const sig = signature.data;
+  // 본문에 서명 블록이 있는가 — 에디터 onChange 의 info 에서 받는다(펜 단추 강조·aria-label).
+  const [signatureInBody, setSignatureInBody] = useState(false);
+  // 지금 열린 작성 회차 — 늦게 누른 토스트 단추(서명 설정)가 이미 닫혔거나 바뀐 작성을 다시 닫지 않게.
+  const liveInstanceRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    liveInstanceRef.current = draft?.instanceId;
+  });
   // 새 메일 AI 초안(WP-576) — 새 메일에서만, 회신 AI 초안 버튼과 같은 조건(쓸 수 있는 비서 + 이 계정 AI 사용)일 때.
   const aiAvailable = useAiAvailable();
   const { data: accounts } = useMailAccounts();
@@ -186,12 +217,28 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const [subject, setSubject] = useState('');
   // 지금 제목 — 늦게 도착한 AI 초안이 "응답 때의 제목"으로 판정하도록(생성 중 쓴 제목을 덮지 않게, WP-576) 화면 값과 함께 갱신한다.
   const subjectRef = useRef('');
+  // 이 회차의 처음 본문 — 처음 여는 작성이고 설정이 켜져 있으면 빈 줄 + 서명을 붙인다(임시저장·다시 열기는 저장된 본문 그대로).
+  // 회차가 열릴 때 한 번 정하고, 작성 중 서명 캐시가 바뀌어도(설정에서 저장) 이 회차엔 다시 넣지 않는다 — 에디터도 처음 값만 쓴다.
+  // 그때 서명 조회가 아직이면 서명 없이 시작하고(signatureSettled=false) 아래 늦은 넣기 효과가 맡는다 — 본문이 조회에 묶여 멈추지 않게.
+  // 넣은 서명은 처음 본문(baseline)에 들어가므로 서명만 있는 새 메일은 닫아도 임시저장하지 않는다.
+  const composeInitial = useMemo(() => {
+    if (!draft) return { html: '', signatureSettled: true };
+    if (signature.isPending) return { html: draft.initialHtml, signatureSettled: false };
+    const html = sig && shouldAutoInsertSignature(draft, sig) ? appendSignature(draft.initialHtml, sig.html) : draft.initialHtml;
+    return { html, signatureSettled: true };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.instanceId]);
+  const composeInitialHtml = composeInitial.html;
   // 본문은 ref 로 보관(매 키 입력마다 리렌더 방지).
   const bodyHtmlRef = useRef('');
   const bodyTextRef = useRef('');
   // 본문을 사용자가 고쳤는지 — 처음 채워진 본문(AI 답장 초안 등)과 비교한다. 기준은 에디터가 만들어질 때의 HTML.
   const bodyBaselineRef = useRef('');
   const [bodyEdited, setBodyEdited] = useState(false);
+  // 에디터가 처음 본문을 알린 회차 — 늦게 온 서명은 에디터가 만들어진 뒤에만 넣을 수 있다.
+  const [composerReadyFor, setComposerReadyFor] = useState<number | undefined>(undefined);
+  // 늦은 서명 넣기를 이미 판단한 회차 — 한 회차에 한 번만(넣었든 안 넣었든) 정한다.
+  const lateSignatureDoneRef = useRef<number | undefined>(undefined);
   // 인용문을 지웠는지 — 기밀 문단을 빼고 회신하는 것도 쓴 내용으로 본다.
   const [quoteRemoved, setQuoteRemoved] = useState(false);
   // 첨부(WP-574) — 📎·끌어다 놓기로 받은 파일을 바로 올린다. 창 전체가 놓을 자리라 패널에 dropProps 를 편다.
@@ -291,8 +338,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     setShowCcBcc(draft.cc.length > 0 || draft.bcc.length > 0);
     setSubject(draft.subject);
     subjectRef.current = draft.subject;
-    bodyHtmlRef.current = draft.initialHtml;
+    bodyHtmlRef.current = composeInitialHtml;
     bodyTextRef.current = '';
+    setSignatureInBody(false);
     // 새 draft 진입 시 탭/코칭 결과 초기화.
     setTab('compose');
     coach.reset();
@@ -306,6 +354,19 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     toInputRef.current?.focus();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.instanceId]);
+
+  // 늦게 온 서명(WP-1517) — 회차를 열 때 조회가 아직이었으면, 끝난 뒤 한 번만 정한다. 자동 넣기 대상이고 본문이 아직 처음 그대로일 때만
+  // 넣는다 — 그사이 사용자가 쓰기 시작했거나 AI 초안이 들어왔으면 덮거나 끼어들지 않는다(필요하면 펜으로 넣는다). 실패면 넣지 않는다.
+  const instanceId = draft?.instanceId;
+  useEffect(() => {
+    if (!draft || composeInitial.signatureSettled || signature.isPending) return;
+    if (composerReadyFor !== instanceId || lateSignatureDoneRef.current === instanceId) return;
+    lateSignatureDoneRef.current = instanceId;
+    if (!sig || !shouldAutoInsertSignature(draft, sig)) return;
+    if (bodyHtmlRef.current !== bodyBaselineRef.current) return;
+    composerRef.current?.insertInitialSignature(sig.html);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceId, composerReadyFor, signature.isPending, sig]);
 
   // 개선본 미리보기 문서(WP-404) — 에디터와 같은 문단·글자 규칙을 입히고, 다크 테마면 받은 메일 본문처럼 테마색으로 바꾼다.
   // 그래야 미리보기에서 본 모습이 "개선본으로 교체" 후 에디터 모습과 같다.
@@ -391,6 +452,57 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     closeCompose();
   };
 
+  // 서명 설정으로 — 데스크톱은 작성창을 그대로 두고 옮긴다. 모바일은 화면 전체 작성창이 덮고 있으므로 저장하고 닫은 뒤 옮긴다.
+  // 그때 작성 화면 히스토리 항목(표식)은 설정 화면으로 바꾼다 — 닫힘이 표식을 되돌리는(history.back) 것과 이동이 엇갈리지 않고, 뒤로 가면 메일로 온다.
+  const goToSignatureSettings = () => {
+    if (!isMobile) {
+      navigate('/settings/mail');
+      return;
+    }
+    let replace = false;
+    if (liveInstanceRef.current === instanceId) {
+      replace = hasLiveStateMark(MOBILE_COMPOSE_HISTORY_KEY);
+      closeWithSave();
+    }
+    navigate('/settings/mail', { replace });
+  };
+
+  // 펜 — 본문에 서명이 있으면 빼고, 없으면 내 서명을 넣는다. 서명을 불러오지 못했으면 다시 시도를, 서명이 아직 없으면 설정을 안내한다.
+  const toggleSignature = () => {
+    if (signatureInBody) {
+      composerRef.current?.removeSignature();
+      return;
+    }
+    if (sig && sig.html !== '') {
+      composerRef.current?.insertSignature(sig.html);
+      return;
+    }
+    if (signature.isError) {
+      // 조회 실패를 「서명 없음」으로 안내하면 서명이 있는 사람을 설정으로 헛걸음시킨다 — 다시 불러와 되면 그 자리에서 넣는다(펜을 누른 뜻).
+      toast.error('서명을 불러오지 못했어요', {
+        action: {
+          label: '다시 시도',
+          onClick: () => {
+            void signature.refetch().then((r) => {
+              if (liveInstanceRef.current !== instanceId) return;
+              if (r.isError) {
+                toast.error('서명을 불러오지 못했어요');
+                return;
+              }
+              if (r.data && r.data.html !== '') composerRef.current?.insertSignature(r.data.html);
+            });
+          },
+        },
+      });
+      return;
+    }
+    toast('서명이 아직 없어요', {
+      description: '설정 › 메일 계정에서 서명을 만들 수 있어요',
+      action: { label: '서명 설정', onClick: goToSignatureSettings },
+    });
+  };
+  const signatureLabel = signatureInBody ? '서명 빼기' : '서명 넣기';
+
   // 🗑 버리기 — 임시저장을 지우고 닫는다. 쓴 것이 있었으면 「되돌리기」로 같은 내용을 새 임시저장으로 만들어 다시 연다.
   const discardDraft = () => {
     const reopen = snapshotDraft();
@@ -460,13 +572,16 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   // "AI 검토" 진입 시 호출. 본문이 직전 코칭과 같으면 캐시 재사용, 다르면 새로 코칭.
   const runCoaching = () => {
     if (coach.isPending) return;
-    if (coach.data && lastCoachedRef.current === bodyHtmlRef.current) return;
-    lastCoachedRef.current = bodyHtmlRef.current;
+    // 서명은 검토 대상이 아니다(WP-1517) — AI 가 서명을 고치거나 개선본에 섞지 않게 서명 블록을 뺀 본문만 보낸다.
+    const { body: bodyHtml, block } = splitSignature(bodyHtmlRef.current);
+    if (coach.data && lastCoachedRef.current === bodyHtml) return;
+    lastCoachedRef.current = bodyHtml;
     coach.reset();
     coach.mutate({
       accountId: draft.accountId,
-      bodyHtml: bodyHtmlRef.current,
-      bodyText: bodyTextRef.current,
+      bodyHtml,
+      // 서명이 있으면 서명 밖 본문의 평문, 없으면 에디터 평문(getText) 그대로.
+      bodyText: block == null ? bodyTextRef.current : htmlToPlainText(bodyHtml),
       inReplyToMessageId: draft.inReplyToMessageId,
     });
   };
@@ -489,7 +604,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     // 같은 틱에 넣어야 useMailAiDraft 가 이 변경을 AI 본문으로 받아 둔다. 에디터를 다시 만들지 않으므로
     // 처음 본문(bodyBaselineRef)과 달라져 임시저장 대상이 된다(AI 가 채운 본문도 쓴 내용).
     // 초점은 여기서 주지 않는다 — 아직 래퍼가 inert(생성 중)라 무시된다. 렌더가 끝난 뒤 초점 effect(aiFocusRequest)가 준다.
-    composerRef.current?.setContent(result.html, { focus: false });
+    // 지금 본문의 서명 블록은 초안 뒤에 그대로 다시 붙인다(WP-1517) — 초안이 서명을 지우지 않게.
+    composerRef.current?.setContent(replaceBodyKeepingSignature(bodyHtmlRef.current, result.html), { focus: false });
     changeSubject(result.subject);
     if (result.focusBody) setAiFocusRequest((n) => n + 1);
   };
@@ -512,12 +628,28 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     }
     sendLock.current = true;
     setPreparingSend(true);
-    const instanceId = draft.instanceId as number;
     // 실패한 채 작성창이 닫혀 있고 저장도 못 했을 때 「다시 열기」로 열 내용
     const reopen = snapshotDraft();
     // 붙여 넣은 이미지(WP-947) — 본문 src 를 cid: 로 바꾸고, 그 업로드를 첨부 id 에 함께 실어 서버가 인라인 파트로 붙이게 한다.
     // 위의 「올리는 중」 검사와 같은 순간의 본문으로 만든다 — 아래 기다리는 동안 새로 붙인 그림(아직 자리표시)이 빈 그림으로 나가지 않게.
-    const bodyHtmlAtSend = bodyHtmlRef.current;
+    let bodyHtmlAtSend = bodyHtmlRef.current;
+    // 서명 이미지(WP-1517)는 영구 파일이라 그대로 보낼 수 없다 — 보낼 때마다 작성창 업로드 사본을 만들고 src 를 그 경로로 바꿔,
+    // 아래 붙여 넣은 이미지 경로(cid)를 그대로 탄다. 사본을 못 만들면 그림이 빠진 채 나가지 않게 보내지 않는다(임시저장은 그대로 이어진다).
+    const signatureImages = signatureImageIds(bodyHtmlAtSend);
+    if (signatureImages.length > 0) {
+      try {
+        const staged = await stageSignatureImages(signatureImages);
+        bodyHtmlAtSend = replaceSignatureImageSrcs(
+          bodyHtmlAtSend,
+          new Map(staged.map((s) => [s.imageId, pastedImageSrc(s.uploadId)])),
+        );
+      } catch {
+        toast.error('서명 이미지를 준비하지 못했어요');
+        sendLock.current = false;
+        setPreparingSend(false);
+        return;
+      }
+    }
     const pasted = toSendablePastedImages(bodyHtmlAtSend);
     const bodyTextAtSend = bodyTextRef.current;
     const ticket = await autosave.beginSend();
@@ -543,7 +675,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     try {
       await send.mutateAsync({ accountId: draft.accountId, body });
       ticket.succeeded();
-      closeInstance(instanceId);
+      closeInstance(instanceId as number);
     } catch (e) {
       notifySendFailed(e, ticket.failed(), reopen);
     } finally {
@@ -664,6 +796,16 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             {/* 🗑 버리기 — 📎 왼쪽. 보내기와 사이에 📎 를 두어 잘못 누르기 어렵게 하고, 곁 동작이라 기본 글자색. */}
             <HeaderIconAction label="버리기" tone="default" onClick={discardDraft} data-testid="mail-compose-discard">
               <Trash2 />
+            </HeaderIconAction>
+            {/* ✒ 서명 넣기·빼기(WP-1517) — 🗑 와 📎 사이. 본문에 서명이 있으면 주 색, 없으면 기본 글자색(HeaderIconAction 에 흐린 톤이 없다). */}
+            <HeaderIconAction
+              label={signatureLabel}
+              tone={signatureInBody ? 'primary' : 'default'}
+              onClick={toggleSignature}
+              disabled={signature.isPending}
+              data-testid="mail-compose-signature"
+            >
+              <PenLine />
             </HeaderIconAction>
             {/* 📎 — 보내기 왼쪽. 하단 서식 줄은 글자 서식만 두고, 첨부는 메일 앱들처럼 상단 바에 둔다. */}
             {/* 곁 동작이라 보내기(주 색)보다 덜 눈에 띄게 기본 글자색. */}
@@ -808,14 +950,19 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                 key={`composer-${draft.instanceId}`}
                 ref={composerRef}
                 layout={layout}
-                initialHtml={draft.initialHtml}
+                initialHtml={composeInitialHtml}
                 imageUpload={uploadPastedImage}
-                onChange={(html, text, initial) => {
+                onChange={(html, text, initial, info) => {
                   bodyHtmlRef.current = html;
                   bodyTextRef.current = text;
+                  setSignatureInBody(info.hasSignature);
                   // 붙여 넣은 그림만 있는 본문도 쓴 내용이다(WP-947) — 비었다고 보면 AI 초안 칩이 그림을 덮고, 초안이 그림을 갈아 끼운다.
-                  setHasBody(text.trim().length > 0 || html.includes('<img'));
-                  if (initial) bodyBaselineRef.current = html;
+                  // 서명은 쓴 내용이 아니다(WP-1517) — 서명만 있는 새 메일에도 AI 초안 칩이 보이고 검토 탭은 꺼진다.
+                  setHasBody(!info.bodyEmpty);
+                  if (initial) {
+                    bodyBaselineRef.current = html;
+                    setComposerReadyFor(draft.instanceId);
+                  }
                   setBodyEdited(html !== bodyBaselineRef.current);
                   ai.noteBodyChange(html);
                   // 에디터가 처음 채운 본문은 쓴 내용이 아니다 — 그 뒤 바뀔 때만 자동 저장을 예약한다.
@@ -918,7 +1065,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                           className="rounded bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground"
                           onClick={() => {
                             // 개선본 교체 → 본문이 바뀌므로 코칭 결과는 stale. reset 하고 다음 검토 진입 시 재실행.
-                            composerRef.current?.setContent(coach.data!.improvedBodyHtml);
+                            // 개선본은 서명을 뺀 본문으로 만들었으므로 지금 서명 블록을 끝에 다시 붙인다(WP-1517).
+                            composerRef.current?.setContent(replaceBodyKeepingSignature(bodyHtmlRef.current, coach.data!.improvedBodyHtml));
                             coach.reset();
                             lastCoachedRef.current = null;
                             setTab('compose');
@@ -964,6 +1112,21 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                   className="mr-auto flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <Trash2 className="size-4" />
+                </button>
+                {/* ✒ 서명 넣기·빼기(WP-1517) — 📎 바로 왼쪽. 본문에 서명이 있으면 주 색, 없으면 흐리게. */}
+                <button
+                  type="button"
+                  aria-label={signatureLabel}
+                  title={signatureLabel}
+                  data-testid="mail-compose-signature"
+                  onClick={toggleSignature}
+                  disabled={signature.isPending}
+                  className={cn(
+                    'flex size-9 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50',
+                    signatureInBody ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <PenLine className="size-4" />
                 </button>
                 {/* 📎 — 보내기 바로 옆(Gmail 처럼 보내기와 한 묶음). 보내기가 오른쪽 끝이라 그 왼쪽에 둔다. */}
                 <button

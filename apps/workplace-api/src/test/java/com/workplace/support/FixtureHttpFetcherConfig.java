@@ -28,6 +28,14 @@ public class FixtureHttpFetcherConfig {
     (byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 'I', 'H', 'D', 'R'
   };
 
+  /** 메일 서명 외부 이미지(WP-1517) — GIF 를 돌려준다. */
+  public static final String SIGNATURE_GIF = "https://fixture.test/signature-logo.gif";
+
+  /** 최소 GIF 서명(판정용 16바이트). */
+  public static final byte[] GIF = {
+    'G', 'I', 'F', '8', '9', 'a', 1, 0, 1, 0, (byte) 0x80, 0, 0, 0, 0, 0
+  };
+
   @Bean
   @Primary
   public SafeHttpFetcher fixtureSafeHttpFetcher() {
@@ -50,7 +58,9 @@ public class FixtureHttpFetcherConfig {
                         + "\"></head></html>")
                     .getBytes(StandardCharsets.UTF_8)),
             OG_IMAGE,
-            new Fetched(URI.create(OG_IMAGE), "image/png", null, PNG));
+            new Fetched(URI.create(OG_IMAGE), "image/png", null, PNG),
+            SIGNATURE_GIF,
+            new Fetched(URI.create(SIGNATURE_GIF), "image/gif", null, GIF));
 
     @Override
     public Fetched fetch(String url, String accept, Predicate<String> mimeAllowed, int maxBytes)

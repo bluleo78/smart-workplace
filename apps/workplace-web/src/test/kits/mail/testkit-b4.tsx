@@ -17,6 +17,7 @@ import type { EmailMessageSummary } from '@/types/mailMessage'
 
 import { personalSpace } from '../../../../e2e/factories/drive.factory'
 import { mailAccount } from '../../../../e2e/factories/mail.factory'
+import { createMailSignature } from '../../../../e2e/factories/mailSignature.factory'
 
 const API = '/api/v1'
 
@@ -55,6 +56,8 @@ export function mailBaseHandlers({
     ),
     http.get(`${API}/mail/drafts/count`, () => HttpResponse.json({ count: 0 })),
     http.get(`${API}/mail/drafts`, () => HttpResponse.json([])),
+    // 메일 서명(WP-1517) — 작성창이 열기 전에 기다리는 조회. 기본은 서명 없음.
+    http.get(`${API}/mail/signature`, () => HttpResponse.json(createMailSignature())),
     http.get(`${API}/mail/unread-summary`, () => HttpResponse.json({ workUnread: 0 })),
     http.post(`${API}/mail/messages/:id/read`, () => new HttpResponse(null, { status: 204 })),
     http.post(`${API}/mail/messages/:id/unread`, () => new HttpResponse(null, { status: 204 })),
