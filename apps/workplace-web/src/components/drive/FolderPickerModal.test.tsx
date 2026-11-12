@@ -41,7 +41,8 @@ describe('FolderPickerModal 경로', () => {
     expect(path()).not.toHaveTextContent('최종본')
     expect(screen.getByRole('button', { name: '최종본' })).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('folder-picker-confirm'))
-    expect(onConfirm).toHaveBeenCalledWith(2)
+    // 두 번째 인자는 루트 → 대상 폴더 이름(저장 위치 토스트에 쓴다, WP-1525).
+    expect(onConfirm).toHaveBeenCalledWith(2, ['2026 마케팅 캠페인 기획 자료 모음', '분기별 보고서'])
 
     // 루트로 돌아가기
     fireEvent.click(within(path()).getByRole('button', { name: '루트' }))

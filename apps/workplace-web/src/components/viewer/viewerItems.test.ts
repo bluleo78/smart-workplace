@@ -58,7 +58,7 @@ describe('driveFileItem', () => {
 })
 
 describe('virtualAttachmentItem', () => {
-  it('가상 첨부는 downloadUrl 로 받고 드라이브로 가져오기·원본 이동만 있다', () => {
+  it('가상 첨부는 downloadUrl 로 받고 드라이브에 저장·원본 이동만 있다', () => {
     const a = { fileId: 9, name: 'a.png', mimeType: 'image/png', sizeBytes: 10, downloadUrl: '/api/v1/x/9/content', deepLink: '/projects/WP/issues/3' } as VirtualAttachment
     expect(virtualAttachmentItem(a)).toEqual({
       key: 'file:9', name: 'a.png', mimeType: 'image/png', sizeBytes: 10,
@@ -206,7 +206,7 @@ describe('mailAttachmentItem', () => {
     expect(mailAttachmentItem(att())).toEqual({
       key: 'mail:7', name: '안건.pdf', mimeType: 'application/pdf', sizeBytes: 1234,
       contentPath: '/mail/attachments/7/content', downloadPath: '/mail/attachments/7/content',
-      // WP-1400: ☁ 드라이브로 가져오기는 메일 첨부 id 로 메일 첨부 저장 API 를 쓴다.
+      // WP-1400: ☁ 드라이브에 저장은 메일 첨부 id 로 메일 첨부 저장 API 를 쓴다.
       importTarget: { kind: 'mail', mailAttachmentId: 7 },
       // WP-1261: 미리 보는 동안 AI 가 read_file 로 읽는 식별자 — 메일 messageId 없이 attachmentId 만.
       aiRefs: { source: 'mail', attachmentId: 7 },

@@ -33,7 +33,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
-import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces } from '@/lib/driveSpaces'
+import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces, spaceDisplayName } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
 import { HIT_AREA_COARSE } from '@/lib/hitArea'
 import { failedWithoutData } from '@/lib/queryFailure'
@@ -342,7 +342,7 @@ export function DriveSidebar() {
                 >
                   {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
                   <SpaceTypeIcon personal={s.type === 'PERSONAL'} />
-                  <span className="min-w-0 break-words">{s.type === 'PERSONAL' ? '내 드라이브' : s.name}</span>
+                  <span className="min-w-0 break-words">{spaceDisplayName(s)}</span>
                 </NavLink>
                 {hasMenu && (
                   <DropdownMenu>

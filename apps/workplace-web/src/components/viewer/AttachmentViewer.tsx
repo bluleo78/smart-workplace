@@ -272,13 +272,17 @@ export function AttachmentViewer({
   const sheetOpen = mobile && panelAvailable && sheetPref
   const [sheetEl, setSheetEl] = useState<HTMLElement | null>(null)
   const sheetFocus = useRef<'open' | 'close' | null>(null)
-  // ☁ 가져오기 — 가져올 대상(업로드 첨부·메일 첨부, importTarget)이 있는 항목에서만 보인다. 공간 조회는 누를 때 한다(WP-1400) —
+  // ☁ 드라이브에 저장 — 저장할 대상(업로드 첨부·메일 첨부, importTarget)이 있는 항목에서만 보인다. 공간 조회는 누를 때 한다(WP-1400) —
   // 미리보기를 열기만 해서는 드라이브 요청·실패 토스트가 생기지 않는다. 누른 뒤 조회 중(busy)에만 잠시 막는다.
+  // 막는 방식은 disabled 가 아니라 aria-disabled + 누름 무시다 — 포커스된 버튼에 disabled 를 달면 브라우저가 포커스를
+  // body 로 떨어뜨려, 폴더 창이 닫힐 때 Radix 가 ☁ 가 아닌 body 로 포커스를 돌려 키보드 사용자가 자리를 잃는다.
+  // ☁ 는 importTarget 이 있을 때만 그리므로 canImport 가 거짓인 경우는 조회 중(busy)뿐이다.
   const importTarget = item.importTarget
   const importer = useImportToDrive()
   const canImport = importTarget != null && !importer.busy
   const startImport = () => {
-    if (importTarget != null) importer.begin(importTarget)
+    // 조회 중 누름은 무시한다(aria-disabled 라 버튼은 눌린다) — begin 도 busy 면 바로 돌아가지만 여기서 먼저 거른다.
+    if (importTarget != null && canImport) importer.begin(importTarget)
   }
   // 현재 항목 blob — ViewerBody 가 보고하고, 다른 항목으로 넘기면 자동으로 무시된다(zoom 과 같은 useItemState).
   const [cur, setSource] = useItemState<{ blob: Blob | null; fetches: boolean; unplayable?: boolean } | null>(itemKey, null)
@@ -320,7 +324,7 @@ export function AttachmentViewer({
   /**
    * 하단 칸 누름. 공유·iOS 저장은 클릭 핸들러 안에서 await 없이 바로 공유 시트를 연다(제스처 직후 호출 규칙, 스펙 §5.4).
    * 저장 기본은 downloadViewerItem — 감사 경로가 따로 없으면 메모리 blob, 드라이브는 /download 로 다시 받는다. iOS 홈 화면 앱만 메모리 blob 을 공유 시트로(판정 R13).
-   * 드라이브는 ☁ 와 같은 가져오기, 요약은 패널(모바일은 시트) 토글.
+   * 드라이브는 ☁ 와 같은 드라이브에 저장, 요약은 패널(모바일은 시트) 토글.
    */
   const onSlot = (id: SlotId) => {
     if (id === 'share') {
@@ -568,7 +572,7 @@ export function AttachmentViewer({
             barRef={topBarRef}
             share={shareTarget && <ShareSheetButton target={shareTarget} aboveAiSheet={lifted} className="text-foreground" />}
             // 모바일 ⋯ 에는 링크 항목을 두지 않는다 — 링크는 ⬆︎ 시트에 모았다(WP-1234).
-            more={<ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} />}
+            more={<ViewerMoreMenu item={item} />}
           />
         )}
         {!mobile && (
@@ -583,8 +587,11 @@ export function AttachmentViewer({
             <div className="flex shrink-0 items-center gap-1">
               {/* 본문이 머리줄에 내놓는 컨트롤 자리(WP-1282) — 지금은 HTML 스크립트 컨트롤(점검 칩·실행 스위치)이 포털로 들어온다. 비면 자리를 차지하지 않는다. */}
               <div ref={setToolbarSlot} className="flex items-center gap-1 empty:hidden" data-testid="viewer-toolbar-slot" />
-              {!item.unavailable && (
-                <TooltipProvider delayDuration={300}>
+              {/* 헤더 아이콘 버튼(다운로드·☁)의 툴팁은 한 Provider 를 나눠 쓴다 — 버튼 사이를 옮겨 갈 때 지연 없이 바로 바뀐다.
+                  폴더 창이 닫혀 포커스가 ☁ 로 돌아오면 ☁ 툴팁이 뜰 수 있고 첫 Esc 는 그 툴팁을 닫는다 — 다운로드·🔗 와 같은 Radix 기본 동작이다.
+                  (☁ 는 조회 중에도 disabled 가 아닌 aria-disabled 라 포커스를 잃지 않아, 폴더 창이 닫히면 실제로 ☁ 로 돌아온다.) */}
+              <TooltipProvider delayDuration={300}>
+                {!item.unavailable && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -603,20 +610,29 @@ export function AttachmentViewer({
                       다운로드
                     </TooltipContent>
                   </Tooltip>
-                </TooltipProvider>
-              )}
-              {importTarget != null && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="pointer-coarse:size-11"
-                  aria-label="드라이브로 가져오기"
-                  disabled={!canImport}
-                  onClick={startImport}
-                >
-                  <Cloud />
-                </Button>
-              )}
+                )}
+                {/* ☁ 드라이브에 저장 — 아이콘만이라 다운로드처럼 툴팁으로 무엇인지 보인다(WP-1525). ⋯ 에는 같은 항목을 두지 않는다. */}
+                {importTarget != null && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="드라이브에 저장"
+                        // 조회 중에는 aria-disabled 로만 막는다(포커스 유지 — 위 importer 주석). 모양은 Button 의 disabled 와 같게 흐리고 포인터를 막는다.
+                        aria-disabled={!canImport || undefined}
+                        className="pointer-coarse:size-11 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                        onClick={startImport}
+                      >
+                        <Cloud />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="dark">
+                      드라이브에 저장
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </TooltipProvider>
               {panelAvailable && (
                 <Button
                   variant="ghost"
@@ -631,7 +647,7 @@ export function AttachmentViewer({
               )}
               {/* WP-1234 🔗 — ⋯ 의 예전 「링크 복사」를 헤더로 꺼냈다. 툴팁은 body 포털이라 뷰어와 같은 다크 토큰을 단다. */}
               {shareTarget && <CopyLinkButton target={shareTarget} className="pointer-coarse:size-11" tooltipClassName="dark" />}
-              <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareTarget={shareTarget} />
+              <ViewerMoreMenu item={item} shareTarget={shareTarget} />
               <div className="mx-1 h-5 w-px bg-border" aria-hidden />
               <DialogClose asChild>
                 <Button variant="ghost" size="icon" className="pointer-coarse:size-11" aria-label="닫기">

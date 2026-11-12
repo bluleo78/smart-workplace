@@ -2,7 +2,7 @@
 // happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 첨부 모아보기(/drive/attachments, DriveAttachmentsView) — 화면 컴포넌트 테스트(WP-971, WP-984).
 // 출처 그룹·접기, 이슈/채널 첨부에 없는 작업, 다운로드·미리보기 콘텐츠 경로(downloadUrl), 출처 필터 source·빈 화면,
-// 「내 드라이브에 저장」 import payload, 미리보기 묶음(같은 출처 안에서만 ‹ ›)·딥링크(없음·예전 숫자·조회 실패)는 브라우저 없이 판정되므로
+// 「드라이브에 저장」 import payload, 미리보기 묶음(같은 출처 안에서만 ‹ ›)·딥링크(없음·예전 숫자·조회 실패)는 브라우저 없이 판정되므로
 // e2e/pages/drive/drive-attachments-grouped.spec.ts·drive-preview-attachment.spec.ts·drive-cross-link.spec.ts 에서 옮겼다.
 // 화면 배선(@wiring)·키보드 포커스로 보이는 다운로드(@input)·헤더/AI 칩 기하(@layout)는 drive-attachments-grouped.spec.ts 가 지킨다.
 // 같은 교차링크(#80)의 반대 방향 — 이슈 첨부 스트립(IssueAttachmentStrip)의 「드라이브에서 링크」 payload — 도 여기 둔다(파일당 모듈 로딩 비용을 아끼려 한 파일에 모음).
@@ -82,7 +82,7 @@ describe('목록', () => {
     expect(within(first).getByTestId('drive-attachment-row-1')).toBeInTheDocument()
   })
 
-  // 이슈/채널 첨부에는 공유·버전·이동·복사·삭제·선택이 없고 「내 드라이브에 저장」만 있다. 다운로드는 downloadUrl(첨부 콘텐츠 경로)을 받는다.
+  // 이슈/채널 첨부에는 공유·버전·이동·복사·삭제·선택이 없고 「드라이브에 저장」만 있다. 다운로드는 downloadUrl(첨부 콘텐츠 경로)을 받는다.
   test('불가 작업은 없고 저장 버튼이 있으며, 다운로드는 downloadUrl 을 요청한다', async () => {
     let downloads = 0
     const { user } = renderView({
@@ -96,7 +96,7 @@ describe('목록', () => {
     const row = await screen.findByTestId('drive-attachment-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
     for (const name of ['공유 링크', '버전 이력', '이동', '복사', '삭제']) expect(within(row).queryByRole('button', { name })).not.toBeInTheDocument()
     expect(row.querySelector('input[type="checkbox"]')).toBeNull()
-    expect(within(row).getByTestId('drive-attachment-save-1')).toHaveTextContent('내 드라이브에 저장')
+    expect(within(row).getByTestId('drive-attachment-save-1')).toHaveTextContent('드라이브에 저장')
     // 다운로드 버튼은 hover·포커스 때만 보이지만(E2E @input) DOM 에는 있다.
     await user.click(within(row).getByTestId('drive-attachment-download-1'))
     await waitFor(() => expect(downloads).toBeGreaterThan(0))
@@ -203,7 +203,7 @@ describe('목록', () => {
   })
 
   // WP-1392: 메일 첨부 행 — 썸네일 대신 형식 아이콘, 다운로드는 downloadUrl(메일 첨부 경로).
-  // WP-1400: 메일 행에도 「내 드라이브에 저장」이 있다(예전 줄 맞춤용 빈 자리 대신 실제 버튼).
+  // WP-1400: 메일 행에도 「드라이브에 저장」이 있다(예전 줄 맞춤용 빈 자리 대신 실제 버튼).
   test('메일 첨부 행은 저장 버튼이 있고 형식 아이콘이며, 다운로드는 downloadUrl 을 요청한다', async () => {
     let downloads = 0
     const mailFile = att(null, '견적서.pdf', 'MAIL', '[견적] 11월 — 김담당', '/mail/1?messageId=9', '/api/v1/mail/attachments/601/content', {
@@ -219,7 +219,7 @@ describe('목록', () => {
       ],
     })
     const row = await screen.findByTestId('drive-attachment-row-mail-601', {}, { timeout: PAGE_LOAD_TIMEOUT })
-    expect(within(row).getByRole('button', { name: '내 드라이브에 저장' })).toHaveAttribute('data-testid', 'drive-attachment-save-mail-601')
+    expect(within(row).getByRole('button', { name: '드라이브에 저장' })).toHaveAttribute('data-testid', 'drive-attachment-save-mail-601')
     expect(within(row).queryByTestId('drive-attachment-save-spacer-mail-601')).not.toBeInTheDocument()
     expect(within(row).getByTestId('drive-attachment-type-icon')).toBeInTheDocument()
     await user.click(within(row).getByTestId('drive-attachment-download-mail-601'))
@@ -234,7 +234,7 @@ describe('목록', () => {
     })
     renderView({ list: () => ({ items: [broken], nextCursor: null }) })
     const row = await screen.findByTestId('drive-attachment-row-mail-null', {}, { timeout: PAGE_LOAD_TIMEOUT })
-    expect(within(row).queryByRole('button', { name: '내 드라이브에 저장' })).not.toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: '드라이브에 저장' })).not.toBeInTheDocument()
     const spacer = within(row).getByTestId('drive-attachment-save-spacer-mail-null')
     expect(spacer).toHaveAttribute('aria-hidden', 'true')
     expect(spacer).toHaveAttribute('tabindex', '-1')
@@ -256,7 +256,7 @@ describe('목록', () => {
     expect(screen.getByTestId('drive-attachments-view')).toHaveTextContent('볼 수 있는 이슈·이슈챗·채팅·노트의 첨부와 내 메일의 첨부가 여기에 모입니다')
   })
 
-  // 「내 드라이브에 저장」 → 폴더 창(개인 공간) → 확정하면 import-attachment 에 그 첨부 fileId 를 보낸다.
+  // 「드라이브에 저장」 → 폴더 창(개인 공간) → 확정하면 import-attachment 에 그 첨부 fileId 를 보낸다.
   test('저장 → 폴더 창 → 확정하면 import-attachment 에 fileId 를 보낸다', async () => {
     const posts: Record<string, unknown>[] = []
     const file = att(301, 'report.xlsx', 'ISSUE', 'WP-10', '/projects/WP/issues/10', '/api/v1/files/301/download')
@@ -278,6 +278,10 @@ describe('목록', () => {
     await user.click(within(picker).getByTestId('folder-picker-confirm'))
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].fileId).toBe(301)
+    // 폴더 창이 닫히면 포커스가 누른 행 버튼으로 돌아온다 — 조회 중에도 disabled 가 아닌 aria-disabled 라 포커스를 잃지 않는다(WP-1525).
+    await waitFor(() => expect(screen.queryByTestId('folder-picker')).not.toBeInTheDocument())
+    await waitFor(() => expect(document.activeElement).toBe(save))
+    expect(save).not.toHaveAttribute('aria-disabled')
   })
 
   // WP-1400: 메일 첨부 행의 저장 → 같은 폴더 창 → 확정하면 메일 첨부 저장(save-to-drive)에 공간·폴더를 보낸다(import-attachment 는 부르지 않는다).
@@ -310,7 +314,7 @@ describe('목록', () => {
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).toEqual({ path: '/api/v1/mail/attachments/601/save-to-drive', body: { spaceId: 1, folderId: null } })
     expect(imports).toBe(0)
-    expect(await screen.findByText('파일을 드라이브로 가져왔습니다')).toBeInTheDocument()
+    expect(await screen.findByText('드라이브에 저장했습니다')).toBeInTheDocument()
   })
 
   // WP-1400: 같은 이름 파일이 그 폴더에 있으면 서버가 409 — 가져오기와 같은 처리로 서버 문구를 오류 알림으로 보인다.
@@ -333,7 +337,7 @@ describe('목록', () => {
     await user.click(save)
     await user.click(within(await screen.findByTestId('folder-picker')).getByTestId('folder-picker-confirm'))
     expect(await screen.findByText("같은 폴더에 이미 '견적서.pdf' 이름이 있습니다.")).toBeInTheDocument()
-    expect(screen.queryByText('파일을 드라이브로 가져왔습니다')).not.toBeInTheDocument()
+    expect(screen.queryByText('드라이브에 저장했습니다')).not.toBeInTheDocument()
   })
 
   // WP-1400: 메일 서버에서 못 받으면 500 — 서버 문구가 없으면 가져오기와 같은 일반 실패 문구를 보인다.
@@ -353,8 +357,8 @@ describe('목록', () => {
     await waitFor(() => expect(save).toBeEnabled())
     await user.click(save)
     await user.click(within(await screen.findByTestId('folder-picker')).getByTestId('folder-picker-confirm'))
-    expect(await screen.findByText('드라이브 임포트에 실패했습니다')).toBeInTheDocument()
-    expect(screen.queryByText('파일을 드라이브로 가져왔습니다')).not.toBeInTheDocument()
+    expect(await screen.findByText('드라이브에 저장하지 못했습니다')).toBeInTheDocument()
+    expect(screen.queryByText('드라이브에 저장했습니다')).not.toBeInTheDocument()
   })
 })
 
@@ -465,11 +469,16 @@ describe('미리보기', () => {
     const saveVia = async (rowTestId: string, name: string) => {
       await user.click(within(await screen.findByTestId(rowTestId, {}, { timeout: PAGE_LOAD_TIMEOUT })).getByRole('button', { name }))
       const viewer = await screen.findByTestId('attachment-viewer')
-      const cloud = within(viewer).getByRole('button', { name: '드라이브로 가져오기' })
+      const cloud = within(viewer).getByRole('button', { name: '드라이브에 저장' })
       await waitFor(() => expect(cloud).toBeEnabled())
       await user.click(cloud)
       await user.click(within(await screen.findByTestId('folder-picker')).getByTestId('folder-picker-confirm'))
       await waitFor(() => expect(screen.queryByTestId('folder-picker')).not.toBeInTheDocument())
+      // 폴더 창이 닫히면 포커스가 ☁ 로 돌아와 ☁ 툴팁이 뜬다 — 첫 Esc 는 그 툴팁을, 다음 Esc 는 뷰어를 닫는다(다운로드·🔗 와 같은 Radix 기본 동작).
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('드라이브에 저장')
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument())
+      expect(screen.getByTestId('attachment-viewer')).toBeInTheDocument()
       await user.keyboard('{Escape}')
       await waitFor(() => expect(screen.queryByTestId('attachment-viewer')).not.toBeInTheDocument())
     }

@@ -270,14 +270,17 @@ test('뷰어 ☁ 로 메일 첨부를 드라이브에 저장하면 save-to-drive
     ],
   })
   const viewer = await screen.findByTestId('attachment-viewer')
-  const cloud = within(viewer).getByRole('button', { name: '드라이브로 가져오기' })
+  const cloud = within(viewer).getByRole('button', { name: '드라이브에 저장' })
   await waitFor(() => expect(cloud).toBeEnabled())
   await user.click(cloud)
   await user.click(within(await screen.findByTestId('folder-picker')).getByTestId('folder-picker-confirm'))
   await waitFor(() => expect(saves.calls).toHaveLength(1))
   expect(saves.calls[0].url.pathname).toBe('/api/v1/mail/attachments/7/save-to-drive')
   expect(saves.calls[0].body).toEqual({ spaceId: 1, folderId: null })
-  expect(await screen.findByText('파일을 드라이브로 가져왔습니다')).toBeInTheDocument()
+  // WP-1525: 업로드 첨부와 같은 토스트 — 저장 위치(루트면 공간 이름만)와 「열기」.
+  const toast = (await screen.findByText('드라이브에 저장했습니다')).closest('[data-sonner-toast]') as HTMLElement
+  expect(toast).toHaveTextContent('내 드라이브')
+  expect(within(toast).getByRole('button', { name: '열기' })).toBeInTheDocument()
 })
 
 // WP-1400: 드라이브 공간 조회는 ☁ 를 누를 때만 한다 — 미리보기를 열기만 해서는 공간을 묻지 않고, 드라이브가 내려가 있어도
@@ -291,7 +294,7 @@ test('미리보기를 열기만 하면 공간 조회·실패 토스트가 없고
   expect(spaces.calls).toHaveLength(0)
   expect(screen.queryByText('드라이브 스페이스를 불러오지 못했습니다.')).not.toBeInTheDocument()
 
-  const cloud = within(viewer).getByRole('button', { name: '드라이브로 가져오기' })
+  const cloud = within(viewer).getByRole('button', { name: '드라이브에 저장' })
   expect(cloud).toBeEnabled()
   await user.click(cloud)
   expect(await screen.findByText('드라이브 스페이스를 불러오지 못했습니다.')).toBeInTheDocument()

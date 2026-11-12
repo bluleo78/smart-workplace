@@ -19,18 +19,16 @@ const ITEM_CLASS = 'pointer-coarse:min-h-11'
 
 /**
  * 뷰어 헤더 ⋯ 메뉴(WP-277) — 항목 필드 유무로 항목을 구성한다(화면별 분기 없음).
- * 원본으로 이동·드라이브로 가져오기·드라이브에서 열기·브라우저에서 열기(설치된 앱 + 공유 가능한 호출부만).
+ * 원본으로 이동·드라이브에서 열기·브라우저에서 열기(설치된 앱 + 공유 가능한 호출부만).
  * 「링크 복사」는 헤더 🔗(모바일 ⬆︎ 시트)로 옮겼다(WP-1234).
- * 가져오기는 헤더 ☁ 와 같은 핸들러를 부모가 내려 준다(onImport). 항목이 하나도 없으면 ⋯ 자체를 그리지 않는다.
+ * 「드라이브에 저장」은 두지 않는다(WP-1525) — 저장할 수 있으면 헤더 ☁(모바일 하단 drive 칸)가 늘 있어 같은 항목이 겹쳤다.
+ * 항목이 하나도 없으면 ⋯ 자체를 그리지 않는다.
  */
 export function ViewerMoreMenu({
   item,
-  onImport,
   shareTarget,
 }: {
   item: ViewerItem
-  /** 있으면 "드라이브로 가져오기" 항목을 보인다(item.importTarget 이 있고 가져오기가 가능할 때). */
-  onImport?: () => void
   /** 링크로 다시 열 수 있는 뷰어의 대상(WP-1234) — 있으면 링크 항목(채팅·이슈로 보내기·브라우저에서 열기)을 둔다. 없으면(shareable=false) 링크 항목이 없다. */
   shareTarget?: ShareTarget | null
 }) {
@@ -38,7 +36,7 @@ export function ViewerMoreMenu({
   // 링크를 딸 수 있는 뷰어면 링크 항목(「채팅·이슈로 보내기…」 등)이 늘 있다(WP-1235).
   const linkItems = shareTarget != null
   // 빈 메뉴(⋯ 를 눌러도 아무것도 없음)는 그리지 않는다.
-  if (!item.sourceLink && !linkItems && !onImport && !item.driveOpen) return null
+  if (!item.sourceLink && !linkItems && !item.driveOpen) return null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -55,7 +53,6 @@ export function ViewerMoreMenu({
           <DropdownMenuItem className={ITEM_CLASS} onSelect={() => navigate(item.sourceLink!)}>원본으로 이동</DropdownMenuItem>
         )}
         {linkItems && <LinkMenuItems target={shareTarget} itemClassName={ITEM_CLASS} />}
-        {onImport && <DropdownMenuItem className={ITEM_CLASS} onSelect={onImport}>드라이브로 가져오기</DropdownMenuItem>}
         {item.driveOpen && (
           // 파일이 있는 폴더를 찾아 연다 — 공간 루트로만 열면 하위 폴더 파일이 "찾을 수 없음"이 된다.
           <DropdownMenuItem className={ITEM_CLASS} onSelect={() => void resolveDriveOpenPath(item.driveOpen!).then((to) => navigate(to))}>

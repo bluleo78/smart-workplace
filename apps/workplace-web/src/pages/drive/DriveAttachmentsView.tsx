@@ -78,7 +78,7 @@ export function DriveAttachmentsView() {
   const query = useDriveAttachments({ source, q })
   // 본문 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다 — 공간 조회는 저장을 누를 때 한다(WP-1400).
+  // 드라이브에 저장(개인 공간 조회 → 폴더 선택 → 저장)은 통합 뷰어와 같은 훅을 쓴다 — 공간 조회는 저장을 누를 때 한다(WP-1400).
   const importer = useImportToDrive()
 
   // 미리보기 = URL ?preview=file:<fileId>(메일 첨부는 mail:<id>)(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 뷰어가
@@ -275,18 +275,20 @@ export function DriveAttachmentsView() {
                               다운로드
                             </Button>
 
-                            {/* 내 드라이브에 저장 — 업로드 첨부는 가져오기, 메일 첨부는 메일 첨부 저장(WP-1400)으로 같은 폴더 선택 흐름을 탄다.
+                            {/* 드라이브에 저장(WP-1525 에서 뷰어 ☁ 와 같은 이름으로) — 업로드 첨부는 가져오기, 메일 첨부는 메일 첨부 저장(WP-1400)으로 같은 폴더 선택 흐름을 탄다.
                                 다운로드(로컬)와 구분되는 라벨. */}
                             {importTarget != null && (
                               <Button
                                 variant="outline"
                                 size="xs"
                                 data-testid={`drive-attachment-save-${id}`}
-                                disabled={importer.busy}
+                                // 조회 중(busy)에는 disabled 가 아닌 aria-disabled 로 막는다 — 방금 누른 버튼에 disabled 를 달면 포커스가 body 로
+                                // 떨어져 폴더 창이 닫힐 때 이 버튼으로 돌아오지 못한다. 누름은 begin 이 busy 면 무시한다. 모양은 Button 의 disabled 와 같게.
+                                aria-disabled={importer.busy || undefined}
                                 onClick={() => importer.begin(importTarget)}
-                                className="shrink-0"
+                                className="shrink-0 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                               >
-                                내 드라이브에 저장
+                                드라이브에 저장
                               </Button>
                             )}
                             {/* 저장 대상이 없는 행(id 가 빠진 메일 행 등)도 같은 폭의 빈 자리를 둬 크기·다운로드 열이 다른 행과 줄 맞게 한다 —
@@ -301,7 +303,7 @@ export function DriveAttachmentsView() {
                                 data-testid={`drive-attachment-save-spacer-${id}`}
                                 className="invisible shrink-0"
                               >
-                                내 드라이브에 저장
+                                드라이브에 저장
                               </Button>
                             )}
                           </li>
