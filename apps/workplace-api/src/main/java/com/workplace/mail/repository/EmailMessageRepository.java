@@ -28,6 +28,7 @@ import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.service.folder.ImapFolderClassifier;
 import com.workplace.mail.util.MailAttachmentSizes;
 import com.workplace.mail.util.MailBodyText;
+import com.workplace.mail.util.MessageIds;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -487,14 +488,6 @@ public class EmailMessageRepository {
   private static final EmailFolder APP_SENT_FOLDER = EMAIL_FOLDER.as("app_sent_folder");
 
   /**
-   * Message-ID 비교식 — 꺾쇠를 벗긴다(IMAP 파서는 벗기고 Graph 는 그대로 둔다). 인덱스 idx_email_message_account_msgid 와 같은
-   * 식.
-   */
-  private static Field<String> bareMessageId(Field<String> messageId) {
-    return DSL.field("btrim({0}, '<>')", String.class, messageId);
-  }
-
-  /**
    * 서버 보낸편지함 행 중 앱이 보낸 기록(SENT)과 같은 메일이 아닌 것(WP-950). 앱은 발송본을 서버 보낸편지함에도 남기므로(IMAP APPEND·Exchange
    * 자동 저장) 동기화한 서버 사본은 같은 Message-ID 의 앱 행과 겹친다 — 첨부·숨은 참조 기록이 있는 앱 행을 남기고 사본을 가린다. 서버 보낸편지함이 아닌 행은
    * 언제나 참. EMAIL_FOLDER 조인을 전제한다.
@@ -513,8 +506,8 @@ public class EmailMessageRepository {
                     .and(APP_SENT_FOLDER.NAME.eq(EmailFolderRepository.LOCAL_SENT))
                     .and(APP_SENT.MESSAGE_ID.isNotNull())
                     .and(
-                        bareMessageId(APP_SENT.MESSAGE_ID)
-                            .eq(bareMessageId(EMAIL_MESSAGE.MESSAGE_ID)))));
+                        MessageIds.bare(APP_SENT.MESSAGE_ID)
+                            .eq(MessageIds.bare(EMAIL_MESSAGE.MESSAGE_ID)))));
   }
 
   /**
@@ -957,6 +950,8 @@ public class EmailMessageRepository {
             .returning(EMAIL_MESSAGE.ID)
             .fetchOne()
             .get(EMAIL_MESSAGE.ID);
+    // WP-1364 후속: 같은 테넌트 수신자가 이 보낸 사본 저장보다 먼저 본문을 적재했으면 그 사본도 표시한다(Exchange 는 X-Mailer 를 지운다)
+    contentRepo.markReceivedCopiesOfOwnSent(contentId, m.messageId());
     return new SentRow(messageId, contentId);
   }
 

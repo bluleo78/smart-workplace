@@ -6,10 +6,12 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT;
 
 import com.workplace.file.api.InternalFileCategories;
+import com.workplace.jooq.tables.EmailContent;
 import com.workplace.jooq.tables.records.EmailContentRecord;
 import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.util.MailContentHash;
+import com.workplace.mail.util.MessageIds;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -17,6 +19,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.InsertSetMoreStep;
 import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
@@ -276,6 +279,82 @@ public class EmailContentRepository {
             .and(EMAIL_CONTENT.SENT_BY_GENIA_WORKS.isFalse())
             .execute()
         > 0;
+  }
+
+  /**
+   * 받은 사본 쪽 판정(본문 적재 때): 같은 테넌트에서 우리 앱이 보낸 사본과 Message-ID·보낸 사람이 같으면 이 content 도 표시한다(false→true
+   * 만).
+   *
+   * <p>왜: Exchange Online 은 Graph 로 보낸 MIME 을 자기 형식으로 바꿔 다시 만들며 X-Mailer 를 지운다 — 받은 사본에서는 헤더로 판정할 수
+   * 없다. Message-ID 는 그대로 남으므로 우리가 보낸 사본과 맞대 판정한다. 조건은 {@link #matchesOwnSent} 참고.
+   */
+  public boolean markSentByGeniaWorksIfOwnSent(long contentId) {
+    var own = EMAIL_CONTENT.as("own");
+    return dsl.update(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.SENT_BY_GENIA_WORKS, true)
+            .where(EMAIL_CONTENT.ID.eq(contentId))
+            .and(EMAIL_CONTENT.SENT_BY_GENIA_WORKS.isFalse())
+            .and(EMAIL_CONTENT.MESSAGE_ID.isNotNull())
+            .andExists(DSL.selectOne().from(own).where(matchesOwnSent(own)))
+            .execute()
+        > 0;
+  }
+
+  /**
+   * 보낸 사본 쪽 판정(보낸 사본 저장 직후): 이미 받아 둔 같은 메일의 사본들을 표시한다. 같은 테넌트 수신자의 본문 적재가 보낸 사본 커밋보다 먼저 끝나면 {@link
+   * #markSentByGeniaWorksIfOwnSent} 가 짝을 못 찾고 다시 판정하지 않으므로, 반대 방향에서도 한 번 맞댄다.
+   *
+   * @param ownContentId 보낸 사본의 전용 content(표시돼 있고 envelope 가 저장된 뒤여야 한다)
+   * @param messageId 보낸 메일의 Message-ID(꺾쇠 유무 무관)
+   */
+  public int markReceivedCopiesOfOwnSent(long ownContentId, String messageId) {
+    if (messageId == null || messageId.isBlank()) {
+      return 0;
+    }
+    String bare = MessageIds.bare(messageId);
+    var own = EMAIL_CONTENT.as("own");
+    return dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.SENT_BY_GENIA_WORKS, true)
+        // 받은 사본은 지문이 있다 — (tenant_id, message_id, fingerprint) 유니크 인덱스로 찾는다(테넌트는 RLS 가 거른다)
+        .where(EMAIL_CONTENT.MESSAGE_ID.in(bare, "<" + bare + ">"))
+        .and(EMAIL_CONTENT.FINGERPRINT.isNotNull())
+        .and(EMAIL_CONTENT.SENT_BY_GENIA_WORKS.isFalse())
+        .andExists(
+            DSL.selectOne().from(own).where(own.ID.eq(ownContentId)).and(matchesOwnSent(own)))
+        .execute();
+  }
+
+  /**
+   * {@code own} 이 바깥 EMAIL_CONTENT(받은 사본)의 「우리 앱이 보낸 사본」인지.
+   *
+   * <ul>
+   *   <li>own 은 보낼 때 저장한 전용 content 만(표시됨 + 지문 없음 — {@link #createDedicated}). X-Mailer 위조로 표시된 받은
+   *       사본이 기준이 돼 번지지 않게 한다.
+   *   <li>Message-ID 는 꺾쇠를 떼고 비교한다 — 보낸 사본은 꺾쇠 없이, 동기화 사본은 꺾쇠를 붙여 저장한다(V287 부분 인덱스 식과 같아야 한다).
+   *   <li>보낸 사람 주소도 같아야 한다 — Message-ID 만 알아낸 외부인이 같은 값을 넣어 보낸 위조 메일에 표식이 붙지 않게 한다.
+   * </ul>
+   */
+  private static Condition matchesOwnSent(EmailContent own) {
+    var ownEnv = EMAIL_MESSAGE.as("own_env");
+    var copyEnv = EMAIL_MESSAGE.as("copy_env");
+    return own.TENANT_ID
+        .eq(EMAIL_CONTENT.TENANT_ID)
+        .and(own.SENT_BY_GENIA_WORKS.isTrue())
+        .and(own.FINGERPRINT.isNull())
+        .and(own.MESSAGE_ID.isNotNull()) // V287 부분 인덱스 조건과 맞춰 둔다 — 지우면 인덱스를 못 탄다
+        .and(MessageIds.bare(own.MESSAGE_ID).eq(MessageIds.bare(EMAIL_CONTENT.MESSAGE_ID)))
+        .andExists(
+            DSL.selectOne()
+                .from(ownEnv)
+                .join(copyEnv)
+                .on(lowerTrim(copyEnv.FROM_ADDRESS).eq(lowerTrim(ownEnv.FROM_ADDRESS)))
+                .where(ownEnv.CONTENT_ID.eq(own.ID))
+                .and(copyEnv.CONTENT_ID.eq(EMAIL_CONTENT.ID)));
+  }
+
+  /** 주소 비교용 소문자·공백 제거. */
+  private static Field<String> lowerTrim(Field<String> address) {
+    return DSL.lower(DSL.trim(address));
   }
 
   /**

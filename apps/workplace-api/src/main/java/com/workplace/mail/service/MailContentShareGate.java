@@ -40,11 +40,16 @@ public class MailContentShareGate {
   }
 
   /**
-   * WP-1364: 우리 앱이 보낸 메일(X-Mailer)이면 공유 content 에 표시한다(false→true 만). 화면 표시용이라 다른 사본의 재계산은 필요 없다.
+   * WP-1364: 우리 앱이 보낸 메일이면 공유 content 에 표시한다(false→true 만). 화면 표시용이라 다른 사본의 재계산은 필요 없다.
+   *
+   * <p>X-Mailer 로 판정되면 그대로 표시하고, 아니면 같은 테넌트에서 우리 앱이 보낸 사본과 Message-ID 를 맞대 본다 — Exchange Online 이
+   * 배달하며 X-Mailer 를 지우기 때문이다(Outlook 계정끼리 주고받은 메일에 표식이 안 붙던 결함).
    */
-  public void recordSentByGeniaWorks(long contentId, boolean sentByGeniaWorks) {
-    if (sentByGeniaWorks) {
+  public void recordSentByGeniaWorks(long contentId, boolean xMailerSaysGeniaWorks) {
+    if (xMailerSaysGeniaWorks) {
       contentRepo.markSentByGeniaWorks(contentId);
+    } else {
+      contentRepo.markSentByGeniaWorksIfOwnSent(contentId);
     }
   }
 
