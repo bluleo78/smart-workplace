@@ -77,6 +77,8 @@ interface Session {
    * 그 뒤 보내기가 실패하면 이 내용으로만 저장한다(다른 작성의 내용·빈 계정으로 저장하지 않게).
    */
   snap: DraftSnapshot | null;
+  /** invalid(400)의 원인 문구 — flush 결과에 실어 호출부가 실제 사유를 알린다(새 창으로 열기 실패, WP-1535). */
+  reason?: string;
 }
 
 function newSession(instanceId: number, id: number | undefined, version: number | undefined, dirty: boolean): Session {
@@ -156,6 +158,8 @@ export interface DraftFlushResult {
   ok: boolean;
   draftId: number | null;
   version: number | null;
+  /** 검증 오류(400)로 저장하지 못했으면 그 사유(짧은 문구). */
+  reason?: string;
 }
 
 /**
@@ -196,15 +200,19 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
   const setPhase = useCallback(
     (s: Session, phase: SessionPhase, reason?: string) => {
       s.phase = phase;
+      s.reason = phase === 'invalid' ? reason : undefined;
       const status = PHASE_STATUS[phase];
       if (status) show(s, status, reason);
     },
     [show],
   );
 
-  /** 세션의 변경을 지금 저장 사슬에 잇는다. 결과 promise 는 이 저장까지 끝나면 풀린다. */
+  /**
+   * 세션의 변경을 지금 저장 사슬에 잇는다. 결과 promise 는 이 저장까지 끝나면 풀린다.
+   * saveEmpty 면 빈 새 메일(손대지 않은 새 메일·답장·전달)도 만든다 — 새 창으로 열 때(WP-1535) 열 임시저장 id 가 있어야 해서.
+   */
   const save = useCallback(
-    (s: Session): Promise<DraftFlushResult> => {
+    (s: Session, saveEmpty = false): Promise<DraftFlushResult> => {
       stopTimer(s);
       // 화면의 내용은 지금 세션일 때만 이 세션 것이다 — 보내는 중에 닫거나 바꾸는 순간의 내용도 여기서 잡아 둔다.
       const own = session.current === s;
@@ -219,6 +227,7 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
               ok: s.phase !== 'error' && s.phase !== 'conflict' && s.phase !== 'invalid',
               draftId: s.id,
               version: s.version,
+              reason: s.phase === 'invalid' ? s.reason : undefined,
             };
       const stopped = () => s.phase === 'ended' || s.phase === 'gone' || s.sending;
       if (!s.dirty || stopped() || s.phase === 'conflict') return s.chain.then(result);
@@ -227,7 +236,7 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
       if (!snap) return s.chain.then(result);
       s.snap = snap;
       s.dirty = false;
-      if (snap.empty && s.id == null) {
+      if (snap.empty && s.id == null && !saveEmpty) {
         show(s, 'idle');
         return s.chain.then(result);
       }
@@ -328,23 +337,28 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
    * 서버 쪽 임시저장에 묶인 업로드도 그대로 싣는다 — 서버가 새 임시저장으로 옮겨 묶는다(서버 쪽 임시저장에서는 빠진다).
    */
   const flushSession = useCallback(
-    (s: Session): Promise<DraftFlushResult> => {
+    (s: Session, force = false): Promise<DraftFlushResult> => {
       if (s.phase === 'conflict') {
         setPhase(s, 'active');
         s.id = null;
         s.version = null;
         s.dirty = true;
       }
-      return save(s);
+      // 강제 저장(새 창으로 열기) — 아직 서버에 없으면 바뀐 것이 없어도 만든다. 이미 있으면 남은 변경만 저장하면 된다.
+      if (force && s.id == null) s.dirty = true;
+      return save(s, force);
     },
     [save, setPhase],
   );
 
-  /** 지금 작성의 남은 저장을 바로 돌린다(✕·뒤로가기·다른 작성으로 바꾸기). */
-  const flush = useCallback((): Promise<DraftFlushResult> => {
+  /**
+   * 지금 작성의 남은 저장을 바로 돌린다(✕·뒤로가기·다른 작성으로 바꾸기).
+   * force 면 빈 작성도 임시저장으로 만든다 — 새 창으로 열기(WP-1535)는 그 id 로 새 창을 연다.
+   */
+  const flush = useCallback((opts?: { force?: boolean }): Promise<DraftFlushResult> => {
     const s = session.current;
     if (!s) return Promise.resolve({ wrote: false, ok: true, draftId: null, version: null });
-    return flushSession(s);
+    return flushSession(s, opts?.force ?? false);
   }, [flushSession]);
 
   /** 다시 시도(「저장하지 못했어요 · 다시 시도」) — 네트워크·서버 오류만. 검증 오류(invalid)는 내용을 고쳐야 풀린다. */
@@ -415,7 +429,13 @@ export function useMailDraftAutosave({ instanceId, initialDraftId, initialVersio
         await deleteMailDraft(s.id);
       } catch (e) {
         // 이미 없으면(다른 곳에서 보냈거나 버림) 버린 것과 같다. 그 밖의 실패는 호출부가 「버리지 못했어요」로 알린다.
-        if (!isDraftGone(e)) throw e;
+        // 지우지 못했으면 세션을 다시 살린다 — 작성창이 남는 경우(새 창, WP-1535) 이어 쓴 내용이 저장되고, 닫을 때 지금 내용을 저장한다.
+        // 작성창이 이미 닫혔으면(앱 안 도크) 떨어진 세션이라 아무 저장도 걸리지 않는다.
+        if (!isDraftGone(e)) {
+          s.phase = 'active';
+          s.dirty = true;
+          throw e;
+        }
       }
       if (acc != null) void invalidateMailDrafts(qc, acc);
     }

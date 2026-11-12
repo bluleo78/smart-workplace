@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import { useMailCompose } from '@/components/mail/MailComposeContext';
 import { handleApiError } from '@/lib/api-error';
+import { liveMailComposePopout } from '@/lib/mailComposeChannel';
 import { composeFromDraft, draftPreview, savePayloadFromDetail } from '@/lib/mailDraftCompose';
 
 import { createMailDraft, deleteMailDraft, getMailDraft, getMailDraftCount, listMailDrafts } from '../../api/mailDrafts';
@@ -93,6 +94,18 @@ export function useOpenMailDraft() {
   const qc = useQueryClient();
   const { openCompose, focusDraft } = useMailCompose();
   return async (id: number, opts: { force?: boolean; beforeOpen?: () => void } = {}) => {
+    // 이 창이 새 창으로 옮긴 임시저장이 아직 그 창에서 쓰이고 있으면(WP-1535) 두 번째 편집기를 열지 않고 그 창을 앞으로 가져온다.
+    // 브라우저가 창 전환을 막을 수 있어(성공 여부를 알 수 없다) 어디서 쓰는 중인지 토스트로도 알린다.
+    const popout = liveMailComposePopout(id);
+    if (popout) {
+      try {
+        popout.focus();
+      } catch {
+        /* 창 전환을 막았다 — 아래 토스트가 알린다 */
+      }
+      toast('이 메일은 새 창에서 쓰는 중이에요');
+      return;
+    }
     if (!opts.force && focusDraft(id)) return;
     try {
       const detail = await qc.fetchQuery(mailDraftQuery(id));

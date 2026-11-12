@@ -7,9 +7,11 @@
 // - 서명(WP-1517): 처음 여는 작성은 설정(새 메일·답장·전달 스위치)대로 본문 끝에 빈 줄 + 서명을 넣는다. 본문은 서명 조회를 기다리지 않고 바로 그리고,
 //   서명이 늦게 오면 아직 손대지 않은 본문에만 넣는다(메일 화면이 미리 받아 두므로 보통은 처음 본문에 들어 있다).
 //   펜(✒, 데스크톱은 📎 왼쪽·모바일은 상단 바 🗑 와 📎 사이)으로 빼고 넣는다. 보낼 때 서명 이미지는 작성창 업로드 사본으로 바꿔 cid 로 보낸다.
+// - 새 창으로 열기(WP-1535): 데스크톱 머리줄 ↗ 가 지금 작성을 임시저장한 뒤 독립 브라우저 창(/mail/compose?draftId=N)으로 옮긴다.
+//   그 창에서는 같은 작성창을 popout 모드로 그린다 — 창 전체를 채우고, 닫기·버리기·보내기는 서버 작업이 끝난 뒤 onDone 으로 페이지에 넘긴다(페이지가 창을 닫는다).
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
+import { ExternalLink, Loader2, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -29,6 +31,7 @@ import { restoreMailDraft, toastDraftDiscarded, useOpenMailDraft } from '@/hooks
 import { useMailSignature } from '@/hooks/queries/useMailSignature';
 import { useAiAvailable } from '@/hooks/useAiAvailable';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useMailComposeAttachments } from '@/hooks/useMailComposeAttachments';
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml';
@@ -40,6 +43,13 @@ import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { hasLiveStateMark } from '@/lib/historyParam';
 import { isImeComposing } from '@/lib/imeKey';
 import { type ComposeAttachment, quoteInlineBytes } from '@/lib/mailComposeAttachments';
+import {
+  MAIL_COMPOSE_WINDOW_FEATURES,
+  MAIL_COMPOSE_WINDOW_ID,
+  type MailComposeWindowEvent,
+  mailComposeWindowUrl,
+  rememberMailComposePopout,
+} from '@/lib/mailComposeChannel';
 import { buildDraftSavePayload } from '@/lib/mailDraftCompose';
 import { pastedImageSrc, toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { parseRecipientInput } from '@/lib/mailRecipients';
@@ -82,6 +92,26 @@ const PANEL_CLASS: Record<MailComposerLayout, string> = {
   fill: `${AI_SIDE_CENTER_CLASS} fixed top-1/2 z-50 flex h-[min(85vh,calc(100vh-2rem))] w-[min(960px,92vw,calc(100%-var(--right-dock-width)-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border bg-background shadow-2xl outline-none`,
   dock: 'fixed bottom-0 right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl',
 };
+
+/** 새 창(popout, WP-1535) 껍데기 — 브라우저 창 전체를 채운다. 앱 셸이 없으니 겹칠 것도, 가릴 뒤 페이지도 없다. */
+const WINDOW_PANEL_CLASS = 'fixed inset-0 flex flex-col bg-background';
+
+/** 새 창 이름 — 열 때마다 다르게 해 이미 열린 다른 작성 창을 덮어쓰지 않는다(여러 창 동시 허용). */
+let popoutSeq = 0;
+const nextPopoutName = () => `mail-compose-${Date.now()}-${++popoutSeq}`;
+
+/**
+ * 새 창 모드 손잡이 — 새 창 페이지가 넘긴다. 작성이 끝나면(보냄·닫으며 저장·버림) 서버 작업이 끝난 뒤 한 번 부른다.
+ * kind 는 메인 창에 알릴 이유, accountId 는 다시 받을 목록의 계정.
+ */
+export interface MailComposePopout {
+  onDone: (kind: MailComposeWindowEvent, accountId: number) => void;
+  /**
+   * 손대지 않은 작성을 새 창으로 옮기려 방금 만든 임시저장인가 — 새 창에서도 손대지 않고 닫으면 그 임시저장을 지운다
+   * (앱 안 작성창은 빈 작성을 닫을 때 임시저장을 만들지 않으므로 같은 결과가 되게).
+   */
+  fresh?: boolean;
+}
 
 /** 본문 영역 — 모바일은 하단 고정 서식 버튼(44px+여백+홈 인디케이터 안전영역)만큼 아래 여백, 크게 보기는 남은 높이를 채움, 작은 창은 화면 높이 안으로 제한. */
 const BODY_CLASS: Record<MailComposerLayout, string> = {
@@ -164,13 +194,13 @@ function MobileComposeHistory({ onClose }: { onClose: () => void }) {
  * 작성창 — AI 컨텍스트에서 "전체 화면인가" 하나만 읽어 본체에 넘긴다.
  * 컨텍스트는 옆 패널 폭(드래그 중 매 프레임)·프롬프트 등으로 자주 바뀌므로, 본체(에디터·코칭 미리보기)는 memo 로 그 값이 바뀔 때만 다시 그린다.
  */
-export function MailComposeDock() {
+export function MailComposeDock({ popout }: { popout?: MailComposePopout } = {}) {
   const aiFullscreen = useAssistant().mode === 'fullscreen';
-  return <MailComposeDockBody aiFullscreen={aiFullscreen} />;
+  return <MailComposeDockBody aiFullscreen={aiFullscreen} popout={popout} />;
 }
 
-/** 작성창 본체. draft 없으면 렌더 안 함. */
-const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: { aiFullscreen: boolean }) {
+/** 작성창 본체. draft 없으면 렌더 안 함. popout 이면 새 창(WP-1535) 모드. */
+const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, popout }: { aiFullscreen: boolean; popout?: MailComposePopout }) {
   const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, setComposeHandlers } = useMailCompose();
   const send = useSendMail();
   const qc = useQueryClient();
@@ -186,7 +216,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   // 서명을 뺀 HTML 이다(WP-1517) — 서명만 넣고 뺀 것은 검토할 본문이 바뀐 것이 아니다.
   const lastCoachedRef = useRef<string | null>(null);
 
-  const isMobile = useIsMobile();
+  // 새 창은 늘 데스크톱 배치다 — 900px 창은 lg 미만이라 그대로 두면 모바일 화면 전체 작성(히스토리 항목·상단 바)으로 그려진다.
+  const viewportMobile = useIsMobile();
+  const isMobile = !popout && viewportMobile;
   const navigate = useNavigate();
   // 내 서명(WP-1517) — 처음 여는 작성의 자동 넣기와 펜 단추가 읽는다. 본문은 조회를 기다리지 않는다(늦으면 아래 효과가 넣는다).
   const signature = useMailSignature();
@@ -254,12 +286,17 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
 
   // AI 전체화면은 페이지(main) 안에 그려져 크게 보기의 inert·배경에 함께 가려지므로, 그동안은 작은 창으로 보인다.
   // AI 를 닫거나 옆 패널로 돌리면 다시 크게 보기로 돌아온다(크기 상태는 그대로). 그동안 크게 보기 버튼은 끈다.
-  const layout: MailComposerLayout = isMobile
-    ? 'mobile'
-    : size === 'fill' && !aiFullscreen
-      ? 'fill'
-      : 'dock';
-  const isExpanded = layout === 'fill';
+  // 새 창은 크게 보기와 같은 배치(남은 높이를 채우는 에디터)를 쓰되, 크게 보기의 배경·Esc·대화상자 처리는 하지 않는다.
+  const layout: MailComposerLayout = popout
+    ? 'fill'
+    : isMobile
+      ? 'mobile'
+      : size === 'fill' && !aiFullscreen
+        ? 'fill'
+        : 'dock';
+  const isExpanded = !popout && layout === 'fill';
+  // 본문이 남은 높이를 채우는가 — 크게 보기와 새 창.
+  const fillsHeight = layout === 'fill';
   // 모바일 화면 전체·데스크톱 크게 보기는 화면을 덮는 대화상자다 — 그동안 뒤 페이지를 inert 로 만들어
   // Tab·보조기기가 가려진 페이지로 새지 않게 한다(useAiPanelAwareDialog 와 같은 공용 처리 — AI 표면은 그대로 쓸 수 있다).
   // aria-modal 은 달지 않는다 — 보조기기가 대화상자 밖의 AI 까지 무시하게 되므로(useAiPanelAwareDialog 와 같은 이유).
@@ -278,6 +315,11 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
       cc !== draft.cc.join(', ') ||
       bcc !== draft.bcc.join(', ') ||
       subject !== draft.subject);
+
+  // 새 창 탭 제목(WP-1535) — 쓰는 제목, 없으면 「새 메일」(머리줄 제목과 같은 규칙). 앱 안 작성창은 탭 제목을 바꾸지 않는다.
+  useDocumentTitle(popout && draft ? [subject || '새 메일'] : []);
+  // 떠나는 중 — 새 창으로 옮기는 저장(메인 창) 또는 새 창을 닫기 전 저장·삭제를 기다리는 동안 작성창을 잠근다(그사이 쓴 것이 빠지지 않게).
+  const [leaving, setLeaving] = useState(false);
 
   // 임시저장(WP-577) 지금 내용 — 본문은 에디터 HTML 만(인용문은 다시 열 때 원본으로 다시 만든다), 첨부는 올라간 것만.
   const getSnapshot = (): DraftSnapshot => ({
@@ -448,14 +490,82 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   if (!draft) return null;
 
   // ✕·모바일 back 공통 — 묻지 않고 남은 저장을 바로 돌린 뒤 닫는다. 저장 결과는 닫힌 뒤 토스트로 알린다.
+  // 새 창은 저장이 끝난 뒤에 닫는다 — 창을 먼저 닫으면 나가던 저장 요청이 끊긴다. 저장하지 못했으면 창을 남기고 알린다(쓴 것을 잃지 않게).
   const closeWithSave = () => {
+    if (popout) {
+      const accountId = draft.accountId;
+      setLeaving(true);
+      void autosave.flush().then((r) => {
+        if (!r.ok) {
+          setLeaving(false);
+          // 검증 오류(400)면 실제 사유를, 그 밖이면 일반 안내를 보인다.
+          toast.error(r.reason ?? '임시저장하지 못했어요', { description: '창을 닫지 않았어요. 고치거나 잠시 뒤 다시 닫아 주세요' });
+          return;
+        }
+        // 손대지 않은 작성을 옮기려 만든 임시저장을 새 창에서도 손대지 않았다 — 지우고 조용히 닫는다(앱 안 작성창과 같이 빈 작성은 남기지 않는다).
+        // 지우지 못해도 창은 닫는다 — 빈 임시저장 하나가 남을 뿐이고, 알릴 결과는 없다.
+        if (popout.fresh && !r.wrote && r.draftId != null) {
+          const done = () => popout.onDone('closed', accountId);
+          autosave.discard().then(done, done);
+          return;
+        }
+        autosave.end();
+        // 임시보관함에 남아 있으면(새 창으로 옮길 때 이미 저장했다) 저장으로, 다른 곳에서 보냈거나 버렸으면 그냥 닫힘으로 알린다.
+        popout.onDone(r.draftId != null ? 'saved' : 'closed', accountId);
+      });
+      return;
+    }
     saveAndNotify();
     closeCompose();
+  };
+
+  // ↗ 새 창으로 열기(WP-1535) — 팝업 차단을 피하려 클릭에서 바로 빈 창을 연 뒤, 지금 내용을 임시저장해(손대지 않은 작성도 만든다)
+  // 받은 id 로 그 창의 주소를 정한다. 저장하지 못하면 빈 창을 닫고 작성창은 그대로 둔다. 옮긴 뒤엔 이 창의 저장을 끝내고 알림 없이 닫는다
+  // — 두 창이 같은 임시저장을 번갈아 고쳐 충돌(409)하지 않게.
+  const popOut = () => {
+    // 붙여 넣은 그림은 올라가는 중이면 아직 본문 자리표시라 저장되지 않는다 — 다 올라간 뒤 옮긴다(보내기와 같은 규칙).
+    if (composerRef.current?.hasPendingImage()) {
+      toast.error('이미지를 올리는 중이에요. 다 올라간 뒤 새 창으로 열어 주세요');
+      return;
+    }
+    const win = window.open('', nextPopoutName(), MAIL_COMPOSE_WINDOW_FEATURES);
+    if (!win) {
+      toast.error('팝업이 막혀 새 창으로 열지 못했어요', { description: '브라우저에서 이 사이트의 팝업을 허용해 주세요' });
+      return;
+    }
+    const opened = instanceId as number;
+    // 아직 서버에 없고 손댄 것도 없는 작성 — 강제 저장으로 만드는 임시저장은 새 창에서도 손대지 않고 닫으면 지운다(fresh).
+    const fresh = autosave.currentDraftId() == null && getSnapshot().empty;
+    setLeaving(true);
+    void autosave.flush({ force: true }).then((r) => {
+      setLeaving(false);
+      // 저장하는 동안 사용자가 빈 창을 닫았다 — 여기서 이어 쓴다(작성창을 닫지 않고, 죽은 창은 건드리지 않는다).
+      // 저장은 끝났으니 이 작성은 그 임시저장에 이어 저장된다.
+      if (win.closed) return;
+      if (!r.ok || r.draftId == null) {
+        win.close();
+        toast.error('새 창으로 열지 못했어요', {
+          description: r.reason ?? '임시저장하지 못했어요. 잠시 뒤 다시 시도해 주세요',
+        });
+        return;
+      }
+      // 기다리는 동안 다른 작성(답장·편지쓰기)으로 바뀌었으면 그 작성의 저장을 끝내지 않는다 — 옮긴 작성의 세션은 바뀔 때 이미 떨어졌다.
+      if (liveInstanceRef.current === opened) autosave.end();
+      closeInstance(opened);
+      // 이 임시저장을 새 창이 쓰는 동안 임시보관함에서 다시 열면 그 창을 앞으로 가져오게 기억한다.
+      rememberMailComposePopout(r.draftId, win);
+      win.location.href = mailComposeWindowUrl(r.draftId, { opener: MAIL_COMPOSE_WINDOW_ID, fresh });
+    });
   };
 
   // 서명 설정으로 — 데스크톱은 작성창을 그대로 두고 옮긴다. 모바일은 화면 전체 작성창이 덮고 있으므로 저장하고 닫은 뒤 옮긴다.
   // 그때 작성 화면 히스토리 항목(표식)은 설정 화면으로 바꾼다 — 닫힘이 표식을 되돌리는(history.back) 것과 이동이 엇갈리지 않고, 뒤로 가면 메일로 온다.
   const goToSignatureSettings = () => {
+    // 새 창엔 앱 셸이 없다 — 설정은 새 탭으로 열고 작성은 그대로 둔다.
+    if (popout) {
+      window.open('/settings/mail', '_blank', 'noopener');
+      return;
+    }
     if (!isMobile) {
       navigate('/settings/mail');
       return;
@@ -511,6 +621,19 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     // 다른 곳에서 보냈거나 버린 임시저장(gone)이면 지울 것(id 가 이미 비었다)도 되살릴 것도 없다 — 조용히 닫는다.
     const worth = autosave.status !== 'gone' && (hasContent || autosave.currentDraftId() != null);
     const deleting = autosave.discard();
+    // 새 창 — 지우기가 끝난 뒤 닫는다(창을 먼저 닫으면 DELETE 가 끊긴다). 「되돌리기」는 닫힌 창에서 누를 수 없어 메인 창은 버림만 알린다.
+    if (popout) {
+      const accountId = draft.accountId;
+      setLeaving(true);
+      deleting.then(
+        () => popout.onDone('discarded', accountId),
+        () => {
+          setLeaving(false);
+          toast.error('임시저장을 버리지 못했어요', { description: '임시보관함에 그대로 있어요' });
+        },
+      );
+      return;
+    }
     closeCompose();
     // 지우기가 끝난 뒤에 알린다 — 실패하면 임시저장이 그대로 남으므로 「되돌리기」(사본 만들기)를 내밀지 않는다.
     deleting.then(
@@ -554,6 +677,19 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const blockedReason = block?.reason ?? null;
   // 보내기 잠금 — 발송 중, AI 초안 생성 중(반쯤 찬 본문이 나가지 않게, WP-576), 첨부 업로드 중·실패(WP-574).
   const sendDisabled = send.isPending || preparingSend || aiGenerating || blockedReason != null;
+  // 새 창으로 열기를 막는 이유(WP-1535) — 업로드 중·실패한 첨부는 저장에 실리지 않아 새 창에서 빠지므로 기다리지 않고 막는다.
+  // 보내는 중·AI 초안 생성 중(반쯤 찬 본문)·옮기는 중에도 막는다. 이유는 툴팁으로 보인다.
+  const popoutBlockedReason =
+    blockedReason ??
+    (autosave.status === 'gone'
+      ? '다른 곳에서 보냈거나 버린 메일이라 새 창으로 열 수 없어요'
+      : send.isPending || preparingSend
+        ? '보내는 중이에요'
+        : aiGenerating
+          ? 'AI 초안을 만드는 중이에요'
+          : leaving
+            ? '새 창을 여는 중이에요'
+            : null);
   const openFilePicker = () => fileInputRef.current?.click();
   const attachmentChips = (
     <MailComposeAttachmentChips
@@ -677,6 +813,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
       await send.mutateAsync({ accountId: draft.accountId, body });
       ticket.succeeded();
       closeInstance(instanceId as number);
+      // 새 창은 보낸 뒤 메인 창에 알리고 닫힌다(페이지가 처리).
+      popout?.onDone('sent', draft.accountId);
     } catch (e) {
       notifySendFailed(e, ticket.failed(), reopen);
     } finally {
@@ -750,7 +888,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
         // 헤더 텍스트를 프로그램적 이름으로 연결 (#802).
         aria-labelledby="mail-compose-dock-title"
         tabIndex={isExpanded ? -1 : undefined}
-        className={PANEL_CLASS[layout]}
+        className={popout ? WINDOW_PANEL_CLASS : PANEL_CLASS[layout]}
+        // 떠나는 중(새 창으로 옮기는 저장·새 창을 닫기 전 저장)엔 손댈 수 없게 — 그사이 쓴 것이 저장에서 빠지지 않게.
+        inert={leaving}
+        aria-busy={leaving || undefined}
         {...dropProps}
         onKeyDown={(e) => {
           // 크게 보기 중 Esc → 작은 창으로. 링크 삽입 창(포털)의 Esc 는 React 트리로 여기까지 올라오므로
@@ -818,7 +959,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             </HeaderIconAction>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2 rounded-t-lg bg-muted px-3 py-2">
+          <div className={cn('flex items-center justify-between gap-2 bg-muted px-3 py-2', !popout && 'rounded-t-lg')}>
             {/* 제목 + 임시저장 상태(WP-577) — 제목이 길면 제목만 말줄임하고 상태는 그대로 보인다. */}
             <div className="flex min-w-0 items-baseline gap-2">
               <span id="mail-compose-dock-title" className="truncate text-sm font-medium">
@@ -827,34 +968,53 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
               {saveStatus}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                aria-label="최소화"
-                data-testid="mail-compose-minimize"
-                // 크게 보기 중 최소화 → 최소화 상태로, 최소화 중 다시 누르면 작은 창으로.
-                onClick={() => setSize((v) => (v === 'min' ? 'dock' : 'min'))}
-                className="rounded p-1 hover:bg-accent"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                aria-label={expandLabel}
-                title={aiFullscreen ? 'AI 전체 화면에서는 크게 볼 수 없어요' : expandLabel}
-                disabled={aiFullscreen}
-                data-testid="mail-compose-expand"
-                onClick={() => setSize(isExpanded ? 'dock' : 'fill')}
-                className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
-              >
-                {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-              </button>
+              {/* 새 창에는 최소화·크게 보기·새 창 단추가 없다 — 창 크기는 브라우저 창이 정한다. */}
+              {!popout && (
+                <>
+                  {/* ↗ 새 창으로 열기(WP-1535) — 다른 앱 화면을 보면서 쓸 수 있게 독립 창으로 옮긴다(데스크톱 전용). */}
+                  <button
+                    type="button"
+                    aria-label="새 창으로 열기"
+                    title={popoutBlockedReason ?? '새 창으로 열기'}
+                    disabled={popoutBlockedReason != null}
+                    data-testid="mail-compose-popout"
+                    onClick={popOut}
+                    className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="최소화"
+                    data-testid="mail-compose-minimize"
+                    // 크게 보기 중 최소화 → 최소화 상태로, 최소화 중 다시 누르면 작은 창으로.
+                    onClick={() => setSize((v) => (v === 'min' ? 'dock' : 'min'))}
+                    className="rounded p-1 hover:bg-accent"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={expandLabel}
+                    title={aiFullscreen ? 'AI 전체 화면에서는 크게 볼 수 없어요' : expandLabel}
+                    disabled={aiFullscreen}
+                    data-testid="mail-compose-expand"
+                    onClick={() => setSize(isExpanded ? 'dock' : 'fill')}
+                    className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 aria-label="닫기"
                 data-testid="mail-compose-close"
                 // 모바일과 같은 규칙 — 묻지 않고 임시저장한 뒤 닫는다(WP-577).
                 onClick={closeWithSave}
-                className="rounded p-1 hover:bg-accent"
+                // 새 창은 보내는 동안 닫지 않는다 — 창이 닫히면 나가던 발송 요청이 끊긴다.
+                disabled={!!popout && (send.isPending || preparingSend)}
+                className="rounded p-1 hover:bg-accent disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -918,7 +1078,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
           </div>
 
           {/* 본문(작성 탭) — review 일 때 숨김(언마운트 금지). 크게 보기는 에디터가 남은 높이를 채우도록 세로로 늘린다. */}
-          <div className={cn(isExpanded && 'flex flex-1 flex-col', tab === 'review' && 'hidden')}>
+          <div className={cn(fillsHeight && 'flex flex-1 flex-col', tab === 'review' && 'hidden')}>
             {/* AI 초안(WP-576) — 제목 줄 아래·본문 바로 위. 패널이 열려 있으면 패널, 끝난 뒤 손대지 않았으면 얇은 줄. */}
             {/* 실패 패널은 계정 AI 가 방금 꺼져 진입점이 사라져도(계정 목록 재조회) 문구를 읽고 닫을 수 있게 남긴다. */}
             {draft.mode === 'new' && ai.phase !== 'closed' && (aiDraftEnabled || ai.phase === 'error') && (
@@ -945,7 +1105,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             <div
               inert={aiGenerating}
               aria-busy={aiGenerating || undefined}
-              className={cn(isExpanded && 'flex flex-1 flex-col', aiGenerating && 'opacity-50 transition-opacity')}
+              className={cn(fillsHeight && 'flex flex-1 flex-col', aiGenerating && 'opacity-50 transition-opacity')}
             >
               <MailComposer
                 key={`composer-${draft.instanceId}`}
