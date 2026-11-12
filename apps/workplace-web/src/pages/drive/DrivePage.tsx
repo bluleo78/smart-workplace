@@ -1588,6 +1588,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             rootLabel={pickerRootLabel}
             title={`${picker.name} ${picker.mode === 'move' ? '이동' : '복사'}`}
             disabledFolderId={picker.kind === 'folder' ? picker.id : undefined}
+            canCreateFolder={!readOnly}
             onConfirm={onPickTarget}
             onClose={() => setPicker(null)}
           />
@@ -1598,6 +1599,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             spaceId={sid}
             rootLabel={pickerRootLabel}
             title={`${selCount}개 항목 이동`}
+            canCreateFolder={!readOnly}
             onConfirm={onBulkMoveTarget}
             onClose={() => setBulkPicker(false)}
           />

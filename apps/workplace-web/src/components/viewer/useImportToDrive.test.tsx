@@ -5,6 +5,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { beforeAll, describe, expect, test } from 'vitest'
 
+import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
 import type { DriveSpace } from '@/types/drive'
 
@@ -97,6 +98,21 @@ describe('useImportToDrive 저장 위치', () => {
     await user.click(screen.getByTestId('folder-picker-confirm'))
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].url).toBe('/api/v1/drive/spaces/5/import-attachment')
+  })
+
+  test('저장 창에서 새 폴더를 만들고 「여기에 저장」 하면 만든 폴더 id 로 가져온다 (WP-1527)', async () => {
+    const { user, posts } = setup()
+    server.use(
+      http.post('/api/v1/drive/spaces/:sid/folders', () => HttpResponse.json({ id: 55, name: '새로 만든 폴더', parentId: null })),
+    )
+    await user.click(screen.getByText('file'))
+    await screen.findByTestId('folder-picker')
+    await user.click(screen.getByTestId('folder-picker-new'))
+    await user.type(screen.getByTestId('folder-picker-new-input'), '새로 만든 폴더{Enter}')
+    await waitFor(() => expect(screen.getByTestId('folder-picker-location')).toHaveTextContent('새로 만든 폴더'))
+    await user.click(screen.getByTestId('folder-picker-confirm'))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].url).toBe('/api/v1/drive/spaces/1/folders/55/import-attachment')
   })
 
   test('메일 대상이면 save-to-drive 본문에 팀 공간 id 와 folderId null 을 보낸다', async () => {

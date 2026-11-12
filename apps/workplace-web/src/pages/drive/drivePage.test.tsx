@@ -1147,6 +1147,36 @@ describe('이동 창', () => {
     expect(moves).toEqual([{ targetFolderId: 10 }])
   })
 
+  // WP-1527: 이동 창에서 「새 폴더」로 만든 폴더 안으로 들어가 「여기로」 → 만든 폴더 id 가 이동 대상이다.
+  // 보기 전용·보관 공간은 행 메뉴의 이동·복사가 막혀 창을 열 수 없으므로(DrivePage readOnly) 창 안의 버튼 숨김은 FolderPickerModal 테스트가 맡는다.
+  test('이동 창에서 새 폴더를 만들면 그 폴더가 이동 대상이 된다', async () => {
+    const state: Items = { folders: [], files: [createFile({ id: 20, name: 'memo.txt' })] }
+    const moves: unknown[] = []
+    const creates: unknown[] = []
+    const { user } = await openDrive(() => state, {
+      handlers: [
+        http.post(`${API}/spaces/:sid/folders`, async ({ request }) => {
+          const body = await request.json()
+          creates.push(body)
+          return HttpResponse.json(createFolder({ id: 77, name: '보관' }))
+        }),
+        http.patch(`${API}/files/20/move`, async ({ request }) => {
+          moves.push(await request.json())
+          state.files = []
+          return new HttpResponse(null, { status: 204 })
+        }),
+      ],
+    })
+    await pickRowMenu(user, 'memo.txt', '이동')
+    const picker = await screen.findByTestId('folder-picker')
+    await user.click(within(picker).getByTestId('folder-picker-new'))
+    await user.type(within(picker).getByTestId('folder-picker-new-input'), '보관{Enter}')
+    await waitFor(() => expect(within(picker).getByTestId('folder-picker-path')).toHaveTextContent('보관'))
+    expect(creates).toEqual([{ parentId: null, name: '보관' }])
+    await user.click(within(picker).getByTestId('folder-picker-confirm'))
+    await waitFor(() => expect(moves).toEqual([{ targetFolderId: 77 }]))
+  })
+
   // WP-530: 폴더 행 「이동」 → 깊이 들어갔다 경로의 중간 단계로 돌아가 확정하면 그 폴더(targetParentId)로 옮긴다.
   test('폴더 이동 — 경로 중간 단계로 돌아가 확정하면 그 폴더로 옮긴다', async () => {
     const folder = (id: number, name: string, parentId: number | null) => createFolder({ id, name, parentId })

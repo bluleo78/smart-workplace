@@ -1,9 +1,17 @@
-import { ChevronRight, Folder, FolderOpen } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { ChevronRight, Folder, FolderOpen, FolderPlus } from 'lucide-react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import { useState } from 'react'
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/overlay/select'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
+import { extractApiError } from '@/lib/api-error'
+import { isImeComposing } from '@/lib/imeKey'
 
+import { driveApi } from '../../api/drive'
+import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { type SaveTargetSpaces,spaceDisplayName } from '../../lib/driveSpaces'
 import { cn } from '../../lib/utils'
@@ -35,6 +43,11 @@ interface Props {
   title: string
   /** 선택 모드: 'folder'(기본) = 폴더 탐색 후 대상 확정, 'file' = 파일 클릭으로 즉시 선택 */
   mode?: 'folder' | 'file'
+  /**
+   * 「새 폴더」 버튼을 보일지(WP-1527) — 생략하면 저장 모드(save)만 true, 이동·복사는 false(쓰기 권한을 호출부가 알려야 켠다).
+   * 보기 전용·보관된 공간처럼 만들 수 없는 곳은 호출부가 false 로 넘긴다. mode='file' 에서는 값과 상관없이 숨긴다.
+   */
+  canCreateFolder?: boolean
   // 비활성화할 폴더(이동 중인 폴더 자신) — 진입·선택 불가. 하위 폴더(서브트리) 차단은 백엔드(400)가 담당.
   disabledFolderId?: number
   /**
@@ -131,6 +144,7 @@ export function FolderPickerModal({
   rootLabel: rootLabelProp,
   title,
   mode = 'folder',
+  canCreateFolder,
   disabledFolderId,
   onConfirm,
   onPickFile,
@@ -149,18 +163,69 @@ export function FolderPickerModal({
   const { data, isLoading, isError } = useDriveItems(activeSpaceId, current ?? undefined)
   const folders = data?.folders ?? []
   const files = data?.files ?? []
+  const queryClient = useQueryClient()
+  // 새 폴더 입력 줄 상태(WP-1527) — draft 가 null 이면 닫힘, 아니면 열려 있고 이름·서버 오류를 든다. newBusy 는 요청 중.
+  const [draft, setDraft] = useState<{ name: string; error: string | null } | null>(null)
+  const [newBusy, setNewBusy] = useState(false)
+  const { handleEnter, onCompositionEnd } = useSingleLineEnter()
+  // 폴더 고르기 모드에서만, 호출부가 막지 않았을 때만 만들 수 있다.
+  const canCreate = mode === 'folder' && (canCreateFolder ?? Boolean(save))
+
+  /** 입력 줄을 닫고 비운다 — Esc·위치가 바뀔 때. */
+  const closeNew = () => setDraft(null)
   // 저장 모드에서만: 기억한 폴더가 지워졌거나 못 읽으면(조회 오류) 루트로 돌아간다 — 렌더 중 state 조정.
   // 이동·복사·파일 고르기는 예전처럼 오류여도 경로를 유지한다.
-  if (save && isError && trail.length > 0) setTrail([])
+  if (save && isError && trail.length > 0) {
+    closeNew()
+    setTrail([])
+  }
 
   // 공간 이름: 저장 모드는 넘겨받은 후보에서, 이동·복사·파일 고르기는 호출부가 넘긴 rootLabel(없으면 예전과 같은 「루트」).
   const activeSpace = save?.spaces.all.find((s) => s.id === activeSpaceId)
   const spaceName = save ? (activeSpace ? spaceDisplayName(activeSpace) : '루트') : (rootLabelProp ?? '루트')
 
+  /**
+   * 사용자가 경로를 바꾼다 — 열린 입력 줄은 이전 위치 기준이라 함께 닫는다. 사용자 이동은 모두 이 함수를 지난다(성공 이동은 submitNew 가 직접).
+   * 만들기 요청 중에는 무시한다 — 끝났을 때 옛 경로에 새 폴더를 붙이거나 닫힌 입력 줄에 오류가 남는 것을 막는다.
+   */
+  const go = (next: { id: number; name: string }[]) => {
+    if (newBusy) return
+    closeNew()
+    setTrail(next)
+  }
+
+  /** 지금 위치에 폴더를 만들고 그 안으로 들어간다. 서버 오류(같은 이름 등)는 입력 줄 아래에 보이고 입력은 남긴다. */
+  const submitNew = async () => {
+    // 요청 중 중복은 요청하지 않는다(newBusy 로 Enter 연타 방지).
+    if (newBusy || !draft) return
+    const name = draft.name.trim()
+    // 빈 이름은 요청하지 않고 DrivePage 새 폴더 대화상자와 같은 문구로 알린다.
+    if (!name) {
+      setDraft({ ...draft, error: '폴더 이름을 입력해주세요.' })
+      return
+    }
+    setNewBusy(true)
+    try {
+      const { data: folder } = await driveApi.createFolder(activeSpaceId, current, name)
+      void queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(activeSpaceId) })
+      // newBusy 가 아직 true 라 go 가 막으므로 직접 닫고 이동한다.
+      closeNew()
+      setTrail([...trail, { id: folder.id, name: folder.name }])
+    } catch (e) {
+      setDraft({ name, error: extractApiError(e, '폴더를 만들지 못했습니다.') })
+    } finally {
+      setNewBusy(false)
+    }
+  }
+  /** Enter 로 만든다 — 한글 조합 Enter·macOS Chrome 꼬리 Enter 는 공용 훅이 걸러 반쪽 이름이 만들어지지 않게 한다. */
+  const onNewKey = (e: KeyboardEvent<HTMLInputElement>) => handleEnter(e, () => void submitNew())
+
   /** 공간을 바꾸면 경로를 비운다 — 새 공간 루트에서 시작. */
   const changeSpace = (value: string) => {
+    // go 의 요청 중 가드보다 먼저 공간 state 를 바꾸므로 여기서도 막는다(아니면 요청 중에 공간만 바뀐다).
+    if (newBusy) return
     setSavedSpaceId(Number(value))
-    setTrail([])
+    go([])
   }
 
   /** 경로 첫 단계(공간 이름) — 저장 모드는 아이콘+이름+▾ 묶음, 이동/복사는 글자만. 지금 위치가 아니면 눌러 루트로 돌아간다. */
@@ -168,7 +233,7 @@ export function FolderPickerModal({
     trail.length > 0 ? (
       <button
         type="button"
-        onClick={() => setTrail([])}
+        onClick={() => go([])}
         className="truncate text-primary hover:underline"
         data-testid="folder-picker-space-root"
       >
@@ -183,7 +248,17 @@ export function FolderPickerModal({
   return (
     // open 고정 true — 부모가 마운트/언마운트로 열기·닫기 제어함
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className={save ? 'sm:max-w-md' : 'w-80'} data-testid="folder-picker">
+      <DialogContent
+        className={save ? 'sm:max-w-md' : 'w-80'}
+        data-testid="folder-picker"
+        // 입력 줄이 열려 있으면 Esc 는 창을 닫지 않는다.
+        // 요청 중·IME 조합 중(조합 취소용)이면 입력 줄도 두고, 그 밖에는 입력 줄만 닫는다.
+        onEscapeKeyDown={(e) => {
+          if (!draft) return
+          e.preventDefault()
+          if (!newBusy && !isImeComposing(e)) closeNew()
+        }}
+      >
         <DialogHeader>
           <DialogTitle className={cn('font-semibold', save ? 'text-base' : 'text-sm')}>{title}</DialogTitle>
           {save ? (
@@ -196,49 +271,95 @@ export function FolderPickerModal({
             <DialogDescription className="sr-only">{title}</DialogDescription>
           )}
         </DialogHeader>
-        <nav aria-label="폴더 경로" className="mb-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs" data-testid="folder-picker-path">
-          {save ? (
-            <SaveSpaceSelect
-              spaces={save.spaces}
-              activeSpace={activeSpace}
-              activeSpaceId={activeSpaceId}
-              rootLabel={rootLabel}
-              onChange={changeSpace}
-            />
-          ) : (
-            rootLabel
+        {/* 경로 막대 + 「새 폴더」 — 버튼은 같은 줄 오른쪽 끝(WP-1527) */}
+        <div className="mb-2 flex min-w-0 items-center gap-2">
+          <nav aria-label="폴더 경로" className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs" data-testid="folder-picker-path">
+            {save ? (
+              <SaveSpaceSelect
+                spaces={save.spaces}
+                activeSpace={activeSpace}
+                activeSpaceId={activeSpaceId}
+                rootLabel={rootLabel}
+                onChange={changeSpace}
+              />
+            ) : (
+              rootLabel
+            )}
+            {trail.map((step, i) => (
+              <span key={step.id} className="flex min-w-0 items-center gap-1">
+                {save ? (
+                  <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                ) : (
+                  <span className="text-muted-foreground" aria-hidden>/</span>
+                )}
+                {i < trail.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => go(trail.slice(0, i + 1))}
+                    className="max-w-40 truncate text-primary hover:underline"
+                    title={step.name}
+                  >
+                    {step.name}
+                  </button>
+                ) : (
+                  <span aria-current="location" className="max-w-40 truncate font-medium" title={step.name}>
+                    {step.name}
+                  </span>
+                )}
+              </span>
+            ))}
+          </nav>
+          {canCreate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={() => {
+                // 열 때마다 빈 입력·오류 없음으로 시작한다.
+                setDraft({ name: '', error: null })
+              }}
+              disabled={draft !== null}
+              className="shrink-0 text-muted-foreground"
+              data-testid="folder-picker-new"
+            >
+              <FolderPlus aria-hidden />
+              새 폴더
+            </Button>
           )}
-          {trail.map((step, i) => (
-            <span key={step.id} className="flex min-w-0 items-center gap-1">
-              {save ? (
-                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-              ) : (
-                <span className="text-muted-foreground" aria-hidden>/</span>
-              )}
-              {i < trail.length - 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setTrail(trail.slice(0, i + 1))}
-                  className="max-w-40 truncate text-primary hover:underline"
-                  title={step.name}
-                >
-                  {step.name}
-                </button>
-              ) : (
-                <span aria-current="location" className="max-w-40 truncate font-medium" title={step.name}>
-                  {step.name}
-                </span>
-              )}
-            </span>
-          ))}
-        </nav>
+        </div>
         <ul className={cn('mb-3 max-h-60 divide-y divide-border overflow-auto', save && 'min-h-52 rounded-md border px-2')}>
+          {draft && (
+            <li className="py-1.5">
+              <div className="flex items-center gap-2">
+                <Folder className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <Input
+                  autoFocus
+                  value={draft.name}
+                  onChange={(e) => setDraft({ name: e.target.value, error: null })}
+                  onKeyDown={onNewKey}
+                  onCompositionEnd={onCompositionEnd}
+                  placeholder="새 폴더 이름"
+                  aria-label="새 폴더 이름"
+                  aria-invalid={draft.error ? true : undefined}
+                  readOnly={newBusy}
+                  aria-busy={newBusy || undefined}
+                  className="h-8 text-sm"
+                  data-testid="folder-picker-new-input"
+                />
+              </div>
+              {draft.error && (
+                <p role="alert" className="mt-1 pl-6 text-xs text-destructive" data-testid="folder-picker-new-error">
+                  {draft.error}
+                </p>
+              )}
+            </li>
+          )}
           {folders.map((f) => (
             <li key={f.id}>
               <button
                 type="button"
                 disabled={f.id === disabledFolderId}
-                onClick={() => setTrail([...trail, { id: f.id, name: f.name }])}
+                onClick={() => go([...trail, { id: f.id, name: f.name }])}
                 className="flex w-full items-center gap-2 py-1.5 text-left text-sm hover:underline disabled:opacity-40"
               >
                 {/* 폴더 아이콘 — lucide Folder SVG, DrivePage와 일관성 유지 */}
@@ -264,7 +385,7 @@ export function FolderPickerModal({
               </li>
             ))}
           {/* WP-63: 첫 조회 중엔 빈 목록 문구를 숨긴다 — 폴더 이동 직후 거짓 "없음" 깜빡임 방지 */}
-          {!isLoading && (mode === 'folder' ? folders.length === 0 : files.length === 0) && (
+          {!isLoading && !draft && (mode === 'folder' ? folders.length === 0 : files.length === 0) && (
             <li
               className={cn(
                 'text-center text-xs text-muted-foreground',
@@ -294,7 +415,7 @@ export function FolderPickerModal({
             {mode === 'folder' && (
               <button
                 type="button"
-                disabled={current === disabledFolderId}
+                disabled={current === disabledFolderId || newBusy}
                 onClick={() => onConfirm?.(current, activeSpaceId, trail.map((s) => s.name))}
                 className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground disabled:opacity-40"
                 data-testid="folder-picker-confirm"

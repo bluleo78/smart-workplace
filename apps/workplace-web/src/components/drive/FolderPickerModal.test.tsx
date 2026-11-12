@@ -1,10 +1,13 @@
 // FolderPickerModal — 경로 표시(WP-530)·공간 이름 첫 단계·「폴더 없음」·저장 모드(WP-1526).
 // 폴더 내용·공간 훅은 끊고 폴더 id 별 고정 목록을 돌려준다. Radix Select 는 userEvent 로 연다.
-import { fireEvent, screen, within } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { saveTargetSpaces } from '../../lib/driveSpaces'
+import { server } from '../../test/msw/server'
 import { renderWithProviders } from '../../test/renderWithProviders'
 import type { DriveSpace } from '../../types/drive'
 import { FolderPickerModal } from './FolderPickerModal'
@@ -183,5 +186,255 @@ describe('FolderPickerModal 저장 모드', () => {
     itemsError = true
     renderSave(SPACES, { initialTrail: [{ id: 1, name: '2026 마케팅 캠페인 기획 자료 모음' }] })
     expect(screen.getByTestId('folder-picker-space-root')).toHaveAttribute('aria-current', 'location')
+  })
+})
+
+// WP-1527 — 폴더 선택 창의 「새 폴더」. 만들기 API 는 MSW 로, 목록 조회는 위 vi.mock 으로 끊어 둔다.
+describe('FolderPickerModal 새 폴더', () => {
+  const URL = '/api/v1/drive/spaces/1/folders'
+  const MOVE = { title: '이동할 위치', onClose: () => {} }
+  let posts: unknown[]
+
+  /** 만들기 핸들러 — 요청 body 를 모으고 id 99 폴더를 돌려준다. respond 로 응답을 바꾼다(오류·지연). */
+  const useCreate = (respond?: (body: { name: string; parentId?: number | null }) => Response | Promise<Response>) => {
+    posts = []
+    server.use(
+      http.post(URL, async ({ request }) => {
+        const body = (await request.json()) as { name: string; parentId?: number | null }
+        posts.push(body)
+        return respond ? respond(body) : HttpResponse.json({ id: 99, name: body.name, parentId: body.parentId ?? null })
+      }),
+    )
+  }
+  const open = async () => {
+    await userEvent.click(screen.getByTestId('folder-picker-new'))
+    return screen.getByTestId('folder-picker-new-input')
+  }
+  /** 이동 모드 렌더 — 새 폴더 버튼을 켜고 extra 로 prop 을 덮는다. */
+  const renderMove = (extra: Record<string, unknown> = {}) =>
+    renderWithProviders(<FolderPickerModal spaceId={1} canCreateFolder onConfirm={() => {}} {...MOVE} {...extra} />)
+  /** 저장 위치 요약 글자(공백 제거). */
+  const readText = (testId: string) => screen.getByTestId(testId).textContent?.replace(/\s/g, '')
+  /** 만들기 응답을 붙잡아 두는 핸들러 — release() 로 풀면 id 99 폴더를 돌려준다. */
+  const useGatedCreate = () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    useCreate(async (body) => {
+      await gate
+      return HttpResponse.json({ id: 99, name: body.name })
+    })
+    return () => release()
+  }
+  const renderSave = (onClose = vi.fn()) =>
+    renderWithProviders(
+      <FolderPickerModal
+        spaceId={1}
+        title="드라이브에 저장"
+        save={{ ...FILE, spaces: saveTargetSpaces(SPACES) }}
+        onConfirm={() => {}}
+        onClose={onClose}
+      />,
+    )
+
+  beforeEach(() => useCreate())
+
+  it('새 폴더를 만들면 그 안으로 들어가고 목록 요청이 다시 간다', async () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderSave()
+    fireEvent.click(screen.getByRole('button', { name: '2026 마케팅 캠페인 기획 자료 모음' }))
+    const input = await open()
+    await userEvent.type(input, '회의록{Enter}')
+
+    await waitFor(() => expect(screen.queryByTestId('folder-picker-new-input')).not.toBeInTheDocument())
+    expect(posts).toEqual([{ name: '회의록', parentId: 1 }])
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['drive', 'items', 1] })
+    expect(within(screen.getByTestId('folder-picker-path')).getByText('회의록')).toHaveAttribute('aria-current', 'location')
+    expect(readText('folder-picker-location')).toBe('내드라이브›2026마케팅캠페인기획자료모음›회의록')
+    invalidate.mockRestore()
+  })
+
+  it('저장 모드 루트에서 만들면 위치 요약이 「내 드라이브 › 회의록」', async () => {
+    renderSave()
+    await userEvent.type(await open(), '회의록{Enter}')
+    await waitFor(() => expect(readText('folder-picker-location')).toBe('내드라이브›회의록'))
+    expect(posts).toEqual([{ name: '회의록', parentId: null }])
+  })
+
+  it('같은 이름이면 서버 문구가 입력 줄 아래 보이고 입력과 창이 남는다', async () => {
+    const msg = "같은 폴더에 이미 '회의록' 이름이 있습니다."
+    useCreate(() => HttpResponse.json({ message: msg }, { status: 409 }))
+    const onClose = vi.fn()
+    renderMove({ onClose })
+    const input = await open()
+    await userEvent.type(input, '회의록{Enter}')
+
+    expect(await screen.findByTestId('folder-picker-new-error')).toHaveTextContent(msg)
+    expect(screen.getByTestId('folder-picker-new-error')).toHaveAttribute('role', 'alert')
+    expect(screen.getByTestId('folder-picker-new-input')).toHaveValue('회의록')
+    expect(screen.getByTestId('folder-picker')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+
+    await userEvent.type(screen.getByTestId('folder-picker-new-input'), '2')
+    expect(screen.queryByTestId('folder-picker-new-error')).not.toBeInTheDocument()
+  })
+
+  it('Esc 는 입력 줄만 닫고 창은 남는다, 닫힌 상태의 Esc 는 창을 닫는다', async () => {
+    const onClose = vi.fn()
+    renderMove({ onClose })
+    await open()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByTestId('folder-picker-new-input')).not.toBeInTheDocument()
+    expect(screen.getByTestId('folder-picker')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['조합 중(isComposing)', { isComposing: true }],
+    ['keyCode 229(Safari 조합 확정)', { keyCode: 229 }],
+  ])('%s Enter 는 만들지 않는다', async (_label, init) => {
+    renderMove()
+    const input = await open()
+    fireEvent.change(input, { target: { value: '회의' } })
+    fireEvent.keyDown(input, { key: 'Enter', ...init })
+    await new Promise((r) => setTimeout(r, 30))
+    expect(posts).toHaveLength(0)
+    expect(screen.getByTestId('folder-picker-new-input')).toBeInTheDocument()
+  })
+
+  it('조합이 끝난 직후 따라오는 Enter 는 만들지 않는다 (macOS Chrome 꼬리 Enter)', async () => {
+    renderMove()
+    const input = await open()
+    fireEvent.change(input, { target: { value: '회의' } })
+    // 조합 Enter → compositionend → 조합 아닌 Enter 가 몇 ms 안에 연달아 온다
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    fireEvent.compositionEnd(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await new Promise((r) => setTimeout(r, 30))
+    expect(posts).toHaveLength(0)
+    // 꼬리 Enter 는 한 번만 거른다 — 다음 Enter 는 만든다
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(posts).toHaveLength(1))
+  })
+
+  it('공백 이름은 요청하지 않고 안내 문구를 보이며 입력 줄을 유지한다', async () => {
+    renderMove()
+    await userEvent.type(await open(), '   {Enter}')
+    expect(await screen.findByTestId('folder-picker-new-error')).toHaveTextContent('폴더 이름을 입력해주세요.')
+    expect(posts).toHaveLength(0)
+    expect(screen.getByTestId('folder-picker-new-input')).toBeInTheDocument()
+  })
+
+  it('조합 중 Esc 는 입력 줄도 창도 닫지 않는다', async () => {
+    const onClose = vi.fn()
+    renderMove({ onClose })
+    const input = await open()
+    fireEvent.keyDown(input, { key: 'Escape', isComposing: true })
+    expect(screen.getByTestId('folder-picker-new-input')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('실패 뒤에도 입력에 포커스가 남아 바로 고쳐 다시 만들 수 있다', async () => {
+    useCreate(() => HttpResponse.json({ message: '중복' }, { status: 409 }))
+    renderMove()
+    const input = await open()
+    await userEvent.type(input, '회의록{Enter}')
+    await screen.findByTestId('folder-picker-new-error')
+    expect(input).toHaveFocus()
+  })
+
+  it('오류가 남은 채 닫았다 다시 열면 이전 오류·이름이 비어 있다', async () => {
+    useCreate(() => HttpResponse.json({ message: '중복' }, { status: 409 }))
+    renderMove()
+    await userEvent.type(await open(), '회의록{Enter}')
+    await screen.findByTestId('folder-picker-new-error')
+    await userEvent.keyboard('{Escape}')
+    expect(await open()).toHaveValue('')
+    expect(screen.queryByTestId('folder-picker-new-error')).not.toBeInTheDocument()
+  })
+
+  it('이동·복사 모드에서 canCreateFolder 를 생략하면 버튼이 없고, 저장 모드는 있다', () => {
+    const view = renderWithProviders(<FolderPickerModal spaceId={1} onConfirm={() => {}} {...MOVE} />)
+    expect(screen.queryByTestId('folder-picker-new')).not.toBeInTheDocument()
+    view.unmount()
+    renderSave()
+    expect(screen.getByTestId('folder-picker-new')).toBeInTheDocument()
+  })
+
+  it('요청 중 다시 Enter 해도 한 번만 요청한다', async () => {
+    const release = useGatedCreate()
+    renderMove()
+    const input = await open()
+    fireEvent.change(input, { target: { value: '회의록' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(input).toHaveAttribute('readonly')
+    expect(input).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByTestId('folder-picker-confirm')).toBeDisabled()
+    // 요청 중 Esc 는 입력 줄도 창도 닫지 않는다
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByTestId('folder-picker-new-input')).toBeInTheDocument()
+    expect(screen.getByTestId('folder-picker')).toBeInTheDocument()
+    release()
+    await waitFor(() => expect(screen.queryByTestId('folder-picker-new-input')).not.toBeInTheDocument())
+    expect(posts).toHaveLength(1)
+  })
+
+  it('요청 중 다른 폴더를 눌러도 엉뚱한 곳으로 가지 않는다', async () => {
+    const release = useGatedCreate()
+    renderMove()
+    const input = await open()
+    fireEvent.change(input, { target: { value: '회의록' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(posts).toHaveLength(1))
+    // 요청 중 폴더 행을 눌러도 위치가 바뀌지 않는다
+    fireEvent.click(screen.getByRole('button', { name: '2026 마케팅 캠페인 기획 자료 모음' }))
+    expect(screen.getByTestId('folder-picker-path')).not.toHaveTextContent('2026 마케팅')
+    release()
+    await waitFor(() => expect(screen.queryByTestId('folder-picker-new-input')).not.toBeInTheDocument())
+    // 요청을 시작한 위치(루트) 아래 만든 폴더로만 들어간다
+    expect(screen.getByTestId('folder-picker-path')).toHaveTextContent('루트/회의록')
+  })
+
+  it('다른 폴더로 들어가면 입력 줄이 닫힌다', async () => {
+    renderMove()
+    await userEvent.type(await open(), '임시')
+    fireEvent.click(screen.getByRole('button', { name: '2026 마케팅 캠페인 기획 자료 모음' }))
+    expect(screen.queryByTestId('folder-picker-new-input')).not.toBeInTheDocument()
+    // 다시 열면 비어 있다
+    expect(await open()).toHaveValue('')
+  })
+
+  it('입력 줄이 열려 있으면 버튼이 비활성이고 빈 목록 문구가 보이지 않는다', async () => {
+    renderMove()
+    fireEvent.click(screen.getByRole('button', { name: '2026 마케팅 캠페인 기획 자료 모음' }))
+    fireEvent.click(screen.getByRole('button', { name: '분기별 보고서' }))
+    fireEvent.click(screen.getByRole('button', { name: '최종본' }))
+    expect(screen.getByText('하위 폴더 없음')).toBeInTheDocument()
+    await open()
+    expect(screen.queryByText('하위 폴더 없음')).not.toBeInTheDocument()
+    expect(screen.getByTestId('folder-picker-new')).toBeDisabled()
+  })
+
+  it('canCreateFolder=false 면 버튼이 없다', () => {
+    renderMove({ canCreateFolder: false })
+    expect(screen.queryByTestId('folder-picker-new')).not.toBeInTheDocument()
+  })
+
+  it("mode='file' 이면 버튼이 없다", () => {
+    renderWithProviders(<FolderPickerModal spaceId={1} mode="file" canCreateFolder {...MOVE} />)
+    expect(screen.queryByTestId('folder-picker-new')).not.toBeInTheDocument()
+  })
+
+  it('만든 폴더 안에서도 disabledFolderId 규칙은 그대로다 — 이동 중인 폴더 자신은 들어갈 수 없다', async () => {
+    renderMove({ disabledFolderId: 1 })
+    expect(screen.getByRole('button', { name: '2026 마케팅 캠페인 기획 자료 모음' })).toBeDisabled()
+    await userEvent.type(await open(), '회의록{Enter}')
+    await waitFor(() => expect(screen.queryByTestId('folder-picker-new-input')).not.toBeInTheDocument())
+    // 만든 폴더(99)는 disabledFolderId 가 아니므로 「여기로」가 활성
+    expect(screen.getByTestId('folder-picker-confirm')).toBeEnabled()
   })
 })
