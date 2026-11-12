@@ -97,6 +97,9 @@ public final class TenantPurgePlan {
           // 코드젠 클래스 없이 이름으로 가리킨다
           DSL.table(DSL.name("project_report")),
           DSL.table(DSL.name("project_report_setting")),
+          // 개인 보고(WP-1486) — 회차·설정이 wiki_page·user 를 참조하므로 둘보다 먼저. 코드젠 없이 이름으로 가리킨다
+          DSL.table(DSL.name("personal_report")),
+          DSL.table(DSL.name("personal_report_setting")),
           ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)
           ISSUE_TYPE_DEF,
           PROJECT_STATUS,

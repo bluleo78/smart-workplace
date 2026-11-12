@@ -6,8 +6,11 @@ import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { wikiPagePath } from '@/lib/appUrl'
+import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
 import type { MeOverviewResponse, WorkProfile, WorkProfileAnalyzeResponse } from '@/types/meOverview'
+import type { MeReportLookup } from '@/types/meReport'
 
 import { createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createEmptyMeOverview as emptyOverview, createMeOverview as overview } from '../../../e2e/factories/meOverview.factory'
@@ -26,6 +29,8 @@ type AnalyzeRespond = (sp: URLSearchParams) => WorkProfileAnalyzeResponse | Resp
 interface ProfileOptions {
   profile?: ProfileRespond
   analyze?: AnalyzeRespond
+  /** 어제 일일 보고(WP-1486) — 있으면 200, 없으면(기본) 204. */
+  dailyReport?: MeReportLookup | null
 }
 
 function routes() {
@@ -43,6 +48,7 @@ function renderTasks(path: string, respond: Respond = () => overview(), opts: Pr
   const seen: URLSearchParams[] = []
   const profileSeen: URLSearchParams[] = []
   const analyzeSeen: URLSearchParams[] = []
+  const reportSeen: URLSearchParams[] = []
   const profile = opts.profile ?? (() => createWorkProfile())
   const analyze = opts.analyze ?? (() => ({ outcome: 'STARTED' as const, profile: createWorkProfile({ status: 'PENDING' }) }))
   const json = (body: object) => (body instanceof Response ? body : HttpResponse.json(body))
@@ -65,11 +71,15 @@ function renderTasks(path: string, respond: Respond = () => overview(), opts: Pr
         analyzeSeen.push(sp)
         return json(analyze(sp))
       }),
+      http.get('/api/v1/me/reports', ({ request }) => {
+        reportSeen.push(new URL(request.url).searchParams)
+        return opts.dailyReport ? HttpResponse.json(opts.dailyReport) : new HttpResponse(null, { status: 204 })
+      }),
       http.get('/api/v1/me/issues', () => HttpResponse.json(createIssueSearchResponse([]))),
       http.get('/api/v1/me/watched-issues', () => HttpResponse.json(createIssueSearchResponse([]))),
     ],
   })
-  return { ...view, seen, profileSeen, analyzeSeen }
+  return { ...view, seen, profileSeen, analyzeSeen, reportSeen }
 }
 
 describe('내 작업 · 개요', () => {
@@ -286,7 +296,6 @@ describe('업무 프로파일', () => {
     // 역량 — 숫자 없이 이름만.
     expect(c.getByTestId('work-profile-skills')).toHaveTextContent(/^역량ReactSpring Boot$/)
     expect(c.getByRole('button', { name: '다시 분석' })).toBeEnabled()
-    expect(c.queryByRole('button', { name: '보고서 만들기' })).toBeNull()
     // AI 결과 영역은 AiContent 한 곳이 「AI 분석」 로 표시하고, 요약·주요 업무가 그 안에 든다.
     const ai = c.getByTestId('work-profile-ai')
     expect(within(ai).getByText('AI 분석')).toBeInTheDocument()
@@ -426,5 +435,49 @@ describe('업무 프로파일', () => {
     await user.click(retry)
     expect(await within(card).findByText(createWorkProfile().summary!)).toBeInTheDocument()
     expect(profileSeen.length).toBe(2)
+  })
+})
+
+// 개인 보고(WP-1486) — 「어제」 칸의 「일일 보고 보기」(그날 보고가 있을 때만), 카드 머리의 「보고서 만들기」·⚙ 「보고서 설정」.
+describe('개인 보고', () => {
+  test('yesterday_dailyReportLink_whenExists — 어제 일일 보고가 있으면 제목 줄 오른쪽 링크가 그 노트로', async () => {
+    const { reportSeen } = renderTasks('/me/tasks/overview', undefined, {
+      dailyReport: { pageId: 777, title: '11월 10일 (화) 일일 보고', createdAt: '2026-11-11T00:00:00Z' },
+    })
+    const yesterday = await screen.findByTestId('overview-yesterday')
+    const link = await within(yesterday).findByRole('link', { name: '일일 보고 보기' })
+    expect(link).toHaveAttribute('href', wikiPagePath(777))
+    // 「오늘」의 「할당 탭에서 보기」와 같은 모양.
+    expect(link.className).toBe(within(screen.getByTestId('overview-today')).getByRole('link', { name: '할당 탭에서 보기' }).className)
+    expect(reportSeen[0].get('kind')).toBe('DAILY')
+    expect(reportSeen[0].get('date')).toBe('2026-11-10')
+  })
+
+  test('yesterday_noDailyReportLink_whenNone — 보고가 없으면(204) 링크가 없다', async () => {
+    const { reportSeen } = renderTasks('/me/tasks/overview')
+    const yesterday = await screen.findByTestId('overview-yesterday')
+    await waitFor(() => expect(reportSeen).toHaveLength(1))
+    expect(within(yesterday).queryByRole('link', { name: '일일 보고 보기' })).toBeNull()
+  })
+
+  test('workProfileCard_hasCreateReportAndSettingsButtons — 「다시 분석」 옆 「보고서 만들기」(AI)와 ⚙ 「보고서 설정」이 각 창을 연다', async () => {
+    const { user } = renderTasks('/me/tasks/overview')
+    server.use(
+      http.get('/api/v1/me/report-settings', () =>
+        HttpResponse.json({ dailyEnabled: false, timeOfDay: '09:00', skipEmpty: true, dailyTemplatePageId: null, weeklyTemplatePageId: null, reportsPageId: null, spaceId: null, nextRunAt: null, assistantAvailable: true, lastError: null }),
+      ),
+    )
+    const card = await screen.findByTestId('overview-work-profile')
+    const create = await within(card).findByRole('button', { name: '보고서 만들기' })
+    expect(create.querySelector('svg.lucide-sparkles')).not.toBeNull()
+    // ⚙ 는 아이콘만 — 보이는 글자 없이 접근 이름만.
+    const gear = within(card).getByRole('button', { name: '보고서 설정' })
+    expect(gear).toHaveTextContent('')
+    await user.click(create)
+    expect(await screen.findByRole('dialog', { name: '보고서 만들기' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await user.click(gear)
+    expect(await screen.findByRole('dialog', { name: '보고서 설정' })).toBeInTheDocument()
   })
 })

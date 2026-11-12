@@ -102,6 +102,8 @@ import com.workplace.jooq.tables.MessageLinkPreview.MessageLinkPreviewPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
+import com.workplace.jooq.tables.PersonalReport.PersonalReportPath;
+import com.workplace.jooq.tables.PersonalReportSetting.PersonalReportSettingPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
@@ -1451,6 +1453,32 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _notification;
     }
 
+    private transient PersonalReportSettingPath _personalReportSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report_setting</code> table
+     */
+    public PersonalReportSettingPath personalReportSetting() {
+        if (_personalReportSetting == null)
+            _personalReportSetting = new PersonalReportSettingPath(this, null, Keys.PERSONAL_REPORT_SETTING__FK_PERSONAL_REPORT_SETTING_TENANT.getInverseKey());
+
+        return _personalReportSetting;
+    }
+
+    private transient PersonalReportPath _personalReport;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report</code> table
+     */
+    public PersonalReportPath personalReport() {
+        if (_personalReport == null)
+            _personalReport = new PersonalReportPath(this, null, Keys.PERSONAL_REPORT__FK_PERSONAL_REPORT_TENANT.getInverseKey());
+
+        return _personalReport;
+    }
+
     private transient ProjectComponentPath _projectComponent;
 
     /**
@@ -2216,6 +2244,14 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public UserPath membershipUserIdFkey() {
         return membership().user();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>personal_report_setting_user_id_fkey</code> key
+     */
+    public UserPath personalReportSettingUserIdFkey() {
+        return personalReportSetting().user();
     }
 
     @Override

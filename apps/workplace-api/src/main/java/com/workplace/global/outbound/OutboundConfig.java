@@ -247,6 +247,24 @@ public class OutboundConfig {
   }
 
   /**
+   * 개인 보고 「보고서 만들기」(WP-1486 PersonalReportService) 전용 executor. 한 편이 ai-agent 보고 작성(1~3분)으로 스레드를 오래
+   * 점유하므로 다른 풀과 나눈다. core 1 / max 2 / queue 20 — 수동 생성은 사람마다 하루 20번으로 묶여 있고, 매일 아침 자동 일일은 실행기 스레드에서
+   * 동기로 돌아 이 풀을 쓰지 않는다. 넘치면 호출부가 TaskRejectedException 을 받아 회차를 FAILED 로 닫는다. TenantContext 를 전파해
+   * 워커의 트랜잭션이 RLS GUC 를 받게 한다.
+   */
+  @Bean(name = "personalReportExecutor")
+  public ThreadPoolTaskExecutor personalReportExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(20);
+    executor.setThreadNamePrefix("personal-report-");
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * notify 디스패처 전용 executor. @Async 무인자는 단일 Executor 빈(aiAgentEventExecutor)에 바인딩되거나, 빈이 2개면 모호해져
    * SimpleAsyncTaskExecutor 로 조용히 폴백한다. 따라서 항상 명시 한정(@Async("notifyEventExecutor"))한다. 알림은 가벼운
    * insert+fan-out 이므로 작은 풀로 충분, queue 는 버스트 흡수용으로 넉넉히.

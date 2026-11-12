@@ -1,5 +1,9 @@
 package com.workplace.issue.report;
 
+import static com.workplace.issue.report.ReportNumbers.DASH;
+import static com.workplace.issue.report.ReportNumbers.diff;
+import static com.workplace.issue.report.ReportNumbers.num;
+
 import com.workplace.issue.metrics.IssueMetricsService;
 import com.workplace.issue.metrics.MetricsCounts;
 import com.workplace.issue.overview.ProjectOverviewResponse;
@@ -21,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 리포트 계산값(WP-1483) — 표의 숫자·배지·기간 이슈 목록을 시스템이 정한다. 숫자는 새로 세지 않고 기존 정의를 그대로 쓴다: 완료·새로 생김은 지표 모듈
  * ({@link IssueMetricsService#countsForProject}), 열린 이슈·기한 지남·진행 중은 개요({@link
  * ProjectOverviewService#computeWithoutAccessCheck}), 배지는 {@link ProjectStatusRule} — 개요 화면·상태 요약과
- * 같은 숫자가 나오게.
+ * 같은 숫자가 나오게. 숫자·변화 표기는 개인 보고와 나눠 쓰는 {@link ReportNumbers}(WP-1486).
  */
 @Service
 @RequiredArgsConstructor
@@ -29,12 +33,6 @@ public class ProjectReportFactsService {
 
   /** 기간 이슈 목록 상한 — 생성 비용 상한(넘치면 에픽별 남은 건수로 요약). */
   public static final int ISSUE_LIMIT = 60;
-
-  /** 비교할 값이 없을 때 변화 칸. */
-  static final String DASH = "—";
-
-  /** 음수 부호 — 하이픈이 아니라 U+2212(표 숫자 정렬·가독성, 시안과 같은 글자). */
-  static final String MINUS = "−";
 
   private final IssueMetricsService metricsService;
   private final ProjectOverviewService overviewService;
@@ -124,18 +122,6 @@ public class ProjectReportFactsService {
 
   private static String md(LocalDate d) {
     return d.getMonthValue() + "/" + d.getDayOfMonth();
-  }
-
-  private static String num(int n) {
-    return String.valueOf(n);
-  }
-
-  /** 변화 칸 — {@code +n} / {@code −n}(U+2212) / {@code 0}. */
-  static String diff(int current, int previous) {
-    int d = current - previous;
-    if (d > 0) return "+" + d;
-    if (d < 0) return MINUS + (-d);
-    return "0";
   }
 
   /** 저장된 배지 이름을 읽는다 — 모르는 값·null 이면 없음(지난 배지 화살표를 그리지 않는다). */

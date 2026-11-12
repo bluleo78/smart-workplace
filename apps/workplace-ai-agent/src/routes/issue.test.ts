@@ -22,9 +22,15 @@ vi.mock('../agent/run-project-report.js', async (importOriginal) => ({
   runProjectReport: vi.fn(),
 }));
 
+vi.mock('../agent/run-personal-report.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../agent/run-personal-report.js')>()),
+  runPersonalReport: vi.fn(),
+}));
+
 import { runWorkProfile } from '../agent/run-work-profile.js';
 import { runProjectStatus } from '../agent/run-project-status.js';
 import { runProjectReport } from '../agent/run-project-report.js';
+import { runPersonalReport } from '../agent/run-personal-report.js';
 import { createIssueRouter } from './issue.js';
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js';
 
@@ -234,5 +240,47 @@ describe('POST /issue/project-report', () => {
     const res = await request(app()).post('/issue/project-report').send(valid);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'project_report_failed' });
+  });
+});
+
+// WP-1486: 개인 보고 — 200 패스스루 / 필드 누락 400 / 러너 실패 502.
+describe('POST /issue/personal-report', () => {
+  const valid = {
+    userName: '양동희',
+    kind: 'DAILY',
+    kindLabel: '일일',
+    title: '11월 11일 (수) 일일 보고',
+    periodLabel: '11월 11일 (수)',
+    templateMarkdown: '## 한 줄',
+    tableRows: [],
+    numbersLine: '끝냄 1 | 새로 만듦 0 | 상태 바꿈 0 | 기한 지남 0',
+    issues: [],
+    omittedByEpic: {},
+    assistantAgentId: 3,
+    model: 'm',
+    maxTurns: 8,
+    timeoutMs: 60000,
+  };
+
+  it('personal-report_success_200', async () => {
+    vi.mocked(runPersonalReport).mockResolvedValue({ markdown: '## 한 줄' });
+    const res = await request(app()).post('/issue/personal-report').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ markdown: '## 한 줄' });
+  });
+
+  it('personal-report_invalid_400', async () => {
+    const { userName: _u, ...rest } = valid;
+    const res = await request(app()).post('/issue/personal-report').send(rest);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(runPersonalReport).not.toHaveBeenCalled();
+  });
+
+  it('personal-report_failure_502', async () => {
+    vi.mocked(runPersonalReport).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/issue/personal-report').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'personal_report_failed' });
   });
 });

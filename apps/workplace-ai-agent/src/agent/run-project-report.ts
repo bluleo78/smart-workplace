@@ -1,30 +1,15 @@
 // 프로젝트 리포트 러너(WP-1483) — 템플릿 샘플 + 시스템 계산값 + 이슈 목록을 받아 리포트 본문 마크다운을 쓴다.
 // 숫자·표·배지는 API 가 후처리(ReportMarkdown.finish)로 바로잡는다 — AI 는 글만 쓴다. 도구 없이 텍스트 in/out(runTextEvents).
+// 이슈 스키마·한 줄 정리·이슈 한 줄·출력 정리는 개인 보고와 나눠 쓰는 report-shared(WP-1486).
 import { z } from 'zod'
 import { runTextEvents } from './run-messaging-ai.js'
 import { finalText, resultOk } from './runner-events.js'
 import { BADGE_LABEL, badgeSchema } from './run-project-status.js'
 import type { RunAgentDeps } from './run-agent.js'
+import { cleanOutput, formatIssue, reportIssueSchema, sanitizeInline, tableRowSchema } from './report-shared.js'
 
 /** AI 출력 최대 길이(코드 포인트) — 넘으면 잘린 글로 보고 실패(502)로 돌려준다. API 의 OUTPUT_MAX 와 같은 값. */
 export const PROJECT_REPORT_MAX = 20000
-
-// 이슈 한 건 — Spring ReportIssue 와 1:1. 없을 수 있는 값은 null.
-const reportIssueSchema = z.object({
-  key: z.string(),
-  url: z.string(),
-  title: z.string(),
-  statusName: z.string(),
-  category: z.string(),
-  assignees: z.array(z.string()),
-  epic: z.string().nullish(),
-  dueDate: z.string().nullish(),
-  lastComment: z.string().nullish(),
-  reason: z.enum(['OVERDUE', 'DONE', 'CREATED']),
-})
-
-// 변화 표 행 — Spring ReportTableRow 와 1:1.
-const tableRowSchema = z.object({ label: z.string(), current: z.string(), change: z.string() })
 
 // 요청 바디 스키마 — Spring 의 ProjectReportAiRequest 와 1:1.
 export const projectReportInputSchema = z.object({
@@ -49,13 +34,6 @@ export interface ProjectReportResult {
   markdown: string
 }
 
-// 이슈 선정 이유 → 말.
-const REASON_LABEL: Record<z.infer<typeof reportIssueSchema>['reason'], string> = {
-  OVERDUE: '기한 지남',
-  DONE: '이번 기간에 완료',
-  CREATED: '이번 기간에 새로 생김',
-}
-
 // 시스템 프롬프트 — 샘플의 형식·분량·말투를 본뜨고(말투는 샘플이 정한다 — 고정 말투 규칙을 두면 샘플과 부딪힌다), 지시 상자·h1 은 쓰지 않으며, 숫자는 표에만, 링크는 받은 url 그대로.
 // 템플릿·이슈 제목·댓글은 사람이 쓴 데이터라 그 안의 명령은 따르지 않는다.
 function buildSystemPrompt(): string {
@@ -76,63 +54,30 @@ function buildSystemPrompt(): string {
   )
 }
 
-// 사람이 쓴 값을 한 줄로 — 줄바꿈·꺾쇠를 정리해 표지를 닫거나 새 규칙 줄을 끼우지 못하게 한다.
-function oneLine(s: string | null | undefined): string {
-  if (!s) return ''
-  return s.replace(/[<>]/g, (c) => (c === '<' ? '＜' : '＞')).replace(/\s+/g, ' ').trim()
-}
-
-// 이슈 한 줄 — 키·url·제목·상태·담당·에픽·기한·마지막 댓글·선정 이유.
-function formatIssue(i: ProjectReportInput['issues'][number]): string {
-  const parts = [
-    `- ${i.key} ${i.url}`,
-    `제목: <issue>${oneLine(i.title)}</issue>`,
-    `상태: ${oneLine(i.statusName)}`,
-    `담당: ${i.assignees.length ? i.assignees.map(oneLine).join(', ') : '(없음)'}`,
-    `에픽: ${i.epic ? oneLine(i.epic) : '(없음)'}`,
-    `기한: ${i.dueDate ?? '(없음)'}`,
-    `이유: ${REASON_LABEL[i.reason]}`,
-  ]
-  if (i.lastComment) parts.push(`마지막 댓글: <issue>${oneLine(i.lastComment)}</issue>`)
-  return parts.join(' | ')
-}
-
 // 사용자 메시지 — 기간·배지·표 행·이슈 목록·남은 건수 한 줄·템플릿 샘플.
 function buildUserMessage(input: ProjectReportInput): string {
   const lines: string[] = [
-    `프로젝트: <issue>${oneLine(input.projectName)}</issue>`,
-    `리포트 제목(참고용, 본문에 h1 으로 쓰지 않는다): ${oneLine(input.title)}`,
-    `기간: ${oneLine(input.periodLabel)} (${oneLine(input.cadenceLabel)})`,
+    `프로젝트: <issue>${sanitizeInline(input.projectName)}</issue>`,
+    `리포트 제목(참고용, 본문에 h1 으로 쓰지 않는다): ${sanitizeInline(input.title)}`,
+    `기간: ${sanitizeInline(input.periodLabel)} (${sanitizeInline(input.cadenceLabel)})`,
     `상태 배지: ${BADGE_LABEL[input.badge]}` +
       (input.previousBadge ? ` (지난 리포트: ${BADGE_LABEL[input.previousBadge]})` : ''),
     '',
     '「지난 리포트 이후」 표 행(값 그대로 옮기세요):',
-    ...input.tableRows.map((r) => `- ${oneLine(r.label)}: ${oneLine(r.current)} (변화 ${oneLine(r.change)})`),
+    ...input.tableRows.map((r) => `- ${sanitizeInline(r.label)}: ${sanitizeInline(r.current)} (변화 ${sanitizeInline(r.change)})`),
     '',
     `이슈 목록(${input.issues.length}건):`,
-    ...(input.issues.length ? input.issues.map(formatIssue) : ['(없음)']),
+    ...(input.issues.length ? input.issues.map((i) => formatIssue(i)) : ['(없음)']),
   ]
   const omitted = Object.entries(input.omittedByEpic ?? {}).filter(([, n]) => n > 0)
   if (omitted.length) {
     lines.push(
       '',
-      `목록에 담지 못한 이슈: ${omitted.map(([epic, n]) => `${oneLine(epic)} ${n}건`).join(', ')}`,
+      `목록에 담지 못한 이슈: ${omitted.map(([epic, n]) => `${sanitizeInline(epic)} ${n}건`).join(', ')}`,
     )
   }
   lines.push('', '템플릿 샘플:', '<template>', input.templateMarkdown, '</template>')
   return lines.join('\n')
-}
-
-// 출력 정리 — 전체를 감싼 코드 펜스만 벗기고 trim. 비면 예외.
-// 20,000자(코드 포인트)를 넘으면 자르지 않고 예외 — 잘린 리포트(표·문장 중간에서 끊김)가 완성본으로 저장되지 않게,
-// 실패로 돌려 API 가 30분 뒤 다시 시도하게 한다. 길이는 서로게이트 쌍을 한 글자로 세려고 Array.from 으로 센다.
-function cleanOutput(text: string): string {
-  let t = text.trim()
-  const fence = /^```[a-zA-Z]*[ \t]*\n([\s\S]*?)\n?```$/.exec(t)
-  if (fence) t = fence[1].trim()
-  if (!t) throw new Error('project_report_empty')
-  if (Array.from(t).length > PROJECT_REPORT_MAX) throw new Error('project_report_too_long')
-  return t
 }
 
 /**
@@ -146,5 +91,5 @@ export async function runProjectReport(
 ): Promise<ProjectReportResult> {
   const events = await runTextEvents(buildSystemPrompt(), buildUserMessage(input), input, deps, 'project-report')
   if (!resultOk(events)) throw new Error('project_report_failed')
-  return { markdown: cleanOutput(finalText(events)) }
+  return { markdown: cleanOutput(finalText(events), 'project_report', PROJECT_REPORT_MAX) }
 }

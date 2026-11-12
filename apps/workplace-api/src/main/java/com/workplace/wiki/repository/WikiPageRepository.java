@@ -333,6 +333,14 @@ public class WikiPageRepository {
         .fetchOptional(r -> new PreviewSource(r.value1(), r.value2()));
   }
 
+  /** 마지막 수정 시각만(없으면 빈 값) — 리포트 「AI 작성」 표지 시각을 정할 때 본문까지 읽지 않으려고 쓴다(WP-1486). */
+  public Optional<OffsetDateTime> findUpdatedAt(long pageId) {
+    return dsl.select(WIKI_PAGE.UPDATED_AT)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(WIKI_PAGE.UPDATED_AT);
+  }
+
   /** 제목만(없으면 빈 값) — 공유 이동 기록 문구용. */
   public Optional<String> findTitle(long pageId) {
     return dsl.select(WIKI_PAGE.TITLE)

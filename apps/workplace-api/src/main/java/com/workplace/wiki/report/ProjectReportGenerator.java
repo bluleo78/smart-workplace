@@ -16,6 +16,7 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.report.ProjectReportRepository.Reserve;
 import com.workplace.wiki.report.ProjectReportSettingRepository.SettingRow;
+import com.workplace.wiki.report.ReportErrors.ReportFailure;
 import com.workplace.wiki.repository.ProjectNoteSpaceRepository;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
@@ -95,13 +96,6 @@ public class ProjectReportGenerator {
   /** 잡은 실행권 — 그때의 설정과, 점유가 밀어 둔 다음 예정 시각(3회째 실패 때 그리로 넘긴다). */
   private record Claim(SettingRow setting, OffsetDateTime next) {}
 
-  /** 「실패」로 처리할 생성 단계의 문제(상한 초과·빈 글·자리 없음). */
-  static final class ReportFailure extends RuntimeException {
-    ReportFailure(String message) {
-      super(message);
-    }
-  }
-
   private final ProjectRepository projectRepository;
   private final ProjectReportSettingRepository settings;
   private final ProjectReportRepository reports;
@@ -109,6 +103,7 @@ public class ProjectReportGenerator {
   private final ProjectNoteSpaceRepository noteSpaces;
   private final WikiSystemPageWriter writer;
   private final ProjectReportTemplate template;
+  private final ReportPageWriter pageWriter;
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient client;
   private final TransactionTemplate tx;
@@ -133,6 +128,8 @@ public class ProjectReportGenerator {
     this.noteSpaces = noteSpaces;
     this.writer = writer;
     this.template = template;
+    // 쓰기 뼈대는 받은 writer 로 만든다 — 테스트가 넘기는 스파이 writer 가 쓰기 단계에도 그대로 쓰이게(빈 주입이 아니라).
+    this.pageWriter = new ReportPageWriter(writer);
     this.assistantResolver = assistantResolver;
     this.client = client;
     this.tx = new TransactionTemplate(txManager);
@@ -144,8 +141,8 @@ public class ProjectReportGenerator {
     }
   }
 
-  /** 앱 이슈 주소 접두 {@code {base}/projects/} — 공개 주소가 없으면 빈 값(링크를 건드리지 않는다). */
-  private static String issueUrlPrefix(String baseUrl) {
+  /** 앱 이슈 주소 접두 {@code {base}/projects/} — 공개 주소가 없으면 빈 값(링크를 건드리지 않는다). 개인 보고 생성기도 쓴다. */
+  static String issueUrlPrefix(String baseUrl) {
     String base = CapabilityTokens.normalizeBaseUrl(baseUrl);
     return base.isEmpty() ? "" : base + "/projects/";
   }
@@ -235,7 +232,7 @@ public class ProjectReportGenerator {
             .orElseThrow(() -> new ReportFailure("리포트를 둘 노트 공간을 만들 수 없어요."));
     long templateId = template.ensureTemplate(project, home, author);
     String templateMarkdown = writer.readBody(templateId).orElse("");
-    if (codePoints(templateMarkdown) > TEMPLATE_MAX) {
+    if (ReportPageWriter.codePoints(templateMarkdown) > TEMPLATE_MAX) {
       throw new ReportFailure("리포트 템플릿이 " + TEMPLATE_MAX + "자를 넘어요.");
     }
 
@@ -244,7 +241,7 @@ public class ProjectReportGenerator {
         client.writeProjectReport(request(project, period, facts, templateMarkdown, spec.get()));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 리포트를 돌려줬어요.");
-    if (codePoints(markdown) > OUTPUT_MAX) {
+    if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {
       throw new ReportFailure("AI 리포트가 " + OUTPUT_MAX + "자를 넘어요.");
     }
     String body =
@@ -331,13 +328,12 @@ public class ProjectReportGenerator {
       tx.executeWithoutResult(s -> reports.attachPage(projectId, period, createdId));
     }
     long pageId = page.id();
-    writer.writeBody(author, pageId, page.version(), body, true, false);
-    // 자리는 이 페이지를 뺀 형제 순서로 정한다(다시 쓰는 페이지가 이미 그 자리에 있어도 같은 답).
+    // 자리는 이 페이지를 뺀 형제 순서로 정한다(다시 쓰는 페이지가 이미 그 자리에 있어도 같은 답). 본문 쓰기는 형제 순서를 바꾸지 않아 쓰기 전에 정해도 같다.
     List<Long> others =
         writer.childIdsOrdered(home.reportsPageId()).stream().filter(id -> id != pageId).toList();
     int position = !others.isEmpty() && others.get(0) == templateId ? 1 : 0;
-    writer.moveTo(pageId, home.reportsPageId(), position);
-    writer.markAiReport(pageId, markTime(pageId, now));
+    // 본문(AI) → 자리 → 「AI 작성」 표지 — 개인 보고와 나눠 쓰는 쓰기 뼈대(WP-1486).
+    pageWriter.writeAndMark(author, page, body, home.reportsPageId(), position, now);
     tx.executeWithoutResult(
         s -> {
           reports.markGenerated(
@@ -348,22 +344,13 @@ public class ProjectReportGenerator {
   }
 
   /**
-   * 「AI 작성」 표지 시각 — 페이지 마지막 수정 시각보다 이르지 않게(쓰기·옮기기가 DB 시각으로 updated_at 을 적으므로, 실행 시각만 쓰면 방금 만든 리포트가
-   * 「수정됨」으로 보인다).
-   */
-  private OffsetDateTime markTime(long pageId, OffsetDateTime now) {
-    OffsetDateTime updated = writer.findPage(pageId).map(WikiPageDetail::updatedAt).orElse(null);
-    return updated != null && updated.isAfter(now) ? updated : now;
-  }
-
-  /**
    * 실패 처리 — 예약을 풀고(페이지가 아직 없으면 행을 지우고, 있으면 행을 남겨 재시도가 그 페이지를 다시 쓰게) 연속 실패 수·오류를 기록한다. {@link
    * #MAX_FAILURES} 번째 미만이면 30분 뒤 같은 회차를 다시, 그 이상이면 그 회차를 버리고 점유 때 정한 다음 예정으로 넘긴다(카운터 0) — 페이지가 이미
    * 있으면 그 페이지는 남기고 회차를 FAILED 로 닫아 중복을 막는다(카드·지난 배지는 GENERATED 만 본다).
    */
   private void fail(
       long projectId, Claim claim, ReportPeriod period, OffsetDateTime now, RuntimeException e) {
-    String error = e.getMessage() == null ? e.toString() : e.getMessage();
+    String error = ReportErrors.message(e);
     tx.executeWithoutResult(
         s -> {
           reports.release(projectId, period);
@@ -380,9 +367,5 @@ public class ProjectReportGenerator {
         period.start(),
         period.end(),
         e.toString());
-  }
-
-  private static int codePoints(String s) {
-    return s.codePointCount(0, s.length());
   }
 }

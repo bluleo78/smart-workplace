@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { formatKstMonthDayWeekdayClock } from '@/lib/formatters';
+import { HOUR_OPTIONS } from '@/lib/hourOptions';
 
 import {
   useProjectReportSettings,
@@ -46,11 +47,8 @@ const WEEKDAY_OPTIONS: { value: ReportWeekday; label: string }[] = [
   { value: 'SUNDAY', label: '일요일' },
 ];
 
-/** 시각 보기 — 정시만(서버가 「HH:00」 만 받는다). 값과 문구가 같다. */
-const TIME_OPTIONS: { value: string; label: string }[] = Array.from({ length: 24 }, (_, h) => {
-  const t = `${String(h).padStart(2, '0')}:00`;
-  return { value: t, label: t };
-});
+/** 시각 보기 — 정시만(서버가 「HH:00」 만 받는다). 값과 문구가 같다. 목록은 공용 HOUR_OPTIONS. */
+const TIME_OPTIONS: { value: string; label: string }[] = HOUR_OPTIONS.map((t) => ({ value: t, label: t }));
 
 /** 되돌리기 확인 창 문구 — 스펙 「웹」 그대로. */
 const RESET_TITLE = '템플릿을 기본으로 되돌릴까요?';

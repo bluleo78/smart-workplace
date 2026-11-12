@@ -72,6 +72,8 @@ import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.NotificationAppSetting.NotificationAppSettingPath;
 import com.workplace.jooq.tables.NotificationSetting.NotificationSettingPath;
+import com.workplace.jooq.tables.PersonalReport.PersonalReportPath;
+import com.workplace.jooq.tables.PersonalReportSetting.PersonalReportSettingPath;
 import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
 import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
 import com.workplace.jooq.tables.Project.ProjectPath;
@@ -1376,6 +1378,32 @@ public class User extends TableImpl<UserRecord> {
         return _notificationSetting;
     }
 
+    private transient PersonalReportSettingPath _personalReportSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report_setting</code> table
+     */
+    public PersonalReportSettingPath personalReportSetting() {
+        if (_personalReportSetting == null)
+            _personalReportSetting = new PersonalReportSettingPath(this, null, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_USER_ID_FKEY.getInverseKey());
+
+        return _personalReportSetting;
+    }
+
+    private transient PersonalReportPath _personalReport;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report</code> table
+     */
+    public PersonalReportPath personalReport() {
+        if (_personalReport == null)
+            _personalReport = new PersonalReportPath(this, null, Keys.PERSONAL_REPORT__PERSONAL_REPORT_USER_ID_FKEY.getInverseKey());
+
+        return _personalReport;
+    }
+
     private transient PlatformUserRolePath _platformUserRole;
 
     /**
@@ -1988,6 +2016,14 @@ public class User extends TableImpl<UserRecord> {
      */
     public TenantPath membershipTenantIdFkey() {
         return membership().tenant();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table, via the <code>fk_personal_report_setting_tenant</code> key
+     */
+    public TenantPath fkPersonalReportSettingTenant() {
+        return personalReportSetting().tenant();
     }
 
     /**

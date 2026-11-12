@@ -70,6 +70,11 @@ export const shellHandlers = [
   ),
   // 개요 탭 업무 프로파일 카드(WP-1485) — 끝낸 이슈 없음(NONE)으로 깔아 개요를 띄우는 다른 테스트가 모킹 누락으로 깨지지 않게 한다.
   http.get(`${API}/me/work-profile`, () => HttpResponse.json(createEmptyWorkProfile())),
+  // 개인 보고(WP-1486) — 설정은 꺼짐 기본값(템플릿 없음·비서 있음), 「일일 보고 보기」 조회는 보고 없음(204).
+  http.get(`${API}/me/report-settings`, () =>
+    HttpResponse.json({ dailyEnabled: false, timeOfDay: '09:00', skipEmpty: true, dailyTemplatePageId: null, weeklyTemplatePageId: null, reportsPageId: null, spaceId: null, nextRunAt: null, assistantAvailable: true, lastError: null }),
+  ),
+  http.get(`${API}/me/reports`, () => new HttpResponse(null, { status: 204 })),
   http.get(`${API}/projects`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/members`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/drive/spaces`, () => HttpResponse.json([])),

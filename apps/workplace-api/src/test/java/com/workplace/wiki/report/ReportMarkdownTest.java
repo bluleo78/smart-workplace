@@ -479,4 +479,92 @@ class ReportMarkdownTest {
     assertThat(s.badge()).isEqualTo("RISK");
     assertThat(s.line()).hasSize(200).endsWith("…");
   }
+
+  // ───────────── 공유 단위(WP-1486) — clean / fixTable(ReportTableSpec) ─────────────
+
+  /** 개인 일일 「어제 숫자」 같은 가로 표 스펙 — 머리까지 시스템 값으로 다시 쓴다. */
+  private static ReportTableSpec dailyLikeSpec() {
+    return new ReportTableSpec(
+        "끝냄"::equals,
+        List.of("끝냄", "새로 만듦", "상태 바꿈", "기한 지남"),
+        List.of(List.of("4 · 기한 내 3", "1", "6", "2")),
+        "어제 숫자",
+        "한 줄");
+  }
+
+  /** 줄 목록으로 나눈다(수정 가능한 목록 — fixTable 이 고친다). */
+  private static List<String> lines(String md) {
+    return new java.util.ArrayList<>(List.of(md.split("\n", -1)));
+  }
+
+  @Test
+  void fixTable_headCellsSpec_rewritesHeadDelimiterAndBody() {
+    List<String> lines = lines("| 끝냄 | 리뷰 |\n|---|---|\n| 9 | 9 |");
+
+    ReportMarkdown.fixTable(lines, dailyLikeSpec(), true);
+
+    assertThat(lines)
+        .containsExactly(
+            "| 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |", "|---|---|---|---|", "| 4 · 기한 내 3 | 1 | 6 | 2 |");
+  }
+
+  @Test
+  void fixTable_missingTable_insertsAfterNamedSection() {
+    List<String> lines = lines("## 한 줄\n글\n\n## 어제 한 일\n- 했음");
+
+    ReportMarkdown.fixTable(lines, dailyLikeSpec(), true);
+
+    assertThat(ReportMarkdown.render(lines))
+        .isEqualTo(
+            """
+            ## 한 줄
+            글
+
+            ## 어제 숫자
+
+            | 끝냄 | 새로 만듦 | 상태 바꿈 | 기한 지남 |
+            |---|---|---|---|
+            | 4 · 기한 내 3 | 1 | 6 | 2 |
+
+            ## 어제 한 일
+            - 했음
+            """);
+  }
+
+  @Test
+  void fixTable_missingTable_templateWithoutTable_insertsNothing() {
+    List<String> lines = lines("## 한 줄\n글\n\n## 어제 한 일\n- 했음");
+    List<String> before = List.copyOf(lines);
+
+    ReportMarkdown.fixTable(lines, dailyLikeSpec(), false);
+
+    assertThat(lines).isEqualTo(before);
+  }
+
+  @Test
+  void fixTable_tableInsideFence_ignored() {
+    String fencedTable = "```\n| 끝냄 | 리뷰 |\n|---|---|\n| 9 | 9 |\n```";
+    List<String> lines = lines("## 한 줄\n글\n\n" + fencedTable);
+
+    ReportMarkdown.fixTable(lines, dailyLikeSpec(), false);
+
+    // 펜스 안 표는 리포트 표로 보지 않는다 — 고치지 않고, 템플릿에 표가 없었으니 넣지도 않는다.
+    assertThat(String.join("\n", lines)).isEqualTo("## 한 줄\n글\n\n" + fencedTable);
+    assertThat(ReportMarkdown.hasTable(fencedTable, "끝냄"::equals)).isFalse();
+    assertThat(ReportMarkdown.hasTable("| 끝냄 | 리뷰 |\n|---|---|", "끝냄"::equals)).isTrue();
+  }
+
+  @Test
+  void clean_removesInstructionBoxH1AndNamedIssueLinks() {
+    String md =
+        "<div class=\"wp-ai-instruction\">x</div>\n# 제목\n[WP-1](https://w.example/projects/WP/issues/1)";
+
+    List<String> lines = ReportMarkdown.clean(md, "https://w.example/projects/");
+
+    String out = String.join("\n", lines);
+    assertThat(out).doesNotContain("wp-ai-instruction").doesNotContain("# 제목");
+    assertThat(lines).contains("https://w.example/projects/WP/issues/1");
+    // 고칠 수 있는 목록이어야 한다(다음 단계가 줄을 넣고 뺀다).
+    lines.add("끝");
+  }
 }

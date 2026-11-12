@@ -1,7 +1,7 @@
 // 「내 작업 · 개요」 탭(WP-1484) — 어제/오늘, 숫자 넷, 완료 추이 + 마감 준수, 맡은 이슈를 한 화면에. 앞으로 할 일(맡은 이슈)로 끝난다.
 // 완료한 이슈 목록(옛 「끝낸 일」)은 두지 않는다 — 「완료한 이슈」 카드와 추이 막대가 할당 탭 완료 목록(완료일 기간)으로 보낸다(문구 감사 결정).
 // 숫자는 서버(지표 모듈)가 계산한 값을 그대로 그린다. 나만 볼 수 있다 — API 가 호출자 본인 것만 준다.
-// 업무 프로파일(WP-1485)은 추이/마감 아래·맡은 이슈 위 전체 폭 카드로 둔다(자기 조회라 실패해도 개요 전체를 막지 않는다). 「일일 보고 보기」(WP-1486)는 아직 자리를 두지 않는다.
+// 업무 프로파일(WP-1485)은 추이/마감 아래·맡은 이슈 위 전체 폭 카드로 둔다(자기 조회라 실패해도 개요 전체를 막지 않는다). 「어제」 제목 줄 오른쪽 「일일 보고 보기」(WP-1486)는 그날 일일 보고가 있을 때만 보인다.
 import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -9,6 +9,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMeOverview } from '@/hooks/queries/useMeOverview'
+import { useMeReportLookup } from '@/hooks/queries/useMeReports'
+import { wikiPagePath } from '@/lib/appUrl'
 import { cn } from '@/lib/utils'
 import type { MeDaySummary, MeOverviewPeriod, MeOverviewResponse, MetricsGranularity } from '@/types/meOverview'
 
@@ -109,11 +111,20 @@ export function MyOverviewTab() {
 
 /** 어제 / 오늘(전체 폭 두 칸, 좁은 폭은 위아래로). 기간과 무관. 줄은 「라벨 n건」 모양으로 통일한다. */
 function DaySection({ day }: { day: MeDaySummary }) {
+  // 어제의 일일 보고(WP-1486) — 있으면(200) 제목 줄 오른쪽에 링크, 없거나(204) 못 읽으면 링크를 두지 않는다.
+  const dailyReport = useMeReportLookup('DAILY', day.yesterday)
   return (
     <OverviewCard testId="overview-day" className="grid gap-4 md:grid-cols-2 md:divide-x md:divide-border">
       <div className="space-y-2 md:pr-4" data-testid="overview-yesterday">
-        <h2 className="flex items-baseline gap-2 text-sm font-semibold">
-          어제 <span className="text-xs font-normal text-muted-foreground">{dayLabel(day.yesterday)}</span>
+        <h2 className="flex items-baseline justify-between gap-2 text-sm font-semibold">
+          <span className="flex items-baseline gap-2">
+            어제 <span className="text-xs font-normal text-muted-foreground">{dayLabel(day.yesterday)}</span>
+          </span>
+          {dailyReport.data && (
+            <Link to={wikiPagePath(dailyReport.data.pageId)} className="text-xs font-medium text-primary hover:underline">
+              일일 보고 보기
+            </Link>
+          )}
         </h2>
         <DayRow
           label="완료"
