@@ -4,10 +4,14 @@ import { toast } from 'sonner'
 
 import { copyText } from './copyText'
 
-/** 성공·실패 때 띄울 토스트 문구 — 실패 문구는 직접 선택해 복사하라는 안내를 담는다. */
+/** 기본 복사 실패 문구 — 직접 선택해 복사하라는 안내. 호출부가 실패 문구를 따로 주지 않으면 이걸 띄운다. */
+export const COPY_FAILURE_MESSAGE = '복사에 실패했습니다. 직접 선택해 복사하세요.'
+
+/** 성공·실패 때 띄울 토스트 문구. */
 export interface CopyToastMessages {
   success: string
-  failure: string
+  /** 실패 문구 — 없으면 {@link COPY_FAILURE_MESSAGE}. 복사할 대상을 짚어 줄 때(「주소를 직접…」 등)만 준다. */
+  failure?: string
   /** 성공 토스트에 붙일 다음 동작 단추(예: 링크 복사 뒤 「채팅으로 보내기」, WP-1235). 없으면 문구만. */
   successAction?: { label: string; onClick: () => void }
 }
@@ -20,6 +24,6 @@ export async function copyToClipboard(text: string, messages: CopyToastMessages)
     if (messages.successAction) toast.success(messages.success, { action: messages.successAction })
     else toast.success(messages.success)
   }
-  else toast.error(messages.failure)
+  else toast.error(messages.failure ?? COPY_FAILURE_MESSAGE)
   return ok
 }

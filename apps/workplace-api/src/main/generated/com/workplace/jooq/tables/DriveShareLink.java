@@ -118,6 +118,11 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
      */
     public final TableField<DriveShareLinkRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.drive_share_link.token_encrypted</code>.
+     */
+    public final TableField<DriveShareLinkRecord, String> TOKEN_ENCRYPTED = createField(DSL.name("token_encrypted"), SQLDataType.CLOB, this, "");
+
     private DriveShareLink(Name alias, Table<DriveShareLinkRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -9,7 +9,7 @@ const { success, error, copyText } = vi.hoisted(() => ({
 vi.mock('sonner', () => ({ toast: { success, error } }))
 vi.mock('./copyText', () => ({ copyText }))
 
-import { copyToClipboard } from './copyToClipboard'
+import { COPY_FAILURE_MESSAGE, copyToClipboard } from './copyToClipboard'
 
 const messages = { success: '복사했습니다', failure: '복사에 실패했습니다' }
 
@@ -29,5 +29,12 @@ describe('copyToClipboard', () => {
     await expect(copyToClipboard('주소', messages)).resolves.toBe(false)
     expect(error).toHaveBeenCalledWith('복사에 실패했습니다')
     expect(success).not.toHaveBeenCalled()
+  })
+
+  it('실패 문구를 주지 않으면 공용 실패 문구(직접 선택해 복사하라는 안내)를 띄운다', async () => {
+    copyText.mockResolvedValue(false)
+    await copyToClipboard('주소', { success: '복사했습니다' })
+    expect(error).toHaveBeenCalledWith(COPY_FAILURE_MESSAGE)
+    expect(COPY_FAILURE_MESSAGE).toBe('복사에 실패했습니다. 직접 선택해 복사하세요.')
   })
 })

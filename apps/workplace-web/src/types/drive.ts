@@ -7,24 +7,22 @@ export type DriveRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 // #78: 공유 링크 가시성 — 외부(익명) / 사내(로그인).
 export type ShareLinkAudience = 'EXTERNAL' | 'INTERNAL'
 
-// #78: 공유 링크 생성 응답 — 평문 토큰은 이 응답에서만 1회 노출.
-export interface CreatedShareLink {
-  id: number
-  token: string
-  audience: ShareLinkAudience
-  hasPassword: boolean
-  expiresAt: string | null
-}
-
-// #78: 공유 링크 목록 항목 — 토큰 미포함.
+// #78: 공유 링크 목록 항목이자 생성 응답. WP-1528: 이미 만든 링크를 다시 복사할 수 있게 토큰을 함께 받고,
+// 생성 응답도 같은 모양이라 공유 창이 서버 항목을 그대로 목록 맨 위에 넣는다.
 export interface ShareLink {
   id: number
   audience: ShareLinkAudience
   hasPassword: boolean
   expiresAt: string | null
   revoked: boolean
+  /** 지금 쓸 수 있는가 — 서버가 자기 시계로 판정(폐기되지 않았고 만료 전). 살아 있는/지난 링크 나눔은 이 값을 따른다. */
+  active: boolean
   createdAt: string
   createdBy: number
+  /** 랜딩 URL 토큰 — 이 변경 전에 만든 링크(해시만 저장)·복호화 실패·해시 불일치, 그리고 폐기·만료된 링크는 null(URL 을 다시 보여 줄 수 없다). */
+  token: string | null
+  /** 만든 사람 이름 — 탈퇴 등으로 알 수 없으면 null. */
+  createdByName: string | null
 }
 
 export interface DriveSpace {

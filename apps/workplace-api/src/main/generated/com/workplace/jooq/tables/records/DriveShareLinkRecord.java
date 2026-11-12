@@ -174,6 +174,20 @@ public class DriveShareLinkRecord extends UpdatableRecordImpl<DriveShareLinkReco
         return (Long) get(10);
     }
 
+    /**
+     * Setter for <code>public.drive_share_link.token_encrypted</code>.
+     */
+    public void setTokenEncrypted(String value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.drive_share_link.token_encrypted</code>.
+     */
+    public String getTokenEncrypted() {
+        return (String) get(11);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -197,7 +211,7 @@ public class DriveShareLinkRecord extends UpdatableRecordImpl<DriveShareLinkReco
     /**
      * Create a detached, initialised DriveShareLinkRecord
      */
-    public DriveShareLinkRecord(Long id, Long driveFileId, Long spaceId, String tokenHash, String audience, String passwordHash, OffsetDateTime expiresAt, OffsetDateTime revokedAt, Long createdBy, OffsetDateTime createdAt, Long tenantId) {
+    public DriveShareLinkRecord(Long id, Long driveFileId, Long spaceId, String tokenHash, String audience, String passwordHash, OffsetDateTime expiresAt, OffsetDateTime revokedAt, Long createdBy, OffsetDateTime createdAt, Long tenantId, String tokenEncrypted) {
         super(DriveShareLink.DRIVE_SHARE_LINK);
 
         setId(id);
@@ -211,6 +225,7 @@ public class DriveShareLinkRecord extends UpdatableRecordImpl<DriveShareLinkReco
         setCreatedBy(createdBy);
         setCreatedAt(createdAt);
         setTenantId(tenantId);
+        setTokenEncrypted(tokenEncrypted);
         resetChangedOnNotNull();
     }
 }

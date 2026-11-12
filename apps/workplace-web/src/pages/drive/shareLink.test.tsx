@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 드라이브 공유 링크 — 공유 창(ShareLinkModal)과 공개 받기 화면(/s/:token, ShareLinkPage) 화면 컴포넌트 테스트(WP-971, WP-984).
-// 생성 payload·랜딩 URL·폐기 반영, 닫기/취소 라벨, 만료일·비밀번호 유효성(요청 차단), 만료일 표시 형식,
+// 생성 payload·랜딩 URL·생성 직후 자동 복사·기존 링크 다시 복사·폐기 반영(WP-1528), 닫기/취소 라벨, 만료일·비밀번호 유효성(요청 차단), 만료일 표시 형식,
 // 받기 화면의 안내·홈 링크는 브라우저 없이 판정되므로 e2e/pages/drive/drive-share-link.spec.ts 에서 옮겼다.
 // WP-1227: 공유 링크 화면(정보 → 파일 카드·비밀번호/사내 잠금·열람 토큰·드라이브에서 열기·미리보기 뷰어).
 // 인증 없이 /s/:token 에 들어가도 받기 화면이 뜨는 라우트 배선(@wiring)은 그 E2E 가 지킨다. 보관 공간 분기는 ShareLinkModal.test.tsx.
@@ -14,7 +14,7 @@ import { describe, expect, test } from 'vitest'
 import { ShareLinkModal } from '@/components/drive/ShareLinkModal'
 import ShareLinkPage from '@/pages/drive/ShareLinkPage'
 import { renderScreen } from '@/test/renderScreen'
-import type { CreatedShareLink, ShareLink } from '@/types/drive'
+import type { ShareLink } from '@/types/drive'
 
 import { createFile } from '../../../e2e/factories/drive.factory'
 
@@ -27,13 +27,16 @@ const link = (over: Partial<ShareLink> = {}): ShareLink => ({
   hasPassword: false,
   expiresAt: null,
   revoked: false,
+  active: true,
   createdAt: '2026-06-21T00:00:00Z',
   createdBy: 1,
+  token: 'sl_abc',
+  createdByName: '양동희',
   ...over,
 })
 
-/** 공유 창을 띄운다 — 목록 GET 은 list(), POST 는 받은 본문을 posts 에 쌓고 created 를 돌려준다. */
-function renderModal({ list = (): ShareLink[] => [], handlers = [] as RequestHandler[], created }: { list?: () => ShareLink[]; handlers?: RequestHandler[]; created?: CreatedShareLink } = {}) {
+/** 공유 창을 띄운다 — 목록 GET 은 list(), POST 는 받은 본문을 posts 에 쌓고 created(목록과 같은 모양의 생성 응답, WP-1528)를 돌려준다. */
+function renderModal({ list = (): ShareLink[] => [], handlers = [] as RequestHandler[], created }: { list?: () => ShareLink[]; handlers?: RequestHandler[]; created?: ShareLink } = {}) {
   const posts: Record<string, unknown>[] = []
   let closed = 0
   const view = renderScreen(<ShareLinkModal file={createFile({ id: FILE_ID, name: 'report.txt' })} onClose={() => closed++} />, {
@@ -51,13 +54,98 @@ function renderModal({ list = (): ShareLink[] => [], handlers = [] as RequestHan
 }
 
 describe('공유 창', () => {
-  // 생성 → POST audience(기본 외부) → 랜딩(/s/) URL 1회 노출(다운로드 API 경로 아님) → 목록 1건(외부) → 폐기 DELETE → 「폐기됨」 배지(Badge pill), 폐기 버튼 사라짐.
-  test('생성 → 랜딩 URL 노출 → 폐기하면 폐기됨 배지로 바뀐다', async () => {
+  // WP-1528: 기존 링크가 있으면 「+ 새 링크 만들기」로 폼을 펼친다 → POST audience(기본 외부) → 폼이 닫히고 새 링크가 목록 맨 위에
+  // 강조되어 나타나며, 랜딩(/s/) URL 이 바로 클립보드에 들어가고 「링크를 만들고 복사했습니다」 토스트가 뜬다.
+  test('새 링크를 만들면 폼이 닫히고 맨 위에 강조되며 URL 이 바로 복사된다', async () => {
+    let listed: ShareLink[] = [link({ id: 5, token: 'sl_old' })]
+    const { user, posts } = renderModal({
+      list: () => listed,
+      created: link({ id: 9, token: 'sl_new', createdByName: 'Tester' }),
+    })
+    await screen.findByTestId('share-link-item')
+    expect(screen.queryByTestId('share-link-form')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('share-link-new-btn'))
+    expect(document.getElementById('share-audience-external')).toBeChecked()
+    listed = [link({ id: 9, token: 'sl_new', createdByName: 'Tester' }), link({ id: 5, token: 'sl_old' })]
+    await user.click(screen.getByTestId('share-link-create-btn'))
+
+    await waitFor(() => expect(screen.queryByTestId('share-link-form')).not.toBeInTheDocument())
+    expect(posts[0].audience).toBe('EXTERNAL')
+    const first = screen.getAllByTestId('share-link-item')[0]
+    expect(first).toHaveAttribute('data-highlighted', 'true')
+    const url = within(first).getByRole('textbox', { name: '공유 링크 URL' }) as HTMLInputElement
+    expect(url.value).toBe(`${window.location.origin}/s/sl_new`)
+    expect(url.value).not.toContain('/api/v1/public/drive/share/')
+    expect(screen.getAllByTestId('share-link-item')[1]).not.toHaveAttribute('data-highlighted', 'true')
+    expect(await screen.findByText('링크를 만들고 복사했습니다')).toBeInTheDocument()
+    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/s/sl_new`)
+    expect(screen.queryByText(/이 URL은 지금만/)).not.toBeInTheDocument()
+  })
+
+  // 생성 뒤 목록 재조회가 실패해도 응답으로 만든 새 링크는 맨 위에 남는다(조용히 무시).
+  test('재조회가 실패해도 새 링크가 맨 위에 남는다', async () => {
+    let fail = false
+    const { user } = renderModal({
+      created: link({ id: 9, token: 'sl_new', audience: 'INTERNAL', hasPassword: true, createdByName: 'Tester' }),
+      handlers: [
+        http.get(LINKS, () => (fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json([link({ id: 5, token: 'sl_old' })]))),
+      ],
+    })
+    await screen.findByTestId('share-link-item')
+    fail = true
+    await user.click(screen.getByTestId('share-link-new-btn'))
+    await user.click(screen.getByTestId('share-link-create-btn'))
+    await waitFor(() => expect(screen.getAllByTestId('share-link-item')).toHaveLength(2))
+    const first = screen.getAllByTestId('share-link-item')[0]
+    expect(first).toHaveAttribute('data-highlighted', 'true')
+    expect((within(first).getByRole('textbox', { name: '공유 링크 URL' }) as HTMLInputElement).value).toMatch(/\/s\/sl_new$/)
+    expect(first).toHaveTextContent('사내')
+    expect(first).toHaveTextContent('비밀번호')
+    expect(first).toHaveTextContent('Tester')
+    expect(screen.queryByTestId('share-link-list-error')).not.toBeInTheDocument()
+  })
+
+  // 두 번째로 만든 링크로 강조가 옮겨 간다 — 한 번에 하나만 강조.
+  test('두 번째 생성은 강조를 새 링크로 옮긴다', async () => {
+    let n = 0
+    let gets = 0
+    // 첫 조회만 성공하고 생성 뒤 재조회는 실패 — 화면이 응답으로 만든 항목만으로 강조를 옮기는지 본다.
+    const { user } = renderModal({
+      handlers: [
+        http.post(LINKS, () => {
+          n++
+          return HttpResponse.json(link({ id: 10 + n, token: `sl_n${n}` }), { status: 201 })
+        }),
+        http.get(LINKS, () => (gets++ === 0 ? HttpResponse.json([link({ id: 5, token: 'sl_old' })]) : new HttpResponse(null, { status: 500 }))),
+      ],
+    })
+    await user.click(await screen.findByTestId('share-link-new-btn'))
+    await user.click(screen.getByTestId('share-link-create-btn'))
+    await waitFor(() => expect(screen.queryByTestId('share-link-form')).not.toBeInTheDocument())
+    await user.click(screen.getByTestId('share-link-new-btn'))
+    await user.click(screen.getByTestId('share-link-create-btn'))
+    await waitFor(() => expect(screen.getAllByTestId('share-link-item')).toHaveLength(3))
+    const items = screen.getAllByTestId('share-link-item')
+    expect((within(items[0]).getByRole('textbox') as HTMLInputElement).value).toMatch(/sl_n2$/)
+    expect((within(items[1]).getByRole('textbox') as HTMLInputElement).value).toMatch(/sl_n1$/)
+    expect(items[0]).toHaveAttribute('data-highlighted', 'true')
+    expect(items[1]).not.toHaveAttribute('data-highlighted', 'true')
+  })
+
+  // 이미 만든 링크의 [복사] — 같은 랜딩 URL 을 다시 복사한다(WP-1528 의 첫 동작).
+  test('카드 [복사]는 그 링크의 URL 을 복사하고 안내한다', async () => {
+    const { user } = renderModal({ list: () => [link({ token: 'sl_abc' })] })
+    await user.click(await screen.findByTestId('share-link-copy-btn'))
+    expect(await screen.findByText('링크를 복사했습니다')).toBeInTheDocument()
+    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/s/sl_abc`)
+  })
+
+  // 폐기 DELETE → 그 카드는 살아 있는 목록에서 빠져 「지난 링크」로 옮겨 가고, 펼치면 「폐기됨」 배지(Badge pill)로 보인다.
+  test('폐기하면 그 카드가 지난 링크로 옮겨 간다', async () => {
     let revoked = false
     let deletes = 0
-    const { user, posts } = renderModal({
-      list: () => [link({ revoked })],
-      created: { id: 5, token: 'sl_abc', audience: 'EXTERNAL', hasPassword: false, expiresAt: null },
+    const { user } = renderModal({
+      list: () => [link({ revoked, active: !revoked, token: revoked ? null : 'sl_abc' }), link({ id: 6, token: 'sl_other' })],
       handlers: [
         http.delete('/api/v1/drive/share-links/5', () => {
           deletes++
@@ -66,29 +154,24 @@ describe('공유 창', () => {
         }),
       ],
     })
-    expect(await screen.findByTestId('share-link-modal')).toBeInTheDocument()
-    expect(document.getElementById('share-audience-external')).toBeChecked()
-    await user.click(screen.getByTestId('share-link-create-btn'))
-    const created = await screen.findByTestId('share-link-created-url')
-    expect(posts[0].audience).toBe('EXTERNAL')
-    const url = within(created).getByRole('textbox', { name: /생성된 공유 링크/i }) as HTMLInputElement
-    expect(url.value).toMatch(/\/s\/sl_abc/)
-    expect(url.value).not.toContain('/api/v1/public/drive/share/')
-
-    const item = await screen.findByTestId('share-link-item')
-    expect(screen.getByTestId('share-link-list')).toBeInTheDocument()
-    expect(item).toHaveTextContent('외부')
-    await user.click(screen.getByTestId('share-link-revoke-btn'))
-    await waitFor(() => expect(screen.getByTestId('share-link-item')).toHaveTextContent('폐기됨'))
+    await waitFor(() => expect(screen.getAllByTestId('share-link-item')).toHaveLength(2))
+    await user.click(screen.getAllByTestId('share-link-revoke-btn')[0])
+    await waitFor(() => expect(screen.getAllByTestId('share-link-item')).toHaveLength(1))
     expect(deletes).toBe(1)
-    expect(within(screen.getByTestId('share-link-item')).getByText('폐기됨')).toHaveClass('inline-flex')
-    expect(screen.queryByTestId('share-link-revoke-btn')).not.toBeInTheDocument()
+    const toggle = screen.getByTestId('share-link-past-toggle')
+    expect(toggle).toHaveTextContent('지난 링크 1개 (폐기·만료)')
+    await user.click(toggle)
+    const past = screen.getByTestId('share-link-past-item')
+    expect(within(past).getByText('폐기됨')).toHaveClass('inline-flex')
+    expect(within(past).queryByTestId('share-link-revoke-btn')).not.toBeInTheDocument()
   })
 
   // #829: 코너 X 는 「닫기」, 하단 버튼은 「취소」 — 같은 이름이 둘이 아니고, 취소는 닫는다.
+  // 링크가 없으면 폼이 바로 펼쳐지고 폼 [취소]는 없어 하단 「취소」 하나만 남는다(WP-1528).
   test('하단 버튼은 「취소」, 코너 X 는 「닫기」이고 취소하면 닫힌다', async () => {
     const { user, closed } = renderModal()
     const modal = await screen.findByTestId('share-link-modal')
+    await screen.findByTestId('share-link-form')
     expect(within(modal).getAllByRole('button', { name: '닫기' })).toHaveLength(1)
     const cancel = within(modal).getAllByRole('button', { name: '취소' })
     expect(cancel).toHaveLength(1)
@@ -96,29 +179,29 @@ describe('공유 창', () => {
     expect(closed()).toBe(1)
   })
 
-  // #673: 과거 만료일은 키보드 입력으로 들어와도 생성 시 다시 막는다 — 인라인 오류, 요청 없음, URL 영역 없음.
+  // #673: 과거 만료일은 키보드 입력으로 들어와도 생성 시 다시 막는다 — 인라인 오류, 요청 없음, 새 링크 없음.
   // WP-901: 5자리 연도는 과거 가드보다 먼저 서버와 같은 범위 안내로 막고 aria-describedby 로 잇는다.
   test('과거 만료일·범위 밖 연도는 인라인 오류로 생성을 막는다', async () => {
     const { user, posts } = renderModal()
-    await screen.findByTestId('share-link-modal')
+    await screen.findByTestId('share-link-form')
     const expires = document.getElementById('share-expires') as HTMLInputElement
     fireEvent.change(expires, { target: { value: '2020-01-01' } })
     await user.click(screen.getByTestId('share-link-create-btn'))
     expect(await screen.findByTestId('share-expires-error')).toHaveTextContent('오늘 이후')
-    expect(screen.queryByTestId('share-link-created-url')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-link-item')).not.toBeInTheDocument()
 
     fireEvent.change(expires, { target: { value: '20260-10-23' } })
     await user.click(screen.getByTestId('share-link-create-btn'))
     await waitFor(() => expect(screen.getByTestId('share-expires-error')).toHaveTextContent('날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다'))
     expect(expires).toHaveAttribute('aria-describedby', 'share-expires-error')
     expect(posts).toHaveLength(0)
-    expect(screen.queryByTestId('share-link-created-url')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-link-item')).not.toBeInTheDocument()
   })
 
   // WP-497: 비밀번호가 72바이트(bcrypt 한도)를 넘으면 한국어 인라인 오류로 막고, 고치면 오류가 사라져 생성된다.
   test('비밀번호 72바이트 초과는 막고, 한도 안으로 고치면 생성한다', async () => {
-    const { user, posts } = renderModal({ created: { id: 6, token: 'sl_pw', audience: 'EXTERNAL', hasPassword: true, expiresAt: null } })
-    await screen.findByTestId('share-link-modal')
+    const { user, posts } = renderModal({ created: link({ id: 6, token: 'sl_pw', hasPassword: true }) })
+    await screen.findByTestId('share-link-form')
     const pw = document.getElementById('share-password') as HTMLInputElement
     fireEvent.change(pw, { target: { value: '가'.repeat(25) } })
     await user.click(screen.getByTestId('share-link-create-btn'))
@@ -132,16 +215,16 @@ describe('공유 창', () => {
     await waitFor(() => expect(posts).toHaveLength(1))
   })
 
-  // #617: 만료일은 공용 formatDateOnly(YYYY-MM-DD) — 로케일 점 형식이 아니고, 콜론 오프셋(+09:00)도 「-」 없이 읽는다.
+  // #617: 만료일은 공용 formatDateOnly(YYYY-MM-DD) + 「까지」 — 로케일 점 형식이 아니고, 콜론 오프셋(+09:00)도 「-」 없이 읽는다.
   test('만료일은 zero-pad 하이픈 형식이고 +09:00 오프셋도 표시된다', async () => {
     const { unmount } = renderModal({ list: () => [link({ expiresAt: '2099-01-05T00:00:00Z' })] })
     const item = await screen.findByTestId('share-link-item')
-    expect(item).toHaveTextContent('2099-01-05')
+    expect(item).toHaveTextContent('2099-01-05 까지')
     expect(item.textContent).not.toMatch(/\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/)
     unmount()
 
     renderModal({ list: () => [link({ expiresAt: '2099-01-05T23:59:59+09:00' })] })
-    expect(await screen.findByTestId('share-link-item')).toHaveTextContent('2099-01-05')
+    expect(await screen.findByTestId('share-link-item')).toHaveTextContent('2099-01-05 까지')
   })
 })
 

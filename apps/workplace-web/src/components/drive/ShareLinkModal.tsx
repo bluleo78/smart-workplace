@@ -1,20 +1,21 @@
-// 파일 공유 링크 생성·관리 모달.
-// - 가시성(외부/사내) 라디오 + 비밀번호(선택) + 만료일(선택) 입력 → [생성]
-// - 생성 직후 URL 1회 표시 + 복사 버튼 (이후 재확인 불가 안내)
-// - 하단에 기존 링크 목록: 가시성·만료·비번여부·폐기 여부 + [폐기] 버튼
+// 파일 공유 링크 관리 모달 — 이미 만든 링크를 먼저 보이고 다시 복사하게 한다(WP-1528).
+// - 제목 아래에 파일 이름을 보여 어느 파일의 링크인지 바로 안다.
+// - 살아 있는(폐기·만료 아닌) 링크는 카드로: 가시성·만료·비밀번호 배지, 만든 사람·날짜, URL + [복사] + [폐기].
+//   예전에 만든 링크(서버에 토큰이 없음)는 URL 대신 다시 볼 수 없다는 안내 + [폐기].
+// - 새 링크는 「+ 새 링크 만들기」로 그 자리에 폼(가시성·비밀번호·만료일)을 펼쳐 만든다. 링크가 하나도 없으면 폼이 바로 보인다.
+//   만들면 폼이 닫히고 새 링크가 맨 위에 강조되어 나타나며 URL 이 바로 복사된다 — 예전엔 생성 직후 한 번만 URL 을 보여 줬다.
+// - 폐기·만료된 링크는 「지난 링크 n개」로 접어 두고, 펼치면 흐리게 보인다(복사·폐기 없음).
+// - 보관 공간(WP-527)은 새 링크를 만들 수 없고, 기존 링크 복사·폐기만 한다.
+// 목록은 TanStack Query 로 받고, 생성·폐기 결과는 캐시에 먼저 반영한 뒤 서버 목록으로 다시 맞춘다(invalidate).
 
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight } from 'lucide-react';
+import { useState } from 'react';
 
-import {
-  type CreatedShareLink,
-  createShareLink,
-  listShareLinks,
-  revokeShareLink,
-  shareLandingUrl,
-  type ShareLink,
-} from '@/api/drive';
+import { createShareLink, listShareLinks, revokeShareLink, shareLandingUrl, type ShareLink } from '@/api/drive';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -26,64 +27,145 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { handleApiError } from '@/lib/api-error';
 import { copyToClipboard } from '@/lib/copyToClipboard';
-import { formatDateOnly } from '@/lib/formatters';
+import { splitShareLinks } from '@/lib/driveShareLinks';
+import { formatDateOnly, formatInstantMonthDay } from '@/lib/formatters';
 import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
+import { cn } from '@/lib/utils';
 import { sharePasswordError } from '@/lib/validations/shareLink';
 import type { DriveFile } from '@/types/drive';
 
 interface ShareLinkModalProps {
   file: DriveFile;
-  /** 보관된 공간(읽기 전용) — 새 링크는 만들 수 없고 기존 링크 확인·폐기만 한다(WP-527). */
+  /** 보관된 공간(읽기 전용) — 새 링크는 만들 수 없고 기존 링크 복사·폐기만 한다(WP-527). */
   archived?: boolean;
   onClose: () => void;
 }
 
-/** 날짜를 공용 zero-pad 포맷("YYYY-MM-DD") 또는 "만료됨" 으로 표시 (#617). */
-function formatExpiry(iso: string | null): string {
-  if (!iso) return '만료 없음';
-  const d = new Date(iso);
-  if (d < new Date()) return '만료됨';
-  return formatDateOnly(iso);
+/** 생성 요청 본문 — 비밀번호·만료일은 비우면 보내지 않는다. */
+type CreateBody = Parameters<typeof createShareLink>[1];
+
+/** 살아 있는 링크의 만료 배지 문구 — 공용 zero-pad 날짜(YYYY-MM-DD, #617) 뒤에 「까지」. */
+function expiryLabel(iso: string | null): string {
+  return iso ? `${formatDateOnly(iso)} 까지` : '만료 없음';
 }
 
-function isExpired(iso: string | null): boolean {
-  return iso != null && new Date(iso) < new Date();
+/** 「만든 사람 · 날짜」 — 이름을 모르면(null) 날짜만 보인다. */
+function creatorLabel(link: ShareLink): string {
+  const date = formatInstantMonthDay(link.createdAt);
+  return link.createdByName ? `${link.createdByName} · ${date}` : date;
+}
+
+/** 가시성 배지 — 외부/사내. 살아 있는 링크·지난 링크가 함께 쓴다. */
+function AudienceBadge({ link }: { link: ShareLink }) {
+  return <Badge variant="outline">{link.audience === 'EXTERNAL' ? '외부' : '사내'}</Badge>;
 }
 
 export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkModalProps) {
+  const qc = useQueryClient();
+  const linksKey = ['drive', 'shareLinks', file.id] as const;
+
   // 폼 상태 — 가시성(기본 외부), 비밀번호(선택), 만료일(선택)
   const [audience, setAudience] = useState<'EXTERNAL' | 'INTERNAL'>('EXTERNAL');
   const [password, setPassword] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
-
-  // 생성 직후 1회 노출되는 링크 응답
-  const [created, setCreated] = useState<CreatedShareLink | null>(null);
-
-  // 기존 링크 목록
-  const [links, setLinks] = useState<ShareLink[]>([]);
-  // 목록 조회 실패 — 링크가 있는데 「없음」처럼 보이지 않게 안내한다(WP-527).
-  const [listFailed, setListFailed] = useState(false);
-
-  // 진행 중 플래그
-  const [creating, setCreating] = useState(false);
-  const [revokingId, setRevokingId] = useState<number | null>(null);
+  // 「+ 새 링크 만들기」로 폼을 펼쳤는가 — 살아 있는 링크가 있으면 폼은 접혀 있다가 이걸로 연다.
+  const [formOpen, setFormOpen] = useState(false);
+  // 방금 만든 링크 id — 목록 맨 위 카드를 강조해 어느 링크가 복사됐는지 보인다. 다시 만들면 새 링크로 옮긴다.
+  const [highlightId, setHighlightId] = useState<number | null>(null);
 
   // 만료일 폼 에러(#673) — 과거 날짜 입력 시 생성 자체를 막기 위한 인라인 메시지
   const [expiresAtError, setExpiresAtError] = useState<string | null>(null);
   // 비밀번호 인라인 에러 — 한도(bcrypt 72바이트, WP-497)·공백만(WP-1385). 토스트 대신 입력 아래에 안내한다.
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  // 모달 열릴 때 기존 링크 목록 로드
-  useEffect(() => {
-    void listShareLinks(file.id)
-      .then(setLinks)
-      .catch(() => setListFailed(true));
-  }, [file.id]);
+  // 링크 목록 — 모달을 열 때마다 새로 받는다(staleTime 0). 토큰이 든 목록이라 모달을 닫으면 캐시에 남기지 않는다(gcTime 0).
+  // 실패는 곧바로 안내한다(재시도 없음).
+  const list = useQuery({
+    queryKey: linksKey,
+    queryFn: () => listShareLinks(file.id),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
 
-  /** 공유 링크 생성 */
-  async function onCreate() {
+  /**
+   * 캐시의 목록을 화면에서 먼저 고친다(새 링크를 맨 위에·폐기 표시). dataUpdatedAt 은 「서버 목록이 마지막으로 온 시각」 그대로 둔다 —
+   * 그래서 아래 listFailed 가 「서버 목록을 한 번도 못 받았다」를 뜻하게 된다(손으로 넣은 항목은 서버 목록이 아니다).
+   */
+  function patchLinks(update: (prev: ShareLink[]) => ShareLink[]) {
+    const updatedAt = qc.getQueryState(linksKey)?.dataUpdatedAt ?? 0;
+    qc.setQueryData<ShareLink[]>(linksKey, (prev) => update(prev ?? []), { updatedAt });
+  }
+
+  /** 서버 목록으로 다시 맞춘다 — 실패해도 캐시(새 링크·폐기 표시)는 그대로 남는다. */
+  function refetchLinks() {
+    void qc.invalidateQueries({ queryKey: linksKey });
+  }
+
+  const links = list.data ?? [];
+  // 목록 조회 실패 — 서버 목록을 한 번도 못 받았고 조회가 실패했을 때. 링크가 있는데 「없음」처럼 보이지 않게 안내한다(WP-527).
+  // 처음 조회가 성공한 뒤 생성·폐기 재조회만 실패하면 안내하지 않는다(화면 목록은 이미 맞다).
+  const listFailed = list.errorUpdatedAt > 0 && list.dataUpdatedAt === 0;
+  const { live, past } = splitShareLinks(links);
+  // 폼 표시 — 보관 공간이 아니고, 직접 펼쳤거나 · 첫 응답이 온 뒤(성공·실패 모두) 살아 있는 링크가 없을 때(조회가 실패해도 만들 길은 남긴다).
+  // 첫 응답 전(pending)엔 폼·「+ 새 링크 만들기」를 섣불리 보이지 않는다(깜빡임 방지).
+  const showForm = !archived && (formOpen || (!list.isPending && live.length === 0));
+  // 폼 [취소]는 접을 수 있을 때만 — 살아 있는 링크가 없으면 접어도 다시 펼쳐지므로 두지 않는다.
+  const canCollapseForm = live.length > 0;
+
+  /** 폼 입력·오류를 처음 상태로 되돌린다 — 접거나 만든 뒤 다시 펼쳤을 때 지난 값이 남지 않게. */
+  function resetForm() {
+    setAudience('EXTERNAL');
+    setPassword('');
+    setExpiresAt('');
+    setPasswordError(null);
+    setExpiresAtError(null);
+  }
+
+  /** 폼 [취소] — 입력을 버리고 「+ 새 링크 만들기」로 되돌린다. */
+  function onCancelForm() {
+    resetForm();
+    setFormOpen(false);
+  }
+
+  /** 링크 URL 복사 — 카드 [복사]와 생성 직후 자동 복사가 함께 쓴다. 실패 문구는 copyToClipboard 의 공용 안내. */
+  function onCopy(token: string, success = '링크를 복사했습니다') {
+    void copyToClipboard(shareLandingUrl(token), { success });
+  }
+
+  // 생성 — 서버가 목록과 같은 모양의 항목을 돌려주므로 그대로 맨 위에 넣는다(같은 id 는 중복 제거). 재조회가 늦거나 실패해도 새 링크가 바로 보인다.
+  const create = useMutation({
+    mutationFn: (body: CreateBody) => createShareLink(file.id, body),
+    onSuccess: (created) => {
+      resetForm();
+      setFormOpen(false);
+      patchLinks((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
+      setHighlightId(created.id);
+      // 만들자마자 복사 — 대부분 만든 링크를 바로 보내려고 만든다.
+      if (created.token) onCopy(created.token, '링크를 만들고 복사했습니다');
+      refetchLinks();
+    },
+    onError: (e) => handleApiError(e, '공유 링크 생성에 실패했습니다.'),
+  });
+
+  /**
+   * 폐기 — 성공하면 재조회를 기다리지 않고 그 카드를 바로 폐기 상태로 바꿔 「지난 링크」로 옮긴다(URL·복사 없음).
+   * 폐기 실패 안내는 폐기 요청 자체가 실패했을 때만 — 그 뒤 재조회가 실패해도 링크는 실제로 끊겼으니 「폐기 실패」라 하지 않는다.
+   */
+  const revoke = useMutation({
+    mutationFn: (id: number) => revokeShareLink(id),
+    onSuccess: (_, id) => {
+      patchLinks((prev) => prev.map((l) => (l.id === id ? { ...l, revoked: true, active: false, token: null } : l)));
+      refetchLinks();
+    },
+    onError: (e) => handleApiError(e, '공유 링크 폐기에 실패했습니다.'),
+  });
+
+  /** 공유 링크 생성 — 입력을 검사한 뒤 요청한다. */
+  function onCreate() {
     // 모든 입력을 한 번에 검사해 각 칸의 오류를 세우거나 지운 뒤 막는다 — 한 칸만 보고 돌아가면 이미 고친
     // 다른 칸의 오류가 화면에 남는다(WP-1385).
     // 비밀번호: 72바이트 초과(WP-497)·공백만(WP-1385 — 예전엔 서버가 「비밀번호 없음」으로 바꿔 누구나 여는 링크가
@@ -107,39 +189,7 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
     setExpiresAtError(nextExpiresAtError);
     if (nextPasswordError || nextExpiresAtError) return;
 
-    setCreating(true);
-    try {
-      const res = await createShareLink(file.id, {
-        audience,
-        password: password || undefined,
-        expiresAt: expiresAtIso,
-      });
-      setCreated(res);
-      // 폼 초기화
-      setPassword('');
-      setExpiresAt('');
-      // 목록 갱신 — 새 링크 포함
-      const updated = await listShareLinks(file.id);
-      setLinks(updated);
-    } catch (e) {
-      handleApiError(e, '공유 링크 생성에 실패했습니다.');
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  /** 공유 링크 폐기 */
-  async function onRevoke(id: number) {
-    setRevokingId(id);
-    try {
-      await revokeShareLink(id);
-      const updated = await listShareLinks(file.id);
-      setLinks(updated);
-    } catch (e) {
-      handleApiError(e, '공유 링크 폐기에 실패했습니다.');
-    } finally {
-      setRevokingId(null);
-    }
+    create.mutate({ audience, password: password || undefined, expiresAt: expiresAtIso });
   }
 
   return (
@@ -152,132 +202,20 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
       <DialogContent className="max-w-lg" data-testid="share-link-modal">
         <DialogHeader>
           <DialogTitle>공유 링크</DialogTitle>
-          <DialogDescription className="sr-only">{file.name} 공유 링크 관리</DialogDescription>
+          {/* 어느 파일의 링크인지 제목 아래에 보인다(예전엔 스크린리더 전용) — 긴 이름은 한 줄로 줄인다. */}
+          <DialogDescription className="truncate" data-testid="share-link-file-name" title={file.name}>
+            {file.name}
+          </DialogDescription>
         </DialogHeader>
 
         {/* ── 보관 공간: 생성 폼 대신 안내(WP-527) — 누르면 내부 id 가 담긴 403 토스트만 뜨던 경로 ── */}
-        {archived ? (
+        {archived && (
           <p
             className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
             data-testid="share-link-archived-notice"
           >
             보관된 공간이라 새 링크를 만들 수 없습니다. 기존 링크는 확인하고 폐기할 수 있습니다.
           </p>
-        ) : (
-        /* ── 링크 생성 폼 ── */
-        <div className="space-y-4">
-          {/* 가시성 라디오 */}
-          <div className="space-y-2">
-            <Label>가시성</Label>
-            <RadioGroup
-              value={audience}
-              onValueChange={(v) => setAudience(v as 'EXTERNAL' | 'INTERNAL')}
-              className="flex gap-4"
-              aria-label="공유 대상"
-            >
-              <div className="flex items-center gap-1.5">
-                <RadioGroupItem value="EXTERNAL" id="share-audience-external" />
-                <Label htmlFor="share-audience-external" className="cursor-pointer font-normal">
-                  외부 (인증 없이 다운로드)
-                </Label>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <RadioGroupItem value="INTERNAL" id="share-audience-internal" />
-                <Label htmlFor="share-audience-internal" className="cursor-pointer font-normal">
-                  사내 전용
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          {/* 비밀번호 입력 (선택) */}
-          <div className="space-y-1">
-            <Label htmlFor="share-password">비밀번호 (선택)</Label>
-            <Input
-              id="share-password"
-              type="password"
-              placeholder="비워두면 비밀번호 없음"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                // 오류가 보이는 동안엔 지금 값으로 다시 판정한다 — 고치면 지우고, 다른 문제로 바뀌면 그 안내로 바꾼다
-                // (지난 문구가 남지 않게). 오류가 없을 땐 입력 중에 미리 띄우지 않는다.
-                if (passwordError != null) setPasswordError(sharePasswordError(e.target.value));
-              }}
-              autoComplete="new-password"
-              aria-invalid={passwordError != null}
-              aria-describedby={passwordError ? 'share-password-error' : undefined}
-            />
-            {passwordError && (
-              <p id="share-password-error" className="text-xs text-destructive" data-testid="share-password-error">
-                {passwordError}
-              </p>
-            )}
-          </div>
-
-          {/* 만료일 입력 (선택) */}
-          <div className="space-y-1">
-            <Label htmlFor="share-expires">만료일 (선택)</Label>
-            <Input
-              id="share-expires"
-              type="date"
-              value={expiresAt}
-              onChange={(e) => {
-                setExpiresAt(e.target.value);
-                setExpiresAtError(null);
-              }}
-              min={new Date().toISOString().slice(0, 10)}
-              max={SUPPORTED_DATE_MAX}
-              aria-invalid={expiresAtError != null}
-              aria-describedby={expiresAtError ? 'share-expires-error' : undefined}
-            />
-            {expiresAtError && (
-              <p id="share-expires-error" className="text-xs text-destructive" data-testid="share-expires-error">
-                {expiresAtError}
-              </p>
-            )}
-          </div>
-
-          <Button
-            onClick={onCreate}
-            disabled={creating}
-            className="w-full"
-            data-testid="share-link-create-btn"
-          >
-            {creating ? '생성 중...' : '링크 생성'}
-          </Button>
-        </div>
-        )}
-
-        {/* ── 생성 직후 URL 1회 표시 ── */}
-        {created && (
-          <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2" data-testid="share-link-created-url">
-            <p className="text-xs font-medium text-destructive">
-              이 URL은 지금만 확인할 수 있습니다. 분실 시 새 링크를 발급하세요.
-            </p>
-            <div className="flex gap-2">
-              <Input
-                readOnly
-                value={shareLandingUrl(created.token)}
-                className="flex-1 text-xs font-mono"
-                aria-label="생성된 공유 링크 URL"
-                onFocus={(e) => e.target.select()}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  copyToClipboard(shareLandingUrl(created.token), {
-                    success: '링크를 복사했습니다',
-                    failure: '복사에 실패했습니다. 직접 선택해 복사하세요.',
-                  })
-                }
-                aria-label="공유 링크 복사"
-              >
-                복사
-              </Button>
-            </div>
-          </div>
         )}
 
         {listFailed && (
@@ -286,47 +224,212 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
           </p>
         )}
 
-        {/* ── 기존 링크 목록 ── */}
-        {links.length > 0 && (
-          <div className="space-y-2" data-testid="share-link-list">
-            <p className="text-xs font-medium text-muted-foreground">기존 링크</p>
-            <ul className="space-y-1">
-              {links.map((lk) => (
+        {/* ── 살아 있는 링크 — 다시 복사가 첫 동작이라 맨 위에 둔다 ── */}
+        {live.length > 0 && (
+          <ul className="space-y-2" data-testid="share-link-list">
+            {live.map((lk) => {
+              const { token } = lk;
+              const highlighted = lk.id === highlightId;
+              // 이 카드의 폐기 요청이 진행 중인가 — 다른 카드의 단추는 막지 않는다.
+              const revoking = revoke.isPending && revoke.variables === lk.id;
+              return (
                 <li
                   key={lk.id}
-                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs"
+                  className={cn(
+                    'min-w-0 space-y-2 rounded-md border border-border p-3',
+                    highlighted && 'border-primary ring-1 ring-primary',
+                  )}
                   data-testid="share-link-item"
+                  data-highlighted={highlighted ? 'true' : undefined}
                 >
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    {/* 가시성 배지 */}
-                    <Badge variant="outline">
-                      {lk.audience === 'EXTERNAL' ? '외부' : '사내'}
-                    </Badge>
-                    {/* 상태 배지 — API 토큰 페이지와 동일 매핑(활성=default, 폐기·만료=secondary) */}
-                    <Badge variant={lk.revoked || isExpired(lk.expiresAt) ? 'secondary' : 'default'}>
-                      {lk.revoked ? '폐기됨' : formatExpiry(lk.expiresAt)}
-                    </Badge>
-                    {/* 비밀번호 여부 */}
-                    {lk.hasPassword && <span>🔒 비번</span>}
-                  </span>
-                  {/* 유효한 링크만 폐기 버튼 표시 */}
-                  {!lk.revoked && (
+                  {/* 대상·만료·비밀번호·만든 사람을 한 줄에 — 좁으면(모바일) 만든 사람이 다음 줄로 내려가 칸 폭을 키우지 않는다 */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                    <AudienceBadge link={lk} />
+                    <Badge variant="default">{expiryLabel(lk.expiresAt)}</Badge>
+                    {lk.hasPassword && <Badge variant="secondary">비밀번호</Badge>}
+                    <span className="ml-auto min-w-0 max-w-full truncate text-muted-foreground">{creatorLabel(lk)}</span>
+                  </div>
+                  {/* URL + [복사] — 예전에 만든 링크(토큰 없음)는 서버에 해시만 남아 URL 을 되살릴 수 없어 안내로 바꾼다. 폐기는 둘 다 된다. */}
+                  <div
+                    className="flex min-w-0 items-center gap-2"
+                    data-testid={token ? undefined : 'share-link-legacy-notice'}
+                  >
+                    {token ? (
+                      <>
+                        <Input
+                          readOnly
+                          value={shareLandingUrl(token)}
+                          className="h-8 min-w-0 flex-1 font-mono text-xs"
+                          aria-label="공유 링크 URL"
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => onCopy(token)}
+                          aria-label="공유 링크 복사"
+                          data-testid="share-link-copy-btn"
+                        >
+                          복사
+                        </Button>
+                      </>
+                    ) : (
+                      <p className="min-w-0 flex-1 text-xs text-muted-foreground">예전에 만든 링크라 URL을 다시 볼 수 없습니다.</p>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                      disabled={revokingId === lk.id}
-                      onClick={() => onRevoke(lk.id)}
+                      className="shrink-0 text-destructive hover:text-destructive"
+                      disabled={revoking}
+                      onClick={() => revoke.mutate(lk.id)}
                       aria-label={`링크 ${lk.id} 폐기`}
                       data-testid="share-link-revoke-btn"
                     >
-                      {revokingId === lk.id ? '폐기 중...' : '폐기'}
+                      {revoking ? '폐기 중...' : '폐기'}
                     </Button>
-                  )}
+                  </div>
                 </li>
-              ))}
-            </ul>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* ── 새 링크: 폼을 그 자리에 펼치거나, 접혀 있으면 「+ 새 링크 만들기」 ── */}
+        {showForm ? (
+          <div className="space-y-4 rounded-md border border-border p-3" data-testid="share-link-form">
+            <p className="text-sm font-medium">새 링크</p>
+
+            {/* 가시성 라디오 */}
+            <div className="space-y-2">
+              <Label>가시성</Label>
+              <RadioGroup
+                value={audience}
+                onValueChange={(v) => setAudience(v as 'EXTERNAL' | 'INTERNAL')}
+                className="flex gap-4"
+                aria-label="공유 대상"
+              >
+                <div className="flex items-center gap-1.5">
+                  <RadioGroupItem value="EXTERNAL" id="share-audience-external" />
+                  <Label htmlFor="share-audience-external" className="cursor-pointer font-normal">
+                    외부 (인증 없이 다운로드)
+                  </Label>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <RadioGroupItem value="INTERNAL" id="share-audience-internal" />
+                  <Label htmlFor="share-audience-internal" className="cursor-pointer font-normal">
+                    사내 전용
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {/* 비밀번호 입력 (선택) */}
+            <div className="space-y-1">
+              <Label htmlFor="share-password">비밀번호 (선택)</Label>
+              <Input
+                id="share-password"
+                type="password"
+                placeholder="비워두면 비밀번호 없음"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  // 오류가 보이는 동안엔 지금 값으로 다시 판정한다 — 고치면 지우고, 다른 문제로 바뀌면 그 안내로 바꾼다
+                  // (지난 문구가 남지 않게). 오류가 없을 땐 입력 중에 미리 띄우지 않는다.
+                  if (passwordError != null) setPasswordError(sharePasswordError(e.target.value));
+                }}
+                autoComplete="new-password"
+                aria-invalid={passwordError != null}
+                aria-describedby={passwordError ? 'share-password-error' : undefined}
+              />
+              {passwordError && (
+                <p id="share-password-error" className="text-xs text-destructive" data-testid="share-password-error">
+                  {passwordError}
+                </p>
+              )}
+            </div>
+
+            {/* 만료일 입력 (선택) */}
+            <div className="space-y-1">
+              <Label htmlFor="share-expires">만료일 (선택)</Label>
+              <Input
+                id="share-expires"
+                type="date"
+                value={expiresAt}
+                onChange={(e) => {
+                  setExpiresAt(e.target.value);
+                  setExpiresAtError(null);
+                }}
+                min={new Date().toISOString().slice(0, 10)}
+                max={SUPPORTED_DATE_MAX}
+                aria-invalid={expiresAtError != null}
+                aria-describedby={expiresAtError ? 'share-expires-error' : undefined}
+              />
+              {expiresAtError && (
+                <p id="share-expires-error" className="text-xs text-destructive" data-testid="share-expires-error">
+                  {expiresAtError}
+                </p>
+              )}
+            </div>
+
+            {/* 접을 수 있으면 [취소] + [링크 생성] 을 오른쪽에, 아니면 [링크 생성] 을 꽉 채운다 */}
+            <div className="flex justify-end gap-2">
+              {canCollapseForm && (
+                <Button variant="ghost" onClick={onCancelForm} data-testid="share-link-form-cancel">
+                  취소
+                </Button>
+              )}
+              <Button
+                onClick={onCreate}
+                disabled={create.isPending}
+                className={cn(!canCollapseForm && 'w-full')}
+                data-testid="share-link-create-btn"
+              >
+                {create.isPending ? '생성 중...' : '링크 생성'}
+              </Button>
+            </div>
           </div>
+        ) : (
+          !archived &&
+          !list.isPending && (
+            <Button
+              variant="outline"
+              className="w-full border-dashed"
+              onClick={() => setFormOpen(true)}
+              data-testid="share-link-new-btn"
+            >
+              + 새 링크 만들기
+            </Button>
+          )
+        )}
+
+        {/* ── 지난 링크(폐기·만료) — 접어 두고, 펼치면 흐리게. 다시 쓸 수 없으니 URL·복사·폐기는 없다 ── */}
+        {past.length > 0 && (
+          <Collapsible className="space-y-2">
+            <CollapsibleTrigger
+              className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              data-testid="share-link-past-toggle"
+            >
+              <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+              지난 링크 {past.length}개 (폐기·만료)
+            </CollapsibleTrigger>
+            <CollapsibleContent asChild>
+              <ul className="space-y-1">
+                {past.map((lk) => (
+                  <li
+                    key={lk.id}
+                    className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-3 py-2 text-xs opacity-60"
+                    data-testid="share-link-past-item"
+                  >
+                    <AudienceBadge link={lk} />
+                    {/* 폐기·만료 모두 「다시 쓸 수 없음」이라 의미상 비활성 배지 */}
+                    <StatusBadge type="inactive">{lk.revoked ? '폐기됨' : '만료됨'}</StatusBadge>
+                    <span className="ml-auto min-w-0 max-w-full truncate text-muted-foreground">{creatorLabel(lk)}</span>
+                  </li>
+                ))}
+              </ul>
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         {/* 코너 X 버튼(sr-only "닫기")과 라벨 중복을 피하기 위해 하단 버튼은 앱 전역 컨벤션(#829)에 맞춰 "취소" 사용 */}

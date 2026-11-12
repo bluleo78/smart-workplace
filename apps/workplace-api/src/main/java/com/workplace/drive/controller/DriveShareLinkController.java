@@ -1,7 +1,6 @@
 package com.workplace.drive.controller;
 
 import com.workplace.drive.dto.CreateShareLinkRequest;
-import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.service.DriveShareLinkService;
 import jakarta.validation.Valid;
@@ -19,9 +18,9 @@ import org.springframework.web.bind.annotation.*;
 public class DriveShareLinkController {
   private final DriveShareLinkService service;
 
-  /** 공유 링크 생성 → 201 + 평문 토큰(1회). */
+  /** 공유 링크 생성 → 201 + 목록과 같은 모양의 항목(평문 토큰·만든 사람 이름·만든 시각 포함, WP-1528). */
   @PostMapping("/files/{id}/share-links")
-  public ResponseEntity<CreatedShareLinkResponse> create(
+  public ResponseEntity<ShareLinkResponse> create(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long driveFileId,
       @Valid @RequestBody CreateShareLinkRequest req) {
@@ -29,7 +28,7 @@ public class DriveShareLinkController {
         .body(service.create(callerId, driveFileId, req));
   }
 
-  /** 파일의 링크 목록(토큰 미포함). */
+  /** 파일의 링크 목록(토큰·만든 사람 이름 포함, EDITOR 이상 — WP-1528). */
   @GetMapping("/files/{id}/share-links")
   public ResponseEntity<List<ShareLinkResponse>> list(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
