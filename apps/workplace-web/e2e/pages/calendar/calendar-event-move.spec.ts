@@ -117,3 +117,66 @@ test.describe('일정 끌어 옮기기 (WP-1328)', { tag: '@input' }, () => {
     expect(patches).toHaveLength(0)
   })
 })
+
+// 일정 테두리 늘이기(WP-1518) — 주 보기 블록의 위·아래 손잡이를 끌어 시작·종료 시각만 바꾼다(저장은 옮기기와 같은 PATCH).
+test.describe('일정 테두리 늘이기', { tag: ['@input'] }, () => {
+  /** 브라우저 시간대의 2026-06-10 10:00–11:00 일정을 주 보기에 띄운다(미리보기 글자가 시간대와 무관하게 「10:00」이 되도록 페이지 안에서 만든다). */
+  async function openWeek(page: Page) {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    const [startsAt, endsAt] = await page.evaluate(() => [
+      new Date(2026, 5, 10, 10, 0).toISOString(),
+      new Date(2026, 5, 10, 11, 0).toISOString(),
+    ])
+    const patches = await stubEvents(page, [calendarEvent({ id: 1, title: '팀 회의', startsAt, endsAt })])
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-view-week-btn').click()
+    const block = page.getByTestId('calendar-view-week').getByTestId('calendar-event-1')
+    await block.scrollIntoViewIfNeeded()
+    await expect(block).toBeVisible()
+    return { patches, startsAt, endsAt }
+  }
+
+  test('아래 손잡이를 한 시간 아래로 끌면 종료만 한 시간 늦춰 저장된다', async ({ authenticatedPage: page }) => {
+    const { patches, startsAt, endsAt } = await openWeek(page)
+    const from = await center(page, 'calendar-event-resize-end')
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(from.x, from.y + 48, { steps: 8 })
+    // 끄는 중 — 미리보기에 바뀌는 시각 범위
+    await expect(page.getByTestId('calendar-move-preview')).toHaveText('오전 10:00 – 오후 12:00 팀 회의')
+    await page.mouse.up()
+
+    await expect.poll(() => patches.length).toBe(1)
+    const { body } = patches[0]
+    expect(new Date(body.startsAt!).getTime()).toBe(new Date(startsAt).getTime())
+    expect(new Date(body.endsAt!).getTime()).toBe(new Date(endsAt).getTime() + HOUR)
+    // 끈 뒤의 click 은 일정을 열지 않는다
+    await expect(page.getByTestId('calendar-event-dialog')).toHaveCount(0)
+  })
+
+  test('위 손잡이를 한 시간 위로 끌면 시작만 한 시간 당겨 저장된다', async ({ authenticatedPage: page }) => {
+    const { patches, startsAt, endsAt } = await openWeek(page)
+    const from = await center(page, 'calendar-event-resize-start')
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(from.x, from.y - 48, { steps: 8 })
+    await expect(page.getByTestId('calendar-move-preview')).toHaveText('오전 09:00 – 오전 11:00 팀 회의')
+    await page.mouse.up()
+
+    await expect.poll(() => patches.length).toBe(1)
+    const { body } = patches[0]
+    expect(new Date(body.startsAt!).getTime()).toBe(new Date(startsAt).getTime() - HOUR)
+    expect(new Date(body.endsAt!).getTime()).toBe(new Date(endsAt).getTime())
+    await expect(page.getByTestId('calendar-event-dialog')).toHaveCount(0)
+  })
+
+  test('손잡이를 움직이지 않고 떼면 일정이 열리고 저장 요청은 없다', async ({ authenticatedPage: page }) => {
+    const { patches } = await openWeek(page)
+    const from = await center(page, 'calendar-event-resize-end')
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.up()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    expect(patches).toHaveLength(0)
+  })
+})
