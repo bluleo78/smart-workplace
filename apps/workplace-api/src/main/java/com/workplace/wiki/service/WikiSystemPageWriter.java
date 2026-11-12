@@ -7,10 +7,13 @@ import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiSpaceRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.ToIntFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -36,6 +39,10 @@ public class WikiSystemPageWriter {
   private final ProjectNoteSpaceService noteSpaces;
   private final WikiPageRepository pages;
   private final WikiSpaceRepository spaces;
+  private final WikiSpaceService spaceService;
+
+  /** 개인 보고의 맨 위 페이지 제목(내 노트 › 보고). */
+  public static final String PERSONAL_REPORTS_TITLE = "보고";
 
   /** 프로젝트 노트 공간과 그 「리포트」 페이지. */
   public record ReportsHome(long spaceId, long reportsPageId) {}
@@ -50,7 +57,78 @@ public class WikiSystemPageWriter {
   public Optional<ReportsHome> ensureReportsHome(long projectId, long authorId) {
     Optional<Long> spaceId =
         spaces.findIdByLinkedProject(projectId).or(() -> noteSpaces.ensureSpace(projectId, null));
-    return spaceId.map(id -> new ReportsHome(id, noteSpaces.ensureReportPage(id, authorId)));
+    return spaceId.map(
+        id ->
+            new ReportsHome(
+                id, noteSpaces.ensureRootPage(id, ProjectNoteSpaceService.REPORT_TITLE, authorId)));
+  }
+
+  /** 내 노트(PERSONAL) 공간과 그 「보고」 페이지. */
+  public record PersonalReportsHome(long spaceId, long reportsPageId) {}
+
+  /**
+   * 본인의 「내 노트」 PERSONAL 공간과 그 맨 위 「보고」를 보장한다(WP-1486) — 공간이 없으면 만들고, 「보고」가 없거나 이름이 바뀌었으면 맨 위에 새로
+   * 만든다. 공간은 언제나 {@code type='PERSONAL' AND owner=userId} 로 얻고 저장 위치를 입력으로 받지 않는다 — 사용자가 팀 공간 OWNER
+   * 여도 팀 공간에 두지 않으며, 다른 사람 id 를 받는 별도 공개 메서드도 두지 않는다.
+   */
+  @Transactional
+  public PersonalReportsHome ensurePersonalReportsHome(long userId) {
+    long spaceId = spaceService.ensurePersonalSpace(userId).id();
+    return new PersonalReportsHome(
+        spaceId, noteSpaces.ensureRootPage(spaceId, PERSONAL_REPORTS_TITLE, userId));
+  }
+
+  /** 본인의 PERSONAL 공간과 「보고」가 둘 다 이미 있을 때만 돌려준다 — 아무것도 만들지 않는다(설정 화면이 읽기만 할 때). 하나라도 없으면 empty. */
+  @Transactional(readOnly = true)
+  public Optional<PersonalReportsHome> findPersonalReportsHome(long userId) {
+    return spaces
+        .findPersonalSpaceId(userId)
+        .flatMap(
+            spaceId ->
+                noteSpaces
+                    .findRootPage(spaceId, PERSONAL_REPORTS_TITLE)
+                    .map(pageId -> new PersonalReportsHome(spaceId, pageId)));
+  }
+
+  /**
+   * parentId 바로 아래의 빈 본문 폴더 페이지를 보장해 id 를 돌려준다(WP-1486). 공간 트리를 잠근 뒤 같은 제목을 찾고(여럿이면 작은 id), 없으면 만들어
+   * positionFor 가 정한 자리로 옮긴다 — 동시 호출이 같은 제목 폴더를 둘 만들지 않게 한다. 자리는 잠근 뒤 읽은 형제 제목(화면 순서)으로 정하므로 「최신 달이
+   * 위」처럼 형제 사이 순서를 지키는 자리도 경합 없이 계산된다. 역할 검사는 하지 않는다.
+   *
+   * @param positionFor 새 폴더를 만들 때만 부른다 — 기존 형제 제목(화면 순서, 새 폴더 제외)을 받아 옮길 자리(0부터)를 돌려준다
+   */
+  @Transactional
+  public long ensureChildFolder(
+      long spaceId,
+      long parentId,
+      String title,
+      long authorId,
+      ToIntFunction<List<String>> positionFor) {
+    pages.lockSpaceTree(spaceId);
+    List<Long> children = pages.childIdsOrdered(spaceId, parentId);
+    Map<Long, String> titles = pages.findTitles(children);
+    Optional<Long> found =
+        children.stream().filter(id -> title.equals(titles.get(id))).min(Long::compare);
+    if (found.isPresent()) {
+      return found.get();
+    }
+    int position = positionFor.applyAsInt(children.stream().map(titles::get).toList());
+    long id =
+        pageService
+            .createWithoutRoleCheck(authorId, spaceId, new CreatePageRequest(parentId, title))
+            .id();
+    pageService.moveAsSystem(authorId, id, parentId, position);
+    return id;
+  }
+
+  /**
+   * 공간 트리 잠금(트랜잭션 advisory 락 — 만들기·옮기기·{@link #ensureChildFolder} 가 잡는 것과 같은 잠금)을 부른 쪽 트랜잭션에서
+   * 잡는다(WP-1486). 「찾고 없으면 만들기」를 여러 단계로 하는 쪽(개인 보고 템플릿)이 잠근 뒤 다시 찾아 같은 페이지를 둘 만들지 않게 할 때 쓴다. 트랜잭션
+   * 밖에서 부르면 잠금이 곧바로 풀려 뜻이 없으므로 바깥 트랜잭션을 요구한다.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void lockSpaceTree(long spaceId) {
+    pages.lockSpaceTree(spaceId);
   }
 
   /** 역할 검사 없이 페이지를 만든다(맨 끝 자리). 부모는 같은 공간이어야 한다. */
@@ -92,13 +170,25 @@ public class WikiSystemPageWriter {
   /** 공간의 「리포트」 페이지 id(만들지 않는다) — 개요 카드 「노트에서 모두 보기」(WP-1483). 지웠거나 이름을 바꿨으면 empty. */
   @Transactional(readOnly = true)
   public Optional<Long> findReportsPage(long spaceId) {
-    return noteSpaces.findReportPage(spaceId);
+    return noteSpaces.findRootPage(spaceId, ProjectNoteSpaceService.REPORT_TITLE);
   }
 
   /** 페이지 상세(역할 검사 없음). 없으면 empty. */
   @Transactional(readOnly = true)
   public Optional<WikiPageDetail> findPage(long pageId) {
     return pages.findDetail(pageId);
+  }
+
+  /** 페이지 제목만(본문을 읽지 않는다). 없으면 empty. */
+  @Transactional(readOnly = true)
+  public Optional<String> findTitle(long pageId) {
+    return pages.findTitle(pageId);
+  }
+
+  /** 페이지 마지막 수정 시각만(본문을 읽지 않는다). 없으면 empty. */
+  @Transactional(readOnly = true)
+  public Optional<OffsetDateTime> findUpdatedAt(long pageId) {
+    return pages.findUpdatedAt(pageId);
   }
 
   /** 페이지 본문(마크다운). 없으면 empty. */

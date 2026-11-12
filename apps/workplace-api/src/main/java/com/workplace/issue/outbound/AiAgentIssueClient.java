@@ -5,6 +5,8 @@ import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.issue.outbound.dto.IssueSummaryRequest;
 import com.workplace.issue.outbound.dto.IssueSummaryResult;
+import com.workplace.issue.outbound.dto.PersonalReportAiRequest;
+import com.workplace.issue.outbound.dto.PersonalReportAiResult;
 import com.workplace.issue.outbound.dto.ProjectReportAiRequest;
 import com.workplace.issue.outbound.dto.ProjectReportAiResult;
 import com.workplace.issue.outbound.dto.ProjectStatusAiRequest;
@@ -130,6 +132,20 @@ public class AiAgentIssueClient {
         ProjectReportAiResult.class,
         "AI 리포트 작성 요청에 실패했어요.",
         "project report");
+  }
+
+  /**
+   * 개인 일일·주간·월간 보고 본문(WP-1486) — 템플릿·계산값·이슈 목록을 보내 마크다운을 받는다. 프로젝트 리포트와 같은 리포트 전용 RestClient(긴 읽기
+   * 시간 제한)로 보내고, 실행 예산도 {@link #PROJECT_REPORT_TIMEOUT_MS} 를 같이 쓴다.
+   */
+  public PersonalReportAiResult writePersonalReport(PersonalReportAiRequest req) {
+    return post(
+        reportRestClient,
+        "/issue/personal-report",
+        req,
+        PersonalReportAiResult.class,
+        "AI 보고 작성 요청에 실패했어요.",
+        "personal report");
   }
 
   /**

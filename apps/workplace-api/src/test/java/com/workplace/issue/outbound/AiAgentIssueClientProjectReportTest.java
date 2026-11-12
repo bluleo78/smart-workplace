@@ -49,7 +49,10 @@ class AiAgentIssueClientProjectReportTest {
             "에픽",
             LocalDate.of(2026, 11, 10),
             null,
-            "DONE");
+            "DONE",
+            "WP",
+            null,
+            false);
     return new ProjectReportAiRequest(
         "WP",
         "11월 2주차 주간 리포트",

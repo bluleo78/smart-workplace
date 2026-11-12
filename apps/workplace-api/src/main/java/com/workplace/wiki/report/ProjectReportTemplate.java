@@ -2,16 +2,10 @@ package com.workplace.wiki.report;
 
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.project.dto.ProjectRow;
-import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.report.ProjectReportSettingRepository.SettingRow;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -21,7 +15,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * › 리포트 › 「템플릿 · 주간 리포트」로 복사하고, 기본으로 되돌린다.
  *
  * <p>쓰기는 {@link WikiSystemPageWriter}(역할 검사 없음)로 한다 — 작성자는 부르는 쪽이 정한 리포트 작성자. 본문 쓰기는 동기화 서버 위임 경로라
- * 이 클래스의 메서드는 트랜잭션 밖에서 불러야 한다. 설정 행 읽기·쓰기만 짧은 트랜잭션으로 감싼다.
+ * 이 클래스의 메서드는 트랜잭션 밖에서 불러야 한다. 설정 행 읽기·쓰기만 짧은 트랜잭션으로 감싼다. 복사·판정·덮기는 개인 보고와 나눠 쓰는 {@link
+ * ReportTemplateCopier}(WP-1486) 가 한다.
  */
 @Component
 public class ProjectReportTemplate {
@@ -33,6 +28,7 @@ public class ProjectReportTemplate {
   private static final String RESOURCE = "report/project-weekly-template.md";
 
   private final WikiSystemPageWriter writer;
+  private final ReportTemplateCopier copier;
   private final ProjectReportSettingRepository settings;
   private final TransactionTemplate tx;
   private final String publicBaseUrl;
@@ -40,23 +36,17 @@ public class ProjectReportTemplate {
 
   public ProjectReportTemplate(
       WikiSystemPageWriter writer,
+      ReportTemplateCopier copier,
       ProjectReportSettingRepository settings,
       PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.writer = writer;
+    this.copier = copier;
     this.settings = settings;
     this.tx = new TransactionTemplate(txManager);
     this.publicBaseUrl = publicBaseUrl;
-    this.rawTemplate = load();
-  }
-
-  /** 기동 때 한 번 원문을 읽는다 — 없으면 배포가 잘못된 것이라 기동을 실패시킨다. */
-  private static String load() {
-    try (InputStream in = new ClassPathResource(RESOURCE).getInputStream()) {
-      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-    } catch (IOException e) {
-      throw new UncheckedIOException("기본 리포트 템플릿을 읽지 못했습니다: " + RESOURCE, e);
-    }
+    // 기동 때 한 번 원문을 읽는다 — 없으면 배포가 잘못된 것이라 기동을 실패시킨다.
+    this.rawTemplate = ReportTemplateCopier.loadResource(RESOURCE);
   }
 
   /**
@@ -76,7 +66,7 @@ public class ProjectReportTemplate {
   public long ensureTemplate(ProjectRow project, ReportsHome home, long authorId) {
     Long current =
         tx.execute(s -> settings.find(project.id()).map(SettingRow::templatePageId).orElse(null));
-    if (current != null && writer.existsUnder(current, home.reportsPageId())) {
+    if (copier.isUnder(current, home.reportsPageId())) {
       return current;
     }
     return copy(project, home, authorId);
@@ -92,33 +82,24 @@ public class ProjectReportTemplate {
             .orElseThrow(() -> new IllegalArgumentException("개인 프로젝트는 리포트를 만들지 않아요."));
     Long current =
         tx.execute(s -> settings.find(project.id()).map(SettingRow::templatePageId).orElse(null));
-    if (current == null || !writer.existsUnder(current, home.reportsPageId())) {
+    if (!copier.isUnder(current, home.reportsPageId())) {
       copy(project, home, authorId);
       return;
     }
-    WikiPageDetail page = writer.findPage(current).orElseThrow();
-    writer.writeBody(
-        authorId,
-        current,
-        page.version(),
-        defaultMarkdown(publicBaseUrl, project.key()),
-        false,
-        true);
+    copier.overwrite(current, authorId, defaultMarkdown(publicBaseUrl, project.key()));
   }
 
   /** 기본 템플릿을 「리포트」 아래 새 페이지로 복사해 맨 위로 올리고 설정에 적는다. */
   private long copy(ProjectRow project, ReportsHome home, long authorId) {
-    WikiPageDetail page =
-        writer.createPage(authorId, home.spaceId(), home.reportsPageId(), TEMPLATE_TITLE);
-    writer.writeBody(
-        authorId,
-        page.id(),
-        page.version(),
-        defaultMarkdown(publicBaseUrl, project.key()),
-        false,
-        false);
-    writer.moveTo(page.id(), home.reportsPageId(), 0);
-    tx.executeWithoutResult(s -> settings.setTemplate(project.id(), page.id()));
-    return page.id();
+    long pageId =
+        copier.copy(
+            defaultMarkdown(publicBaseUrl, project.key()),
+            TEMPLATE_TITLE,
+            home.spaceId(),
+            home.reportsPageId(),
+            authorId,
+            0);
+    tx.executeWithoutResult(s -> settings.setTemplate(project.id(), pageId));
+    return pageId;
   }
 }

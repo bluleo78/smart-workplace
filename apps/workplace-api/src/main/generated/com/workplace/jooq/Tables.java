@@ -114,6 +114,8 @@ import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.NotificationAppSetting;
 import com.workplace.jooq.tables.NotificationSetting;
 import com.workplace.jooq.tables.Permission;
+import com.workplace.jooq.tables.PersonalReport;
+import com.workplace.jooq.tables.PersonalReportSetting;
 import com.workplace.jooq.tables.PlatformRole;
 import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
@@ -730,6 +732,16 @@ public class Tables {
      * The table <code>public.permission</code>.
      */
     public static final Permission PERMISSION = Permission.PERMISSION;
+
+    /**
+     * The table <code>public.personal_report</code>.
+     */
+    public static final PersonalReport PERSONAL_REPORT = PersonalReport.PERSONAL_REPORT;
+
+    /**
+     * The table <code>public.personal_report_setting</code>.
+     */
+    public static final PersonalReportSetting PERSONAL_REPORT_SETTING = PersonalReportSetting.PERSONAL_REPORT_SETTING;
 
     /**
      * 플랫폼(운영자) 평면 역할 — 테넌트 role 과 분리된 전역 RBAC

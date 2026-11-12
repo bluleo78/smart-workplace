@@ -36,6 +36,13 @@ describe('aiAttributionLabel', () => {
     expect(aiAttributionLabel(page({ aiLastAction: null, aiLastUsedAt: null }), NOW)).toBeNull()
   })
 
+  test('personalReportPage_showsAiWritten — 개인 보고(WP-1486)도 같은 표지(ai_last_action=report)라 고치기 전에는 「AI 작성」', () => {
+    // 개인 보고는 본인 이름으로 쓰고 표지 시각이 쓰기 시각과 같다 — 수정 시각 ≤ 표지 시각.
+    const personal = page({ aiLastAction: 'report', aiLastUsedAt: '2026-11-12T00:00:05Z', updatedAt: '2026-11-12T00:00:05Z', updatedByName: '양동희' })
+    expect(aiAttributionLabel(personal, NOW)).toBe('AI 작성')
+    expect(aiAttributionLabel({ ...personal, updatedAt: '2026-11-12T00:00:01Z' }, NOW)).toBe('AI 작성')
+  })
+
   test('missingName_showsEditedTimeOnly — 수정자 이름이 없으면 「AI 작성 · 수정 {시각}」', () => {
     expect(aiAttributionLabel(page({ updatedAt: '2026-11-16T01:12:00Z', updatedByName: null }), NOW)).toBe('AI 작성 · 수정 오늘 10:12')
     expect(aiAttributionLabel(page({ updatedAt: '2026-11-16T01:12:00Z', updatedByName: undefined }), NOW)).toBe('AI 작성 · 수정 오늘 10:12')

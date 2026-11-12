@@ -2,7 +2,9 @@
 // 보고서 원자료라 숫자·태그는 서버가 준 그대로 그린다. 분석 중(PENDING)이면 훅이 3초마다 다시 읽고, 「다시 분석」은 하루 상한(429)을 서버 문구로 알린다.
 // 조회 실패는 카드 안에서만 다시 시도를 보인다 — 개요 전체를 막지 않는다.
 // AI 결과 영역은 AiContent 가 「AI 분석」 로 한 번 표시한다(§7.2) — 안의 요약·태그에는 따로 표식을 더하지 않는다.
-import { Loader2 } from 'lucide-react'
+// 머리 오른쪽에 「보고서 만들기」(AI)·⚙ 「보고서 설정」(WP-1486, P1) — 두 창은 카드에 붙어 있어 만들기 창을 닫아도 생성 폴링이 이어진다.
+import { Loader2, Settings } from 'lucide-react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { AiContent } from '@/components/ai/AiContent'
@@ -15,6 +17,8 @@ import { extractApiError } from '@/lib/api-error'
 import type { MeOverviewPeriod, WorkProfile, WorkProfileCount } from '@/types/meOverview'
 
 import { OverviewCard } from './OverviewCard'
+import { CreateReportDialog } from './reports/CreateReportDialog'
+import { ReportSettingsDialog } from './reports/ReportSettingsDialog'
 import { statusLine } from './workProfileModel'
 
 /** 업무 프로파일 카드 — 기간은 개요 탭 기간 고르기를 그대로 따른다. */
@@ -27,6 +31,9 @@ export function WorkProfileCard({ period }: { period: MeOverviewPeriod }) {
   const nothingToAnalyze = profile?.status === 'NONE'
   // 분석 중(서버 PENDING 또는 방금 누른 요청)에는 AiIcon 대신 회전 스피너 — 접근 이름은 그대로 「다시 분석」.
   const busy = pending || analyze.isPending
+  // 보고서 만들기·설정 창 — 만들기 창 아래 「보고서 설정」은 만들기 창을 닫고 설정 창을 연다.
+  const [createOpen, setCreateOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // 다시 분석 — 시작(STARTED)·이미 분석 중은 카드가 「분석하는 중」으로 바뀌어 따로 알리지 않는다. 바뀐 게 없을 때와 실패만 토스트.
   const onAnalyze = () =>
@@ -45,7 +52,8 @@ export function WorkProfileCard({ period }: { period: MeOverviewPeriod }) {
           <h2 className="text-sm font-semibold">업무 프로파일</h2>
           <p className="text-xs text-muted-foreground">끝낸 이슈에서 분석 · 보고서 원자료</p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* 좁은 폭에서는 단추들이 줄바꿈한다 — 「다시 분석」·「보고서 만들기」는 글자, ⚙ 는 아이콘만. */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {profile && <StatusText profile={profile} />}
           <Button variant="outline" size="sm" onClick={onAnalyze} disabled={!profile || busy || nothingToAnalyze}>
             {busy ? (
@@ -56,6 +64,12 @@ export function WorkProfileCard({ period }: { period: MeOverviewPeriod }) {
             ) : (
               <AiLabel>다시 분석</AiLabel>
             )}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
+            <AiLabel>보고서 만들기</AiLabel>
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label="보고서 설정" title="보고서 설정" onClick={() => setSettingsOpen(true)}>
+            <Settings aria-hidden />
           </Button>
         </div>
       </div>
@@ -72,6 +86,15 @@ export function WorkProfileCard({ period }: { period: MeOverviewPeriod }) {
       ) : (
         <ProfileBody profile={profile} />
       )}
+      <CreateReportDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onOpenSettings={() => {
+          setCreateOpen(false)
+          setSettingsOpen(true)
+        }}
+      />
+      <ReportSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </OverviewCard>
   )
 }

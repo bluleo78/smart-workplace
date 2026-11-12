@@ -164,6 +164,9 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | work-11 | `/projects/MOB`(목록) | 김서연 | **AI 결과 — once**. **새 태스크** 창에 제목·본문을 넣고 **AI 제안 받기**(POST …/issues/ai-classify 만 연다, 저장 없음). **생성** 은 누르지 않는다 | `dialog` | `ai,fields,submit@tr` | — |
 | work-12 | `/projects/MOB/settings` | 김서연 | **리포트** 섹션까지 내려 연 그대로(스위치·선택 상자·**기본으로 되돌리기** 는 누르지 않음). 그림 지시문은 촬영 뒤 08장 「프로젝트를 설정한다」에 넣는다(WP-1483) | `section` | `summary,enabled,schedule,template` | MOB 리포트 설정 켜짐(템플릿 노트 있음) |
 | work-13 | `/projects/MOB/overview` | 김서연 | **AI 결과 — once**. 개요를 연 그대로(**지난 리포트** 는 펼쳐 찍고 닫는다). 그림 지시문은 촬영 뒤 08장 「프로젝트를 개요로 살핀다」에 넣는다(WP-1483) | `card` | `line,full,past` | MOB 주간 리포트 1편 이상(실제 AI 로 만든 것) |
+| work-14 | `/me/overview` | 김서연 | 업무 프로파일 카드의 톱니바퀴로 **보고서 설정** 창을 연 그대로(바꾸지 않음). 그림 지시문은 촬영 뒤 08장 「보고서를 설정한다」에 넣는다(WP-1486) | `dialog` | `daily,time,skip,templates,location` | 일일 보고 켜짐, 템플릿 두 개 |
+| work-15 | `/me/overview` | 김서연 | 카드 머리 **보고서 만들기** 창을 연 그대로(**초안 만들기** 는 누르지 않음). 그림 지시문은 촬영 뒤 08장 「내 일일·주간·월간 보고를 받는다」에 넣는다(WP-1486) | `dialog` | `kind,period,location,submit` | — |
+| work-16 | `/wiki/<일일 보고 노트>` | 김서연 | **AI 결과 — 한 번 찍어 고정, 재촬영 제외(once)**. 실제 AI 로 만든 일일 보고 노트를 연 그대로. 그림 지시문은 촬영 뒤 08장에 넣는다(WP-1486) | `page` | `title,body` | 내 노트 › 보고 › 월 폴더에 일일 보고 1편(실제 AI 로 만든 것) |
 
 ### 09 드라이브
 

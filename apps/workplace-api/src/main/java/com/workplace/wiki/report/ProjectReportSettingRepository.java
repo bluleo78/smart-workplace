@@ -29,8 +29,8 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class ProjectReportSettingRepository {
 
-  /** last_error 에 남기는 최대 글자 수(설계 「데이터」). */
-  static final int ERROR_MAX = 500;
+  /** last_error 에 남기는 최대 글자 수(설계 「데이터」) — 공용 {@link ReportErrors#ERROR_MAX}. */
+  static final int ERROR_MAX = ReportErrors.ERROR_MAX;
 
   private static final String TBL = "project_report_setting";
   private static final Table<?> T = table(name(TBL));
@@ -182,7 +182,7 @@ public class ProjectReportSettingRepository {
         .set(CONSECUTIVE_FAILURES, CONSECUTIVE_FAILURES.plus(1))
         // 실행 중에 꺼졌으면(설정 저장이 next_run_at 을 비움) 재시도 시각을 되살리지 않는다.
         .set(NEXT_RUN_AT, DSL.when(ENABLED.isTrue(), DSL.val(nextRunAt, OffsetDateTime.class)))
-        .set(LAST_ERROR, trim(error))
+        .set(LAST_ERROR, ReportErrors.trim(error))
         .set(LAST_ATTEMPT_AT, DSL.currentOffsetDateTime())
         .where(PROJECT_ID.eq(projectId))
         .returning(CONSECUTIVE_FAILURES)
@@ -198,17 +198,10 @@ public class ProjectReportSettingRepository {
     dsl.update(T)
         .set(CONSECUTIVE_FAILURES, 0)
         .set(NEXT_RUN_AT, DSL.when(ENABLED.isTrue(), DSL.val(nextRunAt, OffsetDateTime.class)))
-        .set(LAST_ERROR, trim(error))
+        .set(LAST_ERROR, ReportErrors.trim(error))
         .set(LAST_ATTEMPT_AT, DSL.currentOffsetDateTime())
         .where(PROJECT_ID.eq(projectId))
         .execute();
-  }
-
-  /** 오류 글 앞 {@link #ERROR_MAX} 자. */
-  private static String trim(String error) {
-    return error == null
-        ? null
-        : error.length() > ERROR_MAX ? error.substring(0, ERROR_MAX) : error;
   }
 
   /** 성공(또는 회차를 넘김) — 연속 실패 수와 오류를 지운다. */

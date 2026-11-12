@@ -11,8 +11,10 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.service.WikiSystemPageWriter.PersonalReportsHome;
 import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -133,6 +135,121 @@ class WikiSystemPageWriterTest extends ExternalClientMockedTestBase {
     ProjectResponse personal =
         projectService.create(ownerId, new CreateProjectRequest(null, "개인", null, "PERSONAL"));
     assertThat(writer.ensureReportsHome(personal.id(), ownerId)).isEmpty();
+  }
+
+  /** 개인 「보고」 자리 — PERSONAL 공간(owner=본인)과 루트 첫 자리 「보고」. 두 번 불러도 같다. */
+  @Test
+  void ensurePersonalReportsHome_createsPersonalSpaceAndReports() {
+    PersonalReportsHome home = writer.ensurePersonalReportsHome(ownerId);
+    assertThat(writer.ensurePersonalReportsHome(ownerId)).isEqualTo(home);
+    var space = dsl.selectFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(home.spaceId())).fetchOne();
+    assertThat(space.getType()).isEqualTo("PERSONAL");
+    assertThat(space.getOwnerId()).isEqualTo(ownerId);
+    assertThat(rootIds(home.spaceId())).first().isEqualTo(home.reportsPageId());
+    assertThat(pageService.get(ownerId, home.reportsPageId()).title()).isEqualTo("보고");
+  }
+
+  /** 「보고」 이름을 바꾸면 맨 위에 새 「보고」를 만든다. */
+  @Test
+  void ensurePersonalReportsHome_recreatesRenamedReports() {
+    PersonalReportsHome first = writer.ensurePersonalReportsHome(ownerId);
+    dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.TITLE, "옛 보고")
+        .where(WIKI_PAGE.ID.eq(first.reportsPageId()))
+        .execute();
+
+    PersonalReportsHome again = writer.ensurePersonalReportsHome(ownerId);
+    assertThat(again.spaceId()).isEqualTo(first.spaceId());
+    assertThat(again.reportsPageId()).isNotEqualTo(first.reportsPageId());
+    assertThat(rootIds(again.spaceId())).first().isEqualTo(again.reportsPageId());
+  }
+
+  /** 팀 공간(프로젝트 공간)의 OWNER 여도 「보고」 자리는 본인의 PERSONAL 공간이다. */
+  @Test
+  void ensurePersonalReportsHome_teamSpaceMemberStillPersonal() {
+    // seed() 의 프로젝트 공간 소유자가 ownerId 다.
+    long teamSpace = writer.ensureReportsHome(project.id(), ownerId).orElseThrow().spaceId();
+    PersonalReportsHome home = writer.ensurePersonalReportsHome(ownerId);
+    assertThat(home.spaceId()).isNotEqualTo(teamSpace);
+    assertThat(
+            dsl.select(WIKI_SPACE.TYPE)
+                .from(WIKI_SPACE)
+                .where(WIKI_SPACE.ID.eq(home.spaceId()))
+                .fetchOne(WIKI_SPACE.TYPE))
+        .isEqualTo("PERSONAL");
+  }
+
+  /** 월 폴더 — 같은 제목은 하나, 지워졌으면 다시 만들고, 지정한 자리에 둔다. */
+  @Test
+  void ensureChildFolder_recreatesDeletedFolder() {
+    PersonalReportsHome home = writer.ensurePersonalReportsHome(ownerId);
+    long a =
+        writer.ensureChildFolder(
+            home.spaceId(), home.reportsPageId(), "2026년 11월", ownerId, s -> 0);
+    assertThat(
+            writer.ensureChildFolder(
+                home.spaceId(), home.reportsPageId(), "2026년 11월", ownerId, s -> 0))
+        .isEqualTo(a);
+    dsl.deleteFrom(WIKI_PAGE).where(WIKI_PAGE.ID.eq(a)).execute();
+
+    long b =
+        writer.ensureChildFolder(
+            home.spaceId(), home.reportsPageId(), "2026년 11월", ownerId, s -> 0);
+    assertThat(b).isNotEqualTo(a);
+    assertThat(writer.existsUnder(b, home.reportsPageId())).isTrue();
+    assertThat(writer.readBody(b)).hasValue("");
+  }
+
+  /** 자리 함수 — 잠근 뒤 읽은 기존 형제 제목(화면 순서)을 받아 그 자리에 둔다. 이미 있으면 부르지 않는다. */
+  @Test
+  void ensureChildFolder_positionFromSiblingTitles() {
+    PersonalReportsHome home = writer.ensurePersonalReportsHome(ownerId);
+    long nov =
+        writer.ensureChildFolder(
+            home.spaceId(), home.reportsPageId(), "2026년 11월", ownerId, s -> 0);
+    List<List<String>> seen = new ArrayList<>();
+    long dec =
+        writer.ensureChildFolder(
+            home.spaceId(),
+            home.reportsPageId(),
+            "2026년 12월",
+            ownerId,
+            siblings -> {
+              seen.add(siblings);
+              return 0;
+            });
+    assertThat(seen).containsExactly(List.of("2026년 11월"));
+    assertThat(writer.childIdsOrdered(home.reportsPageId())).containsExactly(dec, nov);
+
+    writer.ensureChildFolder(
+        home.spaceId(),
+        home.reportsPageId(),
+        "2026년 12월",
+        ownerId,
+        siblings -> {
+          throw new AssertionError("이미 있으면 자리를 계산하지 않는다");
+        });
+  }
+
+  /** 읽기 전용 — 없으면 empty(아무것도 만들지 않는다), 만든 뒤에는 같은 id. */
+  @Test
+  void findPersonalReportsHome_emptyUntilEnsured() {
+    assertThat(writer.findPersonalReportsHome(ownerId)).isEmpty();
+    assertThat(
+            dsl.fetchCount(
+                WIKI_SPACE, WIKI_SPACE.TYPE.eq("PERSONAL").and(WIKI_SPACE.OWNER_ID.eq(ownerId))))
+        .isZero();
+    PersonalReportsHome home = writer.ensurePersonalReportsHome(ownerId);
+    assertThat(writer.findPersonalReportsHome(ownerId)).hasValue(home);
+  }
+
+  private List<Long> rootIds(long spaceId) {
+    return dsl.select(WIKI_PAGE.ID)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
+        .and(WIKI_PAGE.PARENT_ID.isNull())
+        .orderBy(WIKI_PAGE.POSITION, WIKI_PAGE.ID)
+        .fetch(WIKI_PAGE.ID);
   }
 
   private long human() {

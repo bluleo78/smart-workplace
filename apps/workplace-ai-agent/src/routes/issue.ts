@@ -7,6 +7,7 @@ import { issueClassifyInputSchema, runIssueClassify } from '../agent/run-issue-c
 import { runWorkProfile, workProfileInputSchema } from '../agent/run-work-profile.js'
 import { projectStatusInputSchema, runProjectStatus } from '../agent/run-project-status.js'
 import { projectReportInputSchema, runProjectReport } from '../agent/run-project-report.js'
+import { personalReportInputSchema, runPersonalReport } from '../agent/run-personal-report.js'
 
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
@@ -117,6 +118,21 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     } catch (e) {
       console.error('[issue-project-report] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'project_report_failed' })
+    }
+  })
+
+  // 개인 보고 본문(WP-1486) — 내 노트 템플릿 샘플·계산값·이슈 목록 → 일일·주간·월간 보고 마크다운. 숫자 표는 API 가 후처리로 바로잡는다.
+  router.post('/issue/personal-report', async (req: Request, res: Response): Promise<void> => {
+    const parsed = personalReportInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues })
+      return
+    }
+    try {
+      res.status(200).json(await runPersonalReport(parsed.data, deps))
+    } catch (e) {
+      console.error('[issue-personal-report] 실패:', e instanceof Error ? e.message : String(e))
+      res.status(502).json({ error: 'personal_report_failed' })
     }
   })
 

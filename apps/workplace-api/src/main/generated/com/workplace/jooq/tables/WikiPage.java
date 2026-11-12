@@ -8,6 +8,8 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Notification.NotificationPath;
+import com.workplace.jooq.tables.PersonalReport.PersonalReportPath;
+import com.workplace.jooq.tables.PersonalReportSetting.PersonalReportSettingPath;
 import com.workplace.jooq.tables.ProjectReport.ProjectReportPath;
 import com.workplace.jooq.tables.ProjectReportSetting.ProjectReportSettingPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
@@ -314,6 +316,47 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _notification = new NotificationPath(this, null, Keys.NOTIFICATION__NOTIFICATION_WIKI_PAGE_ID_FKEY.getInverseKey());
 
         return _notification;
+    }
+
+    private transient PersonalReportPath _personalReport;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report</code> table
+     */
+    public PersonalReportPath personalReport() {
+        if (_personalReport == null)
+            _personalReport = new PersonalReportPath(this, null, Keys.PERSONAL_REPORT__PERSONAL_REPORT_PAGE_ID_FKEY.getInverseKey());
+
+        return _personalReport;
+    }
+
+    private transient PersonalReportSettingPath _personalReportSettingDailyTemplatePageIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report_setting</code> table, via the
+     * <code>personal_report_setting_daily_template_page_id_fkey</code> key
+     */
+    public PersonalReportSettingPath personalReportSettingDailyTemplatePageIdFkey() {
+        if (_personalReportSettingDailyTemplatePageIdFkey == null)
+            _personalReportSettingDailyTemplatePageIdFkey = new PersonalReportSettingPath(this, null, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_DAILY_TEMPLATE_PAGE_ID_FKEY.getInverseKey());
+
+        return _personalReportSettingDailyTemplatePageIdFkey;
+    }
+
+    private transient PersonalReportSettingPath _personalReportSettingWeeklyTemplatePageIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.personal_report_setting</code> table, via the
+     * <code>personal_report_setting_weekly_template_page_id_fkey</code> key
+     */
+    public PersonalReportSettingPath personalReportSettingWeeklyTemplatePageIdFkey() {
+        if (_personalReportSettingWeeklyTemplatePageIdFkey == null)
+            _personalReportSettingWeeklyTemplatePageIdFkey = new PersonalReportSettingPath(this, null, Keys.PERSONAL_REPORT_SETTING__PERSONAL_REPORT_SETTING_WEEKLY_TEMPLATE_PAGE_ID_FKEY.getInverseKey());
+
+        return _personalReportSettingWeeklyTemplatePageIdFkey;
     }
 
     private transient ProjectReportPath _projectReport;

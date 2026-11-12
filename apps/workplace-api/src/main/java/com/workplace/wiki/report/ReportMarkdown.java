@@ -2,12 +2,12 @@ package com.workplace.wiki.report;
 
 import com.workplace.issue.overview.status.StatusBadge;
 import com.workplace.issue.report.ProjectReportFacts;
-import com.workplace.issue.report.ReportTableRow;
 import com.workplace.wiki.service.WikiAiInstruction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,6 +18,10 @@ import java.util.regex.Pattern;
  * <p>{@link #finish} 순서: ① 지시 상자 제거({@link WikiAiInstruction#strip}) ② 맨 앞 h1 제거(제목은 페이지 제목) ③ 「상태와
  * 한 줄」 배지 줄 바로잡기 ④ 「지난 리포트 이후」 표 몸통을 계산값으로 다시 쓰기(없고 템플릿에 있었으면 넣기) ⑤ 앱 이슈 주소로 된 {@code [글](url)} 링크를
  * 맨 주소로(앱 링크 칩이 되게). 글 속 숫자는 고치지 않는다.
+ *
+ * <p>개인 보고(WP-1486)와 나눠 쓰려고 공통 단계를 공개 단위로 나눴다 — {@link #clean}(①②⑤) → (프로젝트만) 배지 → {@link
+ * #fixTable}(표 모양은 {@link ReportTableSpec}) → {@link #render}. ⑤ 링크는 ③④ 앞에서 돌지만 배지·표 단계가 링크를 만들거나
+ * 지우지 않아 결과는 같다.
  *
  * <p>모두 줄 단위로 훑고, 펜스 코드 블록({@code ```}·{@code ~~~}) 안은 건드리지도 인식하지도 않는다 — 펜스 추적은 {@link
  * WikiAiInstruction} 과 같은 규칙(인용·들여쓰기 접두를 뗀 뒤, 같은 글자·같거나 긴 길이·뒤 글자 없는 줄이 닫음). 그래서 AI 가 코드 블록에 적은 예시
@@ -34,10 +38,7 @@ public final class ReportMarkdown {
   public record CardSummary(String badge, String line) {}
 
   /** 배지 줄을 둘 섹션 제목. */
-  static final String STATUS_SECTION = "상태와 한 줄";
-
-  /** 리포트 표의 머리 첫 칸 접두이자 넣을 때의 섹션 제목. */
-  static final String TABLE_HEAD = "지난 리포트 이후";
+  static final String STATUS_SECTION = ReportTableSpec.PROJECT_STATUS_SECTION;
 
   /** 카드 한 줄 길이 상한. */
   static final int CARD_LINE_MAX = 200;
@@ -99,21 +100,42 @@ public final class ReportMarkdown {
       ProjectReportFacts facts,
       boolean templateHasTable,
       String issueUrlPrefix) {
+    List<String> lines = clean(aiMarkdown, issueUrlPrefix);
+    fixBadge(lines, facts.badge(), facts.previousBadge());
+    fixTable(lines, ReportTableSpec.project(facts.rows()), templateHasTable);
+    return render(lines);
+  }
+
+  /**
+   * 공통 정리(WP-1486) — 지시 상자 제거 → 맨 앞 h1 제거 → 앱 이슈 {@code [글](url)} 를 맨 주소로. 다음 단계(배지·표)가 줄을 넣고 빼도록
+   * 고칠 수 있는 줄 목록을 돌려준다.
+   *
+   * @param aiMarkdown AI 가 쓴 마크다운(null 이면 빈 글)
+   * @param issueUrlPrefix 앱 이슈 주소 접두({@link #finish} 와 같은 뜻). 비어 있으면 링크를 건드리지 않는다
+   */
+  public static List<String> clean(String aiMarkdown, String issueUrlPrefix) {
     String stripped = WikiAiInstruction.strip(aiMarkdown == null ? "" : aiMarkdown);
     List<String> lines =
         new ArrayList<>(Arrays.asList(stripped.replace("\r\n", "\n").split("\n", -1)));
     removeLeadingH1(lines);
-    fixBadge(lines, facts.badge(), facts.previousBadge());
-    fixTable(lines, facts.rows(), templateHasTable);
     bareIssueLinks(lines, issueUrlPrefix);
-    return join(lines);
+    return lines;
   }
 
   /** 펜스 밖에 「지난 리포트 이후」 로 시작하는 머리의 표가 있는가 — 템플릿에 표가 있었는지 볼 때 쓴다. */
   public static boolean hasReportTable(String markdown) {
+    return hasTable(markdown, ReportTableSpec.project(List.of()).headFirstCell());
+  }
+
+  /**
+   * 펜스 밖에 머리 첫 칸(굵게·공백 제거)이 판정을 통과하는 표가 있는가(WP-1486) — 템플릿에 그 표가 있었는지 볼 때 쓴다.
+   *
+   * @param headFirstCell 머리 첫 칸 판정({@link ReportTableSpec#headFirstCell} 과 같은 것)
+   */
+  public static boolean hasTable(String markdown, Predicate<String> headFirstCell) {
     if (markdown == null) return false;
     List<String> lines = Arrays.asList(markdown.replace("\r\n", "\n").split("\n", -1));
-    return findTable(lines, fenced(lines)) >= 0;
+    return findTable(lines, fenced(lines), headFirstCell) >= 0;
   }
 
   /**
@@ -126,7 +148,7 @@ public final class ReportMarkdown {
     boolean[] fenced = fenced(lines);
     int from = 0;
     int to = lines.size();
-    int h = findSection(lines, fenced);
+    int h = findSection(lines, fenced, STATUS_SECTION);
     if (h >= 0) {
       from = h + 1;
       to = sectionEnd(lines, fenced, h);
@@ -174,7 +196,7 @@ public final class ReportMarkdown {
       badgeLine += " · " + KO.get(previous) + " → " + KO.get(now);
     }
     boolean[] fenced = fenced(lines);
-    int h = findSection(lines, fenced);
+    int h = findSection(lines, fenced, STATUS_SECTION);
     if (h < 0) {
       lines.add(0, badgeLine);
       lines.add(1, "");
@@ -202,14 +224,23 @@ public final class ReportMarkdown {
   // ───────────── ④ 표 ─────────────
 
   /**
-   * 리포트 표 몸통을 시스템 행만으로 다시 쓴다 — 머리·구분 줄은 그대로, AI 가 뺀 행은 다시 넣고 모르는 행은 버린다. 표가 없고 템플릿에 있었으면 「지난 리포트
-   * 이후」 제목과 표를 「상태와 한 줄」 섹션 뒤(섹션이 없으면 첫 문단 뒤)에 넣는다.
+   * 리포트 표를 시스템 값으로 다시 쓴다(WP-1486 에서 표 모양을 {@link ReportTableSpec} 으로 뺐다). 머리 첫 칸이 {@code spec} 판정을
+   * 통과하는 펜스 밖 첫 표를 찾아 — {@code headCells} 가 null 이면 머리·구분 줄은 그대로 두고, 아니면 머리·구분 줄도 시스템 값으로 바꾼 뒤 —
+   * 몸통을 시스템 행만으로 다시 쓴다(AI 가 뺀 행은 다시 넣고 모르는 행은 버린다). 표가 없고 템플릿에 있었으면 {@code insertSectionTitle} 제목과
+   * 표를 {@code insertAfterSection} 섹션 뒤(섹션이 없으면 첫 문단 뒤)에 넣는다 — 팀이 템플릿에서 표를 뺐으면 넣지 않는다.
+   *
+   * @param lines 고칠 줄 목록({@link #clean} 결과)
+   * @param spec 표 모양
+   * @param templateHasTable 템플릿에 이 표가 있었는가
    */
-  private static void fixTable(
-      List<String> lines, List<ReportTableRow> rows, boolean templateHasTable) {
+  public static void fixTable(List<String> lines, ReportTableSpec spec, boolean templateHasTable) {
     boolean[] fenced = fenced(lines);
-    int t = findTable(lines, fenced);
+    int t = findTable(lines, fenced, spec.headFirstCell());
     if (t >= 0) {
+      if (spec.headCells() != null) {
+        lines.set(t, row(spec.headCells()));
+        lines.set(t + 1, delimiter(spec.headCells().size()));
+      }
       int bodyStart = t + 2;
       int bodyEnd = bodyStart;
       while (bodyEnd < lines.size()
@@ -219,25 +250,30 @@ public final class ReportMarkdown {
         bodyEnd++;
       }
       lines.subList(bodyStart, bodyEnd).clear();
-      lines.addAll(bodyStart, bodyRows(rows));
+      lines.addAll(bodyStart, bodyRows(spec.body()));
       return;
     }
     if (!templateHasTable) return;
 
+    // 넣는 표의 머리 — 시스템 머리 칸이 없으면(프로젝트) 「제목 | 이번 | 변화」 세 칸.
+    List<String> head =
+        spec.headCells() != null
+            ? spec.headCells()
+            : List.of(spec.insertSectionTitle(), "이번", "변화");
     List<String> block = new ArrayList<>();
-    block.add("## " + TABLE_HEAD);
+    block.add("## " + spec.insertSectionTitle());
     block.add("");
-    block.add("| " + TABLE_HEAD + " | 이번 | 변화 |");
-    block.add("|---|---|---|");
-    block.addAll(bodyRows(rows));
+    block.add(row(head));
+    block.add(delimiter(head.size()));
+    block.addAll(bodyRows(spec.body()));
     block.add("");
 
     int at;
-    int h = findSection(lines, fenced);
+    int h = findSection(lines, fenced, spec.insertAfterSection());
     if (h >= 0) {
       at = sectionEnd(lines, fenced, h);
     } else {
-      // 섹션이 없으면 첫 문단(보통 맨 앞에 넣은 배지 줄) 뒤.
+      // 섹션이 없으면 첫 문단(프로젝트는 보통 맨 앞에 넣은 배지 줄) 뒤.
       at = 0;
       while (at < lines.size() && lines.get(at).isBlank()) at++;
       while (at < lines.size() && !lines.get(at).isBlank()) at++;
@@ -248,19 +284,21 @@ public final class ReportMarkdown {
     lines.addAll(at, block);
   }
 
-  /** 시스템 행 → 표 몸통 줄. 칸 값의 「|」(버전 이름 등)는 칸 구분으로 읽히지 않게 {@code \|} 로 이스케이프한다. */
-  private static List<String> bodyRows(List<ReportTableRow> rows) {
-    return rows.stream()
-        .map(
-            r ->
-                "| "
-                    + cell(r.label())
-                    + " | "
-                    + cell(r.current())
-                    + " | "
-                    + cell(r.change())
-                    + " |")
-        .toList();
+  /** 시스템 행 → 표 몸통 줄. */
+  private static List<String> bodyRows(List<List<String>> rows) {
+    return rows.stream().map(ReportMarkdown::row).toList();
+  }
+
+  /** 칸 값 → 표 한 줄 {@code | a | b |}. 칸 값의 「|」(버전 이름 등)는 칸 구분으로 읽히지 않게 {@code \|} 로 이스케이프한다. */
+  private static String row(List<String> cells) {
+    StringBuilder sb = new StringBuilder("|");
+    for (String c : cells) sb.append(' ').append(cell(c)).append(" |");
+    return sb.toString();
+  }
+
+  /** 칸 수만큼의 구분 줄 {@code |---|---|}. */
+  private static String delimiter(int columns) {
+    return "|" + "---|".repeat(columns);
   }
 
   /** 표 칸 값 — null 은 빈 칸, 「|」 는 이스케이프. */
@@ -268,8 +306,9 @@ public final class ReportMarkdown {
     return v == null ? "" : v.replace("|", "\\|");
   }
 
-  /** 펜스 밖 첫 리포트 표의 머리 줄 위치(없으면 -1) — 머리 첫 칸(굵게·공백 제거)이 「지난 리포트 이후」 로 시작해야 한다. */
-  private static int findTable(List<String> lines, boolean[] fenced) {
+  /** 펜스 밖 첫 리포트 표의 머리 줄 위치(없으면 -1) — 머리 첫 칸(굵게·공백 제거)이 판정을 통과해야 한다. */
+  private static int findTable(
+      List<String> lines, boolean[] fenced, Predicate<String> headFirstCell) {
     for (int i = 0; i + 1 < lines.size(); i++) {
       if (fenced[i] || fenced[i + 1]) continue;
       String head = lines.get(i);
@@ -278,7 +317,7 @@ public final class ReportMarkdown {
         continue;
       }
       List<String> cells = cells(head);
-      if (!cells.isEmpty() && unemphasize(cells.get(0)).startsWith(TABLE_HEAD)) {
+      if (!cells.isEmpty() && headFirstCell.test(unemphasize(cells.get(0)))) {
         return i;
       }
     }
@@ -378,12 +417,12 @@ public final class ReportMarkdown {
     return out;
   }
 
-  /** 펜스 밖 첫 「상태와 한 줄」 제목 줄 위치(없으면 -1). */
-  private static int findSection(List<String> lines, boolean[] fenced) {
+  /** 펜스 밖 첫 「{title}」 으로 시작하는 제목 줄 위치(없으면 -1). */
+  private static int findSection(List<String> lines, boolean[] fenced, String title) {
     for (int i = 0; i < lines.size(); i++) {
       if (fenced[i]) continue;
       Matcher m = HEADING.matcher(lines.get(i));
-      if (m.matches() && unemphasize(m.group(2)).startsWith(STATUS_SECTION)) return i;
+      if (m.matches() && unemphasize(m.group(2)).startsWith(title)) return i;
     }
     return -1;
   }
@@ -458,8 +497,8 @@ public final class ReportMarkdown {
     return null;
   }
 
-  /** 줄을 잇고 앞 빈 줄을 떼며 끝은 줄바꿈 하나로 맞춘다. */
-  private static String join(List<String> lines) {
+  /** 줄을 잇고 앞 빈 줄을 떼며 끝은 줄바꿈 하나로 맞춘다 — 후처리의 마지막 단계(WP-1486 에서 공개). */
+  public static String render(List<String> lines) {
     String s = String.join("\n", lines);
     s = s.replaceFirst("^(?:[ \\t]*\\n)+", "");
     s = s.stripTrailing();

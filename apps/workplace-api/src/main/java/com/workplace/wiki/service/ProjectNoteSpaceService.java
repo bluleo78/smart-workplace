@@ -239,7 +239,7 @@ public class ProjectNoteSpaceService {
 
   /** 연결로 물러나는 자동 공간 정리 — 「리포트」를 대상으로 옮기고 연결을 끊은 뒤, 비었으면 지운다(아래 link 주석의 1·2단계). */
   private void retireAutoSpace(long callerId, long autoId, long targetSpaceId) {
-    findReportPage(autoId)
+    findRootPage(autoId, REPORT_TITLE)
         .ifPresent(
             pageId ->
                 pageService.move(callerId, pageId, new MovePageRequest(null, 0, targetSpaceId)));
@@ -252,30 +252,31 @@ public class ProjectNoteSpaceService {
   }
 
   /**
-   * 공간 맨 위 페이지 중 제목이 「리포트」인 것(여럿이면 먼저 만든 것). 지웠거나 이름을 바꿨으면 empty — 연결 때는 옮길 것이 없고, 리포트 생성(WP-1483)은
-   * {@link #ensureReportPage} 로 새로 만든다.
+   * 공간 맨 위 페이지 중 제목이 title 인 것(여럿이면 먼저 만든 것). 지웠거나 이름을 바꿨으면 empty — 연결 때는 옮길 것이 없고, 리포트 생성(WP-1483
+   * 「리포트」, WP-1486 「보고」)은 {@link #ensureRootPage} 로 새로 만든다.
    */
-  Optional<Long> findReportPage(long spaceId) {
+  Optional<Long> findRootPage(long spaceId, String title) {
     List<Long> roots = pages.childIdsOrdered(spaceId, null);
     Map<Long, String> titles = pages.findTitles(roots);
-    return roots.stream().filter(id -> REPORT_TITLE.equals(titles.get(id))).min(Long::compare);
+    return roots.stream().filter(id -> title.equals(titles.get(id))).min(Long::compare);
   }
 
   /**
-   * 공간의 「리포트」 페이지 id — 없으면(사람이 지웠거나 이름을 바꿨으면) 맨 위 첫 자리에 새로 만든다(WP-1483). 작성자는 부르는 쪽이 정한 사람(리포트 작성자
-   * 규칙 OWNER)이고 역할 검사는 하지 않는다 — 실행기에는 사용자 세션이 없다. 같은 패키지의 {@link WikiSystemPageWriter} 만 부른다.
+   * 공간의 맨 위 페이지 title(「리포트」·「보고」) id — 없으면(사람이 지웠거나 이름을 바꿨으면) 맨 위 첫 자리에 새로 만든다(WP-1483, WP-1486 에서
+   * 제목 인자로 일반화). 작성자는 부르는 쪽이 정한 사람(리포트 작성자 규칙 OWNER, 개인 보고는 본인)이고 역할 검사는 하지 않는다 — 실행기에는 사용자 세션이 없다.
+   * 같은 패키지의 {@link WikiSystemPageWriter} 만 부른다.
    */
   @Transactional
-  long ensureReportPage(long spaceId, long authorId) {
-    // 같은 공간 트리 잠금으로 동시 생성이 「리포트」를 둘 만들지 않게 한다(잠근 뒤 다시 찾는다).
+  long ensureRootPage(long spaceId, String title, long authorId) {
+    // 같은 공간 트리 잠금으로 동시 생성이 같은 제목 페이지를 둘 만들지 않게 한다(잠근 뒤 다시 찾는다).
     pages.lockSpaceTree(spaceId);
-    Optional<Long> found = findReportPage(spaceId);
+    Optional<Long> found = findRootPage(spaceId, title);
     if (found.isPresent()) {
       return found.get();
     }
     long id =
         pageService
-            .createWithoutRoleCheck(authorId, spaceId, new CreatePageRequest(null, REPORT_TITLE))
+            .createWithoutRoleCheck(authorId, spaceId, new CreatePageRequest(null, title))
             .id();
     // 새로 만든 페이지는 맨 끝 — 처음 공간을 만들 때처럼 맨 위 첫 자리로 올린다.
     pageService.moveAsSystem(authorId, id, null, 0);

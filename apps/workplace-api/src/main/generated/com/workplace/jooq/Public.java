@@ -114,6 +114,8 @@ import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.NotificationAppSetting;
 import com.workplace.jooq.tables.NotificationSetting;
 import com.workplace.jooq.tables.Permission;
+import com.workplace.jooq.tables.PersonalReport;
+import com.workplace.jooq.tables.PersonalReportSetting;
 import com.workplace.jooq.tables.PlatformRole;
 import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
@@ -747,6 +749,16 @@ public class Public extends SchemaImpl {
     public final Permission PERMISSION = Permission.PERMISSION;
 
     /**
+     * The table <code>public.personal_report</code>.
+     */
+    public final PersonalReport PERSONAL_REPORT = PersonalReport.PERSONAL_REPORT;
+
+    /**
+     * The table <code>public.personal_report_setting</code>.
+     */
+    public final PersonalReportSetting PERSONAL_REPORT_SETTING = PersonalReportSetting.PERSONAL_REPORT_SETTING;
+
+    /**
      * 플랫폼(운영자) 평면 역할 — 테넌트 role 과 분리된 전역 RBAC
      */
     public final PlatformRole PLATFORM_ROLE = PlatformRole.PLATFORM_ROLE;
@@ -1165,6 +1177,8 @@ public class Public extends SchemaImpl {
             NotificationAppSetting.NOTIFICATION_APP_SETTING,
             NotificationSetting.NOTIFICATION_SETTING,
             Permission.PERMISSION,
+            PersonalReport.PERSONAL_REPORT,
+            PersonalReportSetting.PERSONAL_REPORT_SETTING,
             PlatformRole.PLATFORM_ROLE,
             PlatformRolePermission.PLATFORM_ROLE_PERMISSION,
             PlatformUserRole.PLATFORM_USER_ROLE,
