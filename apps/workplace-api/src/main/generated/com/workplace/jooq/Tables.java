@@ -67,6 +67,7 @@ import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.FileSecurityCheck;
 import com.workplace.jooq.tables.HelpManualSection;
+import com.workplace.jooq.tables.HelpMetricDaily;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -496,6 +497,11 @@ public class Tables {
      * The table <code>public.help_manual_section</code>.
      */
     public static final HelpManualSection HELP_MANUAL_SECTION = HelpManualSection.HELP_MANUAL_SECTION;
+
+    /**
+     * The table <code>public.help_metric_daily</code>.
+     */
+    public static final HelpMetricDaily HELP_METRIC_DAILY = HelpMetricDaily.HELP_METRIC_DAILY;
 
     /**
      * The table <code>public.home_action_proposal</code>.

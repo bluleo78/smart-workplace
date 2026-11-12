@@ -271,3 +271,17 @@ export function helpSearchHandler(
     return out instanceof Response ? out : HttpResponse.json({ mode: 'SEMANTIC', results: out })
   })
 }
+
+/** 도움말 측정 기록(WP-1512) — 열기·검색 0건 요청 본문을 받은 배열에 쌓고 204 로 답한다. */
+export function helpMetricHandlers(opens: unknown[] = [], misses: unknown[] = []): RequestHandler[] {
+  return [
+    http.post('/api/v1/help/metrics/open', async ({ request }) => {
+      opens.push(await request.json())
+      return new HttpResponse(null, { status: 204 })
+    }),
+    http.post('/api/v1/help/metrics/search-miss', async ({ request }) => {
+      misses.push(await request.json())
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ]
+}

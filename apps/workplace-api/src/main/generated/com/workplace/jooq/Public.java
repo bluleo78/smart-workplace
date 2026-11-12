@@ -67,6 +67,7 @@ import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.FileSecurityCheck;
 import com.workplace.jooq.tables.HelpManualSection;
+import com.workplace.jooq.tables.HelpMetricDaily;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -511,6 +512,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.help_manual_section</code>.
      */
     public final HelpManualSection HELP_MANUAL_SECTION = HelpManualSection.HELP_MANUAL_SECTION;
+
+    /**
+     * The table <code>public.help_metric_daily</code>.
+     */
+    public final HelpMetricDaily HELP_METRIC_DAILY = HelpMetricDaily.HELP_METRIC_DAILY;
 
     /**
      * The table <code>public.home_action_proposal</code>.
@@ -1130,6 +1136,7 @@ public class Public extends SchemaImpl {
             FilePreview.FILE_PREVIEW,
             FileSecurityCheck.FILE_SECURITY_CHECK,
             HelpManualSection.HELP_MANUAL_SECTION,
+            HelpMetricDaily.HELP_METRIC_DAILY,
             HomeActionProposal.HOME_ACTION_PROPOSAL,
             HomeMessage.HOME_MESSAGE,
             HomeMessageAttachment.HOME_MESSAGE_ATTACHMENT,

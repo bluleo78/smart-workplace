@@ -63,6 +63,7 @@ import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
 import com.workplace.jooq.tables.FilePreview.FilePreviewPath;
 import com.workplace.jooq.tables.FileSecurityCheck.FileSecurityCheckPath;
+import com.workplace.jooq.tables.HelpMetricDaily.HelpMetricDailyPath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.HomeMessageAttachment.HomeMessageAttachmentPath;
@@ -1749,6 +1750,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _workspaceAssistant = new WorkspaceAssistantPath(this, null, Keys.WORKSPACE_ASSISTANT__FK_WORKSPACE_ASSISTANT_TENANT.getInverseKey());
 
         return _workspaceAssistant;
+    }
+
+    private transient HelpMetricDailyPath _helpMetricDaily;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.help_metric_daily</code> table
+     */
+    public HelpMetricDailyPath helpMetricDaily() {
+        if (_helpMetricDaily == null)
+            _helpMetricDaily = new HelpMetricDailyPath(this, null, Keys.HELP_METRIC_DAILY__HELP_METRIC_DAILY_TENANT_ID_FKEY.getInverseKey());
+
+        return _helpMetricDaily;
     }
 
     private transient HomeActionProposalPath _homeActionProposal;

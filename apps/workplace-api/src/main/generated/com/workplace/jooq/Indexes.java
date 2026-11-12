@@ -66,6 +66,7 @@ import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.FileSecurityCheck;
 import com.workplace.jooq.tables.HelpManualSection;
+import com.workplace.jooq.tables.HelpMetricDaily;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -199,6 +200,7 @@ public class Indexes {
     public static final Index EMAIL_MESSAGE_CONTENT_ID_IDX = Internal.createIndex(DSL.name("email_message_content_id_idx"), EmailMessage.EMAIL_MESSAGE, new OrderField[] { EmailMessage.EMAIL_MESSAGE.CONTENT_ID }, false);
     public static final Index EVENT_ATTENDEE_EXTERNAL_UQ = Internal.createIndex(DSL.name("event_attendee_external_uq"), EventAttendee.EVENT_ATTENDEE, new OrderField[] { EventAttendee.EVENT_ATTENDEE.EVENT_ID, EventAttendee.EVENT_ATTENDEE.EXTERNAL_EMAIL }, true);
     public static final Index HELP_MANUAL_SECTION_EMBEDDING_PENDING_IDX = Internal.createIndex(DSL.name("help_manual_section_embedding_pending_idx"), HelpManualSection.HELP_MANUAL_SECTION, new OrderField[] { HelpManualSection.HELP_MANUAL_SECTION.ORD }, false);
+    public static final Index HELP_METRIC_DAILY_KIND_DAY_IDX = Internal.createIndex(DSL.name("help_metric_daily_kind_day_idx"), HelpMetricDaily.HELP_METRIC_DAILY, new OrderField[] { HelpMetricDaily.HELP_METRIC_DAILY.TENANT_ID, HelpMetricDaily.HELP_METRIC_DAILY.KIND, HelpMetricDaily.HELP_METRIC_DAILY.DAY }, false);
     public static final Index HOME_MESSAGE_EMBEDDING_PENDING_IDX = Internal.createIndex(DSL.name("home_message_embedding_pending_idx"), HomeMessage.HOME_MESSAGE, new OrderField[] { HomeMessage.HOME_MESSAGE.ID }, false);
     public static final Index HOME_SESSION_MEMORY_CLEANUP_IDX = Internal.createIndex(DSL.name("home_session_memory_cleanup_idx"), HomeSession.HOME_SESSION, new OrderField[] { HomeSession.HOME_SESSION.TENANT_ID, HomeSession.HOME_SESSION.LAST_MESSAGE_AT }, false);
     public static final Index IDX_AAC_USER = Internal.createIndex(DSL.name("idx_aac_user"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, false);

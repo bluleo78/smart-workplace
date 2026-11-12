@@ -15,6 +15,7 @@ import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
 import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
 import { trackLocation } from './locationProbe'
+import { helpMetricBaseHandlers } from './msw/baseHandlers'
 import { server } from './msw/server'
 import { type RememberedProjectTabs, seedProjectTabs } from './projectTabMemory'
 import { testAuthValue } from './renderWithProviders'
@@ -41,7 +42,8 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
   // 화면 테스트도 renderPage 처럼 비동기 대기를 늘린다(WP-1006) — 되돌리기는 setup.ts afterEach.
   configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
   seedProjectTabs(projectTabs)
-  server.use(...handlers)
+  // 도움말 열기 기록(WP-1512)은 도움말을 여는 어느 화면 테스트나 부른다 — 기본 204 를 맨 뒤에 깔아 테스트 핸들러가 먼저 걸리게 한다.
+  server.use(...handlers, ...helpMetricBaseHandlers)
   window.history.replaceState(null, '', path)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },

@@ -4,9 +4,11 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
+import { recordHelpOpen } from '@/api/help'
 import { useAuth } from '@/hooks/useAuth'
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile'
 
+import { helpMetricRoute } from './helpMetricRoute'
 import { type HelpHistoryEntry, helpNavReducer, type HelpNavState, type HelpTarget } from './helpNav'
 import {
   clampHelpSplit,
@@ -25,6 +27,8 @@ export interface HelpPanelValue {
   open: boolean
   setOpen: (open: boolean) => void
   toggle: () => void
+  /** 사용자 동작으로 연다 — 닫혀 있을 때만 열기를 기록한다(WP-1512). 기억된 열림으로 시작하는 것은 이 길이 아니라 기록하지 않는다. */
+  openFromUser: () => void
   /** 도움말 패널 폭(px, 데스크톱 오른쪽 도킹). */
   width: number
   /** 폭 변경(범위 맞춤). persist=true 일 때만 저장 — 드래그 중 매 pointermove 마다 쓰지 않게(AI 패널 resize 와 같다). */
@@ -68,6 +72,7 @@ const HelpPanelActionsContext = createContext<HelpPanelActions | null>(null)
  *   창을 줄여 모바일 폭이 되면 닫고, 데스크톱 폭으로 돌아오면 기억한 열림으로 돌아간다.
  * - 주소가 바뀌면 고른 절·뒤로 기록을 비운다(새 화면의 도움말을 보여야 하므로 — helpNavReducer route).
  * - `?` 단축키는 window keydown 하나로 받는다(판정은 isHelpShortcut).
+ * - 열기 기록은 사용자 동작만 — WP-1512(「?」 단추·단축키·휴대폰 단추·밖에서 절 고르기). 기억된 열림 복원은 기록하지 않는다.
  */
 export function HelpPanelProvider({ children }: { children: ReactNode }) {
   const { user, activeTenant } = useAuth()
@@ -90,7 +95,18 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
     },
     [openKey],
   )
-  const toggle = useCallback(() => setOpen(!open), [open, setOpen])
+  // 기록에 쓰는 지금 주소·고른 절은 ref 로 읽는다 — 값이 바뀔 때마다 selectFromOutside(→ actions)가 새로 만들어지지 않게(아래 effect 가 맞춘다).
+  const metricRef = useRef<{ pathname: string; selectedId: string | null }>({ pathname: '', selectedId: null })
+  // 열기 한 번을 기록한다 — helpId 를 안 주면 지금 고른 절. 기록 실패는 recordHelpOpen 이 삼킨다.
+  const recordOpen = useCallback((helpId: string | null = metricRef.current.selectedId) => {
+    recordHelpOpen({ route: helpMetricRoute(metricRef.current.pathname), helpId })
+  }, [])
+  // 닫혀 있던 패널을 사용자가 열 때 한 번 기록하고 연다.
+  const openFromUser = useCallback(() => {
+    if (!open) recordOpen()
+    setOpen(true)
+  }, [open, setOpen, recordOpen])
+  const toggle = useCallback(() => (open ? setOpen(false) : openFromUser()), [open, setOpen, openFromUser])
 
   const [width, setWidth] = useState(readHelpWidth)
   const resize = useCallback((w: number, persist = false) => {
@@ -113,6 +129,10 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     dispatch({ type: 'route', pathname })
   }, [pathname])
+  // 렌더가 끝난 값으로 ref 를 맞춘다(렌더 중 ref 쓰기 금지).
+  useEffect(() => {
+    metricRef.current = { pathname, selectedId: nav.selected?.sectionId ?? null }
+  }, [pathname, nav.selected])
   const select = useCallback((target: HelpTarget, from: HelpHistoryEntry | null) => dispatch({ type: 'select', target, from }), [])
   const release = useCallback(() => dispatch({ type: 'release' }), [])
   const back = useCallback(() => dispatch({ type: 'back' }), [])
@@ -138,18 +158,20 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
   }, [toggle])
 
   const value = useMemo<HelpPanelValue>(
-    () => ({ open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, setSearchActive, clearSearch, setSearchClear }),
-    [open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, clearSearch, setSearchClear],
+    () => ({ open, setOpen, toggle, openFromUser, width, resize, split, setSplit, nav, select, release, back, searchActive, setSearchActive, clearSearch, setSearchClear }),
+    [open, setOpen, toggle, openFromUser, width, resize, split, setSplit, nav, select, release, back, searchActive, clearSearch, setSearchClear],
   )
   // 여는 함수만 따로 — select 는 늘 같고 setOpen 은 사용자·워크스페이스가 바뀔 때만 바뀐다.
   // 패널 밖(화면의 「연결 방법」·AI 답의 출처)에서 고른 절은 검색을 지우고 보인다 — 질의가 남아 있으면 본문 자리에 검색 결과 목록이
   // 그대로 있어 고른 절이 보이지 않았다(WP-1511 라이브 검증). 패널 안 이동(검색 결과 열기 등)은 useHelpPanel().select 라 질의를 지키지 않는다.
   const selectFromOutside = useCallback<HelpPanelValue['select']>(
     (target, from) => {
+      // 밖에서 절을 고른 것도 사용자가 도움말을 연 것 — 고른 절 id 로 기록한다(WP-1512).
+      recordOpen(target.sectionId)
       clearSearch()
       select(target, from)
     },
-    [clearSearch, select],
+    [clearSearch, select, recordOpen],
   )
   const actions = useMemo<HelpPanelActions>(() => ({ select: selectFromOutside, setOpen }), [selectFromOutside, setOpen])
   return (

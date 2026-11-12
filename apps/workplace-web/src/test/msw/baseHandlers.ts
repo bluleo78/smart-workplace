@@ -53,9 +53,19 @@ const holdEventStream = http.get(`${API}/events`, ({ request }) => {
   return new HttpResponse(stream, { headers: { 'Content-Type': 'text/event-stream' } })
 })
 
+/**
+ * 도움말 열기·검색 0건 기록(WP-1512) 기본 204 — 도움말을 여는 모든 테스트가 부른다(renderScreen 도 깐다).
+ * 기록 본문을 보려는 테스트는 helpMetricHandlers 를 앞에 건다.
+ */
+export const helpMetricBaseHandlers = [
+  http.post(`${API}/help/metrics/open`, () => new HttpResponse(null, { status: 204 })),
+  http.post(`${API}/help/metrics/search-miss`, () => new HttpResponse(null, { status: 204 })),
+]
+
 /** 앱 셸·공통 부가 조회 빈 기본값 — e2e/fixtures/auth.fixture.ts setupAuthMocks 와 같은 목록. */
 export const shellHandlers = [
   holdEventStream,
+  ...helpMetricBaseHandlers,
   http.get(`${API}/projects/:key/statuses`, () => HttpResponse.json(seedStatuses())),
   http.get(`${API}/projects/:key/issues/:n/chat/thread`, () =>
     HttpResponse.json({ threadId: 0, issueId: 0, archivedAt: null, members: [], recentMessages: [] }),
