@@ -12,6 +12,7 @@ import type {
   DriveItemList,
   DriveMember,
   DriveMemberGroup,
+  DrivePlaybackUrl,
   DriveQuota,
   DriveRole,
   DriveSearchResult,
@@ -239,6 +240,15 @@ export const driveApi = {
 
   // 임의 콘텐츠 경로의 원본 Blob. 구현은 api/blobContent.ts 공용 모듈(wiki 등 타 도메인과 공유).
   fetchBlobByPath,
+
+  /**
+   * 영상·오디오 서명 재생 주소 발급(WP-1532). access 토큰이 헤더로만 실려 `<video src>` 로는 인증할 수 없어,
+   * 볼 권한을 확인받은 뒤 받은 주소를 미디어 요소에 바로 넣어 Range 로 재생한다(통째로 받지 않음). 발급 때 서버가 열람 감사를 한 번 남긴다.
+   */
+  issuePlaybackUrl: async (driveFileId: number): Promise<DrivePlaybackUrl> => {
+    const { data } = await client.post<DrivePlaybackUrl>(`/drive/files/${driveFileId}/playback-url`)
+    return data
+  },
 
   /**
    * 서버 변환 PDF 미리보기(WP-431). path 는 ViewerItem.previewPath(필요하면 `?start=true` 를 붙여서).

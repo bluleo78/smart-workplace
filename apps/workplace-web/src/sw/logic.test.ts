@@ -143,6 +143,13 @@ describe('NAVIGATION_DENYLIST', () => {
     expect(denied('/wiki/share/wsh_token/pages/12')).toBe(true)
   })
 
+  // WP-1532: 드라이브 재생 주소는 <video src> 하위 요청(탐색마다 Range)이라 네비게이션 경로에 걸리지 않지만, 주소창·새 탭으로 열어도
+  // 앱 셸(index.html)로 가로채지 않고 서버의 206 응답을 받아야 한다(iOS Safari 는 영상에 206 이 필요). SW 의 다른 경로는 precache 뿐이라
+  // 미디어·범위 요청을 가로채는 런타임 캐시가 없다.
+  it('드라이브 재생 주소(/api/v1/public/drive/playback/)는 앱 셸로 가로채지 않는다', () => {
+    expect(denied('/api/v1/public/drive/playback/eyJ0.c2ln')).toBe(true)
+  })
+
   it('매뉴얼 도움말 묶음(/help/)은 서버로 보낸다 — 앱 셸로 가로채면 JSON·PNG 대신 index.html 이 온다(WP-1504)', () => {
     expect(denied('/help/manual-index.json')).toBe(true)
     expect(denied('/help/figures/04-issue.png')).toBe(true)

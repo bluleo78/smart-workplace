@@ -26,7 +26,8 @@ export interface MediaSession {
 export const MEDIA_ELEMENT_SELECTOR = '[data-media-player]'
 
 /**
- * 영상·오디오 한 항목. url 은 ViewerBody 가 만든 blob object URL(해제도 ViewerBody 가 언마운트 때 한다).
+ * 영상·오디오 한 항목. url 은 ViewerBody 가 만든 blob object URL(해제도 ViewerBody 가 언마운트 때 한다)이거나,
+ * 드라이브 파일이면 서명 재생 주소(WP-1532 — 브라우저가 Range 로 받으며 재생한다).
  * - src 는 이펙트에서 직접 붙이고 떼어낸다 — 정리 때 src 를 지우고 load() 해 디코더·버퍼를 즉시 놓아야 하는데,
  *   JSX src 로 두면 StrictMode 재실행(같은 DOM 재사용) 때 다시 붙지 않는다.
  * - 이벤트도 이펙트에서 단다 — 정리 중 src 제거가 error/pause 를 내도 이미 뗀 뒤라 미지원 화면·재생 상태가 흔들리지 않는다.

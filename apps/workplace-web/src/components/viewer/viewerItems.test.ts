@@ -55,6 +55,13 @@ describe('driveFileItem', () => {
     })
     expect(it.importTarget).toBeUndefined()
   })
+
+  // WP-1532: 드라이브 화면의 파일만 서명 재생 주소로 바로 재생한다 — 드라이브 링크(이슈·채팅 권한으로 받음)·첨부는 blob 경로 그대로.
+  it('드라이브 파일만 재생 주소 대상(playback — 파일 id·현재 버전)이 있다', () => {
+    expect(driveFileItem(file).playback).toEqual({ driveFileId: 70, versionFileId: 200 })
+    const link = { driveFileId: 5, spaceId: 1, name: 'clip.mp4', mimeType: 'video/mp4', sizeBytes: 9, availability: 'ACTIVE' } as DriveLink
+    expect(issueDriveLinkItem('WP', 12, link).playback).toBeUndefined()
+  })
 })
 
 describe('virtualAttachmentItem', () => {

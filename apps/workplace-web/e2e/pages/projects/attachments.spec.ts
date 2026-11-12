@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
+import { SAMPLE_WEBM } from '../../fixtures/samples';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
@@ -233,6 +234,42 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await confirm.getByRole('button', { name: '미리보기' }).click();
     await expect(page.getByTestId('preview-body').locator('pre')).toContainText('HEAD-LINE');
     await expect(confirm).toHaveCount(0);
+  });
+
+  // WP-1532: 드라이브 파일 영상은 서명 재생 주소로 바로 재생하지만, 이슈 첨부 영상은 지금처럼 원본을 받아 blob 으로 재생한다.
+  // 실제 디코드·재생과 닫을 때 blob URL 해제는 브라우저가 있어야 판정된다(드라이브 미디어 spec 에서 옮김).
+  test('이슈 첨부 영상은 원본을 받아 blob 으로 재생하고, 닫으면 blob URL 을 해제한다', { tag: '@platform' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __revoked: string[] };
+      w.__revoked = [];
+      const orig = URL.revokeObjectURL.bind(URL);
+      URL.revokeObjectURL = (u: string) => {
+        w.__revoked.push(u);
+        orig(u);
+      };
+    });
+    const requested = await stubAttachments(
+      page,
+      [createAttachment({ fileId: 7501, originalName: 'clip.webm', mimeType: 'video/webm', sizeBytes: SAMPLE_WEBM.length })],
+      { 7501: { contentType: 'video/webm', body: SAMPLE_WEBM } },
+    );
+    const playbackCalls: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/playback')) playbackCalls.push(r.url());
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'clip.webm 미리보기' }).click();
+    const video = page.getByTestId('media-video');
+    await expect.poll(() => video.evaluate((m: HTMLMediaElement) => m.currentTime)).toBeGreaterThan(0);
+    const src = await video.evaluate((m: HTMLMediaElement) => m.src);
+    expect(src).toMatch(/^blob:/);
+    expect(requested[7501]).toBe(1);
+    expect(playbackCalls).toHaveLength(0);
+    await page.getByRole('button', { name: '닫기', exact: true }).click();
+    await expect(page.locator('video, audio')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __revoked: string[] }).__revoked)).toContain(src);
   });
 
   test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {

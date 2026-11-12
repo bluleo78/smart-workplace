@@ -113,6 +113,19 @@ public class SecurityConfig {
                     // 토큰이 곧 권한이며 쓸 때 발급자 권한을 다시 확인한다.
                     .requestMatchers("/api/v1/public/drive/transfer/**")
                     .permitAll()
+                    // 드라이브 재생 주소(WP-1532) — <video src> 는 헤더를 실을 수 없어 웹 세션 사용자가 받은 4시간짜리 봉인 주소로
+                    // 영상·오디오를 Range 로 받는다. 토큰이 테넌트·파일·버전·만료를 묶고(내용은 암호화돼 보이지 않음) 매 요청 권한·휴지통·
+                    // 버전을 다시 확인하며, 주소별 속도 제한(PublicRateLimitFilter)을 받는다. 읽기 전용이라 GET·HEAD 만 연다(발급
+                    // API
+                    // /api/v1/drive/files/{id}/playback-url 은 웹 세션 인증 필요). 경로는 컨트롤러·속도 제한과 같은 상수다.
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET,
+                        com.workplace.drive.service.DrivePlaybackService.PUBLIC_PATH + "*")
+                    .permitAll()
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.HEAD,
+                        com.workplace.drive.service.DrivePlaybackService.PUBLIC_PATH + "*")
+                    .permitAll()
                     // 스테이징 업로드 링크(WP-421) — 외부 MCP 클라이언트가 curl 로 임시 첨부를 올리는 10분짜리 일회용 PUT 링크.
                     // 토큰이 곧 권한이며 쓸 때 발급자 멤버십을 다시 확인한다.
                     .requestMatchers("/api/v1/public/staged-files/**")

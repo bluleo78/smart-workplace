@@ -1092,7 +1092,8 @@ public class GlobalExceptionHandler {
     com.workplace.drive.exception.DriveQuotaExceededException.class,
     com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class,
     com.workplace.drive.exception.DriveLastOwnerException.class,
-    com.workplace.drive.exception.DriveNotTextFileException.class
+    com.workplace.drive.exception.DriveNotTextFileException.class,
+    com.workplace.drive.exception.DriveNotPlayableException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveConflict(
       RuntimeException ex, HttpServletRequest request) {

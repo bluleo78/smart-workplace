@@ -22,6 +22,7 @@ if (import.meta.env.PROD) {
   precacheAndRoute(self.__WB_MANIFEST)
   cleanupOutdatedCaches()
   // 네비게이션(주소창 이동·새로고침)은 precache 된 index.html 로 — 단 API·공유 링크 경로는 제외.
+  // 런타임 캐시 경로는 두지 않는다 — 드라이브 재생 주소의 미디어·Range 요청(WP-1532)이 SW 를 거치지 않고 서버의 206 을 그대로 받게.
   registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: NAVIGATION_DENYLIST }))
 }
 

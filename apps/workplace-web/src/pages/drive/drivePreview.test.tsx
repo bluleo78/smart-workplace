@@ -8,7 +8,7 @@
 // 실제 PDF·미디어·iframe 렌더와 SheetJS 시트 파싱(jsdom 의 다른 realm ArrayBuffer 를 SheetJS 가 읽지 못함)(@platform), 확대·정렬·패널 겹침(@layout), 키보드 넘김·포커스(@input)는 각 E2E 가 지킨다.
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse, type RequestHandler } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { shareTargetStore } from '@/lib/shareTarget'
 import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
@@ -103,6 +103,37 @@ describe('형식별 본문', () => {
     expect(await within(body).findByTestId('preview-size-confirm')).toHaveTextContent('12.0 MB')
     expect(within(body).queryByTestId('xlsx-table')).not.toBeInTheDocument()
     expect(contentCalls[91] ?? 0).toBe(0)
+  })
+
+  // WP-1532: 드라이브 영상은 원본을 받지 않고 재생 주소 발급(POST) 응답 주소를 <video src> 에 바로 넣는다 — 10MB 를 넘어도 확인·% 없음.
+  test('큰 드라이브 영상은 재생 주소를 받아 바로 영상 src 로 넣고 원본은 받지 않는다', async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    // 목록에서 직접 연 영상은 자동재생(play())한다 — jsdom 은 재생을 구현하지 않아 약속을 돌려주는 빈 구현으로.
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    const issued: number[] = []
+    const signed = '/api/v1/public/drive/playback/tok.sig'
+    const { user, contentCalls } = renderPreview(
+      [{ file: createFile({ id: 95, name: '발표.mp4', mimeType: 'video/mp4', category: 'VIDEO', sizeBytes: 600 * 1024 * 1024 }), body: new Uint8Array(4) }],
+      {
+        handlers: [
+          http.post(`${API}/files/95/playback-url`, () => {
+            issued.push(95)
+            return HttpResponse.json({ url: signed, expiresAt: '2026-11-12T10:00:00Z', mimeType: 'video/mp4' })
+          }),
+        ],
+      },
+    )
+    const body = await openPreview(user, '발표.mp4')
+    const video = await within(body).findByTestId('media-video')
+    await waitFor(() => expect(video.getAttribute('src')).toBe(signed))
+    expect(issued).toEqual([95])
+    expect(contentCalls[95] ?? 0).toBe(0)
+    expect(within(body).queryByTestId('preview-size-confirm')).not.toBeInTheDocument()
+    expect(within(body).queryByTestId('media-progress')).not.toBeInTheDocument()
+    pause.mockRestore()
+    load.mockRestore()
+    play.mockRestore()
   })
 
   // 0 바이트 텍스트는 오류가 아니라 빈 미리보기다(로딩도 끝난다).
