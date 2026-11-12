@@ -80,6 +80,8 @@ export interface EventRow {
 export interface IssueRow {
   id?: number;
   issueKey?: string;
+  /** 화면 주소(WP-1523) — 생성 응답에만 서버가 싣는다(목록 행에는 없다). */
+  url?: string;
   projectKey?: string;
   number?: number;
   title?: string;

@@ -5,7 +5,8 @@ export interface UploadedFile {
   originalName: string;
   mimeType: string;
   fileSize: number;
-  fileCategory: 'IMAGE' | 'PDF' | 'TEXT' | 'DATA';
+  // 서버 FileUploadService 범주 — VIDEO 는 WP-1519.
+  fileCategory: 'IMAGE' | 'PDF' | 'TEXT' | 'DATA' | 'DOCUMENT' | 'VIDEO' | 'OTHER';
   createdAt: string;
 }
 

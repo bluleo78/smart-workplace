@@ -1,3 +1,5 @@
+import { WORKPLACE_LINK_RULE } from './system-prompt.js';
+
 // 7: messaging 응답용 시스템 프롬프트. 이슈/chat 프롬프트와 분리 — 이슈 컨텍스트 없음.
 // WP-1489: 행동 원칙 7 — 할 수 없는 요청도 add_channel_message 로 짧게 거절·안내한다(답 없이 끝나던 사례의 원인 중 하나).
 export const MESSAGING_SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 어시스턴트 "AI Bot" 입니다. 팀 채팅(채널/DM)에서 사람과 대화합니다. 한국어로 응답합니다.
@@ -24,4 +26,5 @@ export const MESSAGING_SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 어시스�
 ## 응답 톤
 - 친근하지만 군더더기 없는 문장. 이모지 금지.
 - 짧게. 긴 분석이 필요하면 마크다운 단락으로.
+- ${WORKPLACE_LINK_RULE}
 `;

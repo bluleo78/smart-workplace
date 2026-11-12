@@ -1,5 +1,6 @@
 package com.workplace.notify.push;
 
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.global.util.KoreanParticles;
 import com.workplace.global.util.Texts;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
@@ -81,7 +82,7 @@ public class PushContentService {
                   category,
                   reminder ? "일정 알림" : Texts.truncateCodePoints(title, 120),
                   reminder ? Texts.truncateCodePoints(title, 120) : actor + label(e.type()),
-                  "/calendar?eventId=" + e.eventId(),
+                  AppWebLinks.calendarEventPath(e.eventId()),
                   "event-" + e.eventId(),
                   "normal",
                   INBOX_TTL);
@@ -133,7 +134,7 @@ public class PushContentService {
    * useIssueChatDrawerParam 과 같은 딥링크, 프론트 notifTarget 과 같은 규칙).
    */
   static String issueUrl(String projectKey, int number, NotificationType type) {
-    String base = "/projects/" + projectKey + "/issues/" + number;
+    String base = AppWebLinks.issuePath(projectKey, number);
     return isIssueChat(type) ? base + "?chat=1" : base;
   }
 

@@ -2,7 +2,7 @@
 import { attachmentContentPath } from '../../api/issueAttachments'
 import { homeAttachmentContentPath } from '../../lib/homeChatAttachments'
 import { formatIssueKey } from '../../lib/issueKey'
-import { canonicalMime, isGenericMime, mimeFromFilename } from '../../lib/mimeFromFilename'
+import { attachmentMime, canonicalMime } from '../../lib/mimeFromFilename'
 import { CONVERTIBLE_MIMES, type PreviewKind, resolvePreviewKind } from '../../lib/previewKind'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
@@ -47,15 +47,8 @@ export function mailAttachmentMime(a: EmailAttachmentMeta): string {
   return attachmentMime(a.contentType, a.filename)
 }
 
-/**
- * 첨부 형식 일반 규칙(WP-280 메일 → WP-279 채팅 공용) — 구체적인 형식은 정규화만, 비었거나 범용이면 파일명 확장자로 추론, 그래도 모르면 octet-stream.
- * 왜: 팀 채팅 업로드는 브라우저가 보낸 Content-Type 을 원문 저장해(MimeNormalizer 미적용) octet-stream·파라미터가 섞일 수 있다.
- * SVG 는 추론하지 않는다(mimeFromFilename 규칙 — 범용 바이트를 SVG 로 달지 않음).
- */
-export function attachmentMime(contentType: string | null | undefined, filename: string | null | undefined): string {
-  if (!isGenericMime(contentType)) return canonicalMime(contentType)
-  return mimeFromFilename(filename) ?? 'application/octet-stream'
-}
+// 첨부 형식 일반 규칙은 lib/mimeFromFilename 으로 옮겼다(WP-1519) — 기존 호출부를 위해 여기서도 내보낸다.
+export { attachmentMime }
 
 /** 콘텐츠 API 경로 끝 — siblingPath 가 옆 API 경로로 바꿀 부분. */
 const CONTENT_SUFFIX_RE = /\/content$/

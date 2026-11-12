@@ -72,17 +72,30 @@ public class FileUploadService {
           Map.entry("application/x-hwp", "DOCUMENT"),
           Map.entry("application/hwp+zip", "DOCUMENT"));
 
-  // 카테고리별 첨부 사이즈 제한 (바이트). DATA는 대용량 CSV/XLSX 적재를 위해 256MB까지 허용,
+  /** 동영상 범주(WP-1519) — 표가 아니라 기본형 접두어(video/)로 정한다. 하위 형식(mp4·quicktime·webm·x-matroska 등)이 많아서. */
+  static final String VIDEO = "VIDEO";
+
+  // 카테고리별 첨부 사이즈 제한 (바이트).
   // PDF/DOCUMENT 는 스캔본·hwp·pptx 가 10MB 를 자주 넘어 크게 둔다(WP-803) — 변환기·워커 문서 상한과 같은 값.
-  // 파일당 multipart 상한(application.yml max-file-size)도 함께 걸린다.
+  // VIDEO 는 촬영 영상(600~900MB)을 드라이브에 올리려고 1GB(WP-1519) — 파일당 multipart 상한(application.yml
+  // max-file-size 1GB)과 같다.
+  // DATA 는 예전 256MB 였지만 multipart 100MB 에 묶여 실효 100MB 였다. multipart 를 동영상 때문에 1GB 로 올리면서 동영상 외 형식이
+  // 함께 커지지 않게 실효값 100MB 를 그대로 적는다(WP-1519).
   private static final Map<String, Long> CATEGORY_SIZE_LIMITS =
-      Map.of(
-          "IMAGE", 10L * 1024 * 1024,
-          "PDF", 100L * 1024 * 1024,
-          "TEXT", 10L * 1024 * 1024,
-          "DATA", 256L * 1024 * 1024,
-          "DOCUMENT", 100L * 1024 * 1024,
-          "OTHER", 25L * 1024 * 1024);
+      Map.ofEntries(
+          Map.entry("IMAGE", 10L * 1024 * 1024),
+          Map.entry("PDF", 100L * 1024 * 1024),
+          Map.entry("TEXT", 10L * 1024 * 1024),
+          Map.entry("DATA", 100L * 1024 * 1024),
+          Map.entry("DOCUMENT", 100L * 1024 * 1024),
+          Map.entry(VIDEO, 1024L * 1024 * 1024),
+          Map.entry("OTHER", 25L * 1024 * 1024));
+
+  /**
+   * 코어 임시 업로드(/api/v1/files) 파일당 상한(WP-1519) — 동영상 1GB 는 드라이브 경로 전용이다. 이 엔드포인트는 할당량 검사 없이 24시간
+   * 보관하므로 멀티파트 상한을 1GB 로 올리기 전의 실효 상한(100MB)을 범주와 무관하게 그대로 건다.
+   */
+  static final long CORE_UPLOAD_MAX_BYTES = 100L * 1024 * 1024;
 
   private final DSLContext dsl;
   private final ThumbnailGenerator thumbnailGenerator;
@@ -119,7 +132,7 @@ public class FileUploadService {
 
     List<FileUploadResponse> results = new java.util.ArrayList<>();
     for (MultipartFile file : files) {
-      results.add(uploadSingleFile(UploadSource.of(file), userId));
+      results.add(uploadSingleFile(UploadSource.of(file), userId, CORE_UPLOAD_MAX_BYTES));
     }
     return results;
   }
@@ -130,11 +143,44 @@ public class FileUploadService {
    */
   @Transactional
   public FileUploadResponse upload(UploadSource source, Long userId) throws IOException {
-    return uploadSingleFile(source, userId);
+    return uploadSingleFile(source, userId, Long.MAX_VALUE);
   }
 
-  /** MIME → 카테고리. 미분류 유형은 OTHER(저장 게이트 없음, #725). */
+  /**
+   * blob 먼저 쓰기(WP-1519) — 드라이브 업로드가 테넌트 할당량 잠금·DB 트랜잭션을 잡기 <b>전에</b> 바이트를 저장소에 써 두고, 그 경로를 가리키는
+   * 출처({@link UploadSource.Staged})를 돌려준다. 이 출처로 {@link #upload} 를 부르면 FILE 행만 넣는다. 1GB 동영상을 NFS 로
+   * 복사하는 동안 잠금·커넥션을 쥐면 같은 테넌트의 모든 드라이브 업로드가 줄 서고 커넥션 풀이 마르기 때문이다.
+   *
+   * <p>범주 크기 상한을 쓰기 전에 본다(넘으면 아무것도 쓰지 않는다). 트랜잭션을 열지 않는다 — 경로 조립에 테넌트 컨텍스트만 필요하다. 이후 저장이 실패하면 호출부가
+   * {@link #discardStaged} 로 지운다.
+   */
+  public UploadSource stage(UploadSource source) {
+    requireWithinSizeLimit(source, Long.MAX_VALUE);
+    String originalName = SafeFileNames.sanitize(source.originalName(), "file");
+    String relativePath = pathBuilder.build(StorageDomain.FILES, originalName);
+    source.writer().writeTo(fileStore, relativePath);
+    return new UploadSource(
+        source.originalName(),
+        source.contentType(),
+        source.size(),
+        new UploadSource.Staged(relativePath));
+  }
+
+  /** {@link #stage} 로 써 둔 blob 을 지운다(저장 실패 보상). 미리 쓴 출처가 아니면 아무것도 하지 않는다. 삭제 실패는 경고만 남긴다. */
+  public void discardStaged(UploadSource source) {
+    if (source.writer() instanceof UploadSource.Staged staged) {
+      fileStore.deleteQuietly(staged.relativePath());
+    }
+  }
+
+  /**
+   * MIME → 카테고리. 미분류 유형은 OTHER(저장 게이트 없음, #725). video/* 는 하위 형식·대소문자·매개변수와 무관하게 VIDEO 다(WP-1519) —
+   * 브라우저가 보낸 값({@code video/x-matroska}, {@code Video/MP4; codecs=…})이 그대로 오기 때문에 기본형으로 본다.
+   */
   public static String categoryOf(String mimeType) {
+    if (MimeNormalizer.baseMime(mimeType).startsWith("video/")) {
+      return VIDEO;
+    }
     return MIME_TO_CATEGORY.getOrDefault(mimeType, "OTHER");
   }
 
@@ -143,18 +189,34 @@ public class FileUploadService {
     return CATEGORY_SIZE_LIMITS.get(category);
   }
 
-  private FileUploadResponse uploadSingleFile(UploadSource file, Long userId) throws IOException {
-    // #735: mime 정규화를 MimeNormalizer 단일 지점으로 통일한다(추출 판정·프리뷰가 같은 값을 보게 함).
-    String mimeType = MimeNormalizer.normalize(file.originalName(), file.contentType());
-
-    // 저장 게이트 없음(allow-all): 유형은 저장을 막지 않는다. 미분류 유형은 OTHER 카테고리로 폴백해
-    // 크기 한도 조회/저장이 NPE·null 없이 동작하게 한다. 유형별 정책 제어는 별도 이슈(#725)에서 도입.
-    String category = categoryOf(mimeType);
-    long sizeLimit = sizeLimitOf(category);
+  /**
+   * 범주 크기 상한 검사 — 이름·형식으로 정한 범주 상한과 엔드포인트 상한({@code maxBytesCap}) 중 작은 값을 넘으면 거절한다. 저장 핵심과 blob 먼저
+   * 쓰기({@link #stage})가 같은 규칙을 쓴다(WP-1519).
+   *
+   * <p>저장 게이트 없음(allow-all): 유형은 저장을 막지 않는다. 미분류 유형은 OTHER 카테고리로 폴백해 크기 한도 조회/저장이 NPE·null 없이 동작하게
+   * 한다. 유형별 정책 제어는 별도 이슈(#725)에서 도입.
+   *
+   * @return 정한 범주
+   */
+  private static String requireWithinSizeLimit(UploadSource file, long maxBytesCap) {
+    String category = categoryOf(MimeNormalizer.normalize(file.originalName(), file.contentType()));
+    long sizeLimit = Math.min(sizeLimitOf(category), maxBytesCap);
     if (file.size() > sizeLimit) {
       throw new FileSizeLimitExceededException(
           category, sizeLimit, SafeFileNames.sanitize(file.originalName(), "file"));
     }
+    return category;
+  }
+
+  /**
+   * 단건 저장 핵심. {@code maxBytesCap} 은 범주 상한 위에 거는 엔드포인트 상한(코어 임시 업로드 100MB, 드라이브는 제한 없음 — WP-1519).
+   * 미리 써 둔 출처({@link UploadSource.Staged})면 그 경로를 그대로 FILE 행에 묶는다.
+   */
+  private FileUploadResponse uploadSingleFile(UploadSource file, Long userId, long maxBytesCap)
+      throws IOException {
+    // #735: mime 정규화를 MimeNormalizer 단일 지점으로 통일한다(추출 판정·프리뷰가 같은 값을 보게 함).
+    String mimeType = MimeNormalizer.normalize(file.originalName(), file.contentType());
+    String category = requireWithinSizeLimit(file, maxBytesCap);
 
     // 파일명은 NFC 로 정규화해 저장한다. macOS 업로드는 NFD(분해형)로 들어와, NFC 검색어와 ILIKE 미스를 유발하기 때문(UnicodeNames 참조).
     // 이 값은 FileUploadResponse → drive_file.name 으로 흐른다(채팅·이슈 등 첨부 저장소는 별도 경로 — 드라이브로 가져올 때
@@ -165,10 +227,15 @@ public class FileUploadService {
 
     // FilePathBuilder 가 테넌트 prefix + 도메인 세그먼트(files) + 날짜 + UUID 를 조립한다(테넌트 컨텍스트 필수).
     // 경로 예: tenant-1/files/2024-01-15/{uuid}.png
-    String relativePath = pathBuilder.build(StorageDomain.FILES, originalName);
-
-    // FileStore 에 위임하여 루트-기준 상대경로로 저장(디스크 직접 접근 제거).
-    file.writer().writeTo(fileStore, relativePath);
+    // 미리 써 둔 blob(WP-1519)은 그 경로를 쓰고 다시 쓰지 않는다 — 이름이 바뀌었어도(새 버전은 잠근 행의 지금 이름) 경로는 uuid 라 그대로 둔다.
+    String relativePath;
+    if (file.writer() instanceof UploadSource.Staged staged) {
+      relativePath = staged.relativePath();
+    } else {
+      relativePath = pathBuilder.build(StorageDomain.FILES, originalName);
+      // FileStore 에 위임하여 루트-기준 상대경로로 저장(디스크 직접 접근 제거).
+      file.writer().writeTo(fileStore, relativePath);
+    }
 
     // stored_name = 경로의 마지막 세그먼트(uuid.ext) — DB 인바리언트 유지.
     String storedName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
@@ -239,7 +306,7 @@ public class FileUploadService {
         record.getCreatedAt().toInstant());
   }
 
-  /** 파일 다운로드 결과 레코드. byte[] 대신 Resource를 사용하여 대용량 파일(최대 256MB)을 스트리밍으로 전송하고 힙 메모리 과소비를 방지한다. */
+  /** 파일 다운로드 결과 레코드. byte[] 대신 Resource를 사용하여 대용량 파일(동영상 최대 1GB)을 스트리밍으로 전송하고 힙 메모리 과소비를 방지한다. */
   public record FileContentResult(
       Resource resource, String mimeType, String originalName, long size) {
     /**
@@ -275,7 +342,7 @@ public class FileUploadService {
     Path storagePath = fileStore.resolve(record.getStoragePath());
 
     // Files.readAllBytes() 대신 FileSystemResource로 스트리밍 반환.
-    // DATA 카테고리 파일은 최대 256MB이므로 전체 로드 시 OOM 위험 → 스트리밍 방식 필수.
+    // 동영상은 최대 1GB 이므로 전체 로드 시 OOM 위험 → 스트리밍 방식 필수.
     long fileSize = fileStore.size(record.getStoragePath());
     Resource resource = new FileSystemResource(storagePath);
     return new FileContentResult(

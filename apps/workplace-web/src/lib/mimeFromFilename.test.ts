@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canonicalMime, isGenericMime, mimeFromFilename } from './mimeFromFilename'
+import { attachmentMime, canonicalMime, isGenericMime, isVideoFile, mimeFromFilename } from './mimeFromFilename'
 import { CONVERTIBLE_MIMES, resolvePreviewKind } from './previewKind'
 
 describe('mimeFromFilename', () => {
@@ -70,5 +70,24 @@ describe('canonicalMime / isGenericMime', () => {
     }
     expect(isGenericMime('application/pdf')).toBe(false)
     expect(isGenericMime('image/svg+xml')).toBe(false)
+  })
+})
+
+describe('동영상 판정(WP-1519) — 서버 MimeNormalizer 동영상 확장자 표·VIDEO 범주와 같은 규칙', () => {
+  it('서버 표의 동영상 확장자를 모두 안다(m4v 는 서버와 같이 video/mp4)', () => {
+    expect(mimeFromFilename('a.mkv')).toBe('video/x-matroska')
+    expect(mimeFromFilename('a.AVI')).toBe('video/x-msvideo')
+    expect(mimeFromFilename('a.m4v')).toBe('video/mp4')
+    expect(mimeFromFilename('a.3gp')).toBe('video/3gpp')
+    expect(mimeFromFilename('a.m2ts')).toBe('video/mp2t')
+  })
+
+  it('구체적 형식은 그대로, 범용 형식이면 이름으로 — 옛 octet-stream 동영상도 동영상', () => {
+    expect(isVideoFile('application/octet-stream', '촬영.MOV')).toBe(true)
+    expect(isVideoFile(undefined, 'clip.mp4')).toBe(true)
+    expect(isVideoFile('Video/X-Flv; x=1', 'a.bin')).toBe(true)
+    expect(isVideoFile('application/zip', 'a.mp4')).toBe(false)
+    expect(isVideoFile('application/octet-stream', 'a.zip')).toBe(false)
+    expect(attachmentMime('', 'a.webm')).toBe('video/webm')
   })
 })

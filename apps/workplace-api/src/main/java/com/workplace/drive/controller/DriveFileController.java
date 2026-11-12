@@ -8,7 +8,9 @@ import com.workplace.drive.dto.RenameFileRequest;
 import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.dto.UpdateTextFileRequest;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveStagedUpload;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.file.service.UploadSource;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.FileSecurityCheckService;
@@ -46,6 +48,9 @@ import org.springframework.web.multipart.MultipartFile;
 public class DriveFileController {
   private final DriveFileService fileService;
 
+  /** blob 먼저 쓰기(WP-1519). */
+  private final DriveStagedUpload stagedUpload;
+
   private final AttachmentViewService attachmentView;
 
   private final FilePreviewService previewService;
@@ -59,8 +64,13 @@ public class DriveFileController {
       @RequestParam(value = "folderId", required = false) Long folderId,
       @RequestParam("file") MultipartFile file)
       throws IOException {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(fileService.upload(callerId, spaceId, folderId, file));
+    // 권한·폴더 사전 검사 뒤 blob 을 먼저 쓰고(트랜잭션·테넌트 잠금 밖) 저장 핵심을 부른다(WP-1519) — 1GB 동영상 복사 동안 잠금을 쥐지 않게.
+    fileService.validateUploadTarget(callerId, spaceId, folderId);
+    DriveFileResponse saved =
+        stagedUpload.run(
+            UploadSource.of(file),
+            staged -> fileService.upload(callerId, spaceId, folderId, staged));
+    return ResponseEntity.status(HttpStatus.CREATED).body(saved);
   }
 
   /**

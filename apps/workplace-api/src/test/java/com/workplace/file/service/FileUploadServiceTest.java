@@ -216,6 +216,108 @@ class FileUploadServiceTest extends IntegrationTestBase {
         .hasMessage("문서 파일은 최대 100MB까지 업로드할 수 있습니다: big.docx");
   }
 
+  /** 크기만 크게 알리는 스텁 — 1GB 배열을 만들지 않고 크기 상한 판정만 본다(실제 저장되는 바이트는 0). */
+  private static MockMultipartFile sizedStub(String name, String contentType, long size) {
+    return new MockMultipartFile("files", name, contentType, new byte[0]) {
+      @Override
+      public long getSize() {
+        return size;
+      }
+    };
+  }
+
+  private static final long GB = 1024L * 1024 * 1024;
+
+  @Test
+  void uploadFiles_smallVideo_isClassifiedVideo() throws IOException {
+    // WP-1519: 동영상은 VIDEO 범주로 저장된다(예전엔 OTHER 25MB 로 떨어졌다)
+    MockMultipartFile file =
+        new MockMultipartFile("files", "clip.mp4", "video/mp4", "fake-mp4-bytes".getBytes());
+
+    FileUploadResponse response = fileUploadService.uploadFiles(List.of(file), testUserId).get(0);
+
+    assertThat(response.mimeType()).isEqualTo("video/mp4");
+    assertThat(response.fileCategory()).isEqualTo("VIDEO");
+    assertThat(
+            dsl.select(FILE.CATEGORY)
+                .from(FILE)
+                .where(FILE.ID.eq(response.id()))
+                .fetchOne(FILE.CATEGORY))
+        .isEqualTo("VIDEO");
+  }
+
+  @Test
+  void uploadFiles_octetStreamMp4_isVideoByExtension() throws IOException {
+    // WP-1519: Content-Type 을 모르는 업로드(octet-stream)도 확장자로 동영상을 알아본다
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "files", "CLIP.MOV", "application/octet-stream", "fake-mov".getBytes());
+
+    FileUploadResponse response = fileUploadService.uploadFiles(List.of(file), testUserId).get(0);
+
+    assertThat(response.mimeType()).isEqualTo("video/quicktime");
+    assertThat(response.fileCategory()).isEqualTo("VIDEO");
+  }
+
+  @Test
+  void upload_videoExactly1GB_isAccepted() throws IOException {
+    // WP-1519: 드라이브 경로(upload(UploadSource))의 동영상 상한은 1GB — 경계값(정확히 1GB)은 받는다
+    MockMultipartFile file = sizedStub("movie.mp4", "video/mp4", GB);
+
+    assertThat(fileUploadService.upload(UploadSource.of(file), testUserId).fileCategory())
+        .isEqualTo("VIDEO");
+  }
+
+  @Test
+  void upload_videoOver1GB_throwsException() {
+    // WP-1519: 1GB 를 1바이트라도 넘으면 거절
+    MockMultipartFile file = sizedStub("movie.webm", "video/webm", GB + 1);
+
+    assertThatThrownBy(() -> fileUploadService.upload(UploadSource.of(file), testUserId))
+        .isInstanceOf(FileSizeLimitExceededException.class)
+        .hasMessage("동영상 파일은 최대 1GB까지 업로드할 수 있습니다: movie.webm");
+  }
+
+  @Test
+  void uploadFiles_coreEndpoint_keeps100MBCapEvenForVideo() throws IOException {
+    // WP-1519: 코어 임시 업로드(/api/v1/files)는 할당량 검사 없이 24시간 보관하므로 동영상도 예전 실효 상한 100MB
+    MockMultipartFile atCap = sizedStub("ok.mp4", "video/mp4", 100L * 1024 * 1024);
+    assertThat(fileUploadService.uploadFiles(List.of(atCap), testUserId).get(0).fileCategory())
+        .isEqualTo("VIDEO");
+
+    MockMultipartFile over = sizedStub("big.mp4", "video/mp4", 100L * 1024 * 1024 + 1);
+    assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(over), testUserId))
+        .isInstanceOf(FileSizeLimitExceededException.class)
+        .hasMessage("동영상 파일은 최대 100MB까지 업로드할 수 있습니다: big.mp4");
+  }
+
+  @Test
+  void uploadFiles_csvOver100MB_throwsException() {
+    // WP-1519: 멀티파트 상한을 1GB 로 올려도 DATA 의 실효 상한(100MB)은 그대로다
+    MockMultipartFile file = sizedStub("big.csv", "text/csv", 100L * 1024 * 1024 + 1);
+
+    assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
+        .isInstanceOf(FileSizeLimitExceededException.class)
+        .hasMessage("데이터 파일은 최대 100MB까지 업로드할 수 있습니다: big.csv");
+  }
+
+  @Test
+  void categoryOf_anyVideoSubtype_isVideo_othersUnchanged() {
+    // WP-1519: video/* 는 하위 형식·대소문자·매개변수와 무관하게 VIDEO
+    assertThat(FileUploadService.categoryOf("video/x-matroska")).isEqualTo("VIDEO");
+    assertThat(FileUploadService.categoryOf("video/x-msvideo")).isEqualTo("VIDEO");
+    assertThat(FileUploadService.categoryOf("video/x-flv")).isEqualTo("VIDEO");
+    assertThat(FileUploadService.categoryOf("Video/MP4; codecs=avc1")).isEqualTo("VIDEO");
+    assertThat(FileUploadService.sizeLimitOf("VIDEO")).isEqualTo(GB);
+    // 다른 범주는 그대로
+    assertThat(FileUploadService.categoryOf("application/zip")).isEqualTo("OTHER");
+    assertThat(FileUploadService.categoryOf("audio/mpeg")).isEqualTo("OTHER");
+    assertThat(FileUploadService.categoryOf("application/pdf")).isEqualTo("PDF");
+    assertThat(FileUploadService.sizeLimitOf("OTHER")).isEqualTo(25L * 1024 * 1024);
+    assertThat(FileUploadService.sizeLimitOf("IMAGE")).isEqualTo(10L * 1024 * 1024);
+    assertThat(FileUploadService.sizeLimitOf("DOCUMENT")).isEqualTo(100L * 1024 * 1024);
+  }
+
   @Test
   void uploadFiles_textTooLarge_throwsException() {
     // TEXT 한도 10MB 초과 케이스로 11MB 사용

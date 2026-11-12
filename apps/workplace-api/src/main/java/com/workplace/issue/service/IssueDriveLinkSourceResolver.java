@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 
 import com.workplace.drive.api.DriveLinkSourceResolver;
 import com.workplace.global.share.ProjectMembership;
+import com.workplace.global.util.AppWebLinks;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -57,7 +58,7 @@ public class IssueDriveLinkSourceResolver implements DriveLinkSourceResolver {
               String title = r.get(ISSUE.TITLE);
               boolean acc = Boolean.TRUE.equals(r.get(accessible));
               String label = key + "-" + num + " " + title;
-              String deepLink = "/projects/" + key + "/issues/" + num;
+              String deepLink = AppWebLinks.issuePath(key, num);
               out.put(issueId, new Resolved(label, deepLink, acc));
               return null;
             });

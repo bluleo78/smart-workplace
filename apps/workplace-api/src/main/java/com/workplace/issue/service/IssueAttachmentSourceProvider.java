@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 
 import com.workplace.drive.api.AttachmentSourceProvider;
 import com.workplace.global.share.ProjectMembership;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.issue.dto.IssueBodyImageResponse;
 import java.time.OffsetDateTime;
@@ -141,7 +142,7 @@ public class IssueAttachmentSourceProvider implements AttachmentSourceProvider {
         r.get(FILE.SIZE_BYTES),
         r.get(FILE.THUMBNAIL_PATH) != null,
         key + "-" + num + " " + r.get(ISSUE.TITLE),
-        "/projects/" + key + "/issues/" + num,
+        AppWebLinks.issuePath(key, num),
         downloadUrl,
         r.get(AT).toInstant(),
         kind,

@@ -2,9 +2,11 @@ package com.workplace.mail.service;
 
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveStagedUpload;
 import com.workplace.drive.service.DriveUploadLimits;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.service.UploadSource;
 import com.workplace.mail.exception.EmailAttachmentNotFoundException;
 import com.workplace.mail.service.MailAttachmentResolver.Resolved;
@@ -38,10 +40,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class MailAttachmentDriveSaveService {
 
+  /**
+   * 메일 첨부 저장의 크기 상한(바이트) — 이 경로는 원본 전체를 byte[] 로 받아 API 힙에 올린다. 드라이브 동영상 상한(1GB, WP-1519)을 그대로 따르면
+   * 큰 첨부 몇 개로 힙(운영 limit 1.5Gi)이 넘칠 수 있어, 동영상도 예전 실효 상한 100MB 로 묶는다. 메일 서버 첨부 상한(수십 MB) 때문에 실제로는 닿지
+   * 않는 크기다.
+   */
+  static final long IN_MEMORY_MAX_BYTES = 100L * 1024 * 1024;
+
   private final MailAttachmentResolver resolver;
   private final MailAttachmentService attachmentService;
   private final DriveFileService driveFileService;
   private final DriveUploadLimits uploadLimits;
+  private final DriveStagedUpload stagedUpload;
   private final PlatformTransactionManager txManager;
 
   /**
@@ -68,8 +78,10 @@ public class MailAttachmentDriveSaveService {
     String contentType = resolved.mime();
 
     // ①-2 크기 사전 검사 — manifest 크기가 정규화한 형식의 범주 상한·드라이브 업로드 상한을 넘으면 메일 서버에서 받기 전에 거절한다.
-    String category = FileUploadService.categoryOf(contentType);
-    long maxBytes = uploadLimits.capFor(name, contentType);
+    // 문구의 범주와 상한은 같은 정규화 MIME 으로 정한다 — octet-stream .mp4 가 상한은 동영상(이름)으로, 문구는 미분류로 갈리지 않게.
+    String category = FileUploadService.categoryOf(MimeNormalizer.normalize(name, contentType));
+    // 드라이브 업로드 상한과 메모리 경로 상한 중 작은 값(동영상도 100MB — IN_MEMORY_MAX_BYTES).
+    long maxBytes = Math.min(uploadLimits.capFor(name, contentType), IN_MEMORY_MAX_BYTES);
     if (resolved.exceedsBeforeFetch(maxBytes)) {
       throw new FileSizeLimitExceededException(category, maxBytes, name);
     }
@@ -95,8 +107,10 @@ public class MailAttachmentDriveSaveService {
 
     // ④ 새 파일로 저장 — 할당량 잠금 아래에서 같은 이름·한도를 다시 보고, 같은 이름이 있으면 버전 흡수 대신 409.
     try {
-      return driveFileService.uploadNew(
-          userId, spaceId, folderId, UploadSource.ofBytes(name, contentType, dl.content()));
+      // blob 을 먼저 쓰고(트랜잭션·테넌트 잠금 밖) 저장 핵심을 부른다 — 실패하면 써 둔 blob 을 지운다(WP-1519).
+      return stagedUpload.run(
+          UploadSource.ofBytes(name, contentType, dl.content()),
+          staged -> driveFileService.uploadNew(userId, spaceId, folderId, staged));
     } catch (IOException e) {
       throw new UncheckedIOException("드라이브에 첨부를 저장하지 못했습니다", e);
     }

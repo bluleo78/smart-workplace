@@ -5,6 +5,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.home.dto.PriorityItemRow;
 import com.workplace.home.exception.PriorityAiException;
 import com.workplace.home.outbound.AiAgentPriorityClient;
@@ -313,7 +314,7 @@ public class PriorityClassificationScheduler {
               String.valueOf(i.id()),
               i.title(),
               i.dueDate().toString().equals(today) ? "오늘 마감" : "마감 지남",
-              "/projects/" + i.projectKey() + "/issues/" + i.number()));
+              AppWebLinks.issuePath(i.projectKey(), i.number())));
     }
 
     // 멘션(안읽은 코멘트 멘션·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙
@@ -336,10 +337,7 @@ public class PriorityClassificationScheduler {
                 // 분기와 동일한 폴백으로 user_priority_item.title NOT NULL 위반을 막는다.
                 n.issueTitle() != null ? n.issueTitle() : "(제목 없음)",
                 "AI_QUESTION".equals(n.type()) ? "AI 질문" : "멘션",
-                "/projects/"
-                    + n.projectKey()
-                    + "/issues/"
-                    + n.issueNumber()
+                AppWebLinks.issuePath(n.projectKey(), n.issueNumber())
                     + (issueChat ? "?chat=1" : "")));
       }
     }

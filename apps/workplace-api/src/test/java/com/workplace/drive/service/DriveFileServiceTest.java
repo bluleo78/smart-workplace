@@ -745,7 +745,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
   }
 
-  /** 크기 상한은 TEXT 상한(10MB) — csv(DATA 범주 256MB)도 10MB 를 넘으면 거부. */
+  /** 크기 상한은 TEXT 상한(10MB) — csv(DATA 범주 100MB)도 10MB 를 넘으면 거부. */
   @Test
   void createTextFile_over10MB_isRejected_evenForCsv() throws Exception {
     long u = seedUser();

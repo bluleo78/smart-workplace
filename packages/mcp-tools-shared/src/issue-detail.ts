@@ -70,6 +70,8 @@ export interface IssueExternalLinkOut {
 
 export interface IssueDetail {
   issueKey: string;
+  /** 화면 주소(WP-1523) — 서버가 공개 웹 주소로 만든 실제 주소. 본문에 링크를 쓸 때 이 값만 쓴다(직접 만들지 않는다). 서버가 안 주면 키가 없다. */
+  url?: string;
   /** 가져올 때 받은 원본 시스템 키(WP-1239, 예: Jira INFRA-123) — 가져온 이슈에만 있고, 없으면 키가 없다. */
   sourceKey?: string;
   title: string;
@@ -244,6 +246,8 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
   const projectKey = s.projectKey ?? issueKey.replace(/-\d+$/, '');
   return {
     issueKey,
+    // WP-1523: 서버가 준 화면 주소 — 필드를 골라 만드는 뷰라 명시적으로 옮긴다(안 옮기면 조용히 빠진다).
+    ...(typeof r.url === 'string' && r.url ? { url: r.url } : {}),
     // WP-1239: 원본 키는 가져온 이슈에만 있다 — 없으면 키를 싣지 않는다(대부분 이슈의 출력이 늘지 않게).
     ...(typeof s.sourceKey === 'string' && s.sourceKey ? { sourceKey: s.sourceKey } : {}),
     title: String(s.title ?? r.title ?? ''),

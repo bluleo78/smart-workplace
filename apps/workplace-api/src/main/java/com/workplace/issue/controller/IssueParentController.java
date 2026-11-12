@@ -1,6 +1,8 @@
 package com.workplace.issue.controller;
 
+import com.workplace.global.dto.WithWebUrl;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.service.IssueService;
 import jakarta.validation.Valid;
@@ -24,6 +26,9 @@ public class IssueParentController {
 
   private final IssueService issueService;
 
+  /** 화면 주소(WP-1523) — 응답 상세에 url 로 싣는다(다른 이슈 수정 응답과 같은 모양). */
+  private final AppWebLinks webLinks;
+
   /**
    * body — 둘 다 null 이면 해제. parentKey(예: PLAN-12)는 다른 프로젝트 에픽 지정용(WP-1038), parentNumber 와 함께 오면 같은
    * 이슈여야 한다.
@@ -40,13 +45,16 @@ public class IssueParentController {
   /** SUBTASK 의 부모 설정/해제. */
   @PatchMapping
   @RequirePermission("issue:write")
-  public ResponseEntity<IssueDetailResponse> set(
+  public ResponseEntity<WithWebUrl<IssueDetailResponse>> set(
       Authentication auth,
       @PathVariable String key,
       @PathVariable int number,
       @Valid @RequestBody SetParentRequest req) {
-    return ResponseEntity.ok(
+    IssueDetailResponse detail =
         issueService.setParent(
-            (Long) auth.getPrincipal(), key, number, req.parentNumber(), req.parentKey()));
+            (Long) auth.getPrincipal(), key, number, req.parentNumber(), req.parentKey());
+    return ResponseEntity.ok(
+        WithWebUrl.of(
+            detail, webLinks.issue(detail.summary().projectKey(), detail.summary().number())));
   }
 }

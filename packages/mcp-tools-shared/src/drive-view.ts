@@ -64,8 +64,10 @@ export function toDriveBacklinksView(rows: { sourceType: string; label: string; 
  * 다운로드 링크 발급 응답 → LLM 뷰(WP-369). 파일 행과 달리 **허용 목록**으로 고른다 — 로그인 없이 워크스페이스 밖으로 나가는 링크라,
  * 서버에 나중에 생길 필드(발급자 id 등)가 외부 클라이언트로 그대로 새지 않게 닫힌 쪽(fail-closed)을 택했다.
  */
+// WP-1523: 서버 url 을 downloadUrl 로 바꿔 싣는다 — 도구 응답의 url 은 「본문에 써도 되는 화면 주소」라는 규칙(instructions)과 헷갈려 로그인 없는
+// 일회용 링크가 본문·메시지에 붙지 않게(업로드 링크의 uploadUrl 과 같은 이유).
 export function toDriveDownloadLinkView({ url, expiresAt, name, sizeBytes, mimeType, singleUse }: DriveDownloadLink) {
-  return { url, expiresAt, name, sizeBytes, mimeType, singleUse };
+  return { downloadUrl: url, expiresAt, name, sizeBytes, mimeType, singleUse };
 }
 
 /** 업로드 링크 note 의 공통 앞부분 — 한 번만·원시 바이트·Content-Type 금지(이유는 toDriveUploadLinkView 주석). 스테이징 링크(WP-421)도 같은 PUT 규칙이라 함께 쓴다. */

@@ -131,7 +131,7 @@ export const restoreDriveItemInput = z
 // WP-369: 전송 도구 설명. 정의 크기 상한(15,000 근사 토큰) 안에 맞추려고 실패·재시도 절차는 응답(note·howTo)에도 싣는다.
 const DOWNLOAD_LINK_DESCRIPTION =
   'Creates a download link for a drive file, valid 10 minutes with no login: show it only to the user. Works once; a failed or ' +
-  'interrupted download needs a new link. Shell: curl -o "<name>" "<url>". To read content, use read_file.';
+  'interrupted download needs a new link. Shell: curl -o "<name>" "<downloadUrl>". To read content, use read_file.';
 /**
  * create_drive_file 설명의 content 모드 부분(대상 고르기·텍스트 쓰기). AI Chat 판(ai-agent)은 업로드 링크를 쓸 수 없어 이 부분만 한국어 머리말 뒤에
  * 붙인다 — 문장을 나눠 두어야 공유 설명이 바뀌어도 AI Chat 판이 따라오고, 링크 안내만 정확히 빠진다.
@@ -349,7 +349,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       inputSchema: createDriveDownloadLinkInput,
       async handler(args) {
         const { driveFileId } = createDriveDownloadLinkInput.parse(args);
-        // 서버 응답에서 {url, expiresAt, name, sizeBytes, mimeType, singleUse} 만 고른다(허용 목록 — 이유는 toDriveDownloadLinkView).
+        // 서버 응답에서 {url→downloadUrl, expiresAt, name, sizeBytes, mimeType, singleUse} 만 고른다(허용 목록 — 이유는 toDriveDownloadLinkView).
         return JSON.stringify(toDriveDownloadLinkView(await client.createDriveDownloadLink(driveFileId)));
       },
     },

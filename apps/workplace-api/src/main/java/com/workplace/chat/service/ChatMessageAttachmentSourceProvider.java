@@ -12,6 +12,7 @@ import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.AttachmentSourceProvider;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.global.util.LikePatternUtils;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -100,8 +101,8 @@ public class ChatMessageAttachmentSourceProvider implements AttachmentSourceProv
               int num = r.get(ISSUE.NUMBER);
               // 라벨: 이슈 키 형식
               String sourceLabel = key + "-" + num;
-              // 딥링크: IssueDriveLinkSourceResolver 와 동일한 "/projects/KEY/issues/번호" 패턴
-              String deepLink = "/projects/" + key + "/issues/" + num;
+              // 딥링크: 이슈 화면 경로(AppWebLinks.issuePath — 다른 출처 딥링크와 같은 한 곳)
+              String deepLink = AppWebLinks.issuePath(key, num);
               // 채팅 첨부 다운로드 경로 (ChatMessageAttachmentController 실제 엔드포인트)
               String downloadUrl =
                   "/api/v1/chat/threads/"

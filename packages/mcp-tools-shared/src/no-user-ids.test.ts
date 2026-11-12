@@ -397,7 +397,7 @@ describe('드라이브', () => {
       out(await find(tools, 'create_drive_file').handler({ driveFileId: 5 })),
     ];
     for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
-    expect(outs[0]).toEqual({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true });
+    expect(outs[0]).toEqual({ downloadUrl: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true });
     for (const body of [outs[2], outs[3]]) {
       expect(body).toMatchObject({ driveFileId: 5 });
       expect(body).not.toHaveProperty('fileId');

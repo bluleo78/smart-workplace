@@ -5,11 +5,12 @@ import {
   FileType,
   Image as ImageIcon,
   Presentation,
+  Video,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { useDriveThumbnail } from '../../hooks/queries/useDriveThumbnail'
-import { canonicalMime } from '../../lib/mimeFromFilename'
+import { canonicalMime, isVideoFile } from '../../lib/mimeFromFilename'
 import { isPresentationMime } from '../../lib/previewKind'
 
 /**
@@ -29,9 +30,12 @@ export function DriveThumbnail({
   category,
   available = true,
   mimeType,
+  name,
 }: {
   fileId: number
   category: string
+  /** 파일 이름 — 형식이 비었거나 octet-stream 으로 저장된 파일(VIDEO 범주 전 동영상 등)을 확장자로 알아보려고 쓴다(WP-1519). */
+  name?: string
   /** 파일 형식(서버 값 그대로 — 여기서 정규화한다) — 카테고리로는 구분되지 않는 발표 자료(pptx·ppt, WP-431)를 슬라이드 아이콘으로 보이려고 쓴다. */
   mimeType?: string
   // #739: 원본 blob 이 유실된 파일 — false 면 썸네일 요청 자체를 보내지 않고 플레이스홀더만 표시.
@@ -94,9 +98,13 @@ export function DriveThumbnail({
   // 알려진 포맷은 포맷별 아이콘으로: 문서(PDF/DOCX)→문서, 표(CSV/XLSX)→스프레드시트,
   // 텍스트→텍스트, 이미지→이미지. 미지(UNKNOWN 등)만 제네릭 파일 아이콘.
   // 발표 자료(pptx·ppt)는 카테고리(DOCUMENT)와 무관하게 슬라이드 아이콘으로 먼저 구분한다(WP-431).
+  // 동영상은 범주(VIDEO) 또는 형식·이름(attachmentMime 규칙)으로 고른다(WP-1519) — VIDEO 범주 전에 올라온 동영상은 OTHER 범주에
+  // 브라우저 형식(video/mp4) 또는 octet-stream 으로 저장돼 있어, 형식이 범용이면 파일 이름 확장자로 본다.
   const Icon =
     mimeType != null && isPresentationMime(canonicalMime(mimeType))
       ? Presentation
+      : category === 'VIDEO' || isVideoFile(mimeType, name)
+        ? Video
       : category === 'PDF' || category === 'DOCUMENT'
         ? FileText
         : category === 'DATA'

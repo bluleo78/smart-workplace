@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 
+import { WORKPLACE_LINK_RULE } from './system-prompt.js';
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 // 서브에이전트 한 개의 정의. tools 는 frontmatter 가 강제하는 도구 경계.
@@ -116,6 +118,11 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
   return { frontmatter: fm, body };
 }
 
+/** agent.md 본문 끝에 링크 규칙(WP-1523)을 한 줄로 붙인다 — 끝 공백을 정리하고 빈 줄 하나를 둔다. */
+export function withLinkRule(body: string): string {
+  return `${body.trimEnd()}\n\n- ${WORKPLACE_LINK_RULE}\n`;
+}
+
 // subagentsDir 기본값 = 본 모듈 옆 subagents/ (dev=src/agent/subagents, prod=dist/agent/subagents).
 // 각 하위 디렉터리의 agent.md 를 읽어 SubagentDefinition 으로. agent.md 없으면 건너뛴다.
 export function loadSubagents(subagentsDir: string = path.resolve(here, 'subagents')): Record<string, SubagentDefinition> {
@@ -141,7 +148,9 @@ export function loadSubagents(subagentsDir: string = path.resolve(here, 'subagen
       tools: frontmatter.tools ?? [],
       maxTurns: frontmatter.maxTurns,
       model: frontmatter.model,
-      prompt: body,
+      // WP-1523: 본문·코멘트·메시지를 쓰는 하위 에이전트가 화면 주소를 지어내지 않게 링크 규칙을 모든 agent.md 끝에 한 줄 붙인다 —
+      // agent.md 마다 베껴 쓰지 않고 여기 한 곳에서(claude·opencode 두 실행 경로가 모두 loadSubagents 를 지난다).
+      prompt: withLinkRule(body),
     };
   }
   return out;

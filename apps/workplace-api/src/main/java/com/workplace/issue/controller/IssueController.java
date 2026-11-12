@@ -1,6 +1,8 @@
 package com.workplace.issue.controller;
 
+import com.workplace.global.dto.WithWebUrl;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.EpicChildrenResponse;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
@@ -41,6 +43,9 @@ public class IssueController {
   private final IssueAiSummaryService aiSummaryService;
   private final IssueAiClassifyService issueAiClassifyService;
 
+  /** 화면 주소(WP-1523) — 생성·상세 응답에 url 로 싣는다. AI 가 본문에 주소를 지어내지 않고 이 값을 쓴다. */
+  private final AppWebLinks webLinks;
+
   /**
    * 검색/필터 + cursor 페이징 단일 엔드포인트. 보드 상태 컬럼도 statusId 로 좁혀 이 엔드포인트를 부른다.
    *
@@ -64,20 +69,23 @@ public class IssueController {
         issueSearchService.groupCounts((Long) auth.getPrincipal(), key, params));
   }
 
-  /** 신규 이슈 생성. */
+  /** 신규 이슈 생성. 응답 필드는 그대로이고 화면 주소 url 이 붙는다(WP-1523). */
   @PostMapping
   @RequirePermission("issue:write")
-  public ResponseEntity<IssueResponse> create(
+  public ResponseEntity<WithWebUrl<IssueResponse>> create(
       Authentication auth, @PathVariable String key, @Valid @RequestBody CreateIssueRequest req) {
-    return ResponseEntity.ok(issueService.create((Long) auth.getPrincipal(), key, req));
+    IssueResponse created = issueService.create((Long) auth.getPrincipal(), key, req);
+    // 경로 key 가 아니라 응답의 projectKey(저장된 표기)로 만든다.
+    return ResponseEntity.ok(
+        WithWebUrl.of(created, webLinks.issue(created.projectKey(), created.number())));
   }
 
-  /** 이슈 상세 조회. */
+  /** 이슈 상세 조회. 응답 필드는 그대로이고 화면 주소 url 이 붙는다(WP-1523). */
   @GetMapping("/{number}")
   @RequirePermission("project:read")
-  public ResponseEntity<IssueDetailResponse> get(
+  public ResponseEntity<WithWebUrl<IssueDetailResponse>> get(
       Authentication auth, @PathVariable String key, @PathVariable int number) {
-    return ResponseEntity.ok(issueService.get((Long) auth.getPrincipal(), key, number));
+    return ResponseEntity.ok(withUrl(issueService.get((Long) auth.getPrincipal(), key, number)));
   }
 
   /**
@@ -94,12 +102,13 @@ public class IssueController {
   /** 이슈 부분 수정. */
   @PatchMapping("/{number}")
   @RequirePermission("issue:write")
-  public ResponseEntity<IssueDetailResponse> update(
+  public ResponseEntity<WithWebUrl<IssueDetailResponse>> update(
       Authentication auth,
       @PathVariable String key,
       @PathVariable int number,
       @Valid @RequestBody UpdateIssueRequest req) {
-    return ResponseEntity.ok(issueService.update((Long) auth.getPrincipal(), key, number, req));
+    return ResponseEntity.ok(
+        withUrl(issueService.update((Long) auth.getPrincipal(), key, number, req)));
   }
 
   /**
@@ -107,19 +116,20 @@ public class IssueController {
    */
   @PatchMapping("/{number}/status")
   @RequirePermission("issue:write")
-  public ResponseEntity<IssueDetailResponse> updateStatus(
+  public ResponseEntity<WithWebUrl<IssueDetailResponse>> updateStatus(
       Authentication auth,
       @PathVariable String key,
       @PathVariable int number,
       @Valid @RequestBody UpdateStatusRequest req) {
     return ResponseEntity.ok(
-        issueService.updateStatus(
-            (Long) auth.getPrincipal(),
-            key,
-            number,
-            req.status(),
-            req.statusId(),
-            req.statusName()));
+        withUrl(
+            issueService.updateStatus(
+                (Long) auth.getPrincipal(),
+                key,
+                number,
+                req.status(),
+                req.statusId(),
+                req.statusName())));
   }
 
   /**
@@ -140,19 +150,20 @@ public class IssueController {
   /** 이슈 유형 변경 — 같은 프로젝트의 유형만 허용. */
   @PatchMapping("/{number}/type")
   @RequirePermission("issue:write")
-  public ResponseEntity<IssueDetailResponse> updateType(
+  public ResponseEntity<WithWebUrl<IssueDetailResponse>> updateType(
       Authentication auth,
       @PathVariable String key,
       @PathVariable int number,
       @Valid @RequestBody UpdateTypeRequest req) {
     return ResponseEntity.ok(
-        issueService.setType(
-            (Long) auth.getPrincipal(),
-            key,
-            number,
-            req.typeId(),
-            req.parentNumber(),
-            req.parentKey()));
+        withUrl(
+            issueService.setType(
+                (Long) auth.getPrincipal(),
+                key,
+                number,
+                req.typeId(),
+                req.parentNumber(),
+                req.parentKey())));
   }
 
   /** 이슈 soft-delete. reporter 또는 OWNER 만 가능. */
@@ -197,5 +208,11 @@ public class IssueController {
     long issueId = issueService.resolveAccessibleIssueId(callerId, key, number);
     aiSummaryService.generateOnDemand(issueId);
     return ResponseEntity.ok(issueService.get(callerId, key, number).aiContext());
+  }
+
+  /** 상세 응답에 화면 주소(/projects/{KEY}/issues/{n})를 붙인다(WP-1523) — 조회·수정·상태·유형 응답이 같은 모양을 쓴다. */
+  private WithWebUrl<IssueDetailResponse> withUrl(IssueDetailResponse detail) {
+    IssueResponse s = detail.summary();
+    return WithWebUrl.of(detail, webLinks.issue(s.projectKey(), s.number()));
   }
 }

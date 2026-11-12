@@ -1,6 +1,7 @@
 // src/wiki-tools.ts — 노트(위키) 도구. 두 앱 공유(#846, #850, #854).
 // 쓰기는 스페이스 멤버십 가드를 서버가 강제하므로 확인 카드 없이 직접 실행한다.
 // update_wiki_page 의 409(기준본 없음 — 만료·기록 없음·현재보다 새 version)는 그대로 throw — 자동 재시도는 하지 않는다. 동시 편집은 서버가 3-way 병합한다(WP-289).
+import { LINK_RULE_WIKI } from './link-rule.js';
 import { z } from 'zod';
 import { dropEmpty, omitKeys, truncatedView } from './compact.js';
 import { htmlToText } from './html-text.js';
@@ -353,7 +354,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
         'Creates a wiki page in spaceId, under parentId or top level; returns id, version. Optional ' +
         'body (Markdown) or html: an HTML artifact kept whole as one html-embed block (<title> = default title). Or convert it: static ' +
         'parts to Markdown, page CSS in one <style data-wp-style>, script/canvas parts as html-embed blocks. ' +
-        'asDocument: HTML document page.',
+        'asDocument: HTML document page.' +
+        LINK_RULE_WIKI,
       inputSchema: createWikiPageInput,
       async handler(args) {
         const { spaceId, title, parentId, body, html, asDocument } = createWikiPageInput.parse(args);
@@ -395,7 +397,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
         'see its bodyFormat). version: from ' +
         "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1 " +
         'hour old, unknown or newer): re-read and reapply. fileIds: images staged by upload_file; reference each in ' +
-        'body as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content).',
+        'body as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content).' +
+        LINK_RULE_WIKI,
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, fileIds, html, ...body } = updateWikiPageInput.parse(args);

@@ -235,7 +235,7 @@ export function DriveAttachmentsView() {
                           >
                             {/* 메일 첨부는 core 파일이 아니라 썸네일이 없다 — 형식 아이콘만(WP-1392). */}
                             {fileId != null ? (
-                              <DriveThumbnail fileId={fileId} category={mimeToCategory(a.mimeType)} mimeType={a.mimeType} />
+                              <DriveThumbnail fileId={fileId} category={mimeToCategory(a.mimeType)} mimeType={a.mimeType} name={a.name} />
                             ) : (
                               <span className="flex h-8 w-8 shrink-0 items-center justify-center" data-testid="drive-attachment-type-icon">
                                 <FileTypeIcon mimeType={a.mimeType} className="h-8 w-8 p-1" />

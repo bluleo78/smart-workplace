@@ -1,8 +1,10 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.global.dto.WithWebUrl;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.BearerTokens;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.util.AppWebLinks;
 import com.workplace.wiki.dto.CollabAccessResponse;
 import com.workplace.wiki.dto.HtmlLockHeartbeatRequest;
 import com.workplace.wiki.dto.MovePageRequest;
@@ -65,14 +67,19 @@ public class WikiPageController {
   private final WikiShareAccess shareAccess;
   private final WikiHtmlScriptsCheckService htmlScriptsCheckService;
 
+  /**
+   * 화면 주소(WP-1523) — 읽기·저장·복원 응답에 url 로 싣는다(create_wiki_page 는 만든 뒤 PUT 으로 본문을 넣어 PUT 응답에도 필요하다).
+   */
+  private final AppWebLinks webLinks;
+
   /** 단건 상세. base=false 면 AI 병합 기준본을 남기지 않는다(새 웹 에디터 — 본문은 동기화 서버로 저장). */
   @GetMapping("/{id}")
-  public ResponseEntity<WikiPageDetail> get(
+  public ResponseEntity<WithWebUrl<WikiPageDetail>> get(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
       @RequestParam(value = "base", defaultValue = "true") boolean base,
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
-    return ResponseEntity.ok(pageService.read(callerId, pageId, base, shareToken));
+    return ResponseEntity.ok(withUrl(pageService.read(callerId, pageId, base, shareToken)));
   }
 
   /**
@@ -170,14 +177,14 @@ public class WikiPageController {
    * details 가 없는 인증은 AI 경로로 본다 — 동기화 서버의 ✦ 표시·스냅샷 귀속용.
    */
   @PutMapping("/{id}")
-  public ResponseEntity<WikiPageDetail> save(
+  public ResponseEntity<WithWebUrl<WikiPageDetail>> save(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
       @Valid @RequestBody SavePageRequest req,
       Authentication authentication,
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
-    return ResponseEntity.ok(pageService.save(callerId, pageId, req, ai, shareToken));
+    return ResponseEntity.ok(withUrl(pageService.save(callerId, pageId, req, ai, shareToken)));
   }
 
   /**
@@ -187,13 +194,13 @@ public class WikiPageController {
    * 편집 「저장」(lockToken)이면 그 편집 잠금이 풀린다.
    */
   @PutMapping("/{id}/html")
-  public ResponseEntity<WikiPageDetail> saveHtml(
+  public ResponseEntity<WithWebUrl<WikiPageDetail>> saveHtml(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
       @Valid @RequestBody SaveHtmlPageRequest req,
       Authentication authentication) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
-    return ResponseEntity.ok(htmlPageService.save(callerId, pageId, req, ai));
+    return ResponseEntity.ok(withUrl(htmlPageService.save(callerId, pageId, req, ai)));
   }
 
   /**
@@ -267,11 +274,11 @@ public class WikiPageController {
 
   /** 그 판의 본문으로 복원(WP-297, 제목은 그대로). EDITOR 이상, 없는 판 404, 동기화 서버 장애 503. 응답은 PUT 저장과 같은 페이지 상세. */
   @PostMapping("/{id}/revisions/{version}/restore")
-  public ResponseEntity<WikiPageDetail> restore(
+  public ResponseEntity<WithWebUrl<WikiPageDetail>> restore(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
       @PathVariable("version") int version) {
-    return ResponseEntity.ok(revisionService.restore(callerId, pageId, version));
+    return ResponseEntity.ok(withUrl(revisionService.restore(callerId, pageId, version)));
   }
 
   /**
@@ -300,5 +307,10 @@ public class WikiPageController {
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
     pageService.delete(callerId, pageId);
     return ResponseEntity.noContent().build();
+  }
+
+  /** 페이지 응답에 화면 주소(/wiki/spaces/{spaceId}/pages/{id})를 붙인다(WP-1523). */
+  private WithWebUrl<WikiPageDetail> withUrl(WikiPageDetail page) {
+    return WithWebUrl.of(page, webLinks.wikiPage(page.spaceId(), page.id()));
   }
 }

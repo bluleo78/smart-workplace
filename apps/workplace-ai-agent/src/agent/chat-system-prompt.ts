@@ -1,4 +1,4 @@
-import { KOREAN_ONLY_RULE } from './system-prompt.js';
+import { KOREAN_ONLY_RULE, WORKPLACE_LINK_RULE } from './system-prompt.js';
 
 // 6c: chat 응답용 시스템 프롬프트. 이슈 핸들러용 SYSTEM_PROMPT 와 분리.
 // WP-1408: chat 프로필에는 이슈를 고치는 쓰기 도구가 없다 — 쓰기 요청에 「플랫폼 제약, 수동으로 하라」고 엉뚱하게 답했던 것을 막으려
@@ -34,4 +34,5 @@ export const CHAT_SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 어시스턴트
 - 친근하지만 군더더기 없는 문장. 이모지 금지.
 - ${KOREAN_ONLY_RULE}
 - 짧게. 긴 분석이 필요하면 마크다운 단락으로.
+- ${WORKPLACE_LINK_RULE}
 `;

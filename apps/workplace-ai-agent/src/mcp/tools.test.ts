@@ -2095,7 +2095,7 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     const out = await find(buildTools(c, 7, 'assistant'), 'create_drive_download_link').handler({ driveFileId: 5 });
     expect(c.toolClient).toHaveBeenCalledWith(7);
     expect(c.sc.createDriveDownloadLink).toHaveBeenCalledWith(5);
-    expect(JSON.parse(out as string)).toMatchObject({ url: 'https://w.example/dl', singleUse: true });
+    expect(JSON.parse(out as string)).toMatchObject({ downloadUrl: 'https://w.example/dl', singleUse: true }); // WP-1523: 화면 주소 url 과 구분
   });
 
   it('옛 이름(create_folder·rename_folder·move_folder·move_file, WP-369 의 rename/move_drive_file·folder·read_attachment, WP-421 의 unwatch_issue·add/remove_reaction)은 어떤 프로필에도 없다', () => {
