@@ -4,7 +4,6 @@
 import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -58,7 +57,7 @@ export function IssueTypeManagement({
   }
 
   return (
-    <SettingsSection id={SETTINGS_SECTION_IDS.projectIssueTypes} title="이슈 유형" description="이슈를 만들 때 고르는 종류예요.">
+    <SettingsSection data-help="project-settings.issue-types" title="이슈 유형" description="이슈를 만들 때 고르는 종류예요.">
 
       {isOwner && (
         <form
@@ -137,6 +136,7 @@ export function IssueTypeManagement({
                   {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148) */}
                   <DeleteConfirmDialog
                     entityName="이슈 유형"
+                    data-help="project-settings.issue-types"
                     itemName={t.name}
                     onConfirm={() => del.mutate(t.id)}
                     trigger={
@@ -154,6 +154,7 @@ export function IssueTypeManagement({
 
       {/* 편집 Dialog — 이름 중복(409) 등 실패는 창 안에 보이고 닫지 않는다(WP-660) */}
       <ProjectMetaEditDialog
+        data-help="project-settings.issue-types"
         title="이슈 유형 편집"
         target={editTarget}
         onSave={(v) =>

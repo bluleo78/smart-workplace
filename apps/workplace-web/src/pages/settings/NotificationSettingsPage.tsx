@@ -6,8 +6,6 @@ import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
 import { NotificationSettingsMatrix } from '@/components/settings/NotificationSettingsMatrix'
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
-import { notificationsGuide } from '@/components/settings-guide/settingsGuides'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useNotificationSettings, useUpdateNotificationSettings } from '@/hooks/queries/useNotificationSettings'
 import { useDevicePush, useDisablePush, useEnablePush, usePushConfig } from '@/hooks/queries/usePush'
@@ -54,7 +52,8 @@ export default function NotificationSettingsPage() {
     <SettingsPage
       title="알림"
       width="form"
-      guide={notificationsGuide(config.isSuccess && !enabled)}
+      // 설명은 매뉴얼 12장 도움말(notifications 절)이 맡는다(WP-1508).
+      help={{ id: 'notifications', name: '알림' }}
       // WP-414: AI 화면 맥락 — 서버 푸시 사용 여부·이 기기 푸시 켜짐(로드된 값만). 구독 키 등은 싣지 않는다.
       aiContext={{
         facts: [
@@ -68,6 +67,8 @@ export default function NotificationSettingsPage() {
     >
       {config.isSuccess && !enabled && (
         <SettingsSection
+          // 푸시를 쓸 수 없는 서버의 안내도 「이 기기」 절이 설명한다(그 절 첫 문단이 조건 문장).
+          data-help="notifications.device"
           data-testid="push-disabled-notice"
           title="푸시 알림을 사용할 수 없습니다"
           description="이 서버에서는 푸시 알림이 꺼져 있어요. 아래 설정은 앱 안 알림 목록에 적용돼요."
@@ -75,7 +76,7 @@ export default function NotificationSettingsPage() {
       )}
 
       {enabled && (
-        <SettingsSection id={SETTINGS_SECTION_IDS.notificationDevice} title="이 기기" description="앱을 닫아도 이 기기로 알림을 받아요.">
+        <SettingsSection data-help="notifications.device" title="이 기기" description="앱을 닫아도 이 기기로 알림을 받아요.">
           <SettingsToggleRow
             label="이 기기에서 푸시 받기"
             control={
@@ -109,7 +110,7 @@ export default function NotificationSettingsPage() {
       )}
 
       <SettingsSection
-        id={SETTINGS_SECTION_IDS.notificationTypes}
+        data-help="notifications.types"
         title="알림 종류"
         description="끄면 알림 목록·실시간 표시·푸시 모두 오지 않아요. 모든 기기에 똑같이 적용돼요."
       >

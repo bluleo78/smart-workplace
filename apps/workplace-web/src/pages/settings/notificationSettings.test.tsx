@@ -1,21 +1,23 @@
 // 설정 › 알림(NotificationSettingsPage) — 화면 컴포넌트 테스트(WP-971, WP-995).
 // 앱별 「사람이 / AI가」 매트릭스(WP-913)의 기본값·칸 하나만 저장하는 payload·앱 전체 끄기(칸 잠금·되살림)·채팅 카드 안내·
-// 서버 푸시 비활성 안내와 그래도 저장되는 매트릭스·화면 가이드(WP-399)는 브라우저 없이 판정되므로
-// e2e/pages/settings/notification-settings.spec.ts·settings-guide.spec.ts 에서 옮겼다.
+// 서버 푸시 비활성 안내와 그래도 저장되는 매트릭스·화면 참고(WP-1508)는 브라우저 없이 판정되므로
+// e2e/pages/settings/notification-settings.spec.ts 에서 옮겼다.
 // 기기 푸시 구독(SW·PushManager·권한, @platform)·저장 중 키보드 초점(@input)·새로고침 뒤 유지 배선(@wiring)은 E2E 에 남는다.
 // 서버 푸시는 끈 상태(enabled=false)로 띄운다 — 기기 구독 경로(서비스워커)를 타지 않고 매트릭스만 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
-import { notificationsGuide, settingsGuides } from '@/components/settings-guide/settingsGuides'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { NotificationSettings, UpdateNotificationSettingsRequest } from '@/types/notificationSettings'
 
 import { defaultNotificationSettings } from '../../../e2e/factories/notificationSettings.factory'
 import NotificationSettingsPage from './NotificationSettingsPage'
-import { expectGuideSectionsOnScreen, openGuideSheet, withAssistant } from './testkit-b7'
+import { withAssistant } from './testkit-b7'
 
 /** PUT 본문을 상태에 반영 — 서버처럼 칸 값은 앱 스위치와 따로 보존한다(e2e/fixtures/notification-settings-mock 과 같은 규칙). */
 function apply(state: NotificationSettings, req: UpdateNotificationSettingsRequest): NotificationSettings {
@@ -112,14 +114,41 @@ test('서버가 푸시 비활성이어도 안내와 함께 알림 매트릭스�
   expect(puts).toEqual([{ cells: [{ item: 'CHAT_DM', actor: 'AGENT', enabled: false }] }])
 })
 
-// WP-399 — 화면마다 자기 가이드가 붙는다.
-test('가이드에 알림 가이드가 보인다 (WP-399)', async () => {
-  const { user } = await openNotifications()
-  const sheet = await openGuideSheet(user)
-  expect(sheet.getByText(settingsGuides.notifications.lead)).toBeInTheDocument()
-  // WP-1298 — 가이드 섹션이 화면 섹션과 같은 id·제목으로 이어진다. 이 서버는 푸시를 꺼 둬 「이 기기」 섹션이 화면에 없고,
-  // 가이드도 그 도움말(이 기기 스위치·로그아웃 뒤 푸시)을 싣지 않는다.
-  expectGuideSectionsOnScreen(notificationsGuide(true))
-  for (const tip of settingsGuides.notifications.sections[0].tips) expect(sheet.queryByText(tip)).not.toBeInTheDocument()
-  expect(document.getElementById(SETTINGS_SECTION_IDS.notificationDevice)).toBeNull()
+// WP-1508 — 칸을 만지면 도움말 패널이 여는 절은 가장 가까운 [data-help] 조상의 값이다. 푸시가 꺼진 서버의 안내 섹션도 이 기기 절이다.
+test('칸이 맞는 도움말 절로 이어진다 — 푸시가 꺼진 서버면 안내 섹션이 이 기기 절로 (WP-1508)', async () => {
+  // 푸시가 켜진 서버 — 이 기기 섹션과 스위치가 이 기기 절이다.
+  const on = renderScreen(<NotificationSettingsPage />, {
+    path: '/settings/notifications',
+    handlers: [
+      http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: true, vapidPublicKey: 'key' })),
+      http.get('/api/v1/notification-settings', () => HttpResponse.json(defaultNotificationSettings())),
+    ],
+  })
+  expectHelpTarget(await screen.findByRole('heading', { level: 2, name: '이 기기' }), 'notifications.device')
+  expectHelpTarget(await screen.findByTestId('push-device-toggle'), 'notifications.device')
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '알림 종류' }), 'notifications.types')
+  on.unmount()
+  // 푸시가 꺼진 서버 — 「이 기기」 섹션 대신 안내 섹션이 같은 절로 이어진다.
+  await openNotifications()
+  expectHelpTarget(await screen.findByRole('heading', { level: 2, name: '푸시 알림을 사용할 수 없습니다' }), 'notifications.device')
+  expect(screen.queryByRole('heading', { name: '이 기기' })).not.toBeInTheDocument()
+})
+
+// 설정 가이드 대신 매뉴얼 대표 절 요약이 AI 화면 참고에 실린다.
+test('가이드 없이 화면 참고에 「설정 · 알림」과 매뉴얼 설명이 실린다 (WP-1508)', async () => {
+  renderScreen(withScreenContextProbe(<NotificationSettingsPage />), {
+    path: '/settings/notifications',
+    handlers: [
+      ...helpBundleHandlers(),
+      http.get('/api/v1/push/config', () => HttpResponse.json({ enabled: true, vapidPublicKey: 'key' })),
+      http.get('/api/v1/notification-settings', () => HttpResponse.json(defaultNotificationSettings())),
+      ...shellHandlers,
+    ],
+  })
+  await screen.findByTestId('notif-settings-matrix')
+  await waitFor(() => expect(currentScreenContext()?.scope?.facts).toContainEqual({ label: '소개', value: '알림 본문.' }))
+  expect(currentScreenContext()!.view).toBe('설정 · 알림')
+  const facts = currentScreenContext()!.scope!.facts!
+  expect(facts).toContainEqual({ label: '이 기기', value: '이 기기 본문.' })
+  expect(facts).toContainEqual({ label: '푸시 알림(서버)', value: '사용 가능' })
 })

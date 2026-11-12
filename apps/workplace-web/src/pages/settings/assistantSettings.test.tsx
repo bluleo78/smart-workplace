@@ -1,20 +1,23 @@
 // 설정 › AI 비서(AssistantSettingsPage) 상단 — 화면 컴포넌트 테스트(WP-971, WP-995).
-// 화면 제목(#651)·가이드 내용(WP-399)·「AI에게 묻기」가 입력창 문구를 채워 AI 를 엶(WP-414), 추천 질문 스위치(개인 비서 없어도 보임)와
+// 화면 제목(#651)·매뉴얼 도움말 참고(WP-1508)·「AI에게 묻기」가 입력창 문구를 채워 AI 를 엶(WP-414), 추천 질문 스위치(개인 비서 없어도 보임)와
 // 추천 모델 선택(자동 라벨·모델 고르기·자동으로 되돌리기·직접 입력 접두, 관리자 공통 비서 상세)의 저장 payload(WP-139)는
-// 브라우저 없이 판정되므로 e2e/pages/settings/ai-suggestion-settings.spec.ts·settings-layout.spec.ts·settings-guide.spec.ts 에서 옮겼다.
+// 브라우저 없이 판정되므로 e2e/pages/settings/ai-suggestion-settings.spec.ts·settings-layout.spec.ts 에서 옮겼다.
 // 메모리 카드는 aiMemoryCard.test.tsx, 공용 메모리 탭은 shared/sharedMemory.test.tsx 가 본다. 화면 배선(@wiring)은 ai-memory-settings.spec.ts 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { AgentConnectionSection } from '@/pages/admin/components/AgentConnectionSection'
 import { PersonalAssistantSection } from '@/pages/profile/PersonalAssistantSection'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
 import AssistantSettingsPage from './AssistantSettingsPage'
-import { aiMemoriesApi, aiPreferencesApi, memoryChangesApi } from './memoryTestkit-b7'
-import { expectGuideSectionsOnScreen, openGuideSheet, withAssistant } from './testkit-b7'
+import { aiMemoriesApi, aiPreferencesApi, memoryChangesApi, memoryItem } from './memoryTestkit-b7'
+import { withAssistant } from './testkit-b7'
 
 const status = (over: Record<string, unknown> = {}) => ({
   configured: true, tokenLabel: null, tokenLastUsedAt: null, model: 'claude-sonnet-5-5', thinkingDepth: 'HIGH',
@@ -44,31 +47,67 @@ describe('AI 비서 화면', () => {
     const prefs = aiPreferencesApi(true)
     const view = renderScreen(withAssistant(<AssistantSettingsPage />), {
       path: '/settings/assistant',
-      handlers: [...assistantApi(NO_ASSISTANT).handlers, ...prefs.handlers, ...aiMemoriesApi([]).handlers, ...memoryChangesApi([], 0).handlers],
+      handlers: [...assistantApi(NO_ASSISTANT).handlers, ...prefs.handlers, ...aiMemoriesApi([]).handlers, ...memoryChangesApi([], 0).handlers, ...shellHandlers],
     })
     await screen.findByTestId('ai-memory-empty')
     return { ...view, prefs }
   }
 
-  // 페이지 제목은 사이드바 메뉴 라벨과 같다(#651). WP-399 — 화면마다 자기 가이드가 붙는다.
-  test('제목이 「AI 비서」이고 가이드에 AI 비서 가이드가 보인다 (#651·WP-399)', async () => {
+  // 페이지 제목은 사이드바 메뉴 라벨과 같다(#651). WP-1508 — 칸·대화상자가 매뉴얼 도움말 절로 이어진다.
+  test('제목이 「AI 비서」이고 칸·대화상자가 맞는 도움말 절로 이어진다 (#651·WP-1508)', async () => {
     const { user } = await openPage()
     expect(screen.getByTestId('page-header')).toHaveTextContent('AI 비서')
-    const sheet = await openGuideSheet(user)
-    expect(sheet.getByText(settingsGuides.assistant.lead)).toBeInTheDocument()
-    // WP-1298 — 가이드 섹션(개인 비서·추천 질문·메모리)이 화면 섹션과 같은 id·제목으로 이어진다.
-    expectGuideSectionsOnScreen(settingsGuides.assistant)
+    expectHelpTarget(screen.getByRole('heading', { level: 2, name: '개인 비서' }), 'assistant.personal')
+    expectHelpTarget(screen.getByRole('heading', { level: 2, name: '추천 질문' }), 'assistant.suggestions')
+    expectHelpTarget(screen.getByRole('heading', { level: 2, name: '메모리' }), 'assistant.memory')
+    expectHelpTarget(screen.getByTestId('ai-memory-tab-shared'), 'assistant.memory.shared')
+    // 공용 메모리 탭을 열면 그 탭 내용도 같은 절이다.
+    await user.click(screen.getByTestId('ai-memory-tab-shared'))
+    await waitFor(() => expect(screen.getByTestId('ai-memory-tab-shared')).toHaveAttribute('data-state', 'active'))
+    const panel = document.querySelector('[role="tabpanel"][data-state="active"]')!
+    expectHelpTarget(panel, 'assistant.memory.shared')
   })
 
-  // WP-414 — 가이드의 「이 설정에 대해 AI에게 묻기」는 입력창 문구를 채운 채 AI 를 연다(문구·맥락 전송·포커스는 E2E·AIChatPanel 이 본다).
-  test('가이드의 「AI에게 묻기」는 문구를 채운 채 AI 옆 패널을 열고 시트를 닫는다 (WP-414)', async () => {
-    const { user } = await openPage()
-    const sheet = await openGuideSheet(user)
-    await user.click(sheet.getByTestId('settings-guide-ask-ai'))
-    const probe = screen.getByTestId('ai-probe')
-    expect(probe).toHaveAttribute('data-mode', 'side')
-    expect(probe).toHaveAttribute('data-seed', '이 설정에 대해 알려줘 ')
-    await waitFor(() => expect(screen.queryByTestId('settings-guide-sheet')).not.toBeInTheDocument())
+  test('모두 지우기 단추와 확인 창이 메모리 모두 지우기 절로 이어진다 (WP-1508)', async () => {
+    const prefs = aiPreferencesApi(true)
+    const { user } = renderScreen(withAssistant(<AssistantSettingsPage />), {
+      path: '/settings/assistant',
+      handlers: [
+        ...assistantApi(NO_ASSISTANT).handlers,
+        ...prefs.handlers,
+        ...aiMemoriesApi([memoryItem(1)]).handlers,
+        ...memoryChangesApi([], 0).handlers,
+      ],
+    })
+    const clear = await screen.findByTestId('ai-memory-clear')
+    expectHelpTarget(clear, 'assistant.memory.clear')
+    await user.click(clear)
+    expectHelpTarget(await screen.findByTestId('ai-memory-clear-dialog'), 'assistant.memory.clear')
+  })
+
+  // 설정 가이드 대신 매뉴얼 대표 절 요약이 AI 화면 참고에 실린다.
+  test('가이드 없이 화면 참고에 「설정 · AI 비서」와 매뉴얼 설명이 실린다 (WP-1508)', async () => {
+    const prefs = aiPreferencesApi(true)
+    renderScreen(withScreenContextProbe(<AssistantSettingsPage />), {
+      path: '/settings/assistant',
+      handlers: [
+        ...helpBundleHandlers(),
+        ...assistantApi(NO_ASSISTANT).handlers,
+        ...prefs.handlers,
+        ...aiMemoriesApi([]).handlers,
+        ...memoryChangesApi([], 0).handlers,
+        ...shellHandlers,
+      ],
+    })
+    await screen.findByTestId('ai-memory-empty')
+    await waitFor(() => expect(currentScreenContext()?.scope?.facts).toBeDefined())
+    expect(currentScreenContext()!.view).toBe('설정 · AI 비서')
+    for (const f of [
+      { label: '소개', value: '비서 본문.' },
+      { label: '개인 비서 · 주의', value: '연결 해제 주의.' },
+      { label: '개인 비서', value: '개인 비서 본문.' },
+    ])
+      expect(currentScreenContext()!.scope!.facts).toContainEqual(f)
   })
 
   test('개인 비서가 없어도 추천 질문 스위치가 보이고, 끄면 false 를 저장한다 (WP-139)', async () => {

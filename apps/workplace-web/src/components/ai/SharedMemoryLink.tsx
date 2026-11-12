@@ -15,7 +15,7 @@ export function SharedMemoryLink({ projectId }: { projectId: number }) {
   const space = spaces.data?.items.find((s) => s.type === 'PROJECT' && s.id === projectId);
   if (!spaces.isPending && !space) return null;
   return (
-    <SettingsSection title="AI 메모리" description="이 프로젝트에서 일하는 AI가 함께 읽는 팀 규칙이에요.">
+    <SettingsSection data-help="project-settings.memory" title="AI 메모리" description="이 프로젝트에서 일하는 AI가 함께 읽는 팀 규칙이에요.">
       {!space ? (
         <Skeleton data-testid="shared-memory-link-pending" className="h-5 w-48" />
       ) : (

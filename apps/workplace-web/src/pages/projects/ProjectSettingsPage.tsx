@@ -8,8 +8,6 @@ import { toast } from 'sonner';
 import { SharedMemoryLink } from '@/components/ai/SharedMemoryLink';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
-import { DEFAULT_PROJECT_UNDELETABLE, projectSettingsGuide } from '@/components/settings-guide/settingsGuides';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +45,8 @@ import { RepositorySettings } from './components/RepositorySettings';
 import { StatusManagement } from './components/status/StatusManagement';
 import { StatusSummarySettings } from './components/StatusSummarySettings';
 
-/** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
+/** 위험 구역 설명 — 처음부터 있던 기본 개인 프로젝트는 삭제 버튼 대신 이 안내를 보인다(WP-857). */
+const DEFAULT_PROJECT_UNDELETABLE = '처음부터 있던 기본 개인 프로젝트는 지울 수 없어요.';
 
 // 프로젝트 설정 — 기본 정보 수정 + 멤버 관리 + 위험 구역(삭제).
 export default function ProjectSettingsPage() {
@@ -124,7 +123,8 @@ export default function ProjectSettingsPage() {
   return (
     <SettingsPage
       width="form"
-      guide={projectSettingsGuide(project.data)}
+      // 매뉴얼 08장 「프로젝트 설정」 — 개인 프로젝트는 같은 대표 절에 화면 이름만 다르게 싣는다(id 는 글자 그대로).
+      help={{ id: 'project-settings', name: isPersonal ? '개인 프로젝트 설정' : '프로젝트 설정' }}
       // WP-414: AI 화면 맥락 — 프로젝트 키·이름·종류(로드된 뒤에만).
       aiContext={project.data ? {
         focus: {
@@ -155,7 +155,7 @@ export default function ProjectSettingsPage() {
         <p className="py-6 text-muted-foreground">로딩 중…</p>
       ) : (
         <>
-          <SettingsSection title="기본 정보" description="프로젝트 목록과 상단에 보이는 이름과 설명이에요.">
+          <SettingsSection data-help="project-settings.basic" title="기본 정보" description="프로젝트 목록과 상단에 보이는 이름과 설명이에요.">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               {/* OWNER 가 아니면 읽기 전용(WP-479) — 저장을 눌러야 403 이 나던 것을 미리 알린다. */}
               {!canManage && (
@@ -215,8 +215,8 @@ export default function ProjectSettingsPage() {
 
           {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
           {isPersonal
-            ? <MemberManagement projectKey={key} agentOnly ownerId={project.data?.ownerId} canManage={canManage} />
-            : <MemberManagement projectKey={key} canManage={canManage} openProject={project.data?.type === 'OPEN'} />}
+            ? <MemberManagement data-help="project-settings.assistants" projectKey={key} agentOnly ownerId={project.data?.ownerId} canManage={canManage} />
+            : <MemberManagement data-help="project-settings.members" projectKey={key} canManage={canManage} openProject={project.data?.type === 'OPEN'} />}
 
           {/* 노트 공간(WP-1480) — 프로젝트 OWNER 에게만. ADMIN 은 프로젝트 OWNER 가 아니면 서버가 연결을 거절해 canManage 가 아니라 isOwner 로 가린다. */}
           {isOwner && !isPersonal && project.data && <ProjectNoteSpaceSettings projectKey={key} />}
@@ -250,7 +250,7 @@ export default function ProjectSettingsPage() {
           {/* 삭제는 소유자만(WP-479) — 권한이 없으면 위험 구역 자체를 그리지 않는다. */}
           {canManage && (
             <SettingsSection
-              id={SETTINGS_SECTION_IDS.projectDanger}
+              data-help="project-settings.danger"
               tone="danger"
               title="위험 구역"
               description={isDefaultProject
@@ -270,7 +270,7 @@ export default function ProjectSettingsPage() {
       )}
       {/* 프로젝트 삭제 확인 AlertDialog — window.confirm() 대체. */}
       <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
-        <AlertDialogContent>
+        <AlertDialogContent data-help="project-settings.danger">
           <AlertDialogHeader>
             <AlertDialogTitle>프로젝트 삭제</AlertDialogTitle>
             <AlertDialogDescription>

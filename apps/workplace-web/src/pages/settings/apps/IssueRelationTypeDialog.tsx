@@ -39,7 +39,7 @@ export function IssueRelationTypeDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-testid="relation-type-dialog">
+      <DialogContent className="sm:max-w-md" data-help="work-app.add" data-testid="relation-type-dialog">
         <DialogHeader>
           <DialogTitle>{editing ? '관계 유형 편집' : '관계 유형 추가'}</DialogTitle>
           <DialogDescription className="sr-only">관계 유형의 이름과 두 이슈 화면에서 보일 말을 정합니다.</DialogDescription>

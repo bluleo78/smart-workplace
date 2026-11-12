@@ -43,7 +43,7 @@ export function DeleteIssueRelationTypeDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-testid="relation-type-delete-dialog">
+      <DialogContent className="sm:max-w-md" data-help="work-app.delete" data-testid="relation-type-delete-dialog">
         {target && <DeleteBody target={target} types={types} onDone={() => onOpenChange(false)} />}
       </DialogContent>
     </Dialog>

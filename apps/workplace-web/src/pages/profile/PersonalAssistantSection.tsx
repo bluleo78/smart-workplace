@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/overlay/select';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
 import { AnthropicWorkspaceIdField } from '@/pages/admin/components/credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
@@ -279,7 +278,7 @@ export function PersonalAssistantSection() {
   };
 
   return (
-    <SettingsSection id={SETTINGS_SECTION_IDS.assistantPersonal} title="개인 비서" description="개인 비서를 설정하면 홈을 공통 비서 대신 내 비서가 담당해요.">
+    <SettingsSection data-help="assistant.personal" title="개인 비서" description="개인 비서를 설정하면 홈을 공통 비서 대신 내 비서가 담당해요.">
 
         {status?.configured ? (
           <div className="space-y-4">

@@ -281,8 +281,6 @@ test.each([
 ])('$tab 탭 — 설정 가이드 단추·칸이 없고, 화면 참고에 화면 이름과 매뉴얼 설명이 실린다 (WP-1507)', async ({ path, handlers, row, view, facts }) => {
   renderScreen(withScreenContextProbe(<AgentManagementPage />), { path, handlers: handlers() })
   await screen.findByTestId(row)
-  expect(screen.queryByTestId('settings-guide-button')).toBeNull()
-  expect(screen.queryByTestId('settings-guide-aside')).toBeNull()
   await waitFor(() => expect(currentScreenContext()?.scope?.facts).toBeDefined())
   expect(currentScreenContext()!.view).toBe(view)
   for (const f of facts) expect(currentScreenContext()!.scope!.facts).toContainEqual(f)

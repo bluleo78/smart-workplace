@@ -8,13 +8,14 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test, vi } from 'vitest'
 
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds'
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
 import ProfileSettingsPage from './ProfileSettingsPage'
-import { expectGuideSectionsOnScreen } from './testkit-b7'
 
 /** 프로필 화면이 부르는 쓰기 API — 받은 요청을 calls 에 모은다(나가면 안 되는 요청도 이것으로 센다). */
 function writeHandlers() {
@@ -106,8 +107,8 @@ test('비밀번호 칸 셋은 각자 보기/숨기기 토글로 type 이 바뀌�
 test('비밀번호 없는 계정은 새 비밀번호만으로 설정한다 (WP-48)', async () => {
   const { user, calls } = await openProfile(false)
   expect(document.getElementById('current-password')).toBeNull()
-  // WP-1298 — 「비밀번호 설정」 섹션도 「비밀번호 변경」과 같은 id 라 가이드가 같은 도움말로 따라간다.
-  expect(document.getElementById(SETTINGS_SECTION_IDS.profilePassword)?.querySelector('h2')).toHaveTextContent('비밀번호 설정')
+  // WP-1298 — 「비밀번호 설정」 섹션도 「비밀번호 변경」과 같은 도움말 절(profile.password)로 이어진다.
+  expect(document.querySelector('[data-help="profile.password"] h2')).toHaveTextContent('비밀번호 설정')
   await user.click(document.getElementById('set-new-password')!)
   await user.paste('Password123')
   await user.click(document.getElementById('set-confirm-password')!)
@@ -120,8 +121,33 @@ test('비밀번호가 있는 계정은 기존 변경 카드를 보인다 (WP-48)
   await openProfile(true)
   expect(document.getElementById('current-password')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: '비밀번호 설정' })).not.toBeInTheDocument()
-  // WP-1298 — 가이드 섹션(프로필 정보·비밀번호 변경)이 화면 섹션과 같은 id·제목으로 이어진다.
-  expectGuideSectionsOnScreen(settingsGuides.profile)
+})
+
+// WP-1508 — 칸을 만지면 도움말 패널이 여는 절은 가장 가까운 [data-help] 조상의 값이다.
+test('칸이 맞는 도움말 절로 이어진다 (WP-1508)', async () => {
+  const { unmount } = await openProfile(true)
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '아바타' }), 'profile.avatar')
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '프로필 정보' }), 'profile.info')
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '비밀번호 변경' }), 'profile.password')
+  unmount()
+  // 비밀번호 없는(SSO 전용) 계정의 「비밀번호 설정」 도 같은 절이다.
+  await openProfile(false)
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '비밀번호 설정' }), 'profile.password')
+})
+
+// 설정 가이드 대신 매뉴얼 대표 절 요약이 AI 화면 참고에 실린다 — 화면 이름·저장된 이름·매뉴얼 설명.
+test('가이드 없이 화면 참고에 「설정 · 프로필」과 매뉴얼 설명이 실린다 (WP-1508)', async () => {
+  renderScreen(withScreenContextProbe(<ProfileSettingsPage />), {
+    path: '/settings/profile',
+    handlers: [...helpBundleHandlers(), ...shellHandlers],
+    auth: { user: { ...testAuthValue.user!, hasPassword: true } },
+  })
+  await screen.findByRole('heading', { level: 2, name: '비밀번호 변경' })
+  await waitFor(() => expect(currentScreenContext()?.scope?.facts).toContainEqual({ label: '소개', value: '프로필 본문.' }))
+  expect(currentScreenContext()!.view).toBe('설정 · 프로필')
+  const facts = currentScreenContext()!.scope!.facts!
+  expect(facts).toContainEqual({ label: '이름', value: testAuthValue.user!.name })
+  expect(facts).toContainEqual({ label: '비밀번호 변경', value: '비밀번호 본문.' })
 })
 
 // ── 아바타(WP-1222) ────────────────────────────────────────────────────────────────

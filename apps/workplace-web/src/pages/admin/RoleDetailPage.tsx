@@ -6,14 +6,12 @@ import { useForm } from 'react-hook-form';
 import { useNavigate,useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 
 import { permissionsApi } from '../../api/permissions';
 import { rolesApi } from '../../api/roles';
 import { SettingsPage } from '../../components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '../../components/layout/SettingsSection';
-import { settingsGuides } from '../../components/settings-guide/settingsGuides';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
@@ -144,7 +142,7 @@ export default function RoleDetailPage() {
 
   if (isLoading) {
     return (
-      <SettingsPage title="역할 상세" icon={backButton} width="form" guide={settingsGuides.roleDetail}>
+      <SettingsPage title="역할 상세" icon={backButton} width="form" help={{ id: 'role', name: '역할 상세' }}>
         <div className="space-y-4 py-6">
           <Skeleton className="h-4 w-64" />
           <Skeleton className="h-4 w-48" />
@@ -168,7 +166,7 @@ export default function RoleDetailPage() {
       title={pageTitle}
       icon={backButton}
       width="form"
-      guide={settingsGuides.roleDetail}
+      help={{ id: 'role', name: '역할 상세' }}
       // WP-414: AI 화면 맥락 — 저장된 역할 이름·권한 수(체크만 바꾼 미저장 권한은 싣지 않는다).
       aiContext={{
         focus: {
@@ -182,10 +180,10 @@ export default function RoleDetailPage() {
       }}
     >
       {/* 역할 정보 — 이름·설명 수정. 시스템 역할은 잠금 안내와 함께 비활성 */}
-      <SettingsSection title="역할 정보" description="목록과 구성원 화면에 보이는 이름과 설명이에요.">
+      <SettingsSection data-help="role.info" title="역할 정보" description="목록과 구성원 화면에 보이는 이름과 설명이에요.">
         {/* 시스템 역할 잠금 안내 — 폼 필드가 disabled인 이유를 명시 (#676) */}
         {role.isSystem && (
-          <div className="flex items-center gap-2 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+          <div data-help="role.system" className="flex items-center gap-2 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
             <Lock className="h-4 w-4 shrink-0" />
             시스템 역할은 이름·설명·권한을 수정할 수 없습니다.
           </div>
@@ -235,7 +233,7 @@ export default function RoleDetailPage() {
       </SettingsSection>
 
       {/* 권한 할당 — 카테고리별 체크박스(h3)는 섹션 제목(h2) 아래 계층 */}
-      <SettingsSection id={SETTINGS_SECTION_IDS.rolePermissions} title="권한 할당" description="이 역할을 가진 구성원이 할 수 있는 일이에요.">
+      <SettingsSection data-help="role.permissions" title="권한 할당" description="이 역할을 가진 구성원이 할 수 있는 일이에요.">
         {Object.entries(permissionsByCategory).map(([category, perms]) => (
           <div key={category} className="space-y-3">
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">{category}</h3>

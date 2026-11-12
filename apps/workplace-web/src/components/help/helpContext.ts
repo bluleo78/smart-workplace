@@ -6,7 +6,7 @@ import { findSection, type HelpTarget, type HelpView, isChapterVisible, resolveH
 
 /**
  * 스크롤이 멈춘 뒤 칸을 재기까지 기다리는 시간(ms) — 스크롤 중 매 프레임 절이 바뀌어 패널이 깜박이지 않게(설계 5절).
- * 아래 두 기준선은 설정 가이드 섹션 따라가기(components/settings-guide/activeSection.ts)와 같은 값이다 — 가이드 코드는 이전 이슈가 지우므로 가져다 쓰지 않고 값만 둔다.
+ * 아래 두 기준선은 옛 설정 가이드 섹션 따라가기와 같은 값을 그대로 둔다(그 코드는 WP-1508 에서 지웠다).
  */
 export const HELP_SCROLL_SETTLE_MS = 200
 /** 기준선 — 스크롤 요소 보이는 높이의 위쪽 30%. 이 선에 걸친 칸을 「보고 있는 칸」으로 본다. */

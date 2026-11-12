@@ -83,7 +83,7 @@ function EditForm({
 
   const title = target ? '구성요소 편집' : '구성요소 추가';
   return (
-    <DialogContent data-testid="component-edit-dialog">
+    <DialogContent data-testid="component-edit-dialog" data-help="project-settings.components">
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription className="sr-only">{title}</DialogDescription>

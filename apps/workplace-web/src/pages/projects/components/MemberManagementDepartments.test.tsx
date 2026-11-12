@@ -68,7 +68,7 @@ function openSection(
     ...(initialGroups.length > 0 ? [member(7, '한지수', 'MEMBER', false)] : []),
   ]
   const writes: { method: string; path: string; body?: unknown }[] = []
-  const view = renderScreen(<MemberManagement projectKey={KEY} canManage={canManage} openProject={openProject} />, {
+  const view = renderScreen(<MemberManagement data-help="project-settings.members" projectKey={KEY} canManage={canManage} openProject={openProject} />, {
     path: `/projects/${KEY}/settings`,
     handlers: [
       http.get(`${API}/members`, () => HttpResponse.json(members)),
@@ -230,7 +230,7 @@ describe('프로젝트 멤버 — 조직도 부서(WP-1057)', () => {
     let respond: 'pending' | 'error' | 'empty' = 'pending'
     let release: () => void = () => {}
     const gate = new Promise<void>((r) => { release = r })
-    renderScreen(<MemberManagement projectKey={KEY} />, {
+    renderScreen(<MemberManagement data-help="project-settings.members" projectKey={KEY} />, {
       path: `/projects/${KEY}/settings`,
       handlers: [
         http.get(`${API}/members`, () => HttpResponse.json([member(7, '한지수', 'MEMBER', false)])),
@@ -253,7 +253,7 @@ describe('프로젝트 멤버 — 조직도 부서(WP-1057)', () => {
   })
 
   test('빈 상태 「멤버가 없습니다」는 직접 멤버도 조직도 없다고 받은 뒤에 보인다', async () => {
-    renderScreen(<MemberManagement projectKey={KEY} />, {
+    renderScreen(<MemberManagement data-help="project-settings.members" projectKey={KEY} />, {
       path: `/projects/${KEY}/settings`,
       handlers: [
         http.get(`${API}/members`, () => HttpResponse.json([])),

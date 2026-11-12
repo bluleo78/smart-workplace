@@ -237,6 +237,8 @@ function DeleteBody({
         showCloseButton={false}
         data-testid="status-delete-dialog"
         data-layout="sheet"
+        // 시트도 포털이라 화면 쪽 data-help 를 물려받지 못한다 — 열려 있는 동안 도움말 패널이 상태 절을 보이게 직접 단다(WP-1508).
+        data-help="project-settings.statuses"
         className="max-h-[85dvh] gap-0 overflow-y-auto rounded-t-2xl px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
         <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-muted-foreground/30" />
@@ -257,7 +259,7 @@ function DeleteBody({
   }
 
   return (
-    <AlertDialogContent data-testid="status-delete-dialog" data-layout="dialog">
+    <AlertDialogContent data-testid="status-delete-dialog" data-layout="dialog" data-help="project-settings.statuses">
       <AlertDialogHeader>
         <AlertDialogTitle className="break-words">{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>

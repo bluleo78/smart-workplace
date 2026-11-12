@@ -1,16 +1,18 @@
 // 설정 › SSO(SsoSettingsPage, WP-48) — 화면 컴포넌트 테스트(WP-971, WP-995).
-// 운영자 미설정 비활성·켜져 있으면 끌 수 있음·SSO 전용 구성원 확인·Clipboard API 없을 때 대체 복사(WP-836)·가이드 내용(WP-399)·
-// AI 를 못 쓰면 「AI에게 묻기」 없음(WP-414)은 브라우저 없이 판정되므로 e2e/pages/settings/sso.spec.ts·settings-guide.spec.ts·
-// settings-guide-ask-ai.spec.ts 에서 옮겼다. 사이드바 → SSO 이동 배선(@wiring)과 실제 클립보드 복사(@platform)는 sso.spec.ts 에 남는다.
+// 운영자 미설정 비활성·켜져 있으면 끌 수 있음·SSO 전용 구성원 확인·Clipboard API 없을 때 대체 복사(WP-836)·칸·확인창의 도움말 절 연결(WP-1508)은
+// 브라우저 없이 판정되므로 e2e/pages/settings/sso.spec.ts 에서 옮겼다. 사이드바 → SSO 이동 배선(@wiring)과 실제 클립보드 복사(@platform)는 sso.spec.ts 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { settingsGuides } from '@/components/settings-guide/settingsGuides'
+import { currentScreenContext, withScreenContextProbe } from '@/test/kits/ai/ScreenContextProbe'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
+import { helpBundleHandlers } from '@/test/kits/help/helpBundleKit'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import { testAuthValue } from '@/test/renderWithProviders'
 
-import { expectGuideSectionsOnScreen, openGuideSheet, withAssistant, withoutClipboardApi } from '../settings/testkit-b7'
+import { withAssistant, withoutClipboardApi } from '../settings/testkit-b7'
 import SsoSettingsPage from './SsoSettingsPage'
 
 const CONSENT = 'https://login.microsoftonline.com/organizations/v2.0/adminconsent?client_id=abc'
@@ -99,12 +101,31 @@ test('복사할 수 없으면 직접 선택해 복사하라고 안내한다 (WP-
   }
 })
 
-// WP-399 — 화면마다 자기 가이드가 붙는다. WP-414 — AI 를 못 쓰는 워크스페이스면 가이드에 「AI에게 묻기」가 없다.
-test('가이드에 SSO 가이드가 보이고, AI 를 못 쓰면 「AI에게 묻기」가 없다 (WP-399·WP-414)', async () => {
-  const { user } = await openSso({ enabled: true }, false)
-  const sheet = await openGuideSheet(user)
-  expect(sheet.getByText(settingsGuides.sso.lead)).toBeInTheDocument()
-  expect(sheet.queryByTestId('settings-guide-ask-ai')).not.toBeInTheDocument()
-  // WP-1298 — 가이드 섹션이 화면 섹션과 같은 id·제목으로 이어진다(본문 스크롤을 따라가는 기준).
-  expectGuideSectionsOnScreen(settingsGuides.sso)
+// WP-1508 — 칸을 만지면 도움말 패널이 여는 절은 가장 가까운 [data-help] 조상의 값이다.
+test('칸과 끄기 확인창이 맞는 도움말 절로 이어진다 (WP-1508)', async () => {
+  const { user, toggle } = await openSso({ enabled: true, passwordlessMemberCount: 3 })
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: 'SSO 로그인' }), 'sso.login')
+  expectHelpTarget(toggle, 'sso.login')
+  expectHelpTarget(screen.getByRole('heading', { level: 2, name: '관리자 동의 링크' }), 'sso.consent')
+  await user.click(toggle)
+  expectHelpTarget(await screen.findByRole('alertdialog'), 'sso.login.off')
+})
+
+// 설정 가이드 대신 매뉴얼 대표 절 요약이 AI 화면 참고에 실린다.
+test('가이드 없이 화면 참고에 「설정 · SSO」와 매뉴얼 설명이 실린다 (WP-1508)', async () => {
+  renderScreen(withScreenContextProbe(<SsoSettingsPage />), {
+    path: '/settings/sso',
+    auth: { isAdmin: true },
+    handlers: [
+      ...helpBundleHandlers(),
+      http.get('/api/v1/admin/sso', () => HttpResponse.json(settings({ enabled: true }))),
+      ...shellHandlers,
+    ],
+  })
+  await screen.findByRole('switch', { name: 'SSO 로그인 사용' })
+  await waitFor(() => expect(currentScreenContext()?.scope?.facts).toContainEqual({ label: '소개', value: '로그인 본문.' }))
+  expect(currentScreenContext()!.view).toBe('설정 · SSO')
+  const facts = currentScreenContext()!.scope!.facts!
+  expect(facts).toContainEqual({ label: 'SSO 로그인', value: 'SSO 로그인 본문.' })
+  expect(facts).toContainEqual({ label: 'SSO 로그인', value: '켜짐' })
 })

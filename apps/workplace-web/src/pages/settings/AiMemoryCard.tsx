@@ -12,7 +12,6 @@ import { useSearchParams } from 'react-router-dom';
 import { BusySwitch } from '@/components/BusySwitch';
 import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
-import { SETTINGS_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,7 +98,7 @@ export function AiMemoryCard() {
 
   return (
     <SettingsSection
-      id={SETTINGS_SECTION_IDS.assistantMemory}
+      data-help="assistant.memory"
       data-testid="ai-memory-card"
       title="메모리"
       description={
@@ -113,7 +112,7 @@ export function AiMemoryCard() {
           <TabsTrigger value="mine" data-testid="ai-memory-tab-mine" className="pointer-coarse:min-h-11">
             내 메모리
           </TabsTrigger>
-          <TabsTrigger value="shared" data-testid="ai-memory-tab-shared" className="pointer-coarse:min-h-11">
+          <TabsTrigger value="shared" data-help="assistant.memory.shared" data-testid="ai-memory-tab-shared" className="pointer-coarse:min-h-11">
             공용 메모리
           </TabsTrigger>
         </TabsList>
@@ -167,6 +166,7 @@ export function AiMemoryCard() {
                 variant="ghost"
                 size="sm"
                 data-testid="ai-memory-clear"
+                data-help="assistant.memory.clear"
                 className={cn('text-destructive hover:text-destructive pointer-coarse:min-h-11', !searchable && 'ml-auto')}
                 onClick={() => setConfirmOpen(true)}
               >
@@ -214,7 +214,8 @@ export function AiMemoryCard() {
           </div>
 
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-            <AlertDialogContent data-testid="ai-memory-clear-dialog">
+            {/* 포털로 그려져 카드 밖이라 대화상자도 자기 data-help 가 필요하다(WP-1508). */}
+            <AlertDialogContent data-testid="ai-memory-clear-dialog" data-help="assistant.memory.clear">
               <AlertDialogHeader>
                 <AlertDialogTitle>메모리를 모두 지울까요?</AlertDialogTitle>
                 <AlertDialogDescription>
@@ -230,7 +231,7 @@ export function AiMemoryCard() {
             </AlertDialogContent>
           </AlertDialog>
         </TabsContent>
-        <TabsContent value="shared">
+        <TabsContent value="shared" data-help="assistant.memory.shared">
           <SharedMemoryTab />
         </TabsContent>
       </Tabs>

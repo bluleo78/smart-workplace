@@ -954,7 +954,6 @@ export const scenes = [
         // 제목부터 입력 칸·단추까지 감싼다(칸이 제목보다 오른쪽으로 길다).
         profile: [page.getByText('프로필 정보', { exact: true }), page.locator('input').nth(2), page.getByRole('button', { name: '저장', exact: true })],
         password: [page.getByText('비밀번호 변경', { exact: true }).first(), page.locator('input[type=password]').last(), page.getByRole('button', { name: '비밀번호 변경' })],
-        guide: page.getByRole('button', { name: '가이드' }),
       });
     },
   },

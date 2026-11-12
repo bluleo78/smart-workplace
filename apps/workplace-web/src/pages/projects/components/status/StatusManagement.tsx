@@ -157,7 +157,7 @@ export function StatusManagement({ projectKey, canEdit }: { projectKey: string; 
   const sheetActions = sheetTarget ? actionsFor(sheetTarget) : null
 
   return (
-    <SettingsSection id="statuses" title="상태" description={DESCRIPTION} data-testid="settings-statuses">
+    <SettingsSection id="statuses" data-help="project-settings.statuses" title="상태" description={DESCRIPTION} data-testid="settings-statuses">
       {/* 앱 루트에 툴팁 공급자가 없어 섹션이 직접 감싼다(「+ 추가」 상한·「기본」 툴팁). */}
       <TooltipProvider>
       {/* 목록을 못 받았으면 빈 범주에 「+ 추가」를 내밀지 않는다 — 보드·목록과 같은 관문(로딩·다시 시도). */}
@@ -225,6 +225,7 @@ export function StatusManagement({ projectKey, canEdit }: { projectKey: string; 
       {isMobile && <p className="text-xs text-muted-foreground">「기본」은 {DEFAULT_BADGE_TOOLTIP}</p>}
 
       <ProjectMetaEditDialog
+        data-help="project-settings.statuses"
         title="상태 편집"
         nameMaxLength={STATUS_NAME_MAX}
         target={

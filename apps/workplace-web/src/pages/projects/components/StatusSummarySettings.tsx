@@ -57,6 +57,7 @@ export function StatusSummarySettings({ project, canManage, children }: StatusSu
 
   return (
     <SettingsSection
+      data-help="project-settings.report"
       title="리포트"
       description="개요 맨 위 AI 상태 요약과, AI 가 노트에 쓰는 주간 리포트를 언제 쓸지 정해요."
       data-testid="project-report-settings"

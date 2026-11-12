@@ -382,18 +382,9 @@ export type ExternalContactFormData = z.infer<typeof externalContactSchema>;
 
 ---
 
-## M. 설정 가이드 문구 (WP-399)
+## M. 설정 화면 설명은 매뉴얼 도움말 (WP-1508)
 
-폼형 설정 화면(`SettingsPage width="form"`)을 새로 만들면 `settingsGuides.ts` 에 키를 추가하고 `guide={settingsGuides.<key>}` 를 넘긴다. 배치·상태는 [03 §설정 가이드 열](03-spacing-layout.md), 구성은 [04 §A-3](04-components.md).
+폼형 설정 화면(`SettingsPage width="form"`)을 새로 만들면 화면 안 가이드 문구를 코드에 두지 않는다. 매뉴얼 해당 장에 절을 쓰고(manual-authoring 스킬 — 제목에 `{help=<id>}`), 화면은 `SettingsPage help={{ id, name }}` 을 넘기고 화면 칸에 `data-help="<id>"` 를 단다. 배치는 [03 §설정 화면 설명](03-spacing-layout.md), 구성은 [04 §A-3](04-components.md).
 
-| 필드 | 규칙 |
-|---|---|
-| `lead` | 한 문장. 이 화면에서 **왜·언제** 손대는지. `SettingsSection` 제목·설명을 되풀이하지 않는다 |
-| `tips` | 3~5개. 섹션 설명에 없는 왜·언제·주의만. 한 항목 한 문장 위주로 짧게 |
-| `caution` | 되돌리기 어려운 동작(연결 해제로 토큰 폐기·멤버 제거로 담당 해제 등)이 있을 때만. 없으면 비운다 |
-| `related` | 앱 내부 경로만, 그 화면을 보는 사람이 **실제로 열 수 있는** 화면만(권한 없는 화면 링크 금지) |
-
-- 존댓말 해요체, 문장은 짧게.
-- **코드로 확인한 사실만** 쓴다 — 시안·추측 문구 금지. 화면 동작과 어긋나면 문구를 고친다.
-- 문구가 설정값에 기대면(예: 「최대 30분」 = `app.jwt.access-expiration`) 그 문구 옆에 **값 출처를 밝히는 코드 주석**을 남겨 값이 바뀔 때 같이 고치게 한다.
-- 같은 화면이라도 대상에 따라 규칙이 다르면(팀 vs 개인 프로젝트) 키를 나눈다 — 한 문구에 조건을 섞지 않는다.
+- 문구 규칙(해요체, 코드로 확인한 사실만)은 매뉴얼 문체·용어 계약을 따른다.
+- 대상에 따라 규칙이 다르면(팀 vs 개인 프로젝트) 절을 나눈다 — 한 문단에 조건을 섞지 않는다.

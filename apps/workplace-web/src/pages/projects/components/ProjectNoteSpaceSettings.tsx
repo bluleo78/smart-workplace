@@ -78,6 +78,7 @@ export function ProjectNoteSpaceSettings({ projectKey }: { projectKey: string })
 
   return (
     <SettingsSection
+      data-help="project-settings.note-space"
       title="노트 공간"
       description="이 프로젝트 멤버만 쓰는 노트 공간이에요. 공간 멤버는 프로젝트 멤버와 같아요."
       data-testid="project-note-space"
@@ -118,7 +119,7 @@ export function ProjectNoteSpaceSettings({ projectKey }: { projectKey: string })
 
       {/* 고르기 창 — 내가 소유자인, 다른 프로젝트에 연결되지 않은 팀 공간만 후보(서버도 같은 조건으로 거절한다). */}
       <Dialog open={pickOpen} onOpenChange={setPickOpen}>
-        <DialogContent data-testid="project-note-space-picker">
+        <DialogContent data-testid="project-note-space-picker" data-help="project-settings.note-space">
           <DialogHeader>
             <DialogTitle>기존 팀 공간 연결</DialogTitle>
             <DialogDescription>내가 소유자인 팀 공간을 이 프로젝트의 노트 공간으로 바꿔요.</DialogDescription>
@@ -160,7 +161,7 @@ export function ProjectNoteSpaceSettings({ projectKey }: { projectKey: string })
       {/* 경고 확인 창 — 연결의 결과(페이지 이동·멤버 제외·자동 공간 삭제)를 알리고 한 번 더 묻는다. */}
       <AlertDialog open={confirmSpace !== null} onOpenChange={onConfirmOpenChange}>
         {confirmSpace && (
-          <AlertDialogContent>
+          <AlertDialogContent data-help="project-settings.note-space">
             <AlertDialogHeader>
               <AlertDialogTitle>「{confirmSpace.name}」 공간을 연결할까요?</AlertDialogTitle>
               <AlertDialogDescription>{LINK_WARNING}</AlertDialogDescription>

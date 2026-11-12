@@ -91,7 +91,7 @@ describe('SettingsPage help 경로', () => {
     expect(probe()!.scope!.facts![0]).toEqual({ label: '소개', value: '에이전트 표 안내. 새 에이전트 로 만든다.' })
   })
 
-  it('help·guide 둘 다 없으면 화면 참고를 등록하지 않는다, help 가 없으면 /help 요청이 없다', async () => {
+  it('help 가 없으면 화면 참고를 등록하지 않고 /help 요청이 없다', async () => {
     // 핸들러를 주지 않는다 — /help 를 부르면 setup 의 「핸들러 없는 요청」으로 실패한다.
     renderScreen(ui())
     expect(screen.getByText('본문')).toBeInTheDocument()
