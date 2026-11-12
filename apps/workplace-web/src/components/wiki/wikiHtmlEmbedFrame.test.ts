@@ -39,6 +39,10 @@ describe('clampEmbedHeight', () => {
     expect(clampEmbedHeight(300.2)).toBe(301)
     expect(clampEmbedHeight(99999)).toBe(HTML_EMBED_MAX_HEIGHT)
   })
+  it('하한을 따로 주면 그 값으로 자른다(메일 서명 블록, WP-1517)', () => {
+    expect(clampEmbedHeight(30, 20)).toBe(30)
+    expect(clampEmbedHeight(5, 20)).toBe(20)
+  })
   it('숫자가 아니거나 유한하지 않으면 무시한다', () => {
     expect(clampEmbedHeight('300')).toBeNull()
     expect(clampEmbedHeight(Number.NaN)).toBeNull()

@@ -93,6 +93,8 @@ import com.workplace.jooq.tables.MailAttachmentPreview.MailAttachmentPreviewPath
 import com.workplace.jooq.tables.MailDraft.MailDraftPath;
 import com.workplace.jooq.tables.MailDraftAttachment.MailDraftAttachmentPath;
 import com.workplace.jooq.tables.MailDraftForward.MailDraftForwardPath;
+import com.workplace.jooq.tables.MailSignature.MailSignaturePath;
+import com.workplace.jooq.tables.MailSignatureImage.MailSignatureImagePath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
@@ -1355,6 +1357,32 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _label;
     }
 
+    private transient MailSignatureImagePath _mailSignatureImage;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_signature_image</code> table
+     */
+    public MailSignatureImagePath mailSignatureImage() {
+        if (_mailSignatureImage == null)
+            _mailSignatureImage = new MailSignatureImagePath(this, null, Keys.MAIL_SIGNATURE_IMAGE__FK_MAIL_SIGNATURE_IMAGE_TENANT.getInverseKey());
+
+        return _mailSignatureImage;
+    }
+
+    private transient MailSignaturePath _mailSignature;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_signature</code> table
+     */
+    public MailSignaturePath mailSignature() {
+        if (_mailSignature == null)
+            _mailSignature = new MailSignaturePath(this, null, Keys.MAIL_SIGNATURE__FK_MAIL_SIGNATURE_TENANT.getInverseKey());
+
+        return _mailSignature;
+    }
+
     private transient MessageAttachmentPath _messageAttachment;
 
     /**
@@ -2130,6 +2158,14 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public UserPath agentRuntimeSettingAgentUserIdFkey() {
         return agentRuntimeSetting().agentRuntimeSettingAgentUserIdFkey();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>mail_signature_user_id_fkey</code> key
+     */
+    public UserPath mailSignatureUserIdFkey() {
+        return mailSignature().user();
     }
 
     /**

@@ -3,6 +3,7 @@
 // 업로드 자체는 일반 첨부와 같은 작성창 업로드라, 보관·발송 뒤 만료는 attachmentIds 를 따라간다 — 그래서 본문이 참조하는 업로드 id 는
 // 임시저장·발송의 attachmentIds 에도 싣고, 칩으로는 보이지 않게 거른다.
 
+import { IMG_TAG, imgSrcIdPattern, imgSrcIds, replaceImgSrcIds } from './htmlImgTag';
 import type { DownscaleOptions } from './imageDownscale';
 import { type ComposeAttachment, sendAttachmentIds } from './mailComposeAttachments';
 
@@ -22,8 +23,11 @@ export const PASTED_IMAGE_DOWNSCALE: DownscaleOptions = {
 const PASTED_PATH = String.raw`/api/v1/files/(\d+)/content`;
 /** 편집기는 이 형식의 <img> 만 받는다. */
 const PASTED_SRC = new RegExp(`^${PASTED_PATH}$`);
-/** Tiptap getHTML() 이 내는 <img> 의 src(큰따옴표)에서 붙여 넣은 이미지 경로만 찾는다 — 1: 앞부분, 2: id, 3: 닫는 따옴표. */
-const PASTED_IMG_SRC_ATTR = new RegExp(`(<img\\b[^>]*?\\ssrc=")${PASTED_PATH}(")`, 'g');
+/**
+ * Tiptap getHTML() 이 내는 <img> 의 src(큰따옴표)에서 붙여 넣은 이미지 경로만 찾는다(imgSrcIdPattern).
+ * 서명 이미지(WP-1517)도 보낼 때 이 경로로 바뀌어 여기를 지난다 — Outlook 서명의 alt 에 `>` 가 있어도 cid 로 바뀌도록 따옴표 값을 건너뛴다.
+ */
+const PASTED_IMG_SRC_ATTR = imgSrcIdPattern(PASTED_PATH);
 
 /** 업로드 id → 본문 src. */
 export function pastedImageSrc(id: number): string {
@@ -42,12 +46,7 @@ export function pastedContentId(id: number): string {
 
 /** 본문이 참조하는 붙여 넣은 이미지의 업로드 id(처음 나온 순서, 중복 없음). */
 export function pastedImageIds(html: string): number[] {
-  const ids: number[] = [];
-  for (const m of html.matchAll(PASTED_IMG_SRC_ATTR)) {
-    const id = Number(m[2]);
-    if (!ids.includes(id)) ids.push(id);
-  }
-  return ids;
+  return imgSrcIds(PASTED_IMG_SRC_ATTR, html);
 }
 
 /**
@@ -60,9 +59,7 @@ export function toSendablePastedImages(html: string): {
 } {
   const ids = pastedImageIds(html);
   return {
-    html: html.replace(PASTED_IMG_SRC_ATTR, (_all, head: string, id: string, tail: string) =>
-      `${head}cid:${pastedContentId(Number(id))}${tail}`,
-    ),
+    html: replaceImgSrcIds(PASTED_IMG_SRC_ATTR, html, (id) => `cid:${pastedContentId(id)}`),
     inlineUploads: ids.map((id) => ({ attachmentId: id, contentId: pastedContentId(id) })),
   };
 }
@@ -85,5 +82,6 @@ export function uploadIdsWithBodyImages(
  * 원래 임시저장의 그림이 만료되거나 저장이 거절된다. 같은 작성창 안에서 옮기는 그림(owned)은 그대로 둔다.
  */
 export function dropForeignPastedImages(html: string, owned: ReadonlySet<number>): string {
-  return html.replace(/<img\b[^>]*>/g, (tag) => (pastedImageIds(tag).some((id) => !owned.has(id)) ? '' : tag));
+  // 태그 전체를 따옴표 값까지 보고 자른다 — alt 안의 `>` 에서 끊기면 src 를 못 봐 남의 그림이 남는다.
+  return html.replace(IMG_TAG, (tag) => (pastedImageIds(tag).some((id) => !owned.has(id)) ? '' : tag));
 }

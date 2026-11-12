@@ -154,6 +154,9 @@ public final class TenantPurgePlan {
           CALENDAR_EVENT_EXCEPTION,
           CALENDAR_EVENT,
           CALENDAR,
+          // 메일 서명(WP-1517) — user·tenant 만 참조. 이미지 바이트는 테넌트 디렉터리 삭제로 함께 지워진다.
+          MAIL_SIGNATURE_IMAGE,
+          MAIL_SIGNATURE,
           // 메일 임시저장(WP-577) — email_attachment·email_account·file 을 참조하므로 그보다 먼저
           MAIL_DRAFT_FORWARD,
           MAIL_DRAFT_ATTACHMENT,

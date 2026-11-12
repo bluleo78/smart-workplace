@@ -66,6 +66,7 @@ import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.FileSecurityCheck;
+import com.workplace.jooq.tables.HelpManualSection;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -99,6 +100,8 @@ import com.workplace.jooq.tables.MailDraft;
 import com.workplace.jooq.tables.MailDraftAttachment;
 import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
+import com.workplace.jooq.tables.MailSignature;
+import com.workplace.jooq.tables.MailSignatureImage;
 import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
 import com.workplace.jooq.tables.MessageActionProposal;
@@ -485,6 +488,11 @@ public class Tables {
     public static final FileSecurityCheck FILE_SECURITY_CHECK = FileSecurityCheck.FILE_SECURITY_CHECK;
 
     /**
+     * The table <code>public.help_manual_section</code>.
+     */
+    public static final HelpManualSection HELP_MANUAL_SECTION = HelpManualSection.HELP_MANUAL_SECTION;
+
+    /**
      * The table <code>public.home_action_proposal</code>.
      */
     public static final HomeActionProposal HOME_ACTION_PROPOSAL = HomeActionProposal.HOME_ACTION_PROPOSAL;
@@ -649,6 +657,16 @@ public class Tables {
      * 쿼리에서 account_id 조건으로 추가한다.
      */
     public static final MailInbox MAIL_INBOX = MailInbox.MAIL_INBOX;
+
+    /**
+     * The table <code>public.mail_signature</code>.
+     */
+    public static final MailSignature MAIL_SIGNATURE = MailSignature.MAIL_SIGNATURE;
+
+    /**
+     * The table <code>public.mail_signature_image</code>.
+     */
+    public static final MailSignatureImage MAIL_SIGNATURE_IMAGE = MailSignatureImage.MAIL_SIGNATURE_IMAGE;
 
     /**
      * 사용자-테넌트 소속 (다중 소속 허용)

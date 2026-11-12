@@ -63,6 +63,8 @@ import com.workplace.jooq.tables.IssueRelationType.IssueRelationTypePath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.MailDraft.MailDraftPath;
+import com.workplace.jooq.tables.MailSignature.MailSignaturePath;
+import com.workplace.jooq.tables.MailSignatureImage.MailSignatureImagePath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
@@ -1242,6 +1244,32 @@ public class User extends TableImpl<UserRecord> {
         return _mailDraft;
     }
 
+    private transient MailSignatureImagePath _mailSignatureImage;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_signature_image</code> table
+     */
+    public MailSignatureImagePath mailSignatureImage() {
+        if (_mailSignatureImage == null)
+            _mailSignatureImage = new MailSignatureImagePath(this, null, Keys.MAIL_SIGNATURE_IMAGE__MAIL_SIGNATURE_IMAGE_USER_ID_FKEY.getInverseKey());
+
+        return _mailSignatureImage;
+    }
+
+    private transient MailSignaturePath _mailSignature;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_signature</code> table
+     */
+    public MailSignaturePath mailSignature() {
+        if (_mailSignature == null)
+            _mailSignature = new MailSignaturePath(this, null, Keys.MAIL_SIGNATURE__MAIL_SIGNATURE_USER_ID_FKEY.getInverseKey());
+
+        return _mailSignature;
+    }
+
     private transient MembershipPath _membership;
 
     /**
@@ -1944,6 +1972,14 @@ public class User extends TableImpl<UserRecord> {
      */
     public IssuePath issueWatcherIssueIdFkey() {
         return issueWatcher().issue();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table, via the <code>fk_mail_signature_tenant</code> key
+     */
+    public TenantPath fkMailSignatureTenant() {
+        return mailSignature().tenant();
     }
 
     /**

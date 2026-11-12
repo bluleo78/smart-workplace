@@ -45,10 +45,13 @@ export function htmlEmbedDocument(source: string): string {
   return source + HTML_EMBED_HEIGHT_SCRIPT
 }
 
-/** 높이를 범위 안으로 — 숫자가 아니거나 유한하지 않으면 null(무시). */
-export function clampEmbedHeight(height: unknown): number | null {
+/**
+ * 높이를 범위 안으로 — 숫자가 아니거나 유한하지 않으면 null(무시).
+ * min 은 하한을 바꿀 때 — 메일 작성창 서명 블록(WP-1517)은 두세 줄짜리라 노트 블록 하한(80px)이면 아래가 빈다.
+ */
+export function clampEmbedHeight(height: unknown, min: number = HTML_EMBED_MIN_HEIGHT): number | null {
   if (typeof height !== 'number' || !Number.isFinite(height)) return null
-  return Math.min(HTML_EMBED_MAX_HEIGHT, Math.max(HTML_EMBED_MIN_HEIGHT, Math.ceil(height)))
+  return Math.min(HTML_EMBED_MAX_HEIGHT, Math.max(min, Math.ceil(height)))
 }
 
 /**
@@ -58,20 +61,21 @@ export function clampEmbedHeight(height: unknown): number | null {
 export function embedHeightFromMessage(
   event: Pick<MessageEvent, 'source' | 'data'>,
   frameWindow: Window | null | undefined,
+  min?: number,
 ): number | null {
   if (!frameWindow || event.source !== frameWindow) return null
   const data = event.data as { type?: unknown; height?: unknown } | null
   if (!data || typeof data !== 'object' || data.type !== HTML_EMBED_HEIGHT_MESSAGE) return null
-  return clampEmbedHeight(data.height)
+  return clampEmbedHeight(data.height, min)
 }
 
 /**
  * iframe 창의 높이 보고를 받기 시작한다 — 돌려준 함수로 그만 받는다. 창 message 듣기는 모듈에 하나만 둔다(watchFrameMessages).
  * 같은 창인지·모양·범위는 embedHeightFromMessage 로 가린다.
  */
-export function watchEmbedHeight(frameWindow: Window, onHeight: (height: number) => void): () => void {
+export function watchEmbedHeight(frameWindow: Window, onHeight: (height: number) => void, min?: number): () => void {
   return watchFrameMessages(frameWindow, (event) => {
-    const height = embedHeightFromMessage(event, frameWindow)
+    const height = embedHeightFromMessage(event, frameWindow, min)
     if (height != null) onHeight(height)
   })
 }

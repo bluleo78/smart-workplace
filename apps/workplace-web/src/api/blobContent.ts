@@ -44,6 +44,21 @@ export async function blobToText(blob: Blob, { maxBytes }: { maxBytes?: number }
 }
 
 /**
+ * Blob → data URI. sandbox iframe(불투명 출처)은 부모의 blob: URL 을 읽지 못하고, 편집기에 넣는 그림은 저장 전까지
+ * 파일 경로가 없어 data: 로 들고 다닌다 — 그런 곳이 모두 이 함수를 쓴다.
+ * type 을 주면 그 MIME 으로 다시 감싼다(서버가 octet-stream 으로 내려도 <img> 가 그려지도록 메타의 타입을 쓸 때).
+ */
+export function blobToDataUri(blob: Blob, type?: string): Promise<string> {
+  const source = type == null ? blob : new Blob([blob], { type })
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(source)
+  })
+}
+
+/**
  * PDF 로 신고된 blob 을 뷰어에 넘기기 전에 검증한다 — 앞부분에 %PDF- 가 없으면 throw.
  * 통과하면 타입을 application/pdf 로 다시 감싼다: 신고 mimeType 을 그대로 물려받으면
  * .pdf 로 위장한 HTML 이 (sandbox 없는) PDF iframe 에서 렌더돼 세션에 닿을 수 있다(WP-203, iacloud_eis 이식).

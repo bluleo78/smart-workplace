@@ -2,7 +2,6 @@
 // 외부엔 getHTML()/getText() 를 onChange 로 흘려보낸다(저장은 상위 도크가 담당).
 // chat RichInput 과 분리 — 멘션/suggestion 배선이 없는 독립 인스턴스.
 
-import Link from '@tiptap/extension-link';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, Link2, List, ListOrdered } from 'lucide-react';
@@ -30,7 +29,9 @@ import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { hasPendingImage, insertImagePlaceholders } from '../mentions/richImageNode';
+import { applyLink, MailLink } from './mailEditorLink';
 import { MailImage, type PastedImageResult, settleMailImages } from './mailImageNode';
+import { mailBodyInfo, mailComposerHtml, MailSignature } from './mailSignatureNode';
 
 /**
  * 에디터 배치 — 작성창 모양에 따라 본문 크기·툴바 위치가 달라진다.
@@ -40,11 +41,20 @@ import { MailImage, type PastedImageResult, settleMailImages } from './mailImage
  */
 export type MailComposerLayout = 'dock' | 'fill' | 'mobile';
 
+/** 본문 변경과 함께 넘기는 판정(WP-1517) — 서명 블록이 본문에 있는가, 서명 밖 본문이 비었는가(글자도 이미지도 없음). */
+interface MailComposerChangeInfo {
+  hasSignature: boolean;
+  bodyEmpty: boolean;
+}
+
 interface MailComposerProps {
   /** 초기 HTML(답장/전달 인용문). */
   initialHtml?: string;
-  /** 본문 변경 시 HTML+텍스트 동시 전달. initial=true 는 에디터가 처음 만들어질 때(사용자 편집 아님)의 값이다. */
-  onChange: (html: string, text: string, initial: boolean) => void;
+  /**
+   * 본문 변경 시 HTML+텍스트 동시 전달. initial=true 는 에디터가 처음 만들어질 때(사용자 편집 아님)의 값이다.
+   * info 는 서명 블록 유무와 서명 밖 본문이 비었는지(WP-1517) — 펜 단추 상태와 「본문 있음」 판정에 쓴다.
+   */
+  onChange: (html: string, text: string, initial: boolean, info: MailComposerChangeInfo) => void;
   /** 작성창 모양에 맞춘 배치. 기본 dock. */
   layout?: MailComposerLayout;
   /** 서식 툴바 오른쪽 끝에 붙일 것(새 메일 「AI로 쓰기」, WP-576). 붙일 쪽이 ml-auto 로 끝에 민다. */
@@ -94,24 +104,30 @@ const OVERLAY_CLASS: Record<MailComposerLayout, string> = {
   mobile: 'pointer-events-none absolute inset-x-0 top-1.5 [&_button]:pointer-events-auto',
 };
 
-/** 툴바 버튼. touch(모바일)는 44px 터치 크기·20px 아이콘, 그 밖엔 작은 버튼·16px 아이콘. */
-function ToolbarButton({
+/**
+ * 툴바 버튼 — 작성창과 서명 편집기(MailSignatureEditor)가 같이 쓴다. 누를 때 편집기 초점을 뺏지 않는다.
+ * touch(모바일)는 44px 터치 크기·20px 아이콘, 그 밖엔 작은 버튼·16px 아이콘. title 은 마우스를 올리면 보이는 이름(서명 편집기가 쓴다).
+ */
+export function ToolbarButton({
   active,
-  touch,
+  touch = false,
   onClick,
   label,
+  title,
   children,
 }: {
   active?: boolean;
-  touch: boolean;
+  touch?: boolean;
   onClick: () => void;
   label: string;
+  title?: string;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      title={title}
       aria-pressed={active}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
@@ -126,6 +142,65 @@ function ToolbarButton({
   );
 }
 
+/**
+ * 링크 주소 입력 다이얼로그(window.prompt 대체, #148) — 작성창과 서명 편집기가 같이 쓴다. 주소 값은 부르는 쪽이 들고,
+ * Enter·확인은 onConfirm, 취소·바깥 닫기는 onCancel 로 알린다.
+ */
+export function LinkUrlDialog({
+  open,
+  url,
+  onUrlChange,
+  onConfirm,
+  onCancel,
+  testId = 'link-url-dialog',
+}: {
+  open: boolean;
+  url: string;
+  onUrlChange: (url: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** 대화상자 data-testid — 서명 편집기는 작성창과 다른 값을 쓴다. */
+  testId?: string;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent data-testid={testId}>
+        <DialogHeader>
+          <DialogTitle>링크 삽입</DialogTitle>
+          <DialogDescription className="sr-only">링크 삽입</DialogDescription>
+        </DialogHeader>
+        <Input
+          value={url}
+          onChange={(e) => onUrlChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onConfirm();
+            }
+          }}
+          placeholder="https://"
+          autoFocus
+          aria-label="링크 주소"
+          data-testid="link-url-input"
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            취소
+          </Button>
+          <Button onClick={onConfirm} data-testid="link-url-confirm">
+            확인
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** 부모(작성 도크)가 본문을 통째로 교체할 수 있게 노출하는 핸들. */
 export interface MailComposerHandle {
   /**
@@ -137,7 +212,19 @@ export interface MailComposerHandle {
   focusEnd: () => void
   /** 붙여 넣은 이미지가 아직 올라가는 중인가(WP-947) — 그동안 보내면 빈 그림이 나가므로 보내기를 막는다. */
   hasPendingImage: () => boolean
+  /** 서명 넣기(WP-1517) — 있던 서명을 빼고 본문 끝에 빈 줄 하나 + 서명을 넣는다(실행 취소 기록에 쌓인다). */
+  insertSignature: (html: string) => void
+  /** 서명 빼기(WP-1517) — 본문의 서명 블록을 모두 빼고 그 앞 빈 줄 하나도 뺀다. */
+  removeSignature: () => void
+  /**
+   * 처음 본문에 서명 자동 넣기(WP-1517) — 서명 조회가 작성창보다 늦게 끝났을 때 쓴다. 사용자가 한 편집이 아니므로 실행 취소 기록에 쌓지 않고,
+   * onChange 를 initial=true 로 알려 처음 본문(baseline)에 들어가게 한다(서명만 있는 새 메일이 임시저장되지 않게).
+   */
+  insertInitialSignature: (html: string) => void
 }
+
+/** insertInitialSignature 트랜잭션 표식 — onUpdate 가 이것을 보고 onChange 의 initial 을 true 로 알린다. */
+const INITIAL_SIGNATURE_META = 'mailInitialSignature';
 
 /** 메일 본문 작성 에디터. */
 export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
@@ -156,11 +243,14 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Link.configure({ openOnClick: false, autolink: true }),
+      // 붙여 넣은 기존 <a> 의 href 를 지키는 링크(WP-1517) — 입력·붙여넣기의 주소 글자 자동 링크는 그대로.
+      MailLink,
       // macOS Chrome 한글 조합을 끝내는 Enter 가 마지막 글자를 지우지 않게(WP-333).
       ImeCommitFlush,
       // 붙여 넣은 캡처(WP-947). 업로드 경로 <img> 만 받으므로 이미지를 받지 않는 작성창에서도 다른 <img> 는 지금처럼 버려진다.
       MailImage,
+      // 서명 블록(WP-1517) — 원문 서명 HTML 을 원자 노드로 들고 격리 iframe 으로 그린다.
+      MailSignature,
     ],
     content: initialHtml,
     // 도크가 열리면 "받는사람"으로 포커스를 명시적으로 보낸다(#802) — 에디터가 자동으로
@@ -168,7 +258,8 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     autofocus: false,
     // 마운트 직후 refs 를 초기화해 상위 도크가 빈 본문 상태를 정확히 알게 한다.
     // (인용문은 에디터 밖에서 관리되므로 여기 포함되지 않는다 — 설계 §3)
-    onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), true),
+    // 본문 HTML 은 getHTML 대신 mailComposerHtml — 서명 HTML 이 앱 문서에 붙지 않게 비활성 문서로 직렬화한다(mailSignatureNode).
+    onCreate: ({ editor }) => onChange(mailComposerHtml(editor), editor.getText(), true, mailBodyInfo(editor.state.doc)),
     onUpdate: ({ editor, transaction }) => {
       // 실행 취소·다시 실행(history 플러그인 메타가 붙은 변경)으로 끝난 업로드의 자리표시가 돌아왔으면 먼저 그림으로 맞춘다
       // (그 고침이 다시 onUpdate 로 이어진다). 자리표시는 그 경로로만 되살아나므로 타자마다 문서를 훑지 않는다.
@@ -176,7 +267,9 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         settleMailImages(editor, pastedResults.current);
         return;
       }
-      onChange(editor.getHTML(), editor.getText(), false);
+      // 처음 본문에 늦게 넣은 서명(insertInitialSignature)은 사용자 편집이 아니다 — 처음 값으로 알린다.
+      const initial = transaction.getMeta(INITIAL_SIGNATURE_META) === true;
+      onChange(mailComposerHtml(editor), editor.getText(), initial, mailBodyInfo(editor.state.doc));
     },
     editorProps: {
       // 파일을 본문 위에 놓으면 에디터는 아무것도 넣지 않고 넘긴다 — 놓기 이벤트는 그대로 버블돼 작성창(useComposerFileDrop)이 첨부로 받는다(WP-574).
@@ -212,6 +305,23 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         editor?.commands.focus('end')
       },
       hasPendingImage: () => (editor ? hasPendingImage(editor) : false),
+      // 펜 단추로 넣고 빼므로 초점을 옮기지 않는다 — 단추를 누른 자리(받는사람·제목 등)에서 계속 쓰게.
+      insertSignature: (html: string) => {
+        editor?.commands.insertMailSignature(html)
+      },
+      removeSignature: () => {
+        editor?.commands.removeMailSignature()
+      },
+      insertInitialSignature: (html: string) => {
+        editor
+          ?.chain()
+          .command(({ tr }) => {
+            tr.setMeta('addToHistory', false).setMeta(INITIAL_SIGNATURE_META, true)
+            return true
+          })
+          .insertMailSignature(html)
+          .run()
+      },
     }),
     [editor],
   )
@@ -310,59 +420,27 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
       </div>
 
       {/* 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148) */}
-      <Dialog
+      <LinkUrlDialog
         open={linkDialog}
-        onOpenChange={(open) => {
-          if (!open) {
-            setLinkDialog(false);
-            setLinkUrl('');
-          }
-        }}
-      >
-        <DialogContent data-testid="link-url-dialog">
-          <DialogHeader>
-            <DialogTitle>링크 삽입</DialogTitle>
-            <DialogDescription className="sr-only">링크 삽입</DialogDescription>
-          </DialogHeader>
-          <Input
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                applyLink();
-              }
-            }}
-            placeholder="https://"
-            autoFocus
-            data-testid="link-url-input"
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => { setLinkDialog(false); setLinkUrl(''); }}
-            >
-              취소
-            </Button>
-            <Button onClick={applyLink} data-testid="link-url-confirm">
-              확인
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        url={linkUrl}
+        onUrlChange={setLinkUrl}
+        onConfirm={confirmLink}
+        onCancel={closeLinkDialog}
+      />
     </div>
   );
 
-  /** 링크 다이얼로그 확인 — 빈 URL 이면 링크 해제, 아니면 링크 설정. */
-  function applyLink() {
-    if (!editor) return; // editor 는 JSX 내부에서만 호출되지만 타입 안전을 위해 가드.
+  /** 링크 다이얼로그를 닫고 입력값을 비운다. */
+  function closeLinkDialog() {
     setLinkDialog(false);
     setLinkUrl('');
-    if (linkUrl.trim() === '') {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-    editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl.trim() }).run();
+  }
+
+  /** 링크 다이얼로그 확인 — 닫고 지금 입력값으로 링크를 걸거나 푼다(applyLink). */
+  function confirmLink() {
+    if (!editor) return; // editor 는 JSX 내부에서만 호출되지만 타입 안전을 위해 가드.
+    closeLinkDialog();
+    applyLink(editor, linkUrl);
   }
 },
 )

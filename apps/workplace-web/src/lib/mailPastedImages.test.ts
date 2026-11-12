@@ -47,4 +47,10 @@ describe('mailPastedImages', () => {
     expect(pastedContentId(123)).toMatch(/^[\x21-\x7E]+$/);
     expect(pastedContentId(123)).not.toMatch(/[<>"]/);
   });
+  it('앞 속성 값에 > 가 있어도(Outlook 서명 alt) 찾아 cid 로 바꾸고, 남의 그림을 뺀다', () => {
+    const html = '<p><img alt="Logo > Co" src="/api/v1/files/7/content"></p>';
+    expect(pastedImageIds(html)).toEqual([7]);
+    expect(toSendablePastedImages(html).html).toBe(`<p><img alt="Logo > Co" src="cid:${pastedContentId(7)}"></p>`);
+    expect(dropForeignPastedImages(`${html}<p>글</p>`, new Set())).toBe('<p></p><p>글</p>');
+  });
 });

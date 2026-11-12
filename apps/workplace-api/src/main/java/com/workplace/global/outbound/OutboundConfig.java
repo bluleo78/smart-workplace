@@ -2,6 +2,7 @@ package com.workplace.global.outbound;
 
 import com.workplace.global.tenant.TenantContextTaskDecorator;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -110,6 +111,23 @@ public class OutboundConfig {
     executor.setMaxPoolSize(1);
     executor.setQueueCapacity(1);
     executor.setThreadNamePrefix("mail-reanalysis-");
+    executor.initialize();
+    return executor;
+  }
+
+  /**
+   * 메일 서명 저장(WP-1517)의 이미지 받기를 나란히 돌리는 실행기. 붙여 넣은 서명의 외부 이미지(최대 10개, 건당 가져오기 타임아웃)를 순서대로 받으면 저장 요청이
+   * 이미지 수만큼 길어지므로 나눠 받는다. DB 를 쓰지 않는 순수 HTTP·디코드라 테넌트 전파가 필요 없다. 풀이 작아(4) 한 사람의 저장이 서버 스레드를 많이 차지하지
+   * 않고, 큐가 차면 요청 스레드가 직접 받는다(CallerRuns) — 버리지 않고 순차로 물러날 뿐이라 이미지가 빠지지 않는다.
+   */
+  @Bean(name = "mailSignatureFetchExecutor")
+  public Executor mailSignatureFetchExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(4);
+    executor.setMaxPoolSize(4);
+    executor.setQueueCapacity(40);
+    executor.setThreadNamePrefix("mail-signature-fetch-");
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
     executor.initialize();
     return executor;
   }

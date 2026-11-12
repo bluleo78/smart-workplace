@@ -28,7 +28,7 @@ import type {
   RecentRecipient,
   SendResult,
 } from '../types/mailMessage';
-import { fetchBlobByPath } from './blobContent';
+import { blobToDataUri, fetchBlobByPath } from './blobContent';
 import { client, getAccessToken } from './client';
 
 /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
@@ -367,12 +367,7 @@ export async function fetchMailAttachmentDataUri(
   contentType: string,
 ): Promise<string> {
   const blob = await fetchBlobByPath(`/mail/attachments/${attachmentId}/content`);
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(new Blob([blob], { type: contentType }));
-  });
+  return blobToDataUri(blob, contentType);
 }
 
 /**

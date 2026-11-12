@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { renderScreen } from '@/test/renderScreen'
 import type { MailAccountResponse } from '@/types/mailAccount'
 
+import { createMailSignature } from '../../../e2e/factories/mailSignature.factory'
 import MailSettingsPage from './MailSettingsPage'
 
 /** 기본 메일 계정 픽스처(e2e mail-accounts.spec 과 같은 값). */
@@ -65,6 +66,8 @@ async function openMail({ accounts = [], tests = [ok], preferred = false, startS
     path: '/settings/mail',
     handlers: [
       http.get('/api/v1/mail/oauth/m365/status', async () => HttpResponse.json({ preferred: await preferred })),
+      // 계정 목록 아래 「서명」 카드(WP-1517)가 부른다 — 이 파일은 계정만 보므로 빈 서명. 서명 카드 판정은 mailSignature.test.tsx.
+      http.get('/api/v1/mail/signature', () => HttpResponse.json(createMailSignature())),
       http.get('/api/v1/mail/accounts', () => HttpResponse.json(list)),
       http.post('/api/v1/mail/accounts/test', async ({ request }) => {
         await record(request)
