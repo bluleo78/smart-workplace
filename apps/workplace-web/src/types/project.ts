@@ -31,7 +31,12 @@ export interface ProjectResponse {
   repositoryBranch?: string | null;
   // 접수함(OPEN) 프로젝트에서 멤버가 아닌 사람도 이슈에 댓글을 달 수 있는지(WP-1495). 구버전 서버는 undefined.
   nonMemberComment?: boolean;
+  // 개요 「프로젝트 상태」 AI 요약 갱신 간격(WP-1479). 구버전 서버는 undefined(서버 기본 H2).
+  statusSummaryInterval?: StatusSummaryInterval;
 }
+
+/** 상태 요약 간격(WP-1479) — 화면 「1시간」「2시간」「4시간」「하루 한 번」. */
+export type StatusSummaryInterval = 'H1' | 'H2' | 'H4' | 'DAILY';
 
 export type ProjectMemberRole = 'OWNER' | 'MEMBER';
 
@@ -77,6 +82,8 @@ export interface UpdateProjectRequest {
   repositoryBranch?: string;
   // 비멤버 댓글 허용(WP-1495) — 소유자·ADMIN 만, OPEN 프로젝트만 켤 수 있다.
   nonMemberComment?: boolean;
+  // 상태 요약 간격(WP-1479) — 소유자·ADMIN 만.
+  statusSummaryInterval?: StatusSummaryInterval;
 }
 
 export interface AddMemberRequest {

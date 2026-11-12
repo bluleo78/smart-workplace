@@ -12,7 +12,13 @@ vi.mock('../agent/run-work-profile.js', async (importOriginal) => ({
   runWorkProfile: vi.fn(),
 }));
 
+vi.mock('../agent/run-project-status.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../agent/run-project-status.js')>()),
+  runProjectStatus: vi.fn(),
+}));
+
 import { runWorkProfile } from '../agent/run-work-profile.js';
+import { runProjectStatus } from '../agent/run-project-status.js';
 import { createIssueRouter } from './issue.js';
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js';
 
@@ -141,5 +147,46 @@ describe('POST /issue/work-profile', () => {
     const res = await request(app()).post('/issue/work-profile').send(valid);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'work_profile_failed' });
+  });
+});
+
+// WP-1479: 프로젝트 상태 요약 — 200 패스스루 / 필드 누락 400 / 러너 실패 502.
+describe('POST /issue/project-status', () => {
+  const valid = {
+    projectName: 'WP',
+    badge: 'ON_TRACK',
+    inputs: {
+      completedRecent: 1, completedPrevious: 0, createdRecent: 2, createdPrevious: 1,
+      dueSoon: 0, dueSoonUnassigned: 0, overdue: 0, overdueOldestDays: null,
+      stale: 0, waiting: 0, openTotal: 3, openTodo: 2, openInProgress: 1, openUnassigned: 0,
+      progressKind: 'TREND', progressName: null, progressEnd: null, progressDone: null,
+      progressTotal: 3, projectedDate: null, lateDays: null, trendDelta: -1,
+    },
+    assistantAgentId: 3,
+    model: 'm',
+    maxTurns: 8,
+    timeoutMs: 60000,
+  };
+
+  it('정상 200 + 본문 패스스루', async () => {
+    vi.mocked(runProjectStatus).mockResolvedValue({ summary: '요약' });
+    const res = await request(app()).post('/issue/project-status').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: '요약' });
+  });
+
+  it('inputs 가 빠지면 400 invalid_payload', async () => {
+    const { inputs: _inputs, ...rest } = valid;
+    const res = await request(app()).post('/issue/project-status').send(rest);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(runProjectStatus).not.toHaveBeenCalled();
+  });
+
+  it('러너 실패 502 project_status_failed', async () => {
+    vi.mocked(runProjectStatus).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/issue/project-status').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'project_status_failed' });
   });
 });

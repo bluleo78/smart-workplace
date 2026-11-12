@@ -36,7 +36,8 @@ public class ProjectRepository {
           PROJECT.UPDATED_AT,
           PROJECT.REPOSITORY_URL,
           PROJECT.REPOSITORY_BRANCH,
-          PROJECT.NON_MEMBER_COMMENT);
+          PROJECT.NON_MEMBER_COMMENT,
+          PROJECT.STATUS_SUMMARY_INTERVAL);
 
   /** 공통 매핑: SELECT 결과 → {@link ProjectRow}. OffsetDateTime → Instant 변환. */
   private ProjectRow mapToRow(Record r) {
@@ -54,7 +55,8 @@ public class ProjectRepository {
         updated != null ? updated.toInstant() : null,
         r.get(PROJECT.REPOSITORY_URL),
         r.get(PROJECT.REPOSITORY_BRANCH),
-        Boolean.TRUE.equals(r.get(PROJECT.NON_MEMBER_COMMENT)));
+        Boolean.TRUE.equals(r.get(PROJECT.NON_MEMBER_COMMENT)),
+        r.get(PROJECT.STATUS_SUMMARY_INTERVAL));
   }
 
   /**
@@ -250,8 +252,9 @@ public class ProjectRepository {
 
   /**
    * name/description 부분 갱신(#858). null 인 필드는 건드리지 않고, clearDescription 이면 설명을 NULL 로 비운다. 저장소
-   * 주소·브랜치 (WP-1011)는 빈 문자열이면 지운다(요청 DTO 가 공백을 다듬어 넘긴다). nonMemberComment(WP-1495)는 null 이면 그대로 둔다.
-   * updated_at = now() 는 항상 갱신.
+   * 주소·브랜치 (WP-1011)는 빈 문자열이면 지운다(요청 DTO 가 공백을 다듬어 넘긴다).
+   * nonMemberComment(WP-1495)·statusSummaryInterval(WP-1479)은 null 이면 그대로 둔다. updated_at = now() 는
+   * 항상 갱신.
    */
   public void update(
       Long id,
@@ -260,7 +263,8 @@ public class ProjectRepository {
       boolean clearDescription,
       String repositoryUrl,
       String repositoryBranch,
-      Boolean nonMemberComment) {
+      Boolean nonMemberComment,
+      String statusSummaryInterval) {
     var step = dsl.update(PROJECT).set(PROJECT.UPDATED_AT, OffsetDateTime.now());
     if (name != null) step = step.set(PROJECT.NAME, name);
     if (clearDescription) {
@@ -277,6 +281,10 @@ public class ProjectRepository {
     }
     if (nonMemberComment != null) {
       step = step.set(PROJECT.NON_MEMBER_COMMENT, nonMemberComment);
+    }
+    // 상태 요약 간격(WP-1479) — null 이면 그대로 둔다.
+    if (statusSummaryInterval != null) {
+      step = step.set(PROJECT.STATUS_SUMMARY_INTERVAL, statusSummaryInterval);
     }
     step.where(PROJECT.ID.eq(id)).execute();
   }

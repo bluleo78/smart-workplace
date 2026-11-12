@@ -5,6 +5,7 @@ import java.time.Instant;
 /**
  * 리포지토리 → 서비스 전달용 내부 row. 외부 응답에는 {@link ProjectResponse} 사용. repositoryUrl·repositoryBranch 는 연결된
  * 저장소(WP-1011, 없으면 null). nonMemberComment 는 OPEN 프로젝트에서 비멤버의 댓글을 허용하는 설정(WP-1495).
+ * statusSummaryInterval 은 개요 「프로젝트 상태」 AI 요약의 갱신 간격(H1|H2|H4|DAILY, WP-1479).
  */
 public record ProjectRow(
     Long id,
@@ -18,7 +19,8 @@ public record ProjectRow(
     Instant updatedAt,
     String repositoryUrl,
     String repositoryBranch,
-    boolean nonMemberComment) {
+    boolean nonMemberComment,
+    String statusSummaryInterval) {
 
   /** 개인 프로젝트인가 — 소유자만 보고, 다른 프로젝트와 관계를 맺지 않으며, 가져오기 대상이 아니다. */
   public boolean isPersonal() {

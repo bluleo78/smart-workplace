@@ -1,5 +1,6 @@
 package com.workplace.issue.overview;
 
+import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.domain.IssueKeys;
 import com.workplace.issue.dto.IssueDueWindow;
@@ -35,9 +36,13 @@ import com.workplace.issue.overview.ProjectOverviewResponse.Overdue;
 import com.workplace.issue.overview.ProjectOverviewResponse.Person;
 import com.workplace.issue.overview.ProjectOverviewResponse.Point;
 import com.workplace.issue.overview.ProjectOverviewResponse.Progress;
+import com.workplace.issue.overview.ProjectOverviewResponse.StatusSummary;
 import com.workplace.issue.overview.ProjectOverviewResponse.Target;
 import com.workplace.issue.overview.ProjectOverviewResponse.Workload;
 import com.workplace.issue.overview.ProjectOverviewResponse.WorkloadItem;
+import com.workplace.issue.overview.status.ProjectStatusRule;
+import com.workplace.issue.overview.status.ProjectStatusSummaryRepository;
+import com.workplace.issue.overview.status.StatusBadge;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttentionConditions;
 import com.workplace.issue.repository.IssueRepository;
@@ -123,6 +128,8 @@ public class ProjectOverviewService {
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueTypeRepository typeRepository;
+  private final ProjectStatusSummaryRepository statusSummaryRepository;
+  private final AssistantResolver assistantResolver;
 
   /** 「오늘」의 기준 시계 — 서울 날짜로 바꿔 쓴다(JVM 기본 zone 이 UTC). */
   private final Clock clock = Clock.systemUTC();
@@ -150,6 +157,55 @@ public class ProjectOverviewService {
     }
     // 사이클을 만들 수 있는 사람과 같은 판정 — CycleService.create 의 assertWithRole(OWNER)(ADMIN 우회 포함).
     boolean canManage = "ADMIN".equals(role) || "OWNER".equals(role);
+    // 화면 응답만 상태 요약 카드를 싣는다 — 본체는 요약 없이 계산하고, 그 진행 중 위젯·오늘로 배지를 정해 붙인다.
+    ProjectOverviewResponse base = compute(project, canManage, now);
+    return base.withStatusSummary(statusSummary(project.id(), base.progress(), base.today()));
+  }
+
+  /**
+   * 권한 검사 없이 프로젝트 개요를 계산한다 — 사람 요청이 아닌 시스템 작업(프로젝트 상태 AI 요약, WP-1479) 전용. 호출자가 프로젝트를 이미 골랐고(삭제되지 않은
+   * 행) 테넌트 트랜잭션 안이어야 한다. 화면 응답으로 내보내지 않으므로 canManage 는 false, statusSummary 는 null 로 둔다(요약을 만드는 쪽이
+   * 자기 결과를 다시 읽지 않게).
+   *
+   * @param project 계산할 프로젝트
+   * @param now 「지금」 — {@link #overview(Long, String, OffsetDateTime)} 와 같은 뜻
+   */
+  @Transactional(readOnly = true)
+  public ProjectOverviewResponse computeWithoutAccessCheck(ProjectRow project, OffsetDateTime now) {
+    return compute(project, false, now);
+  }
+
+  /**
+   * 맨 위 「프로젝트 상태」 카드 값(WP-1479) — 워크스페이스가 AI 를 쓸 수 있고 저장된 요약 글이 있을 때만. AI 를 끊은 뒤에는 옛 요약이 남아 있어도 숨긴다
+   * — 더는 갱신되지 않는 글을 「AI 요약」으로 보이지 않게.
+   *
+   * <p>배지는 저장값이 아니라 이번 응답의 진행 중 위젯과 오늘로 {@link ProjectStatusRule} 을 불러 다시 정한다. 저장 배지는 AI 글과 함께만
+   * 바뀌므로, AI 호출이 실패하거나 다음 점검 전이면 진행 중 위젯(늦은 일수)과 어긋난다 — 화면은 늘 지금 숫자와 같은 배지를 보인다(저장 배지는 해시·이력용으로
+   * 남긴다).
+   *
+   * @param progress 이번 응답의 진행 중 위젯
+   * @param today 이번 응답의 오늘(서울)
+   */
+  private StatusSummary statusSummary(long projectId, Progress progress, LocalDate today) {
+    // 요약 행을 먼저 본다 — 대부분 프로젝트는 글이 없으니 그때는 비서 해석(설정 조회)을 건너뛴다.
+    var row =
+        statusSummaryRepository
+            .find(projectId)
+            .filter(r -> r.summary() != null && !r.summary().isBlank() && r.badge() != null);
+    if (row.isEmpty()) return null;
+    if (assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) return null;
+    var r = row.get();
+    StatusBadge live = ProjectStatusRule.badge(progress, today);
+    return new StatusSummary(live.name(), r.summary(), r.checkedAt(), r.nextRunAt());
+  }
+
+  /**
+   * 개요 계산 본체 — 권한 판단을 마친 뒤 부른다(사람 요청·시스템 작업 공통). 상태 요약 카드는 싣지 않는다(statusSummary null) — 화면 응답만
+   * {@link #overview(Long, String, OffsetDateTime)} 가 이 결과의 진행 중 위젯으로 붙인다(요약을 만드는 시스템 작업이 자기 결과를 다시
+   * 읽지 않게).
+   */
+  private ProjectOverviewResponse compute(
+      ProjectRow project, boolean canManage, OffsetDateTime now) {
     long pid = project.id();
     LocalDate today = IssueMetricsCalculator.seoulDate(now);
 
@@ -176,6 +232,7 @@ public class ProjectOverviewService {
     return new ProjectOverviewResponse(
         today,
         canManage,
+        null,
         cards,
         progress(project, today, openIssues.total()),
         openIssues,

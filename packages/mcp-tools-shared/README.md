@@ -68,6 +68,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` `get_home_overview` |
 | `member` | `search_members` `get_member` `get_member_contact` |
+| `help` | `manual`(WP-1510 — 제품 매뉴얼 검색·절 읽기, 읽기 전용) |
 
 workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸러낸다(`apps/workplace-mcp/CLAUDE.md` "연결 범위"). 앱 선택은 노출 기준(`kind`)과 별개다 — destructive 는 어느 연결에서도 노출하지 않는다. AI Chat(ai-agent)은 `app` 을 쓰지 않는다.
 
@@ -256,6 +257,20 @@ AI 가 스스로 일을 집어 가게 하는 쓰기 도구 `claim_issue({issueKe
 - **`add_issue_relation({issueKey, type, side?, otherIssueKey | externalLink:{url,key?,title}})`**: 둘 중 정확히 하나. `type` 은 코드(대소문자 무시) 또는 이름. 이슈 사이 관계는 차단·외부 전용·숨긴 유형이면 쓰기 전에 거부하고(차단은 의존성 도구 안내), 외부 링크는 차단·외부 전용 유형도 쓸 수 있다(서버 규칙). 결과는 `{issueKey, relations, externalLinks}` — 서버 응답이 건 쪽 목록 하나뿐이라 상세를 다시 읽어 둘 다 준다. write·`destructive:false`·`idempotent:true`(같은 관계·같은 URL 은 서버가 건너뛴다).
 - **`remove_issue_relation({issueKey, relationId | externalLinkId})`**: 정확히 하나, 결과 `ok`. write·`destructive:true`·`idempotent:true`.
 - **크기**: 정의가 16,200 대에서 16,670 토큰으로 늘고 issue 앱이 18개가 돼 상한을 올렸다(위 "도구 수와 정의 크기" 참조).
+
+### 제품 매뉴얼 (WP-1510)
+
+AI 가 「이 기능 어떻게 써?」에 매뉴얼(`docs/manual/`, 웹 도움말 묶음)을 근거로 답하게 한다. 정의 크기 상한 때문에 검색·절 읽기를 도구 둘이 아니라 **하나(`manual`, `action` 인자)** 로 합쳤다. 새 앱 `help`(도움말)에 둔다.
+
+| 동작 | 입력 | 출력 | 서버 |
+|---|---|---|---|
+| `search` | `query` | `{ results: [{ id, path, title, summary }] }` — `id` 는 API `sectionId`, `summary` 는 `snippet`, `path` 는 장 최상위→그 절의 화면 칸 이름 | `GET /help/search?q=`(`HelpSearchController`, 서버 기본 8건) |
+| `get` | `id` | API 응답 그대로 `{ id, chapter, chapterTitle, label, title, path, markdown, figures:[{id, alt, marks:[{n,label}]}], links }` — markdown 은 묶음 원문(자리표시·조건 블록·`figure:<id>` 그대로) | `GET /help/sections/{id}`(`HelpSectionController`) — id 는 `encodeURIComponent`(대체 id `<chapter>#<slug>` 의 `#` → `%23`). 절 id 에 `/` 는 쓰지 않는다 — 인코딩해도 컨테이너가 `%2F` 를 400 으로 막는다 |
+
+- 동작별 필수 인자(search→`query`, get→`id`)는 `superRefine` 으로 거절한다(최상위는 평평한 `z.object` — 정의 크기·SDK shape 등록).
+- 관리자 전용 장은 서버가 호출자 역할로 가린다(검색에서 빠지고 절 조회는 없는 id 와 같은 404). 도구는 따로 거르지 않는다.
+- AI Chat(ai-agent)에는 아직 싣지 않는다 — `AI_AGENT_EXCLUDED_SHARED_TOOLS` 에 두고, 라우터 도구·지시·답 렌더링은 WP-1511 이 붙인다.
+- **크기**: main 17,379 토큰(93개) → `manual`(126) 을 더하고 다른 설명을 줄여 **17,388 토큰(94개, 상한 17,400 그대로)**. 줄인 것(뜻·필수 인자·제약은 유지): 입력 스키마 설명(`Staged upload_file ids to attach`)과 겹치던 `create_issue`·`update_issue`·`report_agent_work` 의 "fileIds attach staged files", `create_issue` 의 "and returns it", `read_file` 앞머리의 대상 나열(source 목록과 겹침 — 한국어 제품명은 source 쪽으로 옮김), `update_event` 반복 일정 문장 압축, 출력에 그대로 보이는 필드 나열(`get_project` 괄호 세부·`get_member`·`get_member_contact`·`search_drive_content`), `react` 의 읽기 쪽 표시 안내(`list_channel_messages` 설명과 겹침), `link_issues` 의 반환 설명, `search_members`·`sync_mail` 문장 압축. 서버 `instructions` 는 help 한 줄을 더하며 다른 앱 안내의 "A and B" 를 "A/B" 로 줄여 2,048 → 2,041자.
 
 ### 응답 크기 — 정리 뷰
 

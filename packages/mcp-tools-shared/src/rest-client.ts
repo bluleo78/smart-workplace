@@ -335,6 +335,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return (await http.post(`${issue(issueKey)}/claim`, { queueLabel })).data;
     },
 
+    // ── 도움말(제품 매뉴얼, WP-1510) ──
+    async searchManual(query) {
+      return (await http.get('/help/search', { params: { q: query } })).data ?? { results: [] };
+    },
+    // 대체 id(`<chapter>#<slug>`)의 `#` 이 그대로 가면 URL 조각으로 잘리고 `/` 는 경로를 나누므로 경로 조각 하나로 인코딩한다.
+    async getManualSection(id) {
+      return (await http.get(`/help/sections/${encodeURIComponent(id)}`)).data;
+    },
+
     // ── 노트 ──
     async listWikiSpaces() {
       return (await http.get('/wiki/spaces')).data ?? [];

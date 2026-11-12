@@ -136,13 +136,13 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
 
     // 설명만 바꾸면 이름은 그대로(규칙 꼴이라 「X」로 오가지 않는다).
     projectService.update(
-        ownerId, first.key(), new UpdateProjectRequest(null, "설명", null, null, null, null));
+        ownerId, first.key(), new UpdateProjectRequest(null, "설명", null, null, null, null, null));
     assertThat(spaceName(first)).isEqualTo(name + " 프로젝트");
 
     projectService.update(
         ownerId,
         first.key(),
-        new UpdateProjectRequest("새이름-" + suffix, null, null, null, null, null));
+        new UpdateProjectRequest("새이름-" + suffix, null, null, null, null, null, null));
     assertThat(spaceName(first)).isEqualTo("새이름-" + suffix);
   }
 
@@ -170,7 +170,8 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
     projectService.update(
         ownerId,
         p.key(),
-        new UpdateProjectRequest("ALPHA-" + suffix.toUpperCase(), null, null, null, null, null));
+        new UpdateProjectRequest(
+            "ALPHA-" + suffix.toUpperCase(), null, null, null, null, null, null));
     assertThat(spaceName(p)).isEqualTo("ALPHA-" + suffix.toUpperCase());
   }
 
@@ -365,11 +366,13 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
     link(p.key(), target, ownerId).andExpect(status().isOk());
 
     projectService.update(
-        ownerId, p.key(), new UpdateProjectRequest(null, "설명만", null, null, null, null));
+        ownerId, p.key(), new UpdateProjectRequest(null, "설명만", null, null, null, null, null));
     assertThat(spaceName(p)).isEqualTo("고른이름-" + suffix);
 
     projectService.update(
-        ownerId, p.key(), new UpdateProjectRequest("바뀐이름-" + suffix, null, null, null, null, null));
+        ownerId,
+        p.key(),
+        new UpdateProjectRequest("바뀐이름-" + suffix, null, null, null, null, null, null));
     assertThat(spaceName(p)).isEqualTo("바뀐이름-" + suffix);
   }
 

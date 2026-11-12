@@ -6,6 +6,7 @@ import { buildCalendarTools } from './calendar-tools.js';
 import { buildContactTools } from './contact-tools.js';
 import { buildDriveTools } from './drive-tools.js';
 import { buildFileTools, type FileToolOptions } from './file-tools.js';
+import { buildHelpTools } from './help-tools.js';
 import { buildHomeTools } from './home-tools.js';
 import type { IssueToolClient } from './tool-client.js';
 import { buildSharedIssueTools } from './issue-tools.js';
@@ -22,6 +23,7 @@ import type {
   ContactToolClient,
   DriveToolClient,
   FileToolClient,
+  HelpToolClient,
   HomeToolClient,
   MailToolClient,
   MemberToolClient,
@@ -45,7 +47,8 @@ export type SharedToolClient = IssueToolClient &
   NotificationToolClient &
   HomeToolClient &
   AttachmentToolClient &
-  FileToolClient;
+  FileToolClient &
+  HelpToolClient;
 
 /**
  * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: imageInput 기본 true)·이슈 챗 출처 안내(WP-392: issueChatSource
@@ -54,7 +57,7 @@ export type SharedToolClient = IssueToolClient &
  */
 export type SharedToolOptions = MessagingToolOptions & FileToolOptions & { imageInput?: boolean; issueChatSource?: boolean };
 
-/** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·연락처 그룹·메시징·드라이브·알림·홈 개요·첨부 읽기·첨부용 파일 올리기). 이름 목록은 스냅샷 테스트가 고정한다. */
+/** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·연락처 그룹·메시징·드라이브·알림·홈 개요·첨부 읽기·첨부용 파일 올리기·제품 매뉴얼). 이름 목록은 스냅샷 테스트가 고정한다. */
 export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptions = {}): SharedTool[] {
   return [
     ...buildSharedIssueTools(client),
@@ -71,5 +74,6 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildHomeTools(client),
     ...buildAttachmentTools(client, opts.imageInput, opts.issueChatSource),
     ...buildFileTools(client, opts),
+    ...buildHelpTools(client),
   ];
 }

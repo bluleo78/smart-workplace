@@ -83,6 +83,7 @@ export function createProjectOverview(over: Partial<ProjectOverviewResponse> = {
   return {
     today: '2026-11-11',
     canManage: true,
+    statusSummary: null,
     cards: {
       completed: { current: 96, previous: 81 },
       created: { current: 118, previous: 92 },

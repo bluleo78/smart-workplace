@@ -118,10 +118,26 @@ export interface ProjectActivityGroup {
   issue: { issueKey: string; number: number; title: string } | null
 }
 
+/** 프로젝트 상태 배지(WP-1479) — 시스템이 규칙으로 정한다. 화면 「순조로움」「주의」「위험」. */
+export type ProjectStatusBadge = 'ON_TRACK' | 'WARN' | 'RISK'
+
+/**
+ * 맨 위 「프로젝트 상태」 AI 요약(WP-1479) — 배지는 시스템, 글은 AI.
+ * checkedAt 은 마지막 점검(입력이 그대로라 AI 를 부르지 않은 점검 포함), nextRunAt 은 다음 점검 예정 시각.
+ */
+export interface ProjectStatusSummary {
+  badge: ProjectStatusBadge
+  summary: string
+  checkedAt: string
+  nextRunAt: string
+}
+
 export interface ProjectOverviewResponse {
   today: string
   /** 사이클을 만들 수 있는 사람(프로젝트 OWNER·ADMIN, 워크스페이스 관리자) — 빈 진행 중 안내를 이 사람에게만. */
   canManage: boolean
+  /** AI 를 못 쓰는 워크스페이스이거나 아직 요약이 없으면 null — 카드를 숨긴다. */
+  statusSummary: ProjectStatusSummary | null
   cards: ProjectOverviewCards
   progress: ProjectOverviewProgress
   openIssues: ProjectOverviewOpenIssues

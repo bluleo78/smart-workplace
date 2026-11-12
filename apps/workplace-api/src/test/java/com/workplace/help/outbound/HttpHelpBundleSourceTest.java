@@ -113,6 +113,27 @@ class HttpHelpBundleSourceTest {
     assertThat(agents.sections().get(0).markdown()).isNotBlank();
   }
 
+  /** 절의 parent·그림(표식)·링크를 읽는다(WP-1510) — 그림 src·표식 key·level 같은 쓰지 않는 필드는 무시. */
+  @Test
+  void parsesParentFiguresAndLinks() throws IOException {
+    json("/help/manual-index.json", "[{\"chapter\":\"home\",\"title\":\"홈\",\"audience\":[]}]");
+    json(
+        "/help/manual/home.json",
+        "{\"sections\":[{\"id\":\"home#고르기\",\"label\":\"고르기\",\"title\":\"고르기\","
+            + "\"parent\":\"home.widget\",\"level\":3,\"markdown\":\"![화면](figure:home-3)\","
+            + "\"figures\":[{\"id\":\"home-3\",\"src\":\"figures/home-3.png\",\"alt\":\"화면\","
+            + "\"marks\":[{\"n\":1,\"label\":\"추가\",\"key\":\"add\"}]}],"
+            + "\"links\":[\"home.widget\"]}]}");
+
+    HelpBundle.Section s = source().fetch().chapters().get(0).sections().get(0);
+
+    assertThat(s.parent()).isEqualTo("home.widget");
+    assertThat(s.links()).containsExactly("home.widget");
+    assertThat(s.figures())
+        .containsExactly(
+            new HelpBundle.Figure("home-3", "화면", java.util.List.of(new HelpBundle.Mark(1, "추가"))));
+  }
+
   private static String resource(String path) throws IOException {
     try (var in = HttpHelpBundleSourceTest.class.getClassLoader().getResourceAsStream(path)) {
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);

@@ -43,6 +43,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_wiki_page: { label: '노트 수정', icon: '✏️' },
   move_wiki_page: { label: '노트 이동', icon: '📦' },
   restore_wiki_revision: { label: '노트 이전 버전 복원', icon: '♻️' }, // WP-357
+  // 도움말
+  manual: { label: '매뉴얼 찾기', icon: '📖' }, // WP-1510: 검색·절 읽기 통합(action)
   // 이슈 컨텍스트 대화
   list_chat_messages: { label: '대화 조회', icon: '💬' },
   read_chat_thread_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-346: 이슈 챗 스레드 첨부(옛 read_attachment_text)

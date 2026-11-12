@@ -47,7 +47,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
     // given
     ProjectRow project =
         new ProjectRow(
-            10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false);
+            10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("TEST", 1L);
     doReturn(
             List.of(
@@ -76,7 +76,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
     // given
     ProjectRow project =
         new ProjectRow(
-            10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false);
+            10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("TEST", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(10L);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
@@ -91,7 +91,19 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
     // given — 개인 프로젝트: ownerId=1, type="PERSONAL"
     ProjectRow project =
         new ProjectRow(
-            11L, "PERSONAL", "개인", null, 1L, "PERSONAL", false, null, null, null, null, false);
+            11L,
+            "PERSONAL",
+            "개인",
+            null,
+            1L,
+            "PERSONAL",
+            false,
+            null,
+            null,
+            null,
+            null,
+            false,
+            "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("PERSONAL", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(11L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
@@ -129,7 +141,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
   void classify_우선순위_5단계는_그대로() {
     ProjectRow project =
         new ProjectRow(
-            12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false);
+            12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("PRI", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(12L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
@@ -152,7 +164,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
   void classify_본문은_2만자까지만_보내고_표식을_붙인다() {
     ProjectRow project =
         new ProjectRow(
-            13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false);
+            13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("LONG", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(13L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);

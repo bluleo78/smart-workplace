@@ -14,6 +14,8 @@ import java.util.List;
  *
  * @param today 기준 날짜(서울 오늘)
  * @param canManage 사이클·버전을 만들 수 있는가(프로젝트 OWNER 또는 워크스페이스 관리자) — 진행 중 위젯이 비었을 때 안내를 보일지
+ * @param statusSummary 맨 위 「프로젝트 상태」 AI 요약(WP-1479). AI 를 못 쓰는 워크스페이스이거나 아직 요약 글이 없으면 null — 웹이 카드를
+ *     숨긴다
  * @param cards 숫자 카드 넷
  * @param progress 진행 중 위젯(사이클 → 버전 → 전체 추이) + 에픽
  * @param openIssues 열린 이슈 위젯
@@ -24,12 +26,30 @@ import java.util.List;
 public record ProjectOverviewResponse(
     LocalDate today,
     boolean canManage,
+    StatusSummary statusSummary,
     Cards cards,
     Progress progress,
     OpenIssues openIssues,
     Attention attention,
     Workload workload,
     List<ActivityGroup> activity) {
+
+  /** 상태 요약 카드만 바꾼 복사본 — 본체 계산 뒤 화면 응답에만 요약을 붙일 때 쓴다(WP-1479). */
+  public ProjectOverviewResponse withStatusSummary(StatusSummary summary) {
+    return new ProjectOverviewResponse(
+        today, canManage, summary, cards, progress, openIssues, attention, workload, activity);
+  }
+
+  /**
+   * 「프로젝트 상태」 AI 요약(WP-1479) — 배지는 시스템이 규칙으로 정하고, 글은 AI 가 쓴다.
+   *
+   * @param badge ON_TRACK / WARN / RISK — 저장값이 아니라 이번 응답의 진행 중 위젯으로 조회 때마다 다시 정한 값(진행 중 위젯과 늘 맞는다)
+   * @param summary AI 가 쓴 요약 글
+   * @param checkedAt 마지막 점검 시각 — 입력이 그대로라 AI 를 부르지 않은 점검도 갱신된다(화면 「… 갱신」)
+   * @param nextRunAt 다음 점검 예정 시각(화면 「다음 …」)
+   */
+  public record StatusSummary(
+      String badge, String summary, OffsetDateTime checkedAt, OffsetDateTime nextRunAt) {}
 
   /** 숫자 카드 넷. */
   public record Cards(Comparison completed, Comparison created, DueSoon dueSoon, Overdue overdue) {}

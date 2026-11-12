@@ -189,6 +189,21 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/wiki/search', { params: { q: '배포', spaceId: 4 } });
   });
 
+  it('WP-1510: searchManual(query) 는 /help/search 에 params {q} 로 보낸다', async () => {
+    const { http, client } = mockHttp();
+    await client.searchManual('이슈 만들기');
+    expect(http.get).toHaveBeenCalledWith('/help/search', { params: { q: '이슈 만들기' } });
+  });
+
+  it('WP-1510: getManualSection(id) 는 id 를 인코딩해 /help/sections/{id} 로 보낸다(대체 id 의 #·/ 가 경로를 깨지 않게)', async () => {
+    const { http, client } = mockHttp();
+    await client.getManualSection('issue-create');
+    expect(http.get).toHaveBeenCalledWith('/help/sections/issue-create');
+    await client.getManualSection('04-issues#이슈 만들기/1.2');
+    expect(http.get).toHaveBeenCalledWith(`/help/sections/${encodeURIComponent('04-issues#이슈 만들기/1.2')}`);
+    expect(http.get).toHaveBeenLastCalledWith('/help/sections/04-issues%23%EC%9D%B4%EC%8A%88%20%EB%A7%8C%EB%93%A4%EA%B8%B0%2F1.2');
+  });
+
   it('WP-357: 노트 요약은 GET(AI 생성 POST 가 아니다), 판 기록 목록·복원 경로', async () => {
     const { http, client } = mockHttp();
     await client.getWikiPageSummary(5);

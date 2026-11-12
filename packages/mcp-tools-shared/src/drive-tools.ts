@@ -234,8 +234,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Searches drive file content (extracted text, semantic too): {hits, semantic}; hits: driveFileId, name, spaceName, ' +
-        'snippet. spaceId narrows to one space. For file names use search_drive.',
+        'Searches drive file content (extracted text, semantic too): {hits (driveFileId, snippet…), semantic}. ' +
+        'spaceId narrows to one space. For file names use search_drive.',
       inputSchema: searchDriveContentInput,
       async handler(args) {
         const { query, spaceId, limit } = searchDriveContentInput.parse(args);

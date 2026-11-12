@@ -216,6 +216,20 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         return (Boolean) get(13);
     }
 
+    /**
+     * Setter for <code>public.project.status_summary_interval</code>.
+     */
+    public void setStatusSummaryInterval(String value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.project.status_summary_interval</code>.
+     */
+    public String getStatusSummaryInterval() {
+        return (String) get(14);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -239,7 +253,7 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
     /**
      * Create a detached, initialised ProjectRecord
      */
-    public ProjectRecord(Long id, String key, String name, String description, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, String type, Boolean isDefault, Long tenantId, String repositoryUrl, String repositoryBranch, Boolean nonMemberComment) {
+    public ProjectRecord(Long id, String key, String name, String description, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, String type, Boolean isDefault, Long tenantId, String repositoryUrl, String repositoryBranch, Boolean nonMemberComment, String statusSummaryInterval) {
         super(Project.PROJECT);
 
         setId(id);
@@ -256,6 +270,7 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         setRepositoryUrl(repositoryUrl);
         setRepositoryBranch(repositoryBranch);
         setNonMemberComment(nonMemberComment);
+        setStatusSummaryInterval(statusSummaryInterval);
         resetChangedOnNotNull();
     }
 }

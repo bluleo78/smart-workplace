@@ -59,6 +59,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   list_wiki_backlinks: ['read', R, R, R],
   list_wiki_pages: ['read', R, R, R],
   list_wiki_spaces: ['read', R, R, R],
+  manual: ['read', R, R, R], // WP-1510: 제품 매뉴얼 검색·절 읽기
   mark_all_notifications_read: ['write', true, true, false],
   mark_mail_read: ['write', true, true, true],
   mark_notification_read: ['write', true, true, false],

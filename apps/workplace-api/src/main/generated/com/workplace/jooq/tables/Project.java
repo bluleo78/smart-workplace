@@ -150,6 +150,11 @@ public class Project extends TableImpl<ProjectRecord> {
      */
     public final TableField<ProjectRecord, Boolean> NON_MEMBER_COMMENT = createField(DSL.name("non_member_comment"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.project.status_summary_interval</code>.
+     */
+    public final TableField<ProjectRecord, String> STATUS_SUMMARY_INTERVAL = createField(DSL.name("status_summary_interval"), SQLDataType.CLOB.nullable(false).defaultValue(DSL.field(DSL.raw("'H2'::text"), SQLDataType.CLOB)), this, "");
+
     private Project(Name alias, Table<ProjectRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

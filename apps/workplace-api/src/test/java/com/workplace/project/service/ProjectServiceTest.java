@@ -568,7 +568,7 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse updated =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null));
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null, null));
 
     assertThat(updated.name()).isEqualTo("새이름");
     assertThat(updated.description()).isEqualTo("원래설명");
@@ -582,13 +582,13 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse described =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest(null, "새설명", null, null, null, null));
+            ownerId, key, new UpdateProjectRequest(null, "새설명", null, null, null, null, null));
     assertThat(described.name()).isEqualTo("이름");
     assertThat(described.description()).isEqualTo("새설명");
 
     ProjectResponse cleared =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest(null, null, true, null, null, null));
+            ownerId, key, new UpdateProjectRequest(null, null, true, null, null, null, null));
     assertThat(cleared.name()).isEqualTo("이름");
     assertThat(cleared.description()).isNull();
   }
@@ -604,7 +604,7 @@ class ProjectServiceTest extends IntegrationTestBase {
             ownerId,
             key,
             new UpdateProjectRequest(
-                null, null, null, " https://github.com/acme/app.git ", "develop", null));
+                null, null, null, " https://github.com/acme/app.git ", "develop", null, null));
     assertThat(linked.repositoryUrl()).isEqualTo("https://github.com/acme/app.git");
     assertThat(linked.repositoryBranch()).isEqualTo("develop");
     assertThat(linked.name()).isEqualTo("이름");
@@ -612,14 +612,14 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse renamed =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null));
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null, null));
     assertThat(renamed.repositoryUrl()).isEqualTo("https://github.com/acme/app.git");
     assertThat(projectService.get(ownerId, key).repositoryBranch()).isEqualTo("develop");
 
     // 주소만 지워도 브랜치가 함께 지워진다 — 다음에 다른 저장소를 연결할 때 옛 브랜치가 따라붙지 않게.
     ProjectResponse cleared =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest(null, null, null, "", null, null));
+            ownerId, key, new UpdateProjectRequest(null, null, null, "", null, null, null));
     assertThat(cleared.repositoryUrl()).isNull();
     assertThat(cleared.repositoryBranch()).isNull();
   }
@@ -634,7 +634,7 @@ class ProjectServiceTest extends IntegrationTestBase {
 
     ProjectResponse updated =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true));
+            ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true, null));
 
     assertThat(updated.nonMemberComment()).isTrue();
   }
@@ -649,7 +649,9 @@ class ProjectServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 projectService.update(
-                    otherUserId, key, new UpdateProjectRequest(null, null, null, null, null, true)))
+                    otherUserId,
+                    key,
+                    new UpdateProjectRequest(null, null, null, null, null, true, null)))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
@@ -662,7 +664,9 @@ class ProjectServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 projectService.update(
-                    ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true)))
+                    ownerId,
+                    key,
+                    new UpdateProjectRequest(null, null, null, null, null, true, null)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("접수함 프로젝트에서만 켤 수 있습니다.");
   }
@@ -673,12 +677,44 @@ class ProjectServiceTest extends IntegrationTestBase {
     String key = uniqueKey("NK");
     projectService.create(ownerId, new CreateProjectRequest(key, "접수함", null, "OPEN"));
     projectService.update(
-        ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true));
+        ownerId, key, new UpdateProjectRequest(null, null, null, null, null, true, null));
 
     ProjectResponse renamed =
         projectService.update(
-            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null));
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null, null, null));
 
     assertThat(renamed.nonMemberComment()).isTrue();
+  }
+
+  /** WP-1479 — 기본 간격은 H2, 소유자가 H1 로 바꾸면 응답에 반영된다. */
+  @Test
+  void owner_can_change_status_summary_interval() {
+    String key = uniqueKey("SI");
+    ProjectResponse created =
+        projectService.create(ownerId, new CreateProjectRequest(key, "팀", null, "TEAM"));
+    assertThat(created.statusSummaryInterval()).isEqualTo("H2");
+
+    ProjectResponse updated =
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest(null, null, null, null, null, null, "H1"));
+
+    assertThat(updated.statusSummaryInterval()).isEqualTo("H1");
+    assertThat(projectService.get(ownerId, key).statusSummaryInterval()).isEqualTo("H1");
+  }
+
+  /** WP-1479 — 일반 멤버는 간격을 바꿀 수 없다(403). */
+  @Test
+  void member_cannot_change_status_summary_interval() {
+    String key = uniqueKey("SJ");
+    projectService.create(ownerId, new CreateProjectRequest(key, "팀", null, "TEAM"));
+    projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER"));
+
+    assertThatThrownBy(
+            () ->
+                projectService.update(
+                    otherUserId,
+                    key,
+                    new UpdateProjectRequest(null, null, null, null, null, null, "H1")))
+        .isInstanceOf(ProjectAccessDeniedException.class);
   }
 }
