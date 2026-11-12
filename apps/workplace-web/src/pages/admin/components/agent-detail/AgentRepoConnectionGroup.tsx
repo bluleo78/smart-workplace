@@ -90,7 +90,7 @@ export function AgentRepoConnectionGroup({ agentUserId }: { agentUserId: number 
       )}
 
       <AlertDialog open={revokeTarget != null} onOpenChange={(o) => !o && setRevokeTarget(null)}>
-        <AlertDialogContent data-testid="agent-repo-revoke-dialog">
+        <AlertDialogContent data-testid="agent-repo-revoke-dialog" data-help="agent.run.repo">
           <AlertDialogHeader>
             <AlertDialogTitle>{revokeTarget?.host} 연결을 끊을까요?</AlertDialogTitle>
             <AlertDialogDescription>연결을 끊으면 이 AI 는 {revokeTarget?.host} 저장소의 코드를 받거나 PR 을 올릴 수 없어요. 실행 중이면 다음에 다시 시작할 때부터 적용돼요.</AlertDialogDescription>
@@ -202,7 +202,8 @@ function RepoDialog({ agentUserId, row, onClose }: { agentUserId: number; row: R
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent data-testid="agent-repo-dialog">
+      {/* 연결하기·다시 연결(토큰 다시 넣기)·호스트 추가 모두 「저장소 토큰을 만든다」 도움말 절로 잇는다(WP-1507) — 토큰 만드는 법이 필요한 때다. */}
+      <DialogContent data-testid="agent-repo-dialog" data-help="agent.run.repo.token">
         <DialogHeader>
           <DialogTitle>{row?.credential ? `${row.host} 다시 연결` : row ? `${row.host} 연결하기` : '저장소 호스트 추가'}</DialogTitle>
           <DialogDescription>

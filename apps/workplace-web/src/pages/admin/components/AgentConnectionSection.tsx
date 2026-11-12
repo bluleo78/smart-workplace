@@ -162,7 +162,7 @@ export function AgentAiAccountGroup({
       <ProviderCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} agentUserId={agentUserId} isReissue={meta != null} />
 
       <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
-        <AlertDialogContent data-testid="oauth-revoke-dialog">
+        <AlertDialogContent data-testid="oauth-revoke-dialog" data-help="agent.run.account">
           <AlertDialogHeader>
             <AlertDialogTitle>AI 계정 연결을 끊을까요?</AlertDialogTitle>
             <AlertDialogDescription>연결을 끊으면 이 AI 는 AI 모델을 부를 수 없어 일하지 못해요.</AlertDialogDescription>
@@ -425,7 +425,7 @@ export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
 
       {/* 모델 프로브 실패(또는 사용 가능 모델 0개) 상태에서 강제 지정 확인 (#643). */}
       <AlertDialog open={forceSetOpen} onOpenChange={setForceSetOpen}>
-        <AlertDialogContent data-testid="workspace-assistant-force-set-dialog">
+        <AlertDialogContent data-testid="workspace-assistant-force-set-dialog" data-help="agent.run.assistant">
           <AlertDialogHeader>
             <AlertDialogTitle>연결 검증에 실패했습니다</AlertDialogTitle>
             <AlertDialogDescription>
@@ -453,7 +453,7 @@ export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
 
       {/* 공통 비서 해제 영향 경고 확인 (#643). */}
       <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
-        <AlertDialogContent data-testid="workspace-assistant-clear-confirm-dialog">
+        <AlertDialogContent data-testid="workspace-assistant-clear-confirm-dialog" data-help="agent.run.assistant">
           <AlertDialogHeader>
             <AlertDialogTitle>공통 비서 지정 해제</AlertDialogTitle>
             <AlertDialogDescription>

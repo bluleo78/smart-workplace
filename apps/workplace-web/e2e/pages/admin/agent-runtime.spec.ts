@@ -1,5 +1,6 @@
 // /settings/agents/:id — 에이전트 실행 방식(기본·외부) E2E (WP-371, 상세 페이지 WP-1281).
-// 남는 것: 외부로 바꾼 뒤 설정 가이드의 「아이디 복사」가 실제 클립보드에 들어간다(@platform, UI 리뷰용 데스크톱 스크린샷 포함),
+// 남는 것: 외부로 바꾼 뒤 「연결 방법」이 연 도움말 외부 도구 연결 절의 명령 복사가 그 AI 아이디로 실제 클립보드에 들어간다
+// (@platform, WP-1507 — UI 리뷰용 데스크톱 스크린샷 포함),
 // 375px 모바일에서 상세 페이지가 가로로 넘치지 않는다(@layout).
 // 실행 배지·키 사용 시각, 외부 연결 카드 명령 문구, 409 사유, 공통 비서 잠금은 src/pages/admin/agentManagement.test.tsx 가 지킨다(WP-966).
 // 스크린샷은 test-results/exploratory/wp-371-agent-runtime/<timestamp>/screenshots/ 에 저장한다.
@@ -11,6 +12,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../../fixtures/auth.fixture';
 import type { AgentResponse } from '../../../src/types/agent';
 import { mockAgentDetail, mockAgentRuntimeNone } from '../../fixtures/agent-runtime-mock';
+import { mockHelpBundle } from '../../fixtures/help-bundle-mock';
 
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const SHOT_DIR = path.resolve(
@@ -55,6 +57,8 @@ function makeAgents(): AgentResponse[] {
 // 모킹: 목록(상태 보존) + runtime PUT + 키 목록 + 부수 API.
 async function setup(page: Page) {
   await mockAgentRuntimeNone(page);
+  // 도움말 묶음 — 화면 참고 요약·「연결 방법」 패널이 읽는다(실제 매뉴얼 내용에 기대지 않게 작은 묶음).
+  await mockHelpBundle(page);
   let agents = makeAgents();
   await mockAgentDetail(page, () => agents);
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) =>
@@ -99,7 +103,7 @@ async function setup(page: Page) {
 const shot = (page: Page, name: string) => page.screenshot({ path: path.join(SHOT_DIR, `${name}.png`) });
 
 test.describe('/settings/agents/:id 실행 방식', () => {
-  test('외부로 바꾸면 설정 가이드의 아이디 복사가 클립보드에 들어간다', { tag: '@platform' }, async ({ adminPage: page }) => {
+  test('외부로 바꾸면 도움말 외부 도구 연결 절의 명령 복사가 그 AI 아이디로 클립보드에 들어간다', { tag: '@platform' }, async ({ adminPage: page }) => {
     await setup(page);
     await page.goto('/settings/agents');
     await page.getByTestId('agent-row-100').click();
@@ -113,13 +117,19 @@ test.describe('/settings/agents/:id 실행 방식', () => {
     await page.getByTestId('agent-run-mode-confirm-apply').click();
     await expect(page.getByTestId('external-connect-card')).toBeVisible();
 
-    // 연결 방법은 설정 가이드에 있다 — 키를 한 번도 안 쓴 AI 는 「가이드 열기」 한 줄이 나온다.
-    await page.getByTestId('external-connect-guide-open').click();
+    // 연결 순서는 매뉴얼 도움말 절에 있다 — 키를 한 번도 안 쓴 AI 는 「연결 방법」 단추가 그 절을 연다.
+    await page.getByTestId('external-connect-help-open').click();
+    const panel = page.getByTestId('help-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText('외부 연결 본문.')).toBeVisible();
+    // 명령의 아이디는 이 AI 의 아이디로 채워지고, 그 블록의 복사 단추가 채워진 명령을 클립보드에 넣는다.
+    await expect(panel.getByText('/genia-works:as ai-dev')).toBeVisible();
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await page.getByTestId('agent-username-copy').click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('ai-dev');
+    // 절에는 명령 블록이 여럿이다 — 이 명령이 든 코드 칸(pre)의 옆 복사 단추를 누른다.
+    await panel.locator('pre', { hasText: '/genia-works:as ai-dev' }).locator('..').getByTestId('help-code-copy').click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('/genia-works:as ai-dev');
 
-    // UI 리뷰용 스크린샷 — 아이디 복사 토스트가 사라진 뒤 찍는다.
+    // UI 리뷰용 스크린샷(패널이 열린 채) — 복사 토스트가 사라진 뒤 찍는다.
     await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15_000 });
     await shot(page, 'detail-external-desktop');
     await page.getByTestId('external-connect-card').screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-desktop.png') });

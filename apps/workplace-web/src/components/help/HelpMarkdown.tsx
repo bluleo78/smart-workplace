@@ -1,7 +1,7 @@
 // 도움말 절 본문 그리기(WP-1505) — 매뉴얼 절 markdown 을 패널 폭에 맞는 글 스타일로 그리고, 도움말만의 표기를 화면 동작으로 바꾼다.
 // - `![alt](figure:<id>)` → 묶음의 그림(`/help/figures/…`), 누르면 큰 그림 대화상자. 없는 id·로드 실패는 alt 글.
 // - `[글](help:<절 id>)` → 패널 안 절 이동(onNavigate). 바깥 주소는 새 탭.
-// - 코드 블록 → 오른쪽 위 복사 단추(자리표시를 채운 뒤의 명령을 복사).
+// - 코드 블록 → 오른쪽 복사 단추 열(자리표시를 채운 뒤의 명령을 복사). 단추는 코드 칸 밖이라 긴 줄을 덮지 않는다.
 // - 굵은 글자 → 마우스를 올리면 같은 이름의 화면 버튼을 강조(helpScreenControls). 반대로 화면에서 포커스·클릭한 단추 이름과 같으면 글자를 강조(WP-1506).
 // 글 크기·간격은 채팅 MarkdownMessage 와 맞추되 컴포넌트는 가져다 쓰지 않는다 — 그쪽은 멘션·이슈 키 처리 등 채팅 전용 단계가 섞여 있다(목록 클래스만 공용 markdownListClass).
 import { Check, Copy } from 'lucide-react'
@@ -45,7 +45,7 @@ function HelpCode({ className, children }: { className?: string; children?: Reac
   return <code className="rounded bg-muted px-1 py-0.5 text-xs">{children}</code>
 }
 
-/** 코드 블록 + 오른쪽 위 복사 단추. 복사할 글은 그려진 코드(자리표시를 채운 뒤)에서 읽는다. */
+/** 코드 블록 + 오른쪽 복사 단추 열. 복사할 글은 그려진 코드(자리표시를 채운 뒤)에서 읽는다. */
 function CodeBlock({ children }: { children?: ReactNode }) {
   const preRef = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
@@ -61,9 +61,11 @@ function CodeBlock({ children }: { children?: ReactNode }) {
     const ok = await copyToClipboard(text, { success: '복사했습니다', failure: '복사에 실패했습니다. 직접 선택해 복사하세요.' })
     if (ok) setCopied(true)
   }
+  // 단추를 코드 위에 띄우지(absolute) 않고 코드 칸 옆 제 열에 둔다 — 띄우면 긴 줄이 가로로 넘칠 때 오른쪽 여백(pr)이 스크롤 끝에만 생겨
+  // 보이는 자리의 코드 글자를 단추가 덮는다. 코드는 pre(min-w-0) 안에서만 가로로 스크롤된다.
   return (
-    <div className="relative">
-      <pre ref={preRef} className="overflow-x-auto rounded bg-muted p-2 pr-10 text-xs">
+    <div className="flex items-start rounded bg-muted">
+      <pre ref={preRef} className="min-w-0 flex-1 overflow-x-auto p-2 text-xs">
         <InCodeBlock.Provider value={true}>{children}</InCodeBlock.Provider>
       </pre>
       <button
@@ -72,7 +74,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
         title="복사"
         data-testid="help-code-copy"
         onClick={() => void copy()}
-        className="absolute right-1 top-1 inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+        className="m-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
       >
         {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
       </button>

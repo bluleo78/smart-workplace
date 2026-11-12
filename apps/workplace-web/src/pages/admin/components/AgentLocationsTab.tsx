@@ -1,6 +1,6 @@
 // 에이전트 화면 「실행 환경」 탭(WP-1281) — 예전 「AI 실행 위치」 화면(WP-1256)을 옮겼다. 실행 환경 = 연결 프로그램을 설치한 클러스터 네임스페이스 하나.
 // 표(이름·설명·기본·연결 상태·이 환경의 AI·최대 AI 수) + 「+ 실행 환경 추가」(머리 단추) → 연결 토큰 1회 표시 + 설치 순서 + ⋯ 메뉴(기본 지정·이름/최대 AI 수·토큰 재발급·삭제).
-// 화면 위 설명 문단과 설치 문제 해결은 설정 가이드(settingsGuides.agentLocations)로 옮겼다.
+// 화면 위 설명 문단과 설치 문제 해결은 매뉴얼 15장 도움말 절(agents.locations 층, WP-1507)로 옮겼다 — 칸·대화상자의 data-help 가 그 절로 잇는다.
 
 import { MoreHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -77,7 +77,8 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
   const rows = locations.data ?? [];
 
   return (
-    <>
+    // 탭 본문 전체가 「실행 환경」 도움말 절로 이어진다(WP-1507). 행 메뉴·대화상자는 각자 더 좁은 절을 단다.
+    <div className="space-y-6" data-help="agents.locations">
       <div className="rounded-md border">
         <Table aria-label="실행 환경 목록">
           <TableHeader>
@@ -147,11 +148,18 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`${l.name} 메뉴`} data-testid={`agent-location-menu-${l.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`${l.name} 메뉴`}
+                            data-testid={`agent-location-menu-${l.id}`}
+                            data-help="agents.locations.menu"
+                          >
                             <MoreHorizontal className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="max-w-72">
+                        {/* 메뉴는 포털로 그려져 행 밖에 있다 — 열린 메뉴 항목을 만질 때도 같은 절이 보이게 메뉴에도 단다. */}
+                        <DropdownMenuContent align="end" className="max-w-72" data-help="agents.locations.menu">
                           {!l.isDefault && <DropdownMenuItem onSelect={() => setDefault.mutate(l.id)}>기본으로 지정</DropdownMenuItem>}
                           <DropdownMenuItem onSelect={() => setEditing(l)}>이름·최대 AI 수 바꾸기</DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => setConfirm({ kind: 'rotate', location: l })}>토큰 재발급</DropdownMenuItem>
@@ -205,9 +213,10 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
         itemName={confirm?.location.name ?? ''}
         description={`「${confirm?.location.name ?? ''}」 실행 환경을 삭제해요. 설치한 연결 프로그램은 더 이상 연결되지 않으니 클러스터에서 helm uninstall 로 지우세요.`}
         onConfirm={() => confirm && remove.mutate(confirm.location.id, { onSuccess: () => setConfirm(null) })}
+        data-help="agents.locations.menu"
       />
       <AlertDialog open={confirm?.kind === 'rotate'} onOpenChange={(o) => !o && setConfirm(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent data-help="agents.locations.menu">
           <AlertDialogHeader>
             <AlertDialogTitle>토큰 재발급</AlertDialogTitle>
             <AlertDialogDescription>
@@ -233,7 +242,7 @@ export function AgentLocationsTab({ createOpen, onCreateOpenChange }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </div>
   );
 }
 

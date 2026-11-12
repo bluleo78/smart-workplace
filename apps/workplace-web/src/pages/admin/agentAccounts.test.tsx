@@ -8,6 +8,7 @@ import { delay, http, HttpResponse } from 'msw'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 
 import { agentAccountKeys } from '@/hooks/queries/useAgentAccounts'
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { AgentAccountResponse } from '@/types/agentAccount'
 
@@ -119,6 +120,7 @@ function accounts(): AgentAccountResponse[] {
     }),
   ]
 }
+
 
 async function renderAccounts(list: AgentAccountResponse[] = accounts()) {
   const view = renderScreen(<AgentManagementPage />, { path: '/settings/agents/accounts', handlers: [http.get(API, () => HttpResponse.json(list))] })
@@ -496,6 +498,27 @@ async function pickRowMenu(user: ScreenUser, id: number, item: 'edit' | 'delete'
   await user.click(await screen.findByTestId(`agent-account-menu-${id}`))
   await user.click(await screen.findByTestId(`agent-account-${item}-${id}`))
 }
+
+test('칸과 대화상자가 맞는 도움말 절로 이어진다 (WP-1507)', async () => {
+  const { user } = renderWritable()
+  const dialog = await openCreate(user)
+  // 추가 모드 → 계정 추가 절
+  expectHelpTarget(dialog, 'agents.accounts.add')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByTestId('agent-account-dialog')).not.toBeInTheDocument())
+  expectHelpTarget(screen.getByRole('table', { name: 'AI 계정 목록' }), 'agents.accounts')
+  expectHelpTarget(screen.getByTestId('agent-account-new'), 'agents.accounts.add')
+  expectHelpTarget(screen.getByTestId('agent-account-menu-1'), 'agents.accounts.menu')
+  expectHelpTarget(screen.getByTestId('agent-tab-accounts'), 'agents.accounts')
+  // 같은 대화상자의 수정 모드 → 계정 메뉴 절
+  await pickRowMenu(user, 1, 'edit')
+  expectHelpTarget(await screen.findByTestId('agent-account-dialog'), 'agents.accounts.menu')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByTestId('agent-account-dialog')).not.toBeInTheDocument())
+  // 삭제 확인 → 계정 메뉴 절
+  await pickRowMenu(user, 1, 'delete')
+  expectHelpTarget(await screen.findByRole('alertdialog'), 'agents.accounts.menu')
+})
 
 test('추가 — Claude 구독: 토큰과 적은 라벨을 보내고, 성공하면 창을 닫고 알린다', async () => {
   const { user, calls } = renderWritable()

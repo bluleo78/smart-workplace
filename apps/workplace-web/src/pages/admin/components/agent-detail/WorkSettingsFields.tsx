@@ -1,4 +1,4 @@
-// 작업 설정 칸(WP-1281) — 방식이 정한 칸(모델·대기열 라벨 등) + 실행 환경. 칸 설명·자원 안내는 설정 가이드(agentDetailGuide)에 있다.
+// 작업 설정 칸(WP-1281) — 방식이 정한 칸(모델·대기열 라벨 등) + 실행 환경. 칸 설명·자원 안내는 매뉴얼 15장 「작업 설정을 바꾼다」 도움말 절(agent.run.settings)에 있다(WP-1507).
 // 「실행 › 작업 설정」 묶음과, 다른 방식에서 이 방식으로 바꿀 때 펼치는 칸이 함께 쓴다. 칸은 방식 정의대로 그린다 — 이 화면은 방식 이름을 모른다.
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';

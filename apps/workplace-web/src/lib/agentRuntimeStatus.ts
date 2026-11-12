@@ -197,12 +197,15 @@ export function resourceLimitText(t: AgentTemplate): string | null {
   return [r.cpuLimit && `${r.cpuLimit}코어`, r.memoryLimit && memoryText(r.memoryLimit)].filter(Boolean).join(' · ');
 }
 
-/** 작업 설정 아래 자원 안내 — 「평소 4코어·8GiB, 많이 쓸 때 최대 8코어·16GiB」. 요청값이 없으면 null. */
+/**
+ * 작업 공간 방식의 자원 한 줄 — 「평소 4코어·8GiB, 많이 쓸 때 최대 8코어·16GiB」. 요청값이 없으면 null.
+ * 에이전트 상세 AI 화면 참고(화면 값 facts)가 쓴다(WP-1507) — 방식 정의(template, 서버 agent-templates/*.yaml)에서 만들어 정의가 바뀌면 따라간다.
+ */
 export function workResourceText(t: AgentTemplate): string | null {
   const r = t.resources;
   if (!r || (!r.cpuRequest && !r.memoryRequest)) return null;
-  const pair = (cpu: string | null, mem: string | null) =>
-    [cpu && `${cpu}코어`, mem && memoryText(mem)].filter(Boolean).join('·');
+  // 코어·메모리 한 쌍 — 없는 쪽은 뺀다.
+  const pair = (cpu: string | null, mem: string | null) => [cpu && `${cpu}코어`, mem && memoryText(mem)].filter(Boolean).join('·');
   const base = `평소 ${pair(r.cpuRequest, r.memoryRequest)}`;
   return r.cpuLimit || r.memoryLimit ? `${base}, 많이 쓸 때 최대 ${pair(r.cpuLimit, r.memoryLimit)}` : base;
 }

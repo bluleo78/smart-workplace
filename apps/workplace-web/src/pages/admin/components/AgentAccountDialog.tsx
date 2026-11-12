@@ -201,7 +201,8 @@ export function AgentAccountDialog({ account, onClose }: Props) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg" data-testid="agent-account-dialog">
+      {/* 추가 모드는 「계정 추가」, 수정 모드(⋯ 메뉴에서 연다)는 「계정 메뉴」 도움말 절로 잇는다(WP-1507). */}
+      <DialogContent className="sm:max-w-lg" data-testid="agent-account-dialog" data-help={editing ? 'agents.accounts.menu' : 'agents.accounts.add'}>
         <DialogHeader>
           <DialogTitle>{editing ? '계정 수정' : '계정 추가'}</DialogTitle>
           <DialogDescription>

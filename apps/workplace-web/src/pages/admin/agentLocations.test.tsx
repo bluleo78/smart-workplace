@@ -2,11 +2,13 @@
 // 목록(기본 배지·연결 알약·실행 중/최대·이 환경의 AI), 추가 폼 → POST payload·검증 문구, 토큰 1회 표시 + 설치 4단계(토큰 원문 미포함, 마지막은 선택),
 // ⋯ 메뉴(기본 지정·이름/최대 AI 수 바꾸기·토큰 재발급·삭제)의 요청과 비활성 판정을 본다.
 // 에이전트 화면 셸(AgentManagementPage, 주소 /settings/agents/locations)을 renderScreen 으로 띄운다.
-// 설치 순서 문구·실행 환경 설명은 설정 가이드로 옮겨 화면 본문에는 없다(가이드는 settingsGuide.test.tsx).
+// 설치 순서 문구·실행 환경 설명은 매뉴얼 15장 도움말 절(agents.locations 층)로 옮겨 화면 본문에는 없다 — 칸·대화상자가 그 절로 이어지는지(data-help)를
+// 여기서 본다(WP-1507). AI 화면 참고가 그 절 요약으로 실리는지는 탭 셋을 함께 agentManagement.test.tsx 가 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { expectHelpTarget } from '@/test/kits/help/expectHelpTarget'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 import type { AgentLocation } from '@/types/agentRuntime'
 
@@ -14,6 +16,7 @@ import { createLocation, createLocations, createSummary } from '../../test/kits/
 import AgentLocationsPage from './AgentManagementPage'
 
 const API = '/api/v1/admin/agent-locations'
+
 const NEW_TOKEN = 'rt_4b1e9c0d2f7a6e5b3c8d1f0a9e7b6c5d4a3f2e1d'
 
 type Calls = {
@@ -76,6 +79,39 @@ async function pickMenu(user: ScreenUser, id: number, item: string | RegExp) {
   await user.click(screen.getByTestId(`agent-location-menu-${id}`))
   await user.click(await screen.findByRole('menuitem', { name: item }))
 }
+
+test('칸과 대화상자가 맞는 도움말 절로 이어진다 (WP-1507)', async () => {
+  const { user } = await renderLocations()
+  expectHelpTarget(screen.getByRole('table', { name: '실행 환경 목록' }), 'agents.locations')
+  expectHelpTarget(screen.getByTestId('agent-location-new'), 'agents.locations.create')
+  expectHelpTarget(screen.getByTestId('agent-location-menu-1'), 'agents.locations.menu')
+  expectHelpTarget(screen.getByTestId('agent-tab-locations'), 'agents.locations')
+
+  // 추가 창(추가 모드) → 실행 환경 추가 절
+  await user.click(screen.getByTestId('agent-location-new'))
+  expectHelpTarget(await screen.findByTestId('agent-location-form'), 'agents.locations.create')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByTestId('agent-location-form')).not.toBeInTheDocument())
+
+  // 같은 폼의 바꾸기 모드 → 실행 환경 메뉴 절
+  await pickMenu(user, 1, '이름·최대 AI 수 바꾸기')
+  expectHelpTarget(await screen.findByTestId('agent-location-form'), 'agents.locations.menu')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByTestId('agent-location-form')).not.toBeInTheDocument())
+
+  // 토큰 재발급 확인 창 → 메뉴 절, 재발급 뒤 뜨는 연결 토큰 창 → 연결 프로그램 설치 절
+  await pickMenu(user, 2, '토큰 재발급')
+  const rotate = await screen.findByRole('alertdialog')
+  expectHelpTarget(rotate, 'agents.locations.menu')
+  await user.click(within(rotate).getByRole('button', { name: '재발급' }))
+  expectHelpTarget(await screen.findByTestId('agent-location-token-dialog'), 'agents.locations.install')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByTestId('agent-location-token-dialog')).not.toBeInTheDocument())
+
+  // 삭제 확인 창 → 메뉴 절
+  await pickMenu(user, 3, '삭제')
+  expectHelpTarget(await screen.findByRole('alertdialog'), 'agents.locations.menu')
+})
 
 test('목록 — 기본 배지·설명·연결 알약·실행 중/최대가 행마다 보인다', async () => {
   await renderLocations()

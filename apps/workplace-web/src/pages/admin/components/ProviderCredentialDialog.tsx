@@ -200,7 +200,8 @@ export function ProviderCredentialDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent>
+      {/* 「AI 계정을 연결한다」 도움말 절(WP-1507) — 열린 대화상자가 포커스보다 앞서므로 안쪽 칸에는 따로 달지 않는다. */}
+      <DialogContent data-help="agent.run.account">
         <DialogHeader>
           <DialogTitle>{isReissue ? '연결 정보 변경' : 'AI 연결하기'}</DialogTitle>
           <DialogDescription>

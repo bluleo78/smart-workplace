@@ -1,5 +1,5 @@
 // 에이전트 화면 「목록」 탭(WP-1281) — 표에서 행을 누르면 상세 페이지(/settings/agents/:id)로 간다(예전 오른쪽 시트는 없앴다).
-// 화면에는 목록과 지금 해야 할 일(에이전트 추가·공통 비서 지정 배너)만 두고, 왜·주의는 설정 가이드(settingsGuides.agents)로 옮겼다.
+// 화면에는 목록과 지금 해야 할 일(에이전트 추가·공통 비서 지정 배너)만 두고, 왜·주의는 매뉴얼 15장 도움말 절(agents.list 층, WP-1507)로 옮겼다.
 
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -52,8 +52,9 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
   const isEmpty = !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
 
   return (
-    <>
-      {/* 지금 해야 할 일 배너 — ① 에이전트가 없으면 추가부터 ② 있는데 공통 비서가 없으면 지정. 이유(공통 비서가 없으면…)는 가이드로 옮겼다. */}
+    // 탭 본문 전체가 「목록」 도움말 절로 이어진다(WP-1507) — 더 좁은 칸(개인 비서 표시)은 안쪽에서 덮는다.
+    <div className="space-y-6" data-help="agents.list">
+      {/* 지금 해야 할 일 배너 — ① 에이전트가 없으면 추가부터 ② 있는데 공통 비서가 없으면 지정. 이유(공통 비서가 없으면…)는 매뉴얼 도움말로 옮겼다. */}
       {isEmpty ? (
         <div
           data-testid="agent-roster-empty"
@@ -71,7 +72,7 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
       ) : null}
 
       {/* 개인 비서 표시 토글 — 켜면 구성원이 만든 개인 비서까지 목록에 보인다. */}
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-2" data-help="agents.list.personal">
         <Switch
           id="include-personal"
           checked={includePersonal}
@@ -192,7 +193,7 @@ export function AgentListTab({ createOpen, onCreateOpenChange }: Props) {
       </div>
 
       <NewAgentDialog open={createOpen} onOpenChange={onCreateOpenChange} />
-    </>
+    </div>
   );
 }
 

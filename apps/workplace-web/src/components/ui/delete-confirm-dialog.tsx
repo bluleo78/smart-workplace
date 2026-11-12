@@ -28,6 +28,8 @@ interface BaseProps {
   contentTestId?: string;
   /** 확인(삭제) 버튼의 data-testid */
   confirmTestId?: string;
+  /** 확인창이 열렸을 때 도움말 패널이 보일 매뉴얼 도움말 id(WP-1507) — 호출부가 글자 그대로 넘겨 manual:check 가 짝을 본다. */
+  'data-help'?: string;
 }
 
 /** 트리거 모드(트리거 버튼이 연다) 또는 controlled 모드(모바일 액션 시트처럼 트리거 밖에서 연다, WP-223) — 둘 중 하나만. */
@@ -47,6 +49,7 @@ export function DeleteConfirmDialog({
   impact,
   contentTestId,
   confirmTestId,
+  'data-help': dataHelp,
 }: DeleteConfirmDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -55,7 +58,7 @@ export function DeleteConfirmDialog({
           {trigger}
         </AlertDialogTrigger>
       )}
-      <AlertDialogContent onClick={(e) => e.stopPropagation()} data-testid={contentTestId}>
+      <AlertDialogContent onClick={(e) => e.stopPropagation()} data-testid={contentTestId} data-help={dataHelp}>
         <AlertDialogHeader>
           <AlertDialogTitle>{entityName} 삭제</AlertDialogTitle>
           <AlertDialogDescription>

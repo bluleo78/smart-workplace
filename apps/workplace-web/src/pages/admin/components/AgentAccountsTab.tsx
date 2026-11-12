@@ -79,7 +79,8 @@ export function AgentAccountsTab({ createOpen, onCreateOpenChange }: Props) {
     });
 
   return (
-    <>
+    // 탭 본문 전체가 「계정」 도움말 절로 이어진다(WP-1507). 줄 메뉴·대화상자는 각자 더 좁은 절을 단다.
+    <div className="space-y-6" data-help="agents.accounts">
       <div className="rounded-md border">
         {/* 아주 넓은 화면(xl)만 칸 너비를 고정 비율로(table-fixed) — 긴 이름·이유가 옆 칸을 밀지 않게.
             그보다 좁은 표(md~lg, 본문 폭 700px 안팎)에서 고정 비율이면 유형 배지가 옆 칸을 덮어, 유형 칸을 숨기고(배지는 이름 옆) 자동 배치로 둔다.
@@ -143,8 +144,9 @@ export function AgentAccountsTab({ createOpen, onCreateOpenChange }: Props) {
         contentTestId="agent-account-delete-dialog"
         confirmTestId="agent-account-delete-confirm"
         onConfirm={() => deleting && confirmDelete(deleting)}
+        data-help="agents.accounts.menu"
       />
-    </>
+    </div>
   );
 }
 
@@ -206,11 +208,18 @@ function AccountRow({
       <TableCell>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={`${a.label} 메뉴`} data-testid={`agent-account-menu-${a.id}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`${a.label} 메뉴`}
+              data-testid={`agent-account-menu-${a.id}`}
+              data-help="agents.accounts.menu"
+            >
               <MoreHorizontal className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          {/* 메뉴는 포털로 그려져 줄 밖에 있다 — 열린 메뉴 항목을 만질 때도 같은 절이 보이게 메뉴에도 단다(WP-1507). */}
+          <DropdownMenuContent align="end" data-help="agents.accounts.menu">
             <DropdownMenuItem onSelect={onEdit} data-testid={`agent-account-edit-${a.id}`}>
               수정
             </DropdownMenuItem>

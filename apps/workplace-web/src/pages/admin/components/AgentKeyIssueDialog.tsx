@@ -1,5 +1,6 @@
 // 키 발급 직후 1회만 노출되는 평문 키 표시 dialog.
 // 닫으면 다시 표시되지 않으므로 destructive 톤 경고 + 복사 버튼 제공.
+// 도움말 문맥(WP-1507): 외부 방식(아이디가 있음)이면 「외부 도구에 연결한다」, 아니면 「접속 키를 관리한다」 절로 잇는다 — 플러그인 설치 순서는 그 절에 있다.
 
 import { toast } from 'sonner';
 
@@ -39,7 +40,7 @@ export function AgentKeyIssueDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="agent-key-issue-dialog">
+      <DialogContent data-testid="agent-key-issue-dialog" data-help={username ? 'agent.run.keys.connect' : 'agent.run.keys'}>
         <DialogHeader>
           <DialogTitle>새 API 키</DialogTitle>
           <DialogDescription className="sr-only">새 API 키</DialogDescription>
@@ -62,8 +63,10 @@ export function AgentKeyIssueDialog({
               </p>
               <p>
                 등록한 뒤에는 <code className="font-mono">{buildSwitchCommand(username)}</code> 로 이 AI 로 일할 수
-                있어요. 플러그인이 없다면 설정 가이드의 ② 를 먼저 하세요.
+                있어요.
               </p>
+              {/* 모달이 열린 동안엔 도움말 패널을 열 수 없다 — 키를 잃지 않게 먼저 복사하고, 닫은 뒤 상세의 「연결 방법」(15장 agent.run.keys 와 같은 말)으로 보낸다. */}
+              <p>플러그인을 아직 설치하지 않았으면 키를 먼저 복사한 뒤 창을 닫고 「접속 키」 아래의 「연결 방법」 을 누르세요.</p>
             </div>
           )}
           <DialogFooter>

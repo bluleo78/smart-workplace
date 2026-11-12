@@ -110,20 +110,30 @@ export function helpRetry(failureCount: number, error: Error): boolean {
 /** 세 질의 공통 옵션 — 묶음은 배포마다 바뀌는 정적 파일이라 한 번 받으면 세션 동안 다시 받지 않는다. 재시도는 helpRetry. */
 const HELP_QUERY_OPTIONS = { staleTime: Infinity, retry: helpRetry } as const
 
+/**
+ * 목차·자리표시 질의 옵션. enabled=false 면 받지 않는다(기본 true) — 설정 화면의 AI 요약(useManualSummary, WP-1507)이
+ * 도움말 절을 쓰지 않는 화면에서 묶음을 받지 않게 하려고. 키가 패널과 같아 한 번 받은 묶음은 같이 쓴다.
+ */
+export interface HelpQueryOptions {
+  enabled?: boolean
+}
+
 /** 목차(manual-index.json). */
-export function useHelpIndex(): UseQueryResult<HelpIndexChapter[]> {
+export function useHelpIndex({ enabled = true }: HelpQueryOptions = {}): UseQueryResult<HelpIndexChapter[]> {
   return useQuery({
     queryKey: ['help', 'index'],
     queryFn: ({ signal }) => fetchHelpJson<HelpIndexChapter[]>('manual-index.json', signal),
+    enabled,
     ...HELP_QUERY_OPTIONS,
   })
 }
 
 /** 자리표시·조건 목록(manual-vars.json). 못 받아도 본문은 보인다(이름 그대로 표시). */
-export function useHelpVars(): UseQueryResult<HelpVars> {
+export function useHelpVars({ enabled = true }: HelpQueryOptions = {}): UseQueryResult<HelpVars> {
   return useQuery({
     queryKey: ['help', 'vars'],
     queryFn: ({ signal }) => fetchHelpJson<HelpVars>('manual-vars.json', signal),
+    enabled,
     ...HELP_QUERY_OPTIONS,
   })
 }

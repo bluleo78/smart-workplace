@@ -300,15 +300,33 @@ export async function openSettings(page, path, readyText) {
   // 같은 문구가 숨은 요소(낭독용 등)에도 있을 수 있어 보이는 것만 기다린다.
   await page.getByText(readyText, { exact: true }).filter({ visible: true }).first().waitFor();
   await settleBadges(page, ['inbox-badge', 'rail-badge-/chat']);
+  await closeHelp(page);
   await fontsReady(page);
 }
 
-/** 에이전트 지니의 상세 패널을 연다. */
-export async function openAgent(page) {
-  await openSettings(page, '/settings/agents', 'genie');
-  await page.locator('tr[data-testid^="agent-row-"]').filter({ hasText: 'genie' }).first().click();
-  await dialog(page).getByText('에이전트 정보', { exact: true }).waitFor();
-  // 패널이 열리면 이름 칸이 포커스되며 글자가 선택돼 보인다 — 포커스를 풀고 찍는다.
+/**
+ * 도움말 패널이 열려 있으면 닫는다 — 열림 상태는 브라우저 저장소에 남아(helpPanelStorage) 앞 장면(예: agents-3)이 연 패널이
+ * 다음 화면에도 열린 채 찍히고 본문 폭까지 좁힌다(WP-1507). 닫기는 브라우저 상태만 바꾸고 서버에 쓰지 않는다.
+ */
+export async function closeHelp(page) {
+  const close = page.getByTestId('help-close');
+  if (await close.isVisible()) {
+    await close.click();
+    await close.waitFor({ state: 'hidden' });
+  }
+}
+
+/**
+ * 에이전트 상세 페이지(/settings/agents/:id)를 연다 — 목록에서 그 아이디의 행을 누른다(기본 지니). 상세가 시트였던 옛 화면과 달리
+ * 페이지로 넘어가므로 상태·기본 정보 섹션이 그려질 때까지 기다린다(WP-1507).
+ */
+export async function openAgent(page, username = 'genie') {
+  await openSettings(page, '/settings/agents', username);
+  await page.locator('tr[data-testid^="agent-row-"]').filter({ hasText: username }).first().click();
+  await page.getByTestId('agent-detail-page').waitFor();
+  await page.getByTestId('agent-status-section').waitFor();
+  await page.getByTestId('agent-basic-section').waitFor();
+  // 이름 칸이 포커스되며 글자가 선택돼 보일 수 있다 — 포커스를 풀고 찍는다.
   await blurActive(page);
   await fontsReady(page);
 }

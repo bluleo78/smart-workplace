@@ -1,19 +1,14 @@
 // 설정 가이드 본문 — 열(aside)·데스크톱 시트·모바일 시트가 같은 마크업을 공유한다(WP-399).
-// 제목 「설정 가이드」 는 감싸는 쪽(열 헤더·시트 제목)이 그리고, 여기선 소개 → (할 일 순서) → 알아두기 → 주의 → 관련 화면 → AI 에게 묻기 순으로만 그린다.
-import { ChevronDown, ChevronRight, Sparkles, TriangleAlert } from 'lucide-react'
+// 제목 「설정 가이드」 는 감싸는 쪽(열 헤더·시트 제목)이 그리고, 여기선 소개 → 알아두기 → 주의 → 관련 화면 → AI 에게 묻기 순으로만 그린다.
+import { ChevronRight, Sparkles, TriangleAlert } from 'lucide-react'
 import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { toast } from 'sonner'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
-import { CopyableCommand } from '@/components/CopyableCommand'
-import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
-import { copyText } from '@/lib/copyText'
-import { cn, objectParticle } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
-import type { SettingsGuide, SettingsGuideSection, SettingsGuideStep } from './types'
+import type { SettingsGuide, SettingsGuideSection } from './types'
 
 /** 소제목 + 내용 한 묶음(알아두기·주의·관련 화면). 소제목은 본문보다 한 단계 옅고 작게. */
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -55,67 +50,6 @@ function AskAiButton({ onAsk }: { onAsk?: () => void }) {
   )
 }
 
-/** 값 복사 단추 — 실패하면 직접 선택하도록 알린다. */
-async function copyValue(label: string, value: string) {
-  const what = label.replace(/ 복사$/, '')
-  if (await copyText(value)) toast.success(`${what}${objectParticle(what)} 복사했습니다`)
-  else toast.error('복사에 실패했습니다. 직접 선택해 복사하세요.')
-}
-
-/** 할 일 한 단계의 내용 — 지시 → 값 복사 → 명령(복사 단추 포함). */
-function StepBody({ step }: { step: SettingsGuideStep }) {
-  return (
-    <div className="min-w-0 space-y-2">
-      {step.body && <p className="text-sm leading-6 text-muted-foreground">{step.body}</p>}
-      {step.copyValue && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          data-testid={step.copyValue.testId}
-          onClick={() => void copyValue(step.copyValue!.label, step.copyValue!.value)}
-        >
-          {step.copyValue.label}
-        </Button>
-      )}
-      {step.commands?.map((c, i) => (
-        <div key={c.testId ?? i} className="min-w-0 space-y-1">
-          {c.label && <p className="text-xs text-muted-foreground">{c.label}</p>}
-          <CopyableCommand command={c.command} testId={c.testId ?? `settings-guide-step-command-${i}`} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** 할 일 순서 — 단계마다 제목 + 내용. 접힌 단계(「다른 방법」)는 눌러 펼친다. */
-function Steps({ steps }: { steps: SettingsGuideStep[] }) {
-  return (
-    <ol className="space-y-4" data-testid="settings-guide-steps">
-      {steps.map((step) =>
-        step.collapsed ? (
-          <li key={step.title}>
-            <Collapsible className="border-t pt-3">
-              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 text-left text-sm font-medium text-muted-foreground hover:text-foreground">
-                {step.title}
-                <ChevronDown aria-hidden className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-2">
-                <StepBody step={step} />
-              </CollapsibleContent>
-            </Collapsible>
-          </li>
-        ) : (
-          <li key={step.title} className="space-y-2">
-            <h4 className="text-sm font-medium">{step.title}</h4>
-            <StepBody step={step} />
-          </li>
-        ),
-      )}
-    </ol>
-  )
-}
-
 /** 알아두기 목록 — 최상위·섹션이 같은 모양을 쓴다. */
 function TipList({ tips }: { tips: string[] }) {
   return (
@@ -147,12 +81,6 @@ function GuideSection({ section, active }: { section: SettingsGuideSection; acti
       className={cn('space-y-2 border-l-2 pl-3 transition-colors', active ? 'border-primary' : 'border-transparent')}
     >
       <h3 className={cn('text-sm font-semibold', !active && 'text-muted-foreground')}>{section.title}</h3>
-      {section.steps && section.steps.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground">{section.stepsTitle ?? '할 일 순서'}</h4>
-          <Steps steps={section.steps} />
-        </div>
-      )}
       {section.tips && section.tips.length > 0 && <TipList tips={section.tips} />}
       {section.caution && <Caution text={section.caution} />}
     </section>

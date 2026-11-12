@@ -1,13 +1,13 @@
 // 에이전트 상세 「상태」 섹션(WP-1281) — 이 AI 를 쓸 수 있는지(「사용」 스위치)와 지금 무엇을 하는지.
 // 말 구분: 워크스페이스에서 쓸 수 있는지는 「사용 / 사용 중지」, Works 가 띄운 AI 를 돌리는 것은 「시작 / 종료 / 재시작」(WP-1513 일반 용어).
 // Works 가 실행하는 AI 는 「실행」 묶음(상태 알약·이슈·경과·실행 환경·CPU/메모리·쉴 때 적용·실행 전 확인), 외부 AI 는 마지막 접속만 보인다.
+// 도움말 문맥(WP-1507): 섹션·스위치·묶음·확인 창에 매뉴얼 15장 agent.status 층의 data-help 를 글자 그대로 단다.
 
 import { Check, Info, Minus, MonitorPlay, X } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
-import { AGENT_DETAIL_SECTION_IDS } from '@/components/settings-guide/sectionIds';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,7 +79,7 @@ interface Props {
 export function AgentStatusSection({ agent, worksRun }: Props) {
   return (
     <SettingsSection
-      id={AGENT_DETAIL_SECTION_IDS.status}
+      data-help="agent.status"
       title="상태"
       description="이 AI 를 쓸 수 있는지, 그리고 지금 무엇을 하는지예요."
       data-testid="agent-status-section"
@@ -130,6 +130,7 @@ function UseToggle({ agent, running }: { agent: AgentResponse; running: boolean 
         label="사용"
         description={lockReason ?? '사용을 중지하면 이 워크스페이스에 접속하거나 일할 수 없어요.'}
         data-testid="agent-use-toggle"
+        data-help="agent.status.use"
         control={
           <Switch
             checked={agent.isActive}
@@ -140,7 +141,7 @@ function UseToggle({ agent, running }: { agent: AgentResponse; running: boolean 
         }
       />
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" data-help="agent.status.use">
           <AlertDialogHeader>
             <AlertDialogTitle>사용을 중지할까요?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -304,7 +305,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
   const usageUnknown = metricsUnavailable(saved?.effectiveLocation);
 
   return (
-    <div className="space-y-3 border-t pt-4" data-testid="agent-run-group">
+    <div className="space-y-3 border-t pt-4" data-testid="agent-run-group" data-help="agent.status.run">
       <h3 className="text-sm font-semibold">실행</h3>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <StatusBadge type={pill.type} data-testid="agent-runtime-status">
@@ -345,7 +346,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
         )}
         {/* 작업 화면 보기(WP-1277) — 작업 공간이 떠 있을 때만(시작 중·종료 중·오류는 붙을 화면이 없다) */}
         {canViewScreen(status) && (
-          <Button size="xs" variant="outline" className={cn(!saved?.effectiveLocation && 'ml-auto')} onClick={() => setScreenOpen(true)} data-testid="agent-screen-open">
+          <Button size="xs" variant="outline" className={cn(!saved?.effectiveLocation && 'ml-auto')} onClick={() => setScreenOpen(true)} data-testid="agent-screen-open" data-help="agent.status.screen">
             <MonitorPlay aria-hidden />
             작업 화면 보기
           </Button>
@@ -384,6 +385,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
             label="새 작업 받기"
             description="끄면 하던 작업은 마치고, 새 이슈는 가져가지 않아요."
             data-testid="agent-accept-new-work"
+            data-help="agent.status.new-work"
             control={
               <Switch
                 checked={acceptNewWork}
@@ -517,7 +519,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
 
       {/* 확인 창 ① — 일하는 중에 지금 적용·재시작. 일하는 중이 아니면 확인 없이 바로 한다. */}
       <AlertDialog open={nowConfirm != null} onOpenChange={(o) => !o && setNowConfirm(null)}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" data-help="agent.status.run">
           <AlertDialogHeader>
             <AlertDialogTitle>{nowConfirm === 'restart' ? '지금 재시작할까요?' : '지금 적용할까요?'}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -544,7 +546,7 @@ function RunGroup({ agent, run }: { agent: AgentResponse; run: WorksRun }) {
 
       {/* 종료 확인 창(WP-1514) — 하던 작업이 있을 때만. 종료는 작업 공간을 지우니 끊길 이슈와, 마치게 하는 방법(「새 작업 받기」 끄기)을 알린다. */}
       <AlertDialog open={stopConfirm != null} onOpenChange={(open) => !open && setStopConfirm(null)}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" data-help="agent.status.run">
           <AlertDialogHeader>
             <AlertDialogTitle>{agent.name} {keyObjectParticle(agent.name)} 종료할까요?</AlertDialogTitle>
             <AlertDialogDescription asChild>
