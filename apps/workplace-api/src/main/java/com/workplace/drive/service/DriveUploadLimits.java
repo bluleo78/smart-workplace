@@ -8,8 +8,9 @@ import org.springframework.util.unit.DataSize;
 
 /**
  * 드라이브에 한 번에 올릴 수 있는 파일 크기 규칙을 한 곳에 둔다 — 이름·MIME 으로 정한 범주 상한(file core 와 같은 규칙)과 멀티파트 상한
- * (spring.servlet.multipart.max-file-size, 100MB) 중 작은 값. 업로드 링크(WP-515)와 메일 첨부 저장(WP-1400)처럼 멀티파트를
- * 거치지 않는 바이트 경로도 같은 상한을 걸게 해, 범주 상한(DATA 256MB 등)이 더 커도 드라이브에 직접 올릴 수 없는 크기는 받지 않는다.
+ * (spring.servlet.multipart.max-file-size, 1GB) 중 작은 값. 업로드 링크(WP-515)와 메일 첨부 저장(WP-1400)처럼 멀티파트를
+ * 거치지 않는 바이트 경로도 같은 상한을 걸게 해, 범주 상한이 더 커도 드라이브에 직접 올릴 수 없는 크기는 받지 않는다. 멀티파트 상한은 동영상(VIDEO 1GB,
+ * WP-1519)에 맞춘 값이라 지금은 범주 상한이 늘 더 작거나 같다 — 동영상 외 형식의 실효 상한(100MB 이하)은 범주 표가 지킨다.
  */
 @Component
 public class DriveUploadLimits {
@@ -18,7 +19,7 @@ public class DriveUploadLimits {
   private final long multipartMaxBytes;
 
   public DriveUploadLimits(
-      @Value("${spring.servlet.multipart.max-file-size:100MB}") String multipartMaxFileSize) {
+      @Value("${spring.servlet.multipart.max-file-size:1GB}") String multipartMaxFileSize) {
     this.multipartMaxBytes = DataSize.parse(multipartMaxFileSize).toBytes();
   }
 

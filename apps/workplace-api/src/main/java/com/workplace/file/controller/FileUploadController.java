@@ -46,7 +46,7 @@ public class FileUploadController {
 
   /**
    * 파일 콘텐츠 다운로드. OOM 방지를 위해 byte[] 대신 Resource(스트리밍)로 응답한다. Spring의 ResourceHttpMessageConverter가
-   * 청크 단위로 전송하므로 대용량 파일(최대 256MB)도 힙 메모리를 과소비하지 않는다.
+   * 청크 단위로 전송하므로 대용량 파일(동영상 최대 1GB)도 힙 메모리를 과소비하지 않는다.
    */
   @GetMapping("/{fileId}/content")
   public ResponseEntity<Resource> getFileContent(

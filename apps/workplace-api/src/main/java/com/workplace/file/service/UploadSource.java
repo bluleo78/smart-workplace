@@ -21,6 +21,20 @@ public record UploadSource(String originalName, String contentType, long size, W
     void writeTo(FileStore store, String relativePath);
   }
 
+  /**
+   * 이미 저장소에 써 둔 바이트(WP-1519) — {@link FileUploadService#stage} 가 트랜잭션·테넌트 잠금 밖에서 blob 을 먼저 쓰고 이 표시로
+   * 바꾼다. 저장 핵심은 이 경로를 그대로 FILE 행에 묶어 잠금 아래에서 바이트를 다시 옮기지 않는다(1GB 동영상 복사 동안 테넌트 업로드가 줄 서지 않게). 다른
+   * 경로로 써야 할 때만 저장소 안에서 복사한다(지금은 쓰지 않는 안전한 기본 동작).
+   *
+   * @param relativePath 저장소 루트 기준 상대 경로
+   */
+  public record Staged(String relativePath) implements Writer {
+    @Override
+    public void writeTo(FileStore store, String path) {
+      store.copy(relativePath, path);
+    }
+  }
+
   /** 멀티파트 업로드(기존 경로). */
   public static UploadSource of(MultipartFile file) {
     return new UploadSource(

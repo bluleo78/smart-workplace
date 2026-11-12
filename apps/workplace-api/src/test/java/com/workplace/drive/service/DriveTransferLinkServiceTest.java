@@ -377,7 +377,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(audit.getMetadata().data()).contains("UPLOAD").doesNotContain(token);
   }
 
-  /** maxBytes = min(범주 상한, 멀티파트 100MB) — csv(DATA 256MB)·pdf(100MB)는 100MB, 미분류는 범주 상한 25MB. */
+  /** maxBytes = min(범주 상한, 멀티파트 1GB) — 동영상만 1GB(WP-1519), csv·pdf 는 100MB, 미분류는 범주 상한 25MB. */
   @Test
   void issueUpload_maxBytes_isCategoryCapBoundedByMultipart() {
     assertThat(
@@ -395,6 +395,11 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
                 .issueUploadLink(owner, spaceId, new CreateUploadLinkRequest(null, "a.pdf"))
                 .maxBytes())
         .isEqualTo(100 * MB);
+    assertThat(
+            transfers
+                .issueUploadLink(owner, spaceId, new CreateUploadLinkRequest(null, "영상.mp4"))
+                .maxBytes())
+        .isEqualTo(1024 * MB);
   }
 
   @Test

@@ -26,10 +26,12 @@ spring:
       thread-name-prefix: sched-
   servlet:
     multipart:
-      # 단일 파일 100MB(드라이브 PDF·문서 상한, WP-803), 요청 전체 275MB(이슈 첨부 25MB × 최대 10개).
+      # 단일 파일 1GB(드라이브 동영상 상한 VIDEO, WP-1519) — 형식별 상한(PDF·문서·데이터 100MB, 미분류 25MB 등)은
+      # FileUploadService 범주 표가 따로 막는다. 요청 전체 1100MB = 1GB 파일 + 멀티파트 경계·다른 필드 여유(이슈 첨부 25MB × 10개 275MB 도 포함).
+      # 운영 ingress proxyBodySize·web/admin nginx client_max_body_size(1100m)와 같은 값으로 맞춘다.
       # 채팅·메일·홈 첨부는 workplace.storage.attachment.max-file-size-bytes(25MB)로 따로 막는다.
-      max-file-size: 100MB
-      max-request-size: 275MB
+      max-file-size: 1GB
+      max-request-size: 1100MB
 
 # 파일 저장·첨부 통합 설정 (workplace.storage.* 단일 네임스페이스 — 모든 도메인 공유).
 workplace:

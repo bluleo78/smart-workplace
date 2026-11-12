@@ -88,7 +88,7 @@ public class DriveFileService {
   /** 추출 텍스트 구간 읽기(WP-346) — 상태·사유·자르기는 fileai 공용 서비스가 맡는다. */
   private final ExtractedTextService extractedText;
 
-  /** 텍스트로 만드는 파일의 크기 상한 — TEXT 카테고리 상한(10MB)과 같다. csv 는 DATA(256MB) 카테고리라 따로 막는다(WP-369). */
+  /** 텍스트로 만드는 파일의 크기 상한 — TEXT 카테고리 상한(10MB)과 같다. csv 는 DATA(100MB) 카테고리라 따로 막는다(WP-369). */
   public static final long TEXT_FILE_MAX_BYTES = FileUploadService.sizeLimitOf("TEXT");
 
   /** 텍스트로 읽는 application MIME(WP-369 텍스트 갱신 판정) — csv·json·xml·yaml·javascript·셸. */
@@ -475,6 +475,17 @@ public class DriveFileService {
     }
   }
 
+  /**
+   * 잠그지 않고 보는 할당량 빠른 거절(WP-1519) — blob 을 먼저 쓰기({@link DriveStagedUpload}) 전에 이미 한도를 넘는 업로드를 거른다.
+   * 실제 판정은 저장 핵심이 advisory lock 아래에서 다시 한다. RLS GUC 때문에 읽기 트랜잭션 안에서 본다.
+   *
+   * @throws com.workplace.drive.exception.DriveQuotaExceededException 저장 한도 초과(409)
+   */
+  @Transactional(readOnly = true)
+  public void precheckQuota(long bytes) {
+    quota.assertWithinQuota(bytes);
+  }
+
   /** 드라이브 활성 이름 유일 인덱스 이름 — 같은 폴더 같은 이름 경합 판정용(V81). */
   private static final String ACTIVE_NAME_INDEX = "uq_drive_file_active_name";
 
@@ -559,6 +570,8 @@ public class DriveFileService {
       toStore = new UploadSource(locked.name(), contentType, source.size(), source.writer());
     }
     quota.assertWithinQuota(toStore.size());
+    // 미리 써 둔 blob(DriveStagedUpload, WP-1519)이면 file core 는 FILE 행만 넣는다 — 잠금 아래에서 바이트를 복사하지 않는다.
+    // 위·아래에서 거절되면 써 둔 blob 은 DriveStagedUpload 가 지운다.
     FileUploadResponse uploaded = fileUpload.upload(toStore, callerId);
     files.promoteFile(uploaded.id());
 

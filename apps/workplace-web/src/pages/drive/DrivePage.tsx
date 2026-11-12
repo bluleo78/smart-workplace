@@ -94,12 +94,11 @@ import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
 import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
+import { uploadLimitFor } from './uploadLimit'
 import { useFolderNavigation } from './useFolderNavigation'
 
-// 서버 multipart 업로드 한도(application.yml: max-file-size 100MB, WP-803)와 동일. 초과 시 업로드 전 안내.
-// 형식별 상한(미분류 25MB 등)은 서버가 한국어 문구로 거절한다.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
-const MAX_UPLOAD_LABEL = `${MAX_UPLOAD_BYTES / (1024 * 1024)}MB`
+// 업로드 전 크기 안내는 파일별 상한(uploadLimitFor — 동영상 1GB, 그 외 100MB, WP-1519)으로 한다.
+// 100MB 이하의 형식별 상한(미분류 25MB 등)은 서버가 한국어 문구로 거절한다.
 
 // #658: AbortController.abort() 로 취소된 axios 요청인지 판별 — 실패 토스트 대신 취소 안내로 분기.
 function isUploadAborted(err: unknown): boolean {
@@ -613,8 +612,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         break
       }
       try {
-        if (d.file.size > MAX_UPLOAD_BYTES) {
-          failures.push(`${d.file.name} (${MAX_UPLOAD_LABEL} 초과)`)
+        const limit = uploadLimitFor(d.file)
+        if (d.file.size > limit.maxBytes) {
+          failures.push(`${d.file.name} (${limit.label} 초과)`)
         } else {
           const target = await ensureFolder(d.relativePath)
           await driveApi.uploadFile(sid, target, d.file, controller.signal)
@@ -683,8 +683,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     if (files.length === 1) {
       const file = files[0]
       // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
-      if (file.size > MAX_UPLOAD_BYTES) {
-        toast.error(`파일 크기가 ${MAX_UPLOAD_LABEL}를 초과합니다.`)
+      const limit = uploadLimitFor(file)
+      if (file.size > limit.maxBytes) {
+        toast.error(`파일 크기가 ${limit.label}를 초과합니다.`)
         return
       }
       const controller = new AbortController()
@@ -725,8 +726,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           break
         }
         try {
-          if (file.size > MAX_UPLOAD_BYTES) {
-            failures.push(`${file.name} (${MAX_UPLOAD_LABEL} 초과)`)
+          const limit = uploadLimitFor(file)
+          if (file.size > limit.maxBytes) {
+            failures.push(`${file.name} (${limit.label} 초과)`)
           } else {
             await driveApi.uploadFile(sid, folderId, file, controller.signal)
           }
@@ -1647,7 +1649,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               >
                 {/* #82: 파일 행 체크박스 — 멀티셀렉트용. 모바일은 선택 모드에서만 보인다(WP-216). */}
                 {renderRowCheck('file', f.id, f.name)}
-                <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} available={!isMissingBlob(f)} />
+                <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} name={f.name} available={!isMissingBlob(f)} />
                 <button
                   type="button"
                   onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}

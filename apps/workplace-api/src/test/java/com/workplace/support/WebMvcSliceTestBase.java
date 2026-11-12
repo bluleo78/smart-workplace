@@ -39,6 +39,7 @@ import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.drive.service.DriveSearchService;
 import com.workplace.drive.service.DriveShareLinkService;
+import com.workplace.drive.service.DriveStagedUpload;
 import com.workplace.drive.service.DriveTrashService;
 import com.workplace.drive.service.DriveZipService;
 import com.workplace.file.controller.FileUploadController;
@@ -217,6 +218,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       DriveQuotaService.class,
       DriveSearchService.class,
       DriveShareLinkService.class,
+      DriveStagedUpload.class,
       DriveTrashService.class,
       DriveZipService.class,
       EmailAccountService.class,

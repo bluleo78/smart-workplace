@@ -398,6 +398,23 @@ class MailAttachmentDriveSaveTest extends IntegrationTestBase {
   }
 
   @Test
+  void 동영상_첨부도_메모리로_받는_경로라_100MB_를_넘으면_메일_서버에_가지_않고_400() throws Exception {
+    // WP-1519: 드라이브 동영상 상한은 1GB 지만, 메일 저장은 원본을 byte[] 로 받으므로 100MB 로 묶는다.
+    // 형식이 octet-stream 이어도 이름(.mp4)으로 정한 동영상 범주가 상한과 문구 양쪽에 같이 쓰인다.
+    long att = attachment("clip.mp4", "application/octet-stream", null);
+    // base64 여유(4/3)를 빼도 100MB 를 넘고 1GB 보다는 작은 크기(실제 약 225MB).
+    setManifestSize(att, 300L * 1024 * 1024);
+    givenDownload("fake-mp4".getBytes());
+
+    save(att, space.id(), null)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("동영상 파일은 최대 100MB까지 업로드할 수 있습니다: clip.mp4"));
+
+    verify(attachmentService, never()).downloadForPreview(anyLong(), any(), any());
+    assertThat(driveFileCount()).isZero();
+  }
+
+  @Test
   void 저장_한도가_거의_찼고_manifest_크기가_남은_한도를_넘으면_메일_서버에_가지_않고_409() throws Exception {
     long att = attachment("full.pdf", "application/pdf", null);
     // IMAP manifest 크기는 base64 기준 — 여유(4/3)를 빼고도 남은 한도(1MB)를 넘는 크기(실제 약 7.5MB).

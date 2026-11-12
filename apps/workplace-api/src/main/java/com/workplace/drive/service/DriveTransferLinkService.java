@@ -46,7 +46,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 드라이브 전송 링크(WP-369) — 외부 MCP 클라이언트(curl·브라우저)가 로그인 없이 쓰는 10분짜리 일회용 서명 링크의 발급·소비.
@@ -106,6 +108,12 @@ public class DriveTransferLinkService {
   /** 드라이브 업로드 크기 상한 규칙(범주 상한·멀티파트 상한 중 작은 값) — 업로드 링크도 같은 상한을 넘지 않는다. */
   private final DriveUploadLimits uploadLimits;
 
+  /** blob 먼저 쓰기(WP-1519) — 받아 둔 본문을 테넌트 잠금·트랜잭션 밖에서 저장소에 쓴 뒤 저장 핵심을 부른다. */
+  private final DriveStagedUpload stagedUpload;
+
+  /** 저장 핵심 + 사용 감사를 한 트랜잭션으로 묶는다 — blob 쓰기는 이 트랜잭션 밖에서 한다(WP-1519). */
+  private final TransactionTemplate tx;
+
   /** 외부에서 닿는 웹 기준 주소(끝 슬래시 제거). 운영은 WEB_BASE_URL, 비면 기동 실패({@code PublicBaseUrlCheck}). */
   private final String publicBaseUrl;
 
@@ -119,6 +127,8 @@ public class DriveTransferLinkService {
       DriveFileService fileService,
       AuditLogService auditLogService,
       DriveUploadLimits uploadLimits,
+      DriveStagedUpload stagedUpload,
+      PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url}") String publicBaseUrl,
       @Value("${workplace.drive.transfer-temp-dir:${java.io.tmpdir}}") String tempDir) {
     this.links = links;
@@ -132,6 +142,8 @@ public class DriveTransferLinkService {
     this.tempDir = BoundedBody.prepareTempDir(tempDir, "workplace.drive.transfer-temp-dir");
     this.publicBaseUrl = CapabilityTokens.normalizeBaseUrl(publicBaseUrl);
     this.uploadLimits = uploadLimits;
+    this.stagedUpload = stagedUpload;
+    this.tx = new TransactionTemplate(txManager);
   }
 
   /**
@@ -451,8 +463,8 @@ public class DriveTransferLinkService {
 
   /**
    * 공개 업로드 4단계(R2) — 본문을 세는 스트림으로 임시 파일에 받는다. 트랜잭션·DB 연결·테넌트 lock 없이 돈다. 상한은 이름·Content-Type 으로 정한
-   * 범주 상한(멀티파트 100MB 이하)이며, 원시 PUT 본문에는 멀티파트 상한이 걸리지 않고 Content-Length 가 없을 수도 있어(chunked) 이 세기가
-   * 유일한 제한이다. 넘으면 그 자리에서 끊는다.
+   * 범주 상한(멀티파트 1GB 이하 — 동영상 1GB, 그 외 100MB 이하)이며, 원시 PUT 본문에는 멀티파트 상한이 걸리지 않고 Content-Length 가 없을
+   * 수도 있어(chunked) 이 세기가 유일한 제한이다. 넘으면 그 자리에서 끊는다.
    *
    * @return 받은 본문(닫으면 임시 파일을 지운다)
    * @throws DriveTransferUploadRejectedException 크기 초과·본문 중단(400), 임시 파일 생성·쓰기 실패(500). 링크는 이미 소비됐다
@@ -496,20 +508,26 @@ public class DriveTransferLinkService {
    * 알림. 이어 사용 감사(R11)를 같은 트랜잭션에 남긴다. 파일 지정 링크는 {@link DriveFileService#addVersion} 으로 그 파일 ID 에 새
    * 버전을 더한다(감사 FILE_VERSION_CREATED).
    *
+   * <p>본문 임시 파일은 트랜잭션을 열기 전에 저장소로 옮긴다({@link DriveStagedUpload}, WP-1519) — 1GB 동영상을 복사하는 동안 테넌트
+   * 할당량 잠금·커넥션을 쥐지 않게. 저장 트랜잭션이 실패하면 옮긴 blob 은 지운다.
+   *
    * <p>핵심의 예외는 내부 id 가 없는 전송 링크 예외로 바꾼다(문구는 "새 링크를 발급받으세요" — 링크는 이미 소비됐다).
    */
-  @Transactional
   public DriveFileResponse completeUpload(
       TransferLinkRow link, BoundedBody.Received body, String clientIp, String userAgent) {
-    DriveFileResponse saved;
     try {
       UploadSource source =
           UploadSource.ofFile(link.fileName(), storedMime(link, body), body.path(), body.size());
-      saved =
-          link.driveFileId() != null
-              // 파일 지정 링크 — 이름으로 찾지 않고 그 파일에 새 버전(저장 이름은 파일의 지금 이름)
-              ? fileService.addVersion(link.userId(), link.driveFileId(), source)
-              : fileService.upload(link.userId(), link.spaceId(), link.folderId(), source);
+      return stagedUpload.run(
+          source,
+          staged ->
+              tx.execute(
+                  s -> {
+                    DriveFileResponse saved = saveInTx(link, staged);
+                    auditUse(
+                        link, saved.id(), saved.name(), saved.sizeBytes(), clientIp, userAgent);
+                    return saved;
+                  }));
     } catch (DriveFileNotFoundException e) {
       // 재확인과 이 트랜잭션 사이에 대상 파일이 휴지통으로 갔다(예외 문구의 내부 id 를 드러내지 않는다).
       throw fileGoneOrLostPermission(link);
@@ -533,15 +551,25 @@ public class DriveTransferLinkService {
       // 저장소 복사(FileStore.storeFrom) 등 서버 쪽 입출력 실패
       throw storageFailed(link.id(), e);
     }
-    auditUse(link, saved.id(), saved.name(), saved.sizeBytes(), clientIp, userAgent);
-    return saved;
+  }
+
+  /** 저장 핵심 호출(트랜잭션 안) — 파일 지정 링크는 그 파일에 새 버전, 아니면 이름으로 새 파일·새 버전. 입출력 예외는 람다 밖으로 내보내려고 감싼다. */
+  private DriveFileResponse saveInTx(TransferLinkRow link, UploadSource source) {
+    try {
+      return link.driveFileId() != null
+          // 파일 지정 링크 — 이름으로 찾지 않고 그 파일에 새 버전(저장 이름은 파일의 지금 이름)
+          ? fileService.addVersion(link.userId(), link.driveFileId(), source)
+          : fileService.upload(link.userId(), link.spaceId(), link.folderId(), source);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   /**
    * 저장 MIME(WP-523) — Content-Type 없이 올린({@code curl -T}) 실제 이미지는 바이트로 이미지 MIME 을 정해 미리보기·썸네일이 나오게
    * 한다 ({@link MimeNormalizer#normalizeSniffing}). 다만 링크는 발급 때 이름으로 정한 상한(미분류 25MB·PDF·문서·데이터
-   * 100MB)으로 받았으므로, 이미지 상한(10MB)을 넘으면 이미지로 바꾸지 않고 정규화 결과 그대로 둔다 — 이미 쓴 일회용 링크가 이미지 상한에 걸려 실패하지 않게.
-   * 파일 지정 링크(새 버전)도 같다 — 실제 바이트가 이미지면 그 버전은 이미지다.
+   * 100MB·동영상 1GB)으로 받았으므로, 이미지 상한(10MB)을 넘으면 이미지로 바꾸지 않고 정규화 결과 그대로 둔다 — 이미 쓴 일회용 링크가 이미지 상한에 걸려
+   * 실패하지 않게. 파일 지정 링크(새 버전)도 같다 — 실제 바이트가 이미지면 그 버전은 이미지다.
    */
   private static String storedMime(TransferLinkRow link, BoundedBody.Received body) {
     String normalized = MimeNormalizer.normalize(link.fileName(), body.mimeType());

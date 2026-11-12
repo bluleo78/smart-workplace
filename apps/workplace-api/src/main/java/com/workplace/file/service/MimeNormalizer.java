@@ -62,7 +62,26 @@ public final class MimeNormalizer {
           Map.entry("heif", "image/heif"),
           Map.entry("tif", "image/tiff"),
           Map.entry("tiff", "image/tiff"),
-          Map.entry("bmp", "image/bmp"));
+          Map.entry("bmp", "image/bmp"),
+          // WP-1519: 동영상 — Content-Type 없이 올린(curl -T 업로드 링크) 파일이나 OS 가 형식을 모르는 .mkv 등이
+          // OTHER(25MB)로 떨어져
+          // 동영상 상한(1GB)을 받지 못했다. 범주(VIDEO)는 video/ 접두어로 정해지므로 백필은 없다(기존 행은 octet-stream 그대로).
+          // 웹 사전 검사(apps/workplace-web/src/pages/drive/uploadLimit.ts VIDEO_EXTENSIONS)와 같은 목록이다 —
+          // 바꾸면 함께 고친다.
+          Map.entry("mp4", "video/mp4"),
+          Map.entry("m4v", "video/mp4"),
+          Map.entry("mov", "video/quicktime"),
+          Map.entry("webm", "video/webm"),
+          Map.entry("mkv", "video/x-matroska"),
+          Map.entry("avi", "video/x-msvideo"),
+          Map.entry("wmv", "video/x-ms-wmv"),
+          Map.entry("flv", "video/x-flv"),
+          Map.entry("mpeg", "video/mpeg"),
+          Map.entry("mpg", "video/mpeg"),
+          Map.entry("3gp", "video/3gpp"),
+          Map.entry("ogv", "video/ogg"),
+          Map.entry("mts", "video/mp2t"),
+          Map.entry("m2ts", "video/mp2t"));
 
   /**
    * 텍스트로 만드는 파일(드라이브 텍스트 파일·스테이징 텍스트 업로드)의 확장자 → MIME. 표 밖의 확장자는 text/plain 이다.

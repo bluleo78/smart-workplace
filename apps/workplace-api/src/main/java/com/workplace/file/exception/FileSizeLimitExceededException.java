@@ -11,6 +11,7 @@ import java.util.Map;
 public class FileSizeLimitExceededException extends RuntimeException {
 
   private static final long MB = 1024L * 1024;
+  private static final long GB = 1024L * MB;
 
   /** 범주 → 문구에 쓰는 이름. 미분류(OTHER)는 범주 이름이 없어 「이 형식의」로 쓴다. */
   private static final Map<String, String> CATEGORY_LABELS =
@@ -20,10 +21,11 @@ public class FileSizeLimitExceededException extends RuntimeException {
           "TEXT", "텍스트",
           "DATA", "데이터",
           "DOCUMENT", "문서",
+          "VIDEO", "동영상",
           "OTHER", "이 형식의");
 
   /**
-   * @param category 파일 범주(FileUploadService 의 IMAGE·PDF·TEXT·DATA·DOCUMENT·OTHER)
+   * @param category 파일 범주(FileUploadService 의 IMAGE·PDF·TEXT·DATA·DOCUMENT·VIDEO·OTHER)
    * @param maxBytes 그 범주의 상한(바이트)
    * @param fileName 거절한 파일 이름(없으면 null — 이름을 붙이지 않는다)
    */
@@ -57,6 +59,10 @@ public class FileSizeLimitExceededException extends RuntimeException {
    * 한도도 「0MB」로 읽히지 않게.
    */
   private static String formatSize(long bytes) {
+    // 딱 떨어지는 GB(동영상 상한 1GB, WP-1519)는 「1024MB」 대신 「1GB」 — 웹 사전 검사 문구와 같게.
+    if (bytes >= GB && bytes % GB == 0) {
+      return (bytes / GB) + "GB";
+    }
     if (bytes >= MB) {
       return (bytes % MB == 0
               ? Long.toString(bytes / MB)

@@ -20,6 +20,19 @@ class MimeNormalizerTest {
   }
 
   @Test
+  @DisplayName("octet-stream·빈 값의 동영상은 확장자로 보정(WP-1519)")
+  void normalizesVideoExtensions() {
+    assertThat(MimeNormalizer.normalize("a.mp4", "application/octet-stream"))
+        .isEqualTo("video/mp4");
+    assertThat(MimeNormalizer.normalize("a.MOV", null)).isEqualTo("video/quicktime");
+    assertThat(MimeNormalizer.normalize("a.mkv", "")).isEqualTo("video/x-matroska");
+    assertThat(MimeNormalizer.normalize("a.webm", "application/octet-stream"))
+        .isEqualTo("video/webm");
+    assertThat(MimeNormalizer.normalize("a.avi", "application/octet-stream"))
+        .isEqualTo("video/x-msvideo");
+  }
+
+  @Test
   @DisplayName("브라우저가 준 구체적 mime 은 덮어쓰지 않는다")
   void keepsSpecificBrowserMime() {
     assertThat(MimeNormalizer.normalize("a.html", "text/html")).isEqualTo("text/html");

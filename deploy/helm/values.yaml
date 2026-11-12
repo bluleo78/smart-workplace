@@ -72,9 +72,15 @@ ingress:
   adminAltHost: ""
   # true 면 webHost 의 /mcp 경로도 mcp 서비스로 라우팅한다(공개 도메인 경로 방식). mcpHost 와 병행.
   mcpPathOnWeb: false
-  # 업로드 본문 크기 상한. api 의 spring.servlet.multipart.max-request-size(275MB)와 맞춘다.
+  # 업로드 본문 크기 상한. api 의 spring.servlet.multipart.max-request-size(1100MB — 드라이브 동영상 1GB, WP-1519)와 맞춘다.
   # 기본값(1MiB)이면 1MiB 초과 업로드가 413 으로 잘려 api 로그에 흔적조차 남지 않는다.
-  proxyBodySize: 275m
+  proxyBodySize: 1100m
+  # 업로드 본문을 컨트롤러 임시 파일(/tmp/nginx/client-body)에 다 받은 뒤 넘기지 않고 흘려 보낼지(WP-1519). "off" 면 1GB 본문이
+  # 컨트롤러 파드 디스크에 쓰이지 않는다(컨트롤러는 이 차트 밖이라 디스크 여유를 장담할 수 없다).
+  proxyRequestBuffering: "off"
+  # upstream 쓰기·읽기 대기(초, 두 번의 쓰기/읽기 사이). 기본 60s 면 1GB 본문을 다 보낸 뒤 api 가 임시 파일을 NFS 로 옮기는 동안
+  # 응답이 늦어 504 가 나고(저장은 됨) 재시도가 같은 이름 새 버전을 만든다(WP-1519).
+  proxyTimeoutSeconds: "600"
   tls:
     enabled: true
     # 자체서명 인증서 Secret. 재생성: smart-workplace/tls/ 의 crt/key로
