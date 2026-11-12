@@ -2,6 +2,7 @@ import { type ComponentType, lazy, type ReactNode, Suspense, useState } from 're
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { AdminRoute } from './components/AdminRoute'
+import { DriveUploadProvider } from './components/drive/upload/DriveUploadProvider'
 import { IssueModuleLayout } from './components/issue/IssueModuleLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { PageLoader } from './components/layout/PageLoader'
@@ -178,6 +179,8 @@ export default function App() {
     <PageErrorBoundary>
       {/* 아바타 주소 표(WP-1222) — 로그인한 동안 한 번 받아 모든 아바타가 userId 로 찾는다. */}
       <AvatarsProvider>
+        {/* WP-1534: 드라이브 업로드 큐 — 공유 링크 입구(WikiShareGate)가 AppLayout 을 따로 마운트해도 업로드가 끊기지 않게 셸보다 한 단계 위. */}
+        <DriveUploadProvider>
         <RouteDocumentTitle />
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -329,6 +332,7 @@ export default function App() {
             </Route>
           </Routes>
         </Suspense>
+        </DriveUploadProvider>
       </AvatarsProvider>
     </PageErrorBoundary>
   )

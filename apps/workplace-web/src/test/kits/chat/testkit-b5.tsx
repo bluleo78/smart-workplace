@@ -10,6 +10,8 @@ import { Route, Routes, useParams } from "react-router-dom";
 import { setAccessToken } from "@/api/client";
 import { AIAssistantProvider } from "@/components/ai/AIAssistantContext";
 import { ChatModuleLayout } from "@/components/chat/ChatModuleLayout";
+import { DriveUploadPanelHost } from "@/components/drive/upload/DriveUploadPanelHost";
+import { DriveUploadProvider } from "@/components/drive/upload/DriveUploadProvider";
 import { HelpPanelProvider } from "@/components/help/HelpPanelContext";
 import { MessagingConnectionContext } from "@/hooks/MessagingConnectionContext";
 import { useRouteDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -67,6 +69,8 @@ export function ChatRoutes() {
   return (
     // 첨부 뷰어가 AI 패널 상태(useAiPanelAwareDialog)를 읽으므로 앱 셸처럼 AI 어시스턴트 상태만 세운다(단축키 끔).
     <AIAssistantProvider hotkeysEnabled={false}>
+      {/* WP-1534: 채널 파일 드로워의 DrivePage 가 전역 업로드 큐를 구독한다 — 앱 셸처럼 Provider 를 세운다. */}
+      <DriveUploadProvider>
       {/* WP-1505: 휴대폰 대화 목록 머리줄의 「?」(MobileHelpButton)가 도움말 상태를 읽는다 — AppLayout 처럼 AI 공급자 안에 둔다. */}
       <HelpPanelProvider>
       <ChatStreamHost>
@@ -91,6 +95,9 @@ export function ChatRoutes() {
         </Routes>
       </ChatStreamHost>
       </HelpPanelProvider>
+      {/* 앱 셸(AppLayout)처럼 떠 있는 업로드 패널 호스트도 둔다 — 드로워 안쪽 호스트와 하나만 보이는지 함께 본다. */}
+      <DriveUploadPanelHost />
+      </DriveUploadProvider>
     </AIAssistantProvider>
   );
 }

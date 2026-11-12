@@ -200,3 +200,10 @@ describe('끝남', () => {
     expect(screen.getByText('업로드를 취소했어요 · 0개 완료')).toBeInTheDocument()
   })
 })
+
+describe('데스크톱 위치 (WP-1534)', () => {
+  test('데스크톱 패널은 오른쪽 칸(--right-dock-width) 옆에 뜬다', () => {
+    renderPanel(runningBatch())
+    expect(screen.getByTestId('drive-upload-panel').style.right).toBe('calc(var(--right-dock-width, 0px) + 1rem)')
+  })
+})

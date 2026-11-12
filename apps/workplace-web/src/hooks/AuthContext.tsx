@@ -17,6 +17,7 @@ import {
 } from '../lib/activeTenant';
 import { clearStarterStorage } from '../lib/ai/starterStorage';
 import { isTransientRequestError } from '../lib/api-error';
+import { emitIdentityChange } from '../lib/auth/identityChange';
 import { clearIssueBodyDrafts } from '../lib/issueBodyDraft';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
@@ -179,6 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('NO_WORKSPACE');
     }
 
+    // WP-1534: 새 토큰을 깔기 전에 이전 신원에 묶인 작업(업로드 큐 등)을 동기로 끊는다 — 남은 파일이 새 토큰으로 나가지 않게.
+    emitIdentityChange();
     setAccessToken(res.accessToken);
 
     if (memberships.length > 1) {
@@ -207,6 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const selectTenant = useCallback(async (membership: Membership, redirectTo = '/') => {
     // tenant-scoped 토큰 재발급(refresh 쿠키도 tenant-scoped 로 세팅됨).
     const { data: token } = await authApi.selectTenant(membership.tenantId);
+    // WP-1534: 다른 테넌트 토큰을 깔기 전에 이전 신원에 묶인 작업을 끊는다(리로드 전 틈에 새 토큰으로 나가지 않게).
+    emitIdentityChange();
     setAccessToken(token.accessToken);
     writeActiveTenant(membership);
     localStorage.setItem(AUTH_FLAG_KEY, 'true');
@@ -220,6 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTenantOptions(null);
     queryClient.clear();
     const { data: tokens } = await deduplicatedRefresh();
+    // WP-1534: SSO 로 받은 새 토큰을 깔기 전에 이전 신원에 묶인 작업을 끊는다.
+    emitIdentityChange();
     setAccessToken(tokens.accessToken);
     const { data: memberships } = await authApi.memberships();
     if (memberships.length === 0) {
@@ -250,6 +257,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [login]);
 
   const logout = useCallback(async () => {
+    // WP-1534: 로그아웃을 누른 그 순간 사용자에 묶인 작업(업로드 큐 등)을 동기로 끊는다 — 아래 푸시 정리·서버 로그아웃을
+    // 기다리는 몇 초 동안, 그리고 토큰을 비운 뒤 user 가 다시 그려지기 전까지 다음 파일이 나가지 않게.
+    emitIdentityChange();
     try {
       // 서버 logout(토큰 폐기) 전에 이 기기의 푸시 매핑을 지운다 — 토큰이 아직 살아 있어야 인증 호출이 통과한다.
       // 실패는 clearPushOnLogout 내부에서 흡수하지만, 요청 자체가 멈춰버리면(네트워크 hang) 로그아웃 전체가

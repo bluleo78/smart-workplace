@@ -5,11 +5,12 @@
 // messaging-phase-c,messaging-composer-upload,messaging-phase6}.spec.ts 에서 옮겼다.
 // 그 spec 들에는 긴 이름 잘림·칸 배치(@layout)와 에디터에 글자를 치는 흐름(@input)만 남는다. 채널 화면 배선(@wiring)은 chat.spec.ts.
 // 채팅 라우트만 renderScreen 으로 띄운다(testkit-b5) — 다른 화면(드라이브)으로의 이동은 도착 주소만 본다.
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
+import { DriveUploadProvider } from '@/components/drive/upload/DriveUploadProvider'
 import { DrivePage } from '@/pages/drive/DrivePage'
 import { API, renderChat } from '@/test/kits/chat/testkit-b5'
 import { renderScreen } from '@/test/renderScreen'
@@ -559,6 +560,35 @@ describe('채널 파일 드로워 (#76)', () => {
     await waitFor(() => expect(location()).toBe(`/drive/spaces/${SPACE_ID}`))
   })
 
+  // WP-1534: 드로워(모달 시트)가 열려 있으면 셸의 떠 있는 패널은 덮개 아래에 깔려 눌리지 않는다 — 패널을 드로워 안에 하나만 그린다.
+  // 드로워를 닫으면 같은 배치가 떠 있는 패널로 이어진다.
+  test('드로워에서 올리면 업로드 패널이 드로워 안에 하나만 보이고, 닫으면 셸 패널로 이어진다', async () => {
+    let posts = 0
+    const upload = http.post(`${API}/drive/spaces/${SPACE_ID}/files`, async () => {
+      posts += 1
+      await new Promise(() => {})
+      return HttpResponse.json({})
+    })
+    const { user, drawer } = await openDrawer([upload])
+    fireEvent.change(within(drawer).getByTestId('file-input'), {
+      target: { files: [new File(['hello'], 'memo.txt', { type: 'text/plain' })] },
+    })
+    await waitFor(() => expect(posts).toBe(1))
+    const panels = screen.getAllByTestId('drive-upload-panel')
+    expect(panels).toHaveLength(1)
+    expect(within(drawer).getByTestId('drive-upload-panel')).toBe(panels[0])
+    expect(panels[0]).toHaveAttribute('data-placement', 'inline')
+    expect(within(panels[0]).getByTestId('drive-upload-panel-cancel')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('drive-space-drawer')).not.toBeInTheDocument())
+    const floating = screen.getByTestId('drive-upload-panel')
+    expect(floating).toHaveAttribute('data-placement', 'floating')
+    expect(within(floating).getByText('업로드 0/1')).toBeInTheDocument()
+    // 남은 요청을 끊어 다음 테스트로 새지 않게 한다.
+    await user.click(within(floating).getByTestId('drive-upload-panel-cancel'))
+  })
+
   test('드로워는 Esc 로 닫힌다', async () => {
     const { user } = await openDrawer()
     await user.keyboard('{Escape}')
@@ -589,9 +619,12 @@ describe('채널 파일 드로워 (#76)', () => {
   // 보관 채널의 드라이브 공간은 읽기 전용 — 배너와 함께 새 폴더·업로드가 실제로 비활성이다.
   test('보관 채널 공간은 읽기 전용 배너와 쓰기 비활성', async () => {
     renderScreen(
-      <Routes>
-        <Route path="/drive/spaces/:spaceId" element={<DrivePage />} />
-      </Routes>,
+      // WP-1534: DrivePage 는 전역 업로드 큐를 구독하므로 Provider 안에서 띄운다.
+      <DriveUploadProvider>
+        <Routes>
+          <Route path="/drive/spaces/:spaceId" element={<DrivePage />} />
+        </Routes>
+      </DriveUploadProvider>,
       {
         path: `/drive/spaces/${SPACE_ID}`,
         handlers: [

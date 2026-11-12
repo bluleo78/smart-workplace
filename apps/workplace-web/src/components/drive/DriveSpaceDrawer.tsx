@@ -1,6 +1,7 @@
 import { ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
+import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
 import { MobileDetailCtx } from '@/components/mobile/MobileDetailContext'
 import {
   Sheet,
@@ -79,6 +80,9 @@ export function DriveSpaceDrawer({
             )}
           </MobileDetailCtx.Provider>
         </div>
+        {/* WP-1534: 업로드 패널을 시트 안 맨 아래에 그린다 — 앱 셸의 떠 있는 패널은 시트 덮개 아래에 깔리고 모달이 바깥 클릭을 막아
+            보이지도 눌리지도 않는다. 이 호스트가 떠 있는 동안 셸 호스트는 숨는다. */}
+        <DriveUploadPanelHost placement="inline" />
       </SheetContent>
     </Sheet>
   )

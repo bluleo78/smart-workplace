@@ -8,6 +8,7 @@ import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { AIChip } from '@/components/ai/AIChip'
 import { LazyAIFullscreen, LazyMobileAiSheet } from '@/components/ai/LazyAiSurfaces'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
 import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
 import { HelpTrigger } from '@/components/help/HelpTrigger'
 import { MobileHelpSheet } from '@/components/help/MobileHelpSheet'
@@ -165,6 +166,8 @@ export function AppLayout() {
             <MailComposeWindowSync />
             {/* WP-1235 「채팅·이슈로 보내기」 — 🔗 토스트·⋯·⬆︎ 시트가 openSendToChat 으로 연다. 셸 분기(isMobile) 밖에 둬 어느 화면에서나 뜬다. */}
             <SendToChatHost />
+            {/* WP-1534 드라이브 업로드 패널 — 셸 분기 밖이라 lg 경계로 셸이 바뀌어도 접힘 상태가 유지되고, 어느 메뉴에서나 보인다. */}
+            <DriveUploadPanelHost />
             </HeaderDensityProvider>
           </AiScreenContextProvider>
           </HelpPanelProvider>

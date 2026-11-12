@@ -7,9 +7,11 @@
 // DrivePage 만 renderScreen 으로 띄운다(testkit-b6 renderDrivePage — 풀페이지 라우트) — 사용량 갱신처럼 사이드바가 필요한 판정만 DriveSidebar 를 함께 띄운다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
+import { Link } from 'react-router-dom'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { DriveSidebar } from '@/components/drive/DriveSidebar'
+import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
 import { closeSearchPalette, searchPaletteSession } from '@/components/search/searchPaletteStore'
 import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
@@ -826,6 +828,125 @@ describe('업로드', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  // WP-1534: 채널 파일 드로워처럼 안쪽 호스트가 패널을 시트 흐름 안에 그리면 이 화면 위에 떠 있는 패널이 없다 —
+  // 패널은 하나(안쪽)만 보이고, 목록 아래 여백도 두지 않는다.
+  test('안쪽 호스트가 패널을 그리는 동안은 떠 있는 패널도, 목록 아래 여백도 없다', async () => {
+    class FixedHeightObserver {
+      private cb: ResizeObserverCallback
+      constructor(cb: ResizeObserverCallback) {
+        this.cb = cb
+      }
+      observe(target: Element) {
+        this.cb([{ target, borderBoxSize: [{ blockSize: 120, inlineSize: 320 }] } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', FixedHeightObserver)
+    try {
+      await openDrive({ folders: [], files: [] }, {
+        extra: <DriveUploadPanelHost placement="inline" />,
+        handlers: [http.post(`${API}/spaces/${SPACE_ID}/files`, () => HttpResponse.json({ status: 500, message: '저장하지 못했습니다' }, { status: 500 }))],
+      })
+      chooseFiles([new File(['a'], 'a.txt', { type: 'text/plain' })])
+      const panel = await screen.findByTestId('drive-upload-panel')
+      await within(panel).findByText('0개 완료 · 1개 실패')
+      expect(screen.getAllByTestId('drive-upload-panel')).toHaveLength(1)
+      expect(panel).toHaveAttribute('data-placement', 'inline')
+      expect(screen.getByTestId('drive-dropzone').style.paddingBottom).toBe('')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  // WP-1534: 큐·패널은 앱 전역 — 다른 메뉴에 갔다 돌아와도 같은 배치를 이어서 본다.
+  // Routes 의 `*` 는 null 이라 링크로 이동하면 DrivePage 가 내려간다(큐는 Provider 에 남는다).
+  function awayLinks() {
+    return (
+      <>
+        <Link to="/projects">이슈로</Link>
+        <Link to={`/drive/spaces/${SPACE_ID}`}>드라이브로</Link>
+      </>
+    )
+  }
+
+  /** 업로드 응답을 붙잡아 두고, 풀 때 서버 상태에 파일을 넣고 201 을 준다. */
+  function heldUpload(state: Items) {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    const counter = { posts: 0 }
+    const handler = http.post(`${API}/spaces/${SPACE_ID}/files`, async () => {
+      counter.posts += 1
+      await held
+      const file = createFile({ id: 90, name: 'memo.txt' })
+      state.files.push(file)
+      return HttpResponse.json(file, { status: 201 })
+    })
+    return { release: () => release(), counter, handler }
+  }
+
+  test('다른 메뉴에 갔다 돌아오면 진행 중 배치가 이어서 보이고 업로드 단추가 막혀 있다', async () => {
+    const state: Items = { folders: [], files: [] }
+    const { release, counter, handler } = heldUpload(state)
+    const { user } = await openDrive(() => state, { extra: awayLinks(), handlers: [handler] })
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(counter.posts).toBe(1))
+
+    await user.click(screen.getByText('이슈로'))
+    await waitFor(() => expect(screen.queryByTestId('drive-page')).not.toBeInTheDocument())
+    expect(screen.getByTestId('drive-upload-panel')).toBeInTheDocument()
+
+    await user.click(screen.getByText('드라이브로'))
+    await screen.findByTestId('drive-page', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const panel = screen.getByTestId('drive-upload-panel')
+    expect(within(panel).getByText('업로드 0/1')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-upload')).toBeDisabled()
+    expect(screen.getByTestId('drive-upload')).toHaveTextContent('업로드 중…')
+
+    release()
+    // '업로드 중…' 도 '업로드' 를 포함하므로 정확히 일치시키고, 활성화까지 같은 waitFor 에서 기다린다.
+    await waitFor(() => {
+      expect(screen.getByTestId('drive-upload')).toHaveTextContent(/^업로드$/)
+      expect(screen.getByTestId('drive-upload')).not.toBeDisabled()
+    })
+    expect(await screen.findByText('memo.txt')).toBeInTheDocument()
+    expect(within(screen.getByTestId('drive-upload-panel')).getByText('1개 업로드 완료')).toBeInTheDocument()
+  })
+
+  test('돌아온 화면에서 끌어 놓아도 새 배치를 시작하지 않는다', async () => {
+    const state: Items = { folders: [], files: [] }
+    const { release, counter, handler } = heldUpload(state)
+    const { user } = await openDrive(() => state, { extra: awayLinks(), handlers: [handler] })
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(counter.posts).toBe(1))
+    await user.click(screen.getByText('이슈로'))
+    await waitFor(() => expect(screen.queryByTestId('drive-page')).not.toBeInTheDocument())
+    await user.click(screen.getByText('드라이브로'))
+    await screen.findByTestId('drive-page', {}, { timeout: PAGE_LOAD_TIMEOUT })
+
+    dropFile()
+    expect(await screen.findByText('올리는 중인 파일이 끝난 뒤 다시 놓아 주세요.')).toBeInTheDocument()
+    expect(counter.posts).toBe(1)
+    release()
+    expect(await within(screen.getByTestId('drive-upload-panel')).findByText('1개 업로드 완료')).toBeInTheDocument()
+    expect(counter.posts).toBe(1)
+  })
+
+  test('다른 메뉴에서 끝난 파일이 돌아오면 목록에 보인다', async () => {
+    const state: Items = { folders: [], files: [] }
+    const { release, counter, handler } = heldUpload(state)
+    const { user } = await openDrive(() => state, { extra: awayLinks(), handlers: [handler] })
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(counter.posts).toBe(1))
+    await user.click(screen.getByText('이슈로'))
+    await waitFor(() => expect(screen.queryByTestId('drive-page')).not.toBeInTheDocument())
+
+    release()
+    expect(await within(screen.getByTestId('drive-upload-panel')).findByText('1개 업로드 완료')).toBeInTheDocument()
+    await user.click(screen.getByText('드라이브로'))
+    expect(await screen.findByText('memo.txt', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
   })
 
   // #820: 업로드가 끝나면 새로고침 없이 사이드바 사용량을 다시 불러와 갱신한다(쿼터 쿼리 무효화).
