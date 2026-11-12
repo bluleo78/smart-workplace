@@ -19,7 +19,8 @@ spec:
         app.kubernetes.io/part-of: smart-workplace
       annotations:
         # ConfigMap(envFrom)은 파드 시작 때만 읽힌다 — 설정이 바뀌면 다시 띄운다(이미지가 그대로인 릴리스·설정만 바꾼 반영 포함)
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        # extraCaCerts(CA)가 바뀌어도 다시 뜬다 — 기동 때 한 번 읽는 파일이라
+        checksum/config: {{ list (include (print $.Template.BasePath "/configmap.yaml") .) (.Values.aiAgent.extraCaCerts | default "") | toJson | sha256sum }}
     spec:
       {{- include "swp.imagePullSecrets" . | nindent 6 }}
       terminationGracePeriodSeconds: {{ .Values.rollout.apiTerminationGracePeriodSeconds }}
@@ -83,6 +84,11 @@ spec:
             # 반복 AI 작업 회차 결과 대기(WP-1407) — ai-agent 반복 상한 + 보고 재시도보다 길게
             - name: WORKPLACE_RECURRENCE_PENDING_TIMEOUT
               value: {{ .Values.api.recurrencePendingTimeout | quote }}
+            {{- if .Values.aiAgent.extraCaCerts }}
+            # Gen:iA 브라우저 로그인(WP-1461) 서버가 사설 CA 인증서를 쓰므로 ai-agent 와 같은 CA 를 신뢰한다(검증은 끄지 않는다)
+            - name: GENIA_LOGIN_CA_CERT_FILE
+              value: /etc/ssl/extra-ca/ca.crt
+            {{- end }}
           envFrom:
             # POSTGRES_DB/USER/HOST/PORT
             - configMapRef:
@@ -114,9 +120,20 @@ spec:
             # worker가 ro로 마운트하는 동일 파일 저장 볼륨을 api는 rw로 마운트
             - name: storage
               mountPath: /data/storage-data
+            {{- if .Values.aiAgent.extraCaCerts }}
+            # 추가 신뢰 CA(ConfigMap ai-agent-extra-ca) — ai-agent 와 같은 것을 읽기 전용으로 마운트
+            - name: extra-ca
+              mountPath: /etc/ssl/extra-ca
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
       volumes:
         - name: storage
           persistentVolumeClaim:
             claimName: storage-data
+        {{- if .Values.aiAgent.extraCaCerts }}
+        - name: extra-ca
+          configMap:
+            name: ai-agent-extra-ca
+        {{- end }}

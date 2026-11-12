@@ -74,6 +74,9 @@ workplace:
     # 로그인 서버 갱신(WP-1450) 스케줄러 빈을 두지 않는다 — 테스트가 서비스를 가짜 토큰 서버로 직접 만들어 검증한다.
     login-refresh:
       enabled: false
+    # Gen:iA 로그인(WP-1461) — 테스트가 실제 서버로 나가지 않게 닫힌 포트로 둔다. 동작은 가짜 서버(FakeGeniaServer)나 spy 로 검증한다.
+    genia-login:
+      server-url: http://127.0.0.1:9
   # 프로젝트 노트 공간 백필(WP-1480)을 기동 때 돌리지 않는다 — 캐시된 테스트 컨텍스트마다 다른 테스트가 남긴 프로젝트에 공간을 만들지 않게.
   # 백필 동작은 ProjectNoteSpaceTest 가 backfillTenant 를 직접 불러 검증한다.
   wiki:

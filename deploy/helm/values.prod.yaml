@@ -49,6 +49,7 @@ config:
 aiAgent:
   # genia-code-server 는 Caddy 로컬 CA 인증서를 쓴다 — 그 루트를 ai-agent 가 추가로 신뢰한다(2036-09-05 만료).
   # Caddy 가 루트를 새로 만들면(데이터 폴더 초기화 등) 여기도 바꿔야 한다.
+  # API 도 Gen:iA 로그인(WP-1461)에 같은 CA 를 쓴다.
   extraCaCerts: |
     -----BEGIN CERTIFICATE-----
     MIIBozCCAUqgAwIBAgIRAJmpZddQPxCYhQWK2ZbSHQ8wCgYIKoZIzj0EAwIwMDEu

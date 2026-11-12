@@ -243,6 +243,52 @@ class AdminAgentAccountApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.agents[0].username").isNotEmpty());
   }
 
+  /** Gen:iA 붙여 넣기 auth.json(가짜 값) — 브라우저 로그인(WP-1461)이 만드는 것과 같은 모양. */
+  private static String geniaAuthJson(String access, String email) {
+    return "{\"genia\":{\"type\":\"oauth\",\"access\":\""
+        + access
+        + "\",\"refresh\":\""
+        + access
+        + "\",\"expires\":1797033600000,\"email\":\""
+        + email
+        + "\"}}";
+  }
+
+  /** WP-1461 회귀 고정 — 브라우저 로그인을 더해도 Gen:iA 붙여 넣기 등록은 그대로 된다. */
+  @Test
+  void registerGeniaPasteStillWorks() throws Exception {
+    ResultActions r =
+        register(
+                new AgentAccountRequest(
+                    "genia", null, null, null, geniaAuthJson("a", "paste@iacloud.kr"), null))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.provider").value("genia"))
+            .andExpect(jsonPath("$.accountEmail").value("paste@iacloud.kr"));
+    assertThat(r.andReturn().getResponse().getContentAsString()).doesNotContain("\"a\"");
+  }
+
+  /** WP-1461 회귀 고정 — Gen:iA 계정의 붙여 넣기 키 교체(PATCH)도 그대로 된다. */
+  @Test
+  void patchGeniaPasteStillReplaces() throws Exception {
+    long acc =
+        json(register(
+                    new AgentAccountRequest(
+                        "genia", null, null, "젠", geniaAuthJson("a", "paste@iacloud.kr"), null))
+                .andExpect(status().isCreated()))
+            .get("id")
+            .asLong();
+    long before = secretVersion(acc);
+
+    update(
+            acc,
+            new AgentAccountUpdateRequest(
+                null, null, null, geniaAuthJson("b", "other@iacloud.kr"), null))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.accountEmail").value("other@iacloud.kr"));
+
+    assertThat(secretVersion(acc)).isGreaterThan(before);
+  }
+
   @Test
   void patchLabelOnlyKeepsSecretVersion() throws Exception {
     long acc = registerAnthropic(TOKEN, "옛 이름");
