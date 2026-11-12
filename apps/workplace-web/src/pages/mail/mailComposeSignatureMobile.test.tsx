@@ -1,5 +1,5 @@
 // 메일 작성창 서명(WP-1517) — 모바일 화면 테스트. 상단 바 펜(🗑 와 📎 사이)의 빼기·넣기와, 서명이 없을 때 「서명 설정」이
-// 화면 전체 작성창을 저장하고 닫은 뒤 설정으로 옮기는지를 본다. 데스크톱은 mailComposeSignature.test.tsx(한 파일 한 뷰포트).
+// 화면 전체 작성창을 저장하고 닫은 뒤 설정으로 옮기는지를 본다. 데스크톱은 mailComposeSignature.test.tsx(한 파일 한 뷰포트). 새 창으로 열기(WP-1535)가 모바일에 없는지도 여기서 본다.
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
@@ -69,4 +69,13 @@ test('모바일_서명_없음_안내는_작성창을_저장하고_닫은_뒤_이
   await waitFor(() => expect(drafts.calls).toHaveLength(1))
   await waitFor(() => expect(view.location()).toBe('/settings/mail'))
   expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument()
+})
+
+// 새 창으로 열기(WP-1535)는 데스크톱 전용 — 모바일 작성은 화면 전체 시트라 ↗ 가 없다(데스크톱은 mailComposePopout.test.tsx).
+test('모바일_작성창엔_새_창으로_열기가_없다', async () => {
+  const view = renderMobile({ html: '' })
+  await openReply(view)
+  expect(screen.getByTestId('mail-compose-send')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-compose-popout')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '새 창으로 열기' })).not.toBeInTheDocument()
 })

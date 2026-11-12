@@ -22,6 +22,7 @@ import { TopCenterSlot } from '@/components/layout/TopCenterSlot'
 import { useNodeBridge } from '@/components/layout/useNodeBridge'
 import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
+import { MailComposeWindowSync } from '@/components/mail/MailComposeWindowSync'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
 import { SearchPaletteHost } from '@/components/search/SearchPaletteHost'
@@ -160,6 +161,8 @@ export function AppLayout() {
             {isMobile && <SearchPaletteHost />}
             {/* 메일 작성 도크 — fixed, 앱 전역. 처음 작성을 열 때 불러온다(WP-970). draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
             <LazyMailComposeDock />
+            {/* WP-1535: 메일 작성 새 창이 보내거나 닫으면 이 창의 보낸편지함·임시보관함을 다시 받는다. */}
+            <MailComposeWindowSync />
             {/* WP-1235 「채팅·이슈로 보내기」 — 🔗 토스트·⋯·⬆︎ 시트가 openSendToChat 으로 연다. 셸 분기(isMobile) 밖에 둬 어느 화면에서나 뜬다. */}
             <SendToChatHost />
             </HeaderDensityProvider>
