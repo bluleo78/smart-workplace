@@ -33,7 +33,8 @@ class IssueChangeNotifierTest {
             Instant.now(),
             null,
             null,
-            false);
+            false,
+            "H2");
 
     notifier.deleted(project, 21, 39L, 1L);
 
@@ -66,7 +67,8 @@ class IssueChangeNotifierTest {
             Instant.now(),
             null,
             null,
-            false);
+            false,
+            "H2");
 
     notifier.created(project, 21, 39L, 5L);
     notifier.updated(project, 21, 39L, null);

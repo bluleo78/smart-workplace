@@ -183,6 +183,34 @@ describe('프로젝트 개요 — 위젯', () => {
     view.unmount()
   })
 
+  test('상태 요약이 있으면 숫자 카드 위 맨 처음에 「프로젝트 상태」 카드가 보이고, null 이면 없다(WP-1479)', async () => {
+    const view = open(
+      `/projects/${KEY}/overview`,
+      createProjectOverview({
+        statusSummary: { badge: 'RISK', summary: '마감이 닷새 늦을 조짐이에요.', checkedAt: '2026-11-11T14:00:00+09:00', nextRunAt: '2026-11-11T16:00:00+09:00' },
+      }),
+    )
+    const root = await widgets()
+    const card = screen.getByTestId('overview-status-card')
+    expect(root.firstElementChild).toBe(card)
+    expect(screen.getByTestId('overview-status-badge')).toHaveTextContent('위험')
+    expect(card).toHaveTextContent('마감이 닷새 늦을 조짐이에요.')
+    view.unmount()
+
+    open(`/projects/${KEY}/overview`)
+    await widgets()
+    expect(screen.queryByTestId('overview-status-card')).not.toBeInTheDocument()
+  })
+
+  test('불러오는 중 스켈레톤은 상태 카드 자리를 미리 잡지 않는다 — 숫자 카드 줄부터 시작한다(WP-1479)', async () => {
+    open(`/projects/${KEY}/overview`)
+    const loading = await screen.findByTestId('project-overview-loading')
+    // 대부분 프로젝트에는 상태 카드가 없어, 카드 자리 스켈레톤을 두면 불러온 뒤 위젯이 위로 튄다.
+    expect(loading.querySelectorAll(':scope > [data-slot="skeleton"]')).toHaveLength(0)
+    expect(loading.firstElementChild?.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4)
+    await widgets()
+  })
+
   test('사이클·버전·에픽이 없어도 관리자가 아니면 안내를 보이지 않는다 — 전체 추이 링크는 열린 이슈', async () => {
     open(`/projects/${KEY}/overview`, createProjectOverview({ canManage: false, progress: createTrendProgress() }))
     await widgets()

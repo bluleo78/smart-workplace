@@ -90,7 +90,8 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
         "OWNER",
         null,
         null,
-        false);
+        false,
+        "H2");
   }
 
   @Test
@@ -133,7 +134,8 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
             "OWNER",
             null,
             null,
-            false);
+            false,
+            "H2");
     when(projectService.create(eq(1L), any())).thenReturn(personal);
 
     mockMvc
@@ -260,7 +262,7 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new UpdateProjectRequest("Updated", "new", null, null, null, null))))
+                        new UpdateProjectRequest("Updated", "new", null, null, null, null, null))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.key").value("WP"));
   }
@@ -371,5 +373,34 @@ class ProjectControllerTest extends WebMvcSliceTestBase {
     mockMvc
         .perform(delete("/api/v1/projects/WP").header("Authorization", "Bearer valid-token"))
         .andExpect(status().isForbidden());
+  }
+
+  /** WP-1479 — 상태 요약 간격이 H1|H2|H4|DAILY 가 아니면 400. */
+  @Test
+  void update_invalidStatusSummaryInterval_returns400() throws Exception {
+    mockAuthentication("project:write");
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"statusSummaryInterval\":\"H3\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** WP-1479 — 올바른 간격 값은 통과한다. */
+  @Test
+  void update_validStatusSummaryInterval_returns200() throws Exception {
+    mockAuthentication("project:write");
+    when(projectService.update(eq(1L), eq("WP"), any())).thenReturn(sampleProject());
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"statusSummaryInterval\":\"DAILY\"}"))
+        .andExpect(status().isOk());
   }
 }

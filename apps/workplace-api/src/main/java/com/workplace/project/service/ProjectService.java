@@ -9,6 +9,8 @@ import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.overview.status.ProjectStatusSummaryRepository;
+import com.workplace.issue.overview.status.StatusSummaryInterval;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.EpicChildDetacher;
@@ -31,6 +33,7 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +64,8 @@ public class ProjectService {
   private final ProjectMemberDeparture departure;
   private final MembershipGuard membershipGuard;
   private final ProjectChangeNotifier changeNotifier;
+  private final ProjectStatusSummaryRepository
+      statusSummaryRepository; // 간격 변경 시 다음 실행 시각을 당긴다(WP-1479)
 
   /** WP-1038 프로젝트 삭제 때 다른 프로젝트와 걸린 에픽 부모 관계를 뗀다. */
   private final EpicChildDetacher epicChildDetacher;
@@ -236,7 +241,15 @@ public class ProjectService {
         Boolean.TRUE.equals(req.clearDescription()),
         req.repositoryUrl(),
         req.repositoryBranch(),
-        req.nonMemberComment());
+        req.nonMemberComment(),
+        req.statusSummaryInterval());
+    // 간격을 바꾸면 다음 요약 시각을 새 간격 안으로 당긴다(WP-1479) — 간격을 줄였는데 옛 긴 간격이 끝나길 기다리지 않게.
+    if (req.statusSummaryInterval() != null) {
+      statusSummaryRepository.pullNextRunForward(
+          project.id(),
+          OffsetDateTime.now()
+              .plus(StatusSummaryInterval.parse(req.statusSummaryInterval()).duration()));
+    }
     ProjectRow updated =
         projectRepository
             .findById(project.id())

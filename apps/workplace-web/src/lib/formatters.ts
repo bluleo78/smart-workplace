@@ -612,3 +612,16 @@ export function formatMonthDayWeekdayClock(dateStr: string | null | undefined, n
   const { meridiem, clock } = localClockParts(d)
   return `${formatLocalDateWithWeekday(d, now)} ${meridiem} ${clock}`
 }
+
+/**
+ * 서울 기준 「날짜 + 24시간 시각」 — 오늘이면 시각만(`14:00`, todayLabel 을 주면 `오늘 14:00`), 아니면 `11월 11일 14:00`.
+ * 개요 「프로젝트 상태」 카드의 갱신·다음 시각(WP-1479). 무효 입력이면 ''(호출부가 세그먼트 생략).
+ */
+export function formatKstDayClock(dateStr: string | null | undefined, now: Date = new Date(), todayLabel?: string): string {
+  const d = parseUtcDate(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  const t = kstParts(d)
+  const clock = `${pad2(t.h)}:${pad2(t.min)}`
+  if (kstDayRelative(t, now) === 'today') return todayLabel ? `${todayLabel} ${clock}` : clock
+  return `${t.m}월 ${t.d}일 ${clock}`
+}

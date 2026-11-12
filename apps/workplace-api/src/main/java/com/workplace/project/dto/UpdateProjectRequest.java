@@ -22,7 +22,11 @@ public record UpdateProjectRequest(
         @Pattern(regexp = REPOSITORY_BRANCH_PATTERN, message = REPOSITORY_BRANCH_MESSAGE)
         String repositoryBranch,
     // 접수함(OPEN) 프로젝트에서 비멤버의 댓글 허용(WP-1495) — null 이면 변경 없음. OPEN 이 아닌 프로젝트에 true 를 보내면 서비스가 거절한다.
-    Boolean nonMemberComment) {
+    Boolean nonMemberComment,
+    // 개요 「프로젝트 상태」 AI 요약 간격(WP-1479) — null 이면 변경 없음. H1|H2|H4|DAILY 외에는 400.
+    @Pattern(regexp = "H1|H2|H4|DAILY", message = "상태 요약 간격은 H1, H2, H4, DAILY 중 하나여야 합니다.")
+        String statusSummaryInterval) {
+
   /**
    * 저장소 주소 형식 — 빈 값, 또는 https://호스트[:포트]/경로 · ssh://[사용자@]호스트[:포트]/경로 · 사용자@호스트:경로(scp 형식). 웹
    * validations/project.ts 와 같은 규칙.

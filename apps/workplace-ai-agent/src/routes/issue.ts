@@ -5,6 +5,7 @@ import type { RunAgentDeps } from '../agent/run-agent.js'
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js'
 import { issueClassifyInputSchema, runIssueClassify } from '../agent/run-issue-classify-ai.js'
 import { runWorkProfile, workProfileInputSchema } from '../agent/run-work-profile.js'
+import { projectStatusInputSchema, runProjectStatus } from '../agent/run-project-status.js'
 
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
@@ -85,6 +86,21 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     } catch (e) {
       console.error('[issue-work-profile] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'work_profile_failed' })
+    }
+  })
+
+  // 프로젝트 상태 요약(WP-1479) — API 가 계산한 개요 숫자·배지 → 2~3문장 요약 글. 숫자·배지는 API 가 정한다.
+  router.post('/issue/project-status', async (req: Request, res: Response): Promise<void> => {
+    const parsed = projectStatusInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues })
+      return
+    }
+    try {
+      res.status(200).json(await runProjectStatus(parsed.data, deps))
+    } catch (e) {
+      console.error('[issue-project-status] 실패:', e instanceof Error ? e.message : String(e))
+      res.status(502).json({ error: 'project_status_failed' })
     }
   })
 

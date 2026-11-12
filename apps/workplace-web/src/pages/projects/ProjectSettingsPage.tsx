@@ -44,6 +44,7 @@ import { ProjectNoteSpaceSettings } from './components/ProjectNoteSpaceSettings'
 import { ProjectUnavailableState } from './components/ProjectUnavailableState';
 import { RepositorySettings } from './components/RepositorySettings';
 import { StatusManagement } from './components/status/StatusManagement';
+import { StatusSummarySettings } from './components/StatusSummarySettings';
 
 /** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
 
@@ -234,6 +235,13 @@ export default function ProjectSettingsPage() {
           <IssueTypeManagement projectKey={key} isOwner={isOwner} />
 
           <CustomFieldManagement projectKey={key} isOwner={isOwner} />
+
+          {/* 리포트(WP-1479) — 개요 「프로젝트 상태」 AI 요약 간격. 개인 프로젝트는 요약을 만들지 않아 숨긴다. 고치기는 기본 정보와 같은 권한.
+              자주 바꾸는 설정이 아니라 위험 구역 바로 위, 맨 아래쪽에 둔다(위 섹션들의 자리를 밀지 않게).
+              key 는 프로젝트마다 새로 띄우되(고르던 값이 넘어가지 않게) 형제 RepositorySettings 의 key(프로젝트 키)와 겹치지 않게 접두를 붙인다. */}
+          {!isPersonal && project.data && (
+            <StatusSummarySettings key={`status-summary-${project.data.key}`} project={project.data} canManage={canManage} />
+          )}
 
           {/* 삭제는 소유자만(WP-479) — 권한이 없으면 위험 구역 자체를 그리지 않는다. */}
           {canManage && (

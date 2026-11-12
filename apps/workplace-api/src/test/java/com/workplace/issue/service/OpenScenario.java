@@ -138,7 +138,8 @@ public final class OpenScenario {
         rec.get(PROJECT.UPDATED_AT).toInstant(),
         null,
         null,
-        false);
+        false,
+        "H2");
   }
 
   /** project_member 행 삽입. */

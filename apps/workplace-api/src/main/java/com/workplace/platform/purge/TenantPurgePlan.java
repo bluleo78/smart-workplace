@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 import org.jooq.DSLContext;
 import org.jooq.Table;
+import org.jooq.impl.DSL;
 
 /**
  * 테넌트 영구 삭제 시 데이터를 지우는 순서(자식 → 부모). 각 테이블을 대상 테넌트 GUC 아래에서 {@code DELETE ... WHERE tenant_id = ?} 로
@@ -89,6 +90,8 @@ public final class TenantPurgePlan {
           PROJECT_MEMBER_GROUP, // 프로젝트 멤버 조직도 부서(WP-1057) — project·user_group 보다 먼저
           PROJECT_FAVORITE, // 사용자별 프로젝트 즐겨찾기(WP-1001) — project 보다 먼저
           PROJECT_ISSUE_SEQUENCE,
+          // 프로젝트 상태 AI 요약(WP-1479) — project 보다 먼저. 저장소가 SQL 로 다뤄 jOOQ 코드젠 클래스가 없어 이름으로 가리킨다
+          DSL.table(DSL.name("project_status_summary")),
           ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)
           ISSUE_TYPE_DEF,
           PROJECT_STATUS,

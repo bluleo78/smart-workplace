@@ -1,5 +1,5 @@
-// 프로젝트 개요 탭(WP-1477 자리 → WP-1478 위젯) — 숫자 카드 넷, 진행 중 + 열린 이슈, 살펴볼 이슈 + 작업량, 최근 활동.
-// 값은 한 API(GET /projects/{key}/overview)가 한 번에 준다. 맨 위 상태·리포트 카드는 이 이슈 범위 밖이라 자리를 두지 않는다.
+// 프로젝트 개요 탭(WP-1477 자리 → WP-1478 위젯) — 맨 위 「프로젝트 상태」 AI 요약 카드(WP-1479, 전체 폭·요약이 있을 때만), 숫자 카드 넷,
+// 진행 중 + 열린 이슈, 살펴볼 이슈 + 작업량, 최근 활동. 값은 한 API(GET /projects/{key}/overview)가 한 번에 준다.
 // 넓은 폭은 12칸 격자(8 + 4), 좁은 폭(모바일)은 한 열로 쌓는다.
 import { Page } from '@/components/layout/Page'
 import { LoadErrorState } from '@/components/LoadErrorState'
@@ -12,6 +12,7 @@ import { OverviewAttention } from '../overview/OverviewAttention'
 import { OverviewNumberCards } from '../overview/OverviewNumberCards'
 import { OverviewOpenIssues } from '../overview/OverviewOpenIssues'
 import { OverviewProgress } from '../overview/OverviewProgress'
+import { OverviewStatusCard } from '../overview/OverviewStatusCard'
 import { OverviewWorkload } from '../overview/OverviewWorkload'
 import { useProjectTabs } from './ProjectTabsContext'
 
@@ -33,6 +34,7 @@ export default function ProjectOverviewTab() {
         />
       ) : !query.data ? (
         <div aria-busy="true" aria-label="불러오는 중" className="space-y-4" data-testid="project-overview-loading">
+          {/* 상태 카드 자리는 미리 잡지 않는다 — 대부분 프로젝트에는 요약 카드가 없어, 자리를 잡으면 불러온 뒤 위젯이 위로 튄다. */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[0, 1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-24" />
@@ -45,6 +47,7 @@ export default function ProjectOverviewTab() {
         </div>
       ) : (
         <div className="min-w-0 space-y-4" data-testid="project-overview-widgets">
+          <OverviewStatusCard status={query.data.statusSummary} />
           <OverviewNumberCards projectKey={project.key} today={query.data.today} cards={query.data.cards} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
             <OverviewProgress
