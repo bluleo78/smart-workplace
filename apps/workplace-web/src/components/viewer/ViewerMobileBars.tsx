@@ -106,7 +106,7 @@ const SLOT_META: Record<SlotId, { label: string; icon: LucideIcon; testId: strin
 /** 칸 접근 이름 — 공유는 비활성 사유(받는 중/불가)를 이름에 담아 화면낭독기가 왜 못 누르는지 알게 한다. 플랫폼 미지원('none')은 칸 자체가 비어 이름이 쓰이지 않는다. */
 function slotAriaLabel(id: SlotId, share: ShareState): string {
   if (id === 'share') return share === 'ready' ? '공유' : share === 'loading' ? '공유 (받는 중)' : '공유할 수 없음'
-  if (id === 'drive') return '드라이브로 가져오기'
+  if (id === 'drive') return '드라이브에 저장'
   if (id === 'summary') return 'AI 요약'
   return '저장'
 }
@@ -150,19 +150,26 @@ export function ViewerActionBar({
           // 보이는 "받는 중"은 접근 이름 "공유 (받는 중)"에 포함된다(WCAG 2.5.3).
           const loading = s.id === 'share' && share === 'loading'
           const Icon = loading ? Loader2 : m.icon
+          // ☁ 드라이브 칸의 비활성은 누른 뒤 공간 조회 중(busy)뿐인 잠깐 상태다 — disabled 를 달면 방금 누른 칸에서 포커스가
+          // body 로 떨어져 폴더 창이 닫힐 때 칸으로 돌아오지 못한다. 그래서 aria-disabled + 누름 무시로 막아 포커스를 지킨다.
+          // 공유 칸의 비활성(받는 중·불가)은 누르기 전부터의 상태라 그대로 disabled 로 둔다.
+          const busyOnly = s.id === 'drive' && s.state === 'disabled'
           return (
             <div key={s.id} data-slot-id={s.id} data-state={s.state} className="flex min-h-14 items-stretch justify-center">
               {s.state !== 'empty' && (
                 <button
                   type="button"
-                  disabled={s.state === 'disabled'}
+                  disabled={s.state === 'disabled' && !busyOnly}
+                  aria-disabled={busyOnly || undefined}
                   aria-label={slotAriaLabel(s.id, share)}
                   aria-pressed={s.id === 'summary' ? summaryOpen : undefined}
-                  onClick={() => onAction(s.id)}
+                  onClick={() => {
+                    if (!busyOnly) onAction(s.id)
+                  }}
                   data-testid={m.testId}
                   // 요약 토글이 켜진 동안은 아이콘·글자를 primary 로 — 켜짐을 색으로 알린다(하단 바라 테두리 상자는 쓰지 않는다).
                   className={cn(
-                    'flex w-full flex-col items-center justify-center gap-0.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40',
+                    'flex w-full flex-col items-center justify-center gap-0.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40',
                     s.id === 'summary' && summaryOpen && TOGGLE_ON_TEXT_CLASS,
                   )}
                 >

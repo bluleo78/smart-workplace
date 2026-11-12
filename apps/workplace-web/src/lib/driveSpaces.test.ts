@@ -8,6 +8,7 @@ import {
   isDriveSpaceReadOnly,
   isDriveSpaceViewer,
   partitionSpaces,
+  spaceDisplayName,
 } from './driveSpaces'
 
 function space(id: number, type: DriveSpace['type'], name: string): DriveSpace {
@@ -86,5 +87,13 @@ describe('isDriveSpaceReadOnly·isDriveSpaceViewer(WP-582)', () => {
   it('공간 정보가 오기 전(null)엔 막지 않는다 — 기존 보관 판정과 같은 폴백', () => {
     expect(isDriveSpaceReadOnly(null)).toBe(false)
     expect(isDriveSpaceViewer(null)).toBe(false)
+  })
+})
+
+describe('spaceDisplayName', () => {
+  it('개인 공간은 서버 이름과 상관없이 「내 드라이브」, 그 밖은 서버 이름', () => {
+    expect(spaceDisplayName(space(1, 'PERSONAL', '홍길동'))).toBe('내 드라이브')
+    expect(spaceDisplayName(space(2, 'TEAM', '개발팀'))).toBe('개발팀')
+    expect(spaceDisplayName(space(3, 'CHANNEL', '#general'))).toBe('#general')
   })
 })

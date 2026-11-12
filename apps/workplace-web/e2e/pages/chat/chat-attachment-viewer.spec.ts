@@ -27,14 +27,12 @@ async function walkBundle(page: Page) {
   await expect(viewer).toHaveAccessibleName('shot.png 미리보기')
   await expect(page.getByTestId('preview-body').locator('img')).toBeVisible()
   await expect(page.getByTestId('preview-meta')).toContainText('1 / 4')
-  // 업로드: ☁ 있음(개인 공간 확인 뒤 활성)·✨ 없음. 링크 공유 불가라 ⋯ 에 "링크 복사"가 없다.
-  await expect(viewer.getByRole('button', { name: '드라이브로 가져오기' })).toBeEnabled()
+  // 업로드: ☁ 있음(누를 수 있음)·✨ 없음. ⋯ 에는 ☁ 와 겹치던 저장 항목을 두지 않아(WP-1525) — 링크 공유도 원본 이동도 없는
+  // 채팅 업로드는 ⋯ 에 넣을 항목이 하나도 없어 ⋯ 자체가 없다(곧 저장 menuitem 도 없다).
+  await expect(viewer.getByRole('button', { name: '드라이브에 저장' })).toBeEnabled()
   await expect(viewer.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-  await viewer.getByRole('button', { name: '더 보기' }).click()
-  await expect(page.getByRole('menuitem', { name: '드라이브로 가져오기' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '링크 복사' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('menuitem', { name: '드라이브로 가져오기' })).toHaveCount(0)
+  await expect(viewer.getByRole('button', { name: '더 보기' })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: '드라이브에 저장' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
 
   // PDF — 저장 형식이 octet-stream 이어도 파일명(.pdf)으로 PDF 렌더러가 그린다.
@@ -47,7 +45,7 @@ async function walkBundle(page: Page) {
   await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
   await expect(page.getByTestId('viewer-live')).toHaveText('회의록.txt, 4개 중 3번째')
   await expect(viewer.getByRole('button', { name: 'AI 요약' })).toBeVisible()
-  await expect(viewer.getByRole('button', { name: '드라이브로 가져오기' })).toHaveCount(0)
+  await expect(viewer.getByRole('button', { name: '드라이브에 저장' })).toHaveCount(0)
   await viewer.getByRole('button', { name: '더 보기' }).click()
   await expect(page.getByRole('menuitem', { name: '드라이브에서 열기' })).toBeVisible()
   await page.keyboard.press('Escape')
@@ -170,8 +168,8 @@ test.describe('메인 AI 채팅 첨부 뷰어', () => {
     await expect(viewer).toHaveAccessibleName('board.png 미리보기')
     await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
     await expect(viewer.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-    await expect(viewer.getByRole('button', { name: '드라이브로 가져오기' })).toHaveCount(0)
-    // ⋯ 에 넣을 항목(원본 이동·링크 복사·가져오기·드라이브에서 열기)이 하나도 없어 ⋯ 자체가 없다.
+    await expect(viewer.getByRole('button', { name: '드라이브에 저장' })).toHaveCount(0)
+    // ⋯ 에 넣을 항목(원본 이동·링크 항목·드라이브에서 열기)이 하나도 없어 ⋯ 자체가 없다.
     await expect(viewer.getByRole('button', { name: '더 보기' })).toHaveCount(0)
 
     await page.keyboard.press('ArrowRight')

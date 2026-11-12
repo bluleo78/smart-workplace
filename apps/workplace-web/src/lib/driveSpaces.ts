@@ -9,6 +9,14 @@ export function driveSpaceTypeLabel(type: DriveSpaceType): string {
 }
 
 /**
+ * 공간의 화면 이름 — 개인 공간은 서버 이름과 상관없이 「내 드라이브」로 보인다(사이드바와 같은 표기).
+ * 왜 한 곳에: 사이드바·「드라이브에 저장」 성공 토스트(WP-1525) 등 여러 화면이 같은 이름을 보이도록.
+ */
+export function spaceDisplayName(space: Pick<DriveSpace, 'type' | 'name'>): string {
+  return space.type === 'PERSONAL' ? '내 드라이브' : space.name
+}
+
+/**
  * 드라이브 space 목록을 사이드바 표시용 두 그룹으로 분리한다.
  * 채널 연동 space(type==='CHANNEL')는 내 드라이브·팀과 동급 피어가 아니므로
  * '채널' 섹션으로 따로 묶는다. 입력 순서는 보존한다.

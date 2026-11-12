@@ -28,7 +28,7 @@ export interface ViewerItem {
   summaryDriveFileId?: number
   /** 있으면 "참조된 곳"(드라이브 화면에서 연 파일만). */
   backlinksDriveFileId?: number
-  /** 있으면 ☁ 드라이브로 가져오기 — 업로드 첨부(core fileId)는 가져오기, 메일 첨부(메일 첨부 id)는 메일 첨부 저장 API(WP-1400). */
+  /** 있으면 ☁ 드라이브에 저장 — 업로드 첨부(core fileId)는 가져오기, 메일 첨부(메일 첨부 id)는 메일 첨부 저장 API(WP-1400). */
   importTarget?: DriveImportTarget
   /** 있으면 ⋯ "드라이브에서 열기" — 누를 때 파일이 있는 폴더를 찾아 연다(driveOpen.ts). */
   driveOpen?: DriveOpenTarget

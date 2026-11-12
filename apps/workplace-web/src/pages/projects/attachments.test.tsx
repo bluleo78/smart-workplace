@@ -1,9 +1,9 @@
 // 이슈 첨부(업로드·삭제·검증·스피너·버튼 이름)와 첨부 뷰어 묶음의 조건부 표시(WP-203·WP-277·WP-431·#782·#783) — 페이지 테스트(WP-980).
 // 파일 선택 → POST·토스트·목록 갱신, 25MB·10개 한도 사전 검증, 업로드 중 스피너, 권한별 삭제 버튼, 문서(HWP) 변환 경로·휴지통·삭제된 링크,
-// 요약 403·요약 패널·⋯ 메뉴, 드라이브로 가져오기 POST, 없는 첨부 딥링크 안내는 브라우저 없이 판정되므로
+// 요약 403·요약 패널·⋯ 메뉴, 드라이브에 저장 POST·위치 토스트, 없는 첨부 딥링크 안내는 브라우저 없이 판정되므로
 // e2e/pages/projects/attachments.spec.ts 에서 옮겼다. 그 spec 에는 다운로드·PDF·이미지 렌더·실시간 재조회(@platform),
 // ‹ › 키보드 넘기기·포커스 복귀(@input), 드라이브 폴더로 여는 흐름(@flow)이 남는다.
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -12,6 +12,7 @@ import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 import type { IssueAttachment } from '@/types/attachment'
 
 import { createAttachment } from '../../../e2e/factories/attachment.factory'
+import { createFile, createFolder, personalSpace } from '../../../e2e/factories/drive.factory'
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 
 const KEY = 'WP'
@@ -262,16 +263,17 @@ describe('첨부 뷰어 — 조건부 표시', () => {
     expect(screen.queryByTestId('viewer-side-panel')).not.toBeInTheDocument()
   })
 
-  test('업로드 첨부는 ✨ 없이 🔗(링크 복사)·☁ 를 보이고, ☁ → 폴더 고르기 → 드라이브로 가져오기 POST', async () => {
+  test('업로드 첨부는 ✨ 없이 🔗(링크 복사)·☁ 를 보이고, ☁ → 루트 확정 → 드라이브에 저장 POST', async () => {
     const requests = recordRequests()
     const { user } = await openIssueDetail({
       detail: detail(1),
       attachments: [createAttachment({ fileId: 7701, originalName: 'up.txt', mimeType: 'text/plain' })],
-      driveSpaces: [{ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }],
+      // 서버 이름과 상관없이 개인 공간은 사이드바처럼 「내 드라이브」로 보인다(spaceDisplayName).
+      driveSpaces: [personalSpace({ id: 1, name: '홍길동' })],
       handlers: [
         http.get(`${ATT}/7701/content`, () => new HttpResponse('UP', { headers: { 'Content-Type': 'text/plain' } })),
         http.get('/api/v1/drive/spaces/1/items', () => HttpResponse.json({ folders: [], files: [] })),
-        http.post('/api/v1/drive/spaces/1/import-attachment', () => HttpResponse.json({})),
+        http.post('/api/v1/drive/spaces/1/import-attachment', () => HttpResponse.json(createFile({ id: 77, folderId: null }))),
       ],
     })
     await user.click(await screen.findByRole('button', { name: 'up.txt 미리보기' }))
@@ -281,15 +283,116 @@ describe('첨부 뷰어 — 조건부 표시', () => {
     await user.click(within(screen.getByTestId('attachment-viewer')).getByRole('button', { name: /^링크 복사 / }))
     await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}${window.location.pathname}${window.location.search}`))
     expect(new URL(await navigator.clipboard.readText()).searchParams.get('preview')).toBe('file:7701')
+    // WP-1525: ⋯ 에는 저장 항목이 없다 — 헤더 ☁ 와 겹치던 항목을 없앴다(다른 항목은 그대로라 ⋯ 는 보인다).
     await user.click(screen.getByRole('button', { name: '더 보기' }))
-    expect(await screen.findByRole('menuitem', { name: '드라이브로 가져오기' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /채팅·이슈로 보내기/ })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /드라이브에 저장|드라이브로 가져오기/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: '링크 복사' })).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByRole('menuitem', { name: '드라이브로 가져오기' })).not.toBeInTheDocument())
-    await user.click(screen.getByRole('button', { name: '드라이브로 가져오기' }))
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: /채팅·이슈로 보내기/ })).not.toBeInTheDocument())
+    // ☁ 는 아이콘만이라 다운로드처럼 툴팁으로 이름을 보인다(WP-1525).
+    const cloud = screen.getByRole('button', { name: '드라이브에 저장' })
+    await user.hover(cloud)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('드라이브에 저장')
+    await user.click(cloud)
     const picker = await screen.findByTestId('folder-picker')
     await user.click(within(picker).getByTestId('folder-picker-confirm'))
     await waitFor(() => expect(requests.count('POST', '/api/v1/drive/spaces/1/import-attachment')).toBe(1))
+    // 루트에 저장하면 위치는 공간 이름만.
+    const toast = (await screen.findByText('드라이브에 저장했습니다')).closest('[data-sonner-toast]') as HTMLElement
+    expect(toast).toHaveTextContent('내 드라이브')
+    expect(toast).not.toHaveTextContent('내 드라이브 /')
+  })
+
+  // WP-1525 라이브 결함: 조회 중 ☁ 에 disabled 를 달면 브라우저가 포커스를 body 로 떨어뜨려, 폴더 창이 닫힐 때 ☁ 로 돌아오지 못했다.
+  // 조회 중에는 aria-disabled 로만 막아 포커스가 ☁ 에 남고(다시 눌러도 조회가 겹치지 않음), 확정 뒤 포커스가 ☁ 로 돌아온다.
+  // jsdom 은 disabled 가 된 요소에서 포커스를 빼지 않으므로, 조회 중 disabled 속성이 없다는 판정이 그 브라우저 동작을 대신 잡는다.
+  test('키보드로 ☁ 를 누르면 조회 중에도 포커스가 ☁ 에 남고, 폴더를 확정하면 포커스가 ☁ 로 돌아온다', async () => {
+    let spacesFetches = 0
+    // 공간 조회 응답을 테스트가 풀어 줄 때까지 붙잡는다 — 조회 중(busy) 상태를 시간에 기대지 않고 확실히 관찰하려고.
+    let releaseSpaces: () => void = () => {}
+    const spacesGate = new Promise<void>((resolve) => {
+      releaseSpaces = resolve
+    })
+    const { user } = await openIssueDetail({
+      detail: detail(1),
+      attachments: [createAttachment({ fileId: 7703, originalName: 'kb.txt', mimeType: 'text/plain' })],
+      handlers: [
+        http.get('/api/v1/drive/spaces', async () => {
+          spacesFetches += 1
+          await spacesGate
+          return HttpResponse.json([personalSpace({ id: 1 })])
+        }),
+        http.get(`${ATT}/7703/content`, () => new HttpResponse('KB', { headers: { 'Content-Type': 'text/plain' } })),
+        http.get('/api/v1/drive/spaces/1/items', () => HttpResponse.json({ folders: [], files: [] })),
+        http.post('/api/v1/drive/spaces/1/import-attachment', () => HttpResponse.json(createFile({ id: 78, folderId: null }))),
+      ],
+    })
+    await user.click(await screen.findByRole('button', { name: 'kb.txt 미리보기' }))
+    await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent('KB'))
+    const cloud = within(screen.getByTestId('attachment-viewer')).getByRole('button', { name: '드라이브에 저장' })
+    act(() => cloud.focus())
+    await user.keyboard('{Enter}')
+    // 조회 중 — 막혔음은 aria-disabled 로 알리되 disabled 가 아니어서 포커스가 그대로 ☁ 에 있다.
+    await waitFor(() => expect(cloud).toHaveAttribute('aria-disabled', 'true'))
+    expect(cloud).not.toBeDisabled()
+    expect(document.activeElement).toBe(cloud)
+    // 조회 중 다시 눌러도 무시된다 — 조회가 한 번뿐이고 폴더 창도 하나만 뜬다.
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(spacesFetches).toBe(1))
+    releaseSpaces()
+    const picker = await screen.findByTestId('folder-picker')
+    expect(spacesFetches).toBe(1)
+    expect(screen.getAllByTestId('folder-picker')).toHaveLength(1)
+    expect(cloud).not.toHaveAttribute('aria-disabled')
+    await user.click(within(picker).getByTestId('folder-picker-confirm'))
+    await waitFor(() => expect(screen.queryByTestId('folder-picker')).not.toBeInTheDocument())
+    // 폴더 창이 닫히면 Radix 가 포커스를 연 버튼(☁)으로 돌려준다.
+    await waitFor(() => expect(document.activeElement).toBe(cloud))
+    expect(await screen.findByText('드라이브에 저장했습니다')).toBeInTheDocument()
+  })
+
+  // WP-1525: 하위 폴더에 저장하면 토스트가 「공간 / 폴더 / 하위」 위치를 보이고, 「열기」는 저장 응답(folderId·id)의 드라이브 미리보기로 간다.
+  test('하위 폴더에 저장하면 토스트에 위치가 보이고 「열기」로 드라이브 그 폴더의 미리보기로 간다', async () => {
+    const posts: string[] = []
+    const { user, location } = await openIssueDetail({
+      detail: detail(1),
+      attachments: [createAttachment({ fileId: 7702, originalName: 'deep.txt', mimeType: 'text/plain' })],
+      driveSpaces: [personalSpace({ id: 1, name: '홍길동' })],
+      handlers: [
+        http.get(`${ATT}/7702/content`, () => new HttpResponse('DEEP', { headers: { 'Content-Type': 'text/plain' } })),
+        http.get('/api/v1/drive/spaces/1/items', ({ request }) => {
+          const folderId = new URL(request.url).searchParams.get('parentId')
+          if (folderId == null) return HttpResponse.json({ folders: [createFolder({ id: 30, name: '문서' })], files: [] })
+          if (folderId === '30') return HttpResponse.json({ folders: [createFolder({ id: 31, parentId: 30, name: '계약' })], files: [] })
+          return HttpResponse.json({ folders: [], files: [] })
+        }),
+        http.post('/api/v1/drive/spaces/1/folders/:folderId/import-attachment', ({ params }) => {
+          posts.push(String(params.folderId))
+          return HttpResponse.json(createFile({ id: 555, folderId: 31, name: 'deep.txt' }))
+        }),
+        // 「열기」로 옮겨 간 드라이브 화면이 부르는 조회.
+        http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 * 1024 * 1024 })),
+        http.get('/api/v1/drive/spaces/1', () => HttpResponse.json(personalSpace({ id: 1 }))),
+        http.get('/api/v1/drive/folders/31/path', () => HttpResponse.json([{ id: 30, name: '문서' }, { id: 31, name: '계약' }])),
+      ],
+    })
+    await user.click(await screen.findByRole('button', { name: 'deep.txt 미리보기' }))
+    await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent('DEEP'))
+    await user.click(within(screen.getByTestId('attachment-viewer')).getByRole('button', { name: '드라이브에 저장' }))
+    const picker = await screen.findByTestId('folder-picker')
+    await user.click(await within(picker).findByRole('button', { name: '문서' }))
+    await user.click(await within(picker).findByRole('button', { name: '계약' }))
+    await waitFor(() => expect(within(picker).getByTestId('folder-picker-path')).toHaveTextContent('계약'))
+    await user.click(within(picker).getByTestId('folder-picker-confirm'))
+    await waitFor(() => expect(posts).toEqual(['31']))
+    const toast = (await screen.findByText('드라이브에 저장했습니다')).closest('[data-sonner-toast]') as HTMLElement
+    expect(toast).toHaveTextContent('내 드라이브 / 문서 / 계약')
+    // 뷰어(모달)가 열린 동안 Radix 가 body 에 pointer-events:none 을 건다. 실제 브라우저에서는 index.css 의
+    // [data-sonner-toast]{pointer-events:auto} 가 토스트만 다시 받게 하지만 jsdom 은 그 CSS 를 싣지 않아 클릭 이벤트를 직접 보낸다.
+    fireEvent.click(within(toast).getByRole('button', { name: '열기' }))
+    // 주소는 고른 폴더가 아니라 저장 응답(folderId 31·id 555)으로 만든다.
+    await waitFor(() => expect(location()).toBe('/drive/spaces/1?folderId=31&preview=555'))
   })
 
   test('삭제된 첨부 딥링크(?preview=file:999)는 찾을 수 없음 안내를 보이고 뷰어는 열지 않는다', async () => {

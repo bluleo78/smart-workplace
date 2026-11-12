@@ -19,8 +19,8 @@ interface Props {
   mode?: 'folder' | 'file'
   // 비활성화할 폴더(이동 중인 폴더 자신) — 진입·선택 불가. 하위 폴더(서브트리) 차단은 백엔드(400)가 담당.
   disabledFolderId?: number
-  /** mode='folder' 일 때 확정 콜백 */
-  onConfirm?: (targetId: number | null) => void
+  /** mode='folder' 일 때 확정 콜백 — path 는 루트 → 대상 폴더까지의 폴더 이름(루트면 빈 배열). 저장 위치 안내에 쓴다(WP-1525). */
+  onConfirm?: (targetId: number | null, path: string[]) => void
   /** mode='file' 일 때 파일 선택 콜백 */
   onPickFile?: (driveFileId: number, name: string) => void
   onClose: () => void
@@ -133,7 +133,7 @@ export function FolderPickerModal({
             <button
               type="button"
               disabled={current === disabledFolderId}
-              onClick={() => onConfirm?.(current)}
+              onClick={() => onConfirm?.(current, trail.map((s) => s.name))}
               className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground disabled:opacity-40"
               data-testid="folder-picker-confirm"
             >

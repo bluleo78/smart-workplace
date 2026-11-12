@@ -79,7 +79,7 @@ export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `att
 
 /**
  * 메일 첨부 — 소유자 전용 콘텐츠 경로로 받고 내려받기도 같은 경로다(변환 대상이어도 원본을 내려받는다).
- * ☁ 드라이브로 가져오기는 메일 첨부 저장 API 로 한다(WP-1400 — file 행이 없어 메일 서버에서 받아 새 드라이브 파일로 만든다).
+ * ☁ 드라이브에 저장은 메일 첨부 저장 API 로 한다(WP-1400 — file 행이 없어 메일 서버에서 받아 새 드라이브 파일로 만든다).
  * ✨(요약)·원본 이동(이미 메일 안)은 두지 않는다.
  * 이름이 없으면 예전 다운로드 버튼과 같은 `attachment-{id}` 로 저장되게 한다.
  * 한글·오피스(변환 대상) 형식이면 서버 변환 PDF 경로(previewPath)를 단다(WP-432).
@@ -247,7 +247,7 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
 
 /**
  * 채팅 업로드 첨부 공통 항목 — 콘텐츠 경로로 받고 내려받기도 같은 경로(감사 경로 없음). 변환 PDF 경로는 그 옆 `/preview`(WP-1457).
- * importable 이면 ☁ 드라이브로 가져오기(core fileId — 메시지·이슈 채팅 첨부 소스 프로바이더가 권한을 검사).
+ * importable 이면 ☁ 드라이브에 저장(core fileId — 메시지·이슈 채팅 첨부 소스 프로바이더가 권한을 검사).
  * 원본으로 이동(sourceLink)은 두지 않는다 — 이미 그 메시지를 보고 있는 화면에서 연다.
  */
 function chatUploadItem(
