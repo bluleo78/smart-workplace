@@ -9,6 +9,7 @@ import { ChevronLeft, CircleHelp, Search, X } from 'lucide-react'
 import { type PointerEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
+import { useRegisterAiHelpContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { PanelHeader } from '@/components/layout/PanelHeader'
 import { LoadErrorState } from '@/components/LoadErrorState'
@@ -17,7 +18,9 @@ import { Input } from '@/components/ui/input'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useResetOnChange } from '@/hooks/useResetOnChange'
+import { buildHelpContext } from '@/lib/aiScreenContext/builders/help'
 import { cn } from '@/lib/utils'
+import type { AiHelpContext } from '@/types/aiScreenContext'
 
 import { HelpActiveControlContext } from './helpActiveControl'
 import { type HelpIndexChapter, HelpNotFoundError, useHelpChapter, useHelpIndex, useHelpVars } from './helpBundle'
@@ -96,7 +99,7 @@ export interface HelpPanelProps {
    * 「✦ AI에게 묻기」를 눌렀을 때 — 없으면 옆 AI 패널을 연다(데스크톱, 도움말과 나란히 볼 수 있다).
    * 휴대폰 시트는 한 번에 하나만이라 도움말을 닫은 뒤 AI 를 여는 순서(히스토리 항목 정리)를 직접 넘긴다.
    */
-  onAskAi?: () => void
+  onAskAi?: (ask: { query: string; help: AiHelpContext | null }) => void
 }
 
 /** 도움말 패널 내용. 루트에 data-help-panel(패널 안 판별용)·data-testid="help-panel-body"·data-help-source(보일 절의 출처). */
@@ -104,14 +107,14 @@ export function HelpPanel({ className, onAskAi }: HelpPanelProps) {
   const { nav, select, back, release, setOpen, setSearchActive, setSearchClear } = useHelpPanel()
   const { isAdmin } = useAuth()
   const aiAvailable = useAiAvailable()
-  const { open: openAi } = useAssistant()
+  const { askWithPrompt } = useAssistant()
   const indexQuery = useHelpIndex()
   const varsQuery = useHelpVars()
   const values = useHelpValues()
   const index = indexQuery.data
 
   // 화면 문맥 신호 — 패널 내용이 그려지는 동안만 모은다(설계 결정 8). 화면을 만지면 직접 고름을 푼다(release).
-  const { signals, activeControlName } = useHelpContextSignals({ onScreenInteraction: release })
+  const { signals, activeControlName, focusField, dialogName } = useHelpContextSignals({ onScreenInteraction: release })
   const live: ShownHelp | null = index ? resolveContextTarget({ index, pathname: nav.pathname, isAdmin, signals }) : null
 
   // 읽는 중 보호 — 포인터가 패널 위에 들어온 순간 보이던 내용(얼린 값). undefined 는 패널 밖, null 은 패널 위지만 받는 중이라 보이던 것이 없음.
@@ -208,7 +211,6 @@ export function HelpPanel({ className, onAskAi }: HelpPanelProps) {
     setHover(shown)
   }
   const onPointerLeave = () => setHover(undefined)
-  const askAi = useCallback(() => (onAskAi ? onAskAi() : openAi('side')), [onAskAi, openAi])
 
   // 브레드크럼 — 앱 이름(누를 수 없음) › 조상 › 현재. 조상은 누르면 그 절로.
   const crumbs = useMemo<BreadcrumbItem[]>(() => {
@@ -220,6 +222,35 @@ export function HelpPanel({ className, onAskAi }: HelpPanelProps) {
       onSelect: c.target ? () => goTo(c.target as HelpTarget) : undefined,
     }))
   }, [index, curChapter, curId, nav.pathname, goTo])
+
+  // AI 화면 참고에 도움말 층을 등록한다(WP-1511) — 보던 절(경로·본문)·포커스 칸·열린 창 이름·검색어.
+  // 도움말 모듈은 AI 상태를 읽지 않는다 — 등록 훅(useRegisterAiHelpContext)으로 내보내기만 한다. 패널이 닫히면 언마운트로 풀린다.
+  // 목차·받는 중·검색 결과 목록을 보는 동안은 읽는 절이 없으므로 section 없이(검색어·포커스만) 싣는다. 비밀값 칸은 builder 가 값을 버린다.
+  const helpVars = varsQuery.data ?? null
+  // crumb.title 은 label 과 같은 글자(위 crumbs) — label 은 ReactNode 타입이라 문자열인 title 에서 읽는다.
+  const helpPath = useMemo(() => crumbs.map((c) => c.title ?? ''), [crumbs])
+  const aiHelp = useMemo(
+    () =>
+      buildHelpContext({
+        section: !search.listing && section && curId !== null ? { id: curId, path: helpPath, markdown: section.markdown } : null,
+        values,
+        vars: helpVars,
+        focus: focusField,
+        dialog: dialogName,
+        query: search.query,
+      }),
+    [search.listing, section, curId, helpPath, values, helpVars, focusField, dialogName, search.query],
+  )
+  useRegisterAiHelpContext(aiHelp)
+
+  // 「✦ AI에게 묻기」 — 검색 칸에 질의가 있으면 그 질의를 바로 보내고(없으면 패널만 열어 입력창에 포커스), 방금 등록한 도움말 문맥(aiHelp)을
+  // 그대로 넘긴다 — 휴대폰은 도움말이 먼저 닫혀 등록이 풀리므로 첫 전송의 화면 참고에 실리도록 값을 들려 보낸다. 없으면 옆 패널(데스크톱)로 연다.
+  const askAi = useCallback(() => {
+    const query = search.query.trim()
+    const ask = { query, help: aiHelp }
+    if (onAskAi) onAskAi(ask)
+    else askWithPrompt(query, { send: query !== '', help: aiHelp })
+  }, [onAskAi, askWithPrompt, search.query, aiHelp])
 
   // 검색 중(결과를 열기 전)에는 본문 자리를 결과 목록이 차지한다 — 보던 절·목차는 nav 에 그대로 있어 Esc 로 지우면 다시 보인다.
   let body: ReactNode

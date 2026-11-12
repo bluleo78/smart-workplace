@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useLocation } from 'react-router-dom';
 
 import { SIDE_DEFAULT_WIDTH, SIDE_MAX_WIDTH, SIDE_MIN_WIDTH } from '@/components/ai/aiSidePanelWidth';
 import { useTriggerActivity } from '@/hooks/useChatStreams';
@@ -23,8 +24,9 @@ import { type AiActivity } from '@/lib/ai/aiActivity';
 import { chatStreams } from '@/lib/ai/chatStreams';
 import { type PromptSeed } from '@/lib/ai/promptSeed';
 import { clampWidth } from '@/lib/clampWidth';
-import { hasLiveStateMark } from '@/lib/historyParam';
+import { hasLiveStateMark, isHistoryEntryWithdrawn } from '@/lib/historyParam';
 import { isAiToggleKey } from '@/lib/platform';
+import type { AiHelpContext } from '@/types/aiScreenContext';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
@@ -42,6 +44,12 @@ interface AIAssistantValue {
   open: (mode: Exclude<AIMode, 'closed'>) => void;
   /** 닫는다(전체화면이면 연 히스토리 항목을 되돌린다). */
   close: () => void;
+  /**
+   * WP-1511: AI 전체 화면이 가린 화면에서 할 일(도움말 열기·창 열기)을 AI 를 걷어 낸 뒤 한다.
+   * 휴대폰 시트는 close() 로 히스토리 항목을 걷고 위치 key 가 따라온 뒤, 데스크톱 전체 화면은 옆 패널로 내리며(히스토리 항목도 걷는다) 다음 프레임에,
+   * 옆 패널·닫힘은 바로 action 을 부른다. action 은 사용자가 누른 직후 한 번만 불린다.
+   */
+  closeThen: (action: () => void) => void;
   /** 히스토리를 건드리지 않고 모드만 바꾼다 — 곧바로 다른 화면으로 이동하는 호출부(탭바·레일)용. */
   dismiss: (next?: 'closed' | 'side') => void;
   /** 현재 히스토리 항목이 AI 전체화면을 연 항목인가 — 탭바가 이동을 replace 로 할지 고른다. */
@@ -58,7 +66,7 @@ interface AIAssistantValue {
    * WP-414: 입력창에 문구를 채운 채 AI 를 연다(데스크톱 옆 패널, 모바일은 자동 전체화면).
    * 이미 쓰던 초안이 있으면 패널이 덮지 않는다 — 문구는 promptSeed 로 두고 열린 패널이 한 번 꺼내 쓴다.
    */
-  askWithPrompt: (text: string) => void;
+  askWithPrompt: (text: string, opts?: { send?: boolean; help?: AiHelpContext | null }) => void;
   /** WP-414: 입력창에 채울 대기 문구(없으면 null) — 패널이 닫혀(언마운트) 있어도 Provider 가 들고 있다가 열린 패널이 소비한다. */
   promptSeed: PromptSeed | null;
   /** WP-414: 패널이 seed 를 입력창에 반영한 뒤 비운다 — 한 번만 소비(패널 재마운트·모드 전환에 다시 채워지지 않게). */
@@ -157,6 +165,35 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
     [transition],
   );
   const close = useCallback(() => transition('closed'), [transition]);
+
+  // WP-1511 closeThen — 휴대폰은 close() 가 히스토리 항목을 걷는 중이라 그 뒤(위치 key 가 따라온 뒤)에 action 을 불러야 한다.
+  // MobileHelpSheet 의 pendingAi 와 같은 판정(isHistoryEntryWithdrawn): 닫힘 + AI 표식 없음 + 브라우저의 key 가 렌더한 위치 key 와 같음. 타이머로 추정하지 않는다.
+  const pendingAfterClose = useRef<(() => void) | null>(null);
+  const { key: locationKey } = useLocation();
+  useEffect(() => {
+    const action = pendingAfterClose.current;
+    if (!action || mode !== 'closed' || !isHistoryEntryWithdrawn(AI_HISTORY_KEY, locationKey)) return;
+    pendingAfterClose.current = null;
+    action();
+  }, [mode, locationKey]);
+  const closeThen = useCallback(
+    (action: () => void) => {
+      const cur = latestRef.current;
+      if (cur.mode === 'fullscreen' && getIsMobile()) {
+        pendingAfterClose.current = action;
+        transition('closed');
+      } else if (cur.mode === 'fullscreen') {
+        // 데스크톱 전체 화면 — 옆 패널로 내려 화면이 보이게 한 뒤, 다음 프레임에(레이아웃이 바뀐 뒤) 한다.
+        // setMode 가 아니라 transition 을 쓰는 이유: 전체 화면이 넣은 히스토리 항목도 함께 걷어야 한다(표식만 남으면 뒤로가기에 AI 가 되살아남).
+        persist('side');
+        transition('side');
+        requestAnimationFrame(action);
+      } else {
+        action();
+      }
+    },
+    [transition],
+  );
   // WP-414: 대기 프롬프트 — 패널이 닫혀(언마운트) 있어도 맡겨 둘 수 있게 Provider 상태로 둔다. 매번 새 객체라 같은 문구를 다시 물어도 패널이 다시 반영한다.
   const [promptSeed, setPromptSeed] = useState<PromptSeed | null>(null);
   const consumePromptSeed = useCallback(() => setPromptSeed(null), []);
@@ -165,8 +202,9 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   if (!isOpen && promptSeed) setPromptSeed(null);
   // 이미 열려 있으면(side·fullscreen) 모드는 그대로 두고 문구만 맡긴다 — 전체화면을 옆 패널로 내리지 않게.
   const askWithPrompt = useCallback(
-    (text: string) => {
-      setPromptSeed({ text });
+    (text: string, opts?: { send?: boolean; help?: AiHelpContext | null }) => {
+      // send·help 는 도움말의 「AI에게 묻기」(WP-1511)만 준다 — 옵션 없는 기존 호출은 문구만 채운다.
+      setPromptSeed({ text, send: opts?.send, help: opts?.help });
       if (latestRef.current.rawMode === 'closed') open('side');
     },
     [open],
@@ -228,8 +266,8 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   }, [mode, sidePanelWidth]);
 
   const value = useMemo<AIAssistantValue>(
-    () => ({ mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity, askWithPrompt, promptSeed, consumePromptSeed }),
-    [mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity, askWithPrompt, promptSeed, consumePromptSeed],
+    () => ({ mode, sidePanelWidth, open, close, closeThen, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity, askWithPrompt, promptSeed, consumePromptSeed }),
+    [mode, sidePanelWidth, open, close, closeThen, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity, askWithPrompt, promptSeed, consumePromptSeed],
   );
   return <AIAssistantContext value={value}>{children}</AIAssistantContext>;
 }

@@ -113,4 +113,86 @@ describe('createScreenContextStore', () => {
       expect(store.get()).toEqual(file);
     });
   });
+
+  describe('help 층(WP-1511)', () => {
+    const section = { id: 'agent.run.repo', path: ['설정', '에이전트', '저장소 연결'], body: '본문' };
+
+    it('help 층은 page 문맥 위에 help 필드로 합쳐진다', () => {
+      const s = createScreenContextStore();
+      const p = Symbol('p');
+      const h = Symbol('h');
+      s.set(p, { view: '설정 · 에이전트 상세' });
+      s.setHelp(h, { section });
+      expect(s.get()).toEqual({ view: '설정 · 에이전트 상세', help: { section } });
+    });
+
+    it('help 층만 있고 page 가 없으면 view 는 도움말', () => {
+      const s = createScreenContextStore();
+      s.setHelp(Symbol('h'), { section });
+      expect(s.get()?.view).toBe('도움말');
+      expect(s.get()?.help?.section).toEqual(section);
+    });
+
+    it('검색어만 있어도 page 가 없으면 도움말 문맥이 된다', () => {
+      const s = createScreenContextStore();
+      s.setHelp(Symbol('h'), { query: '토큰' });
+      expect(s.get()).toEqual({ view: '도움말', help: { query: '토큰' } });
+    });
+
+    it('help 층 여러 등록자는 dialogs 를 합치고(같은 id 한 번) 나머지 키는 최근 값', () => {
+      const s = createScreenContextStore();
+      s.set(Symbol('p'), { view: 'V' });
+      s.setHelp(Symbol('a'), { query: 'old', dialogs: [{ id: 'x', label: 'X' }] });
+      s.setHelp(Symbol('b'), { query: 'q', dialogs: [{ id: 'x', label: 'X' }, { id: 'y', label: 'Y' }] });
+      expect(s.get()?.help?.dialogs).toHaveLength(2);
+      expect(s.get()?.help?.query).toBe('q');
+    });
+
+    it('releaseHelp 하면 help 가 빠지고 page 문맥만 남는다(알림 1회)', () => {
+      const s = createScreenContextStore();
+      const h = Symbol('h');
+      s.set(Symbol('p'), { view: 'V' });
+      s.setHelp(h, { section });
+      const fn = vi.fn();
+      s.subscribe(fn);
+      s.releaseHelp(h);
+      expect(s.get()).toEqual({ view: 'V' });
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('dialogs 만 있는 help 는 page 가 없으면 현재 값을 만들지 않는다(null)', () => {
+      const s = createScreenContextStore();
+      s.setHelp(Symbol('h'), { dialogs: [{ id: 'x', label: 'X' }] });
+      expect(s.get()).toBeNull();
+    });
+
+    it('같은 내용의 help 재등록은 알리지 않는다', () => {
+      const s = createScreenContextStore();
+      const h = Symbol('h');
+      s.set(Symbol('p'), { view: 'V' });
+      s.setHelp(h, { section });
+      const fn = vi.fn();
+      s.subscribe(fn);
+      s.setHelp(h, { section: { ...section } });
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it('overlay 가 있어도 help 는 합쳐진 값에 얹힌다', () => {
+      const s = createScreenContextStore();
+      s.set(Symbol('p'), { view: 'V' });
+      s.set(Symbol('o'), { view: '미리 보기', focus: { type: '파일', label: 'a.pdf', refs: {} } }, 'overlay');
+      s.setHelp(Symbol('h'), { section });
+      expect(s.get()?.help).toEqual({ section });
+      expect(s.get()?.focus?.label).toBe('a.pdf');
+    });
+
+    it('releaseHelp 는 도움말 층만 걷는다', () => {
+      const s = createScreenContextStore();
+      const h = Symbol('h');
+      s.set(Symbol('p'), { view: 'V' });
+      s.setHelp(h, { section });
+      s.releaseHelp(h);
+      expect(s.get()).toEqual({ view: 'V' });
+    });
+  });
 });

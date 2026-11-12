@@ -10,7 +10,7 @@ import { helpBundleHandlers, helpSearchHandler, helpSearchHitsFixture } from '@/
 import { HelpPanelHost } from '@/test/kits/help/HelpPanelHost'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 
-import { HelpPanelProvider } from './HelpPanelContext'
+import { HelpPanelProvider, useHelpPanelActions } from './HelpPanelContext'
 
 // 데스크톱 셸로 고정한다(jsdom matchMedia 로는 폭을 바꿀 수 없다).
 vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => false, getIsMobile: () => false }))
@@ -24,9 +24,16 @@ afterAll(() => {
   if (clientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', clientWidth)
 })
 
+/** 패널 밖에서 절을 고르는 단추(화면의 「연결 방법」·AI 답의 출처 자리, WP-1511). */
+function OutsideSelect() {
+  const actions = useHelpPanelActions()
+  return <button onClick={() => actions?.select({ chapter: 'home', sectionId: 'home.widgets' }, null)}>밖에서 위젯</button>
+}
+
 const ui = (
   <AIAssistantProvider hotkeysEnabled={false}>
     <HelpPanelProvider>
+      <OutsideSelect />
       <HelpPanelHost openButton />
     </HelpPanelProvider>
   </AIAssistantProvider>
@@ -266,5 +273,16 @@ describe('HelpPanel 검색', () => {
     // 값이 없으면 실제 manual-vars.json 처럼 「<표시 이름>」 한 겹으로 보인다.
     expect(cards[0]).toHaveTextContent('아이디는 <AI 아이디> 이다. 서버를 바꾼다.')
     expect(cards[0].textContent).not.toMatch(/[{}]/)
+  })
+
+  it('outside select clears search — 패널 밖에서 고른 절은 검색을 지우고 그 절을 보인다(WP-1511)', async () => {
+    const { user } = renderScreen(ui, { path: '/', handlers: [helpSearchHandler(), ...helpBundleHandlers()], auth: admin })
+    const input = await openPanel(user)
+    await user.type(input, '실행')
+    await findCards()
+    await user.click(screen.getByRole('button', { name: '밖에서 위젯' }))
+    expect(await screen.findByText('위젯 본문.', { exact: false })).toBeInTheDocument()
+    expect(input).toHaveValue('')
+    expect(screen.queryByRole('listbox', { name: '도움말 검색 결과' })).toBeNull()
   })
 })

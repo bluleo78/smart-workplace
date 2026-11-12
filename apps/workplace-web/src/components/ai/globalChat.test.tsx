@@ -192,6 +192,8 @@ test('칩 클릭이 closed→side→fullscreen→closed 로 순환한다', async
   expect(chip).toHaveAttribute('data-mode', 'side')
   await user.click(chip)
   expect(await screen.findByTestId('ai-fullscreen')).toBeInTheDocument()
+  // 전체 화면도 AI 표면 표식을 달아 도움말 신호·화면 문구 일치에서 제외된다(WP-1511).
+  expect(screen.getByTestId('ai-fullscreen')).toHaveAttribute('data-ai-panel')
   expect(screen.queryByTestId('ai-side-panel')).not.toBeInTheDocument()
   expect(chip).toHaveAttribute('data-mode', 'fullscreen')
   await user.click(chip)

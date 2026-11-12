@@ -4,43 +4,59 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
-import { AI_DOCK_SELECTOR, AI_PAGE_ROOT_SELECTOR, AI_PANEL_SELECTOR } from '@/components/ai/aiPanelSurface'
+import { AI_PAGE_ROOT_SELECTOR, isNonPageSurface, PANEL_SURFACE_SELECTOR } from '@/components/ai/aiPanelSurface'
 
 import { HELP_SCROLL_SETTLE_MS, type HelpBox, type HelpSignals, pickOpenDialogHelp, pickScrollHelp } from './helpContext'
+import { dialogName as readDialogName, FIELD_SELECTOR, type HelpFieldInfo, readFieldInfo, readFieldValue } from './helpFieldInfo'
 import { CONTROL_SELECTOR, controlName } from './helpScreenControls'
 
-/**
- * 신호로 보지 않는 자리 — 도움말 패널·AI 표면(칩·사이드 패널·시트)·「?」 단추·대화상자 흐린 막.
- * 여기서 일어난 포커스·클릭은 화면 칸을 만진 것이 아니라 도움말·AI 를 쓰는 것이라 신호도, 직접 고름 풀기도 하지 않는다.
- * 패널이 포털로 그리는 것(⌄ 목록·그림 확대)도 data-help-panel 을 달아 여기 든다. 흐린 막(dialog-overlay)은 화면 칸이 아니다 —
- * 그림 확대를 막 클릭으로 닫을 때 직접 고름이 풀리지 않게 하고, 화면 대화상자를 막으로 닫으면 포커스가 돌아온 단추가 신호를 준다.
- * 오른쪽 도킹(data-ai-dock)도 뺀다 — 도움말·AI 칸 사이 높이 손잡이·합친 칸 폭 손잡이는 패널 밖 형제라, 패널 크기를 바꾸려 누르기만 해도
- * 직접 고른 절이 풀리고 포커스 신호가 지워졌다(리뷰 지적). 도킹 안에는 도움말·AI 칸과 그 손잡이만 있다.
- */
-const IGNORE_SELECTOR = `[data-help-panel], ${AI_PANEL_SELECTOR}, ${AI_DOCK_SELECTOR}, [data-help-trigger], [data-slot="dialog-overlay"]`
-/** 대화상자 판정에서 「패널에 속함」 — 패널 안(그림 확대·⌄ 목록 팝오버) 또는 AI 표면 안 대화상자. */
-const PANEL_SELECTOR = `[data-help-panel], ${AI_PANEL_SELECTOR}`
+// 신호로 보지 않는 자리(「페이지가 아닌 곳」)의 판정은 aiPanelSurface 의 isNonPageSurface 한 곳에 있다 — 도움말 패널·AI 표면·오른쪽 도킹·「?」 단추·대화상자 흐린 막.
+// 여기서 일어난 포커스·클릭은 화면 칸을 만진 것이 아니라 도움말·AI 를 쓰는 것이라 신호도, 직접 고름 풀기도 하지 않는다.
+// 흐린 막을 빼는 이유: 그림 확대를 막 클릭으로 닫을 때 직접 고름이 풀리지 않게 하고, 화면 대화상자를 막으로 닫으면 포커스가 돌아온 단추가 신호를 준다.
+// 도킹을 빼는 이유: 도움말·AI 칸 사이 손잡이는 패널 밖 형제라, 패널 크기를 바꾸려 누르기만 해도 직접 고른 절이 풀리고 포커스 신호가 지워졌다(리뷰 지적).
 /** 대화상자 — Radix Dialog·AlertDialog·Popover 가 단다. */
 const DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
 /** 스크롤 신호를 받는 범위 — 앱 셸 페이지 영역의 본문(main). 레일·도킹 패널 스크롤은 화면 칸 위치가 아니다. */
 const PAGE_MAIN_SELECTOR = `${AI_PAGE_ROOT_SELECTOR} main`
 
-/** 무시할 자리 안인가. */
-function isIgnored(el: Element): boolean {
-  return el.closest(IGNORE_SELECTOR) !== null
-}
+/** 열린 대화상자 정보 — 도움말 id 와 제목(WP-1511: AI 화면 참고용). 한 번 훑어 둘을 함께 낸다. */
+type OpenDialog = { help: string | null; name: string | null }
 
 /**
- * 지금 열린 대화상자의 도움말 id — 문서의 대화상자를 DOM 순서로 모아 pickOpenDialogHelp 에 넘긴다.
+ * 지금 열린 대화상자 — 도움말 id 와 이름을 함께 돌려준다. 문서의 대화상자를 DOM 순서로 모아 id 는 pickOpenDialogHelp 에 넘기고,
+ * 이름은 패널에 속하지 않은 열린 대화상자 중 맨 위(가장 나중) 것에서만 읽는다(그 대화상자에 이름이 없으면 null).
  * 패널을 품은 대화상자(휴대폰 도움말 시트)도 패널에 속한 것으로 본다 — 패널이 자기 자신을 가리키지 않게(Review Focus 1).
  */
-function readOpenDialogHelp(): string | null {
-  const dialogs = [...document.querySelectorAll(DIALOG_SELECTOR)].map((el) => ({
+function readOpenDialog(): OpenDialog {
+  const els = [...document.querySelectorAll(DIALOG_SELECTOR)]
+  const dialogs = els.map((el) => ({
     helpId: el.getAttribute('data-help'),
     state: el.getAttribute('data-state'),
-    insidePanel: el.closest(PANEL_SELECTOR) !== null || el.querySelector('[data-help-panel]') !== null,
+    insidePanel: el.closest(PANEL_SURFACE_SELECTOR) !== null || el.querySelector('[data-help-panel]') !== null,
   }))
-  return pickOpenDialogHelp(dialogs)
+  // 제목은 패널에 속하지 않은 열린 대화상자 가운데 가장 나중(맨 위에 뜬 것)의 것 — DOM 순서상 포털은 뒤에 붙는다.
+  // 맨 위 창에 이름이 없으면 null — 아래 깔린 창 이름을 대신 쓰면 사용자가 보는 창과 어긋난다.
+  let top: Element | null = null
+  for (let i = els.length - 1; i >= 0; i--) {
+    if (dialogs[i].insidePanel || dialogs[i].state === 'closed') continue
+    top = els[i]
+    break
+  }
+  const name: string | null = top ? readDialogName(top) : null
+  return { help: pickOpenDialogHelp(dialogs), name }
+}
+
+/** 두 대화상자 정보가 같은가 — 같으면 이전 객체를 둬 다시 그리지 않는다. */
+function sameDialog(a: OpenDialog, b: OpenDialog): boolean {
+  return a.help === b.help && a.name === b.name
+}
+
+/** 포커스 칸 값 입력 반영 디바운스(ms) — 타이핑마다 다시 읽지 않는다. */
+const FIELD_INPUT_DEBOUNCE_MS = 200
+
+/** 두 칸 정보가 같은가. */
+function sameField(a: HelpFieldInfo | null, b: HelpFieldInfo | null): boolean {
+  return a === b || (a !== null && b !== null && a.name === b.name && a.secret === b.secret && a.value === b.value)
 }
 
 /** 감싸는 data-help 조상 수(자기 제외) — 스크롤 칸 고르기의 「가장 안쪽」 판정. */
@@ -59,7 +75,7 @@ function measureScrollHelp(scroller: Element): string | null {
   const base = scroller.getBoundingClientRect()
   const boxes: HelpBox[] = []
   for (const el of scroller.querySelectorAll('[data-help]')) {
-    if (el.closest(DIALOG_SELECTOR) || isIgnored(el)) continue
+    if (el.closest(DIALOG_SELECTOR) || isNonPageSurface(el)) continue
     const id = el.getAttribute('data-help')
     if (!id) continue
     const r = el.getBoundingClientRect()
@@ -120,11 +136,17 @@ const NO_FOCUS: FocusSignal = { id: null, control: null }
 export function useHelpContextSignals(opts: { onScreenInteraction: () => void }): {
   signals: HelpSignals
   activeControlName: string | null
+  /** 포커스한 칸의 이름·비밀 여부·값(비밀이면 value 키 없음, WP-1511). */
+  focusField: HelpFieldInfo | null
+  /** 열린 대화상자 제목(WP-1511). */
+  dialogName: string | null
 } {
   const { pathname } = useLocation()
   const [focus, setFocus] = useState<FocusSignal>(NO_FOCUS)
   // 열 때 이미 열려 있는 대화상자는 첫 렌더에서 읽는다(effect 안에서 바로 setState 하지 않게).
-  const [dialog, setDialog] = useState<string | null>(readOpenDialogHelp)
+  const [openDialog, setOpenDialog] = useState<OpenDialog>(readOpenDialog)
+  const dialog = openDialog.help
+  const [focusField, setFocusField] = useState<HelpFieldInfo | null>(null)
   const [scroll, setScroll] = useState<string | null>(null)
 
   // 콜백은 ref 로 들어 리스너를 매 렌더 다시 달지 않는다.
@@ -142,11 +164,23 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
   useEffect(() => {
     // 포커스 신호를 준 data-help 칸 — 화면 밖으로 나가거나 DOM 에서 떨어지면 신호를 푼다(Review Focus 5). 이 효과 안에서만 쓴다.
     let focusEl: Element | null = null
+    // 포커스한 입력 칸(값 갱신 대상)과 그 이름·비밀 여부(포커스 때 한 번 알아낸 것 — 입력 때는 값만 다시 읽는다), 입력 디바운스 타이머.
+    let fieldEl: Element | null = null
+    let fieldMeta: { name: string; secret: boolean } | null = null
+    let fieldTimer: ReturnType<typeof setTimeout> | null = null
+    const cancelFieldTimer = () => {
+      if (fieldTimer !== null) clearTimeout(fieldTimer)
+      fieldTimer = null
+    }
     /** 포커스 신호를 비운다(칸을 보던 관찰도 끊는다). */
     const clearFocus = () => {
       focusEl = null
+      fieldEl = null
+      fieldMeta = null
+      cancelFieldTimer()
       io.disconnect()
       setFocus(NO_FOCUS)
+      setFocusField(null)
     }
     // 칸이 화면 밖으로 나가면 포커스 신호를 푼다 — 처음 관찰을 시작할 때의 보고도 같은 규칙(화면 밖 칸은 신호가 아님).
     const io = new IntersectionObserver((entries) => {
@@ -167,12 +201,34 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
       const next: FocusSignal = { id: helpEl?.getAttribute('data-help') || null, control: control ? controlName(control) || null : null }
       // 같은 칸·같은 단추면 이전 값을 그대로 둬 다시 그리지 않는다(화면 포커스·클릭마다 불린다).
       setFocus((prev) => (prev.id === next.id && prev.control === next.control ? prev : next))
+      // 포커스한 칸 정보(WP-1511) — 입력 칸이면 이후 input 이벤트로 값을 갱신한다.
+      cancelFieldTimer()
+      // 위에서 찾은 컨트롤과 여기서 찾는 입력 칸을 넘겨 readFieldInfo 가 같은 closest 탐색을 되풀이하지 않게 한다.
+      const field = target.closest(FIELD_SELECTOR)
+      const info = readFieldInfo(target, { field, control })
+      fieldEl = info ? field : null
+      fieldMeta = info && field ? { name: info.name, secret: info.secret } : null
+      setFocusField((prev) => (sameField(prev, info) ? prev : info))
     }
+
+    /** 포커스한 입력 칸의 input·change 이벤트 — 200ms 디바운스 뒤 값만 다시 읽는다. 비밀값 칸은 값을 읽지 않으므로 타이머도 걸지 않는다. */
+    const onFieldInput = (e: Event) => {
+      if (!fieldEl || !fieldMeta || fieldMeta.secret || e.target !== fieldEl) return
+      cancelFieldTimer()
+      fieldTimer = setTimeout(() => {
+        fieldTimer = null
+        if (!fieldEl || !fieldMeta || !fieldEl.isConnected) return
+        const info = readFieldValue(fieldEl, fieldMeta.name)
+        setFocusField((prev) => (sameField(prev, info) ? prev : info))
+      }, FIELD_INPUT_DEBOUNCE_MS)
+    }
+    document.addEventListener('input', onFieldInput, true)
+    document.addEventListener('change', onFieldInput, true)
 
     /** 화면 상호작용 — 패널·AI 표면·「?」 밖이면 직접 고름을 풀고 그 칸을 신호로. */
     const onInteract = (e: Event) => {
       const target = e.target
-      if (!(target instanceof Element) || isIgnored(target)) return
+      if (!(target instanceof Element) || isNonPageSurface(target)) return
       onScreenInteractionRef.current()
       adopt(target)
     }
@@ -181,7 +237,7 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
 
     // 열 때 이미 화면 요소에 포커스가 있으면 그 칸을 잇는다(`?` 단축키로 연 경우).
     const active = document.activeElement
-    if (active && active !== document.body && !isIgnored(active)) adopt(active)
+    if (active && active !== document.body && !isNonPageSurface(active)) adopt(active)
 
     // 다시 재기는 한 프레임에 한 번만 — 목록이 그려질 때 변경 기록이 잇달아 와도 레이아웃을 한 번만 읽는다.
     let remeasureFrame: number | null = null
@@ -195,8 +251,18 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
 
     // 대화상자 열림·닫힘과 포커스 칸 떨어짐 — 포털은 body 아래 어디든 붙고 data-state 는 포털 루트 안쪽 요소에서 바뀐다.
     const mo = new MutationObserver((records) => {
-      if (records.some(touchesDialog)) setDialog(readOpenDialogHelp())
+      if (records.some(touchesDialog)) {
+        const next = readOpenDialog()
+        setOpenDialog((prev) => (sameDialog(prev, next) ? prev : next))
+      }
       if (focusEl && !focusEl.isConnected) clearFocus()
+      // 포커스 칸 요소만 사라진 경우(감싼 data-help 칸은 남음) — 없는 칸의 이름·값이 AI 화면 참고에 남지 않게 칸 정보만 비운다.
+      else if (fieldEl && !fieldEl.isConnected) {
+        fieldEl = null
+        fieldMeta = null
+        cancelFieldTimer()
+        setFocusField(null)
+      }
       // 사용자가 아직 스크롤하지 않았으면 바뀐 화면으로 다시 잰다(늦게 그려진 칸·늦게 온 데이터).
       if (autoMeasureRef.current && remeasureFrame === null) remeasureFrame = requestAnimationFrame(remeasure)
     })
@@ -205,6 +271,9 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
     return () => {
       document.removeEventListener('focusin', onInteract, true)
       document.removeEventListener('pointerdown', onInteract, true)
+      document.removeEventListener('input', onFieldInput, true)
+      document.removeEventListener('change', onFieldInput, true)
+      cancelFieldTimer()
       io.disconnect()
       mo.disconnect()
       if (remeasureFrame !== null) cancelAnimationFrame(remeasureFrame)
@@ -216,7 +285,7 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
     let timer: ReturnType<typeof setTimeout> | null = null
     const onScroll = (e: Event) => {
       const target = e.target
-      if (!(target instanceof Element) || !target.closest(PAGE_MAIN_SELECTOR) || isIgnored(target) || !isHelpScroller(target)) return
+      if (!(target instanceof Element) || !target.closest(PAGE_MAIN_SELECTOR) || isNonPageSurface(target) || !isHelpScroller(target)) return
       // 사용자가 스크롤했으면 그 측정이 이어받는다 — 이후 화면 변화로는 다시 재지 않는다(읽던 자리를 흔들지 않게).
       autoMeasureRef.current = false
       if (timer !== null) clearTimeout(timer)
@@ -250,5 +319,5 @@ export function useHelpContextSignals(opts: { onScreenInteraction: () => void })
   }, [pathname])
 
   const signals = useMemo<HelpSignals>(() => ({ dialog, focus: focus.id, scroll }), [dialog, focus.id, scroll])
-  return { signals, activeControlName: focus.control }
+  return { signals, activeControlName: focus.control, focusField, dialogName: openDialog.name }
 }

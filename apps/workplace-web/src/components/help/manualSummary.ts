@@ -7,12 +7,10 @@
 // 손으로 짠 줄 판정을 두면 들여쓰기·인용·표 경계가 패널과 어긋나므로, 패널이 그리는 mdast 를 그대로 걷는다.
 // 요약 항목은 AI 화면 참고 꼴(facts·상한)을 모른다 — 상한에 맞춰 나누는 것은 화면 참고 builder(builders/settings.ts)가 한다.
 import type { BlockContent, Blockquote, DefinitionContent, Nodes, Table } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
-import { unified } from 'unified'
 
 import type { HelpChapter, HelpVars } from './helpBundle'
 import { applyHelpConditions, type HelpValues, remarkHelpPlaceholders } from './helpMarkup'
+import { markdownParser, mdastText } from './mdast'
 
 /** 요약 항목 — 글 하나(문단·목록 항목·알림 상자·하위 절 첫 문단) 또는 표 하나(행마다 「첫 칸 — 나머지」 글). */
 export type HelpSummaryItem = { label: string; text: string } | { label: string; rows: string[] }
@@ -22,32 +20,6 @@ const CHILD_CAUTION_LABELS = new Set(['주의', '경고'])
 
 /** 절 본문을 걸어 모은 덩어리 — 문단·목록 항목은 text, 알림 상자는 라벨(없으면 null)과 글, 표는 머리 첫 칸과 행 글. */
 type Block = { kind: 'text'; text: string } | { kind: 'callout'; label: string | null; text: string } | { kind: 'table'; label: string; rows: string[] }
-
-/**
- * 노드의 평문 — 글·인라인 코드는 글자 그대로(코드 안 `*` 도 표기가 아니다), 굵게·기울임·링크는 안의 글만, 그림·HTML 은 뺀다.
- * 코드 블록도 뺀다(알림 상자 안 명령 등). 줄바꿈·연속 공백은 호출하는 쪽(clean)이 한 칸으로 줄인다.
- */
-function nodeText(node: Nodes): string {
-  switch (node.type) {
-    case 'text':
-    case 'inlineCode':
-      return node.value
-    case 'break':
-      return ' '
-    case 'image':
-    case 'imageReference':
-    case 'html':
-    case 'code':
-    case 'footnoteReference':
-      return ''
-    default:
-      // 블록 자식(인용 안 문단 여럿·목록 항목)은 공백으로, 글 안 조각(굵게·링크 안 글)은 그대로 잇는다 — 문단 경계에서 앞뒤 글이 붙지 않게.
-      return 'children' in node ? node.children.map((c) => nodeText(c as Nodes)).join(BLOCK_PARENTS.has(node.type) ? ' ' : '') : ''
-  }
-}
-
-// 자식이 블록인 노드 — 자식 글 사이에 공백을 둔다.
-const BLOCK_PARENTS = new Set(['root', 'blockquote', 'list', 'listItem', 'table', 'tableRow'])
 
 /** 공백을 한 칸으로 줄이고 앞뒤를 다듬는다. */
 function clean(text: string): string {
@@ -64,20 +36,20 @@ function calloutBlock(node: Blockquote): Block {
     const [strong, ...after] = first.children
     const next = after[0]
     if (!next || next.type === 'break' || (next.type === 'text' && /^\s*\n/.test(next.value))) {
-      const tail = [after.map(nodeText).join(''), ...rest.map(nodeText)].join(' ')
-      return { kind: 'callout', label: clean(nodeText(strong)), text: clean(tail) }
+      const tail = [after.map(mdastText).join(''), ...rest.map(mdastText)].join(' ')
+      return { kind: 'callout', label: clean(mdastText(strong)), text: clean(tail) }
     }
   }
-  return { kind: 'callout', label: null, text: clean(node.children.map(nodeText).join(' ')) }
+  return { kind: 'callout', label: null, text: clean(node.children.map(mdastText).join(' ')) }
 }
 
 /** 표 → 머리 첫 칸 라벨(비면 「표」)과 행 글. 나머지 칸이 비었거나 「—」 뿐이면 첫 칸만 싣는다. 빈 행은 버린다. */
 function tableBlock(node: Table): Block {
   const [head, ...body] = node.children
-  const label = clean(head?.children[0] ? nodeText(head.children[0]) : '') || '표'
+  const label = clean(head?.children[0] ? mdastText(head.children[0]) : '') || '표'
   const rows = body
     .map((row) => {
-      const [first = '', ...rest] = row.children.map((cell) => clean(nodeText(cell)))
+      const [first = '', ...rest] = row.children.map((cell) => clean(mdastText(cell)))
       const tail = rest.filter((c) => c && c !== '—' && c !== '-').join(' · ')
       return tail ? `${first} — ${tail}` : first
     })
@@ -92,7 +64,7 @@ function tableBlock(node: Table): Block {
 function collect(nodes: Array<BlockContent | DefinitionContent | Nodes>, out: Block[]): Block[] {
   for (const node of nodes) {
     if (node.type === 'paragraph') {
-      const text = clean(nodeText(node))
+      const text = clean(mdastText(node))
       if (text) out.push({ kind: 'text', text })
     } else if (node.type === 'list') {
       for (const item of node.children) collect(item.children, out)
@@ -105,16 +77,13 @@ function collect(nodes: Array<BlockContent | DefinitionContent | Nodes>, out: Bl
   return out
 }
 
-// 패널과 같은 문법(CommonMark + GFM 표) 파서 — 파싱만 하므로 한 번 만들어 둔다.
-const parser = unified().use(remarkParse).use(remarkGfm)
-
 /**
  * 절 본문(markdown) → 덩어리. 패널과 같은 순서로 조건 블록을 먼저 문자열로 처리하고, 패널과 같은 파서로 읽은 뒤
  * 자리표시 플러그인으로 노드 값을 채운다(값이 없으면 `<표시 이름>`). 코드 안 자리표시 규칙도 패널과 같다.
  */
 function blocksOf(markdown: string, values: HelpValues, vars: HelpVars | null): Block[] {
   const md = applyHelpConditions(markdown, values.conditions, vars)
-  const tree = parser.parse(md)
+  const tree = markdownParser.parse(md)
   // 자리표시 플러그인의 변환을 바로 부른다 — 원문(file.value)으로 탈출 글자를 되짚으므로 원문을 함께 넘긴다.
   remarkHelpPlaceholders({ values: values.placeholders, vars })()(tree, { value: md })
   return collect(tree.children, [])

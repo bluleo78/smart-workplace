@@ -11,6 +11,7 @@ import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { IssueFilters, IssueGroupBy, IssueResponse, IssueView } from '@/types/issue';
 
 import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
+import { agentWorkEvidence } from './agentRun';
 
 
 // enum 밖 값(facet CSV 의 오타 등)은 원문 그대로 표시한다.
@@ -37,6 +38,8 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
         ['상태', statusLabel(issue.status, issue.statusName)],
         ['우선순위', priorityLabel(issue.priority)],
         ['담당', issue.assignees.length ? issue.assignees.map((a) => a.name).join(', ') : '미할당'],
+        // WP-1511 AI 작업이 막힌 근거(인증·답변 필요·차단) — 이 화면이 이미 받은 agentWork 에서만, 담당 바로 뒤에.
+        ...agentWorkEvidence(issue.agentWork),
         ['유형', issue.type?.name],
         // 구성요소(WP-933) — 붙은 것이 있을 때만(빈 문자열은 buildFacts 가 뺀다).
         ['구성요소', (issue.components ?? []).map((c) => c.name).join(', ')],

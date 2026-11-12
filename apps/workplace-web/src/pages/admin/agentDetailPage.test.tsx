@@ -1352,6 +1352,40 @@ describe('도움말 문맥 — 실행 방식·유형마다 섹션·묶음·대�
     expect(currentScreenContext()!.focus!.facts!.map((f) => f.label)).not.toContain('자원')
   })
 
+  test('실행 설정이 FAILED 면 화면 참고 focus.facts 에 실행 상태·실패 사유가 실린다 (WP-1511)', async () => {
+    const setting = createSetting(id, { status: 'FAILED', desired: 'RUN', observed: createObserved({ message: 'ImagePullBackOff' }) })
+    await renderDetail({ agent: workspace(), settings: { [id]: setting }, claudeFor: [id], probe: true })
+    await waitFor(() => expect(currentScreenContext()?.focus?.facts).toContainEqual({ label: '실패 사유', value: 'ImagePullBackOff' }))
+    expect(currentScreenContext()!.focus!.facts).toContainEqual({ label: '실행 상태', value: '오류' })
+    // 기존 facts 뒤에 붙고 상한(12) 안이다.
+    expect(currentScreenContext()!.focus!.facts!.length).toBeLessThanOrEqual(12)
+  })
+
+  test('실행 설정 조회가 403 이면 화면 참고에 실행 근거가 없다 (WP-1511)', async () => {
+    // 403 응답이 실제로 나갔고 조회가 끝난 뒤에 확인한다 — 아이디 fact 는 첫 렌더부터 있어 그것만 기다리면 근거가 늦게 실려도 통과한다.
+    let settingHits = 0
+    const { queryClient } = await renderDetail({
+      agent: workspace(),
+      settings: { [id]: createSetting(id, { status: 'FAILED', desired: 'RUN', observed: createObserved({ message: 'x' }) }) },
+      claudeFor: [id],
+      probe: true,
+      extraHandlers: [
+        http.get('/api/v1/admin/agents/:id/runtime-setting', () => {
+          settingHits += 1
+          return HttpResponse.json({ message: '권한 없음' }, { status: 403 })
+        }),
+      ],
+    })
+    await waitFor(() => expect(settingHits).toBeGreaterThan(0))
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+    // 조회가 끝난 뒤 효과로 올라오는 값까지 반영될 틈을 준다.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(currentScreenContext()?.focus?.facts).toContainEqual({ label: '아이디', value: expect.any(String) })
+    const labels = currentScreenContext()!.focus!.facts!.map((f) => f.label)
+    expect(labels).not.toContain('실행 상태')
+    expect(labels).not.toContain('실패 사유')
+  })
+
   test('에이전트를 받는 동안에는 화면 이름만 — 대상(focus)은 싣지 않는다', async () => {
     await renderDetail({
       agent: createAgent(100),

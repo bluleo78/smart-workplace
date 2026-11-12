@@ -215,7 +215,7 @@ function sharedMock(): MockedShared {
     viewMessageAttachment: vi.fn(),
     viewIssueChatAttachment: vi.fn(),
     viewMailAttachment: vi.fn(),
-    // WP-1510: 제품 매뉴얼(manual) — ai-agent 프로필에는 아직 싣지 않지만 SharedToolClient 모양을 채운다.
+    // WP-1510: 제품 매뉴얼(manual) — SharedToolClient 모양을 채운다(WP-1511 부터 assistant 라우터가 직접 쓴다).
     searchManual: vi.fn(),
     getManualSection: vi.fn(),
   };
@@ -541,6 +541,33 @@ describe('프로필 구성', () => {
     expect(routerToolsFor('assistant')).toBe(ASSISTANT_ROUTER_TOOLS);
     for (const p of ['issue', 'chat', 'home', 'messaging'] as const) expect(routerToolsFor(p)).toBeUndefined();
     expect(routerToolsFor(undefined)).toBeUndefined();
+  });
+
+  // WP-1511: 사용법 질문은 라우터가 매뉴얼(manual)을 직접 찾는다 — 제외 목록에서 빠지고 라우터 도구에 든다.
+  it('WP-1511: manual 은 라우터 도구이고 서버 AI 제외 목록에 없다', () => {
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('manual');
+    expect(AI_AGENT_EXCLUDED_SHARED_TOOLS.has('manual')).toBe(false);
+  });
+
+  // WP-1511: 라우터의 manual 은 요청자 신원 클라이언트(toolClient(agentId))로 매뉴얼 검색을 부른다 — 공유 정의의 search 분기.
+  it('WP-1511: assistant 프로필 manual(search) 은 요청자 신원 클라이언트로 searchManual 을 부른다', async () => {
+    const c = client();
+    vi.mocked(c.sc.searchManual).mockResolvedValue({ results: [] });
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'manual');
+    expect(t.annotations).toMatchObject({ readOnlyHint: true });
+    await t.handler({ action: 'search', query: '토큰' });
+    expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
+    expect(c.sc.searchManual).toHaveBeenCalledWith('토큰');
+  });
+
+  // WP-1511: manual(get) 도 같은 요청자 신원 클라이언트로 절 읽기(getManualSection)를 부른다 — search 분기와 짝.
+  it('WP-1511: assistant 프로필 manual(get) 은 요청자 신원 클라이언트로 getManualSection 을 부른다', async () => {
+    const c = client();
+    vi.mocked(c.sc.getManualSection).mockResolvedValue({ id: 'x' });
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'manual');
+    await t.handler({ action: 'get', id: 'x' });
+    expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
+    expect(c.sc.getManualSection).toHaveBeenCalledWith('x');
   });
 
   // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 어느 프로필에도 없어야 한다.

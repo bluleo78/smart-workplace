@@ -4,9 +4,10 @@
 // 처리 위치를 둘로 나눈다(계획 「내가 정한 것」 7):
 // - 조건 블록은 markdown 문자열에서 줄 단위로 — 블록이 목록 여러 항목에 걸쳐 AST 한 노드로 잡히지 않는다.
 // - 자리표시는 remark 플러그인으로 AST 노드 값에 — 값이 markdown 으로 해석되지 않아 아이디·주소의 `*`·`[` 가 안전하다.
-import type { Nodes, Root } from 'mdast'
+import type { Root } from 'mdast'
 
 import type { HelpVars } from './helpBundle'
+import { walkMdast } from './mdast'
 
 /** 화면이 넘기는 자리표시 값·조건 값. undefined 는 「값 없음」(PDF 와 같은 표시로 보인다). */
 export type HelpValues = {
@@ -343,8 +344,7 @@ export function remarkHelpPlaceholders(opts: { values: Record<string, string | u
 
   return () => (tree: Root, file?: { value?: unknown }) => {
     const source = typeof file?.value === 'string' ? file.value : null
-    // mdast 를 작은 재귀로 돈다(unist-util-visit 는 web 의 직접 의존성이 아니다).
-    const walk = (node: Nodes) => {
+    walkMdast(tree, (node) => {
       if (node.type === 'text') {
         const s = node.position?.start.offset
         const e = node.position?.end.offset
@@ -355,8 +355,6 @@ export function remarkHelpPlaceholders(opts: { values: Record<string, string | u
       } else if (node.type === 'link') {
         node.url = replace(node.url, false)
       }
-      if ('children' in node) node.children.forEach((c) => walk(c as Nodes))
-    }
-    walk(tree)
+    })
   }
 }

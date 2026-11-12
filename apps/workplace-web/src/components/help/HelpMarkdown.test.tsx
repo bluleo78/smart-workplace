@@ -173,4 +173,14 @@ describe('findScreenControls', () => {
     expect(found[0].closest('[data-ai-page-root]')).not.toBeNull()
     expect(found[1].closest('[data-ai-chip]')).not.toBeNull()
   })
+
+  it('도움말 본문의 굵은 글자는 AI 패널 안 같은 이름 단추도 찾는다 — AI 답 쪽(excludeAiSurface)만 뺀다', () => {
+    document.body.innerHTML = `
+      <div data-ai-page-root><div data-ai-panel><button>새 대화</button></div><div data-help-panel><button>새 대화</button></div></div>
+    `
+    const found = findScreenControls('새 대화')
+    expect(found).toHaveLength(1)
+    expect(found[0].closest('[data-ai-panel]')).not.toBeNull()
+    expect(findScreenControls('새 대화', { excludeAiSurface: true })).toHaveLength(0)
+  })
 })

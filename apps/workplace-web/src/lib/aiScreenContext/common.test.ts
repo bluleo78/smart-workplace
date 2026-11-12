@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildFacts, buildRefs, chipLabel, clip, contextIdentity, fmtKst, LIMITS, overlayScreenContext, screenContextPayload } from './common';
+import { buildFacts, buildRefs, chipLabel, clip, contextIdentity, fmtKst, LIMITS, mergeHelp, overlayScreenContext, screenContextPayload } from './common';
 
 describe('clip', () => {
   it('상한 이하면 trim 만', () => expect(clip('  abc ', 10)).toBe('abc'));
@@ -142,3 +142,36 @@ describe('overlayScreenContext', () => {
   });
 });
 
+
+describe('도움말 층(WP-1511)', () => {
+  const section = { id: 'a', path: ['설정', '저장소 연결'], body: '' };
+
+  it('chipLabel 은 도움말 절이 있으면 경로 끝 이름을 덧붙인다', () => {
+    expect(chipLabel({ view: '설정 · 에이전트 상세', scope: { label: '설정 · 에이전트 상세' }, help: { section } })).toBe(
+      '설정 · 에이전트 상세 · 저장소 연결',
+    );
+  });
+
+  it('chipLabel 은 절이 없으면(검색어만) 기존 표기를 그대로 쓴다', () => {
+    expect(chipLabel({ view: '도움말', help: { query: 'q' } })).toBe('도움말');
+  });
+
+  it('contextIdentity 는 help 가 바뀌어도 같다', () => {
+    const base = { view: 'V', scope: { label: 'S' } };
+    expect(contextIdentity({ ...base, help: { section } })).toBe(contextIdentity({ ...base, help: { query: 'z' } }));
+    expect(contextIdentity({ ...base, help: { section } })).toBe(contextIdentity(base));
+  });
+
+  it('screenContextPayload 는 help 를 남긴다', () => {
+    expect(screenContextPayload({ view: 'V', app: 'ISSUE', help: { section } }).help).toEqual({ section });
+  });
+
+  it('mergeHelp: dialogs 는 id 로 합쳐 상한 5, 나머지는 뒤가 이긴다, 비면 null', () => {
+    expect(mergeHelp([])).toBeNull();
+    expect(mergeHelp([{}])).toBeNull();
+    const many = Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, label: `D${i}` }));
+    const out = mergeHelp([{ query: 'a', dialogs: many.slice(0, 4) }, { query: 'b', dialogs: many }]);
+    expect(out?.query).toBe('b');
+    expect(out?.dialogs).toHaveLength(LIMITS.helpDialogs);
+  });
+});

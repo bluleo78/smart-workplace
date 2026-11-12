@@ -126,6 +126,8 @@ export function LoginInfoField({ provider, value, onChange, check }: Props) {
             className={cn('h-24 font-mono text-xs', dragging && 'border-primary')}
             spellCheck={false}
             autoComplete="off"
+            // auth.json 은 토큰 덩어리 — 이름 낱말로는 비밀값으로 안 잡혀 명시한다(도움말 포커스가 값을 AI 로 보내지 않게).
+            data-ai-secret="true"
             data-testid="login-info-text"
           />
         ) : (

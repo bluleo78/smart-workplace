@@ -44,6 +44,13 @@ describe('buildIssueDetailContext', () => {
     expect(ctx.scope).toEqual({ label: '프로젝트 WP', refs: { projectKey: 'WP' } });
   });
 
+  it('AI 작업 상태가 담당 바로 뒤에 온다(막힌 작업이 있을 때만)', () => {
+    const agentWork = [{ worker: { id: 9, username: 'bot', name: '봇', kind: 'AGENT' }, state: 'AUTH_REQUIRED', note: '토큰 만료' }];
+    const labels = buildIssueDetailContext({ projectKey: 'WP', issue: { ...issue, agentWork } as unknown as IssueResponse }).focus!.facts!.map((f) => f.label);
+    expect(labels.indexOf('AI 작업 상태')).toBe(labels.indexOf('담당') + 1);
+    expect(buildIssueDetailContext({ projectKey: 'WP', issue }).focus!.facts!.map((f) => f.label)).not.toContain('AI 작업 상태');
+  });
+
   it('담당 없음은 미할당, 긴 제목은 200자로 자른다', () => {
     const ctx = buildIssueDetailContext({ projectKey: 'WP', issue: { ...issue, assignees: [], title: 'x'.repeat(400) } });
     expect(ctx.focus!.label.length).toBe(200);

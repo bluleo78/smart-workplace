@@ -181,6 +181,15 @@ describe('대화상자', () => {
     })
     expect(result.current.signals.dialog).toBeNull()
   })
+
+  it('패널을 아직 불러오지 않은 휴대폰 시트도 자기 표시(data-help-panel)로 무시한다 — 이름 「도움말」을 열린 창으로 보내지 않는다(WP-1511)', async () => {
+    const { result } = setup()
+    await act(async () => {
+      mount('<div role="dialog" data-state="open" data-help-panel><h2>도움말</h2></div>')
+    })
+    expect(result.current.signals.dialog).toBeNull()
+    expect(result.current.dialogName).toBeNull()
+  })
 })
 
 describe('스크롤', () => {
@@ -374,5 +383,117 @@ describe('대화상자 다시 훑기', () => {
     })
     expect(qsa.mock.calls.filter(([sel]) => String(sel).includes('role="dialog"')).length).toBe(before + 1)
     qsa.mockRestore()
+  })
+})
+
+describe('포커스 칸 정보(WP-1511)', () => {
+  it('토큰 칸에 포커스하면 focusField 는 이름·secret 만, 입력해도 value 가 생기지 않는다', () => {
+    vi.useFakeTimers()
+    const root = mount('<div data-help="tokens.issue"><label for="t">토큰</label><input id="t"></div>')
+    const { result } = setup()
+    const input = root.querySelector('input')!
+    act(() => input.focus())
+    expect(result.current.focusField).toEqual({ name: '토큰', secret: true })
+    input.value = 'ghp_secret'
+    act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      vi.advanceTimersByTime(300)
+    })
+    expect(result.current.focusField).toEqual({ name: '토큰', secret: true })
+    expect('value' in result.current.focusField!).toBe(false)
+  })
+
+  it('일반 칸은 입력하면 200ms 디바운스 뒤 값이 갱신된다', () => {
+    vi.useFakeTimers()
+    const root = mount('<div data-help="tokens.issue"><input aria-label="이름"></div>')
+    const { result } = setup()
+    const input = root.querySelector('input')!
+    act(() => input.focus())
+    expect(result.current.focusField).toEqual({ name: '이름', secret: false })
+    input.value = '내 토큰'
+    act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      vi.advanceTimersByTime(100)
+    })
+    expect(result.current.focusField?.value).toBeUndefined()
+    act(() => vi.advanceTimersByTime(150))
+    expect(result.current.focusField).toEqual({ name: '이름', secret: false, value: '내 토큰' })
+  })
+
+  it('포커스가 칸 밖으로 가면 focusField 는 null', () => {
+    const root = mount('<div data-help="tokens.issue"><input aria-label="이름"></div><p id="plain">글</p>')
+    const { result } = setup()
+    act(() => root.querySelector('input')!.focus())
+    act(() => {
+      root.querySelector('#plain')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    })
+    expect(result.current.focusField).toBeNull()
+  })
+
+  it('포커스한 입력 칸 요소가 DOM 에서 사라지면(감싼 칸은 남아도) focusField 를 비운다', async () => {
+    const root = mount('<div data-help="tokens.issue"><input aria-label="이름"></div>')
+    const { result } = setup()
+    const input = root.querySelector('input')!
+    act(() => input.focus())
+    expect(result.current.focusField).toEqual({ name: '이름', secret: false })
+    await act(async () => {
+      input.remove()
+    })
+    expect(result.current.focusField).toBeNull()
+  })
+
+  it('열린 대화상자 제목을 dialogName 으로 돌려준다', () => {
+    mount('<div role="dialog" data-state="open" aria-labelledby="h"><h2 id="h">토큰 만들기</h2></div>')
+    const { result } = setup()
+    expect(result.current.dialogName).toBe('토큰 만들기')
+  })
+
+  it('대화상자가 없으면 dialogName 은 null', () => {
+    const { result } = setup()
+    expect(result.current.dialogName).toBeNull()
+  })
+
+  it('대화상자가 겹쳐 있으면 맨 위 창의 이름을 쓰고, 맨 위 창에 이름이 없으면 null', () => {
+    mount(`<div role="dialog" data-state="open" aria-labelledby="a"><h2 id="a">아래 창</h2></div>
+      <div role="dialog" data-state="open"></div>`)
+    const { result } = setup()
+    expect(result.current.dialogName).toBeNull()
+  })
+
+  it('전체 화면 AI 안의 입력칸 포커스는 도움말 포커스 칸으로 기록하지 않는다', () => {
+    const root = mount('<main><div data-ai-panel data-testid="ai-fullscreen"><textarea aria-label="메시지"></textarea></div></main>')
+    const { result, onScreenInteraction } = setup()
+    act(() => root.querySelector('textarea')!.focus())
+    expect(result.current.focusField).toBeNull()
+    expect(onScreenInteraction).not.toHaveBeenCalled()
+  })
+
+  it('전체 화면 AI 안의 대화상자는 열린 창으로 보고하지 않는다', () => {
+    mount('<main><div data-ai-panel data-testid="ai-fullscreen"><div role="alertdialog" data-state="open" aria-label="대화 삭제"></div></div></main>')
+    const { result } = setup()
+    expect(result.current.dialogName).toBeNull()
+  })
+
+  it('로그인 정보 칸(data-ai-secret)은 타이핑해도 값 없이 비밀값 포커스만 남긴다', () => {
+    // LoginInfoField 의 textarea 와 같은 표식 — 이름·placeholder 만으로는 비밀값 낱말이 잡히지 않는다.
+    const root = mount('<div data-help="agents.accounts.add"><label for="li">로그인 정보</label><textarea id="li" data-ai-secret="true" placeholder="~/.codex/auth.json 파일을 끌어다 놓거나 내용을 붙여 넣어요"></textarea></div>')
+    vi.useFakeTimers()
+    const { result } = setup()
+    const area = root.querySelector('textarea')!
+    act(() => area.focus())
+    area.value = '{"tokens":{"id_token":"eyJ"}}'
+    act(() => {
+      area.dispatchEvent(new Event('input', { bubbles: true }))
+      vi.advanceTimersByTime(300)
+    })
+    expect(result.current.focusField).toEqual({ name: '로그인 정보', secret: true })
+  })
+
+  it('도움말 패널·AI 표면 안의 대화상자는 이름에서 뺀다', () => {
+    mount(`<div role="dialog" data-state="open" aria-labelledby="a"><h2 id="a">화면 창</h2></div>
+      <div data-help-panel><div role="dialog" data-state="open" aria-label="그림 확대"></div></div>
+      <div data-ai-panel><div role="dialog" data-state="open" aria-label="AI 창"></div></div>`)
+    const { result } = setup()
+    expect(result.current.dialogName).toBe('화면 창')
   })
 })

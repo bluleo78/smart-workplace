@@ -142,7 +142,16 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
     [open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, clearSearch, setSearchClear],
   )
   // 여는 함수만 따로 — select 는 늘 같고 setOpen 은 사용자·워크스페이스가 바뀔 때만 바뀐다.
-  const actions = useMemo<HelpPanelActions>(() => ({ select, setOpen }), [select, setOpen])
+  // 패널 밖(화면의 「연결 방법」·AI 답의 출처)에서 고른 절은 검색을 지우고 보인다 — 질의가 남아 있으면 본문 자리에 검색 결과 목록이
+  // 그대로 있어 고른 절이 보이지 않았다(WP-1511 라이브 검증). 패널 안 이동(검색 결과 열기 등)은 useHelpPanel().select 라 질의를 지키지 않는다.
+  const selectFromOutside = useCallback<HelpPanelValue['select']>(
+    (target, from) => {
+      clearSearch()
+      select(target, from)
+    },
+    [clearSearch, select],
+  )
+  const actions = useMemo<HelpPanelActions>(() => ({ select: selectFromOutside, setOpen }), [selectFromOutside, setOpen])
   return (
     <HelpPanelActionsContext.Provider value={actions}>
       <HelpPanelContext.Provider value={value}>{children}</HelpPanelContext.Provider>

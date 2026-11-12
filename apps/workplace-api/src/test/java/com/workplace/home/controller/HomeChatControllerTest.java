@@ -206,6 +206,88 @@ class HomeChatControllerTest extends WebMvcSliceTestBase {
     }
   }
 
+  /** WP-1511: help 를 전부 채운 요청을 받아 그대로 서비스에 넘긴다. */
+  @Test
+  void helpScreenContext_accepted() throws Exception {
+    when(chatService.startChat(
+            eq(1L), isNull(), eq("이거 어떻게 해"), any(), eq(List.of()), isNull(), isNull(), isNull()))
+        .thenReturn(new HomeChatStartedResponse("corr-h", SID));
+    String body =
+        """
+        {"query":"이거 어떻게 해","screenContext":{"view":"메일함",
+          "help":{"section":{"id":"mail.rules","path":["메일","규칙"],"body":"본문"},
+                  "focus":{"name":"제목","secret":true},
+                  "dialog":"규칙 추가","query":"규칙",
+                  "dialogs":[{"id":"rule-new","label":"규칙 추가"}]}}}
+        """;
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk());
+    var captor = org.mockito.ArgumentCaptor.forClass(AiScreenContext.class);
+    verify(chatService)
+        .startChat(
+            eq(1L),
+            isNull(),
+            eq("이거 어떻게 해"),
+            captor.capture(),
+            eq(List.of()),
+            isNull(),
+            isNull(),
+            isNull());
+    assertThat(captor.getValue().help().section().id()).isEqualTo("mail.rules");
+    assertThat(captor.getValue().help().dialogs()).hasSize(1);
+  }
+
+  /** WP-1511: help.section.body 2001자는 400. */
+  @Test
+  void helpBodyOver2000_rejected400() throws Exception {
+    String ctx =
+        "{\"view\":\"v\",\"help\":{\"section\":{\"id\":\"a\",\"path\":[],\"body\":\""
+            + "x".repeat(2001)
+            + "\"}}}";
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\",\"screenContext\":" + ctx + "}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** WP-1511: help.section.path 누락은 400 — ai-agent zod 와 같이 필수다(비어 있는 배열은 허용). */
+  @Test
+  void helpSectionPathMissing_rejected400() throws Exception {
+    String ctx = "{\"view\":\"v\",\"help\":{\"section\":{\"id\":\"a\",\"body\":\"b\"}}}";
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\",\"screenContext\":" + ctx + "}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** WP-1511: help.dialogs 6개(상한 5)는 400. */
+  @Test
+  void helpDialogsOver5_rejected400() throws Exception {
+    String one = "{\"id\":\"d\",\"label\":\"l\"}";
+    String ctx =
+        "{\"view\":\"v\",\"help\":{\"dialogs\":["
+            + String.join(",", java.util.Collections.nCopies(6, one))
+            + "]}}";
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\",\"screenContext\":" + ctx + "}"))
+        .andExpect(status().isBadRequest());
+  }
+
   /** WP-54: refs 6개(상한 5) · view 누락은 400. */
   @Test
   void chat_화면_컨텍스트_refs_초과_view_누락은_400() throws Exception {

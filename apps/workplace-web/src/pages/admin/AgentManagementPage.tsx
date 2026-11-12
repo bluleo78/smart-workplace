@@ -7,9 +7,10 @@
 // 짝 검사하고, 객체·변수로 넘긴 값은 「동적」 으로 세기만 한다. 머리 단추를 TABS 표로 한 번만 그리면 agents.locations.create·
 // agents.accounts.add 는 다른 곳에 글자 꼴이 없어(대화상자는 조건식) 짝 검사에서 빠진다 — 그래서 머리 단추는 탭별 JSX 로 나눠 둔다.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
+import { useAiDialogTarget } from '@/components/ai/dialogTargets/AiDialogTargets';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,6 +46,9 @@ export default function AgentManagementPage() {
   const tab = tabOf(pathname);
   // 머리 「+ 새 에이전트」·「+ 실행 환경 추가」가 여는 창 — 창 자체는 각 탭이 그린다. 탭을 바꾸면 닫는다(onValueChange).
   const [createOpen, setCreateOpen] = useState(false);
+  // WP-1511: AI 답의 「계정 추가 창 열기」 — 계정 탭일 때만 머리 「+ 계정 추가」 창을 열 수 있다고 등록한다.
+  const accountAddRef = useRef<HTMLButtonElement>(null);
+  useAiDialogTarget('agents.accounts.add', tab === 'accounts' ? { open: () => setCreateOpen(true), isOpen: () => createOpen, anchor: accountAddRef } : null);
   // 옛 상세 딥링크(?agent=<id>, 시트 시절 WP-209)는 상세 페이지로 넘긴다 — 알림·문서에 남은 링크가 계속 열리게.
   const legacyAgentId = parseId(new URLSearchParams(search).get('agent'));
   if (legacyAgentId != null) return <Navigate to={`/settings/agents/${legacyAgentId}`} replace />;
@@ -64,7 +68,7 @@ export default function AgentManagementPage() {
             + 실행 환경 추가
           </Button>
         ) : (
-          <Button onClick={() => setCreateOpen(true)} data-testid="agent-account-new" data-help="agents.accounts.add">
+          <Button ref={accountAddRef} onClick={() => setCreateOpen(true)} data-testid="agent-account-new" data-help="agents.accounts.add">
             + 계정 추가
           </Button>
         )

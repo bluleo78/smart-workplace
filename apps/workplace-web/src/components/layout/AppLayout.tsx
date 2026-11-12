@@ -6,6 +6,7 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { AIChip } from '@/components/ai/AIChip'
+import { AiDialogTargetsProvider } from '@/components/ai/dialogTargets/AiDialogTargets'
 import { LazyAIFullscreen, LazyMobileAiSheet } from '@/components/ai/LazyAiSurfaces'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
 import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
@@ -98,6 +99,8 @@ export function AppLayout() {
           <HelpPanelProvider>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
           <AiScreenContextProvider>
+          {/* WP-1511: AI 답의 「창 열기」 단추가 열 수 있는 대화상자 등록부 — 화면 참고 store 안쪽에 둔다. */}
+          <AiDialogTargetsProvider>
             <HeaderDensityProvider>
             {/* WP-384: /?aiChat=<id> 딥링크 — 패널을 열고 그 대화를 복원한다(비서가 있을 때만). */}
             {aiAvailable && <AiChatDeepLink />}
@@ -169,6 +172,7 @@ export function AppLayout() {
             {/* WP-1534 드라이브 업로드 패널 — 셸 분기 밖이라 lg 경계로 셸이 바뀌어도 접힘 상태가 유지되고, 어느 메뉴에서나 보인다. */}
             <DriveUploadPanelHost />
             </HeaderDensityProvider>
+          </AiDialogTargetsProvider>
           </AiScreenContextProvider>
           </HelpPanelProvider>
         </AIAssistantProvider>

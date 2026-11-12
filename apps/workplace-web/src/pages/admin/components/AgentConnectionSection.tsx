@@ -3,9 +3,10 @@
 // 모델/생각의 깊이는 이 에이전트가 "공통 비서로 지정"된 경우에만 편집 가능(백엔드에 에이전트별 모델 저장 컬럼이 없고, workspace 전체
 // 공통 비서 슬롯 1개에만 model/thinkingDepth 가 저장되기 때문 — 스코프 아웃, 별도 이슈 필요).
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useAiDialogTarget } from '@/components/ai/dialogTargets/AiDialogTargets';
 import { SuggestionModelField } from '@/components/ai/SuggestionModelField';
 import { VisionInputSelect } from '@/components/ai/VisionInputSelect';
 import {
@@ -94,6 +95,9 @@ export function AgentAiAccountGroup({
   const [dialogOpen, setDialogOpen] = useState(false);
   // 연결 끊기 확인 창. window.confirm 대체 (#136).
   const [revokeOpen, setRevokeOpen] = useState(false);
+  // WP-1511: AI 답의 「AI 계정 연결 창 열기」 — 연결하기·다시 연결 단추가 여는 창. 읽기 전용(사용 중지된 AI)·설정 권한 없음이면 단추가 없으니 등록하지 않는다.
+  const connectButtonRef = useRef<HTMLButtonElement>(null);
+  useAiDialogTarget('agent.run.account', !readOnly && canConfigure ? { open: () => setDialogOpen(true), isOpen: () => dialogOpen, anchor: connectButtonRef } : null);
 
   const doRevoke = async () => {
     try {
@@ -129,7 +133,7 @@ export function AgentAiAccountGroup({
           {meta ? (
             <>
               {canConfigure && (
-                <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)} data-testid="oauth-token-reissue">
+                <Button ref={connectButtonRef} size="sm" variant="outline" onClick={() => setDialogOpen(true)} data-testid="oauth-token-reissue">
                   다시 연결
                 </Button>
               )}
@@ -145,7 +149,7 @@ export function AgentAiAccountGroup({
               </Button>
             </>
           ) : canConfigure ? (
-            <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
+            <Button ref={connectButtonRef} size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
               연결하기
             </Button>
           ) : null}
