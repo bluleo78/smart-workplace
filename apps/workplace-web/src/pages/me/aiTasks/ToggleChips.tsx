@@ -47,10 +47,12 @@ export function ToggleChips({
   }, [onKey])
 
   // 모바일은 py-2 로 칩 터치 영역(::after)이 스크롤 영역에 잘리지 않게 하고 -my-2 로 레이아웃 높이는 그대로 둔다.
+  // pr-1(WP-1521): 칩 폭 합이 소수 픽셀이면 scrollLeft 최댓값(정수)으로 끝까지 굴려도 마지막 칩이 1px 남짓 잘렸다 —
+  // 끝 여백을 두어 마지막 칩까지 온전히 보이게 한다(flex 스크롤 영역의 끝 padding 은 스크롤 범위에 들어간다).
   return (
     <div
       ref={rowRef}
-      className={cn('flex items-center gap-2 overflow-x-auto max-lg:-my-2 max-lg:py-2', HIDE_SCROLLBAR)}
+      className={cn('flex items-center gap-2 overflow-x-auto max-lg:-my-2 max-lg:py-2 max-lg:pr-1', HIDE_SCROLLBAR)}
       role="group"
       aria-label={label}
       data-testid={testIds.row}
