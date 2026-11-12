@@ -71,7 +71,10 @@ export function HelpSectionMenu({ chapter, currentId, related, onSelect, childre
         <div className="min-w-0">{children(trigger)}</div>
       </PopoverAnchor>
       {/* z-[70] — 휴대폰 전체 화면 도움말 시트(z-50 대화상자) 위에도 뜨게. 폭은 브레드크럼 줄(anchor) 폭. */}
+      {/* data-help-panel — 포털로 패널 밖(body)에 그려지지만 패널의 일부다. 문맥 신호 훅이 여기 포커스·클릭을 화면 상호작용으로 보고
+          직접 고름을 풀지 않게, 화면 버튼 강조가 목록 항목을 고르지 않게(WP-1506). */}
       <PopoverContent
+        data-help-panel
         data-testid="help-section-menu"
         align="start"
         collisionPadding={8}

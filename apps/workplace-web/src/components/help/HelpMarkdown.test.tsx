@@ -1,10 +1,11 @@
 // 도움말 절 본문 그리기(WP-1505) — 코드 복사 단추가 자리표시를 채운 글을 복사하는지, help: 절 링크·figure: 그림이 react-markdown 의
 // 주소 정리(urlTransform)에 지워지지 않고 동작하는지, 없는 그림·로드 실패는 alt 글로 보이는지,
-// 굵은 화면 문구에 마우스를 올리면 패널 밖 같은 이름의 화면 버튼만 강조하는지 본다.
+// 굵은 화면 문구에 마우스를 올리면 패널 밖 같은 이름의 화면 버튼만 강조하는지, 포커스한 화면 단추 이름과 같은 굵은 글자를 강조하는지(WP-1506) 본다.
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import { HelpActiveControlContext } from './helpActiveControl'
 import type { HelpFigure, HelpSection } from './helpBundle'
 import { HelpMarkdown } from './HelpMarkdown'
 import type { HelpValues } from './helpMarkup'
@@ -126,6 +127,25 @@ describe('HelpMarkdown', () => {
     expect(inside).not.toHaveAttribute('data-help-highlight')
     await userEvent.unhover(strong)
     expect(outside).not.toHaveAttribute('data-help-highlight')
+  })
+})
+
+describe('HelpMarkdown — 포커스한 화면 단추 강조(WP-1506)', () => {
+  it('활성 컨트롤 이름과 정규화한 굵은 글자가 같을 때만 data-help-active', () => {
+    const md = section('**토큰  발급** 을 누른다. **발급 취소** 도 있다.')
+    const { rerender } = render(
+      <HelpActiveControlContext.Provider value="토큰 발급">
+        <HelpMarkdown section={md} values={noValues} vars={null} onNavigate={() => {}} />
+      </HelpActiveControlContext.Provider>,
+    )
+    expect(screen.getByText('토큰 발급', { selector: 'strong' })).toHaveAttribute('data-help-active')
+    expect(screen.getByText('발급 취소', { selector: 'strong' })).not.toHaveAttribute('data-help-active')
+    rerender(
+      <HelpActiveControlContext.Provider value="발급">
+        <HelpMarkdown section={md} values={noValues} vars={null} onNavigate={() => {}} />
+      </HelpActiveControlContext.Provider>,
+    )
+    expect(screen.getByText('토큰 발급', { selector: 'strong' })).not.toHaveAttribute('data-help-active')
   })
 })
 

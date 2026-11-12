@@ -44,6 +44,7 @@ function Probe() {
       <input aria-label="글" />
       <button onClick={() => help.select({ chapter: 'c', sectionId: 'a' }, null)}>a 고르기</button>
       <button onClick={() => help.select({ chapter: 'c', sectionId: 'b' }, { chapter: 'c', sectionId: 'a' })}>b 고르기</button>
+      <button onClick={() => help.release()}>풀기</button>
       <button onClick={() => help.resize(9999, true)}>넓게</button>
       <button onClick={() => help.resize(1)}>좁게</button>
       <button onClick={() => void navigate('/other')}>이동</button>
@@ -131,6 +132,17 @@ describe('HelpPanelProvider', () => {
     expect(screen.getByTestId('selected')).toHaveTextContent('b')
     expect(screen.getByTestId('history')).toHaveTextContent('1')
     await user.click(screen.getByRole('button', { name: '이동' }))
+    expect(screen.getByTestId('selected')).toHaveTextContent('-')
+    expect(screen.getByTestId('history')).toHaveTextContent('0')
+  })
+
+  it('release 는 고른 절과 뒤로 기록을 비운다(화면 상호작용)', async () => {
+    mobile.value = false
+    const { user } = renderScreen(ui)
+    await user.click(screen.getByRole('button', { name: 'a 고르기' }))
+    await user.click(screen.getByRole('button', { name: 'b 고르기' }))
+    expect(screen.getByTestId('selected')).toHaveTextContent('b')
+    await user.click(screen.getByRole('button', { name: '풀기' }))
     expect(screen.getByTestId('selected')).toHaveTextContent('-')
     expect(screen.getByTestId('history')).toHaveTextContent('0')
   })

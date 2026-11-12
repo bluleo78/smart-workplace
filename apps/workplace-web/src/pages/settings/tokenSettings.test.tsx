@@ -134,3 +134,18 @@ test('토큰 화면에서 발급 없이도 연결 안내를 늘 볼 수 있다 (
   await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(MCP_ENDPOINT))
   expect(guide.queryByRole('button', { name: '명령 복사' })).not.toBeInTheDocument()
 })
+
+// WP-1506 — 도움말 문맥 고르기의 예시 화면. 화면 칸·대화상자의 data-help 가 매뉴얼 12장 도움말 id(tokens 층)와 짝을 이룬다.
+test('화면 칸과 발급·폐기 대화상자에 도움말 id(data-help)가 달려 있다 (WP-1506)', async () => {
+  const { user } = await openTokens([{ ...base, id: 1, name: 'ci', tokenPrefix: 'swp_ci', expiresAt: null }])
+  expect(document.querySelector('[data-help="tokens"]')).toContainElement(screen.getByRole('table', { name: 'API 토큰 목록' }))
+  expect(screen.getByRole('table', { name: 'API 토큰 목록' }).closest('[data-help]')).toHaveAttribute('data-help', 'tokens.list')
+  expect(screen.getByTestId('token-connect-guide')).toHaveAttribute('data-help', 'tokens.connect')
+  expect(screen.getByTestId('token-issue-open')).toHaveAttribute('data-help', 'tokens.issue')
+  await user.click(screen.getByTestId('token-issue-open'))
+  expect(await screen.findByRole('dialog')).toHaveAttribute('data-help', 'tokens.issue')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  await user.click(screen.getByTestId('token-revoke-1'))
+  expect(await screen.findByRole('alertdialog')).toHaveAttribute('data-help', 'tokens.list')
+})
