@@ -3,6 +3,8 @@
 // 발급은 헤더 액션 버튼 → 입력 모달(TokenIssueFormDialog) → 결과 모달(TokenIssueDialog) 2단계.
 // 다른 관리 목록(구성원/역할/감사 로그)과 동일하게 풀폭 + Card 없는 bordered table 을 쓴다(#655).
 // 표 아래 「도구에 연결하기」 섹션은 발급 뒤에도 연결 방법을 다시 볼 수 있게 늘 보인다(WP-875, 발급 모달과 같은 TokenConnectGuide).
+// 도움말 문맥(WP-1506): 화면 칸·대화상자에 data-help 를 달아 도움말 패널이 매뉴얼 12장의 맞는 절(tokens 층)을 저절로 보이게 한다.
+// 값은 글자 그대로 둔다 — 매뉴얼 정적 검사(manual:check)가 화면 data-help ↔ 매뉴얼 {help=…} 짝을 소스에서 본다.
 
 import { useState } from 'react';
 
@@ -87,111 +89,115 @@ export default function TokenSettingsPage() {
       title="API 토큰"
       width="full"
       actions={
-        <Button data-testid="token-issue-open" onClick={() => setIssueFormOpen(true)}>
+        <Button data-testid="token-issue-open" data-help="tokens.issue" onClick={() => setIssueFormOpen(true)}>
           토큰 발급
         </Button>
       }
     >
-      <div className="rounded-md border">
-        <Table aria-label="API 토큰 목록">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="max-w-[220px]">이름</TableHead>
-              {/* 휴대폰(<md)에서는 앞자리·만료·마지막 사용 열을 숨기고 이름 아래 한 줄로 모은다(WP-617) — 여섯 열이 화면 밖으로 밀려
-                  상태·「폐기」가 옆으로 밀어야만 보였다. 감사 로그 화면과 같은 hidden md:table-cell 방식. */}
-              <TableHead className="hidden max-w-[200px] md:table-cell">앞자리</TableHead>
-              <TableHead className="hidden md:table-cell">만료</TableHead>
-              <TableHead className="hidden md:table-cell">마지막 사용</TableHead>
-              <TableHead>상태</TableHead>
-              <TableHead className="w-20"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tokens.isLoading ? (
-              <TableSkeletonRows columns={COLUMN_COUNT} rows={3} />
-            ) : tokens.isError ? (
+      {/* 화면 전체 칸(API 토큰) — 안쪽 칸 밖을 만지거나 볼 때 이 절. Page.Body 의 직속 자식 간격(space-y-6)을 이 안에서 그대로 잇는다. */}
+      <div data-help="tokens" className="space-y-6">
+        <div className="rounded-md border" data-help="tokens.list">
+          <Table aria-label="API 토큰 목록">
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={COLUMN_COUNT} className="py-8 text-center text-destructive">
-                  목록을 불러오지 못했습니다
-                </TableCell>
+                <TableHead className="max-w-[220px]">이름</TableHead>
+                {/* 휴대폰(<md)에서는 앞자리·만료·마지막 사용 열을 숨기고 이름 아래 한 줄로 모은다(WP-617) — 여섯 열이 화면 밖으로 밀려
+                    상태·「폐기」가 옆으로 밀어야만 보였다. 감사 로그 화면과 같은 hidden md:table-cell 방식. */}
+                <TableHead className="hidden max-w-[200px] md:table-cell">앞자리</TableHead>
+                <TableHead className="hidden md:table-cell">만료</TableHead>
+                <TableHead className="hidden md:table-cell">마지막 사용</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead className="w-20"></TableHead>
               </TableRow>
-            ) : isEmpty ? (
-              <TableEmptyRow colSpan={COLUMN_COUNT} message="발급된 토큰이 없습니다." />
-            ) : (
-              (tokens.data ?? []).map((t) => (
-                <TableRow key={t.id} data-testid={`token-row-${t.id}`}>
-                  <TableCell className="max-w-[45vw] md:max-w-[220px]">
-                    <div className="truncate font-medium" title={t.name}>
-                      {t.name}
-                    </div>
-                    {/* 요약 줄은 항목 단위로 줄바꿈한다(WP-1126) — 한 줄 말줄임이면 이름 칸(45vw)에서 「사용 …」이 늘 잘려 마지막 사용일을
-                        볼 수 없었다. 만료·사용은 끊기지 않고 통째로 다음 줄로 넘어가며, 앞자리만 칸이 좁을 때 말줄임한다. */}
-                    <div
-                      className="flex flex-wrap gap-x-2 text-xs text-muted-foreground md:hidden"
-                      data-testid={`token-meta-${t.id}`}
-                    >
-                      <span className="min-w-0 max-w-full truncate font-mono">{t.tokenPrefix}…</span>
-                      <span className="whitespace-nowrap" data-testid={`token-meta-${t.id}-expiry`}>
-                        만료 {expiryLabel(t.expiresAt)}
-                      </span>
-                      <span className="whitespace-nowrap" data-testid={`token-meta-${t.id}-used`}>
-                        사용 {formatDateShort(t.lastUsedAt)}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell
-                    className="hidden max-w-[200px] truncate font-mono text-xs text-muted-foreground md:table-cell"
-                    title={t.tokenPrefix}
-                  >
-                    {t.tokenPrefix}…
-                  </TableCell>
-                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                    {expiryLabel(t.expiresAt)}
-                  </TableCell>
-                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                    {formatDateShort(t.lastUsedAt)}
-                  </TableCell>
-                  <TableCell>
-                    <TokenStatusBadge revokedAt={t.revokedAt} expiresAt={t.expiresAt} />
-                  </TableCell>
-                  {/* 액션 컬럼 — 고정폭 + 우측 정렬(디자인 가이드 04-components.md 패턴3, RoleListPage 관례) */}
-                  <TableCell className="w-20 text-right">
-                    {t.revokedAt == null && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onRevoke(t.id)}
-                        data-testid={`token-revoke-${t.id}`}
-                      >
-                        폐기
-                      </Button>
-                    )}
+            </TableHeader>
+            <TableBody>
+              {tokens.isLoading ? (
+                <TableSkeletonRows columns={COLUMN_COUNT} rows={3} />
+              ) : tokens.isError ? (
+                <TableRow>
+                  <TableCell colSpan={COLUMN_COUNT} className="py-8 text-center text-destructive">
+                    목록을 불러오지 못했습니다
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* 도구에 연결하기 — 토큰 값은 다시 보이지 않으므로 2단계는 「발급 때 복사한 토큰」으로 안내한다(WP-875).
-          긴 명령이 풀폭으로 늘어지지 않게 읽기 좋은 폭으로 묶는다. */}
-      <section
-        aria-labelledby="token-connect-guide-title"
-        className="mt-8 max-w-3xl space-y-3 border-t pt-6"
-        data-testid="token-connect-guide"
-      >
-        <div className="space-y-1">
-          <h2 id="token-connect-guide-title" className="text-base leading-6 font-semibold">
-            도구에 연결하기
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            발급 때 나온 안내와 같습니다. 토큰은 다시 볼 수 없어요 — 발급 때 복사해 둔 토큰을 쓰고, 잃어버렸으면 새로 발급하세요.
-          </p>
+              ) : isEmpty ? (
+                <TableEmptyRow colSpan={COLUMN_COUNT} message="발급된 토큰이 없습니다." />
+              ) : (
+                (tokens.data ?? []).map((t) => (
+                  <TableRow key={t.id} data-testid={`token-row-${t.id}`}>
+                    <TableCell className="max-w-[45vw] md:max-w-[220px]">
+                      <div className="truncate font-medium" title={t.name}>
+                        {t.name}
+                      </div>
+                      {/* 요약 줄은 항목 단위로 줄바꿈한다(WP-1126) — 한 줄 말줄임이면 이름 칸(45vw)에서 「사용 …」이 늘 잘려 마지막 사용일을
+                          볼 수 없었다. 만료·사용은 끊기지 않고 통째로 다음 줄로 넘어가며, 앞자리만 칸이 좁을 때 말줄임한다. */}
+                      <div
+                        className="flex flex-wrap gap-x-2 text-xs text-muted-foreground md:hidden"
+                        data-testid={`token-meta-${t.id}`}
+                      >
+                        <span className="min-w-0 max-w-full truncate font-mono">{t.tokenPrefix}…</span>
+                        <span className="whitespace-nowrap" data-testid={`token-meta-${t.id}-expiry`}>
+                          만료 {expiryLabel(t.expiresAt)}
+                        </span>
+                        <span className="whitespace-nowrap" data-testid={`token-meta-${t.id}-used`}>
+                          사용 {formatDateShort(t.lastUsedAt)}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      className="hidden max-w-[200px] truncate font-mono text-xs text-muted-foreground md:table-cell"
+                      title={t.tokenPrefix}
+                    >
+                      {t.tokenPrefix}…
+                    </TableCell>
+                    <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
+                      {expiryLabel(t.expiresAt)}
+                    </TableCell>
+                    <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
+                      {formatDateShort(t.lastUsedAt)}
+                    </TableCell>
+                    <TableCell>
+                      <TokenStatusBadge revokedAt={t.revokedAt} expiresAt={t.expiresAt} />
+                    </TableCell>
+                    {/* 액션 컬럼 — 고정폭 + 우측 정렬(디자인 가이드 04-components.md 패턴3, RoleListPage 관례) */}
+                    <TableCell className="w-20 text-right">
+                      {t.revokedAt == null && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRevoke(t.id)}
+                          data-testid={`token-revoke-${t.id}`}
+                        >
+                          폐기
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </div>
-        <p className="text-sm font-medium">Claude Code 에 연결</p>
-        <TokenConnectGuide tokenSource="saved" testIdPrefix="connect-guide" />
-      </section>
+
+        {/* 도구에 연결하기 — 토큰 값은 다시 보이지 않으므로 2단계는 「발급 때 복사한 토큰」으로 안내한다(WP-875).
+            긴 명령이 풀폭으로 늘어지지 않게 읽기 좋은 폭으로 묶는다. */}
+        <section
+          aria-labelledby="token-connect-guide-title"
+          className="mt-8 max-w-3xl space-y-3 border-t pt-6"
+          data-testid="token-connect-guide"
+          data-help="tokens.connect"
+        >
+          <div className="space-y-1">
+            <h2 id="token-connect-guide-title" className="text-base leading-6 font-semibold">
+              도구에 연결하기
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              발급 때 나온 안내와 같습니다. 토큰은 다시 볼 수 없어요 — 발급 때 복사해 둔 토큰을 쓰고, 잃어버렸으면 새로 발급하세요.
+            </p>
+          </div>
+          <p className="text-sm font-medium">Claude Code 에 연결</p>
+          <TokenConnectGuide tokenSource="saved" testIdPrefix="connect-guide" />
+        </section>
+      </div>
 
       <TokenIssueFormDialog
         open={issueFormOpen}
@@ -216,7 +222,8 @@ export default function TokenSettingsPage() {
           if (!open) setConfirmId(null);
         }}
       >
-        <AlertDialogContent data-testid="token-confirm-dialog">
+        {/* 폐기 확인은 목록 관리 절(tokens.list)의 일 — 열린 동안 도움말이 그 절을 보인다. */}
+        <AlertDialogContent data-testid="token-confirm-dialog" data-help="tokens.list">
           <AlertDialogHeader>
             <AlertDialogTitle>API 토큰 폐기</AlertDialogTitle>
             <AlertDialogDescription>

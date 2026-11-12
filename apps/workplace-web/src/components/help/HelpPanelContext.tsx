@@ -7,7 +7,7 @@ import { useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile'
 
-import { helpNavReducer, type HelpNavState, type HelpTarget } from './helpNav'
+import { type HelpHistoryEntry, helpNavReducer, type HelpNavState, type HelpTarget } from './helpNav'
 import {
   clampHelpSplit,
   clampHelpWidth,
@@ -34,8 +34,10 @@ export interface HelpPanelValue {
   setSplit: (ratio: number, persist?: boolean) => void
   /** 지금 주소·고른 절·뒤로 기록. */
   nav: HelpNavState
-  /** 절을 고른다 — from(보던 절)이 있으면 뒤로 기록에 쌓는다. */
-  select: (target: HelpTarget, from: HelpTarget | null) => void
+  /** 절을 고른다 — from(보던 절, 화면을 따라 보이던 것이면 followed 표식)이 있으면 뒤로 기록에 쌓는다. */
+  select: (target: HelpTarget, from: HelpHistoryEntry | null) => void
+  /** 직접 고름을 풀고 기록을 비운다 — 화면에서 다른 칸을 만지면 다시 화면 문맥을 따르게(WP-1506). */
+  release: () => void
   back: () => void
   /**
    * 패널 검색 칸에 질의가 있는가(WP-1509) — 이때의 Esc 는 질의를 지우는 키라 휴대폰 시트(모달)가 닫기로 받지 않는다(MobileHelpSheet).
@@ -103,7 +105,8 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     dispatch({ type: 'route', pathname })
   }, [pathname])
-  const select = useCallback((target: HelpTarget, from: HelpTarget | null) => dispatch({ type: 'select', target, from }), [])
+  const select = useCallback((target: HelpTarget, from: HelpHistoryEntry | null) => dispatch({ type: 'select', target, from }), [])
+  const release = useCallback(() => dispatch({ type: 'release' }), [])
   const back = useCallback(() => dispatch({ type: 'back' }), [])
 
   // 검색 칸 질의 유무 — 그리는 HelpPanel 이 알린다(시트의 Esc 판정용).
@@ -127,8 +130,8 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
   }, [toggle])
 
   const value = useMemo<HelpPanelValue>(
-    () => ({ open, setOpen, toggle, width, resize, split, setSplit, nav, select, back, searchActive, setSearchActive, clearSearch, setSearchClear }),
-    [open, setOpen, toggle, width, resize, split, setSplit, nav, select, back, searchActive, clearSearch, setSearchClear],
+    () => ({ open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, setSearchActive, clearSearch, setSearchClear }),
+    [open, setOpen, toggle, width, resize, split, setSplit, nav, select, release, back, searchActive, clearSearch, setSearchClear],
   )
   return <HelpPanelContext.Provider value={value}>{children}</HelpPanelContext.Provider>
 }

@@ -1,6 +1,7 @@
 // 도움말 묶음 테스트 키트(WP-1505) — 패널·모바일 시트 화면 테스트가 같은 작은 묶음(`/help/…`)을 MSW 로 받게 한다.
 // 장 둘: 누구나 보는 「홈」(주소 `/`)과 관리자만 보는 「AI 에이전트 관리」(주소 `/settings/agents/:id`).
 // 홈 첫머리는 관리자 장 절과 같은 장 절을 함께 링크해, 일반 구성원의 「관련」에서 관리자 장만 빠지는지 볼 수 있다.
+// 「내 설정」(주소 `/settings/tokens`)은 도움말 문맥 고르기(WP-1506) — 화면 칸 data-help 와 짝인 도움말 id 절 넷(tokens 층)을 든다.
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
 import type { HelpSearchHit } from '@/api/help'
@@ -31,6 +32,20 @@ export const helpIndexFixture: HelpIndexChapter[] = [
       { id: 'agent.run.repo', label: '저장소 연결', title: '저장소를 연결한다', parent: 'agent.run', level: 3 },
     ],
   },
+  {
+    chapter: 'my-settings',
+    number: 12,
+    title: '내 설정',
+    routes: ['/settings/tokens'],
+    audience: ['member'],
+    sections: [
+      { id: 'my-settings#_intro', label: '내 설정', title: '내 설정', parent: null, level: 1 },
+      { id: 'tokens', label: 'API 토큰', title: '외부 AI 도구를 연결한다', parent: null, level: 2 },
+      { id: 'tokens.issue', label: 'API 토큰 발급', title: '토큰을 발급한다', parent: 'tokens', level: 3 },
+      { id: 'tokens.list', label: 'API 토큰 목록', title: '발급한 토큰을 관리한다', parent: 'tokens', level: 3 },
+      { id: 'tokens.connect', label: '도구에 연결하기', title: '도구에 연결한다', parent: 'tokens', level: 3 },
+    ],
+  },
 ]
 
 /** 장 파일(manual/<chapter>.json). */
@@ -53,6 +68,16 @@ export const helpChapterFixtures: Record<string, HelpChapter> = {
       { ...helpIndexFixture[1].sections[0], markdown: '에이전트 첫머리 본문.', figures: [], links: [] },
       { ...helpIndexFixture[1].sections[1], markdown: '실행 본문. 아이디는 {agent.username} 이다.', figures: [], links: [] },
       { ...helpIndexFixture[1].sections[2], markdown: '저장소 연결 본문.', figures: [], links: [] },
+    ],
+  },
+  'my-settings': {
+    ...helpIndexFixture[2],
+    sections: [
+      { ...helpIndexFixture[2].sections[0], markdown: '내 설정 첫머리 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[1], markdown: 'API 토큰 본문.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[2], markdown: '발급 본문. **토큰 발급** 을 누른다.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[3], markdown: '목록 본문. **폐기** 를 누른다.', figures: [], links: [] },
+      { ...helpIndexFixture[2].sections[4], markdown: '연결 본문. **복사** 를 누른다.', figures: [], links: [] },
     ],
   },
 }

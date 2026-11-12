@@ -113,7 +113,7 @@ export function helpBreadcrumb(index: HelpIndexChapter[], target: HelpTarget, pa
 export type HelpView = { kind: 'section'; target: HelpTarget } | { kind: 'toc' }
 
 /** 고른 절이 묶음에 있고 이 사용자에게 보이는가(주소가 바뀌기 전 고른 것이 권한·묶음 변화로 사라졌을 수 있다). */
-function isTargetVisible(index: HelpIndexChapter[], target: HelpTarget, isAdmin: boolean): boolean {
+export function isTargetVisible(index: HelpIndexChapter[], target: HelpTarget, isAdmin: boolean): boolean {
   const chapter = index.find((ch) => ch.chapter === target.chapter)
   return !!chapter && isChapterVisible(chapter, isAdmin) && chapter.sections.some((s) => s.id === target.sectionId)
 }
@@ -132,33 +132,48 @@ export function resolveHelpView(a: {
   return { kind: 'toc' }
 }
 
-/** 패널 이동 상태 — 주소, 사용자가 고른 절(null 이면 주소의 장 첫머리), 뒤로 기록(가장 최근이 끝). */
-export type HelpNavState = { pathname: string; selected: HelpTarget | null; history: HelpTarget[] }
+/**
+ * 뒤로 기록 한 칸 — 절과, 그 절이 화면을 따라 보이던 것이었는지(followed, WP-1506).
+ * followed 항목으로 뒤로 돌아가면 그 절에 고정하지 않고 다시 화면 문맥을 따른다 — 사용자가 고른 적 없는 절에 묶이지 않게.
+ */
+export type HelpHistoryEntry = HelpTarget & { followed?: boolean }
+
+/** 패널 이동 상태 — 주소, 사용자가 직접 고른 절(null 이면 화면 문맥·주소를 따른다), 뒤로 기록(가장 최근이 끝). 불변식: selected=null ⇔ history=[]. */
+export type HelpNavState = { pathname: string; selected: HelpTarget | null; history: HelpHistoryEntry[] }
 
 export type HelpNavAction =
   | { type: 'route'; pathname: string }
-  | { type: 'select'; target: HelpTarget; from: HelpTarget | null }
+  | { type: 'select'; target: HelpTarget; from: HelpHistoryEntry | null }
+  | { type: 'release' }
   | { type: 'back' }
 
-const sameTarget = (a: HelpTarget, b: HelpTarget) => a.chapter === b.chapter && a.sectionId === b.sectionId
+/** 두 절이 같은가(장·절 id) — 이동 reducer 와 HelpPanel 의 얼린 값 비교(sameShown)가 같이 쓴다. */
+export const sameTarget = (a: HelpTarget, b: HelpTarget) => a.chapter === b.chapter && a.sectionId === b.sectionId
+
+/** 고른 절에서 followed 표식을 떼어 순수한 HelpTarget 으로 — 고른 절에는 표식이 필요 없다. */
+const toTarget = (e: HelpHistoryEntry): HelpTarget => ({ chapter: e.chapter, sectionId: e.sectionId })
 
 /**
  * 이동 reducer.
  * - route: 주소가 바뀌면 고른 절·기록을 비운다 — 새 화면의 도움말을 보여야 하고, 옛 화면의 기록으로 돌아가면 어긋난다. 같은 주소면 그대로.
- * - select: 보던 절(from)이 있고 고른 절과 다르면 기록에 쌓는다.
- * - back: 기록 끝을 꺼내 고른 절로. 기록이 비면 그대로.
+ * - select: 보던 절(from)이 있고 고른 절과 다르면 기록에 쌓는다(followed 표식은 그대로 보존).
+ * - release: 화면에서 다른 칸을 만지면 직접 고름을 풀고 기록을 새로 시작한다(WP-1506 — 화면을 따라 바뀐 것은 기록에 쌓지 않는다).
+ *   이미 비었으면 같은 상태를 돌려줘 다시 그리지 않는다(화면 포커스마다 불린다).
+ * - back: 기록 끝을 꺼내 고른 절로. 꺼낸 항목이 followed 면 고정하지 않고 화면을 따르는 상태(selected=null, 기록 비움)로. 기록이 비면 그대로.
  */
 export function helpNavReducer(s: HelpNavState, a: HelpNavAction): HelpNavState {
   switch (a.type) {
     case 'route':
       return a.pathname === s.pathname ? s : { pathname: a.pathname, selected: null, history: [] }
-    case 'select': {
-      const push = a.from !== null && !sameTarget(a.from, a.target)
-      return { ...s, selected: a.target, history: push && a.from ? [...s.history, a.from] : s.history }
-    }
+    case 'select':
+      return { ...s, selected: a.target, history: a.from !== null && !sameTarget(a.from, a.target) ? [...s.history, a.from] : s.history }
+    case 'release':
+      return s.selected === null && s.history.length === 0 ? s : { ...s, selected: null, history: [] }
     case 'back': {
       if (s.history.length === 0) return s
-      return { ...s, selected: s.history[s.history.length - 1], history: s.history.slice(0, -1) }
+      const entry = s.history[s.history.length - 1]
+      if (entry.followed) return { ...s, selected: null, history: [] }
+      return { ...s, selected: toTarget(entry), history: s.history.slice(0, -1) }
     }
   }
 }

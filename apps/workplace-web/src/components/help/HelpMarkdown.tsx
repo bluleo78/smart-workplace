@@ -2,10 +2,10 @@
 // - `![alt](figure:<id>)` → 묶음의 그림(`/help/figures/…`), 누르면 큰 그림 대화상자. 없는 id·로드 실패는 alt 글.
 // - `[글](help:<절 id>)` → 패널 안 절 이동(onNavigate). 바깥 주소는 새 탭.
 // - 코드 블록 → 오른쪽 위 복사 단추(자리표시를 채운 뒤의 명령을 복사).
-// - 굵은 글자 → 마우스를 올리면 같은 이름의 화면 버튼을 강조(helpScreenControls).
+// - 굵은 글자 → 마우스를 올리면 같은 이름의 화면 버튼을 강조(helpScreenControls). 반대로 화면에서 포커스·클릭한 단추 이름과 같으면 글자를 강조(WP-1506).
 // 글 크기·간격은 채팅 MarkdownMessage 와 맞추되 컴포넌트는 가져다 쓰지 않는다 — 그쪽은 멘션·이슈 키 처리 등 채팅 전용 단계가 섞여 있다(목록 클래스만 공용 markdownListClass).
 import { Check, Copy } from 'lucide-react'
-import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, createContext, isValidElement, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -14,9 +14,10 @@ import { copyToClipboard } from '@/lib/copyToClipboard'
 import { markdownListClass } from '@/lib/markdownListClass'
 import { cn } from '@/lib/utils'
 
+import { HelpActiveControlContext } from './helpActiveControl'
 import { HELP_BASE, type HelpFigure, type HelpSection, type HelpVars } from './helpBundle'
 import { applyHelpConditions, type HelpValues, remarkHelpPlaceholders } from './helpMarkup'
-import { findScreenControls, highlightScreenControls } from './helpScreenControls'
+import { findScreenControls, highlightScreenControls, normalizeControlText } from './helpScreenControls'
 
 const HELP_LINK = 'help:'
 const FIGURE_SRC = 'figure:'
@@ -98,7 +99,8 @@ function FigureImage({ figure }: { figure: HelpFigure }) {
       {/* 공용 Dialog 에 큰 그림 하나 — 첨부 뷰어는 인증 API 경로용이라 공개 정적 파일인 도움말 그림과 맞지 않는다(계획 10). */}
       <Dialog open={zoom} onOpenChange={setZoom}>
         {/* 설명 글이 없는 그림 대화상자 — 제목(alt)만으로 충분해 aria-describedby 를 비운다(Radix 의 Description 누락 경고 방지). */}
-        <DialogContent data-testid="help-figure-dialog" aria-describedby={undefined} className="max-w-[calc(100%-2rem)] p-3 sm:max-w-[min(1200px,calc(100%-2rem))]">
+        {/* data-help-panel — 포털이라 패널 밖에 그려지지만 패널의 일부(문맥 신호에서 화면 상호작용·열린 대화상자로 보지 않게, WP-1506). */}
+        <DialogContent data-help-panel data-testid="help-figure-dialog" aria-describedby={undefined} className="max-w-[calc(100%-2rem)] p-3 sm:max-w-[min(1200px,calc(100%-2rem))]">
           <DialogTitle className="sr-only">{figure.alt}</DialogTitle>
           <img src={src} alt={figure.alt} className="block h-auto w-full" />
         </DialogContent>
@@ -112,8 +114,28 @@ function FigureFallback({ alt }: { alt: string }) {
   return <span className="block text-muted-foreground">{alt}</span>
 }
 
-/** 굵은 글자 — 마우스를 올린 동안 같은 이름의 화면 버튼을 강조한다. 올린 채 사라지면(절 이동) 강조도 거둔다. */
+/**
+ * React 자식의 글자만 이어 붙인다 — 굵은 글자 안 자리표시·인라인 코드 같은 요소 조각도 글자로 따라 내려간다.
+ * 그려진 DOM(textContent)을 렌더 중에 읽을 수 없어, 같은 결과를 자식 트리에서 얻는다.
+ */
+function nodeText(node: ReactNode): string {
+  return Children.toArray(node)
+    .map((child) => {
+      if (typeof child === 'string' || typeof child === 'number') return String(child)
+      if (isValidElement<{ children?: ReactNode }>(child)) return nodeText(child.props.children)
+      return ''
+    })
+    .join('')
+}
+
+/**
+ * 굵은 글자 — 마우스를 올린 동안 같은 이름의 화면 버튼을 강조한다. 올린 채 사라지면(절 이동) 강조도 거둔다.
+ * 반대 방향(WP-1506): 화면에서 포커스·클릭한 단추 이름(HelpActiveControlContext)과 정규화한 글자가 같으면
+ * data-help-active 와 강조 색을 달아 「지금 누른 그 단추」 설명이 어디인지 보이게 한다.
+ */
 function HighlightStrong({ children }: { children?: ReactNode }) {
+  const activeControl = useContext(HelpActiveControlContext)
+  const active = activeControl !== null && normalizeControlText(nodeText(children)) === activeControl
   const release = useRef<(() => void) | null>(null)
   const stop = () => {
     release.current?.()
@@ -122,7 +144,8 @@ function HighlightStrong({ children }: { children?: ReactNode }) {
   useEffect(() => stop, [])
   return (
     <strong
-      className="font-semibold"
+      data-help-active={active ? '' : undefined}
+      className={cn('font-semibold', active && 'rounded-sm bg-primary/10 px-0.5 text-primary')}
       onMouseEnter={(e) => {
         stop()
         release.current = highlightScreenControls(findScreenControls(e.currentTarget.textContent ?? ''))

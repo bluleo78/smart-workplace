@@ -220,6 +220,31 @@ describe('이동 기록', () => {
     expect(helpNavReducer(s0, { type: 'select', target: repo, from: null }).history).toEqual([])
     expect(helpNavReducer(s0, { type: 'select', target: repo, from: { ...repo } }).history).toEqual([])
   })
+  it('화면을 따라 보던 절(followed)로 뒤로 돌아가면 고정하지 않고 다시 화면을 따른다', () => {
+    const a = { chapter: 'agents', sectionId: 'agents#_intro' }
+    const b = { chapter: 'agents', sectionId: 'agents#run' }
+    const c = { chapter: 'agents', sectionId: 'agent.run.repo' }
+    let s: HelpNavState = { pathname: '/settings/agents/7', selected: null, history: [] }
+
+    s = helpNavReducer(s, { type: 'select', target: b, from: { ...a, followed: true } })
+    expect(s.history).toEqual([{ ...a, followed: true }])
+    s = helpNavReducer(s, { type: 'select', target: c, from: b })
+    s = helpNavReducer(s, { type: 'back' })
+    expect(s.selected).toEqual(b)
+    s = helpNavReducer(s, { type: 'back' })
+    expect(s.selected).toBeNull()
+    expect(s.history).toEqual([])
+  })
+
+  it('release 는 고른 절과 기록을 비우고, 이미 비었으면 같은 상태를 돌려준다', () => {
+    const a = { chapter: 'agents', sectionId: 'agents#_intro' }
+    const b = { chapter: 'agents', sectionId: 'agents#run' }
+    let s: HelpNavState = { pathname: '/', selected: null, history: [] }
+    expect(helpNavReducer(s, { type: 'release' })).toBe(s)
+    s = helpNavReducer(s, { type: 'select', target: b, from: a })
+    s = helpNavReducer(s, { type: 'release' })
+    expect(s).toEqual({ pathname: '/', selected: null, history: [] })
+  })
 })
 
 describe('appLabelForPath', () => {

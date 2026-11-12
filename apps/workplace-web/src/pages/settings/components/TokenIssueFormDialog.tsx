@@ -100,7 +100,8 @@ export function TokenIssueFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent data-testid="token-issue-form-dialog">
+      {/* 도움말 문맥(WP-1506) — 열린 동안 도움말 패널이 매뉴얼 「토큰을 발급한다」 절(tokens.issue)을 보인다. */}
+      <DialogContent data-testid="token-issue-form-dialog" data-help="tokens.issue">
         <DialogHeader>
           <DialogTitle>API 토큰 발급</DialogTitle>
           <DialogDescription>

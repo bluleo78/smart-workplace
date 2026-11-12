@@ -2,8 +2,11 @@
 // 매뉴얼은 화면 버튼 이름을 굵게 쓴다(「**토큰 다시 넣기** 를 누른다」). 본문 글자에 마우스를 올리면 같은 이름의 화면 버튼을 강조해
 // 어디를 누르라는 것인지 바로 보이게 한다. 반대 방향(버튼 포커스 → 본문 강조)은 포커스 신호를 다루는 WP-1506 몫이다(계획 「내가 정한 것」 11).
 
-/** 강조 후보 — 사람이 누를 수 있는 것만(글 조각·제목은 빼서 엉뚱한 곳이 빛나지 않게). */
-const CONTROL_SELECTOR = 'button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="link"]'
+/**
+ * 강조 후보 — 사람이 누를 수 있는 것만(글 조각·제목은 빼서 엉뚱한 곳이 빛나지 않게).
+ * 문맥 신호 훅(useHelpContextSignals, WP-1506)도 「포커스·클릭한 컨트롤」을 같은 기준으로 고르도록 내보낸다.
+ */
+export const CONTROL_SELECTOR = 'button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="link"]'
 
 /**
  * 찾는 범위 — 앱 셸 페이지 영역([data-ai-page-root]: 레일·본문·오른쪽 도킹, 휴대폰은 탭 셸)과 상단 가운데 틀([data-ai-chip]: AI 칩·검색·「?」,
@@ -17,9 +20,20 @@ function searchRoots(): ParentNode[] {
   return roots.length > 0 ? roots : [document]
 }
 
-/** 공백 묶음을 한 칸으로, 앞뒤 공백 제거 — 버튼 글자의 줄바꿈·아이콘 사이 공백이 비교를 깨지 않게. */
-function normalize(text: string | null | undefined): string {
+/**
+ * 공백 묶음을 한 칸으로, 앞뒤 공백 제거 — 버튼 글자의 줄바꿈·아이콘 사이 공백이 비교를 깨지 않게.
+ * 도움말 본문 굵은 글자 ↔ 포커스한 단추 이름 견주기(HighlightStrong, WP-1506)도 같은 정규화를 쓰도록 내보낸다.
+ */
+export function normalizeControlText(text: string | null | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 컨트롤 이름 — 공백을 정리한 글자(textContent), 비었으면(아이콘 단추) aria-label.
+ * 포커스·클릭한 화면 단추와 본문 굵은 글자를 견줄 때(WP-1506) findScreenControls 와 같은 정규화를 쓰려고 내보낸다.
+ */
+export function controlName(el: Element): string {
+  return normalizeControlText(el.textContent) || normalizeControlText(el.getAttribute('aria-label'))
 }
 
 /**
@@ -29,13 +43,13 @@ function normalize(text: string | null | undefined): string {
  * - aria-hidden="true"·inert 조상 아래는 뺀다 — 모달 뒤로 가려졌거나 숨긴 사본(측정용 등)이다.
  */
 export function findScreenControls(text: string, roots: ParentNode[] = searchRoots()): HTMLElement[] {
-  const want = normalize(text)
+  const want = normalizeControlText(text)
   if (!want) return []
   return roots.flatMap((root) => [...root.querySelectorAll<HTMLElement>(CONTROL_SELECTOR)]).filter(
     (el) =>
       !el.closest('[data-help-panel]') &&
       !el.closest('[aria-hidden="true"], [inert]') &&
-      (normalize(el.textContent) === want || normalize(el.getAttribute('aria-label')) === want),
+      (normalizeControlText(el.textContent) === want || normalizeControlText(el.getAttribute('aria-label')) === want),
   )
 }
 
