@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EmailAttachmentMeta } from '../types/mailMessage';
+import { MAIL_HEADER_CELL_STYLE, MAIL_TABLE_STYLE } from './mailFormat';
 import { decodeCid } from './mailInlineImages';
 import { buildQuote, plainTextToMailHtml, unwrapMailHtml } from './mailQuote';
 
@@ -329,5 +330,17 @@ describe('plainTextToMailHtml (WP-576)', () => {
   })
   it('글자는 escape 하고 CRLF 도 줄바꿈으로 본다', () => {
     expect(plainTextToMailHtml('<b>a</b> & "b"\r\nc')).toBe('<p>&lt;b&gt;a&lt;/b&gt; &amp; &quot;b&quot;</p><p>c</p>')
+  })
+
+  it('서식 메일에 답장하면 인용문이 인라인 style·표를 그대로 지닌다 (WP-1524)', () => {
+    const html =
+      `<p style="text-align: center"><span style="color: #dc2626; font-size: 18px">빨강</span></p>` +
+      `<table cellspacing="0" cellpadding="0" style="${MAIL_TABLE_STYLE}"><tbody><tr><th style="${MAIL_HEADER_CELL_STYLE}">항목</th></tr></tbody></table>`
+    const q = buildQuote({ ...detail, bodyHtml: html }, 'reply')
+    expect(q.html).toContain('color: #dc2626')
+    expect(q.html).toContain('font-size: 18px')
+    expect(q.html).toContain('text-align: center')
+    expect(q.html).toContain(MAIL_TABLE_STYLE)
+    expect(q.html).toContain(MAIL_HEADER_CELL_STYLE)
   })
 })

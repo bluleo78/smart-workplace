@@ -5,7 +5,7 @@
 // 남은 E2E: 도크 배선(@wiring), IME·포커스·Tab·단축키(@input), 크기·스크롤·겹침·AI 패널 배치·다크 색·토스트 위치(@layout),
 // 인용 미리보기 이미지 디코딩(@platform).
 // 메일 모듈 + 작성 도크만 renderScreen 으로 띄운다(testkit-b4). 본문(TipTap)은 클릭 뒤 키 입력으로 쓴다.
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
@@ -497,4 +497,31 @@ test('AI 꺼짐(503) → 서버 문구를 검토 탭 안에 안내한다', async
   await typeBody(user, 'AI 꺼진 상태 테스트')
   await user.click(screen.getByTestId('mail-review-tab'))
   expect(await screen.findByTestId('mail-coaching-error')).toHaveTextContent(msg)
+})
+
+test('서식을 넣고 보내면 bodyHtml 에 인라인 style 과 표가 실리고 class 는 없다(WP-1524)', async () => {
+  const send = sendHandler()
+  const { user } = renderMail('/mail/1', { handlers: [send.handler] })
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(screen.getByTestId('mail-compose-to'))
+  await user.paste('bob@example.com')
+  fireEvent.change(screen.getByTestId('mail-compose-subject'), { target: { value: '서식 메일' } })
+  await typeBody(user, '빨간 글씨')
+  // 본문 전체를 고른 뒤 서식 줄을 펼쳐 글자색 빨강을 건다
+  await user.keyboard('{Control>}a{/Control}')
+  await user.click(screen.getByRole('button', { name: '서식' }))
+  await user.click(await screen.findByRole('button', { name: '글자색' }))
+  await user.click(await screen.findByRole('menuitem', { name: '글자색 빨강' }))
+  // 선택을 접어 커서를 글 끝에 두고 2×2 표를 격자에서 고른다
+  await user.keyboard('{ArrowRight}')
+  await user.click(screen.getByRole('button', { name: '표 넣기' }))
+  const grid = await screen.findByTestId('mail-table-grid')
+  await user.click(within(grid).getByRole('button', { name: '2행 2열 표' }))
+  await user.click(screen.getByTestId('mail-compose-send'))
+  await waitFor(() => expect(send.calls).toHaveLength(1))
+  const html = send.last().body.bodyHtml
+  expect(html).toContain('color: #dc2626')
+  expect(html).toContain('<th ')
+  expect(html).toContain('<table')
+  expect(html).not.toContain('class=')
 })

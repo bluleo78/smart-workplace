@@ -38,6 +38,12 @@ export default defineConfig({
     // 워커 수 상한 — 기본값은 컨테이너(AI Pod)에서 CPU limit 이 아닌 노드 전체 코어를 보고 워커를 지나치게 띄워 CPU 스로틀·메모리 증가를 낳는다.
     // 로컬·AI Pod 어디서든 같은 부하로 돌게 4로 고정한다.
     maxWorkers: 4,
+    // tiptap 떠 있는 메뉴(BubbleMenu·FloatingMenu)와 그것을 불러오는 @tiptap/react 를 vite 변환 안으로 들인다. 바깥(Node ESM)에서
+    // 불러오면 메뉴 확장 안의 `import tippy from 'tippy.js'` 가 CJS 판(dist/tippy.cjs.js)의 exports 객체를 받아
+    // `tippy is not a function` 으로 던진다 — 메일 작성창이 표 막대(BubbleMenu, WP-1524)를 늘 달면서 작성창을 띄우는 화면 테스트가
+    // 선택만 바뀌어도 깨졌다. 안으로 들이면 vite 가 tippy.js 의 module(ESM) 판을 골라 브라우저와 같게 돈다.
+    // (@tiptap/react 도 넣는 까닭: 바깥에 둔 @tiptap/react 가 메뉴 확장을 Node 로 불러오면 안쪽 목록이 무시된다.)
+    server: { deps: { inline: [/@tiptap\/react/, /@tiptap\/extension-bubble-menu/, /@tiptap\/extension-floating-menu/] } },
     // 캘린더 종일 일정 로직은 로컬 타임존에 의존하므로 KST 로 고정해 결정적으로 검증한다
     // (UTC 호스트에서는 종일 ±9h 시프트 버그가 재현되지 않아 테스트가 헛돈다 — #493 교훈).
     env: { TZ: 'Asia/Seoul' },

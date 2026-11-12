@@ -68,7 +68,20 @@ export function mailComposerHtml(editor: Editor): string {
   const fragment = DOMSerializer.fromSchema(editor.schema).serializeFragment(editor.state.doc.content, { document: doc });
   const container = doc.createElement('div');
   container.appendChild(fragment);
+  compactTableCellParagraphs(container);
   return container.innerHTML;
+}
+
+/**
+ * 표 칸 안 문단에 인라인 margin:0 을 단다(WP-1524) — 작성창 CSS 는 이 문단에 여백이 없어 칸이 촘촘히 보이지만,
+ * 받는 쪽(받은 메일 iframe·Gmail·Outlook)은 브라우저 기본 p 여백(1em)이 붙어 행이 훨씬 높아진다. 보낼 때 직렬화에서만 붙여 작성창 문서는 그대로 둔다.
+ * 서명 블록 안의 표는 원문 그대로 둬야 하므로 건드리지 않는다. 표 밖 본문 문단도 건드리지 않는다.
+ */
+function compactTableCellParagraphs(root: HTMLElement): void {
+  root.querySelectorAll('td > p, th > p').forEach((p) => {
+    if (p.closest(`[${SIGNATURE_ATTR}]`)) return;
+    p.setAttribute('style', 'margin: 0');
+  });
 }
 
 /** 빈 문단(빈 줄)인가 — 서명 앞 간격. */

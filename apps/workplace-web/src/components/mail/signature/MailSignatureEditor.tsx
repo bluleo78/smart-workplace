@@ -11,8 +11,9 @@ import { blobToDataUri } from '@/api/blobContent';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { ACCEPTED_IMAGE_TYPES } from '@/lib/imageUpload';
 
-import { LinkUrlDialog, ToolbarButton } from '../MailComposer';
+import { LinkUrlDialog } from '../MailComposer';
 import { applyLink } from '../mailEditorLink';
+import { ToolbarButton } from '../MailToolbarButton';
 import { signatureEditorExtensions } from './signatureEditorExtensions';
 
 /** 서명 이미지 한 장 상한 — 서버 MailSignatureImageStore 의 512KB 와 같다(넘으면 서버가 빼므로 미리 알린다). */
