@@ -1,0 +1,42 @@
+{
+  "chapter": "introduction",
+  "number": 1,
+  "title": "소개",
+  "routes": [],
+  "audience": [
+    "member",
+    "admin"
+  ],
+  "sections": [
+    {
+      "id": "introduction#_intro",
+      "label": "소개",
+      "title": "소개",
+      "parent": null,
+      "level": 1,
+      "markdown": "Gen:iA Works 는 사람과 AI 가 함께 일하는 업무 공간입니다. 대화·메일·일정·작업·파일·문서를 한곳에서 다루고, AI 를 팀원처럼 일에 참여시킵니다. 이 장은 제품의 범위와 쓰는 사람의 역할, 그리고 이 매뉴얼을 읽는 법을 설명합니다.\n\n> **이 장에서 할 수 있는 일**\n>\n> - Gen:iA Works 에 어떤 앱이 있는지 압니다.\n> -",
+      "figures": [],
+      "links": []
+    },
+    {
+      "id": "introduction#genia-works-로-하는-일",
+      "label": "Gen:iA Works 로 하는 일",
+      "title": "Gen:iA Works 로 하는 일",
+      "parent": null,
+      "level": 2,
+      "markdown": "화면 왼쪽의 레일에 앱이 모여 있습니다. 레일에서 앱을 누르면 그 앱으로 바로 넘어갑니다. 회사 하나가 쓰는 공간을 **워크스페이스** 라고 하며, 구성원은 자기 워크스페이스 안의 사람·데이터만 봅니다.\n\n![Gen:iA Works 화면 — 왼쪽 레일에 앱이 모여 있고, 홈에는 오늘 챙길 일이 모입니다](figure:introduction-1)\n\n| 앱 |",
+      "figures": [
+        {
+          "id": "introduction-1",
+          "src": "figures/introduction-1.png",
+          "alt": "Gen:iA Works 화면 — 왼쪽 레일에 앱이 모여 있고, 홈에는 오늘 챙길 일이 모입니다",
+          "marks": []
+        }
+      ],
+      "links": [
+        "home#_intro",
+        "ai-collaboration#_intro"
+      ]
+    }
+  ]
+}

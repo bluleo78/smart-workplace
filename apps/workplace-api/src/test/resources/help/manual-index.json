@@ -1,0 +1,58 @@
+[
+  {
+    "chapter": "introduction",
+    "number": 1,
+    "title": "소개",
+    "routes": [],
+    "audience": [
+      "member",
+      "admin"
+    ],
+    "sections": [
+      {
+        "id": "introduction#_intro",
+        "label": "소개",
+        "title": "소개",
+        "parent": null,
+        "level": 1
+      },
+      {
+        "id": "introduction#genia-works-로-하는-일",
+        "label": "Gen:iA Works 로 하는 일",
+        "title": "Gen:iA Works 로 하는 일",
+        "parent": null,
+        "level": 2
+      }
+    ]
+  },
+  {
+    "chapter": "agents",
+    "number": 15,
+    "title": "AI 에이전트 관리",
+    "routes": [
+      "/settings/agents",
+      "/settings/agents/locations",
+      "/settings/agents/accounts",
+      "/settings/agents/:id"
+    ],
+    "audience": [
+      "admin"
+    ],
+    "sections": [
+      {
+        "id": "agents#_intro",
+        "label": "AI 에이전트 관리",
+        "title": "AI 에이전트 관리",
+        "parent": null,
+        "level": 1
+      },
+      {
+        "id": "agents#설정-가이드를-함께-본다",
+        "label": "설정 가이드를 함께 본다",
+        "title": "설정 가이드를 함께 본다",
+        "parent": null,
+        "level": 2
+      }
+    ]
+  }
+]

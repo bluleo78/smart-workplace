@@ -66,6 +66,9 @@ spec:
             # 문서 변환 서비스(WP-430~432 미리보기 PDF) — 미지정 시 기본값 localhost:6085 라 운영에선 반드시 지정
             - name: WORKPLACE_CONVERTER_URL
               value: http://converter:7085
+            # 도움말 검색(WP-1509) — 웹이 내는 도움말 묶음을 클러스터 안 web 서비스에서 읽는다(미지정 시 공개 웹 주소)
+            - name: WORKPLACE_HELP_BUNDLE_URL
+              value: http://web
             # worker 콜백 인증용 내부 서비스 토큰 (= aiAgentToken)
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:

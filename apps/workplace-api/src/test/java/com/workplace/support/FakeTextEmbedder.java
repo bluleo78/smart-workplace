@@ -28,6 +28,8 @@ public class FakeTextEmbedder implements TextEmbedder {
   private volatile boolean enabled = true;
   private volatile boolean failing;
   private volatile Duration lastQueryTimeout;
+  private volatile String lastQueryText;
+  private final AtomicInteger queryCalls = new AtomicInteger();
 
   /** 테스트마다 처음 상태로 — 공유 컨텍스트의 싱글턴이다. */
   public void reset() {
@@ -38,6 +40,8 @@ public class FakeTextEmbedder implements TextEmbedder {
     enabled = true;
     failing = false;
     lastQueryTimeout = null;
+    lastQueryText = null;
+    queryCalls.set(0);
   }
 
   /** 각 묶음의 낱말을 첫 낱말과 같은 차원으로 센다(예: [["고양이","냥이"]]). */
@@ -77,6 +81,16 @@ public class FakeTextEmbedder implements TextEmbedder {
     return lastQueryTimeout;
   }
 
+  /** 마지막 질의 임베딩 요청 텍스트(길이 상한 확인용). */
+  public String lastQueryText() {
+    return lastQueryText;
+  }
+
+  /** 질의 임베딩 호출 수. */
+  public int queryCalls() {
+    return queryCalls.get();
+  }
+
   @Override
   public boolean enabled() {
     return enabled;
@@ -85,6 +99,8 @@ public class FakeTextEmbedder implements TextEmbedder {
   @Override
   public Optional<float[]> embedQuery(String query, Duration timeout) {
     lastQueryTimeout = timeout;
+    lastQueryText = query;
+    queryCalls.incrementAndGet();
     return enabled && !failing ? Optional.of(expected(query)) : Optional.empty();
   }
 

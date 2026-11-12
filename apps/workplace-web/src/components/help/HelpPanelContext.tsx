@@ -1,7 +1,7 @@
 // 도움말 패널 상태(WP-1505) — 열림(기억)·폭·위아래 비율·고른 절과 뒤로 기록, `?` 단축키.
 // AppLayout 이 데스크톱·모바일 셸 분기 바깥에 한 번 끼워 두 셸이 같은 상태를 본다. 그리는 쪽(RightDock·MobileHelpSheet·HelpPanel)은
 // 이 컨텍스트만 읽고, 판정(이동 reducer·저장 키·단축키)은 순수 함수 모듈에 둔다.
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useReducer, useState } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useAuth } from '@/hooks/useAuth'
@@ -37,6 +37,16 @@ export interface HelpPanelValue {
   /** 절을 고른다 — from(보던 절)이 있으면 뒤로 기록에 쌓는다. */
   select: (target: HelpTarget, from: HelpTarget | null) => void
   back: () => void
+  /**
+   * 패널 검색 칸에 질의가 있는가(WP-1509) — 이때의 Esc 는 질의를 지우는 키라 휴대폰 시트(모달)가 닫기로 받지 않는다(MobileHelpSheet).
+   * 값은 HelpPanel 이 검색 상태에서 setSearchActive 로 알린다.
+   */
+  searchActive: boolean
+  setSearchActive: (active: boolean) => void
+  /** 검색을 지운다(검색 칸의 Esc 와 같다) — 휴대폰 시트가 포커스가 칸 밖일 때의 Esc 를 헛키로 두지 않으려고 부른다. 패널이 없으면 아무 일도 없다. */
+  clearSearch: () => void
+  /** 그리는 HelpPanel 이 지우기 함수를 알린다(사라질 때 null). */
+  setSearchClear: (clear: (() => void) | null) => void
 }
 
 const HelpPanelContext = createContext<HelpPanelValue | null>(null)
@@ -96,6 +106,15 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
   const select = useCallback((target: HelpTarget, from: HelpTarget | null) => dispatch({ type: 'select', target, from }), [])
   const back = useCallback(() => dispatch({ type: 'back' }), [])
 
+  // 검색 칸 질의 유무 — 그리는 HelpPanel 이 알린다(시트의 Esc 판정용).
+  const [searchActive, setSearchActive] = useState(false)
+  // 지우기 함수는 그리기와 무관해 ref 에 둔다 — 바뀌어도 공급자를 다시 그리지 않게.
+  const searchClearRef = useRef<(() => void) | null>(null)
+  const clearSearch = useCallback(() => searchClearRef.current?.(), [])
+  const setSearchClear = useCallback((clear: (() => void) | null) => {
+    searchClearRef.current = clear
+  }, [])
+
   // `?` 단축키 — 처리한 키는 preventDefault 해 다른 전역 단축키가 같은 키를 다시 쓰지 않게 한다.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -108,8 +127,8 @@ export function HelpPanelProvider({ children }: { children: ReactNode }) {
   }, [toggle])
 
   const value = useMemo<HelpPanelValue>(
-    () => ({ open, setOpen, toggle, width, resize, split, setSplit, nav, select, back }),
-    [open, setOpen, toggle, width, resize, split, setSplit, nav, select, back],
+    () => ({ open, setOpen, toggle, width, resize, split, setSplit, nav, select, back, searchActive, setSearchActive, clearSearch, setSearchClear }),
+    [open, setOpen, toggle, width, resize, split, setSplit, nav, select, back, searchActive, clearSearch, setSearchClear],
   )
   return <HelpPanelContext.Provider value={value}>{children}</HelpPanelContext.Provider>
 }
