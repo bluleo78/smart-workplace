@@ -3,7 +3,7 @@
 // 브라우저 없이 판정되므로 e2e/pages/mobile/drive-row-actions.spec.ts 에서 옮겼다.
 // 길게 누르기·선택 범위·포커스(@input), 다운로드·업로드 진행(@platform), ⋮ 위치·하단 바 위치(@layout)는 E2E 에 남는다.
 // 앱 셸을 보지 않으므로 드라이브 모듈 레이아웃과 공간 화면만 renderScreen 으로 띄운다(WP-1002).
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
@@ -163,3 +163,34 @@ describe('링크 공유 ⬆︎(WP-1234)', () => {
     expect(screen.getByTestId('attachment-viewer')).toBe(viewer)
   })
 })
+
+// WP-1531: 업로드 패널(fixed, 화면 아래)이 선택 모드의 하단 일괄 작업 바를 가리지 않게, 바가 뜨면 그 높이만큼 위로 비킨다.
+// 실제 겹침(픽셀)은 jsdom 이 재지 못해, 패널 bottom 식에 바 높이가 더해지고 빠지는지만 본다.
+test('선택 모드의 하단 일괄 작업 바가 뜨면 업로드 패널이 그 위로 비킨다', async () => {
+  const api = driveApi()
+  // 응답을 붙잡아 올리는 중 패널이 남게 한다.
+  renderDrive([...api.handlers, http.post(`/api/v1/drive/spaces/${SPACE_ID}/files`, () => new Promise<Response>(() => {}))])
+  await screen.findByTestId('drive-row-file-70')
+  fireEvent.drop(screen.getByTestId('drive-dropzone'), {
+    dataTransfer: {
+      items: [{ webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'a.txt', file: (cb: (f: File) => void) => cb(new File(['x'], 'a.txt')) }) }],
+    },
+  })
+  const panel = await screen.findByTestId('drive-upload-panel')
+  expect(panel.style.bottom).toContain('env(safe-area-inset-bottom, 0px)')
+  expect(panel.style.bottom).not.toContain('3.5rem')
+  longPress(screen.getByTestId('drive-row-file-70'))
+  expect(await screen.findByTestId('bulk-toolbar')).toBeInTheDocument()
+  await waitFor(() => expect(panel.style.bottom).toContain('3.5rem + 1px'))
+  fireEvent.click(screen.getByTestId('bulk-clear'))
+  await waitFor(() => expect(screen.queryByTestId('bulk-toolbar')).not.toBeInTheDocument())
+  expect(panel.style.bottom).not.toContain('3.5rem')
+})
+
+/** 길게 누르기 — 브라우저가 보내는 순서(터치 pointerdown → contextmenu → 떼기 → click)대로 직접 보낸다(issueRowActions.test 와 같은 방식). */
+function longPress(target: HTMLElement) {
+  fireEvent.pointerDown(target, { pointerType: 'touch', button: 0 })
+  fireEvent.contextMenu(target)
+  fireEvent.pointerUp(target, { pointerType: 'touch' })
+  fireEvent.click(target)
+}

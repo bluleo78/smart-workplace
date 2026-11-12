@@ -11,6 +11,7 @@ import { json, longPress, stubChannelMessages } from '../../fixtures/mobile-chat
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { trackRequests } from '../../fixtures/requests'
 import { pausePageClock } from '../../fixtures/touch'
+import { measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 // 실데이터 폭 검증용 긴 이름.
@@ -285,8 +286,8 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
   })
 })
 
-// WP-643: 모바일은 헤더 업로드 버튼이 ⋯ 메뉴 안이라, 업로드 중 진행률·취소를 목록 위 진행 줄로 보인다.
-test('모바일 단일 파일 업로드 — 목록 위에 진행률(%)과 취소가 보이고, 끝나면 사라진다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+// WP-643·WP-1531: 모바일은 헤더 업로드 버튼이 ⋯ 메뉴 안이라, 업로드 중 진행·취소를 탭바 바로 위의 접힌 업로드 패널로 보인다.
+test('모바일 단일 파일 업로드 — 탭바 위 접힌 패널에 진행 막대와 취소가 보이고, 선택 막대를 가리지 않으며, 취소하면 취소 안내로 바뀐다', { tag: ['@platform', '@layout'] }, async ({ authenticatedPage: page }) => {
   // 라우트 가로채기에선 실제 전송 진행 이벤트가 한 번에 끝나므로 업로드 XHR 에 42% 진행 이벤트를 직접 흘린다.
   await page.addInitScript(() => {
     const send = XMLHttpRequest.prototype.send
@@ -308,10 +309,37 @@ test('모바일 단일 파일 업로드 — 목록 위에 진행률(%)과 취소
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-row-file-70')).toBeVisible()
   await page.getByTestId('file-input').setInputFiles({ name: 'big.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(1024) })
-  const progress = page.getByTestId('upload-progress')
-  await expect(progress).toBeVisible()
-  await expect(progress).toContainText('업로드 중… 42%')
-  await expect(progress.getByTestId('upload-progress-cancel')).toBeVisible()
+  const panel = page.getByTestId('drive-upload-panel')
+  await expect(panel).toBeVisible()
+  // 모바일은 접힌 채 시작 — 한 줄에 「업로드 0/1」·전체 막대·「취소」
+  await expect(page.getByTestId('drive-upload-panel-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(panel).toContainText('업로드 0/1')
+  await expect(panel.getByTestId('drive-upload-panel-bar')).toHaveAttribute('aria-valuenow', '42')
+  const cancel = panel.getByTestId('drive-upload-panel-cancel')
+  await expect(cancel).toHaveText('취소')
+  // 탭바가 있으면 그 바로 위, 없으면(공간 화면은 상세 화면이라 탭바가 없다) 화면 아래 8px 위. 좌우는 화면 안(양옆 8px).
+  const viewport = page.viewportSize()!
+  const tabbar = page.getByTestId('mobile-tabbar')
+  await expect(async () => {
+    const panelBox = await measureBox(panel)
+    const floor = (await tabbar.isVisible()) ? (await measureBox(tabbar)).y : viewport.height
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(floor + 0.5)
+    expect(floor - (panelBox.y + panelBox.height)).toBeLessThanOrEqual(12)
+    expect(panelBox.x).toBeGreaterThanOrEqual(0)
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(viewport.width)
+  }).toPass()
+  // 선택 모드의 하단 일괄 작업 바가 뜨면 패널이 그 위로 비켜 바의 단추를 가리지 않는다.
+  await longPress(page, page.getByTestId('drive-row-file-70'))
+  const bar = page.getByTestId('bulk-toolbar')
+  await expect(bar).toBeVisible()
+  await expect(async () => {
+    const [panelBox, barBox] = await Promise.all([measureBox(panel), measureBox(bar)])
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(barBox.y + 0.5)
+  }).toPass()
+  await page.getByTestId('bulk-clear').tap()
+  await expect(bar).toHaveCount(0)
+  await cancel.tap()
+  await expect(panel).toContainText('업로드를 취소했어요 · 0개 완료')
+  await expect(cancel).toHaveCount(0)
   resolveUpload()
-  await expect(progress).toHaveCount(0)
 })

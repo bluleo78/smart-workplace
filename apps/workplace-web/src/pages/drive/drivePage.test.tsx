@@ -388,8 +388,8 @@ describe('폴더 만들기·이름 변경', () => {
 })
 
 describe('업로드', () => {
-  // #260·#589: 빈 폴더 안내(제목·설명) → 파일 여러 개를 고르면 파일마다 POST 1건씩(각 1개 파일), 완료 토스트·목록 반영.
-  test('빈 폴더 안내가 보이고, 파일 여러 개를 고르면 하나씩 업로드해 완료 토스트와 목록에 보인다', async () => {
+  // #260·#589·WP-1531: 빈 폴더 안내(제목·설명) → 파일 여러 개를 고르면 파일마다 POST 1건씩(각 1개 파일), 패널 「2개 업로드 완료」·목록 반영.
+  test('빈 폴더 안내가 보이고, 파일 여러 개를 고르면 하나씩 업로드해 패널에 완료가 보이고 목록에 보인다', async () => {
     const state: Items = { folders: [], files: [] }
     // 요청마다 실린 파일 파트 수 — jsdom File 은 MSW(undici)로 넘어가며 파일명이 「blob」으로 바뀌어, 이름은 요청 순서로 돌려준다.
     const partsPerRequest: number[] = []
@@ -410,27 +410,73 @@ describe('업로드', () => {
     expect(screen.getByTestId('file-input')).toHaveAttribute('multiple')
 
     chooseFiles([new File(['one'], 'one.txt', { type: 'text/plain' }), new File(['two'], 'two.txt', { type: 'text/plain' })])
-    expect(await screen.findByText('2개 파일 업로드 완료')).toBeInTheDocument()
+    const panel = await screen.findByTestId('drive-upload-panel')
+    expect(await within(panel).findByText('2개 업로드 완료')).toBeInTheDocument()
     expect(await screen.findByText('one.txt')).toBeInTheDocument()
     expect(screen.getByText('two.txt')).toBeInTheDocument()
     expect(partsPerRequest).toEqual([1, 1])
   })
 
-  // 단건 400 은 서버 사유를, 다중 업로드 400 은 요약 토스트에 백엔드 사유(파일명만이 아님)를 보인다.
-  test('업로드 400 — 단건·다중 모두 서버 사유를 토스트로 보인다', async () => {
-    let reply = '파일을 업로드할 수 없습니다'
+  // WP-1531: 성공·실패 요약 토스트는 없앴다 — 결과는 패널 하나에만 보인다.
+  test('요약 토스트가 뜨지 않는다', async () => {
+    let n = 0
     await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => {
+          n += 1
+          return n === 1 ? HttpResponse.json({ status: 500, message: '저장하지 못했습니다' }, { status: 500 }) : HttpResponse.json(createFile({ id: 40 + n }), { status: 201 })
+        }),
+      ],
+    })
+    chooseFiles([new File(['a'], 'a.txt', { type: 'text/plain' }), new File(['b'], 'b.txt', { type: 'text/plain' })])
+    expect(await within(await screen.findByTestId('drive-upload-panel')).findByText('1개 완료 · 1개 실패')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(0)
+  })
+
+  // 단건·다중 모두 서버 실패 사유는 패널의 그 파일 행에 보인다(토스트 아님).
+  test('업로드 400 — 단건·다중 모두 서버 사유를 패널 실패 행에 보인다', async () => {
+    let reply = '파일을 업로드할 수 없습니다'
+    const { user } = await openDrive({ folders: [], files: [] }, {
       handlers: [http.post(`${API}/spaces/${SPACE_ID}/files`, () => HttpResponse.json({ status: 400, message: reply }, { status: 400 }))],
     })
     chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
-    expect(await screen.findByText('파일을 업로드할 수 없습니다')).toBeInTheDocument()
+    const row = await screen.findByTestId('drive-upload-row')
+    expect(row).toHaveAttribute('data-status', 'failed')
+    expect(within(row).getByText('memo.txt')).toBeInTheDocument()
+    expect(within(row).getByText('파일을 업로드할 수 없습니다')).toHaveClass('text-destructive')
+    expect(within(row).getByTestId('drive-upload-retry')).toBeInTheDocument()
+    await user.click(screen.getByTestId('drive-upload-panel-close'))
+    await waitFor(() => expect(screen.queryByTestId('drive-upload-panel')).not.toBeInTheDocument())
 
     reply = '이미지 파일은 최대 10MB까지 업로드할 수 있습니다: big.png'
     chooseFiles([new File(['x'], 'a.png', { type: 'image/png' }), new File(['y'], 'b.png', { type: 'image/png' })])
-    expect(await screen.findByText(/이미지 파일은 최대 10MB/)).toBeInTheDocument()
+    expect(await within(await screen.findByTestId('drive-upload-panel')).findByText('0개 완료 · 2개 실패')).toBeInTheDocument()
+    expect(screen.getAllByText(/이미지 파일은 최대 10MB/)).toHaveLength(2)
   })
 
-  // #170: 업로드 중 버튼은 비활성 + 「업로드 중…」, 끝나면 「업로드」로 돌아온다. 진행률(%) 표시는 실제 XHR 업로드 진행 이벤트라 E2E(@platform) 몫.
+  // WP-1519·WP-1531: 상한을 넘는 파일은 요청 없이 패널 실패 행(「{종류} {상한} 초과」), 다시 시도는 없다.
+  test('크기 초과 파일은 요청 없이 패널 실패 행으로 보이고 다시 시도가 없다', async () => {
+    let posts = 0
+    await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => {
+          posts += 1
+          return HttpResponse.json(createFile(), { status: 201 })
+        }),
+      ],
+    })
+    const big = new File(['x'], 'big.pdf', { type: 'application/pdf' })
+    Object.defineProperty(big, 'size', { value: 101 * 1024 * 1024 })
+    chooseFiles([big])
+    const row = await screen.findByTestId('drive-upload-row')
+    expect(row).toHaveAttribute('data-status', 'failed')
+    expect(within(row).getByText(/초과$/)).toBeInTheDocument()
+    expect(within(row).queryByTestId('drive-upload-retry')).not.toBeInTheDocument()
+    expect(screen.queryByText(/파일 크기가 .* 초과합니다/)).not.toBeInTheDocument()
+    expect(posts).toBe(0)
+  })
+
+  // #170: 업로드 중 버튼은 비활성 + 「업로드 중…」(진행률은 패널이 보인다), 끝나면 「업로드」로 돌아온다.
   test('업로드 중 버튼이 비활성·「업로드 중…」이고, 끝나면 다시 「업로드」', async () => {
     let release!: () => void
     const held = new Promise<void>((r) => (release = r))
@@ -445,14 +491,35 @@ describe('업로드', () => {
     chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
     const btn = screen.getByTestId('drive-upload')
     await waitFor(() => expect(btn).toBeDisabled())
-    expect(btn).toHaveTextContent('업로드 중…')
+    expect(btn).toHaveTextContent(/^업로드 중…$/)
+    expect(within(screen.getByTestId('drive-upload-panel')).getByText('업로드 0/1')).toBeInTheDocument()
     release()
     await waitFor(() => expect(btn).toHaveTextContent(/^업로드$/))
     expect(btn).toBeEnabled()
   })
 
-  // #658: 업로드 중 취소 — 요청을 끊고 취소 토스트, 버튼 복원, 목록에 파일이 생기지 않는다.
-  test('업로드 중 취소 버튼을 누르면 요청이 중단되고 목록에 추가되지 않는다', async () => {
+  // WP-1531: 올리는 동안엔 빈 폴더 안내(「이 폴더는 비어 있어요」·업로드 권유)를 그리지 않는다 — 곧 파일이 생길 폴더다.
+  test('올리는 동안 빈 폴더 안내가 보이지 않는다', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, async () => {
+          await held
+          return HttpResponse.json(createFile(), { status: 201 })
+        }),
+      ],
+    })
+    await screen.findByTestId('drive-empty-folder')
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(screen.queryByTestId('drive-empty-folder')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('drive-empty-upload')).not.toBeInTheDocument()
+    release()
+    await waitFor(() => expect(screen.getByTestId('drive-upload')).toHaveTextContent(/^업로드$/))
+  })
+
+  // #658·WP-1531: 업로드 중 패널의 「모두 취소」 — 요청을 끊고 패널에 취소 문구(토스트 없음), 버튼 복원, 목록에 파일이 생기지 않는다.
+  test('업로드 중 패널에서 취소하면 요청이 중단되고 목록에 추가되지 않는다', async () => {
     const { user } = await openDrive({ folders: [], files: [] }, {
       handlers: [
         // 응답을 보내지 않는다 — 업로드는 취소(AbortController)로만 끝난다.
@@ -462,12 +529,303 @@ describe('업로드', () => {
     chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
     const btn = screen.getByTestId('drive-upload')
     await waitFor(() => expect(btn).toHaveTextContent('업로드 중…'))
-    await user.click(screen.getByTestId('drive-upload-cancel'))
-    expect(await screen.findByText('업로드를 취소했습니다.')).toBeInTheDocument()
+    await user.click(screen.getByTestId('drive-upload-panel-cancel'))
+    const panel = screen.getByTestId('drive-upload-panel')
+    expect(await within(panel).findByText('업로드를 취소했어요 · 0개 완료')).toBeInTheDocument()
     await waitFor(() => expect(btn).toHaveTextContent(/^업로드$/))
     expect(btn).toBeEnabled()
-    expect(screen.queryByTestId('drive-upload-cancel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-upload-panel-cancel')).not.toBeInTheDocument()
+    expect(screen.queryByText('업로드를 취소했습니다.')).not.toBeInTheDocument()
     expect(screen.queryByText('memo.txt')).not.toBeInTheDocument()
+    // 취소한 패널은 저절로 닫히지 않고 ✕ 로 닫는다
+    await user.click(within(panel).getByTestId('drive-upload-panel-close'))
+    await waitFor(() => expect(screen.queryByTestId('drive-upload-panel')).not.toBeInTheDocument())
+  })
+
+  // WP-1531 Review Focus 2: 실패한 파일만 다시 올린다 — 요청 본문의 파일 내용으로 어떤 파일이 다시 갔는지 본다.
+  test('실패가 섞이면 패널이 남고 다시 시도로 그 파일만 올라간다', async () => {
+    const bodies: string[] = []
+    let n = 0
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, async ({ request }) => {
+          const text = await request.text()
+          bodies.push(text.includes('AAA-content') ? 'a' : text.includes('BBB-content') ? 'b' : '?')
+          n += 1
+          // 첫 요청(a.txt)만 500, 그 뒤는 201
+          return n === 1
+            ? HttpResponse.json({ status: 500, message: '잠시 뒤 다시 시도해 주세요' }, { status: 500 })
+            : HttpResponse.json(createFile({ id: 50 + n }), { status: 201 })
+        }),
+      ],
+    })
+    chooseFiles([new File(['AAA-content'], 'a.txt', { type: 'text/plain' }), new File(['BBB-content'], 'b.txt', { type: 'text/plain' })])
+    const panel = await screen.findByTestId('drive-upload-panel')
+    expect(await within(panel).findByText('1개 완료 · 1개 실패')).toBeInTheDocument()
+    const row = within(panel).getByTestId('drive-upload-row')
+    expect(within(row).getByText('a.txt')).toBeInTheDocument()
+    expect(within(row).getByText('잠시 뒤 다시 시도해 주세요')).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'a.txt 다시 시도' }))
+    expect(await within(panel).findByText('2개 업로드 완료')).toBeInTheDocument()
+    expect(bodies).toEqual(['a', 'b', 'a'])
+  })
+
+  // WP-1531: 패널은 페이지가 갖는다 — 올리는 중 다른 폴더로 옮겨도 남고, 파일은 시작한 폴더(10)로 올라간다.
+  // 하위 폴더 파일(sub/b.txt)은 옮긴 뒤에야 resolveFolder 가 돌므로, 그 부모가 지금 폴더(11)가 아닌 시작 폴더(10)인지로 루트 고정을 본다.
+  test('올리는 중 다른 폴더로 옮겨도 패널이 남고 파일은 원래 폴더로 올라간다', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    const folderIds: Array<string | null> = []
+    const resolves: unknown[] = []
+    const { user, location } = await openDrive(
+      (url) => (url.searchParams.get('parentId') === '10' ? { folders: [createFolder({ id: 11, name: '하위' })], files: [] } : { folders: [], files: [] }),
+      {
+        search: '?folderId=10',
+        handlers: [
+          http.get(`${API}/folders/10/path`, () => HttpResponse.json([{ id: 10, name: '시작' }])),
+          http.get(`${API}/folders/11/path`, () => HttpResponse.json([{ id: 10, name: '시작' }, { id: 11, name: '하위' }])),
+          http.post(`${API}/spaces/${SPACE_ID}/folders/resolve`, async ({ request }) => {
+            resolves.push(await request.json())
+            return HttpResponse.json(createFolder({ id: 99, name: 'sub' }))
+          }),
+          http.post(`${API}/spaces/${SPACE_ID}/files`, async ({ request }) => {
+            const form = await request.formData()
+            folderIds.push(form.get('folderId') as string | null)
+            await held
+            return HttpResponse.json(createFile(), { status: 201 })
+          }),
+        ],
+      },
+    )
+    await screen.findByRole('button', { name: '하위' })
+    // 놓은 것: 파일 a.txt + 폴더 sub(안에 b.txt)
+    const fileEntry = (name: string) => ({ isFile: true, isDirectory: false, name, file: (cb: (f: File) => void) => cb(new File([name], name)) })
+    let served = false
+    const dirEntry = {
+      isFile: false,
+      isDirectory: true,
+      name: 'sub',
+      createReader: () => ({
+        readEntries: (cb: (e: unknown[]) => void) => {
+          const batch = served ? [] : [fileEntry('b.txt')]
+          served = true
+          cb(batch)
+        },
+      }),
+    }
+    fireEvent.drop(screen.getByTestId('drive-dropzone'), {
+      dataTransfer: { items: [{ webkitGetAsEntry: () => fileEntry('a.txt') }, { webkitGetAsEntry: () => dirEntry }] },
+    })
+    await waitFor(() => expect(folderIds).toHaveLength(1))
+    await user.click(screen.getByRole('button', { name: '하위' }))
+    await waitFor(() => expect(location()).toMatch(/folderId=11/))
+    expect(screen.getByTestId('drive-upload-panel')).toBeInTheDocument()
+    release()
+    expect(await within(screen.getByTestId('drive-upload-panel')).findByText('2개 업로드 완료')).toBeInTheDocument()
+    expect(resolves).toEqual([{ parentId: 10, name: 'sub' }])
+    expect(folderIds).toEqual(['10', '99'])
+  })
+
+  // WP-1531 Review Focus 1: 올리는 중에 또 놓으면 첫 배치를 덮어쓰지 않고 막으며 끝난 뒤 다시 놓으라고 알린다.
+  test('올리는 중에 파일을 놓으면 올리지 않고 끝난 뒤 다시 놓으라고 알린다', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    let posts = 0
+    await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, async () => {
+          posts += 1
+          await held
+          return HttpResponse.json(createFile(), { status: 201 })
+        }),
+      ],
+    })
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(posts).toBe(1))
+    dropFile()
+    expect(await screen.findByText('올리는 중인 파일이 끝난 뒤 다시 놓아 주세요.')).toBeInTheDocument()
+    release()
+    expect(await within(screen.getByTestId('drive-upload-panel')).findByText('1개 업로드 완료')).toBeInTheDocument()
+    expect(posts).toBe(1)
+  })
+
+  // WP-1531 리뷰: 업로드가 끝나면 목록은 캐시 무효화로만 갱신한다 — 사용자가 골라 둔 선택은 풀지 않는다.
+  test('업로드가 끝나도 골라 둔 선택이 풀리지 않고 목록은 갱신된다', async () => {
+    const state: Items = { folders: [], files: [createFile({ id: 20, name: 'existing.pdf' })] }
+    const { user } = await openDrive(() => state, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => {
+          const file = createFile({ id: 21, name: 'memo.txt' })
+          state.files = [...state.files, file]
+          return HttpResponse.json(file, { status: 201 })
+        }),
+      ],
+    })
+    await user.click(await screen.findByRole('checkbox', { name: 'existing.pdf 선택' }))
+    expect(within(screen.getByTestId('bulk-toolbar')).getByText('선택 1개')).toBeInTheDocument()
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    expect(await within(await screen.findByTestId('drive-upload-panel')).findByText('1개 업로드 완료')).toBeInTheDocument()
+    expect(await screen.findByText('memo.txt')).toBeInTheDocument()
+    expect(within(screen.getByTestId('bulk-toolbar')).getByText('선택 1개')).toBeInTheDocument()
+  })
+
+  // WP-1531 리뷰: 성공이 하나도 없어도 목록을 갱신한다 — 놓은 폴더 트리의 폴더(resolveFolder)는 이미 만들어졌을 수 있다.
+  test('파일이 모두 실패해도 놓으며 만든 폴더는 목록에 보인다', async () => {
+    const state: Items = { folders: [], files: [] }
+    await openDrive(() => state, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/folders/resolve`, () => {
+          const folder = createFolder({ id: 77, name: 'sub' })
+          state.folders = [folder]
+          return HttpResponse.json(folder)
+        }),
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => HttpResponse.json({ status: 500, message: '저장하지 못했습니다' }, { status: 500 })),
+      ],
+    })
+    await screen.findByTestId('drive-empty-folder')
+    let served = false
+    const dirEntry = {
+      isFile: false,
+      isDirectory: true,
+      name: 'sub',
+      createReader: () => ({
+        readEntries: (cb: (e: unknown[]) => void) => {
+          const batch = served ? [] : [{ isFile: true, isDirectory: false, name: 'b.txt', file: (f: (x: File) => void) => f(new File(['b'], 'b.txt')) }]
+          served = true
+          cb(batch)
+        },
+      }),
+    }
+    fireEvent.drop(screen.getByTestId('drive-dropzone'), { dataTransfer: { items: [{ webkitGetAsEntry: () => dirEntry }] } })
+    expect(await within(await screen.findByTestId('drive-upload-panel')).findByText('0개 완료 · 1개 실패')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'sub' })).toBeInTheDocument()
+  })
+
+  // WP-1531 리뷰: 빈 폴더 안내는 지금 올리고 있는 그 폴더에서만 숨긴다 — 다른 빈 폴더는 평소처럼 안내한다.
+  test('올리는 중 다른 빈 폴더로 옮기면 그 폴더의 빈 안내는 보인다', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    const { user, location } = await openDrive(
+      (url) => (url.searchParams.get('parentId') ? { folders: [], files: [] } : { folders: [createFolder({ id: 10, name: '빈폴더' })], files: [] }),
+      {
+        handlers: [
+          http.get(`${API}/folders/10/path`, () => HttpResponse.json([{ id: 10, name: '빈폴더' }])),
+          http.post(`${API}/spaces/${SPACE_ID}/files`, async () => {
+            await held
+            return HttpResponse.json(createFile(), { status: 201 })
+          }),
+        ],
+      },
+    )
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(screen.getByTestId('drive-upload')).toBeDisabled())
+    await user.click(await screen.findByRole('button', { name: '빈폴더' }))
+    await waitFor(() => expect(location()).toMatch(/folderId=10/))
+    expect(await screen.findByTestId('drive-empty-folder')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-upload')).toBeDisabled()
+    release()
+    await waitFor(() => expect(screen.getByTestId('drive-upload')).toBeEnabled())
+  })
+
+  // WP-1531 리뷰: 끝났을 때 갱신하는 목록은 지금 보는 공간이 아니라 업로드한 공간이다.
+  test('올리는 중 다른 공간으로 옮겨도 끝나면 업로드한 공간의 목록이 갱신된다', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    const space1: Items = { folders: [], files: [createFile({ id: 20, name: 'existing.pdf' })] }
+    await openDrive((url) => (url.pathname.includes(`/spaces/${SPACE_ID}/`) ? space1 : { folders: [], files: [] }), {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, async () => {
+          await held
+          const file = createFile({ id: 21, name: 'memo.txt' })
+          space1.files = [...space1.files, file]
+          return HttpResponse.json(file, { status: 201 })
+        }),
+      ],
+    })
+    await screen.findByText('existing.pdf')
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(screen.getByTestId('drive-upload')).toBeDisabled())
+    // 다른 공간(99)으로 — 같은 DrivePage 가 주소만 바꿔 그린다.
+    act(() => {
+      window.history.pushState(null, '', '/drive/spaces/99')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await waitFor(() => expect(screen.queryByText('existing.pdf')).not.toBeInTheDocument())
+    release()
+    expect(await within(await screen.findByTestId('drive-upload-panel')).findByText('1개 업로드 완료')).toBeInTheDocument()
+    // 처음 공간으로 돌아오면(캐시가 아직 신선한 30초 안) 무효화된 목록을 다시 불러 새 파일이 보인다.
+    act(() => {
+      window.history.pushState(null, '', `/drive/spaces/${SPACE_ID}`)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(await screen.findByText('memo.txt')).toBeInTheDocument()
+  })
+
+  // WP-1531 리뷰: 접힘 상태는 배치마다 처음으로 — 새 업로드는 펼친 채 시작하고, 다시 시도(같은 배치)는 접힘을 지킨다.
+  test('새 업로드는 패널을 펼친 채 시작하고, 다시 시도는 접힘을 유지한다', async () => {
+    let n = 0
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.post(`${API}/spaces/${SPACE_ID}/files`, async () => {
+          n += 1
+          if (n <= 2) return HttpResponse.json({ status: 500, message: '저장하지 못했습니다' }, { status: 500 })
+          await held
+          return HttpResponse.json(createFile(), { status: 201 })
+        }),
+      ],
+    })
+    chooseFiles([new File(['a'], 'a.txt', { type: 'text/plain' })])
+    const panel = await screen.findByTestId('drive-upload-panel')
+    await within(panel).findByText('0개 완료 · 1개 실패')
+    await user.click(screen.getByTestId('drive-upload-panel-toggle'))
+    expect(screen.getByTestId('drive-upload-panel-toggle')).toHaveAttribute('aria-expanded', 'false')
+    // 다시 시도는 같은 배치 — 접힌 채로
+    await user.click(within(panel).getByTestId('drive-upload-panel-toggle'))
+    await user.click(within(panel).getByRole('button', { name: 'a.txt 다시 시도' }))
+    await within(screen.getByTestId('drive-upload-panel')).findByText('0개 완료 · 1개 실패')
+    await user.click(screen.getByTestId('drive-upload-panel-toggle'))
+    expect(screen.getByTestId('drive-upload-panel-toggle')).toHaveAttribute('aria-expanded', 'false')
+    // 새 배치는 펼친 채로 시작
+    chooseFiles([new File(['b'], 'b.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(within(screen.getByTestId('drive-upload-panel')).getByText('업로드 0/1')).toBeInTheDocument())
+    expect(screen.getByTestId('drive-upload-panel-toggle')).toHaveAttribute('aria-expanded', 'true')
+    release()
+    await within(screen.getByTestId('drive-upload-panel')).findByText('1개 업로드 완료')
+  })
+
+  // WP-1531: 패널(fixed)이 떠 있으면 목록 맨 아래에 패널 높이 + 여백만큼 공간을 둬 마지막 행이 가려지지 않게 한다.
+  // jsdom 은 크기를 재지 못해 ResizeObserver 를 패널 높이 120px 로 알려 주는 가짜로 바꾼다(실제 겹침은 E2E @layout).
+  test('패널이 보이는 동안 목록 아래에 패널 높이만큼 공간이 생기고, 닫으면 없어진다', async () => {
+    class FixedHeightObserver {
+      private cb: ResizeObserverCallback
+      constructor(cb: ResizeObserverCallback) {
+        this.cb = cb
+      }
+      observe(target: Element) {
+        this.cb([{ target, borderBoxSize: [{ blockSize: 120, inlineSize: 320 }] } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', FixedHeightObserver)
+    try {
+      const { user } = await openDrive({ folders: [], files: [] }, {
+        handlers: [http.post(`${API}/spaces/${SPACE_ID}/files`, () => HttpResponse.json({ status: 500, message: '저장하지 못했습니다' }, { status: 500 }))],
+      })
+      const dropzone = screen.getByTestId('drive-dropzone')
+      expect(dropzone.style.paddingBottom).toBe('')
+      chooseFiles([new File(['a'], 'a.txt', { type: 'text/plain' })])
+      await within(await screen.findByTestId('drive-upload-panel')).findByText('0개 완료 · 1개 실패')
+      // 120(패널) + 16(데스크톱 아래 여백) + 8(숨 쉴 틈)
+      await waitFor(() => expect(dropzone.style.paddingBottom).toBe('144px'))
+      await user.click(screen.getByTestId('drive-upload-panel-close'))
+      await waitFor(() => expect(screen.queryByTestId('drive-upload-panel')).not.toBeInTheDocument())
+      expect(dropzone.style.paddingBottom).toBe('')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   // #820: 업로드가 끝나면 새로고침 없이 사이드바 사용량을 다시 불러와 갱신한다(쿼터 쿼리 무효화).
@@ -555,12 +913,12 @@ describe('휴지통', () => {
     await screen.findByTestId('drive-new-folder')
     dropFile()
     await waitFor(() => expect(posts).toBe(1))
-    expect(await screen.findByText(/업로드 완료/)).toBeInTheDocument()
+    expect(await within(await screen.findByTestId('drive-upload-panel')).findByText('1개 업로드 완료')).toBeInTheDocument()
     expect(posts).toBe(1)
   })
 
-  // WP-1101: 업로드 중에 휴지통을 열어도 진행 표시(누를 수 없는 「업로드 중…」)와 「취소」가 함께 남는다 — 취소만 홀로 남지 않는다.
-  test('업로드 중에 휴지통을 열면 진행 표시와 취소가 함께 보이고, 취소하면 함께 사라진다', async () => {
+  // WP-1101·WP-1531: 업로드 중에 휴지통을 열어도 진행 표시(누를 수 없는 「업로드 중…」·패널)와 「취소」가 함께 남는다 — 취소만 홀로 남지 않는다.
+  test('업로드 중에 휴지통을 열면 진행 표시와 패널 취소가 함께 보이고, 취소하면 업로드 단추가 사라진다', async () => {
     const { user } = await openDrive({ folders: [], files: [] }, {
       handlers: [trashHandler, http.post(`${API}/spaces/${SPACE_ID}/files`, () => new Promise<Response>(() => {}))],
     })
@@ -570,13 +928,14 @@ describe('휴지통', () => {
     await within(await screen.findByTestId('trash-view')).findByText('memo.txt')
     expect(screen.getByTestId('drive-upload')).toHaveTextContent('업로드 중…')
     expect(screen.getByTestId('drive-upload')).toBeDisabled()
-    expect(screen.getByTestId('drive-upload-cancel')).toBeInTheDocument()
+    const panel = screen.getByTestId('drive-upload-panel')
+    expect(within(panel).getByText('업로드 0/1')).toBeInTheDocument()
     // 새 폴더는 휴지통에서 계속 감춘다.
     expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('drive-upload-cancel'))
-    expect(await screen.findByText('업로드를 취소했습니다.')).toBeInTheDocument()
+    await user.click(within(panel).getByTestId('drive-upload-panel-cancel'))
+    expect(await within(panel).findByText('업로드를 취소했어요 · 0개 완료')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument())
-    expect(screen.queryByTestId('drive-upload-cancel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-upload-panel-cancel')).not.toBeInTheDocument()
   })
 
   // #143: 복원 500 이면 사유 토스트를 보이고 휴지통 목록은 그대로다.
