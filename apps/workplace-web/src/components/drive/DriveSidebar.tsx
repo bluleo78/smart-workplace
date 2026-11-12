@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus, User, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
@@ -33,7 +33,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
-import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces, spaceDisplayName } from '@/lib/driveSpaces'
+import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces,spaceDisplayName } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
 import { HIT_AREA_COARSE } from '@/lib/hitArea'
 import { failedWithoutData } from '@/lib/queryFailure'
@@ -46,6 +46,7 @@ import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
 import type { DriveQuota, DriveQuotaBreakdown, DriveSpace } from '../../types/drive'
 import { DriveSpaceMemberDialog } from './DriveSpaceMemberDialog'
+import { SpaceTypeIcon } from './SpaceTypeIcon'
 
 /** 사용량 바 경고 단계 — 임계치 기반 색상 분기(#822). */
 type DriveUsageLevel = 'normal' | 'warning' | 'critical'
@@ -197,12 +198,6 @@ function UsageLine({
 // WP-63: 공간 목록 미로드 시 빈 배열 — 매 렌더 새 배열을 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_SPACES: DriveSpace[] = []
 
-/** 공간 행 아이콘 — 개인은 User, 팀은 Users(WP-143). */
-function SpaceTypeIcon({ personal }: { personal: boolean }) {
-  const Icon = personal ? User : Users
-  return <Icon className="h-4 w-4 shrink-0" data-testid="drive-space-icon" aria-hidden />
-}
-
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
   // WP-63: 공간 목록 — useDriveSpaces(['drive','spaces']) 로 조회해 resource.changed 무효화 대상이 되게 한다.
@@ -341,7 +336,7 @@ export function DriveSidebar() {
                   }
                 >
                   {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
-                  <SpaceTypeIcon personal={s.type === 'PERSONAL'} />
+                  <SpaceTypeIcon type={s.type} className="h-4 w-4 shrink-0" data-testid="drive-space-icon" />
                   <span className="min-w-0 break-words">{spaceDisplayName(s)}</span>
                 </NavLink>
                 {hasMenu && (

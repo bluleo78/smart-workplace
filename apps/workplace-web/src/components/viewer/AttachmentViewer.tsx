@@ -283,7 +283,7 @@ export function AttachmentViewer({
   const canImport = importTarget != null && !importer.busy
   const startImport = () => {
     // 조회 중 누름은 무시한다(aria-disabled 라 버튼은 눌린다) — begin 도 busy 면 바로 돌아가지만 여기서 먼저 거른다.
-    if (importTarget != null && canImport) importer.begin(importTarget)
+    if (importTarget != null && canImport) importer.begin(importTarget, { name: item.name, mimeType: item.mimeType })
   }
   // 현재 항목 blob — ViewerBody 가 보고하고, 다른 항목으로 넘기면 자동으로 무시된다(zoom 과 같은 useItemState).
   const [cur, setSource] = useItemState<{ blob: Blob | null; fetches: boolean; unplayable?: boolean } | null>(itemKey, null)

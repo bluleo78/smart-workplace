@@ -63,7 +63,7 @@ import { extractApiError, handleApiError } from '@/lib/api-error'
 import { appUrl, driveFolderPath } from '@/lib/appUrl'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
 import { driveFileActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
-import { isDriveSpaceReadOnly } from '@/lib/driveSpaces'
+import { isDriveSpaceReadOnly,spaceDisplayName } from '@/lib/driveSpaces'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
@@ -214,6 +214,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // WP-63: useQuery 전환 — 실패 시 data 가 없어 배너 미표시로 폴백(기존 동작 유지).
   const spaceQuery = useDriveSpace(validSid)
   const space = spaceQuery.data ?? null
+  // 이동·복사 창 첫 경로 이름 — 지금 보고 있는 공간(개인은 「내 드라이브」). 공간을 아직 모르면 창이 예전 「루트」로 보인다.
+  const pickerRootLabel = space ? spaceDisplayName(space) : undefined
   // 탭 제목 — 「{공간} · 드라이브」(WP-814).
   useDocumentTitle([space?.name, '드라이브'])
   // WP-602: 팀 공간 VIEWER — 쓰기 버튼(새 폴더·업로드·이동·삭제·공유 링크 등)을 감추고 읽기 동작만 둔다. 눌러도 서버가 403 이다.
@@ -1751,6 +1753,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         {picker && (
           <FolderPickerModal
             spaceId={sid}
+            rootLabel={pickerRootLabel}
             title={`${picker.name} ${picker.mode === 'move' ? '이동' : '복사'}`}
             disabledFolderId={picker.kind === 'folder' ? picker.id : undefined}
             onConfirm={onPickTarget}
@@ -1761,6 +1764,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         {bulkPicker && (
           <FolderPickerModal
             spaceId={sid}
+            rootLabel={pickerRootLabel}
             title={`${selCount}개 항목 이동`}
             onConfirm={onBulkMoveTarget}
             onClose={() => setBulkPicker(false)}
