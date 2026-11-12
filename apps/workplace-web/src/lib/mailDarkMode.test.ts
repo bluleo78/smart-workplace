@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { applyMailDarkMode, darkenLightBackground, lightenDarkColor, parseCssColor } from './mailDarkMode'
+import { MAIL_HEADER_CELL_STYLE, MAIL_TABLE_STYLE } from './mailFormat'
 
 const colors = { background: 'oklch(0.13 0.015 280)', foreground: 'oklch(0.93 0 0)', link: 'oklch(0.65 0.2 264)' }
 
@@ -224,5 +225,24 @@ describe('applyMailDarkMode', () => {
     const out = applyMailDarkMode('<!DOCTYPE html><html><body><p>x</p></body></html>', colors)
     expect(out.startsWith('<!DOCTYPE html>')).toBe(true)
     expect(applyMailDarkMode('<p>x</p>', colors).startsWith('<html')).toBe(true)
+  })
+})
+
+describe('applyMailDarkMode — 작성창이 보낸 서식 표(WP-1524)', () => {
+  it('보낸 표 머리글(#f3f4f6)은 다크 변환에서 어둡게 바뀌고 글자는 읽히게 남는다', () => {
+    const html =
+      `<table style="${MAIL_TABLE_STYLE}"><tbody><tr>` +
+      `<th id="h" style="${MAIL_HEADER_CELL_STYLE}; color: #111827">항목</th>` +
+      `<td id="c"><span id="r" style="color: #dc2626">빨강</span></td></tr></tbody></table>`
+    const doc = parse(applyMailDarkMode(html, colors))
+    const th = doc.getElementById('h')!
+    // #f3f4f6 은 거의 흰색(NEAR_WHITE 240 이상)이라 투명으로 바뀌어 어두운 앱 배경이 비친다 — 밝은 띠가 남지 않는다
+    expect(th.style.backgroundColor).toBe('transparent')
+    // 그 위 어두운 잉크(#111827) 글자는 밝게 뒤집혀 어두운 바탕에서 읽힌다
+    expect(luminance(th.style.color)).toBeGreaterThan(0.4)
+    // 빨강(#dc2626) 글자는 색상을 지킨 채 어두운 바탕에서 읽히도록 조금만 밝아진다(빨강 계열 유지)
+    const red = parseCssColor(doc.getElementById('r')!.style.color)!
+    expect(red.r).toBeGreaterThan(red.g * 2)
+    expect(red.r).toBeGreaterThanOrEqual(220)
   })
 })

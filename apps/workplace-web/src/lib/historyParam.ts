@@ -232,3 +232,12 @@ export function currentHistoryState(): RouterState {
 export function hasLiveStateMark(key: string): boolean {
   return readHistoryParam({ search: '', state: currentHistoryState() }, key, 'state') != null
 }
+
+/**
+ * 「히스토리 항목이 걷히고 위치 key 가 따라왔는가」(WP-1511) — 시트가 넣은 state 표식 항목이 걷혔고(표식 없음),
+ * 브라우저가 가리키는 key 가 렌더한 위치 key 와 같을 때 true. 브라우저가 이미 돌아갔어도 라우터 위치가 따라오기 전이면 false 라
+ * 그동안 부르는 히스토리 push 가 낡은 위치에서 헛돌지 않는다(타이머로 추정하지 않는다). MobileHelpSheet·AIAssistantContext 가 함께 쓴다.
+ */
+export function isHistoryEntryWithdrawn(stateKey: string, renderedLocationKey: string): boolean {
+  return !hasLiveStateMark(stateKey) && liveHistoryKey() === renderedLocationKey
+}

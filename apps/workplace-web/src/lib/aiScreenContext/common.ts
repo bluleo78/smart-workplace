@@ -1,6 +1,6 @@
 // 화면 컨텍스트 builder 공통 헬퍼(WP-54) — 서버 상한(api Bean Validation·agent zod)을 넘지 않게 자르고,
 // 빈 값을 걸러 AI 에게 의미 있는 항목만 보낸다.
-import type { AiScreenContext, AiScreenFact, AiScreenRefs } from '@/types/aiScreenContext';
+import type { AiHelpContext, AiScreenContext, AiScreenFact, AiScreenRefs } from '@/types/aiScreenContext';
 
 /** 스펙의 크기 상한 — api/agent 검증과 동일 값. */
 export const LIMITS = {
@@ -13,6 +13,17 @@ export const LIMITS = {
   facts: 12,
   factLabel: 30,
   factValue: 200,
+  // WP-1511 도움말 층 — api AiScreenContext.Help · ai-agent screenContextSchema 와 같은 값.
+  helpId: 100,
+  helpPath: 8,
+  helpPathItem: 50,
+  helpBody: 2000,
+  helpFocusName: 100,
+  helpFocusValue: 200,
+  helpDialog: 100,
+  helpQuery: 200,
+  helpDialogs: 5,
+  helpDialogLabel: 50,
 } as const;
 
 /** 앞뒤 공백 제거 후 max 자 초과면 말줄임(…) 포함 max 자로 자른다. */
@@ -89,13 +100,21 @@ export function fmtKst(iso: string, withTime = true): string {
  * 범위 라벨이 이미 화면 이름을 포함하면(예: '프로젝트 X 이슈 목록') 중복 표기('이슈 목록 · 프로젝트 X 이슈 목록')를 피해 범위 라벨만 쓴다.
  */
 export function chipLabel(ctx: AiScreenContext): string {
+  const base = baseChipLabel(ctx);
+  // WP-1511: 도움말 절을 보고 있으면 경로 끝 이름만 덧붙인다 — 칩은 하나, 별도 도움말 태그는 두지 않는다.
+  const leaf = ctx.help?.section?.path.at(-1);
+  return leaf ? `${base} · ${leaf}` : base;
+}
+
+/** 도움말 층을 뺀 칩 표시 — 대상 > 화면·범위 > 화면. */
+function baseChipLabel(ctx: AiScreenContext): string {
   if (ctx.focus) return `${ctx.focus.type} ${ctx.focus.label}`;
   if (ctx.scope) return ctx.scope.label.includes(ctx.view) ? ctx.scope.label : `${ctx.view} · ${ctx.scope.label}`;
   return ctx.view;
 }
 
 /**
- * 화면 정체성 키 — 칩 ×(1회 제외)를 "같은 화면"에 묶는 비교 키.
+ * 화면 정체성 키 — 칩 ×(1회 제외)를 "같은 화면"에 묶는 비교 키. 도움말 층(help)은 절·검색어가 수시로 바뀌므로 제외한다.
  * 건수(count)·추가 로드 여부(hasMore)·facts 처럼 같은 화면에서도 수시로 바뀌는 값은 제외한다 —
  * 이런 휘발 데이터 변화로 사용자가 누른 × 가 풀려 칩이 다시 뜨면 안 되기 때문. 화면(view)·대상/범위 식별자만 본다.
  */
@@ -108,6 +127,15 @@ export function contextIdentity(ctx: AiScreenContext | null): string | null {
     scopeLabel: ctx.scope?.label ?? null,
     scopeRefs: ctx.scope?.refs ?? null,
   });
+}
+
+/**
+ * 넘겨받은 도움말(carried)을 묶어 두는 화면 정체성 — 도움말만 있는 문맥(페이지 없이 view 「도움말」)은 화면이 없는 것(null)으로 본다.
+ * 도움말을 닫으면 그 문맥이 사라져 정체성이 바뀌는데, 그걸 「화면을 옮김」으로 오해해 넘겨받은 도움말을 버리지 않게 하려는 것이다.
+ */
+export function carriedIdentity(ctx: AiScreenContext | null): string | null {
+  if (!ctx || (ctx.help && !ctx.focus && !ctx.scope && ctx.view === '도움말')) return null;
+  return contextIdentity(ctx);
 }
 
 /**
@@ -151,4 +179,33 @@ export function overlayScreenContext(base: AiScreenContext | null, overlay: AiSc
     ...(focus ? { focus } : {}),
     ...(scope ? { scope } : {}),
   };
+}
+
+/**
+ * WP-1511: 도움말 층 등록자들의 값을 하나로 합친다(등록 순서대로 넘긴다).
+ * dialogs 는 id 로 중복 없이 이어 붙여 상한(LIMITS.helpDialogs)까지, 나머지 키는 값이 있는 뒤 등록이 이긴다.
+ * 결과가 비면 null — 도움말 패널과 창 등록자가 각자 일부만 등록해도 한 값으로 합쳐 AI 에게 보낸다.
+ */
+export function mergeHelp(parts: AiHelpContext[]): AiHelpContext | null {
+  const out: AiHelpContext = {};
+  const dialogs = new Map<string, { id: string; label: string }>();
+  for (const part of parts) {
+    const { dialogs: ds, ...rest } = part;
+    for (const [k, v] of Object.entries(rest)) {
+      if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+    }
+    for (const d of ds ?? []) if (!dialogs.has(d.id)) dialogs.set(d.id, d);
+  }
+  if (dialogs.size) out.dialogs = [...dialogs.values()].slice(0, LIMITS.helpDialogs);
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * WP-1511: 화면 참고(base)에 도움말(help)을 얹는다 — 스토어(recompute)와 입력창 씨앗(withCarriedHelp)이 같은 규칙을 쓰도록 한 곳에 둔다.
+ * help 가 없으면 base 그대로. base 가 없으면(도움말만 열린 화면 등) 절·검색어가 있을 때만 「도움말」 문맥을 만든다 — 창 목록(dialogs)만으로는 보낼 화면이 아니다.
+ */
+export function attachHelp(base: AiScreenContext | null, help: AiHelpContext | null | undefined): AiScreenContext | null {
+  if (!help) return base;
+  if (base) return { ...base, help };
+  return help.section || help.query ? { view: '도움말', help } : null;
 }

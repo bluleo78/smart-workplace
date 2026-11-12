@@ -5,6 +5,7 @@ import { AlertTriangle, Loader2, PenLine, RotateCcw, Square, Undo2 } from 'lucid
 import type { ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 
+import { AiIcon } from '@/components/ai/AiIcon';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -32,7 +33,8 @@ export function AiDraftChip({ onClick }: { onClick: () => void }) {
 }
 
 /**
- * 서식 툴바 오른쪽 끝 「AI로 쓰기」. touch(모바일 하단 툴바)는 44px 높이.
+ * 서식 툴바 오른쪽 끝 「AI로 쓰기」. touch(모바일 하단 툴바)는 44px 정사각 아이콘 단추 — 글자 대신 aria-label 로 이름을 남긴다.
+ * 모바일 줄이 굵게…링크·표 넣기·서식 일곱 단추 + 이 단추라 390px 에 글자까지는 들어가지 않는다(WP-1524).
  * marked=false — 지시 패널이나 「AI 초안이에요」 줄이 이미 AI 표식을 보이고 있을 때. AI 표식(✨·AI 색)은 영역마다 한 번이므로(디자인 시스템 §7.2)
  * 버튼엔 기능 아이콘과 글자만 남긴다.
  */
@@ -52,20 +54,31 @@ export function AiDraftToolbarButton({
       type="button"
       data-testid="mail-ai-compose-open"
       aria-expanded={expanded}
+      aria-label={touch ? 'AI로 쓰기' : undefined}
+      title={touch ? 'AI로 쓰기' : undefined}
       // 다른 서식 버튼과 같이 에디터 선택을 유지한다.
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
         'ml-auto flex shrink-0 items-center rounded',
-        touch ? 'h-11 px-3' : 'px-2 py-1',
+        touch ? 'size-11 justify-center' : 'px-2 py-1',
         marked
           ? 'hover:bg-ai-accent-subtle'
           : 'gap-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-3',
         marked && expanded && 'bg-ai-accent-subtle',
         !marked && expanded && 'bg-accent text-foreground',
+        // 터치 아이콘은 다른 44px 서식 단추와 같은 20px — 위 [&_svg]:size-3 보다 뒤에 둬 덮는다.
+        touch && '[&_svg]:size-5',
       )}
     >
-      {marked ? (
+      {touch ? (
+        // 아이콘만 — marked 면 AI 표식(AI 색 ✨), 아니면 기능 아이콘(표식은 패널·「AI 초안이에요」 줄이 이미 보인다).
+        marked ? (
+          <AiIcon aria-hidden className="text-ai-accent" />
+        ) : (
+          <PenLine aria-hidden />
+        )
+      ) : marked ? (
         <AiLabel>AI로 쓰기</AiLabel>
       ) : (
         <>

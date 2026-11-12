@@ -5,32 +5,28 @@
 // - 굵은 글자 → 마우스를 올리면 같은 이름의 화면 버튼을 강조(helpScreenControls). 반대로 화면에서 포커스·클릭한 단추 이름과 같으면 글자를 강조(WP-1506).
 // 글 크기·간격은 채팅 MarkdownMessage 와 맞추되 컴포넌트는 가져다 쓰지 않는다 — 그쪽은 멘션·이슈 키 처리 등 채팅 전용 단계가 섞여 있다(목록 클래스만 공용 markdownListClass).
 import { Check, Copy } from 'lucide-react'
-import { Children, createContext, isValidElement, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
+import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { copyToClipboard } from '@/lib/copyToClipboard'
 import { markdownListClass } from '@/lib/markdownListClass'
 import { cn } from '@/lib/utils'
 
 import { HelpActiveControlContext } from './helpActiveControl'
-import { HELP_BASE, type HelpFigure, type HelpSection, type HelpVars } from './helpBundle'
+import type { HelpSection, HelpVars } from './helpBundle'
+import { HelpFigureFallback, HelpFigureImage } from './HelpFigureImage'
 import { applyHelpConditions, type HelpValues, remarkHelpPlaceholders } from './helpMarkup'
-import { findScreenControls, highlightScreenControls, normalizeControlText } from './helpScreenControls'
+import { FIGURE_SCHEME, HELP_SCHEME, makeUrlTransform } from './helpSchemes'
+import { normalizeControlText } from './helpScreenControls'
+import { nodeText } from './nodeText'
+import { useScreenHighlight } from './useScreenHighlight'
 
-const HELP_LINK = 'help:'
-const FIGURE_SRC = 'figure:'
 /** 복사 성공 뒤 체크 아이콘을 보이는 시간(ms). */
 const COPIED_MS = 2000
 
-/**
- * 주소 정리 — react-markdown 기본(defaultUrlTransform)은 모르는 스킴을 빈 값으로 바꿔 help:·figure: 를 지운다.
- * 이 둘만 그대로 두고 나머지는 기본 규칙(javascript: 등 차단)을 따른다.
- */
-function helpUrlTransform(url: string): string {
-  return url.startsWith(HELP_LINK) || url.startsWith(FIGURE_SRC) ? url : defaultUrlTransform(url)
-}
+// 주소 정리 — help:·figure: 만 그대로 두고 나머지는 기본 규칙(javascript: 등 차단)을 따른다.
+const helpUrlTransform = makeUrlTransform([HELP_SCHEME, FIGURE_SCHEME])
 
 /**
  * 코드 블록(pre) 안인가 — react-markdown 10 은 code 에 inline 여부를 넘기지 않고, 언어 없는 펜스는 className 도 없어
@@ -82,54 +78,6 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   )
 }
 
-/** 그림 — 폭 100%, 누르면 큰 그림 대화상자. 파일을 못 받으면 alt 글로 바꾼다. */
-function FigureImage({ figure }: { figure: HelpFigure }) {
-  const [failed, setFailed] = useState(false)
-  const [zoom, setZoom] = useState(false)
-  const src = `${HELP_BASE}/${figure.src}`
-  if (failed) return <FigureFallback alt={figure.alt} />
-  return (
-    <>
-      <button
-        type="button"
-        aria-label={`${figure.alt} 크게 보기`}
-        onClick={() => setZoom(true)}
-        className="block w-full cursor-zoom-in overflow-hidden rounded border"
-      >
-        <img src={src} alt={figure.alt} onError={() => setFailed(true)} className="block w-full" />
-      </button>
-      {/* 공용 Dialog 에 큰 그림 하나 — 첨부 뷰어는 인증 API 경로용이라 공개 정적 파일인 도움말 그림과 맞지 않는다(계획 10). */}
-      <Dialog open={zoom} onOpenChange={setZoom}>
-        {/* 설명 글이 없는 그림 대화상자 — 제목(alt)만으로 충분해 aria-describedby 를 비운다(Radix 의 Description 누락 경고 방지). */}
-        {/* data-help-panel — 포털이라 패널 밖에 그려지지만 패널의 일부(문맥 신호에서 화면 상호작용·열린 대화상자로 보지 않게, WP-1506). */}
-        <DialogContent data-help-panel data-testid="help-figure-dialog" aria-describedby={undefined} className="max-w-[calc(100%-2rem)] p-3 sm:max-w-[min(1200px,calc(100%-2rem))]">
-          <DialogTitle className="sr-only">{figure.alt}</DialogTitle>
-          <img src={src} alt={figure.alt} className="block h-auto w-full" />
-        </DialogContent>
-      </Dialog>
-    </>
-  )
-}
-
-/** 그림 대신 보이는 alt 글 — 묶음에 없는 그림 id·로드 실패. */
-function FigureFallback({ alt }: { alt: string }) {
-  return <span className="block text-muted-foreground">{alt}</span>
-}
-
-/**
- * React 자식의 글자만 이어 붙인다 — 굵은 글자 안 자리표시·인라인 코드 같은 요소 조각도 글자로 따라 내려간다.
- * 그려진 DOM(textContent)을 렌더 중에 읽을 수 없어, 같은 결과를 자식 트리에서 얻는다.
- */
-function nodeText(node: ReactNode): string {
-  return Children.toArray(node)
-    .map((child) => {
-      if (typeof child === 'string' || typeof child === 'number') return String(child)
-      if (isValidElement<{ children?: ReactNode }>(child)) return nodeText(child.props.children)
-      return ''
-    })
-    .join('')
-}
-
 /**
  * 굵은 글자 — 마우스를 올린 동안 같은 이름의 화면 버튼을 강조한다. 올린 채 사라지면(절 이동) 강조도 거둔다.
  * 반대 방향(WP-1506): 화면에서 포커스·클릭한 단추 이름(HelpActiveControlContext)과 정규화한 글자가 같으면
@@ -137,21 +85,14 @@ function nodeText(node: ReactNode): string {
  */
 function HighlightStrong({ children }: { children?: ReactNode }) {
   const activeControl = useContext(HelpActiveControlContext)
-  const active = activeControl !== null && normalizeControlText(nodeText(children)) === activeControl
-  const release = useRef<(() => void) | null>(null)
-  const stop = () => {
-    release.current?.()
-    release.current = null
-  }
-  useEffect(() => stop, [])
+  const text = nodeText(children)
+  const active = activeControl !== null && normalizeControlText(text) === activeControl
+  const { enter, stop } = useScreenHighlight(text)
   return (
     <strong
       data-help-active={active ? '' : undefined}
       className={cn('font-semibold', active && 'rounded-sm bg-primary/10 px-0.5 text-primary')}
-      onMouseEnter={(e) => {
-        stop()
-        release.current = highlightScreenControls(findScreenControls(e.currentTarget.textContent ?? ''))
-      }}
+      onMouseEnter={(e) => void enter(e.currentTarget.textContent ?? '')}
       onMouseLeave={stop}
     >
       {children}
@@ -204,8 +145,8 @@ export const HelpMarkdown = memo(function HelpMarkdown({ section, values, vars, 
       td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
       strong: ({ children }) => <HighlightStrong>{children}</HighlightStrong>,
       a: ({ href, children }) => {
-        if (href?.startsWith(HELP_LINK)) {
-          const id = href.slice(HELP_LINK.length)
+        if (href?.startsWith(HELP_SCHEME)) {
+          const id = href.slice(HELP_SCHEME.length)
           if (canNavigate && !canNavigate(id)) return <>{children}</>
           // 패널 안 이동이라 주소를 바꾸지 않는다 — 링크 모양의 단추.
           return (
@@ -224,8 +165,8 @@ export const HelpMarkdown = memo(function HelpMarkdown({ section, values, vars, 
       },
       img: ({ src, alt }) => {
         const raw = typeof src === 'string' ? src : ''
-        const figure = raw.startsWith(FIGURE_SRC) ? section.figures.find((f) => f.id === raw.slice(FIGURE_SRC.length)) : undefined
-        return figure ? <FigureImage figure={figure} /> : <FigureFallback alt={alt ?? ''} />
+        const figure = raw.startsWith(FIGURE_SCHEME) ? section.figures.find((f) => f.id === raw.slice(FIGURE_SCHEME.length)) : undefined
+        return figure ? <HelpFigureImage figure={figure} /> : <HelpFigureFallback alt={alt ?? ''} />
       },
     }),
     [section.figures, onNavigate, canNavigate],

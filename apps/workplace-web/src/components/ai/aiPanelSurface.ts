@@ -11,6 +11,23 @@ export const AI_PANEL_SELECTOR = '[data-ai-panel]';
  */
 export const AI_DOCK_SELECTOR = '[data-ai-dock]';
 
+/** 도움말 패널 표식 — 패널이 포털로 그리는 것(⌄ 목록·그림 확대)도 달아 패널 안으로 친다. */
+export const HELP_PANEL_SELECTOR = '[data-help-panel]';
+
+/** 「패널에 속함」 — 도움말 패널 또는 AI 표면. 이 안의 대화상자·단추는 화면(페이지) 것이 아니다. */
+export const PANEL_SURFACE_SELECTOR = `${HELP_PANEL_SELECTOR}, ${AI_PANEL_SELECTOR}`;
+
+/**
+ * 「페이지가 아닌 곳」 — 도움말 패널·AI 표면·오른쪽 도킹 칸·「?」 단추·대화상자 흐린 막.
+ * 여기서 일어난 포커스·클릭은 화면 칸을 만진 것이 아니라 도움말·AI 를 쓰는 것이라 도움말 신호(useHelpContextSignals)에서 무시한다.
+ */
+export const NON_PAGE_SELECTOR = `${PANEL_SURFACE_SELECTOR}, ${AI_DOCK_SELECTOR}, [data-help-trigger], [data-slot="dialog-overlay"]`;
+
+/** 요소가 페이지가 아닌 곳(NON_PAGE_SELECTOR) 안인가. */
+export function isNonPageSurface(el: Element): boolean {
+  return el.closest(NON_PAGE_SELECTOR) !== null;
+}
+
 /** 앱 셸의 페이지 영역 컨테이너 표식 — 자식 중 AI 패널이 아닌 것(AppRail·main)이 inert 대상. */
 export const AI_PAGE_ROOT_SELECTOR = '[data-ai-page-root]';
 

@@ -174,6 +174,7 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
                 "WP-12 버그",
                 Map.of("issueKey", "WP-12"),
                 List.of(new AiScreenContext.Fact("상태", "진행 중"))),
+            null,
             null);
     serviceCapturing(new ArrayList<>())
         .startChat(uid, null, "이거 요약", ctx, List.of(), null, null, null);
@@ -195,9 +196,33 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
   @Test
   void 화면_컨텍스트_직렬화는_null_필드를_생략한다() throws Exception {
     AiScreenContext ctx =
-        new AiScreenContext("캘린더", null, new AiScreenContext.Scope("주 보기", null, null, 3, null));
+        new AiScreenContext(
+            "캘린더", null, new AiScreenContext.Scope("주 보기", null, null, 3, null), null);
     String json = objectMapper.writeValueAsString(ctx);
     assertThat(json).isEqualTo("{\"view\":\"캘린더\",\"scope\":{\"label\":\"주 보기\",\"count\":3}}");
+  }
+
+  /** WP-1511: help 는 가공 없이 JSON 에 실리고, 값이 없는 선택 필드(focus.value)는 키도 없다. */
+  @Test
+  void forwardsHelpUntouched() throws Exception {
+    AiScreenContext ctx =
+        new AiScreenContext(
+            "메일함",
+            null,
+            null,
+            new AiScreenContext.Help(
+                new AiScreenContext.Section("mail.rules", List.of("메일", "규칙"), "본문"),
+                new AiScreenContext.HelpFocus("제목", null, null),
+                null,
+                null,
+                null));
+    var node = objectMapper.readTree(objectMapper.writeValueAsString(ctx));
+    assertThat(node.at("/help/section/id").asText()).isEqualTo("mail.rules");
+    assertThat(node.at("/help/section/path/1").asText()).isEqualTo("규칙");
+    assertThat(node.at("/help/focus/name").asText()).isEqualTo("제목");
+    assertThat(node.at("/help/focus").has("value")).isFalse();
+    assertThat(node.at("/help/focus").has("secret")).isFalse();
+    assertThat(node.at("/help").has("dialogs")).isFalse();
   }
 
   /**

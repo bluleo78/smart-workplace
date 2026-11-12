@@ -3,9 +3,10 @@
 // 토큰은 서버가 암호화해 저장하고 다시 돌려주지 않는다 — 입력한 원문은 저장하거나 닫으면 화면 상태에서 바로 지운다.
 
 import { X } from 'lucide-react';
-import { useState } from 'react';
+import { type RefObject, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useAiDialogTarget } from '@/components/ai/dialogTargets/AiDialogTargets';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +68,16 @@ export function AgentRepoConnectionGroup({ agentUserId }: { agentUserId: number 
   const loading = projects.isLoading || credentials.isLoading;
   const rows = repoConnectionRows(projects.data ?? [], credentials.data ?? []);
 
+  // WP-1511: AI 답의 「저장소 토큰 넣기 창 열기」 — 호스트 줄이 하나면 그 줄의 창, 아니면 「+ 다른 호스트 추가」 창을 연다.
+  // 기준 단추도 같은 쪽(한 줄이면 그 줄의 연결 단추, 아니면 추가 단추). 불러오는 중에는 줄 수를 모르므로 등록하지 않는다.
+  const rowButtonRef = useRef<HTMLButtonElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const single = rows.length === 1 ? rows[0] : null;
+  useAiDialogTarget(
+    'agent.run.repo.token',
+    loading ? null : { open: () => setDialog({ row: single }), isOpen: () => dialog !== null, anchor: single ? rowButtonRef : addButtonRef },
+  );
+
   return (
     <div className="space-y-3" data-testid="agent-repo-group-body">
       {loading ? (
@@ -76,11 +87,11 @@ export function AgentRepoConnectionGroup({ agentUserId }: { agentUserId: number 
       ) : (
         <ul className="max-w-2xl divide-y rounded-md border">
           {rows.map((row) => (
-            <RepoRow key={row.host} row={row} onConnect={() => setDialog({ row })} onRevoke={() => setRevokeTarget(row)} revoking={revoke.isPending} />
+            <RepoRow key={row.host} row={row} connectRef={rows.length === 1 ? rowButtonRef : undefined} onConnect={() => setDialog({ row })} onRevoke={() => setRevokeTarget(row)} revoking={revoke.isPending} />
           ))}
         </ul>
       )}
-      <Button size="sm" variant="ghost" onClick={() => setDialog({ row: null })} data-testid="agent-repo-add">
+      <Button ref={addButtonRef} size="sm" variant="ghost" onClick={() => setDialog({ row: null })} data-testid="agent-repo-add">
         + 다른 호스트 추가
       </Button>
 
@@ -116,7 +127,20 @@ export function AgentRepoConnectionGroup({ agentUserId }: { agentUserId: number 
 }
 
 /** 호스트 한 줄 — 종류 배지·호스트·(필요한 호스트면) 프로젝트 줄·등록 정보와 단추. */
-function RepoRow({ row, onConnect, onRevoke, revoking }: { row: RepoConnectionRow; onConnect: () => void; onRevoke: () => void; revoking: boolean }) {
+function RepoRow({
+  row,
+  connectRef,
+  onConnect,
+  onRevoke,
+  revoking,
+}: {
+  row: RepoConnectionRow;
+  /** 토큰 창을 여는 단추(다시 연결·연결하기)에 다는 ref — AI 의 창 열기 기준 위치(WP-1511). */
+  connectRef?: RefObject<HTMLButtonElement | null>;
+  onConnect: () => void;
+  onRevoke: () => void;
+  revoking: boolean;
+}) {
   const { host, kind, projectKeys, credential } = row;
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5" data-testid={`agent-repo-row-${host}`}>
@@ -141,7 +165,7 @@ function RepoRow({ row, onConnect, onRevoke, revoking }: { row: RepoConnectionRo
       <div className="flex gap-2">
         {credential ? (
           <>
-            <Button size="sm" variant="outline" onClick={onConnect} data-testid={`agent-repo-reconnect-${host}`}>
+            <Button ref={connectRef} size="sm" variant="outline" onClick={onConnect} data-testid={`agent-repo-reconnect-${host}`}>
               다시 연결
             </Button>
             <Button
@@ -156,7 +180,7 @@ function RepoRow({ row, onConnect, onRevoke, revoking }: { row: RepoConnectionRo
             </Button>
           </>
         ) : (
-          <Button size="sm" onClick={onConnect} data-testid={`agent-repo-connect-${host}`}>
+          <Button ref={connectRef} size="sm" onClick={onConnect} data-testid={`agent-repo-connect-${host}`}>
             연결하기
           </Button>
         )}

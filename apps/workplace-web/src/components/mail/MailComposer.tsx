@@ -4,9 +4,9 @@
 
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { Bold, Italic, Link2, List, ListOrdered } from 'lucide-react';
+import { Bold, Italic, Link2, List, ListOrdered, Table2, Type } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -25,13 +25,30 @@ import { downscaleImageForUpload } from '@/lib/imageDownscale';
 import { INVALID_IMAGE_MSG, isValidImageFile } from '@/lib/imageUpload';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { dropForeignPastedImages, PASTED_IMAGE_DOWNSCALE, pastedImageIds, pastedImageSrc } from '@/lib/mailPastedImages';
-import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { hasPendingImage, insertImagePlaceholders } from '../mentions/richImageNode';
 import { applyLink, MailLink } from './mailEditorLink';
+import { MAIL_FORMAT_EXTENSIONS } from './mailFormatExtensions';
+import { MailFormatRow } from './MailFormatRow';
+import { MailFormatSheet } from './MailFormatSheet';
+import { MAIL_BOXED_ROW_CLASS } from './mailFormatUi';
 import { MailImage, type PastedImageResult, settleMailImages } from './mailImageNode';
+import {
+  bringCaretAbovePanel,
+  MAIL_MOBILE_FORMAT_BAR_CLASS,
+  MAIL_MOBILE_PANEL_CLASS,
+  MAIL_MOBILE_PANEL_RESERVE_CLASS,
+  MAIL_MOBILE_TABLE_ROW_ID,
+  MAIL_MOBILE_TABLE_ROW_RESERVE_CLASS,
+} from './mailMobileBars';
 import { mailBodyInfo, mailComposerHtml, MailSignature } from './mailSignatureNode';
+import { insertMailTable, MAIL_TABLE_EXTENSIONS, MAIL_TABLE_GRID_MAX } from './mailTable';
+import { MailTableGridPicker } from './MailTableGridPicker';
+import { MailTableToolbar } from './MailTableToolbar';
+import { ToolbarButton } from './MailToolbarButton';
+import { useCaretInTable } from './useCaretInTable';
+import { useMailFormatRowOpen } from './useMailFormatRowOpen';
 
 /**
  * 에디터 배치 — 작성창 모양에 따라 본문 크기·툴바 위치가 달라진다.
@@ -82,15 +99,14 @@ const EDITOR_CLASS: Record<MailComposerLayout, string> = {
 
 /**
  * 배치별 서식 툴바 클래스 — 모바일은 화면 하단 고정(키보드 높이 --kb-inset 만큼 띄움).
- * z-10: 본문(ProseMirror, position:relative)이 DOM 상 뒤에 있어 길게 쓰면 글자가 툴바 위로 그려지므로 올린다.
  * 크게 보기는 에디터가 끝없이 늘고 창 본문이 스크롤되므로 툴바를 위에 붙인다 — 비치지 않게 배경을 깔고 그 위에 같은 옅은 색을 겹친다.
  */
-const BOXED_TOOLBAR_CLASS = 'flex items-center gap-0.5 rounded-md border bg-muted/40 p-1';
+const BOXED_TOOLBAR_CLASS = MAIL_BOXED_ROW_CLASS;
 const TOOLBAR_CLASS: Record<MailComposerLayout, string> = {
   dock: BOXED_TOOLBAR_CLASS,
-  fill: cn(BOXED_TOOLBAR_CLASS, 'sticky top-0 z-10 bg-background bg-linear-to-r from-muted/40 to-muted/40'),
-  mobile:
-    'fixed inset-x-0 bottom-[var(--kb-inset,0px)] z-10 flex items-center gap-1 border-t bg-background px-2 pt-0.5 pb-[max(0.125rem,env(safe-area-inset-bottom))]',
+  fill: cn(BOXED_TOOLBAR_CLASS, 'bg-background bg-linear-to-r from-muted/40 to-muted/40'),
+  // 모바일 서식 줄 — 표 막대 등 위에 쌓는 줄이 이 높이에 맞춰 붙도록 클래스를 mailMobileBars 한곳에 둔다.
+  mobile: MAIL_MOBILE_FORMAT_BAR_CLASS,
 };
 
 /**
@@ -104,43 +120,15 @@ const OVERLAY_CLASS: Record<MailComposerLayout, string> = {
   mobile: 'pointer-events-none absolute inset-x-0 top-1.5 [&_button]:pointer-events-auto',
 };
 
-/**
- * 툴바 버튼 — 작성창과 서명 편집기(MailSignatureEditor)가 같이 쓴다. 누를 때 편집기 초점을 뺏지 않는다.
- * touch(모바일)는 44px 터치 크기·20px 아이콘, 그 밖엔 작은 버튼·16px 아이콘. title 은 마우스를 올리면 보이는 이름(서명 편집기가 쓴다).
- */
-export function ToolbarButton({
-  active,
-  touch = false,
-  onClick,
-  label,
-  title,
-  children,
-}: {
-  active?: boolean;
-  touch?: boolean;
-  onClick: () => void;
-  label: string;
-  title?: string;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={title}
-      aria-pressed={active}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={cn(
-        'rounded text-muted-foreground hover:bg-accent hover:text-foreground',
-        touch ? 'flex h-11 w-11 items-center justify-center [&_svg]:size-5' : 'p-1.5 [&_svg]:size-4',
-        ghostToggleClass(!!active),
-      )}
-    >
-      {children}
-    </button>
-  );
-}
+/** 모바일에서 서식 줄 위 자리를 쓰는 것 — 서식판·표 격자 패널·표 막대 고정 줄 중 하나(없으면 null). */
+type MobilePanel = 'format' | 'table' | 'tableRow';
+
+/** 열린 모바일 패널별 본문 아래 빈 자리 — 서식판·표 패널은 패널 최대 높이, 표 막대 줄은 줄 높이. 칸 id 는 테스트가 본다. */
+const PANEL_RESERVE: Record<MobilePanel, { testId: string; className: string }> = {
+  format: { testId: 'mail-mobile-panel-reserve', className: MAIL_MOBILE_PANEL_RESERVE_CLASS },
+  table: { testId: 'mail-mobile-panel-reserve', className: MAIL_MOBILE_PANEL_RESERVE_CLASS },
+  tableRow: { testId: 'mail-mobile-table-row-reserve', className: MAIL_MOBILE_TABLE_ROW_RESERVE_CLASS },
+};
 
 /**
  * 링크 주소 입력 다이얼로그(window.prompt 대체, #148) — 작성창과 서명 편집기가 같이 쓴다. 주소 값은 부르는 쪽이 들고,
@@ -231,6 +219,12 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
   function MailComposer({ initialHtml = '', onChange, layout = 'dock', toolbarEnd, bodyOverlay, imageUpload }, ref) {
   // 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148).
   const [linkDialog, setLinkDialog] = useState(false);
+  // 서식 둘째 줄 펼침 — 작성창을 새로 열어도 이어지게 기억한다(처음엔 접힘).
+  const [formatOpen, setFormatOpen] = useMailFormatRowOpen();
+  const formatRowId = useId();
+  // 모바일 표 격자 패널(6×6) 열림 — 서식판과 같은 자리를 쓰므로 둘 중 하나만 연다. 기억하지 않는다(한 번 쓰고 닫는 패널).
+  const [tablePanelOpen, setTablePanelOpen] = useState(false);
+  const tablePanelId = useId();
   const [linkUrl, setLinkUrl] = useState('');
   // 붙여넣기 처리기 — editorProps 는 에디터를 만들 때 한 번 정해지므로 최신 함수(에디터·업로드)를 ref 로 넘긴다.
   const insertImagesRef = useRef<(files: File[]) => boolean>(() => false);
@@ -245,6 +239,10 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
       StarterKit,
       // 붙여 넣은 기존 <a> 의 href 를 지키는 링크(WP-1517) — 입력·붙여넣기의 주소 글자 자동 링크는 그대로.
       MailLink,
+      // 메일 서식(WP-1524) — 받는 쪽에서 같게 보이도록 인라인 style 로 내보낸다
+      ...MAIL_FORMAT_EXTENSIONS,
+      // 메일 안전 표(WP-1524) — class·colgroup 없이 인라인 테두리·여백만 지닌다(표 확장은 이것 하나만 등록).
+      ...MAIL_TABLE_EXTENSIONS,
       // macOS Chrome 한글 조합을 끝내는 Enter 가 마지막 글자를 지우지 않게(WP-333).
       ImeCommitFlush,
       // 붙여 넣은 캡처(WP-947). 업로드 경로 <img> 만 받으므로 이미지를 받지 않는 작성창에서도 다른 <img> 는 지금처럼 버려진다.
@@ -360,11 +358,43 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     insertImagesRef.current = insertImages;
   });
 
-  if (!editor) return null;
   const touch = layout === 'mobile';
+  // 표 안 커서 여부 — 모바일 표 막대 고정 줄이 보일지 가른다.
+  const caretInTable = useCaretInTable(editor);
+  // 모바일 서식 줄 위 자리(서식판·표 격자 패널·표 막대 고정 줄)는 한 번에 하나만 쓴다 — 서식판 > 표 패널 > 표 막대 줄 순으로 우선한다.
+  // 서식판 ↔ 표 패널은 서로 닫고, 둘 중 하나가 열려 있으면 표 막대 고정 줄을 감춘다(MailTableToolbar touchRowHidden).
+  const mobilePanel: MobilePanel | null = !touch
+    ? null
+    : formatOpen
+      ? 'format'
+      : tablePanelOpen
+        ? 'table'
+        : caretInTable
+          ? 'tableRow'
+          : null;
+  const sheetOpen = mobilePanel === 'format';
+  const tableOpen = mobilePanel === 'table';
+  // 서식판·표 패널이 열린 동안은 표 막대 고정 줄을 감춘다.
+  const touchRowHidden = sheetOpen || tableOpen;
+  const openPanelId = mobilePanel && { format: formatRowId, table: tablePanelId, tableRow: MAIL_MOBILE_TABLE_ROW_ID }[mobilePanel];
+  // 모바일 서식판·표 패널이 열리면(다른 쪽으로 바뀌어도) 커서를 패널 위로 올린다 — 고른 글자를 보며 서식을 고르게.
+  // 본문 아래 빈 자리(PANEL_RESERVE)가 같은 렌더에 깔리므로, 레이아웃이 잡힌 다음 프레임에 잰다.
+  // 표 막대 고정 줄이 보이는 동안(모바일 · 커서가 표 안 · 서식판/표 패널이 안 열림)도 같은 방식으로 줄 위로 올린다.
+  useEffect(() => {
+    if (!editor || !openPanelId) return;
+    const raf = requestAnimationFrame(() => bringCaretAbovePanel(editor, openPanelId));
+    return () => cancelAnimationFrame(raf);
+  }, [editor, openPanelId]);
+
+  if (!editor) return null;
 
   return (
-    <div className={cn('flex flex-col', layout !== 'mobile' && 'gap-1.5', layout === 'fill' && 'flex-1')}>
+    <div className={cn('flex flex-col', !touch && 'gap-1.5', layout === 'fill' && 'flex-1')}>
+      {/* 두 줄 감싸개 — 크게 보기(fill)에서는 두 줄이 함께 위에 붙는다(sticky 는 여기가 진다). */}
+      <div
+        data-testid="mail-composer-toolbars"
+        className={cn(!touch && 'flex flex-col gap-1.5', layout === 'fill' && 'sticky top-0 z-10 bg-background')}
+      >
       <div data-testid="mail-composer-toolbar" className={TOOLBAR_CLASS[layout]}>
         <ToolbarButton
           touch={touch}
@@ -411,13 +441,77 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         >
           <Link2 />
         </ToolbarButton>
+        {touch && (
+          <ToolbarButton
+            touch
+            label="표 넣기"
+            title="표 넣기"
+            active={tableOpen}
+            expanded={tableOpen}
+            controls={tablePanelId}
+            onClick={() => {
+              // 표 패널을 열면 서식판을 닫는다(같은 자리) — 서식판 닫힘도 기억에 남는다.
+              if (!tableOpen && formatOpen) setFormatOpen(false);
+              setTablePanelOpen(!tableOpen);
+            }}
+          >
+            <Table2 />
+          </ToolbarButton>
+        )}
+        <ToolbarButton
+          touch={touch}
+          label="서식"
+          title="서식"
+          active={formatOpen}
+          expanded={formatOpen}
+          controls={formatRowId}
+          onClick={() => {
+            // 서식판을 열면 표 패널을 닫는다(모바일, 같은 자리).
+            if (!formatOpen) setTablePanelOpen(false);
+            setFormatOpen(!formatOpen);
+          }}
+        >
+          <Type />
+        </ToolbarButton>
         {toolbarEnd}
+      </div>
+      {/* 둘째 줄은 데스크톱(dock·fill)만 — 모바일은 서식 줄 위 서식판(MailFormatSheet)이 같은 펼침 기억으로 맡는다. */}
+      {layout !== 'mobile' && formatOpen && <MailFormatRow id={formatRowId} editor={editor} layout={layout} />}
+      {/* 모바일 서식판·표 패널 — 화면 고정(fixed)이라 DOM 자리는 상관없다. BubbleMenu 와 다른 부모라 조건부 형제여도 안전하다. */}
+      {sheetOpen && <MailFormatSheet id={formatRowId} editor={editor} />}
+      {tableOpen && (
+        <div
+          id={tablePanelId}
+          data-testid="mail-table-panel"
+          // 칸을 눌러도 본문 초점이 빠지지 않게 — 가상 키보드가 닫히지 않는다.
+          onMouseDown={(e) => e.preventDefault()}
+          className={MAIL_MOBILE_PANEL_CLASS}
+        >
+          <MailTableGridPicker
+            max={MAIL_TABLE_GRID_MAX.mobile}
+            touch
+            onPick={(rows, cols) => {
+              insertMailTable(editor, rows, cols);
+              setTablePanelOpen(false);
+            }}
+          />
+        </div>
+      )}
       </div>
       {/* 크게 보기는 본문이 남은 높이를 채우도록 래퍼도 세로 flex 로 늘린다. 겹침 자리의 기준이 되도록 relative. */}
       <div className={cn('relative', layout === 'fill' && 'flex flex-1 flex-col')}>
+        {/* 표 막대(WP-1524) — 커서가 표 안이면 데스크톱은 표 위에 뜨고, 모바일은 서식 줄 위 고정 줄. EditorContent 앞에 둔다:
+            BubbleMenu 는 마운트 때 자기 DOM 을 떼어 내므로, 그 앞에 조건부 형제가 있으면 언마운트 때 React 가 사라진 앵커에
+            insertBefore 를 시도해 작성창이 죽는다(WikiEditor 의 같은 함정 주석). 맨 앞이면 뒤의 조건부 겹침(bodyOverlay)이 안전하다. */}
+        <MailTableToolbar editor={editor} touch={touch} touchRowHidden={touchRowHidden} />
         <EditorContent editor={editor} className={layout === 'fill' ? 'flex flex-1 flex-col' : undefined} />
         {bodyOverlay && <div className={OVERLAY_CLASS[layout]}>{bodyOverlay}</div>}
       </div>
+      {/* 모바일 패널·표 막대 줄이 보이는 동안 본문 아래 빈 자리 — 패널(최대 --vvh 의 45%)이나 줄이 본문 끝을 덮어도 그 위로 올려 볼 수 있게.
+          작성 스크롤 영역의 아래 여백은 서식 줄 몫만 비우므로 패널·줄 몫을 여기서 더한다. */}
+      {mobilePanel && (
+        <div aria-hidden="true" data-testid={PANEL_RESERVE[mobilePanel].testId} className={PANEL_RESERVE[mobilePanel].className} />
+      )}
 
       {/* 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148) */}
       <LinkUrlDialog

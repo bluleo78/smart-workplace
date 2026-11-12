@@ -16,7 +16,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AgentBadge } from '@/components/users/AgentBadge';
+import { agentRunEvidence } from '@/lib/aiScreenContext/builders/agentRun';
 import type { SettingsAiContextInput } from '@/lib/aiScreenContext/builders/settings';
+import type { FactValue } from '@/lib/aiScreenContext/common';
 import { isNotFoundError } from '@/lib/api-error';
 import { parseId } from '@/lib/historyParam';
 
@@ -25,6 +27,7 @@ import { useAgent } from '../../hooks/queries/useAgents';
 import { runModeCards } from '../../lib/agentRunMode';
 import { workResourceText } from '../../lib/agentRuntimeStatus';
 import type { AgentResponse } from '../../types/agent';
+import type { AgentRuntimeSetting, AgentTemplate } from '../../types/agentRuntime';
 import {
   AgentBasicInfoSection,
   AgentDangerSection,
@@ -34,6 +37,7 @@ import {
 } from './components/agent-detail/AgentProfileSections';
 import { AgentRunSection } from './components/agent-detail/AgentRunSection';
 import { AgentStatusSection, type WorksRun } from './components/agent-detail/AgentStatusSection';
+import { useAgentStartChecks } from './components/agent-detail/useAgentStartChecks';
 import { useWorkSettingsDraft } from './components/agent-detail/useWorkSettingsDraft';
 
 /**
@@ -117,9 +121,46 @@ function AgentDetail({ agent, backButton }: { agent: AgentResponse; backButton: 
   const template = templates.data?.find((t) => t.name === saved?.templateName) ?? null;
   const draft = useWorkSettingsDraft(template, saved);
   const worksRun: WorksRun | null = template ? { template, saved, draft } : null;
+  // 실행 근거(WP-1511) — 실행 전 확인 계산을 여기서 한 번 부른다(상태 섹션과 같은 쿼리 키라 다시 받지 않음).
+  // worksRun 이 null 이면(Works 가 실행하지 않음·실행 설정 403) 훅은 조회를 끄고, 근거도 싣지 않는다(받지 못한 값은 싣지 않는다).
+  const { blockReason } = useAgentStartChecks(agent, worksRun);
+  const runEvidence = worksRun
+    ? agentRunEvidence({ status: saved?.status ?? 'OFF', desired: saved?.desired ?? null, observed: saved?.observed ?? null, blockReason })
+    : [];
+  return (
+    <AgentDetailView
+        agent={agent}
+        backButton={backButton}
+        templates={templates.data}
+        saved={saved}
+        template={template}
+        worksRun={worksRun}
+        runEvidence={runEvidence}
+      />
+  );
+}
+
+type AgentDetailViewProps = {
+  agent: AgentResponse;
+  backButton: ReactNode;
+  templates: AgentTemplate[] | undefined;
+  saved: AgentRuntimeSetting | null;
+  template: AgentTemplate | null;
+  worksRun: WorksRun | null;
+};
+
+function AgentDetailView({
+  agent,
+  backButton,
+  templates,
+  saved,
+  template,
+  worksRun,
+  runEvidence,
+}: AgentDetailViewProps & { runEvidence: Array<[string, FactValue]> }) {
   // 머리 배지 — 지금 실행 방식(기본·Claude Code 등·외부).
   const modeTitle =
-    agent.runMode === 'WORKSPACE' ? (template?.card.title ?? null) : runModeCards(templates.data).find((c) => c.id === agent.runMode)?.title;
+    agent.runMode === 'WORKSPACE' ? (template?.card.title ?? null) : runModeCards(templates).find((c) => c.id === agent.runMode)?.title;
   const personal = agent.type === 'PERSONAL';
 
   return (
@@ -153,6 +194,8 @@ function AgentDetail({ agent, backButton }: { agent: AgentResponse; backButton: 
             ['실행 방식', modeTitle ?? null],
             ['사용', agent.isActive ? '사용 중' : '사용 중지'],
             ['자원', template ? workResourceText(template) : null],
+            // WP-1511 실행 상태 근거 — 이 화면이 이미 받은 값만(상태·실패 사유·AI 상태·실행 전 확인). 합쳐도 상한(12) 안.
+            ...runEvidence,
           ],
         },
       }}
@@ -161,7 +204,7 @@ function AgentDetail({ agent, backButton }: { agent: AgentResponse; backButton: 
       <AgentBasicInfoSection agent={agent} />
       {!personal && <AgentRolesSection agent={agent} />}
       <AgentDutySection agent={agent} />
-      <AgentRunSection agent={agent} templates={templates.data} worksRun={worksRun} savedTemplateName={saved?.templateName ?? null} />
+      <AgentRunSection agent={agent} templates={templates} worksRun={worksRun} savedTemplateName={saved?.templateName ?? null} />
       {agent.runMode !== 'SERVER' && !personal && <AgentRepoSection agent={agent} />}
       {!personal && <AgentDangerSection agent={agent} />}
     </AgentDetailFrame>

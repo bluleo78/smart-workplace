@@ -21,10 +21,12 @@ export function AIFullscreen() {
   if (mode !== 'fullscreen') return null;
 
   return (
+    // data-ai-panel — 전체 화면도 AI 표면이다(WP-1511). 도움말 신호·「화면 문구」 일치·열린 창 판정이 AI 자신의 단추·입력칸·대화상자를 화면 것으로 오인하지 않게 한다.
     // z-[46] — PageHeader(relative z-[45])보다 위여야 상단 바(모드 전환·닫기)가 헤더에 가려지지 않는다(WP-111).
     // 이전 z-40 에선 페이지 헤더가 상단 바 전체를 덮어 닫기 X 가 보이지도 눌리지도 않았다. 오버레이(z-50)보다는 아래.
     <div
       data-testid="ai-fullscreen"
+      data-ai-panel
       className="absolute inset-0 z-[46] flex bg-background animate-in fade-in duration-200"
     >
       {/* 삭제 확인 다이얼로그 */}

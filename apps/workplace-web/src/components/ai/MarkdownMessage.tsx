@@ -10,6 +10,11 @@ import { mayContainIssueKey, type RenderIssueRef, splitIssueKeys } from '@/lib/i
 import { markdownListClass } from '@/lib/markdownListClass'
 import { cn } from '@/lib/utils'
 
+import { helpAnswerUrlTransform, parseHelpAnswer } from './helpAnswer/helpAnswer'
+import { markFirstFigure, withHelpAnswerComponents } from './helpAnswer/helpAnswerComponents'
+import { type HelpAnswerActions,HelpAnswerContext } from './helpAnswer/helpAnswerContext'
+import { HelpAnswerFooter } from './helpAnswer/HelpAnswerFooter'
+
 const REMARK_PLUGINS = [remarkGfm]
 
 // 블록 요소 — 이 앞뒤에 낀 공백 전용 텍스트는 원문의 줄바꿈이 아니라 mdast→hast 변환이 끼워 넣는 포맷용 공백이다(section 은 GFM 각주).
@@ -96,16 +101,20 @@ const splitMentionPlugin = () => splitMentionTokens
 const splitIssueKeyPlugin = () => splitIssueKeyTokens
 
 /** 쓸 rehype 단계 묶음 — 멘션·이슈 키 나누기는 본문에 그 글자가 있을 수 있을 때만 끼운다(useMemo 로 조합이 바뀔 때만 새 배열). */
-function rehypePluginsFor(withMention: boolean, withIssue: boolean) {
+function rehypePluginsFor(withMention: boolean, withIssue: boolean, figureId: string | null | undefined) {
   return [
     ...REHYPE_PLUGINS,
     ...(withMention ? [splitMentionPlugin] : []),
     ...(withIssue ? [splitIssueKeyPlugin] : []),
+    // figureId 는 도움말 답(helpAnswer)일 때만 string|null 이다 — undefined 면 도움말 답이 아니라 끼우지 않는다.
+    ...(figureId !== undefined ? [markFirstFigure(figureId)] : []),
   ]
 }
 
 /** 새 탭 링크 — 외부 링크와 라우터 밖(정적 렌더) 링크 공용. */
 function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
+  // 주소가 비었으면(help:·figure:·dialog:·manual-gap: 표식을 helpAnswer 없이 그려 기본 변환이 주소를 지운 경우) 빈 링크 대신 글자만 남긴다.
+  if (!href) return <>{children}</>
   return (
     <a href={href} target="_blank" rel="noreferrer" className="text-primary underline">
       {children}
@@ -229,6 +238,7 @@ export function MarkdownMessage({
   mentions,
   renderMention,
   renderIssueRef,
+  helpAnswer,
 }: {
   children: string
   className?: string
@@ -242,7 +252,19 @@ export function MarkdownMessage({
   internalLinks?: boolean
   /** WP-384: 답 안 다른 화면 링크로 이동하기 직전 — 전체 화면 AI 를 내린다(AIChatPanel). */
   onPageLink?: () => void
+  /**
+   * WP-1511: AI 도움말 답 — 켜면 답에 심긴 표식(굵은 화면 문구·help: 출처·figure: 그림·dialog: 창 열기·manual-gap: 칩·```evidence 근거)을 화면과 이어 그리고
+   * 끝 문단의 출처·칩은 바닥줄로 뗀다. 눌렀을 때의 동작은 actions(안정된 참조로). 없으면(이슈 코멘트·사용자 말풍선 등) 표식 링크는 기본 변환이 지운다.
+   */
+  helpAnswer?: { actions: HelpAnswerActions }
 }) {
+  const actions = helpAnswer?.actions
+  // 표식 해석은 본문 문자열이 바뀔 때만 다시 한다(스트리밍 중 매 토큰마다 새 본문이지만 렌더당 한 번으로 줄인다). 도움말 답이 아니면 건너뛴다.
+  const parsed = useMemo(() => {
+    if (!actions) return null
+    return parseHelpAnswer(children)
+  }, [actions, children])
+  const body = parsed ? parsed.body : children
   const mentionById = useMemo(() => new Map((mentions ?? []).map((m) => [m.id, m])), [mentions])
   const components = useMemo<Components>(() => {
     const withImage: Components = renderImage
@@ -272,14 +294,16 @@ export function MarkdownMessage({
     const withLinks: Components = internalLinks
       ? { ...withIssueRefs, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
       : withIssueRefs
-    return withLinks
-  }, [renderImage, internalLinks, onPageLink, mentionById, renderMention, renderIssueRef])
-  const withMention = !!renderMention && children.includes('<@')
+    return actions ? withHelpAnswerComponents(withLinks) : withLinks
+  }, [renderImage, internalLinks, onPageLink, mentionById, renderMention, renderIssueRef, actions])
+  const withMention = !!renderMention && body.includes('<@')
   // 이슈 키가 있을 수도 없으면 나누기 단계를 끼우지 않는다(대부분의 글). 원문은 서식 기호(`_WP-12_`)가 섞여 있어
   // 경계를 보지 않는 느슨한 후보로만 거른다 — 정확한 판정은 글자 조각마다 splitIssueKeyTokens 가 한다.
-  const withIssue = !!renderIssueRef && mayContainIssueKey(children)
-  const rehypePlugins = useMemo(() => rehypePluginsFor(withMention, withIssue), [withMention, withIssue])
-  return (
+  const withIssue = !!renderIssueRef && mayContainIssueKey(body)
+  const figureId = parsed ? parsed.figureId : undefined
+  const rehypePlugins = useMemo(() => rehypePluginsFor(withMention, withIssue, figureId), [withMention, withIssue, figureId])
+  const helpValue = useMemo(() => (actions && parsed ? { actions, sourceId: parsed.sourceId } : null), [actions, parsed])
+  const content = (
     <div
       data-testid="markdown-content"
       // whitespace-normal: 호출자 말풍선의 pre-wrap 을 끊는다. 줄바꿈 보존은 p·li 가 직접 맡고, 블록 사이 포맷용 개행은 stripLayoutWhitespace 가 지운다.
@@ -289,9 +313,12 @@ export function MarkdownMessage({
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
         components={components}
+        urlTransform={actions ? helpAnswerUrlTransform : undefined}
       >
-        {children}
+        {body}
       </ReactMarkdown>
+      {parsed?.footer && <HelpAnswerFooter footer={parsed.footer} />}
     </div>
   )
+  return helpValue ? <HelpAnswerContext.Provider value={helpValue}>{content}</HelpAnswerContext.Provider> : content
 }

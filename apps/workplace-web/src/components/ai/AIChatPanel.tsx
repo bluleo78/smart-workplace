@@ -10,6 +10,7 @@ import { AiLabel } from '@/components/ai/AiLabel';
 import { AISessionItems } from '@/components/ai/AISessionList';
 import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
+import { useHelpAnswerActions } from '@/components/ai/helpAnswer/useHelpAnswerActions';
 import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { MemoryResultLine } from '@/components/ai/MemoryResultLine';
@@ -22,6 +23,7 @@ import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChi
 import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
 import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
+import { useOptionalHelpPanel } from '@/components/help/HelpPanelContext';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import {
   DropdownMenu,
@@ -42,8 +44,8 @@ import { useStarterSuggestions } from '@/hooks/useStarterSuggestions';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { isRenderableMemoryBlock, memoryLinesBelow } from '@/lib/ai/chatTurns';
-import { applyPromptSeed } from '@/lib/ai/promptSeed';
-import { contextIdentity } from '@/lib/aiScreenContext/common';
+import { applyPromptSeed, withCarriedHelp } from '@/lib/ai/promptSeed';
+import { carriedIdentity, contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
@@ -53,6 +55,7 @@ import { aiShortcutLabel } from '@/lib/platform';
 import { spaceOfScreenContext } from '@/lib/sharedAiMemory';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
+import type { AiHelpContext } from '@/types/aiScreenContext';
 import type { MemoryBlock, MessageTurn } from '@/types/home';
 
 import { AiIcon } from './AiIcon';
@@ -122,10 +125,13 @@ export function AIChatPanel({
   const isMobile = useIsMobile();
   // WP-384: 답 안 다른 화면 링크 — 전체 화면(모바일 시트 포함)이 이동한 화면을 덮지 않게 내린다. 앱 레일 이동(#454)과 같은 규칙:
   // 히스토리를 건드리지 않는 dismiss(데스크톱은 사이드로, 모바일은 닫기). close() 는 history.go(-1) 로 방금 한 이동을 되돌린다.
+  const helpAnswerActions = useHelpAnswerActions();
   const { mode: aiMode, dismiss: dismissAi, promptSeed, consumePromptSeed } = useAssistant();
   const onPageLink = useCallback(() => {
     if (aiMode === 'fullscreen') dismissAi(isMobile ? 'closed' : 'side');
   }, [aiMode, dismissAi, isMobile]);
+  // WP-1511: 도움말 답 표식(출처·화면 문구·창 단추)을 눌렀을 때의 동작 — 답 말풍선 3곳이 같은 값을 쓰도록 한 번만 만든다.
+  const helpAnswer = useMemo(() => ({ actions: helpAnswerActions }), [helpAnswerActions]);
   // 세션 스위처 드롭다운 open 상태(#451) — 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라
   // Radix 자동 닫힘이 동작하지 않으므로, controlled 로 두고 선택 직후 명시적으로 닫는다.
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
@@ -160,17 +166,7 @@ export function AIChatPanel({
     if (newSessionNonce > 0) setInput('');
   }, [newSessionNonce]);
 
-  // WP-414: 「AI 에게 묻기」가 맡긴 문구를 입력창에 채운다 — 위 '새 대화' 초기화 effect 뒤에 선언해야 마운트 때 nonce>0 이어도
-  // 비우기가 채우기를 덮지 않는다. 마운트 전에 맡긴 값(닫힌 패널을 연 경우)과 열린 채 새로 맡긴 값 모두 seed 변화로 반영되고,
-  // 쓰던 초안이 있으면 덮지 않는다(값은 항상 소비해 다음 열기·재마운트에 남지 않게).
   const [caretNonce, setCaretNonce] = useState(0);
-  useEffect(() => {
-    if (!promptSeed) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 위 '새 대화' 초기화 effect 뒤에 채워야 해 렌더 중 조정으로 못 옮긴다.
-    setInput((prev) => applyPromptSeed(prev, promptSeed.text));
-    setCaretNonce((n) => n + 1);
-    consumePromptSeed();
-  }, [promptSeed, consumePromptSeed]);
   // 채운 뒤 그리기 전에 포커스 + 커서를 끝으로 — 사용자가 바로 이어서 질문을 쓰게 한다.
   useLayoutEffect(() => {
     if (caretNonce === 0) return;
@@ -182,8 +178,20 @@ export function AIChatPanel({
 
   // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 화면 정체성(contextIdentity)을 기억해 다음 1회 전송만 뺀다.
   // 정체성은 건수·facts 같은 휘발 값을 제외하므로, 같은 화면에서 목록 건수가 바뀌어도 × 가 유지된다.
-  const screenContext = useAiScreenContext();
+  const storeContext = useAiScreenContext();
+  // WP-1511: 「AI에게 묻기」가 넘긴 도움말 문맥 — 도움말이 닫혀(휴대폰 시트) 스토어의 help 가 풀려도 첫 전송에 싣기 위해 들고 있는다.
+  // 넘겨받은 때의 화면 정체성을 함께 기억해, 화면이 바뀌면(정체성 변화) 렌더 중에 버린다. 한 번 보내도 버린다(takeScreenContext).
   // store 는 내용이 바뀔 때만 새 참조를 주므로 참조 기준 메모로 매 렌더 직렬화를 피한다.
+  const pageIdentity = useMemo(() => carriedIdentity(storeContext), [storeContext]);
+  // helpOpenAtHandover: 넘겨받은 때 데스크톱 도움말 패널이 열려 있었는가. 그렇다면 이후 사용자가 패널을 닫은 것은 「보던 절을 보내지 않겠다」는 뜻이라
+  // 문맥을 버린다(매뉴얼). 휴대폰은 시트가 먼저 닫힌 뒤 AI 가 열리므로 처음부터 false — 닫혀 있어도 첫 전송까지 유지한다(N1).
+  const helpPanel = useOptionalHelpPanel();
+  const helpOpen = helpPanel?.open ?? false;
+  const [carriedHelp, setCarriedHelp] = useState<{ help: AiHelpContext; identity: string | null; helpOpenAtHandover: boolean } | null>(null);
+  if (carriedHelp && (carriedHelp.identity !== pageIdentity || (carriedHelp.helpOpenAtHandover && !helpOpen))) setCarriedHelp(null);
+  // 화면 참고 — 지금 화면에 help 가 없을 때만 넘겨받은 도움말을 얹는다(있으면 열린 도움말이 최신). 칩·전송이 같은 값을 쓴다.
+  const screenContext = useMemo(() => withCarriedHelp(storeContext, carriedHelp?.help), [storeContext, carriedHelp]);
+  // 칩 ×(1회 제외)의 정체성은 실제로 보낼 화면 참고(넘겨받은 도움말을 얹은 값)로 본다 — 화면이 없던 자리에 도움말 문맥이 생겨도 × 가 켜져 있지 않게.
   const screenIdentity = useMemo(() => contextIdentity(screenContext), [screenContext]);
   const [suppressedIdentity, setSuppressedIdentity] = useState<string | null>(null);
   // 다른 화면으로 바뀌면 × 상태를 해제 — A 에서 × → B → 다시 A 로 와도 칩이 복원되게.
@@ -255,6 +263,8 @@ export function AIChatPanel({
   // 이번 전송에 실을 화면 참고 — 1회 제외는 이번 전송으로 소진하고 다음 전송부터 다시 포함한다.
   const takeScreenContext = () => {
     setSuppressedIdentity(null);
+    // 넘겨받은 도움말은 첫 전송에만 싣는다 — 이 전송 뒤에는 버린다.
+    setCarriedHelp(null);
     return contextActive ? screenContext : undefined;
   };
 
@@ -262,6 +272,41 @@ export function AIChatPanel({
   const currentApp = () => screenContext?.app ?? null;
   // WP-386: 지금 화면 공간 — app 과 같이 화면 참고 칩 × 와 무관하게 보낸다(내용이 아니라 공용 메모리 공간 선택용, 서버가 권한을 확인한다).
   const currentSpace = () => spaceOfScreenContext(screenContext);
+
+  // WP-414: 「AI 에게 묻기」가 맡긴 문구를 입력창에 채운다 — '새 대화' 초기화 effect 뒤에 선언해야 마운트 때 nonce>0 이어도
+  // 비우기가 채우기를 덮지 않는다. 마운트 전에 맡긴 값(닫힌 패널을 연 경우)과 열린 채 새로 맡긴 값 모두 seed 변화로 반영되고,
+  // 쓰던 초안이 있으면 덮지 않는다(값은 항상 소비해 다음 열기·재마운트에 남지 않게).
+  // WP-1511: seed.help 는 carriedHelp 로 넘겨받는다. seed.send 면 글이 있고 보낼 수 있을 때 추천 행(sendSuggestion)과 같은 길로 바로 보내며
+  // 초안·첨부는 건드리지 않는다. 답변 중·상한으로 막혀 있으면 보내지 않고 입력창에 채우기만 한다.
+  // 한 번만 처리 — StrictMode(개발)는 마운트 때 effect 를 두 번 돌리는데 consumePromptSeed 의 상태 반영 전이라 같은 씨앗이 두 번 보인다.
+  // 처리한 씨앗 객체를 기억해 같은 객체는 보내기·채우기를 되풀이하지 않는다(askWithPrompt 마다 새 객체라 같은 문구를 다시 물어도 처리된다).
+  const handledSeed = useRef<unknown>(null);
+  useEffect(() => {
+    if (!promptSeed || handledSeed.current === promptSeed) return;
+    handledSeed.current = promptSeed;
+    const help = promptSeed.help ?? null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 위 '새 대화' 초기화 effect 뒤에 채워야 해 렌더 중 조정으로 못 옮긴다.
+    if (help) setCarriedHelp({ help, identity: pageIdentity, helpOpenAtHandover: !isMobile && helpOpen });
+    consumePromptSeed();
+    const text = promptSeed.text.trim();
+    if (promptSeed.send && text && sendOpen()) {
+      // 이번 전송에는 방금 받은 도움말을 직접 얹는다(상태 반영 전이라 screenContext 에 아직 없다). 한 번 보내면 버린다.
+      setCarriedHelp(null);
+      setSuppressedIdentity(null);
+      // 사용자가 칩 ×로 화면 참고를 뺐으면 도움말도 보내지 않는다 — 칩이 화면 참고의 유일한 동의 창구다.
+      // 단, 화면 참고가 아예 없어서(휴대폰은 도움말 시트가 층을 비운 뒤 AI 가 열리고, 설정·관리자 같은 화면은 등록 자체가 없다)
+      // contextActive 가 false 인 것은 × 가 아니므로 제외하지 않는다 — 넘겨받은 도움말을 그대로 싣는다.
+      const userExcluded = screenContext != null && suppressedIdentity === screenIdentity;
+      const ctx = userExcluded ? undefined : withCarriedHelp(storeContext, help);
+      void onSubmit(text, ctx ?? undefined, undefined, currentApp(), currentSpace());
+      return;
+    }
+    setInput((prev) => applyPromptSeed(prev, promptSeed.text));
+    setCaretNonce((n) => n + 1);
+    // 의존 배열에 seed 만 둔다 — 보낼 수 있는지·화면 참고·onSubmit 은 seed 가 보인 그 렌더의 값을 읽어야 하고,
+    // 이들이 바뀔 때마다 다시 돌면 안 된다(처리한 씨앗은 handledSeed 가 막지만 새 씨앗만 반응하게 둔다).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptSeed]);
 
   /** 입력창 전송 — 초안 글·첨부를 보내고, 거절되면 초안으로 돌려놓는다. */
   const submit = () => {
@@ -432,7 +477,7 @@ export function AIChatPanel({
                               if (!text.trim()) return null;
                               return (
                                 <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
-                                  <MarkdownMessage internalLinks onPageLink={onPageLink}>{text}</MarkdownMessage>
+                                  <MarkdownMessage internalLinks onPageLink={onPageLink} helpAnswer={helpAnswer}>{text}</MarkdownMessage>
                                 </div>
                               );
                             }
@@ -465,7 +510,7 @@ export function AIChatPanel({
                           {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                           {t.content && (
                             <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
-                              <MarkdownMessage internalLinks onPageLink={onPageLink}>{t.content}</MarkdownMessage>
+                              <MarkdownMessage internalLinks onPageLink={onPageLink} helpAnswer={helpAnswer}>{t.content}</MarkdownMessage>
                             </div>
                           )}
                           {t.widgets.map((w, wi) => {
@@ -488,7 +533,7 @@ export function AIChatPanel({
                           <div className="min-w-0 rounded-2xl bg-muted px-3 py-1.5 text-foreground">
                             {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
                             {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                            <MarkdownMessage internalLinks onPageLink={onPageLink}>{t.content}</MarkdownMessage>
+                            <MarkdownMessage internalLinks onPageLink={onPageLink} helpAnswer={helpAnswer}>{t.content}</MarkdownMessage>
                           </div>
                         </div>
                       )

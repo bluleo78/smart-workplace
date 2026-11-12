@@ -15,7 +15,8 @@ import { useLocation } from 'react-router-dom'
 import { AI_HISTORY_KEY, useAssistant } from '@/components/ai/AIAssistantContext'
 import { RawSheetContent } from '@/components/mobile/RawSheetContent'
 import { useSheetHistory } from '@/hooks/useSheetHistory'
-import { hasLiveStateMark, liveHistoryKey } from '@/lib/historyParam'
+import { hasLiveStateMark, isHistoryEntryWithdrawn } from '@/lib/historyParam'
+import type { AiHelpContext } from '@/types/aiScreenContext'
 
 import { useHelpPanel } from './HelpPanelContext'
 import { LazyHelpPanel } from './LazyHelpPanel'
@@ -37,8 +38,10 @@ export function MobileHelpSheet() {
 
   useSheetHistory({ historyKey: HISTORY_KEY, open: visible, hasContent: false, onClose: () => setOpen(false), onBlockedBack: noop })
 
-  // 도움말 항목이 걷힌 뒤 열 AI(①·③).
+  // 도움말 항목이 걷힌 뒤 열 AI(①·③). ③ 「AI에게 묻기」면 보낼 질의와 넘길 도움말 문맥(help)을 함께 든다(WP-1511) —
+  // 도움말이 닫히면 AI 화면 참고의 도움말 층이 풀리므로, 닫기 전에 값을 챙겨 두었다가 AI 를 열며 넘긴다.
   const pendingAi = useRef(false)
+  const pendingAsk = useRef<{ query: string; help: AiHelpContext | null } | null>(null)
 
   // 한 번에 하나 — 어느 쪽이 나중에 열렸는지 기억해 닫을 쪽을 고른다.
   const lastOpened = useRef<'help' | 'ai' | null>(null)
@@ -64,17 +67,22 @@ export function MobileHelpSheet() {
   }, [open, aiOpen, ai, setOpen])
 
   // 도움말 항목이 걷혔으면 미뤄 둔 AI 를 연다. 걷을 항목이 없었으면(새로고침 뒤 등) 바로 연다.
-  // 브라우저가 이미 돌아갔어도 라우터 위치가 따라오기 전이면(liveHistoryKey ≠ 렌더한 위치 key) 기다린다 — AI 의 히스토리 push 는
+  // 브라우저가 이미 돌아갔어도 라우터 위치가 따라오기 전이면(isHistoryEntryWithdrawn) 기다린다 — AI 의 히스토리 push 는
   // 낡은 위치에서 부르면 아무 일도 하지 않아(useHistoryParam 스냅숏 검사) 뒤로 가기로 닫히지 않는 AI 가 된다.
   const { key } = useLocation()
   useEffect(() => {
-    if (!pendingAi.current || open || hasLiveStateMark(HISTORY_KEY) || liveHistoryKey() !== key) return
+    if (!pendingAi.current || open || !isHistoryEntryWithdrawn(HISTORY_KEY, key)) return
     pendingAi.current = false
-    ai.open('side')
+    const ask = pendingAsk.current
+    pendingAsk.current = null
+    // 묻기면 질의를 바로 보내고(질의가 없으면 입력창 포커스만) 도움말 문맥을 잃지 않게 넘긴다. ①은 그냥 연다.
+    if (ask) ai.askWithPrompt(ask.query, { send: ask.query !== '', help: ask.help })
+    else ai.open('side')
   }, [key, open, ai])
 
   // ③ 「✦ AI에게 묻기」 — 도움말을 먼저 닫고 AI 는 미룬다.
-  const askAi = useCallback(() => {
+  const askAi = useCallback((ask: { query: string; help: AiHelpContext | null }) => {
+    pendingAsk.current = ask
     pendingAi.current = true
     setOpen(false)
   }, [setOpen])
@@ -95,8 +103,11 @@ export function MobileHelpSheet() {
     <DialogPrimitive.Root open onOpenChange={(next) => !next && setOpen(false)}>
       <DialogPrimitive.Portal>
         {/* 원시 Content — ui/DialogContent 의 휴대폰 대화상자 규칙(가운데·max-height)을 피하고, 보이는 뷰포트(--vv-top·--vvh)에 붙인다
-            (통합 검색 휴대폰 화면 SearchPalette 와 같은 방식). 설명 글이 없어 aria-describedby 를 비운다. */}
+            (통합 검색 휴대폰 화면 SearchPalette 와 같은 방식). 설명 글이 없어 aria-describedby 를 비운다.
+            data-help-panel — 시트 자체가 도움말 패널이다(데스크톱 RightDock 과 같다). 패널 내용은 늦게 불러와(LazyHelpPanel) 시트가 뜬 순간엔
+            안에 패널 표시가 없어, 문맥 신호가 시트를 「도움말」이라는 열린 대화상자로 읽어 AI 에 보냈다(WP-1511 라이브 검증). */}
         <RawSheetContent
+          data-help-panel
           data-testid="help-sheet"
           aria-describedby={undefined}
           onEscapeKeyDown={keepOpenWhileSearching}

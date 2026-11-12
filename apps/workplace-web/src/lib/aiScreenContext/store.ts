@@ -2,12 +2,12 @@
 // - 등록자(토큰)별 컨텍스트를 삽입 순서 Map 으로 보관하고, 가장 최근 등록자의 값을 현재 컨텍스트로 쓴다.
 //   → 화면 전환 시 이전 화면의 뒤늦은 cleanup 은 자기 항목만 지우므로 새 화면 컨텍스트가 유지되고,
 //     한 화면에 등록자가 둘(목록 + 열린 패널)이어도 패널이 닫히면 목록 컨텍스트로 자연 복귀한다.
-// - JSON 직렬화 비교로 현재 값이 실제로 바뀐 경우에만 구독자에게 알린다(렌더 루프 방지).
+// - 등록 시 한 번 만든 JSON 키(층별 page·overlay·도움말)를 이어 붙인 키로 비교해, 바뀐 경우에만 병합 값을 만들고 구독자에게 알린다(렌더 루프 방지).
 // - WP-1261: 등록에는 층(page·overlay)이 있다. overlay(첨부 미리 보기)는 페이지 컨텍스트를 덮어쓰지 않고 그 위에 얹혀
 //   (overlayScreenContext) 현재 값이 된다 — 페이지가 뒤에 다시 등록해도(목록 재조회·스레드 열기) 미리 보기가 밀려나지 않는다.
-import type { AiScreenContext } from '@/types/aiScreenContext';
+import type { AiHelpContext, AiScreenContext } from '@/types/aiScreenContext';
 
-import { overlayScreenContext } from './common';
+import { attachHelp, mergeHelp, overlayScreenContext } from './common';
 
 /** 등록 층 — page: 화면 자신, overlay: 화면 위에 잠시 뜬 미리 보기(페이지 맥락을 유지한 채 대상을 바꾼다). */
 // shareTarget.ts 의 ShareTargetLayer(page·overlay)와 같은 층 규칙 — 첨부 뷰어가 두 저장소에 같은 층으로 등록한다.
@@ -16,6 +16,9 @@ export type ScreenContextLayer = 'page' | 'overlay';
 export interface ScreenContextStore {
   set(token: symbol, ctx: AiScreenContext | null, layer?: ScreenContextLayer): void;
   release(token: symbol): void;
+  /** WP-1511: 도움말 층 등록 — page·overlay 와 별개 층. 해제는 releaseHelp. */
+  setHelp(token: symbol, help: AiHelpContext): void;
+  releaseHelp(token: symbol): void;
   get(): AiScreenContext | null;
   subscribe(fn: () => void): () => void;
 }
@@ -25,6 +28,8 @@ export function createScreenContextStore(): ScreenContextStore {
   const entries = new Map<symbol, { ctx: AiScreenContext; key: string; layer: ScreenContextLayer }>();
   let current: AiScreenContext | null = null;
   let currentKey: string | null = null;
+  // WP-1511: 도움말 층 등록자별 { 값, 직렬화 키 } — 삽입 순서가 곧 mergeHelp 의 "뒤 등록이 이긴다" 순서.
+  const helps = new Map<symbol, { help: AiHelpContext; key: string }>();
   const listeners = new Set<() => void>();
 
   // 층마다 가장 최근 등록 항목을 고른 뒤, overlay 가 있으면 page 위에 얹은 값을 현재 값으로 — 내용(키)이 같으면 참조·알림 유지.
@@ -36,10 +41,16 @@ export function createScreenContextStore(): ScreenContextStore {
       if (entry.layer === 'overlay') overlay = entry;
       else page = entry;
     }
-    const key = overlay ? `${page?.key ?? ''}\u0000${overlay.key}` : (page?.key ?? null);
+    // 키는 등록 시 만들어 둔 층별 JSON 키를 잇는다 — 전체 병합 값을 매번 직렬화하지 않는다. JSON 은 줄바꿈 글자를 담지 않아 구분자로 안전하다.
+    const key = [page?.key ?? '', overlay?.key ?? '', ...[...helps.values()].map((h) => h.key)].join('\n');
     if (key === currentKey) return;
-    current = overlay ? overlayScreenContext(page?.ctx ?? null, overlay.ctx) : (page?.ctx ?? null);
+    // 키가 바뀐 때만 병합 값을 만든다 — 페이지가 없으면 절·검색어가 있을 때만 「도움말」 문맥(attachHelp).
+    const base = overlay ? overlayScreenContext(page?.ctx ?? null, overlay.ctx) : (page?.ctx ?? null);
+    const merged = attachHelp(base, mergeHelp([...helps.values()].map((h) => h.help)));
     currentKey = key;
+    // 병합 결과가 여전히 비어 있으면(null→null) 알릴 변화가 없다.
+    if (merged === null && current === null) return;
+    current = merged;
     listeners.forEach((fn) => fn());
   };
 
@@ -59,6 +70,17 @@ export function createScreenContextStore(): ScreenContextStore {
     },
     release(token) {
       if (entries.delete(token)) recompute();
+    },
+    setHelp(token, help) {
+      const key = JSON.stringify(help);
+      // 같은 토큰의 동일 내용 재등록은 순서를 바꾸지 않는다.
+      if (helps.get(token)?.key === key) return;
+      helps.delete(token);
+      helps.set(token, { help, key });
+      recompute();
+    },
+    releaseHelp(token) {
+      if (helps.delete(token)) recompute();
     },
     get: () => current,
     subscribe(fn) {

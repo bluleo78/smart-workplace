@@ -552,3 +552,40 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory·remember_shared_memory)만 직접 하고');
   });
 });
+
+// WP-1511: 사용법 질문은 매뉴얼로만 답하고 출처·그림·창 단추·보강 표식을 단다.
+describe('사용법 질문(WP-1511)', () => {
+  for (const runner of ['claude', 'opencode'] as const) {
+    const p = assistantSystemPrompt(runner);
+    it(`${runner}: 매뉴얼 먼저`, () => {
+      expect(p).toMatch(/사용법[^\n]*manual/);
+      expect(p).toContain('찾은 절 내용으로만');
+    });
+    it(`${runner}: 출처 표식`, () => {
+      expect(p).toContain('[도움말 · <get 결과 label>](help:<id>)');
+    });
+    it(`${runner}: 그림은 하나·id 로만`, () => {
+      expect(p).toContain('figure:<id>');
+      expect(p).toMatch(/그림을 만들/);
+    });
+    it(`${runner}: 대신 실행 분기`, () => {
+      expect(p).toContain('dialog:<id>');
+      expect(p).toContain('열 수 있는 창');
+      expect(p).toMatch(/비밀값[^\n]*위임·실행하지 않/);
+    });
+    it(`${runner}: 못 찾음`, () => {
+      expect(p).toContain('[매뉴얼 보강](manual-gap:)');
+      expect(p).toContain('찾지 못했습니다');
+    });
+    it(`${runner}: 왜 안 돼 근거`, () => {
+      expect(p).toContain('```evidence');
+      expect(p).toContain('실패 사유');
+    });
+    it(`${runner}: 현재 화면 도움말 줄 이름이 screen-context 와 같다`, () => {
+      for (const n of ['보던 절', '열 수 있는 창']) expect(p).toContain(n);
+    });
+  }
+  it('manual 이 라우터 도구 목록에 있다(프롬프트와 도구가 어긋나지 않게)', () => {
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('manual');
+  });
+});

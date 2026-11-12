@@ -5,6 +5,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
+import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
 import { MobileHelpButton } from '@/components/mobile/MobileHelpButton'
 import { settleHistory } from '@/test/history'
 import { helpBundleHandlers, helpSearchHandler } from '@/test/kits/help/helpBundleKit'
@@ -52,6 +53,8 @@ describe('MobileHelpSheet', () => {
   it('열면 전체 화면 시트에 도움말을 보이고, ✕ 로 닫힌다', async () => {
     const { user } = renderScreen(ui, { path: '/', handlers: helpBundleHandlers() })
     await openSheet()
+    // 시트 자체가 도움말 패널 표면이다 — 패널을 늦게 불러오는 동안에도 열린 대화상자로 읽히지 않게(WP-1511).
+    expect(screen.getByTestId('help-sheet')).toHaveAttribute('data-help-panel')
     await user.click(screen.getByRole('button', { name: '닫기' }))
     await waitFor(() => expect(screen.queryByTestId('help-sheet')).toBeNull())
     expect(screen.getByTestId('help-open')).toHaveTextContent('closed')
@@ -187,5 +190,36 @@ describe('MobileHelpSheet', () => {
     await waitFor(() => expect(screen.queryByTestId('help-sheet')).toBeNull())
     await settleHistory()
     expect(screen.getByTestId('ai-mode')).toHaveTextContent('closed')
+  })
+  it('휴대폰: 묻기는 도움말을 닫은 뒤 질의를 보내고 help 문맥을 잃지 않는다', async () => {
+    // AI 패널은 두지 않는다 — Provider 가 들고 있는 대기 문구(promptSeed)에 질의·바로 보내기·도움말 문맥이 실려 있는지로 판정한다.
+    function SeedProbe() {
+      const { promptSeed } = useAssistant()
+      return <output data-testid="seed">{promptSeed ? JSON.stringify(promptSeed) : ''}</output>
+    }
+    const { user } = renderScreen(
+      <AIAssistantProvider hotkeysEnabled>
+        <AiScreenContextProvider>
+          <HelpPanelProvider>
+            <Probe />
+            <SeedProbe />
+            <MobileHelpSheet />
+          </HelpPanelProvider>
+        </AiScreenContextProvider>
+      </AIAssistantProvider>,
+      { path: '/', handlers: [helpSearchHandler(), ...helpBundleHandlers()] },
+    )
+    await openSheet()
+    await user.type(screen.getByRole('combobox', { name: '도움말 검색' }), '위젯')
+    await screen.findByRole('listbox', { name: '도움말 검색 결과' })
+    await user.click(screen.getByTestId('help-ask-ai'))
+    await waitFor(() => expect(screen.queryByTestId('help-sheet')).toBeNull())
+    await waitFor(() => expect(screen.getByTestId('ai-mode')).toHaveTextContent('fullscreen'))
+    // 도움말이 닫혀 등록은 풀렸지만, 넘긴 문맥에 질의가 남아 있다.
+    await waitFor(() => expect(screen.getByTestId('seed').textContent).not.toBe(''))
+    const seed = JSON.parse(screen.getByTestId('seed').textContent ?? '{}') as { text: string; send: boolean; help: { query: string } }
+    expect(seed.text).toBe('위젯')
+    expect(seed.send).toBe(true)
+    expect(seed.help.query).toBe('위젯')
   })
 })

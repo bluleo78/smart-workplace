@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { trackRequests } from '../../fixtures/requests'
-import { expect, expectNoHorizontalOverflow, expectOnTop, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, expectOnTop, expectTouchTarget, test } from '../../fixtures/mobile.fixture'
 
 /** 메일 목록·상세를 모킹하고 받은편지함을 연다. */
 async function openInbox(page: Page) {
@@ -272,4 +272,193 @@ test('첨부 때문에 보내기가 잠기면 상단 바 바로 아래 상태 �
   await failedChip.getByTestId('mail-compose-attachment-remove').click()
   await expect(statusBar).toHaveCount(0)
   await expect(send).toBeEnabled()
+})
+
+// WP-1524 — 모바일 서식 줄·서식판·표 막대의 자리(390px). safe-area 는 Playwright 가 env() 를 못 바꿔 여기서 재지 않는다 —
+// 서식 줄과 위 줄이 같은 offset 클래스(mailMobileBars.ts)를 쓰는 것을 mailMobileBars.test.ts 가 지킨다.
+
+/** 모바일 새 답장 작성 화면을 연다. */
+async function openMobileReply(page: Page) {
+  await openInbox(page)
+  await page.getByTestId('mail-row-10').click()
+  await page.getByTestId('mail-reply').click()
+  await expectFullScreen(page)
+}
+
+test('서식 줄 여덟 단추가 390px 안에 모두 보이고 44px 다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 여덟째 「AI로 쓰기」는 새 메일에서만 있다 — AI 사용 계정으로 새 메일을 연다.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await page.goto('/mail/1')
+  await page.getByTestId('mobile-sidebar-trigger').click()
+  const side = page.getByTestId('mobile-sidebar-sheet')
+  await side.getByTestId('mail-compose-new').click()
+  if (await side.isVisible()) await page.keyboard.press('Escape')
+  await expectFullScreen(page)
+  const bar = page.getByTestId('mail-composer-toolbar')
+  const buttons = bar.getByRole('button')
+  await expect(buttons).toHaveCount(8)
+  await expectNoHorizontalOverflow(page)
+  const vp = page.viewportSize()!
+  for (let i = 0; i < 8; i++) {
+    const btn = buttons.nth(i)
+    // 단추끼리 틈이 없어(gap-0) expectTouchTarget 의 0.5px 안쪽 탐침이 이웃 단추 경계에 걸리므로, 상자 크기를 직접 잰다(44px, 반올림 0.5px 허용).
+    const b = (await btn.boundingBox())!
+    expect(b.width).toBeGreaterThanOrEqual(43.5)
+    expect(b.height).toBeGreaterThanOrEqual(43.5)
+    await expect(btn).toBeVisible()
+    expect(b.x).toBeGreaterThanOrEqual(0)
+    expect(b.x + b.width).toBeLessThanOrEqual(vp.width)
+  }
+  // 서식 줄 자체도 화면 안.
+  const bb = (await bar.boundingBox())!
+  expect(bb.y + bb.height).toBeLessThanOrEqual(vp.height)
+})
+
+test('서식판이 서식 줄 바로 위에 붙고 칩이 44px 다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openMobileReply(page)
+  const bar = page.getByTestId('mail-composer-toolbar')
+  await bar.getByRole('button', { name: '서식' }).click()
+  const sheet = page.getByTestId('mail-format-sheet')
+  await expect(sheet).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+
+  // 판의 아래끝 = 서식 줄 윗끝(공유 offset, 1px 허용). 서식 줄은 화면 안.
+  const s = (await sheet.boundingBox())!
+  const b = (await bar.boundingBox())!
+  expect(Math.abs(s.y + s.height - b.y), `sheet bottom ${s.y + s.height} vs bar top ${b.y}`).toBeLessThanOrEqual(1)
+  expect(b.y + b.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+
+  // 칩 44px — 크기·정렬·목록 칩. 판은 최대 45vh 라 안에서 스크롤되므로 칩을 보이는 자리로 올린 뒤 잰다.
+  await expectTouchTarget(sheet.getByRole('group', { name: '크기' }).getByRole('button').first(), 44)
+  await sheet.getByRole('group', { name: '정렬' }).getByRole('button').first().scrollIntoViewIfNeeded()
+  await expectTouchTarget(sheet.getByRole('group', { name: '정렬' }).getByRole('button').first(), 44)
+  await sheet.getByRole('group', { name: '목록' }).getByRole('button').first().scrollIntoViewIfNeeded()
+  await expectTouchTarget(sheet.getByRole('group', { name: '목록' }).getByRole('button').first(), 44)
+})
+
+test('서식판이 열린 동안 긴 본문의 끝을 서식판 윗변 위로 올려 볼 수 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openMobileReply(page)
+  const body = page.getByTestId('mail-composer-body')
+  await body.click()
+  for (let i = 0; i < 60; i++) await page.keyboard.press('Enter')
+  await page.keyboard.type('맨 아래 줄')
+
+  await page.getByTestId('mail-composer-toolbar').getByRole('button', { name: '서식' }).click()
+  const sheet = page.getByTestId('mail-format-sheet')
+  await expect(sheet).toBeVisible()
+
+  // 패널을 열면 커서가 판 뒤에 가려졌을 때 스크롤로 올려 준다 — 마지막 문단 아래끝이 판 윗변 이하가 될 때까지 기다린다.
+  const last = body.locator('p').last()
+  await expect
+    .poll(async () => {
+      const l = (await last.boundingBox())!
+      const s = (await sheet.boundingBox())!
+      return Math.round(s.y - (l.y + l.height))
+    })
+    .toBeGreaterThanOrEqual(0)
+  // 마지막 문단은 화면 안에도 있다(위로 밀려 사라지지 않았다).
+  await expect(last).toBeInViewport()
+})
+
+test('표 막대 줄은 서식 줄과 겹치지 않고, 서식판·표 패널이 열린 동안엔 감춰진다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openMobileReply(page)
+  const bar = page.getByTestId('mail-composer-toolbar')
+  const body = page.getByTestId('mail-composer-body')
+  await body.click()
+  // 표 패널에서 2×2 표를 넣는다 — 패널은 넣으면 닫히고 커서는 표 안.
+  await bar.getByRole('button', { name: '표 넣기' }).click()
+  await page.getByTestId('mail-table-panel').getByRole('button', { name: '2행 2열 표' }).click()
+  await expect(page.getByTestId('mail-table-panel')).toHaveCount(0)
+
+  const tableBar = page.getByTestId('mail-table-toolbar')
+  await expect(tableBar).toBeVisible()
+  const t = (await tableBar.boundingBox())!
+  const b = (await bar.boundingBox())!
+  // 표 막대 줄의 아래끝 = 서식 줄 윗끝 — 겹치지 않는다(1px 허용).
+  expect(t.y + t.height).toBeLessThanOrEqual(b.y + 1)
+  expect(Math.abs(t.y + t.height - b.y)).toBeLessThanOrEqual(1)
+  await expectNoHorizontalOverflow(page)
+
+  // 서식판이 열린 동안엔 표 막대 줄이 사라진다.
+  await bar.getByRole('button', { name: '서식' }).click()
+  await expect(page.getByTestId('mail-format-sheet')).toBeVisible()
+  await expect(tableBar).toHaveCount(0)
+  // 표 패널을 열면 서식판이 닫히고 표 막대는 여전히 감춰진다.
+  await bar.getByRole('button', { name: '표 넣기' }).click()
+  await expect(page.getByTestId('mail-table-panel')).toBeVisible()
+  await expect(page.getByTestId('mail-format-sheet')).toHaveCount(0)
+  await expect(tableBar).toHaveCount(0)
+  // 패널을 닫으면(커서는 아직 표 안) 표 막대가 돌아온다.
+  await bar.getByRole('button', { name: '표 넣기' }).click()
+  await expect(page.getByTestId('mail-table-panel')).toHaveCount(0)
+  await expect(tableBar).toBeVisible()
+})
+
+test('표가 마지막 블록이어도 맨 아래 줄을 표 막대 줄 위로 올려 볼 수 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // 회신은 인용문이 표 뒤에 남으므로, 아무것도 없는 새 메일에서 표를 마지막 블록으로 만든다.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await page.goto('/mail/1')
+  await page.getByTestId('mobile-sidebar-trigger').click()
+  const side = page.getByTestId('mobile-sidebar-sheet')
+  await side.getByTestId('mail-compose-new').click()
+  if (await side.isVisible()) await page.keyboard.press('Escape')
+  await expectFullScreen(page)
+  const bar = page.getByTestId('mail-composer-toolbar')
+  const body = page.getByTestId('mail-composer-body')
+  await body.click()
+  // 본문이 길어 스크롤이 생기게 한 뒤 맨 끝에 2×2 표를 넣는다.
+  for (let i = 0; i < 60; i++) await page.keyboard.press('Enter')
+  await bar.getByRole('button', { name: '표 넣기' }).click()
+  await page.getByTestId('mail-table-panel').getByRole('button', { name: '2행 2열 표' }).click()
+  await expect(page.getByTestId('mail-table-panel')).toHaveCount(0)
+
+  // 마지막 줄(본문 행)의 칸에 커서를 둔다 — 표가 마지막 블록이라 그 아래에는 본문이 더 없다.
+  // 표 뒤에 다른 블록이 없는지 확인한다(없어야 빈 자리의 효과를 본다).
+  expect(await body.locator('table').evaluate((t) => t.nextElementSibling?.textContent ?? '')).toBe('')
+  const lastRow = body.locator('tr').last()
+  await lastRow.locator('td').first().click()
+  const tableBar = page.getByTestId('mail-table-toolbar')
+  await expect(tableBar).toBeVisible()
+  // 표 막대 줄 높이만큼 본문 아래 빈 자리가 있어, 스크롤하면 마지막 줄의 아래끝이 표 막대 줄 윗변 이상으로 올라온다.
+  await expect
+    .poll(async () => {
+      const r = (await lastRow.boundingBox())!
+      const t = (await tableBar.boundingBox())!
+      return Math.round(t.y - (r.y + r.height))
+    })
+    .toBeGreaterThanOrEqual(0)
+  await expect(lastRow).toBeInViewport()
+})
+
+test('표 칸에 긴 문장을 써도 표는 본문 폭 안에서 줄바꿈하고 화면이 옆으로 밀리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openMobileReply(page)
+  const bar = page.getByTestId('mail-composer-toolbar')
+  const body = page.getByTestId('mail-composer-body')
+  await body.click()
+  await bar.getByRole('button', { name: '표 넣기' }).click()
+  await page.getByTestId('mail-table-panel').getByRole('button', { name: '2행 2열 표' }).click()
+  // 커서는 첫 칸 — 한 칸에 긴 문장을 쓴다(전역 표 규칙이면 475px 로 열을 넘쳤다).
+  await page.keyboard.type('이 칸에는 받는 사람 화면에서는 줄바꿈되어야 하는 아주 긴 문장을 일부러 길게 적어 넣습니다')
+  await expectNoHorizontalOverflow(page)
+  const t = (await body.locator('table').boundingBox())!
+  const b = (await body.boundingBox())!
+  expect(t.width, `table ${t.width} vs body ${b.width}`).toBeLessThanOrEqual(b.width)
+})
+
+test('서식판의 글자색·배경색 칩 줄은 한 줄이고 화면이 옆으로 밀리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await openMobileReply(page)
+  await page.getByTestId('mail-composer-toolbar').getByRole('button', { name: '서식' }).click()
+  const sheet = page.getByTestId('mail-format-sheet')
+  await expect(sheet).toBeVisible()
+  for (const name of ['글자색', '배경색']) {
+    const chips = sheet.getByRole('group', { name }).getByRole('button')
+    await expect(chips).toHaveCount(8)
+    await chips.first().scrollIntoViewIfNeeded()
+    const tops = await chips.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
+    expect(new Set(tops).size, `${name} tops ${tops}`).toBe(1)
+    await expectTouchTarget(chips.first(), 44)
+  }
+  await expectNoHorizontalOverflow(page)
 })
