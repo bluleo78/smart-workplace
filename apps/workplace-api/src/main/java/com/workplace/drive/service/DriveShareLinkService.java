@@ -464,53 +464,74 @@ public class DriveShareLinkService {
     }
     boolean sameWorkspace =
         authenticated && requesterTenantId != null && requesterTenantId == link.tenantId();
-    // 폴더 링크는 공유받은 항목(WP-1539)에 기록하지 않는다 — 목록이 파일 행만 다루므로(폴더 지원은 WP-1540) 폴더 링크를
-    // 방문으로 남기면 빈 행이 생긴다. 공유 화면 자체는 그대로 보인다.
-    if (link.target() == DriveShareTarget.FOLDER) {
-      return TenantContext.callAs(
-          link.tenantId(),
-          () -> tx.execute(st -> folderInfo(link, tokenHash, sameWorkspace, requesterUserId)));
-    }
+    // 폴더 링크도 파일과 같은 규칙(visitTarget)으로 공유받은 항목(WP-1539·WP-1540)에 기록한다.
     InfoResult result =
         TenantContext.callAs(
             link.tenantId(),
             () ->
                 tx.execute(
-                    st -> {
-                      var f = loadFile(link);
-                      var row = f.row();
-                      var meta = f.meta();
-                      // 링크 id·만든 사람 — 「공유한 사람」과 공유받은 항목 기록 판정이 한 번의 조회를 함께 쓴다.
-                      var creator = links.findCreator(tokenHash);
-                      String sharedBy =
-                          creator.map(DriveShareLinkRepository.LinkCreator::name).orElse(null);
-                      // 「드라이브에서 열기」는 같은 워크스페이스에서 그 공간을 볼 수 있는(VIEWER 이상, 부서 역할 포함) 사람에게만 보인다
-                      // — 볼 수 없는 사람에게 공간·폴더 id 를 알려 주지 않는다.
-                      boolean member =
-                          sameWorkspace
-                              && spaceMembers.findRole(row.spaceId(), requesterUserId).isPresent();
-                      ShareInfoResponse.DriveOpen driveOpen =
-                          member
-                              ? new ShareInfoResponse.DriveOpen(
-                                  row.spaceId(), row.folderId(), row.id())
-                              : null;
-                      Long visitLinkId =
-                          visitTarget(
-                              link, creator.orElse(null), sameWorkspace, member, requesterUserId);
-                      return new InfoResult(
-                          ShareInfoResponse.full(
-                              row.name(),
-                              meta.mimeType(),
-                              meta.sizeBytes(),
-                              sharedBy,
-                              !authenticated,
-                              driveOpen),
-                          visitLinkId);
-                    }));
+                    link.target() == DriveShareTarget.FOLDER
+                        ? st -> folderInfo(link, tokenHash, sameWorkspace, requesterUserId)
+                        : st ->
+                            fileInfo(
+                                link, tokenHash, sameWorkspace, authenticated, requesterUserId)));
     if (result.visitLinkId() != null) {
       recordVisit(link.tenantId(), requesterUserId, result.visitLinkId(), token);
     }
     return result.response();
+  }
+
+  /** 파일 링크 정보 — 링크 워크스페이스 컨텍스트·트랜잭션 안에서 부른다. 응답과 기록 대상 링크 id 를 함께 돌려준다. */
+  private InfoResult fileInfo(
+      DriveShareLinkRepository.ResolvedLink link,
+      String tokenHash,
+      boolean sameWorkspace,
+      boolean authenticated,
+      Long requesterUserId) {
+    var f = loadFile(link);
+    var row = f.row();
+    var meta = f.meta();
+    // 링크 id·만든 사람 — 「공유한 사람」과 공유받은 항목 기록 판정이 한 번의 조회를 함께 쓴다.
+    var creator = links.findCreator(tokenHash).orElse(null);
+    var access = requesterAccess(link, row.spaceId(), creator, sameWorkspace, requesterUserId);
+    ShareInfoResponse.DriveOpen driveOpen =
+        access.member()
+            ? new ShareInfoResponse.DriveOpen(row.spaceId(), row.folderId(), row.id())
+            : null;
+    return new InfoResult(
+        ShareInfoResponse.full(
+            row.name(),
+            meta.mimeType(),
+            meta.sizeBytes(),
+            creatorName(creator),
+            !authenticated,
+            driveOpen),
+        access.visitLinkId());
+  }
+
+  /**
+   * 요청자가 그 공간 구성원인지와 공유받은 항목 기록 대상 링크 id — 파일·폴더 링크 정보가 같은 판정을 쓴다.
+   *
+   * <p>「드라이브에서 열기」는 같은 워크스페이스에서 그 공간을 볼 수 있는(VIEWER 이상, 부서 역할 포함) 사람에게만 보인다 — 볼 수 없는 사람에게 공간·폴더 id
+   * 를 알려 주지 않는다. 구성원이면 기록하지 않는다({@link #visitTarget}). 링크 워크스페이스 컨텍스트·트랜잭션 안에서 부른다.
+   */
+  private InfoAccess requesterAccess(
+      DriveShareLinkRepository.ResolvedLink link,
+      long spaceId,
+      DriveShareLinkRepository.LinkCreator creator,
+      boolean sameWorkspace,
+      Long requesterUserId) {
+    boolean member = sameWorkspace && spaceMembers.findRole(spaceId, requesterUserId).isPresent();
+    return new InfoAccess(
+        member, visitTarget(link, creator, sameWorkspace, member, requesterUserId));
+  }
+
+  /** {@link #requesterAccess} 결과 — 공간 구성원 여부와 기록할 링크 id(기록 대상이 아니면 null). */
+  private record InfoAccess(boolean member, Long visitLinkId) {}
+
+  /** 링크를 만든 사람 이름 — 찾을 수 없으면 null(「공유한 사람」 칸이 비어 보인다). */
+  private static String creatorName(DriveShareLinkRepository.LinkCreator creator) {
+    return creator == null ? null : creator.name();
   }
 
   /** info 트랜잭션 결과 — 응답과, 공유받은 항목에 기록할 링크 id(기록 대상이 아니면 null). */
@@ -550,27 +571,33 @@ public class DriveShareLinkService {
   }
 
   /**
-   * 폴더 링크 정보(WP-1538) — 링크 워크스페이스 컨텍스트·트랜잭션 안에서 부른다. 공유 폴더 자체를 자손 검사와 같은 사슬로 읽어 휴지통·없음이면 404 (P1),
-   * 이름·바로 아래 수(P5)·공유한 사람을 싣는다. 「드라이브에서 열기」는 같은 워크스페이스 + 공간 실효 역할일 때만(공간·폴더 id 를 비구성원에게 숨긴다).
+   * 폴더 링크 정보(WP-1538, 기록 WP-1540) — 링크 워크스페이스 컨텍스트·트랜잭션 안에서 부른다. 공유 폴더 자체를 자손 검사와 같은 사슬로 읽어
+   * 휴지통·없음이면 404 (P1), 이름·바로 아래 수(P5)·공유한 사람을 싣는다. 「드라이브에서 열기」는 같은 워크스페이스 + 공간 실효 역할일 때만(공간·폴더 id 를
+   * 비구성원에게 숨긴다). 만든 사람은 한 번만 읽어 「공유한 사람」과 기록 대상 판정({@link #visitTarget})에 함께 쓴다.
    */
-  private ShareInfoResponse folderInfo(
+  private InfoResult folderInfo(
       DriveShareLinkRepository.ResolvedLink link,
       String tokenHash,
       boolean sameWorkspace,
       Long requesterUserId) {
     var shared = requireSharedFolder(link);
+    // 요약(수·만든 사람)은 앱 카드와 같은 읽기 — 만든 사람 한 번 조회를 「공유한 사람」과 기록 판정이 함께 쓴다.
     var summary = summarizeSharedFolder(shared, tokenHash);
+    var access =
+        requesterAccess(link, shared.spaceId(), summary.creator(), sameWorkspace, requesterUserId);
     ShareInfoResponse.FolderDriveOpen driveOpen =
-        sameWorkspace && spaceMembers.findRole(shared.spaceId(), requesterUserId).isPresent()
+        access.member()
             ? new ShareInfoResponse.FolderDriveOpen(shared.spaceId(), shared.id())
             : null;
-    return ShareInfoResponse.folderFull(
-        shared.name(),
-        summary.counts().folderCount(),
-        summary.counts().fileCount(),
-        summary.sharedBy(),
-        requesterUserId == null,
-        driveOpen);
+    return new InfoResult(
+        ShareInfoResponse.folderFull(
+            shared.name(),
+            summary.counts().folderCount(),
+            summary.counts().fileCount(),
+            summary.sharedBy(),
+            requesterUserId == null,
+            driveOpen),
+        access.visitLinkId());
   }
 
   /**
@@ -645,12 +672,17 @@ public class DriveShareLinkService {
   private SharedFolderSummary summarizeSharedFolder(
       DriveSharedFolderRepository.ChainRow shared, String tokenHash) {
     return new SharedFolderSummary(
-        sharedFolders.countChildren(shared.id()),
-        links.findCreator(tokenHash).map(DriveShareLinkRepository.LinkCreator::name).orElse(null));
+        sharedFolders.countChildren(shared.id()), links.findCreator(tokenHash).orElse(null));
   }
 
-  /** 공유 폴더 요약 — 바로 아래 수와 공유한 사람 이름(찾을 수 없으면 null). */
-  private record SharedFolderSummary(DriveSharedFolderRepository.Counts counts, String sharedBy) {}
+  /** 공유 폴더 요약 — 바로 아래 수와 링크를 만든 사람(찾을 수 없으면 null). 만든 사람 id 는 정보 응답의 공유받은 항목 기록 판정(WP-1540)이 쓴다. */
+  private record SharedFolderSummary(
+      DriveSharedFolderRepository.Counts counts, DriveShareLinkRepository.LinkCreator creator) {
+
+    String sharedBy() {
+      return creatorName(creator);
+    }
+  }
 
   /**
    * {@link #requireDescendantFolder} 의 판정 본체 — 통과한 사슬(공유 폴더 → 대상)을 돌려준다(경로로 그대로 쓴다). 폴더 링크에서만

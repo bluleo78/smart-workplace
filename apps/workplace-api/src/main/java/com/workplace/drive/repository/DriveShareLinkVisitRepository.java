@@ -1,6 +1,7 @@
 package com.workplace.drive.repository;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_FOLDER;
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK;
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK_VISIT;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
@@ -10,8 +11,10 @@ import static com.workplace.jooq.Tables.USER;
 import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -29,6 +32,13 @@ public class DriveShareLinkVisitRepository {
 
   /** 공간 주인 — 남의 개인 공간은 저장된 이름이 「내 드라이브」라 주인 이름으로 바꿔 보인다. */
   private static final com.workplace.jooq.tables.User SPACE_OWNER = USER.as("dslv_owner");
+
+  /** 공유 폴더 바로 아래 수를 세는 서브쿼리용 별칭. */
+  private static final com.workplace.jooq.tables.DriveFolder CHILD_FOLDER =
+      DRIVE_FOLDER.as("dslv_child_folder");
+
+  private static final com.workplace.jooq.tables.DriveFile CHILD_FILE =
+      DRIVE_FILE.as("dslv_child_file");
 
   /**
    * 열었음을 기록한다(upsert). 처음이면 행을 만들고, 이미 있으면 마지막으로 연 시각을 갱신하고 「목록에서 빼기」를 되돌린다(다시 열면 목록에 돌아온다는 제품 규칙).
@@ -58,14 +68,18 @@ public class DriveShareLinkVisitRepository {
   }
 
   /**
-   * 내 목록 한 줄 — 화면 칸과, 서비스가 토큰을 되살리는 데 쓰는 암호문·해시. openable 은 DB 시계로 판정한 「링크가 살아 있고 파일이 휴지통에 없음」.
-   * spaceType·spaceOwnerName 은 개인 공간 이름 표시용.
+   * 내 목록 한 줄 — 화면 칸과, 서비스가 토큰을 되살리는 데 쓰는 암호문·해시. folder 는 폴더 링크 행(WP-1540)이며 그때 mimeType·sizeBytes
+   * 는 null 이고, folderCount·fileCount 는 열 수 있는 폴더 행만(바로 아래 살아 있는 수) 채운다. openable 은 DB 시계로 판정한 「링크가
+   * 살아 있고 파일·폴더가 휴지통에 없음」. spaceType·spaceOwnerName 은 개인 공간 이름 표시용.
    */
   public record VisitRow(
       long shareLinkId,
-      String fileName,
+      boolean folder,
+      String name,
       String mimeType,
-      long sizeBytes,
+      Long sizeBytes,
+      Integer folderCount,
+      Integer fileCount,
       String spaceType,
       String spaceName,
       String spaceOwnerName,
@@ -84,17 +98,32 @@ public class DriveShareLinkVisitRepository {
    * 내 공유받은 항목(숨기지 않은 것, 마지막으로 연 순, 최근 {@link #LIST_LIMIT}개). 지금 그 공간의 실효 역할(부서 역할 포함)이 있으면 뺀다 — 기록
    * 뒤 구성원이 되면 그 공간에서 바로 보이니 목록에서 사라진다(읽을 때마다 판정). 다른 워크스페이스 행은 RLS 가 막는다.
    *
-   * <p>파일은 inner join — 영구 삭제된 파일은 링크와 기록이 CASCADE 로 함께 지워진다. 휴지통 파일은 행을 남기고 열 수 없음으로 표시한다.
+   * <p>대상은 파일 또는 폴더 중 정확히 하나(V293 CHECK)라 둘 다 left join 하고 coalesce 로 이름·휴지통을 읽는다. 영구 삭제된 파일·폴더는
+   * 링크와 기록이 CASCADE 로 함께 지워진다. 휴지통 항목은 행을 남기고 열 수 없음으로 표시한다(폴더 휴지통은 서브트리 전체에 trashed_at 을 찍으므로 공유
+   * 폴더 행 하나로 충분하다).
    */
   public List<VisitRow> listForUser(long userId) {
-    Field<Boolean> openable =
-        DSL.field(DriveShareLinkRepository.ACTIVE_CONDITION.and(DRIVE_FILE.TRASHED_AT.isNull()))
-            .as("openable");
+    Condition openableCondition =
+        DriveShareLinkRepository.ACTIVE_CONDITION.and(
+            DSL.coalesce(DRIVE_FILE.TRASHED_AT, DRIVE_FOLDER.TRASHED_AT).isNull());
+    Field<Boolean> openable = DSL.field(openableCondition).as("openable");
+    Field<String> name = DSL.coalesce(DRIVE_FILE.NAME, DRIVE_FOLDER.NAME).as("item_name");
+    // 열 수 있는 폴더 행만 센다 — 폐기·만료·휴지통 뒤에는 폴더 안 변화를 계속 보여 주지 않는다(토큰을 풀지 않는 것과 같은 이유). 그 밖은 null.
+    Condition openFolder = DRIVE_SHARE_LINK.DRIVE_FOLDER_ID.isNotNull().and(openableCondition);
+    Field<Integer> folderCount =
+        liveChildCount(openFolder, CHILD_FOLDER, CHILD_FOLDER.PARENT_ID, CHILD_FOLDER.TRASHED_AT)
+            .as("folder_count");
+    Field<Integer> fileCount =
+        liveChildCount(openFolder, CHILD_FILE, CHILD_FILE.FOLDER_ID, CHILD_FILE.TRASHED_AT)
+            .as("file_count");
     return dsl.select(
             DRIVE_SHARE_LINK_VISIT.SHARE_LINK_ID,
-            DRIVE_FILE.NAME,
+            DRIVE_SHARE_LINK.DRIVE_FOLDER_ID,
+            name,
             FILE.MIME_TYPE,
             FILE.SIZE_BYTES,
+            folderCount,
+            fileCount,
             DRIVE_SPACE.TYPE,
             DRIVE_SPACE.NAME,
             SPACE_OWNER.NAME,
@@ -108,10 +137,12 @@ public class DriveShareLinkVisitRepository {
         .from(DRIVE_SHARE_LINK_VISIT)
         .join(DRIVE_SHARE_LINK)
         .on(DRIVE_SHARE_LINK.ID.eq(DRIVE_SHARE_LINK_VISIT.SHARE_LINK_ID))
-        .join(DRIVE_FILE)
+        .leftJoin(DRIVE_FILE)
         .on(DRIVE_FILE.ID.eq(DRIVE_SHARE_LINK.DRIVE_FILE_ID))
-        .join(FILE)
+        .leftJoin(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+        .leftJoin(DRIVE_FOLDER)
+        .on(DRIVE_FOLDER.ID.eq(DRIVE_SHARE_LINK.DRIVE_FOLDER_ID))
         .join(DRIVE_SPACE)
         .on(DRIVE_SPACE.ID.eq(DRIVE_SHARE_LINK.SPACE_ID))
         .leftJoin(SPACE_OWNER)
@@ -132,9 +163,12 @@ public class DriveShareLinkVisitRepository {
             r ->
                 new VisitRow(
                     r.get(DRIVE_SHARE_LINK_VISIT.SHARE_LINK_ID),
-                    r.get(DRIVE_FILE.NAME),
+                    r.get(DRIVE_SHARE_LINK.DRIVE_FOLDER_ID) != null,
+                    r.get(name),
                     r.get(FILE.MIME_TYPE),
                     r.get(FILE.SIZE_BYTES),
+                    r.get(folderCount),
+                    r.get(fileCount),
                     r.get(DRIVE_SPACE.TYPE),
                     r.get(DRIVE_SPACE.NAME),
                     r.get(SPACE_OWNER.NAME),
@@ -145,5 +179,20 @@ public class DriveShareLinkVisitRepository {
                     r.get(DRIVE_SHARE_LINK_VISIT.TOKEN_ENCRYPTED),
                     r.get(DRIVE_SHARE_LINK.TOKEN_ENCRYPTED),
                     r.get(DRIVE_SHARE_LINK.TOKEN_HASH)));
+  }
+
+  /**
+   * 공유 폴더 바로 아래 살아 있는(휴지통 아님) 항목 수 — guard 가 참인 행만 세고 그 밖은 null.
+   * DriveSharedFolderRepository.countChildren 과 같은 기준이다.
+   */
+  private static Field<Integer> liveChildCount(
+      Condition guard, Table<?> children, Field<Long> parentId, Field<OffsetDateTime> trashedAt) {
+    return DSL.when(
+        guard,
+        DSL.field(
+            DSL.selectCount()
+                .from(children)
+                .where(parentId.eq(DRIVE_SHARE_LINK.DRIVE_FOLDER_ID))
+                .and(trashedAt.isNull())));
   }
 }

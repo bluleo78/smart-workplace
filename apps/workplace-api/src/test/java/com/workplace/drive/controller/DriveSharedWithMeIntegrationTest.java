@@ -142,41 +142,173 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
     assertThat(visitCount()).isZero();
   }
 
-  /**
-   * 폴더 공유 링크(WP-1538)는 공유받은 항목에 아직 기록하지 않는다 — 목록이 파일 행만 다루므로(폴더 지원은 WP-1540) 기록하면 빈 행이 생긴다. 폴더 링크를
-   * 열어도 공유 화면은 그대로 열리고, 목록은 파일 링크 행만 깨지지 않고 보인다.
-   */
+  /** 폴더 공유 링크(WP-1538)도 파일과 같은 규칙으로 공유받은 항목에 기록되고, 목록에 폴더 행(공간·수·토큰)으로 들어간다(WP-1540). */
   @Test
-  void 사내_폴더_링크를_열어도_기록하지_않고_목록은_파일_행만_그대로다() throws Exception {
-    long folderId =
-        dsl.insertInto(DRIVE_FOLDER)
-            .set(DRIVE_FOLDER.SPACE_ID, spaceId)
-            .set(DRIVE_FOLDER.NAME, "분기 보고")
-            .returning(DRIVE_FOLDER.ID)
-            .fetchOne()
-            .getId();
-    String folderToken =
-        shareLinks
-            .create(
-                owner,
-                new DriveShareLinkService.Target.Folder(folderId),
-                new CreateShareLinkRequest("INTERNAL", null, null))
-            .token();
+  void 사내_폴더_링크를_열면_폴더_행으로_들어간다_공간_수_토큰() throws Exception {
+    long folderId = seedFolder(spaceId, null, "분기 보고");
+    long janId = seedFolder(spaceId, folderId, "1월");
+    // 하위 폴더 안 파일은 세지 않는다 — 직계 자식만 센다(재귀로 세면 fileCount 가 3 이 된다).
+    seedFile(spaceId, janId, "깊은.txt");
+    seedFile(spaceId, folderId, "a.txt");
+    seedFile(spaceId, folderId, "b.txt");
+    long trashed = seedFile(spaceId, folderId, "지움.txt");
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, OffsetDateTime.now())
+        .where(DRIVE_FILE.ID.eq(trashed))
+        .execute();
+    String folderToken = folderLink(folderId, "INTERNAL", null);
     String fileToken = link("INTERNAL", null);
 
-    openShare(folderToken, outsider)
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.kind").value("FOLDER"))
-        .andExpect(jsonPath("$.name").value("분기 보고"));
-    assertThat(visitCount()).isZero();
-
+    // 파일 링크를 먼저, 폴더 링크를 나중에 연다 — 최근 연 순으로 폴더가 앞
     openShare(fileToken, outsider).andExpect(status().isOk());
+    dsl.update(DRIVE_SHARE_LINK_VISIT)
+        .set(DRIVE_SHARE_LINK_VISIT.LAST_OPENED_AT, OffsetDateTime.now().minusDays(1))
+        .execute();
+    openShare(folderToken, outsider).andExpect(status().isOk());
+
     mockMvc
         .perform(get("/api/v1/drive/shared-with-me").header("Authorization", bearer(outsider)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$", hasSize(1)))
-        .andExpect(jsonPath("$[0].shareLinkId").value(linkId(fileToken)))
-        .andExpect(jsonPath("$[0].name").value("2026 하반기 사업계획.pptx"));
+        .andExpect(jsonPath("$", hasSize(2)))
+        .andExpect(jsonPath("$[0].kind").value("FOLDER"))
+        .andExpect(jsonPath("$[0].name").value("분기 보고"))
+        .andExpect(jsonPath("$[0].mimeType").value(nullValue()))
+        .andExpect(jsonPath("$[0].sizeBytes").value(nullValue()))
+        .andExpect(jsonPath("$[0].folderCount").value(1))
+        .andExpect(jsonPath("$[0].fileCount").value(2))
+        .andExpect(jsonPath("$[0].spaceName").value("경영지원"))
+        .andExpect(jsonPath("$[0].sharedBy").value("김민수"))
+        .andExpect(jsonPath("$[0].openable").value(true))
+        .andExpect(jsonPath("$[0].token").value(folderToken))
+        .andExpect(jsonPath("$[1].kind").value("FILE"))
+        .andExpect(jsonPath("$[1].sizeBytes").value(4200000))
+        .andExpect(jsonPath("$[1].folderCount").value(nullValue()));
+  }
+
+  @Test
+  void 폴더_링크도_외부_내_링크_구성원은_기록하지_않는다() throws Exception {
+    long folderId = seedFolder(spaceId, null, "분기 보고");
+    String external = folderLink(folderId, "EXTERNAL", null);
+    String internal = folderLink(folderId, "INTERNAL", null);
+
+    openShare(external, outsider).andExpect(status().isOk());
+    openShare(internal, owner).andExpect(status().isOk());
+    openShare(internal, member).andExpect(status().isOk());
+
+    assertThat(visitCount()).isZero();
+  }
+
+  @Test
+  void 비밀번호_폴더_링크는_잠금_해제_뒤에_열어야_기록된다() throws Exception {
+    long folderId = seedFolder(spaceId, null, "분기 보고");
+    String token = folderLink(folderId, "INTERNAL", "secret");
+
+    openShare(token, outsider).andExpect(jsonPath("$.passwordRequired").value(true));
+    assertThat(visitCount()).isZero();
+
+    String body =
+        mockMvc
+            .perform(
+                post("/api/v1/public/drive/share/" + token + "/unlock")
+                    .header("Authorization", bearer(outsider))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"password\":\"secret\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String viewToken = objectMapper.readTree(body).get("viewToken").asText();
+    mockMvc
+        .perform(
+            get("/api/v1/public/drive/share/" + token)
+                .header("Authorization", bearer(outsider))
+                .header(PublicDriveShareController.VIEW_TOKEN_HEADER, viewToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("FOLDER"));
+
+    var items = sharedWithMe.list(outsider);
+    assertThat(items).hasSize(1);
+    assertThat(items.get(0).hasPassword()).isTrue();
+    assertThat(items.get(0).token()).isEqualTo(token);
+  }
+
+  @Test
+  void 폐기_만료_휴지통_폴더는_열_수_없음이고_수와_토큰을_싣지_않는다() throws Exception {
+    long f1 = seedFolder(spaceId, null, "폐기");
+    long f2 = seedFolder(spaceId, null, "만료");
+    long f3 = seedFolder(spaceId, null, "휴지통");
+    seedFile(spaceId, f1, "x.txt");
+    String revoked = folderLink(f1, "INTERNAL", null);
+    String expired = folderLink(f2, "INTERNAL", null);
+    String trashed = folderLink(f3, "INTERNAL", null);
+    for (String t : new String[] {revoked, expired, trashed}) {
+      openShare(t, outsider).andExpect(status().isOk());
+    }
+    shareLinks.revoke(owner, linkId(revoked));
+    dsl.update(DRIVE_SHARE_LINK)
+        .set(DRIVE_SHARE_LINK.EXPIRES_AT, OffsetDateTime.now().minusDays(1))
+        .where(DRIVE_SHARE_LINK.ID.eq(linkId(expired)))
+        .execute();
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.TRASHED_AT, OffsetDateTime.now())
+        .where(DRIVE_FOLDER.ID.eq(f3))
+        .execute();
+
+    String body =
+        mockMvc
+            .perform(get("/api/v1/drive/shared-with-me").header("Authorization", bearer(outsider)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(3)))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    for (JsonNode n : objectMapper.readTree(body)) {
+      assertThat(n.get("kind").asText()).isEqualTo("FOLDER");
+      assertThat(n.get("openable").asBoolean()).isFalse();
+      assertThat(n.get("token").isNull()).isTrue();
+      assertThat(n.get("folderCount").isNull()).isTrue();
+      assertThat(n.get("fileCount").isNull()).isTrue();
+    }
+  }
+
+  @Test
+  void 목록의_폴더_링크로_하위를_열고_하위_아닌_폴더는_404() throws Exception {
+    long folderId = seedFolder(spaceId, null, "분기 보고");
+    long january = seedFolder(spaceId, folderId, "1월");
+    long other = seedFolder(spaceId, null, "인사");
+    String folderToken = folderLink(folderId, "INTERNAL", null);
+    openShare(folderToken, outsider).andExpect(status().isOk());
+    String base = "/api/v1/public/drive/share/" + folderToken + "/children";
+    OffsetDateTime past = OffsetDateTime.now().minusDays(3).truncatedTo(ChronoUnit.MICROS);
+    dsl.update(DRIVE_SHARE_LINK_VISIT).set(DRIVE_SHARE_LINK_VISIT.LAST_OPENED_AT, past).execute();
+
+    mockMvc
+        .perform(get(base).header("Authorization", bearer(outsider)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.path[0].name").value("분기 보고"));
+    mockMvc
+        .perform(
+            get(base)
+                .param("folder", String.valueOf(january))
+                .header("Authorization", bearer(outsider)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.path", hasSize(2)))
+        .andExpect(jsonPath("$.path[1].name").value("1월"));
+    mockMvc
+        .perform(
+            get(base)
+                .param("folder", String.valueOf(other))
+                .header("Authorization", bearer(outsider)))
+        .andExpect(status().isNotFound());
+
+    // children 은 기록하지 않는다 — 마지막으로 연 시각이 그대로
+    var visit = dsl.selectFrom(DRIVE_SHARE_LINK_VISIT).fetchOne();
+    assertThat(visit.getLastOpenedAt().toInstant()).isEqualTo(past.toInstant());
+
+    shareLinks.revoke(owner, linkId(folderToken));
+    mockMvc
+        .perform(get(base).header("Authorization", bearer(outsider)))
+        .andExpect(status().isGone());
   }
 
   @Test
@@ -384,6 +516,25 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
         .fetchOne(DRIVE_SHARE_LINK.ID);
   }
 
+  private long seedFolder(long space, Long parentId, String name) {
+    return dsl.insertInto(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.SPACE_ID, space)
+        .set(DRIVE_FOLDER.PARENT_ID, parentId)
+        .set(DRIVE_FOLDER.NAME, name)
+        .returning(DRIVE_FOLDER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  private String folderLink(long folderId, String audience, String password) {
+    return shareLinks
+        .create(
+            owner,
+            new DriveShareLinkService.Target.Folder(folderId),
+            new CreateShareLinkRequest(audience, password, null))
+        .token();
+  }
+
   private int visitCount() {
     return dsl.fetchCount(DRIVE_SHARE_LINK_VISIT);
   }
@@ -415,7 +566,13 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
         .execute();
   }
 
+  /** 공간 최상위 파일. */
   private long seedFile(long space, String name) {
+    return seedFile(space, null, name);
+  }
+
+  /** 파일 하나 — folderId 가 null 이면 공간 최상위, 아니면 그 폴더 안. */
+  private long seedFile(long space, Long folderId, String name) {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     long coreFileId =
         dsl.insertInto(FILE)
@@ -430,6 +587,7 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
             .getId();
     return dsl.insertInto(DRIVE_FILE)
         .set(DRIVE_FILE.SPACE_ID, space)
+        .set(DRIVE_FILE.FOLDER_ID, folderId)
         .set(DRIVE_FILE.FILE_ID, coreFileId)
         .set(DRIVE_FILE.NAME, name)
         .returning(DRIVE_FILE.ID)

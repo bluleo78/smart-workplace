@@ -1,9 +1,9 @@
 // WP-1539: 드라이브 「공유받은 항목」 — 내가 로그인한 채 처음 연 사내 공유 링크의 파일을 다시 찾는 목록(최근에 연 순).
 // 목록 행은 권한을 주지 않는다 — 열기는 늘 링크 토큰으로 공개 공유 경로를 거쳐 링크 규칙(폐기·만료·비밀번호)을 서버가 다시 판정한다.
-// 폴더 링크(WP-1538)는 아직 없어 파일만 보인다.
+// 폴더 링크(WP-1540)는 폴더 행으로 보이고, 열면 드라이브 안 읽기 전용 폴더 화면(/drive/shared/:shareLinkId)으로 간다.
 
 import { useQueryClient } from '@tanstack/react-query'
-import { Link2, MinusCircle, MoreHorizontal, SquareArrowOutUpRight, UserRoundPlus } from 'lucide-react'
+import { Folder, Link2, MinusCircle, MoreHorizontal, SquareArrowOutUpRight, UserRoundPlus } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -23,15 +23,11 @@ import type { ViewerItem } from '@/components/viewer/types'
 import { driveKeys } from '@/hooks/queries/driveKeys'
 import { useHideSharedWithMe, useSharedWithMe } from '@/hooks/queries/useSharedWithMe'
 import { copyToClipboard } from '@/lib/copyToClipboard'
-import { canOpenShared, sharedClosedReason, sharedOpenedLabel } from '@/lib/driveSharedWithMe'
-import { formatFileSize } from '@/lib/formatters'
+import { canOpenShared, resolveSharedTarget, SHARED_CLOSED_MESSAGE, sharedMetaLine, sharedOpenedLabel } from '@/lib/driveSharedWithMe'
 import { HIT_AREA_COARSE } from '@/lib/hitArea'
 import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
 import type { SharedWithMeItem } from '@/types/drive'
-
-/** 열기 실패(410·404) 안내 — 시안 문구. */
-const CLOSED_LINK_MESSAGE = '링크가 폐기됐거나 만료됐습니다'
 
 /**
  * 표 열 — 이름(남는 폭) · 공유한 사람 · 마지막으로 연 날 · ⋯. 좁은 폭(sm 미만)은 이름 칸 하나와 ⋯ 만 두고
@@ -62,23 +58,29 @@ export function DriveSharedWithMeView() {
    * 폐기·만료(410)·없음(404)은 안내 후 목록을 다시 받는다.
    */
   async function open(item: SharedWithMeItem) {
-    const token = item.token
-    if (!canOpenShared(item) || token == null) return
-    if (item.hasPassword) {
-      navigate(`/s/${token}`)
+    const target = resolveSharedTarget(item)
+    if (target.kind === 'closed') return
+    if (target.kind === 'password') {
+      navigate(`/s/${target.token}`)
       return
     }
+    // 폴더 링크 — 공유 정보를 묻지 않고 드라이브 안 읽기 전용 폴더 화면으로 간다(링크 규칙 판정은 그 화면의 정보·목록 요청이 한다).
+    if (target.kind === 'folder') {
+      navigate(target.path)
+      return
+    }
+    const { token } = target
     try {
       const info = await fetchShareInfo(token, null)
-      // 폴더 링크(WP-1538) 응답은 이 자리 뷰어로 열 수 없어 공유 화면으로 넘긴다 — 지금 목록엔 파일 링크만 오지만(폴더는 WP-1540) 응답 모양을 가린다.
-      if ('name' in info && !isShareFolderInfo(info)) {
-        setViewerItem(shareViewerItem(token, info, shareViewerSource(null, closeViewerOnUnauthorized)))
-      } else {
+      // 잠금(확인 필요)이거나 폴더 응답(WP-1538 — 이 자리 뷰어로 열 수 없다)이면 공유 화면으로 넘긴다.
+      if (info.passwordRequired || info.loginRequired || isShareFolderInfo(info)) {
         navigate(`/s/${token}`)
+      } else {
+        setViewerItem(shareViewerItem(token, info, shareViewerSource(null, closeViewerOnUnauthorized)))
       }
     } catch (e) {
       const status = shareErrorStatus(e)
-      toast.error(status === 410 || status === 404 ? CLOSED_LINK_MESSAGE : '열지 못했습니다. 잠시 후 다시 시도하세요.')
+      toast.error(status === 410 || status === 404 ? SHARED_CLOSED_MESSAGE : '열지 못했습니다. 잠시 후 다시 시도하세요.')
     } finally {
       void queryClient.invalidateQueries({ queryKey: driveKeys.sharedWithMe() })
     }
@@ -112,7 +114,7 @@ export function DriveSharedWithMeView() {
 
   let body
   if (query.isPending) {
-    body = <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
+    body = <SharedLoading />
   } else if (failedWithoutData(query)) {
     body = <LoadErrorState title="공유받은 항목을 불러오지 못했습니다" queries={[query]} testId="drive-shared-error" />
   } else if (items.length === 0) {
@@ -146,7 +148,7 @@ export function DriveSharedWithMeView() {
 
   return (
     <Page data-testid="drive-shared-view">
-      <Page.Header title="공유받은 항목" meta={<span className="hidden text-xs text-muted-foreground sm:inline">사내 공유 링크로 연 파일</span>} />
+      <Page.Header title="공유받은 항목" meta={<span className="hidden text-xs text-muted-foreground sm:inline">사내 공유 링크로 연 파일과 폴더</span>} />
       <Page.Body inset={false}>{body}</Page.Body>
       {viewerItem && (
         <AttachmentViewer items={[viewerItem]} index={0} onIndexChange={() => {}} onClose={() => setViewerItem(null)} shareable={false} />
@@ -155,10 +157,14 @@ export function DriveSharedWithMeView() {
   )
 }
 
-/** 목록 한 줄 — 이름(아이콘 + 이름, 둘째 줄 공간 · 크기) · 공유한 사람 · 마지막으로 연 날 · ⋯. 열 수 없으면 흐리게 + 「열 수 없음」. */
+/** 「공유받은 항목」 화면 본문 자리의 불러오는 중 — 목록과 드라이브 안 공유 폴더 화면(진입 판정·정보 조회)이 함께 쓴다. */
+export function SharedLoading() {
+  return <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">불러오는 중…</div>
+}
+
+/** 목록 한 줄 — 이름(아이콘 + 이름, 둘째 줄 파일은 공간 · 크기, 폴더는 폴더 n개 · 파일 n개) · 공유한 사람 · 마지막으로 연 날 · ⋯. 열 수 없으면 흐리게 + 「열 수 없음」. */
 function SharedRow({ item, actions, onOpen }: { item: SharedWithMeItem; actions: MobileSheetAction[]; onOpen: () => void }) {
   const openable = canOpenShared(item)
-  const closedReason = sharedClosedReason(item)
   const opened = sharedOpenedLabel(item.lastOpenedAt)
   return (
     <div
@@ -168,7 +174,15 @@ function SharedRow({ item, actions, onOpen }: { item: SharedWithMeItem; actions:
       className={cn(ROW_GRID, 'border-b py-2 text-sm hover:bg-accent/40', pageGutterClass)}
     >
       <div role="cell" className="flex min-w-0 items-center gap-3">
-        <FileTypeIcon mimeType={item.mimeType} className={cn('h-8 w-8 shrink-0 p-1', !openable && 'opacity-50')} />
+        {item.kind === 'FOLDER' ? (
+          <Folder
+            data-testid={`drive-shared-folder-icon-${item.shareLinkId}`}
+            aria-hidden
+            className={cn('h-8 w-8 shrink-0 p-1 text-muted-foreground', !openable && 'opacity-50')}
+          />
+        ) : (
+          <FileTypeIcon mimeType={item.mimeType ?? ''} className={cn('h-8 w-8 shrink-0 p-1', !openable && 'opacity-50')} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             {openable ? (
@@ -188,7 +202,7 @@ function SharedRow({ item, actions, onOpen }: { item: SharedWithMeItem; actions:
             )}
           </div>
           <p className="truncate text-xs text-muted-foreground" data-testid={`drive-shared-meta-${item.shareLinkId}`}>
-            {closedReason ?? `${item.spaceName} · ${formatFileSize(item.sizeBytes)}`}
+            {sharedMetaLine(item)}
           </p>
           {/* 좁은 폭 — 공유한 사람·날짜 칸이 없으니 둘째 줄 아래에 접어 둔다. */}
           <p className="truncate text-xs text-muted-foreground sm:hidden">

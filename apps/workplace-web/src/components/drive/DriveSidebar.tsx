@@ -300,7 +300,7 @@ export function DriveSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {/* 공유받은 항목(WP-1539) — 남이 사내 링크로 준 파일을 다시 찾는 입구. 「공유 문서함」처럼 공간 목록 맨 위에 둔다. */}
+        {/* 공유받은 항목(WP-1539) — 남이 사내 링크로 준 파일·폴더를 다시 찾는 입구. 「공유 문서함」처럼 공간 목록 맨 위에 둔다. */}
         <NavLink
           to="/drive/shared"
           data-testid="drive-nav-shared"

@@ -118,13 +118,13 @@ export default function ShareLinkPage() {
   const file: ShareFileInfo | null = info.data && !isShareFolderInfo(info.data) && 'name' in info.data ? info.data : null
   // 잠금 카드 제목의 대상 — 잠금 응답의 target 만 본다(이름·수는 숨김, P9). 없으면(이전 응답) 파일.
   const lockTitles = LOCK_TITLES[info.data != null && 'target' in info.data && info.data.target === 'FOLDER' ? 'FOLDER' : 'FILE']
-  // 파일 정보가 열리면 서버가 「공유받은 항목」에 기록했을 수 있다(WP-1539) — 드라이브로 돌아갔을 때 사이드바 개수·목록이
-  // 1분 캐시에 머물지 않게 그 쿼리를 낡은 것으로 표시한다. 비로그인은 목록이 없어 건너뛴다. 폴더 링크는 기록하지 않아(WP-1540 전) 파일일 때만.
+  // 파일·폴더 정보가 열리면 서버가 「공유받은 항목」에 기록했을 수 있다(WP-1539 파일, WP-1540 폴더) — 드라이브로 돌아갔을 때
+  // 사이드바 개수·목록이 1분 캐시에 머물지 않게 그 쿼리를 낡은 것으로 표시한다. 비로그인은 목록이 없어 건너뛴다.
   const queryClient = useQueryClient()
-  const fileLoaded = file != null
+  const recordedLoaded = file != null || folderInfo != null
   useEffect(() => {
-    if (fileLoaded && isAuthenticated) void queryClient.invalidateQueries({ queryKey: driveKeys.sharedWithMe() })
-  }, [fileLoaded, isAuthenticated, queryClient])
+    if (recordedLoaded && isAuthenticated) void queryClient.invalidateQueries({ queryKey: driveKeys.sharedWithMe() })
+  }, [recordedLoaded, isAuthenticated, queryClient])
   // 탭 제목 — 파일을 알면 「{파일 이름} · 공유 링크 · Gen:iA Works」로 덮는다. 모르는 상태(로딩·잠금·오류)는 덮지 않아
   // 주소 기본값 「공유 링크 · Gen:iA Works」(routeTitleParts)가 보인다(WP-1429).
   useDocumentTitle(file ? [file.name, SHARE_LINK_TITLE] : [])

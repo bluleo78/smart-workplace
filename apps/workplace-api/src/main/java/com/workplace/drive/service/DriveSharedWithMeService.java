@@ -37,10 +37,13 @@ public class DriveSharedWithMeService {
     String token = r.openable() ? restoreToken(r) : null;
     return new SharedWithMeItemResponse(
         r.shareLinkId(),
-        "FILE",
-        r.fileName(),
+        r.folder() ? "FOLDER" : "FILE",
+        r.name(),
         r.mimeType(),
         r.sizeBytes(),
+        // 열 수 없는 폴더의 수는 저장소가 세지 않아 null 로 온다.
+        r.folderCount(),
+        r.fileCount(),
         spaceName(r),
         r.sharedByName(),
         r.lastOpenedAt(),

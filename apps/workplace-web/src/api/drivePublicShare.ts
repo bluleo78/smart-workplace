@@ -2,10 +2,11 @@
 // axios client 를 쓰지 않는다: client 는 401 이면 토큰 갱신을 시도하고 실패하면 /login 으로 보내는데,
 // 이 화면은 로그인 없이 그려져야 하고 401 은 「열람 토큰 만료 → 비밀번호 다시」 뜻이다.
 // 로그인 중이면 Bearer 를 함께 보낸다(사내 링크 판정·드라이브에서 열기 대상 계산에 쓰인다).
+// 인터셉터를 안 타므로 만료된 Bearer 의 갱신·재시도는 shareFetch 한 곳에서 한다(WP-1540).
 
 import { downloadBlob } from '../lib/download'
 import type { BlobProgress } from './blobContent'
-import { getAccessToken } from './client'
+import { getAccessToken, refreshAccessToken } from './client'
 import { type ConvertedPreviewResponse, readJsonBody } from './drive'
 
 /** 공개 공유 요청 실패 — status 로 화면이 안내를 고른다(0 = 네트워크 등 서버 응답 없음). */
@@ -95,11 +96,41 @@ function shareHeaders(viewToken: string | null): Record<string, string> {
   return headers
 }
 
-/** 링크 정보 — 404 없음 / 410 만료·폐기 / 403 다른 워크스페이스는 SharePublicError. */
-export async function fetchShareInfo(token: string, viewToken: string | null): Promise<ShareInfo> {
-  const res = await fetch(sharePublicBase(token), { headers: shareHeaders(viewToken) })
+/**
+ * 공개 공유 GET 요청(정보·하위 목록·원본·변환 PDF·다운로드)의 공용 fetch — Bearer 를 보냈는데 401 이면 액세스 토큰을 한 번 갱신하고
+ * 새 헤더로 한 번만 다시 보낸다(WP-1540). 공개 fetch 는 axios 인터셉터를 타지 않아, 오래 머문 화면의 만료 토큰이 사내 링크 판정을 401 로
+ * 끊기 때문. Bearer 를 보내지 않았으면(비로그인) 401 은 열람 토큰 만료 뜻이라 그대로 돌려준다. 갱신이 실패하거나 다시 보낸 요청이 또
+ * 401 이면 그 응답을 돌려준다(더 갱신하지 않음) — 호출부가 종전처럼 상태로 판정한다.
+ * 비밀번호 잠금 풀기(unlockShare)는 쓰지 않는다 — 그쪽 401 은 「비밀번호 틀림」이라 갱신할 일이 아니다.
+ */
+async function shareFetch(url: string, viewToken: string | null, signal?: AbortSignal): Promise<Response> {
+  const send = () => fetch(url, { headers: shareHeaders(viewToken), signal })
+  const sentBearer = getAccessToken() != null
+  const res = await send()
+  if (res.status !== 401 || !sentBearer) return res
+  if (!(await refreshAccessToken())) return res
+  return send()
+}
+
+/** 정보 한 번 묻기 — 실패 상태는 SharePublicError. */
+async function requestShareInfo(token: string, viewToken: string | null): Promise<ShareInfo> {
+  const res = await shareFetch(sharePublicBase(token), viewToken)
   if (!res.ok) throw new SharePublicError(res.status)
   return (await res.json()) as ShareInfo
+}
+
+/**
+ * 링크 정보 — 404 없음 / 410 만료·폐기 / 403 다른 워크스페이스는 SharePublicError.
+ * Bearer 를 보냈는데 「로그인 필요」(loginRequired)면 액세스 토큰을 한 번 갱신하고 한 번만 다시 묻는다(WP-1540) — 사내 링크 정보는
+ * 만료 토큰을 익명으로 봐 401 이 아니라 200 loginRequired 로 답하므로 shareFetch 의 401 재시도가 걸리지 않기 때문. 갱신이 실패하면
+ * 첫 응답 그대로(호출부가 로그인 안내·공유 화면으로 간다), 다시 물은 응답이 또 loginRequired 여도 그 응답을 돌려준다.
+ */
+export async function fetchShareInfo(token: string, viewToken: string | null): Promise<ShareInfo> {
+  const sentBearer = getAccessToken() != null
+  const first = await requestShareInfo(token, viewToken)
+  if (!sentBearer || !first.loginRequired) return first
+  if (!(await refreshAccessToken())) return first
+  return requestShareInfo(token, viewToken)
 }
 
 /**
@@ -108,7 +139,7 @@ export async function fetchShareInfo(token: string, viewToken: string | null): P
  */
 export async function fetchShareChildren(token: string, folderId: number | null, viewToken: string | null): Promise<ShareFolderListing> {
   const query = folderId == null ? '' : `?folder=${folderId}`
-  const res = await fetch(`${sharePublicBase(token)}/children${query}`, { headers: shareHeaders(viewToken) })
+  const res = await shareFetch(`${sharePublicBase(token)}/children${query}`, viewToken)
   if (!res.ok) throw new SharePublicError(res.status)
   return (await res.json()) as ShareFolderListing
 }
@@ -152,7 +183,7 @@ export async function fetchShareBlob(
   viewToken: string | null,
   { onProgress, signal }: { onProgress?: BlobProgress; signal?: AbortSignal } = {},
 ): Promise<Blob> {
-  const res = await fetch(path, { headers: shareHeaders(viewToken), signal })
+  const res = await shareFetch(path, viewToken, signal)
   if (!res.ok) throw new SharePublicError(res.status)
   return readBlob(res, onProgress)
 }
@@ -162,7 +193,7 @@ export async function fetchShareBlob(
  * 같은 본문 판독(readJsonBody)을 써서 NOT_APPLICABLE·실패 코드 해석이 드라이브와 갈라지지 않게 한다. 그 밖의 상태는 throw.
  */
 export async function fetchShareConverted(path: string, viewToken: string | null, signal?: AbortSignal): Promise<ConvertedPreviewResponse> {
-  const res = await fetch(path, { headers: shareHeaders(viewToken), signal })
+  const res = await shareFetch(path, viewToken, signal)
   if (res.status === 200) return { status: 200, blob: await res.blob() }
   if (res.status === 202) return { status: 202 }
   if (res.status !== 404 && res.status !== 422) throw new SharePublicError(res.status)
@@ -192,7 +223,7 @@ function dispositionFileName(disposition: string, fallback: string): string {
  * WP-1538: 파일 링크(`…/download`)와 폴더 링크 하위 파일(`…/files/{id}/download`)이 함께 쓰도록 경로를 받는다.
  */
 export async function downloadShare(path: string, viewToken: string | null, fallbackName = 'download'): Promise<void> {
-  const res = await fetch(path, { headers: shareHeaders(viewToken) })
+  const res = await shareFetch(path, viewToken)
   if (!res.ok) throw new SharePublicError(res.status)
   const blob = await res.blob()
   downloadBlob(dispositionFileName(res.headers.get('Content-Disposition') ?? '', fallbackName), blob)

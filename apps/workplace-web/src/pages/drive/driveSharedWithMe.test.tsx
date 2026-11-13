@@ -17,6 +17,8 @@ const openItem: SharedWithMeItem = {
   name: '2026 하반기 사업계획.pptx',
   mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   sizeBytes: 4_404_019,
+  folderCount: null,
+  fileCount: null,
   spaceName: '경영지원',
   sharedBy: '김민수',
   lastOpenedAt: '2026-11-12T03:00:00Z',
@@ -149,6 +151,61 @@ describe('공유받은 항목 화면', () => {
     await waitFor(() => expect(location()).toBe('/s/sl_pw'))
     // 비밀번호 링크는 정보를 묻지 않고 바로 넘긴다
     expect(infoCalls).toEqual(['sl_open'])
+  })
+})
+
+describe('공유받은 항목 화면 — 폴더 행(WP-1540)', () => {
+  const folderItem: SharedWithMeItem = {
+    ...openItem,
+    shareLinkId: 21,
+    kind: 'FOLDER',
+    name: '분기 보고',
+    mimeType: null,
+    sizeBytes: null,
+    folderCount: 3,
+    fileCount: 12,
+    token: 'sl_folder',
+  }
+
+  test('폴더 행은 폴더 아이콘과 「공간 · 폴더 n개 · 파일 n개」를 보인다', async () => {
+    const { handlers } = listHandlers([folderItem])
+    renderScreen(<DriveSharedWithMeView />, { path: '/drive/shared', handlers })
+
+    expect(await screen.findByTestId('drive-shared-folder-icon-21')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-shared-meta-21')).toHaveTextContent('경영지원 · 폴더 3개 · 파일 12개')
+  })
+
+  test('폴더 행을 누르면 드라이브 안 폴더 화면으로 간다 — 공유 정보를 묻지 않는다', async () => {
+    const infoCalls: string[] = []
+    const { handlers } = listHandlers([folderItem])
+    const { user, location } = renderScreen(<DriveSharedWithMeView />, {
+      path: '/drive/shared',
+      handlers: [
+        ...handlers,
+        http.get('/api/v1/public/drive/share/:token', ({ params }) => {
+          infoCalls.push(String(params.token))
+          return HttpResponse.json({})
+        }),
+      ],
+    })
+
+    await user.click(await screen.findByRole('button', { name: '분기 보고' }))
+    await waitFor(() => expect(location()).toBe('/drive/shared/21'))
+    expect(infoCalls).toEqual([])
+  })
+
+  test('비밀번호 폴더 링크는 공유 화면으로 넘긴다', async () => {
+    const { handlers } = listHandlers([{ ...folderItem, hasPassword: true }])
+    const { user, location } = renderScreen(<DriveSharedWithMeView />, { path: '/drive/shared', handlers })
+
+    await user.click(await screen.findByRole('button', { name: '분기 보고' }))
+    await waitFor(() => expect(location()).toBe('/s/sl_folder'))
+  })
+
+  test('머리 보조 문구는 「사내 공유 링크로 연 파일과 폴더」', async () => {
+    const { handlers } = listHandlers([folderItem])
+    renderScreen(<DriveSharedWithMeView />, { path: '/drive/shared', handlers })
+    expect(await screen.findByText('사내 공유 링크로 연 파일과 폴더')).toBeInTheDocument()
   })
 })
 

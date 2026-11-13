@@ -20,7 +20,8 @@ export function shareErrorStatus(e: unknown): number {
 /**
  * 공유 링크 뷰어 출처 — 원본·변환 PDF·다운로드를 공개 경로 + 열람 토큰으로 받는다.
  * 다운로드는 항목의 downloadPath 로 받는다(WP-1538 — 파일 링크 `…/download`, 폴더 링크 하위 파일 `…/files/{id}/download`).
- * 401(열람 토큰 만료·로그인 풀림)이면 onUnauthorized 로 알린 뒤 실패를 그대로 넘긴다(뷰어는 오류 화면).
+ * 401(열람 토큰 만료·로그인 풀림 — 만료 Bearer 는 공개 fetch 가 이미 한 번 갱신해 다시 받았다)이면 onUnauthorized 로 알린 뒤
+ * 실패를 그대로 넘긴다(뷰어는 오류 화면).
  */
 export function shareViewerSource(viewToken: string | null, onUnauthorized: () => void): ViewerItemSource {
   const guard = async <T,>(run: () => Promise<T>): Promise<T> => {
