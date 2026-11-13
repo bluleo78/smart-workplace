@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { shareLandingUrl } from '@/api/drive'
-import { fetchShareInfo } from '@/api/drivePublicShare'
+import { fetchShareInfo, isShareFolderInfo } from '@/api/drivePublicShare'
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
@@ -70,8 +70,9 @@ export function DriveSharedWithMeView() {
     }
     try {
       const info = await fetchShareInfo(token, null)
-      if ('name' in info) {
-        setViewerItem(shareViewerItem(token, info, shareViewerSource(token, null, closeViewerOnUnauthorized)))
+      // 폴더 링크(WP-1538) 응답은 이 자리 뷰어로 열 수 없어 공유 화면으로 넘긴다 — 지금 목록엔 파일 링크만 오지만(폴더는 WP-1540) 응답 모양을 가린다.
+      if ('name' in info && !isShareFolderInfo(info)) {
+        setViewerItem(shareViewerItem(token, info, shareViewerSource(null, closeViewerOnUnauthorized)))
       } else {
         navigate(`/s/${token}`)
       }

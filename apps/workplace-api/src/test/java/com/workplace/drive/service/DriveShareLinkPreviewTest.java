@@ -1,6 +1,7 @@
 package com.workplace.drive.service;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_FOLDER;
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
@@ -161,7 +162,105 @@ class DriveShareLinkPreviewTest extends IntegrationTestBase {
     }
   }
 
+  // --- 폴더 링크(WP-1538) ---
+
+  @Test
+  void folderLink_open_showsNameAndChildCountsAndExpiry() {
+    long owner = seedUser("o");
+    long spaceId = seedSpace(owner);
+    long root = seedFolder(spaceId, null, "공유폴더");
+    long sub = seedFolder(spaceId, root, "하위");
+    long trashedSub = seedFolder(spaceId, root, "버린하위");
+    seedFolder(spaceId, sub, "손자");
+    seedFileIn(spaceId, root, "a.txt");
+    seedFileIn(spaceId, root, "b.txt");
+    long trashedFile = seedFileIn(spaceId, root, "c.txt");
+    seedFileIn(spaceId, sub, "deep.txt");
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.TRASHED_AT, dbNow())
+        .where(DRIVE_FOLDER.ID.eq(trashedSub))
+        .execute();
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, dbNow())
+        .where(DRIVE_FILE.ID.eq(trashedFile))
+        .execute();
+    Instant expires = Instant.now().plus(3, ChronoUnit.DAYS);
+    String token = folderLink(owner, root, "EXTERNAL", null, expires);
+    TenantContext.clear();
+
+    var card = (DriveSharePreview.FolderOpen) service.previewCard(token);
+    // 바로 아래 살아 있는 항목만 센다(휴지통·손자·하위 파일 제외).
+    assertThat(card.name()).isEqualTo("공유폴더");
+    assertThat(card.folderCount()).isEqualTo(1);
+    assertThat(card.fileCount()).isEqualTo(2);
+    assertThat(card.expiresAt()).isNotNull();
+  }
+
+  @Test
+  void folderLink_trashedSharedFolder_isNotFound() {
+    long owner = seedUser("o");
+    long spaceId = seedSpace(owner);
+    long root = seedFolder(spaceId, null, "곧버림");
+    String token = folderLink(owner, root, "EXTERNAL", null, null);
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.TRASHED_AT, dbNow())
+        .where(DRIVE_FOLDER.ID.eq(root))
+        .execute();
+    TenantContext.clear();
+
+    assertThatThrownBy(() -> service.previewCard(token))
+        .isInstanceOf(DriveShareLinkNotFoundException.class);
+  }
+
+  @Test
+  void folderLink_internalAndPassword_areFolderTypedAndHideInfo() {
+    long owner = seedUser("o");
+    long spaceId = seedSpace(owner);
+    long root = seedFolder(spaceId, null, "비밀폴더");
+    String internal = folderLink(owner, root, "INTERNAL", null, null);
+    String internalPw = folderLink(owner, root, "INTERNAL", "secret", null);
+    String pw = folderLink(owner, root, "EXTERNAL", "secret", null);
+    TenantContext.clear();
+
+    assertThat(service.previewCard(internal))
+        .isEqualTo(new DriveSharePreview.InternalOnly(DriveShareTarget.FOLDER));
+    assertThat(service.previewCard(internalPw))
+        .isEqualTo(new DriveSharePreview.InternalOnly(DriveShareTarget.FOLDER));
+    assertThat(service.previewCard(pw))
+        .isEqualTo(new DriveSharePreview.PasswordProtected(DriveShareTarget.FOLDER));
+  }
+
   // --- 헬퍼 ---
+
+  private String folderLink(
+      long owner, long folderId, String audience, String password, Instant expiresAt) {
+    return service
+        .create(
+            owner,
+            new DriveShareLinkService.Target.Folder(folderId),
+            new CreateShareLinkRequest(audience, password, expiresAt))
+        .token();
+  }
+
+  private long seedFolder(long spaceId, Long parent, String name) {
+    return dsl.insertInto(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.SPACE_ID, spaceId)
+        .set(DRIVE_FOLDER.PARENT_ID, parent)
+        .set(DRIVE_FOLDER.NAME, name)
+        .returning(DRIVE_FOLDER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 폴더 안에 파일을 둔다. */
+  private long seedFileIn(long spaceId, long folderId, String name) {
+    long id = seedFile(spaceId, name);
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.FOLDER_ID, folderId)
+        .where(DRIVE_FILE.ID.eq(id))
+        .execute();
+    return id;
+  }
 
   private String body(org.springframework.test.web.servlet.ResultActions r) throws Exception {
     return r.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);

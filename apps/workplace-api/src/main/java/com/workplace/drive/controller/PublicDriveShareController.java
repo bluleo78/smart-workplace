@@ -1,5 +1,6 @@
 package com.workplace.drive.controller;
 
+import com.workplace.drive.dto.ShareFolderListing;
 import com.workplace.drive.dto.ShareInfoResponse;
 import com.workplace.drive.dto.UnlockShareRequest;
 import com.workplace.drive.exception.DriveShareLinkGoneException;
@@ -64,6 +65,22 @@ public class PublicDriveShareController {
   }
 
   /**
+   * 폴더 공유 링크의 하위 목록(WP-1538) — {@code folder} 가 없으면 공유 폴더. 공유 폴더 밖·휴지통 id 는 404, 파일 링크도 404. 비밀번호
+   * 링크는 열람 토큰만 받는다(시도 칸 없음). 링크가 곧 권한이라 응답을 캐시하지 않게 {@code Cache-Control: no-store}. 순서는 {@link
+   * DriveShareLinkService#children} 참조.
+   */
+  @GetMapping("/share/{token}/children")
+  public ResponseEntity<ShareFolderListing> children(
+      @PathVariable("token") String token,
+      @RequestParam(value = "folder", required = false) Long folder,
+      @RequestHeader(value = VIEW_TOKEN_HEADER, required = false) String viewToken) {
+    ShareFolderListing listing =
+        shareLinks.children(
+            token, viewToken, folder, TenantContext.get(), requesterUserId() != null);
+    return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(listing);
+  }
+
+  /**
    * 링크 미리보기 메타 조각(WP-1473) — web nginx 가 드라이브 공유 주소의 index.html 에 SSI 로 끼워 넣는 {@code <meta>} 줄. 메신저
    * 봇은 JS 를 실행하지 않아 HTML 에 파일 이름·종류가 있어야 카드가 된다. {@code part=image} 는 og:image 줄, 그 밖(기본)은 설명·제목 줄.
    *
@@ -116,15 +133,7 @@ public class PublicDriveShareController {
         shareLinks.resolveForView(token, viewToken, TenantContext.get(), requesterUserId() != null);
     try {
       TenantContext.set(target.tenantId());
-      FileContentResult c = fileService.downloadViaShareLink(target.driveFileId());
-      HttpHeaders headers = new HttpHeaders();
-      headers.setContentType(MediaType.parseMediaType(c.mimeType()));
-      headers.setContentDisposition(
-          ContentDisposition.inline().filename(c.originalName(), StandardCharsets.UTF_8).build());
-      headers.setContentLength(c.size());
-      headers.set("X-Content-Type-Options", "nosniff");
-      headers.set("Content-Security-Policy", "sandbox");
-      return ResponseEntity.ok().headers(headers).body(c.resource());
+      return inlineResponse(fileService.downloadViaShareLink(target.driveFileId()));
     } finally {
       TenantContext.clear();
     }
@@ -184,18 +193,106 @@ public class PublicDriveShareController {
     // Resource(FileSystemResource) 는 컨트롤러 반환 후 스트리밍되지만 디스크 read 라 DB 컨텍스트 불요
     try {
       TenantContext.set(target.tenantId());
-      FileContentResult c = fileService.downloadViaShareLink(target.driveFileId());
-      HttpHeaders headers = new HttpHeaders();
-      headers.setContentType(MediaType.parseMediaType(c.mimeType()));
-      headers.setContentDisposition(
-          ContentDisposition.attachment()
-              .filename(c.originalName(), StandardCharsets.UTF_8)
-              .build());
-      headers.setContentLength(c.size());
-      return ResponseEntity.ok().headers(headers).body(c.resource());
+      return attachmentResponse(fileService.downloadViaShareLink(target.driveFileId()));
     } finally {
       TenantContext.clear();
     }
+  }
+
+  /**
+   * 폴더 링크 하위 파일 원본 inline(WP-1538) — {@code /content} 와 같은 응답 헤더(nosniff·sandbox). 비밀번호 링크는 열람 토큰만
+   * 받는다(비밀번호 헤더 무시, P7). 파일이 공유 폴더 안인지는 {@link DriveShareLinkService#resolveFolderFile} 가 판정한다.
+   */
+  @GetMapping("/share/{token}/files/{driveFileId}/content")
+  public ResponseEntity<Resource> folderFileContent(
+      @PathVariable("token") String token,
+      @PathVariable("driveFileId") long driveFileId,
+      @RequestHeader(value = VIEW_TOKEN_HEADER, required = false) String viewToken)
+      throws IOException {
+    return inFolderFileTenant(
+        token, viewToken, driveFileId, id -> inlineResponse(fileService.downloadViaShareLink(id)));
+  }
+
+  /** 폴더 링크 하위 파일 변환 PDF 미리보기(WP-1538) — 인증 규칙은 하위 파일 content 와 같고 응답 계약은 {@code /preview} 와 같다. */
+  @GetMapping("/share/{token}/files/{driveFileId}/preview")
+  public ResponseEntity<?> folderFilePreview(
+      @PathVariable("token") String token,
+      @PathVariable("driveFileId") long driveFileId,
+      @RequestHeader(value = VIEW_TOKEN_HEADER, required = false) String viewToken,
+      @RequestParam(defaultValue = "false") boolean start) {
+    return inFolderFileTenant(
+        token,
+        viewToken,
+        driveFileId,
+        id ->
+            PreviewResponses.of(
+                previewService.open(fileService.coreFileIdViaShareLink(id), start)));
+  }
+
+  /**
+   * 폴더 링크 하위 파일 다운로드(WP-1538) — attachment. 열람 토큰만 받는다(비밀번호 헤더 무시, P7). 공개 열람·다운로드는 감사를 남기지
+   * 않는다(WP-1227과 같은 수준).
+   */
+  @GetMapping("/share/{token}/files/{driveFileId}/download")
+  public ResponseEntity<Resource> folderFileDownload(
+      @PathVariable("token") String token,
+      @PathVariable("driveFileId") long driveFileId,
+      @RequestHeader(value = VIEW_TOKEN_HEADER, required = false) String viewToken)
+      throws IOException {
+    return inFolderFileTenant(
+        token,
+        viewToken,
+        driveFileId,
+        id -> attachmentResponse(fileService.downloadViaShareLink(id)));
+  }
+
+  /**
+   * 폴더 링크 하위 파일 경로(content·preview·download)의 공통 흐름(WP-1538) — {@link
+   * DriveShareLinkService#resolveFolderFile} 로 가드·자손 검사를 거친 뒤 링크 워크스페이스로 컨텍스트를 세워 body 를 부르고 끝나면
+   * 정리한다(파일 경로 /content·/download 와 같은 2-트랜잭션 패턴).
+   */
+  private <T, E extends Exception> T inFolderFileTenant(
+      String token, String viewToken, long driveFileId, FolderFileAction<T, E> body) throws E {
+    ResolvedTarget target =
+        shareLinks.resolveFolderFile(
+            token, viewToken, driveFileId, TenantContext.get(), requesterUserId() != null);
+    try {
+      TenantContext.set(target.tenantId());
+      return body.apply(target.driveFileId());
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  /** 하위 파일 경로가 링크 워크스페이스 컨텍스트 안에서 할 일 — 다운로드 경로가 IOException 을 던져서 예외 형식을 받는다. */
+  @FunctionalInterface
+  private interface FolderFileAction<T, E extends Exception> {
+    T apply(long driveFileId) throws E;
+  }
+
+  /**
+   * inline 응답 조립(WP-1227·1538 공유) — 공개 경로에서 남이 올린 HTML·SVG 를 내주므로 sandbox CSP 와 nosniff 를 붙인다. 파일
+   * 링크 /content 와 폴더 하위 파일 content 가 같은 헤더를 쓴다.
+   */
+  private static ResponseEntity<Resource> inlineResponse(FileContentResult c) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.parseMediaType(c.mimeType()));
+    headers.setContentDisposition(
+        ContentDisposition.inline().filename(c.originalName(), StandardCharsets.UTF_8).build());
+    headers.setContentLength(c.size());
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("Content-Security-Policy", "sandbox");
+    return ResponseEntity.ok().headers(headers).body(c.resource());
+  }
+
+  /** attachment 응답 조립(WP-1538 공유) — 파일 링크 /download 와 폴더 하위 파일 download 가 같은 헤더를 쓴다. */
+  private static ResponseEntity<Resource> attachmentResponse(FileContentResult c) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.parseMediaType(c.mimeType()));
+    headers.setContentDisposition(
+        ContentDisposition.attachment().filename(c.originalName(), StandardCharsets.UTF_8).build());
+    headers.setContentLength(c.size());
+    return ResponseEntity.ok().headers(headers).body(c.resource());
   }
 
   /** 로그인 요청자의 사용자 id — JwtAuthenticationFilter 가 유효한 Bearer 일 때 principal(Long)로 채운다. 비로그인 null. */

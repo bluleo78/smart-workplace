@@ -62,7 +62,7 @@ import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { appUrl, driveFolderPath } from '@/lib/appUrl'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
-import { driveFileActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
+import { driveFileActionDisabled, driveFolderActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
 import { isDriveSpaceReadOnly,spaceDisplayName } from '@/lib/driveSpaces'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
@@ -71,7 +71,7 @@ import { MULTI_SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import type { ShareTarget } from '@/lib/shareTarget'
 import { cn } from '@/lib/utils'
 
-import { driveApi } from '../../api/drive'
+import { driveApi, type ShareTargetRef } from '../../api/drive'
 import { DriveCrumbCurrent, DriveCrumbDropButton, DriveDndProvider } from '../../components/drive/DriveDnd'
 import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
@@ -240,7 +240,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 현재 폴더 목록에서 찾고, 재조회·placeholder 로 잠깐 빠져도 깜빡이지 않게 마지막으로 연 파일을 기억한다.
   const previewParam = useHistoryParam('preview')
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
-  const [shareFile, setShareFile] = useState<DriveFile | null>(null)
+  const [shareTarget, setShareTarget] = useState<ShareTargetRef | null>(null)
   // 이름 변경 대상 파일(WP-335) — null 이면 다이얼로그 닫힘.
   const [renameFile, setRenameFile] = useState<DriveFile | null>(null)
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
@@ -527,8 +527,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const canSharePreview =
     preview != null && !readOnlyRole && !driveFileActionDisabled({ space, missing: preview.available === false }).share
   const sharePreview = useCallback(() => {
-    if (preview) setShareFile(preview)
-  }, [preview, setShareFile])
+    if (preview) setShareTarget({ kind: 'file', id: preview.id, name: preview.name })
+  }, [preview, setShareTarget])
   const openPreviewShare = canSharePreview ? sharePreview : undefined
 
   // #739: 원본 blob 유실 여부 — undefined(구버전 스텁/폴백)는 유실 아님으로 취급(하위호환).
@@ -772,12 +772,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     // 폴더는 읽기 전용 여부 하나로 모두 막힌다. 파일 비활성 판정은 driveRowActions 순수 함수가 맡는다(단위 테스트로 지킴, WP-413).
     if (target.kind === 'folder') {
       const f = target.item
+      // 공유 링크(WP-1538)는 파일과 같은 규칙 — VIEWER 는 visibleDriveRowActions 가 감추고, 보관 공간은 열어 둔다(모달이 안내).
+      const off = driveFolderActionDisabled({ space })
       return visibleDriveRowActions([
         ...rowLinkActions('folder', (sid) => driveFolderPath(sid, f.id), f.name),
-        { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: readOnly },
-        { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: readOnly },
-        { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: readOnly },
-        { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: readOnly, destructive: true },
+        { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareTarget({ kind: 'folder', id: f.id, name: f.name }), disabled: off.share },
+        { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: off.rename },
+        { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: off.move },
+        { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: off.copy },
+        { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: off.delete, destructive: true },
       ], readOnlyRole)
     }
     const f = target.item
@@ -786,7 +789,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     return visibleDriveRowActions([
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: off.download },
       ...rowLinkActions('file', (sid) => driveFilePath(sid, f.folderId, f.id), f.name),
-      { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: off.share },
+      { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareTarget({ kind: 'file', id: f.id, name: f.name }), disabled: off.share },
       { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: off.rename },
       { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: off.move },
       { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: off.copy },
@@ -1626,8 +1629,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           actions={rowSheet ? rowActionsFor(rowSheet) : []}
           testId="drive-row-sheet"
         />
-        {shareFile && (
-          <ShareLinkModal file={shareFile} archived={!!space?.archived} onClose={() => setShareFile(null)} />
+        {shareTarget && (
+          <ShareLinkModal target={shareTarget} archived={!!space?.archived} onClose={() => setShareTarget(null)} />
         )}
         {/* 파일 이름 변경(WP-335) — 확장자 앞까지만 선택해 바로 타이핑하면 이름만 바뀐다(확장자도 직접 고칠 수 있음).
             실패(이름 중복 409 등)는 다이얼로그를 유지한 채 인라인으로 보인다. */}

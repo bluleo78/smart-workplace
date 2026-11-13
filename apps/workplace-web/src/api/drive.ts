@@ -55,18 +55,30 @@ export async function readJsonBody(data: Blob): Promise<Record<string, unknown> 
 // 공유 링크 타입은 types/drive 에 정의(DTO 단일 출처). 기존 import 처를 위해 재노출.
 export type { ShareLink } from '../types/drive'
 
+/** 공유 링크 대상 — 파일 또는 폴더(WP-1538). name 은 모달 제목 아래 표시용. */
+export interface ShareTargetRef {
+  kind: 'file' | 'folder'
+  id: number
+  name: string
+}
+
+/** 대상 종류별 공유 링크 경로 — 파일·폴더가 같은 요청/응답 모양을 쓴다(WP-1538). */
+function shareLinksPath(target: Pick<ShareTargetRef, 'kind' | 'id'>): string {
+  return `/drive/${target.kind === 'folder' ? 'folders' : 'files'}/${target.id}/share-links`
+}
+
 // 공유 링크 생성 — audience, 비밀번호(선택), 만료일(선택). 응답은 목록 항목과 같은 모양(토큰·만든 사람 이름 포함, WP-1528).
 export async function createShareLink(
-  fileId: number,
+  target: Pick<ShareTargetRef, 'kind' | 'id'>,
   body: { audience: 'EXTERNAL' | 'INTERNAL'; password?: string; expiresAt?: string },
 ): Promise<ShareLink> {
-  const { data } = await client.post<ShareLink>(`/drive/files/${fileId}/share-links`, body);
+  const { data } = await client.post<ShareLink>(shareLinksPath(target), body);
   return data;
 }
 
-// 파일에 연결된 공유 링크 목록 조회.
-export async function listShareLinks(fileId: number): Promise<ShareLink[]> {
-  const { data } = await client.get<ShareLink[]>(`/drive/files/${fileId}/share-links`);
+// 파일·폴더에 연결된 공유 링크 목록 조회.
+export async function listShareLinks(target: Pick<ShareTargetRef, 'kind' | 'id'>): Promise<ShareLink[]> {
+  const { data } = await client.get<ShareLink[]>(shareLinksPath(target));
   return data;
 }
 

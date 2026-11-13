@@ -13,6 +13,7 @@ import {
   shareCardDrivePath,
 } from '@/api/appLinks'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { Badge } from '@/components/ui/badge'
 import { useAppLinkCard } from '@/hooks/queries/useAppLinks'
 import { APP_LINK_KIND_LABEL, type AppLink } from '@/lib/appLinks'
 import { allDayLocalDate } from '@/lib/calendar'
@@ -199,7 +200,7 @@ function TitledCardBody({
 }
 
 /** 큰 아이콘 + 머리글·제목(·덧줄) — 드라이브 파일·폴더·공간 카드(WP-1536)와 공유 링크 카드(WP-1474)가 같은 모양을 쓴다. */
-function IconCardBody({ icon, head, title, meta, testId }: { icon: ReactNode; head: string; title: string; meta?: string; testId: string }) {
+function IconCardBody({ icon, head, title, meta, testId }: { icon: ReactNode; head: ReactNode; title: string; meta?: string; testId: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       {icon}
@@ -232,9 +233,38 @@ function FileCardBody({ data, testId }: { data: AppLinkCardData; testId: string 
  *   - MEMBER: 공간 구성원 — 드라이브 파일 카드처럼 「파일 · 공간」 + 이름
  *   - OPEN: 링크로 열 수 있음 — 「공유 링크 · 만료일까지」 + 이름 + 「종류 · 크기」
  *   - PASSWORD: 비밀번호 링크 — 이름·크기·종류를 받지 않으므로 자물쇠와 서버가 준 고정 제목만
- * 공유한 사람 이름은 어디에도 넣지 않는다.
+ * 파일 카드에는 공유한 사람 이름을 넣지 않는다. 폴더 카드(WP-1538, MEMBER·OPEN)는 덧줄에 「폴더 n개 · 파일 n개 · 공유한 사람」을 싣는다.
  */
 function ShareCardBody({ data, testId }: { data: AppLinkCardData; testId: string }) {
+  // 폴더 공유(WP-1538) — MEMBER·OPEN 은 같은 몸통(P14, 이동 경로만 다르다). PASSWORD 는 아래 자물쇠 몸통(서버가 고정 제목을 준다).
+  if (data.shareTarget === 'FOLDER' && data.shareState !== 'PASSWORD') {
+    const meta = [
+      data.folderCount != null ? `폴더 ${data.folderCount}개` : '',
+      data.fileCount != null ? `파일 ${data.fileCount}개` : '',
+      data.sharedBy,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    const badge = data.audience === 'INTERNAL' ? '사내 공유' : data.audience === 'EXTERNAL' ? '외부 공유' : null
+    return (
+      <IconCardBody
+        icon={<Folder className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />}
+        head={
+          <span className="inline-flex items-center gap-1.5">
+            <span>폴더</span>
+            {badge && (
+              <Badge variant="secondary" className="px-1.5 py-0">
+                {badge}
+              </Badge>
+            )}
+          </span>
+        }
+        title={data.title}
+        meta={meta}
+        testId={testId}
+      />
+    )
+  }
   if (data.shareState === 'MEMBER') {
     return <IconCardBody icon={fileIcon(data.mimeType, data.title)} head={withPart('파일', data.spaceName)} title={data.title} testId={testId} />
   }

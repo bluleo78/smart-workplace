@@ -1,5 +1,5 @@
-// 파일 공유 링크 관리 모달 — 이미 만든 링크를 먼저 보이고 다시 복사하게 한다(WP-1528).
-// - 제목 아래에 파일 이름을 보여 어느 파일의 링크인지 바로 안다.
+// 파일·폴더 공유 링크 관리 모달(폴더 겸용 WP-1538) — 이미 만든 링크를 먼저 보이고 다시 복사하게 한다(WP-1528).
+// - 제목 아래에 파일·폴더 이름(폴더는 폴더 아이콘)을 보여 어느 파일의 링크인지 바로 안다.
 // - 살아 있는(폐기·만료 아닌) 링크는 카드로: 가시성·만료·비밀번호 배지, 만든 사람·날짜, URL + [복사] + [폐기].
 //   예전에 만든 링크(서버에 토큰이 없음)는 URL 대신 다시 볼 수 없다는 안내 + [폐기].
 // - 새 링크는 「+ 새 링크 만들기」로 그 자리에 폼(가시성·비밀번호·만료일)을 펼쳐 만든다. 링크가 하나도 없으면 폼이 바로 보인다.
@@ -9,10 +9,17 @@
 // 목록은 TanStack Query 로 받고, 생성·폐기 결과는 캐시에 먼저 반영한 뒤 서버 목록으로 다시 맞춘다(invalidate).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Folder } from 'lucide-react';
 import { useState } from 'react';
 
-import { createShareLink, listShareLinks, revokeShareLink, shareLandingUrl, type ShareLink } from '@/api/drive';
+import {
+  createShareLink,
+  listShareLinks,
+  revokeShareLink,
+  shareLandingUrl,
+  type ShareLink,
+  type ShareTargetRef,
+} from '@/api/drive';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -32,13 +39,14 @@ import { handleApiError } from '@/lib/api-error';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { splitShareLinks } from '@/lib/driveShareLinks';
 import { formatDateOnly, formatInstantMonthDay } from '@/lib/formatters';
+import { initialExpiry, nextExpiry, shareFormGuide } from '@/lib/shareLinkDefaults';
 import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
 import { cn } from '@/lib/utils';
 import { sharePasswordError } from '@/lib/validations/shareLink';
-import type { DriveFile } from '@/types/drive';
 
 interface ShareLinkModalProps {
-  file: DriveFile;
+  /** 링크를 만들고 보는 대상 — 파일 또는 폴더(WP-1538). */
+  target: ShareTargetRef;
   /** 보관된 공간(읽기 전용) — 새 링크는 만들 수 없고 기존 링크 복사·폐기만 한다(WP-527). */
   archived?: boolean;
   onClose: () => void;
@@ -63,14 +71,18 @@ function AudienceBadge({ link }: { link: ShareLink }) {
   return <Badge variant="outline">{link.audience === 'EXTERNAL' ? '외부' : '사내'}</Badge>;
 }
 
-export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkModalProps) {
+export function ShareLinkModal({ target, archived = false, onClose }: ShareLinkModalProps) {
   const qc = useQueryClient();
-  const linksKey = ['drive', 'shareLinks', file.id] as const;
+  // API 에는 종류·id 만 넘긴다(이름은 표시용, WP-1538).
+  const ref = { kind: target.kind, id: target.id } as const;
+  const linksKey = ['drive', 'shareLinks', target.kind, target.id] as const;
 
   // 폼 상태 — 가시성(기본 외부), 비밀번호(선택), 만료일(선택)
   const [audience, setAudience] = useState<'EXTERNAL' | 'INTERNAL'>('EXTERNAL');
   const [password, setPassword] = useState('');
-  const [expiresAt, setExpiresAt] = useState('');
+  // 폴더 + 외부는 만료일을 30일 뒤로 미리 채운다(웹 전용 기본값, WP-1538 P4) — 사용자가 날짜 칸을 만지기 전까지만 가시성을 따라간다.
+  const [expiresAt, setExpiresAt] = useState(() => initialExpiry(target.kind, new Date()));
+  const [expiresTouched, setExpiresTouched] = useState(false);
   // 「+ 새 링크 만들기」로 폼을 펼쳤는가 — 살아 있는 링크가 있으면 폼은 접혀 있다가 이걸로 연다.
   const [formOpen, setFormOpen] = useState(false);
   // 방금 만든 링크 id — 목록 맨 위 카드를 강조해 어느 링크가 복사됐는지 보인다. 다시 만들면 새 링크로 옮긴다.
@@ -85,7 +97,7 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
   // 실패는 곧바로 안내한다(재시도 없음).
   const list = useQuery({
     queryKey: linksKey,
-    queryFn: () => listShareLinks(file.id),
+    queryFn: () => listShareLinks(ref),
     retry: false,
     staleTime: 0,
     gcTime: 0,
@@ -113,6 +125,8 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
   // 폼 표시 — 보관 공간이 아니고, 직접 펼쳤거나 · 첫 응답이 온 뒤(성공·실패 모두) 살아 있는 링크가 없을 때(조회가 실패해도 만들 길은 남긴다).
   // 첫 응답 전(pending)엔 폼·「+ 새 링크 만들기」를 섣불리 보이지 않는다(깜빡임 방지).
   const showForm = !archived && (formOpen || (!list.isPending && live.length === 0));
+  // 대상 종류·가시성별 폼 안내(WP-1538) — 폴더 외부 경고·사내 안내·만료일 기본값 안내. 파일은 모두 null.
+  const guide = shareFormGuide(target.kind, audience);
   // 폼 [취소]는 접을 수 있을 때만 — 살아 있는 링크가 없으면 접어도 다시 펼쳐지므로 두지 않는다.
   const canCollapseForm = live.length > 0;
 
@@ -120,7 +134,8 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
   function resetForm() {
     setAudience('EXTERNAL');
     setPassword('');
-    setExpiresAt('');
+    setExpiresTouched(false);
+    setExpiresAt(initialExpiry(target.kind, new Date()));
     setPasswordError(null);
     setExpiresAtError(null);
   }
@@ -138,7 +153,7 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
 
   // 생성 — 서버가 목록과 같은 모양의 항목을 돌려주므로 그대로 맨 위에 넣는다(같은 id 는 중복 제거). 재조회가 늦거나 실패해도 새 링크가 바로 보인다.
   const create = useMutation({
-    mutationFn: (body: CreateBody) => createShareLink(file.id, body),
+    mutationFn: (body: CreateBody) => createShareLink(ref, body),
     onSuccess: (created) => {
       resetForm();
       setFormOpen(false);
@@ -202,9 +217,12 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
       <DialogContent className="max-w-lg" data-testid="share-link-modal">
         <DialogHeader>
           <DialogTitle>공유 링크</DialogTitle>
-          {/* 어느 파일의 링크인지 제목 아래에 보인다(예전엔 스크린리더 전용) — 긴 이름은 한 줄로 줄인다. */}
-          <DialogDescription className="truncate" data-testid="share-link-file-name" title={file.name}>
-            {file.name}
+          {/* 어느 파일·폴더의 링크인지 제목 아래에 보인다(예전엔 스크린리더 전용) — 폴더는 목록과 같은 폴더 아이콘, 긴 이름은 한 줄로 줄인다. */}
+          <DialogDescription className="flex min-w-0 items-center gap-1.5" data-testid="share-link-file-name" title={target.name}>
+            {target.kind === 'folder' && (
+              <Folder className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden data-testid="share-target-folder-icon" />
+            )}
+            <span className="truncate">{target.name}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -305,7 +323,14 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
               <Label>가시성</Label>
               <RadioGroup
                 value={audience}
-                onValueChange={(v) => setAudience(v as 'EXTERNAL' | 'INTERNAL')}
+                onValueChange={(v) => {
+                  const next = v as 'EXTERNAL' | 'INTERNAL';
+                  setAudience(next);
+                  // 폴더 기본 만료일은 안 만졌을 때만 가시성을 따라간다(WP-1538).
+                  setExpiresAt((cur) =>
+                    nextExpiry({ kind: target.kind, audience: next, touched: expiresTouched, current: cur, today: new Date() }),
+                  );
+                }}
                 className="flex gap-4"
                 aria-label="공유 대상"
               >
@@ -323,6 +348,21 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
                 </div>
               </RadioGroup>
             </div>
+
+            {/* 폴더 안내(WP-1538) — 외부는 노란 경고, 사내는 열람 방식 안내. 정적 문구라 role=alert 가 아니다. */}
+            {guide.warning && (
+              <p
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                data-testid="share-folder-external-warning"
+              >
+                {guide.warning}
+              </p>
+            )}
+            {guide.notice && (
+              <p className="text-xs text-muted-foreground" data-testid="share-folder-internal-notice">
+                {guide.notice}
+              </p>
+            )}
 
             {/* 비밀번호 입력 (선택) */}
             <div className="space-y-1">
@@ -358,6 +398,7 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
                 value={expiresAt}
                 onChange={(e) => {
                   setExpiresAt(e.target.value);
+                  setExpiresTouched(true);
                   setExpiresAtError(null);
                 }}
                 min={new Date().toISOString().slice(0, 10)}
@@ -365,6 +406,7 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
                 aria-invalid={expiresAtError != null}
                 aria-describedby={expiresAtError ? 'share-expires-error' : undefined}
               />
+              {guide.expiryHint && !expiresTouched && <p className="text-xs text-muted-foreground">{guide.expiryHint}</p>}
               {expiresAtError && (
                 <p id="share-expires-error" className="text-xs text-destructive" data-testid="share-expires-error">
                   {expiresAtError}

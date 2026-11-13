@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { shareCardDrivePath } from '@/api/appLinks'
+import { driveFolderPath } from '@/lib/appUrl'
+
 import { appLinksOf, cardUrls, currentAppHosts, parseAppLink, setPublicAppHost, visibleAppLinks, withoutMarkdownCode } from './appLinks'
 
 // 서버 LinkPreviewDispatcherTest 와 함께 읽는 앱 카드 주소 사례 표(WP-1165) — 두 쪽 경로 문법·자릿수 상한이 어긋나면 한쪽이 실패한다.
@@ -216,5 +219,19 @@ describe('withoutMarkdownCode(WP-1235)', () => {
   it('코드를 거른 뒤 앞에서 3개까지 — 코드 안 주소가 자리를 차지하지 않는다', () => {
     const body = [`\`${u(1)}\``, u(2), u(3), u(4), u(5)].join(' ')
     expect(cardUrls(withoutMarkdownCode(body))).toEqual([u(2), u(3), u(4)])
+  })
+})
+
+// 폴더 공유 링크 카드의 드라이브 이동 경로(WP-1538) — 공간 구성원이면 폴더로, 링크로 여는 카드는 드라이브 경로가 없다.
+describe('shareCardDrivePath — 폴더 공유(WP-1538)', () => {
+  it('폴더 MEMBER 카드는 드라이브 폴더 경로', () => {
+    expect(shareCardDrivePath({ kind: 'SHARE', shareTarget: 'FOLDER', shareState: 'MEMBER', driveSpaceId: 3, driveFolderId: 20, title: '견적' })).toBe(
+      driveFolderPath(3, 20),
+    )
+  })
+
+  it('폴더 OPEN·PASSWORD 카드는 드라이브 경로가 없다', () => {
+    expect(shareCardDrivePath({ kind: 'SHARE', shareTarget: 'FOLDER', shareState: 'OPEN', title: '견적' })).toBeNull()
+    expect(shareCardDrivePath({ kind: 'SHARE', shareTarget: 'FOLDER', shareState: 'PASSWORD', title: 'x' })).toBeNull()
   })
 })

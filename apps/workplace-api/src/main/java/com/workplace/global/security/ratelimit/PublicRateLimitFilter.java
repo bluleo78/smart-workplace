@@ -44,7 +44,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
 
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final Pattern SHARE_DOWNLOAD =
-      Pattern.compile("^/api/v1/public/drive/share/[^/]+/download$");
+      Pattern.compile("^/api/v1/public/drive/share/[^/]+(/files/\\d+)?/download$");
 
   /**
    * 공개 아바타 이미지(WP-1222) — {@code /api/v1/avatars/{userId}/{hash}/{size}} 와 그 아래 모든 주소(404 가 될 잘못된
@@ -57,11 +57,11 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
       Pattern.compile("^/api/v1/public/drive/share/[^/]+/unlock$");
 
   /**
-   * 공유 링크 미리보기(WP-1227). start=true 는 실패한 변환을 다시 선점해 변환 작업을 새로 띄울 수 있어(익명 경로) 센다. 폴링(start=false)은
-   * 세지 않는다.
+   * 공유 링크 미리보기(WP-1227). 폴더 링크 하위 파일({@code /files/{id}/preview}, WP-1538)도 같은 정책으로 센다. start=true
+   * 는 실패한 변환을 다시 선점해 변환 작업을 새로 띄울 수 있어(익명 경로) 센다. 폴링(start=false)은 세지 않는다.
    */
   private static final Pattern SHARE_PREVIEW =
-      Pattern.compile("^/api/v1/public/drive/share/[^/]+/preview$");
+      Pattern.compile("^/api/v1/public/drive/share/[^/]+(/files/\\d+)?/preview$");
 
   /** 제한 정책 — 키 접두와 한도를 고르는 데 쓴다. */
   enum Policy {

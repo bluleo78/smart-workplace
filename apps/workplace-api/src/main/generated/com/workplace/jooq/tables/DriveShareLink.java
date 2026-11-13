@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.DriveFile.DriveFilePath;
+import com.workplace.jooq.tables.DriveFolder.DriveFolderPath;
 import com.workplace.jooq.tables.DriveShareLinkVisit.DriveShareLinkVisitPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
@@ -19,6 +20,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -39,6 +41,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -72,7 +75,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
     /**
      * The column <code>public.drive_share_link.drive_file_id</code>.
      */
-    public final TableField<DriveShareLinkRecord, Long> DRIVE_FILE_ID = createField(DSL.name("drive_file_id"), SQLDataType.BIGINT.nullable(false), this, "");
+    public final TableField<DriveShareLinkRecord, Long> DRIVE_FILE_ID = createField(DSL.name("drive_file_id"), SQLDataType.BIGINT, this, "");
 
     /**
      * The column <code>public.drive_share_link.space_id</code>.
@@ -123,6 +126,11 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
      * The column <code>public.drive_share_link.token_encrypted</code>.
      */
     public final TableField<DriveShareLinkRecord, String> TOKEN_ENCRYPTED = createField(DSL.name("token_encrypted"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.drive_share_link.drive_folder_id</code>.
+     */
+    public final TableField<DriveShareLinkRecord, Long> DRIVE_FOLDER_ID = createField(DSL.name("drive_folder_id"), SQLDataType.BIGINT, this, "");
 
     private DriveShareLink(Name alias, Table<DriveShareLinkRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -193,7 +201,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_DRIVE_SHARE_LINK_FILE, Indexes.IDX_DRIVE_SHARE_LINK_TENANT, Indexes.UQ_DRIVE_SHARE_LINK_TOKEN);
+        return Arrays.asList(Indexes.IDX_DRIVE_SHARE_LINK_FILE, Indexes.IDX_DRIVE_SHARE_LINK_FOLDER, Indexes.IDX_DRIVE_SHARE_LINK_TENANT, Indexes.UQ_DRIVE_SHARE_LINK_TOKEN);
     }
 
     @Override
@@ -208,7 +216,7 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
 
     @Override
     public List<ForeignKey<DriveShareLinkRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_CREATED_BY_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_DRIVE_FILE_ID_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_SPACE_ID_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_TENANT_ID_FKEY);
+        return Arrays.asList(Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_CREATED_BY_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_DRIVE_FILE_ID_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_DRIVE_FOLDER_ID_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_SPACE_ID_FKEY, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_TENANT_ID_FKEY);
     }
 
     private transient UserPath _user;
@@ -233,6 +241,18 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
             _driveFile = new DriveFilePath(this, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_DRIVE_FILE_ID_FKEY, null);
 
         return _driveFile;
+    }
+
+    private transient DriveFolderPath _driveFolder;
+
+    /**
+     * Get the implicit join path to the <code>public.drive_folder</code> table.
+     */
+    public DriveFolderPath driveFolder() {
+        if (_driveFolder == null)
+            _driveFolder = new DriveFolderPath(this, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_DRIVE_FOLDER_ID_FKEY, null);
+
+        return _driveFolder;
     }
 
     private transient DriveSpacePath _driveSpace;
@@ -270,6 +290,13 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
             _driveShareLinkVisit = new DriveShareLinkVisitPath(this, null, Keys.DRIVE_SHARE_LINK_VISIT__DRIVE_SHARE_LINK_VISIT_SHARE_LINK_ID_FKEY.getInverseKey());
 
         return _driveShareLinkVisit;
+    }
+
+    @Override
+    public List<Check<DriveShareLinkRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("ck_drive_share_link_target"), "((num_nonnulls(drive_file_id, drive_folder_id) = 1))", true)
+        );
     }
 
     @Override

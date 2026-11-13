@@ -1,6 +1,7 @@
 package com.workplace.drive.controller;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_FOLDER;
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK;
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK_VISIT;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
@@ -30,6 +31,7 @@ import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,7 +104,8 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
     String token = link("INTERNAL", null);
     openShare(token, outsider).andExpect(status().isOk());
     long id = linkId(token);
-    OffsetDateTime past = OffsetDateTime.now().minusDays(3);
+    // Postgres timestamptz 는 마이크로초까지라 나노초를 잘라 둔다 — 아니면 되읽은 값과 비교가 시계에 따라 어긋난다.
+    OffsetDateTime past = OffsetDateTime.now().minusDays(3).truncatedTo(ChronoUnit.MICROS);
     dsl.update(DRIVE_SHARE_LINK_VISIT)
         .set(DRIVE_SHARE_LINK_VISIT.LAST_OPENED_AT, past)
         .set(DRIVE_SHARE_LINK_VISIT.FIRST_OPENED_AT, past)
@@ -137,6 +140,43 @@ class DriveSharedWithMeIntegrationTest extends IntegrationTestBase {
     openShare(internal, member).andExpect(status().isOk());
 
     assertThat(visitCount()).isZero();
+  }
+
+  /**
+   * 폴더 공유 링크(WP-1538)는 공유받은 항목에 아직 기록하지 않는다 — 목록이 파일 행만 다루므로(폴더 지원은 WP-1540) 기록하면 빈 행이 생긴다. 폴더 링크를
+   * 열어도 공유 화면은 그대로 열리고, 목록은 파일 링크 행만 깨지지 않고 보인다.
+   */
+  @Test
+  void 사내_폴더_링크를_열어도_기록하지_않고_목록은_파일_행만_그대로다() throws Exception {
+    long folderId =
+        dsl.insertInto(DRIVE_FOLDER)
+            .set(DRIVE_FOLDER.SPACE_ID, spaceId)
+            .set(DRIVE_FOLDER.NAME, "분기 보고")
+            .returning(DRIVE_FOLDER.ID)
+            .fetchOne()
+            .getId();
+    String folderToken =
+        shareLinks
+            .create(
+                owner,
+                new DriveShareLinkService.Target.Folder(folderId),
+                new CreateShareLinkRequest("INTERNAL", null, null))
+            .token();
+    String fileToken = link("INTERNAL", null);
+
+    openShare(folderToken, outsider)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("FOLDER"))
+        .andExpect(jsonPath("$.name").value("분기 보고"));
+    assertThat(visitCount()).isZero();
+
+    openShare(fileToken, outsider).andExpect(status().isOk());
+    mockMvc
+        .perform(get("/api/v1/drive/shared-with-me").header("Authorization", bearer(outsider)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(1)))
+        .andExpect(jsonPath("$[0].shareLinkId").value(linkId(fileToken)))
+        .andExpect(jsonPath("$[0].name").value("2026 하반기 사업계획.pptx"));
   }
 
   @Test

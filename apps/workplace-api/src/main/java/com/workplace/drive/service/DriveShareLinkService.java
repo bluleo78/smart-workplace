@@ -2,15 +2,19 @@ package com.workplace.drive.service;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.dto.CreateShareLinkRequest;
+import com.workplace.drive.dto.ShareFolderListing;
 import com.workplace.drive.dto.ShareInfoResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
+import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.exception.DriveShareLinkGoneException;
 import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.repository.DriveFileRepository;
+import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
 import com.workplace.drive.repository.DriveShareLinkVisitRepository;
+import com.workplace.drive.repository.DriveSharedFolderRepository;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
 import com.workplace.global.tenant.TenantContext;
@@ -40,8 +44,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class DriveShareLinkService {
   private static final Set<String> AUDIENCES = Set.of("EXTERNAL", "INTERNAL");
 
+  /** 폴더 공유 하위 목록 한 번에 싣는 상한(WP-1538, P8) — 폴더를 먼저 채우고 남은 칸만큼 파일. */
+  static final int CHILDREN_LIMIT = 1000;
+
   private final DriveShareLinkRepository links;
   private final DriveFileRepository files;
+
+  /** 폴더 공유 링크의 살아 있는 폴더·공간 확인(WP-1538). */
+  private final DriveFolderRepository folders;
+
   private final DrivePermissions perms;
   private final PasswordEncoder passwordEncoder;
 
@@ -78,16 +89,122 @@ public class DriveShareLinkService {
   /** 「공유받은 항목」 기록(WP-1539) — 사내 링크를 연 같은 워크스페이스 사람. */
   private final DriveShareLinkVisitRepository visits;
 
+  /** 폴더 공유 링크의 자손 사슬·하위 목록(WP-1538). */
+  private final DriveSharedFolderRepository sharedFolders;
+
   /**
-   * 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시+암호문 저장 → 목록과 같은 모양의 항목(평문 토큰·만든 사람 이름·만든 시각 포함)을 돌려준다
-   * (WP-1528). 예전 생성 응답의 칸(id·token·audience·hasPassword·expiresAt)은 그대로 들어 있어 기존 호출부와 호환된다.
+   * 공유 링크를 거는 대상(WP-1538) — 파일 또는 폴더. 관리 API 가 한 흐름으로 다루려고 묶는다.
+   *
+   * <p>저장 칸(drive_file_id·drive_folder_id)과 감사 칸(action·요약·detail)은 종류마다 정해져 있어 각 record 가 직접 답한다 —
+   * 생성 흐름이 대상 종류를 다시 가려내지 않게 한다.
    */
+  public sealed interface Target {
+    /** 대상 id(파일이면 드라이브 파일 id, 폴더면 드라이브 폴더 id) — 감사 targetId 로도 쓴다. */
+    long id();
+
+    /** 링크 행의 drive_file_id — 파일 대상만 채운다. */
+    Long driveFileId();
+
+    /** 링크 행의 drive_folder_id — 폴더 대상만 채운다. */
+    Long driveFolderId();
+
+    /** 생성 감사 action — 파일 FILE_SHARE(#81), 폴더 FOLDER_SHARE(WP-1538). */
+    String auditAction();
+
+    /** 생성 감사 요약 문구. */
+    String auditSummary();
+
+    /** 생성 감사 detail — 파일은 예전 칸 그대로(#81, 칸 불변), 폴더는 target 칸을 더한다. */
+    Map<String, Object> auditDetail(long spaceId, String audience);
+
+    /** 드라이브 파일 id. */
+    record File(long id) implements Target {
+      @Override
+      public Long driveFileId() {
+        return id;
+      }
+
+      @Override
+      public Long driveFolderId() {
+        return null;
+      }
+
+      @Override
+      public String auditAction() {
+        return "FILE_SHARE";
+      }
+
+      @Override
+      public String auditSummary() {
+        return "공유 링크 생성";
+      }
+
+      @Override
+      public Map<String, Object> auditDetail(long spaceId, String audience) {
+        return Map.of("spaceId", spaceId, "audience", audience);
+      }
+    }
+
+    /** 드라이브 폴더 id. */
+    record Folder(long id) implements Target {
+      @Override
+      public Long driveFileId() {
+        return null;
+      }
+
+      @Override
+      public Long driveFolderId() {
+        return id;
+      }
+
+      @Override
+      public String auditAction() {
+        return "FOLDER_SHARE";
+      }
+
+      @Override
+      public String auditSummary() {
+        return "폴더 공유 링크 생성";
+      }
+
+      @Override
+      public Map<String, Object> auditDetail(long spaceId, String audience) {
+        return Map.of("spaceId", spaceId, "audience", audience, "target", "FOLDER");
+      }
+    }
+  }
+
+  /** 파일 링크 생성 — {@link #create(long, Target, CreateShareLinkRequest)} 위임(기존 호출부 유지). */
   @Transactional
   public ShareLinkResponse create(long callerId, long driveFileId, CreateShareLinkRequest req) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    // WP-1424: 비멤버는 공간 없음 대신 파일 없음(404)으로 파일 id 존재를 숨긴다.
-    perms.requireFileRole(row.spaceId(), callerId, driveFileId, "EDITOR");
+    return create(callerId, new Target.File(driveFileId), req);
+  }
+
+  /**
+   * 링크 생성. 대상(파일·폴더)의 공간 EDITOR 검증 → 토큰 생성 → 해시+암호문 저장 → 목록과 같은 모양의 항목(평문 토큰·만든 사람 이름·만든 시각 포함)을
+   * 돌려준다 (WP-1528). 예전 생성 응답의 칸(id·token·audience·hasPassword·expiresAt)은 그대로 들어 있어 기존 호출부와 호환된다.
+   * 폴더 대상(WP-1538)은 비멤버를 「폴더 없음」 404 로 숨기고, 감사는 FOLDER_SHARE 로 남긴다.
+   */
+  @Transactional
+  public ShareLinkResponse create(long callerId, Target target, CreateShareLinkRequest req) {
+    long spaceId;
+    switch (target) {
+      case Target.File f -> {
+        DriveFileRepository.DriveFileRow row =
+            files.findRow(f.id()).orElseThrow(() -> new DriveFileNotFoundException(f.id()));
+        // WP-1424: 비멤버는 공간 없음 대신 파일 없음(404)으로 파일 id 존재를 숨긴다.
+        perms.requireFileRole(row.spaceId(), callerId, f.id(), "EDITOR");
+        spaceId = row.spaceId();
+      }
+      case Target.Folder f -> {
+        spaceId =
+            folders.findSpaceId(f.id()).orElseThrow(() -> new DriveFolderNotFoundException(f.id()));
+        // WP-1538: 비멤버는 공간 없음 대신 폴더 없음(404), 보관 공간은 403.
+        perms.hidingNonMember(
+            () -> perms.requireRole(spaceId, callerId, "EDITOR"),
+            () -> new DriveFolderNotFoundException(f.id()));
+      }
+    }
 
     String audience = req.audience();
     if (audience == null || !AUDIENCES.contains(audience)) {
@@ -106,27 +223,28 @@ public class DriveShareLinkService {
 
     long id =
         links.insert(
-            driveFileId,
-            row.spaceId(),
+            target.driveFileId(),
+            target.driveFolderId(),
+            spaceId,
             tokenHash,
             tokenCodec.encrypt(token),
             audience,
             pwHash,
             expiresAt,
             callerId);
-    // 감사 로그 — FILE_SHARE(#81), 같은 @Transactional 안에서 기록.
+    // 감사 로그 — 파일 FILE_SHARE(#81, 칸 불변)·폴더 FOLDER_SHARE(WP-1538), 같은 @Transactional 안에서 기록.
     auditLogService.log(
         callerId,
         usernameOf(callerId),
-        "FILE_SHARE",
+        target.auditAction(),
         "drive",
-        String.valueOf(driveFileId),
-        "공유 링크 생성",
+        String.valueOf(target.id()),
+        target.auditSummary(),
         null,
         null,
         "SUCCESS",
         null,
-        Map.of("spaceId", row.spaceId(), "audience", audience));
+        target.auditDetail(spaceId, audience));
     // 방금 넣은 행을 목록과 같은 조회로 읽는다 — 토큰은 이미 아는 평문을 그대로 싣는다(복호화할 까닭이 없다).
     DriveShareLinkRepository.ShareLinkRow created =
         links.findRow(id).orElseThrow(() -> new IllegalStateException("생성한 공유 링크를 찾지 못함 id=" + id));
@@ -156,10 +274,30 @@ public class DriveShareLinkService {
    */
   @Transactional(readOnly = true)
   public List<ShareLinkResponse> list(long callerId, long driveFileId) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireFileRoleEvenIfArchived(row.spaceId(), callerId, driveFileId, "EDITOR");
-    return links.listByFile(driveFileId).stream().map(r -> toResponse(r, tokenFor(r))).toList();
+    return list(callerId, new Target.File(driveFileId));
+  }
+
+  /** 대상(파일·폴더)의 링크 목록(WP-1538). 폴더는 비멤버를 「폴더 없음」 404 로 숨기고 보관 공간도 허용한다. */
+  @Transactional(readOnly = true)
+  public List<ShareLinkResponse> list(long callerId, Target target) {
+    List<DriveShareLinkRepository.ShareLinkRow> rows;
+    switch (target) {
+      case Target.File f -> {
+        DriveFileRepository.DriveFileRow row =
+            files.findRow(f.id()).orElseThrow(() -> new DriveFileNotFoundException(f.id()));
+        perms.requireFileRoleEvenIfArchived(row.spaceId(), callerId, f.id(), "EDITOR");
+        rows = links.listByFile(f.id());
+      }
+      case Target.Folder f -> {
+        long spaceId =
+            folders.findSpaceId(f.id()).orElseThrow(() -> new DriveFolderNotFoundException(f.id()));
+        perms.hidingNonMember(
+            () -> perms.requireRoleEvenIfArchived(spaceId, callerId, "EDITOR"),
+            () -> new DriveFolderNotFoundException(f.id()));
+        rows = links.listByFolder(f.id());
+      }
+    }
+    return rows.stream().map(r -> toResponse(r, tokenFor(r))).toList();
   }
 
   /** 저장소 한 줄 → 응답 항목. 토큰은 호출부가 정한다(목록은 {@link #tokenFor}, 생성은 방금 만든 평문). */
@@ -218,7 +356,8 @@ public class DriveShareLinkService {
       String viewToken,
       Long requesterTenantId,
       boolean authenticated) {
-    GuardedLink g = guard(token, requesterTenantId, authenticated);
+    // WP-1538: 폴더 링크는 파일 전용 경로에서 404 — 비밀번호 검증 <b>전</b>이라 시도 칸을 쓰지 않는다.
+    GuardedLink g = guard(token, requesterTenantId, authenticated, DriveShareTarget.FILE);
     if (requiresPassword(g, viewToken)) {
       verifyPassword(g, password);
     }
@@ -231,12 +370,57 @@ public class DriveShareLinkService {
    */
   public ResolvedTarget resolveForView(
       String token, String viewToken, Long requesterTenantId, boolean authenticated) {
-    GuardedLink g = guard(token, requesterTenantId, authenticated);
+    // WP-1538: 폴더 링크는 파일 전용 경로에서 404(비밀번호 판정 전)
+    GuardedLink g = guard(token, requesterTenantId, authenticated, DriveShareTarget.FILE);
+    requireViewAccess(g, viewToken);
+    return g.target();
+  }
+
+  /**
+   * 폴더 링크의 하위 파일 경로(content·preview·download)용 resolve(WP-1538, spec §4.2). 순서: 링크 가드 → 파일 링크면 404
+   * → 비밀번호 링크에 유효 열람 토큰이 없으면 401(비밀번호 헤더는 받지 않는다 — P7, 시도 칸도 쓰지 않는다) → 링크 워크스페이스·트랜잭션에서 파일 행
+   * 조회(없음·휴지통 404) → 공간 루트 파일(폴더 없음)이면 404 → 파일의 폴더가 공유 폴더의 살아 있는 자손인지 검사(밖이면 404). 자손 검사가 잠금·로그인
+   * 판정 <b>뒤</b>라 열지 못하는 사람은 파일 id 를 떠볼 수 없다. 매 요청 판정이라 밖으로 옮긴 폴더·휴지통의 파일은 곧바로 404.
+   */
+  public ResolvedTarget resolveFolderFile(
+      String token,
+      String viewToken,
+      long driveFileId,
+      Long requesterTenantId,
+      boolean authenticated) {
+    var link = guardFolderLink(token, viewToken, requesterTenantId, authenticated);
+    TenantContext.callAs(
+        link.tenantId(),
+        () ->
+            tx.execute(
+                st -> {
+                  var row =
+                      files.findRow(driveFileId).orElseThrow(DriveShareLinkNotFoundException::new);
+                  if (row.folderId() == null) {
+                    throw new DriveShareLinkNotFoundException();
+                  }
+                  return requireDescendantFolder(link, row.folderId());
+                }));
+    return new ResolvedTarget(link.tenantId(), driveFileId);
+  }
+
+  /**
+   * 폴더 링크 전용 경로(children·하위 파일)의 공통 가드(WP-1538) — 링크 가드(404 → 410 → 사내 401/403) → 파일 링크면 404 → 비밀번호
+   * 링크에 유효 열람 토큰이 없으면 401. 자손 검사는 호출부가 이 뒤에 한다(열지 못하는 사람이 id 를 떠볼 수 없게).
+   */
+  private DriveShareLinkRepository.ResolvedLink guardFolderLink(
+      String token, String viewToken, Long requesterTenantId, boolean authenticated) {
+    GuardedLink g = guard(token, requesterTenantId, authenticated, DriveShareTarget.FOLDER);
+    requireViewAccess(g, viewToken);
+    return g.link();
+  }
+
+  /** 열람 토큰만 받는 경로의 비밀번호 판정 — 비밀번호 링크인데 유효한 열람 토큰이 없으면(잠금 포함) 401. 시도 칸을 쓰지 않는다. */
+  private void requireViewAccess(GuardedLink g, String viewToken) {
     if (requiresPassword(g, viewToken)) {
       throw new com.workplace.drive.exception.DriveShareLinkUnauthorizedException(
           "비밀번호 확인이 필요하거나 열람 시간이 지났습니다");
     }
-    return g.target();
   }
 
   /**
@@ -260,6 +444,9 @@ public class DriveShareLinkService {
    * <p>파일·만든 사람·공간 권한은 링크 워크스페이스로 컨텍스트를 세운 뒤 트랜잭션 안에서 읽는다 — FORCE RLS 라 트랜잭션 밖의 조회는 빈 결과가 된다. 끝나면
    * 요청자의 원래 컨텍스트로 되돌린다.
    *
+   * <p>WP-1538: 폴더 링크는 같은 순서를 거친 뒤 {@link #folderInfo} 가 FolderFull 을 만든다. Gate 에는 대상 종류(target)만
+   * 싣는다.
+   *
    * @param requesterUserId 로그인 사용자 id(비로그인 null) — driveOpen 판정용
    */
   public ShareInfoResponse info(
@@ -268,15 +455,22 @@ public class DriveShareLinkService {
     String tokenHash = CapabilityTokens.sha256Hex(token);
     var link = resolveActive(tokenHash);
     if ("INTERNAL".equals(link.audience()) && (!authenticated || requesterTenantId == null)) {
-      return ShareInfoResponse.loginRequired();
+      return ShareInfoResponse.loginRequired(link.target());
     }
     GuardedLink g = new GuardedLink(tokenHash, link);
     checkAudience(link, requesterTenantId, authenticated);
     if (requiresPassword(g, viewToken)) {
-      return ShareInfoResponse.passwordRequired();
+      return ShareInfoResponse.passwordRequired(link.target());
     }
     boolean sameWorkspace =
         authenticated && requesterTenantId != null && requesterTenantId == link.tenantId();
+    // 폴더 링크는 공유받은 항목(WP-1539)에 기록하지 않는다 — 목록이 파일 행만 다루므로(폴더 지원은 WP-1540) 폴더 링크를
+    // 방문으로 남기면 빈 행이 생긴다. 공유 화면 자체는 그대로 보인다.
+    if (link.target() == DriveShareTarget.FOLDER) {
+      return TenantContext.callAs(
+          link.tenantId(),
+          () -> tx.execute(st -> folderInfo(link, tokenHash, sameWorkspace, requesterUserId)));
+    }
     InfoResult result =
         TenantContext.callAs(
             link.tenantId(),
@@ -356,6 +550,129 @@ public class DriveShareLinkService {
   }
 
   /**
+   * 폴더 링크 정보(WP-1538) — 링크 워크스페이스 컨텍스트·트랜잭션 안에서 부른다. 공유 폴더 자체를 자손 검사와 같은 사슬로 읽어 휴지통·없음이면 404 (P1),
+   * 이름·바로 아래 수(P5)·공유한 사람을 싣는다. 「드라이브에서 열기」는 같은 워크스페이스 + 공간 실효 역할일 때만(공간·폴더 id 를 비구성원에게 숨긴다).
+   */
+  private ShareInfoResponse folderInfo(
+      DriveShareLinkRepository.ResolvedLink link,
+      String tokenHash,
+      boolean sameWorkspace,
+      Long requesterUserId) {
+    var shared = requireSharedFolder(link);
+    var summary = summarizeSharedFolder(shared, tokenHash);
+    ShareInfoResponse.FolderDriveOpen driveOpen =
+        sameWorkspace && spaceMembers.findRole(shared.spaceId(), requesterUserId).isPresent()
+            ? new ShareInfoResponse.FolderDriveOpen(shared.spaceId(), shared.id())
+            : null;
+    return ShareInfoResponse.folderFull(
+        shared.name(),
+        summary.counts().folderCount(),
+        summary.counts().fileCount(),
+        summary.sharedBy(),
+        requesterUserId == null,
+        driveOpen);
+  }
+
+  /**
+   * 폴더 공유 링크의 하위 목록(GET /share/{token}/children, WP-1538). folderId 가 없으면 공유 폴더.
+   *
+   * <p>순서(spec §4.2): 링크 가드(404 → 410 → 사내 401/403) → 파일 링크면 404 → 비밀번호 링크에 유효 열람 토큰이 없으면 401 → 링크
+   * 워크스페이스 RLS 아래에서 자손 검사(404) → 목록. 자손 검사가 잠금·로그인 판정 <b>뒤</b>라 열지 못하는 사람은 폴더 id 를 떠볼 수 없다. 시도 칸을
+   * 쓰지 않는다(비밀번호는 /unlock 한 곳에서만).
+   *
+   * <p>목록은 폴더 먼저·이름순으로 최대 {@value #CHILDREN_LIMIT}개(P8) — 각 쿼리를 한 개 더 읽어 넘치면 truncated.
+   */
+  public ShareFolderListing children(
+      String token,
+      String viewToken,
+      Long folderId,
+      Long requesterTenantId,
+      boolean authenticated) {
+    var link = guardFolderLink(token, viewToken, requesterTenantId, authenticated);
+    long target = folderId == null ? link.driveFolderId() : folderId;
+    return TenantContext.callAs(
+        link.tenantId(),
+        () ->
+            tx.execute(
+                st -> {
+                  var chain = descendantChain(link, target);
+                  List<ShareFolderListing.PathItem> path =
+                      chain.stream()
+                          .map(r -> new ShareFolderListing.PathItem(r.id(), r.name()))
+                          .toList();
+                  var subFolders = sharedFolders.listChildFolders(target, CHILDREN_LIMIT + 1);
+                  boolean truncated = subFolders.size() > CHILDREN_LIMIT;
+                  List<ShareFolderListing.FileItem> subFiles = List.of();
+                  if (truncated) {
+                    subFolders = subFolders.subList(0, CHILDREN_LIMIT);
+                  } else {
+                    // 폴더를 먼저 채우고 남은 칸만큼 파일 — 남은 칸이 0 이어도 한 개를 읽어 파일이 넘쳤는지 안다.
+                    int remaining = CHILDREN_LIMIT - subFolders.size();
+                    subFiles = sharedFolders.listChildFiles(target, remaining + 1);
+                    if (subFiles.size() > remaining) {
+                      truncated = true;
+                      subFiles = subFiles.subList(0, remaining);
+                    }
+                  }
+                  return new ShareFolderListing(
+                      target, path, List.copyOf(subFolders), List.copyOf(subFiles), truncated);
+                }));
+  }
+
+  /**
+   * 자손 검사(WP-1538, spec §5.1) — folderId 가 공유 폴더 자신이거나 살아 있는 자손이면 그 폴더 행을, 아니면 404. 링크 워크스페이스 컨텍스트와
+   * 트랜잭션 안에서 불러야 한다(RLS — 다른 테넌트 id 는 보이지 않아 404).
+   *
+   * <p>통과 조건: 사슬 첫 행이 공유 폴더, 사슬의 모든 행이 휴지통 아님, 모든 행이 공유 폴더와 같은 공간. 휴지통은 서브트리 전체를 표시하지만 복원·이동 경합을
+   * 막으려고 사슬 전체를 본다. 매 요청 판정이라 밖으로 옮긴 폴더는 곧바로 404.
+   */
+  private DriveSharedFolderRepository.ChainRow requireDescendantFolder(
+      DriveShareLinkRepository.ResolvedLink link, long folderId) {
+    var chain = descendantChain(link, folderId);
+    return chain.get(chain.size() - 1);
+  }
+
+  /** 공유 폴더 자신의 행(WP-1538) — 자손 검사와 같은 사슬로 읽어 없거나 휴지통이면 404(P1). */
+  private DriveSharedFolderRepository.ChainRow requireSharedFolder(
+      DriveShareLinkRepository.ResolvedLink link) {
+    return requireDescendantFolder(link, link.driveFolderId());
+  }
+
+  /**
+   * 공유 폴더 요약(WP-1538) — 바로 아래 폴더·파일 수(P5)와 공유한 사람 이름. 정보 응답·앱 카드가 같은 읽기를 쓴다(봇 미리보기는 공유한 사람을 싣지 않아
+   * 수만 읽는다).
+   */
+  private SharedFolderSummary summarizeSharedFolder(
+      DriveSharedFolderRepository.ChainRow shared, String tokenHash) {
+    return new SharedFolderSummary(
+        sharedFolders.countChildren(shared.id()),
+        links.findCreator(tokenHash).map(DriveShareLinkRepository.LinkCreator::name).orElse(null));
+  }
+
+  /** 공유 폴더 요약 — 바로 아래 수와 공유한 사람 이름(찾을 수 없으면 null). */
+  private record SharedFolderSummary(DriveSharedFolderRepository.Counts counts, String sharedBy) {}
+
+  /**
+   * {@link #requireDescendantFolder} 의 판정 본체 — 통과한 사슬(공유 폴더 → 대상)을 돌려준다(경로로 그대로 쓴다). 폴더 링크에서만
+   * 부른다(호출부가 종류 가드나 FOLDER 분기를 먼저 거친다).
+   */
+  private List<DriveSharedFolderRepository.ChainRow> descendantChain(
+      DriveShareLinkRepository.ResolvedLink link, long folderId) {
+    long root = link.driveFolderId();
+    var chain = sharedFolders.chainToRoot(folderId, root);
+    if (chain.isEmpty() || chain.get(0).id() != root) {
+      throw new DriveShareLinkNotFoundException();
+    }
+    long spaceId = chain.get(0).spaceId();
+    for (var row : chain) {
+      if (row.trashed() || row.spaceId() != spaceId) {
+        throw new DriveShareLinkNotFoundException();
+      }
+    }
+    return chain;
+  }
+
+  /**
    * 메신저 봇 미리보기 카드 판정(WP-1473) — 열람 토큰·로그인을 보지 않는 익명 기준. 순서: 404(없음·비활성 테넌트) → 410(만료·폐기) → 사내 링크면
    * {@link DriveSharePreview.InternalOnly} → 비밀번호 링크면 {@link
    * DriveSharePreview.PasswordProtected}(열람 토큰이 없으니 잠긴 것으로 본다) → 파일 정보({@link
@@ -364,10 +681,23 @@ public class DriveShareLinkService {
   public DriveSharePreview previewCard(String token) {
     var link = resolveActive(CapabilityTokens.sha256Hex(token));
     if ("INTERNAL".equals(link.audience())) {
-      return new DriveSharePreview.InternalOnly();
+      return new DriveSharePreview.InternalOnly(link.target());
     }
     if (link.passwordHash() != null) {
-      return new DriveSharePreview.PasswordProtected();
+      return new DriveSharePreview.PasswordProtected(link.target());
+    }
+    // WP-1538: 폴더 링크 — 공유 폴더가 살아 있는지 확인(없음·휴지통이면 NotFound → 204)하고 항상 공유 폴더 기준으로 싣는다.
+    if (link.target() == DriveShareTarget.FOLDER) {
+      return TenantContext.callAs(
+          link.tenantId(),
+          () ->
+              tx.execute(
+                  st -> {
+                    var shared = requireSharedFolder(link);
+                    var counts = sharedFolders.countChildren(shared.id());
+                    return new DriveSharePreview.FolderOpen(
+                        shared.name(), counts.folderCount(), counts.fileCount(), link.expiresAt());
+                  }));
     }
     // FORCE RLS 라 링크 워크스페이스 컨텍스트를 세워 트랜잭션 안에서 읽는다.
     return TenantContext.callAs(
@@ -397,9 +727,10 @@ public class DriveShareLinkService {
    * @throws DriveShareLinkNotFoundException 다른 워크스페이스가 사내 링크를 볼 때(404)
    */
   public DriveShareAppCard appLinkCard(String token, Long requesterTenantId, long requesterUserId) {
+    String tokenHash = CapabilityTokens.sha256Hex(token);
     var link =
         links
-            .resolve(CapabilityTokens.sha256Hex(token))
+            .resolve(tokenHash)
             .filter(l -> tenantStatusChecker.isActive(l.tenantId()))
             .orElseThrow(DriveShareLinkGoneException::new);
     boolean sameWorkspace =
@@ -411,7 +742,7 @@ public class DriveShareLinkService {
     }
     return TenantContext.callAs(
         link.tenantId(),
-        () -> tx.execute(st -> judgeAppCard(link, sameWorkspace, requesterUserId)));
+        () -> tx.execute(st -> judgeAppCard(link, tokenHash, sameWorkspace, requesterUserId)));
   }
 
   /**
@@ -427,7 +758,14 @@ public class DriveShareLinkService {
    * </ul>
    */
   private DriveShareAppCard judgeAppCard(
-      DriveShareLinkRepository.ResolvedLink link, boolean sameWorkspace, long requesterUserId) {
+      DriveShareLinkRepository.ResolvedLink link,
+      String tokenHash,
+      boolean sameWorkspace,
+      long requesterUserId) {
+    // WP-1538: 폴더 링크는 별도 분기 — 판정 순서는 파일과 같다.
+    if (link.target() == DriveShareTarget.FOLDER) {
+      return judgeFolderAppCard(link, tokenHash, sameWorkspace, requesterUserId);
+    }
     var row = files.findRow(link.driveFileId()).orElseThrow(DriveShareLinkGoneException::new);
     var meta = links.findFileMeta(row.fileId()).orElseThrow(DriveShareLinkGoneException::new);
     if (sameWorkspace) {
@@ -443,9 +781,58 @@ public class DriveShareLinkService {
       }
     }
     if (isClosed(link)) throw new DriveShareLinkGoneException();
-    if (link.passwordHash() != null) return new DriveShareAppCard.PasswordProtected();
+    if (link.passwordHash() != null) {
+      return new DriveShareAppCard.PasswordProtected(DriveShareTarget.FILE);
+    }
     return new DriveShareAppCard.Open(
         row.name(), meta.mimeType(), meta.sizeBytes(), link.expiresAt());
+  }
+
+  /**
+   * 앱 카드 판정의 폴더 단계(WP-1538) — 파일 단계({@link #judgeAppCard})와 같은 순서. 공유 폴더가 없거나 휴지통이면 410(P1,
+   * 구성원·비밀번호와 무관). 같은 워크스페이스이고 공간 실효 역할이 있으면 FolderMember. 닫힘 410, 비밀번호 PasswordProtected(이름·수를 읽은
+   * 값이라도 싣지 않는다), 그 밖 FolderOpen.
+   */
+  private DriveShareAppCard judgeFolderAppCard(
+      DriveShareLinkRepository.ResolvedLink link,
+      String tokenHash,
+      boolean sameWorkspace,
+      long requesterUserId) {
+    DriveSharedFolderRepository.ChainRow shared;
+    try {
+      shared = requireSharedFolder(link);
+    } catch (DriveShareLinkNotFoundException e) {
+      // 카드에서는 열 수 없는 링크가 404 가 아니라 410 이다(파일 단계와 같은 규칙).
+      throw new DriveShareLinkGoneException();
+    }
+    if (sameWorkspace) {
+      var space = spaces.findForUser(shared.spaceId(), requesterUserId);
+      if (space.isPresent()) {
+        var summary = summarizeSharedFolder(shared, tokenHash);
+        return new DriveShareAppCard.FolderMember(
+            shared.name(),
+            space.get().name(),
+            shared.spaceId(),
+            shared.id(),
+            link.audience(),
+            summary.counts().folderCount(),
+            summary.counts().fileCount(),
+            summary.sharedBy());
+      }
+    }
+    if (isClosed(link)) throw new DriveShareLinkGoneException();
+    if (link.passwordHash() != null) {
+      return new DriveShareAppCard.PasswordProtected(DriveShareTarget.FOLDER);
+    }
+    // 410·비밀번호 분기는 이름·수가 필요 없어 그 뒤에서만 읽는다(잠긴 링크에 조회를 더하지 않는다).
+    var summary = summarizeSharedFolder(shared, tokenHash);
+    return new DriveShareAppCard.FolderOpen(
+        shared.name(),
+        link.audience(),
+        summary.counts().folderCount(),
+        summary.counts().fileCount(),
+        summary.sharedBy(),
+        link.expiresAt());
   }
 
   /** 링크가 닫혔는지 — 폐기됐거나 만료일이 지났다. 공개 경로 가드({@link #resolveActive})와 앱 카드 판정이 같은 기준을 쓴다. */
@@ -463,6 +850,19 @@ public class DriveShareLinkService {
     var link = resolveActive(tokenHash);
     checkAudience(link, requesterTenantId, authenticated);
     return new GuardedLink(tokenHash, link);
+  }
+
+  /**
+   * 종류가 정해진 경로의 링크 가드(WP-1538) — {@link #guard} 를 거친 뒤 링크 종류가 경로와 다르면 404(파일 경로의 폴더 링크, 폴더 경로의 파일
+   * 링크). 파일·폴더 경로가 이 한 곳에서 종류를 가른다. 비밀번호 판정보다 <b>먼저</b> 불러야 한다 — 그래야 종류가 다른 링크로 시도 칸을 쓰지 않는다.
+   */
+  private GuardedLink guard(
+      String token, Long requesterTenantId, boolean authenticated, DriveShareTarget expected) {
+    GuardedLink g = guard(token, requesterTenantId, authenticated);
+    if (g.link().target() != expected) {
+      throw new DriveShareLinkNotFoundException();
+    }
+    return g;
   }
 
   /** 링크를 찾아 존재·테넌트 활성·만료·폐기를 본다(404 → 410). */
@@ -537,13 +937,14 @@ public class DriveShareLinkService {
                       "anonymous",
                       "SHARE_LINK_LOCKED",
                       "drive",
-                      String.valueOf(link.driveFileId()),
+                      String.valueOf(
+                          link.driveFileId() != null ? link.driveFileId() : link.driveFolderId()),
                       "공유 링크 비밀번호 잠금(브루트포스 방어)",
                       null,
                       null,
                       "BLOCKED",
                       null,
-                      Map.of("tenantId", link.tenantId())));
+                      Map.of("tenantId", link.tenantId(), "target", link.target().name())));
         }
         throw new com.workplace.drive.exception.DriveShareLinkUnauthorizedException(
             "비밀번호가 필요하거나 올바르지 않습니다");
@@ -554,7 +955,7 @@ public class DriveShareLinkService {
 
   /**
    * 링크의 파일 행·형식/크기를 읽는다(휴지통·없는 파일은 404). 호출부가 링크 워크스페이스 컨텍스트와 트랜잭션 안에서 불러야 한다(FORCE RLS) — info 와
-   * previewCard 가 같은 읽기를 공유한다.
+   * previewCard 가 같은 읽기를 공유한다. 파일 링크에서만 부른다(두 호출부가 폴더 링크를 먼저 갈라 보낸다).
    */
   private LoadedFile loadFile(DriveShareLinkRepository.ResolvedLink link) {
     DriveFileRepository.DriveFileRow row =
@@ -568,6 +969,7 @@ public class DriveShareLinkService {
 
   /** 가드를 통과한 링크(토큰 해시 + resolve 결과). */
   private record GuardedLink(String tokenHash, DriveShareLinkRepository.ResolvedLink link) {
+    /** 파일 경로의 다운로드 대상 — 종류 가드(FILE)를 거친 링크에서만 부른다(파일 링크는 driveFileId 가 늘 있다). */
     ResolvedTarget target() {
       return new ResolvedTarget(link.tenantId(), link.driveFileId());
     }

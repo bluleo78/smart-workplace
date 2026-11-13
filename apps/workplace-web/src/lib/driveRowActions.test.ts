@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DriveSpace } from '../types/drive'
-import { driveFileActionDisabled, isDriveViewer, visibleDriveRowActions } from './driveRowActions'
+import { driveFileActionDisabled, driveFolderActionDisabled, isDriveViewer, visibleDriveRowActions } from './driveRowActions'
 
 // 판정에 쓰는 공간 필드만 — 보관 여부와 내 역할.
 const space = (archived: boolean, role: DriveSpace['role'] = 'EDITOR') => ({ archived, role })
@@ -51,5 +51,22 @@ describe('isDriveViewer', () => {
     expect(isDriveViewer({ role: 'EDITOR' })).toBe(false)
     expect(isDriveViewer({ role: 'OWNER' })).toBe(false)
     expect(isDriveViewer(null)).toBe(false)
+  })
+})
+
+// WP-1538 — 폴더 행 작업 비활성: 공유 링크는 파일과 같은 규칙(보관 공간은 열림), 나머지는 읽기 전용이면 막힌다.
+describe('driveFolderActionDisabled', () => {
+  it('folder share enabled for editor', () => {
+    expect(driveFolderActionDisabled({ space: space(false) }).share).toBe(false)
+  })
+  it('folder share enabled on archived space (modal explains)', () => {
+    const off = driveFolderActionDisabled({ space: space(true) })
+    expect(off.share).toBe(false)
+    expect(off.rename).toBe(true)
+    expect(off).toEqual({ share: false, rename: true, move: true, copy: true, delete: true })
+  })
+  it('viewer: everything disabled and share hidden by visibleDriveRowActions', () => {
+    expect(driveFolderActionDisabled({ space: space(false, 'VIEWER') }).share).toBe(true)
+    expect(visibleDriveRowActions([{ key: 'share' }], true)).toEqual([])
   })
 })

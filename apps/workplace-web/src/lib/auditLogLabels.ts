@@ -60,6 +60,7 @@ export const AUDIT_ACTION_TYPES = [
   // WP-1532: 드라이브 영상·오디오 재생 주소 발급(= 열람) — 범위 요청마다가 아니라 발급 때 한 번 남는다.
   { value: 'FILE_PLAYBACK', label: '파일 재생' },
   { value: 'FILE_SHARE', label: '공유 링크 생성' },
+  { value: 'FOLDER_SHARE', label: '폴더 공유 링크 생성' },
   { value: 'SHARE_LINK_LOCKED', label: '공유 링크 잠금' },
   { value: 'TRANSFER_LINK_CREATE', label: '전송 링크 발급' },
   { value: 'TRANSFER_LINK_USE', label: '전송 링크 사용' },

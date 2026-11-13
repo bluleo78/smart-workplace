@@ -24,28 +24,66 @@ export interface ShareDriveOpen {
   driveFileId: number
 }
 
-/** GET 정보 응답 — 두 불리언은 늘 온다. 잠금(로그인·비밀번호)이면 파일 필드가 없다(sharedBy·driveOpen 은 null 일 수 있다). */
-export type ShareInfo =
-  | { loginRequired: true; passwordRequired: boolean }
-  | { passwordRequired: true; loginRequired: false }
-  | {
-      passwordRequired: false
-      loginRequired: false
-      name: string
-      mimeType: string
-      sizeBytes: number
-      sharedBy: string | null
-      /** 비로그인 — 「로그인하고 드라이브에서 열기」를 보인다. */
-      loginAvailable: boolean
-      driveOpen: ShareDriveOpen | null
-    }
+/** 잠금 대상 종류(WP-1538) — 잠금 응답은 이름·수를 숨기고 종류만 싣는다(잠금 카드 「…파일」/「…폴더」). 예전 응답엔 없을 수 있다. */
+export type ShareTarget = 'FILE' | 'FOLDER'
 
-/** 파일 카드를 그릴 수 있는 정보(잠금 아님). */
-export type ShareFileInfo = Extract<ShareInfo, { name: string }>
+/** 파일 링크 정보(잠금 아님). kind 는 WP-1538 부터 'FILE' 로 오고, 없으면 파일로 본다(이전 응답·목 호환). */
+export interface ShareFileInfo {
+  passwordRequired: false
+  loginRequired: false
+  kind?: 'FILE'
+  name: string
+  mimeType: string
+  sizeBytes: number
+  sharedBy: string | null
+  /** 비로그인 — 「로그인하고 드라이브에서 열기」를 보인다. */
+  loginAvailable: boolean
+  driveOpen: ShareDriveOpen | null
+}
+
+/** 폴더 링크 정보(WP-1538) — 머리에 쓰는 이름·바로 아래 개수. driveOpen 은 공간 구성원일 때만(폴더 id). */
+export interface ShareFolderInfo {
+  passwordRequired: false
+  loginRequired: false
+  kind: 'FOLDER'
+  name: string
+  folderCount: number
+  fileCount: number
+  sharedBy: string | null
+  loginAvailable: boolean
+  driveOpen: { spaceId: number; folderId: number } | null
+}
+
+/** GET 정보 응답 — 두 불리언은 늘 온다. 잠금(로그인·비밀번호)이면 대상 필드가 없고 종류(target)만 온다. */
+export type ShareInfo =
+  | { loginRequired: true; passwordRequired: boolean; target?: ShareTarget }
+  | { passwordRequired: true; loginRequired: false; target?: ShareTarget }
+  | ShareFileInfo
+  | ShareFolderInfo
+
+/** 폴더 링크 정보인가 — kind 가 'FOLDER' 일 때만. 그 밖(kind 없음 포함)은 파일로 본다(WP-1538). */
+export function isShareFolderInfo(info: ShareInfo): info is ShareFolderInfo {
+  return 'kind' in info && info.kind === 'FOLDER'
+}
+
+/** 폴더 링크 하위 목록(WP-1538) — path 는 공유 폴더 → 현재(포함). 폴더 먼저·이름순, 상한을 넘으면 truncated. */
+export interface ShareFolderListing {
+  folderId: number
+  path: { id: number; name: string }[]
+  folders: { id: number; name: string; updatedAt: string }[]
+  files: { id: number; name: string; mimeType: string; sizeBytes: number; updatedAt: string }[]
+  truncated: boolean
+}
 
 /** 공개 공유 API 기본 경로 — 뷰어 항목의 contentPath·previewPath 도 이 아래다. */
 export function sharePublicBase(token: string): string {
   return `/api/v1/public/drive/share/${encodeURIComponent(token)}`
+}
+
+/** 폴더 링크 아래 파일 하나의 공개 경로(WP-1538) — 원본·변환 PDF·다운로드. 서버가 매 요청 「공유 폴더 자손인가」를 본다. */
+export function shareFilePaths(token: string, fileId: number): { contentPath: string; previewPath: string; downloadPath: string } {
+  const base = `${sharePublicBase(token)}/files/${fileId}`
+  return { contentPath: `${base}/content`, previewPath: `${base}/preview`, downloadPath: `${base}/download` }
 }
 
 /** 요청 헤더 — 로그인 중이면 Bearer, 열람 토큰이 있으면 X-Share-View-Token. */
@@ -62,6 +100,17 @@ export async function fetchShareInfo(token: string, viewToken: string | null): P
   const res = await fetch(sharePublicBase(token), { headers: shareHeaders(viewToken) })
   if (!res.ok) throw new SharePublicError(res.status)
   return (await res.json()) as ShareInfo
+}
+
+/**
+ * 폴더 링크 하위 목록(WP-1538) — folderId 가 null 이면 공유 폴더. 404 밖·휴지통 폴더 / 401 열람 토큰 없음·만료 /
+ * 403·410 은 정보와 같다 — 모두 SharePublicError.
+ */
+export async function fetchShareChildren(token: string, folderId: number | null, viewToken: string | null): Promise<ShareFolderListing> {
+  const query = folderId == null ? '' : `?folder=${folderId}`
+  const res = await fetch(`${sharePublicBase(token)}/children${query}`, { headers: shareHeaders(viewToken) })
+  if (!res.ok) throw new SharePublicError(res.status)
+  return (await res.json()) as ShareFolderListing
 }
 
 /** 비밀번호로 잠금 풀기 — 열람 토큰을 받는다. 401 틀림 / 429(423) 잠김은 SharePublicError. 비밀번호는 본문으로만(URL 금지). */
@@ -138,9 +187,12 @@ function dispositionFileName(disposition: string, fallback: string): string {
   return disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback
 }
 
-/** 공개 /download 로 받아 브라우저 저장 — 열람 토큰이 있으면 헤더로(감사 로그 경로). 실패는 SharePublicError. */
-export async function downloadShare(token: string, viewToken: string | null, fallbackName = 'download'): Promise<void> {
-  const res = await fetch(`${sharePublicBase(token)}/download`, { headers: shareHeaders(viewToken) })
+/**
+ * 공개 다운로드 경로로 받아 브라우저 저장 — 열람 토큰이 있으면 헤더로(감사 로그 경로). 실패는 SharePublicError.
+ * WP-1538: 파일 링크(`…/download`)와 폴더 링크 하위 파일(`…/files/{id}/download`)이 함께 쓰도록 경로를 받는다.
+ */
+export async function downloadShare(path: string, viewToken: string | null, fallbackName = 'download'): Promise<void> {
+  const res = await fetch(path, { headers: shareHeaders(viewToken) })
   if (!res.ok) throw new SharePublicError(res.status)
   const blob = await res.blob()
   downloadBlob(dispositionFileName(res.headers.get('Content-Disposition') ?? '', fallbackName), blob)

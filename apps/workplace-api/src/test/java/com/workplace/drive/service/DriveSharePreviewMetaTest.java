@@ -2,6 +2,7 @@ package com.workplace.drive.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.drive.service.DriveSharePreview.FolderOpen;
 import com.workplace.drive.service.DriveSharePreview.InternalOnly;
 import com.workplace.drive.service.DriveSharePreview.Open;
 import com.workplace.drive.service.DriveSharePreview.PasswordProtected;
@@ -124,11 +125,11 @@ class DriveSharePreviewMetaTest {
 
   @Test
   void metaHtml_gated_hasNoFileInfo() {
-    assertThat(DriveSharePreviewMeta.metaHtml(new PasswordProtected(), NOW))
+    assertThat(DriveSharePreviewMeta.metaHtml(new PasswordProtected(DriveShareTarget.FILE), NOW))
         .contains("og:title\" content=\"비밀번호로 보호된 공유 파일\"")
         .contains("name=\"description\" content=\"링크를 열고 비밀번호를 입력하면 볼 수 있습니다.\"")
         .contains("og:description\" content=\"링크를 열고 비밀번호를 입력하면 볼 수 있습니다.\"");
-    assertThat(DriveSharePreviewMeta.metaHtml(new InternalOnly(), NOW))
+    assertThat(DriveSharePreviewMeta.metaHtml(new InternalOnly(DriveShareTarget.FILE), NOW))
         .contains("og:title\" content=\"사내 공유 파일\"")
         .contains("name=\"description\" content=\"Gen:iA Works 에 로그인하면 볼 수 있습니다.\"")
         .contains("og:description\" content=\"Gen:iA Works 에 로그인하면 볼 수 있습니다.\"");
@@ -151,11 +152,65 @@ class DriveSharePreviewMetaTest {
     assertThat(DriveSharePreviewMeta.imageHtml(new Open("a.zip", "x", 1, null)))
         .contains("drive-file.png")
         .contains("파일 · 드라이브 공유");
-    assertThat(DriveSharePreviewMeta.imageHtml(new PasswordProtected()))
+    assertThat(DriveSharePreviewMeta.imageHtml(new PasswordProtected(DriveShareTarget.FILE)))
         .contains("drive-password.png")
         .contains("보호된 파일 · 비밀번호 필요");
-    assertThat(DriveSharePreviewMeta.imageHtml(new InternalOnly()))
+    assertThat(DriveSharePreviewMeta.imageHtml(new InternalOnly(DriveShareTarget.FILE)))
         .contains("drive-internal.png")
         .contains("사내 공유 파일 · 로그인 필요");
+  }
+
+  // --- 폴더 링크(WP-1538) ---
+
+  @Test
+  void folderOpen_meta() {
+    assertThat(DriveSharePreviewMeta.metaHtml(new FolderOpen("견적", 2, 4, null), NOW))
+        .contains("og:title\" content=\"견적\"")
+        .contains("og:description\" content=\"공유된 폴더 · 폴더 2개 · 파일 4개\"")
+        .contains("name=\"description\" content=\"공유된 폴더 · 폴더 2개 · 파일 4개\"");
+  }
+
+  @Test
+  void folderOpen_meta_withExpiry() {
+    var p = new FolderOpen("견적", 2, 4, OffsetDateTime.parse("2026-11-18T05:00:00Z"));
+    assertThat(DriveSharePreviewMeta.metaHtml(p, NOW))
+        .contains("content=\"공유된 폴더 · 폴더 2개 · 파일 4개 · 11월 18일까지\"");
+  }
+
+  @Test
+  void folderPassword_meta_andImage() {
+    var p = new PasswordProtected(DriveShareTarget.FOLDER);
+    assertThat(DriveSharePreviewMeta.metaHtml(p, NOW))
+        .contains("og:title\" content=\"비밀번호로 보호된 폴더\"")
+        .contains("og:description\" content=\"링크를 열고 비밀번호를 입력하면 볼 수 있습니다.\"");
+    assertThat(DriveSharePreviewMeta.imageHtml(p))
+        .contains("og/drive-folder-password.png")
+        .contains("보호된 폴더 · 드라이브 공유");
+  }
+
+  @Test
+  void folderInternal_meta_andImage() {
+    var p = new InternalOnly(DriveShareTarget.FOLDER);
+    assertThat(DriveSharePreviewMeta.metaHtml(p, NOW))
+        .contains("og:title\" content=\"사내 공유 폴더\"")
+        .contains("og:description\" content=\"Gen:iA Works 에 로그인하면 볼 수 있습니다.\"");
+    assertThat(DriveSharePreviewMeta.imageHtml(p))
+        .contains("og/drive-folder-internal.png")
+        .contains("사내 공유 폴더 · 드라이브 공유");
+  }
+
+  @Test
+  void folderOpen_image() {
+    assertThat(DriveSharePreviewMeta.imageHtml(new FolderOpen("견적", 0, 0, null)))
+        .contains("og/drive-folder.png")
+        .contains("og:image:alt\" content=\"폴더 · 드라이브 공유\"");
+  }
+
+  @Test
+  void filePassword_unchanged() {
+    var p = new PasswordProtected(DriveShareTarget.FILE);
+    assertThat(DriveSharePreviewMeta.metaHtml(p, NOW))
+        .contains("og:title\" content=\"비밀번호로 보호된 공유 파일\"");
+    assertThat(DriveSharePreviewMeta.imageHtml(p)).contains("og/drive-password.png");
   }
 }

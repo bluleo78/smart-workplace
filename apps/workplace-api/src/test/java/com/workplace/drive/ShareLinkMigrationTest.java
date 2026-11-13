@@ -1,12 +1,14 @@
 package com.workplace.drive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -67,6 +69,105 @@ class ShareLinkMigrationTest extends IntegrationTestBase {
               status.setRollbackOnly(); // 공유 test DB 무오염
               return null;
             });
+  }
+
+  /** WP-1538: 폴더 링크(drive_file_id NULL)도 컨텍스트 없이 resolve 되고 drive_folder_id 를 돌려준다. */
+  @Test
+  void folderLink_insertAndResolve_returnsFolderId() {
+    inRolledBackTx(
+        (userId, spaceId, fileId, folderId) -> {
+          String hash = newHash();
+          insertLink(null, folderId, spaceId, hash, userId);
+          clearGuc();
+          var r =
+              dsl.resultQuery(
+                      "SELECT drive_file_id, drive_folder_id FROM drive_share_link_resolve(?)",
+                      hash)
+                  .fetchOne();
+          assertThat(r).isNotNull();
+          assertThat(r.get("drive_file_id", Long.class)).isNull();
+          assertThat(r.get("drive_folder_id", Long.class)).isEqualTo(folderId);
+        });
+  }
+
+  /** WP-1538: 파일·폴더를 동시에 가리키는 링크는 CHECK 로 거부한다. */
+  @Test
+  void check_rejectsBothTargets() {
+    assertThatThrownBy(
+            () ->
+                inRolledBackTx(
+                    (userId, spaceId, fileId, folderId) ->
+                        insertLink(fileId, folderId, spaceId, newHash(), userId)))
+        .isInstanceOf(DataIntegrityViolationException.class);
+  }
+
+  /** WP-1538: 대상이 없는 링크도 CHECK 로 거부한다. */
+  @Test
+  void check_rejectsNoTarget() {
+    assertThatThrownBy(
+            () ->
+                inRolledBackTx(
+                    (userId, spaceId, fileId, folderId) ->
+                        insertLink(null, null, spaceId, newHash(), userId)))
+        .isInstanceOf(DataIntegrityViolationException.class);
+  }
+
+  /** WP-1538: 폴더를 영구 삭제하면 폴더 링크 행도 CASCADE 로 사라진다. */
+  @Test
+  void folderHardDelete_cascadesLink() {
+    inRolledBackTx(
+        (userId, spaceId, fileId, folderId) -> {
+          String hash = newHash();
+          insertLink(null, folderId, spaceId, hash, userId);
+          dsl.execute("DELETE FROM drive_folder WHERE id = ?", folderId);
+          long cnt =
+              (long)
+                  dsl.fetchValue(
+                      "SELECT COUNT(*) FROM drive_share_link WHERE token_hash = ?", hash);
+          assertThat(cnt).isZero();
+        });
+  }
+
+  /** 시드 4종(user·space·file·folder) 을 만든 뒤 본문을 실행하고 롤백한다(공유 test DB 무오염). */
+  private void inRolledBackTx(Body body) {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              setGuc(1L);
+              long userId = seedUser();
+              long spaceId = seedSpace(userId);
+              long fileId = seedFile(userId, spaceId);
+              long folderId =
+                  (long)
+                      dsl.fetchValue(
+                          "INSERT INTO drive_folder (space_id, name) VALUES (?, 'sl-folder') RETURNING id",
+                          spaceId);
+              body.run(userId, spaceId, fileId, folderId);
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
+  private interface Body {
+    void run(long userId, long spaceId, long fileId, long folderId);
+  }
+
+  private static String newHash() {
+    return (UUID.randomUUID().toString().replace("-", "")
+            + UUID.randomUUID().toString().replace("-", ""))
+        .substring(0, 64);
+  }
+
+  private void insertLink(Long fileId, Long folderId, long spaceId, String hash, long userId) {
+    dsl.execute(
+        "INSERT INTO drive_share_link"
+            + " (drive_file_id, drive_folder_id, space_id, token_hash, audience, created_by)"
+            + " VALUES (?, ?, ?, ?, 'EXTERNAL', ?)",
+        fileId,
+        folderId,
+        spaceId,
+        hash,
+        userId);
   }
 
   /** USER 행 삽입 (tenant_id 없는 테이블, UUID suffix 으로 고유 보장). */

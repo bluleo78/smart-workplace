@@ -3,10 +3,10 @@
 // - 링크 목록 먼저(WP-1528): 살아 있는 링크는 URL·[복사]·[폐기] 카드, 새 링크는 「+ 새 링크 만들기」로 그 자리에 폼을 펼친다.
 //   링크가 없으면 폼이 바로 보이고, 폐기·만료 링크는 「지난 링크 n개」로 접힌다. 예전(토큰 없는) 링크는 URL 대신 안내.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ShareTargetRef } from '../../api/drive'
 import { renderWithProviders } from '../../test/renderWithProviders'
-import type { DriveFile } from '../../types/drive'
 import { ShareLinkModal } from './ShareLinkModal'
 
 const api = vi.hoisted(() => ({
@@ -34,7 +34,8 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-const file = { id: 10, name: 'report.txt' } as DriveFile
+const fileTarget: ShareTargetRef = { kind: 'file', id: 10, name: 'report.txt' }
+const folderTarget: ShareTargetRef = { kind: 'folder', id: 20, name: '견적' }
 const activeLink = {
   id: 7,
   audience: 'EXTERNAL',
@@ -63,7 +64,7 @@ describe('ShareLinkModal', () => {
   })
 
   it('보관 공간이면 생성 폼·새 링크 단추 대신 안내를 보이고 기존 링크는 복사·폐기할 수 있다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} archived onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} archived onClose={() => {}} />)
 
     expect(screen.getByTestId('share-link-archived-notice')).toHaveTextContent('새 링크를 만들 수 없습니다')
     expect(screen.queryByTestId('share-link-create-btn')).toBeNull()
@@ -86,7 +87,7 @@ describe('ShareLinkModal', () => {
   })
 
   it('살아 있는 링크가 있으면 URL·[복사] 카드가 먼저 보이고 폼은 「+ 새 링크 만들기」로 연다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     const item = await screen.findByTestId('share-link-item')
     expect(within(item).getByRole('textbox', { name: '공유 링크 URL' })).toHaveValue('/s/sl_a')
     expect(within(item).getByRole('button', { name: '공유 링크 복사' })).toHaveTextContent('복사')
@@ -107,7 +108,7 @@ describe('ShareLinkModal', () => {
 
   it('링크가 없으면 폼이 바로 보이고 폼 [취소]·「+ 새 링크 만들기」는 없다', async () => {
     api.listShareLinks.mockResolvedValue([])
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     expect(await screen.findByTestId('share-link-form')).toBeInTheDocument()
     expect(screen.getByTestId('share-link-create-btn')).toBeEnabled()
     expect(screen.queryByTestId('share-link-form-cancel')).toBeNull()
@@ -117,7 +118,7 @@ describe('ShareLinkModal', () => {
 
   it('폐기한 링크만 있으면 폼이 바로 보이고 지난 링크는 접혀 있다가 펼치면 복사 없이 보인다', async () => {
     api.listShareLinks.mockResolvedValue([{ ...activeLink, revoked: true, active: false, token: null }])
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     expect(await screen.findByTestId('share-link-form')).toBeInTheDocument()
     const toggle = screen.getByTestId('share-link-past-toggle')
     expect(toggle).toHaveTextContent('지난 링크 1개 (폐기·만료)')
@@ -135,7 +136,7 @@ describe('ShareLinkModal', () => {
 
   it('만료된 링크는 지난 링크에 「만료됨」으로 보인다', async () => {
     api.listShareLinks.mockResolvedValue([activeLink, { ...activeLink, id: 8, expiresAt: '2020-01-01T00:00:00Z', active: false, token: null }])
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     fireEvent.click(await screen.findByTestId('share-link-past-toggle'))
     expect(screen.getByTestId('share-link-past-item')).toHaveTextContent('만료됨')
     expect(screen.getAllByTestId('share-link-item')).toHaveLength(1)
@@ -143,7 +144,7 @@ describe('ShareLinkModal', () => {
 
   it('예전에 만든(토큰 없는) 링크는 URL 칸 대신 안내를 보이고 폐기할 수 있다', async () => {
     api.listShareLinks.mockResolvedValue([{ ...activeLink, token: null }])
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     const item = await screen.findByTestId('share-link-item')
     expect(within(item).getByTestId('share-link-legacy-notice')).toHaveTextContent('예전에 만든 링크라 URL을 다시 볼 수 없습니다.')
     expect(within(item).queryByRole('textbox')).toBeNull()
@@ -155,7 +156,7 @@ describe('ShareLinkModal', () => {
 
   it('비밀번호 링크는 「비밀번호」 배지로 보이고 예전 표기·이모지는 없다', async () => {
     api.listShareLinks.mockResolvedValue([{ ...activeLink, hasPassword: true }])
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     const item = await screen.findByTestId('share-link-item')
     expect(within(item).getByText('비밀번호')).toBeInTheDocument()
     expect(item.textContent).not.toContain('비번')
@@ -163,7 +164,7 @@ describe('ShareLinkModal', () => {
   })
 
   it('파일 이름이 제목 아래 보이고 「지금만 확인」 안내는 없다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     const name = screen.getByTestId('share-link-file-name')
     expect(name).toHaveTextContent('report.txt')
     expect(name).not.toHaveClass('sr-only')
@@ -173,7 +174,7 @@ describe('ShareLinkModal', () => {
 
   it('기존 링크 목록 조회가 실패하면 비어 보이게 두지 않고 안내하고 폼을 연다', async () => {
     api.listShareLinks.mockRejectedValue(new Error('403'))
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     expect(await screen.findByTestId('share-link-list-error')).toHaveTextContent('기존 링크를 불러오지 못했습니다')
     expect(screen.queryByTestId('share-link-list')).toBeNull()
     expect(screen.getByTestId('share-link-form')).toBeInTheDocument()
@@ -183,7 +184,7 @@ describe('ShareLinkModal', () => {
   it('목록 조회가 실패한 채 링크를 만들면 폼이 닫히고 새 링크가 강조돼 보인다', async () => {
     api.listShareLinks.mockRejectedValue(new Error('403'))
     api.createShareLink.mockResolvedValue({ ...activeLink, id: 9, token: 'sl_new', hasPassword: false })
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await screen.findByTestId('share-link-list-error')
     fireEvent.click(screen.getByTestId('share-link-create-btn'))
 
@@ -197,7 +198,7 @@ describe('ShareLinkModal', () => {
 
   // 코드 리뷰: 폐기 요청이 성공하면 재조회를 기다리지 않고 그 카드를 바로 「지난 링크」로 옮긴다(복사 단추도 사라짐).
   it('폐기에 성공하면 재조회 전에도 그 링크가 바로 지난 링크로 옮겨 간다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await screen.findByTestId('share-link-item')
     api.listShareLinks.mockReturnValue(new Promise(() => {})) // 재조회는 끝나지 않는다
 
@@ -210,7 +211,7 @@ describe('ShareLinkModal', () => {
 
   // 코드 리뷰: 폐기는 성공했는데 재조회만 실패하면 「폐기 실패」라고 말하지 않는다 — 링크는 실제로 끊겼다.
   it('폐기 뒤 재조회만 실패하면 폐기 실패 안내 없이 지난 링크로 옮긴다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await screen.findByTestId('share-link-item')
     api.listShareLinks.mockRejectedValue(new Error('500'))
 
@@ -223,7 +224,7 @@ describe('ShareLinkModal', () => {
 
   it('폐기 요청 자체가 실패하면 폐기 실패 안내를 보이고 링크는 살아 있는 채로 둔다', async () => {
     api.revokeShareLink.mockRejectedValue(new Error('500'))
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await screen.findByTestId('share-link-item')
 
     fireEvent.click(screen.getByTestId('share-link-revoke-btn'))
@@ -237,7 +238,7 @@ describe('ShareLinkModal', () => {
   it('겹친 재조회에서 늦게 도착한 오래된 응답은 새 목록을 덮지 않는다', async () => {
     const other = { ...activeLink, id: 8, token: 'sl_b' }
     api.listShareLinks.mockResolvedValueOnce([activeLink, other])
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await waitFor(() => expect(screen.getAllByTestId('share-link-item')).toHaveLength(2))
 
     // ① 폐기 → 재조회 A(늦게 도착, 새 링크가 없는 예전 목록)
@@ -267,7 +268,7 @@ describe('ShareLinkModal', () => {
 
   // WP-1385: 공백만 넣은 비밀번호가 조용히 「비밀번호 없는 링크」로 만들어지지 않게 막는다.
   it('비밀번호에 공백만 넣으면 안내를 보이고 요청을 보내지 않는다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await openForm()
 
     fireEvent.change(screen.getByLabelText('비밀번호 (선택)'), { target: { value: '   ' } })
@@ -285,7 +286,7 @@ describe('ShareLinkModal', () => {
   })
 
   it('오류가 보이는 동안 다른 문제로 바꾸면 안내도 지금 값에 맞게 바뀐다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await openForm()
     const input = screen.getByLabelText('비밀번호 (선택)')
 
@@ -300,7 +301,7 @@ describe('ShareLinkModal', () => {
   })
 
   it('생성 때 모든 칸을 함께 검사해 각 오류를 세우고, 고친 칸의 오류는 지운다', async () => {
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await openForm()
 
     // 공백만 비밀번호 + 지난 만료일 — 두 안내가 함께 뜬다(비밀번호만 보고 돌아가지 않는다)
@@ -320,13 +321,13 @@ describe('ShareLinkModal', () => {
 
   it('비밀번호 칸을 비우면 비밀번호 없이 생성 요청을 보낸다', async () => {
     api.createShareLink.mockResolvedValue({ ...activeLink, id: 8, token: 'sl_x', hasPassword: false })
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await openForm()
 
     fireEvent.click(screen.getByTestId('share-link-create-btn'))
 
     await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
-    expect(api.createShareLink).toHaveBeenCalledWith(10, {
+    expect(api.createShareLink).toHaveBeenCalledWith({ kind: 'file', id: 10 }, {
       audience: 'EXTERNAL', password: undefined, expiresAt: undefined,
     })
     expect(screen.queryByTestId('share-password-error')).toBeNull()
@@ -334,14 +335,101 @@ describe('ShareLinkModal', () => {
 
   it('비밀번호를 넣으면 그대로 담아 보낸다', async () => {
     api.createShareLink.mockResolvedValue({ ...activeLink, id: 8, token: 'sl_x', hasPassword: true })
-    renderWithProviders(<ShareLinkModal file={file} onClose={() => {}} />)
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
     await openForm()
 
     fireEvent.change(screen.getByLabelText('비밀번호 (선택)'), { target: { value: 'secret' } })
     fireEvent.click(screen.getByTestId('share-link-create-btn'))
 
     await waitFor(() =>
-      expect(api.createShareLink).toHaveBeenCalledWith(10, expect.objectContaining({ password: 'secret' })),
+      expect(api.createShareLink).toHaveBeenCalledWith({ kind: 'file', id: 10 }, expect.objectContaining({ password: 'secret' })),
     )
+  })
+})
+
+// WP-1538 — 폴더 대상: 폴더 이름·아이콘, 외부 경고, 만료 30일 기본값(웹 전용, 만지기 전까지만 따라간다).
+describe('ShareLinkModal — 폴더 대상', () => {
+  const WARNING = '링크를 가진 누구나 이 폴더와 하위 폴더를 볼 수 있습니다. 나중에 넣는 파일도 함께 보입니다.'
+  const INTERNAL_NOTICE = '같은 워크스페이스 직원이 로그인해서 엽니다. 하위 폴더와 나중에 넣은 파일도 보입니다.'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 13, 9, 0, 0))
+    api.listShareLinks.mockResolvedValue([])
+  })
+  afterEach(() => vi.useRealTimers())
+
+  const expiry = () => screen.getByLabelText('만료일 (선택)') as HTMLInputElement
+
+  it('folder: shows folder name with folder icon', async () => {
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    expect(await screen.findByText('견적')).toBeTruthy()
+    expect(screen.getByTestId('share-target-folder-icon')).toBeTruthy()
+    expect(api.listShareLinks).toHaveBeenCalledWith({ kind: 'folder', id: 20 })
+  })
+
+  it('folder external: warning + expiry prefilled 30d', async () => {
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    expect(screen.getByTestId('share-folder-external-warning').textContent).toBe(WARNING)
+    expect(screen.getByTestId('share-folder-external-warning').getAttribute('role')).toBeNull()
+    expect(expiry().value).toBe('2026-12-13')
+    expect(screen.getByText('외부 폴더 링크는 30일 뒤로 미리 채웁니다.')).toBeTruthy()
+  })
+
+  it('clearing expiry sends no expiresAt', async () => {
+    api.createShareLink.mockResolvedValue({ ...activeLink, id: 9, token: 'sl_new' })
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    fireEvent.change(expiry(), { target: { value: '' } })
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
+    expect(api.createShareLink).toHaveBeenCalledWith({ kind: 'folder', id: 20 }, {
+      audience: 'EXTERNAL', password: undefined, expiresAt: undefined,
+    })
+  })
+
+  it('untouched default is sent as an ISO expiresAt', async () => {
+    api.createShareLink.mockResolvedValue({ ...activeLink, id: 9, token: 'sl_new' })
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    fireEvent.click(screen.getByTestId('share-link-create-btn'))
+    await waitFor(() => expect(api.createShareLink).toHaveBeenCalledTimes(1))
+    const body = api.createShareLink.mock.calls[0][1]
+    expect(body.expiresAt).toBe(new Date('2026-12-13T23:59:59').toISOString())
+  })
+
+  it('internal: warning gone, internal notice, expiry empty', async () => {
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    fireEvent.click(screen.getByLabelText('사내 전용'))
+    expect(screen.queryByTestId('share-folder-external-warning')).toBeNull()
+    expect(screen.getByTestId('share-folder-internal-notice').textContent).toBe(INTERNAL_NOTICE)
+    expect(expiry().value).toBe('')
+  })
+
+  it('back to external refills when untouched', async () => {
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    fireEvent.click(screen.getByLabelText('사내 전용'))
+    fireEvent.click(screen.getByLabelText(/^외부/))
+    expect(expiry().value).toBe('2026-12-13')
+  })
+
+  it('touched expiry survives audience switch', async () => {
+    renderWithProviders(<ShareLinkModal target={folderTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    fireEvent.change(expiry(), { target: { value: '2027-01-05' } })
+    fireEvent.click(screen.getByLabelText('사내 전용'))
+    expect(expiry().value).toBe('2027-01-05')
+  })
+
+  it('file target has no expiry default (regression)', async () => {
+    renderWithProviders(<ShareLinkModal target={fileTarget} onClose={() => {}} />)
+    await screen.findByTestId('share-link-form')
+    expect(expiry().value).toBe('')
+    expect(screen.queryByTestId('share-folder-external-warning')).toBeNull()
+    expect(screen.queryByTestId('share-target-folder-icon')).toBeNull()
   })
 })
