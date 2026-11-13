@@ -2,11 +2,12 @@
 // ↑/↓·Enter 로 열기, 연 뒤 「다른 결과」 칩, Esc 로 검색 전 내용 복귀, 0건·늦은 응답·빈 질의를 본다.
 // 묶음·검색 응답은 MSW 로 준다(helpBundleKit). 받침은 HelpPanel.test.tsx 와 같은 HelpPanelHost 다.
 import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { delay, HttpResponse } from 'msw'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
-import { helpBundleHandlers, helpSearchHandler, helpSearchHitsFixture } from '@/test/kits/help/helpBundleKit'
+import { helpBundleHandlers, helpMetricHandlers, helpSearchHandler, helpSearchHitsFixture } from '@/test/kits/help/helpBundleKit'
 import { HelpPanelHost } from '@/test/kits/help/HelpPanelHost'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
 
@@ -284,5 +285,73 @@ describe('HelpPanel 검색', () => {
     expect(await screen.findByText('위젯 본문.', { exact: false })).toBeInTheDocument()
     expect(input).toHaveValue('')
     expect(screen.queryByRole('listbox', { name: '도움말 검색 결과' })).toBeNull()
+  })
+})
+
+describe('검색 0건 기록', () => {
+  /** 없는말은 0건, 그 밖은 결과가 있는 검색 핸들러와 기록 수집 배열로 띄운다. */
+  function setup(respond?: (q: string) => never[] | Response | typeof helpSearchHitsFixture) {
+    const misses: unknown[] = []
+    const handler = helpSearchHandler([], respond ?? ((q) => (q === '없는말' ? [] : helpSearchHitsFixture)))
+    const rendered = renderScreen(ui, { path: '/', handlers: [handler, ...helpMetricHandlers([], misses), ...helpBundleHandlers()], auth: admin })
+    return { ...rendered, misses }
+  }
+
+  it('0건이면 한 번 기록한다 — 질의·화면·보던 절', async () => {
+    const { user, misses } = setup()
+    const input = await openPanel(user)
+    await user.type(input, '없는말')
+    await screen.findByTestId('help-search-empty')
+    await waitFor(() => expect(misses).toEqual([{ query: '없는말', route: '/', helpId: 'home' }]))
+  })
+
+  it('같은 질의를 지웠다 다시 쳐도 한 번만', async () => {
+    const { user, misses } = setup()
+    const input = await openPanel(user)
+    await user.type(input, '없는말')
+    await waitFor(() => expect(misses).toHaveLength(1))
+    await user.keyboard('{Escape}')
+    await user.type(input, '없는말')
+    await screen.findByTestId('help-search-empty')
+    // 부재 확인이라 고정 대기가 불가피하다.
+    await new Promise((r) => setTimeout(r, 450))
+    expect(misses).toHaveLength(1)
+  })
+
+  it('결과가 있으면 기록하지 않는다', async () => {
+    const { user, misses } = setup()
+    const input = await openPanel(user)
+    await user.type(input, '토큰')
+    await findCards()
+    // 부재 확인이라 고정 대기가 불가피하다(기록 요청이 「오지 않음」을 디바운스 뒤까지 본다).
+    await new Promise((r) => setTimeout(r, 450))
+    expect(misses).toEqual([])
+  })
+
+  // 앞 질의의 「결과 없음」이 보이는 채로 이어 치면, 디바운스·새 응답 전까지 화면은 앞 질의의 0건(stale)이다 — 그동안의 입력을
+  // 0건으로 세면 안 된다. 먼저 친 앞부분은 디바운스가 끝나 「결과 없음」을 실제로 봤으니 기록되는 게 맞다.
+  it('치는 중간 질의는 기록하지 않는다 — 앞 질의 0건이 남아 보여도', async () => {
+    const { user, misses } = setup(() => [])
+    const input = await openPanel(user)
+    await user.type(input, '없는')
+    await screen.findByTestId('help-search-empty')
+    await waitFor(() => expect(misses).toEqual([{ query: '없는', route: '/', helpId: 'home' }]))
+    // 나머지는 키 사이 대기 없이 빠르게 — 중간 질의(없는말)는 디바운스가 끝나지 않는다.
+    const fast = userEvent.setup({ delay: null })
+    await fast.type(input, '말자')
+    await waitFor(() => expect(misses).toHaveLength(2))
+    // 부재 확인이라 고정 대기가 불가피하다(늦게 올 수 있는 기록 요청이 더 없음을 본다).
+    await new Promise((r) => setTimeout(r, 450))
+    expect((misses as { query: string }[]).map((m) => m.query)).toEqual(['없는', '없는말자'])
+  })
+
+  it('검색 오류면 기록하지 않는다', async () => {
+    const { user, misses } = setup(() => new HttpResponse(null, { status: 500 }))
+    const input = await openPanel(user)
+    await user.type(input, '없는말')
+    expect(await screen.findByTestId('help-search-error')).toBeInTheDocument()
+    // 부재 확인이라 고정 대기가 불가피하다(오류 뒤 기록 요청이 오지 않음을 본다).
+    await new Promise((r) => setTimeout(r, 450))
+    expect(misses).toEqual([])
   })
 })

@@ -8,6 +8,7 @@
 import { ChevronLeft, CircleHelp, Search, X } from 'lucide-react'
 import { type PointerEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
+import { recordHelpSearchMiss } from '@/api/help'
 import { useAssistant } from '@/components/ai/AIAssistantContext'
 import { useRegisterAiHelpContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
@@ -26,6 +27,7 @@ import { HelpActiveControlContext } from './helpActiveControl'
 import { type HelpIndexChapter, HelpNotFoundError, useHelpChapter, useHelpIndex, useHelpVars } from './helpBundle'
 import { type HelpSignalSource, resolveContextTarget } from './helpContext'
 import { HelpMarkdown } from './HelpMarkdown'
+import { helpMetricRoute } from './helpMetricRoute'
 import { findSection, helpBreadcrumb, type HelpTarget, type HelpView, isChapterVisible, isTargetVisible, relatedSections, sameTarget } from './helpNav'
 import { useHelpPanel } from './HelpPanelContext'
 import { HelpSearchOtherResults, HelpSearchResults } from './HelpSearchResults'
@@ -195,7 +197,12 @@ export function HelpPanel({ className, onAskAi }: HelpPanelProps) {
   }
   // 검색 — 결과를 열면 그 절로(직접 고름). Enter 로 열면 포커스가 칸에 있어 그대로 남는다(아래 포커스 효과).
   const searchShown = curChapter !== null && curId !== null ? { chapter: curChapter, sectionId: curId } : null
-  const search = useHelpSearchState((hit) => goTo({ chapter: hit.chapter, sectionId: hit.sectionId }), searchShown)
+  // 0건 검색은 화면(정규화한 경로)·보던 절과 함께 기록한다 — 실패는 recordHelpSearchMiss 가 삼킨다.
+  const search = useHelpSearchState(
+    (hit) => goTo({ chapter: hit.chapter, sectionId: hit.sectionId }),
+    searchShown,
+    (q) => recordHelpSearchMiss({ query: q, route: helpMetricRoute(nav.pathname), helpId: curId }),
+  )
   // 질의 유무와 지우기 함수를 공급자에 알린다 — 휴대폰 시트가 질의가 있을 때의 Esc 를 닫기 대신 검색 지우기로 받게(MobileHelpSheet).
   // 패널이 사라지면 끄고 지운다.
   const searchActive = search.query !== ''

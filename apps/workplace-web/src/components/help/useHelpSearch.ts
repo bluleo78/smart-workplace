@@ -1,7 +1,7 @@
 // 도움말 검색(WP-1509) — 검색 칸 질의를 디바운스해 서버 검색을 부르는 훅과, 패널의 검색 화면 상태(질의·강조·연 결과)·키 처리 훅.
 // HelpPanel 이 둘을 써서 본문 자리에 결과 목록을 보이거나, 연 절 위에 「다른 결과」 칩을 단다.
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { type ChangeEvent, type KeyboardEvent, useCallback, useState } from 'react'
+import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 import { type HelpSearchHit, searchHelp } from '@/api/help'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
@@ -52,8 +52,9 @@ export function otherHelpResults(results: HelpSearchHit[], opened: HelpTarget): 
  * - opened: 연 결과(장·절). null 이면 질의가 있는 동안 본문 자리에 결과 목록을 보인다.
  * @param onOpen 결과를 연다 — 패널이 그 절로 옮긴다(직접 고름, 뒤로 기록 규칙 그대로).
  * @param shown 지금 패널이 보이는 절(목차·절 없음이면 null) — 「다른 결과」 칩은 이 절이 검색으로 연 그 결과일 때만 보인다.
+ * @param onMiss 「결과 없음」이 보일 때 다듬은 질의로 부른다(WP-1512 측정) — 패널 한 번 뜬 동안 같은 질의는 한 번만.
  */
-export function useHelpSearchState(onOpen: (hit: HelpSearchHit) => void, shown: HelpTarget | null) {
+export function useHelpSearchState(onOpen: (hit: HelpSearchHit) => void, shown: HelpTarget | null, onMiss?: (query: string) => void) {
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const [opened, setOpened] = useState<HelpTarget | null>(null)
@@ -76,6 +77,21 @@ export function useHelpSearchState(onOpen: (hit: HelpSearchHit) => void, shown: 
   // 「다른 결과」 칩 — 지금 보이는 절이 검색(또는 칩)으로 연 결과일 때만. 뒤로·경로·목차·관련 링크로 그 절을 떠나면 사라지고
   // (opened 는 둬서 결과 목록이 다시 덮지 않는다 — 떠난 곳의 본문이 그대로 보여야 한다), 보이는 절은 칩에서 뺀다.
   const showingOpened = opened !== null && shown !== null && opened.chapter === shown.chapter && opened.sectionId === shown.sectionId
+  // 0건 — 지금 입력의 응답(앞 질의 임시 결과·오류 아님)이 비어 보이는 때. 연 결과가 있으면 목록이 아니라 절을 보는 중이라 제외한다.
+  const miss = active && opened === null && !search.stale && !search.isError && results !== undefined && results.length === 0
+  // 최신 onMiss 를 ref 로 읽어 effect 가 콜백 정체성에 흔들리지 않게 한다(렌더 끝난 뒤 맞춘다).
+  const onMissRef = useRef(onMiss)
+  useEffect(() => {
+    onMissRef.current = onMiss
+  })
+  // 이미 기록한 질의 — 패널 한 번 뜬 동안(이 훅의 수명)만 기억한다.
+  const missSeen = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const q = query.trim()
+    if (!miss || missSeen.current.has(q)) return
+    missSeen.current.add(q)
+    onMissRef.current?.(q)
+  }, [miss, query])
   const others = active && showingOpened && results ? otherHelpResults(results, opened) : []
 
   const open = (hit: HelpSearchHit) => {

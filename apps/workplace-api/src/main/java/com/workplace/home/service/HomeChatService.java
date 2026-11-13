@@ -11,6 +11,7 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.help.service.HelpGapRecorder;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeChatActiveResponse;
 import com.workplace.home.dto.HomeChatRequest;
@@ -118,6 +119,9 @@ public class HomeChatService {
   /** WP-386: 조직 + 지금 공간 공용 메모리 읽기(매 턴, 메모리 스위치와 무관). */
   private final SharedAiMemoryReader sharedReader;
 
+  /** WP-1512: 답이 매뉴얼 공백 표식으로 끝나면 질문을 지표로 남긴다(비동기, 실패해도 채팅에 영향 없음). */
+  private final HelpGapRecorder helpGapRecorder;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -134,7 +138,8 @@ public class HomeChatService {
       HomeFollowupService followupService,
       AiMemoryService memoryService,
       SharedMemorySpaces sharedSpaces,
-      SharedAiMemoryReader sharedReader) {
+      SharedAiMemoryReader sharedReader,
+      HelpGapRecorder helpGapRecorder) {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
@@ -151,6 +156,15 @@ public class HomeChatService {
     this.memoryService = memoryService;
     this.sharedSpaces = sharedSpaces;
     this.sharedReader = sharedReader;
+    this.helpGapRecorder = helpGapRecorder;
+  }
+
+  /** 화면 컨텍스트의 도움말 절 id — 어느 단계든 null 이면 null. */
+  private static String helpSectionId(AiScreenContext c) {
+    if (c == null || c.help() == null || c.help().section() == null) {
+      return null;
+    }
+    return c.help().section().id();
   }
 
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
@@ -426,6 +440,12 @@ public class HomeChatService {
                             screenContext,
                             spec.agentUserId(),
                             spec.suggestionModel()));
+                    // WP-1512: 서버가 답 전문을 이미 쥐고 있으니 매뉴얼 공백 표식을 직접 보고 기록한다.
+                    // 기록기는 비동기이고 어떤 실패도 던지지 않아 채팅 완료·저장에 영향이 없다.
+                    // 답이 저장되지 않았으면(messageId == null — 생성 중 대화 삭제 등) 남지 않은 답을 세지 않는다.
+                    if (messageId != null) {
+                      helpGapRecorder.recordIfGap(query, fullText, helpSectionId(screenContext));
+                    }
                   }),
           // error(진짜 오류만 — 취소는 아래 마감·catch 로 별도 처리): 누적분 FAILED 저장 → 반납 → home.chat.error.
           turn::fail,

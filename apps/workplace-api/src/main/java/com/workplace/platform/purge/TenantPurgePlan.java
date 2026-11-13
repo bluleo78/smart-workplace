@@ -234,6 +234,8 @@ public final class TenantPurgePlan {
           USER_ROLE,
           ROLE_PERMISSION,
           ROLE,
+          // 도움말 일별 지표(WP-1512) — tenant 외 FK 가 없는 테넌트 소유 집계 표라 다른 표와의 순서 제약 없이 감사 로그 앞에서 지운다.
+          HELP_METRIC_DAILY,
           AUDIT_LOG,
           TENANT_CANARY);
 }
