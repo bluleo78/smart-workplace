@@ -504,7 +504,8 @@ public class GlobalExceptionHandler {
     com.workplace.agentaccount.exception.AgentAccountBindingException.class,
     com.workplace.agentaccount.exception.GeniaLoginNotFoundException.class,
     com.workplace.agentaccount.exception.GeniaLoginUnavailableException.class,
-    com.workplace.help.exception.HelpSectionNotFoundException.class
+    com.workplace.help.exception.HelpSectionNotFoundException.class,
+    com.workplace.drive.exception.DriveUploadSessionException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {
@@ -519,7 +520,8 @@ public class GlobalExceptionHandler {
     com.workplace.drive.exception.DriveFolderNotFoundException.class,
     com.workplace.drive.exception.DriveFileNotFoundException.class,
     com.workplace.drive.exception.DriveNotInTrashException.class,
-    com.workplace.drive.exception.DriveSpaceMemberNotFoundException.class
+    com.workplace.drive.exception.DriveSpaceMemberNotFoundException.class,
+    com.workplace.drive.exception.DriveUploadSessionNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveNotFound(
       RuntimeException ex, HttpServletRequest request) {

@@ -260,3 +260,23 @@ export interface DrivePlaybackUrl {
   expiresAt: string
   mimeType: string
 }
+
+/**
+ * 나눠 올리기 세션(WP-1520) — 백엔드 upload-sessions 응답과 1:1.
+ * 20MB 초과 파일을 chunkSize 조각으로 이어 올릴 때, 서버가 지금까지 받은 바이트(receivedBytes)를 알려 끊긴 자리부터 잇게 한다.
+ */
+export interface DriveUploadSession {
+  id: string
+  chunkSize: number
+  receivedBytes: number
+  size: number
+  expiresAt: string
+}
+
+/** 나눠 올리기 세션 시작 요청 본문 — folderId 가 없으면 공간 루트. */
+export interface DriveUploadSessionStartBody {
+  folderId?: number
+  fileName: string
+  contentType?: string
+  size: number
+}

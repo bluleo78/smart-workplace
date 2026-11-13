@@ -54,6 +54,7 @@ import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
+import com.workplace.jooq.tables.DriveUploadSession;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
 import com.workplace.jooq.tables.EmailCalendarInvite;
@@ -293,6 +294,9 @@ public class Indexes {
     public static final Index IDX_DRIVE_SPACE_TENANT = Internal.createIndex(DSL.name("idx_drive_space_tenant"), DriveSpace.DRIVE_SPACE, new OrderField[] { DriveSpace.DRIVE_SPACE.TENANT_ID }, false);
     public static final Index IDX_DRIVE_TRANSFER_LINK_TENANT = Internal.createIndex(DSL.name("idx_drive_transfer_link_tenant"), DriveTransferLink.DRIVE_TRANSFER_LINK, new OrderField[] { DriveTransferLink.DRIVE_TRANSFER_LINK.TENANT_ID }, false);
     public static final Index IDX_DRIVE_TRANSFER_LINK_USER_EXPIRES = Internal.createIndex(DSL.name("idx_drive_transfer_link_user_expires"), DriveTransferLink.DRIVE_TRANSFER_LINK, new OrderField[] { DriveTransferLink.DRIVE_TRANSFER_LINK.USER_ID, DriveTransferLink.DRIVE_TRANSFER_LINK.EXPIRES_AT }, false);
+    public static final Index IDX_DRIVE_UPLOAD_SESSION_EXPIRES = Internal.createIndex(DSL.name("idx_drive_upload_session_expires"), DriveUploadSession.DRIVE_UPLOAD_SESSION, new OrderField[] { DriveUploadSession.DRIVE_UPLOAD_SESSION.EXPIRES_AT }, false);
+    public static final Index IDX_DRIVE_UPLOAD_SESSION_OWNER = Internal.createIndex(DSL.name("idx_drive_upload_session_owner"), DriveUploadSession.DRIVE_UPLOAD_SESSION, new OrderField[] { DriveUploadSession.DRIVE_UPLOAD_SESSION.OWNER_ID }, false);
+    public static final Index IDX_DRIVE_UPLOAD_SESSION_TENANT = Internal.createIndex(DSL.name("idx_drive_upload_session_tenant"), DriveUploadSession.DRIVE_UPLOAD_SESSION, new OrderField[] { DriveUploadSession.DRIVE_UPLOAD_SESSION.TENANT_ID }, false);
     public static final Index IDX_EMAIL_ACCOUNT_TENANT = Internal.createIndex(DSL.name("idx_email_account_tenant"), EmailAccount.EMAIL_ACCOUNT, new OrderField[] { EmailAccount.EMAIL_ACCOUNT.TENANT_ID }, false);
     public static final Index IDX_EMAIL_ACCOUNT_USER = Internal.createIndex(DSL.name("idx_email_account_user"), EmailAccount.EMAIL_ACCOUNT, new OrderField[] { EmailAccount.EMAIL_ACCOUNT.USER_ID }, false);
     public static final Index IDX_EMAIL_ATTACHMENT_CONTENT_ATT = Internal.createIndex(DSL.name("idx_email_attachment_content_att"), EmailAttachment.EMAIL_ATTACHMENT, new OrderField[] { EmailAttachment.EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID }, false);

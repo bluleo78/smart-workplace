@@ -55,6 +55,7 @@ import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
+import com.workplace.jooq.tables.DriveUploadSession;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
 import com.workplace.jooq.tables.EmailCalendarInvite;
@@ -438,6 +439,11 @@ public class Tables {
      * The table <code>public.drive_transfer_link</code>.
      */
     public static final DriveTransferLink DRIVE_TRANSFER_LINK = DriveTransferLink.DRIVE_TRANSFER_LINK;
+
+    /**
+     * The table <code>public.drive_upload_session</code>.
+     */
+    public static final DriveUploadSession DRIVE_UPLOAD_SESSION = DriveUploadSession.DRIVE_UPLOAD_SESSION;
 
     /**
      * The table <code>public.email_account</code>.
