@@ -7,29 +7,27 @@
 //   - 파일 카드: [미리보기](통합 뷰어 — 공개 경로 + 열람 토큰 출처) [다운로드], 아래에 「드라이브에서 열기」 계열 링크.
 //   - 로그인한 사람이 새 탭으로 열면 액세스 토큰이 아직 없다 — AuthProvider 의 세션 복원(refresh 쿠키)이 끝난 뒤 정보를 묻는다.
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock } from 'lucide-react'
-import { type ReactNode, type SyntheticEvent, useCallback, useMemo, useState } from 'react'
+import { type ReactNode, type SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import {
   downloadShare,
-  fetchShareBlob,
-  fetchShareConverted,
   fetchShareInfo,
   type ShareFileInfo,
-  sharePublicBase,
-  SharePublicError,
   unlockShare,
 } from '@/api/drivePublicShare'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { shareErrorStatus as statusOf, shareViewerItem, shareViewerSource } from '@/components/drive/shareViewer'
 import { BrandMark } from '@/components/layout/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { PasswordInput } from '@/components/ui/password-input'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { driveFilePath } from '@/components/viewer/driveOpen'
-import type { ViewerItem, ViewerItemSource } from '@/components/viewer/types'
+import type { ViewerItem } from '@/components/viewer/types'
+import { driveKeys } from '@/hooks/queries/driveKeys'
 import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { SHARE_LINK_TITLE } from '@/lib/documentTitle'
@@ -38,11 +36,6 @@ import { savePendingPushTarget } from '@/lib/push/openTarget'
 
 /** 잠김(시도 초과·IP 제한) 안내 — 비밀번호 칸 아래와 다운로드 실패에 같이 쓴다. 서버는 429(이전 계약 423 도 같이 본다). */
 const LOCKED_MESSAGE = '시도 횟수를 넘었습니다. 잠시 뒤 다시 시도하세요'
-
-/** 응답 상태 — SharePublicError 가 아니면(네트워크 등) 0. */
-function statusOf(e: unknown): number {
-  return e instanceof SharePublicError ? e.status : 0
-}
 
 function isLocked(status: number): boolean {
   return status === 429 || status === 423
@@ -73,26 +66,6 @@ function fileTypeLabel(name: string, mimeType: string): string {
 /** 로그인 뒤 이 링크로 돌아오게 대기 목적지를 남긴다 — from=login 표시로 「공간 접근 권한 없음」 안내를 고른다. 드라이브로 자동 이동은 하지 않는다. */
 function rememberReturn(token: string) {
   savePendingPushTarget({ tenantId: null, url: `/s/${token}?from=login` })
-}
-
-/**
- * 공유 화면 뷰어 출처 — 원본·변환 PDF·다운로드를 공개 경로 + 열람 토큰으로 받는다.
- * 401(열람 토큰 만료·로그인 풀림)이면 onUnauthorized 로 잠금 카드에 돌려보낸 뒤 실패를 그대로 넘긴다(뷰어는 오류 화면).
- */
-function shareViewerSource(token: string, viewToken: string | null, onUnauthorized: () => void): ViewerItemSource {
-  const guard = async <T,>(run: () => Promise<T>): Promise<T> => {
-    try {
-      return await run()
-    } catch (e) {
-      if (statusOf(e) === 401) onUnauthorized()
-      throw e
-    }
-  }
-  return {
-    fetchBlob: (path, opts) => guard(() => fetchShareBlob(path, viewToken, opts)),
-    fetchConverted: (path, signal) => guard(() => fetchShareConverted(path, viewToken, signal)),
-    download: (item) => guard(() => downloadShare(token, viewToken, item.name)),
-  }
 }
 
 export default function ShareLinkPage() {
@@ -138,6 +111,13 @@ export default function ShareLinkPage() {
   const source = useMemo(() => shareViewerSource(token, viewToken, onUnauthorized), [token, viewToken, onUnauthorized])
 
   const file: ShareFileInfo | null = info.data && 'name' in info.data ? info.data : null
+  // 파일 정보가 열리면 서버가 「공유받은 항목」에 기록했을 수 있다(WP-1539) — 드라이브로 돌아갔을 때 사이드바 개수·목록이
+  // 1분 캐시에 머물지 않게 그 쿼리를 낡은 것으로 표시한다. 비로그인은 목록이 없어 건너뛴다.
+  const queryClient = useQueryClient()
+  const fileLoaded = file != null
+  useEffect(() => {
+    if (fileLoaded && isAuthenticated) void queryClient.invalidateQueries({ queryKey: driveKeys.sharedWithMe() })
+  }, [fileLoaded, isAuthenticated, queryClient])
   // 탭 제목 — 파일을 알면 「{파일 이름} · 공유 링크 · Gen:iA Works」로 덮는다. 모르는 상태(로딩·잠금·오류)는 덮지 않아
   // 주소 기본값 「공유 링크 · Gen:iA Works」(routeTitleParts)가 보인다(WP-1429).
   useDocumentTitle(file ? [file.name, SHARE_LINK_TITLE] : [])
@@ -145,19 +125,7 @@ export default function ShareLinkPage() {
   // 뷰어 항목 — 요약·참조된 곳·가져오기·드라이브에서 열기 같은 부가 필드는 두지 않는다(공개 화면).
   const items = useMemo<ViewerItem[]>(() => {
     if (!file) return []
-    const base = sharePublicBase(token)
-    return [
-      {
-        key: `share:${token}`,
-        name: file.name,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
-        contentPath: `${base}/content`,
-        downloadPath: `${base}/download`,
-        previewPath: `${base}/preview`,
-        source,
-      },
-    ]
+    return [shareViewerItem(token, file, source)]
   }, [file, token, source])
 
   async function handleDownload() {

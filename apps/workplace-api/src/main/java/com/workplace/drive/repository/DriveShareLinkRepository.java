@@ -78,17 +78,22 @@ public class DriveShareLinkRepository {
         .fetchOptional(DriveShareLinkRepository::toRow);
   }
 
-  /** 「지금 쓸 수 있음」 — 폐기되지 않았고 만료 전. DB 시계(now())로 판정해 클라이언트 시계와 무관한 서버 기준이 된다. */
-  private static final Field<Boolean> ACTIVE =
-      DSL.field(
-          DRIVE_SHARE_LINK
-              .REVOKED_AT
-              .isNull()
-              .and(
-                  DRIVE_SHARE_LINK
-                      .EXPIRES_AT
-                      .isNull()
-                      .or(DRIVE_SHARE_LINK.EXPIRES_AT.gt(DSL.currentOffsetDateTime()))));
+  /**
+   * 「지금 쓸 수 있음」 조건 — 폐기되지 않았고 만료 전. DB 시계(now())로 판정해 클라이언트 시계와 무관한 서버 기준이 된다. 공유받은 항목 목록(WP-1539,
+   * {@link DriveShareLinkVisitRepository})도 같은 조건을 쓴다.
+   */
+  static final Condition ACTIVE_CONDITION =
+      DRIVE_SHARE_LINK
+          .REVOKED_AT
+          .isNull()
+          .and(
+              DRIVE_SHARE_LINK
+                  .EXPIRES_AT
+                  .isNull()
+                  .or(DRIVE_SHARE_LINK.EXPIRES_AT.gt(DSL.currentOffsetDateTime())));
+
+  /** {@link #ACTIVE_CONDITION} 을 select 칸으로. */
+  private static final Field<Boolean> ACTIVE = DSL.field(ACTIVE_CONDITION);
 
   /** 목록·한 줄 조회가 함께 쓰는 SELECT — 만든 사람 이름은 USER left join. */
   private SelectConditionStep<? extends Record> selectRows(Condition where) {
@@ -168,17 +173,26 @@ public class DriveShareLinkRepository {
   }
 
   /**
-   * 링크를 만든 사람 이름(WP-1227 — 공유 화면의 「공유한 사람」). RLS 컨텍스트(링크 워크스페이스)·트랜잭션 안에서 부른다. resolve 함수는 바꾸지
-   * 않고(마이그레이션 없이) 테넌트 범위 조회로 읽는다.
+   * 링크 id·만든 사람 id·이름(WP-1227 「공유한 사람」, WP-1539 공유받은 항목 기록 대상 판정) — 공유 정보 조회가 한 번에 읽는다. RLS 컨텍스트(링크
+   * 워크스페이스)·트랜잭션 안에서 부른다. resolve 함수는 id·created_by 를 돌려주지 않아(함수를 바꾸면 DROP·마이그레이션이 필요) 테넌트 범위 조회로
+   * 읽는다. 만든 사람이 지워졌으면 이름만 null(USER left join).
    */
-  public Optional<String> findCreatorName(String tokenHash) {
-    return dsl.select(USER.NAME)
+  public Optional<LinkCreator> findCreator(String tokenHash) {
+    return dsl.select(DRIVE_SHARE_LINK.ID, DRIVE_SHARE_LINK.CREATED_BY, USER.NAME)
         .from(DRIVE_SHARE_LINK)
-        .join(USER)
+        .leftJoin(USER)
         .on(USER.ID.eq(DRIVE_SHARE_LINK.CREATED_BY))
         .where(DRIVE_SHARE_LINK.TOKEN_HASH.eq(tokenHash))
-        .fetchOptional(USER.NAME);
+        .fetchOptional(
+            r ->
+                new LinkCreator(
+                    r.get(DRIVE_SHARE_LINK.ID),
+                    r.get(DRIVE_SHARE_LINK.CREATED_BY),
+                    r.get(USER.NAME)));
   }
+
+  /** 링크 id, 만든 사람 id, 만든 사람 이름(알 수 없으면 null). */
+  public record LinkCreator(long id, long createdBy, String name) {}
 
   /** 공유 화면에 보일 파일 형식·크기(WP-1227). core file id 기준, RLS 컨텍스트·트랜잭션 안에서 부른다. */
   public Optional<FileMeta> findFileMeta(long coreFileId) {

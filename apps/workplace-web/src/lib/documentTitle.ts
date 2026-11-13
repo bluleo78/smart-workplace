@@ -76,6 +76,7 @@ export function routeTitleParts(pathname: string): string[] {
       return ['캘린더']
     case 'drive':
       if (second === 'attachments') return ['첨부 모아보기', '드라이브']
+      if (second === 'shared') return ['공유받은 항목', '드라이브']
       return ['드라이브']
     case 'wiki':
       return ['노트']

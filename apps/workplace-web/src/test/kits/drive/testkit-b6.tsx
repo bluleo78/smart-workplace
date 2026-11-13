@@ -39,6 +39,8 @@ export function driveBaseHandlers({
       HttpResponse.json(typeof items === 'function' ? items(new URL(request.url)) : items),
     ),
     http.get(`${API}/quota`, () => HttpResponse.json(quota)),
+    // 사이드바 「공유받은 항목」 개수(WP-1539) — 사이드바를 함께 띄우는 판정이 모킹 누락으로 깨지지 않게 빈 목록.
+    http.get(`${API}/shared-with-me`, () => HttpResponse.json([])),
   ]
 }
 

@@ -32,6 +32,7 @@ const personalSpace: DriveSpace = {
 /** 사이드바가 부르는 공간 목록·쿼터(공간·항목 조회는 이동한 뒤 화면 몫이라 여기선 쓰이지 않을 수 있다). POST 는 테스트마다 따로 준다. */
 const driveHandlers = (created: { space: DriveSpace | null }) => [
   http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 * 1024 * 1024 })),
+  http.get('/api/v1/drive/shared-with-me', () => HttpResponse.json([])),
   http.get('/api/v1/drive/spaces', () =>
     HttpResponse.json([personalSpace, ...(created.space ? [created.space] : [])]),
   ),
@@ -125,6 +126,7 @@ describe('머리말·사용량·공간 목록', () => {
       path: '/drive/spaces/1',
       handlers: [
         http.get('/api/v1/drive/quota', () => HttpResponse.json(quota)),
+        http.get('/api/v1/drive/shared-with-me', () => HttpResponse.json([])),
         http.get('/api/v1/drive/spaces', () => HttpResponse.json(spaces)),
       ],
     })
@@ -244,6 +246,7 @@ describe('팀 공간 ⋯ 메뉴', () => {
       handlers: [
         ...handlers,
         http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 ** 3 })),
+        http.get('/api/v1/drive/shared-with-me', () => HttpResponse.json([])),
         http.get('/api/v1/drive/spaces', () => HttpResponse.json([personalSpace, space])),
         // 멤버 창이 함께 받는 부서 멤버·조직도(WP-1056) — 부서는 DriveSpaceMemberDialog.test.tsx 가 보고 여기선 비워 둔다.
         http.get(`/api/v1/drive/spaces/${space.id}/member-groups`, () => HttpResponse.json([])),

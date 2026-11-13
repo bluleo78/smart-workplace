@@ -17,6 +17,7 @@ import type {
   DriveSearchResult,
   DriveSpace,
   DriveTrashList,
+  SharedWithMeItem,
   ShareLink,
 } from '../types/drive'
 import { fetchBlobByPath, stripApiPrefix } from './blobContent'
@@ -72,6 +73,17 @@ export async function listShareLinks(fileId: number): Promise<ShareLink[]> {
 // 공유 링크 폐기 — 이후 해당 토큰으로 다운로드 불가.
 export async function revokeShareLink(linkId: number): Promise<void> {
   await client.delete<void>(`/drive/share-links/${linkId}`);
+}
+
+// 공유받은 항목(WP-1539) — 내가 연 사내 공유 링크 목록(마지막으로 연 순).
+export async function listSharedWithMe(): Promise<SharedWithMeItem[]> {
+  const { data } = await client.get<SharedWithMeItem[]>('/drive/shared-with-me');
+  return data;
+}
+
+// 공유받은 항목에서 빼기(WP-1539) — 내 목록에서만 숨긴다. 링크 권한은 그대로이고 같은 링크를 다시 열면 돌아온다.
+export async function hideSharedWithMe(shareLinkId: number): Promise<void> {
+  await client.delete<void>(`/drive/shared-with-me/${shareLinkId}`);
 }
 
 // 공유 링크 랜딩 페이지 URL — 외부에 배포하는 URL. /s/:token 라우트.

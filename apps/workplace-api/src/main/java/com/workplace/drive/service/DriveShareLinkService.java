@@ -10,9 +10,9 @@ import com.workplace.drive.exception.DriveShareLinkGoneException;
 import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
+import com.workplace.drive.repository.DriveShareLinkVisitRepository;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
-import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.CapabilityTokens;
@@ -45,8 +45,8 @@ public class DriveShareLinkService {
   private final DrivePermissions perms;
   private final PasswordEncoder passwordEncoder;
 
-  /** 토큰 암호문 저장·복호화(WP-1528). */
-  private final EncryptionService encryption;
+  /** 토큰 암호문 저장·복호화(WP-1528) — 공유받은 항목(WP-1539)과 같은 규칙. */
+  private final ShareLinkTokenCodec tokenCodec;
 
   /** 공유 링크 비밀번호 브루트포스 방어(#700). */
   private final DriveShareLinkAttemptService attemptService;
@@ -74,6 +74,9 @@ public class DriveShareLinkService {
 
   /** 앱 카드 Member 판정과 공간 이름(WP-1474) — 실효 역할(부서 역할 포함)이 있는 공간만 돌려준다. */
   private final DriveSpaceRepository spaces;
+
+  /** 「공유받은 항목」 기록(WP-1539) — 사내 링크를 연 같은 워크스페이스 사람. */
+  private final DriveShareLinkVisitRepository visits;
 
   /**
    * 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시+암호문 저장 → 목록과 같은 모양의 항목(평문 토큰·만든 사람 이름·만든 시각 포함)을 돌려준다
@@ -106,7 +109,7 @@ public class DriveShareLinkService {
             driveFileId,
             row.spaceId(),
             tokenHash,
-            encryption.encrypt(token),
+            tokenCodec.encrypt(token),
             audience,
             pwHash,
             expiresAt,
@@ -181,21 +184,10 @@ public class DriveShareLinkService {
    * 하지 않는다) null — 목록 전체가 실패하지 않게 한다. 로그에는 링크 id 만 남기고 토큰·암호문 값은 남기지 않는다.
    */
   private String tokenFor(DriveShareLinkRepository.ShareLinkRow r) {
-    if (!r.active() || r.tokenEncrypted() == null) {
+    if (!r.active()) {
       return null;
     }
-    String token;
-    try {
-      token = encryption.decrypt(r.tokenEncrypted());
-    } catch (RuntimeException e) {
-      log.warn("공유 링크 토큰 복호화 실패 linkId={}", r.id());
-      return null;
-    }
-    if (!CapabilityTokens.sha256Hex(token).equals(r.tokenHash())) {
-      log.warn("공유 링크 토큰 해시 불일치 linkId={}", r.id());
-      return null;
-    }
-    return token;
+    return tokenCodec.restore(r.tokenEncrypted(), r.tokenHash(), r.id());
   }
 
   /** 링크 폐기. 링크의 공간 EDITOR 검증(보관 공간도 허용 — 공유 중단은 노출을 줄이는 작업). 미존재/이미폐기 → 404. */
@@ -285,30 +277,82 @@ public class DriveShareLinkService {
     }
     boolean sameWorkspace =
         authenticated && requesterTenantId != null && requesterTenantId == link.tenantId();
-    return TenantContext.callAs(
-        link.tenantId(),
-        () ->
-            tx.execute(
-                st -> {
-                  var f = loadFile(link);
-                  var row = f.row();
-                  var meta = f.meta();
-                  String sharedBy = links.findCreatorName(tokenHash).orElse(null);
-                  // 「드라이브에서 열기」는 같은 워크스페이스에서 그 공간을 볼 수 있는(VIEWER 이상, 부서 역할 포함) 사람에게만 보인다 —
-                  // 볼 수 없는 사람에게 공간·폴더 id 를 알려 주지 않는다.
-                  ShareInfoResponse.DriveOpen driveOpen =
-                      sameWorkspace
-                              && spaceMembers.findRole(row.spaceId(), requesterUserId).isPresent()
-                          ? new ShareInfoResponse.DriveOpen(row.spaceId(), row.folderId(), row.id())
-                          : null;
-                  return ShareInfoResponse.full(
-                      row.name(),
-                      meta.mimeType(),
-                      meta.sizeBytes(),
-                      sharedBy,
-                      !authenticated,
-                      driveOpen);
-                }));
+    InfoResult result =
+        TenantContext.callAs(
+            link.tenantId(),
+            () ->
+                tx.execute(
+                    st -> {
+                      var f = loadFile(link);
+                      var row = f.row();
+                      var meta = f.meta();
+                      // 링크 id·만든 사람 — 「공유한 사람」과 공유받은 항목 기록 판정이 한 번의 조회를 함께 쓴다.
+                      var creator = links.findCreator(tokenHash);
+                      String sharedBy =
+                          creator.map(DriveShareLinkRepository.LinkCreator::name).orElse(null);
+                      // 「드라이브에서 열기」는 같은 워크스페이스에서 그 공간을 볼 수 있는(VIEWER 이상, 부서 역할 포함) 사람에게만 보인다
+                      // — 볼 수 없는 사람에게 공간·폴더 id 를 알려 주지 않는다.
+                      boolean member =
+                          sameWorkspace
+                              && spaceMembers.findRole(row.spaceId(), requesterUserId).isPresent();
+                      ShareInfoResponse.DriveOpen driveOpen =
+                          member
+                              ? new ShareInfoResponse.DriveOpen(
+                                  row.spaceId(), row.folderId(), row.id())
+                              : null;
+                      Long visitLinkId =
+                          visitTarget(
+                              link, creator.orElse(null), sameWorkspace, member, requesterUserId);
+                      return new InfoResult(
+                          ShareInfoResponse.full(
+                              row.name(),
+                              meta.mimeType(),
+                              meta.sizeBytes(),
+                              sharedBy,
+                              !authenticated,
+                              driveOpen),
+                          visitLinkId);
+                    }));
+    if (result.visitLinkId() != null) {
+      recordVisit(link.tenantId(), requesterUserId, result.visitLinkId(), token);
+    }
+    return result.response();
+  }
+
+  /** info 트랜잭션 결과 — 응답과, 공유받은 항목에 기록할 링크 id(기록 대상이 아니면 null). */
+  private record InfoResult(ShareInfoResponse response, Long visitLinkId) {}
+
+  /**
+   * 공유받은 항목 기록 대상인가(WP-1539) — 기록할 링크 id, 아니면 null. 이 판정까지 왔다면 링크가 살아 있고 비밀번호도 통과했다(비밀번호 링크는 잠금 해제
+   * 뒤에만 여기 온다). 기록하는 경우는 로그인한 같은 워크스페이스 사람이 사내(INTERNAL) 링크를 열었고, 링크를 만든 본인이 아니고, 그 공간의 구성원이 아닐
+   * 때뿐이다 — 구성원은 공간에서 바로 보이고, 외부 링크·내 링크는 「공유받은」 것이 아니다. 링크 워크스페이스 컨텍스트·트랜잭션 안에서 부른다.
+   */
+  private Long visitTarget(
+      DriveShareLinkRepository.ResolvedLink link,
+      DriveShareLinkRepository.LinkCreator creator,
+      boolean sameWorkspace,
+      boolean member,
+      Long requesterUserId) {
+    if (!"INTERNAL".equals(link.audience()) || !sameWorkspace || member || creator == null) {
+      return null;
+    }
+    return creator.createdBy() == requesterUserId ? null : creator.id();
+  }
+
+  /**
+   * 공유받은 항목 기록(WP-1539) — 정보 조회와 같은 요청 안에서, 별도 트랜잭션으로 남긴다. 같은 트랜잭션에서 실패하면 Postgres 가 트랜잭션을 통째로 중단시켜
+   * 공유 화면까지 깨지므로 따로 두고, 실패해도 로그만 남기고 공유 화면은 그대로 보인다(기록은 편의 기능이라). 토큰은 AES-GCM 암호문으로만 둔다 — WP-1528
+   * 이전 링크도 목록에서 다시 열고 복사할 수 있게. 로그에는 링크 id 만 남긴다.
+   */
+  private void recordVisit(long tenantId, long userId, long linkId, String token) {
+    try {
+      String tokenEncrypted = tokenCodec.encrypt(token);
+      TenantContext.runAs(
+          tenantId,
+          () -> tx.executeWithoutResult(st -> visits.recordOpen(userId, linkId, tokenEncrypted)));
+    } catch (RuntimeException e) {
+      log.warn("공유받은 항목 기록 실패 linkId={}", linkId, e);
+    }
   }
 
   /**

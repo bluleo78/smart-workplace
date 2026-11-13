@@ -39,6 +39,7 @@ import com.workplace.jooq.tables.ContactFavorite.ContactFavoritePath;
 import com.workplace.jooq.tables.DriveFileRef.DriveFileRefPath;
 import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.DriveShareLink.DriveShareLinkPath;
+import com.workplace.jooq.tables.DriveShareLinkVisit.DriveShareLinkVisitPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.DriveSpaceMember.DriveSpaceMemberPath;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
@@ -861,6 +862,19 @@ public class User extends TableImpl<UserRecord> {
             _driveShareLink = new DriveShareLinkPath(this, null, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_CREATED_BY_FKEY.getInverseKey());
 
         return _driveShareLink;
+    }
+
+    private transient DriveShareLinkVisitPath _driveShareLinkVisit;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_share_link_visit</code> table
+     */
+    public DriveShareLinkVisitPath driveShareLinkVisit() {
+        if (_driveShareLinkVisit == null)
+            _driveShareLinkVisit = new DriveShareLinkVisitPath(this, null, Keys.DRIVE_SHARE_LINK_VISIT__DRIVE_SHARE_LINK_VISIT_USER_ID_FKEY.getInverseKey());
+
+        return _driveShareLinkVisit;
     }
 
     private transient DriveSpaceMemberGroupPath _driveSpaceMemberGroup;

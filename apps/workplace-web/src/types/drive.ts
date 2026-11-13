@@ -7,6 +7,30 @@ export type DriveRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 // #78: 공유 링크 가시성 — 외부(익명) / 사내(로그인).
 export type ShareLinkAudience = 'EXTERNAL' | 'INTERNAL'
 
+/**
+ * 「공유받은 항목」 한 줄(WP-1539, GET /drive/shared-with-me) — 내가 연 사내 공유 링크로 받은 파일.
+ * 공간·파일 id 는 오지 않는다 — 목록 행은 권한을 주지 않고, 열기·복사는 늘 링크 토큰으로 링크 규칙을 거친다.
+ */
+export interface SharedWithMeItem {
+  /** 링크 id — 「목록에서 빼기」 대상. */
+  shareLinkId: number
+  /** 항목 종류 — 지금은 파일만(폴더 링크는 WP-1538 이후). */
+  kind: 'FILE' | 'FOLDER'
+  name: string
+  mimeType: string
+  sizeBytes: number
+  /** 파일이 있는 공간 이름(남의 개인 공간은 「○○의 드라이브」). */
+  spaceName: string
+  /** 링크를 만든 사람 이름 — 알 수 없으면 null. */
+  sharedBy: string | null
+  lastOpenedAt: string
+  /** 링크가 살아 있고 파일이 휴지통에 없으면 true — false 면 「열 수 없음」. */
+  openable: boolean
+  hasPassword: boolean
+  /** 열기·복사에 쓰는 링크 토큰 — 열 수 없거나 되살릴 수 없으면 null. */
+  token: string | null
+}
+
 // #78: 공유 링크 목록 항목이자 생성 응답. WP-1528: 이미 만든 링크를 다시 복사할 수 있게 토큰을 함께 받고,
 // 생성 응답도 같은 모양이라 공유 창이 서버 항목을 그대로 목록 맨 위에 넣는다.
 export interface ShareLink {
