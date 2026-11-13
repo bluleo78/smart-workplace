@@ -17,8 +17,6 @@ import ShareLinkPage from '@/pages/drive/ShareLinkPage'
 import { renderScreen } from '@/test/renderScreen'
 import type { ShareLink } from '@/types/drive'
 
-import { createFile } from '../../../e2e/factories/drive.factory'
-
 const FILE_ID = 10
 const LINKS = `/api/v1/drive/files/${FILE_ID}/share-links`
 
@@ -40,7 +38,7 @@ const link = (over: Partial<ShareLink> = {}): ShareLink => ({
 function renderModal({ list = (): ShareLink[] => [], handlers = [] as RequestHandler[], created }: { list?: () => ShareLink[]; handlers?: RequestHandler[]; created?: ShareLink } = {}) {
   const posts: Record<string, unknown>[] = []
   let closed = 0
-  const view = renderScreen(<ShareLinkModal file={createFile({ id: FILE_ID, name: 'report.txt' })} onClose={() => closed++} />, {
+  const view = renderScreen(<ShareLinkModal target={{ kind: 'file', id: FILE_ID, name: 'report.txt' }} onClose={() => closed++} />, {
     path: `/drive/spaces/1`,
     handlers: [
       ...handlers,
@@ -81,6 +79,26 @@ describe('공유 창', () => {
     expect(await screen.findByText('링크를 만들고 복사했습니다')).toBeInTheDocument()
     expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/s/sl_new`)
     expect(screen.queryByText(/이 URL은 지금만/)).not.toBeInTheDocument()
+  })
+
+  // WP-1538: 폴더 대상은 폴더 경로로 목록을 받고 폴더 경로로 POST 한다(기본 만료 30일 뒤가 ISO 로 실린다).
+  test('payload posts to folder path', async () => {
+    const posts: Record<string, unknown>[] = []
+    const FOLDER_LINKS = '/api/v1/drive/folders/20/share-links'
+    const { user } = renderScreen(<ShareLinkModal target={{ kind: 'folder', id: 20, name: '견적' }} onClose={() => {}} />, {
+      path: `/drive/spaces/1`,
+      handlers: [
+        http.get(FOLDER_LINKS, () => HttpResponse.json([])),
+        http.post(FOLDER_LINKS, async ({ request }) => {
+          posts.push((await request.json()) as Record<string, unknown>)
+          return HttpResponse.json(link({ id: 9, token: 'sl_f' }), { status: 201 })
+        }),
+      ],
+    })
+    await user.click(await screen.findByTestId('share-link-create-btn'))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].audience).toBe('EXTERNAL')
+    expect(typeof posts[0].expiresAt).toBe('string')
   })
 
   // 생성 뒤 목록 재조회가 실패해도 응답으로 만든 새 링크는 맨 위에 남는다(조용히 무시).
@@ -394,6 +412,19 @@ describe('공유 링크 화면', () => {
     expect(JSON.parse(sessionStorage.getItem('pendingPushTarget')!)).toEqual({ tenantId: null, url: '/s/sl_in?from=login' })
   })
 
+  // 사내 폴더 링크를 하위 폴더 주소(?folder=)로 비로그인 열기 — 로그인 뒤 같은 하위 폴더로 돌아오게 folder 도 남긴다(WP-1538).
+  test('사내 폴더 링크의 하위 폴더 주소에서 로그인하면 folder 도 돌아올 곳에 남긴다', async () => {
+    const { user } = renderLanding({
+      token: 'sl_in',
+      search: '?folder=42',
+      info: () => HttpResponse.json({ passwordRequired: false, loginRequired: true, target: 'FOLDER' }),
+      auth: ANON,
+    })
+    expect(await screen.findByText('사내 전용 폴더')).toBeInTheDocument()
+    await user.click(screen.getByTestId('share-login-btn'))
+    expect(JSON.parse(sessionStorage.getItem('pendingPushTarget')!)).toEqual({ tenantId: null, url: '/s/sl_in?from=login&folder=42' })
+  })
+
   // 다른 워크스페이스(403) — 전환 안내.
   test('다른 워크스페이스 계정이면 403 안내를 보인다', async () => {
     renderLanding({ info: () => new HttpResponse(null, { status: 403 }) })
@@ -559,5 +590,287 @@ describe('공유 링크 화면', () => {
     renderLanding({ info: () => new HttpResponse(null, { status: 404 }) })
     const link = screen.getByRole('link', { name: 'Gen:iA Works' })
     expect(within(link).getByTestId('share-brand-mark')).toBeInTheDocument()
+  })
+})
+
+// WP-1538: 폴더 공유 링크 화면 — 정보 kind=FOLDER 면 폴더 보기(머리·목록·경로·?folder=·뷰어 ‹ ›·다운로드).
+// 하위 목록은 GET /children?folder= 로, 하위 파일은 /files/{id}/content|download 로 받는다(열람 토큰 헤더).
+describe('폴더 공유 링크 화면', () => {
+  const BASE = '/api/v1/public/drive/share/:token'
+  const ANON = { user: null, isAuthenticated: false, isLoading: false }
+  type Body = Record<string, unknown>
+  const folderInfo = (over: Body = {}): Body => ({
+    passwordRequired: false,
+    loginRequired: false,
+    kind: 'FOLDER',
+    name: 'root',
+    folderCount: 2,
+    fileCount: 4,
+    sharedBy: '홍길동',
+    loginAvailable: false,
+    driveOpen: null,
+    ...over,
+  })
+  const file = (id: number, name: string) => ({ id, name, mimeType: 'text/plain', sizeBytes: 2048, updatedAt: '2026-11-01T00:00:00Z' })
+  const ROOT = { id: 20, name: 'root' }
+  /** 폴더 id → 목록 응답. null 은 공유 폴더(folder 파라미터 없음). */
+  const LISTINGS: Record<string, Body> = {
+    root: {
+      folderId: 20,
+      path: [ROOT],
+      folders: [
+        { id: 21, name: 'A', updatedAt: '2026-11-02T00:00:00Z' },
+        { id: 22, name: 'B', updatedAt: '2026-11-02T00:00:00Z' },
+      ],
+      files: [file(31, 'a.txt'), file(32, 'b.txt'), file(33, 'c.txt'), file(34, 'd.txt')],
+      truncated: false,
+    },
+    '21': { folderId: 21, path: [ROOT, { id: 21, name: 'A' }], folders: [{ id: 23, name: 'A1', updatedAt: '2026-11-02T00:00:00Z' }], files: [file(35, 'x.txt')], truncated: false },
+    '22': { folderId: 22, path: [ROOT, { id: 22, name: 'B' }], folders: [], files: [file(36, 'y.txt')], truncated: false },
+    '23': { folderId: 23, path: [ROOT, { id: 21, name: 'A' }, { id: 23, name: 'A1' }], folders: [], files: [], truncated: false },
+    '29': {
+      folderId: 29,
+      path: [ROOT, { id: 25, name: 'L1' }, { id: 26, name: 'L2' }, { id: 27, name: 'L3' }, { id: 29, name: 'L4' }],
+      folders: [],
+      files: [],
+      truncated: false,
+    },
+  }
+
+  /** /s/:token 폴더 화면 — children(folder) 는 folder 파라미터(없으면 null)로 응답을 고른다. 모든 요청은 requests 에 쌓는다. */
+  function renderFolder({
+    token = 'sl_x',
+    search = '',
+    info = () => HttpResponse.json(folderInfo()),
+    children = (folder: string | null) => {
+      const body = LISTINGS[folder ?? 'root']
+      return body ? HttpResponse.json(body) : new HttpResponse(null, { status: 404 })
+    },
+    auth,
+  }: {
+    token?: string
+    search?: string
+    info?: (req: Request) => Response
+    children?: (folder: string | null, req: Request) => Response
+    auth?: Record<string, unknown>
+  } = {}) {
+    const requests: { kind: string; req: Request; fileId?: string }[] = []
+    const view = renderScreen(
+      <Routes>
+        <Route path="/s/:token" element={<ShareLinkPage />} />
+      </Routes>,
+      {
+        path: `/s/${token}${search}`,
+        auth,
+        handlers: [
+          http.get(BASE, ({ request }) => {
+            requests.push({ kind: 'info', req: request.clone() })
+            return info(request)
+          }),
+          http.post(`${BASE}/unlock`, () => HttpResponse.json({ viewToken: 'vt_1', expiresAt: '2099-01-01T00:00:00Z' })),
+          http.get(`${BASE}/children`, ({ request }) => {
+            requests.push({ kind: 'children', req: request.clone() })
+            return children(new URL(request.url).searchParams.get('folder'), request)
+          }),
+          http.get(`${BASE}/files/:fileId/content`, ({ request, params }) => {
+            requests.push({ kind: 'content', req: request.clone(), fileId: String(params.fileId) })
+            return new HttpResponse(`content of ${String(params.fileId)}`, { headers: { 'Content-Type': 'text/plain' } })
+          }),
+          http.get(`${BASE}/files/:fileId/download`, ({ request, params }) => {
+            requests.push({ kind: 'download', req: request.clone(), fileId: String(params.fileId) })
+            return new HttpResponse('file', { headers: { 'Content-Disposition': 'attachment; filename="a.txt"' } })
+          }),
+        ],
+      },
+    )
+    const of = (kind: string) => requests.filter((r) => r.kind === kind)
+    const folderParams = () => of('children').map((r) => new URL(r.req.url).searchParams.get('folder'))
+    return { ...view, requests, of, folderParams }
+  }
+
+  // 공유 폴더(루트) — 머리(이름·「폴더 n개 · 파일 n개」·공유한 사람) + 표(폴더 먼저, 파일 행 미리보기·다운로드 아이콘 버튼).
+  test('공유 폴더 루트는 머리와 목록(폴더 먼저)을 보인다', async () => {
+    const { folderParams } = renderFolder()
+    expect(await screen.findByRole('heading', { level: 1, name: 'root' })).toBeInTheDocument()
+    expect(screen.getByTestId('share-folder-meta')).toHaveTextContent('폴더 2개 · 파일 4개')
+    expect(screen.getByTestId('share-folder-shared-by')).toHaveTextContent('공유한 사람 홍길동')
+    const table = await screen.findByTestId('share-folder-table')
+    const names = within(table)
+      .getAllByTestId(/^share-(folder|file)-row-/)
+      .map((r) => r.getAttribute('data-testid'))
+    expect(names).toEqual([
+      'share-folder-row-21',
+      'share-folder-row-22',
+      'share-file-row-31',
+      'share-file-row-32',
+      'share-file-row-33',
+      'share-file-row-34',
+    ])
+    const row = screen.getByTestId('share-file-row-31')
+    expect(within(row).getByText('a.txt')).toBeInTheDocument()
+    expect(within(row).getByText('2.0 KB')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'a.txt 미리보기' })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'a.txt 다운로드' })).toBeInTheDocument()
+    // 첫 진입은 folder 파라미터 없이 공유 폴더를 묻는다. 파일 카드는 없다.
+    expect(folderParams()).toEqual([null])
+    expect(screen.queryByTestId('share-file-card')).not.toBeInTheDocument()
+    expect(document.title).toBe('root · 공유 링크 · Gen:iA Works')
+  })
+
+  // 폴더 행 → ?folder=21 push, 머리 대신 경로 「root › A」, 탭 제목은 현재 폴더. 뒤로 가기 = 상위로.
+  test('하위 폴더로 들어가면 ?folder= 를 남기고 경로를 보인다', async () => {
+    const { user, location } = renderFolder()
+    await user.click(await screen.findByRole('button', { name: 'A 폴더 열기' }))
+    await waitFor(() => expect(location()).toBe('/s/sl_x?folder=21'))
+    const crumbs = await screen.findByTestId('share-folder-breadcrumb')
+    expect(crumbs).toHaveTextContent('root›A')
+    expect(await screen.findByTestId('share-file-row-35')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-folder-meta')).not.toBeInTheDocument()
+    expect(document.title).toBe('A · 공유 링크 · Gen:iA Works')
+    window.history.back()
+    await waitFor(() => expect(location()).toBe('/s/sl_x'))
+    expect(await screen.findByTestId('share-folder-meta')).toBeInTheDocument()
+  })
+
+  // 경로 클릭 — 상위로 push. 공유 폴더로 갈 땐 folder 를 지우고 다른 파라미터(from=login)는 남긴다.
+  test('경로를 누르면 상위로 가고 공유 폴더는 folder 를 지우되 from=login 은 남긴다', async () => {
+    const { user, location } = renderFolder({ search: '?from=login&folder=23' })
+    const crumbs = await screen.findByTestId('share-folder-breadcrumb')
+    expect(crumbs).toHaveTextContent('root›A›A1')
+    await user.click(within(crumbs).getByRole('button', { name: 'A' }))
+    await waitFor(() => expect(location()).toBe('/s/sl_x?from=login&folder=21'))
+    await user.click(within(await screen.findByTestId('share-folder-breadcrumb')).getByRole('button', { name: 'root' }))
+    await waitFor(() => expect(location()).toBe('/s/sl_x?from=login'))
+    expect(await screen.findByTestId('share-folder-meta')).toBeInTheDocument()
+  })
+
+  // 깊은 경로는 「공유 폴더 › … › 부모 › 현재」로 가운데를 접는다(P11).
+  test('경로가 4단계를 넘으면 가운데를 접는다', async () => {
+    renderFolder({ search: '?folder=29' })
+    const crumbs = await screen.findByTestId('share-folder-breadcrumb')
+    expect(crumbs).toHaveTextContent('root›…›L3›L4')
+    expect(within(crumbs).queryByText('L1')).not.toBeInTheDocument()
+  })
+
+  // 새로고침 — 첫 진입 주소의 ?folder= 를 그대로 묻고 경로를 보인다.
+  test('첫 진입 ?folder= 를 유지한다', async () => {
+    const { folderParams } = renderFolder({ search: '?folder=22' })
+    expect(await screen.findByTestId('share-folder-breadcrumb')).toHaveTextContent('root›B')
+    expect(folderParams()).toEqual(['22'])
+  })
+
+  // 숫자가 아닌·음수 folder → 공유 폴더(folder 파라미터 없이).
+  test('잘못된 folder 파라미터는 공유 폴더로 본다', async () => {
+    const { folderParams, unmount } = renderFolder({ search: '?folder=abc' })
+    expect(await screen.findByTestId('share-folder-meta')).toBeInTheDocument()
+    expect(folderParams()).toEqual([null])
+    unmount()
+    const second = renderFolder({ search: '?folder=-3' })
+    expect(await screen.findByTestId('share-folder-meta')).toBeInTheDocument()
+    expect(second.folderParams()).toEqual([null])
+  })
+
+  // 밖·사라진 폴더(404) — 목록 자리 안내 + [공유 폴더로], 카드 머리는 그대로(P10).
+  test('없는 하위 폴더는 목록 자리에 안내와 공유 폴더로 단추를 보인다', async () => {
+    const { user, location } = renderFolder({ search: '?folder=99' })
+    expect(await screen.findByText('이 폴더를 찾을 수 없습니다')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'root' })).toBeInTheDocument()
+    expect(screen.queryByTestId('share-error-msg')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '공유 폴더로' }))
+    await waitFor(() => expect(location()).toBe('/s/sl_x'))
+    expect(await screen.findByTestId('share-folder-table')).toBeInTheDocument()
+  })
+
+  // 상한을 넘은 폴더 — 「일부만 표시됩니다」 줄(P8).
+  test('목록이 잘렸으면 일부만 표시된다고 알린다', async () => {
+    renderFolder({ children: () => HttpResponse.json({ ...LISTINGS.root, truncated: true }) })
+    expect(await screen.findByText('일부만 표시됩니다')).toBeInTheDocument()
+  })
+
+  // 파일 행 미리보기 — 뷰어에 현재 폴더 파일 전체가 실리고 ‹ › 로 넘긴다(다음 파일 원본을 /files/{id}/content 로).
+  test('미리보기는 현재 폴더 파일 전체를 뷰어에 싣고 넘긴다', async () => {
+    const { user, of } = renderFolder()
+    await user.click(await screen.findByRole('button', { name: 'b.txt 미리보기' }))
+    expect(await screen.findByText('content of 32')).toBeInTheDocument()
+    expect(screen.getByTestId('viewer-live')).toHaveTextContent('b.txt, 4개 중 2번째')
+    await user.click(screen.getByRole('button', { name: '다음 파일' }))
+    expect(await screen.findByText('content of 33')).toBeInTheDocument()
+    expect(screen.getByTestId('viewer-live')).toHaveTextContent('c.txt, 4개 중 3번째')
+    expect(of('content').map((r) => r.fileId)).toEqual(['32', '33'])
+  })
+
+  // 뒤로 가기 — 뷰어가 열린 채 이전 폴더로 돌아가면, 새 목록이 와도 같은 위치의 다른 폴더 파일로 뷰어가 다시 열리지 않는다(WP-1538).
+  test('뷰어를 연 채 뒤로 가면 새 폴더 목록이 와도 뷰어가 다시 열리지 않는다', async () => {
+    const { user, location } = renderFolder()
+    await user.click(await screen.findByRole('button', { name: 'A 폴더 열기' }))
+    await waitFor(() => expect(location()).toBe('/s/sl_x?folder=21'))
+    await user.click(await screen.findByRole('button', { name: 'x.txt 미리보기' }))
+    expect(await screen.findByText('content of 35')).toBeInTheDocument()
+    expect(screen.getByTestId('viewer-live')).toBeInTheDocument()
+    window.history.back()
+    await waitFor(() => expect(location()).toBe('/s/sl_x'))
+    expect(await screen.findByTestId('share-folder-table')).toBeInTheDocument()
+    expect(screen.queryByTestId('viewer-live')).not.toBeInTheDocument()
+  })
+
+  // 다운로드 — /files/{id}/download, 비밀번호 링크면 열람 토큰 헤더.
+  test('다운로드는 /files/{id}/download 를 열람 토큰 헤더로 받는다', async () => {
+    const { user, of } = renderFolder({
+      info: (req) =>
+        HttpResponse.json(req.headers.get('x-share-view-token') === 'vt_1' ? folderInfo() : { passwordRequired: true, loginRequired: false, target: 'FOLDER' }),
+    })
+    expect(await screen.findByText('비밀번호로 보호된 폴더')).toBeInTheDocument()
+    await user.click(screen.getByLabelText('공유 링크 비밀번호'))
+    await user.paste('pw')
+    await user.click(screen.getByTestId('share-unlock-btn'))
+    await user.click(await screen.findByRole('button', { name: 'c.txt 다운로드' }))
+    await waitFor(() => expect(of('download')).toHaveLength(1))
+    expect(of('download')[0].fileId).toBe('33')
+    expect(of('download')[0].req.headers.get('x-share-view-token')).toBe('vt_1')
+    expect(of('children')[0].req.headers.get('x-share-view-token')).toBe('vt_1')
+  })
+
+  // 사내 폴더 링크 + 비로그인 — 「사내 전용 폴더」 잠금 카드(P9 target).
+  test('사내 폴더 링크 잠금 카드', async () => {
+    renderFolder({ info: () => HttpResponse.json({ passwordRequired: false, loginRequired: true, target: 'FOLDER' }), auth: ANON })
+    expect(await screen.findByRole('heading', { level: 1, name: '사내 전용 폴더' })).toBeInTheDocument()
+  })
+
+  // 비밀번호 폴더 링크 — 「비밀번호로 보호된 폴더」.
+  test('비밀번호 폴더 링크 잠금 카드', async () => {
+    renderFolder({ info: () => HttpResponse.json({ passwordRequired: true, loginRequired: false, target: 'FOLDER' }) })
+    expect(await screen.findByRole('heading', { level: 1, name: '비밀번호로 보호된 폴더' })).toBeInTheDocument()
+  })
+
+  // 드라이브에서 열기 — driveOpen 이 있을 때만, 현재 폴더로. 비로그인에게 「로그인하고 드라이브에서 열기」는 없다(P12).
+  test('드라이브에서 열기는 공간 구성원에게만 현재 폴더로 보인다', async () => {
+    const { user, unmount } = renderFolder({ info: () => HttpResponse.json(folderInfo({ driveOpen: { spaceId: 3, folderId: 20 } })) })
+    const link = await screen.findByTestId('share-drive-open-link')
+    // 목록을 받으면 그 폴더(공유 폴더 20) — 받기 전에는 driveOpen.folderId 로 같은 값.
+    await waitFor(() => expect(link).toHaveAttribute('href', '/drive/spaces/3?folderId=20'))
+    await user.click(await screen.findByRole('button', { name: 'A 폴더 열기' }))
+    await waitFor(() => expect(screen.getByTestId('share-drive-open-link')).toHaveAttribute('href', '/drive/spaces/3?folderId=21'))
+    unmount()
+
+    renderFolder({ info: () => HttpResponse.json(folderInfo({ loginAvailable: true })), auth: ANON })
+    await screen.findByTestId('share-folder-table')
+    expect(screen.queryByTestId('share-drive-open-link')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-login-open-link')).not.toBeInTheDocument()
+  })
+
+  // 다른 워크스페이스 403 — info 오류라 종류를 모른다 → 기존 403 문구 그대로.
+  test('다른 워크스페이스 403 안내를 보인다', async () => {
+    renderFolder({ info: () => new HttpResponse(null, { status: 403 }) })
+    expect(await screen.findByTestId('share-error-msg')).toHaveTextContent('다른 워크스페이스 계정이 있다면 전환한 뒤 다시 여세요.')
+  })
+
+  // 회귀 — kind 없는(또는 FILE) 정보는 기존 파일 카드, children 은 묻지 않는다.
+  test('파일 링크는 그대로 파일 카드를 보인다', async () => {
+    const { of } = renderFolder({
+      info: () => HttpResponse.json({ passwordRequired: false, loginRequired: false, kind: 'FILE', name: 'report.txt', mimeType: 'text/plain', sizeBytes: 2048, sharedBy: null, loginAvailable: false, driveOpen: null }),
+    })
+    expect(await screen.findByTestId('share-file-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-folder-table')).not.toBeInTheDocument()
+    expect(of('children')).toHaveLength(0)
   })
 })

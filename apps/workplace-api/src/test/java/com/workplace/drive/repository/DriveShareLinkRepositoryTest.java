@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.drive.service.DriveShareTarget;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
@@ -40,7 +41,8 @@ class DriveShareLinkRepositoryTest extends IntegrationTestBase {
     long spaceId = seedSpace(userId);
     long fileId = seedFile(userId, spaceId);
 
-    long linkId = repo.insert(fileId, spaceId, "hash1", "enc1", "EXTERNAL", null, null, userId);
+    long linkId =
+        repo.insert(fileId, null, spaceId, "hash1", "enc1", "EXTERNAL", null, null, userId);
     var list = repo.listByFile(fileId);
     assertThat(list).hasSize(1);
     assertThat(list.get(0).id()).isEqualTo(linkId);
@@ -64,7 +66,7 @@ class DriveShareLinkRepositoryTest extends IntegrationTestBase {
     long userId = seedUser();
     long spaceId = seedSpace(userId);
     long fileId = seedFile(userId, spaceId);
-    repo.insert(fileId, spaceId, "hash2", "enc2", "EXTERNAL", "pw", null, userId);
+    repo.insert(fileId, null, spaceId, "hash2", "enc2", "EXTERNAL", "pw", null, userId);
 
     var resolved = repo.resolve("hash2");
     assertThat(resolved).isPresent();
@@ -80,9 +82,12 @@ class DriveShareLinkRepositoryTest extends IntegrationTestBase {
     long userId = seedUser();
     long spaceId = seedSpace(userId);
     long fileId = seedFile(userId, spaceId);
-    long first = repo.insert(fileId, spaceId, "hash_t1", "enc", "EXTERNAL", null, null, userId);
-    long second = repo.insert(fileId, spaceId, "hash_t2", "enc", "EXTERNAL", null, null, userId);
-    long third = repo.insert(fileId, spaceId, "hash_t3", "enc", "EXTERNAL", null, null, userId);
+    long first =
+        repo.insert(fileId, null, spaceId, "hash_t1", "enc", "EXTERNAL", null, null, userId);
+    long second =
+        repo.insert(fileId, null, spaceId, "hash_t2", "enc", "EXTERNAL", null, null, userId);
+    long third =
+        repo.insert(fileId, null, spaceId, "hash_t3", "enc", "EXTERNAL", null, null, userId);
     dsl.update(DRIVE_SHARE_LINK)
         .set(DRIVE_SHARE_LINK.CREATED_AT, OffsetDateTime.parse("2026-11-12T00:00:00Z"))
         .where(DRIVE_SHARE_LINK.DRIVE_FILE_ID.eq(fileId))
@@ -90,6 +95,47 @@ class DriveShareLinkRepositoryTest extends IntegrationTestBase {
 
     assertThat(repo.listByFile(fileId).stream().map(r -> r.id()).toList())
         .containsExactly(third, second, first);
+  }
+
+  /** WP-1538: listByFolder 는 그 폴더 링크만, 최신순(id 내림차순)으로 돌려준다. */
+  @Test
+  void listByFolder_returnsOnlyThatFolderLinks_newestFirst() {
+    long userId = seedUser();
+    long spaceId = seedSpace(userId);
+    long fileId = seedFile(userId, spaceId);
+    long folderId = seedFolder(spaceId);
+    long first = repo.insert(null, folderId, spaceId, "hf1", "enc", "EXTERNAL", null, null, userId);
+    long second =
+        repo.insert(null, folderId, spaceId, "hf2", "enc", "EXTERNAL", null, null, userId);
+    repo.insert(fileId, null, spaceId, "hf3", "enc", "EXTERNAL", null, null, userId);
+
+    assertThat(repo.listByFolder(folderId).stream().map(r -> r.id()).toList())
+        .containsExactly(second, first);
+  }
+
+  /** WP-1538: 폴더 링크의 resolve 결과는 target() 이 FOLDER, 파일 링크는 FILE. */
+  @Test
+  void resolve_folderLink_targetIsFolder() {
+    long userId = seedUser();
+    long spaceId = seedSpace(userId);
+    long fileId = seedFile(userId, spaceId);
+    long folderId = seedFolder(spaceId);
+    repo.insert(null, folderId, spaceId, "hr1", "enc", "EXTERNAL", null, null, userId);
+    repo.insert(fileId, null, spaceId, "hr2", "enc", "EXTERNAL", null, null, userId);
+
+    var folder = repo.resolve("hr1").orElseThrow();
+    assertThat(folder.target()).isEqualTo(DriveShareTarget.FOLDER);
+    assertThat(folder.driveFolderId()).isEqualTo(folderId);
+    assertThat(folder.driveFileId()).isNull();
+    assertThat(repo.resolve("hr2").orElseThrow().target()).isEqualTo(DriveShareTarget.FILE);
+  }
+
+  private long seedFolder(long spaceId) {
+    return (long)
+        dsl.fetchValue(
+            "INSERT INTO drive_folder (space_id, name) VALUES (?, ?) RETURNING id",
+            spaceId,
+            "f-" + UUID.randomUUID());
   }
 
   // --- 시드 헬퍼 (DriveFileServiceTest UUID-suffix 패턴) ---

@@ -35,6 +35,24 @@ public class DriveShareLinkController {
     return ResponseEntity.ok(service.list(callerId, driveFileId));
   }
 
+  /** 폴더 공유 링크 생성 → 201(WP-1538). 파일 링크와 같은 모양. */
+  @PostMapping("/folders/{id}/share-links")
+  public ResponseEntity<ShareLinkResponse> createForFolder(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long folderId,
+      @Valid @RequestBody CreateShareLinkRequest req) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(service.create(callerId, new DriveShareLinkService.Target.Folder(folderId), req));
+  }
+
+  /** 폴더의 링크 목록(EDITOR 이상, WP-1538). */
+  @GetMapping("/folders/{id}/share-links")
+  public ResponseEntity<List<ShareLinkResponse>> listForFolder(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long folderId) {
+    return ResponseEntity.ok(
+        service.list(callerId, new DriveShareLinkService.Target.Folder(folderId)));
+  }
+
   /** 링크 폐기 → 204. */
   @DeleteMapping("/share-links/{linkId}")
   public ResponseEntity<Void> revoke(

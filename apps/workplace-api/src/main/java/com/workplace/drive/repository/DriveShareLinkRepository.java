@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.drive.service.DriveShareTarget;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -22,8 +23,13 @@ import org.springframework.stereotype.Repository;
 public class DriveShareLinkRepository {
   private final DSLContext dsl;
 
+  /**
+   * 링크 삽입. 대상은 driveFileId·driveFolderId 중 정확히 하나만 non-null 이어야 한다(WP-1538) — 호출부 책임이고, 어기면 DB
+   * CHECK (ck_drive_share_link_target)가 최종 방어한다.
+   */
   public long insert(
-      long driveFileId,
+      Long driveFileId,
+      Long driveFolderId,
       long spaceId,
       String tokenHash,
       String tokenEncrypted,
@@ -33,6 +39,7 @@ public class DriveShareLinkRepository {
       long createdBy) {
     return dsl.insertInto(DRIVE_SHARE_LINK)
         .set(DRIVE_SHARE_LINK.DRIVE_FILE_ID, driveFileId)
+        .set(DRIVE_SHARE_LINK.DRIVE_FOLDER_ID, driveFolderId)
         .set(DRIVE_SHARE_LINK.SPACE_ID, spaceId)
         .set(DRIVE_SHARE_LINK.TOKEN_HASH, tokenHash)
         .set(DRIVE_SHARE_LINK.TOKEN_ENCRYPTED, tokenEncrypted)
@@ -68,6 +75,13 @@ public class DriveShareLinkRepository {
    */
   public List<ShareLinkRow> listByFile(long driveFileId) {
     return selectRows(DRIVE_SHARE_LINK.DRIVE_FILE_ID.eq(driveFileId))
+        .orderBy(DRIVE_SHARE_LINK.CREATED_AT.desc(), DRIVE_SHARE_LINK.ID.desc())
+        .fetch(DriveShareLinkRepository::toRow);
+  }
+
+  /** 한 폴더의 활성+폐기 링크 목록(WP-1538) — {@link #listByFile} 과 같은 정렬(최신순, 같은 시각이면 id 내림차순). */
+  public List<ShareLinkRow> listByFolder(long driveFolderId) {
+    return selectRows(DRIVE_SHARE_LINK.DRIVE_FOLDER_ID.eq(driveFolderId))
         .orderBy(DRIVE_SHARE_LINK.CREATED_AT.desc(), DRIVE_SHARE_LINK.ID.desc())
         .fetch(DriveShareLinkRepository::toRow);
   }
@@ -156,7 +170,7 @@ public class DriveShareLinkRepository {
   public Optional<ResolvedLink> resolve(String tokenHash) {
     var r =
         dsl.resultQuery(
-                "SELECT tenant_id, drive_file_id, password_hash, audience, expires_at, revoked_at"
+                "SELECT tenant_id, drive_file_id, drive_folder_id, password_hash, audience, expires_at, revoked_at"
                     + " FROM drive_share_link_resolve(?)",
                 tokenHash)
             .fetchOne();
@@ -166,6 +180,7 @@ public class DriveShareLinkRepository {
             new ResolvedLink(
                 r.get("tenant_id", Long.class),
                 r.get("drive_file_id", Long.class),
+                r.get("drive_folder_id", Long.class),
                 r.get("password_hash", String.class),
                 r.get("audience", String.class),
                 r.get("expires_at", OffsetDateTime.class),
@@ -205,12 +220,21 @@ public class DriveShareLinkRepository {
   /** 공유 정보용 파일 형식·크기. */
   public record FileMeta(String mimeType, long sizeBytes) {}
 
-  /** 공개 resolve 결과(RLS 우회로 읽은 최소 필드). */
+  /**
+   * 공개 resolve 결과(RLS 우회로 읽은 최소 필드). 파일 링크면 driveFileId, 폴더 링크면 driveFolderId 만 채워진다(WP-1538, 정확히
+   * 하나).
+   */
   public record ResolvedLink(
       long tenantId,
-      long driveFileId,
+      Long driveFileId,
+      Long driveFolderId,
       String passwordHash,
       String audience,
       OffsetDateTime expiresAt,
-      OffsetDateTime revokedAt) {}
+      OffsetDateTime revokedAt) {
+    /** 링크 대상 종류 — 폴더 id 가 있으면 FOLDER, 아니면 FILE. */
+    public DriveShareTarget target() {
+      return driveFolderId != null ? DriveShareTarget.FOLDER : DriveShareTarget.FILE;
+    }
+  }
 }

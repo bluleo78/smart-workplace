@@ -212,4 +212,69 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
                 throw new AssertionError("미리보기 버킷이 비밀번호 버킷을 소모함");
             });
   }
+
+  /**
+   * 폴더 링크 하위 파일 경로(WP-1538) — {@code /files/{id}/preview} 의 start=true 는 파일 링크 미리보기와 같은
+   * 정책(SHARE_PREVIEW)으로 센다. start=false 폴링은 세지 않는다.
+   */
+  @Test
+  void 폴더_하위_파일_미리보기_변환_시작도_미리보기_버킷으로_센다() throws Exception {
+    // 다른 테스트와 키가 겹치지 않게 별도 문서용 대역(198.51.100.x 의 다른 구간).
+    String ip = "198.51.100." + ThreadLocalRandom.current().nextInt(1, 90);
+    Callable<ResultActions> start =
+        () ->
+            mvc.perform(
+                get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/files/7/preview")
+                    .param("start", "true")
+                    .header("X-Forwarded-For", ip));
+    for (int i = 0; i < 10; i++) {
+      start
+          .call()
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429) throw new AssertionError("한도 전 429");
+              });
+    }
+    untilLimited(start, 10).andExpect(content().string(containsString("요청이 너무 많습니다")));
+    // 폴링은 세지 않는다
+    mvc.perform(
+            get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/files/7/preview")
+                .param("start", "false")
+                .header("X-Forwarded-For", ip))
+        .andExpect(
+            result -> {
+              if (result.getResponse().getStatus() == 429) throw new AssertionError("폴링이 제한됨");
+            });
+  }
+
+  /** 폴더 하위 파일 다운로드(WP-1538) — 비밀번호 헤더가 있으면 SHARE_PASSWORD, 없으면 세지 않는다. children 도 세지 않는다. */
+  @Test
+  void 폴더_하위_파일_다운로드는_비밀번호_헤더가_있을_때만_센다() throws Exception {
+    String ip = "192.0.2." + ThreadLocalRandom.current().nextInt(1, 100);
+    Callable<ResultActions> withPassword =
+        () ->
+            mvc.perform(
+                get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/files/7/download")
+                    .header("X-Forwarded-For", ip)
+                    .header("X-Share-Password", "x"));
+    for (int i = 0; i < 10; i++) {
+      withPassword
+          .call()
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429) throw new AssertionError("한도 전 429");
+              });
+    }
+    untilLimited(withPassword, 10).andExpect(content().string(containsString("요청이 너무 많습니다")));
+    for (String path : new String[] {"/files/7/download", "/children"}) {
+      mvc.perform(
+              get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + path)
+                  .header("X-Forwarded-For", ip))
+          .andExpect(
+              result -> {
+                if (result.getResponse().getStatus() == 429)
+                  throw new AssertionError("세지 않아야 할 경로가 제한됨: " + path);
+              });
+    }
+  }
 }

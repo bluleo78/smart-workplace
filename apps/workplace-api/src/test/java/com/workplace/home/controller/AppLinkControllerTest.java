@@ -559,7 +559,107 @@ class AppLinkControllerTest extends IntegrationTestBase {
             Map.of(
                 "kind", "SHARE",
                 "shareState", "PASSWORD",
+                "shareTarget", "FILE",
                 "title", "비밀번호로 보호된 공유 파일"));
+  }
+
+  /** 폴더 공유 링크 픽스처(WP-1538) — 주인의 팀 공간에 폴더 「견적」(하위 폴더 1·파일 1)을 만들고 링크를 건다. */
+  private record SharedFolder(long spaceId, String spaceName, long folderId) {}
+
+  private SharedFolder sharedFolder() throws Exception {
+    String spaceName = "앱링크폴더-" + UUID.randomUUID();
+    long spaceId = driveSpaceService.createTeamSpace(ownerId, spaceName).id();
+    TenantContext.set(1L);
+    long folderId = driveFolderService.create(ownerId, spaceId, null, "견적").id();
+    TenantContext.set(1L);
+    driveFolderService.create(ownerId, spaceId, folderId, "하위");
+    TenantContext.set(1L);
+    driveFileService.upload(
+        ownerId,
+        spaceId,
+        folderId,
+        new MockMultipartFile("file", "a.pdf", "application/pdf", "pdf".getBytes()));
+    TenantContext.set(1L);
+    return new SharedFolder(spaceId, spaceName, folderId);
+  }
+
+  private String folderShareLink(long folderId, String audience, String password) {
+    TenantContext.set(1L);
+    String token =
+        shareLinkService
+            .create(
+                ownerId,
+                new DriveShareLinkService.Target.Folder(folderId),
+                new CreateShareLinkRequest(audience, password, null))
+            .token();
+    TenantContext.set(1L);
+    return token;
+  }
+
+  @Test
+  void share_folderMember_card() throws Exception {
+    SharedFolder f = sharedFolder();
+    String token = folderShareLink(f.folderId(), "INTERNAL", "secret");
+
+    call("/api/v1/app-links/shares/" + token, ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("SHARE"))
+        .andExpect(jsonPath("$.shareTarget").value("FOLDER"))
+        .andExpect(jsonPath("$.shareState").value("MEMBER"))
+        .andExpect(jsonPath("$.title").value("견적"))
+        .andExpect(jsonPath("$.spaceName").value(f.spaceName()))
+        .andExpect(jsonPath("$.driveSpaceId").value(f.spaceId()))
+        .andExpect(jsonPath("$.driveFolderId").value(f.folderId()))
+        .andExpect(jsonPath("$.folderCount").value(1))
+        .andExpect(jsonPath("$.fileCount").value(1))
+        .andExpect(jsonPath("$.sharedBy").isNotEmpty())
+        .andExpect(jsonPath("$.driveFileId").doesNotExist());
+  }
+
+  @Test
+  void share_folderOpen_card() throws Exception {
+    SharedFolder f = sharedFolder();
+    String token = folderShareLink(f.folderId(), "EXTERNAL", null);
+
+    call("/api/v1/app-links/shares/" + token, strangerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.shareTarget").value("FOLDER"))
+        .andExpect(jsonPath("$.shareState").value("OPEN"))
+        .andExpect(jsonPath("$.audience").value("EXTERNAL"))
+        .andExpect(jsonPath("$.title").value("견적"))
+        .andExpect(jsonPath("$.folderCount").value(1))
+        .andExpect(jsonPath("$.fileCount").value(1))
+        .andExpect(jsonPath("$.spaceName").doesNotExist())
+        .andExpect(jsonPath("$.driveSpaceId").doesNotExist())
+        .andExpect(jsonPath("$.driveFolderId").doesNotExist());
+  }
+
+  @Test
+  void share_folderPassword_card() throws Exception {
+    SharedFolder f = sharedFolder();
+    String token = folderShareLink(f.folderId(), "EXTERNAL", "secret");
+
+    call("/api/v1/app-links/shares/" + token, strangerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.shareTarget").value("FOLDER"))
+        .andExpect(jsonPath("$.shareState").value("PASSWORD"))
+        .andExpect(jsonPath("$.title").value("비밀번호로 보호된 공유 폴더"))
+        .andExpect(jsonPath("$.folderCount").doesNotExist())
+        .andExpect(jsonPath("$.fileCount").doesNotExist())
+        .andExpect(jsonPath("$.sharedBy").doesNotExist());
+  }
+
+  @Test
+  void share_fileCard_hasShareTargetFile() throws Exception {
+    SharedFile f = sharedFile();
+    String token = shareLink(f.fileId(), "EXTERNAL", null, null);
+
+    call("/api/v1/app-links/shares/" + token, strangerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.shareTarget").value("FILE"))
+        .andExpect(jsonPath("$.folderCount").doesNotExist());
+    call("/api/v1/app-links/shares/" + token, ownerId)
+        .andExpect(jsonPath("$.shareTarget").value("FILE"));
   }
 
   @Test

@@ -25,6 +25,32 @@ public sealed interface DriveShareAppCard {
   record Open(String name, String mimeType, long sizeBytes, OffsetDateTime expiresAt)
       implements DriveShareAppCard {}
 
-  /** 구성원이 아니고 비밀번호가 걸린 링크 — 파일 정보 없이 잠금 안내만. */
-  record PasswordProtected() implements DriveShareAppCard {}
+  /**
+   * 보는 사람이 공유 폴더가 있는 공간의 구성원(WP-1538) — 드라이브의 그 폴더로 바로 간다.
+   *
+   * @param audience EXTERNAL | INTERNAL
+   */
+  record FolderMember(
+      String name,
+      String spaceName,
+      long spaceId,
+      long folderId,
+      String audience,
+      int folderCount,
+      int fileCount,
+      String sharedBy)
+      implements DriveShareAppCard {}
+
+  /** 구성원은 아니지만 링크로 열 수 있는 폴더(WP-1538, 비밀번호 없음) — 이름·바로 아래 수·공유한 사람·만료일. */
+  record FolderOpen(
+      String name,
+      String audience,
+      int folderCount,
+      int fileCount,
+      String sharedBy,
+      OffsetDateTime expiresAt)
+      implements DriveShareAppCard {}
+
+  /** 구성원이 아니고 비밀번호가 걸린 링크 — 이름·수 없이 잠금 안내만. target 으로 파일·폴더 제목을 가른다(WP-1538). */
+  record PasswordProtected(DriveShareTarget target) implements DriveShareAppCard {}
 }

@@ -196,7 +196,25 @@ public class AppLinkController {
               DriveSharePreviewMeta.typeLabel(o.name(), o.mimeType()),
               o.sizeBytes(),
               o.expiresAt() == null ? null : o.expiresAt().toInstant());
-      case DriveShareAppCard.PasswordProtected p -> AppLinkCard.sharePassword();
+      case DriveShareAppCard.FolderMember m ->
+          AppLinkCard.shareFolderMember(
+              m.name(),
+              m.spaceName(),
+              m.spaceId(),
+              m.folderId(),
+              m.audience(),
+              m.folderCount(),
+              m.fileCount(),
+              m.sharedBy());
+      case DriveShareAppCard.FolderOpen o ->
+          AppLinkCard.shareFolderOpen(
+              o.name(),
+              o.audience(),
+              o.folderCount(),
+              o.fileCount(),
+              o.sharedBy(),
+              o.expiresAt() == null ? null : o.expiresAt().toInstant());
+      case DriveShareAppCard.PasswordProtected p -> AppLinkCard.sharePassword(p.target());
     };
   }
 }

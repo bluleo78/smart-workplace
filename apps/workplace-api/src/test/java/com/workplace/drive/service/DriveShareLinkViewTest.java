@@ -99,7 +99,7 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
 
     for (int i = 0; i < 7; i++) {
       assertThat(service.info(token, null, null, null))
-          .isEqualTo(new ShareInfoResponse.Gate(true, false));
+          .isEqualTo(new ShareInfoResponse.Gate(true, false, DriveShareTarget.FILE));
     }
     assertThat(attempts(token)).isZero();
   }
@@ -117,7 +117,7 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
     int before = attempts(token);
 
     assertThat(service.info(token, null, null, null))
-        .isEqualTo(ShareInfoResponse.passwordRequired());
+        .isEqualTo(ShareInfoResponse.passwordRequired(DriveShareTarget.FILE));
     assertThat(attempts(token)).isEqualTo(before);
     // 잠긴 동안은 정답도 429(기존 잠금 예외)
     assertThatThrownBy(() -> service.unlock(token, "secret", null, false))
@@ -163,7 +163,7 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
             .issue(CapabilityTokens.sha256Hex(token), pwHash)
             .viewToken();
     assertThat(service.info(token, expired, null, null))
-        .isEqualTo(ShareInfoResponse.passwordRequired());
+        .isEqualTo(ShareInfoResponse.passwordRequired(DriveShareTarget.FILE));
     assertThatThrownBy(() -> service.resolveForView(token, expired, null, false))
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
 
@@ -218,7 +218,8 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
     }
     int locked = attempts(token);
 
-    assertThat(service.info(token, vt, null, null)).isEqualTo(ShareInfoResponse.passwordRequired());
+    assertThat(service.info(token, vt, null, null))
+        .isEqualTo(ShareInfoResponse.passwordRequired(DriveShareTarget.FILE));
     assertThatThrownBy(() -> service.resolveForView(token, vt, null, false))
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
     // 다운로드는 토큰이 막혀 비밀번호 단계로 넘어가고, 잠겨 있으니 429(잠금 예외)
@@ -245,7 +246,8 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
         .execute();
     TenantContext.clear();
 
-    assertThat(service.info(token, vt, null, null)).isEqualTo(ShareInfoResponse.passwordRequired());
+    assertThat(service.info(token, vt, null, null))
+        .isEqualTo(ShareInfoResponse.passwordRequired(DriveShareTarget.FILE));
     assertThatThrownBy(() -> service.resolveForView(token, vt, null, false))
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
   }
@@ -279,7 +281,8 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
     TenantContext.clear();
 
     // 비로그인 → 로그인 안내(비밀번호보다 먼저, 파일 필드 없음)
-    assertThat(service.info(token, null, null, null)).isEqualTo(ShareInfoResponse.loginRequired());
+    assertThat(service.info(token, null, null, null))
+        .isEqualTo(ShareInfoResponse.loginRequired(DriveShareTarget.FILE));
     // 다른 워크스페이스 로그인 → 403
     assertThatThrownBy(() -> service.info(token, null, 2L, owner))
         .isInstanceOf(DriveForbiddenException.class);
@@ -287,7 +290,7 @@ class DriveShareLinkViewTest extends IntegrationTestBase {
         .isInstanceOf(DriveShareLinkUnauthorizedException.class);
     // 같은 워크스페이스 로그인 → 비밀번호 단계로
     assertThat(service.info(token, null, 1L, owner))
-        .isEqualTo(ShareInfoResponse.passwordRequired());
+        .isEqualTo(ShareInfoResponse.passwordRequired(DriveShareTarget.FILE));
     assertThat(attempts(token)).isZero();
   }
 

@@ -1,6 +1,7 @@
 package com.workplace.home.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.drive.service.DriveShareTarget;
 import com.workplace.global.dto.UserSummary;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +36,11 @@ import java.util.List;
  * @param driveSpaceId SHARE(MEMBER) — 드라이브 공간 id
  * @param driveFolderId SHARE(MEMBER) — 파일이 든 폴더 id(루트면 없음)
  * @param driveFileId SHARE(MEMBER) — 드라이브 파일 id
+ * @param shareTarget SHARE — FILE | FOLDER(WP-1538, SHARE 카드면 늘 싣는다. JSON 은 enum 이름 문자열)
+ * @param audience SHARE(폴더 MEMBER·OPEN) — EXTERNAL | INTERNAL
+ * @param folderCount SHARE(폴더 MEMBER·OPEN) — 공유 폴더 바로 아래 폴더 수
+ * @param fileCount SHARE(폴더 MEMBER·OPEN) — 공유 폴더 바로 아래 파일 수
+ * @param sharedBy SHARE(폴더 MEMBER·OPEN) — 링크를 만든 사람 이름
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AppLinkCard(
@@ -60,10 +66,18 @@ public record AppLinkCard(
     Instant expiresAt,
     Long driveSpaceId,
     Long driveFolderId,
-    Long driveFileId) {
+    Long driveFileId,
+    DriveShareTarget shareTarget,
+    String audience,
+    Integer folderCount,
+    Integer fileCount,
+    String sharedBy) {
 
   /** 비밀번호 공유 링크 카드의 제목(WP-1474) — 파일 이름 대신 쓰는, 아무것도 드러내지 않는 고정 문구. */
   public static final String SHARE_PASSWORD_TITLE = "비밀번호로 보호된 공유 파일";
+
+  /** 비밀번호 공유 폴더 링크 카드의 제목(WP-1538) — 폴더 이름 대신 쓰는 고정 문구. */
+  public static final String SHARE_FOLDER_PASSWORD_TITLE = "비밀번호로 보호된 공유 폴더";
 
   /** 이슈 카드. */
   public static AppLinkCard issue(
@@ -148,6 +162,7 @@ public record AppLinkCard(
     b.driveSpaceId = spaceId;
     b.driveFolderId = folderId;
     b.driveFileId = fileId;
+    b.shareTarget = DriveShareTarget.FILE;
     return b.build();
   }
 
@@ -164,6 +179,53 @@ public record AppLinkCard(
     b.typeLabel = typeLabel;
     b.sizeBytes = sizeBytes;
     b.expiresAt = expiresAt;
+    b.shareTarget = DriveShareTarget.FILE;
+    return b.build();
+  }
+
+  /** 공유 링크 카드 — 보는 사람이 공유 폴더 공간의 구성원(WP-1538). 드라이브의 그 폴더로 가도록 공간·폴더 id 를 싣는다(폴더는 공유 폴더 자신). */
+  public static AppLinkCard shareFolderMember(
+      String name,
+      String spaceName,
+      long spaceId,
+      long folderId,
+      String audience,
+      int folderCount,
+      int fileCount,
+      String sharedBy) {
+    Builder b = new Builder("SHARE", name);
+    b.shareState = "MEMBER";
+    b.shareTarget = DriveShareTarget.FOLDER;
+    b.spaceName = spaceName;
+    b.driveSpaceId = spaceId;
+    b.driveFolderId = folderId;
+    b.audience = audience;
+    b.folderCount = folderCount;
+    b.fileCount = fileCount;
+    b.sharedBy = sharedBy;
+    return b.build();
+  }
+
+  /**
+   * 공유 링크 카드 — 구성원이 아니지만 링크로 열 수 있는 폴더(WP-1538). 이름·대상 범위·바로 아래 수·공유한 사람·만료일만 — 공간·위치는 싣지 않는다.
+   *
+   * @param expiresAt 만료일 없는 링크면 null(응답에서 빠진다)
+   */
+  public static AppLinkCard shareFolderOpen(
+      String name,
+      String audience,
+      int folderCount,
+      int fileCount,
+      String sharedBy,
+      Instant expiresAt) {
+    Builder b = new Builder("SHARE", name);
+    b.shareState = "OPEN";
+    b.shareTarget = DriveShareTarget.FOLDER;
+    b.audience = audience;
+    b.folderCount = folderCount;
+    b.fileCount = fileCount;
+    b.sharedBy = sharedBy;
+    b.expiresAt = expiresAt;
     return b.build();
   }
 
@@ -171,9 +233,13 @@ public record AppLinkCard(
    * 공유 링크 카드 — 비밀번호 링크(WP-1474). 파일 정보를 하나도 싣지 않고 제목은 아무것도 드러내지 않는 고정 문구다(잠긴 내용이 응답으로 새지 않게, 그래도 모든
    * 카드에 title 이 있게).
    */
-  public static AppLinkCard sharePassword() {
-    Builder b = new Builder("SHARE", SHARE_PASSWORD_TITLE);
+  public static AppLinkCard sharePassword(DriveShareTarget target) {
+    Builder b =
+        new Builder(
+            "SHARE",
+            target == DriveShareTarget.FOLDER ? SHARE_FOLDER_PASSWORD_TITLE : SHARE_PASSWORD_TITLE);
     b.shareState = "PASSWORD";
+    b.shareTarget = target;
     return b.build();
   }
 
@@ -205,6 +271,11 @@ public record AppLinkCard(
     private Long driveSpaceId;
     private Long driveFolderId;
     private Long driveFileId;
+    private DriveShareTarget shareTarget;
+    private String audience;
+    private Integer folderCount;
+    private Integer fileCount;
+    private String sharedBy;
 
     private Builder(String kind, String title) {
       this.kind = kind;
@@ -235,7 +306,12 @@ public record AppLinkCard(
           expiresAt,
           driveSpaceId,
           driveFolderId,
-          driveFileId);
+          driveFileId,
+          shareTarget,
+          audience,
+          folderCount,
+          fileCount,
+          sharedBy);
     }
   }
 }

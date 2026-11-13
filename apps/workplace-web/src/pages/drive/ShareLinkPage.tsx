@@ -5,6 +5,7 @@
 //   - 비밀번호 잠금은 POST /unlock 으로 열람 토큰을 받아 이 컴포넌트 메모리에만 둔다(비밀번호는 바로 버림).
 //     URL·저장소에 남기지 않아 새로고침하면 다시 묻는다. 열람 토큰이 만료돼 401 이 오면 잠금 카드로 돌아간다.
 //   - 파일 카드: [미리보기](통합 뷰어 — 공개 경로 + 열람 토큰 출처) [다운로드], 아래에 「드라이브에서 열기」 계열 링크.
+//   - 폴더 링크(WP-1538, 정보 kind=FOLDER): 넓은 카드에 FolderShareView(하위 목록·경로·?folder=·뷰어 ‹ ›). 잠금 카드 제목은 target 으로 「…폴더」.
 //   - 로그인한 사람이 새 탭으로 열면 액세스 토큰이 아직 없다 — AuthProvider 의 세션 복원(refresh 쿠키)이 끝난 뒤 정보를 묻는다.
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -15,11 +16,15 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   downloadShare,
   fetchShareInfo,
+  isShareFolderInfo,
   type ShareFileInfo,
+  type ShareFolderInfo,
+  sharePublicBase,
+  type ShareTarget,
   unlockShare,
 } from '@/api/drivePublicShare'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
-import { shareErrorStatus as statusOf, shareViewerItem, shareViewerSource } from '@/components/drive/shareViewer'
+import { shareViewerItem } from '@/components/drive/shareViewer'
 import { BrandMark } from '@/components/layout/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -34,27 +39,16 @@ import { SHARE_LINK_TITLE } from '@/lib/documentTitle'
 import { formatFileSize } from '@/lib/formatters'
 import { savePendingPushTarget } from '@/lib/push/openTarget'
 
-/** 잠김(시도 초과·IP 제한) 안내 — 비밀번호 칸 아래와 다운로드 실패에 같이 쓴다. 서버는 429(이전 계약 423 도 같이 본다). */
-const LOCKED_MESSAGE = '시도 횟수를 넘었습니다. 잠시 뒤 다시 시도하세요'
-
-function isLocked(status: number): boolean {
-  return status === 429 || status === 423
-}
-
-/** 정보 조회 실패 → 원인 안내(막다른 화면이 되지 않게 다음 행동은 errorAction). */
-function infoErrorMessage(status: number): string {
-  if (status === 410) return '만료되었거나 폐기된 링크입니다.'
-  if (status === 404) return '존재하지 않는 링크입니다.'
-  if (status === 403) return '이 워크스페이스 사람만 볼 수 있는 파일입니다. 다른 워크스페이스 계정이 있다면 전환한 뒤 다시 여세요.'
-  return '링크를 열지 못했습니다. 잠시 후 다시 시도하세요.'
-}
-
-/** 다운로드 실패 안내 — 401 은 잠금 카드로 돌아가므로 여기 오지 않는다. */
-function downloadErrorMessage(status: number): string {
-  if (isLocked(status)) return LOCKED_MESSAGE
-  if (status === 410 || status === 404) return infoErrorMessage(status)
-  return '다운로드에 실패했습니다. 잠시 후 다시 시도하세요.'
-}
+import { FolderShareView } from './share/FolderShareView'
+import {
+  downloadErrorMessage,
+  infoErrorMessage,
+  isLocked,
+  LOCKED_MESSAGE,
+  parseFolderParam,
+  shareViewerSource,
+  statusOf,
+} from './share/shareSupport'
 
 /** 카드 둘째 줄 형식 — 확장자가 있으면 「PDF 파일」, 없으면 mime 그대로. */
 function fileTypeLabel(name: string, mimeType: string): string {
@@ -63,9 +57,18 @@ function fileTypeLabel(name: string, mimeType: string): string {
   return ext ? `${ext.toUpperCase()} 파일` : mimeType
 }
 
+/** 잠금 카드 제목 — 대상 종류(잠금 응답 target, WP-1538)마다 「…파일」/「…폴더」. */
+const LOCK_TITLES: Record<ShareTarget, { login: string; password: string }> = {
+  FILE: { login: '사내 전용 파일', password: '비밀번호로 보호된 파일' },
+  FOLDER: { login: '사내 전용 폴더', password: '비밀번호로 보호된 폴더' },
+}
+
 /** 로그인 뒤 이 링크로 돌아오게 대기 목적지를 남긴다 — from=login 표시로 「공간 접근 권한 없음」 안내를 고른다. 드라이브로 자동 이동은 하지 않는다. */
-function rememberReturn(token: string) {
-  savePendingPushTarget({ tenantId: null, url: `/s/${token}?from=login` })
+function rememberReturn(token: string, folder: string | null = null) {
+  // 폴더 링크(WP-1538)는 보던 하위 폴더(?folder=)도 함께 남겨 로그인 뒤 같은 폴더로 돌아온다 — 폴더 보기와 같은 해석(그 밖은 공유 폴더로).
+  const folderId = parseFolderParam(folder)
+  const folderQuery = folderId != null ? `&folder=${folderId}` : ''
+  savePendingPushTarget({ tenantId: null, url: `/s/${token}?from=login${folderQuery}` })
 }
 
 export default function ShareLinkPage() {
@@ -108,11 +111,15 @@ export default function ShareLinkPage() {
   }, [refetchInfo])
 
   // 뷰어 출처 — 공개 경로를 열람 토큰 헤더로 받는다. 열람 토큰은 뷰어가 닫힌 동안에만 바뀐다(잠금 풀기·만료) — 다시 열면 새 출처를 쓴다.
-  const source = useMemo(() => shareViewerSource(token, viewToken, onUnauthorized), [token, viewToken, onUnauthorized])
+  const source = useMemo(() => shareViewerSource(viewToken, onUnauthorized), [viewToken, onUnauthorized])
 
-  const file: ShareFileInfo | null = info.data && 'name' in info.data ? info.data : null
+  // WP-1538: kind 가 FOLDER 면 폴더 보기, 그 밖(kind 없음·FILE)의 이름 있는 응답은 지금 파일 카드.
+  const folderInfo: ShareFolderInfo | null = info.data && isShareFolderInfo(info.data) ? info.data : null
+  const file: ShareFileInfo | null = info.data && !isShareFolderInfo(info.data) && 'name' in info.data ? info.data : null
+  // 잠금 카드 제목의 대상 — 잠금 응답의 target 만 본다(이름·수는 숨김, P9). 없으면(이전 응답) 파일.
+  const lockTitles = LOCK_TITLES[info.data != null && 'target' in info.data && info.data.target === 'FOLDER' ? 'FOLDER' : 'FILE']
   // 파일 정보가 열리면 서버가 「공유받은 항목」에 기록했을 수 있다(WP-1539) — 드라이브로 돌아갔을 때 사이드바 개수·목록이
-  // 1분 캐시에 머물지 않게 그 쿼리를 낡은 것으로 표시한다. 비로그인은 목록이 없어 건너뛴다.
+  // 1분 캐시에 머물지 않게 그 쿼리를 낡은 것으로 표시한다. 비로그인은 목록이 없어 건너뛴다. 폴더 링크는 기록하지 않아(WP-1540 전) 파일일 때만.
   const queryClient = useQueryClient()
   const fileLoaded = file != null
   useEffect(() => {
@@ -133,7 +140,7 @@ export default function ShareLinkPage() {
     setDownloading(true)
     setDownloadError(null)
     try {
-      await downloadShare(token, viewToken, file.name)
+      await downloadShare(`${sharePublicBase(token)}/download`, viewToken, file.name)
     } catch (e) {
       const status = statusOf(e)
       if (status === 401) onUnauthorized()
@@ -162,9 +169,9 @@ export default function ShareLinkPage() {
   } else if (info.data.loginRequired) {
     body = (
       <ShareCard>
-        <LockHeader title="사내 전용 파일" description="로그인한 같은 워크스페이스 사람만 볼 수 있습니다." />
+        <LockHeader title={lockTitles.login} description="로그인한 같은 워크스페이스 사람만 볼 수 있습니다." />
         <Button asChild className="w-full">
-          <Link to="/login" onClick={() => rememberReturn(token)} data-testid="share-login-btn">
+          <Link to="/login" onClick={() => rememberReturn(token, searchParams.get('folder'))} data-testid="share-login-btn">
             로그인
           </Link>
         </Button>
@@ -173,7 +180,14 @@ export default function ShareLinkPage() {
   } else if (info.data.passwordRequired) {
     body = (
       <ShareCard>
-        <PasswordLock token={token} onUnlocked={setViewToken} recheckLogin={recheckLogin} />
+        <PasswordLock token={token} title={lockTitles.password} onUnlocked={setViewToken} recheckLogin={recheckLogin} />
+      </ShareCard>
+    )
+  } else if (folderInfo) {
+    // 폴더 링크(WP-1538) — 목록 표가 들어가게 넓은 카드. 머리·목록·드라이브에서 열기·뷰어는 FolderShareView 가 그린다.
+    body = (
+      <ShareCard wide>
+        <FolderShareView token={token} info={folderInfo} viewToken={viewToken} onUnauthorized={onUnauthorized} />
       </ShareCard>
     )
   } else if (file) {
@@ -264,9 +278,13 @@ function ShareErrorCard({ status, onRetry }: { status: number; onRetry?: () => v
   )
 }
 
-/** 공용 카드 틀 — 모든 상태가 같은 폭·여백을 쓴다. */
-function ShareCard({ children }: { children: ReactNode }) {
-  return <div className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm">{children}</div>
+/** 공용 카드 틀 — 모든 상태가 같은 여백을 쓴다. wide 는 폴더 목록(WP-1538, 640px), 그 밖(파일·잠금·오류)은 지금 폭. */
+function ShareCard({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <div className={`w-full ${wide ? 'max-w-[640px]' : 'max-w-sm'} space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm`}>
+      {children}
+    </div>
+  )
 }
 
 /** 잠금 카드 머리 — 자물쇠 아이콘 + 제목 + 설명. */
@@ -287,10 +305,13 @@ function LockHeader({ title, description }: { title: string; description: string
  */
 function PasswordLock({
   token,
+  title,
   onUnlocked,
   recheckLogin,
 }: {
   token: string
+  /** 카드 제목 — 대상 종류(WP-1538, 잠금 응답 target)에 따라 「…파일」/「…폴더」({@link LOCK_TITLES}). */
+  title: string
   onUnlocked: (viewToken: string) => void
   recheckLogin: () => Promise<boolean>
 }) {
@@ -327,7 +348,7 @@ function PasswordLock({
 
   return (
     <form className="space-y-4" onSubmit={(e) => void submit(e)}>
-      <LockHeader title="비밀번호로 보호된 파일" description="공유한 사람에게 받은 비밀번호를 넣으세요." />
+      <LockHeader title={title} description="공유한 사람에게 받은 비밀번호를 넣으세요." />
       <div className="space-y-2">
         <Label htmlFor="share-password" className="sr-only">
           공유 링크 비밀번호

@@ -3,6 +3,7 @@ import { isAxiosError } from 'axios'
 
 import { driveFilePath } from '@/components/viewer/driveOpen'
 import type { AppLink } from '@/lib/appLinks'
+import { driveFolderPath } from '@/lib/appUrl'
 import type { UserSummary } from '@/types/user'
 
 import { client } from './client'
@@ -51,6 +52,15 @@ export interface AppLinkCard {
   driveSpaceId?: number
   driveFolderId?: number
   driveFileId?: number
+  /** SHARE — 공유 대상이 파일인가 폴더인가(WP-1538). 서버는 항상 싣는다. FOLDER 면 driveFileId 대신 driveFolderId 가 폴더 자신이다. */
+  shareTarget?: 'FILE' | 'FOLDER'
+  /** SHARE FOLDER MEMBER·OPEN — 공유 범위: 외부 공유 / 사내 공유 배지(WP-1538) */
+  audience?: 'EXTERNAL' | 'INTERNAL'
+  /** SHARE FOLDER MEMBER·OPEN — 폴더 안 하위 폴더·파일 수 */
+  folderCount?: number
+  fileCount?: number
+  /** SHARE FOLDER MEMBER·OPEN — 공유한 사람 이름(비밀번호 카드엔 없다) */
+  sharedBy?: string
 }
 
 /** 링크 대상의 카드 API 경로 — 대상마다 하나라 카드 캐시 키로도 쓴다. */
@@ -83,6 +93,10 @@ export function appLinkCardPath(link: AppLink): string {
  */
 export function shareCardDrivePath(card: AppLinkCard): string | null {
   if (card.kind !== 'SHARE' || card.shareState !== 'MEMBER') return null
+  // 폴더 공유(WP-1538) — 구성원이면 드라이브의 그 폴더로 간다(폴더 id 가 공유한 폴더 자신).
+  if (card.shareTarget === 'FOLDER') {
+    return card.driveSpaceId != null && card.driveFolderId != null ? driveFolderPath(card.driveSpaceId, card.driveFolderId) : null
+  }
   if (card.driveSpaceId == null || card.driveFileId == null) return null
   return driveFilePath(card.driveSpaceId, card.driveFolderId ?? null, card.driveFileId)
 }

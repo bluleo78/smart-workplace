@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
-  드라이브 공유 링크 미리보기 카드 8장(public/og/drive-*.png) 원본 — render-share-cards.mjs 가 `?kind=` 별로 1200×630 을 찍는다(WP-1473).
-  kind: pdf · doc · sheet · slide · image · file · password · internal (API 의 그림 키와 같다 — 이름을 바꾸면 API 도 바꾼다).
+  드라이브 공유 링크 미리보기 카드 11장(public/og/drive-*.png) 원본 — render-share-cards.mjs 가 `?kind=` 별로 1200×630 을 찍는다(WP-1473).
+  kind: pdf · doc · sheet · slide · image · file · password · internal · folder · folder-password · folder-internal (API 의 그림 키와 같다(폴더 3장은 WP-1538) — 이름을 바꾸면 API 도 바꾼다).
   Teams 가운데 잘림(x 202~998)을 견디도록 모든 내용을 .safe(x 202~998) 안에 둔다(og-image.html 과 같은 이유). 오른쪽 아래 옅은 원은 가로로 .safe 안에 두고 아래로만 넘긴다.
   글꼴은 macOS 의 Apple SD Gothic Neo, 없으면(리눅스) Noto Sans CJK KR 이다.
 -->
@@ -200,7 +200,7 @@
       </div>
     </div>
     <script>
-      // 종류별 라벨·색·제목·작은 줄. 잠금 두 장(password·internal)은 문서 대신 자물쇠를 그린다.
+      // 종류별 라벨·색·제목·작은 줄. 잠금 장(password·internal·folder-password·folder-internal)은 문서 대신 자물쇠를, 폴더 장(folder)은 노란 폴더를 그린다(WP-1538).
       const KINDS = {
         pdf: { label: 'PDF', color: '#dc2626', title: 'PDF 파일', sub: '드라이브 공유' },
         doc: { label: 'DOC', color: '#2563eb', title: '문서', sub: '드라이브 공유' },
@@ -210,10 +210,17 @@
         file: { label: 'FILE', color: '#6b7280', title: '파일', sub: '드라이브 공유' },
         password: { lock: true, title: '보호된 파일', sub: '비밀번호 필요' },
         internal: { lock: true, title: '사내 공유 파일', sub: '로그인 필요' },
+        folder: { folderArt: true, label: '폴더', color: '#d97706', title: '폴더', sub: '드라이브 공유' },
+        'folder-password': { lock: true, title: '보호된 폴더', sub: '비밀번호 필요' },
+        'folder-internal': { lock: true, title: '사내 공유 폴더', sub: '로그인 필요' },
       }
       const LOCK_SVG =
         '<svg viewBox="0 0 24 24" fill="none" stroke="#4338ca" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
         '<rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>'
+      // 폴더 그림(WP-1538) — lucide folder 윤곽을 노랗게 채운다. 흰 둥근 사각(.lock 과 같은 틀) 안에 그린다.
+      const FOLDER_SVG =
+        '<svg viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></svg>'
       const kind = new URLSearchParams(location.search).get('kind')
       const k = KINDS[kind]
       if (!k) throw new Error('알 수 없는 kind: ' + kind)
@@ -221,6 +228,8 @@
       document.getElementById('sub').textContent = k.sub
       document.getElementById('visual').innerHTML = k.lock
         ? '<div class="lock">' + LOCK_SVG + '<div class="label">잠김</div></div>'
+        : k.folderArt
+        ? '<div class="lock">' + FOLDER_SVG + '<div class="label" style="background:' + k.color + '">' + k.label + '</div></div>'
         : '<div class="doc"><div class="lines"><i></i><i></i><i></i></div><div class="label" style="background:' + k.color + '">' + k.label + '</div></div>' +
           '<div class="fold"></div>'
     </script>

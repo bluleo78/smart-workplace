@@ -25,6 +25,7 @@ import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveShareLinkService.ResolvedTarget;
 import com.workplace.drive.service.DriveSharePreview;
+import com.workplace.drive.service.DriveShareTarget;
 import com.workplace.drive.service.ShareViewTokens;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.filepreview.service.FilePreviewService;
@@ -129,6 +130,39 @@ class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
     mockMvc
         .perform(get("/api/v1/public/drive/share/sl_none/preview-meta?part=image"))
         .andExpect(status().isNoContent());
+  }
+
+  /** 미리보기 메타 폴더 슬라이스(WP-1538) — 외부·비밀번호·사내 각 200 본문과 그림 줄. */
+  @Test
+  void previewMeta_folder_variants() throws Exception {
+    given(shareLinks.previewCard("sl_fo"))
+        .willReturn(new DriveSharePreview.FolderOpen("견적", 2, 4, null));
+    given(shareLinks.previewCard("sl_fp"))
+        .willReturn(new DriveSharePreview.PasswordProtected(DriveShareTarget.FOLDER));
+    given(shareLinks.previewCard("sl_fi"))
+        .willReturn(new DriveSharePreview.InternalOnly(DriveShareTarget.FOLDER));
+
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_fo/preview-meta"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("공유된 폴더 · 폴더 2개 · 파일 4개")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_fo/preview-meta?part=image"))
+        .andExpect(content().string(containsString("drive-folder.png")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_fp/preview-meta"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("비밀번호로 보호된 폴더")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_fp/preview-meta?part=image"))
+        .andExpect(content().string(containsString("drive-folder-password.png")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_fi/preview-meta"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("사내 공유 폴더")));
+    mockMvc
+        .perform(get("/api/v1/public/drive/share/sl_fi/preview-meta?part=image"))
+        .andExpect(content().string(containsString("drive-folder-internal.png")));
   }
 
   /**
@@ -246,6 +280,7 @@ class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
     mockMvc
         .perform(get("/api/v1/public/drive/share/sl_i").header("X-Share-View-Token", "vt"))
         .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("FILE"))
         .andExpect(jsonPath("$.passwordRequired").value(false))
         .andExpect(jsonPath("$.loginRequired").value(false))
         .andExpect(jsonPath("$.name").value("a.pdf"))
@@ -262,14 +297,37 @@ class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
   @Test
   void info_passwordRequired_hasNoFileFields() throws Exception {
     given(shareLinks.info(eq("sl_p"), isNull(), isNull(), isNull()))
-        .willReturn(ShareInfoResponse.passwordRequired());
+        .willReturn(ShareInfoResponse.passwordRequired(DriveShareTarget.FILE));
     mockMvc
         .perform(get("/api/v1/public/drive/share/sl_p"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.passwordRequired").value(true))
         .andExpect(jsonPath("$.loginRequired").value(false))
+        .andExpect(jsonPath("$.target").value("FILE"))
         .andExpect(jsonPath("$.name").doesNotExist())
         .andExpect(jsonPath("$.driveOpen").doesNotExist());
+  }
+
+  /** 폴더 하위 목록(WP-1538) — folder·열람 토큰을 서비스에 넘기고 캐시 금지 헤더를 단다. */
+  @Test
+  void children_delegatesFolderAndViewToken_withNoStore() throws Exception {
+    given(shareLinks.children(eq("sl_f"), eq("vt"), eq(9L), isNull(), eq(false)))
+        .willReturn(
+            new com.workplace.drive.dto.ShareFolderListing(
+                9L,
+                java.util.List.of(new com.workplace.drive.dto.ShareFolderListing.PathItem(9L, "r")),
+                java.util.List.of(),
+                java.util.List.of(),
+                false));
+    mockMvc
+        .perform(
+            get("/api/v1/public/drive/share/sl_f/children")
+                .param("folder", "9")
+                .header("X-Share-View-Token", "vt"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(jsonPath("$.folderId").value(9))
+        .andExpect(jsonPath("$.path[0].name").value("r"));
   }
 
   /** unlock — 본문 비밀번호를 넘기고 {viewToken, expiresAt} 를 돌려준다. */
@@ -376,5 +434,31 @@ class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
     mockMvc
         .perform(get("/api/v1/public/drive/share/sl_d/download").header("X-Share-View-Token", "vt"))
         .andExpect(status().isOk());
+  }
+
+  /** 폴더 하위 파일 경로(WP-1538) — 익명 허용 와이어링, 열람 토큰 전달, 헤더 계약(download attachment · content sandbox). */
+  @Test
+  void folderFile_routes_anonymousAllowed_andDelegateWithViewToken() throws Exception {
+    given(shareLinks.resolveFolderFile(eq("sl_f"), eq("vt"), eq(7L), isNull(), eq(false)))
+        .willReturn(new ResolvedTarget(1L, 7L));
+    byte[] content = "x".getBytes();
+    given(fileService.downloadViaShareLink(7L))
+        .willReturn(
+            new FileContentResult(new ByteArrayResource(content), "text/plain", "x.txt", 1));
+
+    mockMvc
+        .perform(
+            get("/api/v1/public/drive/share/sl_f/files/7/download")
+                .header("X-Share-View-Token", "vt"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Disposition", containsString("attachment")));
+    mockMvc
+        .perform(
+            get("/api/v1/public/drive/share/sl_f/files/7/content")
+                .header("X-Share-View-Token", "vt"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Disposition", containsString("inline")))
+        .andExpect(header().string("Content-Security-Policy", "sandbox"))
+        .andExpect(header().string("X-Content-Type-Options", "nosniff"));
   }
 }

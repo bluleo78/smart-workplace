@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AppLinkCard as AppLinkCardData } from '@/api/appLinks'
 import type { AppLink } from '@/lib/appLinks'
+import { driveFolderPath } from '@/lib/appUrl'
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
@@ -56,6 +57,16 @@ describe('AppLinkCard — 드라이브 공유 링크(WP-1474)', () => {
     // 구성원은 앱 안 이동(새 탭 아님)
     expect(card).not.toHaveAttribute('target')
     expect(screen.queryByTestId(`${TEST_ID}-meta`)).not.toBeInTheDocument()
+  })
+
+  it('글자만 있는 머리글 래퍼는 말줄임표(truncate)를 지키고 flex 컨테이너가 아니다', async () => {
+    const card = await renderShare({
+      kind: 'SHARE', shareState: 'MEMBER', title: 'a.pdf', mimeType: 'application/pdf', spaceName: '아주 긴 공간 이름',
+    })
+    const headWrapper = screen.getByTestId(`${TEST_ID}-title`).previousElementSibling as HTMLElement
+    expect(card).toContainElement(headWrapper)
+    expect(headWrapper).toHaveClass('truncate')
+    expect(headWrapper).not.toHaveClass('flex')
   })
 
   it('구성원이고 파일이 공간 루트면 폴더 없이 드라이브 미리보기로 간다', async () => {
@@ -111,6 +122,48 @@ describe('AppLinkCard — 드라이브 공유 링크(WP-1474)', () => {
     const card = await renderShare({ status: 404 })
     expect(card).toHaveAttribute('data-state', 'denied')
     expect(card).toHaveTextContent('볼 수 없는 파일입니다')
+  })
+})
+
+describe('AppLinkCard — 폴더 공유 링크(WP-1538)', () => {
+  it('폴더 OPEN: 머리 「폴더」 + 배지 「외부 공유」, 이름, 덧줄 「폴더 2개 · 파일 4개 · 김공유」, 폴더 아이콘, 새 탭 /s/', async () => {
+    const card = await renderShare({
+      kind: 'SHARE', shareTarget: 'FOLDER', shareState: 'OPEN', title: '견적', audience: 'EXTERNAL', folderCount: 2, fileCount: 4, sharedBy: '김공유',
+    })
+    expect(card).toHaveTextContent('폴더')
+    expect(card).toHaveTextContent('외부 공유')
+    expect(screen.getByTestId(`${TEST_ID}-title`)).toHaveTextContent('견적')
+    expect(screen.getByTestId(`${TEST_ID}-meta`)).toHaveTextContent('폴더 2개 · 파일 4개 · 김공유')
+    expect(card.querySelector('svg.lucide-folder')).not.toBeNull()
+    expectNewTabShareLink(card)
+  })
+
+  it('폴더 MEMBER 사내: 같은 몸통, 배지 「사내 공유」, 누르면 같은 창에서 드라이브 폴더', async () => {
+    const card = await renderShare({
+      kind: 'SHARE', shareTarget: 'FOLDER', shareState: 'MEMBER', title: '견적', audience: 'INTERNAL', folderCount: 2, fileCount: 4, sharedBy: '김공유',
+      spaceName: '팀', driveSpaceId: 3, driveFolderId: 20,
+    })
+    expect(card).toHaveTextContent('사내 공유')
+    expect(screen.getByTestId(`${TEST_ID}-meta`)).toHaveTextContent('폴더 2개 · 파일 4개 · 김공유')
+    expect(card).toHaveAttribute('href', driveFolderPath(3, 20))
+    expect(card).not.toHaveAttribute('target')
+  })
+
+  it('폴더 PASSWORD: 자물쇠 + 서버가 준 고정 제목, 덧줄 없음', async () => {
+    const card = await renderShare({ kind: 'SHARE', shareTarget: 'FOLDER', shareState: 'PASSWORD', title: '비밀번호로 보호된 공유 폴더' })
+    expect(card).toHaveTextContent('비밀번호로 보호된 공유 폴더')
+    expect(card.querySelector('svg.lucide-lock')).not.toBeNull()
+    expect(screen.queryByTestId(`${TEST_ID}-meta`)).not.toBeInTheDocument()
+    expectNewTabShareLink(card)
+  })
+
+  it('파일 공유 카드는 그대로 — 공유한 사람·배지 없음', async () => {
+    const card = await renderShare({
+      kind: 'SHARE', shareTarget: 'FILE', shareState: 'OPEN', title: 'a.pdf', typeLabel: 'PDF', sizeBytes: 100, sharedBy: '김공유',
+    })
+    expect(card).not.toHaveTextContent('외부 공유')
+    expect(card).not.toHaveTextContent('김공유')
+    expect(screen.getByTestId(`${TEST_ID}-meta`)).toHaveTextContent('PDF · 100 B')
   })
 })
 

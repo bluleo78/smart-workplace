@@ -65,7 +65,7 @@ describe('행 ⋯ 메뉴', () => {
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
     menu = await openRowMenu(user, '문서')
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '이름 변경', '복사', '삭제'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['링크 복사', '채팅·이슈로 보내기', '공유 링크', '이름 변경', '복사', '삭제'])
     expect(within(menu).getByRole('separator').nextElementSibling).toHaveTextContent('삭제')
     await user.click(within(menu).getByRole('menuitem', { name: '삭제' }))
     expect(await screen.findByTestId('drive-confirm-dialog')).toHaveTextContent('폴더를 휴지통으로 보낼까요?')

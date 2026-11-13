@@ -46,6 +46,7 @@ describe('formatAuditAction / formatAuditResource (#109, #778, WP-335, WP-369)',
 
   it('WP-579: 노트 공유 액션 7개와 「노트」 리소스가 한글 라벨로(raw·경고 없음)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(formatAuditAction('FOLDER_SHARE')).toBe('폴더 공유 링크 생성'); // WP-1538
     expect(formatAuditAction('WIKI_SHARE_CREATED')).toBe('노트 공유 생성');
     expect(formatAuditAction('WIKI_SHARE_UPDATED')).toBe('노트 공유 변경');
     expect(formatAuditAction('WIKI_SHARE_PEOPLE_CHANGED')).toBe('노트 공유 대상 변경');

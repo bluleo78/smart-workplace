@@ -181,6 +181,8 @@ AI 결과가 있어야 하는 그림이다(실제 AI 호출로 만든다). 지�
 | drive-5 | `/drive/attachments` | 김서연 | 연 그대로 | `filters+save` | `filters,search,group,save@l` | MOB-7·「공지」 채널 첨부 |
 | drive-6 | `/drive`(모바일 주문 앱 › 기획) | 김서연 | PDF 「모바일 주문 앱 2.0 요구사항 정의서.pdf」 를 눌러 미리 보기를 연다 — PDF 는 원본 GET 만(변환 요청 없음), AI 요약 GET 은 막음. 캔버스가 칠해질 때까지 기다림 | (전체) | `actions,next,zoom` (`file` 은 기록 안 함) | 드라이브 시드 |
 | drive-7 | `/drive`(모바일 주문 앱) | 김서연 | **AI 결과 — once**. 새 대화로 묻는다(POST /ai/chat 만 연다). 찍기만 다시 할 때는 `MANUAL_AI_REUSE=1`. 「드라이브 모바일 주문 앱 › 기획 폴더의 '모바일 주문 앱 2.0 요구사항 정의서.pdf'를 세 줄로 요약해 줘」 | `panel` | `answer` (`panel` 도 기록) | 드라이브 시드 |
+| drive-8 | 위와 같음(폴더 「기획」) | 김서연 | 폴더 행의 점 세 개 메뉴 → **공유 링크** 로 창을 열고 **외부** 를 고른다(만들지 않음) | `dialog` | `audience,notice,expiry` | 위와 같음 |
+| drive-9 | `/s/<token>`(폴더 링크) | 비로그인 | 사전에 만들어 둔 사내 가상 폴더의 외부 링크를 연다(촬영 때 링크를 새로 만들지 않고 시드에서 준비) | `list+breadcrumb` | `breadcrumb,list` | 폴더 외부 공유 링크 1개(하위 폴더·파일 포함) |
 
 ### 10 노트
 

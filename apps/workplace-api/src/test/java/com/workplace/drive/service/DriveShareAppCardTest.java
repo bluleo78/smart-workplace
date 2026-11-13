@@ -117,7 +117,7 @@ class DriveShareAppCardTest extends IntegrationTestBase {
     var open = (DriveShareAppCard.Open) service.appLinkCard(expiring, 1L, outsider);
     assertThat(open.expiresAt().toInstant()).isEqualTo(until.toInstant());
     assertThat(service.appLinkCard(password, 1L, outsider))
-        .isEqualTo(new DriveShareAppCard.PasswordProtected());
+        .isEqualTo(new DriveShareAppCard.PasswordProtected(DriveShareTarget.FILE));
     assertThat(attempts(password)).isZero();
   }
 
@@ -163,7 +163,7 @@ class DriveShareAppCardTest extends IntegrationTestBase {
     assertThat(service.appLinkCard(external, 2L, member))
         .isInstanceOf(DriveShareAppCard.Open.class);
     assertThat(service.appLinkCard(password, 2L, member))
-        .isEqualTo(new DriveShareAppCard.PasswordProtected());
+        .isEqualTo(new DriveShareAppCard.PasswordProtected(DriveShareTarget.FILE));
     assertThatThrownBy(() -> service.appLinkCard(internal, 2L, member))
         .isInstanceOf(DriveShareLinkNotFoundException.class);
     assertThatThrownBy(() -> service.appLinkCard(internalPassword, 2L, outsider))
@@ -191,7 +191,7 @@ class DriveShareAppCardTest extends IntegrationTestBase {
                 "2026 사업계획_최종.pdf", "application/pdf", "경영기획팀 공간", spaceId, null, fileId));
     // 비구성원에게는 보관과 무관하게 링크 상태 그대로
     assertThat(service.appLinkCard(t, 1L, outsider))
-        .isEqualTo(new DriveShareAppCard.PasswordProtected());
+        .isEqualTo(new DriveShareAppCard.PasswordProtected(DriveShareTarget.FILE));
   }
 
   @Test
@@ -208,6 +208,110 @@ class DriveShareAppCardTest extends IntegrationTestBase {
     // 시도 칸은 그대로, 요청자 컨텍스트는 되돌려진다
     assertThat(attempts(password)).isZero();
     assertThat(TenantContext.get()).isEqualTo(1L);
+  }
+
+  // --- 폴더 링크(WP-1538) ---
+
+  /** 공간 S 에 {@code root/(sub/, f.txt)} — root 를 공유한다. */
+  private long folderRoot() {
+    long root = seedFolder("견적서");
+    seedFolder("하위", root);
+    seedFile(spaceId, root, "f.txt");
+    return root;
+  }
+
+  private long seedFolder(String name) {
+    return seedFolder(name, null);
+  }
+
+  private long seedFolder(String name, Long parent) {
+    return dsl.insertInto(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.SPACE_ID, spaceId)
+        .set(DRIVE_FOLDER.PARENT_ID, parent)
+        .set(DRIVE_FOLDER.NAME, name)
+        .returning(DRIVE_FOLDER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  private String folderLink(long folderId, String audience, String password) {
+    return service
+        .create(
+            owner,
+            new DriveShareLinkService.Target.Folder(folderId),
+            new CreateShareLinkRequest(audience, password, null))
+        .token();
+  }
+
+  @Test
+  void folder_member_returnsFolderMember() {
+    long root = folderRoot();
+    String t = folderLink(root, "INTERNAL", "secret");
+
+    assertThat(service.appLinkCard(t, 1L, member))
+        .isEqualTo(
+            new DriveShareAppCard.FolderMember(
+                "견적서", "경영기획팀 공간", spaceId, root, "INTERNAL", 1, 1, "주인"));
+  }
+
+  @Test
+  void folder_open_nonMember() {
+    long root = folderRoot();
+    OffsetDateTime until = OffsetDateTime.now().plusDays(7).truncatedTo(ChronoUnit.SECONDS);
+    String t =
+        service
+            .create(
+                owner,
+                new DriveShareLinkService.Target.Folder(root),
+                new CreateShareLinkRequest("EXTERNAL", null, until.toInstant()))
+            .token();
+
+    var card = (DriveShareAppCard.FolderOpen) service.appLinkCard(t, 1L, outsider);
+    assertThat(card.name()).isEqualTo("견적서");
+    assertThat(card.audience()).isEqualTo("EXTERNAL");
+    assertThat(card.folderCount()).isEqualTo(1);
+    assertThat(card.fileCount()).isEqualTo(1);
+    assertThat(card.sharedBy()).isEqualTo("주인");
+    assertThat(card.expiresAt().toInstant()).isEqualTo(until.toInstant());
+  }
+
+  @Test
+  void folder_password_nonMember() {
+    String t = folderLink(folderRoot(), "EXTERNAL", "secret");
+    assertThat(service.appLinkCard(t, 1L, outsider))
+        .isEqualTo(new DriveShareAppCard.PasswordProtected(DriveShareTarget.FOLDER));
+    assertThat(service.appLinkCard(t, 2L, outsider))
+        .isEqualTo(new DriveShareAppCard.PasswordProtected(DriveShareTarget.FOLDER));
+  }
+
+  @Test
+  void folder_otherWorkspace_internal_404() {
+    String t = folderLink(folderRoot(), "INTERNAL", null);
+    assertThatThrownBy(() -> service.appLinkCard(t, 2L, outsider))
+        .isInstanceOf(DriveShareLinkNotFoundException.class);
+  }
+
+  @Test
+  void folder_closed_nonMember_410() {
+    String t = folderLink(folderRoot(), "EXTERNAL", null);
+    expire(t);
+    assertGone(t, 1L, outsider);
+    assertGone(t, 2L, outsider);
+    // 구성원은 닫힌 링크여도 카드를 본다
+    assertThat(service.appLinkCard(t, 1L, member))
+        .isInstanceOf(DriveShareAppCard.FolderMember.class);
+  }
+
+  @Test
+  void folder_trashed_410_evenForMember() {
+    long root = folderRoot();
+    String t = folderLink(root, "EXTERNAL", null);
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.TRASHED_AT, OffsetDateTime.now())
+        .where(DRIVE_FOLDER.ID.eq(root))
+        .execute();
+    assertGone(t, 1L, member);
+    assertGone(t, 1L, outsider);
   }
 
   // --- 헬퍼 ---

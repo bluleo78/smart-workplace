@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import com.workplace.drive.service.DriveSharePreview.FolderOpen;
 import com.workplace.drive.service.DriveSharePreview.InternalOnly;
 import com.workplace.drive.service.DriveSharePreview.Open;
 import com.workplace.drive.service.DriveSharePreview.PasswordProtected;
@@ -110,12 +111,19 @@ public final class DriveSharePreviewMeta {
         if (expiry != null) parts.add(expiry);
         description = String.join(" · ", parts);
       }
+      case FolderOpen fo -> {
+        // WP-1538: 공유 폴더 기준(하위 이름 없음). 만료 없으면 그 조각은 뺀다.
+        title = fo.name();
+        String expiry = formatExpiry(fo.expiresAt(), now);
+        description = "공유된 폴더 · 폴더 " + fo.folderCount() + "개 · 파일 " + fo.fileCount() + "개";
+        if (expiry != null) description += " · " + expiry;
+      }
       case PasswordProtected pw -> {
-        title = "비밀번호로 보호된 공유 파일";
+        title = isFolder(pw.target()) ? "비밀번호로 보호된 폴더" : "비밀번호로 보호된 공유 파일";
         description = "링크를 열고 비밀번호를 입력하면 볼 수 있습니다.";
       }
       case InternalOnly in -> {
-        title = "사내 공유 파일";
+        title = isFolder(in.target()) ? "사내 공유 폴더" : "사내 공유 파일";
         description = "Gen:iA Works 에 로그인하면 볼 수 있습니다.";
       }
     }
@@ -139,13 +147,19 @@ public final class DriveSharePreviewMeta {
         key = imageKey(o.name(), o.mimeType());
         alt = kindOf(o.name(), o.mimeType()).imageName() + " · 드라이브 공유";
       }
+      case FolderOpen fo -> {
+        key = "folder";
+        alt = "폴더 · 드라이브 공유";
+      }
       case PasswordProtected pw -> {
-        key = "password";
-        alt = PASSWORD_ALT;
+        boolean folder = isFolder(pw.target());
+        key = folder ? "folder-password" : "password";
+        alt = folder ? "보호된 폴더 · 드라이브 공유" : PASSWORD_ALT;
       }
       case InternalOnly in -> {
-        key = "internal";
-        alt = INTERNAL_ALT;
+        boolean folder = isFolder(in.target());
+        key = folder ? "folder-internal" : "internal";
+        alt = folder ? "사내 공유 폴더 · 드라이브 공유" : INTERNAL_ALT;
       }
     }
     return "<meta property=\"og:image\" content=\"https://__PUBLIC_HOST__/og/drive-"
@@ -190,6 +204,11 @@ public final class DriveSharePreviewMeta {
     ZonedDateTime z = expiresAt.atZoneSameInstant(now.getZone());
     String md = z.getMonthValue() + "월 " + z.getDayOfMonth() + "일까지";
     return z.getYear() == now.getYear() ? md : z.getYear() + "년 " + md;
+  }
+
+  /** 폴더 링크인지(WP-1538) — null 은 파일로 본다. */
+  private static boolean isFolder(DriveShareTarget target) {
+    return target == DriveShareTarget.FOLDER;
   }
 
   /** 소문자 확장자(이름의 마지막 {@code .} 뒤, 영숫자 5자 이하). 없거나 이상하면 null. */

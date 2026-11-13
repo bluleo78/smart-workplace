@@ -36,6 +36,20 @@ export function driveFileActionDisabled({
 }
 
 /**
+ * 폴더 행 작업별 비활성 여부(WP-1538).
+ * - 공유 링크는 파일과 같은 규칙: 보기 전용 역할만 막고(실제로는 visibleDriveRowActions 가 감춤), 보관 공간은 열어 둔다 — 모달이 새 링크 불가를 안내하고 기존 링크 폐기는 된다.
+ * - 이름 변경·이동·복사·삭제는 읽기 전용(보관·보기 전용)이면 막는다.
+ */
+export function driveFolderActionDisabled({
+  space,
+}: {
+  space: Pick<DriveSpace, 'archived' | 'role'> | null | undefined
+}): Record<'share' | 'rename' | 'move' | 'copy' | 'delete', boolean> {
+  const readOnly = isDriveSpaceReadOnly(space)
+  return { share: isDriveSpaceViewer(space), rename: readOnly, move: readOnly, copy: readOnly, delete: readOnly }
+}
+
+/**
  * 읽기 권한만으로 되는 행 작업 — VIEWER 에게는 이것만 보인다(WP-602). 공유 링크·복사도 서버가 EDITOR 를 요구한다.
  * 링크 복사·채팅·이슈로 보내기(WP-1236)는 구성원용 앱 링크라 볼 수 있으면 된다(외부 공유 링크와 다르다).
  */

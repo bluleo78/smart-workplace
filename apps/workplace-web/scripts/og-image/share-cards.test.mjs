@@ -1,11 +1,11 @@
-// 드라이브 공유 카드 그림 8장(public/og/drive-*.png)이 1200×630 이고 Teams 가운데 잘림을 견디는지 지킨다(WP-1473).
+// 드라이브 공유 카드 그림 11장(public/og/drive-*.png)이 1200×630 이고 Teams 가운데 잘림을 견디는지 지킨다(WP-1473).
 // 그 밖(x < 202, x > 998)에는 배경만 있어야 한다 — og-image.test.mjs 와 같은 판정.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { decodePng, KEEP_LEFT, KEEP_RIGHT } from './png.mjs'
 
-/** API 의 그림 키와 같은 8가지. */
-const KINDS = ['pdf', 'doc', 'sheet', 'slide', 'image', 'file', 'password', 'internal']
+/** API 의 그림 키와 같은 11가지. */
+const KINDS = ['pdf', 'doc', 'sheet', 'slide', 'image', 'file', 'password', 'internal', 'folder', 'folder-password', 'folder-internal']
 
 describe.each(KINDS)('drive-%s.png', (kind) => {
   const img = decodePng(readFileSync(new URL(`../../public/og/drive-${kind}.png`, import.meta.url)))
