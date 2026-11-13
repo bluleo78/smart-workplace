@@ -187,11 +187,34 @@ $runner_items"
 #    server_url(기본은 운영) 이라 GENIA_WORKS_MCP_URL 로 채운다. claude-plugins-official 은 내장이 아니라 빌드 때 더한 것 — 빼면 LSP 플러그인이 사라진다.
 #    genia-works 마켓플레이스 주소는 2번이 정한 MARKETPLACE_URL — 설정의 주소가 등록된 주소와 다르면 그 마켓플레이스가 목록에서 사라진다(실측).
 #    플러그인 명령(install 등)도 이 파일을 고치므로 2번 뒤에 쓴다.
+#    추론 강도(WP-1542)는 설정 칸 effort 를 effortLevel 로 적는다. Claude Code 는 low·medium·high·xhigh·max 다섯 값만 받고 그 밖은 거부하므로 그 값만 통과시킨다.
+#    effort 키가 아예 없는 옛 에이전트는 설정 화면이 보여 주는 기본(high)과 동작을 맞추려 high. 키는 있는데 비었거나 다섯 값이 아니면 effortLevel 을 빼고
+#    경고 한 줄만 남긴다(값 원문은 로그에 싣지 않는다). 모델별 맞춤은 하지 않는다 — 지원 안 하는 강도는 Claude Code 가 알아서 낮춘다.
 write_settings() {
+  local effort out
   mkdir -p "$HOME/.claude" || return 1
-  out=$(jq -n --slurpfile c "$CONFIG" --arg mk "$MARKETPLACE_URL" --arg mcp "${GENIA_WORKS_MCP_URL:-}" '
+  # 한 번에 읽는다 — config 가 객체가 아니거나 effort 키가 없으면 @missing(옛 에이전트 → high), 있으면 그 값을 문자열로(null 은 빈 값).
+  effort=$(config_get '(.config // {}) | if type == "object" and has("effort") then (.effort // "" | tostring) else "@missing" end') || return 1
+  case "$effort" in
+    @missing) effort=high ;;
+    low|medium|high|xhigh|max) ;;
+    *)
+      log "경고: 추론 강도 설정이 비었거나 올바르지 않아 적지 않았습니다 — Claude Code 기본 강도로 시작합니다(허용: low·medium·high·xhigh·max)"
+      effort=
+      ;;
+  esac
+  # settings.json 의 effortLevel 은 「새 세션 기본값」이라 Claude Code 가 max 는 저장하지 않는 값으로 다룬다(2.1.316 — 'max' is session-only).
+  # 그래서 세션 강도를 정하는 CLAUDE_CODE_EFFORT_LEVEL 도 내보낸다 — 이 함수는 엔트리포인트 셸에서 돌고 칸(tmux)은 그 뒤 감독이 띄워 env 를
+  # 물려받는다(setup_ca 와 같은 길). 값이 없으면 지워 이미지·부모의 옛 값이 남지 않게 한다.
+  if [ -n "$effort" ]; then
+    export CLAUDE_CODE_EFFORT_LEVEL="$effort"
+  else
+    unset CLAUDE_CODE_EFFORT_LEVEL
+  fi
+  out=$(jq -n --slurpfile c "$CONFIG" --arg mk "$MARKETPLACE_URL" --arg mcp "${GENIA_WORKS_MCP_URL:-}" --arg effort "$effort" '
       $c[0] as $c
       | (if (($c.config.model // "") | tostring) != "" then { model: $c.config.model } else {} end)
+      + (if $effort != "" then { effortLevel: $effort } else {} end)
       + { enabledPlugins: ((($c.plugins // []) | map({ key: "\(.name)@\(.marketplace)", value: true }) | from_entries)
                            + { "genia-works@genia-works": true }) }
       + { extraKnownMarketplaces: {

@@ -47,7 +47,10 @@ class AdminAgentTemplateApiTest extends IntegrationTestBase {
     return id;
   }
 
-  /** 목록에 「기본」·「Claude Code」·「Gen:iA Code」(WP-1296)가 있고, claude-code 의 첫 설정 칸 첫 선택지가 opus. */
+  /**
+   * 목록에 「기본」·「Claude Code」·「Gen:iA Code」(WP-1296)가 있고, claude-code 의 첫 설정 칸 첫 선택지가 opus, 둘째 설정
+   * 칸(config[1])의 key 가 effort(WP-1542).
+   */
   @Test
   void list_asAdmin_returnsBundledTemplates() throws Exception {
     long admin = human(true);
@@ -55,8 +58,8 @@ class AdminAgentTemplateApiTest extends IntegrationTestBase {
     mvc.perform(get(BASE).with(authentication(auth(admin))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[*].name", hasItems("default", "claude-code", "genia-code")))
-        .andExpect(
-            jsonPath("$[?(@.name=='claude-code')].config[0].options[0].value").value("opus"));
+        .andExpect(jsonPath("$[?(@.name=='claude-code')].config[0].options[0].value").value("opus"))
+        .andExpect(jsonPath("$[?(@.name=='claude-code')].config[1].key").value("effort"));
   }
 
   /**
@@ -92,6 +95,7 @@ class AdminAgentTemplateApiTest extends IntegrationTestBase {
     mvc.perform(get(BASE + "/claude-code").with(authentication(auth(admin))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.kind").value("WORKSPACE"))
+        .andExpect(jsonPath("$.config[1].key").value("effort"))
         .andExpect(jsonPath("$.sidecars[0].name").value("dind"));
   }
 

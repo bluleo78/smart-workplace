@@ -158,11 +158,11 @@ describe('formatUptime — 켜진 시간', () => {
 })
 
 test('configWithDefaults — 저장값이 먼저, 없으면 기본값, 기본값도 없으면 칸을 비운다', () => {
-  expect(configWithDefaults(CLAUDE_TEMPLATE, undefined)).toEqual({ model: 'opus', queue: 'AI 개발팀' })
-  expect(configWithDefaults(CLAUDE_TEMPLATE, { model: 'sonnet' })).toEqual({ model: 'sonnet', queue: 'AI 개발팀' })
+  expect(configWithDefaults(CLAUDE_TEMPLATE, undefined)).toEqual({ model: 'opus', effort: 'high', queue: 'AI 개발팀' })
+  expect(configWithDefaults(CLAUDE_TEMPLATE, { model: 'sonnet' })).toEqual({ model: 'sonnet', effort: 'high', queue: 'AI 개발팀' })
   // 저장된 빈 문자열도 값이다(기본값으로 되돌리지 않는다).
-  expect(configWithDefaults(CLAUDE_TEMPLATE, { queue: '' })).toEqual({ model: 'opus', queue: '' })
-  const noDefault = { ...CLAUDE_TEMPLATE, config: [{ ...CLAUDE_TEMPLATE.config[1], default: null }] }
+  expect(configWithDefaults(CLAUDE_TEMPLATE, { queue: '' })).toEqual({ model: 'opus', effort: 'high', queue: '' })
+  const noDefault = { ...CLAUDE_TEMPLATE, config: [{ ...CLAUDE_TEMPLATE.config.find((f) => f.key === 'queue')!, default: null }] }
   expect(configWithDefaults(noDefault, undefined)).toEqual({})
   expect(configWithDefaults(DEFAULT_TEMPLATE, { x: 'y' })).toEqual({})
 })

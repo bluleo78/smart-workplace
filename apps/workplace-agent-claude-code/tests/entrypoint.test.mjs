@@ -203,6 +203,60 @@ test('writesSettingsFromConfig', (t) => {
   assert.equal(s.pluginConfigs['genia-works@genia-works'].options.server_url, 'http://127.0.0.1:9/mcp');
 });
 
+// write_settings 뒤 셸에 남은 CLAUDE_CODE_EFFORT_LEVEL 을 표식 줄로 찍는다 — 칸(tmux)이 물려받는 값(WP-1542). 없으면 빈 값.
+const PRINT_EFFORT_ENV = 'write_settings && printf "EFFORT_ENV=%s\\n" "${CLAUDE_CODE_EFFORT_LEVEL-}"';
+const effortEnv = (r) => (r.stdout.match(/EFFORT_ENV=(.*)/) ?? [])[1];
+
+/** 설정 칸 값을 바꾼 config.json 으로 write_settings 만 돌려 settings.json·내보낸 강도 env·호출 결과를 돌려준다(WP-1542). */
+function settingsWith(t, configOverride) {
+  const f = fixture(t, { env: { CLAUDE_CODE_EFFORT_LEVEL: 'stale' } });
+  writeFileSync(f.d('run', 'config.json'), JSON.stringify({ ...CONFIG, config: configOverride }));
+  const r = callLib(f.env, `check_required && update_plugins && resolve_plugin_scripts && ${PRINT_EFFORT_ENV}`);
+  assert.equal(r.status, 0, r.stderr);
+  return { r, s: JSON.parse(f.read('home', '.claude', 'settings.json')), env: effortEnv(r) };
+}
+
+test('writesEffortLevelFromConfig', (t) => {
+  const { s, env } = settingsWith(t, { model: 'opus', effort: 'xhigh' });
+  assert.equal(s.effortLevel, 'xhigh');
+  assert.equal(env, 'xhigh');
+  assert.equal(s.model, 'opus');
+});
+
+test('exportsMaxEffortForSessions', (t) => {
+  // max 는 settings.json 의 기본값으로는 저장되지 않는 값이라(Claude Code 2.1.316) 세션 env 로도 넘긴다
+  const { s, env } = settingsWith(t, { model: 'opus', effort: 'max' });
+  assert.equal(env, 'max');
+  assert.equal(s.effortLevel, 'max');
+});
+
+test('defaultsEffortLevelToHighWhenMissing', (t) => {
+  // effort 키가 없는 옛 에이전트 — 설정 화면이 기본(high)을 보여 주므로 동작도 high
+  const f = fixture(t);
+  const r = callLib(f.env, `check_required && update_plugins && resolve_plugin_scripts && ${PRINT_EFFORT_ENV}`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(f.read('home', '.claude', 'settings.json')).effortLevel, 'high');
+  assert.equal(effortEnv(r), 'high');
+});
+
+test('omitsEffortLevelWhenEmptyOrInvalid', (t) => {
+  // null·숫자처럼 문자열이 아닌 값도 같은 길(빼고 경고)로 간다 — 부팅이 jq 오류로 죽지 않는다
+  for (const bad of ['', 'ultra', 'HIGH', 'high; rm -rf /', null, 1]) {
+    const { r, s, env } = settingsWith(t, { model: 'opus', effort: bad });
+    assert.equal('effortLevel' in s, false, `effort=${bad}`);
+    assert.equal(env, '', `effort=${bad}`); // 부모에서 물려받은 옛 값(stale)도 지운다
+    assert.equal(s.model, 'opus');
+    assert.match(r.stderr, /추론 강도/);
+    if (typeof bad === 'string' && bad !== '') assert.equal((r.stdout + r.stderr).includes(bad), false); // 값 원문은 로그에 남기지 않는다
+  }
+});
+
+test('writesEffortLevelEvenWithoutModel', (t) => {
+  const { s } = settingsWith(t, { effort: 'low' });
+  assert.equal(s.effortLevel, 'low');
+  assert.equal('model' in s, false);
+});
+
 test('keepsBakedMarketplaceWhenNewOriginUnreachable', (t) => {
   const f = fixture(t, { knownUrl: 'https://baked.example/claude/marketplace.json' });
   const r = callLib(f.env, 'check_required && update_plugins && resolve_plugin_scripts && write_settings');

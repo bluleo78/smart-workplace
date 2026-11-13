@@ -162,9 +162,11 @@ describe('실행 방식별 섹션 구성', () => {
     expect(screen.queryByTestId('agent-last-access')).not.toBeInTheDocument()
     // 머리 배지 = 저장된 방식의 카드 제목
     expect(screen.getByTestId('agent-detail-page')).toHaveTextContent('Claude Code')
-    // 작업 설정 칸은 방식 정의대로(모델·대기열 라벨 + 실행 환경)
+    // 작업 설정 칸은 방식 정의대로(모델·추론 강도·대기열 라벨 + 실행 환경)
     expect(screen.getByTestId('agent-runtime-config-model')).toBeInTheDocument()
     expect(screen.getByTestId('agent-runtime-config-queue')).toHaveValue('AI 개발팀')
+    // 추론 강도 — 저장값이 없으면 기본(high)으로 보인다(WP-1542)
+    expect(screen.getByTestId('agent-runtime-config-effort')).toHaveTextContent('high')
     expect(screen.getByTestId('agent-runtime-location')).toBeInTheDocument()
     expect(await screen.findByTestId('agent-runtime-projects')).toHaveTextContent('WD')
   })
@@ -695,6 +697,18 @@ describe('작업 설정 「모델」 — 연결된 계정의 모델 목록(WP-14
 
     await waitFor(() => expect(calls.saves).toHaveLength(1))
     expect(calls.saves[0].config.model).toBe('claude-sonnet-5')
+  })
+
+  test('추론 강도는 저장값이 없으면 high 로 보이고, max 로 바꿔 저장하면 그 값을 보낸다(WP-1542)', async () => {
+    const { user, calls } = await renderDetail(works())
+    const effort = await screen.findByTestId('agent-runtime-config-effort')
+    expect(effort).toHaveTextContent('high')
+    await user.click(effort)
+    await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: 'max' }))
+    await user.click(screen.getByTestId('agent-runtime-save'))
+
+    await waitFor(() => expect(calls.saves).toHaveLength(1))
+    expect(calls.saves[0].config.effort).toBe('max')
   })
 
   test('AI 계정이 연결돼 있지 않으면 「고른 계정」 안내를 보이고 모델 목록을 부르지 않는다', async () => {

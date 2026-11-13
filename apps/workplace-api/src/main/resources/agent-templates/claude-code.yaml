@@ -22,6 +22,18 @@ config:
       - { value: sonnet, label: Sonnet(최신) }
     default: opus
     required: true
+  # 추론 강도(WP-1542) — settings.json 의 effortLevel. 모델이 받지 않는 강도는 Claude Code 가 스스로 낮춘다(2.1.316 확인) — 공통 값만 둔다.
+  - key: effort
+    label: 추론 강도
+    type: select
+    options:
+      - { value: low, label: low }
+      - { value: medium, label: medium }
+      - { value: high, label: high }
+      - { value: xhigh, label: xhigh }
+      - { value: max, label: max }
+    default: high
+    required: true
   - key: queue
     label: 대기열 라벨
     type: text

@@ -19,6 +19,15 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     account: 'anthropic',
     config: [
       { key: 'model', label: '모델', type: 'select', options: [{ value: 'opus', label: 'Opus' }, { value: 'sonnet', label: 'Sonnet' }], default: 'opus', required: true },
+      // 추론 강도(WP-1542) — 실제 claude-code.yaml 과 같은 자리·값(모델과 대기열 라벨 사이, 기본 high).
+      {
+        key: 'effort',
+        label: '추론 강도',
+        type: 'select',
+        options: ['low', 'medium', 'high', 'xhigh', 'max'].map((v) => ({ value: v, label: v })),
+        default: 'high',
+        required: true,
+      },
       { key: 'queue', label: '대기열 라벨', type: 'text', options: [], default: 'AI 개발팀', required: false },
     ],
     resources: { cpuRequest: '4', memoryRequest: '8Gi', cpuLimit: '8', memoryLimit: '16Gi', workDisk: '50Gi' },

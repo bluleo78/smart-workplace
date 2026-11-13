@@ -12,8 +12,8 @@ test('저장된 queue 가 빈 문자열이면 초안 칸도 비어 있고 dirty 
 
   expect(result.current?.config.queue).toBe('')
   expect(result.current?.dirty).toBe(false)
-  // 저장 요청도 빈 값을 그대로 보낸다(기본값으로 채워 보내지 않는다).
-  expect(result.current?.body().config).toEqual({ model: 'opus', queue: '' })
+  // 저장 요청도 빈 값을 그대로 보낸다(queue 를 기본값으로 채워 보내지 않는다. 저장값이 없던 effort 는 기본 high 로 채운다).
+  expect(result.current?.body().config).toEqual({ model: 'opus', effort: 'high', queue: '' })
 })
 
 test('저장 전(saved null) 초안은 기본값 AI 개발팀이다', () => {

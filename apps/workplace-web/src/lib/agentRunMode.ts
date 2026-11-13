@@ -72,7 +72,7 @@ export function modeChangeTitle(to: RunModeCard): string {
   return `실행 방식을 ${to.title}${euroRo(to.title)} 바꿀까요?`;
 }
 
-/** 작업 설정 칸 이름 묶음 — 「모델·대기열 라벨·실행 환경」. */
+/** 작업 설정 칸 이름 묶음 — 「모델·추론 강도·대기열 라벨·실행 환경」. */
 function workSettingNames(t: AgentTemplate | null): string {
   return [...(t?.config.map((f) => f.label) ?? []), '실행 환경'].join('·');
 }
