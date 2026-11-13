@@ -19,6 +19,7 @@ import { dueIssue, fixClock, renderCalendar } from '@/test/kits/calendar/calenda
 import { controllableEvents, resourceChangedFrame } from '@/test/kits/projects/issueDetailEvents'
 
 import { calendar, calendarEvent, recurringCalendarEvent } from '../../../e2e/factories/calendar.factory'
+import { createIssue } from '../../../e2e/factories/issue.factory'
 
 fixClock()
 
@@ -158,6 +159,29 @@ describe('월 보기 「+N」 (WP-1139)', () => {
     await screen.findByTestId('calendar-event-dialog')
     expect(screen.getByTestId('calendar-form-title')).toHaveValue('일정 5')
     await waitFor(() => expect(screen.queryByTestId(`calendar-more-popover-${DAY}`)).not.toBeInTheDocument())
+  })
+
+  // WP-1541 — 마감 이슈가 한 날에 몰리면 칸이 늘어 6주가 화면 밖으로 밀렸다. 마감도 일정과 합쳐 칸 높이만큼만 채우고 「+N」 로 모은다.
+  test('마감 이슈가 몰린 날은 마감도 「+N」에 들어가고, 팝오버에서 마감 이슈를 누르면 그 이슈가 열린다 (WP-1541)', async () => {
+    const issues = [1, 2, 3, 4, 5, 6, 7, 8].map((n) =>
+      createIssue({ id: 100 + n, projectKey: 'WP', number: 100 + n, title: `마감 ${n}`, status: 'IN_PROGRESS', dueDate: DAY }),
+    )
+    const { user, location } = await renderCalendar({ events: [dayEvents[0]], issues })
+    const more = await screen.findByTestId(`calendar-more-${DAY}`)
+    const cell = screen.getByTestId(`calendar-cell-${DAY}`)
+    // 측정 전 3건 = 일정 1 + 마감 2, 나머지 6건이 「+6」
+    expect(within(cell).getAllByTestId(/^calendar-issue-due-/)).toHaveLength(2)
+    expect(more).toHaveTextContent('+6')
+    expect(more).toHaveAccessibleName('6월 12일 일정·마감 이슈 6개 더 보기')
+
+    await user.click(more)
+    const popover = await screen.findByTestId(`calendar-more-popover-${DAY}`)
+    expect(within(popover).getByText('6월 12일 일정 1개 · 마감 이슈 8개')).toBeInTheDocument()
+    expect(within(popover).getAllByTestId(/^calendar-issue-due-/)).toHaveLength(8)
+
+    await user.click(within(popover).getByTestId('calendar-issue-due-103'))
+    await waitFor(() => expect(screen.queryByTestId(`calendar-more-popover-${DAY}`)).not.toBeInTheDocument())
+    expect(location()).toBe('/projects/WP/issues/103')
   })
 })
 
