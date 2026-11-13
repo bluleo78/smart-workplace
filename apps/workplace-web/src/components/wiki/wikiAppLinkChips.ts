@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { type EditorState, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
-import { CalendarDays, File as FileIcon, FileText, type LucideIcon, Mail, MessageSquare, SquareKanban } from 'lucide-react'
+import { CalendarDays, File as FileIcon, FileText, Folder, HardDrive, type LucideIcon, Mail, MessageSquare, SquareKanban } from 'lucide-react'
 
 import { type AppLinkCard, shareCardDrivePath } from '@/api/appLinks'
 import { APP_LINK_KIND_LABEL, type AppHosts, type AppLink, parseAppLink } from '@/lib/appLinks'
@@ -138,6 +138,9 @@ const ICONS: Record<AppLink['kind'], LucideIcon> = {
   ISSUE: SquareKanban,
   PAGE: FileText,
   FILE: FileIcon,
+  // 드라이브 폴더·공간 첫 화면(WP-1536) — 채팅 카드와 같은 아이콘.
+  FOLDER: Folder,
+  DRIVE_SPACE: HardDrive,
   MESSAGE: MessageSquare,
   EVENT: CalendarDays,
   MAIL: Mail,

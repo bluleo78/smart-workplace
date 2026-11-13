@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class DriveFolderService {
   private final DriveFolderRepository folders;
   private final DriveFileRepository files;
+  private final DriveSpaceService spaceService;
   private final DrivePermissions perms;
   private final DriveBlobCopier blobCopier;
   private final DriveQuotaService quota;
@@ -146,6 +147,27 @@ public class DriveFolderService {
             ? files.listInFolder(spaceId, parentId, rest, Math.max(off - folderCount, 0))
             : List.of();
     return new DriveItemListResponse(fl, fi);
+  }
+
+  /**
+   * 채팅 앱 링크 카드용 폴더 이름·공간 이름(WP-1536) — 링크(/drive/spaces/{spaceId}?folderId={id})의 공간을 그대로 받아 판정한다.
+   *
+   * <p>공간 판정·이름은 공간을 열 때와 같은 {@link DriveSpaceService#getSpace}(VIEWER — 폴더 목록 {@link #listItems} 와
+   * 같은 역할)를 쓴다. 비멤버의 「공간 없음」은 「폴더 없음」으로 바꾸고({@link DrivePermissions#hidingNonMember}), 없는 폴더·휴지통
+   * 폴더·그 공간에 없는 폴더도 같은 「폴더 없음」 404 다 — 폴더 id 를 넣어 보는 것만으로 있는지 알 수 없고, 링크를 눌러도 열리지 않는 폴더를 카드로 보이지
+   * 않는다.
+   */
+  @Transactional(readOnly = true)
+  public DriveFolderLinkCard linkCard(long callerId, long spaceId, long folderId) {
+    String spaceName =
+        perms.hidingNonMember(
+            () -> spaceService.getSpace(callerId, spaceId).name(),
+            () -> new DriveFolderNotFoundException(folderId));
+    String name =
+        folders
+            .findNameInSpace(spaceId, folderId)
+            .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+    return new DriveFolderLinkCard(name, spaceName);
   }
 
   /**

@@ -564,6 +564,46 @@ describe('앱 링크 카드 (WP-896)', () => {
     expect(screen.queryByTestId('link-preview-37-0')).not.toBeInTheDocument()
   })
 
+  test('드라이브 폴더 링크는 폴더 이름·공간 이름 카드, 누르면 그 폴더 — 공간 첫 화면 링크는 공간 카드, 볼 수 없는 폴더는 「볼 수 없는 폴더」(WP-1536)', async () => {
+    const calls: string[] = []
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({
+        id: 38, channelId: 1, authorId: 20, authorName: '이진우',
+        body: '자료 폴더 http://localhost/drive/spaces/47?folderId=53 공간 http://localhost/drive/spaces/47 남의 폴더 http://localhost/drive/spaces/9?folderId=99',
+      }),
+    ], {
+      handlers: [
+        http.get(`${API}/app-links/folders/:id`, ({ params, request }) => {
+          // 링크의 공간을 함께 보낸다 — 서버가 폴더의 실제 공간과 견준다.
+          calls.push(`folder ${params.id} space ${new URL(request.url).searchParams.get('spaceId')}`)
+          return params.id === '53'
+            ? HttpResponse.json({ kind: 'FOLDER', title: '회의록', spaceName: '개발팀 드라이브' })
+            : HttpResponse.json({ message: '드라이브 폴더를 찾을 수 없습니다' }, { status: 404 })
+        }),
+        http.get(`${API}/app-links/drive-spaces/:id`, ({ params }) => {
+          calls.push(`space ${params.id}`)
+          return HttpResponse.json({ kind: 'DRIVE_SPACE', title: '개발팀 드라이브' })
+        }),
+      ],
+    })
+
+    const folder = await settled('app-link-38-0', 'ready')
+    expect(screen.getByTestId('app-link-38-0-title')).toHaveTextContent('회의록')
+    expect(screen.getByTestId('app-link-38-0-meta')).toHaveTextContent('개발팀 드라이브')
+    expect(folder).toHaveTextContent('폴더')
+    // 카드는 앱 안 이동 링크 — 그 폴더(driveFolderPath)로 간다.
+    expect(folder).toHaveAttribute('href', '/drive/spaces/47?folderId=53')
+    expect(folder).not.toHaveAttribute('target')
+
+    const space = await settled('app-link-38-1', 'ready')
+    expect(screen.getByTestId('app-link-38-1-title')).toHaveTextContent('개발팀 드라이브')
+    expect(space).toHaveAttribute('href', '/drive/spaces/47')
+
+    const denied = await settled('app-link-38-2', 'denied')
+    expect(denied).toHaveTextContent('볼 수 없는 폴더입니다')
+    expect(calls.sort()).toEqual(['folder 53 space 47', 'folder 99 space 9', 'space 47'])
+  })
+
   test('다른 호스트·앱 화면이 아닌 주소에는 앱 카드가 없다', async () => {
     const calls: string[] = []
     openChannel(createChannel({ id: 1, member: true }), [

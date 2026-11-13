@@ -12,6 +12,7 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.security.JwtTokenProvider;
@@ -66,6 +67,7 @@ class AppLinkControllerTest extends IntegrationTestBase {
   @Autowired WikiPageService pageService;
   @Autowired DriveSpaceService driveSpaceService;
   @Autowired DriveFileService driveFileService;
+  @Autowired DriveFolderService driveFolderService;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository channelMemberRepo;
   @Autowired MessageService messageService;
@@ -205,6 +207,85 @@ class AppLinkControllerTest extends IntegrationTestBase {
     // 비멤버가 받는 응답이 없는 파일과 같은 404·같은 문구여야 id 가 있는지 알 수 없다(WP-1165 — 전엔 「공간 없음」으로 갈렸다).
     String missing = errorMessage(call("/api/v1/app-links/files/999999999", strangerId));
     call("/api/v1/app-links/files/" + fileId, strangerId)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.title").doesNotExist())
+        .andExpect(jsonPath("$.message").value(missing));
+  }
+
+  @Test
+  void 폴더_링크는_폴더_이름과_공간_이름을_주고_비멤버_없는_폴더_휴지통_폴더는_같은_404() throws Exception {
+    // WP-1536 — 폴더 목록을 열 때와 같은 VIEWER 판정. 볼 수 없는 폴더도 없는 폴더와 같은 404·같은 문구여야 id 가 있는지 알 수 없다.
+    String spaceName = "앱링크폴더-" + UUID.randomUUID();
+    long spaceId = driveSpaceService.createTeamSpace(ownerId, spaceName).id();
+    TenantContext.set(1L);
+    long folderId = driveFolderService.create(ownerId, spaceId, null, "회의록").id();
+    TenantContext.set(1L);
+    String path = "/api/v1/app-links/folders/" + folderId + "?spaceId=" + spaceId;
+
+    call(path, ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("FOLDER"))
+        .andExpect(jsonPath("$.title").value("회의록"))
+        .andExpect(jsonPath("$.spaceName").value(spaceName));
+
+    String missing =
+        errorMessage(call("/api/v1/app-links/folders/999999999?spaceId=" + spaceId, ownerId));
+    call(path, strangerId)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.title").doesNotExist())
+        .andExpect(jsonPath("$.spaceName").doesNotExist())
+        .andExpect(jsonPath("$.message").value(missing));
+
+    // 휴지통에 넣은 폴더는 주인에게도 없는 폴더와 같다.
+    driveFolderService.delete(ownerId, folderId);
+    TenantContext.set(1L);
+    call(path, ownerId)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.title").doesNotExist())
+        .andExpect(jsonPath("$.message").value(missing));
+  }
+
+  @Test
+  void 폴더_링크의_공간이_폴더의_실제_공간과_다르면_두_공간의_멤버에게도_같은_404() throws Exception {
+    // WP-1536 — /drive/spaces/1?folderId=50 인데 폴더 50 이 공간 2 에 있으면 링크를 눌러도 그 폴더가 열리지 않는다. 카드도 없는 폴더로
+    // 본다.
+    long linkSpace =
+        driveSpaceService.createTeamSpace(ownerId, "앱링크링크공간-" + UUID.randomUUID()).id();
+    TenantContext.set(1L);
+    long realSpace =
+        driveSpaceService.createTeamSpace(ownerId, "앱링크실제공간-" + UUID.randomUUID()).id();
+    TenantContext.set(1L);
+    long folderId = driveFolderService.create(ownerId, realSpace, null, "다른 공간 폴더").id();
+    TenantContext.set(1L);
+
+    String missing =
+        errorMessage(call("/api/v1/app-links/folders/999999999?spaceId=" + linkSpace, ownerId));
+    call("/api/v1/app-links/folders/" + folderId + "?spaceId=" + linkSpace, ownerId)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.title").doesNotExist())
+        .andExpect(jsonPath("$.spaceName").doesNotExist())
+        .andExpect(jsonPath("$.message").value(missing));
+    // 맞는 공간으로 부르면 카드가 나온다.
+    call("/api/v1/app-links/folders/" + folderId + "?spaceId=" + realSpace, ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.title").value("다른 공간 폴더"));
+  }
+
+  @Test
+  void 드라이브_공간_링크는_공간_이름을_주고_비멤버와_없는_공간은_같은_404() throws Exception {
+    // WP-1536 — 공간 첫 화면(/drive/spaces/{id}) 카드. 공간을 열 때와 같은 VIEWER 판정.
+    String spaceName = "앱링크공간-" + UUID.randomUUID();
+    long spaceId = driveSpaceService.createTeamSpace(ownerId, spaceName).id();
+    TenantContext.set(1L);
+
+    call("/api/v1/app-links/drive-spaces/" + spaceId, ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.kind").value("DRIVE_SPACE"))
+        .andExpect(jsonPath("$.title").value(spaceName))
+        .andExpect(jsonPath("$.spaceName").doesNotExist());
+
+    String missing = errorMessage(call("/api/v1/app-links/drive-spaces/999999999", strangerId));
+    call("/api/v1/app-links/drive-spaces/" + spaceId, strangerId)
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.title").doesNotExist())
         .andExpect(jsonPath("$.message").value(missing));

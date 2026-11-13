@@ -31,6 +31,38 @@ describe('parseAppLink', () => {
     expect(parseAppLink('https://works.example.com/drive/spaces/5?preview=file:9', HOST)).toBeNull()
   })
 
+  it('드라이브 폴더 주소(?folderId)는 폴더 카드, 쿼리 없는 공간 주소는 공간 카드다 — 이동 경로는 driveFolderPath(WP-1536)', () => {
+    expect(parseAppLink('https://works.example.com/drive/spaces/47?folderId=53', HOST)).toEqual({
+      kind: 'FOLDER', spaceId: 47, folderId: 53, to: '/drive/spaces/47?folderId=53',
+    })
+    // 화면이 읽지 않는 쿼리는 버린다.
+    expect(parseAppLink('https://works.example.com/drive/spaces/47?x=1&folderId=53', HOST)).toMatchObject({ to: '/drive/spaces/47?folderId=53' })
+    expect(parseAppLink('https://works.example.com/drive/spaces/47', HOST)).toEqual({ kind: 'DRIVE_SPACE', spaceId: 47, to: '/drive/spaces/47' })
+    expect(parseAppLink('https://works.example.com/drive/spaces/47/', HOST)).toEqual({ kind: 'DRIVE_SPACE', spaceId: 47, to: '/drive/spaces/47' })
+    // 공간 카드는 쿼리가 아예 없을 때만 — 다른 쿼리가 붙으면 원래 링크로 둔다.
+    expect(parseAppLink('https://works.example.com/drive/spaces/47?x=1', HOST)).toBeNull()
+    expect(parseAppLink('https://works.example.com/drive/spaces/47?folderId=', HOST)).toBeNull()
+    // 쿼리는 디코딩해 읽는다(서버도 같게 디코딩한다).
+    expect(parseAppLink('https://works.example.com/drive/spaces/47?fol%64erId=%35%33', HOST)).toMatchObject({ kind: 'FOLDER', folderId: 53, to: '/drive/spaces/47?folderId=53' })
+  })
+
+  it('파일·미리보기 id 가 있으면 폴더보다 파일 카드가 먼저다(WP-1536)', () => {
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?folderId=3&file=77', HOST)).toEqual({
+      kind: 'FILE', fileId: 77, to: '/drive/spaces/5?file=77',
+    })
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?folderId=3&preview=77', HOST)).toMatchObject({ kind: 'FILE', fileId: 77 })
+    // 파일·미리보기 값이 id 가 아니면 깨진 파일 링크 — 폴더가 있어도 카드가 아니다. 빈 값은 없는 것과 같다.
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?folderId=3&preview=abc', HOST)).toBeNull()
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?file=abc&folderId=3', HOST)).toBeNull()
+    expect(parseAppLink('https://works.example.com/drive/spaces/5?file=&folderId=3', HOST)).toMatchObject({ kind: 'FOLDER', folderId: 3 })
+  })
+
+  it('같은 폴더는 쿼리가 달라도 카드 하나, 폴더와 그 공간은 서로 다른 카드다(WP-1536)', () => {
+    const body =
+      'https://works.example.com/drive/spaces/5?folderId=3 https://works.example.com/drive/spaces/5?x=1&folderId=3 https://works.example.com/drive/spaces/5'
+    expect(appLinksOf(body, HOST).map((l) => l.kind)).toEqual(['FOLDER', 'DRIVE_SPACE'])
+  })
+
   it('메시지·일정·메일 주소는 그 대상 카드다 — 이동 경로에는 화면이 읽는 쿼리만 남긴다(WP-1236)', () => {
     expect(parseAppLink('https://works.example.com/chat/channels/5?message=77&x=1', HOST)).toEqual({
       kind: 'MESSAGE', messageId: 77, to: '/chat/channels/5?message=77',
@@ -85,7 +117,9 @@ describe('parseAppLink', () => {
     ['앱 화면이 아닌 경로', 'https://works.example.com/settings/profile'],
     ['이슈 번호가 숫자가 아님', 'https://works.example.com/projects/WP/issues/abc'],
     ['이슈 하위 경로', 'https://works.example.com/projects/WP/issues/1/edit'],
-    ['파일 id 없는 드라이브', 'https://works.example.com/drive/spaces/5'],
+    ['id 가 아닌 파일 쿼리', 'https://works.example.com/drive/spaces/5?file=x'],
+    ['id 가 아닌 폴더 쿼리', 'https://works.example.com/drive/spaces/5?folderId=abc'],
+    ['쿼리가 붙은 드라이브 공간', 'https://works.example.com/drive/spaces/5?view=grid'],
     ['노트 스페이스만', 'https://works.example.com/wiki/spaces/3'],
     ['URL 이 아님', 'works.example.com/projects/WP/issues/1'],
   ])('%s 은(는) 앱 링크가 아니다', (_name, href) => {

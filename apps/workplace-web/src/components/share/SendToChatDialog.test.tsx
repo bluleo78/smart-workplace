@@ -17,7 +17,7 @@ const API = '/api/v1'
 const ORIGIN = window.location.origin
 const issueTarget: ShareTarget = { kind: 'issue', url: `${ORIGIN}/projects/WP/issues/7`, title: '결제 버그', key: 'WP-7' }
 const eventTarget: ShareTarget = { kind: 'event', url: `${ORIGIN}/calendar?eventId=5`, title: '주간 회의' }
-// 카드 종류가 아닌 대상 — 폴더 링크는 앱 링크 카드가 없다(WP-1236 뒤 일정·메일·메시지는 카드가 있다).
+// 폴더 링크 — WP-1536 부터 앱 링크 카드(폴더 이름·공간 이름)가 있다.
 const folderTarget: ShareTarget = { kind: 'folder', url: `${ORIGIN}/drive/spaces/1?folderId=3`, title: '회의록' }
 // renderScreen 의 고정 로그인 사용자(id 1)·워크스페이스(testAuthValue 의 activeTenant).
 const owner = () => ({ userId: 1, tenantId: 1 })
@@ -52,6 +52,7 @@ function handlers(posted: Posted[], opts: HandlerOpts = {}) {
     ),
     // 보낼 것(이슈 WP-7)의 카드 — 받는 쪽이 볼 카드와 같은 내용.
     http.get(`${API}/app-links/issues/WP/7`, () => HttpResponse.json({ kind: 'ISSUE', title: '결제 버그', issueKey: 'WP-7' })),
+    http.get(`${API}/app-links/folders/3`, () => HttpResponse.json({ kind: 'FOLDER', title: '회의록', spaceName: '개발팀 드라이브' })),
     http.post(`${API}/messaging/channels/:id/messages`, async ({ request, params }) => {
       posted.push({ url: `channels/${params.id}/messages`, body: await request.json() })
       if (opts.holdMessage) await opts.holdMessage
@@ -170,13 +171,14 @@ describe('SendToChatDialog', () => {
     expect(readRecentDestinations(owner())).toEqual([])
   })
 
-  test('카드 종류가 아닌 대상(폴더)은 대상 이름으로 미리보고 링크를 그대로 보낸다', async () => {
+  test('폴더는 받는 쪽이 볼 폴더 카드(폴더 이름·공간 이름)로 미리보고 링크를 그대로 보낸다(WP-1536)', async () => {
     const { user, posted } = open(folderTarget)
     await user.click(within(await screen.findByTestId('send-to-chat-channels')).getByText('일반'))
+    await waitFor(() => expect(screen.getByTestId('send-to-chat-preview')).toHaveAttribute('data-state', 'ready'))
     const preview = screen.getByTestId('send-to-chat-preview')
-    expect(preview).toHaveAttribute('data-state', 'fallback')
     expect(preview).toHaveTextContent('폴더')
-    expect(preview).toHaveTextContent('회의록')
+    expect(screen.getByTestId('send-to-chat-preview-title')).toHaveTextContent('회의록')
+    expect(screen.getByTestId('send-to-chat-preview-meta')).toHaveTextContent('개발팀 드라이브')
     await user.click(screen.getByTestId('send-to-chat-submit'))
     await waitFor(() => expect(posted).toEqual([{ url: 'channels/10/messages', body: { body: folderTarget.url } }]))
   })

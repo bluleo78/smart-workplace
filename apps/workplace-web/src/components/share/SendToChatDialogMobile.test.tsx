@@ -21,6 +21,8 @@ function open() {
     path: '/drive/spaces/3?folderId=4',
     handlers: [
       http.get('/api/v1/messaging/channels', () => HttpResponse.json([createChannel({ id: 10, name: '일반' })])),
+      // 보낼 폴더의 카드(WP-1536) — 미리보기가 받는다.
+      http.get('/api/v1/app-links/folders/4', () => HttpResponse.json({ kind: 'FOLDER', title: '디자인 자료', spaceName: '디자인팀' })),
       http.post('/api/v1/messaging/channels/:id/messages', async ({ request }) => {
         posted.push(await request.json())
         return HttpResponse.json({ id: 1 })

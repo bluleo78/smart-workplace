@@ -8,9 +8,9 @@ import type { UserSummary } from '@/types/user'
 import { client } from './client'
 
 export interface AppLinkCard {
-  kind: 'ISSUE' | 'PAGE' | 'FILE' | 'MESSAGE' | 'EVENT' | 'MAIL' | 'SHARE'
+  kind: 'ISSUE' | 'PAGE' | 'FILE' | 'FOLDER' | 'DRIVE_SPACE' | 'MESSAGE' | 'EVENT' | 'MAIL' | 'SHARE'
   /**
-   * 이슈 제목 / 노트 제목 / 파일 이름 / 메시지 본문 앞부분 / 일정 제목 / 메일 제목 / 공유 파일 이름.
+   * 이슈 제목 / 노트 제목 / 파일 이름 / 폴더 이름 / 드라이브 공간 이름 / 메시지 본문 앞부분 / 일정 제목 / 메일 제목 / 공유 파일 이름.
    * SHARE 의 PASSWORD 카드는 파일 이름 대신 서버가 정한 고정 문구다 — 비구성원에게 이름을 흘리지 않는다(WP-1474).
    */
   title: string
@@ -19,6 +19,7 @@ export interface AppLinkCard {
   statusCategory?: string
   assignees?: UserSummary[]
   priority?: string
+  /** PAGE — 노트 스페이스 / FOLDER — 폴더가 있는 드라이브 공간(WP-1536) / SHARE MEMBER — 파일이 있는 드라이브 공간 */
   spaceName?: string
   /** MESSAGE — 채널 이름(DM 이면 상대 이름) */
   channelName?: string
@@ -60,6 +61,11 @@ export function appLinkCardPath(link: AppLink): string {
       return `/app-links/pages/${link.pageId}`
     case 'FILE':
       return `/app-links/files/${link.fileId}`
+    case 'FOLDER':
+      // 링크의 공간도 보낸다 — 폴더가 그 공간에 없으면(링크를 눌러도 열리지 않으면) 서버가 404 를 준다(WP-1536).
+      return `/app-links/folders/${link.folderId}?spaceId=${link.spaceId}`
+    case 'DRIVE_SPACE':
+      return `/app-links/drive-spaces/${link.spaceId}`
     case 'MESSAGE':
       return `/app-links/messages/${link.messageId}`
     case 'EVENT':

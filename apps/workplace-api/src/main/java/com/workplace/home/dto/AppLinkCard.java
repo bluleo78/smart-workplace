@@ -9,15 +9,17 @@ import java.util.List;
  * 채팅 본문의 우리 앱 링크 카드(WP-896) — 링크를 보는 사람의 권한으로 그 순간 채운다(저장하지 않는다). 종류마다 쓰는 칸만 싣는다(NON_NULL — 비운 칸은
  * 응답 JSON 에 키조차 없다).
  *
- * @param kind ISSUE | PAGE | FILE | MESSAGE | EVENT | MAIL | SHARE
- * @param title 이슈 제목 / 노트 제목 / 파일 이름 / 메시지 본문 미리보기 / 일정 제목 / 메일 제목 / SHARE(MEMBER·OPEN) — 파일 이름,
- *     SHARE(PASSWORD) — 고정 문구 {@link #SHARE_PASSWORD_TITLE}
+ * @param kind ISSUE | PAGE | FILE | MESSAGE | EVENT | MAIL | SHARE | FOLDER | DRIVE_SPACE
+ * @param title 이슈 제목 / 노트 제목 / 파일 이름 / 메시지 본문 미리보기 / 일정 제목 / 메일 제목 / FOLDER — 폴더 이름 / DRIVE_SPACE —
+ *     드라이브 공간 이름 / SHARE(MEMBER·OPEN) — 파일 이름, SHARE(PASSWORD) — 고정 문구 {@link
+ *     #SHARE_PASSWORD_TITLE}
  * @param issueKey ISSUE — KEY-N
  * @param statusName ISSUE — 상태 이름
  * @param statusCategory ISSUE — 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED — 배지 색, 다른 이슈 화면과 같다)
  * @param assignees ISSUE — 담당자
  * @param priority ISSUE — 우선순위(HIGHEST·HIGH·MID·LOW·LOWEST)
- * @param spaceName PAGE — 노트 스페이스 이름 / SHARE(MEMBER) — 파일이 있는 드라이브 공간 이름
+ * @param spaceName PAGE — 노트 스페이스 이름 / SHARE(MEMBER) — 파일이 있는 드라이브 공간 이름 / FOLDER — 폴더가 있는 드라이브 공간
+ *     이름
  * @param channelName MESSAGE — 채널 이름. DM 이면 보는 사람 기준 상대 이름(대화 목록과 같은 표기)
  * @param channelKind MESSAGE — CHANNEL | DM
  * @param authorName MESSAGE — 보낸 사람 이름 / MAIL — 보낸 사람 표시 이름(없으면 주소)
@@ -90,6 +92,18 @@ public record AppLinkCard(
   /** 파일 카드. */
   public static AppLinkCard file(String name) {
     return new Builder("FILE", name).build();
+  }
+
+  /** 드라이브 폴더 카드(WP-1536) — 폴더 이름과 그 폴더가 있는 공간 이름. */
+  public static AppLinkCard folder(String name, String spaceName) {
+    Builder b = new Builder("FOLDER", name);
+    b.spaceName = spaceName;
+    return b.build();
+  }
+
+  /** 드라이브 공간 카드(WP-1536) — 공간 첫 화면 링크(/drive/spaces/{id}). 제목이 곧 공간 이름이라 다른 칸은 없다. */
+  public static AppLinkCard driveSpace(String name) {
+    return new Builder("DRIVE_SPACE", name).build();
   }
 
   /** 채널·DM 메시지 카드(WP-1236) — 본문 미리보기·대화 이름·보낸 사람·보낸 시각. */
