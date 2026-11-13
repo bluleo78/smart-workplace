@@ -42,6 +42,31 @@ class AgentTemplateRegistryTest {
         + extra;
   }
 
+  /**
+   * claude-code.yaml(WP-1542) — 추론 강도(effort) 선택 칸. model 과 queue 사이에 있고, 선택지는 low~max 공통 값, 기본
+   * high 다. 선택지 밖 값은 막는다.
+   */
+  @Test
+  void load_whenClaudeCodeTemplate_hasEffortField() throws IOException {
+    AgentTemplate t = claudeCode();
+
+    assertThat(t.config())
+        .extracting(AgentTemplate.ConfigField::key)
+        .containsExactly("model", "effort", "queue");
+    AgentTemplate.ConfigField effort = t.config().get(1);
+    assertThat(effort.label()).isEqualTo("추론 강도");
+    assertThat(effort.type()).isEqualTo("select");
+    assertThat(effort.required()).isTrue();
+    assertThat(effort.options())
+        .extracting(AgentTemplate.Option::value)
+        .containsExactly("low", "medium", "high", "xhigh", "max");
+    assertThat(effort.defaultValue()).isEqualTo("high");
+
+    assertThat(AgentTemplateRegistry.validateConfig(t, Map.of())).containsEntry("effort", "high");
+    assertThatThrownBy(() -> AgentTemplateRegistry.validateConfig(t, Map.of("effort", "ultra")))
+        .isInstanceOf(InvalidAgentConfigException.class);
+  }
+
   /** claude-code.yaml 의 모든 필드를 읽어 낸다. */
   @Test
   void load_whenValid_parsesAllFields() throws IOException {
@@ -51,7 +76,7 @@ class AgentTemplateRegistryTest {
     assertThat(t.kind()).isEqualTo("WORKSPACE");
     assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-claude-code:latest");
     assertThat(t.requires()).containsExactly("claude", "repo");
-    assertThat(t.config()).hasSize(2);
+    assertThat(t.config()).hasSize(3);
     AgentTemplate.ConfigField model = t.config().get(0);
     assertThat(model.key()).isEqualTo("model");
     assertThat(model.type()).isEqualTo("select");
@@ -60,7 +85,7 @@ class AgentTemplateRegistryTest {
         .containsExactly("opus", "sonnet");
     assertThat(model.defaultValue()).isEqualTo("opus");
     assertThat(model.required()).isTrue();
-    AgentTemplate.ConfigField queue = t.config().get(1);
+    AgentTemplate.ConfigField queue = t.config().get(2);
     assertThat(queue.key()).isEqualTo("queue");
     assertThat(queue.type()).isEqualTo("text");
     assertThat(queue.defaultValue()).isEqualTo("AI 개발팀");
@@ -311,7 +336,11 @@ class AgentTemplateRegistryTest {
   void validateConfig_fillsDefaults() throws IOException {
     Map<String, String> out = AgentTemplateRegistry.validateConfig(claudeCode(), Map.of());
 
-    assertThat(out).containsEntry("model", "opus").containsEntry("queue", "AI 개발팀").hasSize(2);
+    assertThat(out)
+        .containsEntry("model", "opus")
+        .containsEntry("effort", "high")
+        .containsEntry("queue", "AI 개발팀")
+        .hasSize(3);
   }
 
   /** 선택 칸을 비워 보내면 기본값으로 되돌리지 않고 빈 값("")으로 남긴다(WP-1344). */

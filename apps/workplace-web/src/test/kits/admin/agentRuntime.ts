@@ -29,7 +29,7 @@ export const DEFAULT_TEMPLATE: AgentTemplate = {
   resources: null,
 }
 
-/** 작업 공간 템플릿 — 모델(select)·대기열 라벨(text) 두 칸, Claude 연결 필요. */
+/** 작업 공간 템플릿 — 모델(select)·추론 강도(select)·대기열 라벨(text) 세 칸, Claude 연결 필요. */
 export const CLAUDE_TEMPLATE: AgentTemplate = {
   name: 'claude-code',
   version: '1',
@@ -49,6 +49,14 @@ export const CLAUDE_TEMPLATE: AgentTemplate = {
         { value: 'sonnet', label: 'Sonnet(최신)' },
       ],
       default: 'opus',
+      required: true,
+    },
+    {
+      key: 'effort',
+      label: '추론 강도',
+      type: 'select',
+      options: ['low', 'medium', 'high', 'xhigh', 'max'].map((v) => ({ value: v, label: v })),
+      default: 'high',
       required: true,
     },
     { key: 'queue', label: '대기열 라벨', type: 'text', options: [], default: 'AI 개발팀', required: false },

@@ -72,7 +72,7 @@ describe('modeChangeSummary — from → to 조합별', () => {
 
   test('WORKSPACE → SERVER: 작업 설정(칸 이름) 삭제 · 접속 키 폐기 · 바로 답함 · 지시 안내는 없음(WP-1368)', () => {
     const lines = modeChangeSummary(WORKS, SERVER, CLAUDE_TEMPLATE)
-    expect(lines[0]).toBe('Claude Code 작업 설정(모델·대기열 라벨·실행 환경)이 지워져요.')
+    expect(lines[0]).toBe('Claude Code 작업 설정(모델·추론 강도·대기열 라벨·실행 환경)이 지워져요.')
     expect(lines).toContain('Works 가 관리하던 접속 키는 폐기돼요.')
     expect(lines.some((l) => l.includes('바로 답해요'))).toBe(true)
     expect(lines).toHaveLength(3)
