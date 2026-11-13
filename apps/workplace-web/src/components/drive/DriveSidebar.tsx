@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, HardDrive, MoreHorizontal, Paperclip, Plus, UserRoundPlus } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
@@ -44,6 +44,7 @@ import { driveApi } from '../../api/drive'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
+import { useSharedWithMe } from '../../hooks/queries/useSharedWithMe'
 import type { DriveQuota, DriveQuotaBreakdown, DriveSpace } from '../../types/drive'
 import { DriveSpaceMemberDialog } from './DriveSpaceMemberDialog'
 import { SpaceTypeIcon } from './SpaceTypeIcon'
@@ -219,6 +220,8 @@ export function DriveSidebar() {
   // 업로드/삭제/롤백 mutation 성공 시 invalidateQueries(driveQuotaKeys.all) 로
   // 재조회되므로 이 컴포넌트가 리마운트되지 않아도 최신 값이 반영된다.
   const { data: quota } = useDriveQuota()
+  // 공유받은 항목 개수(WP-1539) — 목록 화면과 같은 쿼리 길이. 못 받았으면 개수를 비운다(입구는 그대로 둔다).
+  const { data: sharedWithMe } = useSharedWithMe()
   // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
   const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
@@ -297,6 +300,23 @@ export function DriveSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
+        {/* 공유받은 항목(WP-1539) — 남이 사내 링크로 준 파일을 다시 찾는 입구. 「공유 문서함」처럼 공간 목록 맨 위에 둔다. */}
+        <NavLink
+          to="/drive/shared"
+          data-testid="drive-nav-shared"
+          className={({ isActive }) => cn(sidebarLinkClass({ isActive }), 'justify-between')}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <UserRoundPlus className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 truncate">공유받은 항목</span>
+          </span>
+          {sharedWithMe && sharedWithMe.length > 0 && (
+            <span data-testid="drive-nav-shared-count" className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {sharedWithMe.length}
+            </span>
+          )}
+        </NavLink>
+        <div className="my-3 border-t" />
         {/* 공간 섹션 헤더 — 팀 공간 생성 액션을 섹션 헤더에 배치(표준 사이드바 패턴) */}
         <div className="flex items-center justify-between px-3">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

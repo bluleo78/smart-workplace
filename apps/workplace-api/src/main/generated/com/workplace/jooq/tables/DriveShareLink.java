@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.DriveFile.DriveFilePath;
+import com.workplace.jooq.tables.DriveShareLinkVisit.DriveShareLinkVisitPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -256,6 +257,19 @@ public class DriveShareLink extends TableImpl<DriveShareLinkRecord> {
             _tenant = new TenantPath(this, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_TENANT_ID_FKEY, null);
 
         return _tenant;
+    }
+
+    private transient DriveShareLinkVisitPath _driveShareLinkVisit;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_share_link_visit</code> table
+     */
+    public DriveShareLinkVisitPath driveShareLinkVisit() {
+        if (_driveShareLinkVisit == null)
+            _driveShareLinkVisit = new DriveShareLinkVisitPath(this, null, Keys.DRIVE_SHARE_LINK_VISIT__DRIVE_SHARE_LINK_VISIT_SHARE_LINK_ID_FKEY.getInverseKey());
+
+        return _driveShareLinkVisit;
     }
 
     @Override

@@ -50,6 +50,7 @@ import com.workplace.jooq.tables.DriveFileVersion;
 import com.workplace.jooq.tables.DriveFolder;
 import com.workplace.jooq.tables.DriveShareLink;
 import com.workplace.jooq.tables.DriveShareLinkAttempts;
+import com.workplace.jooq.tables.DriveShareLinkVisit;
 import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup;
@@ -427,6 +428,11 @@ public class Public extends SchemaImpl {
      * 공유 링크 비밀번호 실패 카운터 (브루트포스 방어, #700)
      */
     public final DriveShareLinkAttempts DRIVE_SHARE_LINK_ATTEMPTS = DriveShareLinkAttempts.DRIVE_SHARE_LINK_ATTEMPTS;
+
+    /**
+     * The table <code>public.drive_share_link_visit</code>.
+     */
+    public final DriveShareLinkVisit DRIVE_SHARE_LINK_VISIT = DriveShareLinkVisit.DRIVE_SHARE_LINK_VISIT;
 
     /**
      * The table <code>public.drive_space</code>.
@@ -1119,6 +1125,7 @@ public class Public extends SchemaImpl {
             DriveFolder.DRIVE_FOLDER,
             DriveShareLink.DRIVE_SHARE_LINK,
             DriveShareLinkAttempts.DRIVE_SHARE_LINK_ATTEMPTS,
+            DriveShareLinkVisit.DRIVE_SHARE_LINK_VISIT,
             DriveSpace.DRIVE_SPACE,
             DriveSpaceMember.DRIVE_SPACE_MEMBER,
             DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP,

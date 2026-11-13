@@ -181,6 +181,8 @@ public final class TenantPurgePlan {
           MAIL_ATTACHMENT_PREVIEW,
           MAIL_ATTACHMENT_BLOB,
           // 드라이브 → 파일 (drive_file·drive_file_version.file_id NO ACTION)
+          // 공유받은 항목 기록(WP-1539) — drive_share_link 를 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 링크보다 먼저 비운다.
+          DRIVE_SHARE_LINK_VISIT,
           DRIVE_SHARE_LINK,
           DRIVE_TRANSFER_LINK,
           DRIVE_FILE_REF,

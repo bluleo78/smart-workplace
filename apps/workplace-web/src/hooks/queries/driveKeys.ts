@@ -15,4 +15,6 @@ export const driveKeys = {
   items: (spaceId: number | undefined, folderId?: number | null) => ['drive', 'items', spaceId, folderId ?? null] as const,
   trash: (spaceId: number | undefined) => ['drive', 'trash', spaceId] as const,
   quota: ['drive', 'quota'] as const,
+  /** 공유받은 항목(WP-1539) — 사이드바 개수와 목록 화면이 같은 키를 쓴다. */
+  sharedWithMe: () => ['drive', 'shared-with-me'] as const,
 }

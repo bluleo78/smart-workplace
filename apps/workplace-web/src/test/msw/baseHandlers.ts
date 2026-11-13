@@ -88,6 +88,8 @@ export const shellHandlers = [
   http.get(`${API}/projects`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/members`, () => HttpResponse.json(emptyPage)),
   http.get(`${API}/drive/spaces`, () => HttpResponse.json([])),
+  // 드라이브 사이드바 「공유받은 항목」 개수(WP-1539) — 빈 목록으로 깔아 사이드바를 띄우는 다른 테스트가 모킹 누락으로 깨지지 않게 한다.
+  http.get(`${API}/drive/shared-with-me`, () => HttpResponse.json([])),
   http.get(`${API}/calendars`, () => HttpResponse.json([])),
   http.get(`${API}/messaging/threads/inbox/unread-count`, () => HttpResponse.json({ count: 0 })),
   http.get(`${API}/notification-settings`, () => HttpResponse.json(defaultNotificationSettings())),

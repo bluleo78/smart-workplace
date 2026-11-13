@@ -12,6 +12,7 @@ import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { ShareLinkModal } from '@/components/drive/ShareLinkModal'
+import { driveKeys } from '@/hooks/queries/driveKeys'
 import ShareLinkPage from '@/pages/drive/ShareLinkPage'
 import { renderScreen } from '@/test/renderScreen'
 import type { ShareLink } from '@/types/drive'
@@ -296,6 +297,20 @@ describe('공유 링크 화면', () => {
     const of = (kind: string) => requests.filter((r) => r.kind === kind)
     return { ...view, requests, of }
   }
+
+  // WP-1539: 파일 정보가 열리면 「공유받은 항목」 캐시를 낡은 것으로 표시 — 드라이브로 돌아가면 사이드바 개수·목록을 다시 받는다.
+  test('로그인 상태로 파일 정보를 열면 공유받은 항목 캐시를 무효화하고, 비로그인이면 건드리지 않는다', async () => {
+    const signedIn = renderLanding({ info: () => HttpResponse.json(fileInfo()) })
+    signedIn.queryClient.setQueryData(driveKeys.sharedWithMe(), [])
+    await screen.findByTestId('share-file-card')
+    await waitFor(() => expect(signedIn.queryClient.getQueryState(driveKeys.sharedWithMe())?.isInvalidated).toBe(true))
+    signedIn.unmount()
+
+    const anon = renderLanding({ auth: ANON, info: () => HttpResponse.json(fileInfo({ loginAvailable: true })) })
+    anon.queryClient.setQueryData(driveKeys.sharedWithMe(), [])
+    await screen.findByTestId('share-file-card')
+    expect(anon.queryClient.getQueryState(driveKeys.sharedWithMe())?.isInvalidated).toBe(false)
+  })
 
   // 비밀번호 없는 링크 — 바로 파일 카드(아이콘·이름·형식·크기·공유한 사람·버튼 둘).
   test('비밀번호 없는 링크는 바로 파일 카드를 보인다', async () => {
