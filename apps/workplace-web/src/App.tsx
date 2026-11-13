@@ -66,6 +66,9 @@ const DriveIndexRedirect = lazy(() =>
 // 공개 공유 링크 다운로드 랜딩 — 인증 없이 접근 가능.
 const ShareLinkPage = lazy(() => import('./pages/drive/ShareLinkPage'))
 // WP-1539: 드라이브 「공유받은 항목」 — 내가 연 사내 공유 링크 목록
+const DriveSharedFolderView = lazy(() =>
+  import('./pages/drive/DriveSharedFolderView').then((m) => ({ default: m.DriveSharedFolderView })),
+)
 const DriveSharedWithMeView = lazy(() =>
   import('./pages/drive/DriveSharedWithMeView').then((m) => ({ default: m.DriveSharedWithMeView })),
 )
@@ -268,6 +271,7 @@ export default function App() {
                   <Route path="drive/attachments" element={<DriveAttachmentsView />} />
                   {/* WP-1539: 공유받은 항목 — 사내 공유 링크로 연 파일을 다시 찾는다 */}
                   <Route path="drive/shared" element={<DriveSharedWithMeView />} />
+                  <Route path="drive/shared/:shareLinkId" element={<DriveSharedFolderView />} />
                 </Route>
 
                 {/* 노트 알림 입구(WP-579) — 갈 곳을 정해 바로 넘기므로 노트 사이드바(모듈 레이아웃) 밖에 둔다. */}

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SharedWithMeItem } from '@/types/drive'
 
-import { canOpenShared, sharedClosedReason, sharedOpenedLabel } from './driveSharedWithMe'
+import { canOpenShared, resolveSharedTarget, sharedClosedReason, sharedFolderPath, sharedMetaLine, sharedOpenedLabel } from './driveSharedWithMe'
 
 const item = (over: Partial<SharedWithMeItem> = {}): SharedWithMeItem => ({
   shareLinkId: 1,
@@ -11,6 +11,8 @@ const item = (over: Partial<SharedWithMeItem> = {}): SharedWithMeItem => ({
   name: 'a.pdf',
   mimeType: 'application/pdf',
   sizeBytes: 10,
+  folderCount: null,
+  fileCount: null,
   spaceName: '영업 자료',
   sharedBy: '양동희',
   lastOpenedAt: '2026-11-12T03:00:00Z',
@@ -56,4 +58,38 @@ describe('canOpenShared', () => {
     // 되살릴 수 없는 옛 링크 — 살아 있어도 열기·복사를 막는다
     expect(canOpenShared(item({ token: null }))).toBe(false)
   })
+})
+
+describe('resolveSharedTarget', () => {
+  it('열 수 없으면 이유와 함께 closed — 폐기·만료와 토큰 없음의 문구가 다르다', () => {
+    expect(resolveSharedTarget(item({ openable: false, token: null }))).toEqual({ kind: 'closed', reason: '링크가 폐기됐거나 만료됐습니다' })
+    expect(resolveSharedTarget(item({ token: null }))).toEqual({ kind: 'closed', reason: '링크를 열 수 없습니다' })
+  })
+
+  it('비밀번호 링크는 종류와 상관없이 공유 화면으로(password)', () => {
+    expect(resolveSharedTarget(item({ hasPassword: true }))).toEqual({ kind: 'password', token: 'sl_a' })
+    expect(resolveSharedTarget(item({ kind: 'FOLDER', hasPassword: true }))).toEqual({ kind: 'password', token: 'sl_a' })
+  })
+
+  it('폴더는 드라이브 안 폴더 화면 주소, 파일은 토큰', () => {
+    expect(resolveSharedTarget(item({ kind: 'FOLDER', shareLinkId: 11 }))).toEqual({ kind: 'folder', token: 'sl_a', path: '/drive/shared/11' })
+    expect(resolveSharedTarget(item())).toEqual({ kind: 'file', token: 'sl_a' })
+  })
+})
+
+describe('sharedMetaLine', () => {
+  const file = item({ spaceName: '경영지원', sizeBytes: 4_404_019 })
+  const folder = item({ kind: 'FOLDER', name: '분기 보고', mimeType: null, sizeBytes: null, spaceName: '경영지원' })
+  it('파일은 공간 · 크기', () => expect(sharedMetaLine(file)).toBe('경영지원 · 4.2 MB'))
+  it('폴더는 공간 · 폴더 n개 · 파일 n개', () =>
+    expect(sharedMetaLine({ ...folder, folderCount: 3, fileCount: 12 })).toBe('경영지원 · 폴더 3개 · 파일 12개'))
+  it('열 수 없으면 이유 문구', () =>
+    expect(sharedMetaLine({ ...folder, openable: false, token: null })).toBe('링크가 폐기됐거나 만료됐습니다'))
+  it('폴더 수가 null 이면 0개', () =>
+    expect(sharedMetaLine({ ...folder, folderCount: null, fileCount: null })).toBe('경영지원 · 폴더 0개 · 파일 0개'))
+})
+
+describe('sharedFolderPath', () => {
+  it('공유 폴더', () => expect(sharedFolderPath(11, null)).toBe('/drive/shared/11'))
+  it('하위 폴더', () => expect(sharedFolderPath(11, 42)).toBe('/drive/shared/11?folder=42'))
 })

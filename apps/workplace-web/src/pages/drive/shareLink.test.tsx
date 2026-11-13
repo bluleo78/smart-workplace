@@ -688,6 +688,20 @@ describe('폴더 공유 링크 화면', () => {
     return { ...view, requests, of, folderParams }
   }
 
+  // WP-1540: 폴더 정보도 서버가 「공유받은 항목」에 기록하므로 파일과 같이 캐시를 낡은 것으로 표시한다(비로그인은 건드리지 않음).
+  test('로그인 상태로 폴더 정보를 열면 공유받은 항목 캐시를 무효화하고, 비로그인이면 건드리지 않는다', async () => {
+    const signedIn = renderFolder()
+    signedIn.queryClient.setQueryData(driveKeys.sharedWithMe(), [])
+    await screen.findByTestId('share-folder-table')
+    await waitFor(() => expect(signedIn.queryClient.getQueryState(driveKeys.sharedWithMe())?.isInvalidated).toBe(true))
+    signedIn.unmount()
+
+    const anon = renderFolder({ auth: ANON, info: () => HttpResponse.json(folderInfo({ loginAvailable: true })) })
+    anon.queryClient.setQueryData(driveKeys.sharedWithMe(), [])
+    await screen.findByTestId('share-folder-table')
+    expect(anon.queryClient.getQueryState(driveKeys.sharedWithMe())?.isInvalidated).toBe(false)
+  })
+
   // 공유 폴더(루트) — 머리(이름·「폴더 n개 · 파일 n개」·공유한 사람) + 표(폴더 먼저, 파일 행 미리보기·다운로드 아이콘 버튼).
   test('공유 폴더 루트는 머리와 목록(폴더 먼저)을 보인다', async () => {
     const { folderParams } = renderFolder()
