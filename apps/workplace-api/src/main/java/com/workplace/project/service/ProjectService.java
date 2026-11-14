@@ -438,13 +438,12 @@ public class ProjectService {
       UpdateMemberRoleRequest req,
       boolean lock) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    MemberRow current = requireMember(project, memberUserId);
+    LockedTarget target = lockedTarget(project, memberUserId, lock);
+    MemberRow current = target.member();
     if ("PERSONAL".equals(project.type())) {
       checkPersonalRoleChange(project, memberUserId, req.role());
     }
-    if ("OWNER".equals(current.role())
-        && !"OWNER".equals(req.role())
-        && ownerCount(project, lock) <= 1) {
+    if ("OWNER".equals(current.role()) && !"OWNER".equals(req.role()) && target.owners() <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     return project;
@@ -511,15 +510,29 @@ public class ProjectService {
   private ProjectRow checkRemoveMember(
       Long callerId, String projectKey, Long memberUserId, boolean lock) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    MemberRow current = requireMember(project, memberUserId);
+    LockedTarget target = lockedTarget(project, memberUserId, lock);
+    MemberRow current = target.member();
     // 개인 프로젝트 주인은 제거할 수 없다(WP-856) — 다른 소유자가 남아 있어도(이전 결함으로 OWNER 가 된 AGENT) 사람이 자기 공간을 잃지 않게.
     if ("PERSONAL".equals(project.type()) && memberUserId.equals(project.ownerId())) {
       throw new ProjectConflictException("개인 프로젝트 주인은 제거할 수 없습니다");
     }
-    if ("OWNER".equals(current.role()) && ownerCount(project, lock) <= 1) {
+    if ("OWNER".equals(current.role()) && target.owners() <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     return project;
+  }
+
+  /** 역할 변경·제거 대상 멤버십과 그때의 소유자 수. */
+  private record LockedTarget(MemberRow member, long owners) {}
+
+  /**
+   * 소유자 행을 잠근 <b>뒤에</b> 대상 멤버십을 읽는다(WP-1603) — 실행 경로(lock)에서 같은 프로젝트의 멤버 변경이 차례로 돌아, 앞 요청이 지웠거나 바꾼
+   * 대상을 커밋 뒤 상태로 본다(없으면 순차 호출과 같은 404). 잠금 전에 읽으면 이미 지워진 대상을 OWNER 로 보고 사실과 다른 409 가 났다.
+   * 사전검증(dry-run)은 잠그지 않으니 순서가 상관없다.
+   */
+  private LockedTarget lockedTarget(ProjectRow project, Long memberUserId, boolean lock) {
+    long owners = ownerCount(project, lock);
+    return new LockedTarget(requireMember(project, memberUserId), owners);
   }
 
   /**
