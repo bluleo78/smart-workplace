@@ -70,3 +70,31 @@ test('⋯(44px) → 수정 → 기존 사이클 폼이 값 채워 열린다', { 
   await expect(page.getByTestId('cycle-name-input')).toHaveValue(CYCLES[0].name);
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/cycles$`)); // ⋯ 는 행 이동을 일으키지 않는다
 });
+
+// WP-1605 — 390px 에서 새 사이클 창이 가로로 넘치지 않는다. DialogContent(grid)의 암묵 열이 날짜 행(date input 둘)의 min-content 만큼
+// 커져 본문이 창 안쪽 폭보다 38px 넓어지고 가로 스크롤바가 생겼다. 기하라 jsdom 으로는 잴 수 없다.
+test('새 사이클 창 — 390px 에서 가로로 넘치지 않고 입력·버튼이 창 안쪽에 든다 (WP-1605)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await setup(page);
+  await page.getByTestId('cycle-new').tap();
+  const dialog = page.getByTestId('cycle-form-dialog');
+  await expect(dialog).toBeVisible();
+  // 열림 애니메이션(zoom-in) 중에는 상자 크기가 변하므로 애니메이션이 끝나 자리 잡은 뒤 한 번 잰다.
+  await expect.poll(() => dialog.evaluate((el) => el.getAnimations().length)).toBe(0);
+  const { scrollWidth, clientWidth, innerRight } = await dialog.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    // 안쪽 오른쪽 끝 = 테두리 상자 왼쪽 + 왼쪽 테두리 + clientWidth(패딩 포함, 스크롤바·테두리 제외).
+    return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, innerRight: rect.left + el.clientLeft + el.clientWidth };
+  });
+  expect(scrollWidth, `dialog scrollWidth ${scrollWidth} vs clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth);
+  const targets = [
+    page.getByTestId('cycle-name-input'),
+    dialog.getByLabel('시작일'),
+    dialog.getByLabel('종료일'),
+    dialog.getByRole('button', { name: '취소' }),
+    page.getByTestId('cycle-submit'),
+  ];
+  for (const t of targets) {
+    const b = (await t.boundingBox())!;
+    expect(b.x + b.width, `${t} right ${b.x + b.width} vs dialog inner right ${innerRight}`).toBeLessThanOrEqual(innerRight + 0.5);
+  }
+});
