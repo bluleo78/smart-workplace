@@ -46,13 +46,15 @@ describe('adaptMcpTool', () => {
     expect(adaptMcpTool({ name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x' }).annotations).toBeUndefined();
   });
 
-  it('inputSchema 를 ZodObject.shape 로 추출', () => {
-    const shape = { issueKey: z.string() };
+  // WP-1568: shape 대신 모르는 키를 남기는 객체 스키마를 넘긴다 — 아는 키는 같고, 검증 뒤에도 모르는 키가 남아 핸들러가 판정할 수 있다.
+  it('inputSchema 는 같은 키의 객체 스키마이고 모르는 키를 지우지 않는다(WP-1568)', () => {
     const adapted = adaptMcpTool({
-      name: 't', description: 'd', inputSchema: z.object(shape),
+      name: 't', description: 'd', inputSchema: z.object({ issueKey: z.string() }),
       handler: async () => 'x',
     });
-    expect(Object.keys(adapted.inputSchema)).toEqual(['issueKey']);
+    const schema = adapted.inputSchema as unknown as z.ZodObject<z.ZodRawShape>;
+    expect(Object.keys(schema.shape)).toEqual(['issueKey']);
+    expect(schema.parse({ issueKey: 'WP-1', extra: 1 })).toEqual({ issueKey: 'WP-1', extra: 1 });
   });
 });
 

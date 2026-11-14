@@ -4,8 +4,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Request, Response } from 'express';
-import { describeApiError, toMcpContent, toolAnnotations, toolDefinition } from '@smart-workplace/mcp-tools-shared';
-import type { z } from 'zod';
+import {
+  describeApiError,
+  inputSchemaKeepingUnknownArgs,
+  toMcpContent,
+  toolAnnotations,
+  toolDefinition,
+  unknownArgsMessage,
+} from '@smart-workplace/mcp-tools-shared';
 
 import { agentToolFromUserAgent } from './agent-tool.js';
 import type { AuthCache } from './auth-cache.js';
@@ -77,10 +83,16 @@ export function buildMcpServer(
         // 표시 이름 — tools/list 는 아래 toolDefinition 으로 바꿔 끼우므로 top-level title 만 나간다(annotations.title 은 중복이라 뺀다).
         title: annotations.title,
         description: t.description,
-        inputSchema: (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape,
+        // WP-1568: shape 대신 모르는 키를 남기는 객체 스키마를 넘긴다 — shape 를 주면 SDK 가 기본 z.object 로 만들어 틀린 인자 이름을
+        // 조용히 지워 버려, 핸들러가 그 사실을 알 수 없었다. 아는 인자의 검증(null 허용 포함)은 그대로이고, tools/list 는 아래 교체라 무관하다.
+        inputSchema: inputSchemaKeepingUnknownArgs(t.inputSchema),
         annotations,
       },
       async (args: unknown) => {
+        // WP-1568: 모르는 인자 이름이 있으면 실행하지 않고(API 호출 없음) 쓸 수 있는 인자 이름과 함께 isError 로 돌려준다.
+        // 일부 인자를 버린 채 실행하면(예: create_issue 의 description) 호출한 쪽은 성공으로 알고 값이 빠진 결과를 남긴다.
+        const unknownArgs = unknownArgsMessage(t.inputSchema, args);
+        if (unknownArgs) return { isError: true, content: [{ type: 'text' as const, text: unknownArgs }] };
         try {
           return { content: toMcpContent(await t.handler(args)) };
         } catch (e) {
@@ -93,7 +105,7 @@ export function buildMcpServer(
   }
   // WP-340 웨이브 5: tools/list 응답을 공유 패키지의 toolDefinition 출력으로 바꿔 끼운다 — 도구 정의 크기 상한(tool-naming.test.ts)이 재는 값이
   // 곧 나가는 값이 되고, SDK 가 도구마다 붙이던 `$schema`·안전 정수 경계·execution 과 null 허용 표시가 빠진다. 호출(tools/call)과 입력 검증은
-  // 위 registerTool 그대로다(SDK 가 zod shape 로 검증). 도구 핸들러 초기화는 첫 registerTool 에서만 일어나 이 교체를 덮어쓰지 않는다.
+  // 위 registerTool 그대로다(SDK 가 zod 객체 스키마로 검증, 모르는 인자는 핸들러 앞에서 거절 — WP-1568). 도구 핸들러 초기화는 첫 registerTool 에서만 일어나 이 교체를 덮어쓰지 않는다.
   // 도구가 하나도 없으면 SDK 가 tools 기능 자체를 등록하지 않아 교체할 대상도 없다.
   // 등록 시점 스냅샷이다 — 등록 도구의 disable()/update() 는 반영하지 않는다(현재 호출처 없음, 서버는 요청마다 새로 만든다).
   if (tools.length > 0) {

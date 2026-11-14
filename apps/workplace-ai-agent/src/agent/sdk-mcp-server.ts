@@ -4,8 +4,7 @@
 // 컨텍스트(onBehalfOf/threadBinding/delegationContext)·호스트 브리지·도구 로깅은 인자로 직접 받는다.
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-import { summarizeToolResult, toMcpContent } from '@smart-workplace/mcp-tools-shared';
-import { z } from 'zod';
+import { inputSchemaKeepingUnknownArgs, summarizeToolResult, toMcpContent, unknownArgsMessage } from '@smart-workplace/mcp-tools-shared';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge, type McpProfile, type McpTool } from '../mcp/tools.js';
@@ -29,7 +28,9 @@ interface AdaptCtx {
 }
 
 // 단일 McpTool → SDK SdkMcpToolDefinition 어댑터.
-// - inputSchema: ZodObject → raw shape(.shape). 모든 도구가 z.object(...) 이므로 안전.
+// - inputSchema: 모르는 키를 남기는 객체 스키마(WP-1568). 전에는 raw shape(.shape)를 넘겨 SDK 가 틀린 인자 이름을 조용히 지웠다.
+//   SDK 는 ZodObject 를 그대로 등록하고(shape 일 때만 다시 만든다), 모델에 보이는 JSON Schema 는 shape 때와 같다(공유 헬퍼 주석·테스트).
+// - 모르는 인자 이름이 오면 핸들러를 부르지 않고 isError + 쓸 수 있는 인자 이름(WP-1568).
 // - handler: string 반환 → {content:[{type:'text',text}]}, content 블록 배열(이미지 등)은 그대로(WP-240),
 //   throw → {isError:true,...}.
 // - annotations: McpTool.annotations 를 그대로 전달(공유 도구만 값이 있다).
@@ -38,17 +39,23 @@ interface AdaptCtx {
 // (의도적 any: SDK 타입의 한계로 정확한 shape 제네릭을 줄 수 없음 → 룰 단건 비활성)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function adaptMcpTool(t: McpTool, ctx?: AdaptCtx): SdkMcpToolDefinition<any> {
-  const shape = (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
   return {
     name: t.name,
     description: t.description,
-    inputSchema: shape,
+    inputSchema: inputSchemaKeepingUnknownArgs(t.inputSchema),
     // WP-342: 공유 도구의 연산 성격 힌트. Claude Code 가 readOnlyHint 를 동시 실행 가능 여부로 읽는다(없으면 직렬 실행).
     annotations: t.annotations,
     async handler(args: unknown) {
       const seq = ctx ? ctx.nextSeq() : 0;
       if (ctx?.onTool) {
         ctx.onTool({ seq, event: 'tool_use_start', toolName: t.name, args: args as Record<string, unknown> });
+      }
+      // WP-1568: 틀린 인자 이름이 있으면 실행하지 않는다 — 버리고 실행하면 모델은 성공으로 알고 값이 빠진 결과(예: 본문 없는 이슈)를 남긴다.
+      // 도구 줄(onTool)에는 오류 결과로 남겨 실행 기록에서도 보이게 한다.
+      const unknownArgs = unknownArgsMessage(t.inputSchema, args);
+      if (unknownArgs) {
+        if (ctx?.onTool) ctx.onTool({ seq, event: 'tool_result', toolName: t.name, isError: true, result: unknownArgs });
+        return { isError: true, content: [{ type: 'text', text: unknownArgs }] };
       }
       try {
         const out = await t.handler(args);

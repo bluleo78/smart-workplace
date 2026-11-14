@@ -2,7 +2,7 @@
 // 외부 MCP 클라이언트(Claude.ai·ChatGPT)는 연결한 서버의 도구 정의를 매 대화 컨텍스트에 전부 싣는다. 그래서 정의 크기를 재고(상한 테스트),
 // 의미 없는 반복(도구마다 붙는 `$schema`, `.int()` 가 만드는 안전 정수 상한 같은 정보 없는 제약, null 허용 표시)을 걷어낸 모양을 서버가 그대로 내보낸다.
 // workplace-mcp 는 tools/list 응답을 이 함수의 출력으로 바꿔 끼운다 — 측정값과 실제로 나가는 값이 같은 코드에서 나온다(server.ts, 왕복 테스트가 고정).
-// 입력 검증은 바꾸지 않는다: SDK 는 여전히 registerTool 에 넘긴 zod shape 로 인자를 검증하므로, 여기서 줄인 표시와 무관하게 null 허용 등 동작은 그대로다.
+// 입력 검증은 바꾸지 않는다: SDK 는 여전히 registerTool 에 넘긴 zod 객체 스키마(모르는 키는 남겨 핸들러 앞에서 거절 — WP-1568, unknown-args.ts)로 인자를 검증하므로, 여기서 줄인 표시와 무관하게 null 허용 등 동작은 그대로다.
 import { z } from 'zod';
 
 import type { McpToolAnnotations, SharedTool } from './mcp-tool.js';
