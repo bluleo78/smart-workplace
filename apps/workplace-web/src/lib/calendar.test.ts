@@ -12,6 +12,9 @@ import {
   eventsOnDay,
   extraTagColors,
   groupCalendarsBySource,
+  HOUR_SLOT_PX,
+  hourOffset,
+  initialGridScrollTop,
   isEventVisible,
   isLocalRangeReversed,
   isNotEventOrganizer,
@@ -20,6 +23,7 @@ import {
   loadLastView,
   markedDays,
   monthMatrix,
+  nowLineTop,
   proposalTimeRange,
   providerLabel,
   saveLastView,
@@ -28,6 +32,7 @@ import {
   toggleCalendar,
   visibleRange,
   weekDays,
+  WORKDAY_START_HOUR,
 } from './calendar'
 
 describe('isNotEventOrganizer (WP-200)', () => {
@@ -539,5 +544,42 @@ describe('timedEventColumnStyle', () => {
     const e = edges(1, 2, 3, 302)
     expect(e.left).toBeCloseTo(2 + 298 / 3)
     expect(e.right).toBeCloseTo(300)
+  })
+})
+
+// 주·일 보기 현재 시각 선 위치와 처음 스크롤 위치(WP-1557).
+describe('hourOffset·nowLineTop·initialGridScrollTop — 현재 시각 선과 처음 스크롤(WP-1557)', () => {
+  // 2026-06-10(수) 이 든 주 — 로컬 시각 기준으로 만든다.
+  const week = weekDays(new Date(2026, 5, 10))
+
+  it('hourOffset 은 그날 0시부터 지난 시간을 분까지 소수로 돌려준다(초는 버린다)', () => {
+    expect(hourOffset(new Date(2026, 5, 10, 0, 0))).toBe(0)
+    expect(hourOffset(new Date(2026, 5, 10, 9, 15, 59))).toBe(9.25)
+    expect(hourOffset(new Date(2026, 5, 10, 23, 30))).toBe(23.5)
+  })
+
+  it('현재 시각 선은 시·분을 시간 단위로 바꿔 한 칸 높이를 곱한 위치다', () => {
+    expect(nowLineTop(new Date(2026, 5, 10, 14, 30))).toBe(14.5 * HOUR_SLOT_PX)
+    expect(nowLineTop(new Date(2026, 5, 10, 0, 0))).toBe(0)
+  })
+
+  it('오늘이 든 주는 지금보다 1시간 위부터 보인다', () => {
+    expect(initialGridScrollTop(week, new Date(2026, 5, 10, 14, 30))).toBe(13.5 * HOUR_SLOT_PX)
+  })
+
+  it('0시 30분이면 1시간 위가 음수라 0으로 자른다', () => {
+    expect(initialGridScrollTop(week, new Date(2026, 5, 10, 0, 30))).toBe(0)
+  })
+
+  it('오늘이 없는 주는 업무 시작 시각(8시)부터 보인다', () => {
+    expect(WORKDAY_START_HOUR).toBe(8)
+    expect(initialGridScrollTop(week, new Date(2026, 5, 20, 14, 30))).toBe(8 * HOUR_SLOT_PX)
+  })
+
+  it('일 보기(하루)도 그날이 오늘인지로 정한다', () => {
+    const now = new Date(2026, 5, 10, 9, 0)
+    expect(initialGridScrollTop([new Date(2026, 5, 10)], now)).toBe(8 * HOUR_SLOT_PX)
+    expect(initialGridScrollTop([new Date(2026, 5, 11)], now)).toBe(8 * HOUR_SLOT_PX)
+    expect(initialGridScrollTop([new Date(2026, 5, 10)], new Date(2026, 5, 10, 18, 0))).toBe(17 * HOUR_SLOT_PX)
   })
 })

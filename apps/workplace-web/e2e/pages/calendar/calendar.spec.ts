@@ -199,6 +199,10 @@ test.describe('주 보기 종일·시간 그리드 기하 (KST 고정)', { tag: 
       await page.getByTestId('calendar-view-week-btn').click()
       const blocks = [5, 7, 6].map((id) => page.getByTestId(`calendar-event-${id}`))
       for (const b of blocks) await expect(b).toBeVisible()
+      // 주 보기는 처음에 지금 시각(12시) 근처로 내려가 열린다(WP-1557) — 새벽 1~3시 블록을 화면 안에 두려고 맨 위로 올린다.
+      await page.getByTestId('calendar-view-week').locator('div.overflow-auto').evaluate((el) => {
+        el.scrollTop = 0
+      })
 
       const boxes = await Promise.all(blocks.map(async (b) => (await b.boundingBox())!))
       // 가로로 겹치지 않는다(왼쪽부터 A·C·B).
