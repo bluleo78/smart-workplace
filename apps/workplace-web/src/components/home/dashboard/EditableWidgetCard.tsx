@@ -1,10 +1,10 @@
 // 데스크톱 편집 모드 위젯 카드(WP-161 에서 Dashboard.tsx 로부터 분리).
-import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ArrowDown, ArrowUp, GripVertical, PanelTop, PanelTopClose } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useSortableItem } from '@/lib/dnd/useSortableItem'
 
 import { EntryBody } from './EntryBody'
 import { type CatalogConfigPatch, entryTitle, isWideEntry, type ResolvedEntry } from './resolvedEntry'
@@ -46,7 +46,7 @@ export function EditableWidgetCard({
   const title = entryTitle(entry)
   const { cfg } = entry
   // 드래그앤드랍 재배치 — 핸들(GripVertical)에서만 드래그 시작(카드 내 다른 버튼과 제스처 분리).
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortableItem({
     id: cfg.id,
   })
   const dragStyle = { transform: CSS.Translate.toString(transform), transition }

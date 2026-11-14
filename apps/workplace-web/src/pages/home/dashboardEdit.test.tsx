@@ -5,6 +5,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { SORTABLE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
 import { card, cardById, catalog, layout, order, renderDashboard } from '@/test/kits/home/dashboardKit-b1'
 import type { DashboardWidgetConfig } from '@/types/dashboard'
 
@@ -46,6 +47,8 @@ test('아래로 이동 → 저장하면 PUT payload 순서가 바뀌고 일반 �
 test('이동 버튼 — 접근성 이름, 양 끝 비활성, Enter 로 이동', async () => {
   const view = await openEdit(['my_tasks', 'unread_mail'])
   const myTasks = card('my_tasks')
+  // 드래그 핸들의 스크린리더 설명은 dnd-kit 기본 영어 「sortable」이 아니라 한국어(WP-1549).
+  expect(within(myTasks).getByTestId('widget-drag-handle')).toHaveAttribute('aria-roledescription', SORTABLE_ROLE_DESCRIPTION)
   expect(within(myTasks).getByRole('button', { name: '위로 이동: 내 작업' })).toBeDisabled()
   const down = within(myTasks).getByRole('button', { name: '아래로 이동: 내 작업' })
   expect(down).toBeEnabled()

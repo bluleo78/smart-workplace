@@ -1,4 +1,3 @@
-import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ChevronDown, ChevronRight, CornerDownRight, FileCode, Link2, Link2Off, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 import { useLayoutEffect, useRef } from 'react'
@@ -13,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
+import { DRAGGABLE_PAGE_ROLE_DESCRIPTION, useSortableItem } from '@/lib/dnd/useSortableItem'
 import { revealInScrollY } from '@/lib/revealInScrollY'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
@@ -75,9 +75,10 @@ export function WikiTreeRow({
   // 중첩되어 무효한 interactive-in-interactive 구조가 되고, accname 계산 시 세 버튼 이름이 하나로
   // 뒤섞여 낭독된다(#801). group 은 콘텐츠 기반 이름 계산을 하지 않아 자손 버튼과 충돌하지 않으면서도
   // tabIndex/키보드 리스너는 그대로 유지해 키보드 드래그(Space+화살표)는 그대로 동작한다.
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortableItem({
     id,
-    attributes: { role: 'group' },
+    // 순서뿐 아니라 하위로 넣기·옮기기도 되므로 「드래그 가능한 페이지」로 읽힌다(WP-1549).
+    attributes: { role: 'group', roleDescription: DRAGGABLE_PAGE_ROLE_DESCRIPTION },
     disabled: !canEdit,
   })
   const style = { transform: CSS.Translate.toString(transform), transition }

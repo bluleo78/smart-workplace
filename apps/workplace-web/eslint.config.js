@@ -76,6 +76,14 @@ const radixPopperPackageRule = {
   message: popperImportMessage,
 }
 
+// WP-1549: dnd-kit useSortable 은 aria-roledescription 기본값이 영어 「sortable」이라 스크린리더가 영어로 읽는다.
+// 한국어 설명을 넣는 공용 훅(src/lib/dnd/useSortableItem)만 쓰게 해 새 정렬 목록에서 다시 빠지지 않게 막는다.
+const sortableHookRule = {
+  name: '@dnd-kit/sortable',
+  importNames: ['useSortable'],
+  message: 'useSortable 대신 @/lib/dnd/useSortableItem 을 쓰세요 — 스크린리더 설명(aria-roledescription)을 한국어로 넣습니다(WP-1549).',
+}
+
 // AI 표식 규칙(WP-1529) — Sparkles 직접 import·보라 계열 원색 클래스를 막는다. 문서(디자인 시스템 §7.2)만으로는
 // 화면마다 표식이 다시 갈라지는 걸 못 막아 린트로 강제한다. 기존 no-restricted-* 에 넣으면 예외 블록마다
 // 다른 항목을 다시 나열해야 해서, 별도 규칙 id 로 두고 예외는 'off' 한 줄로 끝낸다.
@@ -121,7 +129,7 @@ export default defineConfig([
       // 팝오버·선택 창·메뉴는 앱 공용 래퍼(src/components/overlay)로만 — 휴대폰 하단 탭바를 피하는 충돌 여백이
       // 거기서 한 번에 들어간다(WP-806). ui/* 나 Radix 원본을 직접 쓰면 그 화면만 탭바 밑으로 펼쳐진다.
       // (src/components/ui 는 globalIgnores 라 shadcn 원본의 radix-ui 가져오기는 걸리지 않는다.)
-      'no-restricted-imports': ['error', { paths: [radixPopperPackageRule], patterns: [popperImportPattern, queryInputImportPattern] }],
+      'no-restricted-imports': ['error', { paths: [radixPopperPackageRule, sortableHookRule], patterns: [popperImportPattern, queryInputImportPattern] }],
     },
   },
   {

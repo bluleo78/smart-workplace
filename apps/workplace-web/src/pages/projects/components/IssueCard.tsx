@@ -2,7 +2,6 @@
 // 카드 전체에 깔린 stretched 오버레이 Link 로 어디를 눌러도 상세가 열린다(#234).
 // 부모 DndContext 의 activationConstraint(distance:5px) 덕에 5px 이상 이동은 드래그, 짧은 클릭은 네비게이션으로 분리.
 
-import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Paperclip } from 'lucide-react';
 import { type MouseEvent, useContext } from 'react';
@@ -10,6 +9,7 @@ import { Link } from 'react-router-dom';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLongPressCapture } from '@/hooks/useLongPressCapture';
+import { DRAGGABLE_ISSUE_ROLE_DESCRIPTION, useSortableItem } from '@/lib/dnd/useSortableItem';
 import { HIDDEN_PARENT_LABEL, parentIssueKey } from '@/lib/parentRef';
 
 import { ComponentChips } from '../../../components/components/ComponentChip';
@@ -72,7 +72,7 @@ export function IssueCard({
     onLongPress: onLongPress ? () => onLongPress(issue) : undefined,
     suppressLongClick: mobileBody,
   });
-  const sortable = useSortable({
+  const sortable = useSortableItem({
     id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
     // issueNumber/status/statusId: 보드 상태 드롭용(카드 위에 놓으면 그 카드의 statusId 컬럼), issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
     // lane: 그룹 보드 스윔레인(WP-1021) — 범위 키가 곧 레인이라, 같은 레인 칸·카드에 놓았을 때만 상태를 바꾼다(boardLaneDrop).
@@ -81,7 +81,7 @@ export function IssueCard({
     // dnd-kit 기본 role=button 은 안의 「작업 메뉴」 버튼·「상세 보기」 링크를 button 안 중첩 컨트롤로 만든다(WCAG 4.1.2, WP-1547).
     // group 은 상호작용 자식을 허용한다. role 이 기본값(button)이 아니면 dnd-kit 은 aria-pressed 도 붙이지 않는다.
     // IssueListRow(role=row) 선례와 같은 「드래그 가능한 이슈」 설명을 쓴다. tabIndex 는 키보드 끌기·드롭 뒤 포커스 잇기 때문에 그대로 둔다.
-    attributes: { role: 'group', roleDescription: '드래그 가능한 이슈' },
+    attributes: { role: 'group', roleDescription: DRAGGABLE_ISSUE_ROLE_DESCRIPTION },
   });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     sortable;
