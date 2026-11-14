@@ -49,7 +49,8 @@ resources:
   workDisk: 50Gi
 sidecars:
   - name: dind
-    image: docker:27-dind
+    # 29.x digest 고정 — 27(alpine 3.21)은 CVE 가 쌓였다(WP-1574)
+    image: docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b
     privileged: true
 # 플러그인 버전은 이미지에 굳힌 값(apps/workplace-agent-claude-code/plugins.lock — 11-04 빌드 실측)과 같다.
 # genia-works 는 Pod 가 뜰 때 Works 서버의 버전으로 갱신하고, superpowers 는 만든 사람의 마켓플레이스에서 빌드 때 최신을 받으므로 latest 로 둔다(WP-1336).

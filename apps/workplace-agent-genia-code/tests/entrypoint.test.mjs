@@ -501,6 +501,10 @@ test('dockerfileBakesSameClaudePluginsExceptGeniaWorks', () => {
   const version = (d) => d.match(/^ARG CLAUDE_CODE_VERSION=(\S+)$/m)?.[1];
   assert.ok(version(dockerfile));
   assert.equal(version(dockerfile), version(claudeDockerfile)); // 같은 Claude Code 로 받아야 같은 플러그인 형식이 된다
+  // npm(WP-1574)도 Claude 이미지와 같은 버전으로 올린다
+  const npmVersion = (d) => d.match(/^ARG NPM_VERSION=(\S+)$/m)?.[1];
+  assert.ok(npmVersion(dockerfile));
+  assert.equal(npmVersion(dockerfile), npmVersion(claudeDockerfile));
   assert.match(dockerfile, /COPY apps\/workplace-agent-claude-code\/plugins\.lock \/opt\/genia\/plugins\.lock/);
   assert.match(dockerfile, /install_plugins \/opt\/genia\/plugins\.lock "" genia-works@genia-works/);
   // superpowers 의 genia 확장을 고정 이름으로 가리킨다(엔트리포인트가 설정에 싣는다)

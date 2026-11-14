@@ -733,8 +733,11 @@ test('dockerfileKeepsSharedToolBlockIdenticalToGeniaImage', () => {
   const mine = block(join(appDir, 'Dockerfile'));
   assert.ok(mine);
   assert.equal(mine, block(join(appDir, '..', 'workplace-agent-genia-code', 'Dockerfile')));
-  const version = (d) => d.match(/^ARG CLAUDE_CODE_VERSION=(\S+)$/m)?.[1];
-  assert.equal(version(readFileSync(join(appDir, 'Dockerfile'), 'utf8')), version(readFileSync(join(appDir, '..', 'workplace-agent-claude-code', 'Dockerfile'), 'utf8')));
+  // Claude Code·npm(WP-1574) 버전은 Claude 이미지와 같아야 한다
+  for (const arg of ['CLAUDE_CODE_VERSION', 'NPM_VERSION']) {
+    const version = (d) => d.match(new RegExp(`^ARG ${arg}=(\\S+)$`, 'm'))?.[1];
+    assert.equal(version(readFileSync(join(appDir, 'Dockerfile'), 'utf8')), version(readFileSync(join(appDir, '..', 'workplace-agent-claude-code', 'Dockerfile'), 'utf8')), arg);
+  }
 });
 
 test('dockerfilePinsCodexAndBakesDriverPluginAndSkills', () => {

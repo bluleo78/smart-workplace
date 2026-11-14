@@ -41,5 +41,6 @@ resources:
   workDisk: 50Gi
 sidecars:
   - name: dind
-    image: docker:27-dind
+    # 29.x digest 고정 — 27(alpine 3.21)은 CVE 가 쌓였다(WP-1574)
+    image: docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b
     privileged: true
