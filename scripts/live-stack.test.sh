@@ -7,6 +7,7 @@
 # - docker 가 공개한 포트(단일·범위)는 lsof 에 안 보여도 쓰는 중으로 본다(WP-864).
 # - 스택 이름은 영문·숫자·_·- 만 받는다.
 # - 상태 파일 값은 공백·$·`·' 가 있어도 그대로 되읽히고, 사람이 `. ` 로 읽어도 실행되지 않는다.
+# - DB 컨테이너는 데이터 볼륨까지 지운다(WP-1580).
 # - DB 컨테이너는 docker 에 닿지 않거나 지우지 못하면 실패로 알린다(down 이 상태 파일을 남기도록).
 # 실행: sh scripts/live-stack.test.sh
 
@@ -145,6 +146,8 @@ mkdir -p "$fakebin"
 cat >"$fakebin/docker" <<'FAKE'
 #!/bin/sh
 # FAKE_DOCKER: down(닿지 않음) · missing(컨테이너 없음) · ok(지움) · rmfail(rm 실패)
+# FAKE_DOCKER_LOG 가 있으면 rm 인자를 적는다 — 볼륨까지 지우는지(-v) 보려고.
+[ "$1" = rm ] && [ -n "$FAKE_DOCKER_LOG" ] && echo "$*" >"$FAKE_DOCKER_LOG"
 case "$FAKE_DOCKER:$1" in
   down:*) echo "Cannot connect to the Docker daemon" >&2; exit 1 ;;
   missing:container) echo "Error: No such container: $3" >&2; exit 1 ;;
@@ -160,6 +163,10 @@ for case_ in "down 1" "missing 0" "ok 0" "rmfail 1"; do
   got=$(FAKE_DOCKER=$1 remove_db_container wl-1-db >/dev/null 2>&1 && echo 0 || echo 1)
   check "DB 컨테이너 지우기 — docker $1 이면 $2" "$2" "$got"
 done
+# 이미지가 VOLUME 으로 선언한 DB 데이터 볼륨까지 지운다(WP-1580) — -v 가 없으면 이름 없는 볼륨이 down 마다 남아
+# AI Pod 의 DinD 저장 공간을 채운다.
+FAKE_DOCKER=ok FAKE_DOCKER_LOG="$tmp/rm.args" remove_db_container wl-1-db >/dev/null 2>&1
+check "DB 컨테이너 지우기 — 데이터 볼륨까지 지운다(rm -v)" "rm -f -v wl-1-db" "$(cat "$tmp/rm.args" 2>/dev/null)"
 check "우리 이름 규칙이 아니면 docker 를 부르지 않고 성공" "0" \
   "$(FAKE_DOCKER=down remove_db_container smart-workplace-db-1 >/dev/null 2>&1 && echo 0 || echo 1)"
 

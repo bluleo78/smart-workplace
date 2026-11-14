@@ -138,6 +138,54 @@ describe('buildAgentResources', () => {
     });
   });
 
+  it('addsDindGcContainerSharingDindImageSocketAndStorage', () => {
+    // DinD 저장 공간은 Pod 를 다시 만들 때만 비워진다 — 상한에 닿아 쫓겨나기 전에 같은 Pod 안에서 거둔다(WP-1581)
+    const agent = desiredAgent({ sidecars: [{ name: 'dind', image: 'docker:29-dind', privileged: true }] });
+    const { pod } = buildAgentResources(agent, ctx, runnerConfig({ dindStorageLimit: '30Gi', dindStorageLimitKib: 30 * 1024 * 1024, dindGcThresholdPercent: 80 }));
+
+    const gc = container(pod, 'dind-gc');
+    // dind 이미지를 다시 쓴다(docker CLI 포함, 이미지 허용 목록 그대로) — 특권 없이 소켓으로만 닿는다
+    expect(gc.image).toBe('docker:29-dind');
+    // du 가 root 전용(0700) 레이어 폴더까지 읽게 root 로, AppArmor 는 agent 와 같은 이유로 끈다
+    expect(gc.securityContext).toEqual({ privileged: false, runAsUser: 0, appArmorProfile: { type: 'Unconfined' } });
+    expect(gc.command?.slice(0, 2)).toEqual(['sh', '-c']);
+    const env = Object.fromEntries((gc.env ?? []).map((e) => [e.name, e.value]));
+    expect(env).toEqual({
+      DOCKER_HOST: 'unix:///dind/docker.sock',
+      DIND_GC_THRESHOLD_KIB: String(Math.floor(30 * 1024 * 1024 * 0.8)),
+      DIND_GC_INTERVAL_SECONDS: '300',
+      DIND_GC_IMAGE_COOLDOWN_SECONDS: '3600',
+    });
+    // 사용량은 kubelet 처럼 저장 볼륨을 du 로 잰다 — 읽기만
+    expect(mountTable(pod, 'dind-gc')).toEqual({
+      '/dind': { source: 'emptyDir', subPath: undefined, readOnly: undefined },
+      '/dind-storage': { source: 'emptyDir', subPath: undefined, readOnly: true },
+    });
+    const mountedVolume = (path: string) => gc.volumeMounts?.find((m) => m.mountPath === path)?.name;
+    expect(mountedVolume('/dind-storage')).toBe('dind-storage');
+    expect(mountedVolume('/dind')).toBe('dind-socket');
+    // 쿼터(requests)에 걸리지 않게 작은 requests, 메모리는 묶는다
+    expect(gc.resources).toEqual({ requests: { cpu: '10m', memory: '32Mi' }, limits: { memory: '128Mi' } });
+  });
+
+  it('keepsTemplateSidecarNamedDindGcInsteadOfAddingDuplicate', () => {
+    // 같은 이름 컨테이너가 둘이면 API 서버가 Pod 를 거절한다 — 템플릿이 이미 같은 이름을 쓰면 우리 것을 넣지 않는다
+    const agent = desiredAgent({
+      sidecars: [
+        { name: 'dind', image: 'docker:29-dind', privileged: true },
+        { name: 'dind-gc', image: 'docker:29-cli', privileged: false },
+      ],
+    });
+    const { pod } = buildAgentResources(agent, ctx, runnerConfig());
+    const gcs = pod.spec?.containers.filter((c) => c.name === 'dind-gc') ?? [];
+    expect(gcs.map((c) => c.image)).toEqual(['docker:29-cli']);
+  });
+
+  it('omitsDindGcWithoutDind', () => {
+    const { pod } = buildAgentResources(desiredAgent({ sidecars: [] }), ctx, runnerConfig());
+    expect(pod.spec?.containers.map((c) => c.name)).toEqual(['agent']);
+  });
+
   it('appliesLocationNodeSelectorTolerationsHostAliases', () => {
     const cfg = runnerConfig({
       nodeSelector: { 'node-role/agents': 'true' },

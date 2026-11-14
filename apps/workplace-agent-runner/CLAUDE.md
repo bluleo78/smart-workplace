@@ -72,7 +72,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 ## env (Helm 차트 `deploy/helm-agent-runner` 가 넣는다)
 
 `WORKS_URL`, `RUNNER_TOKEN_FILE`, `NAMESPACE`, `ALLOWED_IMAGE_PREFIXES`(쉼표), `AGENT_NODE_SELECTOR`·`AGENT_TOLERATIONS`·`AGENT_HOST_ALIASES`(JSON),
-`AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `AGENT_CA_CONFIGMAP`(추가 CA ConfigMap — 키 `ca.crt` 를 AI Pod `/run/genia/ca` 에 꽂는다, WP-1276), `DIND_STORAGE_LIMIT`(기본 20Gi), `DIND_RESOURCES`(JSON, 기본 requests 250m/512Mi·limits 2/4Gi),
+`AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `AGENT_CA_CONFIGMAP`(추가 CA ConfigMap — 키 `ca.crt` 를 AI Pod `/run/genia/ca` 에 꽂는다, WP-1276), `DIND_STORAGE_LIMIT`(기본 20Gi, 쿠버네티스 수량), `DIND_GC_THRESHOLD_PERCENT`(기본 70 — 사용량이 상한의 이 비율을 넘으면 AI Pod 의 dind-gc 가 정리, WP-1581), `DIND_RESOURCES`(JSON, 기본 requests 250m/512Mi·limits 2/4Gi),
 `AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다), `CLUSTER_CHECK_SECONDS`(5~300, 기본 30 — 클러스터 다시 보기 간격, 차트는 넣지 않는다).
 
 로컬 실행은 `pnpm --filter @smart-workplace/workplace-agent-runner start:local`(KUBECONFIG·env 필요). `dev` 스크립트는 일부러 없다 —

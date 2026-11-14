@@ -51,6 +51,8 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     caConfigMap: undefined,
     screenAllowInput: false,
     dindStorageLimit: '20Gi',
+    dindStorageLimitKib: 20 * 1024 * 1024,
+    dindGcThresholdPercent: 70,
     dindResources: structuredClone(DEFAULT_DIND_RESOURCES),
     healthPort: 8080,
     clusterCheckSeconds: 30,

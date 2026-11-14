@@ -29,6 +29,8 @@ describe('loadConfig', () => {
       caConfigMap: undefined,
       screenAllowInput: false,
       dindStorageLimit: '20Gi',
+      dindStorageLimitKib: 20 * 1024 * 1024,
+      dindGcThresholdPercent: 70,
       dindResources: { requests: { cpu: '250m', memory: '512Mi' }, limits: { cpu: '2', memory: '4Gi' } },
       healthPort: 8080,
       clusterCheckSeconds: 30,
@@ -53,6 +55,7 @@ describe('loadConfig', () => {
         AGENT_CA_CONFIGMAP: ' agent-ca ',
         SCREEN_ALLOW_INPUT: 'true',
         DIND_STORAGE_LIMIT: '40Gi',
+        DIND_GC_THRESHOLD_PERCENT: '80',
         TERMINATION_GRACE_SECONDS: '90',
         AGENT_IMAGE_PULL_SECRETS: 'dockerhub-pull, other ',
         // Helm toJson 은 따옴표 없는 cpu: 4 를 숫자로 내보낸다 — 문자열로 받아들인다
@@ -70,6 +73,8 @@ describe('loadConfig', () => {
     expect(cfg.hostAliases).toEqual([{ ip: '10.0.0.5', hostnames: ['gitlab.local'] }]);
     expect(cfg.storageClass).toBe('fast');
     expect(cfg.dindStorageLimit).toBe('40Gi');
+    expect(cfg.dindStorageLimitKib).toBe(40 * 1024 * 1024);
+    expect(cfg.dindGcThresholdPercent).toBe(80);
     expect(cfg.terminationGraceSeconds).toBe(90);
     expect(cfg.imagePullSecrets).toEqual(['dockerhub-pull', 'other']);
     expect(cfg.dindResources).toEqual({ requests: { cpu: '1', memory: '2Gi' }, limits: { cpu: '4', memory: '8Gi' } });
@@ -95,6 +100,12 @@ describe('loadConfig', () => {
     // 클러스터 다시 보기(WP-1501) — 너무 짧으면 API 서버를 두드리고, 주기 조회(300초)보다 길면 뜻이 없다
     ['cluster check too short', { CLUSTER_CHECK_SECONDS: '4' }],
     ['cluster check too long', { CLUSTER_CHECK_SECONDS: '301' }],
+    // DinD 정리(WP-1581) — 상한을 KiB 로 바꿔 임계값을 재므로 읽을 수 없는 상한은 시작 실패
+    ['unreadable dind storage limit', { DIND_STORAGE_LIMIT: 'lots' }],
+    // 너무 작은 상한(바이트로 잘못 적음 등)은 임계값이 0 에 가까워 매번 다 지운다
+    ['dind storage limit under 1Gi', { DIND_STORAGE_LIMIT: '500' }],
+    ['dind gc threshold zero', { DIND_GC_THRESHOLD_PERCENT: '0' }],
+    ['dind gc threshold over 100', { DIND_GC_THRESHOLD_PERCENT: '101' }],
   ])('rejects %s', (_name, patch) => {
     expect(() => loadConfig({ ...BASE, ...patch }, readFile)).toThrow();
   });
@@ -131,4 +142,5 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...BASE, AGENT_WORK_HOST_PATH: 'data/agents' }, readFile)).toThrow('AGENT_WORK_HOST_PATH 는 절대 경로여야 합니다');
   });
 });
+
 
