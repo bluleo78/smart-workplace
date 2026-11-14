@@ -48,6 +48,12 @@ public class ProjectStatusService {
   /** 프로젝트당 상태 상한(WP-811) — 보드 컬럼·필터 목록이 감당할 수 있는 수로 묶는다. 기본 4상태를 포함한 개수. */
   public static final int MAX_STATUSES = 20;
 
+  /**
+   * 새 상태를 다른 범주 상태 뒤에 넣으려 할 때의 400 문구(WP-1596). 그 상태는 이 프로젝트의 것이라 기본 문구 「이 프로젝트의 상태가 아닙니다」는 사실과 달라,
+   * 화면이 쓰는 「범주」라는 말로 원인을 알린다.
+   */
+  public static final String AFTER_STATUS_CATEGORY_MISMATCH = "같은 범주의 상태 뒤에만 넣을 수 있습니다";
+
   private final ProjectStatusRepository repo;
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
@@ -218,7 +224,7 @@ public class ProjectStatusService {
               .findFirst()
               .orElseThrow(StatusNotFoundException::new);
       if (!after.category().equals(category)) {
-        throw new InvalidStatusForProjectException();
+        throw new InvalidStatusForProjectException(AFTER_STATUS_CATEGORY_MISMATCH);
       }
       return after.position();
     }

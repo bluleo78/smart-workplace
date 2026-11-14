@@ -159,7 +159,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
                     p.key(),
                     new CreateProjectStatusRequest("설계", "IN_PROGRESS", done, null)))
         .isInstanceOf(InvalidStatusForProjectException.class)
-        .hasMessage("이 프로젝트의 상태가 아닙니다");
+        .hasMessage(ProjectStatusService.AFTER_STATUS_CATEGORY_MISMATCH);
   }
 
   @Test

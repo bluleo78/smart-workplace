@@ -47,6 +47,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ProjectStatusDeletionService {
 
+  /**
+   * 옮길 상태로 지우는 상태 자신을 고른 경우의 400 문구(WP-1596). 그 상태는 이 프로젝트의 것이라 기본 문구 「이 프로젝트의 상태가 아닙니다」는 사실과 달라
+   * 원인을 그대로 알린다.
+   */
+  public static final String MOVE_TO_SELF = "지우는 상태 자신으로는 옮길 수 없습니다";
+
   private final ProjectStatusRepository statusRepository;
   private final IssueRepository issueRepository;
   private final IssueHistoryRepository historyRepository;
@@ -201,7 +207,7 @@ public class ProjectStatusDeletionService {
   /** 옮길 상태 확인 — 지우는 상태 자신·다른 프로젝트의 상태는 400, 없는 id 는 404(이슈 상태 지정과 같은 구분). */
   private ProjectStatusRow moveTarget(List<ProjectStatusRow> statuses, long statusId, long moveTo) {
     if (moveTo == statusId) {
-      throw new InvalidStatusForProjectException();
+      throw new InvalidStatusForProjectException(MOVE_TO_SELF);
     }
     return statuses.stream()
         .filter(s -> s.id() == moveTo)
