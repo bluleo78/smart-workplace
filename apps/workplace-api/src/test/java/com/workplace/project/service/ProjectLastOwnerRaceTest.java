@@ -13,6 +13,7 @@ import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.UpdateMemberRoleRequest;
 import com.workplace.project.exception.ProjectConflictException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
@@ -99,6 +100,55 @@ class ProjectLastOwnerRaceTest extends IntegrationTestBase {
             });
     assertThat(r).isInstanceOf(ProjectConflictException.class);
     assertThat(owners()).containsExactly(alice);
+  }
+
+  /**
+   * 같은 소유자를 거의 동시에 두 번 제거하면 나중 요청은 순차 호출과 같은 404 「멤버 없음」이다(WP-1603). 예전엔 잠금 전에 읽은 「대상은 OWNER」를 믿고,
+   * 잠금 뒤 줄어든 소유자 수(1)만 보고 사실과 다른 409 「소유자가 최소 1명」을 냈다.
+   */
+  @Test
+  void 같은_소유자를_동시에_두_번_제거하면_나중_요청은_404() throws Exception {
+    Object r =
+        race(
+            () -> projectService.removeMember(alice, projectKey, bob),
+            () -> {
+              projectService.removeMember(alice, projectKey, bob);
+              return "removed";
+            });
+    assertThat(r).isInstanceOf(ProjectNotFoundException.class);
+    assertThat(owners()).containsExactly(alice);
+  }
+
+  /** 같은 소유자를 거의 동시에 두 번 강등하면 나중 요청도 성공한다 — 이미 MEMBER 라 마지막 소유자 문제가 아니다(WP-1603). */
+  @Test
+  void 같은_소유자를_동시에_두_번_강등하면_나중_요청도_성공() throws Exception {
+    Object r =
+        race(
+            () ->
+                projectService.updateMemberRole(
+                    alice, projectKey, bob, new UpdateMemberRoleRequest("MEMBER")),
+            () -> {
+              projectService.updateMemberRole(
+                  alice, projectKey, bob, new UpdateMemberRoleRequest("MEMBER"));
+              return "demoted";
+            });
+    assertThat(r).isEqualTo("demoted");
+    assertThat(owners()).containsExactly(alice);
+  }
+
+  /** 소유자가 아닌 멤버를 동시에 두 번 제거해도 나중 요청은 404 — 0행 삭제로 조용히 성공해 담당 해제·알림을 되풀이하지 않는다(WP-1603). */
+  @Test
+  void 일반_멤버를_동시에_두_번_제거하면_나중_요청은_404() throws Exception {
+    long carol = user("carol");
+    projectService.addMember(alice, projectKey, new AddMemberRequest(carol, "MEMBER"));
+    Object r =
+        race(
+            () -> projectService.removeMember(alice, projectKey, carol),
+            () -> {
+              projectService.removeMember(alice, projectKey, carol);
+              return "removed";
+            });
+    assertThat(r).isInstanceOf(ProjectNotFoundException.class);
   }
 
   private List<Long> owners() {
