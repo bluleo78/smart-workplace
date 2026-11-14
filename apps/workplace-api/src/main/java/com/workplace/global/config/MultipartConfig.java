@@ -1,7 +1,7 @@
 package com.workplace.global.config;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.web.servlet.MultipartProperties;
+import org.springframework.boot.servlet.autoconfigure.MultipartProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.multipart.MultipartResolver;

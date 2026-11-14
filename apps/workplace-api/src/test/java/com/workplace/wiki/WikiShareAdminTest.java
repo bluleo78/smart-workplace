@@ -44,6 +44,7 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -583,12 +584,14 @@ class WikiShareAdminTest extends IntegrationTestBase {
   }
 
   /** 사용자 JWT(테넌트 1)로 요청한다. */
-  private ResultActions call(MockHttpServletRequestBuilder req, long userId) throws Exception {
+  private ResultActions call(AbstractMockHttpServletRequestBuilder<?> req, long userId)
+      throws Exception {
     return call(req, userId, null);
   }
 
   /** 사용자 JWT(테넌트 1) + 공유 헤더(null 이면 생략)로 요청한다. */
-  private ResultActions call(MockHttpServletRequestBuilder req, long userId, String shareToken)
+  private ResultActions call(
+      AbstractMockHttpServletRequestBuilder<?> req, long userId, String shareToken)
       throws Exception {
     req.header("Authorization", "Bearer " + jwt.generateAccessToken(userId, "u-" + userId, 1L));
     if (shareToken != null) {

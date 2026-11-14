@@ -3,7 +3,8 @@ package com.workplace.global.outbound;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.http.client.HttpRedirects;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -46,10 +47,10 @@ public final class InternalHttp {
   public static ClientHttpRequestFactory requestFactory(
       Duration connectTimeout, Duration readTimeout) {
     var settings =
-        ClientHttpRequestFactorySettings.defaults()
+        HttpClientSettings.defaults()
             .withConnectTimeout(connectTimeout)
             .withReadTimeout(readTimeout)
-            .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
+            .withRedirects(HttpRedirects.DONT_FOLLOW);
     return ClientHttpRequestFactoryBuilder.jdk()
         .withHttpClientCustomizer(b -> b.version(HttpClient.Version.HTTP_1_1))
         .build(settings);

@@ -8,7 +8,7 @@ import com.workplace.global.exception.UnsupportedDateException;
 import com.workplace.global.time.SupportedDates;
 import java.io.IOException;
 import java.time.LocalDate;
-import org.springframework.boot.jackson.JsonComponent;
+import org.springframework.boot.jackson2.JsonComponent;
 
 /**
  * 요청 본문의 모든 LocalDate 를 지원 범위(1900-01-01 ~ 9999-12-31)로 제한한다(WP-725). 이슈 마감·시작일, 마일스톤, 사이클 등 DTO 마다

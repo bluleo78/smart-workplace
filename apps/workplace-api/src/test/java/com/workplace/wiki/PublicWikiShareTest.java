@@ -40,7 +40,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -501,7 +501,8 @@ class PublicWikiShareTest extends IntegrationTestBase {
   }
 
   /** 사용자 JWT(테넌트 1)로 요청한다. */
-  private ResultActions call(MockHttpServletRequestBuilder req, long userId) throws Exception {
+  private ResultActions call(AbstractMockHttpServletRequestBuilder<?> req, long userId)
+      throws Exception {
     req.header("Authorization", "Bearer " + jwt.generateAccessToken(userId, "u-" + userId, 1L));
     ResultActions r = mvc.perform(req);
     TenantContext.set(1L);

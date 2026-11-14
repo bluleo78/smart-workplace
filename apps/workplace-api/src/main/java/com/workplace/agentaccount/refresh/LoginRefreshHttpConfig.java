@@ -1,7 +1,8 @@
 package com.workplace.agentaccount.refresh;
 
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.http.client.HttpRedirects;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
@@ -18,10 +19,10 @@ public class LoginRefreshHttpConfig {
   ChatgptTokenClient chatgptTokenClient(
       LoginRefreshProperties props, ClientHttpRequestFactoryBuilder<?> factoryBuilder) {
     var settings =
-        ClientHttpRequestFactorySettings.defaults()
+        HttpClientSettings.defaults()
             .withConnectTimeout(props.connectTimeout())
             .withReadTimeout(props.readTimeout())
-            .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
+            .withRedirects(HttpRedirects.DONT_FOLLOW);
     RestClient client = RestClient.builder().requestFactory(factoryBuilder.build(settings)).build();
     return new ChatgptTokenClient(client, props.tokenUrl());
   }

@@ -151,7 +151,7 @@ class WebPushGatewayTest {
       WebPushGateway real =
           new WebPushGateway(
               new PushProperties(true, true, null, Duration.ofSeconds(2), null, null),
-              // 운영 설정(spring.http.client.factory=jdk)과 같은 구현
+              // 운영 설정(spring.http.clients.imperative.factory=jdk)과 같은 구현
               org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder.jdk());
       String ep = "http://127.0.0.1:" + server.getAddress().getPort() + "/redirect";
 
