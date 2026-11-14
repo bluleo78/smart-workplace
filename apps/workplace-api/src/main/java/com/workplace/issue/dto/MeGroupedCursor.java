@@ -70,12 +70,12 @@ public record MeGroupedCursor(
         throw new InvalidCursorException("cursor 형식 오류");
       }
       return new MeGroupedCursor(
-          NONE.equals(p[1]) ? null : LocalDate.parse(p[1]),
-          NONE.equals(p[2]) ? null : Instant.parse(p[2]),
+          NONE.equals(p[1]) ? null : CursorTimes.date(p[1]),
+          NONE.equals(p[2]) ? null : CursorTimes.instant(p[2]),
           Long.parseLong(p[3]),
           NONE.equals(p[4]) ? 0 : Integer.parseInt(p[4]),
-          NONE.equals(p[5]) ? null : LocalDate.parse(p[5]),
-          Instant.parse(p[6]),
+          NONE.equals(p[5]) ? null : CursorTimes.date(p[5]),
+          CursorTimes.instant(p[6]),
           Long.parseLong(p[7]));
     } catch (InvalidCursorException e) {
       throw e;

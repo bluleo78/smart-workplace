@@ -46,7 +46,7 @@ public record ChecklistCursor(int k1, int prio, LocalDate due, long id) {
       return new ChecklistCursor(
           Integer.parseInt(p[1]),
           Integer.parseInt(p[2]),
-          LocalDate.parse(p[3]),
+          CursorTimes.date(p[3]),
           Long.parseLong(p[4]));
     } catch (InvalidCursorException e) {
       throw e;

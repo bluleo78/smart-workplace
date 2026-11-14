@@ -13,6 +13,7 @@ import static org.jooq.impl.DSL.select;
 import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.when;
 
+import com.workplace.issue.dto.CursorTimes;
 import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
@@ -20,7 +21,6 @@ import com.workplace.issue.dto.IssueSort;
 import com.workplace.issue.dto.IssueSortCursor;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.KeysetSeek.SeekKey;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -101,12 +101,12 @@ public class IssueSortedRepository {
     }
   }
 
-  // 칸 값 해석기 — 시각은 Instant 문자열(마이크로초 보존)로 적혀 있다.
+  // 칸 값 해석기 — 시각은 Instant 문자열(마이크로초 보존)로 적혀 있다. 시각·날짜는 앱 공통 범위 밖이면 거절한다(WP-1586).
   private static final Function<String, Integer> INT = Integer::parseInt;
   private static final Function<String, Long> LONG = Long::parseLong;
-  private static final Function<String, LocalDate> DATE = LocalDate::parse;
+  private static final Function<String, LocalDate> DATE = CursorTimes::date;
   private static final Function<String, OffsetDateTime> TIME =
-      v -> KeysetSeek.utc(Instant.parse(v));
+      v -> KeysetSeek.utc(CursorTimes.instant(v));
   private static final Function<String, String> TEXT = Function.identity();
 
   /**

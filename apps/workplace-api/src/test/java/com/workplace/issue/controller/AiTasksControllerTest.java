@@ -582,6 +582,19 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(status("/api/v1/me/ai-tasks?cursor=" + issueCursorLike)).isEqualTo(400);
   }
 
+  // WP-1586: 커서 시각이 앱 공통 범위 밖이면 400 — Instant 끝 근처는 seek 의 atOffset 에서 500, 10000년 이후는 DB 비교에서 409
+  // 였다.
+  @Test
+  void 범위_밖_시각_커서_400() throws Exception {
+    Instant ok = Instant.parse("2026-05-22T03:14:00Z");
+    for (String bad : new String[] {"+1000000000-01-01T00:00:00Z", "+10000-01-01T00:00:00Z"}) {
+      String cursor =
+          new com.workplace.issue.dto.AiTaskCursor(0, ok, 1, 0, ok, 1, 0, 0, Instant.parse(bad), 9)
+              .encode();
+      assertThat(status("/api/v1/me/ai-tasks?cursor=" + cursor)).isEqualTo(400);
+    }
+  }
+
   // ---------------------------------------------------------------- 에픽 묶음(WP-375)
 
   /** 묶음 시드 기준 시각 — 실제 시각과 무관하게 고정한다. */
