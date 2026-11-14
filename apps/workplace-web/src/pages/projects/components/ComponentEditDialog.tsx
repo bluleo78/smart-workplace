@@ -67,6 +67,12 @@ function EditForm({
   const candidates = assigneeCandidates(members.data?.filter((m) => m.kind === 'HUMAN'));
   const stale = target?.defaultAssignee && target.defaultAssigneeValid === false ? target.defaultAssignee : null;
 
+  // 입력을 바꾸면 옛 서버 오류(이름 중복 등)를 지운다 — 서버 오류는 그때 보낸 값에 대한 답이라 값이 바뀌면 더는 맞지 않는다(WP-1558).
+  const edit = <T,>(set: (v: T) => void) => (v: T) => {
+    setError(null);
+    set(v);
+  };
+
   async function save() {
     if (!name.trim() || saving) return;
     setError(null);
@@ -100,7 +106,7 @@ function EditForm({
             id="component-name"
             value={name}
             maxLength={COMPONENT_NAME_MAX}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => edit(setName)(e.target.value)}
             placeholder="예: Compute"
             data-testid="component-name-input"
           />
@@ -111,14 +117,14 @@ function EditForm({
             value={description}
             maxLength={COMPONENT_DESCRIPTION_MAX}
             rows={3}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => edit(setDescription)(e.target.value)}
             data-testid="component-description-input"
           />
         </FormField>
         <FormField label="담당자" htmlFor="component-assignee">
           <Select
             value={assigneeId == null ? NO_ASSIGNEE : String(assigneeId)}
-            onValueChange={(v) => setAssigneeId(v === NO_ASSIGNEE ? null : Number(v))}
+            onValueChange={(v) => edit(setAssigneeId)(v === NO_ASSIGNEE ? null : Number(v))}
           >
             <SelectTrigger id="component-assignee" className="w-full" data-testid="component-assignee-select">
               <SelectValue />

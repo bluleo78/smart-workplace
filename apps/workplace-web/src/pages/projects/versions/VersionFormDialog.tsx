@@ -53,6 +53,11 @@ function VersionForm({
   const [saving, setSaving] = useState(false);
 
   const dateInvalid = isVersionDateRangeInvalid(startDate, releaseDate);
+  // 입력을 바꾸면 옛 서버 오류(이름 중복 등)를 지운다 — 서버 오류는 그때 보낸 값에 대한 답이라 값이 바뀌면 더는 맞지 않는다(WP-1558).
+  const edit = (set: (v: string) => void) => (v: string) => {
+    setError(null);
+    set(v);
+  };
 
   async function save() {
     if (!name.trim() || dateInvalid || saving) return;
@@ -102,7 +107,7 @@ function VersionForm({
             id="version-name"
             value={name}
             maxLength={VERSION_NAME_MAX}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => edit(setName)(e.target.value)}
             placeholder="예: v1.5.3"
             data-testid="version-name-input"
           />
@@ -113,7 +118,7 @@ function VersionForm({
             value={description}
             maxLength={VERSION_DESCRIPTION_MAX}
             rows={3}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => edit(setDescription)(e.target.value)}
             data-testid="version-description-input"
           />
         </FormField>
@@ -123,7 +128,7 @@ function VersionForm({
               id="version-start"
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => edit(setStartDate)(e.target.value)}
               data-testid="version-start-input"
             />
           </FormField>
@@ -132,7 +137,7 @@ function VersionForm({
               id="version-release"
               type="date"
               value={releaseDate}
-              onChange={(e) => setReleaseDate(e.target.value)}
+              onChange={(e) => edit(setReleaseDate)(e.target.value)}
               aria-invalid={dateInvalid}
               data-testid="version-release-input"
             />

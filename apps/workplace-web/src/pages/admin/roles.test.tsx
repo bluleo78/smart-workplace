@@ -41,6 +41,40 @@ test('사용자에게 할당된 역할을 지우려 하면 서버 400 사유를 
   expect(screen.getByRole('link', { name: 'EDITOR' })).toBeInTheDocument()
 })
 
+test('역할 추가 409 오류는 이름을 고치면 사라지고, 칸 검증에 막힌 재제출에도 되살아나지 않는다 (WP-1558)', async () => {
+  const posts: unknown[] = []
+  const { user } = renderScreen(<RoleListPage />, {
+    path: '/settings/roles',
+    handlers: [
+      http.get('/api/v1/roles', () => HttpResponse.json(ROLES)),
+      http.post('/api/v1/roles', async ({ request }) => {
+        posts.push(await request.json())
+        return HttpResponse.json({ message: '이미 존재하는 역할 이름입니다: ADMIN' }, { status: 409 })
+      }),
+    ],
+  })
+  await user.click(await screen.findByRole('button', { name: '역할 추가' }))
+  const dialog = await screen.findByRole('dialog', { name: '새 역할 생성' })
+  const name = within(dialog).getByLabelText('역할 이름')
+  await user.click(name)
+  await user.paste('ADMIN')
+  await user.click(within(dialog).getByRole('button', { name: '생성' }))
+  expect(await within(dialog).findByText('이미 존재하는 역할 이름입니다: ADMIN')).toBeInTheDocument()
+
+  // 제출 전, 이름을 고치기만 해도 옛 서버 오류가 사라진다.
+  await user.click(name)
+  await user.paste('_X')
+  expect(within(dialog).queryByText('이미 존재하는 역할 이름입니다: ADMIN')).not.toBeInTheDocument()
+
+  // 51자로 바꿔 생성 — 클라이언트 검증이 막아 칸 오류만 보이고 요청은 더 나가지 않는다.
+  await user.clear(name)
+  await user.paste('A'.repeat(51))
+  await user.click(within(dialog).getByRole('button', { name: '생성' }))
+  expect(await within(dialog).findByText('역할 이름은 50자 이하여야 합니다')).toBeInTheDocument()
+  expect(within(dialog).queryByText('이미 존재하는 역할 이름입니다: ADMIN')).not.toBeInTheDocument()
+  expect(posts).toHaveLength(1)
+})
+
 /** 역할 목록을 띄운다 — USER·ADMIN(시스템)·EDITOR(커스텀). */
 function renderRoleList() {
   return renderScreen(<RoleListPage />, {

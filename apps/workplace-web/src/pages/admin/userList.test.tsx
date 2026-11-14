@@ -152,6 +152,27 @@ test('서버 검증 오류는 최상위 message 대신 errors 필드 맵의 메�
   expect(screen.getByTestId('add-member-error')).not.toHaveTextContent('Validation failed')
 })
 
+test('아이디 중복 오류는 아이디를 고치면 사라지고, 이름을 비워 막힌 재제출에도 되살아나지 않는다 (WP-1558)', async () => {
+  const { user, posts } = await openAddDialog({
+    postResponse: () => HttpResponse.json({ message: '이미 사용 중인 아이디입니다.' }, { status: 409 }),
+  })
+  await fillMember(user, 'dup@acme.com', '중복')
+  await user.click(screen.getByTestId('add-member-submit'))
+  expect(await screen.findByTestId('add-member-error')).toHaveTextContent('이미 사용 중인 아이디입니다.')
+
+  // 제출 전, 아이디를 고치기만 해도 옛 서버 오류가 사라진다.
+  await user.clear(screen.getByTestId('add-member-username'))
+  await fill(user, 'add-member-username', 'new@acme.com')
+  expect(screen.queryByTestId('add-member-error')).not.toBeInTheDocument()
+
+  // 이름을 비워 추가 — 클라이언트 검증이 막아 칸 오류만 보이고 서버 오류 문구는 없다.
+  await user.clear(screen.getByTestId('add-member-name'))
+  await user.click(screen.getByTestId('add-member-submit'))
+  expect(await screen.findByText('이름을 입력하세요')).toBeInTheDocument()
+  expect(screen.queryByText('이미 사용 중인 아이디입니다.')).not.toBeInTheDocument()
+  expect(posts).toHaveLength(1)
+})
+
 test('비밀번호 구성원도 이메일이 아닌 아이디는 클라이언트 검증에서 막혀 전송되지 않는다 (WP-181)', async () => {
   const { user, posts } = await openAddDialog()
   await fillMember(user, 'max.lee', '맥스')

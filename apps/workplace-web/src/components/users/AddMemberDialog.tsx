@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useSsoSettings } from '@/hooks/queries/useSsoSettings'
 import { useCreateMember } from '@/hooks/queries/useUsers'
+import { useClearOnFormChange } from '@/hooks/useClearOnFormChange'
 import { extractApiError } from '@/lib/api-error'
 // 폼 스키마·요청 조립은 순수 함수로 분리(WP-412).
 import { type AddMemberFormData, addMemberSchema, toCreateMemberPayload } from '@/lib/validations/member'
@@ -56,6 +57,9 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
     defaultValues: { role: 'USER', loginMethod: 'PASSWORD' },
   })
   const loginMethod = watch('loginMethod')
+  // 입력이 바뀌면 옛 서버 오류(「이미 사용 중인 아이디입니다.」 등)를 지운다 — 클라이언트 검증이 막아 onSubmit 이 불리지 않아도
+  // 지금 입력과 모순된 문구가 남지 않게(WP-1558).
+  useClearOnFormChange({ watch }, () => setServerError(''))
 
   // SSO 가 켜져 있으면 다이얼로그를 열 때 SSO 전용을 기본 선택으로 맞춘다.
   useEffect(() => {
