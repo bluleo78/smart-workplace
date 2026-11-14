@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.USER;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.MentionResponse;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
 import java.nio.charset.StandardCharsets;
@@ -448,14 +449,28 @@ public class MessageRepository {
                   .getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 커서 해석. 깨진 값은 base64·숫자 파싱 원문 대신 한국어 안내의 IllegalArgumentException(→ 400)으로 바꾼다(WP-512). */
+    /**
+     * 커서 해석. 깨진 값은 base64·숫자 파싱 원문 대신 한국어 안내의 IllegalArgumentException(→ 400)으로 바꾼다(WP-512). 칸 수가
+     * 3이 아니거나 시각이 지원 범위 밖인 값도 같은 문구로 거절한다(WP-1583).
+     */
     public static Cursor decode(String s) {
       try {
         String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
-        String[] parts = raw.split("\\|");
-        return new Cursor(
-            Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1])),
-            Long.parseLong(parts[2]));
+        // limit -1: 끝의 빈 칸(…|id|)도 칸으로 세어 아래 칸 수 검사가 보게 한다.
+        String[] parts = raw.split("\\|", -1);
+        // 칸이 덧붙은 값(epochSecond|nano|id|junk, epochSecond|nano|id|)은 넷째 칸을 버리고 조용히 받던 것을
+        // 막는다(WP-1583).
+        if (parts.length != 3) {
+          throw new IllegalArgumentException("커서 칸 수가 3이 아님: " + parts.length);
+        }
+        Instant createdAt =
+            Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
+        // 앱이 받는 시각 범위(1900-01-01 ~ 9999-12-31) 밖이면 거절한다(WP-1583) — Instant 끝 시각은 호출부의
+        // OffsetDateTime 변환에서 500, DB 범위 밖 시각은 409 로 새던 것을 이 자리에서 400 으로 막는다.
+        if (!SupportedDates.isSupported(createdAt)) {
+          throw new IllegalArgumentException("커서 시각이 지원 범위 밖: " + createdAt);
+        }
+        return new Cursor(createdAt, Long.parseLong(parts[2]));
       } catch (RuntimeException e) {
         throw new IllegalArgumentException("목록 위치(cursor)가 올바르지 않습니다", e);
       }

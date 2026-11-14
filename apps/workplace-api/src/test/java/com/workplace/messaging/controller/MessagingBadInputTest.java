@@ -13,6 +13,8 @@ import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.UUID;
 import org.hamcrest.Matchers;
 import org.jooq.DSLContext;
@@ -82,6 +84,35 @@ class MessagingBadInputTest extends IntegrationTestBase {
                 .header("Authorization", auth))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("목록 위치(cursor)가 올바르지 않습니다"));
+  }
+
+  /** WP-1583: Instant 끝 시각을 담은 커서 — 예전엔 OffsetDateTime 변환에서 500. 400 + 한국어 안내여야 한다. */
+  @Test
+  void list_withOutOfRangeCursorTime_returns400InKorean() throws Exception {
+    mvc.perform(
+            get("/api/v1/messaging/channels/" + channelId + "/messages")
+                .param("cursor", rawCursor("31556889864403199|0|1"))
+                .header("Authorization", auth))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("목록 위치(cursor)가 올바르지 않습니다"));
+  }
+
+  /** WP-1583: 칸이 덧붙은 커서 — 예전엔 넷째 칸을 버리고 200. 400 + 한국어 안내여야 한다. */
+  @Test
+  void list_withExtraCursorPart_returns400InKorean() throws Exception {
+    mvc.perform(
+            get("/api/v1/messaging/channels/" + channelId + "/messages")
+                .param("cursor", rawCursor("1700000000|0|5|junk"))
+                .header("Authorization", auth))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("목록 위치(cursor)가 올바르지 않습니다"));
+  }
+
+  /** 원문을 base64url(패딩 없음)로 감싸 조작된 커서 문자열을 만든다. */
+  private static String rawCursor(String s) {
+    return Base64.getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(s.getBytes(StandardCharsets.UTF_8));
   }
 
   @Test
