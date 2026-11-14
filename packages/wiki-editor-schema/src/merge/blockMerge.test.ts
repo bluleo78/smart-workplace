@@ -159,6 +159,17 @@ describe('mergeMarkdown3', () => {
     expect(mergeMarkdown3(base, cur, ai).markdown).toBe('- 항목 a (사람)\n- 항목 b\n- 항목 c (AI)')
   })
 
+  // WP-1546 — 체크리스트는 markdown-it 에서 불릿 목록 토큰이라 항목별로 병합된다. 두 쪽이 서로 다른 항목을 체크해도 둘 다 남는다.
+  it('merges checklist items individually when both sides checked different items', () => {
+    const base = '- [ ] 보고서\n- [ ] 회의\n- [ ] 배포'
+    const cur = '- [x] 보고서\n- [ ] 회의\n- [ ] 배포'
+    const ai = '- [ ] 보고서\n- [ ] 회의\n- [x] 배포'
+    const merged = mergeMarkdown3(base, cur, ai).markdown
+    expect(merged).toBe('- [x] 보고서\n- [ ] 회의\n- [x] 배포')
+    // 병합 결과는 다시 읽어도 체크리스트 그대로다(저장 형식 안정).
+    expect(docToMarkdown(markdownToDoc(merged))).toBe(merged)
+  })
+
   it('keeps code blocks with blank lines and tables as single blocks', () => {
     const base = doc('```ts\nconst x = 1\n\nconst y = 2\n```', '| a | b |\n| --- | --- |\n| 1 | 2 |')
     const cur = base.replace('| 1 | 2 |', '| 1 | 3 |')

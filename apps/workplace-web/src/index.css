@@ -837,6 +837,50 @@
   margin: 0.25em 0;
 }
 
+/* 체크리스트(WP-1546) — 노트의 GFM 작업 목록. 위 ul 규칙이 불릿·들여쓰기를 붙이므로 작업 목록만 되돌린다.
+ * 선택자는 ul[data-type="taskList"] 로 한정한다 — .ProseMirror 를 함께 쓰는 채팅·메일 에디터의 일반 ul 은 그대로다.
+ * 편집기 NodeView 의 li 에는 data-type 이 없어(data-checked 만) li 는 목록의 직계 자식으로 고른다.
+ * 항목 = 체크 상자 label + 내용 div 를 한 줄에 놓고, 체크된 항목은 흐린 글자 + 취소선(자기 문단만 — 하위 항목에 번지지 않게). */
+.ProseMirror ul[data-type="taskList"] {
+  list-style-type: none;
+  padding-left: 0.25rem; /* 4px = space-1 — 상자가 불릿 자리를 대신한다 */
+}
+.ProseMirror ul[data-type="taskList"] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem; /* 8px = space-2 */
+}
+.ProseMirror ul[data-type="taskList"] > li > label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 1.5em; /* 첫 줄 높이에 상자를 맞춘다 */
+  user-select: none;
+}
+.ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+/* 읽기 전용(판 미리보기·공개 공유) — 눌러도 바뀌지 않으므로 누를 수 있어 보이지 않게. */
+.ProseMirror[contenteditable="false"] ul[data-type="taskList"] > li > label > input[type="checkbox"] {
+  cursor: default;
+}
+.ProseMirror ul[data-type="taskList"] > li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div > p {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+/* 하위 체크리스트(nested) — 상자 열에 맞춰 들여쓴다. 일반 목록 padding 누적 대신 내용 div 안에서 이어진다. */
+.ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin: 0.25em 0;
+}
+
 /* 코드블록/인라인 코드 — pre 자체 폰트(monospace)는 preflight가 건드리지
  * 않아 살아있지만, 배경/보더/여백이 전혀 정의되어 있지 않아 코드블록이라는
  * 시각적 구획이 안 보이는 문제 (#738). --muted는 다크모드 엘리베이션-1 서페이스라

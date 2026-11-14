@@ -31,10 +31,19 @@ function hasSpan(cell: PMNode): boolean {
 function isMarkdownSerializable(table: PMNode): boolean {
   const [firstRow, ...bodyRows] = table.content.content
   if (!firstRow) return true
-  if (firstRow.content.content.some((c) => c.type.name !== 'tableHeader' || hasSpan(c) || c.childCount > 1)) return false
+  if (firstRow.content.content.some((c) => c.type.name !== 'tableHeader' || hasSpan(c) || !isSingleParagraph(c))) return false
   return !bodyRows.some((row) =>
-    row.content.content.some((c) => c.type.name === 'tableHeader' || hasSpan(c) || c.childCount > 1),
+    row.content.content.some((c) => c.type.name === 'tableHeader' || hasSpan(c) || !isSingleParagraph(c)),
   )
+}
+
+/**
+ * 셀이 문단 하나뿐인지 — GFM 셀은 한 줄 인라인만 담는다.
+ * 원본 규칙은 블록 개수(childCount > 1)만 봐서, 블록 하나짜리 체크리스트·목록 셀(WP-1546)을 파이프 표로 쓰려다
+ * renderInline 이 목록을 줄바꿈째 써 표가 깨지고 `[x]` 가 글자로 이스케이프됐다. 문단이 아닌 블록이면 HTML 표로 폴백한다.
+ */
+function isSingleParagraph(cell: PMNode): boolean {
+  return cell.childCount <= 1 && (!cell.firstChild || cell.firstChild.type.name === 'paragraph')
 }
 
 /**

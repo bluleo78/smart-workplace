@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
+import { Editor } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
 
-import { filterSlashItems } from './wikiSlashSuggestion'
+import { applyBlockCommand, filterSlashItems } from './wikiSlashSuggestion'
 
 // 슬래시 메뉴 항목 거르기 — 공유 링크 화면(WP-579)은 AI 항목 없이 서식·삽입만.
 describe('filterSlashItems', () => {
@@ -44,5 +46,32 @@ describe('filterSlashItems', () => {
       label: 'AI 지시',
       kind: 'insert',
     })
+  })
+})
+
+// 체크리스트(WP-1546) — 「/」 메뉴 블록 항목. 번호 목록 다음에 있고, 고르면 지금 문단이 체크리스트가 된다.
+describe('체크리스트 슬래시 항목 (WP-1546)', () => {
+  it('「체크리스트」 항목이 번호 목록 바로 다음에 블록 항목으로 있고 「체크」로 찾힌다', () => {
+    const items = filterSlashItems('', { inTable: false, aiEnabled: false })
+    const k = items.map((i) => i.key)
+    expect(k.indexOf('taskList')).toBe(k.indexOf('orderedList') + 1)
+    expect(items.find((i) => i.key === 'taskList')).toMatchObject({ label: '체크리스트', kind: 'block' })
+    expect(filterSlashItems('체크', { inTable: false, aiEnabled: false }).map((i) => i.key)).toEqual(['taskList'])
+  })
+
+  it('표 안에서는 체크리스트 항목을 뺀다(셀에 넣으면 표 전체가 HTML 표로 저장된다)', () => {
+    expect(filterSlashItems('', { inTable: true, aiEnabled: true }).map((i) => i.key)).not.toContain('taskList')
+  })
+
+  it('고르면 지금 문단이 체크 안 된 체크리스트 항목이 된다', () => {
+    const editor = new Editor({ extensions: wikiSchemaExtensions(), content: '<p>할 일</p>' })
+    editor.commands.setTextSelection(2)
+    applyBlockCommand(editor.chain(), 'taskList')
+    const json = editor.getJSON()
+    expect(json.content?.[0]).toMatchObject({
+      type: 'taskList',
+      content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: '할 일' }] }] }],
+    })
+    editor.destroy()
   })
 })

@@ -6,7 +6,7 @@
 // 동적으로 차단한다(VIEWER → allow false → onStart 미발화 → 팝업 미노출). 액션 콜백·게이트는
 // 스테일 클로저를 피하려 ref 로 주입(RichInput 의 membersRef/onSubmitRef 패턴).
 
-import { Extension } from '@tiptap/core'
+import { type ChainedCommands, Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion, {
@@ -47,13 +47,15 @@ const INSERT_ITEMS: WikiSlashItem[] = [
   { key: 'htmlImport', label: 'HTML 파일 넣기', kind: 'insert' },
 ]
 
-// 기본 서식 블록 6종(#687) — 버블 툴바(WikiAiBubbleToolbar)의 서식 그룹과 대응하는 삽입/전환
+// 기본 서식 블록 7종(#687, 체크리스트 WP-1546) — 버블 툴바(WikiAiBubbleToolbar)의 서식 그룹과 대응하는 삽입/전환
 // 명령. 전부 에디터 트랜잭션만으로 끝나 LLM 을 거치지 않는다(kind: 'block').
 const BLOCK_ITEMS: WikiSlashItem[] = [
   { key: 'heading1', label: '제목1', kind: 'block' },
   { key: 'heading2', label: '제목2', kind: 'block' },
   { key: 'bulletList', label: '불릿 목록', kind: 'block' },
   { key: 'orderedList', label: '번호 목록', kind: 'block' },
+  // 체크리스트(WP-1546) — GFM 작업 목록 `- [ ] 할 일` 로 저장된다. 상자를 눌러 체크·해제한다.
+  { key: 'taskList', label: '체크리스트', kind: 'block' },
   { key: 'blockquote', label: '인용', kind: 'block' },
   { key: 'horizontalRule', label: '구분선', kind: 'block' },
 ]
@@ -84,15 +86,40 @@ export interface WikiSlashContext {
   aiEnabledRef?: { current: boolean }
 }
 
-/** 표 안에서 빼는 삽입 항목 — 표 셀은 마크다운 표(한 줄 셀)라 표·여러 줄 소스 블록·모양 영역(상자)을 담지 못한다. */
-const NOT_IN_TABLE: ReadonlySet<string> = new Set(['table', 'box', 'aiInstruction', 'htmlEmbed', 'htmlImport'])
+/**
+ * 표 안에서 빼는 항목 — 표 셀은 마크다운 표(한 줄 셀)라 표·여러 줄 소스 블록·모양 영역(상자)을 담지 못한다.
+ * 체크리스트(WP-1546)도 뺀다 — 셀에 넣으면 잃지는 않지만(tableNode.ts 가 HTML 표로 폴백) 표 전체가 파이프 표 대신 HTML 로 저장된다.
+ */
+const NOT_IN_TABLE: ReadonlySet<string> = new Set(['table', 'box', 'aiInstruction', 'htmlEmbed', 'htmlImport', 'taskList'])
 
-/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'상자'·'HTML 블록'·'HTML 파일 넣기'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
+/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'·'상자'·'HTML 블록'·'HTML 파일 넣기'·'체크리스트'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
 export function filterSlashItems(query: string, opts: { inTable: boolean; aiEnabled: boolean }): WikiSlashItem[] {
   const base = SLASH_ITEMS.filter((i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && NOT_IN_TABLE.has(i.key)))
   const q = query.trim().toLowerCase()
   if (!q) return base
   return base.filter((i) => i.label.toLowerCase().includes(q) || i.key.includes(q))
+}
+
+/**
+ * 기본 서식 블록 명령 → 체인에 얹을 명령. Record 라 블록 키를 더하면 여기를 빠뜨렸을 때 컴파일러가 잡는다.
+ * 체크리스트(WP-1546)는 지금 블록을 체크 안 된 항목으로 바꾼다(이미 체크리스트면 풀린다).
+ */
+const BLOCK_COMMANDS: Record<WikiBlockCommand, (chain: ChainedCommands) => ChainedCommands> = {
+  heading1: (c) => c.toggleHeading({ level: 1 }),
+  heading2: (c) => c.toggleHeading({ level: 2 }),
+  bulletList: (c) => c.toggleBulletList(),
+  orderedList: (c) => c.toggleOrderedList(),
+  taskList: (c) => c.toggleTaskList(),
+  blockquote: (c) => c.toggleBlockquote(),
+  horizontalRule: (c) => c.setHorizontalRule(),
+}
+
+/**
+ * 기본 서식 블록 명령을 체인에 얹어 실행한다 — 슬래시 메뉴 command 가 트리거 삭제 체인에 이어 부른다(한 트랜잭션).
+ * 순수하게 체인만 다뤄 단위 테스트에서 실제 에디터로 결과 문서를 확인한다.
+ */
+export function applyBlockCommand(chain: ChainedCommands, key: WikiBlockCommand): void {
+  BLOCK_COMMANDS[key](chain).run()
 }
 
 /** 슬래시 AI 메뉴 확장 생성. ctx 의 ref 를 통해 게이트/액션을 동적으로 주입. */
@@ -158,26 +185,7 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
               // 트리거 삭제와 블록 전환/삽입을 한 체인(= 한 트랜잭션)으로 묶는다(표 삽입과 동일 이유
               // — 따로 실행하면 삭제로 문서 위치가 밀린 뒤 적용돼 undo 도 두 번 눌러야 한다).
               const chain = editor.chain().focus().deleteRange(range)
-              switch (props.key as WikiBlockCommand) {
-                case 'heading1':
-                  chain.toggleHeading({ level: 1 }).run()
-                  return
-                case 'heading2':
-                  chain.toggleHeading({ level: 2 }).run()
-                  return
-                case 'bulletList':
-                  chain.toggleBulletList().run()
-                  return
-                case 'orderedList':
-                  chain.toggleOrderedList().run()
-                  return
-                case 'blockquote':
-                  chain.toggleBlockquote().run()
-                  return
-                case 'horizontalRule':
-                  chain.setHorizontalRule().run()
-                  return
-              }
+              applyBlockCommand(chain, props.key as WikiBlockCommand)
               return
             }
             editor.chain().focus().deleteRange(range).run()

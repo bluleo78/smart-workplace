@@ -13,6 +13,7 @@ import { WikiMarkdownSerializer } from './markSerializerState'
 import { WikiMention } from './mentionNode'
 import { WikiTableCell, WikiTableHeader } from './tableCellAlign'
 import { WikiTable } from './tableNode'
+import { WikiTaskItem, WikiTaskList } from './taskListNodes'
 import { WikiHeading, WikiParagraph } from './textAlign'
 
 /**
@@ -64,6 +65,10 @@ export function wikiSchemaExtensions(
     // 셀 가로 정렬(WP-584) — GFM 열 정렬 마커로 저장한다. tableCellAlign.ts 참조.
     WikiTableHeader,
     WikiTableCell,
+    // 체크리스트(WP-1546) — GFM 작업 목록 `- [ ] 할 일` / `- [x] 끝난 일`. 없던 때는 `[ ]` 가 글자로 남아 `\[ \]` 로 이스케이프됐다.
+    // 블록 노드라 문단 기본 블록 자리를 빼앗지 않게 StarterKit·표 뒤에 둔다. taskListNodes.ts 참조.
+    WikiTaskList,
+    WikiTaskItem,
     // HTML 모양 보존(WP-1240) — 페이지 스타일(<style data-wp-style>)과 class·style 을 지닌 컨테이너. htmlNodes.ts 참조.
     // 블록 노드는 맨 뒤에 둔다 — 앞에 두면 block+ 내용을 채울 때 기본 블록(문단) 자리를 빼앗는다.
     opts.style ?? WikiStyleSchema,
