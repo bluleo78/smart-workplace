@@ -399,6 +399,28 @@ describe('buildWikiTools', () => {
     expect(out.images[0]).toStrictEqual({ fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content' });
   });
 
+  // WP-1545: 이미지 외 파일도 묶인다 — images 는 이미지만(옛 호출자가 PDF 를 ![](url) 로 쓰지 않게), files 는 전부.
+  it('update_wiki_page: 이미지와 파일을 함께 묶으면 images 는 이미지만, files 는 전부 이름·MIME·isImage 와 실린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.claimWikiImages).mockResolvedValue([
+      { fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content', originalName: 'a.png', mimeType: 'image/png', sizeBytes: 16, image: true },
+      { fileId: 10, url: '/api/v1/wiki/pages/1/attachments/10/content', originalName: 'app.log', mimeType: 'text/plain', sizeBytes: 30, image: false },
+    ]);
+    vi.mocked(c.updateWikiPage).mockResolvedValue({ id: 1, version: 4 });
+    const out = JSON.parse(resultText(await tool(c, 'update_wiki_page').handler({ pageId: 1, version: 3, body: 'x', fileIds: [9, 10] })));
+    expect(out.images).toStrictEqual([{ fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content' }]);
+    expect(out.files).toStrictEqual([
+      { fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content', name: 'a.png', mimeType: 'image/png', isImage: true },
+      { fileId: 10, url: '/api/v1/wiki/pages/1/attachments/10/content', name: 'app.log', mimeType: 'text/plain', isImage: false },
+    ]);
+  });
+
+  it('update_wiki_page 설명은 이미지는 ![alt](url), 그 밖의 파일은 [이름](url) 로 쓰라고 안내한다', () => {
+    const d = tool(mockClient(), 'update_wiki_page').description;
+    expect(d).toContain('images ![alt](url)');
+    expect(d).toContain('[file name](url)');
+  });
+
   it('update_wiki_page: fileIds 가 없으면(또는 빈 배열이면) claim 을 부르지 않고 images 도 없다', async () => {
     const c = mockClient();
     for (const extra of [{}, { fileIds: [] }]) {

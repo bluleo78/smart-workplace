@@ -5,7 +5,18 @@ import { toast } from 'sonner'
 
 import { wikiApi } from '../../api/wiki'
 import { extractApiError } from '../../lib/api-error'
-import { clipboardHasText, INVALID_IMAGE_MSG, isValidImageFile } from '../../lib/imageUpload'
+import { clipboardHasText, isValidImageFile } from '../../lib/imageUpload'
+import { objectParticle } from '../../lib/utils'
+import {
+  clipboardTextIsFileNames,
+  droppedFilesWithoutFolders,
+  FOLDER_DROP_REJECTED_MSG,
+  isNonInlineImage,
+  NON_INLINE_IMAGE_NOTICE,
+  rememberWikiAttachment,
+  wikiUploadKind,
+  wikiUploadRejection,
+} from '../../lib/wikiAttachments'
 import { startUploadPlaceholder } from './wikiUploadPlaceholder'
 
 // 형식·크기 검사와 클립보드 텍스트 판정은 이슈 본문 업로드와 공용(lib/imageUpload).
@@ -42,7 +53,10 @@ export function registerWikiEditorView(pageId: number, view: EditorView): () => 
 }
 
 /**
- * 노트 본문 이미지 업로드 — 붙여넣기/드래그드롭 공용.
+ * 노트 본문 이미지·파일 업로드 — 붙여넣기/드래그드롭/슬래시 메뉴 공용.
+ *
+ * <p>WP-1545 부터 이미지가 아닌 파일(PDF·로그 등)도 올린다 — 서버 응답의 image 가 참이면 그림(image 노드), 거짓이면 그 자리에
+ * 파일 링크 `[이름](url)` 를 넣는다(화면에서는 파일 칩으로 보인다, wikiAttachmentChips). 크기 사전 검사는 이미지 10MB·파일 25MB.
  *
  * <p>업로드 중에는 내 화면에만 자리표시자(로컬 데코레이션, wikiUploadPlaceholder)를 띄우고, 완료되면 그 자리에 실제 이미지
  * 노드를 일반 편집으로 넣는다. 자리표시자는 공유 문서에 들어가지 않으므로 다른 사람에게 보이거나 본문에 저장되지 않는다(WP-295).
@@ -79,28 +93,32 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
       return v && !v.isDestroyed ? v : null
     }
 
+    // 안내 문구의 대상 — 업로드 전에는 파일 형식으로 가늠한다(최종 판정은 응답의 image).
+    const label = wikiUploadKind(file) === 'image' ? '이미지' : '파일'
     let res: Awaited<ReturnType<typeof wikiApi.uploadAttachment>>
     try {
       res = await wikiApi.uploadAttachment(uploadPageId, file, shareTokenRef.current)
     } catch (err) {
       // 서버가 보낸 구체적 사유(409 페이지당 첨부 상한, 400 매직바이트 판정 거부 등)가 있으면
       // 그대로 보여준다 — 전부 뭉뚱그리면 사용자가 왜 실패했는지 알 방법이 없다(Minor).
-      toast.error(extractApiError(err, '이미지 업로드에 실패했습니다.'))
+      toast.error(extractApiError(err, `${label} 업로드에 실패했습니다.`))
       const view = currentView()
       if (view) spot.remove(view)
       return
     }
     // 이 페이지를 떠나 열린 뷰가 없으면 마무리할 수 없다 — 이미지를 조용히 잃지 않게 알린다.
     // 자리표시자는 화면에만 있었으므로 문서에 남는 것은 없다.
+    // 칩이 크기·형식을 보이도록 응답을 기억한다(본문에는 이름·주소만 남는다).
+    rememberWikiAttachment(res.data)
     const view = currentView()
     if (!view) {
-      toast.warning('노트를 떠나 업로드한 이미지를 넣지 못했습니다.')
+      toast.warning(`노트를 떠나 업로드한 ${label}${objectParticle(label)} 넣지 못했습니다.`)
       return
     }
     // 업로드 중 읽기 전용으로 바뀌었으면(VIEWER 강등) 넣지 않는다 — 서버가 받지 않는 편집이라 내 화면만 어긋난다.
     if (!view.editable) {
       spot.remove(view)
-      toast.warning('편집 권한이 없어 업로드한 이미지를 넣지 못했습니다.')
+      toast.warning(`편집 권한이 없어 업로드한 ${label}${objectParticle(label)} 넣지 못했습니다.`)
       return
     }
     const pos = spot.position(view)
@@ -108,17 +126,24 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
       // 자리를 풀 수 없음(재마운트된 뷰에 동기화 정보가 없는 예외 상황) — 업로드는 이미 서버에서 성공했으므로
       // 이미지를 조용히 잃지 않게 알린다.
       spot.remove(view)
-      toast.warning('업로드한 이미지를 넣을 위치를 찾지 못했습니다.')
+      toast.warning(`업로드한 ${label}${objectParticle(label)} 넣을 위치를 찾지 못했습니다.`)
       return
     }
     try {
-      // 이미지 삽입과 자리표시자 걷기를 한 트랜잭션으로 — 사이에 깜빡임이 없다.
-      const tr = spot.removeIn(view.state.tr).insert(pos, view.state.schema.nodes.image.create({ src: res.data.url, alt: file.name }))
-      view.dispatch(tr)
+      // 삽입과 자리표시자 걷기를 한 트랜잭션으로 — 사이에 깜빡임이 없다.
+      // 그림인지는 서버 판정(image)을 따른다 — 응답에 없으면(옛 서버) 이미지만 받던 때라 파일 형식으로 가늠한다.
+      const { schema } = view.state
+      const isImage = res.data.image ?? wikiUploadKind(file) === 'image'
+      // 파일은 링크 뒤에 빈칸 하나를 붙인다 — 커서가 링크 끝에 붙어 있으면 칩이 원래 글자로 드러나 보이고(편집 중 커서가 닿은 링크),
+      // 이어 친 글자가 링크 밖에 놓이게 한다.
+      const nodes = isImage
+        ? [schema.nodes.image.create({ src: res.data.url, alt: file.name })]
+        : [schema.text(res.data.originalName || file.name, [schema.marks.link.create({ href: res.data.url })]), schema.text(' ')]
+      view.dispatch(spot.removeIn(view.state.tr).insert(pos, nodes))
     } catch {
-      // 자리가 image 노드를 허용하지 않는 콘텐츠(예: 코드블록)로 바뀐 경우 — 업로드 자체는 성공했으므로
+      // 자리가 image 노드·링크를 허용하지 않는 콘텐츠(예: 코드블록)로 바뀐 경우 — 업로드 자체는 성공했으므로
       // "업로드 실패" 로 보고하면 안 된다(별도 메시지). toast 를 먼저 띄워 걷기가 던져도 알림은 남긴다(N1).
-      toast.error('여기에는 이미지를 삽입할 수 없습니다.')
+      toast.error(`여기에는 ${label}${objectParticle(label)} 삽입할 수 없습니다.`)
       spot.remove(view)
     }
   }, [])
@@ -131,7 +156,7 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
       for (const file of files) {
         // 앞 파일 업로드 중 에디터가 재마운트됐으면 남은 파일은 넣을 커서 위치를 잃었다 — 조용히 버리지 않고 알린다.
         if (view.isDestroyed) {
-          toast.warning('화면이 바뀌어 남은 이미지 업로드를 멈췄습니다.')
+          toast.warning('화면이 바뀌어 남은 업로드를 멈췄습니다.')
           break
         }
         try {
@@ -152,20 +177,19 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
   const uploadFilesAt = useCallback(
     (view: EditorView, pos: number, files: File[]): boolean => {
       if (!canEditRef.current) return false // VIEWER — 서버가 403 으로 막지만 조용히 선제 차단(M2).
-      const imageFiles = files.filter((f) => f.type.startsWith('image/'))
-      if (imageFiles.length === 0) {
-        // 파일은 있는데 이미지가 하나도 아님(예: PDF 드롭) — 형식 거부와 같은 메시지로 알린다.
-        // 안 그러면 같은 제스처(드롭)인데 "형식이 틀린 이미지"는 toast 가 뜨고 "아예 이미지가
-        // 아닌 파일"은 아무 반응이 없어 사용자가 뭐가 잘못됐는지 알 수 없다(finding 3). handlePaste
-        // 는 호출 전에 이미 이미지로만 걸러 넘기고 슬래시 메뉴 file input 도 accept 로 걸러져 있어,
-        // 이 분기는 사실상 handleDrop 에서만 닿는다.
-        if (files.length > 0) toast.error(INVALID_IMAGE_MSG)
-        return false
-      }
       // 유효성 검사를 먼저 한다 — 업로드할 파일이 하나도 없으면 선택 위치도 옮기지 않는다(I1).
-      const valid = imageFiles.filter(isValidImageFile)
-      if (valid.length < imageFiles.length) toast.error(INVALID_IMAGE_MSG)
+      // WP-1545: 이미지가 아닌 파일(PDF 등)도 올린다. 이미지는 4종·10MB, 파일은 25MB 를 넘으면 요청 없이 알린다(같은 문구는 한 번).
+      const valid: File[] = []
+      const rejections = new Set<string>()
+      for (const f of files) {
+        const reason = wikiUploadRejection(f)
+        if (reason) rejections.add(reason)
+        else valid.push(f)
+      }
+      rejections.forEach((m) => toast.error(m))
       if (valid.length === 0) return false
+      // 4종 밖의 이미지(TIFF·HEIC·SVG 등)는 그림이 아니라 파일 칩으로 들어간다 — 그림을 기대한 사람이 놀라지 않게 한 번 알린다.
+      if (valid.some(isNonInlineImage)) toast.info(NON_INLINE_IMAGE_NOTICE)
       view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
       void uploadSequential(view, valid)
       return true
@@ -198,12 +222,13 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
       // DataTransferItem.getAsFile() 을 호출할 때마다 새 File 객체를 만들어(lastModified 도
       // 그때 찍힌다) 참조·내용 어느 쪽으로도 files 와 dedup 할 수 없다 — 둘 다 채워지는
       // Chrome 스크린샷 붙여넣기 같은 경우 items 까지 더하면 같은 이미지가 두 번 업로드된다(C1).
-      const fileList = Array.from(data.files ?? []).filter((f) => f.type.startsWith('image/'))
+      // WP-1545: 이미지만이 아니라 모든 파일을 받는다(파일은 파일 칩 링크로 들어간다).
+      const fileList = Array.from(data.files ?? [])
       const imageFiles =
         fileList.length > 0
           ? fileList
           : Array.from(data.items ?? [])
-              .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+              .filter((item) => item.kind === 'file')
               .map((item) => item.getAsFile())
               .filter((f): f is File => f != null)
 
@@ -213,7 +238,9 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
         // 남지만 함께 복사된 텍스트(표 등)가 통째로 사라진다. 이는 아래 data: 분기가 막고 있는
         // 것과 정확히 같은 무음 데이터 손실 클래스라, 두 분기가 같은 규칙(텍스트가 있으면 절대
         // 기본 붙여넣기를 막지 않는다)을 따르도록 통일한다(Blocker).
-        if (!clipboardHasText(data)) {
+        // Finder 등에서 파일을 복사하면 text/plain 에 파일 이름이 함께 실린다 — 이름뿐이면 잃을 글자가 없는 것으로 본다
+        // (그대로 두면 칩 옆에 이름이 한 번 더 붙는다).
+        if (!clipboardHasText(data) || clipboardTextIsFileNames(data.getData('text/plain'), imageFiles)) {
           // 순수 이미지 붙여넣기(예: Chrome 의 "이미지 복사") — 잃을 텍스트가 없으므로
           // uploadFilesAt 이 유효성 검사(I1)·toast·canEdit 게이트를 전담해 바로 업로드한다.
           const started = uploadFilesAt(view, view.state.selection.from, imageFiles)
@@ -266,8 +293,15 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
   const handleDrop = useCallback(
     (view: EditorView, event: DragEvent, _slice: unknown, moved: boolean): boolean => {
       if (moved) return false // 에디터 내부 이동(텍스트/노드 드래그) — 기본 동작 유지.
-      const files = Array.from(event.dataTransfer?.files ?? [])
-      if (files.length === 0) return false
+      const dt = event.dataTransfer
+      if (!dt || (dt.files?.length ?? 0) === 0) return false
+      // 폴더는 올리지 않는다 — 그대로 보내면 0바이트 항목이 올라가거나 서버가 거절한다. 요청 없이 한 번 알린다.
+      const { files, skippedFolder } = droppedFilesWithoutFolders(dt)
+      if (skippedFolder) toast.error(FOLDER_DROP_REJECTED_MSG)
+      if (files.length === 0) {
+        event.preventDefault() // 폴더만 드롭 — 브라우저가 폴더 내비게이션을 하지 않게 막는다.
+        return true
+      }
       // 파일이 있으면 업로드가 실제로 시작됐는지와 무관하게 항상 preventDefault+true 를 반환한다.
       // ProseMirror 는 dragover 는 막아주지만, drop 에서 false 를 반환하고 슬라이스에 텍스트가
       // 없으면 자신도 preventDefault 를 하지 않는다 — 그러면 브라우저 기본 동작(드롭된 파일로

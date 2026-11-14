@@ -8,13 +8,10 @@ import com.workplace.wiki.exception.WikiShareLoginRequiredException;
 import com.workplace.wiki.exception.WikiShareNotFoundException;
 import com.workplace.wiki.service.WikiPublicShareService;
 import jakarta.servlet.http.HttpServletResponse;
-import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -111,7 +108,10 @@ public class PublicWikiShareController {
         + "\" />\n";
   }
 
-  /** 외부 보기 본문 이미지 — 공유 범위 안 페이지에 붙은 첨부만(아니면 404). 본문 &lt;img&gt; 가 직접 부르므로 inline. */
+  /**
+   * 외부 보기 본문 첨부 — 공유 범위 안 페이지에 붙은 첨부만(아니면 404). 본문 &lt;img&gt; 가 직접 부르므로 판정된 이미지만 inline, 그 밖의
+   * 파일(WP-1545)은 attachment — 로그인 경로와 같은 {@link WikiAttachmentHeaders} 규칙.
+   */
   @GetMapping("/{token}/pages/{pageId}/attachments/{fileId}")
   public ResponseEntity<Resource> attachment(
       @PathVariable("token") String token,
@@ -122,12 +122,9 @@ public class PublicWikiShareController {
     long tenantId = service.locatePublicTenant(token);
     var f = TenantContext.callAs(tenantId, () -> service.attachment(token, pageId, fileId));
     // Resource 는 컨트롤러 반환 뒤 스트리밍되지만 디스크 읽기라 DB·테넌트 컨텍스트가 필요 없다.
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.parseMediaType(f.mimeType()));
-    headers.setContentDisposition(
-        ContentDisposition.inline().filename(f.originalName(), StandardCharsets.UTF_8).build());
-    headers.setContentLength(f.sizeBytes());
-    return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+    return ResponseEntity.ok()
+        .headers(WikiAttachmentHeaders.of(f))
+        .body(new FileSystemResource(f.path()));
   }
 
   private static void noIndexNoStore(HttpServletResponse response) {

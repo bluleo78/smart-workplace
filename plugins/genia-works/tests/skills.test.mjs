@@ -834,3 +834,64 @@ test('SKILL.md: 분류 역할 AI 는 project.md 설정이 있을 때만 켜지�
   assert.ok(lineWith(text, '끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**').includes('분류를 마치고 담당에서 빠질 때 하나다'));
   assert.ok(text.includes('분류를 마치고 담당에서 빠짐'));
 });
+
+// WP-1564 기획 역할 AI — 기획자가 맡은 이슈는 plan-issue.md 로 가고 구현·PR 로 흐르지 않는다. 설정이 없는 프로젝트는 지금 그대로다.
+test('SKILL.md 4번 「역할별 처리 파일」: 기획 역할 AI 는 plan-issue.md, 그 밖은 process-issue.md (WP-1564)', () => {
+  const text = body(workLoop('SKILL.md'));
+  const s4 = text.slice(text.indexOf('\n### 4. 이슈를 하나씩 처리\n'), text.indexOf('\n### 5. 다음 확인\n'));
+  assert.ok(s4.includes('**역할별 처리 파일**'), '4번에 「역할별 처리 파일」이 없다');
+  assert.match(s4, /^\| 기획 역할 AI \| 그 밖의 내 이슈 \| `plan-issue\.md`/m);
+  assert.match(s4, /^\| 그 밖 \| 모든 이슈 \| `process-issue\.md` \|$/m);
+  assert.match(s4, /^\| 분류 역할 AI \| [^\n]*「분류 \(분류 역할 AI\)」/m);
+  assertBefore(s4, '| 분류 역할 AI |', '| 그 밖 | 모든 이슈 |');
+  // 빈 값은 기획 역할 AI 없음 — 설정 없는 프로젝트(WD·EIS 등)의 동작이 바뀌지 않아야 한다.
+  assert.match(text, /\*\*기획 역할 AI\*\*[^\n]*비어 있음[^\n]*기획 역할 AI 가 없다/);
+  // 맡겨진 기획이 개선 탐색(본문 지시 회차)보다 먼저다.
+  assert.ok(text.includes('**기획 역할 AI 는 맡겨진 기획이 먼저다**'));
+  assert.ok(text.includes('기획 역할 AI 의 기획 이슈도 이 규칙을 쓰지 않는다'));
+  // 순서는 그대로(날짜가 걸린 회차를 잃지 않게) — 회차가 짧게 하고 양보한다.
+  assert.ok(text.includes('고르는 순서는 바꾸지 않는다'));
+  assert.ok(!text.includes('⑥ 뒤로 미룬다'));
+  // 기획자는 대기열에서 가져오지 않는다.
+  assert.ok(text.includes('**기획 역할 AI 는 `--queue` 가 있어도 대기열에서 가져오지 않는다**'));
+  // process-issue.md 만 읽어도 기획자의 회차는 구현으로 가지 않는다.
+  assert.ok(pi.includes('회차는 코드·브랜치·커밋·PR 을 만들지 않는다'));
+  // 팀장은 기획안 검토 멘션에 「담당자로 지정해 주세요」가 아니라 답을 한다.
+  assert.ok(text.includes('기획안 검토·의견 요청'));
+});
+
+test('plan-issue.md: 커밋·push·PR 단계가 없고, 팀장 검토(WAITING)·사람 확정(INPUT_REQUIRED) 뒤 넘기기로 끝난다 (WP-1564)', () => {
+  const plan = workLoop('plan-issue.md');
+  for (const banned of ['git push', 'pr-create', 'git commit', 'pr-merge', "state: 'REVIEW'"]) assert.ok(!plan.includes(banned), `plan-issue.md 에 「${banned}」`);
+  assert.ok(plan.includes('worktree add --detach'), '브랜치 없는 워크트리여야 한다');
+  assertBefore(plan, '\n### 8. 팀장 검토\n', '\n### 9. 사람 확정');
+  assertBefore(plan, '\n### 9. 사람 확정', '\n### 10. 넘기기\n');
+  assert.match(section(plan, '### 8. 팀장 검토', '### 9.'), /state: 'WAITING'/);
+  assert.match(section(plan, '### 9. 사람 확정', '### 10.'), /state: 'INPUT_REQUIRED'/);
+  // 넘기기: 마지막 보고를 담당에서 빠지기 전에, AI 담당을 모두 빼야 대기열에서 가져갈 수 있다.
+  const handoff = section(plan, '### 10. 넘기기', '### 11.');
+  assertBefore(handoff, '**마지막 보고**', '**넘기기**');
+  // 라벨을 먼저 붙이고 담당은 마지막에 뺀다 — 중간에 실패해도 아직 담당이라 BLOCKED 를 보고할 수 있다.
+  assertBefore(handoff, '먼저 넘길 곳을 붙인다', '기존에서 **나만** 뺀다');
+  assert.ok(handoff.includes('넣은 **뒤에** 나를 뺀다'));
+  // 개발 워크트리를 지우지 않게 기획 전용 경로만 쓴다.
+  assert.ok(plan.includes('worktree add --detach .claude/worktrees/<이슈 키>-plan'));
+  assert.ok(plan.includes('worktree remove --force .claude/worktrees/<이슈 키>-plan'));
+  // 멘션 없는 답변 필요는 없다 — 확인할 사람이 없으면 BLOCKED.
+  assert.ok(plan.includes('아무도 찾지 못하면 묻지 않고 `BLOCKED`'));
+  assert.ok(plan.includes('「원래 요청」을 겹쳐 넣지 않는다'));
+  assert.match(plan, /^\| 의견 대기 \| 일부만 답함 \| `WAITING` 다시/m);
+  // 대기 뒤 답이 오면 이어서 넘기기까지 간다.
+  assert.match(plan, /^\| 팀장 검토 대기 \| 승인 \| `WORKING` \| 작은 기획 → 10번 넘기기/m);
+  assert.match(plan, /^\| 사람 확정 대기 \| 확정 \| `WORKING` \| 10번 넘기기/m);
+});
+
+test('.work-loop/project.md 에 「기획 역할 AI」 절이 있다 (WP-1564)', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  const s = project.slice(project.indexOf('\n## 11. 기획 역할 AI'));
+  assert.ok(s.length > 20, '「기획 역할 AI」 절이 없다');
+  assert.match(s, /^- username: /m);
+  // 분류 역할 AI 의 「기획 필요」는 기획 역할 AI 값이 있을 때만 — 비어 있으면 사람에게 질문(WP-1565).
+  assert.ok(!project.includes('아직 「기획 역할 AI」 절이 없어'));
+  assert.ok(project.includes('값이 있을 때만 기획 역할 AI 를 담당으로 더한다'));
+});

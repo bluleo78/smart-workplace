@@ -29,9 +29,16 @@ describe('filterSlashItems', () => {
     expect(keys('HTML 파일', { inTable: false, aiEnabled: false })).toEqual(['htmlImport'])
     expect(keys('html', { inTable: false, aiEnabled: false })).toEqual(['htmlEmbed', 'htmlImport'])
   })
-  it('상자(WP-1303)는 이미지 다음·HTML 블록 앞에 있고 표 안에서는 빠진다', () => {
+  it('파일(WP-1545)은 이미지 바로 다음에 있고 표 안에서도 보인다(링크라 표 셀에 들어간다)', () => {
     const k = keys('', { inTable: false, aiEnabled: false })
-    expect(k.slice(0, 5)).toEqual(['table', 'image', 'box', 'aiInstruction', 'htmlEmbed'])
+    expect(k.indexOf('file')).toBe(k.indexOf('image') + 1)
+    expect(keys('', { inTable: true, aiEnabled: false })).toContain('file')
+    expect(keys('파일', { inTable: false, aiEnabled: false })).toEqual(['file', 'htmlImport'])
+    expect(filterSlashItems('', { inTable: false, aiEnabled: false }).find((i) => i.key === 'file')).toMatchObject({ label: '파일', kind: 'insert' })
+  })
+  it('상자(WP-1303)는 파일 다음·HTML 블록 앞에 있고 표 안에서는 빠진다', () => {
+    const k = keys('', { inTable: false, aiEnabled: false })
+    expect(k.slice(0, 6)).toEqual(['table', 'image', 'file', 'box', 'aiInstruction', 'htmlEmbed'])
     expect(keys('', { inTable: true, aiEnabled: false })).not.toContain('box')
     expect(keys('상자', { inTable: false, aiEnabled: false })).toEqual(['box'])
   })

@@ -1,10 +1,11 @@
 import { markdownToDoc } from '@smart-workplace/wiki-editor-schema'
 import { Extension } from '@tiptap/core'
 import type { Node as PMNode, Schema } from '@tiptap/pm/model'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin } from '@tiptap/pm/state'
 import { DecorationSet } from '@tiptap/pm/view'
 
 import { buildRevisionDiff, type RevisionDiffMark, toSchema } from './wikiRevisionDiff'
+import { wikiRevisionDiffKey } from './wikiRevisionDiffKey'
 
 /**
  * 버전 기록 미리보기(WP-298)가 그릴 문서와 차이 표시를 고른다.
@@ -39,8 +40,8 @@ export function previewDocOf(schema: Schema, from: PMNode, diff: RevisionDiff | 
 /** 미리보기 문서 + 그 좌표의 차이 표시. */
 type RevisionDiff = { doc: PMNode; marks: RevisionDiffMark[] }
 
-/** 차이 표시 데코레이션 상태 키 — 미리보기 컴포넌트가 setMeta 로 새 DecorationSet 을 넣는다. */
-export const wikiRevisionDiffKey = new PluginKey<DecorationSet>('wikiRevisionDiff')
+// 차이 표시 상태 키는 가벼운 별도 파일에 둔다(첨부 칩도 읽는다) — 기존 가져오기 경로는 그대로 쓰게 다시 내보낸다.
+export { wikiRevisionDiffKey }
 
 /**
  * 미리보기 전용 차이 표시 확장 — 문서 스키마는 건드리지 않고 데코레이션만 그린다(WIKI_SCHEMA_VERSION 무관).

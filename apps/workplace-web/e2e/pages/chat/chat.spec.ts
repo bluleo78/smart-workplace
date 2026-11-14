@@ -8,7 +8,6 @@ import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage } from '../../factories/messaging.factory';
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
-import { boxOf } from '../../fixtures/layout';
 import { expectStays } from '../../fixtures/wait';
 import { expectSelectedRow } from '../../fixtures/selection';
 
@@ -379,15 +378,20 @@ test('빈 채널 안내 — 공백 없는 긴 채널 이름도 칸 안에서 줄
     const description = empty.locator('p');
     // 설명 <p> 도 "#이름" 을 담으므로 제목만 잡도록 정확 일치로 찾는다.
     const title = empty.getByText(`#${longName}`, { exact: true });
-    // boxOf — 뷰포트를 바꾼 직후 다시 그려지는 찰나의 null 상자를 넘기고 잰다.
-    const emptyBox = await boxOf(empty);
+    await expect(title).toBeVisible();
     for (const el of [description, title]) {
-      // 내용이 잘리거나 넘치지 않는다.
-      expect(await el.evaluate((n) => n.scrollWidth <= n.clientWidth)).toBe(true);
-      // 박스가 빈 상태 영역의 좌우 끝 안에 있다.
-      const box = await boxOf(el);
-      expect(box.x).toBeGreaterThanOrEqual(emptyBox.x);
-      expect(box.x + box.width).toBeLessThanOrEqual(emptyBox.x + emptyBox.width);
+      // 내용이 잘리거나 넘치지 않고, 박스가 빈 상태 영역의 좌우 끝 안에 있다.
+      // 빈 상태 영역과 요소를 같은 프레임에서 함께 재고, 뷰포트를 바꾼 직후 다시 배치되는 동안은 기다린다
+      // — 빈 상태 영역을 먼저 따로 재면 바뀌기 전 배치(데스크톱 x)가 잡혀 부하 속에서 흔들렸다.
+      await expect
+        .poll(() =>
+          el.evaluate((n) => {
+            const area = n.closest('[data-testid="chat-empty-state"]')!.getBoundingClientRect();
+            const r = n.getBoundingClientRect();
+            return n.scrollWidth <= n.clientWidth && r.left >= area.left && r.right <= area.right;
+          }),
+        )
+        .toBe(true);
     }
   }
 });

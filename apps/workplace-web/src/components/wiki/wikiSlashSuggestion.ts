@@ -37,6 +37,8 @@ import {
 const INSERT_ITEMS: WikiSlashItem[] = [
   { key: 'table', label: '표', kind: 'insert' },
   { key: 'image', label: '이미지', kind: 'insert' },
+  // 파일(WP-1545) — PDF·로그 등 아무 파일을 골라 올리고 그 자리에 파일 칩(링크)을 넣는다(WikiEditor 의 onFileInsertRef 경유).
+  { key: 'file', label: '파일', kind: 'insert' },
   // 상자(WP-1303) — 글을 카드처럼 감싸는 블록. 「기본」 모양 빈 상자를 넣고 커서를 그 안에 둔다(insertBox).
   { key: 'box', label: '상자', kind: 'insert' },
   // AI 지시 상자(WP-1482) — AI 에게 줄 지시를 적는 상자. 빈 지시 상자를 넣고 커서를 그 안에 둔다. LLM 을 거치지 않아 AI 꺼짐이어도 보인다.
@@ -79,6 +81,8 @@ export interface WikiSlashContext {
   onActionRef: { current: (action: GenerateActionKey) => void }
   // '이미지' 항목 선택 시 호출(#751) — WikiEditor 의 숨은 file input 을 연다. 최신값 참조용 ref.
   onImageInsertRef: { current: () => void }
+  // '파일' 항목 선택 시 호출(WP-1545) — WikiEditor 의 형식 제한 없는 숨은 file input 을 연다. 생략하면 항목을 눌러도 트리거만 지운다.
+  onFileInsertRef?: { current: () => void }
   // 'HTML 파일 넣기' 항목 선택 시 호출(WP-1241) — WikiEditor 의 숨은 HTML 파일 input 을 연다. 생략하면 항목을 눌러도 트리거만 지운다.
   onHtmlImportRef?: { current: () => void }
   // AI 항목(초안·이어쓰기)을 보일지 — 공유 링크로 연 편집 화면은 false(WP-579 설계 「하지 않는 것」: 공유로는 AI 를 쓰지 않는다).
@@ -145,6 +149,12 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
                 // "/이미지" 텍스트만 먼저 지우고, 실제 업로드는 WikiEditor 의 file input 이 맡는다.
                 editor.chain().focus().deleteRange(range).run()
                 ctx.onImageInsertRef.current()
+                return
+              }
+              if (props.key === 'file') {
+                // 이미지와 같다 — 파일 선택이 비동기라 트리거만 먼저 지우고, 업로드·삽입은 WikiEditor 의 file input 이 맡는다.
+                editor.chain().focus().deleteRange(range).run()
+                ctx.onFileInsertRef?.current()
                 return
               }
               if (props.key === 'htmlImport') {

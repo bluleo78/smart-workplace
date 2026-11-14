@@ -7,6 +7,7 @@ import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.StagedFileUnusableException;
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
@@ -30,6 +31,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,7 +46,13 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 노트 본문 이미지 첨부 — 업로드/조회/삭제와 저장 시 영구화(promote). */
+/**
+ * 노트 본문 첨부 — 업로드/조회/삭제와 저장 시 영구화(promote).
+ *
+ * <p>WP-1545 부터 이미지 외 파일(PDF·로그·jar 등)도 받는다. 매직바이트 판정은 거절이 아니라 분류에만 쓴다 — 이미지는 판정 MIME·이미지 상한, 그 밖은
+ * 선언 MIME 을 정규화한 값·파일 상한. 본문 &lt;img&gt; 로 inline 서빙되는 것은 판정된 이미지뿐이다(컨트롤러 {@code
+ * WikiAttachmentHeaders}).
+ */
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -55,6 +63,9 @@ public class WikiAttachmentService {
   /**
    * 본문에서 첨부 참조를 찾는 패턴. {@link WikiAttachmentResponse#urlOf(long, long)} 와 짝을 이룬다 — 한쪽만 바꾸면 업로드는
    * 성공하는데 promote 가 안 돼 몇 시간 뒤 blob 이 무음으로 만료 수거된다.
+   *
+   * <p>주소만 보고 앞의 마크다운 문법은 보지 않는다 — 이미지 {@code ![alt](url)} 와 파일 링크 {@code [이름](url)}(WP-1545)이 같이
+   * 영구화된다. {@code ![} 로 좁히면 파일 첨부가 저장 뒤에도 만료로 지워진다.
    */
   // \d{1,19} — Long.MAX_VALUE 가 19자리다. 18자리로 좁히면 19자리 id 가 매칭 실패해 promote 가 조용히 스킵되고
   // 몇 시간 뒤 blob 이 만료 수거되는 무음 실패로 이어진다(리뷰 지적).
@@ -86,6 +97,13 @@ public class WikiAttachmentService {
   @Value("${workplace.storage.wiki.max-image-size-bytes:10485760}")
   private long maxImageSizeBytes;
 
+  /**
+   * 이미지가 아닌 첨부의 크기 상한(WP-1545) — 기본 25MB 는 이슈·채널 첨부({@code attachment.max-file-size-bytes})와 같은
+   * 값이다.
+   */
+  @Value("${workplace.storage.wiki.max-file-size-bytes:26214400}")
+  private long maxFileSizeBytes;
+
   @Value("${workplace.storage.wiki.max-per-page:50}")
   private int maxPerPage;
 
@@ -105,7 +123,7 @@ public class WikiAttachmentService {
   private int tempExpiryHours;
 
   /**
-   * 업로드 — EDITOR 이상(멤버 또는 편집 공유 링크, WP-579). 매직바이트로 이미지 판별하고 임시 파일로 저장한다.
+   * 업로드 — EDITOR 이상(멤버 또는 편집 공유 링크, WP-579). 매직바이트로 이미지인지 분류하고(이미지가 아니어도 받는다, WP-1545) 임시 파일로 저장한다.
    *
    * @param shareToken 공유 화면의 {@link WikiShareAccess#HEADER}, 없으면 null
    */
@@ -118,39 +136,99 @@ public class WikiAttachmentService {
     if (file.isEmpty()) {
       throw new WikiAttachmentRejectedException("빈 파일입니다.");
     }
-    if (file.getSize() > maxImageSizeBytes) {
-      // 바이트 수 대신 MB 한도와 파일 이름으로 알린다(WP-834) — 드라이브 크기 초과와 같은 문구.
-      throw new WikiAttachmentRejectedException(
-          FileSizeLimitExceededException.message(
-              "IMAGE",
-              maxImageSizeBytes,
-              SafeFileNames.sanitize(file.getOriginalFilename(), "file")));
-    }
 
-    // 브라우저 Content-Type 은 위조 가능하므로 신뢰하지 않고 앞부분 매직바이트로 판정한다(별도 스트림이라 본 저장 스트림을 소비하지 않음).
-    String detectedMime =
-        ImageSniffer.detectUpload(file)
-            .orElseThrow(() -> new WikiAttachmentRejectedException("지원하지 않는 이미지 형식입니다."));
+    // 브라우저 Content-Type 은 위조 가능하므로 이미지 여부는 앞부분 매직바이트로 판정한다(별도 스트림이라 본 저장 스트림을 소비하지 않음).
+    // 판정이 먼저여야 한다 — 이미지(10MB)와 그 밖(25MB)의 상한이 다르다.
+    Classified kind =
+        classify(
+            ImageSniffer.detectUpload(file), file.getOriginalFilename(), file.getContentType());
+    // 저장 이름(WikiAttachmentStorage)과 응답 이름을 한 번에 정한다(WP-737) — 이미지는 예전대로 "image", 그 밖은 "file" 이 대체
+    // 이름.
+    String originalName = SafeFileNames.sanitize(file.getOriginalFilename(), kind.fallbackName());
+    requireWithinSize(kind, file.getSize(), originalName);
 
     guardNewAttachments(pageId, detail.body(), 1, file.getSize());
 
-    Long fileId = storage.storeTemporary(file, callerId, detectedMime);
+    String detectedMime = kind.mime();
+    Long fileId = storage.storeTemporary(file, callerId, detectedMime, originalName);
     attachments.bind(fileId, pageId, callerId);
     // WP-358: 다른 첨부(이슈·챗·드라이브)와 같은 공용 추출 파이프라인에 태운다 — 같은 트랜잭션에서 추출 행이 생긴다.
-    // 지금 업로드는 매직바이트로 이미지만 받으므로 실제로는 SKIPPED(IMAGE) 행이 되고 워커로 디스패치되지 않는다. 형식이 넓어지면
-    // 그대로 PENDING → 추출로 이어진다. 임시 파일이 만료 수거되면 file_extraction 도 FK CASCADE 로 함께 지워진다.
+    // 이미지는 SKIPPED(IMAGE) 행이 되고 워커로 디스패치되지 않는다. PDF·텍스트 등(WP-1545)은 PENDING → 추출로 이어진다.
+    // 임시 파일이 만료 수거되면 file_extraction 도 FK CASCADE 로 함께 지워진다.
     eventPublisher.publishEvent(
         FileExtractionRequestedEvent.of(fileId, detectedMime, ExtractionProfile.TEXT_ONLY));
     notifier.attachmentChanged(ResourceChangedEvent.OP_CREATED, spaceId, pageId, callerId);
 
-    // 저장 이름(WikiAttachmentStorage)과 같은 규칙(WP-737).
-    String originalName = SafeFileNames.sanitize(file.getOriginalFilename(), "image");
     return new WikiAttachmentResponse(
         fileId,
         WikiAttachmentResponse.urlOf(pageId, fileId),
         originalName,
         detectedMime,
-        file.getSize());
+        file.getSize(),
+        kind.image());
+  }
+
+  /**
+   * 첨부 한 건의 분류 — 매직바이트로 확인된 이미지인지와 저장할 MIME.
+   *
+   * @param image 매직바이트로 확인된 이미지(PNG·JPEG·GIF·WebP)면 참
+   * @param mime 저장 MIME — 이미지는 판정값, 그 밖은 선언값·확장자로 정규화한 값
+   */
+  private record Classified(boolean image, String mime) {
+    /** 원본 이름이 비었을 때의 대체 이름 — 이미지는 예전(WP-737)대로 "image". */
+    String fallbackName() {
+      return image ? "image" : "file";
+    }
+  }
+
+  /**
+   * 업로드·클레임 공통 분류(WP-1545). 판정된 이미지는 그 MIME 을, 아니면 선언 MIME 을 {@link MimeNormalizer} 로 정규화한다.
+   *
+   * <p>불변식: 판정되지 않은 파일은 inline 이미지 MIME(PNG·JPEG·GIF·WebP)을 저장하지 않는다 — 이미지라고 선언한 HTML 이 그 MIME 으로
+   * 남으면 보기(/view)·다른 소비처가 이미지로 믿는다. 깨진 Content-Type 도 서빙 때 parseMediaType 이 실패하지 않게 구체 타입이 아니면
+   * octet-stream 으로 둔다.
+   */
+  private static Classified classify(
+      Optional<String> sniffed, String fileName, String declaredMime) {
+    if (sniffed.isPresent()) {
+      return new Classified(true, sniffed.get());
+    }
+    String mime =
+        MimeNormalizer.concreteOrOctetStream(MimeNormalizer.normalize(fileName, declaredMime));
+    if (MimeNormalizer.INLINE_CONTENT_MIMES.contains(mime)) {
+      mime = "application/octet-stream";
+    } else if (isScriptCapable(mime)) {
+      // WP-1323 규칙 — 노트 첨부 원본 경로(공개 공유 포함)에는 드라이브 같은 상시 CSP sandbox 가 없던 이력이 있어, html·svg·xml·js 를
+      // 스크립트를 돌릴 수 있는 MIME 으로 저장하지 않는다. 텍스트라 text/plain 으로 두면 추출(본문 읽기)은 그대로 된다.
+      mime = "text/plain";
+    }
+    return new Classified(false, mime);
+  }
+
+  /**
+   * 브라우저가 문서·스크립트로 실행할 수 있는 MIME 인지 — html·xml 계열({@link MimeNormalizer#isActiveDocumentMime}, svg
+   * 포함)과 javascript·ecmascript. 서빙 머리글({@code WikiAttachmentHeaders})도 같은 판정으로 octet-stream 을 쓰지만,
+   * 저장값부터 무해하게 둬 다른 소비처(드라이브 가져오기 등)가 저장 MIME 을 믿어도 안전하게 한다.
+   */
+  private static boolean isScriptCapable(String mime) {
+    return MimeNormalizer.isActiveDocumentMime(mime)
+        || mime.contains("javascript")
+        || mime.contains("ecmascript");
+  }
+
+  /**
+   * 분류별 크기 상한 — 이미지는 {@code max-image-size-bytes}(10MB), 그 밖은 {@code max-file-size-bytes}(25MB).
+   * 바이트 수 대신 MB 한도와 파일 이름으로 알린다(WP-834·WP-848 과 같은 문구).
+   */
+  private void requireWithinSize(Classified kind, long sizeBytes, String name) {
+    if (kind.image() && sizeBytes > maxImageSizeBytes) {
+      throw new WikiAttachmentRejectedException(
+          FileSizeLimitExceededException.message("IMAGE", maxImageSizeBytes, name));
+    }
+    if (!kind.image() && sizeBytes > maxFileSizeBytes) {
+      throw new WikiAttachmentRejectedException(
+          FileSizeLimitExceededException.attachmentMessage(maxFileSizeBytes, name));
+    }
   }
 
   /**
@@ -199,14 +277,14 @@ public class WikiAttachmentService {
   }
 
   /**
-   * 먼저 올려 둔 스테이징 이미지(WP-421)를 이 페이지의 첨부로 가져온다(WP-424) — EDITOR 이상. 외부 MCP 가 파일을 올려 두고 노트 본문에 넣는
-   * 경로다.
+   * 먼저 올려 둔 스테이징 파일(WP-421)을 이 페이지의 첨부로 가져온다(WP-424, 이미지 외 파일은 WP-1545) — EDITOR 이상. 외부 MCP 가 파일을
+   * 올려 두고 노트 본문에 넣는 경로다.
    *
    * <p>순서: ① 이미 이 페이지에 묶인 id 는 호출자가 올린 것이면 성공으로 건너뛰고(재시도 멱등 — 응답을 못 받고 다시 보내도 안전) 남이 올린 것이면 거절한다.
    * 클레임은 어느 도메인에든 묶인 파일을 거절하므로 이 구분을 먼저 해야 한다. ② 나머지를 KEEP_TEMPORARY 로 클레임 — 노트는 본문 참조로 수명을 관리하므로
-   * 만료를 그대로 둔다. ③ 파일마다 크기·이미지 여부(매직바이트)를 모두 확인한 뒤 ④ 상한({@link #guardNewAttachments})을 보고 ⑤ MIME 을
-   * 판정값으로 고치고 만료를 새로 세워 정션에 묶는다. ⑤는 클레임과 같은 트랜잭션이라 동시 클레임이 정션 행을 보고 거절된다. 묶인 파일은 임시로 남고 본문 저장의
-   * {@link #syncReferences} 가 참조된 것만 영구화한다 — 참조하지 않으면 만료로 지워진다.
+   * 만료를 그대로 둔다. ③ 파일마다 이미지 여부(매직바이트)로 분류해 크기를 모두 확인한 뒤 ④ 상한({@link #guardNewAttachments})을 보고 ⑤
+   * MIME 을 분류값(이미지는 판정값, 그 밖은 정규화값)으로 고치고 만료를 새로 세워 정션에 묶는다. ⑤는 클레임과 같은 트랜잭션이라 동시 클레임이 정션 행을 보고
+   * 거절된다. 묶인 파일은 임시로 남고 본문 저장의 {@link #syncReferences} 가 참조된 것만 영구화한다 — 참조하지 않으면 만료로 지워진다.
    *
    * <p>편집 공유 링크로 들어온 사람의 이미지 붙여넣기(WP-579)도 같은 경로다 — EDITOR 판정이 멤버·공유 중 높은 역할.
    *
@@ -239,29 +317,30 @@ public class WikiAttachmentService {
       if (meta == null || meta.uploadedBy() == null || meta.uploadedBy() != callerId) {
         throw new StagedFileUnusableException(id);
       }
+      // 이미 묶인 파일의 MIME 은 분류 불변식(classify)을 거친 값이라 inline 이미지 MIME 이면 판정된 이미지다.
+      // Set.of 의 contains(null) 은 NPE 라 null 을 먼저 거른다(MIME 없는 옛 행).
       byId.put(
           id,
           claimResponse(
-              pageId, meta.fileId(), meta.originalName(), meta.mimeType(), meta.sizeBytes()));
+              pageId,
+              meta.fileId(),
+              meta.originalName(),
+              meta.mimeType(),
+              meta.sizeBytes(),
+              meta.mimeType() != null
+                  && MimeNormalizer.INLINE_CONTENT_MIMES.contains(meta.mimeType())));
     }
 
     if (!toClaim.isEmpty()) {
       List<StagedFile> staged =
           stagedFileClaimer.claim(callerId, toClaim, StagedFileClaimer.Retention.KEEP_TEMPORARY);
-      Map<Long, String> sniffed = new HashMap<>();
+      // 묶기 전에 모두 분류·크기 검사한다 — 하나라도 넘으면 예외로 트랜잭션이 롤백돼 아무것도 묶이지 않는다.
+      Map<Long, Classified> kinds = new HashMap<>();
       for (StagedFile f : staged) {
-        if (f.sizeBytes() > maxImageSizeBytes) {
-          throw new WikiAttachmentRejectedException(
-              FileSizeLimitExceededException.message("IMAGE", maxImageSizeBytes, f.originalName()));
-        }
         byte[] head = storage.readHead(f.fileId(), f.storagePath(), ImageSniffer.HEAD_BYTES);
-        sniffed.put(
-            f.fileId(),
-            ImageSniffer.detect(head)
-                .orElseThrow(
-                    () ->
-                        new WikiAttachmentRejectedException(
-                            "이미지 파일(PNG·JPEG·GIF·WebP)만 노트에 넣을 수 있습니다: " + f.originalName())));
+        Classified kind = classify(ImageSniffer.detect(head), f.originalName(), f.mimeType());
+        requireWithinSize(kind, f.sizeBytes(), f.originalName());
+        kinds.put(f.fileId(), kind);
       }
       // 이 페이지에 묶인 파일은 위에서 읽은 그대로다(새 파일은 아래에서야 묶는다) — 다시 조회하지 않는다.
       // 스테이징 파일은 이미 file 행이라 사용량에 들어 있으므로 새 바이트는 0 이다(WP-1391 — 더하면 이중 계산).
@@ -269,7 +348,8 @@ public class WikiAttachmentService {
 
       OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plusHours(tempExpiryHours);
       for (StagedFile f : staged) {
-        String mime = sniffed.get(f.fileId());
+        Classified kind = kinds.get(f.fileId());
+        String mime = kind.mime();
         attachments.updateMimeAndExpiry(f.fileId(), mime, expiresAt);
         attachments.bind(f.fileId(), pageId, callerId);
         // 업로드와 같이 바인딩한 쪽이 공용 추출 파이프라인에 태운다(클레임은 추출 이벤트를 내지 않는다).
@@ -278,7 +358,12 @@ public class WikiAttachmentService {
         byId.put(
             f.fileId(),
             claimResponse(
-                pageId, f.fileId(), UnicodeNames.toNfc(f.originalName()), mime, f.sizeBytes()));
+                pageId,
+                f.fileId(),
+                UnicodeNames.toNfc(f.originalName()),
+                mime,
+                f.sizeBytes(),
+                kind.image()));
       }
       notifier.attachmentChanged(ResourceChangedEvent.OP_CREATED, spaceId, pageId, callerId);
     }
@@ -288,9 +373,9 @@ public class WikiAttachmentService {
 
   /** 클레임 응답 한 건 — url 은 본문에 쓸 정본 경로. 새로 묶은 파일과 이미 묶여 있던 파일(재시도)이 같은 모양으로 돌려준다. */
   private static WikiAttachmentResponse claimResponse(
-      long pageId, long fileId, String name, String mimeType, long sizeBytes) {
+      long pageId, long fileId, String name, String mimeType, long sizeBytes, boolean image) {
     return new WikiAttachmentResponse(
-        fileId, WikiAttachmentResponse.urlOf(pageId, fileId), name, mimeType, sizeBytes);
+        fileId, WikiAttachmentResponse.urlOf(pageId, fileId), name, mimeType, sizeBytes, image);
   }
 
   /**

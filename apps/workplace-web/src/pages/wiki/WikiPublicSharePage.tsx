@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
 import { isHtmlPage } from '../../components/wiki/html-document/wikiHtmlDocument'
+import { useWikiAttachmentViewer } from '../../components/wiki/useWikiAttachmentViewer'
 import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { NoteScriptFrame, WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from '../../components/wiki/wikiHtmlBlockSecurity'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
@@ -218,10 +219,13 @@ function PublicBody({ markdown, pageId, token }: { markdown: string; pageId: num
   }, [editor, markdown])
   // HTML 블록 스크립트(WP-1290) — 기본 멈춤. 서버가 같은 내용으로 마친 점검이 있어야 본문 위 줄의 스위치로 켤 수 있다.
   const scope = useMemo(() => ({ pageId, publicToken: token }), [pageId, token])
+  // 본문 첨부 칩(WP-1545) — 서버가 공개 첨부 주소로 바꿔 둔 링크라 로그인 없이 뷰어로 받는다.
+  const attachments = useWikiAttachmentViewer()
   return (
     <WikiHtmlBlockScopeProvider scope={scope}>
       <WikiHtmlScriptBar />
-      <EditorContent editor={editor} className="wiki-editor" />
+      <EditorContent editor={editor} className="wiki-editor" onClick={attachments.onClick} />
+      {attachments.viewer}
     </WikiHtmlBlockScopeProvider>
   )
 }

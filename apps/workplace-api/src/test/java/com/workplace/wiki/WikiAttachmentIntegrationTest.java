@@ -49,6 +49,8 @@ import org.springframework.transaction.annotation.Transactional;
 @TestPropertySource(
     properties = {
       "workplace.storage.wiki.max-image-size-bytes=200",
+      // WP-1545 이미지 외 첨부 상한 — 이미지(200)보다 크게 잡아 두 상한이 따로 적용되는지 본다.
+      "workplace.storage.wiki.max-file-size-bytes=400",
       "workplace.storage.wiki.max-per-page=2"
     })
 class WikiAttachmentIntegrationTest extends IntegrationTestBase {
@@ -123,6 +125,14 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
     byte[] data = new byte[Math.max(totalSize, PNG_MAGIC.length)];
     System.arraycopy(PNG_MAGIC, 0, data, 0, PNG_MAGIC.length);
     return new MockMultipartFile("file", name, "image/png", data);
+  }
+
+  /** PDF 머리(%PDF-) + 채움 — 이미지로 판정되지 않는 파일 첨부(WP-1545)용. */
+  private MockMultipartFile pdfFile(String name, int totalSize) {
+    byte[] head = "%PDF-1.4\n".getBytes(StandardCharsets.US_ASCII);
+    byte[] data = new byte[Math.max(totalSize, head.length)];
+    System.arraycopy(head, 0, data, 0, head.length);
+    return new MockMultipartFile("file", name, "application/pdf", data);
   }
 
   private OffsetDateTime expiresAtOf(long fileId) {
@@ -254,34 +264,192 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
         .andExpect(status().isNotFound());
   }
 
+  /** WP-1545 — SVG 는 이제 받지만(파일 첨부) 스크립트 벡터라 무해한 text/plain 으로 저장하고 attachment 로만 내린다. */
   @Test
-  void SVG_업로드는_이미지_ContentType으로_보내도_400() throws Exception {
+  void SVG_업로드는_받지만_text_plain으로_저장하고_attachment로만_내려준다() throws Exception {
     var svg =
         new MockMultipartFile(
             "file",
             "a.svg",
             "image/svg+xml",
-            "<svg xmlns='http://www.w3.org/2000/svg'></svg>".getBytes(StandardCharsets.UTF_8));
+            "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"
+                .getBytes(StandardCharsets.UTF_8));
+    var res = upload(editorId, pageId, svg);
+    assertThat(res.image()).isFalse();
+    assertThat(res.originalName()).isEqualTo("a.svg");
+    assertThat(res.mimeType()).isEqualTo("text/plain");
+
     mvc.perform(
-            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
-                .file(svg)
-                .header("Authorization", "Bearer " + tokenFor(editorId)))
-        .andExpect(status().isBadRequest());
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + res.fileId() + "/content")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "text/plain"))
+        .andExpect(
+            header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("attachment")))
+        .andExpect(header().string("X-Content-Type-Options", "nosniff"));
   }
 
+  /**
+   * WP-1545·WP-1323 — text/html 로 올린 HTML 은 받되 스크립트를 돌릴 수 있는 MIME 으로 저장하지 않는다(text/plain). 응답도
+   * attachment 라 API 출처에서 렌더되지 않는다.
+   */
   @Test
-  void PNG라고_선언한_HTML_업로드는_400() throws Exception {
+  void HTML_업로드는_무해한_MIME으로_저장되고_attachment로_내려준다() throws Exception {
+    var html =
+        new MockMultipartFile(
+            "file",
+            "evil.html",
+            "text/html",
+            "<html><script>alert(1)</script></html>".getBytes(StandardCharsets.UTF_8));
+    var res = upload(editorId, pageId, html);
+    assertThat(res.image()).isFalse();
+    assertThat(res.mimeType()).isEqualTo("text/plain");
+    assertThat(
+            dsl.select(FILE.MIME_TYPE)
+                .from(FILE)
+                .where(FILE.ID.eq(res.fileId()))
+                .fetchOne(FILE.MIME_TYPE))
+        .isEqualTo("text/plain");
+
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + res.fileId() + "/content")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "text/plain"))
+        .andExpect(
+            header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("attachment")))
+        .andExpect(header().string("Content-Security-Policy", "sandbox"));
+  }
+
+  /**
+   * WP-1545 — PNG 라고 선언한 HTML 은 파일 첨부로 받되, 선언한 이미지 MIME 을 믿지 않는다(저장 MIME 은 octet-stream). 응답은
+   * attachment + octet-stream 이라 절대 inline 으로 렌더되지 않는다.
+   */
+  @Test
+  void PNG라고_선언한_HTML은_이미지로_믿지_않고_attachment로만_내려준다() throws Exception {
     var fakePng =
         new MockMultipartFile(
             "file",
             "a.png",
             "image/png",
             "<html><script>alert(1)</script></html>".getBytes(StandardCharsets.UTF_8));
+    var res = upload(editorId, pageId, fakePng);
+    assertThat(res.image()).isFalse();
+    assertThat(res.mimeType()).isEqualTo("application/octet-stream");
+    assertThat(
+            dsl.select(FILE.MIME_TYPE)
+                .from(FILE)
+                .where(FILE.ID.eq(res.fileId()))
+                .fetchOne(FILE.MIME_TYPE))
+        .isEqualTo("application/octet-stream");
+
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + res.fileId() + "/content")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "application/octet-stream"))
+        .andExpect(
+            header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("attachment")));
+  }
+
+  /** WP-1545 — PDF 는 이미지 상한(200B)보다 커도 파일 상한(400B) 안이면 받고, 원래 이름·MIME 을 지키며 attachment 로 내려준다. */
+  @Test
+  void PDF_업로드는_원래_이름과_MIME으로_저장되고_attachment로_내려준다() throws Exception {
+    var res = upload(editorId, pageId, pdfFile("주간 보고.pdf", 300));
+    assertThat(res.image()).isFalse();
+    assertThat(res.mimeType()).isEqualTo("application/pdf");
+    assertThat(res.originalName()).isEqualTo("주간 보고.pdf");
+    assertThat(res.sizeBytes()).isEqualTo(300);
+
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + res.fileId() + "/content")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "application/pdf"))
+        .andExpect(
+            header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("attachment")))
+        // UTF-8 이름은 filename*= 로 인코딩된다 — 한글 "주간" 의 퍼센트 인코딩과 확장자로 본다.
+        .andExpect(
+            header()
+                .string(
+                    "Content-Disposition",
+                    org.hamcrest.Matchers.containsString("%EC%A3%BC%EA%B0%84")))
+        .andExpect(
+            header().string("Content-Disposition", org.hamcrest.Matchers.containsString(".pdf")));
+  }
+
+  /** 응답 JSON 키 — 웹 파일 칩이 쓰는 image·originalName·mimeType·sizeBytes(WP-1545). */
+  @Test
+  void 업로드_응답에_image_여부와_파일_메타가_실린다() throws Exception {
     mvc.perform(
             multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
-                .file(fakePng)
+                .file(pdfFile("a.pdf", 100))
                 .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.image").value(false))
+        .andExpect(jsonPath("$.originalName").value("a.pdf"))
+        .andExpect(jsonPath("$.mimeType").value("application/pdf"))
+        .andExpect(jsonPath("$.sizeBytes").value(100));
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pngFile("b.png", 50))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.image").value(true))
+        .andExpect(jsonPath("$.mimeType").value("image/png"));
+  }
+
+  @Test
+  void 이미지가_아닌_파일이_파일_상한을_넘으면_400() throws Exception {
+    // max-file-size-bytes=400 — 이미지 상한(200)과 별개로 적용된다.
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pdfFile("big.pdf", 500))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("첨부 파일은 최대 400B까지 업로드할 수 있습니다: big.pdf"));
+  }
+
+  @Test
+  void 이름_없는_파일은_대체_이름_file로_저장된다() throws Exception {
+    var noName =
+        new MockMultipartFile(
+            "file", "", "text/plain", "log line".getBytes(StandardCharsets.UTF_8));
+    var res = upload(editorId, pageId, noName);
+    assertThat(res.originalName()).isEqualTo("file");
+    assertThat(res.mimeType()).isEqualTo("text/plain");
+  }
+
+  /** WP-250 보기는 이미지·PDF(쪽 지정)만 — 로그 파일·쪽 없는 PDF 는 서버 오류가 아니라 한국어 안내와 함께 4xx. */
+  @Test
+  void 이미지가_아닌_첨부의_view는_4xx로_거절된다() throws Exception {
+    var log =
+        upload(
+            editorId,
+            pageId,
+            new MockMultipartFile(
+                "file", "app.log", "text/plain", "ERROR boom".getBytes(StandardCharsets.UTF_8)));
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + log.fileId() + "/view")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isUnsupportedMediaType())
+        .andExpect(jsonPath("$.message").value("PDF·이미지만 이미지로 볼 수 있습니다(SVG 는 볼 수 없습니다)."));
+
+    var pdf = upload(editorId, pageId, pdfFile("a.pdf", 100));
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + pdf.fileId() + "/view")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
         .andExpect(status().isBadRequest());
+  }
+
+  /** WP-1545 — 이미지 문법이 아닌 파일 링크 [이름](url) 로만 참조해도 저장 때 영구화된다(syncReferences 는 주소만 본다). */
+  @Test
+  void 파일_링크로만_참조한_첨부도_저장시_영구화된다() throws Exception {
+    var res = upload(editorId, pageId, pdfFile("report.pdf", 100));
+    String body = "보고서: [report.pdf](" + WikiAttachmentResponse.urlOf(pageId, res.fileId()) + ")";
+    savePage(editorId, pageId, body, 1);
+
+    assertThat(expiresAtOf(res.fileId())).isNull();
   }
 
   @Test

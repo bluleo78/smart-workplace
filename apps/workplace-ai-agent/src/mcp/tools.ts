@@ -1426,7 +1426,7 @@ export function buildTools(
       // 채널에서 멘션된 에이전트 신원의 messaging 프로필에는 싣지 않는다(에이전트가 사람 이름으로 리액션·수정하는 정책은 별도 결정).
       // WP-421: 리액션 추가·제거는 react(reacted) 하나로 합쳐졌다(WP-812: 이슈 코멘트 반응까지 같은 도구).
       sharedTool('join_channel'), sharedTool('react'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
-      // WP-421: 첨부용 텍스트 파일 올려 두기(content 모드만) — 쓰기라 라우터가 아니라 issue-agent·messaging-agent 에만 둔다(wiki-agent 는 텍스트가 노트 이미지가 될 수 없어 싣지 않는다).
+      // WP-421: 첨부용 텍스트 파일 올려 두기(content 모드만) — 쓰기라 라우터가 아니라 issue-agent·messaging-agent 에만 둔다(wiki-agent 에는 아직 싣지 않는다 — WP-1545 부터 노트도 텍스트 파일 첨부를 받으므로 필요해지면 더한다).
       sharedTool('upload_file'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),

@@ -297,6 +297,16 @@ export interface WikiPageRow {
   [key: string]: unknown;
 }
 
+/** 노트 첨부 클레임 응답 한 건(WP-424·WP-1545). image 가 없는(옛 서버) 응답은 이미지로 본다 — 그때는 이미지만 받았다. */
+export interface WikiClaimedAttachment {
+  fileId: number;
+  url: string;
+  originalName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  image?: boolean;
+}
+
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
   /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. spaceId 가 있으면 그 스페이스만(WP-357). */
@@ -315,8 +325,12 @@ export interface WikiToolClient {
   createWikiHtmlPage(spaceId: number, body: { parentId: number | null; title: string; html: string }): Promise<unknown>;
   /** PUT /wiki/pages/{id}/html — HTML 문서 원본을 바꾼다(WP-1307). version 불일치 409, 노트면 409, 5MB 초과 413. */
   saveWikiHtml(pageId: number, body: { version: number; title?: string; html: string }): Promise<unknown>;
-  /** POST /wiki/pages/{id}/attachments/claim — upload_file 로 스테이징한 이미지를 노트 첨부로 묶는다(WP-424). 응답 url 을 본문에 쓴다. */
-  claimWikiImages(pageId: number, fileIds: number[]): Promise<{ fileId: number; url: string }[]>;
+  /**
+   * POST /wiki/pages/{id}/attachments/claim — upload_file 로 스테이징한 파일을 노트 첨부로 묶는다(WP-424, 이미지 외 파일은 WP-1545).
+   * 응답 url 을 본문에 쓴다. image 는 서버가 매직바이트로 확인한 이미지인지 — 이미지는 ![alt](url), 그 밖은 [이름](url).
+   * 이제 모든 파일 형식을 클레임한다 — 이름(claimWikiImages)은 호환을 위해 그대로 둔다.
+   */
+  claimWikiImages(pageId: number, fileIds: number[]): Promise<WikiClaimedAttachment[]>;
   /** GET /wiki/spaces/{id}/pages — 평면 목록(parentId·position). 트리 조립은 핸들러(#850). */
   listWikiPages(spaceId: number): Promise<WikiPageRow[]>;
   /** GET /wiki/pages/{id}/backlinks — 래퍼 { items } 를 벗긴 배열. */
