@@ -375,6 +375,29 @@ test('인용문 있는 전달에서 형제 컴포넌트 key 중복 경고가 나
   expect(dup).toEqual([])
 })
 
+// 참조·숨은참조 입력은 같은 Fragment 아래 형제라 key 가 서로 달라야 한다(WP-1594). 둘 다 작성 회차(instanceId)만 key 로 쓰면
+// React 가 중복 key 경고를 내고 한쪽을 잘못 재사용·누락할 수 있다. 회차가 바뀌면 다시 그려 쓰던 조각을 버리는 의도(WP-945)도 함께 본다.
+test('참조/숨은참조를 펼쳐도 형제 key 중복 경고가 없고 칸이 하나씩 보이며, 새 작성에서는 쓰던 조각이 비워진다(WP-1594)', async () => {
+  const errors = vi.spyOn(console, 'error')
+  // 조각을 남긴 채 닫으면 임시저장한다 — 그 요청을 받아 준다.
+  const drafts = draftPosts()
+  const { user } = renderMail('/mail/1', { handlers: [drafts.handler] })
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(await screen.findByRole('button', { name: '참조/숨은참조' }))
+  expect(await screen.findAllByTestId('mail-compose-cc')).toHaveLength(1)
+  expect(screen.getAllByTestId('mail-compose-bcc')).toHaveLength(1)
+  const dup = errors.mock.calls.map((c) => c.map(String).join(' ')).filter((m) => /two children with the same key/i.test(m))
+  expect(dup).toEqual([])
+
+  // 참조 칸에 칩으로 굳지 않은 조각을 남긴 채 닫고 새로 열면 — 새 회차라 조각이 넘어오지 않는다.
+  await user.type(screen.getByTestId('mail-compose-cc'), 'half-typed')
+  await user.click(screen.getByTestId('mail-compose-close'))
+  await waitFor(() => expect(screen.queryByTestId('mail-compose-cc')).not.toBeInTheDocument())
+  await user.click(await screen.findByTestId('mail-compose-new'))
+  await user.click(await screen.findByRole('button', { name: '참조/숨은참조' }))
+  expect(await screen.findByTestId('mail-compose-cc')).toHaveValue('')
+})
+
 // ── 인용문 인라인 이미지(mail-quote, WP-69) ─────────────────────────────────────────────
 
 async function openInlineMail(extra: NonNullable<Parameters<typeof renderMail>[1]>['handlers'] = []) {

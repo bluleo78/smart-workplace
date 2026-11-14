@@ -1044,8 +1044,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
           <MailRecipientInput key={draft?.instanceId} label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={edit(setTo)} inputRef={toInputRef} trailing={ccBccToggle} />
           {showCcBcc && (
             <>
-              <MailRecipientInput key={draft?.instanceId} label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={edit(setCc)} />
-              <MailRecipientInput key={draft?.instanceId} label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
+              {/* 참조·숨은참조는 같은 Fragment 아래 형제라 칸 이름을 앞에 붙여 key 를 가른다 — 회차만 쓰면 중복 key 라
+                  React 가 한쪽을 잘못 재사용·누락할 수 있다(WP-1594). 회차가 바뀌면 key 도 바뀌어 다시 그리는 의도(WP-945)는 그대로. */}
+              <MailRecipientInput key={`cc-${draft?.instanceId}`} label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={edit(setCc)} />
+              <MailRecipientInput key={`bcc-${draft?.instanceId}`} label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
             </>
           )}
           <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} maxLength={MAIL_SUBJECT_MAX} />
