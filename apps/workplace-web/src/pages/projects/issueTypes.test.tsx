@@ -183,6 +183,28 @@ describe('설정 — 이슈 유형 관리', () => {
     await waitFor(() => expect(screen.getByTestId('issue-type-row-99')).toHaveTextContent('새유형이름'))
   })
 
+  // WP-1561 — 이름이 비었거나 공백뿐인 채 「추가」하면 예전엔 아무 반응이 없었다. 칸 아래 안내·포커스, 요청 없음, 입력하면 안내가 사라진다.
+  test('추가 — 공백뿐인 이름은 칸 아래 「이름을 입력해 주세요」, 요청 없음, 이름 칸 포커스 (WP-1561)', async () => {
+    const requests = recordRequests()
+    const { user } = renderTypes([http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes()))])
+    const form = await screen.findByTestId('issue-type-create-form')
+    const input = within(form).getByLabelText('이름')
+    await user.click(input)
+    await user.paste('   ')
+    const add = within(form).getByRole('button', { name: '추가' })
+    expect(add).toBeEnabled()
+    await user.click(add)
+    expect(within(form).getByRole('alert')).toHaveTextContent('이름을 입력해 주세요')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAttribute('aria-describedby', 'new-type-name-error')
+    expect(input).toHaveFocus()
+    expect(requests.count('POST', `/api/v1/projects/${KEY}/types`)).toBe(0)
+
+    await user.paste('디자인')
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-invalid', 'false')
+  })
+
   test('삭제 버튼 접근 이름이 유형별로 구분된다 (#779)', async () => {
     const a = makeIssueType({ id: 91, name: '디자인', colorToken: 'PURPLE', icon: 'Star', isSystem: false })
     const b = makeIssueType({ id: 92, name: '리서치', colorToken: 'GREEN', icon: 'Circle', isSystem: false })

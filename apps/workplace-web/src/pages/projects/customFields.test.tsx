@@ -124,6 +124,34 @@ describe('커스텀 필드 — 설정 화면', () => {
     expect([...rowSelect.querySelectorAll('span')].filter((s) => s.textContent?.includes('['))).toHaveLength(0)
   })
 
+  // WP-1561 — 이름이 비었거나 공백뿐인 채 「추가」하면 예전엔 아무 반응이 없었다. 칸 아래 안내·포커스, 요청 없음, 입력하면 안내가 사라진다.
+  test('추가 — 공백뿐인 이름은 칸 아래 「이름을 입력해 주세요」, 요청 없음, 이름 칸 포커스 (WP-1561)', async () => {
+    const posts: unknown[] = []
+    const { user } = await openSettings({ current: [fieldDef({ id: 700, name: '기존필드', type: 'TEXT' })] })
+    server.use(
+      http.post(FIELDS, async ({ request }) => {
+        posts.push(await request.json())
+        return HttpResponse.json(fieldDef({ id: 701, name: 'x', type: 'TEXT' }))
+      }),
+    )
+    const form = screen.getByTestId('custom-field-create-form')
+    const input = within(form).getByLabelText('이름')
+    await user.click(input)
+    await user.paste('   ')
+    const add = within(form).getByRole('button', { name: '추가' })
+    expect(add).toBeEnabled()
+    await user.click(add)
+    expect(within(form).getByRole('alert')).toHaveTextContent('이름을 입력해 주세요')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAttribute('aria-describedby', 'cf-name-error')
+    expect(input).toHaveFocus()
+    expect(posts).toEqual([])
+
+    await user.paste('비고')
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-invalid', 'false')
+  })
+
   test('삭제는 이슈 값까지 지워진다는 확인 대화상자를 거쳐 DELETE 하고 목록에서 빠진다 (#148)', async () => {
     const fields = { current: [fieldDef({ id: 200, name: '삭제필드', type: 'TEXT' })] }
     const deletes: string[] = []

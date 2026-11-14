@@ -175,6 +175,36 @@ describe('라벨 — 설정 화면', () => {
     await waitFor(() => expect(api.calls.map((c) => c.body)).toEqual([{ name: 'a-b', colorToken: 'GRAY' }]))
   })
 
+  // WP-1561 — 이름이 비었거나 공백뿐인 채 「추가」하면 예전엔 아무 반응이 없었다. 칸 아래 안내·포커스, 요청 없음, 입력하면 안내가 사라진다.
+  test('추가 — 공백뿐인 이름은 칸 아래 「이름을 입력해 주세요」, 요청 없음, 이름 칸 포커스', async () => {
+    const api = settingsApi([], 'OWNER')
+    const { user } = renderLabels(api)
+    const form = await screen.findByTestId('label-create-form')
+    const input = within(form).getByLabelText('이름')
+    await user.click(input)
+    await user.paste('   ')
+    const add = within(form).getByRole('button', { name: '추가' })
+    // 빈 이름 때문에 단추를 막지 않는다 — 눌러야 안내가 보인다.
+    expect(add).toBeEnabled()
+    await user.click(add)
+    expect(within(form).getByRole('alert')).toHaveTextContent('이름을 입력해 주세요')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAttribute('aria-describedby', 'new-label-name-error')
+    expect(input).toHaveFocus()
+    expect(api.calls).toEqual([])
+
+    // 이어서 쉼표 든 이름을 넣으면 빈 이름 안내는 지워지고 쉼표 오류 하나만 보인다(칸 아래 오류는 한 번에 하나).
+    await user.paste('a,b')
+    expect(within(form).getAllByRole('alert')).toHaveLength(1)
+    expect(within(form).getByRole('alert')).toHaveTextContent('라벨 이름에는 쉼표(,)를 쓸 수 없습니다')
+
+    await user.clear(input)
+    await user.paste('새라벨')
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument()
+    await user.click(add)
+    await waitFor(() => expect(api.calls.map((c) => c.body)).toEqual([{ name: '새라벨', colorToken: 'GRAY' }]))
+  })
+
   // WP-1386 — 편집 창도 쉼표 든 새 이름은 창 안 오류로 막고, 이미 있는 쉼표 라벨은 이름 그대로 색만 바꿔 저장할 수 있다.
   test('편집 — 쉼표 든 새 이름은 막고, 기존 쉼표 라벨의 색만 바꾸기는 된다', async () => {
     const label = createLabel({ name: 'a,b', colorToken: 'GRAY' })
