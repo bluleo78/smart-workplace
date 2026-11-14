@@ -18,6 +18,7 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.CreateProjectStatusRequest;
 import com.workplace.issue.dto.UpdateProjectStatusRequest;
 import com.workplace.issue.service.IssueService;
+import com.workplace.issue.service.ProjectStatusDeletionService;
 import com.workplace.issue.service.ProjectStatusService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -360,6 +361,40 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
                 .header("Authorization", "Bearer " + tokenFor(owner)))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("옮길 상태를 골라 주세요"));
+  }
+
+  @Test
+  void POST_다른_범주_상태_뒤에_넣으면_400과_범주_문구() throws Exception {
+    long owner = createUser("pa");
+    ProjectResponse p = newProject(owner, "PEU");
+    Long done = idOf(owner, p.key(), "완료");
+
+    String body =
+        om.writeValueAsString(new CreateProjectStatusRequest("설계", "IN_PROGRESS", done, null));
+    mvc.perform(
+            post("/api/v1/projects/" + p.key() + "/statuses")
+                .header("Authorization", "Bearer " + tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message").value(ProjectStatusService.AFTER_STATUS_CATEGORY_MISMATCH));
+  }
+
+  @Test
+  void DELETE_moveTo가_자기자신이면_400과_문구() throws Exception {
+    long owner = createUser("ds");
+    ProjectResponse p = newProject(owner, "PEV");
+    var review =
+        statusService.create(
+            owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
+
+    mvc.perform(
+            delete("/api/v1/projects/" + p.key() + "/statuses/" + review.id())
+                .param("moveTo", String.valueOf(review.id()))
+                .header("Authorization", "Bearer " + tokenFor(owner)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(ProjectStatusDeletionService.MOVE_TO_SELF));
   }
 
   @Test

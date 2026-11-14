@@ -270,9 +270,11 @@ class ProjectStatusDeletionTest extends IntegrationTestBase {
             .id();
 
     assertThatThrownBy(() -> delete(review, review))
-        .isInstanceOf(InvalidStatusForProjectException.class);
+        .isInstanceOf(InvalidStatusForProjectException.class)
+        .hasMessage(ProjectStatusDeletionService.MOVE_TO_SELF);
     assertThatThrownBy(() -> delete(review, foreign))
-        .isInstanceOf(InvalidStatusForProjectException.class);
+        .isInstanceOf(InvalidStatusForProjectException.class)
+        .hasMessage(InvalidStatusForProjectException.DEFAULT_MESSAGE);
     assertThatThrownBy(() -> delete(review, Long.MAX_VALUE))
         .isInstanceOf(StatusNotFoundException.class);
     assertThat(statusExists(review)).isTrue();
