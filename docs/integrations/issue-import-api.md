@@ -53,6 +53,7 @@
 | `updatedAt` | 원래 수정 시각. 없으면 `createdAt`. `createdAt` 보다 이르면 400. 종료 시각보다 이르면(아래) 400. |
 | `closedAt` | 종료 시각. **종료 범주(완료·취소) 상태일 때만** 줄 수 있고(아니면 400), 없으면 `updatedAt`. `createdAt` 보다 이르거나 `updatedAt` 보다 늦으면 400(종료도 변경이라 수정 시각이 종료 이후여야 한다). |
 | 딸린 것들의 시각 | 댓글 `createdAt`·첨부 `attachedAt`·이력 `at` 은 이슈 `createdAt` 보다 이르면 400. 미래 시각 검사는 하지 않는다. |
+| 시각 범위 | 위 시각 칸(이슈 `createdAt`·`updatedAt`·`closedAt`, 첨부 `attachedAt`, 댓글 `createdAt`·`updatedAt`, 이력 `at`)은 모두 1900-01-01 ~ 9999-12-31(UTC) 안이어야 한다. 밖이면 400 이고 `errors` 에 칸 이름(예: `comments[0].createdAt`)과 범위 안내가 온다. |
 | `attachments` | `[{fileId, attachedBy, attachedAt}]` 50개까지. |
 | `comments` | `[{author, createdAt, updatedAt?, body}]` 500개까지, 입력 순서대로. 본문 50,000자. 댓글 `updatedAt` 이 `createdAt` 보다 이르면 400. |
 | `history` | 변경 이력 1,000개까지(아래). |

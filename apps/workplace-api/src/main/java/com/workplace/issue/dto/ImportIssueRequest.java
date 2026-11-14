@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.workplace.global.time.SupportedDateTime;
 import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest.FieldValueInput;
 import jakarta.validation.Valid;
@@ -53,9 +54,11 @@ public record ImportIssueRequest(
     @Size(max = 50, message = "담당자는 50명 이하여야 합니다.")
         List<@NotBlank(message = "담당자 이름은 비울 수 없습니다.") String> assignees,
     List<@NotBlank(message = "워처 이름은 비울 수 없습니다.") String> watchers,
-    @NotNull(message = "생성 시각은 필수입니다.") OffsetDateTime createdAt,
-    OffsetDateTime updatedAt,
-    OffsetDateTime closedAt,
+    // WP-1587 시각 칸은 지원 범위(1900~9999, UTC)로 제한 — 범위 밖 연도가 DB 에서 어느 칸인지 모를 409 로 터지던 것을 칸별 한국어 400
+    // 으로.
+    @NotNull(message = "생성 시각은 필수입니다.") @SupportedDateTime OffsetDateTime createdAt,
+    @SupportedDateTime OffsetDateTime updatedAt,
+    @SupportedDateTime OffsetDateTime closedAt,
     @Size(max = MAX_ATTACHMENTS, message = "첨부는 50개 이하여야 합니다.")
         List<@NotNull(message = "첨부 항목은 비울 수 없습니다.") @Valid Attachment> attachments,
     @Size(max = 500, message = "댓글은 500개 이하여야 합니다.")
@@ -139,7 +142,7 @@ public record ImportIssueRequest(
   public record Attachment(
       @NotNull(message = "파일 id 는 필수입니다.") Long fileId,
       @NotBlank(message = "첨부자는 필수입니다.") String attachedBy,
-      @NotNull(message = "첨부 시각은 필수입니다.") OffsetDateTime attachedAt) {}
+      @NotNull(message = "첨부 시각은 필수입니다.") @SupportedDateTime OffsetDateTime attachedAt) {}
 
   /**
    * 다른 시스템에 남는 이슈로 가는 외부 링크 한 줄(WP-887) — 가져오는 이슈와 같은 트랜잭션에 이력 없이 넣는다.
@@ -170,8 +173,8 @@ public record ImportIssueRequest(
   /** 원작성자·원시각을 가진 댓글. */
   public record Comment(
       @NotBlank(message = "댓글 작성자는 필수입니다.") String author,
-      @NotNull(message = "댓글 작성 시각은 필수입니다.") OffsetDateTime createdAt,
-      OffsetDateTime updatedAt,
+      @NotNull(message = "댓글 작성 시각은 필수입니다.") @SupportedDateTime OffsetDateTime createdAt,
+      @SupportedDateTime OffsetDateTime updatedAt,
       @NotBlank(message = "댓글 본문은 필수입니다.")
           @Size(max = IssueTextLimits.BODY_MAX, message = "댓글 본문이 너무 깁니다.")
           String body) {}
@@ -180,7 +183,7 @@ public record ImportIssueRequest(
   public record HistoryEntry(
       @NotBlank(message = "이력 유형은 필수입니다.") String type,
       @NotBlank(message = "이력 행위자는 필수입니다.") String actor,
-      @NotNull(message = "이력 시각은 필수입니다.") OffsetDateTime at,
+      @NotNull(message = "이력 시각은 필수입니다.") @SupportedDateTime OffsetDateTime at,
       @Size(max = 200, message = "이전 값은 200자 이하여야 합니다.") String from,
       @Size(max = 200, message = "이후 값은 200자 이하여야 합니다.") String to,
       Long fromStatusId,

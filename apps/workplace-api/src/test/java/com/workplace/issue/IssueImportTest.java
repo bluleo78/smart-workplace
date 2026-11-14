@@ -23,6 +23,7 @@ import com.workplace.cycle.service.CycleService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
@@ -49,6 +50,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -547,6 +549,57 @@ class IssueImportTest extends IssueImportTestSupport {
     importAs(admin, m)
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.reason").value("IMPORT_INVALID_TIMES"));
+    assertThat(issueCount()).isZero();
+  }
+
+  /**
+   * 시각 칸이 지원 범위(1900~9999, UTC) 밖이면 칸 이름과 함께 한국어 400(WP-1587) — 예전엔 DB 에서 어느 칸인지 모를 409 「저장할 수 없는
+   * 값」이었다. 앞·뒤 끝 극단 연도와 1900 미만(1800년, 예전엔 201 로 들어갔다)을 이슈·첨부·댓글·이력 시각 칸마다 확인한다.
+   */
+  @Test
+  void outOfRangeTimes_400_perField() throws Exception {
+    String who = username(reporter);
+    for (String bad :
+        List.of(
+            "+999999999-12-31T00:00:00Z", "-999999999-01-01T00:00:00Z", "1800-01-01T00:00:00Z")) {
+      Map<String, Map<String, Object>> cases = new LinkedHashMap<>();
+      cases.put("createdAt", Map.of("createdAt", bad));
+      cases.put("updatedAt", Map.of("updatedAt", bad));
+      cases.put("closedAt", Map.of("closedAt", bad));
+      cases.put(
+          "attachments[0].attachedAt",
+          Map.of(
+              "attachments", List.of(Map.of("fileId", 1L, "attachedBy", who, "attachedAt", bad))));
+      cases.put(
+          "comments[0].createdAt",
+          Map.of("comments", List.of(Map.of("author", who, "createdAt", bad, "body", "댓글"))));
+      cases.put(
+          "comments[0].updatedAt",
+          Map.of(
+              "comments",
+              List.of(
+                  Map.of(
+                      "author",
+                      who,
+                      "createdAt",
+                      defaultCreatedAt(),
+                      "updatedAt",
+                      bad,
+                      "body",
+                      "댓글"))));
+      cases.put(
+          "history[0].at",
+          Map.of(
+              "history",
+              List.of(Map.of("type", "TITLE_CHANGED", "actor", who, "at", bad, "to", "새 제목"))));
+      for (Map.Entry<String, Map<String, Object>> c : cases.entrySet()) {
+        Map<String, Object> m = body("범위 밖 시각");
+        m.putAll(c.getValue());
+        importAs(admin, m)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.errors['" + c.getKey() + "']").value(SupportedDates.MESSAGE));
+      }
+    }
     assertThat(issueCount()).isZero();
   }
 
