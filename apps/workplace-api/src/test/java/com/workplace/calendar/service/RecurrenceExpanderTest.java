@@ -309,14 +309,57 @@ class RecurrenceExpanderTest {
         new String[] {
           "FREQ=DAILY;UNTIL=00000101T000000Z",
           "FREQ=DAILY;UNTIL=20261101T005959Z",
-          "FREQ=WEEKLY;UNTIL=20261031",
+          // WP-1590: 날짜만 쓴 UNTIL 은 이제 형식 검사가 먼저 거절하므로, 시작 비교를 보려고 UTC 시각으로 쓴다.
+          "FREQ=WEEKLY;UNTIL=20261031T000000Z",
         }) {
       assertThatThrownBy(() -> expander.validate(rule, start))
           .as(rule)
-          .isInstanceOf(IllegalArgumentException.class);
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("반복 종료일이 일정 시작보다 이릅니다");
     }
     expander.validate("FREQ=DAILY;UNTIL=20261101T145959Z", start);
     expander.validate("FREQ=DAILY;UNTIL=20261101T010000Z", start);
     expander.validate("FREQ=DAILY;COUNT=3", start);
+  }
+
+  /**
+   * UNTIL 은 UTC 절대 시각(yyyyMMdd'T'HHmmss'Z') 하나만, 실제 날짜·시각으로 읽혀야 받는다(WP-1590). 예전엔 범위 밖 값이 500, 없는
+   * 날짜가 빈 메시지 400, 읽히지 않는 값은 조용히 버려져 끝없는 반복, 날짜만·floating 은 영어 원문 400 이었다.
+   */
+  @Test
+  void validate_malformedUntil_throwsKoreanMessage() {
+    for (String until :
+        new String[] {
+          "99999999T000000Z",
+          "20261301T000000Z",
+          "20261232T000000Z",
+          "20260230T000000Z",
+          "nope",
+          "",
+          "20261231",
+          "20261231T150000",
+          "20261231T250000Z",
+          // 부호·5자리 이상 연도 — uuuu 는 읽어 버리지만 파서는 못 읽는다(리뷰 지적)
+          "+120261231T000000Z",
+          "-00010101T000000Z",
+          // 토큰이 둘이면 파서는 마지막 값을 쓴다 — 뒤의 잘못된 값도 걸러야 한다
+          "20261231T145959Z;UNTIL=20261301T000000Z",
+        }) {
+      assertThatThrownBy(() -> expander.validate("FREQ=DAILY;UNTIL=" + until))
+          .as(until)
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage(RecurrenceExpander.UNTIL_MESSAGE);
+    }
+  }
+
+  /** 올바른 UTC UNTIL·소문자 토큰 이름·공백 섞인 값·UNTIL 없는 규칙은 통과한다(WP-1590 — tokenValue 와 같은 읽기). */
+  @Test
+  void validate_wellFormedUntil_passes() {
+    expander.validate("FREQ=DAILY;UNTIL=20261231T145959Z");
+    expander.validate("FREQ=DAILY;until=20261231T145959Z");
+    expander.validate("FREQ=DAILY;UNTIL= 20261231T145959Z");
+    // 값의 t·z 소문자는 관용 파서가 읽던 것이라 그대로 받는다
+    expander.validate("FREQ=DAILY;UNTIL=20261231t145959z");
+    expander.validate("FREQ=DAILY");
   }
 }
