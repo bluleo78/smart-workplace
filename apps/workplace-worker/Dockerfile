@@ -13,7 +13,9 @@ WORKDIR /app
 # pymupdf·pillow-heif 는 amd64/arm64 manylinux 휠이 있어 -dev 스테이지에서 컴파일 없이 설치된다.
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx python-pptx pillow pillow-heif
+# 런타임은 uvicorn 만 띄우므로 venv 의 pip 은 설치 뒤 바로 뺀다 — pip 이 품은 urllib3·msgpack 이 CVE 로 잡혔다(WP-1573).
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx python-pptx pillow pillow-heif \
+    && pip uninstall -y pip
 
 COPY app ./app
 

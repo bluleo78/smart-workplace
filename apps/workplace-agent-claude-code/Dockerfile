@@ -12,6 +12,8 @@ ARG JDTLS_BUILD=202610131109
 ARG JDTLS_SHA256=f587dafd8410633c2c2bf005e853a2bbb03cddee88933d49bfe6d9cb1cf09342
 ARG TYPESCRIPT_LANGUAGE_SERVER_VERSION=6.0.2
 ARG TYPESCRIPT_VERSION=5.9.3
+# 베이스 node 24 에 딸린 npm 11.12 가 품은 tar·brace-expansion 등이 CVE 로 잡혀(WP-1574) 같은 11 줄 최신으로 올린다.
+ARG NPM_VERSION=11.21.2
 # playwright-cli(WP-1404) — 화면 탐색 스킬이 쓰는 브라우저 명령. 두 작업 공간 이미지가 같은 버전을 쓴다.
 ARG PLAYWRIGHT_CLI_VERSION=0.1.15
 # GitLab CLI(WP-1276) — 플러그인 gw-repo 가 GitLab MR 을 다룰 때 쓴다. apt 에 없어 공식 릴리스 .deb 를 아키텍처별 해시로 확인해 받는다.
@@ -31,6 +33,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # lsof·ss(iproute2)는 live-stack·explore-stack 의 듣는 포트 찾기와 빈 포트 판정, ip(iproute2)는 e2e-netns. 나머지는 Mac 기본 명령을 맞춘 것:
 # nc(BSD 판 — Mac 과 같은 옵션)·netstat(net-tools)·fuser·killall(psmisc)·file·xxd·column(bsdextrautils)·bc·zip·dig·ping·rsync·uuidgen.
 # 끝 줄은 빌드 때 존재 확인 — 빠지면 이미지가 빌드되지 않는다.
+# apt-get upgrade — 베이스(Playwright noble)에 굳은 openssl·apt 등의 보안 수정을 빌드 때 받는다(WP-1574).
 RUN set -eux; \
     mkdir -p /usr/share/man/man1 /etc/apt/keyrings; \
     apt-get update; \
@@ -40,6 +43,7 @@ RUN set -eux; \
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list; \
     apt-get update; \
+    apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends \
       tmux git jq tini procps less openssh-client unzip \
       openjdk-21-jdk-headless gh docker-ce-cli docker-compose-plugin docker-buildx-plugin \
@@ -71,6 +75,7 @@ RUN set -eux; \
 # Claude Code(고정 버전, 자동 업데이트 끔)·TS 언어 서버·pnpm(corepack — 저장소의 packageManager 버전을 쓴다).
 # npm 전역 설치가 가장 단순하고 버전 고정이 확실하다(네이티브 설치는 홈에 깔려 휘발 홈과 맞지 않는다).
 RUN set -eux; \
+    npm install -g --no-fund --no-audit "npm@${NPM_VERSION}"; \
     npm install -g --no-fund --no-audit \
       "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
       "typescript-language-server@${TYPESCRIPT_LANGUAGE_SERVER_VERSION}" \

@@ -29,7 +29,8 @@ RUN pnpm --filter @smart-workplace/workplace-admin build
 # distroless nginx — shell 없음, nginx(UID 65532) 유저, 8080 리슨(nonroot 는 <1024 바인드 불가).
 # 기본 nginx.conf 가 conf.d/*.conf 를 include 하므로 server 블록만 덮어쓴다(nginx.conf listen 8080).
 # ENTRYPOINT/CMD(["nginx"] + ["-g","daemon off;"])는 베이스에 내장 → 재정의 금지.
-FROM dhi.io/nginx:1.29-debian13
+# 1.29(mainline)는 1.30 stable 이 나온 뒤 DHI 갱신이 멈춰 debian 13.4·CVE 가 쌓였다(WP-1575) — 갱신되는 stable 줄을 쓴다.
+FROM dhi.io/nginx:1.30-debian13
 
 COPY --from=build /app/apps/workplace-admin/dist /usr/share/nginx/html
 COPY apps/workplace-admin/nginx.conf /etc/nginx/conf.d/default.conf

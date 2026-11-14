@@ -14,6 +14,8 @@ ARG GLAB_SHA256_ARM64=f7c1930977fdd75bea6735eed0b628d4411536b3208c124101db42d6cf
 
 # Claude Code — 실행하지 않고 빌드 때 플러그인을 받는 데만 쓴다(아래). Claude 이미지와 같은 버전으로 둔다.
 ARG CLAUDE_CODE_VERSION=2.1.316
+# npm 11 최신 — 베이스 npm 11.12 의 CVE(WP-1574). apt-get upgrade 도 같은 이유. Claude 이미지와 같은 버전(테스트가 확인).
+ARG NPM_VERSION=11.21.2
 # playwright-cli(WP-1404) — 화면 탐색 스킬이 쓰는 브라우저 명령. 두 작업 공간 이미지가 같은 버전을 쓴다.
 ARG PLAYWRIGHT_CLI_VERSION=0.1.15
 
@@ -36,6 +38,7 @@ RUN set -eux; \
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list; \
     apt-get update; \
+    apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends \
       tmux git jq tini procps less openssh-client unzip \
       openjdk-21-jdk-headless gh docker-ce-cli docker-compose-plugin docker-buildx-plugin \
@@ -59,6 +62,7 @@ RUN set -eux; \
 # Claude Code 는 플러그인을 받는 데만 쓴다 — genia 가 Claude Code 에 설치된 플러그인의 스킬·명령을 그대로 읽으므로(genia 2611.3.0)
 # Claude 이미지와 같은 plugins.lock 을 받아 superpowers 등 개발 절차를 한 벌로 맞춘다(WP-1336).
 RUN set -eux; \
+    npm install -g --no-fund --no-audit "npm@${NPM_VERSION}"; \
     npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     npm cache clean --force; \
     corepack enable

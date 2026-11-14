@@ -37,7 +37,7 @@ Works 가 관리하는 AI(실행 템플릿이 「작업 공간」인 AI)를 실�
       "templateVersion": "1",
       "image": "ghcr.io/bluleo78/agent-claude-code:1",
       "resources": { "cpuRequest": "2", "memoryRequest": "4Gi", "cpuLimit": "8", "memoryLimit": "16Gi", "workDisk": "50Gi" },
-      "sidecars": [{ "name": "dind", "image": "docker:27-dind", "privileged": true }],
+      "sidecars": [{ "name": "dind", "image": "docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b", "privileged": true }],
       "plugins": [{ "marketplace": "genia-works", "name": "genia-works", "version": "latest" }],
       "config": { "model": "opus", "queue": "AI 개발팀" },
       "secrets": [

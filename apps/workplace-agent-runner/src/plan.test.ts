@@ -150,6 +150,12 @@ describe('checkImages', () => {
     expect(checkImages(desiredAgent(), allowed)).toBeNull();
   });
 
+  // 템플릿은 dind 를 digest 로 고정한다(WP-1574) — 접두 허용이 digest 꼴도 통과시켜야 한다
+  it('allowsDigestPinnedDindSidecar', () => {
+    const image = `docker:29-dind@sha256:${'a'.repeat(64)}`;
+    expect(checkImages(desiredAgent({ sidecars: [{ name: 'dind', image, privileged: true }] }), allowed)).toBeNull();
+  });
+
   it('rejectsAgentOrSidecarImageOutsidePrefixes', () => {
     expect(checkImages(desiredAgent({ image: 'ghcr.io/x/y:1' }), allowed)).toContain('ghcr.io/x/y:1');
     expect(
