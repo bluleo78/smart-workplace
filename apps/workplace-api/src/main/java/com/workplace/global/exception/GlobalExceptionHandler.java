@@ -109,6 +109,7 @@ import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.convert.TypeDescriptor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.InvalidMediaTypeException;
@@ -2362,8 +2363,8 @@ public class GlobalExceptionHandler {
   }
 
   /**
-   * 예외에 선언된 HTTP 상태(@ResponseStatus 또는 ResponseStatusException)를 추출하여 그 상태로 응답한다. 선언이 없으면 {@code
-   * null} 을 반환해 호출부가 500 으로 처리하도록 한다.
+   * 예외에 선언된 HTTP 상태(@ResponseStatus·ResponseStatusException·Spring ErrorResponse)를 추출하여 그 상태로 응답한다.
+   * 선언이 없으면 {@code null} 을 반환해 호출부가 500 으로 처리하도록 한다.
    *
    * <p>로그 레벨: 4xx(클라이언트 오류)는 debug, 5xx(상위/서버 오류)는 warn — catch-all 의 {@code log.error(..., ex)} 풀
    * 스택트레이스 노이즈(#107 와 동일 뿌리)를 선언된 예외에는 남기지 않는다.
@@ -2371,11 +2372,24 @@ public class GlobalExceptionHandler {
   private ResponseEntity<ErrorResponse> handleDeclaredStatus(
       Exception ex, HttpServletRequest request) {
     HttpStatusCode statusCode = null;
+    HttpHeaders headers = null;
     String message = ex.getMessage();
     if (ex instanceof ResponseStatusException rse) {
       statusCode = rse.getStatusCode();
+      headers = rse.getHeaders();
       if (StringUtils.hasText(rse.getReason())) {
         message = rse.getReason();
+      }
+    } else if (ex instanceof org.springframework.web.ErrorResponse springError) {
+      // WP-1602 — 개별 처리기가 없는 Spring 웹 예외(MissingRequestHeaderException 등)는 Spring ErrorResponse 를
+      // 구현해
+      // 제 상태 코드와 헤더(예: 405 의 Allow)를 이미 들고 있다. 이를 보지 않으면 클라이언트 오류가 500 + ERROR 스택으로
+      // 나갔다(WP-1599·WP-1601 이 같은 뿌리). 문구는 ProblemDetail 의 detail(예외 메시지보다 짧다)을 쓴다.
+      statusCode = springError.getStatusCode();
+      headers = springError.getHeaders();
+      String detail = springError.getBody().getDetail();
+      if (StringUtils.hasText(detail)) {
+        message = detail;
       }
     } else {
       ResponseStatus rs =
@@ -2399,7 +2413,7 @@ public class GlobalExceptionHandler {
     ErrorResponse body =
         buildError(
             status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR, message, null, request);
-    return ResponseEntity.status(statusCode).body(body);
+    return ResponseEntity.status(statusCode).headers(headers).body(body);
   }
 
   /**
