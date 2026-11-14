@@ -2310,6 +2310,21 @@ public class GlobalExceptionHandler {
   }
 
   /**
+   * WP-1604 — 동시 요청끼리 행 잠금이 엇갈려 PostgreSQL 이 한쪽을 데드락으로 끊거나(DeadlockLoserDataAccessException) 잠금 대기에
+   * 실패하면(CannotAcquireLockException) 둘의 부모인 PessimisticLockingFailureException 이 올라온다. 서버 오류가 아니라
+   * 「다른 요청과 부딪힌」 일시적 충돌이라 캐치올 500 대신 409 + 재시도 안내로 돌려준다. 잠금 순서를 고정한 경로(setParent 등)에서 남은 경우의 안전망이다.
+   */
+  @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+  public ResponseEntity<ErrorResponse> handlePessimisticLockingFailure(
+      org.springframework.dao.PessimisticLockingFailureException ex, HttpServletRequest request) {
+    log.warn("동시 수정 잠금 충돌 — 409 로 응답: {}", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(
+            buildError(
+                HttpStatus.CONFLICT, "다른 요청과 동시에 수정되어 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요", null, request));
+  }
+
+  /**
    * 위키 인에디터 /ai 전용 executor(wikiAiStreamExecutor) 의 큐가 가득 찼을 때(동시 스트림 과다) AbortPolicy 가 던지는
    * TaskRejectedException → 503. 캐치올 500 으로 뭉개지지 않고 사용자에게 '잠시 후 재시도' 를 안내한다.
    */
