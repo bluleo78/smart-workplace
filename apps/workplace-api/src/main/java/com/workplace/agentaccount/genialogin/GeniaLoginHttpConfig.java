@@ -3,7 +3,8 @@ package com.workplace.agentaccount.genialogin;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.http.client.HttpRedirects;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.SslStoreBundle;
 import org.springframework.context.annotation.Bean;
@@ -22,10 +23,10 @@ public class GeniaLoginHttpConfig {
   GeniaLoginClient geniaLoginClient(
       GeniaLoginProperties props, ClientHttpRequestFactoryBuilder<?> factoryBuilder) {
     var settings =
-        ClientHttpRequestFactorySettings.defaults()
+        HttpClientSettings.defaults()
             .withConnectTimeout(props.connectTimeout())
             .withReadTimeout(props.readTimeout())
-            .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
+            .withRedirects(HttpRedirects.DONT_FOLLOW);
     if (props.caCertFile() != null) {
       KeyStore trust = GeniaTrustStores.withExtraCa(Path.of(props.caCertFile()));
       settings = settings.withSslBundle(SslBundle.of(SslStoreBundle.of(null, null, trust)));

@@ -150,4 +150,27 @@ class ActionControllerValidateTest extends IntegrationTestBase {
         .andExpect(
             jsonPath("$.message").value(org.hamcrest.Matchers.containsString("이미 사용 중인 key")));
   }
+
+  @Test
+  @DisplayName("실패 — 지원하지 않는 type 의 프로젝트 생성 사전검증은 400 과 사유 메시지를 돌려준다(WP-1595)")
+  void validate_projectCreate_unsupportedType_returns400WithReason() throws Exception {
+    // 무엇을·왜: 잘못된 type 은 입력 오류라 409(충돌)가 아니라 400 이어야 한다 — 확인 카드 사전검증도 승인·REST 생성과
+    // 같은 술어(validateCreatable)를 타므로 카드 표시 전에 같은 400·사유로 막힌다.
+    String body =
+        """
+        {"actionType":"project.create_project","params":{"key":"%s","name":"유형 오류","type":"NOPE"}}
+        """
+            .formatted(uniqueKey("TY"));
+
+    mockMvc
+        .perform(
+            post("/api/v1/actions/validate")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message")
+                .value("지원하지 않는 프로젝트 유형입니다: NOPE — TEAM·OPEN·PERSONAL 중 하나여야 합니다"));
+  }
 }

@@ -1,7 +1,8 @@
 package com.workplace.agentaccount.usage;
 
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.http.client.HttpRedirects;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
@@ -11,10 +12,11 @@ import org.springframework.web.client.RestClient;
  * 외부 호출). 연결·응답 타임아웃은 설정에서 받고, 리다이렉트는 따라가지 않는다(토큰이 든 요청이 다른 주소로 새지 않게). RestClient 자체는 빈으로 노출하지 않는다
  * — 다른 곳의 RestClient 주입과 섞이지 않게 조회기 빈 안에만 둔다.
  *
- * <p>HTTP 구현은 전역 설정(spring.http.client.factory: jdk)과 달리 Apache HttpComponents 로 고정한다(WP-1487). 10분
- * 주기 조회는 그 사이 서버·중간 장비가 닫은 풀 연결을 다시 집어 응답 없이 멈추다 read timeout(「연결 실패」)이 났다. JDK 클라이언트의 유휴 연결 수명은
- * JVM 전역 시스템 속성(jdk.httpclient.keepalive.timeout)뿐이라 이 클라이언트만 바꿀 수 없다. 조회는 계정마다 10분에 한 번이라 연결을 다시 쓸
- * 이득이 없으므로, 연결 재사용을 아예 끄고(요청마다 새 연결) 클라이언트 자체 자동 재시도도 끈다 — 재시도는 수집기가 NETWORK 실패에만 1회 한다.
+ * <p>HTTP 구현은 전역 설정(spring.http.clients.imperative.factory: jdk)과 달리 Apache HttpComponents 로
+ * 고정한다(WP-1487). 10분 주기 조회는 그 사이 서버·중간 장비가 닫은 풀 연결을 다시 집어 응답 없이 멈추다 read timeout(「연결 실패」)이 났다. JDK
+ * 클라이언트의 유휴 연결 수명은 JVM 전역 시스템 속성(jdk.httpclient.keepalive.timeout)뿐이라 이 클라이언트만 바꿀 수 없다. 조회는 계정마다
+ * 10분에 한 번이라 연결을 다시 쓸 이득이 없으므로, 연결 재사용을 아예 끄고(요청마다 새 연결) 클라이언트 자체 자동 재시도도 끈다 — 재시도는 수집기가 NETWORK
+ * 실패에만 1회 한다.
  */
 @Configuration
 public class AgentAccountUsageHttpConfig {
@@ -37,10 +39,10 @@ public class AgentAccountUsageHttpConfig {
    */
   private static RestClient client(String baseUrl, AgentAccountUsageProperties props) {
     var settings =
-        ClientHttpRequestFactorySettings.defaults()
+        HttpClientSettings.defaults()
             .withConnectTimeout(props.connectTimeout())
             .withReadTimeout(props.readTimeout())
-            .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
+            .withRedirects(HttpRedirects.DONT_FOLLOW);
     var factoryBuilder =
         ClientHttpRequestFactoryBuilder.httpComponents()
             .withHttpClientCustomizer(

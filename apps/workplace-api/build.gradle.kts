@@ -7,7 +7,9 @@ import java.util.Properties
 buildscript {
     repositories { mavenCentral() }
     dependencies {
-        classpath("org.testcontainers:postgresql:1.20.4")
+        // Testcontainers 2 아티팩트 이름(testcontainers-*)·버전을 테스트 의존성(Boot 4.0.9 BOM = 2.0.5)과 맞춘다(WP-1588).
+        // buildscript 는 BOM 을 받지 않아 버전을 직접 적는다 — BOM 의 testcontainers.version 이 바뀌면 함께 올린다.
+        classpath("org.testcontainers:testcontainers-postgresql:2.0.5")
         classpath("org.flywaydb:flyway-core:11.20.3")
         classpath("org.flywaydb:flyway-database-postgresql:11.20.3")
         classpath("org.postgresql:postgresql:42.7.4")
@@ -17,7 +19,7 @@ buildscript {
 
 plugins {
     java
-    id("org.springframework.boot") version "3.5.16"
+    id("org.springframework.boot") version "4.0.9"
     id("io.spring.dependency-management") version "1.1.7"
     id("com.diffplug.spotless") version "6.25.0"
     jacoco
@@ -31,23 +33,20 @@ jacoco {
 group = "com.workplace"
 version = "0.0.1-SNAPSHOT"
 
-// Flyway 를 Spring Boot BOM(3.5.x = 11.7)이 아니라 11.20.3 으로 고정한다 (postgres 18):
-// PG18 정식 지원은 Flyway 11.20+ 부터이고(11.7/BOM 은 "support has not been tested" 경고),
-// Flyway 12 는 Spring Boot 3.x 의 FlywayAutoConfiguration 과 비호환이다(cleanOnValidationError
-// 제거 → NoSuchMethodError). 11.20.3 은 PG18 지원 + Flyway 11 API 유지로 둘 다 만족한다.
+// Flyway 를 Spring Boot BOM(4.0.9 = 11.14.1)이 아니라 11.20.3 으로 고정한다 (postgres 18):
+// PG18 정식 지원은 Flyway 11.20+ 부터라 BOM 버전은 "support has not been tested" 경고를 낸다.
+// Flyway 12 는 Boot 4.0 대상이 아니라(WP-1588 범위 밖) 11.x 최신 수정판에 머문다.
+// jOOQ 코드 생성 buildscript 의 flyway-core 버전과 맞춘다.
 extra["flyway.version"] = "11.20.3"
 
-// 운영 이미지 trivy 검사(WP-1570·WP-1571)에서 나온 취약 의존성을 Spring Boot 3.5.16 BOM 보다 높은 수정판으로 고정한다.
+// 운영 이미지 trivy 검사(WP-1570·WP-1571)에서 나온 취약 의존성을 Spring Boot BOM 보다 높은 수정판으로 고정한다.
 // Boot BOM 이 이 버전 이상으로 올라오면 해당 줄을 지운다.
-// Tomcat 10.1.59 — CVE-2026-65905(replay 인증 우회)·CVE-2026-68525(FORM 인증 우회)·CVE-2026-65182(보안 제약 우회)·
-// CVE-2026-65637(HTTP/2 입력 검증)·CVE-2026-55276, 모두 CRITICAL.
-extra["tomcat.version"] = "10.1.59"
-// Jackson 2.21.7 — jackson-core·jackson-databind HIGH 5건.
-extra["jackson-bom.version"] = "2.21.7"
-// HttpCore5 5.4.3 — httpcore5·httpcore5-h2 HIGH(링크 미리보기 HttpClient5 가 쓴다).
+// Boot 4.0.9(WP-1588)로 올리며 아래 고정은 지웠다.
+// - Tomcat: Boot 4 는 Tomcat 11 이라 옛 10.1.59 고정을 그대로 쓸 수 없다. BOM 의 11.0.27 을 쓴다(운영 이미지 trivy 로 재확인).
+// - Jackson 2: Boot 4 BOM 의 jackson-2-bom 이 이미 2.21.7 이다(jackson-bom 속성은 이제 Jackson 3 을 가리킨다).
+// - PostgreSQL JDBC: BOM 이 42.7.14 라 옛 고정(42.7.12)이 오히려 버전을 내린다.
+// HttpCore5 5.4.3 — httpcore5·httpcore5-h2 HIGH(링크 미리보기 HttpClient5 가 쓴다). Boot 4.0.9 BOM 은 5.3.6.
 extra["httpcore5.version"] = "5.4.3"
-// PostgreSQL JDBC 42.7.12 — 42.7.11 의 HIGH.
-extra["postgresql.version"] = "42.7.12"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -56,6 +55,17 @@ java {
 
 repositories {
     mavenCentral()
+}
+
+// Jackson 3(tools.jackson)을 classpath 에서 뺀다(WP-1588). Boot 4 의 web·webmvc·restclient 스타터가 spring-boot-starter-jackson 으로
+// Jackson 3 을 끌어오는데, 정적 RestClient.builder()·new RestTemplate() 는 Boot 설정(preferred-json-mapper)을 거치지 않고
+// classpath 에 Jackson 3 이 있으면 그것을 먼저 고른다. 그러면 내부·외부 호출 응답을 Jackson 3 기본값(null → 기본형 실패 등)으로 읽어
+// Boot 3.5 때 잘 읽던 응답이 조용히 예외가 된다(OutboundJsonMapperTest). Jackson 2 를 유일한 매퍼로 두어 그 경로를 원천 차단한다.
+// Jackson 3 으로 전환할 때 이 제외를 지운다.
+configurations.all {
+    exclude(group = "org.springframework.boot", module = "spring-boot-starter-jackson")
+    exclude(group = "org.springframework.boot", module = "spring-boot-jackson")
+    exclude(group = "tools.jackson.core")
 }
 
 dependencies {
@@ -75,6 +85,16 @@ dependencies {
     implementation("org.springframework.security:spring-security-oauth2-jose")
     // SMTP 테스트(설정 UI) — settings 모듈 SMTP 검증 엔드포인트
     implementation("org.springframework.boot:spring-boot-starter-mail")
+    // Boot 4 모듈 분리(WP-1588)로 기존 스타터가 더는 끌어오지 않는 것들을 직접 선언한다.
+    // - angus-mail: Jakarta Mail 구현체. 메일 수신(IMAP)·발송 코드가 직접 쓴다.
+    // - starter-restclient: RestClient·RestTemplateBuilder·ClientHttpRequestFactoryBuilder 자동 구성이 별도 모듈로 나뉘었다.
+    // - spring-boot-jackson2: Boot 4 기본은 Jackson 3 이다. Jackson 2 를 유지하므로(Jackson 3 전환은 범위 밖)
+    //   Jackson 2 ObjectMapper 자동 구성·@JsonComponent 를 따로 넣는다. jsr310·jdk8·parameter-names 모듈은 이것이 함께 끌어온다.
+    //   HTTP 변환기도 Jackson 2 를 쓰게 application.yml 에 spring.http.converters.preferred-json-mapper=jackson2 를 둔다.
+    //   Jackson 3 자체는 위 configurations.all 에서 classpath 에서 뺀다.
+    implementation("org.eclipse.angus:angus-mail")
+    implementation("org.springframework.boot:spring-boot-starter-restclient")
+    implementation("org.springframework.boot:spring-boot-jackson2")
 
     // JWT (jjwt)
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")
@@ -85,9 +105,9 @@ dependencies {
     implementation("org.dmfs:lib-recur:0.17.1")
 
     // 스케줄러 분산 잠금(WP-165) — 롤링 배포로 api 파드가 겹치는 동안 @Scheduled 작업이 파드마다 동시에 도는 것을 막는다.
-    // 6.x 가 Spring 6.2 / Boot 3.5 대응(7.x 는 Spring 7 / Boot 4).
-    implementation("net.javacrumbs.shedlock:shedlock-spring:6.10.0")
-    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:6.10.0")
+    // 7.x 가 Spring 7 / Boot 4 대응이다(6.x 는 Spring 6.2 / Boot 3.5 용, WP-1588 에서 올림).
+    implementation("net.javacrumbs.shedlock:shedlock-spring:7.11.0")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.11.0")
 
     // 채팅 링크 미리보기(WP-874) — 사용자가 적은 URL 을 서버가 대신 가져온다(SSRF 경로).
     // JDK HttpClient 는 이름 해석과 연결을 나눌 수 없어 검사한 IP 로 연결을 고정할 수 없다(DNS 재바인딩).
@@ -101,23 +121,24 @@ dependencies {
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.15.3")
 
     // 마이그레이션
-    implementation("org.flywaydb:flyway-core")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
 
     // PostgreSQL driver — 런타임/jOOQ codegen 양쪽에서 필요
     implementation("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testImplementation("org.springframework.security:spring-security-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-security-test")
     // 메일 연결 테스트용 임베디드 IMAP/SMTP 서버
     testImplementation("com.icegreen:greenmail-junit5:2.1.0")
     // 아키텍처 정적 검사 — 컨트롤러 Repository 직접 주입 시 @Transactional 강제(#640, RLS fail-closed 재발 방지)
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
     // Testcontainers — 통합 테스트마다 격리된 Postgres(+pgvector) 컨테이너.
-    // 버전은 Spring Boot 3.5.16 BOM(spring-boot-testcontainers) 관리.
+    // 버전은 Spring Boot 4.0.9 BOM 관리(Testcontainers 2.x). 2.x 부터 모듈 아티팩트 이름에 testcontainers- 접두사가 붙는다.
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
-    testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -239,7 +260,7 @@ tasks.register("generateJooq") {
             }
         }
         val container =
-            org.testcontainers.containers.PostgreSQLContainer("pgvector/pgvector:pg18")
+            org.testcontainers.postgresql.PostgreSQLContainer("pgvector/pgvector:pg18")
                 .withDatabaseName("workplace_test")
                 .withUsername("app")
                 .withPassword("app")

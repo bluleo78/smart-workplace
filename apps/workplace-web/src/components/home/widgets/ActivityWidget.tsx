@@ -5,49 +5,11 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActivity } from '@/hooks/queries/useHomeQueries';
 import { showsLoadError } from '@/lib/queryFailure'
+import { historyEventPhrase } from '@/pages/projects/components/issueHistoryLabels';
 import type { ActivityPage } from '@/types/home';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
-
-/** eventType → 한국어 행동 레이블 매핑 */
-const EVENT_LABEL: Record<string, string> = {
-  CREATED: '생성',
-  COMMENTED: '코멘트',
-  STATUS_CHANGED: '상태 변경',
-  STATUS_CHANGE: '상태 변경',
-  // WP-809 상태 삭제로 다른 상태로 옮겨진 이슈 — 사용자 변경과 구분.
-  STATUS_MIGRATED: '상태 이전',
-  REPORTER_CHANGED: '보고자 변경',
-  // legacy 단일 assignee 시절 이벤트 — 과거 row 호환용(#200). 복수형 ASSIGNEES_CHANGED 와 동일 라벨.
-  ASSIGNEE_CHANGED: '담당자 변경',
-  ASSIGNEES_CHANGED: '담당자 변경',
-  PRIORITY_CHANGED: '우선순위 변경',
-  TITLE_CHANGED: '제목 변경',
-  DESCRIPTION_CHANGED: '설명 변경',
-  LABEL_CHANGED: '라벨 변경',
-  LABELS_CHANGED: '라벨 변경',
-  ATTACHMENTS_CHANGED: '첨부 변경',
-  DUE_DATE_CHANGED: '마감일 변경',
-  CLOSED: '완료',
-  REOPENED: '재개',
-  TYPE_CHANGED: '유형 변경',
-  PARENT_CHANGED: '부모 변경',
-  DEPENDENCY_ADDED: '의존성 추가',
-  DEPENDENCY_REMOVED: '의존성 제거',
-  CUSTOM_FIELD_CHANGED: '필드',
-  // 관계·외부 링크(WP-887) — 이슈 활동 타임라인과 같은 문구.
-  RELATION_ADDED: '관계 추가',
-  RELATION_REMOVED: '관계 삭제',
-  EXTERNAL_LINK_ADDED: '외부 링크 추가',
-  EXTERNAL_LINK_UPDATED: '외부 링크 수정',
-  EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
-  // 구성요소(WP-933) — 이슈 활동 타임라인과 같은 문구. 자동 지정은 ASSIGNEES_CHANGED(담당자 변경)로 온다.
-  COMPONENTS_CHANGED: '구성요소 변경',
-  // 수정 버전·영향 버전(WP-888).
-  FIX_VERSIONS_CHANGED: '수정 버전 변경',
-  AFFECTS_VERSIONS_CHANGED: '영향 버전 변경',
-};
 
 /** 최근 활동. params.actorKind='AGENT' 면 AI 가 한 일만. */
 export default function ActivityWidget({
@@ -76,9 +38,9 @@ export default function ActivityWidget({
                 <Badge className="bg-ai-accent text-ai-accent-foreground">AI</Badge>
               )}
               <span className="text-muted-foreground">{a.actorName}</span>
-              {/* eventType 을 한국어 레이블로 변환하여 행위 맥락 제공 */}
+              {/* eventType → 한국어 문구. 프로젝트 개요 「최근 활동」과 같은 규칙(historyEventPhrase)이라 모르는 종류는 「수정」(WP-1593). */}
               <span className="text-xs text-muted-foreground">
-                {EVENT_LABEL[a.eventType] ?? a.eventType}
+                {historyEventPhrase(a.eventType)}
               </span>
               <Link
                 to={`/projects/${a.projectKey}/issues/${a.issueNumber}`}

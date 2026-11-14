@@ -6,14 +6,14 @@ import { projectPath } from '@/lib/appUrl'
 import { addDays, daysBetween } from '@/lib/closedRange'
 import { formatDateOnlyMonthDay, parseDateKey } from '@/lib/formatters'
 import { filtersToParams, parseFilters } from '@/lib/issueFilters'
-import type { IssueFilters, IssueHistoryEventType } from '@/types/issue'
+import type { IssueFilters } from '@/types/issue'
 import type {
   ProjectActivityGroup,
   ProjectOverviewAttention,
   ProjectOverviewProgress,
 } from '@/types/projectOverview'
 
-import { HISTORY_EVENT_LABEL } from '../components/issueHistoryLabels'
+import { historyEventPhrase } from '../components/issueHistoryLabels'
 
 /** 열린 이슈 범주 — 개요의 「열린 이슈」 정의(할 일·진행 중)와 같은 이슈 탭 조건. */
 const OPEN_STATUSES: Partial<IssueFilters> = { statuses: ['TODO', 'IN_PROGRESS'] }
@@ -201,17 +201,11 @@ export function barPct(value: number, max: number): number {
 
 /**
  * 최근 활동 한 줄 — 한 건이면 「WP-12 상태 변경」(제목은 옆에 따로 보인다), 여러 건이면 「이슈 4건 상태 변경」.
- * 서버는 한 건일 때만 issue 를 싣는다 — issue 가 있는지만 본다. 종류 이름은 이슈 상세 활동 기록과 같은 표(HISTORY_EVENT_LABEL),
- * 모르는 종류는 「수정」. 활동 기록 표의 이름이 명사 하나라 한 줄로 읽히지 않는 종류만 아래에서 바꿔 쓴다.
+ * 서버는 한 건일 때만 issue 를 싣는다 — issue 가 있는지만 본다. 종류 문구는 홈 「최근 활동」 위젯과 같은 규칙(historyEventPhrase,
+ * WP-1593) — 활동 기록 표 이름에 한 줄용 바꿔 쓰기를 얹고, 모르는 종류는 「수정」.
  */
-const ACTIVITY_PHRASE_OVERRIDE: Partial<Record<IssueHistoryEventType, string>> = {
-  // 활동 기록은 「필드」 옆에 바뀐 값을 함께 보이지만, 개요 한 줄은 종류만 보여 「이슈 2건 필드」가 된다.
-  CUSTOM_FIELD_CHANGED: '필드 변경',
-}
-
 export function activityText(g: Pick<ProjectActivityGroup, 'eventType' | 'count' | 'issue'>): string {
-  const type = g.eventType as IssueHistoryEventType
-  const phrase = ACTIVITY_PHRASE_OVERRIDE[type] ?? HISTORY_EVENT_LABEL[type] ?? '수정'
+  const phrase = historyEventPhrase(g.eventType)
   if (g.issue) return `${g.issue.issueKey} ${phrase}`
   return `이슈 ${g.count}건 ${phrase}`
 }

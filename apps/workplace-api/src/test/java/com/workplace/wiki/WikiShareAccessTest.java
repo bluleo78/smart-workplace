@@ -43,6 +43,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -479,7 +480,8 @@ class WikiShareAccessTest extends IntegrationTestBase {
   }
 
   /** 사용자 JWT(테넌트 1) + 공유 헤더(null 이면 생략)로 요청한다. */
-  private ResultActions call(MockHttpServletRequestBuilder req, long userId, String shareToken)
+  private ResultActions call(
+      AbstractMockHttpServletRequestBuilder<?> req, long userId, String shareToken)
       throws Exception {
     req.header("Authorization", "Bearer " + jwt.generateAccessToken(userId, "u-" + userId, 1L));
     if (shareToken != null) {

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.project.dto.CreateProjectRequest;
-import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -50,11 +49,12 @@ class ProjectServiceOpenCreateTest extends IntegrationTestBase {
     assertThat(projectService.listMembers(callerId, "OPN")).anyMatch(m -> "OWNER".equals(m.role()));
   }
 
-  /** OPEN 프로젝트에 key 를 지정하지 않으면 ProjectConflictException 이 발생해야 한다. */
+  /** OPEN 프로젝트에 key 를 지정하지 않으면 입력 오류라 IllegalArgumentException(400)이어야 한다(WP-1595 — 예전엔 409). */
   @Test
   void create_open_without_key_rejected() {
     var req = new CreateProjectRequest(null, "키없음", null, "OPEN");
     assertThatThrownBy(() -> projectService.create(callerId, req))
-        .isInstanceOf(ProjectConflictException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("공유 프로젝트는 key 가 필요합니다");
   }
 }

@@ -9,7 +9,8 @@ import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.http.client.HttpRedirects;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -30,8 +31,8 @@ public class WebPushGateway implements PushGateway {
 
   /**
    * 운영 — Boot 자동 구성 {@link ClientHttpRequestFactoryBuilder} 를 쓴다. 구현은 {@code
-   * spring.http.client.factory} (application.yml, jdk)가 정한다 — 정적 {@code detect()} 는 이 설정을 보지 않아
-   * classpath 에 따라 구현이 바뀐다(WP-874).
+   * spring.http.clients.imperative.factory} (application.yml, jdk)가 정한다 — 정적 {@code detect()} 는 이
+   * 설정을 보지 않아 classpath 에 따라 구현이 바뀐다(WP-874).
    */
   @Autowired
   public WebPushGateway(PushProperties props, ClientHttpRequestFactoryBuilder<?> factoryBuilder) {
@@ -47,10 +48,10 @@ public class WebPushGateway implements PushGateway {
   private static RestClient buildClient(
       PushProperties props, ClientHttpRequestFactoryBuilder<?> factoryBuilder) {
     var settings =
-        ClientHttpRequestFactorySettings.defaults()
+        HttpClientSettings.defaults()
             .withConnectTimeout(props.timeout())
             .withReadTimeout(props.timeout())
-            .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
+            .withRedirects(HttpRedirects.DONT_FOLLOW);
     var factory = factoryBuilder.build(settings);
     return RestClient.builder().requestFactory(factory).build();
   }
