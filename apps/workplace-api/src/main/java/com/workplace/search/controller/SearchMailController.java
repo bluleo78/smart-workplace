@@ -1,5 +1,6 @@
 package com.workplace.search.controller;
 
+import com.workplace.global.time.SupportedDateTime;
 import com.workplace.mail.dto.MailListCursor;
 import com.workplace.search.dto.MailSearchPage;
 import com.workplace.search.service.SearchMailService;
@@ -32,7 +33,8 @@ public class SearchMailController {
   public ResponseEntity<MailSearchPage> mail(
       @AuthenticationPrincipal Long callerId,
       @RequestParam(value = "q", required = false) String q,
-      @RequestParam(value = "beforeAt", required = false) Instant beforeAt,
+      // WP-1584: 범위(1900~9999년) 밖 커서 시각은 DB 에서 409 로 터지거나 조용히 빈 결과가 되던 것을 한국어 400 으로 막는다.
+      @RequestParam(value = "beforeAt", required = false) @SupportedDateTime Instant beforeAt,
       @RequestParam(value = "beforeId", required = false) Long beforeId,
       @RequestParam(value = "size", required = false, defaultValue = "20")
           @Min(value = 1, message = "size 는 1~50 이어야 합니다")

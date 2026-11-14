@@ -2,9 +2,12 @@ package com.workplace.calendar.service;
 
 import java.math.BigInteger;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -56,9 +59,12 @@ public class RecurrenceExpander {
    */
   private static final TimeZone EXPANSION_ZONE = TimeZone.getTimeZone("Asia/Seoul");
 
+  /** RFC5545 UNTIL 의 UTC 절대 시각 모양 — 쓰기(UNTIL_FMT)와 검사(STRICT_UNTIL)가 같은 모양을 쓰게 한곳에 둔다(WP-1590). */
+  private static final String UNTIL_PATTERN = "uuuuMMdd'T'HHmmss'Z'";
+
   /** RFC5545 UNTIL 의 UTC 절대 시각 포맷(yyyyMMdd'T'HHmmss'Z'). */
   private static final DateTimeFormatter UNTIL_FMT =
-      DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
+      DateTimeFormatter.ofPattern(UNTIL_PATTERN).withZone(ZoneOffset.UTC);
 
   /**
    * 기존 RRULE 에 UNTIL=<cutoff(UTC)> 를 설정한 새 규칙 반환 — 시리즈 잘라내기(THIS_AND_FOLLOWING)용. UNTIL 과 COUNT 는
@@ -184,6 +190,9 @@ public class RecurrenceExpander {
    * 잘렸다. 빈도는 매일·매주·매월·매년만, 간격·횟수는 1 이상만 받는다. 이미 저장된 규칙의 전개(목록·리마인더)는 그대로 둔다.
    */
   public void validate(String rrule) {
+    // UNTIL 은 파싱보다 먼저 본다(WP-1590) — 파서는 범위 밖 값(20261301T000000Z)에 500, 없는 날짜에 빈 메시지 예외를 내고, 읽지 못한
+    // 값(nope·빈 값)은 조용히 버려 끝없는 반복으로 저장됐다.
+    checkByValues(rrule, "UNTIL", RecurrenceExpander::validUntil, UNTIL_MESSAGE);
     RecurrenceRule rule = parse(rrule);
     if (!SUPPORTED_FREQS.contains(rule.getFreq())) {
       throw new IllegalArgumentException("반복은 매일·매주·매월·매년만 지원합니다");
@@ -222,6 +231,37 @@ public class RecurrenceExpander {
         "BYDAY",
         v -> validByDay(v, maxOrdinal),
         "반복 요일(BYDAY)은 MO·TU·WE·TH·FR·SA·SU 이어야 합니다(예: MO, 2TU, -1FR)");
+  }
+
+  /**
+   * 원문 UNTIL 값을 엄격히 읽는 포맷(WP-1590) — STRICT 라 13월·32일·2월 30일·25시를 실제 날짜·시각이 아니라고 거절한다. 부호·5자리 이상
+   * 연도는 앞의 {@link #UNTIL_SHAPE} 가 먼저 막는다(uuuu 는 그런 연도도 읽어 버린다).
+   */
+  private static final DateTimeFormatter STRICT_UNTIL =
+      DateTimeFormatter.ofPattern(UNTIL_PATTERN).withResolverStyle(ResolverStyle.STRICT);
+
+  /** UNTIL 값의 글자 모양 — 숫자 8자리·T·숫자 6자리·Z 만(부호·자릿수 다른 연도·날짜만·floating 은 여기서 걸린다). */
+  private static final Pattern UNTIL_SHAPE = Pattern.compile("\\d{8}T\\d{6}Z");
+
+  /** UNTIL 형식 오류 문구(같은 패키지 테스트가 참조한다). */
+  static final String UNTIL_MESSAGE = "반복 종료일(UNTIL)은 20261231T145959Z 처럼 UTC 날짜·시각이어야 합니다";
+
+  /**
+   * UNTIL 값 하나가 UTC 절대 시각(yyyyMMdd'T'HHmmss'Z')으로 실제 날짜·시각으로 읽히는지(WP-1590). {@link #checkByValues}
+   * 가 토큰마다 대문자로 맞춰 넘기므로 관용 파서가 읽던 t·z 소문자 값도 받고, 토큰이 둘 이상이어도(파서는 마지막 값을 쓴다) 모두 본다.
+   *
+   * <p>일정 시작은 늘 오프셋이 있는 절대 시각이라 날짜만·floating UNTIL 은 라이브러리가 어차피 영어 오류로 거절한다 — 웹
+   * (kstEndOfDayUntil)·서버 분할(UNTIL_FMT)도 이 형식만 만들므로 이 하나만 받는다. 1900 년 전 같은 이른 값은 형식이 맞으면 여기서 통과하고,
+   * {@link #validate(String, OffsetDateTime)} 의 「반복 종료일이 일정 시작보다 이릅니다」가 거절한다.
+   */
+  private static boolean validUntil(String v) {
+    if (!UNTIL_SHAPE.matcher(v).matches()) return false;
+    try {
+      LocalDateTime.parse(v, STRICT_UNTIL);
+      return true;
+    } catch (DateTimeParseException e) {
+      return false;
+    }
   }
 
   /** BYDAY 한 값 — 요일 앞에 부호 있는 서수를 붙일 수 있다(예: 2TU, -1FR). */
@@ -340,7 +380,8 @@ public class RecurrenceExpander {
   private static RecurrenceRule parse(String rrule) {
     try {
       return new RecurrenceRule(rrule, RecurrenceRule.RfcMode.RFC2445_LAX);
-    } catch (InvalidRecurrenceRuleException e) {
+    } catch (InvalidRecurrenceRuleException | RuntimeException e) {
+      // WP-1590: 파서는 검사 예외 말고도 런타임 예외(범위 밖 날짜 등)를 던져 500 이 됐다 — 모두 같은 400 문구로 바꾼다.
       throw new IllegalArgumentException("반복 규칙 형식이 올바르지 않습니다", e);
     }
   }
