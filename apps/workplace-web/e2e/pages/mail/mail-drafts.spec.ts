@@ -88,7 +88,8 @@ test.describe('메일 임시저장', () => {
     // 키보드 초점은 받은편지함 행처럼 초점 테두리로 보인다(배경만 바뀌면 hover 와 구분되지 않는다) — 계산된 outline 은 jsdom 이 잴 수 없다.
     await page.getByTestId('mail-draft-menu-7').focus()
     await page.keyboard.press('Shift+Tab')
-    await expect(row).toBeFocused()
+    // WP-1550: 행은 버튼이 아니라 초점은 안의 열기 버튼에 가고, 행이 has-[:focus-visible] 로 테두리를 그린다.
+    await expect(page.getByTestId('mail-draft-row-open-7')).toBeFocused()
     expect(await row.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe('none')
   })
 })

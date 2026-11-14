@@ -29,29 +29,32 @@ function DraftRow({
 }) {
   const recipients = draftRecipientsLabel(d.to)
   return (
-    // 받은편지함 행과 같은 카드형 클릭 영역(div role=button) — 안에 ⋯ 메뉴 버튼이 있어 바깥을 <button> 으로 감싸지 않는다.
+    // WP-1550: 행은 버튼이 아니다 — 버튼 안에 ⋯ 메뉴 버튼이 중첩되면 접근성 위반(nested-interactive)이라, 마우스 클릭만 행 전체가 받고
+    // 키보드·스크린리더 접근점은 안의 열기 버튼(data-row-open)과 ⋯ 메뉴 버튼을 형제로 둔다. 받은편지함 행과 같은 방식.
     <div
-      role="button"
-      tabIndex={0}
       data-testid={`mail-draft-row-${d.id}`}
-      aria-label={`임시저장 ${recipients || '받는사람 없음'} ${mailSubjectText(d.subject)}`}
       onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onOpen()
-        }
-      }}
-      // 키보드 초점은 받은편지함 행과 같이 기본 초점 테두리(전역 outline-ring)로 보인다 — 배경만 바꾸면 hover 와 구분되지 않았다.
-      className="flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-accent/50"
+      className={cn(
+        'flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-accent/50',
+        // 열기 버튼은 자체 outline 을 끄고(outline-none) 행 전체가 전역 초점 테두리(outline-ring/50)와 같은 모양으로 초점을 그린다.
+        'has-[[data-row-open]:focus-visible]:outline-2 has-[[data-row-open]:focus-visible]:-outline-offset-2 has-[[data-row-open]:focus-visible]:outline-ring/50',
+      )}
     >
       <span className="flex items-center gap-2">
-        {/* 임시저장 표식 — 보낸 메일·받은 메일과 한눈에 구분되게 빨간 글자(Gmail 의 Draft 표식과 같은 역할). */}
-        <span className="shrink-0 text-xs font-semibold text-destructive-text">임시저장</span>
-        <span className={cn('min-w-0 flex-1 truncate text-sm', !recipients && 'text-muted-foreground')}>
-          {recipients || '받는사람 없음'}
-        </span>
+        <button
+          type="button"
+          data-row-open
+          data-testid={`mail-draft-row-open-${d.id}`}
+          aria-label={`임시저장 ${recipients || '받는사람 없음'} ${mailSubjectText(d.subject)}`}
+          // 자체 onClick 은 두지 않는다 — 클릭·Enter·Space 의 click 이 행 onClick 으로 올라가 한 번만 연다.
+          className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
+        >
+          {/* 임시저장 표식 — 보낸 메일·받은 메일과 한눈에 구분되게 빨간 글자(Gmail 의 Draft 표식과 같은 역할). */}
+          <span className="shrink-0 text-xs font-semibold text-destructive-text">임시저장</span>
+          <span className={cn('min-w-0 flex-1 truncate text-sm', !recipients && 'text-muted-foreground')}>
+            {recipients || '받는사람 없음'}
+          </span>
+        </button>
         {d.attachmentCount > 0 && (
           <Paperclip
             data-testid={`mail-draft-attachment-${d.id}`}
@@ -66,7 +69,6 @@ function DraftRow({
             aria-label="임시저장 메뉴"
             // 행 열기와 분리 — 메뉴 버튼을 눌러도 작성창이 열리지 않게.
             onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
             // 데스크톱은 작은 아이콘 버튼, 터치는 위아래로 넓혀 44px(행 높이는 그대로).
             className="-my-1 -mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 pointer-coarse:-my-2.5 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:-mr-3"
           >

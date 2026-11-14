@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Archive, Check, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sun, Tag, Trash2, User } from 'lucide-react'
-import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -133,15 +133,14 @@ function mailShareTarget(accountId: number, m: Pick<EmailMessageSummary, 'id' | 
  * WP-962 목록 행 hover 작업(데스크톱) — 보관 · 옮기기(메뉴) · 삭제. 읽음 전환 버튼 왼쪽에 둔다. 평소에는 폭 0 으로 접어 자리를
  * 차지하지 않고(보낸사람 이름이 줄지 않게), hover·키보드 포커스·메뉴가 열린 동안에만 펼친다. display 가 아니라 폭으로 접어 탭 순서에 남는다
  * (Tab 으로 들어오면 focus-within 으로 펼쳐진다).
- * 행 열기와 분리하려고 클릭·키 입력을 멈춘다. 터치(coarse) 태블릿에선 숨은 채 탭이 닿지 않게 pointer-events 를 끈다(WP-237).
+ * 행 열기와 분리하려고 클릭을 멈춘다(행은 키를 받지 않는다 — WP-1550). 터치(coarse) 태블릿에선 숨은 채 탭이 닿지 않게 pointer-events 를 끈다(WP-237).
  */
 function MailRowMoveActions({ id, actions }: { id: number; actions: MailMoveActions }) {
-  const stop = { onClick: (e: ReactMouseEvent) => e.stopPropagation(), onKeyDown: (e: ReactKeyboardEvent) => e.stopPropagation() }
   return (
     <span
       data-testid={`mail-row-move-actions-${id}`}
       className="flex w-0 shrink-0 items-center gap-1 overflow-hidden opacity-0 group-hover:w-auto group-hover:opacity-100 focus-within:w-auto focus-within:opacity-100 has-[[data-state=open]]:w-auto has-[[data-state=open]]:opacity-100 pointer-coarse:pointer-events-none"
-      {...stop}
+      onClick={(e) => e.stopPropagation()}
     >
       {actions.avail.archive && (
         <button
@@ -226,21 +225,15 @@ function MessageRow({
   // WP-1348: 보기와 같은 분류 배지는 되풀이하지 않는다 — 배지 줄 조건도 이 값을 써 빈 줄이 남지 않게 한다.
   const categoryBadge = aiCategory && aiCategory !== viewCategory ? aiCategory : null
   return (
-    // div role="button" — 내부 AiSignalBadge 가 실제 <button>이므로 바깥을 <button>으로
-    // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
+    // WP-1550: 행은 버튼이 아니다 — role="button" 안에 실제 버튼(읽음 전환·보관·분류 배지 등)이 들어가면
+    // 스크린리더가 안쪽 버튼을 따로 알리지 못한다(WCAG 4.1.2). 마우스·터치로 행 아무 데나 눌러 여는 편의는 행 onClick 으로 남기고,
+    // 키보드·스크린리더 접근점은 첫 줄의 「열기」 버튼(이름 묶음) 하나로 두어 다른 컨트롤과 형제가 되게 한다.
+    // (옛 #577: 바깥을 <button> 으로 감싸면 버튼 중첩이 되어 카드형 클릭 영역으로 전환했던 것의 후속.)
     <>
       <div
-        role="button"
-        tabIndex={0}
         data-testid={`mail-row-${m.id}`}
         // WP-187: 길게 누르기 등 행 단위 위임 처리에서 메시지 id 를 찾기 위한 표식.
         data-message-id={m.id}
-        // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
-        // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
-        // 식별에 필수가 아니므로 간결함 우선으로 제외.
-        // WP-1325: 외부 메일은 이름 뒤에 「외부」를 붙여 화면 읽기 프로그램에도 태그와 같은 정보를 준다.
-        aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'}${m.externalSender ? ' (외부)' : ''} ${mailSubjectText(m.subject)}`}
-        aria-current={open ? 'true' : undefined}
         onClick={onSelect}
         onContextMenu={
           linkTarget
@@ -252,15 +245,11 @@ function MessageRow({
               }
             : undefined
         }
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onSelect()
-          }
-        }}
         className={cn(
           // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
           'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+          // WP-1550: 열기 버튼은 자체 outline 을 끄고(outline-none) 행 전체가 전역 초점 테두리(outline-ring/50)와 같은 모양으로 초점을 그린다.
+          'has-[[data-row-open]:focus-visible]:outline-2 has-[[data-row-open]:focus-visible]:-outline-offset-2 has-[[data-row-open]:focus-visible]:outline-ring/50',
           // 선택은 배경만 — 막대는 안 읽음 표시(아래, 같은 자리·같은 색)와 겹치고, 굵기도 안 읽음 표시라 둘 다 쓰지 않는다.
           open || sheetTarget ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
         )}
@@ -275,34 +264,44 @@ function MessageRow({
           />
         )}
         <span className="flex items-center gap-2">
-          {/* WP-1325: 이름과 「외부」 태그를 한 묶음으로 — 태그가 이름 바로 뒤에 붙고, 긴 이름만 줄여 태그는 늘 보인다. */}
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span
-            className={cn(
-              'min-w-0 truncate text-sm',
-              m.seen ? 'text-foreground' : 'font-semibold',
-            )}
+          {/* WP-1325: 이름과 「외부」 태그를 한 묶음으로 — 태그가 이름 바로 뒤에 붙고, 긴 이름만 줄여 태그는 늘 보인다.
+              WP-1550: 이 묶음이 키보드·스크린리더의 「열기」 버튼이다 — 옛 행의 aria-label(발신자 + 제목, 스니펫·날짜 제외 #699)과
+              aria-current 를 가져온다. 자체 onClick 은 두지 않는다 — 클릭·Enter·Space 의 click 이 행 onClick 으로 올라가 한 번만 연다. */}
+          <button
+            type="button"
+            data-row-open
+            data-testid={`mail-row-open-${m.id}`}
+            // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2).
+            // WP-1325: 외부 메일은 이름 뒤에 「외부」를 붙여 화면 읽기 프로그램에도 태그와 같은 정보를 준다.
+            aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'}${m.externalSender ? ' (외부)' : ''} ${mailSubjectText(m.subject)}`}
+            aria-current={open ? 'true' : undefined}
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none"
           >
-            {m.fromName || m.fromAddress || '(보낸사람 없음)'}
-          </span>
-          {/* WP-1325: 외부 메일만 「외부」 태그 — Outlook·Gmail 처럼 내부 메일은 표시하지 않아 목록을 덜 시끄럽게 하고 외부를 눈에 띄게 한다.
-              외부 = 보낸 사람이 이 워크스페이스 구성원이 아님(서버 판정, 도메인 추정 없음). */}
-          {m.externalSender && (
             <span
-              data-testid={`mail-external-${m.id}`}
-              title="조직 밖에서 온 메일입니다"
-              className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs leading-4 font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+              className={cn(
+                'min-w-0 truncate text-sm',
+                m.seen ? 'text-foreground' : 'font-semibold',
+              )}
             >
-              외부
+              {m.fromName || m.fromAddress || '(보낸사람 없음)'}
             </span>
-          )}
-          </span>
+            {/* WP-1325: 외부 메일만 「외부」 태그 — Outlook·Gmail 처럼 내부 메일은 표시하지 않아 목록을 덜 시끄럽게 하고 외부를 눈에 띄게 한다.
+                외부 = 보낸 사람이 이 워크스페이스 구성원이 아님(서버 판정, 도메인 추정 없음). */}
+            {m.externalSender && (
+              <span
+                data-testid={`mail-external-${m.id}`}
+                title="조직 밖에서 온 메일입니다"
+                className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs leading-4 font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+              >
+                외부
+              </span>
+            )}
+          </button>
           {m.hasAttachment && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
           {moveActions && <MailRowMoveActions id={m.id} actions={moveActions} />}
           {showToggle && (
             // WP-187: hover 시 읽음/안읽음 전환 — 행 열기와 분리(stopPropagation).
             // display 대신 opacity 로 숨겨 탭 순서에 남긴다 — 키보드 포커스 시에도 드러난다(접근성).
-            // onKeyDown 도 멈춘다 — 행의 Enter/Space 처리(preventDefault)가 버튼 키보드 활성화를 삼키지 않게.
             // WP-237: 터치(coarse) ≥1024 태블릿에선 숨은 채로 남으므로 탭이 닿지 않게 pointer-events 를 끈다 — 탭은 행 열기로 간다.
             // (휴대폰 폭은 showToggle=false 로 아예 렌더 안 함. 읽음 전환은 메일 열기·상세 툴바로 대신한다.)
             <button
@@ -314,7 +313,6 @@ function MessageRow({
                 e.stopPropagation()
                 onToggleRead()
               }}
-              onKeyDown={(e) => e.stopPropagation()}
               className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100 pointer-coarse:pointer-events-none"
             >
               {m.seen ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
