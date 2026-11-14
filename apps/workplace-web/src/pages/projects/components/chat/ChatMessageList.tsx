@@ -46,6 +46,10 @@ interface ChatMessageListProps {
   compact?: boolean;
   /** 질문 열림/답변됨 판정 재료(questionState.ts) — 이슈 받는 중·조회 실패·AI 작업 맵. */
   questionWorks: QuestionWorks;
+  /** 질문의 「빠른 답변」 선택지를 눌렀을 때(WP-1569) — 질문 글 id 와 고른 문구. */
+  onPickOption?: (messageId: number, text: string) => void;
+  /** 그 질문의 선택지를 비활성으로 그릴지(WP-1569) — 쓸 수 없는 사용자이거나 그 질문의 답을 보내는 중·보낸 뒤. */
+  isOptionsDisabled?: (messageId: number) => boolean;
 }
 
 export function ChatMessageList({
@@ -62,6 +66,8 @@ export function ChatMessageList({
   fill = false,
   compact = false,
   questionWorks,
+  onPickOption,
+  isOptionsDisabled,
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -200,6 +206,8 @@ export function ChatMessageList({
                       canEdit={canEdit}
                       isPending={isPending}
                       questionState={qStates.get(m.id)}
+                      onPickOption={onPickOption ? (text) => onPickOption(m.id, text) : undefined}
+                      optionsDisabled={isOptionsDisabled?.(m.id) ?? false}
                       onEdit={onEdit}
                       onDelete={onDelete}
                       // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.

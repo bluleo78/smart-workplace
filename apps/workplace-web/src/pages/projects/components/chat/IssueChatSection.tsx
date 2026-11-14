@@ -144,6 +144,23 @@ function IssueChatSectionBody({
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
+  // WP-1569: 「빠른 답변」으로 답을 보냈거나 보내는 중인 질문 글 id. 서버가 AI 를 재개하고 이슈(작업 상태)를 다시 받기까지 1~2초 질문이 열린 채라,
+  // 그 사이 같은 질문의 선택지를 또 눌러 답이 두 번 가지 않게 막는다. 같은 틱의 연속 클릭도 막도록 ref 로 먼저 판정한다. 실패하면 다시 누를 수 있게 뺀다.
+  const pickedRef = useRef<Set<number>>(new Set());
+  const [pickedIds, setPickedIds] = useState<ReadonlySet<number>>(new Set());
+  // ref 를 고친 뒤 화면용 상태에 새 Set 사본으로 옮긴다(같은 Set 객체면 React 가 바뀐 줄 모른다).
+  const syncPicked = () => setPickedIds(new Set(pickedRef.current));
+  const pickOption = (messageId: number, text: string) => {
+    if (pickedRef.current.has(messageId)) return;
+    pickedRef.current.add(messageId);
+    syncPicked();
+    // 서버가 사람 글로 답변 대기 중인 AI 를 자동으로 재개하므로 멘션은 붙이지 않는다. 실패 토스트는 전송 훅(onError)이 띄운다.
+    createMutation.mutateAsync({ body: text }).catch(() => {
+      pickedRef.current.delete(messageId);
+      syncPicked();
+    });
+  };
+
   // 다른 멤버의 타이핑 표시 (SSE typing 버스 구독, 4초 TTL). 본인 이벤트는 무시.
   const [typingNames, setTypingNames] = useState<Map<number, { name: string; at: number }>>(
     new Map(),
@@ -271,6 +288,9 @@ function IssueChatSectionBody({
       fill={embedded}
       compact={plain}
       questionWorks={questionWorks}
+      onPickOption={pickOption}
+      // 쓸 수 없는 사용자(canPost false)는 선택지를 보되 누를 수 없다 — 입력창 자리의 안내와 같은 조건.
+      isOptionsDisabled={(id) => thread.canPost === false || pickedIds.has(id)}
       renderEditor={(m) => (
         <ChatMessageEditor
           initialBody={m.body}

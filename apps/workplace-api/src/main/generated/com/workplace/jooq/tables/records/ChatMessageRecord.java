@@ -161,6 +161,22 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
         return (Boolean) get(9);
     }
 
+    /**
+     * Setter for <code>public.chat_message.options</code>. WP-1569: AI 질문 글의 답
+     * 선택지(JSON 문자열 배열 2~4개). 없으면 NULL
+     */
+    public void setOptions(JSONB value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.chat_message.options</code>. WP-1569: AI 질문 글의 답
+     * 선택지(JSON 문자열 배열 2~4개). 없으면 NULL
+     */
+    public JSONB getOptions() {
+        return (JSONB) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -184,7 +200,7 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
     /**
      * Create a detached, initialised ChatMessageRecord
      */
-    public ChatMessageRecord(Long id, Long threadId, Long authorId, String body, JSONB mentions, OffsetDateTime createdAt, OffsetDateTime editedAt, OffsetDateTime deletedAt, Long tenantId, Boolean isQuestion) {
+    public ChatMessageRecord(Long id, Long threadId, Long authorId, String body, JSONB mentions, OffsetDateTime createdAt, OffsetDateTime editedAt, OffsetDateTime deletedAt, Long tenantId, Boolean isQuestion, JSONB options) {
         super(ChatMessage.CHAT_MESSAGE);
 
         setId(id);
@@ -197,6 +213,7 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
         setDeletedAt(deletedAt);
         setTenantId(tenantId);
         setIsQuestion(isQuestion);
+        setOptions(options);
         resetChangedOnNotNull();
     }
 }

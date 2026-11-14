@@ -83,7 +83,8 @@ class ChatMessageControllerTest extends WebMvcSliceTestBase {
         null,
         false,
         "username",
-        false);
+        false,
+        null);
   }
 
   @Test

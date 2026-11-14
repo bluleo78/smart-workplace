@@ -237,7 +237,7 @@ class ChatMessageServiceTest extends IntegrationTestBase {
 
     ChatMessageResponse msg =
         messageService.createFromReport(
-            s.reporterId(), thread.threadId(), "진행 보고", true, List.of());
+            s.reporterId(), thread.threadId(), "진행 보고", true, List.of(), null);
 
     assertThat(msg.question()).isTrue();
     var created = events.stream(ChatMessageCreatedEvent.class).toList();
@@ -265,7 +265,8 @@ class ChatMessageServiceTest extends IntegrationTestBase {
   void createFromReport_진행보고는_REPORT_경로로_이벤트에_싣는다() {
     ChatFixtures.Setup s = fx.setup();
     var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
-    messageService.createFromReport(s.reporterId(), thread.threadId(), "진행 보고", false, List.of());
+    messageService.createFromReport(
+        s.reporterId(), thread.threadId(), "진행 보고", false, List.of(), null);
     var e = events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow();
     assertThat(e.origin()).isEqualTo(ChatMessageOrigin.REPORT);
     assertThat(e.question()).isFalse();

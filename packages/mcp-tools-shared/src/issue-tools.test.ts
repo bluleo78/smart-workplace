@@ -346,6 +346,47 @@ describe('buildSharedIssueTools', () => {
       expect(c.reportAgentWork).not.toHaveBeenCalled();
     });
 
+    it('options 는 INPUT_REQUIRED 질문과 함께 앞뒤 공백을 걷어 그대로 넘긴다(WP-1569 — 질문 글 아래 답 선택지 칩)', async () => {
+      const c = mockClient();
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'INPUT_REQUIRED', message: 'A안/B안?', options: [' A안으로 (추천) ', 'B안으로'] });
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', {
+        state: 'INPUT_REQUIRED',
+        message: 'A안/B안?',
+        options: ['A안으로 (추천)', 'B안으로'],
+      });
+    });
+
+    it.each([
+      ['INPUT_REQUIRED 가 아닌 상태 + options', { state: 'REVIEW', message: '검토 부탁', options: ['네', '아니요'] }],
+      ['상태 없이 options', { message: '질문', options: ['네', '아니요'] }],
+      ['message 없이 options', { state: 'INPUT_REQUIRED', options: ['네', '아니요'] }],
+      ['공백 message + options', { state: 'INPUT_REQUIRED', message: '   ', options: ['네', '아니요'] }],
+      ['options 1개', { state: 'INPUT_REQUIRED', message: '질문', options: ['네'] }],
+      ['options 5개', { state: 'INPUT_REQUIRED', message: '질문', options: ['1', '2', '3', '4', '5'] }],
+      ['41자 선택지', { state: 'INPUT_REQUIRED', message: '질문', options: ['가'.repeat(41), '아니요'] }],
+      ['공백뿐인 선택지', { state: 'INPUT_REQUIRED', message: '질문', options: ['   ', '아니요'] }],
+      ['이모지 41개(코드 포인트 41)', { state: 'INPUT_REQUIRED', message: '질문', options: ['😀'.repeat(41), '아니요'] }],
+    ])('options 검증 실패: %s', async (_label, extra) => {
+      const c = mockClient();
+      await expect(reportTool(c).handler({ issueKey: 'WP-12', ...extra })).rejects.toThrow();
+      expect(c.reportAgentWork).not.toHaveBeenCalled();
+    });
+
+    it('options 길이는 서버처럼 코드 포인트로 센다 — 이모지 40개(UTF-16 80단위)도 통과(WP-1569)', async () => {
+      const c = mockClient();
+      const emoji40 = '😀'.repeat(40);
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'INPUT_REQUIRED', message: '질문', options: [emoji40, '아니요'] });
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'INPUT_REQUIRED', message: '질문', options: [emoji40, '아니요'] });
+    });
+
+    it('앞뒤 공백을 걷으면 같아지는 options 는 서버 400 대신 분명한 메시지로 거절한다(WP-1569)', async () => {
+      const c = mockClient();
+      await expect(
+        reportTool(c).handler({ issueKey: 'WP-12', state: 'INPUT_REQUIRED', message: '질문', options: ['네', ' 네 ', '아니요'] }),
+      ).rejects.toThrow('options must be distinct');
+      expect(c.reportAgentWork).not.toHaveBeenCalled();
+    });
+
     it.each([
       ['stepsDone 만', { stepsDone: 2 }],
       ['stepsTotal 만', { stepsTotal: 5 }],
@@ -1216,6 +1257,23 @@ describe('get_issue_chat (WP-373)', () => {
       { username: 'dh', name: '양동희', kind: 'HUMAN' },
       { username: 'kodi', name: '코디', kind: 'AGENT' },
     ]);
+  });
+
+  it('질문 글의 options 는 있을 때만 싣고, 삭제된 글·빈 배열·null 이면 뺀다(WP-1569)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({
+      items: [
+        { ...rows[0], attachments: [], options: ['A안으로', 'B안으로'] },
+        { ...rows[0], id: 14, attachments: [], options: null },
+        { ...rows[0], id: 15, attachments: [], options: [] },
+        { ...rows[1], options: ['남은 값'] },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    });
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
+    expect(out.messages[0].options).toEqual(['A안으로', 'B안으로']);
+    expect(out.messages.slice(1).map((m: Record<string, unknown>) => 'options' in m)).toEqual([false, false, false]);
   });
 
   it('참여자 조회가 실패해도 메시지는 돌려준다(참여자만 빠진다)', async () => {

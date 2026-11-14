@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentQuestionWork } from '@/lib/agentWork'
 import type { ChatMessageResponse } from '@/types/chat'
 
-import { questionStates } from './questionState'
+import { openQuestionOptions, questionStates } from './questionState'
 
 // 질문 글 시각(msg 기본 createdAt) 이후에 갱신된 작업 — 이슈 데이터가 질문을 이미 반영한 상태.
 const AFTER = Date.parse('2026-10-14T00:00:05Z')
@@ -73,5 +73,25 @@ describe('questionStates (질문한 AI 의 작업 상태 기준)', () => {
     expect(s.has(2)).toBe(false)
     expect(s.has(3)).toBe(false)
     expect(s.get(1)).toBe('open')
+  })
+})
+
+describe('openQuestionOptions (WP-1569 빠른 답변)', () => {
+  const opts = ['네, 진행해 주세요', '아니요, 멈춰 주세요']
+  it('열린 질문이고 선택지가 있으면 그 목록(개수는 서버가 보장)', () => {
+    expect(openQuestionOptions(msg(1, 'AGENT', { question: true, options: opts }), 'open')).toEqual(opts)
+    expect(openQuestionOptions(msg(1, 'AGENT', { question: true, options: ['하나'] }), 'open')).toEqual(['하나'])
+  })
+  it('답변됨·모름·상태 없음이면 없다', () => {
+    const m = msg(1, 'AGENT', { question: true, options: opts })
+    expect(openQuestionOptions(m, 'answered')).toBeNull()
+    expect(openQuestionOptions(m, 'unknown')).toBeNull()
+    expect(openQuestionOptions(m, undefined)).toBeNull()
+  })
+  it('선택지가 빈 배열·null·없음이거나 삭제된 글이면 없다', () => {
+    expect(openQuestionOptions(msg(1, 'AGENT', { options: [] }), 'open')).toBeNull()
+    expect(openQuestionOptions(msg(1, 'AGENT', { options: null }), 'open')).toBeNull()
+    expect(openQuestionOptions(msg(1, 'AGENT'), 'open')).toBeNull()
+    expect(openQuestionOptions(msg(1, 'AGENT', { options: opts, deleted: true }), 'open')).toBeNull()
   })
 })

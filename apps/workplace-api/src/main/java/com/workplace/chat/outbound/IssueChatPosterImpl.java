@@ -22,8 +22,11 @@ public class IssueChatPosterImpl implements IssueChatPoster {
       int issueNumber,
       String body,
       boolean question,
-      List<Long> fileIds) {
+      List<Long> fileIds,
+      List<String> options) {
     long threadId = threadService.getOrCreate(callerId, projectKey, issueNumber).threadId();
-    return messageService.createFromReport(callerId, threadId, body, question, fileIds).id();
+    return messageService
+        .createFromReport(callerId, threadId, body, question, fileIds, options)
+        .id();
   }
 }

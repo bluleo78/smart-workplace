@@ -12,7 +12,6 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -87,13 +86,11 @@ public class IssueAiClassifyService {
               List<String> projectLabels =
                   labelRepository.findByProject(project.id()).stream().map(l -> l.name()).toList();
 
-              // 프로젝트 유형별 어시스턴트 해석.
-              boolean isPersonal = "PERSONAL".equals(project.type());
-              Optional<AssistantSpec> specOpt =
-                  isPersonal
-                      ? assistantResolver.resolveOrEmpty(project.ownerId())
-                      : assistantResolver.resolveWorkspaceOrEmpty();
-              AssistantSpec spec = specOpt.orElseThrow(IssueAiAssistantUnavailableException::new);
+              // 프로젝트 유형별 어시스턴트 해석(개인 → 소유자 비서·공용 폴백, 팀 → 공용 비서).
+              AssistantSpec spec =
+                  assistantResolver
+                      .resolveForProject(project.isPersonal(), project.ownerId())
+                      .orElseThrow(IssueAiAssistantUnavailableException::new);
 
               return new Gathered(project, projectLabels, spec);
             });

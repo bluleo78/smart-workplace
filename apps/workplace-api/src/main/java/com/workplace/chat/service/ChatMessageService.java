@@ -12,6 +12,7 @@ import com.workplace.chat.exception.EmptyChatMessageException;
 import com.workplace.chat.outbound.ChatAgentWake;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageOptionsEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
@@ -75,22 +76,31 @@ public class ChatMessageService {
   /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
-    return doCreate(callerId, threadId, req, ChatMessageOrigin.USER);
+    return doCreate(callerId, threadId, req, ChatMessageOrigin.USER, null);
   }
 
   /**
    * AI 작업 보고(report_agent_work)의 글(WP-373). question 을 생성과 함께 저장하고, 작성자가 사람이어도 "사람의 답"
    * (IssueHumanReplyPosted)으로 치지 않는다 — 사람이 자기 AI 도구로 남긴 진행 보고가 다른 AI 의 답변 필요를 풀면 안 된다(스펙 §3.2).
    * fileIds 는 보고와 함께 붙일 스테이징 파일 — 화면 작성과 같은 바인딩 경로로 클레임한다(WP-515).
+   *
+   * <p>options 는 질문 글의 답 선택지(WP-1569) — 받은 그대로 저장하고 생성 이벤트·SSE 에 함께 싣는다. 「질문에만」은 호출자(보고 서비스)가 정해
+   * 넘긴다. null 이면 선택지 없음 — 질문이면 커밋 뒤 {@link QuestionOptionsService} 가 질문 글에서 뽑아 채운다.
    */
   @Transactional
   public ChatMessageResponse createFromReport(
-      long callerId, long threadId, String body, boolean question, List<Long> fileIds) {
+      long callerId,
+      long threadId,
+      String body,
+      boolean question,
+      List<Long> fileIds,
+      List<String> options) {
     return doCreate(
         callerId,
         threadId,
         new CreateChatMessageRequest(body, fileIds, List.of()),
-        question ? ChatMessageOrigin.REPORT_QUESTION : ChatMessageOrigin.REPORT);
+        question ? ChatMessageOrigin.REPORT_QUESTION : ChatMessageOrigin.REPORT,
+        options);
   }
 
   /**
@@ -98,7 +108,11 @@ public class ChatMessageService {
    * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
    */
   private ChatMessageResponse doCreate(
-      long callerId, long threadId, CreateChatMessageRequest req, ChatMessageOrigin origin) {
+      long callerId,
+      long threadId,
+      CreateChatMessageRequest req,
+      ChatMessageOrigin origin,
+      List<String> options) {
     // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
     var joinCtx = threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
@@ -131,7 +145,8 @@ public class ChatMessageService {
     }
 
     long messageId =
-        messageRepo.insert(threadId, callerId, req.body(), mentionUserIds, origin.question());
+        messageRepo.insert(
+            threadId, callerId, req.body(), mentionUserIds, origin.question(), options);
     // 선업로드 첨부 바인딩 + 영구 승격(같은 트랜잭션 — RLS 컨텍스트 공유).
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
     // 드라이브 파일 교차링크 — 발신자 thread 멤버 + 각 파일 ≥VIEWER 검증은 createLink 내부.
@@ -212,6 +227,8 @@ public class ChatMessageService {
     if (messageRepo.update(messageId, req.body(), mentionUserIds) == 0) {
       throw new ChatMessageNotFoundException(messageId);
     }
+    // WP-1569: 고친 질문 글의 답 선택지는 지운다(다시 뽑지 않음) — 옛 본문에서 나온 칩이 남지 않게.
+    boolean optionsCleared = messageRepo.clearOptions(messageId) == 1;
     ChatMessageResponse saved = findOne(messageId);
     // SSE fan-out 용 수정 이벤트 발행 (mention 은 hydrate 후 전달).
     publisher.publishEvent(
@@ -221,6 +238,12 @@ public class ChatMessageService {
             saved.body(),
             hydrator.summariesOf(mentionUserIds),
             saved.editedAt()));
+    // WP-1569: chat.message.updated 웹 처리기는 options 를 건드리지 않으므로, 지웠으면 options 만 고치는
+    // chat.message.options(null)로
+    // 따로 알린다.
+    if (optionsCleared) {
+      publisher.publishEvent(new ChatMessageOptionsEvent(saved.threadId(), messageId, null));
+    }
     return saved;
   }
 
@@ -407,7 +430,8 @@ public class ChatMessageService {
         Instant.now(),
         followUpAgentId,
         recurrence,
-        implicitAgentId);
+        implicitAgentId,
+        saved.options());
   }
 
   /**

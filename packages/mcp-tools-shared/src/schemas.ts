@@ -118,6 +118,9 @@ export const updateIssueInput = z.object({
 /** 코멘트 작성 입력. */
 export const addCommentInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1).max(ISSUE_BODY_MAX_LENGTH) });
 
+/** WP-1569: 질문 답 선택지 한 개의 최대 길이 — 서버(ReportAgentWorkRequest)처럼 코드 포인트로 센다. */
+const OPTION_MAX_CODE_POINTS = 40;
+
 /**
  * AI 작업 보고 입력(WP-377). steps 두 값은 짝으로만 받는다 — 하나만 오면 "3/?" 처럼 의미 없는 진행이 되기 때문.
  * 서버도 같은 규칙으로 검증하지만 MCP 에서 먼저 명확한 메시지로 거절한다.
@@ -142,13 +145,35 @@ export const reportAgentWorkInput = z
       .optional()
       .describe('SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report; omitted = no time'),
     fileIds: stagedFileIdsInput.optional(), // WP-515: message 챗 글에 붙인다 — 시안·검증 스크린샷을 질문·보고와 함께 보이게
+    // WP-1569: 질문 글 아래 칩으로 보일 답 선택지(누르면 그 문구가 답으로 간다). 개수 2~4·각 40자는 서버(ReportAgentWorkRequest)와 같은 규칙.
+    // 앞뒤 공백을 걷은 뒤 빈 칸을 거절한다. 길이는 서버처럼 코드 포인트로 센다(zod max 는 UTF-16 단위라 이모지 등이 2로 세어진다).
+    // 걷은 뒤 같아지는 중복도 여기서 분명한 메시지로 거절한다 — 서버 400 보다 AI 가 고칠 곳을 바로 안다.
+    options: z
+      .array(
+        z
+          .string()
+          .trim()
+          .min(1)
+          .refine((s) => [...s].length <= OPTION_MAX_CODE_POINTS, { message: `each option must be at most ${OPTION_MAX_CODE_POINTS} characters` })
+          // refine 은 JSON Schema 에 나타나지 않으므로 모델이 보는 정의에는 maxLength 를 메타로 그대로 알린다(검증은 위 refine 이 한다).
+          .meta({ maxLength: OPTION_MAX_CODE_POINTS }),
+      )
+      .min(2)
+      .max(4)
+      .refine((opts) => new Set(opts).size === opts.length, { message: 'options must be distinct (after trimming spaces)' })
+      .optional()
+      .describe('INPUT_REQUIRED+message only: answer choices, recommended first'),
   })
   .refine((v) => (v.stepsDone === undefined) === (v.stepsTotal === undefined), { message: 'stepsDone and stepsTotal go together' })
   .refine((v) => v.stepsDone === undefined || v.stepsDone <= (v.stepsTotal ?? 0), { message: 'stepsDone must not exceed stepsTotal' })
   // 서버(ReportAgentWorkRequest)와 같은 규칙 — 시각은 SCHEDULED 일 때만.
   .refine((v) => v.nextRunAt === undefined || v.state === 'SCHEDULED', { message: 'nextRunAt is only allowed with state SCHEDULED' })
   // 서버와 같은 규칙 — 첨부는 message 글에 붙으므로 message 가 있을 때만(없으면 붙일 글이 없다).
-  .refine((v) => !v.fileIds?.length || Boolean(v.message?.trim()), { message: 'fileIds need a message to attach to' });
+  .refine((v) => !v.fileIds?.length || Boolean(v.message?.trim()), { message: 'fileIds need a message to attach to' })
+  // WP-1569: 서버와 같은 규칙 — 선택지는 질문 글(INPUT_REQUIRED + message)에만 붙는다.
+  .refine((v) => v.options === undefined || (v.state === 'INPUT_REQUIRED' && Boolean(v.message?.trim())), {
+    message: 'options are only allowed with state INPUT_REQUIRED and a message',
+  });
 
 /** 코멘트 수정 입력. */
 export const editCommentInput = z.object({

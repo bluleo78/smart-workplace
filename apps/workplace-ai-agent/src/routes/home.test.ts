@@ -618,6 +618,20 @@ describe('POST /home/suggestions (WP-139)', () => {
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'home_suggestions_failed' });
   });
+  // WP-1569: API 가 이슈 챗 질문 글의 답 선택지를 뽑을 때 보내는 모양 그대로 — 빈 결과도 200 { items: [] }.
+  it('answer 모드 → 200 { items } (빈 배열도 그대로)', async () => {
+    const answerBody = { mode: 'answer', agentId: 7, model: 'claude-haiku-5-5', screenContext: null, recentTitles: null, question: 'A안과 B안 중 어느 쪽으로 갈까요?', answer: null, count: 4, timeoutMs: 20_000 };
+    vi.mocked(runSuggestions).mockResolvedValue({ items: [] });
+    const res = await request(buildApp()).post('/home/suggestions').send(answerBody);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [] });
+    expect(vi.mocked(runSuggestions).mock.calls[0][0]).toMatchObject({ mode: 'answer', question: 'A안과 B안 중 어느 쪽으로 갈까요?', count: 4, timeoutMs: 20_000 });
+  });
+  it('answer 모드에 question 이 없으면 400 (실행 안 함)', async () => {
+    const res = await request(buildApp()).post('/home/suggestions').send({ mode: 'answer', agentId: 7, count: 4, timeoutMs: 20_000, question: null });
+    expect(res.status).toBe(400);
+    expect(runSuggestions).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /home/memory-cleanup (WP-385)', () => {

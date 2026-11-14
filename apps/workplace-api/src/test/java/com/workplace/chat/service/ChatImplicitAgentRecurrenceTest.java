@@ -342,7 +342,7 @@ class ChatImplicitAgentRecurrenceTest extends IntegrationTestBase {
     assertThat(created(second).implicitAgentId()).isNull();
 
     // 담당 AI 가 글을 남긴 바로 다음 글이면 이어서 답한다.
-    messageRepository.insert(threadId, teamAi, "이번 주 정리입니다", List.of(), false);
+    messageRepository.insert(threadId, teamAi, "이번 주 정리입니다", List.of(), false, null);
     long third = chat(threadId, alice, "좋아요, 표로 바꿔 줘");
     assertThat(created(third).implicitAgentId()).isEqualTo(teamAi);
   }
@@ -406,7 +406,7 @@ class ChatImplicitAgentRecurrenceTest extends IntegrationTestBase {
 
     // bob 의 글 — 남의 개인 비서는 깨우지 않는다. 직전 글을 비서 글로 둬도 마찬가지다.
     memberRepository.delete(threadId, alice);
-    messageRepository.insert(threadId, aliceAi, "정리했습니다", List.of(), false);
+    messageRepository.insert(threadId, aliceAi, "정리했습니다", List.of(), false, null);
     assertThat(created(chat(threadId, bob, "나도 부탁해")).implicitAgentId()).isNull();
   }
 

@@ -63,6 +63,8 @@ function toIssueChatMessageView(m: Record<string, unknown>) {
     // 본문의 멘션 토큰 <@id> 은 mentions 로 이름을 풀어 숫자 사용자 id 가 AI 에 닿지 않게 한다(#833).
     body: deleted ? undefined : resolveMentionTokens(String(m.body ?? ''), m.mentions),
     question: m.question === true ? true : undefined,
+    // WP-1569: 질문 글의 답 선택지(사람 화면에 칩으로 보인다) — 있을 때만 싣는다(삭제된 글은 서버가 null 로 준다, 빈 배열은 dropEmpty 가 뺀다).
+    options: !deleted && Array.isArray(m.options) ? m.options : undefined,
     // 시각은 목록·상세와 같은 Asia/Seoul 오프셋 표기로 맞춘다.
     createdAt: toSeoulIso(m.createdAt),
     editedAt: toSeoulIso(m.editedAt) ?? undefined,
@@ -532,7 +534,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Adds (linked: true) or removes (false) a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; ' +
-        '"blockedBy": the reverse. Repeating is a no-op; adding a cycle is an error.',
+        '"blockedBy": the reverse. Adding a cycle is an error.',
       inputSchema: linkIssuesInput,
       async handler(args) {
         const { issueKey, otherIssueKey, direction, linked } = linkIssuesInput.parse(args);
@@ -558,7 +560,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: true },
       description:
         'Links issueKey to another issue (otherIssueKey) or an issue in another system (externalLink: url, key?, title) — exactly one. ' +
-        'Not for blocking (link_issues). Reads "this issue <outwardLabel> <other>". Repeating is a no-op. Returns issueKey, relations, externalLinks.',
+        'Not for blocking (link_issues). Reads "this issue <outwardLabel> <other>". Returns issueKey, relations, externalLinks.',
       inputSchema: addIssueRelationInput,
       async handler(args) {
         const { issueKey, type, side, otherIssueKey, externalLink } = addIssueRelationInput.parse(args);
@@ -610,8 +612,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       // WP-421: 구독·해제를 합쳤다 — watching 이 최종 상태라 멱등이고(서버 POST·DELETE 모두 이미 그 상태면 no-op), 해제 갈래가 있어 destructive.
       hints: { destructive: true, idempotent: true },
       description:
-        'Watches or stops watching an issue; watchers are notified of its comments and status/priority changes. Anyone who can read the issue (public intake: non-members too); ' +
-        'repeating is a no-op.',
+        'Watches or stops watching an issue; watchers are notified of its comments and status/priority changes. Anyone who can read the issue (public intake: non-members too).',
       inputSchema: watchIssueInput,
       async handler(args) {
         const { issueKey, watching } = watchIssueInput.parse(args);

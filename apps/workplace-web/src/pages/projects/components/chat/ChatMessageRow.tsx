@@ -9,6 +9,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { SuggestionList } from '@/components/ai/SuggestionList';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { ChatMarkdownText } from '@/components/chat/ChatMarkdownText';
 import { LinkPreviewList } from '@/components/chat/LinkPreviewCard';
@@ -35,7 +36,7 @@ import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageImage } from './ChatMessageImage';
 import { formatChatTimestamp } from './formatChatTimestamp';
-import type { QuestionState } from './questionState';
+import { openQuestionOptions, type QuestionState } from './questionState';
 
 /** 질문 태그 모양 — 열린 질문은 주황 「질문」, 답변된 질문은 초록 「질문 ✓ 답변됨」(WP-373), 이슈를 못 받아 모를 때는 무채색 「질문」(WP-391). */
 const QUESTION_TAG: Record<QuestionState, { className: string; label: string }> = {
@@ -66,6 +67,10 @@ interface ChatMessageRowProps {
   onOpenActions?: () => void;
   // 질문 메시지 상태(WP-373) — open: 주황 강조 + 「질문」 태그, answered: 강조 없이 「질문 ✓ 답변됨」 태그, unknown: 강조 없이 무채색 「질문」 태그(WP-391).
   questionState?: QuestionState;
+  // 「빠른 답변」 선택지를 누르면 그 문구를 답으로 보낸다(WP-1569). 열린 질문이고 선택지가 2개 이상일 때만 목록이 보인다.
+  onPickOption?: (text: string) => void;
+  // 선택지 비활성 — 쓸 수 없는 사용자(canPost false)이거나 그 질문의 답을 보내는 중·보낸 뒤.
+  optionsDisabled?: boolean;
 }
 
 export function ChatMessageRow({
@@ -77,8 +82,12 @@ export function ChatMessageRow({
   onDelete,
   onOpenActions,
   questionState,
+  onPickOption,
+  optionsDisabled = false,
 }: ChatMessageRowProps) {
   const isAgent = message.authorKind === 'AGENT';
+  // WP-1569: 열린 질문의 답 선택지 — 보낼 처리기가 없으면(질문을 그리지 않는 곳) 목록도 없다.
+  const quickAnswers = onPickOption ? openQuestionOptions(message, questionState) : null;
   // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
   const touchShell = useIsTouchShell();
   // 터치 셸에선 툴바를 그리지 않는다 — 수정·삭제는 길게 누르기 시트가 맡는다.
@@ -268,6 +277,18 @@ export function ChatMessageRow({
             </div>
             {body}
             {attachments}
+            {/* WP-1569: 질문 바로 아래 「빠른 답변」 — 누르면 그 문구가 내 답으로 바로 간다(입력창 초안은 그대로). */}
+            {quickAnswers && onPickOption && (
+              <SuggestionList
+                heading="빠른 답변"
+                items={quickAnswers}
+                disabled={optionsDisabled}
+                onPick={onPickOption}
+                testId="chat-question-options"
+                itemTestId="chat-question-option"
+                className="-ml-2 mt-1.5"
+              />
+            )}
           </div>
         </>
       )}

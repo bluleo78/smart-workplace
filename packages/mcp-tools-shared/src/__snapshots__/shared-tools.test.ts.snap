@@ -2629,6 +2629,17 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maxLength": 120,
           "type": "string",
         },
+        "options": {
+          "description": "INPUT_REQUIRED+message only: answer choices, recommended first",
+          "items": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 4,
+          "minItems": 2,
+          "type": "array",
+        },
         "progress": {
           "maximum": 100,
           "minimum": 0,

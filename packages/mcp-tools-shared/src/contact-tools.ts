@@ -144,7 +144,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description:
-        `Adds a contact to my favorites (no-op if already there). ${TARGET_HINT}`,
+        `Adds a contact to my favorites. ${TARGET_HINT}`,
       inputSchema: contactTargetInput,
       async handler(args) {
         const target = await resolveContactTarget(client, contactTargetInput.parse(args));
@@ -158,7 +158,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `Removes a contact from my favorites (no-op if absent). ${TARGET_HINT}`,
+        `Removes a contact from my favorites. ${TARGET_HINT}`,
       inputSchema: contactTargetInput,
       async handler(args) {
         const target = await resolveContactTarget(client, contactTargetInput.parse(args));
@@ -231,7 +231,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description:
-        `Adds a member or external contact to a user group (no-op if present). ${TARGET_HINT}`,
+        `Adds a member or external contact to a user group. ${TARGET_HINT}`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
         const { groupId, ...who } = userGroupMemberInput.parse(args);

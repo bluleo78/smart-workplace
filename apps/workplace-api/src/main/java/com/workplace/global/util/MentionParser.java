@@ -57,6 +57,14 @@ public final class MentionParser {
     Map<Long, String> names =
         mentions.stream()
             .collect(Collectors.toMap(MentionResponse::id, MentionResponse::name, (a, b) -> a));
+    return replaceWithNames(body, names);
+  }
+
+  /**
+   * {@link #replaceWithNames(String, Collection)} 의 이름 표 판 — id→이름 표로 {@code @이름}, 표에 없으면
+   * {@code @사용자}. 멘션을 MentionResponse 가 아닌 모양으로 가진 호출자(이슈 챗 질문 선택지 추출 WP-1569 등)도 같은 표기를 쓰게 한다.
+   */
+  public static String replaceWithNames(String body, Map<Long, String> names) {
     return replace(body, id -> "@" + names.getOrDefault(id, "사용자"));
   }
 }

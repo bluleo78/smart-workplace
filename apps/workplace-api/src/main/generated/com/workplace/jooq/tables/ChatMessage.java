@@ -116,6 +116,12 @@ public class ChatMessage extends TableImpl<ChatMessageRecord> {
      */
     public final TableField<ChatMessageRecord, Boolean> IS_QUESTION = createField(DSL.name("is_question"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.chat_message.options</code>. WP-1569: AI 질문 글의 답
+     * 선택지(JSON 문자열 배열 2~4개). 없으면 NULL
+     */
+    public final TableField<ChatMessageRecord, JSONB> OPTIONS = createField(DSL.name("options"), SQLDataType.JSONB, this, "WP-1569: AI 질문 글의 답 선택지(JSON 문자열 배열 2~4개). 없으면 NULL");
+
     private ChatMessage(Name alias, Table<ChatMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

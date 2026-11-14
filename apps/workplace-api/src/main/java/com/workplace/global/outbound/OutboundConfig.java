@@ -211,6 +211,26 @@ public class OutboundConfig {
   }
 
   /**
+   * 이슈 챗 AI 질문 글의 답 선택지 보완 추출 전용 executor(WP-1569 QuestionOptionsService). 홈 후속 질문
+   * (homeSuggestionExecutor)과 풀을 나눠, AI 질문이 몰려도 사람이 보는 홈 후속 질문이 밀리지 않게 한다. 없어도 되는 부가 기능이라 소형
+   * 풀(core·max 1)과 짧은 큐(16)로 ai-agent 동시 호출을 묶고, 넘치면 버린다 — 기본 AbortPolicy 가 TaskRejectedException 을
+   * 던지면 호출부가 삼킨다(질문 글은 선택지 없이 남는다). TenantContext 를 전파해 워커의 트랜잭션이 RLS GUC 를 받게 한다. 테스트가 풀의 누적 완료 작업
+   * 수로 끝남을 기다리므로 구체 타입으로 노출한다.
+   */
+  @Bean(name = "questionOptionsExecutor")
+  public ThreadPoolTaskExecutor questionOptionsExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(1);
+    executor.setQueueCapacity(16);
+    executor.setThreadNamePrefix("question-options-");
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * Drive Overview SSE 펌프 전용 executor. ai-agent SSE 로 스레드를 10–300s 점유하므로 wiki/chat 스트림과 분리해 경합을
    * 회피한다. core/max 4/8, queue 는 작게(동시 스트림 수 제한) — 초과 요청은 호출 스레드에서 reject 되어 빠르게 오류로 떨어지게 둔다.
    */

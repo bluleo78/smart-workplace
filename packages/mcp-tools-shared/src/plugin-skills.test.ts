@@ -49,7 +49,8 @@ function describeSkillTools(name: string, uses: Record<string, string[]>) {
 describeSkillTools('work-on', {
   get_issue_detail: ['issueKey'],
   list_issues: ['parent', 'assignee', 'pendingForMe'],
-  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'fileIds'],
+  // WP-1569: 질문할 때 답 선택지를 options 로 보낸다(질문 아래 칩).
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'fileIds', 'options'],
   update_issue: ['issueKey', 'assignees'],
   upload_file: ['name'],
   get_issue_chat: ['issueKey', 'after'],
@@ -73,10 +74,11 @@ describeSkillTools('work-done', {
 // WP-516: 근거 이미지·파일을 올려(upload_file) 결함 이슈(create_issue)나 질문·보고 글(report_agent_work)에 fileIds 로 붙인다.
 // WP-800: 할 일이 없으면 대기열 라벨 이슈(list_issues label)를 가져가고(claim_issue), 넘길 때는 AI 대신 라벨(labels)을 붙인다.
 // WP-719: 담당 밖 이슈의 멘션(list_issues mentionsMe)에 물은 곳에서 답한다(add_issue_chat).
+// WP-1569: 질문할 때 답 선택지를 options 로도 보낸다(질문 아래 칩, 추천이 첫 번째).
 describeSkillTools('work-loop', {
   get_member: ['username'],
   list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'mentionsMe', 'reporter', 'createdFrom', 'createdTo', 'q', 'label'],
-  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt', 'fileIds'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt', 'fileIds', 'options'],
   get_issue_chat: ['issueKey', 'after'],
   update_issue: ['issueKey', 'assignees', 'status', 'labels', 'body', 'parent', 'fileIds'],
   get_issue_detail: ['issueKey'],
