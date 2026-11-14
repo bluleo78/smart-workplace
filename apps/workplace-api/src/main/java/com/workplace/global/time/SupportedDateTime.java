@@ -16,9 +16,9 @@ import java.lang.annotation.Target;
  * +99999-01-01T00:00:00Z} 같은 확장 연도가 저장돼 다른 클라이언트가 해석하지 못하는 값으로 돌아오던 것을 막는다. null 은 통과한다(필수는
  * {@code @NotNull} 로).
  *
- * <p>쿼리 파라미터({@code @RequestParam})의 시각·날짜(OffsetDateTime·LocalDateTime·LocalDate)에도 쓴다 — 본문 해석기를
- * 지나지 않아 범위 밖 값이 DB 에서 409 로 터지던 것을 400 으로 바꾼다(WP-899·WP-1579). 컨트롤러 클래스에 {@code @Validated} 가 있어야
- * 검사가 돈다.
+ * <p>쿼리 파라미터({@code @RequestParam})의 시각·날짜(Instant·OffsetDateTime·LocalDateTime·LocalDate — Instant
+ * 는 검색·메일함 목록 커서 beforeAt, WP-1584)에도 쓴다 — 본문 해석기를 지나지 않아 범위 밖 값이 DB 에서 409 로 터지던 것을 400 으로
+ * 바꾼다(WP-899·WP-1579). 컨트롤러 클래스에 {@code @Validated} 가 있어야 검사가 돈다.
  */
 @Target({
   ElementType.FIELD,

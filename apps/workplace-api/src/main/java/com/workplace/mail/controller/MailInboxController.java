@@ -5,6 +5,7 @@ import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.security.dto.SecurityCheckView;
 import com.workplace.filepreview.PreviewResponses;
+import com.workplace.global.time.SupportedDateTime;
 import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.CalendarInvite;
 import com.workplace.mail.dto.EmailMessageDetail;
@@ -49,6 +50,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -62,6 +64,8 @@ import org.springframework.web.bind.annotation.RestController;
  * 받은편지함 동기화·읽기 REST. 모든 엔드포인트는 @AuthenticationPrincipal callerId(=본인) 스코프 — 본인 소유 계정/메시지만 다룬다(아니면
  * 404). 읽기 전용.
  */
+// WP-1584: 쿼리 파라미터 제약(@SupportedDateTime 등)이 실제로 돌게 메서드 검증을 켠다.
+@Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/mail")
@@ -138,7 +142,8 @@ public class MailInboxController {
       @RequestParam(required = false, defaultValue = "false") boolean unread,
       @RequestParam(required = false) String category, // P2: 분류 필터(업무/개인/알림/프로모션/뉴스레터)
       @RequestParam(required = false, defaultValue = "false") boolean needsReply, // P2: 회신필요 필터
-      @RequestParam(required = false) Instant beforeAt, // WP-965: 다음 페이지 커서 — 마지막 행 수신 시각
+      // WP-965: 다음 페이지 커서 — 마지막 행 수신 시각. WP-1584: 범위(1900~9999년) 밖이면 DB 409 대신 한국어 400.
+      @RequestParam(required = false) @SupportedDateTime Instant beforeAt,
       @RequestParam(required = false) Long beforeId, // WP-965: 다음 페이지 커서 — 마지막 행 id
       @RequestParam(required = false, defaultValue = "0") int limit) {
     MailListCursor cursor = beforeId == null ? null : new MailListCursor(beforeAt, beforeId);
