@@ -4,7 +4,7 @@
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 
-import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets'
+import { emojiReactionLabel, PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets'
 import { cn } from '@/lib/utils'
 
 export function QuickReactionRow({
@@ -30,7 +30,8 @@ export function QuickReactionRow({
       key={e}
       type="button"
       data-testid={testId}
-      aria-label={`${e} 반응`}
+      // 한국어 이름(「좋아요 반응」) — 글리프만이면 스크린리더가 영어 이름으로 읽거나 못 읽는다(WP-1551).
+      aria-label={emojiReactionLabel(e)}
       onClick={() => onPick(e)}
       className="flex size-11 items-center justify-center rounded-full text-2xl active:bg-accent"
     >
@@ -39,7 +40,8 @@ export function QuickReactionRow({
   )
   return (
     <div className={cn('px-3 py-2', className)}>
-      <div className="flex items-center justify-between">
+      {/* 빠른 줄·전체 그리드에 이름 — 「이모지 더 보기」도 빠른 줄 안이라 같은 group 에 둔다(WP-1551). */}
+      <div role="group" aria-label="자주 쓰는 반응" className="flex items-center justify-between">
         {QUICK_EMOJIS.map((e) => emojiButton(e, quickTestId(e)))}
         <button
           type="button"
@@ -53,7 +55,7 @@ export function QuickReactionRow({
         </button>
       </div>
       {allEmojis && (
-        <div className="mt-1 grid max-h-48 grid-cols-7 justify-items-center overflow-y-auto">
+        <div role="group" aria-label="모든 이모지" className="mt-1 grid max-h-48 grid-cols-7 justify-items-center overflow-y-auto">
           {PICKER_EMOJIS.map((e) => emojiButton(e, pickTestId(e)))}
         </div>
       )}

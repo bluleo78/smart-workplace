@@ -3,7 +3,7 @@ import { SmilePlus } from 'lucide-react'
 import { useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
-import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets'
+import { emojiReactionLabel, PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets'
 import { Button } from '@/components/ui/button'
 
 interface EmojiPickerProps {
@@ -32,13 +32,16 @@ export function EmojiPicker({ onPick, testIdPrefix }: EmojiPickerProps) {
           <SmilePlus className="h-3 w-3" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-2" data-testid={`${testIdPrefix}-emoji-popover`}>
-        <div className="mb-2 flex gap-1 border-b pb-2">
+      {/* 팝오버(role=dialog)·두 줄에 이름을 붙이고 이모지 버튼마다 한국어 이름을 단다 — 스크린리더가 이름 없는 대화상자·
+          영어 이모지 이름·「버튼」만 읽지 않게(WP-1551). */}
+      <PopoverContent className="w-auto p-2" aria-label="이모지 선택" data-testid={`${testIdPrefix}-emoji-popover`}>
+        <div role="group" aria-label="자주 쓰는 반응" className="mb-2 flex gap-1 border-b pb-2">
           {QUICK_EMOJIS.map((e) => (
             <button
               key={e}
               type="button"
               className="rounded p-1 text-lg hover:bg-muted"
+              aria-label={emojiReactionLabel(e)}
               data-testid={`${testIdPrefix}-quick-${e}`}
               onClick={() => pick(e)}
             >
@@ -46,12 +49,13 @@ export function EmojiPicker({ onPick, testIdPrefix }: EmojiPickerProps) {
             </button>
           ))}
         </div>
-        <div className="grid max-h-40 grid-cols-8 gap-1 overflow-y-auto">
+        <div role="group" aria-label="모든 이모지" className="grid max-h-40 grid-cols-8 gap-1 overflow-y-auto">
           {PICKER_EMOJIS.map((e) => (
             <button
               key={e}
               type="button"
               className="rounded p-1 text-lg hover:bg-muted"
+              aria-label={emojiReactionLabel(e)}
               data-testid={`${testIdPrefix}-pick-${e}`}
               onClick={() => pick(e)}
             >

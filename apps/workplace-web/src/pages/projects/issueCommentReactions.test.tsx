@@ -89,7 +89,11 @@ describe('코멘트 반응 추가·취소 (WP-504)', () => {
     for (const e of ['👍', '❤️', '😄', '🎉', '😢', '🙏']) {
       expect(await screen.findByTestId(`comment-reaction-quick-32-${e}`)).toBeInTheDocument()
     }
-    await user.click(screen.getByTestId('comment-reaction-quick-32-👍'))
+    // WP-1551: 팝오버는 「이모지 선택」 대화상자, 빠른 줄은 「자주 쓰는 반응」 group, 이모지 버튼은 한국어 이름.
+    const dialog = screen.getByRole('dialog', { name: '이모지 선택' })
+    const quick = within(dialog).getByRole('group', { name: '자주 쓰는 반응' })
+    expect(within(quick).getByTestId('comment-reaction-quick-32-❤️')).toHaveAccessibleName('하트 반응')
+    await user.click(within(quick).getByRole('button', { name: '좋아요 반응' }))
     expect(await screen.findByTestId('comment-reaction-pill-32-👍')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('comment-reaction-count-32-👍')).toHaveTextContent('1')
     await waitFor(() => expect(calls).toEqual([{ method: 'POST', path: pathOf(32), body: { emoji: '👍' }, emoji: null }]))
@@ -101,6 +105,9 @@ describe('코멘트 반응 추가·취소 (WP-504)', () => {
     await user.click(screen.getByTestId('comment-reaction-add-39'))
     await user.click(await screen.findByTestId('comment-reaction-more-39'))
     await waitFor(() => expect(document.querySelectorAll('[data-testid^="comment-reaction-pick-39-"]')).toHaveLength(40))
+    // WP-1551: 펼친 40종 그리드도 이름 붙은 group 이고 버튼마다 한국어 이름.
+    const grid = screen.getByRole('group', { name: '모든 이모지' })
+    expect(within(grid).getByTestId('comment-reaction-pick-39-🚀')).toHaveAccessibleName('로켓 반응')
     await user.click(screen.getByTestId('comment-reaction-pick-39-🚀'))
     expect(await screen.findByTestId('comment-reaction-pill-39-🚀')).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => expect(calls.map((c) => c.body)).toEqual([{ emoji: '🚀' }]))

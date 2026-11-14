@@ -137,7 +137,8 @@ test.describe('WP-504 이슈 코멘트 반응 — 데스크톱', { tag: '@input'
     await add.click();
     await page.mouse.move(0, 0);
     await expect(add).toHaveCSS('opacity', '1');
-    await expect(page.getByRole('button', { name: '👍 반응' })).toBeVisible();
+    // 이모지 버튼은 한국어 이름(WP-1551).
+    await expect(page.getByRole('button', { name: '좋아요 반응' })).toBeVisible();
   });
 
   test('keyboard first reaction from header keeps focus on chip plus (WP-830)', async ({ authenticatedPage: page }) => {
