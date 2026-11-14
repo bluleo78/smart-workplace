@@ -85,8 +85,12 @@ function DialogContent({
         // 위·아래가 화면 밖으로 나가는데, Radix 가 body 스크롤을 잠가 제목 칸·만들기 버튼에 닿을 수 없었다. 좌우 여백(max-w 의 2rem)과
         // 같은 규칙으로 위아래 1rem 을 남기고(dvh — 모바일 주소창 변화에도 맞춤) 넘치면 창 안에서 스크롤한다. 안쪽 스크롤을 직접 만든
         // 창은 className 의 max-h·overflow 가 tailwind-merge 로 이 값을 덮는다.
+        // 열 정의(WP-1605): 열을 정하지 않은 grid 는 암묵 트랙이 auto 라 자식의 min-content(예: 새 사이클 창의 date input 두 개가 놓인
+        // 날짜 행)만큼 커져, 좁은 화면(390px)에서 본문이 창 안쪽 폭보다 넓어지고 overflow-y-auto 가 가로 스크롤바까지 만들었다.
+        // minmax(0,1fr) 로 한 열을 창 안쪽 폭에 고정하면 내용이 그 안에서 줄어든다. 열을 직접 정한 창은 className 의 grid-cols 가
+        // tailwind-merge 로 이 값을 덮는다.
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid grid-cols-[minmax(0,1fr)] w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
           className
         )}
         {...props}
