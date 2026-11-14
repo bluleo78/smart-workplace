@@ -5,7 +5,7 @@
 // 모킹 방식: POST 라우트가 도착했다는 신호로 프라미스를 resolve 하고, /events 라우트가 그 프라미스를
 // await 한 뒤에야 SSE 본문을 흘린다 — /events 는 앱 마운트 시 1회 연결되므로, 응답을 즉시 fulfill 하면
 // 사용자 액션(전송 클릭)보다 먼저 도착해 유실된다.
-import type { Page, Route } from '@playwright/test'
+import { expect, type Page, type Route } from '@playwright/test'
 
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 import { type RequestTracker, trackRequests } from './requests'
@@ -142,7 +142,13 @@ export async function mockStreamingHomeChat(
     await page.waitForFunction(() => typeof (window as unknown as { __ssePush?: unknown }).__ssePush === 'function')
     await page.evaluate((f) => (window as unknown as { __ssePush: (t: string) => void }).__ssePush(f), frame)
   }
-  const send = (frame: HomeChatFrame) => push(buildHomeChatSse([frame], correlationId))
+  // 시작 요청(POST /ai/chat)의 route 처리기가 correlationId 를 정하기 전에 보내면 빈 id 프레임이 나가 웹이 버린다 —
+  // 전송 탭 직후 바로 delta 를 부르는 스펙이 있어, 처리기가 돌 때까지 기다린 뒤 보낸다
+  // (axios 1.21 로 올리며 요청 시점이 바뀌어 드러난 경쟁, WP-1572).
+  const send = async (frame: HomeChatFrame) => {
+    await expect.poll(() => correlationId, { message: 'POST /api/v1/ai/chat 시작 요청이 오지 않았다' }).not.toBe('')
+    await push(buildHomeChatSse([frame], correlationId))
+  }
   const delta = (text: string) => send({ event: 'delta', data: { text } })
   return { push, delta, send }
 }

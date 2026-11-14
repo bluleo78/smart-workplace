@@ -109,7 +109,13 @@ test.describe('드라이브 실시간 반영 (WP-63)', { tag: '@platform' }, () 
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await expect(page.getByTestId('select-file-20')).toBeVisible()
+    // 실패할 휴지통 조회가 실제로 나간 뒤에 기준 횟수를 잡는다 — 아니면 늦게 나간 첫 조회가 「재조회」로 세어진다
+    // (axios 1.21 로 올리며 요청 시점이 바뀌어 드러난 경쟁, WP-1572).
+    const trashFailed = page.waitForResponse(
+      (r) => new URL(r.url()).pathname === `/api/v1/drive/spaces/${SPACE_ID}/trash` && r.status() === 500,
+    )
     await page.getByTestId('trash-toggle').click()
+    await trashFailed
     await expect(page.getByTestId('trash-view')).toHaveCount(0)
 
     // 휴지통이 복구된 뒤 이벤트가 와도 사용자가 다시 열기 전엔 휴지통 뷰로 바뀌지 않는다.
