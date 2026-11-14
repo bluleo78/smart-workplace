@@ -1,5 +1,6 @@
 package com.workplace.global.exception;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -9,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.net.URI;
 import org.hamcrest.Matchers;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +84,39 @@ class TypeMismatchIntegrationTest extends IntegrationTestBase {
                     + "\"endsAt\":\"2026-03-01T01:00:00Z\",\"reminderMinutes\":\"abc\"}"),
         "reminderMinutes",
         "정수여야 합니다.");
+  }
+
+  @Test
+  void 박스형_Long_경로변수에_공백을_넣으면_정수여야_합니다() throws Exception {
+    // WP-1599: SavedViewController.delete — @PathVariable Long id(users/{id} 는 user:read 로 USER 가
+    // 403 이라 이 경로를 쓴다). 공백은 변환 뒤 null 이라
+    // MissingPathVariableException 이 되어 500 이 났다.
+    expectError(delete(URI.create("/api/v1/projects/X/saved-views/%20")), "id", "정수여야 합니다.");
+  }
+
+  @Test
+  void 박스형_Long_경로변수_이름이_id_가_아니어도_그_이름으로_안내한다() throws Exception {
+    // WP-1599: IssueCommentController.list — @PathVariable Long issueId
+    expectError(get(URI.create("/api/v1/issues/%20/comments")), "issueId", "정수여야 합니다.");
+  }
+
+  @Test
+  void 쓰기_경로_박스형_Long_에_공백을_넣어도_정수여야_합니다() throws Exception {
+    // WP-1599: IssueCommentController.delete — @PathVariable Long commentId
+    expectError(delete(URI.create("/api/v1/issues/1/comments/%20")), "commentId", "정수여야 합니다.");
+  }
+
+  @Test
+  void 원시형_long_경로변수에_공백을_넣어도_정수여야_합니다() throws Exception {
+    // WP-1599 회귀: 원시형은 MethodArgumentTypeMismatchException 경로 그대로 400
+    expectError(get(URI.create("/api/v1/drive/files/%20/summary")), "id", "정수여야 합니다.");
+  }
+
+  @Test
+  void UUID_경로변수에_공백을_넣으면_UUID_형식이어야_합니다() throws Exception {
+    // WP-1599: HomeProposalController.pending — @PathVariable UUID sessionId
+    expectError(
+        get(URI.create("/api/v1/home/sessions/%20/proposals")), "sessionId", "UUID 형식이어야 합니다.");
   }
 
   /** 인증 헤더를 붙여 보내고 400·errors.&lt;field&gt; 안내 문구·예전 「…타입이어야 합니다」 꼬리가 없음을 확인한다. */
