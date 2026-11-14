@@ -111,13 +111,17 @@ import org.springframework.core.convert.TypeDescriptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -1289,6 +1293,47 @@ public class GlobalExceptionHandler {
     ErrorResponse response =
         buildError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 형식입니다", null, request);
     return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(response);
+  }
+
+  /** 406(맞지 않는 Accept) 안내 문구 — 처리기와 Tomcat 오류 밸브가 같은 문구를 쓰도록 한 곳에 둔다(WP-1601). */
+  public static final String NOT_ACCEPTABLE_MESSAGE = "지원하지 않는 응답 형식입니다. Accept 헤더를 확인해 주세요.";
+
+  /**
+   * 요청 Accept 가 매핑의 {@code produces}(SSE·HTML 등 고정 형식)와 맞지 않음(WP-1601) → 406. 처리기가 없어 catch-all 이
+   * 받아 {@code Accept: application/json} 일 때만 JSON 500 이 나갔다(xml·text/plain 은 JSON 쓰기 실패로 기본 처리가 우연히
+   * 406).
+   *
+   * <p>JSON 을 받을 수 있는 Accept 면 다른 오류와 같은 {@link ErrorResponse} 를 쓰고, 아니면 본문 없는 406 을 준다 — 처리기 안에서
+   * 다시 실패해 기본 처리에 기대지 않기 위해서다. 실제 서버에서는 본문 없는 오류 응답을 Tomcat 의 {@code JsonErrorReportValve}(WP-732)가
+   * 같은 문구({@link #NOT_ACCEPTABLE_MESSAGE})의 JSON 으로 채운다(Spring 의 형식 협상을 거치지 않아 다시 실패하지 않는다). 클라이언트
+   * 입력 오류이고 로그인 전 공개 경로에서도 누구나 요청마다 낼 수 있으므로(WP-632 415 처리기와 같다) 로그는 남기지 않는다.
+   */
+  @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+  public ResponseEntity<ErrorResponse> handleNotAcceptable(
+      HttpMediaTypeNotAcceptableException ex, HttpServletRequest request) {
+    if (!acceptsJson(request)) {
+      return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).build();
+    }
+    ErrorResponse response =
+        buildError(HttpStatus.NOT_ACCEPTABLE, NOT_ACCEPTABLE_MESSAGE, null, request);
+    return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(response);
+  }
+
+  /**
+   * Accept 헤더(여러 줄은 Spring 이 합친 목록)가 application/json 을 받아들이는지(WP-1601). q=0 은 그 형식을 거절한다는 뜻이라 뺀다.
+   * 파싱 실패는 받을 수 없는 것으로 본다.
+   */
+  private static boolean acceptsJson(HttpServletRequest request) {
+    try {
+      return new ServletServerHttpRequest(request)
+          .getHeaders().getAccept().stream()
+              .anyMatch(
+                  t -> t.getQualityValue() > 0 && t.isCompatibleWith(MediaType.APPLICATION_JSON));
+    } catch (InvalidMediaTypeException e) {
+      return false;
+    }
   }
 
   /**

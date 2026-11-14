@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.exception.GlobalExceptionHandler;
 import com.workplace.support.IntegrationTestBase;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -64,5 +65,23 @@ class ContainerErrorJsonIntegrationTest extends IntegrationTestBase {
   @Test
   void 너무_큰_머리글은_한국어_JSON_400() throws Exception {
     assertKoreanJson400(get("/api/v1/health", "X-Big", "a".repeat(20_000)));
+  }
+
+  /**
+   * JSON 을 받지 않는 Accept 의 406(WP-1601) — 앱은 본문 없이 답하고, 밸브가 같은 한국어 문구의 JSON 으로 채운다(MockMvc 는 밸브를 거치지
+   * 않아 여기서 실제 요청으로 확인한다).
+   */
+  @Test
+  void 맞지_않는_Accept_의_406_은_한국어_JSON() throws Exception {
+    HttpResponse<String> res =
+        get("/api/v1/public/drive/share/zzzz/preview-meta", "Accept", "application/xml");
+    assertThat(res.statusCode()).isEqualTo(406);
+    assertThat(res.headers().firstValue("Content-Type").orElse(""))
+        .as(res.body())
+        .startsWith("application/json");
+    JsonNode body = om.readTree(res.body());
+    assertThat(body.get("status").asInt()).isEqualTo(406);
+    assertThat(body.get("message").asText())
+        .isEqualTo(GlobalExceptionHandler.NOT_ACCEPTABLE_MESSAGE);
   }
 }
