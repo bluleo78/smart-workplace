@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.global.dto.MentionResponse;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.user.dto.UserKind;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -498,12 +499,28 @@ public class ChatMessageRepository {
                   .getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * 커서 해석. 깨진 값은 500·예외 원문 대신 한국어 안내의 IllegalArgumentException(→ 400)으로 바꾼다(WP-1582).
+     *
+     * <p>팀 채팅 MessageRepository.Cursor.decode(WP-512)의 변환에 칸 수(3)·시각 범위 검사를 더한 것이다 — 범위 밖 시각은
+     * OffsetDateTime 변환·DB 비교에서 500 이 났다. 정상 커서는 저장된 created_at 에서 오므로 늘 범위 안이다.
+     */
     public static Cursor decode(String s) {
-      String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
-      String[] parts = raw.split("\\|");
-      return new Cursor(
-          Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1])),
-          Long.parseLong(parts[2]));
+      try {
+        String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
+        String[] parts = raw.split("\\|");
+        if (parts.length != 3) {
+          throw new IllegalArgumentException();
+        }
+        Instant createdAt =
+            Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
+        if (!SupportedDates.isSupported(createdAt)) {
+          throw new IllegalArgumentException();
+        }
+        return new Cursor(createdAt, Long.parseLong(parts[2]));
+      } catch (RuntimeException e) {
+        throw new IllegalArgumentException("목록 위치(cursor)가 올바르지 않습니다", e);
+      }
     }
   }
 }

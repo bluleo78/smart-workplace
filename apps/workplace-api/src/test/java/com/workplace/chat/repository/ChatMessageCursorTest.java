@@ -1,10 +1,13 @@
 package com.workplace.chat.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.chat.repository.ChatMessageRepository.Cursor;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * ChatMessageRepository.Cursor 인코딩 정밀도 테스트.
@@ -40,5 +43,26 @@ class ChatMessageCursorTest {
     // 디코드 시각도 보존되어 경계 비교가 정확하다
     assertThat(Cursor.decode(ca).createdAt()).isEqualTo(a);
     assertThat(Cursor.decode(cb).createdAt()).isEqualTo(b);
+  }
+
+  /**
+   * 깨진 커서는 한국어 안내의 IllegalArgumentException(→ 400)으로 거절한다(WP-1582). 칸 모자람(MQ "1"·MXwx "1|1"), 숫자
+   * 아님(YWJj "abc"·garbage), 시각이 Instant 끝·DB 범위 밖, 칸이 덧붙은 값.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "MQ",
+        "MXwx",
+        "YWJj",
+        "garbage",
+        "MzE1NTY4ODk4NjQ0MDMxOTl8MHwx",
+        "OTk5OTk5OTk5OTk5OXwwfDE",
+        "MTcwMDAwMDAwMHwwfDV8anVuaw"
+      })
+  void decode_brokenCursor_rejectedWithKoreanMessage(String cursor) {
+    assertThatThrownBy(() -> Cursor.decode(cursor))
+        .isExactlyInstanceOf(IllegalArgumentException.class)
+        .hasMessage("목록 위치(cursor)가 올바르지 않습니다");
   }
 }
