@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -111,6 +112,19 @@ class ConfirmActionErrorMappingTest extends IntegrationTestBase {
         .isExactlyInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("occurrenceDate")
         .hasMessageContaining("ISO-8601");
+  }
+
+  @Test
+  @DisplayName("occurrenceDate 극단 연도 — DB 409 가 아니라 400 + 지원 범위 안내(WP-1579)")
+  void occurrenceDate_outOfRange_isBadRequest() {
+    ObjectNode p = objectMapper.createObjectNode();
+    p.put("id", 1);
+    p.put("occurrenceDate", "+999999999-01-01T00:00:00Z");
+
+    assertThatThrownBy(() -> dispatcher.validate(owner, "calendar.delete_event", p))
+        .isExactlyInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("occurrenceDate")
+        .hasMessageContaining(SupportedDates.MESSAGE);
   }
 
   @Test

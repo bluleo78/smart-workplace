@@ -12,6 +12,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.issue.report.PersonalReportPeriod;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
@@ -169,6 +170,26 @@ class PersonalReportControllerTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.title").value("기존 보고"));
     // 남의 보고는 보이지 않는다.
     call(get("/api/v1/me/reports").param("kind", "DAILY").param("date", DAY.toString()), other)
+        .andExpect(status().isNoContent());
+  }
+
+  /** WP-1579: 지원 범위 밖 date(+999999999-12-31·1899-12-31)는 DB 까지 가지 않고 한국어 400 으로 거절한다(예전엔 409). */
+  @Test
+  void lookup_unsupportedDate_400() throws Exception {
+    call(get("/api/v1/me/reports").param("kind", "DAILY").param("date", "+999999999-12-31"), me)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.date").value(SupportedDates.MESSAGE));
+    call(get("/api/v1/me/reports").param("kind", "DAILY").param("date", "1899-12-31"), me)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.date").value(SupportedDates.MESSAGE));
+  }
+
+  /** WP-1579: 범위 경계 안의 날짜(1900-01-01·9999-12-31)는 검증을 통과해 찾기 결과(없음 204)로 간다. */
+  @Test
+  void lookup_boundaryDate_notRejected() throws Exception {
+    call(get("/api/v1/me/reports").param("kind", "DAILY").param("date", "1900-01-01"), me)
+        .andExpect(status().isNoContent());
+    call(get("/api/v1/me/reports").param("kind", "DAILY").param("date", "9999-12-31"), me)
         .andExpect(status().isNoContent());
   }
 

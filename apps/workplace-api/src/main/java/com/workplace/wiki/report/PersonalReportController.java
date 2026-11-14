@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import com.workplace.global.time.SupportedDateTime;
 import com.workplace.issue.report.PersonalReportKind;
 import com.workplace.wiki.report.PersonalReportService.CreateResult;
 import com.workplace.wiki.report.dto.CreatePersonalReportRequest;
@@ -15,6 +16,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,8 +31,12 @@ import org.springframework.web.server.ResponseStatusException;
  * 개인 보고 API(WP-1486) — 「보고서 설정」·「보고서 만들기」·「일일 보고 보기」. 인증만 필요하고 대상은 언제나 로그인한 본인({@code
  * auth.getPrincipal()})이다 — 사용자 id 를 받지 않아 남의 설정·보고를 보거나 만들 길이 없다. 개인 노트에만 쓰므로
  * {@code @RequirePermission} 은 두지 않는다(업무 프로파일 API 와 같은 판단 — 맞는 권한 코드가 없다).
+ *
+ * <p>@Validated: 찾기의 date 쿼리 파라미터 지원 범위({@link SupportedDateTime}) 검사를 켠다 — 범위 밖 날짜가 DB 에서 409 로
+ * 터지던 것을 한국어 400 으로 거절한다(WP-1579).
  */
 @RestController
+@Validated
 @RequiredArgsConstructor
 public class PersonalReportController {
 
@@ -63,7 +69,8 @@ public class PersonalReportController {
   public ResponseEntity<PersonalReportLookupResponse> lookup(
       Authentication auth,
       @RequestParam String kind,
-      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) @SupportedDateTime
+          LocalDate date) {
     return reportService
         .lookup(userId(auth), PersonalReportKind.parse(kind), date)
         .map(ResponseEntity::ok)

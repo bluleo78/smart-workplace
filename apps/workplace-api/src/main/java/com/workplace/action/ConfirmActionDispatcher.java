@@ -16,6 +16,7 @@ import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveFolderService;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.issue.service.IssueService;
@@ -533,13 +534,19 @@ public class ConfirmActionDispatcher {
   private OffsetDateTime parseOffsetDateTime(JsonNode params, String field) {
     if (params == null || !params.hasNonNull(field)) return null;
     String raw = params.get(field).asText();
+    OffsetDateTime value;
     try {
-      return OffsetDateTime.parse(raw);
+      value = OffsetDateTime.parse(raw);
     } catch (DateTimeParseException e) {
       // #843: DateTimeParseException 은 IllegalArgumentException 이 아니라 전역 캐치올 500 으로 떨어졌다 → 400.
       throw new IllegalArgumentException(
           field + " 는 오프셋을 포함한 ISO-8601 형식이어야 합니다(예: 2026-09-23T10:00:00+09:00): " + raw);
     }
+    // WP-1579: 극단 연도(+999999999 등)는 DB 범위를 넘어 409 가 났다 — 일정 API 의 @SupportedDateTime 과 같은 범위로 400.
+    if (!SupportedDates.isSupported(value.toInstant())) {
+      throw new IllegalArgumentException(field + ": " + SupportedDates.MESSAGE);
+    }
+    return value;
   }
 
   /**
