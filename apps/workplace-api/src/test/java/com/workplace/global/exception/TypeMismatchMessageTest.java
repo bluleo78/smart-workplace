@@ -21,6 +21,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingPathVariableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
@@ -191,5 +192,35 @@ class TypeMismatchMessageTest {
       Method m, int index, Class<?> requiredType) {
     return new MethodArgumentTypeMismatchException(
         "abc", requiredType, "p" + index, new MethodParameter(m, index), null);
+  }
+
+  /** MissingPathVariableException 확인용 핸들러 시그니처 — 파라미터 0: Long id (WP-1599). */
+  @SuppressWarnings("unused")
+  void boxedSample(Long id) {}
+
+  /** boxedSample 의 id 가 빠진 MissingPathVariableException 을 핸들러에 넘긴 응답(WP-1599). */
+  private ResponseEntity<ErrorResponse> handleMissingId(boolean missingAfterConversion)
+      throws NoSuchMethodException {
+    Method m = TypeMismatchMessageTest.class.getDeclaredMethod("boxedSample", Long.class);
+    MissingPathVariableException ex =
+        new MissingPathVariableException("id", new MethodParameter(m, 0), missingAfterConversion);
+    return handler.handleMissingPathVariable(ex, new MockHttpServletRequest());
+  }
+
+  @Test
+  void 변환_뒤_빈_경로변수는_400_정수여야_합니다() throws Exception {
+    // WP-1599: 공백 → null 로 변환된 박스형 경로 변수
+    ResponseEntity<ErrorResponse> res = handleMissingId(true);
+
+    assertThat(res.getStatusCode().value()).isEqualTo(400);
+    assertThat(res.getBody().errors()).containsEntry("id", "정수여야 합니다.");
+  }
+
+  @Test
+  void 진짜_누락된_경로변수는_500_을_유지한다() throws Exception {
+    // WP-1599: 경로 템플릿과 파라미터 이름 불일치 같은 서버 코드 결함은 400 으로 숨기지 않는다
+    ResponseEntity<ErrorResponse> res = handleMissingId(false);
+
+    assertThat(res.getStatusCode().value()).isEqualTo(500);
   }
 }

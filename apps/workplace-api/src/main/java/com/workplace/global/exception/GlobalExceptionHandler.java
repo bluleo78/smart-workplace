@@ -121,6 +121,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingPathVariableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -1324,6 +1325,29 @@ public class GlobalExceptionHandler {
       MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
     Map<String, String> fieldErrors =
         Map.of(ex.getName(), typeMismatchMessage(mismatchTargetType(ex)));
+    ErrorResponse response =
+        buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
+    return ResponseEntity.badRequest().body(response);
+  }
+
+  /**
+   * 공백({@code %20}) 경로 변수가 변환 뒤 null 이 되는 모든 비원시형(박스형 Long·Integer, UUID 등)을 400 으로 거절한다(WP-1599).
+   * 공백은 변환에서 빈 값 → null 이 되고, Spring 은 비원시형 경로 변수가 null 이면 {@link
+   * MissingPathVariableException}(missingAfterConversion=true)을 던진다. 이 핸들러가 없으면 {@code Exception}
+   * 핸들러로 떨어져 500 이 났다. 값은 왔는데 비었다 = 클라이언트 입력 오류이므로 {@code abc} 와 같은 400·문구로 맞춘다.
+   *
+   * <p>변환 이전의 진짜 누락(경로 템플릿과 메서드 파라미터 이름 불일치 같은 서버 코드 결함)은 400 으로 숨기지 않고 기존 500 처리에 넘긴다.
+   */
+  @ExceptionHandler(MissingPathVariableException.class)
+  public ResponseEntity<ErrorResponse> handleMissingPathVariable(
+      MissingPathVariableException ex, HttpServletRequest request) {
+    if (!ex.isMissingAfterConversion()) {
+      return handleException(ex, request);
+    }
+    // Optional<Long> 처럼 감싼 파라미터도 안쪽 타입(Long)으로 안내하려고 nested 타입을 쓴다(WP-1599).
+    Map<String, String> fieldErrors =
+        Map.of(
+            ex.getVariableName(), typeMismatchMessage(ex.getParameter().getNestedParameterType()));
     ErrorResponse response =
         buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
     return ResponseEntity.badRequest().body(response);
