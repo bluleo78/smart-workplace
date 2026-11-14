@@ -9,7 +9,7 @@ import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import type { HomeUploadedFile } from '../../types/home'
 import type { EmailAttachmentMeta } from '../../types/mailMessage'
 import type { MessageAttachment } from '../../types/messaging'
-import type { DriveImportTarget, ViewerItem } from './types'
+import type { DriveImportTarget, ViewerItem, ViewerItemSource } from './types'
 
 /** 묶음 키 — 드라이브 파일·링크는 `drive:{driveFileId}`, 그 외 첨부는 `file:{fileId}`(URL ?preview 값). */
 export const driveViewerKey = (driveFileId: number) => `drive:${driveFileId}`
@@ -432,4 +432,29 @@ export function resolveBundle(
   if (index >= 0) return { items, index }
   if (snapshot?.key === currentKey) return { items: [snapshot], index: 0 }
   return null
+}
+
+/**
+ * 노트 본문 첨부 파일(WP-1545) — 본문 링크 주소를 그대로 받기·다운로드 경로로 쓴다. 노트 첨부에는 변환 PDF(/preview)·보안 점검 경로가
+ * 없어 두지 않는다. 형식은 이 화면에서 올린 업로드 응답을 먼저, 없으면 이름 확장자로 정한다.
+ * 공유 화면(편집 링크 토큰·공개 공유)은 source 로 받는 길을 바꾸고 AI 식별자를 싣지 않는다 — 로그인 사용자의 노트일 때만 read_file 대상이다.
+ */
+export function wikiAttachmentItem(a: {
+  pageId: number
+  fileId: number
+  url: string
+  name: string
+  mimeType?: string | null
+  sizeBytes?: number | null
+  source?: ViewerItemSource
+}): ViewerItem {
+  return {
+    key: fileViewerKey(a.fileId),
+    name: a.name,
+    mimeType: attachmentMime(a.mimeType ?? null, a.name),
+    sizeBytes: a.sizeBytes ?? null,
+    contentPath: a.url,
+    downloadPath: a.url,
+    ...(a.source ? { source: a.source } : { aiRefs: { source: 'wiki', pageId: a.pageId, attachmentId: a.fileId } }),
+  }
 }

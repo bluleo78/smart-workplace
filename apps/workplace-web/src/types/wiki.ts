@@ -136,13 +136,15 @@ export interface WikiSearchResult {
   updatedAt: string
 }
 
-// #751: 노트 본문 이미지 첨부 업로드 응답. url 은 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
+// #751: 노트 본문 첨부 업로드 응답(이미지·파일, WP-1545). url 은 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
 export type WikiAttachment = {
   fileId: number
   url: string
   originalName: string
   mimeType: string
   sizeBytes: number
+  /** 서버가 매직바이트로 확인한 이미지인지(WP-1545) — 참이면 본문 그림, 거짓이면 파일 링크(칩). 옛 서버 응답에는 없다. */
+  image?: boolean
 }
 
 /** WP-301 노트 상단 AI 요약 상태(백엔드 WikiSummaryStatus). */

@@ -110,19 +110,71 @@ class WikiImageClaimTest extends IntegrationTestBase {
     assertThat(retentionPolicy.retain(List.of(fileId))).isEmpty();
   }
 
+  /** WP-1545 — PDF 도 노트 첨부로 묶인다. MIME 은 이미지로 덮어쓰지 않고 application/pdf 그대로, 응답 image 는 false. */
   @Test
-  void PDF_는_이미지만_오류_아무것도_묶이지_않음() throws Exception {
+  void PDF_도_클레임되고_MIME_은_그대로_남는다() throws Exception {
     long png = seedStaged(ownerId, "a.png", PNG, "image/png", PNG.length);
     byte[] pdf = "%PDF-1.4 hello world padding".getBytes();
     long doc = seedStaged(ownerId, "doc.pdf", pdf, "application/pdf", pdf.length);
 
     claim(ownerId, List.of(png, doc))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].image").value(true))
+        .andExpect(jsonPath("$[1].fileId").value(doc))
+        .andExpect(jsonPath("$[1].mimeType").value("application/pdf"))
+        .andExpect(jsonPath("$[1].originalName").value("doc.pdf"))
+        .andExpect(jsonPath("$[1].image").value(false));
+
+    assertThat(boundCount(png)).isEqualTo(1);
+    assertThat(boundCount(doc)).isEqualTo(1);
+    assertThat(mimeOf(doc)).isEqualTo("application/pdf");
+
+    // 재시도(이미 묶인 파일)도 같은 image 판단을 돌려준다.
+    claim(ownerId, List.of(doc))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].image").value(false));
+  }
+
+  /** 이미지라고 저장된 스테이징 파일이 실제로 이미지가 아니면 이미지 MIME 을 남기지 않는다(inline 서빙·보기 오판 방지). */
+  @Test
+  void 이미지라고_선언된_비이미지는_octet_stream_으로_고쳐진다() throws Exception {
+    byte[] html = "<html><script>alert(1)</script></html>".getBytes();
+    long fileId = seedStaged(ownerId, "x.png", html, "image/png", html.length);
+
+    claim(ownerId, List.of(fileId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].image").value(false))
+        .andExpect(jsonPath("$[0].mimeType").value("application/octet-stream"));
+
+    assertThat(mimeOf(fileId)).isEqualTo("application/octet-stream");
+  }
+
+  /** 스테이징에 text/html 로 저장된 파일도 클레임 때 무해한 text/plain 으로 바뀐다(WP-1323 규칙, WP-1545). */
+  @Test
+  void HTML_스테이징_파일은_text_plain_으로_고쳐진다() throws Exception {
+    byte[] html = "<html><script>alert(1)</script></html>".getBytes();
+    long fileId = seedStaged(ownerId, "evil.html", html, "text/html", html.length);
+
+    claim(ownerId, List.of(fileId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].mimeType").value("text/plain"));
+
+    assertThat(mimeOf(fileId)).isEqualTo("text/plain");
+  }
+
+  /** 이미지가 아닌 파일은 25MB 상한 — 넘으면 아무것도 묶지 않는다(같은 묶음의 이미지도). */
+  @Test
+  void 이미지가_아닌_파일이_25MB_를_넘으면_거절되고_아무것도_묶이지_않음() throws Exception {
+    long png = seedStaged(ownerId, "a.png", PNG, "image/png", PNG.length);
+    byte[] pdf = "%PDF-1.4 hello world padding".getBytes();
+    long big = seedStaged(ownerId, "big.pdf", pdf, "application/pdf", 25L * 1024 * 1024 + 1);
+
+    claim(ownerId, List.of(png, big))
         .andExpect(status().isBadRequest())
-        .andExpect(
-            jsonPath("$.message").value("이미지 파일(PNG·JPEG·GIF·WebP)만 노트에 넣을 수 있습니다: doc.pdf"));
+        .andExpect(jsonPath("$.message").value("첨부 파일은 최대 25MB까지 업로드할 수 있습니다: big.pdf"));
 
     assertThat(boundCount(png)).isZero();
-    assertThat(boundCount(doc)).isZero();
+    assertThat(boundCount(big)).isZero();
   }
 
   @Test

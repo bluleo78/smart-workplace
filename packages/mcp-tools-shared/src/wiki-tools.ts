@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { dropEmpty, omitKeys, truncatedView } from './compact.js';
 import { htmlToText } from './html-text.js';
 import type { SharedTool } from './mcp-tool.js';
-import type { WikiPageRow, WikiToolClient } from './tool-client.js';
+import type { WikiClaimedAttachment, WikiPageRow, WikiToolClient } from './tool-client.js';
 
 // WP-357: spaceId 로 한 스페이스 안에서만 찾는다(서버 WikiSearchController 의 spaceId — 멤버가 아니면 서버가 requireRole(VIEWER) 로 404 를 던진다).
 export const searchWikiInput = z.object({
@@ -57,6 +57,18 @@ export const createWikiPageInput = z.object({
   // WP-1307: html 을 HTML 블록으로 바꾸지 않고 원본 그대로 「HTML 문서」 페이지로 만든다.
   asDocument: z.boolean().optional(),
 });
+/**
+ * 노트 첨부 클레임 응답 → LLM 뷰(WP-1545). images 는 예전 호출자 호환으로 이미지만 남기고(파일까지 넣으면 옛 프롬프트가 PDF 를
+ * ![](url) 로 쓴다), files 는 모든 첨부를 이름·MIME·이미지 여부와 함께 싣는다. image 가 없는 응답(옛 서버)은 이미지만 받던 때라 이미지로 본다.
+ */
+export function toClaimedAttachmentsView(claimed: WikiClaimedAttachment[]) {
+  const isImage = (a: WikiClaimedAttachment) => a.image !== false;
+  return {
+    images: claimed.filter(isImage).map(({ fileId, url }) => ({ fileId, url })),
+    files: claimed.map((a) => ({ fileId: a.fileId, url: a.url, name: a.originalName, mimeType: a.mimeType, isImage: isImage(a) })),
+  };
+}
+
 // 서버가 부분 수정을 지원한다(title/body 생략 = 현재 값 유지). version 은 병합 기준(읽은 판)이라 필수.
 export const updateWikiPageInput = z.object({
   pageId: z.number().int().positive(),
@@ -65,7 +77,7 @@ export const updateWikiPageInput = z.object({
   body: z.string().optional(),
   // WP-1307: HTML 문서(kind HTML) 페이지의 원본 HTML 을 통째로 바꾼다 — body 와 함께 줄 수 없다. 빈 원본(빈 문서)도 받는다.
   html: z.string().optional(),
-  // WP-424: upload_file 로 스테이징한 이미지 — 저장 전에 이 페이지 첨부로 묶고, 응답 images 의 url 을 본문에 쓴다.
+  // WP-424: upload_file 로 스테이징한 파일 — 저장 전에 이 페이지 첨부로 묶고, 응답 files(이미지는 images 에도)의 url 을 본문에 쓴다(WP-1545).
   fileIds: z.array(z.number().int().positive()).max(10).optional(),
 });
 
@@ -396,8 +408,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
         'for a partial edit send it all, copying untouched blocks and HTML byte-for-byte from get_wiki_page (no rewording; ' +
         'see its bodyFormat). version: from ' +
         "get_wiki_page or the last save; others' later edits merge in (this request wins on overlap). 409: version unusable (over 1 " +
-        'hour old, unknown or newer): re-read and reapply. fileIds: images staged by upload_file; reference each in ' +
-        'body as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content).' +
+        'hour old, unknown or newer): re-read and reapply. fileIds: files staged by upload_file; put each result url in body: ' +
+        'images ![alt](url), others [file name](url) (files[].isImage).' +
         LINK_RULE_WIKI,
       inputSchema: updateWikiPageInput,
       async handler(args) {
@@ -409,11 +421,11 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
           }
           return JSON.stringify(toWikiPageView((await client.saveWikiHtml(pageId, { version: body.version, ...(body.title !== undefined && { title: body.title }), html })) as Record<string, unknown>));
         }
-        // WP-424: 이미지는 본문 저장 전에 묶는다 — 본문 저장이 참조된 첨부를 영구화하므로 순서가 바뀌면 이미지가 만료로 지워진다.
-        // 클레임이 실패하면(만료·이미지 아님 등) 본문을 저장하지 않고 오류를 그대로 전한다.
+        // WP-424: 첨부는 본문 저장 전에 묶는다 — 본문 저장이 참조된 첨부를 영구화하므로 순서가 바뀌면 첨부가 만료로 지워진다.
+        // 클레임이 실패하면(만료·크기 초과 등) 본문을 저장하지 않고 오류를 그대로 전한다.
         const claimed = fileIds?.length ? await client.claimWikiImages(pageId, fileIds) : undefined;
         const saved = toWikiPageView((await client.updateWikiPage(pageId, body)) as Record<string, unknown>);
-        return JSON.stringify(claimed ? { ...saved, images: claimed.map(({ fileId, url }) => ({ fileId, url })) } : saved);
+        return JSON.stringify(claimed ? { ...saved, ...toClaimedAttachmentsView(claimed) } : saved);
       },
     },
     {

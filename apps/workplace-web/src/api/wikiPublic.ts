@@ -19,3 +19,13 @@ export async function fetchPublicWikiShare(token: string, pageId?: number): Prom
   if (!res.ok) throw new WikiPublicShareError(res.status)
   return (await res.json()) as WikiPublicShare
 }
+
+/**
+ * 공개 공유 노트의 본문 첨부 받기(WP-1545) — 서버가 바꿔 둔 공개 경로(`/api/v1/public/wiki/shares/{token}/pages/{p}/attachments/{f}`)를
+ * 로그인 없이 받는다. 공개 화면의 본문 그림(<img>)과 같은 경로라 쿠키·인증 헤더를 싣지 않는다.
+ */
+export async function fetchPublicWikiAttachment(path: string, signal?: AbortSignal): Promise<Blob> {
+  const res = await fetch(path, { signal, credentials: 'omit' })
+  if (!res.ok) throw new WikiPublicShareError(res.status)
+  return res.blob()
+}

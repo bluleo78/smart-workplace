@@ -1,8 +1,13 @@
 package com.workplace.wiki.dto;
 
-/** 노트 이미지 첨부 업로드 응답. url 은 본문 마크다운에 그대로 삽입되는 정본 경로다. */
+/**
+ * 노트 첨부 업로드·클레임 응답. url 은 본문 마크다운에 그대로 삽입되는 정본 경로다.
+ *
+ * <p>{@code image} 는 매직바이트로 확인된 이미지(PNG·JPEG·GIF·WebP)인지다(WP-1545) — 참이면 본문에 {@code ![alt](url)} 로,
+ * 거짓이면 파일 링크 {@code [이름](url)} 로 넣는다. 원본 이름·MIME·크기는 파일 칩 표시용이다.
+ */
 public record WikiAttachmentResponse(
-    Long fileId, String url, String originalName, String mimeType, long sizeBytes) {
+    Long fileId, String url, String originalName, String mimeType, long sizeBytes, boolean image) {
 
   /**
    * 본문 마크다운에 저장되는 정본 경로.

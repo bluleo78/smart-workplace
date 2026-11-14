@@ -1,6 +1,7 @@
 import { wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
 import type { AnyExtension, Extensions } from '@tiptap/core'
 
+import { WikiAttachmentChips } from './wikiAttachmentChips'
 import { WikiHtmlEmbed } from './wikiHtmlEmbedNode'
 import { WikiHtmlScope } from './wikiHtmlScope'
 import { WikiPasteShape } from './wikiPasteShape'
@@ -29,6 +30,8 @@ export function wikiRenderExtensions(
     ...wikiSchemaExtensions({ style: WikiStyle, htmlEmbed: WikiHtmlEmbed, ...schemaOpts }),
     // 페이지 스타일 CSS 를 이 본문에 가둬 주입하고, 모양이 있으면 본문을 contain 으로 가둔다.
     WikiHtmlScope,
+    // 본문의 노트 첨부 링크를 파일 칩으로(WP-1545) — 내 화면 데코레이션이라 문서·마크다운은 링크 그대로다. 세 화면 모두 칩을 보인다.
+    WikiAttachmentChips,
     // 노트 밖에서 온 HTML·글자 붙여넣기는 모양 노드를 만들지 않고, 노트끼리 복사만 모양을 옮긴다.
     ...(pasteShape ? [WikiPasteShape.configure({ chip: pasteChip })] : []),
   ]

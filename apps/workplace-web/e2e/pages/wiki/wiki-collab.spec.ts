@@ -126,7 +126,7 @@ async function holdUpload(page: Page, pageId: number, fileId: number): Promise<(
 
 /** 에디터 화면에 보이는 업로드 자리표시자 수(문구 등장 횟수). */
 const placeholdersOn = (page: Page) =>
-  page.locator('.ProseMirror').evaluate((el) => (el.textContent ?? '').split('이미지 업로드 중').length - 1)
+  page.locator('.ProseMirror').evaluate((el) => (el.textContent ?? '').split('업로드 중').length - 1)
 
 test.describe('노트 동시 편집', { tag: '@platform' }, () => {
   test('두 사람이 동시에 입력하면 양쪽에 모두 반영된다', async ({ authenticatedPage: a, newAuthedPage, collabNs }) => {

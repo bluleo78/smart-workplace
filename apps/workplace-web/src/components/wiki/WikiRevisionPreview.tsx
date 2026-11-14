@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { cn } from '@/lib/utils'
 
+import { useWikiAttachmentViewer } from './useWikiAttachmentViewer'
 import { WikiHtmlBlockScopeProvider, WikiHtmlScriptBar } from './wikiHtmlBlockSecurity'
 import { WikiImage } from './wikiImageNode'
 import { useMentionChipTextOf, WikiMentionLabelsProvider } from './wikiMentionLabels'
@@ -15,6 +16,7 @@ import { WikiMention } from './wikiMentionNode'
 import { wikiRenderExtensions } from './wikiRenderExtensions'
 import { revisionDiffDecorations } from './wikiRevisionDiff'
 import { previewDocOf, revisionDiffOf, WikiRevisionDiffHighlight, wikiRevisionDiffKey } from './wikiRevisionPreviewDoc'
+import { useWikiShareToken } from './WikiShareTokenContext'
 
 export interface WikiRevisionPreviewProps {
   /** 이 노트 id — 멘션 칩 라벨 조회(WikiMentionLabelsProvider)에 쓴다. */
@@ -54,6 +56,8 @@ export function WikiRevisionPreview(props: WikiRevisionPreviewProps) {
 /** 미리보기 본문 — 라벨 Provider 안에서 그려야 추가된 멘션 위젯도 칩과 같은 라벨(USER 는 @ 접두)을 쓴다(WP-324). */
 function RevisionPreviewContent({ body, title, compareTo, showDiff, className }: WikiRevisionPreviewProps) {
   const mentionText = useMentionChipTextOf()
+  // 본문 첨부 칩(WP-1545)을 누르면 뷰어로 연다 — 공유 화면이면 그 토큰 헤더로 받는다.
+  const attachments = useWikiAttachmentViewer(useWikiShareToken())
   const editor = useEditor(
     {
       // HTML 모양(WP-1240)도 편집기와 같은 범위 가두기로 그린다 — 판 미리보기에서 모양이 달라 보이지 않게.
@@ -96,7 +100,8 @@ function RevisionPreviewContent({ body, title, compareTo, showDiff, className }:
       <h1 className={cn('mb-4 break-words', pageTitleClass, !title && 'text-muted-foreground')}>{title || '제목 없음'}</h1>
       {/* 칩 NodeView 는 EditorContent 가 렌더하는 포털이라 라벨 Provider(WikiRevisionPreview) 안에 있어야 라벨이 채워진다. */}
       <WikiHtmlScriptBar />
-      <EditorContent editor={editor} className="wiki-editor [&_.ProseMirror]:outline-none" />
+      <EditorContent editor={editor} className="wiki-editor [&_.ProseMirror]:outline-none" onClick={attachments.onClick} />
+      {attachments.viewer}
     </div>
   )
 }

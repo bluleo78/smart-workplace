@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.hamcrest.Matchers;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -431,7 +432,58 @@ class PublicWikiShareTest extends IntegrationTestBase {
     assertThat(viewCount(token)).isZero();
   }
 
+  /**
+   * WP-1545 — 공개 경로도 이미지만 inline 이고, 이미지가 아닌 첨부(HTML 포함)는 attachment·무해한 MIME·CSP sandbox 로 내려 외부
+   * 방문자 브라우저가 API 출처에서 렌더하지 않는다.
+   */
+  @Test
+  void public_attachment_serves_non_image_as_download() throws Exception {
+    String token = saveShare(rootId, "PUBLIC", "VIEW", true, List.of());
+    long png = uploadPng(childId);
+    long html =
+        uploadFile(
+            childId,
+            new MockMultipartFile(
+                "file",
+                "page.html",
+                "text/html",
+                "<html><script>alert(1)</script></html>".getBytes(StandardCharsets.UTF_8)));
+    long pdf =
+        uploadFile(
+            childId,
+            new MockMultipartFile(
+                "file",
+                "report.pdf",
+                "application/pdf",
+                "%PDF-1.4 report body".getBytes(StandardCharsets.UTF_8)));
+
+    anon(attachmentPath(token, childId, png))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Disposition", Matchers.startsWith("inline")));
+    // 저장 MIME 부터 무해한 text/plain 이다(WP-1323 규칙) — 스크립트를 돌릴 수 있는 형식으로 내려가지 않는다.
+    anon(attachmentPath(token, childId, html))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "text/plain"))
+        .andExpect(header().string("Content-Disposition", Matchers.startsWith("attachment")))
+        .andExpect(header().string("Content-Security-Policy", "sandbox"))
+        .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+    anon(attachmentPath(token, childId, pdf))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "application/pdf"))
+        .andExpect(header().string("Content-Disposition", Matchers.startsWith("attachment")))
+        .andExpect(header().string("Content-Disposition", Matchers.containsString("report.pdf")));
+  }
+
   // ── 도우미 ─────────────────────────────────────────────────────────────
+
+  /** 멤버(OWNER)로 임의 파일을 올리고 file id 를 돌려준다(WP-1545 — 이미지 외 첨부). */
+  private long uploadFile(long pageId, MockMultipartFile f) throws Exception {
+    JsonNode res =
+        json(
+            call(multipart("/api/v1/wiki/pages/{id}/attachments", pageId).file(f), ownerId)
+                .andExpect(status().isCreated()));
+    return res.get("fileId").asLong();
+  }
 
   private static String publicPath(String token) {
     return "/api/v1/public/wiki/shares/" + token;

@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.chat.service.ChatMessageAttachmentStorage;
 import com.workplace.file.storage.StorageDomain;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.issue.service.IssueAttachmentStorage;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.support.IntegrationTestBase;
@@ -92,11 +93,19 @@ class UploadOriginalNameSanitizeTest extends IntegrationTestBase {
   }
 
   @Test
-  void 위키_첨부는_경로_문자를_바꾸고_공백_이름은_image() {
+  void 위키_첨부는_경로_문자를_바꾸고_공백_이름은_대체_이름() {
+    // WP-1545: 이름은 서비스가 정해 넘기지만(이미지 "image"·그 밖 "file" 대체), 저장소도 경로 문자를 한 번 더 막는다.
     assertThat(
-            storedName(wikiStorage.storeTemporary(file("../../etc/x.png"), uploader, "image/png")))
+            storedName(
+                wikiStorage.storeTemporary(
+                    file("../../etc/x.png"), uploader, "image/png", "../../etc/x.png")))
         .isEqualTo(".._.._etc_x.png");
-    assertThat(storedName(wikiStorage.storeTemporary(file("   "), uploader, "image/png")))
+    assertThat(
+            storedName(
+                wikiStorage.storeTemporary(
+                    file("   "), uploader, "image/png", SafeFileNames.sanitize("   ", "image"))))
         .isEqualTo("image");
+    assertThat(storedName(wikiStorage.storeTemporary(file("   "), uploader, "text/plain", "   ")))
+        .isEqualTo("file");
   }
 }

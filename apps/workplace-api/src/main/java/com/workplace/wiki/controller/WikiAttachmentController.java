@@ -8,15 +8,11 @@ import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.service.WikiAttachmentService;
 import com.workplace.wiki.service.WikiShareAccess;
 import jakarta.validation.Valid;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.ContentDisposition;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 노트 본문 이미지 첨부 API. 인가는 서비스 레이어(WikiPermissions·WikiShareAccess)가 전담한다.
+ * 노트 본문 첨부 API(이미지·파일, WP-1545). 인가는 서비스 레이어(WikiPermissions·WikiShareAccess)가 전담한다.
  *
  * <p>공유 링크(WP-579): 업로드·클레임·content·text·view 는 {@link WikiShareAccess#HEADER} 를 받는다(보기는 VIEWER,
  * 붙여넣기는 편집 링크). 삭제는 받지 않는다.
@@ -69,10 +65,8 @@ public class WikiAttachmentController {
   }
 
   /**
-   * 본문 &lt;img&gt; 가 직접 부르는 경로라 inline 으로 내려준다.
-   *
-   * <p>이슈 첨부는 attachment() 라 &lt;img&gt; 로 쓸 수 없다. 매직바이트 화이트리스트로 이미지만 통과시키고 X-Content-Type-Options:
-   * nosniff 가 전역 적용(SecurityConfig)되어 있어 inline 이 안전하다.
+   * 첨부 원본 — 본문 &lt;img&gt; 가 직접 부르는 경로라 바이트로 판정된 이미지는 inline, 그 밖(PDF·로그 등, WP-1545)은 attachment 로
+   * 내려준다. 머리글 규칙은 {@link WikiAttachmentHeaders} — 외부 공유 경로와 같다.
    */
   @GetMapping("/{fileId}/content")
   public ResponseEntity<Resource> content(
@@ -81,12 +75,9 @@ public class WikiAttachmentController {
       @PathVariable long fileId,
       @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     var f = service.download(callerId, pageId, fileId, shareToken);
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.parseMediaType(f.mimeType()));
-    headers.setContentDisposition(
-        ContentDisposition.inline().filename(f.originalName(), StandardCharsets.UTF_8).build());
-    headers.setContentLength(f.sizeBytes());
-    return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+    return ResponseEntity.ok()
+        .headers(WikiAttachmentHeaders.of(f))
+        .body(new FileSystemResource(f.path()));
   }
 
   /**
@@ -104,7 +95,10 @@ public class WikiAttachmentController {
     return ResponseEntity.ok(service.readText(callerId, pageId, fileId, offset, limit, shareToken));
   }
 
-  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
+  /**
+   * 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. 이미지·PDF(쪽
+   * 지정)만 그리고, 그 밖의 첨부(WP-1545)는 같은 서비스가 한국어 안내와 함께 4xx(UNSUPPORTED 등)로 거절한다.
+   */
   @GetMapping("/{fileId}/view")
   public ResponseEntity<byte[]> view(
       @AuthenticationPrincipal Long callerId,

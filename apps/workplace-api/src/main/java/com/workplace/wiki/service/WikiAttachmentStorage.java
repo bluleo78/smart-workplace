@@ -53,12 +53,16 @@ public class WikiAttachmentStorage {
    * 파일을 디스크에 쓰고 file 행을 임시(expires_at) 로 INSERT 한다.
    *
    * <p>본문에 삽입되지 않고 버려진 이미지는 FileCleanupService 가 만료로 수거하고, 매핑은 CASCADE 로 사라진다. mime_type 은 브라우저
-   * Content-Type 이 아니라 호출자가 매직바이트로 판정한 값({@code detectedMime})을 그대로 저장한다.
+   * Content-Type 이 아니라 호출자가 정한 값({@code detectedMime} — 이미지는 매직바이트 판정값, 그 밖은 정규화한 값)을 그대로 저장한다.
+   *
+   * <p>저장 이름은 호출자가 정한다(WP-1545) — 이미지가 아닌 첨부는 대체 이름이 "image" 가 아니어야 하므로, 서비스가 응답 이름과 같은 값을 한 번 정해
+   * 넘겨 둘이 어긋나지 않게 한다. 그래도 경로 구분자·제어 문자가 저장 이름에 들어가지 않게 여기서 한 번 더 정리한다(정리된 이름에는 변화 없음).
+   *
+   * @param requestedName {@link SafeFileNames#sanitize} 로 정리한 이름(WP-737·WP-561)
    */
-  public Long storeTemporary(MultipartFile mf, Long uploaderId, String detectedMime) {
-    // 원본 파일명 정리 — 경로 구분자·제어 문자는 "_" 로, 빈 이름은 대체 이름으로(WP-737), 255자를 넘으면 확장자를 살려 줄인다(WP-561). 응답
-    // 이름(WikiAttachmentService)도 같은 규칙.
-    String originalName = SafeFileNames.sanitize(mf.getOriginalFilename(), "image");
+  public Long storeTemporary(
+      MultipartFile mf, Long uploaderId, String detectedMime, String requestedName) {
+    String originalName = SafeFileNames.sanitize(requestedName, "file");
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
     String relativePath = pathBuilder.build(StorageDomain.WIKI, originalName);
     fileStore.store(relativePath, mf);

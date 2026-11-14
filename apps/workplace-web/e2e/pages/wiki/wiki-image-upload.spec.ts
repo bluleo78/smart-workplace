@@ -175,17 +175,28 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(page.locator('.ProseMirror')).not.toContainText('업로드 중')
   })
 
-  test('거부된 형식(SVG)은 업로드 요청 없이 토스트만 뜬다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  // WP-1545: SVG 는 이제 거절하지 않고 파일 첨부로 올린다 — 서버가 이미지로 보지 않으므로(image:false) 그림이 아니라 파일 칩이 된다.
+  test('SVG 는 그림이 아니라 파일 칩으로 들어간다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploads = trackRequests(page, 'POST', `/api/v1/wiki/pages/${PAGE_ID}/attachments`)
-    await stubUpload(page, 201)
+    await page.route(
+      (u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}/attachments`,
+      (r) => {
+        if (r.request().method() !== 'POST') return r.fallback()
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ fileId: FILE_ID, url: CONTENT_PATH, originalName: 'x.svg', mimeType: 'text/plain', sizeBytes: 10, image: false }),
+        })
+      },
+    )
     await setup(page, '')
     await open(page)
 
     await page.locator('.ProseMirror').click()
     await pasteImageFile(page, 'image/svg+xml', 'x.svg')
 
-    await expect(page.locator('[data-sonner-toast]').first()).toContainText('PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.')
-    expect(uploads.count()).toBe(0)
+    await expect(page.getByTestId('wiki-attachment-chip')).toContainText('x.svg')
+    expect(uploads.count()).toBe(1)
     await expect(page.getByTestId('wiki-image')).toHaveCount(0)
   })
 

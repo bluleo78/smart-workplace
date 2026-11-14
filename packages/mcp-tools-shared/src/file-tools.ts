@@ -66,7 +66,7 @@ export function buildFileTools(client: FileToolClient, { allowUploadLink = true 
   return [
     {
       name: 'upload_file',
-      // 이슈 첨부·메시지 첨부·노트 이미지의 공통 선행 단계라 세 앱 어느 쪽만 골라도 보여야 한다(README 앱 분류).
+      // 이슈 첨부·메시지 첨부·노트 첨부(이미지·파일, WP-1545)의 공통 선행 단계라 세 앱 어느 쪽만 골라도 보여야 한다(README 앱 분류).
       app: ['issue', 'messaging', 'wiki'],
       kind: 'write',
       // 새 임시 파일이나 링크를 만들기만 한다(덮어쓰지 않음). 부를 때마다 새 파일·링크가 생겨 비멱등.

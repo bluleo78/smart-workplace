@@ -51,6 +51,7 @@ import type {
   WikiSharePermission,
 } from '../../types/wiki'
 import { useWikiAppLinkChips } from './useWikiAppLinkChips'
+import { useWikiAttachmentViewer } from './useWikiAttachmentViewer'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
 import { useWikiLinkUi } from './useWikiLinkUi'
 import { useWikiRevisionHistory } from './useWikiRevisionHistory'
@@ -633,6 +634,9 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // ref 들과 달리 렌더마다 갱신하는 useEffect 가 불필요하다.
   const imageInputRef = useRef<HTMLInputElement>(null)
   const onImageInsertRef = useRef<() => void>(() => imageInputRef.current?.click())
+  // 슬래시 메뉴 '파일' 항목(WP-1545) — 이미지와 같은 이유로 형식 제한 없는 숨은 file input 을 여는 안정된 함수.
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const onFileInsertRef = useRef<() => void>(() => fileInputRef.current?.click())
   // 슬래시 메뉴 'HTML 파일 넣기'(WP-1241) — 이미지와 같은 이유로 숨은 HTML 파일 input 을 여는 안정된 함수.
   // 메뉴를 고른 자리는 Yjs 상대 위치로 붙잡아 둔다 — 파일 대화상자가 떠 있는 동안 선택이 바뀌거나 원격 편집이 들어와도 그 자리에 넣게.
   const htmlImportInputRef = useRef<HTMLInputElement>(null)
@@ -650,7 +654,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // (RichInput 의 membersRef 패턴 동일 — react-hooks/refs 의 보수적 false positive).
   const slashExtension = useMemo(
     // eslint-disable-next-line react-hooks/refs
-    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef, onHtmlImportRef, aiEnabledRef }),
+    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef, onFileInsertRef, onHtmlImportRef, aiEnabledRef }),
     [],
   )
   // 표 단축키 확장 — canEditRef 를 슬래시 확장과 같은 패턴으로 주입(마운트 시 1회 생성).
@@ -944,8 +948,33 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // 본문 클릭 위임 — 편집 모드의 Ctrl/⌘+클릭 링크 열기(WP-300)를 먼저 보고, 아니면 멘션 칩 내비게이션.
   // 새 탭은 noopener·noreferrer 로 연다(열린 페이지가 window.opener 로 이 탭을 조작하지 못하게).
   const { openSheetFromAnchor } = linkUi
+  // 본문 첨부 칩(WP-1545) — 누르면 첨부 뷰어(미리보기·다운로드). 공유 화면이면 공유 토큰 헤더로 받는다.
+  const { onClick: openAttachmentChip, openLink: openAttachmentLink, viewer: attachmentViewer } = useWikiAttachmentViewer(shareToken)
+  // 터치 편집에서 첨부 칩을 누르면 링크 시트가 뜬다 — 시트의 「미리 보기」가 그 링크 글자(파일 이름)로 뷰어를 연다.
+  const previewFromSheet = () => {
+    const target = linkUi.sheet
+    if (!target) return
+    const ed = editorRef.current
+    const r = ed && !ed.isDestroyed ? target.resolve(ed) : null
+    openAttachmentLink(target.href, r && ed ? ed.state.doc.textBetween(r.from, r.to) : '')
+  }
   const onBodyClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // 첨부 칩 — 터치 셸 편집 중엔 앱 링크 칩과 같이 링크 시트로 이름·링크를 고치게 하고(시트의 「미리 보기」로 뷰어), 그 밖엔 뷰어를 연다.
+      // 링크 열기(wikiLinkHrefToOpen)보다 먼저 본다 — 칩 주소는 로그인 경로라 새 탭으로 열면 401 이다.
+      const attachmentChip = (e.target as Element).closest('[data-wiki-attachment]')
+      if (attachmentChip) {
+        const ed = editorRef.current
+        if (isTouchShell && ed?.isEditable) {
+          e.preventDefault()
+          const { pos, anchor } = chipSource(ed.view, attachmentChip)
+          if (anchor) openSheetFromAnchor(anchor)
+          else ed.chain().focus().setTextSelection(pos + 1).run()
+          return
+        }
+        openAttachmentChip(e)
+        return
+      }
       // 앱 링크 칩(WP-1147) — 앱 안에서 이동한다(숨겨 둔 원래 링크의 새 탭 열기 대신). ⌘/Ctrl+클릭은 다른 링크처럼 새 탭.
       const chip = (e.target as Element).closest('[data-app-link-to]')
       if (chip) {
@@ -985,7 +1014,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
       }
       onChipClick(e)
     },
-    [canEdit, onChipClick, isTouchShell, openSheetFromAnchor, navigate],
+    [canEdit, onChipClick, isTouchShell, openSheetFromAnchor, navigate, openAttachmentChip],
   )
 
   // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀. 결과는 완료 시에만 삽입하므로 받은 부분 결과는 버려진다(WP-255).
@@ -1267,6 +1296,18 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
                 e.target.value = ''
               }}
             />
+            {/* 슬래시 메뉴 '파일' 항목(WP-1545) 전용 숨은 file input — 형식 제한 없음(이미지를 고르면 이미지로, 그 밖은 파일 칩으로 들어간다). */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              data-testid="wiki-file-slash-input"
+              onChange={(e) => {
+                insertImagesAtCursor(e.target.files)
+                e.target.value = ''
+              }}
+            />
+            {attachmentViewer}
             {/* 슬래시 메뉴 'HTML 파일 넣기'(WP-1241) 전용 숨은 파일 input. */}
             <WikiHtmlFileInput inputRef={htmlImportInputRef} testId="wiki-html-import-input" onFile={(f) => void onHtmlFile(f)} />
             {/* 노트→이슈 생성 다이얼로그 — AI 역할 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
@@ -1329,6 +1370,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
           onClose={linkUi.closeSheet}
           onEdit={linkUi.editFromSheet}
           onUnlink={linkUi.unlinkFromSheet}
+          onPreview={previewFromSheet}
         />
       )}
       {/* 공유 창은 이 스페이스 편집자 이상만 — 읽기 전용(VIEWER)·공유 화면(멤버 아님)엔 두지 않아 공유 상태도 조회하지 않는다. */}

@@ -37,11 +37,12 @@ test.describe('노트 상자 (WP-1303)', { tag: '@input' }, () => {
     await page.keyboard.press('Enter')
     await page.keyboard.type('/')
     const popover = page.getByTestId('wiki-slash-popover')
-    // 삽입 묶음 순서 — 표 · 이미지 · 상자 · AI 지시(WP-1482) · HTML 블록.
+    // 삽입 묶음 순서 — 표 · 이미지 · 파일(WP-1545) · 상자 · AI 지시(WP-1482) · HTML 블록.
     await expect(popover.getByRole('option').first()).toHaveText('표')
-    await expect(popover.getByRole('option').nth(2)).toHaveText('상자')
-    await expect(popover.getByRole('option').nth(3)).toHaveText('AI 지시')
-    await expect(popover.getByRole('option').nth(4)).toHaveText('HTML 블록')
+    await expect(popover.getByRole('option').nth(2)).toHaveText('파일')
+    await expect(popover.getByRole('option').nth(3)).toHaveText('상자')
+    await expect(popover.getByRole('option').nth(4)).toHaveText('AI 지시')
+    await expect(popover.getByRole('option').nth(5)).toHaveText('HTML 블록')
     await shot(page, 'slash-menu-box')
     await page.getByTestId('wiki-slash-option-box').click()
 

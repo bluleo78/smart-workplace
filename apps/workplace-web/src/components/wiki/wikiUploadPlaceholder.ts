@@ -22,7 +22,7 @@ import { clampPos, resolveRelative, toRelative, ySyncOf } from './wikiCollabPosi
  */
 
 /** 화면에 보이는 자리표시자 문구. */
-export const UPLOAD_PLACEHOLDER_TEXT = '⏳ 이미지 업로드 중…'
+export const UPLOAD_PLACEHOLDER_TEXT = '⏳ 업로드 중…'
 
 /** 업로드 하나의 자리 — 숫자 위치(로컬 매핑용)와 Yjs 상대 위치(원격 변경·재마운트용). */
 interface UploadSpot {

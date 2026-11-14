@@ -52,7 +52,7 @@ export interface ToolAppGuide {
 export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
   issue: { label: 'Issues (이슈)', read: 'find/read issues (incl. watched) and attachments', write: 'create/update issues, comment, link, watch, attach files, report work', entry: ['list_issues', 'get_issue_detail'] },
   project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles, custom fields', write: 'create/rename projects, add members, create/edit labels, milestones, cycles', entry: ['list_projects', 'get_project'] },
-  wiki: { label: 'Wiki (노트)', read: 'search and read pages, summaries, revision history, backlinks', write: 'create, edit, move pages, add images, restore revisions', entry: ['search_wiki', 'get_wiki_page'] },
+  wiki: { label: 'Wiki (노트)', read: 'search and read pages, summaries, revision history, backlinks', write: 'create, edit, move pages, attach files, restore revisions', entry: ['search_wiki', 'get_wiki_page'] },
   drive: { label: 'Drive (드라이브)', read: 'find, summarize, read files, versions, backlinks, trash', write: 'create folders; rename/move/copy; upload files or text; download links; import attachments; restore from trash', entry: ['list_drive_items', 'search_drive'] },
   // WP-1523: 「(no sending)」은 instructions 의 「No deletion or mail sending.」과 겹쳐 2,048자 상한을 위해 뺐다.
   mail: { label: 'Mail (메일)', read: 'read/summarize mail and attachments, draft replies and issues', write: 'mark read/unread, recategorize, sync, create issues', entry: ['list_mail_accounts', 'list_mail'] },
