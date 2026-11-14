@@ -36,6 +36,8 @@ function Calendar({
       // 이전/다음 달 등 네비게이션 버튼의 aria-label — locale은 날짜 텍스트 포맷만 담당하고
       // react-day-picker 버튼 라벨은 별도 지정이 필요하다(미지정 시 영문 기본값) (#793).
       labels={{
+        // 이전·다음 달 버튼을 감싼 <nav> 랜드마크 이름 — 미지정 시 영문 「Navigation bar」(WP-1548)
+        labelNav: () => "달력 이동",
         labelPrevious: () => "이전 달",
         labelNext: () => "다음 달",
         labelMonthDropdown: () => "월 선택",
