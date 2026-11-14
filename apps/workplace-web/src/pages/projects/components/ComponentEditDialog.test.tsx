@@ -1,6 +1,6 @@
 // 구성요소 편집 창의 「(구성원 아님)」 표시(WP-933) — 서버 플래그 defaultAssigneeValid 로만 판단하고,
 // 구성원 목록을 불러오는 중에는 유효한 담당자에 경고가 비치지 않아야 한다.
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ComponentResponse } from '../../../types/component'
@@ -56,5 +56,18 @@ describe('ComponentEditDialog 담당자 경고', () => {
     membersState.data = [{ userId: 10, name: '박순', kind: 'HUMAN', active: true }]
     renderDialog(component(true))
     expect(document.body.textContent).not.toContain('구성원 아님')
+  })
+})
+
+describe('ComponentEditDialog 서버 오류 정리 (WP-1558)', () => {
+  it('저장이 거절돼 보인 오류는 이름을 고치면 사라진다', async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error('conflict'))
+    render(<ComponentEditDialog projectKey="WP" open target={null} onSave={onSave} onClose={() => {}} />, { container: document.body })
+    fireEvent.change(screen.getByTestId('component-name-input'), { target: { value: 'Compute' } })
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    expect(await screen.findByTestId('component-edit-error')).toHaveTextContent('저장하지 못했습니다')
+
+    fireEvent.change(screen.getByTestId('component-name-input'), { target: { value: 'Compute2' } })
+    expect(screen.queryByTestId('component-edit-error')).not.toBeInTheDocument()
   })
 })

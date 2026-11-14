@@ -102,6 +102,30 @@ describe('버전 목록 — 관리 권한', () => {
   })
 })
 
+describe('버전 만들기 — 서버 오류 정리 (WP-1558)', () => {
+  test('이름 중복으로 거절돼 보인 오류는 이름을 고치면 사라진다', async () => {
+    const api = versionApi({ versions: [createVersion({ id: 1, name: '1.0.0' })], members: OWNER_MEMBERS })
+    const { user } = renderScreen(atRoute('/projects/:key/versions', <InProjectTabs><VersionsPage /></InProjectTabs>), {
+      path: `/projects/${KEY}/versions`,
+      handlers: [
+        http.post(`${BASE}/versions`, () => HttpResponse.json({ message: '이미 있는 버전 이름입니다: 1.0.0' }, { status: 409 })),
+        ...api.handlers,
+        ...shellHandlers,
+      ],
+    })
+    await user.click(await screen.findByTestId('version-new'))
+    const dialog = await screen.findByTestId('version-form-dialog')
+    await user.click(within(dialog).getByTestId('version-name-input'))
+    await user.paste('1.0.0')
+    await user.click(within(dialog).getByTestId('version-save'))
+    expect(await within(dialog).findByTestId('version-form-error')).toHaveTextContent('이미 있는 버전 이름입니다: 1.0.0')
+
+    await user.click(within(dialog).getByTestId('version-name-input'))
+    await user.paste('.1')
+    expect(within(dialog).queryByTestId('version-form-error')).not.toBeInTheDocument()
+  })
+})
+
 describe('버전 상세 — 이슈가 없을 때', () => {
   // 진행률 자리와 「이 버전에 나가는 것」 탭이 같은 빈 안내를 위아래로 두 번 보였다(WP-1136). 탭 아래에만 한 번 보인다.
   test('빈 안내 문장은 탭 아래에 한 번만 보이고 진행률 막대는 그리지 않는다', async () => {

@@ -192,6 +192,11 @@ describe('커스텀 필드 — 설정 화면', () => {
     await user.click(within(dialog).getByRole('button', { name: '저장' }))
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('2건의 이슈가 참조 중인 옵션은 삭제할 수 없습니다: 기획')
     expect(screen.getByTestId('custom-field-edit-dialog')).toBeInTheDocument()
+
+    // 옵션을 다시 고치면 옛 409 문구가 지금 입력과 모순된 채 남지 않는다(WP-1558).
+    await user.click(options2)
+    await user.paste(', 기획')
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 

@@ -10,6 +10,7 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { FormField } from '@/components/ui/form-field';
 import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
+import { useClearOnFormChange } from '@/hooks/useClearOnFormChange';
 import { extractApiError, handleApiError } from '@/lib/api-error';
 import { iGa } from '@/lib/utils';
 
@@ -51,6 +52,9 @@ export default function RoleListPage() {
       description: '',
     },
   });
+  // 입력이 바뀌면 옛 서버 오류(「이미 존재하는 역할 이름입니다」 등)를 지운다 — 클라이언트 검증이 막아 제출 함수가 불리지 않아도
+  // 지금 입력과 모순된 문구가 남지 않게(WP-1558).
+  useClearOnFormChange(form, () => setCreateError(''));
 
   const fetchRoles = useCallback(async () => {
     setIsLoading(true);

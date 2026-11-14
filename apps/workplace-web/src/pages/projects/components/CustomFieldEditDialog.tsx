@@ -45,6 +45,12 @@ function EditForm({ projectKey, field, onClose }: { projectKey: string; field: I
   const [error, setError] = useState<string | null>(null);
   const hasOptions = field.type === 'SELECT' || field.type === 'MULTI_SELECT';
 
+  // 입력을 바꾸면 옛 오류(서버 거절·빈 이름)를 지운다 — 오류는 그때 보낸 값에 대한 답이라 값이 바뀌면 더는 맞지 않는다(WP-1558).
+  const edit = (set: (v: string) => void) => (v: string) => {
+    setError(null);
+    set(v);
+  };
+
   async function onSave() {
     const trimmed = name.trim();
     if (!trimmed) {
@@ -83,14 +89,14 @@ function EditForm({ projectKey, field, onClose }: { projectKey: string; field: I
           <label className="text-sm font-medium" htmlFor="cf-edit-name">
             이름
           </label>
-          <Input id="cf-edit-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+          <Input id="cf-edit-name" value={name} onChange={(e) => edit(setName)(e.target.value)} maxLength={40} />
         </div>
         {hasOptions && (
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium" htmlFor="cf-edit-options">
               옵션 (콤마 구분)
             </label>
-            <Input id="cf-edit-options" value={optionsText} onChange={(e) => setOptionsText(e.target.value)} placeholder="a, b, c" />
+            <Input id="cf-edit-options" value={optionsText} onChange={(e) => edit(setOptionsText)(e.target.value)} placeholder="a, b, c" />
           </div>
         )}
         {error && (
