@@ -120,6 +120,23 @@ describe('코멘트 수정·삭제 (#154)', () => {
     expect(screen.getByTestId('issue-comment-edit-input')).toBeInTheDocument()
   })
 
+  // WP-1552 — 내용을 비우면 「저장」이 활성인데 눌러도 아무 반응이 없었다.
+  test('수정칸 — 내용을 비우거나 공백만 남기면 저장이 비활성이고(PATCH 없음) 다시 쓰면 활성이 된다', async () => {
+    const { user, calls } = await open([createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '원본 코멘트' })])
+    await user.click(await screen.findByRole('button', { name: '코멘트 수정' }))
+    const edit = await screen.findByTestId('issue-comment-edit-input')
+    expect(screen.getByTestId('issue-comment-edit-save')).toBeEnabled()
+    setRichText(edit, '')
+    await waitFor(() => expect(screen.getByTestId('issue-comment-edit-save')).toBeDisabled())
+    setRichText(edit, '   ')
+    await waitFor(() => expect(screen.getByTestId('issue-comment-edit-save')).toBeDisabled())
+    fireEvent.keyDown(edit, { key: 'Enter' })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(calls).toEqual([])
+    setRichText(edit, '다시 쓴 코멘트')
+    await waitFor(() => expect(screen.getByTestId('issue-comment-edit-save')).toBeEnabled())
+  })
+
   test('내 코멘트 — 삭제 → 확인창 「삭제」 → DELETE 하고 마지막 코멘트였으면 빈 안내가 보인다', async () => {
     const { user, calls } = await open([createComment({ id: 11, issueId: ISSUE_ID, authorId: ME_ID, body: '삭제할 코멘트' })])
     await user.click(await screen.findByRole('button', { name: '코멘트 삭제' }))
