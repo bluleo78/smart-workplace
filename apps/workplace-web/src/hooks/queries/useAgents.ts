@@ -46,7 +46,7 @@ export function useCreateAgent() {
       qc.invalidateQueries({ queryKey: agentKeys.all });
       toast.success("에이전트를 추가했습니다");
     },
-    onError: (e) => handleApiError(e, "에이전트 추가에 실패했습니다"),
+    // 실패 토스트는 두지 않는다 — 새 에이전트 창이 서버 거절을 창 안 오류 줄로 보인다(WP-1559).
   });
 }
 
