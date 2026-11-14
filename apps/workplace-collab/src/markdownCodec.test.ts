@@ -97,6 +97,8 @@ describe('markdownCodec', () => {
       ['코드 안 멘션 토큰은 글자 그대로', '`<@5>` 와\n\n```\n<#page:1>\n```', { exact: true }],
       ['병합 셀 표(raw HTML 폴백)', '<table><tbody><tr><td colspan="2">병합</td></tr><tr><td>a</td><td>b</td></tr></tbody></table>', {}],
       ['하드 브레이크·수평선', '첫 줄  \n둘째 줄\n\n---\n\n끝', {}],
+      // WP-1546 — 체크리스트(GFM 작업 목록)는 이스케이프(\[ \]) 없이 원문 그대로.
+      ['체크리스트(중첩 포함)', '- [ ] 할 일\n- [x] 끝난 일\n  - [ ] 하위', { exact: true }],
     ]
 
     it.each(cases)('%s', (_name, md, { exact }) => {
@@ -166,6 +168,19 @@ describe('replaceWithMarkdown', () => {
     expect(origins).toEqual(['o'])
     // 끝 블록 삭제 → 남은 마지막 블록을 가리킨다(표식 위치가 문서 밖이 되지 않게).
     expect(replaceWithMarkdown(doc, '# 제목\n\n첫 문단', 'o')).toBe(1)
+  })
+
+  // WP-1546 — MCP update_wiki_page 가 보낸 `- [ ]` 본문을 적용하면 체크 상태를 지닌 체크리스트 노드가 Y 문서에 들어간다(글자 `[ ]` 아님).
+  it('applies a GFM task list body as checklist nodes with their checked state', () => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, markdownToYUpdate('# 할 일'))
+    expect(replaceWithMarkdown(doc, '# 할 일\n\n- [ ] 보고서\n- [x] 회의', 'o')).toBe(1)
+    const checked: boolean[] = []
+    yUpdateToRoot(Y.encodeStateAsUpdate(doc)).descendants((n) => {
+      if (n.type.name === 'taskItem') checked.push(n.attrs.checked as boolean)
+    })
+    expect(checked).toEqual([false, true])
+    expect(yDocToMarkdown(doc)).toBe('# 할 일\n\n- [ ] 보고서\n- [x] 회의')
   })
 })
 

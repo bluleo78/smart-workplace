@@ -20,12 +20,13 @@ export type WikiAiAction =
 /** AI 가 아닌 삽입 명령 키. 표·이미지(#751)·상자(WP-1303)·HTML 블록(WP-1242)·HTML 파일 넣기(WP-1241). */
 export type WikiInsertCommand = 'table' | 'image' | 'box' | 'aiInstruction' | 'htmlEmbed' | 'htmlImport'
 
-/** 기본 서식 블록 타입 키(#687) — 제목1/제목2/불릿목록/번호목록/인용/구분선. */
+/** 기본 서식 블록 타입 키(#687) — 제목1/제목2/불릿목록/번호목록/체크리스트(WP-1546)/인용/구분선. */
 export type WikiBlockCommand =
   | 'heading1'
   | 'heading2'
   | 'bulletList'
   | 'orderedList'
+  | 'taskList'
   | 'blockquote'
   | 'horizontalRule'
 

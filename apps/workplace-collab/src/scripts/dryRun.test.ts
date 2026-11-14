@@ -91,8 +91,8 @@ describe('dryRunReport', () => {
     const cats = Object.fromEntries(r.changed.map((c) => [c.id, c.categories]))
     expect(cats[20]).toEqual(['blank-lines'])
     expect(cats[21]).toEqual(['hard-break'])
-    expect(cats[22]).toEqual(expect.arrayContaining(['checkbox', 'escape']))
-    expect(cats[22]).not.toContain('other')
+    // WP-1546 — 체크리스트 노드가 생겨 작업 목록이 더는 `\[ \]` 로 이스케이프되지 않는다(바뀌지 않으니 보고에 없다).
+    expect(cats[22]).toBeUndefined()
     expect(cats[23]).toEqual(['raw-html'])
     expect(cats[24]).toEqual(['emphasis'])
     expect(cats[25]).toEqual(['table-align'])

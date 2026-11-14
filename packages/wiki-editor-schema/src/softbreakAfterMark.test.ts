@@ -69,7 +69,8 @@ describe('serialization is unchanged for notes without the pattern (WP-314 golde
     ['```ts\nconst a = 1\n**not bold**\n```', '```ts\nconst a = 1\n**not bold**\n```'],
     ['| a | b |\n| --- | --- |\n| **x** | y \\| z |', '| a | b |\n| --- | --- |\n| **x** | y \\| z |\n'],
     ['![그림](/api/v1/wiki/attachments/1) 뒤 텍스트', '![그림](/api/v1/wiki/attachments/1) 뒤 텍스트'],
-    ['- [ ] 할 일\n\n---\n\n끝 문단 **굵게** 끝.', '- \\[ \\] 할 일\n\n---\n\n끝 문단 **굵게** 끝.'],
+    // WP-1546 — 체크리스트 노드가 생겨 `[ ]` 가 더는 `\[ \]` 로 이스케이프되지 않는다(이전 기대값은 그 결함을 고정했다).
+    ['- [ ] 할 일\n\n---\n\n끝 문단 **굵게** 끝.', '- [ ] 할 일\n\n---\n\n끝 문단 **굵게** 끝.'],
     ['**a** b\n\n*c* d', '**a** b\n\n*c* d'],
     ['평문\n**굵게** 시작', '평문 **굵게** 시작'],
     // 헤더 없는 raw HTML 표(#742 폴백) — html_block 안의 태그 사이 개행은 normalizeDOM 이 계속 지워야 한다.
