@@ -1575,6 +1575,8 @@ public class IssueService {
       Long callerId, String projectKey, int number, Integer newParentNumber, String newParentKey) {
     var project = accessGuard.assertMember(projectKey, callerId);
     ParentTarget target = ParentTarget.of(newParentNumber, newParentKey, project.key());
+    // WP-1604 자기 행보다 먼저 같은 프로젝트 새 부모를 잠가야 하면(id 순) 여기서 잠근다 — 교차 부모 지정 데드락 방지.
+    lockSameProjectParentFirstIfLower(project.id(), number, target);
     // 행을 잠근 채 읽는다 — 동시 부모·유형 변경이 옛 부모로 검증·이력(from)을 남기지 않게 한다.
     var row =
         issueRepository
@@ -1619,6 +1621,33 @@ public class IssueService {
     notifyParentProject(project, oldParent, callerId);
     notifyParentProject(project, newParentRow, callerId);
     return get(callerId, projectKey, number);
+  }
+
+  /**
+   * setParent 의 행 잠금 순서를 이슈 id 순으로 고정한다(WP-1604). setParent 는 자기 행을 FOR NO KEY UPDATE 로 잠근 뒤 {@link
+   * #tryResolveParent} 에서 새 부모 행을 FOR SHARE 로 잠그는데, A→부모 B 와 B→부모 A 를 동시에 보내면 두 요청이 서로 반대 순서로 잠가
+   * PostgreSQL 데드락(→ 500)이 났다. 그래서 같은 프로젝트 부모일 때 잠그지 않고 자기 id·부모 id 를 먼저 읽어, 부모 id 가 더 작으면 부모 행을 먼저
+   * 공유 잠금한다. 그러면 두 요청 모두 「작은 id → 큰 id」 순으로 잠가 서로 기다리기만 하고, 나중 요청은 규칙 위반(400)으로 끝난다.
+   *
+   * <p>부모를 먼저 잠그는 방향은 에픽 삭제(에픽 행 → 하위 행 순으로 잠금)와 같아 새 교착을 만들지 않는다. 여기서 잡은 공유 잠금은 같은 트랜잭션이라 뒤의
+   * tryResolveParent 가 같은 행을 다시 잠가도 그대로 지나간다(결과는 버린다 — 규칙 판정은 거기서 잠근 뒤 읽은 최신 행으로 한다). 미리 읽은 id 는
+   * 순서를 정하는 데만 쓰므로 그 사이 바뀌어도 정합성에는 영향이 없다. 다른 프로젝트 부모는 프로젝트 공유 잠금과 프로젝트 삭제 사이의 순서까지 얽혀 이번에는 바꾸지
+   * 않는다(남는 교착은 GlobalExceptionHandler 가 409 로 바꾼다).
+   */
+  private void lockSameProjectParentFirstIfLower(Long projectId, int number, ParentTarget target) {
+    if (target == null || target.crossProject() || target.number() == number) {
+      return;
+    }
+    Long childId =
+        issueRepository.findByProjectAndNumber(projectId, number).map(IssueRow::id).orElse(null);
+    Long parentId =
+        issueRepository
+            .findByProjectAndNumber(projectId, target.number())
+            .map(IssueRow::id)
+            .orElse(null);
+    if (childId != null && parentId != null && parentId < childId) {
+      issueRepository.findActiveByIdForShare(parentId);
+    }
   }
 
   /** 부모 에픽 외부 링크 변환 한 건의 쓰기 결과(WP-1038) — {@link #attachParentFromLink} 가 던지지 않고 돌려준다. */

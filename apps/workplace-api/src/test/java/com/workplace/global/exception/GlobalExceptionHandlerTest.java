@@ -186,4 +186,31 @@ class GlobalExceptionHandlerTest {
     assertThat(down.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     assertThat(down.getBody().status()).isEqualTo(503);
   }
+
+  @Test
+  void 데드락_PessimisticLockingFailure_는_409_와_재시도_안내를_반환한다() {
+    // WP-1604: 동시 요청끼리 잠금이 엇갈려 PostgreSQL 이 한쪽을 데드락으로 끊으면 500 이 아니라 재시도 가능한 409 여야 한다.
+    ResponseEntity<ErrorResponse> res =
+        handler.handlePessimisticLockingFailure(
+            new org.springframework.dao.DeadlockLoserDataAccessException(
+                "deadlock detected", new RuntimeException("40P01")),
+            request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().status()).isEqualTo(409);
+    assertThat(res.getBody().message()).isEqualTo("다른 요청과 동시에 수정되어 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요");
+  }
+
+  @Test
+  void 데드락_예외는_스프링_핸들러_선택에서도_409_핸들러로_간다() throws Exception {
+    // WP-1604: 캐치올(Exception) 핸들러보다 구체 유형 핸들러가 골라지는지 — 스프링의 실제 선택 규칙으로 확인한다.
+    var resolver =
+        new org.springframework.web.method.annotation.ExceptionHandlerMethodResolver(
+            GlobalExceptionHandler.class);
+    var method =
+        resolver.resolveMethod(
+            new org.springframework.dao.DeadlockLoserDataAccessException("deadlock", null));
+    assertThat(method).isNotNull();
+    assertThat(method.getName()).isEqualTo("handlePessimisticLockingFailure");
+  }
 }
