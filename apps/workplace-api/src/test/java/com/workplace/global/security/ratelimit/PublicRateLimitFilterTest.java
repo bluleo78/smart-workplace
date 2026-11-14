@@ -11,7 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -23,16 +23,25 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 공개 경로 IP 속도 제한(WP-763) — 실제 보안 필터 체인을 거쳐 한도를 넘긴 요청이 429·Retry-After·한국어 안내로 거절되는지 본다.
  *
- * <p>버킷은 애플리케이션 컨텍스트에 하나라 테스트마다 다른 문서용 IP(203.0.113.x)를 쓴다. MockMvc 접속 주소는 127.0.0.1(믿는 프록시)이라
- * X-Forwarded-For 를 오른쪽부터 걷어 내부가 아닌 첫 주소가 클라이언트 IP 가 된다(WP-1317).
+ * <p>버킷은 애플리케이션 컨텍스트에 하나라 테스트마다 겹치지 않는 문서용 IP 를 {@link #uniqueIp()} 로 받는다. MockMvc 접속 주소는
+ * 127.0.0.1(믿는 프록시)이라 X-Forwarded-For 를 오른쪽부터 걷어 내부가 아닌 첫 주소가 클라이언트 IP 가 된다(WP-1317).
  */
 @Transactional
 class PublicRateLimitFilterTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;
 
-  private static String randomDocIp() {
-    return "203.0.113." + ThreadLocalRandom.current().nextInt(1, 255);
+  /** 다음에 나눠 줄 IP 끝자리. 다른 테스트 클래스는 203.0.113.7~22 를 쓰므로 100 부터 센다. */
+  private static final AtomicInteger NEXT_IP = new AtomicInteger(100);
+
+  /**
+   * 이 클래스 안에서 한 번만 쓰이는 문서용 IP(203.0.113.100~).
+   *
+   * <p>예전에는 무작위로 골라 두 테스트가 같은 IP 를 뽑으면(1/254) 앞 테스트가 다 쓴 버킷을 이어받아 처음 20회 안에 429 가 났다(WP-1600 — 전체
+   * 회귀에서 가끔 실패). 순서대로 나눠 주면 같은 JVM 에서 다시 돌아도 겹치지 않는다.
+   */
+  private static String uniqueIp() {
+    return "203.0.113." + NEXT_IP.getAndIncrement();
   }
 
   private static MockHttpServletRequestBuilder login(String forwardedFor) {
@@ -65,7 +74,7 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
 
   @Test
   void 같은_IP_로그인은_20회까지_받고_넘기면_429와_안내를_돌려준다() throws Exception {
-    String ip = randomDocIp();
+    String ip = uniqueIp();
     // 버킷은 가득 찬 채(20) 시작하고 재충전은 넘치지 않으니 처음 20회는 늘 통과한다.
     for (int i = 0; i < 20; i++) {
       mvc.perform(login("198.51.100.9, " + ip)).andExpect(status().isUnauthorized());
@@ -74,7 +83,7 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
         .andExpect(header().exists("Retry-After"))
         .andExpect(jsonPath("$.message").value(PublicRateLimitFilter.MESSAGE));
     // 다른 IP 는 따로 센다 — 앞단이 붙인 마지막 값이 다르면 막히지 않는다.
-    mvc.perform(login("198.51.100.9, 192.0.2.77")).andExpect(status().isUnauthorized());
+    mvc.perform(login("198.51.100.9, " + uniqueIp())).andExpect(status().isUnauthorized());
   }
 
   /**
@@ -83,8 +92,8 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
    */
   @Test
   void 같은_프록시_체인을_거친_서로_다른_클라이언트는_로그인_버킷을_나눠_쓰지_않는다() throws Exception {
-    String a = randomDocIp();
-    String b = "192.0.2." + ThreadLocalRandom.current().nextInt(1, 255);
+    String a = uniqueIp();
+    String b = uniqueIp();
     String chain = ", 10.244.3.206, 10.244.4.57";
     for (int i = 0; i < 20; i++) mvc.perform(login(a + chain)).andExpect(status().isUnauthorized());
     untilLimited(() -> mvc.perform(login(a + chain)), 20);
@@ -103,7 +112,7 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
   // 토큰도 매번 바꾼다 — 같은 공유 링크면 비밀번호 잠금(#700, 역시 429)과 구분되지 않는다.
   @Test
   void 비밀번호를_실은_공유_다운로드는_10회까지_받는다() throws Exception {
-    String ip = randomDocIp();
+    String ip = uniqueIp();
     for (int i = 0; i < 10; i++) {
       mvc.perform(
               get("/api/v1/public/drive/share/sl_" + UUID.randomUUID() + "/download")
@@ -136,8 +145,8 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
   /** 공유 비밀번호 확인(POST unlock, WP-1227)은 다운로드 비밀번호와 같은 버킷으로 늘 센다. 정보·content·preview 는 세지 않는다. */
   @Test
   void 공유_비밀번호_확인은_비밀번호_버킷으로_센다() throws Exception {
-    // 다운로드 테스트(203.0.113.x)와 같은 버킷 키를 쓰므로 다른 문서용 대역을 쓴다(.77 은 로그인 테스트가 씀).
-    String ip = "192.0.2." + ThreadLocalRandom.current().nextInt(100, 255);
+    // 다운로드 테스트와 같은 정책 버킷이라 IP 가 겹치지 않아야 한다.
+    String ip = uniqueIp();
     Callable<ResultActions> unlock =
         () ->
             mvc.perform(
@@ -174,8 +183,7 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
    */
   @Test
   void 공유_미리보기_변환_시작은_별도_버킷으로_센다() throws Exception {
-    // 다른 테스트와 버킷 키가 겹치지 않게 별도 문서용 대역(198.51.100.x, .9 는 로그인 테스트가 씀).
-    String ip = "198.51.100." + ThreadLocalRandom.current().nextInt(100, 255);
+    String ip = uniqueIp();
     Callable<ResultActions> start =
         () ->
             mvc.perform(
@@ -219,8 +227,7 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
    */
   @Test
   void 폴더_하위_파일_미리보기_변환_시작도_미리보기_버킷으로_센다() throws Exception {
-    // 다른 테스트와 키가 겹치지 않게 별도 문서용 대역(198.51.100.x 의 다른 구간).
-    String ip = "198.51.100." + ThreadLocalRandom.current().nextInt(1, 90);
+    String ip = uniqueIp();
     Callable<ResultActions> start =
         () ->
             mvc.perform(
@@ -250,7 +257,7 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
   /** 폴더 하위 파일 다운로드(WP-1538) — 비밀번호 헤더가 있으면 SHARE_PASSWORD, 없으면 세지 않는다. children 도 세지 않는다. */
   @Test
   void 폴더_하위_파일_다운로드는_비밀번호_헤더가_있을_때만_센다() throws Exception {
-    String ip = "192.0.2." + ThreadLocalRandom.current().nextInt(1, 100);
+    String ip = uniqueIp();
     Callable<ResultActions> withPassword =
         () ->
             mvc.perform(
