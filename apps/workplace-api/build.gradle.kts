@@ -37,6 +37,18 @@ version = "0.0.1-SNAPSHOT"
 // 제거 → NoSuchMethodError). 11.20.3 은 PG18 지원 + Flyway 11 API 유지로 둘 다 만족한다.
 extra["flyway.version"] = "11.20.3"
 
+// 운영 이미지 trivy 검사(WP-1570·WP-1571)에서 나온 취약 의존성을 Spring Boot 3.5.16 BOM 보다 높은 수정판으로 고정한다.
+// Boot BOM 이 이 버전 이상으로 올라오면 해당 줄을 지운다.
+// Tomcat 10.1.59 — CVE-2026-65905(replay 인증 우회)·CVE-2026-68525(FORM 인증 우회)·CVE-2026-65182(보안 제약 우회)·
+// CVE-2026-65637(HTTP/2 입력 검증)·CVE-2026-55276, 모두 CRITICAL.
+extra["tomcat.version"] = "10.1.59"
+// Jackson 2.21.7 — jackson-core·jackson-databind HIGH 5건.
+extra["jackson-bom.version"] = "2.21.7"
+// HttpCore5 5.4.3 — httpcore5·httpcore5-h2 HIGH(링크 미리보기 HttpClient5 가 쓴다).
+extra["httpcore5.version"] = "5.4.3"
+// PostgreSQL JDBC 42.7.12 — 42.7.11 의 HIGH.
+extra["postgresql.version"] = "42.7.12"
+
 java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
@@ -82,7 +94,8 @@ dependencies {
     // HttpClient5 는 DnsResolver 를 갈아끼울 수 있어 검사를 통과한 주소로만 소켓을 열면서 TLS SNI·호스트 검증은 그대로 둔다. 버전은 Boot BOM 관리.
     implementation("org.apache.httpcomponents.client5:httpclient5")
     // Open Graph 메타 추출용 HTML 파서(WP-874). BOM 비관리라 버전 고정.
-    implementation("org.jsoup:jsoup:1.18.3")
+    // 1.23.2 — 1.18.3 의 HIGH 취약점(운영 이미지 trivy 검사, WP-1571).
+    implementation("org.jsoup:jsoup:1.23.2")
     // 프로필 아바타(WP-1222) — JDK ImageIO 는 WEBP 를 읽지 못한다. 읽기 전용 WEBP 플러그인(SPI 로 ImageIO 에 등록)만 더한다.
     // 쓰기는 PNG·JPEG(JDK 기본)로만 한다. BOM 비관리라 버전 고정.
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.15.3")
