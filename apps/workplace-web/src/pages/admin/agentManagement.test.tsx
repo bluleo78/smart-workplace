@@ -286,6 +286,107 @@ test.each([
   for (const f of facts) expect(currentScreenContext()!.scope!.facts).toContainEqual(f)
 })
 
+// ── 새 에이전트 창 검증(WP-1559) — 칸 아래 한국어 오류, 창 안 서버 오류 줄 ──
+
+/**
+ * 목록을 띄우고 「새 에이전트」 창을 연다. POST /admin/agents 본문을 모으고, conflict 면 409 로 거절한다.
+ * hold 를 주면 그 약속이 풀릴 때까지 응답을 붙잡는다(요청 중 창 닫기 검사용).
+ */
+async function renderNewAgent({ conflict = false, hold }: { conflict?: boolean; hold?: Promise<void> } = {}) {
+  const posts: unknown[] = []
+  const api = agentApi()
+  const post = http.post('/api/v1/admin/agents', async ({ request }) => {
+    posts.push(await request.json())
+    if (hold) await hold
+    if (conflict) return HttpResponse.json({ message: '이미 사용 중인 아이디입니다' }, { status: 409 })
+    return HttpResponse.json({ ...base, id: 200, username: 'ws-agent-x', name: '에이전트', type: 'REGULAR', runtime: 'INTERNAL', runMode: 'SERVER' }, { status: 201 })
+  })
+  const view = renderScreen(<AgentManagementPage />, { path: '/settings/agents', handlers: [post, ...api.handlers] })
+  await screen.findByTestId('agent-row-100')
+  await view.user.click(screen.getByTestId('new-agent-trigger'))
+  const dialog = await screen.findByTestId('new-agent-dialog')
+  return { ...view, posts, dialog }
+}
+
+/** 세 칸을 값으로 채우고 「생성」을 누른다. */
+async function fillNewAgent(
+  user: ReturnType<typeof renderScreen>['user'],
+  dialog: HTMLElement,
+  values: { username: string; name: string; email: string },
+) {
+  for (const [label, value] of [['아이디', values.username], ['이름', values.name], ['이메일', values.email]]) {
+    await user.click(within(dialog).getByLabelText(label))
+    await user.paste(value)
+  }
+  await user.click(within(dialog).getByRole('button', { name: '생성' }))
+}
+
+test('새 에이전트 — 빈 제출은 세 칸 아래 오류를 한 번에 보이고 요청하지 않는다 (WP-1559)', async () => {
+  const { user, posts, dialog } = await renderNewAgent()
+  await user.click(within(dialog).getByRole('button', { name: '생성' }))
+  expect(await within(dialog).findByText('아이디를 입력하세요')).toBeInTheDocument()
+  expect(within(dialog).getByText('이름을 입력하세요')).toBeInTheDocument()
+  expect(within(dialog).getByText('이메일을 입력하세요')).toBeInTheDocument()
+  for (const label of ['아이디', '이름', '이메일']) {
+    expect(within(dialog).getByLabelText(label)).toHaveAttribute('aria-invalid', 'true')
+  }
+  expect(posts).toEqual([])
+})
+
+test('새 에이전트 — 공백만 넣은 이름은 칸 오류로 막는다 (WP-1559)', async () => {
+  const { user, posts, dialog } = await renderNewAgent()
+  await fillNewAgent(user, dialog, { username: 'ws-agent-x', name: '   ', email: 'ws-agent-x@work-loop.local' })
+  expect(await within(dialog).findByText('이름을 입력하세요')).toBeInTheDocument()
+  expect(posts).toEqual([])
+})
+
+test('새 에이전트 — 정상 제출은 앞뒤 공백을 잘라 보내고 창을 닫는다 (WP-1559)', async () => {
+  const { user, posts, dialog } = await renderNewAgent()
+  await fillNewAgent(user, dialog, { username: ' ws-agent-x ', name: ' 에이전트 ', email: ' ws-agent-x@work-loop.local ' })
+  await waitFor(() => expect(screen.queryByTestId('new-agent-dialog')).not.toBeInTheDocument())
+  expect(posts).toEqual([{ username: 'ws-agent-x', name: '에이전트', email: 'ws-agent-x@work-loop.local' }])
+})
+
+test('새 에이전트 — 서버 거절은 창 안 오류 줄에 보이고 창을 유지한다 (WP-1559)', async () => {
+  const { user, posts, dialog } = await renderNewAgent({ conflict: true })
+  await fillNewAgent(user, dialog, { username: 'ws-agent-x', name: '에이전트', email: 'ws-agent-x@work-loop.local' })
+  expect(await within(dialog).findByTestId('new-agent-error')).toHaveTextContent('이미 사용 중인 아이디입니다')
+  expect(posts).toHaveLength(1)
+  expect(screen.getByTestId('new-agent-dialog')).toBeInTheDocument()
+  expect(screen.queryByText('에이전트 추가에 실패했습니다')).not.toBeInTheDocument()
+})
+
+test('새 에이전트 — 요청 중에 창을 닫은 뒤 서버가 거절하면 토스트로 알리고 다시 열어도 지난 오류가 없다 (WP-1559)', async () => {
+  // 응답을 붙잡아 두었다가 창을 닫은 뒤 409 로 푼다 — 닫힌 창의 오류 줄은 보이지 않으므로 토스트로 알려야 한다.
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => {
+    release = r
+  })
+  const { user, dialog } = await renderNewAgent({ conflict: true, hold: held })
+  await fillNewAgent(user, dialog, { username: 'ws-agent-x', name: '에이전트', email: 'ws-agent-x@work-loop.local' })
+  await user.click(within(dialog).getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByTestId('new-agent-dialog')).not.toBeInTheDocument())
+  release()
+  expect(await screen.findByText('이미 사용 중인 아이디입니다')).toBeInTheDocument()
+  await user.click(screen.getByTestId('new-agent-trigger'))
+  const again = await screen.findByTestId('new-agent-dialog')
+  expect(within(again).queryByTestId('new-agent-error')).not.toBeInTheDocument()
+})
+
+test('새 에이전트 — 닫았다 다시 열면 값과 오류가 비어 있다 (WP-1559)', async () => {
+  const { user, dialog } = await renderNewAgent()
+  await user.click(within(dialog).getByRole('button', { name: '생성' }))
+  expect(await within(dialog).findByText('아이디를 입력하세요')).toBeInTheDocument()
+  await user.click(within(dialog).getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByTestId('new-agent-dialog')).not.toBeInTheDocument())
+  await user.click(screen.getByTestId('new-agent-trigger'))
+  const again = await screen.findByTestId('new-agent-dialog')
+  expect(within(again).queryByText('아이디를 입력하세요')).not.toBeInTheDocument()
+  for (const label of ['아이디', '이름', '이메일']) {
+    expect(within(again).getByLabelText(label)).toHaveValue('')
+  }
+})
+
 test('목록 — 행을 누르면 상세 페이지로 가고, ‹ 목록으로 돌아가기가 목록으로 되돌린다', async () => {
   const api = agentApi()
   const { user, location } = renderScreen(<Screens />, { path: '/settings/agents', handlers: api.handlers })
