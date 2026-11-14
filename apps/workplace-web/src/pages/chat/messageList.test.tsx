@@ -145,11 +145,19 @@ describe('반응', () => {
   const channel = createChannel({ id: CHANNEL_ID, name: '리액션채널' })
 
   // 퀵셋 이모지 → POST {emoji} + 낙관적 칩(카운트 1).
-  test('퀵셋 이모지를 누르면 {emoji} 를 보내고 칩이 생긴다', async () => {
+  // WP-1551: 팝오버는 「이모지 선택」 대화상자, 두 줄은 이름 붙은 group, 이모지 버튼은 한국어 이름(「좋아요 반응」)으로 찾아 누른다.
+  test('퀵셋 이모지를 누르면 {emoji} 를 보내고 칩이 생긴다 — 팝오버·이모지 버튼에 한국어 이름', async () => {
     const post = record('post', `/messaging/messages/${MSG_ID}/reactions`)
     const { user } = openChannel(channel, [createMessage({ id: MSG_ID, channelId: CHANNEL_ID, body: '반응해줘' })], { handlers: [post.handler] })
     await user.click(await screen.findByTestId(`message-${MSG_ID}-react`))
-    await user.click(await screen.findByTestId(`message-${MSG_ID}-quick-👍`))
+    const dialog = await screen.findByRole('dialog', { name: '이모지 선택' })
+    const quick = within(dialog).getByRole('group', { name: '자주 쓰는 반응' })
+    expect(within(dialog).getByRole('group', { name: '모든 이모지' })).toBeInTheDocument()
+    // 이름 없는·글리프만 읽히는 버튼이 없다 — 46개(빠른 6 + 전체 40) 모두 한글(·숫자) 이름 + 「반응」.
+    const buttons = within(dialog).getAllByRole('button')
+    expect(buttons).toHaveLength(46)
+    for (const b of buttons) expect(b).toHaveAccessibleName(/^[가-힣0-9 ]+ 반응$/)
+    await user.click(within(quick).getByRole('button', { name: '좋아요 반응' }))
     await waitFor(() => expect(post.calls).toEqual([{ emoji: '👍' }]))
     expect(screen.getByTestId(`reaction-count-${MSG_ID}-👍`)).toHaveTextContent('1')
   })

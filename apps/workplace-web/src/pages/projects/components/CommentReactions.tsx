@@ -11,7 +11,7 @@ import { Plus, SmilePlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
-import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets';
+import { emojiReactionLabel, PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets';
 import { QuickReactionRow } from '@/components/reactions/QuickReactionRow';
 import { ReactionBar } from '@/components/reactions/ReactionBar';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
@@ -181,9 +181,11 @@ export function AddReactionButton({
         // 헤더 버튼은 카드 오른쪽 끝이라 끝선에 맞춰 왼쪽으로 펼친다(속성 레일을 덮지 않게). 칩 줄은 시작선에 맞춘다.
         align={variant === 'header' ? 'end' : 'start'}
         className="w-auto p-2"
+        // 팝오버(role=dialog)·두 줄에 이름 — 채팅 이모지 피커와 같은 이름(WP-1551).
+        aria-label="이모지 선택"
         data-testid={`comment-reaction-popover-${commentId}`}
       >
-        <div className="flex items-center gap-1">
+        <div role="group" aria-label="자주 쓰는 반응" className="flex items-center gap-1">
           {QUICK_EMOJIS.map((e) => (
             <EmojiButton key={e} emoji={e} testId={`comment-reaction-quick-${commentId}-${e}`} onPick={pick} />
           ))}
@@ -199,7 +201,7 @@ export function AddReactionButton({
           )}
         </div>
         {more && (
-          <div className="mt-2 grid max-h-40 grid-cols-8 gap-1 overflow-y-auto border-t pt-2">
+          <div role="group" aria-label="모든 이모지" className="mt-2 grid max-h-40 grid-cols-8 gap-1 overflow-y-auto border-t pt-2">
             {PICKER_EMOJIS.map((e) => (
               <EmojiButton key={e} emoji={e} testId={`comment-reaction-pick-${commentId}-${e}`} onPick={pick} />
             ))}
@@ -210,12 +212,12 @@ export function AddReactionButton({
   );
 }
 
-/** 팝오버 안 이모지 한 칸 — 스크린리더용 이름은 채팅 작업 시트(MessageActionSheet)와 같은 「👍 반응」. */
+/** 팝오버 안 이모지 한 칸 — 스크린리더용 이름은 채팅 피커·작업 시트와 같은 한국어 「좋아요 반응」(WP-1551). */
 function EmojiButton({ emoji, testId, onPick }: { emoji: string; testId: string; onPick: (emoji: string) => void }) {
   return (
     <button
       type="button"
-      aria-label={`${emoji} 반응`}
+      aria-label={emojiReactionLabel(emoji)}
       className="rounded p-1 text-lg leading-none hover:bg-muted"
       data-testid={testId}
       onClick={() => onPick(emoji)}
