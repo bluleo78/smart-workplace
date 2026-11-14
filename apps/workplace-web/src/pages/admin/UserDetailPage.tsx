@@ -114,9 +114,10 @@ export default function UserDetailPage() {
         </div>
       </SettingsSection>
 
-      {/* 활성 상태·역할 할당 — 에이전트 상세와 같은 섹션(WP-1075). key 로 다른 사용자 전환 시 역할 선택을 다시 시드한다. */}
-      <UserActiveSection key={user.id} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
-      <UserRolesSection key={user.id} data-help="user.roles" user={user} allRoles={allRoles} onSaved={setUser} />
+      {/* 활성 상태·역할 할당 — 에이전트 상세와 같은 섹션(WP-1075). key 로 다른 사용자 전환 시 역할 선택을 다시 시드한다 —
+          형제끼리 key 가 겹치면 React 중복 key 오류라 섹션마다 접두어를 붙인다(WP-1591). */}
+      <UserActiveSection key={`active-${user.id}`} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
+      <UserRolesSection key={`roles-${user.id}`} data-help="user.roles" user={user} allRoles={allRoles} onSaved={setUser} />
     </SettingsPage>
   );
 }
