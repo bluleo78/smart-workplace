@@ -104,6 +104,10 @@ test.describe('라벨', () => {
       const req = await postedLabel;
       expect(req.postDataJSON()).toEqual({ name: '버그', colorToken: 'RED' });
 
+      // waitForRequest 는 요청이 나간 순간 풀리고, 위 route 처리기(labels.push)는 그 뒤에 돈다 —
+      // 처리기가 라벨을 쌓을 때까지 기다린 다음 id 를 읽는다(axios 1.21 로 올리며 요청 시점이 바뀌어 드러난 경쟁, WP-1572).
+      await expect.poll(() => labels.length).toBe(1);
+
       // 라벨이 목록에 표시되어야 함 — testid 로 검증.
       const createdId = labels[0]!.id;
       await expect(page.getByTestId(`label-row-${createdId}`)).toBeVisible();
