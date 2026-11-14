@@ -244,6 +244,31 @@ describe('registerStdioTool', () => {
     }
   });
 
+  // WP-1568: opencode 경로도 모르는 인자 이름이면 실행하지 않고 쓸 수 있는 인자를 알려 준다. 아는 이름의 null 은 그대로 받는다.
+  it('모르는 인자 이름이면 핸들러 없이 isError, 아는 인자(null 포함)는 그대로 실행한다(WP-1568)', async () => {
+    const handler = vi.fn(async () => 'ok');
+    const server = new McpServer({ name: 'workplace', version: '1.0.0' });
+    registerStdioTool(server, { name: 't', description: 'd', inputSchema: z.object({ title: z.string(), body: z.string().nullish() }), handler });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.1' });
+    await client.connect(clientT);
+    try {
+      const bad = await client.callTool({ name: 't', arguments: { title: 'x', description: 'd' } });
+      expect(bad.isError).toBe(true);
+      expect(bad.content).toEqual([{ type: 'text', text: '알 수 없는 인자: description — 쓸 수 있는 인자: title, body' }]);
+      expect(handler).not.toHaveBeenCalled();
+      const ok = await client.callTool({ name: 't', arguments: { title: 'x', body: null } });
+      expect(ok.isError).toBeFalsy();
+      expect(handler).toHaveBeenCalledWith({ title: 'x', body: null });
+      // tools/list 의 입력 스키마에 .loose() 의 additionalProperties 가 새지 않는다.
+      const [listed] = (await client.listTools()).tools;
+      expect(listed.inputSchema).not.toHaveProperty('additionalProperties');
+    } finally {
+      await client.close();
+    }
+  });
+
   it('문자열 반환은 text 블록 하나(기존 동작)', async () => {
     const res = await callVia(async () => '{"ok":true}');
     expect(res.content).toEqual([{ type: 'text', text: '{"ok":true}' }]);

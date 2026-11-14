@@ -67,3 +67,5 @@ export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from 
 export { createSharedToolClient, decodeErrorBody, getBytes, type HttpLike, type HttpRequestConfig, viewUrl } from './rest-client.js';
 export { MEMORY_TOOL_NAMES, TOOL_LABELS, isDisplayableTool, isMemoryTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';
 export { AGENT_TOOL_NAME_MAX_LENGTH, SHARED_TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';
+// WP-1568: 모르는 인자 이름 판정 — workplace-mcp(registerTool)·ai-agent(adaptMcpTool·stdio)가 SDK 에 넘길 스키마와 핸들러 앞 판정에 함께 쓴다.
+export { inputSchemaKeepingUnknownArgs, unknownArgsMessage } from './unknown-args.js';

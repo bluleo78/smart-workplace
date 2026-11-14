@@ -179,6 +179,37 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
     expect(scope.isDone()).toBe(true);
   });
 
+  // WP-1568: 틀린 인자 이름(description·parentKey)을 SDK 가 조용히 지운 채 이슈를 만들던 것 — 이제 API 를 부르지 않고 쓸 수 있는 인자를 알려 준다.
+  describe('모르는 인자 이름 (WP-1568)', () => {
+    it('create_issue 에 description·parentKey 를 보내면 API 호출 없이 isError 와 쓸 수 있는 인자를 돌려준다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API).post('/projects/WP/issues').reply(200, { issueKey: 'WP-1', number: 1, title: 't', status: 'TODO' });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'create_issue',
+        arguments: { projectKey: 'WP', title: 't', description: '본문', parentKey: 'WP-9' },
+      });
+      expect(res.isError).toBe(true);
+      const text = (res.content as { text: string }[])[0].text;
+      expect(text).toMatch(/^알 수 없는 인자: description, parentKey — 쓸 수 있는 인자: projectKey, title, /);
+      expect(text).toContain('body');
+      expect(text).toContain('parent');
+      expect(scope.isDone()).toBe(false);
+    });
+
+    // 아는 인자의 null 은 위 「null 인자 허용」 묶음이 그대로 통과하는 것으로 함께 고정된다(create_issue 에는 null 을 받는 입력이 없다).
+    it('아는 인자 이름만 보내면 그대로 실행되고 값도 전달된다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API)
+        .post('/projects/WP/issues', (b: Record<string, unknown>) => b.body === '본문')
+        .reply(200, { issueKey: 'WP-1', number: 1, title: 't', status: 'TODO' });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'create_issue', arguments: { projectKey: 'WP', title: 't', body: '본문' } });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+    });
+  });
+
   it('api 401 이면 initialize 가 401 로 거부된다', async () => {
     nock(API).get('/auth/me').reply(401);
     await expect(connect('swp_revoked')).rejects.toThrow();

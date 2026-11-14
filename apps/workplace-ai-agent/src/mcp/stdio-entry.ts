@@ -10,8 +10,7 @@
 // HTTP 콜백 브리지를 구성한다 — POST {MCP_BRIDGE_URL}/{runId} { kind, data }.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { replaceImagesWithNotice, toMcpContent } from '@smart-workplace/mcp-tools-shared';
-import { z } from 'zod';
+import { inputSchemaKeepingUnknownArgs, replaceImagesWithNotice, toMcpContent, unknownArgsMessage } from '@smart-workplace/mcp-tools-shared';
 
 import { createWorkplaceApiClient, type WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge, type McpProfile, type McpTool } from './tools.js';
@@ -186,15 +185,22 @@ export function buildHostBridge(bridgeUrl: string, runId: string, internalToken:
   };
 }
 
-// 단일 McpTool → McpServer.registerTool 등록. inputSchema 는 항상 z.object(...) 이므로 .shape 사용
-// (sdk-mcp-server.ts 의 adaptMcpTool 과 동일 전제). 테스트에서 실제 McpServer 왕복 검증용으로 export.
+// 단일 McpTool → McpServer.registerTool 등록(sdk-mcp-server.ts 의 adaptMcpTool 과 같은 규칙). 테스트에서 실제 McpServer 왕복 검증용으로 export.
+// WP-1568: shape 대신 모르는 키를 남기는 객체 스키마를 넘기고, 모르는 인자 이름이 오면 실행하지 않고 isError + 쓸 수 있는 인자 이름을 돌려준다
+// (shape 를 넘기면 SDK 가 틀린 이름을 조용히 지워 값이 빠진 채 실행됐다). tools/list 의 JSON Schema 는 shape 때와 같다.
 export function registerStdioTool(server: McpServer, t: McpTool, opts: { vision: boolean } = { vision: true }): void {
-  const shape = (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
   server.registerTool(
     t.name,
     // WP-342: 공유 도구는 연산 성격 힌트와 표시 이름(title)도 함께 알린다. 로컬 전용 도구는 둘 다 비어 있다.
-    { title: t.annotations?.title, description: t.description, inputSchema: shape, annotations: t.annotations },
+    {
+      title: t.annotations?.title,
+      description: t.description,
+      inputSchema: inputSchemaKeepingUnknownArgs(t.inputSchema),
+      annotations: t.annotations,
+    },
     async (args: unknown) => {
+      const unknownArgs = unknownArgsMessage(t.inputSchema, args);
+      if (unknownArgs) return { isError: true, content: [{ type: 'text' as const, text: unknownArgs }] };
       try {
         // 문자열은 text 블록, content 블록 배열(이미지 등)은 그대로(WP-240). 비전 미지원이면 이미지→안내(WP-241).
         const content = toMcpContent(await t.handler(args));

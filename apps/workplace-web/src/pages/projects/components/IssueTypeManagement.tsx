@@ -18,6 +18,7 @@ import {
 } from '../../../hooks/queries/useIssueTypes';
 import { type IconName } from '../../../types/issueType';
 import { type ColorToken } from '../../../types/label';
+import { useRequiredName } from '../hooks/useRequiredName';
 import { ColorTokenPicker, IssueTypeIconPicker, ProjectMetaEditDialog } from './ProjectMetaEditDialog';
 
 export function IssueTypeManagement({
@@ -34,6 +35,8 @@ export function IssueTypeManagement({
   const [name, setName] = useState('');
   const [color, setColor] = useState<ColorToken>('BLUE');
   const [icon, setIcon] = useState<IconName>('Circle');
+  // 빈 이름으로 「추가」하면 칸 아래 안내·포커스(WP-1561) — 예전엔 아무 반응 없이 끝났다.
+  const { error: emptyNameError, inputRef: nameInputRef, check: checkName, clear: clearEmptyNameError } = useRequiredName();
 
   // 편집 Dialog 대상 — 이름·색상·아이콘을 함께 고친다(#160 window.prompt 대체 → WP-660 색상·아이콘까지)
   const [editTarget, setEditTarget] = useState<{
@@ -45,7 +48,7 @@ export function IssueTypeManagement({
 
   async function onCreate() {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!checkName(trimmed)) return;
     try {
       await create.mutateAsync({ name: trimmed, colorToken: color, icon });
       setName('');
@@ -73,12 +76,23 @@ export function IssueTypeManagement({
               이름
             </label>
             <Input
+              ref={nameInputRef}
               id="new-type-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearEmptyNameError();
+              }}
               maxLength={40}
               aria-label="이름"
+              aria-invalid={!!emptyNameError}
+              aria-describedby={emptyNameError ? 'new-type-name-error' : undefined}
             />
+            {emptyNameError && (
+              <p id="new-type-name-error" role="alert" className="text-sm text-destructive">
+                {emptyNameError}
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <span className="text-sm font-medium block">색상</span>

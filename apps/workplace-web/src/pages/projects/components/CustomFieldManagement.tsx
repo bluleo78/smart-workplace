@@ -33,6 +33,7 @@ import {
   useDeleteCustomField,
 } from '../../../hooks/queries/useCustomFields';
 import { FIELD_TYPE_LABEL, FIELD_TYPES, type FieldType, type IssueFieldDef } from '../../../types/customField';
+import { useRequiredName } from '../hooks/useRequiredName';
 import { CustomFieldEditDialog } from './CustomFieldEditDialog';
 
 export function CustomFieldManagement({
@@ -49,6 +50,8 @@ export function CustomFieldManagement({
   const [name, setName] = useState('');
   const [type, setType] = useState<FieldType>('TEXT');
   const [optionsText, setOptionsText] = useState('');
+  // 빈 이름으로 「추가」하면 칸 아래 안내·포커스(WP-1561) — 예전엔 아무 반응 없이 끝났다.
+  const { error: emptyNameError, inputRef: nameInputRef, check: checkName, clear: clearEmptyNameError } = useRequiredName();
   // 삭제 확인 다이얼로그 — window.confirm 대체 (#148).
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   // 이름·옵션 편집 대화상자 대상(WP-611).
@@ -59,7 +62,7 @@ export function CustomFieldManagement({
   // 콤마 구분 옵션을 trim + 빈 제거. 비-SELECT 타입은 null.
   async function onCreate() {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!checkName(trimmed)) return;
     const opts = needsOptions ? parseFieldOptions(optionsText) : null;
     try {
       await create.mutateAsync({ name: trimmed, type, options: opts });
@@ -87,11 +90,22 @@ export function CustomFieldManagement({
               이름
             </label>
             <Input
+              ref={nameInputRef}
               id="cf-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearEmptyNameError();
+              }}
               maxLength={40}
+              aria-invalid={!!emptyNameError}
+              aria-describedby={emptyNameError ? 'cf-name-error' : undefined}
             />
+            {emptyNameError && (
+              <p id="cf-name-error" role="alert" className="text-sm text-destructive">
+                {emptyNameError}
+              </p>
+            )}
           </div>
           {/* 열을 flex-col 로 — SelectTrigger(inline-flex)가 줄 상자 기준선에 앉아 생기는 아래 여백(≈4px) 때문에 '타입' 라벨이 '이름'보다 떠 있었다(WP-397). */}
           <div className="flex flex-col gap-1">

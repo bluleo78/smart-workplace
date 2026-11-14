@@ -22,6 +22,7 @@ import {
 import { deletionImpactNote } from '../../../lib/deletionImpact';
 import { labelNameError, labelRenameError } from '../../../lib/validations/label';
 import { type ColorToken, DEFAULT_LABEL_COLOR } from '../../../types/label';
+import { useRequiredName } from '../hooks/useRequiredName';
 import { ColorTokenPicker, ProjectMetaEditDialog } from './ProjectMetaEditDialog';
 
 export function LabelManagement({
@@ -49,11 +50,14 @@ export function LabelManagement({
 
   // 새 이름의 쉼표 오류(WP-1386) — 입력하는 동안 칸 아래에 보이고, 있으면 추가 요청을 보내지 않는다.
   const nameError = labelNameError(name);
+  // 빈 이름으로 「추가」하면 칸 아래 안내·포커스(WP-1561). 칸 아래 오류는 하나만 — 쉼표 오류가 있으면 그것을 먼저 보인다.
+  const { error: emptyNameError, inputRef: nameInputRef, check: checkName, clear: clearEmptyNameError } = useRequiredName();
+  const shownNameError = nameError ?? emptyNameError;
 
   // 생성 — trim 후 빈 문자열·쉼표 든 이름은 보내지 않는다. submit 이벤트는 form 의 onSubmit 에서 처리.
   async function onCreate() {
     const trimmed = name.trim();
-    if (!trimmed || nameError) return;
+    if (nameError || !checkName(trimmed)) return;
     try {
       await create.mutateAsync({ name: trimmed, colorToken: color });
       setName('');
@@ -80,17 +84,21 @@ export function LabelManagement({
               이름
             </label>
             <Input
+              ref={nameInputRef}
               id="new-label-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearEmptyNameError();
+              }}
               maxLength={40}
               placeholder="예: 버그"
-              aria-invalid={!!nameError}
-              aria-describedby={nameError ? 'new-label-name-error' : undefined}
+              aria-invalid={!!shownNameError}
+              aria-describedby={shownNameError ? 'new-label-name-error' : undefined}
             />
-            {nameError && (
+            {shownNameError && (
               <p id="new-label-name-error" role="alert" className="text-sm text-destructive">
-                {nameError}
+                {shownNameError}
               </p>
             )}
           </div>
