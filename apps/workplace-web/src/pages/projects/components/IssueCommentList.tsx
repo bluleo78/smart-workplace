@@ -345,6 +345,8 @@ function CommentItem({
             onSubmit={handleSave}
             onCancel={() => setEditing(false)}
             submitLabel="저장"
+            // 내용을 비우면 「저장」을 막는다 — 활성인데 눌러도 아무 반응이 없었다(WP-1552). 새 코멘트 입력과 같은 규칙.
+            disableWhenEmpty
             maxLength={ISSUE_BODY_MAX_LENGTH}
             overLimitMessage={commentOverLimitMessage}
             autoFocus
