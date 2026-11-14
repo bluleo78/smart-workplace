@@ -96,8 +96,10 @@ test('이미 읽은 메일을 열면 읽음 요청이 없고, 선택 행은 배�
   await screen.findByTestId('mail-detail')
   const row11 = screen.getByTestId('mail-row-11')
   const row10 = screen.getByTestId('mail-row-10')
-  await waitFor(() => expect(row11).toHaveAttribute('aria-current', 'true'))
-  expect(row10).not.toHaveAttribute('aria-current')
+  // WP-1550: aria-current 는 행이 아니라 열기 버튼에 있다.
+  await waitFor(() => expect(screen.getByTestId('mail-row-open-11')).toHaveAttribute('aria-current', 'true'))
+  expect(screen.getByTestId('mail-row-open-10')).not.toHaveAttribute('aria-current')
+  expect(row11).not.toHaveAttribute('aria-current')
   expect(row11.className).toMatch(/bg-selected/)
   expect(row10.className).not.toMatch(/bg-selected/)
   expect(row11.className).not.toMatch(/selection-bar/)

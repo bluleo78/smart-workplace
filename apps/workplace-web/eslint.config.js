@@ -34,6 +34,18 @@ const nestedButtonInLinkRule = {
   message:
     '링크 안에 버튼을 넣지 마세요 — 탭 정지가 둘이 됩니다. 버튼 모양 링크는 <Button asChild><Link …>…</Link></Button> 로 쓰세요(WP-1435).',
 }
+// role="button" 요소 안의 컨트롤 금지 — role=button 의 자식은 표현용(presentational)이라
+// 스크린리더가 안쪽 버튼·링크·메뉴 버튼을 따로 읽지 못한다(WP-1544·1547·1550).
+// 바깥 요소 자신의 여는 태그에 role="button" 이 있을 때만 보고(자손의 role 은 무시), 안쪽은 어느 깊이든 잡는다.
+// esquery 는 :has(> A > B) 처럼 이어진 자식 경로를 못 읽어서 :has 를 겹쳐 쓴다.
+// 이름 목록은 전부가 아니다 — 버튼을 그리는 앱 컴포넌트(AiSignalBadge 처럼 onClick 이면 <button>)는 생길 때마다 더한다.
+// role={'button'}·조건식 role 은 잡지 않는다(리터럴 속성만).
+const nestedControlInRoleButtonRule = {
+  selector:
+    "JSXElement:has(> JSXOpeningElement:has(> JSXAttribute[name.name='role'][value.value='button'])) JSXElement[openingElement.name.name=/^(button|Button|a|Link|NavLink|DropdownMenuTrigger|AiSignalBadge)$/]",
+  message:
+    'role="button" 요소 안에 버튼·링크·메뉴 버튼을 넣지 마세요 — 스크린리더가 안쪽 컨트롤을 따로 읽지 못합니다. 행은 클릭만 받고, 행 안의 열기 버튼 하나를 키보드 접근점으로 두세요(WP-1550).',
+}
 // 페이지 헤더 바를 화면에서 직접 만들면 높이·여백·폭이 다시 갈라진다 — Page.Header / PanelHeader / subPaneHeaderClass 를 쓴다.
 // 헤더 바(h-14 + border-b) 직접 생성 금지 — 한 className 속성 안이면 문자열·템플릿 조각이 나뉘어 있어도 잡는다.
 // 예) className="flex h-14 border-b" · cn('flex h-14', 'border-b') · `h-14 ${x} border-b` · cn(`h-14`, 'border-b').
@@ -54,6 +66,10 @@ const headerBarRule = {
     .join(', '),
   message: headerBarMessage,
 }
+
+// no-restricted-syntax 전체 목록 — 예외 블록은 이 목록에서 뺄 항목만 filter 로 고른다.
+// 블록마다 목록을 손으로 다시 적으면 새 항목을 더할 때 예외 블록에서만 조용히 빠진다.
+const restrictedSyntaxRules = [toLocaleRule, srcDocIframeRule, headerBarRule, nestedButtonInLinkRule, nestedControlInRoleButtonRule]
 
 // 팝퍼(팝오버·선택 창·메뉴) 직접 가져오기 금지 — 앱 공용 래퍼(src/components/overlay)만 하단 탭바를 피한다(WP-806).
 const popperImportMessage =
@@ -125,7 +141,7 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'warn',
       // 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
       // 난립해 표기 불일치(#617)가 반복됐다. 문서만으로는 재발을 못 막아 린트로 강제한다(#632).
-      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, headerBarRule, nestedButtonInLinkRule],
+      'no-restricted-syntax': ['error', ...restrictedSyntaxRules],
       // 팝오버·선택 창·메뉴는 앱 공용 래퍼(src/components/overlay)로만 — 휴대폰 하단 탭바를 피하는 충돌 여백이
       // 거기서 한 번에 들어간다(WP-806). ui/* 나 Radix 원본을 직접 쓰면 그 화면만 탭바 밑으로 펼쳐진다.
       // (src/components/ui 는 globalIgnores 라 shadcn 원본의 radix-ui 가져오기는 걸리지 않는다.)
@@ -150,7 +166,7 @@ export default defineConfig([
     // 헤더 틀 구현부(layout)와 모바일 헤더는 h-14 + border-b 를 직접 쓴다 — 헤더 규칙만 해제하고 나머지 두 규칙은 유지.
     files: ['src/components/layout/**', 'src/components/mobile/**', 'src/**/mobile/**'],
     rules: {
-      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, nestedButtonInLinkRule],
+      'no-restricted-syntax': ['error', ...restrictedSyntaxRules.filter((r) => r !== headerBarRule)],
     },
   },
   {

@@ -38,11 +38,47 @@ const detailHandler = (id = 10, over: Parameters<typeof detail>[0] = {}) =>
 
 // ── 목록·검색 ─────────────────────────────────────────────
 
-test('메일 행 accessible name 은 발신자+제목만이고 스니펫은 빠진다(#699)', async () => {
+test('메일 행은 버튼이 아니고, 행 안 열기 버튼이 발신자+제목 이름을 갖는다 — 스니펫은 빠진다(#699·WP-1550)', async () => {
   renderMail('/mail/1', { messages: twoRows() })
   const row = await screen.findByTestId('mail-row-10')
-  expect(row).toHaveAccessibleName('앨리스 프로젝트 회의 안내')
-  expect(row.getAttribute('aria-label')).not.toContain('내일 오후 2시에 회의를 진행합니다')
+  expect(row).not.toHaveAttribute('role')
+  expect(row).not.toHaveAttribute('tabindex')
+  const open = screen.getByTestId('mail-row-open-10')
+  expect(open.tagName).toBe('BUTTON')
+  expect(open).toHaveAccessibleName('앨리스 프로젝트 회의 안내')
+  expect(open.getAttribute('aria-label')).not.toContain('내일 오후 2시에 회의를 진행합니다')
+})
+
+test('열기 버튼에 초점을 두고 Enter·Space 로 메일이 열리고, 상세 요청은 한 번이다(WP-1550)', async () => {
+  const d10 = record('get', '/api/v1/mail/messages/10', () => HttpResponse.json(detail({ id: 10 })))
+  const d11 = record('get', '/api/v1/mail/messages/11', () => HttpResponse.json(detail({ id: 11, subject: '점심 메뉴' })))
+  const { user, location } = renderMail('/mail/1', { messages: twoRows(), handlers: [d10.handler, d11.handler] })
+  const open10 = await screen.findByTestId('mail-row-open-10')
+  open10.focus()
+  await user.keyboard('{Enter}')
+  await waitFor(() => expect(location()).toMatch(/messageId=10/))
+  expect(await screen.findByTestId('mail-detail')).toBeInTheDocument()
+  expect(d10.calls.length).toBe(1)
+  expect(open10).toHaveAttribute('aria-current', 'true')
+  const open11 = screen.getByTestId('mail-row-open-11')
+  open11.focus()
+  await user.keyboard(' ')
+  await waitFor(() => expect(location()).toMatch(/messageId=11/))
+  await waitFor(() => expect(d11.calls.length).toBe(1))
+  expect(open11).toHaveAttribute('aria-current', 'true')
+  expect(open10).not.toHaveAttribute('aria-current')
+})
+
+test('행의 빈 곳(제목 줄)을 클릭해도 열리고, 열기 버튼 클릭은 상세를 한 번만 부른다(WP-1550)', async () => {
+  const d10 = record('get', '/api/v1/mail/messages/10', () => HttpResponse.json(detail({ id: 10 })))
+  const d11 = record('get', '/api/v1/mail/messages/11', () => HttpResponse.json(detail({ id: 11, subject: '점심 메뉴' })))
+  const { user, location } = renderMail('/mail/1', { messages: twoRows(), handlers: [d10.handler, d11.handler] })
+  await user.click(within(await screen.findByTestId('mail-row-10')).getByText('프로젝트 회의 안내'))
+  await waitFor(() => expect(location()).toMatch(/messageId=10/))
+  expect(await screen.findByTestId('mail-detail')).toBeInTheDocument()
+  await user.click(screen.getByTestId('mail-row-open-11'))
+  await waitFor(() => expect(location()).toMatch(/messageId=11/))
+  await waitFor(() => expect(d11.calls.length).toBe(1))
 })
 
 test('검색어를 넣으면 query 파라미터로 다시 받아 걸러진 목록만 보인다', async () => {
@@ -194,7 +230,7 @@ test('제목이 보이지 않는 글자(제로폭 공백)뿐인 메일은 행·�
   })
   const row = await screen.findByTestId('mail-row-100')
   expect(row).toHaveTextContent('(제목 없음)')
-  expect(row).toHaveAccessibleName('앨리스 (제목 없음)')
+  expect(screen.getByTestId('mail-row-open-100')).toHaveAccessibleName('앨리스 (제목 없음)')
   expect(within(await screen.findByTestId('mail-detail')).getByRole('heading', { level: 2 })).toHaveTextContent('(제목 없음)')
 })
 
@@ -436,7 +472,7 @@ test('안 읽은 메일만 — 상세 도착 전에 다른 메일로 옮긴 메�
     ],
   })
   await user.click(await screen.findByTestId('mail-row-10'))
-  await waitFor(() => expect(screen.getByTestId('mail-row-10')).toHaveAttribute('aria-current', 'true'))
+  await waitFor(() => expect(screen.getByTestId('mail-row-open-10')).toHaveAttribute('aria-current', 'true'))
   await user.click(screen.getByTestId('mail-row-11'))
   await waitFor(() => expect(location()).toMatch(/messageId=11/))
   readElsewhere = true

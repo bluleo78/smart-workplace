@@ -24,6 +24,7 @@ test('외부 메일 행에만 「외부」 태그가 붙고, 내부·판정 없�
 
 test('외부 메일 행 이름에는 (외부)가 들어가고 내부 메일 행 이름은 그대로다', async () => {
   renderMail('/mail/1', { messages: rows() })
-  expect(await screen.findByTestId('mail-row-11')).toHaveAccessibleName('Acme Sales (외부) 견적서')
-  expect(screen.getByTestId('mail-row-10')).toHaveAccessibleName('김동료 주간 회의')
+  // WP-1550: 이름은 행이 아니라 행 안의 열기 버튼이 가진다.
+  expect(await screen.findByTestId('mail-row-open-11')).toHaveAccessibleName('Acme Sales (외부) 견적서')
+  expect(screen.getByTestId('mail-row-open-10')).toHaveAccessibleName('김동료 주간 회의')
 })
