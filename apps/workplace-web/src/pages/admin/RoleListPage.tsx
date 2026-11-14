@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2 } from 'lucide-react';
 import { useCallback,useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
@@ -33,7 +33,6 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table';
-import { clickableRowProps } from '../../lib/clickableRowProps';
 import type { CreateRoleFormData } from '../../lib/validations/role';
 import { createRoleSchema } from '../../lib/validations/role';
 import type { RoleResponse } from '../../types/role';
@@ -165,14 +164,26 @@ export default function RoleListPage() {
             {isLoading ? (
               <TableSkeletonRows columns={4} rows={3} />
             ) : roles.length > 0 ? (
-              roles.map((role) => (
+              roles.map((role) => {
+                const to = `/settings/roles/${role.id}`;
+                return (
                 <TableRow
                   key={role.id}
-                  className="cursor-pointer hover:bg-muted/50 transition-colors row-hover focus-visible:ring-2 focus-visible:ring-ring"
-                  {...clickableRowProps(() => navigate(`/settings/roles/${role.id}`), `${role.name} 상세 보기`)}
+                  data-testid={`role-row-${role.id}`}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors row-hover"
+                  // WP-1555: 행은 role=button 이 아니다(안의 삭제 버튼 Enter 가 행 이동으로 샜다).
+                  // 마우스는 행 클릭, 키보드·스크린 리더는 이름 링크가 진입점 — IssueListTable 과 같은 방식.
+                  onClick={() => navigate(to)}
                 >
                   <TableCell className="whitespace-normal font-medium md:whitespace-nowrap">
-                    <span className="break-all">{role.name}</span>
+                    {/* 행 onClick 과 겹쳐 두 번 이동하지 않게 전파를 막는다 */}
+                    <Link
+                      to={to}
+                      onClick={(e) => e.stopPropagation()}
+                      className="break-all rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {role.name}
+                    </Link>
                     {/* 모바일 전용 — 숨긴 유형·설명 열의 값. 긴 설명은 두 줄까지만 보이고 전체는 상세 화면에 */}
                     <div className="mt-1 space-y-1 font-normal md:hidden">
                       <RoleKindBadge isSystem={role.isSystem} />
@@ -205,7 +216,8 @@ export default function RoleListPage() {
                     )}
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             ) : (
               <TableEmptyRow colSpan={4} message="역할이 없습니다." />
             )}

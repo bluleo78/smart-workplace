@@ -1,7 +1,7 @@
 // 설정 › 역할 목록·상세(/settings/roles, /settings/roles/:id) — 화면 컴포넌트 테스트(WP-971, WP-995).
 // 할당된 역할 삭제 400 사유 토스트(#678), 커스텀 역할 편집 가능(#185), 설명 255자 초과 안내·전송 차단(WP-570)은
 // 응답 → 화면, 입력 → 검증이라 브라우저 없이 판정되므로 e2e/pages/admin/role-list.spec.ts · role-detail.spec.ts 에서 옮겼다.
-// E2E 에 남는 것: 삭제 성공 배선(role-list @wiring), 행 키보드 진입(@input), 시스템 역할 잠금 배선(role-detail @wiring).
+// E2E 에 남는 것: 삭제 성공 배선(role-list @wiring), 역할 이름 링크 키보드 진입(@input, WP-1555), 시스템 역할 잠금 배선(role-detail @wiring).
 // 목록·상세 페이지 컴포넌트를 renderScreen 으로 띄운다(상세는 useParams 를 위해 라우트 패턴으로 감싼다).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
@@ -37,8 +37,60 @@ test('사용자에게 할당된 역할을 지우려 하면 서버 400 사유를 
   expect(await screen.findByText('1명의 사용자에게 할당된 역할은 삭제할 수 없습니다: EDITOR')).toBeInTheDocument()
   // 확인창이 닫힌 뒤(열려 있는 동안 표는 aria-hidden) 행이 그대로인지 본다.
   await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
-  // 행은 role=button 이라 셀이 접근성 트리에 없다 — 행 이름으로 본다.
-  expect(screen.getByRole('button', { name: 'EDITOR 상세 보기' })).toBeInTheDocument()
+  // 행은 버튼이 아니라 이름 링크가 상세 진입점이다(WP-1555) — 링크로 행이 남았는지 본다.
+  expect(screen.getByRole('link', { name: 'EDITOR' })).toBeInTheDocument()
+})
+
+/** 역할 목록을 띄운다 — USER·ADMIN(시스템)·EDITOR(커스텀). */
+function renderRoleList() {
+  return renderScreen(<RoleListPage />, {
+    path: '/settings/roles',
+    handlers: [http.get('/api/v1/roles', () => HttpResponse.json(ROLES))],
+  })
+}
+
+test('역할 행은 버튼이 아니고 이름 링크가 상세로 간다 (WP-1555)', async () => {
+  renderRoleList()
+  const link = await screen.findByRole('link', { name: 'EDITOR' })
+  const row = screen.getByTestId('role-row-3')
+  expect(row).not.toHaveAttribute('role')
+  expect(row).not.toHaveAttribute('tabindex')
+  expect(link.getAttribute('href')).toMatch(/\/settings\/roles\/3$/)
+  expect(screen.getByRole('link', { name: 'USER' })).toBeInTheDocument()
+})
+
+test('삭제 버튼 Enter 는 확인창을 열고 이동하지 않는다 (WP-1555)', async () => {
+  const { user, location } = renderRoleList()
+  const del = await screen.findByRole('button', { name: 'EDITOR 역할 삭제' })
+  del.focus()
+  await user.keyboard('{Enter}')
+
+  const dialog = await screen.findByRole('alertdialog')
+  expect(location()).toBe('/settings/roles')
+  await user.click(within(dialog).getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+  expect(location()).toBe('/settings/roles')
+})
+
+// 한 번의 클릭이 history 항목을 정확히 하나만 늘리는지(이중 이동 방지) 본다.
+test('행 빈 곳 클릭은 상세로 한 번 이동한다 (WP-1555)', async () => {
+  const { user, location } = renderRoleList()
+  await screen.findByRole('link', { name: 'EDITOR' })
+  // 설명은 모바일 줄과 설명 열 두 곳에 있다 — 설명 열(마지막)을 누른다.
+  const descriptions = within(screen.getByTestId('role-row-3')).getAllByText('편집자')
+  const before = window.history.length
+  await user.click(descriptions[descriptions.length - 1])
+  expect(location()).toBe('/settings/roles/3')
+  expect(window.history.length - before).toBe(1)
+})
+
+test('이름 링크 클릭은 행 클릭과 겹치지 않고 상세로 한 번 이동한다 (WP-1555)', async () => {
+  const { user, location } = renderRoleList()
+  const link = await screen.findByRole('link', { name: 'EDITOR' })
+  const before = window.history.length
+  await user.click(link)
+  expect(location()).toBe('/settings/roles/3')
+  expect(window.history.length - before).toBe(1)
 })
 
 /** 역할 상세를 띄운다 — 커스텀 역할(EDITOR). 역할 정보 PUT 횟수를 센다. */

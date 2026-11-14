@@ -37,7 +37,7 @@ test('역할 목록 — 긴 설명이 있어도 표가 화면 안에 들고 삭�
 
   await page.goto('/settings/roles')
   const table = page.getByRole('table', { name: '역할 목록' })
-  await expect(table.getByRole('button', { name: /상세 보기/ })).toHaveCount(2)
+  await expect(table.getByRole('link')).toHaveCount(2) // 역할 이름 링크 = 역할 행 수 (WP-1555)
 
   await expectNoHorizontalOverflow(page)
   await expectTableFits(table)
@@ -46,7 +46,7 @@ test('역할 목록 — 긴 설명이 있어도 표가 화면 안에 들고 삭�
   // 좁은 화면은 유형·설명 열을 숨기고, 값은 이름 아래 줄에 보인다
   await expect(page.getByRole('columnheader', { name: '설명' })).toBeHidden()
   await expect(page.getByRole('columnheader', { name: '유형' })).toBeHidden()
-  const row = table.getByRole('button', { name: 'HR_MANAGER 상세 보기' })
+  const row = page.getByTestId('role-row-3') // 행은 버튼이 아니므로 testid 로 잡는다 (WP-1555)
   await expect(row).toContainText('사용자 정의')
   await expect(row).toContainText('인사 담당')
 })

@@ -1,5 +1,5 @@
 // /settings/roles — 역할 목록 페이지 E2E.
-// 역할 삭제 성공 → 목록 재조회 배선(@wiring)과 행 키보드 진입(@input).
+// 역할 삭제 성공 → 목록 재조회 배선(@wiring)과 역할 이름 링크 키보드 진입(@input, WP-1555).
 // 할당된 역할 삭제 400 사유 토스트(#678)는 src/pages/admin/roles.test.tsx 가 지킨다(WP-966).
 
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -28,17 +28,16 @@ test.describe('/settings/roles — 역할 삭제·키보드 진입', () => {
     await expect(page.getByRole('cell', { name: 'EDITOR', exact: true })).not.toBeVisible();
   });
 
-  // #810 — 행이 role=button 이 아니거나 Enter/Space 로 활성화되지 않으면 키보드 사용자는
-  // 상세 화면에 진입할 방법이 없었다.
-  test('역할 행을 키보드(Tab+Enter)로 상세 페이지 이동 가능하다 (#810)', { tag: '@input' }, async ({ adminPage: page }) => {
+  // #810 — 키보드 사용자가 상세 화면에 진입할 방법이 있어야 한다. WP-1555: 행 대신 이름 링크가 그 진입점이다.
+  test('역할 이름 링크를 키보드(Enter)로 눌러 상세로 이동한다 (#810·WP-1555)', { tag: '@input' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page);
     await setupRoleListMocks(page);
 
     await page.goto('/settings/roles');
-    const row = page.getByRole('button', { name: 'EDITOR 상세 보기' });
-    await expect(row).toBeVisible();
+    const link = page.getByRole('link', { name: 'EDITOR' });
+    await expect(link).toBeVisible();
 
-    await row.focus();
+    await link.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/settings\/roles\/3/);
   });
