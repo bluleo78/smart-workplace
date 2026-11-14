@@ -2,6 +2,7 @@ package com.workplace.global.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.global.exception.GlobalExceptionHandler;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -64,6 +65,8 @@ public class JsonErrorReportValve extends ErrorReportValve {
       case 400 -> "요청 주소나 머리글이 너무 길거나 형식이 올바르지 않습니다. 검색어 등 입력을 줄여 다시 시도해 주세요.";
       case 404 -> "요청한 주소를 찾을 수 없습니다.";
       case 405 -> "허용되지 않은 요청 방식입니다.";
+      // 맞지 않는 Accept 의 본문 없는 406(WP-1601) — 앱 처리기와 같은 문구.
+      case 406 -> GlobalExceptionHandler.NOT_ACCEPTABLE_MESSAGE;
       case 408 -> "요청 시간이 초과되었습니다. 다시 시도해 주세요.";
       case 413 -> "요청이 너무 큽니다.";
       case 414 -> "요청 주소가 너무 깁니다. 검색어 등 입력을 줄여 다시 시도해 주세요.";
