@@ -317,7 +317,7 @@ describe('작업 상세 모달(?task=, WP-1374)', () => {
   /** 모달 안의 메모 칸·속성 레일. */
   const modal = () => screen.getByTestId('personal-task-modal')
 
-  // 행 클릭 한 번으로 넓은 모달이 열리고 URL 에 task 가 반영되며 행은 눌림으로 그려진다. 옛 옆 칸(panel)은 없다.
+  // 행 클릭 한 번으로 넓은 모달이 열리고 URL 에 task 가 반영되며 제목 버튼이 열림(aria-expanded)이 된다. 옛 옆 칸(panel)은 없다.
   test('행 클릭 → 넓은 모달 + ?task=1 — 왼쪽 메모, 오른쪽 속성 레일(상태·우선순위·마감·담당자·AI 에게 맡기기·라벨)', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { user, location } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
@@ -325,7 +325,7 @@ describe('작업 상세 모달(?task=, WP-1374)', () => {
     expect(await screen.findByTestId('personal-task-modal')).toBeInTheDocument()
     expect(screen.queryByTestId('personal-task-panel')).not.toBeInTheDocument()
     expect(paramsOf(location()).get('task')).toBe('1')
-    await waitFor(() => expect(screen.getByTestId('personal-task-row-1')).toHaveAttribute('aria-pressed', 'true'))
+    await waitFor(() => expect(screen.getByTestId('personal-task-open-1')).toHaveAttribute('aria-expanded', 'true'))
     await waitFor(() => expect(within(modal()).getByTestId('personal-task-panel-title')).toHaveTextContent('블로그 초안'))
     const memo = await within(modal()).findByTestId('personal-task-memo')
     expect(within(memo).getByRole('heading', { name: '메모' })).toBeInTheDocument()
@@ -334,6 +334,60 @@ describe('작업 상세 모달(?task=, WP-1374)', () => {
     for (const label of ['상태', '우선순위', '마감', '담당자', 'AI 에게 맡기기', '라벨']) {
       expect(within(rail).getByText(label, { exact: true })).toBeInTheDocument()
     }
+  })
+
+  // WP-1544 — 행은 버튼이 아니고(role 없음) 안의 「완료 토글」·제목 버튼은 서로 중첩되지 않는다(버튼 안 버튼 금지).
+  // 제목 버튼이 키보드 접근점(aria-haspopup=dialog) — Enter 가 행 onClick 으로 버블해 모달이 열린다(클릭으로 여는 경로는 위 테스트).
+  test('행은 버튼이 아니고 완료 토글·제목 버튼이 중첩 없이 나란하다 — 제목 버튼 Enter 로 모달이 열린다 (WP-1544)', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
+    const { user, location } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
+    const row = screen.getByTestId('personal-task-row-1')
+    expect(row).not.toHaveAttribute('role')
+    expect(row).not.toHaveAttribute('tabindex')
+    expect(row).not.toHaveAttribute('aria-pressed')
+    within(row).getByRole('button', { name: '완료 토글' })
+    const title = within(row).getByRole('button', { name: '블로그 초안' })
+    for (const b of within(row).getAllByRole('button')) expect(b.querySelector('button, [role="button"]')).toBeNull()
+    expect(title).toHaveAttribute('aria-haspopup', 'dialog')
+    expect(title).toHaveAttribute('aria-expanded', 'false')
+
+    title.focus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByTestId('personal-task-modal')).toBeInTheDocument()
+    expect(paramsOf(location()).get('task')).toBe('1')
+    await waitFor(() => expect(title).toHaveAttribute('aria-expanded', 'true'))
+  })
+
+  // WP-1544 — 행은 포커스를 받지 않으므로, 행의 빈 곳·마감을 눌러 열어도 제목 버튼에 포커스를 둔다(모달이 닫히면 그리로 돌아온다).
+  test('행의 마감 글자를 눌러 열면 제목 버튼에 포커스가 간다 (WP-1544)', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', dueDate: '2020-01-10' })])
+    const { user } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
+    await user.click(within(screen.getByTestId('personal-task-row-1')).getByText(/2020\. 1\. 10/))
+    expect(await screen.findByTestId('personal-task-modal')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('personal-task-open-1')).toHaveFocus())
+  })
+
+  // WP-1544 — 완료 토글이 진행 중(disabled)이면 넓힌 누름 영역 위의 클릭이 행으로 새어 모달을 열지 않는다.
+  test('완료 토글 저장 중(disabled)에 그 위를 눌러도 모달이 열리지 않는다 (WP-1544)', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })])
+    // PATCH 를 붙잡아 두어 완료 토글이 disabled 인 상태를 만든다 — 테스트 끝에 풀어 준다.
+    let release = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    api.handlers.unshift(http.patch(`${BASE}/issues/:num`, async () => {
+      await held
+      return HttpResponse.json({ message: 'late' }, { status: 500 })
+    }))
+    const { location } = await open(`/projects/${KEY}`, api, 'personal-task-check-1')
+    const check = screen.getByTestId('personal-task-check-1')
+    fireEvent.click(check)
+    await waitFor(() => expect(check).toBeDisabled())
+    // 브라우저에 따라 disabled 버튼 안 아이콘의 클릭이 부모까지 올라온다 — 그 경우를 아이콘에 직접 쏘아 재현한다.
+    fireEvent.click(check.firstElementChild!)
+    expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument()
+    expect(paramsOf(location()).get('task')).toBeNull()
+    release()
   })
 
   // Esc 로 모달을 닫으면 URL 에서 task 가 빠진다.

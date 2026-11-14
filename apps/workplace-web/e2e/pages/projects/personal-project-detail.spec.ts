@@ -147,15 +147,19 @@ test('넓은 모달은 화면 안, 메모·속성 레일은 나란히 겹치지 
 
 // 포커스·ESC 순서 — 모달 위 서랍은 Esc 한 번에 서랍만 닫히고 포커스가 모달의 채팅 버튼으로 돌아온다.
 // 다음 Esc 가 모달을 닫고 포커스는 연 행으로 돌아온다(#817 — 열림/닫힘 포커스 이동).
-test('서랍 Esc → 서랍만 닫혀 채팅 버튼으로 포커스, 다음 Esc → 모달이 닫혀 연 행으로 포커스', { tag: '@input' }, async ({
+test('서랍 Esc → 서랍만 닫혀 채팅 버튼으로 포커스, 다음 Esc → 모달이 닫혀 연 행의 제목 버튼으로 포커스', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
   await mockTaskDetail(page);
   await page.goto(`/projects/${KEY}`);
 
+  // 행은 포커스를 받지 않는다(버튼 아님, WP-1544) — 행의 빈 곳(제목 밖, 오른쪽 끝 근처)을 눌러 열어도
+  // 행 onClick 이 제목 버튼에 포커스를 두어, 모달이 닫히면 그 제목 버튼으로 돌아온다.
   const row = page.getByTestId('personal-task-row-1');
-  await row.click();
+  const title = page.getByTestId('personal-task-open-1');
+  const box = (await row.boundingBox())!;
+  await row.click({ position: { x: box.width - 4, y: box.height / 2 } });
   const modal = page.getByTestId('personal-task-modal');
   await expect(modal).toBeVisible();
   // 열리면 포커스가 모달 안으로 옮겨진다.
@@ -176,7 +180,7 @@ test('서랍 Esc → 서랍만 닫혀 채팅 버튼으로 포커스, 다음 Esc 
   await page.keyboard.press('Escape');
   await expect(modal).toHaveCount(0);
   await expect(page).not.toHaveURL(/[?&]task=/);
-  await expect(row).toBeFocused();
+  await expect(title).toBeFocused();
 });
 
 // 브라우저 history 항목(state.key)으로 낡은 스냅숏을 가르는 useHistoryParam 가드를 지나야 한다 — 페이지 테스트의
@@ -197,7 +201,8 @@ test('모달을 닫고 다른 행을 누르면 그 작업으로 다시 열린다
   // 닫기(뒤로) → 행들이 새 위치(location.key)를 쥘 때까지(눌림 해제) 기다린다 — 그 전에 누르면 낡은 스냅숏이라 무동작한다.
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('personal-task-modal')).toHaveCount(0);
-  await expect(page.getByTestId('personal-task-row-1')).toHaveAttribute('aria-pressed', 'false');
+  // 열림 상태는 제목 버튼(aria-expanded)이 가진다.
+  await expect(page.getByTestId('personal-task-open-1')).toHaveAttribute('aria-expanded', 'false');
   // 행2 클릭 → task=2 모달.
   await page.getByTestId('personal-task-row-2').click();
   await expect(page).toHaveURL(/task=2/);

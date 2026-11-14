@@ -137,7 +137,8 @@ test('개인 목록 모바일 행 — 레이블 5개면 칩 1개와 +4, 제목 �
   await expect(meta).toContainText('세금');
   await expect(meta).not.toContainText('긴급');
   await expect(meta).toContainText('+4');
-  const title = page.getByTestId('personal-task-title-1');
+  // 제목은 버튼(personal-task-open-N)이다 — 말줄임·최소 폭이 그 버튼에 걸린다.
+  const title = page.getByTestId('personal-task-open-1');
   expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(112);
   await expectNoHorizontalOverflow(page);
 });
