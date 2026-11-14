@@ -1,5 +1,5 @@
 // messaging 채팅 E2E — 채널 진입 배선(@wiring), 입력기에 실제로 글자를 치는 전송·IME·한도·실패 보존(@input),
-// 선택 행 배경·긴 이름 배지·첫 미읽음 스크롤(@layout).
+// 선택 행 배경·긴 이름 배지·첫 미읽음 스크롤·긴 이름 빈 채널 안내 줄바꿈(@layout).
 // 브라우저 없이 판정되는 SSE 수신·재연결 배너·LNB 헤더·전환 클래스·미읽음 구분선 순서는 vitest 로 옮겼다(WP-984):
 // src/pages/chat/realtime.test.tsx · channelSidebar.test.tsx · messageList.test.tsx.
 // 백엔드 없이 page.route() 로 모든 API 모킹.
@@ -8,6 +8,7 @@ import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage } from '../../factories/messaging.factory';
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
+import { boxOf } from '../../fixtures/layout';
 import { expectStays } from '../../fixtures/wait';
 import { expectSelectedRow } from '../../fixtures/selection';
 
@@ -357,6 +358,38 @@ test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어�
   const row = (await page.getByTestId(`channel-link-${CHANNEL_ID}`).boundingBox())!;
   const b = (await badge.boundingBox())!;
   expect(b.x + b.width).toBeLessThanOrEqual(row.x + row.width);
+});
+
+// 회귀(WP-1553) — 메시지 0건 빈 상태 안내가 공백 없는 긴 채널 이름에 밀려 칸 밖으로 넘치지 않는다.
+// 제목·설명 모두 scrollWidth 가 clientWidth 이하이고, 박스가 빈 상태 영역 안에 들어와야 한다(jsdom 은 폭을 못 재서 E2E).
+test('빈 채널 안내 — 공백 없는 긴 채널 이름도 칸 안에서 줄바꿈된다 (WP-1553)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  const longName = 'A'.repeat(80);
+  await setupChannelStubs(
+    page,
+    [createChannel({ id: CHANNEL_ID, member: true, name: longName })],
+    `:\n\n`,
+  );
+  await stubEmptyHistoryWithPost(page, 900);
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+
+  // 데스크톱 기본 뷰포트와 모바일 폭 두 경우 모두 같은 단언을 건다.
+  for (const size of [null, { width: 390, height: 844 }]) {
+    if (size) await page.setViewportSize(size);
+    const empty = page.getByTestId('chat-empty-state');
+    const description = empty.locator('p');
+    // 설명 <p> 도 "#이름" 을 담으므로 제목만 잡도록 정확 일치로 찾는다.
+    const title = empty.getByText(`#${longName}`, { exact: true });
+    // boxOf — 뷰포트를 바꾼 직후 다시 그려지는 찰나의 null 상자를 넘기고 잰다.
+    const emptyBox = await boxOf(empty);
+    for (const el of [description, title]) {
+      // 내용이 잘리거나 넘치지 않는다.
+      expect(await el.evaluate((n) => n.scrollWidth <= n.clientWidth)).toBe(true);
+      // 박스가 빈 상태 영역의 좌우 끝 안에 있다.
+      const box = await boxOf(el);
+      expect(box.x).toBeGreaterThanOrEqual(emptyBox.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(emptyBox.x + emptyBox.width);
+    }
+  }
 });
 
 // 진입 시 첫 미읽음(구분선)으로 스크롤 — 30개 메시지(id 1~30), watermark=10 이면
