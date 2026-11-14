@@ -10,8 +10,14 @@ public final class CycleStatus {
   /** 허용 상태 집합. */
   public static final Set<String> ALL = Set.of("PLANNED", "ACTIVE", "COMPLETED");
 
+  /** 진행 중 상태. */
+  public static final String ACTIVE = "ACTIVE";
+
   /** 완료 상태 — 이 상태의 사이클로는 드래그 이동(추가)을 막는다(#881). */
   public static final String COMPLETED = "COMPLETED";
+
+  /** 기본(예정) 상태. */
+  public static final String PLANNED = "PLANNED";
 
   /** 기본 상태. */
   public static final String DEFAULT = "PLANNED";

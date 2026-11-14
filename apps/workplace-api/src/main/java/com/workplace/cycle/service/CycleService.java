@@ -5,13 +5,17 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
+import com.workplace.cycle.dto.CycleCompleteRequest;
+import com.workplace.cycle.dto.CycleCompleteResponse;
 import com.workplace.cycle.dto.CycleResponse;
 import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.dto.CycleStatus;
 import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleDateRangeException;
+import com.workplace.cycle.exception.InvalidCycleStatusException;
 import com.workplace.cycle.repository.CycleRepository;
+import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
@@ -28,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CycleService {
 
   private final CycleRepository cycleRepository;
+  private final IssueCycleRepository issueCycleRepository;
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
 
@@ -85,6 +90,112 @@ public class CycleService {
     cycleRepository.delete(cycleId);
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_CYCLE, OP_DELETED, project, cycleId, callerId);
+  }
+
+  /**
+   * 사이클 완료 — OWNER 권한(WP-1578).
+   *
+   * <p>진행 중 사이클을 완료 처리하고, 미완료 이슈를 지정한 목적지로 이동한다(한 트랜잭션). 동작:
+   *
+   * <ul>
+   *   <li>NONE — 사이클만 완료. 미완료 이슈는 백로그에 남는다.
+   *   <li>NEW — 새 사이클(즉시 ACTIVE)을 생성하고 미완료 이슈를 거기 Attach한다. 이미 거기 붙어 있는 이슈는 건너뛴다.
+   *   <li>SCHEDULED — 기존 예정 사이클로 이동. startImmediately=true(기본값)이면 대상을 ACTIVE 로 만든다. 역시 이미 거기 붙어 있는
+   *       이슈는 건너뛴다.
+   * </ul>
+   *
+   * <p>진행 중(IN_PROGRESS)이 아닌 사이클을 완료하려 하면 {@link InvalidCycleStatusException}을 던진다. 새 사이클 이름이 기존과
+   * 중복되면 {@link CycleNameDuplicatedException}을 던지며 롤백한다.
+   */
+  public CycleCompleteResponse complete(
+      Long callerId, String projectKey, Long cycleId, CycleCompleteRequest req) {
+    var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    var row = loadInProject(cycleId, project.id());
+
+    // 진행 중 상태가 아니면 완료 불가
+    if (!CycleStatus.ACTIVE.equals(row.status())) {
+      throw new InvalidCycleStatusException(row.status());
+    }
+
+    // 1) 완료 처리
+    cycleRepository.update(
+        cycleId, row.name(), row.goal(), row.startDate(), row.endDate(), CycleStatus.COMPLETED);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_CYCLE, OP_UPDATED, project, cycleId, callerId);
+
+    // 2) 미완료 이슈 조회
+    List<Long> incompleteIssueIds = issueCycleRepository.findIncompleteIssueIdsByCycle(cycleId);
+
+    CycleResponse newCycle = null;
+
+    // 3) 목적지 처리
+    switch (req.destination()) {
+      case NEW -> {
+        // 새 사이클 생성 (즉시 ACTIVE)
+        req.validateNewCycle();
+        try {
+          var newRow =
+              cycleRepository.insert(
+                  project.id(),
+                  req.newCycleName().trim(),
+                  null,
+                  req.newCycleStartDate(),
+                  req.newCycleEndDate(),
+                  CycleStatus.ACTIVE);
+          changeNotifier.changed(
+              ProjectChangeNotifier.RESOURCE_CYCLE, OP_CREATED, project, newRow.id(), callerId);
+          newCycle = toResponse(newRow);
+
+          // 미완료 이슈 Attach (이미 붙어 있으면 건너뜀)
+          for (Long issueId : incompleteIssueIds) {
+            issueCycleRepository.add(issueId, newRow.id());
+          }
+        } catch (DuplicateKeyException e) {
+          throw new CycleNameDuplicatedException(req.newCycleName().trim());
+        }
+      }
+      case SCHEDULED -> {
+        req.validateScheduledCycle();
+        var targetRow =
+            cycleRepository
+                .findById(req.targetCycleId())
+                .filter(r -> r.projectId().equals(project.id()))
+                .orElseThrow(() -> new CycleNotFoundException(req.targetCycleId()));
+
+        // startImmediately 기본값 true
+        boolean startNow = req.startImmediately() == null || req.startImmediately();
+
+        // 예정→진행 전환이 필요하면 상태 갱신
+        if (startNow && CycleStatus.PLANNED.equals(targetRow.status())) {
+          cycleRepository.update(
+              targetRow.id(),
+              targetRow.name(),
+              targetRow.goal(),
+              targetRow.startDate(),
+              targetRow.endDate(),
+              CycleStatus.ACTIVE);
+          changeNotifier.changed(
+              ProjectChangeNotifier.RESOURCE_CYCLE, OP_UPDATED, project, targetRow.id(), callerId);
+        }
+
+        // 미완료 이슈 Attach (이미 붙어 있으면 건너뜀)
+        for (Long issueId : incompleteIssueIds) {
+          issueCycleRepository.add(issueId, targetRow.id());
+        }
+      }
+      case NONE -> {
+        // 아무것도 하지 않음 — 완료 처리만 이미 выше에서 됨
+      }
+    }
+
+    // 4) 완료된 사이클 응답
+    var completed =
+        cycleRepository
+            .findById(cycleId)
+            .map(CycleService::toResponse)
+            .orElseThrow(() -> new CycleNotFoundException(cycleId));
+
+    return new CycleCompleteResponse(completed, newCycle);
   }
 
   /** 시작일/종료일이 둘 다 있을 때 종료일이 시작일보다 빠르면 거부(#804). */
