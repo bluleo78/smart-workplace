@@ -787,3 +787,50 @@ test('process-issue.md: /code-review·/simplify 가 없는 실행기는 superpow
   // superpowers 감지는 실행기마다 다른 스킬 이름(Claude 는 접두어 있음, genia 는 없음)을 모두 본다
   assert.ok(text.includes('Claude Code 는 `superpowers:using-superpowers`, Gen:iA Code 는 `using-superpowers`'));
 });
+
+// WP-1565 — 분류 역할 AI(AI 팀장)는 「알아서 판단해 달라」로 할당된 할 일 이슈를 구현하지 않고 분류만 한다.
+// 판별이 무너지면 팀장이 분류 요청을 구현해 버리거나, PR 리뷰 할당을 분류로 착각한다.
+const triage = section(pi, '\n### 분류 (분류 역할 AI)\n', '\n### PR 리뷰·머지 (검토자)\n');
+test('process-issue.md: 분류 역할 AI 는 PR 없는 이슈에서 1번보다 먼저 분류 판별을 하고, 네 조건을 모두 볼 때만 분류한다 (WP-1565)', () => {
+  const top = section(pi, '**먼저 갈래를 본다**', '\n**notes 파일**');
+  assert.ok(top.includes('「분류 (분류 역할 AI)」'), '맨 위 갈래가 분류 절을 가리키지 않는다');
+  const s = triage;
+  assert.ok(s.includes('**구현하지 않는다**'));
+  assert.ok(s.includes('워크트리·브랜치·커밋·PR 을 만들지 않고'));
+  // 네 조건 — 할 일 / PR 없음 / 나 말고 AI 담당 없음 / [분류] 댓글 없음
+  for (const cond of ['`status` 가 `TODO`', '이 이슈의 PR 이 없다', "나 말고 AI 담당(`assignees` 의 `kind: 'AGENT'`)이 없다", '`[분류]` 로 시작하는 글이 아직 없다']) {
+    assert.ok(s.includes(cond), `조건 「${cond}」 이 없다`);
+  }
+  // 내가 하던 작업(진행 중·PR 전)까지 묻지 않도록 손댄 흔적이 없을 때만 묻는다.
+  assert.ok(s.includes('**진행 중인데 PR 이 없고 내가 손댄 흔적이 없으면**(내 행이 없거나 시작 전이고 notes 파일도 없다) 무엇을 원하는지 이슈 챗으로 묻는다'));
+  // 다음 회차 대기 보고는 이슈 상태를 바꾸지 않아, 상태만 보면 팀장의 본문 지시 회차 이슈가 분류로 흘러간다.
+  assert.ok(s.includes('이 이슈에 내 행이 없거나 시작 전(`SUBMITTED`)이다'));
+  // 질문 보고가 이슈를 TODO → 진행 중으로 올리므로, 답을 받고 다시 고르면 내 행 note 로 분류 중임을 가른다.
+  assert.ok(s.includes('내 행의 note 가 `분류 — ` 로 시작한다'));
+  // 빠지기 도중 끊기면 [분류] 댓글만 남아 구현으로 흐르지 않게 notes 로 이어 마친다.
+  assert.ok(s.includes('「분류: <갈래> 보내는 중」이면 빠지기 도중 끊긴 것이다'));
+});
+
+test('process-issue.md: 분류 갈래 셋 — 바로 개발은 대기열 라벨, 기획 필요는 기획 역할 AI, 사람에게 질문은 [분류] 없이 답변 필요 (WP-1565)', () => {
+  const s = triage;
+  assert.ok(s.includes('| 바로 개발 |') && s.includes('「대기열 라벨」 절의 개발 역할 라벨'));
+  assert.ok(s.includes('| 기획 필요 |') && s.includes('「기획 역할 AI」 절의 username 을 담당으로 더한다'));
+  assert.ok(s.includes('| 사람에게 질문 |'));
+  // 기획 역할 AI 가 없는 프로젝트는 기획 필요 대신 사람에게 묻는다.
+  assert.ok(s.includes('「기획 역할 AI」 절이 없거나 username 이 비어 있으면 「기획 필요」 대신 「사람에게 질문」으로 간다'));
+  // 질문 단계에서 [분류] 댓글을 남기면 답을 받은 뒤 판별 조건이 깨져 구현으로 흘러간다.
+  assert.ok(s.includes("`[분류]` 댓글을 남기지 않고 `report_agent_work({ issueKey, state: 'INPUT_REQUIRED'"));
+  // 빠지기: [분류] 댓글 → 내 행 COMPLETED → 담당에서 나만 뺌(사람은 둔다)
+  assertBefore(s, "add_comment({ issueKey, body: '[분류] <갈래> — <이유 한 줄>' })", "state: 'COMPLETED', note: '분류: <갈래>'");
+  assertBefore(s, "state: 'COMPLETED', note: '분류: <갈래>'", '`update_issue` 로 한 번에 바꾼다');
+  assert.ok(s.includes('사람 담당자는 둔다'));
+});
+
+test('SKILL.md: 분류 역할 AI 는 project.md 설정이 있을 때만 켜지고, 끝내는 상태 예외·멈출 지점에 분류가 있다 (WP-1565)', () => {
+  const text = workLoop('SKILL.md');
+  const line = lineWith(text, '**분류 역할 AI**');
+  assert.ok(line.includes('「분류 역할 AI」 절의 username'));
+  assert.ok(line.includes('절이 없거나 username 이 내가 아니면 이 갈래는 없다'));
+  assert.ok(lineWith(text, '끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**').includes('분류를 마치고 담당에서 빠질 때 하나다'));
+  assert.ok(text.includes('분류를 마치고 담당에서 빠짐'));
+});
