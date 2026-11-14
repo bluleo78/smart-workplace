@@ -4,7 +4,7 @@
 // e2e/pages/projects/cycles.spec.ts 에서 옮겼다. 그 spec 에는 사이클 화면 배선 1건(@wiring)과 실제 오프라인 저장(@platform)이 남는다.
 // 화면 테스트(WP-1002) — 사이클 화면(CyclesPage)·이슈 상세의 사이클 피커(CyclePickerPopover)는 그것만, 목록 필터는 필터 바와 목록 검색이
 // 한 화면에서 이어져 프로젝트 상세 화면만 renderScreen 으로 띄운다(App·앱 셸 없이).
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
@@ -143,6 +143,68 @@ describe('사이클 관리', () => {
     expect(posts).toBe(0)
   })
 
+  /** 새 사이클 창에 이름·기간을 채운다(WP-1554 테스트 공용). */
+  async function fillNewCycle(user: Awaited<ReturnType<typeof openCycles>>['user'], name: string) {
+    await user.click(screen.getByTestId('cycle-new'))
+    await screen.findByTestId('cycle-form-dialog')
+    await user.click(screen.getByTestId('cycle-name-input'))
+    await user.paste(name)
+    await user.type(screen.getByLabelText('시작일'), '2026-09-01')
+    await user.type(screen.getByLabelText('종료일'), '2026-09-14')
+  }
+
+  test('저장을 빠르게 두 번 눌러도 POST 는 한 번, 저장 중에는 버튼이 잠긴다 (WP-1554)', async () => {
+    let posts = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const { user } = await openCycles({ current: [] })
+    server.use(
+      http.post(CYCLES, async () => {
+        posts++
+        await gate
+        return HttpResponse.json(createCycle({ name: '스프린트' }), { status: 201 })
+      }),
+    )
+    await fillNewCycle(user, '스프린트')
+    // 같은 틱에 두 번 클릭 — 다시 그리기 전이라 disabled 가 아닌 ref 가드가 막아야 한다(fireEvent·dblClick 은 사이에 다시 그린다).
+    const submit = screen.getByTestId('cycle-submit')
+    act(() => {
+      submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      submit.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    // 응답이 오기 전에는 저장 버튼이 잠겨 있다.
+    await waitFor(() => expect(screen.getByTestId('cycle-submit')).toBeDisabled())
+    // 저장 중에는 취소도 잠기고 Esc 로도 창이 닫히지 않는다.
+    expect(screen.getByRole('button', { name: '취소' })).toBeDisabled()
+    await user.keyboard('{Escape}')
+    expect(screen.getByTestId('cycle-form-dialog')).toBeInTheDocument()
+    release()
+    // 성공 뒤 창이 닫힌 다음에 요청 수를 센다 — 고정 대기 없이 보이는 결과를 기다린다.
+    await waitFor(() => expect(screen.queryByTestId('cycle-form-dialog')).not.toBeInTheDocument())
+    expect(posts).toBe(1)
+    expect(screen.getAllByText('사이클을 생성했습니다')).toHaveLength(1)
+  })
+
+  test('저장이 실패하면 버튼이 다시 풀려 고쳐서 저장할 수 있다 (WP-1554)', async () => {
+    let posts = 0
+    const { user } = await openCycles({ current: [] })
+    server.use(
+      http.post(CYCLES, () => {
+        posts++
+        if (posts === 1) {
+          return HttpResponse.json({ status: 409, message: '이미 존재하는 사이클 이름입니다: 스프린트' }, { status: 409 })
+        }
+        return HttpResponse.json(createCycle({ name: '스프린트 2' }), { status: 201 })
+      }),
+    )
+    await fillNewCycle(user, '스프린트')
+    await user.click(screen.getByTestId('cycle-submit'))
+    expect(await screen.findByText('이미 존재하는 사이클 이름입니다: 스프린트')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('cycle-submit')).not.toBeDisabled())
+    await user.click(screen.getByTestId('cycle-submit'))
+    await waitFor(() => expect(posts).toBe(2))
+  })
+
   test('수정 — 이름이 채워져 열리고, 고치면 PATCH { name } 뒤 성공 토스트', async () => {
     const cycles = { current: [createCycle({ startDate: '2026-09-01', endDate: '2026-09-14' })] }
     const patches: unknown[] = []
@@ -167,6 +229,36 @@ describe('사이클 관리', () => {
     )
     expect(await screen.findByText('사이클을 수정했습니다')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('cycle-row-1')).toHaveTextContent('스프린트 1 (수정됨)'))
+  })
+
+  test('수정도 저장을 두 번 눌러도 PATCH 는 한 번, 실패하면 풀려 다시 저장된다 (WP-1554)', async () => {
+    const cycles = { current: [createCycle({ startDate: '2026-09-01', endDate: '2026-09-14' })] }
+    let patches = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const { user } = await openCycles(cycles)
+    server.use(
+      http.patch(`${CYCLES}/1`, async () => {
+        patches++
+        if (patches === 1) {
+          await gate
+          return HttpResponse.json({ status: 409, message: '이미 존재하는 사이클 이름입니다: 새 이름' }, { status: 409 })
+        }
+        return HttpResponse.json({ ...cycles.current[0], name: '새 이름' })
+      }),
+    )
+    await user.click(within(screen.getByTestId('cycle-row-1')).getByRole('button', { name: '스프린트 1 수정' }))
+    const name = await screen.findByTestId('cycle-name-input')
+    await user.clear(name)
+    await user.paste('새 이름')
+    await user.dblClick(screen.getByTestId('cycle-submit'))
+    await waitFor(() => expect(screen.getByTestId('cycle-submit')).toBeDisabled())
+    release()
+    expect(await screen.findByText('이미 존재하는 사이클 이름입니다: 새 이름')).toBeInTheDocument()
+    expect(patches).toBe(1)
+    await waitFor(() => expect(screen.getByTestId('cycle-submit')).not.toBeDisabled())
+    await user.click(screen.getByTestId('cycle-submit'))
+    await waitFor(() => expect(patches).toBe(2))
   })
 
   test('날짜 없이 만들어진 예전 사이클은 수정할 때 기간을 채워야 저장된다 (WP-1316)', async () => {
