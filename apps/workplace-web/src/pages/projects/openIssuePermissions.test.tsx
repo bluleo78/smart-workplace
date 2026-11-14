@@ -44,10 +44,27 @@ describe('보드 — OPEN 비멤버·멤버', () => {
     const card = await screen.findByTestId('issue-card-7')
     expect(card).not.toHaveAttribute('aria-disabled')
     expect(card).not.toHaveAttribute('aria-roledescription')
+    // WP-1547 — 드래그 못 하는 카드엔 role·짧은 이름도 붙이지 않는다(평범한 카드, WP-713 유지).
+    expect(card).not.toHaveAttribute('role')
+    expect(card).not.toHaveAttribute('aria-label')
     const link = within(card).getByRole('link')
     expect(link).not.toHaveAttribute('aria-disabled')
     await user.click(link)
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/7`))
+  })
+
+  // WP-1547 — 끌 수 있는 카드가 dnd-kit 기본 role=button 이라 안의 메뉴 버튼·상세 링크가 button 안 중첩 컨트롤이었고,
+  // 카드 이름이 안의 글자 전부를 이어 붙인 긴 문장이었다. group + 「키 제목」 짧은 이름으로 바꾸고 안의 컨트롤은 그대로 둔다.
+  test('OPEN 멤버: 끌 수 있는 카드는 role=group·짧은 이름이고 안의 메뉴 버튼·상세 링크는 그대로다', async () => {
+    openBoard(true, [createIssue({ projectKey: KEY, id: 1, number: 1, title: '멤버 카드' })])
+    const card = await screen.findByTestId('issue-card-1')
+    expect(card).toHaveAttribute('role', 'group')
+    expect(card).not.toHaveAttribute('role', 'button')
+    expect(card).toHaveAttribute('aria-roledescription', '드래그 가능한 이슈')
+    expect(card).toHaveAttribute('aria-label', `${KEY}-1 멤버 카드`)
+    expect(card).not.toHaveAttribute('aria-pressed')
+    expect(within(card).getByRole('button', { name: `${KEY}-1 작업 메뉴` })).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: `${KEY}-1 멤버 카드 상세 보기` })).toBeInTheDocument()
   })
 
   // WP-741 — 저장된 뷰는 멤버 전용이라 비멤버가 보드를 열 때마다 403 이었고, 쓸 수 없는 「뷰 저장」이 보였다.

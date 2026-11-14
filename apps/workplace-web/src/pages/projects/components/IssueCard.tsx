@@ -78,6 +78,10 @@ export function IssueCard({
     // lane: 그룹 보드 스윔레인(WP-1021) — 범위 키가 곧 레인이라, 같은 레인 칸·카드에 놓았을 때만 상태를 바꾼다(boardLaneDrop).
     data: { issueNumber: issue.number, status: issue.status, statusId: issue.statusId, lane: dragScope, issue, source: 'card', showType } satisfies IssueDragData,
     disabled: asOverlay || dragDisabled,
+    // dnd-kit 기본 role=button 은 안의 「작업 메뉴」 버튼·「상세 보기」 링크를 button 안 중첩 컨트롤로 만든다(WCAG 4.1.2, WP-1547).
+    // group 은 상호작용 자식을 허용한다. role 이 기본값(button)이 아니면 dnd-kit 은 aria-pressed 도 붙이지 않는다.
+    // IssueListRow(role=row) 선례와 같은 「드래그 가능한 이슈」 설명을 쓴다. tabIndex 는 키보드 끌기·드롭 뒤 포커스 잇기 때문에 그대로 둔다.
+    attributes: { role: 'group', roleDescription: '드래그 가능한 이슈' },
   });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     sortable;
@@ -105,10 +109,11 @@ export function IssueCard({
     <div
       ref={asOverlay ? undefined : setNodeRef}
       style={style}
-      // 드래그 불가면 dnd-kit 속성(role=button·roledescription="sortable"·aria-disabled)도 붙이지 않는다 — 끌 수 없는 카드를
+      // 드래그 불가면 dnd-kit 속성(role·aria-roledescription·aria-disabled)도 붙이지 않는다 — 끌 수 없는 카드를
       // 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당). 데스크톱도 aria-disabled="true" 가 카드와 안의 「상세 보기」
       // 링크까지 「사용 불가」로 읽히게 해 모바일과 같이 뺀다(WP-713).
-      {...(asOverlay || dragDisabled ? {} : attributes)}
+      // 끌 수 있을 때는 role=group 카드에 「키 제목」 짧은 이름을 준다 — 없으면 카드 안 글자 전부가 이어 붙은 긴 이름으로 읽힌다(WP-1547).
+      {...(asOverlay || dragDisabled ? {} : { ...attributes, 'aria-label': `${identifier} ${issue.title}` })}
       {...(asOverlay || dragDisabled ? {} : listeners)}
       {...(asOverlay ? {} : press)}
       {...(desktopContextMenu && { onContextMenu: desktopContextMenu })}

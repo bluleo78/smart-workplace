@@ -339,7 +339,9 @@ test.describe('태스크 보드/검색', () => {
     await page.screenshot({ path: 'test-results/tc/board/epic-badge-card.png', fullPage: false });
 
     // 배지는 정적 — 카드 클릭(배지 영역 포함)은 이슈 상세로 이동한다.
-    await badge.click();
+    // 배지 자리를 좌표로 누른다 — 실제로는 위를 덮은 전면 링크가 클릭을 받는다. 카드가 role=group 이 된 뒤(WP-1547)
+    // locator.click 의 대상 검사가 그 링크를 「가로챔」으로 보므로, 사용자가 누르는 그대로 마우스로 누른다.
+    await page.mouse.click(badgeBox.x + badgeBox.width / 2, badgeBox.y + badgeBox.height / 2);
     await expect(page).toHaveURL(/\/projects\/WP\/issues\/8$/);
   });
 
@@ -362,7 +364,10 @@ test.describe('태스크 보드/검색', () => {
     // 우선순위 막대 렌더 확인
     await expect(card.getByLabel('우선순위 높음')).toBeVisible();
     // 카드 전체(담당자 영역) 클릭 → 상세 이동
-    await card.getByTestId('issue-card-7-assignees').click();
+    // 담당자 자리를 좌표로 누른다 — 실제로는 위를 덮은 전면 링크가 클릭을 받는다(WP-1547: role=group 카드에서는
+    // locator.click 의 대상 검사가 그 링크를 「가로챔」으로 보므로 사용자가 누르는 그대로 마우스로 누른다).
+    const assigneesBox = (await card.getByTestId('issue-card-7-assignees').boundingBox())!;
+    await page.mouse.click(assigneesBox.x + assigneesBox.width / 2, assigneesBox.y + assigneesBox.height / 2);
     await expect(page).toHaveURL(/\/projects\/WP\/issues\/7$/);
   });
 
