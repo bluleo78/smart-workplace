@@ -215,6 +215,14 @@ test('dindResourcesDefaultAndOverridable', () => {
   assert.deepEqual(JSON.parse(JSON.parse(envValue(r.out, 'DIND_RESOURCES'))), custom);
 });
 
+test('dindGcThresholdDefaultAndOverridable', () => {
+  // DinD 저장 공간이 상한의 이 비율을 넘으면 AI Pod 의 dind-gc 가 쓰지 않는 것을 지운다(WP-1581)
+  assert.equal(JSON.parse(envValue(BASE.out, 'DIND_GC_THRESHOLD_PERCENT')), '70');
+  const r = render({ set: { 'dind.gcThresholdPercent': 85 } });
+  assert.ok(r.ok, r.err);
+  assert.equal(JSON.parse(envValue(r.out, 'DIND_GC_THRESHOLD_PERCENT')), '85');
+});
+
 test('deploymentUsesRecreateAndOneReplica', () => {
   const dep = ofKind(BASE.out, 'Deployment')[0];
   assert.match(dep, /replicas: 1\b/);

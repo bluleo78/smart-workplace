@@ -59,6 +59,9 @@ screen:
 dind:
   # dind 의 /var/lib/docker emptyDir 상한
   storageLimit: 20Gi
+  # 사용량이 상한의 이 비율(%)을 넘으면 AI Pod 의 dind-gc 컨테이너가 멈춘 컨테이너·안 쓰는 볼륨·빌드 캐시를, 그래도 넘으면
+  # 쓰지 않는 이미지까지 지운다(WP-1581). 넘으면 kubelet 이 Pod 째 쫓아내므로(Evicted) 그 전에 거둔다. 5분마다 잰다.
+  gcThresholdPercent: 70
   # dind 사이드카 자원(AI Pod 마다) — 아래 quota 가 requests.cpu/memory 를 걸기 때문에 requests 가 꼭 있어야 한다
   # (없으면 모든 AI Pod 가 쿼터 승인에서 거절된다). 수량은 따옴표로 감싼다.
   # 기본은 PoC 실측(11-03 test:full, 저장소 하나에 최대 약 1.3GiB·평소 거의 0) 기준. limits 는 두 저장소 테스트가 겹쳐도 들어가게 4Gi

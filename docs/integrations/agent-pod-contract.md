@@ -54,7 +54,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 | `/run/genia/repo-tokens/<github\|gitlab>/<host>` | Secret `agent-<id>` 의 `repo-<kind>-<host>` 키(볼륨 `repo-tokens`, items 마다 `path: <kind 소문자>/<host>`) | 읽기 전용. 호스트가 하나도 없으면 볼륨·마운트 자체가 없다 |
 | `/run/genia/ca/ca.crt` | 위치 값 `agent.caBundle` 의 ConfigMap 키 `ca.crt`(볼륨 `ca-bundle`, runner env `AGENT_CA_CONFIGMAP`) | 읽기 전용. 값이 없으면 볼륨·마운트 자체가 없다. 아래 「추가 CA」 |
 | `/work` | 노드 폴더 `<agent.workDisk.hostPath>/agent-<id>`(기본 `/var/lib/genia-agents`, DirectoryOrCreate) 또는 PVC `agent-<id>-work` | 아래 「작업 디스크」 |
-| `/dind` | emptyDir | agent·dind 컨테이너가 docker 소켓을 나눠 쓴다 |
+| `/dind` | emptyDir | agent·dind·dind-gc 컨테이너가 docker 소켓을 나눠 쓴다 |
 
 ## 저장소 토큰 (WP-1268)
 
@@ -167,6 +167,7 @@ OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 �
 |---|---|---|
 | agent | 템플릿 `cpuRequest`·`memoryRequest` → 없으면 템플릿 limit → 없으면 **cpu `1`·memory `2Gi`** | 템플릿 `cpuLimit`·`memoryLimit`(있을 때만) |
 | dind | Helm `dind.resources`(env `DIND_RESOURCES`, 기본 **cpu `250m`·memory `512Mi`**) | 같은 값(기본 **cpu `2`·memory `4Gi`**) |
+| dind-gc(dind 가 있을 때 runner 가 넣음) | **cpu `10m`·memory `32Mi`** | memory `128Mi` |
 | 그 밖의 sidecar | **cpu `100m`·memory `128Mi`** | 없음 |
 
 클러스터가 Pod 등을 거절하면(쿼터·PodSecurity·검증) runner 는 그 AI 를 `FAILED` 로 보고하고(message: 종류·이름·HTTP 상태·서버 사유 한 줄 — Secret 은 사유만) 30초 뒤 다시 본다.
@@ -219,6 +220,18 @@ AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 
 - resources: Helm `dind.resources`(위 「자원」)
 
 다른 이름의 sidecar 는 배선 없이 이름·이미지·privileged 만으로 컨테이너를 만든다(쿼터용 기본 requests 만 붙인다).
+
+### 저장 공간 정리 — dind-gc (WP-1581)
+
+`/var/lib/docker` emptyDir 은 Pod 를 다시 만들 때만 비워진다. AI 가 남긴 이미지·볼륨·빌드 캐시가 쌓여 상한을 넘으면 kubelet 이 Pod 를 쫓아낸다(Evicted). 그래서 dind 가 있으면 runner 가 `dind-gc` 컨테이너를 함께 넣는다.
+
+- 이미지: dind sidecar 의 이미지 그대로(docker CLI 포함, 이미지 허용 목록 그대로). `privileged: false`, `runAsUser: 0`(du 가 root 전용 레이어 폴더까지 읽게), AppArmor `Unconfined`(agent 와 같은 이유)
+- 마운트: `/dind`(소켓), `/dind-storage`(볼륨 `dind-storage`, 읽기 전용 — 사용량을 du 로 잰다)
+- env: `DOCKER_HOST=unix:///dind/docker.sock`, `DIND_GC_THRESHOLD_KIB`(상한 × Helm `dind.gcThresholdPercent`(기본 70)%), `DIND_GC_INTERVAL_SECONDS=300`, `DIND_GC_IMAGE_COOLDOWN_SECONDS=3600`
+- 동작: 5분마다 사용량을 재 임계값 이상이면 `container prune -f --filter until=10m`(시작 전 컨테이너를 지우지 않게) → `volume prune -f`(이름 없는 볼륨만 — 이름 붙은 데이터 볼륨은 남긴다). 그래도 임계값 이상이면 `builder prune -af`·`image prune -af` 를 하되, 1시간에 한 번만 한다(실행 중인 것만으로 넘는 동안 빌드 캐시·이미지를 거듭 지워 다시 만들거나 받게 하지 않게). 실행 중인 컨테이너가 쓰는 이미지·볼륨은 지우지 않는다. 시간마다 무조건 이미지를 지우지 않는 이유는, 막 받은 이미지까지 지워 테스트 시작과 부딪히기 때문이다(prune 의 `until` 은 받은 시각이 아니라 이미지를 만든 시각 기준). 사용량을 잴 수 없으면(du 실패) 그때마다 로그를 남기고 건너뛴다.
+- 템플릿 sidecar 가 이미 `dind-gc` 라는 이름을 쓰면 넣지 않는다(이름이 겹치면 Pod 가 거절된다). `DIND_STORAGE_LIMIT` 은 1Gi 이상의 쿠버네티스 수량이어야 runner 가 시작한다.
+- TERM 을 받으면 바로 끝난다.
+- runner 는 spec 이 달라졌다고 Pod 를 다시 만들지 않으므로, runner 를 올린 뒤 새로 만들어지는 Pod 부터 들어간다.
 
 ## 위치 값
 

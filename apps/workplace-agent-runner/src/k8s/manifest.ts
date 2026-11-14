@@ -13,6 +13,7 @@ import type {
   V1VolumeMount,
 } from '@kubernetes/client-node';
 import type { RunnerConfig } from '../config.js';
+import { DIND_GC_IMAGE_COOLDOWN_SECONDS, DIND_GC_INTERVAL_SECONDS, DIND_GC_SCRIPT } from './dind-gc.js';
 import type { RunnerDesiredAgent, RunnerSidecar } from '../works/client.js';
 
 /** runner 가 만든 리소스 표시 — 이 라벨이 없는 리소스는 만지지도 지우지도 않는다. */
@@ -192,6 +193,38 @@ function sidecarContainer(s: RunnerSidecar, cfg: RunnerConfig): V1Container {
   };
 }
 
+/** runner 가 넣는 DinD 정리 컨테이너 이름 — 템플릿 사이드카와 겹치면 넣지 않는다. */
+const DIND_GC_NAME = 'dind-gc';
+/** dind-gc 자원 — 대부분 잠들어 있어 쿼터에 걸리지 않을 만큼 작은 requests, du·docker CLI 가 넘치지 않게 메모리만 묶는다. */
+const DIND_GC_RESOURCES: V1ResourceRequirements = { requests: { cpu: '10m', memory: '32Mi' }, limits: { memory: '128Mi' } };
+
+/**
+ * dind 가 있으면 함께 넣는 정리 컨테이너(WP-1581) — DinD 저장 공간이 상한의 일정 비율을 넘으면 쓰지 않는 것을 지운다.
+ * 이미지는 dind 의 것을 다시 쓴다(docker CLI 포함, 이미지 허용 목록 그대로). 특권 없이 소켓으로 이 Pod 의 DinD 에만 닿는다.
+ * 사용량은 저장 볼륨을 읽기 전용으로 꽂아 du 로 잰다(스크립트·근거는 dind-gc.ts).
+ */
+function dindGcContainer(dindImage: string, cfg: RunnerConfig): V1Container {
+  return {
+    name: DIND_GC_NAME,
+    image: dindImage,
+    command: ['sh', '-c', DIND_GC_SCRIPT],
+    // du 가 root 전용(0700) 레이어 폴더까지 읽어야 사용량이 맞는다 — 이미지 기본 USER 에 기대지 않고 root 로 못 박는다.
+    // AppArmor 는 agent 컨테이너와 같은 이유(Ubuntu 26.04 노드 기본 프로필이 같은 컨테이너 안 kill 을 막음)로 끈다.
+    securityContext: { privileged: false, runAsUser: 0, appArmorProfile: { type: 'Unconfined' } },
+    env: [
+      { name: 'DOCKER_HOST', value: `unix://${DIND_SOCKET_DIR}/docker.sock` },
+      { name: 'DIND_GC_THRESHOLD_KIB', value: String(Math.floor((cfg.dindStorageLimitKib * cfg.dindGcThresholdPercent) / 100)) },
+      { name: 'DIND_GC_INTERVAL_SECONDS', value: String(DIND_GC_INTERVAL_SECONDS) },
+      { name: 'DIND_GC_IMAGE_COOLDOWN_SECONDS', value: String(DIND_GC_IMAGE_COOLDOWN_SECONDS) },
+    ],
+    resources: structuredClone(DIND_GC_RESOURCES),
+    volumeMounts: [
+      { name: 'dind-socket', mountPath: DIND_SOCKET_DIR },
+      { name: 'dind-storage', mountPath: '/dind-storage', readOnly: true },
+    ],
+  };
+}
+
 /** config.json — 엔트리포인트가 읽는 AI·Works·템플릿 정보. config·plugins 는 desired 그대로. */
 function configJson(agent: RunnerDesiredAgent, ctx: AgentContext): string {
   return JSON.stringify(
@@ -244,7 +277,10 @@ export function buildAgentResources(
   const labels = baseLabels(id, ctx.locationId);
   const hasClaude = agent.secrets.some((s) => s.name === 'claude');
   const sidecars = agent.sidecars ?? [];
-  const hasDind = sidecars.some((s) => s.name === 'dind');
+  const dindSidecar = sidecars.find((s) => s.name === 'dind');
+  // 템플릿이 이미 같은 이름을 쓰면 넣지 않는다 — 이름이 겹치면 API 서버가 Pod 를 거절한다
+  const gcContainers =
+    dindSidecar && !sidecars.some((s) => s.name === DIND_GC_NAME) ? [dindGcContainer(dindSidecar.image, cfg)] : [];
 
   const env: V1EnvVar[] = [
     { name: 'GENIA_AGENT_NAME', value: agent.username },
@@ -299,7 +335,7 @@ export function buildAgentResources(
     volumeMounts.push({ name: 'ca-bundle', mountPath: '/run/genia/ca', readOnly: true });
     volumes.push({ name: 'ca-bundle', configMap: { name: cfg.caConfigMap, items: [{ key: 'ca.crt', path: 'ca.crt' }] } });
   }
-  if (hasDind) volumes.push({ name: 'dind-storage', emptyDir: { sizeLimit: cfg.dindStorageLimit } });
+  if (dindSidecar) volumes.push({ name: 'dind-storage', emptyDir: { sizeLimit: cfg.dindStorageLimit } });
 
   const agentContainer: V1Container = {
     name: 'agent',
@@ -337,7 +373,11 @@ export function buildAgentResources(
       // Pod 수준에는 fsGroup 만 — runAsNonRoot 를 여기 두면 root 로 도는 특권 dind 가 막힌다
       securityContext: { fsGroup: AGENT_UID },
       ...(hostPathDisk ? { initContainers: [workOwnerContainer(agent.image)] } : {}),
-      containers: [agentContainer, ...sidecars.map((sc) => sidecarContainer(sc, cfg))],
+      containers: [
+        agentContainer,
+        ...sidecars.map((sc) => sidecarContainer(sc, cfg)),
+        ...gcContainers,
+      ],
       volumes,
       ...(Object.keys(cfg.nodeSelector).length ? { nodeSelector: cfg.nodeSelector } : {}),
       // 노드 로컬 작업 폴더는 다른 노드에서 보이지 않는다 — 처음 뜬 노드에 묶는다(그 노드가 사라지면 Pending, 끄고 켜면 풀린다).

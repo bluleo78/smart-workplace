@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { V1HostAlias, V1ResourceRequirements, V1Toleration } from '@kubernetes/client-node';
+import { parseMemoryBytes } from './observe.js';
 
 /** runner 한 대의 설정. 위치 값(nodeSelector 등)은 그 위치의 모든 AI Pod 에 똑같이 들어간다. */
 export interface RunnerConfig {
@@ -37,6 +38,10 @@ export interface RunnerConfig {
   screenAllowInput: boolean;
   /** dind 의 /var/lib/docker emptyDir 상한. */
   dindStorageLimit: string;
+  /** 같은 상한의 KiB — 시작 때 한 번 읽어 둔다(dind-gc 임계값 계산, du -sk 와 같은 단위). */
+  dindStorageLimitKib: number;
+  /** DinD 정리 임계값(상한의 %, WP-1581) — 사용량이 이만큼 넘으면 dind-gc 가 쓰지 않는 이미지·볼륨·빌드 캐시를 지운다. */
+  dindGcThresholdPercent: number;
   /**
    * dind 사이드카 자원 — 네임스페이스 ResourceQuota(requests.cpu/memory)가 켜져 있으면 requests 없는 컨테이너는 Pod 째 거절되므로
    * 늘 requests 를 둔다. Helm `dind.resources` → env DIND_RESOURCES(JSON).
@@ -209,7 +214,17 @@ const envSchema = z
         .optional()
         .transform((v) => v?.trim() || 'false')
         .pipe(z.enum(['true', 'false'], { error: 'SCREEN_ALLOW_INPUT 은 true 또는 false 여야 합니다' })),
-      DIND_STORAGE_LIMIT: optionalStr('20Gi'),
+      // 1Gi 미만(바이트로 잘못 적음 등)이면 정리 임계값이 0 에 가까워 매번 다 지운다 — 시작하지 않는다.
+      // 한 번 읽어 원문(emptyDir sizeLimit 용)과 KiB(dind-gc 임계값 용)를 함께 넘긴다.
+      DIND_STORAGE_LIMIT: optionalStr('20Gi').transform((v, ctx) => {
+        const bytes = parseMemoryBytes(v as string);
+        if (bytes === undefined || bytes < 1024 ** 3) {
+          ctx.addIssue({ code: 'custom', message: 'DIND_STORAGE_LIMIT 은 1Gi 이상의 쿠버네티스 수량(예: 20Gi)이어야 합니다' });
+          return z.NEVER;
+        }
+        return { raw: v as string, kib: Math.floor(bytes / 1024) };
+      }),
+      DIND_GC_THRESHOLD_PERCENT: intEnv('70', 1, 100, 'DIND_GC_THRESHOLD_PERCENT 는 1~100 의 정수여야 합니다'),
       DIND_RESOURCES: jsonEnv('DIND_RESOURCES', dindResourcesSchema, DEFAULT_DIND_RESOURCES),
       AGENT_IMAGE_PULL_SECRETS: csvEnv,
     })
@@ -227,7 +242,9 @@ const envSchema = z
         storageClass: e.AGENT_STORAGE_CLASS,
         caConfigMap: e.AGENT_CA_CONFIGMAP,
         screenAllowInput: e.SCREEN_ALLOW_INPUT === 'true',
-        dindStorageLimit: e.DIND_STORAGE_LIMIT as string,
+        dindStorageLimit: e.DIND_STORAGE_LIMIT.raw,
+        dindStorageLimitKib: e.DIND_STORAGE_LIMIT.kib,
+        dindGcThresholdPercent: e.DIND_GC_THRESHOLD_PERCENT,
         dindResources: e.DIND_RESOURCES,
         healthPort: e.HEALTH_PORT,
         clusterCheckSeconds: e.CLUSTER_CHECK_SECONDS,
