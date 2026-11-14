@@ -54,7 +54,16 @@ public final class ChatDomainEvents {
       // 깨울 일이 없는 글(AI 가 쓴 글·깨울 AI 없음 — 멘션도 실행 일정 담당 AI 도 없음)이면 null.
       IssueRecurrenceSummary recurrence,
       // WP-1377: 멘션 없이 답할 실행 일정 담당 AI(클래스 주석 참고). 없으면 null.
-      Long implicitAgentId) {}
+      Long implicitAgentId,
+      // WP-1569: AI 질문 글에 보고와 함께 저장한 답 선택지(2~4개). 없으면 null — 질문이면 커밋 뒤 서버가 뽑아 채운다.
+      List<String> options) {}
+
+  /**
+   * 서버가 질문 글에서 뽑은 답 선택지를 저장한 직후(WP-1569). SSE {@code chat.message.options} 로 스레드 멤버에게 그 메시지의 선택지만
+   * 알린다 — {@code chat.message.updated} 를 쓰지 않는 까닭: 웹 처리기가 본문·멘션·수정 시각을 덮어쓴다. 질문 글을 고쳐 선택지를 지웠을 때도
+   * options 를 null 로 실어 보낸다(옛 본문의 칩이 화면에 남지 않게).
+   */
+  public record ChatMessageOptionsEvent(long threadId, long messageId, List<String> options) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
   public record ChatMessageUpdatedEvent(

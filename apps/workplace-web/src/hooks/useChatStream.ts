@@ -127,6 +127,13 @@ export function handleChatEvent(qc: QueryClient, eventName: string, data: unknow
         editedAt: (d.editedAt as string | null) ?? null,
       });
       break;
+    case 'chat.message.options':
+      // WP-1569: 서버가 질문 글에서 답 선택지를 뒤늦게 뽑아 저장했다 — 그 메시지의 options 만 바꾼다.
+      // chat.message.updated 를 쓰지 않는 이유: 그 처리기는 body·mentions·editedAt 을 덮어쓴다.
+      patchMessage(qc, threadId, Number(d.messageId), {
+        options: Array.isArray(d.options) ? d.options.map(String) : null,
+      });
+      break;
     case 'chat.message.deleted':
       patchMessage(qc, threadId, Number(d.id), { deleted: true });
       break;

@@ -895,3 +895,13 @@ test('.work-loop/project.md 에 「기획 역할 AI」 절이 있다 (WP-1564)',
   assert.ok(!project.includes('아직 「기획 역할 AI」 절이 없어'));
   assert.ok(project.includes('값이 있을 때만 기획 역할 AI 를 담당으로 더한다'));
 });
+
+// WP-1569 질문 선택지 — 답 선택지를 options 로도 보내야 이슈 챗 질문 아래 칩으로 보여 사람이 눌러 바로 답한다.
+// 추천이 첫 번째여야 칩 첫 자리가 추천이 된다. 본문(message)의 선택지 설명은 그대로 둔다(칩은 짧은 문구라 이유는 본문에 있다).
+test('질문할 때 선택지를 options 로도 보내고 추천을 첫 번째에 둔다 — work-loop 4번·work-on (WP-1569)', () => {
+  const loopLine = lineWith(workLoop('process-issue.md'), "묻기 직전 `state: 'INPUT_REQUIRED'`");
+  assert.ok(loopLine.includes('`message` 에 질문과 고를 수 있는 짧은 선택지·추천을 적는다'));
+  assert.ok(loopLine.includes('같은 선택지를 `options` 로도 보낸다(2~4개, 각 40자 이내, 추천을 첫 번째에)'));
+  const onLine = lineWith(workOnSkill, '사용자에게 질문하기 **직전**');
+  assert.ok(onLine.includes('같은 선택지를 `options` 로도 보낸다(2~4개, 각 40자 이내, 추천을 첫 번째에)'));
+});

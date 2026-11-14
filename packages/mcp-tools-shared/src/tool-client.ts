@@ -159,6 +159,8 @@ export interface ReportAgentWorkBody {
   nextRunAt?: string;
   /** message 챗 글에 붙일 스테이징 파일 id(upload_file) — message 가 있을 때만(WP-515). */
   fileIds?: number[];
+  /** 질문 글 아래 칩으로 보일 답 선택지 2~4개(각 40자 이내, 추천이 첫 번째) — INPUT_REQUIRED + message 일 때만(WP-1569). */
+  options?: string[];
 }
 
 /** PUT .../agent-work 응답 — work 는 raw AgentWorkView(끝났으면 null), ended 는 이번 보고로 기록이 끝났는지. */

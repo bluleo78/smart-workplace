@@ -2,6 +2,7 @@ package com.workplace.chat.outbound;
 
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageOptionsEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
@@ -61,6 +62,8 @@ public class ChatSseDispatcher {
     p.put("attachments", e.attachments());
     p.put("driveLinks", e.driveLinks());
     p.put("question", e.question());
+    // WP-1569: 보고와 함께 온 답 선택지 — 없으면 null(서버 보완 추출은 chat.message.options 로 따로 알린다).
+    p.put("options", e.options());
     Collection<Long> to = memberRepo.findMemberIds(e.threadId());
     AfterCommit.run(() -> registry.fanOut(to, "chat.message.created", p));
   }
@@ -84,6 +87,20 @@ public class ChatSseDispatcher {
     p.put("id", e.messageId());
     Collection<Long> to = memberRepo.findMemberIds(e.threadId());
     AfterCommit.run(() -> registry.fanOut(to, "chat.message.deleted", p));
+  }
+
+  /**
+   * 서버가 뽑은 답 선택지 저장(WP-1569) — 그 메시지의 선택지만 스레드 멤버에게 알린다. 다른 변경 이벤트처럼 수신자는 저장 트랜잭션 안(커밋 직전)에서 읽고 전송만
+   * 커밋 뒤로 미룬다.
+   */
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+  public void onOptions(ChatMessageOptionsEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("threadId", e.threadId());
+    p.put("messageId", e.messageId());
+    p.put("options", e.options());
+    Collection<Long> to = memberRepo.findMemberIds(e.threadId());
+    AfterCommit.run(() -> registry.fanOut(to, "chat.message.options", p));
   }
 
   @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)

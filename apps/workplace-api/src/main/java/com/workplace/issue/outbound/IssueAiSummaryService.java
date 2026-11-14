@@ -237,11 +237,9 @@ public class IssueAiSummaryService {
    * 토큰 보유 agent 없으면 {@link IssueAiAssistantUnavailableException}.
    */
   private AssistantSpec resolveAssistant(ProjectRow project) {
-    Optional<AssistantSpec> spec =
-        "PERSONAL".equals(project.type())
-            ? assistantResolver.resolveOrEmpty(project.ownerId())
-            : assistantResolver.resolveWorkspaceOrEmpty();
-    return spec.orElseThrow(IssueAiAssistantUnavailableException::new);
+    return assistantResolver
+        .resolveForProject(project.isPersonal(), project.ownerId())
+        .orElseThrow(IssueAiAssistantUnavailableException::new);
   }
 
   /** {@link #selectNewestWithinBudget} 결과 — 시간 오름차순으로 보낼 줄과, 합계 예산 때문에 통째로 빠진 오래된 항목 수. */

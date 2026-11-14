@@ -52,7 +52,8 @@ public class ChatMessageRepository {
     CHAT_MESSAGE.CREATED_AT,
     CHAT_MESSAGE.EDITED_AT,
     CHAT_MESSAGE.DELETED_AT,
-    CHAT_MESSAGE.IS_QUESTION
+    CHAT_MESSAGE.IS_QUESTION,
+    CHAT_MESSAGE.OPTIONS
   };
 
   private final DSLContext dsl;
@@ -61,9 +62,16 @@ public class ChatMessageRepository {
   /**
    * 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. question 은 AI 구성원이 답변 필요로 멈추며 남긴 글인지(WP-373) —
    * 생성과 같은 INSERT 에 넣어 생성 이벤트·SSE 가 저장값과 같은 값을 보게 한다(예전 사후 markQuestion 은 이벤트가 저장 전 값으로 나갔다).
+   * options 는 질문 글의 답 선택지(WP-1569) — null 이면 NULL(선택지 없음)로 저장하고, 같은 INSERT 에 넣어 생성 이벤트·SSE 가 저장값과
+   * 같은 선택지를 본다.
    */
   public long insert(
-      long threadId, long authorId, String body, List<Long> mentionUserIds, boolean question) {
+      long threadId,
+      long authorId,
+      String body,
+      List<Long> mentionUserIds,
+      boolean question,
+      List<String> options) {
     JSONB jsonb = JSONB.valueOf(toJson(mentionUserIds));
     return dsl.insertInto(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.THREAD_ID, threadId)
@@ -71,9 +79,25 @@ public class ChatMessageRepository {
         .set(CHAT_MESSAGE.BODY, body)
         .set(CHAT_MESSAGE.MENTIONS, jsonb)
         .set(CHAT_MESSAGE.IS_QUESTION, question)
+        .set(CHAT_MESSAGE.OPTIONS, options == null ? null : JSONB.valueOf(toJson(options)))
         .returning(CHAT_MESSAGE.ID)
         .fetchOne()
         .getId();
+  }
+
+  /**
+   * 서버가 뽑은 답 선택지를 질문 글에 채운다(WP-1569 보완 추출). 아직 선택지가 없고(NULL), 지워지지도 고쳐지지도 않은 질문 글일 때만 — 추출하는 동안
+   * 지워지거나 고쳐진 글(뽑은 선택지가 지금 본문과 어긋난다)·이미 선택지가 있는 글은 덮지 않는다. 바뀐 행 수를 돌려준다(0 = 채우지 않음).
+   */
+  public int fillOptionsIfAbsent(long messageId, List<String> options) {
+    return dsl.update(CHAT_MESSAGE)
+        .set(CHAT_MESSAGE.OPTIONS, JSONB.valueOf(toJson(options)))
+        .where(CHAT_MESSAGE.ID.eq(messageId))
+        .and(CHAT_MESSAGE.OPTIONS.isNull())
+        .and(CHAT_MESSAGE.IS_QUESTION.isTrue())
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .and(CHAT_MESSAGE.EDITED_AT.isNull())
+        .execute();
   }
 
   /**
@@ -87,6 +111,18 @@ public class ChatMessageRepository {
         .set(CHAT_MESSAGE.EDITED_AT, OffsetDateTime.now())
         .where(CHAT_MESSAGE.ID.eq(id))
         .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .execute();
+  }
+
+  /**
+   * 질문 글의 답 선택지를 지운다(WP-1569) — 본문을 고친 질문에 옛 본문에서 나온 칩이 남지 않게. 다시 뽑지는 않는다. 선택지가 있던 글만 바꾸고 바뀐 행 수를
+   * 돌려준다(1 = 지움 → 호출자가 chat.message.options(null)을 알린다, 0 = 원래 없었음).
+   */
+  public int clearOptions(long id) {
+    return dsl.update(CHAT_MESSAGE)
+        .setNull(CHAT_MESSAGE.OPTIONS)
+        .where(CHAT_MESSAGE.ID.eq(id))
+        .and(CHAT_MESSAGE.OPTIONS.isNotNull())
         .execute();
   }
 
@@ -307,7 +343,9 @@ public class ChatMessageRepository {
         deleted,
         r.get(USER.USERNAME),
         // 삭제된 질문은 강조하지 않는다(스펙 §3.1).
-        !deleted && Boolean.TRUE.equals(r.get(CHAT_MESSAGE.IS_QUESTION)));
+        !deleted && Boolean.TRUE.equals(r.get(CHAT_MESSAGE.IS_QUESTION)),
+        // WP-1569: 삭제된 글은 선택지도 내리지 않는다(칩으로 답할 질문이 없다).
+        deleted ? null : optionsFromJson(r.get(CHAT_MESSAGE.OPTIONS)));
   }
 
   /** 메시지가 해당 thread 소속인지 — 크로스-스레드 첨부 접근 차단용. */
@@ -320,8 +358,16 @@ public class ChatMessageRepository {
   }
 
   @SneakyThrows
-  private String toJson(List<Long> ids) {
-    return objectMapper.writeValueAsString(ids);
+  private String toJson(List<?> values) {
+    return objectMapper.writeValueAsString(values);
+  }
+
+  /** 답 선택지 JSON(문자열 배열) → 목록(WP-1569). NULL 이면 null(선택지 없음). */
+  @SneakyThrows
+  private List<String> optionsFromJson(JSONB jsonb) {
+    if (jsonb == null) return null;
+    List<?> raw = objectMapper.readValue(jsonb.data(), List.class);
+    return raw.stream().map(String::valueOf).toList();
   }
 
   @SneakyThrows

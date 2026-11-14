@@ -1,5 +1,9 @@
 package com.workplace.support;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doCallRealMethod;
+
 import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
@@ -25,6 +29,8 @@ import com.workplace.notify.push.PushGateway;
 import com.workplace.wiki.outbound.CollabClient;
 import com.workplace.wiki.outbound.WikiAiAgentStreamClient;
 import com.workplace.wiki.outbound.WikiAiAgentSummaryClient;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -71,4 +77,19 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       WorkerClient.class,
       WorkerRenderClient.class
     })
-public abstract class ExternalClientMockedTestBase extends IntegrationTestBase {}
+public abstract class ExternalClientMockedTestBase extends IntegrationTestBase {
+
+  @Autowired private AssistantResolver mockedAssistantResolver;
+
+  /**
+   * 목 AssistantResolver 의 resolveForProject 는 실제 분기를 타게 한다 — 테스트는
+   * resolveOrEmpty·resolveWorkspaceOrEmpty 를 스텁·검증하므로, 프로젝트 유형 분기만 실제로 돌면 그 스텁이 그대로 쓰인다. 목은 테스트마다
+   * 초기화되므로 매번 다시 건다.
+   */
+  @BeforeEach
+  void callRealAssistantProjectRouting() {
+    doCallRealMethod()
+        .when(mockedAssistantResolver)
+        .resolveForProject(anyBoolean(), nullable(Long.class));
+  }
+}

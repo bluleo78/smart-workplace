@@ -38,6 +38,8 @@ export interface ChatMessageResponse {
   deleted: boolean;
   // WP-373: AI 가 사람의 답을 기다리는 질문 글 여부(삭제되면 false). 보내는 중인 낙관적 메시지·구 API 응답엔 없다.
   question?: boolean;
+  // WP-1569: AI 질문 글의 답 선택지(2~4개, 추천이 첫 번째) — 질문 아래 「빠른 답변」 칩으로 보인다. 없으면 null, 구 API 응답·낙관적 메시지엔 없다.
+  options?: string[] | null;
   // WP-373: 작성자 로그인 id(외부 AI 식별용). 구 API 응답엔 없을 수 있다.
   authorUsername?: string;
 }

@@ -243,6 +243,7 @@ class NotificationDispatcherTest {
         Instant.now(),
         null,
         null,
+        null,
         null);
   }
 

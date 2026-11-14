@@ -41,3 +41,13 @@ function latestState(m: ChatMessageResponse, works: QuestionWorks): QuestionStat
   if (!w) return 'answered'
   return w.waiting || w.updatedAt < Date.parse(m.createdAt) ? 'open' : 'answered'
 }
+
+/**
+ * 질문 아래에 보일 「빠른 답변」 선택지(WP-1569) — 열린 질문(open)이고 삭제되지 않았고 선택지가 있을 때만 그 목록, 아니면 null.
+ * 답변된 질문·같은 AI 의 이전 질문(answered)·상태를 모르는 질문(unknown)엔 보이지 않는다 — 이미 지난 질문에 눌러 답이 엇나가지 않게.
+ * 개수(2~4개)는 서버가 저장할 때 보장하므로 여기서는 비었는지만 본다.
+ */
+export function openQuestionOptions(m: Pick<ChatMessageResponse, 'deleted' | 'options'>, state: QuestionState | undefined): string[] | null {
+  if (state !== 'open' || m.deleted) return null
+  return m.options?.length ? m.options : null
+}

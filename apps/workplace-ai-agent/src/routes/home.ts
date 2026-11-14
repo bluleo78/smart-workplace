@@ -252,7 +252,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     }
   });
 
-  // WP-139: 빈 대화 추천·답 뒤 후속 질문 — workplace-api 가 동기 호출. 400(스키마)/200/502(실행 실패 → API 는 빈 결과).
+  // WP-139: 빈 대화 추천·답 뒤 후속 질문(WP-1569: 이슈 챗 질문 글의 답 선택지 answer 모드 포함) — workplace-api 가 동기 호출. 400(스키마)/200/502(실행 실패 → API 는 빈 결과).
   router.post('/home/suggestions', async (req, res) => {
     const parsed = suggestionsInput.safeParse(req.body);
     if (!parsed.success) {

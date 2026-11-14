@@ -132,7 +132,8 @@ class ChatEventDispatcherTest {
         Instant.now(),
         followUpAgentId,
         recurrence,
-        implicitAgentId);
+        implicitAgentId,
+        null);
   }
 
   /**

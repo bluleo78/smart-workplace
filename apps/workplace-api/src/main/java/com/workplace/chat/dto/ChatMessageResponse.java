@@ -22,7 +22,9 @@ public record ChatMessageResponse(
     // MCP 가 숫자 id 없이 작성자를 가리킨다(#833)
     String authorUsername,
     // AI 가 사람의 답을 기다리는 질문(WP-373)
-    boolean question) {
+    boolean question,
+    // WP-1569: AI 질문 글의 답 선택지(「빠른 답변」 칩, 2~4개). 없거나 삭제된 글이면 null
+    List<String> options) {
 
   /** 첨부만 있는 메시지의 NULL 본문은 빈 문자열로 내린다 — 웹 대화 행이 null 본문에서 터지지 않게(WP-717, 팀 채팅과 같은 규칙). */
   public ChatMessageResponse {
@@ -45,7 +47,8 @@ public record ChatMessageResponse(
         editedAt,
         deleted,
         authorUsername,
-        question);
+        question,
+        options);
   }
 
   /** 드라이브 링크 목록을 교체한 복사본. (하이드레이션용) */
@@ -64,6 +67,7 @@ public record ChatMessageResponse(
         editedAt,
         deleted,
         authorUsername,
-        question);
+        question,
+        options);
   }
 }

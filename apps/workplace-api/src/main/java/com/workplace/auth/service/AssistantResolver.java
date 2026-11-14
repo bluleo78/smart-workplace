@@ -69,6 +69,19 @@ public class AssistantResolver {
   }
 
   /**
+   * 프로젝트에 붙는 비서 — 개인 프로젝트는 소유자 기준 {@link #resolveOrEmpty}(개인 비서 → 공용 비서 폴백), 팀·공개 프로젝트는 {@link
+   * #resolveWorkspaceOrEmpty}(공용 비서). 이슈 AI 요약·분류·질문 선택지 추출(WP-1569)이 같은 규칙을 한 곳에서 쓴다. auth 가
+   * project 를 import 하지 않도록 프로젝트 행 대신 유형과 소유자만 받는다.
+   *
+   * @param personal 개인 프로젝트인가(ProjectRow.isPersonal)
+   * @param ownerId 프로젝트 소유자 — 개인 프로젝트일 때만 쓴다
+   */
+  @Transactional(readOnly = true)
+  public Optional<AssistantSpec> resolveForProject(boolean personal, Long ownerId) {
+    return personal ? resolveOrEmpty(ownerId) : resolveWorkspaceOrEmpty();
+  }
+
+  /**
    * 후보 AGENT 에 서버가 부를 수 있는 active 자격증명이 있을 때만 통과 — 로그인 정보 계정(genia·chatgpt)은 「토큰 없음」으로
    * 본다(WP-1296·1297). 그 활성 행을 돌려줘 buildSpec 이 provider 를 다시 조회하지 않게 한다(행의 userId 가 곧 AGENT id).
    */

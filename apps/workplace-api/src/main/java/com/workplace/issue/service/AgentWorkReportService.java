@@ -146,8 +146,17 @@ public class AgentWorkReportService {
         question ? List.of() : mentionsOf(req, hasMessage));
 
     // 질문 여부를 생성과 함께 저장하려고 작업 갱신 뒤에 글을 올린다 — 같은 트랜잭션이라 이벤트는 커밋 뒤 함께 나간다.
+    // 답 선택지(WP-1569)는 질문 글에만 싣는다 — 사람 작업자의 INPUT_REQUIRED 처럼 질문으로 저장되지 않는 글에 붙은 선택지는 버린다(칩을 붙일
+    // 질문이 없다). 질문인데 선택지가 없으면 chat 모듈이 커밋 뒤 질문 글에서 뽑아 채운다.
     if (hasMessage) {
-      chatPoster.post(callerId, projectKey, number, req.message(), question, req.fileIds());
+      chatPoster.post(
+          callerId,
+          projectKey,
+          number,
+          req.message(),
+          question,
+          req.fileIds(),
+          question ? req.normalizedOptions() : null);
     }
     return new AgentWorkReportResponse(
         view, false, Objects.equals(state, req.state()) ? null : req.state());

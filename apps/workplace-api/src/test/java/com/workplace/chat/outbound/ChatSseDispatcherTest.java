@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageOptionsEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
@@ -59,7 +60,8 @@ class ChatSseDispatcherTest {
             Instant.now(),
             null,
             null,
-            null));
+            null,
+            List.of("A안", "B안")));
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), payload.capture());
@@ -67,6 +69,24 @@ class ChatSseDispatcherTest {
     assertThat(payload.getValue()).containsEntry("question", true);
     // 작성자 username 도 실려야 프론트가 멘션·표시에 쓸 수 있다.
     assertThat(payload.getValue()).containsEntry("authorUsername", "alice");
+    // WP-1569: 보고와 함께 저장한 답 선택지도 그대로 실린다.
+    assertThat(payload.getValue()).containsEntry("options", List.of("A안", "B안"));
+  }
+
+  /**
+   * WP-1569: 서버 보완 추출 선택지는 chat.message.options 로 {threadId, messageId, options} 만 스레드 멤버에게 보낸다.
+   */
+  @Test
+  void options_fansOutOnlyOptionsToAllMembers() {
+    dispatcher.onOptions(new ChatMessageOptionsEvent(5L, 10L, List.of("예", "아니오")));
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.options"), payload.capture());
+    assertThat(payload.getValue())
+        .containsExactly(
+            Map.entry("threadId", 5L),
+            Map.entry("messageId", 10L),
+            Map.entry("options", List.of("예", "아니오")));
   }
 
   @Test
