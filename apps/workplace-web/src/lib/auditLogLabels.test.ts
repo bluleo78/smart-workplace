@@ -94,3 +94,13 @@ describe('formatAuditResource — 프로젝트 상태(WP-811)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+// WP-1560: 비밀번호 변경 실패가 영문 코드로 보이던 문제 — 라벨과 필터 목록 모두에 있어야 한다.
+describe('formatAuditAction — 비밀번호 변경 실패(WP-1560)', () => {
+  it('PASSWORD_CHANGE_FAILED 는 「비밀번호 변경 실패」로, 경고 없이 보이고 필터 목록에도 있다', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(formatAuditAction('PASSWORD_CHANGE_FAILED')).toBe('비밀번호 변경 실패');
+    expect(warn).not.toHaveBeenCalled();
+    expect(AUDIT_ACTION_TYPES).toContainEqual({ value: 'PASSWORD_CHANGE_FAILED', label: '비밀번호 변경 실패' });
+  });
+});

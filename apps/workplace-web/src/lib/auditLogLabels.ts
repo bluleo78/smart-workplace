@@ -13,6 +13,7 @@
  * - WP-579: 노트 공유 생성·변경·대상 변경·링크 재발급·해제·요청 거절(리소스 wiki)과 관리자 외부 공유 설정 변경(리소스 tenant).
  *   이미 기록되던 로그인 실패·비밀번호 설정·SSO 연결·SSO 설정 변경·AGENT 실행 방식 변경도 라벨이 빠져 있어 함께 보강.
  * - WP-706: 공용 비서 지정·해제·설정 변경(WorkspaceAssistantService) 기록 추가.
+ * - WP-1560: 백엔드가 남기는데 라벨이 없던 액션·리소스 보강 + 백엔드 소스와 대조하는 테스트(auditLogLabels.backend.test.ts).
  */
 export const AUDIT_ACTION_TYPES = [
   { value: 'CREATE', label: '생성' },
@@ -32,6 +33,8 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'AGENT_OAUTH_TOKEN_REVOKED', label: 'AGENT 프로바이더 자격증명 회수' },
   { value: 'PLATFORM_LOGIN', label: '운영자 로그인' },
   { value: 'PLATFORM_LOGOUT', label: '운영자 로그아웃' },
+  // WP-1560: 운영자 로그인 실패(LoginFailureAuditor) — 라벨이 없어 영문 코드로 보이던 값.
+  { value: 'PLATFORM_LOGIN_FAILED', label: '운영자 로그인 실패' },
   { value: 'AGENT_CREATED', label: 'AGENT 유저 생성' },
   { value: 'AGENT_DELETED', label: 'AGENT 유저 삭제' },
   { value: 'AGENT_RENAMED', label: 'AGENT 유저 변경' },
@@ -41,6 +44,7 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'MEMBER_REACTIVATED', label: '구성원 정지 해제' },
   { value: 'PASSWORD_CHANGED', label: '비밀번호 변경' },
   { value: 'PASSWORD_SET', label: '비밀번호 설정' },
+  { value: 'PASSWORD_CHANGE_FAILED', label: '비밀번호 변경 실패' },
   { value: 'LOGIN_FAILED', label: '로그인 실패' },
   { value: 'USER_SSO_LINK', label: 'SSO 계정 연결' },
   { value: 'SSO_SETTING_CHANGED', label: 'SSO 설정 변경' },
@@ -71,6 +75,35 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'WIKI_SHARE_REVOKED', label: '노트 공유 해제' },
   { value: 'WIKI_SHARE_ACCESS_DENIED', label: '노트 공유 요청 거절' },
   { value: 'WIKI_SHARE_POLICY_CHANGED', label: '노트 외부 공유 설정 변경' },
+  // WP-1560: 라벨이 빠져 영문 코드로 보이던 액션 — 메일 연결·이슈 가져오기/변환·임시 업로드 링크·AI 실행/계정/저장소/위치/작업 화면·관계 유형.
+  { value: 'MAIL_OAUTH_STATE_MISMATCH', label: '메일 연결 인증 상태 불일치' },
+  { value: 'ISSUE_IMPORTED', label: '이슈 가져오기' },
+  { value: 'ISSUE_RELATIONS_IMPORTED', label: '이슈 관계 가져오기' },
+  { value: 'ISSUE_PARENT_EPIC_LINKS_CONVERTED', label: '상위 에픽 연결 변환' },
+  { value: 'STAGED_LINK_USE', label: '임시 업로드 링크 사용' },
+  { value: 'ISSUE_RELATION_TYPE_CREATED', label: '이슈 관계 유형 추가' },
+  { value: 'ISSUE_RELATION_TYPE_UPDATED', label: '이슈 관계 유형 편집' },
+  { value: 'ISSUE_RELATION_TYPE_HIDDEN', label: '이슈 관계 유형 숨김 변경' },
+  { value: 'ISSUE_RELATION_TYPE_DELETED', label: '이슈 관계 유형 삭제' },
+  { value: 'AGENT_RUNTIME_SETTING_CHANGED', label: 'AGENT 실행 설정 변경' },
+  { value: 'AGENT_RUNTIME_SETTING_DELETED', label: 'AGENT 실행 설정 삭제' },
+  { value: 'AGENT_RUNTIME_APPLIED_NOW', label: 'AGENT 바뀐 설정 지금 적용' },
+  { value: 'AGENT_RUNTIME_STARTED', label: 'AGENT 켜기' },
+  { value: 'AGENT_RUNTIME_STOPPED', label: 'AGENT 끄기' },
+  { value: 'AGENT_RUNTIME_RESTARTED', label: 'AGENT 다시 시작' },
+  { value: 'AGENT_RUNTIME_ACCEPT_NEW_WORK_CHANGED', label: 'AGENT 새 작업 받기 변경' },
+  { value: 'AGENT_LOCATION_CREATED', label: 'AGENT 실행 위치 등록' },
+  { value: 'AGENT_LOCATION_DELETED', label: 'AGENT 실행 위치 삭제' },
+  { value: 'AGENT_LOCATION_TOKEN_ROTATED', label: 'AGENT 실행 위치 토큰 재발급' },
+  { value: 'AGENT_REPO_TOKEN_REGISTERED', label: 'AGENT 저장소 토큰 등록' },
+  { value: 'AGENT_REPO_TOKEN_REVOKED', label: 'AGENT 저장소 토큰 폐기' },
+  { value: 'AGENT_SCREEN_OPENED', label: 'AGENT 작업 화면 열기' },
+  { value: 'AGENT_SCREEN_INPUT_ENABLED', label: 'AGENT 작업 화면 입력 허용' },
+  { value: 'AGENT_ACCOUNT_REGISTERED', label: 'AGENT 계정 등록' },
+  { value: 'AGENT_ACCOUNT_UPDATED', label: 'AGENT 계정 수정' },
+  { value: 'AGENT_ACCOUNT_REVOKED', label: 'AGENT 계정 폐기' },
+  { value: 'AGENT_ACCOUNT_BOUND', label: 'AGENT 계정 연결' },
+  { value: 'AGENT_ACCOUNT_UNBOUND', label: 'AGENT 계정 연결 해제' },
 ];
 
 /**
@@ -99,6 +132,15 @@ export const AUDIT_RESOURCES = [
   { value: 'workspace_assistant', label: '공용 비서' },
   { value: 'wiki', label: '노트' },
   { value: 'project_status', label: '프로젝트 상태' },
+  // WP-1560: 라벨이 빠져 있던 리소스.
+  { value: 'issue', label: '이슈' },
+  { value: 'file', label: '파일' },
+  { value: 'email_account', label: '메일 계정' },
+  { value: 'agent_location', label: 'AGENT 실행 위치' },
+  { value: 'agent_repo_credential', label: 'AGENT 저장소 자격증명' },
+  { value: 'issue_relation_type', label: '이슈 관계 유형' },
+  { value: 'agent_account', label: 'AGENT 계정' },
+  { value: 'agent_account_binding', label: 'AGENT 계정 연결' },
 ];
 
 /**
