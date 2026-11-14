@@ -285,7 +285,7 @@ const miniDay = (iso: string) => mini().querySelector(`[data-day="${iso}"]`) as 
 
 describe('미니 달력', () => {
   // #652 — 래퍼 기본 locale={ko} 가 빠지면 「Su Mo Tu」, #793 — 이동 버튼 이름이 영문 기본값.
-  test('요일 머리·캡션이 한국어이고 이전/다음 달 버튼 이름도 한국어다 (#652·#793)', async () => {
+  test('요일 머리·캡션이 한국어이고 이전/다음 달 버튼·이동 영역 이름도 한국어다 (#652·#793·WP-1548)', async () => {
     await renderCalendar()
     expect(mini()).toHaveTextContent('2026년 6월')
     for (const d of ['일', '월', '화']) expect(mini()).toHaveTextContent(d)
@@ -294,6 +294,9 @@ describe('미니 달력', () => {
     expect(within(mini()).getByRole('button', { name: '이전 달' })).toBeInTheDocument()
     expect(within(mini()).getByRole('button', { name: '다음 달' })).toBeInTheDocument()
     expect(within(mini()).queryByRole('button', { name: /previous month|next month/i })).not.toBeInTheDocument()
+    // WP-1548 — 이동 버튼을 감싼 <nav> 랜드마크 이름이 영문 기본값 「Navigation bar」였다.
+    expect(within(mini()).getByRole('navigation', { name: '달력 이동' })).toBeInTheDocument()
+    expect(within(mini()).queryByRole('navigation', { name: /navigation bar/i })).not.toBeInTheDocument()
   })
 
   test('미니 달력과 본문 날짜가 양방향으로 따라간다', async () => {
