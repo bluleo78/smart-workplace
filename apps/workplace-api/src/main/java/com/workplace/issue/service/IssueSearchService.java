@@ -4,6 +4,7 @@ import static com.workplace.issue.service.SearchParams.csv;
 import static com.workplace.issue.service.SearchParams.trimToNull;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.issue.dto.AiTaskProject;
 import com.workplace.issue.dto.ChecklistCursor;
 import com.workplace.issue.dto.ChecklistOrder;
@@ -698,13 +699,21 @@ public class IssueSearchService {
         waiting);
   }
 
+  /** 날짜 필터 값을 LocalDate 로 읽는다. 비었으면 null(필터 없음), 형식이 틀리거나 지원 범위 밖이면 InvalidCursorException(400). */
   private static LocalDate parseDate(String s) {
     String t = trimToNull(s);
     if (t == null) return null;
+    LocalDate date;
     try {
-      return LocalDate.parse(t);
+      date = LocalDate.parse(t);
     } catch (DateTimeParseException e) {
       throw new InvalidCursorException("날짜 형식 오류: " + t);
     }
+    // WP-1579: LocalDate 는 +999999999-12-31 같은 극단 연도도 읽는다. 범위를 보지 않으면 *To 필터는 하루 끝 계산(plusDays(1))의
+    // DateTimeException 으로 500, 나머지는 DB 범위 초과로 영어 409 가 났다. 앱 공통 범위(WP-725)와 같은 경계·문구로 400 거절한다.
+    if (!SupportedDates.isSupported(date)) {
+      throw new InvalidCursorException(SupportedDates.MESSAGE);
+    }
+    return date;
   }
 }

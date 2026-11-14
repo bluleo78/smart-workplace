@@ -9,6 +9,7 @@ import com.workplace.calendar.dto.RsvpRequest;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.dto.WithWebUrl;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.time.SupportedDateTime;
 import com.workplace.global.util.AppWebLinks;
 import jakarta.validation.Valid;
 import java.time.OffsetDateTime;
@@ -18,10 +19,17 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-/** 개인 일정 API. 읽기=calendar:read, 쓰기=calendar:write. owner=호출자. */
+/**
+ * 개인 일정 API. 읽기=calendar:read, 쓰기=calendar:write. owner=호출자.
+ *
+ * <p>@Validated: 쿼리 파라미터 시각(from·to·occurrenceDate)의 지원 범위({@link SupportedDateTime}) 검사를 켠다 — 범위 밖
+ * 값이 DB 에서 409 로 터지던 것을 한국어 400 으로 거절한다(WP-1579).
+ */
 @RestController
+@Validated
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/calendar/events")
 @RequirePermission("calendar:read")
@@ -35,8 +43,10 @@ public class CalendarEventController {
   @GetMapping
   public ResponseEntity<List<CalendarEventResponse>> list(
       @AuthenticationPrincipal Long callerId,
-      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
-      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to) {
+      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) @SupportedDateTime
+          OffsetDateTime from,
+      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) @SupportedDateTime
+          OffsetDateTime to) {
     return ResponseEntity.ok(service.list(callerId, from, to));
   }
 
@@ -82,7 +92,9 @@ public class CalendarEventController {
       @PathVariable long id,
       @Valid @RequestBody CalendarEventRequest req,
       @RequestParam(defaultValue = "ALL") EditScope scope,
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
           OffsetDateTime occurrenceDate) {
     return ResponseEntity.ok(withUrl(service.update(callerId, id, req, scope, occurrenceDate)));
   }
@@ -125,7 +137,9 @@ public class CalendarEventController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
       @RequestParam(defaultValue = "ALL") EditScope scope,
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+      @RequestParam(required = false)
+          @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          @SupportedDateTime
           OffsetDateTime occurrenceDate) {
     service.delete(callerId, id, scope, occurrenceDate);
     return ResponseEntity.noContent().build();
