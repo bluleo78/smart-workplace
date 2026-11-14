@@ -7,6 +7,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, onTestFinished, test } from 'vitest'
 
+import { DRAGGABLE_PAGE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiMember, WikiPageSummary, WikiSpace } from '@/types/wiki'
 
@@ -429,6 +430,8 @@ test('트리 행은 role=group 이고 열기 버튼 이름은 제목 그대로�
   open({ tree: () => [wikiPageSummary({ id: 1, title: '제품 문서' })] })
   const row = await screen.findByTestId('wiki-tree-row-1')
   expect(row).toHaveAttribute('role', 'group')
+  // 끌어 옮길 수 있는 행의 스크린리더 설명은 dnd-kit 기본 영어 「sortable」이 아니라 한국어(WP-1549).
+  expect(row).toHaveAttribute('aria-roledescription', DRAGGABLE_PAGE_ROLE_DESCRIPTION)
   expect(within(row).getByRole('button', { name: '제품 문서' })).toBeInTheDocument()
 })
 

@@ -1,7 +1,6 @@
 // 설정 「상태」 섹션의 상태 한 행(WP-809) — ⋮⋮ 손잡이 · 상태 아이콘(모양=범주, 색=상태 색) · 이름 · 「기본」 · 이슈 수 · ⋯.
 // 손잡이는 데스크톱 OWNER 에게만(모바일은 터치 끌기가 스크롤과 충돌해 ⋯ 시트의 위로/아래로가 대신한다).
 // 멤버(편집 권한 없음)는 손잡이·⋯ 없이 읽기 전용으로 본다.
-import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ArrowDown, ArrowUp, GripVertical, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useId } from 'react'
@@ -16,6 +15,7 @@ import {
 } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useSortableItem } from '@/lib/dnd/useSortableItem'
 import { formatNumber } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import type { ProjectStatus } from '@/types/projectStatus'
@@ -56,7 +56,7 @@ export function StatusRow({
 }) {
   const draggable = canEdit && !isMobile
   // 손잡이에서만 끌기가 시작된다(행 안 ⋯ 버튼과 제스처 분리). 끌 수 없으면 sortable 을 꺼 둔다.
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortableItem({
     id: status.id,
     disabled: !draggable,
   })

@@ -4,6 +4,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { SORTABLE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import type { ProjectStatus } from '@/types/projectStatus'
 
@@ -57,6 +58,8 @@ describe('StatusManagement', () => {
   it('OWNER 는 손잡이·⋯·추가가 있다', () => {
     renderWithProviders(<StatusManagement projectKey="WP" canEdit />)
     expect(screen.getByTestId('status-drag-12')).toBeInTheDocument()
+    // 손잡이의 스크린리더 설명은 dnd-kit 기본 영어 「sortable」이 아니라 한국어(WP-1549).
+    expect(screen.getByTestId('status-drag-12')).toHaveAttribute('aria-roledescription', SORTABLE_ROLE_DESCRIPTION)
     expect(screen.getByTestId('status-menu-12')).toBeInTheDocument()
     for (const c of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) expect(screen.getByTestId(`status-add-${c}`)).toBeEnabled()
   })

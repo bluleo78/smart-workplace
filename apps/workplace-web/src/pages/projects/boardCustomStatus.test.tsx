@@ -8,6 +8,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { DRAGGABLE_ISSUE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueResponse } from '@/types/issue'
@@ -108,6 +109,8 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
     const api = boardApi({ issues: [REVIEW_ISSUE] })
     await openBoard(api, { query: '&statusId=12' })
     expect(await within(screen.getByTestId('board-col-12')).findByTestId('issue-card-1')).toBeInTheDocument()
+    // 끌 수 있는 카드의 스크린리더 설명은 dnd-kit 기본 영어 「sortable」이 아니라 한국어(WP-1549).
+    expect(screen.getByTestId('issue-card-1')).toHaveAttribute('aria-roledescription', DRAGGABLE_ISSUE_ROLE_DESCRIPTION)
     expect(screen.getByTestId('board-col-empty-2')).toBeInTheDocument()
     expect(api.searches.length).toBeGreaterThan(0)
     expect(api.searches.filter((u) => u.searchParams.get('statusId') !== '12')).toEqual([])

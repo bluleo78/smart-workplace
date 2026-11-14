@@ -1,8 +1,8 @@
 // 모바일 편집 모드 위젯 카드(WP-161 에서 Dashboard.tsx 로부터 분리).
-import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 
+import { useSortableItem } from '@/lib/dnd/useSortableItem'
 import { cn } from '@/lib/utils'
 
 import { MobileWidgetCard } from '../widgets/mobile/MobileWidgetCard'
@@ -35,7 +35,7 @@ export function MobileEditableWidgetCard({
   const title = entryTitle(entry)
   const { cfg } = entry
   // 드래그앤드랍 재배치 — 데스크톱과 같이 핸들에서만 드래그 시작(카드 내 다른 버튼과 제스처 분리).
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cfg.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortableItem({ id: cfg.id })
   // 핸들·숨김·설정·삭제 — 음수 여백으로 44px 터치 영역을 확보하면서 머리 높이는 시안대로 유지한다.
   const controls = (
     <div className="-my-2.5 -mr-2.5 flex shrink-0 items-center">

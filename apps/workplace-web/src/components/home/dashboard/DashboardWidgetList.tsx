@@ -121,7 +121,7 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
   }
 
   // 드래그앤드랍 센서 — PointerSensor distance:8 로 일반 클릭(버튼)과 드래그 제스처를 분리.
-  // KeyboardSensor — 핸들이 dnd-kit 기본 ARIA(role=button·aria-roledescription=sortable)로 키보드 조작을 알리므로
+  // KeyboardSensor — 핸들이 dnd-kit ARIA(role=button·aria-roledescription「순서를 바꿀 수 있는 항목」, WP-1549)로 키보드 조작을 알리므로
   // 실제로 Space 집기 → 방향키 → Space 놓기가 되게 한다(WP-641). 리스너는 핸들에만 있어 카드 안 다른 버튼의 키 입력은 받지 않는다.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),

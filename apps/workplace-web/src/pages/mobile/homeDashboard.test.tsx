@@ -8,6 +8,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
 import type { PriorityItemsResponse } from '@/api/priorityItems'
+import { SORTABLE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { DashboardLayout, DashboardWidgetConfig, MailSummary } from '@/types/dashboard'
@@ -198,6 +199,8 @@ test('모바일 위젯 추가 — 타일형에는 한 줄 타일 안내가 붙�
   const dash = dashboard(layout(['my_tasks']))
   const { user } = await openHome([...widgetData(), ...dash.handler])
   await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  // 모바일 편집 카드 드래그 핸들의 스크린리더 설명도 한국어(WP-1549 — dnd-kit 기본은 영어 「sortable」).
+  expect(await screen.findByTestId('widget-drag-handle')).toHaveAttribute('aria-roledescription', SORTABLE_ROLE_DESCRIPTION)
   await user.click(await screen.findByTestId('dashboard-add-widget-open'))
   const modal = await screen.findByTestId('add-widget-modal')
   const card = (type: string) => modal.querySelector<HTMLElement>(`[data-testid="add-widget-card"][data-widget-type="${type}"]`)!
