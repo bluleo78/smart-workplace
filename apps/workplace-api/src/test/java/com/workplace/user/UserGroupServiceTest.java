@@ -248,6 +248,23 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .isInstanceOf(UserGroupNotFoundException.class);
   }
 
+  /**
+   * 빈 id 항목(WP-1598) — {@code ?ids=,} 처럼 쉼표만 있으면 null 원소가 들어와 언박싱 NPE(500)가 났다. 조용히 무시하지 않고 입력
+   * 오류(400)로 거절한다.
+   */
+  @Test
+  void countMembers_nullIdElement_rejected() {
+    long caller = user();
+    UserGroupDetail hq = service.create(caller, req("본부", null, "PERSONAL"));
+
+    assertThatThrownBy(() -> service.countMembers(caller, java.util.Arrays.asList(null, hq.id())))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("그룹 id 가 올바르지 않습니다");
+    assertThatThrownBy(() -> service.countMembers(caller, java.util.Arrays.asList((Long) null)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("그룹 id 가 올바르지 않습니다");
+  }
+
   /** 관리자가 남의 개인 그룹에서 찾아도 그 주인의 개인 하위 그룹까지 찾는다(관리자 자신의 트리가 아니라 주인의 트리 기준). */
   @Test
   void searchMembers_adminOnOthersPersonalGroup_includesItsSubgroups() {

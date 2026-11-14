@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
-import { isCycleDateMissing, isCycleDateRangeInvalid } from '../../lib/cycleMeta';
+import { CYCLE_NAME_MAX, isCycleDateMissing, isCycleDateRangeInvalid } from '../../lib/cycleMeta';
 import { CYCLE_STATUS_LABEL, CYCLE_STATUSES, type CycleResponse, type CycleStatus } from '../../types/cycle';
 
 export function CycleFormDialog({
@@ -104,7 +104,7 @@ export function CycleFormDialog({
             placeholder="이름"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            maxLength={60} // 서버 상한(CreateCycleRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
+            maxLength={CYCLE_NAME_MAX} // 서버 상한(CreateCycleRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
             aria-label="사이클 이름"
             data-testid="cycle-name-input"
           />

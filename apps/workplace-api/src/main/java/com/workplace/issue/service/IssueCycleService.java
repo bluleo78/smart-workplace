@@ -10,6 +10,7 @@ import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.HashSet;
 import java.util.List;
@@ -141,6 +142,23 @@ public class IssueCycleService {
     }
 
     return new MoveResult(issueCycleRepository.findCyclesByIssue(issue.id()), removedFrom, addedTo);
+  }
+
+  /**
+   * 사이클 완료(WP-1578) — from 사이클의 이 프로젝트 미완료 이슈를 to 사이클에 붙인다.
+   *
+   * <p>권한·대상 검증(같은 프로젝트·예정/새 사이클)은 호출자(CycleService.complete)가 이미 했다. from 연결은 끊지 않는다 — 완료된 사이클에 어떤
+   * 이슈가 있었는지 이력으로 남긴다. 붙이기는 INSERT … SELECT 한 번이라 이슈 수와 무관하게 왕복이 일정하다. 이미 to 에 붙어 있던 이슈는 건너뛰고 알림도
+   * 내지 않는다. 새로 붙인 이슈마다 사이클 붙이기와 같은 정리성 쓰기 알림을 내 이슈 화면·목록이 실시간으로 갱신되게 한다. 클래스 트랜잭션이 호출자 트랜잭션에 합류해 완료
+   * 전체가 한 번에 커밋·롤백된다.
+   */
+  public void attachIncomplete(
+      ProjectRow project, long fromCycleId, long toCycleId, Long callerId) {
+    var attached =
+        issueCycleRepository.attachIncompleteIssues(project.id(), fromCycleId, toCycleId);
+    for (var issue : attached) {
+      changeNotifier.updatedWithoutTouch(project, issue.number(), issue.id(), callerId);
+    }
   }
 
   /** 이동 결과 — 이동 후 사이클 집합 + 실제로 from 을 끊었는지·to 를 붙였는지(되돌리기용 차분). */

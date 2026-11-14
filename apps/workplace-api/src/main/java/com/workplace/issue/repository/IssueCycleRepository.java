@@ -115,4 +115,38 @@ public class IssueCycleRepository {
     }
     return result;
   }
+
+  /**
+   * 사이클 완료(WP-1578) — from 사이클에 붙은 이 프로젝트의 미완료 이슈(삭제되지 않았고 종료 범주 DONE·CANCELED 가 아닌 것)를 to 사이클에 한
+   * 번의 INSERT … SELECT 로 붙이고, 실제로 새로 붙은 이슈의 id·번호를 번호순으로 돌려준다.
+   *
+   * <p>프로젝트 조건은 완료 창의 미완료 수(프로젝트 진행 집계 {@link #progressByProject})와 붙이는 집합을 맞추고, 이슈 변경 알림이 다른 프로젝트
+   * 이슈를 이 프로젝트 키로 가리키지 않게 한다. 이미 to 에 붙어 있던 이슈는 ON CONFLICT DO NOTHING 으로 건너뛰어 RETURNING 에 나오지 않는다.
+   * 번호는 이슈 변경 알림(projectKey·issueNumber 로 화면 쿼리 키를 만든다)에 필요해 새로 붙은 이슈만 다시 읽는다.
+   */
+  public List<IssueRef> attachIncompleteIssues(Long projectId, Long fromCycleId, Long toCycleId) {
+    List<Long> inserted =
+        dsl.insertInto(ISSUE_CYCLE, ISSUE_CYCLE.ISSUE_ID, ISSUE_CYCLE.CYCLE_ID)
+            .select(
+                DSL.select(ISSUE.ID, DSL.val(toCycleId, ISSUE_CYCLE.CYCLE_ID))
+                    .from(ISSUE_CYCLE)
+                    .join(ISSUE)
+                    .on(ISSUE.ID.eq(ISSUE_CYCLE.ISSUE_ID))
+                    .where(ISSUE_CYCLE.CYCLE_ID.eq(fromCycleId))
+                    .and(ISSUE.PROJECT_ID.eq(projectId))
+                    .and(ISSUE.DELETED_AT.isNull())
+                    .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED)))
+            .onConflictDoNothing()
+            .returning(ISSUE_CYCLE.ISSUE_ID)
+            .fetch(ISSUE_CYCLE.ISSUE_ID);
+    if (inserted.isEmpty()) return List.of();
+    return dsl.select(ISSUE.ID, ISSUE.NUMBER)
+        .from(ISSUE)
+        .where(ISSUE.ID.in(inserted))
+        .orderBy(ISSUE.NUMBER)
+        .fetch(r -> new IssueRef(r.get(ISSUE.ID), r.get(ISSUE.NUMBER)));
+  }
+
+  /** 이슈 id 와 프로젝트 안 번호 한 쌍. */
+  public record IssueRef(long id, int number) {}
 }

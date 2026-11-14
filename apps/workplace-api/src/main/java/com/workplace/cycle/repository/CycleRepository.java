@@ -46,6 +46,14 @@ public class CycleRepository {
     return dsl.selectFrom(CYCLE).where(CYCLE.ID.eq(id)).fetchOptional(this::mapToRow);
   }
 
+  /**
+   * id 로 단건 조회하며 행을 잠근다(SELECT … FOR UPDATE). 사이클 완료(WP-1578)가 상태 확인과 쓰기 사이에 다른 완료 요청이 끼지 못하게 쓴다 —
+   * 트랜잭션 안에서만 의미가 있고, 잠금은 커밋·롤백 때 풀린다.
+   */
+  public Optional<CycleRow> findByIdForUpdate(Long id) {
+    return dsl.selectFrom(CYCLE).where(CYCLE.ID.eq(id)).forUpdate().fetchOptional(this::mapToRow);
+  }
+
   /** 프로젝트 내 전체 사이클 (start_date desc nulls last, name asc). */
   public List<CycleRow> findByProject(Long projectId) {
     return dsl.selectFrom(CYCLE)

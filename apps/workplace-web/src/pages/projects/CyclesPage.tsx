@@ -1,5 +1,5 @@
-// 프로젝트 사이클 관리 — 목록 + 진행 막대 + 생성/수정/삭제. 생성·수정·삭제는 프로젝트 OWNER(·ADMIN)만 보인다(WP-1008 — 서버 가드와 같다).
-import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+// 프로젝트 사이클 관리 — 목록 + 진행 막대 + 생성/수정/삭제/완료(WP-1578). 생성·수정·삭제·완료는 프로젝트 OWNER(·ADMIN)만 보인다(WP-1008 — 서버 가드와 같다).
+import { CheckCircle2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
@@ -11,6 +11,7 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+import { CycleCompleteDialog } from '../../components/cycle/CycleCompleteDialog';
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
@@ -38,6 +39,13 @@ export default function CyclesPage() {
   const isMobile = useIsMobile();
   // 모바일 ⋯ 시트 대상 사이클(WP-197) — 시트·삭제 확인은 페이지에 하나만 두고 CycleMobileActions 가 그린다.
   const [sheetCycle, setSheetCycle] = useState<CycleResponse | null>(null);
+  // 사이클 완료 창(WP-1578) — 대상과 열림을 따로 둬 닫히는 애니메이션 동안 제목이 비지 않게 한다.
+  const [completing, setCompleting] = useState<CycleResponse | null>(null);
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const openComplete = (c: CycleResponse) => {
+    setCompleting(c);
+    setCompleteOpen(true);
+  };
   // 새 사이클 — 본문 맨 위 도구 줄의 단추가 연다(데스크톱·모바일 같은 단추).
   const openNew = () => {
     setEditing(undefined);
@@ -92,7 +100,19 @@ export default function CyclesPage() {
                   )}
                 </div>
                 {canManage && (
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
+                    {/* 진행 중 사이클만 완료할 수 있다(서버도 ACTIVE 아니면 400) — 수정 아이콘 왼쪽(시안 B안). */}
+                    {c.status === 'ACTIVE' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        // 행마다 같은 글자라 어느 사이클인지 이름에 넣는다 — 수정·삭제 버튼과 같은 「{이름} 동작」 모양(WP-923).
+                        aria-label={`${c.name} 사이클 완료`}
+                        onClick={() => openComplete(c)}
+                      >
+                        사이클 완료
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -142,6 +162,7 @@ export default function CyclesPage() {
       </Page.Body>
 
       <CycleFormDialog projectKey={key} cycle={editing} open={open} onOpenChange={setOpen} />
+      <CycleCompleteDialog projectKey={key} cycle={completing} open={completeOpen} onOpenChange={setCompleteOpen} />
       {isMobile && (
         <CycleMobileActions
           cycle={sheetCycle}
@@ -151,6 +172,7 @@ export default function CyclesPage() {
             setOpen(true);
           }}
           onDelete={(c) => del.mutate(c.id)}
+          onComplete={openComplete}
           issueCountOf={(id) => progressById.get(id)?.total}
         />
       )}
@@ -208,12 +230,15 @@ function CycleMobileActions({
   onClose,
   onEdit,
   onDelete,
+  onComplete,
   issueCountOf,
 }: {
   cycle: CycleResponse | null;
   onClose: () => void;
   onEdit: (c: CycleResponse | undefined) => void;
   onDelete: (c: CycleResponse) => void;
+  /** 사이클 완료 창 열기(WP-1578) — 진행 중 사이클일 때만 시트에 항목이 생긴다. */
+  onComplete: (c: CycleResponse) => void;
   /** 사이클의 이슈 수(진행률 total) — 삭제 확인창의 영향 안내(WP-488). */
   issueCountOf: (cycleId: number) => number | undefined;
 }) {
@@ -226,6 +251,10 @@ function CycleMobileActions({
         title={cycle?.name ?? ''}
         testId="cycle-sheet"
         actions={[
+          // 진행 중 사이클만 완료 항목을 둔다(데스크톱 행 버튼과 같은 조건, WP-1578).
+          ...(cycle?.status === 'ACTIVE'
+            ? [{ key: 'complete', label: '사이클 완료', icon: <CheckCircle2 />, onSelect: () => onComplete(cycle) }]
+            : []),
           {
             key: 'edit',
             label: '수정',
