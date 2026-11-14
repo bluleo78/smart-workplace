@@ -336,7 +336,8 @@ cmd_up() {
 # down — 상태 파일에 적힌 것만 내린다
 # ---------------------------------------------------------------------------
 
-# 우리 이름 규칙(wl-*-db)의 DB 컨테이너만 지운다. 지웠거나 원래 없으면 0, 지우지 못했으면 docker 의 오류를 stderr 에 내고 1.
+# 우리 이름 규칙(wl-*-db)의 DB 컨테이너만 지운다. pgvector 이미지가 VOLUME 으로 선언한 데이터 볼륨도 -v 로 함께 지운다 —
+# 빼면 이름 없는 볼륨(마이그레이션까지 끝난 DB, 약 80MB)이 down 마다 남아 AI Pod 의 DinD 저장 공간을 채운다(WP-1580). 지웠거나 원래 없으면 0, 지우지 못했으면 docker 의 오류를 stderr 에 내고 1.
 # 「없음」은 docker 가 No such container 라고 답할 때만이다 — docker 에 닿지 않는 실패까지 없음으로 보면
 # 컨테이너를 남긴 채 상태 파일을 지워 그 이름을 잃는다.
 remove_db_container() {
@@ -352,7 +353,7 @@ remove_db_container() {
     return 1
   fi
   log "DB 컨테이너 삭제($1)"
-  if ! _err=$(docker rm -f "$1" 2>&1 >/dev/null); then
+  if ! _err=$(docker rm -f -v "$1" 2>&1 >/dev/null); then
     echo "[live-stack] DB 컨테이너 $1 를 지우지 못했다: $_err" >&2
     return 1
   fi
