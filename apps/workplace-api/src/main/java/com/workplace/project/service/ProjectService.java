@@ -73,7 +73,8 @@ public class ProjectService {
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
    * 프로젝트(TEAM·OPEN)는 key 필수·OWNER 등록·이슈 시퀀스 초기화·시스템 유형 4종(TASK/BUG/STORY/CHORE) 시드로 구조가 동일하며, 저장되는
-   * type 값만 다르다. 지원하지 않는 유형(TEAM/PERSONAL/OPEN 외)은 ProjectConflictException 으로 거부.
+   * type 값만 다르다. 지원하지 않는 유형(TEAM/PERSONAL/OPEN 외)은 입력 오류라 IllegalArgumentException(400)으로
+   * 거부(WP-1595).
    */
   public ProjectResponse create(Long callerId, CreateProjectRequest req) {
     validateCreatable(req);
@@ -101,7 +102,8 @@ public class ProjectService {
    *
    * <p>PERSONAL 은 provisioner 가 key 를 자동 생성하므로 key/중복 검증 대상이 아니다 — 여기서 바로 통과시킨다.
    *
-   * @throws ProjectConflictException 지원하지 않는 유형 · key 누락 · key 중복
+   * @throws IllegalArgumentException 지원하지 않는 유형 · 공유 프로젝트의 key 누락 — 입력 오류라 400(WP-1595)
+   * @throws ProjectConflictException key 중복 · 삭제된 프로젝트의 key — 기존 데이터와의 충돌이라 409
    */
   @Transactional(readOnly = true)
   public void validateCreatable(CreateProjectRequest req) {
@@ -109,11 +111,14 @@ public class ProjectService {
     if ("PERSONAL".equals(type)) {
       return;
     }
+    // 잘못된 type·key 누락은 요청 자체의 입력 오류다 — 409(충돌)로 내면 빈 key(@Pattern → 400)와 같은 부류인데 상태 코드가
+    // 갈렸다. IllegalArgumentException 은 GlobalExceptionHandler 가 메시지 그대로 400 으로 돌려준다(WP-1595).
     if (!"TEAM".equals(type) && !"OPEN".equals(type)) {
-      throw new ProjectConflictException("지원하지 않는 프로젝트 유형: " + type);
+      throw new IllegalArgumentException(
+          "지원하지 않는 프로젝트 유형입니다: " + type + " — TEAM·OPEN·PERSONAL 중 하나여야 합니다");
     }
     if (req.key() == null || req.key().isBlank()) {
-      throw new ProjectConflictException("공유 프로젝트는 key 가 필요합니다");
+      throw new IllegalArgumentException("공유 프로젝트는 key 가 필요합니다");
     }
     if (projectRepository.existsByKey(req.key())) {
       // 삭제된 프로젝트의 key 도 예약해 둔다(옛 이슈 키 참조가 새 프로젝트를 가리키지 않게) — 목록에 없는 프로젝트라
