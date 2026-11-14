@@ -355,14 +355,16 @@ function CompleteBody({
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground">기간</span>
-                    <div className="flex items-center gap-2">
+                    {/* 모바일(390px)에서는 날짜 칸을 한 줄씩 쌓는다 — 패널 안쪽에서 둘을 나란히 두면 칸이 126px 로 줄어 연도가 잘렸다(WP-1606).
+                        캘린더 기간 입력(EventRangeInputs)처럼 좁을 때는 줄표를 숨기고 sm 부터 나란히 둔다. */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <Input
                         type="date"
                         value={newStart}
                         onChange={(e) => setNewStart(e.target.value)}
                         aria-label="새 사이클 시작일"
                       />
-                      <span className="text-muted-foreground">~</span>
+                      <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">~</span>
                       <Input
                         type="date"
                         value={newEnd}
