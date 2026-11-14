@@ -6,7 +6,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
 import type { RoleResponse } from '@/types/role'
@@ -122,4 +122,17 @@ test('사람 대상에게는 AGENT 역할만 보이지 않는다 (WP-728)', asyn
   expect(document.getElementById('role-2')).toBeInTheDocument()
   expect(document.getElementById('role-4')).toBeInTheDocument()
   expect(document.getElementById('role-3')).not.toBeInTheDocument()
+})
+
+test('상세를 열어도 React 중복 key 오류가 나지 않는다 (WP-1591)', async () => {
+  // 활성 상태·역할 섹션이 같은 key(user.id)를 쓰면 React 가 「same key」 오류를 console.error 로 낸다.
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    renderDetail()
+    await screen.findByRole('checkbox', { name: /USER/ })
+    const dupKey = errors.mock.calls.filter((args) => args.some((a) => String(a).includes('same key')))
+    expect(dupKey).toEqual([])
+  } finally {
+    errors.mockRestore()
+  }
 })
