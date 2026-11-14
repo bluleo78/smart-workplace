@@ -3,6 +3,7 @@ package com.workplace.calendar;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,6 +16,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -106,5 +108,26 @@ class CalendarEventListDateRangeTest extends IntegrationTestBase {
                 .with(as(me)))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.occurrenceDate").value(SupportedDates.MESSAGE));
+  }
+
+  /**
+   * 수정의 occurrenceDate 도 같은 제약(WP-1585) — 반복 일정 회차를 고칠 때 극단 연도(앞·뒤 끝 모두)를 주면 회차 계산의
+   * DateTimeException 500 대신 한국어 400 이다. 본문은 유효하게 줘서 occurrenceDate 검증만 걸리게 한다.
+   */
+  @Test
+  void update_extremeOccurrenceDate_400() throws Exception {
+    String body =
+        "{\"title\":\"회의\",\"startsAt\":\"2026-11-20T01:00:00Z\",\"endsAt\":\"2026-11-20T02:00:00Z\"}";
+    for (String extreme : List.of("+999999999-12-31T00:00:00Z", "-999999999-01-01T00:00:00Z")) {
+      mvc.perform(
+              patch("/api/v1/calendar/events/1")
+                  .param("scope", "THIS")
+                  .param("occurrenceDate", extreme)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body)
+                  .with(as(me)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors.occurrenceDate").value(SupportedDates.MESSAGE));
+    }
   }
 }
