@@ -1,12 +1,14 @@
 // 주/일 뷰 공용 타임그리드 컴포넌트.
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
-import { format, isToday } from 'date-fns'
+import { format, isSameDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents, timedEventBox, timedEventColumnStyle } from '@/lib/calendar'
+import { NowLine } from '@/components/calendar/NowLine'
+import { useMinuteNow } from '@/hooks/useMinuteNow'
+import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, hourOffset, HOURS, initialGridScrollTop, issueDuesOnDay, layoutTimedEvents, nowLineTop, timedEventBox, timedEventColumnStyle } from '@/lib/calendar'
 import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
@@ -97,6 +99,28 @@ export function TimeGrid({
   }
   // 끌기를 마친 직후 같은 제스처의 click 이 칸 클릭(정각 생성)으로 한 번 더 열지 않게 막는다.
   const suppressClickRef = useRef(false)
+  // 날짜가 바뀔 때만 새 값이 되는 지금(WP-1557) — 「오늘」 배지와 현재 시각 선을 그을 열 판정이 화면을 열어 둔 채 자정을 넘겨도 따라간다.
+  // 분 단위로 두면 그리드 전체가 1분마다 다시 그려져, 분마다 움직이는 선 위치는 GridNowLine 이 스스로 갱신한다.
+  const { now } = useMinuteNow('day')
+  // 시간 그리드 스크롤 요소 — 지금 시각 근처로 내려 두려고 잡는다(WP-1557).
+  const gridScrollRef = useRef<HTMLDivElement>(null)
+  // 처음 스크롤을 이미 정했는가 — 이후 날짜 변경 때는 오늘이 든 기간일 때만 다시 정한다.
+  const scrollInitializedRef = useRef(false)
+  // 스크롤 위치(WP-1557) — 늘 0시부터 보여 지금 시각을 찾아 내려야 했다. 오늘이 든 기간이면 지금보다 1시간 위, 아니면 오전 8시부터.
+  // 마운트 때는 늘 정하고, 이후 보이는 날짜(dayKey)가 바뀌면 오늘이 든 기간으로 돌아왔을 때만(「오늘」·이전으로 이번 주 복귀) 다시 정해
+  // 현재 시각 선이 보이게 한다. 오늘이 없는 기간으로 옮길 때는 사용자가 보던 위치를 지킨다. 셸이 lg 경계를 넘을 때는 dayKey 가
+  // 그대로라 다시 정하지 않는다(WP-1488). 주↔일 전환은 다른 보기 컴포넌트라 다시 마운트되어 새로 정해진다.
+  // 지금은 렌더 값(now, 날짜 단위라 시·분이 처음 읽은 때에 머문다) 대신 new Date() 로 읽는다 — 분까지 맞아야 선 근처로 간다.
+  useLayoutEffect(() => {
+    const el = gridScrollRef.current
+    if (!el) return
+    const current = new Date()
+    const shown = dayKey.split(',').map((t) => new Date(Number(t)))
+    if (!scrollInitializedRef.current || shown.some((d) => isSameDay(d, current))) {
+      el.scrollTop = initialGridScrollTop(shown, current)
+    }
+    scrollInitializedRef.current = true
+  }, [dayKey])
 
   const columnY = (ev: ReactPointerEvent<HTMLDivElement>) =>
     ev.clientY - ev.currentTarget.getBoundingClientRect().top
@@ -140,7 +164,8 @@ export function TimeGrid({
         <div className="w-12 shrink-0" />
         {days.map((day) => {
           // 오늘 날짜 컬럼 강조 — 월간 뷰와 동일한 primary 원형 스타일 적용
-          const todayCol = isToday(day)
+          // 판정 기준은 날짜가 바뀔 때 새로 읽는 now — 현재 시각 선 열과 같은 기준이라 자정을 넘기면 함께 옮겨 간다(WP-1557).
+          const todayCol = isSameDay(day, now)
           return (
             <div
               key={day.toISOString()}
@@ -211,7 +236,7 @@ export function TimeGrid({
           세로 패닝만 브라우저에 맡긴다(useIsMobile 과 같은 lg 기준).
           items-start: 기본 stretch 면 날짜 열이 스크롤 영역의 보이는 높이로만 늘어나 그 아래(16시 이후)에서
           세로 구분선(border-l)이 끊긴다 — 열 높이를 24시간 슬롯 내용 높이로 둔다(WP-544). */}
-      <div className="flex flex-1 items-start overflow-auto max-lg:touch-pan-y">
+      <div ref={gridScrollRef} className="flex flex-1 items-start overflow-auto max-lg:touch-pan-y">
         {/* 시간 거터 */}
         <div className="w-12 shrink-0">
           {HOURS.map((h) => (
@@ -257,6 +282,9 @@ export function TimeGrid({
                   }}
                 />
               ))}
+
+              {/* 현재 시각 선 — 오늘 열에만(WP-1557). 포인터를 막지 않아 칸 클릭·끌어 만들기·일정 끌기가 그대로 동작한다. */}
+              {isSameDay(day, now) && <GridNowLine />}
 
               {/* 끌고 있는 구간 하이라이트(WP-949) — 30분 칸에 맞춰 그리고 시작~종료 시각을 보인다. */}
               {drag?.moved && drag.dayKey === day.toISOString() && (
@@ -323,12 +351,29 @@ export function TimeGrid({
   )
 }
 
+/**
+ * 시간 그리드의 현재 시각 선(WP-1557) — 모바일 일정 목록과 같은 공용 NowLine(빨간 선 + 왼쪽 점).
+ * 1분마다 바뀌는 지금을 이 컴포넌트만 구독해 분마다 선만 다시 그린다(그리드 전체를 다시 그리지 않게).
+ * 쌓임은 z-[5] — 일정 블록보다 위, 끌어 고른 구간·옮기기 미리보기(z-10)보다 아래. pointer-events-none 이라
+ * 아래 칸·일정의 클릭·끌기를 가리지 않는다.
+ */
+function GridNowLine() {
+  const { now } = useMinuteNow('minute')
+  return (
+    <NowLine
+      testid="calendar-grid-now"
+      className="pointer-events-none absolute left-0 right-0 z-[5]"
+      style={{ top: nowLineTop(now) }}
+    />
+  )
+}
+
 /** 끌고 있는 시간 구간 — 30분 칸에 맞춘 위치·높이와 「10:00 – 11:30」 라벨. 포인터 이벤트를 막지 않는다. */
 function DragSelectionBox({ day, startY, currentY }: { day: Date; startY: number; currentY: number }) {
   const { start, end } = dragSlotRange(day, startY, currentY)
   // 그날 0시 기준 위치 — 종료가 다음 날 0시(24:00)면 맨 아래.
   const toPx = (d: Date) =>
-    (d.getDate() !== day.getDate() ? 24 : d.getHours() + d.getMinutes() / 60) * HOUR_SLOT_PX
+    (d.getDate() !== day.getDate() ? 24 : hourOffset(d)) * HOUR_SLOT_PX
   return (
     <div
       data-testid="calendar-drag-selection"

@@ -89,6 +89,32 @@ export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[]
 // 시간 그리드(주·일 보기) 한 칸 = 1시간 높이(px).
 export const HOUR_SLOT_PX = 48
 
+/** 오늘이 없는 기간(지난·다음 주 등)을 열 때 처음 보이는 시각 — 업무 시작 무렵(WP-1557). */
+export const WORKDAY_START_HOUR = 8
+
+/**
+ * 그날 0시부터 지난 시간(시간 단위, 분은 소수로) — 시간 그리드 세로 축(WP-1557). 현재 시각 선(nowLineTop)과
+ * 일정 블록(timedEventBox)이 같은 식을 써 선이 일정 시작 위치와 어긋나지 않게 한 곳에 둔다.
+ */
+export function hourOffset(date: Date): number {
+  return date.getHours() + date.getMinutes() / 60
+}
+
+/** 시간 그리드에서 현재 시각 선의 top(px, 그날 0시 기준) — 시간 단위 위치에 한 칸 높이를 곱한다(WP-1557). */
+export function nowLineTop(now: Date): number {
+  return hourOffset(now) * HOUR_SLOT_PX
+}
+
+/**
+ * 주·일 보기를 처음 열 때 시간 그리드의 scrollTop(px)(WP-1557) — 늘 0시부터 보이면 지금 시각을 찾아 내려야 했다.
+ * 보이는 날 중 오늘이 있으면 현재 시각 선이 맨 위에 붙지 않게 1시간 위부터(0 아래로는 자름),
+ * 오늘이 없는 기간이면 업무 시작 시각(WORKDAY_START_HOUR)부터 보인다.
+ */
+export function initialGridScrollTop(days: Date[], now: Date): number {
+  if (days.some((d) => isSameDay(d, now))) return Math.max(0, nowLineTop(now) - HOUR_SLOT_PX)
+  return WORKDAY_START_HOUR * HOUR_SLOT_PX
+}
+
 // 시간 그리드에서 타임드 일정 블록의 top·height(px) — 그 날에 걸친 구간만 그린다(WP-539). 자정을 넘기는 일정은 시작한 날엔
 // 시작~24시, 이어지는 날엔 0시~종료로 잘린다. 시·분만 보면 두 날 모두 시작 시각 위치의 최소 높이 조각이 됐다. 최소 16px.
 export function timedEventBox(event: CalendarEvent, day: Date): { top: number; height: number } {
@@ -97,8 +123,8 @@ export function timedEventBox(event: CalendarEvent, day: Date): { top: number; h
   const start = new Date(event.startsAt)
   const end = new Date(event.endsAt)
   // 그날 안으로 자른 시작·종료의 「시각(시간 단위)」 — 하루를 넘어가면 0시·24시로.
-  const startHour = start <= dayStart ? 0 : start.getHours() + start.getMinutes() / 60
-  const endHour = end >= nextDay ? 24 : end.getHours() + end.getMinutes() / 60
+  const startHour = start <= dayStart ? 0 : hourOffset(start)
+  const endHour = end >= nextDay ? 24 : hourOffset(end)
   return {
     top: startHour * HOUR_SLOT_PX,
     height: Math.max((endHour - startHour) * HOUR_SLOT_PX, 16),

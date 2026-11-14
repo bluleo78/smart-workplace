@@ -82,6 +82,34 @@ describe('헤더·보기·표기', () => {
     expect(within(day).getByTestId('calendar-today-badge')).toHaveClass('bg-primary')
   })
 
+  // WP-1557 — 주·일 보기 오늘 열에만 현재 시각 선(빨간 선 + 점)을 긋는다. 위치는 시·분 × 한 칸 높이(48px).
+  // 스크롤 위치(처음 열 때 지금 시각 근처)는 jsdom 이 재현하지 못해 e2e calendar-now-line.spec.ts 가 본다.
+  test('주·일 보기에서 오늘 열에만 현재 시각 선이 지금 위치에 보인다 (WP-1557)', async () => {
+    vi.setSystemTime(new Date('2026-06-16T05:30:00Z')) // 2026-06-16(화) 14:30 KST
+    const { user } = await renderCalendar()
+    await user.click(screen.getByTestId('calendar-view-week-btn'))
+    const week = await screen.findByTestId('calendar-view-week')
+    const lines = within(week).getAllByTestId('calendar-grid-now')
+    expect(lines).toHaveLength(1)
+    // 일~토 열 중 화요일(index 2) 열 안에만 있다
+    const columns = within(week).getAllByTestId('calendar-day-column')
+    expect(columns.findIndex((col) => col.contains(lines[0]))).toBe(2)
+    expect(lines[0]).toHaveStyle({ top: `${14.5 * 48}px` })
+    expect(lines[0]).toHaveAccessibleName('현재 시각')
+    expect(lines[0]).toHaveAttribute('role', 'separator')
+
+    // 오늘이 없는 다음 주에는 선이 없다
+    await user.click(screen.getByTestId('calendar-next'))
+    await waitFor(() => expect(within(week).getByText('6.23 (화)')).toBeInTheDocument())
+    expect(within(week).queryByTestId('calendar-grid-now')).not.toBeInTheDocument()
+
+    // 일 보기(오늘로 돌아와서)에도 있다
+    await user.click(screen.getByTestId('calendar-prev'))
+    await user.click(screen.getByTestId('calendar-view-day-btn'))
+    const day = await screen.findByTestId('calendar-view-day')
+    expect(within(day).getByTestId('calendar-grid-now')).toHaveStyle({ top: `${14.5 * 48}px` })
+  })
+
   // 종일 일정 타임존(KST) — 다중일 종일 [6/8, 6/10) 은 8·9일 두 칸에 걸치고 배타적 끝인 10일엔 없다.
   // 주 보기 종일 행만 eventsOnDay 를 따로 부르는 호출부라 그 연결을 본다(규칙 자체는 lib/calendar.test 가 지킨다).
   test('주 보기 종일 행 — 다중일 종일 일정이 걸친 날 칸마다 표시된다', async () => {

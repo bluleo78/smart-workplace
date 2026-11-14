@@ -5,6 +5,7 @@ import { format, isSameDay, startOfDay } from 'date-fns'
 import { CalendarDays, Flag } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { NowLine } from '@/components/calendar/NowLine'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -32,7 +33,7 @@ export interface MobileAgendaViewProps {
   onSelectIssue: (marker: IssueDueMarker) => void
 }
 
-// 행 공통 — 좌우 여백 16 · 시간 칸 44 · 간격 10. 지금 선(NowLine)의 왼쪽 시작점 70px 이 이 합(막대 위치)이다.
+// 행 공통 — 좌우 여백 16 · 시간 칸 44 · 간격 10. 지금 선(AgendaNowLine)의 왼쪽 시작점 70px 이 이 합(막대 위치)이다.
 const ROW_CLASS = 'flex min-h-11 w-full items-stretch gap-2.5 row-divider px-4 py-2 text-left active:bg-accent'
 
 /** 모바일 일정 목록 뷰 — 자체 스크롤 컨테이너(센티널·맨 위 날짜 관찰의 root). */
@@ -245,7 +246,7 @@ const DaySection = memo(function DaySection({
         />
       ))}
       {/* 시간 지정 일정이 모두 끝났으면 묶음 끝에 지금 선 */}
-      {nowState && nowState.nowIndex === day.items.length && <NowLine />}
+      {nowState && nowState.nowIndex === day.items.length && <AgendaNowLine />}
     </section>
   )
 })
@@ -275,7 +276,7 @@ function AgendaRowWithNow({
 }) {
   return (
     <>
-      {isNext && <NowLine />}
+      {isNext && <AgendaNowLine />}
       {item.kind === 'event' ? (
         <EventRow
           event={item.event}
@@ -386,18 +387,9 @@ function Sep({ text }: { text: string }) {
   return <span className="sr-only">{text}</span>
 }
 
-/** 지금 시각 선 — 막대 위치(70px)부터 오른쪽 여백까지, 왼쪽 끝에 점. */
-function NowLine() {
-  return (
-    <div
-      data-testid="calendar-agenda-now"
-      role="separator"
-      aria-label="현재 시각"
-      className="relative mr-4 ml-[70px] border-t-2 border-destructive"
-    >
-      <span className="absolute -top-[5px] -left-1 size-2 rounded-full bg-destructive" aria-hidden="true" />
-    </div>
-  )
+/** 지금 시각 선 — 막대 위치(70px)부터 오른쪽 여백까지, 왼쪽 끝에 점. 모양은 주·일 보기와 공용(NowLine, WP-1557). */
+function AgendaNowLine() {
+  return <NowLine testid="calendar-agenda-now" className="relative mr-4 ml-[70px]" />
 }
 
 /** 첫 청크 로딩 — 머리글 + 행 몇 줄 모양. */
