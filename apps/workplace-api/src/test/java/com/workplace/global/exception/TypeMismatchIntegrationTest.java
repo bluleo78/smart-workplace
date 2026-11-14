@@ -71,6 +71,18 @@ class TypeMismatchIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
+  void 그룹_구성원_수_조회의_빈_id_항목은_500_대신_400으로_거절한다() throws Exception {
+    // WP-1598 — ids=, 는 null 원소 둘로 바인딩되어 언박싱 NPE(500)가 났다.
+    for (String ids : new String[] {",", ",999999", "999999,", "1,,2"}) {
+      mvc.perform(
+              get("/api/v1/user-groups/member-counts?ids=" + ids)
+                  .header("Authorization", "Bearer " + token))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("그룹 id 가 올바르지 않습니다"));
+    }
+  }
+
+  @Test
   void JSON_본문_정수_칸에_문자를_넣으면_정수여야_합니다() throws Exception {
     // CalendarEventRequest.reminderMinutes — Integer. Jackson InvalidFormatException 의 targetType
     // 으로 안내한다.

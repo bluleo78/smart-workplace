@@ -115,10 +115,14 @@ public class UserGroupService {
    * 그룹마다 하위 조직 포함 구성원 수(WP-1135) — 구성원 찾기(빈 검색어)와 같은 조회·같은 중복 제거를 그대로 써서 「N명」과 고를 때 풀리는 사람 수가 늘 같게
    * 한다. 구성원 목록 대신 수만 돌려주어, 받는 사람 칸에 글자를 칠 때마다 그룹마다 구성원 전체를 내려받지 않게 한다. 같은 id 는 한 번만 센다.
    *
-   * @throws InvalidUserGroupException 그룹이 없거나 {@link #MEMBER_COUNT_LIMIT} 개를 넘음(400)
+   * @throws InvalidUserGroupException 그룹이 없거나 {@link #MEMBER_COUNT_LIMIT} 개를 넘거나 id 항목이 비어 있음(400)
    */
   @Transactional(readOnly = true)
   public List<UserGroupMemberCount> countMembers(long callerId, List<Long> ids) {
+    // 「?ids=,」처럼 빈 항목이 있으면 null 원소가 들어온다(WP-1598). 무시하면 잘못된 입력이 조용히 묻히므로 400 으로 거절한다.
+    if (ids.stream().anyMatch(Objects::isNull)) {
+      throw new InvalidUserGroupException("그룹 id 가 올바르지 않습니다");
+    }
     List<Long> distinct = ids.stream().distinct().toList();
     if (distinct.isEmpty() || distinct.size() > MEMBER_COUNT_LIMIT) {
       throw new InvalidUserGroupException("그룹은 1~" + MEMBER_COUNT_LIMIT + "개까지 셀 수 있습니다");
