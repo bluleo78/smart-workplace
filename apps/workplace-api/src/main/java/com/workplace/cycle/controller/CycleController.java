@@ -1,6 +1,8 @@
 package com.workplace.cycle.controller;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
+import com.workplace.cycle.dto.CycleCompleteRequest;
+import com.workplace.cycle.dto.CycleCompleteResponse;
 import com.workplace.cycle.dto.CycleResponse;
 import com.workplace.cycle.service.CycleService;
 import com.workplace.global.security.RequirePermission;
@@ -62,5 +64,20 @@ public class CycleController {
       Authentication auth, @PathVariable String key, @PathVariable Long cycleId) {
     cycleService.delete((Long) auth.getPrincipal(), key, cycleId);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 사이클 완료 — OWNER 권한. 진행 중 사이클을 완료 처리하고, 미완료 이슈를 지정한 곳으로 이동한다(WP-1578).
+   *
+   * <p>완료 처리 + 새 사이클 생성(또는 예정 사이클 시작) + 이슈 추가는 한 트랜잭션으로 처리한다. destination이 NONE이면 사이클만 완료한다.
+   */
+  @PostMapping("/{cycleId}/complete")
+  @RequirePermission("project:manage")
+  public ResponseEntity<CycleCompleteResponse> complete(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable Long cycleId,
+      @Valid @RequestBody CycleCompleteRequest req) {
+    return ResponseEntity.ok(cycleService.complete((Long) auth.getPrincipal(), key, cycleId, req));
   }
 }

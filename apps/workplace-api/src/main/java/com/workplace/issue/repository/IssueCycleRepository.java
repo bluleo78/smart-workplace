@@ -115,4 +115,20 @@ public class IssueCycleRepository {
     }
     return result;
   }
+
+  /**
+   * 완료되지 않은(종료 상태가 아닌) 이슈 ID 목록을 사이클에서 조회한다. 미삭제 이슈만 포함하고, CLOSED(DONE·CANCELED)는 제외.
+   *
+   * <p>사이클 완료(WP-1578)에서 미완료 이슈를 새 사이클로 이동할 때 사용한다.
+   */
+  public List<Long> findIncompleteIssueIdsByCycle(Long cycleId) {
+    return dsl.select(ISSUE_CYCLE.ISSUE_ID)
+        .from(ISSUE_CYCLE)
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(ISSUE_CYCLE.ISSUE_ID))
+        .where(ISSUE_CYCLE.CYCLE_ID.eq(cycleId))
+        .and(ISSUE.DELETED_AT.isNull())
+        .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED.toArray(new String[0])))
+        .fetch(ISSUE_CYCLE.ISSUE_ID);
+  }
 }
