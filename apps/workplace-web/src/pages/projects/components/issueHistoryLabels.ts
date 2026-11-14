@@ -8,8 +8,10 @@ import { directionParticle } from '@/lib/utils';
 import type { IssueHistoryEventType } from '@/types/issue';
 
 /**
- * 이력 종류 → 한국어 이름 — 백엔드 enum 과 1:1. 이슈 상세 활동 기록(IssueActivityTimeline)과 프로젝트 개요 「최근 활동」(WP-1478)이
- * 같은 표를 써 같은 이력이 화면마다 다른 말로 보이지 않게 한다.
+ * 이력 종류 → 한국어 이름 — 백엔드 enum 과 1:1. 이슈 상세 활동 기록(IssueActivityTimeline)과 프로젝트 개요 「최근 활동」(WP-1478)·
+ * 홈 「최근 활동」 위젯(WP-1593)이 같은 표를 써 같은 이력이 화면마다 다른 말로 보이지 않게 한다.
+ * 프론트 IssueHistoryEventType 은 손으로 쓴 타입이라 백엔드에 종류가 생겨도 컴파일러는 모른다 — 키가 자바 enum 상수와 정확히 같은지는
+ * issueHistoryLabels.backend.test.ts 가 enum 소스를 읽어 지킨다(WP-1593).
  */
 export const HISTORY_EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   TITLE_CHANGED: '제목 변경',
@@ -38,6 +40,23 @@ export const HISTORY_EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   FIX_VERSIONS_CHANGED: '수정 버전 변경',
   AFFECTS_VERSIONS_CHANGED: '영향 버전 변경',
 };
+
+/**
+ * 한 줄 활동 문구에서만 바꿔 쓰는 종류 이름 — 활동 기록 표의 이름이 명사 하나라 한 줄로 읽히지 않는 종류만 둔다.
+ * 활동 기록은 「필드」 옆에 바뀐 값을 함께 보이지만, 한 줄 문구는 종류만 보여 「이슈 2건 필드」가 된다.
+ */
+const ACTIVITY_PHRASE_OVERRIDE: Partial<Record<IssueHistoryEventType, string>> = {
+  CUSTOM_FIELD_CHANGED: '필드 변경',
+};
+
+/**
+ * 이력 종류 → 한 줄 활동 문구(WP-1593). 프로젝트 개요 「최근 활동」(WP-1478)과 홈 「최근 활동」 위젯이 같은 규칙을 쓰게 한 곳에 둔다 —
+ * 위젯이 따로 표를 두다 시작일·마일스톤 변경이 영문 원본으로 보였다. 한 줄용 바꿔 쓰기 → 활동 기록 표 → 모르는 종류는 「수정」.
+ */
+export function historyEventPhrase(type: string): string {
+  const t = type as IssueHistoryEventType;
+  return ACTIVITY_PHRASE_OVERRIDE[t] ?? HISTORY_EVENT_LABEL[t] ?? '수정';
+}
 
 /** 상태 이력 값 → 표시명. null/빈 값은 '없음'. */
 export function historyStatusLabel(v: string | null): string {
