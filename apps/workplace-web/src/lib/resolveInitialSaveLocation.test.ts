@@ -2,7 +2,9 @@
 // 기억 저장소(localStorage)는 실제로 써서 「기억을 지운다/남긴다」를 결과로 확인한다.
 // @vitest-environment jsdom
 import { AxiosError } from 'axios'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { memoryStorage } from '@/test/memoryStorage'
 
 import type { DriveSpace } from '../types/drive'
 import { readDriveSaveLocation, writeDriveSaveLocation } from './driveSaveLocation'
@@ -24,7 +26,9 @@ const resolve = (remembered: { spaceId: number; folderId: number | null } | null
 }
 
 describe('resolveInitialSaveLocation', () => {
-  beforeEach(() => localStorage.clear())
+  // 실행하는 Node 버전과 무관하게 같은 저장소로 — Node 25+ 의 전역 localStorage 는 --localstorage-file 없이 메서드가 없다.
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+  afterEach(() => vi.unstubAllGlobals())
 
   it('기억이 없으면 개인 루트', () => {
     expect(resolve(null, null)).toEqual({ spaceId: 1 })

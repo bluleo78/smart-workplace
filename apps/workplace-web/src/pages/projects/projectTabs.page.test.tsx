@@ -30,6 +30,11 @@ const KEY = 'WP'
 /** 기본 로그인 사용자(id 1, 워크스페이스 없음)의 탭 기억 키 — useRememberedProjectTab 과 같은 규칙. */
 const STORE_KEY = `project-tab:${KEY}:1:-`
 const stored = () => window.localStorage.getItem(STORE_KEY)
+/**
+ * 저장소 쓰기 감시 — 이 테스트가 쓴 호출만 남도록 기록을 비우고 돌려준다. Node 25+ 에선 setup 의 인메모리 저장소가 파일 내내 같은
+ * 객체라, vi.spyOn 이 앞 테스트가 걸어 둔 감시를 그대로 돌려줘 앞 테스트의 쓰기까지 기록에 남았다(Node 24 의 happy-dom 저장소에선 안 그렇다).
+ */
+const spySetItem = () => vi.spyOn(window.localStorage, 'setItem').mockClear()
 /** 렌더 도우미가 기본으로 심는 탭 기억(WP → 이슈)을 끈다 — 이 파일은 기억이 없을 때의 기본 탭(개요)과 기억·되돌리기 규칙 자체를 본다. */
 const NO_MEMORY = {}
 
@@ -60,7 +65,7 @@ function appHandlers(project: ProjectResponse = createProject({ key: KEY, name: 
 
 describe('프로젝트 탭 — 앱 라우트', () => {
   test('처음 /projects/WP 에 들어오면(기억 없음) 개요 탭으로 열리고, 머리줄은 설정·+ 새 태스크만 둔다 — 이슈 탭을 누르면 이슈 목록이 열리고 기억된다', async () => {
-    const setItem = vi.spyOn(window.localStorage, 'setItem')
+    const setItem = spySetItem()
     const { user, location } = renderPage(`/projects/${KEY}`, { handlers: appHandlers(), projectTabs: NO_MEMORY })
     // 기본 탭은 개요(DEFAULT_PROJECT_TAB, WP-1478) — 처음 들어오는 사람은 개요부터. 이슈 목록은 그리지 않는다.
     expect(await screen.findByTestId('project-overview-widgets', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
@@ -205,7 +210,7 @@ function openLayout(path: string, project: ProjectResponse | 404 = createProject
 describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
   test('첫 진입(주소 입력·새로고침)은 기억한 탭으로 바꿔 보내고, 되돌리는 렌더에서 이슈 탭을 기억에 쓰지 않는다', async () => {
     rememberProjectTab(KEY, 'cycles')
-    const setItem = vi.spyOn(window.localStorage, 'setItem')
+    const setItem = spySetItem()
     const { location } = openLayout(`/projects/${KEY}`)
     expect(await screen.findByText('사이클 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(location()).toBe(`/projects/${KEY}/cycles`)
@@ -215,7 +220,7 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
   })
 
   test('앱 안 링크(PUSH)로 조건 없이 들어오면 기억한 탭으로 — 이슈 본문을 그리지 않는다', async () => {
-    const setItem = vi.spyOn(window.localStorage, 'setItem')
+    const setItem = spySetItem()
     const { user, location } = openLayout(`/projects/${KEY}/cycles`)
     await screen.findByText('사이클 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     await waitFor(() => expect(stored()).toBe('cycles'))
@@ -235,7 +240,7 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
   })
 
   test('뒤로 가기(POP)로 조건 없는 /projects/WP 에 돌아오면 다른 탭으로 튕기지 않고, 이슈 탭으로 기억을 덮어쓰지 않는다', async () => {
-    const setItem = vi.spyOn(window.localStorage, 'setItem')
+    const setItem = spySetItem()
     const { user, location } = openLayout(`/projects/${KEY}/cycles`)
     await screen.findByText('사이클 본문', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     // 상태 없이 /projects/WP 기록을 만든다(REPLACE) → 타임라인으로 PUSH(기억 = 타임라인) → 뒤로 가기.
@@ -301,7 +306,7 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
   test('개인 프로젝트는 탭 줄·팀 머리줄 없이 개인 이슈 화면만 — 주소 그대로, 기억을 읽지도 쓰지도 않는다', async () => {
     rememberProjectTab(KEY, 'cycles')
     const getItem = vi.spyOn(window.localStorage, 'getItem')
-    const setItem = vi.spyOn(window.localStorage, 'setItem')
+    const setItem = spySetItem()
     const { location } = openLayout(`/projects/${KEY}`, createProject({ key: KEY, type: 'PERSONAL' }))
     expect(await screen.findByText('개인 이슈 화면', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
     // 팀 이슈 탭(index 본문)은 그리지 않는다 — 개인/팀 판단은 레이아웃 한 곳.

@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { memoryStorage } from '@/test/memoryStorage'
 
 import { clearDriveSaveLocation, readDriveSaveLocation, writeDriveSaveLocation } from './driveSaveLocation'
 import { userScopedKey } from './userScopedKey'
@@ -7,7 +9,9 @@ import { userScopedKey } from './userScopedKey'
 const owner = { userId: 1, tenantId: 10 }
 
 describe('driveSaveLocation', () => {
-  beforeEach(() => localStorage.clear())
+  // 실행하는 Node 버전과 무관하게 같은 저장소로 — Node 25+ 의 전역 localStorage 는 --localstorage-file 없이 메서드가 없다.
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+  afterEach(() => vi.unstubAllGlobals())
 
   it('쓰고 읽으면 같은 값이다', () => {
     writeDriveSaveLocation(owner, { spaceId: 3, folderId: 7 })
