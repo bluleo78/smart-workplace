@@ -8,6 +8,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { CycleCompleteDialog } from '@/components/cycle/CycleCompleteDialog'
 import { CyclePickerPopover } from '@/components/cycle/CyclePickerPopover'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { InProjectTabs } from '@/test/kits/projects/projectTabs'
@@ -34,14 +35,20 @@ function createCycle(overrides: Partial<CycleResponse> = {}): CycleResponse {
 }
 
 /** 사이클 화면 — cycles 는 매 GET 마다 읽는다(쓰기 핸들러가 바꾸면 재조회에 반영). */
-async function openCycles(cycles: { current: CycleResponse[] }, progress: CycleProgress[] = []) {
+async function openCycles(
+  cycles: { current: CycleResponse[] },
+  // 함수면 그 응답을 그대로 쓴다 — 집계를 늦추거나 실패시키는 테스트용(WP-1578).
+  progress: CycleProgress[] | (() => Promise<Response>) = [],
+  role: 'OWNER' | 'MEMBER' = 'OWNER',
+) {
   const view = renderRouteScreen('/projects/:key/cycles', <InProjectTabs><CyclesPage /></InProjectTabs>, `/projects/${KEY}/cycles`, {
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
       http.get(CYCLES, () => HttpResponse.json(cycles.current)),
-      http.get(`${CYCLES}/progress`, () => HttpResponse.json(progress)),
+      http.get(`${CYCLES}/progress`, () => (typeof progress === 'function' ? progress() : HttpResponse.json(progress))),
       // 새 사이클·수정·삭제는 프로젝트 OWNER 만 보인다(WP-1008) — 로그인 사용자(id 1)를 OWNER 로 둔다.
-      http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role: 'OWNER' })])),
+      // role 로 관리 권한 없는 멤버 화면도 띄운다(WP-1578 — 사이클 완료 버튼 노출).
+      http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role })])),
     ],
   })
   await screen.findByTestId('cycles-page', {}, { timeout: SCREEN_LOAD_TIMEOUT })
@@ -306,6 +313,327 @@ describe('사이클 관리', () => {
     await waitFor(() => expect(deletes).toEqual(['DELETE']))
     expect(await screen.findByText('사이클을 삭제했습니다')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('cycle-row-1')).not.toBeInTheDocument())
+  })
+})
+
+// 사이클 완료 창(WP-1578, 시안 B안) — 진입 버튼 노출(권한·상태), 보낼 곳별 요청 본문, 서버 오류의 창 안 표시.
+describe('사이클 완료 (WP-1578)', () => {
+  const GW7 = createCycle({ id: 7, name: 'GW-7', startDate: '2026-11-03', endDate: '2026-11-16', status: 'ACTIVE' })
+  const GW6 = createCycle({ id: 6, name: 'GW-6', startDate: '2026-10-20', endDate: '2026-11-02', status: 'COMPLETED' })
+  const GW9 = createCycle({ id: 9, name: 'GW-9', startDate: '2026-12-01', endDate: '2026-12-14', status: 'PLANNED' })
+  const GW10 = createCycle({ id: 10, name: 'GW-10', startDate: '2026-12-15', endDate: '2026-12-28', status: 'PLANNED' })
+  /** GW-7 진행 — 24개 중 18개 완료(미완료 6). */
+  const P7: CycleProgress = { cycleId: 7, total: 24, done: 18, byStatus: { DONE: 18, TODO: 6 } }
+  const P9: CycleProgress = { cycleId: 9, total: 3, done: 0, byStatus: { TODO: 3 } }
+
+  /** 완료 요청 본문을 모으는 핸들러 — reply 가 있으면 그 응답(오류)을 돌려준다. */
+  function captureComplete(reply?: () => Response) {
+    const bodies: unknown[] = []
+    server.use(
+      http.post(`${CYCLES}/:id/complete`, async ({ request, params }) => {
+        bodies.push({ id: Number(params.id), ...((await request.json()) as object) })
+        if (reply) return reply()
+        return HttpResponse.json({ completedCycle: { ...GW7, status: 'COMPLETED' }, targetCycle: null })
+      }),
+    )
+    return bodies
+  }
+
+  /** GW-7 행의 「사이클 완료」로 창을 연다. */
+  async function openComplete(user: Awaited<ReturnType<typeof openCycles>>['user']) {
+    await user.click(within(await screen.findByTestId('cycle-row-7')).getByRole('button', { name: 'GW-7 사이클 완료' }))
+    return screen.findByTestId('cycle-complete-dialog')
+  }
+
+  test('진행 중 사이클에만 관리자에게 「사이클 완료」 버튼이 보인다', async () => {
+    await openCycles({ current: [GW7, GW9, GW6] }, [P7])
+    // 멤버 목록(OWNER)이 온 뒤에야 관리 버튼이 그려진다.
+    // 행마다 같은 글자라 접근성 이름에 사이클 이름을 넣는다(수정·삭제와 같은 모양, WP-923).
+    await within(screen.getByTestId('cycle-row-7')).findByRole('button', { name: 'GW-7 사이클 완료' })
+    expect(screen.getAllByRole('button', { name: /사이클 완료$/ })).toHaveLength(1)
+    // 수정 아이콘 왼쪽에 둔다(시안 B안).
+    const buttons = within(screen.getByTestId('cycle-row-7')).getAllByRole('button')
+    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['GW-7 사이클 완료', 'GW-7 수정', 'GW-7 삭제'])
+  })
+
+  test('관리 권한 없는 멤버에게는 「사이클 완료」 버튼이 없다', async () => {
+    const memberRequests: string[] = []
+    const onEnd = ({ request }: { request: Request }) => {
+      if (request.url.endsWith(`/projects/${KEY}/members`)) memberRequests.push(request.url)
+    }
+    server.events.on('request:end', onEnd)
+    try {
+      await openCycles({ current: [GW7, GW9, GW6] }, [P7], 'MEMBER')
+      await waitFor(() => expect(memberRequests.length).toBeGreaterThan(0))
+      // 멤버에게는 권한이 정해졌음을 알리는 표식이 없다(새 사이클·수정·삭제 모두 숨김) — 응답을 화면에 반영할 짧은 틈을 둔다.
+      await new Promise((r) => setTimeout(r, 50))
+      expect(screen.queryAllByRole('button', { name: /사이클 완료$/ })).toHaveLength(0)
+      expect(screen.queryByTestId('cycle-new')).not.toBeInTheDocument()
+    } finally {
+      server.events.removeListener('request:end', onEnd)
+    }
+  })
+
+  test('기본값(예정 없음) — 새 사이클 GW-8·다음 기간으로 보낸다', async () => {
+    const { user } = await openCycles({ current: [GW7, GW6] }, [P7])
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    expect(within(dialog).getByRole('heading', { name: 'GW-7 완료' })).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('2026-11-03 ~ 2026-11-16 · 이슈 24개')
+    expect(within(dialog).getByTestId('cycle-complete-done')).toHaveTextContent('18완료')
+    expect(within(dialog).getByTestId('cycle-complete-incomplete')).toHaveTextContent('6미완료')
+    expect(within(dialog).getByText('미완료 이슈 6개 보낼 곳')).toBeInTheDocument()
+    expect(within(dialog).getByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' })).toHaveTextContent('새 사이클')
+    const summary = within(dialog).getByTestId('cycle-complete-summary')
+    expect(summary).toHaveTextContent('GW-8')
+    expect(summary).toHaveTextContent('2026-11-17 ~ 2026-11-30 · 바로 진행 중')
+    // 요약 줄일 때는 이름 칸이 접혀 있다.
+    expect(within(dialog).queryByLabelText('새 사이클 이름')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({
+      id: 7, destination: 'NEW', newCycleName: 'GW-8', newCycleStartDate: '2026-11-17', newCycleEndDate: '2026-11-30',
+    })
+    await waitFor(() => expect(screen.queryByTestId('cycle-complete-dialog')).not.toBeInTheDocument())
+    expect(await screen.findByText('GW-7 완료')).toBeInTheDocument()
+  })
+
+  test('「수정」을 누르면 이름·기간 칸이 펼쳐지고 고친 값으로 보낸다', async () => {
+    const { user } = await openCycles({ current: [GW7] }, [P7])
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    await user.click(within(dialog).getByRole('button', { name: '수정' }))
+    const name = within(dialog).getByLabelText('새 사이클 이름')
+    expect(name).toHaveValue('GW-8')
+    expect(within(dialog).getByLabelText('새 사이클 시작일')).toHaveValue('2026-11-17')
+    expect(within(dialog).getByLabelText('새 사이클 종료일')).toHaveValue('2026-11-30')
+    await user.clear(name)
+    await user.paste('GW-8 마무리')
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({ destination: 'NEW', newCycleName: 'GW-8 마무리', newCycleStartDate: '2026-11-17' })
+  })
+
+  test('예정 사이클이 있으면 가장 이른 것이 기본 — 바로 시작 끄면 startImmediately false', async () => {
+    // GW-10 을 앞에 두어 목록 순서가 아니라 시작일 순으로 고르는지 본다.
+    const { user } = await openCycles({ current: [GW7, GW10, GW9] }, [P7, P9])
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    expect(within(dialog).getByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' })).toHaveTextContent('GW-9')
+    const summary = within(dialog).getByTestId('cycle-complete-summary')
+    expect(summary).toHaveTextContent('GW-9')
+    expect(summary).toHaveTextContent('2026-12-01 ~ 2026-12-14 · 이슈 3개 → 9개')
+    const start = within(dialog).getByRole('checkbox', { name: 'GW-9 바로 시작' })
+    expect(start).toBeChecked()
+    await user.click(start)
+    expect(start).not.toBeChecked()
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({ id: 7, destination: 'SCHEDULED', targetCycleId: 9, startImmediately: false })
+  })
+
+  test('사이클 없음 — 안내 문구와 NONE', async () => {
+    const { user } = await openCycles({ current: [GW7, GW9] }, [P7, P9])
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    await user.click(within(dialog).getByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' }))
+    // 맨 위 새 사이클(다음 이름·기간), 가운데 「예정 사이클」 묶음, 맨 아래 사이클 없음.
+    const options = await screen.findAllByRole('option')
+    expect(options.map((o) => o.textContent)).toEqual([
+      '새 사이클,GW-8 · 2026-11-17 ~ 2026-11-30',
+      'GW-9,2026-12-01 ~ 2026-12-14 · 이슈 3개',
+      '사이클 없음',
+    ])
+    expect(screen.getByText('예정 사이클')).toBeInTheDocument()
+    // 이름과 보조 글자가 붙어 읽히지 않는다(이름 끝 sr-only 쉼표). jsdom 의 이름 계산은 요소 경계에 공백을 넣어 공백은 느슨하게 본다.
+    expect(screen.getByRole('option', { name: /^새 사이클\s*,\s*GW-8 · 2026-11-17 ~ 2026-11-30$/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /^GW-9\s*,\s*2026-12-01 ~ 2026-12-14 · 이슈 3개$/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('option', { name: '사이클 없음' }))
+    expect(within(dialog).getByText('미완료 이슈는 백로그에서 볼 수 있습니다.')).toBeInTheDocument()
+    expect(within(dialog).queryByTestId('cycle-complete-summary')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({ id: 7, destination: 'NONE' })
+  })
+
+  test('진행 집계가 오기 전에는 0/0 대신 불러오는 중이고 완료가 막힌다 — 오면 기본 보낼 곳이 보인다', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const { user } = await openCycles({ current: [GW7, GW9] }, async () => {
+      await gate
+      return HttpResponse.json([P7, P9])
+    })
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    expect(within(dialog).getByTestId('cycle-complete-progress-loading')).toBeInTheDocument()
+    expect(within(dialog).queryByTestId('cycle-complete-incomplete')).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
+    const submit = within(dialog).getByTestId('cycle-complete-submit')
+    expect(submit).toBeDisabled()
+    await user.click(submit)
+    release()
+    expect(await within(dialog).findByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' })).toHaveTextContent('GW-9')
+    expect(within(dialog).queryByTestId('cycle-complete-progress-loading')).not.toBeInTheDocument()
+    expect(submit).toBeEnabled()
+    expect(bodies).toEqual([])
+  })
+
+  test('진행 집계를 못 받으면 오류를 보이고 완료가 막힌다', async () => {
+    const { user } = await openCycles({ current: [GW7] }, async () =>
+      HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }),
+    )
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    expect(await within(dialog).findByTestId('cycle-complete-progress-error')).toBeInTheDocument()
+    expect(within(dialog).queryByTestId('cycle-complete-incomplete')).not.toBeInTheDocument()
+    expect(within(dialog).getByTestId('cycle-complete-submit')).toBeDisabled()
+    expect(bodies).toEqual([])
+  })
+
+  test('미완료 0개면 드롭다운 없이 NONE', async () => {
+    const { user } = await openCycles({ current: [GW7, GW9] }, [{ cycleId: 7, total: 5, done: 5, byStatus: { DONE: 5 } }])
+    const bodies = captureComplete()
+    const dialog = await openComplete(user)
+    expect(within(dialog).getByTestId('cycle-complete-incomplete')).toHaveTextContent('0미완료')
+    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(dialog).not.toHaveTextContent('보낼 곳')
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({ id: 7, destination: 'NONE' })
+  })
+
+  test('이름 중복(409)이면 창이 남고 이름 칸 아래에 오류', async () => {
+    const { user } = await openCycles({ current: [GW7] }, [P7])
+    // 실제 응답 형태 — GlobalExceptionHandler 의 CycleNameDuplicatedException(409) 메시지.
+    const bodies = captureComplete(() =>
+      HttpResponse.json({ status: 409, message: '이미 존재하는 사이클 이름입니다: GW-8' }, { status: 409 }),
+    )
+    const dialog = await openComplete(user)
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    // 요약 줄이던 새 사이클 칸이 펼쳐지고 이름 칸 아래에 서버 메시지가 보인다.
+    const name = await within(dialog).findByLabelText('새 사이클 이름')
+    expect(name).toHaveValue('GW-8')
+    expect(name).toHaveAttribute('aria-invalid', 'true')
+    expect(within(dialog).getByTestId('cycle-complete-name-error')).toHaveTextContent('이미 존재하는 사이클 이름입니다: GW-8')
+    expect(screen.getByTestId('cycle-complete-dialog')).toBeInTheDocument()
+    await waitFor(() => expect(within(dialog).getByTestId('cycle-complete-submit')).toBeEnabled())
+  })
+
+  test('그 밖의 오류는 창을 남기고 완료 버튼 위에 서버 메시지를 알린다', async () => {
+    const { user } = await openCycles({ current: [GW7] }, [P7])
+    captureComplete(() =>
+      HttpResponse.json({ status: 400, message: '진행 중인 사이클만 완료할 수 있습니다' }, { status: 400 }),
+    )
+    const dialog = await openComplete(user)
+    await user.click(within(dialog).getByTestId('cycle-complete-submit'))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('진행 중인 사이클만 완료할 수 있습니다')
+    expect(screen.getByTestId('cycle-complete-dialog')).toBeInTheDocument()
+  })
+
+  test('끝 숫자 없는 이름이면 칸이 펼쳐지고 이름이 비어 완료가 막힌다', async () => {
+    const autumn = createCycle({ id: 7, name: '가을 스프린트', startDate: '2026-11-03', endDate: '2026-11-16', status: 'ACTIVE' })
+    const { user } = await openCycles({ current: [autumn] }, [P7])
+    const bodies = captureComplete()
+    await user.click(within(await screen.findByTestId('cycle-row-7')).getByRole('button', { name: '가을 스프린트 사이클 완료' }))
+    const dialog = await screen.findByTestId('cycle-complete-dialog')
+    const name = within(dialog).getByLabelText('새 사이클 이름')
+    expect(name).toHaveValue('')
+    expect(within(dialog).getByLabelText('새 사이클 시작일')).toHaveValue('2026-11-17')
+    const submit = within(dialog).getByTestId('cycle-complete-submit')
+    expect(submit).toBeDisabled()
+    await user.click(name)
+    await user.paste('겨울 스프린트')
+    expect(submit).toBeEnabled()
+    // 날짜를 하나라도 지우면 다시 막힌다.
+    await user.clear(within(dialog).getByLabelText('새 사이클 종료일'))
+    expect(submit).toBeDisabled()
+    expect(bodies).toEqual([])
+  })
+
+  test('기간 없는 사이클이면 칸이 펼쳐지고 날짜를 채워야 완료된다', async () => {
+    const noDates = createCycle({ id: 7, name: 'GW-7', status: 'ACTIVE' })
+    const { user } = await openCycles({ current: [noDates] }, [P7])
+    const dialog = await openComplete(user)
+    expect(dialog).toHaveTextContent('이슈 24개')
+    expect(within(dialog).getByLabelText('새 사이클 이름')).toHaveValue('GW-8')
+    expect(within(dialog).getByTestId('cycle-complete-submit')).toBeDisabled()
+  })
+
+  test('사이클 목록이 오기 전에는 불러오는 중이고 완료가 막힌다 — 오면 예정 GW-9 가 기본 보낼 곳이다', async () => {
+    // 창만 띄운다 — 화면(CyclesPage)은 목록을 먼저 받아 캐시를 채우므로, 목록이 늦는 경우는 창 단독으로만 재현된다.
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const bodies = captureComplete()
+    renderScreen(<CycleCompleteDialog projectKey={KEY} cycle={GW7} open onOpenChange={() => {}} />, {
+      handlers: [
+        http.get(CYCLES, async () => {
+          await gate
+          return HttpResponse.json([GW7, GW9])
+        }),
+        http.get(`${CYCLES}/progress`, () => HttpResponse.json([P7, P9])),
+      ],
+    })
+    const dialog = await screen.findByTestId('cycle-complete-dialog')
+    // 집계는 왔어도 목록이 없으면 기본 보낼 곳이 조용히 「새 사이클」로 잡히지 않게 그리지 않는다.
+    expect(await within(dialog).findByTestId('cycle-complete-progress-loading')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
+    const submit = within(dialog).getByTestId('cycle-complete-submit')
+    expect(submit).toBeDisabled()
+    act(() => release())
+    expect(await within(dialog).findByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' })).toHaveTextContent('GW-9')
+    expect(within(dialog).queryByTestId('cycle-complete-progress-loading')).not.toBeInTheDocument()
+    expect(submit).toBeEnabled()
+    expect(bodies).toEqual([])
+  })
+
+  test('사이클 목록을 못 받으면 오류를 보이고 완료가 막힌다', async () => {
+    renderScreen(<CycleCompleteDialog projectKey={KEY} cycle={GW7} open onOpenChange={() => {}} />, {
+      handlers: [
+        http.get(CYCLES, () => HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 })),
+        http.get(`${CYCLES}/progress`, () => HttpResponse.json([P7])),
+      ],
+    })
+    const dialog = await screen.findByTestId('cycle-complete-dialog')
+    expect(await within(dialog).findByTestId('cycle-complete-progress-error')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(within(dialog).getByTestId('cycle-complete-submit')).toBeDisabled()
+  })
+
+  test('추천 이름이 60자를 넘으면 칸을 펼쳐 이름 칸 아래에 알리고 완료를 막는다', async () => {
+    // 60자 이름 끝이 9 → 추천 이름은 61자(서버 상한 60). 입력 칸 maxLength 로는 막히지 않는다.
+    const longName = `${'가'.repeat(59)}9`
+    const long = createCycle({ id: 7, name: longName, startDate: '2026-11-03', endDate: '2026-11-16', status: 'ACTIVE' })
+    const { user } = await openCycles({ current: [long] }, [P7])
+    const bodies = captureComplete()
+    await user.click(within(await screen.findByTestId('cycle-row-7')).getByRole('button', { name: `${longName} 사이클 완료` }))
+    const dialog = await screen.findByTestId('cycle-complete-dialog')
+    // 요약 줄이 아니라 칸이 펼쳐져 있다.
+    expect(within(dialog).queryByTestId('cycle-complete-summary')).not.toBeInTheDocument()
+    const name = within(dialog).getByLabelText('새 사이클 이름')
+    expect(name).toHaveValue(`${'가'.repeat(59)}10`)
+    expect(name).toHaveAttribute('aria-invalid', 'true')
+    expect(within(dialog).getByTestId('cycle-complete-name-error')).toHaveTextContent('사이클 이름은 60자 이하로 입력하세요')
+    const submit = within(dialog).getByTestId('cycle-complete-submit')
+    expect(submit).toBeDisabled()
+    // 60자 안으로 고치면 안내가 사라지고 완료할 수 있다.
+    await user.clear(name)
+    await user.paste('GW-8')
+    expect(within(dialog).queryByTestId('cycle-complete-name-error')).not.toBeInTheDocument()
+    expect(submit).toBeEnabled()
+    expect(bodies).toEqual([])
+  })
+
+  test('창을 닫았다 다시 열면 고른 보낼 곳이 처음으로 돌아간다', async () => {
+    const { user } = await openCycles({ current: [GW7] }, [P7])
+    let dialog = await openComplete(user)
+    await user.click(within(dialog).getByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' }))
+    await user.click(await screen.findByRole('option', { name: '사이클 없음' }))
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByTestId('cycle-complete-dialog')).not.toBeInTheDocument())
+    dialog = await openComplete(user)
+    expect(within(dialog).getByRole('combobox', { name: '미완료 이슈 6개 보낼 곳' })).toHaveTextContent('새 사이클')
+    expect(within(dialog).getByTestId('cycle-complete-summary')).toHaveTextContent('GW-8')
   })
 })
 

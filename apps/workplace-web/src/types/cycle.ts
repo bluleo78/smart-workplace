@@ -55,3 +55,22 @@ export interface MoveIssueCycleResult {
   removedFrom: boolean;
   addedTo: boolean;
 }
+
+// 사이클 완료 시 미완료 이슈의 이동처 — 새 사이클 / 예정 사이클 / 이동 없음(백로그).
+export type CompleteDestination = 'NEW' | 'SCHEDULED' | 'NONE';
+
+// 사이클 완료 요청 — destination 에 따라 나머지 필드를 쓴다. 날짜는 yyyy-MM-dd.
+export interface CycleCompleteRequest {
+  destination: CompleteDestination;
+  targetCycleId?: number;
+  startImmediately?: boolean;
+  newCycleName?: string;
+  newCycleStartDate?: string;
+  newCycleEndDate?: string;
+}
+
+// 사이클 완료 응답 — 완료된 사이클과 이동처 사이클(NONE 이면 null).
+export interface CycleCompleteResponse {
+  completedCycle: CycleResponse;
+  targetCycle: CycleResponse | null;
+}

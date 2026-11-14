@@ -1,6 +1,8 @@
 // 사이클 API 클라이언트 — 프로젝트 CRUD + 진행 집계 + 이슈 사이클 집합 교체.
 
 import type {
+  CycleCompleteRequest,
+  CycleCompleteResponse,
   CycleProgress,
   CycleRequest,
   CycleResponse,
@@ -79,6 +81,19 @@ export async function moveIssueCycle(
   const { data } = await client.post<MoveIssueCycleResult>(
     `/projects/${projectKey}/issues/${number}/cycles/move`,
     { fromCycleId, toCycleId },
+  );
+  return data;
+}
+
+// 사이클 완료 — 미완료 이슈를 새/예정 사이클로 옮기거나 그대로 두고 사이클을 COMPLETED 로 만든다.
+export async function completeCycle(
+  projectKey: string,
+  cycleId: number,
+  body: CycleCompleteRequest,
+): Promise<CycleCompleteResponse> {
+  const { data } = await client.post<CycleCompleteResponse>(
+    `/projects/${projectKey}/cycles/${cycleId}/complete`,
+    body,
   );
   return data;
 }

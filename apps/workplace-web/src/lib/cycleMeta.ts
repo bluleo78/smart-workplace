@@ -5,6 +5,12 @@ import { formatDateRangeMonthDay } from './formatters'
 import { completionPct } from './progress'
 
 /**
+ * 사이클 이름 상한 — 서버 CreateCycleRequest.name·CycleCompleteRequest.newCycleName 의 @Size(max = 60)(다듬은 뒤 길이)와 같다.
+ * 사이클 폼(WP-687)과 완료 창의 새 사이클 이름이 함께 쓴다 — 서버 상한이 바뀌면 여기 한 곳만 고친다.
+ */
+export const CYCLE_NAME_MAX = 60
+
+/**
  * 모바일 사이클 행 2줄째 — 「날짜 · 진행」(상태는 1줄째 배지에만, R2).
  * 한쪽 날짜만 있으면 열린 범위(「10월 13일 ~」·「~ 10월 31일」)로, 둘 다 없으면 「—」. 이슈가 0건이면 퍼센트 대신 「이슈 없음」.
  */

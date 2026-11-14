@@ -65,3 +65,20 @@ test('행을 누르면 그 사이클로 필터된 이슈 목록으로 간다', a
   await waitFor(() => expect(new URLSearchParams(location().split('?')[1]).get('cycle')).toBe('1'))
   expect(location().startsWith(`/projects/${KEY}?`)).toBe(true)
 })
+
+test('⋯ 시트의 「사이클 완료」는 진행 중 사이클에만 있고, 누르면 완료 창이 열린다 (WP-1578)', async () => {
+  const { user } = renderMobileRoute('/projects/:key/cycles', <InProjectTabs><CyclesPage /></InProjectTabs>, { path: `/projects/${KEY}/cycles`, handlers: handlers([]) })
+  // 예정 사이클(2)의 시트에는 없다.
+  await user.click(await screen.findByTestId('cycle-more-2'))
+  const planned = await screen.findByTestId('cycle-sheet')
+  expect(within(planned).queryByTestId('mobile-action-complete')).not.toBeInTheDocument()
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByTestId('cycle-sheet')).not.toBeInTheDocument())
+
+  await user.click(screen.getByTestId('cycle-more-1'))
+  const active = await screen.findByTestId('cycle-sheet')
+  await user.click(within(active).getByTestId('mobile-action-complete'))
+  const dialog = await screen.findByTestId('cycle-complete-dialog')
+  expect(within(dialog).getByRole('heading', { name: '결제 모듈 재구축 1차 완료' })).toBeInTheDocument()
+  expect(within(dialog).getByTestId('cycle-complete-incomplete')).toHaveTextContent('11미완료')
+})
