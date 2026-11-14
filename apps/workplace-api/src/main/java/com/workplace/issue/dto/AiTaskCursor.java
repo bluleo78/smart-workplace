@@ -62,14 +62,14 @@ public record AiTaskCursor(
       }
       return new AiTaskCursor(
           Integer.parseInt(p[0]),
-          Instant.parse(p[1]),
+          CursorTimes.instant(p[1]),
           Long.parseLong(p[2]),
           Integer.parseInt(p[3]),
-          Instant.parse(p[4]),
+          CursorTimes.instant(p[4]),
           Long.parseLong(p[5]),
           Integer.parseInt(p[6]),
           Integer.parseInt(p[7]),
-          Instant.parse(p[8]),
+          CursorTimes.instant(p[8]),
           Long.parseLong(p[9]));
     } catch (InvalidCursorException e) {
       throw e;

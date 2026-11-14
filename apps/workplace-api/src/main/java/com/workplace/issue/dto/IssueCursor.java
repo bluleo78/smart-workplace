@@ -27,7 +27,7 @@ public record IssueCursor(Instant updatedAt, Long id) {
       }
       long millis = Long.parseLong(raw.substring(0, colon));
       long id = Long.parseLong(raw.substring(colon + 1));
-      return new IssueCursor(Instant.ofEpochMilli(millis), id);
+      return new IssueCursor(CursorTimes.checked(Instant.ofEpochMilli(millis)), id);
     } catch (InvalidCursorException e) {
       throw e;
     } catch (Exception e) {

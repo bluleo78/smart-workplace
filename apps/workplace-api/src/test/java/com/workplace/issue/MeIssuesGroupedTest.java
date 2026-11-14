@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.MeIssuesTestFixtures.ProjectRef;
 import com.workplace.issue.dto.IssueCursor;
+import com.workplace.issue.dto.MeGroupedCursor;
 import com.workplace.support.IntegrationTestBase;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -229,6 +230,19 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
     open(p, "p2", null, t(2));
     JsonNode recent = getJson("/api/v1/me/issues?assignee=me&group=recent&size=1");
     assertThat(status(DUE + "&cursor=" + recent.get("nextCursor").asText())).isEqualTo(400);
+  }
+
+  // WP-1586: 커서 시각이 앱 공통 범위 밖이면 400 — 기본 목록(IssueCursor)은 10000년도 200 으로 받았고, 묶음 커서는 atOffset 에서
+  // 500 이었다.
+  @Test
+  void cursorWithOutOfRangeTimeIsBadRequest() throws Exception {
+    Instant far = Instant.parse("+10000-01-01T00:00:00Z");
+    assertThat(status("/api/v1/me/issues?assignee=me&cursor=" + IssueCursor.encode(far, 1L)))
+        .isEqualTo(400);
+    Instant edge = Instant.parse("+1000000000-01-01T00:00:00Z");
+    String grouped = new MeGroupedCursor(null, edge, 1L, 0, null, edge, 1L).encode();
+    assertThat(status("/api/v1/me/issues?assignee=me&group=recent&cursor=" + grouped))
+        .isEqualTo(400);
   }
 
   @Test
