@@ -154,6 +154,21 @@ class FieldTypeValidatorTest {
     }
   }
 
+  /**
+   * WP-1609: double 범위를 넘는 정수(310자리 이상)도 같은 400 오류로 거절한다 — Jackson 3 의 doubleValue() 는 이런 정수에서
+   * Infinity 대신 예외를 던져 500 이 됐다.
+   */
+  @Test
+  void number_rejects_integer_beyond_double_range() throws Exception {
+    String huge = "9".repeat(400);
+    for (String json : new String[] {huge, "-" + huge}) {
+      assertThatThrownBy(() -> FieldTypeValidator.validateValue("NUMBER", null, om.readTree(json)))
+          .as(json.substring(0, 5))
+          .isInstanceOf(InvalidFieldValueException.class)
+          .hasMessageContaining("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
+    }
+  }
+
   /** WP-725: DATE 필드는 1900-01-01 ~ 9999-12-31 만 — 큰 연도(+999999999)·음수 연도가 저장되면 이슈 상세가 열리지 않았다. */
   @Test
   void date_outsideSupportedRange_rejected() {

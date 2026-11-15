@@ -64,6 +64,8 @@ class HttpBootDefaultsIntegrationTest extends IntegrationTestBase {
     assertThat(jsonMapper.isEnabled(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
     assertThat(jsonMapper.isEnabled(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)).isFalse();
     assertThat(jsonMapper.isEnabled(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)).isFalse();
+    // Boot 3(Jackson 2) 때 ParameterNamesModule 처럼 생성자 파라미터 이름을 읽는다.
+    assertThat(jsonMapper.isEnabled(MapperFeature.DETECT_PARAMETER_NAMES)).isTrue();
     // 날짜·시각은 Jackson 2 때 Boot 기본처럼 ISO 문자열로 쓴다.
     assertThat(jsonMapper.isEnabled(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)).isFalse();
     // 읽기·쓰기 한도도 Jackson 2 기본값(문자열 20,000,000자·중첩 1000 단계) — use-jackson2-defaults 가 바꾸지 않아

@@ -8,6 +8,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import com.workplace.global.json.JsonMappers;
 import tools.jackson.core.json.JsonFactory;
+import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -30,7 +31,9 @@ class JacksonArchTest {
 
   /**
    * 직접 만드는 매퍼는 {@link JsonMappers} 를 거친다(WP-1609) — {@code builderWithJackson2Defaults()}·{@code
-   * builder()} 로 따로 만들면 Jackson 3 기본 크기 한도(문자열 100,000,000자·중첩 500 단계)가 돼 Jackson 2 때와 달라진다.
+   * builder()} 로 따로 만들면 Jackson 3 기본 크기 한도(문자열 100,000,000자·중첩 500 단계)가 돼 Jackson 2 때와 달라진다. {@code
+   * new ObjectMapper()}·{@code new JsonMapper()}·{@code JsonMapper.shared()} 는 Jackson 3 기본값(알파벳
+   * 정렬· null→기본형 실패 등)까지 달라 함께 막는다.
    */
   @ArchTest
   static final ArchRule 매퍼는_JsonMappers_에서만_만든다 =
@@ -45,5 +48,11 @@ class JacksonArchTest {
           .callMethod(JsonMapper.class, "builder", JsonFactory.class)
           .orShould()
           .callMethod(JsonFactory.class, "builderWithJackson2Defaults")
+          .orShould()
+          .callMethod(JsonMapper.class, "shared")
+          .orShould()
+          .callConstructor(JsonMapper.class)
+          .orShould()
+          .callConstructor(ObjectMapper.class)
           .because("Jackson 2 크기 한도를 빠뜨린 매퍼가 생기지 않게 한 곳(JsonMappers)에서 만든다(WP-1609)");
 }

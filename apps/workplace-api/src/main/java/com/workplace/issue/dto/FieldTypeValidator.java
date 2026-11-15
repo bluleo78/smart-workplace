@@ -88,9 +88,13 @@ public final class FieldTypeValidator {
         if (!value.isNumber()) {
           throw new InvalidFieldValueException("NUMBER 는 숫자");
         }
-        // WP-587: 1e400 같은 값은 Jackson 이 double Infinity 로 읽어 문자열 "Infinity" 로 저장됐다. 웹(JS)이 정확히 다룰 수
-        // 있는
-        // 범위(안전 정수)의 유한한 수만 받는다 — 큰 정수(BigInteger)도 double 로 바꿔 같은 기준으로 본다.
+        // WP-587: 1e400 같은 값은 Jackson 이 double Infinity 로 읽어 문자열 "Infinity" 로 저장됐다.
+        // 웹(JS)이 정확히 다룰 수 있는 범위(안전 정수)의 유한한 수만 받는다.
+        // WP-1609: Jackson 3 은 double 범위를 넘는 큰 정수(BigInteger)의 doubleValue() 에서 Infinity 대신
+        // 예외를 던져 500 이 됐다 — long 에 들지 않는 정수는 double 로 바꾸기 전에 같은 400 으로 거른다.
+        if (value.isIntegralNumber() && !value.canConvertToLong()) {
+          throw new InvalidFieldValueException("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
+        }
         double d = value.doubleValue();
         if (!Double.isFinite(d) || Math.abs(d) > NUMBER_MAX) {
           throw new InvalidFieldValueException("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
