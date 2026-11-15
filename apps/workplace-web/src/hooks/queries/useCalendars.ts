@@ -22,6 +22,8 @@ export function useCreateCalendar() {
   return useMutation({
     mutationFn: (body: CalendarRequest) => calendarsApi.create(body).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: calendarKeys.all }),
+    // 실패를 알린다 — 창은 열린 채 남아 다시 시도할 수 있다(WP-1623 전에는 아무 표시 없이 창만 남았다).
+    onError: (e) => handleApiError(e, '캘린더를 추가하지 못했습니다'),
   })
 }
 
@@ -31,6 +33,7 @@ export function useUpdateCalendar() {
     mutationFn: (v: { id: number; body: CalendarRequest }) =>
       calendarsApi.update(v.id, v.body).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: calendarKeys.all }),
+    onError: (e) => handleApiError(e, '캘린더를 저장하지 못했습니다'),
   })
 }
 

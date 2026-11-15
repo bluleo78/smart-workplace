@@ -418,6 +418,36 @@ describe('캘린더 관리', () => {
     expect(await screen.findByTestId('calendar-list-item-99')).toHaveTextContent('개인')
   })
 
+  // WP-1623 — 만들기가 실패하면 토스트로 알리고 창을 남긴다. 그 자리에서 Enter 로 다시 보내면 만들어지고 창이 닫힌다.
+  test('캘린더 만들기가 실패하면 토스트를 띄우고 창이 남아, 다시 Enter 로 만들 수 있다', async () => {
+    let failOnce = true
+    const { user, requests } = await renderCalendar(
+      {},
+      {
+        handlers: [
+          http.post('/api/v1/calendars', () => {
+            if (!failOnce) return undefined
+            failOnce = false
+            return new HttpResponse(null, { status: 500 })
+          }),
+        ],
+      },
+    )
+    await user.click(screen.getByTestId('calendar-add'))
+    await user.click(await screen.findByTestId('calendar-edit-name'))
+    await user.paste('개인')
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByText('캘린더를 추가하지 못했습니다')).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-edit-dialog')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('calendar-edit-submit')).toBeEnabled())
+
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.queryByTestId('calendar-edit-dialog')).not.toBeInTheDocument())
+    expect(requests.calendarPosts).toEqual([{ name: '개인', color: 'blue' }])
+    expect(await screen.findByTestId('calendar-list-item-99')).toHaveTextContent('개인')
+  })
+
   // 확인하면 리셋 POST 뒤 일정 목록이 무효화돼 다시 불린다(무효화 키 회귀 가드).
   test('로컬 캘린더 케밥 「모든 일정 삭제」 → 확인하면 POST .../reset 하고 일정을 다시 불러온다', async () => {
     const { user, requests } = await renderCalendar({ calendars: LOCAL_AND_LINKED })
