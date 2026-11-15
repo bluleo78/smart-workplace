@@ -8,6 +8,7 @@
 import type { Page } from '@playwright/test'
 
 import { createProject } from '../../factories/project.factory'
+import { restoreAnimations } from '../../fixtures/animations'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockHelpBundle } from '../../fixtures/help-bundle-mock'
@@ -95,16 +96,6 @@ async function sampleStackedDuring(page: Page, action: () => Promise<void>, ms =
   }), ms)
   await action()
   return sampling
-}
-
-/**
- * 공통 fixture 가 넣은 애니메이션 끄기 style(data-test-no-animation)을 뗀다 — 레일 폭이 한 프레임에 끝까지 가 버리면
- * 「애니메이션 중간 프레임에도 판정이 흔들리지 않음」을 볼 수 없어서. 지금 문서에만 적용된다(새로 열면 다시 깔린다).
- * 이어 쓰는 page(WP-1002)에 남지 않도록, 부르는 테스트는 page.addInitScript 를 써서 끝나면 컨텍스트가 버려지게 한다.
- */
-async function restoreAnimations(page: Page) {
-  await page.evaluate(() => document.querySelectorAll('style[data-test-no-animation]').forEach((el) => el.remove()))
-  await expect.poll(() => page.evaluate(() => document.querySelectorAll('style[data-test-no-animation]').length)).toBe(0)
 }
 
 /** 레일 폭 기록에 접힘(56)과 펼침(152) 사이 중간 값이 있었는지 — 애니메이션이 실제로 돌았다는 증거. */

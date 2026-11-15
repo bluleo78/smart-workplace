@@ -64,13 +64,35 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
       }
       publish(next)
     }
-    const ro = new ResizeObserver(measure)
+    // 틀이 옮겨 간 「뒤」에 다시 잰다(WP-1612). 크기 변화(패널 열림·창 크기)는 틀의 left 를 CSS 변수로 바꿔 200ms 전환을 일으키는데,
+    // 그 순간 잰 값은 전환 전 옛 자리다. 위치만 바뀌는 이동은 ResizeObserver 가 보지 못하고, 좌측 그룹이 이미 최소 폭(useAiChipClamp 의 120px)
+    // 이하로 짧으면(드라이브 같은 짧은 경로) clamp 변화로도 크기가 안 바뀌어, 전에는 단계가 옛 자리 기준으로 남았다.
+    //  - 틀 자신의 left transitionend 에서 다시 잰다 — 색·폭 전환이나 자식에서 버블된 종료는 위치와 무관하다(useAiChipClamp 와 같은 거름).
+    //  - 전환이 끊기면(패널 손잡이 끌기의 transition-none 등) 종료 이벤트가 오지 않고, 안정 대기(settling) 중에 온 종료는 건너뛰므로
+    //    마지막 크기 변화 250ms 뒤에도 한 번 더 잰다(useAiChipClamp 의 안정 재측정과 같은 대비). 종료가 먼저 오면 그 예약은 거둔다.
+    let trailing: ReturnType<typeof setTimeout> | undefined
+    const measureNowAndSettled = () => {
+      measure()
+      clearTimeout(trailing)
+      trailing = setTimeout(measure, 250)
+    }
+    const ro = new ResizeObserver(measureNowAndSettled)
+    const onTransitionEnd = (e: TransitionEvent) => {
+      if (e.target !== chip || e.propertyName !== 'left' || settling) return
+      clearTimeout(trailing)
+      measure()
+    }
     const attach = () => {
       const nextChip = document.querySelector<HTMLElement>('[data-ai-chip]')
       const nextLeft = header?.querySelector<HTMLElement>('[data-ai-left-group]') ?? null
       const nextActions = header?.querySelector<HTMLElement>('[data-ai-actions]') ?? null
       if (nextChip !== chip || nextLeft !== left || nextActions !== actions) {
         ro.disconnect()
+        // 틀이 교체되면(모드 전환·재마운트) 전환 종료 듣기도 새 틀로 옮긴다.
+        if (nextChip !== chip) {
+          chip?.removeEventListener('transitionend', onTransitionEnd)
+          nextChip?.addEventListener('transitionend', onTransitionEnd)
+        }
         chip = nextChip
         left = nextLeft
         actions = nextActions
@@ -86,13 +108,15 @@ export function HeaderDensityProvider({ children }: { children: ReactNode }) {
     bodyObserver.observe(document.body, { childList: true })
     const headerObserver = new MutationObserver(attach)
     if (header) headerObserver.observe(header, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-ai-has-auxiliary-actions'] })
-    window.addEventListener('resize', measure)
+    window.addEventListener('resize', measureNowAndSettled)
     return () => {
       clearTimeout(timer)
+      clearTimeout(trailing)
       ro.disconnect()
       bodyObserver.disconnect()
       headerObserver.disconnect()
-      window.removeEventListener('resize', measure)
+      window.removeEventListener('resize', measureNowAndSettled)
+      chip?.removeEventListener('transitionend', onTransitionEnd)
     }
   }, [header])
 

@@ -173,6 +173,37 @@ describe('HeaderDensityProvider', () => {
     expect(status().textContent).toBe('true/true')
   })
 
+  // WP-1612: 패널이 열려 틀이 left 전환으로 옮겨 가도 크기는 그대로라 ResizeObserver 가 깨우지 않는다.
+  // 전환이 끝난(틀 자신의 left transitionend) 뒤 다시 재야 짧은 경로에서도 헤더 넣기까지 간다.
+  it('틀의 left 전환이 끝나면 다시 재 헤더 넣기까지 가고, 다른 속성·자식에서 버블된 종료는 무시한다', async () => {
+    // 관찰자는 아무것도 알리지 않는다 — 크기 변화 없이 위치만 바뀌는 상황.
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    let chipLeft = 500
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
+      return { left, right: left + 32, width: 32 } as DOMRect
+    })
+    render(<HeaderDensityProvider><Fixture mounted dock /></HeaderDensityProvider>)
+    const status = () => screen.getByRole('status')
+    const chip = document.querySelector<HTMLElement>('[data-ai-chip]')!
+    const end = (target: Element, propertyName: string) => act(() => {
+      const event = new Event('transitionend', { bubbles: true })
+      Object.defineProperty(event, 'propertyName', { value: propertyName })
+      target.dispatchEvent(event)
+    })
+    await waitFor(() => expect(chip.style.getPropertyValue('--ai-actions-width')).toBe('32px'))
+    expect(status().textContent).toBe('false/false')
+    // 전환 끝에 옮겨 간 자리 — 제목 자리 104px.
+    chipLeft = 120
+    end(chip, 'width')
+    end(chip.querySelector('[data-ai-density-chip]')!, 'left')
+    expect(status().textContent).toBe('false/false')
+    end(chip, 'left')
+    expect(status().textContent).toBe('true/false')
+    await waitFor(() => expect(status().dataset.docked).toBe('true'), { timeout: 2000 })
+    expect(status().textContent).toBe('true/true')
+  })
+
   it('헤더 자리가 없으면 끝까지 좁아도 헤더 넣기에 들어가지 않는다', async () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const left = this.hasAttribute('data-ai-chip') ? 120 : 0
