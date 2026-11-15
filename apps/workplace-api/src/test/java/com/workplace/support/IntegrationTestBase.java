@@ -10,6 +10,7 @@ import com.workplace.agentaccount.genialogin.GeniaLoginClient;
 import com.workplace.calendar.service.CalendarSyncService;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
+import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.ai.AiMemoryReader;
@@ -90,6 +91,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       CalendarSyncService.class,
       DriveChangeNotifier.class,
       DriveFileRepository.class,
+      // WP-1619: 폴더 resolve 의 「넣기·다시 찾기」 엇갈림(재시도) 주입.
+      DriveFolderRepository.class,
       DriveQuotaRepository.class,
       EmailAccountRepository.class,
       EmailMessageRepository.class,

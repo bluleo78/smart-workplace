@@ -36,6 +36,32 @@ public class DriveFolderRepository {
         .getId();
   }
 
+  /**
+   * 같은 (space, parent, name) 의 살아있는 폴더가 없을 때만 넣고 새 id 를 돌려준다 — 이미 있으면(동시 요청이 먼저 넣음) empty (WP-1619,
+   * resolveOrCreate·create 용).
+   *
+   * <p>{@link #insert} 와 같은 열만 채우므로 tenant_id 도 같은 방식(컬럼 DEFAULT = 트랜잭션 GUC app.tenant_id, V52)으로
+   * 채워진다.
+   *
+   * <p>그냥 넣다가 유니크 위반이 나면 PostgreSQL 은 그 트랜잭션을 깨 버려, 잡고 다시 찾을 수 없다. {@code ON CONFLICT DO NOTHING} 은
+   * 위반 대신 아무것도 넣지 않고(RETURNING 0행) 트랜잭션을 살려 둔다. 충돌 대상은 부분·식 인덱스 uq_drive_folder_name (space_id,
+   * COALESCE(parent_id,0), name) WHERE trashed_at IS NULL 이라 열로 집을 수 없어 대상 없는 DO NOTHING 을 쓴다 — 이
+   * 표의 유니크는 이 인덱스와 PK(id, 시퀀스) 뿐이므로(V30·V36·V52 확인) 다른 충돌을 삼킬 일은 없다. 휴지통 행은 인덱스 밖이라 같은 이름이 휴지통에 있어도
+   * 새로 넣는다.
+   *
+   * <p>드라이브 파일은 같은 경합을 DuplicateKeyException 을 잡아 처리하지만(DriveFileService), 폴더는 resolve 가 같은 트랜잭션에서
+   * 그 폴더를 다시 찾아야 하므로(유니크 위반이 나면 트랜잭션이 깨져 찾을 수 없다) ON CONFLICT 를 쓴다 — 두 방식을 하나로 합치지 않는다.
+   */
+  public Optional<Long> insertIfAbsent(long spaceId, Long parentId, String name) {
+    return dsl.insertInto(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.SPACE_ID, spaceId)
+        .set(DRIVE_FOLDER.PARENT_ID, parentId)
+        .set(DRIVE_FOLDER.NAME, name)
+        .onConflictDoNothing()
+        .returning(DRIVE_FOLDER.ID)
+        .fetchOptional(DRIVE_FOLDER.ID);
+  }
+
   public boolean existsInSpace(long spaceId, Long parentId, String name) {
     Condition parentCond =
         parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);
